@@ -10,6 +10,7 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { DEG } from '../../src/core/math'
 import type { AeroState, AirData, ForceMoment } from '../../src/physics/types'
+import type { AircraftSpec } from '../../src/specs/types'
 
 const air = (h: number): AirData =>
   atmosphere(h, { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 })
@@ -42,19 +43,52 @@ describe('liftCoefficient', () => {
     expect(liftCoefficient(P51D, P51D.lift.alphaCrit + 10 * DEG, false)).toBeLessThan(peak)
   })
 
-  it('CL 曲線連續，無跳變', () => {
-    let prev = liftCoefficient(P51D, -30 * DEG, false)
-    for (let a = -30; a <= 60; a += 0.25) {
-      const cl = liftCoefficient(P51D, a * DEG, false)
-      expect(Math.abs(cl - prev)).toBeLessThan(0.06)
-      prev = cl
+  it('升力曲線在整個迎角範圍內連續（兩機種 × 縫翼開合）', () => {
+    const cases: Array<[AircraftSpec, boolean, string]> = [
+      [P51D, false, 'P-51D'],
+      [BF109G6, false, 'Bf 109 淨形'],
+      [BF109G6, true, 'Bf 109 縫翼展開'],
+    ]
+    const STEP = 0.001 // rad，約 0.057°
+    for (const [spec, slats, name] of cases) {
+      let prev = liftCoefficient(spec, -Math.PI / 2, slats)
+      for (let a = -Math.PI / 2 + STEP; a <= Math.PI / 2; a += STEP) {
+        const cl = liftCoefficient(spec, a, slats)
+        // 相鄰取樣點之間的變化量上限。線性段斜率最大（clAlpha≈4.45），
+        // 4.45 × 0.001 ≈ 0.0045，取 0.01 留餘裕；真正的不連續（結構性缺陷
+        // 修正前實測 0.098~0.181）遠大於此，門檻可清楚區分兩者。
+        expect(Math.abs(cl - prev), `${name} @ α=${(a * 180 / Math.PI).toFixed(2)}°`).toBeLessThan(0.01)
+        prev = cl
+      }
     }
   })
 
-  it('深失速沿用平板模型，不發散', () => {
-    for (const a of [45, 70, 90, 120, 180]) {
-      const cl = liftCoefficient(P51D, a * DEG, false)
-      expect(Math.abs(cl)).toBeLessThanOrEqual(1.05)
+  it('深失速沿用平板模型：不發散、不超過 CL_max、α→90° 時歸零', () => {
+    const cases: Array<[AircraftSpec, boolean, string]> = [
+      [P51D, false, 'P-51D'],
+      [BF109G6, false, 'Bf 109 淨形'],
+      [BF109G6, true, 'Bf 109 縫翼展開'],
+    ]
+    for (const [spec, slats, name] of cases) {
+      const clMax = derivedClMax(spec, slats)
+      // blendEnd 的絕對迎角（= 失速崩塌段結束、深失速平板模型開始之處）。
+      // 不使用硬編碼角度，直接由 spec 欄位推導，與 liftCoefficient 內部一致。
+      const alphaCritEff = spec.lift.alphaCrit + (slats ? spec.lift.slatAlphaBonus : 0)
+      const deepStallStart = alphaCritEff + spec.lift.stallBlend
+      let peak = 0
+      for (let a = deepStallStart; a <= Math.PI / 2; a += 0.001) {
+        peak = Math.max(peak, Math.abs(liftCoefficient(spec, a, slats)))
+      }
+      // 深失速峰值必須低於該機的 CL_max，否則失速後反而比失速前更能產生
+      // 升力，物理上不成立。舊的 1.05 上限是未縮放 |sin2α| 的數學上界
+      // （該公式恆 ≤1 是公式的巧合，不是物理要求），已作廢。
+      expect(peak, `${name} 峰值 < CL_max`).toBeLessThan(clMax)
+      // 安全網：守護 postStallFactor·CL_max / flatEnd 的縮放本身不暴衝
+      // （並非物理斷言）。若未來 stallBlend 調整使 blendEnd 落在 45°
+      // 附近（flatEnd → 極小），縮放可能失控，此測試會先抓到。
+      expect(peak, `${name} 縮放安全網 < 1.5`).toBeLessThan(1.5)
+      // α = 90° 時完全失去升力
+      expect(Math.abs(liftCoefficient(spec, Math.PI / 2, slats)), `${name} @90°`).toBeLessThan(1e-9)
     }
   })
 
@@ -119,10 +153,22 @@ describe('dragCoefficient', () => {
     expect(dragCoefficient(P51D, 0, 0, 0.8)).toBeGreaterThan(dragCoefficient(P51D, 0, 0, 0.7))
   })
 
+  // cl = 0 以隔離誘導阻力，避免污染壓縮性效應的比較（見 task-10-report.md 落差記錄）。
   it('P-51 的臨界馬赫數高於 Bf 109（俯衝優勢）', () => {
-    const p51 = dragCoefficient(P51D, 0.2, 0, 0.71) / P51D.drag.cd0
-    const bf = dragCoefficient(BF109G6, 0.2, 0, 0.71) / BF109G6.drag.cd0
-    expect(p51).toBeLessThan(bf)
+    // 0.68（Bf 109）< M < 0.72（P-51）：此區間只有 Bf 109 該吃到壓縮性阻力
+    const M = 0.7
+    const p51Rise = dragCoefficient(P51D, 0, 0, M) - dragCoefficient(P51D, 0, 0, 0)
+    const bfRise = dragCoefficient(BF109G6, 0, 0, M) - dragCoefficient(BF109G6, 0, 0, 0)
+    expect(p51Rise).toBe(0)
+    expect(bfRise).toBeGreaterThan(0)
+  })
+
+  it('超過兩者臨界馬赫後，P-51 的壓縮性阻力增幅仍較小', () => {
+    // 只比較「相對於自身 cd0 的增幅」，不混入誘導阻力
+    const M = 0.8
+    const p51Rel = (dragCoefficient(P51D, 0, 0, M) - P51D.drag.cd0) / P51D.drag.cd0
+    const bfRel = (dragCoefficient(BF109G6, 0, 0, M) - BF109G6.drag.cd0) / BF109G6.drag.cd0
+    expect(p51Rel).toBeLessThan(bfRel)
   })
 
   it('側滑增加阻力', () => {

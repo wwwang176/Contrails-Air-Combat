@@ -19,7 +19,8 @@ export function inducedDragFactor(spec: AircraftSpec): number {
  *
  * 線性段：CL = clAlpha × (α − α₀)
  * 失速後：以 smoothstep 由 CL_max 平滑崩塌至 postStallFactor × CL_max
- * 深失速：改用平板模型 CL = 2·sinα·cosα，確保大迎角不發散
+ * 深失速：以平板模型 |sin 2α| 的「形狀」延伸，但縮放使其在交接點
+ * blendEnd 與失速後段的終值恰好相等（見下方縮放推導），確保連續且大迎角不發散。
  */
 export function liftCoefficient(
   spec: AircraftSpec,
@@ -44,9 +45,14 @@ export function liftCoefficient(
     return sign * (clMax + (L.postStallFactor * clMax - clMax) * t)
   }
 
-  // 平板模型。以絕對迎角（非相對）計算，符合大迎角的物理行為。
-  const abs = Math.abs(alpha)
-  return sign * Math.abs(2 * Math.sin(abs) * Math.cos(abs))
+  // 深失速：平板模型 CL ∝ |sin 2α|，但必須在交接點 blendEnd 與失速後段接續。
+  // 未縮放的平板值與 postStallFactor × CL_max 並不相等（P-51 差 0.098，
+  // Bf 109 展開縫翼時差 0.181），且因為縫翼會改變 CL_max，
+  // 無法用單一 stallBlend 讓兩個縫翼狀態同時連續——所以在此縮放而非調參。
+  const alphaAtBlendEnd = L.alphaZero + sign * blendEnd
+  const flatEnd = Math.max(Math.abs(Math.sin(2 * alphaAtBlendEnd)), 1e-6)
+  const flat = Math.abs(Math.sin(2 * alpha))
+  return sign * L.postStallFactor * clMax * (flat / flatEnd)
 }
 
 /**
