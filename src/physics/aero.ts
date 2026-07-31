@@ -19,8 +19,9 @@ export function inducedDragFactor(spec: AircraftSpec): number {
  *
  * 線性段：CL = clAlpha × (α − α₀)
  * 失速後：以 smoothstep 由 CL_max 平滑崩塌至 postStallFactor × CL_max
- * 深失速：以平板模型 |sin 2α| 的「形狀」延伸，但縮放使其在交接點
- * blendEnd 與失速後段的終值恰好相等（見下方縮放推導），確保連續且大迎角不發散。
+ * 深失速：以平板模型 sin 2α（保留符號）的「形狀」延伸，但縮放使其在
+ * 交接點 blendEnd 與失速後段的終值恰好相等（見下方縮放推導），
+ * 確保連續、大迎角不發散、且 |α|>90° 時方向正確。
  */
 export function liftCoefficient(
   spec: AircraftSpec,
@@ -45,14 +46,27 @@ export function liftCoefficient(
     return sign * (clMax + (L.postStallFactor * clMax - clMax) * t)
   }
 
-  // 深失速：平板模型 CL ∝ |sin 2α|，但必須在交接點 blendEnd 與失速後段接續。
+  // 深失速：平板模型 CL ∝ sin 2α，但必須在交接點 blendEnd 與失速後段接續。
   // 未縮放的平板值與 postStallFactor × CL_max 並不相等（P-51 差 0.098，
   // Bf 109 展開縫翼時差 0.181），且因為縫翼會改變 CL_max，
   // 無法用單一 stallBlend 讓兩個縫翼狀態同時連續——所以在此縮放而非調參。
+  // 縮放並非物理要求：真實平板在 40°~45° 攻角附近的 CL 峰值本就落在
+  // 1.1~1.2，此處縮放後的峰值（P-51 1.134、Bf109 淨形 1.137、
+  // 縫翼展開 1.218）與該範圍相符，比舊版恆 ≤1 的公式更符合物理。
+  // 交接點的斜率仍有約 35% 的落差（失速崩塌段 smoothstep 在 t=1 處
+  // 導數為 0，深失速段導數非 0）——這是接受的 kink，不是要消除的缺陷；
+  // 崩塌段之所以不直接延伸到 90°/180°，是因為它本來就只描述失速剛發生
+  // 的區段，深失速需要換一個形狀函數，兩者導數本來就不必相等。
+  //
+  // 分子 sin(2α) 保留符號（不取絕對值），分母 flatEnd 才取絕對值：
+  // 這樣 |α|>90° 時（尾滑、錘頭失速等真實可達的姿態）CL 方向會自然
+  // 隨 sin(2α) 變號，不會出現「升力方向與物理相反」的錯誤（例如
+  // 未保留符號時 α=135° 會算出 +1.134，正確值應為 −1.0）。
+  // 因此外層不再乘 sign——sign 已經反映在 alphaAtBlendEnd 的正負號中，
+  // 若再乘一次會重複計入。
   const alphaAtBlendEnd = L.alphaZero + sign * blendEnd
   const flatEnd = Math.max(Math.abs(Math.sin(2 * alphaAtBlendEnd)), 1e-6)
-  const flat = Math.abs(Math.sin(2 * alpha))
-  return sign * L.postStallFactor * clMax * (flat / flatEnd)
+  return L.postStallFactor * clMax * (Math.sin(2 * alpha) / flatEnd)
 }
 
 /**
