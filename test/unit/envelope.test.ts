@@ -61,6 +61,23 @@ describe('maxLevelSpeed 與 Ps 的一致性', () => {
     const v = maxLevelSpeed(BF109G6, 6300)
     expect(thrustAt(BF109G6, 6300, v)).toBeCloseTo(dragAt(BF109G6, 6300, v, 1), 0)
   })
+
+  // 直接釘住「動力曲線背面」修正：10,470 m 附近 T−D(v) 在失速上方先為負（誘導阻力過大，
+  // 約 89.8 m/s 由負轉正）、中段轉正、接近極速再由正轉負（約 178.4 m/s）。若退回只檢查
+  // 失速速度×1.05 這一點正負的舊寫法，這裡會誤判為「無法平飛」而回傳 0。
+  // 正確答案是上面那個（較高的）根，實測約 177.939 m/s。
+  it('動力曲線背面：10,470 m 處仍能正確找到較高速的那個根', () => {
+    expect(maxLevelSpeed(P51D, 10470)).toBeGreaterThan(150)
+  })
+
+  // finding #1：增壓器換檔的臨界高度是 C0 但非 C1（斜率有 16 倍量級的跳變、正負號翻轉）。
+  // 只要 maxLevelSpeed 還是「粗掃描＋二分」而非退化成導數法，跨越接縫時速度應該平滑變化，
+  // 不會出現階梯或發散。這裡直接對 P-51D 的兩個換檔高度（1,900 m、5,900 m）做連續性檢查，
+  // 守住促成整個掃描＋二分設計的那個性質。
+  it('平飛極速跨越增壓器換檔接縫時連續（1,900 m、5,900 m）', () => {
+    expect(Math.abs(maxLevelSpeed(P51D, 2000) - maxLevelSpeed(P51D, 1800))).toBeLessThan(10)
+    expect(Math.abs(maxLevelSpeed(P51D, 6000) - maxLevelSpeed(P51D, 5800))).toBeLessThan(10)
+  })
 })
 
 describe('maxClimbRate', () => {
@@ -72,6 +89,18 @@ describe('maxClimbRate', () => {
 
   it('爬升率隨高度下降', () => {
     expect(maxClimbRate(P51D, 8000).rate).toBeLessThan(maxClimbRate(P51D, 0).rate)
+  })
+
+  // 絕對升限（P-51D 約 11,470 m，高於 0.5 m/s 判定用的 serviceCeiling≈11,242 m）以上，
+  // maxLevelSpeed 會回傳「查無可平飛速度」的哨兵值 0。若把這個 0 直接餵給
+  // Math.max(vLevel, vMin+1) 當搜尋上界，掃描區間會塌縮成失速速度正上方僅 1 m/s 的
+  // 窄窗——剛好是阻力最大的一段，導致 rate 出現階梯式跳變（曾實測 11,450→11,500 m
+  // 從 +0.017 掉到 −2.122，而 [v_stall·1.02, 400] 全域搜尋的真實值只有 −0.098）。
+  // 這裡直接跨越該高度檢查連續性，防止此問題再度發生。
+  it('爬升率跨越絕對升限時連續，不因哨兵值污染搜尋上界而跳變', () => {
+    const below = maxClimbRate(P51D, 11450).rate
+    const above = maxClimbRate(P51D, 11500).rate
+    expect(Math.abs(above - below)).toBeLessThan(1) // 50 m 高度差，真實爬升率變化遠小於 1 m/s
   })
 })
 
@@ -85,6 +114,22 @@ describe('serviceCeiling', () => {
   it('升限處爬升率接近判定門檻', () => {
     const c = serviceCeiling(P51D)
     expect(maxClimbRate(P51D, c).rate).toBeCloseTo(0.5, 1)
+  })
+
+  // serviceCeiling 在二分前必須先驗證 [0, 20000] 真的括住 CEILING_RATE 這個門檻，
+  // 否則二分法在無解時會直接收斂到端點，回傳一個與合法答案無法區分的數字
+  // （0 看起來像「升限就在海平面」，20000 看起來像「升限恰好在搜尋上限」）。
+  // 這裡用 spread 建構暫時的機體變體（不動 src/specs 底下任何檔案）驗證兩個方向。
+  it('海平面就已達不到門檻爬升率（機體過重）時回傳 NaN，而非誤判為 0', () => {
+    const tooHeavy = { ...P51D, mass: 40000 }
+    expect(maxClimbRate(tooHeavy, 0).rate).toBeLessThan(0.5)
+    expect(Number.isNaN(serviceCeiling(tooHeavy))).toBe(true)
+  })
+
+  it('20,000 m 處爬升率仍超過門檻（搜尋範圍未括住解）時回傳 NaN，而非誤判為 20000', () => {
+    const veryLight = { ...P51D, mass: 100 }
+    expect(maxClimbRate(veryLight, 20000).rate).toBeGreaterThan(0.5)
+    expect(Number.isNaN(serviceCeiling(veryLight))).toBe(true)
   })
 })
 
@@ -124,6 +169,12 @@ describe('轉彎性能', () => {
   // 而隨速度增加反而下降，兩段恰在 cornerSpeed 交接。這裡用細掃描直接驗證峰值
   // 落點與 cornerSpeed 的解析解一致，把兩個獨立求解器（instantaneousTurnRate 與
   // cornerSpeed）串起來做交叉驗證，而不只是猜一個合理區間。
+  //
+  // 【修正】掃描網格不可以讓 vc 本身剛好是格點——原本 vc*0.5 + vc*(i/N) 在 i=N/2=200
+  // 時會位元精確等於 vc，於是「峰值落在 vc」是網格構造保證的，不是實測出來的。
+  // 改用 vc*(0.5 + (i+0.5)/N) 把每個格點都偏移半格，讓 vc 落在兩個格點中間、
+  // 不會被抽樣命中；容差收緊到約 2 倍格距（格距 = vc/N = 0.25%，2 倍 = 0.5%），
+  // 使其成為真正的檢查而非同義重複。
   it('cornerSpeed 與 instantaneousTurnRate 的峰值交叉驗證', () => {
     for (const spec of [P51D, BF109G6]) {
       const vc = cornerSpeed(spec, 0)
@@ -131,14 +182,14 @@ describe('轉彎性能', () => {
       let bestRate = -Infinity
       const N = 400
       for (let i = 0; i <= N; i++) {
-        const v = vc * 0.5 + vc * (i / N)
+        const v = vc * (0.5 + (i + 0.5) / N)
         const r = instantaneousTurnRate(spec, 0, v)
         if (r > bestRate) {
           bestRate = r
           bestV = v
         }
       }
-      expect(Math.abs(bestV - vc) / vc).toBeLessThan(0.01)
+      expect(Math.abs(bestV - vc) / vc).toBeLessThan(0.005)
     }
   })
 
