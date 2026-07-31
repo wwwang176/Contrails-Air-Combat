@@ -43,7 +43,7 @@ describe('liftCoefficient', () => {
     expect(liftCoefficient(P51D, P51D.lift.alphaCrit + 10 * DEG, false)).toBeLessThan(peak)
   })
 
-  it('升力曲線在整個迎角範圍內連續（兩機種 × 縫翼開合）', () => {
+  it('升力曲線在整個迎角範圍內連續（兩機種 × 縫翼開合，−180°~180°）', () => {
     const cases: Array<[AircraftSpec, boolean, string]> = [
       [P51D, false, 'P-51D'],
       [BF109G6, false, 'Bf 109 淨形'],
@@ -51,19 +51,33 @@ describe('liftCoefficient', () => {
     ]
     const STEP = 0.001 // rad，約 0.057°
     for (const [spec, slats, name] of cases) {
-      let prev = liftCoefficient(spec, -Math.PI / 2, slats)
-      for (let a = -Math.PI / 2 + STEP; a <= Math.PI / 2; a += STEP) {
+      const clMax = derivedClMax(spec, slats)
+      // 門檻依 spec 欄位算出，不寫死常數：若寫死（例如 0.01），一旦有人
+      // 把 stallBlend 調短（如 5°），失速崩塌段本身的斜率就會逼近或超過
+      // 寫死的門檻，使測試在「沒有真正不連續」時也失敗——門檻必須隨
+      // stallBlend 縮放。真正的結構性跳變（縮放前實測 0.098~0.181）
+      // 遠大於任何合理 stallBlend 下的斜率，因此仍可清楚區分兩者。
+      //   線性段斜率 = clAlpha
+      //   崩塌段斜率上限 = 1.5 × (1 − postStallFactor) × CL_max / stallBlend
+      //     （smoothstep 導數 6t(1−t) 於 t=0.5 取最大值 1.5，
+      //      乘上崩塌段的振幅變化量 (1−postStallFactor)·CL_max，除以 stallBlend）
+      // 深失速段（縮放平板模型）在銜接點的斜率恆低於崩塌段斜率上限
+      // （已用獨立腳本核對三種情境皆然，見 task-10-report.md），故取
+      // 兩者中較大者乘以 3 倍安全係數作為門檻。
+      const linearSlope = spec.lift.clAlpha
+      const blendSlope = (1.5 * (1 - spec.lift.postStallFactor) * clMax) / spec.lift.stallBlend
+      const threshold = 3 * Math.max(linearSlope, blendSlope) * STEP
+
+      let prev = liftCoefficient(spec, -Math.PI, slats)
+      for (let a = -Math.PI + STEP; a <= Math.PI; a += STEP) {
         const cl = liftCoefficient(spec, a, slats)
-        // 相鄰取樣點之間的變化量上限。線性段斜率最大（clAlpha≈4.45），
-        // 4.45 × 0.001 ≈ 0.0045，取 0.01 留餘裕；真正的不連續（結構性缺陷
-        // 修正前實測 0.098~0.181）遠大於此，門檻可清楚區分兩者。
-        expect(Math.abs(cl - prev), `${name} @ α=${(a * 180 / Math.PI).toFixed(2)}°`).toBeLessThan(0.01)
+        expect(Math.abs(cl - prev), `${name} @ α=${(a * 180 / Math.PI).toFixed(2)}°`).toBeLessThan(threshold)
         prev = cl
       }
     }
   })
 
-  it('深失速沿用平板模型：不發散、不超過 CL_max、α→90° 時歸零', () => {
+  it('深失速沿用平板模型：不發散、不超過 CL_max、正確變號、α→±90°/±180° 時歸零', () => {
     const cases: Array<[AircraftSpec, boolean, string]> = [
       [P51D, false, 'P-51D'],
       [BF109G6, false, 'Bf 109 淨形'],
@@ -73,22 +87,44 @@ describe('liftCoefficient', () => {
       const clMax = derivedClMax(spec, slats)
       // blendEnd 的絕對迎角（= 失速崩塌段結束、深失速平板模型開始之處）。
       // 不使用硬編碼角度，直接由 spec 欄位推導，與 liftCoefficient 內部一致。
+      // 正負兩側對稱使用同一個量值（critMag、stallBlend 不分邊）。
       const alphaCritEff = spec.lift.alphaCrit + (slats ? spec.lift.slatAlphaBonus : 0)
       const deepStallStart = alphaCritEff + spec.lift.stallBlend
-      let peak = 0
-      for (let a = deepStallStart; a <= Math.PI / 2; a += 0.001) {
-        peak = Math.max(peak, Math.abs(liftCoefficient(spec, a, slats)))
+
+      let peakPos = 0
+      for (let a = deepStallStart; a <= Math.PI; a += 0.001) {
+        peakPos = Math.max(peakPos, Math.abs(liftCoefficient(spec, a, slats)))
+      }
+      let peakNeg = 0
+      for (let a = -Math.PI; a <= -deepStallStart; a += 0.001) {
+        peakNeg = Math.max(peakNeg, Math.abs(liftCoefficient(spec, a, slats)))
       }
       // 深失速峰值必須低於該機的 CL_max，否則失速後反而比失速前更能產生
       // 升力，物理上不成立。舊的 1.05 上限是未縮放 |sin2α| 的數學上界
-      // （該公式恆 ≤1 是公式的巧合，不是物理要求），已作廢。
-      expect(peak, `${name} 峰值 < CL_max`).toBeLessThan(clMax)
+      // （該公式恆 ≤1 只是公式的巧合，不是物理要求），已作廢；縮放後的
+      // 峰值（1.13~1.22）落在平板理論在 40°~45° 攻角的真實峰值範圍，
+      // 反而比舊公式更符合物理。
+      expect(peakPos, `${name} 正側峰值 < CL_max`).toBeLessThan(clMax)
+      expect(peakNeg, `${name} 負側峰值 < CL_max`).toBeLessThan(clMax)
       // 安全網：守護 postStallFactor·CL_max / flatEnd 的縮放本身不暴衝
-      // （並非物理斷言）。若未來 stallBlend 調整使 blendEnd 落在 45°
-      // 附近（flatEnd → 極小），縮放可能失控，此測試會先抓到。
-      expect(peak, `${name} 縮放安全網 < 1.5`).toBeLessThan(1.5)
-      // α = 90° 時完全失去升力
-      expect(Math.abs(liftCoefficient(spec, Math.PI / 2, slats)), `${name} @90°`).toBeLessThan(1e-9)
+      // （並非物理斷言）。flatEnd = |sin(2·blendEnd 絕對迎角)|，當 blendEnd
+      // 趨近 0° 或 90° 時 flatEnd → 0，縮放才可能暴衝；45° 反而是 flatEnd
+      // 的最大值（=1），是縮放最溫和、不是最危險的情況。
+      expect(peakPos, `${name} 正側縮放安全網 < 1.5`).toBeLessThan(1.5)
+      expect(peakNeg, `${name} 負側縮放安全網 < 1.5`).toBeLessThan(1.5)
+
+      // 方向必須與真實平板模型 sin(2α) 同號。尾滑、錘頭失速、失速尾旋等
+      // 姿態會讓 alphaFrom（atan2 全範圍 ±180°）進到 |α|>90°，若升力方向
+      // 反了，會變成主動對抗改出而非幫助改出。
+      for (const aDeg of [95, 120, 135, 150, -95, -120, -135, -150]) {
+        const a = aDeg * DEG
+        const cl = liftCoefficient(spec, a, slats)
+        expect(Math.sign(cl), `${name} @ α=${aDeg}°`).toBe(Math.sign(Math.sin(2 * a)))
+      }
+      // α = ±90°、±180° 時完全失去升力（sin 2α 在此皆為 0）
+      for (const aDeg of [90, 180, -90, -180]) {
+        expect(Math.abs(liftCoefficient(spec, aDeg * DEG, slats)), `${name} @ α=${aDeg}°`).toBeLessThan(1e-9)
+      }
     }
   })
 
@@ -260,6 +296,16 @@ describe('aeroForceMoment', () => {
     const up = aeroForceMoment(P51D, s, NO_SPIN, { ...NO_CONTROL, elevator: 1 }, false, fmOut())
     const neutral = aeroForceMoment(P51D, s, NO_SPIN, NO_CONTROL, false, fmOut())
     expect(up.moment.x).toBeGreaterThan(neutral.moment.x)
+  })
+
+  it('正方向舵指令產生機首右偏力矩', () => {
+    const s = computeAeroState(new Vector3(0, 0, -160), a, aeroOut())
+    const right = aeroForceMoment(P51D, s, NO_SPIN, { ...NO_CONTROL, rudder: 1 }, false, fmOut())
+    const neutral = aeroForceMoment(P51D, s, NO_SPIN, NO_CONTROL, false, fmOut())
+    // 機體軸 Y = 座艙上方，偏航繞 Y 軸；標準氣動軸 n>0（機首右偏，
+    // cnDr 依專案慣例為正）經 stdToBody 得 out.moment.y = −n，故正舵
+    // 指令使 moment.y 變得更負。
+    expect(right.moment.y).toBeLessThan(neutral.moment.y)
   })
 
   it('正副翼指令產生向右滾轉力矩（機體 −Z 方向為正）', () => {
