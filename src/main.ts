@@ -1,6 +1,8 @@
 import { BoxGeometry, Mesh, MeshStandardMaterial, Vector3 } from 'three'
 import { FixedStepAccumulator } from './core/loop'
 import { createScene } from './render/scene'
+import { createOcean } from './render/ocean'
+import { createProps } from './render/props'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -10,6 +12,11 @@ const placeholder = new Mesh(
   new MeshStandardMaterial({ color: 0x8fa6b8, flatShading: true }),
 )
 ctx.scene.add(placeholder)
+
+const ocean = createOcean()
+ctx.scene.add(ocean.mesh)
+ctx.scene.add(createProps(600))
+let elapsed = 0
 
 // 佔位飛行體：等速直線，用於驗證迴圈與渲染插值
 const prev = new Vector3(0, 500, 0)
@@ -31,6 +38,9 @@ function frame(now: number) {
   placeholder.position.lerpVectors(prev, curr, alpha)
   ctx.camera.position.set(curr.x, curr.y + 12, curr.z + 45)
   ctx.camera.lookAt(curr)
+
+  elapsed += frameSeconds
+  ocean.update(elapsed, curr.x, curr.z)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
   requestAnimationFrame(frame)
