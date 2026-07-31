@@ -131,20 +131,48 @@ describe('propEfficiency', () => {
 describe('propThrust', () => {
   const a0 = air(0)
 
-  it('低速受靜推力上限限制，不發散', () => {
-    const power = enginePower(P51D, a0, 0, WEP_THROTTLE)
-    const t0 = propThrust(P51D, power, 0, a0)
-    const t1 = propThrust(P51D, power, 0.01, a0)
-    expect(Number.isFinite(t0)).toBe(true)
-    expect(t0).toBeLessThan(40000)
-    expect(t1).toBeLessThan(40000)
+  it('V = 0 時推力有限，且落在 15–30 kN 的合理區間（兩款機種）', () => {
+    // 修正前 propThrust(v=0) 恆為 0（η(0)=0，V_FLOOR 引入前無下限保護），
+    // 飛機永遠無法從靜止起動。這裡直接在 v=0 斷言，不像舊測試在 v=5 迴避問題。
+    for (const spec of [P51D, BF109G6]) {
+      const power = enginePower(spec, a0, 0, WEP_THROTTLE)
+      const t0 = propThrust(spec, power, 0, a0)
+      expect(Number.isFinite(t0)).toBe(true)
+      expect(t0).toBeGreaterThan(15000)
+      expect(t0).toBeLessThan(30000)
+    }
   })
 
-  it('海平面靜推力落在 15–30 kN 的合理區間', () => {
+  it('V → 0 的推力收斂到解析極限 etaMax·P/vRef（兩款機種，容差 0.5%）', () => {
+    // η(V) = etaMax·(1−e^(−V/vRef)) 在 V→0 時一階趨近 etaMax·V/vRef，
+    // 故 η(V)·P/V 的極限是有限值 etaMax·P/vRef。這裡把機制本身釘住，
+    // 而不只是檢查數字落在某個寬鬆區間內。
+    for (const spec of [P51D, BF109G6]) {
+      const power = enginePower(spec, a0, 0, WEP_THROTTLE)
+      const t0 = propThrust(spec, power, 0, a0)
+      const analyticLimit = (spec.prop.etaMax * power) / spec.prop.vRef
+      const relError = Math.abs(t0 - analyticLimit) / analyticLimit
+      expect(relError).toBeLessThan(0.005)
+    }
+  })
+
+  it('動量理論靜推力上限公式正確（以巨大合成功率強制觸發，因為兩款機種在正常範圍內都不會自然觸發它）', () => {
+    const hugePower = 1e9
+    for (const spec of [P51D, BF109G6]) {
+      const radius = spec.prop.diameter / 2
+      const diskArea = Math.PI * radius * radius
+      const expectedStaticMax =
+        spec.prop.figureOfMerit * Math.cbrt(2 * a0.density * diskArea * hugePower * hugePower)
+      const t = propThrust(spec, hugePower, 0, a0)
+      expect(Math.abs(t - expectedStaticMax) / expectedStaticMax).toBeLessThan(1e-9)
+    }
+  })
+
+  it('極小速度下推力仍有限，不發散', () => {
     const power = enginePower(P51D, a0, 0, WEP_THROTTLE)
-    const t = propThrust(P51D, power, 5, a0)
-    expect(t).toBeGreaterThan(15000)
-    expect(t).toBeLessThan(30000)
+    const t = propThrust(P51D, power, 1e-6, a0)
+    expect(Number.isFinite(t)).toBe(true)
+    expect(t).toBeLessThan(40000)
   })
 
   it('高速時推力隨速度下降（定功率）', () => {
