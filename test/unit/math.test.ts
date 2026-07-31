@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { clamp, lerp, smoothstep, DEG, RAD, G0 } from '../../src/core/math'
+import { makeScratch } from '../../src/core/pool'
+import { Vector3, Quaternion } from 'three'
 
 describe('math', () => {
   it('clamp 夾制在區間內', () => {
@@ -29,5 +31,26 @@ describe('math', () => {
     expect(90 * DEG).toBeCloseTo(Math.PI / 2, 12)
     expect((Math.PI / 2) * RAD).toBeCloseTo(90, 12)
     expect(G0).toBeCloseTo(9.80665, 6)
+  })
+})
+
+describe('pool', () => {
+  it('配置指定數量的暫存物件', () => {
+    const s = makeScratch(3, 2)
+    expect(s.v).toHaveLength(3)
+    expect(s.q).toHaveLength(2)
+    expect(s.v[0]).toBeInstanceOf(Vector3)
+    expect(s.q[0]).toBeInstanceOf(Quaternion)
+  })
+
+  it('quatCount 預設為 0', () => {
+    const s = makeScratch(2)
+    expect(s.q).toHaveLength(0)
+  })
+
+  it('每個暫存物件都是獨立實例', () => {
+    const s = makeScratch(2)
+    s.v[0]!.set(1, 2, 3)
+    expect(s.v[1]!.x).toBe(0)
   })
 })
