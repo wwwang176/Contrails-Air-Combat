@@ -3,9 +3,11 @@ import { FixedStepAccumulator } from './core/loop'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
+import { createPerfOverlay } from './core/perf'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
+const perf = createPerfOverlay(ctx.renderer)
 
 const placeholder = new Mesh(
   new BoxGeometry(10, 3, 12),
@@ -29,10 +31,13 @@ let lastTime = performance.now()
 function frame(now: number) {
   const frameSeconds = (now - lastTime) / 1000
   lastTime = now
+  perf.begin()
 
   const alpha = loop.advance(frameSeconds, (dt) => {
+    perf.beginPhysics()
     prev.copy(curr)
     curr.addScaledVector(velocity, dt)
+    perf.endPhysics()
   })
 
   placeholder.position.lerpVectors(prev, curr, alpha)
@@ -43,6 +48,7 @@ function frame(now: number) {
   ocean.update(elapsed, curr.x, curr.z)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
+  perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
