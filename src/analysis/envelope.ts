@@ -128,14 +128,22 @@ export function maxLevelSpeed(
   return (lo + hi) / 2
 }
 
-/** 最佳爬升率與對應速度。掃描後以黃金分割細化。 */
+/** 最佳爬升率與對應速度。掃描後以三分搜尋細化。 */
 export function maxClimbRate(
   spec: AircraftSpec,
   altitude: number,
   throttle = WEP_THROTTLE,
 ): { rate: number; speed: number } {
   const vMin = stallSpeed(spec, altitude, 1) * 1.02
-  const vMax = Math.max(maxLevelSpeed(spec, altitude, throttle), vMin + 1)
+  // 【修正】maxLevelSpeed 在完全無法平飛時回傳哨兵值 0（見該函式文件），
+  // 若直接餵給 Math.max(…, vMin+1)，0 會被 vMin+1 蓋掉，掃描區間因此
+  // 塌縮成失速速度正上方僅 1 m/s 的窄窗——剛好是阻力曲線最差的一段，
+  // 在絕對升限（約 11,470 m，高於 0.5 m/s 判定的 serviceCeiling）附近
+  // 會讓 rate 出現 0.017 → −2.122 的階梯式跳變（見 task-13-report.md）。
+  // 0 是「查無可平飛速度」的哨兵，不是一個可用的搜尋上界，必須先辨識出來，
+  // 退回全域搜尋上限 V_SEARCH_MAX，而不是讓它污染 Math.max。
+  const vLevel = maxLevelSpeed(spec, altitude, throttle)
+  const vMax = vLevel > 0 ? Math.max(vLevel, vMin + 1) : V_SEARCH_MAX
 
   let bestRate = -Infinity
   let bestSpeed = vMin
@@ -166,13 +174,27 @@ export function maxClimbRate(
 
 const CEILING_RATE = 0.5
 
-/** 實用升限，m。定義為最佳爬升率降至 0.5 m/s 的高度。 */
+/**
+ * 實用升限，m。定義為最佳爬升率降至 0.5 m/s 的高度。
+ *
+ * 【修正】二分搜尋前必須先驗證 [0, 20000] 真的括住 CEILING_RATE 這個門檻，
+ * 否則二分法在無解時會直接收斂到端點，回傳一個與合法答案無法區分的數字
+ * ——例如載重異常、海平面爬升率就已低於門檻的機體，會回傳 0.000，
+ * 看起來像是「升限就在海平面」的合理答案，其實是搜尋失敗。
+ * 0 與 20000 之所以不能像 maxLevelSpeed／sustainedTurnRate 那樣直接當
+ * 「無解」的哨兵值，是因為兩者對升限而言本身就是可能出現的合法答案；
+ * 只有 NaN 不會與任何合法海拔混淆，因此用 NaN 明確代表「此高度區間未括住解」。
+ */
 export function serviceCeiling(spec: AircraftSpec, throttle = WEP_THROTTLE): number {
+  const rateAt = (alt: number) => maxClimbRate(spec, alt, throttle).rate
+  if (rateAt(0) <= CEILING_RATE) return NaN // 海平面爬升率已達不到門檻：飛不起來
+  if (rateAt(20000) >= CEILING_RATE) return NaN // 20,000 m 處仍超過門檻：搜尋範圍未括住解
+
   let lo = 0
   let hi = 20000
   for (let i = 0; i < 50; i++) {
     const mid = (lo + hi) / 2
-    if (maxClimbRate(spec, mid, throttle).rate > CEILING_RATE) lo = mid
+    if (rateAt(mid) > CEILING_RATE) lo = mid
     else hi = mid
   }
   return (lo + hi) / 2
