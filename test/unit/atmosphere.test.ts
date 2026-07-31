@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { atmosphere, RHO0 } from '../../src/physics/atmosphere'
+import { atmosphere, RHO0, P_TROP, T_TROP, T0, LAPSE, H_TROP } from '../../src/physics/atmosphere'
 import type { AirData } from '../../src/physics/types'
 
 const air = (): AirData => ({
@@ -67,5 +67,36 @@ describe('atmosphere', () => {
   it('推導出的 RHO0 與 ICAO ISA 標稱值 1.225 kg/m³ 相符（誤差 < 2e-5）', () => {
     expect(RHO0).toBeCloseTo(1.225, 4)
     expect(Math.abs(RHO0 - 1.225) / 1.225).toBeLessThan(2e-5)
+  })
+
+  it('對流層與平流層分支在 11,000 m 接縫處連續', () => {
+    // 11 km 處 ISA 壓力相對梯度 dP/P/dh ≈ -1.577e-4 /m。
+    // 取 δ = 1e-6 m，真實物理變化僅 ≈ 1.577e-10；
+    // 若兩分支存在常數落差（本測試要抓的缺陷）則會是 ≈ 1.6e-5。
+    // 容差 1e-8 落在兩者之間，能乾淨地分辨。
+    // 不要把 δ 放大——放大後物理梯度會淹沒缺陷訊號。
+    const D = 1e-6
+    const below = atmosphere(H_TROP - D, air())
+    const at = atmosphere(H_TROP, air())
+    const above = atmosphere(H_TROP + D, air())
+
+    expect(Math.abs(at.pressure - below.pressure) / at.pressure).toBeLessThan(1e-8)
+    expect(Math.abs(above.pressure - at.pressure) / at.pressure).toBeLessThan(1e-8)
+  })
+
+  it('密度在 11,000 m 接縫處嚴格遞減，不得回升', () => {
+    const below = atmosphere(H_TROP - 0.01, air())
+    const at = atmosphere(H_TROP, air())
+    const above = atmosphere(H_TROP + 0.01, air())
+    expect(below.density).toBeGreaterThan(at.density)
+    expect(at.density).toBeGreaterThan(above.density)
+  })
+
+  it('推導出的 P_TROP 與 ISA 標稱值 22632.06 Pa 相符（誤差 < 2e-5）', () => {
+    expect(Math.abs(P_TROP - 22632.06) / 22632.06).toBeLessThan(2e-5)
+  })
+
+  it('T_TROP 與 T0 − LAPSE·H_TROP 一致', () => {
+    expect(T_TROP).toBeCloseTo(T0 - LAPSE * H_TROP, 10)
   })
 })
