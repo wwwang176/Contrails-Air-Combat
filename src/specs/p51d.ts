@@ -18,12 +18,7 @@ export const P51D: AircraftSpec = {
     clAlpha: 4.4,
     alphaZero: -2.5 * DEG,
     alphaCrit: 15.5 * DEG,
-    // 12°（非史實直接量測值）：由失速崩塌段與深失速平板模型在 blendEnd
-    // 處的銜接連續性反推。8° 時兩段在銜接處有約 0.10 的 CL 跳變
-    // （postStallFactor·CL_max ≈ 0.83 對上平板模型 sin(2α) ≈ 0.73），
-    // 12°–13° 為跳變最小之處（≈0.019）。見 test/unit/aero.test.ts
-    // 「CL 曲線連續，無跳變」與 task-10-report.md 的推導過程。
-    stallBlend: 12 * DEG,
+    stallBlend: 8 * DEG,
     postStallFactor: 0.6,
     slatAlphaBonus: 0,
     slatDeployAlpha: Infinity, // 無縫翼，永不展開
