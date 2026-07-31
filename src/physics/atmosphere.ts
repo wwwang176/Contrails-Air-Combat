@@ -3,7 +3,7 @@ import type { AirData } from './types'
 
 export const T0 = 288.15
 export const P0 = 101325
-const LAPSE = 0.0065
+export const LAPSE = 0.0065
 const R = 287.05
 /**
  * 海平面標準密度。由 P0 / (R · T0) 推導而非寫死 1.225，
@@ -14,9 +14,16 @@ const R = 287.05
  */
 export const RHO0 = P0 / (R * T0)
 const GAMMA = 1.4
-const H_TROP = 11000
-const T_TROP = 216.65
-const P_TROP = 22632.06
+export const H_TROP = 11000
+export const T_TROP = 216.65
+/**
+ * 對流層頂壓力。由對流層公式在 h = H_TROP 推導而非寫死 22632.06 Pa，
+ * 確保兩個分支在 11,000 m 接縫處連續。
+ * ISA 表列的 22632.06 Pa 是這個推導值的四捨五入顯示值；
+ * 兩者相差 0.359 Pa（1.6e-5），若寫死會使密度在接縫處「上升」而非下降。
+ * 與 RHO0 同屬一類處理。
+ */
+export const P_TROP = P0 * Math.pow(T_TROP / T0, G0 / (LAPSE * R))
 
 /**
  * ISA 標準大氣。純函數：寫入 out 並回傳，熱路徑零配置。
