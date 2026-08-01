@@ -187,7 +187,8 @@ export const SILHOUETTES: Record<string, Silhouette> = {
    *   1. 機身極窄且**側面平板**（真機最大寬度僅約 0.79 m，卻有 1.07 m 深）
    *   2. 機首上方兩顆 MG 131 機槍鼓包「Beulen」——G-6 型的識別特徵
    *   3. 兩具翼下散熱器，位在起落架艙外側
-   *   4. 水平尾翼下方的斜撐桿（同期盟軍機沒有，側影一眼可辨）
+   *   4. **沒有**尾翼支撐桿——F 型起改為懸臂式平尾並把支柱取消，G 系列
+   *      沿用。支柱是 E 型的特徵，早期我誤加在 G-6 上。
    */
   bf109g6: {
     bodyColor: 0x7e8a73,
@@ -308,11 +309,6 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       { x: 0, y: -0.48, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
       { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
-      // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
-      {
-        x: 0.355, y: 0.515, z: 3.15, width: 0.670, height: 0.05, length: 0.10,
-        rotZ: 37.7 * DEG, mirror: true, bodyColor: true,
-      },
     ],
     // 底徑實測 0.0827 L = 0.740 m；y 與機首環中心一致（機首低於機尾）
     spinner: { radius: 0.37, length: 0.55, y: -0.05 },

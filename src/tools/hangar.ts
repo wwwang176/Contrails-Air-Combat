@@ -1,12 +1,13 @@
 import {
   AmbientLight, AxesHelper, Box3, Color, DirectionalLight, GridHelper, HemisphereLight,
-  Mesh, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, PMREMGenerator, Scene,
-  Vector3, WebGLRenderer,
+  Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OrthographicCamera, PerspectiveCamera,
+  PMREMGenerator, Scene, Vector3, WebGLRenderer,
 } from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
-import { SILHOUETTES } from '../render/geometry/silhouettes'
+import { SILHOUETTES, hullOffsetZ } from '../render/geometry/silhouettes'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { AircraftSpec } from '../specs/types'
@@ -74,6 +75,8 @@ scene.add(axes)
 
 let specIndex = 0
 let model: AircraftModel | null = null
+// 宣告必須早於 rebuild() 的呼叫，否則 placeRef() 會撞上 let 的暫時死區
+let refModel: Object3D | null = null
 let propRotation = 0
 let autoRotate = true
 let wireframe = false
@@ -134,6 +137,7 @@ function rebuild(): void {
 
   for (const b of specButtons) b.classList.toggle('on', SPECS[specIndex]!.id === b.dataset['id'])
   syncProp()
+  placeRef()
   frameOrtho()
 }
 
@@ -162,6 +166,7 @@ function frameOrtho(): void {
   model.group.rotation.y = 0
   model.group.updateMatrixWorld(true)
   const box = new Box3().setFromObject(model.group)
+  if (refModel?.visible) box.union(new Box3().setFromObject(refModel))
   const size = box.getSize(new Vector3())
   const c = box.getCenter(new Vector3())
 
@@ -251,6 +256,96 @@ rebuild()
       camera.up.set(0, overhead ? 0 : 1, overhead ? -1 : 0)
       controls.update()
     }
+
+/**
+ * 參考模型疊圖 —— 用 `?ref=/ref/xxx.glb` 載入外部高面數模型，縮放對齊後
+ * 疊在程序化模型上，用同一顆正交相機比對外形。
+ *
+ * 【為什麼用疊圖而不是數值切剖面】我先寫過 GLB 剖面抽取器，解析本身沒問題
+ * （三角形數與檔頭一致），但第三方模型有兩百多個節點——蒙皮、內裝、起落架、
+ * 螺旋槳混在一起，要靠幾何猜測分類才能取得「機身外形」。分類猜錯，比對就
+ * 建立在錯的基準上。疊圖交給眼睛判斷，反而沒有這個失敗模式。
+ *
+ * 參考模型只當量尺，不進版控（ref/ 已列入 .gitignore），更不會被打包進遊戲。
+ */
+const refUrl = new URLSearchParams(location.search).get('ref')
+
+/**
+ * 把參考模型依「當前機種的真機全長」等比縮放，並讓機首對齊。
+ *
+ * 【必須在每次切換機種時重跑】兩架飛機的全長與重心位移都不同。第一版
+ * 只在載入完成時對齊一次，而 GLB 有 23 MB、載入比機種切換慢，結果對齊
+ * 用的是切換前那架的參數——疊出來整台平移了 1.5 m。
+ */
+/**
+ * 參考模型的機首朝向。
+ *
+ * 【為什麼不自動判斷】外部模型的軸向約定不保證與本專案一致——實測這個
+ * Bf 109 E-4 就是機首朝 +Z，第一版疊圖整台頭尾顛倒，還一度被我讀成
+ * 「機身形狀差很多」。我試過用「螺旋槳端的 X 延伸較大」自動判向，但該
+ * 模型的機尾也有寬達 ±1.31 的部件，判準直接失效。看一次算圖就知道方向，
+ * 用參數指定比猜可靠。
+ */
+const refFlip = new URLSearchParams(location.search).get('refflip') === '1'
+
+function placeRef(): void {
+  if (!refModel) return
+  const sil = SILHOUETTES[SPECS[specIndex]!.id]!
+  refModel.scale.setScalar(1)
+  refModel.position.set(0, 0, 0)
+  refModel.updateMatrixWorld(true)
+  const raw = new Box3().setFromObject(refModel)
+  refModel.rotation.y = refFlip ? Math.PI : 0
+  refModel.updateMatrixWorld(true)
+  refModel.scale.setScalar(sil.realLength / raw.getSize(new Vector3()).z)
+  refModel.updateMatrixWorld(true)
+  const scaled = new Box3().setFromObject(refModel)
+  const noseZ = sil.fuselage.sections[0]!.z - sil.spinner.length + hullOffsetZ(sil)
+  refModel.position.z = noseZ - scaled.min.z
+
+  // 垂直對齊用**翼尖**：外部模型的 Y 原點是任意的（可能是地面、可能是
+  // 推力線）。翼尖是兩邊都乾淨的基準——那裡沒有起落架、內裝、螺旋槳，
+  // 而且 ±X 的極端點必然是翼尖，不需要辨識零件。
+  const mine = sil.wing.rootY + Math.tan(sil.wing.dihedral) * sil.wing.halfSpan
+  refModel.position.y = mine - tipY(refModel, scaled)
+}
+
+/** 模型左右翼尖（|x| 落在最外側 8% 內的頂點）的平均 Y。 */
+function tipY(obj: Object3D, box: Box3): number {
+  const lim = Math.max(box.max.x, -box.min.x) * 0.92
+  const v = new Vector3()
+  let sum = 0, n = 0
+  obj.traverse((o) => {
+    const pos = (o as Mesh).geometry?.getAttribute?.('position')
+    if (!pos) return
+    for (let i = 0; i < pos.count; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld)
+      if (Math.abs(v.x) > lim) { sum += v.y; n++ }
+    }
+  })
+  return n ? sum / n : 0
+}
+
+if (refUrl) {
+  new GLTFLoader().load(refUrl, (gltf) => {
+    const obj = gltf.scene
+    obj.traverse((o) => {
+      if (!(o as Mesh).isMesh) return
+      // 實體半透明而非線框：線框會把內裝、發動機、起落架全部畫出來，
+      // 反而看不出輪廓。實心剪影才是要比對的東西。
+      ;(o as Mesh).material = new MeshBasicMaterial({
+        color: 0xff5a3c, transparent: true, opacity: 0.30, depthWrite: false,
+      })
+    })
+    refModel = obj
+    scene.add(obj)
+    placeRef()
+    frameOrtho()
+  })
+}
+;(window as unknown as Record<string, unknown>)['__hangarRef'] = (on: boolean) => {
+  if (refModel) refModel.visible = on
+}
 
 let last = performance.now()
 function frame(now: number): void {

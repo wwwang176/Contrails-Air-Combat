@@ -8,3 +8,5 @@ Thumbs.db
 
 # Playwright 截圖用的暫存目錄
 .tmpshot/
+
+ref/
