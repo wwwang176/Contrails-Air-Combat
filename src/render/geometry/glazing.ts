@@ -106,22 +106,33 @@ export function buildGlazing(
       return Array.from({ length: 2 * seg + 4 }, () => [0, st.roof, st.z])
     }
     const f = sectionAt(fuselage, st.z, fallbackRoundness)
-    const deck = f.centerY + f.halfHeight
     /** 機身外殼在高度 y 的半寬（超橢圓解 x），再往外撐 bulge。 */
     const flank = (y: number): number => {
       const r = Math.min(1, Math.abs(y - f.centerY) / f.halfHeight)
       return f.halfWidth * (1 - r ** f.roundness) ** (1 / f.roundness) * (1 + bulge)
     }
 
-    // 沿機身弧線由艙緣爬到 min(roof, 機背)
-    const yTop = Math.min(st.roof, deck)
+    /**
+     * 沿機身弧線爬到「肩點」為止，再直線收到罩頂。
+     *
+     * 【肩點不能取機背】機背在中線上，flank(機背) = 0——爬到那裡等於爬到
+     * 正上方的頂點，再拉一條線出去到罩頂角，截面就變成自交的蝴蝶結：側面
+     * 玻璃整片消失、機身從破口透出來。實際看到的正是這兩個症狀。
+     *
+     * 肩點取「機身半寬收到罩頂寬的 1.6 倍」之處，上面那段直板因此是斜的
+     * ——正視圖的 /‾\ 就是它。
+     */
+    const shoulderX = Math.min(topWidth * 1.6, flank(st.sill))
+    const rShoulder = (1 - (shoulderX / (f.halfWidth * (1 + bulge))) ** f.roundness)
+      ** (1 / f.roundness)
+    const yTop = Math.min(st.roof, f.centerY + rShoulder * f.halfHeight)
     const side: number[][] = Array.from({ length: seg + 1 }, (_, i) => {
       const y = st.sill + ((yTop - st.sill) * i) / seg
       return [flank(y), y, st.z]
     })
-    // 罩頂平板。roof 沒超過機背時退化成弧線頂點，平板寬度歸零。
-    const xt = st.roof > deck ? topWidth : side[seg]![0]!
-    const corner = [xt, st.roof, st.z]
+    // 罩頂平板。roof 沒超過肩點就退化，平板寬度收成肩點的寬度。
+    const xt = st.roof > yTop ? topWidth : side[seg]![0]!
+    const corner = [xt, Math.max(st.roof, yTop), st.z]
 
     const mirror = (p: number[]) => [-p[0]!, p[1]!, p[2]!]
     return [...side, corner, mirror(corner), ...side.slice().reverse().map(mirror)]
