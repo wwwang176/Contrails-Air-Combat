@@ -216,14 +216,24 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       roundness: 2.8,
       segments: 10,
       sections: [
-        { z: -4.30, halfWidth: 0.350, halfHeight: 0.360, centerY: 0.020, roundness: 2.2 },
-        { z: -3.70, halfWidth: 0.500, halfHeight: 0.460, centerY: 0.020, roundness: 2.4 },
-        { z: -2.61, halfWidth: 0.475, halfHeight: 0.558, centerY: 0.038, roundness: 2.6 },
-        { z: -1.06, halfWidth: 0.420, halfHeight: 0.626, centerY: 0.066 },  // 最大深度 42.4%
-        { z: 0.07, halfWidth: 0.370, halfHeight: 0.581, centerY: 0.121, roundness: 2.9 },
-        { z: 1.42, halfWidth: 0.280, halfHeight: 0.422, centerY: 0.196, roundness: 3.2 },
-        { z: 2.76, halfWidth: 0.165, halfHeight: 0.263, centerY: 0.220, roundness: 3.4 },
-        { z: 4.10, halfWidth: 0.060, halfHeight: 0.105, centerY: 0.245, roundness: 3.4 },
+        // 【機首低、機尾高】側視時整條機身中心線由機首往機尾上揚：機首
+        // 中心 y=0（與整流罩同軸），機尾錐中心 y=0.62。背線幾乎水平，
+        // 收口幾乎全由腹線負擔——這正是 109 側影的骨架，原本做成了
+        // 上下對稱收口的紡錘體。
+        //
+        // 【機鼻要圓潤】原本只有 −4.30 與 −3.70 兩個站位，半寬 0.35→0.50
+        // 在 0.6 m 內張開（14° 張角），側視與俯視都出現一道硬肩線。
+        // 補兩個中間站位讓它成為連續曲面，剖面指數也逐段過渡。
+        { z: -4.30, halfWidth: 0.350, halfHeight: 0.3600, centerY: 0.0000, roundness: 2.2 },
+        { z: -4.00, halfWidth: 0.440, halfHeight: 0.4120, centerY: 0.0080, roundness: 2.3 },
+        { z: -3.70, halfWidth: 0.490, halfHeight: 0.4550, centerY: 0.0200, roundness: 2.4 },
+        { z: -3.20, halfWidth: 0.495, halfHeight: 0.5120, centerY: 0.0380, roundness: 2.5 },
+        { z: -2.61, halfWidth: 0.475, halfHeight: 0.5570, centerY: 0.0430, roundness: 2.6 },
+        { z: -1.06, halfWidth: 0.420, halfHeight: 0.6235, centerY: 0.0765 },  // 最大深度
+        { z: 0.07, halfWidth: 0.370, halfHeight: 0.5775, centerY: 0.1325, roundness: 2.9 },
+        { z: 1.42, halfWidth: 0.280, halfHeight: 0.4330, centerY: 0.2720, roundness: 3.2 },
+        { z: 2.76, halfWidth: 0.165, halfHeight: 0.2465, centerY: 0.4460, roundness: 3.4 },
+        { z: 4.10, halfWidth: 0.060, halfHeight: 0.0600, centerY: 0.6200, roundness: 3.4 },
       ],
     },
     /**
@@ -252,7 +262,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
         { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.49 },  // 風擋底框 0.55
         { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.60 },  // 風擋頂 0.81（60°）
         { z: -0.39, halfWidth: 0.34, halfHeight: 0.23, centerY: 0.58 },  // 平頂段結束 0.81
-        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.56 },  // 頂 0.70 = 背線
+        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.569 }, // 頂 0.709 = 背線
       ],
     },
     wing: {
@@ -267,10 +277,11 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.84, tipRound: 0.35,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.80, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
-    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.45, sweep: 30 * DEG, z: 2.5 },
+    // 背線抬高後垂尾埋進機身的部分變多，高度隨之補回（露出約 0.95 m）
+    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.64, sweep: 30 * DEG, z: 2.5 },
     blisters: [
       // MG 131 機槍鼓包，左右各一
       { x: 0.20, y: 0.50, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
@@ -280,8 +291,8 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
       // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
       {
-        x: 0.355, y: 0.405, z: 3.15, width: 0.918, height: 0.05, length: 0.10,
-        rotZ: 54.8 * DEG, mirror: true, bodyColor: true,
+        x: 0.355, y: 0.53, z: 3.15, width: 0.676, height: 0.05, length: 0.10,
+        rotZ: 38.4 * DEG, mirror: true, bodyColor: true,
       },
     ],
     spinner: { radius: 0.35, length: 0.55 },   // 底徑量測偏薄 21%，一併補回
