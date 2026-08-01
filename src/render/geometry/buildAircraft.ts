@@ -96,14 +96,14 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
     new ConeGeometry(sil.spinner.radius, sil.spinner.length, 8), accent,
   )
   spinner.rotation.x = -90 * DEG
-  spinner.position.z = sil.fuselage.sections[0]!.z - sil.spinner.length / 2
+  spinner.position.set(0, sil.spinner.y ?? 0, sil.fuselage.sections[0]!.z - sil.spinner.length / 2)
   add(spinner)
 
   // 槳葉：從整流罩外緣長到槳尖的**單片**葉片。
   // 【原本是貫穿直徑的長條】三根長條在畫面上是六片槳葉；真機 P-51D 四葉、
   // Bf 109 三葉，葉數是辨識機種的線索之一。
   const propHub = new Group()
-  propHub.position.z = sil.propZ
+  propHub.position.set(0, sil.spinner.y ?? 0, sil.propZ)
   const bladeRoot = sil.spinner.radius * 0.8
   const bladeLength = sil.propRadius - bladeRoot
   const blades: Mesh[] = []

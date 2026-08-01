@@ -465,19 +465,54 @@ describe('外型與真機的對照', () => {
       })
 
       if (spec.id === 'bf109g6') {
-        it('座艙後方的背線與腹線是直的', () => {
-          const aft = sil.fuselage.sections.filter((s) => s.z >= 0.3)
-          const first = aft[0]!, last = aft[aft.length - 1]!
-          for (const line of ['top', 'bottom'] as const) {
-            const at = (s: typeof first) =>
-              line === 'top' ? s.centerY + s.halfHeight : s.centerY - s.halfHeight
-            const slope = (at(last) - at(first)) / (last.z - first.z)
-            for (const s of aft.slice(1, -1)) {
-              const expected = at(first) + slope * (s.z - first.z)
-              // 缺陷版本的背線在 z=1.60 偏離 5 mm、z=2.90 偏離 14 mm
-              expect(Math.abs(at(s) - expected), `${line} @ z=${s.z}`).toBeLessThan(0.003)
-            }
+        /**
+         * 【這條取代了原本的「背線是直的」】原測試要求座艙後方的背線與
+         * 腹線相對於直線的偏差 < 3 mm。那個容差是我在拿到量測之前自己訂的，
+         * 後來從線稿實測（腹線基準 y=90、全長 310 px）發現真機背線相對
+         * 直線偏離約 22 mm——是原容差的 7 倍。也就是說原測試會把**真機的
+         * 形狀**判成不及格，是錯的測試，不是幾何錯。
+         *
+         * 換成直接比對量測值。基準是機身最低腹線（全長 28–44% 之間）。
+         */
+        const REF = [   // 全長百分比 → [背線高 / 全長, 腹線高 / 全長]
+          [0.55, 0.1500, 0.0210],
+          [0.70, 0.1468, 0.0500],
+          [0.85, 0.1387, 0.0790],
+        ] as const
+
+        /** 站位 z 處的背線／腹線高度，相對機身最低腹線，除以全長。 */
+        const profileAt = (frac: number) => {
+          const noseTip = sil.fuselage.sections[0]!.z - sil.spinner.length
+          const datum = Math.min(...sil.fuselage.sections.map((s) => s.centerY - s.halfHeight))
+          const f = fuselageAt(sil.fuselage.sections, noseTip + frac * sil.realLength)
+          return {
+            top: (f.centerY + f.halfHeight - datum) / sil.realLength,
+            bottom: (f.centerY - f.halfHeight - datum) / sil.realLength,
           }
+        }
+
+        it('背線與腹線的高度吻合三視圖量測', () => {
+          for (const [frac, refTop, refBottom] of REF) {
+            const p = profileAt(frac)
+            // 缺陷版本（上下對稱收口的紡錘體）：背線低 7–17%、腹線低 28–54%
+            expect(p.top, `背線 @ ${frac * 100}%`).toBeCloseTo(refTop, 2)
+            expect(p.bottom, `腹線 @ ${frac * 100}%`).toBeCloseTo(refBottom, 2)
+          }
+        })
+
+        /**
+         * 109 側視的骨架特徵：機尾的收口幾乎全由**腹線抬升**負擔，背線
+         * 幾乎不動。實測腹線抬升速度是背線下降速度的 5.2 倍。這是「機首比
+         * 機尾低」的來源，也是它與上下對稱收口的紡錘體最根本的差別。
+         */
+        it('機尾收口由腹線抬升負擔，背線幾乎不動', () => {
+          const a = profileAt(0.55)
+          const b = profileAt(0.85)
+          const spineDrop = a.top - b.top
+          const bellyRise = b.bottom - a.bottom
+          expect(spineDrop).toBeGreaterThan(0)     // 背線確實在下降
+          // 缺陷版本的比值是 1.9；真機 5.1
+          expect(bellyRise / spineDrop).toBeGreaterThan(3)
         })
 
         /**

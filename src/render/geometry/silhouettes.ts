@@ -58,7 +58,8 @@ export interface Silhouette {
   /** 背鰭延伸（P-51D-10 以後的 dorsal fillet） */
   finFillet?: FinParams
   blisters: readonly Blister[]
-  spinner: { radius: number; length: number }
+  /** y 為整流罩軸心的垂直位置，預設 0（機首環中心不在 0 時要一致） */
+  spinner: { radius: number; length: number; y?: number }
   /** 槳葉數：P-51D 四葉、Bf 109 三葉 */
   propBlades: number
   propZ: number
@@ -216,24 +217,27 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       roundness: 2.8,
       segments: 10,
       sections: [
-        // 【機首低、機尾高】側視時整條機身中心線由機首往機尾上揚：機首
-        // 中心 y=0（與整流罩同軸），機尾錐中心 y=0.62。背線幾乎水平，
-        // 收口幾乎全由腹線負擔——這正是 109 側影的骨架，原本做成了
-        // 上下對稱收口的紡錘體。
+        // 【側視骨架：機首低、機尾高】整條機身中心線由機首往機尾上揚。
+        // 依線稿實測（腹線基準 y=90、全長 310 px）：
+        //   背線 55%→85%  0.1500 → 0.1387 L，坡度僅 −0.038
+        //   腹線 54%→83.5% 0.0210 → 0.0790 L，坡度 +0.197
+        // 腹線抬升速度是背線下降的 **5.2 倍**——收口幾乎全由腹線負擔，
+        // 背線幾乎不動。原本做成上下對稱收口的紡錘體，那才是側影一直
+        // 不像 109 的骨架成因。
         //
-        // 【機鼻要圓潤】原本只有 −4.30 與 −3.70 兩個站位，半寬 0.35→0.50
-        // 在 0.6 m 內張開（14° 張角），側視與俯視都出現一道硬肩線。
-        // 補兩個中間站位讓它成為連續曲面，剖面指數也逐段過渡。
-        { z: -4.30, halfWidth: 0.350, halfHeight: 0.3600, centerY: 0.0000, roundness: 2.2 },
-        { z: -4.00, halfWidth: 0.440, halfHeight: 0.4120, centerY: 0.0080, roundness: 2.3 },
-        { z: -3.70, halfWidth: 0.490, halfHeight: 0.4550, centerY: 0.0200, roundness: 2.4 },
-        { z: -3.20, halfWidth: 0.495, halfHeight: 0.5120, centerY: 0.0380, roundness: 2.5 },
-        { z: -2.61, halfWidth: 0.475, halfHeight: 0.5570, centerY: 0.0430, roundness: 2.6 },
-        { z: -1.06, halfWidth: 0.420, halfHeight: 0.6235, centerY: 0.0765 },  // 最大深度
-        { z: 0.07, halfWidth: 0.370, halfHeight: 0.5775, centerY: 0.1325, roundness: 2.9 },
-        { z: 1.42, halfWidth: 0.280, halfHeight: 0.4330, centerY: 0.2720, roundness: 3.2 },
-        { z: 2.76, halfWidth: 0.165, halfHeight: 0.2465, centerY: 0.4460, roundness: 3.4 },
-        { z: 4.10, halfWidth: 0.060, halfHeight: 0.0600, centerY: 0.6200, roundness: 3.4 },
+        // 機首上緣同樣照實測（8/13/18/25% 的 0.0984/0.1081/0.1145/0.1242 L）。
+        // 該段是「短圓肩（斜率 0.19）＋直線斜坡（0.134）＋前緩收」三段，
+        // 不是單一圓弧；補 −4.00 與 −3.20 兩個站位就是為了做出這個轉折。
+        { z: -4.30, halfWidth: 0.350, halfHeight: 0.3700, centerY: -0.0500, roundness: 2.2 },
+        { z: -4.00, halfWidth: 0.440, halfHeight: 0.4050, centerY: -0.0500, roundness: 2.3 },
+        { z: -3.70, halfWidth: 0.490, halfHeight: 0.4500, centerY: -0.0320, roundness: 2.4 },
+        { z: -3.20, halfWidth: 0.495, halfHeight: 0.5000, centerY: -0.0160, roundness: 2.5 },
+        { z: -2.61, halfWidth: 0.475, halfHeight: 0.5570, centerY: 0.0080, roundness: 2.6 },
+        { z: -1.06, halfWidth: 0.420, halfHeight: 0.6035, centerY: 0.0565 },  // 最大截面
+        { z: 0.07, halfWidth: 0.370, halfHeight: 0.5775, centerY: 0.2185, roundness: 2.9 },
+        { z: 1.42, halfWidth: 0.280, halfHeight: 0.4405, centerY: 0.3265, roundness: 3.2 },
+        { z: 2.76, halfWidth: 0.165, halfHeight: 0.2540, centerY: 0.4400, roundness: 3.4 },
+        { z: 4.10, halfWidth: 0.060, halfHeight: 0.0600, centerY: 0.6190, roundness: 3.4 },
       ],
     },
     /**
@@ -262,7 +266,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
         { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.49 },  // 風擋底框 0.55
         { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.60 },  // 風擋頂 0.81（60°）
         { z: -0.39, halfWidth: 0.34, halfHeight: 0.23, centerY: 0.58 },  // 平頂段結束 0.81
-        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.569 }, // 頂 0.709 = 背線
+        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.643 }, // 頂 0.783 = 背線
       ],
     },
     wing: {
@@ -277,7 +281,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.80, tipRound: 0.35,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.78, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
     // 背線抬高後垂尾埋進機身的部分變多，高度隨之補回（露出約 0.95 m）
@@ -291,11 +295,12 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
       // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
       {
-        x: 0.355, y: 0.53, z: 3.15, width: 0.676, height: 0.05, length: 0.10,
-        rotZ: 38.4 * DEG, mirror: true, bodyColor: true,
+        x: 0.355, y: 0.515, z: 3.15, width: 0.670, height: 0.05, length: 0.10,
+        rotZ: 37.7 * DEG, mirror: true, bodyColor: true,
       },
     ],
-    spinner: { radius: 0.35, length: 0.55 },   // 底徑量測偏薄 21%，一併補回
+    // 底徑實測 0.0827 L = 0.740 m；y 與機首環中心一致（機首低於機尾）
+    spinner: { radius: 0.37, length: 0.55, y: -0.05 },
     propBlades: 3,
     propZ: -4.55,
     propRadius: 1.50,
