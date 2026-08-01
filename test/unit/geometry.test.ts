@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Box3, BufferGeometry, Mesh, Vector3 } from 'three'
 import { buildFuselage, type FuselageSection } from '../../src/render/geometry/fuselage'
 import { buildWingPanel } from '../../src/render/geometry/wing'
-import { SILHOUETTES, hullOffsetZ, type LoftPart } from '../../src/render/geometry/silhouettes'
+import { SILHOUETTES, hullOffsetZ } from '../../src/render/geometry/silhouettes'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -343,14 +343,21 @@ describe('幾何的方向性與完整性（回歸）', () => {
 })
 
 /**
- * 【外型精緻度的驗收】
+ * 【這裡只留「機制」與「跨模組一致性」，不留造型判斷】
  *
- * 這一組守的是「看得見」這件事。細節做得再多，只要埋在機身裡就等於沒做——
- * 而埋不埋得住，靠肉眼在機庫裡轉一圈很容易漏掉（座艙罩沉下去 2 cm 看起來
- * 只是「有點矮」，不像壞掉）。這些全部可以純數字判定。
+ * 原本這一組還有八條在斷言造型：座艙罩露出多少、罩尾與背線齊不齊、凸起塊
+ * 凸不凸、機身深度與收口比值……全部移除。理由是專案負責人指出的，而且有
+ * 證據支持：
  *
- * 另一半守的是「別偏離真機」：造型參數是手調的，調著調著很容易把翼展或
- * 全長改掉而沒人發現。包圍盒對 spec.wing.span 與 realLength 是唯一的錨。
+ *   一、那些斷言是對**手寫的造型數字**再斷言一次，本質上同義反覆。
+ *   二、「背線形狀」那條改過兩次，**兩次都是測試錯了、幾何是對的**：
+ *       第一次容差訂 3 mm，真機實測偏離 22 mm；第二次寫死線稿的絕對高度，
+ *       被改採 E-4 參考模型的裁決推翻。它沒擋下任何缺陷，只擋了自己人。
+ *   三、實際發生過的外形缺陷（機翼沒畫完、垂尾顛倒、機腹浮空、機翼位置
+ *       太後、機身太瘦）**全部是人眼先發現的**，測試都是事後補的。
+ *
+ * 留下來的兩條不是造型判斷：包圍盒對 spec.wing.span 是飛行模型與視覺模型
+ * 共用同一個數字的一致性檢查；四分之一弦線落在原點是物理模型的重心約束。
  */
 describe('外型與真機的對照', () => {
   /** 機身在站位 z 的外殼半高／半寬與中心（線性內插，與 loft 一致）。 */
@@ -393,155 +400,6 @@ describe('外型與真機的對照', () => {
         m.dispose()
       })
 
-      it('座艙罩高出機身背線，不是埋在裡面', () => {
-        let maxProtrusion = -Infinity
-        for (const s of sil.canopy.sections) {
-          const f = fuselageAt(sil.fuselage.sections, s.z)
-          maxProtrusion = Math.max(
-            maxProtrusion, (s.centerY + s.halfHeight) - (f.centerY + f.halfHeight),
-          )
-        }
-        // 【門檻是 0.10 不是 0.15】下界的用途只有一個：擋住「座艙罩整個埋
-        // 進機身」。它**不能**用來要求氣泡罩——P-51D 的泡罩露出 0.28 m，
-        // Bf 109 是低座艙罩配高背脊，只露出 0.13 m，兩者都是對的。
-        // 訂在 0.15 會把 109 正確的高背脊造型判成不及格。
-        expect(maxProtrusion).toBeGreaterThan(0.10)
-      })
-
-      /**
-       * 【這條擋的是實際發生過的缺陷】P-51D 的機腹散熱器導管後半段浮在空中：
-       * 機腹自機翼後緣起就往上收（boat-tail），導管卻一路平飛，到 z=2.4
-       * 已經離開機身 0.20 m——側視是一根獨立漂浮的方管。
-       *
-       * 【判準要用真正的表面，不能用中線】第一版只比對兩者的垂直區間是否
-       * 相交，那等於只檢查了 x=0 那一條線。機身是超橢圓剖面，導管**兩側**
-       * 對應的機身表面比中線高得多，所以中線相交、上緣兩角照樣懸空——修完
-       * 第一版之後實測仍在機身表面外 3.69 倍（1.0 才是表面）。
-       *
-       * 正確判準：把部件朝向機身那一側的**極端頂點**（導管的頂稜、座艙罩的
-       * 底稜）逐一代入機身的超橢圓不等式，全部必須 <1（在機身內部）。極端
-       * 頂點進得去，交線就是封閉的，不會有縫。
-       */
-      it('座艙罩與機腹導管的接合稜線都埋在機身內', () => {
-        const attached: [string, LoftPart, boolean][] = [['座艙罩', sil.canopy, false]]
-        if (sil.scoop) attached.push(['機腹導管', sil.scoop, true])
-
-        for (const [tag, part, towardTop] of attached) {
-          const e = 2 / part.roundness
-          const shape = (v: number) => Math.sign(v) * Math.abs(v) ** e
-          for (const s of part.sections) {
-            const f = fuselageAt(sil.fuselage.sections, s.z)
-            const n = f.roundness ?? sil.fuselage.roundness
-            // 產生該站位的實際頂點，取朝向機身那一側最極端的那些
-            const ring = Array.from({ length: part.segments }, (_, i) => {
-              const t = (i / part.segments) * Math.PI * 2
-              return { x: shape(Math.cos(t)) * s.halfWidth, y: shape(Math.sin(t)) * s.halfHeight }
-            })
-            const extreme = towardTop
-              ? Math.max(...ring.map((p) => p.y))
-              : Math.min(...ring.map((p) => p.y))
-            for (const p of ring.filter((p) => Math.abs(p.y - extreme) < 1e-9)) {
-              const d = Math.abs(p.x / f.halfWidth) ** n
-                + Math.abs((s.centerY + p.y - f.centerY) / f.halfHeight) ** n
-              expect(d, `${tag} z=${s.z} x=${p.x.toFixed(3)}`).toBeLessThan(1)
-            }
-          }
-        }
-      })
-
-      /**
-       * Bf 109 自座艙後方到尾錐，側視的背線與腹線都是**直線**（機身是等直
-       * 錐度的半殼單殼構造，不是收口的錐體）。原本的背線斜率是
-       * −0.0615 → −0.0538 → −0.0750：中段變平、尾段折下去。
-       *
-       * P-51D 不受此拘束——它的後段背脊確實是有弧度的，所以只驗 Bf 109。
-       */
-      it('座艙罩尾端與機身背線齊平，不留斷差', () => {
-        const tail = sil.canopy.sections[sil.canopy.sections.length - 1]!
-        const f = fuselageAt(sil.fuselage.sections, tail.z)
-        // 缺陷版本：Bf 109 罩尾 0.55 對背線 0.456（差 0.094）、P-51D 差 0.10
-        expect(Math.abs((tail.centerY + tail.halfHeight) - (f.centerY + f.halfHeight)))
-          .toBeLessThan(0.02)
-      })
-
-      if (spec.id === 'bf109g6') {
-        /**
-         * 【背線／腹線的形狀：以 E-4 參考模型的剪影量測為準】
-         *
-         * 這一組經歷過兩次取代，**兩次都是測試錯了，不是幾何錯**：
-         *
-         * 一、最早要求「座艙後方背線相對直線的偏差 < 3 mm」。那個容差是拿到
-         *     量測之前自己訂的；G-10 線稿實測偏離約 22 mm，是容差的 7 倍——
-         *     等於會把真機的形狀判成不及格。
-         * 二、接著改為比對 G-10 線稿的絕對高度。後來把 E-4 高面數模型與程序化
-         *     模型對齊算圖、直接從畫面抽剪影（每欄取**最長連續區段**，天線
-         *     拉線與放下的起落架支柱因此自動被濾掉），發現兩個來源結構性矛盾：
-         *
-         *       總收口量（最深處 → 85%）  線稿 −0.62 m  模型 −0.635 m  幾乎一致
-         *       其中背線下降              線稿 −0.10    模型 −0.37
-         *       其中腹線抬升              線稿 +0.52    模型 +0.21
-         *       腹線抬升 / 背線下降        線稿 5.1      模型 0.58
-         *
-         *     專案負責人裁決以 E-4 模型為準：中心線幾乎水平，機尾錐收在機身
-         *     中間高度。當時的幾何比值是 8.0，比兩個來源都更極端。
-         *
-         * 現在的判準刻意**與垂直基準面無關**——只看深度與收口的分配比例。
-         * 上一版踩的坑正是：兩個來源各自用不同的基準，絕對高度無從比較。
-         */
-        const REF_DEPTH = [   // 全長百分比 → 機身深度（m），量自 E-4 剪影
-          [0.55, 1.202],
-          [0.70, 0.943],
-          [0.85, 0.567],
-        ] as const
-
-        const profileAt = (frac: number) => {
-          const noseTip = sil.fuselage.sections[0]!.z - sil.spinner.length
-          const f = fuselageAt(sil.fuselage.sections, noseTip + frac * sil.realLength)
-          return { top: f.centerY + f.halfHeight, bottom: f.centerY - f.halfHeight }
-        }
-
-        it('機身深度吻合參考模型剪影', () => {
-          for (const [frac, depth] of REF_DEPTH) {
-            const p = profileAt(frac)
-            expect(p.top - p.bottom, `深度 @ ${frac * 100}%`).toBeCloseTo(depth, 1)
-          }
-        })
-
-        it('機尾收口由背線下降與腹線抬升共同負擔（中心線幾乎水平）', () => {
-          const a = profileAt(0.55)
-          const b = profileAt(0.85)
-          const spineDrop = a.top - b.top
-          const bellyRise = b.bottom - a.bottom
-          expect(spineDrop).toBeGreaterThan(0)
-          expect(bellyRise).toBeGreaterThan(0)
-          // 參考模型 0.66；G-10 線稿 5.1；被裁決取代的舊幾何 8.0
-          expect(bellyRise / spineDrop).toBeGreaterThan(0.4)
-          expect(bellyRise / spineDrop).toBeLessThan(1.2)
-        })
-
-        /**
-         * 高背脊：座艙罩玻璃頂與其後方背脊的高度差要小。109 的座艙罩只是
-         * 薄薄一片凸出物（後方視野惡名昭彰的原因），不是擱在錐體上的氣泡罩。
-         */
-        it('座艙罩頂與其後方背脊接近齊平（高背脊）', () => {
-          const roof = Math.max(...sil.canopy.sections.map((s) => s.centerY + s.halfHeight))
-          const tail = sil.canopy.sections[sil.canopy.sections.length - 1]!
-          const deck = fuselageAt(sil.fuselage.sections, tail.z)
-          // 【門檻 0.20 是量出來的，不是猜的】第一版訂 0.12 時手上沒有數字。
-          // 現在有了：機身依三視圖加深後，罩頂高出後方背脊 0.145 m，而
-          // P-51D 的氣泡罩是 0.34 m。0.20 把兩種構型分得很乾淨，也還擋得住
-          // 缺陷版本的 0.32。
-          expect(roof - (deck.centerY + deck.halfHeight)).toBeLessThan(0.20)
-        })
-
-        /** 平尾裝在垂尾上、高於背線——109 側影一眼可辨的特徵。 */
-        it('水平尾翼高於機身背線', () => {
-          const deck = fuselageAt(sil.fuselage.sections, sil.tailplane.rootZ)
-          // 缺陷版本：rootY 0.18 比背線 0.362 還低 0.18 m
-          expect(sil.tailplane.rootY).toBeGreaterThan(deck.centerY + deck.halfHeight)
-        })
-      }
-
       /**
        * 【這條擋的是實際發生過的缺陷】垂尾與背鰭原本一律從 y=0 長起，但
        * 機身後段的中心線是抬高的，下半截因此埋在機身裡。等它從背線冒出來
@@ -564,18 +422,6 @@ describe('外型與真機的對照', () => {
           // 二、前緣在背線高度的 Z，與設計站位的差距（缺陷版本 109 為 0.409 m）
           const drift = Math.tan(f.sweep) * Math.max(0, deckTop - rootY)
           expect(drift / sil.realLength, `${tag} 可見根部偏移`).toBeLessThan(0.02)
-        }
-      })
-
-      it('每個凸起塊都露在機身外', () => {
-        for (const b of sil.blisters) {
-          const f = fuselageAt(sil.fuselage.sections, b.z)
-          // 「露出來」可以靠垂直方向（鼓包、進氣口）也可以靠橫向（翼下散熱器、
-          // 尾翼支柱）。支柱本來就有一端插進機身裡，只檢查垂直方向會誤判。
-          const up = (b.y + b.height / 2) - (f.centerY + f.halfHeight)
-          const down = (f.centerY - f.halfHeight) - (b.y - b.height / 2)
-          const side = Math.abs(b.x) + b.width / 2 - f.halfWidth
-          expect(Math.max(up, down, side)).toBeGreaterThan(0.02)
         }
       })
 
