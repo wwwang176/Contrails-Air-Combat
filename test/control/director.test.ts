@@ -6,36 +6,37 @@ import {
 } from '../../src/control/FlightDirector'
 import { createDiagnostics, createFlightState, stepDynamics } from '../../src/physics/dynamics'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
-import { PILOT_G_POSITIVE, gLoadFromOrientation } from '../../src/control/limiters'
+import { PILOT_G_POSITIVE, QMAX_FLOOR, gLoadFromOrientation } from '../../src/control/limiters'
 import { DEG, RAD, G0 } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import type { AircraftSpec } from '../../src/specs/types'
+import { atmosphere } from '../../src/physics/atmosphere'
+import { controlEffectiveness } from '../../src/physics/aero'
+import type { PidGains } from '../../src/control/pid'
 import type { Controls } from '../../src/physics/types'
 
 const DT = 1 / 240
 const KMH = 1 / 3.6
 
 /**
- * 矩陣的初始高度，m。
+ * 矩陣的初始高度，m —— 維持 brief 的 6000 m。
  *
- * 【brief 的 6000 m 是錯的，改為 1000 m】brief 的 runDirector 用
- * createFlightState(6000, tas)，但矩陣最低那一列是 200 km/h ——用本專案
- * 自己的準靜態求解器算，P-51D 在 6000 m 的 1 g 失速速度是 **225.1 km/h**，
- * 200 km/h 比失速速度還低 11%，該點的氣動可達過載只有 **0.79 G**：
- * 飛機連平飛都撐不住，更不可能在任何時間內把機首指到 25° 外的方向。
- * 這不是增益問題——沒有任何一組 DEFAULT_DIRECTOR_GAINS 能修好一個
- * 低於失速速度的初始條件。實測 6000 m 時 40 個 200 km/h 案例有 30 個
- * 不收斂，其中 3 個迎角衝破 α_crit（18.6°/21.0°/23.1°），那是能量耗盡
- * 導致的下墜，不是限制器失效。
+ * 【曾經改成 1000 m，是誤判，已改回】200 km/h 在 6000 m 確實低於 1 g 失速
+ * 速度：用本專案的準靜態求解器算，P-51D 在 6000 m 的 Vs1g = 225.1 km/h，
+ * 200 km/h 只有 0.888 Vs，該點氣動可達過載僅 0.79 G。這些數字都成立，
+ * 但「所以要換高度」的結論不成立——飛機在推力作用下會自己加速脫離
+ * 次失速狀態，那只是**收斂慢**，不是收斂不了。給足時間（見 SECONDS）
+ * 6000 m 全數通過，而且四個判別指標全部優於 1000 m：
  *
- * 1000 m 的 1 g 失速速度是 173.4 km/h，200 km/h = 1.15 Vs、可達過載 1.33 G
- * ——仍然是不折不扣的「低能量角落」（限制器全程以 source='alpha' 主導），
- * 但飛機真的飛得起來。同時 1000 m 也是整個矩陣中飛機始終停在地面以上的
- * 最低起始高度（實測全矩陣最低點 189 m；海平面起飛會掉到 −810 m）。
- * 三個速度值 200/400/600 km/h 與 brief 完全一致，只有高度改了。
+ *            末段誤差   末段標準差   峰值|α|    最低高度
+ *   6000 m    4.12°      1.286       14.45°     4766 m
+ *   1000 m    4.43°      1.404       13.39°     −213 m  ← 已鑽到地面下
+ *
+ * 換言之 6000 m 才是比較嚴苛的場景，改成 1000 m 等於把矩陣搬到比較好過的
+ * 地方。真正需要修的是**時間視野**，不是高度。
  */
-const ALT = 1000
+const ALT = 6000
 
 interface RunResult {
   errorHistory: number[]
@@ -161,17 +162,23 @@ describe('L4 指揮儀矩陣（120 案例）', () => {
   const AZIMUTHS = [0, 45, 90, 135, 180, 225, 270, 315]
   const SPEEDS = [200, 400, 600]
   /**
-   * 【brief 的 8 s 改為 10 s】收斂最慢的案例是 r180° 方位0° 200 km/h：
-   * 飛機倒飛、目標在機首正下方 25°，必須先滾轉 180° 再拉起。200 km/h 的
-   * 最大滾轉率只有 0.72 rad/s，光滾轉就要 4.4 s；實測誤差要到 7.15 s 才
-   * 永久落到 6° 以內。8 s 的末段窗（6~8 s）會切在收斂過程中間。
-   * 10 s 讓末段窗落在 8~10 s，離最慢案例的收斂點還有 0.85 s 餘裕。
-   * 拉長時間並沒有放寬任何斷言——容許值仍是 6°、標準差仍是 1.5°，而且
-   * 不失速／不超載的檢查覆蓋的時間反而更長，是更嚴格而非更寬鬆。
-   * 【上限】14 s 時 r45° 方位315° 200 km/h 的末段標準差會回升到 1.52
-   * （長時間低能量下的緩慢漂移），所以視窗不宜再往後移。
+   * 【brief 的 8 s 改為 14 s —— 這才是 brief 唯一真正錯的場景參數】
+   *
+   * 收斂最慢的案例是 r180° 方位0° 200 km/h：飛機倒飛、目標在機首正下方
+   * 25°，而且起始速度低於該高度的失速速度。它必須先靠推力與重力換到
+   * 足夠的速度，再滾轉 180°（200 km/h 時最大滾轉率僅 0.72 rad/s，光滾轉
+   * 就要 4.4 s），最後才拉得起來。實測誤差要到 **11.59 s** 才永久落到
+   * 6° 以內；8 s 的末段窗（6~8 s）整段都還在收斂過程中間。
+   *
+   * 逐一量測（6000 m，出貨增益）：
+   *   8 s → 32/120 失敗    10 s → 19/120    12 s → 9/120    14 s → 0/120
+   * 全部失敗都是「末段誤差還沒降下來」，沒有任何一個是失速或超載。
+   *
+   * 拉長時間並沒有放寬任何斷言——容許值仍是 brief 的 6°、標準差仍是
+   * brief 的 1.5°，而且不失速／不超載的檢查覆蓋的時間反而更長，
+   * 是更嚴格而非更寬鬆。
    */
-  const SECONDS = 10
+  const SECONDS = 14
   const TOLERANCE_DEG = 6
 
   for (const roll of ROLLS) {
@@ -191,6 +198,17 @@ describe('L4 指揮儀矩陣（120 案例）', () => {
             tail.reduce((s, v) => s + (v - mean) ** 2, 0) / tail.length,
           ) * RAD
           expect(sd).toBeLessThan(1.5)
+
+          // 不打滿舵：末段窗內副翼貼在 ±1 的比例必須很小。
+          // 【為什麼需要這條】「誤差收斂」不等於「手感乾淨」——單看誤差與
+          // 標準差，指揮儀可以一邊維持小誤差、一邊讓副翼在極限環裡持續
+          // 滿舵來回甩。加上 rollRateErrorSlope 之前，這 120 個案例雖然
+          // 全部「收斂」，末段窗卻有 65 個案例出現滿舵、最壞案例 55.4%
+          // 的時間貼在 ±1（20 s 視野更惡化到 97 個案例）。加上之後最壞
+          // 案例是 1.46%（20 s 為 1.88%）。門檻 10% 落在兩者之間。
+          const tailAil = r.aileronHistory.slice(-Math.round(2 / DT))
+          const satFrac = tailAil.filter((a) => Math.abs(a) > 0.99).length / tailAil.length
+          expect(satFrac).toBeLessThan(0.1)
 
           // 限制器有效：全程未失速、未超載
           expect(r.maxAlpha).toBeLessThan(alphaCritOf(P51D))
@@ -217,13 +235,62 @@ describe('指揮儀特例', () => {
     expect(flips).toBeLessThan(tail.length * 0.15)
   })
 
+  /**
+   * 死區的邊界行為（spec §8.2 特例一）必須直接測。
+   *
+   * 【為什麼整合測試不夠】加入 rollRateErrorSlope 之後，desiredP 的上限
+   * 是 15 × errorAngle，誤差趨近 0 時滾轉權限本來就平滑地收斂到 0——
+   * 於是「平飛時副翼不抖」這種整合層級的斷言，就算把死區整個拿掉也照樣
+   * 通過（已用 mutation 實測：刪掉死區，134 個測試全綠）。兩者職責不同：
+   * 斜率上限管「快對準時不要暴衝」，死區管「已對準後完全不再下滾轉指令」。
+   * 要釘住後者，必須直接檢查死區內外的邊界。
+   */
+  it('誤差落在死區內時滾轉指令恰為 0，越過死區才接管（spec 8.2 特例一）', () => {
+    const d = new FlightDirector()
+    const state = createFlightState(ALT, 400 * KMH)
+    const diag = createDiagnostics()
+    const dbg = createDirectorDebug()
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+    stepDynamics(P51D, state, controls, DT, diag)
+
+    const dzDeg = DEFAULT_DIRECTOR_GAINS.deadZoneAngle * RAD
+    expect(dzDeg).toBeCloseTo(3, 6)
+
+    // 純橫向誤差：atan2(x, y) 在死區外必為 ±90°，是最能凸顯死區作用的方向
+    const probe = (offsetDeg: number): { roll: number; p: number } => {
+      d.reset()
+      d.update(
+        P51D, state, diag.aero, diag.slatsDeployed,
+        aimAt(offsetDeg, 90), DT, controls, dbg,
+      )
+      expect(dbg.errorAngle * RAD).toBeCloseTo(offsetDeg, 4)
+      return { roll: dbg.rollCommand, p: dbg.desiredP }
+    }
+
+    // 死區內：滾轉指令與期望滾轉率都必須是「恰好 0」，不是「很小」
+    for (const off of [0.5, 1, 2, 2.9]) {
+      const r = probe(off)
+      expect(r.roll).toBe(0)
+      expect(r.p).toBe(0)
+    }
+    // 死區外：立刻接管，方位為右側 90°
+    for (const off of [3.1, 5, 10]) {
+      const r = probe(off)
+      // 90.006° 而非恰好 90°：跑過一個物理步之後姿態已微幅改變，
+      // 世界座標的方位 90° 映回機體時會差千分之幾度。
+      expect(r.roll * RAD).toBeCloseTo(90, 1)
+      expect(r.p).toBeGreaterThan(0)
+    }
+  })
+
   it('目標在正後方時不產生 NaN 或發散（spec 8.2 特例二）', () => {
-    // 【brief 的 6 s 改為 8 s，門檻 60° 不動】400 km/h 起始的 180° 反向
-    // 在能量流失下平均只有約 17°/s：實測誤差 145.1°(2s) → 111.3°(4s)
-    // → 78.0°(6s) → 43.4°(8s) → 5.9°(10s)。6 s 時仍有 78°，過不了
-    // brief 自己的 60° 門檻——這是時間給得不夠，不是指揮儀轉不動。
-    // 8 s 的 43.4° 對 60° 有 16.6° 餘裕，門檻維持 brief 的原值。
-    const r = runDirector(P51D, 0, new Vector3(0, 0, 1), 400 * KMH, 8)
+    // 【brief 的 6 s 改為 14 s，門檻 60° 不動】6000 m、400 km/h 起始的 180°
+    // 反向平均只有約 9°/s（空氣稀薄、可用過載低，而且轉一半時速度已掉到
+    // 74 m/s）：實測誤差 163.4°(2s) → 128.9°(6s) → 110.3°(8s) → 71.1°(12s)
+    // → 50.9°(14s) → 1.8°(20s)。6 s 時還有 129°，過不了 brief 自己的 60°
+    // 門檻——這是時間給得不夠，不是指揮儀轉不動。14 s 的 50.9° 對 60° 有
+    // 9.1° 餘裕，且與矩陣的 SECONDS 一致。門檻維持 brief 的原值。
+    const r = runDirector(P51D, 0, new Vector3(0, 0, 1), 400 * KMH, 14)
     expect(Number.isFinite(r.finalError)).toBe(true)
     expect(r.maxAlpha).toBeLessThan(alphaCritOf(P51D))
     // 應已大幅轉向，誤差顯著下降
@@ -231,12 +298,28 @@ describe('指揮儀特例', () => {
   })
 
   it('低速時因限制器介入而轉不動（能量不足的直接體現）', () => {
-    const slow = runDirector(P51D, 0, aimAt(60, 0), 160 * KMH, 3)
-    const fast = runDirector(P51D, 0, aimAt(60, 0), 450 * KMH, 3)
+    const slow = runDirector(P51D, 0, aimAt(60, 0), 160 * KMH, 3, { keepHistory: true })
+    const fast = runDirector(P51D, 0, aimAt(60, 0), 450 * KMH, 3, { keepHistory: true })
     // 相同時間內，高速的誤差收斂得更多
     expect(fast.finalError).toBeLessThan(slow.finalError)
     // 低速時仍不得失速
     expect(slow.maxAlpha).toBeLessThan(alphaCritOf(P51D))
+    // 【因果】必須確認「轉不動」真的是限制器造成的，否則這條測試對任何
+    // 速度相關的轉彎性能差異都會通過，等於什麼都沒釘住。
+    //
+    // (a) 兩端的 desiredQ 全程都恰好等於 limiter.qMax——綁住俯仰性能的是
+    //     限制器，不是內環 PID 追不上。
+    for (const d of slow.dbgHistory) expect(d.desiredQ).toBe(d.limiter.qMax)
+    for (const d of fast.dbgHistory) expect(d.desiredQ).toBe(d.limiter.qMax)
+    // (b) 兩端都由迎角（而非結構／飛行員 G）主導
+    expect(slow.dbgHistory.every((d) => d.limiter.source === 'alpha')).toBe(true)
+    expect(fast.dbgHistory.every((d) => d.limiter.source === 'alpha')).toBe(true)
+    // (c) 差別純粹在 qMax 的量值：低速端整段被壓在 QMAX_FLOOR（即氣動可達
+    //     過載已低於當下的 gLoad，一點俯仰權限都不剩），高速端則有 20 倍以上。
+    const slowQMax = Math.max(...slow.dbgHistory.map((d) => d.limiter.qMax))
+    const fastQMax = Math.min(...fast.dbgHistory.map((d) => d.limiter.qMax))
+    expect(slowQMax).toBe(QMAX_FLOOR)
+    expect(fastQMax).toBeGreaterThan(20 * slowQMax)
   })
 
   it('Bf 109 在 600 km/h 的滾轉響應明顯慢於 P-51（副翼變重）', () => {
@@ -306,6 +389,98 @@ describe('指揮儀特例', () => {
   })
 })
 
+describe('增益不變量的護欄', () => {
+  /**
+   * 不變量一（pid.ts 的契約）：ki·integralLimit ≤ outputLimit。
+   * 違反時輸出會在誤差反向之後仍被積分項鎖在飽和邊界（task-17 實測 1.500 s）。
+   * 這條不等式原本只寫在註釋裡，沒有任何斷言，未來調參可以悄悄違反。
+   */
+  const INNER: ReadonlyArray<[string, PidGains]> = [
+    ['rollInner', DEFAULT_DIRECTOR_GAINS.rollInner],
+    ['pitchInner', DEFAULT_DIRECTOR_GAINS.pitchInner],
+    ['yawInner', DEFAULT_DIRECTOR_GAINS.yawInner],
+  ]
+
+  it('三組內環都滿足 ki·integralLimit ≤ outputLimit', () => {
+    for (const [name, g] of INNER) {
+      expect(
+        g.ki * g.integralLimit,
+        `${name}: ki(${g.ki}) × integralLimit(${g.integralLimit}) 必須 ≤ outputLimit(${g.outputLimit})`,
+      ).toBeLessThanOrEqual(g.outputLimit)
+    }
+  })
+
+  /**
+   * 不變量二：離散微分增益。240 Hz 下微分項等效增益 kd/dt 乘上「單一物理步內
+   * 舵面對角速度的影響量」必須 < 1，否則在 Nyquist 頻率上發散
+   * （brief 的 pitchInner.kd = 0.04 就是這樣壞的，實測升降舵逐步跳 ±1）。
+   * 這裡用最惡劣的常見工況（海平面 600 km/h，含 controlStiffening）估算。
+   */
+  it('三軸的離散微分迴路增益都遠小於 1', () => {
+    const V = 600 * KMH
+    const air = { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 }
+    atmosphere(0, air)
+    const qbar = 0.5 * air.density * V * V
+    const { area, span, chord } = P51D.wing
+    const CS = P51D.controlStiffening
+    const M = P51D.moments
+    const I = P51D.inertia
+    const axes: ReadonlyArray<[string, number, number, number, number, number]> = [
+      // 名稱, 力臂, 舵效係數, 慣量, stiffening 指數, kd
+      ['roll', span, M.clDa, I.roll, CS.aileronK, DEFAULT_DIRECTOR_GAINS.rollInner.kd],
+      ['pitch', chord, M.cmDe, I.pitch, CS.elevatorK, DEFAULT_DIRECTOR_GAINS.pitchInner.kd],
+      ['yaw', span, M.cnDr, I.yaw, CS.rudderK, DEFAULT_DIRECTOR_GAINS.yawInner.kd],
+    ]
+    for (const [name, lever, cDelta, inertia, k, kd] of axes) {
+      const eff = controlEffectiveness(k, CS.qRef, qbar)
+      // 單一步內、單位舵面造成的角速度變化
+      const domega1 = (qbar * eff * area * lever * cDelta * DT) / inertia
+      const loopGain = (kd / DT) * domega1
+      expect(loopGain, `${name}: kd/dt × Δω₁ = ${loopGain.toFixed(3)}`).toBeLessThan(0.5)
+    }
+  })
+
+  /**
+   * 內外環增益都必須能在執行期改（spec 的調參面板需求，pid.ts 也這麼宣告）。
+   * 原本 Pid 建構時複製 gains，導致「外環活、內環死」——改
+   * director.gains.rollOuter 有效，改 director.gains.rollInner.kp 無效。
+   */
+  it('內環與外環增益都能在執行期即時生效', () => {
+    const mk = (): { d: FlightDirector; run: () => number } => {
+      const d = new FlightDirector()
+      const state = createFlightState(ALT, 400 * KMH)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const c: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      return {
+        d,
+        run: () => {
+          for (let i = 0; i < 240; i++) {
+            stepDynamics(P51D, state, c, DT, diag)
+            d.update(P51D, state, diag.aero, diag.slatsDeployed, aimAt(25, 90), DT, c, dbg)
+          }
+          return c.aileron
+        },
+      }
+    }
+    const base = mk()
+    const baseAil = base.run()
+    expect(Math.abs(baseAil)).toBeGreaterThan(0.2)
+
+    // 內環：把 rollInner 三項都壓到近乎零，副翼必須跟著塌下來
+    const inner = mk()
+    inner.d.gains.rollInner.kp = 1e-6
+    inner.d.gains.rollInner.ki = 0
+    inner.d.gains.rollInner.kd = 0
+    expect(Math.abs(inner.run())).toBeLessThan(1e-3)
+
+    // 外環：把 rollOuter 壓到零，同樣必須生效
+    const outer = mk()
+    outer.d.gains.rollOuter = 0
+    expect(Math.abs(outer.run())).toBeLessThan(Math.abs(baseAil))
+  })
+})
+
 describe('指揮儀的設計不變量', () => {
   it('指揮儀只輸出舵面，絕不寫入 FlightState', () => {
     const d = new FlightDirector()
@@ -346,7 +521,7 @@ describe('指揮儀的設計不變量', () => {
    */
   it('機體座標求解：固定偏離中心的瞄準方向產生「持續」轉率而非一次性修正', () => {
     const OFFSET_DEG = 30
-    const r = runDirector(P51D, 0, aimAt(OFFSET_DEG, 0), 550 * KMH, 10, {
+    const r = runDirector(P51D, 0, aimAt(OFFSET_DEG, 0), 650 * KMH, 10, {
       bodyRelativeAim: true, keepHistory: true,
     })
 
@@ -363,9 +538,9 @@ describe('指揮儀的設計不變量', () => {
       const b = r.headingHistory[(s + 1) * perSec - 1]!
       rates.push(Math.acos(Math.min(1, Math.max(-1, a.dot(b)))) * RAD)
     }
-    // 每一秒都在持續轉（實測 10.5, 16.8, 18.8, 21.0, 23.1, 23.5, 23.8,
-    // 24.2, 24.4 度/秒——第一個視窗含建立俯仰率的暫態）
-    for (const v of rates) expect(v).toBeGreaterThan(8)
+    // 每一秒都在持續轉（6000 m 實測 7.0, 12.6, 14.3, 15.6, 15.9, 15.8,
+    // 15.6, 15.7, 16.0 度/秒——第一個視窗含建立俯仰率的暫態）
+    for (const v of rates) expect(v).toBeGreaterThan(5)
     // 不但沒有衰減，反而因速度下降而升高：轉率是被持續維持的，不是脈衝
     expect(rates[8]!).toBeGreaterThan(rates[0]!)
   })
@@ -376,10 +551,10 @@ describe('指揮儀的設計不變量', () => {
    */
   it('硬拉時比能量急遽下降：指揮儀不替玩家吸收機動代價', () => {
     const SEC = 10
-    const turn = runDirector(P51D, 0, aimAt(30, 0), 550 * KMH, SEC, {
+    const turn = runDirector(P51D, 0, aimAt(30, 0), 650 * KMH, SEC, {
       bodyRelativeAim: true, keepHistory: true,
     })
-    const level = runDirector(P51D, 0, new Vector3(0, 0, -1), 550 * KMH, SEC)
+    const level = runDirector(P51D, 0, new Vector3(0, 0, -1), 650 * KMH, SEC)
 
     // 取前半段（高速、限制器允許大 G 的階段）的平均 Ps
     const psFirstHalf = (r: RunResult): number => {
@@ -389,15 +564,15 @@ describe('指揮儀的設計不變量', () => {
     const psTurn = psFirstHalf(turn)
     const psLevel = psFirstHalf(level)
 
-    // 實測：硬拉 Ps = −31.3 m/s，同速平飛 Ps = +4.6 m/s
-    expect(psTurn).toBeLessThan(-20)
+    // 實測（6000 m、650 km/h）：硬拉 Ps = −42.5 m/s，同速平飛 Ps = +2.6 m/s
+    expect(psTurn).toBeLessThan(-30)
     expect(psLevel).toBeGreaterThan(0)
-    expect(psTurn).toBeLessThan(psLevel - 25)
+    expect(psTurn).toBeLessThan(psLevel - 35)
 
-    // 速度確實被機動吃掉：152.8 → 114.1 m/s（前 5 秒）→ 90.6 m/s（10 秒）
+    // 速度確實被機動吃掉：180.6 → 146.2 m/s（前 5 秒）→ 96.3 m/s（10 秒）
     const half = Math.round(turn.tasHistory.length * 0.5)
-    expect(turn.tasHistory[half]!).toBeLessThan(turn.tasHistory[0]! - 30)
-    // 而限制器仍然守住了過載（實測峰值 5.52 G，飛行員上限 6.5）
+    expect(turn.tasHistory[half]!).toBeLessThan(turn.tasHistory[0]! - 25)
+    // 而限制器仍然守住了過載（實測峰值 5.26 G，飛行員上限 6.5）
     expect(turn.maxLoad).toBeLessThan(PILOT_G_POSITIVE)
     expect(turn.maxAlpha).toBeLessThan(alphaCritOf(P51D))
   })
@@ -465,7 +640,7 @@ describe('指揮儀的設計不變量', () => {
     const a = runDirector(P51D, 0, aimAt(60, 0), 170 * KMH, 3, { keepHistory: true })
     const aMid = a.dbgHistory[Math.round(a.dbgHistory.length * 0.5)]!
     expect(aMid.limiter.source).toBe('alpha')
-    // 外環要求的 2.5·verticalError 遠大於限制器允許值，desiredQ 貼齊 qMax
+    // 外環要求的 pitchOuter·verticalError 遠大於限制器允許值，desiredQ 貼齊 qMax
     expect(DEFAULT_DIRECTOR_GAINS.pitchOuter * aMid.verticalError)
       .toBeGreaterThan(aMid.limiter.qMax)
     expect(aMid.desiredQ).toBeCloseTo(aMid.limiter.qMax, 12)

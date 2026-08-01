@@ -24,14 +24,29 @@ export interface PidGains {
  * 必須自行維持 `ki·integralLimit ≤ outputLimit`，否則會重現這個延遲。
  */
 export class Pid {
-  /** 可直接修改，供調參面板即時調整。 */
+  /**
+   * 可直接修改，供調參面板即時調整。
+   *
+   * 【Task 18 修正：改為持有參考，不再複製】原本是 `this.gains = { ...gains }`，
+   * 於是 `new Pid(x)` 之後對 `x` 的修改完全不會影響控制器。這在
+   * FlightDirector 上會變成一個特別惡劣的陷阱：它以
+   * `new Pid(this.gains.rollInner)` 建構，所以調參面板改
+   * `director.gains.rollOuter`（外環，直接讀）會生效，改
+   * `director.gains.rollInner.kp`（內環，已被複製）卻悄悄無效。
+   * 實測：把 rollInner.kp 設成 0.001，副翼仍輸出 1.00000。
+   * 「外環活、內環死」比兩者都死更難察覺，也與本類別上方自己宣告的
+   * 「供調參面板即時調整」契約矛盾。改為持有呼叫端傳入的同一個物件。
+   *
+   * 呼叫端因此必須自己保證傳入的物件生命週期正確（FlightDirector 傳的是
+   * 它 structuredClone 出來、自己持有的 this.gains.*，不會與其他實例共享）。
+   */
   readonly gains: PidGains
   private integral = 0
   private prevError = 0
   private hasPrev = false
 
   constructor(gains: PidGains) {
-    this.gains = { ...gains }
+    this.gains = gains
   }
 
   reset(): void {
