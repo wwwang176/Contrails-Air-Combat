@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { CRASH_CLEARANCE, isCrashed } from '../../src/aircraft/crash'
-import { aimDirectionBody } from '../../src/input/aim'
+import { maxAimAngle, slewAimWorld } from '../../src/input/aim'
 import { AIM_RADIUS } from '../../src/input/InputState'
 import { specificExcessPower } from '../../src/analysis/envelope'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -14,55 +14,72 @@ import { BF109G6 } from '../../src/specs/bf109g6'
 
 const DT = 1 / 240
 const FOV = 65 * DEG
-const centre = aimDirectionBody(0, 0, FOV, new Vector3())
+const HALF_FOV = FOV / 2
+/** 與 main.ts 相同的幀結構：60 fps，每幀 4 個 240 Hz 子步。 */
+const FRAME_HZ = 60
+const SUBSTEPS = 4
+/** 世界軸對齊的相機，與目前的暫時跟隨相機一致。 */
+const CAM = new Quaternion()
 
-function fly(ac: Aircraft, aim: Vector3, throttle: number, seconds: number) {
-  const steps = Math.round(seconds / DT)
-  for (let i = 0; i < steps; i++) ac.update(aim, throttle, DT)
+const noseScratch = new Vector3()
+const noseOf = (ac: Aircraft) =>
+  noseScratch.set(0, 0, -1).applyQuaternion(ac.state.orientation)
+const errDeg = (ac: Aircraft, aim: Vector3) => aim.angleTo(noseOf(ac)) * RAD
+const headingDeg = (ac: Aircraft) =>
+  Math.atan2(ac.state.velocity.x, -ac.state.velocity.z) * RAD
+
+/**
+ * 一幀：先依滑鼠位移移動世界瞄準點（含圓錐夾制），再跑 4 個物理步。
+ * 順序與 main.ts 逐行相同——遊戲怎麼跑，測試就怎麼跑。
+ */
+function frame(ac: Aircraft, aim: Vector3, dx: number, dy: number, throttle: number) {
+  slewAimWorld(aim, dx, dy, CAM, noseOf(ac), FOV)
+  for (let s = 0; s < SUBSTEPS; s++) ac.update(aim, throttle, DT)
 }
 
+/** 飛 seconds 秒；dx/dy 為每幀的滑鼠位移（0 = 放著不動）。 */
+function fly(
+  ac: Aircraft, aim: Vector3, throttle: number, seconds: number, dx = 0, dy = 0,
+) {
+  const frames = Math.round(seconds * FRAME_HZ)
+  for (let f = 0; f < frames; f++) frame(ac, aim, dx, dy, throttle)
+}
+
+/** 世界座標的瞄準點：由機首（單位姿態）甩出指定角度。超過夾制會被夾住。 */
+function aimOffsetBy(rightRad: number, upRad: number): Vector3 {
+  const aim = new Vector3(0, 0, -1)
+  return slewAimWorld(
+    aim, rightRad / HALF_FOV, upRad / HALF_FOV, CAM, new Vector3(0, 0, -1), FOV,
+  )
+}
+
+/** 瞄準點就放在機首上（＝準星置中）。 */
+const onNose = () => new Vector3(0, 0, -1)
+
 describe('Aircraft', () => {
-  it('準星置中時大致維持直線飛行', () => {
+  it('瞄準點在機首上時維持直線飛行', () => {
     const ac = new Aircraft(P51D, 5000, 170)
-    fly(ac, centre, 0.8, 5)
+    fly(ac, onNose(), 0.8, 5)
     expect(Math.abs(ac.state.position.x)).toBeLessThan(60)
     expect(ac.dbg.errorAngle).toBeLessThan(5 * DEG)
-  })
-
-  it('準星偏右時建立穩定右轉（航向持續改變）', () => {
-    const ac = new Aircraft(P51D, 5000, 180)
-    const right = aimDirectionBody(0.3, 0, FOV, new Vector3())
-    fly(ac, right, 1.0, 3)
-    const headingA = Math.atan2(ac.state.velocity.x, -ac.state.velocity.z)
-    fly(ac, right, 1.0, 2)
-    const headingB = Math.atan2(ac.state.velocity.x, -ac.state.velocity.z)
-    expect(headingB).not.toBeCloseTo(headingA, 2)
   })
 
   it('比能量在無動力時遞減', () => {
     const ac = new Aircraft(P51D, 6000, 200)
     const before = ac.specificEnergy
-    fly(ac, centre, 0, 10)
+    fly(ac, onNose(), 0, 10)
     expect(ac.specificEnergy).toBeLessThan(before)
   })
 
   it('全油門平飛時 Ps 為正', () => {
     const ac = new Aircraft(P51D, 5000, 140)
-    fly(ac, centre, WEP_THROTTLE, 3)
+    fly(ac, onNose(), WEP_THROTTLE, 3)
     expect(ac.specificExcessPowerActual).toBeGreaterThan(0)
-  })
-
-  it('大 G 轉彎時 Ps 顯著為負（能量戰的核心體感）', () => {
-    const ac = new Aircraft(P51D, 4000, 250)
-    const hardTurn = aimDirectionBody(0.35, 0.15, FOV, new Vector3())
-    fly(ac, hardTurn, WEP_THROTTLE, 6)
-    expect(ac.specificExcessPowerActual).toBeLessThan(-10)
-    expect(ac.state.velocity.length()).toBeLessThan(250)
   })
 
   it('實測 Ps 與求解器在穩定平飛時接近', () => {
     const ac = new Aircraft(P51D, 5000, 160)
-    fly(ac, centre, WEP_THROTTLE, 2)
+    fly(ac, onNose(), WEP_THROTTLE, 2)
     const expected = specificExcessPower(
       P51D, ac.state.position.y, ac.state.velocity.length(), 1, WEP_THROTTLE,
     )
@@ -71,16 +88,16 @@ describe('Aircraft', () => {
 
   it('setSpec 切換機種並重置控制器', () => {
     const ac = new Aircraft(P51D, 5000, 180)
-    fly(ac, aimDirectionBody(0.3, 0.2, FOV, new Vector3()), 1, 2)
+    fly(ac, aimOffsetBy(6 * DEG, 4 * DEG), 1, 2)
     ac.setSpec(BF109G6)
     expect(ac.spec.id).toBe('bf109g6')
-    ac.update(centre, 1, DT)
+    ac.update(onNose(), 1, DT)
     expect(Number.isFinite(ac.state.velocity.length())).toBe(true)
   })
 
   it('reset 恢復初始狀態', () => {
     const ac = new Aircraft(P51D, 5000, 180)
-    fly(ac, aimDirectionBody(0.3, 0, FOV, new Vector3()), 1, 4)
+    fly(ac, aimOffsetBy(10 * DEG, 0), 1, 4)
     ac.reset(3000, 150)
     expect(ac.state.position.y).toBe(3000)
     expect(ac.state.velocity.length()).toBeCloseTo(150, 6)
@@ -92,22 +109,123 @@ describe('Aircraft', () => {
 
   it('prevPosition 在每步更新，供渲染插值使用', () => {
     const ac = new Aircraft(P51D, 5000, 180)
-    ac.update(centre, 1, DT)
+    ac.update(onNose(), 1, DT)
     const p1 = ac.prevPosition.clone()
-    ac.update(centre, 1, DT)
+    ac.update(onNose(), 1, DT)
     expect(ac.prevPosition.equals(p1)).toBe(false)
   })
 
   it('長時間連續機動不產生 NaN', () => {
     const ac = new Aircraft(BF109G6, 5000, 200)
-    for (let i = 0; i < Math.round(60 / DT); i++) {
-      const t = i * DT
-      const aim = aimDirectionBody(0.3 * Math.sin(t * 0.5), 0.25 * Math.cos(t * 0.3), FOV, new Vector3())
-      ac.update(aim, WEP_THROTTLE, DT)
-      if (ac.state.position.y < 200) ac.reset(5000, 200)
+    const aim = onNose()
+    const frames = Math.round(60 * FRAME_HZ)
+    for (let f = 0; f < frames; f++) {
+      const t = f / FRAME_HZ
+      // 玩家持續繞圈揮動滑鼠
+      frame(ac, aim, 0.4 * Math.sin(t * 0.5), 0.3 * Math.cos(t * 0.3), WEP_THROTTLE)
+      if (ac.state.position.y < 200) {
+        ac.reset(5000, 200)
+        aim.set(0, 0, -1)
+      }
     }
     expect(Number.isFinite(ac.state.position.length())).toBe(true)
     expect(ac.state.orientation.length()).toBeCloseTo(1, 9)
+  })
+})
+
+/**
+ * 【世界固定瞄準點的核心行為】（專案負責人裁決，見 task-20-report.md §13）
+ *
+ * 瞄準點存的是世界方向。玩家甩一下滑鼠再放手，飛機會轉到那個方向**並停住**
+ * ——十字追得上圓圈。這是與前一版（機體固定）最根本的差別：機體固定時純橫向
+ * 的偏移讓 rollCommand 恆為 ±90°，飛機以 2.5 rad/s 無止盡滾轉、8 秒航向只變
+ * 3°（實測見報告 §8）。
+ */
+describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）', () => {
+  it('甩到夾制邊緣再放手：誤差收斂、航向改變後穩住', () => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    const aim = onNose()
+    const h0 = headingDeg(ac)
+
+    // 一幀之內把滑鼠推滿 AIM_RADIUS：瞄準點落在圓錐邊界 11.38°
+    frame(ac, aim, AIM_RADIUS, 0, WEP_THROTTLE)
+    expect(errDeg(ac, aim)).toBeCloseTo(maxAimAngle(FOV) * RAD, 1)
+
+    // 放手，讓飛機自己追
+    let minErr = Infinity
+    let rollIntegral = 0 // ∫|p|dt：滾轉跑步機的直接量度
+    const frames = Math.round(8 * FRAME_HZ)
+    for (let f = 0; f < frames; f++) {
+      frame(ac, aim, 0, 0, WEP_THROTTLE)
+      minErr = Math.min(minErr, errDeg(ac, aim))
+      rollIntegral += Math.abs(ac.state.angularVelocity.z) * (SUBSTEPS * DT)
+    }
+
+    // 真的追到了（實測最小誤差 1.2°）
+    expect(minErr).toBeLessThan(2)
+    // 末態仍在 Task 18 L4 矩陣的 6° 容許值內（實測末段在 1.9°~5.5° 之間緩慢徘徊）
+    expect(errDeg(ac, aim)).toBeLessThan(6)
+    // 沒有滾轉跑步機：8 秒累積滾轉量遠小於一圈（舊模型是 2.5 rad/s × 8 s ≈ 20 rad）
+    expect(rollIntegral).toBeLessThan(6)
+    // 航向確實改變了，量級與指令偏移相當（不是舊模型的「滾了三圈、航向不動」）
+    const dh = Math.abs(headingDeg(ac) - h0)
+    expect(dh).toBeGreaterThan(5)
+    expect(dh).toBeLessThan(40)
+  })
+
+  it.each([
+    { deg: 2, label: '死區內' },
+    { deg: 6, label: '中等' },
+    { deg: maxAimAngle(FOV) * RAD, label: '貼夾制' },
+  ])('偏移 $deg°（$label）不出現滾轉跑步機', ({ deg }) => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    const aim = onNose()
+    frame(ac, aim, (deg * DEG) / HALF_FOV, 0, WEP_THROTTLE)
+
+    let rollIntegral = 0
+    const frames = Math.round(8 * FRAME_HZ)
+    for (let f = 0; f < frames; f++) {
+      frame(ac, aim, 0, 0, WEP_THROTTLE)
+      rollIntegral += Math.abs(ac.state.angularVelocity.z) * (SUBSTEPS * DT)
+    }
+    expect(rollIntegral).toBeLessThan(6)
+    expect(errDeg(ac, aim)).toBeLessThan(6)
+    // 末態滾轉率必須已經落下來（舊模型在此恆為 2.5 rad/s）
+    expect(Math.abs(ac.state.angularVelocity.z)).toBeLessThan(1.5)
+  })
+
+  it('往上甩再放手：乾淨的拉升，完全不滾轉', () => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    const aim = onNose()
+    frame(ac, aim, 0, (8 * DEG) / HALF_FOV, WEP_THROTTLE)
+    const h0 = ac.state.position.y
+
+    fly(ac, aim, WEP_THROTTLE, 6)
+    expect(errDeg(ac, aim)).toBeLessThan(1)
+    expect(ac.state.position.y).toBeGreaterThan(h0 + 100)
+    expect(Math.abs(ac.state.angularVelocity.z)).toBeLessThan(0.01)
+  })
+
+  it('滑鼠不動時瞄準點原地不動——自由視角不影響飛行的前提', () => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    const aim = onNose()
+    frame(ac, aim, 0.2, 0.1, WEP_THROTTLE)
+    const parked = aim.clone()
+    // 飛機接下來會轉向瞄準點，但瞄準點自己不能被機體拖著走
+    fly(ac, aim, WEP_THROTTLE, 3)
+    expect(aim.distanceTo(parked)).toBeLessThan(1e-9)
+  })
+
+  it('持續移動滑鼠可維持轉彎（世界固定模型下維持轉彎的方式）', () => {
+    const ac = new Aircraft(P51D, 4000, 250)
+    const aim = onNose()
+    const h0 = headingDeg(ac)
+    fly(ac, aim, WEP_THROTTLE, 8, 0.5)
+    // 瞄準點被持續推在圓錐邊界上，誤差角維持不墜
+    expect(errDeg(ac, aim)).toBeGreaterThan(8)
+    // 航向持續改變（實測 10 秒轉 139°，約 14°/s）
+    const dh = Math.abs(headingDeg(ac) - h0)
+    expect(dh).toBeGreaterThan(60)
   })
 })
 
@@ -117,15 +235,14 @@ describe('Aircraft：一步的順序', () => {
    * 因此套用於「下一步」。這與 Task 18 L4 矩陣驗證時的順序一致；順序若相反，
    * 第一步的物理就會吃到當步才算出的舵面，測試與遊戲的動力學不再是同一個。
    *
-   * 驗法：偏離中心的準星讓指揮儀在第一次 update 就必然輸出非零副翼。
+   * 驗法：偏離機首的瞄準點讓指揮儀在第一次 update 就必然輸出非零副翼。
    * 若順序正確，第一步的積分必定是用建構時的零舵面跑的——狀態必須與手動
    * 用零舵面跑一步的參考完全逐位元相同；同時 controls 已被寫成非零，
    * 證明指揮儀確實跑過（不是「根本沒呼叫」造成的假通過）。
    */
   it('stepDynamics 先於 director.update：首步使用前一步的舵面', () => {
-    const right = aimDirectionBody(0.3, 0.1, FOV, new Vector3())
     const ac = new Aircraft(P51D, 5000, 180)
-    ac.update(right, 0.8, DT)
+    ac.update(aimOffsetBy(9 * DEG, 3 * DEG), 0.8, DT)
 
     const ref = createFlightState(5000, 180)
     const refDiag = createDiagnostics()
@@ -142,14 +259,34 @@ describe('Aircraft：一步的順序', () => {
     expect(Math.abs(ac.controls.aileron)).toBeGreaterThan(0)
     expect(ac.controls.throttle).toBe(0.8)
   })
+
+  /**
+   * 【雙重轉換防呆】指揮儀的第五參數是世界方向，它自己每步做 world → body。
+   * 若 Aircraft 在傳入前先轉一次，方向會被姿態旋轉兩次。在單位姿態下兩者
+   * 相同，所以必須用一個「已經轉離單位姿態」的飛機來抓。
+   */
+  it('傳給指揮儀的是世界方向：飛機側滾後，瞄準點仍被解讀為世界方向', () => {
+    const ac = new Aircraft(P51D, 5000, 200)
+    // 側滾 90°：body 與 world 不再重合
+    ac.state.orientation.setFromAxisAngle(new Vector3(0, 0, -1), Math.PI / 2)
+    // 世界座標「機首正上方 10°」的瞄準點
+    const aim = new Vector3(0, Math.sin(10 * DEG), -Math.cos(10 * DEG))
+    ac.update(aim, 0.8, DT)
+
+    // 機首在世界仍指向 −Z，所以誤差角必須是 10°。若被轉了兩次，
+    // 指揮儀看到的方向會落在完全不同的位置，誤差角不會是 10°。
+    expect(ac.dbg.errorAngle * RAD).toBeCloseTo(10, 2)
+    // 側滾 90° 時，世界的「上」在機體座標是「右」→ 應為橫向誤差而非垂直誤差
+    expect(Math.abs(ac.dbg.lateralError * RAD)).toBeCloseTo(10, 2)
+    expect(Math.abs(ac.dbg.verticalError * RAD)).toBeLessThan(0.1)
+  })
 })
 
 describe('Aircraft：機種切換與重置不洩漏狀態', () => {
-  const hard = aimDirectionBody(0.32, 0.2, FOV, new Vector3())
-
   it('setSpec 後的行為與「同狀態的全新飛機」逐步一致（PID 積分未洩漏）', () => {
     const a = new Aircraft(P51D, 5000, 220)
-    fly(a, hard, WEP_THROTTLE, 4)
+    const aimA = onNose()
+    fly(a, aimA, WEP_THROTTLE, 4, 0.5) // 持續轉彎把積分項灌滿
     a.setSpec(BF109G6)
 
     const b = new Aircraft(BF109G6, 5000, 220)
@@ -165,9 +302,10 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
     b.controls.aileron = a.controls.aileron
     b.controls.elevator = a.controls.elevator
     b.controls.rudder = a.controls.rudder
+    const aimB = aimA.clone()
 
-    fly(a, hard, WEP_THROTTLE, 1.5)
-    fly(b, hard, WEP_THROTTLE, 1.5)
+    fly(a, aimA, WEP_THROTTLE, 1.5)
+    fly(b, aimB, WEP_THROTTLE, 1.5)
 
     expect(a.state.position.distanceTo(b.state.position)).toBeLessThan(1e-6)
     expect(Math.abs(a.controls.aileron - b.controls.aileron)).toBeLessThan(1e-9)
@@ -176,8 +314,8 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
 
   it('setSpec 清掉前緣縫翼的遲滯旗標', () => {
     const ac = new Aircraft(BF109G6, 3000, 130)
-    // 低速大迎角把縫翼逼出來
-    fly(ac, aimDirectionBody(0, 0.34, FOV, new Vector3()), WEP_THROTTLE, 3)
+    // 低速持續拉升把縫翼逼出來
+    fly(ac, onNose(), WEP_THROTTLE, 3, 0, 0.5)
     expect(ac.diag.slatsDeployed).toBe(true)
 
     ac.setSpec(P51D)
@@ -186,72 +324,46 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
 
   it('reset 後的行為與全新飛機逐步一致（PID 積分未洩漏）', () => {
     const a = new Aircraft(P51D, 5000, 200)
-    fly(a, hard, WEP_THROTTLE, 4)
+    fly(a, onNose(), WEP_THROTTLE, 4, 0.5)
     a.reset(3000, 150)
 
     const b = new Aircraft(P51D, 3000, 150)
-    fly(a, hard, WEP_THROTTLE, 2)
-    fly(b, hard, WEP_THROTTLE, 2)
+    const aimA = onNose()
+    const aimB = onNose()
+    fly(a, aimA, WEP_THROTTLE, 2, 0.3)
+    fly(b, aimB, WEP_THROTTLE, 2, 0.3)
 
     expect(a.state.position.distanceTo(b.state.position)).toBeLessThan(1e-6)
     expect(Math.abs(a.controls.elevator - b.controls.elevator)).toBeLessThan(1e-9)
   })
 })
 
-/**
- * 【現況特性測試（characterization），不是設計背書】
- *
- * 準星產生的是「機體座標」的瞄準方向（input/aim.ts 的明文契約），而
- * Aircraft.update 每一步都用「當下的姿態」把它轉回世界座標再餵給指揮儀，
- * 所以指揮儀看到的誤差方向完全不隨飛機轉動而改變。後果分兩種：
- *
- *   準星在正上方 → verticalError 固定為正 → 持續拉升。收斂、好用，
- *     Task 18 的 `bodyRelativeAim: true` 測過的就是這一種。
- *   準星在正右方 → rollCommand = atan2(x, 0) 恆為 +90°，而且飛機再怎麼
- *     滾轉，準星在機體座標裡還是在正右方 → 滾轉指令永遠不會歸零，
- *     飛機持續滾轉；同時 verticalError 恆為 0，俯仰外環主動把俯仰率壓在
- *     0。淨結果是「橫滾」，不是「水平轉彎」。
- *
- * 也就是說，這套操控實際上是一支「虛擬搖桿」：水平量 = 滾轉率指令，
- * 垂直量 = 俯仰率指令（附帶失速／過載保護）。要做水平轉彎必須像真搖桿
- * 一樣「先橫向壓出坡度，再把橫向回中、改拉垂直」。
- *
- * 這兩個測試把上述行為釘住，讓它不會在無人察覺的情況下改變。若未來決定
- * 改成「準星＝世界空間目標、機體轉到位後誤差歸零」，這兩個測試必須被
- * 有意識地改寫，而不是意外地變紅。詳見 task-20-report.md。
- */
-describe('Aircraft：準星是機體固定的（水平＝滾轉、垂直＝俯仰）', () => {
-  const heading = (ac: Aircraft) => Math.atan2(ac.state.velocity.x, -ac.state.velocity.z)
-
-  it('純水平偏移產生持續滾轉，航向幾乎不變', () => {
-    const ac = new Aircraft(P51D, 4000, 220)
-    const right = aimDirectionBody(AIM_RADIUS, 0, FOV, new Vector3())
-    const h0 = heading(ac)
-    fly(ac, right, WEP_THROTTLE, 8)
-
-    // 滾轉指令釘死在「誤差角斜率上限」上，一步都沒有收斂
-    expect(ac.dbg.rollCommand).toBeCloseTo(Math.PI / 2, 6)
-    expect(ac.dbg.desiredP).toBeGreaterThan(3)
-    expect(-ac.state.angularVelocity.z).toBeGreaterThan(2) // 實測 ≈2.5 rad/s
-
-    // 橫向誤差不產生任何俯仰指令
-    expect(Math.abs(ac.dbg.desiredQ)).toBeLessThan(0.02)
-
-    // 8 秒（約 3 圈滾轉）後航向只變了幾度——這不是轉彎
-    const dh = Math.abs(((heading(ac) - h0 + Math.PI) % (2 * Math.PI)) - Math.PI)
-    expect(dh * RAD).toBeLessThan(10)
+describe('能量：大 G 轉彎必須付出速度的代價', () => {
+  it('持續大 G 轉彎時 Ps 顯著為負且比能量大量流失', () => {
+    const ac = new Aircraft(P51D, 4000, 250)
+    const e0 = ac.specificEnergy
+    const aim = onNose()
+    let maxG = -Infinity
+    const frames = Math.round(8 * FRAME_HZ)
+    for (let f = 0; f < frames; f++) {
+      frame(ac, aim, 0.5, 0, WEP_THROTTLE)
+      maxG = Math.max(maxG, ac.diag.loadFactor)
+    }
+    // 實測平均 Ps ≈ −67 m/s、末段 −68 m/s、峰值 6.35 G
+    expect(ac.specificExcessPowerActual).toBeLessThan(-30)
+    expect(maxG).toBeGreaterThan(4)
+    expect(ac.specificEnergy).toBeLessThan(e0 - 300)
   })
 
-  it('純垂直偏移產生持續大 G 拉升，速度顯著流失', () => {
-    const ac = new Aircraft(P51D, 4000, 250)
-    const up = aimDirectionBody(0, AIM_RADIUS, FOV, new Vector3())
-    fly(ac, up, WEP_THROTTLE, 8)
+  it('同高度同速度的平飛對照組 Ps 明顯較高', () => {
+    const turn = new Aircraft(P51D, 4000, 180)
+    fly(turn, onNose(), WEP_THROTTLE, 8, 0.5)
+    const level = new Aircraft(P51D, 4000, 180)
+    fly(level, onNose(), WEP_THROTTLE, 8)
 
-    expect(ac.dbg.rollCommand).toBe(0)
-    expect(ac.dbg.desiredQ).toBeGreaterThan(0.1)
-    // 實測 250 → 180 m/s（8 秒），末段 Ps ≈ −52 m/s
-    expect(ac.state.velocity.length()).toBeLessThan(200)
-    expect(ac.specificExcessPowerActual).toBeLessThan(-30)
+    // 實測：轉彎 −55.5、平飛 +4.4
+    expect(level.specificExcessPowerActual).toBeGreaterThan(0)
+    expect(turn.specificExcessPowerActual).toBeLessThan(level.specificExcessPowerActual - 30)
   })
 })
 
@@ -292,12 +404,13 @@ describe('撞海判定', () => {
 
   it('俯衝入海會被判定撞海，reset 後可繼續正常飛行', () => {
     const ac = new Aircraft(P51D, 300, 180)
-    const down = aimDirectionBody(0, -0.35, FOV, new Vector3())
+    const aim = onNose()
     let t = 0
     let crashed = false
-    for (let i = 0; i < Math.round(30 / DT); i++) {
-      ac.update(down, 0.5, DT)
-      t += DT
+    const frames = Math.round(30 * FRAME_HZ)
+    for (let f = 0; f < frames; f++) {
+      frame(ac, aim, 0, -0.5, 0.5) // 滑鼠持續往下推
+      t += 1 / FRAME_HZ
       if (isCrashed(ac.state.position, gerstnerHeight, t)) {
         crashed = true
         break
@@ -306,8 +419,10 @@ describe('撞海判定', () => {
     expect(crashed).toBe(true)
 
     ac.reset(4000, 160)
+    // R 同時把瞄準點放回機首（main.ts 的 parkAimOnNose）
+    aim.set(0, 0, -1).applyQuaternion(ac.state.orientation)
     expect(ac.state.position.y).toBe(4000)
-    fly(ac, centre, 0.8, 5)
+    fly(ac, aim, 0.8, 5)
     expect(Number.isFinite(ac.state.position.length())).toBe(true)
     expect(Math.abs(ac.state.position.y - 4000)).toBeLessThan(200)
     expect(ac.dbg.errorAngle).toBeLessThan(5 * DEG)

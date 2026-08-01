@@ -1,6 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
 import { G0 } from '../core/math'
-import { makeScratch } from '../core/pool'
 import {
   createDiagnostics, createFlightState, stepDynamics, type StepDiagnostics,
 } from '../physics/dynamics'
@@ -9,8 +8,6 @@ import {
 } from '../control/FlightDirector'
 import type { AircraftSpec } from '../specs/types'
 import type { Controls, FlightState } from '../physics/types'
-
-const S = makeScratch(1)
 
 /**
  * 一架飛機：機種資料、運動狀態、診斷、舵面指令與飛行指揮儀的組裝體。
@@ -87,22 +84,28 @@ export class Aircraft {
   /**
    * 推進一個物理步。熱路徑，禁止任何配置行為。
    *
-   * @param aimDirBody 機體座標的瞄準方向（由 aimDirectionBody 產生）
-   * @param throttle   玩家油門，0 ~ 1.1
+   * @param aimDirWorld **世界座標**的瞄準方向（`InputState.aimWorld`）
+   * @param throttle    玩家油門，0 ~ 1.1
+   *
+   * 【不要在這裡轉成機體座標】`FlightDirector.update` 的第五參數就叫
+   * `aimDirWorld`，它自己在每一步用當下姿態的逆四元數轉成機體座標
+   * （`FlightDirector.ts:191-192`）——這正是「每步做一次 world → body」
+   * 這項要求的實作位置。若呼叫端先轉一次再傳進去，等於連轉兩次，
+   * 瞄準方向會被姿態旋轉平方，飛機會追一個不存在的方向。
+   * 本任務的前一版在此有一次 body → world 的轉換，是為了抵銷指揮儀內部的
+   * 逆轉換（淨效果是恆等變換，也就是機體固定準星）；世界固定裁決之後
+   * 該轉換整個移除，指揮儀拿到的才是真正的世界方向。
    */
-  update(aimDirBody: Vector3, throttle: number, dt: number): void {
+  update(aimDirWorld: Vector3, throttle: number, dt: number): void {
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
 
     this.controls.throttle = throttle
     stepDynamics(this.spec, this.state, this.controls, dt, this.diag)
 
-    // 指揮儀的介面是世界方向（它可以瞄準任何世界目標），準星給的是機體
-    // 方向，故在此以積分後的新姿態轉換一次。
-    const aimWorld = S.v[0]!.copy(aimDirBody).applyQuaternion(this.state.orientation)
     this.director.update(
       this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
-      aimWorld, dt, this.controls, this.dbg,
+      aimDirWorld, dt, this.controls, this.dbg,
     )
 
     const es = this.specificEnergy
