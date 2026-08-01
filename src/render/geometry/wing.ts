@@ -11,8 +11,7 @@ export interface WingParams {
   /** 上反角，rad */
   dihedral: number
   /**
-   * **翼根**厚度，m。翼尖厚度按弦長比例收縮（tipChord / rootChord），
-   * 也就是保持固定的厚弦比。
+   * **翼根**厚度，m。翼尖厚度按弦長比例收縮，也就是保持固定的厚弦比。
    *
    * 【原本是整片等厚】那讓翼尖厚了兩倍以上：P-51D 真機翼尖 0.148 m
    * （弦長 11.4%），等厚版本是 0.34 m；Bf 109 真機 0.119 m，等厚 0.28 m。
@@ -22,54 +21,84 @@ export interface WingParams {
   /** 翼根前緣在機體 Z 軸的位置 */
   rootZ: number
   rootY: number
+  /**
+   * 圓翼尖：最外側站位保留的弦長比例（0.30 = 縮到三成）。省略即方翼尖。
+   *
+   * 【為什麼需要】P-51D 與 Bf 109 的翼尖都是明顯的圓弧，方翼尖在俯視圖
+   * 與座艙視角都一眼看得出不對。弦長沿橢圓收縮並且對**中弦線**收，所以
+   * 前緣往後彎、後緣往前彎——那正是圓翼尖的外觀。
+   */
+  tipRound?: number
+}
+
+/** 圓翼尖起始的展向位置（之內維持線性梯形）。 */
+const ROUND_START = 0.86
+
+/** 展向位置 u 處的弦長縮放：u ≤ ROUND_START 為 1，之後沿橢圓收到 tipRound。 */
+function tipFactor(u: number, tipRound: number): number {
+  if (u <= ROUND_START) return 1
+  const t = (u - ROUND_START) / (1 - ROUND_START)
+  return Math.sqrt(1 - (1 - tipRound * tipRound) * t * t)
+}
+
+interface Station {
+  x: number
+  y: number
+  /** 前緣 Z */
+  lead: number
+  chord: number
+  /** 半厚 */
+  h: number
 }
 
 /**
- * 梯形翼面板（含上反角與後掠角）。
+ * 梯形翼面板（含上反角、後掠角與可選的圓翼尖）。
  * mirrored = true 產生左翼（−X 方向）。
  */
 export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry {
   const sx = mirrored ? -1 : 1
-  const tipX = sx * p.halfSpan
-  const tipY = p.rootY + Math.tan(p.dihedral) * p.halfSpan
-  // 【符號修正】機首是 −Z，所以「後掠」＝翼尖前緣往 +Z（機尾方向）移動。
-  // 原式用減號，產生的是**前掠**翼：實測翼根前緣 Z=−1.5 時翼尖前緣跑到
-  // −3.54。垂直安定面用同一個函式立起來，於是整片往機首傾——那正是
-  // 「垂尾看起來顛倒」的來源（它其實朝上，只是前掠）。
-  const tipLead = p.rootZ + Math.tan(p.sweep) * p.halfSpan
-  const h = p.thickness / 2
-  // 厚度隨弦長收縮，維持固定厚弦比（見 WingParams.thickness）
-  const ht = h * (p.tipChord / p.rootChord)
+  const round = p.tipRound ?? 1
+  const fractions = p.tipRound === undefined ? [0, 1] : [0, ROUND_START, 0.95, 1]
 
-  // 翼根前緣/後緣、翼尖前緣/後緣，上下各一層
-  const corners: [number, number, number][] = [
-    [0, p.rootY + h, p.rootZ], [0, p.rootY + h, p.rootZ + p.rootChord],
-    [tipX, tipY + ht, tipLead], [tipX, tipY + ht, tipLead + p.tipChord],
-    [0, p.rootY - h, p.rootZ], [0, p.rootY - h, p.rootZ + p.rootChord],
-    [tipX, tipY - ht, tipLead], [tipX, tipY - ht, tipLead + p.tipChord],
-  ]
-
-  const faces = [
-    [0, 2, 3], [0, 3, 1], // 上表面
-    [4, 7, 6], [4, 5, 7], // 下表面
-    [0, 4, 6], [0, 6, 2], // 前緣
-    [1, 3, 7], [1, 7, 5], // 後緣
-    [2, 6, 7], [2, 7, 3], // 翼尖
-    [0, 1, 5], [0, 5, 4], // 翼根
-  ]
-
-  // 【纏繞方向修正】上面的 faces 表本身是內外翻轉的：實測未鏡像版本的
-  // 帶符號體積為 −3.36（正確值 +3.36），法線全部指向內部，正面被背面
-  // 剔除掉，看起來就像「機翼沒畫完」。因此未鏡像時要交換後兩個索引；
-  // 鏡像會再翻一次手性，所以鏡像版本反而用原順序。
-  const positions: number[] = []
-  for (const f of faces) {
-    const tri = mirrored ? f : [f[0]!, f[2]!, f[1]!]
-    for (const idx of tri) {
-      const c = corners[idx as number]!
-      positions.push(c[0], c[1], c[2])
+  const stations: Station[] = fractions.map((u) => {
+    const span = u * p.halfSpan
+    const baseChord = p.rootChord + (p.tipChord - p.rootChord) * u
+    // 【符號】機首是 −Z，所以「後掠」＝翼尖前緣往 +Z（機尾方向）移動。
+    const baseLead = p.rootZ + Math.tan(p.sweep) * span
+    const chord = baseChord * tipFactor(u, round)
+    return {
+      x: sx * span,
+      y: p.rootY + Math.tan(p.dihedral) * span,
+      // 對中弦線收縮：前緣後退、後緣前移
+      lead: baseLead + (baseChord - chord) / 2,
+      chord,
+      h: (p.thickness / 2) * (chord / p.rootChord),
     }
+  })
+
+  const positions: number[] = []
+  /** 逆時針（法線朝外）順序寫入；鏡像會翻手性，因此整體反序。 */
+  const tri = (a: number[], b: number[], c: number[]) => {
+    const [p0, p1, p2] = mirrored ? [a, c, b] : [a, b, c]
+    positions.push(...p0!, ...p1!, ...p2!)
   }
+  const uLE = (s: Station) => [s.x, s.y + s.h, s.lead]
+  const uTE = (s: Station) => [s.x, s.y + s.h, s.lead + s.chord]
+  const lLE = (s: Station) => [s.x, s.y - s.h, s.lead]
+  const lTE = (s: Station) => [s.x, s.y - s.h, s.lead + s.chord]
+
+  for (let i = 0; i < stations.length - 1; i++) {
+    const a = stations[i]!
+    const b = stations[i + 1]!
+    tri(uLE(a), uTE(b), uLE(b)); tri(uLE(a), uTE(a), uTE(b))   // 上表面 +Y
+    tri(lLE(a), lLE(b), lTE(b)); tri(lLE(a), lTE(b), lTE(a))   // 下表面 −Y
+    tri(uLE(a), uLE(b), lLE(b)); tri(uLE(a), lLE(b), lLE(a))   // 前緣 −Z
+    tri(uTE(a), lTE(a), lTE(b)); tri(uTE(a), lTE(b), uTE(b))   // 後緣 +Z
+  }
+  const root = stations[0]!
+  const tip = stations[stations.length - 1]!
+  tri(uLE(root), lLE(root), lTE(root)); tri(uLE(root), lTE(root), uTE(root))  // 翼根 −X
+  tri(uLE(tip), lTE(tip), lLE(tip)); tri(uLE(tip), uTE(tip), lTE(tip))        // 翼尖 +X
 
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))

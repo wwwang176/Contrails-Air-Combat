@@ -48,6 +48,35 @@ describe('buildWingPanel', () => {
     expect(minX).toBeCloseTo(-params.halfSpan, 3)
   })
 
+  /**
+   * 圓翼尖：翼尖弦長要比線性梯形值小，且前緣後退、後緣前移（對中弦線收縮）。
+   * 方翼尖版本三項全部相等，所以這條測得出差別。
+   */
+  it('tipRound 使翼尖弦長收縮並對中弦線內縮', () => {
+    const measure = (geo: BufferGeometry) => {
+      const p = geo.getAttribute('position')
+      let lead = Infinity, trail = -Infinity
+      for (let i = 0; i < p.count; i++) {
+        if (p.getX(i) < params.halfSpan - 0.01) continue
+        lead = Math.min(lead, p.getZ(i))
+        trail = Math.max(trail, p.getZ(i))
+      }
+      return { lead, trail, chord: trail - lead }
+    }
+    const square = measure(buildWingPanel(params, false))
+    const round = measure(buildWingPanel({ ...params, tipRound: 0.3 }, false))
+
+    expect(square.chord).toBeCloseTo(params.tipChord, 3)
+    expect(round.chord).toBeCloseTo(params.tipChord * 0.3, 3)
+    expect(round.lead).toBeGreaterThan(square.lead)     // 前緣後退
+    expect(round.trail).toBeLessThan(square.trail)      // 後緣前移
+    // 仍然長到全翼展——收的是弦長不是翼展
+    let maxX = -Infinity
+    const p = buildWingPanel({ ...params, tipRound: 0.3 }, false).getAttribute('position')
+    for (let i = 0; i < p.count; i++) maxX = Math.max(maxX, p.getX(i))
+    expect(maxX).toBeCloseTo(params.halfSpan, 3)
+  })
+
   it('上反角使翼尖高於翼根', () => {
     const pos = buildWingPanel(params, false).getAttribute('position')
     let tipY = -Infinity

@@ -57,15 +57,17 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   add(new Mesh(buildWingPanel(sil.tailplane, true), body))
 
   // 垂直安定面與背鰭：都是水平翼面板繞 Z 軸立起 90°（+X → +Y）。
-  const upright = (f: FinParams, thickness: number) => {
+  const upright = (f: FinParams, thickness: number, tipRound?: number) => {
     const mesh = new Mesh(buildWingPanel({
       rootChord: f.chordRoot, tipChord: f.chordTip, halfSpan: f.height,
       sweep: f.sweep, dihedral: 0, thickness, rootZ: f.z, rootY: 0,
+      ...(tipRound === undefined ? {} : { tipRound }),
     }, false), body)
     mesh.rotation.z = 90 * DEG
     add(mesh)
   }
-  upright(sil.fin, 0.12)
+  // 垂尾頂端是圓的；背鰭是整流罩不是翼面，維持方角
+  upright(sil.fin, 0.12, 0.35)
   if (sil.finFillet) upright(sil.finFillet, 0.22)
 
   const addBlister = (b: Blister, sx: number) => {

@@ -84,8 +84,8 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       segments: 10,
       sections: [
         { z: -4.55, halfWidth: 0.30, halfHeight: 0.30, centerY: 0.06 },  // 整流罩接合面
-        { z: -4.05, halfWidth: 0.40, halfHeight: 0.50, centerY: 0.04 },
-        { z: -3.25, halfWidth: 0.46, halfHeight: 0.60, centerY: 0.02 },
+        { z: -4.05, halfWidth: 0.38, halfHeight: 0.45, centerY: 0.04 },
+        { z: -3.25, halfWidth: 0.45, halfHeight: 0.58, centerY: 0.02 },
         { z: -2.35, halfWidth: 0.49, halfHeight: 0.66, centerY: 0.00 },  // 防火牆
         { z: -1.20, halfWidth: 0.50, halfHeight: 0.66, centerY: 0.00 },  // 機翼前緣
         { z: 0.00, halfWidth: 0.49, halfHeight: 0.62, centerY: 0.02 },   // 座艙下方
@@ -130,10 +130,11 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       // 層流翼根部 15.1%。翼尖由 buildWingPanel 按弦長比例收到 0.19 m。
       rootChord: 2.75, tipChord: 1.30, halfSpan: 5.64,
       sweep: 4 * DEG, dihedral: 5 * DEG, thickness: 0.40, rootZ: -1.5, rootY: -0.28,
+      tipRound: 0.30,
     },
     tailplane: {
       rootChord: 1.35, tipChord: 0.70, halfSpan: 2.10,
-      sweep: 8 * DEG, dihedral: 0, thickness: 0.14, rootZ: 3.3, rootY: 0.10,
+      sweep: 8 * DEG, dihedral: 0, thickness: 0.14, rootZ: 3.3, rootY: 0.10, tipRound: 0.35,
     },
     fin: { chordRoot: 1.80, chordTip: 0.80, height: 1.75, sweep: 34 * DEG, z: 2.8 },
     // 背鰭：翼根很長、翼尖很短且幾乎貼在垂尾前緣，所以後掠角極大（73°）。
@@ -176,9 +177,9 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       roundness: 2.8,
       segments: 10,
       sections: [
-        { z: -4.30, halfWidth: 0.28, halfHeight: 0.28, centerY: 0.04, roundness: 2.2 },
-        { z: -3.80, halfWidth: 0.35, halfHeight: 0.44, centerY: 0.02, roundness: 2.4 },
-        { z: -2.90, halfWidth: 0.39, halfHeight: 0.50, centerY: 0.00, roundness: 2.6 },
+        { z: -4.30, halfWidth: 0.29, halfHeight: 0.30, centerY: 0.04, roundness: 2.2 },
+        { z: -3.70, halfWidth: 0.34, halfHeight: 0.40, centerY: 0.02, roundness: 2.4 },
+        { z: -2.90, halfWidth: 0.38, halfHeight: 0.47, centerY: 0.00, roundness: 2.6 },
         { z: -2.00, halfWidth: 0.40, halfHeight: 0.550, centerY: 0.020 },  // 最大截面
         { z: -0.90, halfWidth: 0.40, halfHeight: 0.575, centerY: 0.040 },
         { z: -0.25, halfWidth: 0.39, halfHeight: 0.575, centerY: 0.055 },  // 背脊最高 0.630
@@ -217,6 +218,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       // 0.32 / 2.30 = 13.9% 厚弦比，真機 NACA 2R1 翼根 14.2%
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
       sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -1.2, rootY: -0.26,
+      tipRound: 0.30,
     },
     // 【水平尾翼裝在垂尾上，不在機身側面】109 的平尾明顯高於機身背線，
     // 並由下方斜撐桿支撐——這是它側影一眼可辨的特徵，同期盟軍機沒有。
@@ -224,7 +226,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.46,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.46, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
     fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.38, sweep: 30 * DEG, z: 2.5 },

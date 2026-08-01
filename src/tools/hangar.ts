@@ -1,6 +1,7 @@
 import {
   AmbientLight, AxesHelper, Box3, Color, DirectionalLight, GridHelper, HemisphereLight,
-  Mesh, MeshStandardMaterial, PerspectiveCamera, PMREMGenerator, Scene, Vector3, WebGLRenderer,
+  Mesh, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, PMREMGenerator, Scene,
+  Vector3, WebGLRenderer,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
@@ -32,6 +33,16 @@ scene.background = new Color(0x0d1620)
 
 const camera = new PerspectiveCamera(42, 1, 0.1, 500)
 camera.position.set(11, 5, 13)
+
+/**
+ * 正交視圖——比對三視圖線稿專用。
+ *
+ * 【為什麼一定要正交】透視相機會讓靠近鏡頭的部件變大，機首與機尾的長度
+ * 比例在畫面上就不是真的，拿去跟線稿對照只會得到錯的結論。線稿本身是
+ * 正交投影，要比就得用同一種投影。
+ */
+const orthoCam = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500)
+let orthoView: 'side' | 'top' | 'front' | null = null
 
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
@@ -123,6 +134,7 @@ function rebuild(): void {
 
   for (const b of specButtons) b.classList.toggle('on', SPECS[specIndex]!.id === b.dataset['id'])
   syncProp()
+  frameOrtho()
 }
 
 // 機種切換按鈕
@@ -143,6 +155,49 @@ function syncProp(): void {
   $<HTMLSpanElement>('rpmV').textContent = p === 0 ? '停' : p < 0.5 ? '慢轉' : '模糊'
 }
 rpm.addEventListener('input', syncProp)
+
+/** 把正交相機框到整台飛機（含 8% 邊界），並擺到指定的正視方向。 */
+function frameOrtho(): void {
+  if (!model || !orthoView) return
+  model.group.rotation.y = 0
+  model.group.updateMatrixWorld(true)
+  const box = new Box3().setFromObject(model.group)
+  const size = box.getSize(new Vector3())
+  const c = box.getCenter(new Vector3())
+
+  // 每個視圖的畫面寬高各取自哪兩根機體軸
+  const [w, h] = orthoView === 'side' ? [size.z, size.y]
+    : orthoView === 'top' ? [size.z, size.x]
+      : [size.x, size.y]
+  const aspect = window.innerWidth / window.innerHeight
+  const half = Math.max(w / aspect, h) * 0.54   // 0.5 + 8% 邊界
+  orthoCam.left = -half * aspect
+  orthoCam.right = half * aspect
+  orthoCam.top = half
+  orthoCam.bottom = -half
+  orthoCam.near = 0.1
+  orthoCam.far = 200
+  orthoCam.up.set(0, orthoView === 'top' ? 0 : 1, orthoView === 'top' ? -1 : 0)
+  const d = 60
+  orthoCam.position.copy(c).add(
+    orthoView === 'side' ? new Vector3(d, 0, 0)
+      : orthoView === 'top' ? new Vector3(0, d, 0)
+        : new Vector3(0, 0, -d),
+  )
+  orthoCam.lookAt(c)
+  orthoCam.updateProjectionMatrix()
+}
+
+for (const [id, view] of [['vSide', 'side'], ['vTop', 'top'], ['vFront', 'front']] as const) {
+  $<HTMLButtonElement>(id).onclick = () => {
+    orthoView = orthoView === view ? null : view
+    autoRotate = false
+    frameOrtho()
+    for (const [bid, v] of [['vSide', 'side'], ['vTop', 'top'], ['vFront', 'front']] as const) {
+      $<HTMLButtonElement>(bid).classList.toggle('on', orthoView === v)
+    }
+  }
+}
 
 $<HTMLButtonElement>('wire').onclick = (ev) => {
   wireframe = !wireframe
@@ -168,6 +223,7 @@ function resize(): void {
   renderer.setSize(w, h, false)
   camera.aspect = w / h
   camera.updateProjectionMatrix()
+  frameOrtho()
 }
 window.addEventListener('resize', resize)
 resize()
@@ -176,9 +232,17 @@ rebuild()
 // 開發用：讓 Playwright 之類的外部工具設定正交視角截圖。
 // （不用 import.meta.env.DEV 判斷——專案沒有 vite/client 型別，
 // tsc --noEmit 會報 ImportMeta.env 不存在。機庫本身就是開發工具。）
+;(window as unknown as Record<string, unknown>)['__hangarOrtho'] =
+    (view: 'side' | 'top' | 'front' | null, hideGrid = true) => {
+      orthoView = view
+      autoRotate = false
+      grid.visible = !(view && hideGrid)
+      frameOrtho()
+    }
 ;(window as unknown as Record<string, unknown>)['__hangarCam'] =
     (x: number, y: number, z: number) => {
       autoRotate = false
+      orthoView = null
       if (model) model.group.rotation.y = 0
       camera.position.set(x, y, z)
       // 只有正上方俯視需要換 up（否則 lookAt 退化）；其餘一律 +Y 朝上，
@@ -197,10 +261,10 @@ function frame(now: number): void {
     const p = Number(rpm.value)
     propRotation += p * 30 * dt
     model.setPropSpin(propRotation, p >= 0.5)
-    if (autoRotate) model.group.rotation.y += dt * 0.35
+    if (autoRotate && !orthoView) model.group.rotation.y += dt * 0.35
   }
   controls.update()
-  renderer.render(scene, camera)
+  renderer.render(scene, orthoView ? orthoCam : camera)
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
