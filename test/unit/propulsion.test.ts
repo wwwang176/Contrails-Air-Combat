@@ -156,6 +156,35 @@ describe('propThrust', () => {
     }
   })
 
+  // Task 14 調參把 P-51D 推到離這個夾制只剩 1.37% 的地方，因此必須有一個
+  // 直接、訊息明確的守衛。若 etaMax 再往上、vRef 再往下、或 figureOfMerit
+  // 再往下，dynamic 就會超過 staticMax，夾制開始生效——屆時上面那條
+  // 「V→0 收斂到 etaMax·P/vRef」的測試會由 0.12% 誤差跳到約 1.4% 而轉紅，
+  // 看起來像 propThrust 壞掉，實際上是**調參的後果**。這條測試先失敗，
+  // 並在此把因果寫清楚，免得下一個人去改 propThrust。
+  //
+  // 若這條測試失敗：不要動 propThrust，去看 src/specs/*.ts 的
+  // etaMax / vRef / figureOfMerit 最近改了什麼。
+  it('動量理論靜推力夾制在兩款機種的出貨參數下皆不 binding（守住 V→0 解析極限測試的前提）', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const power = enginePower(spec, a0, 0, WEP_THROTTLE)
+      const radius = spec.prop.diameter / 2
+      const ideal = Math.cbrt(2 * a0.density * Math.PI * radius * radius * power * power)
+      const staticMax = spec.prop.figureOfMerit * ideal
+      const dynamic = (spec.prop.etaMax * power) / spec.prop.vRef
+      const margin = (staticMax - dynamic) / dynamic
+      expect(
+        dynamic,
+        `${spec.name}：η·P/vRef = ${(dynamic / 1000).toFixed(3)} kN 已超過動量理論夾制 ` +
+        `${(staticMax / 1000).toFixed(3)} kN（figureOfMerit ${spec.prop.figureOfMerit} × 理想 ` +
+        `${(ideal / 1000).toFixed(3)} kN）。這是調參越界，不是 propThrust 迴歸——` +
+        `請檢查 specs 的 etaMax / vRef / figureOfMerit。`,
+      ).toBeLessThan(staticMax)
+      // 實測餘裕：P-51D 1.37%、Bf 109 11.56%。P-51D 是刻意貼著界限調的。
+      expect(margin).toBeGreaterThan(0)
+    }
+  })
+
   it('動量理論靜推力上限公式正確（以巨大合成功率強制觸發，因為兩款機種在正常範圍內都不會自然觸發它）', () => {
     const hugePower = 1e9
     for (const spec of [P51D, BF109G6]) {
