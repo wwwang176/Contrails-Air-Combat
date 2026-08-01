@@ -293,8 +293,16 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     },
     wing: {
       // 0.32 / 2.30 = 13.9% 厚弦比，真機 NACA 2R1 翼根 14.2%
+      // 【三項都量自參考模型的正交剪影】
+      //   rootY −0.25 → −0.37：側視上參考模型的整條上緣都比我高 0.08–0.15 m，
+      //     幅度均勻——那不是形狀差異，是垂直註冊差。對齊基準是翼尖，所以
+      //     它代表機翼在機身上裝得太高。修正後機首、座艙罩、背線三處的
+      //     殘差同時收斂到 ±0.05 m 以內。
+      //   rootZ −2.65 → −2.86：俯視量到參考模型的機翼整體往前 0.21 m。
+      //   sweep 6° → 3°：俯視的前緣差由 20% 半翼展的 −0.21 擴大到 90% 的
+      //     −0.42，越往翼尖差越多，那是後掠角過大；反推差約 3.5°。
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
-      sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -2.65, rootY: -0.25,
+      sweep: 3 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -2.86, rootY: -0.37,
       tipRound: 0.30,
     },
     // 【水平尾翼裝在垂尾上，不在機身側面】109 的平尾明顯高於機身背線，
@@ -314,7 +322,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       // 機首下方滑油冷卻器
       { x: 0, y: -0.26, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
-      { x: 1.50, y: -0.29, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
+      { x: 1.50, y: -0.41, z: -1.51, width: 0.55, height: 0.22, length: 1.00, mirror: true },
     ],
     // 底徑實測 0.0827 L = 0.740 m；y 與機首環中心一致（機首低於機尾）
     spinner: { radius: 0.35, length: 0.35, y: 0.374 },
