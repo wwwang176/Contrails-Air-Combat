@@ -1,5 +1,5 @@
 import {
-  BoxGeometry, CircleGeometry, ConeGeometry, Group, Mesh, MeshStandardMaterial,
+  BoxGeometry, CircleGeometry, ConeGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry,
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage } from './fuselage'
@@ -82,9 +82,11 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   if (sil.finFillet) upright(sil.finFillet, 0.22)
 
   const addBlister = (b: Blister, sx: number) => {
-    const mesh = new Mesh(
-      new BoxGeometry(b.width, b.height, b.length), b.bodyColor ? body : accent,
-    )
+    const geo = b.round
+      ? new SphereGeometry(0.5, 6, 3)
+      : new BoxGeometry(1, 1, 1)
+    const mesh = new Mesh(geo, b.bodyColor ? body : accent)
+    mesh.scale.set(b.width, b.height, b.length)
     mesh.position.set(sx * b.x, b.y, b.z)
     if (b.rotZ) mesh.rotation.z = sx * b.rotZ
     add(mesh)

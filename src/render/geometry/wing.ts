@@ -24,15 +24,24 @@ export interface WingParams {
   /**
    * 圓翼尖：最外側站位保留的弦長比例（0.30 = 縮到三成）。省略即方翼尖。
    *
-   * 【為什麼需要】P-51D 與 Bf 109 的翼尖都是明顯的圓弧，方翼尖在俯視圖
-   * 與座艙視角都一眼看得出不對。弦長沿橢圓收縮並且對**中弦線**收，所以
-   * 前緣往後彎、後緣往前彎——那正是圓翼尖的外觀。
+   * 【為什麼需要】P-51D 與 Bf 109 F 型以後的翼尖都是明顯的圓弧，方翼尖在
+   * 俯視圖與座艙視角都一眼看得出不對。弦長沿橢圓收縮，收縮的錨點見
+   * TIP_ANCHOR。
    */
   tipRound?: number
 }
 
 /** 圓翼尖起始的展向位置（之內維持線性梯形）。 */
 const ROUND_START = 0.86
+
+/**
+ * 圓翼尖收縮時的錨點（弦長比例，0 = 前緣、0.5 = 中弦線）。
+ *
+ * 【為什麼不是中弦線】對中弦線收縮，前緣與後緣往內縮的量相同，做出來是
+ * 對稱的橢圓翼尖。真機（Bf 109 F 以後、P-51D）的翼尖**前緣幾乎是直的**，
+ * 弧線主要由後緣往前收形成。錨在 30% 弦線讓前緣只後退三成、後緣前移七成。
+ */
+const TIP_ANCHOR = 0.3
 
 /** 展向位置 u 處的弦長縮放：u ≤ ROUND_START 為 1，之後沿橢圓收到 tipRound。 */
 function tipFactor(u: number, tipRound: number): number {
@@ -69,8 +78,8 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
     return {
       x: sx * span,
       y: p.rootY + Math.tan(p.dihedral) * span,
-      // 對中弦線收縮：前緣後退、後緣前移
-      lead: baseLead + (baseChord - chord) / 2,
+      // 對 30% 弦線收縮：前緣小幅後退、後緣大幅前移（見 TIP_ANCHOR）
+      lead: baseLead + (baseChord - chord) * TIP_ANCHOR,
       chord,
       h: (p.thickness / 2) * (chord / p.rootChord),
     }

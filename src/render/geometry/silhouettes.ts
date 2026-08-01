@@ -48,6 +48,11 @@ export interface Blister {
   mirror?: boolean
   /** true 用機身色，預設用強調色 */
   bodyColor?: boolean
+  /**
+   * true 時用低多邊形橢球而非方盒。機槍鼓包（Beule）是圓的，方盒在俯視與
+   * 側視都讀成「機首上黏了兩塊磚」；散熱器與進氣口本來就是方管，維持方盒。
+   */
+  round?: boolean
 }
 
 export interface Silhouette {
@@ -281,8 +286,12 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      * 精確銜接於 0.867。
      */
     canopy: {
-      roundness: 3.5,   // 方框式座艙罩，稜線分明
-      segments: 10,
+      // 【方正的關鍵是分段數，不只是 roundness】6 段的頂點落在 60°/120°，
+      // 中間形成一條**平頂**，兩側是傾斜的肩面、再往下接近垂直——那正是
+      // 109 那個平頂玻璃罩的剖面。8 或 10 段會在 90° 出現頂點，做成尖屋脊，
+      // roundness 調再高也救不回來。
+      roundness: 4.0,
+      segments: 6,
       sections: [
         { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.680 }, // 風擋底框 0.74
         { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.790 }, // 風擋頂 1.00（60°）
@@ -318,7 +327,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.05, sweep: 30 * DEG, z: 2.5, rootY: 0.40 },
     blisters: [
       // MG 131 機槍鼓包，左右各一
-      { x: 0.20, y: 0.79, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
+      { x: 0.20, y: 0.79, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true, round: true },
       // 機首下方滑油冷卻器
       { x: 0, y: -0.26, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
