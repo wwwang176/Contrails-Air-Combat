@@ -83,7 +83,8 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
 
   const addBlister = (b: Blister, sx: number) => {
     const geo = b.round
-      ? new SphereGeometry(0.5, 6, 3)
+      // 8×4 分段：6×3 在側視會讀成截頭金字塔，稜線太少撐不出「鼓」的感覺
+      ? new SphereGeometry(0.5, 8, 4)
       : new BoxGeometry(1, 1, 1)
     const mesh = new Mesh(geo, b.bodyColor ? body : accent)
     mesh.scale.set(b.width, b.height, b.length)

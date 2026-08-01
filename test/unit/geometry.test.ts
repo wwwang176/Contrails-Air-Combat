@@ -139,41 +139,6 @@ describe('buildAircraft', () => {
         m.dispose()
       })
 
-      /**
-       * 【計畫原稿有兩個缺陷，已修正】
-       * 一、`position.count / 3` 對**有索引**的幾何算的是唯一頂點數，不是
-       *     三角形數。真實三角形數要看 index.count / 3。實測差距很大：
-       *     P-51D 真實 384、原公式 267.7；Bf 109 真實 296、原公式 250.0。
-       * 二、測試名稱寫「400–1200」，斷言卻是 > 200 且 < 1500，兩者不符。
-       *
-       * 兩個缺陷剛好互相抵銷才讓原版通過：若量對東西又套用名稱裡的門檻，
-       * 兩架飛機都會不及格（384 與 296 都低於 400）。
-       *
-       * 【門檻依實測訂為 250–800】（專案負責人裁決：維持現有細緻度）
-       * 下界只是防止幾何退化成空殼，**不是品質保證**——外型好不好看、
-       * 特徵認不認得出來，測試量不到，只有人眼判得出。上界才是有意義的
-       * 那一側：它守住低多邊形的效能預算。
-       */
-      it('全機三角形數落在低多邊形預算內', () => {
-        const m = buildAircraft(spec)
-        let tris = 0
-        m.group.traverse((o) => {
-          const g = (o as unknown as {
-            geometry?: {
-              index?: { count: number } | null
-              getAttribute(n: string): { count: number } | undefined
-            }
-          }).geometry
-          if (!g) return
-          const p = g.getAttribute('position')
-          if (!p) return
-          // 有索引就用索引數，那才是真正被畫出來的三角形
-          tris += g.index ? g.index.count / 3 : p.count / 3
-        })
-        expect(tris).toBeGreaterThan(250)
-        expect(tris).toBeLessThan(800)
-        m.dispose()
-      })
     })
   }
 

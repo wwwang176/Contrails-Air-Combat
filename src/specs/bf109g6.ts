@@ -6,13 +6,13 @@ const KMH = 1 / 3.6
 
 export const BF109G6: AircraftSpec = {
   id: 'bf109g6',
-  name: 'Bf 109 G-6',
+  name: 'Bf 109 E-4',
   faction: 'axis',
 
   mass: 3150,
   inertia: { pitch: 6200, yaw: 10500, roll: 4200 },
 
-  wing: { area: 16.05, span: 9.92, chord: 1.68, oswald: 0.78 },
+  wing: { area: 16.05, span: 9.87, chord: 1.68, oswald: 0.78 },
 
   lift: {
     clAlpha: 4.45,
