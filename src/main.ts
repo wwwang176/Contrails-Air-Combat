@@ -5,7 +5,8 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
-import { createPlaceholderAircraft, createScaffoldHud } from './render/scaffold'
+import { createScaffoldHud } from './render/scaffold'
+import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Aircraft } from './aircraft/Aircraft'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
@@ -29,15 +30,25 @@ const aircraft = new Aircraft(P51D, START_ALTITUDE, START_TAS)
 const input = createInputState()
 const bindings = attachInput(canvas, input)
 
-// 臨時視覺鷹架（Task 21 / 23 會取代，見 render/scaffold.ts）
-const model = createPlaceholderAircraft()
-ctx.scene.add(model)
+// 程序化機體幾何（Task 21）。HUD 仍是臨時鷹架，Task 23 會取代（見 render/scaffold.ts）。
+let model: AircraftModel = buildAircraft(aircraft.spec)
+ctx.scene.add(model.group)
 const hud = createScaffoldHud()
+
+/** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
+function rebuildModel() {
+  const next = buildAircraft(aircraft.spec)
+  ctx.scene.add(next.group)
+  ctx.scene.remove(model.group)
+  model.dispose()
+  model = next
+}
 
 const noseWorld = new Vector3()
 const renderPos = new Vector3()
 const renderQuat = new Quaternion()
 const camOffset = new Vector3()
+let propRotation = 0
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
 function respawn() {
@@ -64,6 +75,7 @@ function frame(now: number) {
     // 既然原樣保留（換的是飛機不是處境），瞄準點跟著保留才連貫；歸零反而
     // 會在換裝的瞬間硬扯機首。
     aircraft.setSpec(aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
+    rebuildModel()
     input.swapSpecRequested = false
   }
 
@@ -101,8 +113,11 @@ function frame(now: number) {
   renderQuat.slerpQuaternions(aircraft.prevOrientation, aircraft.state.orientation, alpha)
   ocean.update(elapsed, renderPos.x, renderPos.z)
 
-  model.position.copy(renderPos)
-  model.quaternion.copy(renderQuat)
+  model.group.position.copy(renderPos)
+  model.group.quaternion.copy(renderQuat)
+  model.setSurfaces(aircraft.controls.aileron, aircraft.controls.elevator, aircraft.controls.rudder)
+  propRotation += frameSeconds * (8 + input.throttle * 60)
+  model.setPropSpin(propRotation, input.throttle > 0.15)
 
   // 暫時的跟隨相機，Task 22 會替換為完整的 CameraRig。
   // 刻意「不隨機體側滾」：slewAimWorld 的旋轉軸取自 camera.quaternion，

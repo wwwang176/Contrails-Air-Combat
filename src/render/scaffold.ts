@@ -1,58 +1,12 @@
-import {
-  BoxGeometry,
-  Group,
-  Mesh,
-  MeshStandardMaterial,
-  Quaternion,
-  Vector3,
-  type PerspectiveCamera,
-} from 'three'
+import { Quaternion, Vector3, type PerspectiveCamera } from 'three'
 
 /**
  * 臨時視覺鷹架 —— 只為了讓人能在瀏覽器裡感受到飛行。
  *
- * Task 21 會用程序化機體幾何取代 `createPlaceholderAircraft`，
+ * Task 21 已用程序化機體幾何（見 render/geometry/buildAircraft.ts）取代機體佔位物，
  * Task 23 會用完整 HUD 取代 `createScaffoldHud`。
  * 這個檔案屆時整個刪除，不要在它上面長出任何邏輯。
  */
-
-/** 機體佔位物：機首朝 −Z，翼展沿 X，垂直尾翼在 +Z。三色以便一眼看出姿態。 */
-export function createPlaceholderAircraft(): Group {
-  const g = new Group()
-
-  const fuselage = new Mesh(
-    new BoxGeometry(1.2, 1.4, 9),
-    new MeshStandardMaterial({ color: 0x9aa7b4, roughness: 0.7 }),
-  )
-  g.add(fuselage)
-
-  // 機翼：左右不同色，滾轉方向才看得出來
-  const wingGeo = new BoxGeometry(5.4, 0.35, 2.0)
-  const left = new Mesh(wingGeo, new MeshStandardMaterial({ color: 0xd05a4a, roughness: 0.8 }))
-  left.position.set(-3.0, 0, 0)
-  g.add(left)
-  const right = new Mesh(wingGeo, new MeshStandardMaterial({ color: 0x4a86d0, roughness: 0.8 }))
-  right.position.set(3.0, 0, 0)
-  g.add(right)
-
-  // 垂直尾翼在機尾（+Z），偏航看得出來
-  const fin = new Mesh(
-    new BoxGeometry(0.25, 2.0, 1.6),
-    new MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.8 }),
-  )
-  fin.position.set(0, 1.2, 4.0)
-  g.add(fin)
-
-  // 水平尾翼
-  const stab = new Mesh(
-    new BoxGeometry(3.2, 0.25, 1.0),
-    new MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.8 }),
-  )
-  stab.position.set(0, 0.2, 4.0)
-  g.add(stab)
-
-  return g
-}
 
 export interface ScaffoldHudFrame {
   /** 玩家指著的世界方向（單位向量） */
