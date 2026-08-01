@@ -7,21 +7,43 @@ export interface FuselageSection {
   halfHeight: number
   /** 截面中心的垂直偏移 */
   centerY: number
+  /**
+   * 覆寫該站位的超橢圓指數。真機的剖面形狀沿機身是變的——Bf 109 的發動機
+   * 罩接近圓形，尾段卻是明顯的平板側身；用單一指數只能二選一。
+   */
+  roundness?: number
 }
 
 /**
- * 以橢圓截面沿軸線 lofting 產生機身。
- * 首尾截面若半徑為 0 則自動收成尖端。
+ * 以**超橢圓**截面沿軸線 lofting 產生機身（或任何管狀部件：座艙罩、散熱器
+ * 導管）。
+ *
+ * 【為什麼是超橢圓而不是橢圓】真實機身的剖面不是橢圓。P-51D 的機身接近
+ * 橢圓但側面略平；Bf 109 是出了名的窄而**平板側身**——照片裡從正面看幾乎
+ * 是個帶圓角的長方形；座艙罩則是圓角矩形。用一個指數 n 就能涵蓋整個範圍：
+ *
+ *     |x/a|^n + |y/b|^n = 1
+ *
+ * n=2 是橢圓，n 越大越接近矩形。低多邊形下這個差異很明顯：同樣 10 個徑向
+ * 分段，n=2 的機身像根管子，n=2.8 才看得出 109 的稜線。
  */
 export function buildFuselage(
   sections: readonly FuselageSection[],
   radialSegments = 8,
+  roundness = 2,
 ): BufferGeometry {
   const rings: number[][] = sections.map((s) => {
+    // 超橢圓的參數式：x = a·sgn(cos t)·|cos t|^(2/n)，y 同理。
+    const e = 2 / (s.roundness ?? roundness)
+    const shape = (v: number) => Math.sign(v) * Math.abs(v) ** e
     const ring: number[] = []
     for (let i = 0; i < radialSegments; i++) {
       const t = (i / radialSegments) * Math.PI * 2
-      ring.push(Math.cos(t) * s.halfWidth, s.centerY + Math.sin(t) * s.halfHeight, s.z)
+      ring.push(
+        shape(Math.cos(t)) * s.halfWidth,
+        s.centerY + shape(Math.sin(t)) * s.halfHeight,
+        s.z,
+      )
     }
     return ring
   })

@@ -10,6 +10,14 @@ export interface WingParams {
   sweep: number
   /** 上反角，rad */
   dihedral: number
+  /**
+   * **翼根**厚度，m。翼尖厚度按弦長比例收縮（tipChord / rootChord），
+   * 也就是保持固定的厚弦比。
+   *
+   * 【原本是整片等厚】那讓翼尖厚了兩倍以上：P-51D 真機翼尖 0.148 m
+   * （弦長 11.4%），等厚版本是 0.34 m；Bf 109 真機 0.119 m，等厚 0.28 m。
+   * 翼根反而偏薄。結果就是機翼看起來像一塊板子而不是機翼。
+   */
   thickness: number
   /** 翼根前緣在機體 Z 軸的位置 */
   rootZ: number
@@ -30,13 +38,15 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
   // 「垂尾看起來顛倒」的來源（它其實朝上，只是前掠）。
   const tipLead = p.rootZ + Math.tan(p.sweep) * p.halfSpan
   const h = p.thickness / 2
+  // 厚度隨弦長收縮，維持固定厚弦比（見 WingParams.thickness）
+  const ht = h * (p.tipChord / p.rootChord)
 
   // 翼根前緣/後緣、翼尖前緣/後緣，上下各一層
   const corners: [number, number, number][] = [
     [0, p.rootY + h, p.rootZ], [0, p.rootY + h, p.rootZ + p.rootChord],
-    [tipX, tipY + h, tipLead], [tipX, tipY + h, tipLead + p.tipChord],
+    [tipX, tipY + ht, tipLead], [tipX, tipY + ht, tipLead + p.tipChord],
     [0, p.rootY - h, p.rootZ], [0, p.rootY - h, p.rootZ + p.rootChord],
-    [tipX, tipY - h, tipLead], [tipX, tipY - h, tipLead + p.tipChord],
+    [tipX, tipY - ht, tipLead], [tipX, tipY - ht, tipLead + p.tipChord],
   ]
 
   const faces = [

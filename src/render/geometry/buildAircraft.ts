@@ -1,23 +1,28 @@
 import {
-  BoxGeometry, CircleGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry,
+  BoxGeometry, CircleGeometry, ConeGeometry, Group, Mesh, MeshStandardMaterial,
 } from 'three'
-import { DEG, clamp } from '../../core/math'
+import { DEG } from '../../core/math'
 import { buildFuselage } from './fuselage'
 import { buildWingPanel } from './wing'
-import { SILHOUETTES } from './silhouettes'
+import { SILHOUETTES, type Blister, type FinParams, type LoftPart } from './silhouettes'
 import type { AircraftSpec } from '../../specs/types'
-
-const MAX_SURFACE_DEFLECTION = 22 * DEG
 
 export interface AircraftModel {
   group: Group
-  /** 舵面偏轉，輸入為 −1..1 的指令值 */
-  setSurfaces(aileron: number, elevator: number, rudder: number): void
   /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
   setPropSpin(rotation: number, blurred: boolean): void
   dispose(): void
 }
 
+/**
+ * 程序化機體幾何。
+ *
+ * 【為什麼沒有可動舵面】原本副翼／升降舵／方向舵是三組可旋轉的 Group，由
+ * setSurfaces 依控制指令偏轉。專案負責人實測後裁決移除：遊戲中的觀看距離
+ * （追尾相機 26 m、空戰對手更遠）下，22° 的舵面偏轉在畫面上不到一個像素，
+ * 看不出來。省下的 48 個三角形改投入看得見的地方——機身剖面、座艙罩形狀、
+ * 機首整流罩與各機種的識別特徵。
+ */
 export function buildAircraft(spec: AircraftSpec): AircraftModel {
   const sil = SILHOUETTES[spec.id]
   if (!sil) throw new Error(`未定義機種外型：${spec.id}`)
@@ -38,125 +43,80 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
     group.add(mesh)
     return mesh
   }
+  const loft = (part: LoftPart, mat: MeshStandardMaterial) =>
+    add(new Mesh(buildFuselage(part.sections, part.segments, part.roundness), mat))
 
-  add(new Mesh(buildFuselage(sil.fuselage, 8), body))
+  loft(sil.fuselage, body)
+  loft(sil.canopy, glass)
+  if (sil.scoop) loft(sil.scoop, accent)
 
-  // 主翼：**全翼展**的固定翼面 + 貼在外段後緣的可動副翼。
-  //
-  // 【原本只畫到 62% 翼展】固定翼面用 halfSpan × 0.62 建，外側 38% 除了一根
-  // 弦長 0.55 m 的副翼棒之外什麼都沒有——實測固定翼面 X 0~3.50、副翼
-  // X 3.50~5.64，機翼在 62% 處就斷掉。那就是「機翼沒畫完」的實際成因。
-  // 改成全翼展不增加任何三角形（同樣是 12 個面，只是更長）。
+  // 主翼與水平尾翼皆為全翼展固定翼面（見上方「為什麼沒有可動舵面」）。
   add(new Mesh(buildWingPanel(sil.wing, false), body))
   add(new Mesh(buildWingPanel(sil.wing, true), body))
-
-  const innerSpan = sil.wing.halfSpan * 0.62
-  const aileronSpan = sil.wing.halfSpan * 0.38
-  /** 翼展站位 s 處的前緣 Z 與弦長（與 buildWingPanel 的線性內插一致）。 */
-  const leadingEdgeAt = (s: number) => sil.wing.rootZ + Math.tan(sil.wing.sweep) * s
-  const chordAt = (s: number) => {
-    const t = s / sil.wing.halfSpan
-    return sil.wing.rootChord + (sil.wing.tipChord - sil.wing.rootChord) * t
-  }
-  const makeAileron = (mirrored: boolean) => {
-    const pivot = new Group()
-    const sx = mirrored ? -1 : 1
-    // 鉸鏈放在副翼段中點的後緣往前 aileronChord 處，這樣偏轉時繞的是
-    // 真正的後緣而不是憑空的一點。
-    const mid = innerSpan + aileronSpan / 2
-    const aileronChord = chordAt(mid) * 0.26
-    pivot.position.set(
-      sx * innerSpan,
-      sil.wing.rootY + Math.tan(sil.wing.dihedral) * innerSpan,
-      // 【符號修正】此處原本沿用 rootZ − tan(sweep)×span 的舊式（前掠），
-      // wing.ts 改成後掠之後就對不上了，副翼會浮在機翼前方。
-      leadingEdgeAt(mid) + chordAt(mid) - aileronChord,
-    )
-    const mesh = new Mesh(
-      new BoxGeometry(aileronSpan, sil.wing.thickness * 0.7, aileronChord), accent,
-    )
-    mesh.position.set((sx * aileronSpan) / 2, 0, aileronChord / 2)
-    disposables.push(mesh.geometry)
-    pivot.add(mesh)
-    group.add(pivot)
-    return pivot
-  }
-  const aileronR = makeAileron(false)
-  const aileronL = makeAileron(true)
-
-  // 水平尾翼 + 升降舵
   add(new Mesh(buildWingPanel(sil.tailplane, false), body))
   add(new Mesh(buildWingPanel(sil.tailplane, true), body))
-  const elevatorPivot = new Group()
-  elevatorPivot.position.set(0, sil.tailplane.rootY, sil.tailplane.rootZ + sil.tailplane.rootChord * 0.72)
-  const elevatorMesh = new Mesh(
-    new BoxGeometry(sil.tailplane.halfSpan * 2, sil.tailplane.thickness * 0.8, sil.tailplane.rootChord * 0.34),
-    accent,
+
+  // 垂直安定面與背鰭：都是水平翼面板繞 Z 軸立起 90°（+X → +Y）。
+  const upright = (f: FinParams, thickness: number) => {
+    const mesh = new Mesh(buildWingPanel({
+      rootChord: f.chordRoot, tipChord: f.chordTip, halfSpan: f.height,
+      sweep: f.sweep, dihedral: 0, thickness, rootZ: f.z, rootY: 0,
+    }, false), body)
+    mesh.rotation.z = 90 * DEG
+    add(mesh)
+  }
+  upright(sil.fin, 0.12)
+  if (sil.finFillet) upright(sil.finFillet, 0.22)
+
+  const addBlister = (b: Blister, sx: number) => {
+    const mesh = new Mesh(
+      new BoxGeometry(b.width, b.height, b.length), b.bodyColor ? body : accent,
+    )
+    mesh.position.set(sx * b.x, b.y, b.z)
+    if (b.rotZ) mesh.rotation.z = sx * b.rotZ
+    add(mesh)
+  }
+  for (const b of sil.blisters) {
+    addBlister(b, 1)
+    if (b.mirror) addBlister(b, -1)
+  }
+
+  // 螺旋槳整流罩：圓錐預設沿 +Y、頂點在上，繞 X 轉 −90° 讓頂點指向 −Z（機首）。
+  const spinner = new Mesh(
+    new ConeGeometry(sil.spinner.radius, sil.spinner.length, 8), accent,
   )
-  elevatorMesh.position.z = (sil.tailplane.rootChord * 0.34) / 2
-  disposables.push(elevatorMesh.geometry)
-  elevatorPivot.add(elevatorMesh)
-  group.add(elevatorPivot)
+  spinner.rotation.x = -90 * DEG
+  spinner.position.z = sil.fuselage.sections[0]!.z - sil.spinner.length / 2
+  add(spinner)
 
-  // 垂直安定面（以水平翼面板旋轉 90° 立起）+ 方向舵
-  const finPanel = buildWingPanel({
-    rootChord: sil.fin.chordRoot, tipChord: sil.fin.chordTip, halfSpan: sil.fin.height,
-    sweep: sil.fin.sweep, dihedral: 0, thickness: 0.12, rootZ: sil.fin.z, rootY: 0,
-  }, false)
-  const fin = new Mesh(finPanel, body)
-  fin.rotation.z = 90 * DEG
-  add(fin)
-
-  const rudderPivot = new Group()
-  rudderPivot.position.set(0, 0.2, sil.fin.z + sil.fin.chordRoot * 0.74)
-  const rudderMesh = new Mesh(
-    new BoxGeometry(0.12, sil.fin.height * 0.85, sil.fin.chordRoot * 0.30), accent,
-  )
-  rudderMesh.position.set(0, sil.fin.height * 0.45, (sil.fin.chordRoot * 0.30) / 2)
-  disposables.push(rudderMesh.geometry)
-  rudderPivot.add(rudderMesh)
-  group.add(rudderPivot)
-
-  // 座艙罩：淚滴形用球體壓扁，方框形用箱體
-  const canopy = sil.canopy.teardrop
-    ? new Mesh(new SphereGeometry(1, 10, 6), glass)
-    : new Mesh(new BoxGeometry(1, 1, 1), glass)
-  canopy.scale.set(sil.canopy.halfWidth, sil.canopy.height, sil.canopy.length / 2)
-  canopy.position.set(0, 0.62, sil.canopy.z)
-  add(canopy)
-
-  // 散熱器 / 進氣口
-  const intake = new Mesh(new BoxGeometry(1, 1, 1), accent)
-  intake.scale.set(sil.intake.halfWidth * 2, sil.intake.height, sil.intake.length)
-  intake.position.set(0, sil.intake.centerY, sil.intake.z)
-  add(intake)
-
-  // 螺旋槳：三葉 + 轉動圓盤
+  // 槳葉：從整流罩外緣長到槳尖的**單片**葉片。
+  // 【原本是貫穿直徑的長條】三根長條在畫面上是六片槳葉；真機 P-51D 四葉、
+  // Bf 109 三葉，葉數是辨識機種的線索之一。
   const propHub = new Group()
   propHub.position.z = sil.propZ
-  for (let i = 0; i < 3; i++) {
-    const blade = new Mesh(new BoxGeometry(0.14, sil.propRadius * 2, 0.05), accent)
-    blade.rotation.z = (i / 3) * Math.PI * 2
+  const bladeRoot = sil.spinner.radius * 0.8
+  const bladeLength = sil.propRadius - bladeRoot
+  const blades: Mesh[] = []
+  for (let i = 0; i < sil.propBlades; i++) {
+    const blade = new Mesh(new BoxGeometry(0.16, bladeLength, 0.05), accent)
+    // 葉片自己偏離軸心，再由 arm 繞軸排開；直接把 Mesh 收進 blades 以便
+    // 切換可見性——藏 arm（Group）不會改變子 Mesh 自身的 visible 旗標。
+    blade.position.y = bladeRoot + bladeLength / 2
+    const arm = new Group()
+    arm.rotation.z = (i / sil.propBlades) * Math.PI * 2
+    arm.add(blade)
     disposables.push(blade.geometry)
-    propHub.add(blade)
+    propHub.add(arm)
+    blades.push(blade)
   }
   const propDisc = new Mesh(new CircleGeometry(sil.propRadius, 16), blur)
   propDisc.visible = false
   disposables.push(propDisc.geometry)
   propHub.add(propDisc)
   group.add(propHub)
-  const blades = propHub.children.filter((c) => c !== propDisc)
 
   return {
     group,
-    setSurfaces(aileron, elevator, rudder) {
-      const a = clamp(aileron, -1, 1) * MAX_SURFACE_DEFLECTION
-      // 副翼差動：右滾時右副翼上、左副翼下
-      aileronR.rotation.x = -a
-      aileronL.rotation.x = a
-      elevatorPivot.rotation.x = -clamp(elevator, -1, 1) * MAX_SURFACE_DEFLECTION
-      rudderPivot.rotation.y = -clamp(rudder, -1, 1) * MAX_SURFACE_DEFLECTION
-    },
     setPropSpin(rotation, blurred) {
       propHub.rotation.z = rotation
       propDisc.visible = blurred

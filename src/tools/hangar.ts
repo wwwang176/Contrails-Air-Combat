@@ -5,6 +5,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
+import { SILHOUETTES } from '../render/geometry/silhouettes'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { AircraftSpec } from '../specs/types'
@@ -108,16 +109,20 @@ function rebuild(): void {
   box.getCenter(center)
   controls.target.copy(center)
 
+  // 翼展與全長同時列出「模型量到的」與「真機的」，這樣調造型時偏離史實
+  // 會立刻看得出來，不用等測試跑。
+  const sil2 = SILHOUETTES[spec.id]!
   const { tris, meshes } = countTriangles(model)
   stats.textContent =
     `${spec.name}\n` +
     `三角形  ${tris}\n` +
     `mesh    ${meshes}\n` +
-    `包圍盒  ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} m\n` +
-    `翼展    ${spec.wing.span.toFixed(2)} m（spec）`
+    `翼展    ${size.x.toFixed(2)} / 真機 ${spec.wing.span.toFixed(2)} m\n` +
+    `全長    ${size.z.toFixed(2)} / 真機 ${sil2.realLength.toFixed(2)} m\n` +
+    `高      ${size.y.toFixed(2)} m`
 
   for (const b of specButtons) b.classList.toggle('on', SPECS[specIndex]!.id === b.dataset['id'])
-  syncSurfaces()
+  syncProp()
 }
 
 // 機種切換按鈕
@@ -131,22 +136,13 @@ const specButtons = SPECS.map((s, i) => {
   return b
 })
 
-const ail = $<HTMLInputElement>('ail')
-const elev = $<HTMLInputElement>('elev')
-const rud = $<HTMLInputElement>('rud')
 const rpm = $<HTMLInputElement>('rpm')
 
-function syncSurfaces(): void {
-  if (!model) return
-  const a = Number(ail.value), e = Number(elev.value), r = Number(rud.value)
-  model.setSurfaces(a, e, r)
-  $<HTMLSpanElement>('ailV').textContent = a.toFixed(2)
-  $<HTMLSpanElement>('elevV').textContent = e.toFixed(2)
-  $<HTMLSpanElement>('rudV').textContent = r.toFixed(2)
+function syncProp(): void {
   const p = Number(rpm.value)
   $<HTMLSpanElement>('rpmV').textContent = p === 0 ? '停' : p < 0.5 ? '慢轉' : '模糊'
 }
-for (const el of [ail, elev, rud, rpm]) el.addEventListener('input', syncSurfaces)
+rpm.addEventListener('input', syncProp)
 
 $<HTMLButtonElement>('wire').onclick = (ev) => {
   wireframe = !wireframe
@@ -185,7 +181,10 @@ rebuild()
       autoRotate = false
       if (model) model.group.rotation.y = 0
       camera.position.set(x, y, z)
-      camera.up.set(0, y === 0 ? 1 : 0, y === 0 ? 0 : -1)
+      // 只有正上方俯視需要換 up（否則 lookAt 退化）；其餘一律 +Y 朝上，
+      // 不然斜視角會被轉得歪七扭八。
+      const overhead = x === 0 && z === 0
+      camera.up.set(0, overhead ? 0 : 1, overhead ? -1 : 0)
       controls.update()
     }
 
