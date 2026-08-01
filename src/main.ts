@@ -115,7 +115,6 @@ function frame(now: number) {
 
   model.group.position.copy(renderPos)
   model.group.quaternion.copy(renderQuat)
-  model.setSurfaces(aircraft.controls.aileron, aircraft.controls.elevator, aircraft.controls.rudder)
   propRotation += frameSeconds * (8 + input.throttle * 60)
   model.setPropSpin(propRotation, input.throttle > 0.15)
 
