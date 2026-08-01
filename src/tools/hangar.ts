@@ -8,6 +8,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { DEG } from '../core/math'
+import { collectTriangles, extentSlices, radialSlices, type Axis } from './sliceRef'
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
@@ -126,6 +127,8 @@ const refCache: (Object3D | null)[] = []
  */
 const refSolid = params.get('refsolid') === '1'
 let refModel: Object3D | null = null
+// 切片用的三角形快取。宣告同樣必須早於 rebuild()——ensureRef 會清它。
+let refTris: Float32Array | null = null
 let propRotation = 0
 let autoRotate = true
 let wireframe = false
@@ -336,7 +339,15 @@ function placeRef(): void {
   refModel.children[0]!.rotation.y = refFlips[specIndex] === '1' ? Math.PI : 0
   refModel.rotation.x = (Number(refPitches[specIndex]) || 0) * DEG
   refModel.updateMatrixWorld(true)
-  refModel.scale.setScalar(m.realLength / raw.getSize(new Vector3()).z)
+  /**
+   * 縮放基準用**翼展**，不是全長。
+   *
+   * 【為什麼】全長被螺旋槳與姿態污染：實測兩個參考模型依全長縮放後，翼展
+   * 都短了——Bf 109 是 9.481 對 9.87（−4.0%）、P-51D 是 11.030 對 11.286
+   * （−2.3%）。整台縮小幾個百分點，之後量到的每一個尺寸都跟著錯。
+   * 翼尖是乾淨的基準：±X 的極端點必然是翼尖，沒有起落架、螺旋槳、天線。
+   */
+  refModel.scale.setScalar(SPECS[specIndex]!.wing.span / raw.getSize(new Vector3()).x)
   refModel.updateMatrixWorld(true)
   const scaled = new Box3().setFromObject(refModel)
   refModel.position.z = m.noseZ - scaled.min.z
@@ -367,6 +378,7 @@ function tipY(obj: Object3D, box: Box3): number {
 function ensureRef(index: number): void {
   if (refModel) refModel.visible = false
   refModel = refCache[index] ?? null
+  refTris = null
   if (refModel) {
     refModel.visible = true
     placeRef()
@@ -396,6 +408,22 @@ function ensureRef(index: number): void {
     if (wrapper.visible) { refModel = wrapper; placeRef(); frameOrtho() }
   })
 }
+
+/**
+ * 開發用：把已對齊的參考模型切片量測。三角形只蒐集一次，之後多次切片共用。
+ *
+ * 回傳的是**量測結果**，不是定案幾何——機翼與起落架會混進機身的切面，
+ * 要先看剖面圖判斷哪幾段可信（見 sliceRef 的說明）。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarSlice'] =
+    (kind: 'radial' | 'extent', axis: Axis, o: Record<string, number | [number, number]>) => {
+      if (!refModel) return null
+      refTris ??= collectTriangles(refModel)
+      return kind === 'radial'
+        ? radialSlices(refTris, axis, o as never)
+        : extentSlices(refTris, axis, o as never)
+    }
+
 // 開發用：分別開關兩個模型，讓外部工具各自截一張純剪影來抽輪廓。
 ;(window as unknown as Record<string, unknown>)['__hangarShow'] =
     (mine: boolean, ref: boolean) => {
