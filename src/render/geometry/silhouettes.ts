@@ -180,10 +180,11 @@ export const SILHOUETTES: Record<string, Silhouette> = {
         { z: -3.80, halfWidth: 0.35, halfHeight: 0.44, centerY: 0.02, roundness: 2.4 },
         { z: -2.90, halfWidth: 0.39, halfHeight: 0.50, centerY: 0.00, roundness: 2.6 },
         { z: -2.00, halfWidth: 0.40, halfHeight: 0.550, centerY: 0.020 },  // 最大截面
-        { z: -0.90, halfWidth: 0.40, halfHeight: 0.560, centerY: 0.045 },
-        { z: 0.30, halfWidth: 0.350, halfHeight: 0.515, centerY: 0.125, roundness: 3.0 },
-        { z: 1.60, halfWidth: 0.251, halfHeight: 0.375, centerY: 0.135, roundness: 3.2 },
-        { z: 2.90, halfWidth: 0.152, halfHeight: 0.234, centerY: 0.146, roundness: 3.4 },
+        { z: -0.90, halfWidth: 0.40, halfHeight: 0.575, centerY: 0.040 },
+        { z: -0.25, halfWidth: 0.39, halfHeight: 0.575, centerY: 0.055 },  // 背脊最高 0.630
+        { z: 0.30, halfWidth: 0.350, halfHeight: 0.487, centerY: 0.097, roundness: 3.0 },
+        { z: 1.60, halfWidth: 0.251, halfHeight: 0.356, centerY: 0.117, roundness: 3.2 },
+        { z: 2.90, halfWidth: 0.152, halfHeight: 0.226, centerY: 0.137, roundness: 3.4 },
         { z: 4.10, halfWidth: 0.060, halfHeight: 0.105, centerY: 0.155, roundness: 3.4 },
       ],
     },
@@ -200,12 +201,16 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     canopy: {
       roundness: 3.5,   // 方框式座艙罩，稜線分明
       segments: 8,
+      // 【長度與位置依側視線圖量測】以整流罩尖端為原點、全長 8.95 m 換算：
+      // 圖上罩前緣距機首 3.00 m、罩後緣 4.58 m，罩長約 1.6 m。原本是
+      // −1.15..1.15（2.30 m，長了 43%）且前緣在 3.70 m 處（後了 0.7 m）。
+      // 109 的座艙以狹窄著稱，罩子本來就短。
       sections: [
-        { z: -1.15, halfWidth: 0.13, halfHeight: 0.070, centerY: 0.480 }, // 風擋前緣
-        { z: -0.80, halfWidth: 0.30, halfHeight: 0.220, centerY: 0.520 }, // 裝甲玻璃頂 0.74
-        { z: -0.10, halfWidth: 0.33, halfHeight: 0.240, centerY: 0.500 }, // 罩頂 0.74
-        { z: 0.50, halfWidth: 0.28, halfHeight: 0.190, centerY: 0.462 },  // 頂 0.652
-        { z: 1.15, halfWidth: 0.16, halfHeight: 0.110, centerY: 0.447 },  // 頂 0.557 = 背線
+        { z: -1.85, halfWidth: 0.13, halfHeight: 0.070, centerY: 0.480 }, // 風擋前緣
+        { z: -1.50, halfWidth: 0.30, halfHeight: 0.220, centerY: 0.520 }, // 裝甲玻璃頂 0.74
+        { z: -0.95, halfWidth: 0.33, halfHeight: 0.240, centerY: 0.500 }, // 罩頂 0.74
+        { z: -0.55, halfWidth: 0.28, halfHeight: 0.190, centerY: 0.500 }, // 頂 0.69
+        { z: -0.25, halfWidth: 0.18, halfHeight: 0.130, centerY: 0.500 }, // 頂 0.63 = 背線
       ],
     },
     wing: {
@@ -213,9 +218,13 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
       sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -1.2, rootY: -0.26,
     },
+    // 【水平尾翼裝在垂尾上，不在機身側面】109 的平尾明顯高於機身背線，
+    // 並由下方斜撐桿支撐——這是它側影一眼可辨的特徵，同期盟軍機沒有。
+    // 原本 rootY 0.18，比該站位的背線（0.362）還低 0.18 m，等於從機身
+    // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.18,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.46,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
     fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.38, sweep: 30 * DEG, z: 2.5 },
@@ -226,10 +235,10 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       { x: 0, y: -0.48, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
       { x: 1.50, y: -0.30, z: 0.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
-      // 水平尾翼斜撐桿
+      // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
       {
-        x: 0.36, y: 0.05, z: 3.15, width: 0.55, height: 0.05, length: 0.10,
-        rotZ: 20 * DEG, mirror: true, bodyColor: true,
+        x: 0.36, y: 0.185, z: 3.15, width: 0.675, height: 0.05, length: 0.10,
+        rotZ: 39.6 * DEG, mirror: true, bodyColor: true,
       },
     ],
     spinner: { radius: 0.29, length: 0.55 },

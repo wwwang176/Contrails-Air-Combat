@@ -452,11 +452,19 @@ describe('外型與真機的對照', () => {
          * 高背脊：座艙罩玻璃頂與其後方背脊的高度差要小。109 的座艙罩只是
          * 薄薄一片凸出物（後方視野惡名昭彰的原因），不是擱在錐體上的氣泡罩。
          */
-        it('座艙罩頂與後方背脊接近齊平（高背脊）', () => {
+        it('座艙罩頂與其後方背脊接近齊平（高背脊）', () => {
           const roof = Math.max(...sil.canopy.sections.map((s) => s.centerY + s.halfHeight))
-          const deck = sil.fuselage.sections.find((s) => s.z === 0.3)!
-          // 缺陷版本：罩頂 0.78 對背脊 0.51，差 0.27
+          const tail = sil.canopy.sections[sil.canopy.sections.length - 1]!
+          const deck = fuselageAt(sil.fuselage.sections, tail.z)
+          // 缺陷版本：罩頂 0.78 對其後方背脊 0.46，差 0.32
           expect(roof - (deck.centerY + deck.halfHeight)).toBeLessThan(0.12)
+        })
+
+        /** 平尾裝在垂尾上、高於背線——109 側影一眼可辨的特徵。 */
+        it('水平尾翼高於機身背線', () => {
+          const deck = fuselageAt(sil.fuselage.sections, sil.tailplane.rootZ)
+          // 缺陷版本：rootY 0.18 比背線 0.362 還低 0.18 m
+          expect(sil.tailplane.rootY).toBeGreaterThan(deck.centerY + deck.halfHeight)
         })
       }
 
