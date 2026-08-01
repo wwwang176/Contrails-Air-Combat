@@ -28,6 +28,22 @@ export interface DirectorGains {
   yawInner: PidGains
   /** 誤差小於此角度時停止滾轉修正，rad */
   deadZoneAngle: number
+  /**
+   * 期望滾轉率相對於「總誤差角」的上限斜率，(rad/s)/rad。
+   * 亦即 |desiredP| ≤ rollRateErrorSlope × errorAngle。
+   *
+   * 【為什麼需要這一項】rollCommand = atan2(x, y) 只描述「升力向量要轉到
+   * 哪個方位」，完全不含「還差多遠」的資訊：一個純橫向的 4° 誤差與一個
+   * 純橫向的 90° 誤差，rollCommand 都是 ±90°，desiredP 都是
+   * rollOuter × π/2 = 4.71 rad/s——而 P-51D 在這些速度下的最大滾轉率只有
+   * 0.72~2.17 rad/s。結果是：只要誤差稍微漂出死區，副翼就被打到滿舵。
+   *
+   * 這一項把滾轉指令的「急迫度」與總誤差綁在一起：誤差小的時候不需要
+   * 用最大滾轉率去搬升力向量。它同時讓滾轉權限在 errorAngle → 0 時
+   * 連續地收斂到 0，而不是像單純的死區那樣在門檻上跳一個階梯——
+   * 死區處理的是「對準之後不要抖」，這一項處理的是「快對準時不要暴衝」。
+   */
+  rollRateErrorSlope: number
   /** 目標接近正後方時的遲滯半徑，rad */
   reverseHysteresis: number
   /** 期望滾轉率的絕對上限，rad/s */
@@ -74,6 +90,9 @@ export const DEFAULT_DIRECTOR_GAINS: DirectorGains = {
   pitchInner: { kp: 1.6, ki: 0.5, kd: 0.005, integralLimit: 1.5, outputLimit: 1 },
   yawInner: { kp: 1.2, ki: 0.3, kd: 0.02, integralLimit: 1, outputLimit: 1 },
   deadZoneAngle: 3 * (Math.PI / 180),
+  // = 5 × rollOuter。見下方掃描表：3~8 全部 120/120 通過，5 是末段標準差
+  // 與末段誤差的綜合最佳點。
+  rollRateErrorSlope: 15,
   reverseHysteresis: 5 * (Math.PI / 180),
   maxRollRateCommand: 6,
 }
@@ -240,8 +259,11 @@ export class FlightDirector {
       ? Math.min((G0 * (nNeg - gLoad)) / aero.tas, -QMAX_FLOOR)
       : 0
 
+    // 兩道上限：一道來自總誤差角（見 rollRateErrorSlope），一道是絕對上限。
+    const slopeLimit = g.rollRateErrorSlope * dbg.errorAngle
     dbg.desiredP = clamp(
-      g.rollOuter * dbg.rollCommand, -g.maxRollRateCommand, g.maxRollRateCommand,
+      clamp(g.rollOuter * dbg.rollCommand, -slopeLimit, slopeLimit),
+      -g.maxRollRateCommand, g.maxRollRateCommand,
     )
     dbg.desiredQ = clamp(g.pitchOuter * dbg.verticalError, qMin, dbg.limiter.qMax)
     // 【符號修正】brief 原稿寫 g.yawOuter * -aero.beta，符號相反，是正回授。
