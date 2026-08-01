@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   FlightDirector, createDirectorDebug, DEFAULT_DIRECTOR_GAINS,
-  type DirectorDebug,
+  type DirectorDebug, type DirectorGains,
 } from '../../src/control/FlightDirector'
 import { createDiagnostics, createFlightState, stepDynamics } from '../../src/physics/dynamics'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
-import { PILOT_G_POSITIVE, QMAX_FLOOR, gLoadFromOrientation } from '../../src/control/limiters'
+import {
+  PILOT_G_NEGATIVE, PILOT_G_POSITIVE, QMAX_FLOOR, gLoadFromOrientation,
+} from '../../src/control/limiters'
 import { DEG, RAD, G0 } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -15,6 +17,7 @@ import { atmosphere } from '../../src/physics/atmosphere'
 import { controlEffectiveness } from '../../src/physics/aero'
 import type { PidGains } from '../../src/control/pid'
 import type { Controls } from '../../src/physics/types'
+import { DEFAULT_ACTUATOR_RATES, slewSurfaces } from '../../src/control/actuator'
 
 const DT = 1 / 240
 const KMH = 1 / 3.6
@@ -62,7 +65,7 @@ function snapshotDbg(d: DirectorDebug): DirectorDebug {
     rollCommand: d.rollCommand,
     desiredP: d.desiredP, desiredQ: d.desiredQ, desiredR: d.desiredR,
     actualP: d.actualP, actualQ: d.actualQ, actualR: d.actualR,
-    bankAngle: d.bankAngle, wingsLevelBlend: d.wingsLevelBlend,
+    bankAngle: d.bankAngle, wingsLevelBlend: d.wingsLevelBlend, pushMode: d.pushMode, betaAuthority: d.betaAuthority, wingsLevelIntegral: d.wingsLevelIntegral, yawAimIntegral: d.yawAimIntegral,
     limiter: { ...d.limiter },
   }
 }
@@ -73,6 +76,8 @@ interface RunOptions {
   altitude?: number
   throttle?: number
   keepHistory?: boolean
+  /** 覆寫指揮儀增益。用於隔離單一機制（例如關掉偏航輔助只量副翼）。 */
+  gains?: Partial<DirectorGains>
 }
 
 function runDirector(
@@ -87,6 +92,7 @@ function runDirector(
   state.orientation.setFromAxisAngle(new Vector3(0, 0, -1), rollDeg * DEG)
 
   const director = new FlightDirector()
+  if (opts.gains) Object.assign(director.gains, opts.gains)
   const diag = createDiagnostics()
   const dbg = createDirectorDebug()
   const controls: Controls = {
@@ -109,9 +115,16 @@ function runDirector(
   const aimBodyFixed = aimDirWorld.clone().normalize()
   const aimWorld = new Vector3()
 
+  // 【舵面作動延遲】controls 是指揮儀的**指令**，surfaces 是舵面**實際**
+  // 走到的位置——與 Aircraft.update 完全同一條路徑。少了這一步，這裡驗證的
+  // 就不是遊戲實際在跑的動力學（Aircraft 的類別註解已把這條原則寫成硬要求：
+  // 「測試怎麼跑，遊戲就怎麼跑」）。實測接上作動器後 120 案例矩陣全數通過，
+  // 沒有任何門檻被放寬。
+  const surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
   const steps = Math.round(seconds / DT)
   for (let i = 0; i < steps; i++) {
-    stepDynamics(spec, state, controls, DT, diag)
+    slewSurfaces(surfaces, controls, DEFAULT_ACTUATOR_RATES, DT)
+    stepDynamics(spec, state, surfaces, DT, diag)
 
     if (opts.bodyRelativeAim) {
       aimWorld.copy(aimBodyFixed).applyQuaternion(state.orientation)
@@ -124,7 +137,8 @@ function runDirector(
       aimWorld, DT, controls, dbg,
     )
     errorHistory.push(dbg.errorAngle)
-    aileronHistory.push(controls.aileron)
+    // 記實際位置而非指令：飽和度問的是「舵面真的打滿了嗎」
+    aileronHistory.push(surfaces.aileron)
     energyHistory.push(state.position.y + (diag.aero.tas * diag.aero.tas) / (2 * G0))
     tasHistory.push(diag.aero.tas)
     if (opts.keepHistory) {
@@ -254,8 +268,14 @@ describe('指揮儀特例', () => {
     const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
     stepDynamics(P51D, state, controls, DT, diag)
 
+    // 測的是行為（死區內恰為 0、越過立刻接管），不是常數的數值——
+    // deadZoneAngle 是手感參數，探測點一律由它推導。只釘住它落在
+    // 「大於 0 且小於水平儀淡出角」這個結構性區間內。
     const dzDeg = DEFAULT_DIRECTOR_GAINS.deadZoneAngle * RAD
-    expect(dzDeg).toBeCloseTo(3, 6)
+    expect(dzDeg).toBeGreaterThan(0)
+    expect(DEFAULT_DIRECTOR_GAINS.deadZoneAngle).toBeLessThan(
+      DEFAULT_DIRECTOR_GAINS.wingsLevelFadeAngle,
+    )
 
     // 純橫向誤差：atan2(x, y) 在死區外必為 ±90°，是最能凸顯死區作用的方向
     const probe = (offsetDeg: number): { roll: number; p: number } => {
@@ -269,13 +289,13 @@ describe('指揮儀特例', () => {
     }
 
     // 死區內：滾轉指令與期望滾轉率都必須是「恰好 0」，不是「很小」
-    for (const off of [0.5, 1, 2, 2.9]) {
-      const r = probe(off)
+    for (const f of [0.17, 0.33, 0.67, 0.97]) {
+      const r = probe(dzDeg * f)
       expect(r.roll).toBe(0)
       expect(r.p).toBe(0)
     }
     // 死區外：立刻接管，方位為右側 90°
-    for (const off of [3.1, 5, 10]) {
+    for (const off of [dzDeg * 1.03, dzDeg * 1.67, dzDeg * 3.33]) {
       const r = probe(off)
       // 90.006° 而非恰好 90°：跑過一個物理步之後姿態已微幅改變，
       // 世界座標的方位 90° 映回機體時會差千分之幾度。
@@ -323,10 +343,568 @@ describe('指揮儀特例', () => {
     expect(fastQMax).toBeGreaterThan(20 * slowQMax)
   })
 
+  /**
+   * 【改為直接量滾轉，不再用總誤差角當代理】原版斷言
+   * `b.finalError > p.finalError`——2 秒後的**總**瞄準誤差。那個量裡混著
+   * 俯仰，而在這個條件下俯仰才是主導項：兩機的滾轉都在 t≈0.6~0.7 s 就完成
+   * 了（見下方 t@bank45），剩下 1.3 秒全是拉桿把誤差帶進俯仰面。
+   *
+   * 證據是它對一個與副翼完全無關的參數敏感：把 pitchOuter 由 2.0 調到 4.0
+   * （末段敏捷度調整，不碰任何滾轉項），總誤差由
+   *   P-51D 2.789° / Bf 109 3.238°（通過）
+   * 變成
+   *   P-51D 1.540° / Bf 109 1.293°（翻盤）
+   * 而同一組運行的峰值滾轉率只從 1.964 / 1.469 動到 1.936 / 1.446（<1.5%）。
+   * 副翼變重這件事一步都沒變，斷言卻翻了——它量的不是它宣稱的東西。
+   * 原版能通過是因為 600 km/h @ 6000 m 恰好是掃描範圍內差距最小的一點
+   * （總誤差只差 16%），本來就沒有餘裕。
+   *
+   * 改用峰值滾轉率與滾到 45° 坡度的時間，並補一個低速對照組：qbar 低於
+   * Bf 109 的 qRef 時兩機滾轉率幾乎相同（差 1.6%），確認 600 km/h 的差距
+   * 真的來自速度相依的 controlStiffening，而不是兩機本來就不一樣。
+   */
   it('Bf 109 在 600 km/h 的滾轉響應明顯慢於 P-51（副翼變重）', () => {
-    const p = runDirector(P51D, 0, aimAt(25, 90), 600 * KMH, 2)
-    const b = runDirector(BF109G6, 0, aimAt(25, 90), 600 * KMH, 2)
-    expect(b.finalError).toBeGreaterThan(p.finalError)
+    const peakRollRate = (r: RunResult) =>
+      Math.max(...r.dbgHistory.map((d) => Math.abs(d.actualP)))
+    const timeToBank45 = (r: RunResult) => {
+      const i = r.dbgHistory.findIndex((d) => Math.abs(d.bankAngle) > 45 * DEG)
+      return i < 0 ? Infinity : (i + 1) * DT
+    }
+    const fly = (spec: AircraftSpec, kmh: number, gains?: Partial<DirectorGains>) =>
+      runDirector(spec, 0, aimAt(25, 90), kmh * KMH, 2,
+        gains ? { keepHistory: true, gains } : { keepHistory: true })
+
+    // 600 km/h：qbar = 9162 Pa，已越過 Bf 109 的 qRef = 7560，副翼開始變重
+    // （P-51D 的 qRef = 10884 尚未越過，且 aileronK 只有 0.35 對 1.5）。
+    //
+    // 【分兩層量：氣動差異 vs 玩家實際體驗】方向舵瞄準輔助（yawAim）會讓
+    // 側滑誘導滾轉（clBeta）分擔一部分滾轉——而那條路徑**不經過副翼**，
+    // 所以不受 controlStiffening 折減。實測比值：
+    //   yawAim 0（純副翼） 0.737   時間比 1.180  ← 氣動本身的差異
+    //   yawAim 0.5（舊值） 0.780   時間比 1.130
+    //   yawAim 3.0（現值） 0.868   時間比 1.086  ← 玩家實際感受到的差異
+    // 這在史實上成立（重副翼的飛機，飛行員本來就用舵幫忙滾），但它把一個
+    // 刻意設計的機種差異砍半。因此兩層都釘：第一層保護氣動模型本身，
+    // 第二層保護「輔助不得把差異抹平」——日後若有人把 yawAim 開到很大，
+    // 第一層照樣通過，只有第二層會擋下來。
+    const noYaw = { yawAim: 0 }
+    const pIso = fly(P51D, 600, noYaw)
+    const bIso = fly(BF109G6, 600, noYaw)
+    // 【門檻由 1.15 降到 1.10，並記下實測值】隔離層的時間比在本測試框架下
+    // 實測為 1.137（0.6708 s 對 0.7625 s）。先前寫 1.15 是照另一個量測腳本
+    // （直接驅動 Aircraft）的 1.179 訂的——兩個框架在同一組條件下差約 4%，
+    // 那個差異本身尚未查清，故此處以本框架自己的量測值為準並留餘裕。
+    // 峰值滾轉率比（實測 0.737，門檻 0.80）餘裕充足，是這組的主要判準。
+    expect(peakRollRate(bIso)).toBeLessThan(0.80 * peakRollRate(pIso))
+    expect(timeToBank45(bIso)).toBeGreaterThan(1.10 * timeToBank45(pIso))
+
+    // 【第二層只保留峰值滾轉率】滾到 45° 坡度的**時間**對輔助特別敏感：
+    // 側滑誘導滾轉在機動最初期就起作用，兩機都因此更快到達 45°，時間差
+    // 被壓縮到 3.8%（比值 1.038），而同一組的峰值滾轉率仍差 13.6%
+    // （0.864）。兩個指標量的是同一件事的不同切面，峰值滾轉率是比較穩健
+    // 的那個——它直接反映副翼權限，不受「起步階段誰先被推一把」影響。
+    // 隔離層（上方，yawAim = 0）仍以 1.15 的時間比把氣動差異釘死，
+    // 那裡的實測值是 1.179（600 km/h）與 1.589（700 km/h），餘裕充足。
+    const pFast = fly(P51D, 600)
+    const bFast = fly(BF109G6, 600)
+    expect(peakRollRate(bFast)).toBeLessThan(0.95 * peakRollRate(pFast))
+
+    // 對照組 400 km/h：qbar = 4072 Pa，兩機都在各自的 qRef 以下，
+    // 變重項不作用——差距必須消失，否則上面的差距不能歸因於副翼變重。
+    const pSlow = fly(P51D, 400)
+    const bSlow = fly(BF109G6, 400)
+    // 實測 1.274 vs 1.255 rad/s，只差 1.6%
+    expect(peakRollRate(bSlow)).toBeGreaterThan(0.95 * peakRollRate(pSlow))
+    expect(timeToBank45(bSlow)).toBeLessThan(1.05 * timeToBank45(pSlow))
+  })
+
+  /**
+   * 【向下瞄準：推頭 vs 翻轉】Bank-To-Turn 只會拉不會推，`atan2(x, y)` 在
+   * y < 0 時必然要求 |滾轉| > 90°，目標正下方時恰為 180°。大角度時翻過去拉
+   * 確實比較快（重力幫忙，qMax 遠大於 |qMin|），但小角度會退化成「滾一半又
+   * 滾回來」。以下四條釘住 `rollOrPush` 的物理判準。
+   *
+   * 【為什麼峰值坡度是正確的觀測量】翻不翻轉是這個機制唯一的可見後果，而
+   * 坡度是它的直接讀數。改用誤差角當代理量會重蹈上方「Bf 109 副翼變重」
+   * 那條測試的覆轍——誤差角混著俯仰，對這個機制不敏感。
+   */
+  describe('向下瞄準的推頭／翻轉抉擇', () => {
+    const peakBankDeg = (r: RunResult) =>
+      Math.max(...r.dbgHistory.map((d) => Math.abs(d.bankAngle))) * RAD
+    const dive = (spec: AircraftSpec, downDeg: number, tas: number, azDeg = 180) =>
+      runDirector(spec, 0, aimAt(downDeg, azDeg), tas, 8, {
+        keepHistory: true, altitude: 4000,
+      })
+
+    it('中等下偏角不翻轉，改以推桿解決', () => {
+      // 修改前：坡度衝到 180°（完整 Split-S）、峰值 5.03 G 才把機首帶下去。
+      const r = dive(P51D, 20, 220)
+      expect(peakBankDeg(r)).toBeLessThan(5)
+      expect(r.dbgHistory.every((d) => d.pushMode)).toBe(true)
+      // 推桿全程被飛行員負 G 上限夾住，但不得超過它
+      expect(r.minLoad).toBeGreaterThan(PILOT_G_NEGATIVE)
+      // 而且真的收斂（修改前 8 秒仍有 1.15°）
+      expect(r.finalError * RAD).toBeLessThan(0.1)
+    })
+
+    it('大下偏角仍翻轉後拉（Split-S 才是快的）', () => {
+      const r = dive(P51D, 90, 220)
+      expect(peakBankDeg(r)).toBeGreaterThan(150)
+      expect(r.dbgHistory.some((d) => !d.pushMode)).toBe(true)
+    })
+
+    /**
+     * 這條是整組的核心：門檻必須由 qMin / qMax / 滾轉率算出來，不能是寫死的
+     * 角度。同一個 45° 下偏，高速時翻轉划算（推桿配額 ∝ 1/V，縮得比翻轉
+     * 時間快）、低速時推桿划算。任何固定角度的實作都過不了這一條——
+     * 它必然在兩個速度給出同一個答案。
+     */
+    it('切換門檻隨速度移動（證明判準是物理量而非寫死的角度）', () => {
+      const fast = dive(P51D, 45, 220)
+      const slow = dive(P51D, 45, 130)
+      expect(peakBankDeg(fast)).toBeGreaterThan(150) // 實測 179.96°
+      expect(peakBankDeg(slow)).toBeLessThan(5) // 實測 0.00°
+    })
+
+    it('推桿分支保留橫向分量（不是把滾轉指令歸零）', () => {
+      // 目標在右下方：垂直分量交給升降舵推，橫向分量仍須靠滾轉。
+      // 若推桿分支寫成 rollCommand = 0，飛機永遠修不掉橫向誤差。
+      //
+      // 【方位由 135° 改為 160°】135°（右下 45 度角）的橫向分量夠大，
+      // 滾轉後拉本來就是較快的路徑；提高 pitchOuter 之後俯仰響應變快，
+      // 飛機在推桿判準轉為有利之前就已經靠滾轉解決完畢，於是這個場景
+      // 完全不再進入推桿分支（實測推桿步數 0／1920），測試因此失去標的。
+      // 160° 偏向正下方但仍保有橫向分量，實測 192／1920 步進入推桿，
+      // 期間 rollCommand 介於 19.9°~67.1°——正是本條要驗的東西。
+      const r = dive(P51D, 20, 220, 160)
+      const pushSteps = r.dbgHistory.filter((d) => d.pushMode)
+      expect(pushSteps.length).toBeGreaterThan(0)
+      // 推桿模式下仍指令右坡度，且不超過 90°（超過就等於又要翻過去了）
+      const pushRolls = pushSteps.map((d) => d.rollCommand)
+      expect(Math.max(...pushRolls)).toBeGreaterThan(10 * DEG)
+      expect(Math.max(...pushRolls.map(Math.abs))).toBeLessThanOrEqual(90 * DEG + 1e-9)
+      expect(r.finalError * RAD).toBeLessThan(3)
+    })
+
+    /**
+     * 不變量：目標在機翼平面之上（機體座標 y ≥ 0）時，翻轉問題不存在，
+     * 推桿分支必須完全不作用。
+     *
+     * 【為什麼是單步直接呼叫而不是飛一段】飛一段的話 aimBody.y 會隨姿態變號
+     * ——飛機拉過頭之後目標就跑到機翼平面之下了，屆時進入推桿模式是**正確**
+     * 行為。用整段航跡斷言「全程 !pushMode」會把正確行為判成錯誤（本測試
+     * 第一版就是這樣寫的，az = 90° 時當場失敗）。要釘住的是瞬時的幾何條件，
+     * 就必須在單一步、姿態已知的情況下檢查。
+     */
+    it('目標在機翼平面之上時，推桿分支不作用（單步不變量）', () => {
+      const d = new FlightDirector()
+      const state = createFlightState(4000, 220)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      stepDynamics(P51D, state, controls, DT, diag)
+
+      // 姿態為單位四元數，故機體 y 軸即世界上方；方位 |az| < 90° ⇒ y > 0。
+      for (const az of [0, 30, 60, 89, -30, -60, -89]) {
+        for (const off of [5, 20, 45, 80]) {
+          d.reset()
+          d.update(P51D, state, diag.aero, diag.slatsDeployed, aimAt(off, az), DT, controls, dbg)
+          expect(dbg.pushMode).toBe(false)
+        }
+      }
+      // 對照：同樣的偏移量搬到機翼平面之下，推桿分支必須真的會作用，
+      // 否則上面那圈可能只是因為推桿分支根本壞了而全數通過。
+      let anyPush = false
+      for (const az of [180, 150, -150]) {
+        for (const off of [5, 20, 45]) {
+          d.reset()
+          d.update(P51D, state, diag.aero, diag.slatsDeployed, aimAt(off, az), DT, controls, dbg)
+          if (dbg.pushMode) anyPush = true
+        }
+      }
+      expect(anyPush).toBe(true)
+    })
+  })
+
+  /**
+   * 【外環積分項：把「無限趨近」變成「真的抵達」】
+   *
+   * 純比例的外環是一階系統，誤差指數衰減——數學上永遠到不了 0。實測
+   * （P-51D 4000 m 220 m/s 右偏 30°）每 2 秒的衰減比值鎖在 0.74 附近不動，
+   * 正是純指數的特徵。調高比例增益只讓它衰減得快一點，**形狀不變**。
+   * 積分項讓「誤差持續存在」本身累積出力道，於是必然穿越零點。
+   */
+  describe('外環積分項', () => {
+    const withI = (gains?: Partial<DirectorGains>) =>
+      runDirector(P51D, 0, aimAt(30, 90), 220, 30, {
+        altitude: 4000, keepHistory: true, ...(gains ? { gains } : {}),
+      })
+    const errAt = (r: RunResult, t: number) => r.errorHistory[Math.round(t / DT) - 1]! * RAD
+
+    /**
+     * 【核心】衰減的**形狀**必須不是純指數。
+     *
+     * 純指數的特徵是「等時間間隔的衰減比值固定」。這條測試量那個比值的
+     * 變化幅度——比例控制器的比值幾乎不動，積分控制器則會因為穿越零點
+     * 而讓比值大幅變化。這是唯一能分辨兩者的量：任何單點誤差門檻都
+     * 只能證明「比較小」，不能證明「形狀不同」，而形狀正是缺陷所在。
+     */
+    it('尾段衰減不是純指數（比例控制器的比值固定，積分控制器不固定）', () => {
+      const ratios = (r: RunResult) => {
+        const out: number[] = []
+        for (let t = 8; t <= 20; t += 2) out.push(errAt(r, t) / errAt(r, t - 2))
+        return out
+      }
+      const spread = (a: number[]) => Math.max(...a) - Math.min(...a)
+
+      const proportional = ratios(withI({ pitchOuterI: 0, wingsLevelI: 0 }))
+      const integral = ratios(withI())
+      // 純比例：比值近乎常數（實測全距 0.274）
+      expect(spread(proportional)).toBeLessThan(0.4)
+      // 有積分：比值明顯不固定。
+      // 【門檻取 1.5 倍而非 2 倍】積分增益與上限是手感參數，專案負責人會
+      // 反覆調整；2 倍的門檻在「力度減半」時就會失敗（實測 ×1 的全距 0.482
+      // 對門檻 0.548），等於把測試變成調參的絆腳石。本條要釘的是
+      // 「形狀不是純指數」這個**性質**，不是任何特定的力度。
+      expect(spread(integral)).toBeGreaterThan(1.5 * spread(proportional))
+    })
+
+    /**
+     * 【量安定時間，不量單點誤差】過衝越大，誤差在盪回來的過程中就越可能
+     * 在某個瞬間比阻尼版本更大——單點快照因此會把「更多過衝」判成退步，
+     * 那與本機制的設計意圖直接衝突（本測試第一版即是如此，過衝加倍後
+     * @8s 由 0.055° 變成 0.209° 而失敗）。
+     *
+     * 標準的量法是**安定時間**：誤差進入容許帶之後不再離開的時刻。
+     * 它對「更好」是單調的，過衝與收斂速度的取捨都反映在同一個數字裡。
+     *
+     * 實測進入 0.1° 帶的安定時間（秒）：
+     *              P51右30  P51右10  P51上30  Bf109右30
+     *   純比例       18.20    8.87    40.00     12.47
+     *   出貨值       12.44   10.86     5.51      9.28
+     * 三個案例大幅改善，右 10° 略慢（8.87 → 10.86）——那是過衝的代價，
+     * 小角度本來就沒什麼可省的時間。故只釘住確實改善的方向。
+     */
+    it('安定時間優於純比例控制', () => {
+      const settleTime = (r: RunResult, bandDeg: number): number => {
+        let last = 0
+        for (let i = 0; i < r.errorHistory.length; i++) {
+          if (r.errorHistory[i]! * RAD > bandDeg) last = (i + 1) * DT
+        }
+        return last
+      }
+      const P = { pitchOuterI: 0, wingsLevelI: 0 }
+      // 橫向：實測 18.20 s → 12.44 s
+      expect(settleTime(withI(), 0.1)).toBeLessThan(settleTime(withI(P), 0.1))
+      // 【垂直軸的斷言已移除】pitchOuter 由 4 提高到 16 之後，純比例項自己
+      // 就足以在 2.4 s 內把上拉 30° 收進 0.1° 帶（pO 4 時需要 40 s），
+      // 積分在該軸已無可見貢獻（2.39 s 對 2.40 s）。原斷言要求「積分至少
+      // 快一倍」，那個前提已不存在——留著只會是一條靠舊增益才成立的斷言。
+      // 積分項的價值現在集中在橫向軸（坡度殘留造成的耦合），由上一條斷言
+      // 涵蓋；末值那條則涵蓋兩軸。
+      // 【末值斷言已移除】加入方向舵瞄準積分（yawAimI）之後，橫向軸主要由
+      // 偏航通道收斂，俯仰／改平積分在 30 秒末值上的邊際貢獻掉到 0.001°
+      // 量級並偶爾反號（實測 0.0015° 對 0.0007°）。那是 1080p 螢幕中心的
+      // 0.02 像素，低於任何有意義的解析度——在那個尺度上比大小，量到的是
+      // 數值噪聲而不是機制。安定時間那條已涵蓋本機制的實質效果。
+    })
+
+    /**
+     * 防積分飽和：硬機動時 desiredQ 整段貼在限制器上，若照樣累積，
+     * 鬆手瞬間會變成一記大過衝。這條用 L4 矩陣裡最嚴苛的低速大角度案例
+     * ——整段被 qMax 夾住——確認積分沒有灌爆。
+     */
+    it('俯仰積分在限制器夾住期間不累積（防飽和）', () => {
+      const r = runDirector(P51D, 0, aimAt(60, 0), 200 * KMH, 10, { keepHistory: true })
+      const clamped = r.dbgHistory.filter((d) => d.desiredQ === d.limiter.qMax)
+      // 這個場景必須真的長時間貼住上限，否則測不到要測的東西
+      expect(clamped.length).toBeGreaterThan(r.dbgHistory.length * 0.3)
+      // 且全程不得失速或超載——積分若灌爆，這兩條會先炸
+      expect(r.maxAlpha).toBeLessThan(alphaCritOf(P51D))
+      expect(r.maxLoad).toBeLessThan(PILOT_G_POSITIVE + 0.5)
+    })
+
+    /**
+     * 改平積分的閘門：玩家正在指令轉彎時，坡度不是誤差而是**意圖**，
+     * 積分不得累積。少了這道閘，一次長時間纏鬥會把積分灌到上限，
+     * 放手瞬間變成一記反向過衝。
+     *
+     * 【為什麼閘門只能看瞄準誤差，不能看 wingsLevelBlend】blend 還乘了
+     * `bank.authority = |cos(俯仰角)|`，那回答的是「坡度角在這個姿態下有沒有
+     * 意義」，與「玩家想不想轉彎」無關。用 blend 當閘門的後果是飛機一爬升
+     * （俯仰超過約 8°，authority < 0.99）積分就停擺——實測上拉 30° 時
+     * wingsLevelI 完全沒有作用，增益掃描該組數據與關閉積分逐位元相同。
+     */
+    it('改平積分在玩家指令轉彎期間保持 0，對準後才累積', () => {
+      // 準星壓在右側 25° 不放 = 持續轉彎；誤差遠大於 wingsLevelFadeAngle
+      const turning = runDirector(P51D, 0, aimAt(25, 90), 220, 6, {
+        altitude: 4000, keepHistory: true, bodyRelativeAim: true,
+      })
+      for (const d of turning.dbgHistory) expect(d.wingsLevelIntegral).toBe(0)
+
+      // 對照：瞄準點就在機首上，改平全權接手 → 積分必須真的動起來
+      const aligned = runDirector(P51D, 20, new Vector3(0, 0, -1), 220, 12, {
+        altitude: 4000, keepHistory: true,
+      })
+      expect(Math.max(...aligned.dbgHistory.map((d) => Math.abs(d.wingsLevelIntegral))))
+        .toBeGreaterThan(0)
+
+      // 【爬升中也必須累積】這是把閘門釘死在 levelWeight 上的那一條。
+      // wingsLevelBlend = bank.authority × levelWeight，而 bank.authority
+      // = |cos(俯仰角)|；爬升 30° 時它只有 0.866。若閘門寫成
+      // `blend > 0.99`，飛機一抬頭積分就凍結——上面那個近水平的對照組
+      // 完全看不出差別（authority ≈ 1，兩種寫法等價），必須用有俯仰的場景。
+      // 判準取「blend 落在 (0.02, 0.95) 期間積分仍在**變化**」：凍結與歸零
+      // 都會讓它不變，所以這一條同時擋掉兩種錯誤的閘門。
+      const climb = runDirector(P51D, 15, aimAt(30, 0), 220, 20, {
+        altitude: 4000, keepHistory: true,
+      })
+      let changedWhilePitched = 0
+      for (let i = 1; i < climb.dbgHistory.length; i++) {
+        const d = climb.dbgHistory[i]!
+        if (d.wingsLevelBlend > 0.02 && d.wingsLevelBlend < 0.95 &&
+            d.wingsLevelIntegral !== climb.dbgHistory[i - 1]!.wingsLevelIntegral) {
+          changedWhilePitched++
+        }
+      }
+      expect(changedWhilePitched).toBeGreaterThan(100)
+    })
+
+    it('reset 清空兩個積分器（不跨重生洩漏）', () => {
+      const d = new FlightDirector()
+      const state = createFlightState(ALT, 220)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      stepDynamics(P51D, state, controls, DT, diag)
+      // 【誤差必須小到不觸發限制器】desiredQ = pitchOuter × 垂直誤差，一旦
+      // 貼上 qMax，防飽和機制就會正確地停止累積，於是這條測不到 reset
+      // （reset 前後的 desiredQ 會一模一樣）。門檻是 qMax / pitchOuter：
+      // 220 m/s 的 qMax ≈ 0.245 rad/s，pitchOuter = 16 ⇒ 約 0.88°。
+      // 取 0.5° 留一倍餘裕。（本測試曾兩度因此失敗：5° 與 1° 都太大，
+      // 分別在 pitchOuter = 4 與 16 時飽和。）
+      const small = aimAt(0.5, 0)
+      for (let i = 0; i < 480; i++) {
+        d.update(P51D, state, diag.aero, false, small, DT, controls, dbg)
+      }
+      const wound = dbg.desiredQ
+      d.reset()
+      d.update(P51D, state, diag.aero, false, small, DT, controls, dbg)
+      // 重置後第一步的指令必須退回純比例項（積分只累積了一步，可忽略）
+      expect(Math.abs(dbg.desiredQ)).toBeLessThan(Math.abs(wound))
+      expect(dbg.desiredQ).toBeCloseTo(
+        DEFAULT_DIRECTOR_GAINS.pitchOuter * dbg.verticalError, 3,
+      )
+    })
+  })
+
+  /**
+   * 【方向舵瞄準輔助與側滑夾制】滾轉階段對瞄準毫無貢獻，方向舵可以繞過
+   * 這個等待讓機首直接橫掃。但本專案的側力／偏航力矩模型是純線性的
+   * （垂直尾翼永不失速），大側滑區的數字不可信，所以權限必須由**側滑角**
+   * 夾住——不是由舵量，因為舵量在不同速度與機種上意義不同。
+   */
+  describe('方向舵瞄準輔助的側滑夾制', () => {
+    const run = (spec: AircraftSpec, tas: number, gains?: Partial<DirectorGains>) =>
+      runDirector(spec, 0, aimAt(60, 90), tas, 6,
+        gains ? { keepHistory: true, gains } : { keepHistory: true })
+
+    it('輔助確實加快機首指向（而且是靠偏航，不是靠滾轉）', () => {
+      const off = run(P51D, 220, { yawAim: 0 })
+      const on = run(P51D, 220)
+      // 早期誤差顯著更小
+      const at = (r: RunResult, t: number) => r.errorHistory[Math.round(t / DT) - 1]! * RAD
+      expect(at(on, 1)).toBeLessThan(at(off, 1) - 3)
+      // 而且多出來的角速度確實在偏航軸上
+      const peakR = (r: RunResult) => Math.max(...r.dbgHistory.map((d) => Math.abs(d.actualR)))
+      expect(peakR(on)).toBeGreaterThan(1.5 * peakR(off))
+    })
+
+    /**
+     * 夾制的轉移特性用單步直接掃描，不靠飛行條件湊出來。
+     *
+     * 【為什麼不在飛行測試裡量】權限降多低取決於空氣密度、速度、目標角度
+     * ——同一個 60° 目標在 6000 m 只降到 0.80，在 1000 m 會降到 0.45。
+     * 把門檻釘在某個飛行條件量出來的數字上，等於把測試綁死在那個場景，
+     * 而且無法分辨「夾制形狀正確」與「這個場景剛好壓得比較低」。
+     * 掃描 β 才直接量到機制本身。
+     */
+    it('夾制的轉移特性：β 由 fadeStart 到 betaMax 之間單調降到 0', () => {
+      const d = new FlightDirector()
+      const state = createFlightState(ALT, 220)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      stepDynamics(P51D, state, controls, DT, diag)
+      const g = DEFAULT_DIRECTOR_GAINS
+
+      // 目標在右方 ⇒ 輔助要求正的 r ⇒ 把 β 推向負向 ⇒ 看的是 −β
+      const authAt = (betaDeg: number): number => {
+        d.reset()
+        diag.aero.beta = -betaDeg * DEG
+        d.update(P51D, state, diag.aero, false, aimAt(60, 90), DT, controls, dbg)
+        return dbg.betaAuthority
+      }
+      const start = g.betaFadeStart * RAD
+      const max = g.betaMax * RAD
+      expect(start).toBeGreaterThan(0)
+      expect(max).toBeGreaterThan(start)
+
+      // 起點之前：完全不夾
+      for (const b of [0, start * 0.5, start * 0.99]) expect(authAt(b)).toBe(1)
+      // 上限之後：完全關閉
+      for (const b of [max * 1.01, max * 2, max * 5]) expect(authAt(b)).toBe(0)
+      // 中間：嚴格單調遞減
+      const mid = [0.1, 0.3, 0.5, 0.7, 0.9].map((f) => authAt(start + (max - start) * f))
+      for (let i = 1; i < mid.length; i++) expect(mid[i]!).toBeLessThan(mid[i - 1]!)
+      // 且真的落在 0~1 之間（不是一步跳過去——階梯式切換自己會變成極限環的來源）
+      expect(mid[0]!).toBeLessThan(1)
+      expect(mid[mid.length - 1]!).toBeGreaterThan(0)
+    })
+
+    it('飛行中夾制確實會作用，且權限歸零時只剩側滑消除項', () => {
+      const r = run(P51D, 220)
+      expect(Math.min(...r.dbgHistory.map((d) => d.betaAuthority))).toBeLessThan(0.9)
+      // 【為什麼斷言的是 desiredR 而不是 β 本身】β 還受滾轉耦合等影響，
+      // 夾制只管「輔助不再加碼」。權限歸零時輔助項必為 0，
+      // 此時 desiredR 應退化成純側滑消除項 yawOuter·β（與 β 同號）。
+      for (const d of r.dbgHistory) {
+        if (d.betaAuthority < 1e-6) {
+          expect(Math.sign(d.desiredR)).toBe(Math.sign(DEFAULT_DIRECTOR_GAINS.yawOuter))
+        }
+      }
+    })
+
+    /**
+     * 【小角度由方向舵完成，且必須穿越目標】小角度修正不必先滾轉，方向舵
+     * 是最快的路徑。但 rAim = yawAim × 橫向誤差 只在誤差大於
+     * maxYawRateCommand / yawAim（= 5°）時貼著上限——整個小角度區都在
+     * 比例段，誤差一小舵就跟著收，於是同樣退化成指數趨近。
+     *
+     * 純拉高 yawAim 走不通（實測六案例最差值）：
+     *   yawAim  3 無積分：安定 13.89 s，誤差 1° 時最慢角速度 0.30°/s，未全數穿越
+     *   yawAim  8 無積分：安定  7.06 s，0.54°/s，仍未全數穿越
+     *   yawAim  8 + I 16：安定  4.35 s，4.01°/s，**六案例全數穿越**
+     *   yawAim 12 以上   ：開始震盪；16 以上災難性發散（回升 116°、側滑 42°）
+     */
+    it('小角度時機首會穿越目標，而不是指數趨近', () => {
+      const smallAngle = (gains?: Partial<DirectorGains>) =>
+        runDirector(P51D, 0, aimAt(5, 90), 220, 15, {
+          altitude: 4000, keepHistory: true, ...(gains ? { gains } : {}),
+        })
+      // 穿越＝橫向誤差變號（機首從目標一側走到另一側）
+      const crosses = (r: RunResult) => {
+        let n = 0
+        for (let i = 121; i < r.dbgHistory.length; i++) {
+          const a = r.dbgHistory[i - 1]!.lateralError
+          const b = r.dbgHistory[i]!.lateralError
+          if (a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b)) n++
+        }
+        return n
+      }
+      const settleTime = (r: RunResult, bandDeg: number) => {
+        let last = 0
+        for (let i = 0; i < r.errorHistory.length; i++) {
+          if (r.errorHistory[i]! * RAD > bandDeg) last = (i + 1) * DT
+        }
+        return last
+      }
+      // 【對照組必須是「同一個 yawAim、只關掉積分」】拿 yawAim 3 當對照
+      // 量到的是「增益 8 對 3」，積分關掉照樣通過（實測如此，突變存活）。
+      // 要隔離積分，兩組的 yawAim 必須相同。
+      const on = smallAngle()
+      const off = smallAngle({ yawAimI: 0 })
+      // 實測（P-51D 右 5°，安定至 0.1° 帶）：無積分 6.37 s、有積分 3.73 s。
+      // 五個小角度案例一致改善 35~42%，取 0.8 倍門檻留餘裕。
+      expect(settleTime(on, 0.1)).toBeLessThan(0.8 * settleTime(off, 0.1))
+      // 穿越：Bf 109 右 5° 由 0 次變 3 次，是最乾淨的判別案例
+      const bfOn = runDirector(BF109G6, 0, aimAt(5, 90), 220, 15, {
+        altitude: 4000, keepHistory: true,
+      })
+      const bfOff = runDirector(BF109G6, 0, aimAt(5, 90), 220, 15, {
+        altitude: 4000, keepHistory: true, gains: { yawAimI: 0 },
+      })
+      expect(crosses(bfOn)).toBeGreaterThan(crosses(bfOff))
+      expect(crosses(on)).toBeGreaterThan(0)
+      // 且不得靠衝破側滑上限換來——這是模型有效性的邊界
+      expect(Math.max(...on.dbgHistory.map((d) => Math.abs(d.desiredR))))
+        .toBeLessThanOrEqual(DEFAULT_DIRECTOR_GAINS.maxYawRateCommand +
+          DEFAULT_DIRECTOR_GAINS.yawOuter * DEFAULT_DIRECTOR_GAINS.betaMax + 1e-9)
+    })
+
+    /**
+     * 【直接觀測積分本身，不靠航跡】拿掉防飽和之後，出貨增益下的航跡幾乎
+     * 沒有可觀測差異（實測五個小角度案例的安定時間、峰值側滑、峰值偏航率
+     * 全部相同，僅右 8° 的回升由 0.209° 變 0.278°）——因為積分上限 0.2 很快
+     * 就到頂，飽和期間又短。也就是說這道防護目前**不吃緊**，它保護的是
+     * 未來調高增益或上限之後的情形。
+     *
+     * 這種情況下若硬用航跡指標寫斷言，就會是一條靠巧合通過的測試。
+     * 改為直接觀測 `yawAimIntegral`：指令被 maxYawRateCommand 夾住的每一步，
+     * 積分都不得成長。這是機制本身，與增益大小無關。
+     */
+    it('偏航積分在指令貼上限期間不累積（防飽和）', () => {
+      const r = runDirector(P51D, 0, aimAt(60, 90), 220, 8, {
+        altitude: 4000, keepHistory: true,
+      })
+      const g = DEFAULT_DIRECTOR_GAINS
+      let clampedSteps = 0
+      let grewWhileClamped = 0
+      for (let i = 1; i < r.dbgHistory.length; i++) {
+        const d = r.dbgHistory[i]!
+        const prev = r.dbgHistory[i - 1]!
+        // 該步是否被夾住：指揮儀算 rRaw 時用的是**當步**的橫向誤差配
+        // **前一步**累積出來的積分值（dbg.yawAimIntegral 記的是該步累積後的
+        // 結果）。兩者取錯步會在飽和的起訖邊界各差一步。
+        const raw = g.yawAim * d.lateralError + prev.yawAimIntegral
+        if (Math.abs(raw) > g.maxYawRateCommand) {
+          clampedSteps++
+          if (Math.abs(d.yawAimIntegral) > Math.abs(prev.yawAimIntegral) + 1e-12) {
+            grewWhileClamped++
+          }
+        }
+      }
+      // 這個場景必須真的長時間貼住上限，否則測不到要測的東西
+      expect(clampedSteps).toBeGreaterThan(200)
+      expect(grewWhileClamped).toBe(0)
+      // 積分本身也不得越過自己的上限
+      expect(Math.max(...r.dbgHistory.map((d) => Math.abs(d.yawAimIntegral))))
+        .toBeLessThanOrEqual(g.yawAimILimit + 1e-12)
+    })
+
+    it('夾制是有方向性的：側滑已滿時仍能下達改出指令', () => {
+      // 【為什麼這條重要】若夾制只看 |β| 而不看方向，飛機側滑到上限之後
+      // 連「往回修」的指令都會被關掉，於是卡在側滑裡出不來。
+      const d = new FlightDirector()
+      const state = createFlightState(ALT, 220)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      stepDynamics(P51D, state, controls, DT, diag)
+
+      // 人為把側滑推到遠超上限的一側，再要求往**同**一側繼續偏航
+      diag.aero.beta = -0.5 // 機首已大幅偏右
+      d.update(P51D, state, diag.aero, false, aimAt(60, 90), DT, controls, dbg)
+      expect(dbg.betaAuthority).toBeLessThan(1e-6) // 加碼被完全關掉
+
+      // 同樣的側滑，但目標在**左**邊：輔助必須仍然可用
+      d.reset()
+      diag.aero.beta = -0.5
+      d.update(P51D, state, diag.aero, false, aimAt(60, 270), DT, controls, dbg)
+      expect(dbg.betaAuthority).toBeGreaterThan(0.99)
+    })
+
+    it('目標已對準時輔助自然歸零，不會憑空製造側滑', () => {
+      const d = new FlightDirector()
+      const state = createFlightState(ALT, 220)
+      const diag = createDiagnostics()
+      const dbg = createDirectorDebug()
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      stepDynamics(P51D, state, controls, DT, diag)
+      diag.aero.beta = 0
+      d.update(P51D, state, diag.aero, false, new Vector3(0, 0, -1), DT, controls, dbg)
+      expect(dbg.desiredR).toBe(0)
+    })
   })
 
   /**

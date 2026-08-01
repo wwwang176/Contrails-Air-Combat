@@ -59,6 +59,7 @@ export function slewAimWorld(
   cameraOrientation: Quaternion,
   noseWorld: Vector3,
   fovYRad: number,
+  aspect?: number,
 ): Vector3 {
   const halfFov = fovYRad / 2
 
@@ -81,7 +82,53 @@ export function slewAimWorld(
   if (d.y !== 0) aimWorld.applyQuaternion(q.setFromAxisAngle(right, d.y * halfFov))
   aimWorld.normalize()
 
+  // 給了長寬比就依實際畫面矩形夾制（準星可以拉到四角），否則退回圓錐。
+  // 圓錐永遠碰不到左右邊緣：16:9 的半寬約 1.78 個半高，圓形要碰到左右
+  // 就會在上下超出畫面。矩形夾制之後仍加一道寬鬆的機首圓錐當保險，
+  // 維持「指揮儀不會被指令到必須繞半圈才能到達的方向」這個硬保證。
+  if (aspect !== undefined) {
+    clampAimToViewport(aimWorld, cameraOrientation, fovYRad, aspect)
+    return clampAimToCone(aimWorld, noseWorld, VIEWPORT_NOSE_LIMIT)
+  }
   return clampAimToCone(aimWorld, noseWorld, maxAimAngle(fovYRad))
+}
+
+/** 矩形夾制模式下，瞄準點相對機首的硬上限（rad）。 */
+const VIEWPORT_NOSE_LIMIT = (75 * Math.PI) / 180
+
+/** 夾制到畫面內緣的比例，留一點邊避免準星貼齊像素邊界。 */
+const VIEWPORT_MARGIN = 0.96
+
+/**
+ * 把瞄準向量夾制在「相機看得到的畫面矩形」之內。就地修改。
+ *
+ * 在相機的正切空間做：`(tx, ty) = (v.x, v.y) / forward`，畫面半高對應
+ * `tan(fovY/2)`、半寬對應 `aspect × tan(fovY/2)`。分別夾制 tx / ty 就得到
+ * 與畫面同形狀的矩形——準星因此能拉到上下左右緣與四角，這是圓錐做不到的。
+ *
+ * 這裡刻意不是圓形：圓形的用意是讓斜向與軸向的**操縱量**一致，那個性質由
+ * 單幀位移的 `clampToCircle` 保留；而可視範圍的邊界本來就是矩形，硬套圓形
+ * 只會讓玩家在左右方向被莫名其妙地擋住。
+ */
+export function clampAimToViewport(
+  aimWorld: Vector3,
+  cameraOrientation: Quaternion,
+  fovYRad: number,
+  aspect: number,
+  margin: number = VIEWPORT_MARGIN,
+): Vector3 {
+  const q = S.q[0]!.copy(cameraOrientation).invert()
+  const v = S.v[2]!.copy(aimWorld).applyQuaternion(q)
+
+  // 相機朝 −Z。貼齊或跑到相機平面之後時正切座標會發散，夾一個下限讓它
+  // 被下面的矩形拉回邊緣，而不是翻到反側。
+  const forward = Math.max(-v.z, 1e-4)
+  const ty = Math.max(-1, Math.min(1, v.y / forward / (Math.tan(fovYRad / 2) * margin)))
+  const tx = Math.max(-1, Math.min(1, v.x / forward / (Math.tan(fovYRad / 2) * margin * aspect)))
+
+  const t = Math.tan(fovYRad / 2) * margin
+  v.set(tx * t * aspect, ty * t, -1).normalize()
+  return aimWorld.copy(v).applyQuaternion(cameraOrientation).normalize()
 }
 
 /**

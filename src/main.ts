@@ -1,10 +1,11 @@
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { FixedStepAccumulator } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
+import { createPlaceholderAircraft, createScaffoldHud } from './render/scaffold'
 import { Aircraft } from './aircraft/Aircraft'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
@@ -28,8 +29,15 @@ const aircraft = new Aircraft(P51D, START_ALTITUDE, START_TAS)
 const input = createInputState()
 const bindings = attachInput(canvas, input)
 
+// 臨時視覺鷹架（Task 21 / 23 會取代，見 render/scaffold.ts）
+const model = createPlaceholderAircraft()
+ctx.scene.add(model)
+const hud = createScaffoldHud()
+
 const noseWorld = new Vector3()
 const renderPos = new Vector3()
+const renderQuat = new Quaternion()
+const camOffset = new Vector3()
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
 function respawn() {
@@ -66,6 +74,7 @@ function frame(now: number) {
   slewAimWorld(
     input.aimWorld, input.aimDeltaX, input.aimDeltaY,
     ctx.camera.quaternion, noseWorld, ctx.camera.fov * DEG,
+    ctx.camera.aspect,
   )
   input.aimDeltaX = 0
   input.aimDeltaY = 0
@@ -89,13 +98,37 @@ function frame(now: number) {
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
   renderPos.lerpVectors(aircraft.prevPosition, aircraft.state.position, alpha)
+  renderQuat.slerpQuaternions(aircraft.prevOrientation, aircraft.state.orientation, alpha)
   ocean.update(elapsed, renderPos.x, renderPos.z)
 
-  // 暫時的跟隨相機，Task 22 會替換為完整的 CameraRig
-  ctx.camera.position.set(renderPos.x, renderPos.y + 15, renderPos.z + 55)
+  model.position.copy(renderPos)
+  model.quaternion.copy(renderQuat)
+
+  // 暫時的跟隨相機，Task 22 會替換為完整的 CameraRig。
+  // 刻意「不隨機體側滾」：slewAimWorld 的旋轉軸取自 camera.quaternion，
+  // 相機若跟著滾，持續右移滑鼠會退化成螺旋。坡度靠機體模型與坡度儀呈現。
+  camOffset.copy(noseWorld).multiplyScalar(-26)
+  ctx.camera.position.copy(renderPos).add(camOffset)
+  ctx.camera.position.y += 7
+  ctx.camera.up.set(0, 1, 0)
   ctx.camera.lookAt(renderPos)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
+  hud.render(
+    {
+      aimWorld: input.aimWorld,
+      noseWorld,
+      orientation: renderQuat,
+      altitude: renderPos.y,
+      tas: aircraft.diag.aero.tas,
+      loadFactor: aircraft.diag.loadFactor,
+      alphaDeg: (aircraft.diag.aero.alpha * 180) / Math.PI,
+      ps: aircraft.specificExcessPowerActual,
+      throttle: input.throttle,
+      specName: aircraft.spec.id === 'p51d' ? 'P-51D Mustang' : 'Bf 109 G-6',
+    },
+    ctx.camera,
+  )
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
 }

@@ -195,8 +195,35 @@ describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）',
     // （環內的滾轉率只有 0.002~0.010 rad/s）——那個寬度就是這個缺陷得以
     // 溜過測試的原因。實測 8 秒時 |p| ≤ 0.0013，取 0.05 仍有 38 倍餘裕。
     expect(Math.abs(ac.state.angularVelocity.z)).toBeLessThan(0.05)
-    // 而且必須是「機翼已經改平」的靜止，不是「以極低滾轉率掛在 35° 坡度上」
-    expect(Math.abs(ac.dbg.bankAngle) * RAD).toBeLessThan(2)
+    // 而且必須是「機翼已經改平」的靜止，不是「以極低滾轉率掛在 35° 坡度上」。
+    //
+    // 【改量「包絡衰減」而不是單點快照】外環積分項（wingsLevelI）刻意讓坡度
+    // **穿過零點**——那正是「真的抵達」而非「無限趨近」的分界，也是本專案
+    // 負責人明確要求的行為。單點門檻與「必須逐點下降」在設計上就與它衝突：
+    // 實測偏移 30.875°，坡度 −2.83°(4s) → +3.06°(6s) → +3.05°(8s) → +2.39°(10s)
+    // → +1.12°(16s) → +0.71°(20s) → +0.24°(30s) → +0.03°(45s)。
+    // 它穿越零點**一次**之後單調衰減，是有阻尼的過衝，不是極限環。
+    //
+    // 極限環與阻尼過衝的差別不在任何單一時刻的值，而在**包絡是否縮小**，
+    // 所以直接量包絡：晚期視窗的峰值必須遠小於早期視窗。Task 20 那個
+    // ±35° 的極限環每 10 秒只衰減約 1°，兩個視窗的峰值幾乎相同，
+    // 必然過不了這一條——而它能躲過舊版的單點門檻。
+    // 峰值取自整個視窗而非端點，所以擺盪的相位落在哪裡都抓得到。
+    const peakBank = (seconds: number): number => {
+      let peak = 0
+      for (let f = 0; f < Math.round(seconds * FRAME_HZ); f++) {
+        frame(ac, aim, 0, 0, WEP_THROTTLE)
+        peak = Math.max(peak, Math.abs(ac.dbg.bankAngle) * RAD)
+      }
+      return peak
+    }
+    // 過衝視窗（8~14 s）：容許刻意的穿越，但不得失控
+    const early = peakBank(6)
+    expect(early).toBeLessThan(6)
+    // 收斂視窗（26~34 s）：包絡必須已縮到早期的三分之一以下，且絕對值夠小
+    peakBank(12)
+    const late = peakBank(8)
+    expect(late).toBeLessThan(Math.max(0.35 * early, 0.2))
   })
 
   it('往上甩再放手：乾淨的拉升，完全不滾轉', () => {

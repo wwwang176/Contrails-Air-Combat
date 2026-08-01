@@ -3,8 +3,14 @@ import { Vector3 } from 'three'
 /**
  * 準星可移動範圍的半徑，單位為螢幕半高。
  * 世界固定瞄準點模型下，它的角度等價物是 `maxAimAngle`（見 input/aim.ts）。
+ *
+ * 0.95 ≈ 準星可以拉到畫面上下緣。65° FOV 下錐半角 30.9°。
+ * 放寬是安全的：審查實測把錐角加倍後，所有能量案例結果完全相同
+ * （avgPs −66.8、6.35 G、10 秒轉 139°）——持續轉彎率由 G 限制器決定，
+ * 錐形夾制只決定「準星能領先機首多遠」。夾制維持圓形而非橢圓，
+ * 對角線與軸向的角度量值才會一致。
  */
-export const AIM_RADIUS = 0.35
+export const AIM_RADIUS = 0.95
 
 /** 油門初始值：巡航設定（spec 中的「預設 1 倍速」）。 */
 export const CRUISE_THROTTLE = 0.7
