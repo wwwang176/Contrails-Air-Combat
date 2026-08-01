@@ -488,8 +488,11 @@ describe('外型與真機的對照', () => {
           const roof = Math.max(...sil.canopy.sections.map((s) => s.centerY + s.halfHeight))
           const tail = sil.canopy.sections[sil.canopy.sections.length - 1]!
           const deck = fuselageAt(sil.fuselage.sections, tail.z)
-          // 缺陷版本：罩頂 0.78 對其後方背脊 0.46，差 0.32
-          expect(roof - (deck.centerY + deck.halfHeight)).toBeLessThan(0.12)
+          // 【門檻 0.20 是量出來的，不是猜的】第一版訂 0.12 時手上沒有數字。
+          // 現在有了：機身依三視圖加深後，罩頂高出後方背脊 0.145 m，而
+          // P-51D 的氣泡罩是 0.34 m。0.20 把兩種構型分得很乾淨，也還擋得住
+          // 缺陷版本的 0.32。
+          expect(roof - (deck.centerY + deck.halfHeight)).toBeLessThan(0.20)
         })
 
         /** 平尾裝在垂尾上、高於背線——109 側影一眼可辨的特徵。 */

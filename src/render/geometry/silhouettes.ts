@@ -188,20 +188,42 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      * 二、剖面形狀沿全機不變。真機的發動機罩接近圓形（要包住倒立 V12），
      *     尾段卻是明顯的平板側身。用逐站位的 roundness 表現這個變化。
      */
+    /**
+     * 【機身原本全段偏瘦】把正交側視／俯視算圖與 G-10 三視圖做歸一化量測
+     * （以全長為 1.0），結果是全段一致偏瘦，不是局部造型誤差：
+     *
+     *   最大深度  0.123 L 對 0.140 L   −12%
+     *   最大寬度  0.088 L 對 0.114 L   −23%
+     *   斷面積                          −33%
+     *
+     * 25/40/55/70% 四個站位的深度分別薄 14/12/14/17%，沒有任何一站較厚；
+     * 整流罩底徑也薄 21%，量級一致——等於整條筒身被等比例削細。
+     *
+     * 而且**最寬處的位置錯了**：線稿在 13–23%（發動機罩，要塞下 DB 605 與
+     * 兩挺 MG 131），模型在 20–54%。真機是罩寬、防火牆之後急縮；模型做成了
+     * 均勻的粗管。所以這次不是整體放大，而是重新配置：罩加寬到半寬 0.50、
+     * 座艙處收到 0.42、之後線性收到尾錐。座艙處 0.84 m 寬也才對得上 109
+     * 座艙狹窄的事實——那兩件事並不衝突，寬的是發動機罩。
+     *
+     * 【第二輪複驗後的追加】後段機身整條比線稿低約 0.09 m，水平尾翼是
+     * 跟著整段下沉、不是單獨裝低。z ≥ 0.07 的站位一併抬升 0.09（0.07 站位
+     * 只抬 0.04，因為座艙罩尾端要在該處銜接），平尾與垂尾隨之調整。
+     *
+     * 深度直接採線稿在 25/42.4/55/70/85% 的量測值。站位數由 10 降為 8
+     * （−40 三角形），因為新的深度曲線比較單純。
+     */
     fuselage: {
       roundness: 2.8,
       segments: 10,
       sections: [
-        { z: -4.30, halfWidth: 0.29, halfHeight: 0.30, centerY: 0.04, roundness: 2.2 },
-        { z: -3.70, halfWidth: 0.34, halfHeight: 0.40, centerY: 0.02, roundness: 2.4 },
-        { z: -2.90, halfWidth: 0.38, halfHeight: 0.47, centerY: 0.00, roundness: 2.6 },
-        { z: -2.00, halfWidth: 0.40, halfHeight: 0.550, centerY: 0.020 },  // 最大截面
-        { z: -0.90, halfWidth: 0.40, halfHeight: 0.575, centerY: 0.040 },
-        { z: -0.25, halfWidth: 0.39, halfHeight: 0.575, centerY: 0.055 },  // 背脊最高 0.630
-        { z: 0.30, halfWidth: 0.350, halfHeight: 0.487, centerY: 0.097, roundness: 3.0 },
-        { z: 1.60, halfWidth: 0.251, halfHeight: 0.356, centerY: 0.117, roundness: 3.2 },
-        { z: 2.90, halfWidth: 0.152, halfHeight: 0.226, centerY: 0.137, roundness: 3.4 },
-        { z: 4.10, halfWidth: 0.060, halfHeight: 0.105, centerY: 0.155, roundness: 3.4 },
+        { z: -4.30, halfWidth: 0.350, halfHeight: 0.360, centerY: 0.020, roundness: 2.2 },
+        { z: -3.70, halfWidth: 0.500, halfHeight: 0.460, centerY: 0.020, roundness: 2.4 },
+        { z: -2.61, halfWidth: 0.475, halfHeight: 0.558, centerY: 0.038, roundness: 2.6 },
+        { z: -1.06, halfWidth: 0.420, halfHeight: 0.626, centerY: 0.066 },  // 最大深度 42.4%
+        { z: 0.07, halfWidth: 0.370, halfHeight: 0.581, centerY: 0.121, roundness: 2.9 },
+        { z: 1.42, halfWidth: 0.280, halfHeight: 0.422, centerY: 0.196, roundness: 3.2 },
+        { z: 2.76, halfWidth: 0.165, halfHeight: 0.263, centerY: 0.220, roundness: 3.4 },
+        { z: 4.10, halfWidth: 0.060, halfHeight: 0.105, centerY: 0.245, roundness: 3.4 },
       ],
     },
     /**
@@ -214,35 +236,25 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      * 罩尾 z=1.15 精確銜接於 0.557。後段固定風擋的斜率因此由 −0.259
      * 緩和到 −0.146，與背脊的 −0.100 幾乎連續。
      */
+    /**
+     * 【平頂段太短、後整流太長】量測：模型的平頂段只有 0.078 L，線稿是
+     * 0.175 L（差 55%）；反過來後整流段模型 0.066 L、線稿 0.039 L。也就是
+     * 我做成「短頂＋長淚滴尾」，真機是「長平頂＋短收尾」——那正是 109
+     * 那個方盒子座艙罩的樣子。座艙罩總長 0.154 L 對 0.197 L，短了 22%。
+     *
+     * 罩頂高度隨機身加深一併抬到 0.81（線稿 0.152 L，自腹線量起）。
+     * 風擋維持陡峭：0.15 m 內升 0.26 m，60°。
+     */
     canopy: {
       roundness: 3.5,   // 方框式座艙罩，稜線分明
       segments: 8,
-      // 【長度與位置依側視線圖量測】以整流罩尖端為原點、全長 8.95 m 換算：
-      // 圖上罩前緣距機首 3.00 m、罩後緣 4.58 m，罩長約 1.6 m。原本是
-      // −1.15..1.15（2.30 m，長了 43%）且前緣在 3.70 m 處（後了 0.7 m）。
-      // 109 的座艙以狹窄著稱，罩子本來就短。
-      // 【風擋要陡】109 的裝甲風擋是接近垂直的厚玻璃平板，不是斜坡。
-      // 原本自 z=−1.85（頂 0.55）緩升到 −1.50（頂 0.74），仰角只有 28.5°。
-      // 改為在 0.14 m 內升 0.21 m —— 56°。
       sections: [
-        { z: -1.66, halfWidth: 0.17, halfHeight: 0.070, centerY: 0.460 }, // 風擋底框 0.53
-        { z: -1.52, halfWidth: 0.29, halfHeight: 0.210, centerY: 0.530 }, // 風擋頂 0.74
-        { z: -0.95, halfWidth: 0.33, halfHeight: 0.240, centerY: 0.500 }, // 罩頂 0.74
-        { z: -0.55, halfWidth: 0.28, halfHeight: 0.190, centerY: 0.500 }, // 頂 0.69
-        { z: -0.25, halfWidth: 0.18, halfHeight: 0.130, centerY: 0.500 }, // 頂 0.63 = 背線
+        { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.49 },  // 風擋底框 0.55
+        { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.60 },  // 風擋頂 0.81（60°）
+        { z: -0.39, halfWidth: 0.34, halfHeight: 0.23, centerY: 0.58 },  // 平頂段結束 0.81
+        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.56 },  // 頂 0.70 = 背線
       ],
     },
-    /**
-     * 【機翼原本太靠後 1.45 m】以 G-10 三視圖的**俯視**panel 量測（正交投影，
-     * 比側視可靠）：翼根前緣距整流罩尖端 2.2 m，只有全長的 25%。原本
-     * rootZ −1.2 對應 3.65 m（41%）。109 的機翼設置得很前、尾力臂很長，
-     * 這是它的基本佈局特徵之一。
-     *
-     * 連帶效果：尾力臂由 3.80 m 增為 5.25 m（除以平均氣動弦長 1.68 為 3.1，
-     * 落在戰鬥機常見的 2.5–3.5 區間；原本 2.26 偏低）。
-     *
-     * rootY 一併下修到 −0.34，讓翼根下表面與機腹齊平——真機是低翼。
-     */
     wing: {
       // 0.32 / 2.30 = 13.9% 厚弦比，真機 NACA 2R1 翼根 14.2%
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
@@ -255,24 +267,24 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.46, tipRound: 0.35,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.84, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
-    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.38, sweep: 30 * DEG, z: 2.5 },
+    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.45, sweep: 30 * DEG, z: 2.5 },
     blisters: [
       // MG 131 機槍鼓包，左右各一
-      { x: 0.20, y: 0.44, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
+      { x: 0.20, y: 0.50, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
       // 機首下方滑油冷卻器
       { x: 0, y: -0.48, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
       { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
       // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
       {
-        x: 0.36, y: 0.185, z: 3.15, width: 0.675, height: 0.05, length: 0.10,
-        rotZ: 39.6 * DEG, mirror: true, bodyColor: true,
+        x: 0.355, y: 0.405, z: 3.15, width: 0.918, height: 0.05, length: 0.10,
+        rotZ: 54.8 * DEG, mirror: true, bodyColor: true,
       },
     ],
-    spinner: { radius: 0.29, length: 0.55 },
+    spinner: { radius: 0.35, length: 0.55 },   // 底徑量測偏薄 21%，一併補回
     propBlades: 3,
     propZ: -4.55,
     propRadius: 1.50,
