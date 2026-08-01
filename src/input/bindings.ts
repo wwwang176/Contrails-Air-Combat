@@ -1,11 +1,12 @@
 import { clamp } from '../core/math'
+import { clampToCircle } from './aim'
 import { AIM_RADIUS, type InputState } from './InputState'
+import { applyThrottleRate } from './throttle'
 
 const MOUSE_SENSITIVITY = 1.6
 const LOOK_SENSITIVITY = 2.4
 const LOOK_YAW_LIMIT = 160 * (Math.PI / 180)
 const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
-const THROTTLE_RATE = 0.6 // 每秒變化量
 
 interface KeyHold {
   up: boolean
@@ -53,14 +54,13 @@ export function attachInput(
       )
       return
     }
-    state.aimX += (e.movementX / half) * MOUSE_SENSITIVITY
-    state.aimY -= (e.movementY / half) * MOUSE_SENSITIVITY
-    // 夾制於圓內，不是方形——否則對角線方向的操縱量會偏大
-    const r = Math.hypot(state.aimX, state.aimY)
-    if (r > AIM_RADIUS) {
-      state.aimX = (state.aimX / r) * AIM_RADIUS
-      state.aimY = (state.aimY / r) * AIM_RADIUS
-    }
+    const aim = clampToCircle(
+      state.aimX + (e.movementX / half) * MOUSE_SENSITIVITY,
+      state.aimY - (e.movementY / half) * MOUSE_SENSITIVITY,
+      AIM_RADIUS,
+    )
+    state.aimX = aim.x
+    state.aimY = aim.y
   }
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -99,8 +99,7 @@ export function attachInput(
       canvas.removeEventListener('contextmenu', onContextMenu)
     },
     tick(dt: number) {
-      if (hold.up) state.throttle = clamp(state.throttle + THROTTLE_RATE * dt, 0, 1.1)
-      if (hold.down) state.throttle = clamp(state.throttle - THROTTLE_RATE * dt, 0, 1.1)
+      state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
     },
   }
 }
