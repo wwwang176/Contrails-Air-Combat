@@ -31,11 +31,11 @@ const bindings = attachInput(canvas, input)
 const noseWorld = new Vector3()
 const renderPos = new Vector3()
 
-/** 把瞄準點放回機首方向（世界座標）。R 重置與初始化共用。 */
-function parkAimOnNose() {
-  input.aimWorld.set(0, 0, -1).applyQuaternion(aircraft.state.orientation)
+/** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
+function respawn() {
+  aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
 }
-parkAimOnNose()
+respawn()
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
@@ -48,9 +48,7 @@ function frame(now: number) {
   bindings.tick(frameSeconds)
 
   if (input.resetRequested) {
-    aircraft.reset(START_ALTITUDE, START_TAS)
-    // R 一併把瞄準點放回機首：重置後的第一幀不該立刻被指令做一個轉彎。
-    parkAimOnNose()
+    respawn()
     input.resetRequested = false
   }
   if (input.swapSpecRequested) {
@@ -83,7 +81,9 @@ function frame(now: number) {
   // elapsed 已在幀首更新，所以判定用的時間與下方 ocean.update 餵給
   // shader 的時間是同一個——玩家看到的浪頭就是撞得到的浪頭。
   if (isCrashed(aircraft.state.position, ocean.heightAt, elapsed)) {
-    aircraft.reset(START_ALTITUDE, START_TAS)
+    // 與 R 完全同一條路徑：瞄準點必須一併歸位，否則重生後會被舊瞄準點
+    // （還指著海面）拖著飛回海裡。
+    respawn()
   }
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條

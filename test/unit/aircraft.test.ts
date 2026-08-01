@@ -190,8 +190,13 @@ describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）',
     }
     expect(rollIntegral).toBeLessThan(6)
     expect(errDeg(ac, aim)).toBeLessThan(6)
-    // 末態滾轉率必須已經落下來（舊模型在此恆為 2.5 rad/s）
-    expect(Math.abs(ac.state.angularVelocity.z)).toBeLessThan(1.5)
+    // 【Task 20 修訂：由 1.5 收緊到 0.05】原本的 1.5 rad/s 只擋得住舊模型的
+    // 滾轉跑步機（恆 2.5 rad/s），卻寬到足以讓 ±35° 的坡度極限環整個躲過去
+    // （環內的滾轉率只有 0.002~0.010 rad/s）——那個寬度就是這個缺陷得以
+    // 溜過測試的原因。實測 8 秒時 |p| ≤ 0.0013，取 0.05 仍有 38 倍餘裕。
+    expect(Math.abs(ac.state.angularVelocity.z)).toBeLessThan(0.05)
+    // 而且必須是「機翼已經改平」的靜止，不是「以極低滾轉率掛在 35° 坡度上」
+    expect(Math.abs(ac.dbg.bankAngle) * RAD).toBeLessThan(2)
   })
 
   it('往上甩再放手：乾淨的拉升，完全不滾轉', () => {
@@ -226,6 +231,75 @@ describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）',
     // 航向持續改變（實測 10 秒轉 139°，約 14°/s）
     const dh = Math.abs(headingDeg(ac) - h0)
     expect(dh).toBeGreaterThan(60)
+    // 機翼改平在玩家指揮轉彎時完全不出力：誤差角 11.1° > 淡出角 10°
+    expect(ac.dbg.wingsLevelBlend).toBe(0)
+    // 而且飛機確實壓著坡度在轉（改平沒有偷偷把它扳平）
+    expect(Math.abs(ac.dbg.bankAngle) * RAD).toBeGreaterThan(45)
+  })
+})
+
+/**
+ * 【機翼改平】瞄準點接近機首正前方時 rollCommand = atan2(x, y) 的兩個引數
+ * 同時趨近 0，滾轉在數學上完全沒有被約束——任何坡度都同樣滿足「機首對準
+ * 目標」。但帶著坡度的飛機會被重力把機首拉離瞄準點，指揮儀修正、又留下坡度，
+ * 於是自我維持。改平前實測（甩 6° 後放手 60 秒）：坡度在 ±35° 之間以約
+ * 6.5 s 的週期永久擺盪，而瞄準誤差始終 < 6°，所以 L4 矩陣完全看不到它。
+ */
+describe('Aircraft：機翼改平（放手之後坡度必須歸零）', () => {
+  it.each([
+    { deg: 2 },
+    { deg: 6 },
+    { deg: maxAimAngle(FOV) * RAD },
+  ])('甩 $deg° 後放手 60 秒，坡度收斂到水平且不再擺盪', ({ deg }) => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    const aim = onNose()
+    frame(ac, aim, (deg * DEG) / HALF_FOV, 0, WEP_THROTTLE)
+
+    // 前 50 秒讓它安定
+    fly(ac, aim, WEP_THROTTLE, 50)
+    // 最後 10 秒量坡度擺幅：改平前這裡是 [−35.1°, +34.9°]
+    let lo = Infinity
+    let hi = -Infinity
+    for (let f = 0; f < Math.round(10 * FRAME_HZ); f++) {
+      frame(ac, aim, 0, 0, WEP_THROTTLE)
+      const b = ac.dbg.bankAngle * RAD
+      lo = Math.min(lo, b)
+      hi = Math.max(hi, b)
+    }
+    // 實測末 10 秒：三種甩幅皆在 ±0.06° 之內
+    expect(hi - lo).toBeLessThan(1)
+    expect(Math.abs(lo)).toBeLessThan(1)
+    expect(Math.abs(hi)).toBeLessThan(1)
+    // 瞄準點也還在（改平沒有把機首帶走：繞機首軸旋轉不改變機首指向）
+    expect(errDeg(ac, aim)).toBeLessThan(1)
+  })
+
+  it('倒飛且瞄準已到位時改平會把飛機轉正（滾轉未被約束的極端情形）', () => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    // 倒飛：繞機首軸滾 180°，機首方向不變
+    ac.state.orientation.setFromAxisAngle(new Vector3(0, 0, -1), Math.PI)
+    const aim = new Vector3(0, 0, -1) // 瞄準點就在機首上 → 誤差角 0
+    ac.update(aim, WEP_THROTTLE, DT)
+    expect(Math.abs(ac.dbg.bankAngle) * RAD).toBeGreaterThan(179)
+    expect(ac.dbg.wingsLevelBlend).toBeCloseTo(1, 6)
+    expect(Math.abs(ac.dbg.desiredP)).toBeGreaterThan(1)
+  })
+
+  it('機首垂直時改平鬆手：坡度角在該處沒有意義', () => {
+    const ac = new Aircraft(P51D, 4000, 220)
+    // 機首朝正上方：世界上方向量與機首平行，坡度角是 0/0
+    ac.state.orientation.setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 2)
+    ac.update(new Vector3(0, 1, 0), WEP_THROTTLE, DT)
+    expect(ac.dbg.errorAngle * RAD).toBeLessThan(1)
+    // authority = |cos(俯仰角)|，在正上方為 0；一個物理步之後機首已偏離
+    // 垂直約 0.1°，故實測 0.0017 而不是恰好 0——重點是它**不是** 1。
+    expect(ac.dbg.wingsLevelBlend).toBeLessThan(0.01)
+    expect(Math.abs(ac.dbg.desiredP)).toBeLessThan(0.02)
+
+    // 對照：同樣「瞄準已到位」但水平飛行時，權限是滿的
+    const levelAc = new Aircraft(P51D, 4000, 220)
+    levelAc.update(new Vector3(0, 0, -1), WEP_THROTTLE, DT)
+    expect(levelAc.dbg.wingsLevelBlend).toBeCloseTo(1, 3)
   })
 })
 
@@ -418,13 +492,45 @@ describe('撞海判定', () => {
     }
     expect(crashed).toBe(true)
 
-    ac.reset(4000, 160)
-    // R 同時把瞄準點放回機首（main.ts 的 parkAimOnNose）
-    aim.set(0, 0, -1).applyQuaternion(ac.state.orientation)
+    // 走與 main.ts 完全相同的重生路徑（不是測試自己動手歸位瞄準點——
+    // 那正是先前讓「重生後飛回海裡」這個缺陷隱形的原因）
+    ac.respawn(aim, 4000, 160)
     expect(ac.state.position.y).toBe(4000)
     fly(ac, aim, 0.8, 5)
     expect(Number.isFinite(ac.state.position.length())).toBe(true)
     expect(Math.abs(ac.state.position.y - 4000)).toBeLessThan(200)
     expect(ac.dbg.errorAngle).toBeLessThan(5 * DEG)
+  })
+
+  /**
+   * 【回歸測試：重生後不可以自己飛回海裡】
+   *
+   * 世界固定瞄準點會活過 reset。撞海時瞄準點正指著海面（相對重生後的機首
+   * 可達 92°），圓錐夾制會把它拖到機首下方 11.375°，於是玩家完全不碰滑鼠
+   * 也會被持續推頭。實測缺陷版本：60 秒由 4000 m 掉到 2006 m、過載 −0.79。
+   *
+   * 這裡跑滿 60 秒且全程不碰滑鼠——短測試看不出來（前 1 秒只掉 5 m）。
+   */
+  it('撞海重生後放手不動，不會被舊瞄準點拖回海裡', () => {
+    const ac = new Aircraft(P51D, 300, 180)
+    const aim = onNose()
+    for (let f = 0; f < Math.round(30 * FRAME_HZ); f++) {
+      frame(ac, aim, 0, -0.5, 0.5)
+      if (isCrashed(ac.state.position, gerstnerHeight, f / FRAME_HZ)) break
+    }
+    // 撞海當下瞄準點確實指著遠離新機首的方向——這正是缺陷的來源
+    ac.respawn(aim, 4000, 160)
+
+    let minAlt = Infinity
+    let minLoad = Infinity
+    for (let f = 0; f < Math.round(60 * FRAME_HZ); f++) {
+      frame(ac, aim, 0, 0, 0.8) // 完全不碰滑鼠
+      minAlt = Math.min(minAlt, ac.state.position.y)
+      minLoad = Math.min(minLoad, ac.diag.loadFactor)
+    }
+    // 實測修好後：60 秒後 3989 m、過載 0.99~1.04
+    expect(minAlt).toBeGreaterThan(3800)
+    expect(minLoad).toBeGreaterThan(0)
+    expect(ac.dbg.errorAngle * RAD).toBeLessThan(1)
   })
 })
