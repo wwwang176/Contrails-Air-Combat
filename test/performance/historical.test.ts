@@ -10,7 +10,7 @@ const TOLERANCE = 0.05
 const KMH = 3.6
 
 /**
- * 海平面爬升率的容差為什麼是 ±15% 而不是 ±5%。
+ * 海平面爬升率為什麼不用 ±5%，而是下方的有號區間 [−15%, −12%]。
  *
  * 這是**經專案負責人裁決的刻意偏離**，不是調參沒調到位，也不是把測試放寬
  * 來遮蓋失敗。下一位讀到這裡的人請不要再去嘗試把它調回 ±5%——做不到，
@@ -31,10 +31,35 @@ const KMH = 3.6
  * 玩家感覺不出來，但「109 比 P-51 爬得快多少」決定了每一場 P-51 對 109 的
  * 交戰。負責人因此裁決以同一比例把 109 減調至 984 m/min，換取正確的相對關係。
  *
- * 所以：絕對值用寬容差（±15%，記錄「兩機都低約 14.5%」這個已知事實），
- * 相對值用緊容差（下方的比值測試）——後者才是真正被守護的性質。
+ * 所以：絕對值用**有號區間**（下方 CLIMB_BAND，記錄「兩機都低約 14.5%」
+ * 這個已知事實，含方向），相對值用緊容差（下方的比值測試）——後者才是
+ * 真正被守護的性質。
  */
-const CLIMB_TOLERANCE = 0.15
+
+/**
+ * 海平面爬升率的相對誤差允許區間 [−15%, −12%]。
+ *
+ * 刻意做成**單邊有號**而非 ±15%：實測誤差是 −14.449%（P-51D）與
+ * −14.450%（Bf 109），偏低的方向是這次裁決的內容本身。若寫成雙邊 ±15%，
+ * 一次把爬升率調到 **+14%**（高於史實）的迴歸也會通過——那顯然不是
+ * 我們想允許的。上界 −12% 同時防止「有人偷偷把絕對值調回接近史實、
+ * 但破壞了相對關係」的情況（相對關係另有下方的比值斷言把關）。
+ */
+const CLIMB_BAND = { min: -0.15, max: -0.12 }
+
+function expectClimbInBand(actual: number, expected: number, label: string) {
+  const err = (actual - expected) / expected
+  if (err < CLIMB_BAND.min || err > CLIMB_BAND.max) {
+    throw new Error(
+      `${label}：實測 ${(actual * 60).toFixed(2)} m/min，史實 ${(expected * 60).toFixed(2)} m/min，` +
+      `相對誤差 ${(err * 100).toFixed(2)}% 落在允許區間 ` +
+      `[${CLIMB_BAND.min * 100}%, ${CLIMB_BAND.max * 100}%] 之外。` +
+      `本專案刻意讓兩機的絕對爬升率同時偏低約 14.5%，理由見本檔案上方說明。`,
+    )
+  }
+  expect(err).toBeGreaterThanOrEqual(CLIMB_BAND.min)
+  expect(err).toBeLessThanOrEqual(CLIMB_BAND.max)
+}
 
 function expectWithin(actual: number, expected: number, label: string, tol = TOLERANCE) {
   const err = Math.abs(actual - expected) / expected
@@ -52,7 +77,7 @@ const CASES: { spec: AircraftSpec; hist: HistoricalReference }[] = [
   { spec: BF109G6, hist: BF109G6_HISTORICAL },
 ]
 
-describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 ±15% 並另有比值斷言）', () => {
+describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, −12%] 並另有比值斷言）', () => {
   for (const { spec, hist } of CASES) {
     describe(spec.name, () => {
       it(`臨界高度 ${hist.vmaxAtCritical.altitude} m 極速`, () => {
@@ -64,11 +89,10 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 ±15% 並�
         expectWithin(maxLevelSpeed(spec, 0) * KMH, hist.vmaxSeaLevel * KMH, '海平面極速 (km/h)')
       })
 
-      // 容差 ±15%，理由見檔案上方 CLIMB_TOLERANCE 的說明。
-      it('海平面爬升率（±15%，見上方說明：兩機絕對值皆刻意低約 14.5%）', () => {
-        expectWithin(
-          maxClimbRate(spec, 0).rate, hist.climbRateSeaLevel,
-          '海平面爬升率 (m/s)', CLIMB_TOLERANCE,
+      // 允許區間 [−15%, −12%]，理由見檔案上方 CLIMB_BAND 的說明。
+      it('海平面爬升率落在 [−15%, −12%]（見上方說明：兩機絕對值皆刻意低約 14.5%）', () => {
+        expectClimbInBand(
+          maxClimbRate(spec, 0).rate, hist.climbRateSeaLevel, '海平面爬升率',
         )
       })
 
@@ -92,13 +116,15 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 ±15% 並�
   it('Bf 109 的海平面爬升率優勢與史實比例相符', () => {
     const histRatio = BF109G6_HISTORICAL.climbRateSeaLevel / P51D_HISTORICAL.climbRateSeaLevel
     const modelRatio = maxClimbRate(BF109G6, 0).rate / maxClimbRate(P51D, 0).rate
-    // 絕對值兩機皆低約 14.5%（見上方 CLIMB_TOLERANCE 的說明），但相對關係
+    // 絕對值兩機皆低約 14.5%（見上方 CLIMB_BAND 的說明），但相對關係
     // 必須守住——空戰平衡取決於此，玩家感受得到的是這個比值，不是絕對值。
     //
     // 這是本檔案裡唯一「緊」的爬升斷言，也是唯一真正被守護的性質。
-    // toBeCloseTo(·, 2) 要求 |模型 − 史實| < 0.005；實測差為 0.00001，
-    // 有 500 倍餘裕。反過來，若 109 退回它自己能達成的 1,113 m/min，
-    // 比值會是 1.2275，與史實差 0.1426——超出門檻 28 倍，會立刻失敗。
+    // toBeCloseTo(·, 2) 要求 |模型 − 史實| < 0.005。
+    //   實測：模型 1.084901、史實 1.084906，Δ = −5.0×10⁻⁶ → 約 1,000 倍餘裕。
+    //   反向：若 109 退回它自己能達成的 1,113.1 m/min，比值為 1.2275，
+    //         Δ = +0.1426 → 超出門檻 28.5 倍，會立刻失敗。
+    expect(Math.abs(modelRatio - histRatio)).toBeLessThan(0.005)
     expect(modelRatio).toBeCloseTo(histRatio, 2)
   })
 })
