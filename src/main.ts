@@ -1,51 +1,79 @@
-import { BoxGeometry, Mesh, MeshStandardMaterial, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import { FixedStepAccumulator } from './core/loop'
+import { createPerfOverlay } from './core/perf'
+import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
-import { createPerfOverlay } from './core/perf'
+import { Aircraft } from './aircraft/Aircraft'
+import { isCrashed } from './aircraft/crash'
+import { createInputState } from './input/InputState'
+import { attachInput } from './input/bindings'
+import { aimDirectionBody } from './input/aim'
+import { P51D } from './specs/p51d'
+import { BF109G6 } from './specs/bf109g6'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
 
-const placeholder = new Mesh(
-  new BoxGeometry(10, 3, 12),
-  new MeshStandardMaterial({ color: 0x8fa6b8, flatShading: true }),
-)
-ctx.scene.add(placeholder)
-
 const ocean = createOcean()
 ctx.scene.add(ocean.mesh)
 ctx.scene.add(createProps(600))
-let elapsed = 0
 
-// 佔位飛行體：等速直線，用於驗證迴圈與渲染插值
-const prev = new Vector3(0, 500, 0)
-const curr = new Vector3(0, 500, 0)
-const velocity = new Vector3(0, 0, -120) // 機首 −Z，120 m/s
+const START_ALTITUDE = 4000
+const START_TAS = 160
 
+const aircraft = new Aircraft(P51D, START_ALTITUDE, START_TAS)
+const input = createInputState()
+const bindings = attachInput(canvas, input)
+
+const aimBody = new Vector3()
+const renderPos = new Vector3()
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
+let elapsed = 0
 
 function frame(now: number) {
   const frameSeconds = (now - lastTime) / 1000
   lastTime = now
+  elapsed += frameSeconds
   perf.begin()
+  bindings.tick(frameSeconds)
+
+  if (input.resetRequested) {
+    aircraft.reset(START_ALTITUDE, START_TAS)
+    input.resetRequested = false
+  }
+  if (input.swapSpecRequested) {
+    aircraft.setSpec(aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
+    input.swapSpecRequested = false
+  }
+
+  // 準星 → 機體座標的瞄準方向。不經過相機，所以自由視角不影響飛行。
+  aimDirectionBody(input.aimX, input.aimY, ctx.camera.fov * DEG, aimBody)
 
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
-    prev.copy(curr)
-    curr.addScaledVector(velocity, dt)
+    aircraft.update(aimBody, input.throttle, dt)
     perf.endPhysics()
   })
 
-  placeholder.position.lerpVectors(prev, curr, alpha)
-  ctx.camera.position.set(curr.x, curr.y + 12, curr.z + 45)
-  ctx.camera.lookAt(curr)
+  // 撞海判定：與海面著色器共用同一份波參數（見 aircraft/crash.ts）。
+  // elapsed 已在幀首更新，所以判定用的時間與下方 ocean.update 餵給
+  // shader 的時間是同一個——玩家看到的浪頭就是撞得到的浪頭。
+  if (isCrashed(aircraft.state.position, ocean.heightAt, elapsed)) {
+    aircraft.reset(START_ALTITUDE, START_TAS)
+  }
 
-  elapsed += frameSeconds
-  ocean.update(elapsed, curr.x, curr.z)
+  // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
+  // 橫跨半個地圖的殘影。
+  renderPos.lerpVectors(aircraft.prevPosition, aircraft.state.position, alpha)
+  ocean.update(elapsed, renderPos.x, renderPos.z)
+
+  // 暫時的跟隨相機，Task 22 會替換為完整的 CameraRig
+  ctx.camera.position.set(renderPos.x, renderPos.y + 15, renderPos.z + 55)
+  ctx.camera.lookAt(renderPos)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
   perf.endFrame(loop.lastSubstepCount)
