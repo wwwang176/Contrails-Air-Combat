@@ -26,7 +26,9 @@ import type { AircraftSpec } from '../specs/types'
 const SPECS: AircraftSpec[] = [P51D, BF109G6]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
-const renderer = new WebGLRenderer({ canvas, antialias: true })
+// preserveDrawingBuffer：外部工具要把畫面複製到 2D canvas 抽輪廓，
+// 否則 drawImage 讀到的是已經被清空的緩衝區。開發工具，效能無所謂。
+const renderer = new WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 
 const scene = new Scene()
@@ -343,9 +345,12 @@ if (refUrl) {
     frameOrtho()
   })
 }
-;(window as unknown as Record<string, unknown>)['__hangarRef'] = (on: boolean) => {
-  if (refModel) refModel.visible = on
-}
+// 開發用：分別開關兩個模型，讓外部工具各自截一張純剪影來抽輪廓。
+;(window as unknown as Record<string, unknown>)['__hangarShow'] =
+    (mine: boolean, ref: boolean) => {
+      if (model) model.group.visible = mine
+      if (refModel) refModel.visible = ref
+    }
 
 let last = performance.now()
 function frame(now: number): void {

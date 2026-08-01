@@ -233,27 +233,27 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       roundness: 2.8,
       segments: 14,
       sections: [
-        // 【側視骨架：機首低、機尾高】整條機身中心線由機首往機尾上揚。
-        // 依線稿實測（腹線基準 y=90、全長 310 px）：
-        //   背線 55%→85%  0.1500 → 0.1387 L，坡度僅 −0.038
-        //   腹線 54%→83.5% 0.0210 → 0.0790 L，坡度 +0.197
-        // 腹線抬升速度是背線下降的 **5.2 倍**——收口幾乎全由腹線負擔，
-        // 背線幾乎不動。原本做成上下對稱收口的紡錘體，那才是側影一直
-        // 不像 109 的骨架成因。
+        // 【側視骨架依 E-4 參考模型的剪影量測重排】（專案負責人裁決以該模型
+        // 為準，見下方「兩個來源的衝突」）。作法：把參考模型與程序化模型
+        // 對齊後各自算一張正交側視，直接從畫面抽輪廓——每一欄取**最長的
+        // 連續區段**，天線拉線與放下的起落架支柱就自動被濾掉。
         //
-        // 機首上緣同樣照實測（8/13/18/25% 的 0.0984/0.1081/0.1145/0.1242 L）。
-        // 該段是「短圓肩（斜率 0.19）＋直線斜坡（0.134）＋前緩收」三段，
-        // 不是單一圓弧；補 −4.00 與 −3.20 兩個站位就是為了做出這個轉折。
-        { z: -4.30, halfWidth: 0.350, halfHeight: 0.3700, centerY: -0.0500, roundness: 2.2 },
-        { z: -4.00, halfWidth: 0.440, halfHeight: 0.4050, centerY: -0.0500, roundness: 2.3 },
-        { z: -3.70, halfWidth: 0.490, halfHeight: 0.4500, centerY: -0.0320, roundness: 2.4 },
-        { z: -3.20, halfWidth: 0.495, halfHeight: 0.5000, centerY: -0.0160, roundness: 2.5 },
-        { z: -2.61, halfWidth: 0.475, halfHeight: 0.5570, centerY: 0.0080, roundness: 2.6 },
-        { z: -1.06, halfWidth: 0.420, halfHeight: 0.6035, centerY: 0.0565 },  // 最大截面
-        { z: 0.07, halfWidth: 0.370, halfHeight: 0.5775, centerY: 0.2185, roundness: 2.9 },
-        { z: 1.42, halfWidth: 0.280, halfHeight: 0.4405, centerY: 0.3265, roundness: 3.2 },
-        { z: 2.76, halfWidth: 0.165, halfHeight: 0.2540, centerY: 0.4400, roundness: 3.4 },
-        { z: 4.10, halfWidth: 0.060, halfHeight: 0.0600, centerY: 0.6190, roundness: 3.4 },
+        // 【兩個來源的衝突】G-10 三視圖線稿與 E-4 模型對「機尾收口由誰負擔」
+        // 給出相反答案。兩者對總收口量幾乎一致（−0.62 / −0.635 m），分歧在
+        // 分配：線稿說背線降 0.10、腹線升 0.52（比值 5.1）；模型說背線降
+        // 0.37、腹線升 0.21（比值 0.58）。我先前的版本是 8.0，比兩個來源
+        // 都極端。裁決採用模型的分配——中心線因此幾乎水平，機尾錐收在機身
+        // 中間高度，而不是被向上抽尖。
+        { z: -4.50, halfWidth: 0.340, halfHeight: 0.360, centerY: 0.374, roundness: 2.2 },
+        { z: -4.00, halfWidth: 0.420, halfHeight: 0.465, centerY: 0.326, roundness: 2.3 },
+        { z: -3.50, halfWidth: 0.480, halfHeight: 0.546, centerY: 0.268, roundness: 2.4 },
+        { z: -2.90, halfWidth: 0.490, halfHeight: 0.570, centerY: 0.259, roundness: 2.5 },
+        { z: -2.10, halfWidth: 0.460, halfHeight: 0.594, centerY: 0.234, roundness: 2.6 },
+        { z: -1.06, halfWidth: 0.420, halfHeight: 0.655, centerY: 0.215 },  // 最大深度
+        { z: 0.07, halfWidth: 0.370, halfHeight: 0.601, centerY: 0.265, roundness: 2.9 },
+        { z: 1.42, halfWidth: 0.280, halfHeight: 0.472, centerY: 0.224, roundness: 3.2 },
+        { z: 2.76, halfWidth: 0.165, halfHeight: 0.284, centerY: 0.201, roundness: 3.4 },
+        { z: 4.10, halfWidth: 0.060, halfHeight: 0.100, centerY: 0.250, roundness: 3.4 },
       ],
     },
     /**
@@ -275,20 +275,26 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      * 罩頂高度隨機身加深一併抬到 0.81（線稿 0.152 L，自腹線量起）。
      * 風擋維持陡峭：0.15 m 內升 0.26 m，60°。
      */
+    /**
+     * 座艙罩：罩頂 1.00（參考模型量到 1.002），高出其下方甲板 0.13。
+     * 風擋維持陡峭：0.15 m 內升 0.26 m，60°。罩尾在 z=−0.25 與背線
+     * 精確銜接於 0.867。
+     */
     canopy: {
       roundness: 3.5,   // 方框式座艙罩，稜線分明
       segments: 10,
       sections: [
-        { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.49 },  // 風擋底框 0.55
-        { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.60 },  // 風擋頂 0.81（60°）
-        { z: -0.39, halfWidth: 0.34, halfHeight: 0.23, centerY: 0.58 },  // 平頂段結束 0.81
-        { z: -0.04, halfWidth: 0.20, halfHeight: 0.14, centerY: 0.643 }, // 頂 0.783 = 背線
+        { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.680 }, // 風擋底框 0.74
+        { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.790 }, // 風擋頂 1.00（60°）
+        { z: -0.95, halfWidth: 0.33, halfHeight: 0.24, centerY: 0.760 }, // 罩頂 1.00
+        { z: -0.55, halfWidth: 0.28, halfHeight: 0.19, centerY: 0.780 }, // 0.97
+        { z: -0.25, halfWidth: 0.18, halfHeight: 0.13, centerY: 0.738 }, // 0.868 = 背線
       ],
     },
     wing: {
       // 0.32 / 2.30 = 13.9% 厚弦比，真機 NACA 2R1 翼根 14.2%
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
-      sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -2.65, rootY: -0.34,
+      sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -2.65, rootY: -0.25,
       tipRound: 0.30,
     },
     // 【水平尾翼裝在垂尾上，不在機身側面】109 的平尾明顯高於機身背線，
@@ -297,23 +303,23 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     // 側面中段長出來。
     tailplane: {
       rootChord: 1.10, tipChord: 0.58, halfSpan: 1.65,
-      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.78, tipRound: 0.35,
+      sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.55, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
     // 翼根抬到背線之下一點點，讓可見的前緣根部落在設計站位（全長 82%）
-    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.11, sweep: 30 * DEG, z: 2.5, rootY: 0.55 },
+    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.05, sweep: 30 * DEG, z: 2.5, rootY: 0.40 },
     blisters: [
       // MG 131 機槍鼓包，左右各一
-      { x: 0.20, y: 0.50, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
+      { x: 0.20, y: 0.79, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },
       // 機首下方滑油冷卻器
-      { x: 0, y: -0.48, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
+      { x: 0, y: -0.26, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
-      { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
+      { x: 1.50, y: -0.29, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
     ],
     // 底徑實測 0.0827 L = 0.740 m；y 與機首環中心一致（機首低於機尾）
-    spinner: { radius: 0.37, length: 0.55, y: -0.05 },
+    spinner: { radius: 0.35, length: 0.35, y: 0.374 },
     propBlades: 3,
-    propZ: -4.55,
+    propZ: -4.62,
     propRadius: 1.50,
   },
 }
