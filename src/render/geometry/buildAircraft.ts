@@ -41,23 +41,41 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
 
   add(new Mesh(buildFuselage(sil.fuselage, 8), body))
 
-  // 主翼：固定內段 + 可動副翼（外段）
-  const wingInner = { ...sil.wing, halfSpan: sil.wing.halfSpan * 0.62 }
-  add(new Mesh(buildWingPanel(wingInner, false), body))
-  add(new Mesh(buildWingPanel(wingInner, true), body))
+  // 主翼：**全翼展**的固定翼面 + 貼在外段後緣的可動副翼。
+  //
+  // 【原本只畫到 62% 翼展】固定翼面用 halfSpan × 0.62 建，外側 38% 除了一根
+  // 弦長 0.55 m 的副翼棒之外什麼都沒有——實測固定翼面 X 0~3.50、副翼
+  // X 3.50~5.64，機翼在 62% 處就斷掉。那就是「機翼沒畫完」的實際成因。
+  // 改成全翼展不增加任何三角形（同樣是 12 個面，只是更長）。
+  add(new Mesh(buildWingPanel(sil.wing, false), body))
+  add(new Mesh(buildWingPanel(sil.wing, true), body))
 
+  const innerSpan = sil.wing.halfSpan * 0.62
   const aileronSpan = sil.wing.halfSpan * 0.38
+  /** 翼展站位 s 處的前緣 Z 與弦長（與 buildWingPanel 的線性內插一致）。 */
+  const leadingEdgeAt = (s: number) => sil.wing.rootZ + Math.tan(sil.wing.sweep) * s
+  const chordAt = (s: number) => {
+    const t = s / sil.wing.halfSpan
+    return sil.wing.rootChord + (sil.wing.tipChord - sil.wing.rootChord) * t
+  }
   const makeAileron = (mirrored: boolean) => {
     const pivot = new Group()
     const sx = mirrored ? -1 : 1
+    // 鉸鏈放在副翼段中點的後緣往前 aileronChord 處，這樣偏轉時繞的是
+    // 真正的後緣而不是憑空的一點。
+    const mid = innerSpan + aileronSpan / 2
+    const aileronChord = chordAt(mid) * 0.26
     pivot.position.set(
-      sx * wingInner.halfSpan,
-      sil.wing.rootY + Math.tan(sil.wing.dihedral) * wingInner.halfSpan,
-      sil.wing.rootZ - Math.tan(sil.wing.sweep) * wingInner.halfSpan + sil.wing.rootChord * 0.78,
+      sx * innerSpan,
+      sil.wing.rootY + Math.tan(sil.wing.dihedral) * innerSpan,
+      // 【符號修正】此處原本沿用 rootZ − tan(sweep)×span 的舊式（前掠），
+      // wing.ts 改成後掠之後就對不上了，副翼會浮在機翼前方。
+      leadingEdgeAt(mid) + chordAt(mid) - aileronChord,
     )
-    const chord = sil.wing.tipChord * 0.42
-    const mesh = new Mesh(new BoxGeometry(aileronSpan, sil.wing.thickness * 0.7, chord), accent)
-    mesh.position.set((sx * aileronSpan) / 2, 0, chord / 2)
+    const mesh = new Mesh(
+      new BoxGeometry(aileronSpan, sil.wing.thickness * 0.7, aileronChord), accent,
+    )
+    mesh.position.set((sx * aileronSpan) / 2, 0, aileronChord / 2)
     disposables.push(mesh.geometry)
     pivot.add(mesh)
     group.add(pivot)

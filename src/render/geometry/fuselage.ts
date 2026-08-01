@@ -43,8 +43,11 @@ export function buildFuselage(
       const a1 = vertexOf(a, i + 1)
       const b0 = vertexOf(b, i)
       const b1 = vertexOf(b, i + 1)
-      pushTri(a0, b0, b1)
-      pushTri(a0, b1, a1)
+      // 【纏繞方向修正】原順序讓法線指向機身內部（實測帶符號體積
+      // P-51D −8.01、Bf 109 −5.66）。截面環沿 +角度方向前進、剖面沿 +Z
+      // 推進，兩者的外積指向內側，必須交換後兩個頂點。
+      pushTri(a0, b1, b0)
+      pushTri(a0, a1, b1)
     }
   }
 
@@ -54,8 +57,9 @@ export function buildFuselage(
     for (let i = 0; i < radialSegments; i++) {
       const v0 = vertexOf(ring, i)
       const v1 = vertexOf(ring, i + 1)
-      if (reverse) pushTri(centre, v1, v0)
-      else pushTri(centre, v0, v1)
+      // 封口跟著側面一起翻：機首端（reverse）朝 −Z、機尾端朝 +Z。
+      if (reverse) pushTri(centre, v0, v1)
+      else pushTri(centre, v1, v0)
     }
   }
   cap(rings[0]!, sections[0]!, true)

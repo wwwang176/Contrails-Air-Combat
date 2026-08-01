@@ -177,6 +177,18 @@ window.addEventListener('resize', resize)
 resize()
 rebuild()
 
+// 開發用：讓 Playwright 之類的外部工具設定正交視角截圖。
+// （不用 import.meta.env.DEV 判斷——專案沒有 vite/client 型別，
+// tsc --noEmit 會報 ImportMeta.env 不存在。機庫本身就是開發工具。）
+;(window as unknown as Record<string, unknown>)['__hangarCam'] =
+    (x: number, y: number, z: number) => {
+      autoRotate = false
+      if (model) model.group.rotation.y = 0
+      camera.position.set(x, y, z)
+      camera.up.set(0, y === 0 ? 1 : 0, y === 0 ? 0 : -1)
+      controls.update()
+    }
+
 let last = performance.now()
 function frame(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.1)

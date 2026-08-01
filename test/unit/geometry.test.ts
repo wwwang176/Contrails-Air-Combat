@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { BufferGeometry, Mesh, Vector3 } from 'three'
 import { buildFuselage } from '../../src/render/geometry/fuselage'
 import { buildWingPanel } from '../../src/render/geometry/wing'
 import { SILHOUETTES } from '../../src/render/geometry/silhouettes'
@@ -163,5 +164,135 @@ describe('buildAircraft', () => {
     expect(SILHOUETTES.p51d!.wing.halfSpan).toBeGreaterThan(SILHOUETTES.bf109g6!.wing.halfSpan)
     expect(SILHOUETTES.p51d!.canopy.teardrop).toBe(true)
     expect(SILHOUETTES.bf109g6!.canopy.teardrop).toBe(false)
+  })
+})
+
+/**
+ * 【這一組是三個實際出貨缺陷的回歸防護】
+ *
+ * Task 21 交付後由人工在機庫中肉眼發現三個問題，事後全部可以用數字證明——
+ * 也就是說當時的測試本來就該擋下來，只是它們只檢查了「幾何非空」與
+ * 「座標有限」，那兩件事對這三個缺陷完全不敏感：
+ *
+ *   一、機身與所有手寫翼面內外翻轉（帶符號體積為負，法線指向內部）。
+ *       正面被背面剔除，看起來像「沒畫完」。16 個網格中有 6 個中招。
+ *   二、後掠方向相反。機首是 −Z，`rootZ − tan(sweep)×span` 讓翼尖往機首
+ *       跑，做出前掠翼；垂直安定面用同一個函式立起來，於是整片向前傾，
+ *       看起來像「垂尾顛倒」。
+ *   三、固定翼面只建到 62% 翼展，外側 38% 只有一根弦長 0.55 m 的副翼棒。
+ */
+describe('幾何的方向性與完整性（回歸）', () => {
+  /** 封閉網格的帶符號體積 Σ(v0×v1)·v2/6：逆時針纏繞且法線朝外時為正。 */
+  const signedVolume = (geo: BufferGeometry): number => {
+    const p = geo.getAttribute('position')
+    const idx = geo.index
+    const n = idx ? idx.count : p.count
+    const at = (i: number) => (idx ? idx.getX(i) : i)
+    const a = new Vector3(), b = new Vector3(), c = new Vector3(), t = new Vector3()
+    let v = 0
+    for (let i = 0; i < n; i += 3) {
+      const i0 = at(i), i1 = at(i + 1), i2 = at(i + 2)
+      a.set(p.getX(i0), p.getY(i0), p.getZ(i0))
+      b.set(p.getX(i1), p.getY(i1), p.getZ(i1))
+      c.set(p.getX(i2), p.getY(i2), p.getZ(i2))
+      v += a.dot(t.crossVectors(b, c))
+    }
+    return v / 6
+  }
+
+  const WING = {
+    rootChord: 2.7, tipChord: 1.3, halfSpan: 5.6,
+    sweep: 20 * DEG, dihedral: 5 * DEG, thickness: 0.3, rootZ: -1.5, rootY: -0.3,
+  }
+
+  it('翼面板左右皆為法線朝外（帶符號體積為正）', () => {
+    for (const mirrored of [false, true]) {
+      // 缺陷版本兩者都是 −3.36；量值本身也順便釘住盒體體積算對了
+      expect(signedVolume(buildWingPanel(WING, mirrored))).toBeGreaterThan(0)
+    }
+  })
+
+  it('機身為法線朝外', () => {
+    for (const id of ['p51d', 'bf109g6']) {
+      expect(signedVolume(buildFuselage(SILHOUETTES[id]!.fuselage, 8))).toBeGreaterThan(0)
+    }
+  })
+
+  it('全機每一個網格都是法線朝外', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const m = buildAircraft(spec)
+      const inverted: string[] = []
+      m.group.traverse((o) => {
+        const g = (o as Mesh).geometry
+        if (!g?.getAttribute?.('position')) return
+        if (signedVolume(g) < 0) inverted.push(o.name || o.type)
+      })
+      expect(inverted).toEqual([])
+      m.dispose()
+    }
+  })
+
+  it('後掠使翼尖前緣往機尾（+Z）移動，不是往機首', () => {
+    const p = buildWingPanel(WING, false).getAttribute('position')
+    let tipLeadZ = Infinity
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > WING.halfSpan * 0.9) tipLeadZ = Math.min(tipLeadZ, p.getZ(i))
+    }
+    // 缺陷版本是 −3.54（跑到機首方向）
+    expect(tipLeadZ).toBeGreaterThan(WING.rootZ)
+    expect(tipLeadZ).toBeCloseTo(WING.rootZ + Math.tan(WING.sweep) * WING.halfSpan, 3)
+  })
+
+  it('垂直安定面朝上且後掠', () => {
+    for (const id of ['p51d', 'bf109g6']) {
+      const f = SILHOUETTES[id]!.fin
+      const mesh = new Mesh(buildWingPanel({
+        rootChord: f.chordRoot, tipChord: f.chordTip, halfSpan: f.height,
+        sweep: f.sweep, dihedral: 0, thickness: 0.12, rootZ: f.z, rootY: 0,
+      }, false))
+      mesh.rotation.z = 90 * DEG
+      mesh.updateMatrixWorld(true)
+      const p = mesh.geometry.getAttribute('position')
+      const v = new Vector3()
+      let maxY = -Infinity, zAtMaxY = 0
+      for (let i = 0; i < p.count; i++) {
+        v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(mesh.matrixWorld)
+        if (v.y > maxY) { maxY = v.y; zAtMaxY = v.z }
+      }
+      expect(maxY).toBeCloseTo(f.height, 3)          // 朝上，高度等於 spec
+      expect(zAtMaxY).toBeGreaterThan(f.z)           // 頂端在翼根之後（後掠）
+    }
+  })
+
+  it('固定翼面延伸到全翼展，副翼不留缺口', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const sil = SILHOUETTES[spec.id]!
+      const m = buildAircraft(spec)
+      m.group.updateMatrixWorld(true)
+      let fixedTipX = 0     // 機身色翼面能到的最遠 X
+      let aileronRootX = Infinity
+      m.group.traverse((o) => {
+        const mesh = o as Mesh
+        const p = mesh.geometry?.getAttribute?.('position')
+        if (!p) return
+        const v = new Vector3()
+        let x0 = Infinity, x1 = -Infinity, span = 0
+        for (let i = 0; i < p.count; i++) {
+          v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(mesh.matrixWorld)
+          x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x)
+        }
+        span = x1 - x0
+        // 主翼板：跨越半翼展量級且只在單側
+        if (span > sil.wing.halfSpan * 0.8 && x0 >= -0.01) fixedTipX = Math.max(fixedTipX, x1)
+        // 副翼：位於外側、跨距約 38% 半翼展
+        if (x0 > sil.wing.halfSpan * 0.4 && span < sil.wing.halfSpan * 0.5) {
+          aileronRootX = Math.min(aileronRootX, x0)
+        }
+      })
+      // 缺陷版本：固定翼面只到 3.50（62%），副翼由 3.50 起——外段全空
+      expect(fixedTipX).toBeCloseTo(sil.wing.halfSpan, 2)
+      expect(aileronRootX).toBeLessThan(fixedTipX)   // 副翼落在機翼範圍**內**
+      m.dispose()
+    }
   })
 })
