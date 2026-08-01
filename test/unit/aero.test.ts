@@ -89,14 +89,23 @@ describe('liftCoefficient', () => {
       // 不使用硬編碼角度，直接由 spec 欄位推導，與 liftCoefficient 內部一致。
       // 正負兩側對稱使用同一個量值（critMag、stallBlend 不分邊）。
       const alphaCritEff = spec.lift.alphaCrit + (slats ? spec.lift.slatAlphaBonus : 0)
-      const deepStallStart = alphaCritEff + spec.lift.stallBlend
+      // 深失速段的邊界對稱於 alphaZero，不是對稱於 0：liftCoefficient 以
+      // rel = α − alphaZero 判斷分支，|rel| ≥ blendEnd 才進入深失速。
+      // 正側 alphaZero + blendEnd 恰等於 alphaCritEff + stallBlend（代入即得），
+      // 負側卻是 alphaZero − blendEnd，兩者不互為相反數。
+      // 【修正】原本負側用 −deepStallStart（P-51D 為 −23.5°）當下界，
+      // 那個角度仍落在失速崩塌段內，於是 peakNeg 量到的是崩塌段的一部分
+      // 而非深失速峰值；正確下界是 alphaZero − blendEnd（P-51D 為 −30°）。
+      const blendEnd = alphaCritEff - spec.lift.alphaZero + spec.lift.stallBlend
+      const deepStallStart = spec.lift.alphaZero + blendEnd
+      const deepStallStartNeg = spec.lift.alphaZero - blendEnd
 
       let peakPos = 0
       for (let a = deepStallStart; a <= Math.PI; a += 0.001) {
         peakPos = Math.max(peakPos, Math.abs(liftCoefficient(spec, a, slats)))
       }
       let peakNeg = 0
-      for (let a = -Math.PI; a <= -deepStallStart; a += 0.001) {
+      for (let a = -Math.PI; a <= deepStallStartNeg; a += 0.001) {
         peakNeg = Math.max(peakNeg, Math.abs(liftCoefficient(spec, a, slats)))
       }
       // 深失速峰值必須低於該機的 CL_max，否則失速後反而比失速前更能產生

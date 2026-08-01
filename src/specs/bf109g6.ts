@@ -26,7 +26,11 @@ export const BF109G6: AircraftSpec = {
     slatRetractAlpha: 6 * DEG,
   },
 
-  drag: { cd0: 0.023, cdBeta: 0.7, machCrit: 0.68, machDragFactor: 60 },
+  // cd0 0.023 → 0.0279（Task 14 調參）：螺旋槳效率上調後，0.023 使海平面
+  // 極速衝到 578 km/h（史實 530，+9%）。G-6 的機槍整流罩鼓包（Beulen）、
+  // 外掛與粗糙表面使其成為 109 系列中最髒的一款，cd0 ≈ 0.028 與此相符，
+  // 且仍明顯高於 P-51D 的 0.0163（specs 測試要求 < 0.8 倍）。
+  drag: { cd0: 0.0279, cdBeta: 0.7, machCrit: 0.68, machDragFactor: 60 },
 
   side: { cyBeta: -0.68 },
 
@@ -43,10 +47,31 @@ export const BF109G6: AircraftSpec = {
   engine: {
     // DB 605A 單級無段變速增壓
     gears: [{ powerSeaLevel: 1475 * PS, powerCritical: 1355 * PS, altCritical: 5700 }],
-    ramEfficiency: 0.8,
+    // 0.8 → 0.6（Task 14 調參）：109 的增壓器進氣口位於機首側面的邊界層內，
+    // 總壓恢復不如 P-51D 的專用進氣道。史實極速峰值在 6,300 m、臨界高度 5,700 m，
+    // ram 只把峰值抬高約 600 m（P-51D 是 1,700 m）——0.6 正是這個比例。
+    // 0.8 時模型的極速峰值會跑到 8,000 m，使「極速在臨界高度附近達到峰值」失敗。
+    ramEfficiency: 0.6,
   },
 
-  prop: { diameter: 3.0, etaMax: 0.83, vRef: 52, figureOfMerit: 0.7 },
+  // Task 14 調參。etaMax 0.83 → 0.88，仍低於 P-51D 的 0.90
+  // （Hamilton Standard 定速槳優於 VDM）。
+  //
+  // vRef 52 → 55.7：**這是刻意讓 109 的爬升率低於它自己的史實值**，不是調參失手。
+  // P-51D 的史實海平面爬升率 1,060 m/min 在物理上無法達成——需要 vRef ≈ 26，
+  // 而那會使 T = η(V)·P/V 在 V→0 的極限達到動量理論理想值的 1.27 倍
+  // （靜推力 38.5 kN，等於機重的 0.91 倍），螺旋槳不可能違反致動盤的動量守恆。
+  // P-51D 因此停在 907 m/min（−14.5%）。若 109 保留能達成的 1,113 m/min，
+  // 109 的爬升優勢會變成 +22.6%，而史實只有 +8.5%（1150/1060）——空戰平衡
+  // 由這個比值決定，玩家感受得到的是相對關係而非絕對值。經專案負責人裁決，
+  // 109 依同一比例減調至 984 m/min（−14.5%），使比值回到 1.085。
+  // 選 vRef 而非 etaMax 是因為 η 在 80 m/s 對 vRef 的敏感度遠高於 185 m/s，
+  // 可以只砍爬升而幾乎不動極速（實測極速僅降 1.2%，仍在 ±5% 內，
+  // 故 cd0 不需補償）。詳見 task-14-report.md §9。
+  //
+  // figureOfMerit 回到 0.7：vRef 拉高後靜推力降至 17.1 kN，遠低於 fom 0.7 的
+  // 動量理論夾制 19.1 kN，不再需要用 0.8 撐開下限（P-51D 仍需要）。
+  prop: { diameter: 3.0, etaMax: 0.88, vRef: 55.7, figureOfMerit: 0.7 },
 
   limits: { gPositive: 7.5, gNegative: -3.5, vne: 750 * KMH },
 }

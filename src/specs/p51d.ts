@@ -12,12 +12,19 @@ export const P51D: AircraftSpec = {
   mass: 4300,
   inertia: { pitch: 11000, yaw: 20000, roll: 8800 },
 
-  wing: { area: 21.83, span: 11.28, chord: 1.98, oswald: 0.75 },
+  // oswald 0.75 → 0.88（Task 14 調參）：實用升限受誘導阻力主導，
+  // 0.75 時只能到 11.8 km（史實 12.77 km，−7.6%）。層流翼加上接近橢圓的
+  // 展向負荷，展向效率 0.88 仍在物理範圍內（代價是 L/D_max 由 14.5 升至 15.7，
+  // 較史實約 14.6 高 8%——這是本模型 cd0 不含 CL 相依黏性項所致的已知取捨）。
+  wing: { area: 21.83, span: 11.28, chord: 1.98, oswald: 0.88 },
 
   lift: {
     clAlpha: 4.4,
     alphaZero: -2.5 * DEG,
-    alphaCrit: 15.5 * DEG,
+    // 15.5° → 17.0°（Task 14 調參）：CL_max 為推導值，15.5° 時失速速度
+    // 171.9 km/h 較史實 160 高 7.5%（超出 ±5%）。17° 使 CL_max = 1.498
+    // （史實 1.45，+3.3%，仍在 specs 測試的 ±8% 內），失速速度 165.2 km/h（+3.3%）。
+    alphaCrit: 17 * DEG,
     stallBlend: 8 * DEG,
     postStallFactor: 0.6,
     slatAlphaBonus: 0,
@@ -44,10 +51,20 @@ export const P51D: AircraftSpec = {
       { powerSeaLevel: 1490 * HP, powerCritical: 1720 * HP, altCritical: 1900 },
       { powerSeaLevel: 1290 * HP, powerCritical: 1370 * HP, altCritical: 5900 },
     ],
-    ramEfficiency: 0.8,
+    // 0.8 → 0.95（Task 14 調參）：P-51D 的機腹進氣道總壓恢復極佳，史實極速
+    // 峰值出現在 7,600 m 而高檔臨界高度僅 5,900 m，這 1,700 m 的差距正是
+    // ram 造成的。高 ram 同時把實用升限由 11.8 km 推到 12.2 km。
+    ramEfficiency: 0.95,
   },
 
-  prop: { diameter: 3.4, etaMax: 0.85, vRef: 55, figureOfMerit: 0.7 },
+  // Task 14 調參。etaMax 0.85 → 0.90（1940 年代定速螺旋槳的物理上限），
+  // vRef 55 → 42：原值使最佳爬升速度處的效率只有 0.65，真實定速槳約 0.75~0.80；
+  // 42 給出 η(83 m/s) = 0.775。vRef 不能再低——T = η(V)·P/V 在 V→0 的極限為
+  // etaMax·P/vRef，vRef = 42 時已達 23.8 kN，逼近 figureOfMerit 0.80 下的
+  // 動量理論靜推力上限 24.1 kN（見 propulsion.ts 的 staticMax 與其測試）。
+  // figureOfMerit 0.7 → 0.80 即為了撐開這個上限，0.80 是螺旋槳靜推力
+  // 效率的合理上緣。
+  prop: { diameter: 3.4, etaMax: 0.9, vRef: 42, figureOfMerit: 0.8 },
 
   limits: { gPositive: 8, gNegative: -4, vne: 810 * KMH },
 }
