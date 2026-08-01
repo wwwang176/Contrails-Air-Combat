@@ -6,6 +6,7 @@ import {
 import {
   FlightDirector, createDirectorDebug, type DirectorDebug,
 } from '../control/FlightDirector'
+import { DEFAULT_ACTUATOR_RATES, slewSurfaces, type ActuatorRates } from '../control/actuator'
 import type { AircraftSpec } from '../specs/types'
 import type { Controls, FlightState } from '../physics/types'
 
@@ -24,7 +25,18 @@ export class Aircraft {
   spec: AircraftSpec
   state: FlightState
   readonly diag: StepDiagnostics = createDiagnostics()
+  /** 指揮儀輸出的舵面**指令**。舵面實際位置見 `surfaces`。 */
   readonly controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+  /**
+   * 舵面**實際位置**——物理層讀的是這一份。
+   *
+   * 指揮儀每步可以下任意大的指令跳變，但舵面要花時間走過去
+   * （見 control/actuator.ts）。分成兩份而不是就地限速，是為了讓歸因面板
+   * 能同時看到「要求」與「做到」：兩者長時間分離就代表舵面在追不上，
+   * 那是內環增益過高的直接證據。
+   */
+  readonly surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+  actuatorRates: ActuatorRates = DEFAULT_ACTUATOR_RATES
   readonly director = new FlightDirector()
   readonly dbg: DirectorDebug = createDirectorDebug()
 
@@ -66,6 +78,12 @@ export class Aircraft {
     this.spec = spec
     this.director.reset()
     this.diag.slatsDeployed = false
+    // 舵面實際位置同樣屬於「前一架飛機」——它是那架飛機的作動器走到的地方，
+    // 與 PID 積分項是同一類殘留。不清會讓換裝瞬間繼承別人的舵面偏轉
+    // （實測洩漏量 0.042 rad/s 的角速度差，恰為此測試抓到的量）。
+    this.surfaces.aileron = 0
+    this.surfaces.elevator = 0
+    this.surfaces.rudder = 0
   }
 
   reset(altitude: number, tas: number): void {
@@ -77,6 +95,9 @@ export class Aircraft {
     this.controls.aileron = 0
     this.controls.elevator = 0
     this.controls.rudder = 0
+    this.surfaces.aileron = 0
+    this.surfaces.elevator = 0
+    this.surfaces.rudder = 0
     this.lastEnergy = this.specificEnergy
     this.psActual = 0
   }
@@ -120,7 +141,9 @@ export class Aircraft {
     this.prevOrientation.copy(this.state.orientation)
 
     this.controls.throttle = throttle
-    stepDynamics(this.spec, this.state, this.controls, dt, this.diag)
+    // 舵面先走一步（受作動速率限制），物理層讀的是走完之後的實際位置。
+    slewSurfaces(this.surfaces, this.controls, this.actuatorRates, dt)
+    stepDynamics(this.spec, this.state, this.surfaces, dt, this.diag)
 
     this.director.update(
       this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
