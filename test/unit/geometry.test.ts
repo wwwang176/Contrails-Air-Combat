@@ -538,6 +538,31 @@ describe('外型與真機的對照', () => {
         })
       }
 
+      /**
+       * 【這條擋的是實際發生過的缺陷】垂尾與背鰭原本一律從 y=0 長起，但
+       * 機身後段的中心線是抬高的，下半截因此埋在機身裡。等它從背線冒出來
+       * 時，前緣已被後掠角帶往機尾：109 可見的垂尾根部落在全長 86.7%，
+       * 設計值（也是線稿量到的值）是 82%——差 4.6% 全長，看起來又小又靠後。
+       *
+       * P-51D 的背鰭更嚴重：高 0.42 但該站位背線在 0.570，**整片看不見**。
+       */
+      it('垂尾與背鰭露出背線，且可見根部不偏離設計站位', () => {
+        const fins: [string, typeof sil.fin][] = [['垂尾', sil.fin]]
+        if (sil.finFillet) fins.push(['背鰭', sil.finFillet])
+        for (const [tag, f] of fins) {
+          const deck = fuselageAt(sil.fuselage.sections, f.z)
+          const deckTop = deck.centerY + deck.halfHeight
+          const rootY = f.rootY ?? 0
+
+          // 一、頂端必須高出背線，否則整片埋在機身裡（背鰭缺陷版本：0.42 < 0.570）
+          expect(rootY + f.height, `${tag} 頂端`).toBeGreaterThan(deckTop + 0.15)
+
+          // 二、前緣在背線高度的 Z，與設計站位的差距（缺陷版本 109 為 0.409 m）
+          const drift = Math.tan(f.sweep) * Math.max(0, deckTop - rootY)
+          expect(drift / sil.realLength, `${tag} 可見根部偏移`).toBeLessThan(0.02)
+        }
+      })
+
       it('每個凸起塊都露在機身外', () => {
         for (const b of sil.blisters) {
           const f = fuselageAt(sil.fuselage.sections, b.z)

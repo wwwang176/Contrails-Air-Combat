@@ -17,6 +17,16 @@ export interface FinParams {
   height: number
   sweep: number
   z: number
+  /**
+   * 翼根的垂直位置。省略即 0。
+   *
+   * 【為什麼需要】垂尾原本一律從 y=0 長起，但機身後段的中心線是抬高的
+   * （109 抬到 0.44–0.62），下半截因此埋在機身裡。等它從背線冒出來時，
+   * 前緣已被後掠角帶往機尾——實測 109 可見的垂尾根部落在全長 86.7%，
+   * 設計值卻是 82%（線稿量到的也是 82%），看起來又小又靠後。
+   * P-51D 的背鰭更嚴重：高 0.42 但該站位背線在 0.570，**整片看不見**。
+   */
+  rootY?: number
 }
 
 /**
@@ -97,7 +107,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     realLength: 9.83,
     fuselage: {
       roundness: 2.4,   // 接近橢圓，側面略平
-      segments: 10,
+      segments: 14,
       sections: [
         { z: -4.55, halfWidth: 0.30, halfHeight: 0.30, centerY: 0.06 },  // 整流罩接合面
         { z: -4.05, halfWidth: 0.38, halfHeight: 0.45, centerY: 0.04 },
@@ -113,7 +123,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     },
     canopy: {
       roundness: 2.2,
-      segments: 8,
+      segments: 10,
       sections: [
         { z: -1.40, halfWidth: 0.14, halfHeight: 0.08, centerY: 0.56 },  // 風擋前緣
         { z: -0.95, halfWidth: 0.34, halfHeight: 0.28, centerY: 0.58 },  // 風擋頂
@@ -124,7 +134,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
     },
     scoop: {
       roundness: 3.0,   // 導管是方的，不是圓的
-      segments: 6,
+      segments: 8,
       // 【後半段原本是浮在空中的】機腹自機翼後緣起就往上收（boat-tail），
       // 導管卻一路平飛，到 z=2.4 已經離開機身 0.20 m——側面看是一根獨立
       // 漂浮的方管。
@@ -152,9 +162,14 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       rootChord: 1.35, tipChord: 0.70, halfSpan: 2.10,
       sweep: 8 * DEG, dihedral: 0, thickness: 0.14, rootZ: 3.3, rootY: 0.10, tipRound: 0.35,
     },
-    fin: { chordRoot: 1.80, chordTip: 0.80, height: 1.75, sweep: 34 * DEG, z: 2.8 },
-    // 背鰭：翼根很長、翼尖很短且幾乎貼在垂尾前緣，所以後掠角極大（73°）。
-    finFillet: { chordRoot: 1.55, chordTip: 0.30, height: 0.42, sweep: 73 * DEG, z: 1.45 },
+    fin: { chordRoot: 1.80, chordTip: 0.80, height: 1.40, sweep: 34 * DEG, z: 2.8, rootY: 0.35 },
+    // 背鰭：翼根坐在背線上（0.57），頂端要**恰好**落在垂尾前緣線上——
+    // 解 1.45 + tan(sw)·h = 2.8 + tan(34°)·(0.57 + h − 0.35)，取 h=0.30
+    // 得 sw=80°，交會於 (z=3.15, y=0.87)。後掠角這麼大時，翼根只要埋進
+    // 機身幾公分，可見根部就會被帶往機尾好幾十公分，所以 rootY 必須齊平。
+    finFillet: {
+      chordRoot: 1.55, chordTip: 0.30, height: 0.30, sweep: 80 * DEG, z: 1.45, rootY: 0.57,
+    },
     blisters: [
       // 化油器進氣口，機首**上方**
       { x: 0, y: 0.56, z: -3.70, width: 0.32, height: 0.24, length: 1.00 },
@@ -215,7 +230,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      */
     fuselage: {
       roundness: 2.8,
-      segments: 10,
+      segments: 14,
       sections: [
         // 【側視骨架：機首低、機尾高】整條機身中心線由機首往機尾上揚。
         // 依線稿實測（腹線基準 y=90、全長 310 px）：
@@ -261,7 +276,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
      */
     canopy: {
       roundness: 3.5,   // 方框式座艙罩，稜線分明
-      segments: 8,
+      segments: 10,
       sections: [
         { z: -1.75, halfWidth: 0.17, halfHeight: 0.06, centerY: 0.49 },  // 風擋底框 0.55
         { z: -1.60, halfWidth: 0.30, halfHeight: 0.21, centerY: 0.60 },  // 風擋頂 0.81（60°）
@@ -284,8 +299,8 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       sweep: 10 * DEG, dihedral: 0, thickness: 0.12, rootZ: 2.9, rootY: 0.78, tipRound: 0.35,
     },
     // 背脊抬高後垂尾露出的部分變短，高度隨之補回（露出約 0.96 m，合真機）
-    // 背線抬高後垂尾埋進機身的部分變多，高度隨之補回（露出約 0.95 m）
-    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.64, sweep: 30 * DEG, z: 2.5 },
+    // 翼根抬到背線之下一點點，讓可見的前緣根部落在設計站位（全長 82%）
+    fin: { chordRoot: 1.55, chordTip: 0.70, height: 1.11, sweep: 30 * DEG, z: 2.5, rootY: 0.55 },
     blisters: [
       // MG 131 機槍鼓包，左右各一
       { x: 0.20, y: 0.50, z: -3.10, width: 0.30, height: 0.22, length: 0.85, mirror: true },

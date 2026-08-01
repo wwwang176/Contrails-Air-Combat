@@ -71,7 +71,10 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
       sweep: f.sweep, dihedral: 0, thickness, rootZ: f.z, rootY: 0,
       ...(tipRound === undefined ? {} : { tipRound }),
     }, false), body)
+    // 面板繞 Z 轉 90° 後，它自己的 rootY 會變成 X 向偏移，所以垂直位置
+    // 必須由 mesh.position.y 承擔，不能寫進 WingParams.rootY。
     mesh.rotation.z = 90 * DEG
+    mesh.position.y = f.rootY ?? 0
     add(mesh)
   }
   // 垂尾頂端是圓的；背鰭是整流罩不是翼面，維持方角
