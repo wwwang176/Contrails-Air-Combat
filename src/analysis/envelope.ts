@@ -256,5 +256,13 @@ export function maxRollRate(spec: AircraftSpec, altitude: number, tas: number): 
   return (spec.moments.clDa * da * 2 * tas) / (Math.abs(spec.moments.clP) * spec.wing.span)
 }
 
+/**
+ * 由目標升力係數反解迎角（僅適用線性段）。
+ * 供交叉驗證測試建立指定過載的飛行狀態。
+ */
+export function alphaForCl(spec: AircraftSpec, cl: number): number {
+  return cl / spec.lift.clAlpha + spec.lift.alphaZero
+}
+
 // 供 EM 圖標註使用
 export { inducedDragFactor }
