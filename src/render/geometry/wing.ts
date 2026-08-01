@@ -11,13 +11,22 @@ export interface WingParams {
   /** 上反角，rad */
   dihedral: number
   /**
-   * **翼根**厚度，m。翼尖厚度按弦長比例收縮，也就是保持固定的厚弦比。
+   * **翼根**厚度，m。
    *
    * 【原本是整片等厚】那讓翼尖厚了兩倍以上：P-51D 真機翼尖 0.148 m
-   * （弦長 11.4%），等厚版本是 0.34 m；Bf 109 真機 0.119 m，等厚 0.28 m。
+   * （弦長 11.4%），等厚版本是 0.34 m；Bf 109 真機 0.115 m，等厚 0.28 m。
    * 翼根反而偏薄。結果就是機翼看起來像一塊板子而不是機翼。
    */
   thickness: number
+  /**
+   * **翼尖**厚度，m。省略即按弦長等比例收縮（＝厚弦比固定）。
+   *
+   * 【為什麼不能只按弦長縮】真機的厚弦比本身沿翼展就在變薄：P-51D 由翼根
+   * 15.1% 收到翼尖 11.4%、Bf 109 由 14.2% 收到 11.35%。只按弦長縮等於把
+   * 根部的厚弦比一路帶到翼尖，翼尖因此厚了約 27%（P-51D 0.189 對真機
+   * 0.148、Bf 109 0.146 對 0.115）——外翼段看起來鈍鈍的，翼尖尤其明顯。
+   */
+  tipThickness?: number
   /** 翼根前緣在機體 Z 軸的位置 */
   rootZ: number
   rootY: number
@@ -69,6 +78,9 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
   const round = p.tipRound ?? 1
   const fractions = p.tipRound === undefined ? [0, 1] : [0, ROUND_START, 0.95, 1]
 
+  // 厚度沿翼展線性收；省略 tipThickness 時退回「厚弦比固定」的舊行為
+  const tipT = p.tipThickness ?? (p.thickness * p.tipChord) / p.rootChord
+
   const stations: Station[] = fractions.map((u) => {
     const span = u * p.halfSpan
     const baseChord = p.rootChord + (p.tipChord - p.rootChord) * u
@@ -81,7 +93,9 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
       // 對 30% 弦線收縮：前緣小幅後退、後緣大幅前移（見 TIP_ANCHOR）
       lead: baseLead + (baseChord - chord) * TIP_ANCHOR,
       chord,
-      h: (p.thickness / 2) * (chord / p.rootChord),
+      // 圓翼尖那一小段（u > ROUND_START）弦長是急收的，厚度不能跟著急收，
+      // 否則翼尖會變成刀口。厚度只依展向位置 u 走。
+      h: (p.thickness + (tipT - p.thickness) * u) / 2,
     }
   })
 
