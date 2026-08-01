@@ -65,6 +65,21 @@ export interface Silhouette {
   propRadius: number
 }
 
+/**
+ * 造型座標 → 機體座標的 Z 位移：讓機翼四分之一弦線落在原點。
+ *
+ * 【為什麼需要】原點是物理模型的**重心**（`state.position` 就是重心）。
+ * 上面那些站位是照著「機首在負 Z」手打的，重心落在哪裡是碰運氣——實測
+ * P-51D 差了 0.81 m、Bf 109 差了 2.08 m。四分之一弦線是次音速氣動中心的
+ * 標準近似，重心壓在它附近才是正常的飛機配置。
+ *
+ * 用位移而不是把站位全部重打，是為了讓造型數字保持可讀（機首負、機尾正），
+ * 而且日後移動機翼不必連帶重算其他四十個座標。
+ */
+export function hullOffsetZ(sil: Silhouette): number {
+  return -(sil.wing.rootZ + 0.25 * sil.wing.rootChord)
+}
+
 export const SILHOUETTES: Record<string, Silhouette> = {
   /**
    * P-51D Mustang —— 真機 全長 9.83 m、翼展 11.286 m、螺旋槳直徑 3.40 m。
@@ -206,18 +221,32 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       // 圖上罩前緣距機首 3.00 m、罩後緣 4.58 m，罩長約 1.6 m。原本是
       // −1.15..1.15（2.30 m，長了 43%）且前緣在 3.70 m 處（後了 0.7 m）。
       // 109 的座艙以狹窄著稱，罩子本來就短。
+      // 【風擋要陡】109 的裝甲風擋是接近垂直的厚玻璃平板，不是斜坡。
+      // 原本自 z=−1.85（頂 0.55）緩升到 −1.50（頂 0.74），仰角只有 28.5°。
+      // 改為在 0.14 m 內升 0.21 m —— 56°。
       sections: [
-        { z: -1.85, halfWidth: 0.13, halfHeight: 0.070, centerY: 0.480 }, // 風擋前緣
-        { z: -1.50, halfWidth: 0.30, halfHeight: 0.220, centerY: 0.520 }, // 裝甲玻璃頂 0.74
+        { z: -1.66, halfWidth: 0.17, halfHeight: 0.070, centerY: 0.460 }, // 風擋底框 0.53
+        { z: -1.52, halfWidth: 0.29, halfHeight: 0.210, centerY: 0.530 }, // 風擋頂 0.74
         { z: -0.95, halfWidth: 0.33, halfHeight: 0.240, centerY: 0.500 }, // 罩頂 0.74
         { z: -0.55, halfWidth: 0.28, halfHeight: 0.190, centerY: 0.500 }, // 頂 0.69
         { z: -0.25, halfWidth: 0.18, halfHeight: 0.130, centerY: 0.500 }, // 頂 0.63 = 背線
       ],
     },
+    /**
+     * 【機翼原本太靠後 1.45 m】以 G-10 三視圖的**俯視**panel 量測（正交投影，
+     * 比側視可靠）：翼根前緣距整流罩尖端 2.2 m，只有全長的 25%。原本
+     * rootZ −1.2 對應 3.65 m（41%）。109 的機翼設置得很前、尾力臂很長，
+     * 這是它的基本佈局特徵之一。
+     *
+     * 連帶效果：尾力臂由 3.80 m 增為 5.25 m（除以平均氣動弦長 1.68 為 3.1，
+     * 落在戰鬥機常見的 2.5–3.5 區間；原本 2.26 偏低）。
+     *
+     * rootY 一併下修到 −0.34，讓翼根下表面與機腹齊平——真機是低翼。
+     */
     wing: {
       // 0.32 / 2.30 = 13.9% 厚弦比，真機 NACA 2R1 翼根 14.2%
       rootChord: 2.30, tipChord: 1.05, halfSpan: 4.96,
-      sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -1.2, rootY: -0.26,
+      sweep: 6 * DEG, dihedral: 6.5 * DEG, thickness: 0.32, rootZ: -2.65, rootY: -0.34,
       tipRound: 0.30,
     },
     // 【水平尾翼裝在垂尾上，不在機身側面】109 的平尾明顯高於機身背線，
@@ -236,7 +265,7 @@ export const SILHOUETTES: Record<string, Silhouette> = {
       // 機首下方滑油冷卻器
       { x: 0, y: -0.48, z: -2.90, width: 0.40, height: 0.20, length: 0.90 },
       // 翼下冷卻液散熱器
-      { x: 1.50, y: -0.30, z: 0.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
+      { x: 1.50, y: -0.38, z: -1.30, width: 0.55, height: 0.22, length: 1.00, mirror: true },
       // 水平尾翼斜撐桿：自機身下緣（0.10, −0.03）拉到平尾下表面（0.62, 0.40）
       {
         x: 0.36, y: 0.185, z: 3.15, width: 0.675, height: 0.05, length: 0.10,

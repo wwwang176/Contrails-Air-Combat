@@ -4,7 +4,9 @@ import {
 import { DEG } from '../../core/math'
 import { buildFuselage } from './fuselage'
 import { buildWingPanel } from './wing'
-import { SILHOUETTES, type Blister, type FinParams, type LoftPart } from './silhouettes'
+import {
+  SILHOUETTES, hullOffsetZ, type Blister, type FinParams, type LoftPart,
+} from './silhouettes'
 import type { AircraftSpec } from '../../specs/types'
 
 export interface AircraftModel {
@@ -28,6 +30,12 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   if (!sil) throw new Error(`未定義機種外型：${spec.id}`)
 
   const group = new Group()
+  // 造型座標的原點是隨手訂的，機體座標的原點必須是**重心**。內層 group
+  // 承擔這個位移，外層 group 留給 main.ts 寫入物理位置與姿態。
+  const hull = new Group()
+  hull.position.z = hullOffsetZ(sil)
+  group.add(hull)
+
   const body = new MeshStandardMaterial({ color: sil.bodyColor, flatShading: true, roughness: 0.75 })
   const accent = new MeshStandardMaterial({ color: sil.accentColor, flatShading: true, roughness: 0.6 })
   const glass = new MeshStandardMaterial({
@@ -40,7 +48,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   const disposables: { dispose(): void }[] = [body, accent, glass, blur]
   const add = (mesh: Mesh) => {
     disposables.push(mesh.geometry)
-    group.add(mesh)
+    hull.add(mesh)
     return mesh
   }
   const loft = (part: LoftPart, mat: MeshStandardMaterial) =>
@@ -115,7 +123,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   propDisc.visible = false
   disposables.push(propDisc.geometry)
   propHub.add(propDisc)
-  group.add(propHub)
+  hull.add(propHub)
 
   return {
     group,

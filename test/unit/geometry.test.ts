@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Box3, BufferGeometry, Mesh, Vector3 } from 'three'
 import { buildFuselage, type FuselageSection } from '../../src/render/geometry/fuselage'
 import { buildWingPanel } from '../../src/render/geometry/wing'
-import { SILHOUETTES, type LoftPart } from '../../src/render/geometry/silhouettes'
+import { SILHOUETTES, hullOffsetZ, type LoftPart } from '../../src/render/geometry/silhouettes'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -92,7 +92,10 @@ describe('buildAircraft', () => {
     describe(spec.name, () => {
       it('產生含子物件的 Group', () => {
         const m = buildAircraft(spec)
-        expect(m.group.children.length).toBeGreaterThan(5)
+        // 外層 group 只掛一個承擔重心位移的內層 group，所以要數整棵樹
+        let meshes = 0
+        m.group.traverse((o) => { if ((o as Mesh).isMesh) meshes++ })
+        expect(meshes).toBeGreaterThan(5)
         m.dispose()
       })
 
@@ -538,8 +541,20 @@ describe('外型與真機的對照', () => {
               .applyMatrix4(o.matrixWorld).z)
           }
         })
-        expect(minZ).toBeLessThan(sil.fuselage.sections[0]!.z)
+        // 造型座標要加上重心位移才能跟世界座標比
+        expect(minZ).toBeLessThan(sil.fuselage.sections[0]!.z + hullOffsetZ(sil))
         m.dispose()
+      })
+
+      /**
+       * 原點是物理模型的**重心**（`state.position` 就是重心），所以模型的
+       * 機翼四分之一弦線必須壓在原點上。實測位移前 P-51D 差 0.81 m、
+       * Bf 109 差 2.08 m——那等於把重心放在氣動中心後方兩公尺，物理上說不通，
+       * 視覺上追尾相機也會對準錯的點。
+       */
+      it('機翼四分之一弦線落在原點（＝重心）', () => {
+        const quarterChord = sil.wing.rootZ + 0.25 * sil.wing.rootChord + hullOffsetZ(sil)
+        expect(quarterChord).toBeCloseTo(0, 9)
       })
     })
   }
