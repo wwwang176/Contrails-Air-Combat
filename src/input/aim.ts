@@ -4,6 +4,15 @@ import { AIM_RADIUS } from './InputState'
 
 const S = makeScratch(3, 1)
 
+/** 螢幕平面上的二維量（準星位移／位置）。 */
+export interface Vec2 {
+  x: number
+  y: number
+}
+
+/** slewAimWorld 的單幀位移暫存。熱路徑零配置，模組私有不外借。 */
+const deltaScratch: Vec2 = { x: 0, y: 0 }
+
 /**
  * 瞄準點相對機首的最大夾角，rad。
  *
@@ -60,7 +69,7 @@ export function slewAimWorld(
   // 圓錐夾制沿大圓拉回時會落在**相反**的一側——玩家往右甩，飛機往左轉。
   // 實測（每幀位移 5 ≈ 162°）確實重現：轉彎中途誤差角突然塌到 0.1°、
   // 轉向反轉。用圓形（而非方形）夾制單幀位移，斜向與軸向的上限才一致。
-  const d = clampToCircle(deltaX, deltaY, 2 * AIM_RADIUS)
+  const d = clampToCircle(deltaX, deltaY, 2 * AIM_RADIUS, deltaScratch)
 
   const right = S.v[0]!.set(1, 0, 0).applyQuaternion(cameraOrientation)
   const up = S.v[1]!.set(0, 1, 0).applyQuaternion(cameraOrientation)
@@ -127,9 +136,20 @@ export function aimDirectionBody(
  * `clampAimToCone` 以圓錐執行（同一個「圓而非方」的性質，見上）。
  * 本函式保留給 HUD（Task 23）把準星圖示夾在畫面上的圓內。
  */
-export function clampToCircle(x: number, y: number, radius: number): { x: number; y: number } {
+export function clampToCircle(
+  x: number,
+  y: number,
+  radius: number,
+  out: Vec2 = { x: 0, y: 0 },
+): Vec2 {
   const r = Math.hypot(x, y)
-  if (r <= radius) return { x, y }
+  if (r <= radius) {
+    out.x = x
+    out.y = y
+    return out
+  }
   const scale = radius / r
-  return { x: x * scale, y: y * scale }
+  out.x = x * scale
+  out.y = y * scale
+  return out
 }

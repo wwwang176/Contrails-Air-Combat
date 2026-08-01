@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { G0, clamp } from '../core/math'
+import { G0, clamp, lerp, smoothstep } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { Pid, type PidGains } from './pid'
 import {
@@ -12,7 +12,47 @@ import type { AeroState, Controls, FlightState } from '../physics/types'
 // 模組私有暫存（熱路徑零配置）。只需要 1 個向量（aimBody）與 1 個四元數
 // （orientation 的逆）；gLoadFromOrientation 使用 limiters 自己的暫存，
 // 不與此處別名衝突。
-const S = makeScratch(1, 1)
+const S = makeScratch(3, 1)
+
+/** 世界上方。模組常數，任何情況下都不得被寫入。 */
+const WORLD_UP = new Vector3(0, 1, 0)
+
+export interface BankAttitude {
+  /** 坡度角，rad。正值＝左坡度（右翼上揚），負值＝右坡度。 */
+  angle: number
+  /**
+   * 坡度角的可信度，0~1，等於 |cos(俯仰角)|。
+   *
+   * 機首指向正上或正下時「坡度」在幾何上沒有意義（世界上方向量與機首平行，
+   * 它在機體右／上平面內的投影長度為零，方位角是 0/0）。此值就是那個投影
+   * 的長度，所以它天然地在奇異點歸零——不需要額外的分支判斷，機翼改平
+   * 會自己在垂直飛行時鬆手，而不是去追一個沒有意義的角度。
+   */
+  authority: number
+}
+
+export function createBankAttitude(): BankAttitude {
+  return { angle: 0, authority: 1 }
+}
+
+/**
+ * 由姿態四元數求坡度角。熱路徑零配置（使用模組私有 scratch）。
+ *
+ * 【為什麼不從歐拉角取】專案的硬性約束是「狀態絕不以歐拉角儲存」。
+ * 這裡直接把世界上方向量轉進機體座標的右／上平面求方位角，
+ * 與 gLoadFromOrientation 由四元數求 cosγ·cosφ 是同一手法。
+ * （已與 Euler 'YXZ' 的 z 分量逐案比對，60 秒極限環的每個視窗端點
+ * 都吻合到小數點後一位，見 task-20-report.md §20。）
+ */
+export function bankAttitude(orientation: Quaternion, out: BankAttitude): BankAttitude {
+  const bodyRight = S.v[1]!.set(1, 0, 0).applyQuaternion(orientation)
+  const bodyUp = S.v[2]!.set(0, 1, 0).applyQuaternion(orientation)
+  const lateral = WORLD_UP.dot(bodyRight)
+  const vertical = WORLD_UP.dot(bodyUp)
+  out.angle = Math.atan2(lateral, vertical)
+  out.authority = Math.hypot(lateral, vertical)
+  return out
+}
 
 export interface DirectorGains {
   /** 外環：滾轉角誤差 → 期望滾轉率，(rad/s)/rad */
@@ -48,6 +88,31 @@ export interface DirectorGains {
   reverseHysteresis: number
   /** 期望滾轉率的絕對上限，rad/s */
   maxRollRateCommand: number
+  /**
+   * 機翼改平：坡度角 → 期望滾轉率，(rad/s)/rad。
+   *
+   * 【為什麼需要這一項】rollCommand = atan2(aimBody.x, aimBody.y) 在瞄準點
+   * 接近機首正前方時兩個引數同時趨近 0——**滾轉在數學上完全沒有被約束**。
+   * 任何坡度都同樣滿足「機首對準目標」，因為繞機首軸的旋轉根本不會移動機首。
+   * 但帶著坡度的飛機會被重力把機首拉離瞄準點，指揮儀修正、又留下坡度，
+   * 於是自我維持。實測（P-51D 4000 m 220 m/s，甩 6° 後完全放手 60 秒）：
+   * 坡度在 ±35° 之間以約 6.5 s 的週期擺盪，每 10 秒只衰減約 1°，
+   * 在任何人類尺度上都是永久的。誤差角始終小於 6°，所以 L4 矩陣
+   * （量的是瞄準誤差，不是坡度）完全看不到它。
+   *
+   * 【為什麼不會與瞄準迴路打架】期望滾轉率作用在機首軸上，而繞機首軸旋轉
+   * 不改變機首指向——這正是瞄準指令留下來沒有決定的那一個自由度。
+   * 兩個迴路在幾何上正交，不是兩個迴路在吵架。
+   */
+  wingsLevelGain: number
+  /**
+   * 機翼改平的淡出角，rad：誤差角由 deadZoneAngle 增加到此值時，改平權限
+   * 由 1 平滑降到 0，超過即完全不介入。用 smoothstep 連續淡出而不是硬切換，
+   * 理由與 rollRateErrorSlope 相同——階梯式的權限切換自己就會變成極限環的
+   * 來源。出貨值 10° 讓它在圓錐邊緣（11.375°）的持續轉彎中權限恰為 0，
+   * 玩家刻意壓坡度轉彎時它一點力都不會出。
+   */
+  wingsLevelFadeAngle: number
 }
 
 /**
@@ -95,6 +160,12 @@ export const DEFAULT_DIRECTOR_GAINS: DirectorGains = {
   rollRateErrorSlope: 15,
   reverseHysteresis: 5 * (Math.PI / 180),
   maxRollRateCommand: 6,
+  // 1.5 (rad/s)/rad：35° 坡度對應 0.92 rad/s 的改平率，遠低於 P-51D 在
+  // 巡航速度的最大滾轉率（約 2.2 rad/s），所以內環不會被指令到飽和；
+  // 對應的一階時間常數約 0.7 s，比極限環的 6.5 s 週期快一個量級，
+  // 因此是把環壓掉而不是與它共振。
+  wingsLevelGain: 1.5,
+  wingsLevelFadeAngle: 10 * (Math.PI / 180),
 }
 
 /**
@@ -117,6 +188,15 @@ export interface DirectorDebug {
   actualP: number
   actualQ: number
   actualR: number
+  /** 坡度角，rad。正值＝左坡度 */
+  bankAngle: number
+  /**
+   * 機翼改平在本步的權限，0~1。
+   * 判讀：desiredP 是「瞄準要求的滾轉率」與「改平要求的滾轉率」以此值
+   * 內插的結果。1 = 完全由改平主導（瞄準已到位，滾轉未被約束），
+   * 0 = 完全由瞄準主導（玩家正在指揮一個轉彎）。
+   */
+  wingsLevelBlend: number
   limiter: PitchLimit
 }
 
@@ -125,6 +205,7 @@ export function createDirectorDebug(): DirectorDebug {
     errorAngle: 0, verticalError: 0, lateralError: 0, rollCommand: 0,
     desiredP: 0, desiredQ: 0, desiredR: 0,
     actualP: 0, actualQ: 0, actualR: 0,
+    bankAngle: 0, wingsLevelBlend: 0,
     limiter: createPitchLimit(),
   }
 }
@@ -151,6 +232,8 @@ export class FlightDirector {
   private readonly pitchPid: Pid
   private readonly yawPid: Pid
   private lastRollCommand = 0
+  /** 每步覆寫的坡度暫存，實例私有（熱路徑零配置）。 */
+  private readonly bank: BankAttitude = createBankAttitude()
 
   constructor(gains: DirectorGains = DEFAULT_DIRECTOR_GAINS) {
     this.gains = structuredClone(gains)
@@ -261,10 +344,26 @@ export class FlightDirector {
 
     // 兩道上限：一道來自總誤差角（見 rollRateErrorSlope），一道是絕對上限。
     const slopeLimit = g.rollRateErrorSlope * dbg.errorAngle
-    dbg.desiredP = clamp(
+    const aimP = clamp(
       clamp(g.rollOuter * dbg.rollCommand, -slopeLimit, slopeLimit),
       -g.maxRollRateCommand, g.maxRollRateCommand,
     )
+
+    // 機翼改平（見 wingsLevelGain 的說明）：只在滾轉指令病態的區域接手。
+    // 【為什麼是內插而不是相加】相加會在誤差角中段變成兩個迴路各出一份力
+    // 的疊加，總權限可能超過任一方的設計上限；內插則保證權限恆等於 1 份，
+    // 且在兩端各自退化成純瞄準／純改平。
+    // 【注意】改平權限不能塞回 rollCommand 再走 slopeLimit——slopeLimit 正比
+    // 於誤差角，在誤差趨近 0 時本身就趨近 0，會把改平指令一併夾成 0，
+    // 而那正是最需要改平的地方。故在夾制之後才內插。
+    const bank = bankAttitude(state.orientation, this.bank)
+    dbg.bankAngle = bank.angle
+    dbg.wingsLevelBlend =
+      bank.authority * (1 - smoothstep(g.deadZoneAngle, g.wingsLevelFadeAngle, dbg.errorAngle))
+    const levelP = clamp(
+      g.wingsLevelGain * bank.angle, -g.maxRollRateCommand, g.maxRollRateCommand,
+    )
+    dbg.desiredP = lerp(aimP, levelP, dbg.wingsLevelBlend)
     dbg.desiredQ = clamp(g.pitchOuter * dbg.verticalError, qMin, dbg.limiter.qMax)
     // 【符號修正】brief 原稿寫 g.yawOuter * -aero.beta，符號相反，是正回授。
     // β>0 的定義是相對氣流從右方來（機體 y 向速度分量為正），此時機首偏在

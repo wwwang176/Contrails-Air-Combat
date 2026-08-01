@@ -62,6 +62,7 @@ function snapshotDbg(d: DirectorDebug): DirectorDebug {
     rollCommand: d.rollCommand,
     desiredP: d.desiredP, desiredQ: d.desiredQ, desiredR: d.desiredR,
     actualP: d.actualP, actualQ: d.actualQ, actualR: d.actualR,
+    bankAngle: d.bankAngle, wingsLevelBlend: d.wingsLevelBlend,
     limiter: { ...d.limiter },
   }
 }
@@ -382,10 +383,42 @@ describe('指揮儀特例', () => {
     // 方向」——機首在機體座標恆為 (0,0,−1)，轉到世界座標即為下式。
     // 這樣 errorAngle = 0（落在死區）→ desiredP = 0，而 angularVelocity
     // 已歸零 → actualP = 0，誤差恰為 0，輸出中唯一可能非零的就是積分項。
-    const noseWorld = new Vector3(0, 0, -1).applyQuaternion(state.orientation)
-    d.update(P51D, state, diag.aero, false, noseWorld, DT, controls, dbg)
+    // 【Task 20 修訂：探測點必須同時是「零瞄準誤差」與「零坡度」】
+    // 原本只把狀態的 angularVelocity 歸零、瞄準方向取當下機首，讓
+    // errorAngle = 0、actualP = 0，於是輸出中唯一可能非零的就是積分項。
+    // 機翼改平（Task 20）多了一個合法的非零來源：跑完 500 步之後飛機帶著
+    // 約 60° 的坡度，而改平正是設計來在「瞄準已到位、滾轉未被約束」時接手，
+    // 它會要求 1.5 × 1.05 = 1.57 rad/s 的改平滾轉，光比例項就把副翼打到飽和
+    // ——原斷言（|aileron| < 0.05）於是恆紅，而改成「與全新指揮儀比對」則
+    // 恆綠（兩邊都飽和在 1.0，積分殘留完全被吃掉；已用 mutation 實測確認
+    // 拿掉 rollPid.reset() 仍 135/135 全綠）。兩種寫法都量不到要量的東西。
+    //
+    // 正解是把探測點放回非飽和區：狀態換成一個乾淨的水平飛行狀態
+    // （積分項活在指揮儀裡，不在狀態裡，所以前面 500 步灌積分的效果原封不動），
+    // 此時 errorAngle = 0、actualP = 0、坡度 = 0 ⇒ desiredP = 0，
+    // 三項驅動全部歸零，輸出中唯一可能非零的仍然只有積分項。
+    // 連 aero 都必須換成乾淨的：diag.aero 還留著 500 步之後的側滑角
+    // （實測 β 大到讓 desiredR 把方向舵吹到 0.042），那是狀態殘留不是
+    // 積分殘留，會污染這個測試要量的東西。
+    const level = createFlightState(5000, 150)
+    const levelDiag = createDiagnostics()
+    const zero: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+    stepDynamics(P51D, level, zero, DT, levelDiag)
+    level.angularVelocity.set(0, 0, 0)
+    expect(levelDiag.aero.beta).toBe(0)
+
+    const noseWorld = new Vector3(0, 0, -1).applyQuaternion(level.orientation)
+    d.update(P51D, level, levelDiag.aero, false, noseWorld, DT, controls, dbg)
+
     expect(dbg.errorAngle).toBeLessThan(1e-6)
-    expect(Math.abs(controls.aileron)).toBeLessThan(0.05)
+    expect(dbg.bankAngle).toBeCloseTo(0, 12) // 確認探測點真的沒有坡度
+    expect(dbg.desiredP).toBeCloseTo(0, 12) // 確認改平也沒有要求任何滾轉
+    // 三項驅動全為零 ⇒ 乾淨的控制器輸出必須是 0。容許值取 1e-12（實測殘餘
+    // 3.2e-22，來自 verticalError 的浮點塵埃），仍比原本的 0.05 嚴格 10 個
+    // 數量級；三個軸各自的積分殘留實測都在 0.04 以上，鑑別度綽綽有餘。
+    expect(controls.aileron).toBeCloseTo(0, 12)
+    expect(controls.elevator).toBeCloseTo(0, 12)
+    expect(controls.rudder).toBeCloseTo(0, 12)
   })
 })
 

@@ -82,6 +82,25 @@ export class Aircraft {
   }
 
   /**
+   * 重生：重置飛機，**並且**把世界瞄準點放回新的機首方向。
+   *
+   * 【為什麼要有這個函式，而不是在兩處各呼叫一次 reset + 歸位】
+   * 世界固定瞄準點會活過 reset：瞄準點是世界方向，重置飛機不會動到它。
+   * 玩家俯衝撞海時瞄準點正指著海面，自動重置若只呼叫 reset，飛機一重生
+   * 就被指令朝著（相對新機首 92° 的）舊方向飛，被圓錐夾制拖到機首下方
+   * 11.375°，於是**放著不動也會一路推頭飛回海裡**（實測 60 秒由 4000 m
+   * 掉到 2006 m，負過載 −0.79）。
+   *
+   * 手動重置（R）與撞海重置是同一件事，必須走同一條程式碼路徑——
+   * 這與把撞海判定抽成 `isCrashed` 是同一個理由：兩份長得很像的副本，
+   * 就是只有一份會被修好的那種危險。
+   */
+  respawn(aimWorld: Vector3, altitude: number, tas: number): void {
+    this.reset(altitude, tas)
+    aimWorld.set(0, 0, -1).applyQuaternion(this.state.orientation)
+  }
+
+  /**
    * 推進一個物理步。熱路徑，禁止任何配置行為。
    *
    * @param aimDirWorld **世界座標**的瞄準方向（`InputState.aimWorld`）
