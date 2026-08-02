@@ -7,6 +7,8 @@ import {
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
+import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
+import { minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -141,6 +143,10 @@ describe('HudContact', () => {
 })
 
 describe('nextHitFlash', () => {
+  it('顯示時間是 spec §8 指定的 0.15 s', () => {
+    expect(HIT_FLASH_SECONDS).toBe(0.15)
+  })
+
   it('這一幀有命中就重新計時到滿', () => {
     expect(nextHitFlash(0, 1, 1 / 60)).toBe(HIT_FLASH_SECONDS)
   })
@@ -165,5 +171,69 @@ describe('nextHitFlash', () => {
 
   it('一幀多次命中與一次命中的結果相同（時間不疊加）', () => {
     expect(nextHitFlash(0, 6, 1 / 60)).toBe(nextHitFlash(0, 1, 1 / 60))
+  })
+})
+
+describe('edgeIndicatorPosition', () => {
+  const ASPECT = 16 / 9
+  /** 箭頭貼的是內縮後的邊，不是視窗邊界本身——整支箭頭才不會被切掉一半。 */
+  const EX = ASPECT - EDGE_INSET
+  const EY = 1 - EDGE_INSET
+
+  it('螢幕右方的目標指到右緣', () => {
+    const p = edgeIndicatorPosition(3, 0, false, ASPECT)
+    expect(p.x).toBeCloseTo(EX, 6)
+    expect(p.y).toBeCloseTo(0, 6)
+  })
+
+  it('螢幕上方的目標指到上緣', () => {
+    const p = edgeIndicatorPosition(0, 3, false, ASPECT)
+    expect(p.y).toBeCloseTo(EY, 6)
+    expect(p.x).toBeCloseTo(0, 6)
+  })
+
+  it('斜角目標落在邊緣上，不會跑到框外', () => {
+    const p = edgeIndicatorPosition(5, 4, false, ASPECT)
+    expect(Math.abs(p.x)).toBeLessThanOrEqual(EX + 1e-9)
+    expect(Math.abs(p.y)).toBeLessThanOrEqual(EY + 1e-9)
+    // 至少有一軸貼著邊
+    expect(Math.abs(p.x) > EX - 1e-9 || Math.abs(p.y) > EY - 1e-9).toBe(true)
+  })
+
+  it('內縮量為正 —— 箭頭必須整支留在畫面內', () => {
+    expect(EDGE_INSET).toBeGreaterThan(0)
+    expect(EDGE_INSET).toBeLessThan(0.2)
+  })
+
+  it('【背後的目標必須反向】否則轉身時箭頭會指反邊', () => {
+    // NDC 在相機背後會翻號：正前方 30° 的目標與正後方 150° 的目標
+    // 投影到同一側。不處理的話，被咬住時箭頭會叫你往前看。
+    const front = edgeIndicatorPosition(0.5, 0, false, ASPECT)
+    const back = edgeIndicatorPosition(0.5, 0, true, ASPECT)
+    expect(Math.sign(front.x)).toBe(1)
+    expect(Math.sign(back.x)).toBe(-1)
+  })
+
+  it('箭頭角度指向該方向', () => {
+    expect(edgeIndicatorPosition(3, 0, false, ASPECT).angle).toBeCloseTo(0, 6)
+    expect(edgeIndicatorPosition(0, 3, false, ASPECT).angle).toBeCloseTo(Math.PI / 2, 6)
+  })
+
+  it('正中央（兩軸皆 0）不產生 NaN', () => {
+    const p = edgeIndicatorPosition(0, 0, false, ASPECT)
+    expect(Number.isFinite(p.x + p.y + p.angle)).toBe(true)
+  })
+})
+
+describe('minimapSymbol', () => {
+  it('高度差在同層帶內是「方」', () => {
+    expect(minimapSymbol(0)).toBe('level')
+    expect(minimapSymbol(MINIMAP_LEVEL_BAND * 0.9)).toBe('level')
+    expect(minimapSymbol(-MINIMAP_LEVEL_BAND * 0.9)).toBe('level')
+  })
+
+  it('明顯高於我是「三角」、低於我是「倒三角」', () => {
+    expect(minimapSymbol(MINIMAP_LEVEL_BAND * 2)).toBe('above')
+    expect(minimapSymbol(-MINIMAP_LEVEL_BAND * 2)).toBe('below')
   })
 })

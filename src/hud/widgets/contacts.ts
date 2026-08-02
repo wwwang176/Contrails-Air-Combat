@@ -5,6 +5,35 @@ const BOX_MIN = 9
 const BOX_MAX = 46
 
 /**
+ * 畫面外指示的箭頭離邊緣的內縮量，螢幕半高單位。
+ *
+ * 匯出是為了讓測試用它算期望值——寫死 `1` 或 `aspect` 的話測試必紅，
+ * 而那不是浮點誤差，是規格與實作對不起來。
+ */
+export const EDGE_INSET = 0.06
+
+/**
+ * 把畫面外的接觸點壓到視窗邊緣上。座標單位是**螢幕半高**，所以水平方向
+ * 的邊界是 aspect、垂直方向是 1。
+ *
+ * 【背後的目標要反向】NDC 在相機背後會翻號——正前方 30° 的目標與正後方
+ * 150° 的目標會投影到同一側。不處理的話，被咬住時箭頭會叫你往前看。
+ */
+export function edgeIndicatorPosition(
+  x: number, y: number, behind: boolean, aspect: number,
+): { x: number; y: number; angle: number } {
+  const dx = behind ? -x : x
+  const dy = behind ? -y : y
+  const ex = aspect - EDGE_INSET
+  const ey = 1 - EDGE_INSET
+  // 沿 (dx, dy) 推到剛好碰到邊框。除以 0 會得到 Infinity，min 自然挑另一軸
+  // ——與小地圖的 N 標記是同一個做法。
+  const s = Math.min(ex / Math.abs(dx), ey / Math.abs(dy))
+  if (!Number.isFinite(s)) return { x: 0, y: 0, angle: 0 }
+  return { x: dx * s, y: dy * s, angle: Math.atan2(dy, dx) }
+}
+
+/**
  * 目標框與預瞄環。
  *
  * 【目標框畫全部，沒有距離門檻】spec §8。看得到誰就框誰——「哪些該畫」
@@ -20,8 +49,10 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     if (!c.active) continue
 
     const color = c.hostile ? HUD_COLORS.danger : HUD_COLORS.friendly
+    const aspect = L.width / L.height
+    const onScreen = !c.behind && Math.abs(c.x) <= aspect && Math.abs(c.y) <= 1
 
-    if (!c.behind) {
+    if (onScreen) {
       const x = L.cx + c.x * L.unit
       const y = L.cy - c.y * L.unit
       // 【夾制的上下界要先乘 L.scale 再夾】`c.radius * L.unit` 已經是 CSS px，
@@ -39,6 +70,22 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
       ctx.fillText(`${Math.round(c.range)}`, x, y + r + 3 * L.scale)
+    } else {
+      // 畫面外指示：**畫全部**，無距離門檻（spec §8）
+      const e = edgeIndicatorPosition(c.x, c.y, c.behind, aspect)
+      const ax = L.cx + e.x * L.unit
+      const ay = L.cy - e.y * L.unit
+      ctx.save()
+      ctx.translate(ax, ay)
+      ctx.rotate(-e.angle)
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.moveTo(9 * L.scale, 0)
+      ctx.lineTo(-5 * L.scale, 5 * L.scale)
+      ctx.lineTo(-5 * L.scale, -5 * L.scale)
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
     }
 
     if (c.leadValid && !c.leadBehind) {
@@ -50,8 +97,9 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.arc(lx, ly, 7 * L.scale, 0, Math.PI * 2)
       ctx.stroke()
 
-      // 預瞄環與目標框之間的連線：讓「該往哪裡提前」一眼可讀
-      if (!c.behind) {
+      // 預瞄環與目標框之間的連線：讓「該往哪裡提前」一眼可讀。
+      // 目標框沒畫（在畫面外）時就不連——連到畫面外會是一條穿出邊界的長線。
+      if (onScreen) {
         ctx.strokeStyle = HUD_COLORS.dim
         ctx.lineWidth = 1
         ctx.setLineDash([3, 3])
