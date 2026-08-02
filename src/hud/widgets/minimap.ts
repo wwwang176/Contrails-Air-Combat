@@ -17,7 +17,7 @@ const CELL = 2000
 export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
   const size = Math.min(L.width, L.height) * 0.19
   const x = 30 * L.scale
-  const y = L.height - size - 30 * L.scale
+  const y = L.height - size - 42 * L.scale
   const cx = x + size / 2
   const cy = y + size / 2
   /** 每公尺的像素數 */
@@ -55,13 +55,18 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   ctx.lineWidth = 1
   ctx.strokeRect(x, y, size, size)
 
-  // 北方標記：世界 −Z。地圖轉了 −heading，所以它落在這個位置，字本身不轉
-  const nr = size * 0.40
+  // 北方標記：世界 −Z。地圖轉了 −heading，所以它落在這個方向上，字本身不轉。
+  // 沿方向推到**剛好碰到方框**——貼著邊比浮在圓周上好讀，而且方框本身就是
+  // 現成的刻度盤。除以 0 會得到 Infinity，min 自然會挑另一軸。
+  const dx = -Math.sin(f.heading)
+  const dy = -Math.cos(f.heading)
+  const edge = size / 2 - 7 * L.scale
+  const reachEdge = Math.min(edge / Math.abs(dx), edge / Math.abs(dy))
   ctx.fillStyle = HUD_COLORS.warn
   ctx.font = hudFont(10 * L.scale)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('N', cx - Math.sin(f.heading) * nr, cy - Math.cos(f.heading) * nr)
+  ctx.fillText('N', cx + dx * reachEdge, cy + dy * reachEdge)
 
   // 自機恆位於中心且恆朝上
   ctx.fillStyle = HUD_COLORS.friendly
@@ -72,12 +77,14 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   ctx.closePath()
   ctx.fill()
 
+  // 比例尺與座標放在框**外**：N 標記貼著框邊跑，某些航向會正好落在角落上
   ctx.fillStyle = HUD_COLORS.dim
   ctx.textAlign = 'left'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(`${(RANGE / 1000).toFixed(0)} km`, x, y - 4 * L.scale)
   ctx.textBaseline = 'top'
-  ctx.fillText(`${(RANGE / 1000).toFixed(0)} km`, x + 4 * L.scale, y + 4 * L.scale)
   ctx.fillText(
     `X ${(f.worldX / 1000).toFixed(1)}  Z ${(f.worldZ / 1000).toFixed(1)}`,
-    x + 4 * L.scale, y + size - 14 * L.scale,
+    x, y + size + 5 * L.scale,
   )
 }
