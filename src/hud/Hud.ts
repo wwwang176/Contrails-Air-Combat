@@ -1,3 +1,4 @@
+import { drawContacts } from './widgets/contacts'
 import { drawDials } from './widgets/dials'
 import { drawEnergy } from './widgets/energy'
 import { drawGEffect } from './widgets/gEffect'
@@ -43,6 +44,8 @@ export class Hud {
     ctx.clearRect(0, 0, L.width, L.height)
     // 黑視/紅視先畫，其餘 HUD 元件疊在上面維持可讀
     drawGEffect(ctx, L, f, dt)
+    // 接觸點畫在準星底下——準星必須壓在最上層
+    drawContacts(ctx, L, f)
     drawReticle(ctx, L, f)
     drawHeadingTape(ctx, L, f)
     drawDials(ctx, L, f)
