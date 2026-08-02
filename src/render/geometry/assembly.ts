@@ -272,10 +272,15 @@ export function createHull(spec: HullSpec) {
         arm.add(blade)
         disposables.push(blade.geometry)
         propHub.add(arm)
+        // 槳葉與模糊圓盤掃出的是一個半徑 1.7 m 的圓面。那是動畫，不是命中面
+        // ——命中盒的覆蓋率測試（test/unit/hitbox.test.ts）要靠這個旗標排除
+        // 它們，否則得在機首前方擺一個 3.4 × 3.4 m 的盒子。
+        blade.userData['spinning'] = true
         blades.push(blade)
       }
       const disc = new Mesh(new CircleGeometry(p.propRadius, 16), blur)
       disc.visible = false
+      disc.userData['spinning'] = true
       disposables.push(disc.geometry)
       propHub.add(disc)
       hull.add(propHub)

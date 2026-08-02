@@ -1,4 +1,6 @@
 import { DEG } from '../core/math'
+import { makeHitBox } from '../world/hit'
+import { P51D_BATTERY } from '../weapons/p51d'
 import type { AircraftSpec, HistoricalReference } from './types'
 
 const HP = 745.7
@@ -93,6 +95,36 @@ export const P51D: AircraftSpec = {
   prop: { diameter: 3.4, etaMax: 0.9, vRef: 42, figureOfMerit: 0.8 },
 
   limits: { gPositive: 8, gNegative: -4, vne: 810 * KMH },
+
+  hp: 1000,
+
+  /**
+   * 命中盒 —— 數字**取自造型的實測包圍盒**，不是手打的。
+   *
+   * 分界怎麼定的（機體座標，可對照 render/geometry/p51d.ts）：
+   *   引擎  整流罩尖端 −3.402 到防火牆。防火牆取 −0.90，那是機翼前緣與
+   *         座艙前壁之間、機身還沒被機翼佔住的最後一站。
+   *   座艙  座艙開口 z 0.085…2.485、玻璃罩頂 1.066、內裝底 0.080。
+   *   機身  防火牆到平尾前緣（4.407）。y 下界 −1.04 是散熱器導管的最低點
+   *         （實測 −1.026），上界 0.80 是背鰭在該段的可見高度。
+   *   尾翼  平尾前緣 4.407 起。x 到 ±1.98（平尾半翼展 1.97）、y 到 1.93
+   *         （垂尾頂端 1.920）、z 到 6.58（方向舵後緣 6.571）。
+   *   機翼  由機身側面 0.44 到翼尖 5.64。z 下界 −0.97 涵蓋翼根整流罩在
+   *         x = 0.44 的前緣（−0.954）。
+   *
+   * 【已驗證】每一個頂點（螺旋槳除外）都落在這六個盒之內，而六個盒的
+   * 體積總和 58.2 m³ 只有整機包圍盒 331.4 m³ 的 18%。
+   */
+  hitBoxes: [
+    makeHitBox('engine', [-0.45, -0.82, -3.42], [0.45, 0.68, -0.90]),
+    makeHitBox('cockpit', [-0.40, 0.05, 0.07], [0.40, 1.08, 2.50]),
+    makeHitBox('fuselage', [-0.45, -1.04, -0.90], [0.45, 0.80, 4.42]),
+    makeHitBox('tail', [-1.98, -0.31, 4.40], [1.98, 1.93, 6.58]),
+    makeHitBox('wingRight', [0.44, -0.86, -0.97], [5.65, -0.08, 2.06]),
+    makeHitBox('wingLeft', [-5.65, -0.86, -0.97], [-0.44, -0.08, 2.06]),
+  ],
+
+  battery: P51D_BATTERY,
 }
 
 export const P51D_HISTORICAL: HistoricalReference = {

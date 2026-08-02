@@ -1,3 +1,6 @@
+import type { HitBox } from '../world/hit'
+import type { Battery } from '../weapons/types'
+
 export interface AircraftSpec {
   id: string
   name: string
@@ -105,6 +108,24 @@ export interface AircraftSpec {
     /** 不可超越速度，m/s IAS */
     vne: number
   }
+
+  /**
+   * 結構強度，HP。實際扣血 = 單發傷害 × 部位倍率（見 world/hit.ts）。
+   * spec §6.3：戰鬥機一律 1000。
+   */
+  hp: number
+
+  /**
+   * 命中盒，**機體座標**。六個部位各一，數值取自 M1 量出來的機身資料。
+   *
+   * 【為什麼放在這裡而不是 weapons/】它描述的是**機體**不是武器——與翼展、
+   * 重量、慣量是同一類東西，所以跟 AircraftSpec 一起走。型別放在消費它的
+   * world/hit.ts。
+   */
+  hitBoxes: readonly HitBox[]
+
+  /** 機載武裝。資料在 src/weapons/，這裡只是把它掛上機體。 */
+  battery: Battery
 }
 
 /** 史實性能參考值，供 L2 測試斷言。全部為 SI 單位。 */

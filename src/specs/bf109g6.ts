@@ -1,4 +1,6 @@
 import { DEG } from '../core/math'
+import { makeHitBox } from '../world/hit'
+import { BF109G6_BATTERY } from '../weapons/bf109g6'
 import type { AircraftSpec, HistoricalReference } from './types'
 
 const PS = 735.5
@@ -96,6 +98,34 @@ export const BF109G6: AircraftSpec = {
   prop: { diameter: 3.0, etaMax: 0.88, vRef: 55.7, figureOfMerit: 0.7 },
 
   limits: { gPositive: 7.5, gNegative: -3.5, vne: 750 * KMH },
+
+  hp: 1000,
+
+  /**
+   * 命中盒 —— 取自造型的實測包圍盒（見 render/geometry/bf109e.ts）。
+   *
+   *   引擎  整流罩尖端 −2.575 到 −0.10。x 到 ±0.60 是為了包住**只在左舷**
+   *         的增壓器進氣口（量到 −0.570），不是配的。
+   *   座艙  方框罩開口 z 0.255…1.695、罩頂 0.965。
+   *   機身  −0.10 到平尾前緣之前。y 下界 −0.51 涵蓋翼根在 x = 0 的下表面
+   *         （實測 −0.498）。
+   *   尾翼  4.50 起。x ±1.66（平尾半翼展 1.65）、y 到 1.46（垂尾頂 1.450）。
+   *   機翼  0.42 到翼尖 4.935。y 上界 0.29 涵蓋 6.5° 上反角把翼尖抬到的
+   *         高度（實測 0.280）；下界 −0.50 涵蓋翼下散熱器（−0.476）。
+   *
+   * 【已驗證】每一個頂點（螺旋槳除外）都被覆蓋，六盒體積合計 35.4 m³，
+   * 佔整機包圍盒 166.1 m³ 的 21%。
+   */
+  hitBoxes: [
+    makeHitBox('engine', [-0.60, -0.51, -2.60], [0.60, 0.85, -0.10]),
+    makeHitBox('cockpit', [-0.37, 0.05, 0.24], [0.37, 0.98, 1.70]),
+    makeHitBox('fuselage', [-0.45, -0.51, -0.10], [0.45, 0.90, 4.50]),
+    makeHitBox('tail', [-1.66, -0.18, 4.50], [1.66, 1.46, 6.07]),
+    makeHitBox('wingRight', [0.42, -0.50, -0.56], [4.94, 0.29, 1.67]),
+    makeHitBox('wingLeft', [-4.94, -0.50, -0.56], [-0.42, 0.29, 1.67]),
+  ],
+
+  battery: BF109G6_BATTERY,
 }
 
 export const BF109G6_HISTORICAL: HistoricalReference = {
