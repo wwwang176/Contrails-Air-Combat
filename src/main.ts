@@ -36,8 +36,15 @@ ctx.scene.add(tracers.object)
 
 const START_ALTITUDE = 4000
 const START_TAS = 160
-/** 靶機的出生點：正前方 800 m、同高度。 */
-const DRONE_OFFSET = new Vector3(0, 0, -800)
+/**
+ * 靶機的出生點：正前方 400 m、同高度。
+ *
+ * 【為什麼是 400 而不是更遠】兩個理由都指向同一個數字。一是武器：匯聚點在
+ * 300 m，1944 年的實戰有效射程也在 400 m 以內——擺在 800 m 等於一出生就在
+ * 打不到的地方。二是眼睛：Bf 109 翼展 10 m，800 m 外的張角只有 0.7°，在
+ * 65° 視野的畫面上約 12 px，而且正好躲在畫面中央的準星後面，實測找不到。
+ */
+const DRONE_OFFSET = new Vector3(0, 0, -400)
 
 const input = createInputState()
 const bindings = attachInput(canvas, input)
