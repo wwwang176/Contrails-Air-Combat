@@ -64,9 +64,7 @@ export function drawReticle(
       // 0（剛命中）→ 1（收縮走完）。之後停在 NEAR 直到標記消失。
       const elapsed = HIT_FLASH_SECONDS - f.hitFlash
       const t = Math.min(1, elapsed / HIT_X_SHRINK_SECONDS)
-      // ease-out：一開始衝進來，末段收得慢。等速的話會像被拖著走。
-      const eased = 1 - (1 - t) * (1 - t)
-      const d = (HIT_X_FAR + (HIT_X_NEAR - HIT_X_FAR) * eased) * L.scale
+      const d = (HIT_X_FAR + (HIT_X_NEAR - HIT_X_FAR) * t) * L.scale
       const w = 3.5 * L.scale
       ctx.strokeStyle = HUD_COLORS.danger
       ctx.lineWidth = 1.25 * L.scale
