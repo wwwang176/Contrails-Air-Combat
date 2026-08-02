@@ -11,6 +11,14 @@ const HIT_X_FAR = 17
 const HIT_X_NEAR = 11
 
 /**
+ * 收縮動畫的長度，秒。
+ *
+ * **比 HIT_FLASH_SECONDS 短**：收縮在前 0.05 s 走完，剩下的時間停在 NEAR。
+ * 攤在整個 0.15 s 上的話，動作慢到看起來像在飄而不是被打中。
+ */
+const HIT_X_SHRINK_SECONDS = 0.05
+
+/**
  * 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。
  *
  * 相機跟著瞄準點走，所以圓圈恆在畫面正中央，會漂的是十字。沒有可動範圍的
@@ -53,9 +61,12 @@ export function drawReticle(
     // 完整度——所以回饋就是這個標記，那是這個世界裡真的存在的東西
     // （彈著的閃光）。0.15 s，期間再命中則重新計時（spec §8）。
     if (f.hitFlash > 0) {
-      // 0（剛命中）→ 1（即將消失）
-      const t = 1 - f.hitFlash / HIT_FLASH_SECONDS
-      const d = (HIT_X_FAR + (HIT_X_NEAR - HIT_X_FAR) * t) * L.scale
+      // 0（剛命中）→ 1（收縮走完）。之後停在 NEAR 直到標記消失。
+      const elapsed = HIT_FLASH_SECONDS - f.hitFlash
+      const t = Math.min(1, elapsed / HIT_X_SHRINK_SECONDS)
+      // ease-out：一開始衝進來，末段收得慢。等速的話會像被拖著走。
+      const eased = 1 - (1 - t) * (1 - t)
+      const d = (HIT_X_FAR + (HIT_X_NEAR - HIT_X_FAR) * eased) * L.scale
       const w = 3.5 * L.scale
       ctx.strokeStyle = HUD_COLORS.danger
       ctx.lineWidth = 1.25 * L.scale
