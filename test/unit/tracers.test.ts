@@ -25,15 +25,43 @@ describe('createTracers', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
     p.spawn(100, 200, 300, 0, 0, -887, 6, 0)
+    // 飛滿 14 m 以上，尾巴才會長到全長（見下一條）
+    for (let i = 0; i < 8; i++) p.step(1 / 240)
     t.update(p)
 
     const pos = t.object.geometry.getAttribute('position')
     const tail = new Vector3(pos.getX(0), pos.getY(0), pos.getZ(0))
     const head = new Vector3(pos.getX(1), pos.getY(1), pos.getZ(1))
     // 頭在彈丸目前位置，尾在後方 TRACER_LENGTH 處
-    expect(head.toArray()).toEqual([100, 200, 300])
+    expect(head.toArray()).toEqual([p.x[0]!, p.y[0]!, p.z[0]!])
     expect(head.distanceTo(tail)).toBeCloseTo(TRACER_LENGTH, 4)
     expect(tail.z).toBeGreaterThan(head.z)   // 尾巴在後方（+Z）
+    t.dispose()
+  })
+
+  it('剛出膛的曳光不會長過它實際飛過的距離', () => {
+    // 【這是實際看得到的缺陷】固定 14 m 的話，第一發一出膛尾端就落在槍口
+    // 後方——穿進自己的機身、一路拖到機尾外面，看起來像機尾在噴火。
+    const t = createTracers(4)
+    const p = new Projectiles(4)
+    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0)
+    const pos = t.object.geometry.getAttribute('position')
+    const len = (): number => {
+      t.update(p)
+      const a = new Vector3(pos.getX(0), pos.getY(0), pos.getZ(0))
+      const b = new Vector3(pos.getX(1), pos.getY(1), pos.getZ(1))
+      return a.distanceTo(b)
+    }
+
+    // 尚未推進：頭尾同點，槍口前方不該憑空出現一條線
+    expect(len()).toBe(0)
+
+    // 每一步的曳光長度都必須等於「已飛過的距離」，直到 14 m 為止
+    for (let n = 1; n <= 6; n++) {
+      p.step(1 / 240)
+      const travelled = 887 * p.age[i]!
+      expect(len()).toBeCloseTo(Math.min(TRACER_LENGTH, travelled), 3)
+    }
     t.dispose()
   })
 

@@ -64,8 +64,15 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
         const vy = p.vy[i]!
         const vz = p.vz[i]!
         const speed = Math.hypot(vx, vy, vz)
-        // 速度為 0 時 s 取 0：尾巴收到頭上，不會產生 NaN
-        const s = speed > 1e-6 ? TRACER_LENGTH / speed : 0
+        // 【尾巴不可以長過它實際飛過的距離】固定 14 m 的話，剛出膛的第一發
+        // 就是一整條 14 m——尾端會落在槍口後方，也就是穿進自己的機身、一路
+        // 拖到機尾外面去。實測看起來像機尾在噴火。
+        //
+        // 走過的距離是 speed × age，所以縮放係數取 min(14/speed, age)：
+        // 出膛瞬間為 0，飛了 14 m 之後才長到全長，之後維持不變。
+        //
+        // 速度為 0 時 s 取 0：尾巴收到頭上，不會產生 NaN。
+        const s = speed > 1e-6 ? Math.min(TRACER_LENGTH / speed, p.age[i]!) : 0
 
         array[o] = x - vx * s
         array[o + 1] = y - vy * s
