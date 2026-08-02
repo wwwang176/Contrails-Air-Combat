@@ -8,7 +8,7 @@ import { createProps } from './render/props'
 import { createTracers } from './render/tracers'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Hud } from './hud/Hud'
-import { createHudFrame, indicatedAirspeed } from './hud/types'
+import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { CameraRig } from './camera/CameraRig'
@@ -18,6 +18,8 @@ import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
 import { World, type Combatant } from './world/World'
+import { solveLead, NO_INTERCEPT } from './world/lead'
+import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { MANOEUVRES, ScriptedController } from './control/ScriptedController'
 import { P51D } from './specs/p51d'
@@ -118,6 +120,11 @@ function rebuildModel(c: Combatant) {
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
 const HUD_PROJECT_DISTANCE = 1000
+/** 接觸點的預瞄計算用暫存。熱路徑禁止配置。 */
+const relPos = new Vector3()
+const relVel = new Vector3()
+const leadDir = new Vector3()
+const leadProbe = new Vector3()
 let propRotation = 0
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
@@ -177,9 +184,14 @@ function frame(now: number) {
   input.aimDeltaX = 0
   input.aimDeltaY = 0
 
+  // 【hitsDealt 必須在回呼裡累加】World.step 在每個**物理步**開頭把它歸零，
+  // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
+  // 漏掉——連射時 X 標記會閃爍不定。
+  let hitsThisFrame = 0
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     world.step(dt)
+    hitsThisFrame += player.hitsDealt
     perf.endPhysics()
   })
 
@@ -258,6 +270,49 @@ function frame(now: number) {
   hudFrame.worldX = renderPos.x
   hudFrame.worldZ = renderPos.z
   hudFrame.aircraftName = aircraft.spec.name
+
+  // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
+  const sight = aircraft.spec.battery.sight
+  let n = 0
+  for (const c of world.combatants) {
+    if (c === player || n >= HUD_MAX_CONTACTS) continue
+    const contact = hudFrame.contacts[n]!
+    const v = visuals.get(c)!
+
+    probe.copy(v.position).project(ctx.camera)
+    contact.behind = probe.z >= 1
+    contact.x = probe.x * ctx.camera.aspect
+    contact.y = probe.y
+    contact.range = v.position.distanceTo(renderPos)
+    // 【單位是螢幕半高】透視投影的 NDC y = tan(θ) / tan(fov/2)，而
+    // tan(atan(halfSpan / range)) 就是 halfSpan / range——所以直接寫比值，
+    // 不要繞一圈 atan（那會算成 θ / tan(fov/2)，近距離時低估框的大小）。
+    contact.radius = ((c.aircraft.spec.wing.span / 2) / Math.max(contact.range, 1))
+      / Math.tan((ctx.camera.fov * DEG) / 2)
+    contact.hostile = c.team !== player.team
+    contact.deltaY = v.position.y - renderPos.y
+    contact.worldX = v.position.x
+    contact.worldZ = v.position.z
+
+    relPos.copy(c.aircraft.state.position).sub(aircraft.state.position)
+    relVel.copy(c.aircraft.state.velocity).sub(aircraft.state.velocity)
+    const t = solveLead(relPos, relVel, sight.muzzleVelocity, leadDir)
+    contact.leadValid = t !== NO_INTERCEPT && t <= PROJECTILE_LIFETIME
+    if (contact.leadValid) {
+      leadProbe.copy(renderPos).addScaledVector(leadDir, HUD_PROJECT_DISTANCE).project(ctx.camera)
+      contact.leadX = leadProbe.x * ctx.camera.aspect
+      contact.leadY = leadProbe.y
+      contact.leadBehind = leadProbe.z >= 1
+    }
+
+    contact.active = true
+    n++
+  }
+  hudFrame.contactCount = n
+
+  // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
+  hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)
+
   hud.render(hudFrame, frameSeconds)
 
   perf.endFrame(loop.lastSubstepCount)
