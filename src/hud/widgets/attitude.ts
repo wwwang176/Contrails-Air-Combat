@@ -1,11 +1,18 @@
 import { RAD } from '../../core/math'
 import { HUD_COLORS, type HudFrame, type HudLayout } from '../types'
 
-/** 圓形姿態儀（人工地平線）。 */
-export function drawAttitude(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
-  const r = Math.min(L.width, L.height) * 0.095
-  const cx = L.width - r - 30 * L.scale
-  const cy = L.height - r - 30 * L.scale
+/**
+ * 圓形姿態儀（人工地平線）的**盤面內容**。外框與版位由 widgets/dials.ts 負責，
+ * 三個表要對齊成一排，位置就不能各自為政。
+ */
+export function drawAttitude(
+  ctx: CanvasRenderingContext2D,
+  L: HudLayout,
+  f: HudFrame,
+  cx: number,
+  cy: number,
+  r: number,
+): void {
   const pxPerDeg = r / 45
 
   ctx.save()
@@ -46,7 +53,7 @@ export function drawAttitude(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
   }
   ctx.restore()
 
-  // 外框與固定的飛機符號
+  // 外圈與固定的飛機符號。外圈必須畫在天地色塊**之後**，否則被蓋掉
   ctx.strokeStyle = HUD_COLORS.primary
   ctx.lineWidth = 1.5 * L.scale
   ctx.beginPath()
