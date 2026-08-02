@@ -40,25 +40,30 @@ const CANOPY_SHAPE = { topWidth: 0.10, roundness: 2.6, arcSegments: 4 }
 const RINGS = prepareRings(P51D_HULL, CANOPY.map((c) => c.z))
 
 /**
- * 機腹散熱器導管 —— P-51D 的招牌。
+ * 機腹散熱器導管 —— P-51D 的招牌。剖面**量自參考模型**的中線最低點：
  *
- * 【後半段原本是浮在空中的】機腹自機翼後緣起就往上收（boat-tail），導管卻
- * 一路平飛，到 z=2.4 已經離開機身 0.20 m——側面看是一根獨立漂浮的方管。
+ *     z   0.2    0.6    1.0    1.4    1.8    2.0    2.2
+ *     底 −1.015 −1.026 −0.996 −0.899 −0.796 −0.743  −0.471 ← 導管結束
  *
- * 而且光把它抬高還不夠：機身是超橢圓剖面，導管**兩側**對應的機身表面比
- * 中線高得多，所以上緣兩角照樣懸空（實測在機身表面外 3.69 倍）。導管後段
- * 還一度比機身還寬（z=2.0 處 0.36 對 0.35），整個上蓋暴露。因此後段必須
- * 同時收窄**並**抬高，讓上緣整條都埋進機身裡。
+ * 平底段在 z 0.2–0.9（−1.02），之後線性抬升到 2.0 的 −0.74，然後出風口一結束
+ * 就跳回機腹。
+ *
+ * 【原本錯三件事】太淺（底 −0.92 對 −1.026）、最深處太後（z 1.11 對 0.5）、
+ * 太長（尾端 3.51 對 2.1）。三件都是機翼位置修正後才量得出來——導管掛在
+ * 機翼中央翼段下面，機翼站錯位置時導管的量測基準也跟著錯。
+ *
+ * 上緣一律訂在 −0.52，埋進機身腹線（−0.60～−0.66）之內，避免露出接縫。
  */
 const SCOOP: LoftPart = {
   roundness: 3.0,   // 導管是方的，不是圓的
   segments: 8,
   sections: [
-    { z: 0.4625, halfWidth: 0.30, halfHeight: 0.11, centerY: -0.58 }, // 進氣唇
-    { z: 1.1125, halfWidth: 0.40, halfHeight: 0.24, centerY: -0.68 },
-    { z: 2.0125, halfWidth: 0.36, halfHeight: 0.26, centerY: -0.58 },
-    { z: 2.8125, halfWidth: 0.28, halfHeight: 0.22, centerY: -0.44 },  // 出風斜板
-    { z: 3.5125, halfWidth: 0.16, halfHeight: 0.12, centerY: -0.22 },  // 併回機腹
+    { z: 0.10, halfWidth: 0.24, halfHeight: 0.205, centerY: -0.725 },  // 進氣唇
+    { z: 0.45, halfWidth: 0.36, halfHeight: 0.251, centerY: -0.771 },
+    { z: 0.90, halfWidth: 0.38, halfHeight: 0.248, centerY: -0.768 },  // 最深
+    { z: 1.45, halfWidth: 0.34, halfHeight: 0.184, centerY: -0.704 },
+    { z: 2.00, halfWidth: 0.24, halfHeight: 0.112, centerY: -0.632 },  // 出風斜板
+    { z: 2.30, halfWidth: 0.10, halfHeight: 0.025, centerY: -0.525 },  // 併回機腹
   ],
 }
 
@@ -66,7 +71,10 @@ const WING: WingParams = {
   // 厚度為**翼根**值：0.40 / 2.75 = 14.5% 厚弦比，真機 NAA/NACA 45-100
   // 層流翼根部 15.1%。翼尖由 buildWingPanel 按弦長比例收到 0.19 m。
   rootChord: 2.75, tipChord: 1.30, halfSpan: 5.64,
-  sweep: 4 * DEG, dihedral: 5 * DEG, thickness: 0.40, rootZ: -0.6875, rootY: -0.28,
+  // rootY 由 −0.28 下修：以機首（推力線）對齊參考模型後，機翼整段低 0.36 m。
+  // 佐證：參考模型在 z −0.6～−0.2 的中線最低點是 −0.81，本模型翼根下表面
+  // 在 −0.64−0.20 = −0.84，差 0.03。
+  sweep: 4 * DEG, dihedral: 5 * DEG, thickness: 0.40, rootZ: -0.6875, rootY: -0.64,
   tipRound: 0.30,
 }
 

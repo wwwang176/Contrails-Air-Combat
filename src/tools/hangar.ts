@@ -48,6 +48,8 @@ camera.position.set(11, 5, 13)
  */
 const orthoCam = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500)
 let orthoView: 'side' | 'top' | 'front' | null = null
+/** 正交框圖的中心（＝畫面中心對應的世界座標），量測腳本換算像素時要用。 */
+const orthoCenter = new Vector3()
 
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
@@ -127,6 +129,15 @@ let refVisible = false
  * **輪廓以內**的特徵時，平塗完全看不出來，得先能看見它本來的樣子。
  */
 let refSolid = false
+/**
+ * 暫時覆寫 REFS 的俯仰角，只給量測腳本用（見 __hangarRefPitch）。
+ *
+ * 【為什麼要留這個後門】求 pitch 的方法是**掃描**：跑一串候選值，找殘餘
+ * 俯仰角過零的那個。定值寫在 REFS 裡是對的，但掃描時需要在同一個瀏覽器
+ * 工作階段裡連續換值——不留這個口就得改原始碼再等 HMR，跑一輪五個值會
+ * 慢到讓人放棄掃描、退回目測，而目測正是當初把 −14° 估成 −9.5° 的原因。
+ */
+let pitchOverride: number | null = null
 let refModel: Object3D | null = null
 // 切片用的三角形快取。宣告同樣必須早於 rebuild()——syncRef 會清它。
 let refTris: Float32Array | null = null
@@ -221,6 +232,7 @@ function frameOrtho(): void {
   if (refModel?.visible) box.union(new Box3().setFromObject(refModel))
   const size = box.getSize(new Vector3())
   const c = box.getCenter(new Vector3())
+  orthoCenter.copy(c)
 
   // 每個視圖的畫面寬高各取自哪兩根機體軸
   const [w, h] = orthoView === 'side' ? [size.z, size.y]
@@ -348,6 +360,10 @@ rebuild()
  */
 function placeRef(): void {
   if (!refModel || !model) return
+  // 切片的三角形是**世界座標**快取的，這裡一動它就過期了。
+  // 【實測後果】掃描俯仰角時三個不同的 pitch 量到一模一樣的數字，
+  // 而且完全看不出是錯的——會直接把錯的角度當成答案。
+  refTris = null
   const m = model.metrics
   refModel.scale.setScalar(1)
   refModel.position.set(0, 0, 0)
@@ -357,7 +373,7 @@ function placeRef(): void {
   // 同一個 Euler 上，180° 的翻轉會把俯仰的正負也一起翻掉。
   const cfg = REFS[SPECS[specIndex]!.id]!
   refModel.children[0]!.rotation.y = cfg.flip ? Math.PI : 0
-  refModel.rotation.x = cfg.pitch * DEG
+  refModel.rotation.x = (pitchOverride ?? cfg.pitch) * DEG
   refModel.updateMatrixWorld(true)
   /**
    * 縮放基準用**翼展**，不是全長。
@@ -372,26 +388,33 @@ function placeRef(): void {
   const scaled = new Box3().setFromObject(refModel)
   refModel.position.z = m.noseZ - scaled.min.z
 
-  // 垂直對齊用**翼尖**：外部模型的 Y 原點是任意的（可能是地面、可能是
-  // 推力線）。翼尖是兩邊都乾淨的基準——那裡沒有起落架、內裝、螺旋槳，
-  // 而且 ±X 的極端點必然是翼尖，不需要辨識零件。
-  refModel.position.y = m.tipY - tipY(refModel, scaled)
+  // 垂直對齊用**機首尖端**（＝推力線），與 Z 向同一個基準點。
+  // 原本用翼尖，但翼尖的平均高度取決於上反角、翼尖形狀與取樣視窗寬度，
+  // 三件事在兩個模型上都不一樣；機首尖端是一個點，兩邊都毫無歧義。
+  // 詳見 HullMetrics.noseY。
+  refModel.position.y = m.noseY - noseY(refModel)
 }
 
-/** 模型左右翼尖（|x| 落在最外側 8% 內的頂點）的平均 Y。 */
-function tipY(obj: Object3D, box: Box3): number {
-  const lim = Math.max(box.max.x, -box.min.x) * 0.92
+/** 模型機首尖端的 Y（離最前端 3 cm 以內的頂點，上下取中）。 */
+function noseY(obj: Object3D): number {
   const v = new Vector3()
-  let sum = 0, n = 0
+  let minZ = Infinity
+  const pts: [number, number][] = []
   obj.traverse((o) => {
     const pos = (o as Mesh).geometry?.getAttribute?.('position')
     if (!pos) return
     for (let i = 0; i < pos.count; i++) {
       v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld)
-      if (Math.abs(v.x) > lim) { sum += v.y; n++ }
+      pts.push([v.z, v.y])
+      if (v.z < minZ) minZ = v.z
     }
   })
-  return n ? sum / n : 0
+  let lo = Infinity, hi = -Infinity
+  for (const [z, y] of pts) {
+    if (z > minZ + 0.03) continue
+    lo = Math.min(lo, y); hi = Math.max(hi, y)
+  }
+  return (lo + hi) / 2
 }
 
 /**
@@ -455,6 +478,51 @@ function applyRefMaterial(root: Object3D): void {
  * 回傳的是**量測結果**，不是定案幾何——機翼與起落架會混進機身的切面，
  * 要先看剖面圖判斷哪幾段可信（見 sliceRef 的說明）。
  */
+/**
+ * 開發用：把量測腳本需要的東西一次交出去。
+ *
+ * 【為什麼要有 ortho 這一段】抽剪影輪廓時要把像素換回世界座標。那個換算
+ * （框圖公式、螢幕右邊是 −Z、每像素幾公尺）先前是在腳本裡**手推**的，推過
+ * 至少四次，而且錯過一次——第一版的百分比表整個左右顛倒，機首機尾對調。
+ * 相機自己知道答案，直接問它就不會錯：
+ *
+ *   world = center + right·(px − W/2)·mPerPx + up·(H/2 − py)·mPerPx
+ */
+;(window as unknown as Record<string, unknown>)['__hangarInfo'] = () => {
+  if (!model) return null
+  const e = orthoCam.matrixWorld.elements
+  const half = (orthoCam.top - orthoCam.bottom) / 2
+  return {
+    specId: SPECS[specIndex]!.id,
+    metrics: model.metrics,
+    span: SPECS[specIndex]!.wing.span,
+    ...countTriangles(model),
+    ortho: orthoView === null ? null : {
+      view: orthoView,
+      mPerPx: (2 * half) / renderer.domElement.height * renderer.getPixelRatio(),
+      center: orthoCenter.toArray(),
+      right: [e[0]!, e[1]!, e[2]!],
+      up: [e[4]!, e[5]!, e[6]!],
+    },
+  }
+}
+
+/** 開發用：切換機種，免得腳本要去點 DOM 按鈕。 */
+;(window as unknown as Record<string, unknown>)['__hangarSpec'] = (id: string) => {
+  const i = SPECS.findIndex((sp) => sp.id === id)
+  if (i < 0) return false
+  specIndex = i
+  rebuild()
+  return true
+}
+
+/** 開發用：暫時覆寫參考模型的俯仰角；傳 null 回到 REFS 的定值。見 pitchOverride。 */
+;(window as unknown as Record<string, unknown>)['__hangarRefPitch'] = (deg: number | null) => {
+  pitchOverride = deg
+  placeRef()
+  frameOrtho()
+}
+
 ;(window as unknown as Record<string, unknown>)['__hangarSlice'] =
     (kind: 'radial' | 'extent', axis: Axis, o: Record<string, number | [number, number]>) => {
       if (!refModel) return null

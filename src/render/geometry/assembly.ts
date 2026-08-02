@@ -33,7 +33,19 @@ export interface HullMetrics {
   realLength: number
   /** 機首尖端在**機體座標**的 Z（已含重心位移）。 */
   noseZ: number
-  /** 翼尖的垂直位置。外部參考模型疊圖時用它對齊 Y。 */
+  /**
+   * 機首尖端的垂直位置（＝推力線）。參考模型疊圖時用它對齊 Y。
+   *
+   * 【為什麼用機首而不是翼尖】翼尖的平均高度取決於上反角、翼尖形狀、以及
+   * 取樣視窗取多寬——三件事在兩個模型上都不一樣。機首尖端是**一個點**，
+   * 兩邊都毫無歧義，而且 Z 向本來就是拿它對齊的，用同一個點當基準最一致。
+   *
+   * 實測 P-51D：用翼尖對齊時機翼吻合到 ±0.015 m 而機身差 0.37 m；改用機首
+   * 對齊則機身吻合、機翼差 0.37 m。同一個落差，基準只決定它落在哪裡——
+   * 但推力線是機身的自然基準（引擎就裝在上面），量機身時該用它。
+   */
+  noseY: number
+  /** 翼尖的平均高度。診斷用：與 noseY 一起看才知道落差落在機身還是機翼。 */
   tipY: number
 }
 
@@ -282,18 +294,23 @@ export function createHull(spec: HullSpec) {
           verts.push({ mesh, i })
         }
       })
-      // 翼尖：|x| 落在最外側 8% 內的頂點平均 Y。那裡沒有起落架、內裝、
-      // 螺旋槳，是兩邊都乾淨的垂直基準。
       const lim = maxAbsX * 0.92
       let sum = 0, n = 0
+      let noseLo = Infinity, noseHi = -Infinity
       for (const { mesh, i } of verts) {
         const pos = mesh.geometry.getAttribute('position')
         v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(mesh.matrixWorld)
         if (Math.abs(v.x) > lim) { sum += v.y; n++ }
+        // 機首尖端：離最前端 3 cm 以內的頂點，上下取中即整流罩軸心
+        if (v.z < noseZ + 0.03) { noseLo = Math.min(noseLo, v.y); noseHi = Math.max(noseHi, v.y) }
       }
       return {
         group,
-        metrics: { realLength: spec.realLength, noseZ, tipY: n ? sum / n : 0 },
+        metrics: {
+          realLength: spec.realLength, noseZ,
+          noseY: (noseLo + noseHi) / 2,
+          tipY: n ? sum / n : 0,
+        },
         setPropSpin: (r, b) => setPropSpin(r, b),
         dispose() {
           for (const d of disposables) d.dispose()
