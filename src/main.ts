@@ -5,8 +5,11 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
-import { createScaffoldHud } from './render/scaffold'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
+import { Hud } from './hud/Hud'
+import { createHudFrame, indicatedAirspeed } from './hud/types'
+import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
+import { resetGEffect } from './hud/widgets/gEffect'
 import { CameraRig } from './camera/CameraRig'
 import { ALPHA_MARGIN } from './control/limiters'
 import { Aircraft } from './aircraft/Aircraft'
@@ -32,10 +35,10 @@ const aircraft = new Aircraft(P51D, START_ALTITUDE, START_TAS)
 const input = createInputState()
 const bindings = attachInput(canvas, input)
 
-// 程序化機體幾何（Task 21）。HUD 仍是臨時鷹架，Task 23 會取代（見 render/scaffold.ts）。
 let model: AircraftModel = buildAircraft(aircraft.spec)
 ctx.scene.add(model.group)
-const hud = createScaffoldHud()
+const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
+const hudFrame = createHudFrame()
 
 const rig = new CameraRig()
 rig.options.firstPersonOffset.copy(model.eyePoint)
@@ -55,6 +58,9 @@ function rebuildModel() {
 const noseWorld = new Vector3()
 const renderPos = new Vector3()
 const renderQuat = new Quaternion()
+/** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
+const probe = new Vector3()
+const HUD_PROJECT_DISTANCE = 1000
 let propRotation = 0
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
@@ -62,6 +68,8 @@ function respawn() {
   aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
   // 清掉墜海前那一下扭轉留在相機上的落後量與自由視角角度
   rig.snapTo(aircraft.state.orientation)
+  // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
+  resetGEffect()
 }
 respawn()
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
@@ -139,21 +147,44 @@ function frame(now: number) {
   )
 
   ctx.renderer.render(ctx.scene, ctx.camera)
-  hud.render(
-    {
-      aimWorld: input.aimWorld,
-      noseWorld,
-      orientation: renderQuat,
-      altitude: renderPos.y,
-      tas: aircraft.diag.aero.tas,
-      loadFactor: aircraft.diag.loadFactor,
-      alphaDeg: (aircraft.diag.aero.alpha * 180) / Math.PI,
-      ps: aircraft.specificExcessPowerActual,
-      throttle: input.throttle,
-      specName: aircraft.spec.id === 'p51d' ? 'P-51D Mustang' : 'Bf 109 G-6',
-    },
-    ctx.camera,
-  )
+
+  // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
+  // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
+  probe.set(0, 0, -1).applyQuaternion(renderQuat)
+    .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
+  hudFrame.noseX = probe.x
+  hudFrame.noseY = probe.y
+  hudFrame.noseVisible = probe.z < 1
+
+  // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
+  // 才會換成「螢幕半高」——AIM_RADIUS 那個圓用的就是這套單位。
+  probe.copy(input.aimWorld)
+    .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
+  hudFrame.aimX = probe.x * ctx.camera.aspect
+  hudFrame.aimY = probe.y
+  hudFrame.aimVisible = probe.z < 1
+
+  const att = attitudeFromOrientation(renderQuat)
+  hudFrame.tas = aircraft.diag.aero.tas
+  hudFrame.ias = indicatedAirspeed(aircraft.diag.aero.tas, aircraft.diag.air.sigma)
+  hudFrame.mach = aircraft.diag.aero.mach
+  hudFrame.altitude = renderPos.y
+  hudFrame.verticalSpeed = aircraft.state.velocity.y
+  hudFrame.heading = headingFromOrientation(renderQuat)
+  hudFrame.roll = att.roll
+  hudFrame.pitch = att.pitch
+  hudFrame.loadFactor = aircraft.diag.loadFactor
+  hudFrame.alpha = aircraft.diag.aero.alpha
+  hudFrame.alphaCrit = alphaCrit
+  hudFrame.ps = aircraft.specificExcessPowerActual
+  hudFrame.es = aircraft.specificEnergy
+  hudFrame.throttle = input.throttle
+  hudFrame.powerW = aircraft.diag.powerW
+  hudFrame.worldX = renderPos.x
+  hudFrame.worldZ = renderPos.z
+  hudFrame.aircraftName = aircraft.spec.name
+  hud.render(hudFrame, frameSeconds)
+
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
 }

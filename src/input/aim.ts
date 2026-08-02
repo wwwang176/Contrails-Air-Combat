@@ -96,8 +96,8 @@ export function slewAimWorld(
 /** 矩形夾制模式下，瞄準點相對機首的硬上限（rad）。 */
 const VIEWPORT_NOSE_LIMIT = (75 * Math.PI) / 180
 
-/** 夾制到畫面內緣的比例，留一點邊避免準星貼齊像素邊界。 */
-const VIEWPORT_MARGIN = 0.96
+/** 夾制到畫面內緣的比例，留一點邊避免準星貼齊像素邊界。HUD 用它畫出可動範圍。 */
+export const VIEWPORT_MARGIN = 0.96
 
 /**
  * 把瞄準向量夾制在「相機看得到的畫面矩形」之內。就地修改。
