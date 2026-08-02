@@ -307,7 +307,9 @@ window.addEventListener('keydown', (e) => {
 function resize(): void {
   const w = window.innerWidth
   const h = window.innerHeight
-  renderer.setSize(w, h, false)
+  // updateStyle 不能關——關掉之後 dpr>1 的螢幕上 canvas 會排版成視窗的
+  // dpr 倍大，只看得到左上角那一塊（見 render/scene.ts 的同一行）
+  renderer.setSize(w, h)
   camera.aspect = w / h
   camera.updateProjectionMatrix()
   frameOrtho()

@@ -127,6 +127,21 @@ describe('CameraRig', () => {
     expect(q.equals(new Quaternion())).toBe(true) // 飛機姿態未被觸碰
   })
 
+  it('viewBase 不受自由視角影響（瞄準點的畫面夾制拿它當基準）', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const q = new Quaternion()
+    rig.snapTo(q)
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, 160, 'third', 0, 0, DT)
+    const neutral = rig.viewBase.clone()
+
+    // 轉頭 120°：相機真的轉開了，但基準必須原封不動——否則瞄準點會被夾制
+    // 拖著跟相機一起走，玩家只是看一眼就把飛機轉向了
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, 160, 'third', 120 * DEG, 0, DT)
+    expect(rig.viewBase.angleTo(neutral)).toBeLessThan(1e-6)
+    expect(cam.quaternion.angleTo(neutral)).toBeGreaterThan(60 * DEG)
+  })
+
   it('自由視角放開後回正', () => {
     const { rig, cam } = makeRig()
     const pos = new Vector3(0, 3000, 0)
