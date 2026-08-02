@@ -11,7 +11,6 @@ import { createHudFrame, indicatedAirspeed } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { CameraRig } from './camera/CameraRig'
-import { ALPHA_MARGIN } from './control/limiters'
 import { Aircraft } from './aircraft/Aircraft'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
@@ -55,7 +54,6 @@ function rebuildModel() {
   rig.options.firstPersonOffset.copy(model.eyePoint)
 }
 
-const noseWorld = new Vector3()
 const renderPos = new Vector3()
 const renderQuat = new Quaternion()
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
@@ -67,7 +65,7 @@ let propRotation = 0
 function respawn() {
   aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
   // 清掉墜海前那一下扭轉留在相機上的落後量與自由視角角度
-  rig.snapTo(aircraft.state.orientation)
+  rig.snapTo(input.aimWorld)
   // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
   resetGEffect()
 }
@@ -96,19 +94,16 @@ function frame(now: number) {
     input.swapSpecRequested = false
   }
 
-  // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它，再夾制在畫面矩形內。
+  // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
+  // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
   // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續
   // 飛向玩家先前指的地方。
   //
-  // 【夾制用 rig.viewBase 而不是 camera.quaternion】轉頭時世界固定的瞄準點
-  // 會落到相機視野外，拿實際相機姿態去夾就會把它拉回畫面裡——只是轉頭看
-  // 一眼，飛機卻跟著轉向。viewBase 不含自由視角偏移，夾制因此永遠相對於
-  // 「沒轉頭時看到的那個畫面」。不看的時候兩者相同。
-  noseWorld.set(0, 0, -1).applyQuaternion(aircraft.state.orientation)
+  // 【軸取自 rig.viewBase 而不是 camera.quaternion】viewBase 不含自由視角
+  // 偏移。轉頭時若拿實際相機姿態，滑鼠的螢幕座標軸會跟著轉頭一起轉。
   slewAimWorld(
     input.aimWorld, input.aimDeltaX, input.aimDeltaY,
-    rig.viewBase, noseWorld, ctx.camera.fov * DEG,
-    ctx.camera.aspect,
+    rig.viewBase, ctx.camera.fov * DEG,
   )
   input.aimDeltaX = 0
   input.aimDeltaY = 0
@@ -140,14 +135,13 @@ function frame(now: number) {
   propRotation += frameSeconds * (8 + input.throttle * 60)
   model.setPropSpin(propRotation, input.throttle > 0.15)
 
-  // 失速抖振：迎角超過限制器餘裕後線性增強，到 alphaCrit 時滿格
+  // HUD 的迎角條與 STALL 字樣都拿它當分母
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
-  const alphaRatio = Math.abs(aircraft.diag.aero.alpha) / alphaCrit
-  rig.setShake(Math.max(0, (alphaRatio - ALPHA_MARGIN) / (1 - ALPHA_MARGIN)))
 
+  // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
   rig.update(
-    ctx.camera, renderPos, renderQuat, aircraft.diag.aero.tas,
+    ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
     input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
   )
 
@@ -162,7 +156,7 @@ function frame(now: number) {
   hudFrame.noseVisible = probe.z < 1
 
   // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
-  // 才會換成「螢幕半高」——AIM_RADIUS 那個圓用的就是這套單位。
+  // 才會換成「螢幕半高」。相機追著它，所以這一組值正常情況下都貼近 0。
   probe.copy(input.aimWorld)
     .multiplyScalar(HUD_PROJECT_DISTANCE).add(renderPos).project(ctx.camera)
   hudFrame.aimX = probe.x * ctx.camera.aspect

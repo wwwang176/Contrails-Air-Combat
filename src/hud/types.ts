@@ -24,10 +24,11 @@ export interface HudFrame {
   throttle: number
   powerW: number
   /**
-   * 滑鼠準星位置，**單位為螢幕半高**（與 AIM_RADIUS 同一套單位）。
+   * 滑鼠準星位置，**單位為螢幕半高**。
    *
    * 瞄準點是世界方向而不是螢幕座標（見 input/InputState 的 aimWorld），
-   * 所以這兩個值由 main.ts 投影而來，不是輸入層直接給的。
+   * 所以這兩個值由 main.ts 投影而來，不是輸入層直接給的。相機跟著瞄準點
+   * 走，因此正常情況下這兩個值都貼近 0。
    */
   aimX: number
   aimY: number

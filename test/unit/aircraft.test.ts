@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { CRASH_CLEARANCE, isCrashed } from '../../src/aircraft/crash'
-import { maxAimAngle, slewAimWorld } from '../../src/input/aim'
-import { AIM_RADIUS } from '../../src/input/InputState'
+import { slewAimWorld } from '../../src/input/aim'
 import { specificExcessPower } from '../../src/analysis/envelope'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { createDiagnostics, createFlightState, stepDynamics } from '../../src/physics/dynamics'
@@ -29,11 +28,27 @@ const headingDeg = (ac: Aircraft) =>
   Math.atan2(ac.state.velocity.x, -ac.state.velocity.z) * RAD
 
 /**
- * 一幀：先依滑鼠位移移動世界瞄準點（含圓錐夾制），再跑 4 個物理步。
+ * 瞄準點的最大偏移，度。夾制移除之後這個值不再是硬上限，只是這些案例
+ * 用來代表「甩很大一把」的代表值（與舊的圓錐邊界同量級）。
+ */
+const LARGE_OFFSET_DEG = 30
+
+/**
+ * 「持續轉彎」的每幀滑鼠位移。
+ *
+ * 夾制存在時隨便推多大都會被夾在圓錐邊界上，所以舊測試一律用 0.5。夾制移除
+ * 之後 0.5 等於每秒轉 975°——瞄準點會直接繞著飛機轉圈，飛機反而轉不起來
+ * （實測 8 秒只轉了 17°）。0.008 ≈ 26°/s，略高於 P-51D 在 250 m/s 拉滿 G 的
+ * 持續轉彎率，於是瞄準點穩定領先機首約 10°，正是玩家真的在做的事。
+ */
+const TURN_DX = 0.008
+
+/**
+ * 一幀：先依滑鼠位移移動世界瞄準點，再跑 4 個物理步。
  * 順序與 main.ts 逐行相同——遊戲怎麼跑，測試就怎麼跑。
  */
 function frame(ac: Aircraft, aim: Vector3, dx: number, dy: number, throttle: number) {
-  slewAimWorld(aim, dx, dy, CAM, noseOf(ac), FOV)
+  slewAimWorld(aim, dx, dy, CAM, FOV)
   for (let s = 0; s < SUBSTEPS; s++) ac.update(aim, throttle, DT)
 }
 
@@ -45,12 +60,10 @@ function fly(
   for (let f = 0; f < frames; f++) frame(ac, aim, dx, dy, throttle)
 }
 
-/** 世界座標的瞄準點：由機首（單位姿態）甩出指定角度。超過夾制會被夾住。 */
+/** 世界座標的瞄準點：由機首（單位姿態）甩出指定角度。 */
 function aimOffsetBy(rightRad: number, upRad: number): Vector3 {
   const aim = new Vector3(0, 0, -1)
-  return slewAimWorld(
-    aim, rightRad / HALF_FOV, upRad / HALF_FOV, CAM, new Vector3(0, 0, -1), FOV,
-  )
+  return slewAimWorld(aim, rightRad / HALF_FOV, upRad / HALF_FOV, CAM, FOV)
 }
 
 /** 瞄準點就放在機首上（＝準星置中）。 */
@@ -142,14 +155,14 @@ describe('Aircraft', () => {
  * 3°（實測見報告 §8）。
  */
 describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）', () => {
-  it('甩到夾制邊緣再放手：誤差收斂、航向改變後穩住', () => {
+  it('甩出一大把再放手：誤差收斂、航向改變後穩住', () => {
     const ac = new Aircraft(P51D, 4000, 220)
     const aim = onNose()
     const h0 = headingDeg(ac)
 
-    // 一幀之內把滑鼠推滿 AIM_RADIUS：瞄準點落在圓錐邊界 11.38°
-    frame(ac, aim, AIM_RADIUS, 0, WEP_THROTTLE)
-    expect(errDeg(ac, aim)).toBeCloseTo(maxAimAngle(FOV) * RAD, 1)
+    // 一幀之內把瞄準點甩開 LARGE_OFFSET_DEG
+    frame(ac, aim, (LARGE_OFFSET_DEG * DEG) / HALF_FOV, 0, WEP_THROTTLE)
+    expect(errDeg(ac, aim)).toBeCloseTo(LARGE_OFFSET_DEG, 1)
 
     // 放手，讓飛機自己追
     let minErr = Infinity
@@ -176,7 +189,7 @@ describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）',
   it.each([
     { deg: 2, label: '死區內' },
     { deg: 6, label: '中等' },
-    { deg: maxAimAngle(FOV) * RAD, label: '貼夾制' },
+    { deg: LARGE_OFFSET_DEG, label: '大偏移' },
   ])('偏移 $deg°（$label）不出現滾轉跑步機', ({ deg }) => {
     const ac = new Aircraft(P51D, 4000, 220)
     const aim = onNose()
@@ -252,8 +265,8 @@ describe('Aircraft：世界固定瞄準點會收斂（沒有滾轉跑步機）',
     const ac = new Aircraft(P51D, 4000, 250)
     const aim = onNose()
     const h0 = headingDeg(ac)
-    fly(ac, aim, WEP_THROTTLE, 8, 0.5)
-    // 瞄準點被持續推在圓錐邊界上，誤差角維持不墜
+    fly(ac, aim, WEP_THROTTLE, 8, TURN_DX)
+    // 滑鼠速率略高於飛機轉得動的速率，誤差角於是維持不墜
     expect(errDeg(ac, aim)).toBeGreaterThan(8)
     // 航向持續改變（實測 10 秒轉 139°，約 14°/s）
     const dh = Math.abs(headingDeg(ac) - h0)
@@ -276,7 +289,7 @@ describe('Aircraft：機翼改平（放手之後坡度必須歸零）', () => {
   it.each([
     { deg: 2 },
     { deg: 6 },
-    { deg: maxAimAngle(FOV) * RAD },
+    { deg: LARGE_OFFSET_DEG },
   ])('甩 $deg° 後放手 60 秒，坡度收斂到水平且不再擺盪', ({ deg }) => {
     const ac = new Aircraft(P51D, 4000, 220)
     const aim = onNose()
@@ -387,7 +400,7 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
   it('setSpec 後的行為與「同狀態的全新飛機」逐步一致（PID 積分未洩漏）', () => {
     const a = new Aircraft(P51D, 5000, 220)
     const aimA = onNose()
-    fly(a, aimA, WEP_THROTTLE, 4, 0.5) // 持續轉彎把積分項灌滿
+    fly(a, aimA, WEP_THROTTLE, 4, TURN_DX) // 持續轉彎把積分項灌滿
     a.setSpec(BF109G6)
 
     const b = new Aircraft(BF109G6, 5000, 220)
@@ -416,7 +429,7 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
   it('setSpec 清掉前緣縫翼的遲滯旗標', () => {
     const ac = new Aircraft(BF109G6, 3000, 130)
     // 低速持續拉升把縫翼逼出來
-    fly(ac, onNose(), WEP_THROTTLE, 3, 0, 0.5)
+    fly(ac, onNose(), WEP_THROTTLE, 3, 0, TURN_DX)
     expect(ac.diag.slatsDeployed).toBe(true)
 
     ac.setSpec(P51D)
@@ -425,14 +438,14 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
 
   it('reset 後的行為與全新飛機逐步一致（PID 積分未洩漏）', () => {
     const a = new Aircraft(P51D, 5000, 200)
-    fly(a, onNose(), WEP_THROTTLE, 4, 0.5)
+    fly(a, onNose(), WEP_THROTTLE, 4, TURN_DX)
     a.reset(3000, 150)
 
     const b = new Aircraft(P51D, 3000, 150)
     const aimA = onNose()
     const aimB = onNose()
-    fly(a, aimA, WEP_THROTTLE, 2, 0.3)
-    fly(b, aimB, WEP_THROTTLE, 2, 0.3)
+    fly(a, aimA, WEP_THROTTLE, 2, TURN_DX)
+    fly(b, aimB, WEP_THROTTLE, 2, TURN_DX)
 
     expect(a.state.position.distanceTo(b.state.position)).toBeLessThan(1e-6)
     expect(Math.abs(a.controls.elevator - b.controls.elevator)).toBeLessThan(1e-9)
@@ -447,7 +460,7 @@ describe('能量：大 G 轉彎必須付出速度的代價', () => {
     let maxG = -Infinity
     const frames = Math.round(8 * FRAME_HZ)
     for (let f = 0; f < frames; f++) {
-      frame(ac, aim, 0.5, 0, WEP_THROTTLE)
+      frame(ac, aim, TURN_DX, 0, WEP_THROTTLE)
       maxG = Math.max(maxG, ac.diag.loadFactor)
     }
     // 實測平均 Ps ≈ −67 m/s、末段 −68 m/s、峰值 6.35 G
@@ -458,7 +471,7 @@ describe('能量：大 G 轉彎必須付出速度的代價', () => {
 
   it('同高度同速度的平飛對照組 Ps 明顯較高', () => {
     const turn = new Aircraft(P51D, 4000, 180)
-    fly(turn, onNose(), WEP_THROTTLE, 8, 0.5)
+    fly(turn, onNose(), WEP_THROTTLE, 8, TURN_DX)
     const level = new Aircraft(P51D, 4000, 180)
     fly(level, onNose(), WEP_THROTTLE, 8)
 
@@ -510,7 +523,7 @@ describe('撞海判定', () => {
     let crashed = false
     const frames = Math.round(30 * FRAME_HZ)
     for (let f = 0; f < frames; f++) {
-      frame(ac, aim, 0, -0.5, 0.5) // 滑鼠持續往下推
+      frame(ac, aim, 0, -TURN_DX, 0.5) // 滑鼠持續往下推
       t += 1 / FRAME_HZ
       if (isCrashed(ac.state.position, gerstnerHeight, t)) {
         crashed = true
@@ -533,8 +546,8 @@ describe('撞海判定', () => {
    * 【回歸測試：重生後不可以自己飛回海裡】
    *
    * 世界固定瞄準點會活過 reset。撞海時瞄準點正指著海面（相對重生後的機首
-   * 可達 92°），圓錐夾制會把它拖到機首下方 11.375°，於是玩家完全不碰滑鼠
-   * 也會被持續推頭。實測缺陷版本：60 秒由 4000 m 掉到 2006 m、過載 −0.79。
+   * 可達 92°），玩家完全不碰滑鼠也會被持續推頭。實測缺陷版本：60 秒由
+   * 4000 m 掉到 2006 m、過載 −0.79。修法是讓 respawn 一併歸位瞄準點。
    *
    * 這裡跑滿 60 秒且全程不碰滑鼠——短測試看不出來（前 1 秒只掉 5 m）。
    */
@@ -542,7 +555,7 @@ describe('撞海判定', () => {
     const ac = new Aircraft(P51D, 300, 180)
     const aim = onNose()
     for (let f = 0; f < Math.round(30 * FRAME_HZ); f++) {
-      frame(ac, aim, 0, -0.5, 0.5)
+      frame(ac, aim, 0, -TURN_DX, 0.5)
       if (isCrashed(ac.state.position, gerstnerHeight, f / FRAME_HZ)) break
     }
     // 撞海當下瞄準點確實指著遠離新機首的方向——這正是缺陷的來源
