@@ -32,6 +32,13 @@ export interface InputState {
    * 240 Hz 下一幀會走好幾步；單幀旗標會讓同一次點擊在多個步裡各觸發一次。
    */
   firing: boolean
+  /**
+   * 靶機的機動索引，對應 `MANOEUVRES`（0 直線／1 盤旋／2 蛇行／3 爬升）。
+   *
+   * 【為什麼放在 InputState 而不是直接呼叫 ScriptedController】輸入層是
+   * 純 DOM 外殼，對 control/ 沒有依賴（見 bindings.ts 檔頭的同一條理由）。
+   */
+  droneManoeuvre: number
   /** 單幀旗標，消費後由呼叫端清除 */
   resetRequested: boolean
   /** 單幀旗標，切換機種 */
@@ -49,6 +56,7 @@ export function createInputState(): InputState {
     lookPitch: 0,
     viewMode: 'third',
     firing: false,
+    droneManoeuvre: 0,
     resetRequested: false,
     swapSpecRequested: false,
   }

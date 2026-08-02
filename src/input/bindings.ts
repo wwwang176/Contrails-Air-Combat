@@ -36,11 +36,17 @@ export function attachInput(
   }
 
   const onMouseDown = (e: MouseEvent) => {
-    if (e.button === 0) requestLock()
+    if (e.button === 0) {
+      // 【左鍵一鍵兩用】未鎖定指標時它是「進入遊戲」，已鎖定時才是扳機。
+      // 這與 spec §8 的裁決一致，也避免玩家第一次點畫面就打出一串子彈。
+      if (document.pointerLockElement === canvas) state.firing = true
+      else requestLock()
+    }
     if (e.button === 2) state.lookActive = true
   }
 
   const onMouseUp = (e: MouseEvent) => {
+    if (e.button === 0) state.firing = false
     if (e.button === 2) {
       state.lookActive = false
       state.lookYaw = 0
@@ -76,6 +82,10 @@ export function attachInput(
       case 'KeyV': state.viewMode = state.viewMode === 'third' ? 'first' : 'third'; break
       case 'KeyR': state.resetRequested = true; break
       case 'KeyC': state.swapSpecRequested = true; break
+      case 'Digit1': state.droneManoeuvre = 0; break
+      case 'Digit2': state.droneManoeuvre = 1; break
+      case 'Digit3': state.droneManoeuvre = 2; break
+      case 'Digit4': state.droneManoeuvre = 3; break
       default: return
     }
     e.preventDefault()
@@ -105,6 +115,14 @@ export function attachInput(
       canvas.removeEventListener('contextmenu', onContextMenu)
     },
     tick(dt: number) {
+      // 切出視窗會失去指標鎖，但 mouseup 不見得送得到——不清的話扳機會卡住，
+      // 玩家切回來時發現自己一直在開火。
+      //
+      // 【為什麼在 tick 檢查而不是監聽 pointerlockchange】既有測試的 document
+      // 替身只有 pointerLockElement 一個欄位，沒有 addEventListener——加監聽器
+      // 會讓 bindings.test.ts 整檔在 attachInput 就拋錯。tick 每幀本來就會被
+      // 呼叫，順手比對一次是零成本的。
+      if (document.pointerLockElement !== canvas) state.firing = false
       state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
     },
   }

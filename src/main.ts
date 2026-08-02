@@ -16,6 +16,9 @@ import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
+import { World, type Combatant } from './world/World'
+import { PlayerController } from './control/PlayerController'
+import { MANOEUVRES, ScriptedController } from './control/ScriptedController'
 import { P51D } from './specs/p51d'
 import { BF109G6 } from './specs/bf109g6'
 
@@ -29,47 +32,94 @@ ctx.scene.add(createProps(600))
 
 const START_ALTITUDE = 4000
 const START_TAS = 160
+/** 靶機的出生點：正前方 800 m、同高度。 */
+const DRONE_OFFSET = new Vector3(0, 0, -800)
 
-const aircraft = new Aircraft(P51D, START_ALTITUDE, START_TAS)
 const input = createInputState()
 const bindings = attachInput(canvas, input)
 
-let model: AircraftModel = buildAircraft(aircraft.spec)
-ctx.scene.add(model.group)
+const world = new World()
+
+const player = world.add(
+  new Aircraft(P51D, START_ALTITUDE, START_TAS),
+  new PlayerController(input),
+  'blue',
+  new Vector3(0, START_ALTITUDE, 0),
+  START_ALTITUDE, START_TAS,
+)
+
+const droneController = new ScriptedController()
+const drone = world.add(
+  new Aircraft(BF109G6, START_ALTITUDE, START_TAS),
+  droneController,
+  'red',
+  new Vector3(0, START_ALTITUDE, 0).add(DRONE_OFFSET),
+  START_ALTITUDE, START_TAS,
+)
+drone.respawnOnDestroy = true
+world.respawn(drone)
+
 const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
 const hudFrame = createHudFrame()
 
-const rig = new CameraRig()
-rig.options.firstPersonOffset.copy(model.eyePoint)
-
-/** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
-function rebuildModel() {
-  const next = buildAircraft(aircraft.spec)
-  ctx.scene.add(next.group)
-  ctx.scene.remove(model.group)
-  model.dispose()
-  model = next
-  // 眼點是量出來的座艙位置，一機一個值——換機種必須跟著換，否則機首視角
-  // 的眼睛會落到另一台的座艙高度去（見 assembly.ts 的 eyePoint）。
-  rig.options.firstPersonOffset.copy(model.eyePoint)
+/**
+ * 一架飛機的可視部分：模型 + 內插用的暫存。
+ *
+ * 【為什麼一架一組而不是共用】M1 只有一架，位置與姿態直接寫在模組層的兩個
+ * 變數上。兩架以上就必須各自持有，否則第二架會把第一架的內插結果覆寫掉
+ * ——這是「世界上只有一架飛機」這個假設最直接的殘留物。
+ */
+interface Visual {
+  model: AircraftModel
+  readonly position: Vector3
+  readonly quaternion: Quaternion
 }
 
-const renderPos = new Vector3()
-const renderQuat = new Quaternion()
+const visuals = new Map<Combatant, Visual>()
+function attachVisual(c: Combatant): Visual {
+  const v: Visual = {
+    model: buildAircraft(c.aircraft.spec),
+    position: new Vector3(),
+    quaternion: new Quaternion(),
+  }
+  ctx.scene.add(v.model.group)
+  visuals.set(c, v)
+  return v
+}
+for (const c of world.combatants) attachVisual(c)
+
+const rig = new CameraRig()
+rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+
+/** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
+function rebuildModel(c: Combatant) {
+  const v = visuals.get(c)!
+  const next = buildAircraft(c.aircraft.spec)
+  ctx.scene.add(next.group)
+  ctx.scene.remove(v.model.group)
+  v.model.dispose()
+  v.model = next
+  // 眼點是量出來的座艙位置，一機一個值——換機種必須跟著換，否則機首視角
+  // 的眼睛會落到另一台的座艙高度去（見 assembly.ts 的 eyePoint）。
+  if (c === player) rig.options.firstPersonOffset.copy(next.eyePoint)
+}
+
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
 const HUD_PROJECT_DISTANCE = 1000
 let propRotation = 0
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
-function respawn() {
-  aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
+function respawnPlayer() {
+  player.aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
+  player.hp = player.aircraft.spec.hp
+  player.cooldowns.fill(0)
   // 清掉墜海前那一下扭轉留在相機上的落後量與自由視角角度
   rig.snapTo(input.aimWorld)
   // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
   resetGEffect()
 }
-respawn()
+respawnPlayer()
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
@@ -82,16 +132,24 @@ function frame(now: number) {
   bindings.tick(frameSeconds)
 
   if (input.resetRequested) {
-    respawn()
+    respawnPlayer()
     input.resetRequested = false
   }
   if (input.swapSpecRequested) {
     // C 不動瞄準點：瞄準點是「玩家指著的世界方向」，不屬於機體。運動狀態
     // 既然原樣保留（換的是飛機不是處境），瞄準點跟著保留才連貫；歸零反而
     // 會在換裝的瞬間硬扯機首。
-    aircraft.setSpec(aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
-    rebuildModel()
+    //
+    // 【一定要走 world.setSpec，不能直接呼叫 aircraft.setSpec】掛架數不同
+    // （P-51 六個、109 三個），射速時鐘必須跟著重配（見 World.setSpec）。
+    world.setSpec(player, player.aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
+    rebuildModel(player)
     input.swapSpecRequested = false
+  }
+
+  const manoeuvre = MANOEUVRES[input.droneManoeuvre]
+  if (manoeuvre && manoeuvre !== droneController.manoeuvre) {
+    droneController.setManoeuvre(manoeuvre, drone.aircraft)
   }
 
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
@@ -110,31 +168,37 @@ function frame(now: number) {
 
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
-    // 傳世界方向：指揮儀自己每步做 world → body（見 Aircraft.update 註解）
-    aircraft.update(input.aimWorld, input.throttle, dt)
+    world.step(dt)
     perf.endPhysics()
   })
 
   // 撞海判定：與海面著色器共用同一份波參數（見 aircraft/crash.ts）。
   // elapsed 已在幀首更新，所以判定用的時間與下方 ocean.update 餵給
   // shader 的時間是同一個——玩家看到的浪頭就是撞得到的浪頭。
-  if (isCrashed(aircraft.state.position, ocean.heightAt, elapsed)) {
+  //
+  // 只對玩家做：M2 的靶機在固定高度巡航，不會撞海。
+  if (isCrashed(player.aircraft.state.position, ocean.heightAt, elapsed)) {
     // 與 R 完全同一條路徑：瞄準點必須一併歸位，否則重生後會被舊瞄準點
     // （還指著海面）拖著飛回海裡。
-    respawn()
+    respawnPlayer()
   }
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
-  renderPos.lerpVectors(aircraft.prevPosition, aircraft.state.position, alpha)
-  renderQuat.slerpQuaternions(aircraft.prevOrientation, aircraft.state.orientation, alpha)
+  propRotation += frameSeconds * (8 + input.throttle * 60)
+  for (const c of world.combatants) {
+    const v = visuals.get(c)!
+    v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
+    v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
+    v.model.group.position.copy(v.position)
+    v.model.group.quaternion.copy(v.quaternion)
+    v.model.setPropSpin(propRotation, c.command.throttle > 0.15)
+  }
+  const renderPos = visuals.get(player)!.position
+  const renderQuat = visuals.get(player)!.quaternion
   ocean.update(elapsed, renderPos.x, renderPos.z)
 
-  model.group.position.copy(renderPos)
-  model.group.quaternion.copy(renderQuat)
-  propRotation += frameSeconds * (8 + input.throttle * 60)
-  model.setPropSpin(propRotation, input.throttle > 0.15)
-
+  const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)

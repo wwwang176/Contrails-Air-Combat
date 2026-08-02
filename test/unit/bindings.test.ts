@@ -183,3 +183,80 @@ describe('attachInput：鍵盤旗標與解除綁定', () => {
     expect(state.resetRequested).toBe(false)
   })
 })
+
+describe('開火鍵（滑鼠左鍵）', () => {
+  it('未鎖定指標時，左鍵只請求鎖定、不開火', () => {
+    const dom = setupDom(false)
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.canvas.fire('mousedown', { button: 0 })
+    expect(state.firing).toBe(false)
+    // 第一次點擊的用途是進入遊戲——指標鎖確實被請求了
+    expect(dom.doc.pointerLockElement).toBe(dom.canvas)
+  })
+
+  it('已鎖定指標時，左鍵按下即開火、放開即停火', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.canvas.fire('mousedown', { button: 0 })
+    expect(state.firing).toBe(true)
+    dom.win.fire('mouseup', { button: 0 })
+    expect(state.firing).toBe(false)
+  })
+
+  it('右鍵自由視角不會誤觸開火', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.canvas.fire('mousedown', { button: 2 })
+    expect(state.firing).toBe(false)
+    expect(state.lookActive).toBe(true)
+  })
+
+  it('失去指標鎖時停火 —— 否則切出視窗會卡住扳機', () => {
+    // 【為什麼由 tick 檢查而不是監聽 pointerlockchange】既有測試的 doc
+    // 替身只有 pointerLockElement 一個欄位，沒有 addEventListener；加監聽器
+    // 會讓 M1 那一整檔的測試在 attachInput 就拋錯。tick 每幀本來就會呼叫，
+    // 拿它順手檢查一次是零成本的做法。
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.canvas.fire('mousedown', { button: 0 })
+    expect(state.firing).toBe(true)
+
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    expect(state.firing).toBe(false)
+  })
+
+  it('detach 之後左鍵不再開火', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    b.detach()
+    dom.canvas.fire('mousedown', { button: 0 })
+    expect(state.firing).toBe(false)
+  })
+})
+
+describe('靶機機動切換鍵', () => {
+  const key = (code: string) => ({ code, preventDefault: () => {} })
+
+  it('1 2 3 4 依序選到四種機動', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    expect(state.droneManoeuvre).toBe(0)
+    for (const [code, index] of
+      [['Digit2', 1], ['Digit3', 2], ['Digit4', 3], ['Digit1', 0]] as const) {
+      dom.win.fire('keydown', key(code))
+      expect(state.droneManoeuvre).toBe(index)
+    }
+  })
+})
