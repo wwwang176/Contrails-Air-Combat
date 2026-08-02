@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
-  createHitResult, hitAircraft, makeHitBox, segmentBox,
-  HIT_PARTS, NO_HIT, PART_MULTIPLIER, type HitBox,
+  boundingRadius, createHitResult, hitAircraft, makeHitBox, segmentBox,
+  segmentPointDistanceSq, HIT_PARTS, NO_HIT, PART_MULTIPLIER, type HitBox,
 } from '../../src/world/hit'
+import { P51D } from '../../src/specs/p51d'
+import { BF109G6 } from '../../src/specs/bf109g6'
 import { DEG } from '../../src/core/math'
+
+/** 給 boundingRadius 用的巢狀盒（與 hitAircraft 那一組同形，但需在外層可見）。 */
+const NESTED_FOR_RADIUS: HitBox[] = [
+  makeHitBox('fuselage', [-1, -1, -4], [1, 1, 4]),
+  makeHitBox('cockpit', [-0.5, 0, -0.5], [0.5, 1, 0.5]),
+  makeHitBox('wingRight', [1, -0.3, -1], [5, 0.3, 1]),
+]
 
 const UNIT = makeHitBox('fuselage', [-1, -1, -1], [1, 1, 1])
 
@@ -163,5 +172,82 @@ describe('hitAircraft', () => {
       if (i > 0) expect(out.t).toBe(last)
       last = out.t
     }
+  })
+})
+
+describe('boundingRadius（命中判定的粗篩）', () => {
+  it('包得住盒子的每一個角 —— 算小了會靜靜漏掉命中', () => {
+    // 這是最佳化的正確性條件，不是效能指標。半徑若小於某個角落，
+    // 那個方向來的彈丸會被粗篩直接跳過：玩家看到曳光彈穿過機翼卻不扣血，
+    // 而且只在特定角度發生。
+    for (const boxes of [NESTED_FOR_RADIUS, P51D.hitBoxes, BF109G6.hitBoxes]) {
+      const r = boundingRadius(boxes)
+      for (const b of boxes) {
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+          const corner = new Vector3(
+            b.center.x + sx * b.half.x,
+            b.center.y + sy * b.half.y,
+            b.center.z + sz * b.half.z,
+          )
+          expect(corner.length()).toBeLessThanOrEqual(r + 1e-9)
+        }
+      }
+    }
+  })
+
+  it('不是隨便放大的上界：至少有一個角剛好碰到球面', () => {
+    // 上界放得太寬的話粗篩就沒作用了。
+    const r = boundingRadius(P51D.hitBoxes)
+    let best = 0
+    for (const b of P51D.hitBoxes) {
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        best = Math.max(best, new Vector3(
+          b.center.x + sx * b.half.x, b.center.y + sy * b.half.y, b.center.z + sz * b.half.z,
+        ).length())
+      }
+    }
+    expect(r).toBeCloseTo(best, 9)
+  })
+})
+
+describe('segmentPointDistanceSq', () => {
+  it('垂足落在線段內時取垂直距離', () => {
+    expect(segmentPointDistanceSq(-5, 0, 0, 5, 0, 0, 0, 3, 0)).toBeCloseTo(9, 9)
+  })
+
+  it('垂足在線段外時取端點距離（不可外推）', () => {
+    // 外推的話遠方的彈丸會被誤判成很近，粗篩失效但不會出錯；
+    // 反過來若端點沒夾好，近處的命中會被跳過——那才是致命的。
+    expect(segmentPointDistanceSq(0, 0, 0, 1, 0, 0, 5, 0, 0)).toBeCloseTo(16, 9)
+    expect(segmentPointDistanceSq(0, 0, 0, 1, 0, 0, -3, 0, 0)).toBeCloseTo(9, 9)
+  })
+
+  it('點就在線段上時為 0', () => {
+    expect(segmentPointDistanceSq(0, 0, 0, 10, 0, 0, 4, 0, 0)).toBeCloseTo(0, 12)
+  })
+
+  it('零長度線段退化成點到點', () => {
+    expect(segmentPointDistanceSq(1, 2, 3, 1, 2, 3, 1, 2, 6)).toBeCloseTo(9, 9)
+  })
+
+  it('與 hitAircraft 一致：粗篩通過是命中的必要條件', () => {
+    // 粗篩若比實際命中還嚴，就會漏掉；隨機掃一批線段確認沒有
+    // 「hitAircraft 說中、粗篩卻說跳過」的組合。
+    const out = createHitResult()
+    const origin = new Vector3()
+    const q = new Quaternion()
+    const r2 = boundingRadius(P51D.hitBoxes) ** 2
+    let hits = 0
+    for (let i = 0; i < 4000; i++) {
+      const a = (i / 4000) * Math.PI * 2
+      const s0 = new Vector3(Math.cos(a) * 30, ((i % 61) - 30) * 0.2, Math.sin(a) * 30)
+      const s1 = new Vector3(-s0.x * 0.2, s0.y, -s0.z * 0.2)
+      if (!hitAircraft(P51D.hitBoxes, origin, q, s0, s1, out)) continue
+      hits++
+      expect(segmentPointDistanceSq(
+        s0.x, s0.y, s0.z, s1.x, s1.y, s1.z, 0, 0, 0,
+      )).toBeLessThanOrEqual(r2)
+    }
+    expect(hits).toBeGreaterThan(100)   // 這批線段真的打中了不少，斷言才有意義
   })
 })

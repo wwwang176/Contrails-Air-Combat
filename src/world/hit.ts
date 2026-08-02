@@ -93,6 +93,48 @@ export function segmentBox(
   return tMin
 }
 
+/**
+ * 覆蓋全部命中盒的包圍球半徑，以**機體原點**為心。
+ *
+ * 給命中判定的粗篩用：線段離機體重心比這個遠，就一定碰不到任何盒子，
+ * 可以跳過六次 slab 測試與兩次四元數旋轉。
+ *
+ * 【必須是上界，不能只是「差不多」】算小了會靜靜地漏掉命中——玩家看到
+ * 曳光彈穿過機翼卻不扣血，而且只在特定角度發生。所以取每個盒**離原點
+ * 最遠的角**：該角在各軸上是 |center| + half。
+ */
+export function boundingRadius(boxes: readonly HitBox[]): number {
+  let r2 = 0
+  for (const b of boxes) {
+    const x = Math.abs(b.center.x) + b.half.x
+    const y = Math.abs(b.center.y) + b.half.y
+    const z = Math.abs(b.center.z) + b.half.z
+    const d2 = x * x + y * y + z * z
+    if (d2 > r2) r2 = d2
+  }
+  return Math.sqrt(r2)
+}
+
+/**
+ * 點到線段的最短距離平方。粗篩用，所以只回傳平方值——省一次 sqrt，
+ * 呼叫端與半徑的平方比較即可。
+ */
+export function segmentPointDistanceSq(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  px: number, py: number, pz: number,
+): number {
+  const dx = bx - ax, dy = by - ay, dz = bz - az
+  const wx = px - ax, wy = py - ay, wz = pz - az
+  const len2 = dx * dx + dy * dy + dz * dz
+  // 零長度線段退化成點到點
+  let t = len2 > 0 ? (wx * dx + wy * dy + wz * dz) / len2 : 0
+  if (t < 0) t = 0
+  else if (t > 1) t = 1
+  const ex = wx - t * dx, ey = wy - t * dy, ez = wz - t * dz
+  return ex * ex + ey * ey + ez * ez
+}
+
 export interface HitResult {
   /** 線段參數 t ∈ [0, 1]，取所有命中盒中**最近**的 */
   t: number
