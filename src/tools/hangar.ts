@@ -524,12 +524,34 @@ function applyRefMaterial(root: Object3D): void {
 }
 
 ;(window as unknown as Record<string, unknown>)['__hangarSlice'] =
-    (kind: 'radial' | 'extent', axis: Axis, o: Record<string, number | [number, number]>) => {
-      if (!refModel) return null
-      refTris ??= collectTriangles(refModel)
+    (
+      kind: 'radial' | 'extent', axis: Axis,
+      o: Record<string, number | [number, number]>,
+      /**
+       * 切誰。預設切參考模型。
+       *
+       * 【為什麼自家模型也要能切】驗收時要的是「逐站數值比對表」，而不是
+       * 盯著疊圖猜像素——實測過一次背鰭疑似浮起 0.23 m，用像素量出來的，
+       * 結果那 0.23 是水平尾翼擋在前面造成的錯覺，背鰭本身差 0.02。
+       * 兩邊用同一支切片器，量到的才是同一個定義下的同一件事。
+       */
+      target: 'ref' | 'mine' = 'ref',
+    ) => {
+      const root = target === 'mine' ? model?.group : refModel
+      if (!root) return null
+      // 自家模型平常在自動旋轉，切片用的是**世界座標**——不歸零的話量到的是
+      // 一個斜著的機身，而且數字看起來完全正常（實測第一次跑就中招：機背
+      // 整段量不到、尾段量成 0.51）。歸零順便停掉旋轉，免得下一刀又轉走了。
+      if (target === 'mine' && model) {
+        autoRotate = false
+        model.group.rotation.y = 0
+        model.group.updateMatrixWorld(true)
+      }
+      // 自家模型每次重建都是新物件，不快取；參考模型很大，快取（placeRef 會清）
+      const tris = target === 'mine' ? collectTriangles(root) : (refTris ??= collectTriangles(root))
       return kind === 'radial'
-        ? radialSlices(refTris, axis, o as never)
-        : extentSlices(refTris, axis, o as never)
+        ? radialSlices(tris, axis, o as never)
+        : extentSlices(tris, axis, o as never)
     }
 
 // 開發用：外部工具（Playwright）用來開啟參考模型並等它載入完成。
