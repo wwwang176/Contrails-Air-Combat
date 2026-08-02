@@ -22,7 +22,15 @@ export interface CameraRigOptions {
    * 還有一段。日後改 thirdDistance 一定要連著重算這個值。
    */
   thirdHeight: number
-  /** 彈簧剛度，越大越貼合飛機 */
+  /**
+   * 彈簧剛度，越大越貼合。
+   *
+   * 【為什麼是 120 而不是 14】彈簧追的是 viewDir，而 viewDir 是**滑鼠**方向。
+   * 穩態落後角 ≈ 2ω/√k：機身自己轉向時 ω ≤ 25°/s，k=14 只落後 8°；但滑鼠
+   * 輕鬆就到 80°/s，同一個 k 落後 42°——機身整個被甩出畫面邊緣（實測）。
+   * k=120 在 80°/s 下落後約 12°，收斂約 0.18 s，剩下的是「有重量」而不是
+   * 「跟不上」。
+   */
   springStiffness: number
   /** 阻尼比，1.0 為臨界阻尼 */
   springDamping: number
@@ -51,8 +59,6 @@ export interface CameraRigOptions {
   firstPersonOffset: Vector3
   /** 相機注視點在機首前方的距離 */
   aimPointDistance: number
-  /** 失速抖振的最大位移，m */
-  shakeAmplitude: number
 }
 
 export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
@@ -60,7 +66,7 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   // 機體 z +5.2，所以相機離機尾還有 6.8 m，遠大於 near = 1
   thirdDistance: 12,
   thirdHeight: 3.0,
-  springStiffness: 14,
+  springStiffness: 120,
   springDamping: 1.0,
   fovBase: 65,
   fovSpeedGain: 8,
@@ -70,25 +76,23 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   levelTime: 0.25,
   firstPersonOffset: new Vector3(0, 0.80, 0.70),
   aimPointDistance: 400,
-  shakeAmplitude: 0.35,
 }
 
 /**
- * 相機。第三人稱彈簧阻尼跟隨、機首視角、右鍵自由視角、FOV 隨速度變化、失速抖振。
+ * 相機。第三人稱彈簧阻尼跟隨、機首視角、右鍵自由視角、FOV 隨速度變化。
  *
- * 【相機不隨機體側滾】瞄準點是世界固定的，滑鼠位移繞 `camera.quaternion` 的
- * 右／上軸旋轉它（見 input/aim.ts）。相機若跟著機體滾，「螢幕右」就會跟著坡度
- * 轉——持續右移滑鼠 → 飛機加坡度 → 螢幕右軸再轉 → 更多坡度，正回饋成螺旋。
- * 坡度靠機體模型與坡度儀呈現，不靠相機。
+ * 【相機不隨機體側滾】瞄準點是世界固定的，滑鼠位移繞相機的右／上軸旋轉它
+ * （見 input/aim.ts）。相機若跟著機體滾，「螢幕右」就會跟著坡度轉——持續右移
+ * 滑鼠 → 飛機加坡度 → 螢幕右軸再轉 → 更多坡度，正回饋成螺旋。坡度靠機體模型
+ * 與姿態儀呈現，不靠相機。
  */
 export class CameraRig {
   readonly options: CameraRigOptions
   /**
    * 上一次 update 算出的**視角基準**：無滾轉、且不含自由視角偏移。
    *
-   * 瞄準點的畫面夾制（input/aim.ts 的 clampAimToViewport）必須拿它，不能拿
-   * camera.quaternion。右鍵轉頭時世界固定的瞄準點會落到相機視野外，用實際
-   * 相機姿態去夾就會把它拉回畫面裡——玩家只是轉頭看一眼，飛機卻跟著轉向。
+   * 滑鼠位移的旋轉軸（input/aim.ts 的 slewAimWorld）必須拿它，不能拿
+   * camera.quaternion——否則右鍵轉頭時，滑鼠的「螢幕右」會跟著轉頭一起轉。
    */
   readonly viewBase = new Quaternion()
   /** 相機相對飛機的偏移，見 chaseOffset。彈簧作用在它身上而不是世界座標 */
@@ -97,18 +101,11 @@ export class CameraRig {
   /** 相機的上方向量。逐幀正交化並緩慢靠回世界上方，見 baseOrientation */
   private readonly up = new Vector3(0, 1, 0)
   private initialised = false
-  private shake = 0
-  private shakePhase = 0
   private appliedYaw = 0
   private appliedPitch = 0
 
   constructor(options: CameraRigOptions = DEFAULT_CAMERA_OPTIONS) {
     this.options = { ...options, firstPersonOffset: options.firstPersonOffset.clone() }
-  }
-
-  /** 失速抖振強度，0..1。 */
-  setShake(intensity: number): void {
-    this.shake = clamp(intensity, 0, 1)
   }
 
   /**
@@ -117,8 +114,8 @@ export class CameraRig {
    * 不需要位置——彈簧追的是**相對飛機的偏移**，飛機瞬移時相機跟著瞬移，
    * 本來就不會從舊位置飛過來。要清掉的是上一條航跡留下的落後量與視角角度。
    */
-  snapTo(orientation: Quaternion): void {
-    const base = this.baseOrientation(orientation, 0, S.q[3]!)
+  snapTo(viewDir: Vector3): void {
+    const base = this.baseOrientation(viewDir, 0, S.q[3]!)
     const forward = S.v[0]!.set(0, 0, -1).applyQuaternion(base)
     this.chaseOffset(forward, this.offset)
     this.offsetVel.set(0, 0, 0)
@@ -133,8 +130,8 @@ export class CameraRig {
    * 【為什麼彈簧作用在偏移上而不是世界座標】對世界座標下的移動目標，臨界阻尼
    * 彈簧有穩態誤差 c·v/k = 2·ζ·v/√k——**正比於速度**。以計畫的 k=14、ζ=1 代入
    * 巡航 160 m/s 是 85 m，實測相機被拖到 83 m 外，飛機小成一個點。改成追偏移
-   * 之後，等速直線飛行的目標偏移是常數，落後歸零；只有機首**轉向**時偏移才會
-   * 移動——那正是 spec §9 要的「大 G 機動時相機略微落後」。
+   * 之後，等速直線飛行的目標偏移是常數，落後歸零；只有視線**轉向**時偏移才會
+   * 移動，剩下的是純粹的轉向重量感。
    *
    * 【為什麼抬升用世界上方而不是視角上方】兩者在平飛時完全一樣，差別只出現在
    * 垂直爬升／俯衝——視角上方在那裡指向水平，抬升會把相機甩到側面去，而且
@@ -156,8 +153,8 @@ export class CameraRig {
    * 垂直時那個投影退化，於是**不更新目標**，只靠正交化把上一幀的值帶過去，
    * 相機因此平順地翻過天頂。
    */
-  private baseOrientation(orientation: Quaternion, dt: number, out: Quaternion): Quaternion {
-    const f = S.v[5]!.set(0, 0, -1).applyQuaternion(orientation).normalize()
+  private baseOrientation(viewDir: Vector3, dt: number, out: Quaternion): Quaternion {
+    const f = S.v[5]!.copy(viewDir).normalize()
 
     const level = S.v[6]!.copy(WORLD_UP).addScaledVector(f, -WORLD_UP.dot(f))
     // 0.02 ≈ 距垂直 8° 以內就凍結目標，避免在天頂附近追一個亂跳的方向
@@ -180,10 +177,17 @@ export class CameraRig {
     return out.setFromRotationMatrix(BASIS)
   }
 
+  /**
+   * @param orientation 機體姿態。**只**用來擺放機首視角的眼點（座位固定在機身上）
+   * @param viewDir 相機要看的世界方向。傳的是**滑鼠瞄準方向**而不是機首方向：
+   *   準星因此釘在畫面中央，跟不上的是飛機——機身會斜在畫面裡，指揮儀正在
+   *   追的誤差角於是直接看得見。傳機首方向則是相反的呈現方式。
+   */
   update(
     camera: PerspectiveCamera,
     position: Vector3,
     orientation: Quaternion,
+    viewDir: Vector3,
     tas: number,
     viewMode: 'third' | 'first',
     lookYaw: number,
@@ -202,7 +206,7 @@ export class CameraRig {
     // 視角偏移施加於視角座標，因此不影響飛行指令
     const lookQuat = S.q[0]!.setFromAxisAngle(S.v[1]!.set(0, 1, 0), this.appliedYaw)
     const pitchQuat = S.q[1]!.setFromAxisAngle(S.v[2]!.set(1, 0, 0), this.appliedPitch)
-    const viewQuat = this.baseOrientation(orientation, dt, S.q[2]!)
+    const viewQuat = this.baseOrientation(viewDir, dt, S.q[2]!)
     this.viewBase.copy(viewQuat)   // 疊上自由視角**之前**，見 viewBase 的說明
     const baseForward = S.v[7]!.set(0, 0, -1).applyQuaternion(viewQuat)
     viewQuat.multiply(lookQuat).multiply(pitchQuat)
@@ -242,14 +246,6 @@ export class CameraRig {
       const target = S.v[0]!.copy(position).addScaledVector(viewForward, o.aimPointDistance)
       camera.up.set(0, 1, 0).applyQuaternion(viewQuat)
       camera.lookAt(target)
-    }
-
-    // 失速抖振：高頻小幅位移
-    if (this.shake > 0) {
-      this.shakePhase += dt * 47
-      const a = this.shake * o.shakeAmplitude
-      camera.position.x += Math.sin(this.shakePhase * 1.7) * a
-      camera.position.y += Math.sin(this.shakePhase * 2.3) * a
     }
 
     const fov = o.fovBase + o.fovSpeedGain * clamp(tas / o.fovSpeedRef, 0, 1)

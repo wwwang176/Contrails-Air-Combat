@@ -62,9 +62,9 @@ export function attachInput(
       )
       return
     }
-    // 世界固定瞄準點：這裡只累積「本幀的螢幕相對位移」，真正的旋轉與圓錐
-    // 夾制由飛行迴圈以 slewAimWorld 執行——旋轉軸取自相機，而相機不歸
-    // 輸入層管（bindings 是純 DOM 外殼，對 render/ 沒有依賴）。
+    // 世界固定瞄準點：這裡只累積「本幀的螢幕相對位移」，真正的旋轉由飛行
+    // 迴圈以 slewAimWorld 執行——旋轉軸取自相機，而相機不歸輸入層管
+    // （bindings 是純 DOM 外殼，對 render/ 沒有依賴）。
     state.aimDeltaX += (e.movementX / half) * MOUSE_SENSITIVITY
     state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY
   }

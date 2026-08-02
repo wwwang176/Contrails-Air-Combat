@@ -1,21 +1,16 @@
-import { VIEWPORT_MARGIN } from '../../input/aim'
 import { HUD_COLORS, type HudFrame, type HudLayout } from '../types'
 
-/** 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。 */
+/**
+ * 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。
+ *
+ * 相機跟著瞄準點走，所以圓圈恆在畫面正中央，會漂的是十字。沒有可動範圍的
+ * 邊界可畫——瞄準點不受任何夾制（見 input/aim.ts）。
+ */
 export function drawReticle(
   ctx: CanvasRenderingContext2D,
   L: HudLayout,
   f: HudFrame,
 ): void {
-  // 準星可移動範圍。是**矩形**不是圓：夾制由 clampAimToViewport 做，準星拉得到
-  // 四個角（見 input/aim.ts）。原本畫的是半徑 AIM_RADIUS 的圓，那是 Task 19
-  // 改成世界固定瞄準點之前的邊界——實測準星會大搖大擺地跑到圈外。
-  const mw = VIEWPORT_MARGIN * L.width / 2
-  const mh = VIEWPORT_MARGIN * L.height / 2
-  ctx.strokeStyle = 'rgba(125, 251, 168, 0.12)'
-  ctx.lineWidth = 1
-  ctx.strokeRect(L.cx - mw, L.cy - mh, mw * 2, mh * 2)
-
   // 滑鼠準星（圓形）。接近失速時轉為警示色
   const stallRatio = Math.abs(f.alpha) / f.alphaCrit
   const mx = L.cx + f.aimX * L.unit
