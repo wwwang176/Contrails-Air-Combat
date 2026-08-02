@@ -1,7 +1,7 @@
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /** 地圖半徑，公尺。 */
-const RANGE = 8000
+const RANGE = 4000
 /** 網格間距，公尺。 */
 const CELL = 2000
 
@@ -58,15 +58,18 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     if (!c.active) continue
     const dx = c.worldX - f.worldX
     const dz = c.worldZ - f.worldZ
-    // 【剔除用距離，不用未旋轉的方框】地圖轉了 −heading，畫面上的方形
-    // clip 對映回世界是一個**旋轉過的**方形。拿未旋轉的方框預先剔除，
-    // 會讓四個角落方向上該看得到的目標提前消失。用半徑剔除保守而正確，
-    // 剩下的邊角交給既有的 clip 處理。
-    if (Math.hypot(dx, dz) > RANGE * 1.45) continue
-    const rx = dx * px
-    const rz = dz * px
+    // 【超出範圍的不剔除，改成貼在邊上並轉半透明】剔除掉的話「他不在圖上」
+    // 與「他不存在」在畫面上長得一模一樣——而空戰裡最想知道的往往就是那個
+    // 剛脫離的傢伙往哪走了。夾到半徑 RANGE 的圓上（圓內接於方框，所以一定
+    // 落在 clip 裡），半透明表示「方位對、距離不對」。
+    const dist = Math.hypot(dx, dz)
+    const beyond = dist > RANGE
+    const k = beyond ? RANGE / dist : 1
+    const rx = dx * k * px
+    const rz = dz * k * px
 
     ctx.save()
+    ctx.globalAlpha = beyond ? 0.35 : 1
     ctx.translate(rx, rz)
     ctx.rotate(f.heading)
     ctx.fillStyle = c.hostile ? HUD_COLORS.danger : HUD_COLORS.friendly
