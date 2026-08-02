@@ -50,7 +50,7 @@ const CANOPY: readonly CanopyStation[] = [
   { z: 1.595, sill: 0.720, roof: 0.915 },
   { z: 1.795, sill: 0.910, roof: 0.907 },   // 艙緣高過罩頂 → 收成一點
 ]
-const CANOPY_TOP_HALF_WIDTH = 0.21
+const CANOPY_SHAPE = { topWidth: 0.21 }
 
 const RINGS = prepareRings(BF109E_HULL, CANOPY.map((s) => s.z))
 
@@ -118,7 +118,7 @@ export function buildBf109E(): AircraftModel {
     offsetZ: 0,
   })
 
-  h.cockpit(RINGS, CANOPY, CANOPY_TOP_HALF_WIDTH)
+  h.cockpit(RINGS, CANOPY, CANOPY_SHAPE)
 
   h.wingPair(WING)
   h.wingPair(TAILPLANE)

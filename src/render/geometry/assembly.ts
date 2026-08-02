@@ -4,7 +4,7 @@ import {
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
-import { buildCanopy, type CanopyStation } from './canopy'
+import { buildCanopy, type CanopyShape, type CanopyStation } from './canopy'
 import { buildCockpitTub, buildHull, type CockpitCut, type HullRing } from './hull'
 import { buildWingPanel, type WingParams } from './wing'
 
@@ -173,14 +173,16 @@ export function createHull(spec: HullSpec) {
      * 三者共用同一組環（prepareRings 已把玻璃的站位補進去），所以開口邊緣、
      * 內裝上緣、玻璃下緣算的是**同一個交點**——機體與玻璃不會有縫。
      */
-    cockpit(rings: readonly HullRing[], stations: readonly CanopyStation[], topWidth: number): void {
+    cockpit(
+      rings: readonly HullRing[], stations: readonly CanopyStation[], shape: CanopyShape,
+    ): void {
       const cut: CockpitCut = { sill: stations.map((s) => [s.z, s.sill] as const) }
       add(new Mesh(buildHull(rings, cut).geometry, body))
       const tub = add(new Mesh(buildCockpitTub(rings, cut, 0.90, 0.08), cockpitMat))
       // 內裝是**朝內**的殼——從開口往下看要看得到它的內側。標記出來，
       // 免得「法線朝外」的檢查把這個刻意的方向當成缺陷。
       tub.userData['inwardShell'] = true
-      add(new Mesh(buildCanopy(rings, stations, topWidth), glass))
+      add(new Mesh(buildCanopy(rings, stations, shape), glass))
     },
 
     /** 左右成對的翼面（主翼、水平尾翼）。 */

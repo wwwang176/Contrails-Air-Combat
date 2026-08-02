@@ -229,7 +229,7 @@ describe('buildHull / buildCanopy', () => {
     const rings = prepareRings(RINGS, STATIONS.map((s) => s.z))
     const cut = { sill: STATIONS.map((s) => [s.z, s.sill] as const) }
     const rim = buildHull(rings, cut).rim
-    const g = buildCanopy(rings, STATIONS, 0.15)
+    const g = buildCanopy(rings, STATIONS, { topWidth: 0.15 })
     const b = ys(g)
     expect(b.lo).toBeCloseTo(0.3, 6)      // 下緣＝艙緣
     expect(b.hi).toBeCloseTo(0.9, 6)      // 上緣＝罩頂
@@ -246,7 +246,7 @@ describe('buildHull / buildCanopy', () => {
   it('艙緣高過罩頂時玻璃收成一點（尾端斜切靠這個收掉）', () => {
     const g = buildCanopy(RINGS, [
       { z: -0.5, sill: 0.3, roof: 0.9 }, { z: 0.5, sill: 1.0, roof: 0.9 },
-    ], 0.15)
+    ], { topWidth: 0.15 })
     const p = g.getAttribute('position')
     for (let i = 0; i < p.count; i++) {
       if (Math.abs(p.getZ(i) - 0.5) < 1e-9) {

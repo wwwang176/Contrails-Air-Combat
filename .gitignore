@@ -10,3 +10,4 @@ Thumbs.db
 .tmpshot/
 
 ref/
+.tmpshot*
