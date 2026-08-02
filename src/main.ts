@@ -7,6 +7,8 @@ import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
 import { createScaffoldHud } from './render/scaffold'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
+import { CameraRig } from './camera/CameraRig'
+import { ALPHA_MARGIN } from './control/limiters'
 import { Aircraft } from './aircraft/Aircraft'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
@@ -35,6 +37,9 @@ let model: AircraftModel = buildAircraft(aircraft.spec)
 ctx.scene.add(model.group)
 const hud = createScaffoldHud()
 
+const rig = new CameraRig()
+rig.options.firstPersonOffset.copy(model.eyePoint)
+
 /** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
 function rebuildModel() {
   const next = buildAircraft(aircraft.spec)
@@ -42,17 +47,21 @@ function rebuildModel() {
   ctx.scene.remove(model.group)
   model.dispose()
   model = next
+  // 眼點是量出來的座艙位置，一機一個值——換機種必須跟著換，否則機首視角
+  // 的眼睛會落到另一台的座艙高度去（見 assembly.ts 的 eyePoint）。
+  rig.options.firstPersonOffset.copy(model.eyePoint)
 }
 
 const noseWorld = new Vector3()
 const renderPos = new Vector3()
 const renderQuat = new Quaternion()
-const camOffset = new Vector3()
 let propRotation = 0
 
 /** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
 function respawn() {
   aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
+  // 清掉墜海前那一下扭轉留在相機上的落後量與自由視角角度
+  rig.snapTo(aircraft.state.orientation)
 }
 respawn()
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
@@ -118,14 +127,16 @@ function frame(now: number) {
   propRotation += frameSeconds * (8 + input.throttle * 60)
   model.setPropSpin(propRotation, input.throttle > 0.15)
 
-  // 暫時的跟隨相機，Task 22 會替換為完整的 CameraRig。
-  // 刻意「不隨機體側滾」：slewAimWorld 的旋轉軸取自 camera.quaternion，
-  // 相機若跟著滾，持續右移滑鼠會退化成螺旋。坡度靠機體模型與坡度儀呈現。
-  camOffset.copy(noseWorld).multiplyScalar(-26)
-  ctx.camera.position.copy(renderPos).add(camOffset)
-  ctx.camera.position.y += 7
-  ctx.camera.up.set(0, 1, 0)
-  ctx.camera.lookAt(renderPos)
+  // 失速抖振：迎角超過限制器餘裕後線性增強，到 alphaCrit 時滿格
+  const alphaCrit = aircraft.spec.lift.alphaCrit +
+    (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
+  const alphaRatio = Math.abs(aircraft.diag.aero.alpha) / alphaCrit
+  rig.setShake(Math.max(0, (alphaRatio - ALPHA_MARGIN) / (1 - ALPHA_MARGIN)))
+
+  rig.update(
+    ctx.camera, renderPos, renderQuat, aircraft.diag.aero.tas,
+    input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
+  )
 
   ctx.renderer.render(ctx.scene, ctx.camera)
   hud.render(
