@@ -5,6 +5,7 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
+import { createTracers } from './render/tracers'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed } from './hud/types'
@@ -29,6 +30,9 @@ const perf = createPerfOverlay(ctx.renderer)
 const ocean = createOcean()
 ctx.scene.add(ocean.mesh)
 ctx.scene.add(createProps(600))
+
+const tracers = createTracers()
+ctx.scene.add(tracers.object)
 
 const START_ALTITUDE = 4000
 const START_TAS = 160
@@ -209,6 +213,7 @@ function frame(now: number) {
     input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
   )
 
+  tracers.update(world.projectiles)
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
