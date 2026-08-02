@@ -52,7 +52,20 @@ const CANOPY: readonly CanopyStation[] = [
 ]
 const CANOPY_SHAPE = { topWidth: 0.21 }
 
-const RINGS = prepareRings(BF109E_HULL, CANOPY.map((s) => s.z))
+/**
+ * 座艙段補上加密的環。
+ *
+ * 【為什麼機首與玻璃罩的接合處會凹陷】開口的前壁是「最後一個完整的環」到
+ * 「第一個被切開的環」之間那一段。原本前面最近的環在 z = 0.060，開口從
+ * 0.355 起——機背因此從 0.823 一路斜降到艙緣 0.520，斜面長達 0.295 m，
+ * 側面看就是機首後方塌下去一塊。補一個 z = 0.345 的環之後，前壁只剩
+ * 0.010 m，等於一道垂直的隔板。尾端同理補 1.805。
+ *
+ * 順帶把座艙段整體加密：那裡是全機最常被盯著看的地方，18 圈不是硬性上限。
+ */
+const CANOPY_EXTRA_Z = [0.345, 0.440, 0.700, 1.180, 1.500, 1.700, 1.805]
+
+const RINGS = prepareRings(BF109E_HULL, [...CANOPY.map((s) => s.z), ...CANOPY_EXTRA_Z])
 
 const WING: WingParams = {
   // E 型是**方翼尖**（F 型才改圓），所以沒有 tipRound。

@@ -216,20 +216,26 @@ export function buildCockpitTub(
   const tri = (a: number[], b: number[], c: number[]) => {
     positions.push(a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!, c[0]!, c[1]!, c[2]!)
   }
-  // 法線朝**內**（從開口往下看要看得到），因此纏繞方向與機身相反
+  /**
+   * 法線朝**內** —— 從開口往下看，看到的是這層殼的內側。
+   *
+   * 【第一版寫成跟機身同向了】那讓內裝的正面朝外、被機身擋住，而朝內的是
+   * 背面、被背面剔除掉——結果是「暗色內裝完全看不到」，從開口直接看穿。
+   * 機身的朝外順序是 (A_i, B_i, B_j)，這裡必須整個反過來。
+   */
   for (let s = 0; s < loops.length - 1; s++) {
     const A = loops[s]!, B = loops[s + 1]!
     for (let i = 0; i < m - 1; i++) {
-      tri(A[i]!, B[i]!, B[i + 1]!)
-      tri(A[i]!, B[i + 1]!, A[i + 1]!)
+      tri(A[i]!, B[i + 1]!, B[i]!)
+      tri(A[i]!, A[i + 1]!, B[i + 1]!)
     }
   }
   // 前後隔板，否則從斜前方能看穿座艙
   const bulkhead = (l: number[][], reverse: boolean) => {
     const c = [0, floor, l[0]![2]!]
     for (let i = 0; i < m - 1; i++) {
-      if (reverse) tri(c, l[i + 1]!, l[i]!)
-      else tri(c, l[i]!, l[i + 1]!)
+      if (reverse) tri(c, l[i]!, l[i + 1]!)
+      else tri(c, l[i + 1]!, l[i]!)
     }
   }
   bulkhead(loops[0]!, false)

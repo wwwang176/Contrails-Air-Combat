@@ -70,7 +70,19 @@ interface Station {
 }
 
 /**
- * 梯形翼面板（含上反角、後掠角與可選的圓翼尖）。
+ * 弦向的厚度分佈：[弦長比例, 該處佔最大厚度的比例]。對稱翼型的低多邊形近似。
+ *
+ * 【原本整片是等厚的平板】那是機翼看起來太厚的真正原因，而不是最大厚度訂
+ * 錯了——實測 Bf 109 的最大厚度 0.315 與真機 14.2% 弦長完全一致，但平板讓
+ * 這個厚度從前緣一路撐到後緣。真翼型只在三成弦長處有最大厚度，前後緣幾乎
+ * 收成一條線；同樣的最大厚度，平板看起來厚得多。
+ */
+const PROFILE: readonly (readonly [number, number])[] = [
+  [0.00, 0.04], [0.10, 0.78], [0.30, 1.00], [0.60, 0.72], [1.00, 0.03],
+]
+
+/**
+ * 梯形翼面板（含上反角、後掠角、翼型厚度分佈與可選的圓翼尖）。
  * mirrored = true 產生左翼（−X 方向）。
  */
 export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry {
@@ -93,8 +105,8 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
       // 對 30% 弦線收縮：前緣小幅後退、後緣大幅前移（見 TIP_ANCHOR）
       lead: baseLead + (baseChord - chord) * TIP_ANCHOR,
       chord,
-      // 圓翼尖那一小段（u > ROUND_START）弦長是急收的，厚度不能跟著急收，
-      // 否則翼尖會變成刀口。厚度只依展向位置 u 走。
+      // 圓翼尖那一小段弦長是急收的，厚度不能跟著急收否則翼尖成刀口；
+      // 厚度只依展向位置 u 走。
       h: (p.thickness + (tipT - p.thickness) * u) / 2,
     }
   })
@@ -105,23 +117,37 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
     const [p0, p1, p2] = mirrored ? [a, c, b] : [a, b, c]
     positions.push(...p0!, ...p1!, ...p2!)
   }
-  const uLE = (s: Station) => [s.x, s.y + s.h, s.lead]
-  const uTE = (s: Station) => [s.x, s.y + s.h, s.lead + s.chord]
-  const lLE = (s: Station) => [s.x, s.y - s.h, s.lead]
-  const lTE = (s: Station) => [s.x, s.y - s.h, s.lead + s.chord]
-
-  for (let i = 0; i < stations.length - 1; i++) {
-    const a = stations[i]!
-    const b = stations[i + 1]!
-    tri(uLE(a), uTE(b), uLE(b)); tri(uLE(a), uTE(a), uTE(b))   // 上表面 +Y
-    tri(lLE(a), lLE(b), lTE(b)); tri(lLE(a), lTE(b), lTE(a))   // 下表面 −Y
-    tri(uLE(a), uLE(b), lLE(b)); tri(uLE(a), lLE(b), lLE(a))   // 前緣 −Z
-    tri(uTE(a), lTE(a), lTE(b)); tri(uTE(a), lTE(b), uTE(b))   // 後緣 +Z
+  /** 站位 s 的第 i 個弦向點，上表面或下表面。 */
+  const up = (s: Station, i: number) => {
+    const [u, t] = PROFILE[i]!
+    return [s.x, s.y + s.h * t, s.lead + s.chord * u]
   }
+  const lo = (s: Station, i: number) => {
+    const [u, t] = PROFILE[i]!
+    return [s.x, s.y - s.h * t, s.lead + s.chord * u]
+  }
+  const last = PROFILE.length - 1
+
+  for (let k = 0; k < stations.length - 1; k++) {
+    const a = stations[k]!
+    const b = stations[k + 1]!
+    for (let i = 0; i < last; i++) {
+      tri(up(a, i), up(b, i + 1), up(b, i)); tri(up(a, i), up(a, i + 1), up(b, i + 1))
+      tri(lo(a, i), lo(b, i), lo(b, i + 1)); tri(lo(a, i), lo(b, i + 1), lo(a, i + 1))
+    }
+    // 前緣（−Z）與後緣（+Z）：翼型在這兩端沒有完全收合，要各補一條窄面
+    tri(up(a, 0), up(b, 0), lo(b, 0)); tri(up(a, 0), lo(b, 0), lo(a, 0))
+    tri(up(a, last), lo(a, last), lo(b, last)); tri(up(a, last), lo(b, last), up(b, last))
+  }
+
   const root = stations[0]!
   const tip = stations[stations.length - 1]!
-  tri(uLE(root), lLE(root), lTE(root)); tri(uLE(root), lTE(root), uTE(root))  // 翼根 −X
-  tri(uLE(tip), lTE(tip), lLE(tip)); tri(uLE(tip), uTE(tip), lTE(tip))        // 翼尖 +X
+  for (let i = 0; i < last; i++) {
+    tri(up(root, i), lo(root, i), lo(root, i + 1))       // 翼根 −X
+    tri(up(root, i), lo(root, i + 1), up(root, i + 1))
+    tri(up(tip, i), lo(tip, i + 1), lo(tip, i))          // 翼尖 +X
+    tri(up(tip, i), up(tip, i + 1), lo(tip, i + 1))
+  }
 
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
