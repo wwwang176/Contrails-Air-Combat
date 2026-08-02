@@ -1,3 +1,4 @@
+import { Vector3 } from 'three'
 import { DEG } from '../../core/math'
 import { createHull, type AircraftModel, type Blister, type FinParams } from './assembly'
 import { BF109E_HULL } from './bf109e.hull'
@@ -175,6 +176,9 @@ export function buildBf109E(): AircraftModel {
     accentColor: 0x33403a,
     realLength: 8.64,
     offsetZ: 0,
+    // 眼點：艙緣 0.520 上方 0.26，罩頂在 z 0.60 約 0.955、頭部餘裕僅 0.175
+    // ——109 的座艙本來就以窄小出名；z 0.60 落在風擋（0.255…0.425）後方 0.18 m
+    eyePoint: new Vector3(0, 0.78, 0.60),
   })
 
   h.cockpit(RINGS, CANOPY, CANOPY_SHAPE)

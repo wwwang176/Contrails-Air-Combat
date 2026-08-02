@@ -1,3 +1,4 @@
+import { Vector3 } from 'three'
 import { DEG } from '../../core/math'
 import { createHull, type AircraftModel, type Blister, type FinParams, type LoftPart } from './assembly'
 import type { CanopyStation } from './canopy'
@@ -241,6 +242,9 @@ export function buildP51D(): AircraftModel {
     accentColor: 0x2f3a46,
     realLength: 9.83,
     offsetZ: 0,
+    // 眼點：艙緣 0.520 上方 0.28（肩膀齊艙緣），罩頂在 z 0.685 為 1.029、
+    // 頭部餘裕 0.23；z 0.70 落在風擋底框（0.085）後方 0.6 m
+    eyePoint: new Vector3(0, 0.80, 0.70),
   })
 
   h.cockpit(RINGS, CANOPY, CANOPY_SHAPE)

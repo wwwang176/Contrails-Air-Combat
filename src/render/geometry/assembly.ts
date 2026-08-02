@@ -52,6 +52,8 @@ export interface HullMetrics {
 export interface AircraftModel {
   group: Group
   metrics: HullMetrics
+  /** 機首視角的眼點，**機體座標**（已含重心位移）。見 HullSpec.eyePoint */
+  eyePoint: Vector3
   /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
   setPropSpin(rotation: number, blurred: boolean): void
   dispose(): void
@@ -134,6 +136,15 @@ export interface HullSpec {
    * 正），而且日後移動機翼不必連帶重算其他四十個座標。
    */
   offsetZ: number
+  /**
+   * 飛行員眼點，**造型座標**（與座艙罩站位同一個座標系，finish 會補上 offsetZ）。
+   *
+   * 【為什麼一機一個值而不是相機的共用預設】兩台的座艙差很多：P-51D 的泡罩
+   * 開口 z 0.085…2.485、艙緣 0.520、罩頂 1.066；Bf 109 的方框罩開口 z
+   * 0.255…1.695、艙緣 0.520、罩頂 0.965。共用一個偏移必然有一台的眼睛在
+   * 玻璃外面。值寫在各機種的造型檔裡，就緊挨著它推導所依據的量測站位。
+   */
+  eyePoint: Vector3
 }
 
 /**
@@ -306,6 +317,7 @@ export function createHull(spec: HullSpec) {
       }
       return {
         group,
+        eyePoint: new Vector3(spec.eyePoint.x, spec.eyePoint.y, spec.eyePoint.z + spec.offsetZ),
         metrics: {
           realLength: spec.realLength, noseZ,
           noseY: (noseLo + noseHi) / 2,
