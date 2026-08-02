@@ -6,8 +6,8 @@ const RANGE = 8000
 const CELL = 2000
 
 /**
- * 小地圖。M1 只有自機，先建立框架與航向顯示；
- * M4 加入敵我單位時，依高度差以方形／三角形／倒三角形區分（spec 原始需求）。
+ * 小地圖。自機恆在中心且恆朝上，他機依高度差以三角／方／倒三角區分敵我
+ * 與相對高度（M2 spec §8）。
  *
  * 【機首朝上】自機符號固定指向畫面上方，轉的是地圖。空戰時腦子裡的方位
  * 是相對自己的（「他在我兩點鐘」），北方朝上的地圖每次都要先在心裡轉一次。
@@ -49,6 +49,44 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.moveTo(-reach, gz); ctx.lineTo(reach, gz)
   }
   ctx.stroke()
+
+  // 敵我符號：高於我 = 三角、同層 = 方、低於我 = 倒三角（spec §8）。
+  // 【畫在旋轉座標系裡但符號本身不轉】位置要跟著地圖轉（機首朝上），
+  // 形狀不能轉——倒三角轉了就讀不出「他在我下面」。
+  for (let i = 0; i < f.contactCount; i++) {
+    const c = f.contacts[i]!
+    if (!c.active) continue
+    const dx = c.worldX - f.worldX
+    const dz = c.worldZ - f.worldZ
+    // 【剔除用距離，不用未旋轉的方框】地圖轉了 −heading，畫面上的方形
+    // clip 對映回世界是一個**旋轉過的**方形。拿未旋轉的方框預先剔除，
+    // 會讓四個角落方向上該看得到的目標提前消失。用半徑剔除保守而正確，
+    // 剩下的邊角交給既有的 clip 處理。
+    if (Math.hypot(dx, dz) > RANGE * 1.45) continue
+    const rx = dx * px
+    const rz = dz * px
+
+    ctx.save()
+    ctx.translate(rx, rz)
+    ctx.rotate(f.heading)
+    ctx.fillStyle = c.hostile ? HUD_COLORS.danger : HUD_COLORS.friendly
+    const s = 4 * L.scale
+    ctx.beginPath()
+    switch (minimapSymbol(c.deltaY)) {
+      case 'above':
+        ctx.moveTo(0, -s); ctx.lineTo(s, s); ctx.lineTo(-s, s)
+        break
+      case 'below':
+        ctx.moveTo(0, s); ctx.lineTo(s, -s); ctx.lineTo(-s, -s)
+        break
+      case 'level':
+        ctx.rect(-s * 0.8, -s * 0.8, s * 1.6, s * 1.6)
+        break
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+  }
   ctx.restore()
 
   ctx.strokeStyle = HUD_COLORS.dim
@@ -87,4 +125,18 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     `X ${(f.worldX / 1000).toFixed(1)}  Z ${(f.worldZ / 1000).toFixed(1)}`,
     x, y + size + 5 * L.scale,
   )
+}
+
+/**
+ * 同層的高度帶，m。帶內畫方形，帶外畫三角／倒三角。
+ *
+ * 【為什麼是 200 m】空戰的高度優勢在 200 m 以內基本上不構成優勢——那是
+ * 一次拉升就補得回來的量。門檻太小的話符號會在平飛時抖動。
+ */
+export const MINIMAP_LEVEL_BAND = 200
+
+export function minimapSymbol(deltaY: number): 'above' | 'level' | 'below' {
+  if (deltaY > MINIMAP_LEVEL_BAND) return 'above'
+  if (deltaY < -MINIMAP_LEVEL_BAND) return 'below'
+  return 'level'
 }

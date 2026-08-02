@@ -39,6 +39,22 @@ export function drawReticle(
     ctx.moveTo(nx, ny + gap); ctx.lineTo(nx, ny + a)
     ctx.stroke()
 
+    // 命中回饋：`X` 標記。血量在二戰題材上說不通——你看不出對方的結構
+    // 完整度——所以回饋就是這個標記，那是這個世界裡真的存在的東西
+    // （彈著的閃光）。0.15 s，期間再命中則重新計時（spec §8）。
+    if (f.hitFlash > 0) {
+      const d = 22 * L.scale
+      const w = 7 * L.scale
+      ctx.strokeStyle = HUD_COLORS.danger
+      ctx.lineWidth = 2.5 * L.scale
+      ctx.beginPath()
+      for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+        ctx.moveTo(nx + sx * d, ny + sy * d)
+        ctx.lineTo(nx + sx * (d + w), ny + sy * (d + w))
+      }
+      ctx.stroke()
+    }
+
     // 兩準星之間的連線，強化「跟不上」的感受
     if (f.aimVisible) {
       ctx.strokeStyle = HUD_COLORS.dim
