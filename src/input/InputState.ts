@@ -25,6 +25,13 @@ export interface InputState {
   lookYaw: number
   lookPitch: number
   viewMode: 'third' | 'first'
+  /**
+   * 扳機是否按住（滑鼠左鍵）。
+   *
+   * 【為什麼不是單幀旗標】射速時鐘吃的是「這一個物理步扳機在不在」，
+   * 240 Hz 下一幀會走好幾步；單幀旗標會讓同一次點擊在多個步裡各觸發一次。
+   */
+  firing: boolean
   /** 單幀旗標，消費後由呼叫端清除 */
   resetRequested: boolean
   /** 單幀旗標，切換機種 */
@@ -41,6 +48,7 @@ export function createInputState(): InputState {
     lookYaw: 0,
     lookPitch: 0,
     viewMode: 'third',
+    firing: false,
     resetRequested: false,
     swapSpecRequested: false,
   }
