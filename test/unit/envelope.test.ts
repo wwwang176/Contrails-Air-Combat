@@ -1,0 +1,217 @@
+import { describe, it, expect } from 'vitest'
+import {
+  maxLoadFactorAero, stallSpeed, dragAt, thrustAt, specificExcessPower,
+  maxLevelSpeed, maxClimbRate, serviceCeiling, instantaneousTurnRate,
+  sustainedTurnRate, cornerSpeed, maxRollRate,
+} from '../../src/analysis/envelope'
+import { P51D } from '../../src/specs/p51d'
+import { BF109G6 } from '../../src/specs/bf109g6'
+
+const KMH = 1 / 3.6
+const RAD2DEG = 180 / Math.PI
+
+describe('stallSpeed', () => {
+  it('隨過載開根號成長', () => {
+    const v1 = stallSpeed(P51D, 0, 1)
+    const v4 = stallSpeed(P51D, 0, 4)
+    expect(v4 / v1).toBeCloseTo(2, 6)
+  })
+
+  it('隨高度上升（密度下降）', () => {
+    expect(stallSpeed(P51D, 6000, 1)).toBeGreaterThan(stallSpeed(P51D, 0, 1))
+  })
+})
+
+describe('maxLoadFactorAero', () => {
+  it('速度為失速速度時過載為 1', () => {
+    const vs = stallSpeed(P51D, 0, 1)
+    expect(maxLoadFactorAero(P51D, 0, vs)).toBeCloseTo(1, 6)
+  })
+
+  it('隨速度平方成長', () => {
+    const vs = stallSpeed(P51D, 0, 1)
+    expect(maxLoadFactorAero(P51D, 0, vs * 2)).toBeCloseTo(4, 6)
+  })
+})
+
+describe('dragAt', () => {
+  it('過載超出氣動極限時回傳 Infinity', () => {
+    const vs = stallSpeed(P51D, 0, 1)
+    expect(dragAt(P51D, 0, vs, 3)).toBe(Infinity)
+  })
+
+  it('相同速度下過載愈高阻力愈大（誘導阻力）', () => {
+    expect(dragAt(P51D, 3000, 200, 4)).toBeGreaterThan(dragAt(P51D, 3000, 200, 1))
+  })
+})
+
+describe('maxLevelSpeed 與 Ps 的一致性', () => {
+  it('極速處的 Ps 接近 0', () => {
+    const v = maxLevelSpeed(P51D, 7600)
+    expect(Math.abs(specificExcessPower(P51D, 7600, v, 1))).toBeLessThan(0.5)
+  })
+
+  it('極速以下 Ps 為正、以上為負', () => {
+    const v = maxLevelSpeed(P51D, 5000)
+    expect(specificExcessPower(P51D, 5000, v * 0.9, 1)).toBeGreaterThan(0)
+    expect(specificExcessPower(P51D, 5000, v * 1.05, 1)).toBeLessThan(0)
+  })
+
+  it('推力在極速處等於阻力', () => {
+    const v = maxLevelSpeed(BF109G6, 6300)
+    expect(thrustAt(BF109G6, 6300, v)).toBeCloseTo(dragAt(BF109G6, 6300, v, 1), 0)
+  })
+
+  // 直接釘住「動力曲線背面」修正：10,470 m 附近 T−D(v) 在失速上方先為負（誘導阻力過大，
+  // 約 89.8 m/s 由負轉正）、中段轉正、接近極速再由正轉負（約 178.4 m/s）。若退回只檢查
+  // 失速速度×1.05 這一點正負的舊寫法，這裡會誤判為「無法平飛」而回傳 0。
+  // 正確答案是上面那個（較高的）根，實測約 177.939 m/s。
+  it('動力曲線背面：10,470 m 處仍能正確找到較高速的那個根', () => {
+    expect(maxLevelSpeed(P51D, 10470)).toBeGreaterThan(150)
+  })
+
+  // finding #1：增壓器換檔的臨界高度是 C0 但非 C1（斜率有 16 倍量級的跳變、正負號翻轉）。
+  // 只要 maxLevelSpeed 還是「粗掃描＋二分」而非退化成導數法，跨越接縫時速度應該平滑變化，
+  // 不會出現階梯或發散。這裡直接對 P-51D 的兩個換檔高度（1,900 m、5,900 m）做連續性檢查，
+  // 守住促成整個掃描＋二分設計的那個性質。
+  it('平飛極速跨越增壓器換檔接縫時連續（1,900 m、5,900 m）', () => {
+    expect(Math.abs(maxLevelSpeed(P51D, 2000) - maxLevelSpeed(P51D, 1800))).toBeLessThan(10)
+    expect(Math.abs(maxLevelSpeed(P51D, 6000) - maxLevelSpeed(P51D, 5800))).toBeLessThan(10)
+  })
+})
+
+describe('maxClimbRate', () => {
+  it('最佳爬升速度介於失速速度與極速之間', () => {
+    const { speed } = maxClimbRate(P51D, 0)
+    expect(speed).toBeGreaterThan(stallSpeed(P51D, 0, 1))
+    expect(speed).toBeLessThan(maxLevelSpeed(P51D, 0))
+  })
+
+  it('爬升率隨高度下降', () => {
+    expect(maxClimbRate(P51D, 8000).rate).toBeLessThan(maxClimbRate(P51D, 0).rate)
+  })
+
+  // 絕對升限（P-51D 約 11,470 m，高於 0.5 m/s 判定用的 serviceCeiling≈11,242 m）以上，
+  // maxLevelSpeed 會回傳「查無可平飛速度」的哨兵值 0。若把這個 0 直接餵給
+  // Math.max(vLevel, vMin+1) 當搜尋上界，掃描區間會塌縮成失速速度正上方僅 1 m/s 的
+  // 窄窗——剛好是阻力最大的一段，導致 rate 出現階梯式跳變（曾實測 11,450→11,500 m
+  // 從 +0.017 掉到 −2.122，而 [v_stall·1.02, 400] 全域搜尋的真實值只有 −0.098）。
+  // 這裡直接跨越該高度檢查連續性，防止此問題再度發生。
+  it('爬升率跨越絕對升限時連續，不因哨兵值污染搜尋上界而跳變', () => {
+    const below = maxClimbRate(P51D, 11450).rate
+    const above = maxClimbRate(P51D, 11500).rate
+    expect(Math.abs(above - below)).toBeLessThan(1) // 50 m 高度差，真實爬升率變化遠小於 1 m/s
+  })
+})
+
+describe('serviceCeiling', () => {
+  it('落在合理區間並高於 8,000 m', () => {
+    const c = serviceCeiling(P51D)
+    expect(c).toBeGreaterThan(8000)
+    expect(c).toBeLessThan(16000)
+  })
+
+  it('升限處爬升率接近判定門檻', () => {
+    const c = serviceCeiling(P51D)
+    expect(maxClimbRate(P51D, c).rate).toBeCloseTo(0.5, 1)
+  })
+
+  // serviceCeiling 在二分前必須先驗證 [0, 20000] 真的括住 CEILING_RATE 這個門檻，
+  // 否則二分法在無解時會直接收斂到端點，回傳一個與合法答案無法區分的數字
+  // （0 看起來像「升限就在海平面」，20000 看起來像「升限恰好在搜尋上限」）。
+  // 這裡用 spread 建構暫時的機體變體（不動 src/specs 底下任何檔案）驗證兩個方向。
+  it('海平面就已達不到門檻爬升率（機體過重）時回傳 NaN，而非誤判為 0', () => {
+    const tooHeavy = { ...P51D, mass: 40000 }
+    expect(maxClimbRate(tooHeavy, 0).rate).toBeLessThan(0.5)
+    expect(Number.isNaN(serviceCeiling(tooHeavy))).toBe(true)
+  })
+
+  it('20,000 m 處爬升率仍超過門檻（搜尋範圍未括住解）時回傳 NaN，而非誤判為 20000', () => {
+    const veryLight = { ...P51D, mass: 100 }
+    expect(maxClimbRate(veryLight, 20000).rate).toBeGreaterThan(0.5)
+    expect(Number.isNaN(serviceCeiling(veryLight))).toBe(true)
+  })
+})
+
+describe('轉彎性能', () => {
+  it('持續轉彎率永不超過瞬間轉彎率', () => {
+    for (const v of [120, 160, 200, 250, 300]) {
+      expect(sustainedTurnRate(P51D, 0, v)).toBeLessThanOrEqual(
+        instantaneousTurnRate(P51D, 0, v) + 1e-9,
+      )
+    }
+  })
+
+  // V_corner = V_stall × √n_limit。
+  // P-51D：停轉 ~172 km/h（史實 160）× √8   = 486 km/h
+  // Bf 109：停轉 ~162 km/h（史實 170）× √7.5 = 443 km/h
+  // 二戰戰機在 7~8 G 結構限制下，corner speed 本來就落在 450~500 km/h 附近。
+  // 計畫原本寫的 250~400 km/h 對本專案任何一架飛機都不成立
+  // （見 Task 13 報告的協調者裁決：獨立手算與本模型的 486.4 km/h 完全吻合）。
+  it('角落速度落在 400–550 km/h 的合理區間', () => {
+    const vcP51 = cornerSpeed(P51D, 0) / KMH
+    const vcBf = cornerSpeed(BF109G6, 0) / KMH
+    expect(vcP51).toBeGreaterThan(400)
+    expect(vcP51).toBeLessThan(550)
+    expect(vcBf).toBeGreaterThan(400)
+    expect(vcBf).toBeLessThan(550)
+  })
+
+  it('角落速度處瞬間轉彎率達到峰值附近', () => {
+    const vc = cornerSpeed(P51D, 0)
+    const peak = instantaneousTurnRate(P51D, 0, vc)
+    expect(instantaneousTurnRate(P51D, 0, vc * 0.8)).toBeLessThan(peak)
+    expect(instantaneousTurnRate(P51D, 0, vc * 1.3)).toBeLessThan(peak)
+  })
+
+  // 角落速度的定義就是「瞬間轉彎率峰值所在的速度」——氣動過載曲線（隨速度平方上升）
+  // 與結構過載上限的交點以下轉彎率隨速度上升，以上則因過載被夾在常數 gPositive
+  // 而隨速度增加反而下降，兩段恰在 cornerSpeed 交接。這裡用細掃描直接驗證峰值
+  // 落點與 cornerSpeed 的解析解一致，把兩個獨立求解器（instantaneousTurnRate 與
+  // cornerSpeed）串起來做交叉驗證，而不只是猜一個合理區間。
+  //
+  // 【修正】掃描網格不可以讓 vc 本身剛好是格點——原本 vc*0.5 + vc*(i/N) 在 i=N/2=200
+  // 時會位元精確等於 vc，於是「峰值落在 vc」是網格構造保證的，不是實測出來的。
+  // 改用 vc*(0.5 + (i+0.5)/N) 把每個格點都偏移半格，讓 vc 落在兩個格點中間、
+  // 不會被抽樣命中；容差收緊到約 2 倍格距（格距 = vc/N = 0.25%，2 倍 = 0.5%），
+  // 使其成為真正的檢查而非同義重複。
+  it('cornerSpeed 與 instantaneousTurnRate 的峰值交叉驗證', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const vc = cornerSpeed(spec, 0)
+      let bestV = 0
+      let bestRate = -Infinity
+      const N = 400
+      for (let i = 0; i <= N; i++) {
+        const v = vc * (0.5 + (i + 0.5) / N)
+        const r = instantaneousTurnRate(spec, 0, v)
+        if (r > bestRate) {
+          bestRate = r
+          bestV = v
+        }
+      }
+      expect(Math.abs(bestV - vc) / vc).toBeLessThan(0.005)
+    }
+  })
+
+  it('低速持續轉彎率為正且落在合理範圍', () => {
+    const rate = sustainedTurnRate(BF109G6, 0, 300 * KMH) * RAD2DEG
+    expect(rate).toBeGreaterThan(5)
+    expect(rate).toBeLessThan(35)
+  })
+})
+
+describe('maxRollRate', () => {
+  it('P-51 在 480 km/h 約 100 度/秒', () => {
+    expect(maxRollRate(P51D, 0, 480 * KMH) * RAD2DEG).toBeCloseTo(100, -1)
+  })
+
+  it('Bf 109 在 400 km/h 約 80 度/秒', () => {
+    expect(maxRollRate(BF109G6, 0, 400 * KMH) * RAD2DEG).toBeCloseTo(80, -1)
+  })
+
+  it('Bf 109 在 650 km/h 因副翼變重而大幅衰減', () => {
+    const r = maxRollRate(BF109G6, 0, 650 * KMH) * RAD2DEG
+    expect(r).toBeGreaterThan(20)
+    expect(r).toBeLessThan(45)
+  })
+})

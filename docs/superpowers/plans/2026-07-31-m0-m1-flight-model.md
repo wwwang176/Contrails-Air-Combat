@@ -45,7 +45,7 @@ G0 = 9.80665 m/s²
 
 ## Spec 修訂
 
-規劃期間對照 spec 實算後，發現四處必須修訂。**這些修訂已納入下方任務，spec 文件將在 Task 26 一併更新。**
+規劃期間對照 spec 實算後，發現五處必須修訂。**這些修訂已納入下方任務，spec 文件將在 Task 27 一併更新。**
 
 ### 修訂 1：CL_max 改為推導值
 
@@ -88,9 +88,9 @@ M = 0.6306 → (1.0794)^3.5 = 1.3066
 
 Spec §13.2 寫「跑模擬到穩態」。實際上以 240 Hz 積分器跑到極速穩態需要數十秒模擬時間 × 兩台飛機 × 多個高度，測試會慢到無法迭代，且受積分誤差影響而不夠確定。
 
-**改為**：新增 `src/analysis/envelope.ts`，以解析／二分搜尋方式直接求解穩態（見 Task 12）。L2/L3 呼叫求解器。
+**改為**：新增 `src/analysis/envelope.ts`，以解析／二分搜尋方式直接求解穩態（見 Task 13）。L2/L3 呼叫求解器。
 
-覆蓋率缺口由 **Task 15 的端對端交叉驗證測試**補回：實際跑積分器 60 秒，確認收斂結果與求解器差距在 2% 以內。這同時驗證了積分器與求解器兩者。
+覆蓋率缺口由 **Task 16 的端對端交叉驗證測試**補回：實際跑積分器 60 秒，確認收斂結果與求解器差距在 2% 以內。這同時驗證了積分器與求解器兩者。
 
 ### 修訂 4：移除 `slatClBonus` 參數
 
@@ -1130,7 +1130,7 @@ CPU 端 gerstnerHeight（碰撞判定）使用，確保視覺與判定一致。
 - Produces: `createPerfOverlay(renderer: WebGLRenderer): PerfOverlay`，
   `PerfOverlay = { begin(): void; beginPhysics(): void; endPhysics(): void; endFrame(substeps: number): void; toggle(): void; readonly visible: boolean }`
 
-**驗收要求（spec §3.10）：** 微基準必須輸出單一物理步實測耗時。**若 > 20 µs/步，代表熱路徑存在配置行為造成 GC 壓力，必須先修正才能繼續後續任務。** 本任務先以佔位負載建立基準框架，Task 11 完成 `dynamics.step` 後替換為真實負載。
+**驗收要求（spec §3.10）：** 微基準必須輸出單一物理步實測耗時。**若 > 20 µs/步，代表熱路徑存在配置行為造成 GC 壓力，必須先修正才能繼續後續任務。** 本任務先以佔位負載建立基準框架，Task 12 完成 `dynamics.step` 後替換為真實負載。
 
 - [ ] **Step 1: 實作 src/core/perf.ts**
 
@@ -1269,7 +1269,7 @@ import { makeScratch } from '../src/core/pool'
  * 驗收門檻（spec §3.10）：單步耗時必須 < 20 µs。
  * 超標代表熱路徑存在配置行為造成 GC 壓力，必須先修正。
  *
- * Task 11 完成 dynamics.step 後，此基準會替換為真實負載。
+ * Task 12 完成 dynamics.step 後，此基準會替換為真實負載。
  */
 describe('physics step', () => {
   const S = makeScratch(6, 2)
