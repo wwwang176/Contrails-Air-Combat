@@ -1,10 +1,10 @@
-import { drawAttitude } from './widgets/attitude'
+import { drawDials } from './widgets/dials'
 import { drawEnergy } from './widgets/energy'
 import { drawGEffect } from './widgets/gEffect'
 import { drawHints } from './widgets/hints'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
-import { drawAltitudeTape, drawHeadingTape, drawSpeedTape } from './widgets/tape'
+import { drawHeadingTape } from './widgets/tape'
 import type { HudFrame, HudLayout } from './types'
 
 export class Hud {
@@ -44,10 +44,8 @@ export class Hud {
     // 黑視/紅視先畫，其餘 HUD 元件疊在上面維持可讀
     drawGEffect(ctx, L, f, dt)
     drawReticle(ctx, L, f)
-    drawSpeedTape(ctx, L, f)
-    drawAltitudeTape(ctx, L, f)
     drawHeadingTape(ctx, L, f)
-    drawAttitude(ctx, L, f)
+    drawDials(ctx, L, f)
     drawMinimap(ctx, L, f)
     drawEnergy(ctx, L, f)
     drawHints(ctx, L)
