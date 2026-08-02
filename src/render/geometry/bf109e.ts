@@ -43,12 +43,12 @@ import type { WingParams } from './wing'
  * 機身開口的邊緣被擋住了。0.520 是人工定的，其餘全部照量測值。
  */
 const CANOPY: readonly CanopyStation[] = [
-  { z: 0.355, sill: 0.520, roof: 0.829 },   // 風擋底框，齊機背
-  { z: 0.525, sill: 0.520, roof: 0.965 },   // 風擋頂
-  { z: 0.975, sill: 0.520, roof: 0.945 },
-  { z: 1.395, sill: 0.520, roof: 0.925 },   // 滑動罩尾端，尾斜切自此起
-  { z: 1.595, sill: 0.720, roof: 0.915 },
-  { z: 1.795, sill: 0.910, roof: 0.907 },   // 艙緣高過罩頂 → 收成一點
+  { z: 0.255, sill: 0.520, roof: 0.829 },   // 風擋底框，齊機背
+  { z: 0.425, sill: 0.520, roof: 0.965 },   // 風擋頂
+  { z: 0.875, sill: 0.520, roof: 0.945 },
+  { z: 1.295, sill: 0.520, roof: 0.925 },   // 滑動罩尾端，尾斜切自此起
+  { z: 1.495, sill: 0.720, roof: 0.915 },
+  { z: 1.695, sill: 0.910, roof: 0.907 },   // 艙緣高過罩頂 → 收成一點
 ]
 const CANOPY_SHAPE = { topWidth: 0.21 }
 
@@ -63,26 +63,57 @@ const CANOPY_SHAPE = { topWidth: 0.21 }
  *
  * 順帶把座艙段整體加密：那裡是全機最常被盯著看的地方，18 圈不是硬性上限。
  */
-const CANOPY_EXTRA_Z = [0.345, 0.440, 0.700, 1.180, 1.500, 1.700, 1.805]
+const CANOPY_EXTRA_Z = [0.245, 0.340, 0.600, 1.080, 1.400, 1.600, 1.705]
 
 const RINGS = prepareRings(BF109E_HULL, [...CANOPY.map((s) => s.z), ...CANOPY_EXTRA_Z])
 
+/**
+ * 主翼。
+ *
+ * 【機身整體往前移了 0.10 m，不是機翼往後】對參考模型 x = 1.5…4.7 的前緣
+ * 配一條直線（每站 0.006 m，線性到不能再線性）再外推到 x = 0，落在 −0.4545；
+ * 本模型的翼根前緣是 −0.555，**機翼相對機身往前 0.10 m**。四分之一弦線必須
+ * 壓在原點（重心），所以機翼不能動——移的是機身、座艙、尾翼、螺旋槳與所有
+ * 貼在機身上的凸起，全部 −0.10。翼下散熱器貼在機翼上，不跟著動。
+ *
+ * 修完前緣逐站差 1 mm。旁證：風擋底框原本落在翼弦的 41%，移完是 36.5%
+ * ——與 P-51D 量到的 36.5% 完全一致，兩台真機的風擋都在這個位置。
+ *
+ * 【弦長與厚度不採用量測值】參考模型的機翼比真機大：量到翼根弦 2.279、
+ * 厚弦比 16.9%，而 spec 對得上的是 2.22（MAC 1.691 對 spec 1.68、翼面積
+ * 15.94 對 16.05）與真機 NACA 2R1 的 14.2%。同一台參考模型的尾翼卻小了
+ * 11%（見 TAILPLANE），**它的比例本來就不準**，只有位置可信。
+ *
+ * 【上反角同理維持 6.5°】參考模型量到 5.26°（1.5→3.0 三段斜率 0.094／
+ * 0.092／0.090，量得很乾淨），但真機是 6°30'。rootY 由 −0.37 抬到 −0.34
+ * 讓中厚線在乾淨站位（x 2.2–3.0，避開內側散熱器與外側前緣縫翼）對到
+ * ±0.013；兩端因上反角差異各留約 0.05。
+ */
 const WING: WingParams = {
   // E 型是**方翼尖**（F 型才改圓），所以沒有 tipRound。
   // 真機 NACA 2R1：翼根 14.2% × 2.22 = 0.315、翼尖 11.35% × 1.01 = 0.115。
   rootChord: 2.22, tipChord: 1.01, halfSpan: 4.935,
-  sweep: 3 * DEG, dihedral: 6.5 * DEG, thickness: 0.315, tipThickness: 0.115,
-  rootZ: -0.555, rootY: -0.37,
+  // 後掠 3.45° 量自參考模型（x 1.5→4.7 前緣後移 0.193 m）
+  sweep: 3.45 * DEG, dihedral: 6.5 * DEG, thickness: 0.315, tipThickness: 0.115,
+  rootZ: -0.555, rootY: -0.34,
 }
 
+/**
+ * 水平尾翼 —— **維持史實值，不採用參考模型的量測值**。
+ *
+ * 參考模型量到半翼展只到 x ≈ 1.47（真機翼展 3.30 m ÷ 2 = 1.65，小了 11%），
+ * 垂尾頂端量到 1.09 而本模型是 1.45。同一台模型的主翼卻大 2%——尾翼整組
+ * 被縮小了，位置與尺寸都不可信，所以這一組跟著機身一起 −0.10 就好，
+ * 不去追它。這是「參考模型只當量尺，量尺自己也要驗」的實例。
+ */
 const TAILPLANE: WingParams = {
   rootChord: 1.06, tipChord: 0.56, halfSpan: 1.65,
   sweep: 10 * DEG, dihedral: 0, thickness: 0.12, tipThickness: 0.055,
-  rootZ: 5.005, rootY: 0.55, tipRound: 0.35,
+  rootZ: 4.905, rootY: 0.55, tipRound: 0.35,
 }
 
 const FIN: FinParams = {
-  chordRoot: 1.50, chordTip: 0.68, height: 1.05, sweep: 30 * DEG, z: 4.625, rootY: 0.40,
+  chordRoot: 1.50, chordTip: 0.68, height: 1.05, sweep: 30 * DEG, z: 4.525, rootY: 0.40,
 }
 
 /**
@@ -105,12 +136,12 @@ const BLISTERS: readonly Blister[] = [
    * DB 601 的機械增壓器裝在引擎左側，進氣口因此是單邊的；這是 109 少數
    * 左右不對稱的外觀特徵，從正面或俯視一眼可辨。
    */
-  { x: -0.46, y: 0.35, z: -0.445, width: 0.22, height: 0.28, length: 0.58, round: true },
+  { x: -0.46, y: 0.35, z: -0.545, width: 0.22, height: 0.28, length: 0.58, round: true },
 
-  ...exhaustStubs(-1.075, 0.193, 6),
+  ...exhaustStubs(-1.175, 0.193, 6),
 
   // 機首下方滑油冷卻器
-  { x: 0, y: -0.30, z: -0.595, width: 0.40, height: 0.20, length: 0.87 },
+  { x: 0, y: -0.30, z: -0.695, width: 0.40, height: 0.20, length: 0.87 },
   /**
    * 翼下冷卻液散熱器 —— 位置與傾角都由**機翼自己的幾何**算出來，不是配的。
    *
@@ -125,7 +156,7 @@ const BLISTERS: readonly Blister[] = [
    * 外端後角埋 0.003、內端前角埋 0.077。
    */
   {
-    x: 1.50, y: -0.36, z: 0.375, width: 0.55, height: 0.22, length: 0.65,
+    x: 1.50, y: -0.33, z: 0.375, width: 0.55, height: 0.22, length: 0.65,
     rotZ: 7.7 * DEG, mirror: true,
   },
   /**
@@ -133,7 +164,7 @@ const BLISTERS: readonly Blister[] = [
    * 拉到平尾下表面，長 0.722、仰角 42.8°。
    */
   {
-    x: 0.355, y: 0.245, z: 5.225, width: 0.722, height: 0.05, length: 0.10,
+    x: 0.355, y: 0.245, z: 5.125, width: 0.722, height: 0.05, length: 0.10,
     rotZ: 42.8 * DEG, mirror: true, bodyColor: true,
   },
 ]
@@ -157,7 +188,7 @@ export function buildBf109E(): AircraftModel {
   h.propeller({
     // 底徑實測 0.0827 L；y 與機首環中心一致
     spinnerRadius: 0.35, spinnerLength: 0.34, spinnerY: 0.36,
-    blades: 3, propZ: -2.255, propRadius: 1.55,   // 真機 VDM 螺旋槳直徑 3.10 m
+    blades: 3, propZ: -2.355, propRadius: 1.55,   // 真機 VDM 螺旋槳直徑 3.10 m
   }, RINGS[0]!.z)
 
   return h.finish()
