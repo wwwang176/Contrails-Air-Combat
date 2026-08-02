@@ -4,7 +4,8 @@ import {
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
-import { buildGlazing, type GlazingPart } from './glazing'
+import { buildCanopy, type CanopyStation } from './canopy'
+import { buildCockpitTub, buildHull, type CockpitCut, type HullRing } from './hull'
 import { buildWingPanel, type WingParams } from './wing'
 
 /**
@@ -146,20 +147,10 @@ export function createHull(spec: HullSpec) {
   const blur = new MeshStandardMaterial({
     color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
   })
-  /**
-   * 座艙內裝：一層暗色殼，夾在玻璃與機身蒙皮之間。
-   *
-   * 【為什麼不真的把機身挖空】機身是 lofting 出來的封閉管子，沒有「挖洞」
-   * 這個操作。唯一能在管子上做出凹口的方法是把該段的截面壓扁，但截面一壓
-   * 扁，同一站位的**寬度**也跟著縮——實測艙緣高度的半寬會由 0.401 掉到
-   * 0.314，機身在座艙處變成一個腰身，正視與俯視都很明顯。
-   *
-   * 改成擋住視線：透過半透明玻璃看到的不再是機身色的蒙皮，而是這層暗色，
-   * 讀起來就是一個凹進去的座艙。真機的座艙內部本來也只有暗影可辨。
-   */
-  const cockpit = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
+  /** 座艙內裝：機身開口下方的暗色內殼，見 buildCockpitTub。 */
+  const cockpitMat = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
 
-  const disposables: { dispose(): void }[] = [body, accent, glass, blur, cockpit]
+  const disposables: { dispose(): void }[] = [body, accent, glass, blur, cockpitMat]
   const add = (mesh: Mesh): Mesh => {
     disposables.push(mesh.geometry)
     hull.add(mesh)
@@ -177,23 +168,19 @@ export function createHull(spec: HullSpec) {
     },
 
     /**
-     * 嵌進機身的座艙玻璃殼（形狀由機身截面推導），連同底下的暗色內裝。
+     * 烘焙好的機身外殼，並在座艙段挖開；連同開口下方的暗色內裝與玻璃罩。
      *
-     * 內裝用同一份輪廓往內縮：撐出量減半以夾在玻璃與蒙皮之間、罩頂降
-     * 0.03、艙緣**降** 0.06。艙緣要降不是升——升上去會在玻璃下緣露出一條
-     * 機身色的縫，正是「機體跟玻璃沒銜接」的樣子。
+     * 三者共用同一組環（prepareRings 已把玻璃的站位補進去），所以開口邊緣、
+     * 內裝上緣、玻璃下緣算的是**同一個交點**——機體與玻璃不會有縫。
      */
-    glazing(fuselage: LoftPart, part: GlazingPart): void {
-      add(new Mesh(buildGlazing(fuselage.sections, part, fuselage.roundness), glass))
-      const inner: GlazingPart = {
-        ...part,
-        bulge: part.bulge / 2,
-        topWidth: part.topWidth - 0.02,
-        stations: part.stations.map((s) => ({
-          z: s.z, sill: s.sill - 0.06, roof: s.roof - 0.03,
-        })),
-      }
-      add(new Mesh(buildGlazing(fuselage.sections, inner, fuselage.roundness), cockpit))
+    cockpit(rings: readonly HullRing[], stations: readonly CanopyStation[], topWidth: number): void {
+      const cut: CockpitCut = { sill: stations.map((s) => [s.z, s.sill] as const) }
+      add(new Mesh(buildHull(rings, cut).geometry, body))
+      const tub = add(new Mesh(buildCockpitTub(rings, cut, 0.90, 0.08), cockpitMat))
+      // 內裝是**朝內**的殼——從開口往下看要看得到它的內側。標記出來，
+      // 免得「法線朝外」的檢查把這個刻意的方向當成缺陷。
+      tub.userData['inwardShell'] = true
+      add(new Mesh(buildCanopy(rings, stations, topWidth), glass))
     },
 
     /** 左右成對的翼面（主翼、水平尾翼）。 */

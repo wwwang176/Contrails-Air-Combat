@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { BufferGeometry, Mesh, Vector3 } from 'three'
 import { buildFuselage, type FuselageSection } from '../../src/render/geometry/fuselage'
-import { buildGlazing } from '../../src/render/geometry/glazing'
+import { buildCanopy } from '../../src/render/geometry/canopy'
+import { buildHull, prepareRings, type HullRing } from '../../src/render/geometry/hull'
 import { buildWingPanel } from '../../src/render/geometry/wing'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
@@ -183,57 +184,74 @@ describe('buildWingPanel', () => {
   })
 })
 
-describe('buildGlazing', () => {
-  const FUS: FuselageSection[] = [
-    { z: -1, halfWidth: 0.4, halfHeight: 0.6, centerY: 0.2 },
-    { z: 1, halfWidth: 0.4, halfHeight: 0.6, centerY: 0.2 },
+describe('buildHull / buildCanopy', () => {
+  /** 兩圈同形的方管，半剖面由正上方到正下方。 */
+  const RINGS: HullRing[] = [-1, 1].map((z) => ({
+    z,
+    half: [[0, 0.6], [0.3, 0.55], [0.4, 0.2], [0.4, -0.2], [0.3, -0.55], [0, -0.6]] as const,
+  }))
+  const STATIONS = [
+    { z: -0.5, sill: 0.3, roof: 0.9 },
+    { z: 0.5, sill: 0.3, roof: 0.9 },
   ]
-  const part = {
-    topWidth: 0.2, sideSegments: 3, bulge: 0.03,
-    stations: [
-      { z: -0.5, sill: 0.4, roof: 1.0 },
-      { z: 0.5, sill: 0.4, roof: 1.0 },
-    ],
-  }
-  const bounds = (geo: BufferGeometry) => {
-    const p = geo.getAttribute('position')
-    let lo = Infinity, hi = -Infinity, wide = 0
-    for (let i = 0; i < p.count; i++) {
-      lo = Math.min(lo, p.getY(i)); hi = Math.max(hi, p.getY(i))
-      wide = Math.max(wide, Math.abs(p.getX(i)))
-    }
-    return { lo, hi, wide }
+  const ys = (g: { getAttribute(n: string): { count: number; getY(i: number): number } }) => {
+    const p = g.getAttribute('position')
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i < p.count; i++) { lo = Math.min(lo, p.getY(i)); hi = Math.max(hi, p.getY(i)) }
+    return { lo, hi }
   }
 
-  it('上下界就是 sill 與 roof', () => {
-    const b = bounds(buildGlazing(FUS, part, 2.8))
-    expect(b.lo).toBeCloseTo(0.4, 6)
-    expect(b.hi).toBeCloseTo(1.0, 6)
+  it('沒有開口時是封閉管，法線朝外', () => {
+    expect(signedVolume(buildHull(RINGS).geometry)).toBeGreaterThan(0)
   })
 
   /**
-   * 玻璃必須整片落在機身**外側**，否則半透明的埋沒部分會透出來——那正是
-   * 舊版把座艙罩做成獨立管子時的樣子：側面一團浮在機身上的淡色楔形。
+   * 【這是「座艙挖空」的核心行為】開口段的艙緣以上不能有面。挖不掉的話，
+   * 透過半透明玻璃看到的還是機身蒙皮——那正是改成烘焙頂點之前的樣子。
    */
-  it('艙緣處比機身寬（bulge 撐出去）', () => {
-    const b = bounds(buildGlazing(FUS, part, 2.8))
-    // 機身在 y=0.4 的半寬：r=(0.4−0.2)/0.6，超橢圓解 x
-    const r = 0.2 / 0.6
-    const fus = 0.4 * (1 - r ** 2.8) ** (1 / 2.8)
-    expect(b.wide).toBeGreaterThan(fus)
-    expect(b.wide).toBeCloseTo(fus * 1.03, 6)
+  it('開口段把艙緣以上挖掉，且邊緣是一條水平線', () => {
+    const rings = prepareRings(RINGS, STATIONS.map((s) => s.z))
+    const cut = { sill: STATIONS.map((s) => [s.z, s.sill] as const) }
+    const solid = buildHull(rings).geometry
+    const holed = buildHull(rings, cut).geometry
+    expect(holed.getAttribute('position').count)
+      .toBeLessThan(solid.getAttribute('position').count)
+
+    // 開口 z 範圍內不得有任何高於艙緣的頂點
+    const p = holed.getAttribute('position')
+    for (let i = 0; i < p.count; i++) {
+      if (p.getZ(i) < -0.5 - 1e-9 || p.getZ(i) > 0.5 + 1e-9) continue
+      expect(p.getY(i)).toBeLessThanOrEqual(0.3 + 1e-6)
+    }
   })
 
-  it('sill 高過 roof 時輪廓收成一點（尾端斜切靠這個收掉）', () => {
-    const collapsed = buildGlazing(FUS, {
-      ...part,
-      stations: [{ z: -0.5, sill: 0.4, roof: 1.0 }, { z: 0.5, sill: 1.2, roof: 1.0 }],
-    }, 2.8)
-    const p = collapsed.getAttribute('position')
+  it('玻璃下緣正好落在開口邊緣上（機體與玻璃要銜接）', () => {
+    const rings = prepareRings(RINGS, STATIONS.map((s) => s.z))
+    const cut = { sill: STATIONS.map((s) => [s.z, s.sill] as const) }
+    const rim = buildHull(rings, cut).rim
+    const g = buildCanopy(rings, STATIONS, 0.15)
+    const b = ys(g)
+    expect(b.lo).toBeCloseTo(0.3, 6)      // 下緣＝艙緣
+    expect(b.hi).toBeCloseTo(0.9, 6)      // 上緣＝罩頂
+
+    // 玻璃在艙緣的半寬必須等於開口邊緣的半寬，否則兩者之間會有縫
+    const p = g.getAttribute('position')
+    let widest = 0
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(p.getY(i) - 0.3) < 1e-6) widest = Math.max(widest, Math.abs(p.getX(i)))
+    }
+    expect(widest).toBeCloseTo(rim[0]!.x, 6)
+  })
+
+  it('艙緣高過罩頂時玻璃收成一點（尾端斜切靠這個收掉）', () => {
+    const g = buildCanopy(RINGS, [
+      { z: -0.5, sill: 0.3, roof: 0.9 }, { z: 0.5, sill: 1.0, roof: 0.9 },
+    ], 0.15)
+    const p = g.getAttribute('position')
     for (let i = 0; i < p.count; i++) {
       if (Math.abs(p.getZ(i) - 0.5) < 1e-9) {
         expect(p.getX(i)).toBeCloseTo(0, 6)
-        expect(p.getY(i)).toBeCloseTo(1.0, 6)
+        expect(p.getY(i)).toBeCloseTo(0.9, 6)
       }
     }
   })
@@ -252,8 +270,10 @@ describe('buildAircraft', () => {
         m.group.traverse((o) => {
           const g = (o as Mesh).geometry
           if (!g?.getAttribute?.('position')) return
-          // 座艙玻璃與內裝是開放的殼，帶符號體積不是嚴格的纏繞判準；但殼
-          // 翻過來就會被背面剔除、整片看不見，這條仍然抓得到那種情況。
+          // 座艙內裝刻意朝內（從開口往下看要看得到內側），略過。
+          if (o.userData['inwardShell']) return
+          // 玻璃是開放的殼，帶符號體積不是嚴格的纏繞判準；但殼翻過來就會被
+          // 背面剔除、整片看不見，這條仍然抓得到那種情況。
           if (signedVolume(g) < 0) inverted.push(o.name || o.type)
         })
         expect(inverted).toEqual([])
