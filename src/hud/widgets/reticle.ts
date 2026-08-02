@@ -1,4 +1,14 @@
-import { HUD_COLORS, type HudFrame, type HudLayout } from '../types'
+import { HIT_FLASH_SECONDS, HUD_COLORS, type HudFrame, type HudLayout } from '../types'
+
+/**
+ * 命中 `X` 的四道短線與十字中心的距離，px（未乘 L.scale）。
+ *
+ * 命中的瞬間在 FAR，接著在 0.15 s 內收到 NEAR——「往內縮」讀起來就是
+ * 彈著往目標收斂。連續命中時計時器一直被重置，X 會停在 FAR 不動，
+ * 那正好是「還在打中」最清楚的狀態。
+ */
+const HIT_X_FAR = 17
+const HIT_X_NEAR = 11
 
 /**
  * 滑鼠準星（圓）與飛機準星（十字）。兩者的分離距離就是「飛機跟不上意圖」的視覺化。
@@ -18,7 +28,7 @@ export function drawReticle(
   if (f.aimVisible) {
     ctx.strokeStyle =
       stallRatio > 0.95 ? HUD_COLORS.danger : stallRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.primary
-    ctx.lineWidth = 2 * L.scale
+    ctx.lineWidth = 1 * L.scale
     ctx.beginPath()
     ctx.arc(mx, my, 11 * L.scale, 0, Math.PI * 2)
     ctx.stroke()
@@ -31,7 +41,7 @@ export function drawReticle(
     const a = 14 * L.scale
     const gap = 4 * L.scale
     ctx.strokeStyle = HUD_COLORS.primary
-    ctx.lineWidth = 2 * L.scale
+    ctx.lineWidth = 1 * L.scale
     ctx.beginPath()
     ctx.moveTo(nx - a, ny); ctx.lineTo(nx - gap, ny)
     ctx.moveTo(nx + gap, ny); ctx.lineTo(nx + a, ny)
@@ -43,10 +53,12 @@ export function drawReticle(
     // 完整度——所以回饋就是這個標記，那是這個世界裡真的存在的東西
     // （彈著的閃光）。0.15 s，期間再命中則重新計時（spec §8）。
     if (f.hitFlash > 0) {
-      const d = 22 * L.scale
-      const w = 7 * L.scale
+      // 0（剛命中）→ 1（即將消失）
+      const t = 1 - f.hitFlash / HIT_FLASH_SECONDS
+      const d = (HIT_X_FAR + (HIT_X_NEAR - HIT_X_FAR) * t) * L.scale
+      const w = 3.5 * L.scale
       ctx.strokeStyle = HUD_COLORS.danger
-      ctx.lineWidth = 2.5 * L.scale
+      ctx.lineWidth = 1.25 * L.scale
       ctx.beginPath()
       for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
         ctx.moveTo(nx + sx * d, ny + sy * d)
@@ -58,7 +70,7 @@ export function drawReticle(
     // 兩準星之間的連線，強化「跟不上」的感受
     if (f.aimVisible) {
       ctx.strokeStyle = HUD_COLORS.dim
-      ctx.lineWidth = 1
+      ctx.lineWidth = 0.5
       ctx.setLineDash([4, 4])
       ctx.beginPath()
       ctx.moveTo(nx, ny); ctx.lineTo(mx, my)
