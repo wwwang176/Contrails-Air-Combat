@@ -142,6 +142,36 @@ describe('CameraRig', () => {
     expect(cam.quaternion.angleTo(neutral)).toBeGreaterThan(60 * DEG)
   })
 
+  it('轉頭跟得上滑鼠：0.1 秒內就轉到位，且不經過機動彈簧', () => {
+    const { rig, cam } = makeRig()
+    const pos = new Vector3(0, 3000, 0)
+    const q = new Quaternion()
+    rig.snapTo(q)
+    for (let i = 0; i < 120; i++) rig.update(cam, pos, q, 160, 'third', 0, 0, DT)
+
+    // 對照組：拖曳沿用回正的時間常數（改掉 lookFollowTime 之前的行為）
+    const slowRig = new CameraRig({
+      ...DEFAULT_CAMERA_OPTIONS,
+      lookFollowTime: DEFAULT_CAMERA_OPTIONS.lookReturnTime,
+    })
+    const slowCam = new PerspectiveCamera(65, 16 / 9, 1, 60000)
+    slowRig.snapTo(q)
+    for (let i = 0; i < 120; i++) slowRig.update(slowCam, pos, q, 160, 'third', 0, 0, DT)
+
+    for (let i = 0; i < 6; i++) {
+      rig.update(cam, pos, q, 160, 'third', 90 * DEG, 0, DT)
+      slowRig.update(slowCam, pos, q, 160, 'third', 90 * DEG, 0, DT)
+    }
+    // 0.1 秒後：快的走完約 92°%，慢的只有 33%
+    const ideal = new Vector3(
+      DEFAULT_CAMERA_OPTIONS.thirdDistance,
+      3000 + DEFAULT_CAMERA_OPTIONS.thirdHeight,
+      0,
+    )
+    expect(cam.position.distanceTo(ideal)).toBeLessThan(2)
+    expect(cam.position.distanceTo(ideal)).toBeLessThan(slowCam.position.distanceTo(ideal) / 3)
+  })
+
   it('自由視角放開後回正', () => {
     const { rig, cam } = makeRig()
     const pos = new Vector3(0, 3000, 0)

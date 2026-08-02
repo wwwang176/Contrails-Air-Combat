@@ -7,9 +7,12 @@ const MOUSE_SENSITIVITY = 1.6
  * 自由視角的靈敏度：每移動「一個螢幕半高」轉多少弧度。
  *
  * 比瞄準靈敏度高一截是刻意的——瞄準要能穩穩壓在目標上，看四周則是要能
- * 一把甩過去。4.0 之下掃滿 ±160° 偏航約需 250 px 的滑鼠位移。
+ * 一把甩過去。5.5 之下掃滿 ±160° 偏航約需 180 px 的滑鼠位移。
+ *
+ * 手感的另一半在 CameraRig.lookFollowTime——靈敏度決定「移多少轉多少」，
+ * 時間常數決定「多久才轉到」。兩個都要短，轉頭才跟手。
  */
-const LOOK_SENSITIVITY = 4.0
+const LOOK_SENSITIVITY = 5.5
 const LOOK_YAW_LIMIT = 160 * (Math.PI / 180)
 const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
 

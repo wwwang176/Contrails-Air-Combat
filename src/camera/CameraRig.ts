@@ -2,7 +2,7 @@ import { Matrix4, Quaternion, Vector3, type PerspectiveCamera } from 'three'
 import { clamp } from '../core/math'
 import { makeScratch } from '../core/pool'
 
-const S = makeScratch(7, 4)
+const S = makeScratch(9, 4)
 const BASIS = new Matrix4()
 const ORIGIN = new Vector3()
 const WORLD_UP = new Vector3(0, 1, 0)
@@ -33,6 +33,14 @@ export interface CameraRigOptions {
   fovSpeedRef: number
   /** 自由視角放開後回正的時間常數，秒 */
   lookReturnTime: number
+  /**
+   * 自由視角**拖曳中**追隨滑鼠的時間常數，秒。
+   *
+   * 【為什麼要跟回正分開】回正是相機自己在動，慢一點才順；拖曳是玩家正在
+   * 下指令，慢一點就只是延遲。共用 0.25 s 的話，轉頭要等四分之一秒才跟上，
+   * 手感像在拖一塊濕布。
+   */
+  lookFollowTime: number
   /** 相機上方向量靠回世界上方的時間常數，秒。見 baseOrientation */
   levelTime: number
   /**
@@ -58,6 +66,7 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   fovSpeedGain: 8,
   fovSpeedRef: 200,
   lookReturnTime: 0.25,
+  lookFollowTime: 0.04,
   levelTime: 0.25,
   firstPersonOffset: new Vector3(0, 0.80, 0.70),
   aimPointDistance: 400,
@@ -183,8 +192,10 @@ export class CameraRig {
   ): void {
     const o = this.options
 
-    // 自由視角角度以時間常數平滑追隨（放開時目標為 0，自然回正）
-    const k = dt > 0 ? 1 - Math.exp(-dt / o.lookReturnTime) : 1
+    // 拖曳中追得快、放開後回正得慢——目標歸零就代表玩家鬆手了
+    const returning = lookYaw === 0 && lookPitch === 0
+    const tau = returning ? o.lookReturnTime : o.lookFollowTime
+    const k = dt > 0 ? 1 - Math.exp(-dt / tau) : 1
     this.appliedYaw += (lookYaw - this.appliedYaw) * k
     this.appliedPitch += (lookPitch - this.appliedPitch) * k
 
@@ -193,6 +204,7 @@ export class CameraRig {
     const pitchQuat = S.q[1]!.setFromAxisAngle(S.v[2]!.set(1, 0, 0), this.appliedPitch)
     const viewQuat = this.baseOrientation(orientation, dt, S.q[2]!)
     this.viewBase.copy(viewQuat)   // 疊上自由視角**之前**，見 viewBase 的說明
+    const baseForward = S.v[7]!.set(0, 0, -1).applyQuaternion(viewQuat)
     viewQuat.multiply(lookQuat).multiply(pitchQuat)
 
     if (viewMode === 'first') {
@@ -202,8 +214,9 @@ export class CameraRig {
       camera.quaternion.copy(viewQuat)
       this.initialised = false // 切回第三人稱時重新吸附
     } else {
-      const forward = S.v[3]!.set(0, 0, -1).applyQuaternion(viewQuat)
-      const desired = this.chaseOffset(forward, S.v[0]!)
+      const viewForward = S.v[8]!.set(0, 0, -1).applyQuaternion(viewQuat)
+      // 彈簧只吃**機身轉向**造成的偏移變化，所以目標用不含自由視角的 baseForward
+      const desired = this.chaseOffset(baseForward, S.v[0]!)
 
       if (!this.initialised) {
         this.offset.copy(desired)
@@ -219,9 +232,14 @@ export class CameraRig {
         this.offset.addScaledVector(this.offsetVel, dt)
       }
 
-      camera.position.copy(position).add(this.offset)
+      // 【自由視角不經過彈簧】轉頭是玩家自己下的指令，再濾一次就只是延遲。
+      // 這裡把彈簧的**落後量**（offset − desired，機動造成的那一份）加到
+      // 「已經轉過去的理想偏移」上：不轉頭時 viewForward === baseForward，
+      // 整條式子退化成 this.offset，行為與先前完全相同。
+      const finalOffset = this.chaseOffset(viewForward, S.v[4]!).add(this.offset).sub(desired)
+      camera.position.copy(position).add(finalOffset)
       // 注視機首前方的瞄準點，使準星穩定於畫面中央區
-      const target = S.v[4]!.copy(position).addScaledVector(forward, o.aimPointDistance)
+      const target = S.v[0]!.copy(position).addScaledVector(viewForward, o.aimPointDistance)
       camera.up.set(0, 1, 0).applyQuaternion(viewQuat)
       camera.lookAt(target)
     }
