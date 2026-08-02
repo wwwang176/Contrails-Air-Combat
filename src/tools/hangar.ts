@@ -82,18 +82,19 @@ let model: AircraftModel | null = null
 
 /**
  * 參考模型疊圖 —— 載入外部高面數模型，縮放對齊後疊在程序化模型上，用同一顆
- * 正交相機比對外形。每台飛機各有各的參考模型，用 `|` 分隔、順序對應 SPECS：
+ * 正交相機比對外形。
  *
- *   ?ref=/ref/p51d.glb|/ref/bf109e4.glb&refflip=0|1
+ * 對齊參數寫在這裡而不是網址：三個值都是**量出來的**，不是每次調的旋鈕
+ * ——一旦某台的 pitch 定案，下次開機庫沒有理由再打一次，打錯了還很難發現
+ * （實測 P-51D 用 −9.5° 時剪影上看起來已經差不多平了，正確值卻是 −14.0°）。
  *
- * 【為什麼要各自一份】兩台的參考模型是不同人做的，軸向約定也不同——實測
- * Bf 109 E-4 機首朝 +Z，需要翻轉。第一版只吃單一 URL，切機種時疊的還是
- * 另一台的參考模型。
+ * 【flip：為什麼不自動判斷】試過用「螺旋槳端的 X 延伸較大」自動判向，但
+ * 109 那個模型的機尾也有寬達 ±1.31 的部件，判準直接失效；第一版疊圖整台
+ * 頭尾顛倒，還一度被讀成「機身形狀差很多」。
  *
- * 【為什麼機首朝向不自動判斷】試過用「螺旋槳端的 X 延伸較大」自動判向，
- * 但 109 那個模型的機尾也有寬達 ±1.31 的部件，判準直接失效；第一版疊圖
- * 整台頭尾顛倒，還一度被讀成「機身形狀差很多」。看一次算圖就知道方向，
- * 用參數指定比猜可靠。
+ * 【pitch：參考模型不保證是飛行姿態】P-51D 那個模型是三點著陸姿態、起落架
+ * 放下，整台機首朝上 14°。不轉正會被讀成「機身前段太低、後段太高」。求法
+ * 見 .claude/skills/aircraft-from-reference（掃描殘餘俯仰角過零）。
  *
  * 【為什麼用疊圖而不是數值切剖面】寫過 GLB 剖面抽取器，解析本身沒問題
  * （三角形數與檔頭一致），但第三方模型有兩百多個節點——蒙皮、內裝、起落架、
@@ -102,32 +103,32 @@ let model: AircraftModel | null = null
  *
  * 參考模型只當量尺，不進版控（ref/ 已列入 .gitignore），更不會被打包進遊戲。
  *
- * 【宣告必須早於 rebuild() 的呼叫】rebuild → ensureRef → 這幾個 const，
+ * 【宣告必須早於 rebuild() 的呼叫】rebuild → syncRef → 這幾個 const，
  * 放在下面會撞上暫時死區，整支機庫腳本當場掛掉。
  */
-const params = new URLSearchParams(location.search)
-const refUrls = (params.get('ref') ?? '').split('|')
-const refFlips = (params.get('refflip') ?? '').split('|')
+interface RefSpec {
+  url: string
+  /** true = 模型的機首朝 +Z，需要繞 Y 轉 180° */
+  flip: boolean
+  /** 繞世界 X 軸轉正的角度，度 */
+  pitch: number
+}
+const REFS: Record<string, RefSpec> = {
+  p51d: { url: '/ref/p51d.glb', flip: true, pitch: -14.0 },
+  bf109g6: { url: '/ref/bf109e4.glb', flip: true, pitch: 0 },
+}
+const refCache: Record<string, Object3D | null> = {}
+let refVisible = false
 /**
- * `?refpitch=0|-9.5`：把參考模型繞 X 軸轉正，單位度，順序同 SPECS。
- *
- * 【為什麼需要】參考模型不保證是飛行姿態。實測這個 P-51D 是**三點著陸
- * 姿態**——起落架放下、尾輪著地，整台機首朝上約 9.5°。直接疊圖會讀成
- * 「機身前段太低、後段太高」，那是姿態差不是外形差：實測機尾處參考模型
- * 高 0.40 m、機首處低 0.70 m，1.1 m 的落差全部來自那 9.5°。
- */
-const refPitches = (params.get('refpitch') ?? '').split('|')
-const refCache: (Object3D | null)[] = []
-/**
- * `?refsolid=1`：把參考模型改用不透明的一般材質。
+ * 實體參考：把參考模型改用不透明的一般材質。
  *
  * 【為什麼需要】疊圖用的 30% 平塗橘色只保留輪廓——那正是比對外形時要的，
  * 但也把參考模型自己的面線洗掉了。要判讀「座艙罩的玻璃分界線在哪」這種
  * **輪廓以內**的特徵時，平塗完全看不出來，得先能看見它本來的樣子。
  */
-const refSolid = params.get('refsolid') === '1'
+let refSolid = false
 let refModel: Object3D | null = null
-// 切片用的三角形快取。宣告同樣必須早於 rebuild()——ensureRef 會清它。
+// 切片用的三角形快取。宣告同樣必須早於 rebuild()——syncRef 會清它。
 let refTris: Float32Array | null = null
 let propRotation = 0
 let autoRotate = true
@@ -188,7 +189,7 @@ function rebuild(): void {
 
   for (const b of specButtons) b.classList.toggle('on', SPECS[specIndex]!.id === b.dataset['id'])
   syncProp()
-  ensureRef(specIndex)
+  syncRef()
   frameOrtho()
 }
 
@@ -253,6 +254,24 @@ for (const [id, view] of [['vSide', 'side'], ['vTop', 'top'], ['vFront', 'front'
       $<HTMLButtonElement>(bid).classList.toggle('on', orthoView === v)
     }
   }
+}
+
+/**
+ * 參考模型的開關。第一次勾選才下載 GLB（兩個檔加起來 50 MB）。
+ *
+ * 【為什麼是勾選而不是網址參數】對齊用的三個值（路徑、機首朝向、俯仰角）
+ * 都是量出來的定值，寫在 REFS 裡；每次開機庫重打一次只會打錯——而且打錯
+ * 很難發現，實測 P-51D 用 −9.5° 時剪影上看起來已經差不多平了。
+ */
+const refCheck = $<HTMLInputElement>('refOn')
+refCheck.onchange = () => {
+  refVisible = refCheck.checked
+  syncRef()
+}
+$<HTMLButtonElement>('refSolid').onclick = (ev) => {
+  refSolid = !refSolid
+  for (const obj of Object.values(refCache)) if (obj) applyRefMaterial(obj)
+  ;(ev.currentTarget as HTMLElement).classList.toggle('on', refSolid)
 }
 
 $<HTMLButtonElement>('wire').onclick = (ev) => {
@@ -336,8 +355,9 @@ function placeRef(): void {
   const raw = new Box3().setFromObject(refModel)
   // 翻轉在內層（模型自己的軸向），俯仰在外層（世界 X 軸）——兩者若擠在
   // 同一個 Euler 上，180° 的翻轉會把俯仰的正負也一起翻掉。
-  refModel.children[0]!.rotation.y = refFlips[specIndex] === '1' ? Math.PI : 0
-  refModel.rotation.x = (Number(refPitches[specIndex]) || 0) * DEG
+  const cfg = REFS[SPECS[specIndex]!.id]!
+  refModel.children[0]!.rotation.y = cfg.flip ? Math.PI : 0
+  refModel.rotation.x = cfg.pitch * DEG
   refModel.updateMatrixWorld(true)
   /**
    * 縮放基準用**翼展**，不是全長。
@@ -374,38 +394,58 @@ function tipY(obj: Object3D, box: Box3): number {
   return n ? sum / n : 0
 }
 
-/** 依機種載入（並快取）對應的參考模型，載完才對齊。 */
-function ensureRef(index: number): void {
+/**
+ * 依「目前機種 × 是否勾選」決定要不要顯示參考模型，需要時才載入並快取。
+ *
+ * 【為什麼是懶載入】兩個 GLB 加起來 50 MB。沒勾就不該付這個代價——機庫
+ * 平常是用來看自家模型的，疊圖只在校正外形時才需要。
+ */
+function syncRef(): void {
   if (refModel) refModel.visible = false
-  refModel = refCache[index] ?? null
   refTris = null
+  const id = SPECS[specIndex]!.id
+  if (!refVisible) { refModel = null; return }
+
+  refModel = refCache[id] ?? null
   if (refModel) {
     refModel.visible = true
     placeRef()
+    frameOrtho()
     return
   }
-  const url = refUrls[index]
-  if (!url) return
-  refCache[index] = null   // 佔位，避免切來切去時重複載入
-  new GLTFLoader().load(url, (gltf) => {
-    const obj = gltf.scene
-    obj.traverse((o) => {
-      if (!(o as Mesh).isMesh) return
-      // 實體半透明而非線框：線框會把內裝、發動機、起落架全部畫出來，
-      // 反而看不出輪廓。實心剪影才是要比對的東西。
-      ;(o as Mesh).material = refSolid
-        ? new MeshStandardMaterial({ color: 0xb0b8c0, roughness: 0.6 })
-        : new MeshBasicMaterial({
-          color: 0xff5a3c, transparent: true, opacity: 0.30, depthWrite: false,
-        })
-    })
+  if (id in refCache) return          // 佔位中：載入尚未完成
+  const cfg = REFS[id]
+  if (!cfg) return
+  refCache[id] = null                 // 佔位，避免連點時重複載入
+  new GLTFLoader().load(cfg.url, (gltf) => {
+    applyRefMaterial(gltf.scene)
     // 包一層 Group：內層做機首朝向的翻轉、外層做世界軸的俯仰與定位
     const wrapper = new Group()
-    wrapper.add(obj)
-    refCache[index] = wrapper
+    wrapper.add(gltf.scene)
+    refCache[id] = wrapper
     scene.add(wrapper)
-    wrapper.visible = index === specIndex
+    wrapper.visible = refVisible && SPECS[specIndex]!.id === id
     if (wrapper.visible) { refModel = wrapper; placeRef(); frameOrtho() }
+  })
+}
+
+/**
+ * 疊圖用 30% 平塗橘色、只保留輪廓；「實體」模式改用一般材質看得到面線。
+ *
+ * 【為什麼不用線框】線框會把內裝、發動機、起落架全部畫出來，反而看不出
+ * 輪廓。實心剪影才是要比對的東西。
+ */
+function applyRefMaterial(root: Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as Mesh
+    if (!mesh.isMesh) return
+    // 切換材質時回收舊的，否則反覆勾選會累積 GPU 資源
+    for (const m of [mesh.material].flat()) m.dispose()
+    mesh.material = refSolid
+      ? new MeshStandardMaterial({ color: 0xb0b8c0, roughness: 0.6 })
+      : new MeshBasicMaterial({
+        color: 0xff5a3c, transparent: true, opacity: 0.30, depthWrite: false,
+      })
   })
 }
 
@@ -422,6 +462,17 @@ function ensureRef(index: number): void {
       return kind === 'radial'
         ? radialSlices(refTris, axis, o as never)
         : extentSlices(refTris, axis, o as never)
+    }
+
+// 開發用：外部工具（Playwright）用來開啟參考模型並等它載入完成。
+;(window as unknown as Record<string, unknown>)['__hangarRef'] =
+    async (on: boolean, solid = false) => {
+      refSolid = solid
+      refCheck.checked = on
+      refVisible = on
+      syncRef()
+      // 回報是否已就緒，讓呼叫端可以輪詢而不是硬等
+      return refModel !== null
     }
 
 // 開發用：分別開關兩個模型，讓外部工具各自截一張純剪影來抽輪廓。

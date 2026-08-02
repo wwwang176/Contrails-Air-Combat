@@ -24,6 +24,9 @@
       }
       button:hover { background: #1e364c; }
       button.on { background: #2d5a86; border-color: #4f8ec0; }
+      .row.chk { gap: 6px; }
+      .row.chk label { flex: none; color: #cfe0ef; cursor: pointer; }
+      .row.chk input { cursor: pointer; }
       #stats { margin-top: 10px; padding-top: 9px; border-top: 1px solid #2b3f52;
         color: #8ea6bb; white-space: pre; }
       #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
@@ -47,6 +50,10 @@
         <button id="wire">線框</button>
         <button id="env">環境反射</button>
         <button id="axes">軸向</button>
+      </div>
+      <div class="row chk" style="margin-top:10px">
+        <input type="checkbox" id="refOn" /><label for="refOn">參考模型</label>
+        <button id="refSolid" style="margin-left:auto">實體</button>
       </div>
       <div id="stats"></div>
     </div>
