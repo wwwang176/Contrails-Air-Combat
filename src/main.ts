@@ -96,13 +96,18 @@ function frame(now: number) {
     input.swapSpecRequested = false
   }
 
-  // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它，再夾制在機首前方
-  // maxAimAngle 的圓錐內。右鍵自由視角時 bindings 不累積 aimDelta，
-  // 所以瞄準點原地不動，飛機繼續飛向玩家先前指的地方。
+  // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它，再夾制在畫面矩形內。
+  // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續
+  // 飛向玩家先前指的地方。
+  //
+  // 【夾制用 rig.viewBase 而不是 camera.quaternion】轉頭時世界固定的瞄準點
+  // 會落到相機視野外，拿實際相機姿態去夾就會把它拉回畫面裡——只是轉頭看
+  // 一眼，飛機卻跟著轉向。viewBase 不含自由視角偏移，夾制因此永遠相對於
+  // 「沒轉頭時看到的那個畫面」。不看的時候兩者相同。
   noseWorld.set(0, 0, -1).applyQuaternion(aircraft.state.orientation)
   slewAimWorld(
     input.aimWorld, input.aimDeltaX, input.aimDeltaY,
-    ctx.camera.quaternion, noseWorld, ctx.camera.fov * DEG,
+    rig.viewBase, noseWorld, ctx.camera.fov * DEG,
     ctx.camera.aspect,
   )
   input.aimDeltaX = 0

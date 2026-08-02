@@ -3,7 +3,13 @@ import type { InputState } from './InputState'
 import { applyThrottleRate } from './throttle'
 
 const MOUSE_SENSITIVITY = 1.6
-const LOOK_SENSITIVITY = 2.4
+/**
+ * 自由視角的靈敏度：每移動「一個螢幕半高」轉多少弧度。
+ *
+ * 比瞄準靈敏度高一截是刻意的——瞄準要能穩穩壓在目標上，看四周則是要能
+ * 一把甩過去。4.0 之下掃滿 ±160° 偏航約需 250 px 的滑鼠位移。
+ */
+const LOOK_SENSITIVITY = 4.0
 const LOOK_YAW_LIMIT = 160 * (Math.PI / 180)
 const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
 

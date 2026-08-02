@@ -13,11 +13,13 @@ export interface CameraRigOptions {
   /**
    * 再往**世界上方**抬起的高度，m。見 chaseOffset。
    *
-   * 【為什麼是 4 而不是 9】相機看的是機首前方 aimPointDistance 處的瞄準點，
-   * 那個點幾乎在地平線上；相機抬得越高，飛機就掉得離畫面中心越遠。9 m 配
-   * 32 m 距離是 atan(9/32) − atan(9/432) = 14.5°，1280×720 下機身落在中心
-   * 下方 129 px——看起來像是相機沒對準。4 m 只剩 6.6°／58 px，機身回到中心
-   * 附近，而準星（機首前方 1000 m）仍然壓在正中央。
+   * 【與 thirdDistance 一起決定機身在畫面上的高度】相機看的是機首前方
+   * aimPointDistance 處的瞄準點，那個點幾乎在地平線上，所以機身的下沉量
+   * ≈ atan(h/d)：相機拉近了就得跟著降，否則機身會掉出畫面下緣。
+   *
+   * 但也不能太低——準星壓在畫面正中央，機身太靠近中心，垂尾就會擋住它。
+   * 3.0/12 是 13.6°，1280×720 下機身落在中心下方約 120 px，垂尾頂端距準星
+   * 還有一段。日後改 thirdDistance 一定要連著重算這個值。
    */
   thirdHeight: number
   /** 彈簧剛度，越大越貼合飛機 */
@@ -46,8 +48,10 @@ export interface CameraRigOptions {
 }
 
 export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
-  thirdDistance: 32,
-  thirdHeight: 4,
+  // 12 m：11.28 m 翼展在 1280 寬的畫面上約佔 37%（32 m 時只有 14%）。機尾在
+  // 機體 z +5.2，所以相機離機尾還有 6.8 m，遠大於 near = 1
+  thirdDistance: 12,
+  thirdHeight: 3.0,
   springStiffness: 14,
   springDamping: 1.0,
   fovBase: 65,
@@ -70,6 +74,14 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
  */
 export class CameraRig {
   readonly options: CameraRigOptions
+  /**
+   * 上一次 update 算出的**視角基準**：無滾轉、且不含自由視角偏移。
+   *
+   * 瞄準點的畫面夾制（input/aim.ts 的 clampAimToViewport）必須拿它，不能拿
+   * camera.quaternion。右鍵轉頭時世界固定的瞄準點會落到相機視野外，用實際
+   * 相機姿態去夾就會把它拉回畫面裡——玩家只是轉頭看一眼，飛機卻跟著轉向。
+   */
+  readonly viewBase = new Quaternion()
   /** 相機相對飛機的偏移，見 chaseOffset。彈簧作用在它身上而不是世界座標 */
   private readonly offset = new Vector3()
   private readonly offsetVel = new Vector3()
@@ -180,8 +192,8 @@ export class CameraRig {
     const lookQuat = S.q[0]!.setFromAxisAngle(S.v[1]!.set(0, 1, 0), this.appliedYaw)
     const pitchQuat = S.q[1]!.setFromAxisAngle(S.v[2]!.set(1, 0, 0), this.appliedPitch)
     const viewQuat = this.baseOrientation(orientation, dt, S.q[2]!)
-      .multiply(lookQuat)
-      .multiply(pitchQuat)
+    this.viewBase.copy(viewQuat)   // 疊上自由視角**之前**，見 viewBase 的說明
+    viewQuat.multiply(lookQuat).multiply(pitchQuat)
 
     if (viewMode === 'first') {
       // 眼點是機體上的一個座位，**要跟著滾**——用完整姿態；看的方向才用無滾轉基準

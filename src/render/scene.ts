@@ -34,7 +34,11 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   const resize = () => {
     const w = window.innerWidth
     const h = window.innerHeight
-    renderer.setSize(w, h, false)
+    // 第三個參數是 updateStyle。關掉的話 three 只設 canvas.width/height（＝
+    // 緩衝區像素數），不設 CSS 尺寸——canvas 於是拿緩衝區像素數當 CSS 像素
+    // 去排版。dpr=2 的螢幕上版面就變成視窗的兩倍大，只看得到左上四分之一，
+    // 畫面中心跑到右下角。dpr=1 完全正常，所以很容易漏掉。
+    renderer.setSize(w, h)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
   }
