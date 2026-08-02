@@ -10,7 +10,15 @@ const WORLD_UP = new Vector3(0, 1, 0)
 export interface CameraRigOptions {
   /** 第三人稱相機沿視線往後退的距離，m */
   thirdDistance: number
-  /** 再往**世界上方**抬起的高度，m。見 update 內的說明 */
+  /**
+   * 再往**世界上方**抬起的高度，m。見 chaseOffset。
+   *
+   * 【為什麼是 4 而不是 9】相機看的是機首前方 aimPointDistance 處的瞄準點，
+   * 那個點幾乎在地平線上；相機抬得越高，飛機就掉得離畫面中心越遠。9 m 配
+   * 32 m 距離是 atan(9/32) − atan(9/432) = 14.5°，1280×720 下機身落在中心
+   * 下方 129 px——看起來像是相機沒對準。4 m 只剩 6.6°／58 px，機身回到中心
+   * 附近，而準星（機首前方 1000 m）仍然壓在正中央。
+   */
   thirdHeight: number
   /** 彈簧剛度，越大越貼合飛機 */
   springStiffness: number
@@ -39,7 +47,7 @@ export interface CameraRigOptions {
 
 export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   thirdDistance: 32,
-  thirdHeight: 9,
+  thirdHeight: 4,
   springStiffness: 14,
   springDamping: 1.0,
   fovBase: 65,
