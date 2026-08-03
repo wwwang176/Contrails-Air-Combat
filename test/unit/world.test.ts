@@ -341,3 +341,46 @@ describe('退場', () => {
     expect(t.hp).toBe(P51D.hp)
   })
 })
+
+describe('同隊彈丸穿透（M5 spec §3.1 條件 8）', () => {
+  /**
+   * 把射手擺在原點朝 −Z，目標擺在正前方 300 m，連射兩秒，回傳目標掉的血。
+   *
+   * 【為什麼是 300 m 而不是更近】P-51 的六挺翼槍在 300 m 處才收斂
+   * （M2 spec §5）。擺在 60 m 的話子彈還散在機身兩側一公尺外，可能整輪
+   * 都打不中——那會讓下面兩條「同隊為 0」變成空的斷言。
+   *
+   * 【為什麼每步都重新釘住】兩機都沒有空速，放著會一路掉下去；釘住之後
+   * 這條測試量的才是「同隊會不會扣血」，不是「掉多快」。
+   */
+  function shootAt(shooterTeam: 'blue' | 'red', targetTeam: 'blue' | 'red'): number {
+    const w = new World()
+    const shooter = w.add(
+      new Aircraft(P51D), new Fixed(new Vector3(0, 0, -1), 0, true),
+      shooterTeam, new Vector3(0, 0, 0),
+    )
+    const target = w.add(
+      new Aircraft(BF109G6), new Fixed(), targetTeam, new Vector3(0, 0, -300),
+    )
+    target.respawnOnDestroy = false
+    const before = target.hp
+    for (let i = 0; i < 480; i++) {
+      pin(shooter.aircraft, 0, 4000, 0)
+      pin(target.aircraft, 0, 4000, -300)
+      w.step(DT)
+    }
+    return before - target.hp
+  }
+
+  it('敵隊會被打中——先確認這個測試佈置真的打得到', () => {
+    expect(shootAt('blue', 'red')).toBeGreaterThan(0)
+  })
+
+  it('同隊的傷害恆為 0', () => {
+    expect(shootAt('blue', 'blue')).toBe(0)
+  })
+
+  it('紅隊對紅隊同樣為 0', () => {
+    expect(shootAt('red', 'red')).toBe(0)
+  })
+})
