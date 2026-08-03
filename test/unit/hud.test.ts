@@ -8,7 +8,7 @@ import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/a
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
-import { minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
+import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { countdownLabel } from '../../src/hud/widgets/roster'
 import { DEG, RAD } from '../../src/core/math'
 
@@ -302,5 +302,51 @@ describe('countdownLabel', () => {
     // 【為什麼不能顯示 0】倒數走到 0 的那一格就重置了，畫面上永遠不該出現
     // 「重新開始 0」——那看起來像卡住
     expect(countdownLabel(0.1)).toContain('1')
+  })
+})
+
+describe('小地圖的貼邊夾制', () => {
+  const EDGE = 50
+
+  it('edgeReach：沿正 X 推到框邊', () => {
+    expect(edgeReach(1, 0, EDGE)).toBe(50)
+    expect(edgeReach(2, 0, EDGE)).toBe(25)
+  })
+
+  it('edgeReach：對角線推到角落，兩軸都剛好碰到', () => {
+    const s = edgeReach(1, 1, EDGE)
+    expect(1 * s).toBeCloseTo(EDGE, 9)
+    expect(1 * s).toBeCloseTo(EDGE, 9)
+  })
+
+  it('edgeReach：原點回傳 0（沒有方位可言）', () => {
+    expect(edgeReach(0, 0, EDGE)).toBe(0)
+  })
+
+  it('edgeReach：只有一軸為 0 時不產生 NaN', () => {
+    expect(Number.isFinite(edgeReach(0, 3, EDGE))).toBe(true)
+    expect(edgeReach(0, 3, EDGE)).toBeCloseTo(EDGE / 3, 9)
+  })
+
+  it('edgeClamp：框內的不動', () => {
+    expect(edgeClamp(10, 10, EDGE)).toBe(1)
+    expect(edgeClamp(50, 50, EDGE)).toBe(1)
+  })
+
+  it('edgeClamp：框外的夾到框上，而且是方框不是圓', () => {
+    // 正前方 200 → 夾到 50（1/4）
+    expect(edgeClamp(0, 200, EDGE)).toBeCloseTo(0.25, 9)
+    // 45° 方向 200,200 → 夾到 50,50，也就是**角落**。
+    // 若夾到內接圓，這裡會是 50/√2 ≈ 35.4，比正前方那個近
+    const k = edgeClamp(200, 200, EDGE)
+    expect(200 * k).toBeCloseTo(EDGE, 9)
+  })
+
+  it('edgeClamp：對角與正向的夾制結果都落在框上，不是圓上', () => {
+    for (const [x, y] of [[300, 0], [0, 300], [300, 300], [300, 120]] as const) {
+      const k = edgeClamp(x, y, EDGE)
+      const onEdge = Math.max(Math.abs(x * k), Math.abs(y * k))
+      expect(onEdge).toBeCloseTo(EDGE, 9)
+    }
   })
 })
