@@ -1,7 +1,10 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { DEFAULT_SAFETY } from './safety'
+import { WEP_THROTTLE } from '../physics/propulsion'
+import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
+import type { Command } from '../control/Controller'
 
 /**
  * 一個站位相對參考機的三個偏置量，m。全部定義在**參考機航跡的水平框**裡。
@@ -109,4 +112,125 @@ export function stationPoint(
 
   const floor = seaHeight + DEFAULT_SAFETY.clearance
   if (out.y < floor) out.y = floor
+}
+
+export interface StationConfig {
+  /** 遠近混合的特徵長度，m。誤差小於它就開始轉為平行飛 */
+  blendRange: number
+  /** 前置補償的時間，s */
+  leadTime: number
+  /** 縱向位置誤差 → 速度指令的增益，1/s */
+  speedGain: number
+  /** 速度差多少算「差滿了」，m/s。油門與減速板都用它當標度 */
+  speedBand: number
+}
+
+/**
+ * **全部都是起始值，待 Task 13 由人工驗收與實測回填。**
+ *
+ * 【`blendRange` = 100 m】半個站位間距 ——「誤差小於半格就算在隊上」，
+ * 該平行飛了。
+ *
+ * 【`leadTime` = 1.0 s】指揮儀把大角度瞄準誤差收斂的時間量級。
+ *
+ * 【`speedGain` = 0.2 s⁻¹】100 m 的縱向誤差命令 +20 m/s，約 5 秒補完；
+ * 而 20 m/s 大約是巡航油門到 WEP 的速度餘裕。
+ *
+ * 【`speedBand` = 20 m/s】同上那個餘裕。速度差滿一個 band 就開到 WEP、
+ * 反向滿一個 band 才開始踩減速板。
+ */
+export const DEFAULT_STATION: StationConfig = {
+  blendRange: 100,
+  leadTime: 1.0,
+  speedGain: 0.2,
+  speedBand: 20,
+}
+
+/**
+ * 站位保持的基準油門。
+ *
+ * 【0.7 從哪來】`AiController` 的「沒有目標」分支與測試用的 Idle 控制器
+ * 都用 0.7 當平飛油門。維持一致，站位控制器在誤差為 0 時給的就是同一個
+ * 巡航狀態。
+ */
+const CRUISE_THROTTLE = 0.7
+
+const C = makeScratch(4)
+
+/**
+ * 飛向站位。寫滿整個 `Command`（含 `firing = false`）。
+ *
+ * 【近距離不能瞄站位點】誤差趨近 0 時方向由浮點雜訊主導，瞄準向量會劇烈
+ * 擺動而指揮儀會忠實地追上去。近距離改成瞄參考機的航跡方向（平行飛）。
+ * 用**連續混合**而不是門檻，因為它不需要遲滯 —— 權重本身是連續的，不會
+ * 在邊界上切換（與 `engageKnobs` 同一個理由）。
+ *
+ * 它同時解決視覺重疊：瞄著站位點飛會**直直朝長機收斂**，平行飛不會。
+ * M6 沒有飛機互撞，所以那純粹是顯示問題 —— 但兩架機模穿模是看得見的。
+ *
+ * 【前置補償用相對速度，不是參考機的絕對速度】純追蹤一個移動點永遠落後；
+ * 但若用絕對速度外推，共速且已在站位上時外推點仍在前方 `leadTime × 速度`
+ * ≈ 200 m，混合權重永遠是 1，「近距離平行飛」那一段**永遠不會生效**。
+ * 相對速度在共速時歸零，正是要的。
+ *
+ * 【油門是連續的，不是開關】站位保持是一個要**維持**的狀態而不是一次
+ * 機動。bang-bang 會在目標速度附近來回，畫面上就是僚機一頓一頓。
+ *
+ * **呼叫端仍然要在之後套 `applySafety`** —— 站位控制器不是它的例外。
+ *
+ * 熱路徑：不配置。不修改 `self` 與 `reference`。
+ */
+export function stationCommand(
+  self: Aircraft,
+  reference: Aircraft,
+  offset: StationOffset,
+  seaHeight: number,
+  out: Command,
+  cfg: StationConfig = DEFAULT_STATION,
+): void {
+  const station = C.v[0]!
+  stationPoint(reference, offset, seaHeight, station)
+
+  const err = C.v[1]!.copy(station).sub(self.state.position)
+  const dist = err.length()
+
+  // 參考機的航跡方向。退化時用機首 —— 與 stationPoint 同一套階梯
+  const track = C.v[2]!.copy(reference.state.velocity)
+  const refSpeed = track.length()
+  if (refSpeed > MIN_GROUND_SPEED) track.divideScalar(refSpeed)
+  else track.copy(FWD).applyQuaternion(reference.state.orientation)
+
+  // 追蹤方向 = 位置誤差 + 相對速度 × leadTime
+  const aim = C.v[3]!.copy(err)
+    .addScaledVector(reference.state.velocity, cfg.leadTime)
+    .addScaledVector(self.state.velocity, -cfg.leadTime)
+  const aimLen = aim.length()
+  if (aimLen > 1e-6) aim.divideScalar(aimLen)
+  else aim.copy(track)
+
+  // 遠 → 追站位點；近 → 平行飛。連續混合，不需要遲滯
+  const w = dist < cfg.blendRange ? dist / cfg.blendRange : 1
+  aim.multiplyScalar(w).addScaledVector(track, 1 - w)
+  const len = aim.length()
+  if (len > 1e-6) out.aimWorld.copy(aim).divideScalar(len)
+  else out.aimWorld.copy(track)
+
+  // 目標速度 = 參考機速度 + 縱向誤差 × 增益
+  const along = err.dot(track)
+  const wanted = refSpeed + along * cfg.speedGain
+  const deficit = wanted - self.state.velocity.length()
+
+  let throttle = CRUISE_THROTTLE + (deficit / cfg.speedBand) * (WEP_THROTTLE - CRUISE_THROTTLE)
+  if (throttle < THROTTLE_FLOOR) throttle = THROTTLE_FLOOR
+  else if (throttle > WEP_THROTTLE) throttle = WEP_THROTTLE
+  out.throttle = throttle
+
+  // 【減速板要等油門先收到底】兩者同時作用會過度減速，然後又要加回來。
+  // 超速滿一個 band 之後才開始踩，滿兩個 band 踩到底。
+  out.brake = deficit < -cfg.speedBand
+    ? Math.min(1, -deficit / cfg.speedBand - 1)
+    : 0
+
+  // 開火紀律是獨立的一層（fire.ts）。歸隊途中不開槍
+  out.firing = false
 }
