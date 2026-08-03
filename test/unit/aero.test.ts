@@ -447,3 +447,97 @@ describe('lowSpeedEffectiveness', () => {
     }
   })
 })
+
+describe('aeroForceMoment 的低速舵面衰減', () => {
+  const ZERO_OMEGA = new Vector3()
+
+  /**
+   * 取「升降舵由 0 打到 1」造成的俯仰力矩增量，換算回力矩係數。
+   *
+   * 【為什麼可以直接捏造 AeroState】角速度給 0 時 pHat/qHat/rHat 全部為 0，
+   * `aero.tas` 於是完全不進入力矩計算——只有 `qbar` 進得去。所以捏一個
+   * tas 與 qbar 不自洽的狀態是安全的，而且能把 q 的依賴單獨隔離出來。
+   *
+   * 俯仰力矩在標準軸是 y，`stdToBody` 把它放到機體 x（見 aeroForceMoment
+   * 檔內的軸向註解）。
+   */
+  const elevatorCmDe = (spec: AircraftSpec, qbar: number): number => {
+    const st: AeroState = { tas: 100, alpha: 0, beta: 0, qbar, mach: 0 }
+    const fm = fmOut()
+    aeroForceMoment(spec, st, ZERO_OMEGA, NO_CONTROL, false, fm)
+    const base = fm.moment.x
+    aeroForceMoment(spec, st, ZERO_OMEGA, { ...NO_CONTROL, elevator: 1 }, false, fm)
+    return (fm.moment.x - base) / (qbar * spec.wing.area * spec.wing.chord)
+  }
+
+  it('拐點以上：升降舵力矩係數就是 cmDe，未被衰減', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const q = LOW_SPEED_KNEE * stallDynamicPressure(spec) * 1.5
+      expect(elevatorCmDe(spec, q)).toBeCloseTo(spec.moments.cmDe, 9)
+    }
+  })
+
+  it('拐點以下：力矩係數等於 cmDe × (q / q_low)', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
+      for (const frac of [0.75, 0.5, 0.25]) {
+        expect(elevatorCmDe(spec, qLow * frac))
+          .toBeCloseTo(spec.moments.cmDe * frac, 9)
+      }
+    }
+  })
+
+  /**
+   * 【三軸統一】專案負責人裁決：不做副翼／升降舵／方向舵的差異化。
+   * 這一條把它釘死——日後若有人只改了其中一個軸，這裡會紅。
+   */
+  it('三個舵面乘的是同一個因子', () => {
+    const spec = P51D
+    const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
+    const q = qLow * 0.4
+    const st: AeroState = { tas: 100, alpha: 0, beta: 0, qbar: q, mach: 0 }
+    const fm = fmOut()
+    const { area, span, chord } = spec.wing
+
+    aeroForceMoment(spec, st, ZERO_OMEGA, NO_CONTROL, false, fm)
+    const b = { x: fm.moment.x, y: fm.moment.y, z: fm.moment.z }
+
+    aeroForceMoment(spec, st, ZERO_OMEGA, { ...NO_CONTROL, aileron: 1 }, false, fm)
+    const clDa = (fm.moment.z - b.z) / (q * area * span)
+    aeroForceMoment(spec, st, ZERO_OMEGA, { ...NO_CONTROL, elevator: 1 }, false, fm)
+    const cmDe = (fm.moment.x - b.x) / (q * area * chord)
+    aeroForceMoment(spec, st, ZERO_OMEGA, { ...NO_CONTROL, rudder: 1 }, false, fm)
+    const cnDr = (fm.moment.y - b.y) / (q * area * span)
+
+    // 三個都被同一個 0.4 砍過（副翼與方向舵的軸向帶負號，取比值即可）
+    expect(Math.abs(clDa / spec.moments.clDa)).toBeCloseTo(0.4, 9)
+    expect(Math.abs(cmDe / spec.moments.cmDe)).toBeCloseTo(0.4, 9)
+    expect(Math.abs(cnDr / spec.moments.cnDr)).toBeCloseTo(0.4, 9)
+  })
+
+  /**
+   * 【L3 相對關係】同一個 TAS 下，高空的動壓較低，所以操縱權較低。
+   * 這是本設計「自動處理高度」那句話的具體兌現。
+   */
+  it('同一個 TAS 下，高空的操縱權低於低空', () => {
+    const tas = 60
+    const low = air(0)
+    const high = air(6000)
+    const qLow = 0.5 * low.density * tas * tas
+    const qHigh = 0.5 * high.density * tas * tas
+    expect(lowSpeedEffectiveness(P51D, qHigh))
+      .toBeLessThan(lowSpeedEffectiveness(P51D, qLow))
+  })
+
+  /**
+   * 【L3 相對關係】同一個動壓、兩台都在各自拐點以下時，操縱權的比例
+   * 等於它們 q_low 的反比。
+   */
+  it('同一個動壓下，兩機種的操縱權成 q_low 的反比', () => {
+    const q = 800   // 遠低於兩台的 q_low（1858 / 1784）
+    const ratio = lowSpeedEffectiveness(P51D, q) / lowSpeedEffectiveness(BF109G6, q)
+    expect(ratio).toBeCloseTo(
+      stallDynamicPressure(BF109G6) / stallDynamicPressure(P51D), 9,
+    )
+  })
+})

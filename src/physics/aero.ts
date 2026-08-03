@@ -241,9 +241,14 @@ export function aeroForceMoment(
   const rHat = (stdOmega.z * span) / v2
 
   const CS = spec.controlStiffening
-  const da = controls.aileron * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
-  const de = controls.elevator * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
-  const dr = controls.rudder * controlEffectiveness(CS.rudderK, CS.qRef, aero.qbar)
+  // 【低速衰減與高速變重是同一個概念的兩端】兩者相乘。中間有一大段兩者
+  // 都不作用——P-51D 是 1858 → 10884 Pa，相隔 5.9 倍（spec §4.2）。
+  //
+  // 三軸乘同一個因子是專案負責人的裁決：不做副翼／升降舵／方向舵的差異化。
+  const low = lowSpeedEffectiveness(spec, aero.qbar)
+  const da = controls.aileron * low * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
+  const de = controls.elevator * low * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
+  const dr = controls.rudder * low * controlEffectiveness(CS.rudderK, CS.qRef, aero.qbar)
 
   const M = spec.moments
   const cRoll = M.clBeta * aero.beta + M.clP * pHat + M.clDa * da
