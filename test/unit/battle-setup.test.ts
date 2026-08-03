@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { aliveCount, createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Combatant } from '../../src/world/World'
@@ -128,10 +129,10 @@ describe('createBattle 的決策相位', () => {
     for (let s = 0; s < stepsPerPeriod; s++) {
       let n = 0
       for (const c of b.world.combatants) {
-        if (c === b.player) continue
-        const ai = c.controller as { decisionsMade: number }
+        const ai = c.controller
+        if (!(ai instanceof AiController)) continue
         const before = ai.decisionsMade
-        c.controller.update(c.aircraft, 1 / 240, c.command)
+        ai.update(c.aircraft, 1 / 240, c.command)
         if (ai.decisionsMade > before) n++
       }
       perStep.push(n)
