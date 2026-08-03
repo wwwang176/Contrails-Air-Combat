@@ -2,6 +2,12 @@ import { RAD, clamp } from '../../core/math'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /**
+ * 低於此效力轉為危險色。`(1 / 1.2)² = 0.694` —— 速度剛好掉到 1 G 失速
+ * 速度的那一點。不是配出來的數字。
+ */
+const LOW_SPEED_DANGER = 1 / 1.44
+
+/**
  * 能量戰教學元件：G、迎角、Ps、Es。
  *
  * Ps 正值代表能量累積、負值代表流失。大 G 轉彎時會跳到 −40 m/s 這種數字——
@@ -59,5 +65,21 @@ export function drawEnergy(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFr
     ctx.fillStyle = HUD_COLORS.danger
     ctx.font = hudFont(22 * L.scale, true)
     ctx.fillText('STALL', L.cx, L.height * 0.24)
+  }
+
+  // 低速警告。
+  // 【為什麼不沿用 STALL】STALL 以 |α|/α_crit 觸發，而垂直爬升時攻角接近
+  // 0——它一次都不會亮，即使飛機正在變得不可控。語意也不同：你離失速很遠，
+  // 你只是快沒速度了。把兩者混在同一個字樣下會讓玩家學到錯的因果。
+  //
+  // 位置 0.29 是刻意的：STALL 在 0.24、字級 22，本字級 18，兩者不重疊。
+  // 兩個警告可以同時亮——它們是兩件不同的事。
+  if (f.controlAuthority < 1) {
+    ctx.fillStyle = f.controlAuthority < LOW_SPEED_DANGER
+      ? HUD_COLORS.danger
+      : HUD_COLORS.warn
+    ctx.font = hudFont(18 * L.scale, true)
+    ctx.textAlign = 'center'
+    ctx.fillText('LOW SPEED', L.cx, L.height * 0.29)
   }
 }

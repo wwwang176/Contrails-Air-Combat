@@ -326,6 +326,7 @@ function frame(now: number) {
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
   hudFrame.aiFlying = input.playerAi
+  hudFrame.controlAuthority = aircraft.diag.controlAuthority
 
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight

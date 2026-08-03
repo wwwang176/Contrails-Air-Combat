@@ -119,6 +119,13 @@ export interface HudFrame {
    */
   hp: number
   hpMax: number
+  /**
+   * 低速舵面效力，0..1。< 1 時 HUD 顯示 `LOW SPEED`。
+   *
+   * 由 `StepDiagnostics.controlAuthority` 抄過來——物理與畫面共用同一份
+   * 數字，不會出現第二套會漂掉的判斷邏輯。
+   */
+  controlAuthority: number
   /** 自機是否交給 AI 駕駛（`I`）。純觀測模式的指示燈 */
   aiFlying: boolean
 }
@@ -137,6 +144,7 @@ export function createHudFrame(): HudFrame {
     hitFlash: 0,
     hp: 1000, hpMax: 1000,
     aiFlying: false,
+    controlAuthority: 1,
   }
 }
 
