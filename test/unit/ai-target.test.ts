@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
-  countLocks, createTargetBoard, targetScore, DEFAULT_TARGET, type TargetCandidate,
+  countLocks, createTargetBoard, createTargetState, selectTarget, targetScore,
+  DEFAULT_TARGET, type TargetCandidate,
 } from '../../src/ai/target'
 import type { Team } from '../../src/world/World'
 import { P51D } from '../../src/specs/p51d'
@@ -152,5 +153,125 @@ describe('countLocks', () => {
     const cs = candidates(['blue', 'red'])
     const b = createTargetBoard(cs)
     expect(countLocks(b, 'blue', 0, 1)).toBe(0)
+  })
+})
+
+/** 造一個「藍 0 對紅 1、紅 2」的板，紅 1 在近處、紅 2 在遠處。 */
+function board3(): ReturnType<typeof createTargetBoard> {
+  const cs: TargetCandidate[] = [
+    { index: 0, team: 'blue', alive: true, aircraft: place(0, 4000, 0, 0) },
+    { index: 1, team: 'red', alive: true, aircraft: place(0, 4000, -200, 0) },
+    { index: 2, team: 'red', alive: true, aircraft: place(0, 4000, -1500, 0) },
+  ]
+  return createTargetBoard(cs)
+}
+
+/** 四藍兩紅：藍 1/2/3 已經鎖定紅 4，紅 4 比紅 5 近。 */
+function crowdBoard(): ReturnType<typeof createTargetBoard> {
+  const cs: TargetCandidate[] = [
+    { index: 0, team: 'blue', alive: true, aircraft: place(0, 4000, 0, 0) },
+    { index: 1, team: 'blue', alive: true, aircraft: place(10, 4000, 0, 0) },
+    { index: 2, team: 'blue', alive: true, aircraft: place(20, 4000, 0, 0) },
+    { index: 3, team: 'blue', alive: true, aircraft: place(30, 4000, 0, 0) },
+    { index: 4, team: 'red', alive: true, aircraft: place(0, 4000, -300, 0) },
+    { index: 5, team: 'red', alive: true, aircraft: place(0, 4000, -500, 0) },
+  ]
+  const b = createTargetBoard(cs)
+  b.assignments.set([-1, 4, 4, 4, -1, -1])
+  return b
+}
+
+describe('selectTarget 的基本選擇', () => {
+  it('選分數最高的敵機，並寫進 assignments', () => {
+    const b = board3()
+    const s = createTargetState()
+    const t = selectTarget(s, b, 0, 0.1, DEFAULT_TARGET)
+    expect(t).toBe(b.candidates[1]!.aircraft)
+    expect(b.assignments[0]).toBe(1)
+  })
+
+  it('不會選同隊', () => {
+    const cs: TargetCandidate[] = [
+      { index: 0, team: 'blue', alive: true, aircraft: place(0, 4000, 0, 0) },
+      { index: 1, team: 'blue', alive: true, aircraft: place(0, 4000, -100, 0) },
+    ]
+    const b = createTargetBoard(cs)
+    expect(selectTarget(createTargetState(), b, 0, 0.1, DEFAULT_TARGET)).toBeNull()
+  })
+
+  it('沒有存活的敵機時回傳 null 並清掉指派', () => {
+    const b = board3()
+    const s = createTargetState()
+    selectTarget(s, b, 0, 0.1, DEFAULT_TARGET)
+    b.candidates[1]!.alive = false
+    b.candidates[2]!.alive = false
+    expect(selectTarget(s, b, 0, 0.1, DEFAULT_TARGET)).toBeNull()
+    expect(b.assignments[0]).toBe(-1)
+  })
+
+  it('自己退場時回傳 null', () => {
+    const b = board3()
+    b.candidates[0]!.alive = false
+    expect(selectTarget(createTargetState(), b, 0, 0.1, DEFAULT_TARGET)).toBeNull()
+  })
+})
+
+describe('selectTarget 的遲滯', () => {
+  it('最小停留期間不換目標，即使遠處那架突然變好', () => {
+    const cfg = { ...DEFAULT_TARGET, minDwell: 2, switchMargin: 0 }
+    const b = board3()
+    const s = createTargetState()
+    selectTarget(s, b, 0, 0.1, cfg)
+    expect(s.current).toBe(1)
+    // 把 2 搬到比 1 更近，讓它分數更高
+    b.candidates[2]!.aircraft.state.position.set(0, 4000, -50)
+    selectTarget(s, b, 0, 0.1, cfg)
+    expect(s.current).toBe(1)
+  })
+
+  it('停留時間走完之後才換', () => {
+    const cfg = { ...DEFAULT_TARGET, minDwell: 0.5, switchMargin: 0 }
+    const b = board3()
+    const s = createTargetState()
+    selectTarget(s, b, 0, 0.1, cfg)
+    b.candidates[2]!.aircraft.state.position.set(0, 4000, -50)
+    for (let i = 0; i < 6; i++) selectTarget(s, b, 0, 0.1, cfg)
+    expect(s.current).toBe(2)
+  })
+
+  it('換目標門檻擋掉「只好一點點」的候選', () => {
+    const cfg = { ...DEFAULT_TARGET, minDwell: 0, switchMargin: 5 }
+    const b = board3()
+    const s = createTargetState()
+    selectTarget(s, b, 0, 0.1, cfg)
+    // 只把 2 搬到略近於 1，分數差遠低於 500%
+    b.candidates[2]!.aircraft.state.position.set(0, 4000, -190)
+    selectTarget(s, b, 0, 0.1, cfg)
+    expect(s.current).toBe(1)
+  })
+
+  it('目標退場時立即重選，不受最小停留約束', () => {
+    const cfg = { ...DEFAULT_TARGET, minDwell: 999 }
+    const b = board3()
+    const s = createTargetState()
+    selectTarget(s, b, 0, 0.1, cfg)
+    expect(s.current).toBe(1)
+    b.candidates[1]!.alive = false
+    expect(selectTarget(s, b, 0, 0.1, cfg)).toBe(b.candidates[2]!.aircraft)
+    expect(s.current).toBe(2)
+  })
+})
+
+describe('selectTarget 的分攤', () => {
+  it('隊友都鎖定近的那架時，我會挑遠的那架', () => {
+    const b = crowdBoard()
+    selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, crowdPenalty: 1 })
+    expect(b.assignments[0]).toBe(5)
+  })
+
+  it('crowdPenalty 為 0 時分攤完全不起作用', () => {
+    const b = crowdBoard()
+    selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, crowdPenalty: 0 })
+    expect(b.assignments[0]).toBe(4)
   })
 })

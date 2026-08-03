@@ -158,3 +158,89 @@ export function countLocks(
   }
   return n
 }
+
+/**
+ * 一架 AI 的目標選擇狀態。**這是遲滯的記憶**。
+ *
+ * 【只能由 selectTarget 自己寫】M4 在遲滯上踩過一個坑：`latch` 的 OR 結果
+ * 被寫回它自己的記憶，遲滯因此被毒化，0.29°/s 的雜訊就能讓閂鎖永遠關不掉。
+ * 教訓是遲滯的記憶不能有第二條寫入路徑。`current` 同理。
+ */
+export interface TargetState {
+  /** 現任目標在 `board.candidates` 裡的索引；−1 = 無 */
+  current: number
+  /** 距離可以再換目標還有多久，s */
+  dwell: number
+}
+
+export function createTargetState(): TargetState {
+  return { current: -1, dwell: 0 }
+}
+
+/**
+ * 挑一個目標，回傳它的 `Aircraft`；沒有可打的敵機時回傳 null。
+ *
+ * @param dt 距離上次呼叫的秒數。呼叫端是 10 Hz 的決策節拍，所以這裡通常是
+ *           0.1 —— 最小停留因此以「秒」而不是「拍數」計。
+ *
+ * 熱路徑之外（10 Hz），但仍然不配置。
+ */
+export function selectTarget(
+  state: TargetState, board: TargetBoard, selfIndex: number,
+  dt: number, cfg: TargetConfig,
+): Aircraft | null {
+  const { candidates, assignments } = board
+  const self = candidates[selfIndex]
+  if (self === undefined || !self.alive) {
+    state.current = -1
+    state.dwell = 0
+    if (selfIndex >= 0 && selfIndex < assignments.length) assignments[selfIndex] = -1
+    return null
+  }
+
+  state.dwell = state.dwell > dt ? state.dwell - dt : 0
+
+  // 【立即重選就是靠這裡】現任失效時把記憶清成「沒有現任」，下面的
+  // `current < 0` 分支就會直接接受最佳解，完全繞過最小停留。
+  const held = state.current >= 0 ? candidates[state.current] : undefined
+  if (held === undefined || !held.alive || held.team === self.team) {
+    state.current = -1
+    state.dwell = 0
+  }
+
+  let bestIndex = -1
+  let bestScore = -1
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i]!
+    if (!c.alive || c.team === self.team) continue
+    const locks = countLocks(board, self.team, selfIndex, i)
+    const s = targetScore(self.aircraft, c.aircraft, locks, cfg)
+    if (s > bestScore) {
+      bestScore = s
+      bestIndex = i
+    }
+  }
+
+  if (bestIndex < 0) {
+    state.current = -1
+    assignments[selfIndex] = -1
+    return null
+  }
+
+  if (state.current < 0) {
+    state.current = bestIndex
+    state.dwell = cfg.minDwell
+  } else if (state.dwell <= 0 && bestIndex !== state.current) {
+    const cur = candidates[state.current]!
+    const curLocks = countLocks(board, self.team, selfIndex, state.current)
+    const curScore = targetScore(self.aircraft, cur.aircraft, curLocks, cfg)
+    // 【乘法門檻在這裡才安全】targetScore 恆非負（見該函數註解）
+    if (bestScore > curScore * (1 + cfg.switchMargin)) {
+      state.current = bestIndex
+      state.dwell = cfg.minDwell
+    }
+  }
+
+  assignments[selfIndex] = state.current
+  return candidates[state.current]!.aircraft
+}
