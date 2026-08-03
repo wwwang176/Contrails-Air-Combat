@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { targetScore, DEFAULT_TARGET } from '../../src/ai/target'
+import {
+  countLocks, createTargetBoard, targetScore, DEFAULT_TARGET, type TargetCandidate,
+} from '../../src/ai/target'
+import type { Team } from '../../src/world/World'
 import { P51D } from '../../src/specs/p51d'
 
 const UP = new Vector3(0, 1, 0)
@@ -96,5 +99,58 @@ describe('targetScore 的退化處理', () => {
     const me = place(0, 4000, 0, 0)
     const same = place(0, 4000, 0, 0)
     expect(Number.isFinite(targetScore(me, same, 0, DEFAULT_TARGET))).toBe(true)
+  })
+})
+
+/** 造一組候選：teams 決定陣營，索引即為陣列位置。 */
+function candidates(teams: readonly Team[]): TargetCandidate[] {
+  return teams.map((team, index) => ({
+    index, team, alive: true, aircraft: place(index * 50, 4000, 0, 0),
+  }))
+}
+
+describe('createTargetBoard', () => {
+  it('assignments 長度等於候選數，初值全為 −1', () => {
+    const b = createTargetBoard(candidates(['blue', 'blue', 'red']))
+    expect(b.assignments).toHaveLength(3)
+    expect(Array.from(b.assignments)).toEqual([-1, -1, -1])
+  })
+
+  it('index 與陣列位置不符時直接拋錯', () => {
+    const cs = candidates(['blue', 'red'])
+    const broken = [cs[0]!, { ...cs[1]!, index: 7 }]
+    expect(() => createTargetBoard(broken)).toThrow()
+  })
+})
+
+describe('countLocks', () => {
+  it('只數同隊的', () => {
+    // 0、1 藍，2、3 紅。全部都鎖定候選 2
+    const cs = candidates(['blue', 'blue', 'red', 'red'])
+    const b = createTargetBoard(cs)
+    b.assignments.set([2, 2, 2, 2])
+    // 站在 0（藍）的角度：同隊的只有 1
+    expect(countLocks(b, 'blue', 0, 2)).toBe(1)
+  })
+
+  it('不數自己', () => {
+    const cs = candidates(['blue', 'blue', 'red'])
+    const b = createTargetBoard(cs)
+    b.assignments.set([2, -1, -1])
+    expect(countLocks(b, 'blue', 0, 2)).toBe(0)
+  })
+
+  it('不數已退場的', () => {
+    const cs = candidates(['blue', 'blue', 'blue', 'red'])
+    const b = createTargetBoard(cs)
+    b.assignments.set([3, 3, 3, -1])
+    cs[1]!.alive = false
+    expect(countLocks(b, 'blue', 0, 3)).toBe(1)
+  })
+
+  it('沒有人鎖定時回傳 0', () => {
+    const cs = candidates(['blue', 'red'])
+    const b = createTargetBoard(cs)
+    expect(countLocks(b, 'blue', 0, 1)).toBe(0)
   })
 })
