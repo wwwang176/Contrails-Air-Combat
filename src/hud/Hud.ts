@@ -6,6 +6,7 @@ import { drawHealth } from './widgets/health'
 import { drawHints } from './widgets/hints'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
+import { drawRoster } from './widgets/roster'
 import { drawHeadingTape } from './widgets/tape'
 import type { HudFrame, HudLayout } from './types'
 
@@ -53,6 +54,7 @@ export class Hud {
     drawMinimap(ctx, L, f)
     drawHealth(ctx, L, f)
     drawEnergy(ctx, L, f)
+    drawRoster(ctx, L, f)
     drawHints(ctx, L, f)
   }
 }

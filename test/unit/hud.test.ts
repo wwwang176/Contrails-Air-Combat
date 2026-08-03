@@ -9,6 +9,7 @@ import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
+import { countdownLabel } from '../../src/hud/widgets/roster'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -272,5 +273,34 @@ describe('低速操縱權警告', () => {
    */
   it('初始值不含 NaN', () => {
     expect(Number.isFinite(createHudFrame().controlAuthority)).toBe(true)
+  })
+})
+
+describe('HudFrame 的戰場欄位', () => {
+  it('createHudFrame 的預設值', () => {
+    const f = createHudFrame()
+    expect(f.blueAlive).toBe(0)
+    expect(f.redAlive).toBe(0)
+    expect(f.resetCountdown).toBe(0)
+  })
+})
+
+describe('countdownLabel', () => {
+  it('戰鬥進行中不顯示', () => {
+    expect(countdownLabel(0)).toBeNull()
+  })
+
+  it('負數也不顯示——倒數不會走成負的，但這一條擋掉「−0 秒」那種畫面', () => {
+    expect(countdownLabel(-0.4)).toBeNull()
+  })
+
+  it('無條件進位：剩 2.4 秒顯示 3', () => {
+    expect(countdownLabel(2.4)).toContain('3')
+  })
+
+  it('剩 0.1 秒顯示 1，不是 0', () => {
+    // 【為什麼不能顯示 0】倒數走到 0 的那一格就重置了，畫面上永遠不該出現
+    // 「重新開始 0」——那看起來像卡住
+    expect(countdownLabel(0.1)).toContain('1')
   })
 })

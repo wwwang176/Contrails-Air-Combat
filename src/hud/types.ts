@@ -128,6 +128,17 @@ export interface HudFrame {
   controlAuthority: number
   /** 自機是否交給 AI 駕駛（`I`）。純觀測模式的指示燈 */
   aiFlying: boolean
+  /**
+   * 雙方存活架數。
+   *
+   * 【為什麼顯示數量而不顯示各機血量】與 §8 的裁決一致：你看不出對方的
+   * 結構完整度。但「還有幾架在天上」是看得出來的 —— 那是一個真實可觀察
+   * 的量。
+   */
+  blueAlive: number
+  redAlive: number
+  /** 重置倒數的剩餘秒數；0 代表戰鬥進行中，不佔版面 */
+  resetCountdown: number
 }
 
 export function createHudFrame(): HudFrame {
@@ -145,6 +156,7 @@ export function createHudFrame(): HudFrame {
     hp: 1000, hpMax: 1000,
     aiFlying: false,
     controlAuthority: 1,
+    blueAlive: 0, redAlive: 0, resetCountdown: 0,
   }
 }
 
