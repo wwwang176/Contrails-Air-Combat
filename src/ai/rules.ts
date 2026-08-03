@@ -34,6 +34,16 @@ export interface RuleConfig {
   /** extend：能量差的進入／離開門檻，m */
   energyEnter: number
   energyExit: number
+  /**
+   * extend：轉彎率劣勢的進入／離開門檻，rad/s。**負值。**
+   *
+   * 【為什麼需要死區】原本是裸比較 `turnAdvantage < 0`，0.29°/s 的劣勢就
+   * 會觸發 —— 那在戰術上毫無意義。實測本專案兩台的**真實**極值：109 對
+   * P-51 最多贏 0.0196 rad/s（1.12°/s，於 256 km/h）；P-51 對 109 在高速段
+   * 贏 0.1106 rad/s（6.34°/s，於 587 km/h，該速度下 109 幾乎轉不動）。
+   */
+  turnEnter: number
+  turnExit: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
   /** engage：timeToMerge 的進入／離開門檻，s */
@@ -56,6 +66,8 @@ export const DEFAULT_RULES: RuleConfig = {
   mergeAspect: 30 * (Math.PI / 180),
   energyEnter: -300,
   energyExit: 100,
+  turnEnter: -0.03,
+  turnExit: -0.015,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -67,6 +79,11 @@ export interface RuleState {
   /** 目前意圖已維持的秒數 */
   dwell: number
   defendLatch: boolean
+  /** 能量劣勢的閂鎖。與轉彎劣勢分開，見 `stepRules` 的註解 */
+  extendEnergyLatch: boolean
+  /** 轉彎率劣勢的閂鎖 */
+  extendTurnLatch: boolean
+  /** 上面兩者的或。**由 `stepRules` 寫入，不要回寫** */
   extendLatch: boolean
   engageLatch: boolean
 }
@@ -80,7 +97,9 @@ export function createRuleState(): RuleState {
     // 會讓它在重生後的第一個 minDwell 秒內無法離開 approach，也就是無論
     // 態勢多危急都得先直直飛 0.8 秒。
     dwell: Infinity,
-    defendLatch: false, extendLatch: false, engageLatch: false,
+    defendLatch: false,
+    extendEnergyLatch: false, extendTurnLatch: false, extendLatch: false,
+    engageLatch: false,
   }
 }
 
@@ -108,9 +127,27 @@ export function stepRules(
   // 舊值，下次輪到它時反應會慢一整個週期——而且那個延遲只在特定的意圖
   // 順序下出現，極難重現。
   s.defendLatch = latch(s.defendLatch, threat, cfg.threatEnter, cfg.threatExit)
-  s.extendLatch = latch(
-    s.extendLatch, sit.energyAdvantage, cfg.energyEnter, cfg.energyExit,
-  ) || sit.turnAdvantage < 0
+
+  // 【能量與轉彎是兩個獨立的閂鎖，不能 OR 進同一個】原本寫成
+  //
+  //   s.extendLatch = latch(s.extendLatch, energyAdvantage, −300, 100) || turnAdvantage < 0
+  //
+  // `||` 的結果被寫回閂鎖**自己的記憶**，於是遲滯被毒化：只要有任何一格
+  // `turnAdvantage < 0`，下一格 `latch(active = true, …)` 走的就是維持條件
+  // `energyAdvantage < 100` —— 勢均力敵時那幾乎恆真，閂鎖再也關不掉。
+  //
+  // 人工驗收實測：正面對頭時 `turnAdvantage` 曾短暫落到 −0.005 rad/s
+  // （0.29°/s，戰術上毫無意義），就足以讓 AI 在距離跌破 `extendRange` 時
+  // 轉為脫離 —— 而當下 `turnAdvantage` 早已回到 +0.007。
+  //
+  // 分成兩個閂鎖之後，各自維護各自的遲滯，OR 只發生在讀取端。
+  s.extendEnergyLatch = latch(
+    s.extendEnergyLatch, sit.energyAdvantage, cfg.energyEnter, cfg.energyExit,
+  )
+  s.extendTurnLatch = latch(
+    s.extendTurnLatch, sit.turnAdvantage, cfg.turnEnter, cfg.turnExit,
+  )
+  s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch
   s.engageLatch = latch(
     s.engageLatch, sit.timeToMerge, cfg.engageTimeEnter, cfg.engageTimeExit,
   )
