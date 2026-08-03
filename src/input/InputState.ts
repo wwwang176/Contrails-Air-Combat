@@ -40,25 +40,12 @@ export interface InputState {
    */
   braking: boolean
   /**
-   * 靶機的機動索引，對應 `MANOEUVRES`（0 直線／1 盤旋／2 蛇行／3 爬升）。
-   *
-   * 【為什麼放在 InputState 而不是直接呼叫 ScriptedController】輸入層是
-   * 純 DOM 外殼，對 control/ 沒有依賴（見 bindings.ts 檔頭的同一條理由）。
-   */
-  droneManoeuvre: number
-  /**
-   * 靶機是否交給 AI 駕駛。`false` 時走 `droneManoeuvre` 的預錄機動。
-   *
-   * 【為什麼保留預錄機動】除錯時很有用：AI 出問題時可以先換成已知的
-   * 直線或盤旋，確認是 AI 的問題還是別的地方。
-   */
-  droneAi: boolean
-  /**
    * **自機**是否交給 AI 駕駛。純觀測用：讓同一顆 AI 同時開兩台，
    * 從外面看它到底怎麼打。
    *
-   * 【為什麼是切換而 `droneAi` 是單向】`5` 有 `1`–`4` 當回頭路，`I` 沒有，
-   * 所以它自己必須能收回來——不然接管之後就再也拿不回操縱權了。
+   * 【為什麼是切換】接管之後必須拿得回操縱權，所以 `I` 是雙向的。M5 之前
+   * 還有 `1`–`5` 可以切換靶機的駕駛者，20v20 裡沒有「靶機」這個角色了，
+   * 那組按鍵連同 `droneAi` / `droneManoeuvre` 一起移除。
    *
    * 接管期間右鍵自由視角照常，左鍵失效（開火由 AI 的開火紀律決定）。
    */
@@ -81,8 +68,6 @@ export function createInputState(): InputState {
     viewMode: 'third',
     firing: false,
     braking: false,
-    droneManoeuvre: 0,
-    droneAi: false,
     playerAi: false,
     resetRequested: false,
     swapSpecRequested: false,

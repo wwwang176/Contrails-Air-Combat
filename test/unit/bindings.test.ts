@@ -244,49 +244,6 @@ describe('開火鍵（滑鼠左鍵）', () => {
   })
 })
 
-describe('靶機機動切換鍵', () => {
-  const key = (code: string) => ({ code, preventDefault: () => {} })
-
-  it('1 2 3 4 依序選到四種機動', () => {
-    const dom = setupDom()
-    const state = createInputState()
-    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
-
-    expect(state.droneManoeuvre).toBe(0)
-    for (const [code, index] of
-      [['Digit2', 1], ['Digit3', 2], ['Digit4', 3], ['Digit1', 0]] as const) {
-      dom.win.fire('keydown', key(code))
-      expect(state.droneManoeuvre).toBe(index)
-    }
-  })
-})
-
-describe('靶機 AI 切換鍵', () => {
-  const key = (code: string) => ({ code, preventDefault: () => {} })
-
-  it('預設不是 AI；按 5 切成 AI', () => {
-    const dom = setupDom()
-    const state = createInputState()
-    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
-
-    expect(state.droneAi).toBe(false)
-    dom.win.fire('keydown', key('Digit5'))
-    expect(state.droneAi).toBe(true)
-  })
-
-  it('按 1–4 回到預錄機動', () => {
-    const dom = setupDom()
-    const state = createInputState()
-    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
-
-    dom.win.fire('keydown', key('Digit5'))
-    expect(state.droneAi).toBe(true)
-    dom.win.fire('keydown', key('Digit2'))
-    expect(state.droneAi).toBe(false)
-    expect(state.droneManoeuvre).toBe(1)
-  })
-})
-
 describe('自機 AI 接管鍵', () => {
   const key = (code: string) => ({ code, preventDefault: () => {} })
 
@@ -302,22 +259,4 @@ describe('自機 AI 接管鍵', () => {
     expect(state.playerAi).toBe(false)
   })
 
-  /**
-   * 【為什麼是切換而不是像 5 那樣單向】`5` 有 `1`–`4` 當回頭路，`I` 沒有，
-   * 所以它自己必須能收回來——不然接管之後就再也拿不回操縱權了。
-   */
-  it('與靶機的 AI 開關互不干擾', () => {
-    const dom = setupDom()
-    const state = createInputState()
-    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
-
-    dom.win.fire('keydown', key('KeyI'))
-    dom.win.fire('keydown', key('Digit5'))
-    expect(state.playerAi).toBe(true)
-    expect(state.droneAi).toBe(true)
-
-    dom.win.fire('keydown', key('Digit2'))
-    expect(state.playerAi).toBe(true)
-    expect(state.droneAi).toBe(false)
-  })
 })
