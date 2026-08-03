@@ -5,6 +5,7 @@ import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
+import { ENERGY_FLOOR_ALTITUDE } from './assess'
 import type { Situation } from './assess'
 import type { Intent } from './rules'
 
@@ -316,11 +317,22 @@ export function steerCommand(
         // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
         // 能量劣勢時帶爬升分量把速度存成高度，優勢時反之。
         //
-        // 【但絕對能量見底時一律爬升】`energyReserve < 0` 代表比能量低於
-        // 「還打得動」的底線，而 `Es = 高度 + 動能高度 ≥ 高度`，所以見底
-        // **必然**蘊含高度也很低。此時照相對能量差去俯衝是把僅剩的高度也丟掉
-        // ——實測共速共高開局因此掉到離海 109 m。該做的是把速度換成高度。
-        const pitch = sit.energyReserve < 0
+        // 【兩種情況一律爬升，不照相對能量差】
+        //
+        // 一、`energyReserve < 0`：比能量低於「還打得動」的底線。而
+        //     `Es = 高度 + 動能高度 ≥ 高度`，所以見底**必然**蘊含高度也很低。
+        //     此時俯衝是把僅剩的高度也丟掉 —— 實測掉到離海 109 m。
+        //
+        // 二、**高度已經低於底線高度**。少了這一條會產生二階震盪：閂鎖的釋放
+        //     門檻是 `floorExit`（+300 m，有遲滯），但俯仰若用裸判
+        //     `energyReserve < 0`，餘裕一跨過 0 飛機就從爬升翻成俯衝，而它離
+        //     釋放門檻還很遠。實測 180 秒：AI 爬到 843 m、餘裕回正後立刻俯衝，
+        //     9 秒內把高度丟回 205 m，餘裕跌到 −362，安全層在 115 m 接管。
+        //
+        //     這一條是物理陳述而不是第二個門檻：**低於底線高度時不該用高度
+        //     換速度**。它同時讓俯仰與閂鎖的狀態保持一致。
+        const lowAltitude = self.state.position.y < ENERGY_FLOOR_ALTITUDE
+        const pitch = (sit.energyReserve < 0 || lowAltitude)
           ? cfg.extendPitch
           : -Math.sign(sit.energyAdvantage) * cfg.extendPitch
         unloadAim(self, pitch, out.aimWorld)

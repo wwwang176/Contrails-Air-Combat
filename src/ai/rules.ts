@@ -216,10 +216,22 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   //
   // `shotInstant > 0` 已經包含「距離 900 m 內、有預瞄解、機首在 15° 錐內」，
   // 正是「我正咬著他」的定義。
+  //
+  // 【`extendRange` 也只約束相對理由】同一條分野再用一次。`extend` 有兩個
+  // 出口：跑滿 `extendRange`，或閂鎖釋放。實測絕對理由觸發時**永遠是距離
+  // 先到** —— 能量餘裕要爬回 `floorExit`（+300 m）以 Ps ≈ +15 m/s 算要 21 秒，
+  // 而拉開到 1,500 m 只要 1.2 秒。AI 於是每次都在餘裕才 +24 m 時回頭，等於
+  // 沒補到，很快又見底，形成來回震盪。
+  //
+  // 相對理由（比他弱、轉不贏他）談的是戰術態勢，「拉開夠遠就安全了」成立；
+  // 絕對理由（我飛不動了）與距離無關 —— 跑到天邊也不會讓你變得飛得動。
   const shooting = sit.shotInstant > 0
-  const fleeing = s.extendFloorLatch
-    || (!shooting && (s.extendEnergyLatch || s.extendTurnLatch))
-  if (fleeing && sit.range < cfg.extendRange) return 'extend'
+  if (s.extendFloorLatch) return 'extend'
+  if (
+    !shooting
+    && (s.extendEnergyLatch || s.extendTurnLatch)
+    && sit.range < cfg.extendRange
+  ) return 'extend'
 
   // 【門檻與 extend 對齊，不是 `>= 0`】機體差距可能只有 ±2% 且隨高度換號，
   // 用 `>= 0` 等於擲銅板。要拒絕交戰得是**明顯**轉不贏，那與脫離同一個標準。

@@ -285,6 +285,39 @@ describe('extend 的三個理由與射擊否決權', () => {
     expect(s.intent).toBe('extend')
   })
 
+  /**
+   * 【`extendRange` 也只約束相對理由】`extend` 有兩個出口：跑滿 `extendRange`，
+   * 或閂鎖釋放。實測絕對理由觸發時**永遠是距離先到** —— 能量餘裕要爬回
+   * `floorExit`（+300 m）以 Ps ≈ +15 m/s 算要 21 秒，而拉開到 1,500 m 只要
+   * 1.2 秒。AI 於是每次都在餘裕才 +24 m 時回頭，等於沒補到，很快又見底。
+   *
+   * 修正後實測 180 秒：餘裕由 −124 單調回升到 +313 才釋放，共 39 秒、拉開到
+   * 3.9 km，然後真的帶著能量回來交戰。
+   *
+   * 【為什麼 90 秒的對戰矩陣看不到這個】復原要 39 秒，四組開局的仗都在那之前
+   * 就結束了。所以這一條只能在單元層釘死。
+   */
+  it('能量見底時，跑滿 extendRange 也不回頭', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = DEFAULT_RULES.extendRange * 3   // 遠遠超過脫離距離
+    sit.energyReserve = -200
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendFloorLatch).toBe(true)
+    expect(s.intent).toBe('extend')
+  })
+
+  it('相對理由則照樣受 extendRange 約束', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = DEFAULT_RULES.extendRange * 3
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.shotInstant = 0
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(true)     // 閂鎖有點著
+    expect(s.intent).not.toBe('extend')       // 但距離已經夠遠，不需要再跑
+  })
+
   /** 底線閂鎖的遲滯：跨回底線不夠，要真的補回一點才鬆手。 */
   it('底線閂鎖有遲滯：剛好回到底線不解除，補足 floorExit 才解除', () => {
     const s = createRuleState()
