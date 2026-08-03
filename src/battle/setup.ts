@@ -3,29 +3,17 @@ import { World, type Combatant } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
 import { createTargetBoard, type TargetBoard } from '../ai/target'
+import { SCHWARM_SIZE, STATION_REFERENCE } from './flights'
+import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
 
 /**
- * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14）。
+ * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14、M6 spec §8）。
  *
- * 【`entryRange` = 3,000 m】判準是「留給玩家環顧與選目標的時間」。實測
- * 開局到第一次有人扣扳機／第一次有人中彈：
- *
- * ```
- *   1,500 m → 0.6 s / 1.7 s      4,000 m →  6.3 s /  7.5 s
- *   2,000 m → 1.2 s / 2.4 s      6,000 m → 11.4 s / 13.1 s
- *   3,000 m → 3.7 s / 5.0 s
- * ```
- *
- * 1,500 m 是「還沒看清楚就被打」。3,000 m 給 3.7 秒。
- *
- * 【`lateralSpacing` = 120 m】兩個下界：不能近到看起來要相撞（翼展 10–11 m
- * 的兩個數量級以上），也不能遠到 20 架橫跨的 2,280 m 超過 `entryRange`。
- *
- * 【`altitudeSpread` = ±300 m】同上，垂直方向。週期 5 的鋸齒讓 20 架落在
- * 五個高度層而不是兩排。
+ * 【`altitudeSpread` = ±300 m】不能近到看起來要相撞，也不能遠到分隊看不到
+ * 彼此。週期 5 的鋸齒讓五個分隊落在五個高度層而不是兩排。
  *
  * 【`resetCountdown` = 3 s】長到看得出「這是重新開始」而不是當掉，短到
  * 不會讓人以為卡住。與 M2 的命中 X 標記（0.15 s）是同一類的顯示時長判準。
@@ -35,27 +23,58 @@ export interface BattleConfig {
   perSide: number
   altitude: number
   tas: number
-  /** 兩隊重心的初始距離，m */
-  entryRange: number
-  /** 同隊相鄰兩架的橫向間距，m */
-  lateralSpacing: number
   /**
-   * 兩隊重心的橫向錯開量，m。藍隊 −offset/2、紅隊 +offset/2。
+   * 兩隊**分隊原點**的初始距離，m。
    *
-   * 【為什麼一定要有】0 的時候藍 slot k 與紅 slot k 在 Z 軸上完全共線、
-   * 高度層也一樣（`altitudeOffset` 對兩隊是同一個函數），整場仗變成 20 場
-   * 精準的對頭槍戰 —— 而那正是 P-51 的六挺翼槍最差的區間（匯聚點在 300 m，
-   * 這種仗打在 660–1,000 m）。實測：藍隊每 9 秒被零損失全滅一次，60 秒內
-   * 七次；有效命中率藍 34% 對紅 97%。
+   * 【M6 起不是「重心」】站位偏置的 `along` 全是負的（僚機在參考機後方），
+   * 平均 −90 m，而「後方」對兩隊是反向的 —— 重心因此比分隊原點多拉開
+   * 180 m。與 `lateralOffset` 同一個定義。
    *
-   * 【數值怎麼來的】`fire.ts` 的 `trackingCone` 是 3°，是扣扳機前的最後一關。
-   * 橫向間隔小於 `entryRange × tan(3°)` 的兩隊，從出生那一刻就在彼此的射擊
-   * 錐內 —— 3,000 m 下是 **157 m**。實測的懸崖落在 120 m（兩次全滅）與
-   * 180 m（零全滅）之間，與這個預測一致。取兩倍為設計值。
+   * 【M6 由 3,000 拉到 10,000】M5 實測開局到第一次有人扣扳機／中彈：
    *
-   * 【不是「間距的整數倍會共線」】那個假說被實測推翻：60 m（0.5 倍間距）
-   * 與 120 m（1 倍）都一樣糟，而 240/360/480/600 全是整數倍卻都沒事。
-   * 決定性的是絕對大小，不是與間距的公因數。
+   * ```
+   *   1,500 m → 0.6 s / 1.7 s      4,000 m →  6.3 s /  7.5 s
+   *   2,000 m → 1.2 s / 2.4 s      6,000 m → 11.4 s / 13.1 s
+   *   3,000 m → 3.7 s / 5.0 s
+   * ```
+   *
+   * 3,000 m 只給 3.7 秒 —— 隊形保持在那個開局下等於隱形功能。第一次扣
+   * 扳機約在 1,500 m、對頭接近率 400 m/s，10,000 m 給
+   * `(10000 − 1500) / 400 ≈ 21 秒`的編隊巡航。
+   *
+   * **代價**：每次重置玩家都要等這 21 秒。人工驗收要看它是「壯觀」還是
+   * 「無聊」（M6 spec §4.2 條件 19）。
+   */
+  entryRange: number
+  /**
+   * 相鄰兩個 Schwarm 的長機橫向間距，m。
+   *
+   * 【取代 M5 的 `lateralSpacing`】分隊**內部**的間距現在由站位偏置給
+   * （`STATION_OFFSETS`），這裡只管分隊**之間**。
+   *
+   * 【800 m 怎麼來】每隊總寬 `4 × 800 + 650 = 3,850 m`（650 是分隊內部
+   * 的橫向跨度），加上 ±750 的兩隊錯開，最外側的一架落在 ±2,675 m。在
+   * 10 km 的對頭距離下偏軸 `atan(2675/10000) = 15°` —— 仍然大致對頭，
+   * 不會變成側翼包抄。上界與 M5 同一條：總寬不能大到讓外側分隊看不到敵人。
+   */
+  schwarmSpacing: number
+  /**
+   * 兩隊**分隊原點**的橫向錯開量，m。藍隊 −offset/2、紅隊 +offset/2。
+   *
+   * 【為什麼一定要有】M5 實測：0 的時候藍隊每 9 秒被零損失全滅一次，
+   * 60 秒內七次，有效命中率藍 34% 對紅 97%。成因是 P-51 的六挺翼槍匯聚點
+   * 在 300 m，而那種仗打在 660–1,000 m。
+   *
+   * 【M6 的推導多一項】站位的 `across` 對紅隊會鏡射（`stationPoint` 讀的
+   * 是速度方向，而紅隊朝 +Z），所以藍隊第 k 位在 `X_藍 + a_k`、紅隊第 k 位
+   * 在 `X_紅 − a_k`，兩者橫向差是 `−offset + 2·a_k`。以累積橫向量
+   * `a = {0, +200, −250, −450}` 代入得 `−offset, −offset+400, −offset−500,
+   * −offset−900` —— 最接近 0 的是第二個，也就是**最小的一對只隔
+   * `offset − 400`**。
+   *
+   * 要它仍然滿足兩倍射擊錐（`entryRange × tan(3°) = 524 m`）：
+   *
+   *     offset − 400 ≥ 2 × 524  →  offset ≥ 1,448  →  取 1,500
    */
   lateralOffset: number
   /** 高度散布的半幅，m */
@@ -68,9 +87,9 @@ export const DEFAULT_BATTLE: BattleConfig = {
   perSide: 20,
   altitude: 4000,
   tas: 200,
-  entryRange: 3000,
-  lateralSpacing: 120,
-  lateralOffset: 300,
+  entryRange: 10000,
+  schwarmSpacing: 800,
+  lateralOffset: 1500,
   altitudeSpread: 300,
   resetCountdown: 3,
 }
@@ -98,19 +117,24 @@ const UP = new Vector3(0, 1, 0)
 const FWD = new Vector3(0, 0, -1)
 
 /**
- * 高度散布：把 slot 映到 [−1, 1] 的鋸齒。
+ * 高度散布：把**分隊**序號映到 [−1, 1] 的鋸齒。
+ *
+ * 【M6 起單位是分隊而不是單架】分隊**內部**的高度差由站位偏置給
+ * （`STATION_OFFSETS` 的 `up`）。兩者都作用在單架上的話，會互相打架 ——
+ * 生成把它推上去、站位控制器又把它拉回來。
  *
  * 【為什麼不是亂數】M5 spec §3.1 條件 7 要求決定性 —— 同一組設定跑兩次要
- * 逐幀一致。亂數要嘛需要一顆種子與一個 PRNG，要嘛就毀掉決定性；而這裡
- * 真正要的只是「別讓 20 架擠在同一個高度」，鋸齒就夠了。
+ * 逐幀一致。亂數要嘛需要一顆種子與一個 PRNG，要嘛就毀掉決定性。
  *
- * 【週期取 5 而不是 2】2 只會產生兩個高度層 —— 那在畫面上看起來是兩排整齊
- * 的飛機，不是一團散開的機群。
+ * 【週期取 5】剛好是每隊的分隊數，五個分隊落在五個不同的高度層。
  */
-function altitudeOffset(slot: number, spread: number): number {
-  const cycle = slot % 5
+function altitudeOffset(flight: number, spread: number): number {
+  const cycle = flight % 5
   return ((cycle / 4) * 2 - 1) * spread
 }
+
+/** 生成用的暫存。`createBattle` 不是熱路徑，但沒有理由每架配一個 */
+const SPAWN = new Vector3()
 
 /**
  * 造一場 N vs N。
@@ -124,7 +148,14 @@ export function createBattle(
   const world = new World()
   const blue: Combatant[] = []
   const red: Combatant[] = []
-  const playerSlot = Math.floor(cfg.perSide / 2)
+  const flightCount = Math.ceil(cfg.perSide / SCHWARM_SIZE)
+  /**
+   * 玩家是**正中央分隊的長機**（M6 spec §9）。
+   *
+   * 【為什麼是長機而不是某個僚機】玩家不會照站位飛。把他擺在有站位的
+   * 位置上，那個 Schwarm 從此有一個永遠對不齊的槽位。
+   */
+  const playerSlot = Math.floor(flightCount / 2) * SCHWARM_SIZE
   let player: Combatant | null = null
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
@@ -138,26 +169,43 @@ export function createBattle(
     // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
     const lateral = (blueSide ? -1 : 1) * cfg.lateralOffset / 2
 
-    for (let slot = 0; slot < cfg.perSide; slot++) {
-      const x = (slot - (cfg.perSide - 1) / 2) * cfg.lateralSpacing + lateral
-      const y = cfg.altitude + altitudeOffset(slot, cfg.altitudeSpread)
-      const spec = blueSide ? P51D : BF109G6
-      const aircraft = new Aircraft(spec, y, cfg.tas)
-      aircraft.state.position.set(x, y, z)
-      aircraft.state.orientation.copy(orientation)
-      aircraft.state.velocity.copy(velocity)
-      aircraft.prevPosition.copy(aircraft.state.position)
-      aircraft.prevOrientation.copy(orientation)
+    let slot = 0
+    for (let f = 0; f < flightCount; f++) {
+      const leadX = (f - (flightCount - 1) / 2) * cfg.schwarmSpacing + lateral
+      const leadY = cfg.altitude + altitudeOffset(f, cfg.altitudeSpread)
+      /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
+      const made: Aircraft[] = []
 
-      const isPlayer = blueSide && slot === playerSlot
-      const controller = isPlayer ? playerController : new AiController()
-      const c = world.add(
-        aircraft, controller, side, aircraft.state.position.clone(), y, cfg.tas,
-      )
-      // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
-      c.respawnOnDestroy = false
-      if (isPlayer) player = c
-      ;(blueSide ? blue : red).push(c)
+      for (let k = 0; k < SCHWARM_SIZE && slot < cfg.perSide; k++, slot++) {
+        // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
+        // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
+        // 走 `World.respawn` 是同一個理由。
+        //
+        // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
+        // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
+        const ref = STATION_REFERENCE[k]!
+        if (ref < 0) SPAWN.set(leadX, leadY, z)
+        else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+
+        const spec = blueSide ? P51D : BF109G6
+        const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
+        aircraft.state.position.copy(SPAWN)
+        aircraft.state.orientation.copy(orientation)
+        aircraft.state.velocity.copy(velocity)
+        aircraft.prevPosition.copy(aircraft.state.position)
+        aircraft.prevOrientation.copy(orientation)
+        made.push(aircraft)
+
+        const isPlayer = blueSide && slot === playerSlot
+        const controller = isPlayer ? playerController : new AiController()
+        const c = world.add(
+          aircraft, controller, side, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
+        )
+        // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
+        c.respawnOnDestroy = false
+        if (isPlayer) player = c
+        ;(blueSide ? blue : red).push(c)
+      }
     }
   }
 
