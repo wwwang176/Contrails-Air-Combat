@@ -7,6 +7,7 @@ import {
   PART_MULTIPLIER, type HitPart,
 } from './hit'
 import { Projectiles } from './Projectiles'
+import { CullIndex } from './cull'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
@@ -67,6 +68,8 @@ export class World {
   readonly projectiles = new Projectiles()
 
   private readonly hit = createHitResult()
+  /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
+  private readonly cull = new CullIndex()
 
   add(
     aircraft: Aircraft,
@@ -93,6 +96,7 @@ export class World {
       spawnTas,
     }
     this.combatants.push(c)
+    this.cull.ensure(this.combatants.length)
     return c
   }
 
@@ -183,23 +187,49 @@ export class World {
   }
 
   /**
+   * 重填粗篩索引：只收存活的飛機，依 x 排序。
+   *
+   * 【為什麼在 resolveHits 裡而不是 step 開頭】判定吃的是**推進後**的位置。
+   * 在飛機推進之前填，粗篩用的是上一步的殘影，視窗會偏掉一整步的位移。
+   */
+  private buildCull(): void {
+    const cull = this.cull
+    cull.clear()
+    const combatants = this.combatants
+    for (let i = 0; i < combatants.length; i++) {
+      const c = combatants[i]!
+      if (!c.alive) continue
+      const p = c.aircraft.state.position
+      cull.add(p.x, p.y, p.z, c.hitRadius, c.index, c.team === 'blue' ? 0 : 1)
+    }
+    cull.sort()
+  }
+
+  /**
    * 線段 vs 各機的命中盒，取最近的那一架。
    *
-   * 【這是整個 M2 最熱的迴圈】滿載 4,000 發 × 每架一次，240 Hz 下是每秒
-   * 兩百萬次配對。所以這裡刻意寫得比別處囉嗦：
+   * 【公開是為了等價測試】與 `applyDamage` 同一個理由。
+   * `test/unit/cull-equivalence.test.ts` 要能在完全掌控的狀態下呼叫它，
+   * 再與一份獨立的暴力法比對。
    *
-   *   - **索引迴圈而不是 for...of**。`for...of` 每次都會配置一個迭代器物件，
-   *     在這個位置就是每步 4,000 次配置——違反 spec §10 的熱路徑零配置，
-   *     而且是量得出來的（實測佔了大半的時間）。
-   *   - **座標先讀進區域變數**。粗篩要用六個分量，留在 Float32Array 裡的話
-   *     每個 combatant 都得重讀一次。
-   *   - **s0/s1 只在通過粗篩後才寫**。實測粗篩擋掉 99.89% 的配對，
-   *     把兩個 Vector3.set 留在外面等於替那 99.89% 白做。
+   * 【這是整個專案最熱的迴圈】滿載 4,000 發 × 40 架。粗篩換成排序掃描之前
+   * 是 7,408 µs，換之後 202 µs（M5 spec §5.1）。所以這裡刻意寫得比別處囉嗦：
+   *
+   *   - **索引迴圈而不是 for...of**。後者每次都會配置一個迭代器物件，
+   *     在這個位置就是每步 4,000 次配置——違反熱路徑零配置的紀律。
+   *   - **視窗用 x 區間夾**。窗外的飛機在代數上不可能被命中（spec §5.3），
+   *     所以窗內取到的最小 t 就是全場的最小 t。
+   *   - **座標從 CullIndex 的並排陣列讀**，不穿 Combatant → Aircraft → state。
+   *   - **s0/s1 只在通過粗篩後才寫**。粗篩擋掉絕大多數的配對，把兩個
+   *     Vector3.set 留在外面等於替它們白做。
    */
-  private resolveHits(): void {
+  resolveHits(): void {
+    this.buildCull()
+
     const p = this.projectiles
     const combatants = this.combatants
-    const n = combatants.length
+    const cull = this.cull
+    const rMax = cull.rMax
     const s0 = S.v[0]!
     const s1 = S.v[1]!
 
@@ -209,23 +239,37 @@ export class World {
       const ax = p.sx[i]!, ay = p.sy[i]!, az = p.sz[i]!
       const bx = p.x[i]!, by = p.y[i]!, bz = p.z[i]!
 
+      // 射手的陣營。同隊的彈丸直接穿過（spec §5.4）；射手不在名單上時取 −1，
+      // 於是不會與任何 0/1 相等，等於不做同隊過濾。
+      const shooter = owner >= 0 && owner < combatants.length ? combatants[owner] : undefined
+      const ownerTeam = shooter === undefined ? -1 : (shooter.team === 'blue' ? 0 : 1)
+
+      const lo = (ax < bx ? ax : bx) - rMax
+      const hi = (ax > bx ? ax : bx) + rMax
+
       let bestT = Infinity
       let victim: Combatant | null = null
       let part: HitPart = 'fuselage'
-      for (let j = 0; j < n; j++) {
-        const c = combatants[j]!
-        if (c.index === owner) continue      // 打不到自己
-        if (!c.alive) continue
+      const count = cull.count
+      for (let j = cull.lowerBound(lo); j < count; j++) {
+        const cx = cull.x[j]!
+        if (cx > hi) break
+        if (cull.team[j]! === ownerTeam) continue
+        // 【同隊過濾已經涵蓋自傷，但這一條要留】spec §5.4：「同隊零傷害」
+        // 必須是一條自己成立的規則，而不是碰巧被另一條擋掉。
+        if (cull.index[j]! === owner) continue
         // 【粗篩】線段離機體重心比包圍球還遠就一定碰不到，跳過六次 slab
-        // 測試與兩次四元數旋轉。滿載時這一行擋掉 99.89% 的配對。
-        const pos = c.aircraft.state.position
-        if (segmentPointDistanceSq(ax, ay, az, bx, by, bz, pos.x, pos.y, pos.z)
-          > c.hitRadius * c.hitRadius) continue
+        // 測試與兩次四元數旋轉。
+        if (segmentPointDistanceSq(
+          ax, ay, az, bx, by, bz, cx, cull.y[j]!, cull.z[j]!,
+        ) > cull.r2[j]!) continue
 
+        const c = combatants[cull.index[j]!]!
         s0.set(ax, ay, az)
         s1.set(bx, by, bz)
         if (!hitAircraft(
-          c.aircraft.spec.hitBoxes, pos, c.aircraft.state.orientation, s0, s1, this.hit,
+          c.aircraft.spec.hitBoxes, c.aircraft.state.position, c.aircraft.state.orientation,
+          s0, s1, this.hit,
         )) continue
         if (this.hit.t >= bestT) continue
         bestT = this.hit.t
@@ -236,7 +280,6 @@ export class World {
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子
       // 會被打進機身的彈丸塞滿。
-      const shooter = owner >= 0 && owner < n ? combatants[owner]! : undefined
       this.applyDamage(victim, p.damage[i]!, part, shooter)
       p.kill(i)
     }
