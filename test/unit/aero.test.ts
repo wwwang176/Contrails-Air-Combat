@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   liftCoefficient, dragCoefficient, inducedDragFactor, controlEffectiveness,
+  lowSpeedEffectiveness, stallDynamicPressure, LOW_SPEED_KNEE,
   updateSlatState, computeAeroState, aeroForceMoment,
 } from '../../src/physics/aero'
+import { stallSpeed } from '../../src/analysis/envelope'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D } from '../../src/specs/p51d'
@@ -341,5 +343,107 @@ describe('aeroForceMoment', () => {
     const out = fmOut()
     const s = computeAeroState(vel, a, aeroOut())
     expect(aeroForceMoment(P51D, s, NO_SPIN, NO_CONTROL, false, out)).toBe(out)
+  })
+})
+
+describe('stallDynamicPressure', () => {
+  /**
+   * 【這是整個設計成立的關鍵性質】1 G 失速時的動壓與高度無關：
+   *
+   *   Vs(1G) = √( 2W / (ρ·S·CLmax) )
+   *   q      = ½ρ·Vs² = W / (S·CLmax)      ← ρ 消掉了
+   *
+   * 所以拐點是每機種一個常數，不必查大氣、不必開根號。而且它自動處理
+   * 高度——9,000 m 要 268 km/h 才有同樣的動壓，這正是真實情況。
+   */
+  it('與高度無關：對照 stallSpeed() 在四個高度算出的 ½ρVs²', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const expected = stallDynamicPressure(spec)
+      for (const alt of [0, 3000, 6000, 9000]) {
+        const vs = stallSpeed(spec, alt, 1)
+        const a = air(alt)
+        expect(0.5 * a.density * vs * vs).toBeCloseTo(expected, 6)
+      }
+    }
+  })
+
+  /**
+   * 【CL_max 的慣例必須與 stallSpeed() 對齊】上面那條測試同時驗了這件事：
+   * 若這裡用了不含縫翼加成的 CL_max，109 的值會與 stallSpeed() 差一截，
+   * 對照就會失敗。這不是巧合，是刻意讓兩者互相釘死（spec §4.3）。
+   */
+  it('等於 W / (S · CLmax)，且兩台的實測值', () => {
+    expect(stallDynamicPressure(P51D)).toBeCloseTo(
+      (P51D.mass * 9.80665) / (P51D.wing.area * derivedClMax(P51D, P51D.lift.slatAlphaBonus > 0)),
+      9,
+    )
+    // 實測值，供日後改參數時一眼看出量級是否跑掉
+    expect(stallDynamicPressure(P51D)).toBeCloseTo(1289.9, 0)
+    expect(stallDynamicPressure(BF109G6)).toBeCloseTo(1239.0, 0)
+  })
+})
+
+describe('lowSpeedEffectiveness', () => {
+  const knee = (spec: AircraftSpec) => LOW_SPEED_KNEE * stallDynamicPressure(spec)
+
+  it('拐點以上恆為 1', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const q = knee(spec)
+      expect(lowSpeedEffectiveness(spec, q)).toBe(1)
+      expect(lowSpeedEffectiveness(spec, q * 1.5)).toBe(1)
+      expect(lowSpeedEffectiveness(spec, q * 100)).toBe(1)
+    }
+  })
+
+  it('拐點以下等於 q / q_low', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const q = knee(spec)
+      expect(lowSpeedEffectiveness(spec, q * 0.5)).toBeCloseTo(0.5, 12)
+      expect(lowSpeedEffectiveness(spec, q * 0.25)).toBeCloseTo(0.25, 12)
+    }
+  })
+
+  it('在拐點連續（左右極限相等）', () => {
+    for (const spec of [P51D, BF109G6]) {
+      const q = knee(spec)
+      const below = lowSpeedEffectiveness(spec, q * (1 - 1e-9))
+      expect(below).toBeCloseTo(1, 8)
+      expect(lowSpeedEffectiveness(spec, q)).toBe(1)
+    }
+  })
+
+  it('q = 0 時為 0，不是 NaN', () => {
+    // 【為什麼不必設下限】力矩 = 動壓 × 面積 × 係數，動壓為 0 時力矩本來
+    // 就是 0。乘數再小也不會除出無限大（spec §4.5）。
+    for (const spec of [P51D, BF109G6]) {
+      expect(lowSpeedEffectiveness(spec, 0)).toBe(0)
+      expect(Number.isFinite(lowSpeedEffectiveness(spec, 0))).toBe(true)
+    }
+  })
+
+  it('單調遞增', () => {
+    const q = knee(P51D)
+    let prev = -1
+    for (let f = 0; f <= 1.5; f += 0.05) {
+      const v = lowSpeedEffectiveness(P51D, q * f)
+      expect(v).toBeGreaterThanOrEqual(prev)
+      prev = v
+    }
+  })
+
+  /**
+   * 【拐點以上到高速變重之間有一大段完全不受影響】P-51D 的 q_low 是
+   * 1858 Pa、q_ref 是 10884 Pa，相隔 5.9 倍。兩個機制不會同時作用。
+   */
+  it('低速端與高速端的作用區間不重疊', () => {
+    for (const spec of [P51D, BF109G6]) {
+      expect(knee(spec)).toBeLessThan(spec.controlStiffening.qRef)
+      // 在兩者中間取一點，兩個乘數都應該是 1
+      const mid = Math.sqrt(knee(spec) * spec.controlStiffening.qRef)
+      expect(lowSpeedEffectiveness(spec, mid)).toBe(1)
+      expect(controlEffectiveness(
+        spec.controlStiffening.elevatorK, spec.controlStiffening.qRef, mid,
+      )).toBe(1)
+    }
   })
 })
