@@ -314,8 +314,14 @@ const T = makeScratch(3)
  * 【為什麼不是「有沒有預瞄解」這個布林】`solveLead` 有解只代表幾何上
  * 攔截得到，不代表打得中。正面對衝時雙方都有解——只看它的話兩邊都會
  * 判定自己被威脅、兩邊都進 defend，然後永遠卡住（spec §5.3）。
+ *
+ * 【M6 起匯出】僚機要問「這架敵機正在威脅我的長機嗎」，而那與這裡問的
+ * 是同一件事，只是主體換人。另外定義一個便宜的角度＋距離布林會產生
+ * **兩個對「誰在威脅誰」的答案** —— 於是可能出現「僚機認為長機被威脅、
+ * 長機自己不認為」，而那個矛盾在畫面上看起來就是僚機無故亂衝
+ * （M6 spec §7.2）。
  */
-function shotFactor(shooter: Aircraft, victim: Aircraft): number {
+export function threatFactor(shooter: Aircraft, victim: Aircraft): number {
   const p = T.v[0]!.copy(victim.state.position).sub(shooter.state.position)
   const range = p.length()
   if (range > THREAT_RANGE) return 0
@@ -346,6 +352,6 @@ function shotFactor(shooter: Aircraft, victim: Aircraft): number {
  * 用 `trackingFactor` 乘上去（見計畫的偏離 2）。
  */
 export function evaluateThreat(self: Aircraft, target: Aircraft, out: Situation): void {
-  out.threatInstant = shotFactor(target, self)
-  out.shotInstant = shotFactor(self, target)
+  out.threatInstant = threatFactor(target, self)
+  out.shotInstant = threatFactor(self, target)
 }

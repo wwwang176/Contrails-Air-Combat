@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
-  createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, trackingFactor,
+  createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, threatFactor, trackingFactor,
   THREAT_RANGE, TRACK_SATURATION,
 } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
@@ -465,5 +465,55 @@ describe('speedMargin —— 與 stallMargin 是兩個不同的失效模式', ()
     evaluateEnergy(at(P51D, 3000, 90), at(P51D, 3000, 180), sit)
     expect(sit.speedMargin).toBeLessThan(fast)
     expect(fast).toBeGreaterThan(3)
+  })
+})
+
+describe('threatFactor —— 供僚機掩護判斷使用（M6 spec §7.2）', () => {
+  /** 造一架擺在指定位置、朝指定方向平飛的 P-51D。 */
+  function at(x: number, y: number, z: number, yaw = 0): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(x, y, z)
+    const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw)
+    a.state.orientation.copy(q)
+    a.prevOrientation.copy(q)
+    a.state.velocity.set(0, 0, -200).applyQuaternion(q)
+    a.prevPosition.copy(a.state.position)
+    return a
+  }
+
+  it('咬在正後方 300 m 時為正', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 300)   // 受害者朝 −Z，射手在他後方 300 m
+    expect(threatFactor(shooter, victim)).toBeGreaterThan(0)
+  })
+
+  it('背對時為 0', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 300, Math.PI)  // 射手朝 +Z，背對受害者
+    expect(threatFactor(shooter, victim)).toBe(0)
+  })
+
+  it('超過 THREAT_RANGE 為 0', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, THREAT_RANGE + 100)
+    expect(threatFactor(shooter, victim)).toBe(0)
+  })
+
+  it('越近越大', () => {
+    const victim = at(0, 4000, 0)
+    const near = threatFactor(at(0, 4000, 200), victim)
+    const far = threatFactor(at(0, 4000, 600), victim)
+    expect(near).toBeGreaterThan(far)
+  })
+
+  it('與 evaluateThreat 填進 Situation 的是同一個數字', () => {
+    // 【為什麼要測這一條】匯出這件事的全部價值就是「只有一個答案」。
+    // 若 evaluateThreat 沒有改成呼叫它，兩者會各自演化而沒有任何測試會紅。
+    const self = at(0, 4000, 0)
+    const enemy = at(0, 4000, 300)
+    const sit = createSituation()
+    evaluateThreat(self, enemy, sit)
+    expect(sit.threatInstant).toBe(threatFactor(enemy, self))
+    expect(sit.shotInstant).toBe(threatFactor(self, enemy))
   })
 })
