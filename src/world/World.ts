@@ -36,6 +36,14 @@ export interface Combatant {
    */
   hitRadius: number
   team: Team
+  /**
+   * 還在戰場上。false = 已退場（被打爆或撞地）。
+   *
+   * 【為什麼是旗標而不是從 combatants 移除】`index` 是彈丸記錄射手用的。
+   * `splice` 之後所有在飛的彈丸都會認錯主人 —— 包括「打不到自己」那條
+   * 規則，於是死人的遺彈會開始打活人，而症狀離成因很遠。
+   */
+  alive: boolean
   /** 這一步打中別人幾次。HUD 的 X 標記靠它觸發（0.15 s 計時在 HUD 那一層）。 */
   hitsDealt: number
   /** 靶機為真：被打爆就滿血重生。玩家為假（M2 沒有東西打得到玩家）。 */
@@ -77,6 +85,7 @@ export class World {
       hp: aircraft.spec.hp,
       hitRadius: boundingRadius(aircraft.spec.hitBoxes),
       team,
+      alive: true,
       hitsDealt: 0,
       respawnOnDestroy: false,
       spawnPosition: spawnPosition.clone(),
@@ -96,16 +105,22 @@ export class World {
    */
   step(dt: number): void {
     // 1. 各控制器產生指令
+    //
+    // 【hitsDealt 對退場的也歸零】HUD 那一層不必分辨死活，少一個「讀到上
+    // 一條命的命中數」的機會。
     for (const c of this.combatants) {
       c.hitsDealt = 0
+      if (!c.alive) continue
       c.controller.update(c.aircraft, dt, c.command)
     }
 
     // 2. 全部 Aircraft 推進，接著開火（槍口用推進後的姿態）
     for (const c of this.combatants) {
+      if (!c.alive) continue
       c.aircraft.update(c.command.aimWorld, c.command.throttle, dt, c.command.brake)
     }
     for (const c of this.combatants) {
+      if (!c.alive) continue
       this.fire(c, dt)
     }
 
@@ -138,7 +153,8 @@ export class World {
 
   /** 依扳機與射速時鐘發射。熱路徑，不配置。 */
   private fire(c: Combatant, dt: number): void {
-    // 打爆的飛機不會繼續射擊
+    // 打爆的飛機不會繼續射擊。step 已經擋過退場的，這一條擋的是「血歸零
+    // 但因為 respawnOnDestroy 而仍然活著」那一格的殘餘狀態。
     if (c.hp <= 0) return
 
     const battery = c.aircraft.spec.battery
@@ -199,7 +215,7 @@ export class World {
       for (let j = 0; j < n; j++) {
         const c = combatants[j]!
         if (c.index === owner) continue      // 打不到自己
-        if (c.hp <= 0) continue
+        if (!c.alive) continue
         // 【粗篩】線段離機體重心比包圍球還遠就一定碰不到，跳過六次 slab
         // 測試與兩次四元數旋轉。滿載時這一行擋掉 99.89% 的配對。
         const pos = c.aircraft.state.position
@@ -228,12 +244,29 @@ export class World {
 
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */
   applyDamage(victim: Combatant, damage: number, part: HitPart, shooter?: Combatant): void {
+    // 退場的飛機打不中——這一條也讓「死人身上還在扣血」不可能發生
+    if (!victim.alive) return
+
     victim.hp -= damage * PART_MULTIPLIER[part]
     if (shooter) shooter.hitsDealt++
     if (victim.hp > 0) return
 
-    victim.hp = 0
-    if (victim.respawnOnDestroy) this.respawn(victim)
+    this.destroy(victim)
+  }
+
+  /**
+   * 退場。被打爆與撞地走同一條路徑（spec §7）。
+   *
+   * 【為什麼抽出來】兩個觸發、一套後果。分成兩份長得很像的副本，就是只有
+   * 一份會被修好的那種危險 —— 與 `isCrashed` 當初抽出來同一個理由。
+   */
+  destroy(c: Combatant): void {
+    c.hp = 0
+    if (c.respawnOnDestroy) {
+      this.respawn(c)
+      return
+    }
+    c.alive = false
   }
 
   /**
@@ -250,5 +283,6 @@ export class World {
     c.hp = c.aircraft.spec.hp
     c.cooldowns.fill(0)
     c.hitsDealt = 0
+    c.alive = true
   }
 }
