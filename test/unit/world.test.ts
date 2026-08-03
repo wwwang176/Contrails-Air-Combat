@@ -285,3 +285,59 @@ describe('一步的順序（spec §4.2）', () => {
     expect(PROJECTILE_LIFETIME).toBe(1.2)
   })
 })
+
+describe('退場', () => {
+  it('add 出來的 Combatant 是活的', () => {
+    const w = new World()
+    const c = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    expect(c.alive).toBe(true)
+  })
+
+  it('HP 歸零且不重生 → alive 轉為 false', () => {
+    const w = new World()
+    const t = w.add(new Aircraft(P51D), new Fixed(), 'red', new Vector3())
+    t.respawnOnDestroy = false
+    w.applyDamage(t, 99999, 'cockpit')
+    expect(t.alive).toBe(false)
+  })
+
+  it('HP 歸零但會重生 → 仍然是活的', () => {
+    const w = new World()
+    const t = w.add(new Aircraft(P51D), new Fixed(), 'red', new Vector3())
+    t.respawnOnDestroy = true
+    w.applyDamage(t, 99999, 'cockpit')
+    expect(t.alive).toBe(true)
+    expect(t.hp).toBe(P51D.hp)
+  })
+
+  it('退場之後不再推進物理', () => {
+    const w = new World()
+    const t = w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'red', new Vector3(0, 4000, 0))
+    t.respawnOnDestroy = false
+    w.applyDamage(t, 99999, 'cockpit')
+    const before = t.aircraft.state.position.clone()
+    for (let i = 0; i < 240; i++) w.step(DT)
+    expect(t.aircraft.state.position.distanceTo(before)).toBe(0)
+  })
+
+  it('退場之後打不中', () => {
+    const w = new World()
+    const t = w.add(new Aircraft(P51D), new Fixed(), 'red', new Vector3())
+    t.respawnOnDestroy = false
+    w.applyDamage(t, 99999, 'cockpit')
+    // 已經是 0 血；再打一次不應該讓 hitsDealt 增加
+    const s = w.add(new Aircraft(BF109G6), new Fixed(), 'blue', new Vector3(0, 0, 100))
+    w.applyDamage(t, 10, 'fuselage', s)
+    expect(s.hitsDealt).toBe(0)
+  })
+
+  it('重生把 alive 設回 true', () => {
+    const w = new World()
+    const t = w.add(new Aircraft(P51D), new Fixed(), 'red', new Vector3())
+    t.respawnOnDestroy = false
+    w.applyDamage(t, 99999, 'cockpit')
+    w.respawn(t)
+    expect(t.alive).toBe(true)
+    expect(t.hp).toBe(P51D.hp)
+  })
+})
