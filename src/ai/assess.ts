@@ -3,6 +3,8 @@ import { makeScratch } from '../core/pool'
 import {
   cornerSpeed, specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
+import { NO_INTERCEPT, solveLead } from '../world/lead'
+import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
 
 /**
@@ -147,4 +149,83 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   // ——那是「安全」的方向，但它會讓吊機首閘門永遠不觸發。夾一個下限。
   const vs = Math.max(stallSpeed(self.spec, selfAlt, Math.abs(self.diag.loadFactor)), 1)
   out.stallMargin = selfTas / vs
+}
+
+/**
+ * 射擊錐的半角，rad。機首偏離預瞄方向超過這個角度就幾乎沒有威脅。
+ *
+ * **起始值，待 Task 14 由對戰矩陣量測後回填。** 15° 的依據是 M2 的匯聚
+ * 幾何：六挺翼槍在 300 m 處收斂，超過這個角度時彈幕已經整片掃到目標外。
+ */
+export const THREAT_CONE = 15 * (Math.PI / 180)
+
+/**
+ * 威脅的距離上限，m。超過此距離視為無威脅。
+ *
+ * **起始值。** 900 m 的依據是 M2 的彈丸壽命：887 m/s × 1.2 s ≈ 1064 m 是
+ * 絕對上限，而 1944 年的實戰有效射程在 400 m 以內。取中間偏保守。
+ */
+export const THREAT_RANGE = 900
+
+/**
+ * 持續跟蹤到「完全威脅」所需的秒數。
+ *
+ * **起始值。** 這個因子的用途是把「一瞬間掃過去」與「穩定咬住」分開——
+ * 沒有它，正面對衝時雙方都會判定自己被威脅（spec §5.3）。
+ */
+export const TRACK_SATURATION = 1.0
+
+/**
+ * 持續跟蹤時間 → 威脅權重，0..1。線性上升到飽和後維持 1。
+ *
+ * 【為什麼是純函數而計時器在別處】計時器是跨格累積的狀態，而 spec §4.3
+ * 要求 assess.ts 是純函數。計時器住在 AiController，乘積也在那裡完成。
+ */
+export function trackingFactor(seconds: number): number {
+  if (!(seconds > 0)) return 0
+  return seconds >= TRACK_SATURATION ? 1 : seconds / TRACK_SATURATION
+}
+
+const T = makeScratch(3)
+
+/**
+ * 一方對另一方的**瞬時**射擊威脅，0..1。三個因子相乘。
+ *
+ * 【為什麼不是「有沒有預瞄解」這個布林】`solveLead` 有解只代表幾何上
+ * 攔截得到，不代表打得中。正面對衝時雙方都有解——只看它的話兩邊都會
+ * 判定自己被威脅、兩邊都進 defend，然後永遠卡住（spec §5.3）。
+ */
+function shotFactor(shooter: Aircraft, victim: Aircraft): number {
+  const p = T.v[0]!.copy(victim.state.position).sub(shooter.state.position)
+  const range = p.length()
+  if (range > THREAT_RANGE) return 0
+
+  const v = T.v[1]!.copy(victim.state.velocity).sub(shooter.state.velocity)
+  const lead = T.v[2]!
+  const t = solveLead(p, v, shooter.spec.battery.sight.muzzleVelocity, lead)
+
+  // 因子一：有解，且彈丸活得夠久飛到攔截點
+  if (t === NO_INTERCEPT || t > PROJECTILE_LIFETIME) return 0
+
+  // 因子二：他的機首離預瞄方向多遠。得先把機首轉過來才打得中
+  const fwd = T.v[0]!.copy(FWD).applyQuaternion(shooter.state.orientation)
+  const off = Math.acos(clampUnit(fwd.dot(lead)))
+  if (off >= THREAT_CONE) return 0
+  const noseFactor = 1 - off / THREAT_CONE
+
+  // 因子三：距離。越近越危險，反映散佈與反應時間
+  const rangeFactor = 1 - range / THREAT_RANGE
+
+  return noseFactor * rangeFactor
+}
+
+/**
+ * 威脅與射擊機會，兩者對稱。
+ *
+ * `threatInstant` 只是**瞬時**值；「持續跟蹤」那一個因子由 AiController
+ * 用 `trackingFactor` 乘上去（見計畫的偏離 2）。
+ */
+export function evaluateThreat(self: Aircraft, target: Aircraft, out: Situation): void {
+  out.threatInstant = shotFactor(target, self)
+  out.shotInstant = shotFactor(self, target)
 }
