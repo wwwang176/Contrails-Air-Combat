@@ -384,3 +384,51 @@ describe('同隊彈丸穿透（M5 spec §3.1 條件 8）', () => {
     expect(shootAt('red', 'red')).toBe(0)
   })
 })
+
+describe('撞地退場（M5 spec §7）', () => {
+  it('預設政策：重心低於海平面就退場', () => {
+    const w = new World()
+    const c = w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3())
+    c.respawnOnDestroy = false
+    c.aircraft.state.position.set(0, -1, 0)
+    w.step(DT)
+    expect(c.alive).toBe(false)
+    expect(c.hp).toBe(0)
+  })
+
+  it('撞地也適用於 AI 駕駛的飛機，不只玩家', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6, 4000, 200), new Fixed(), 'red', new Vector3())
+    a.respawnOnDestroy = false
+    b.respawnOnDestroy = false
+    a.aircraft.state.position.set(0, -1, 0)
+    b.aircraft.state.position.set(0, -1, 0)
+    w.step(DT)
+    expect(a.alive).toBe(false)
+    expect(b.alive).toBe(false)
+  })
+
+  it('注入的政策取代預設值', () => {
+    const w = new World()
+    const c = w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3())
+    c.respawnOnDestroy = false
+    // 3,000 m 以下就算撞地——用一個絕不會與預設值混淆的門檻
+    w.crashPolicy = (x) => x.aircraft.state.position.y <= 3000
+    c.aircraft.state.position.set(0, 2999, 0)
+    w.step(DT)
+    expect(c.alive).toBe(false)
+  })
+
+  it('respawnOnDestroy 為真時撞地會重生而不是退場', () => {
+    const w = new World()
+    const c = w.add(
+      new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3(0, 4000, 0), 4000, 200,
+    )
+    c.respawnOnDestroy = true
+    c.aircraft.state.position.set(0, -1, 0)
+    w.step(DT)
+    expect(c.alive).toBe(true)
+    expect(c.aircraft.state.position.y).toBeCloseTo(4000, 3)
+  })
+})
