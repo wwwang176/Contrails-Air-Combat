@@ -22,6 +22,25 @@ export interface BattleConfig {
   entryRange: number
   /** 同隊相鄰兩架的橫向間距，m */
   lateralSpacing: number
+  /**
+   * 兩隊重心的橫向錯開量，m。藍隊 −offset/2、紅隊 +offset/2。
+   *
+   * 【為什麼一定要有】0 的時候藍 slot k 與紅 slot k 在 Z 軸上完全共線、
+   * 高度層也一樣（`altitudeOffset` 對兩隊是同一個函數），整場仗變成 20 場
+   * 精準的對頭槍戰 —— 而那正是 P-51 的六挺翼槍最差的區間（匯聚點在 300 m，
+   * 這種仗打在 660–1,000 m）。實測：藍隊每 9 秒被零損失全滅一次，60 秒內
+   * 七次；有效命中率藍 34% 對紅 97%。
+   *
+   * 【數值怎麼來的】`fire.ts` 的 `trackingCone` 是 3°，是扣扳機前的最後一關。
+   * 橫向間隔小於 `entryRange × tan(3°)` 的兩隊，從出生那一刻就在彼此的射擊
+   * 錐內 —— 3,000 m 下是 **157 m**。實測的懸崖落在 120 m（兩次全滅）與
+   * 180 m（零全滅）之間，與這個預測一致。取兩倍為設計值。
+   *
+   * 【不是「間距的整數倍會共線」】那個假說被實測推翻：60 m（0.5 倍間距）
+   * 與 120 m（1 倍）都一樣糟，而 240/360/480/600 全是整數倍卻都沒事。
+   * 決定性的是絕對大小，不是與間距的公因數。
+   */
+  lateralOffset: number
   /** 高度散布的半幅，m */
   altitudeSpread: number
   /** 一方全滅後到重置的秒數 */
@@ -34,6 +53,7 @@ export const DEFAULT_BATTLE: BattleConfig = {
   tas: 200,
   entryRange: 3000,
   lateralSpacing: 120,
+  lateralOffset: 300,
   altitudeSpread: 300,
   resetCountdown: 3,
 }
@@ -98,8 +118,11 @@ export function createBattle(
     const orientation = new Quaternion().setFromAxisAngle(UP, yaw)
     const velocity = FWD.clone().applyQuaternion(orientation).multiplyScalar(cfg.tas)
 
+    // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
+    const lateral = (blueSide ? -1 : 1) * cfg.lateralOffset / 2
+
     for (let slot = 0; slot < cfg.perSide; slot++) {
-      const x = (slot - (cfg.perSide - 1) / 2) * cfg.lateralSpacing
+      const x = (slot - (cfg.perSide - 1) / 2) * cfg.lateralSpacing + lateral
       const y = cfg.altitude + altitudeOffset(slot, cfg.altitudeSpread)
       const spec = blueSide ? P51D : BF109G6
       const aircraft = new Aircraft(spec, y, cfg.tas)

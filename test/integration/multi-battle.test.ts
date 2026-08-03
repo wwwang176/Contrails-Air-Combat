@@ -16,23 +16,30 @@ const STEPS_PER_DECISION = 240 / AI_DECISION_HZ
 /**
  * 最大同時鎖定數的上限。
  *
- * 【怎麼來的】20v20 的實測值是 **1** —— 也就是完全均勻（20 個獵人分 20 個
- * 目標）。門檻取 2 留一格餘裕，同時仍然遠低於「全隊撲同一架」（那會是 19）。
- * 這一條要抓的是分攤失效，不是抓正常的擁擠。
+ * 【怎麼來的】20v20 跑滿 60 秒的實測值是 **3**（20 個獵人分 20 個目標，
+ * 完全均勻是 1；纏鬥中偶爾會有三架湊到同一個目標上）。門檻取 4 留一格
+ * 餘裕，同時仍然遠低於「全隊撲同一架」（那會是 19）。這一條要抓的是分攤
+ * 失效，不是抓正常的擁擠。
  *
  * **實測若本身就 ≥ 8，那是分攤沒在運作的證據，回去查 `crowdPenalty`，
  * 不是提高這個門檻。**
+ *
+ * 【這個數字換過一次】第一版量到 1，但那是在 `lateralOffset` 還是 0、
+ * 整場仗 6 秒就以一方全滅收場的退化區間量的 —— 根本沒有時間讓任何人湊在
+ * 一起。門檻在錯的區間量出來會鬆得剛好看不出問題。
  */
-const MAX_LOCKS = 2
+const MAX_LOCKS = 4
 
 /**
  * 60 秒內全隊換目標的次數上限。
  *
- * 【怎麼來的】實測 74 次，取 1.5 倍。上界的意義：遲滯完全失效時，40 架
- * 每個決策節拍都可能換一次 = 40 × 60 × 10 Hz = 24,000 次。111 離那個數字
- * 有兩個數量級，離實測值只有 50%。
+ * 【怎麼來的】實測 506 次，取 1.5 倍。上界的意義：遲滯完全失效時，40 架
+ * 每個決策節拍都可能換一次 = 40 × 60 × 10 Hz = 24,000 次。760 是它的 3%。
+ *
+ * 【這個數字也換過一次】第一版量到 74，同樣來自退化的對衝區間 —— 六秒的
+ * 仗換不了幾次目標。
  */
-const MAX_SWITCHES = 111
+const MAX_SWITCHES = 760
 
 /**
  * 活著的 AI 可以抱著一個已退場目標多少步。
@@ -40,11 +47,11 @@ const MAX_SWITCHES = 111
  * 【為什麼是兩個決策週期而不是一個】命中判定排在控制器之後（`World.step`
  * 的四段順序），所以目標可能在**同一個物理步、該 AI 剛決策完之後**才死。
  * 最壞情形是「決策時他還活著 → 同步死掉 → 等滿一個週期才重選」，也就是
- * 一個週期的殘餘加上一個完整週期。實測 41 步，界在 48。
+ * 一個週期的殘餘加上一個完整週期。實測 24 步，界在 48。
  */
 const MAX_DEAD_TARGETED_STEPS = STEPS_PER_DECISION * 2
 
-/** 39 架 AI 攤在 24 步裡，平均 1.6 架。實測尖峰 5，門檻取 6。 */
+/** 39 架 AI 攤在 24 步裡，平均 1.6 架。實測尖峰 2，門檻取 6。 */
 const MAX_DECISIONS_IN_ONE_STEP = 6
 
 /** 玩家位置放一個恆平飛的假駕駛——這是 AI 對 AI 的測試。 */
@@ -72,6 +79,11 @@ interface Observed {
   maxDecisionsInOneStep: number
   /** 整場重置了幾次 */
   resets: number
+  /** 累計損失 */
+  blueLost: number
+  redLost: number
+  /** 一方被全滅的次數 */
+  wipes: number
 }
 
 function observe(): Observed {
@@ -82,16 +94,27 @@ function observe(): Observed {
   const o: Observed = {
     maxLocks: 0, wentUnderwater: false, ownSlotDirty: 0, maxDeadTargetedSteps: 0,
     switches: 0, maxDecisionsInOneStep: 0, resets: 0,
+    blueLost: 0, redLost: 0, wipes: 0,
   }
 
   const ais = cs.map((c) => (c.controller instanceof AiController ? c.controller : null))
   const prevDecisions = ais.map((a) => a?.decisionsMade ?? 0)
   let prevCountdown = 0
+  let prevBlue = b.cfg.perSide
+  let prevRed = b.cfg.perSide
 
   for (let i = 0; i < SECONDS / DT; i++) {
     stepBattle(b, DT)
     if (prevCountdown > 0 && b.countdown === 0) o.resets++
     prevCountdown = b.countdown
+
+    const nowBlue = aliveCount(b.blue)
+    const nowRed = aliveCount(b.red)
+    if (nowBlue < prevBlue) o.blueLost += prevBlue - nowBlue
+    if (nowRed < prevRed) o.redLost += prevRed - nowRed
+    if ((nowBlue === 0 || nowRed === 0) && prevBlue > 0 && prevRed > 0) o.wipes++
+    prevBlue = nowBlue
+    prevRed = nowRed
 
     let decidedThisStep = 0
     for (let k = 0; k < ais.length; k++) {
@@ -168,8 +191,27 @@ describe('20v20 跑滿 60 秒', () => {
     expect(o.maxDecisionsInOneStep).toBeLessThanOrEqual(MAX_DECISIONS_IN_ONE_STEP)
   })
 
-  it('戰鬥真的打起來了，而且一方全滅會重置（M5 spec §3.1 條件 9）', () => {
-    expect(o.resets).toBeGreaterThan(0)
+  it('戰鬥真的打起來了——不是 40 架各自繞圈', () => {
+    expect(o.blueLost + o.redLost).toBeGreaterThan(0)
+  })
+
+  it('沒有一方被全滅——開局幾何沒有退化成對頭槍戰', () => {
+    // 【這一條是 lateralOffset 的迴歸守門】把它設回 0，60 秒內會有七次
+    // 全滅、藍隊累計損失 140（見 BattleConfig.lateralOffset 的推導）。
+    expect(o.wipes).toBe(0)
+  })
+
+  it('雙方都吃得到對方——不是一面倒', () => {
+    // 60 秒的量級是個位數損失，所以這裡只要求「兩邊都掛得動」。
+    // 一面倒的定義取三倍：實測藍/紅的損失比在 1 附近。
+    const lo = Math.min(o.blueLost, o.redLost)
+    const hi = Math.max(o.blueLost, o.redLost)
+    expect(hi).toBeLessThanOrEqual(lo * 3 + 3)
+  })
+
+  it('觀測值（不是門檻，供回填與日後比對）', () => {
+    console.log(JSON.stringify(o))
+    expect(Number.isFinite(o.switches)).toBe(true)
   })
 })
 
