@@ -147,3 +147,76 @@ export function geometryGate(
 
   return 'normal'
 }
+
+export interface Knobs {
+  /** −1 = 後置追擊、0 = 純追擊、+1 = 前置追擊（彈道預瞄點） */
+  leadLag: number
+  /** −1 = 壓到交戰平面下方、0 = 同平面、+1 = 拉到上方 */
+  vertical: number
+}
+
+/** 接近率的舒適區間，m/s。超過上界要殺、低於下界要補。 */
+const CLOSURE_HIGH = 150
+const CLOSURE_LOW = 0
+
+function clamp1(x: number): number {
+  return x < -1 ? -1 : x > 1 ? 1 : x
+}
+
+/**
+ * 由態勢算出兩個旋鈕。**具名機動是這個平面上的點，不是寫死的分支。**
+ *
+ * 【為什麼連續而不是三個具名分支】具名機動之間需要遲滯，否則在邊界上
+ * 會反覆切換；連續量不需要——它會自己從一邊滑到另一邊。而且「高 yo-yo」
+ * 與「低 yo-yo」本來就是同一個動作的兩個方向，拆成兩個名字反而要處理
+ * 它們之間的過渡。
+ */
+export function engageKnobs(sit: Situation, out: Knobs, _cfg: SteerConfig = DEFAULT_STEER): void {
+  // 接近率相對舒適區間的偏離，正 = 太快、負 = 追不上
+  const excess = (sit.closureRate - CLOSURE_HIGH) / CLOSURE_HIGH
+  const deficit = (CLOSURE_LOW - sit.closureRate) / CLOSURE_HIGH
+
+  // 太快 → 後置；正常 → 前置（進入射擊解）
+  out.leadLag = clamp1(1 - 2 * Math.max(0, excess))
+
+  // 【太快就拉高、追不上就壓低】高 yo-yo 用高度吃掉多餘速度並增加航跡
+  // 長度；低 yo-yo 用高度換速度切內線。兩者是同一個旋鈕的兩端。
+  //
+  // 卸載**不在這裡**：卸載＝最小誘導阻力＝保住速度，會讓超前更嚴重。
+  // 它屬於 extend（§7.3），那裡要的正是加速脫離。
+  out.vertical = clamp1(Math.max(0, excess) - Math.max(0, deficit))
+}
+
+const A = makeScratch(2)
+
+/**
+ * 由旋鈕算出世界座標的瞄準方向（單位向量）。
+ *
+ * 【位移的長度尺度用角度而非公尺】`range × tan(maxOffsetAngle)` 讓瞄準點
+ * 的偏移是一個**角度**，那才是指揮儀真正在追的量。用固定公尺數的話，
+ * 遠距離時 yo-yo 小到沒有效果，近距離時大到把瞄準點甩出視野。
+ */
+export function aimFromKnobs(
+  basis: EngageBasis,
+  sit: Situation,
+  k: Knobs,
+  out: Vector3,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  const scale = Math.max(sit.range, 1) * Math.tan(cfg.maxOffsetAngle)
+
+  const aim = A.v[0]!.copy(basis.leadPoint)
+
+  // 後置量：由 +1（全前置，不後退）到 −1（全後置，退一個 scale）
+  if (!basis.leadDegenerate) {
+    const lag = (1 - clamp1(k.leadLag)) / 2
+    aim.addScaledVector(basis.leadAxis, -lag * scale)
+  }
+  if (!basis.verticalDegenerate) {
+    aim.addScaledVector(basis.verticalAxis, clamp1(k.vertical) * scale)
+  }
+
+  const len = aim.length()
+  if (len > 1e-6) out.copy(aim).divideScalar(len)
+  else out.copy(basis.losAxis)
+}
