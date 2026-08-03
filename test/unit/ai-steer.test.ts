@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { createSituation, evaluateGeometry } from '../../src/ai/assess'
+import {
+  createSituation, evaluateGeometry, ENERGY_FLOOR_ALTITUDE,
+} from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, geometryGate,
   steerCommand, DEFAULT_STEER, type Knobs,
@@ -696,11 +698,13 @@ describe('extend 在絕對能量見底時一律爬升', () => {
    * 高度也很低。此時若因為「我比他強」而俯衝，等於把僅剩的高度也丟掉
    * ——實測共速共高開局因此掉到離海 109 m。
    */
-  const aimPitch = (energyAdvantage: number, energyReserve: number): number => {
+  const aimPitch = (
+    energyAdvantage: number, energyReserve: number, altitude = 4000,
+  ): number => {
     const self = flyer()
     const target = flyer()
-    place(self, [0, 900, 0], [0, 0, -180])
-    place(target, [0, 900, -1000], [0, 0, -180])
+    place(self, [0, altitude, 0], [0, 0, -180])
+    place(target, [0, altitude, -1000], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
     sit.energyAdvantage = energyAdvantage
@@ -720,5 +724,22 @@ describe('extend 在絕對能量見底時一律爬升', () => {
 
   it('底線之下且能量劣勢：同樣爬升', () => {
     expect(aimPitch(-500, -200)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+
+  /**
+   * 【第二條爬升規則：高度已經低於底線高度】少了它會產生二階震盪 —— 閂鎖的
+   * 釋放門檻是 `floorExit`（+300 m，有遲滯），但俯仰若只看 `energyReserve < 0`，
+   * 餘裕一跨過 0 飛機就從爬升翻成俯衝，而它離釋放門檻還很遠。實測 180 秒：
+   * AI 爬到 843 m、餘裕回正後立刻俯衝，9 秒內把高度丟回 205 m、餘裕跌到 −362，
+   * 安全層在 115 m 接管。
+   */
+  it('高度低於底線高度時，就算餘裕已回正也不俯衝', () => {
+    const belowFloor = ENERGY_FLOOR_ALTITUDE * 0.9
+    expect(aimPitch(500, 150, belowFloor)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+
+  it('高度在底線高度之上、餘裕也回正時，才恢復由相對能量差決定', () => {
+    const aboveFloor = ENERGY_FLOOR_ALTITUDE * 1.1
+    expect(aimPitch(500, 150, aboveFloor)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
   })
 })
