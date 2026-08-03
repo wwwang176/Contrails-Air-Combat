@@ -4,6 +4,7 @@ import {
   aliveCount, createBattle, resetBattle, stepBattle, DEFAULT_BATTLE,
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
+import { DEFAULT_FIRE } from '../../src/ai/fire'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Combatant } from '../../src/world/World'
@@ -61,9 +62,25 @@ describe('createBattle 的出生幾何', () => {
   const fwd = (c: Combatant): Vector3 =>
     new Vector3(0, 0, -1).applyQuaternion(c.aircraft.state.orientation)
 
-  it('兩隊相距 entryRange', () => {
-    expect(centre(b.blue).distanceTo(centre(b.red)))
+  it('兩隊在航線方向上相距 entryRange', () => {
+    expect(Math.abs(centre(b.blue).z - centre(b.red).z))
       .toBeCloseTo(DEFAULT_BATTLE.entryRange, 3)
+  })
+
+  it('兩隊橫向錯開 lateralOffset，且對稱於原點', () => {
+    const bx = centre(b.blue).x
+    const rx = centre(b.red).x
+    expect(rx - bx).toBeCloseTo(DEFAULT_BATTLE.lateralOffset, 3)
+    expect(bx + rx).toBeCloseTo(0, 6)
+  })
+
+  it('錯開量大於進入距離上的射擊錐——不然開局就是一場對頭槍戰', () => {
+    // 【這一條抓過一次全滅】lateralOffset 為 0 時，藍 slot k 與紅 slot k
+    // 在 Z 軸上完全共線、高度層也一樣，20 場精準對頭槍戰讓藍隊每 9 秒被
+    // 零損失全滅一次。門檻是 fire.ts 的 trackingCone 在 entryRange 上張開
+    // 的橫向距離（見 BattleConfig.lateralOffset 的推導）。
+    const coneAtEntry = DEFAULT_BATTLE.entryRange * Math.tan(DEFAULT_FIRE.trackingCone)
+    expect(DEFAULT_BATTLE.lateralOffset).toBeGreaterThan(coneAtEntry)
   })
 
   it('兩隊面對面：機首方向的點積為 −1', () => {
