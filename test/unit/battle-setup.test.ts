@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { aliveCount, createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import {
+  aliveCount, createBattle, resetBattle, stepBattle, DEFAULT_BATTLE,
+} from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -150,5 +152,78 @@ describe('aliveCount', () => {
     b.blue[0]!.alive = false
     b.blue[1]!.alive = false
     expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.perSide - 2)
+  })
+})
+
+const DT = 1 / 240
+
+describe('全滅與重置', () => {
+  it('雙方都還有人時倒數為 0', () => {
+    const b = createBattle(new Idle())
+    stepBattle(b, DT)
+    expect(b.countdown).toBe(0)
+  })
+
+  it('一方全滅後開始倒數', () => {
+    const b = createBattle(new Idle())
+    for (const c of b.red) c.alive = false
+    stepBattle(b, DT)
+    expect(b.countdown).toBeGreaterThan(0)
+    expect(b.countdown).toBeLessThanOrEqual(b.cfg.resetCountdown)
+  })
+
+  it('倒數走完之後整場回到滿編', () => {
+    const b = createBattle(new Idle())
+    for (const c of b.red) c.alive = false
+    const steps = Math.ceil(b.cfg.resetCountdown / DT) + 2
+    for (let i = 0; i < steps; i++) stepBattle(b, DT)
+    expect(aliveCount(b.red)).toBe(b.cfg.perSide)
+    expect(aliveCount(b.blue)).toBe(b.cfg.perSide)
+    expect(b.countdown).toBe(0)
+  })
+
+  it('重置把血量、位置、指派板一起清乾淨', () => {
+    const b = createBattle(new Idle())
+    const spawn = b.red[0]!.aircraft.state.position.clone()
+    b.red[0]!.hp = 1
+    b.red[0]!.aircraft.state.position.set(9999, 9999, 9999)
+    b.board.assignments.fill(3)
+    resetBattle(b)
+    expect(b.red[0]!.hp).toBe(b.red[0]!.aircraft.spec.hp)
+    expect(b.red[0]!.aircraft.state.position.distanceTo(spawn)).toBeLessThan(1e-6)
+    expect(Array.from(b.board.assignments).every((a) => a === -1)).toBe(true)
+  })
+
+  it('重置後彈丸池是空的——上一場的流彈不會打到新的一場', () => {
+    const b = createBattle(new Idle())
+    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0)
+    expect(b.world.projectiles.live).toBeGreaterThan(0)
+    resetBattle(b)
+    expect(b.world.projectiles.live).toBe(0)
+  })
+
+  it('重置後方位與速度回到開局狀態', () => {
+    const b = createBattle(new Idle())
+    const before = b.red[0]!.aircraft.state.orientation.clone()
+    const vBefore = b.red[0]!.aircraft.state.velocity.clone()
+    b.red[0]!.aircraft.state.orientation.set(0.5, 0.5, 0.5, 0.5).normalize()
+    b.red[0]!.aircraft.state.velocity.set(0, 0, 0)
+    resetBattle(b)
+    expect(b.red[0]!.aircraft.state.orientation.angleTo(before)).toBeLessThan(1e-6)
+    expect(b.red[0]!.aircraft.state.velocity.distanceTo(vBefore)).toBeLessThan(1e-3)
+  })
+})
+
+describe('決定性（M5 spec §3.1 條件 7）', () => {
+  it('同一組設定跑兩次，逐架位置與血量一致', () => {
+    const run = (): number[] => {
+      const b = createBattle(new Idle())
+      for (let i = 0; i < 240 * 5; i++) stepBattle(b, DT)
+      return b.world.combatants.flatMap((c) => [
+        c.aircraft.state.position.x, c.aircraft.state.position.y, c.aircraft.state.position.z,
+        c.hp,
+      ])
+    }
+    expect(run()).toEqual(run())
   })
 })

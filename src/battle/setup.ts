@@ -155,3 +155,50 @@ export function aliveCount(cs: readonly Combatant[]): number {
   for (let i = 0; i < cs.length; i++) if (cs[i]!.alive) n++
   return n
 }
+
+/**
+ * 推進一場戰鬥：世界一步，加上全滅倒數與重置。
+ *
+ * 【倒數而不是立刻重置】一方被打光的瞬間直接換場，玩家會以為遊戲當掉了
+ * （M5 spec §3.2 條件 15）。倒數是唯一的新狀態 —— 這是「零選單、零狀態機」
+ * 這條 M2 紀律在多機下還能延續的方式。
+ */
+export function stepBattle(b: Battle, dt: number): void {
+  b.world.step(dt)
+
+  if (b.countdown > 0) {
+    b.countdown -= dt
+    if (b.countdown <= 0) {
+      b.countdown = 0
+      resetBattle(b)
+    }
+    return
+  }
+
+  if (aliveCount(b.blue) === 0 || aliveCount(b.red) === 0) {
+    b.countdown = b.cfg.resetCountdown
+  }
+}
+
+/**
+ * 整場回到滿編。
+ *
+ * 【與 R 鍵共用同一條路徑】兩份長得很像的初始化，就是只有一份會被修好的
+ * 那種危險 —— 與 `Aircraft.respawn`、`World.destroy` 是同一個理由。
+ */
+export function resetBattle(b: Battle): void {
+  b.world.projectiles.clear()
+  const combatants = b.world.combatants
+  for (let i = 0; i < combatants.length; i++) {
+    const c = combatants[i]!
+    b.world.respawn(c)
+    // 【方位與速度要另外抄回去】`World.respawn` 走的是 `Aircraft.reset`，
+    // 它重建的是一個「朝預設方向平飛」的狀態，不知道紅隊該朝 +Z。
+    const q = b.spawnOrientations[i]!
+    c.aircraft.state.orientation.copy(q)
+    c.aircraft.prevOrientation.copy(q)
+    c.aircraft.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(c.spawnTas)
+  }
+  b.board.assignments.fill(-1)
+  b.countdown = 0
+}
