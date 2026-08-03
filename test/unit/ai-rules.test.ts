@@ -17,6 +17,7 @@ function neutral(): Situation {
   s.losRate = 0
   s.energyAdvantage = 0
   s.turnAdvantage = 0
+  s.airframeTurnAdvantage = 0
   s.cornerRatio = 1
   s.stallMargin = 2
   s.threatInstant = 0
@@ -100,7 +101,7 @@ describe('stepRules（優先序）', () => {
   it('轉彎劣勢 → extend（即使能量持平）', () => {
     const s = createRuleState()
     const sit = neutral()
-    sit.turnAdvantage = -0.2
+    sit.airframeTurnAdvantage = -0.2
     sit.range = 900
     expect(stepRules(s, sit, 0, DT)).toBe('extend')
   })
@@ -108,7 +109,7 @@ describe('stepRules（優先序）', () => {
   it('轉彎優勢且即將接觸 → engage', () => {
     const s = createRuleState()
     const sit = neutral()
-    sit.turnAdvantage = 0.15
+    sit.airframeTurnAdvantage = 0.15
     sit.timeToMerge = 4
     sit.range = 500
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
@@ -119,13 +120,13 @@ describe('stepRules（優先序）', () => {
     // 輪流跨越門檻造成的意圖輪播」。兩者都需要。
     const s = createRuleState()
     const sit = neutral()
-    sit.turnAdvantage = 0.15
+    sit.airframeTurnAdvantage = 0.15
     sit.timeToMerge = 4
     sit.range = 500
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
     // 立刻把條件改成 extend 該成立，但停留時間還沒到
-    sit.turnAdvantage = -0.5
+    sit.airframeTurnAdvantage = -0.5
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
     // 等過最小停留時間
@@ -140,7 +141,7 @@ describe('stepRules（優先序）', () => {
     // 不能等 0.8 秒才反應。spec §9 對安全層也有同樣的豁免。
     const s = createRuleState()
     const sit = neutral()
-    sit.turnAdvantage = 0.15
+    sit.airframeTurnAdvantage = 0.15
     sit.timeToMerge = 4
     sit.range = 500
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
@@ -155,7 +156,7 @@ describe('stepRules（優先序）', () => {
     for (let i = 0; i < 1000; i++) {
       // 讓每個欄位都掃過門檻附近
       sit.threatInstant = 0.5 + 0.5 * Math.sin(i * 0.11)
-      sit.turnAdvantage = 0.3 * Math.sin(i * 0.07)
+      sit.airframeTurnAdvantage = 0.3 * Math.sin(i * 0.07)
       sit.energyAdvantage = 600 * Math.sin(i * 0.05)
       sit.timeToMerge = 6 + 5 * Math.sin(i * 0.13)
       sit.range = 800 + 700 * Math.sin(i * 0.09)
@@ -184,13 +185,13 @@ describe('extend 的兩個閂鎖互不汙染', () => {
     sit.energyAdvantage = 0             // 能量勢均力敵，遠不到 −300
 
     // 一格明確的轉彎劣勢，讓轉彎閂鎖真的被點著
-    sit.turnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(true)
     expect(s.extendLatch).toBe(true)
 
     // 劣勢消失後必須跟著關掉 —— 能量閂鎖從頭到尾都沒被點著
-    sit.turnAdvantage = 0.05
+    sit.airframeTurnAdvantage = 0.05
     for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(false)
     expect(s.extendEnergyLatch).toBe(false)
@@ -203,11 +204,11 @@ describe('extend 的兩個閂鎖互不汙染', () => {
     const sit = neutral()
     sit.range = 1000
     sit.energyAdvantage = DEFAULT_RULES.energyEnter * 1.5   // 真的能量劣勢
-    sit.turnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     stepRules(s, sit, 0, DT)
 
     // 轉彎劣勢消失，但能量仍在維持區間內（< energyExit）
-    sit.turnAdvantage = 0.05
+    sit.airframeTurnAdvantage = 0.05
     sit.energyAdvantage = 0
     for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(false)
@@ -220,7 +221,7 @@ describe('extend 的兩個閂鎖互不汙染', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = 1000
-    sit.turnAdvantage = -0.005          // 0.29°/s
+    sit.airframeTurnAdvantage = -0.005          // 0.29°/s
     for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(false)
     expect(s.intent).not.toBe('extend')

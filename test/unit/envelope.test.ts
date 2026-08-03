@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   maxLoadFactorAero, stallSpeed, dragAt, thrustAt, specificExcessPower,
   maxLevelSpeed, maxClimbRate, serviceCeiling, instantaneousTurnRate,
-  sustainedTurnRate, cornerSpeed, maxRollRate,
+  sustainedTurnRate, bestSustainedTurnRate, bestSustainedTurnRateCached,
+  cornerSpeed, maxRollRate,
 } from '../../src/analysis/envelope'
+import { DEFAULT_RULES } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 
@@ -213,5 +215,98 @@ describe('maxRollRate', () => {
     const r = maxRollRate(BF109G6, 0, 650 * KMH) * RAD2DEG
     expect(r).toBeGreaterThan(20)
     expect(r).toBeLessThan(45)
+  })
+})
+
+describe('bestSustainedTurnRate', () => {
+  const ALTS = [0, 1000, 2000, 4000, 6000, 8000, 10000]
+
+  /**
+   * 【它與 sustainedTurnRate 回答不同的問題】後者問「現在這個速度能轉多快」，
+   * 本函數問「這台飛機最多能轉多快」。AI 的投入／退出決定要用後者：迴旋戰
+   * 一開打，兩台的速度就會各自收斂到自己的最佳點，當下的速度差會被抹平。
+   */
+  it('等於全速度範圍的最大值（對照 0.25 m/s 步長的暴力掃描）', () => {
+    for (const spec of [P51D, BF109G6]) {
+      for (const alt of ALTS) {
+        let brute = 0
+        for (let v = 30; v <= 260; v += 0.25) {
+          brute = Math.max(brute, sustainedTurnRate(spec, alt, v))
+        }
+        // 本函數細化後可能略高於粗網格的暴力解，故只檢查不低於它且極接近
+        const fast = bestSustainedTurnRate(spec, alt)
+        expect(fast).toBeGreaterThanOrEqual(brute - 1e-9)
+        expect(fast - brute).toBeLessThan(0.0005)   // < 0.03°/s
+      }
+    }
+  })
+
+  it('隨高度單調下降', () => {
+    for (const spec of [P51D, BF109G6]) {
+      let prev = Infinity
+      for (const alt of ALTS) {
+        const r = bestSustainedTurnRate(spec, alt)
+        expect(r).toBeLessThan(prev)
+        prev = r
+      }
+    }
+  })
+
+  /**
+   * 【這才是兩台真實的轉彎關係】只差 ±2%。所以「因為轉不贏而放棄纏鬥」
+   * 這個理由對目前這兩台不該成立——`DEFAULT_RULES.turnEnter` 的死區
+   * （0.02 rad/s）刻意高於這個範圍。
+   */
+  it('P-51 與 Bf 109 的機體差距在 ±0.02 rad/s 之內', () => {
+    for (const alt of ALTS) {
+      const d = bestSustainedTurnRate(P51D, alt) - bestSustainedTurnRate(BF109G6, alt)
+      expect(Math.abs(d)).toBeLessThan(0.02)
+    }
+  })
+})
+
+describe('bestSustainedTurnRateCached', () => {
+  /**
+   * 【為什麼要快取】原函數要掃過整個速度範圍，實測 1,076 µs/次；AI 的能量
+   * 評估是 10 Hz、每次算兩台，等於每 100 ms 花掉 2.1 ms，而 240 Hz 一格的
+   * 預算只有 4.17 ms。快取後 78 ns。
+   */
+  /**
+   * 【誤差要小於什麼】不是小於兩台的機體差距，而是小於**消費端的決策門檻**。
+   * 唯一的消費端是 `DEFAULT_RULES.turnEnter`（0.02 rad/s），所以要求內插誤差
+   * 低於它的十分之一。實測 0.0013 rad/s，是門檻的 6.5%。
+   */
+  it('交戰高度帶（0–11,000 m）的內插誤差低於決策門檻的十分之一', () => {
+    for (const spec of [P51D, BF109G6]) {
+      for (let alt = 0; alt <= 11000; alt += 137) {
+        const err = Math.abs(
+          bestSustainedTurnRateCached(spec, alt) - bestSustainedTurnRate(spec, alt),
+        )
+        expect(err, `${spec.name} @ ${alt} m`).toBeLessThan(0.1 * Math.abs(DEFAULT_RULES.turnEnter))
+      }
+    }
+  })
+
+  /**
+   * 格點上沒有內插誤差，只剩求解器本身的收斂精度差異：表格是用**熱啟動**
+   * （上一格的最佳速度當起點）求出來的，搜尋區間比冷啟動窄，收斂點因此
+   * 略有不同。實測差距 1.2e-5 rad/s（7e-4 °/s），是決策門檻 0.02 的 0.06%；
+   * 取 1e-4 當門檻（8 倍餘裕）。
+   */
+  it('格點上與原函數的差距僅為求解器收斂精度', () => {
+    for (const alt of [0, 250, 1000, 4000, 9000]) {
+      const diff = Math.abs(
+        bestSustainedTurnRateCached(P51D, alt) - bestSustainedTurnRate(P51D, alt),
+      )
+      expect(diff, `@ ${alt} m`).toBeLessThan(1e-4)
+    }
+  })
+
+  it('高度夾在表的範圍內，不產生 NaN', () => {
+    for (const alt of [-500, 0, 14000, 20000]) {
+      const r = bestSustainedTurnRateCached(P51D, alt)
+      expect(Number.isFinite(r)).toBe(true)
+      expect(r).toBeGreaterThanOrEqual(0)
+    }
   })
 })

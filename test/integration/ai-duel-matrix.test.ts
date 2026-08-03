@@ -23,6 +23,10 @@ interface Outcome {
   blueIntentTime: Record<Intent, number>
   /** 藍方 Ps 為大負值的時間比例 */
   blueDeepNegativePs: number
+  /** 藍方全程花掉的比能量（起始 − 全程最低），m */
+  blueEnergySpent: number
+  /** 開局時藍方比紅方多出的比能量，m */
+  blueEnergyEdge: number
 }
 
 interface Side {
@@ -88,29 +92,36 @@ function duel(blue: Side, red: Side): Outcome {
   for (const i of INTENTS) intentSteps[i] = 0
   let deepNegative = 0
   let touchedSea = false
+  const blueEs0 = b.a.specificEnergy
+  const blueEnergyEdge = blueEs0 - r.a.specificEnergy
+  let blueMinEs = blueEs0
 
   const total = MAX_SECONDS * 240
   for (let i = 0; i < total; i++) {
     world.step(DT)
     intentSteps[blueAi.intent] = (intentSteps[blueAi.intent] ?? 0) + 1
     if (b.a.specificExcessPowerActual < -60) deepNegative++
+    if (b.a.specificEnergy < blueMinEs) blueMinEs = b.a.specificEnergy
     if (b.a.state.position.y <= 0 || r.a.state.position.y <= 0) touchedSea = true
     if (!Number.isFinite(b.a.state.position.y) || !Number.isFinite(r.a.state.position.y)) {
       return {
         winner: 'nan', seconds: i * DT, finite: false, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
+        blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
       }
     }
     if (bc.hp <= 0 || rc.hp <= 0) {
       return {
         winner: rc.hp <= 0 ? 'blue' : 'red', seconds: i * DT, finite: true, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
+        blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
       }
     }
   }
   return {
     winner: 'timeout', seconds: MAX_SECONDS, finite: true, touchedSea,
     blueIntentTime: fractions(intentSteps, total), blueDeepNegativePs: deepNegative / total,
+    blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
   }
 }
 
@@ -190,9 +201,40 @@ describe('L4-C 能量戰證據', () => {
     expect(low.blueIntentTime.extend).toBeGreaterThan(high.blueIntentTime.extend)
   })
 
-  it('能量優勢方不會長期把 Ps 壓在大負值（那是死拉 6G，不是能量戰）', () => {
+  /**
+   * 【這一條原本量的是「Ps 為大負值的時間比例 < 50%」，實測後改掉】
+   *
+   * 那個判準量的是耗能的**速率**，對總量與「換到了什麼」完全盲目，而且方向
+   * 是反的。改用機體轉彎比較（2026-08-03）前後的實測：
+   *
+   * | | 深度耗能時間 | 花掉的比能量 | 開局能量優勢 | 結果 |
+   * |---|---|---|---|---|
+   * | 舊 | 32.5% | **4,157 m** | 3,213 m | 90 秒未分勝負，兩機皆 93% hp |
+   * | 新 | 64.5% | **2,574 m** | 3,213 m | 29.2 秒擊落，藍方毫髮無傷 |
+   *
+   * 舊行為那個「漂亮」的 32.5% 是靠 19% 的時間在脫離換來的，總共揮霍了 1.6 倍
+   * 的能量、**超支**（花掉的比擁有的還多），而且什麼都沒換到。舊斷言實際上在
+   * 獎勵「不投入」。
+   *
+   * 【新判準：不得超支】能量優勢是拿來花的——把高度與速度換成角度正是能量戰
+   * 的定義。真正的失敗是**花完了還沒換到東西**，也就是花掉的超過開局擁有的。
+   * 這個界線由開局條件自己給出，不是配出來的；而且它讓舊行為變紅
+   * （4,157 > 3,213），所以不是把門檻放寬來遷就新行為。
+   */
+  it('能量優勢方不得超支：花掉的能量不超過開局擁有的優勢', () => {
     const o = duel(...HIGH_ENERGY)
-    expect(o.blueDeepNegativePs).toBeLessThan(0.5)
+    expect(o.blueEnergyEdge).toBeGreaterThan(3000)   // 開局條件本身沒跑掉
+    expect(o.blueEnergySpent).toBeLessThan(o.blueEnergyEdge)
+  })
+
+  /**
+   * 【保留「不是死拉」這一半】上面那條管總量，這一條管「有沒有喘息」。
+   * 真正的死拉會是幾乎連續的大負 Ps；要求至少四分之一的時間 Ps 高於門檻，
+   * 就把「一路拉到底」與「拉一陣、鬆一陣」分開。實測 64.5%（喘息 35.5%）。
+   */
+  it('能量優勢方仍有喘息：深度耗能不超過四分之三的時間', () => {
+    const o = duel(...HIGH_ENERGY)
+    expect(o.blueDeepNegativePs).toBeLessThan(0.75)
   })
 
   /**

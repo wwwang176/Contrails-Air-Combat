@@ -1,7 +1,8 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import {
-  cornerSpeed, specificExcessPower, stallSpeed, sustainedTurnRate,
+  bestSustainedTurnRateCached, cornerSpeed, specificExcessPower, stallSpeed,
+  sustainedTurnRate,
 } from '../analysis/envelope'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
@@ -42,8 +43,28 @@ export interface Situation {
   psSelf: number
   /** 他的比超量功率，m/s */
   psTarget: number
-  /** 我的持續轉彎率 − 他的，rad/s */
+  /**
+   * 我的持續轉彎率 − 他的，**各自在當前速度下**，rad/s。
+   *
+   * 【它是瞬時事實，不是機體比較】慢的飛機轉得比較快，所以這個量被**速度差
+   * 主導**。它回答的是「此刻誰轉得贏」，適合短期戰術判斷。
+   *
+   * **不要拿它做投入／退出的決定** —— 用 `airframeTurnAdvantage`。理由見該欄位。
+   */
   turnAdvantage: number
+  /**
+   * 我的**最佳**持續轉彎率 − 他的，各自在自己的高度，rad/s。機體層級的比較。
+   *
+   * 【為什麼投入與退出的決定要用這一個】迴旋戰一旦開打，兩台都會在幾秒內
+   * 各自收斂到自己的最佳持續轉彎速度 —— 當下的速度差會被抹平。所以決定這場
+   * 仗誰贏的是機體，不是誰此刻比較慢。
+   *
+   * 人工驗收實測過反例：AI 咬在敵機後方 236 m、正在開火時，因為敵機拉桿掉到
+   * 356 km/h（自己還有 452），`turnAdvantage` 讀出 −1.7°/s 而放棄射擊解逃走。
+   * 但兩台的機體差距只有 −0.3°/s。敵機掉速正是它快撐不住的訊號，卻被讀成
+   * 「他比我強」。
+   */
+  airframeTurnAdvantage: number
   /** 我的 TAS ÷ 我的角落速度。> 1 = 快到轉不動 */
   cornerRatio: number
   /**
@@ -96,7 +117,8 @@ export function createSituation(): Situation {
     range: 0, closureRate: 0, timeToMerge: Infinity,
     aspectAngle: 0, angleOffTail: 0, losRate: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
-    turnAdvantage: 0, cornerRatio: 1, stallMargin: 1, speedMargin: 1,
+    turnAdvantage: 0, airframeTurnAdvantage: 0,
+    cornerRatio: 1, stallMargin: 1, speedMargin: 1,
     climbAngle: 0,
     threatInstant: 0, shotInstant: 0,
   }
@@ -184,6 +206,10 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
 
   out.turnAdvantage = sustainedTurnRate(self.spec, selfAlt, selfTas)
     - sustainedTurnRate(target.spec, targetAlt, targetTas)
+
+  // 機體層級的比較：各自在自己最擅長的速度下。與當前速度無關，所以可以快取。
+  out.airframeTurnAdvantage = bestSustainedTurnRateCached(self.spec, selfAlt)
+    - bestSustainedTurnRateCached(target.spec, targetAlt)
 
   // 角落速度恆為正，不必防除以 0
   out.cornerRatio = selfTas / cornerSpeed(self.spec, selfAlt)

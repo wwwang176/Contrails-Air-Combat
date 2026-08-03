@@ -35,12 +35,17 @@ export interface RuleConfig {
   energyEnter: number
   energyExit: number
   /**
-   * extend：轉彎率劣勢的進入／離開門檻，rad/s。**負值。**
+   * extend：**機體**轉彎劣勢的進入／離開門檻，rad/s。**負值。**
+   * 判的是 `airframeTurnAdvantage`，不是 `turnAdvantage`。
    *
-   * 【為什麼需要死區】原本是裸比較 `turnAdvantage < 0`，0.29°/s 的劣勢就
-   * 會觸發 —— 那在戰術上毫無意義。實測本專案兩台的**真實**極值：109 對
-   * P-51 最多贏 0.0196 rad/s（1.12°/s，於 256 km/h）；P-51 對 109 在高速段
-   * 贏 0.1106 rad/s（6.34°/s，於 587 km/h，該速度下 109 幾乎轉不動）。
+   * 【數值怎麼來的】4,000 m 的最佳持續轉彎率約 0.23 rad/s（13°/s）。取它的
+   * 一成當作「這台飛機真的轉不贏他」的界線 —— 0.023，向下取整到 0.02
+   * （1.15°/s），離開門檻取一半。
+   *
+   * 【對目前兩台等於休眠，這是預期中的】實測 P-51 與 Bf 109 的最佳持續轉彎率
+   * 只差 −0.006 ~ +0.017 rad/s（±2%），一律低於門檻。這兩台本來就旗鼓相當，
+   * 「因為轉不贏而放棄纏鬥」不該對它們成立。門檻是為了**日後加的機種**而存在
+   * —— 若某天加進一台真的轉贏一截的飛機，AI 會自動用對的標準判斷。
    */
   turnEnter: number
   turnExit: number
@@ -66,8 +71,8 @@ export const DEFAULT_RULES: RuleConfig = {
   mergeAspect: 30 * (Math.PI / 180),
   energyEnter: -300,
   energyExit: 100,
-  turnEnter: -0.03,
-  turnExit: -0.015,
+  turnEnter: -0.02,
+  turnExit: -0.01,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -144,8 +149,11 @@ export function stepRules(
   s.extendEnergyLatch = latch(
     s.extendEnergyLatch, sit.energyAdvantage, cfg.energyEnter, cfg.energyExit,
   )
+  // 【判機體不判當下】`turnAdvantage` 被速度差主導：對手拉桿掉速——那正是
+  // 他快撐不住的訊號——會讓它讀出「他轉得比我好」。投入／退出的決定要問
+  // 「這場迴旋戰打到最後誰贏」，那由機體決定（見 Situation 的欄位註解）。
   s.extendTurnLatch = latch(
-    s.extendTurnLatch, sit.turnAdvantage, cfg.turnEnter, cfg.turnExit,
+    s.extendTurnLatch, sit.airframeTurnAdvantage, cfg.turnEnter, cfg.turnExit,
   )
   s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch
   s.engageLatch = latch(
@@ -173,7 +181,19 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
     && sit.angleOffTail > Math.PI - cfg.mergeAspect
   ) return 'merge'
 
+  // 【這裡曾經有一條「有射擊解就不准跑」的護欄，實測後撤掉】它本身是對的
+  // ——AI 不該在咬著敵機開火時脫離——但它會把 `extend` 最後的觸發機會也堵掉，
+  // 而 `energyAdvantage` 是**相對**量：兩台一起把能量耗光時它一直接近 0，
+  // 沒有任何機制看得見「大家都快沒能量了」。實測共速共高開局因此由最低
+  // 比能量 3,405 m／最低高度 2,435 m 惡化成 679 m／309 m，整場仗螺旋下沉
+  // 到海面附近。
+  //
+  // 要加回這條護欄，得先有一個**絕對**的能量底線讓 extend 仍然逃得掉。
+  // 那是一個新的設計決定，不在本次改動範圍內。
   if (s.extendLatch && sit.range < cfg.extendRange) return 'extend'
-  if (sit.turnAdvantage >= 0 && s.engageLatch) return 'engage'
+
+  // 【門檻與 extend 對齊，不是 `>= 0`】機體差距可能只有 ±2% 且隨高度換號，
+  // 用 `>= 0` 等於擲銅板。要拒絕交戰得是**明顯**轉不贏，那與脫離同一個標準。
+  if (sit.airframeTurnAdvantage > cfg.turnEnter && s.engageLatch) return 'engage'
   return 'approach'
 }
