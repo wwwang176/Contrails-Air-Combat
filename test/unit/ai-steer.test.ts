@@ -628,3 +628,58 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
   })
 })
+
+describe('超前的判斷要用幾何門住', () => {
+  const sit = createSituation()
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+
+  /**
+   * 【人工驗收抓到的缺陷】對頭時接近率是**雙方速度相加**。兩台各 150 m/s
+   * 就是 282 m/s，`excess` 算出 0.88，兩個旋鈕直接推到底——全後置追擊 +
+   * 滿舵高 yo-yo。實測機首因此離預瞄點 24–40°，而威脅錐 15°、開火錐 3°，
+   * 於是兩邊都不開火、兩邊的 `threatInstant` 都恆為 0，連 `defend` 在對頭時
+   * 都結構上不可能觸發。看起來就是「AI 撇頭拒絕交戰」。
+   *
+   * 而那個反應本來就沒有意義：對頭的接近率是幾何給定的，任何機動都減不掉。
+   */
+  it('對頭時的高接近率不算超前：維持乾淨的預瞄追擊', () => {
+    sit.closureRate = 282
+    sit.angleOffTail = 173 * (Math.PI / 180)   // 他正朝我來
+    engageKnobs(sit, k)
+    expect(k.leadLag).toBeGreaterThan(0.9)     // 前置，不是後置
+    expect(Math.abs(k.vertical)).toBeLessThan(0.1)  // 幾乎不做 yo-yo
+  })
+
+  it('尾追時這道門是恆等變換：後置與高 yo-yo 完全照舊', () => {
+    sit.closureRate = 282
+    sit.angleOffTail = 0                       // 我咬在他正後方
+    engageKnobs(sit, k)
+    // 未加門時的原式：excess = (282 − 150) / 150
+    const excess = (282 - 150) / 150
+    expect(k.leadLag).toBeCloseTo(1 - 2 * excess, 12)
+    expect(k.vertical).toBeCloseTo(excess, 12)
+    expect(k.leadLag).toBeLessThan(0)          // 確實是後置
+  })
+
+  it('正側方是中間值', () => {
+    sit.closureRate = 282
+    sit.angleOffTail = Math.PI / 2
+    engageKnobs(sit, k)
+    expect(k.leadLag).toBeGreaterThan(-1)
+    expect(k.leadLag).toBeLessThan(0.9)
+    expect(k.vertical).toBeGreaterThan(0)
+    expect(k.vertical).toBeLessThan(1)
+  })
+
+  /** 「追不上」與方位無關——他跑掉了就是要切內線，不該被門住。 */
+  it('追不上時不受幾何門影響：對頭與尾追給同一個低 yo-yo', () => {
+    sit.closureRate = -150
+    sit.angleOffTail = 173 * (Math.PI / 180)
+    engageKnobs(sit, k)
+    const headOn = k.vertical
+    sit.angleOffTail = 0
+    engageKnobs(sit, k)
+    expect(k.vertical).toBeCloseTo(headOn, 12)
+    expect(headOn).toBeLessThan(0)
+  })
+})

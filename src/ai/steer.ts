@@ -203,8 +203,27 @@ function clamp1(x: number): number {
  * 它們之間的過渡。
  */
 export function engageKnobs(sit: Situation, out: Knobs, _cfg: SteerConfig = DEFAULT_STEER): void {
+  /**
+   * 「接近率太高」只有在**尾追**時才代表超前。
+   *
+   * 1 = 純尾追（我在他機尾後方）、0 = 純對頭。`angleOffTail` 是視線與他機首
+   * 的夾角，0 為我咬在他正後方、π 為他正朝我來。
+   *
+   * 【為什麼需要這個門】人工驗收抓到的缺陷：對頭時接近率是**雙方速度相加**。
+   * 兩台各 150 m/s 就是 282 m/s，`excess` 算出 0.88，兩個旋鈕直接推到底
+   * ——全後置追擊 + 滿舵高 yo-yo。實測機首因此離預瞄點 24–40°，而威脅錐是
+   * 15°、開火錐是 3°，於是：兩邊都不開火、兩邊的 `threatInstant` 都恆為 0，
+   * 連 `defend` 在對頭時都結構上不可能觸發。看起來就是「AI 撇頭拒絕交戰」。
+   *
+   * 而那個反應本來就沒有意義：對頭的接近率是幾何給定的，任何機動都減不掉，
+   * 高 yo-yo 只是把機首甩開。真正該做的是乾淨的預瞄追擊，拿一次正面快照
+   * ——那正是 `merge` 意圖在做的事，只是它的時間窗（2.5 s）只涵蓋最後 750 m。
+   */
+  const pursuit = 0.5 * (1 + Math.cos(sit.angleOffTail))
+
   // 接近率相對舒適區間的偏離，正 = 太快、負 = 追不上
-  const excess = (sit.closureRate - CLOSURE_HIGH) / CLOSURE_HIGH
+  const excess = pursuit * (sit.closureRate - CLOSURE_HIGH) / CLOSURE_HIGH
+  // 【追不上不用門】「他跑掉了要切內線」與幾何無關，任何方位都成立。
   const deficit = (CLOSURE_LOW - sit.closureRate) / CLOSURE_HIGH
 
   // 太快 → 後置；正常 → 前置（進入射擊解）
