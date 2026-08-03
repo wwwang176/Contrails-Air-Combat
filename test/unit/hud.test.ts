@@ -257,3 +257,20 @@ describe('AI 接管指示', () => {
     expect(createHudFrame().aiFlying).toBe(false)
   })
 })
+
+describe('低速操縱權警告', () => {
+  it('新的 frame 是完全有效', () => {
+    expect(createHudFrame().controlAuthority).toBe(1)
+  })
+
+  /**
+   * 【為什麼不沿用 STALL】現有的 STALL 以 `|α| / α_crit` 觸發，而垂直爬升時
+   * 攻角接近 0——它一次都不會亮，即使飛機正在變得不可控。這與 M4 出貨後
+   * 修掉的 AI 缺陷（`stallMargin` 對「快沒空速」是瞎的）是同一個盲區。
+   *
+   * 語意也不同：垂直爬升時你離失速很遠，你只是快沒速度了。
+   */
+  it('初始值不含 NaN', () => {
+    expect(Number.isFinite(createHudFrame().controlAuthority)).toBe(true)
+  })
+})
