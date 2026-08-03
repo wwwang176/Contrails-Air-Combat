@@ -19,13 +19,15 @@ export interface HudContact {
   radius: number
   hostile: boolean
   /**
-   * 這是**玩家自己的僚機**（自己分隊的 `members[1]`）。
+   * 這是**玩家自己分隊的同伴**（同一個 Schwarm）。
    *
-   * 【為什麼只標這一架】它是唯一一架行為與玩家直接耦合的飛機 —— 你被咬
-   * 時它會回頭。不標的話，那件事在畫面上與「剛好有架友機飛過」無法區分
-   * （M6 spec §10）。
+   * 【為什麼標整個分隊而不是只標 `members[1]`】掩護對象與站位參考機是
+   * 同一架，而 `STATION_REFERENCE = [-1, 0, 0, 2]` —— `members[1]` 與
+   * `members[2]` **都**掩護玩家，`members[3]` 掩護 `members[2]`。只標
+   * `members[1]` 的話，分界線不對應任何實際的行為差異：另外兩架同樣會
+   * 在你被咬時回頭，卻與陌生友機同色（M6 spec §10）。
    */
-  wingman: boolean
+  flightMate: boolean
   /** 相對高度差，m（正 = 比我高）。小地圖符號依它選三角／方／倒三角 */
   deltaY: number
   worldX: number
@@ -55,7 +57,7 @@ export const HUD_MAX_CONTACTS = 48
 
 export function createHudContact(): HudContact {
   return {
-    active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true, wingman: false,
+    active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true, flightMate: false,
     deltaY: 0, worldX: 0, worldZ: 0, range: 0,
     leadX: 0, leadY: 0, leadValid: false, leadBehind: false,
   }

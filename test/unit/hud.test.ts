@@ -351,7 +351,7 @@ describe('小地圖的貼邊夾制', () => {
   })
 })
 
-describe('contactColor —— 僚機要認得出來（M6 spec §10）', () => {
+describe('contactColor —— 自己的分隊要認得出來（M6 spec §10）', () => {
   it('敵機是危險色', () => {
     expect(contactColor(true, false)).toBe(HUD_COLORS.danger)
   })
@@ -360,15 +360,18 @@ describe('contactColor —— 僚機要認得出來（M6 spec §10）', () => {
     expect(contactColor(false, false)).toBe(HUD_COLORS.friendly)
   })
 
-  it('自己的僚機用第三個顏色', () => {
+  it('自己分隊的同伴用第三個顏色', () => {
     // 【為什麼一定要與一般友機分開】驗收條件 20 要求「你看得出來那是你的
     // 僚機」。不分的話，僚機回頭掩護你這件事在畫面上與「剛好有架友機飛
     // 過」完全無法區分。
+    //
+    // 【為什麼標整個分隊】members[1] 與 members[2] 都以玩家為站位參考機，
+    // 也就是**兩架都在掩護你**；只標一架的話那條分界線不對應任何行為差異。
     expect(contactColor(false, true)).toBe(HUD_COLORS.warn)
     expect(contactColor(false, true)).not.toBe(HUD_COLORS.friendly)
   })
 
-  it('敵機不會因為 wingman 旗標而變色 —— 那是不可能的狀態，但顏色要可預測', () => {
+  it('敵機不會因為 flightMate 旗標而變色 —— 那是不可能的狀態，但顏色要可預測', () => {
     expect(contactColor(true, true)).toBe(HUD_COLORS.danger)
   })
 })

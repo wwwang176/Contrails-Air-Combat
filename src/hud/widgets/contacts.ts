@@ -36,13 +36,13 @@ export function edgeIndicatorPosition(
 /**
  * 一個接觸點該用什麼顏色。
  *
- * 敵紅、友藍、**自己的僚機用第三個顏色**。抽成純函數是因為繪製函數進不了
- * 單元測試，而「哪一架該長得不一樣」是一條有實際行為的規則 —— 與
+ * 敵紅、友藍、**自己分隊的同伴用第三個顏色**。抽成純函數是因為繪製函數
+ * 進不了單元測試，而「哪一架該長得不一樣」是一條有實際行為的規則 —— 與
  * `edgeIndicatorPosition`、`minimapSymbol` 是同一個做法。
  */
-export function contactColor(hostile: boolean, wingman: boolean): string {
+export function contactColor(hostile: boolean, flightMate: boolean): string {
   if (hostile) return HUD_COLORS.danger
-  return wingman ? HUD_COLORS.warn : HUD_COLORS.friendly
+  return flightMate ? HUD_COLORS.warn : HUD_COLORS.friendly
 }
 
 /**
@@ -60,7 +60,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     const c = f.contacts[i]!
     if (!c.active) continue
 
-    const color = contactColor(c.hostile, c.wingman)
+    const color = contactColor(c.hostile, c.flightMate)
     const aspect = L.width / L.height
     const onScreen = !c.behind && Math.abs(c.x) <= aspect && Math.abs(c.y) <= 1
 
