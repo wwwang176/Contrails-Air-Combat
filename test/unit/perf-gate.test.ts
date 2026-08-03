@@ -3,6 +3,7 @@ import { createPhysicsLoadState, resetPhysicsLoadState, stepPhysicsLoad } from '
 import {
   createProjectileLoad, resetProjectileLoad, stepProjectileLoad,
 } from '../../bench/projectile-load'
+import { createAiLoad, resetAiLoad, stepAiLoad } from '../../bench/ai-load'
 
 /**
  * 效能守門測試（spec §3.10 驗收要求）。
@@ -109,6 +110,49 @@ describe('projectile step perf gate', () => {
     if (best >= PROJECTILE_BUDGET_US) {
       console.warn(
         `彈丸步 ${best.toFixed(0)} µs 超過 ${PROJECTILE_BUDGET_US} µs 的設計預算；`
+        + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
+      )
+    }
+  })
+})
+
+/**
+ * AI 的效能守門（spec §12）。
+ *
+ * 【為什麼門檻是 900 µs 而設計預算是 250 µs】與 M2 的彈丸門檻同一個理由：
+ * vitest 把測試檔分散到多個 worker 並行跑，這一條會與其他檔搶 CPU，同一段
+ * 程式獨立跑與整套回歸裡量到的數字差兩倍以上。門檻設在預算線上會**時紅
+ * 時綠**，而會飄的效能門檻比沒有門檻更糟——它訓練所有人重跑一次當作沒
+ * 看到，真的迴歸時也就沒人信了。
+ *
+ * 900 µs 抓的是**數量級的迴歸**，例如有人把 10 Hz 的包絡查詢改成每步都跑
+ * （`sustainedTurnRate` 是 50 次二分搜尋 × 2 架 × 240 Hz）。設計預算本身由
+ * `npm run bench` 獨立驗證。
+ */
+const AI_BUDGET_US = 250
+const AI_GATE_US = 900
+
+describe('ai step perf gate', () => {
+  it('兩架 AI 纏鬥的 World.step 沒有數量級的迴歸', () => {
+    const state = createAiLoad()
+
+    for (let i = 0; i < 500; i++) stepAiLoad(state)
+    resetAiLoad(state)
+
+    // 取多批的最小值，不是單批的平均——見上面關於並行雜訊的說明
+    const BATCHES = 5
+    const N = 400
+    let best = Infinity
+    for (let b = 0; b < BATCHES; b++) {
+      const t0 = performance.now()
+      for (let i = 0; i < N; i++) stepAiLoad(state)
+      best = Math.min(best, ((performance.now() - t0) * 1000) / N)
+    }
+
+    expect(best).toBeLessThan(AI_GATE_US)
+    if (best >= AI_BUDGET_US) {
+      console.warn(
+        `AI 步 ${best.toFixed(0)} µs 超過 ${AI_BUDGET_US} µs 的設計預算；`
         + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
       )
     }
