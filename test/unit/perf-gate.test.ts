@@ -88,16 +88,22 @@ describe('projectile step perf gate', () => {
     for (let i = 0; i < 200; i++) stepProjectileLoad(state)
     resetProjectileLoad(state)
 
-    // 【取多批的最小值，不是單批的平均】vitest 把測試檔分散到多個 worker
-    // 並行跑，這一條因此會與其他檔搶 CPU：單獨跑量到 209 µs 的同一段程式，
-    // 在整套回歸裡會被推到 570 µs。平均值把那段搶佔算進成本，量到的就不是
-    // 程式的成本而是當下的機器負載。最小值取的是干擾最少的那一批，才是
-    // 「這段程式要花多久」的估計。
+    // 【取多批的最小值，而且批次要多而短】vitest 把測試檔分散到多個 worker
+    // 並行跑，這一條因此會與其他檔搶 CPU。最小值取的是干擾最少的那一批，
+    // 才是「這段程式要花多久」的估計。
+    //
+    // 批次數從 5 提高到 40：M5 加進來的 20v20 整合矩陣（60 秒模擬）是全套
+    // 裡最吃 CPU 的一項，5 批 × 400 次的話每批要跑滿數十毫秒，很難有哪一批
+    // 完全沒被打擾——實測讓這一條間歇性紅燈（1,180 µs vs 900 的門檻）。
+    // 總工作量不變，只是把它切碎，最小值取到乾淨批次的機會大得多。
+    //
+    // **門檻沒有動。** 會飄的效能門檻比沒有門檻更糟，但修法是讓量測抗干擾，
+    // 不是放寬斷言。
     //
     // 上面的 stepDynamics 門檻用平均值沒事，是因為它有 15 倍餘裕
     // （1.3 µs vs 20 µs）；這一條只有 2 倍，扛不住同樣的雜訊。
-    const BATCHES = 5
-    const N = 400
+    const BATCHES = 40
+    const N = 50
     let best = Infinity
     for (let b = 0; b < BATCHES; b++) {
       const t0 = performance.now()
@@ -140,9 +146,9 @@ describe('ai step perf gate', () => {
     for (let i = 0; i < 500; i++) stepAiLoad(state)
     resetAiLoad(state)
 
-    // 取多批的最小值，不是單批的平均——見上面關於並行雜訊的說明
-    const BATCHES = 5
-    const N = 400
+    // 取多批的最小值，批次多而短——見上面關於並行雜訊的說明
+    const BATCHES = 40
+    const N = 50
     let best = Infinity
     for (let b = 0; b < BATCHES; b++) {
       const t0 = performance.now()
@@ -168,15 +174,22 @@ describe('ai step perf gate', () => {
  * 門檻比沒有門檻更糟 —— 它訓練所有人重跑一次當作沒看到，真的迴歸時也就
  * 沒人信了。
  *
- * 【預算 400 µs 的來源】`npx vitest bench --run bench/multi.bench.ts` 獨立
- * 量到 313 µs（mean，1,598 樣本，rme ±2.55%），向上取整到百位。設計預估是
- * 570 µs（M5 spec §5.5）——實測更好，因為同隊跳過又砍掉約一半的配對。
+ * 【預算 500 µs 的來源】`npx vitest bench --run bench/multi.bench.ts` 獨立
+ * 量三次：313 / 388 / 402 µs（mean，各約 1,300–1,600 樣本）。**單一次量測
+ * 會騙人** —— 第一次的 313 是機器最閒的時候。取觀測上界之上的 500。
+ *
+ * 設計預估是 570 µs（M5 spec §5.5），實測更好，因為同隊跳過又砍掉約一半的
+ * 配對。
+ *
+ * 【本測試量的是另一個統計量】它取五批的最小值，而 bench 報的是平均值
+ * （含週期性重置的尖峰，max 到 2.6 ms）。最小值一貫低於平均值，所以這一條
+ * 在整套並行回歸裡也沒有印出過超支警告。
  *
  * 【門檻取三倍】這一條要抓的是**數量級的迴歸**，具體而言就是「有人把排序
  * 掃描改回全掃描」——實測那會讓粗篩從 202 µs 變成 7,408 µs（spec §5.1），
  * 整步遠超 1,200。並行雜訊最壞約三倍，兩者之間有六倍以上的間隙。
  */
-const MULTI_BUDGET_US = 400
+const MULTI_BUDGET_US = 500
 const MULTI_GATE_US = 1200
 
 describe('20v20 perf gate', () => {
@@ -185,9 +198,9 @@ describe('20v20 perf gate', () => {
     for (let i = 0; i < 300; i++) stepMultiLoad(state)
     resetMultiLoad(state)
 
-    // 取多批的最小值，不是單批的平均——見上面關於並行雜訊的說明
-    const BATCHES = 5
-    const N = 200
+    // 取多批的最小值，批次多而短——見上面關於並行雜訊的說明
+    const BATCHES = 40
+    const N = 25
     let best = Infinity
     for (let b = 0; b < BATCHES; b++) {
       const t0 = performance.now()
