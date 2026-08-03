@@ -22,7 +22,7 @@ import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
 import {
-  aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle,
+  aliveCount, createBattle, playerFlight, resetBattle, stepBattle,
 } from './battle/setup'
 import { P51D } from './specs/p51d'
 import { BF109G6 } from './specs/bf109g6'
@@ -307,8 +307,9 @@ function frame(now: number) {
 
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight
-  // 【每幀取一次】遞補之後它會指向新的那一架
-  const wingmanIndex = playerWingman(battle)
+  // 【每幀取一次】玩家的分隊序號。編制每個物理步重新壓縮，所以陣亡、
+  // 遞補、重生都不需要額外同步 —— flightOf 直接就是最新的
+  const playerFlightIndex = battle.flights.flightOf[player.index]!
   let n = 0
   for (const c of world.combatants) {
     if (c === player || !c.alive || n >= HUD_MAX_CONTACTS) continue
@@ -326,7 +327,8 @@ function frame(now: number) {
     contact.radius = ((c.aircraft.spec.wing.span / 2) / Math.max(contact.range, 1))
       / Math.tan((ctx.camera.fov * DEG) / 2)
     contact.hostile = c.team !== player.team
-    contact.wingman = c.index === wingmanIndex
+    contact.flightMate = playerFlightIndex >= 0
+      && battle.flights.flightOf[c.index] === playerFlightIndex
     contact.deltaY = v.position.y - renderPos.y
     contact.worldX = v.position.x
     contact.worldZ = v.position.z
