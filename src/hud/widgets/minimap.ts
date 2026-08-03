@@ -4,6 +4,41 @@ import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 const RANGE = 4000
 /** 網格間距，公尺。 */
 const CELL = 2000
+/**
+ * 貼邊符號離方框的內縮量，px（未乘 L.scale）。
+ *
+ * 符號半徑是 4 px，取 7 讓整個符號留在框內 —— 貼齊到剛好碰到邊的話，
+ * 一半的符號會被 clip 切掉，而被切一半的三角形與倒三角形讀起來一樣。
+ */
+const SYMBOL_MARGIN = 7
+
+/**
+ * 沿 (x, y) 推到**剛好碰到**邊長 2 × `edge` 的正方形，回傳應乘的縮放係數。
+ *
+ * 原點回傳 0 —— 沒有方位可言。
+ *
+ * 【為什麼抽成純函數】小地圖有兩個東西要貼框（超界的接觸點、N 標記），
+ * 而繪製函數進不了單元測試。與 `contacts.ts` 的 `edgeIndicatorPosition`
+ * 是同一招。
+ */
+export function edgeReach(x: number, y: number, edge: number): number {
+  const ax = Math.abs(x)
+  const ay = Math.abs(y)
+  // 除以 0 會得到 Infinity，min 自然挑另一軸
+  const s = Math.min(edge / ax, edge / ay)
+  return Number.isFinite(s) ? s : 0
+}
+
+/**
+ * 同 `edgeReach`，但**已經在框內的不動**。超界的接觸點用這一個。
+ *
+ * 【與 N 標記的差別】N 是一律推到邊（它是方位指示，距離沒有意義）；
+ * 接觸點是「在圖上就照實畫，超出去才貼邊」。兩者共用同一個幾何原語，
+ * 但語意不同 —— 寫成兩個名字才不會有人拿錯。
+ */
+export function edgeClamp(x: number, y: number, edge: number): number {
+  return Math.min(1, edgeReach(x, y, edge))
+}
 
 /**
  * 小地圖。自機恆在中心且恆朝上，他機依高度差以三角／方／倒三角區分敵我
@@ -53,20 +88,33 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   // 敵我符號：高於我 = 三角、同層 = 方、低於我 = 倒三角（spec §8）。
   // 【畫在旋轉座標系裡但符號本身不轉】位置要跟著地圖轉（機首朝上），
   // 形狀不能轉——倒三角轉了就讀不出「他在我下面」。
+  const cosH = Math.cos(f.heading)
+  const sinH = Math.sin(f.heading)
+  const edge = size / 2 - SYMBOL_MARGIN * L.scale
   for (let i = 0; i < f.contactCount; i++) {
     const c = f.contacts[i]!
     if (!c.active) continue
-    const dx = c.worldX - f.worldX
-    const dz = c.worldZ - f.worldZ
-    // 【超出範圍的不剔除，改成貼在邊上並轉半透明】剔除掉的話「他不在圖上」
-    // 與「他不存在」在畫面上長得一模一樣——而空戰裡最想知道的往往就是那個
-    // 剛脫離的傢伙往哪走了。夾到半徑 RANGE 的圓上（圓內接於方框，所以一定
-    // 落在 clip 裡），半透明表示「方位對、距離不對」。
-    const dist = Math.hypot(dx, dz)
-    const beyond = dist > RANGE
-    const k = beyond ? RANGE / dist : 1
-    const rx = dx * k * px
-    const rz = dz * k * px
+    let rx = (c.worldX - f.worldX) * px
+    let rz = (c.worldZ - f.worldZ) * px
+
+    // 【超出範圍的不剔除，改成貼在**方框邊上**並轉半透明】剔除掉的話
+    // 「他不在圖上」與「他不存在」在畫面上長得一模一樣——而空戰裡最想知道的
+    // 往往就是那個剛脫離的傢伙往哪走了。半透明表示「方位對、距離不對」。
+    //
+    // 【為什麼是方框而不是內接圓】N 標記貼的就是方框（見下方），兩套夾制
+    // 規則會讓同一個方位的兩個標記落在不同半徑上。而且圓形夾制浪費四個角：
+    // 45° 方位的目標會被拉到比 0° 方位的目標更靠近中心，讀起來像是比較近。
+    //
+    // 【夾制要在螢幕座標算】ctx 已經旋轉 −heading，方框是**螢幕**上的方框。
+    // 旋轉是等距的，所以在螢幕座標算出來的縮放係數可以直接套回地圖座標。
+    const sx = rx * cosH + rz * sinH
+    const sy = -rx * sinH + rz * cosH
+    const k = edgeClamp(sx, sy, edge)
+    const beyond = k < 1
+    if (beyond) {
+      rx *= k
+      rz *= k
+    }
 
     ctx.save()
     ctx.globalAlpha = beyond ? 0.35 : 1
@@ -101,8 +149,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   // 現成的刻度盤。除以 0 會得到 Infinity，min 自然會挑另一軸。
   const dx = -Math.sin(f.heading)
   const dy = -Math.cos(f.heading)
-  const edge = size / 2 - 7 * L.scale
-  const reachEdge = Math.min(edge / Math.abs(dx), edge / Math.abs(dy))
+  const reachEdge = edgeReach(dx, dy, edge)
   ctx.fillStyle = HUD_COLORS.warn
   ctx.font = hudFont(10 * L.scale)
   ctx.textAlign = 'center'
