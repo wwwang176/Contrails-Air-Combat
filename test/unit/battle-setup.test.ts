@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  aliveCount, createBattle, resetBattle, stepBattle, DEFAULT_BATTLE,
+  aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE,
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
-import { SCHWARM_SIZE, STATION_REFERENCE } from '../../src/battle/flights'
+import { SCHWARM_SIZE, STATION_REFERENCE, stationReferenceOf } from '../../src/battle/flights'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -315,5 +315,105 @@ describe('決定性（M5 spec §3.1 條件 7）', () => {
       ])
     }
     expect(run()).toEqual(run())
+  })
+})
+
+describe('編制接線（M6 spec §5）', () => {
+  /** 取出第 i 架的 AiController；不是 AI 就丟例外（測試裡這代表寫錯了）。 */
+  function ai(b: ReturnType<typeof createBattle>, index: number): AiController {
+    const c = b.world.combatants[index]!.controller
+    if (!(c instanceof AiController)) throw new Error(`第 ${index} 架不是 AI`)
+    return c
+  }
+
+  it('分隊長機沒有站位，其餘三架有', () => {
+    const b = createBattle(new Idle())
+    expect(stationReferenceOf(b.flights, 0)).toBe(-1)
+    expect(stationReferenceOf(b.flights, 1)).toBe(0)
+    expect(stationReferenceOf(b.flights, 2)).toBe(0)
+    expect(stationReferenceOf(b.flights, 3)).toBe(2)
+    expect(ai(b, 0).stationReference).toBeNull()
+    expect(ai(b, 1).stationReference).toBe(b.world.combatants[0]!.aircraft)
+    expect(ai(b, 3).stationReference).toBe(b.world.combatants[2]!.aircraft)
+  })
+
+  it('玩家沒有站位 —— 他是自己分隊的長機', () => {
+    const b = createBattle(new Idle())
+    expect(stationReferenceOf(b.flights, b.player.index)).toBe(-1)
+  })
+
+  it('members[1] 陣亡後，下一步 members[2] 就遞補成新的僚機', () => {
+    // 【這是玩家看得到的行為】你的僚機被打掉，同分隊另一個 Rotte 有人
+    // 滑過來補位。
+    const b = createBattle(new Idle())
+    const before = ai(b, 2).stationOffset
+    b.world.destroy(b.world.combatants[1]!)
+    stepBattle(b, DT)
+    expect(ai(b, 2).stationOffset).toBe(STATION_OFFSETS[1]!)
+    expect(ai(b, 2).stationOffset).not.toBe(before)
+    expect(ai(b, 3).stationReference).toBe(b.world.combatants[0]!.aircraft)
+  })
+
+  it('長機陣亡後，僚機升為長機並失去站位', () => {
+    const b = createBattle(new Idle())
+    b.world.destroy(b.world.combatants[0]!)
+    stepBattle(b, DT)
+    expect(ai(b, 1).stationReference).toBeNull()
+    expect(ai(b, 1).stationReferenceIndex).toBe(-1)
+  })
+
+  it('分隊只剩一架時它沒有站位 —— 退化成 M5 的獨行俠', () => {
+    const b = createBattle(new Idle())
+    b.world.destroy(b.world.combatants[0]!)
+    b.world.destroy(b.world.combatants[1]!)
+    b.world.destroy(b.world.combatants[3]!)
+    stepBattle(b, DT)
+    expect(ai(b, 2).stationReference).toBeNull()
+  })
+
+  it('玩家重生後回到自己分隊的長機位', () => {
+    const b = createBattle(new Idle())
+    b.player.alive = false
+    stepBattle(b, DT)
+    b.player.alive = true
+    stepBattle(b, DT)
+    expect(b.flights.positionOf[b.player.index]).toBe(0)
+    expect(stationReferenceOf(b.flights, b.player.index)).toBe(-1)
+  })
+
+  it('重置之後編制回到滿編', () => {
+    const b = createBattle(new Idle())
+    b.world.destroy(b.world.combatants[1]!)
+    stepBattle(b, DT)
+    resetBattle(b)
+    expect(b.flights.flights[0]!.count).toBe(SCHWARM_SIZE)
+    expect(ai(b, 1).stationReference).toBe(b.world.combatants[0]!.aircraft)
+  })
+})
+
+describe('playerFlight / playerWingman', () => {
+  it('回傳玩家的分隊與僚機', () => {
+    const b = createBattle(new Idle())
+    const f = playerFlight(b)
+    expect(f).not.toBeNull()
+    expect(f!.count).toBe(SCHWARM_SIZE)
+    expect(f!.members[0]).toBe(b.player.index)
+    expect(playerWingman(b)).toBe(b.player.index + 1)
+  })
+
+  it('僚機陣亡後 playerWingman 指向遞補上來的那一架', () => {
+    const b = createBattle(new Idle())
+    const first = playerWingman(b)
+    b.world.destroy(b.world.combatants[first]!)
+    stepBattle(b, DT)
+    expect(playerWingman(b)).toBe(first + 1)
+  })
+
+  it('分隊只剩玩家時 playerWingman 回 −1', () => {
+    const b = createBattle(new Idle())
+    const f = playerFlight(b)!
+    for (let i = 1; i < f.count; i++) b.world.destroy(b.world.combatants[f.members[i]!]!)
+    stepBattle(b, DT)
+    expect(playerWingman(b)).toBe(-1)
   })
 })
