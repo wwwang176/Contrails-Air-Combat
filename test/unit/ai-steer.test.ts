@@ -4,8 +4,10 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, geometryGate,
-  DEFAULT_STEER, type Knobs,
+  steerCommand, DEFAULT_STEER, type Knobs,
 } from '../../src/ai/steer'
+import { createCommand } from '../../src/control/Controller'
+import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { P51D } from '../../src/specs/p51d'
 
 function place(a: Aircraft, pos: [number, number, number], vel: [number, number, number]) {
@@ -341,5 +343,130 @@ describe('aimFromKnobs', () => {
     k.leadLag = -1
     aimFromKnobs(basis, sit, k, out)
     expect(out.angleTo(a)).toBeCloseTo(0, 9)
+  })
+})
+
+describe('steerCommand', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 1, vertical: 0 }
+  let self: Aircraft
+
+  const scene = (targetPos: [number, number, number], targetVel: [number, number, number]) => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, targetPos, targetVel)
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 2
+    sit.cornerRatio = 1
+    engageKnobs(sit, k)
+  }
+
+  it('任何意圖與模式的組合，aimWorld 都是單位向量', () => {
+    scene([0, 4000, -400], [150, 0, -180])
+    for (const intent of ['defend', 'merge', 'extend', 'engage', 'approach'] as const) {
+      for (const mode of ['normal', 'overshoot', 'stallGuard', 'planeDegenerate'] as const) {
+        steerCommand(intent, mode, sit, basis, self, k, cmd)
+        expect(cmd.aimWorld.length(), `${intent}/${mode}`).toBeCloseTo(1, 9)
+      }
+    }
+  })
+
+  it('預設是 WEP、不減速', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    steerCommand('approach', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.throttle).toBe(WEP_THROTTLE)
+    expect(cmd.brake).toBe(0)
+  })
+
+  it('超前閘門 → 減速全開且油門收掉', () => {
+    scene([0, 4000, -80], [0, 0, -120])
+    steerCommand('engage', 'overshoot', sit, basis, self, k, cmd)
+    expect(cmd.brake).toBe(1)
+    expect(cmd.throttle).toBeLessThan(0.5)
+  })
+
+  it('速度遠高於角落速度 → 減速（不是靠 VNE 判斷）', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 2.5
+    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.brake).toBeGreaterThan(0)
+  })
+
+  it('角落速度附近不減速', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 1.1
+    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.brake).toBe(0)
+  })
+
+  /**
+   * 【extend 用卸載，而且它與超前修正是相反方向】卸載＝把瞄準點放到自身
+   * 速度向量上＝指揮儀沒有轉向需求＝過載趨近 1 G＝誘導阻力最小＝**保住
+   * 並累積速度**。這正是脫離重整要的。
+   *
+   * 超前修正要的則是相反：拉高 yo-yo 用速度換高度、增加航跡長度。把卸載
+   * 寫進超前修正是本設計初稿犯過的錯（見 spec §7.4）。
+   */
+  it('extend 的瞄準點貼著自身速度向量（卸載）', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.energyAdvantage = 0
+    steerCommand('extend', 'normal', sit, basis, self, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(20 * Math.PI / 180)
+  })
+
+  it('extend 在能量劣勢時帶爬升分量', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.energyAdvantage = -1200
+    steerCommand('extend', 'normal', sit, basis, self, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
+  })
+
+  it('defend 的瞄準點明顯偏離目標方向（破壞他的預瞄解）', () => {
+    scene([0, 4000, 300], [0, 0, -180])
+    steerCommand('defend', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeGreaterThan(45 * Math.PI / 180)
+  })
+
+  it('planeDegenerate → 退化為純追擊（指著目標，不亂偏）', () => {
+    scene([0, 4600, 0], [0, 0, -180])
+    steerCommand('engage', 'planeDegenerate', sit, basis, self, k, cmd)
+    expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeCloseTo(0, 6)
+  })
+
+  it('stallGuard → 不追上去，瞄準點回到速度向量附近恢復能量', () => {
+    scene([0, 4800, -200], [0, 0, -120])
+    sit.stallMargin = 1.1
+    steerCommand('engage', 'stallGuard', sit, basis, self, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(basis.losAxis.angleTo(velDir))
+  })
+
+  it('approach 指向彈道預瞄點', () => {
+    scene([0, 4000, -900], [150, 0, -180])
+    steerCommand('approach', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.aimWorld.angleTo(basis.leadPoint.clone().normalize())).toBeCloseTo(0, 6)
+  })
+
+  it('不修改 firing —— 開火由 fire.ts 決定', () => {
+    scene([0, 4000, -400], [0, 0, -180])
+    cmd.firing = true
+    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    expect(cmd.firing).toBe(true)
+  })
+
+  it('連續呼叫不配置：一萬次結果一致', () => {
+    scene([0, 4000, -400], [150, 0, -180])
+    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    const first = cmd.aimWorld.clone()
+    for (let i = 0; i < 10000; i++) {
+      steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    }
+    expect(cmd.aimWorld.equals(first)).toBe(true)
   })
 })
