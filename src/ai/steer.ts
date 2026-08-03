@@ -310,13 +310,22 @@ export function steerCommand(
       case 'engage':
         aimFromKnobs(basis, sit, k, out.aimWorld, cfg)
         break
-      case 'extend':
+      case 'extend': {
         // 【卸載】把瞄準點放到自身速度向量上，指揮儀就沒有轉向需求，
         // 過載趨近 1 G、誘導阻力最小——這是能量重整的核心手段
         // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
         // 能量劣勢時帶爬升分量把速度存成高度，優勢時反之。
-        unloadAim(self, -Math.sign(sit.energyAdvantage) * cfg.extendPitch, out.aimWorld)
+        //
+        // 【但絕對能量見底時一律爬升】`energyReserve < 0` 代表比能量低於
+        // 「還打得動」的底線，而 `Es = 高度 + 動能高度 ≥ 高度`，所以見底
+        // **必然**蘊含高度也很低。此時照相對能量差去俯衝是把僅剩的高度也丟掉
+        // ——實測共速共高開局因此掉到離海 109 m。該做的是把速度換成高度。
+        const pitch = sit.energyReserve < 0
+          ? cfg.extendPitch
+          : -Math.sign(sit.energyAdvantage) * cfg.extendPitch
+        unloadAim(self, pitch, out.aimWorld)
         break
+      }
       case 'defend':
         defendAim(basis, out.aimWorld, cfg)
         break

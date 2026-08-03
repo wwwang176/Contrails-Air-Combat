@@ -353,8 +353,41 @@ function searchBestTurn(
 const BEST_TURN_STEP = 250
 const BEST_TURN_CEILING = 14000
 const BEST_TURN_SLOTS = BEST_TURN_CEILING / BEST_TURN_STEP + 1
-/** 每個機種一張惰性填充的表。WeakMap 讓臨時的 spec 複本（消融測試）不會洩漏。 */
+/**
+ * 每個機種一張惰性填充的表，**交錯存放** `[轉彎率0, 速度0, 轉彎率1, 速度1, …]`。
+ * WeakMap 讓臨時的 spec 複本（消融測試）不會洩漏。
+ */
 const bestTurnTables = new WeakMap<AircraftSpec, Float64Array>()
+
+function bestTurnTable(spec: AircraftSpec): Float64Array {
+  let table = bestTurnTables.get(spec)
+  if (table !== undefined) return table
+  table = new Float64Array(BEST_TURN_SLOTS * 2)
+  // 【一次填滿，不惰性逐格填】逐格填的版本實測讓 AI 步的 p999 由 217 µs
+  // 惡化到 3.8 ms：飛機每跨過一個沒填過的高度格就要付一次完整求解。
+  // 改成首次使用時一次填完，代價集中成單一次啟動成本，之後恆定為表格查詢。
+  // 熱啟動讓這次填充只花冷啟動的數分之一。
+  let hint = -1
+  for (let k = 0; k < BEST_TURN_SLOTS; k++) {
+    table[k * 2] = searchBestTurn(spec, k * BEST_TURN_STEP, WEP_THROTTLE, hint)
+    hint = lastBestTurnSpeed
+    table[k * 2 + 1] = hint > 0 ? hint : 0
+  }
+  bestTurnTables.set(spec, table)
+  return table
+}
+
+/** 表格查詢 + 線性內插的共用部分。`offset` 0 取轉彎率、1 取速度。 */
+function lookupBestTurn(spec: AircraftSpec, altitude: number, offset: number): number {
+  const table = bestTurnTable(spec)
+  const alt = altitude < 0 ? 0 : altitude > BEST_TURN_CEILING ? BEST_TURN_CEILING : altitude
+  const x = alt / BEST_TURN_STEP
+  const i = Math.floor(x)
+  const j = i + 1 < BEST_TURN_SLOTS ? i + 1 : i
+  const a = table[i * 2 + offset]!
+  if (j === i) return a
+  return a + (table[j * 2 + offset]! - a) * (x - i)
+}
 
 /**
  * `bestSustainedTurnRate` 的快取版，僅供 WEP 油門。
@@ -378,28 +411,17 @@ const bestTurnTables = new WeakMap<AircraftSpec, Float64Array>()
  * 之後不再有任何配置行為。
  */
 export function bestSustainedTurnRateCached(spec: AircraftSpec, altitude: number): number {
-  let table = bestTurnTables.get(spec)
-  if (table === undefined) {
-    table = new Float64Array(BEST_TURN_SLOTS)
-    // 【一次填滿，不惰性逐格填】逐格填的版本實測讓 AI 步的 p999 由 217 µs
-    // 惡化到 3.8 ms：飛機每跨過一個沒填過的高度格就要付一次完整求解。
-    // 改成首次使用時一次填完，代價集中成單一次啟動成本（實測見下方基準），
-    // 之後恆定為表格查詢。熱啟動讓這次填充只花冷啟動的數分之一。
-    let hint = -1
-    for (let k = 0; k < BEST_TURN_SLOTS; k++) {
-      table[k] = searchBestTurn(spec, k * BEST_TURN_STEP, WEP_THROTTLE, hint)
-      hint = lastBestTurnSpeed
-    }
-    bestTurnTables.set(spec, table)
-  }
+  return lookupBestTurn(spec, altitude, 0)
+}
 
-  const alt = altitude < 0 ? 0 : altitude > BEST_TURN_CEILING ? BEST_TURN_CEILING : altitude
-  const x = alt / BEST_TURN_STEP
-  const i = Math.floor(x)
-  const j = i + 1 < BEST_TURN_SLOTS ? i + 1 : i
-  const a = table[i]!
-  if (j === i) return a
-  return a + (table[j]! - a) * (x - i)
+/**
+ * 達到 `bestSustainedTurnRateCached` 那個轉彎率所需的速度，m/s TAS。同一張表。
+ *
+ * 【誰要用它】AI 的絕對能量底線：「我還剩多少本錢繼續纏鬥」的答案是
+ * 「我的比能量夠不夠讓我在一個安全高度上維持最擅長的轉彎」，而那需要這個速度。
+ */
+export function bestSustainedTurnSpeedCached(spec: AircraftSpec, altitude: number): number {
+  return lookupBestTurn(spec, altitude, 1)
 }
 
 /** 角落速度：氣動過載首次達到結構極限的速度，m/s。 */

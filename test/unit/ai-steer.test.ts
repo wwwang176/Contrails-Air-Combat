@@ -683,3 +683,42 @@ describe('超前的判斷要用幾何門住', () => {
     expect(headOn).toBeLessThan(0)
   })
 })
+
+describe('extend 在絕對能量見底時一律爬升', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+
+  /**
+   * 【為什麼見底時不能照相對能量差決定俯仰】`Es = 高度 + 動能高度 ≥ 高度`，
+   * 所以 `energyReserve < 0`（比能量低於「還打得動」的底線）**必然**蘊含
+   * 高度也很低。此時若因為「我比他強」而俯衝，等於把僅剩的高度也丟掉
+   * ——實測共速共高開局因此掉到離海 109 m。
+   */
+  const aimPitch = (energyAdvantage: number, energyReserve: number): number => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 900, 0], [0, 0, -180])
+    place(target, [0, 900, -1000], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.energyAdvantage = energyAdvantage
+    sit.energyReserve = energyReserve
+    steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+    return Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+  }
+
+  it('底線之上：能量優勢時俯衝、劣勢時爬升（既有行為）', () => {
+    expect(aimPitch(500, 1000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
+    expect(aimPitch(-500, 1000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+
+  it('底線之下：即使有能量優勢也爬升', () => {
+    expect(aimPitch(500, -200)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+
+  it('底線之下且能量劣勢：同樣爬升', () => {
+    expect(aimPitch(-500, -200)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+})

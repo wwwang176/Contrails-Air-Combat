@@ -18,6 +18,7 @@ function neutral(): Situation {
   s.energyAdvantage = 0
   s.turnAdvantage = 0
   s.airframeTurnAdvantage = 0
+  s.energyReserve = 1000
   s.cornerRatio = 1
   s.stallMargin = 2
   s.threatInstant = 0
@@ -225,5 +226,80 @@ describe('extend 的兩個閂鎖互不汙染', () => {
     for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(false)
     expect(s.intent).not.toBe('extend')
+  })
+})
+
+describe('extend 的三個理由與射擊否決權', () => {
+  /**
+   * 【為什麼要分「相對」與「絕對」兩類理由】人工驗收抓到 AI 咬在敵機後方
+   * 236 m、正在開火時切到 extend，直飛 21 秒。加一條「有射擊解就不准跑」的
+   * 護欄可以解掉它——但早期版本無差別地擋掉**所有** extend，結果把最後的
+   * 觸發機會也堵死：`energyAdvantage` 是相對量，兩台一起把能量磨光時它一直
+   * 接近 0，共速共高開局因此螺旋下沉到離海 109 m。
+   *
+   * 分野在於理由的性質：相對理由談的是接下來的交換（有槍在手就先開槍），
+   * 絕對理由談的是我還能不能飛（開著槍也得走）。
+   */
+  const shooting = (sit: Situation) => { sit.shotInstant = 0.5 }
+
+  it('有射擊解時，能量劣勢不是離開的理由', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.energyAdvantage = DEFAULT_RULES.energyEnter * 1.5
+    shooting(sit)
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendEnergyLatch).toBe(true)      // 閂鎖本身有點著
+    expect(s.intent).not.toBe('extend')          // 但沒有拿它當離開的理由
+  })
+
+  it('有射擊解時，轉彎劣勢也不是離開的理由', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    shooting(sit)
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(true)
+    expect(s.intent).not.toBe('extend')
+  })
+
+  it('能量見底時，就算正在開火也要走', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.energyReserve = -200                     // 低於底線
+    shooting(sit)
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendFloorLatch).toBe(true)
+    expect(s.intent).toBe('extend')
+  })
+
+  it('沒有射擊解時，相對理由照常成立', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.shotInstant = 0
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.intent).toBe('extend')
+  })
+
+  /** 底線閂鎖的遲滯：跨回底線不夠，要真的補回一點才鬆手。 */
+  it('底線閂鎖有遲滯：剛好回到底線不解除，補足 floorExit 才解除', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.energyReserve = -200
+    stepRules(s, sit, 0, DT)
+    expect(s.extendFloorLatch).toBe(true)
+
+    sit.energyReserve = DEFAULT_RULES.floorExit * 0.5   // 回到底線之上但不夠多
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendFloorLatch).toBe(true)
+
+    sit.energyReserve = DEFAULT_RULES.floorExit * 1.5
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendFloorLatch).toBe(false)
   })
 })

@@ -49,6 +49,17 @@ export interface RuleConfig {
    */
   turnEnter: number
   turnExit: number
+  /**
+   * extend：**絕對**能量底線的進入／離開門檻，m。判的是 `energyReserve`
+   * （比能量減去還打得動的最低比能量），所以 0 就是「剛好見底」。
+   *
+   * 【為什麼進入是 0】底線本身已經由 `ENERGY_FLOOR_ALTITUDE` 的推導定義好了，
+   * 這裡不需要第二個任意數字。離開取 +300 m 是遲滯：跨回底線就馬上重新投入
+   * 會在門檻附近抖，而 300 m 的比能量大約是一次淺俯衝或幾秒 WEP 爬升
+   * ——「真的補回一點東西了」的最小量。
+   */
+  floorEnter: number
+  floorExit: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
   /** engage：timeToMerge 的進入／離開門檻，s */
@@ -73,6 +84,8 @@ export const DEFAULT_RULES: RuleConfig = {
   energyExit: 100,
   turnEnter: -0.02,
   turnExit: -0.01,
+  floorEnter: 0,
+  floorExit: 300,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -88,6 +101,8 @@ export interface RuleState {
   extendEnergyLatch: boolean
   /** 轉彎率劣勢的閂鎖 */
   extendTurnLatch: boolean
+  /** 絕對能量見底的閂鎖 */
+  extendFloorLatch: boolean
   /** 上面兩者的或。**由 `stepRules` 寫入，不要回寫** */
   extendLatch: boolean
   engageLatch: boolean
@@ -103,7 +118,8 @@ export function createRuleState(): RuleState {
     // 態勢多危急都得先直直飛 0.8 秒。
     dwell: Infinity,
     defendLatch: false,
-    extendEnergyLatch: false, extendTurnLatch: false, extendLatch: false,
+    extendEnergyLatch: false, extendTurnLatch: false, extendFloorLatch: false,
+    extendLatch: false,
     engageLatch: false,
   }
 }
@@ -155,7 +171,12 @@ export function stepRules(
   s.extendTurnLatch = latch(
     s.extendTurnLatch, sit.airframeTurnAdvantage, cfg.turnEnter, cfg.turnExit,
   )
-  s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch
+  // 【第三個理由是絕對的】上面兩個都是「跟他比」，兩台一起磨下去時都看不見。
+  // 這一個問「我還飛得動嗎」，與對手無關。
+  s.extendFloorLatch = latch(
+    s.extendFloorLatch, sit.energyReserve, cfg.floorEnter, cfg.floorExit,
+  )
+  s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch || s.extendFloorLatch
   s.engageLatch = latch(
     s.engageLatch, sit.timeToMerge, cfg.engageTimeEnter, cfg.engageTimeExit,
   )
@@ -181,16 +202,24 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
     && sit.angleOffTail > Math.PI - cfg.mergeAspect
   ) return 'merge'
 
-  // 【這裡曾經有一條「有射擊解就不准跑」的護欄，實測後撤掉】它本身是對的
-  // ——AI 不該在咬著敵機開火時脫離——但它會把 `extend` 最後的觸發機會也堵掉，
-  // 而 `energyAdvantage` 是**相對**量：兩台一起把能量耗光時它一直接近 0，
-  // 沒有任何機制看得見「大家都快沒能量了」。實測共速共高開局因此由最低
-  // 比能量 3,405 m／最低高度 2,435 m 惡化成 679 m／309 m，整場仗螺旋下沉
-  // 到海面附近。
+  // 【有射擊解時，「比他弱」不是離開的理由；「我飛不動了」仍然是】
   //
-  // 要加回這條護欄，得先有一個**絕對**的能量底線讓 extend 仍然逃得掉。
-  // 那是一個新的設計決定，不在本次改動範圍內。
-  if (s.extendLatch && sit.range < cfg.extendRange) return 'extend'
+  // 人工驗收抓到的缺陷：AI 咬在敵機後方 236 m、瞄準偏離 4°、正在開火時切到
+  // extend，瞄準點瞬間甩到 87°，然後直飛 21 秒到 1,484 m。45 秒的交戰只開火
+  // 7.1 秒。真實 BFM 是「打不贏才脫離」，不是「打得正順的時候脫離」。
+  //
+  // 但這條護欄不能無差別地擋掉所有 extend：早期版本這樣做，結果把最後的
+  // 觸發機會也堵死，共速共高開局螺旋下沉到離海 309 m。分野在於**理由的性質**：
+  //
+  //   相對理由（比他弱、轉不贏他）→ 談的是接下來的交換，有槍在手就先開槍
+  //   絕對理由（我飛不動了）      → 談的是我還能不能飛，開著槍也得走
+  //
+  // `shotInstant > 0` 已經包含「距離 900 m 內、有預瞄解、機首在 15° 錐內」，
+  // 正是「我正咬著他」的定義。
+  const shooting = sit.shotInstant > 0
+  const fleeing = s.extendFloorLatch
+    || (!shooting && (s.extendEnergyLatch || s.extendTurnLatch))
+  if (fleeing && sit.range < cfg.extendRange) return 'extend'
 
   // 【門檻與 extend 對齊，不是 `>= 0`】機體差距可能只有 ±2% 且隨高度換號，
   // 用 `>= 0` 等於擲銅板。要拒絕交戰得是**明顯**轉不贏，那與脫離同一個標準。
