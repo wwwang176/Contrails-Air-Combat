@@ -46,8 +46,34 @@ export interface Situation {
   turnAdvantage: number
   /** 我的 TAS ÷ 我的角落速度。> 1 = 快到轉不動 */
   cornerRatio: number
-  /** 我的 TAS ÷ 當前過載下的失速速度。趨近 1 = 快失速 */
+  /**
+   * 我的 TAS ÷ **當前過載下**的失速速度。趨近 1 = 當前升力係數已逼近 CLmax。
+   *
+   * 【它量的其實是攻角，不是速度】代數上它恆等於 `√(CLmax / CL)`。所以它
+   * 回答的是「我拉得太猛了嗎」，**不是**「我快沒空速了嗎」。垂直爬升時
+   * 飛機不需要升力，過載趨近 0，而 `Vs ∝ √n` 也跟著趨近 0 —— 這個比值於是
+   * 被撐大。見 `speedMargin`。
+   */
   stallMargin: number
+  /**
+   * 我的 TAS ÷ **1 G** 失速速度。與當前過載無關。
+   *
+   * 【為什麼需要與 `stallMargin` 分開的第二個判準】M4 出貨後抓到的缺陷。
+   * P-51D 由 720 km/h 垂直爬升的實測：
+   *
+   * | TAS | 過載 | stallMargin | speedMargin |
+   * |---|---|---|---|
+   * | 279 km/h | −0.030 | 8.51 | 1.46 |
+   * | 132 km/h | −0.022 | 4.63 | 0.68 |
+   * |  51 km/h | −0.012 | 2.33 | 0.26 |
+   *
+   * 吊機首閘門的門檻是 1.25，所以 `stallMargin` 要掉到約 20 km/h 才觸發
+   * —— 早就來不及了。它在**最該觸發的場景幾乎不觸發**。
+   *
+   * 兩者各管一種失效模式：`stallMargin` 管「拉太猛」，`speedMargin` 管
+   * 「快沒空速」。飛行員兩個都看。
+   */
+  speedMargin: number
 
   /** 他打得到我的瞬時程度，0..1。持續跟蹤的加權在 AiController（見 §偏離 2） */
   threatInstant: number
@@ -60,7 +86,7 @@ export function createSituation(): Situation {
     range: 0, closureRate: 0, timeToMerge: Infinity,
     aspectAngle: 0, angleOffTail: 0, losRate: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
-    turnAdvantage: 0, cornerRatio: 1, stallMargin: 1,
+    turnAdvantage: 0, cornerRatio: 1, stallMargin: 1, speedMargin: 1,
     threatInstant: 0, shotInstant: 0,
   }
 }
@@ -149,6 +175,11 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   // ——那是「安全」的方向，但它會讓吊機首閘門永遠不觸發。夾一個下限。
   const vs = Math.max(stallSpeed(self.spec, selfAlt, Math.abs(self.diag.loadFactor)), 1)
   out.stallMargin = selfTas / vs
+
+  // 【1 G 失速速度，不是當前過載下的】上面那個除數正是問題所在：垂直爬升
+  // 時過載趨近 0，Vs(|n|) ∝ √n 也跟著縮小，比值於是被撐大。
+  // 這一項無視過載，所以它問的是純粹的「我還有多少空速」。
+  out.speedMargin = selfTas / stallSpeed(self.spec, selfAlt, 1)
 }
 
 /**

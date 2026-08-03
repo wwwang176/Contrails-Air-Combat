@@ -398,3 +398,72 @@ describe('evaluateThreat', () => {
     expect(Number.isFinite(sit.shotInstant)).toBe(true)
   })
 })
+
+describe('speedMargin —— 與 stallMargin 是兩個不同的失效模式', () => {
+  const sit = createSituation()
+
+  const at = (spec: typeof P51D, altitude: number, tas: number): Aircraft => {
+    const a = new Aircraft(spec, altitude, tas)
+    a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    return a
+  }
+
+  /**
+   * 【這一條是 M4 出貨後抓到的缺陷】`stallMargin = TAS / Vs(當前過載)`
+   * 恆等於 `√(CLmax / CL)`，它量的是「升力係數離失速多遠」。
+   *
+   * 垂直爬升時飛機**不需要升力**（重力沿著航跡而非垂直於航跡），所以攻角
+   * 停在 0 附近、過載趨近 0，而 `Vs ∝ √n` 也跟著縮小 —— 比值於是被撐大。
+   * P-51D 由 720 km/h 垂直爬升的實測：
+   *
+   *   279 km/h → stallMargin 8.51、speedMargin 1.46
+   *   132 km/h → stallMargin 4.63、speedMargin 0.68
+   *    51 km/h → stallMargin 2.33、speedMargin 0.26
+   *
+   * 吊機首閘門的門檻是 1.25，所以 `stallMargin` 要掉到約 20 km/h 才觸發。
+   * **它對「我快沒空速了」實質上是瞎的**，需要另一個無視過載的判準。
+   */
+  it('垂直爬升時 stallMargin 仍遠高於閘門門檻，但 speedMargin 已經示警', () => {
+    const a = new Aircraft(P51D, 3000, 37)
+    // 姿態與速度都朝正上方：不需要升力，過載趨近 0
+    a.state.position.set(0, 3000, 0)
+    a.state.velocity.set(0, 37, 0)
+    a.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 1, 0))
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.copy(a.state.orientation)
+    a.update(new Vector3(0, 1, 0), 1.1, 1 / 240)
+
+    evaluateEnergy(a, at(P51D, 3000, 180), sit)
+    expect(Math.abs(a.diag.loadFactor)).toBeLessThan(0.2)
+    // 遠高於 DEFAULT_STEER.stallGuardMargin（1.25）→ 舊判準不會叫
+    expect(sit.stallMargin).toBeGreaterThan(2)
+    // 低於 1 → 連 1 G 都撐不住的速度，新判準會叫
+    expect(sit.speedMargin).toBeLessThan(1)
+  })
+
+  it('speedMargin = TAS ÷ 1G 失速速度，與當前過載無關', () => {
+    // 同一個速度、不同過載：speedMargin 不該變
+    const level = at(P51D, 3000, 150)
+    evaluateEnergy(level, at(P51D, 3000, 180), sit)
+    const a = sit.speedMargin
+
+    // 【為什麼要拉滿一秒】過載不是瞬間建立的：實測由 0 到 5.28 要約
+    // 2.5 秒（升降舵有作動速率、迎角要長出來）。跑一步的話 n 還是 0，
+    // 這條測試會拿兩個相同的狀態互比，什麼都沒驗到。
+    const pulling = new Aircraft(P51D, 3000, 150)
+    for (let i = 0; i < 240; i++) pulling.update(new Vector3(0, 1, 0), 1.1, 1 / 240)
+    evaluateEnergy(pulling, at(P51D, 3000, 180), sit)
+    expect(Math.abs(pulling.diag.loadFactor)).toBeGreaterThan(Math.abs(level.diag.loadFactor))
+    // 速度在這一秒內掉了一些，所以只比較「同一個數量級、沒有被過載扭曲」：
+    // 舊的 stallMargin 在 4.7 G 下會掉到 1/√4.7 ≈ 46%，speedMargin 不會。
+    expect(sit.speedMargin).toBeGreaterThan(a * 0.9)
+  })
+
+  it('speedMargin 隨速度單調遞增，且高速時遠大於 1', () => {
+    evaluateEnergy(at(P51D, 3000, 250), at(P51D, 3000, 180), sit)
+    const fast = sit.speedMargin
+    evaluateEnergy(at(P51D, 3000, 90), at(P51D, 3000, 180), sit)
+    expect(sit.speedMargin).toBeLessThan(fast)
+    expect(fast).toBeGreaterThan(3)
+  })
+})
