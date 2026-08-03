@@ -321,15 +321,21 @@ function frame(now: number) {
     contact.worldX = v.position.x
     contact.worldZ = v.position.z
 
-    relPos.copy(c.aircraft.state.position).sub(aircraft.state.position)
-    relVel.copy(c.aircraft.state.velocity).sub(aircraft.state.velocity)
-    const t = solveLead(relPos, relVel, sight.muzzleVelocity, leadDir)
-    contact.leadValid = t !== NO_INTERCEPT && t <= PROJECTILE_LIFETIME
-    if (contact.leadValid) {
-      leadProbe.copy(renderPos).addScaledVector(leadDir, HUD_PROJECT_DISTANCE).project(ctx.camera)
-      contact.leadX = leadProbe.x * ctx.camera.aspect
-      contact.leadY = leadProbe.y
-      contact.leadBehind = leadProbe.z >= 1
+    // 【預瞄環只給敵機】M5 起彈丸直接穿過友機（spec §2），所以友機的預瞄環
+    // 指的是一個打不到的點——畫出來只會是「往這裡開槍」的錯誤暗示。19 架
+    // 友機同時畫更是滿畫面的雜訊。順帶省掉每架一次的預瞄解。
+    contact.leadValid = false
+    if (contact.hostile) {
+      relPos.copy(c.aircraft.state.position).sub(aircraft.state.position)
+      relVel.copy(c.aircraft.state.velocity).sub(aircraft.state.velocity)
+      const t = solveLead(relPos, relVel, sight.muzzleVelocity, leadDir)
+      contact.leadValid = t !== NO_INTERCEPT && t <= PROJECTILE_LIFETIME
+      if (contact.leadValid) {
+        leadProbe.copy(renderPos).addScaledVector(leadDir, HUD_PROJECT_DISTANCE).project(ctx.camera)
+        contact.leadX = leadProbe.x * ctx.camera.aspect
+        contact.leadY = leadProbe.y
+        contact.leadBehind = leadProbe.z >= 1
+      }
     }
 
     contact.active = true

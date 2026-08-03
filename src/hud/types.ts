@@ -24,7 +24,13 @@ export interface HudContact {
   worldZ: number
   /** 距離，m */
   range: number
-  /** 預瞄環的螢幕座標。leadValid 為 false 時不畫 */
+  /**
+   * 預瞄環的螢幕座標。`leadValid` 為 false 時不畫。
+   *
+   * 【M5 起只有敵機會有】彈丸直接穿過友機，所以友機的預瞄環指的是一個
+   * 打不到的點 —— 畫出來是「往這裡開槍」的錯誤暗示。`hostile` 為 false 時
+   * `leadValid` 恆為 false。
+   */
   leadX: number
   leadY: number
   leadValid: boolean
