@@ -1,8 +1,12 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
+import { WEP_THROTTLE } from '../physics/propulsion'
+import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
+import type { Command } from '../control/Controller'
 import type { Situation } from './assess'
+import type { Intent } from './rules'
 
 const FWD = new Vector3(0, 0, -1)
 const UP = new Vector3(0, 1, 0)
@@ -107,6 +111,12 @@ export interface SteerConfig {
   stallGuardElevation: number
   /** 瞄準點相對目標的最大角位移，rad */
   maxOffsetAngle: number
+  /** cornerRatio 超過此值就開始減速 */
+  brakeCornerRatio: number
+  /** extend 的爬升／俯衝角上限，rad */
+  extendPitch: number
+  /** defend 的偏轉角，rad */
+  defendOffset: number
 }
 
 /**
@@ -117,6 +127,9 @@ export const DEFAULT_STEER: SteerConfig = {
   stallGuardMargin: 1.25,
   stallGuardElevation: 45 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
+  brakeCornerRatio: 1.6,
+  extendPitch: 25 * (Math.PI / 180),
+  defendOffset: 75 * (Math.PI / 180),
 }
 
 /**
@@ -219,4 +232,123 @@ export function aimFromKnobs(
   const len = aim.length()
   if (len > 1e-6) out.copy(aim).divideScalar(len)
   else out.copy(basis.losAxis)
+}
+
+const C = makeScratch(1)
+
+/** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
+const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
+
+/**
+ * 由意圖與幾何模式產生完整的轉向指令：`aimWorld`、`throttle`、`brake`。
+ *
+ * **不動 `firing`** —— 開火紀律是獨立的一層（`fire.ts`），因為「瞄得對」
+ * 與「該不該扣扳機」是兩個不同的判斷：進場途中瞄準點是對的，但距離還
+ * 遠到不該浪費彈幕。
+ */
+export function steerCommand(
+  intent: Intent,
+  mode: SteerMode,
+  sit: Situation,
+  basis: EngageBasis,
+  self: Aircraft,
+  k: Knobs,
+  out: Command,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  // ── 瞄準點 ──────────────────────────────────────────────
+  // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
+  if (mode === 'planeDegenerate') {
+    out.aimWorld.copy(basis.losAxis)
+  } else if (mode === 'stallGuard') {
+    // 不追上去。回到速度向量附近讓能量恢復——追一個吊在上面的目標會
+    // 把自己也掛在那裡。
+    unloadAim(self, 0, out.aimWorld)
+  } else if (mode === 'overshoot') {
+    // 後置 + 高 yo-yo。engageKnobs 在這個態勢下本來就會給負的 leadLag 與
+    // 正的 vertical，這裡強制到底，因為超前是要立刻解決的。
+    aimFromKnobs(basis, sit, OVERSHOOT_KNOBS, out.aimWorld, cfg)
+  } else {
+    switch (intent) {
+      case 'engage':
+        aimFromKnobs(basis, sit, k, out.aimWorld, cfg)
+        break
+      case 'extend':
+        // 【卸載】把瞄準點放到自身速度向量上，指揮儀就沒有轉向需求，
+        // 過載趨近 1 G、誘導阻力最小——這是能量重整的核心手段
+        // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
+        // 能量劣勢時帶爬升分量把速度存成高度，優勢時反之。
+        unloadAim(self, -Math.sign(sit.energyAdvantage) * cfg.extendPitch, out.aimWorld)
+        break
+      case 'defend':
+        defendAim(basis, out.aimWorld, cfg)
+        break
+      case 'merge':
+      case 'approach':
+        normalizeInto(basis.leadPoint, basis.losAxis, out.aimWorld)
+        break
+    }
+  }
+
+  // ── 油門與減速（spec §7.4）────────────────────────────
+  if (mode === 'overshoot') {
+    // 沒有減速板的年代這是做不到的，但本專案刻意加了（spec §2.1）。
+    // 配合後置與高 yo-yo，三者都在增加能量消耗。
+    out.throttle = THROTTLE_FLOOR
+    out.brake = 1
+  } else if (sit.cornerRatio > cfg.brakeCornerRatio) {
+    // 【判準是角落速度不是 VNE】limits.vne 在整個 src/ 裡沒有任何程式碼
+    // 消費它——超速在本模型沒有後果，拿它當判準是死碼。速度遠高於角落
+    // 速度則是模型真的模擬的代價：轉彎半徑 ∝ V²，而且高速舵面變重。
+    out.throttle = WEP_THROTTLE
+    out.brake = Math.min(1, sit.cornerRatio - cfg.brakeCornerRatio)
+  } else {
+    out.throttle = WEP_THROTTLE
+    out.brake = 0
+  }
+}
+
+/** 瞄準自身速度向量，可加上一個俯仰偏置。pitch > 0 為爬升。 */
+function unloadAim(self: Aircraft, pitch: number, out: Vector3): void {
+  const v = C.v[0]!.copy(self.state.velocity)
+  const speed = v.length()
+  if (speed > 1e-3) v.divideScalar(speed)
+  else v.copy(FWD).applyQuaternion(self.state.orientation)
+
+  if (pitch === 0) {
+    out.copy(v)
+    return
+  }
+  // 繞「速度向量與世界上方構成的平面」抬頭：把 y 分量加上去再正規化，
+  // 是這個旋轉在小角度下的良好近似，而且沒有奇異點。
+  out.copy(v)
+  out.y += Math.tan(pitch)
+  out.normalize()
+}
+
+/**
+ * 破防：瞄準點垂直於他的射線，優先選能增加 `angleOffTail` 的一側。
+ *
+ * 目的是**破壞他的預瞄解**，不是逃跑——逃跑會把尾巴一直送給他。
+ */
+function defendAim(basis: EngageBasis, out: Vector3, cfg: SteerConfig): void {
+  // 由視線繞 verticalAxis 轉開一個大角度。verticalAxis 退化時改用 leadAxis，
+  // 兩者都退化時直接回傳視線（此時幾何本來就沒有可選的一側）。
+  const axis = !basis.verticalDegenerate ? basis.verticalAxis
+    : !basis.leadDegenerate ? basis.leadAxis
+      : null
+  if (!axis) {
+    out.copy(basis.losAxis)
+    return
+  }
+  out.copy(basis.losAxis).multiplyScalar(Math.cos(cfg.defendOffset))
+    .addScaledVector(axis, Math.sin(cfg.defendOffset))
+    .normalize()
+}
+
+/** 正規化 v 寫入 out；退化時用 fallback。 */
+function normalizeInto(v: Vector3, fallback: Vector3, out: Vector3): void {
+  const len = v.length()
+  if (len > 1e-6) out.copy(v).divideScalar(len)
+  else out.copy(fallback)
 }
