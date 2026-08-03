@@ -75,6 +75,16 @@ export interface Situation {
    */
   speedMargin: number
 
+  /**
+   * **我自己的**航跡角，rad。正為爬升。
+   *
+   * 【為什麼需要它】吊機首閘門原本只看目標的仰角，也就是只問「目標是不是
+   * 吊在我上面」。人工驗收抓到的缺陷：`extend` 會讓 AI 把自己吊到 85° 而
+   * 目標仍在同一空層 —— 目標仰角接近 0，閘門一次都不觸發。「我正在把自己
+   * 吊上去」與「目標吊在上面」是兩件事，前者才是失速的直接前兆。
+   */
+  climbAngle: number
+
   /** 他打得到我的瞬時程度，0..1。持續跟蹤的加權在 AiController（見 §偏離 2） */
   threatInstant: number
   /** 我打得到他的瞬時程度，0..1 */
@@ -87,6 +97,7 @@ export function createSituation(): Situation {
     aspectAngle: 0, angleOffTail: 0, losRate: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, cornerRatio: 1, stallMargin: 1, speedMargin: 1,
+    climbAngle: 0,
     threatInstant: 0, shotInstant: 0,
   }
 }
@@ -132,6 +143,13 @@ export function evaluateGeometry(self: Aircraft, target: Aircraft, out: Situatio
   // 與視線的夾角」是同一個角。
   const targetFwd = S.v[0]!.copy(FWD).applyQuaternion(target.state.orientation)
   out.angleOffTail = Math.acos(clampUnit(targetFwd.dot(losUnit)))
+
+  // 自機航跡角。速度退化時取 0——靜止的飛機沒有航跡，讀成「平飛」是安全的
+  // 預設（它不會誤觸發吊機首閘門）。
+  const selfSpeed = self.state.velocity.length()
+  out.climbAngle = selfSpeed > MIN_RANGE
+    ? Math.asin(clampUnit(self.state.velocity.y / selfSpeed))
+    : 0
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */

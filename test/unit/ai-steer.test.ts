@@ -488,9 +488,9 @@ describe('stallGuard 的第二道判準 —— 絕對速度', () => {
   }
 
   /**
-   * 【M4 出貨後抓到的缺陷】垂直爬升時過載趨近 0，`stallMargin` 會變成一個
-   * 大得離譜的數字（實測 37 m/s 時讀到 37），閘門於是永遠不觸發——而那
-   * 正是它最該觸發的場景。
+   * 【M4 出貨後抓到的缺陷】垂直爬升時過載趨近 0，而 `Vs ∝ √n` 也跟著縮小，
+   * `stallMargin` 於是被撐大——P-51D 實測在 132 km/h 時它讀 4.63，遠高於
+   * 1.25 的門檻。閘門在它最該觸發的場景幾乎不觸發。
    */
   it('過載趨近 0 讓 stallMargin 失效時，速度判準仍然攔得住', () => {
     targetAbove()
@@ -513,7 +513,7 @@ describe('stallGuard 的第二道判準 —— 絕對速度', () => {
     expect(geometryGate(sit, basis)).not.toBe('stallGuard')
   })
 
-  it('目標不在高仰角時，速度再低也不觸發（那不是吊機首的問題）', () => {
+  it('目標不在高仰角、自己也沒在爬升時，速度再低也不觸發', () => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 3000, 0], [0, 0, -60])
@@ -523,5 +523,108 @@ describe('stallGuard 的第二道判準 —— 絕對速度', () => {
     sit.stallMargin = 3
     sit.speedMargin = 0.5
     expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+  })
+})
+
+describe('stallGuard 的第三道判準 —— 自己的航跡角', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+
+  /**
+   * 目標在同一空層的正前方（仰角約 0），但**我自己**正陡爬。
+   *
+   * 【這是人工驗收抓到的缺陷】閘門原本只看目標仰角，等於只問「目標是不是
+   * 吊在我上面」。實測 `extend` 的俯仰偏置滾雪球，會讓 AI 把自己吊到 85°
+   * 而目標仍在同一空層——目標仰角接近 0，閘門一次都不觸發，AI 就這樣把
+   * 自己吊到失速。「我正在把自己吊上去」與「目標吊在上面」是兩件事。
+   */
+  const selfClimbing = () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 3000, 0], [0, 170, -30])      // 航跡角約 80°
+    place(target, [0, 3000, -800], [0, 0, -120])  // 同一空層，正前方
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    // 前提：目標仰角確實低於門檻，否則這條測試量到的是舊判準
+    expect(Math.asin(basis.losAxis.y)).toBeLessThan(DEFAULT_STEER.stallGuardElevation)
+    expect(sit.climbAngle).toBeGreaterThan(DEFAULT_STEER.stallGuardElevation)
+  }
+
+  it('自己陡爬且速度不夠時觸發', () => {
+    selfClimbing()
+    sit.stallMargin = 40                                   // 舊判準瞎掉
+    sit.speedMargin = DEFAULT_STEER.stallGuardSpeed * 0.8   // 但速度真的不夠
+    expect(geometryGate(sit, basis)).toBe('stallGuard')
+  })
+
+  it('自己陡爬但速度充足時不觸發（爬升本身不是問題）', () => {
+    selfClimbing()
+    sit.stallMargin = 3
+    sit.speedMargin = 5
+    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+  })
+})
+
+describe('extend 的俯仰偏置不會滾雪球', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+
+  /**
+   * 【這是人工驗收抓到的主缺陷】`unloadAim` 原本寫成 `v.y += tan(pitch)`，
+   * 把偏置加在**當前**速度向量上。飛機會追上去，下一格再從轉過的新方向
+   * 加一次——指令角度於是每格滾雪球。實測：`extend` 一啟動，瞄準仰角 4 秒
+   * 由 −27° 跑到 −56°（垂直俯衝）；能量差翻負後改成爬升偏置，7 秒由 +16°
+   * 跑到 +85°、TAS 由 688 掉到 498 km/h。那正是「AI 自己吊到失速」的來源。
+   *
+   * 這條測試模擬**完美跟隨**：每一輪把速度向量設成上一輪的指令方向，再問
+   * 一次指令。航跡角相對地平線定義的話，答案每一輪都該是同一個角度。
+   */
+  const followLoop = (energyAdvantage: number): number[] => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -1000], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.energyAdvantage = energyAdvantage
+
+    const out: number[] = []
+    for (let i = 0; i < 20; i++) {
+      steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+      out.push(Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y))))
+      // 完美跟隨：速度轉到剛剛的指令方向，保持速率
+      self.state.velocity.copy(cmd.aimWorld).multiplyScalar(180)
+    }
+    return out
+  }
+
+  it('能量優勢時：每一輪都是 −extendPitch，不會愈俯愈陡', () => {
+    for (const a of followLoop(500)) {
+      expect(a).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
+    }
+  })
+
+  it('能量劣勢時：每一輪都是 +extendPitch，不會愈爬愈陡', () => {
+    for (const a of followLoop(-500)) {
+      expect(a).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+    }
+  })
+
+  it('維持航向：只改變航跡角，不會把飛機轉往別的方位', () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -1000], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.energyAdvantage = -500
+
+    steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+    // 原航向是 −Z；指令的水平分量必須仍指向 −Z
+    expect(cmd.aimWorld.x).toBeCloseTo(0, 9)
+    expect(cmd.aimWorld.z).toBeLessThan(0)
+    expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
   })
 })
