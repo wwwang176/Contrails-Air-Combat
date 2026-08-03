@@ -55,17 +55,19 @@ export function drawRoster(
   ctx.fillStyle = HUD_COLORS.danger
   ctx.fillText(String(f.redAlive), L.cx + size * 2, y)
 
+  // 【為什麼擺在同一行的右側而不是下一行】下一行是航向帶的位置 —— 實測
+  // 「隊 4/4」會被航向指標壓在底下，讀不出來。存活數這一行右邊是空的。
   const flight = flightLabel(f.flightAlive, f.flightSize)
   if (flight !== null) {
     ctx.font = hudFont(Math.round(11 * L.scale))
     ctx.fillStyle = HUD_COLORS.dim
-    ctx.fillText(flight, L.cx, y + size * 1.15)
+    ctx.fillText(flight, L.cx + size * 4.5, y + size * 0.25)
   }
 
   const label = countdownLabel(f.resetCountdown)
   if (label !== null) {
     ctx.font = hudFont(Math.round(20 * L.scale), true)
     ctx.fillStyle = HUD_COLORS.warn
-    ctx.fillText(label, L.cx, y + size * 2.0)
+    ctx.fillText(label, L.cx, y + size * 1.6)
   }
 }
