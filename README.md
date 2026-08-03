@@ -100,6 +100,7 @@ src/
 | M4 實作計畫 | `docs/superpowers/plans/2026-08-03-m4-enemy-ai.md` |
 | 低速操控權 設計規格 | `docs/superpowers/specs/2026-08-03-low-speed-control-authority-design.md` |
 | 低速操控權 實作計畫 | `docs/superpowers/plans/2026-08-03-low-speed-control-authority.md` |
+| M5 多機 設計規格 | `docs/superpowers/specs/2026-08-03-m5-multi-aircraft-design.md` |
 | 幾何流程 | `.claude/skills/aircraft-from-reference/SKILL.md` |
 
 四份規格的人工驗收全部於 **2026-08-03** 由專案負責人在瀏覽器實際操作走完並通過：M1 §3.5（試飛四項）、M2 §3.4（條件 9、10）、M4 §3.4（條件 9–11）、低速操控權 §8.5（條件 7–9）。紀錄的粒度是每份清單一個通過與否，沒有逐項的量化觀察。M4 的門檻回填紀錄在其規格 §16。
