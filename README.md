@@ -15,7 +15,7 @@ npm run dev       # http://localhost:5173
 |---|---|
 | `npm run dev` | 開發伺服器 |
 | `npm run build` | `tsc --noEmit` + 正式建置 |
-| `npm test` | 全部測試（43 檔 / 1,210 條） |
+| `npm test` | 全部測試（44 檔 / 1,248 條） |
 | `npm run bench` | 物理步、彈丸步、AI 步的微基準 |
 
 ## 操作
@@ -78,6 +78,8 @@ src/
 
 **純函數三兄弟**（`physics/`、`analysis/`、部分 `control/`）不持有狀態、不碰 three.js 的場景圖，所以史實性能可以在 node 裡直接驗證，不必開瀏覽器。`ai/` 走同一條紀律 —— 遲滯閂鎖、最小停留、10 Hz 節流、跟蹤計時器全部住在 `AiController`，其餘五個模組是純函數，所以 288 組安全矩陣與對戰矩陣能在 node 裡跑完。
 
+低速時舵面會失去效力（動壓低於 1 G 失速動壓的 1.44 倍時線性衰減），所以垂直懸掛不是免費的招式 —— 掛太久就拉不回來，機頭會被重力帶下去。實測滿舵能換到的俯仰率由入場的 195 °/s 掉到 26 °/s，AI 則在最壞情況（操縱權歸零、飛機完全停住）下仍能在 15.4 秒內救回、只掉 271 m。設計與實測見 `docs/superpowers/specs/2026-08-03-low-speed-control-authority-design.md`。
+
 物理跑 240 Hz 固定步長，渲染用累加器內插 —— 滾轉率可達 100°/s 以上，100 Hz 在大 G 機動時積分誤差肉眼可見。單步實測 **1.0 μs**；彈丸池滿載 4,000 發時整個 `World.step` 是 **175 μs**（含命中判定），曳光彈維持 **1 個 draw call**。兩架 AI 纏鬥的完整 `World.step` 平均 **19 μs**，其中 10 Hz 的包絡查詢那一格 p99 為 **129 μs**。
 
 ## 機體幾何
@@ -96,9 +98,11 @@ src/
 | M2 實作計畫 | `docs/superpowers/plans/2026-08-02-m2-weapons.md` |
 | M4 設計規格 | `docs/superpowers/specs/2026-08-03-m4-enemy-ai-design.md` |
 | M4 實作計畫 | `docs/superpowers/plans/2026-08-03-m4-enemy-ai.md` |
+| 低速操控權 設計規格 | `docs/superpowers/specs/2026-08-03-low-speed-control-authority-design.md` |
+| 低速操控權 實作計畫 | `docs/superpowers/plans/2026-08-03-low-speed-control-authority.md` |
 | 幾何流程 | `.claude/skills/aircraft-from-reference/SKILL.md` |
 
-M1 的驗收紀錄在其規格 §3.5，**人工試飛四項未執行**；M2 的在其規格 §3.4，**驗收條件 9、10 的字面流程未逐條確認**；M4 的在其規格 §3.4，**人工驗收三項未執行**。原因與風險都記在各自的那一節。M4 的門檻回填紀錄在其規格 §16。
+M1 的驗收紀錄在其規格 §3.5，**人工試飛四項未執行**；M2 的在其規格 §3.4，**驗收條件 9、10 的字面流程未逐條確認**；M4 的在其規格 §3.4，**人工驗收三項未執行**。原因與風險都記在各自的那一節。M4 的門檻回填紀錄在其規格 §16。低速操控權的驗收紀錄在其規格 §8.5，**人工驗收三項未執行**。
 
 ## 尚未實作
 
