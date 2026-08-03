@@ -5,6 +5,7 @@ import {
 } from '../../src/physics/dynamics'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
+import { lowSpeedEffectiveness } from '../../src/physics/aero'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { DEG, G0, RAD } from '../../src/core/math'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -263,5 +264,40 @@ describe('stepDynamics — 診斷輸出', () => {
     const s = createFlightState(3000, 70)
     const { diag } = run(P51D, s, { ...IDLE, elevator: 0.8, throttle: 1 }, 2)
     expect(diag.slatsDeployed).toBe(false)
+  })
+})
+
+describe('stepDynamics 的 controlAuthority', () => {
+  const CONTROLS = { aileron: 0, elevator: 0, rudder: 0, throttle: 0.7, brake: 0 }
+
+  it('createDiagnostics 的初值是 1（完全有效）', () => {
+    expect(createDiagnostics().controlAuthority).toBe(1)
+  })
+
+  it('巡航速度下為 1', () => {
+    const state = createFlightState(3000, 150)
+    const diag = createDiagnostics()
+    stepDynamics(P51D, state, CONTROLS, 1 / 240, diag)
+    expect(diag.controlAuthority).toBe(1)
+  })
+
+  it('低速時等於 lowSpeedEffectiveness(spec, 當前動壓)', () => {
+    const state = createFlightState(3000, 40)
+    const diag = createDiagnostics()
+    stepDynamics(P51D, state, CONTROLS, 1 / 240, diag)
+    expect(diag.controlAuthority).toBeCloseTo(
+      lowSpeedEffectiveness(P51D, diag.aero.qbar), 12,
+    )
+    expect(diag.controlAuthority).toBeLessThan(1)
+    expect(diag.controlAuthority).toBeGreaterThan(0)
+  })
+
+  it('速度為 0 時為 0，且不產生 NaN', () => {
+    const state = createFlightState(3000, 0)
+    state.velocity.set(0, 0, 0)
+    const diag = createDiagnostics()
+    stepDynamics(P51D, state, CONTROLS, 1 / 240, diag)
+    expect(diag.controlAuthority).toBe(0)
+    expect(Number.isFinite(state.position.y)).toBe(true)
   })
 })

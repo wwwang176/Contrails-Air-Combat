@@ -2,7 +2,9 @@ import { Quaternion, Vector3 } from 'three'
 import { G0 } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { atmosphere } from './atmosphere'
-import { aeroForceMoment, computeAeroState, updateSlatState } from './aero'
+import {
+  aeroForceMoment, computeAeroState, lowSpeedEffectiveness, updateSlatState,
+} from './aero'
 import { enginePower, propThrust } from './propulsion'
 import type { AircraftSpec } from '../specs/types'
 import type { AeroState, AirData, Controls, FlightState, ForceMoment } from './types'
@@ -23,6 +25,14 @@ export interface StepDiagnostics {
    * 呼叫端必須沿用同一個物件，不可每步重建。
    */
   slatsDeployed: boolean
+  /**
+   * 低速舵面效力，0..1。1 = 完全有效。
+   *
+   * 【為什麼放在 diag 而不是各自重算】HUD 要顯示的正是這個乘數。走
+   * diag 讓物理與畫面共用同一份數字，不會出現第二套會漂掉的判斷邏輯
+   * （低速操控權 spec §6）。
+   */
+  controlAuthority: number
 }
 
 export function createDiagnostics(): StepDiagnostics {
@@ -33,6 +43,7 @@ export function createDiagnostics(): StepDiagnostics {
     powerW: 0,
     loadFactor: 0,
     slatsDeployed: false,
+    controlAuthority: 1,
   }
 }
 
@@ -61,6 +72,9 @@ export function stepDynamics(
 
   atmosphere(state.position.y, diag.air)
   computeAeroState(velBody, diag.air, diag.aero)
+  // 【放在 aeroForceMoment 之前是刻意的】後者在 qbar <= 0 時提早回傳；
+  // 若擺在它後面，靜止狀態下 controlAuthority 會停在上一步的舊值。
+  diag.controlAuthority = lowSpeedEffectiveness(spec, diag.aero.qbar)
   diag.slatsDeployed = updateSlatState(spec, diag.aero.alpha, diag.slatsDeployed)
 
   aeroForceMoment(spec, diag.aero, state.angularVelocity, controls, diag.slatsDeployed, fm)
