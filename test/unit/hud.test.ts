@@ -237,3 +237,17 @@ describe('minimapSymbol', () => {
     expect(minimapSymbol(-MINIMAP_LEVEL_BAND * 2)).toBe('below')
   })
 })
+
+describe('自機血量', () => {
+  it('新的 frame 是滿血', () => {
+    const f = createHudFrame()
+    expect(f.hpMax).toBeGreaterThan(0)
+    expect(f.hp).toBe(f.hpMax)
+  })
+
+  it('初始值不含 NaN', () => {
+    const f = createHudFrame()
+    expect(Number.isFinite(f.hp)).toBe(true)
+    expect(Number.isFinite(f.hpMax)).toBe(true)
+  })
+})

@@ -260,3 +260,29 @@ describe('靶機機動切換鍵', () => {
     }
   })
 })
+
+describe('靶機 AI 切換鍵', () => {
+  const key = (code: string) => ({ code, preventDefault: () => {} })
+
+  it('預設不是 AI；按 5 切成 AI', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    expect(state.droneAi).toBe(false)
+    dom.win.fire('keydown', key('Digit5'))
+    expect(state.droneAi).toBe(true)
+  })
+
+  it('按 1–4 回到預錄機動', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.win.fire('keydown', key('Digit5'))
+    expect(state.droneAi).toBe(true)
+    dom.win.fire('keydown', key('Digit2'))
+    expect(state.droneAi).toBe(false)
+    expect(state.droneManoeuvre).toBe(1)
+  })
+})

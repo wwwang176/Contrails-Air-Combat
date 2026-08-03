@@ -46,6 +46,13 @@ export interface InputState {
    * 純 DOM 外殼，對 control/ 沒有依賴（見 bindings.ts 檔頭的同一條理由）。
    */
   droneManoeuvre: number
+  /**
+   * 靶機是否交給 AI 駕駛。`false` 時走 `droneManoeuvre` 的預錄機動。
+   *
+   * 【為什麼保留預錄機動】除錯時很有用：AI 出問題時可以先換成已知的
+   * 直線或盤旋，確認是 AI 的問題還是別的地方。
+   */
+  droneAi: boolean
   /** 單幀旗標，消費後由呼叫端清除 */
   resetRequested: boolean
   /** 單幀旗標，切換機種 */
@@ -65,6 +72,7 @@ export function createInputState(): InputState {
     firing: false,
     braking: false,
     droneManoeuvre: 0,
+    droneAi: false,
     resetRequested: false,
     swapSpecRequested: false,
   }

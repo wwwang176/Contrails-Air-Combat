@@ -2,6 +2,7 @@ import { drawContacts } from './widgets/contacts'
 import { drawDials } from './widgets/dials'
 import { drawEnergy } from './widgets/energy'
 import { drawGEffect } from './widgets/gEffect'
+import { drawHealth } from './widgets/health'
 import { drawHints } from './widgets/hints'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
@@ -50,6 +51,7 @@ export class Hud {
     drawHeadingTape(ctx, L, f)
     drawDials(ctx, L, f)
     drawMinimap(ctx, L, f)
+    drawHealth(ctx, L, f)
     drawEnergy(ctx, L, f)
     drawHints(ctx, L)
   }
