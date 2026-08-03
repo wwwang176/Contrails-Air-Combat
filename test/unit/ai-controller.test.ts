@@ -4,6 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
 import { AiController, AI_DECISION_HZ } from '../../src/ai/AiController'
 import { createTargetBoard, type TargetCandidate } from '../../src/ai/target'
+import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import { ACE } from '../../src/ai/profile'
 import { INTENTS } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
@@ -226,5 +227,97 @@ describe('AiController 的決策相位', () => {
     const out = createCommand()
     for (let i = 0; i < 240; i++) c.update(self, DT, out)
     expect(c.decisionsMade).toBe(AI_DECISION_HZ)
+  })
+})
+
+describe('站位角色（M6 spec §3.2）', () => {
+  /** 造一架擺在指定位置、平飛朝 −Z 的 P-51D。 */
+  function craft(x: number, y: number, z: number): Aircraft {
+    const a = new Aircraft(P51D, y, 200)
+    a.state.position.set(x, y, z)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.identity()
+    return a
+  }
+
+  it('沒有 stationReference 時完全是 M5 的行為 —— 沒有目標就維持機首平飛', () => {
+    const ai = new AiController()
+    const self = craft(0, 4000, 0)
+    const out = createCommand()
+    ai.update(self, 1 / 240, out)
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    expect(out.aimWorld.dot(nose)).toBeCloseTo(1, 6)
+    expect(out.throttle).toBeCloseTo(0.7, 6)
+    expect(ai.stationError).toBe(0)
+  })
+
+  it('有 stationReference 且沒有目標時，飛向站位', () => {
+    const lead = craft(0, 4000, 0)
+    // 自己擺在長機正上方，站位在長機右後方 —— 瞄準方向必須偏向 +X 且向下
+    const self = craft(0, 4000, 0)
+    const ai = new AiController()
+    ai.stationReference = lead
+    ai.stationOffset = STATION_OFFSETS[1]!
+    const out = createCommand()
+    ai.update(self, 1 / 240, out)
+    expect(out.aimWorld.x).toBeGreaterThan(0.8)
+    expect(out.firing).toBe(false)
+  })
+
+  it('站位誤差在決策節拍更新', () => {
+    const lead = craft(0, 4000, 0)
+    const self = craft(0, 4000, 0)
+    const ai = new AiController()
+    ai.stationReference = lead
+    ai.stationOffset = STATION_OFFSETS[1]!
+    const out = createCommand()
+    ai.update(self, 1 / 240, out)
+
+    const station = new Vector3()
+    stationPoint(lead, STATION_OFFSETS[1]!, 0, station)
+    expect(ai.stationError).toBeCloseTo(station.distanceTo(self.state.position), 6)
+  })
+
+  it('安全層仍然覆寫站位指令 —— 站位控制器不是它的例外', () => {
+    // 【為什麼一定要測】站位控制器是新的一條寫滿整個 Command 的路徑。
+    // 忘了在它後面套 applySafety 的話，歸隊中的僚機會直直飛進海裡，而
+    // 那個症狀（幾架飛機無聲消失）離成因很遠。
+    const lead = craft(0, 30, 0)
+    const self = craft(0, 30, 0)
+    self.state.velocity.set(0, -150, -120)
+    const ai = new AiController()
+    ai.stationReference = lead
+    ai.stationOffset = STATION_OFFSETS[1]!
+    const out = createCommand()
+    ai.update(self, 1 / 240, out)
+    expect(ai.safetyActive).toBe(true)
+    expect(out.aimWorld.y).toBeGreaterThan(0)
+  })
+
+  it('有 stationReference 時走僚機的目標選擇，不是 selectTarget', () => {
+    // 僚機準則下，10 km 外的敵機不會被選中（三級都被 THREAT_RANGE 界住）；
+    // 自由獵手的 selectTarget 則會選它。用這個差異分辨走了哪一條路。
+    const lead = craft(0, 4000, 0)
+    const wing = craft(200, 4000, 60)
+    const enemy = craft(0, 4000, -10000)
+    const board = createTargetBoard([
+      { index: 0, aircraft: lead, team: 'blue', alive: true },
+      { index: 1, aircraft: wing, team: 'blue', alive: true },
+      { index: 2, aircraft: enemy, team: 'red', alive: true },
+    ])
+    board.assignments[0] = 2      // 長機已經鎖定 10 km 外的敵機
+
+    const ai = new AiController()
+    ai.board = board
+    ai.selfIndex = 1
+    ai.stationReference = lead
+    ai.stationReferenceIndex = 0
+    ai.stationOffset = STATION_OFFSETS[1]!
+    const out = createCommand()
+    ai.update(wing, 1 / 240, out)
+    expect(ai.target).toBeNull()
+    expect(board.assignments[1]).toBe(-1)
   })
 })
