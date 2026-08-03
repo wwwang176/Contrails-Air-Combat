@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import type { Aircraft } from '../aircraft/Aircraft'
+import type { Team } from '../world/World'
 
 export interface TargetConfig {
   /** 「我在他尾後」的權重 */
@@ -86,4 +87,74 @@ export function targetScore(
   const rangeDiscount = 1 / (1 + range / cfg.rangeScale)
   const crowdDiscount = 1 / (1 + cfg.crowdPenalty * locks)
   return geometry * rangeDiscount * crowdDiscount
+}
+
+/**
+ * 一個候選目標。
+ *
+ * 【為什麼另外定義而不是直接用 Combatant】`World.Combatant` 在結構上滿足
+ * 這個介面，但 `target.ts` 不需要知道世界是怎麼組裝的（射速時鐘、包圍球
+ * 半徑、出生點都與選目標無關）。`Team` 以 `import type` 取得 —— 型別匯入
+ * 會被完全抹除，不產生執行期相依。
+ */
+export interface TargetCandidate {
+  /** **必須等於它在 candidates 陣列裡的位置**。`createTargetBoard` 會檢查 */
+  readonly index: number
+  readonly aircraft: Aircraft
+  readonly team: Team
+  alive: boolean
+}
+
+/** 全場共享的目標指派板（M5 spec §6.3）。 */
+export interface TargetBoard {
+  readonly candidates: readonly TargetCandidate[]
+  /** `assignments[i]` = 第 i 架正在鎖定的候選索引；−1 = 無 */
+  readonly assignments: Int32Array
+}
+
+/**
+ * 建立指派板。
+ *
+ * 【為什麼要檢查 index 與位置一致】`assignments` 用陣列位置索引、
+ * `TargetState.current` 存的也是位置，而 `Combatant.index` 是 `World.add`
+ * 給的遞增序號。兩者恆等（`add` 就是用 `combatants.length` 當 index），但
+ * 「恆等」若沒有被檢查，某天有人插入一架就會變成無聲的錯位 —— 所有 AI 都
+ * 會鎖到隔壁那一架。設定期檢查一次，成本為零。
+ */
+export function createTargetBoard(candidates: readonly TargetCandidate[]): TargetBoard {
+  for (let i = 0; i < candidates.length; i++) {
+    if (candidates[i]!.index !== i) {
+      throw new Error(
+        `TargetCandidate.index 必須等於陣列位置：第 ${i} 個是 ${candidates[i]!.index}`,
+      )
+    }
+  }
+  return { candidates, assignments: new Int32Array(candidates.length).fill(-1) }
+}
+
+/**
+ * 有幾架**同隊且存活**的飛機正鎖定 `candidateIndex`，不含 `selfIndex` 自己。
+ *
+ * 【為什麼每次重掃而不是維護一個增減計數器】計數器要求每一次「放棄目標」
+ * 都配一次遞減 —— 陣亡、撞地、重置、換目標各是一條路徑，漏掉任何一條就
+ * 留下一個永遠不會消失的幽靈鎖定，而症狀（大家都不打那一架）離成因很遠。
+ * 重掃是 O(N)，40 架 × 10 Hz = 每秒 16,000 次整數比較，而且**自我修復**：
+ * 任何錯誤的指派都會在下一拍被沖掉。
+ *
+ * 【為什麼要限定同隊】`assignments` 是全場共用一份。不限定的話，紅隊鎖定
+ * 某架紅機（不該發生，但這是一條資料而不是一條保證）會污染藍隊的統計。
+ */
+export function countLocks(
+  board: TargetBoard, team: Team, selfIndex: number, candidateIndex: number,
+): number {
+  const { candidates, assignments } = board
+  let n = 0
+  for (let i = 0; i < assignments.length; i++) {
+    if (i === selfIndex) continue
+    if (assignments[i]! !== candidateIndex) continue
+    const c = candidates[i]
+    if (c === undefined || !c.alive || c.team !== team) continue
+    n++
+  }
+  return n
 }
