@@ -159,9 +159,15 @@ export function geometryGate(
   // 升力，過載趨近 0，而 Vs ∝ √n 也跟著縮小，比值被撐大——P-51D 實測在
   // 132 km/h 時它讀 4.63，遠高於 1.25 的門檻，要掉到約 20 km/h 才觸發。
   // `speedMargin` 無視過載，補的正是這個盲區：同一個時刻它讀 0.68。
+  //
+  // 【仰角判準也是「或」，理由同上】原本只看目標仰角，等於只問「目標是不是
+  // 吊在我上面」。人工驗收抓到的第二個缺陷：`extend` 的俯仰偏置滾雪球，會
+  // 讓 AI 把**自己**吊到 85°，而目標仍在同一空層 —— 目標仰角接近 0，閘門
+  // 一次都不觸發。「我正在把自己吊上去」與「目標吊在上面」是兩件不同的事，
+  // 而前者才是失速的直接前兆。
   const elevation = Math.asin(Math.max(-1, Math.min(1, basis.losAxis.y)))
   if (
-    elevation > cfg.stallGuardElevation
+    (elevation > cfg.stallGuardElevation || sit.climbAngle > cfg.stallGuardElevation)
     && (sit.stallMargin < cfg.stallGuardMargin || sit.speedMargin < cfg.stallGuardSpeed)
   ) {
     return 'stallGuard'
@@ -246,7 +252,7 @@ export function aimFromKnobs(
   else out.copy(basis.losAxis)
 }
 
-const C = makeScratch(1)
+const C = makeScratch(2)
 
 /** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
 const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
@@ -320,7 +326,20 @@ export function steerCommand(
   }
 }
 
-/** 瞄準自身速度向量，可加上一個俯仰偏置。pitch > 0 為爬升。 */
+/**
+ * 瞄準自身速度向量，可加上一個俯仰偏置。`pitch > 0` 為爬升。
+ *
+ * `pitch` 是**相對地平線的航跡角**，不是相對當前速度向量的增量：維持航向，
+ * 把航跡角設成 `pitch`。
+ *
+ * 【為什麼不能寫成 `v.y += tan(pitch)`】那個寫法把偏置加在**當前**速度向量
+ * 上，而飛機會追上去 —— 下一格再從轉過的新方向加一次，指令角度於是每格
+ * 滾雪球。人工驗收實測：`extend` 一啟動，瞄準仰角 4 秒內由 −27° 跑到 −56°
+ * （垂直俯衝）；能量差翻負後改成爬升偏置，7 秒內由 +16° 跑到 +85°，TAS 由
+ * 688 掉到 498 km/h —— 那正是「AI 自己吊到失速」的來源。
+ *
+ * 航跡角必須相對地平線定義，才會是一個**穩定的**目標而不是會跑掉的增量。
+ */
 function unloadAim(self: Aircraft, pitch: number, out: Vector3): void {
   const v = C.v[0]!.copy(self.state.velocity)
   const speed = v.length()
@@ -331,11 +350,24 @@ function unloadAim(self: Aircraft, pitch: number, out: Vector3): void {
     out.copy(v)
     return
   }
-  // 繞「速度向量與世界上方構成的平面」抬頭：把 y 分量加上去再正規化，
-  // 是這個旋轉在小角度下的良好近似，而且沒有奇異點。
-  out.copy(v)
-  out.y += Math.tan(pitch)
-  out.normalize()
+
+  // 維持航向、把航跡角設成 pitch。水平分量退化（已經垂直）時航向沒有定義，
+  // 改用機首的水平投影；兩者都退化就直接沿用速度向量。
+  let hx = v.x
+  let hz = v.z
+  let h = Math.hypot(hx, hz)
+  if (h < 1e-6) {
+    const nose = C.v[1]!.copy(FWD).applyQuaternion(self.state.orientation)
+    hx = nose.x
+    hz = nose.z
+    h = Math.hypot(hx, hz)
+    if (h < 1e-6) {
+      out.copy(v)
+      return
+    }
+  }
+  const c = Math.cos(pitch) / h
+  out.set(hx * c, Math.sin(pitch), hz * c)
 }
 
 /**

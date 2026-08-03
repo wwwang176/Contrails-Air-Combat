@@ -31,7 +31,14 @@ interface Side {
   battery?: Battery
   altitude: number
   tas: number
-  /** 開局位置，相對藍方 */
+  /**
+   * 開局的**水平**位移，m。y 分量不用（高度由 `altitude` 給）。
+   *
+   * 【為什麼強調這件事】原本的寫法是 `pos = (0,0,0) + offset`，`altitude`
+   * 只餵給 `new Aircraft()` 然後立刻被 `position.copy(pos)` 覆蓋——**M4 的
+   * 12 場對戰全部是在海平面打的**，兩機開局高度都是 0，安全層幾乎全程開著。
+   * 人工驗收追查 AI 俯衝問題時發現。
+   */
   offset: [number, number, number]
   headingDeg: number
 }
@@ -49,10 +56,11 @@ interface Side {
 function duel(blue: Side, red: Side): Outcome {
   const world = new World()
 
-  const make = (side: Side, base: Vector3) => {
+  const make = (side: Side) => {
     const spec = side.battery ? { ...side.spec, battery: side.battery } : side.spec
     const a = new Aircraft(spec, side.altitude, side.tas)
-    const pos = base.clone().add(new Vector3(...side.offset))
+    // 高度取自 `altitude`，offset 只提供水平位移——見 Side.offset 的註解。
+    const pos = new Vector3(side.offset[0], side.altitude, side.offset[2])
     const h = side.headingDeg * DEG
     const dir = new Vector3(-Math.sin(h), 0, -Math.cos(h))
     a.state.position.copy(pos)
@@ -63,9 +71,8 @@ function duel(blue: Side, red: Side): Outcome {
     return { a, pos }
   }
 
-  const origin = new Vector3(0, 0, 0)
-  const b = make(blue, origin)
-  const r = make(red, origin)
+  const b = make(blue)
+  const r = make(red)
 
   const blueAi = new AiController()
   const redAi = new AiController()
@@ -113,9 +120,9 @@ function fractions(steps: Record<string, number>, total: number): Record<Intent,
   return out
 }
 
-/** 高能量開局：藍方在上方 1500 m 且快 80 m/s。 */
+/** 高能量開局：藍方在上方 1500 m（5500 vs 4000）且快 80 m/s。 */
 const HIGH_ENERGY: [Side, Side] = [
-  { spec: P51D, altitude: 5500, tas: 250, offset: [0, 1500, 800], headingDeg: 180 },
+  { spec: P51D, altitude: 5500, tas: 250, offset: [0, 0, 800], headingDeg: 180 },
   { spec: BF109G6, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
 ]
 
