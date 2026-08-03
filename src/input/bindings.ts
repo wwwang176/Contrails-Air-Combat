@@ -82,11 +82,6 @@ export function attachInput(
       case 'KeyV': state.viewMode = state.viewMode === 'third' ? 'first' : 'third'; break
       case 'KeyR': state.resetRequested = true; break
       case 'KeyC': state.swapSpecRequested = true; break
-      case 'Digit1': state.droneManoeuvre = 0; state.droneAi = false; break
-      case 'Digit2': state.droneManoeuvre = 1; state.droneAi = false; break
-      case 'Digit3': state.droneManoeuvre = 2; state.droneAi = false; break
-      case 'Digit4': state.droneManoeuvre = 3; state.droneAi = false; break
-      case 'Digit5': state.droneAi = true; break
       case 'KeyI': state.playerAi = !state.playerAi; break
       default: return
     }
