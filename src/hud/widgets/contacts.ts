@@ -1,4 +1,4 @@
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /** 目標框在螢幕上的最小／最大半徑，px（未乘 L.scale）。 */
 const BOX_MIN = 9
@@ -31,18 +31,6 @@ export function edgeIndicatorPosition(
   const s = Math.min(ex / Math.abs(dx), ey / Math.abs(dy))
   if (!Number.isFinite(s)) return { x: 0, y: 0, angle: 0 }
   return { x: dx * s, y: dy * s, angle: Math.atan2(dy, dx) }
-}
-
-/**
- * 一個接觸點該用什麼顏色。
- *
- * 敵紅、友藍、**自己分隊的同伴用第三個顏色**。抽成純函數是因為繪製函數
- * 進不了單元測試，而「哪一架該長得不一樣」是一條有實際行為的規則 —— 與
- * `edgeIndicatorPosition`、`minimapSymbol` 是同一個做法。
- */
-export function contactColor(hostile: boolean, flightMate: boolean): string {
-  if (hostile) return HUD_COLORS.danger
-  return flightMate ? HUD_COLORS.warn : HUD_COLORS.friendly
 }
 
 /**
