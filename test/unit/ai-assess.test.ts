@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { createSituation, evaluateEnergy, evaluateGeometry } from '../../src/ai/assess'
+import {
+  createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, trackingFactor,
+  THREAT_RANGE, TRACK_SATURATION,
+} from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { RAD } from '../../src/core/math'
@@ -259,5 +262,139 @@ describe('evaluateEnergy', () => {
       sit.turnAdvantage, sit.cornerRatio, sit.stallMargin]) {
       expect(Number.isFinite(v)).toBe(true)
     }
+  })
+})
+
+describe('trackingFactor', () => {
+  it('剛進入射擊錐時為 0 —— 一瞬間掃過去不是威脅', () => {
+    expect(trackingFactor(0)).toBe(0)
+  })
+
+  it('達到飽和時間後為 1', () => {
+    expect(trackingFactor(TRACK_SATURATION)).toBeCloseTo(1, 12)
+    expect(trackingFactor(TRACK_SATURATION * 3)).toBe(1)
+  })
+
+  it('中間單調遞增', () => {
+    const a = trackingFactor(TRACK_SATURATION * 0.3)
+    const b = trackingFactor(TRACK_SATURATION * 0.7)
+    expect(b).toBeGreaterThan(a)
+    expect(a).toBeGreaterThan(0)
+  })
+
+  it('負的時間視為 0（計時器被重置的那一格）', () => {
+    expect(trackingFactor(-1)).toBe(0)
+  })
+})
+
+describe('evaluateThreat', () => {
+  const sit = createSituation()
+
+  const armed = (spec: typeof P51D, alt: number, tas: number): Aircraft => {
+    const a = new Aircraft(spec, alt, tas)
+    a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    return a
+  }
+
+  it('他機首對準我且很近 → threatInstant 高', () => {
+    const self = armed(P51D, 4000, 180)
+    const target = armed(P51D, 4000, 180)
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, 300], [0, 0, -180])   // 在我正後方 300 m，同向
+    face(target, new Vector3(0, 0, -1))            // 機首朝我
+    evaluateThreat(self, target, sit)
+    expect(sit.threatInstant).toBeGreaterThan(0.5)
+  })
+
+  it('他在我後方但機首偏開 → threatInstant 低', () => {
+    const self = armed(P51D, 4000, 180)
+    const target = armed(P51D, 4000, 180)
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, 300], [0, 0, -180])
+    face(target, new Vector3(1, 0, 0))             // 機首指向側面
+    evaluateThreat(self, target, sit)
+    expect(sit.threatInstant).toBeLessThan(0.1)
+  })
+
+  it('距離很遠 → threatInstant 為 0', () => {
+    const self = armed(P51D, 4000, 180)
+    const target = armed(P51D, 4000, 180)
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, THREAT_RANGE * 2], [0, 0, -180])
+    face(target, new Vector3(0, 0, -1))
+    evaluateThreat(self, target, sit)
+    expect(sit.threatInstant).toBe(0)
+  })
+
+  /**
+   * 【這一條擋掉的是會直接出貨的死鎖】正面對衝時雙方都有預瞄解、機首也
+   * 都對著對方——若威脅只看 `solveLead` 有沒有解，兩邊都會判定自己被威脅、
+   * 兩邊都進 `defend`，然後永遠卡在那裡。
+   *
+   * 對衝之所以不該是「高威脅」，是因為它**持續不了**：相對速度極高，
+   * 射擊窗口只有零點幾秒。真正危險的是穩定咬在後面的那個。這個性質由
+   * 「持續跟蹤時間」因子表達，而它在 AiController 累積——所以這裡只斷言
+   * 對衝的瞬時威脅**不高於**尾後同樣距離的情形。
+   */
+  it('正面對衝的瞬時威脅不高於尾後咬住', () => {
+    const self = armed(P51D, 4000, 180)
+    const headOn = armed(P51D, 4000, 180)
+    const onTail = armed(P51D, 4000, 180)
+
+    place(self, [0, 4000, 0], [0, 0, -180])
+
+    place(headOn, [0, 4000, -400], [0, 0, 180])
+    face(headOn, new Vector3(0, 0, 1))
+    evaluateThreat(self, headOn, sit)
+    const head = sit.threatInstant
+
+    place(onTail, [0, 4000, 400], [0, 0, -180])
+    face(onTail, new Vector3(0, 0, -1))
+    evaluateThreat(self, onTail, sit)
+    const tail = sit.threatInstant
+
+    expect(head).toBeLessThanOrEqual(tail + 1e-9)
+  })
+
+  it('shotInstant 是對稱的：交換雙方角色，威脅與射擊機會互換', () => {
+    const a = armed(P51D, 4000, 180)
+    const b = armed(P51D, 4000, 180)
+    place(a, [0, 4000, 0], [0, 0, -180])
+    place(b, [0, 4000, 300], [0, 0, -180])
+    face(a, new Vector3(0, 0, -1))
+    face(b, new Vector3(0, 0, -1))
+
+    evaluateThreat(a, b, sit)
+    const aThreat = sit.threatInstant
+    const aShot = sit.shotInstant
+
+    evaluateThreat(b, a, sit)
+    expect(sit.shotInstant).toBeCloseTo(aThreat, 9)
+    expect(sit.threatInstant).toBeCloseTo(aShot, 9)
+  })
+
+  it('兩個值都夾在 [0, 1]', () => {
+    const self = armed(P51D, 4000, 180)
+    const target = armed(P51D, 4000, 180)
+    for (const d of [10, 50, 200, 600, 1500]) {
+      place(self, [0, 4000, 0], [0, 0, -180])
+      place(target, [0, 4000, d], [0, 0, -180])
+      face(target, new Vector3(0, 0, -1))
+      evaluateThreat(self, target, sit)
+      expect(sit.threatInstant).toBeGreaterThanOrEqual(0)
+      expect(sit.threatInstant).toBeLessThanOrEqual(1)
+      expect(sit.shotInstant).toBeGreaterThanOrEqual(0)
+      expect(sit.shotInstant).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('重疊時不產生 NaN', () => {
+    const self = armed(P51D, 4000, 180)
+    const target = armed(P51D, 4000, 180)
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, 0], [0, 0, -180])
+    evaluateThreat(self, target, sit)
+    expect(Number.isFinite(sit.threatInstant)).toBe(true)
+    expect(Number.isFinite(sit.shotInstant)).toBe(true)
   })
 })
