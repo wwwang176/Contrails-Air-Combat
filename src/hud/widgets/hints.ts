@@ -1,6 +1,6 @@
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
-const KEYS = 'W/S 油門   V 視角   右鍵 自由視角   C 換機   R 重置   5 敵機AI   I 自機AI   F3 效能'
+const KEYS = 'W/S 油門   V 視角   右鍵 自由視角   C 換機   R 重開整場   I 自機AI   F3 效能'
 
 /** 自機交給 AI 時的橫幅。 */
 const AI_BANNER = 'AI 接管中 —— 左鍵失效，右鍵自由視角照常，再按 I 收回'
