@@ -204,6 +204,23 @@ export const HUD_COLORS = {
   panel: 'rgba(0, 0, 0, 0.35)',
 } as const
 
+/**
+ * 一個接觸點該用什麼顏色。敵紅、友藍、**自己分隊的同伴用第三個顏色**。
+ *
+ * 【為什麼住在 types.ts 而不是某個 widget 裡】目標框（`contacts.ts`）與
+ * 小地圖（`minimap.ts`）都要用它。留在其中一邊就會變成另一邊自己寫一份
+ * `c.hostile ? danger : friendly` —— 而那正是 M6 改色時踩到的：目標框
+ * 改了，小地圖沒改。
+ *
+ * 抽成純函數則是因為繪製函數進不了單元測試，而「哪一架該長得不一樣」是
+ * 一條有實際行為的規則 —— 與 `minimapSymbol`、`edgeIndicatorPosition`
+ * 是同一個做法。
+ */
+export function contactColor(hostile: boolean, flightMate: boolean): string {
+  if (hostile) return HUD_COLORS.danger
+  return flightMate ? HUD_COLORS.warn : HUD_COLORS.friendly
+}
+
 /** HUD 統一字型。字級由呼叫端乘上 L.scale。 */
 export function hudFont(px: number, bold = false): string {
   return `${bold ? 'bold ' : ''}${px}px ui-monospace, Consolas, monospace`

@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   createHudContact, createHudFrame, indicatedAirspeed,
-  nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
+  contactColor, nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
 } from '../../src/hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
-import { contactColor, edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
+import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { countdownLabel, flightLabel } from '../../src/hud/widgets/roster'
 import { DEG, RAD } from '../../src/core/math'

@@ -1,4 +1,4 @@
-import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 
 /** 地圖半徑，公尺。 */
 const RANGE = 4000
@@ -120,7 +120,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.globalAlpha = beyond ? 0.35 : 1
     ctx.translate(rx, rz)
     ctx.rotate(f.heading)
-    ctx.fillStyle = c.hostile ? HUD_COLORS.danger : HUD_COLORS.friendly
+    ctx.fillStyle = contactColor(c.hostile, c.flightMate)
     const s = 4 * L.scale
     ctx.beginPath()
     switch (minimapSymbol(c.deltaY)) {
