@@ -164,3 +164,65 @@ describe('stepRules（優先序）', () => {
     }
   })
 })
+
+describe('extend 的兩個閂鎖互不汙染', () => {
+  /**
+   * 【人工驗收抓到的缺陷】原本寫成
+   *
+   *   s.extendLatch = latch(s.extendLatch, energyAdvantage, −300, 100) || turnAdvantage < 0
+   *
+   * `||` 的結果被寫回閂鎖自己的記憶，遲滯於是被毒化：只要有任何一格
+   * `turnAdvantage` 落到 0 以下，下一格 `latch(active = true, …)` 走的就是
+   * 維持條件 `energyAdvantage < 100` —— 勢均力敵時那幾乎恆真，閂鎖再也
+   * 關不掉。實測正面對頭時 0.29°/s 的瞬間劣勢就足以讓 AI 在 1,400 m 轉為
+   * 脫離，而當下 `turnAdvantage` 早已回正。
+   */
+  it('轉彎劣勢消失後，能量沒問題就不該再脫離', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 1000                    // 在 extendRange 之內
+    sit.energyAdvantage = 0             // 能量勢均力敵，遠不到 −300
+
+    // 一格明確的轉彎劣勢，讓轉彎閂鎖真的被點著
+    sit.turnAdvantage = DEFAULT_RULES.turnEnter * 2
+    stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(true)
+    expect(s.extendLatch).toBe(true)
+
+    // 劣勢消失後必須跟著關掉 —— 能量閂鎖從頭到尾都沒被點著
+    sit.turnAdvantage = 0.05
+    for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(false)
+    expect(s.extendEnergyLatch).toBe(false)
+    expect(s.extendLatch).toBe(false)
+    expect(s.intent).not.toBe('extend')
+  })
+
+  it('反過來也一樣：能量閂鎖不會被轉彎劣勢的消失關掉', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 1000
+    sit.energyAdvantage = DEFAULT_RULES.energyEnter * 1.5   // 真的能量劣勢
+    sit.turnAdvantage = DEFAULT_RULES.turnEnter * 2
+    stepRules(s, sit, 0, DT)
+
+    // 轉彎劣勢消失，但能量仍在維持區間內（< energyExit）
+    sit.turnAdvantage = 0.05
+    sit.energyAdvantage = 0
+    for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(false)
+    expect(s.extendEnergyLatch).toBe(true)
+    expect(s.extendLatch).toBe(true)
+  })
+
+  /** 死區：戰術上無意義的劣勢不該觸發脫離。 */
+  it('微小的轉彎劣勢不觸發（0.29°/s 是實測到的誤觸發值）', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 1000
+    sit.turnAdvantage = -0.005          // 0.29°/s
+    for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(false)
+    expect(s.intent).not.toBe('extend')
+  })
+})
