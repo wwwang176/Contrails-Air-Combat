@@ -4,6 +4,7 @@ import {
   createProjectileLoad, resetProjectileLoad, stepProjectileLoad,
 } from '../../bench/projectile-load'
 import { createAiLoad, resetAiLoad, stepAiLoad } from '../../bench/ai-load'
+import { createMultiLoad, resetMultiLoad, stepMultiLoad } from '../../bench/multi-load'
 
 /**
  * 效能守門測試（spec §3.10 驗收要求）。
@@ -153,6 +154,51 @@ describe('ai step perf gate', () => {
     if (best >= AI_BUDGET_US) {
       console.warn(
         `AI 步 ${best.toFixed(0)} µs 超過 ${AI_BUDGET_US} µs 的設計預算；`
+        + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
+      )
+    }
+  })
+})
+
+/**
+ * 20v20 的效能守門（M5 spec §10）。
+ *
+ * 【兩個數字各有用途】與上面的彈丸門檻、AI 門檻同一個理由：vitest 把測試檔
+ * 分散到多個 worker 並行跑，門檻壓在預算線上會**時紅時綠**，而會飄的效能
+ * 門檻比沒有門檻更糟 —— 它訓練所有人重跑一次當作沒看到，真的迴歸時也就
+ * 沒人信了。
+ *
+ * 【預算 400 µs 的來源】`npx vitest bench --run bench/multi.bench.ts` 獨立
+ * 量到 313 µs（mean，1,598 樣本，rme ±2.55%），向上取整到百位。設計預估是
+ * 570 µs（M5 spec §5.5）——實測更好，因為同隊跳過又砍掉約一半的配對。
+ *
+ * 【門檻取三倍】這一條要抓的是**數量級的迴歸**，具體而言就是「有人把排序
+ * 掃描改回全掃描」——實測那會讓粗篩從 202 µs 變成 7,408 µs（spec §5.1），
+ * 整步遠超 1,200。並行雜訊最壞約三倍，兩者之間有六倍以上的間隙。
+ */
+const MULTI_BUDGET_US = 400
+const MULTI_GATE_US = 1200
+
+describe('20v20 perf gate', () => {
+  it('20v20 × 滿載 4,000 發的 World.step 沒有數量級的迴歸', () => {
+    const state = createMultiLoad()
+    for (let i = 0; i < 300; i++) stepMultiLoad(state)
+    resetMultiLoad(state)
+
+    // 取多批的最小值，不是單批的平均——見上面關於並行雜訊的說明
+    const BATCHES = 5
+    const N = 200
+    let best = Infinity
+    for (let b = 0; b < BATCHES; b++) {
+      const t0 = performance.now()
+      for (let i = 0; i < N; i++) stepMultiLoad(state)
+      best = Math.min(best, ((performance.now() - t0) * 1000) / N)
+    }
+
+    expect(best).toBeLessThan(MULTI_GATE_US)
+    if (best >= MULTI_BUDGET_US) {
+      console.warn(
+        `20v20 步 ${best.toFixed(0)} µs 超過 ${MULTI_BUDGET_US} µs 的設計預算；`
         + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
       )
     }
