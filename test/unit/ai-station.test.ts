@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
-import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
+import {
+  DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
+} from '../../src/ai/station'
 import { DEFAULT_SAFETY } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { createCommand } from '../../src/control/Controller'
+import { THROTTLE_FLOOR } from '../../src/input/throttle'
+import { WEP_THROTTLE } from '../../src/physics/propulsion'
 
 /** 造一架擺在指定位置、以指定速度飛行的 P-51D。 */
 function craft(pos: Vector3, vel: Vector3, orientation = new Quaternion()): Aircraft {
@@ -131,5 +136,116 @@ describe('STATION_OFFSETS —— 四指隊形（M6 spec §6.2）', () => {
     for (let i = 1; i < STATION_OFFSETS.length; i++) {
       expect(STATION_OFFSETS[i]!.along).toBeLessThan(0)
     }
+  })
+})
+
+describe('stationCommand（M6 spec §6.4）', () => {
+  const OFFSET = { along: -60, across: 200, up: 0 }
+
+  /** 把 self 擺到剛好在站位上、且與參考機共速。 */
+  function onStation(lead: Aircraft): Aircraft {
+    const p = new Vector3()
+    stationPoint(lead, OFFSET, 0, p)
+    return craft(p, lead.state.velocity.clone())
+  }
+
+  it('在站位上且共速時，瞄準方向等於參考機的航跡方向（不是站位點方向）', () => {
+    // 【這是近距離平行飛的核心斷言】若前置補償用的是參考機的絕對速度
+    // 而不是相對速度，這一條會紅 —— 外推點會在前方 200 m，混合權重
+    // 永遠是 1，「平行飛」那一段從來不會生效。
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const wing = onStation(lead)
+    const out = createCommand()
+    stationCommand(wing, lead, OFFSET, 0, out)
+    expect(out.aimWorld.x).toBeCloseTo(0, 6)
+    expect(out.aimWorld.y).toBeCloseTo(0, 6)
+    expect(out.aimWorld.z).toBeCloseTo(-1, 6)
+  })
+
+  it('瞄準方向恆為單位向量', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const out = createCommand()
+    for (const d of [0, 5, 50, 300, 5000]) {
+      const wing = craft(new Vector3(d, 4000, 900), new Vector3(0, 0, -200))
+      stationCommand(wing, lead, OFFSET, 0, out)
+      expect(out.aimWorld.length()).toBeCloseTo(1, 9)
+    }
+  })
+
+  it('離站位很遠時瞄向站位點', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const station = new Vector3()
+    stationPoint(lead, OFFSET, 0, station)
+    // 擺在站位正下方 2 km、與參考機共速（相對速度為 0，前置項消失）
+    const wing = craft(
+      station.clone().add(new Vector3(0, -2000, 0)), lead.state.velocity.clone(),
+    )
+    const out = createCommand()
+    stationCommand(wing, lead, OFFSET, 0, out)
+    expect(out.aimWorld.y).toBeGreaterThan(0.9)
+  })
+
+  it('落後時加油門，追過頭時踩減速板', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const station = new Vector3()
+    stationPoint(lead, OFFSET, 0, station)
+    const out = createCommand()
+
+    // 落在站位後方 500 m（航跡是 −Z，所以後方是 +Z）且同速
+    const behind = craft(station.clone().add(new Vector3(0, 0, 500)), new Vector3(0, 0, -200))
+    stationCommand(behind, lead, OFFSET, 0, out)
+    expect(out.throttle).toBe(WEP_THROTTLE)
+    expect(out.brake).toBe(0)
+
+    // 衝到站位前方 500 m 且比長機快 60 m/s
+    const ahead = craft(station.clone().add(new Vector3(0, 0, -500)), new Vector3(0, 0, -260))
+    stationCommand(ahead, lead, OFFSET, 0, out)
+    expect(out.brake).toBeGreaterThan(0)
+  })
+
+  it('在站位上且共速時油門落在巡航附近，不是滿檔也不是關車', () => {
+    // 【為什麼要測這一條】bang-bang 的油門會在目標速度附近來回，畫面上
+    // 就是僚機一頓一頓。連續的油門才維持得住一個狀態。
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const wing = onStation(lead)
+    const out = createCommand()
+    stationCommand(wing, lead, OFFSET, 0, out)
+    expect(out.throttle).toBeGreaterThan(THROTTLE_FLOOR)
+    expect(out.throttle).toBeLessThan(WEP_THROTTLE)
+    expect(out.brake).toBe(0)
+  })
+
+  it('永遠不開火 —— 開火紀律是獨立的一層', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const wing = craft(new Vector3(500, 4000, 500), new Vector3(0, 0, -200))
+    const out = createCommand()
+    out.firing = true
+    stationCommand(wing, lead, OFFSET, 0, out)
+    expect(out.firing).toBe(false)
+  })
+
+  it('參考機靜止時不產生 NaN', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, 0))
+    const wing = craft(new Vector3(100, 4000, 100), new Vector3(0, 0, -200))
+    const out = createCommand()
+    stationCommand(wing, lead, OFFSET, 0, out)
+    expect(Number.isFinite(out.aimWorld.length())).toBe(true)
+    expect(Number.isFinite(out.throttle)).toBe(true)
+    expect(Number.isFinite(out.brake)).toBe(true)
+  })
+
+  it('與參考機完全重疊時不產生 NaN', () => {
+    const lead = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const wing = craft(new Vector3(0, 4000, 0), new Vector3(0, 0, -200))
+    const out = createCommand()
+    stationCommand(wing, lead, { along: 0, across: 0, up: 0 }, 0, out)
+    expect(Number.isFinite(out.aimWorld.length())).toBe(true)
+  })
+
+  it('DEFAULT_STATION 的四個值都是正數', () => {
+    expect(DEFAULT_STATION.blendRange).toBeGreaterThan(0)
+    expect(DEFAULT_STATION.leadTime).toBeGreaterThan(0)
+    expect(DEFAULT_STATION.speedGain).toBeGreaterThan(0)
+    expect(DEFAULT_STATION.speedBand).toBeGreaterThan(0)
   })
 })
