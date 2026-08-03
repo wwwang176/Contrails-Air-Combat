@@ -87,6 +87,7 @@ export function attachInput(
       case 'Digit3': state.droneManoeuvre = 2; state.droneAi = false; break
       case 'Digit4': state.droneManoeuvre = 3; state.droneAi = false; break
       case 'Digit5': state.droneAi = true; break
+      case 'KeyI': state.playerAi = !state.playerAi; break
       default: return
     }
     e.preventDefault()

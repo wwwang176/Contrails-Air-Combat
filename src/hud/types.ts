@@ -119,6 +119,8 @@ export interface HudFrame {
    */
   hp: number
   hpMax: number
+  /** 自機是否交給 AI 駕駛（`I`）。純觀測模式的指示燈 */
+  aiFlying: boolean
 }
 
 export function createHudFrame(): HudFrame {
@@ -134,6 +136,7 @@ export function createHudFrame(): HudFrame {
     contactCount: 0,
     hitFlash: 0,
     hp: 1000, hpMax: 1000,
+    aiFlying: false,
   }
 }
 

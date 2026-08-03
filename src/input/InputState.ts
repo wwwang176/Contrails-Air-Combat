@@ -53,6 +53,16 @@ export interface InputState {
    * 直線或盤旋，確認是 AI 的問題還是別的地方。
    */
   droneAi: boolean
+  /**
+   * **自機**是否交給 AI 駕駛。純觀測用：讓同一顆 AI 同時開兩台，
+   * 從外面看它到底怎麼打。
+   *
+   * 【為什麼是切換而 `droneAi` 是單向】`5` 有 `1`–`4` 當回頭路，`I` 沒有，
+   * 所以它自己必須能收回來——不然接管之後就再也拿不回操縱權了。
+   *
+   * 接管期間右鍵自由視角照常，左鍵失效（開火由 AI 的開火紀律決定）。
+   */
+  playerAi: boolean
   /** 單幀旗標，消費後由呼叫端清除 */
   resetRequested: boolean
   /** 單幀旗標，切換機種 */
@@ -73,6 +83,7 @@ export function createInputState(): InputState {
     braking: false,
     droneManoeuvre: 0,
     droneAi: false,
+    playerAi: false,
     resetRequested: false,
     swapSpecRequested: false,
   }

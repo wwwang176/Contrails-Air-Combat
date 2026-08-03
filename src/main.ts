@@ -54,9 +54,10 @@ const bindings = attachInput(canvas, input)
 
 const world = new World()
 
+const playerController = new PlayerController(input)
 const player = world.add(
   new Aircraft(P51D, START_ALTITUDE, START_TAS),
-  new PlayerController(input),
+  playerController,
   'blue',
   new Vector3(0, START_ALTITUDE, 0),
   START_ALTITUDE, START_TAS,
@@ -76,6 +77,16 @@ world.respawn(drone)
 // 【一定要在 player 建立之後】AI 的交戰對象是玩家那架飛機。
 const droneAi = new AiController()
 droneAi.target = player.aircraft
+
+/**
+ * 自機的 AI（`I`）。純觀測用：讓同一顆腦袋同時開兩台，從外面看它怎麼打。
+ *
+ * 【為什麼要獨立一個實例而不是共用 droneAi】`AiController` 持有跨格狀態
+ * （遲滯閂鎖、最小停留、10 Hz 節流、跟蹤計時器）。共用的話兩架會互相
+ * 踩掉對方的決策狀態，看到的行為不是任何一架真正的行為。
+ */
+const playerAi = new AiController()
+playerAi.target = drone.aircraft
 
 const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
 const hudFrame = createHudFrame()
@@ -193,12 +204,32 @@ function frame(now: number) {
   //
   // 【軸取自 rig.viewBase 而不是 camera.quaternion】viewBase 不含自由視角
   // 偏移。轉頭時若拿實際相機姿態，滑鼠的螢幕座標軸會跟著轉頭一起轉。
-  slewAimWorld(
-    input.aimWorld, input.aimDeltaX, input.aimDeltaY,
-    rig.viewBase, ctx.camera.fov * DEG,
-  )
+  //
+  // 【AI 接管時瞄準點鎖在機首】相機是跟著瞄準點走的。接管期間滑鼠仍然會
+  // 累積位移，若照常套用，相機會被拖離飛機——而這個模式的全部意義就是
+  // 「看清楚 AI 在幹嘛」。鎖在機首讓相機自然地跟拍。右鍵自由視角不受影響：
+  // 它是 rig 之上的獨立偏移，不經過瞄準點。
+  const aiFlying = input.playerAi
+  if (aiFlying) {
+    input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    // 左鍵失效：開火完全由 AI 的開火紀律決定
+    input.firing = false
+  } else {
+    slewAimWorld(
+      input.aimWorld, input.aimDeltaX, input.aimDeltaY,
+      rig.viewBase, ctx.camera.fov * DEG,
+    )
+  }
   input.aimDeltaX = 0
   input.aimDeltaY = 0
+
+  if (aiFlying && player.controller !== playerAi) {
+    player.controller = playerAi
+  } else if (!aiFlying && player.controller !== playerController) {
+    player.controller = playerController
+    // 交還操縱時把瞄準點留在機首，玩家才不會被一個舊的瞄準點硬扯過去
+    input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+  }
 
   // 【hitsDealt 必須在回呼裡累加】World.step 在每個**物理步**開頭把它歸零，
   // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
@@ -285,13 +316,16 @@ function frame(now: number) {
   hudFrame.alphaCrit = alphaCrit
   hudFrame.ps = aircraft.specificExcessPowerActual
   hudFrame.es = aircraft.specificEnergy
-  hudFrame.throttle = input.throttle
+  // 【讀 controls 而不是 input】兩者在玩家駕駛時完全相同，但 AI 接管時
+  // input.throttle 還停在玩家鬆手前的值，顯示出來會與飛機實際在跑的油門不符。
+  hudFrame.throttle = aircraft.controls.throttle
   hudFrame.powerW = aircraft.diag.powerW
   hudFrame.worldX = renderPos.x
   hudFrame.worldZ = renderPos.z
   hudFrame.aircraftName = aircraft.spec.name
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
+  hudFrame.aiFlying = input.playerAi
 
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight

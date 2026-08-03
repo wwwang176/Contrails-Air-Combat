@@ -53,6 +53,6 @@ export class Hud {
     drawMinimap(ctx, L, f)
     drawHealth(ctx, L, f)
     drawEnergy(ctx, L, f)
-    drawHints(ctx, L)
+    drawHints(ctx, L, f)
   }
 }

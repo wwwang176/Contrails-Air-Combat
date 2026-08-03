@@ -251,3 +251,9 @@ describe('自機血量', () => {
     expect(Number.isFinite(f.hpMax)).toBe(true)
   })
 })
+
+describe('AI 接管指示', () => {
+  it('新的 frame 預設不是 AI 接管', () => {
+    expect(createHudFrame().aiFlying).toBe(false)
+  })
+})

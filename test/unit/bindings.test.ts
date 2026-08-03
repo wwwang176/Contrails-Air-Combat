@@ -286,3 +286,38 @@ describe('靶機 AI 切換鍵', () => {
     expect(state.droneManoeuvre).toBe(1)
   })
 })
+
+describe('自機 AI 接管鍵', () => {
+  const key = (code: string) => ({ code, preventDefault: () => {} })
+
+  it('預設由玩家駕駛；按 I 交給 AI，再按一次收回', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    expect(state.playerAi).toBe(false)
+    dom.win.fire('keydown', key('KeyI'))
+    expect(state.playerAi).toBe(true)
+    dom.win.fire('keydown', key('KeyI'))
+    expect(state.playerAi).toBe(false)
+  })
+
+  /**
+   * 【為什麼是切換而不是像 5 那樣單向】`5` 有 `1`–`4` 當回頭路，`I` 沒有，
+   * 所以它自己必須能收回來——不然接管之後就再也拿不回操縱權了。
+   */
+  it('與靶機的 AI 開關互不干擾', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.win.fire('keydown', key('KeyI'))
+    dom.win.fire('keydown', key('Digit5'))
+    expect(state.playerAi).toBe(true)
+    expect(state.droneAi).toBe(true)
+
+    dom.win.fire('keydown', key('Digit2'))
+    expect(state.playerAi).toBe(true)
+    expect(state.droneAi).toBe(false)
+  })
+})
