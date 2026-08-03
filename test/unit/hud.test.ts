@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   createHudContact, createHudFrame, indicatedAirspeed,
-  nextHitFlash, HIT_FLASH_SECONDS, HUD_MAX_CONTACTS,
+  nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
 } from '../../src/hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
-import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
+import { contactColor, edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
-import { countdownLabel } from '../../src/hud/widgets/roster'
+import { countdownLabel, flightLabel } from '../../src/hud/widgets/roster'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -348,5 +348,45 @@ describe('小地圖的貼邊夾制', () => {
       const onEdge = Math.max(Math.abs(x * k), Math.abs(y * k))
       expect(onEdge).toBeCloseTo(EDGE, 9)
     }
+  })
+})
+
+describe('contactColor —— 僚機要認得出來（M6 spec §10）', () => {
+  it('敵機是危險色', () => {
+    expect(contactColor(true, false)).toBe(HUD_COLORS.danger)
+  })
+
+  it('一般友機是友方色', () => {
+    expect(contactColor(false, false)).toBe(HUD_COLORS.friendly)
+  })
+
+  it('自己的僚機用第三個顏色', () => {
+    // 【為什麼一定要與一般友機分開】驗收條件 20 要求「你看得出來那是你的
+    // 僚機」。不分的話，僚機回頭掩護你這件事在畫面上與「剛好有架友機飛
+    // 過」完全無法區分。
+    expect(contactColor(false, true)).toBe(HUD_COLORS.warn)
+    expect(contactColor(false, true)).not.toBe(HUD_COLORS.friendly)
+  })
+
+  it('敵機不會因為 wingman 旗標而變色 —— 那是不可能的狀態，但顏色要可預測', () => {
+    expect(contactColor(true, true)).toBe(HUD_COLORS.danger)
+  })
+})
+
+describe('flightLabel —— 分隊存活（M6 spec §10）', () => {
+  it('滿編顯示 4/4', () => {
+    expect(flightLabel(4, 4)).toBe('隊 4/4')
+  })
+
+  it('遞補之後顯示剩幾架', () => {
+    expect(flightLabel(2, 4)).toBe('隊 2/4')
+  })
+
+  it('分隊只剩自己時不顯示 —— 那時候沒有「隊」這回事', () => {
+    expect(flightLabel(1, 4)).toBeNull()
+  })
+
+  it('沒有分隊時不顯示', () => {
+    expect(flightLabel(0, 0)).toBeNull()
   })
 })

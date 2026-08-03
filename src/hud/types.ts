@@ -18,6 +18,14 @@ export interface HudContact {
   /** 目標框半徑，螢幕半高單位 */
   radius: number
   hostile: boolean
+  /**
+   * 這是**玩家自己的僚機**（自己分隊的 `members[1]`）。
+   *
+   * 【為什麼只標這一架】它是唯一一架行為與玩家直接耦合的飛機 —— 你被咬
+   * 時它會回頭。不標的話，那件事在畫面上與「剛好有架友機飛過」無法區分
+   * （M6 spec §10）。
+   */
+  wingman: boolean
   /** 相對高度差，m（正 = 比我高）。小地圖符號依它選三角／方／倒三角 */
   deltaY: number
   worldX: number
@@ -47,7 +55,7 @@ export const HUD_MAX_CONTACTS = 48
 
 export function createHudContact(): HudContact {
   return {
-    active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true,
+    active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true, wingman: false,
     deltaY: 0, worldX: 0, worldZ: 0, range: 0,
     leadX: 0, leadY: 0, leadValid: false, leadBehind: false,
   }
@@ -143,6 +151,10 @@ export interface HudFrame {
    */
   blueAlive: number
   redAlive: number
+  /** 玩家分隊還活著幾架（含玩家自己）。0 = 玩家已退場 */
+  flightAlive: number
+  /** 玩家分隊的編制員額。`flightAlive` 的分母 */
+  flightSize: number
   /** 重置倒數的剩餘秒數；0 代表戰鬥進行中，不佔版面 */
   resetCountdown: number
 }
@@ -162,7 +174,7 @@ export function createHudFrame(): HudFrame {
     hp: 1000, hpMax: 1000,
     aiFlying: false,
     controlAuthority: 1,
-    blueAlive: 0, redAlive: 0, resetCountdown: 0,
+    blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0, resetCountdown: 0,
   }
 }
 
