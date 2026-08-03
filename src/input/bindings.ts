@@ -78,7 +78,7 @@ export function attachInput(
   const onKeyDown = (e: KeyboardEvent) => {
     switch (e.code) {
       case 'KeyW': hold.up = true; break
-      case 'KeyS': hold.down = true; break
+      case 'KeyS': hold.down = true; state.braking = true; break
       case 'KeyV': state.viewMode = state.viewMode === 'third' ? 'first' : 'third'; break
       case 'KeyR': state.resetRequested = true; break
       case 'KeyC': state.swapSpecRequested = true; break
@@ -93,7 +93,7 @@ export function attachInput(
 
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.code === 'KeyW') hold.up = false
-    if (e.code === 'KeyS') hold.down = false
+    if (e.code === 'KeyS') { hold.down = false; state.braking = false }
   }
 
   const onContextMenu = (e: Event) => e.preventDefault()

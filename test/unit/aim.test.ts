@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { slewAimWorld } from '../../src/input/aim'
 import { CRUISE_THROTTLE, createInputState } from '../../src/input/InputState'
-import { applyThrottleRate, THROTTLE_RATE } from '../../src/input/throttle'
+import {
+  applyThrottleRate, THROTTLE_RATE, THROTTLE_FLOOR,
+  CRUISE_THROTTLE as THROTTLE_CRUISE,
+} from '../../src/input/throttle'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { DEG } from '../../src/core/math'
 
@@ -151,13 +154,62 @@ describe('applyThrottleRate', () => {
     expect(t).toBe(WEP_THROTTLE)
   })
 
-  it('持續 S：下降到 0 後不再低於 0', () => {
+  it('持續 S：下降到 THROTTLE_FLOOR 後不再更低', () => {
+    // 【下限不是 0】活塞引擎不可能零功率仍運轉；而且本模型沒有螺旋槳風車
+    // 阻力，throttle = 0 等於「零推力又零阻力」，滑翔性能會優於真機。
     let t = CRUISE_THROTTLE
     const dt = 1 / 240
     for (let i = 0; i < 2000; i++) t = applyThrottleRate(t, false, true, dt)
-    expect(t).toBeCloseTo(0, 12)
+    expect(t).toBeCloseTo(THROTTLE_FLOOR, 12)
     t = applyThrottleRate(t, false, true, dt)
-    expect(t).toBe(0)
+    expect(t).toBe(THROTTLE_FLOOR)
+  })
+
+  it('放開按鍵會從上方回到巡航值', () => {
+    let t = WEP_THROTTLE
+    const dt = 1 / 240
+    for (let i = 0; i < 2000; i++) t = applyThrottleRate(t, false, false, dt)
+    expect(t).toBeCloseTo(CRUISE_THROTTLE, 12)
+  })
+
+  it('放開按鍵會從下方回到巡航值', () => {
+    let t = THROTTLE_FLOOR
+    const dt = 1 / 240
+    for (let i = 0; i < 2000; i++) t = applyThrottleRate(t, false, false, dt)
+    expect(t).toBeCloseTo(CRUISE_THROTTLE, 12)
+  })
+
+  it('回中不會在巡航值附近來回跳動', () => {
+    // 【這是彈簧實作最容易寫錯的地方】無條件加減一個步長的話，在巡航值
+    // 附近會每格越過再越回來，油門讀數與推力都會抖。必須夾在目標上。
+    const dt = 1 / 240
+    // 從一個「一步跨不過去、但兩步會超過」的位置開始
+    let t = CRUISE_THROTTLE + THROTTLE_RATE * dt * 0.5
+    t = applyThrottleRate(t, false, false, dt)
+    expect(t).toBe(CRUISE_THROTTLE)
+    t = applyThrottleRate(t, false, false, dt)
+    expect(t).toBe(CRUISE_THROTTLE)
+  })
+
+  it('同時按住 W 與 S 視同都沒按（回中）', () => {
+    // 兩個相反的意圖，回中是唯一不偏袒任何一邊的解讀
+    const dt = 1 / 240
+    const t = applyThrottleRate(WEP_THROTTLE, true, true, dt)
+    expect(t).toBeLessThan(WEP_THROTTLE)
+    expect(t).toBeCloseTo(WEP_THROTTLE - THROTTLE_RATE * dt, 12)
+  })
+
+  it('回中速率與推收同速', () => {
+    const dt = 1 / 240
+    const up = applyThrottleRate(CRUISE_THROTTLE, true, false, dt) - CRUISE_THROTTLE
+    const back = WEP_THROTTLE - applyThrottleRate(WEP_THROTTLE, false, false, dt)
+    expect(back).toBeCloseTo(up, 12)
+  })
+
+  it('throttle.ts 與 InputState.ts 的巡航值不得漂移', () => {
+    // 兩處各有一份 0.7（互 import 會構成循環，見 throttle.ts 的註解）。
+    // 這一條是它們之間唯一的連結。
+    expect(THROTTLE_CRUISE).toBe(CRUISE_THROTTLE)
   })
 
   it('從巡航到 WEP 的爬升時間符合 (WEP_THROTTLE − CRUISE_THROTTLE) / THROTTLE_RATE', () => {

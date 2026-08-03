@@ -361,7 +361,7 @@ describe('Aircraft：一步的順序', () => {
     const ref = createFlightState(5000, 180)
     const refDiag = createDiagnostics()
     stepDynamics(
-      P51D, ref, { aileron: 0, elevator: 0, rudder: 0, throttle: 0.8 }, DT, refDiag,
+      P51D, ref, { aileron: 0, elevator: 0, rudder: 0, throttle: 0.8, brake: 0 }, DT, refDiag,
     )
 
     expect(ac.state.position.equals(ref.position)).toBe(true)

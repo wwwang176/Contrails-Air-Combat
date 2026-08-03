@@ -146,7 +146,7 @@ describe('積分器 vs 求解器：Ps 一致性', () => {
       const diag = createDiagnostics()
       const before = specificEnergy(s.position.y, s.velocity.length())
 
-      stepDynamics(c.spec, s, { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }, DT, diag)
+      stepDynamics(c.spec, s, { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }, DT, diag)
       const after = specificEnergy(s.position.y, s.velocity.length())
       const measured = (after - before) / DT
 
@@ -174,7 +174,7 @@ describe('升力與側力方向（Ps 恆等式結構上測不到的兩個符號�
     expect(alpha).toBeGreaterThan(0) // 確認這確實是正迎角案例
     const diag = createDiagnostics()
     const vyBefore = s.velocity.y
-    stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }, DT, diag)
+    stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }, DT, diag)
     const accelY = (s.velocity.y - vyBefore) / DT
     // 升力抵抗重力：實際下沉加速度應小於（沒有升力時的）自由落體 g。
     expect(accelY).toBeGreaterThan(-G0)
@@ -195,7 +195,7 @@ describe('升力與側力方向（Ps 恆等式結構上測不到的兩個符號�
     s.velocity.set(tas * Math.sin(beta), 0, -tas * Math.cos(beta)) // 純側滑，α=0
     const diag = createDiagnostics()
     const vxBefore = s.velocity.x
-    stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }, DT, diag)
+    stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }, DT, diag)
     expect(diag.aero.beta).toBeCloseTo(beta, 6) // 確認建構出的 β 確實如預期
     expect(diag.aero.alpha).toBeCloseTo(0, 6) // 確認 α=0，側力不與升力糾纏
     const accelX = (s.velocity.x - vxBefore) / DT
@@ -247,7 +247,7 @@ describe('積分器收斂至求解器的極速', () => {
       // 由失速速度上方起飛，全油門加速
       const s = createFlightState(c.altitude, stallSpeed(c.spec, c.altitude, 1) * 1.3)
       const diag = createDiagnostics()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
 
       const steps = Math.round(SECONDS / DT)
       const tailWindowSteps = Math.round(20 / DT) // 最後 20 秒用來量測是否已收斂
@@ -284,7 +284,7 @@ describe('積分器長時間穩定性', () => {
         aileron: Math.sin(t * 0.7),
         elevator: 0.4 * Math.sin(t * 0.31) + 0.2,
         rudder: 0.2 * Math.sin(t * 0.17),
-        throttle: WEP_THROTTLE,
+        throttle: WEP_THROTTLE, brake: 0,
       }, DT, diag)
       if (s.position.y < 100) s.position.y = 5000 // 撞海即重置高度，維持測試進行
     }
@@ -303,7 +303,7 @@ describe('積分器長時間穩定性', () => {
     const diag = createDiagnostics()
     const steps = Math.round(20 / DT)
     for (let i = 0; i < steps; i++) {
-      stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }, DT, diag)
+      stepDynamics(P51D, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }, DT, diag)
     }
     // 阻尼應使角速度大幅衰減
     expect(s.angularVelocity.length()).toBeLessThan(0.5)
@@ -316,7 +316,7 @@ describe('海面碰撞前提', () => {
     const diag = createDiagnostics()
     const noWing: AircraftSpec = { ...P51D, wing: { ...P51D.wing, area: 0 } }
     for (let i = 0; i < Math.round(10 / DT); i++) {
-      stepDynamics(noWing, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }, DT, diag)
+      stepDynamics(noWing, s, { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }, DT, diag)
     }
     expect(s.position.y).toBeLessThan(0)
   })

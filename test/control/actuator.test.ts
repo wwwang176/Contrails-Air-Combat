@@ -7,12 +7,12 @@ import type { Controls } from '../../src/physics/types'
 
 const DT = 1 / 240
 
-const mk = (): Controls => ({ aileron: 0, elevator: 0, rudder: 0, throttle: 0 })
+const mk = (): Controls => ({ aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 })
 
 describe('舵面作動速率', () => {
   it('大幅指令被速率夾住，單步最多走 rate·dt', () => {
     const actual = mk()
-    const command = { aileron: 1, elevator: -1, rudder: 1, throttle: 0.7 }
+    const command = { aileron: 1, elevator: -1, rudder: 1, throttle: 0.7, brake: 0 }
     const r = { aileron: 5, elevator: 6, rudder: 4 }
     slewSurfaces(actual, command, r, DT)
     expect(actual.aileron).toBeCloseTo(5 * DT, 12)
@@ -29,14 +29,14 @@ describe('舵面作動速率', () => {
     // 速率限制是非線性：只在指令跳變大於 rate·dt 時作用，小訊號完全透明。
     const actual = mk()
     const small = DEFAULT_ACTUATOR_RATES.aileron * DT * 0.5
-    slewSurfaces(actual, { aileron: small, elevator: 0, rudder: 0, throttle: 0 },
+    slewSurfaces(actual, { aileron: small, elevator: 0, rudder: 0, throttle: 0, brake: 0 },
       DEFAULT_ACTUATOR_RATES, DT)
     expect(actual.aileron).toBe(small)
   })
 
   it('反向指令同樣受限（不會瞬間打到反舵）', () => {
-    const actual = { aileron: 1, elevator: 0, rudder: 0, throttle: 0 }
-    slewSurfaces(actual, { aileron: -1, elevator: 0, rudder: 0, throttle: 0 },
+    const actual = { aileron: 1, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
+    slewSurfaces(actual, { aileron: -1, elevator: 0, rudder: 0, throttle: 0, brake: 0 },
       DEFAULT_ACTUATOR_RATES, DT)
     expect(actual.aileron).toBeCloseTo(1 - DEFAULT_ACTUATOR_RATES.aileron * DT, 12)
   })

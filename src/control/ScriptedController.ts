@@ -78,6 +78,7 @@ export class ScriptedController implements Controller {
     const cp = Math.cos(pitch)
     out.aimWorld.set(-Math.sin(h) * cp, Math.sin(pitch), -Math.cos(h) * cp)
     out.throttle = this.throttle
+    out.brake = 0
     out.firing = false
   }
 

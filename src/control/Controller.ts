@@ -13,11 +13,13 @@ export interface Command {
   aimWorld: Vector3
   /** 0 ~ 1.1，1.1 為 WEP */
   throttle: number
+  /** 減速，0 ~ 1。玩家的按鍵給 0 或 1；AI 可以只踩一部分（M4 spec §2.1） */
+  brake: number
   firing: boolean
 }
 
 export function createCommand(): Command {
-  return { aimWorld: new Vector3(0, 0, -1), throttle: 0, firing: false }
+  return { aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false }
 }
 
 export interface Controller {

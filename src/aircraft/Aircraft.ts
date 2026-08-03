@@ -26,7 +26,7 @@ export class Aircraft {
   state: FlightState
   readonly diag: StepDiagnostics = createDiagnostics()
   /** 指揮儀輸出的舵面**指令**。舵面實際位置見 `surfaces`。 */
-  readonly controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+  readonly controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
   /**
    * 舵面**實際位置**——物理層讀的是這一份。
    *
@@ -35,7 +35,7 @@ export class Aircraft {
    * 能同時看到「要求」與「做到」：兩者長時間分離就代表舵面在追不上，
    * 那是內環增益過高的直接證據。
    */
-  readonly surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+  readonly surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
   actuatorRates: ActuatorRates = DEFAULT_ACTUATOR_RATES
   readonly director = new FlightDirector()
   readonly dbg: DirectorDebug = createDirectorDebug()
@@ -136,11 +136,12 @@ export class Aircraft {
    * 逆轉換（淨效果是恆等變換，也就是機體固定準星）；世界固定裁決之後
    * 該轉換整個移除，指揮儀拿到的才是真正的世界方向。
    */
-  update(aimDirWorld: Vector3, throttle: number, dt: number): void {
+  update(aimDirWorld: Vector3, throttle: number, dt: number, brake = 0): void {
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
 
     this.controls.throttle = throttle
+    this.controls.brake = brake
     // 舵面先走一步（受作動速率限制），物理層讀的是走完之後的實際位置。
     slewSurfaces(this.surfaces, this.controls, this.actuatorRates, dt)
     stepDynamics(this.spec, this.state, this.surfaces, dt, this.diag)

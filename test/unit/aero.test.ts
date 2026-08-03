@@ -16,7 +16,7 @@ const air = (h: number): AirData =>
   atmosphere(h, { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 })
 const aeroOut = (): AeroState => ({ tas: 0, alpha: 0, beta: 0, qbar: 0, mach: 0 })
 const fmOut = (): ForceMoment => ({ force: new Vector3(), moment: new Vector3() })
-const NO_CONTROL = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+const NO_CONTROL = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
 
 describe('liftCoefficient', () => {
   it('零升迎角處 CL 為 0', () => {

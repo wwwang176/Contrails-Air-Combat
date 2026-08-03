@@ -18,6 +18,7 @@ export class PlayerController implements Controller {
     // 的話會讓下游任何一次寫入都改到玩家的瞄準點。
     out.aimWorld.copy(this.input.aimWorld)
     out.throttle = this.input.throttle
+    out.brake = this.input.braking ? 1 : 0
     out.firing = this.input.firing
   }
 }
