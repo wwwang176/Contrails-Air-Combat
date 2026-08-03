@@ -16,7 +16,7 @@ import type { Controls, FlightState } from '../src/physics/types'
  */
 export const LOAD_ALTITUDE = 6000
 export const LOAD_TAS = 180
-export const LOAD_CONTROLS: Controls = { aileron: 0.3, elevator: 0.2, rudder: -0.1, throttle: 1.1 }
+export const LOAD_CONTROLS: Controls = { aileron: 0.3, elevator: 0.2, rudder: -0.1, throttle: 1.1, brake: 0 }
 export const LOAD_DT = 1 / 240
 
 export interface PhysicsLoadState {

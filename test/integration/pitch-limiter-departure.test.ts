@@ -29,7 +29,7 @@ function peakAlphaUnderRampedPull(
   const state = createFlightState(0, v0)
   const diag = createDiagnostics()
   const pl = createPitchLimit()
-  const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+  const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }
   const steps = Math.round(seconds / DT)
   let peakAlpha = -Infinity
   let peakEffCrit = 0

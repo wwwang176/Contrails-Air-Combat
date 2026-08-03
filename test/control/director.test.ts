@@ -96,7 +96,7 @@ function runDirector(
   const diag = createDiagnostics()
   const dbg = createDirectorDebug()
   const controls: Controls = {
-    aileron: 0, elevator: 0, rudder: 0, throttle: opts.throttle ?? WEP_THROTTLE,
+    aileron: 0, elevator: 0, rudder: 0, throttle: opts.throttle ?? WEP_THROTTLE, brake: 0,
   }
 
   const errorHistory: number[] = []
@@ -120,7 +120,7 @@ function runDirector(
   // 就不是遊戲實際在跑的動力學（Aircraft 的類別註解已把這條原則寫成硬要求：
   // 「測試怎麼跑，遊戲就怎麼跑」）。實測接上作動器後 120 案例矩陣全數通過，
   // 沒有任何門檻被放寬。
-  const surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+  const surfaces: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
   const steps = Math.round(seconds / DT)
   for (let i = 0; i < steps; i++) {
     slewSurfaces(surfaces, controls, DEFAULT_ACTUATOR_RATES, DT)
@@ -265,7 +265,7 @@ describe('指揮儀特例', () => {
     const state = createFlightState(ALT, 400 * KMH)
     const diag = createDiagnostics()
     const dbg = createDirectorDebug()
-    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
     stepDynamics(P51D, state, controls, DT, diag)
 
     // 測的是行為（死區內恰為 0、越過立刻接管），不是常數的數值——
@@ -501,7 +501,7 @@ describe('指揮儀特例', () => {
       const state = createFlightState(4000, 220)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       stepDynamics(P51D, state, controls, DT, diag)
 
       // 姿態為單位四元數，故機體 y 軸即世界上方；方位 |az| < 90° ⇒ y > 0。
@@ -675,7 +675,7 @@ describe('指揮儀特例', () => {
       const state = createFlightState(ALT, 220)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       stepDynamics(P51D, state, controls, DT, diag)
       // 【誤差必須小到不觸發限制器】desiredQ = pitchOuter × 垂直誤差，一旦
       // 貼上 qMax，防飽和機制就會正確地停止累積，於是這條測不到 reset
@@ -734,7 +734,7 @@ describe('指揮儀特例', () => {
       const state = createFlightState(ALT, 220)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       stepDynamics(P51D, state, controls, DT, diag)
       const g = DEFAULT_DIRECTOR_GAINS
 
@@ -879,7 +879,7 @@ describe('指揮儀特例', () => {
       const state = createFlightState(ALT, 220)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       stepDynamics(P51D, state, controls, DT, diag)
 
       // 人為把側滑推到遠超上限的一側，再要求往**同**一側繼續偏航
@@ -899,7 +899,7 @@ describe('指揮儀特例', () => {
       const state = createFlightState(ALT, 220)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       stepDynamics(P51D, state, controls, DT, diag)
       diag.aero.beta = 0
       d.update(P51D, state, diag.aero, false, new Vector3(0, 0, -1), DT, controls, dbg)
@@ -921,7 +921,7 @@ describe('指揮儀特例', () => {
     const state = createFlightState(ALT, 150)
     const diag = createDiagnostics()
     const dbg = createDirectorDebug()
-    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }
     stepDynamics(P51D, state, controls, DT, diag)
 
     // 幾乎正後方、橫向分量微小且逐幀變號
@@ -947,7 +947,7 @@ describe('指揮儀特例', () => {
     const state = createFlightState(5000, 150)
     const diag = createDiagnostics()
     const dbg = createDirectorDebug()
-    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }
     for (let i = 0; i < 500; i++) {
       stepDynamics(P51D, state, controls, DT, diag)
       d.update(P51D, state, diag.aero, false, aimAt(45, 90), DT, controls, dbg)
@@ -980,7 +980,7 @@ describe('指揮儀特例', () => {
     // 積分殘留，會污染這個測試要量的東西。
     const level = createFlightState(5000, 150)
     const levelDiag = createDiagnostics()
-    const zero: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+    const zero: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }
     stepDynamics(P51D, level, zero, DT, levelDiag)
     level.angularVelocity.set(0, 0, 0)
     expect(levelDiag.aero.beta).toBe(0)
@@ -1062,7 +1062,7 @@ describe('增益不變量的護欄', () => {
       const state = createFlightState(ALT, 400 * KMH)
       const diag = createDiagnostics()
       const dbg = createDirectorDebug()
-      const c: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE }
+      const c: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: WEP_THROTTLE, brake: 0 }
       return {
         d,
         run: () => {
@@ -1100,7 +1100,7 @@ describe('指揮儀的設計不變量', () => {
     state.angularVelocity.set(0.3, -0.2, 0.5)
     const diag = createDiagnostics()
     const dbg = createDirectorDebug()
-    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0.7 }
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0.7, brake: 0 }
     stepDynamics(P51D, state, controls, DT, diag)
 
     const before = {
@@ -1201,7 +1201,7 @@ describe('指揮儀的設計不變量', () => {
     const d = new FlightDirector()
     const diag = createDiagnostics()
     const dbg = createDirectorDebug()
-    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1 }
+    const controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 1, brake: 0 }
     // 目標在機體正下方 → verticalError = −90°，外環要求的推桿率遠超上限，
     // desiredQ 必定被夾在 qMin 上，於是 desiredQ 就是 qMin 本身。
     const aimBodyDown = new Vector3(0, -1, 0)

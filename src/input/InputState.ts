@@ -33,6 +33,13 @@ export interface InputState {
    */
   firing: boolean
   /**
+   * 是否按住減速（S）。
+   *
+   * 與油門是**同一個鍵**：按住 S 同時收油門到下限並套用額外阻力。一鍵一概念，
+   * 玩家不需要知道它在物理上做了什麼（M4 spec §2.1）。
+   */
+  braking: boolean
+  /**
    * 靶機的機動索引，對應 `MANOEUVRES`（0 直線／1 盤旋／2 蛇行／3 爬升）。
    *
    * 【為什麼放在 InputState 而不是直接呼叫 ScriptedController】輸入層是
@@ -56,6 +63,7 @@ export function createInputState(): InputState {
     lookPitch: 0,
     viewMode: 'third',
     firing: false,
+    braking: false,
     droneManoeuvre: 0,
     resetRequested: false,
     swapSpecRequested: false,

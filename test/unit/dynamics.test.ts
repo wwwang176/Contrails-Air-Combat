@@ -10,7 +10,7 @@ import { DEG, G0, RAD } from '../../src/core/math'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Controls } from '../../src/physics/types'
 
-const IDLE: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0 }
+const IDLE: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
 const DT = 1 / 240
 
 /** 移除全部氣動力的機種副本，用於隔離重力與積分器行為。 */
@@ -86,7 +86,7 @@ describe('stepDynamics — 重力與積分', () => {
   it('狀態不含 NaN', () => {
     const s = createFlightState(4000, 180)
     s.angularVelocity.set(3, 3, 3)
-    run(P51D, s, { aileron: 1, elevator: 1, rudder: 1, throttle: WEP_THROTTLE }, 3)
+    run(P51D, s, { aileron: 1, elevator: 1, rudder: 1, throttle: WEP_THROTTLE, brake: 0 }, 3)
     for (const v of [s.position, s.velocity, s.angularVelocity]) {
       expect(Number.isFinite(v.x + v.y + v.z)).toBe(true)
     }
@@ -127,7 +127,7 @@ describe('stepDynamics — 氣動響應', () => {
 
   it('正副翼指令產生向右滾轉', () => {
     const s = createFlightState(4000, 180)
-    run(P51D, s, { ...IDLE, aileron: 1, throttle: 1 }, 0.5)
+    run(P51D, s, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 0.5)
     expect(s.angularVelocity.z).toBeLessThan(0) // ω.z 為負 = 正滾轉率 p
   })
 
@@ -155,8 +155,8 @@ describe('stepDynamics — 氣動響應', () => {
     // 單步後 ω.z = α·dt（初始角速度為 0），直接反映起始角加速度。
     const p = createFlightState(0, 100)
     const b = createFlightState(0, 100)
-    run(P51D, p, { ...IDLE, aileron: 1, throttle: 1 }, DT)
-    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1 }, DT)
+    run(P51D, p, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, DT)
+    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, DT)
     expect(Math.abs(b.angularVelocity.z)).toBeGreaterThan(Math.abs(p.angularVelocity.z))
   })
 
@@ -172,8 +172,8 @@ describe('stepDynamics — 氣動響應', () => {
     const tas = 600 / 3.6
     const p = createFlightState(0, tas)
     const b = createFlightState(0, tas)
-    run(P51D, p, { ...IDLE, aileron: 1, throttle: 1 }, 2)
-    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1 }, 2)
+    run(P51D, p, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 2)
+    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 2)
     expect(Math.abs(p.angularVelocity.z)).toBeGreaterThan(Math.abs(b.angularVelocity.z) * 2)
   })
 })
@@ -225,7 +225,7 @@ describe('stepDynamics — 診斷輸出', () => {
   const TOTAL_STEPS = 234 // 使迎角落在遲滯帶中央 ≈7.03°（見任務報告的完整軌跡）
 
   function slatManeuverControls(i: number): Controls {
-    return { aileron: 0, rudder: 0, throttle: 1, elevator: i < PULL_STEPS ? PULL_ELEVATOR : 0 }
+    return { aileron: 0, rudder: 0, throttle: 1, elevator: i < PULL_STEPS ? PULL_ELEVATOR : 0, brake: 0 }
   }
 
   it('沿用同一個 diag：迎角衝過 8° 展開後回落至遲滯帶中央，仍記得「已展開」', () => {

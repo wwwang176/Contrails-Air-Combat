@@ -84,12 +84,36 @@ export function updateSlatState(
   return mag > spec.lift.slatDeployAlpha
 }
 
-/** 阻力係數：零升阻力 + 誘導阻力 + 側滑阻力，超音速臨界後加壓縮性修正。 */
+/**
+ * 減速全開時附加的阻力係數（M4 spec §2.1）。
+ *
+ * 【為什麼是全域常數而非機種參數】實測 P-51D 與 Bf 109 的翼載幾乎相同
+ * （S/m 分別為 0.00508 與 0.00510 m²/kg），所以同一個 CD 給出兩台**相同的
+ * 減速度**，不偏袒任何一方。未來若加入翼載差異大的機種，減速度自然會不同
+ * ——那是物理上正確的結果，不是需要修正的偏差。
+ *
+ * 【數值怎麼來的】目標手感由專案負責人定為「水平飛行 700 → 400 km/h 約
+ * 4 秒」。本值由 test/unit/brake.test.ts 實測驗證；改動時該測試會紅。
+ *
+ * 【這個量級不是真機】乾淨機體零推力要 114 秒、放下起落架約 37 秒。刻意的
+ * 街機化，理由與取捨見 M4 spec §2.1。
+ */
+export const BRAKE_CD = 0.45
+
+/**
+ * 阻力係數：零升阻力 + 誘導阻力 + 側滑阻力，超音速臨界後加壓縮性修正，
+ * 再加上減速的附加阻力。
+ *
+ * 【brake 為什麼有預設值】它預設 0，所以 M1 的既有呼叫端（含 542 條測試與
+ * analysis/ 的包絡求解器）行為完全不變——包絡分析問的是「乾淨機體能飛多快」，
+ * 那個問題與減速無關。
+ */
 export function dragCoefficient(
   spec: AircraftSpec,
   cl: number,
   beta: number,
   mach: number,
+  brake = 0,
 ): number {
   let cd0 = spec.drag.cd0
   if (mach > spec.drag.machCrit) {
@@ -97,6 +121,7 @@ export function dragCoefficient(
     cd0 *= 1 + spec.drag.machDragFactor * excess * excess
   }
   return cd0 + inducedDragFactor(spec) * cl * cl + spec.drag.cdBeta * beta * beta
+    + BRAKE_CD * brake
 }
 
 /** 高速舵面變重：δ_eff = δ × min(1, (qRef/q)^k)。 */
@@ -144,7 +169,7 @@ export function aeroForceMoment(
   }
 
   const cl = liftCoefficient(spec, aero.alpha, slatsDeployed)
-  const cd = dragCoefficient(spec, cl, aero.beta, aero.mach)
+  const cd = dragCoefficient(spec, cl, aero.beta, aero.mach, controls.brake)
   const cy = spec.side.cyBeta * aero.beta
 
   const qS = aero.qbar * area

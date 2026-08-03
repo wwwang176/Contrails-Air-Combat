@@ -103,7 +103,7 @@ export class World {
 
     // 2. 全部 Aircraft 推進，接著開火（槍口用推進後的姿態）
     for (const c of this.combatants) {
-      c.aircraft.update(c.command.aimWorld, c.command.throttle, dt)
+      c.aircraft.update(c.command.aimWorld, c.command.throttle, dt, c.command.brake)
     }
     for (const c of this.combatants) {
       this.fire(c, dt)

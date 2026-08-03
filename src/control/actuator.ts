@@ -41,9 +41,9 @@ function slew(actual: number, command: number, rate: number, dt: number): number
 /**
  * 把實際舵面位置朝指揮儀的指令移動一個物理步。就地修改 `actual`。
  *
- * 【油門不在此列】油門的行程限制已由輸入層的 `applyThrottleRate` 處理
- * （Task 19），而且它是玩家直接控制的量，不經過指揮儀。這裡原樣複製，
- * 避免同一個量被兩處各限一次。
+ * 【油門與減速不在此列】兩者都是玩家/AI 直接控制的量，不經過指揮儀。
+ * 油門的行程限制已由輸入層的 `applyThrottleRate` 處理（Task 19），減速則
+ * 依 M4 spec §2.1 規定立即生效。兩者在此原樣複製，避免同一個量被兩處各限一次。
  */
 export function slewSurfaces(
   actual: Controls, command: Controls, rates: ActuatorRates, dt: number,
@@ -52,5 +52,7 @@ export function slewSurfaces(
   actual.elevator = slew(actual.elevator, command.elevator, rates.elevator, dt)
   actual.rudder = slew(actual.rudder, command.rudder, rates.rudder, dt)
   actual.throttle = command.throttle
+  // 減速與油門同類：玩家/AI 直接控制的量，立即生效，不經致動器延遲
+  actual.brake = command.brake
   return actual
 }
