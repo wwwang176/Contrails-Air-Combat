@@ -3,7 +3,10 @@ import { World, type Combatant } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
 import { createTargetBoard, type TargetBoard } from '../ai/target'
-import { SCHWARM_SIZE, STATION_REFERENCE } from './flights'
+import {
+  SCHWARM_SIZE, STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
+  type Flight, type FlightIndex,
+} from './flights'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
@@ -109,6 +112,10 @@ export interface Battle {
    * 一個「朝預設方向平飛」的狀態，不知道紅隊該朝 +Z。
    */
   readonly spawnOrientations: Quaternion[]
+  /**
+   * 編制。**每個物理步由 `stepBattle` 重新壓縮**（M6 spec §5.4）。
+   */
+  readonly flights: FlightIndex
   /** 重置倒數的剩餘秒數；> 0 代表戰鬥已分出結果 */
   countdown: number
 }
@@ -214,6 +221,8 @@ export function createBattle(
   // 【指派板必須在全部 add 完之後才建】它會檢查 index 與陣列位置一致，
   // 而 index 是 add 依序給的
   const board = createTargetBoard(world.combatants)
+  // 【編制同理】而且玩家要釘在自己分隊的 members[0]（M6 spec §5.3）
+  const flights = createFlights(world.combatants, player.index)
 
   // AI 接線：指派板、自身索引、決策相位
   for (const c of world.combatants) {
@@ -225,15 +234,44 @@ export function createBattle(
     ai.setDecisionPhase(c.index / world.combatants.length)
   }
 
-  return {
+  const battle: Battle = {
     world,
     board,
     blue,
     red,
     player,
     cfg,
+    flights,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     countdown: 0,
+  }
+  wireStations(battle)
+  return battle
+}
+
+/**
+ * 把每一架 AI 的站位參考機與站位偏置接上。
+ *
+ * 【為什麼每個物理步都要重跑】保序壓縮會改變成員位置，而站位偏置是
+ * **位置**的函數。不重跑的話，`members[2]` 遞補成 `members[1]` 之後仍然
+ * 守著第二 Rotte 的站位 —— 遞補等於沒發生。
+ *
+ * 【為什麼用 instanceof 而不是一個旗標】玩家的控制器會在
+ * `PlayerController` 與 `AiController` 之間切換（`I` 鍵）。`instanceof`
+ * 自動跟著走，而一個旗標會忘記更新。玩家釘在 `members[0]`，所以他接手
+ * 的那一顆 AI 拿到的恆是「沒有站位」—— 自由交戰，正是要的。
+ */
+function wireStations(b: Battle): void {
+  const cs = b.world.combatants
+  for (let i = 0; i < cs.length; i++) {
+    const c = cs[i]!
+    const ai = c.controller
+    if (!(ai instanceof AiController)) continue
+    const ref = stationReferenceOf(b.flights, c.index)
+    ai.stationReferenceIndex = ref
+    ai.stationReference = ref >= 0 ? cs[ref]!.aircraft : null
+    const pos = b.flights.positionOf[c.index]!
+    ai.stationOffset = STATION_OFFSETS[pos >= 0 ? pos : 0]!
   }
 }
 
@@ -263,6 +301,12 @@ export function stepBattle(b: Battle, dt: number): void {
   for (let i = 0; i < cs.length; i++) {
     if (!cs[i]!.alive) assignments[i] = -1
   }
+
+  // 【編制與站位每步重算】保序壓縮是存活旗標的純函數（M6 spec §5.4）：
+  // 重算比維護增減安全 —— 維護要求每一條退場路徑都配一次更新，漏掉任何
+  // 一條就留下一個永遠不消失的幽靈狀態。成本是 O(架數)。
+  compactFlights(b.flights, cs)
+  wireStations(b)
 
   if (b.countdown > 0) {
     b.countdown -= dt
@@ -298,5 +342,29 @@ export function resetBattle(b: Battle): void {
     c.aircraft.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(c.spawnTas)
   }
   b.board.assignments.fill(-1)
+  compactFlights(b.flights, combatants)
+  wireStations(b)
   b.countdown = 0
+}
+
+/**
+ * 玩家的分隊；玩家已退場時回傳 null。
+ *
+ * 【為什麼不直接讓呼叫端讀 flights】HUD 那一層不該知道編制的內部表示。
+ * 這兩個函數是它需要的全部。
+ */
+export function playerFlight(b: Battle): Flight | null {
+  const f = b.flights.flightOf[b.player.index]!
+  return f >= 0 ? b.flights.flights[f]! : null
+}
+
+/**
+ * 玩家的僚機（`members[1]`）的 `Combatant` 索引；沒有時回傳 −1。
+ *
+ * 遞補之後它會自動指向新的那一架 —— 因為 `members` 每步都重新壓縮。
+ */
+export function playerWingman(b: Battle): number {
+  const f = playerFlight(b)
+  if (f === null || f.count < 2) return -1
+  return f.members[1]!
 }
