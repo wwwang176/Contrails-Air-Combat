@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import { smoothstep } from '../core/math'
+import { G0, smoothstep } from '../core/math'
 import { alphaFrom, betaFrom, bodyToStd, stdToBody, type StdVec } from './axes'
 import { derivedClMax, type AircraftSpec } from '../specs/types'
 import type { AeroState, AirData, Controls, ForceMoment } from './types'
@@ -128,6 +128,51 @@ export function dragCoefficient(
 export function controlEffectiveness(k: number, qRef: number, qbar: number): number {
   if (qbar <= qRef) return 1
   return Math.pow(qRef / qbar, k)
+}
+
+/**
+ * 拐點動壓相對 1 G 失速動壓的倍率。**1.2² = 1.44** —— 拐點在 1.2 × Vs。
+ *
+ * 【為什麼是 1.2】實測纏鬥不會發生在 1.44 × Vs 以下（最佳持續轉彎
+ * 1.44–1.61、109／P-51 轉彎率交叉區 1.69–2.35、角落速度 2.74–2.83），
+ * 所以 1.2 與有戰術意義的速度有安全距離。真實世界的進場速度也訂在
+ * 1.2–1.3 × Vs，理由正是「操縱仍堪用但已開始變軟」（spec §3）。
+ */
+export const LOW_SPEED_KNEE = 1.44
+
+/**
+ * 1 G 失速時的動壓，Pa。**與高度無關。**
+ *
+ *   Vs(1G) = √( 2W / (ρ·S·CLmax) )
+ *   q      = ½ρ·Vs² = W / (S·CLmax)      ← ρ 消掉了
+ *
+ * 所以低速拐點是每機種一個常數：P-51D 1290 Pa、Bf 109 1239 Pa。不必查
+ * 大氣、不必開根號，而且它自動處理高度——9,000 m 要 268 km/h 才有同樣的
+ * 動壓，這正是真實情況。
+ *
+ * 【CL_max 的慣例】用 `derivedClMax(spec, 有縫翼就當展開)`，與
+ * `analysis/envelope.ts` 的 `stallSpeed()` **完全一致**。否則 109 的拐點會
+ * 對不上它自己的 Vs，「1.2 × Vs」在兩個地方會是不同的意思（spec §4.3）。
+ */
+export function stallDynamicPressure(spec: AircraftSpec): number {
+  return (spec.mass * G0)
+    / (spec.wing.area * derivedClMax(spec, spec.lift.slatAlphaBonus > 0))
+}
+
+/**
+ * 低速舵面失效：δ_eff = δ × min(1, q / q_low)。
+ *
+ * 【為什麼這樣就會產生懲罰】舵面力矩與氣動阻尼**原本都正比於動壓**，
+ * 比值與速度無關——這正是未修正前飛機能在 15 km/h 維持乾淨姿態的原因：
+ * 能達到的角**速率**幾乎不隨速度變化。乘上這個因子之後控制力矩被砍、
+ * 阻尼不變，飛機變糊，重力接管（spec §4.4）。
+ *
+ * 【為什麼不設下限】速度趨近 0 時力矩本來就趨近 0（力矩 = 動壓 × 面積 ×
+ * 係數），乘數再小也不會除出無限大或 NaN（spec §4.5）。
+ */
+export function lowSpeedEffectiveness(spec: AircraftSpec, qbar: number): number {
+  const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
+  return qbar >= qLow ? 1 : qbar / qLow
 }
 
 /** 由機體座標的空速向量計算迎角、側滑、動壓、馬赫數。 */
