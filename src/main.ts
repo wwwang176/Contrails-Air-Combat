@@ -21,7 +21,9 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
-import { aliveCount, createBattle, resetBattle, stepBattle } from './battle/setup'
+import {
+  aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle,
+} from './battle/setup'
 import { P51D } from './specs/p51d'
 import { BF109G6 } from './specs/bf109g6'
 
@@ -298,8 +300,15 @@ function frame(now: number) {
   hudFrame.redAlive = aliveCount(battle.red)
   hudFrame.resetCountdown = battle.countdown
 
+  // 【分隊存活】遞補之後 count 會自動變 —— members 每個物理步重新壓縮
+  const flight = playerFlight(battle)
+  hudFrame.flightAlive = flight?.count ?? 0
+  hudFrame.flightSize = flight?.roster.length ?? 0
+
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight
+  // 【每幀取一次】遞補之後它會指向新的那一架
+  const wingmanIndex = playerWingman(battle)
   let n = 0
   for (const c of world.combatants) {
     if (c === player || !c.alive || n >= HUD_MAX_CONTACTS) continue
@@ -317,6 +326,7 @@ function frame(now: number) {
     contact.radius = ((c.aircraft.spec.wing.span / 2) / Math.max(contact.range, 1))
       / Math.tan((ctx.camera.fov * DEG) / 2)
     contact.hostile = c.team !== player.team
+    contact.wingman = c.index === wingmanIndex
     contact.deltaY = v.position.y - renderPos.y
     contact.worldX = v.position.x
     contact.worldZ = v.position.z
