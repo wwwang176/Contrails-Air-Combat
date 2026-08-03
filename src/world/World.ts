@@ -54,6 +54,19 @@ export interface Combatant {
   spawnTas: number
 }
 
+/**
+ * 撞地判定。回傳 true 代表這一架已經碰到地面／海面。
+ *
+ * 【為什麼是注入的而不是寫死】玩家看到的海面是 Gerstner 波，判定必須走與
+ * 著色器同一份波參數（見 aircraft/crash.ts）；而 headless 測試沒有海面
+ * 著色器，也不該為此拖進渲染層。一個呼叫點、一條可替換的政策，就不會變成
+ * 兩份長得很像、只有一份會被修好的判定。
+ */
+export type CrashPolicy = (c: Combatant) => boolean
+
+/** 預設政策：平海面。headless 測試與對戰矩陣用這一個。 */
+const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
+
 const S = makeScratch(3)
 
 /**
@@ -66,6 +79,15 @@ const S = makeScratch(3)
 export class World {
   readonly combatants: Combatant[] = []
   readonly projectiles = new Projectiles()
+
+  /**
+   * 撞地判定。`main.ts` 注入與海面著色器共用波參數的版本。
+   *
+   * 【M5 起擴及所有飛機】M2 到 M4 只對玩家做，理由是「靶機在固定高度巡航，
+   * 不會撞海」。20v20 裡總有人會被打到失控 —— 不補的話會出現在海面下繼續
+   * 飛的飛機（M5 spec §1.1）。
+   */
+  crashPolicy: CrashPolicy = SEA_LEVEL
 
   private readonly hit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
@@ -122,6 +144,11 @@ export class World {
     for (const c of this.combatants) {
       if (!c.alive) continue
       c.aircraft.update(c.command.aimWorld, c.command.throttle, dt, c.command.brake)
+    }
+    // 【撞地要在開火之前判】撞地的那一步不該還打得出子彈。
+    for (const c of this.combatants) {
+      if (!c.alive) continue
+      if (this.crashPolicy(c)) this.destroy(c)
     }
     for (const c of this.combatants) {
       if (!c.alive) continue
