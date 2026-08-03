@@ -8,10 +8,27 @@ import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
 
 /**
- * 一場戰鬥的編制與出生幾何。
+ * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14）。
  *
- * **`entryRange` / `lateralSpacing` / `altitudeSpread` / `resetCountdown`
- * 是起始值，待門檻回填任務由實測定案**（M5 spec §13）。
+ * 【`entryRange` = 3,000 m】判準是「留給玩家環顧與選目標的時間」。實測
+ * 開局到第一次有人扣扳機／第一次有人中彈：
+ *
+ * ```
+ *   1,500 m → 0.6 s / 1.7 s      4,000 m →  6.3 s /  7.5 s
+ *   2,000 m → 1.2 s / 2.4 s      6,000 m → 11.4 s / 13.1 s
+ *   3,000 m → 3.7 s / 5.0 s
+ * ```
+ *
+ * 1,500 m 是「還沒看清楚就被打」。3,000 m 給 3.7 秒。
+ *
+ * 【`lateralSpacing` = 120 m】兩個下界：不能近到看起來要相撞（翼展 10–11 m
+ * 的兩個數量級以上），也不能遠到 20 架橫跨的 2,280 m 超過 `entryRange`。
+ *
+ * 【`altitudeSpread` = ±300 m】同上，垂直方向。週期 5 的鋸齒讓 20 架落在
+ * 五個高度層而不是兩排。
+ *
+ * 【`resetCountdown` = 3 s】長到看得出「這是重新開始」而不是當掉，短到
+ * 不會讓人以為卡住。與 M2 的命中 X 標記（0.15 s）是同一類的顯示時長判準。
  */
 export interface BattleConfig {
   /** 每隊架數。專案負責人裁決：M5 固定 20（spec §2） */
