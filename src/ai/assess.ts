@@ -1,5 +1,8 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
+import {
+  cornerSpeed, specificExcessPower, stallSpeed, sustainedTurnRate,
+} from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 
 /**
@@ -106,4 +109,42 @@ export function evaluateGeometry(self: Aircraft, target: Aircraft, out: Situatio
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
 function clampUnit(x: number): number {
   return x < -1 ? -1 : x > 1 ? 1 : x
+}
+
+/**
+ * 能量量。貴，只需要 10 Hz（spec §4.2）。
+ *
+ * 【為什麼每一項都用當前高度與速度查，不用機種常數】109 在低速轉得贏
+ * P-51、在高速轉不贏——M1 §13.3 量到交叉點落在 280–380 km/h。這正是這個
+ * 專案要表達的東西。用機種常數會把它抹平，「能量戰」於是退化成「誰的
+ * 參數表比較好」。
+ *
+ * 不修改 self 與 target。
+ */
+export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation): void {
+  out.energyAdvantage = self.specificEnergy - target.specificEnergy
+
+  const selfAlt = self.state.position.y
+  const targetAlt = target.state.position.y
+  const selfTas = self.diag.aero.tas
+  const targetTas = target.diag.aero.tas
+
+  out.psSelf = specificExcessPower(
+    self.spec, selfAlt, selfTas, self.diag.loadFactor, self.controls.throttle,
+  )
+  out.psTarget = specificExcessPower(
+    target.spec, targetAlt, targetTas, target.diag.loadFactor, target.controls.throttle,
+  )
+
+  out.turnAdvantage = sustainedTurnRate(self.spec, selfAlt, selfTas)
+    - sustainedTurnRate(target.spec, targetAlt, targetTas)
+
+  // 角落速度恆為正，不必防除以 0
+  out.cornerRatio = selfTas / cornerSpeed(self.spec, selfAlt)
+
+  // 【失速速度可能極小或為 0】極高空、極低過載時 stallSpeed 會趨近 0。
+  // 除以 0 會得到 Infinity，而 Infinity 通過所有「stallMargin > X」的檢查
+  // ——那是「安全」的方向，但它會讓吊機首閘門永遠不觸發。夾一個下限。
+  const vs = Math.max(stallSpeed(self.spec, selfAlt, Math.abs(self.diag.loadFactor)), 1)
+  out.stallMargin = selfTas / vs
 }
