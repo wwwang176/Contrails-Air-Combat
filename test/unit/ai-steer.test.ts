@@ -3,7 +3,8 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
-  buildEngageBasis, createEngageBasis, geometryGate, DEFAULT_STEER,
+  aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, geometryGate,
+  DEFAULT_STEER, type Knobs,
 } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 
@@ -171,5 +172,174 @@ describe('geometryGate', () => {
     setup([0, 4000, 0], [0, 0, -250], [0, 4050, -50], [0, 0, -150])
     sit.stallMargin = DEFAULT_STEER.stallGuardMargin * 0.5
     expect(geometryGate(sit, basis)).toBe('overshoot')
+  })
+})
+
+describe('engageKnobs', () => {
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const sit = createSituation()
+
+  const base = () => {
+    const s = createSituation()
+    s.range = 500
+    s.closureRate = 20
+    s.timeToMerge = 25
+    s.losRate = 0.05
+    s.cornerRatio = 1
+    s.stallMargin = 2
+    s.energyAdvantage = 0
+    Object.assign(sit, s)
+  }
+
+  it('接近率過高 → leadLag 為負（後置追擊殺接近率）', () => {
+    base()
+    sit.closureRate = 250
+    sit.timeToMerge = 2
+    engageKnobs(sit, k)
+    expect(k.leadLag).toBeLessThan(0)
+  })
+
+  it('穩定跟蹤、接近率溫和 → leadLag 趨近 +1（進入射擊解）', () => {
+    base()
+    sit.closureRate = 10
+    sit.timeToMerge = 50
+    engageKnobs(sit, k)
+    expect(k.leadLag).toBeGreaterThan(0.5)
+  })
+
+  it('接近率過高時 vertical 為正 —— 高 yo-yo 用高度吃掉多餘速度', () => {
+    // 【為什麼是拉高不是卸載】卸載＝最小過載＝最小誘導阻力＝**保住速度**，
+    // 會讓超前更嚴重。超前要的是相反方向：拉高（用速度換高度並增加航跡
+    // 長度）。卸載屬於 extend，那裡要的正是加速脫離。
+    base()
+    sit.closureRate = 250
+    sit.timeToMerge = 2
+    engageKnobs(sit, k)
+    expect(k.vertical).toBeGreaterThan(0)
+  })
+
+  it('目標正在拉開 → vertical 為負（低 yo-yo 換速度切內線）', () => {
+    base()
+    sit.closureRate = -80
+    sit.timeToMerge = Infinity
+    engageKnobs(sit, k)
+    expect(k.vertical).toBeLessThan(0)
+  })
+
+  it('兩個旋鈕都夾在 [−1, 1]', () => {
+    for (const closure of [-500, -100, 0, 100, 500]) {
+      for (const ratio of [0.5, 1, 2]) {
+        base()
+        sit.closureRate = closure
+        sit.cornerRatio = ratio
+        sit.timeToMerge = closure > 0 ? sit.range / closure : Infinity
+        engageKnobs(sit, k)
+        expect(k.leadLag).toBeGreaterThanOrEqual(-1)
+        expect(k.leadLag).toBeLessThanOrEqual(1)
+        expect(k.vertical).toBeGreaterThanOrEqual(-1)
+        expect(k.vertical).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
+  it('連續變化不跳躍 —— 相鄰的接近率給出相近的旋鈕值', () => {
+    // 【這是選連續參數而非具名分支的理由】具名機動之間需要遲滯，
+    // 連續量不需要——它會自己從一邊滑到另一邊。
+    base()
+    sit.closureRate = 100
+    engageKnobs(sit, k)
+    const a = k.leadLag
+    sit.closureRate = 101
+    engageKnobs(sit, k)
+    expect(Math.abs(k.leadLag - a)).toBeLessThan(0.05)
+  })
+})
+
+describe('aimFromKnobs', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const out = new Vector3()
+  const k: Knobs = { leadLag: 1, vertical: 0 }
+
+  const scene = () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -400], [150, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+  }
+
+  it('輸出恆為單位向量', () => {
+    scene()
+    for (const lead of [-1, 0, 1]) {
+      for (const vert of [-1, 0, 1]) {
+        k.leadLag = lead
+        k.vertical = vert
+        aimFromKnobs(basis, sit, k, out)
+        expect(out.length()).toBeCloseTo(1, 12)
+      }
+    }
+  })
+
+  it('leadLag = +1、vertical = 0 時就是彈道預瞄方向', () => {
+    scene()
+    k.leadLag = 1
+    k.vertical = 0
+    aimFromKnobs(basis, sit, k, out)
+    const expected = basis.leadPoint.clone().normalize()
+    expect(out.angleTo(expected)).toBeCloseTo(0, 9)
+  })
+
+  it('leadLag 由 +1 降到 −1，瞄準點沿目標運動方向往後移', () => {
+    scene()
+    k.vertical = 0
+    k.leadLag = 1
+    aimFromKnobs(basis, sit, k, out)
+    const ahead = out.clone()
+    k.leadLag = -1
+    aimFromKnobs(basis, sit, k, out)
+    // 往後移代表在 leadAxis 上的投影變小
+    expect(out.dot(basis.leadAxis)).toBeLessThan(ahead.dot(basis.leadAxis))
+  })
+
+  it('vertical = +1 時瞄準點往升力方向偏', () => {
+    scene()
+    k.leadLag = 0
+    k.vertical = 0
+    aimFromKnobs(basis, sit, k, out)
+    const level = out.clone()
+    k.vertical = 1
+    aimFromKnobs(basis, sit, k, out)
+    expect(out.dot(basis.verticalAxis)).toBeGreaterThan(level.dot(basis.verticalAxis))
+  })
+
+  it('角位移不超過設定的上限', () => {
+    scene()
+    k.leadLag = -1
+    k.vertical = 1
+    aimFromKnobs(basis, sit, k, out)
+    const toTarget = basis.losAxis
+    // 兩軸各最多 maxOffsetAngle，合起來不超過 √2 倍
+    expect(out.angleTo(toTarget)).toBeLessThan(DEFAULT_STEER.maxOffsetAngle * 1.5)
+  })
+
+  it('leadAxis 退化時 leadLag 不造成影響（不會亂指）', () => {
+    // 純尾追、雙方同速：目標運動方向 ∥ 視線
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    expect(basis.leadDegenerate).toBe(true)
+
+    k.vertical = 0
+    k.leadLag = 1
+    aimFromKnobs(basis, sit, k, out)
+    const a = out.clone()
+    k.leadLag = -1
+    aimFromKnobs(basis, sit, k, out)
+    expect(out.angleTo(a)).toBeCloseTo(0, 9)
   })
 })
