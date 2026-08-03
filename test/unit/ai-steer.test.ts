@@ -123,7 +123,9 @@ describe('geometryGate', () => {
     place(target, targetPos, targetVel)
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
+    // 兩個能量判準都給健康值：這一組測的是其他閘門，不該被吊機首閘門搶走
     sit.stallMargin = 2
+    sit.speedMargin = 5
     return { self, target }
   }
 
@@ -468,5 +470,58 @@ describe('steerCommand', () => {
       steerCommand('engage', 'normal', sit, basis, self, k, cmd)
     }
     expect(cmd.aimWorld.equals(first)).toBe(true)
+  })
+})
+
+describe('stallGuard 的第二道判準 —— 絕對速度', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+
+  /** 目標吊在正上方偏前：仰角遠高於 stallGuardElevation。 */
+  const targetAbove = () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 3000, 0], [0, 60, -20])
+    place(target, [0, 3800, -200], [0, 0, -120])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+  }
+
+  /**
+   * 【M4 出貨後抓到的缺陷】垂直爬升時過載趨近 0，`stallMargin` 會變成一個
+   * 大得離譜的數字（實測 37 m/s 時讀到 37），閘門於是永遠不觸發——而那
+   * 正是它最該觸發的場景。
+   */
+  it('過載趨近 0 讓 stallMargin 失效時，速度判準仍然攔得住', () => {
+    targetAbove()
+    sit.stallMargin = 40                                    // 瞎掉的舊判準
+    sit.speedMargin = DEFAULT_STEER.stallGuardSpeed * 0.8    // 但速度真的不夠
+    expect(geometryGate(sit, basis)).toBe('stallGuard')
+  })
+
+  it('兩個判準是「或」的關係：拉太猛也照樣觸發', () => {
+    targetAbove()
+    sit.stallMargin = DEFAULT_STEER.stallGuardMargin * 0.8   // 拉太猛
+    sit.speedMargin = 5                                      // 速度很夠
+    expect(geometryGate(sit, basis)).toBe('stallGuard')
+  })
+
+  it('兩個判準都健康時不觸發', () => {
+    targetAbove()
+    sit.stallMargin = 3
+    sit.speedMargin = 5
+    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+  })
+
+  it('目標不在高仰角時，速度再低也不觸發（那不是吊機首的問題）', () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 3000, 0], [0, 0, -60])
+    place(target, [0, 3000, -600], [0, 0, -120])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 3
+    sit.speedMargin = 0.5
+    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
   })
 })

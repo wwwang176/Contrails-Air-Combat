@@ -105,8 +105,10 @@ export type SteerMode = 'normal' | 'overshoot' | 'stallGuard' | 'planeDegenerate
 export interface SteerConfig {
   /** 超前閘門的距離門檻，m */
   overshootRange: number
-  /** 失速裕度低於此值才可能觸發吊機首閘門 */
+  /** 失速裕度（拉太猛）低於此值才可能觸發吊機首閘門 */
   stallGuardMargin: number
+  /** 速度裕度（TAS ÷ 1G 失速速度）低於此值也觸發吊機首閘門 */
+  stallGuardSpeed: number
   /** 目標仰角高於此值才算「要吊上去」，rad */
   stallGuardElevation: number
   /** 瞄準點相對目標的最大角位移，rad */
@@ -125,6 +127,7 @@ export interface SteerConfig {
 export const DEFAULT_STEER: SteerConfig = {
   overshootRange: 120,
   stallGuardMargin: 1.25,
+  stallGuardSpeed: 1.4,
   stallGuardElevation: 45 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.6,
@@ -148,10 +151,19 @@ export function geometryGate(
   if (sit.range < cfg.overshootRange && sit.closureRate > 0) return 'overshoot'
 
   // 【吊機首與平面奇異是兩件事】平飛時目標在正上方，速度與視線互相垂直，
-  // 平面定義得非常好——壞的是能量不是幾何。所以這一條用失速裕度判，
+  // 平面定義得非常好——壞的是能量不是幾何。所以這一條用能量判，
   // 不用平面模長判。
+  //
+  // 【兩個判準是「或」，缺一不可】M4 出貨後抓到的缺陷：`stallMargin` 代數上
+  // 恆等於 √(CLmax/CL)，它問的是「我拉得太猛了嗎」。垂直爬升時飛機不需要
+  // 升力，過載趨近 0，而 Vs ∝ √n 也跟著縮小，比值被撐大——P-51D 實測在
+  // 132 km/h 時它讀 4.63，遠高於 1.25 的門檻，要掉到約 20 km/h 才觸發。
+  // `speedMargin` 無視過載，補的正是這個盲區：同一個時刻它讀 0.68。
   const elevation = Math.asin(Math.max(-1, Math.min(1, basis.losAxis.y)))
-  if (elevation > cfg.stallGuardElevation && sit.stallMargin < cfg.stallGuardMargin) {
+  if (
+    elevation > cfg.stallGuardElevation
+    && (sit.stallMargin < cfg.stallGuardMargin || sit.speedMargin < cfg.stallGuardSpeed)
+  ) {
     return 'stallGuard'
   }
 
