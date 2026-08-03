@@ -166,6 +166,16 @@ export function aliveCount(cs: readonly Combatant[]): number {
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
 
+  // 【退場的飛機要放掉它自己的指派】`World.step` 跳過退場者的控制器，所以
+  // `selectTarget` 永遠沒機會替它把槽位歸 −1（M5 spec §7）。不清的話那筆
+  // 指派會留到重置為止 —— `countLocks` 有跳過退場者所以不影響統計，但它是
+  // 一筆會騙人的狀態，而且 spec 明寫要歸零。
+  const cs = b.world.combatants
+  const assignments = b.board.assignments
+  for (let i = 0; i < cs.length; i++) {
+    if (!cs[i]!.alive) assignments[i] = -1
+  }
+
   if (b.countdown > 0) {
     b.countdown -= dt
     if (b.countdown <= 0) {
