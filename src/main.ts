@@ -22,6 +22,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { MANOEUVRES, ScriptedController } from './control/ScriptedController'
+import { AiController } from './ai/AiController'
 import { P51D } from './specs/p51d'
 import { BF109G6 } from './specs/bf109g6'
 
@@ -71,6 +72,10 @@ const drone = world.add(
 )
 drone.respawnOnDestroy = true
 world.respawn(drone)
+
+// 【一定要在 player 建立之後】AI 的交戰對象是玩家那架飛機。
+const droneAi = new AiController()
+droneAi.target = player.aircraft
 
 const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
 const hudFrame = createHudFrame()
@@ -165,9 +170,20 @@ function frame(now: number) {
     input.swapSpecRequested = false
   }
 
-  const manoeuvre = MANOEUVRES[input.droneManoeuvre]
-  if (manoeuvre && manoeuvre !== droneController.manoeuvre) {
-    droneController.setManoeuvre(manoeuvre, drone.aircraft)
+  // 靶機的駕駛者：AI 或預錄機動。切換時換掉 Combatant 的 controller
+  const wantAi = input.droneAi
+  if (wantAi && drone.controller !== droneAi) {
+    drone.controller = droneAi
+  } else if (!wantAi && drone.controller !== droneController) {
+    drone.controller = droneController
+    // 換回預錄機動時重新錨定基準航向，否則它會硬扯機首回到很久以前的方向
+    droneController.setManoeuvre(droneController.manoeuvre, drone.aircraft)
+  }
+  if (!wantAi) {
+    const manoeuvre = MANOEUVRES[input.droneManoeuvre]
+    if (manoeuvre && manoeuvre !== droneController.manoeuvre) {
+      droneController.setManoeuvre(manoeuvre, drone.aircraft)
+    }
   }
 
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
@@ -205,6 +221,10 @@ function frame(now: number) {
     // （還指著海面）拖著飛回海裡。
     respawnPlayer()
   }
+
+  // 【玩家陣亡走與撞海完全相同的路徑】spec §2 的裁決：雙方陣亡都自動重生、
+  // 不計分。零新 UI、零選單、零狀態機。
+  if (player.hp <= 0) respawnPlayer()
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
@@ -270,6 +290,8 @@ function frame(now: number) {
   hudFrame.worldX = renderPos.x
   hudFrame.worldZ = renderPos.z
   hudFrame.aircraftName = aircraft.spec.name
+  hudFrame.hp = player.hp
+  hudFrame.hpMax = player.aircraft.spec.hp
 
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight

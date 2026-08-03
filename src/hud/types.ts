@@ -110,6 +110,15 @@ export interface HudFrame {
   contactCount: number
   /** 命中回饋的剩餘秒數。> 0 時機首十字周圍畫 X（spec §8：0.15 s） */
   hitFlash: number
+  /**
+   * 自機血量與上限。
+   *
+   * 【為什麼只顯示自機、不顯示敵機】M2 §8 的裁決不變：你看不出對方的
+   * 結構完整度，那在二戰題材上說不通。自機則不同——你感覺得到自己的
+   * 飛機被打成什麼樣。
+   */
+  hp: number
+  hpMax: number
 }
 
 export function createHudFrame(): HudFrame {
@@ -124,6 +133,7 @@ export function createHudFrame(): HudFrame {
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,
     hitFlash: 0,
+    hp: 1000, hpMax: 1000,
   }
 }
 
