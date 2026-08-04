@@ -143,6 +143,48 @@ export function boundingRadius(boxes: readonly HitBox[]): number {
   return Math.sqrt(r2)
 }
 
+/** `lowestPoint` 的暫存。模組私有、每次呼叫重用（熱路徑之外，但仍不配置）。 */
+const LOW = new Vector3()
+
+/**
+ * 旋轉後的 OBB 在世界 Y 上的最低點。回傳最低的世界 Y，`out` 收最低角點的
+ * 世界座標。
+ *
+ * 【為什麼不是列舉八個角點】列舉要八次四元數旋轉；解析式只要旋轉矩陣的
+ * **第二列**（世界 Y 在機體三軸上的投影）：
+ *
+ *     minY = pos.y + (R10·cx + R11·cy + R12·cz) − (|R10|·hx + |R11|·hy + |R12|·hz)
+ *
+ * 前半是盒心的世界高度，後半是半尺寸在世界 Y 上能往下延伸的最大量。最低
+ * 角點各軸取 `−sign(R1j)`。六個盒一具殘骸每幀 18 次乘法 —— 可以忽略。
+ *
+ * 【為什麼殘骸需要它】殘骸是**翻滾**的，翼尖會比重心早很多碰到水。用重心
+ * 判定會讓水花晚一整個翼展才出現（M8 spec §9.1）。
+ */
+export function lowestPoint(
+  box: HitBox, q: Quaternion, pos: Vector3, out: Vector3,
+): number {
+  const x = q.x
+  const y = q.y
+  const z = q.z
+  const w = q.w
+  // 旋轉矩陣的第二列
+  const r0 = 2 * (x * y + w * z)
+  const r1 = 1 - 2 * (x * x + z * z)
+  const r2 = 2 * (y * z - w * x)
+
+  const h = box.half
+  const c = box.center
+  // 各軸取讓世界 Y 最小的那一側
+  const sx = r0 > 0 ? -h.x : h.x
+  const sy = r1 > 0 ? -h.y : h.y
+  const sz = r2 > 0 ? -h.z : h.z
+
+  LOW.set(c.x + sx, c.y + sy, c.z + sz).applyQuaternion(q).add(pos)
+  out.copy(LOW)
+  return LOW.y
+}
+
 /**
  * 點到線段的最短距離平方。粗篩用，所以只回傳平方值——省一次 sqrt，
  * 呼叫端與半徑的平方比較即可。
