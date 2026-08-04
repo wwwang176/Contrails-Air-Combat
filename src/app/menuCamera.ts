@@ -1,7 +1,15 @@
 import type { Vector3 } from 'three'
 
-/** 選單期間的相機高度，m。與戰鬥的出生高度同一個量級，海面看起來才對 */
-export const MENU_CAMERA_ALTITUDE = 900
+/**
+ * 選單期間的相機高度，m。
+ *
+ * 【為什麼是低空而不是戰鬥的 4,000 m】海面網格只有 10 km 見方（`ocean.ts`
+ * 的 `OCEAN_SIZE`），而且以相機為中心捲動 —— 那塊平面的邊落在
+ * `atan(高度 / 5000)` 的俯角上。900 m 時那是 10°，正好在視線附近，畫面上
+ * 看得到一條方形的邊甚至一個角。150 m 壓到 1.7°，那條邊於是躲進地平線裡，
+ * 讀起來才是「海與天」（M10 spec §9.4）。
+ */
+export const MENU_CAMERA_ALTITUDE = 150
 /** 繞行半徑，m */
 export const MENU_CAMERA_RADIUS = 1200
 /**
@@ -35,8 +43,9 @@ export function menuCameraPose(
   const ahead = yaw + Math.PI / 2
   out.target.set(
     out.position.x + Math.cos(ahead) * 8000,
-    // 略低於相機 —— 地平線因此落在畫面中線偏上，海佔的比例大一點
-    MENU_CAMERA_ALTITUDE - 400,
+    // 【看向海平面而不是水平】8,000 m 外的海面 = 1.1° 俯角，地平線因此
+    // 落在畫面中線略上方，海佔的比例大一點
+    0,
     out.position.z + Math.sin(ahead) * 8000,
   )
 }

@@ -3,8 +3,7 @@ import { FixedStepAccumulator } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
-import { createOcean } from './render/ocean'
-import { createProps } from './render/props'
+import { createTerrain } from './render/terrain'
 import { createTracers } from './render/tracers'
 import { createMuzzles } from './render/muzzle'
 import { createSparks } from './render/sparks'
@@ -31,14 +30,20 @@ import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
-import type { Combatant } from './world/World'
+import type { Combatant, World } from './world/World'
 import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
 import {
-  aliveCount, createBattle, playerFlight, resetBattle, stepBattle,
+  aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
+import {
+  battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
+} from './battle/skirmish'
+import { createMenu } from './ui/menu'
+import { nextScreen, type Screen } from './ui/screens'
+import { menuCameraPose } from './app/menuCamera'
 import { P51D } from './specs/p51d'
 import { BF109G6 } from './specs/bf109g6'
 
@@ -46,9 +51,15 @@ const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
 
-const ocean = createOcean()
-ctx.scene.add(ocean.mesh)
-ctx.scene.add(createProps(600).mesh)
+/**
+ * 目前的地形。**一律經過這個變數存取** —— 撞地判定、水柱、殘骸與零件
+ * 入水都讀它的 `heightAt`。
+ *
+ * 【為什麼不能把 heightAt 抓進閉包快取】換地形之後那一處就還在讀舊的
+ * 高度場，而症狀（飛機撞到看不見的海面）離成因非常遠（M10 spec §5.2）。
+ */
+let terrain = createTerrain('sea')
+ctx.scene.add(terrain.object)
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
@@ -57,17 +68,32 @@ const input = createInputState()
 const bindings = attachInput(canvas, input)
 
 const playerController = new PlayerController(input)
-const battle = createBattle(playerController)
-const world = battle.world
+
+/** 目前的畫面。與 `ui/screens.ts` 的狀態機是同一組值 */
+let screen: Screen = 'landing'
+/** 戰鬥是否暫停。只有 `screen === 'battle'` 時才有意義 */
+let paused = false
+/** 遭遇戰的設定。設定頁改它，「開始戰鬥」與「再打一場」都讀它 */
+let setup: SkirmishSetup = { ...DEFAULT_SKIRMISH }
+
+/**
+ * 目前這一場。**只有 `screen === 'battle'` 時才有值。**
+ *
+ * 【為什麼用定值斷言而不是 `Battle | null`】`stepAndDrawBattle` 裡有三十
+ * 幾處讀它，改成可為空只是把同一個不變式重複寫三十遍。不變式由一個地方
+ * 保證：進入 `battle` 這個畫面的唯一途徑是 `fight` 事件，而那個事件的
+ * 處理器一定先呼叫 `enterBattle()`（見下方的 `onEvent`）。日後若多開一條
+ * 進入戰鬥的路徑，那條路徑也必須先呼叫 `enterBattle()`。
+ */
+let battle!: Battle
+let world!: World
 /**
  * 玩家目前開的那一架。
  *
  * 【為什麼不是 const】接手僚機會換一架（M9 spec §7.2）。每幀比對
  * `battle.player`，變了就把觀測用 AI、第一人稱眼點與相機一起搬過去。
  */
-let player = battle.player
-const START_ALTITUDE = battle.cfg.altitude
-const START_TAS = battle.cfg.tas
+let player!: Combatant
 
 /**
  * 自機的 AI（`I`）。純觀測用：讓同一顆腦袋同時開兩台，從外面看它怎麼打。
@@ -77,13 +103,14 @@ const START_TAS = battle.cfg.tas
  * 兩架會互相踩掉對方的決策狀態，看到的行為不是任何一架真正的行為。
  */
 const playerAi = new AiController()
-playerAi.board = battle.board
-playerAi.selfIndex = player.index
-playerAi.setDecisionPhase(player.index / world.combatants.length)
 
-const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
+/** 【選單期間要藏起來】`stepAndDrawBattle` 不跑，HUD 畫布會停在最後一幀 */
+const hudCanvas = document.getElementById('hud') as HTMLCanvasElement
+const hud = new Hud(hudCanvas)
 const hudFrame = createHudFrame()
-const scoreboard = createScoreboard(document.getElementById('board') as HTMLElement)
+const boardEl = document.getElementById('board') as HTMLElement
+const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
+const scoreboard = createScoreboard(boardEl)
 
 /**
  * 一架飛機的可視部分：模型 + 內插用的暫存。
@@ -117,10 +144,10 @@ function attachVisual(c: Combatant): Visual {
   visuals.set(c, v)
   return v
 }
-for (const c of world.combatants) attachVisual(c)
 
 // 【三個特效各一個 InstancedMesh】總共多 3 個 draw call（M7 spec §9）
-const muzzles = createMuzzles(world.combatants.length)
+// 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
+const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
@@ -137,7 +164,7 @@ const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const debris = createDebris()
 ctx.scene.add(debris.object)
-const wrecks = createWrecks(world.combatants.length, (m) => {
+const wrecks = createWrecks(MAX_COMBATANTS, (m) => {
   ctx.scene.remove(m.group)
   m.dispose()
 })
@@ -149,11 +176,10 @@ const debrisColorOf = (index: number): number =>
 // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
 // 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
 // （`rebuildModel` 只換 `v.model`，不換 `v` 本身，所以參考恆有效。）
-const renderPositions = world.combatants.map((c) => visuals.get(c)!.position)
-const renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
+let renderPositions: Vector3[] = []
+let renderQuaternions: Quaternion[] = []
 
 const rig = new CameraRig()
-rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
 
 /** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
 function rebuildModel(c: Combatant) {
@@ -187,7 +213,8 @@ let wasDying = false
  */
 function respawnPlayer() {
   const p = battle.player
-  p.aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
+  // 【讀這一場的 cfg 而不是模組層的常數】M10 起每一場的設定可以不同
+  p.aircraft.respawn(input.aimWorld, battle.cfg.altitude, battle.cfg.tas)
   p.aircraft.state.position.copy(p.spawnPosition)
   p.aircraft.prevPosition.copy(p.spawnPosition)
   p.hp = p.aircraft.spec.hp
@@ -198,20 +225,111 @@ function respawnPlayer() {
   // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
   resetGEffect()
 }
-respawnPlayer()
+
+/** 把一架的模型移出場景並釋放。殘骸池的回收回呼與換場都用它 */
+function releaseVisual(v: Visual): void {
+  ctx.scene.remove(v.model.group)
+  v.model.dispose()
+}
 
 /**
- * 撞地判定，套用於**所有**飛機。
+ * 把場上的模型全部還回去。
  *
- * 【M5 起擴及全部】M2 到 M4 只對玩家做，理由是「靶機在固定高度巡航，不會
- * 撞海」。20v20 裡總有人會被打到失控——不補的話會出現在海面下繼續飛的
- * 飛機（M5 spec §1.1）。
- *
- * 波參數與海面著色器共用（見 aircraft/crash.ts），而 `elapsed` 在幀首更新、
- * 與下方 `ocean.update` 餵給 shader 的是同一個時間 —— 玩家看到的浪頭就是
- * 撞得到的浪頭。
+ * 【`wrecks.reset()` 必須排在清空 `visuals` 之前】殘骸池持有的模型也在
+ * `visuals` 裡。順序顛倒的話同一個模型會被 `dispose()` 兩次。
  */
-world.crashPolicy = (c) => isCrashed(c.aircraft.state.position, ocean.heightAt, elapsed)
+function releaseVisuals(): void {
+  wrecks.reset()
+  for (const v of visuals.values()) releaseVisual(v)
+  visuals.clear()
+  renderPositions = []
+  renderQuaternions = []
+}
+
+/**
+ * 整批重建模型。換一場與 R 重開都走這裡。
+ *
+ * 【為什麼 R 也要整批重建，而不是只把 `wrecked` 旗標清掉】殘骸池**仍然
+ * 持有**上一批被接管的模型，而且會在它們沉到水下時呼叫回收回呼 ——
+ * 那時那個模型已經是一架活著的飛機的模型了，於是活人的飛機憑空消失。
+ * 這是 M9 留下的缺陷；`wrecks.reset()` 到 M10 才存在，這裡才修得掉。
+ */
+function rebuildVisuals(): void {
+  releaseVisuals()
+  for (const c of world.combatants) attachVisual(c)
+  // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion
+  // 參考，不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
+  // （`rebuildModel` 只換 `v.model`，不換 `v` 本身，所以參考恆有效。）
+  renderPositions = world.combatants.map((c) => visuals.get(c)!.position)
+  renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
+  // 眼點是量出來的座艙位置，一機一個值
+  rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+}
+
+/** 離開戰鬥：清場並收掉記分板。 */
+function leaveBattle(): void {
+  releaseVisuals()
+  // 【記分板要一起收】`stepAndDrawBattle` 不再跑，結算板會就這樣留在
+  // 選單上面 —— 從結算按「回設定頁」時看得最清楚
+  input.scoreboardHeld = false
+  scoreboard.setVisible(false)
+  boardActions.hidden = true
+  boardEl.classList.remove('finished')
+}
+
+/**
+ * 重建整場戰鬥。設定頁的「開始戰鬥」與結算的「再打一場」都走這裡。
+ *
+ * 【順序不可調換】先把上一場的東西還回去（殘骸池持有模型，必須在
+ * `visuals` 清空之前歸零），再建新的世界，最後才建模型 —— 模型是依
+ * 新的 `combatants` 建的（M10 spec §5.3、§5.5）。
+ */
+function enterBattle(): void {
+  // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
+  releaseVisuals()
+
+  // 2. 其餘的池子歸零
+  fireball.reset()
+  smoke.reset()
+  spray.reset()
+  sparks.reset()
+  splashes.reset()
+  debris.reset()
+
+  // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
+  //    等著被第一次使用的死碼（M10 spec §5.3）
+  ctx.scene.remove(terrain.object)
+  terrain.dispose()
+  terrain = createTerrain('sea')
+  ctx.scene.add(terrain.object)
+
+  // 4. 新的世界
+  battle = createBattle(playerController, battleConfigFrom(setup))
+  world = battle.world
+  /**
+   * 撞地判定，套用於**所有**飛機。
+   *
+   * 【M5 起擴及全部】M2 到 M4 只對玩家做，理由是「靶機在固定高度巡航，
+   * 不會撞海」。20v20 裡總有人會被打到失控——不補的話會出現在海面下
+   * 繼續飛的飛機（M5 spec §1.1）。
+   *
+   * 波參數與海面著色器共用（見 aircraft/crash.ts），而 `elapsed` 在幀首
+   * 更新、與 `terrain.update` 餵給 shader 的是同一個時間 —— 玩家看到的
+   * 浪頭就是撞得到的浪頭。
+   */
+  world.crashPolicy = (c) => isCrashed(c.aircraft.state.position, terrain.heightAt, elapsed)
+  player = battle.player
+  rebuildVisuals()
+
+  playerAi.board = battle.board
+  playerAi.selfIndex = player.index
+  playerAi.setDecisionPhase(player.index / world.combatants.length)
+  respawnPlayer()
+  wasDying = false
+  // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
+  // 留著的話新的一場開頭第一幀就被彈進暫停選單
+  input.pointerLockLost = false
+}
 
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
@@ -230,9 +348,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 說不通的狀態。重置走與全滅倒數完全相同的那一條路徑（battle/setup）。
     resetBattle(battle)
     player = battle.player
-    // 【殘骸旗標要一起清】不清的話上一場死掉的那些飛機在新的一場裡位置
-    // 永遠停在殘骸池最後寫進去的地方 —— 看起來像一批不會動的飛機
-    for (const v of visuals.values()) v.wrecked = false
+    // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
+    rebuildVisuals()
     respawnPlayer()
     input.resetRequested = false
   }
@@ -322,7 +439,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     sparks.emit(
       world.hitEvents, ctx.camera.position.x, ctx.camera.position.y, ctx.camera.position.z,
     )
-    splashes.emit(world.splashEvents, ocean.heightAt, elapsed)
+    splashes.emit(world.splashEvents, terrain.heightAt, elapsed)
     clearImpacts(world.hitEvents)
     clearImpacts(world.splashEvents)
     // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
@@ -386,7 +503,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   }
   const renderPos = visuals.get(player)!.position
   const renderQuat = visuals.get(player)!.quaternion
-  ocean.update(elapsed, renderPos.x, renderPos.z)
+  terrain.update(elapsed, renderPos.x, renderPos.z)
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
@@ -407,17 +524,17 @@ function stepAndDrawBattle(frameSeconds: number): void {
   sparks.step(frameSeconds)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
   // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
-  wrecks.step(frameSeconds, ocean.heightAt, elapsed)
-  debris.step(frameSeconds, ocean.heightAt, elapsed)
+  wrecks.step(frameSeconds, terrain.heightAt, elapsed)
+  debris.step(frameSeconds, terrain.heightAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
-  splashes.emit(wrecks.splashEvents, ocean.heightAt, elapsed)
+  splashes.emit(wrecks.splashEvents, terrain.heightAt, elapsed)
   // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
   // 位置相同。高低粗細由 splashSize 依格子隨機
-  splashes.emit(debris.sprayEvents, ocean.heightAt, elapsed)
+  splashes.emit(debris.sprayEvents, terrain.heightAt, elapsed)
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
@@ -534,6 +651,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
 
   // 【只在看得到的時候才重建】40 列的 innerHTML 重建不便宜到可以每幀做
   const finished = battle.outcome !== 'fighting'
+  // 【分出勝負就放開指標鎖】結算板的兩顆按鈕要點得到，而指標鎖定期間
+  // 游標是被抓住的。解鎖會讓下一幀的 `pointerLockLost` 為真，但那個分支
+  // 只在 `outcome === 'fighting'` 時才暫停 —— 所以不會誤觸
+  if (finished && document.pointerLockElement === canvas) document.exitPointerLock()
   const showBoard = input.scoreboardHeld || finished
   if (showBoard) {
     scoreboard.render(
@@ -543,16 +664,88 @@ function stepAndDrawBattle(frameSeconds: number): void {
     )
   }
   scoreboard.setVisible(showBoard)
+  // 【結算時才讓那兩顆按鈕出現，而且 #board 這時要能點】按住 TAB 看戰績
+  // 的期間它是 pointer-events: none —— 那時它只是看
+  boardActions.hidden = !finished
+  boardEl.classList.toggle('finished', finished)
 }
+
+const MENU_POSE = { position: new Vector3(), target: new Vector3() }
+
+/** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
+function drawMenuBackground(): void {
+  menuCameraPose(elapsed, MENU_POSE)
+  ctx.camera.position.copy(MENU_POSE.position)
+  ctx.camera.up.set(0, 1, 0)
+  ctx.camera.lookAt(MENU_POSE.target)
+  terrain.update(elapsed, MENU_POSE.position.x, MENU_POSE.position.z)
+  ctx.renderer.render(ctx.scene, ctx.camera)
+}
+
+const menu = createMenu(document.getElementById('ui') as HTMLElement, {
+  onEvent(event) {
+    const from = screen
+    screen = nextScreen(screen, event)
+    // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
+    if (event === 'fight' && screen === 'battle') {
+      enterBattle()
+      paused = false
+      void canvas.requestPointerLock()
+    }
+    // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
+    if (from === 'battle' && screen !== 'battle') {
+      paused = false
+      leaveBattle()
+    }
+    menu.show(screen)
+    menu.setPaused(false)
+  },
+  onSetup(next) {
+    setup = next
+    menu.renderSetup(setup)
+  },
+  onResume() {
+    paused = false
+    menu.setPaused(false)
+    void canvas.requestPointerLock()
+  },
+})
+menu.renderSetup(setup)
+menu.show(screen)
 
 function frame(now: number) {
   const frameSeconds = (now - lastTime) / 1000
   lastTime = now
-  elapsed += frameSeconds
   perf.begin()
   bindings.tick(frameSeconds)
+  hudCanvas.hidden = screen !== 'battle'
 
-  stepAndDrawBattle(frameSeconds)
+  if (screen === 'battle') {
+    // 【暫停時所有模擬時間都不前進】只停飛機的話，畫面上是一批定格的
+    // 飛機浮在繼續起伏的海上 —— 那看起來像當掉（M10 spec §8.1）
+    if (input.pointerLockLost) {
+      input.pointerLockLost = false
+      // 分出勝負之後不再暫停 —— 結算板本身就是出口
+      if (battle.outcome === 'fighting') {
+        paused = true
+        menu.setPaused(true)
+        // 【暫停時記分板一定要收掉】`stepAndDrawBattle` 不跑，記分板的
+        // 顯示狀態就凍結在按下暫停前的那一刻 —— 玩家若正按著 TAB，
+        // 那張板子會一直疊在暫停選單上（M10 spec §8.1）
+        input.scoreboardHeld = false
+        scoreboard.setVisible(false)
+      }
+    }
+    if (!paused) {
+      elapsed += frameSeconds
+      stepAndDrawBattle(frameSeconds)
+    } else {
+      ctx.renderer.render(ctx.scene, ctx.camera)
+    }
+  } else {
+    elapsed += frameSeconds
+    drawMenuBackground()
+  }
 
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
