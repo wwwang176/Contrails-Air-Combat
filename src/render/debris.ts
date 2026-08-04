@@ -5,7 +5,9 @@ import {
 import { coneDirection, hash01 } from './scatter'
 import { tumble } from './tumble'
 import {
-  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, DEBRIS_SMOKE_SECONDS, smokePuffs, smokeTimer,
+  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL,
+  DEBRIS_SMOKE_SECONDS_MAX, DEBRIS_SMOKE_SECONDS_MIN,
+  smokePuffs, smokeTimer,
 } from './smoke'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
@@ -70,17 +72,21 @@ export const DEBRIS_DRAG = 0.4
 export const DEBRIS_SPIN = Math.PI
 
 /**
- * 壽命上限，s。
+ * 每一片各自的壽命範圍，s。**逐片隨機**。
  *
- * 【由 40 縮到 5】專案負責人裁決「出現 5 秒後就移除零件」。40 s 原本是為了
- * 讓零件盡量掉到海裡才退場，但一片 0.4 m 的方塊在幾百公尺外只有一兩個
- * 像素 —— 讓它飛四十秒換不到任何觀感，只是讓池子裡永遠有東西。
+ * 【40 → 5 → 1.5~2】專案負責人在試驗場上一路縮短。40 s 原本是為了讓零件
+ * 盡量掉到海裡才退場，但一片 0.4 m 的方塊在幾百公尺外只有一兩個像素 ——
+ * 讓它飛那麼久換不到任何觀感，只是讓池子裡永遠有東西。
  *
- * 【代價：高空擊墜的零件不會濺水】阻尼終端速度 24.5 m/s，5 s 大約掉 90 m。
- * 也就是說只有在低空被打下來的零件才來得及碰到海面推噴濺事件；高空的那些
- * 會在空中直接消失。入水的判定與噴濺照舊，只是觸發得少了。
+ * 【為什麼是範圍而不是一個值】與煙的壽命抖動同一個理由：同一個壽命會讓
+ * 整團碎片在同一瞬間一起消失，那比一片一片散掉明顯得多。
+ *
+ * 【代價：高空擊墜的零件不會濺水】阻尼終端速度 24.5 m/s，2 s 只掉約 20 m。
+ * 只有低空（或本來就在俯衝、繼承了向下速度）的零件才來得及碰到海面。入水
+ * 的判定、噴濺與水柱照舊，只是觸發得少了。
  */
-export const DEBRIS_MAX_LIFE = 5
+export const DEBRIS_LIFE_MIN = 1.5
+export const DEBRIS_LIFE_MAX = 2
 
 /** 池子大小。40 架 × 36 片 = 1,440。三角形 1,440 × 12 ≈ 17,000。 */
 export const DEBRIS_CAPACITY = 40 * DEBRIS_COUNT
@@ -97,7 +103,14 @@ export interface Debris {
    * `step` 之後讀，不必自己清。
    */
   readonly smokeEvents: ImpactEvents
-  /** 這一次 `step` 產生的入水位置。與 `smokeEvents` 同樣的生命週期。 */
+  /**
+   * 這一次 `step` 產生的入水位置。與 `smokeEvents` 同樣的生命週期。
+   *
+   * 【一份事件，兩個消費者】呼叫端同時餵給噴濺池（四散的水珠）與水柱池
+   * （一根小水柱）—— 兩者是同一次入水的兩個表現，位置完全相同，沒有理由
+   * 存兩份。水柱的高低粗細本來就依池子的格子隨機（見 `splashSize`），
+   * 所以「每一片各濺一個隨機的水花」不需要這裡再做什麼。
+   */
   readonly sprayEvents: ImpactEvents
   /**
    * 依擊墜事件噴一批零件。
@@ -145,7 +158,16 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
   const size = new Float32Array(capacity)
   const timer = new Float32Array(capacity)
   const smokes = new Uint8Array(capacity)
-  const age = new Float32Array(capacity).fill(DEBRIS_MAX_LIFE)
+  /** 這一片的壽命，s。逐片隨機（`DEBRIS_LIFE_MIN`~`MAX`）。 */
+  const lifeOf = new Float32Array(capacity).fill(DEBRIS_LIFE_MAX)
+  /** 這一片冒煙冒到幾秒。逐片隨機，且不晚於它自己的壽命。 */
+  const smokeUntil = new Float32Array(capacity)
+  /**
+   * 【死亡哨兵用 Infinity】每一片的壽命各不相同，判準是 `age >= lifeOf[i]`。
+   * 填一個具體的值就得保證它大於任何可能的壽命，而 float32 的來回轉換可以
+   * 讓一個和存成比它自己還小的值（`splash.ts` 踩過這個坑）。
+   */
+  const age = new Float32Array(capacity).fill(Infinity)
   let next = 0
   let live = 0
 
@@ -170,7 +192,7 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
 
   /** 讓某一格退場並縮成 0。 */
   function kill(i: number): void {
-    age[i] = DEBRIS_MAX_LIFE
+    age[i] = Infinity
     M.compose(ZERO, IDENTITY, ZERO)
     object.setMatrixAt(i, M)
   }
@@ -202,7 +224,9 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         for (let k = 0; k < DEBRIS_COUNT; k++) {
           const i = next
           next = next + 1 >= capacity ? 0 : next + 1
-          if (age[i]! >= DEBRIS_MAX_LIFE) live++
+          // 【先用舊壽命判生死，再寫新的】反過來會把一格活著的粒子誤判成
+          // 原本是死的而重複計數
+          if (age[i]! >= lifeOf[i]!) live++
           const seed = e * DEBRIS_COUNT + k
 
           // 【沿飛行方向散射】繼承母機速度，再疊一個朝前的錐 —— 一架
@@ -227,6 +251,11 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
             ? mid + (DEBRIS_SIZE_MAX - mid) * h
             : DEBRIS_SIZE_MIN + (mid - DEBRIS_SIZE_MIN) * h
           smokes[i] = big ? 1 : 0
+          // 壽命與停煙各取一個獨立的雜湊 —— 長命的不一定冒得久
+          lifeOf[i] = DEBRIS_LIFE_MIN
+            + (DEBRIS_LIFE_MAX - DEBRIS_LIFE_MIN) * hash01(seed * 7 + 5)
+          smokeUntil[i] = DEBRIS_SMOKE_SECONDS_MIN
+            + (DEBRIS_SMOKE_SECONDS_MAX - DEBRIS_SMOKE_SECONDS_MIN) * hash01(seed * 11 + 3)
           timer[i] = 0
           age[i] = 0
           object.setColorAt(i, TINT)
@@ -243,10 +272,10 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
       live = 0
       for (let i = 0; i < capacity; i++) {
         const old = age[i]!
-        if (old >= DEBRIS_MAX_LIFE) continue
+        if (old >= lifeOf[i]!) continue
         const na = old + dt
         age[i] = na
-        if (na >= DEBRIS_MAX_LIFE) {
+        if (na >= lifeOf[i]!) {
           kill(i)
           continue
         }
@@ -275,9 +304,8 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         }
 
         live++
-        // 【煙比零件早收】煙帶要先由頭端稀疏下去，不能與零件同時整條消失
-        // —— 見 `DEBRIS_SMOKE_SECONDS`
-        if (smokes[i] === 1 && na < DEBRIS_SMOKE_SECONDS) {
+        // 【煙不晚於零件收】見 `DEBRIS_SMOKE_SECONDS_MIN/MAX`
+        if (smokes[i] === 1 && na < smokeUntil[i]!) {
           const t = timer[i]!
           const puffs = smokePuffs(t, dt, DEBRIS_SMOKE_INTERVAL)
           timer[i] = smokeTimer(t, dt, DEBRIS_SMOKE_INTERVAL)
