@@ -55,6 +55,13 @@ export interface Particles {
   ): void
   /** 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number): void
+  /**
+   * 全部歸零。**換一場戰鬥時呼叫** —— 上一場的煙不該飄在新的一場裡。
+   *
+   * 【為什麼不是 dispose 再建一個】那會重新配置 GPU 緩衝、還要把新的
+   * `object` 重新加進場景 —— 一條只在換場時才走、因此永遠測不夠的路徑。
+   */
+  reset(): void
   dispose(): void
 }
 
@@ -313,6 +320,25 @@ export function createParticles(cfg: ParticleConfig): Particles {
         alphas.needsUpdate = true
         if (object.instanceColor) object.instanceColor.needsUpdate = true
       }
+    },
+
+    reset(): void {
+      age.fill(Infinity)
+      live = 0
+      next = 0
+      const a = alphas.array as Float32Array
+      M.compose(ZERO, ROT.identity(), ZERO)
+      for (let i = 0; i < capacity; i++) {
+        // 【已經歸零的跳過】與 step 同一個理由：把 0 重複寫成 0 是白工
+        if (zeroed[i] === 1) continue
+        object.setMatrixAt(i, M)
+        object.setColorAt(i, TINT.setRGB(0, 0, 0))
+        a[i] = 0
+        zeroed[i] = 1
+      }
+      object.instanceMatrix.needsUpdate = true
+      if (object.instanceColor) object.instanceColor.needsUpdate = true
+      alphas.needsUpdate = true
     },
 
     dispose(): void {
