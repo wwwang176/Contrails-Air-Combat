@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   boundingRadius, createHitResult, hitAircraft, makeHitBox, segmentBox,
-  segmentPointDistanceSq, HIT_PARTS, NO_HIT, PART_MULTIPLIER, type HitBox,
+  segmentPointDistanceSq, HIT_PARTS, NO_HIT, PART_MULTIPLIER,
+  type FaceNormal, type HitBox,
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -249,5 +250,113 @@ describe('segmentPointDistanceSq', () => {
       )).toBeLessThanOrEqual(r2)
     }
     expect(hits).toBeGreaterThan(100)   // 這批線段真的打中了不少，斷言才有意義
+  })
+})
+
+describe('segmentBox 的入射面法線（M7 spec §3.1）', () => {
+  const face: FaceNormal = { axis: -1, sign: 0 }
+
+  it('沿 +Z 穿過時從低 Z 面進入 → 法線 −Z', () => {
+    // UNIT 是 [-1,-1,-1]..[1,1,1]。從 z = −5 射向 z = +5，在 z = −1 進入
+    expect(segmentBox(0, 0, -5, 0, 0, 5, UNIT, face)).toBeCloseTo(0.4, 9)
+    expect(face.axis).toBe(2)
+    expect(face.sign).toBe(-1)
+  })
+
+  it('沿 −Z 穿過時從高 Z 面進入 → 法線 +Z', () => {
+    expect(segmentBox(0, 0, 5, 0, 0, -5, UNIT, face)).toBeCloseTo(0.4, 9)
+    expect(face.axis).toBe(2)
+    expect(face.sign).toBe(1)
+  })
+
+  it('沿 +X 與 +Y 各自給對的軸', () => {
+    segmentBox(-5, 0, 0, 5, 0, 0, UNIT, face)
+    expect(face.axis).toBe(0)
+    expect(face.sign).toBe(-1)
+
+    segmentBox(0, 5, 0, 0, -5, 0, UNIT, face)
+    expect(face.axis).toBe(1)
+    expect(face.sign).toBe(1)
+  })
+
+  it('起點就在盒內時沒有入射面', () => {
+    // 【為什麼要有這個狀態】tMin 保持 0，三個軸都沒有抬高過它 ——
+    // 「從哪一面進來」這個問題在這個情形下沒有答案。硬給一個會讓火花
+    // 往任意方向噴，而那個錯誤看起來像是法線算錯。
+    expect(segmentBox(0, 0, 0, 0, 0, 5, UNIT, face)).toBe(0)
+    expect(face.axis).toBe(-1)
+  })
+
+  it('未命中時不動 outFace', () => {
+    face.axis = 7
+    expect(segmentBox(0, 5, -5, 0, 5, 5, UNIT, face)).toBe(NO_HIT)
+    expect(face.axis).toBe(7)
+  })
+
+  it('不傳 outFace 也能用 —— 既有呼叫端一個字都不用改', () => {
+    expect(segmentBox(0, 0, -5, 0, 0, 5, UNIT)).toBeCloseTo(0.4, 9)
+  })
+})
+
+describe('hitAircraft 的法線（M7 spec §3.2）', () => {
+  /** 巢狀盒：座艙整個包在機身裡，與 hitAircraft 既有測試同形。 */
+  const NESTED: HitBox[] = [
+    makeHitBox('fuselage', [-1, -1, -4], [1, 1, 4]),
+    makeHitBox('cockpit', [-0.5, 0, -0.5], [0.5, 1, 0.5]),
+  ]
+  const ORIGIN = new Vector3()
+  const IDENTITY = new Quaternion()
+
+  it('法線取自最近的 t 那個盒，不是倍率最高的那個', () => {
+    // 【這是本任務最重要的一條】從 +X 側射進去：先進機身的高 X 面
+    // （法線 +X），再進座艙。倍率取的是座艙（×2.5），但法線必須是機身的 ——
+    // 那才是彈丸真正先碰到的表面。跟著倍率走的話火花會從機體內部噴出來。
+    const out = createHitResult()
+    const s0 = new Vector3(5, 0.5, 0)
+    const s1 = new Vector3(-5, 0.5, 0)
+    expect(hitAircraft(NESTED, ORIGIN, IDENTITY, s0, s1, out)).toBe(true)
+    expect(out.part).toBe('cockpit')          // 倍率仍取最高
+    expect(out.nx).toBe(1)                    // 法線來自機身的高 X 面
+    expect(out.ny).toBe(0)
+    expect(out.nz).toBe(0)
+  })
+
+  it('法線是機體座標 —— 呼叫端負責轉世界', () => {
+    // 把飛機繞 Y 轉 90°，法線輸出不變（仍是機體座標的 +X）
+    const out = createHitResult()
+    const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+    // 機體 +X 在轉了 90° 之後指向世界 −Z，所以線段要從世界 −Z 射進來
+    const s0 = new Vector3(0, 0.5, -5)
+    const s1 = new Vector3(0, 0.5, 5)
+    expect(hitAircraft(NESTED, ORIGIN, q, s0, s1, out)).toBe(true)
+    expect(out.nx).toBe(1)
+    expect(out.ny).toBe(0)
+    expect(out.nz).toBe(0)
+  })
+
+  it('法線恆為單位向量或全零', () => {
+    const out = createHitResult()
+    const s0 = new Vector3(0, 5, 0)
+    const s1 = new Vector3(0, -5, 0)
+    expect(hitAircraft(NESTED, ORIGIN, IDENTITY, s0, s1, out)).toBe(true)
+    const len = Math.hypot(out.nx, out.ny, out.nz)
+    expect(len).toBeCloseTo(1, 9)
+  })
+
+  it('起點在盒內時三分量皆為 0，呼叫端據此走備援', () => {
+    const out = createHitResult()
+    const s0 = new Vector3(0, 0, 0)
+    const s1 = new Vector3(0, 0, 10)
+    expect(hitAircraft(NESTED, ORIGIN, IDENTITY, s0, s1, out)).toBe(true)
+    expect(out.nx).toBe(0)
+    expect(out.ny).toBe(0)
+    expect(out.nz).toBe(0)
+  })
+
+  it('createHitResult 的法線起始為 0', () => {
+    const out = createHitResult()
+    expect(out.nx).toBe(0)
+    expect(out.ny).toBe(0)
+    expect(out.nz).toBe(0)
   })
 })

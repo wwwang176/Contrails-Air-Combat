@@ -51,13 +51,29 @@ export const NO_HIT = -1
  *
  * @returns 進入參數 t ∈ [0, 1]；起點已在盒內時為 0；未命中回傳 NO_HIT。
  */
+/**
+ * slab 測試找到的入射面。
+ *
+ * `axis`：0 = X、1 = Y、2 = Z；**−1 代表沒有入射面**（線段起點就在盒內）。
+ * `sign`：+1 = 從該軸的高面進入（法線 +axis），−1 = 從低面進入（法線 −axis）。
+ */
+export interface FaceNormal {
+  axis: number
+  sign: number
+}
+
 export function segmentBox(
   ox: number, oy: number, oz: number,
   ex: number, ey: number, ez: number,
   box: HitBox,
+  outFace?: FaceNormal,
 ): number {
   let tMin = 0
   let tMax = 1
+  // 【−1 代表「沒有入射面」而不是「還沒算」】tMin 起始為 0，若三個軸都
+  // 沒有抬高過它（起點在盒內），這個值就會原樣留到最後（M7 spec §3.2）。
+  let hitAxis = -1
+  let hitSign = 0
 
   const c = box.center
   const h = box.half
@@ -86,9 +102,21 @@ export function segmentBox(
       t0 = t1
       t1 = swap
     }
-    if (t0 > tMin) tMin = t0
+    if (t0 > tMin) {
+      tMin = t0
+      hitAxis = axis
+      // 沿 +axis 前進 → 從低面進入 → 法線指向 −axis，反之亦然
+      hitSign = d > 0 ? -1 : 1
+    }
     if (t1 < tMax) tMax = t1
     if (tMin > tMax) return NO_HIT
+  }
+
+  // 【只在確定命中之後才寫】未命中的路徑全部提早 return，所以呼叫端在
+  // NO_HIT 時拿到的是上一次的值——與「false 時不動 out」同一條約定。
+  if (outFace !== undefined) {
+    outFace.axis = hitAxis
+    outFace.sign = hitSign
   }
   return tMin
 }
@@ -141,13 +169,26 @@ export interface HitResult {
   /** 取所有命中盒中**倍率最高**的 */
   part: HitPart
   multiplier: number
+  /**
+   * 入射面的法線，**機體座標**的單位向量。三分量皆為 0 = 線段起點就在
+   * 盒內，沒有入射面（M7 spec §3.2）。
+   *
+   * 【它跟著 `t` 走而不是跟著 `multiplier` 走】命中盒是巢狀的（座艙整個
+   * 包在機身裡）。倍率取最高的那個盒是**內層**，而彈丸真正先碰到的表面
+   * 是**外層**。跟著倍率走的話火花會從機體內部噴出來。
+   */
+  nx: number
+  ny: number
+  nz: number
 }
 
 export function createHitResult(): HitResult {
-  return { t: 0, part: 'fuselage', multiplier: 1 }
+  return { t: 0, part: 'fuselage', multiplier: 1, nx: 0, ny: 0, nz: 0 }
 }
 
 const S = makeScratch(2)
+/** slab 測試的入射面。模組私有、每次呼叫重用（熱路徑零配置） */
+const FACE: FaceNormal = { axis: -1, sign: 0 }
 
 /**
  * 世界座標線段對一架飛機的命中判定。
@@ -185,10 +226,17 @@ export function hitAircraft(
   let bestT = Infinity
   let bestMul = -1
   let bestPart: HitPart = 'fuselage'
+  let bestAxis = -1
+  let bestSign = 0
   for (const box of boxes) {
-    const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+    const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box, FACE)
     if (t === NO_HIT) continue
-    if (t < bestT) bestT = t
+    if (t < bestT) {
+      bestT = t
+      // 【法線跟著 t 走】見 HitResult.nx 的註解
+      bestAxis = FACE.axis
+      bestSign = FACE.sign
+    }
     const mul = PART_MULTIPLIER[box.part]
     if (mul > bestMul) {
       bestMul = mul
@@ -200,6 +248,9 @@ export function hitAircraft(
   out.t = bestT
   out.part = bestPart
   out.multiplier = bestMul
+  out.nx = bestAxis === 0 ? bestSign : 0
+  out.ny = bestAxis === 1 ? bestSign : 0
+  out.nz = bestAxis === 2 ? bestSign : 0
   return true
 }
 
