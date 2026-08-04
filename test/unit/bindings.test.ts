@@ -155,28 +155,27 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
 describe('attachInput：鍵盤旗標與解除綁定', () => {
   const key = (code: string) => ({ code, preventDefault: () => {} })
 
-  it('R 設定 resetRequested', () => {
-    const dom = setupDom()
-    const state = createInputState()
-    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
-
-    expect(state.resetRequested).toBe(false)
-    dom.win.fire('keydown', key('KeyR'))
-    expect(state.resetRequested).toBe(true)
-  })
-
-  it('C 不再有任何作用 —— 換機種由遭遇戰設定頁擁有', () => {
-    // 【為什麼要留一條測試守一個「不做事」的鍵】M2 到 M9 的 C 是寫死的
-    // 「P-51 ⇄ Bf 109」二選一，與陣營無關 —— 選了軸心國之後按下去，玩家
-    // 會在藍隊裡開著一台跟敵人一模一樣的 P-51。M10 起機種由設定頁決定
-    // （`battle/skirmish.ts`），這個鍵沒有正確的行為可言。
+  it('C 與 R 都不再有任何作用 —— 換機種與重開都由選單擁有', () => {
+    // 【為什麼要留一條測試守兩個「不做事」的鍵】它們曾經有行為，而且是
+    // M2 時代那種「一個鍵一個功能」的臨時鷹架：
+    //
+    // - `C` 寫死成「P-51 ⇄ Bf 109」二選一、與陣營無關 —— 選了軸心國之後
+    //   按下去，玩家會在藍隊裡開著一台跟敵人一模一樣的 P-51。M10 起機種
+    //   由遭遇戰設定頁決定（`battle/skirmish.ts`）。
+    // - `R` 的行為本身沒壞，但它只出現在 HUD 提示那一行 —— 一個能用卻沒
+    //   寫在任何地方的鍵。M10 起「重新開始」長在暫停選單上。
+    //
+    // 沒有這一條，哪天有人把 `KeyC`／`KeyR` 接到別的功能上，不會有任何
+    // 東西提醒他這兩個鍵有過歷史。
     const dom = setupDom()
     const state = createInputState()
     attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
 
     const before = JSON.stringify(state)
-    dom.win.fire('keydown', key('KeyC'))
-    dom.win.fire('keyup', key('KeyC'))
+    for (const code of ['KeyC', 'KeyR']) {
+      dom.win.fire('keydown', key(code))
+      dom.win.fire('keyup', key(code))
+    }
     expect(JSON.stringify(state)).toBe(before)
   })
 
@@ -189,9 +188,9 @@ describe('attachInput：鍵盤旗標與解除綁定', () => {
     expect(dom.win.count('mousemove')).toBe(0)
 
     dom.win.fire('mousemove', move(0.5, 0))
-    dom.win.fire('keydown', key('KeyR'))
+    dom.win.fire('keydown', key('KeyI'))
     expect(state.aimDeltaX).toBe(0)
-    expect(state.resetRequested).toBe(false)
+    expect(state.playerAi).toBe(false)
   })
 })
 

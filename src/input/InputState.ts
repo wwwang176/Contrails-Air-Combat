@@ -50,8 +50,6 @@ export interface InputState {
    * 接管期間右鍵自由視角照常，左鍵失效（開火由 AI 的開火紀律決定）。
    */
   playerAi: boolean
-  /** 單幀旗標，消費後由呼叫端清除 */
-  resetRequested: boolean
   /**
    * 記分板是否按住（Tab）。
    *
@@ -82,7 +80,6 @@ export function createInputState(): InputState {
     firing: false,
     braking: false,
     playerAi: false,
-    resetRequested: false,
     scoreboardHeld: false,
     pointerLockLost: false,
   }

@@ -198,7 +198,7 @@ let wasDying = false
 /**
  * 重生：重置飛機並把瞄準點放回機首。
  *
- * 【M9 起只剩 R 鍵這一條路徑】玩家陣亡改為接手僚機，不再重生。
+ * 【只在開新的一場或重新開始時呼叫】玩家陣亡不重生 —— M9 起改為接手僚機。
  */
 function respawnPlayer() {
   const p = battle.player
@@ -268,7 +268,7 @@ function leaveBattle(): void {
 /**
  * 重開這一場：同樣的設定、同樣的座位，名字重抽、戰績歸零。
  *
- * 暫停選單的「重新開始」與 `R` 都走這裡。
+ * 暫停選單的「重新開始」走這裡。
  *
  * 【為什麼不是直接呼叫 `enterBattle`】那會換掉整個 `Battle` 與地形，而
  * `resetBattle` 產出的遊戲狀態已經與新建一場等價（名字重抽、戰績歸零、
@@ -352,10 +352,6 @@ let elapsed = 0
  * `main.ts` 沒有測試護著，這一步必須看得出來只是搬家。
  */
 function stepAndDrawBattle(frameSeconds: number): void {
-  if (input.resetRequested) {
-    restartBattle()
-    input.resetRequested = false
-  }
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
   // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
   // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續
