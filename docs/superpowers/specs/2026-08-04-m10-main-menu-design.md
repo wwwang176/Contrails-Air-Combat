@@ -465,3 +465,108 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 - **加一種地形 = `TerrainKind` 多一個值、`createTerrain` 多一個分支。** 拆除與重建的路徑 M10 每一場都在走，不是一條等著被第一次使用的死碼。撞地判定讀的是 `Terrain.heightAt`，所以山丘不必改 `World` 一個字。
 
 M11 才動、這一版刻意不碰的：非戰鬥機的單位（轟炸機、地面目標）、集合點與勝利條件的多樣化、難度、地形選單。
+
+---
+
+## 16. 交付紀錄
+
+15 個任務全部完成，1,844 條測試全過（80 個檔案），`npm run build` 無型別錯誤。
+
+### 16.1 實作中發現並修掉的缺陷
+
+**① `#ui` 蓋住結算板的按鈕（Task 10 發現）**
+
+`#ui` 是 `position: fixed; inset: 0; z-index: 2`。戰鬥中它底下五個 `section`
+全部藏著，但**容器自己仍然吃點擊** —— 而結算板在它下面。症狀是「按了沒
+反應」，看不出來是誰擋的。修法是 `#ui { pointer-events: none }` 加
+`#ui .screen { pointer-events: auto }`。用 `elementFromPoint` 在戰鬥狀態下
+驗證過兩顆按鈕都碰得到。
+
+**② 結算板的 click 事件送不到（Task 11 發現）**
+
+`createMenu` 原本把事件委派掛在 `root`（`#ui`）。結算板的「再打一場」與
+「回設定頁」在 `#board` 裡，不在 `#ui` 底下 —— 那兩顆按鈕永遠不會送出
+事件。改掛在 `root.ownerDocument`：`data-act` 是這一層唯一的協定，誰擁有
+那個節點不重要。
+
+**③ `#hud[hidden]` 藏不掉（Task 13 發現）**
+
+`index.html` 既有的 `canvas { display: block }` 是**作者樣式**，會壓過
+`[hidden]` 的 UA 樣式。少了 `#hud[hidden] { display: none }` 這一行，選單
+期間 HUD 會停在戰鬥最後一幀疊在標題上。
+
+**④ 分出勝負時游標還被抓著（Task 13 發現）**
+
+結算不暫停（spec §8.1），所以指標鎖定還在 —— 游標被抓住，結算板那兩顆
+按鈕點不到。修法是 `outcome !== 'fighting'` 時呼叫 `exitPointerLock()`。
+解鎖會讓下一幀的 `pointerLockLost` 為真，但暫停那條分支只在
+`outcome === 'fighting'` 時觸發，所以不會誤觸。
+
+**⑤ R 重開會把活人的飛機 `dispose()` 掉（M9 遺留，Task 13 修）**
+
+`stepAndDrawBattle` 的 R 分支原本只做 `for (const v of visuals.values())
+v.wrecked = false`。但殘骸池**仍然持有**上一批被接管的模型，並會在它們
+沉到水下時呼叫回收回呼（`ctx.scene.remove` + `dispose`）—— 那時那個模型
+已經是一架活著的飛機的模型了，於是活人的飛機憑空消失。
+
+這是 M9 留下的缺陷；`wrecks.reset()` 到 M10 才存在，所以到這裡才修得掉。
+修法是抽出 `rebuildVisuals()`，換一場與 R 重開共用同一條路徑。代價是 R
+現在要重建 40 具模型（約 111 ms 的一次卡頓），而 R 本來就是「重開整場」。
+
+### 16.2 與 spec 的偏離
+
+**① `MENU_CAMERA_ALTITUDE` 由 900 m 改成 150 m**
+
+spec §13 訂 900 m（「與戰鬥的出生高度同一個量級」）。實際跑起來畫面上
+看得到一條方形的邊，甚至一個角 —— 海面網格只有 10 km 見方
+（`ocean.ts` 的 `OCEAN_SIZE`）而且以相機為中心捲動，那塊平面的邊落在
+`atan(高度 / 5000)` 的俯角上。900 m 是 **10°**，正好在視線附近。
+
+150 m 把它壓到 1.7°，那條邊於是躲進地平線裡，讀起來才是 spec §9.4 要的
+「只有海與天」。注視點也跟著從「相機下方 400 m」改成海平面（`y = 0`），
+1.1° 俯角，地平線落在畫面中線略上方 —— 原本的意圖不變。
+
+（戰鬥中相機在 4,000 m 也看得到這條邊，那是 M1 以來的既有表現，M10 不碰。）
+
+**② `wasLocked` 的初值讀當下的鎖定狀態，不是寫死 `false`**
+
+計畫 Task 9 寫 `let wasLocked = false`。掛上來的那一刻就是第一次觀察，
+寫死 `false` 會漏掉「掛上時已鎖定、下一幀就掉了」這個順序 —— 而那正是
+玩家在戰鬥中按 ESC 的情形。
+
+**③ `leaveBattle()` 多做了收記分板**
+
+計畫只寫「把模型還回去」。但 `stepAndDrawBattle` 一旦不再跑，結算板就會
+留在選單上面 —— 從結算按「回設定頁」時看得最清楚。所以 `leaveBattle` 另外
+清 `input.scoreboardHeld`、`scoreboard.setVisible(false)`、`boardActions.hidden`
+與 `#board.finished`。清場（`releaseVisuals`）與這一段拆成兩個函數，因為
+`rebuildVisuals` 只需要前者。
+
+**④ `enterBattle()` 尾端多清一次 `input.pointerLockLost`**
+
+它是單幀旗標，但只有戰鬥中的分支會消費它。選單期間若因任何理由被設起來，
+新的一場開頭第一幀就會被彈進暫停選單。
+
+**⑤ `#ui button:disabled` 取代 `#ui .card:disabled`**
+
+數量到上下限時的 `◀`／`▶` 原本看起來與可按的完全一樣。CSS 註解本來就
+寫著「disabled 要看得出來是 disabled」，範圍放大到所有按鈕才是一致的。
+
+### 16.3 人工驗收
+
+§14 的 17 條在 Chrome DevTools 上逐條走過，其中可自動化的部分（DOM 狀態、
+draw call 與三角形數、`elementFromPoint` 命中判定）以腳本斷言：
+
+- 條件 1~6、11~13：全部確認。
+- 條件 13、16、17：連續換場四回合，戰鬥中恆為 **draw call 94 / 三角形
+  191,553**，回到選單恆為 **12 / 184,688** —— 完全沒有累積。
+- 條件 7：`fight` 的處理器在使用者點擊裡呼叫 `requestPointerLock()`，
+  進戰鬥後 `document.pointerLockElement` 確認為 `#scene`。
+- 條件 11：`exitPointerLock()`（瀏覽器按 ESC 時做的事）之後 `#pause`
+  出現、`physics 0.000 ms`、飛機與海面都停住。
+- 暫停時記分板：按住 TAB 再暫停，板子確實被收掉。
+- R 重開：draw call 與三角形數不變，主控台無錯誤。
+
+條件 8~10、14、15 需要真的打完一場才看得到結果，留給專案負責人在人工
+驗收時確認 —— 對應的邏輯由 `test/integration/rematch.test.ts` 與
+`test/unit/skirmish.test.ts` 守著。
