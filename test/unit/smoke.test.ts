@@ -101,13 +101,15 @@ describe('黑煙的參數（M8 spec §6）', () => {
     expect(DEBRIS_SMOKE_COUNT).toBeLessThan(DEBRIS_COUNT / 2)
   })
 
-  it('零件的煙比殘骸的小 —— 0.4 m 的碎片不該掛一顆比它大二十倍的煙球', () => {
-    expect(DEBRIS_SMOKE_SIZE).toBeGreaterThan(0)
+  it('零件的煙略小於殘骸的 —— 兩種煙要分得出來，但遠方也要讀得到', () => {
+    // 【這一條守的是什麼】專案負責人裁決「放大三倍，但略小於機身的煙」。
+    // 上限是硬的：一旦追平或超過殘骸，畫面上就分不出「主體在燒」與
+    // 「碎片在燒」。下限則是遠距可讀性 —— 0.35 那一版在遠方幾乎看不見。
     expect(DEBRIS_SMOKE_SIZE).toBeLessThan(1)
-    // 縮完之後煙團仍然比碎片大（煙本來就該比來源大），但同一個量級
-    const smallest = SMOKE_SIZE_FROM * DEBRIS_SMOKE_SIZE
-    expect(smallest).toBeGreaterThan(DEBRIS_SIZE_MAX)
-    expect(smallest).toBeLessThan(DEBRIS_SIZE_MAX * 4)
+    expect(DEBRIS_SMOKE_SIZE).toBeGreaterThan(0.5)
+    // 煙團一定比碎片本身大得多。這是刻意的取捨：貼著看會像煙球黏著碎片，
+    // 但空戰的實際視距下，讀不讀得到是先決條件。
+    expect(SMOKE_SIZE_FROM * DEBRIS_SMOKE_SIZE).toBeGreaterThan(DEBRIS_SIZE_MAX)
   })
 })
 
@@ -129,9 +131,11 @@ describe('emitKillSmoke —— 火球褪去之後看得見的那團黑', () => {
     expect(SMOKE_SIZE_TO * KILL_SMOKE_SIZE).toBeGreaterThan(FIREBALL_SIZE_TO * 2)
   })
 
-  it('比殘骸拖的煙大得多 —— 那是一團爆炸的煙，不是拖曳', () => {
-    expect(KILL_SMOKE_SIZE).toBeGreaterThan(1)
-    expect(KILL_SMOKE_SIZE).toBeGreaterThan(DEBRIS_SMOKE_SIZE * 4)
+  it('比另外兩種煙都大得多 —— 那是一團爆炸的煙，不是拖曳', () => {
+    // 殘骸拖的煙是倍率 1（基準），零件的煙比它略小。爆炸的那一團必須
+    // 明顯大於兩者，火褪去時才蓋得住整個爆點。
+    expect(KILL_SMOKE_SIZE).toBeGreaterThan(2)
+    expect(KILL_SMOKE_SIZE).toBeGreaterThan(DEBRIS_SMOKE_SIZE * 2)
   })
 
   it('活得比火球久 —— 火熄了煙還在', () => {
