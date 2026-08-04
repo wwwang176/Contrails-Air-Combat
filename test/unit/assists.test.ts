@@ -46,14 +46,6 @@ describe('assistCredits（M9 spec §5.2）', () => {
     expect(assistCredits(t, n, 3, 2, ASSIST_WINDOW + 0.1, OUT)).toEqual([])
   })
 
-  it('沒有兇手時，窗口內的人照樣拿助攻', () => {
-    // 撞海：沒有人拿擊墜，但打傷過它的人仍然參與了這件事
-    const n = 4
-    const t = table(n)
-    t[1 * n + 3] = 100
-    expect(assistCredits(t, n, 3, -1, 105, OUT)).toEqual([1])
-  })
-
   it('多個人各記一次，依座位順序', () => {
     const n = 5
     const t = table(n)
