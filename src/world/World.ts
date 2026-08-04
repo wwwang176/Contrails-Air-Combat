@@ -8,6 +8,7 @@ import {
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
+import { createKills, pushKill, type KillEvents } from './kills'
 import { CullIndex } from './cull'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -167,6 +168,20 @@ export class World {
    */
   readonly splashEvents: ImpactEvents = createImpacts()
 
+  /**
+   * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
+   *
+   * 【為什麼不是 readonly】容量要跟著參戰架數走，而架數是 `add()` 一架一架
+   * 長出來的。一個子步之內每架最多死一次（重生走的是每幀一次的 `main.ts`
+   * 路徑，不在子步裡），所以「容量 = 架數」是一個**上界**而不是猜測 ——
+   * 溢位於是在結構上不可能，而掉一次擊墜等於少一次爆炸（M8 spec §3）。
+   *
+   * 【重新配置只發生在 `add()`】那是場景組裝期，不是熱路徑。代價是持有
+   * `world.killEvents` 參考的人必須在所有 `add()` 之後才取 —— `main.ts`
+   * 每幀重新讀屬性，不快取。
+   */
+  killEvents: KillEvents = createKills(0)
+
   private readonly hit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
   private readonly cull = new CullIndex()
@@ -198,6 +213,10 @@ export class World {
     }
     this.combatants.push(c)
     this.cull.ensure(this.combatants.length)
+    // 見 killEvents 的註解：容量跟著架數走，溢位於是在結構上不可能
+    if (this.killEvents.capacity < this.combatants.length) {
+      this.killEvents = createKills(this.combatants.length)
+    }
     return c
   }
 
@@ -470,6 +489,11 @@ export class World {
       this.respawn(c)
       return
     }
+    // 【推事件而不是讓渲染層比對 alive】見 kills.ts 的註解。排在
+    // respawnOnDestroy 之後 —— 自動重生的靶機不是一次擊墜，不該生爆炸。
+    const p = c.aircraft.state.position
+    const v = c.aircraft.state.velocity
+    pushKill(this.killEvents, p.x, p.y, p.z, v.x, v.y, v.z, c.index)
     c.alive = false
   }
 
