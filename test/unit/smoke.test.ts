@@ -3,9 +3,10 @@ import { Color, InstancedMesh, Matrix4, Quaternion, SRGBColorSpace, Vector3 } fr
 import {
   createSmoke, emitSmoke, smokeColor, smokePuffs, smokeTimer,
   DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, SMOKE_ALPHA, SMOKE_DRAG,
-  SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM, SMOKE_SIZE_TO,
-  WRECK_SMOKE_INTERVAL,
+  DEBRIS_SMOKE_SIZE, SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM,
+  SMOKE_SIZE_TO, WRECK_SMOKE_INTERVAL,
 } from '../../src/render/smoke'
+import { DEBRIS_COUNT, DEBRIS_SIZE_MAX } from '../../src/render/debris'
 import { createImpacts, pushImpact } from '../../src/world/events'
 
 function decompose(mesh: InstancedMesh, i: number) {
@@ -88,10 +89,22 @@ describe('黑煙的參數（M8 spec §6）', () => {
     expect(SMOKE_ALPHA).toBeLessThan(1)
   })
 
-  it('大零件才冒煙，不是全部十二片', () => {
-    // 【為什麼】12 條煙會糊成一團，讀不出「零件在散開」，而發射器數量會從
-    // 20×4 變成 20×12（M8 spec §6.1）。
-    expect(DEBRIS_SMOKE_COUNT).toBe(4)
+  it('只有少數零件冒煙，不是全部', () => {
+    // 【為什麼不寫死數字】這條要守的是「是少數」，不是「恰好是 8」——
+    // 數量本來就會依人工驗收調整（4 → 8 已經調過一次）。全部都冒的話
+    // 發射器會從 20×8 變成 20×36，穩態從 1,950 團爆到 5,700，而且畫面上
+    // 會糊成一片，讀不出「零件在散開」（M8 spec §6.1）。
+    expect(DEBRIS_SMOKE_COUNT).toBeGreaterThan(0)
+    expect(DEBRIS_SMOKE_COUNT).toBeLessThan(DEBRIS_COUNT / 2)
+  })
+
+  it('零件的煙比殘骸的小 —— 0.4 m 的碎片不該掛一顆比它大二十倍的煙球', () => {
+    expect(DEBRIS_SMOKE_SIZE).toBeGreaterThan(0)
+    expect(DEBRIS_SMOKE_SIZE).toBeLessThan(1)
+    // 縮完之後煙團仍然比碎片大（煙本來就該比來源大），但同一個量級
+    const smallest = SMOKE_SIZE_FROM * DEBRIS_SMOKE_SIZE
+    expect(smallest).toBeGreaterThan(DEBRIS_SIZE_MAX)
+    expect(smallest).toBeLessThan(DEBRIS_SIZE_MAX * 4)
   })
 })
 

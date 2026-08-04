@@ -8,7 +8,7 @@ import { createMuzzles } from '../render/muzzle'
 import { createSparks } from '../render/sparks'
 import { createSplashes } from '../render/splash'
 import { createFireball, emitFireball } from '../render/fireball'
-import { createSmoke, emitSmoke } from '../render/smoke'
+import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from '../render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
@@ -234,7 +234,7 @@ function frame(now: number): void {
   wrecks.step(dt, ocean.heightAt, elapsed)
   debris.step(dt, ocean.heightAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
-  emitSmoke(smoke, debris.smokeEvents)
+  emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   splashes.emit(wrecks.splashEvents, ocean.heightAt, elapsed)
@@ -274,6 +274,7 @@ function frame(now: number): void {
 // 只能靠讀實際的實例資料 —— 用猜的會浪費更多時間。
 ;(window as unknown as { __range: unknown }).__range = {
   fireball, smoke, spray, debris, wrecks, splashes,
+  camera: ctx.camera, controls,
   get world() { return world },
   get subject() { return subject },
 }

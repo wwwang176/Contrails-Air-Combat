@@ -34,8 +34,16 @@ export interface Particles {
   object: InstancedMesh
   /** 目前還活著幾顆。測試與 telemetry 用 */
   readonly live: number
-  /** 發射一顆。熱路徑：不配置 */
-  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number): void
+  /**
+   * 發射一顆。熱路徑：不配置。
+   *
+   * @param sizeScale 這一顆的尺寸倍率。同一個池子要出兩種大小時用它 ——
+   *                  例如 0.4 m 的碎片冒的煙不該跟整架殘骸冒的一樣大
+   */
+  emit(
+    x: number, y: number, z: number,
+    vx: number, vy: number, vz: number, sizeScale?: number,
+  ): void
   /** 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number): void
   dispose(): void
@@ -142,6 +150,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const vz = new Float32Array(capacity)
   // 【起始壽命設滿】等於「一出生就是死的」，不必另外一個 alive 陣列
   const age = new Float32Array(capacity).fill(life)
+  const sizeMul = new Float32Array(capacity).fill(1)
   let next = 0
   let live = 0
 
@@ -174,7 +183,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
     object,
     get live() { return live },
 
-    emit(x, y, z, evx, evy, evz): void {
+    emit(x, y, z, evx, evy, evz, sizeScale = 1): void {
       const i = next
       next = next + 1 >= capacity ? 0 : next + 1
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
@@ -186,6 +195,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
       vx[i] = evx
       vy[i] = evy
       vz[i] = evz
+      sizeMul[i] = sizeScale
       age[i] = 0
     },
 
@@ -225,7 +235,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
         py[i] = ny
         pz[i] = nz
 
-        const s = particleSize(na, life, cfg.sizeFrom, cfg.sizeTo)
+        const s = particleSize(na, life, cfg.sizeFrom, cfg.sizeTo) * sizeMul[i]!
         POS.set(nx, ny, nz)
         // 【不寫旋轉】朝向由著色器在視圖空間決定；寫進矩陣會讓著色器取到的
         // length(instanceMatrix[0].xyz) 不再是直徑。

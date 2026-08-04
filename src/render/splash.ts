@@ -1,8 +1,9 @@
 import {
-  CylinderGeometry, DynamicDrawUsage, InstancedMesh, Matrix4,
-  MeshBasicMaterial, Quaternion, Vector3,
+  BufferGeometry, DynamicDrawUsage, InstancedMesh, LatheGeometry, Matrix4,
+  MeshBasicMaterial, Quaternion, Vector2, Vector3,
 } from 'three'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
+import { hash01 } from './scatter'
 
 /**
  * 水柱的滿高，m。
@@ -25,11 +26,40 @@ export const SPLASH_HEIGHT = 12
 export const SPLASH_RADIUS = 0.8
 
 /**
- * 頂端相對底部的半徑比。**上方收緊**才像水柱而不是煙囪。
+ * 肩部（圓頭開始的地方）相對底部的半徑比。
  *
- * 收到 0.2 而不是 0：完全收成一點會變成一個尖錐，那是火焰的形狀不是水的。
+ * 【由「頂端半徑」改成「肩部半徑」】初版是一個上方收到 0.2 倍的截頭錐，
+ * 讀起來是一根收尖的柱子。專案負責人裁決改成**子彈型 —— 上方要圓潤**：
+ * 柱身微收到肩部，再由肩部圓弧收到頂點。見 `bulletProfile`。
  */
-export const SPLASH_TOP_RATIO = 0.2
+export const SPLASH_TOP_RATIO = 0.8
+
+/**
+ * 圓頭從幾成高度開始。以下是柱身，以上是圓弧。
+ *
+ * 0.72：圓頭佔上面 28%，讀得出「圓」又不會變成一顆球。
+ */
+export const SPLASH_SHOULDER = 0.72
+
+/** 圓頭的分段數。7 段在 12 m 的柱子上已經看不出稜角。 */
+const NOSE_SEGMENTS = 7
+
+/**
+ * 每根水柱的高度亂數範圍。實際高度 = `SPLASH_HEIGHT × (MIN + h × (MAX−MIN))`。
+ *
+ * 【為什麼要隨機】一次撞擊生十根，十根一樣高讀起來是一排柵欄而不是一次
+ * 撞擊 —— 專案負責人在試驗場上指出來的。
+ */
+export const SPLASH_HEIGHT_MIN = 0.55
+export const SPLASH_HEIGHT_MAX = 1.45
+
+/**
+ * 半徑跟著高度變的比例。高的柱子也比較粗 —— 只變高度的話高的會像針。
+ *
+ * 半徑倍率 = `RADIUS_BASE + h × RADIUS_SPAN`，與高度用**同一個** `h`。
+ */
+export const SPLASH_RADIUS_BASE = 0.8
+export const SPLASH_RADIUS_SPAN = 0.35
 
 /**
  * 抽到滿高要多久，s。12 m / 0.1 s = **120 m/s** —— 出水那一下要夠猛。
@@ -99,6 +129,55 @@ export function splashScale(age: number): number {
   return 1 - (age - SPLASH_JET_SECONDS) / SPLASH_FALL_SECONDS
 }
 
+/**
+ * 子彈型的旋轉剖面：柱身微收到肩部，再由肩部以四分之一橢圓收到頂點。
+ *
+ * 【為什麼是 `LatheGeometry` 而不是圓柱】圓柱只能做出「收尖」或「平頂」，
+ * 兩者都不是水柱的樣子。專案負責人裁決要**上方圓潤的子彈型** —— 那需要
+ * 一段曲線，而旋轉剖面是描述它最直接的方式。
+ *
+ * **以底面為原點**：以中心為原點的話，縮放 Y 會讓柱子從中間往兩邊長，
+ * 下半截埋進水裡。
+ *
+ * 【為什麼剖面點另外抽成 `bulletPoints`】`LatheGeometry` **只在剖面點上
+ * 產生頂點** —— 柱身那一整段中間一個頂點也沒有。想從網格頂點反推形狀就會
+ * 踩到空箱子（實作時真的踩到了）。剖面才是這個形狀的定義，測它才對。
+ */
+export function bulletPoints(): Vector2[] {
+  const shoulderY = SPLASH_HEIGHT * SPLASH_SHOULDER
+  const shoulderR = SPLASH_RADIUS * SPLASH_TOP_RATIO
+  const noseH = SPLASH_HEIGHT - shoulderY
+
+  const points: Vector2[] = [
+    new Vector2(SPLASH_RADIUS, 0),
+    new Vector2(shoulderR, shoulderY),
+  ]
+  // 四分之一橢圓：t 從 0（肩部）到 1（頂點）
+  for (let i = 1; i <= NOSE_SEGMENTS; i++) {
+    const t = (i / NOSE_SEGMENTS) * (Math.PI / 2)
+    points.push(new Vector2(shoulderR * Math.cos(t), shoulderY + noseH * Math.sin(t)))
+  }
+  return points
+}
+
+export function bulletProfile(): BufferGeometry {
+  return new LatheGeometry(bulletPoints(), RADIAL_SEGMENTS)
+}
+
+/**
+ * 池格索引 → 這根柱子的高度與半徑倍率。
+ *
+ * 【為什麼由索引決定而不是發射時擲一次亂數】與 `coneDirection` 同一個理由：
+ * 純函數才測得起來，而且同一格恆得同一個尺寸，重播可重現。
+ */
+export function splashSize(slot: number): { height: number; radius: number } {
+  const h = hash01(slot * 2654435761)
+  return {
+    height: SPLASH_HEIGHT_MIN + h * (SPLASH_HEIGHT_MAX - SPLASH_HEIGHT_MIN),
+    radius: SPLASH_RADIUS_BASE + h * SPLASH_RADIUS_SPAN,
+  }
+}
+
 const M = new Matrix4()
 const POS = new Vector3()
 const SCALE = new Vector3()
@@ -124,12 +203,7 @@ export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
   let next = 0
   let live = 0
 
-  // 【以底面為原點】以中心為原點的話，縮放 Y 會讓柱子從中間往兩邊長，
-  // 下半截埋進水裡。
-  const geometry = new CylinderGeometry(
-    SPLASH_RADIUS * SPLASH_TOP_RATIO, SPLASH_RADIUS, SPLASH_HEIGHT, RADIAL_SEGMENTS, 1, true,
-  )
-  geometry.translate(0, SPLASH_HEIGHT / 2, 0)
+  const geometry = bulletProfile()
 
   const material = new MeshBasicMaterial({
     color: 0xdfefff, transparent: true, opacity: 0.75,
@@ -187,8 +261,10 @@ export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
         }
         live++
         POS.set(px[i]!, py[i]!, pz[i]!)
-        // 【只縮放 Y】柱子恆為垂直，不隨任何東西旋轉
-        SCALE.set(1, s, 1)
+        // 【柱子恆為垂直，不隨任何東西旋轉】高度另外乘上這一格的亂數倍率
+        // ——一次撞擊生十根，十根一樣高讀起來是一排柵欄
+        const sz = splashSize(i)
+        SCALE.set(sz.radius, s * sz.height, sz.radius)
         M.compose(POS, ROT.identity(), SCALE)
         object.setMatrixAt(i, M)
       }

@@ -36,18 +36,31 @@ export const WRECK_SMOKE_INTERVAL = 0.08
 export const DEBRIS_SMOKE_INTERVAL = 0.3
 
 /**
- * 十二片零件裡有幾片冒煙。
+ * 三十六片零件裡有幾片冒煙。
  *
- * 【為什麼不是全部】12 條煙會糊成一團，讀不出「零件在散開」；而發射器數量
- * 會從 20 次擊墜 × 4 變成 × 12，穩態團數逼近 2,600（M8 spec §6.1）。
+ * 【由 4 改成 8】零件縮小五倍之後 4 條細煙在畫面上幾乎看不到 —— 專案負責人
+ * 指出「部分零件也要有煙霧」。8 片仍然是少數（22%），讀得出「有些碎片在
+ * 冒煙」而不是「整團都在冒煙」。
+ *
+ * 【為什麼不是全部 36 片】發射器會從 20×8 變成 20×36，穩態從 1,950 團爆到
+ * 5,700 —— 而且畫面上會糊成一片，讀不出「零件在散開」（M8 spec §6.1）。
  */
-export const DEBRIS_SMOKE_COUNT = 4
+export const DEBRIS_SMOKE_COUNT = 8
+
+/**
+ * 零件冒的煙相對殘骸的尺寸倍率。
+ *
+ * 【為什麼需要它】一片零件最大 0.4 m，而煙團是 2 → 9 m —— 不縮的話一顆
+ * 比碎片大二十倍的煙球黏在碎片上，讀起來不是「碎片在冒煙」而是「煙球在
+ * 飛」。0.35 倍讓煙團落在 0.7 → 3.2 m，比碎片大但同一個量級。
+ */
+export const DEBRIS_SMOKE_SIZE = 0.35
 
 /**
  * 池子大小。
  *
- * 【3072 怎麼來】20 具殘骸各 `2.5 / 0.08 = 31` 團、80 片大零件各
- * `2.5 / 0.3 = 8` 團 —— 穩態約 1,260 團。3072 是它的兩倍餘裕。
+ * 【3072 怎麼來】20 具殘骸各 `2.5 / 0.08 = 31` 團、160 片冒煙的零件各
+ * `2.5 / 0.3 = 8` 團 —— 穩態約 1,950 團。3072 有 1.6 倍餘裕。
  */
 export const SMOKE_CAPACITY = 3072
 
@@ -109,10 +122,12 @@ export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
  * `x,y,z` 加三個這裡用不到的法線欄位。M7 spec §2.2 已經為「命中與入海共用
  * 一個型別」寫過同樣的理由 —— 為了省三個 float 再發明一個結構才是壞的。
  */
-export function emitSmoke(pool: Particles, events: ImpactEvents): void {
+export function emitSmoke(
+  pool: Particles, events: ImpactEvents, sizeScale = 1,
+): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
-    pool.emit(d[o]!, d[o + 1]!, d[o + 2]!, 0, 0, 0)
+    pool.emit(d[o]!, d[o + 1]!, d[o + 2]!, 0, 0, 0, sizeScale)
   }
 }
