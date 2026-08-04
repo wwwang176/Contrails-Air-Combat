@@ -35,6 +35,65 @@
       #board td.name { text-align: left; }
       #board tr.dead { color: #5c6f80; }
       #board tr.me { background: rgba(90, 150, 210, 0.22); color: #eaf4ff; }
+      #ui {
+        position: fixed; inset: 0; z-index: 2;
+        font: 15px/1.6 ui-monospace, Consolas, "Noto Sans TC", sans-serif;
+        color: #cfe0ef;
+        /* 【容器本身不吃點擊】它蓋滿整個畫面而且在最上層。不關掉的話，
+           戰鬥中（所有 section 都藏著）它會擋掉底下結算板的兩個按鈕 */
+        pointer-events: none;
+      }
+      #ui .screen {
+        position: absolute; inset: 0; pointer-events: auto;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 20px;
+        background: rgba(6, 10, 16, 0.55);
+      }
+      #ui .screen[hidden] { display: none; }
+      #ui h1.title {
+        margin: 0; font-size: 54px; letter-spacing: .28em; font-weight: 700;
+        color: #eaf4ff;
+      }
+      #ui .subtitle { margin: 0; letter-spacing: .3em; color: #6f8ba5; }
+      #ui h2 { margin: 0; font-size: 26px; letter-spacing: .18em; font-weight: 700; }
+      #ui h3 {
+        margin: 0 0 6px; font-size: 13px; letter-spacing: .16em;
+        font-weight: 400; color: #6f8ba5;
+      }
+      #ui button {
+        font: inherit; color: inherit; cursor: pointer;
+        border: 1px solid #2b3f52; background: rgba(20, 32, 46, 0.9);
+        padding: 10px 26px; letter-spacing: .16em;
+      }
+      #ui button:hover:not(:disabled) { border-color: #5a96d2; background: rgba(30, 50, 72, 0.95); }
+      #ui button.primary { border-color: #5a96d2; color: #eaf4ff; }
+      #ui button.ghost { color: #8fa6bb; }
+      #ui .cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+      #ui .card {
+        display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+        min-width: 210px; padding: 16px 18px; text-align: left;
+      }
+      #ui .card-title { font-size: 17px; letter-spacing: .12em; }
+      #ui .card-desc { font-size: 12px; color: #6f8ba5; letter-spacing: .06em; }
+      #ui .card-meta { font-size: 12px; color: #6f8ba5; }
+      /* 【disabled 要看得出來是 disabled】看起來可點卻沒反應，玩家會以為壞了 */
+      #ui .card:disabled { opacity: .38; cursor: default; }
+      #ui .card .locked {
+        align-self: flex-end; font-size: 11px; color: #8a6f4f; letter-spacing: .1em;
+      }
+      #ui .row { display: flex; gap: 12px; flex-wrap: wrap; }
+      #ui .row button.sel { border-color: #5a96d2; color: #eaf4ff; }
+      #ui .two-col { display: flex; gap: 56px; align-items: flex-start; }
+      #ui .col { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+      #ui .stepper { display: flex; align-items: center; gap: 14px; }
+      #ui .stepper button { padding: 6px 16px; }
+      #ui .stepper .value {
+        min-width: 3ch; text-align: center; font-size: 22px; color: #eaf4ff;
+      }
+      /* 【結算時 #board 要能點】按住 TAB 時它只是看，所以預設 pointer-events: none */
+      #board-actions { display: flex; gap: 14px; pointer-events: auto; }
+      #board-actions[hidden] { display: none; }
+      #board.finished { pointer-events: auto; }
     </style>
   </head>
   <body>
@@ -43,6 +102,63 @@
     <div id="board" hidden>
       <div id="banner"></div>
       <div id="tables"></div>
+      <div id="board-actions" hidden>
+        <button class="primary" data-act="fight">再打一場</button>
+        <button class="ghost" data-act="toSetup">回設定頁</button>
+      </div>
+    </div>
+    <div id="ui">
+      <section id="landing" class="screen">
+        <h1 class="title">GROK AIRCRAFT</h1>
+        <p class="subtitle">1944 · 空戰模擬</p>
+        <button class="primary" data-act="start">開　始</button>
+      </section>
+
+      <section id="menu" class="screen" hidden>
+        <div class="cards">
+          <button class="card" data-act="mission">
+            <span class="card-title">任務模式</span>
+            <span class="card-desc">依陣營推進的劇情關卡</span>
+          </button>
+          <button class="card" data-act="skirmish">
+            <span class="card-title">遭遇戰模式</span>
+            <span class="card-desc">自訂雙方兵力的殲滅戰</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="mission" class="screen" hidden>
+        <h2>任務模式</h2>
+        <div class="row" id="mission-factions"></div>
+        <div class="cards" id="mission-list"></div>
+        <button class="ghost" data-act="back">返　回</button>
+      </section>
+
+      <section id="skirmish" class="screen" hidden>
+        <h2>遭遇戰</h2>
+        <div class="two-col">
+          <div class="col">
+            <h3>陣營</h3>
+            <div class="row" id="skirmish-factions"></div>
+            <h3>機型</h3>
+            <div class="row" id="skirmish-specs"></div>
+          </div>
+          <div class="col">
+            <h3>我方數量</h3>
+            <div class="stepper" id="blue-count"></div>
+            <h3>敵方數量</h3>
+            <div class="stepper" id="red-count"></div>
+            <button class="primary" data-act="fight">開始戰鬥</button>
+            <button class="ghost" data-act="back">返　回</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="pause" class="screen" hidden>
+        <h2>已暫停</h2>
+        <button class="primary" data-act="resume">繼　續</button>
+        <button class="ghost" data-act="toMenu">回主選單</button>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
