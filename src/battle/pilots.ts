@@ -54,11 +54,20 @@ export function swapPilots(r: Roster, a: number, b: number): void {
 }
 
 /**
- * 記一次擊墜。
+ * 記一次退場。
  *
  * @param killerSeat −1 表示無兇手（撞海、自摔）
  *
- * 【已經陣亡的直接略過】擊墜事件在呼叫端沒有排空時會累積，重複處理不該讓
+ * 【自摔在戰績上完全不存在】專案負責人裁決：自殺不算真的擊殺 —— 受害者
+ * 不吃陣亡數、沒有人拿擊墜、窗口內打過他的人也拿不到助攻。唯一留下的是
+ * `alive = false`：他確實不在天上了，記分板要畫成灰的，而「名冊裡活著的
+ * 人數 = 場上活著的座位數」必須繼續成立。
+ *
+ * 這條裁決同時讓守恆律變成乾淨的**擊墜總和 = 陣亡總和** —— 玩家因此可以
+ * 拿記分板自己對帳，而「我方死 3、敵方殺 0」那種讀起來像壞掉的畫面
+ * 不會再出現。
+ *
+ * 【已經退場的直接略過】擊墜事件在呼叫端沒有排空時會累積，重複處理不該讓
  * 陣亡數與擊墜數失衡 —— 那會直接打破整合測試的守恆律。
  */
 export function recordKill(
@@ -67,11 +76,11 @@ export function recordKill(
   const victim = r.pilots[victimSeat]
   if (victim === undefined || !victim.alive) return
   victim.alive = false
+  if (killerSeat < 0) return
+
   victim.deaths++
-  if (killerSeat >= 0) {
-    const killer = r.pilots[killerSeat]
-    if (killer !== undefined) killer.kills++
-  }
+  const killer = r.pilots[killerSeat]
+  if (killer !== undefined) killer.kills++
   for (const s of assistSeats) {
     const p = r.pilots[s]
     if (p !== undefined) p.assists++

@@ -489,13 +489,18 @@ describe('stepBattle 的戰績記錄（M9 spec §4.3）', () => {
     expect(b.roster.pilots[killer.index]!.assists).toBe(0)
   })
 
-  it('撞海不算任何人的擊墜', () => {
+  it('撞海在戰績上完全不存在 —— 只是退場', () => {
+    // 【專案負責人裁決】自殺不算真的擊殺：不給 K、不給 D、也不給助攻。
     const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
     const victim = b.red[0]!
+    const helper = b.blue[1]!
+    b.world.applyDamage(victim, 10, 'wingLeft', helper)
     b.world.destroy(victim)
     stepBattle(b, DT)
-    expect(b.roster.pilots[victim.index]!.deaths).toBe(1)
+    expect(b.roster.pilots[victim.index]!.alive).toBe(false)
+    expect(b.roster.pilots[victim.index]!.deaths).toBe(0)
     expect(b.roster.pilots.reduce((s, p) => s + p.kills, 0)).toBe(0)
+    expect(b.roster.pilots.reduce((s, p) => s + p.assists, 0)).toBe(0)
   })
 
   it('呼叫端沒有排空時也不會重複計數', () => {

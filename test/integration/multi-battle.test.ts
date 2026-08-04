@@ -487,7 +487,7 @@ function drainEvents(b: Battle): void {
 }
 
 describe('戰績的守恆律（M9 spec §11）', () => {
-  it('全體擊墜數 = 全體陣亡數 − 自摔數', () => {
+  it('全體擊墜數 = 全體陣亡數', () => {
     // 【為什麼這是最有力的一條】任何漏記或重複記都會讓它失衡。逐條斷言
     // 「這一次擊墜記對了嗎」只覆蓋得到想得到的情況；這一條覆蓋全部。
     //
@@ -559,12 +559,18 @@ describe('戰績的守恆律（M9 spec §11）', () => {
 
     const kills = b.roster.pilots.reduce((s, p) => s + p.kills, 0)
     const deaths = b.roster.pilots.reduce((s, p) => s + p.deaths, 0)
+    const gone = b.roster.pilots.filter((p) => !p.alive).length
     // 【非空覆蓋的門檻】四種路徑各要真的走到過，否則這條守恆律是空的
     expect(scripted).toBeGreaterThanOrEqual(20)
     expect(takeovers).toBeGreaterThanOrEqual(5)
     expect(selfDestructs).toBeGreaterThanOrEqual(5)
-    expect(deaths).toBeGreaterThanOrEqual(scripted)
-    expect(kills).toBe(deaths - selfDestructs)
+    // 【一比一，沒有補正項】自摔在戰績上完全不存在（專案負責人裁決），
+    // 所以每一次陣亡都必然有一個兇手。這正是玩家拿記分板對得起帳的原因。
+    expect(deaths).toBeGreaterThan(0)
+    expect(kills).toBe(deaths)
+    // 【但退場的人數要多出自摔那幾個】自摔的人仍然不在天上 —— 記分板要
+    // 把他畫成灰的，而這一條守住「不記戰績」沒有被寫成「當作沒發生」
+    expect(gone).toBe(deaths + selfDestructs)
   })
 
   it('陣亡的飛行員數等於退場的座位數', () => {

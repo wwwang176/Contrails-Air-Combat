@@ -36,11 +36,17 @@ describe('recordKill（M9 spec §4）', () => {
     expect(r.pilots[1]!.kills).toBe(1)
   })
 
-  it('兇手是 −1 時沒有人加擊墜', () => {
+  it('自摔什麼都不記 —— 沒有擊墜、沒有陣亡、沒有助攻，只是退場', () => {
+    // 【專案負責人裁決】自殺不算真的擊殺。受害者不吃陣亡數，沒有人拿擊墜，
+    // 窗口內打過他的人也拿不到助攻 —— 這件事在戰績上完全不存在。
+    // 唯一留下的是 `alive = false`：他確實不在天上了，記分板要畫成灰的，
+    // 而「名冊裡活著的人數 = 場上活著的座位數」也必須繼續成立。
     const r = createRoster(NAMES, 0)
-    recordKill(r, 3, -1, [])
+    recordKill(r, 3, -1, [0, 2])
     expect(r.pilots[3]!.alive).toBe(false)
+    expect(r.pilots[3]!.deaths).toBe(0)
     expect(r.pilots.reduce((s, p) => s + p.kills, 0)).toBe(0)
+    expect(r.pilots.reduce((s, p) => s + p.assists, 0)).toBe(0)
   })
 
   it('助攻各加一次', () => {

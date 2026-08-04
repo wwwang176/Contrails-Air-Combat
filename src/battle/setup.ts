@@ -370,7 +370,13 @@ function drainKills(b: Battle): void {
       }
     }
 
-    assistCredits(w.damageTime, w.damageStride, victim, killer, w.time, ASSISTS)
+    // 【自摔不掃助攻】`recordKill` 本來就會擋掉，但連掃都不掃才讓「自摔在
+    // 戰績上完全不存在」這件事在這裡看得出來，而不是藏在被呼叫者裡面。
+    if (killer >= 0) {
+      assistCredits(w.damageTime, w.damageStride, victim, killer, w.time, ASSISTS)
+    } else {
+      ASSISTS.length = 0
+    }
     recordKill(b.roster, victim, killer, ASSISTS)
   }
 }

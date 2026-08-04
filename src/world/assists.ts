@@ -15,7 +15,8 @@ export const ASSIST_WINDOW = 20
  *
  * @param damageTime `damageTime[攻擊者 * n + 受害者]` = 最後一次命中的世界時間
  * @param n          表格邊長（`World.damageStride`）
- * @param killer     兇手的座位；−1 表示無兇手（撞海、自摔）
+ * @param killer     兇手的座位。**恆是一個真實座位** —— 自摔在戰績上完全
+ *                   不存在，所以呼叫端（`drainKills`）根本不會為它掃助攻
  * @param out        **就地清空後填入**。熱路徑之外，但沿用專案的不配置慣例
  *
  * 【為什麼是純函數而不是 World 的方法】它只是一次查表，沒有任何狀態。
