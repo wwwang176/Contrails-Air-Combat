@@ -43,6 +43,7 @@ export interface Ocean {
   mesh: Mesh
   update(time: number, centerX: number, centerZ: number): void
   heightAt(x: number, z: number, time: number): number
+  dispose(): void
 }
 
 export function createOcean(): Ocean {
@@ -106,5 +107,9 @@ export function createOcean(): Ocean {
       uOrigin.value.set(sx, sz)
     },
     heightAt: gerstnerHeight,
+    dispose() {
+      geometry.dispose()
+      material.dispose()
+    },
   }
 }

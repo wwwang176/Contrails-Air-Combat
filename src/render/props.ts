@@ -1,10 +1,18 @@
 import { BoxGeometry, Color, InstancedMesh, MeshStandardMaterial, Object3D } from 'three'
 
+export interface Props {
+  mesh: InstancedMesh
+  dispose(): void
+}
+
 /**
  * 浮動參照物。純視覺、無碰撞，提供速度與高度的視覺錨點——
  * 無特徵海面在 700 km/h 下幾乎沒有速度感。
+ *
+ * 【M10 起回傳物件而不是 mesh】地形要能整組換掉（見 `render/terrain.ts`），
+ * 而換掉的前提是釋放得了。
  */
-export function createProps(count: number, spread = 9000): InstancedMesh {
+export function createProps(count: number, spread = 9000): Props {
   const mesh = new InstancedMesh(
     new BoxGeometry(1, 1, 1),
     new MeshStandardMaterial({ flatShading: true, roughness: 0.9 }),
@@ -45,5 +53,13 @@ export function createProps(count: number, spread = 9000): InstancedMesh {
   mesh.instanceMatrix.needsUpdate = true
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 
-  return mesh
+  return {
+    mesh,
+    dispose() {
+      mesh.geometry.dispose()
+      const m = mesh.material
+      if (Array.isArray(m)) for (const x of m) x.dispose()
+      else m.dispose()
+    },
+  }
 }

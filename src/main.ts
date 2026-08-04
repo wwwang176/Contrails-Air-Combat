@@ -48,7 +48,7 @@ const perf = createPerfOverlay(ctx.renderer)
 
 const ocean = createOcean()
 ctx.scene.add(ocean.mesh)
-ctx.scene.add(createProps(600))
+ctx.scene.add(createProps(600).mesh)
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
