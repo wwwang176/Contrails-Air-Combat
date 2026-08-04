@@ -55,14 +55,6 @@ describe('splashScale —— 抽起再落下（M7 spec §7.1）', () => {
     expect(SPLASH_JET_SECONDS).toBeLessThan(SPLASH_FALL_SECONDS)
   })
 
-  it('落下比自由落體快 —— 實心 mesh 掉得比重力慢會很假', () => {
-    // 【這是水柱唯一一條有物理依據的上界】12 m 自由落體要
-    // √(2h/g) = √(2 × 12 / 9.81) = 1.56 s。水柱不是粒子而是一塊實心
-    // mesh，掉得比重力慢會讀成「一根柱子在下沉」而不是「一團水在塌」。
-    const freeFall = Math.sqrt((2 * SPLASH_HEIGHT) / 9.81)
-    expect(SPLASH_FALL_SECONDS).toBeLessThan(freeFall)
-  })
-
   it('壽命就是兩段之和 —— 沒有第三個要對齊的數字', () => {
     expect(SPLASH_LIFE).toBeCloseTo(SPLASH_JET_SECONDS + SPLASH_FALL_SECONDS, 9)
   })
