@@ -474,7 +474,7 @@ export class World {
     if (shooter) shooter.hitsDealt++
     if (victim.hp > 0) return
 
-    this.destroy(victim)
+    this.destroy(victim, shooter)
   }
 
   /**
@@ -482,8 +482,11 @@ export class World {
    *
    * 【為什麼抽出來】兩個觸發、一套後果。分成兩份長得很像的副本，就是只有
    * 一份會被修好的那種危險 —— 與 `isCrashed` 當初抽出來同一個理由。
+   *
+   * 【`killer` 省略＝沒有人的功勞】撞海與自摔走的就是這一條。事件的兇手欄
+   * 寫 −1，記分板於是不會把它算給任何人（M9 spec §4.1）。
    */
-  destroy(c: Combatant): void {
+  destroy(c: Combatant, killer?: Combatant): void {
     c.hp = 0
     if (c.respawnOnDestroy) {
       this.respawn(c)
@@ -493,7 +496,12 @@ export class World {
     // respawnOnDestroy 之後 —— 自動重生的靶機不是一次擊墜，不該生爆炸。
     const p = c.aircraft.state.position
     const v = c.aircraft.state.velocity
-    pushKill(this.killEvents, p.x, p.y, p.z, v.x, v.y, v.z, c.index)
+    // 【判物件而不是判索引】索引 0 是合法的兇手，`killer ? ... : -1` 會把
+    // 第 0 座位的擊墜寫成「無兇手」
+    pushKill(
+      this.killEvents, p.x, p.y, p.z, v.x, v.y, v.z, c.index,
+      killer === undefined ? -1 : killer.index,
+    )
     c.alive = false
   }
 

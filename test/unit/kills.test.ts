@@ -6,8 +6,8 @@ import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
 
 describe('KillEvents', () => {
-  it('每筆七個 float：位置、速度、combatant 索引', () => {
-    expect(KILL_STRIDE).toBe(7)
+  it('每筆八個 float：位置、速度、combatant 索引、兇手索引', () => {
+    expect(KILL_STRIDE).toBe(8)
     const e = createKills(4)
     expect(e.data.length).toBe(4 * KILL_STRIDE)
     expect(e.count).toBe(0)
@@ -18,7 +18,17 @@ describe('KillEvents', () => {
     const e = createKills(4)
     pushKill(e, 1, 2, 3, 10, 20, 30, 7)
     expect(e.count).toBe(1)
-    expect(Array.from(e.data.slice(0, KILL_STRIDE))).toEqual([1, 2, 3, 10, 20, 30, 7])
+    expect(Array.from(e.data.slice(0, KILL_STRIDE))).toEqual([1, 2, 3, 10, 20, 30, 7, -1])
+  })
+
+  it('第八欄是兇手的座位索引，省略時是 −1', () => {
+    // 【為什麼要有「省略時是 −1」】撞海與自摔走的是不帶兇手的那條路徑。
+    // 預設值若是 0，每一次自摔都會變成第 0 座位的擊墜。
+    const e = createKills(2)
+    pushKill(e, 1, 2, 3, 10, 20, 30, 7, 4)
+    pushKill(e, 0, 0, 0, 0, 0, 0, 1)
+    expect(e.data[7]).toBe(4)
+    expect(e.data[KILL_STRIDE + 7]).toBe(-1)
   })
 
   it('索引存進 float32 仍然精確', () => {
