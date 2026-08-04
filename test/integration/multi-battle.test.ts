@@ -8,6 +8,7 @@ import { AI_DECISION_HZ, AiController } from '../../src/ai/AiController'
 import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
 import { THREAT_RANGE } from '../../src/ai/assess'
 import { clearImpacts } from '../../src/world/events'
+import { clearKills } from '../../src/world/kills'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
@@ -141,6 +142,10 @@ interface Observed {
   splashEventCount: number
   /** 兩個事件緩衝累計丟棄了幾筆。門檻：恆為 0 */
   eventsDropped: number
+  /** 整場累計的擊墜事件數。門檻：恰好等於陣亡數（M8 spec §14.1.1） */
+  killEventCount: number
+  /** 擊墜緩衝累計丟棄了幾筆。門檻：恆為 0 —— 容量是參戰架數，結構上不該溢位 */
+  killsDropped: number
   /** 巡航階段（兩隊重心仍相距 > THREAT_RANGE）各僚機的站位誤差樣本，m */
   cruiseStationErrors: number[]
   /** 完整歸隊的次數：離站超過 breakExit 之後回到門檻內 */
@@ -183,6 +188,7 @@ function observe(): Observed {
     blueLost: 0, redLost: 0, wipes: 0,
     blueDamage: 0, redDamage: 0,
     hitEventCount: 0, splashEventCount: 0, eventsDropped: 0,
+    killEventCount: 0, killsDropped: 0,
     cruiseStationErrors: [], rejoins: 0, replacements: 0,
   }
 
@@ -219,6 +225,8 @@ function observe(): Observed {
     o.splashEventCount += b.world.splashEvents.count
     clearImpacts(b.world.hitEvents)
     clearImpacts(b.world.splashEvents)
+    o.killEventCount += b.world.killEvents.count
+    clearKills(b.world.killEvents)
     if (prevCountdown > 0 && b.countdown === 0) o.resets++
     prevCountdown = b.countdown
 
@@ -312,6 +320,7 @@ function observe(): Observed {
     }
   }
   o.eventsDropped = b.world.hitEvents.dropped + b.world.splashEvents.dropped
+  o.killsDropped = b.world.killEvents.dropped
   return o
 }
 
@@ -414,6 +423,20 @@ describe('20v20 跑滿 150 秒', () => {
     // 命中事件數必須與實際命中次數一致 —— 少了代表 resolveHits 有一條
     // 提早 continue 的路徑漏掉推送，而火花會在那個情形下靜靜地不出現。
     expect(o.hitEventCount).toBeGreaterThan(0)
+  })
+
+  it('擊墜事件數恰好等於陣亡數 —— 不多也不少（M8 spec §14.1.1）', () => {
+    // 【為什麼「不多」也要測】respawnOnDestroy 的靶機被打爆會走 respawn 而
+    // 不是真的陣亡；若事件推在那個分支之前，一架靶機會生出無限多次爆炸。
+    // 【為什麼「不少」也要測】少了就是有一次擊墜沒有爆炸 —— 而畫面上
+    // 「飛機憑空消失」正是 M8 要修掉的那件事。
+    expect(o.killEventCount).toBe(o.blueLost + o.redLost)
+  })
+
+  it('擊墜事件緩衝從未溢位（M8 spec §14.1.1）', () => {
+    // 容量由 World.add() 維持在參戰架數，而一個子步之內每架最多死一次 ——
+    // 溢位應該是結構上不可能的。這條把「應該」變成「測過了」。
+    expect(o.killsDropped).toBe(0)
   })
 
   it('觀測值（不是門檻，供回填與日後比對）', () => {
