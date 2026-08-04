@@ -11,7 +11,8 @@ import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
-import { createRoster, recordKill, type Roster } from './pilots'
+import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
+import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
@@ -103,8 +104,22 @@ export interface Battle {
   readonly board: TargetBoard
   readonly blue: Combatant[]
   readonly red: Combatant[]
-  /** 玩家那一架。恆在 `blue` 裡 */
-  readonly player: Combatant
+  /**
+   * 玩家目前開的那一架。恆在 `blue` 裡。
+   *
+   * 【M9 起不是 readonly】玩家陣亡會接手僚機，那時這個參考會換一架
+   * （M9 spec §7.2）。`main.ts` 每幀比對它有沒有變，變了就把鏡頭、
+   * 觀測用 AI 與第一人稱眼點一起搬過去。
+   */
+  player: Combatant
+  /** 玩家的**開局**座位。R 重開時要還原回這裡 */
+  readonly playerSeat: number
+  /** 玩家的控制器。接手時要把它裝到新座位上 */
+  readonly playerController: Controller
+  /** 正在等待接手的座位；−1 = 沒有在等待 */
+  takeoverSeat: number
+  /** 接手倒數的剩餘秒數 */
+  takeoverTimer: number
   readonly cfg: BattleConfig
   /**
    * 每一架的開局姿態。重置時抄回去。
@@ -267,6 +282,10 @@ export function createBattle(
     board,
     roster,
     seed,
+    playerSeat: player.index,
+    playerController,
+    takeoverSeat: -1,
+    takeoverTimer: 0,
     blue,
     red,
     player,
@@ -335,13 +354,50 @@ function drainKills(b: Battle): void {
     const o = e * KILL_STRIDE
     const victim = ke.data[o + 6]!
     const killer = ke.data[o + 7]!
+
+    // 【互換必須在記錄之前】反過來的話這次陣亡與兇手的擊墜對象都會記到
+    // 玩家頭上，交換只是把它搬給 AI —— 一個順序解決兩件事（M9 spec §7.1）。
+    //
+    // 【判準是「這個座位坐的是不是玩家」而不是 `victim === b.player.index`】
+    // 移交延遲期間玩家的身分已經在新座位上，但 `b.player` 還沒換。用後者
+    // 的話，延遲期間新座位被打死就不會再觸發接手（M9 spec §7.4）。
+    if (b.roster.pilots[victim]?.isPlayer === true) {
+      const target = pickTakeover(b.flights, w.combatants, victim)
+      if (target >= 0) {
+        swapPilots(b.roster, victim, target)
+        b.takeoverSeat = target
+        b.takeoverTimer = TAKEOVER_DELAY
+      }
+    }
+
     assistCredits(w.damageTime, w.damageStride, victim, killer, w.time, ASSISTS)
     recordKill(b.roster, victim, killer, ASSISTS)
   }
 }
 
 /**
- * 推進一場戰鬥：世界一步，加上戰績記錄、編制壓縮與勝負判定。
+ * 把操縱權交到等待中的座位上。
+ *
+ * 【為什麼身分立刻換、操縱權延後】那 2 秒是給玩家看自己的火球與零件的
+ * （M8 條件 17 的前提）。但擊墜的歸屬必須在事件發生的那一刻就定案，
+ * 否則兇手記到的是玩家而不是那位 AI（M9 spec §7.2）。
+ */
+function completeTakeover(b: Battle): void {
+  const seat = b.takeoverSeat
+  b.takeoverSeat = -1
+  b.takeoverTimer = 0
+  const next = b.world.combatants[seat]
+  // 【目標可能在這 2 秒裡也死了】那時 drainKills 已經又換過一次身分並重設
+  // 了倒數，所以走到這裡的座位恆是活的；這一條是防禦，不是常態路徑。
+  if (next === undefined || !next.alive) return
+  next.controller = b.playerController
+  b.player = next
+  // 站位由 wireStations 依 `instanceof AiController` 自動跟上
+  b.flights.pinned = seat
+}
+
+/**
+ * 推進一場戰鬥：世界一步，加上戰績記錄、接手移交、編制壓縮與勝負判定。
  */
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
@@ -360,6 +416,13 @@ export function stepBattle(b: Battle, dt: number): void {
   // 【編制與站位每步重算】保序壓縮是存活旗標的純函數（M6 spec §5.4）：
   // 重算比維護增減安全 —— 維護要求每一條退場路徑都配一次更新，漏掉任何
   // 一條就留下一個永遠不消失的幽靈狀態。成本是 O(架數)。
+  // 【倒數要排在壓縮之前】移交會改 `flights.pinned`，同一步的壓縮才會把
+  // 玩家放到新分隊的 members[0]
+  if (b.takeoverSeat >= 0) {
+    b.takeoverTimer -= dt
+    if (b.takeoverTimer <= 0) completeTakeover(b)
+  }
+
   compactFlights(b.flights, cs)
   wireStations(b)
 
