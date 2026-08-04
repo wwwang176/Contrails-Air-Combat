@@ -26,6 +26,7 @@ import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-
 import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { CameraRig } from './camera/CameraRig'
+import { deathCamAim } from './camera/deathCam'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -176,6 +177,8 @@ const relVel = new Vector3()
 const leadDir = new Vector3()
 const leadProbe = new Vector3()
 let propRotation = 0
+/** 上一幀是否正在等待接手。用來偵測「剛死掉」那一幀 */
+let wasDying = false
 
 /**
  * 重生：重置飛機並把瞄準點放回機首。
@@ -257,7 +260,26 @@ function frame(now: number) {
   // 「看清楚 AI 在幹嘛」。鎖在機首讓相機自然地跟拍。右鍵自由視角不受影響：
   // 它是 rig 之上的獨立偏移，不經過瞄準點。
   const aiFlying = input.playerAi
-  if (aiFlying) {
+  // 【死亡鏡頭】玩家陣亡到接手之間的那 2 秒：位置定在死亡點（殘骸化之後
+  // `Visual.position` 就不再更新，而相機讀的正是它），視線平滑轉向擊殺者。
+  // 這段期間滑鼠不該做任何事 —— 已經沒有飛機可以操縱了。
+  const dying = battle.takeoverSeat >= 0
+  // 【死掉的那一刻就把畫面擦乾淨】歸零過載只讓黑視「不再累積」，已經累積的
+  // 那一份要 2.4 s 才退得掉（`RECOVERY_TIME`），比死亡鏡頭本身還長。
+  if (dying && !wasDying) resetGEffect()
+  wasDying = dying
+  if (dying) {
+    const killerSeat = battle.takeoverKiller
+    deathCamAim(
+      input.aimWorld,
+      visuals.get(player)!.position,
+      // 兇手在這 2 秒裡也可能死掉；那時他的位置停在自己的墜落點，
+      // 鏡頭看過去仍然是對的畫面
+      killerSeat >= 0 ? world.combatants[killerSeat]!.aircraft.state.position : null,
+      frameSeconds,
+    )
+    input.firing = false
+  } else if (aiFlying) {
     input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
     // 左鍵失效：開火完全由 AI 的開火紀律決定
     input.firing = false
@@ -270,7 +292,11 @@ function frame(now: number) {
   input.aimDeltaX = 0
   input.aimDeltaY = 0
 
-  if (aiFlying && player.controller !== playerAi) {
+  // 【陣亡等待接手的期間不換控制器】那一架已經退場，`World.step` 根本不會
+  // 呼叫它的控制器；而交還那一支會把瞄準點拉回機首 —— 死亡鏡頭正在用它。
+  if (dying) {
+    // 什麼都不做
+  } else if (aiFlying && player.controller !== playerAi) {
     player.controller = playerAi
   } else if (!aiFlying && player.controller !== playerController) {
     player.controller = playerController
@@ -422,7 +448,11 @@ function frame(now: number) {
   hudFrame.heading = headingFromOrientation(renderQuat)
   hudFrame.roll = att.roll
   hudFrame.pitch = att.pitch
-  hudFrame.loadFactor = aircraft.diag.loadFactor
+  // 【陣亡期間過載歸 1】退場的飛機不再被 `world.step` 推進，`diag.loadFactor`
+  // 於是**凍結**在死亡當下。玩家多半是在拉大 G 的時候被打下來的，照抄的話
+  // 黑視會在那 2 秒繼續累積（`ONSET_TIME` 1.6 s）—— 死亡鏡頭的全部意義是
+  // 看得見自己的火球與零件，隔著半黑的畫面看就什麼都不剩了。
+  hudFrame.loadFactor = dying ? 1 : aircraft.diag.loadFactor
   hudFrame.alpha = aircraft.diag.aero.alpha
   hudFrame.alphaCrit = alphaCrit
   hudFrame.ps = aircraft.specificExcessPowerActual
