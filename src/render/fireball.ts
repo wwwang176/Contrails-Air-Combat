@@ -39,10 +39,18 @@ export const FIREBALL_DRAG = 4
 /** 池子大小。40 架 × 12 顆 = 480，512 有餘裕。 */
 export const FIREBALL_CAPACITY = 512
 
-/** 三個色標：白熱 → 橘 → 暗紅。數值是 **sRGB**，見 `fireballColor`。 */
+/**
+ * 四個色標：白熱 → 橘 → 暗紅 → 黑。數值是 **sRGB**，見 `fireballColor`。
+ *
+ * 【為什麼要有「黑」這一段】專案負責人要求「紅色火焰要轉成黑色後才可以
+ * 消失，等於是燃燒感」。加法混合畫不出黑（`dst + 0` 等於沒加），所以這裡
+ * 能做的是讓**火自己熄掉** —— 顏色在最後四分之一由暗紅收到全黑，而不是
+ * 帶著橘紅硬淡出去。真正看得見的黑由 `emitKillSmoke` 那團煙負責。
+ */
 const HOT = { r: 1.0, g: 0.95, b: 0.80 }
 const MID = { r: 1.0, g: 0.45, b: 0.05 }
-const COLD = { r: 0.25, g: 0.02, b: 0.0 }
+const EMBER = { r: 0.35, g: 0.04, b: 0.0 }
+const BLACK = { r: 0.0, g: 0.0, b: 0.0 }
 
 /**
  * 年齡比例 → 顏色。
@@ -59,21 +67,25 @@ const COLD = { r: 0.25, g: 0.02, b: 0.0 }
  * ——一個發白的黃，不是橘。黑煙踩過同一個坑（見 `smokeColor`）。
  */
 export function fireballColor(t: number, out: Color): void {
-  if (t <= 0.5) {
-    const k = t * 2
-    out.setRGB(
-      HOT.r + (MID.r - HOT.r) * k,
-      HOT.g + (MID.g - HOT.g) * k,
-      HOT.b + (MID.b - HOT.b) * k,
-      SRGBColorSpace,
-    )
-    return
+  // 三段內插：0–0.45 白熱→橘、0.45–0.75 橘→暗紅、0.75–1 暗紅→黑
+  let a = HOT
+  let b = MID
+  let k = 0
+  if (t <= 0.45) {
+    k = t / 0.45
+  } else if (t <= 0.75) {
+    a = MID
+    b = EMBER
+    k = (t - 0.45) / 0.3
+  } else {
+    a = EMBER
+    b = BLACK
+    k = (t - 0.75) / 0.25
   }
-  const k = (t - 0.5) * 2
   out.setRGB(
-    MID.r + (COLD.r - MID.r) * k,
-    MID.g + (COLD.g - MID.g) * k,
-    MID.b + (COLD.b - MID.b) * k,
+    a.r + (b.r - a.r) * k,
+    a.g + (b.g - a.g) * k,
+    a.b + (b.b - a.b) * k,
     SRGBColorSpace,
   )
 }

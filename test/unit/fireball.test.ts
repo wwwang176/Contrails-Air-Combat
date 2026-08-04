@@ -40,11 +40,27 @@ describe('fireballColor —— 白到橘到暗紅（M8 spec §5）', () => {
     expect(v.g).toBeGreaterThan(v.b * 3)
   })
 
-  it('末段是暗紅', () => {
-    const v = read(1)
-    expect(v.r).toBeLessThan(0.35)
+  it('四分之三處是暗紅 —— 火在冷卻', () => {
+    const v = read(0.75)
+    expect(v.r).toBeLessThan(0.4)
+    expect(v.r).toBeGreaterThan(0.1)
     expect(v.g).toBeLessThan(0.1)
-    expect(v.b).toBeLessThan(0.05)
+  })
+
+  it('末段收到全黑 —— 火是熄掉的，不是帶著橘紅淡出去', () => {
+    // 【專案負責人的要求】「紅色火焰要轉成黑色後才可以消失，等於是燃燒感」。
+    // 加法混合畫不出黑（dst + 0 等於沒加），所以這裡能做的是讓火自己熄掉；
+    // 真正看得見的黑由 emitKillSmoke 那團煙負責（見 smoke.ts）。
+    const v = read(1)
+    expect(v.r).toBeCloseTo(0, 4)
+    expect(v.g).toBeCloseTo(0, 4)
+    expect(v.b).toBeCloseTo(0, 4)
+  })
+
+  it('橘紅那一段撐得夠久 —— 不是一出生就往黑衝', () => {
+    // 壽命過半時仍然是有顏色的火，不是已經快黑了
+    const v = read(0.5)
+    expect(v.r + v.g + v.b).toBeGreaterThan(0.8)
   })
 
   it('亮度全程單調遞減 —— 火球只會變暗不會回頭', () => {

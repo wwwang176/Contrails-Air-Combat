@@ -3,8 +3,9 @@ import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
   createDebris,
   DEBRIS_CONE, DEBRIS_COUNT, DEBRIS_MAX_LIFE, DEBRIS_SIZE_MAX, DEBRIS_SIZE_MIN,
+  DEBRIS_SPEED,
 } from '../../src/render/debris'
-import { DEBRIS_SMOKE_COUNT } from '../../src/render/smoke'
+import { DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL } from '../../src/render/smoke'
 import { createKills, pushKill } from '../../src/world/kills'
 import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
@@ -73,13 +74,10 @@ describe('零件的發射（M8 spec §7）', () => {
     d.dispose()
   })
 
-  it('散射是沿飛行方向的錐 —— 扣掉繼承速度之後的殘量落在 DEBRIS_CONE 內', () => {
-    // 【為什麼要扣掉繼承速度】只看「零件在不在母機前方」是**測不到錐的**：
-    // 母機 150 m/s 遠大於散射的 20 m/s，就算把錐改成等向，繼承的速度照樣
-    // 把每一片都帶往前方。把散射錐改成 Math.PI 驗證過那樣的測試不會紅。
-    //
-    // 這裡母機速度只給 1 m/s，讓散射主導，並直接斷言真正的契約：
-    // 零件速度減掉母機速度之後的方向，必須落在飛行方向的半角之內。
+  it('散射是等向的 —— 扣掉繼承速度之後，四面八方都有', () => {
+    // 【設計】專案負責人裁決零件是 360 度噴射，「往前」的觀感來自繼承母機
+    // 速度而不是來自錐（見 DEBRIS_CONE 的註解）。所以這條要斷言的是
+    // **殘量真的鋪滿整個球面**，包含往正後方噴的那幾片。
     const d = createDebris(64)
     const e = createKills(4)
     const dt = 1e-4
@@ -89,17 +87,41 @@ describe('零件的發射（M8 spec §7）', () => {
     d.emit(e, WHITE)
     d.step(dt, DEEP, 0)
     const flight = parent.clone().normalize()
+    let minDot = 1
+    let maxDot = -1
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const v = decompose(d.object, i).position.clone().sub(origin).divideScalar(dt)
       const residual = v.sub(parent).normalize()
-      const angle = Math.acos(Math.min(1, Math.max(-1, residual.dot(flight))))
-      // 容差 1e-3 rad：速度是從位移回推的，重力在 dt 內貢獻 9.8e-4 m/s
-      expect(angle).toBeLessThanOrEqual(DEBRIS_CONE + 1e-3)
+      const dot = residual.dot(flight)
+      minDot = Math.min(minDot, dot)
+      maxDot = Math.max(maxDot, dot)
     }
+    // 有往正前方的，也有往正後方的 —— 那就是等向
+    expect(maxDot).toBeGreaterThan(0.8)
+    expect(minDot).toBeLessThan(-0.8)
+    expect(DEBRIS_CONE).toBeCloseTo(Math.PI, 9)
     d.dispose()
   })
 
-  it('散射錐讓零件彼此分開，不是一條線', () => {
+  it('散射速度必須小於母機速度 —— 否則「看起來像散狀」就不成立', () => {
+    // 【為什麼這條是真的門檻】等向散射之所以在畫面上讀成「往前噴的碎片
+    // 雲」，靠的是每一片的淨速度仍然朝前。散射速度一旦超過母機速度，
+    // 往後噴的那幾片會真的往後跑，整團就變成往四周炸開的球。
+    const d = createDebris(64)
+    const e = createKills(4)
+    const speed = 140
+    pushKill(e, 0, 1000, 0, 0, 0, -speed, 0)
+    d.emit(e, WHITE)
+    d.step(0.1, DEEP, 0)
+    for (let i = 0; i < DEBRIS_COUNT; i++) {
+      // 每一片都必須在母機前方（z 變小）
+      expect(decompose(d.object, i).position.z).toBeLessThan(0)
+    }
+    expect(DEBRIS_SPEED).toBeLessThan(speed)
+    d.dispose()
+  })
+
+  it('散射讓零件彼此分開，不是一條線', () => {
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, -150, 0)
@@ -111,7 +133,6 @@ describe('零件的發射（M8 spec §7）', () => {
       maxR = Math.max(maxR, Math.hypot(p.x, p.y - 1000))
     }
     expect(maxR).toBeGreaterThan(1)
-    expect(DEBRIS_CONE).toBeGreaterThan(0.3)
     d.dispose()
   })
 
@@ -130,13 +151,13 @@ describe('零件的發射（M8 spec §7）', () => {
   })
 
   it('每一次擊墜只有 DEBRIS_SMOKE_COUNT 片冒煙', () => {
-    // 一幀 0.4 s、間隔 0.3 s → 每一片冒煙的正好生一團，所以事件數就是
-    // 冒煙的片數。全部十二片都冒的話這裡會是 12。
+    // 【步長取一個間隔】這樣每一片冒煙的正好生一團，事件數就是冒煙的片數。
+    // 寫死 0.4 s 的話，間隔一改（0.3 → 0.15）這條就會量到兩倍而紅得莫名。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.4, DEEP, 0)
+    d.step(DEBRIS_SMOKE_INTERVAL, DEEP, 0)
     expect(d.smokeEvents.count).toBe(DEBRIS_SMOKE_COUNT)
     d.dispose()
   })
@@ -173,7 +194,9 @@ describe('零件入水（M8 spec §7）', () => {
   it('碰到水面就推一筆噴濺事件並退場', () => {
     const d = createDebris(64)
     const e = createKills(4)
-    pushKill(e, 0, 3, 0, 0, -50, 0, 0)
+    // 【母機速度要壓過散射速度】等向散射下有幾片是往上噴的；母機只有
+    // 50 m/s 的話那幾片在這一步還落不了水，事件數會少個兩三筆。
+    pushKill(e, 0, 3, 0, 0, -200, 0, 0)
     d.emit(e, WHITE)
     d.step(0.2, FLAT, 0)
     expect(d.sprayEvents.count).toBe(DEBRIS_COUNT)
@@ -184,7 +207,7 @@ describe('零件入水（M8 spec §7）', () => {
   it('噴濺事件生在水面上，不是零件的位置', () => {
     const d = createDebris(64)
     const e = createKills(4)
-    pushKill(e, 100, 3, -200, 0, -50, 0, 0)
+    pushKill(e, 100, 3, -200, 0, -200, 0, 0)
     d.emit(e, WHITE)
     d.step(0.2, () => 1.75, 0)
     expect(d.sprayEvents.count).toBeGreaterThan(0)
@@ -195,7 +218,7 @@ describe('零件入水（M8 spec §7）', () => {
   it('事件緩衝每一次 step 開頭排空 —— 不會重複發射', () => {
     const d = createDebris(64)
     const e = createKills(4)
-    pushKill(e, 0, 3, 0, 0, -50, 0, 0)
+    pushKill(e, 0, 3, 0, 0, -200, 0, 0)
     d.emit(e, WHITE)
     d.step(0.2, FLAT, 0)
     expect(d.sprayEvents.count).toBeGreaterThan(0)

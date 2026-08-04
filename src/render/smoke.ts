@@ -1,6 +1,8 @@
-import { Color, NormalBlending } from 'three'
+import { Color, NormalBlending, Vector3 } from 'three'
 import { createParticles, type Particles } from './particles'
+import { coneDirection } from './scatter'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
+import { KILL_STRIDE, type KillEvents } from '../world/kills'
 
 /** 壽命，s。60 fps 下 150 幀 —— 拖得出一條讀得到的煙帶。 */
 export const SMOKE_LIFE = 2.5
@@ -29,11 +31,22 @@ export const SMOKE_DRAG = 1.5
  */
 export const SMOKE_GRAVITY = SMOKE_RISE * SMOKE_DRAG
 
-/** 殘骸每隔多久冒一團，s。150 m/s 下相鄰兩團相距 12 m —— 一條連續的煙帶。 */
-export const WRECK_SMOKE_INTERVAL = 0.08
+/**
+ * 殘骸每隔多久冒一團，s。
+ *
+ * 【人工驗收後由 0.08 縮到 0.04】專案負責人要求「煙霧連續性更高一點」。
+ * 150 m/s 下相鄰兩團由相距 12 m 變成 6 m，而煙團一出生就有 2 m 直徑、
+ * 很快長到 9 m —— 間距小於直徑，煙帶才是連的而不是一串珠子。
+ */
+export const WRECK_SMOKE_INTERVAL = 0.04
 
-/** 大零件每隔多久冒一團，s。 */
-export const DEBRIS_SMOKE_INTERVAL = 0.3
+/**
+ * 冒煙的零件每隔多久冒一團，s。
+ *
+ * 【由 0.3 縮到 0.15】同一個理由。零件的煙另外乘 `DEBRIS_SMOKE_SIZE`
+ * 縮小，所以要更密才連得起來。
+ */
+export const DEBRIS_SMOKE_INTERVAL = 0.15
 
 /**
  * 三十六片零件裡有幾片冒煙。
@@ -59,10 +72,14 @@ export const DEBRIS_SMOKE_SIZE = 0.35
 /**
  * 池子大小。
  *
- * 【3072 怎麼來】20 具殘骸各 `2.5 / 0.08 = 31` 團、160 片冒煙的零件各
- * `2.5 / 0.3 = 8` 團 —— 穩態約 1,950 團。3072 有 1.6 倍餘裕。
+ * 【6144 怎麼來】間距縮一半之後穩態跟著翻倍：20 具殘骸各
+ * `2.5 / 0.04 = 63` 團、160 片冒煙的零件各 `2.5 / 0.15 = 17` 團 ——
+ * 合計約 3,980 團。6144 有 1.5 倍餘裕。
+ *
+ * 【為什麼容量變大不會讓每幀變貴】`step` 對**已經歸零的死格子跳過寫入**
+ * （見 `createParticles`），所以每幀的矩陣寫入量跟著存活數走而不是容量。
  */
-export const SMOKE_CAPACITY = 3072
+export const SMOKE_CAPACITY = 6144
 
 /** 煙的顏色，**sRGB**。 */
 export const SMOKE_COLOR = 0x1a1a1a
@@ -122,6 +139,58 @@ export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
  * `x,y,z` 加三個這裡用不到的法線欄位。M7 spec §2.2 已經為「命中與入海共用
  * 一個型別」寫過同樣的理由 —— 為了省三個 float 再發明一個結構才是壞的。
  */
+/**
+ * 擊墜當下的煙球噴幾團。
+ *
+ * 【為什麼火球之外還要這個】專案負責人要求火焰「轉成黑色後才可以消失」。
+ * 火球是**加法混合**的，而加法畫不出黑（`dst + 0` 等於沒加）—— 在那個
+ * 混合模式下「變黑」與「消失」是同一件事。真正看得見的黑必須是一團一般
+ * 混合的深色東西留在原地：火球褪去、煙球在同一個位置浮現，那正是真實
+ * 爆炸的樣子。
+ */
+export const KILL_SMOKE_COUNT = 10
+
+/** 擊墜煙球的尺寸倍率。4.8 → 21.6 m —— 要蓋得住 8 m 的火球才接得起來。 */
+export const KILL_SMOKE_SIZE = 2.4
+
+/** 煙球向外擴的初速，m/s。慢到讀得出是「一團」而不是「炸開」。 */
+export const KILL_SMOKE_SPEED = 8
+
+/** 繼承多少母機速度。與火球相同，兩者才會一起往前走。 */
+export const KILL_SMOKE_INHERIT = 0.5
+
+/** 模組私有的暫存。熱路徑：不配置。 */
+const DIR = new Vector3()
+
+/**
+ * 依擊墜事件生一團大煙球，接在火球後面。
+ *
+ * 與 `emitFireball` 生在同一個位置、繼承同樣比例的母機速度，所以兩者
+ * 疊在一起走 —— 火在前 0.5 s 熄掉，煙球撐 2.5 s。
+ */
+export function emitKillSmoke(pool: Particles, events: KillEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * KILL_STRIDE
+    const x = d[o]!
+    const y = d[o + 1]!
+    const z = d[o + 2]!
+    const ivx = d[o + 3]! * KILL_SMOKE_INHERIT
+    const ivy = d[o + 4]! * KILL_SMOKE_INHERIT
+    const ivz = d[o + 5]! * KILL_SMOKE_INHERIT
+    for (let k = 0; k < KILL_SMOKE_COUNT; k++) {
+      coneDirection(0, 1, 0, Math.PI, e * KILL_SMOKE_COUNT + k, DIR)
+      pool.emit(
+        x, y, z,
+        ivx + DIR.x * KILL_SMOKE_SPEED,
+        ivy + DIR.y * KILL_SMOKE_SPEED,
+        ivz + DIR.z * KILL_SMOKE_SPEED,
+        KILL_SMOKE_SIZE,
+      )
+    }
+  }
+}
+
 export function emitSmoke(
   pool: Particles, events: ImpactEvents, sizeScale = 1,
 ): void {
