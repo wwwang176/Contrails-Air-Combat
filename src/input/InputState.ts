@@ -52,8 +52,6 @@ export interface InputState {
   playerAi: boolean
   /** 單幀旗標，消費後由呼叫端清除 */
   resetRequested: boolean
-  /** 單幀旗標，切換機種 */
-  swapSpecRequested: boolean
   /**
    * 記分板是否按住（Tab）。
    *
@@ -85,7 +83,6 @@ export function createInputState(): InputState {
     braking: false,
     playerAi: false,
     resetRequested: false,
-    swapSpecRequested: false,
     scoreboardHeld: false,
     pointerLockLost: false,
   }

@@ -44,8 +44,6 @@ import {
 import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
-import { P51D } from './specs/p51d'
-import { BF109G6 } from './specs/bf109g6'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -120,7 +118,12 @@ const scoreboard = createScoreboard(boardEl)
  * ——這是「世界上只有一架飛機」這個假設最直接的殘留物。
  */
 interface Visual {
-  model: AircraftModel
+  /**
+   * 【M10 起是 readonly】M9 以前 `C` 可以中途換機種，那時這一格會被換掉。
+   * 現在模型從 `attachVisual` 建出來到 `releaseVisual` 釋放為止恆是同一具，
+   * 所以 `renderPositions` 那些參考不需要任何附帶條件就恆有效。
+   */
+  readonly model: AircraftModel
   readonly position: Vector3
   readonly quaternion: Quaternion
   /**
@@ -175,24 +178,10 @@ const debrisColorOf = (index: number): number =>
 
 // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
 // 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
-// （`rebuildModel` 只換 `v.model`，不換 `v` 本身，所以參考恆有效。）
 let renderPositions: Vector3[] = []
 let renderQuaternions: Quaternion[] = []
 
 const rig = new CameraRig()
-
-/** 換機種時整組重建，避免佔位/殘影：先建新的再移除舊的並釋放幾何與材質。 */
-function rebuildModel(c: Combatant) {
-  const v = visuals.get(c)!
-  const next = buildAircraft(c.aircraft.spec)
-  ctx.scene.add(next.group)
-  ctx.scene.remove(v.model.group)
-  v.model.dispose()
-  v.model = next
-  // 眼點是量出來的座艙位置，一機一個值——換機種必須跟著換，否則機首視角
-  // 的眼睛會落到另一台的座艙高度去（見 assembly.ts 的 eyePoint）。
-  if (c === player) rig.options.firstPersonOffset.copy(next.eyePoint)
-}
 
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
@@ -259,7 +248,6 @@ function rebuildVisuals(): void {
   for (const c of world.combatants) attachVisual(c)
   // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion
   // 參考，不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
-  // （`rebuildModel` 只換 `v.model`，不換 `v` 本身，所以參考恆有效。）
   renderPositions = world.combatants.map((c) => visuals.get(c)!.position)
   renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
   // 眼點是量出來的座艙位置，一機一個值
@@ -353,18 +341,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
     respawnPlayer()
     input.resetRequested = false
   }
-  if (input.swapSpecRequested) {
-    // C 不動瞄準點：瞄準點是「玩家指著的世界方向」，不屬於機體。運動狀態
-    // 既然原樣保留（換的是飛機不是處境），瞄準點跟著保留才連貫；歸零反而
-    // 會在換裝的瞬間硬扯機首。
-    //
-    // 【一定要走 world.setSpec，不能直接呼叫 aircraft.setSpec】掛架數不同
-    // （P-51 六個、109 三個），射速時鐘必須跟著重配（見 World.setSpec）。
-    world.setSpec(player, player.aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
-    rebuildModel(player)
-    input.swapSpecRequested = false
-  }
-
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
   // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
   // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續

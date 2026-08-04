@@ -89,7 +89,6 @@ export function attachInput(
       case 'KeyS': hold.down = true; state.braking = true; break
       case 'KeyV': state.viewMode = state.viewMode === 'third' ? 'first' : 'third'; break
       case 'KeyR': state.resetRequested = true; break
-      case 'KeyC': state.swapSpecRequested = true; break
       case 'KeyI': state.playerAi = !state.playerAi; break
       case 'Tab': state.scoreboardHeld = true; break
       default: return
