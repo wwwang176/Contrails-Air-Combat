@@ -6,6 +6,10 @@ import { createScene } from './render/scene'
 import { createOcean } from './render/ocean'
 import { createProps } from './render/props'
 import { createTracers } from './render/tracers'
+import { createMuzzles } from './render/muzzle'
+import { createSparks } from './render/sparks'
+import { createSplashes } from './render/splash'
+import { clearImpacts } from './world/events'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
@@ -88,6 +92,20 @@ function attachVisual(c: Combatant): Visual {
   return v
 }
 for (const c of world.combatants) attachVisual(c)
+
+// 【三個特效各一個 InstancedMesh】總共多 3 個 draw call（M7 spec §9）
+const muzzles = createMuzzles(world.combatants.length)
+ctx.scene.add(muzzles.object)
+const sparks = createSparks()
+ctx.scene.add(sparks.object)
+const splashes = createSplashes()
+ctx.scene.add(splashes.object)
+
+// 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
+// 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
+// （`rebuildModel` 只換 `v.model`，不換 `v` 本身，所以參考恆有效。）
+const renderPositions = world.combatants.map((c) => visuals.get(c)!.position)
+const renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
 
 const rig = new CameraRig()
 rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
@@ -215,6 +233,18 @@ function frame(now: number) {
     perf.beginPhysics()
     stepBattle(battle, dt)
     hitsThisFrame += player.hitsDealt
+    // 【事件必須在回呼裡排空】與上面 hitsDealt 同一個理由：World 在每個
+    // 物理步產生事件，而一幀可能跑好幾步。在幀尾才讀的話，最後一步以外
+    // 的火花與水柱全部漏掉（M7 spec §2.2）。
+    //
+    // 相機位置用的是上一幀的 —— 火花的剔除半徑是 800 m，而相機一幀移動
+    // 不到 4 m，差異在剔除判斷上看不出來。
+    sparks.emit(
+      world.hitEvents, ctx.camera.position.x, ctx.camera.position.y, ctx.camera.position.z,
+    )
+    splashes.emit(world.splashEvents, ocean.heightAt, elapsed)
+    clearImpacts(world.hitEvents)
+    clearImpacts(world.splashEvents)
     perf.endPhysics()
   })
 
@@ -253,6 +283,12 @@ function frame(now: number) {
   )
 
   tracers.update(world.projectiles)
+  // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
+  // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
+  muzzles.update(world.combatants, renderPositions, renderQuaternions)
+  // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
+  sparks.step(frameSeconds)
+  splashes.step(frameSeconds)
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
