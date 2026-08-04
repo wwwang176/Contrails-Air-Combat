@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { batteryDps, mountDirection } from '../../src/weapons/types'
+import { batteryDps, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
 import { stepCadence } from '../../src/weapons/cadence'
 import { M2_BROWNING, P51D_BATTERY } from '../../src/weapons/p51d'
 import { BF109G6_BATTERY, MG131, MG151_20 } from '../../src/weapons/bf109g6'
@@ -173,5 +173,16 @@ describe('stepCadence', () => {
     stepCadence(cd, 0, 800, true, DT)
     expect(cd[1]).toBe(0)
     expect(stepCadence(cd, 1, 800, true, DT)).toBe(1)
+  })
+})
+
+describe('MAX_MOUNTS —— 槍焰的容量上界（M7 spec §5.2）', () => {
+  it('所有機種的掛架數都不超過它', () => {
+    // 【為什麼要守】它是一個容量上界而不是一個描述。某天有人加一台
+    // 九挺槍的飛機，第九挺的槍焰會**靜靜地畫不出來** —— 沒有錯誤、
+    // 沒有警告，只是那一管永遠不閃。與 createFlights 檢查
+    // 「index === 陣列位置」是同一類的守門。
+    expect(P51D_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
+    expect(BF109G6_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
   })
 })

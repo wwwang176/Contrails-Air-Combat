@@ -56,3 +56,15 @@ export function mountDirection(b: Battery, index: number, out: Vector3): Vector3
   const p = b.mounts[index]!.position
   return out.set(-p.x, 0, -b.convergence - p.z).normalize()
 }
+
+/**
+ * 一台飛機最多有幾個掛架。
+ *
+ * 【它是容量上界不是描述】槍焰的 `InstancedMesh` 用「架數 × MAX_MOUNTS」
+ * 預配實例。某天有人加一台九挺槍的飛機，第九挺會**靜靜地畫不出來** ——
+ * 沒有錯誤、沒有警告，只是那一管永遠不閃。所以 `weapons.test.ts` 有一條
+ * 斷言把所有機種都掃過一次。
+ *
+ * 【8 怎麼來】目前最多的是 P-51D 的 6 挺，留兩格餘裕。
+ */
+export const MAX_MOUNTS = 8

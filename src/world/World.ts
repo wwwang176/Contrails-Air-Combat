@@ -28,6 +28,17 @@ export interface Combatant {
    * `setSpec` 必須換掉整個陣列。
    */
   cooldowns: Float32Array
+  /**
+   * 每個掛架的槍焰剩餘秒數。長度等於 `spec.battery.mounts.length`。
+   *
+   * 【為什麼是計時器而不是事件】事件會帶著**物理子步**的位置，而畫面畫
+   * 在**內插後**的位置 —— 200 m/s 下差 0.83 m，槍焰會相對機身抖動接近
+   * 一個機身長度。計時器是一個**狀態**，渲染層讀它的時候自己用內插姿態
+   * 重算槍口位置（M7 spec §2.1）。
+   *
+   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時掛架數會變。
+   */
+  muzzleFlash: Float32Array
   hp: number
   /**
    * 包圍球半徑，m。命中判定的粗篩用，隨 spec 一起更新。
@@ -70,6 +81,22 @@ const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 const S = makeScratch(3)
 
 /**
+ * 槍焰的顯示時長，s。
+ *
+ * 【兩個界夾出來的】
+ * **下界 16.7 ms**：60 fps 的一幀。閃得比一幀短就會被抽樣漏掉 —— 有時
+ * 看得到有時看不到，那比沒有更糟。30 ms 橫跨 1.8 幀，保證每次擊發至少
+ * 畫到一幀。
+ * **上界 67 ms**：全場最快的一管是 Bf 109 的 MG 131（900 rpm）。工作
+ * 週期 30/67 = 45%，讀起來是**閃爍**；取到 60 ms 以上就變成一盞常亮的
+ * 燈，那是錯的視覺（M7 spec §5.3）。
+ *
+ * 【為什麼住在 World 而不是 render】它記的是「這一管距離上次擊發多久」，
+ * 那是物理事實不是畫面參數。渲染層決定它長什麼樣子。
+ */
+export const FLASH_SECONDS = 0.03
+
+/**
  * 世界 —— `Combatant[]` + 彈丸池 + 每步的四段順序。
  *
  * 【為什麼要有這一層】M1 的 main.ts 假設「世界上只有一架飛機」。M4 的 AI
@@ -107,6 +134,7 @@ export class World {
       controller,
       command: createCommand(),
       cooldowns: new Float32Array(aircraft.spec.battery.mounts.length),
+      muzzleFlash: new Float32Array(aircraft.spec.battery.mounts.length),
       hp: aircraft.spec.hp,
       hitRadius: boundingRadius(aircraft.spec.hitBoxes),
       team,
@@ -136,6 +164,13 @@ export class World {
     // 一條命的命中數」的機會。
     for (const c of this.combatants) {
       c.hitsDealt = 0
+      // 【槍焰的遞減要在 alive 檢查之前】被打爆那一瞬間亮著的槍焰，
+      // 若遞減寫在 continue 之後就會永遠停在那裡。
+      const flash = c.muzzleFlash
+      for (let i = 0; i < flash.length; i++) {
+        const v = flash[i]! - dt
+        flash[i] = v > 0 ? v : 0
+      }
       if (!c.alive) continue
       c.controller.update(c.aircraft, dt, c.command)
     }
@@ -178,6 +213,13 @@ export class World {
     } else {
       c.cooldowns.fill(0)
     }
+    // 【槍焰計時器與射速時鐘一起重配】理由相同，而且必須在同一個地方 ——
+    // 分開寫就是只有一份會被修好的那種危險。
+    if (c.muzzleFlash.length !== spec.battery.mounts.length) {
+      c.muzzleFlash = new Float32Array(spec.battery.mounts.length)
+    } else {
+      c.muzzleFlash.fill(0)
+    }
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)
   }
@@ -198,6 +240,7 @@ export class World {
       const mount = battery.mounts[i]!
       const shots = stepCadence(c.cooldowns, i, mount.weapon.roundsPerMinute, trigger, dt)
       if (shots === 0) continue
+      c.muzzleFlash[i] = FLASH_SECONDS
 
       // 槍口的世界位置與世界射向
       const muzzle = S.v[0]!.copy(mount.position).applyQuaternion(q).add(pos)
