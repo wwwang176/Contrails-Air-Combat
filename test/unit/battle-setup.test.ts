@@ -4,6 +4,7 @@ import {
   aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE,
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
+import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
 import { SCHWARM_SIZE, STATION_REFERENCE, stationReferenceOf } from '../../src/battle/flights'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
@@ -432,5 +433,81 @@ describe('playerFlight / playerWingman', () => {
     for (let i = 1; i < f.count; i++) b.world.destroy(b.world.combatants[f.members[i]!]!)
     stepBattle(b, DT)
     expect(playerWingman(b)).toBe(-1)
+  })
+})
+
+describe('名冊（M9 spec §6）', () => {
+  it('每個座位一位飛行員，玩家只有一位', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 1234)
+    expect(b.roster.pilots).toHaveLength(b.world.combatants.length)
+    expect(b.roster.pilots.filter((p) => p.isPlayer)).toHaveLength(1)
+    expect(b.roster.pilots[b.player.index]!.isPlayer).toBe(true)
+  })
+
+  it('同種子同名單', () => {
+    const a = createBattle(new Idle(), DEFAULT_BATTLE, 777)
+    const c = createBattle(new Idle(), DEFAULT_BATTLE, 777)
+    expect(a.roster.pilots.map((p) => p.name))
+      .toEqual(c.roster.pilots.map((p) => p.name))
+  })
+
+  it('全場名字不重複', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 55)
+    const names = b.roster.pilots.map((p) => p.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('藍隊拿同盟國的名字、紅隊拿軸心國的', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 9)
+    for (const c of b.blue) expect(ALLIED_NAMES).toContain(b.roster.pilots[c.index]!.name)
+    for (const c of b.red) expect(AXIS_NAMES).toContain(b.roster.pilots[c.index]!.name)
+  })
+})
+
+describe('stepBattle 的戰績記錄（M9 spec §4.3）', () => {
+  it('擊墜記在兇手身上、陣亡記在受害者身上', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
+    const killer = b.blue[1]!
+    const victim = b.red[0]!
+    b.world.applyDamage(victim, 99999, 'fuselage', killer)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[killer.index]!.kills).toBe(1)
+    expect(b.roster.pilots[victim.index]!.deaths).toBe(1)
+    expect(b.roster.pilots[victim.index]!.alive).toBe(false)
+  })
+
+  it('窗口內打過的拿助攻', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
+    const killer = b.blue[1]!
+    const helper = b.blue[2]!
+    const victim = b.red[0]!
+    b.world.applyDamage(victim, 10, 'wingLeft', helper)
+    b.world.applyDamage(victim, 99999, 'fuselage', killer)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[helper.index]!.assists).toBe(1)
+    expect(b.roster.pilots[killer.index]!.assists).toBe(0)
+  })
+
+  it('撞海不算任何人的擊墜', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
+    const victim = b.red[0]!
+    b.world.destroy(victim)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[victim.index]!.deaths).toBe(1)
+    expect(b.roster.pilots.reduce((s, p) => s + p.kills, 0)).toBe(0)
+  })
+
+  it('呼叫端沒有排空時也不會重複計數', () => {
+    // 【為什麼這條非有不可】`main.ts` 每個子步排空擊墜事件，headless 的
+    // 測試不排。不排的話同一筆事件會在後續每一步被再掃一次 —— 靠的是
+    // `recordKill` 的「已陣亡就略過」讓重掃變成空操作。這條測試守的就是
+    // 那個冪等性；它一破，守恆律會永遠失衡而症狀離成因很遠。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
+    const killer = b.blue[1]!
+    const victim = b.red[0]!
+    b.world.applyDamage(victim, 99999, 'fuselage', killer)
+    for (let i = 0; i < 20; i++) stepBattle(b, DT)
+    expect(b.roster.pilots[killer.index]!.kills).toBe(1)
+    expect(b.roster.pilots[victim.index]!.deaths).toBe(1)
   })
 })

@@ -8,6 +8,10 @@ import {
   type Flight, type FlightIndex,
 } from './flights'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
+import { KILL_STRIDE } from '../world/kills'
+import { assistCredits } from '../world/assists'
+import { factionOf, pilotNames } from './names'
+import { createRoster, recordKill, type Roster } from './pilots'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
@@ -121,6 +125,10 @@ export interface Battle {
    * （M9 spec §8）。
    */
   outcome: Outcome
+  /** 這一場的飛行員名冊，依座位索引 */
+  readonly roster: Roster
+  /** 名字用的隨機種子。記下來就能重現同一場的名單 */
+  seed: number
 }
 
 const UP = new Vector3(0, 1, 0)
@@ -151,9 +159,15 @@ const SPAWN = new Vector3()
  *
  * 【玩家固定在藍隊中央】開局視野裡兩側都是友機、敵機在正前方 —— 與 M2
  * 「靶機擺正前方 400 m」同一個理由：看得到才算存在。
+ *
+ * @param seed 名字用的種子。省略時抽一個 —— **這是專案唯一一處
+ *             `Math.random`**，而且只影響顯示用的字串，不進入任何物理路徑
+ *             （M9 spec §6.2）。
  */
 export function createBattle(
-  playerController: Controller, cfg: BattleConfig = DEFAULT_BATTLE,
+  playerController: Controller,
+  cfg: BattleConfig = DEFAULT_BATTLE,
+  seed: number = (Math.random() * 0x100000000) >>> 0,
 ): Battle {
   const world = new World()
   const blue: Combatant[] = []
@@ -237,9 +251,22 @@ export function createBattle(
     ai.setDecisionPhase(c.index / world.combatants.length)
   }
 
+  // 【名字依陣營而不是隊伍顏色】M10 讓玩家選陣營之後藍隊可能飛 Bf109，
+  // 那時德文名要跟著機種走（M9 spec §6.1）。這裡讀每一隊實際的機種。
+  const blueNames = pilotNames(seed, factionOf(blue[0]!.aircraft.spec.id), blue.length)
+  const redNames = pilotNames(seed, factionOf(red[0]!.aircraft.spec.id), red.length)
+  let bi = 0
+  let ri = 0
+  const roster = createRoster(
+    world.combatants.map((c) => (c.team === 'blue' ? blueNames[bi++]! : redNames[ri++]!)),
+    player.index,
+  )
+
   const battle: Battle = {
     world,
     board,
+    roster,
+    seed,
     blue,
     red,
     player,
@@ -285,11 +312,40 @@ export function aliveCount(cs: readonly Combatant[]): number {
   return n
 }
 
+/** 助攻掃描的暫存。熱路徑之外，但沿用專案的不配置慣例。 */
+const ASSISTS: number[] = []
+
 /**
- * 推進一場戰鬥：世界一步，加上編制壓縮與勝負判定。
+ * 把擊墜緩衝裡的每一筆記進名冊。
+ *
+ * 【為什麼在 `stepBattle` 而不是 `World`】`World` 不該知道有「名字」或
+ * 「玩家」這回事 —— 它連隊伍都只知道 `'blue' | 'red'`。而且放在這裡，
+ * 接手的身分互換與擊墜的記錄可以保證在同一個地方、同一個順序
+ * （M9 spec §4.3、§7.1）。
+ *
+ * 【為什麼每次都從 0 掃】`main.ts` 每個子步排空這個緩衝，headless 的測試
+ * 不排 —— 於是同一筆事件會被重掃。這裡不記游標，靠的是 `recordKill` 的
+ * 「已陣亡就略過」讓重掃變成空操作。用游標反而危險：呼叫端排空之後
+ * `count` 歸零，任何「處理到哪裡」的記錄都會與新的一批事件錯位。
+ */
+function drainKills(b: Battle): void {
+  const ke = b.world.killEvents
+  const w = b.world
+  for (let e = 0; e < ke.count; e++) {
+    const o = e * KILL_STRIDE
+    const victim = ke.data[o + 6]!
+    const killer = ke.data[o + 7]!
+    assistCredits(w.damageTime, w.damageStride, victim, killer, w.time, ASSISTS)
+    recordKill(b.roster, victim, killer, ASSISTS)
+  }
+}
+
+/**
+ * 推進一場戰鬥：世界一步，加上戰績記錄、編制壓縮與勝負判定。
  */
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
+  drainKills(b)
 
   // 【退場的飛機要放掉它自己的指派】`World.step` 跳過退場者的控制器，所以
   // `selectTarget` 永遠沒機會替它把槽位歸 −1（M5 spec §7）。不清的話那筆
