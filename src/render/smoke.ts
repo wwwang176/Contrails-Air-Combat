@@ -7,6 +7,19 @@ import { KILL_STRIDE, type KillEvents } from '../world/kills'
 /** 壽命，s。60 fps 下 150 幀 —— 拖得出一條讀得到的煙帶。 */
 export const SMOKE_LIFE = 2.5
 
+/**
+ * 壽命的隨機幅度。0.25 = 每一團各自活 0.75×~1.25× 的 `SMOKE_LIFE`
+ * （1.875 ~ 3.125 s）。
+ *
+ * 【為什麼】專案負責人在試驗場上指出煙帶的尾端太齊。同一批煙用同一個
+ * 壽命的話它們會**同時**淡到不見，讀起來是一條被切斷的線；壽命一抖，
+ * 尾端就自己散開了。
+ */
+export const SMOKE_LIFE_JITTER = 0.25
+
+/** 最長的一團活多久，s。池子容量與各種「煙還在不在」的推導用這個上界。 */
+export const SMOKE_LIFE_MAX = SMOKE_LIFE * (1 + SMOKE_LIFE_JITTER)
+
 /** 出生直徑，m。 */
 export const SMOKE_SIZE_FROM = 2
 
@@ -43,22 +56,36 @@ export const WRECK_SMOKE_INTERVAL = 0.04
 /**
  * 冒煙的零件每隔多久冒一團，s。
  *
- * 【由 0.3 縮到 0.15】同一個理由。零件的煙另外乘 `DEBRIS_SMOKE_SIZE`
- * 縮小，所以要更密才連得起來。
+ * 【0.3 → 0.15 → 0.075】每一次都是同一個理由，而零件這一邊特別嚴重：
+ * 散射初速 40 m/s 疊在母機的 150 m/s 上，一個間隔內零件會走
+ * `速度 × 間隔` 那麼遠。0.15 s 下那是二十幾公尺，遠大於煙團的出生直徑，
+ * 煙帶因此有斷點 —— 專案負責人在試驗場上指出來的正是這件事。
  */
-export const DEBRIS_SMOKE_INTERVAL = 0.15
+export const DEBRIS_SMOKE_INTERVAL = 0.075
+
+/**
+ * 一片零件冒多久的煙，s。**必須短於 `DEBRIS_MAX_LIFE`。**
+ *
+ * 【為什麼要有上限】零件在 5 s 時整片消失；煙若冒到最後一刻，最後那一團
+ * 會在零件消失後還飄一整個 `SMOKE_LIFE_MAX` —— 一團沒有來源的煙掛在空中。
+ * 提早 2 s 收尾，殘留就壓到 1 s 出頭，而且那時煙帶早已稀疏。
+ *
+ * 【也是密度翻倍的配套】間隔減半而總時長不變的話，每一片的煙團數會翻倍；
+ * 3 s 上限把它壓回原本的量級（40 團 vs 原本 0.15 × 全程的量）。
+ */
+export const DEBRIS_SMOKE_SECONDS = 3
 
 /**
  * 三十六片零件裡有幾片冒煙。
  *
- * 【由 4 改成 8】零件縮小五倍之後 4 條細煙在畫面上幾乎看不到 —— 專案負責人
- * 指出「部分零件也要有煙霧」。8 片仍然是少數（22%），讀得出「有些碎片在
- * 冒煙」而不是「整團都在冒煙」。
+ * 【4 → 8 → 4】第一次調高是因為零件縮小五倍後細煙看不見；那個問題後來由
+ * `DEBRIS_SMOKE_SIZE` 放大到 0.9 解決了，於是片數又調回 4 ——「部分零件
+ * 冒煙」讀得出來靠的是每一條夠粗，不是條數夠多。
  *
- * 【為什麼不是全部 36 片】發射器會從 20×8 變成 20×36，穩態從 1,950 團爆到
- * 5,700 —— 而且畫面上會糊成一片，讀不出「零件在散開」（M8 spec §6.1）。
+ * 【為什麼不是全部 36 片】畫面上會糊成一片，讀不出「零件在散開」
+ * （M8 spec §6.1），而且發射量會從 20×4 變成 20×36。
  */
-export const DEBRIS_SMOKE_COUNT = 8
+export const DEBRIS_SMOKE_COUNT = 4
 
 /**
  * 零件冒的煙相對殘骸的尺寸倍率。
@@ -80,9 +107,9 @@ export const DEBRIS_SMOKE_SIZE = 0.9
 /**
  * 池子大小。
  *
- * 【6144 怎麼來】間距縮一半之後穩態跟著翻倍：20 具殘骸各
- * `2.5 / 0.04 = 63` 團、160 片冒煙的零件各 `2.5 / 0.15 = 17` 團 ——
- * 合計約 3,980 團。6144 有 1.5 倍餘裕。
+ * 【6144 怎麼來】20 具殘骸各 `2.5 / 0.04 = 63` 團、80 片冒煙的零件各
+ * `2.5 / 0.075 = 33` 團 —— 合計約 3,900 團。6144 有 1.5 倍餘裕。
+ * （零件那一邊間隔減半但片數也減半，總量沒變。）
  *
  * 【為什麼容量變大不會讓每幀變貴】`step` 對**已經歸零的死格子跳過寫入**
  * （見 `createParticles`），所以每幀的矩陣寫入量跟著存活數走而不是容量。
@@ -136,6 +163,7 @@ export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
     gravity: SMOKE_GRAVITY,
     drag: SMOKE_DRAG,
     alphaFrom: SMOKE_ALPHA,
+    lifeJitter: SMOKE_LIFE_JITTER,
     color: smokeColor,
   })
 }

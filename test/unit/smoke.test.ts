@@ -4,9 +4,10 @@ import {
   createSmoke, emitSmoke, smokeColor, smokePuffs, smokeTimer,
   DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, SMOKE_ALPHA, SMOKE_DRAG,
   DEBRIS_SMOKE_SIZE, emitKillSmoke, KILL_SMOKE_COUNT, KILL_SMOKE_SIZE,
-  SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM,
+  SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_LIFE_JITTER, SMOKE_LIFE_MAX, SMOKE_RISE, SMOKE_SIZE_FROM,
   SMOKE_SIZE_TO, WRECK_SMOKE_INTERVAL,
 } from '../../src/render/smoke'
+import { particleLife } from '../../src/render/particles'
 import { FIREBALL_SIZE_TO } from '../../src/render/fireball'
 import { DEBRIS_COUNT, DEBRIS_SIZE_MAX } from '../../src/render/debris'
 import { createImpacts, pushImpact } from '../../src/world/events'
@@ -199,9 +200,41 @@ describe('emitSmoke', () => {
     const e = createImpacts(8)
     pushImpact(e, 0, 0, 0, 0, 1, 0)
     emitSmoke(s, e)
-    s.step(SMOKE_LIFE + 0.01)
+    // 【為什麼是 MAX 而不是 SMOKE_LIFE】每一團的壽命各自抖動，最長的一團
+    // 活到 1.25 × SMOKE_LIFE
+    s.step(SMOKE_LIFE_MAX + 0.01)
     expect(s.live).toBe(0)
     s.dispose()
+  })
+
+  it('壽命隨機 —— 同一批煙不會同時消失', () => {
+    // 【為什麼這是門檻】整批同時淡到不見的話，煙帶的尾端讀起來是一條被
+    // 切齊的線。專案負責人在試驗場上要求的正是把那條線打散。
+    const s = createSmoke(64)
+    const e = createImpacts(64)
+    for (let i = 0; i < 32; i++) pushImpact(e, i, 0, 0, 0, 1, 0)
+    emitSmoke(s, e)
+    // 走到基準壽命：短命的已經走了，長命的還在
+    s.step(SMOKE_LIFE)
+    expect(s.live).toBeGreaterThan(0)
+    expect(s.live).toBeLessThan(32)
+    s.dispose()
+  })
+
+  it('抖動幅度就是 0.75×~1.25×，而且是純函數', () => {
+    let min = Infinity
+    let max = -Infinity
+    for (let i = 0; i < 2000; i++) {
+      const v = particleLife(SMOKE_LIFE, SMOKE_LIFE_JITTER, i)
+      expect(v).toBe(particleLife(SMOKE_LIFE, SMOKE_LIFE_JITTER, i))
+      min = Math.min(min, v)
+      max = Math.max(max, v)
+    }
+    expect(min).toBeGreaterThanOrEqual(SMOKE_LIFE * 0.75 - 1e-9)
+    expect(max).toBeLessThanOrEqual(SMOKE_LIFE_MAX + 1e-9)
+    // 真的用到了整個範圍，不是擠在中間
+    expect(min).toBeLessThan(SMOKE_LIFE * 0.8)
+    expect(max).toBeGreaterThan(SMOKE_LIFE * 1.2)
   })
 
   it('連續十秒不產生 NaN', () => {

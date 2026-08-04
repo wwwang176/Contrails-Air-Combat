@@ -5,7 +5,9 @@ import {
   DEBRIS_CONE, DEBRIS_COUNT, DEBRIS_MAX_LIFE, DEBRIS_SIZE_MAX, DEBRIS_SIZE_MIN,
   DEBRIS_SPEED,
 } from '../../src/render/debris'
-import { DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL } from '../../src/render/smoke'
+import {
+  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, DEBRIS_SMOKE_SECONDS,
+} from '../../src/render/smoke'
 import { createKills, pushKill } from '../../src/world/kills'
 import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
@@ -162,6 +164,29 @@ describe('零件的發射（M8 spec §7）', () => {
     d.dispose()
   })
 
+  it('冒到 DEBRIS_SMOKE_SECONDS 就收 —— 之後一團也不再生', () => {
+    const d = createDebris(64)
+    const e = createKills(4)
+    pushKill(e, 0, 100000, 0, 0, 0, 0, 0)
+    d.emit(e, WHITE)
+    // 先走到停煙那一刻的前一步：這裡還必須在冒
+    d.step(DEBRIS_SMOKE_SECONDS - DEBRIS_SMOKE_INTERVAL, DEEP, 0)
+    expect(d.smokeEvents.count).toBeGreaterThan(0)
+    // 跨過門檻之後：零件還活著（壽命更長），但煙停了
+    d.step(DEBRIS_SMOKE_INTERVAL * 2, DEEP, 0)
+    expect(d.live).toBe(DEBRIS_COUNT)
+    expect(d.smokeEvents.count).toBe(0)
+    d.dispose()
+  })
+
+  it('煙比零件早收 —— 煙帶要先變淡，不能與零件同時消失', () => {
+    // 【這條守什麼】煙團自己活 SMOKE_LIFE 才散。停煙點若拖到零件退場，
+    // 畫面上會是「一條全密度的煙帶連同源頭一起憑空不見」。提早收尾讓
+    // 煙帶先由頭端稀疏下去。零件退場後仍會殘留一小段煙，但那是稀疏的
+    // 尾巴，不是完整的煙帶。
+    expect(DEBRIS_SMOKE_SECONDS).toBeLessThan(DEBRIS_MAX_LIFE)
+  })
+
   it('翻滾中 —— 姿態隨時間改變', () => {
     const d = createDebris(64)
     const e = createKills(4)
@@ -227,8 +252,10 @@ describe('零件入水（M8 spec §7）', () => {
     d.dispose()
   })
 
-  it('永遠碰不到水面的零件也會在 DEBRIS_MAX_LIFE 之後退場', () => {
-    // 【為什麼要上限】海面網格只有 10 km 見方；飄出去的零件永遠不會入水。
+  it('碰不到水面的零件也會在 DEBRIS_MAX_LIFE 之後退場', () => {
+    // 【為什麼要上限】高空擊墜的零件在 5 s 內掉不到海面（阻尼終端速度
+    // 24.5 m/s，5 s 約 90 m），飄出海面網格的更是永遠不會入水。沒有上限
+    // 的話那些零件會一直留在池子裡。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
@@ -239,12 +266,18 @@ describe('零件入水（M8 spec §7）', () => {
     d.dispose()
   })
 
-  it('連續五秒不產生 NaN', () => {
+  it('連續數百幀不產生 NaN', () => {
+    // 【為什麼不跑滿 DEBRIS_MAX_LIFE】死掉的格子矩陣是全零，對它做
+    // `decompose` 會除以零而得到 NaN 四元數 —— 那是這個測試輔助函式的
+    // 性質，不是積分器的缺陷。壽命由 40 s 縮到 5 s 時原本的 300 幀
+    // （正好 5 s）就整批踩進去了。所以停在壽命之內，並且斷言真的還活著。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 30, 10, -150, 0)
     d.emit(e, WHITE)
-    for (let i = 0; i < 300; i++) d.step(1 / 60, DEEP, 0)
+    const frames = Math.floor(DEBRIS_MAX_LIFE * 0.9 * 60)
+    for (let i = 0; i < frames; i++) d.step(1 / 60, DEEP, 0)
+    expect(d.live).toBe(DEBRIS_COUNT)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const inst = decompose(d.object, i)
       expect(Number.isFinite(inst.position.length())).toBe(true)
