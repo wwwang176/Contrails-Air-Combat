@@ -182,6 +182,36 @@ export class World {
    */
   killEvents: KillEvents = createKills(0)
 
+  /**
+   * 世界時鐘，s。每個 `step` 開頭累加。
+   *
+   * 【為什麼世界要有自己的時鐘】助攻的時間窗口需要一個單調的時間基準，而
+   * `main.ts` 的 `elapsed` 是**幀**的時間、還會被慢動作縮放（試驗場就有）。
+   * 判定用的東西不該掛在畫面那一側。
+   */
+  time = 0
+
+  /**
+   * `damageTime[攻擊者 * damageStride + 受害者]` = 最後一次命中的世界時間。
+   * 初值 `-Infinity`。
+   *
+   * 【為什麼是完整的 N×N 而不是每架一份清單】20v20 是 1,600 個 float，
+   * 一次性配置；查一個「a 有沒有在窗口內打過 v」是 O(1)，而擊墜時掃一欄
+   * 是 O(N)。清單版本要維護新增與過期，換來的只是省下幾 KB。
+   *
+   * 【為什麼初值不是 0】世界時間從 0 開始 —— 0 會被讀成「t=0 打過」
+   * （M9 spec §5.1）。
+   */
+  damageTime = new Float32Array(0)
+
+  /**
+   * `damageTime` 的邊長。**等於配置當時的參戰架數。**
+   *
+   * 【為什麼公開】`stepBattle` 掃助攻時要用它當索引乘數。用
+   * `combatants.length` 在組裝完成後恆等，但那是一個沒有東西保護的巧合。
+   */
+  damageStride = 0
+
   private readonly hit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
   private readonly cull = new CullIndex()
@@ -217,6 +247,13 @@ export class World {
     if (this.killEvents.capacity < this.combatants.length) {
       this.killEvents = createKills(this.combatants.length)
     }
+    // 【重配就整張清掉】`add` 只發生在場景組裝期，那時還沒有任何傷害。
+    // 邊長一變，舊資料的索引全部失效 —— 搬移是一個沒有人會需要的功能。
+    if (this.damageStride < this.combatants.length) {
+      const n = this.combatants.length
+      this.damageStride = n
+      this.damageTime = new Float32Array(n * n).fill(-Infinity)
+    }
     return c
   }
 
@@ -228,6 +265,10 @@ export class World {
    * 迎頭接近時兩機的相對位移是它的兩倍，那是看得出來的。
    */
   step(dt: number): void {
+    // 【時鐘先走】這一步之內記下的命中時刻屬於這一步的結束時間，
+    // 而同一步之內發生的擊墜用同一個 `time` 判窗口 —— 兩者一致。
+    this.time += dt
+
     // 1. 各控制器產生指令
     //
     // 【hitsDealt 對退場的也歸零】HUD 那一層不必分辨死活，少一個「讀到上
@@ -471,7 +512,10 @@ export class World {
     if (!victim.alive) return
 
     victim.hp -= damage * PART_MULTIPLIER[part]
-    if (shooter) shooter.hitsDealt++
+    if (shooter) {
+      shooter.hitsDealt++
+      this.damageTime[shooter.index * this.damageStride + victim.index] = this.time
+    }
     if (victim.hp > 0) return
 
     this.destroy(victim, shooter)
@@ -520,5 +564,14 @@ export class World {
     c.cooldowns.fill(0)
     c.hitsDealt = 0
     c.alive = true
+    // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條
+    // 命的攻擊者算進助攻（M9 spec §5.2）
+    const n = this.damageStride
+    for (let a = 0; a < n; a++) this.damageTime[a * n + c.index] = -Infinity
+  }
+
+  /** 整張傷害時刻表歸位。整場重開時用。 */
+  clearDamageLog(): void {
+    this.damageTime.fill(-Infinity)
   }
 }

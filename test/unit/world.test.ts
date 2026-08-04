@@ -718,3 +718,78 @@ describe('擊墜歸屬（M9 spec §4）', () => {
     expect(w.killEvents.data[7]).toBe(-1)
   })
 })
+
+describe('世界時鐘與傷害時刻表（M9 spec §5.1）', () => {
+  it('時鐘隨 step 累加', () => {
+    const w = new World()
+    w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3(0, 4000, 0))
+    expect(w.time).toBe(0)
+    w.step(DT)
+    w.step(DT)
+    expect(w.time).toBeCloseTo(DT * 2, 9)
+  })
+
+  it('表格的初值是 −Infinity', () => {
+    // 【為什麼不能是 0】世界時間從 0 開始。用 0 當「沒打過」等於宣稱每個人
+    // 在 t=0 都打過每個人，於是第一次擊墜會發出滿場的助攻。
+    const w = new World()
+    w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    for (let i = 0; i < w.damageTime.length; i++) {
+      expect(w.damageTime[i]).toBe(-Infinity)
+    }
+  })
+
+  it('表格的邊長跟著參戰架數長', () => {
+    const w = new World()
+    for (let i = 0; i < 5; i++) {
+      w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3(i * 100, 0, 0))
+    }
+    expect(w.damageStride).toBe(5)
+    expect(w.damageTime.length).toBe(25)
+  })
+
+  it('命中會記下當時的世界時間', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    w.time = 12.5
+    w.applyDamage(b, 10, 'wingLeft', a)
+    expect(w.damageTime[a.index * w.damageStride + b.index]).toBeCloseTo(12.5, 4)
+    // 反向沒有被寫到
+    expect(w.damageTime[b.index * w.damageStride + a.index]).toBe(-Infinity)
+  })
+
+  it('沒有射手的傷害不寫表格', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    w.time = 3
+    w.applyDamage(a, 10, 'fuselage')
+    for (let i = 0; i < w.damageTime.length; i++) {
+      expect(w.damageTime[i]).toBe(-Infinity)
+    }
+  })
+
+  it('重生清掉打過它的那一欄', () => {
+    // 【為什麼】不清的話，重生後的第一次擊墜會把上一條命的攻擊者算進助攻。
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    w.time = 5
+    w.applyDamage(b, 10, 'fuselage', a)
+    w.respawn(b)
+    expect(w.damageTime[a.index * w.damageStride + b.index]).toBe(-Infinity)
+  })
+
+  it('clearDamageLog 把整張表清成 −Infinity', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    w.time = 5
+    w.applyDamage(b, 10, 'fuselage', a)
+    w.clearDamageLog()
+    for (let i = 0; i < w.damageTime.length; i++) {
+      expect(w.damageTime[i]).toBe(-Infinity)
+    }
+  })
+})
