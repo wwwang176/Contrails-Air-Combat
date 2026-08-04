@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>擊墜試驗場 — Grok Aircraft</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 250px; padding: 12px 14px;
+        background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      .row label { flex: 0 0 58px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row .val { flex: 0 0 58px; text-align: right; color: #e6f0f8; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 4px 9px; cursor: pointer;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; }
+      button.fire { background: #6a2020; border-color: #a34040; flex: 1; }
+      button.fire:hover { background: #8a2a2a; }
+      #stats { margin-top: 10px; padding-top: 9px; border-top: 1px solid #2b3f52;
+        color: #8ea6bb; white-space: pre; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>擊墜試驗場</h1>
+      <div class="row" id="specRow"></div>
+      <div class="row">
+        <label>高度</label>
+        <input type="range" id="alt" min="40" max="1200" step="10" value="220" />
+        <span class="val" id="altV">220 m</span>
+      </div>
+      <div class="row">
+        <label>速度</label>
+        <input type="range" id="tas" min="60" max="220" step="5" value="140" />
+        <span class="val" id="tasV">140 m/s</span>
+      </div>
+      <div class="row">
+        <label>慢動作</label>
+        <input type="range" id="slow" min="0" max="1" step="0.05" value="1" />
+        <span class="val" id="slowV">1.00×</span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="fire" id="boom">引爆（空白鍵）</button>
+      </div>
+      <div class="row">
+        <button id="reset">重置（R）</button>
+        <button id="follow" class="on">鏡頭跟隨</button>
+      </div>
+      <div id="stats"></div>
+    </div>
+    <div id="hint">左鍵拖曳旋轉　滾輪縮放　右鍵平移</div>
+    <script type="module" src="/src/tools/range.ts"></script>
+  </body>
+</html>

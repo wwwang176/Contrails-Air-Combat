@@ -7,7 +7,7 @@ export default defineConfig({
       // 會靜靜消失（dev server 照樣能開，所以很容易到上線前才發現）。
       // 用相對路徑字串而非 node:path + __dirname——專案沒有 @types/node，
       // 那兩者會讓 tsc --noEmit 直接失敗，而 build 腳本第一步就是 tsc。
-      input: { main: 'index.html', hangar: 'hangar.html' },
+      input: { main: 'index.html', hangar: 'hangar.html', range: 'range.html' },
     },
   },
   test: {

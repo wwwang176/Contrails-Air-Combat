@@ -11,3 +11,6 @@ Thumbs.db
 
 ref/
 .tmpshot*
+
+# 驗收截圖，不進版控
+.shots/
