@@ -73,6 +73,13 @@ export interface Wrecks {
   ): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number, heightAt: HeightField, time: number): void
+  /**
+   * 全部歸零，**每一具模型都還給建構時傳入的回收回呼**。換一場戰鬥時呼叫。
+   *
+   * 【為什麼它比其他池子的 reset 重要】這個池子**持有**上一場的模型。
+   * 不歸零就是每換一場洩漏一批（M10 spec §5.5）。
+   */
+  reset(): void
   dispose(): void
 }
 
@@ -239,6 +246,17 @@ export function createWrecks(
           )
         }
       }
+    },
+
+    reset(): void {
+      // 【一定要走 free 而不是把 model 設成 null】`free` 會呼叫建構時傳入的
+      // 回收回呼，那是模型被移出場景並釋放的唯一途徑
+      for (let i = 0; i < capacity; i++) free(slots[i]!)
+      next = 0
+      live = 0
+      clearImpacts(smokeEvents)
+      clearImpacts(sprayEvents)
+      clearImpacts(splashEvents)
     },
 
     dispose(): void {
