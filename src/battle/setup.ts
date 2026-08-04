@@ -120,6 +120,13 @@ export interface Battle {
   takeoverSeat: number
   /** 接手倒數的剩餘秒數 */
   takeoverTimer: number
+  /**
+   * 打下玩家的那個座位；−1 = 沒有兇手（自摔）。
+   *
+   * 【為什麼是 `Battle` 的狀態而不是事件】死亡鏡頭要在那 2 秒**每一幀**都
+   * 讀得到他，而擊墜事件在同一個子步就被呼叫端排空了（M9 spec §7.2）。
+   */
+  takeoverKiller: number
   readonly cfg: BattleConfig
   /**
    * 每一架的開局姿態。重置時抄回去。
@@ -286,6 +293,7 @@ export function createBattle(
     playerController,
     takeoverSeat: -1,
     takeoverTimer: 0,
+    takeoverKiller: -1,
     blue,
     red,
     player,
@@ -371,6 +379,8 @@ function drainKills(b: Battle): void {
         swapPilots(b.roster, victim, target)
         b.takeoverSeat = target
         b.takeoverTimer = TAKEOVER_DELAY
+        // 【死亡鏡頭要看的人】自摔時是 −1，那時鏡頭不轉（`camera/deathCam.ts`）
+        b.takeoverKiller = killer
       }
     }
 
@@ -396,6 +406,7 @@ function completeTakeover(b: Battle): void {
   const seat = b.takeoverSeat
   b.takeoverSeat = -1
   b.takeoverTimer = 0
+  b.takeoverKiller = -1
   const next = b.world.combatants[seat]
   // 【目標可能在這 2 秒裡也死了】那時 drainKills 已經又換過一次身分並重設
   // 了倒數，所以走到這裡的座位恆是活的；這一條是防禦，不是常態路徑。
@@ -476,6 +487,7 @@ export function resetBattle(
   b.flights.pinned = b.playerSeat
   b.takeoverSeat = -1
   b.takeoverTimer = 0
+  b.takeoverKiller = -1
   for (const c of combatants) {
     if (c.index === b.playerSeat) {
       c.controller = b.playerController

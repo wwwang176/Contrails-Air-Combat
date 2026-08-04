@@ -568,6 +568,8 @@ describe('玩家陣亡接手僚機（M9 spec §7）', () => {
 
     // 兇手記的是那位 AI 的人頭
     expect(b.roster.pilots[killer.index]!.kills).toBe(1)
+    // 死亡鏡頭要轉向他，所以兇手的座位要被記下來
+    expect(b.takeoverKiller).toBe(killer.index)
   })
 
   it('玩家墜海一樣觸發接手 —— 不記 K/D，但人要換', () => {
@@ -587,6 +589,8 @@ describe('玩家陣亡接手僚機（M9 spec §7）', () => {
     // 戰績上完全不存在
     expect(b.roster.pilots.reduce((s, p) => s + p.kills, 0)).toBe(0)
     expect(b.roster.pilots.reduce((s, p) => s + p.deaths, 0)).toBe(0)
+    // 沒有兇手可以看 —— 死亡鏡頭就定定看著自己的火球
+    expect(b.takeoverKiller).toBe(-1)
 
     for (let i = 0; i < Math.ceil(TAKEOVER_DELAY / DT) + 2; i++) stepBattle(b, DT)
     expect(b.player.index).toBe(wingSeat)
