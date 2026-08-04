@@ -83,6 +83,7 @@ export function attachInput(
       case 'KeyR': state.resetRequested = true; break
       case 'KeyC': state.swapSpecRequested = true; break
       case 'KeyI': state.playerAi = !state.playerAi; break
+      case 'Tab': state.scoreboardHeld = true; break
       default: return
     }
     e.preventDefault()
@@ -91,6 +92,7 @@ export function attachInput(
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.code === 'KeyW') hold.up = false
     if (e.code === 'KeyS') { hold.down = false; state.braking = false }
+    if (e.code === 'Tab') state.scoreboardHeld = false
   }
 
   const onContextMenu = (e: Event) => e.preventDefault()
