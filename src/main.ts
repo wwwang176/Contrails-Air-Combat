@@ -18,12 +18,14 @@ import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import { clearImpacts } from './world/events'
 import { clearKills } from './world/kills'
+import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
 import { resetGEffect } from './hud/widgets/gEffect'
+import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig } from './camera/CameraRig'
 import { deathCamAim } from './camera/deathCam'
 import { isCrashed } from './aircraft/crash'
@@ -106,6 +108,12 @@ const playerAi = new AiController()
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement
 const hud = new Hud(hudCanvas)
 const hudFrame = createHudFrame()
+/**
+ * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
+ * 一幀可能跑八次，在裡面 new 就是每幀八次配置。
+ */
+const DAMAGE_DIR = new Vector3()
+const DAMAGE_VIEW = new Quaternion()
 const boardEl = document.getElementById('board') as HTMLElement
 const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
@@ -213,6 +221,8 @@ function respawnPlayer() {
   rig.snapTo(input.aimWorld)
   // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
   resetGEffect()
+  // 上一條命的紅邊不屬於這一條命
+  resetDamageMarks(hudFrame.damageMarks)
 }
 
 /** 把一架的模型移出場景並釋放。殘骸池的回收回呼與換場都用它 */
@@ -371,7 +381,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const dying = battle.takeoverSeat >= 0
   // 【死掉的那一刻就把畫面擦乾淨】歸零過載只讓黑視「不再累積」，已經累積的
   // 那一份要 2.4 s 才退得掉（`RECOVERY_TIME`），比死亡鏡頭本身還長。
-  if (dying && !wasDying) resetGEffect()
+  if (dying && !wasDying) {
+    resetGEffect()
+    resetDamageMarks(hudFrame.damageMarks)
+  }
   wasDying = dying
   if (dying) {
     const killerSeat = battle.takeoverKiller
@@ -429,6 +442,24 @@ function stepAndDrawBattle(frameSeconds: number): void {
     splashes.emit(world.splashEvents, terrain.heightAt, elapsed)
     clearImpacts(world.hitEvents)
     clearImpacts(world.splashEvents)
+    // 【只取玩家自己的】World 不知道誰是玩家，所以它對每一架都推
+    // （受擊方向指示器 spec §3.1）。過濾在這裡做。
+    //
+    // 【相機用的是上一幀的姿態】`rig.update` 排在物理迴圈之後 —— 硬轉
+    // 90°/s、一幀 16 ms 下的誤差是 1.4°，對一個 70° 寬的光團看不出來。
+    // 為了少一幀而多開一個暫存緩衝，複雜度換不到任何看得見的東西（spec §6.1）。
+    const dmg = world.damageEvents
+    if (dmg.count > 0) {
+      DAMAGE_VIEW.copy(ctx.camera.quaternion).invert()
+      for (let i = 0; i < dmg.count; i++) {
+        const o = i * DAMAGE_STRIDE
+        if (dmg.data[o]! !== player.index) continue
+        DAMAGE_DIR.set(dmg.data[o + 1]!, dmg.data[o + 2]!, dmg.data[o + 3]!)
+          .applyQuaternion(DAMAGE_VIEW)
+        pushDamageMark(hudFrame.damageMarks, DAMAGE_DIR.x, DAMAGE_DIR.y, DAMAGE_DIR.z)
+      }
+    }
+    clearDamage(dmg)
     // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
@@ -457,6 +488,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     rig.snapTo(input.aimWorld)
     // 接手前八成正在拉大 G；不清掉的話接手後畫面還是黑的
     resetGEffect()
+    // 打死上一架的那些方向不屬於新的這一架
+    resetDamageMarks(hudFrame.damageMarks)
   }
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
@@ -633,6 +666,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
 
   // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
   hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)
+  // 【一幀一次，不是一個子步一次】淡出走的是畫面時間。在子步裡步進的話，
+  // 一幀跑幾個子步就淡幾倍快 —— 而子步數會隨幀率變動。
+  stepDamageMarks(hudFrame.damageMarks, frameSeconds)
 
   hud.render(hudFrame, frameSeconds)
 
