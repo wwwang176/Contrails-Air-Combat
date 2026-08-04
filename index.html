@@ -8,11 +8,42 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0e14; }
       canvas { display: block; }
       #hud { position: fixed; inset: 0; pointer-events: none; }
+      #board {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 18px;
+        background: rgba(6, 10, 16, 0.72); pointer-events: none;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef;
+      }
+      #board[hidden] { display: none; }
+      #banner { font-size: 34px; letter-spacing: .18em; font-weight: 700; }
+      #banner.victory { color: #7fd4a0; }
+      #banner.defeat { color: #e08a8a; }
+      #banner:empty { display: none; }
+      #tables { display: flex; gap: 28px; align-items: flex-start; }
+      #board table { border-collapse: collapse; min-width: 300px; }
+      #board caption {
+        text-align: left; padding-bottom: 4px; letter-spacing: .1em; font-weight: 700;
+      }
+      #board table.blue caption { color: #7fb2e0; }
+      #board table.red caption { color: #e08a8a; }
+      #board th {
+        text-align: right; font-weight: 400; color: #6f8ba5;
+        border-bottom: 1px solid #2b3f52; padding: 2px 8px;
+      }
+      #board th.name { text-align: left; }
+      #board td { padding: 1px 8px; text-align: right; }
+      #board td.name { text-align: left; }
+      #board tr.dead { color: #5c6f80; }
+      #board tr.me { background: rgba(90, 150, 210, 0.22); color: #eaf4ff; }
     </style>
   </head>
   <body>
     <canvas id="scene"></canvas>
     <canvas id="hud"></canvas>
+    <div id="board" hidden>
+      <div id="banner"></div>
+      <div id="tables"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

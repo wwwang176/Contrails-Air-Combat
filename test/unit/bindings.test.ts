@@ -260,3 +260,27 @@ describe('自機 AI 接管鍵', () => {
   })
 
 })
+
+describe('TAB 記分板（M9 spec §9.4）', () => {
+  it('按住為真、放開為假', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    expect(state.scoreboardHeld).toBe(false)
+    dom.win.fire('keydown', { code: 'Tab', preventDefault() {} })
+    expect(state.scoreboardHeld).toBe(true)
+    dom.win.fire('keyup', { code: 'Tab' })
+    expect(state.scoreboardHeld).toBe(false)
+  })
+
+  it('按住時要擋掉預設行為', () => {
+    // 【為什麼】Tab 的預設行為是移動焦點 —— 不擋的話按一次就把焦點移出
+    // canvas，之後所有鍵盤輸入都收不到。
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    let prevented = 0
+    dom.win.fire('keydown', { code: 'Tab', preventDefault() { prevented++ } })
+    expect(prevented).toBe(1)
+  })
+})

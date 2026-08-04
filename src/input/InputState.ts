@@ -54,6 +54,13 @@ export interface InputState {
   resetRequested: boolean
   /** 單幀旗標，切換機種 */
   swapSpecRequested: boolean
+  /**
+   * 記分板是否按住（Tab）。
+   *
+   * 【為什麼是按住而不是切換】看戰績是一個「瞄一眼」的動作。切換式的話，
+   * 忘了關就會擋著半個畫面繼續打。
+   */
+  scoreboardHeld: boolean
 }
 
 export function createInputState(): InputState {
@@ -71,5 +78,6 @@ export function createInputState(): InputState {
     playerAi: false,
     resetRequested: false,
     swapSpecRequested: false,
+    scoreboardHeld: false,
   }
 }
