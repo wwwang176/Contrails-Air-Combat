@@ -23,6 +23,7 @@ import { buildAircraft, type AircraftModel } from './render/geometry/buildAircra
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
+import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { CameraRig } from './camera/CameraRig'
 import { isCrashed } from './aircraft/crash'
@@ -57,7 +58,13 @@ const bindings = attachInput(canvas, input)
 const playerController = new PlayerController(input)
 const battle = createBattle(playerController)
 const world = battle.world
-const player = battle.player
+/**
+ * 玩家目前開的那一架。
+ *
+ * 【為什麼不是 const】接手僚機會換一架（M9 spec §7.2）。每幀比對
+ * `battle.player`，變了就把觀測用 AI、第一人稱眼點與相機一起搬過去。
+ */
+let player = battle.player
 const START_ALTITUDE = battle.cfg.altitude
 const START_TAS = battle.cfg.tas
 
@@ -75,6 +82,7 @@ playerAi.setDecisionPhase(player.index / world.combatants.length)
 
 const hud = new Hud(document.getElementById('hud') as HTMLCanvasElement)
 const hudFrame = createHudFrame()
+const scoreboard = createScoreboard(document.getElementById('board') as HTMLElement)
 
 /**
  * 一架飛機的可視部分：模型 + 內插用的暫存。
@@ -169,14 +177,19 @@ const leadDir = new Vector3()
 const leadProbe = new Vector3()
 let propRotation = 0
 
-/** 重生：重置飛機並把瞄準點放回機首。R 與撞海重置共用同一條路徑。 */
+/**
+ * 重生：重置飛機並把瞄準點放回機首。
+ *
+ * 【M9 起只剩 R 鍵這一條路徑】玩家陣亡改為接手僚機，不再重生。
+ */
 function respawnPlayer() {
-  player.aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
-  player.aircraft.state.position.copy(player.spawnPosition)
-  player.aircraft.prevPosition.copy(player.spawnPosition)
-  player.hp = player.aircraft.spec.hp
-  player.alive = true
-  player.cooldowns.fill(0)
+  const p = battle.player
+  p.aircraft.respawn(input.aimWorld, START_ALTITUDE, START_TAS)
+  p.aircraft.state.position.copy(p.spawnPosition)
+  p.aircraft.prevPosition.copy(p.spawnPosition)
+  p.hp = p.aircraft.spec.hp
+  p.alive = true
+  p.cooldowns.fill(0)
   // 清掉墜海前那一下扭轉留在相機上的落後量與自由視角角度
   rig.snapTo(input.aimWorld)
   // 撞海前八成正在拉大 G；不清掉的話重生後畫面還是黑的
@@ -212,6 +225,10 @@ function frame(now: number) {
     // 【R 重開整場，不只是自機】20v20 裡「只有我復活、戰場停在半場」是一個
     // 說不通的狀態。重置走與全滅倒數完全相同的那一條路徑（battle/setup）。
     resetBattle(battle)
+    player = battle.player
+    // 【殘骸旗標要一起清】不清的話上一場死掉的那些飛機在新的一場裡位置
+    // 永遠停在殘骸池最後寫進去的地方 —— 看起來像一批不會動的飛機
+    for (const v of visuals.values()) v.wrecked = false
     respawnPlayer()
     input.resetRequested = false
   }
@@ -291,10 +308,25 @@ function frame(now: number) {
     perf.endPhysics()
   })
 
-  // 【玩家陣亡與撞海走同一條路徑】撞地現在由 world.crashPolicy 統一判定
-  // （M5 spec §7），兩者都只是把 alive 轉成 false。這裡負責把玩家接回來
-  // ——瞄準點必須一併歸位，否則重生後會被舊瞄準點（還指著海面）拖回海裡。
-  if (!player.alive) respawnPlayer()
+  // 【玩家陣亡不再重生】M9 起改為接手僚機（`stepBattle` 的 takeover），
+  // 舊機體於是像所有人一樣被殘骸池接管 —— M8 spec §10 預告的那件事現在
+  // 自動成立了。
+  if (battle.player !== player) {
+    player = battle.player
+    playerAi.selfIndex = player.index
+    playerAi.setDecisionPhase(player.index / world.combatants.length)
+    // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
+    rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+    // 【瞄準點要放回機首】不放的話它還指著舊機體墜落前指的地方（多半是
+    // 海面），接手的第一瞬間新機就被硬扯下去 —— 與 `I` 交還操縱時把瞄準點
+    // 留在機首是同一條理由。必須排在 snapTo 之前，相機吃的是它。
+    input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    // 【相機要瞬移過去】不 snap 的話會從舊機體的位置一路飛到新機體，
+    // 那是一段跨越幾百公尺的鏡頭
+    rig.snapTo(input.aimWorld)
+    // 接手前八成正在拉大 G；不清掉的話接手後畫面還是黑的
+    resetGEffect()
+  }
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
@@ -311,10 +343,8 @@ function frame(now: number) {
 
     if (!c.alive) {
       // 【殘骸的判準是「還有沒有人要用這個模型」，不是「這是不是玩家」】
-      // 玩家在上面幾行已經被 respawnPlayer 接回來，alive 於是又是 true ——
-      // 所以他不留殘骸而 AI 留。專案負責人已載明未來玩家陣亡會改成接手
-      // 僚機的飛機，那時他的 alive 會維持 false，這裡不用改一個字就會
-      // 自動留下殘骸（M8 spec §10）。
+      // M9 起玩家陣亡改為接手僚機，他的 alive 維持 false —— 這一段一個字
+      // 都不用改就自動替玩家的舊機體留下殘骸（M8 spec §10 預告的那件事）。
       //
       // 【為什麼先內插再接管】殘骸的起始姿態必須接在畫面上最後看到的位置。
       // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
@@ -470,6 +500,18 @@ function frame(now: number) {
   hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)
 
   hud.render(hudFrame, frameSeconds)
+
+  // 【只在看得到的時候才重建】40 列的 innerHTML 重建不便宜到可以每幀做
+  const finished = battle.outcome !== 'fighting'
+  const showBoard = input.scoreboardHeld || finished
+  if (showBoard) {
+    scoreboard.render(
+      sortScoreRows(scoreRows(battle.roster, world.combatants, 'blue')),
+      sortScoreRows(scoreRows(battle.roster, world.combatants, 'red')),
+      finished ? (battle.outcome === 'victory' ? 'victory' : 'defeat') : null,
+    )
+  }
+  scoreboard.setVisible(showBoard)
 
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
