@@ -5,6 +5,7 @@ import {
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
+import { TAKEOVER_DELAY } from '../../src/battle/takeover'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
 import { SCHWARM_SIZE, STATION_REFERENCE, stationReferenceOf } from '../../src/battle/flights'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
@@ -509,5 +510,115 @@ describe('stepBattle 的戰績記錄（M9 spec §4.3）', () => {
     for (let i = 0; i < 20; i++) stepBattle(b, DT)
     expect(b.roster.pilots[killer.index]!.kills).toBe(1)
     expect(b.roster.pilots[victim.index]!.deaths).toBe(1)
+  })
+})
+
+describe('玩家陣亡接手僚機（M9 spec §7）', () => {
+  /**
+   * 玩家的僚機座位。
+   *
+   * 【為什麼不能寫 `b.blue[1]`】玩家是**正中央分隊的長機**，perSide 20 時
+   * 落在座位 8，他的分隊是 [8, 9, 10, 11] —— 座位 1 是另一個分隊的人，
+   * 根本不是接手目標。
+   */
+  function wingmanSeat(b: ReturnType<typeof createBattle>): number {
+    return playerFlight(b)!.members[1]!
+  }
+
+  /** 打爆玩家，並走完接手延遲。 */
+  function killPlayerAndWait(b: ReturnType<typeof createBattle>, killer: Combatant) {
+    b.world.applyDamage(b.player, 99999, 'fuselage', killer)
+    stepBattle(b, DT)
+    for (let i = 0; i < Math.ceil(TAKEOVER_DELAY / DT) + 2; i++) stepBattle(b, DT)
+  }
+
+  it('身分互換發生在記錄之前 —— 陣亡記在那位 AI 身上，玩家的戰績原封不動', () => {
+    // 【為什麼這是本任務的核心】反過來的話，這次陣亡與兇手的擊墜對象都會
+    // 記到玩家頭上，畫面上看起來像自己的戰果被清掉了（M9 spec §7.1）。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const seat = b.player.index
+    const wingSeat = wingmanSeat(b)
+    const playerName = b.roster.pilots[seat]!.name
+    const wingName = b.roster.pilots[wingSeat]!.name
+    b.roster.pilots[seat]!.kills = 4
+    b.roster.pilots[seat]!.assists = 2
+
+    const killer = b.red[0]!
+    b.world.applyDamage(b.player, 99999, 'fuselage', killer)
+    stepBattle(b, DT)
+
+    // 殘骸那個座位現在坐的是那位 AI，而且他被記為陣亡
+    expect(b.roster.pilots[seat]!.name).toBe(wingName)
+    expect(b.roster.pilots[seat]!.alive).toBe(false)
+    expect(b.roster.pilots[seat]!.deaths).toBe(1)
+    expect(b.roster.pilots[seat]!.isPlayer).toBe(false)
+
+    // 玩家搬到僚機的座位，戰績一格也沒少
+    expect(b.roster.pilots[wingSeat]!.name).toBe(playerName)
+    expect(b.roster.pilots[wingSeat]!.isPlayer).toBe(true)
+    expect(b.roster.pilots[wingSeat]!.alive).toBe(true)
+    expect(b.roster.pilots[wingSeat]!.kills).toBe(4)
+    expect(b.roster.pilots[wingSeat]!.assists).toBe(2)
+    expect(b.roster.pilots[wingSeat]!.deaths).toBe(0)
+
+    // 兇手記的是那位 AI 的人頭
+    expect(b.roster.pilots[killer.index]!.kills).toBe(1)
+  })
+
+  it('操縱權在延遲之後才移交', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const seat = b.player.index
+    const wingSeat = wingmanSeat(b)
+    b.world.applyDamage(b.player, 99999, 'fuselage', b.red[0]!)
+    stepBattle(b, DT)
+    // 才過一步：還沒交
+    expect(b.player.index).toBe(seat)
+    for (let i = 0; i < Math.ceil(TAKEOVER_DELAY / DT) + 2; i++) stepBattle(b, DT)
+    expect(b.player.index).toBe(wingSeat)
+  })
+
+  it('移交之後控制器換人、編制改釘新座位', () => {
+    const controller = new Idle()
+    const b = createBattle(controller, DEFAULT_BATTLE, 3)
+    const wingSeat = wingmanSeat(b)
+    killPlayerAndWait(b, b.red[0]!)
+    expect(b.world.combatants[wingSeat]!.controller).toBe(controller)
+    expect(b.flights.pinned).toBe(wingSeat)
+    expect(playerFlight(b)!.members[0]).toBe(wingSeat)
+  })
+
+  it('舊機體維持陣亡 —— 不再重生，所以渲染層會留下殘骸', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const seat = b.player.index
+    killPlayerAndWait(b, b.red[0]!)
+    expect(b.world.combatants[seat]!.alive).toBe(false)
+  })
+
+  it('沒有人可以接手時判落敗', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    for (const c of b.blue) if (c !== b.player) c.alive = false
+    b.world.applyDamage(b.player, 99999, 'fuselage', b.red[0]!)
+    stepBattle(b, DT)
+    expect(b.outcome).toBe('defeat')
+    // 沒有互換，陣亡就記在玩家自己頭上
+    expect(b.roster.pilots[b.player.index]!.isPlayer).toBe(true)
+    expect(b.roster.pilots[b.player.index]!.deaths).toBe(1)
+  })
+
+  it('延遲期間接手目標又被打死 —— 再換一次，玩家再吃一次陣亡', () => {
+    // 【為什麼要有這條】那 2 秒裡接手目標仍由它原本的 AI 在飛，所以它有
+    // 可能先死（M9 spec §7.4）。行為要明確，不是「怎麼會這樣」。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const wingSeat = wingmanSeat(b)
+    b.world.applyDamage(b.player, 99999, 'fuselage', b.red[0]!)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[wingSeat]!.isPlayer).toBe(true)
+
+    b.world.applyDamage(b.world.combatants[wingSeat]!, 99999, 'fuselage', b.red[1]!)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[wingSeat]!.isPlayer).toBe(false)
+    const player = b.roster.pilots.find((p) => p.isPlayer)!
+    expect(player.alive).toBe(true)
+    expect(player.deaths).toBe(0)
   })
 })
