@@ -570,6 +570,28 @@ describe('玩家陣亡接手僚機（M9 spec §7）', () => {
     expect(b.roster.pilots[killer.index]!.kills).toBe(1)
   })
 
+  it('玩家墜海一樣觸發接手 —— 不記 K/D，但人要換', () => {
+    // 【為什麼這條非有不可】「自摔什麼都不記」讀起來很像「自摔什麼都不做」。
+    // 只要有人把 `killer < 0` 的判斷提到 `drainKills` 開頭，墜海就不再觸發
+    // 接手 —— 玩家從此卡在一架已經退場的飛機裡，而記分板上每個數字都正常，
+    // 沒有任何東西會透露這件事（專案負責人裁決：算死亡、觸發換機，但不記 K/D）。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const seat = b.player.index
+    const wingSeat = wingmanSeat(b)
+    // 走真正的撞海路徑：crashPolicy 判定 → world.destroy(c)，沒有兇手
+    b.player.aircraft.state.position.y = -50
+    stepBattle(b, DT)
+
+    expect(b.world.combatants[seat]!.alive).toBe(false)
+    expect(b.roster.pilots[wingSeat]!.isPlayer).toBe(true)
+    // 戰績上完全不存在
+    expect(b.roster.pilots.reduce((s, p) => s + p.kills, 0)).toBe(0)
+    expect(b.roster.pilots.reduce((s, p) => s + p.deaths, 0)).toBe(0)
+
+    for (let i = 0; i < Math.ceil(TAKEOVER_DELAY / DT) + 2; i++) stepBattle(b, DT)
+    expect(b.player.index).toBe(wingSeat)
+  })
+
   it('操縱權在延遲之後才移交', () => {
     const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
     const seat = b.player.index
