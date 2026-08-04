@@ -410,7 +410,6 @@ function frame(now: number) {
   hudFrame.controlAuthority = aircraft.diag.controlAuthority
   hudFrame.blueAlive = aliveCount(battle.blue)
   hudFrame.redAlive = aliveCount(battle.red)
-  hudFrame.resetCountdown = battle.countdown
 
   // 【分隊存活】遞補之後 count 會自動變 —— members 每個物理步重新壓縮
   const flight = playerFlight(battle)

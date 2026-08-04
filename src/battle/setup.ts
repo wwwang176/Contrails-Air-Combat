@@ -17,9 +17,6 @@ import type { Controller } from '../control/Controller'
  *
  * 【`altitudeSpread` = ±300 m】不能近到看起來要相撞，也不能遠到分隊看不到
  * 彼此。週期 5 的鋸齒讓五個分隊落在五個高度層而不是兩排。
- *
- * 【`resetCountdown` = 3 s】長到看得出「這是重新開始」而不是當掉，短到
- * 不會讓人以為卡住。與 M2 的命中 X 標記（0.15 s）是同一類的顯示時長判準。
  */
 export interface BattleConfig {
   /** 每隊架數。專案負責人裁決：M5 固定 20（spec §2） */
@@ -82,8 +79,6 @@ export interface BattleConfig {
   lateralOffset: number
   /** 高度散布的半幅，m */
   altitudeSpread: number
-  /** 一方全滅後到重置的秒數 */
-  resetCountdown: number
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
@@ -94,8 +89,10 @@ export const DEFAULT_BATTLE: BattleConfig = {
   schwarmSpacing: 800,
   lateralOffset: 1500,
   altitudeSpread: 300,
-  resetCountdown: 3,
 }
+
+/** 一場戰鬥的結果。`victory` = 敵方全滅，`defeat` = 我方全滅。 */
+export type Outcome = 'fighting' | 'victory' | 'defeat'
 
 export interface Battle {
   readonly world: World
@@ -116,8 +113,14 @@ export interface Battle {
    * 編制。**每個物理步由 `stepBattle` 重新壓縮**（M6 spec §5.4）。
    */
   readonly flights: FlightIndex
-  /** 重置倒數的剩餘秒數；> 0 代表戰鬥已分出結果 */
-  countdown: number
+  /**
+   * 這一場的結果。
+   *
+   * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
+   * 主選單一進來那條路徑就必須消失，否則玩家永遠回不到結算畫面
+   * （M9 spec §8）。
+   */
+  outcome: Outcome
 }
 
 const UP = new Vector3(0, 1, 0)
@@ -243,7 +246,7 @@ export function createBattle(
     cfg,
     flights,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
-    countdown: 0,
+    outcome: 'fighting',
   }
   wireStations(battle)
   return battle
@@ -283,11 +286,7 @@ export function aliveCount(cs: readonly Combatant[]): number {
 }
 
 /**
- * 推進一場戰鬥：世界一步，加上全滅倒數與重置。
- *
- * 【倒數而不是立刻重置】一方被打光的瞬間直接換場，玩家會以為遊戲當掉了
- * （M5 spec §3.2 條件 15）。倒數是唯一的新狀態 —— 這是「零選單、零狀態機」
- * 這條 M2 紀律在多機下還能延續的方式。
+ * 推進一場戰鬥：世界一步，加上編制壓縮與勝負判定。
  */
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
@@ -308,18 +307,12 @@ export function stepBattle(b: Battle, dt: number): void {
   compactFlights(b.flights, cs)
   wireStations(b)
 
-  if (b.countdown > 0) {
-    b.countdown -= dt
-    if (b.countdown <= 0) {
-      b.countdown = 0
-      resetBattle(b)
-    }
-    return
-  }
+  if (b.outcome !== 'fighting') return
 
-  if (aliveCount(b.blue) === 0 || aliveCount(b.red) === 0) {
-    b.countdown = b.cfg.resetCountdown
-  }
+  // 【玩家恆在藍隊】M9 的機種與陣營都還是寫死的（M10 才做選擇），所以
+  // 「我方」就是藍隊。M10 交換的是兩邊的機種，不是隊伍顏色。
+  if (aliveCount(b.red) === 0) b.outcome = 'victory'
+  else if (aliveCount(b.blue) === 0) b.outcome = 'defeat'
 }
 
 /**
@@ -344,7 +337,7 @@ export function resetBattle(b: Battle): void {
   b.board.assignments.fill(-1)
   compactFlights(b.flights, combatants)
   wireStations(b)
-  b.countdown = 0
+  b.outcome = 'fighting'
 }
 
 /**

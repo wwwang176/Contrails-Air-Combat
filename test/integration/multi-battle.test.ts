@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  aliveCount, createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
+  aliveCount, createBattle, stepBattle, type Battle,
 } from '../../src/battle/setup'
 import { countLocks } from '../../src/ai/target'
 import { AI_DECISION_HZ, AiController } from '../../src/ai/AiController'
@@ -119,8 +119,6 @@ interface Observed {
   switches: number
   /** 單一物理步的最大決策架數 */
   maxDecisionsInOneStep: number
-  /** 整場重置了幾次 */
-  resets: number
   /** 累計損失 */
   blueLost: number
   redLost: number
@@ -184,7 +182,7 @@ function observe(): Observed {
   const deadTargetedRun = new Int32Array(cs.length)
   const o: Observed = {
     maxLocks: 0, wentUnderwater: false, ownSlotDirty: 0, maxDeadTargetedSteps: 0,
-    switches: 0, maxDecisionsInOneStep: 0, resets: 0,
+    switches: 0, maxDecisionsInOneStep: 0,
     blueLost: 0, redLost: 0, wipes: 0,
     blueDamage: 0, redDamage: 0,
     hitEventCount: 0, splashEventCount: 0, eventsDropped: 0,
@@ -213,7 +211,6 @@ function observe(): Observed {
 
   const ais = cs.map((c) => (c.controller instanceof AiController ? c.controller : null))
   const prevDecisions = ais.map((a) => a?.decisionsMade ?? 0)
-  let prevCountdown = 0
   let prevBlue = b.cfg.perSide
   let prevRed = b.cfg.perSide
 
@@ -227,8 +224,6 @@ function observe(): Observed {
     clearImpacts(b.world.splashEvents)
     o.killEventCount += b.world.killEvents.count
     clearKills(b.world.killEvents)
-    if (prevCountdown > 0 && b.countdown === 0) o.resets++
-    prevCountdown = b.countdown
 
     const nowBlue = aliveCount(b.blue)
     const nowRed = aliveCount(b.red)
@@ -455,13 +450,15 @@ describe('20v20 跑滿 150 秒', () => {
   })
 })
 
-describe('全滅重置（M5 spec §3.1 條件 9）', () => {
-  it('人為打光紅隊後，resetCountdown 內回到滿編', () => {
+describe('全滅之後的結果（M9 spec §8）', () => {
+  it('人為打光紅隊後判定勝利，而且不會自己回到滿編', () => {
     const b = createBattle(new Idle())
     for (const c of b.red) b.world.destroy(c)
-    const steps = Math.ceil(b.cfg.resetCountdown / DT) + 4
-    for (let i = 0; i < steps; i++) stepBattle(b, DT)
-    expect(aliveCount(b.red)).toBe(DEFAULT_BATTLE.perSide)
-    expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.perSide)
+    for (let i = 0; i < Math.ceil(10 / DT); i++) {
+      stepBattle(b, DT)
+      clearKills(b.world.killEvents)
+    }
+    expect(b.outcome).toBe('victory')
+    expect(aliveCount(b.red)).toBe(0)
   })
 })
