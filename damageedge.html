@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>受擊方向指示器 原型 — Grok Aircraft</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #edge { position: fixed; inset: 0; pointer-events: none; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 286px; padding: 12px 14px;
+        background: rgba(10,18,26,0.86); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 4px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      #panel h2 {
+        margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; font-weight: 400;
+        color: #6f8ba5; border-top: 1px solid #2b3f52; padding-top: 9px;
+      }
+      .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      .row label { flex: 0 0 62px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row .val { flex: 0 0 60px; text-align: right; color: #e6f0f8; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 5px 8px; cursor: pointer;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; color: #eaf4ff; }
+      button.hit { background: #6a2020; border-color: #a34040; flex: 1; }
+      button.hit:hover { background: #8a2a2a; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
+      #stats { margin-top: 10px; padding-top: 9px; border-top: 1px solid #2b3f52;
+        color: #8ea6bb; white-space: pre; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <canvas id="edge"></canvas>
+    <div id="panel">
+      <h1>受擊方向指示器　原型</h1>
+
+      <h2>來彈方向</h2>
+      <div class="row">
+        <label>方位</label>
+        <input type="range" id="az" min="-180" max="180" step="5" value="90" />
+        <span class="val" id="azV">90°</span>
+      </div>
+      <div class="row">
+        <label>俯仰</label>
+        <input type="range" id="el" min="-90" max="90" step="5" value="0" />
+        <span class="val" id="elV">0°</span>
+      </div>
+      <div class="grid">
+        <button data-az="90" data-el="0">正右</button>
+        <button data-az="90" data-el="45">右上45</button>
+        <button data-az="90" data-el="15">右上15</button>
+        <button data-az="180" data-el="0">正後方</button>
+        <button data-az="0" data-el="0">正前方</button>
+        <button data-az="-135" data-el="-30">左後下</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="hit" id="hit">中　彈（空白鍵）</button>
+      </div>
+      <div class="row">
+        <button id="auto" style="flex:1">連射（一個攻擊者）</button>
+      </div>
+      <div class="row">
+        <button id="both" style="flex:1">兩邊夾擊（左右同時）</button>
+      </div>
+
+      <h2>參數</h2>
+      <div class="row">
+        <label>持續</label>
+        <input type="range" id="life" min="0.1" max="2" step="0.05" value="0.5" />
+        <span class="val" id="lifeV">0.50 s</span>
+      </div>
+      <div class="row">
+        <label>張角</label>
+        <input type="range" id="half" min="20" max="150" step="5" value="70" />
+        <span class="val" id="halfV">70°</span>
+      </div>
+      <div class="row">
+        <label>深度</label>
+        <input type="range" id="depth" min="0.04" max="0.45" step="0.01" value="0.22" />
+        <span class="val" id="depthV">0.22</span>
+      </div>
+      <div class="row">
+        <label>最亮</label>
+        <input type="range" id="peak" min="0.1" max="1" step="0.05" value="0.55" />
+        <span class="val" id="peakV">0.55</span>
+      </div>
+      <div id="stats"></div>
+    </div>
+    <div id="hint">左鍵拖曳旋轉　滾輪縮放　空白鍵中彈　1~6 快速選方向</div>
+    <script type="module" src="/src/tools/damageedge.ts"></script>
+  </body>
+</html>
