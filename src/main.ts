@@ -217,13 +217,14 @@ const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSec
 let lastTime = performance.now()
 let elapsed = 0
 
-function frame(now: number) {
-  const frameSeconds = (now - lastTime) / 1000
-  lastTime = now
-  elapsed += frameSeconds
-  perf.begin()
-  bindings.tick(frameSeconds)
-
+/**
+ * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
+ *
+ * 【為什麼抽出來】選單期間這一整段都不該跑（沒有 `Battle`）。抽成函數
+ * 之後 `frame` 只剩下一個分支，而搬家本身沒有改任何一行內容 ——
+ * `main.ts` 沒有測試護著，這一步必須看得出來只是搬家。
+ */
+function stepAndDrawBattle(frameSeconds: number): void {
   if (input.resetRequested) {
     // 【R 重開整場，不只是自機】20v20 裡「只有我復活、戰場停在半場」是一個
     // 說不通的狀態。重置走與全滅倒數完全相同的那一條路徑（battle/setup）。
@@ -542,6 +543,16 @@ function frame(now: number) {
     )
   }
   scoreboard.setVisible(showBoard)
+}
+
+function frame(now: number) {
+  const frameSeconds = (now - lastTime) / 1000
+  lastTime = now
+  elapsed += frameSeconds
+  perf.begin()
+  bindings.tick(frameSeconds)
+
+  stepAndDrawBattle(frameSeconds)
 
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
