@@ -239,6 +239,7 @@ function frame(now: number): void {
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   splashes.emit(wrecks.splashEvents, ocean.heightAt, elapsed)
+  splashes.emit(debris.sprayEvents, ocean.heightAt, elapsed)
   splashes.step(dt)
   fireball.step(dt)
   smoke.step(dt)

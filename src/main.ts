@@ -358,6 +358,9 @@ function frame(now: number) {
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
   splashes.emit(wrecks.splashEvents, ocean.heightAt, elapsed)
+  // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
+  // 位置相同。高低粗細由 splashSize 依格子隨機
+  splashes.emit(debris.sprayEvents, ocean.heightAt, elapsed)
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)

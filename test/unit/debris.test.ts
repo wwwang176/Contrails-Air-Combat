@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
   createDebris,
-  DEBRIS_CONE, DEBRIS_COUNT, DEBRIS_MAX_LIFE, DEBRIS_SIZE_MAX, DEBRIS_SIZE_MIN,
+  DEBRIS_CONE, DEBRIS_COUNT, DEBRIS_LIFE_MAX, DEBRIS_LIFE_MIN,
+  DEBRIS_SIZE_MAX, DEBRIS_SIZE_MIN,
   DEBRIS_SPEED,
 } from '../../src/render/debris'
 import {
-  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, DEBRIS_SMOKE_SECONDS,
+  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, DEBRIS_SMOKE_SECONDS_MAX,
 } from '../../src/render/smoke'
 import { createKills, pushKill } from '../../src/world/kills'
 import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
@@ -164,27 +165,46 @@ describe('零件的發射（M8 spec §7）', () => {
     d.dispose()
   })
 
-  it('冒到 DEBRIS_SMOKE_SECONDS 就收 —— 之後一團也不再生', () => {
+  it('停煙的時間逐片不同 —— 不是整批同時收', () => {
+    // 【為什麼一次走一個間隔】這樣每一片還在冒煙的正好生一團，
+    // `smokeEvents.count` 就等於「這一刻還有幾片在冒」。那個數字必須是
+    // 一級一級掉下來的；整批同時停的話它會由滿額直接掉到 0。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 100000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    // 先走到停煙那一刻的前一步：這裡還必須在冒
-    d.step(DEBRIS_SMOKE_SECONDS - DEBRIS_SMOKE_INTERVAL, DEEP, 0)
-    expect(d.smokeEvents.count).toBeGreaterThan(0)
-    // 跨過門檻之後：零件還活著（壽命更長），但煙停了
-    d.step(DEBRIS_SMOKE_INTERVAL * 2, DEEP, 0)
-    expect(d.live).toBe(DEBRIS_COUNT)
-    expect(d.smokeEvents.count).toBe(0)
+    const counts: number[] = []
+    const steps = Math.ceil((DEBRIS_SMOKE_SECONDS_MAX + DEBRIS_SMOKE_INTERVAL)
+      / DEBRIS_SMOKE_INTERVAL)
+    for (let i = 0; i < steps; i++) {
+      d.step(DEBRIS_SMOKE_INTERVAL, DEEP, 0)
+      counts.push(d.smokeEvents.count)
+    }
+    expect(counts[0]).toBe(DEBRIS_SMOKE_COUNT)
+    // 走完上界之後一片也不剩
+    expect(counts[counts.length - 1]).toBe(0)
+    // 中間出現過「部分還在冒」的狀態 —— 那就是逐片隨機
+    const partial = counts.filter((c) => c > 0 && c < DEBRIS_SMOKE_COUNT)
+    expect(partial.length).toBeGreaterThan(0)
     d.dispose()
   })
 
-  it('煙比零件早收 —— 煙帶要先變淡，不能與零件同時消失', () => {
-    // 【這條守什麼】煙團自己活 SMOKE_LIFE 才散。停煙點若拖到零件退場，
-    // 畫面上會是「一條全密度的煙帶連同源頭一起憑空不見」。提早收尾讓
-    // 煙帶先由頭端稀疏下去。零件退場後仍會殘留一小段煙，但那是稀疏的
-    // 尾巴，不是完整的煙帶。
-    expect(DEBRIS_SMOKE_SECONDS).toBeLessThan(DEBRIS_MAX_LIFE)
+  it('停煙不晚於零件退場 —— 沒有一片會在冒著煙的當下消失', () => {
+    // 【這條守什麼】超過的話最短命的那幾片會連同煙帶的頭端一起憑空不見。
+    // 兩者相等的臨界情況是允許的：停煙與退場落在同一刻。
+    expect(DEBRIS_SMOKE_SECONDS_MAX).toBeLessThanOrEqual(DEBRIS_LIFE_MIN)
+  })
+
+  it('零件的壽命逐片不同 —— 不會整團同時消失', () => {
+    const d = createDebris(64)
+    const e = createKills(4)
+    pushKill(e, 0, 100000, 0, 0, 0, 0, 0)
+    d.emit(e, WHITE)
+    // 走到壽命範圍的中間：短命的已經走了，長命的還在
+    d.step((DEBRIS_LIFE_MIN + DEBRIS_LIFE_MAX) / 2, DEEP, 0)
+    expect(d.live).toBeGreaterThan(0)
+    expect(d.live).toBeLessThan(DEBRIS_COUNT)
+    d.dispose()
   })
 
   it('翻滾中 —— 姿態隨時間改變', () => {
@@ -205,7 +225,10 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    d.step(2, DEEP, 0)
+    // 【要停在最短的壽命之內】死掉的格子矩陣是全零、位置讀成 (0,0,0)，
+    // 那也小於 1000 —— 跑過頭的話這條會空轉著通過
+    d.step(DEBRIS_LIFE_MIN * 0.9, DEEP, 0)
+    expect(d.live).toBe(DEBRIS_COUNT)
     let below = 0
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       if (decompose(d.object, i).position.y < 1000) below++
@@ -252,30 +275,29 @@ describe('零件入水（M8 spec §7）', () => {
     d.dispose()
   })
 
-  it('碰不到水面的零件也會在 DEBRIS_MAX_LIFE 之後退場', () => {
-    // 【為什麼要上限】高空擊墜的零件在 5 s 內掉不到海面（阻尼終端速度
-    // 24.5 m/s，5 s 約 90 m），飄出海面網格的更是永遠不會入水。沒有上限
-    // 的話那些零件會一直留在池子裡。
+  it('碰不到水面的零件也會在 DEBRIS_LIFE_MAX 之後退場', () => {
+    // 【為什麼要上限】高空擊墜的零件在壽命之內掉不到海面（阻尼終端速度
+    // 24.5 m/s，2 s 只掉約 20 m），飄出海面網格的更是永遠不會入水。沒有
+    // 上限的話那些零件會一直留在池子裡。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    for (let i = 0; i < 100; i++) d.step(DEBRIS_MAX_LIFE / 100, DEEP, 0)
+    for (let i = 0; i < 100; i++) d.step(DEBRIS_LIFE_MAX / 100, DEEP, 0)
     d.step(0.1, DEEP, 0)
     expect(d.live).toBe(0)
     d.dispose()
   })
 
   it('連續數百幀不產生 NaN', () => {
-    // 【為什麼不跑滿 DEBRIS_MAX_LIFE】死掉的格子矩陣是全零，對它做
-    // `decompose` 會除以零而得到 NaN 四元數 —— 那是這個測試輔助函式的
-    // 性質，不是積分器的缺陷。壽命由 40 s 縮到 5 s 時原本的 300 幀
-    // （正好 5 s）就整批踩進去了。所以停在壽命之內，並且斷言真的還活著。
+    // 【為什麼不跑滿壽命】死掉的格子矩陣是全零，對它做 `decompose` 會除以
+    // 零而得到 NaN 四元數 —— 那是這個測試輔助函式的性質，不是積分器的
+    // 缺陷。所以停在**最短**的壽命之內，並且斷言真的還活著。
     const d = createDebris(64)
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 30, 10, -150, 0)
     d.emit(e, WHITE)
-    const frames = Math.floor(DEBRIS_MAX_LIFE * 0.9 * 60)
+    const frames = Math.floor(DEBRIS_LIFE_MIN * 0.9 * 60)
     for (let i = 0; i < frames; i++) d.step(1 / 60, DEEP, 0)
     expect(d.live).toBe(DEBRIS_COUNT)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
