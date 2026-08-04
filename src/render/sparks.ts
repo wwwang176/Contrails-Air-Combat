@@ -3,6 +3,7 @@ import {
   Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
+import { coneDirection } from './scatter'
 
 /** 一次命中噴幾顆。少於 4 讀不出「噴開」，多於 16 在密集命中時變成一團。 */
 export const SPARKS_PER_HIT = 8
@@ -65,62 +66,19 @@ export interface Sparks {
 }
 
 /**
- * 32 位元整數雜湊 → [0, 1)。
- *
- * 【為什麼不用 `Math.random()`】與 `battle/setup.ts` 的 `altitudeOffset`
- * 避開亂數同一個理由：亂數要嘛需要一顆種子與一個 PRNG，要嘛就毀掉可
- * 測試性。用索引的雜湊之後 `sparkDirection` 是純函數，「恆在錐內」這一條
- * 才測得起來。
- */
-function hash01(i: number): number {
-  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b)
-  h ^= h >>> 13
-  h = Math.imul(h, 0xc2b2ae35)
-  h ^= h >>> 16
-  return (h >>> 0) / 4294967296
-}
-
-const AXIS = new Vector3()
-const TANGENT = new Vector3()
-const BITANGENT = new Vector3()
-
-/**
  * 在法線周圍 `SPARK_CONE` 的錐內取一個方向，**由 `index` 決定**。
+ *
+ * 【為什麼還留著這個包裝】它把「火花的半角是 `SPARK_CONE`」這件事釘在火花
+ * 自己的模組裡，呼叫端不必知道那個常數。實作在 `scatter.ts` —— 火花、火球、
+ * 零件、噴濺要的都是同一件事，只有半角與軸不同，四份副本就是只有一份會被
+ * 修好的那種危險。
  *
  * 熱路徑之外（每次命中八次），但仍然不配置。
  */
 export function sparkDirection(
   nx: number, ny: number, nz: number, index: number, out: Vector3,
 ): void {
-  AXIS.set(nx, ny, nz)
-  const len = AXIS.length()
-  // 【零向量的防護】法線理論上不會是零，但 NaN 一旦進入實例矩陣，整批
-  // 火花會靜靜地消失而且完全不報錯（與 assess.ts 的防護同一個理由）。
-  if (len < 1e-6) AXIS.set(0, 1, 0)
-  else AXIS.divideScalar(len)
-
-  // 與 AXIS 最不平行的座標軸，拿來造切線
-  const ax = Math.abs(AXIS.x)
-  const ay = Math.abs(AXIS.y)
-  const az = Math.abs(AXIS.z)
-  if (ax <= ay && ax <= az) TANGENT.set(1, 0, 0)
-  else if (ay <= az) TANGENT.set(0, 1, 0)
-  else TANGENT.set(0, 0, 1)
-  TANGENT.cross(AXIS).normalize()
-  BITANGENT.copy(AXIS).cross(TANGENT)
-
-  const phi = hash01(index) * Math.PI * 2
-  const cosMax = Math.cos(SPARK_CONE)
-  // 均勻取在 [cosMax, 1]：立體角上均勻，不會擠在錐心
-  const cosT = cosMax + (1 - cosMax) * hash01(index * 2 + 1)
-  const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT))
-
-  out.copy(AXIS).multiplyScalar(cosT)
-    .addScaledVector(TANGENT, Math.cos(phi) * sinT)
-    .addScaledVector(BITANGENT, Math.sin(phi) * sinT)
-  const l = out.length()
-  if (l > 1e-9) out.divideScalar(l)
-  else out.copy(AXIS)
+  coneDirection(nx, ny, nz, SPARK_CONE, index, out)
 }
 
 const UNIT_Z = new Vector3(0, 0, 1)
