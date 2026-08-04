@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
-  createSplashes, splashScale,
-  SPLASH_FALL_SECONDS, SPLASH_HEIGHT, SPLASH_JET_SECONDS, SPLASH_LIFE,
-  SPLASH_RADIUS, SPLASH_TOP_RATIO,
+  bulletPoints, createSplashes, splashScale, splashSize,
+  SPLASH_FALL_SECONDS, SPLASH_HEIGHT, SPLASH_HEIGHT_MAX, SPLASH_HEIGHT_MIN,
+  SPLASH_JET_SECONDS, SPLASH_LIFE, SPLASH_RADIUS, SPLASH_SHOULDER, SPLASH_TOP_RATIO,
 } from '../../src/render/splash'
 import { createImpacts, pushImpact } from '../../src/world/events'
 
@@ -94,29 +94,89 @@ describe('createSplashes', () => {
     s.dispose()
   })
 
-  it('底部的半徑是 SPLASH_RADIUS，頂端收緊', () => {
-    // 【為什麼要收緊】人工驗收的回饋是「太小」，而 4 m 高配 0.25 m 半徑
-    // 是 8:1 的細針 —— 與槍焰同一個成因：細長的東西在畫面上讀起來是
-    // 一條線，不是一個東西。上方收緊之後才像一柱噴起來的水。
+  it('底部的半徑是 SPLASH_RADIUS，肩部微收', () => {
     const s = createSplashes(1)
     const pos = s.object.geometry.getAttribute('position')
     let bottomR = 0
-    let topR = 0
     for (let i = 0; i < pos.count; i++) {
-      const r = Math.hypot(pos.getX(i), pos.getZ(i))
-      // 幾何已經平移成「底面在 y = 0」
-      if (pos.getY(i) < SPLASH_HEIGHT * 0.5) bottomR = Math.max(bottomR, r)
-      else topR = Math.max(topR, r)
+      if (pos.getY(i) < 0.01) bottomR = Math.max(bottomR, Math.hypot(pos.getX(i), pos.getZ(i)))
     }
     expect(bottomR).toBeCloseTo(SPLASH_RADIUS, 6)
-    expect(topR).toBeCloseTo(SPLASH_RADIUS * SPLASH_TOP_RATIO, 6)
-    expect(topR).toBeLessThan(bottomR)
+    expect(SPLASH_TOP_RATIO).toBeLessThan(1)
     s.dispose()
+  })
+
+  it('是子彈型 —— 柱身微收、上方圓潤收到一點', () => {
+    // 【為什麼測剖面而不是網格頂點】LatheGeometry 只在剖面點上產生頂點，
+    // 柱身那一整段中間一個頂點也沒有。第一版的測試把網格頂點依高度分箱，
+    // 結果柱身的箱子全是空的，差值算出 1.8（= 0.8 − (−1) 的初值）。
+    const p = bulletPoints()
+    // 底部
+    expect(p[0]!.x).toBeCloseTo(SPLASH_RADIUS, 6)
+    expect(p[0]!.y).toBeCloseTo(0, 6)
+    // 肩部：柱身只微收
+    expect(p[1]!.x).toBeCloseTo(SPLASH_RADIUS * SPLASH_TOP_RATIO, 6)
+    expect(p[1]!.y).toBeCloseTo(SPLASH_HEIGHT * SPLASH_SHOULDER, 6)
+    expect(p[0]!.x - p[1]!.x).toBeLessThan(SPLASH_RADIUS * 0.3)
+    // 頂點：收到一點，不是平頂
+    const top = p[p.length - 1]!
+    expect(top.x).toBeCloseTo(0, 5)
+    expect(top.y).toBeCloseTo(SPLASH_HEIGHT, 5)
+  })
+
+  it('圓頭的收斂逐段變快 —— 那正是「圓」與「收尖的錐」的差別', () => {
+    // 直線錐每一段收一樣多；圓弧則越靠頂端收得越快。
+    const p = bulletPoints()
+    const nose = p.slice(1) // 肩部起
+    const drops: number[] = []
+    for (let i = 1; i < nose.length; i++) drops.push(nose[i - 1]!.x - nose[i]!.x)
+    // 每一段的收斂量都必須大於前一段
+    for (let i = 1; i < drops.length; i++) {
+      expect(drops[i]!).toBeGreaterThan(drops[i - 1]!)
+    }
+  })
+
+  it('剖面沿著高度單調上升 —— 不會自己穿過自己', () => {
+    const p = bulletPoints()
+    for (let i = 1; i < p.length; i++) {
+      expect(p[i]!.y).toBeGreaterThan(p[i - 1]!.y)
+      expect(p[i]!.x).toBeLessThanOrEqual(p[i - 1]!.x + 1e-9)
+    }
+  })
+
+  it('每一根的高度不一樣 —— 十根一樣高讀起來是一排柵欄', () => {
+    const heights = new Set<number>()
+    for (let i = 0; i < 10; i++) heights.add(Number(splashSize(i).height.toFixed(6)))
+    expect(heights.size).toBe(10)
+  })
+
+  it('高度倍率恆落在設定的範圍內，而且高的也比較粗', () => {
+    let minH = Infinity
+    let maxH = -Infinity
+    let rAtMin = 0
+    let rAtMax = 0
+    for (let i = 0; i < 500; i++) {
+      const sz = splashSize(i)
+      expect(sz.height).toBeGreaterThanOrEqual(SPLASH_HEIGHT_MIN - 1e-9)
+      expect(sz.height).toBeLessThanOrEqual(SPLASH_HEIGHT_MAX + 1e-9)
+      if (sz.height < minH) { minH = sz.height; rAtMin = sz.radius }
+      if (sz.height > maxH) { maxH = sz.height; rAtMax = sz.radius }
+    }
+    // 【為什麼高的要比較粗】只變高度的話，高的那幾根會變成針
+    expect(rAtMax).toBeGreaterThan(rAtMin)
+  })
+
+  it('同一格恆得同一個尺寸 —— 純函數，重播可重現', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(splashSize(i).height).toBe(splashSize(i).height)
+      expect(splashSize(i).radius).toBe(splashSize(i).radius)
+    }
   })
 
   it('高寬比不會細成一根線', () => {
     // 12 m / 1.6 m = 7.5:1。原本的 4 m / 0.5 m 是 8:1 但絕對尺寸只有
     // 四分之一 —— 決定「讀不讀得出來」的是絕對尺寸，比例只是形狀。
+    // 最細的那一根（高度倍率最小、半徑倍率也最小）也要守得住。
     expect(SPLASH_HEIGHT / (SPLASH_RADIUS * 2)).toBeLessThan(10)
   })
 })
@@ -154,7 +214,8 @@ describe('發射與步進（M7 spec §7.1）', () => {
 
     s.step(SPLASH_JET_SECONDS)
     const peak = instance(s.object, 0).scale.y
-    expect(peak).toBeCloseTo(1, 6)
+    // 抽到頂時的 Y 縮放 = 1 × 這一格的高度倍率
+    expect(peak).toBeCloseTo(splashSize(0).height, 5)
 
     s.step(SPLASH_LIFE * 0.5)
     const falling = instance(s.object, 0).scale.y

@@ -10,7 +10,7 @@ import { createMuzzles } from './render/muzzle'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { createFireball, emitFireball } from './render/fireball'
-import { createSmoke, emitSmoke } from './render/smoke'
+import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -352,7 +352,7 @@ function frame(now: number) {
   wrecks.step(frameSeconds, ocean.heightAt, elapsed)
   debris.step(frameSeconds, ocean.heightAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
-  emitSmoke(smoke, debris.smokeEvents)
+  emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
   // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
