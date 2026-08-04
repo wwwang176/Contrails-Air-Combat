@@ -1,4 +1,5 @@
 import { drawContacts } from './widgets/contacts'
+import { drawDamageEdge } from './widgets/damageEdge'
 import { drawDials } from './widgets/dials'
 import { drawEnergy } from './widgets/energy'
 import { drawGEffect } from './widgets/gEffect'
@@ -46,6 +47,8 @@ export class Hud {
     ctx.clearRect(0, 0, L.width, L.height)
     // 黑視/紅視先畫，其餘 HUD 元件疊在上面維持可讀
     drawGEffect(ctx, L, f, dt)
+    // 受擊方向壓在世界上面、儀表與數字之下——與黑視/紅視同一個理由
+    drawDamageEdge(ctx, L, f)
     // 接觸點畫在準星底下——準星必須壓在最上層
     drawContacts(ctx, L, f)
     drawReticle(ctx, L, f)

@@ -1,3 +1,5 @@
+import { createDamageMarks, type DamageMark } from './damageMarks'
+
 /**
  * 一個接觸點（畫面上的一架他機）。
  *
@@ -127,6 +129,14 @@ export interface HudFrame {
   /** 命中回饋的剩餘秒數。> 0 時機首十字周圍畫 X（spec §8：0.15 s） */
   hitFlash: number
   /**
+   * 受擊方向痕跡。`main.ts` 推入與步進，widget 只讀。
+   *
+   * 【為什麼與 `hitFlash` 分開】那個是**我打中人**（讀 `player.hitsDealt`），
+   * 方向相反 —— 沿用它就是把兩個相反的意思塞進同一個數字
+   * （受擊方向指示器 spec §1）。
+   */
+  damageMarks: DamageMark[]
+  /**
    * 自機血量與上限。
    *
    * 【為什麼只顯示自機、不顯示敵機】M2 §8 的裁決不變：你看不出對方的
@@ -171,6 +181,7 @@ export function createHudFrame(): HudFrame {
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,
     hitFlash: 0,
+    damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,
     aiFlying: false,
     controlAuthority: 1,
