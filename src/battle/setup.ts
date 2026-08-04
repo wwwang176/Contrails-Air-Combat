@@ -16,6 +16,7 @@ import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
+import type { AircraftSpec } from '../specs/types'
 
 /**
  * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14、M6 spec §8）。
@@ -24,8 +25,19 @@ import type { Controller } from '../control/Controller'
  * 彼此。週期 5 的鋸齒讓五個分隊落在五個高度層而不是兩排。
  */
 export interface BattleConfig {
-  /** 每隊架數。專案負責人裁決：M5 固定 20（spec §2） */
-  perSide: number
+  /**
+   * 藍隊架數，**含玩家**。1~20。
+   *
+   * 【為什麼含玩家】專案負責人裁決：20 vs 20 名副其實。這也正是 M9 以前
+   * `perSide` 的意思，語意不變，只是拆成兩個。
+   */
+  blueCount: number
+  /** 紅隊架數。1~20 */
+  redCount: number
+  /** 藍隊機種。**玩家恆在藍隊** —— 選軸心國就是這裡放 Bf109（M10 spec §7.1） */
+  blueSpec: AircraftSpec
+  /** 紅隊機種 */
+  redSpec: AircraftSpec
   altitude: number
   tas: number
   /**
@@ -87,7 +99,10 @@ export interface BattleConfig {
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
-  perSide: 20,
+  blueCount: 20,
+  redCount: 20,
+  blueSpec: P51D,
+  redSpec: BF109G6,
   altitude: 4000,
   tas: 200,
   entryRange: 10000,
@@ -194,19 +209,23 @@ export function createBattle(
   const world = new World()
   const blue: Combatant[] = []
   const red: Combatant[] = []
-  const flightCount = Math.ceil(cfg.perSide / SCHWARM_SIZE)
+  const blueFlights = Math.ceil(cfg.blueCount / SCHWARM_SIZE)
   /**
    * 玩家是**正中央分隊的長機**（M6 spec §9）。
    *
    * 【為什麼是長機而不是某個僚機】玩家不會照站位飛。把他擺在有站位的
    * 位置上，那個 Schwarm 從此有一個永遠對不齊的槽位。
    */
-  const playerSlot = Math.floor(flightCount / 2) * SCHWARM_SIZE
+  const playerSlot = Math.floor(blueFlights / 2) * SCHWARM_SIZE
   let player: Combatant | null = null
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
   for (const side of ['blue', 'red'] as const) {
     const blueSide = side === 'blue'
+    // 【兩邊各算各的】M10 起雙方架數可以不同，分隊數因此也不同
+    const count = blueSide ? cfg.blueCount : cfg.redCount
+    const flightCount = blueSide ? blueFlights : Math.ceil(cfg.redCount / SCHWARM_SIZE)
+    const spec = blueSide ? cfg.blueSpec : cfg.redSpec
     const z = blueSide ? cfg.entryRange / 2 : -cfg.entryRange / 2
     const yaw = blueSide ? 0 : Math.PI
     const orientation = new Quaternion().setFromAxisAngle(UP, yaw)
@@ -222,7 +241,7 @@ export function createBattle(
       /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
       const made: Aircraft[] = []
 
-      for (let k = 0; k < SCHWARM_SIZE && slot < cfg.perSide; k++, slot++) {
+      for (let k = 0; k < SCHWARM_SIZE && slot < count; k++, slot++) {
         // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
         // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
         // 走 `World.respawn` 是同一個理由。
@@ -233,7 +252,6 @@ export function createBattle(
         if (ref < 0) SPAWN.set(leadX, leadY, z)
         else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
 
-        const spec = blueSide ? P51D : BF109G6
         const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
         aircraft.state.position.copy(SPAWN)
         aircraft.state.orientation.copy(orientation)
@@ -255,7 +273,7 @@ export function createBattle(
     }
   }
 
-  if (player === null) throw new Error('玩家沒有被建立——perSide 必須 >= 1')
+  if (player === null) throw new Error('玩家沒有被建立——blueCount 必須 >= 1')
 
   // 【指派板必須在全部 add 完之後才建】它會檢查 index 與陣列位置一致，
   // 而 index 是 add 依序給的
