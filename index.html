@@ -63,14 +63,17 @@
         margin: 0 0 6px; font-size: 13px; letter-spacing: .16em;
         font-weight: 400; color: #6f8ba5;
       }
-      #ui button {
+      /* 【為什麼要一起選 #board】結算板的兩顆出口按鈕在 #board 裡而不是
+         #ui 底下（它疊在戰鬥畫面上，不是一個畫面）。少了它們就是預設的
+         系統按鈕，跟整個介面對不上 */
+      #ui button, #board button {
         font: inherit; color: inherit; cursor: pointer;
         border: 1px solid #2b3f52; background: rgba(20, 32, 46, 0.9);
         padding: 10px 26px; letter-spacing: .16em;
       }
-      #ui button:hover:not(:disabled) { border-color: #5a96d2; background: rgba(30, 50, 72, 0.95); }
-      #ui button.primary { border-color: #5a96d2; color: #eaf4ff; }
-      #ui button.ghost { color: #8fa6bb; }
+      #ui button:hover:not(:disabled), #board button:hover:not(:disabled) { border-color: #5a96d2; background: rgba(30, 50, 72, 0.95); }
+      #ui button.primary, #board button.primary { border-color: #5a96d2; color: #eaf4ff; }
+      #ui button.ghost, #board button.ghost { color: #8fa6bb; }
       #ui .cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
       #ui .card {
         display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
@@ -81,7 +84,7 @@
       #ui .card-meta { font-size: 12px; color: #6f8ba5; }
       /* 【disabled 要看得出來是 disabled】看起來可點卻沒反應，玩家會以為壞了。
          數量到上下限時的箭頭與未開放的任務卡都吃這一條 */
-      #ui button:disabled { opacity: .38; cursor: default; }
+      #ui button:disabled, #board button:disabled { opacity: .38; cursor: default; }
       #ui .card .locked {
         align-self: flex-end; font-size: 11px; color: #8a6f4f; letter-spacing: .1em;
       }
@@ -95,7 +98,11 @@
         min-width: 3ch; text-align: center; font-size: 22px; color: #eaf4ff;
       }
       /* 【結算時 #board 要能點】按住 TAB 時它只是看，所以預設 pointer-events: none */
-      #board-actions { display: flex; gap: 14px; pointer-events: auto; }
+      /* 【字級要跟選單一致】#board 是 13px 的表格字，而按鈕 font: inherit */
+      #board-actions {
+        display: flex; gap: 14px; pointer-events: auto;
+        font: 15px/1.6 ui-monospace, Consolas, "Noto Sans TC", sans-serif;
+      }
       #board-actions[hidden] { display: none; }
       #board.finished { pointer-events: auto; }
     </style>

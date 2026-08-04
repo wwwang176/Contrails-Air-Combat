@@ -19,7 +19,7 @@ import type { Combatant } from '../world/World'
 export const MUZZLE_LENGTH = 1.2
 
 /**
- * 十字的半寬（貼著槍口那一端），m。整個十字跨度是它的兩倍。
+ * 十字的半寬（**外端**，離槍口最遠的那一端），m。整個跨度是它的兩倍。
  *
  * 【人工驗收之後由 0.12 m 半徑的錐改成 0.45 m 半寬的十字】原本讀起來像
  * 一根細針。在第三人稱距離（約 30 m）上，0.6 m 長是 38 px 而 0.12 m 半徑
@@ -27,8 +27,14 @@ export const MUZZLE_LENGTH = 1.2
  */
 export const MUZZLE_HALF_WIDTH = 0.45
 
-/** 尖端相對根部的寬度比。收尖讓它讀得出方向，也讓它像火舌而不是木板。 */
-const MUZZLE_TIP_RATIO = 0.15
+/**
+ * 根部（貼著槍口那一端）相對外端的寬度比。
+ *
+ * 【人工驗收之後前後對調】初版是根部寬、外端收尖，讀起來像一團火從空中
+ * 往槍口收回去 —— 方向感是反的。火焰是從槍管噴出來的氣體，**愈遠愈開**
+ * 才對。收尖本身仍然保留（讀得出方向，也像火舌不像木板），只是換一端。
+ */
+const MUZZLE_ROOT_RATIO = 0.15
 
 export interface Muzzles {
   object: InstancedMesh
@@ -47,7 +53,8 @@ export interface Muzzles {
 }
 
 /**
- * 十字火焰：兩片互相垂直、都包含槍管軸（+Z）的梯形，根部貼在槍口。
+ * 十字火焰：兩片互相垂直、都包含槍管軸（+Z）的梯形，**窄的那一端貼在
+ * 槍口、往外張開**。
  *
  * 【為什麼是十字而不是錐，也不是廣告板】
  * - **廣告板**恆面向相機，從正側面看槍焰會是一個圓片而不是一條火舌。
@@ -62,17 +69,19 @@ export interface Muzzles {
  * 同一個量級。材質是 `DoubleSide`，因為梯形是平的、兩面都要看得見。
  */
 function crossFlare(): BufferGeometry {
+  /** 外端的半寬 */
   const w = MUZZLE_HALF_WIDTH
-  const t = w * MUZZLE_TIP_RATIO
+  /** 根部的半寬。窄的那一端貼著槍口 —— 見 `MUZZLE_ROOT_RATIO` */
+  const r = w * MUZZLE_ROOT_RATIO
   const l = MUZZLE_LENGTH
   // 每片兩個三角形；非索引，12 個頂點
   const v = new Float32Array([
     // 片一：XZ 平面
-    -w, 0, 0, w, 0, 0, t, 0, l,
-    -w, 0, 0, t, 0, l, -t, 0, l,
+    -r, 0, 0, r, 0, 0, w, 0, l,
+    -r, 0, 0, w, 0, l, -w, 0, l,
     // 片二：YZ 平面
-    0, -w, 0, 0, w, 0, 0, t, l,
-    0, -w, 0, 0, t, l, 0, -t, l,
+    0, -r, 0, 0, r, 0, 0, w, l,
+    0, -r, 0, 0, w, l, 0, -w, l,
   ])
   const g = new BufferGeometry()
   g.setAttribute('position', new BufferAttribute(v, 3))
