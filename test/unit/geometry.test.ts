@@ -390,3 +390,48 @@ describe('buildAircraft', () => {
     })
   }
 })
+
+describe('透明材質不寫深度（M10 驗收）', () => {
+  /**
+   * 【為什麼這不算「造型測試」】它守的不是任何一個數字長什麼樣，而是一條
+   * 渲染規則：半透明的東西**不可以寫深度緩衝**，否則它會把後面的東西整條
+   * 丟掉而不是混合出來。M10 驗收時螺旋槳的模糊圓盤正是這樣把曳光彈吃掉的
+   * —— 一個 22% 不透明度的圓盤讓子彈完全消失。
+   *
+   * 專案裡其他每一個透明材質（曳光彈、槍焰、火球、煙、噴濺、火花、水柱）
+   * 都已經關掉 `depthWrite`；`assembly.ts` 那兩個是 M1 寫的，比這條慣例更早，
+   * 於是一路漏到 M10 才被人眼抓到。
+   */
+  for (const spec of [P51D, BF109G6]) {
+    it(`${spec.id}：機體上每一個 transparent 材質都關掉 depthWrite`, () => {
+      const m = buildAircraft(spec)
+      const offenders: string[] = []
+      m.group.traverse((o) => {
+        const mesh = o as Mesh
+        if (!mesh.isMesh) return
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        for (const mat of mats) {
+          if (mat.transparent && mat.depthWrite) offenders.push(mesh.geometry.type)
+        }
+      })
+      expect(offenders).toEqual([])
+      m.dispose()
+    })
+  }
+
+  it('模糊圓盤排在其他透明物件之後才畫', () => {
+    // 【為什麼只關 depthWrite 還不夠】關掉之後遮擋不再是「丟掉」而是「混合」，
+    // 但混合的先後仍然由**逐物件**排序決定 —— 而曳光彈整批是一個
+    // InstancedMesh，它的排序深度取的是世界原點，與子彈實際飛在哪裡無關。
+    // renderOrder 把常見情形（子彈在圓盤後方）釘成正確的那一邊。
+    const m = buildAircraft(P51D)
+    const discs: Mesh[] = []
+    m.group.traverse((o) => {
+      const mesh = o as Mesh
+      if (mesh.isMesh && mesh.geometry.type === 'CircleGeometry') discs.push(mesh)
+    })
+    expect(discs).toHaveLength(1)
+    expect(discs[0]!.renderOrder).toBeGreaterThan(0)
+    m.dispose()
+  })
+})

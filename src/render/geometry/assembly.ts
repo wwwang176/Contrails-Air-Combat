@@ -148,6 +148,24 @@ export interface HullSpec {
 }
 
 /**
+ * 模糊圓盤的繪製順序。**要比所有其他透明物件都晚畫。**
+ *
+ * 【為什麼只關 `depthWrite` 還不夠】關掉之後遮擋不再是「把後面的東西丟掉」
+ * 而是「混合」，但混合的先後仍然由 three 的**逐物件**排序決定 —— 而曳光彈
+ * 整批是一個 `InstancedMesh`，它的排序深度取的是**世界原點**，與子彈實際
+ * 飛在哪裡無關。同一時刻必然有些子彈在圓盤前、有些在後，一個 draw call
+ * 不可能同時排對，所以「把順序排正確」這個選項根本不存在。
+ *
+ * 於是選一個對常見情形正確的固定順序：子彈**在圓盤後方**時，圓盤最後畫、
+ * 22% 混合上去，那正是應該看到的樣子。代價是「子彈在圓盤與相機之間」時
+ * 會被蓋上 22% 的顏色 —— 少見，而且不刺眼。
+ *
+ * 【為什麼是 10】任何正數都可以（全專案只有天空球設過 renderOrder，而它是
+ * −1000）。取 10 是留位子給日後可能插進來的東西。
+ */
+const PROP_DISC_RENDER_ORDER = 10
+
+/**
  * 建立一副空機體，回傳各種「把零件裝上去」的方法。
  *
  * 外層 group 留給 main.ts 寫入物理位置與姿態；內層 group 承擔重心位移。
@@ -164,11 +182,20 @@ export function createHull(spec: HullSpec) {
   const accent = new MeshStandardMaterial({
     color: spec.accentColor, flatShading: true, roughness: 0.6,
   })
+  /**
+   * 【`depthWrite: false` 非有不可】半透明的東西寫深度緩衝，等於把後面的
+   * 東西**整條丟掉**而不是混合出來 —— 一片 45% 的座艙罩會讓它後面的曳光彈
+   * 完全消失。專案裡其他每一個透明材質（曳光彈、槍焰、火球、煙、噴濺、
+   * 火花、水柱）都是這樣寫的；這兩個是 M1 留下的，比那條慣例更早。
+   *
+   * `depthTest` 仍然開著，所以不透明的機體照樣擋得住它們。
+   */
   const glass = new MeshStandardMaterial({
-    color: 0x9fd4e8, flatShading: true, transparent: true, opacity: 0.45, roughness: 0.2,
+    color: 0x9fd4e8, flatShading: true, transparent: true, opacity: 0.45,
+    roughness: 0.2, depthWrite: false,
   })
   const blur = new MeshStandardMaterial({
-    color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
+    color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5, depthWrite: false,
   })
   /** 座艙內裝：機身開口下方的暗色內殼，見 buildCockpitTub。 */
   const cockpitMat = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
@@ -280,6 +307,7 @@ export function createHull(spec: HullSpec) {
       }
       const disc = new Mesh(new CircleGeometry(p.propRadius, 16), blur)
       disc.visible = false
+      disc.renderOrder = PROP_DISC_RENDER_ORDER
       disc.userData['spinning'] = true
       disposables.push(disc.geometry)
       propHub.add(disc)
