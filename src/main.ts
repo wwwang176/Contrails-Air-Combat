@@ -266,6 +266,27 @@ function leaveBattle(): void {
 }
 
 /**
+ * 重開這一場：同樣的設定、同樣的座位，名字重抽、戰績歸零。
+ *
+ * 暫停選單的「重新開始」與 `R` 都走這裡。
+ *
+ * 【為什麼不是直接呼叫 `enterBattle`】那會換掉整個 `Battle` 與地形，而
+ * `resetBattle` 產出的遊戲狀態已經與新建一場等價（名字重抽、戰績歸零、
+ * 被接手過的座位還給 AI）。留在同一場的好處是玩家的座位與設定原封不動，
+ * 而且不必繞一圈選單。
+ *
+ * 【重開整場而不是只重生自機】20v20 裡「只有我復活、戰場停在半場」是一個
+ * 說不通的狀態。
+ */
+function restartBattle(): void {
+  resetBattle(battle)
+  player = battle.player
+  // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
+  rebuildVisuals()
+  respawnPlayer()
+}
+
+/**
  * 重建整場戰鬥。設定頁的「開始戰鬥」與結算的「再打一場」都走這裡。
  *
  * 【順序不可調換】先把上一場的東西還回去（殘骸池持有模型，必須在
@@ -332,13 +353,7 @@ let elapsed = 0
  */
 function stepAndDrawBattle(frameSeconds: number): void {
   if (input.resetRequested) {
-    // 【R 重開整場，不只是自機】20v20 裡「只有我復活、戰場停在半場」是一個
-    // 說不通的狀態。重置走與全滅倒數完全相同的那一條路徑（battle/setup）。
-    resetBattle(battle)
-    player = battle.player
-    // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
-    rebuildVisuals()
-    respawnPlayer()
+    restartBattle()
     input.resetRequested = false
   }
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
@@ -646,6 +661,22 @@ function stepAndDrawBattle(frameSeconds: number): void {
   boardEl.classList.toggle('finished', finished)
 }
 
+/**
+ * 要求指標鎖定，被拒絕就算了。
+ *
+ * 【為什麼一定要接住 rejection】瀏覽器在使用者按 ESC 解除鎖定之後有一段
+ * 冷卻期（Chrome 約 1.25 s）會拒絕新的請求 —— 而「按 ESC 暫停、立刻按
+ * 繼續」正好落在那段時間裡。`void` 不會接住 rejection，主控台於是冒出一個
+ * 沒人處理的 promise 錯誤。鎖不上本身不是問題：玩家點一下畫面就會鎖上
+ * （見 `bindings.ts` 的 canvas click）。
+ *
+ * 【為什麼包一層 `Promise.resolve`】舊的瀏覽器與舊的型別定義裡
+ * `requestPointerLock()` 回傳 `void`，直接 `.catch` 會炸。
+ */
+function grabPointer(): void {
+  void Promise.resolve(canvas.requestPointerLock()).catch(() => {})
+}
+
 const MENU_POSE = { position: new Vector3(), target: new Vector3() }
 
 /** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
@@ -666,7 +697,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     if (event === 'fight' && screen === 'battle') {
       enterBattle()
       paused = false
-      void canvas.requestPointerLock()
+      grabPointer()
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
@@ -683,7 +714,13 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onResume() {
     paused = false
     menu.setPaused(false)
-    void canvas.requestPointerLock()
+    grabPointer()
+  },
+  onRestart() {
+    restartBattle()
+    paused = false
+    menu.setPaused(false)
+    grabPointer()
   },
 })
 menu.renderSetup(setup)
