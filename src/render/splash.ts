@@ -31,11 +31,26 @@ export const SPLASH_RADIUS = 0.8
  */
 export const SPLASH_TOP_RATIO = 0.2
 
-/** 壽命，s。抽起加落下，看得完一個完整動作。 */
-export const SPLASH_LIFE = 0.5
+/**
+ * 抽到滿高要多久，s。12 m / 0.1 s = **120 m/s** —— 出水那一下要夠猛。
+ *
+ * 【為什麼是秒數不是「佔壽命的比例」】初版把它寫成比例，於是想調下墜速度
+ * 就得同時重算總時長與比例兩個數 —— 兩個旋鈕互相牽動。拆成兩段獨立的
+ * 秒數之後，「上升快一點」與「下墜慢一點」是兩個互不影響的改動。
+ */
+export const SPLASH_JET_SECONDS = 0.1
 
-/** 抽到滿高要花掉多少比例的壽命。前 30% 抽起、後 70% 落回 —— 噴出來的東西。 */
-export const SPLASH_RISE = 0.3
+/**
+ * 從滿高落回水面要多久，s。12 m / 0.4 s = **30 m/s**。
+ *
+ * 【上界是重力】12 m 自由落體要 √(2×12/9.81) = 1.56 s。水柱是一塊**實心
+ * mesh**，掉得比重力慢會讀成一根柱子在下沉而不是一團水在塌 —— 所以這個
+ * 值必須明顯短於 1.56 s（現在是 3.9 倍快）。這條由單元測試守著。
+ */
+export const SPLASH_FALL_SECONDS = 0.4
+
+/** 壽命，s。抽起加落下，看得完一個完整動作。 */
+export const SPLASH_LIFE = SPLASH_JET_SECONDS + SPLASH_FALL_SECONDS
 
 /**
  * 池子大小。
@@ -68,7 +83,8 @@ export interface Splashes {
 }
 
 /**
- * 年齡 → 高度係數 0..1。前 `SPLASH_RISE` 抽到滿高，之後線性落回 0。
+ * 年齡 → 高度係數 0..1。`SPLASH_JET_SECONDS` 抽到滿高，再花
+ * `SPLASH_FALL_SECONDS` 線性落回 0。
  *
  * 【為什麼抽成純函數】繪製函數進不了單元測試，而「先漲後落」是一條有實際
  * 行為的規則 —— 與 `edgeIndicatorPosition`、`minimapSymbol`、`countdownLabel`
@@ -76,9 +92,10 @@ export interface Splashes {
  */
 export function splashScale(age: number): number {
   if (age < 0 || age >= SPLASH_LIFE) return 0
-  const peak = SPLASH_LIFE * SPLASH_RISE
-  if (age <= peak) return peak > 0 ? age / peak : 1
-  return 1 - (age - peak) / (SPLASH_LIFE - peak)
+  if (age <= SPLASH_JET_SECONDS) {
+    return SPLASH_JET_SECONDS > 0 ? age / SPLASH_JET_SECONDS : 1
+  }
+  return 1 - (age - SPLASH_JET_SECONDS) / SPLASH_FALL_SECONDS
 }
 
 const M = new Matrix4()
@@ -98,7 +115,11 @@ export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
   const px = new Float32Array(capacity)
   const py = new Float32Array(capacity)
   const pz = new Float32Array(capacity)
-  const age = new Float32Array(capacity).fill(SPLASH_LIFE)
+  // 【死掉的格子填 Infinity 而不是 SPLASH_LIFE】`age` 是 float32 而
+  // SPLASH_LIFE 是兩個 float64 的和 —— 例如 0.1 + 2.0 = 2.1 存進 float32
+  // 會變成 2.09999990，於是「age >= SPLASH_LIFE」在一開始就是 false，整池
+  // 被當成活的。Infinity 沒有這個問題，而且意思更直接：這一格從未用過。
+  const age = new Float32Array(capacity).fill(Infinity)
   let next = 0
   let live = 0
 
