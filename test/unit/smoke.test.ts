@@ -1,0 +1,149 @@
+import { describe, it, expect } from 'vitest'
+import { Color, InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
+import {
+  createSmoke, emitSmoke, smokeColor, smokePuffs, smokeTimer,
+  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, SMOKE_ALPHA, SMOKE_DRAG,
+  SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM, SMOKE_SIZE_TO,
+  WRECK_SMOKE_INTERVAL,
+} from '../../src/render/smoke'
+import { createImpacts, pushImpact } from '../../src/world/events'
+
+function decompose(mesh: InstancedMesh, i: number) {
+  const m = new Matrix4()
+  mesh.getMatrixAt(i, m)
+  const position = new Vector3()
+  const scale = new Vector3()
+  m.decompose(position, new Quaternion(), scale)
+  return { position, scale }
+}
+
+describe('smokePuffs / smokeTimer —— 發射器計時', () => {
+  it('一幀不到一個間隔就不生', () => {
+    expect(smokePuffs(0, 1 / 60, 0.08)).toBe(0)
+    expect(smokeTimer(0, 1 / 60, 0.08)).toBeCloseTo(1 / 60, 9)
+  })
+
+  it('累積滿一個間隔就生一團，計時器留下餘數', () => {
+    // 0.07 + 0.0167 = 0.0867 ≥ 0.08 → 生一團，餘 0.0067
+    expect(smokePuffs(0.07, 1 / 60, 0.08)).toBe(1)
+    expect(smokeTimer(0.07, 1 / 60, 0.08)).toBeCloseTo(0.07 + 1 / 60 - 0.08, 6)
+  })
+
+  it('低幀率時一次補足，不會漏掉整段煙', () => {
+    // 【為什麼要補】0.5 s 的長幀若只生一團，煙帶會出現一段 75 m 的空隙。
+    expect(smokePuffs(0, 0.5, 0.08)).toBe(6)
+  })
+
+  it('間隔為 0 或負值時不生，也不會除以零', () => {
+    expect(smokePuffs(0, 1, 0)).toBe(0)
+    expect(smokeTimer(0, 1, 0)).toBe(0)
+    expect(Number.isFinite(smokePuffs(0, 1, -1))).toBe(true)
+  })
+
+  it('殘骸比零件冒得密 —— 主體才是煙的來源', () => {
+    expect(WRECK_SMOKE_INTERVAL).toBeLessThan(DEBRIS_SMOKE_INTERVAL)
+  })
+})
+
+describe('smokeColor', () => {
+  it('全程是深灰 —— 黑煙不變色，變的是 alpha', () => {
+    const c = new Color()
+    for (let i = 0; i <= 10; i++) {
+      smokeColor(i / 10, c)
+      expect(c.r).toBeLessThan(0.2)
+      expect(c.r).toBeCloseTo(c.g, 6)
+      expect(c.g).toBeCloseTo(c.b, 6)
+    }
+  })
+})
+
+describe('黑煙的參數（M8 spec §6）', () => {
+  it('上浮寫成加速度，終端速度是 SMOKE_RISE', () => {
+    // 【為什麼】積分器只有 gravity 這一個欄位（particles.ts），而終端速度是
+    // gravity / drag。要 3 m/s 就得餵 3 × 1.5 = 4.5 m/s²。
+    expect(SMOKE_GRAVITY).toBeCloseTo(SMOKE_RISE * SMOKE_DRAG, 9)
+    expect(SMOKE_GRAVITY).toBeGreaterThan(0)
+  })
+
+  it('會膨脹不會縮小', () => {
+    expect(SMOKE_SIZE_TO).toBeGreaterThan(SMOKE_SIZE_FROM)
+  })
+
+  it('半透明 —— 不透明的煙會把後面的空戰整個蓋掉', () => {
+    expect(SMOKE_ALPHA).toBeGreaterThan(0)
+    expect(SMOKE_ALPHA).toBeLessThan(1)
+  })
+
+  it('大零件才冒煙，不是全部十二片', () => {
+    // 【為什麼】12 條煙會糊成一團，讀不出「零件在散開」，而發射器數量會從
+    // 20×4 變成 20×12（M8 spec §6.1）。
+    expect(DEBRIS_SMOKE_COUNT).toBe(4)
+  })
+})
+
+describe('emitSmoke', () => {
+  it('一筆事件生一團', () => {
+    const s = createSmoke(32)
+    const e = createImpacts(8)
+    pushImpact(e, 1, 2, 3, 0, 1, 0)
+    emitSmoke(s, e)
+    s.step(0.01)
+    expect(s.live).toBe(1)
+    expect(decompose(s.object, 0).position.x).toBeCloseTo(1, 4)
+    s.dispose()
+  })
+
+  it('初速為零 —— 煙生出來就與發射體脫鉤', () => {
+    // 【為什麼不跟著跑】拖曳的觀感來自「發射體在動、每一團生在不同位置」。
+    // 跟著跑的話整條煙會像一根黏在殘骸上的棍子（M8 spec §6）。
+    const s = createSmoke(32)
+    const e = createImpacts(8)
+    pushImpact(e, 0, 0, 0, 0, 1, 0)
+    emitSmoke(s, e)
+    s.step(0.1)
+    const p = decompose(s.object, 0).position
+    expect(Math.abs(p.x)).toBeLessThan(0.01)
+    expect(Math.abs(p.z)).toBeLessThan(0.01)
+    // 只有上浮
+    expect(p.y).toBeGreaterThan(0)
+    s.dispose()
+  })
+
+  it('往上飄且愈飄愈大', () => {
+    const s = createSmoke(32)
+    const e = createImpacts(8)
+    pushImpact(e, 0, 0, 0, 0, 1, 0)
+    emitSmoke(s, e)
+    s.step(0.5)
+    const a = decompose(s.object, 0)
+    const y0 = a.position.y
+    const s0 = a.scale.x
+    s.step(0.5)
+    const b = decompose(s.object, 0)
+    expect(b.position.y).toBeGreaterThan(y0)
+    expect(b.scale.x).toBeGreaterThan(s0)
+    s.dispose()
+  })
+
+  it('壽命結束就死光', () => {
+    const s = createSmoke(32)
+    const e = createImpacts(8)
+    pushImpact(e, 0, 0, 0, 0, 1, 0)
+    emitSmoke(s, e)
+    s.step(SMOKE_LIFE + 0.01)
+    expect(s.live).toBe(0)
+    s.dispose()
+  })
+
+  it('連續十秒不產生 NaN', () => {
+    const s = createSmoke(32)
+    const e = createImpacts(8)
+    pushImpact(e, 0, 0, 0, 0, 1, 0)
+    emitSmoke(s, e)
+    for (let i = 0; i < 600; i++) s.step(1 / 60)
+    const d = decompose(s.object, 0)
+    expect(Number.isFinite(d.position.length())).toBe(true)
+    expect(Number.isFinite(d.scale.length())).toBe(true)
+    s.dispose()
+  })
+})
