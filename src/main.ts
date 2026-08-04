@@ -9,7 +9,16 @@ import { createTracers } from './render/tracers'
 import { createMuzzles } from './render/muzzle'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
+import { createFireball, emitFireball } from './render/fireball'
+import { createSmoke, emitSmoke } from './render/smoke'
+import {
+  createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
+} from './render/spray'
+import { createDebris } from './render/debris'
+import { createWrecks } from './render/wrecks'
+import { bodyColorOf } from './render/geometry/buildAircraft'
 import { clearImpacts } from './world/events'
+import { clearKills } from './world/kills'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
@@ -78,6 +87,13 @@ interface Visual {
   model: AircraftModel
   readonly position: Vector3
   readonly quaternion: Quaternion
+  /**
+   * 模型已經交給殘骸池了嗎。
+   *
+   * 【為什麼需要這個旗標】殘骸池從此擁有那個 `group` 的位置與旋轉；每幀的
+   * 內插迴圈若繼續寫它，殘骸會被釘在飛機死掉的地方一動也不動。
+   */
+  wrecked: boolean
 }
 
 const visuals = new Map<Combatant, Visual>()
@@ -86,6 +102,7 @@ function attachVisual(c: Combatant): Visual {
     model: buildAircraft(c.aircraft.spec),
     position: new Vector3(),
     quaternion: new Quaternion(),
+    wrecked: false,
   }
   ctx.scene.add(v.model.group)
   visuals.set(c, v)
@@ -100,6 +117,25 @@ const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
+
+// 【擊墜表現：+4 個 draw call】火球、黑煙、噴濺、零件。殘骸接管既有的
+// AircraftModel，所以它 +0；水柱沿用 M7 的池子，也是 +0（M8 spec §11）
+const fireball = createFireball()
+ctx.scene.add(fireball.object)
+const smoke = createSmoke()
+ctx.scene.add(smoke.object)
+const spray = createSpray(WATER_COLOR)
+ctx.scene.add(spray.object)
+const debris = createDebris()
+ctx.scene.add(debris.object)
+const wrecks = createWrecks(world.combatants.length, (m) => {
+  ctx.scene.remove(m.group)
+  m.dispose()
+})
+
+/** combatant 索引 → 機身色。零件用它上色 —— `World` 不需要知道有塗裝這回事。 */
+const debrisColorOf = (index: number): number =>
+  bodyColorOf(world.combatants[index]!.aircraft.spec)
 
 // 【依 c.index 索引的內插姿態】直接持有 Visual 的 Vector3/Quaternion 參考，
 // 不複製 —— 每幀的內插迴圈寫進那些物件，這裡自然就是最新的。
@@ -245,6 +281,12 @@ function frame(now: number) {
     splashes.emit(world.splashEvents, ocean.heightAt, elapsed)
     clearImpacts(world.hitEvents)
     clearImpacts(world.splashEvents)
+    // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
+    // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
+    // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
+    emitFireball(fireball, world.killEvents)
+    debris.emit(world.killEvents, debrisColorOf)
+    clearKills(world.killEvents)
     perf.endPhysics()
   })
 
@@ -258,13 +300,30 @@ function frame(now: number) {
   propRotation += frameSeconds * (8 + input.throttle * 60)
   for (const c of world.combatants) {
     const v = visuals.get(c)!
-    // 退場的飛機直接消失。爆炸火焰與殘骸模型延後至後續里程碑（M5 spec §2）
-    v.model.group.visible = c.alive
-    if (!c.alive) continue
+    // 模型已經交給殘骸池，位置與旋轉從此由它寫
+    if (v.wrecked) continue
+
     v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
     v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
     v.model.group.position.copy(v.position)
     v.model.group.quaternion.copy(v.quaternion)
+
+    if (!c.alive) {
+      // 【殘骸的判準是「還有沒有人要用這個模型」，不是「這是不是玩家」】
+      // 玩家在上面幾行已經被 respawnPlayer 接回來，alive 於是又是 true ——
+      // 所以他不留殘骸而 AI 留。專案負責人已載明未來玩家陣亡會改成接手
+      // 僚機的飛機，那時他的 alive 會維持 false，這裡不用改一個字就會
+      // 自動留下殘骸（M8 spec §10）。
+      //
+      // 【為什麼先內插再接管】殘骸的起始姿態必須接在畫面上最後看到的位置。
+      // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
+      v.wrecked = true
+      const vel = c.aircraft.state.velocity
+      wrecks.adopt(v.model, c.aircraft.spec.hitBoxes, vel.x, vel.y, vel.z, c.index)
+      continue
+    }
+
+    v.model.group.visible = true
     v.model.setPropSpin(propRotation, c.command.throttle > 0.15)
   }
   const renderPos = visuals.get(player)!.position
@@ -288,7 +347,20 @@ function frame(now: number) {
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
   // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
   sparks.step(frameSeconds)
+  // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
+  // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
+  wrecks.step(frameSeconds, ocean.heightAt, elapsed)
+  debris.step(frameSeconds, ocean.heightAt, elapsed)
+  emitSmoke(smoke, wrecks.smokeEvents)
+  emitSmoke(smoke, debris.smokeEvents)
+  emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
+  emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
+  // 殘骸入水的那一圈水柱沿用 M7 的池子 —— 用數量換規模，splash.ts 不用改
+  splashes.emit(wrecks.splashEvents, ocean.heightAt, elapsed)
   splashes.step(frameSeconds)
+  fireball.step(frameSeconds)
+  smoke.step(frameSeconds)
+  spray.step(frameSeconds)
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
