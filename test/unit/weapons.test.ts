@@ -101,20 +101,44 @@ describe('mountDirection（匯聚幾何）', () => {
     }
   })
 
-  it('彈著散佈在 300 m 最密，太近與太遠都變差', () => {
-    expect(spreadAt(P51D_BATTERY, 300)).toBeLessThan(0.01)
-    expect(spreadAt(P51D_BATTERY, 100)).toBeGreaterThan(1.0)
-    expect(spreadAt(P51D_BATTERY, 500)).toBeGreaterThan(1.0)
-    expect(spreadAt(P51D_BATTERY, 750)).toBeGreaterThan(spreadAt(P51D_BATTERY, 500))
+  it('彈著散佈在匯聚點最密，太近與太遠都變差', () => {
+    // 【為什麼用 convergence 表示而不是寫死距離】原本這一條寫的是「300 m
+    // 最密」，而 M10 驗收時匯聚點被改成 1,000 m —— 於是它紅了。紅的原因
+    // 不是行為退化，是它把一個**設定值**寫成了斷言。這一條真正要守的是
+    // 「最密的地方就是匯聚點」，那與那個值是多少無關。
+    const c = P51D_BATTERY.convergence
+    expect(spreadAt(P51D_BATTERY, c)).toBeLessThan(0.01)
+    expect(spreadAt(P51D_BATTERY, c * 0.33)).toBeGreaterThan(1.0)
+    expect(spreadAt(P51D_BATTERY, c * 1.67)).toBeGreaterThan(1.0)
+    expect(spreadAt(P51D_BATTERY, c * 2.5))
+      .toBeGreaterThan(spreadAt(P51D_BATTERY, c * 1.67))
   })
 
-  it('109 的軸心武裝在遠距離的散佈遠小於 P-51 的翼槍', () => {
-    // 史實優勢從資料自然落出來：軸心武裝任何距離都不必修正匯聚。
-    // 用**相對關係**而不是絕對門檻——絕對值隨槍位微調而變，相對關係才是
-    // 這一條要守的東西（實測 750 m：109 為 0.30 m、P-51 為 3.10 m）。
-    expect(spreadAt(BF109G6_BATTERY, 750))
-      .toBeLessThan(spreadAt(P51D_BATTERY, 750) / 5)
-    expect(spreadAt(BF109G6_BATTERY, 750)).toBeLessThan(0.5)
+  it('109 的軸心武裝在纏鬥距離的散佈遠小於 P-51 的翼槍', () => {
+    // 史實優勢從資料自然落出來：軸心武裝不必修正匯聚。用**相對關係**而不是
+    // 絕對門檻 —— 絕對值隨槍位微調而變，相對關係才是這一條要守的東西。
+    //
+    // 【M10 起門檻由 750 m 換到纏鬥距離，而且那是一個真的設計改變】原本
+    // 兩者的匯聚點都是 300 m，750 m 上 109 為 0.30 m、P-51 為 3.10 m，
+    // 差 10 倍。專案負責人在 M10 驗收時把 P-51 外推到 1,000 m，於是 750 m
+    // 落進它的甜蜜點附近（0.52 m），差距縮到 1.7 倍 —— **這一條的舊說法
+    // 在新設定下就是假的**，不能靠調小 5 倍這個門檻讓它過去。
+    //
+    // 新設定下仍然成立、而且是同一件事的，是纏鬥距離：109 的槍在中軸線上，
+    // 200~300 m 幾乎不散；P-51 在那裡正好離匯聚點最遠，是它最散的時候。
+    for (const range of [200, 300]) {
+      expect(spreadAt(BF109G6_BATTERY, range))
+        .toBeLessThan(spreadAt(P51D_BATTERY, range) / 5)
+    }
+    expect(spreadAt(BF109G6_BATTERY, 300)).toBeLessThan(0.1)
+  })
+
+  it('1,000 m 附近 P-51 反而比 109 集中 —— 匯聚點外推換來的長處', () => {
+    // 【為什麼要有這一條】上面那一條守的是 109 的優勢，而外推匯聚點是拿
+    // 近戰換遠戰。沒有這一條，「換到了什麼」就沒有任何東西記著 ——
+    // 哪天有人把匯聚點調回去，只會看到一條測試變綠、不會知道少了什麼。
+    expect(spreadAt(P51D_BATTERY, P51D_BATTERY.convergence))
+      .toBeLessThan(spreadAt(BF109G6_BATTERY, P51D_BATTERY.convergence))
   })
 })
 
