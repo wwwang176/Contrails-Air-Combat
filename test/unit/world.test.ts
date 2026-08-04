@@ -4,6 +4,7 @@ import { World, FLASH_SECONDS } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import { clearImpacts } from '../../src/world/events'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 
@@ -505,5 +506,93 @@ describe('槍焰計時器（M7 spec §5.1）', () => {
     // 上界：MG 131 是 900 rpm = 66.7 ms 一發。工作週期必須明顯低於 1，
     // 不然讀起來是一盞常亮的燈而不是閃爍
     expect(FLASH_SECONDS / (60 / 900)).toBeLessThan(0.6)
+  })
+})
+
+describe('命中事件（M7 spec §2.2）', () => {
+  /** 一步走 887 × 0.02 = 17.7 m —— 足以讓線段從 −280 跨過 −300 的紅機。 */
+  const HIT_DT = 0.02
+
+  /** 藍 0 在原點朝 −Z；紅 1 在 −Z 方向 300 m 處。 */
+  function duel() {
+    const w = new World()
+    const blue = new Aircraft(P51D, 4000, 200)
+    blue.state.position.set(0, 4000, 0)
+    blue.prevPosition.copy(blue.state.position)
+    const red = new Aircraft(P51D, 4000, 200)
+    red.state.position.set(0, 4000, -300)
+    red.prevPosition.copy(red.state.position)
+    const b = w.add(blue, new Fixed(), 'blue', blue.state.position.clone(), 4000, 200)
+    const r = w.add(red, new Fixed(), 'red', red.state.position.clone(), 4000, 200)
+    return { w, b, r }
+  }
+
+  it('打中飛機時推一筆事件，命中點落在紅機附近', () => {
+    const { w, r } = duel()
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    expect(w.hitEvents.count).toBe(1)
+    const z = w.hitEvents.data[2]!
+    expect(z).toBeLessThan(-280)
+    expect(Math.abs(z - r.aircraft.state.position.z)).toBeLessThan(10)
+  })
+
+  it('法線是世界座標的單位向量', () => {
+    const { w } = duel()
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    const d = w.hitEvents.data
+    expect(Math.hypot(d[3]!, d[4]!, d[5]!)).toBeCloseTo(1, 5)
+  })
+
+  it('法線大致迎著彈丸 —— 從前方射來就朝 +Z', () => {
+    // 【為什麼只要求「大致」】命中盒是機體座標的 AABB，法線是盒面的法線，
+    // 不是機體外殼的真實曲面法線。要求的是「不會朝著彈丸飛去的方向」。
+    const { w } = duel()
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    // 彈丸往 −Z 飛，所以法線的 Z 分量必須為正（迎著它）
+    expect(w.hitEvents.data[5]!).toBeGreaterThan(0)
+  })
+
+  it('沒打中就沒有事件', () => {
+    const { w } = duel()
+    w.projectiles.spawn(500, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    expect(w.hitEvents.count).toBe(0)
+  })
+
+  it('一步之內多發命中就有多筆', () => {
+    const { w } = duel()
+    for (let i = 0; i < 3; i++) w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    expect(w.hitEvents.count).toBe(3)
+  })
+
+  it('事件不會跨步累積 —— 呼叫端排空之後就是乾淨的', () => {
+    const { w } = duel()
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    expect(w.hitEvents.count).toBe(1)
+    clearImpacts(w.hitEvents)
+    w.step(DT)
+    expect(w.hitEvents.count).toBe(0)
+  })
+
+  it('緩衝滿了不會越界，dropped 會計數', () => {
+    const { w } = duel()
+    for (let i = 0; i < w.hitEvents.capacity + 5; i++) {
+      w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 1, 0)
+    }
+    w.projectiles.step(HIT_DT)
+    w.resolveHits()
+    expect(w.hitEvents.count).toBe(w.hitEvents.capacity)
+    expect(w.hitEvents.dropped).toBeGreaterThan(0)
   })
 })

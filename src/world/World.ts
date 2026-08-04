@@ -7,6 +7,7 @@ import {
   PART_MULTIPLIER, type HitPart,
 } from './hit'
 import { Projectiles } from './Projectiles'
+import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import { CullIndex } from './cull'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -78,7 +79,9 @@ export type CrashPolicy = (c: Combatant) => boolean
 /** 預設政策：平海面。headless 測試與對戰矩陣用這一個。 */
 const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 
-const S = makeScratch(3)
+// 【第四個給命中法線用】resolveHits 的 s0/s1 佔了 v[0]、v[1]，fire 佔
+// v[0..2]，兩者不同時執行。v[3] 是 M7 新增的法線暫存。
+const S = makeScratch(4)
 
 /**
  * 槍焰的顯示時長，s。
@@ -115,6 +118,18 @@ export class World {
    * 飛的飛機（M5 spec §1.1）。
    */
   crashPolicy: CrashPolicy = SEA_LEVEL
+
+  /**
+   * 這一個物理步之內的命中事件。**呼叫端負責排空**（M7 spec §2.2）。
+   *
+   * 【為什麼是呼叫端排空而不是 World 自己在 step 開頭清】一幀可能跑好幾
+   * 個子步，而渲染層在子步回呼裡消費。`World` 自己清的話，能不能收到就
+   * 取決於清空與消費的先後順序 —— 那是一個看不出來的耦合。
+   *
+   * headless 測試不排空，於是它會填滿並開始丟棄。那沒有問題：`dropped`
+   * 是給**有排空**的整合測試斷言用的（見 `multi-battle.test.ts`）。
+   */
+  readonly hitEvents: ImpactEvents = createImpacts()
 
   private readonly hit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
@@ -320,6 +335,11 @@ export class World {
       let bestT = Infinity
       let victim: Combatant | null = null
       let part: HitPart = 'fuselage'
+      // 【法線要與 bestT 一起抄】this.hit 每次 hitAircraft 呼叫都被覆寫，
+      // 留到迴圈外再讀就會拿到「最後一個被測到的盒」而不是「最近的那一個」
+      let bestNx = 0
+      let bestNy = 0
+      let bestNz = 0
       const count = cull.count
       for (let j = cull.lowerBound(lo); j < count; j++) {
         const cx = cull.x[j]!
@@ -345,8 +365,29 @@ export class World {
         bestT = this.hit.t
         victim = c
         part = this.hit.part
+        bestNx = this.hit.nx
+        bestNy = this.hit.ny
+        bestNz = this.hit.nz
       }
       if (!victim) continue
+
+      // 【命中點與世界法線】命中點是線段上的 bestT；法線由機體座標轉世界
+      const n = S.v[3]!
+      if (bestNx !== 0 || bestNy !== 0 || bestNz !== 0) {
+        n.set(bestNx, bestNy, bestNz).applyQuaternion(victim.aircraft.state.orientation)
+      } else {
+        // 【起點就在盒內】沒有入射面（M7 spec §3.2）。迎面噴回去 ——
+        // 這是唯一一個「沒有正確答案」的情形，取一個不會出錯的方向。
+        n.set(ax - bx, ay - by, az - bz)
+        const len = n.length()
+        if (len > 1e-6) n.divideScalar(len)
+        else n.set(0, 1, 0)
+      }
+      pushImpact(
+        this.hitEvents,
+        ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
+        n.x, n.y, n.z,
+      )
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子
       // 會被打進機身的彈丸塞滿。
