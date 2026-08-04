@@ -4,7 +4,9 @@ import {
 } from 'three'
 import { coneDirection, hash01 } from './scatter'
 import { tumble } from './tumble'
-import { DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, smokePuffs, smokeTimer } from './smoke'
+import {
+  DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, DEBRIS_SMOKE_SECONDS, smokePuffs, smokeTimer,
+} from './smoke'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HeightField } from '../aircraft/crash'
@@ -67,8 +69,18 @@ export const DEBRIS_DRAG = 0.4
 /** 三軸角速度的上限，rad/s。±180°/s。 */
 export const DEBRIS_SPIN = Math.PI
 
-/** 壽命上限，s。海面網格只有 10 km 見方，飄出去的零件永遠不會入水。 */
-export const DEBRIS_MAX_LIFE = 40
+/**
+ * 壽命上限，s。
+ *
+ * 【由 40 縮到 5】專案負責人裁決「出現 5 秒後就移除零件」。40 s 原本是為了
+ * 讓零件盡量掉到海裡才退場，但一片 0.4 m 的方塊在幾百公尺外只有一兩個
+ * 像素 —— 讓它飛四十秒換不到任何觀感，只是讓池子裡永遠有東西。
+ *
+ * 【代價：高空擊墜的零件不會濺水】阻尼終端速度 24.5 m/s，5 s 大約掉 90 m。
+ * 也就是說只有在低空被打下來的零件才來得及碰到海面推噴濺事件；高空的那些
+ * 會在空中直接消失。入水的判定與噴濺照舊，只是觸發得少了。
+ */
+export const DEBRIS_MAX_LIFE = 5
 
 /** 池子大小。40 架 × 36 片 = 1,440。三角形 1,440 × 12 ≈ 17,000。 */
 export const DEBRIS_CAPACITY = 40 * DEBRIS_COUNT
@@ -263,7 +275,9 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         }
 
         live++
-        if (smokes[i] === 1) {
+        // 【煙比零件早收】煙帶要先由頭端稀疏下去，不能與零件同時整條消失
+        // —— 見 `DEBRIS_SMOKE_SECONDS`
+        if (smokes[i] === 1 && na < DEBRIS_SMOKE_SECONDS) {
           const t = timer[i]!
           const puffs = smokePuffs(t, dt, DEBRIS_SMOKE_INTERVAL)
           timer[i] = smokeTimer(t, dt, DEBRIS_SMOKE_INTERVAL)

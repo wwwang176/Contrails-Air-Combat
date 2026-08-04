@@ -3,6 +3,7 @@ import {
   Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Vector3,
   type Blending,
 } from 'three'
+import { hash01 } from './scatter'
 
 export interface ParticleConfig {
   capacity: number
@@ -20,6 +21,14 @@ export interface ParticleConfig {
   drag: number
   /** 出生時的不透明度，線性淡到 0 */
   alphaFrom: number
+  /**
+   * 壽命的隨機幅度，比例。0.25 就是 0.75×~1.25×。省略等於不抖動。
+   *
+   * 【為什麼要有它】同一批煙用同一個壽命的話，整批會**同時**淡到不見 ——
+   * 煙帶的尾端讀起來是一條被切齊的線而不是散開。抖動壽命讓每一團各自
+   * 散掉，這是專案負責人在試驗場上要求的。
+   */
+  lifeJitter?: number
   /**
    * 顏色曲線。`t` 是年齡佔壽命的比例（0..1）。
    *
@@ -47,6 +56,20 @@ export interface Particles {
   /** 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number): void
   dispose(): void
+}
+
+/**
+ * 這一格這一次的壽命，s。
+ *
+ * 【為什麼用格子索引當種子而不是 `Math.random`】與這個專案其他所有隨機
+ * 一樣：純函數才測得起來，而且重播可重現（見 `scatter.ts` 的 `hash01`）。
+ * 環形緩衝繞一圈後同一格會拿到同一個倍率，但那是 6,144 個值之後的事，
+ * 而且相鄰的格子拿到的是雜湊值、彼此無關 —— 同一批發射出去的煙壽命各異，
+ * 那正是要的效果。
+ */
+export function particleLife(life: number, jitter: number, slot: number): number {
+  if (jitter <= 0) return life
+  return life * (1 + (hash01(slot) * 2 - 1) * jitter)
 }
 
 /** 年齡 → 直徑。線性膨脹；壽命之外是 0。 */
@@ -148,8 +171,18 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const vx = new Float32Array(capacity)
   const vy = new Float32Array(capacity)
   const vz = new Float32Array(capacity)
-  // 【起始壽命設滿】等於「一出生就是死的」，不必另外一個 alive 陣列
-  const age = new Float32Array(capacity).fill(life)
+  const jitter = cfg.lifeJitter ?? 0
+  /**
+   * 【起始年齡設無限大】等於「一出生就是死的」，不必另外一個 alive 陣列。
+   *
+   * 【為什麼是 Infinity 而不是 `life`】每一格的壽命現在各不相同，死亡的
+   * 判準是 `age >= lifeOf[i]`。填一個具體的值就得保證它大於任何可能的
+   * `lifeOf` —— 而 float32 的來回轉換可以讓一個和存成比它自己還小的值
+   * （`splash.ts` 就踩過這個坑）。Infinity 沒有這個問題。
+   */
+  const age = new Float32Array(capacity).fill(Infinity)
+  /** 這一格這一次的壽命。抖動關掉時每一格都是 `cfg.life`。 */
+  const lifeOf = new Float32Array(capacity).fill(life)
   const sizeMul = new Float32Array(capacity).fill(1)
   /**
    * 這一格的矩陣是不是已經被歸零了。
@@ -197,7 +230,10 @@ export function createParticles(cfg: ParticleConfig): Particles {
       next = next + 1 >= capacity ? 0 : next + 1
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
       // 則會在最該看到爆炸的時候整批不見。與 sparks.ts 同一個取捨。
-      if (age[i]! >= life) live++
+      // 【先用舊壽命判生死，再寫新的】反過來的話，覆蓋一格活著的粒子時
+      // 有機會被新壽命誤判成「原本是死的」而重複計數
+      if (age[i]! >= lifeOf[i]!) live++
+      lifeOf[i] = particleLife(life, jitter, i)
       zeroed[i] = 0
       px[i] = x
       py[i] = y
@@ -216,7 +252,8 @@ export function createParticles(cfg: ParticleConfig): Particles {
       let touched = false
       for (let i = 0; i < capacity; i++) {
         const old = age[i]!
-        if (old >= life) {
+        const lf = lifeOf[i]!
+        if (old >= lf) {
           // 【已經歸零的死格子直接跳過】把 0 重複寫成 0 是這個迴圈原本
           // 九成的工作量
           if (zeroed[i] === 1) continue
@@ -230,7 +267,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
         }
         const na = old + dt
         age[i] = na
-        if (na >= life) {
+        if (na >= lf) {
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
           object.setColorAt(i, TINT.setRGB(0, 0, 0))
@@ -255,7 +292,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
         py[i] = ny
         pz[i] = nz
 
-        const s = particleSize(na, life, cfg.sizeFrom, cfg.sizeTo) * sizeMul[i]!
+        const s = particleSize(na, lf, cfg.sizeFrom, cfg.sizeTo) * sizeMul[i]!
         POS.set(nx, ny, nz)
         // 【不寫旋轉】朝向由著色器在視圖空間決定；寫進矩陣會讓著色器取到的
         // length(instanceMatrix[0].xyz) 不再是直徑。
@@ -263,9 +300,11 @@ export function createParticles(cfg: ParticleConfig): Particles {
         M.compose(POS, ROT.identity(), SCALE)
         object.setMatrixAt(i, M)
 
-        cfg.color(na / life, TINT)
+        // 【顏色與 alpha 走各自的壽命比例】長命的那幾團淡得慢，那才是
+        // 「壽命不同」在畫面上的意思
+        cfg.color(na / lf, TINT)
         object.setColorAt(i, TINT)
-        a[i] = particleAlpha(na, life, cfg.alphaFrom)
+        a[i] = particleAlpha(na, lf, cfg.alphaFrom)
       }
       // 【沒有任何格子被動到就不必上傳】整池全死時省下一次完整的
       // buffer 上傳
