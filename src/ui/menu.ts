@@ -11,6 +11,13 @@ export interface MenuHooks {
   onSetup(setup: SkirmishSetup): void
   /** 暫停選單的「繼續」 */
   onResume(): void
+  /**
+   * 暫停選單的「重新開始」。
+   *
+   * 【為什麼不是一個 `ScreenEvent`】它不換畫面 —— 打完之後還是留在戰鬥裡。
+   * 與 `onResume` 同一類：overlay 上的動作，不是畫面之間的轉移。
+   */
+  onRestart(): void
 }
 
 export interface Menu {
@@ -73,7 +80,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (!el || el.disabled) return
     const act = el.dataset['act']
     if (act === undefined) return
+    // 【這兩個不換畫面】所以它們不走狀態機
     if (act === 'resume') { hooks.onResume(); return }
+    if (act === 'restart') { hooks.onRestart(); return }
     hooks.onEvent(act as ScreenEvent)
   })
 
