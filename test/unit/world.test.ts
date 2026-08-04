@@ -687,3 +687,34 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
     expect(SEA_KILL_Y).toBeLessThan(SEA_SURFACE_Y)
   })
 })
+
+describe('擊墜歸屬（M9 spec §4）', () => {
+  it('被打爆時，事件帶著兇手的座位索引', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    w.applyDamage(b, 99999, 'fuselage', a)
+    expect(w.killEvents.count).toBe(1)
+    expect(w.killEvents.data[6]).toBe(b.index)
+    expect(w.killEvents.data[7]).toBe(a.index)
+  })
+
+  it('兇手是第 0 座位時也記得住', () => {
+    // 【為什麼特別測 0】`killer ? killer.index : -1` 這種寫法在索引為 0 時
+    // 會把真正的兇手寫成 −1。要判斷的是「有沒有射手」，不是索引的真假值。
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    expect(a.index).toBe(0)
+    w.applyDamage(b, 99999, 'fuselage', a)
+    expect(w.killEvents.data[7]).toBe(0)
+  })
+
+  it('撞海不算任何人的擊墜 —— 兇手欄是 −1', () => {
+    const w = new World()
+    const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
+    w.destroy(a)
+    expect(w.killEvents.count).toBe(1)
+    expect(w.killEvents.data[7]).toBe(-1)
+  })
+})

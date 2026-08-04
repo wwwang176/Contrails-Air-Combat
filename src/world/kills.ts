@@ -10,12 +10,16 @@
  * 【為什麼與 `ImpactEvents` 分開】那個型別是 `x,y,z,nx,ny,nz`；擊墜要帶
  * **速度**與**是誰**（火球要繼承母機速度、零件要取機種的機身色）。硬塞進
  * 六個 float 會逼消費者去猜哪三個是法線哪三個是速度。
+ *
+ * 【M9 加到 8】第 8 欄是兇手的座位索引。擊墜歸屬需要「誰打死的」，而
+ * 「誰死了」這件事已經有一個緩衝在傳 —— 再開一個平行的緩衝就是兩份要
+ * 同步的真相（M9 spec §4.2）。
  */
-export const KILL_STRIDE = 7
+export const KILL_STRIDE = 8
 
 export interface KillEvents {
   readonly capacity: number
-  /** 每筆 `KILL_STRIDE` 個 float：x, y, z, vx, vy, vz, combatant 索引 */
+  /** 每筆 `KILL_STRIDE` 個 float：x, y, z, vx, vy, vz, combatant 索引, 兇手索引（−1 = 無） */
   readonly data: Float32Array
   /** 這一個子步累積了幾筆。`clearKills` 歸零 */
   count: number
@@ -40,12 +44,19 @@ export function createKills(capacity: number): KillEvents {
   }
 }
 
-/** 追加一筆。滿了就丟棄並計數。熱路徑：不配置。 */
+/**
+ * 追加一筆。滿了就丟棄並計數。熱路徑：不配置。
+ *
+ * 【為什麼 `killer` 是預設參數而不是必填】渲染層的測試（零件、火球、煙）
+ * 裡有數十處只傳七個引數，那些測試關心的不是兇手。預設值讓它們原封不動
+ * 繼續成立。
+ */
 export function pushKill(
   e: KillEvents,
   x: number, y: number, z: number,
   vx: number, vy: number, vz: number,
   index: number,
+  killer = -1,
 ): void {
   if (e.count >= e.capacity) {
     e.dropped++
@@ -60,6 +71,7 @@ export function pushKill(
   d[o + 4] = vy
   d[o + 5] = vz
   d[o + 6] = index
+  d[o + 7] = killer
   e.count++
 }
 
