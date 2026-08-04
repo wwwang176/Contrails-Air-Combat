@@ -9,6 +9,7 @@ import {
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import { createKills, pushKill, type KillEvents } from './kills'
+import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -181,6 +182,15 @@ export class World {
    * 每幀重新讀屬性，不快取。
    */
   killEvents: KillEvents = createKills(0)
+
+  /**
+   * 這一個物理步的受擊事件。與 `hitEvents` 一樣由**呼叫端**排空。
+   *
+   * 【為什麼對每一架都推，而不是只推玩家的】`World` 不知道誰是玩家，這一版
+   * 也不該讓它知道。一次 push 是四個 float，`main.ts` 自己過濾
+   * （受擊方向指示器 spec §3.1）。
+   */
+  readonly damageEvents: DamageEvents = createDamageEvents()
 
   /**
    * 世界時鐘，s。每個 `step` 開頭累加。
@@ -498,6 +508,17 @@ export class World {
         ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
         n.x, n.y, n.z,
       )
+
+      // 【方向取彈丸速度的反向，不是射手的位置】887 m/s 飛 500 m 要 0.56 秒
+      // —— 指射手**現在**的位置，指的是一個玩家沒看到過的東西；而射手可能
+      // 已經死了。「子彈從那裡來」正是玩家在畫面上看到的曳光彈方向
+      // （受擊方向指示器 spec §3.2）。
+      const vx = p.vx[i]!, vy = p.vy[i]!, vz = p.vz[i]!
+      const vs = Math.hypot(vx, vy, vz)
+      // 靜止的彈丸不存在，但除以 0 會把 NaN 一路餵進 HUD —— 擋在源頭
+      if (vs > 1e-6) {
+        pushDamage(this.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs)
+      }
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子
       // 會被打進機身的彈丸塞滿。
