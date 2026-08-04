@@ -12,6 +12,7 @@ export default defineConfig({
         hangar: 'hangar.html',
         range: 'range.html',
         propdisc: 'propdisc.html',
+        damageedge: 'damageedge.html',
       },
     },
   },
