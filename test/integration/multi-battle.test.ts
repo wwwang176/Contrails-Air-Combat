@@ -9,6 +9,7 @@ import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
 import { THREAT_RANGE } from '../../src/ai/assess'
 import { clearImpacts } from '../../src/world/events'
 import { clearKills, KILL_STRIDE } from '../../src/world/kills'
+import { clearDamage } from '../../src/world/damage'
 import type { Combatant, Team } from '../../src/world/World'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -145,6 +146,8 @@ interface Observed {
   killEventCount: number
   /** 擊墜緩衝累計丟棄了幾筆。門檻：恆為 0 —— 容量是參戰架數，結構上不該溢位 */
   killsDropped: number
+  /** 受擊事件緩衝累計丟棄了幾筆。門檻：恆為 0 */
+  damageDropped: number
   /** 巡航階段（兩隊重心仍相距 > THREAT_RANGE）各僚機的站位誤差樣本，m */
   cruiseStationErrors: number[]
   /** 完整歸隊的次數：離站超過 breakExit 之後回到門檻內 */
@@ -187,7 +190,7 @@ function observe(): Observed {
     blueLost: 0, redLost: 0, wipes: 0,
     blueDamage: 0, redDamage: 0,
     hitEventCount: 0, splashEventCount: 0, eventsDropped: 0,
-    killEventCount: 0, killsDropped: 0,
+    killEventCount: 0, killsDropped: 0, damageDropped: 0,
     cruiseStationErrors: [], rejoins: 0, replacements: 0,
   }
 
@@ -225,6 +228,7 @@ function observe(): Observed {
     clearImpacts(b.world.splashEvents)
     o.killEventCount += b.world.killEvents.count
     clearKills(b.world.killEvents)
+    clearDamage(b.world.damageEvents)
 
     const nowBlue = aliveCount(b.blue)
     const nowRed = aliveCount(b.red)
@@ -317,6 +321,7 @@ function observe(): Observed {
   }
   o.eventsDropped = b.world.hitEvents.dropped + b.world.splashEvents.dropped
   o.killsDropped = b.world.killEvents.dropped
+  o.damageDropped = b.world.damageEvents.dropped
   return o
 }
 
@@ -435,6 +440,12 @@ describe('20v20 跑滿 150 秒', () => {
     expect(o.killsDropped).toBe(0)
   })
 
+  it('受擊事件緩衝從未溢位（受擊方向指示器 spec §8）', () => {
+    // 容量與 hitEvents 同一個 64 —— 每次命中各推一筆，數量必然相同。
+    // 這一條守的就是那個「必然」。
+    expect(o.damageDropped).toBe(0)
+  })
+
   it('觀測值（不是門檻，供回填與日後比對）', () => {
     // 【中位數只能算一次】寫成 `filter((x) => x >= median(xs))` 的話，
     // median 會被逐元素呼叫 —— 36,000 個樣本就是 36,000 次 O(n log n) 排序，
@@ -484,6 +495,7 @@ function drainEvents(b: Battle): void {
   clearKills(b.world.killEvents)
   clearImpacts(b.world.hitEvents)
   clearImpacts(b.world.splashEvents)
+  clearDamage(b.world.damageEvents)
 }
 
 describe('戰績的守恆律（M9 spec §11）', () => {
