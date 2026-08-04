@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { World, FLASH_SECONDS } from '../../src/world/World'
+import { World, FLASH_SECONDS, SEA_KILL_Y, SEA_SURFACE_Y } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { clearImpacts } from '../../src/world/events'
+import { boundingRadius } from '../../src/world/hit'
+import { CRASH_CLEARANCE } from '../../src/aircraft/crash'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 
@@ -594,5 +596,94 @@ describe('命中事件（M7 spec §2.2）', () => {
     w.resolveHits()
     expect(w.hitEvents.count).toBe(w.hitEvents.capacity)
     expect(w.hitEvents.dropped).toBeGreaterThan(0)
+  })
+})
+
+describe('入海回收與水柱事件（M7 spec §4）', () => {
+  /** 只有一架飛機的空世界，用來單獨觀察彈丸。 */
+  function empty() {
+    const w = new World()
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.prevPosition.copy(a.state.position)
+    w.add(a, new Fixed(), 'blue', a.state.position.clone(), 4000, 200)
+    return w
+  }
+
+  it('線段跨過水面時推一筆水柱事件，交點內插正確', () => {
+    const w = empty()
+    // 從 y = 10 往下走一步到 y = −10：交點在中間，t = 10/20 = 0.5
+    const i = w.projectiles.spawn(100, 10, 200, 20, -20, 40, 10, 0)
+    w.projectiles.step(1)
+    expect(w.projectiles.y[i]).toBeCloseTo(-10, 6)
+    w.resolveHits()
+    expect(w.splashEvents.count).toBe(1)
+    const d = w.splashEvents.data
+    expect(d[0]).toBeCloseTo(110, 4)   // x: 100 + 0.5 × 20
+    expect(d[1]).toBeCloseTo(0, 6)     // y: 水面
+    expect(d[2]).toBeCloseTo(220, 4)   // z: 200 + 0.5 × 40
+  })
+
+  it('水柱的法線朝上 —— 它就是「法線朝上的撞擊」', () => {
+    const w = empty()
+    w.projectiles.spawn(0, 10, 0, 0, -20, 0, 10, 0)
+    w.projectiles.step(1)
+    w.resolveHits()
+    const d = w.splashEvents.data
+    expect([d[3], d[4], d[5]]).toEqual([0, 1, 0])
+  })
+
+  it('一發彈丸只噴一根柱子', () => {
+    // 【為什麼會噴兩根】判準若寫成「y <= 0」而不是「跨過 0」，彈丸在
+    // 水面下的每一步都會再推一筆，一發變成一串。
+    const w = empty()
+    w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0)
+    for (let n = 0; n < 5; n++) {
+      w.projectiles.step(1 / 240)
+      w.resolveHits()
+    }
+    expect(w.splashEvents.count).toBe(1)
+  })
+
+  it('低於 SEA_KILL_Y 才回收，不是一入水就回收', () => {
+    const w = empty()
+    const i = w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0)
+    // 一步走 −100/240 ≈ −0.42 m。走到 y ≈ −1 時仍該活著
+    for (let n = 0; n < 5; n++) {
+      w.projectiles.step(1 / 240)
+      w.resolveHits()
+    }
+    expect(w.projectiles.y[i]!).toBeLessThan(0)
+    expect(w.projectiles.y[i]!).toBeGreaterThan(SEA_KILL_Y)
+    expect(w.projectiles.owner[i]).toBe(0)
+
+    // 繼續走到 SEA_KILL_Y 以下
+    for (let n = 0; n < 60; n++) {
+      w.projectiles.step(1 / 240)
+      w.resolveHits()
+    }
+    expect(w.projectiles.owner[i]).toBe(-1)
+  })
+
+  it('往上飛的彈丸不會誤判', () => {
+    const w = empty()
+    w.projectiles.spawn(0, 1, 0, 0, 100, 0, 10, 0)
+    w.projectiles.step(1 / 240)
+    w.resolveHits()
+    expect(w.splashEvents.count).toBe(0)
+  })
+
+  it('SEA_KILL_Y 低於任何存活飛機的命中盒可能到達的最低點', () => {
+    // 【這是 §4.3 的證明本身，不是它的一個抽樣】
+    // 存活 ⟹ 原點 > 浪谷 + CRASH_CLEARANCE。取保守的浪谷 −5 m、
+    // CRASH_CLEARANCE = 2 → 原點 > −3。命中盒最遠伸到原點下方一個包圍半徑。
+    const worstOrigin = -5 + CRASH_CLEARANCE
+    const maxR = Math.max(boundingRadius(P51D.hitBoxes), boundingRadius(BF109G6.hitBoxes))
+    expect(SEA_KILL_Y).toBeLessThanOrEqual(worstOrigin - maxR)
+  })
+
+  it('SEA_SURFACE_Y 與 SEA_KILL_Y 是兩個不同的高度', () => {
+    expect(SEA_SURFACE_Y).toBe(0)
+    expect(SEA_KILL_Y).toBeLessThan(SEA_SURFACE_Y)
   })
 })
