@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>螺旋槳圓盤遮擋比較 — Grok Aircraft</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 292px; padding: 12px 14px;
+        background: rgba(10,18,26,0.86); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      #panel h2 {
+        margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; font-weight: 400;
+        color: #6f8ba5; border-top: 1px solid #2b3f52; padding-top: 9px;
+      }
+      .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      .row label { flex: 0 0 66px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row .val { flex: 0 0 62px; text-align: right; color: #e6f0f8; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 5px 9px; cursor: pointer; text-align: left;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; color: #eaf4ff; }
+      #modes { display: flex; flex-direction: column; gap: 5px; }
+      #modes button b { font-weight: 700; }
+      #modes button span { color: #7e97ad; font-size: 11px; }
+      #modes button.on span { color: #b8d4ea; }
+      #note { margin-top: 9px; color: #8ea6bb; white-space: pre-wrap; min-height: 56px; }
+      #stats { margin-top: 10px; padding-top: 9px; border-top: 1px solid #2b3f52;
+        color: #8ea6bb; white-space: pre; }
+      #stats b { color: #e6b06a; font-weight: 400; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>螺旋槳圓盤遮擋比較</h1>
+      <div id="modes">
+        <button id="m0" class="on"><b>現況</b>　transparent + depthWrite<br /><span>22% 的圓盤會把後面的曳光彈整條吃掉</span></button>
+        <button id="m1"><b>A′</b>　depthWrite:false + renderOrder<br /><span>混合，圓盤永遠最後畫</span></button>
+        <button id="m2"><b>C</b>　圖案挖空（不透明流程）<br /><span>深度永遠正確，但會頻閃</span></button>
+      </div>
+      <div id="note"></div>
+
+      <h2>觀察條件</h2>
+      <div class="row">
+        <label>槳速</label>
+        <input type="range" id="rpm" min="0" max="68" step="1" value="8" />
+        <span class="val" id="rpmV">8 rad/s</span>
+      </div>
+      <div class="row">
+        <label>慢動作</label>
+        <input type="range" id="slow" min="0.02" max="0.4" step="0.01" value="0.08" />
+        <span class="val" id="slowV">0.08×</span>
+      </div>
+      <div class="row">
+        <label>離原點</label>
+        <input type="range" id="off" min="0" max="2000" step="25" value="0" />
+        <span class="val" id="offV">0 m</span>
+      </div>
+      <div class="row">
+        <button id="pause" style="flex:1">暫停（空白鍵）</button>
+      </div>
+      <div id="stats"></div>
+    </div>
+    <div id="hint">左鍵拖曳旋轉　滾輪縮放　右鍵平移　　1/2/3 切換模式</div>
+    <script type="module" src="/src/tools/propdisc.ts"></script>
+  </body>
+</html>
