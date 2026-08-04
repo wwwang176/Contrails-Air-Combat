@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
-import { createMuzzles, MUZZLE_LENGTH, MUZZLE_RADIUS } from '../../src/render/muzzle'
+import { createMuzzles, MUZZLE_HALF_WIDTH, MUZZLE_LENGTH } from '../../src/render/muzzle'
 import { World, FLASH_SECONDS, type Combatant } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
@@ -163,23 +163,45 @@ describe('槍焰的位置與朝向', () => {
     m.dispose()
   })
 
-  it('幾何是有方向的錐，不是廣告板', () => {
-    // 頭端（+Z）細、底端粗：從側面看是一條噴出來的火舌
+  it('幾何是十字：兩片互相垂直、都包含槍管軸', () => {
+    // 【為什麼十字而不是廣告板或錐】廣告板從正側面看會是一個圓片；
+    // 錐的寬度受限於半徑（0.12 m 在第三人稱距離只有 8 px，人工驗收的
+    // 回饋是「太小」）。十字正面看是十字閃、側面看是火舌，**沒有任何
+    // 角度會退化成一個圓片或一條線**。
     const m = createMuzzles(1)
     const pos = m.object.geometry.getAttribute('position')
-    let zMax = -Infinity
+
+    // 每個頂點都落在 x = 0 或 y = 0 的平面上 —— 那就是「兩片互相垂直」
+    for (let i = 0; i < pos.count; i++) {
+      const onXZ = Math.abs(pos.getY(i)) < 1e-9
+      const onYZ = Math.abs(pos.getX(i)) < 1e-9
+      expect(onXZ || onYZ).toBe(true)
+    }
+
+    // 根部貼在槍口（z = 0），沿 +Z 伸出 MUZZLE_LENGTH
     let zMin = Infinity
-    let headR = 0
-    let tailR = 0
+    let zMax = -Infinity
+    let rootHalf = 0
+    let tipHalf = Infinity
     for (let i = 0; i < pos.count; i++) {
       const z = pos.getZ(i)
-      const r = Math.hypot(pos.getX(i), pos.getY(i))
-      if (z > zMax) { zMax = z; headR = r }
-      if (z < zMin) { zMin = z; tailR = r }
+      const half = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getY(i)))
+      zMin = Math.min(zMin, z)
+      zMax = Math.max(zMax, z)
+      if (z < 1e-9) rootHalf = Math.max(rootHalf, half)
+      else tipHalf = Math.min(tipHalf, half)
     }
-    expect(zMax - zMin).toBeCloseTo(MUZZLE_LENGTH, 5)
-    expect(tailR).toBeCloseTo(MUZZLE_RADIUS, 5)
-    expect(headR).toBeLessThan(tailR)
+    expect(zMin).toBeCloseTo(0, 9)
+    expect(zMax).toBeCloseTo(MUZZLE_LENGTH, 5)
+    expect(rootHalf).toBeCloseTo(MUZZLE_HALF_WIDTH, 5)
+    // 尖端收窄 —— 讀得出方向，而且像火舌不像木板
+    expect(tipHalf).toBeGreaterThan(0)
+    expect(tipHalf).toBeLessThan(rootHalf)
     m.dispose()
+  })
+
+  it('十字的跨度明顯大於長度的十分之一 —— 「太小」的成因是寬度', () => {
+    // 人工驗收的回饋：0.12 m 半徑的錐讀起來像一根細針。跨度 2 × 半寬
+    expect(2 * MUZZLE_HALF_WIDTH).toBeGreaterThan(MUZZLE_LENGTH * 0.5)
   })
 })
