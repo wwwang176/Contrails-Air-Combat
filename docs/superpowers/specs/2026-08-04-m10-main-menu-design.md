@@ -20,7 +20,7 @@ M9 已經把介面備好了：`Battle.outcome`、`src/ui/scoreboard.ts` 的渲�
 | 項目 | 為什麼 |
 |---|---|
 | 任務模式的任何實際內容 | 任務卡全部 disabled。轟炸機、地面目標、集合點都不存在 |
-| 地形選擇 | 只有海。`prompt.md` 的「設定地形」等到有山丘再說 |
+| 地形**選單** | 只有一種地形，設定頁上不放這一欄。但**地形本身做成可拆可換**（§5.2）—— `prompt.md` 已經預告山丘 |
 | 機型卡的第二個選項 | 每個陣營目前就一台。卡片照畫，M11 補機種時自動變好用（§7.2） |
 | 音效 | 一直都在延後名單上 |
 | 轉場動畫 | 選單是疊在 3D 場景上的 DOM，切換就是顯示／隱藏 |
@@ -82,36 +82,70 @@ export function nextScreen(current: Screen, event: ScreenEvent): Screen
 
 ## 5. 生命週期：什麼永遠不拆
 
-### 5.1 永不拆
+### 5.1 基礎設施：永不拆，而且**地形換了也不必拆**
 
-renderer、scene、ocean、props、相機、HUD 畫布與 `Hud`、輸入繫結、rAF 迴圈，**以及全部特效池**。
+renderer、相機、`THREE.Scene` 這個容器、HUD 畫布與 `Hud`、輸入繫結、rAF 迴圈，**以及全部特效池**。
 
-【為什麼】這些東西沒有一個有拆除路徑：`createScene`（`scene.ts:46`）與 `Hud`（`Hud.ts:22`）各掛了一個 `resize` 監聽器而**兩者都沒有移除的方法**，`createOcean` 與 `createProps` 沒有 `dispose`。要支援「拆掉再建」就得先把這些補齊 —— 而那是為了一件不必發生的事付的錢。不拆就不必發明。
+【為什麼】這些東西沒有一個有拆除路徑：`createScene`（`scene.ts:46`）與 `Hud`（`Hud.ts:22`）各掛了一個 `resize` 監聽器而**兩者都沒有移除的方法**。
 
-而且 landing 的背景**就是這個場景本身**（專案負責人裁決），所以它本來就必須一直活著。
+但關鍵是：**它們也不需要有。** 沒有拆除路徑的那幾樣（渲染器、相機、視窗縮放）恰好是**地形永遠不會改變的部分** —— 換成山丘不會換掉渲染器。會隨地形改變的是海面與參照物，而那兩個**完全沒有監聽器**，各只有一個 mesh，釋放就是 `geometry.dispose()` 加 `material.dispose()`。
+
+【原稿在這裡是錯的】初稿把「3D 場景」當成一整塊、結論是全部不拆。專案負責人指出未來會有其他地形（`prompt.md` 已經預告山丘），而拆開來看之後，**要拆的與拆不動的根本不是同一批東西**。
 
 **特效池一律開在上限。** `createMuzzles(n)` 與 `createWrecks(n, cb)` 目前吃參戰架數，改成吃 `MAX_COMBATANTS = 40`（每隊上限 20）。其餘的池子本來就是固定容量。
 
 【為什麼不隨架數縮放】2v2 時多配 36 個槽位的代價是幾 KB 與一次性的實例矩陣配置；換來的是「換一場不必重建任何 GPU 資源」。M8 已經做過「死槽位不寫矩陣」的最佳化（`zeroed` 旗標），所以每幀的成本跟著**存活數**走而不是容量。
 
-### 5.2 每場重建
+### 5.2 地形是一個可拆可換的單元
+
+```ts
+// src/render/terrain.ts
+export type TerrainKind = 'sea'
+
+export interface Terrain {
+  /** 加進場景的那個節點。換地形時整個移除 */
+  readonly object: Object3D
+  /** 地形高度場。撞地判定、水柱、殘骸入水都讀它 */
+  heightAt(x: number, z: number, time: number): number
+  /** 每幀更新。海浪要動；靜態地形是空操作 */
+  update(time: number, centerX: number, centerZ: number): void
+  dispose(): void
+}
+
+export function createTerrain(kind: TerrainKind): Terrain
+```
+
+海面（`createOcean`）與參照物（`createProps`）包成 `'sea'` 這一個實作，兩者各補一個 `dispose()`。
+
+**`main.ts` 用 `let terrain` 持有，所有存取一律經過它** —— `world.crashPolicy`、水柱的 `heightAt`、殘骸與零件的入水判定、每幀的 `update`。這一條是換地形唯一真正的風險：任何一處把 `ocean.heightAt` 抓進閉包快取起來，換地形之後那一處就還在讀舊的高度場，而症狀（飛機撞到看不見的海面）離成因非常遠。
+
+### 5.3 每場重建
 
 - `Battle` 整個 —— `World`、`Combatant[]`、`TargetBoard`、`FlightIndex`、`Roster`
 - 40 架的飛機模型（`main.ts` 的 `visuals`）
+- **地形** —— 即使種類沒變也重建
 
-### 5.3 換場要多久：量過了
+【為什麼種類沒變也重建】M10 只有一種地形，所以「只在種類改變時才換」等於一條**永遠不會執行的路徑**，而那種路徑會在 M11 第一次用到它的時候壞掉。無條件重建讓「換一場 = 重建世界、模型、地形」是一條沒有分支的規則，每一場都走過。代價量過了：13.4 ms（§5.4）。
+
+【shader 不會重編】`createOcean` 用 `onBeforeCompile` 注入頂點位移。新的 material 每次注入的字串完全相同，three.js 的程式快取因此命中同一支已編譯的程式。**但如果哪天海面 shader 長出變體，就必須同時實作 `customProgramCacheKey()`** —— 否則兩個不同的變體會共用同一把快取鑰匙，畫出來的是先編譯的那一支。
+
+### 5.4 換場要多久：量過了
 
 | 動作 | 實測 |
 |---|---|
 | 建 20 架 P-51D | 60.7 ms（每架 3.04 ms） |
 | 建 20 架 Bf 109 G-6 | 50.5 ms（每架 2.52 ms） |
 | 釋放 40 架 | 0.2 ms |
+| 建海面（37,249 個頂點） | 12.3 ms |
+| 建 600 個參照物 | 1.1 ms |
 
-**合計約 111 ms** —— 一格長幀，不是載入畫面。所以「開始戰鬥」直接切，**M10 不需要 loading 狀態**。
+**合計約 125 ms** —— 一格長幀，不是載入畫面。所以「開始戰鬥」直接切，**M10 不需要 loading 狀態**。
 
-（量測在 node 環境，不含 GPU 的緩衝上傳；但現在的頁面本來就在載入時建 40 架，實際上感覺不到。）
+地形只佔 11%，這是「種類沒變也重建」付得起的原因。
 
-### 5.4 每場要歸零的池 —— 這是最容易漏的一段
+（量測在 node 環境，不含 GPU 的緩衝上傳；但現在的頁面本來就在載入時建這一整套，實際上感覺不到。）
+
+### 5.5 每場要歸零的池 —— 這是最容易漏的一段
 
 **目前沒有任何一個特效池能歸零。** 全部只有 `dispose()`，而 `Projectiles.clear()` 是唯一的例外。
 
@@ -339,6 +373,7 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 | `src/ui/missions.ts` | 兩組任務卡的常數 | ✅（只有一致性斷言） |
 | `src/ui/menu.ts` | 各畫面的 DOM 工廠與按鈕繫結 | ❌ |
 | `src/app/menuCamera.ts` | 選單期間的鏡頭運動 | ✅ |
+| `src/render/terrain.ts` | `Terrain` 介面、`TerrainKind`、`createTerrain` | ✅ |
 
 **修改**
 
@@ -348,6 +383,7 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 | `src/render/particles.ts` | 加 `reset()`（火球、煙、噴濺一次解決） |
 | `src/render/sparks.ts`、`splash.ts`、`debris.ts`、`wrecks.ts` | 各加 `reset()` |
 | `src/render/muzzle.ts`、`wrecks.ts` | 容量改吃 `MAX_COMBATANTS` |
+| `src/render/ocean.ts`、`props.ts` | 各加 `dispose()`。`createProps` 回傳型別由 `InstancedMesh` 改成帶 `dispose` 的物件 |
 | `src/input/InputState.ts`、`bindings.ts` | `pointerLockLost` |
 | `src/main.ts` | 畫面分支、換場、暫停、選單接線 |
 | `index.html` | 五個畫面與兩個 overlay 的 DOM 與 CSS |
@@ -369,6 +405,12 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 **池子的歸零**
 
 每一個加了 `reset()` 的池子各一條：發射一批 → `reset()` → `live === 0`。**殘骸池另外一條**：`adopt` 兩具 → `reset()` → 回收回呼被呼叫兩次（模型真的被還出去了）。
+
+**地形**
+
+- `createTerrain('sea')` 的 `heightAt` 與 `gerstnerHeight` 逐點一致 —— 包起來之後不能換成另一份波形，否則畫面上的浪與撞得到的浪會分家。
+- `dispose()` 之後 geometry 與 material 真的被釋放（用 three.js 的 `dispose` 事件或旗標斷言，不是只看沒有拋例外）。
+- 連續 `createTerrain` / `dispose` 十次不累積 —— 這條守的是「每場重建」不會洩漏。
 
 **`createBattle` 的新參數**
 
@@ -409,7 +451,8 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 13. ESC → 回主選單 → 再開一場：上一場的殘骸、煙、彈丸**一個都沒有留下來**。
 14. 打完一場 → 結算畫面，再打一場（同設定）→ 名字換一批、戰績歸零。
 15. 結算 → 回設定頁 → 改成 2 vs 2 → 開始 → 真的是 2 vs 2。
-16. 連續換場五次，畫面不會愈來愈慢（模型沒有洩漏）。
+16. 連續換場五次，畫面不會愈來愈慢（模型與地形都沒有洩漏）。
+17. 連續換場五次之後，海面仍然只有一片 —— 舊地形沒有疊在新的下面（會表現為 z-fighting 的閃爍）。
 
 ---
 
@@ -419,5 +462,6 @@ export function menuCameraPose(elapsed: number, out: { position: Vector3; yaw: n
 - `src/ui/missions.ts` 的每一張卡已經有類型與難度欄位，任務真的要做的時候在那裡加一個「怎麼打」的描述。
 - `nextScreen` 的轉移表加一個 `mission → battle` 就能讓任務卡可點。
 - `BattleConfig` 已經吃雙方機種與雙方架數 —— 任務關卡要的「10 架敵機對 4 架我機」不必再改簽章。
+- **加一種地形 = `TerrainKind` 多一個值、`createTerrain` 多一個分支。** 拆除與重建的路徑 M10 每一場都在走，不是一條等著被第一次使用的死碼。撞地判定讀的是 `Terrain.heightAt`，所以山丘不必改 `World` 一個字。
 
-M11 才動、這一版刻意不碰的：非戰鬥機的單位（轟炸機、地面目標）、集合點與勝利條件的多樣化、難度。
+M11 才動、這一版刻意不碰的：非戰鬥機的單位（轟炸機、地面目標）、集合點與勝利條件的多樣化、難度、地形選單。
