@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { World } from '../../src/world/World'
+import { World, FLASH_SECONDS } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
@@ -430,5 +430,80 @@ describe('撞地退場（M5 spec §7）', () => {
     w.step(DT)
     expect(c.alive).toBe(true)
     expect(c.aircraft.state.position.y).toBeCloseTo(4000, 3)
+  })
+})
+
+describe('槍焰計時器（M7 spec §5.1）', () => {
+  /** 造一個只有一架飛機的世界，扳機由回傳的控制器控制。 */
+  function oneShooter() {
+    const w = new World()
+    const a = new Aircraft(P51D, 4000, 200)
+    const ctrl = new Fixed(new Vector3(0, 0, -1), 0.7, false)
+    const c = w.add(a, ctrl, 'blue', a.state.position.clone(), 4000, 200)
+    return { w, c, ctrl }
+  }
+
+  it('每個掛架一個計時器，長度等於掛架數', () => {
+    const { c } = oneShooter()
+    expect(c.muzzleFlash.length).toBe(P51D.battery.mounts.length)
+    expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
+  })
+
+  it('擊發的那一步把計時器設成 FLASH_SECONDS', () => {
+    const { w, c, ctrl } = oneShooter()
+    ctrl.firing = true
+    w.step(DT)
+    // 【精度取 6 而不是 9】計時器存在 Float32Array 裡，0.03 會變成
+    // 0.029999999329447746 —— float32 只有約 7 位有效數字。
+    expect(Math.max(...Array.from(c.muzzleFlash))).toBeCloseTo(FLASH_SECONDS, 6)
+  })
+
+  it('放開扳機之後計時器遞減到 0 並停在 0', () => {
+    const { w, c, ctrl } = oneShooter()
+    ctrl.firing = true
+    w.step(DT)
+    ctrl.firing = false
+    const steps = Math.ceil(FLASH_SECONDS / DT) + 4
+    for (let i = 0; i < steps; i++) w.step(DT)
+    expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
+  })
+
+  it('不會變成負數', () => {
+    const { w, c } = oneShooter()
+    for (let i = 0; i < 240; i++) w.step(DT)
+    expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
+  })
+
+  it('退場的飛機計時器也會熄掉', () => {
+    // 【為什麼要測】退場的飛機在 step 的第一段就被 continue 掉了。
+    // 遞減若寫在 continue 之後，被打爆那一瞬間亮著的槍焰會永遠停在那裡。
+    const { w, c, ctrl } = oneShooter()
+    ctrl.firing = true
+    w.step(DT)
+    expect(Math.max(...Array.from(c.muzzleFlash))).toBeGreaterThan(0)
+    w.destroy(c)
+    const steps = Math.ceil(FLASH_SECONDS / DT) + 4
+    for (let i = 0; i < steps; i++) w.step(DT)
+    expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
+  })
+
+  it('換機種時陣列跟著重建', () => {
+    // 【不重建會怎樣】P-51 六挺換成 109 三挺之後，多出來的三格永遠不會
+    // 被遞減也不會被設定 —— 若換機種那一刻它們是亮的，就變成三管永遠
+    // 不熄的槍焰。與 cooldowns 必須重配是同一個理由。
+    const { w, c, ctrl } = oneShooter()
+    ctrl.firing = true
+    w.step(DT)
+    w.setSpec(c, BF109G6)
+    expect(c.muzzleFlash.length).toBe(BF109G6.battery.mounts.length)
+    expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
+  })
+
+  it('FLASH_SECONDS 落在「一幀」與「最快射擊間隔」之間', () => {
+    // 下界：60 fps 的一幀 16.7 ms。短於它就會被抽樣漏掉
+    expect(FLASH_SECONDS).toBeGreaterThan(1 / 60)
+    // 上界：MG 131 是 900 rpm = 66.7 ms 一發。工作週期必須明顯低於 1，
+    // 不然讀起來是一盞常亮的燈而不是閃爍
+    expect(FLASH_SECONDS / (60 / 900)).toBeLessThan(0.6)
   })
 })
