@@ -4,6 +4,8 @@ import {
   aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE,
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
+import { P51D } from '../../src/specs/p51d'
+import { BF109G6 } from '../../src/specs/bf109g6'
 import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
 import { TAKEOVER_DELAY } from '../../src/battle/takeover'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
@@ -21,11 +23,12 @@ class Idle implements Controller {
 }
 
 describe('createBattle 的編制', () => {
-  it('雙方各 perSide 架，玩家在藍隊', () => {
+  it('雙方各自的架數，玩家在藍隊', () => {
     const b = createBattle(new Idle())
-    expect(b.blue).toHaveLength(DEFAULT_BATTLE.perSide)
-    expect(b.red).toHaveLength(DEFAULT_BATTLE.perSide)
-    expect(b.world.combatants).toHaveLength(DEFAULT_BATTLE.perSide * 2)
+    expect(b.blue).toHaveLength(DEFAULT_BATTLE.blueCount)
+    expect(b.red).toHaveLength(DEFAULT_BATTLE.redCount)
+    expect(b.world.combatants)
+      .toHaveLength(DEFAULT_BATTLE.blueCount + DEFAULT_BATTLE.redCount)
     expect(b.blue).toContain(b.player)
     expect(b.player.team).toBe('blue')
   })
@@ -41,7 +44,8 @@ describe('createBattle 的編制', () => {
   it('combatants 的 index 等於陣列位置——指派板的前提', () => {
     const b = createBattle(new Idle())
     b.world.combatants.forEach((c, i) => expect(c.index).toBe(i))
-    expect(b.board.assignments).toHaveLength(DEFAULT_BATTLE.perSide * 2)
+    expect(b.board.assignments)
+      .toHaveLength(DEFAULT_BATTLE.blueCount + DEFAULT_BATTLE.redCount)
   })
 
   it('沒有人一出生就設定了固定目標', () => {
@@ -165,7 +169,7 @@ describe('createBattle 的出生幾何', () => {
 describe('Schwarm 的出生佈局（M6 spec §8.3）', () => {
   const b = createBattle(new Idle())
 
-  it('每隊切成 perSide / SCHWARM_SIZE 個分隊', () => {
+  it('每隊切成 blueCount / SCHWARM_SIZE 個分隊', () => {
     expect(b.blue.length % SCHWARM_SIZE).toBe(0)
     expect(b.blue.length / SCHWARM_SIZE).toBe(5)
   })
@@ -240,10 +244,10 @@ describe('createBattle 的決策相位', () => {
 describe('aliveCount', () => {
   it('數存活的', () => {
     const b = createBattle(new Idle())
-    expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.perSide)
+    expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.blueCount)
     b.blue[0]!.alive = false
     b.blue[1]!.alive = false
-    expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.perSide - 2)
+    expect(aliveCount(b.blue)).toBe(DEFAULT_BATTLE.blueCount - 2)
   })
 })
 
@@ -705,5 +709,48 @@ describe('R 重開的完整復原（M9 spec §8）', () => {
     b.world.applyDamage(victim, 99999, 'fuselage', b.blue[1]!)
     stepBattle(b, DT)
     expect(b.roster.pilots[helper.index]!.assists).toBe(0)
+  })
+})
+
+describe('雙方架數與機種可設定（M10 spec §6）', () => {
+  it('兩邊架數不同時各自正確', () => {
+    const cfg = { ...DEFAULT_BATTLE, blueCount: 3, redCount: 7 }
+    const b = createBattle(new Idle(), cfg, 1)
+    expect(b.blue).toHaveLength(3)
+    expect(b.red).toHaveLength(7)
+    expect(b.world.combatants).toHaveLength(10)
+    expect(b.blue).toContain(b.player)
+  })
+
+  it('機種依參數而不是寫死', () => {
+    const cfg = { ...DEFAULT_BATTLE, blueSpec: BF109G6, redSpec: P51D }
+    const b = createBattle(new Idle(), cfg, 1)
+    for (const c of b.blue) expect(c.aircraft.spec.id).toBe('bf109g6')
+    for (const c of b.red) expect(c.aircraft.spec.id).toBe('p51d')
+  })
+
+  it('名冊跟著機種走 —— 藍隊飛 Bf109 就拿德文名', () => {
+    // 【為什麼這條非有不可】M9 spec §7.1 裁決「換的是機種不是隊伍顏色」，
+    // 而名冊靠的是 `factionOf(spec.id)`。這條測試守住那個裁決真的成立。
+    const cfg = { ...DEFAULT_BATTLE, blueSpec: BF109G6, redSpec: P51D }
+    const b = createBattle(new Idle(), cfg, 5)
+    for (const c of b.blue) expect(AXIS_NAMES).toContain(b.roster.pilots[c.index]!.name)
+    for (const c of b.red) expect(ALLIED_NAMES).toContain(b.roster.pilots[c.index]!.name)
+  })
+
+  it('藍隊只有一架時，那一架就是玩家', () => {
+    const cfg = { ...DEFAULT_BATTLE, blueCount: 1, redCount: 4 }
+    const b = createBattle(new Idle(), cfg, 1)
+    expect(b.blue).toHaveLength(1)
+    expect(b.player).toBe(b.blue[0])
+    expect(playerFlight(b)).not.toBeNull()
+    expect(playerFlight(b)!.count).toBe(1)
+  })
+
+  it('1 vs 1 也跑得動', () => {
+    const cfg = { ...DEFAULT_BATTLE, blueCount: 1, redCount: 1 }
+    const b = createBattle(new Idle(), cfg, 1)
+    for (let i = 0; i < 240; i++) stepBattle(b, DT)
+    expect(b.outcome).toBe('fighting')
   })
 })

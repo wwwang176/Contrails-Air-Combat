@@ -212,8 +212,8 @@ function observe(): Observed {
 
   const ais = cs.map((c) => (c.controller instanceof AiController ? c.controller : null))
   const prevDecisions = ais.map((a) => a?.decisionsMade ?? 0)
-  let prevBlue = b.cfg.perSide
-  let prevRed = b.cfg.perSide
+  let prevBlue = b.cfg.blueCount
+  let prevRed = b.cfg.redCount
 
   for (let i = 0; i < SECONDS / DT; i++) {
     stepBattle(b, DT)
@@ -604,7 +604,7 @@ describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
     //
     // 【8v8 是為了跨分隊接手】藍隊兩個 Schwarm，玩家在第二個。同分隊的
     // 三位用完之後，接手目標必須落到第一個分隊 —— 那條分支只有在這裡走得到。
-    const cfg = { ...DEFAULT_BATTLE, perSide: 8 }
+    const cfg = { ...DEFAULT_BATTLE, blueCount: 8, redCount: 8 }
     const b = createBattle(new Idle(), cfg, 1)
     const cs = b.world.combatants
     const seatsUsed = new Set<number>()
@@ -625,7 +625,7 @@ describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
     expect(b.outcome).toBe('defeat')
     expect(aliveCount(b.blue)).toBe(0)
     // 八個藍隊座位都當過玩家 —— 接手鏈真的走完了，含跨分隊那一步
-    expect(seatsUsed.size).toBe(cfg.perSide)
+    expect(seatsUsed.size).toBe(cfg.blueCount)
     // 名冊裡活著的人數 = 場上活著的座位數
     expect(b.roster.pilots.filter((p) => p.alive).length)
       .toBe(cs.filter((c) => c.alive).length)
