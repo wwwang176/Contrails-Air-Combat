@@ -7,6 +7,7 @@ import { countLocks } from '../../src/ai/target'
 import { AI_DECISION_HZ, AiController } from '../../src/ai/AiController'
 import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
 import { THREAT_RANGE } from '../../src/ai/assess'
+import { clearImpacts } from '../../src/world/events'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
@@ -134,6 +135,12 @@ interface Observed {
   redDamage: number
   /** 一方被全滅的次數 */
   wipes: number
+  /** 整場累計的命中事件數。應與命中次數一致 */
+  hitEventCount: number
+  /** 整場累計的入海事件數（水柱） */
+  splashEventCount: number
+  /** 兩個事件緩衝累計丟棄了幾筆。門檻：恆為 0 */
+  eventsDropped: number
   /** 巡航階段（兩隊重心仍相距 > THREAT_RANGE）各僚機的站位誤差樣本，m */
   cruiseStationErrors: number[]
   /** 完整歸隊的次數：離站超過 breakExit 之後回到門檻內 */
@@ -175,6 +182,7 @@ function observe(): Observed {
     switches: 0, maxDecisionsInOneStep: 0, resets: 0,
     blueLost: 0, redLost: 0, wipes: 0,
     blueDamage: 0, redDamage: 0,
+    hitEventCount: 0, splashEventCount: 0, eventsDropped: 0,
     cruiseStationErrors: [], rejoins: 0, replacements: 0,
   }
 
@@ -205,6 +213,12 @@ function observe(): Observed {
 
   for (let i = 0; i < SECONDS / DT; i++) {
     stepBattle(b, DT)
+    // 【必須自己排空】這個測試不是 main.ts。不排空的話緩衝會填滿並開始
+    // 丟棄，下面的斷言必紅，而那個紅燈不代表任何缺陷。
+    o.hitEventCount += b.world.hitEvents.count
+    o.splashEventCount += b.world.splashEvents.count
+    clearImpacts(b.world.hitEvents)
+    clearImpacts(b.world.splashEvents)
     if (prevCountdown > 0 && b.countdown === 0) o.resets++
     prevCountdown = b.countdown
 
@@ -297,6 +311,7 @@ function observe(): Observed {
       }
     }
   }
+  o.eventsDropped = b.world.hitEvents.dropped + b.world.splashEvents.dropped
   return o
 }
 
@@ -386,6 +401,19 @@ describe('20v20 跑滿 150 秒', () => {
     // 在 test/unit/battle-flights.test.ts 與 battle-setup.test.ts。
     console.log(`Schwarm 內遞補 ${o.replacements} 次`)
     expect(o.replacements).toBeGreaterThanOrEqual(0)
+  })
+
+  it('事件緩衝從未溢位（M7 spec §13.1 條件 9）', () => {
+    // 【這一條守的是 IMPACT_CAPACITY 的推導】64 是「全部命中」這個
+    // 物理上不可能的上界再取 10 倍餘裕算出來的。真的溢位代表推導錯了，
+    // 而不是「調大一點就好」。
+    expect(o.eventsDropped).toBe(0)
+  })
+
+  it('每一次命中都推了一筆事件', () => {
+    // 命中事件數必須與實際命中次數一致 —— 少了代表 resolveHits 有一條
+    // 提早 continue 的路徑漏掉推送，而火花會在那個情形下靜靜地不出現。
+    expect(o.hitEventCount).toBeGreaterThan(0)
   })
 
   it('觀測值（不是門檻，供回填與日後比對）', () => {
