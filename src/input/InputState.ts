@@ -61,6 +61,14 @@ export interface InputState {
    * 忘了關就會擋著半個畫面繼續打。
    */
   scoreboardHeld: boolean
+  /**
+   * 這一幀剛失去指標鎖定。**單幀旗標，呼叫端消費後自行清除。**
+   *
+   * 【為什麼暫停要靠它而不是 Escape 的 keydown】指標鎖定期間按 ESC，
+   * 瀏覽器會解除鎖定並吃掉那個鍵盤事件 —— 那是安全行為，繞不過去
+   * （M10 spec §8.2）。
+   */
+  pointerLockLost: boolean
 }
 
 export function createInputState(): InputState {
@@ -79,5 +87,6 @@ export function createInputState(): InputState {
     resetRequested: false,
     swapSpecRequested: false,
     scoreboardHeld: false,
+    pointerLockLost: false,
   }
 }

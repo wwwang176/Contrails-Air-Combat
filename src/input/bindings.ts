@@ -30,6 +30,14 @@ export function attachInput(
   state: InputState,
 ): { detach(): void; tick(dt: number): void } {
   const hold: KeyHold = { up: false, down: false }
+  /**
+   * 上一次觀察到有沒有鎖定。用來做邊緣偵測 —— 見 `InputState.pointerLockLost`。
+   *
+   * 【為什麼初值讀當下而不是寫死 false】掛上來的那一刻就是第一次觀察。
+   * 寫死 false 的話，「掛上時已鎖定、下一幀就掉了」這個順序偵測不到 ——
+   * 而那正是玩家在戰鬥中按 ESC 的情形。
+   */
+  let wasLocked = document.pointerLockElement === canvas
 
   const requestLock = () => {
     if (document.pointerLockElement !== canvas) void canvas.requestPointerLock()
@@ -120,8 +128,13 @@ export function attachInput(
       // 【為什麼在 tick 檢查而不是監聽 pointerlockchange】既有測試的 document
       // 替身只有 pointerLockElement 一個欄位，沒有 addEventListener——加監聽器
       // 會讓 bindings.test.ts 整檔在 attachInput 就拋錯。tick 每幀本來就會被
-      // 呼叫，順手比對一次是零成本的。
-      if (document.pointerLockElement !== canvas) state.firing = false
+      // 呼叫，順手比對一次是零成本的。M10 的暫停也靠這個輪詢。
+      const locked = document.pointerLockElement === canvas
+      if (!locked) state.firing = false
+      // 【邊緣偵測】沒有它的話，鎖定沒回來的每一幀都會再送一次暫停，
+      // 玩家按「繼續」會立刻被彈回暫停選單
+      if (wasLocked && !locked) state.pointerLockLost = true
+      wasLocked = locked
       state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
     },
   }
