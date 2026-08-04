@@ -170,9 +170,12 @@ const BLISTERS: readonly Blister[] = [
   },
 ]
 
+/** 機身色。零件（`render/debris.ts`）要用同一個值 —— 見 `P51D_BODY_COLOR`。 */
+export const BF109_BODY_COLOR = 0x7e8a73
+
 export function buildBf109E(): AircraftModel {
   const h = createHull({
-    bodyColor: 0x7e8a73,
+    bodyColor: BF109_BODY_COLOR,
     accentColor: 0x33403a,
     realLength: 8.64,
     offsetZ: 0,

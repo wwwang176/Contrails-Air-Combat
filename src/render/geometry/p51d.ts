@@ -236,9 +236,18 @@ function exhaustStubs(startZ: number, pitch: number, count: number): Blister[] {
 
 const BLISTERS: readonly Blister[] = exhaustStubs(-2.42, 0.185, 6)
 
+/**
+ * 機身色。
+ *
+ * 【為什麼是匯出的常數而不是就地的字面值】零件（`render/debris.ts`）要用
+ * 同一個值 —— 打爆的飛機掉下來的碎片必須跟機身同色。抄成兩份就是只有
+ * 一份會被修好的那種危險。
+ */
+export const P51D_BODY_COLOR = 0x9aa7b4
+
 export function buildP51D(): AircraftModel {
   const h = createHull({
-    bodyColor: 0x9aa7b4,
+    bodyColor: P51D_BODY_COLOR,
     accentColor: 0x2f3a46,
     realLength: 9.83,
     offsetZ: 0,

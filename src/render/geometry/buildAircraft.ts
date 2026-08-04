@@ -1,6 +1,6 @@
 import type { AircraftModel } from './assembly'
-import { buildBf109E } from './bf109e'
-import { buildP51D } from './p51d'
+import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
+import { buildP51D, P51D_BODY_COLOR } from './p51d'
 import type { AircraftSpec } from '../../specs/types'
 
 export type { AircraftModel, HullMetrics } from './assembly'
@@ -29,4 +29,22 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   const build = BUILDERS[spec.id]
   if (!build) throw new Error(`未定義機種外型：${spec.id}`)
   return build()
+}
+
+/**
+ * 機種 id → 機身色。與 `BUILDERS` 同一把鑰匙。
+ *
+ * 【為什麼在這裡而不是 `AircraftSpec` 裡】`specs/` 放的是飛行與武裝的物理
+ * 參數，塗裝是渲染層的事。這個檔案本來就是「機種 id → 外型」的查表處。
+ */
+const BODY_COLORS: Record<string, number> = {
+  p51d: P51D_BODY_COLOR,
+  bf109g6: BF109_BODY_COLOR,
+}
+
+/** 零件用它上色 —— 打爆的飛機掉下來的碎片必須跟機身同色。 */
+export function bodyColorOf(spec: AircraftSpec): number {
+  const c = BODY_COLORS[spec.id]
+  if (c === undefined) throw new Error(`未定義機種塗裝：${spec.id}`)
+  return c
 }
