@@ -3,11 +3,14 @@ import { Color, InstancedMesh, Matrix4, Quaternion, SRGBColorSpace, Vector3 } fr
 import {
   createSmoke, emitSmoke, smokeColor, smokePuffs, smokeTimer,
   DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, SMOKE_ALPHA, SMOKE_DRAG,
-  DEBRIS_SMOKE_SIZE, SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM,
+  DEBRIS_SMOKE_SIZE, emitKillSmoke, KILL_SMOKE_COUNT, KILL_SMOKE_SIZE,
+  SMOKE_GRAVITY, SMOKE_LIFE, SMOKE_RISE, SMOKE_SIZE_FROM,
   SMOKE_SIZE_TO, WRECK_SMOKE_INTERVAL,
 } from '../../src/render/smoke'
+import { FIREBALL_SIZE_TO } from '../../src/render/fireball'
 import { DEBRIS_COUNT, DEBRIS_SIZE_MAX } from '../../src/render/debris'
 import { createImpacts, pushImpact } from '../../src/world/events'
+import { createKills, pushKill } from '../../src/world/kills'
 
 function decompose(mesh: InstancedMesh, i: number) {
   const m = new Matrix4()
@@ -105,6 +108,41 @@ describe('黑煙的參數（M8 spec §6）', () => {
     const smallest = SMOKE_SIZE_FROM * DEBRIS_SMOKE_SIZE
     expect(smallest).toBeGreaterThan(DEBRIS_SIZE_MAX)
     expect(smallest).toBeLessThan(DEBRIS_SIZE_MAX * 4)
+  })
+})
+
+describe('emitKillSmoke —— 火球褪去之後看得見的那團黑', () => {
+  it('一筆擊墜生 KILL_SMOKE_COUNT 團', () => {
+    const s = createSmoke(64)
+    const e = createKills(4)
+    pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
+    emitKillSmoke(s, e)
+    s.step(0.01)
+    expect(s.live).toBe(KILL_SMOKE_COUNT)
+    s.dispose()
+  })
+
+  it('煙球蓋得住火球 —— 不然接不起來', () => {
+    // 【為什麼這條是門檻】火球最大 8 m。煙球若比它小，火褪去時黑煙還縮在
+    // 中間，讀起來是「火消失了，旁邊有點煙」而不是「火燒成了黑煙」。
+    expect(SMOKE_SIZE_FROM * KILL_SMOKE_SIZE).toBeGreaterThan(FIREBALL_SIZE_TO * 0.5)
+    expect(SMOKE_SIZE_TO * KILL_SMOKE_SIZE).toBeGreaterThan(FIREBALL_SIZE_TO * 2)
+  })
+
+  it('比殘骸拖的煙大得多 —— 那是一團爆炸的煙，不是拖曳', () => {
+    expect(KILL_SMOKE_SIZE).toBeGreaterThan(1)
+    expect(KILL_SMOKE_SIZE).toBeGreaterThan(DEBRIS_SMOKE_SIZE * 4)
+  })
+
+  it('活得比火球久 —— 火熄了煙還在', () => {
+    const s = createSmoke(64)
+    const e = createKills(4)
+    pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
+    emitKillSmoke(s, e)
+    // 火球壽命 0.5 s；煙球在那之後必須還活著
+    s.step(0.6)
+    expect(s.live).toBe(KILL_SMOKE_COUNT)
+    s.dispose()
   })
 })
 

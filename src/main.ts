@@ -10,7 +10,7 @@ import { createMuzzles } from './render/muzzle'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { createFireball, emitFireball } from './render/fireball'
-import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
+import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -285,6 +285,7 @@ function frame(now: number) {
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
     emitFireball(fireball, world.killEvents)
+    emitKillSmoke(smoke, world.killEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
     perf.endPhysics()

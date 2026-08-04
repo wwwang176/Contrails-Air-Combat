@@ -151,6 +151,15 @@ export function createParticles(cfg: ParticleConfig): Particles {
   // 【起始壽命設滿】等於「一出生就是死的」，不必另外一個 alive 陣列
   const age = new Float32Array(capacity).fill(life)
   const sizeMul = new Float32Array(capacity).fill(1)
+  /**
+   * 這一格的矩陣是不是已經被歸零了。
+   *
+   * 【為什麼需要它】`step` 原本每幀對每一個死格子都寫一次零矩陣 —— 容量
+   * 6,144 而存活只有幾百時，九成的工作是把 0 重複寫成 0。歸零只需要在
+   * 「活 → 死」那一幀做一次。有了它，每幀的寫入量跟著**存活數**走而不是
+   * 容量，加大池子才不用付代價。
+   */
+  const zeroed = new Uint8Array(capacity).fill(1)
   let next = 0
   let live = 0
 
@@ -189,6 +198,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
       // 則會在最該看到爆炸的時候整批不見。與 sparks.ts 同一個取捨。
       if (age[i]! >= life) live++
+      zeroed[i] = 0
       px[i] = x
       py[i] = y
       pz[i] = z
@@ -203,12 +213,19 @@ export function createParticles(cfg: ParticleConfig): Particles {
       const damp = Math.exp(-cfg.drag * dt)
       const a = alphas.array as Float32Array
       live = 0
+      let touched = false
       for (let i = 0; i < capacity; i++) {
         const old = age[i]!
         if (old >= life) {
+          // 【已經歸零的死格子直接跳過】把 0 重複寫成 0 是這個迴圈原本
+          // 九成的工作量
+          if (zeroed[i] === 1) continue
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
+          object.setColorAt(i, TINT.setRGB(0, 0, 0))
           a[i] = 0
+          zeroed[i] = 1
+          touched = true
           continue
         }
         const na = old + dt
@@ -218,9 +235,12 @@ export function createParticles(cfg: ParticleConfig): Particles {
           object.setMatrixAt(i, M)
           object.setColorAt(i, TINT.setRGB(0, 0, 0))
           a[i] = 0
+          zeroed[i] = 1
+          touched = true
           continue
         }
         live++
+        touched = true
 
         const nvx = vx[i]! * damp
         const nvy = vy[i]! * damp + cfg.gravity * dt
@@ -247,9 +267,13 @@ export function createParticles(cfg: ParticleConfig): Particles {
         object.setColorAt(i, TINT)
         a[i] = particleAlpha(na, life, cfg.alphaFrom)
       }
-      object.instanceMatrix.needsUpdate = true
-      alphas.needsUpdate = true
-      if (object.instanceColor) object.instanceColor.needsUpdate = true
+      // 【沒有任何格子被動到就不必上傳】整池全死時省下一次完整的
+      // buffer 上傳
+      if (touched) {
+        object.instanceMatrix.needsUpdate = true
+        alphas.needsUpdate = true
+        if (object.instanceColor) object.instanceColor.needsUpdate = true
+      }
     },
 
     dispose(): void {

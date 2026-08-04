@@ -8,7 +8,7 @@ import { createMuzzles } from '../render/muzzle'
 import { createSparks } from '../render/sparks'
 import { createSplashes } from '../render/splash'
 import { createFireball, emitFireball } from '../render/fireball'
-import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from '../render/smoke'
+import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from '../render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
@@ -208,6 +208,7 @@ function frame(now: number): void {
     clearImpacts(world.hitEvents)
     clearImpacts(world.splashEvents)
     emitFireball(fireball, world.killEvents)
+    emitKillSmoke(smoke, world.killEvents)
     debris.emit(world.killEvents, () => bodyColorOf(subject.aircraft.spec))
     clearKills(world.killEvents)
   })
