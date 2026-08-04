@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  aliveCount, createBattle, stepBattle, type Battle,
+  aliveCount, createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
 } from '../../src/battle/setup'
 import { countLocks } from '../../src/ai/target'
 import { AI_DECISION_HZ, AiController } from '../../src/ai/AiController'
 import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
 import { THREAT_RANGE } from '../../src/ai/assess'
 import { clearImpacts } from '../../src/world/events'
-import { clearKills } from '../../src/world/kills'
+import { clearKills, KILL_STRIDE } from '../../src/world/kills'
+import type { Combatant, Team } from '../../src/world/World'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
@@ -460,5 +461,167 @@ describe('全滅之後的結果（M9 spec §8）', () => {
     }
     expect(b.outcome).toBe('victory')
     expect(aliveCount(b.red)).toBe(0)
+  })
+})
+
+/** 第一個還活著的該隊座位；`skip` 裡的略過。沒有就回傳 null。 */
+function firstAlive(
+  cs: readonly Combatant[], team: Team, skip: readonly number[],
+): Combatant | null {
+  for (const c of cs) {
+    if (c.team === team && c.alive && !skip.includes(c.index)) return c
+  }
+  return null
+}
+
+/** 記分板上玩家目前坐的座位。接手時它**立刻**改變，`b.player` 要等 2 秒。 */
+function playerSeatNow(b: Battle): number {
+  return b.roster.pilots.findIndex((p) => p.isPlayer)
+}
+
+/** 排空三個事件緩衝。這個檔案不是 main.ts，不排空的話緩衝會填滿並開始丟棄。 */
+function drainEvents(b: Battle): void {
+  clearKills(b.world.killEvents)
+  clearImpacts(b.world.hitEvents)
+  clearImpacts(b.world.splashEvents)
+}
+
+describe('戰績的守恆律（M9 spec §11）', () => {
+  it('全體擊墜數 = 全體陣亡數 − 自摔數', () => {
+    // 【為什麼這是最有力的一條】任何漏記或重複記都會讓它失衡。逐條斷言
+    // 「這一次擊墜記對了嗎」只覆蓋得到想得到的情況；這一條覆蓋全部。
+    //
+    // 【為什麼人為安排擊墜而不是讓 AI 自己打】實測：20v20 真打 180 秒只有
+    // 1 次陣亡（花 24 秒的實際時間），2v2 與 4v4 打 240 秒**一次都沒有**
+    // —— 這一版的 AI 在對頭通場之後追不到彼此。一場只死一個人的守恆律
+    // 測不到助攻、自摔與接手，等於一條看起來很有力、實際上空的斷言。
+    // 世界照常在跑（編制壓縮、站位、命中判定都是真的），只有「誰在什麼
+    // 時候死」是安排的。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 7)
+    const cs = b.world.combatants
+    /** 每秒安排一次擊墜。四種路徑輪流走，紅藍各兩次，戰場才撐得到最後 */
+    const INTERVAL = 240
+    let selfDestructs = 0
+    let scripted = 0
+    let takeovers = 0
+
+    for (let i = 0; i < Math.ceil(30 / DT); i++) {
+      if (i > 0 && i % INTERVAL === 0) {
+        switch ((i / INTERVAL) % 4) {
+          case 0: {
+            // 紅機被藍機打下來，另一架藍機先擦傷 → 助攻
+            const victim = firstAlive(cs, 'red', [])
+            const killer = firstAlive(cs, 'blue', [b.player.index])
+            const helper = firstAlive(cs, 'blue', [b.player.index, killer?.index ?? -1])
+            if (victim && killer && helper) {
+              b.world.applyDamage(victim, 10, 'wingLeft', helper)
+              b.world.applyDamage(victim, 99999, 'fuselage', killer)
+              scripted++
+            }
+            break
+          }
+          case 1: {
+            // 自摔：沒有兇手
+            const victim = firstAlive(cs, 'red', [])
+            if (victim) { b.world.destroy(victim); scripted++ }
+            break
+          }
+          case 2: {
+            const victim = firstAlive(cs, 'blue', [b.player.index])
+            const killer = firstAlive(cs, 'red', [])
+            if (victim && killer) {
+              b.world.applyDamage(victim, 99999, 'fuselage', killer)
+              scripted++
+            }
+            break
+          }
+          default: {
+            // 玩家陣亡 → 接手僚機。身分互換也必須守恆
+            const seat = playerSeatNow(b)
+            const killer = firstAlive(cs, 'red', [])
+            if (seat >= 0 && killer && cs[seat]!.alive) {
+              b.world.applyDamage(cs[seat]!, 99999, 'fuselage', killer)
+              scripted++
+              takeovers++
+            }
+          }
+        }
+      }
+
+      stepBattle(b, DT)
+      const ke = b.world.killEvents
+      for (let e = 0; e < ke.count; e++) {
+        if (ke.data[e * KILL_STRIDE + 7] === -1) selfDestructs++
+      }
+      drainEvents(b)
+      if (b.outcome !== 'fighting') break
+    }
+
+    const kills = b.roster.pilots.reduce((s, p) => s + p.kills, 0)
+    const deaths = b.roster.pilots.reduce((s, p) => s + p.deaths, 0)
+    // 【非空覆蓋的門檻】四種路徑各要真的走到過，否則這條守恆律是空的
+    expect(scripted).toBeGreaterThanOrEqual(20)
+    expect(takeovers).toBeGreaterThanOrEqual(5)
+    expect(selfDestructs).toBeGreaterThanOrEqual(5)
+    expect(deaths).toBeGreaterThanOrEqual(scripted)
+    expect(kills).toBe(deaths - selfDestructs)
+  })
+
+  it('陣亡的飛行員數等於退場的座位數', () => {
+    // 【為什麼要分開測】上一條守的是「記了幾次」，這一條守的是「記在誰身上」。
+    // 接手時身分互換，兩者仍然必須對得起來。
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 7)
+    const cs = b.world.combatants
+    for (let i = 0; i < Math.ceil(20 / DT); i++) {
+      if (i > 0 && i % 240 === 0) {
+        const seat = playerSeatNow(b)
+        const victim = i % 480 === 0 && seat >= 0 ? cs[seat]! : firstAlive(cs, 'red', [])
+        const killer = firstAlive(cs, victim && victim.team === 'red' ? 'blue' : 'red', [])
+        if (victim?.alive && killer) b.world.applyDamage(victim, 99999, 'fuselage', killer)
+      }
+      stepBattle(b, DT)
+      drainEvents(b)
+      if (b.outcome !== 'fighting') break
+    }
+    const deadSeats = cs.filter((c) => !c.alive).length
+    const deadPilots = b.roster.pilots.filter((p) => !p.alive).length
+    expect(deadSeats).toBeGreaterThan(0)
+    expect(deadPilots).toBe(deadSeats)
+  })
+})
+
+describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
+  it('玩家一路接手，藍隊被打光時判落敗', () => {
+    // 【為什麼打的是「記分板上玩家的座位」而不是 `b.player`】接手的身分
+    // 互換是立刻發生的，操縱權要等 2 秒。打 `b.player` 的話那 2 秒裡打到的
+    // 是同一具殘骸（`applyDamage` 對已退場者直接 return），接手鏈就斷了。
+    //
+    // 【8v8 是為了跨分隊接手】藍隊兩個 Schwarm，玩家在第二個。同分隊的
+    // 三位用完之後，接手目標必須落到第一個分隊 —— 那條分支只有在這裡走得到。
+    const cfg = { ...DEFAULT_BATTLE, perSide: 8 }
+    const b = createBattle(new Idle(), cfg, 1)
+    const cs = b.world.combatants
+    const seatsUsed = new Set<number>()
+
+    for (let i = 0; i < Math.ceil(30 / DT) && b.outcome === 'fighting'; i++) {
+      if (i > 0 && i % 240 === 0) {
+        const seat = playerSeatNow(b)
+        const killer = firstAlive(cs, 'red', [])
+        if (seat >= 0 && killer && cs[seat]!.alive) {
+          seatsUsed.add(seat)
+          b.world.applyDamage(cs[seat]!, 99999, 'fuselage', killer)
+        }
+      }
+      stepBattle(b, DT)
+      drainEvents(b)
+    }
+
+    expect(b.outcome).toBe('defeat')
+    expect(aliveCount(b.blue)).toBe(0)
+    // 八個藍隊座位都當過玩家 —— 接手鏈真的走完了，含跨分隊那一步
+    expect(seatsUsed.size).toBe(cfg.perSide)
+    // 名冊裡活著的人數 = 場上活著的座位數
+    expect(b.roster.pilots.filter((p) => p.alive).length)
+      .toBe(cs.filter((c) => c.alive).length)
   })
 })
