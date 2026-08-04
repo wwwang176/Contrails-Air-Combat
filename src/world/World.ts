@@ -100,6 +100,34 @@ const S = makeScratch(4)
 export const FLASH_SECONDS = 0.03
 
 /**
+ * 水面高度，m。**只用來決定「水柱畫在哪裡」**，不是回收深度。
+ *
+ * 【它是一個平面而海面不是】`main.ts` 注入的撞海判定走 Gerstner 波
+ * （振幅合計約 ±2.15 m）。在 `resolveHits`（4,000 發 × 240 Hz）裡對每一
+ * 發彈丸取一次浪高是每秒近百萬次 sin/cos，不划算。誤差最多 2.15 m ——
+ * 887 m/s 下 2.4 ms —— 而**看得到的那個東西**（水柱）由渲染層擺在真實
+ * 浪高上，所以畫面是對的（M7 spec §4.2）。
+ */
+export const SEA_SURFACE_Y = 0
+
+/**
+ * 彈丸低於這個高度就回收，m。
+ *
+ * 【為什麼不是 SEA_SURFACE_Y】撞海判定是 `y <= 浪高 + CRASH_CLEARANCE`，
+ * 而 `CRASH_CLEARANCE = 2 m`、浪谷可到 −2.15 m —— 一架**還活著**的飛機
+ * 可以低到 `y = −0.15 m`，它的命中盒更可以伸到更低。在水面就回收，理論上
+ * 會吃掉那些命中（M7 spec §4.3，初稿在這裡寫錯過）。
+ *
+ * 【−20 m 的推導】存活 ⟹ 機體原點 > 浪谷 + `CRASH_CLEARANCE`。取一個保守
+ * 的浪谷 −5 m（實際約 −2.15 m）得原點 > −3 m；加上全機種最大的包圍半徑
+ * 7.1 m（P-51D 的機尾角），存活飛機的命中盒伸不到 −10.1 m 以下。−20 m
+ * 有兩倍餘裕，所以**證明得出**回收它不會少算任何命中。
+ *
+ * 代價是彈丸多飛 20 m —— 887 m/s 下 22 ms，而且那一段整個被海面遮住。
+ */
+export const SEA_KILL_Y = -20
+
+/**
  * 世界 —— `Combatant[]` + 彈丸池 + 每步的四段順序。
  *
  * 【為什麼要有這一層】M1 的 main.ts 假設「世界上只有一架飛機」。M4 的 AI
@@ -130,6 +158,14 @@ export class World {
    * 是給**有排空**的整合測試斷言用的（見 `multi-battle.test.ts`）。
    */
   readonly hitEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 這一個物理步之內的入海事件。法線恆為 `(0, 1, 0)` —— 水柱就是「法線
+   * 朝上的撞擊」，所以與命中共用同一個型別（M7 spec §2.2）。
+   *
+   * 與 `hitEvents` 一樣由**呼叫端**排空。
+   */
+  readonly splashEvents: ImpactEvents = createImpacts()
 
   private readonly hit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
@@ -369,7 +405,21 @@ export class World {
         bestNy = this.hit.ny
         bestNz = this.hit.nz
       }
-      if (!victim) continue
+      if (!victim) {
+        // 【水柱只在跨過水面的那一步推】寫成「y <= 水面」的話，彈丸在
+        // 水面下的每一步都會再推一筆，一發變成一串。
+        if (ay > SEA_SURFACE_Y && by <= SEA_SURFACE_Y) {
+          const s = (ay - SEA_SURFACE_Y) / (ay - by)
+          pushImpact(
+            this.splashEvents,
+            ax + (bx - ax) * s, SEA_SURFACE_Y, az + (bz - az) * s,
+            0, 1, 0,
+          )
+        }
+        // 【回收在更深的地方】見 SEA_KILL_Y 的推導
+        if (by <= SEA_KILL_Y) p.kill(i)
+        continue
+      }
 
       // 【命中點與世界法線】命中點是線段上的 bestT；法線由機體座標轉世界
       const n = S.v[3]!
