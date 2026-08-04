@@ -570,3 +570,30 @@ draw call 與三角形數、`elementFromPoint` 命中判定）以腳本斷言：
 條件 8~10、14、15 需要真的打完一場才看得到結果，留給專案負責人在人工
 驗收時確認 —— 對應的邏輯由 `test/integration/rematch.test.ts` 與
 `test/unit/skirmish.test.ts` 守著。
+
+### 16.4 驗收時追加拔掉的：`C` 換機種
+
+專案負責人在人工驗收時提出。`C` 是 M2 時代的產物（那時只有一架飛機、
+沒有選單），行為寫死成「P-51 ⇄ Bf 109」的二選一，**與陣營無關**：
+
+```ts
+world.setSpec(player, player.aircraft.spec.id === 'p51d' ? BF109G6 : P51D)
+```
+
+選了軸心國之後按下去，玩家會在藍隊裡開著一台跟敵人一模一樣的 P-51 ——
+M9 spec §7.1 裁決「換的是機種不是隊伍顏色」，這顆按鈕正好把它反過來做。
+M10 起「我開哪一台」由設定頁擁有（`battle/skirmish.ts`，有測試守著），
+兩條路徑重複，而且 M11 補第三台機之後一個寫死的二選一切換就沒有意義了。
+
+拔掉的範圍：`bindings.ts` 的 `KeyC`、`InputState.swapSpecRequested`、
+`main.ts` 的處理段與 `rebuildModel`、`hints.ts` 的提示字串（順手補上
+`ESC 暫停`）。`bindings.test.ts` 留一條測試守住「按 `C` 不改變任何輸入
+狀態」—— 一個曾經有行為的鍵變回沒有行為，值得有東西記得它。
+
+連帶：`Visual.model` 收成 `readonly`。M9 以前只有 `C` 會換掉那一格，現在
+模型從 `attachVisual` 到 `releaseVisual` 恆是同一具，`renderPositions`
+持有的參考不需要任何附帶條件就恆有效。
+
+**留著沒動**：`World.setSpec` 與 `Aircraft.setSpec` 現在沒有生產端呼叫者，
+但它們身上掛著換裝時「射速時鐘重配」「PID 積分不洩漏」「前緣縫翼遲滯
+旗標清掉」這些有實質內容的測試。要不要一起拔是獨立的決定。

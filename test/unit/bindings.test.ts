@@ -155,7 +155,7 @@ describe('attachInput：自由視角（右鍵）不得移動瞄準點', () => {
 describe('attachInput：鍵盤旗標與解除綁定', () => {
   const key = (code: string) => ({ code, preventDefault: () => {} })
 
-  it('R 設定 resetRequested、C 設定 swapSpecRequested', () => {
+  it('R 設定 resetRequested', () => {
     const dom = setupDom()
     const state = createInputState()
     attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
@@ -163,10 +163,21 @@ describe('attachInput：鍵盤旗標與解除綁定', () => {
     expect(state.resetRequested).toBe(false)
     dom.win.fire('keydown', key('KeyR'))
     expect(state.resetRequested).toBe(true)
+  })
 
-    expect(state.swapSpecRequested).toBe(false)
+  it('C 不再有任何作用 —— 換機種由遭遇戰設定頁擁有', () => {
+    // 【為什麼要留一條測試守一個「不做事」的鍵】M2 到 M9 的 C 是寫死的
+    // 「P-51 ⇄ Bf 109」二選一，與陣營無關 —— 選了軸心國之後按下去，玩家
+    // 會在藍隊裡開著一台跟敵人一模一樣的 P-51。M10 起機種由設定頁決定
+    // （`battle/skirmish.ts`），這個鍵沒有正確的行為可言。
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    const before = JSON.stringify(state)
     dom.win.fire('keydown', key('KeyC'))
-    expect(state.swapSpecRequested).toBe(true)
+    dom.win.fire('keyup', key('KeyC'))
+    expect(JSON.stringify(state)).toBe(before)
   })
 
   it('detach 之後事件不再有任何作用', () => {
