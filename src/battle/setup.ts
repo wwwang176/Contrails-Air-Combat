@@ -439,8 +439,13 @@ export function stepBattle(b: Battle, dt: number): void {
  *
  * 【與 R 鍵共用同一條路徑】兩份長得很像的初始化，就是只有一份會被修好的
  * 那種危險 —— 與 `Aircraft.respawn`、`World.destroy` 是同一個理由。
+ *
+ * @param seed 新的名字種子。省略時抽一個 —— 專案負責人裁決「再打一場則
+ *             重新隨機」（M9 spec §6.1）。
  */
-export function resetBattle(b: Battle): void {
+export function resetBattle(
+  b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
+): void {
   b.world.projectiles.clear()
   const combatants = b.world.combatants
   for (let i = 0; i < combatants.length; i++) {
@@ -453,8 +458,51 @@ export function resetBattle(b: Battle): void {
     c.aircraft.prevOrientation.copy(q)
     c.aircraft.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(c.spawnTas)
   }
+
+  // 【被接手過的座位要還給 AI】接手時那顆 AiController 被丟掉了。少了這一段，
+  // 重開之後戰場上會有一架永遠不動的飛機 —— 玩家的控制器同時裝在兩個座位上，
+  // 而其中一個不會收到任何輸入。
+  b.player = combatants[b.playerSeat]!
+  b.flights.pinned = b.playerSeat
+  b.takeoverSeat = -1
+  b.takeoverTimer = 0
+  for (const c of combatants) {
+    if (c.index === b.playerSeat) {
+      c.controller = b.playerController
+      continue
+    }
+    if (c.controller instanceof AiController) continue
+    const ai = new AiController()
+    ai.board = b.board
+    ai.selfIndex = c.index
+    ai.setDecisionPhase(c.index / combatants.length)
+    c.controller = ai
+  }
+
+  // 【名字重抽】專案負責人裁決「再打一場則重新隨機」
+  b.seed = seed
+  const blueNames = pilotNames(seed, factionOf(b.blue[0]!.aircraft.spec.id), b.blue.length)
+  const redNames = pilotNames(seed, factionOf(b.red[0]!.aircraft.spec.id), b.red.length)
+  let bi = 0
+  let ri = 0
+  for (let i = 0; i < combatants.length; i++) {
+    const p = b.roster.pilots[i]!
+    p.name = combatants[i]!.team === 'blue' ? blueNames[bi++]! : redNames[ri++]!
+    p.kills = 0
+    p.deaths = 0
+    p.assists = 0
+    p.alive = true
+    p.isPlayer = i === b.playerSeat
+  }
+
+  // 【為什麼還要這一行】上面對每一架呼叫的 `World.respawn` 各清掉「打過它」
+  // 的那一欄，合起來剛好是整張表 —— 但那是巧合式的完整。這一行讓「重開
+  // 不留上一場的傷害紀錄」這個意圖自己成立，不倚賴迴圈涵蓋了每一個座位。
+  b.world.clearDamageLog()
   b.board.assignments.fill(-1)
   compactFlights(b.flights, combatants)
+  // 【wireStations 要在最後】它會依 `instanceof AiController` 重接站位參考，
+  // 而上面剛換過控制器
   wireStations(b)
   b.outcome = 'fighting'
 }

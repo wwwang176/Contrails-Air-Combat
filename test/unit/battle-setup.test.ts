@@ -622,3 +622,57 @@ describe('玩家陣亡接手僚機（M9 spec §7）', () => {
     expect(player.deaths).toBe(0)
   })
 })
+
+describe('R 重開的完整復原（M9 spec §8）', () => {
+  it('玩家回到開局座位，被接手過的座位還給 AI', () => {
+    const controller = new Idle()
+    const b = createBattle(controller, DEFAULT_BATTLE, 3)
+    const seat = b.playerSeat
+    // 【僚機是同分隊的下一位，不是 blue[1]】玩家是正中央分隊的長機
+    const wingSeat = playerFlight(b)!.members[1]!
+    b.world.applyDamage(b.player, 99999, 'fuselage', b.red[0]!)
+    for (let i = 0; i < Math.ceil(TAKEOVER_DELAY / DT) + 2; i++) stepBattle(b, DT)
+    expect(b.player.index).toBe(wingSeat)
+
+    resetBattle(b)
+    expect(b.player.index).toBe(seat)
+    expect(b.world.combatants[seat]!.controller).toBe(controller)
+    expect(b.world.combatants[wingSeat]!.controller).toBeInstanceOf(AiController)
+    expect(b.flights.pinned).toBe(seat)
+  })
+
+  it('戰績歸零、結果回到交戰中、接手狀態清空', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    b.world.applyDamage(b.red[0]!, 99999, 'fuselage', b.blue[1]!)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[b.blue[1]!.index]!.kills).toBe(1)
+
+    resetBattle(b)
+    for (const p of b.roster.pilots) {
+      expect(p.kills).toBe(0)
+      expect(p.deaths).toBe(0)
+      expect(p.assists).toBe(0)
+      expect(p.alive).toBe(true)
+    }
+    expect(b.outcome).toBe('fighting')
+    expect(b.takeoverSeat).toBe(-1)
+  })
+
+  it('重開換一批名字', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const before = b.roster.pilots.map((p) => p.name)
+    resetBattle(b, 99)
+    expect(b.roster.pilots.map((p) => p.name)).not.toEqual(before)
+  })
+
+  it('重開清掉傷害紀錄 —— 上一場的擦傷不會變成這一場的助攻', () => {
+    const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
+    const helper = b.blue[2]!
+    const victim = b.red[0]!
+    b.world.applyDamage(victim, 10, 'wingLeft', helper)
+    resetBattle(b)
+    b.world.applyDamage(victim, 99999, 'fuselage', b.blue[1]!)
+    stepBattle(b, DT)
+    expect(b.roster.pilots[helper.index]!.assists).toBe(0)
+  })
+})
