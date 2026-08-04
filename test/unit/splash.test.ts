@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
   createSplashes, splashScale,
-  SPLASH_HEIGHT, SPLASH_LIFE, SPLASH_RADIUS, SPLASH_RISE,
+  SPLASH_HEIGHT, SPLASH_LIFE, SPLASH_RADIUS, SPLASH_RISE, SPLASH_TOP_RATIO,
 } from '../../src/render/splash'
 import { createImpacts, pushImpact } from '../../src/world/events'
 
@@ -91,15 +91,30 @@ describe('createSplashes', () => {
     s.dispose()
   })
 
-  it('半徑是 SPLASH_RADIUS', () => {
+  it('底部的半徑是 SPLASH_RADIUS，頂端收緊', () => {
+    // 【為什麼要收緊】人工驗收的回饋是「太小」，而 4 m 高配 0.25 m 半徑
+    // 是 8:1 的細針 —— 與槍焰同一個成因：細長的東西在畫面上讀起來是
+    // 一條線，不是一個東西。上方收緊之後才像一柱噴起來的水。
     const s = createSplashes(1)
     const pos = s.object.geometry.getAttribute('position')
-    let rMax = 0
+    let bottomR = 0
+    let topR = 0
     for (let i = 0; i < pos.count; i++) {
-      rMax = Math.max(rMax, Math.hypot(pos.getX(i), pos.getZ(i)))
+      const r = Math.hypot(pos.getX(i), pos.getZ(i))
+      // 幾何已經平移成「底面在 y = 0」
+      if (pos.getY(i) < SPLASH_HEIGHT * 0.5) bottomR = Math.max(bottomR, r)
+      else topR = Math.max(topR, r)
     }
-    expect(rMax).toBeCloseTo(SPLASH_RADIUS, 6)
+    expect(bottomR).toBeCloseTo(SPLASH_RADIUS, 6)
+    expect(topR).toBeCloseTo(SPLASH_RADIUS * SPLASH_TOP_RATIO, 6)
+    expect(topR).toBeLessThan(bottomR)
     s.dispose()
+  })
+
+  it('高寬比不會細成一根線', () => {
+    // 12 m / 1.6 m = 7.5:1。原本的 4 m / 0.5 m 是 8:1 但絕對尺寸只有
+    // 四分之一 —— 決定「讀不讀得出來」的是絕對尺寸，比例只是形狀。
+    expect(SPLASH_HEIGHT / (SPLASH_RADIUS * 2)).toBeLessThan(10)
   })
 })
 
@@ -114,8 +129,8 @@ describe('發射與步進（M7 spec §7.1）', () => {
   })
 
   it('底部擺在浪高上，不是固定 y = 0', () => {
-    // 【為什麼】海面振幅 ±2.15 m 而水柱只有 4 m 高 —— 固定在 0 的話，
-    // 波谷上會有半根埋進水裡、波峰上會浮在空中。
+    // 【為什麼】海面振幅 ±2.15 m —— 固定在 0 的話，波谷上會有一截
+    // 埋進水裡、波峰上會整根浮在空中。
     const s = createSplashes(16)
     const e = createImpacts(4)
     pushImpact(e, 10, 0, 20, 0, 1, 0)

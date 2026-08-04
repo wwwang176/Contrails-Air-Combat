@@ -9,13 +9,27 @@ import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
  *
  * 【推導】1920 px、65° 視野下每像素 5.9e-4 rad（見 `tracers.ts`）。
  * 彈丸壽命 1.2 s × 最快初速 887 m/s = 最多飛 1,064 m，所以射手離水柱恆在
- * 1 km 之內；4 m 的柱子在 1 km 上是 6.8 px —— 一定讀得到。**因此不需要
+ * 1 km 之內；12 m 的柱子在 1 km 上是 20 px —— 一定讀得到。**因此不需要
  * 距離剔除**（M7 spec §7.2）。
  */
-export const SPLASH_HEIGHT = 4
+export const SPLASH_HEIGHT = 12
 
-/** 水柱的半徑，m。 */
-export const SPLASH_RADIUS = 0.25
+/**
+ * 水柱底部的半徑，m。
+ *
+ * 【人工驗收之後由 4 m × 0.25 m 改成 12 m × 0.8 m】原本讀起來「太小」，
+ * 而 4 m 高配 0.25 m 半徑是 8:1 的細針 —— 與槍焰同一個成因：**細長的東西
+ * 在畫面上讀起來是一條線，不是一個東西**。現在是 7.5:1，而且上方收緊，
+ * 讀起來是一柱噴起來的水而不是一根白棍。
+ */
+export const SPLASH_RADIUS = 0.8
+
+/**
+ * 頂端相對底部的半徑比。**上方收緊**才像水柱而不是煙囪。
+ *
+ * 收到 0.2 而不是 0：完全收成一點會變成一個尖錐，那是火焰的形狀不是水的。
+ */
+export const SPLASH_TOP_RATIO = 0.2
 
 /** 壽命，s。抽起加落下，看得完一個完整動作。 */
 export const SPLASH_LIFE = 0.5
@@ -31,7 +45,7 @@ export const SPLASH_RISE = 0.3
  */
 export const SPLASH_CAPACITY = 256
 
-const RADIAL_SEGMENTS = 6
+const RADIAL_SEGMENTS = 8
 
 export interface Splashes {
   object: InstancedMesh
@@ -77,7 +91,7 @@ const ZERO = new Vector3(0, 0, 0)
  * 入海水柱 —— **單一** `InstancedMesh` 的環形緩衝。
  *
  * 【為什麼不做逐實例透明度】`InstancedMesh` 的逐實例顏色只有 RGB 沒有
- * alpha，逐實例透明度要自訂著色器。而高度曲線（4 m → 0）本身就完成了
+ * alpha，逐實例透明度要自訂著色器。而高度曲線（12 m → 0）本身就完成了
  * 消失 —— 再加一層透明度只是把同一件事做兩次。
  */
 export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
@@ -91,7 +105,7 @@ export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
   // 【以底面為原點】以中心為原點的話，縮放 Y 會讓柱子從中間往兩邊長，
   // 下半截埋進水裡。
   const geometry = new CylinderGeometry(
-    SPLASH_RADIUS, SPLASH_RADIUS, SPLASH_HEIGHT, RADIAL_SEGMENTS, 1, true,
+    SPLASH_RADIUS * SPLASH_TOP_RATIO, SPLASH_RADIUS, SPLASH_HEIGHT, RADIAL_SEGMENTS, 1, true,
   )
   geometry.translate(0, SPLASH_HEIGHT / 2, 0)
 

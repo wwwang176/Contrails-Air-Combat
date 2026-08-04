@@ -1,6 +1,6 @@
 import {
-  AdditiveBlending, Color, CylinderGeometry, DynamicDrawUsage, InstancedMesh,
-  Matrix4, MeshBasicMaterial, Quaternion, Vector3,
+  AdditiveBlending, BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage,
+  InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
 import { MAX_MOUNTS, mountDirection } from '../weapons/types'
 import { FLASH_SECONDS } from '../world/World'
@@ -14,18 +14,21 @@ import type { Combatant } from '../world/World'
  * 的先例），推翻的理由是那個訊號已經有人扛了：一條曳光彈在 1 km 上仍有
  * 24 px 長。兩個訊號回答同一個問題正是要避免的事。
  *
- * 所以槍焰是**近距離的裝飾**，300 m 上 3.4 px、1 km 上 1.0 px。
+ * 所以槍焰是**近距離的裝飾**：1.2 m 長在 300 m 上是 6.8 px、1 km 上 2.0 px。
  */
-export const MUZZLE_LENGTH = 0.6
+export const MUZZLE_LENGTH = 1.2
 
-/** 槍焰底端（貼著槍口那一端）的半徑，m。 */
-export const MUZZLE_RADIUS = 0.12
+/**
+ * 十字的半寬（貼著槍口那一端），m。整個十字跨度是它的兩倍。
+ *
+ * 【人工驗收之後由 0.12 m 半徑的錐改成 0.45 m 半寬的十字】原本讀起來像
+ * 一根細針。在第三人稱距離（約 30 m）上，0.6 m 長是 38 px 而 0.12 m 半徑
+ * 只有 8 px 寬 —— **「太小」的成因是寬度不是長度**。
+ */
+export const MUZZLE_HALF_WIDTH = 0.45
 
-/** 頭端相對底端的半徑比。錐狀讓它讀得出方向。 */
-const MUZZLE_TAPER = 0.25
-
-/** 稜柱的側面數。與曳光彈同一個理由：發光的小東西，多面數看不出差別。 */
-const RADIAL_SEGMENTS = 5
+/** 尖端相對根部的寬度比。收尖讓它讀得出方向，也讓它像火舌而不是木板。 */
+const MUZZLE_TIP_RATIO = 0.15
 
 export interface Muzzles {
   object: InstancedMesh
@@ -41,6 +44,39 @@ export interface Muzzles {
     quaternions: readonly Quaternion[],
   ): void
   dispose(): void
+}
+
+/**
+ * 十字火焰：兩片互相垂直、都包含槍管軸（+Z）的梯形，根部貼在槍口。
+ *
+ * 【為什麼是十字而不是錐，也不是廣告板】
+ * - **廣告板**恆面向相機，從正側面看槍焰會是一個圓片而不是一條火舌。
+ * - **錐**（M7 初版）在世界座標裡有方向，但它的橫截面是圓的，寬度受限於
+ *   半徑；人工驗收的回饋是「太小」，而根源是**寬**不是長 —— 0.12 m 半徑
+ *   在第三人稱距離只有 8 px。
+ * - **十字**正面看是一個十字閃、側面看是一片火舌，**沒有任何角度會退化成
+ *   一個圓片或一條線**。那正是當初否決廣告板的理由，十字比錐更徹底地
+ *   滿足它，而且寬度可以自由加大而不必把整個東西吹成一顆球。
+ *
+ * 兩片 × 兩個三角形 = 4 個三角形，滿編 40 架 × 8 管是 1,280 個 —— 與曳光彈
+ * 同一個量級。材質是 `DoubleSide`，因為梯形是平的、兩面都要看得見。
+ */
+function crossFlare(): BufferGeometry {
+  const w = MUZZLE_HALF_WIDTH
+  const t = w * MUZZLE_TIP_RATIO
+  const l = MUZZLE_LENGTH
+  // 每片兩個三角形；非索引，12 個頂點
+  const v = new Float32Array([
+    // 片一：XZ 平面
+    -w, 0, 0, w, 0, 0, t, 0, l,
+    -w, 0, 0, t, 0, l, -t, 0, l,
+    // 片二：YZ 平面
+    0, -w, 0, 0, w, 0, 0, t, l,
+    0, -w, 0, 0, t, l, 0, -t, l,
+  ])
+  const g = new BufferGeometry()
+  g.setAttribute('position', new BufferAttribute(v, 3))
+  return g
 }
 
 const UNIT_Z = new Vector3(0, 0, 1)
@@ -60,25 +96,16 @@ const ZERO = new Vector3(0, 0, 0)
  * 位置，而畫面上的飛機畫在**內插後**的位置 —— 200 m/s 下差 0.83 m，
  * 槍焰會相對機身前後抖動接近一個機身長度（M7 spec §2.1）。
  *
- * 【為什麼是錐而不是廣告板】廣告板恆面向相機，從正側面看槍焰會是一個
- * 圓片而不是一條噴出來的火舌。錐狀在世界座標裡有方向，從哪個角度看都對
- * —— 與 `tracers.ts` 選世界空間幾何而不是線段是同一個判斷。
+ * 【幾何是十字而不是廣告板或錐】見 `crossFlare` 的註解。
  *
  * @param aircraftCapacity 最多幾架飛機。實例數是它乘上 `MAX_MOUNTS`
  */
 export function createMuzzles(aircraftCapacity: number): Muzzles {
-  // 高度取 MUZZLE_LENGTH、半徑烘進幾何；rotateX(π/2) 把軸由 +Y 轉到 +Z，
-  // radiusTop 因此落在 +Z 端 —— 所以把細的放在 top，讓粗的那一端貼著槍口。
-  const geometry = new CylinderGeometry(
-    MUZZLE_RADIUS * MUZZLE_TAPER, MUZZLE_RADIUS, MUZZLE_LENGTH, RADIAL_SEGMENTS, 1, true,
-  )
-  geometry.rotateX(Math.PI / 2)
-  // 幾何以中點為原點，往前推半格讓底面貼在槍口上
-  geometry.translate(0, 0, MUZZLE_LENGTH / 2)
+  const geometry = crossFlare()
 
   const material = new MeshBasicMaterial({
     color: 0xffffff, transparent: true, opacity: 0.95,
-    depthWrite: false, blending: AdditiveBlending,
+    depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
   })
 
   const capacity = aircraftCapacity * MAX_MOUNTS
