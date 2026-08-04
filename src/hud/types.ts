@@ -157,8 +157,6 @@ export interface HudFrame {
   flightAlive: number
   /** 玩家分隊的編制員額。`flightAlive` 的分母 */
   flightSize: number
-  /** 重置倒數的剩餘秒數；0 代表戰鬥進行中，不佔版面 */
-  resetCountdown: number
 }
 
 export function createHudFrame(): HudFrame {
@@ -176,7 +174,7 @@ export function createHudFrame(): HudFrame {
     hp: 1000, hpMax: 1000,
     aiFlying: false,
     controlAuthority: 1,
-    blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0, resetCountdown: 0,
+    blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
   }
 }
 

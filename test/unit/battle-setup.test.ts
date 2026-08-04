@@ -247,31 +247,48 @@ describe('aliveCount', () => {
 
 const DT = 1 / 240
 
-describe('全滅與重置', () => {
-  it('雙方都還有人時倒數為 0', () => {
+describe('勝負（M9 spec §8）', () => {
+  it('雙方都還有人時仍在交戰', () => {
     const b = createBattle(new Idle())
     stepBattle(b, DT)
-    expect(b.countdown).toBe(0)
+    expect(b.outcome).toBe('fighting')
   })
 
-  it('一方全滅後開始倒數', () => {
+  it('紅隊全滅 = 勝利', () => {
     const b = createBattle(new Idle())
     for (const c of b.red) c.alive = false
     stepBattle(b, DT)
-    expect(b.countdown).toBeGreaterThan(0)
-    expect(b.countdown).toBeLessThanOrEqual(b.cfg.resetCountdown)
+    expect(b.outcome).toBe('victory')
   })
 
-  it('倒數走完之後整場回到滿編', () => {
+  it('藍隊全滅 = 落敗', () => {
+    const b = createBattle(new Idle())
+    for (const c of b.blue) c.alive = false
+    stepBattle(b, DT)
+    expect(b.outcome).toBe('defeat')
+  })
+
+  it('分出勝負之後不會自己重置', () => {
+    // 【為什麼要守這一條】M5 到 M8 的行為是 3 秒後自動回到滿編。主選單一
+    // 進來那條路徑就必須消失，否則玩家永遠回不到結算畫面。
     const b = createBattle(new Idle())
     for (const c of b.red) c.alive = false
-    const steps = Math.ceil(b.cfg.resetCountdown / DT) + 2
-    for (let i = 0; i < steps; i++) stepBattle(b, DT)
-    expect(aliveCount(b.red)).toBe(b.cfg.perSide)
-    expect(aliveCount(b.blue)).toBe(b.cfg.perSide)
-    expect(b.countdown).toBe(0)
+    for (let i = 0; i < Math.ceil(10 / DT); i++) stepBattle(b, DT)
+    expect(b.outcome).toBe('victory')
+    expect(aliveCount(b.red)).toBe(0)
   })
 
+  it('分出勝負之後結果不再翻轉', () => {
+    const b = createBattle(new Idle())
+    for (const c of b.red) c.alive = false
+    stepBattle(b, DT)
+    for (const c of b.blue) c.alive = false
+    stepBattle(b, DT)
+    expect(b.outcome).toBe('victory')
+  })
+})
+
+describe('重置', () => {
   it('重置把血量、位置、指派板一起清乾淨', () => {
     const b = createBattle(new Idle())
     const spawn = b.red[0]!.aircraft.state.position.clone()
