@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
 import { tumble } from './tumble'
-import { WRECK_SMOKE_INTERVAL, smokePuffs, smokeTimer } from './smoke'
+import { WRECK_SMOKE_INTERVAL, WRECK_SMOKE_SECONDS, smokePuffs, smokeTimer } from './smoke'
 import { lowestPoint } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HitBox } from '../world/hit'
@@ -212,10 +212,16 @@ export function createWrecks(
         live++
 
         // 【冒煙只在水面上】沉下去之後看不見，繼續發射只是白費池子
-        const puffs = smokePuffs(s.timer, dt, WRECK_SMOKE_INTERVAL)
-        s.timer = smokeTimer(s.timer, dt, WRECK_SMOKE_INTERVAL)
-        for (let k = 0; k < puffs; k++) {
-          pushImpact(smokeEvents, g.position.x, g.position.y, g.position.z, 0, 1, 0)
+        //
+        // 【而且只在前 WRECK_SMOKE_SECONDS 秒】殘骸活 120 s、從 4,000 m
+        // 掉到海面要三十秒以上 —— 整段都冒的話天空最後會被一堆看不到頭的
+        // 煙柱塞滿，那已經不是「剛剛有人被打下來」的訊號了
+        if (s.age < WRECK_SMOKE_SECONDS) {
+          const puffs = smokePuffs(s.timer, dt, WRECK_SMOKE_INTERVAL)
+          s.timer = smokeTimer(s.timer, dt, WRECK_SMOKE_INTERVAL)
+          for (let k = 0; k < puffs; k++) {
+            pushImpact(smokeEvents, g.position.x, g.position.y, g.position.z, 0, 1, 0)
+          }
         }
 
         // 【入水判定用 hitBox 的角點】殘骸是翻滾的，翼尖會比重心早很多碰到

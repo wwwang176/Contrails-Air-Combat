@@ -6,6 +6,7 @@ import {
   WRECK_SPLASH_RADIUS, WRECK_TERMINAL,
 } from '../../src/render/wrecks'
 import type { AircraftModel } from '../../src/render/geometry/buildAircraft'
+import { WRECK_SMOKE_SECONDS } from '../../src/render/smoke'
 import { P51D } from '../../src/specs/p51d'
 
 const FLAT = (): number => 0
@@ -244,5 +245,37 @@ describe('殘骸入水（M8 spec §9）', () => {
     for (let i = 0; i < 7200; i++) w.step(1 / 60, DEEP, 0)
     expect(Number.isFinite(f.model.group.position.length())).toBe(true)
     expect(Number.isFinite(f.model.group.quaternion.length())).toBe(true)
+  })
+})
+
+describe('冒煙的時間上限（人工驗收裁決）', () => {
+  it('超過 WRECK_SMOKE_SECONDS 之後就不再冒煙，即使還在空中', () => {
+    // 【為什麼要有上限】殘骸的壽命是 120 s（WRECK_MAX_LIFE），從 4,000 m
+    // 掉到海面要三十秒以上。整段都冒煙的話，一場 20v20 的天空最後會被
+    // 一堆長得看不到頭的煙柱塞滿，而那不是「剛被打下來」的訊號 ——
+    // 專案負責人裁決：最多 4 秒。
+    const w = createWrecks(4, () => {})
+    const f = fakeModel()
+    f.model.group.position.set(0, 4000, 0)
+    w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
+
+    // DEEP 讓它永遠碰不到水 —— 這一條要驗的是時間上限，不是入水
+    let emitted = 0
+    for (let t = 0; t < WRECK_SMOKE_SECONDS - 0.5; t += 0.5) {
+      w.step(0.5, DEEP, 0)
+      emitted += w.smokeEvents.count
+    }
+    expect(emitted).toBeGreaterThan(0)
+
+    // 跨過上限之後
+    w.step(1, DEEP, 0)
+    w.step(0.5, DEEP, 0)
+    expect(w.smokeEvents.count).toBe(0)
+    w.step(5, DEEP, 0)
+    expect(w.smokeEvents.count).toBe(0)
+  })
+
+  it('上限是 4 秒', () => {
+    expect(WRECK_SMOKE_SECONDS).toBe(4)
   })
 })
