@@ -110,6 +110,8 @@ export interface Splashes {
     time: number,
   ): void
   step(dt: number): void
+  /** 全部歸零。換一場戰鬥時呼叫 —— 上一場的水柱不該留在新的一場裡 */
+  reset(): void
   dispose(): void
 }
 
@@ -268,6 +270,15 @@ export function createSplashes(capacity: number = SPLASH_CAPACITY): Splashes {
         M.compose(POS, ROT.identity(), SCALE)
         object.setMatrixAt(i, M)
       }
+      object.instanceMatrix.needsUpdate = true
+    },
+
+    reset(): void {
+      age.fill(Infinity)
+      live = 0
+      next = 0
+      M.compose(ZERO, ROT.identity(), ZERO)
+      for (let i = 0; i < capacity; i++) object.setMatrixAt(i, M)
       object.instanceMatrix.needsUpdate = true
     },
 

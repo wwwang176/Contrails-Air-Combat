@@ -62,6 +62,8 @@ export interface Sparks {
   emit(events: ImpactEvents, cameraX: number, cameraY: number, cameraZ: number): void
   /** 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number): void
+  /** 全部歸零。換一場戰鬥時呼叫 —— 上一場的火花不該留在新的一場裡 */
+  reset(): void
   dispose(): void
 }
 
@@ -103,8 +105,13 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
   const vx = new Float32Array(capacity)
   const vy = new Float32Array(capacity)
   const vz = new Float32Array(capacity)
-  // 【起始壽命設滿】等於「一出生就是死的」，不必另外一個 alive 陣列
-  const age = new Float32Array(capacity).fill(SPARK_LIFE)
+  // 【起始年齡設無限大】等於「一出生就是死的」，不必另外一個 alive 陣列。
+  //
+  // 【為什麼是 Infinity 而不是 SPARK_LIFE】float32 存不下的常數在來回轉換
+  // 之後可能比它自己小，於是 `age >= SPARK_LIFE` 一開始就是 false，整池被
+  // 當成活的（`splash.ts` 的註解記著這個坑）。0.2 剛好轉上去所以現況正確，
+  // 但那是巧合 —— Infinity 沒有這個問題。
+  const age = new Float32Array(capacity).fill(Infinity)
   let next = 0
   let live = 0
 
@@ -220,6 +227,15 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
       }
       object.instanceMatrix.needsUpdate = true
       if (object.instanceColor) object.instanceColor.needsUpdate = true
+    },
+
+    reset(): void {
+      age.fill(Infinity)
+      live = 0
+      next = 0
+      M.compose(ZERO, ROT.identity(), ZERO)
+      for (let i = 0; i < capacity; i++) object.setMatrixAt(i, M)
+      object.instanceMatrix.needsUpdate = true
     },
 
     dispose(): void {

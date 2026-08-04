@@ -121,6 +121,8 @@ export interface Debris {
   emit(events: KillEvents, colorOf: (index: number) => number): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number, heightAt: HeightField, time: number): void
+  /** 全部歸零。換一場戰鬥時呼叫 —— 上一場的零件不該留在新的一場裡 */
+  reset(): void
   dispose(): void
 }
 
@@ -320,6 +322,15 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         object.setMatrixAt(i, M)
       }
       object.instanceMatrix.needsUpdate = true
+    },
+
+    reset(): void {
+      for (let i = 0; i < capacity; i++) kill(i)
+      live = 0
+      next = 0
+      object.instanceMatrix.needsUpdate = true
+      clearImpacts(smokeEvents)
+      clearImpacts(sprayEvents)
     },
 
     dispose(): void {
