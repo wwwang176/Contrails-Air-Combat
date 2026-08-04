@@ -284,3 +284,51 @@ describe('TAB 記分板（M9 spec §9.4）', () => {
     expect(prevented).toBe(1)
   })
 })
+
+describe('指標鎖定掉了（M10 spec §8.2）', () => {
+  it('鎖定期間為假，鎖定消失的那一次 tick 為真', () => {
+    // 【為什麼不是綁 Escape 的 keydown】指標鎖定期間按 ESC，瀏覽器會解除
+    // 鎖定並**吃掉那個鍵盤事件**。暫停必須由「鎖定沒了」觸發。
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(false)
+
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(true)
+  })
+
+  it('是單幀旗標 —— 呼叫端清掉之後不會自己又變真', () => {
+    // 【為什麼要守】沒有邊緣偵測的話，指標鎖定沒回來的每一幀都會再送一次
+    // 「暫停」，而玩家按了「繼續」也會立刻被彈回暫停選單。
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(true)
+    state.pointerLockLost = false
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(false)
+  })
+
+  it('鎖定回來之後再掉一次會再送一次', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    state.pointerLockLost = false
+    dom.doc.pointerLockElement = dom.canvas
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(false)
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    expect(state.pointerLockLost).toBe(true)
+  })
+})
