@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Color, InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
+import { Color, InstancedMesh, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from 'three'
 import {
   createSmoke, emitSmoke, smokeColor, smokePuffs, smokeTimer,
   DEBRIS_SMOKE_COUNT, DEBRIS_SMOKE_INTERVAL, SMOKE_ALPHA, SMOKE_DRAG,
@@ -47,13 +47,27 @@ describe('smokePuffs / smokeTimer —— 發射器計時', () => {
 
 describe('smokeColor', () => {
   it('全程是深灰 —— 黑煙不變色，變的是 alpha', () => {
+    // 【在 sRGB 空間讀回】0x1a1a1a 是 sRGB 的寫法，而 Color 內部存線性值。
+    // 讀 c.r 會讀到 0.0103，那個數字看不出「這是不是 0x1a1a1a」。
     const c = new Color()
+    const v = { r: 0, g: 0, b: 0 }
     for (let i = 0; i <= 10; i++) {
       smokeColor(i / 10, c)
-      expect(c.r).toBeLessThan(0.2)
-      expect(c.r).toBeCloseTo(c.g, 6)
-      expect(c.g).toBeCloseTo(c.b, 6)
+      c.getRGB(v, SRGBColorSpace)
+      expect(v.r).toBeLessThan(0.2)
+      expect(v.r).toBeCloseTo(v.g, 6)
+      expect(v.g).toBeCloseTo(v.b, 6)
     }
+  })
+
+  it('確實比深藍海面暗 —— 「黑煙」必須是黑的', () => {
+    // 【為什麼要有這條】初版用 setRGB 寫線性值，輸出變成約 0x5c 的中灰，
+    // 比海面（0x1d3f5c）還亮 —— 在試驗場上看起來是白霧不是黑煙。這條把
+    // 那個方向釘死：煙的亮度必須低於海面。
+    const c = new Color()
+    smokeColor(0, c)
+    const sea = new Color(0x1d3f5c)
+    expect(c.r + c.g + c.b).toBeLessThan(sea.r + sea.g + sea.b)
   })
 })
 

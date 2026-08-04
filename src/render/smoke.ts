@@ -51,14 +51,23 @@ export const DEBRIS_SMOKE_COUNT = 4
  */
 export const SMOKE_CAPACITY = 3072
 
+/** 煙的顏色，**sRGB**。 */
+export const SMOKE_COLOR = 0x1a1a1a
+
 /**
  * 年齡比例 → 顏色。**常數深灰。**
  *
  * 【為什麼不隨年齡變色】煙的消失靠 alpha，不靠顏色。往黑淡在亮天空上方向
  * 是反的（愈淡愈明顯），往白淡則會變成蒸汽（M8 spec §4.3）。
+ *
+ * 【為什麼是 `setHex` 而不是 `setRGB`】`setRGB` 寫的是**線性**值，而
+ * `0x1a1a1a` 是 sRGB 的寫法。初版寫成 `setRGB(0.102, ...)`，three 輸出時
+ * 把那個線性值轉成 sRGB 變成約 `0x5c` 的中灰 —— **比深藍色的海面還亮**，
+ * 方向完全相反。在試驗場上一眼就看得出來：那不是黑煙，是白霧。
+ * `setHex` 預設就是 sRGB 輸入，會做該做的轉換。
  */
 export function smokeColor(_t: number, out: Color): void {
-  out.setRGB(0.102, 0.102, 0.102)
+  out.setHex(SMOKE_COLOR)
 }
 
 /**

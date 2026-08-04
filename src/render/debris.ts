@@ -9,12 +9,24 @@ import { KILL_STRIDE, type KillEvents } from '../world/kills'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HeightField } from '../aircraft/crash'
 
-/** 一次擊墜噴幾片。 */
-export const DEBRIS_COUNT = 12
+/**
+ * 一次擊墜噴幾片。
+ *
+ * 【人工驗收後由 12 改成 36】在試驗場上 12 片 0.8–2.0 m 的方塊讀起來像
+ * 「飛機掉了幾塊板子」而不是解體 —— 專案負責人裁決縮小五倍、數量三倍。
+ * 小而多才像碎片。
+ */
+export const DEBRIS_COUNT = 36
 
-/** 最小／最大邊長，m。一架 10 m 的飛機解體，碎片本來就有大有小。 */
-export const DEBRIS_SIZE_MIN = 0.8
-export const DEBRIS_SIZE_MAX = 2.0
+/**
+ * 最小／最大邊長，m。
+ *
+ * 【人工驗收後由 0.8–2.0 縮小五倍】原本一片碎片有機翼弦長的一半那麼大，
+ * 在試驗場上與機體並排看非常突兀。現在最大的一片 0.4 m 約是機身直徑的
+ * 三分之一，才是碎片該有的尺度。
+ */
+export const DEBRIS_SIZE_MIN = 0.16
+export const DEBRIS_SIZE_MAX = 0.4
 
 /** 散射的初速，m/s。疊在母機速度之上。 */
 export const DEBRIS_SPEED = 20
@@ -36,7 +48,7 @@ export const DEBRIS_SPIN = Math.PI
 /** 壽命上限，s。海面網格只有 10 km 見方，飄出去的零件永遠不會入水。 */
 export const DEBRIS_MAX_LIFE = 40
 
-/** 池子大小。40 架 × 12 片。 */
+/** 池子大小。40 架 × 36 片 = 1,440。三角形 1,440 × 12 ≈ 17,000。 */
 export const DEBRIS_CAPACITY = 40 * DEBRIS_COUNT
 
 /** 重力，m/s²。與 `physics/` 用的是同一個值。 */
@@ -173,7 +185,7 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
           ry[i] = (hash01(seed * 3 + 1) * 2 - 1) * DEBRIS_SPIN
           rz[i] = (hash01(seed * 3 + 2) * 2 - 1) * DEBRIS_SPIN
 
-          // 【前幾片是大的，而且只有它們冒煙】12 條煙會糊成一團，讀不出
+          // 【前幾片是大的，而且只有它們冒煙】36 條煙會糊成一片，讀不出
           // 「零件在散開」（M8 spec §6.1）
           const big = k < DEBRIS_SMOKE_COUNT
           const h = hash01(seed * 5 + 4)

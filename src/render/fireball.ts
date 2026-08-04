@@ -1,4 +1,4 @@
-import { AdditiveBlending, Color, Vector3 } from 'three'
+import { AdditiveBlending, Color, SRGBColorSpace, Vector3 } from 'three'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
@@ -39,7 +39,7 @@ export const FIREBALL_DRAG = 4
 /** 池子大小。40 架 × 12 顆 = 480，512 有餘裕。 */
 export const FIREBALL_CAPACITY = 512
 
-/** 三個色標：白熱 → 橘 → 暗紅。 */
+/** 三個色標：白熱 → 橘 → 暗紅。數值是 **sRGB**，見 `fireballColor`。 */
 const HOT = { r: 1.0, g: 0.95, b: 0.80 }
 const MID = { r: 1.0, g: 0.45, b: 0.05 }
 const COLD = { r: 0.25, g: 0.02, b: 0.0 }
@@ -53,6 +53,10 @@ const COLD = { r: 0.25, g: 0.02, b: 0.0 }
  *
  * 【淡出交給 alpha】加法混合下 `blendSrc` 是 `SrcAlphaFactor`，所以
  * `particleAlpha` 的線性淡出對加法混合一樣有效（M8 spec §5）。
+ *
+ * 【色標是 sRGB，所以要指定色彩空間】`setRGB` 預設寫的是**線性**值。把
+ * 「橘色 (1, .45, .05)」當線性值寫進去，輸出會變成 sRGB 的 (1, .70, .25)
+ * ——一個發白的黃，不是橘。黑煙踩過同一個坑（見 `smokeColor`）。
  */
 export function fireballColor(t: number, out: Color): void {
   if (t <= 0.5) {
@@ -61,6 +65,7 @@ export function fireballColor(t: number, out: Color): void {
       HOT.r + (MID.r - HOT.r) * k,
       HOT.g + (MID.g - HOT.g) * k,
       HOT.b + (MID.b - HOT.b) * k,
+      SRGBColorSpace,
     )
     return
   }
@@ -69,6 +74,7 @@ export function fireballColor(t: number, out: Color): void {
     MID.r + (COLD.r - MID.r) * k,
     MID.g + (COLD.g - MID.g) * k,
     MID.b + (COLD.b - MID.b) * k,
+    SRGBColorSpace,
   )
 }
 

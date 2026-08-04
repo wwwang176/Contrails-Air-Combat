@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Color, InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
+import { Color, InstancedMesh, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from 'three'
 import {
   createFireball, emitFireball, fireballColor,
   FIREBALL_COUNT, FIREBALL_INHERIT, FIREBALL_LIFE, FIREBALL_SIZE_FROM, FIREBALL_SPEED,
@@ -16,27 +16,35 @@ function positionOf(mesh: InstancedMesh, i: number): Vector3 {
 
 describe('fireballColor —— 白到橘到暗紅（M8 spec §5）', () => {
   const c = new Color()
+  const srgb = { r: 0, g: 0, b: 0 }
+
+  /**
+   * 【為什麼要在 sRGB 空間讀回】色標是用 sRGB 寫的（橘色 (1,.45,.05)），而
+   * `Color` 內部存線性值。直接讀 `c.r/c.g/c.b` 讀到的是轉換後的線性值，
+   * 斷言就會綁在內部表示法上而不是作者的意圖。
+   */
+  const read = (t: number) => { fireballColor(t, c); c.getRGB(srgb, SRGBColorSpace); return srgb }
 
   it('出生是近白的熱色', () => {
-    fireballColor(0, c)
-    expect(c.r).toBeCloseTo(1, 3)
-    expect(c.g).toBeGreaterThan(0.9)
-    expect(c.b).toBeGreaterThan(0.7)
+    const v = read(0)
+    expect(v.r).toBeCloseTo(1, 3)
+    expect(v.g).toBeGreaterThan(0.9)
+    expect(v.b).toBeGreaterThan(0.7)
   })
 
   it('中段是橘的 —— 紅遠大於綠、綠遠大於藍', () => {
     // 【為什麼不能用兩點內插】白 (1,.95,.8) 直接線性內插到暗紅 (.25,.02,0)，
     // 中點是 (.63,.49,.4) —— 那是脫色的土黃，不是火。
-    fireballColor(0.5, c)
-    expect(c.r).toBeGreaterThan(c.g * 1.8)
-    expect(c.g).toBeGreaterThan(c.b * 3)
+    const v = read(0.5)
+    expect(v.r).toBeGreaterThan(v.g * 1.8)
+    expect(v.g).toBeGreaterThan(v.b * 3)
   })
 
   it('末段是暗紅', () => {
-    fireballColor(1, c)
-    expect(c.r).toBeLessThan(0.35)
-    expect(c.g).toBeLessThan(0.1)
-    expect(c.b).toBeLessThan(0.05)
+    const v = read(1)
+    expect(v.r).toBeLessThan(0.35)
+    expect(v.g).toBeLessThan(0.1)
+    expect(v.b).toBeLessThan(0.05)
   })
 
   it('亮度全程單調遞減 —— 火球只會變暗不會回頭', () => {
@@ -44,8 +52,8 @@ describe('fireballColor —— 白到橘到暗紅（M8 spec §5）', () => {
     // 挑的上界
     let prev = Infinity
     for (let i = 0; i <= 20; i++) {
-      fireballColor(i / 20, c)
-      const lum = c.r + c.g + c.b
+      const v = read(i / 20)
+      const lum = v.r + v.g + v.b
       expect(lum).toBeLessThanOrEqual(prev + 1e-9)
       prev = lum
     }
