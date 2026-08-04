@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
   createSplashes, splashScale,
-  SPLASH_HEIGHT, SPLASH_LIFE, SPLASH_RADIUS, SPLASH_RISE, SPLASH_TOP_RATIO,
+  SPLASH_FALL_SECONDS, SPLASH_HEIGHT, SPLASH_JET_SECONDS, SPLASH_LIFE,
+  SPLASH_RADIUS, SPLASH_TOP_RATIO,
 } from '../../src/render/splash'
 import { createImpacts, pushImpact } from '../../src/world/events'
 
@@ -28,23 +29,22 @@ describe('splashScale —— 抽起再落下（M7 spec §7.1）', () => {
 
   it('剛出生是 0，抽到頂是 1', () => {
     expect(splashScale(0)).toBe(0)
-    expect(splashScale(SPLASH_LIFE * SPLASH_RISE)).toBeCloseTo(1, 9)
+    expect(splashScale(SPLASH_JET_SECONDS)).toBeCloseTo(1, 9)
   })
 
   it('前段單調上升', () => {
     let prev = -1
     for (let i = 0; i <= 10; i++) {
-      const v = splashScale((SPLASH_LIFE * SPLASH_RISE * i) / 10)
+      const v = splashScale((SPLASH_JET_SECONDS * i) / 10)
       expect(v).toBeGreaterThanOrEqual(prev)
       prev = v
     }
   })
 
   it('後段單調下降到 0', () => {
-    const start = SPLASH_LIFE * SPLASH_RISE
     let prev = 2
     for (let i = 0; i <= 10; i++) {
-      const v = splashScale(start + ((SPLASH_LIFE - start) * i) / 10)
+      const v = splashScale(SPLASH_JET_SECONDS + (SPLASH_FALL_SECONDS * i) / 10)
       expect(v).toBeLessThanOrEqual(prev)
       prev = v
     }
@@ -52,8 +52,19 @@ describe('splashScale —— 抽起再落下（M7 spec §7.1）', () => {
   })
 
   it('抽起比落下快 —— 水柱是「噴」出來的', () => {
-    // 前 30% 的壽命走完全程，後 70% 才落回去
-    expect(SPLASH_RISE).toBeLessThan(0.5)
+    expect(SPLASH_JET_SECONDS).toBeLessThan(SPLASH_FALL_SECONDS)
+  })
+
+  it('落下比自由落體快 —— 實心 mesh 掉得比重力慢會很假', () => {
+    // 【這是水柱唯一一條有物理依據的上界】12 m 自由落體要
+    // √(2h/g) = √(2 × 12 / 9.81) = 1.56 s。水柱不是粒子而是一塊實心
+    // mesh，掉得比重力慢會讀成「一根柱子在下沉」而不是「一團水在塌」。
+    const freeFall = Math.sqrt((2 * SPLASH_HEIGHT) / 9.81)
+    expect(SPLASH_FALL_SECONDS).toBeLessThan(freeFall)
+  })
+
+  it('壽命就是兩段之和 —— 沒有第三個要對齊的數字', () => {
+    expect(SPLASH_LIFE).toBeCloseTo(SPLASH_JET_SECONDS + SPLASH_FALL_SECONDS, 9)
   })
 })
 
@@ -135,7 +146,7 @@ describe('發射與步進（M7 spec §7.1）', () => {
     const e = createImpacts(4)
     pushImpact(e, 10, 0, 20, 0, 1, 0)
     s.emit(e, () => 1.75, 0)
-    s.step(SPLASH_LIFE * SPLASH_RISE)
+    s.step(SPLASH_JET_SECONDS)
     const p = instance(s.object, 0).position
     expect(p.x).toBeCloseTo(10, 6)
     expect(p.y).toBeCloseTo(1.75, 6)
@@ -149,7 +160,7 @@ describe('發射與步進（M7 spec §7.1）', () => {
     pushImpact(e, 0, 0, 0, 0, 1, 0)
     s.emit(e, FLAT, 0)
 
-    s.step(SPLASH_LIFE * SPLASH_RISE)
+    s.step(SPLASH_JET_SECONDS)
     const peak = instance(s.object, 0).scale.y
     expect(peak).toBeCloseTo(1, 6)
 
@@ -169,7 +180,7 @@ describe('發射與步進（M7 spec §7.1）', () => {
     const e = createImpacts(4)
     pushImpact(e, 0, 0, 0, 0, 1, 0)
     s.emit(e, FLAT, 0)
-    s.step(SPLASH_LIFE * SPLASH_RISE)
+    s.step(SPLASH_JET_SECONDS)
     const q = instance(s.object, 0).quaternion
     expect(q.angleTo(new Quaternion())).toBeCloseTo(0, 9)
     s.dispose()
