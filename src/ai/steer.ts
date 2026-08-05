@@ -733,8 +733,23 @@ export function steerCommand(
   //
   // 【`overshoot` 與 `speedRecover` 不套】它們的優先序高於 `unload`
   // （見 `geometryGate`），拿到那兩個 mode 時就不會是 `unload`。
-  if (mode === 'unload') {
-    shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
+  // 【兩個獨立的理由，都表達成「誤差角乘一個 ≤1 的係數」】
+  //   unloadPull —— 拉太猛會失速嗎（攻角）
+  //   energyPull —— 我付得起這個拉桿嗎（能量）
+  // 兩者互相獨立，都在各自的門檻上等於 1，所以**相乘**之後也在門檻上連續。
+  //
+  // 【`extend` 與 `defend` 不套 energyPull】extend 的瞄準點在速度向量上，往機首
+  // 收會把它拉到速度向量**上方**（大攻角時機首高於航跡）＝命令爬升，與目的
+  // 相反；defend 是這一輪刻意不動的（使用者的訴求是要更會閃，不是更省）。
+  //
+  // 【`overshoot` / `speedRecover` / `planeDegenerate` 兩個都不套】它們的優先序
+  // 高於意圖（見 `geometryGate`），各自在處理一個更急的問題。
+  if (mode === 'normal' || mode === 'unload') {
+    const unload = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
+    const chasing = intent === 'engage' || intent === 'approach' || intent === 'merge'
+    const energy = chasing ? energyPull(sit.cornerRatio, sit.shotInstant, cfg) : 1
+    const factor = unload * energy
+    if (factor < 1) shrinkTowardNose(self, factor, out.aimWorld)
   }
 
   // ── 油門與減速（spec §7.4）────────────────────────────
