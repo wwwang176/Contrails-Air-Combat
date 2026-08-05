@@ -376,15 +376,35 @@ function aimAt(self: Aircraft, other: Aircraft, out: Vector3): void {
 const TT = makeScratch(2)
 
 /**
- * 把機首轉到目標身上所需的時間，s。轉不動時回傳 `Infinity`。
+ * 把**航跡**轉到目標身上所需的時間，s。轉不動時回傳 `Infinity`。
  *
- * 【為什麼用瞬時而不是持續轉彎率】問的是「我多久能把機首指過去」，那是
- * 短時間拉 G 的事，正是瞬時轉彎率的定義。而且 `instantaneousTurnRate`
- * 沒有二分搜尋，比 `sustainedTurnRate` 便宜得多。
+ * 【為什麼用瞬時而不是持續轉彎率】問的是「我多久能轉過去」，那是短時間
+ * 拉 G 的事，正是瞬時轉彎率的定義。而且 `instantaneousTurnRate` 沒有二分
+ * 搜尋，比 `sustainedTurnRate` 便宜得多。
  *
  * 【它是選目標的「代價」項】舊的評分只問「這架敵機有多值得打」，完全
  * 不問「我要花多少代價才打得到」。實測 43% 的新目標在後半球，其中只有
  * 1.7% 咬得到 —— 那 560 秒總共只開了 0.6 秒的火（spec §3.3）。
+ *
+ * 【角度由速度向量量，不是機首，2026-08-05】
+ *
+ * 這個函數**只被選目標消費**（`target.ts` 與 `wingman.ts`），而選目標是
+ * 慢決策 —— 10 Hz 評估、最少停留 1~2 秒。舊版拿瞬時機首當基準，等於把一個
+ * **一秒能甩 75° 的快變量**餵進慢決策。
+ *
+ * 破防（`steer.ts` 的 `defendAim`）正是 75° 的機首甩動，而轉向折扣的權重
+ * 是所有折扣裡最重的（`turnWeight = 2`）。實測加入閃躲之後，20v20 的
+ * A→B→A 換回來由 88 次升到 194 次、長機持有時間貼回 `minDwell` 下限 ——
+ * 前一批壓下去的猶豫大半吐了回去。而破防本身沒有錯，錯的是讓它污染一個
+ * 不該理會瞬態的決策。
+ *
+ * 【速度向量不只是「比較慢」，它本來就是對的問題】選目標問的是「我要不要
+ * 投入去打他」，那取決於**航跡能不能過去**，不是此刻機鼻朝哪。硬機動時
+ * 機首是暫態的、指向一個並不打算久留的方向（滾轉會立刻甩開機首，而航跡
+ * 要等升力積分才轉得過來）；平飛時兩者只差一個攻角，所以既有的量測結論
+ * 不受影響。
+ *
+ * 這與 spec §4.2 的分頻原則同源：**慢的決策要用慢的輸入。**
  *
  * 熱路徑之外（10 Hz），但仍然不配置。不修改 self 與 target。
  */
@@ -395,8 +415,13 @@ export function turnTime(self: Aircraft, target: Aircraft): number {
   if (range <= MIN_RANGE) return 0
   los.divideScalar(range)
 
-  const fwd = TT.v[1]!.copy(FWD).applyQuaternion(self.state.orientation)
-  const angle = Math.acos(clampUnit(fwd.dot(los)))
+  // 航跡方向。速度退化時回頭用機首 —— 靜止的飛機沒有航跡
+  const dir = TT.v[1]!.copy(self.state.velocity)
+  const speed = dir.length()
+  if (speed > MIN_RANGE) dir.divideScalar(speed)
+  else dir.copy(FWD).applyQuaternion(self.state.orientation)
+
+  const angle = Math.acos(clampUnit(dir.dot(los)))
   const rate = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
   return rate > 1e-6 ? angle / rate : Infinity
 }
