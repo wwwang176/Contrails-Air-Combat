@@ -202,27 +202,6 @@ export interface SteerConfig {
   clearanceScale: number
   /** defend 的偏轉角，rad */
   defendOffset: number
-  /**
-   * 能量充足的門檻：`cornerRatio` 高於此值時完全不限制拉桿。
-   *
-   * **起始值，待實測回填。** 掃描範圍 0.9 / 1.0 / 1.1 / 1.25。
-   */
-  pullEase: number
-  /**
-   * 拉桿係數的下限。
-   *
-   * 【為什麼不是 0】能量見底也要保有基本的指向能力，0 等於「沒能量就直線飛」。
-   * 而且低於 `PULL_FLOOR_RATIO` 之後 `extend` 已經接手，這個係數不再主導。
-   *
-   * **起始值，待實測回填。** 掃描範圍 0.3 / 0.5 / 0.7。
-   */
-  pullFloor: number
-  /**
-   * 有射擊解時免除限制的飽和點：`shotInstant` 達此值即完全免除，之間內插。
-   *
-   * 與 `DEFAULT_TARGET.shotRelief` 同值同理由。
-   */
-  pullShotRelief: number
 }
 
 /**
@@ -368,6 +347,55 @@ export interface SteerConfig {
  *      挨不挨打」設計的，那兩件事在 30 秒內就定案；「會不會把自己飛到
  *      地上」則需要 120 秒以上。日後任何動到 `defend` 的改動，都要在
  *      拉長的窗上再看一次。
+ *
+ * ## 已經試過並否決的：依能量狀態限制拉桿量（2026-08-06）
+ *
+ * 起點是一組很有說服力的量測：`approach` 佔三分之一的時間，以 52° 坡度拉
+ * **4.32 G**，每秒燒掉 32 公尺的比能量，而引擎在同樣條件下只給得起 13.6。
+ * 誘導阻力 ∝ n²，所以 4.32 G 的誘導阻力是 1 G 的 18.7 倍。而三道既有的閘門
+ * （`unload` 看攻角、`speedRecover` 看空速、`extendFloorLatch` 看 `cornerRatio`）
+ * 全部在問「我現在安不安全」，沒有一個在問「我付得起這個拉桿嗎」。
+ *
+ * 提案是加一個 `energyPull(cornerRatio, shotInstant)` 係數，經既有的
+ * `shrinkTowardNose` 收小瞄準誤差角（方位不動），套在 engage／approach／merge
+ * 上，有射擊解時免除（比照 `target.ts` 的 `shotRelief`）。
+ *
+ * **實測：過載完全沒有下降，而攻擊產出崩掉。** 1v1 六場 300 秒 + 受控場景
+ * 12 種幾何 120 秒：
+ *
+ * ```
+ * 設定              extend  engage  approach過載  approachPs  splitS  打出傷害
+ * 對照（關掉）        44%     13%       3.59        −19.6      86%     3732
+ * ease1.0 floor0.7   45%     13%       3.74        −21.1      86%     1125
+ * ease1.0 floor0.5   43%     13%       3.59        −19.4      87%     1922
+ * ease1.0 floor0.3   48%     12%       3.80        −22.4      85%     1767
+ * ease0.9 floor0.5   44%     13%       3.67        −20.6      87%     1994
+ * ease1.1 floor0.5   45%     13%       3.74        −21.6      86%     2382
+ * ease1.25 floor0.5  45%     13%       3.72        −21.5      83%     1763
+ * ```
+ *
+ * `engage` 佔比**七行全部是 13%**；過載不降反升；攻擊產出掉 36~70%（事前
+ * 約定的否決線是 15%）。兩條否決條件同時觸發。
+ *
+ * 【為什麼收小誤差角減不了過載 —— 這一條值得記住】
+ *
+ * 指揮儀是 bank-to-turn：**坡度決定過載的下限**（維持航跡需要 `1/cos φ`），
+ * 拉桿量只是在那之上再加。而坡度來自誤差的**方位**，`shrinkTowardNose` 刻意
+ * 不動方位（動了就是 2026-08-05 那個 0.1 秒抖動）。於是收小誤差角只讓飛機
+ * 「指得比較不前面」，坡度一格沒動，過載的下限也就一格沒動 —— 實測 44° 坡度
+ * 對應的 1/cos = 1.39，加上追瞄的拉桿正好落在 3.6~3.8。
+ *
+ * **在 bank-to-turn 的架構下，收小瞄準誤差角無法降低能量消耗。** 要降低就得
+ * 降低坡度，而那等於改方位。這與「破防的力道不能用破防角表達」（見上一筆）
+ * 是同一個結構性事實的兩面。
+ *
+ * 【副作用是純成本】誤差角收小 = 瞄準點落後預瞄點 = 射擊解變少，所以打出的
+ * 傷害腰斬。這一項沒有任何補償。
+ *
+ * 【還沒被否證的方向】真正該減的是**坡度**，也就是「不要用 44° 坡度去追一個
+ * 900 m 外、視線角速度很小的目標」。那要動的是 `engageKnobs`／`aimFromKnobs`
+ * 產生的瞄準**方位**，不是它的大小 —— 而那條路徑上沒有任何現成的機制，
+ * 需要另開一份設計。
  */
 export const DEFAULT_STEER: SteerConfig = {
   overshootRange: 120,
@@ -384,55 +412,6 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   defendOffset: 75 * (Math.PI / 180),
-  pullEase: 1.0,
-  pullFloor: 0.5,
-  pullShotRelief: 0.25,
-}
-
-/**
- * `energyPull` 斜坡的下端。**必須等於 `DEFAULT_RULES.cornerEnter`** —— 那是
- * `extend` 接手的點，係數在該處觸底才與意圖層的分工對齊。
- *
- * 【為什麼不 import DEFAULT_RULES】`steer.ts` 不依賴 `rules.ts` 的設定，那會讓
- * 幾何層反過來吃規則層。耦合由 `test/unit/ai-steer.test.ts` 的一條斷言釘住 ——
- * 兩邊誰先被改都會立刻紅。
- */
-export const PULL_FLOOR_RATIO = 0.75
-
-/**
- * 能量不足時把拉桿量收小，0..1。乘在瞄準誤差角上，**方位一個字都不動**。
- *
- * 【它與 `unloadPull` 管的不是同一件事】`unloadPull` 問「拉太猛會失速嗎」，
- * 這一項問「我付得起這個拉桿嗎」。誘導阻力 ∝ n²，所以 4.32 G 的誘導阻力是
- * 1 G 的 **18.7 倍**。
- *
- * 【它要修的東西】實測 1v1 300 秒六場開局：`approach` 佔三分之一的時間，以
- * 52° 坡度拉 **4.32 G**，每秒燒掉 32 公尺的比能量 —— 而引擎在同樣的高度與速度
- * 下只給得起 13.6。三道既有的閘門（`unload` 看失速裕度、`speedRecover` 看空速、
- * `extendFloorLatch` 看 `cornerRatio`）全部在問「我現在安不安全」，**沒有一個
- * 在問代價**。能量因此一路被燒到見底，而見底時飛機正好又慢又機頭朝上
- * （實測航跡角 +36°），`extend` 只能靠 split-S 翻過去，再花 8 秒與 3 G。
- *
- * 【有射擊解時免除】與 `rules.ts` 的「有槍在手時『比他弱』不是離開的理由」、
- * `target.ts` 的 `shotRelief` 是同一條分野的第三次套用：**預防性的理由讓位給
- * 「現在就打得到」**。用內插而不是布林，避免在門檻上跳變。
- */
-export function energyPull(
-  cornerRatio: number, shotInstant: number, cfg: SteerConfig = DEFAULT_STEER,
-): number {
-  const span = cfg.pullEase - PULL_FLOOR_RATIO
-  let base = 1
-  if (span > 0) {
-    const t = (cornerRatio - PULL_FLOOR_RATIO) / span
-    const c = t < 0 ? 0 : t > 1 ? 1 : t
-    base = cfg.pullFloor + (1 - cfg.pullFloor) * c
-  }
-  if (base >= 1) return 1
-
-  const relief = cfg.pullShotRelief > 0
-    ? Math.min(1, shotInstant / cfg.pullShotRelief)
-    : 0
-  return base + relief * (1 - base)
 }
 
 /**
@@ -733,23 +712,8 @@ export function steerCommand(
   //
   // 【`overshoot` 與 `speedRecover` 不套】它們的優先序高於 `unload`
   // （見 `geometryGate`），拿到那兩個 mode 時就不會是 `unload`。
-  // 【兩個獨立的理由，都表達成「誤差角乘一個 ≤1 的係數」】
-  //   unloadPull —— 拉太猛會失速嗎（攻角）
-  //   energyPull —— 我付得起這個拉桿嗎（能量）
-  // 兩者互相獨立，都在各自的門檻上等於 1，所以**相乘**之後也在門檻上連續。
-  //
-  // 【`extend` 與 `defend` 不套 energyPull】extend 的瞄準點在速度向量上，往機首
-  // 收會把它拉到速度向量**上方**（大攻角時機首高於航跡）＝命令爬升，與目的
-  // 相反；defend 是這一輪刻意不動的（使用者的訴求是要更會閃，不是更省）。
-  //
-  // 【`overshoot` / `speedRecover` / `planeDegenerate` 兩個都不套】它們的優先序
-  // 高於意圖（見 `geometryGate`），各自在處理一個更急的問題。
-  if (mode === 'normal' || mode === 'unload') {
-    const unload = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
-    const chasing = intent === 'engage' || intent === 'approach' || intent === 'merge'
-    const energy = chasing ? energyPull(sit.cornerRatio, sit.shotInstant, cfg) : 1
-    const factor = unload * energy
-    if (factor < 1) shrinkTowardNose(self, factor, out.aimWorld)
+  if (mode === 'unload') {
+    shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
   }
 
   // ── 油門與減速（spec §7.4）────────────────────────────
