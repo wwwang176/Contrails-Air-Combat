@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation, evaluateGeometry } from '../../src/ai/assess'
+import { DEFAULT_RULES } from '../../src/ai/rules'
 import {
-  aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
-  geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
+  aimFromKnobs, buildEngageBasis, createEngageBasis, energyPull, engageKnobs,
+  extendPitchAngle, geometryGate, steerCommand, DEFAULT_STEER, PULL_FLOOR_RATIO,
+  type Knobs,
 } from '../../src/ai/steer'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -497,6 +499,66 @@ describe('aimFromKnobs', () => {
     k.leadLag = -1
     aimFromKnobs(basis, sit, k, out)
     expect(out.angleTo(a)).toBeCloseTo(0, 9)
+  })
+})
+
+/**
+ * 依能量狀態限制拉桿量。
+ *
+ * 【它與 `unloadPull` 管的不是同一件事】`unloadPull` 問「拉太猛會失速嗎」，
+ * 這一項問「我付得起這個拉桿嗎」。誘導阻力 ∝ n²，4.32 G 的誘導阻力是 1 G 的
+ * **18.7 倍** —— 實測 `approach` 以 52° 坡度拉 4.32 G，每秒燒掉 32 公尺比能量，
+ * 而引擎在同樣條件下只給得起 13.6。三道既有閘門（unload／speedRecover／
+ * extendFloorLatch）全部在問「我安不安全」，沒有一個在問代價。
+ */
+describe('依能量狀態限制拉桿', () => {
+  it('斜坡的下端等於 extend 接手的門檻', () => {
+    // 係數在 `extend` 接手的那一點觸底，才與意圖層的分工對齊。
+    // 兩個常數分屬 steer 與 rules，這條斷言把耦合釘住。
+    expect(PULL_FLOOR_RATIO).toBe(DEFAULT_RULES.cornerEnter)
+  })
+
+  it('能量充足時完全不限制', () => {
+    expect(energyPull(DEFAULT_STEER.pullEase, 0)).toBe(1)
+    expect(energyPull(1.5, 0)).toBe(1)
+  })
+
+  it('由 pullEase 線性降到下端的 pullFloor', () => {
+    expect(energyPull(PULL_FLOOR_RATIO, 0)).toBeCloseTo(DEFAULT_STEER.pullFloor, 9)
+    expect(energyPull(PULL_FLOOR_RATIO - 0.2, 0)).toBeCloseTo(DEFAULT_STEER.pullFloor, 9)
+    const mid = energyPull((PULL_FLOOR_RATIO + DEFAULT_STEER.pullEase) / 2, 0)
+    expect(mid).toBeGreaterThan(DEFAULT_STEER.pullFloor)
+    expect(mid).toBeLessThan(1)
+  })
+
+  it('單調不遞減', () => {
+    let prev = -1
+    for (let r = 0.5; r <= 1.3; r += 0.05) {
+      const v = energyPull(r, 0)
+      expect(v, `cornerRatio ${r.toFixed(2)}`).toBeGreaterThanOrEqual(prev)
+      prev = v
+    }
+  })
+
+  /**
+   * 【與 `target.ts` 的 `shotRelief`、`rules.ts` 的「有槍在手」是同一條分野】
+   * 省能量是**預防性**的理由，談的是接下來的交換；「我現在打得到他」是當下
+   * 的產出。預防性的理由讓位。
+   */
+  it('有射擊解時免除限制，而且是內插不是布林', () => {
+    const lo = PULL_FLOOR_RATIO
+    expect(energyPull(lo, DEFAULT_STEER.pullShotRelief)).toBeCloseTo(1, 9)
+    expect(energyPull(lo, DEFAULT_STEER.pullShotRelief * 2)).toBeCloseTo(1, 9)
+    const half = energyPull(lo, DEFAULT_STEER.pullShotRelief / 2)
+    expect(half).toBeGreaterThan(DEFAULT_STEER.pullFloor)
+    expect(half).toBeLessThan(1)
+  })
+
+  it('起始值的合理性', () => {
+    expect(DEFAULT_STEER.pullEase).toBeGreaterThan(PULL_FLOOR_RATIO)
+    expect(DEFAULT_STEER.pullFloor).toBeGreaterThan(0)
+    expect(DEFAULT_STEER.pullFloor).toBeLessThan(1)
+    expect(DEFAULT_STEER.pullShotRelief).toBeGreaterThan(0)
   })
 })
 
