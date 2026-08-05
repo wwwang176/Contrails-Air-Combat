@@ -111,6 +111,13 @@ export interface SteerConfig {
    *
    * 【它量的是攻角不是速度】代數上恆等於 √(CLmax / CL)，所以它回答的是
    * 「我拉得太猛了嗎」。補救是停止拉桿，不是壓機頭。
+   *
+   * 【1.25 → 1.15 是實測逼出來的】舊碼用 1.25，但它與「仰角 > 45°」是
+   * **且**的關係，所以在水平追瞄時形同不存在。拿掉仰角前提之後 1.25 太急：
+   * 戰鬥機在最大轉彎率下按定義就貼著 CLmax，追瞄的硬拉本來就會壓到 1.25
+   * 以下 —— 閘門於是把每一次要害的拉桿都中止掉。實測高能量開局因此由
+   * 「29 秒擊落」退化成「90 秒逾時」，而且能量超支（花 3428 > 開局優勢
+   * 3213）。詳見 `speedRecoverMargin` 的掃描表。
    */
   unloadMargin: number
   /**
@@ -120,6 +127,22 @@ export interface SteerConfig {
    * `且` 讓它在 74° 仰角、速度裕度 1.49 時仍然不動，等到 1.34 才觸發
    * —— 已經 78 m/s 了。速度不足在任何姿態都是問題；俯衝時速度自然高，
    * 不會誤觸發（實測俯衝時觸發 0 次，spec §3.4）。
+   *
+   * 【兩個門檻的定值，2026-08-05 實測】高能量開局（boom-and-zoom）與
+   * 1v1 機動測試 @4000 的三場一起掃：
+   *
+   * ```
+   * speedRecover / unload   高能量開局      belowStall 最差（@4000 三場）
+   *   1.4  / 1.25            timeout 90 s        1.08%
+   *   1.25 / 1.15            blue 31.6 s         0.83%   ← 選定
+   *   1.15 / 1.1             blue 30.2 s         2.33%
+   *   1.4  / 0（關 unload）  blue 31.3 s         1.92%
+   *   0    / 1.25（關 sr）   timeout 90 s        0.08%
+   * ```
+   *
+   * 【責任在 unload 不在這一項】第一列與第五列是關鍵：關掉 `speedRecover`
+   * 仗仍然打不完，關掉 `unload` 就好了 —— 打斷攻擊的是「拉太猛」那一個。
+   * 這一項降到 1.25 是順帶收斂，主要的修正在 `unloadMargin`。
    */
   speedRecoverMargin: number
   /** `speedRecover` 的壓頭角度，rad。正值，實際命令的是它的負值 */
@@ -139,8 +162,8 @@ export interface SteerConfig {
  */
 export const DEFAULT_STEER: SteerConfig = {
   overshootRange: 120,
-  unloadMargin: 1.25,
-  speedRecoverMargin: 1.4,
+  unloadMargin: 1.15,
+  speedRecoverMargin: 1.25,
   // 【起始值，待 Task 10 由實測回填】與安全層的 recoveryPitch（20°）對稱
   speedRecoverPitch: 20 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
