@@ -82,6 +82,41 @@ export interface RuleConfig {
    */
   cornerEnter: number
   cornerExit: number
+  /**
+   * 絕對理由的**豁免門檻**：能量優勢高於此值時，「我飛不動了」不強制脫離。
+   *
+   * 【為什麼絕對理由需要一個與對手有關的豁免】`extend` 的意思是「撤下來把
+   * 能量補回來」。我正高出對手 1500 m、快 80 m/s 時，撤下來補什麼？我缺的
+   * 只是**此刻的速度**，而那由 `steer.ts` 的 `extendPitchAngle` 在不脫離的
+   * 情況下處理（低頭換速度）。
+   *
+   * 【沒有它會怎樣】實測高能量開局：P-51 對 109 轉不贏，唯一贏法是俯衝
+   * 掠襲，而掠襲的拉升段速度本來就會掉 —— 每一次拉起來都被判「我飛不動
+   * 了，撤」，於是每一次攻擊都做到一半放棄。90 秒打不完，花掉 4010 m 比
+   * 能量而開局優勢只有 3213 m：本錢磨光還沒換到東西。
+   *
+   * 【這一條推翻了 M11 spec §4.1 的「與對手無關」】那條裁決要說的是「不要
+   * 用相對量去回答『我現在能做什麼』」，而判準本身（`cornerRatio`）確實仍然
+   * 只問自己。這裡加的是**要不要因此脫離**，那本來就是戰術決定 ——「我有本錢
+   * 就不必撤」與「我還轉不轉得動」是兩個問題。
+   *
+   * 【2000 m 由實測掃出】豁免值必須**高到在混戰中罕見、低到在真正的能量
+   * 優勢開局會生效**：
+   *
+   * ```
+   * floorExempt   1v1 高能量開局      20v20 傷害比（上限 3 倍）
+   *   500          blue 43.9 s         8.4  ✗ 一面倒
+   *  1000          blue 43.9 s         2.66 ✓
+   *  2000          blue 43.9 s         2.70 ✓   ← 選定
+   *  3000          blue 43.9 s         2.70 ✓
+   * ```
+   *
+   * 【500 為什麼會一面倒】20v20 開局雙方同高同速，任何一架先累積到 500 m
+   * 優勢就不再脫離、繼續攻擊、優勢再擴大 —— 強者愈強滾成雪球，傷害比衝到
+   * 8.4 倍。1v1 那一場藍方的開局優勢是 3213 m，所以 500 到 3000 之間對它
+   * 完全沒有差別；取 2000 是為了在混戰裡罕見。
+   */
+  floorExempt: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
   /** engage：timeToMerge 的進入／離開門檻，s */
@@ -106,8 +141,9 @@ export const DEFAULT_RULES: RuleConfig = {
   energyExit: 100,
   turnEnter: -0.02,
   turnExit: -0.01,
-  cornerEnter: 0.65,
-  cornerExit: 0.85,
+  cornerEnter: 0.75,
+  cornerExit: 0.95,
+  floorExempt: 2000,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -248,7 +284,9 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 相對理由（比他弱、轉不贏他）談的是戰術態勢，「拉開夠遠就安全了」成立；
   // 絕對理由（我飛不動了）與距離無關 —— 跑到天邊也不會讓你變得飛得動。
   const shooting = sit.shotInstant > 0
-  if (s.extendFloorLatch) return 'extend'
+  // 【絕對理由的豁免】見 `RuleConfig.floorExempt`：佔著明顯能量優勢時，
+  // 「我飛不動了」不強制脫離 —— 缺的是此刻的速度，低頭換就有，不必跑掉。
+  if (s.extendFloorLatch && sit.energyAdvantage < cfg.floorExempt) return 'extend'
   if (
     !shooting
     && (s.extendEnergyLatch || s.extendTurnLatch)
