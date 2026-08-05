@@ -70,6 +70,9 @@ src/
   world/      World（多機步進）、預瞄解、命中判定、彈丸池、粗篩索引 ← 純函數為主
               events.ts   撞擊事件緩衝（命中點與法線，逐子步排空）
   ai/         態勢評估、意圖仲裁、轉向、開火紀律、安全層、目標選擇  ← 純函數（狀態全在 AiController）
+              assess.ts   態勢量；cornerRatio 回答「我還打得動嗎」、turnTime 回答「轉過去要幾秒」
+              steer.ts    失速的兩種診斷分開處理（沒空速壓機頭、拉太猛才卸載）；extend 俯仰是連續量
+              safety.ts   兩道硬介入：撞地（拉起）優先於失速（壓頭）
               station.ts  站位幾何（長機航跡的水平框）與站位控制器
               wingman.ts  僚機的四級目標優先序：自衛 > 掩護 > 集火 > 歸隊
   battle/     一場 20v20 怎麼開始與結束：生成、存活統計、全滅重置
@@ -112,6 +115,8 @@ src/
 | 低速操控權 實作計畫 | `docs/superpowers/plans/2026-08-03-low-speed-control-authority.md` |
 | M5 多機 設計規格 | `docs/superpowers/specs/2026-08-03-m5-multi-aircraft-design.md` |
 | M5 多機 實作計畫 | `docs/superpowers/plans/2026-08-03-m5-multi-aircraft.md` |
+| AI 四缺陷修補 設計規格 | `docs/superpowers/specs/2026-08-05-ai-combat-fixes-design.md` |
+| AI 四缺陷修補 實作計畫 | `docs/superpowers/plans/2026-08-05-ai-combat-fixes.md` |
 | 幾何流程 | `.claude/skills/aircraft-from-reference/SKILL.md` |
 
 四份規格的人工驗收全部於 **2026-08-03** 由專案負責人在瀏覽器實際操作走完並通過：M1 §3.5（試飛四項）、M2 §3.4（條件 9、10）、M4 §3.4（條件 9–11）、低速操控權 §8.5（條件 7–9）。紀錄的粒度是每份清單一個通過與否，沒有逐項的量化觀察。M4 的門檻回填紀錄在其規格 §16。

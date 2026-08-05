@@ -52,7 +52,9 @@ export interface SafetyConfig {
 }
 
 /**
- * **起始值，待 Task 14 由安全矩陣量測後回填。**
+ * `factor`、`clearance`、`recoveryPitch` 仍是 M4 的起始值。
+ * `stallMargin`、`stallRecoveryPitch` 是 2026-08-05 加的失速硬介入，
+ * 見各欄位註解。
  *
  * `factor` 取 1.5 是因為閉式解假設立刻拉到 nMax，而實際上指揮儀要花時間
  * 滾平與建立過載。`clearance` 取 120 m 是「就算完全水平也不准比這更低」。
@@ -61,9 +63,13 @@ export const DEFAULT_SAFETY: SafetyConfig = {
   factor: 1.5,
   clearance: 120,
   recoveryPitch: 20 * (Math.PI / 180),
-  // 【起始值，待 Task 10 由實測回填】低於瞄準點層的 1.4
+  // 【必須低於瞄準點層的 speedRecoverMargin（1.25）】瞄準點層是技巧、這一層
+  // 是硬限制，硬限制只在技巧失效時才動。有一條單元測試把這個關係釘住。
+  // 實測六場開局的 safetyShare 最差 1.83%（修補前 6.74%）—— 這一層很少動，
+  // 正是它該有的樣子
   stallMargin: 1.1,
-  // 【起始值，待 Task 10 由實測回填】硬限制比上層積極
+  // 【硬限制比上層積極】25° 對 20°。**這一個沒有單獨掃過** —— 它只在瞄準點層
+  // 已經失職之後才生效，而實測那佔不到 2% 的時間，掃它得不到訊號
   stallRecoveryPitch: 25 * (Math.PI / 180),
 }
 

@@ -114,30 +114,33 @@ function battle(): Targeting {
 }
 
 /**
- * **這些是「第二批修補前的現況」，不是目標值。** Task 10 會依實測收緊。
+ * **修補**後**的實測回填值**（2026-08-05，種子 20260805）。
  *
- * 實測（2026-08-05，種子 20260805，第一批失速護欄已完成、第二批尚未開始）：
+ * | 指標       | 修補前  | 修補後  | 門檻   | 方向 |
+ * |------------|--------:|--------:|-------:|------|
+ * | holdMedian |  2.00 s |  1.90 s | ≥ 1.5  | 越大越好 —— 猶豫的反面 |
+ * | rearShare  |  31.1 % |  25.6 % | ≤ 0.30 | 越小越好 —— 掉頭追後方 |
+ * | fireShare  | 0.985 % |  3.70 % | ≥ 0.025| 越大越好 —— 真正的產出 |
+ * | onNose     |  8.76 % | 17.38 % | ≥ 0.12 | 越大越好 —— 咬得住 |
+ * | maxLocks   |       7 |       6 | ≤ 7    | 越小越好 —— 不要圍毆一架 |
  *
- * | 指標       | 實測    | 門檻   | 方向 |
- * |------------|--------:|-------:|------|
- * | holdMedian |  2.00 s | ≥ 1.5  | 越大越好 —— 猶豫的反面 |
- * | rearShare  |  31.1 % | ≤ 0.35 | 越小越好 —— 掉頭追後方 |
- * | fireShare  | 0.985 % | ≥ 0.009| 越大越好 —— 真正的產出 |
- * | onNose     |  8.76 % | ≥ 0.08 | 越大越好 —— 咬得住 |
+ * 【修補前那一欄是「第二批之前」】第一批（失速護欄）已經完成。調查階段
+ * 的原始數字更低（扣扳機 1.6–2.9%、機首在錐內 6.9–26.6%），但那是三批
+ * 都還沒做的狀態，拿來當基準會守著一個已經不存在的行為。
  *
- * 【門檻貼著實測值，不留大餘裕】它們的作用是「不准比現在更糟」。留寬了
- * 就分辨不出某一批把另一批的成果吃掉。這個模擬是決定性的（固定種子、
- * 無亂數輸入），所以貼著界不會間歇性紅燈。
+ * 【`holdMedian` 是唯一沒有改善的】2.00 → 1.90。猶豫本來就不是靠「黏得
+ * 更久」解決的 —— 切換成本讓現任目標天然有黏性，但目標真的變差時仍然
+ * 該換。真正的訊號在 `fireShare`（×3.8）與 `onNose`（×2.0）：換得更準，
+ * 不是換得更少。
  *
- * 【與 spec §3 的調查數字不同是預期內的】調查當時量到扣扳機 1.6–2.9%、
- * 機首在錐內 6.9–26.6%，那是在 Task 2、3 之前。那兩批改了飛行方式，
- * 產出跟著變 —— 基準必須以「現在」為準，否則守的是一個已經不存在的狀態。
+ * 【門檻都低於／高於修補前的值】所以它們不是「把及格線降到現況」——
+ * 修補前的行為在新門檻下 `fireShare` 與 `onNose` 都會紅。
  */
-const BASELINE = {
+const LIMITS = {
   holdMedian: 1.5,
-  rearShare: 0.35,
-  fireShare: 0.009,
-  onNose: 0.08,
+  rearShare: 0.30,
+  fireShare: 0.025,
+  onNose: 0.12,
 }
 
 /**
@@ -157,10 +160,10 @@ const MAX_LOCKS = 7
 describe('AI 目標選擇品質（20v20、150 秒）', () => {
   it('持有時間、後半球比例、產出、鎖定分散', () => {
     const m = battle()
-    expect(m.holdMedian).toBeGreaterThanOrEqual(BASELINE.holdMedian)
-    expect(m.rearShare).toBeLessThanOrEqual(BASELINE.rearShare)
-    expect(m.fireShare).toBeGreaterThanOrEqual(BASELINE.fireShare)
-    expect(m.onNose).toBeGreaterThanOrEqual(BASELINE.onNose)
+    expect(m.holdMedian).toBeGreaterThanOrEqual(LIMITS.holdMedian)
+    expect(m.rearShare).toBeLessThanOrEqual(LIMITS.rearShare)
+    expect(m.fireShare).toBeGreaterThanOrEqual(LIMITS.fireShare)
+    expect(m.onNose).toBeGreaterThanOrEqual(LIMITS.onNose)
     expect(m.maxLocks).toBeLessThanOrEqual(MAX_LOCKS)
   }, 120000)
 })
