@@ -152,20 +152,19 @@ describe('geometryGate', () => {
   })
 
   /**
-   * 【吊機首閘門】目標在高仰角、而我速度不夠時追上去會失速掛在那裡。
-   * 這與平面奇異是**兩件事**：平飛時目標在正上方，速度與視線垂直，
-   * 平面定義得很好——壞的是能量不是幾何。
+   * 【拉太猛】`stallMargin` 代數上恆等於 √(CLmax/CL)，它問的是「我拉得
+   * 太猛了嗎」。補救是停止拉桿讓機首回到速度向量，不是壓機頭。
    */
-  it('目標在高仰角且失速裕度低 → stallGuard', () => {
+  it('失速裕度低 → unload', () => {
     setup([0, 4000, 0], [0, 0, -120], [0, 4800, -200], [0, 0, -120])
-    sit.stallMargin = DEFAULT_STEER.stallGuardMargin * 0.8
-    expect(geometryGate(sit, basis)).toBe('stallGuard')
+    sit.stallMargin = DEFAULT_STEER.unloadMargin * 0.8
+    expect(geometryGate(sit, basis)).toBe('unload')
   })
 
-  it('目標在高仰角但速度充足 → 不觸發 stallGuard', () => {
+  it('兩個裕度都充足 → 不觸發失速閘門', () => {
     setup([0, 4000, 0], [0, 0, -250], [0, 4800, -200], [0, 0, -250])
     sit.stallMargin = 3
-    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+    expect(geometryGate(sit, basis)).toBe('normal')
   })
 
   it('升力方向平行視線 → planeDegenerate', () => {
@@ -174,10 +173,83 @@ describe('geometryGate', () => {
     expect(geometryGate(sit, basis)).toBe('planeDegenerate')
   })
 
-  it('超前的優先序高於吊機首（撞上去比失速嚴重）', () => {
+  it('超前的優先序高於失速（撞上去比失速嚴重）', () => {
     setup([0, 4000, 0], [0, 0, -250], [0, 4050, -50], [0, 0, -150])
-    sit.stallMargin = DEFAULT_STEER.stallGuardMargin * 0.5
+    sit.stallMargin = DEFAULT_STEER.unloadMargin * 0.5
+    sit.speedMargin = DEFAULT_STEER.speedRecoverMargin * 0.5
     expect(geometryGate(sit, basis)).toBe('overshoot')
+  })
+})
+
+describe('失速的兩種診斷', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+
+  /** 一組不觸發任何閘門的態勢 */
+  const clean = (): void => {
+    sit.range = 1000
+    sit.closureRate = 0
+    sit.stallMargin = 2
+    sit.speedMargin = 2
+    basis.verticalDegenerate = false
+  }
+
+  it('速度裕度低 → speedRecover（不管仰角）', () => {
+    clean()
+    sit.speedMargin = DEFAULT_STEER.speedRecoverMargin * 0.9
+    expect(geometryGate(sit, basis)).toBe('speedRecover')
+  })
+
+  it('失速裕度低但速度充足 → unload', () => {
+    clean()
+    sit.stallMargin = DEFAULT_STEER.unloadMargin * 0.9
+    expect(geometryGate(sit, basis)).toBe('unload')
+  })
+
+  it('兩者皆低 → speedRecover 優先（沒速度比拉太猛嚴重）', () => {
+    clean()
+    sit.stallMargin = DEFAULT_STEER.unloadMargin * 0.9
+    sit.speedMargin = DEFAULT_STEER.speedRecoverMargin * 0.9
+    expect(geometryGate(sit, basis)).toBe('speedRecover')
+  })
+
+  /**
+   * 【這一條是缺陷 3 的核心】舊的 `stallGuard` 補救動作是
+   * `unloadAim(self, 0)` —— 瞄準當前速度向量。在「我自己已經吊上去」時
+   * 那個向量正指著天空，命令沿著它飛等於命令繼續爬。實測航跡角 > 45°
+   * 的 52 秒裡，有 38 秒（73%）指令仰角完全等於當前航跡角（spec §3.4）。
+   */
+  it('speedRecover 必須壓機頭，而不是沿著當前速度向量飛', () => {
+    clean()
+    const self = flyer()
+    const target = flyer()
+    // 自機正在 60° 爬升
+    const climb = 60 * (Math.PI / 180)
+    place(self, [0, 4000, 0], [0, 180 * Math.sin(climb), -180 * Math.cos(climb)])
+    place(target, [0, 4600, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    // 【mode 直接傳入，不經過 geometryGate】所以這裡不必再設 speedMargin
+    // —— 要驗的是「拿到這個 mode 之後做什麼」，不是「什麼時候拿到它」
+    steerCommand('engage', 'speedRecover', sit, basis, self, 0, knobs, cmd)
+    const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+    expect(commanded).toBeCloseTo(-DEFAULT_STEER.speedRecoverPitch, 9)
+    expect(commanded).toBeLessThan(0)
+  })
+
+  it('unload 維持既有行為：瞄準當前速度向量', () => {
+    clean()
+    const self = flyer()
+    const target = flyer()
+    const climb = 60 * (Math.PI / 180)
+    place(self, [0, 4000, 0], [0, 180 * Math.sin(climb), -180 * Math.cos(climb)])
+    place(target, [0, 4600, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    expect(Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))).toBeCloseTo(climb, 6)
   })
 })
 
@@ -372,8 +444,9 @@ describe('steerCommand', () => {
   it('任何意圖與模式的組合，aimWorld 都是單位向量', () => {
     scene([0, 4000, -400], [150, 0, -180])
     for (const intent of ['defend', 'merge', 'extend', 'engage', 'approach'] as const) {
-      for (const mode of ['normal', 'overshoot', 'stallGuard', 'planeDegenerate'] as const) {
-        steerCommand(intent, mode, sit, basis, self, k, cmd)
+      for (const mode of
+        ['normal', 'overshoot', 'speedRecover', 'unload', 'planeDegenerate'] as const) {
+        steerCommand(intent, mode, sit, basis, self, 0, k, cmd)
         expect(cmd.aimWorld.length(), `${intent}/${mode}`).toBeCloseTo(1, 9)
       }
     }
@@ -381,14 +454,14 @@ describe('steerCommand', () => {
 
   it('預設是 WEP、不減速', () => {
     scene([0, 4000, -600], [0, 0, -180])
-    steerCommand('approach', 'normal', sit, basis, self, k, cmd)
+    steerCommand('approach', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.throttle).toBe(WEP_THROTTLE)
     expect(cmd.brake).toBe(0)
   })
 
   it('超前閘門 → 減速全開且油門收掉', () => {
     scene([0, 4000, -80], [0, 0, -120])
-    steerCommand('engage', 'overshoot', sit, basis, self, k, cmd)
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, cmd)
     expect(cmd.brake).toBe(1)
     expect(cmd.throttle).toBeLessThan(0.5)
   })
@@ -396,14 +469,14 @@ describe('steerCommand', () => {
   it('速度遠高於角落速度 → 減速（不是靠 VNE 判斷）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 2.5
-    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.brake).toBeGreaterThan(0)
   })
 
   it('角落速度附近不減速', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1.1
-    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.brake).toBe(0)
   })
 
@@ -418,7 +491,7 @@ describe('steerCommand', () => {
   it('extend 的瞄準點貼著自身速度向量（卸載）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.energyAdvantage = 0
-    steerCommand('extend', 'normal', sit, basis, self, k, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(20 * Math.PI / 180)
   })
@@ -426,60 +499,73 @@ describe('steerCommand', () => {
   it('extend 在能量劣勢時帶爬升分量', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.energyAdvantage = -1200
-    steerCommand('extend', 'normal', sit, basis, self, k, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
   })
 
   it('defend 的瞄準點明顯偏離目標方向（破壞他的預瞄解）', () => {
     scene([0, 4000, 300], [0, 0, -180])
-    steerCommand('defend', 'normal', sit, basis, self, k, cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeGreaterThan(45 * Math.PI / 180)
   })
 
   it('planeDegenerate → 退化為純追擊（指著目標，不亂偏）', () => {
     scene([0, 4600, 0], [0, 0, -180])
-    steerCommand('engage', 'planeDegenerate', sit, basis, self, k, cmd)
+    steerCommand('engage', 'planeDegenerate', sit, basis, self, 0, k, cmd)
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeCloseTo(0, 6)
   })
 
-  it('stallGuard → 不追上去，瞄準點回到速度向量附近恢復能量', () => {
+  it('unload → 不追上去，瞄準點回到速度向量附近讓升力係數退回線性段', () => {
     scene([0, 4800, -200], [0, 0, -120])
     sit.stallMargin = 1.1
-    steerCommand('engage', 'stallGuard', sit, basis, self, k, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(basis.losAxis.angleTo(velDir))
   })
 
+  /**
+   * 【speedRecover 與 unload 不同】它主動壓機頭。舊版把兩者合成同一個
+   * mode 並共用 `unloadAim(self, 0)` —— 對「拉太猛」正確，對「沒空速」
+   * 是無操作（spec §5.1）。
+   */
+  it('speedRecover → 壓到速度向量下方', () => {
+    scene([0, 4800, -200], [0, 0, -120])
+    sit.speedMargin = 1.1
+    steerCommand('engage', 'speedRecover', sit, basis, self, 0, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
+  })
+
   it('approach 指向彈道預瞄點', () => {
     scene([0, 4000, -900], [150, 0, -180])
-    steerCommand('approach', 'normal', sit, basis, self, k, cmd)
+    steerCommand('approach', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.aimWorld.angleTo(basis.leadPoint.clone().normalize())).toBeCloseTo(0, 6)
   })
 
   it('不修改 firing —— 開火由 fire.ts 決定', () => {
     scene([0, 4000, -400], [0, 0, -180])
     cmd.firing = true
-    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
     expect(cmd.firing).toBe(true)
   })
 
   it('連續呼叫不配置：一萬次結果一致', () => {
     scene([0, 4000, -400], [150, 0, -180])
-    steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
     const first = cmd.aimWorld.clone()
     for (let i = 0; i < 10000; i++) {
-      steerCommand('engage', 'normal', sit, basis, self, k, cmd)
+      steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
     }
     expect(cmd.aimWorld.equals(first)).toBe(true)
   })
 })
 
-describe('stallGuard 的第二道判準 —— 絕對速度', () => {
+describe('速度判準沒有仰角前提', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
 
-  /** 目標吊在正上方偏前：仰角遠高於 stallGuardElevation。 */
+  /** 目標吊在正上方偏前：仰角很高。 */
   const targetAbove = () => {
     const self = flyer()
     const target = flyer()
@@ -492,78 +578,85 @@ describe('stallGuard 的第二道判準 —— 絕對速度', () => {
   /**
    * 【M4 出貨後抓到的缺陷】垂直爬升時過載趨近 0，而 `Vs ∝ √n` 也跟著縮小，
    * `stallMargin` 於是被撐大——P-51D 實測在 132 km/h 時它讀 4.63，遠高於
-   * 1.25 的門檻。閘門在它最該觸發的場景幾乎不觸發。
+   * 1.25 的門檻。少了 `speedMargin`，閘門在它最該觸發的場景幾乎不觸發。
    */
-  it('過載趨近 0 讓 stallMargin 失效時，速度判準仍然攔得住', () => {
+  it('過載撐大 stallMargin 時，速度判準仍然攔得住', () => {
     targetAbove()
-    sit.stallMargin = 40                                    // 瞎掉的舊判準
-    sit.speedMargin = DEFAULT_STEER.stallGuardSpeed * 0.8    // 但速度真的不夠
-    expect(geometryGate(sit, basis)).toBe('stallGuard')
+    sit.stallMargin = 40                                       // 瞎掉的判準
+    sit.speedMargin = DEFAULT_STEER.speedRecoverMargin * 0.8    // 但速度真的不夠
+    expect(geometryGate(sit, basis)).toBe('speedRecover')
   })
 
-  it('兩個判準是「或」的關係：拉太猛也照樣觸發', () => {
+  it('速度夠但拉太猛 → unload', () => {
     targetAbove()
-    sit.stallMargin = DEFAULT_STEER.stallGuardMargin * 0.8   // 拉太猛
-    sit.speedMargin = 5                                      // 速度很夠
-    expect(geometryGate(sit, basis)).toBe('stallGuard')
+    sit.stallMargin = DEFAULT_STEER.unloadMargin * 0.8
+    sit.speedMargin = 5
+    expect(geometryGate(sit, basis)).toBe('unload')
   })
 
-  it('兩個判準都健康時不觸發', () => {
+  it('兩個判準都健康時都不觸發', () => {
     targetAbove()
     sit.stallMargin = 3
     sit.speedMargin = 5
-    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+    const mode = geometryGate(sit, basis)
+    expect(mode).not.toBe('speedRecover')
+    expect(mode).not.toBe('unload')
   })
 
-  it('目標不在高仰角、自己也沒在爬升時，速度再低也不觸發', () => {
+  /**
+   * 【這一條的斷言與舊版相反，那正是缺陷 3】舊閘門要求「目標仰角 > 45°
+   * **或**自己航跡角 > 45°」才可能觸發，於是在同一空層平飛追擊時，速度掉
+   * 到 1G 失速速度的一半也一次都不動。實測 74° 仰角、速度裕度 1.49 時仍然
+   * 不動，等到 1.34 才觸發 —— 已經 78 m/s 了。
+   *
+   * **速度不足在任何姿態都是問題**，仰角前提整條刪掉。俯衝時速度自然高，
+   * 不會誤觸發（實測俯衝時觸發 0 次，spec §3.4）。
+   */
+  it('目標不在高仰角、自己也沒在爬升時，速度不足照樣觸發', () => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 3000, 0], [0, 0, -60])
     place(target, [0, 3000, -600], [0, 0, -120])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
+    // 前提：目標仰角與自身航跡角都接近 0 —— 舊閘門在這裡是死的
+    expect(Math.abs(Math.asin(basis.losAxis.y))).toBeLessThan(5 * (Math.PI / 180))
+    expect(Math.abs(sit.climbAngle)).toBeLessThan(5 * (Math.PI / 180))
     sit.stallMargin = 3
     sit.speedMargin = 0.5
-    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+    expect(geometryGate(sit, basis)).toBe('speedRecover')
   })
-})
-
-describe('stallGuard 的第三道判準 —— 自己的航跡角', () => {
-  const basis = createEngageBasis()
-  const sit = createSituation()
 
   /**
    * 目標在同一空層的正前方（仰角約 0），但**我自己**正陡爬。
    *
-   * 【這是人工驗收抓到的缺陷】閘門原本只看目標仰角，等於只問「目標是不是
+   * 【M4 人工驗收抓到的缺陷】閘門原本只看目標仰角，等於只問「目標是不是
    * 吊在我上面」。實測 `extend` 的俯仰偏置滾雪球，會讓 AI 把自己吊到 85°
-   * 而目標仍在同一空層——目標仰角接近 0，閘門一次都不觸發，AI 就這樣把
-   * 自己吊到失速。「我正在把自己吊上去」與「目標吊在上面」是兩件事。
+   * 而目標仍在同一空層——目標仰角接近 0，閘門一次都不觸發。新閘門不看
+   * 仰角，這個場景自然涵蓋。
    */
-  const selfClimbing = () => {
+  it('自己陡爬且速度不夠時觸發', () => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 3000, 0], [0, 170, -30])      // 航跡角約 80°
     place(target, [0, 3000, -800], [0, 0, -120])  // 同一空層，正前方
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
-    // 前提：目標仰角確實低於門檻，否則這條測試量到的是舊判準
-    expect(Math.asin(basis.losAxis.y)).toBeLessThan(DEFAULT_STEER.stallGuardElevation)
-    expect(sit.climbAngle).toBeGreaterThan(DEFAULT_STEER.stallGuardElevation)
-  }
-
-  it('自己陡爬且速度不夠時觸發', () => {
-    selfClimbing()
-    sit.stallMargin = 40                                   // 舊判準瞎掉
-    sit.speedMargin = DEFAULT_STEER.stallGuardSpeed * 0.8   // 但速度真的不夠
-    expect(geometryGate(sit, basis)).toBe('stallGuard')
+    sit.stallMargin = 40                                       // stallMargin 被撐大
+    sit.speedMargin = DEFAULT_STEER.speedRecoverMargin * 0.8
+    expect(geometryGate(sit, basis)).toBe('speedRecover')
   })
 
   it('自己陡爬但速度充足時不觸發（爬升本身不是問題）', () => {
-    selfClimbing()
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 3000, 0], [0, 170, -30])
+    place(target, [0, 3000, -800], [0, 0, -120])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
     sit.stallMargin = 3
     sit.speedMargin = 5
-    expect(geometryGate(sit, basis)).not.toBe('stallGuard')
+    expect(geometryGate(sit, basis)).toBe('normal')
   })
 })
 
@@ -594,7 +687,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
 
     const out: number[] = []
     for (let i = 0; i < 20; i++) {
-      steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+      steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
       out.push(Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y))))
       // 完美跟隨：速度轉到剛剛的指令方向，保持速率
       self.state.velocity.copy(cmd.aimWorld).multiplyScalar(180)
@@ -623,7 +716,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     buildEngageBasis(self, target, basis)
     sit.energyAdvantage = -500
 
-    steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
     // 原航向是 −Z；指令的水平分量必須仍指向 −Z
     expect(cmd.aimWorld.x).toBeCloseTo(0, 9)
     expect(cmd.aimWorld.z).toBeLessThan(0)
@@ -709,7 +802,7 @@ describe('extend 在絕對能量見底時一律爬升', () => {
     buildEngageBasis(self, target, basis)
     sit.energyAdvantage = energyAdvantage
     sit.energyReserve = energyReserve
-    steerCommand('extend', 'normal', sit, basis, self, knobs, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
     return Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
   }
 
