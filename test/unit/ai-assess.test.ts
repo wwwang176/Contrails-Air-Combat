@@ -3,7 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
   createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, threatFactor, trackingFactor,
-  THREAT_RANGE, TRACK_SATURATION,
+  THREAT_RANGE, TRACK_SATURATION, turnTime,
 } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -515,5 +515,85 @@ describe('threatFactor —— 供僚機掩護判斷使用（M6 spec §7.2）', (
     evaluateThreat(self, enemy, sit)
     expect(sit.threatInstant).toBe(threatFactor(enemy, self))
     expect(sit.shotInstant).toBe(threatFactor(self, enemy))
+  })
+})
+
+/**
+ * 平飛、機首朝 −Z 的飛機。
+ *
+ * 【一定要跑一步】`Aircraft` 的建構子**不填 `diag`** —— 它只在 `update`
+ * 裡由 `stepDynamics` 填。沒跑過的飛機 `diag.aero.tas` 是 0，
+ * `instantaneousTurnRate` 於是回 0，`turnTime` 就恆為 `Infinity`。
+ */
+function flyer(): Aircraft {
+  const a = new Aircraft(P51D, 4000, 180)
+  a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+  return a
+}
+
+describe('turnTime', () => {
+  /**
+   * 【為什麼不用 `toBeCloseTo(0, 6)`】`acos` 在 0° 附近的精度下限是
+   * √ε ≈ 1.7e-4 rad —— 點積差 1e-16 就會放大成 1e-8 rad 的角度。實測殘差
+   * 是 1.35e-5 rad（0.0008°），正好落在那個底噪上，不是實作有問題。
+   * 要主張的是「正前方的代價可忽略」，一毫秒已經遠低於任何有意義的尺度。
+   */
+  it('目標在正前方時代價可忽略', () => {
+    const self = flyer()
+    const target = flyer()
+    self.state.position.set(0, 4000, 0)
+    target.state.position.set(0, 4000, -500)
+    const t = turnTime(self, target)
+    expect(t).toBeGreaterThanOrEqual(0)
+    expect(t).toBeLessThan(1e-3)
+  })
+
+  it('目標在正後方最貴，正側面居中', () => {
+    const self = flyer()
+    const behind = flyer()
+    const beam = flyer()
+    self.state.position.set(0, 4000, 0)
+    behind.state.position.set(0, 4000, 500)     // 機首朝 −Z，所以 +Z 是後方
+    beam.state.position.set(500, 4000, 0)
+    const tBehind = turnTime(self, behind)
+    const tBeam = turnTime(self, beam)
+    expect(tBehind).toBeGreaterThan(tBeam)
+    expect(tBeam).toBeGreaterThan(0)
+    // 180° 恰好是 90° 的兩倍
+    expect(tBehind / tBeam).toBeCloseTo(2, 3)
+  })
+
+  /**
+   * 【慢的飛機轉得比較快，但角度需求一樣】所以同一個角度下，速度低的
+   * 那一架 `turnTime` 反而短 —— 這正是要的：能量低的飛機轉得動，代價是
+   * 它轉完之後沒有能量做別的事，而那由評分裡的其他項處理。
+   */
+  it('轉不動時回傳 Infinity', () => {
+    const self = flyer()
+    const target = flyer()
+    self.state.position.set(0, 4000, 0)
+    target.state.position.set(0, 4000, 500)
+    // 速度趨近 0：可用過載 ≤ 1，瞬時轉彎率為 0
+    self.state.velocity.set(0, 0, -0.001)
+    self.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    expect(turnTime(self, target)).toBe(Infinity)
+  })
+
+  it('兩機重疊時回傳 0，不產生 NaN', () => {
+    const self = flyer()
+    const target = flyer()
+    self.state.position.set(0, 4000, 0)
+    target.state.position.set(0, 4000, 0)
+    expect(turnTime(self, target)).toBe(0)
+  })
+
+  it('連續呼叫不配置：一萬次結果一致', () => {
+    const self = flyer()
+    const target = flyer()
+    self.state.position.set(0, 4000, 0)
+    target.state.position.set(300, 4000, 400)
+    const first = turnTime(self, target)
+    for (let i = 0; i < 10000; i++) turnTime(self, target)
+    expect(turnTime(self, target)).toBe(first)
   })
 })
