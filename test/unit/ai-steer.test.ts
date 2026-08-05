@@ -713,6 +713,58 @@ describe('steerCommand', () => {
     }
   })
 
+  /**
+   * 【與 unload 同一個形狀】誤差角收小、方位不動。方位是滾轉指令的來源，
+   * 動了它就會讓飛機無故翻滾 —— 見上方「unload 不改變瞄準方位」的註解。
+   */
+  it('能量不足時追擊的誤差角被收小，方位不動', () => {
+    scene([600, 4300, -400], [0, 0, -180])
+    sit.stallMargin = 3          // 不觸發 unload，隔離出 energyPull
+    sit.shotInstant = 0
+    sit.cornerRatio = 1.2
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    const rich = cmd.aimWorld.clone()
+
+    sit.cornerRatio = PULL_FLOOR_RATIO
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    expect(cmd.aimWorld.angleTo(nose)).toBeLessThan(rich.angleTo(nose) - 1e-3)
+
+    const perp = (v: Vector3): Vector3 =>
+      v.clone().addScaledVector(nose, -v.dot(nose)).normalize()
+    expect(perp(cmd.aimWorld).angleTo(perp(rich))).toBeCloseTo(0, 6)
+  })
+
+  it('有射擊解時不收小 —— 有槍在手就先開槍', () => {
+    scene([600, 4300, -400], [0, 0, -180])
+    sit.stallMargin = 3
+    sit.cornerRatio = PULL_FLOOR_RATIO
+    sit.shotInstant = DEFAULT_STEER.pullShotRelief
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    const shooting = cmd.aimWorld.clone()
+
+    sit.cornerRatio = 1.2
+    sit.shotInstant = 0
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    expect(cmd.aimWorld.angleTo(shooting)).toBeCloseTo(0, 6)
+  })
+
+  /**
+   * `extend` 的瞄準點在**速度向量**上，而大攻角時機首高於航跡 —— 往機首收
+   * 等於把瞄準點拉到速度向量上方，變成命令爬升，與 extend 的目的相反。
+   */
+  it('extend 不套用能量係數，瞄準點仍貼著速度向量', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.stallMargin = 3
+    sit.shotInstant = 0
+    sit.cornerRatio = PULL_FLOOR_RATIO
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    // extendPitchAngle 在 cornerRatio 0.75 給滿俯衝角（25°），所以容差取 30°
+    expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(30 * Math.PI / 180)
+  })
+
   it('planeDegenerate → 退化為純追擊（指著目標，不亂偏）', () => {
     scene([0, 4600, 0], [0, 0, -180])
     steerCommand('engage', 'planeDegenerate', sit, basis, self, 0, k, cmd)
