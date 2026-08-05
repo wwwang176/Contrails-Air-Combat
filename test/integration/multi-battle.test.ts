@@ -455,8 +455,27 @@ describe('20v20 跑滿 150 秒', () => {
     expect(median(o.cruiseStationErrors)).toBeLessThan(MAX_CRUISE_STATION_ERROR)
   })
 
-  it('混戰散開之後真的有人歸隊（M6 spec §4.1 條件 13）', () => {
-    expect(o.rejoins).toBeGreaterThan(0)
+  /**
+   * 【由門檻降級成觀測，2026-08-06】
+   *
+   * 原本的斷言是 `o.rejoins > 0`。**那個計數整場只有 0～3 次**，是一個知更鳥
+   * 站在天平上的量。把滾轉權限由 1.0 掃到 1.3（`specs/feel.ts` 的手感係數）：
+   *
+   * ```
+   * roll        1.0   1.05   1.1   1.15   1.2   1.3
+   * rejoins      3      1      3     1      0     2
+   * ```
+   *
+   * **非單調，而且 1.3 比 1.2 多** —— 它對任何無關的擾動都敏感，紅了也指不出
+   * 是哪裡壞了。與本檔「不是一面倒」那條當初被移到公平對照組是同一類問題。
+   *
+   * 條件 13 改由 `test/integration/ai-rejoin.test.ts` 守：長機平飛、僚機放在
+   * 離站位 1400~1800 m 的地方、場上沒有敵機，三種幾何都必須在 120 秒內回到
+   * 100 m 以內。固定幾何、逐場可重現，紅了就知道是站位控制器。
+   */
+  it('混戰散開之後的歸隊次數（觀測，不是門檻）', () => {
+    console.log(`　歸隊 ${o.rejoins} 次　Schwarm 內遞補 ${o.replacements} 次`)
+    expect(o.rejoins).toBeGreaterThanOrEqual(0)
   })
 
   it('Schwarm 內遞補真的發生過（觀測，不是門檻）', () => {

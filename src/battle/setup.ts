@@ -13,6 +13,7 @@ import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
 import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
 import { pickTakeover, TAKEOVER_DELAY } from './takeover'
+import { applyFeel, GAME_FEEL } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Controller } from '../control/Controller'
@@ -225,7 +226,11 @@ export function createBattle(
     // 【兩邊各算各的】M10 起雙方架數可以不同，分隊數因此也不同
     const count = blueSide ? cfg.blueCount : cfg.redCount
     const flightCount = blueSide ? blueFlights : Math.ceil(cfg.redCount / SCHWARM_SIZE)
-    const spec = blueSide ? cfg.blueSpec : cfg.redSpec
+    // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
+    // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
+    // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
+    // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
+    const spec = applyFeel(blueSide ? cfg.blueSpec : cfg.redSpec, GAME_FEEL)
     const z = blueSide ? cfg.entryRange / 2 : -cfg.entryRange / 2
     const yaw = blueSide ? 0 : Math.PI
     const orientation = new Quaternion().setFromAxisAngle(UP, yaw)
