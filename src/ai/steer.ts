@@ -5,12 +5,13 @@ import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import { ENERGY_FLOOR_ALTITUDE } from './assess'
 import type { Situation } from './assess'
 import type { Intent } from './rules'
 
 const FWD = new Vector3(0, 0, -1)
 const UP = new Vector3(0, 1, 0)
+/** extend 的爬升／俯衝角上限，rad。兩個增益都以它為基準 */
+const EXTEND_PITCH = 25 * (Math.PI / 180)
 const S = makeScratch(6)
 
 /**
@@ -153,6 +154,28 @@ export interface SteerConfig {
   brakeCornerRatio: number
   /** extend 的爬升／俯衝角上限，rad */
   extendPitch: number
+  /**
+   * 速度赤字 → 俯仰的增益。
+   *
+   * 【`4 × extendPitch` 的意思】速度赤字 0.25（`cornerRatio` = 0.75）時就
+   * 給滿俯衝角。那**早於**意圖層的 `DEFAULT_RULES.cornerEnter`（0.65）——
+   * 刻意的：俯仰先開始換速度，換不回來才輪到意圖切成 `extend`。
+   *
+   * 實測六場開局的 `belowStall` 全部落在 0.08%（修補前最差 22.2%），
+   * 這個增益不需要再調。
+   */
+  pitchSpeedGain: number
+  /**
+   * 高度赤字 → 俯仰的增益。
+   *
+   * 【`2 × extendPitch` 怎麼來的】高度赤字 0.5（離地約 250 m）時就抵銷
+   * 滿值的速度項，確保「低空缺速度 → 平飛」而不是俯衝。
+   *
+   * **起始值，待 Task 10 由實測回填。**
+   */
+  pitchAltitudeGain: number
+  /** 高度赤字的特徵離地高度，m。約為安全層 clearance（120 m）的四倍 */
+  clearanceScale: number
   /** defend 的偏轉角，rad */
   defendOffset: number
 }
@@ -168,7 +191,10 @@ export const DEFAULT_STEER: SteerConfig = {
   speedRecoverPitch: 20 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.6,
-  extendPitch: 25 * (Math.PI / 180),
+  extendPitch: EXTEND_PITCH,
+  pitchSpeedGain: 4 * EXTEND_PITCH,
+  pitchAltitudeGain: 2 * EXTEND_PITCH,
+  clearanceScale: 500,
   defendOffset: 75 * (Math.PI / 180),
 }
 
@@ -300,6 +326,42 @@ export function aimFromKnobs(
 
 const C = makeScratch(2)
 
+/**
+ * `extend` 的俯仰角，rad。正 = 爬升。
+ *
+ * 【為什麼是兩個分量相加而不是 if-else】舊版用兩個裸門檻
+ * （`energyReserve < 0`、`y < 1000`）決定爬或衝，跨線時指令瞬間翻號。
+ * 飛機有俯仰慣性，跨線後要幾秒才轉得過來，於是衝過頭、翻號、再衝過頭
+ * —— 極限環，振幅由飛機的俯仰響應決定，不由任何設計參數決定。實測在
+ * 1000 m 線上持續震盪 40 秒（spec §3.5）。連續函數沒有翻轉點。
+ *
+ * 【高度分量的來源是離地餘裕，不是能量判準】「我還打得動嗎」只問速度
+ * （spec §4.1）；高度出現在這裡是因為**低空不能用高度換速度**，那是
+ * 安全關切，與能量判斷在不同的軸上。三種情況自然長出來：
+ *
+ *   高空缺速度 → 高度赤字 0，純俯衝換速度
+ *   低空缺速度 → 兩項抵消，平飛加速
+ *   極低空     → 高度項主導，爬升
+ *
+ * @param cornerRatio TAS ÷ 角落速度
+ * @param groundClearance 離地（海面）高度，m
+ */
+export function extendPitchAngle(
+  cornerRatio: number,
+  groundClearance: number,
+  cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  const speedDeficit = 1 - cornerRatio
+  let altitudeDeficit = 1 - groundClearance / cfg.clearanceScale
+  if (altitudeDeficit < 0) altitudeDeficit = 0
+  else if (altitudeDeficit > 1) altitudeDeficit = 1
+
+  const raw = -cfg.pitchSpeedGain * speedDeficit + cfg.pitchAltitudeGain * altitudeDeficit
+  if (raw < -cfg.extendPitch) return -cfg.extendPitch
+  if (raw > cfg.extendPitch) return cfg.extendPitch
+  return raw
+}
+
 /** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
 const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
 
@@ -316,13 +378,8 @@ export function steerCommand(
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
-  /**
-   * 該點的海面（未來為地表）高度，m。`extend` 的俯仰會用它算離地餘裕。
-   *
-   * 【現在還沒有人讀它】底線前綴是 `noUnusedParameters` 要的。現在就把它
-   * 加進簽章，是為了讓呼叫端與測試只改一次。
-   */
-  _seaHeight: number,
+  /** 該點的海面（未來為地表）高度，m。`extend` 的俯仰用它算離地餘裕 */
+  seaHeight: number,
   k: Knobs,
   out: Command,
   cfg: SteerConfig = DEFAULT_STEER,
@@ -350,29 +407,11 @@ export function steerCommand(
         break
       case 'extend': {
         // 【卸載】把瞄準點放到自身速度向量上，指揮儀就沒有轉向需求，
-        // 過載趨近 1 G、誘導阻力最小——這是能量重整的核心手段
+        // 過載趨近 1 G、誘導阻力最小 —— 這是能量重整的核心手段
         // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
-        // 能量劣勢時帶爬升分量把速度存成高度，優勢時反之。
-        //
-        // 【兩種情況一律爬升，不照相對能量差】
-        //
-        // 一、`energyReserve < 0`：比能量低於「還打得動」的底線。而
-        //     `Es = 高度 + 動能高度 ≥ 高度`，所以見底**必然**蘊含高度也很低。
-        //     此時俯衝是把僅剩的高度也丟掉 —— 實測掉到離海 109 m。
-        //
-        // 二、**高度已經低於底線高度**。少了這一條會產生二階震盪：閂鎖的釋放
-        //     門檻是 `floorExit`（+300 m，有遲滯），但俯仰若用裸判
-        //     `energyReserve < 0`，餘裕一跨過 0 飛機就從爬升翻成俯衝，而它離
-        //     釋放門檻還很遠。實測 180 秒：AI 爬到 843 m、餘裕回正後立刻俯衝，
-        //     9 秒內把高度丟回 205 m，餘裕跌到 −362，安全層在 115 m 接管。
-        //
-        //     這一條是物理陳述而不是第二個門檻：**低於底線高度時不該用高度
-        //     換速度**。它同時讓俯仰與閂鎖的狀態保持一致。
-        const lowAltitude = self.state.position.y < ENERGY_FLOOR_ALTITUDE
-        const pitch = (sit.energyReserve < 0 || lowAltitude)
-          ? cfg.extendPitch
-          : -Math.sign(sit.energyAdvantage) * cfg.extendPitch
-        unloadAim(self, pitch, out.aimWorld)
+        // 俯仰由速度赤字與離地餘裕連續決定（見 extendPitchAngle）。
+        const clearance = self.state.position.y - seaHeight
+        unloadAim(self, extendPitchAngle(sit.cornerRatio, clearance, cfg), out.aimWorld)
         break
       }
       case 'defend':

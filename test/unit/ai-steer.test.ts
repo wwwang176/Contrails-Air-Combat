@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
+import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
-  createSituation, evaluateGeometry, ENERGY_FLOOR_ALTITUDE,
-} from '../../src/ai/assess'
-import {
-  aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, geometryGate,
-  steerCommand, DEFAULT_STEER, type Knobs,
+  aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
+  geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
 } from '../../src/ai/steer'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -490,18 +488,32 @@ describe('steerCommand', () => {
    */
   it('extend 的瞄準點貼著自身速度向量（卸載）', () => {
     scene([0, 4000, -600], [0, 0, -180])
-    sit.energyAdvantage = 0
+    // cornerRatio = 1：速度剛好在角落速度上，不缺也不剩 → 俯仰趨近 0
+    sit.cornerRatio = 1
     steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(20 * Math.PI / 180)
   })
 
-  it('extend 在能量劣勢時帶爬升分量', () => {
+  /**
+   * 【俯仰跟的是速度不是相對能量差】舊版用 `−sign(energyAdvantage)` 決定
+   * 爬或衝，那是缺陷 4 的極限環來源之一（spec §3.5）。現在問的是「我自己
+   * 還轉得動嗎」。
+   */
+  it('extend 在速度過剩時帶爬升分量（把速度存成高度）', () => {
     scene([0, 4000, -600], [0, 0, -180])
-    sit.energyAdvantage = -1200
+    sit.cornerRatio = 1.4
     steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
+  })
+
+  it('extend 在速度不足時帶俯衝分量（用高度換速度）', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 0.6
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
   })
 
   it('defend 的瞄準點明顯偏離目標方向（破壞他的預瞄解）', () => {
@@ -676,14 +688,16 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
    * 這條測試模擬**完美跟隨**：每一輪把速度向量設成上一輪的指令方向，再問
    * 一次指令。航跡角相對地平線定義的話，答案每一輪都該是同一個角度。
    */
-  const followLoop = (energyAdvantage: number): number[] => {
+  const followLoop = (cornerRatio: number): number[] => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
     place(target, [0, 4000, -1000], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
-    sit.energyAdvantage = energyAdvantage
+    sit.cornerRatio = cornerRatio
+    sit.speedMargin = 2
+    sit.stallMargin = 2
 
     const out: number[] = []
     for (let i = 0; i < 20; i++) {
@@ -695,16 +709,16 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     return out
   }
 
-  it('能量優勢時：每一輪都是 −extendPitch，不會愈俯愈陡', () => {
-    for (const a of followLoop(500)) {
-      expect(a).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
-    }
+  it('速度過剩時：每一輪都是同一個爬升角，不會愈爬愈陡', () => {
+    const expected = extendPitchAngle(1.4, 4000)
+    expect(expected).toBeGreaterThan(0)
+    for (const a of followLoop(1.4)) expect(a).toBeCloseTo(expected, 9)
   })
 
-  it('能量劣勢時：每一輪都是 +extendPitch，不會愈爬愈陡', () => {
-    for (const a of followLoop(-500)) {
-      expect(a).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
-    }
+  it('速度不足時：每一輪都是同一個俯衝角，不會愈俯愈陡', () => {
+    const expected = extendPitchAngle(0.6, 4000)
+    expect(expected).toBeLessThan(0)
+    for (const a of followLoop(0.6)) expect(a).toBeCloseTo(expected, 9)
   })
 
   it('維持航向：只改變航跡角，不會把飛機轉往別的方位', () => {
@@ -714,7 +728,9 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     place(target, [0, 4000, -1000], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
-    sit.energyAdvantage = -500
+    sit.cornerRatio = 1.4
+    sit.speedMargin = 2
+    sit.stallMargin = 2
 
     steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
     // 原航向是 −Z；指令的水平分量必須仍指向 −Z
@@ -779,60 +795,107 @@ describe('超前的判斷要用幾何門住', () => {
   })
 })
 
-describe('extend 在絕對能量見底時一律爬升', () => {
-  const basis = createEngageBasis()
-  const sit = createSituation()
-  const cmd = createCommand()
-  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+describe('extend 的俯仰是連續量', () => {
+  const CLEAR = DEFAULT_STEER.clearanceScale
+
+  it('高空缺速度 → 俯衝換速度', () => {
+    expect(extendPitchAngle(0.6, 4000)).toBeLessThan(0)
+  })
+
+  it('高空速度充足 → 爬升把速度存成高度', () => {
+    expect(extendPitchAngle(1.3, 4000)).toBeGreaterThan(0)
+  })
 
   /**
-   * 【為什麼見底時不能照相對能量差決定俯仰】`Es = 高度 + 動能高度 ≥ 高度`，
-   * 所以 `energyReserve < 0`（比能量低於「還打得動」的底線）**必然**蘊含
-   * 高度也很低。此時若因為「我比他強」而俯衝，等於把僅剩的高度也丟掉
-   * ——實測共速共高開局因此掉到離海 109 m。
+   * 【低空缺速度 → 平飛加速】兩個分量抵消。這是自己長出來的，不是額外
+   * 寫的規則 —— 低空不能用高度換速度（spec §7.2）。
    */
-  const aimPitch = (
-    energyAdvantage: number, energyReserve: number, altitude = 4000,
-  ): number => {
+  it('低空缺速度時，俯衝傾向被高度項抵消', () => {
+    const high = extendPitchAngle(0.6, 4000)
+    const low = extendPitchAngle(0.6, CLEAR * 0.4)
+    expect(low).toBeGreaterThan(high)
+  })
+
+  it('極低空 → 爬升（高度項主導）', () => {
+    expect(extendPitchAngle(0.6, 0)).toBeGreaterThan(0)
+  })
+
+  it('都不缺時趨近平飛', () => {
+    expect(extendPitchAngle(1, 4000)).toBeCloseTo(0, 9)
+  })
+
+  it('夾在 ±extendPitch 之間', () => {
+    // cornerRatio 極低 = 嚴重缺速度 → 俯衝到底（負）
+    expect(extendPitchAngle(-5, 4000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
+    // cornerRatio 極高 = 速度過剩 → 爬升到底，把速度存成高度（正）
+    expect(extendPitchAngle(5, 4000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+  })
+
+  /**
+   * 【這一條是缺陷 4 的守門員】舊版是
+   * `(energyReserve < 0 || y < 1000) ? +25° : −sign(ΔE) × 25°` —— 兩個
+   * 裸門檻，跨線時指令從 +25° 瞬間翻成 −25°。飛機有俯仰慣性，跨線後要
+   * 幾秒才轉得過來，於是衝過頭、翻號、再衝過頭 —— 極限環。實測在
+   * 1000 m 線上持續震盪 40 秒，週期約 5 秒（spec §3.5）。
+   *
+   * 連續函數沒有翻轉點，所以斷言它的數值導數有界。
+   */
+  it('對高度連續：相鄰 1 m 的俯仰差不超過上限的 1%', () => {
+    const limit = DEFAULT_STEER.extendPitch * 0.01
+    for (let h = 0; h <= 2000; h += 25) {
+      const a = extendPitchAngle(0.8, h)
+      const b = extendPitchAngle(0.8, h + 1)
+      expect(Math.abs(b - a)).toBeLessThan(limit)
+    }
+  })
+
+  it('對速度連續：相鄰 0.01 的 cornerRatio 差不超過上限的 10%', () => {
+    const limit = DEFAULT_STEER.extendPitch * 0.1
+    for (let r = 0.2; r <= 2; r += 0.01) {
+      const a = extendPitchAngle(r, 4000)
+      const b = extendPitchAngle(r + 0.01, 4000)
+      expect(Math.abs(b - a)).toBeLessThan(limit)
+    }
+  })
+
+  it('steerCommand 的 extend 分支用的就是這個角度', () => {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const knobs: Knobs = { leadLag: 0, vertical: 0 }
     const self = flyer()
     const target = flyer()
-    place(self, [0, altitude, 0], [0, 0, -180])
-    place(target, [0, altitude, -1000], [0, 0, -180])
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -1000], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
-    sit.energyAdvantage = energyAdvantage
-    sit.energyReserve = energyReserve
+    sit.cornerRatio = 0.6
+    sit.speedMargin = 2
+    sit.stallMargin = 2
     steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
-    return Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-  }
-
-  it('底線之上：能量優勢時俯衝、劣勢時爬升（既有行為）', () => {
-    expect(aimPitch(500, 1000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
-    expect(aimPitch(-500, 1000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+    const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+    expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 4000), 9)
   })
 
-  it('底線之下：即使有能量優勢也爬升', () => {
-    expect(aimPitch(500, -200)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
-  })
-
-  it('底線之下且能量劣勢：同樣爬升', () => {
-    expect(aimPitch(-500, -200)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
-  })
-
-  /**
-   * 【第二條爬升規則：高度已經低於底線高度】少了它會產生二階震盪 —— 閂鎖的
-   * 釋放門檻是 `floorExit`（+300 m，有遲滯），但俯仰若只看 `energyReserve < 0`，
-   * 餘裕一跨過 0 飛機就從爬升翻成俯衝，而它離釋放門檻還很遠。實測 180 秒：
-   * AI 爬到 843 m、餘裕回正後立刻俯衝，9 秒內把高度丟回 205 m、餘裕跌到 −362，
-   * 安全層在 115 m 接管。
-   */
-  it('高度低於底線高度時，就算餘裕已回正也不俯衝', () => {
-    const belowFloor = ENERGY_FLOOR_ALTITUDE * 0.9
-    expect(aimPitch(500, 150, belowFloor)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
-  })
-
-  it('高度在底線高度之上、餘裕也回正時，才恢復由相對能量差決定', () => {
-    const aboveFloor = ENERGY_FLOOR_ALTITUDE * 1.1
-    expect(aimPitch(500, 150, aboveFloor)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
+  /** 【離地餘裕不是絕對高度】`seaHeight` 抬高時，同一個海拔就變成低空。 */
+  it('離地餘裕算的是 position.y 減 seaHeight，不是 position.y', () => {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -1000], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.cornerRatio = 0.6
+    sit.speedMargin = 2
+    sit.stallMargin = 2
+    // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
+    steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, cmd)
+    const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+    expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 100), 9)
+    expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
   })
 })
