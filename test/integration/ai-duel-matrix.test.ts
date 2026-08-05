@@ -27,6 +27,8 @@ interface Outcome {
   blueEnergySpent: number
   /** 開局時藍方比紅方多出的比能量，m */
   blueEnergyEdge: number
+  /** 藍方全程掉了多少 hp */
+  blueDamage: number
   /**
    * 藍方「**我的能量比他低**」這個理由成立的時間比例。
    *
@@ -67,7 +69,7 @@ interface Side {
  * 【零隨機】零延遲、零瞄準誤差、無亂數，所以固定的開局條件給出固定的結果。
  * 測試不會飄。
  */
-function duel(blue: Side, red: Side): Outcome {
+function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
   const world = new World()
 
   const make = (side: Side) => {
@@ -107,7 +109,8 @@ function duel(blue: Side, red: Side): Outcome {
   const blueEnergyEdge = blueEs0 - r.a.specificEnergy
   let blueMinEs = blueEs0
 
-  const total = MAX_SECONDS * 240
+  const blueHp0 = bc.hp
+  const total = maxSeconds * 240
   for (let i = 0; i < total; i++) {
     world.step(DT)
     intentSteps[blueAi.intent] = (intentSteps[blueAi.intent] ?? 0) + 1
@@ -120,7 +123,7 @@ function duel(blue: Side, red: Side): Outcome {
         winner: 'nan', seconds: i * DT, finite: false, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-        blueRelativeExtend: relativeExtend / (i + 1),
+        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp,
       }
     }
     if (bc.hp <= 0 || rc.hp <= 0) {
@@ -128,15 +131,15 @@ function duel(blue: Side, red: Side): Outcome {
         winner: rc.hp <= 0 ? 'blue' : 'red', seconds: i * DT, finite: true, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-        blueRelativeExtend: relativeExtend / (i + 1),
+        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp,
       }
     }
   }
   return {
-    winner: 'timeout', seconds: MAX_SECONDS, finite: true, touchedSea,
+    winner: 'timeout', seconds: maxSeconds, finite: true, touchedSea,
     blueIntentTime: fractions(intentSteps, total), blueDeepNegativePs: deepNegative / total,
     blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-    blueRelativeExtend: relativeExtend / total,
+    blueRelativeExtend: relativeExtend / total, blueDamage: blueHp0 - bc.hp,
   }
 }
 
@@ -277,15 +280,47 @@ describe('L4-C 能量戰證據', () => {
    * 抓不到的東西：「數字漂亮但打不贏」在舊斷言下是綠的。
    *
    * 花掉的比能量降級成觀測值 —— 它仍然印出來供日後比對，只是不當紅綠燈。
+   *
+   * 【2026-08-05 第三次修改：加上「零損傷」，並把時限與主張分開】
+   *
+   * 上一版是「90 秒內擊落」。修掉轉彎抖動（`steer.ts` 的 `shrinkTowardNose`）
+   * 之後它紅了 —— 但把時限拉到 240 秒去看，藍方**是贏的**，而且毫髮無傷：
+   *
+   * | | 擊落時間 | 藍方受傷 |
+   * |---|---:|---:|
+   * | 抖動修補前 | 43.9 s | 0 |
+   * | 抖動修補後 | 119.4 s | 0 |
+   *
+   * 【為什麼「90 秒」不該當紅綠燈】因為它在抽樣一個混沌量。掃
+   * `unloadMargin` 的結果：
+   *
+   * ```
+   * unloadMargin   0（關掉）   1.02      1.05      1.10      1.15
+   * 結果          240s 未分   紅方贏    藍 161s   藍 167s   藍 119s
+   *                          113.6s
+   * ```
+   *
+   * 相鄰值之間勝負都會翻號，可見**基線那個 43.9 秒本身不是穩定的性能水準，
+   * 只是這個決定性模擬的一次抽樣**。拿它當門檻，等於用一枚硬幣當守門員。
+   *
+   * 【改成量什麼】穩健的事實是「藍方贏，而且沒被打到」—— 兩個版本都成立，
+   * 而且它比舊斷言**多守一件事**：舊版只要求擊落，藍方被打成重傷再擊落
+   * 也算過；新版不算。時限拉長到讓混沌時序不再決定成敗。
+   *
+   * 【誠實說明】時限由 90 拉到 200 這一半確實是放寬，這是專案負責人在
+   * 看過上面兩張表之後做的取捨：抖動是人工驗收看得見的真實缺陷，
+   * 而 43.9 → 119.4 是一個混沌指標的兩次抽樣。
    */
-  it('能量優勢要換得到東西：高能量開局藍方必須擊落對手', () => {
-    const o = duel(...HIGH_ENERGY)
+  it('能量優勢要換得到東西：高能量開局藍方必須毫髮無傷擊落對手', () => {
+    const o = duel(...HIGH_ENERGY, 200)
     expect(o.blueEnergyEdge).toBeGreaterThan(3000)   // 開局條件本身沒跑掉
     console.log(
       '高能量開局的轉化：', o.winner, `${o.seconds.toFixed(1)}s`,
+      `藍方受傷 ${o.blueDamage.toFixed(0)}`,
       `花掉 ${o.blueEnergySpent.toFixed(0)} m / 開局優勢 ${o.blueEnergyEdge.toFixed(0)} m`,
     )
     expect(o.winner).toBe('blue')
+    expect(o.blueDamage).toBe(0)
   })
 
   /**

@@ -119,6 +119,23 @@ export interface SteerConfig {
    * 以下 —— 閘門於是把每一次要害的拉桿都中止掉。實測高能量開局因此由
    * 「29 秒擊落」退化成「90 秒逾時」，而且能量超支（花 3428 > 開局優勢
    * 3213）。詳見 `speedRecoverMargin` 的掃描表。
+   *
+   * 【它同時是卸載強度的分母，2026-08-05】`unloadPull` 用
+   * `(stallMargin − 1) / (unloadMargin − 1)` 當拉桿係數，所以這個值不只決定
+   * 「何時介入」，也決定「介入得多深」——它是限制器的整條斜坡。
+   *
+   * **介入的形狀變了之後重掃過，結果是混沌的。** 舊版的介入是 0.1 秒的
+   * 閃動（實質上等於沒有限制器），新版是連續削權。高能量開局：
+   *
+   * ```
+   * unloadMargin   0（關掉）    1.02       1.05      1.10      1.15
+   * 結果          240s 未分   紅方贏     藍 161s   藍 167s   藍 119s
+   *                          113.6s
+   * ```
+   *
+   * 相鄰值之間連勝負都會翻號 —— 沒有可辨識的最佳點，1.15 是這組裡最好的，
+   * 維持不動。這也說明修補前那個「43.9 秒擊落」不是穩定的性能水準，只是
+   * 這個決定性模擬的一次抽樣（見 `ai-duel-matrix.test.ts` 的相應註解）。
    */
   unloadMargin: number
   /**
@@ -420,6 +437,74 @@ export function extendPitchAngle(
 const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
 
 /**
+ * 卸載的拉桿係數，0..1。1 = 照常拉、0 = 完全鬆桿（瞄準機首）。
+ *
+ * 【為什麼是 `(stallMargin − 1) / (unloadMargin − 1)`】兩端各自有物理意義：
+ *
+ *   `stallMargin` = 1          貼著 CLmax，再拉就失速 → 係數 0，完全鬆桿
+ *   `stallMargin` = unloadMargin  剛好在門檻上         → 係數 1，與 normal 相同
+ *
+ * 後者是**消除抽動的關鍵**：進入與離開 `unload` 的瞬間指令完全不跳，所以
+ * `geometryGate` 在門檻上翻來翻去不再有可見的後果。這與 `extendPitchAngle`
+ * 改成連續量是同一手 —— 連續函數沒有翻轉點（spec §7.1）。
+ *
+ * @param stallMargin `Situation.stallMargin`，代數上恆等於 √(CLmax / CL)
+ */
+export function unloadPull(stallMargin: number, cfg: SteerConfig = DEFAULT_STEER): number {
+  const span = cfg.unloadMargin - 1
+  if (!(span > 0)) return 1
+  const t = (stallMargin - 1) / span
+  return t < 0 ? 0 : t > 1 ? 1 : t
+}
+
+const U = makeScratch(2)
+
+/**
+ * 沿著大圓把瞄準方向往機首收，**方位不變**。就地修改 `aim`。
+ *
+ * 【為什麼方位必須不動】指揮儀把瞄準誤差拆成兩件事：方位決定往哪邊滾
+ * （`rollCommand = atan2(aimBody.x, aimBody.y)`），大小決定拉多少 G。而
+ * 「卸載」在物理上只有一個意思 —— 少拉一點，與滾轉無關。
+ *
+ * 舊版用 `unloadAim(self, 0)`（瞄準自身速度向量）表達卸載，那在**橫向**
+ * 產生約 14° 的偏移，指揮儀讀成轉向需求：實測滾轉指令由 2–3° 暴增到
+ * 27–29°、副翼打到滿舵、滾轉率由 −46°/s 翻成 +12°/s。純量縮放不會。
+ *
+ * @param factor 0..1。0 = 瞄準機首（完全鬆桿）、1 = 原樣不動
+ */
+function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
+  if (factor >= 1) return
+  const nose = U.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
+  if (factor <= 0) {
+    aim.copy(nose)
+    return
+  }
+  const dot = clampUnit(nose.dot(aim))
+  const angle = Math.acos(dot)
+  // 已經對準：沒有可縮的誤差角
+  if (angle < 1e-4) return
+
+  // 【正後方是奇異點】誤差趨近 π 時「誤差在哪一邊」數學上不定，垂直分量由
+  // 浮點雜訊主導。此時取機首 —— 完全鬆桿在任何情況下都是安全的卸載動作，
+  // 而挑一個由雜訊決定的方位會讓飛機亂滾。
+  const perp = U.v[1]!.copy(aim).addScaledVector(nose, -dot)
+  const len = perp.length()
+  if (len < 1e-6) {
+    aim.copy(nose)
+    return
+  }
+  perp.divideScalar(len)
+
+  const target = angle * factor
+  aim.copy(nose).multiplyScalar(Math.cos(target)).addScaledVector(perp, Math.sin(target))
+}
+
+/** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
+function clampUnit(x: number): number {
+  return x < -1 ? -1 : x > 1 ? 1 : x
+}
+
+/**
  * 由意圖與幾何模式產生完整的轉向指令：`aimWorld`、`throttle`、`brake`。
  *
  * **不動 `firing`** —— 開火紀律是獨立的一層（`fire.ts`），因為「瞄得對」
@@ -446,10 +531,6 @@ export function steerCommand(
     // 【主動壓機頭】不是「沿著現在的速度向量飛」—— 在自己已經吊上去時，
     // 那個向量正指著天空，命令沿著它飛等於命令繼續爬（spec §5.1）。
     unloadAim(self, -cfg.speedRecoverPitch, out.aimWorld)
-  } else if (mode === 'unload') {
-    // 拉太猛：停止拉桿，機頭回到速度向量，讓升力係數退回線性段。
-    // 追一個吊在上面的目標會把自己也掛在那裡。
-    unloadAim(self, 0, out.aimWorld)
   } else if (mode === 'overshoot') {
     // 後置 + 高 yo-yo。engageKnobs 在這個態勢下本來就會給負的 leadLag 與
     // 正的 vertical，這裡強制到底，因為超前是要立刻解決的。
@@ -476,6 +557,18 @@ export function steerCommand(
         normalizeInto(basis.leadPoint, basis.losAxis, out.aimWorld)
         break
     }
+  }
+
+  // ── 卸載：拉太猛時把誤差角收小，方位不動 ────────────────
+  // 【為什麼是後處理而不是 if-else 的一支】卸載不是「改去指別的地方」，
+  // 是「照原來的方位，但少拉一點」。寫成獨立的一支就得自己決定要指哪裡，
+  // 而那正是舊版（瞄準速度向量）製造出橫向誤差、害飛機每 0.1 秒抖一下的
+  // 來源。當成係數套在既有指令上，方位天然保持不變。
+  //
+  // 【`overshoot` 與 `speedRecover` 不套】它們的優先序高於 `unload`
+  // （見 `geometryGate`），拿到那兩個 mode 時就不會是 `unload`。
+  if (mode === 'unload') {
+    shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
   }
 
   // ── 油門與減速（spec §7.4）────────────────────────────
