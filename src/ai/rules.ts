@@ -127,7 +127,9 @@ export interface RuleConfig {
 }
 
 /**
- * **全部都是起始值，待 Task 14 由對戰矩陣量測後回填。**
+ * M4 交付時全部是起始值。2026-08-05 的 AI 四缺陷修補由實測回填了
+ * `cornerEnter`／`cornerExit`（取代舊的 `floorEnter`／`floorExit`）與
+ * `floorExempt`，掃描表在各欄位的註解裡。其餘仍是起始值。
  *
  * 這與 M2 的做法一致：命中盒座標與 L4 曲率界都是先跑再定，不接受
  * 「配一個看起來合理的數字」。

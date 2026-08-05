@@ -171,7 +171,10 @@ export interface SteerConfig {
    * 【`2 × extendPitch` 怎麼來的】高度赤字 0.5（離地約 250 m）時就抵銷
    * 滿值的速度項，確保「低空缺速度 → 平飛」而不是俯衝。
    *
-   * **起始值，待 Task 10 由實測回填。**
+   * **這一個沒有單獨掃過。** 它只在離地 500 m 以內生效，而六場開局裡
+   * 只有 1000 m 的三場短暫進入那個範圍 —— 掃它得不到訊號。真正守著它的
+   * 是安全層的 `safetyShare`（最差 1.83%）：這一項若太弱，撞地分支的
+   * 介入率會立刻上去。
    */
   pitchAltitudeGain: number
   /** 高度赤字的特徵離地高度，m。約為安全層 clearance（120 m）的四倍 */
@@ -181,13 +184,22 @@ export interface SteerConfig {
 }
 
 /**
- * **全部都是起始值，待 Task 14 由對戰矩陣量測後回填。**
+ * M4 交付時全部是起始值。2026-08-05 的 AI 四缺陷修補由實測回填了
+ * `unloadMargin`、`speedRecoverMargin`、`speedRecoverPitch` 與 `extend` 的
+ * 三個俯仰參數（掃描表在各欄位的註解裡）。`overshootRange`、
+ * `maxOffsetAngle`、`defendOffset` 仍是起始值。
+ *
+ * `brakeCornerRatio` 掃過 1.05–1.6：**放低沒有幫助**。俯衝掠襲要的是把
+ * 高度差換成一次乾淨的射擊機會，減速等於把那個高度差丟掉 —— 1.2 甚至
+ * 讓佔優勢的一方輸掉那一場。維持 1.6。
  */
 export const DEFAULT_STEER: SteerConfig = {
   overshootRange: 120,
   unloadMargin: 1.15,
   speedRecoverMargin: 1.25,
-  // 【起始值，待 Task 10 由實測回填】與安全層的 recoveryPitch（20°）對稱
+  // 【與安全層的 recoveryPitch 對稱】掃過 0°／5°／10°／20°／30°：對高能量
+  // 開局的勝負沒有訊號（0° 與 20° 都是逾時，30° 反而擊落但那是混沌敏感，
+  // 不是趨勢）。取 20° 的理由是與安全層對稱，兩層的動作幅度一致
   speedRecoverPitch: 20 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.6,

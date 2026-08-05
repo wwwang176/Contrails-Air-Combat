@@ -24,16 +24,17 @@ export interface WingmanConfig {
   /**
    * 切換成本的特徵時間與相對重要性，與 `DEFAULT_TARGET` 的同名欄位
    * **同義同值** —— 自由獵手與僚機用同一套「轉過去要多久」的概念，
-   * 兩邊分岔的話同一個戰場上會有兩種代價觀。
-   *
-   * **起始值，待 Task 10 由實測回填。**
+   * 兩邊分岔的話同一個戰場上會有兩種代價觀。掃描資料與「為什麼不取更重的」
+   * 見 `DEFAULT_TARGET` 的同名欄位。
    */
   turnTimeScale: number
   turnWeight: number
 }
 
 /**
- * **全部都是起始值，待 Task 13 由 20v20 實測回填。**
+ * `breakEnter`、`breakExit`、`minDwell` 仍是 M6 的起始值。
+ * `turnTimeScale`、`turnWeight` 是 2026-08-05 加的切換成本，與
+ * `DEFAULT_TARGET` 同值 —— 掃描表在那邊。
  *
  * 【`breakEnter` / `breakExit` = 800 / 1,200 m】800 m 約是站位橫向間距
  * （200 m）的四倍 —— 散到這個程度還讀得出是編隊。1,200 m 落在 M5 的

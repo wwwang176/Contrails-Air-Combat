@@ -156,44 +156,55 @@ for (const altitude of [1000, 4000]) {
 }
 
 /**
- * **這些是「修補前的現況」，不是目標值。**
- *
- * 每一批修補完成後這些門檻會被大幅超越；Task 10 會依實測一次收緊。
- * 在此之前它們的作用是「不准比現在更糟」—— 避免某一批把另一批的成果
- * 吃掉。
- *
- * 修補前的實測（2026-08-05，本檔無亂數、逐場可重現）：
+ * **修補**後**的實測回填值**（2026-08-05，本檔無亂數、逐場可重現）。
  *
  * | 開局        | belowStall | safetyShare | longestExtend | steepShare | offNose |
  * |-------------|-----------:|------------:|--------------:|-----------:|--------:|
- * | 對頭 @1000  |      4.41% |       1.42% |       49.75 s |     18.90% |  44.05% |
- * | 平行 @1000  |      2.25% |       0.25% |       28.50 s |      9.33% |  41.88% |
- * | 側舷 @1000  |      8.66% |       5.33% |       57.25 s |     10.82% |  90.42% |
- * | 對頭 @4000  |     22.23% |       6.74% |        0.00 s |     27.39% |  60.37% |
- * | 平行 @4000  |      2.58% |       0.58% |        1.00 s |      3.33% |  32.97% |
- * | 側舷 @4000  |      4.08% |       2.00% |       46.00 s |     19.57% |  21.90% |
+ * | 對頭 @1000  |     0.083% |       1.83% |       37.00 s |      6.66% |  55.45% |
+ * | 平行 @1000  |     0.083% |       0.67% |       35.00 s |      1.75% |  55.79% |
+ * | 側舷 @1000  |     0.083% |       0.50% |       20.25 s |      4.16% |  49.29% |
+ * | 對頭 @4000  |     0.083% |       0.00% |       26.25 s |      9.66% |  52.96% |
+ * | 平行 @4000  |     0.083% |       0.00% |       16.25 s |      3.83% |  59.03% |
+ * | 側舷 @4000  |     0.083% |       1.50% |       42.50 s |      8.41% |  64.36% |
  *
- * 【三個門檻各守一個缺陷】`belowStall` 守缺陷 3（追擊時吊到失速），最差的
- * 是對頭 @4000 的 22%；`longestExtend` 守缺陷 4（一千公尺線上的震盪），最差
- * 的是側舷 @1000 的 57 秒；`offNose` 守缺陷 2（掉頭追後方），最差的是側舷
- * @1000 的 90%。**三個最差值分別出現在三個不同的開局** —— 六場一場都不能少。
+ * 對照修補**前**（同一組開局、同一份量測程式）：
  *
- * `safetyShare` 現在量到的全是撞地分支；Task 3 之後它會多出失速那一份，
- * 屆時它就是 Task 2 那一層的品質指標（每觸發一次代表瞄準點層失職一次）。
+ * | 指標          | 修補前最差 | 修補後最差 | 門檻 |
+ * |---------------|-----------:|-----------:|-----:|
+ * | belowStall    |     22.23% |     0.083% | 0.01 |
+ * | safetyShare   |      6.74% |      1.83% | 0.05 |
+ * | longestExtend |    57.25 s |    42.50 s |   55 |
+ * | steepShare    |     27.39% |      9.66% | 0.15 |
+ * | offNose       |     90.42% |     64.36% | 0.85 |
+ *
+ * 【每個門檻都低於修補前的最差值】所以它們不是「把及格線降到現況」——
+ * 舊行為在新門檻下每一條都會紅。
+ *
+ * 【`safetyShare` 這一條是後來補的，它差點被漏掉】調 `cornerEnter` 時量到
+ * 一組 `belowStall` 一樣漂亮（0.08%）但 `safetyShare` 高達 **87%** 的設定
+ * —— 失速數字好看是因為安全層一直在替它飛，那不是健康。少了這一條，
+ * 「把飛行品質外包給安全層」會是一條沒有人看的退路。
+ *
+ * 【`steepShare` 同理】它守的是「AI 有沒有把自己吊起來」，與 `belowStall`
+ * 互補：前者在失速**之前**就看得見，後者要等真的掉下去。
  */
-const BASELINE = {
-  belowStall: 0.30,
-  longestExtend: 60,
-  offNose: 0.95,
+const LIMITS = {
+  belowStall: 0.01,
+  safetyShare: 0.05,
+  longestExtend: 55,
+  steepShare: 0.15,
+  offNose: 0.85,
 }
 
 describe('AI 機動品質（1v1、300 秒、子彈無傷害）', () => {
   for (const o of OPENINGS) {
     it(`${o.name}`, () => {
       const m = duel(o.blue, o.red)
-      expect(m.belowStall).toBeLessThanOrEqual(BASELINE.belowStall)
-      expect(m.longestExtend).toBeLessThanOrEqual(BASELINE.longestExtend)
-      expect(m.offNose).toBeLessThanOrEqual(BASELINE.offNose)
+      expect(m.belowStall).toBeLessThanOrEqual(LIMITS.belowStall)
+      expect(m.safetyShare).toBeLessThanOrEqual(LIMITS.safetyShare)
+      expect(m.longestExtend).toBeLessThanOrEqual(LIMITS.longestExtend)
+      expect(m.steepShare).toBeLessThanOrEqual(LIMITS.steepShare)
+      expect(m.offNose).toBeLessThanOrEqual(LIMITS.offNose)
     }, 60000)
   }
 
