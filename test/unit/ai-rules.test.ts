@@ -18,9 +18,10 @@ function neutral(): Situation {
   s.energyAdvantage = 0
   s.turnAdvantage = 0
   s.airframeTurnAdvantage = 0
-  s.energyReserve = 1000
-  s.cornerRatio = 1
+  // 速度充足：遠高於 cornerEnter
+  s.cornerRatio = 1.2
   s.stallMargin = 2
+  s.speedMargin = 2
   s.threatInstant = 0
   s.shotInstant = 0
   return s
@@ -264,11 +265,11 @@ describe('extend 的三個理由與射擊否決權', () => {
     expect(s.intent).not.toBe('extend')
   })
 
-  it('能量見底時，就算正在開火也要走', () => {
+  it('速度見底時，就算正在開火也要走', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = 500
-    sit.energyReserve = -200                     // 低於底線
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9   // 轉彎能力已經不足
     shooting(sit)
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(true)
@@ -287,21 +288,18 @@ describe('extend 的三個理由與射擊否決權', () => {
 
   /**
    * 【`extendRange` 也只約束相對理由】`extend` 有兩個出口：跑滿 `extendRange`，
-   * 或閂鎖釋放。實測絕對理由觸發時**永遠是距離先到** —— 能量餘裕要爬回
-   * `floorExit`（+300 m）以 Ps ≈ +15 m/s 算要 21 秒，而拉開到 1,500 m 只要
-   * 1.2 秒。AI 於是每次都在餘裕才 +24 m 時回頭，等於沒補到，很快又見底。
+   * 或閂鎖釋放。絕對理由觸發時**永遠是距離先到** —— 速度要爬回 `cornerExit`
+   * 需要幾十秒，而拉開到 1,500 m 只要 1.2 秒。少了這條豁免，AI 每次都在還沒
+   * 補到速度時就回頭，等於沒補，很快又見底。
    *
-   * 修正後實測 180 秒：餘裕由 −124 單調回升到 +313 才釋放，共 39 秒、拉開到
-   * 3.9 km，然後真的帶著能量回來交戰。
-   *
-   * 【為什麼 90 秒的對戰矩陣看不到這個】復原要 39 秒，四組開局的仗都在那之前
+   * 【為什麼 90 秒的對戰矩陣看不到這個】復原要幾十秒，四組開局的仗都在那之前
    * 就結束了。所以這一條只能在單元層釘死。
    */
-  it('能量見底時，跑滿 extendRange 也不回頭', () => {
+  it('速度見底時，跑滿 extendRange 也不回頭', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = DEFAULT_RULES.extendRange * 3   // 遠遠超過脫離距離
-    sit.energyReserve = -200
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(true)
     expect(s.intent).toBe('extend')
@@ -318,20 +316,21 @@ describe('extend 的三個理由與射擊否決權', () => {
     expect(s.intent).not.toBe('extend')       // 但距離已經夠遠，不需要再跑
   })
 
-  /** 底線閂鎖的遲滯：跨回底線不夠，要真的補回一點才鬆手。 */
-  it('底線閂鎖有遲滯：剛好回到底線不解除，補足 floorExit 才解除', () => {
+  /** 速度閂鎖的遲滯：剛好回到進入門檻不夠，要真的補回一點才鬆手。 */
+  it('速度閂鎖有遲滯：回到進入門檻不解除，補足 cornerExit 才解除', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = 500
-    sit.energyReserve = -200
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
     stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(true)
 
-    sit.energyReserve = DEFAULT_RULES.floorExit * 0.5   // 回到底線之上但不夠多
+    // 回到進入門檻與離開門檻之間 —— 遲滯帶內，不解除
+    sit.cornerRatio = (DEFAULT_RULES.cornerEnter + DEFAULT_RULES.cornerExit) / 2
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(true)
 
-    sit.energyReserve = DEFAULT_RULES.floorExit * 1.5
+    sit.cornerRatio = DEFAULT_RULES.cornerExit * 1.05
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(false)
   })

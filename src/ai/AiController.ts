@@ -92,7 +92,15 @@ export class AiController implements Controller {
   private readonly sit = createSituation()
   private readonly targetState = createTargetState()
   private readonly basis = createEngageBasis()
-  private readonly rules = createRuleState()
+  /**
+   * 規則層的閂鎖狀態。**唯讀** —— 只有 `stepRules` 能寫。
+   *
+   * 【為什麼公開】與 `intent`、`safetyActive` 同一個理由：測試要分辨
+   * `extend` 是**哪一個理由**觸發的。三個理由裡兩個是「跟他比」、一個是
+   * 「我自己飛不動了」，只看 `intent` 分不出來 —— 而「劣勢方應該更常脫離」
+   * 這個主張只對前兩個成立（M11 spec §4.1）。
+   */
+  readonly rules = createRuleState()
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()

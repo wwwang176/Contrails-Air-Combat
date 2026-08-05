@@ -50,16 +50,38 @@ export interface RuleConfig {
   turnEnter: number
   turnExit: number
   /**
-   * extend：**絕對**能量底線的進入／離開門檻，m。判的是 `energyReserve`
-   * （比能量減去還打得動的最低比能量），所以 0 就是「剛好見底」。
+   * extend：**速度**見底的進入／離開門檻，判的是 `cornerRatio`
+   * （TAS ÷ 角落速度）。低於 `cornerEnter` 觸發、高於 `cornerExit` 解除。
    *
-   * 【為什麼進入是 0】底線本身已經由 `ENERGY_FLOOR_ALTITUDE` 的推導定義好了，
-   * 這裡不需要第二個任意數字。離開取 +300 m 是遲滯：跨回底線就馬上重新投入
-   * 會在門檻附近抖，而 300 m 的比能量大約是一次淺俯衝或幾秒 WEP 爬升
-   * ——「真的補回一點東西了」的最小量。
+   * 【0.65 / 0.85 的意思】0.65 就是「我的速度只剩角落速度的三分之二」，
+   * 轉彎能力已經明顯打折。遲滯帶 0.2 寬 —— 大約是一次淺俯衝換得到的速度。
+   *
+   * 【為什麼換掉比能量】`Es = h + v²/2g` 是用來**比較兩架飛機**的，不是
+   * 回答「我現在能做什麼」。實測反例：4379 m、67 m/s 的飛機比能量很漂亮，
+   * 舊判準說它「還有 3299 m 餘裕」，而它什麼機動都做不了（spec §4.1）。
+   *
+   * 【為什麼這次的遲滯不會震盪】舊機制的震盪來源是**俯仰指令在翻號**
+   * （`steer.ts` 的兩個裸門檻），不是意圖在切換。俯仰改成連續量之後，
+   * 意圖的遲滯是必要且正常的（spec §7.1）。
+   *
+   * 【定值由實測掃出，2026-08-05】對戰矩陣的「能量優勢方不得超支」與 1v1
+   * 機動測試的 `longestExtend` 一起掃：
+   *
+   * ```
+   * enter / exit   花掉的比能量（上限 3213）   longestExtend 最差
+   *   0.75 / 0.95        4010  ✗                    42.5 s
+   *   0.65 / 0.85        通過  ✓                    38.8 s   ← 選定
+   *   0.55 / 0.75        3390  ✗                   113.8 s
+   *   0.45 / 0.65        3390  ✗                    12.3 s
+   *   0.20 / 0.30        3390  ✗                    19.8 s
+   * ```
+   *
+   * 【0.75 太早】boom-and-zoom 的上升段速度本來就會掉到角落速度以下，
+   * 0.75 讓 AI 在還能轉化優勢時就先脫離。0.55 以下則相反：閂鎖幾乎不觸發，
+   * 對頭 @4000 的單次 `extend` 衝到 113.8 秒 —— 沒有人叫它回來。
    */
-  floorEnter: number
-  floorExit: number
+  cornerEnter: number
+  cornerExit: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
   /** engage：timeToMerge 的進入／離開門檻，s */
@@ -84,8 +106,8 @@ export const DEFAULT_RULES: RuleConfig = {
   energyExit: 100,
   turnEnter: -0.02,
   turnExit: -0.01,
-  floorEnter: 0,
-  floorExit: 300,
+  cornerEnter: 0.65,
+  cornerExit: 0.85,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -174,7 +196,7 @@ export function stepRules(
   // 【第三個理由是絕對的】上面兩個都是「跟他比」，兩台一起磨下去時都看不見。
   // 這一個問「我還飛得動嗎」，與對手無關。
   s.extendFloorLatch = latch(
-    s.extendFloorLatch, sit.energyReserve, cfg.floorEnter, cfg.floorExit,
+    s.extendFloorLatch, sit.cornerRatio, cfg.cornerEnter, cfg.cornerExit,
   )
   s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch || s.extendFloorLatch
   s.engageLatch = latch(
@@ -218,10 +240,10 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 正是「我正咬著他」的定義。
   //
   // 【`extendRange` 也只約束相對理由】同一條分野再用一次。`extend` 有兩個
-  // 出口：跑滿 `extendRange`，或閂鎖釋放。實測絕對理由觸發時**永遠是距離
-  // 先到** —— 能量餘裕要爬回 `floorExit`（+300 m）以 Ps ≈ +15 m/s 算要 21 秒，
-  // 而拉開到 1,500 m 只要 1.2 秒。AI 於是每次都在餘裕才 +24 m 時回頭，等於
-  // 沒補到，很快又見底，形成來回震盪。
+  // 出口：跑滿 `extendRange`，或閂鎖釋放。絕對理由觸發時**永遠是距離先到**
+  // —— 速度要爬回 `cornerExit` 需要幾十秒，而拉開到 1,500 m 只要 1.2 秒。
+  // 少了這條豁免，AI 每次都在還沒補到速度時就回頭，等於沒補，很快又見底，
+  // 形成來回震盪。
   //
   // 相對理由（比他弱、轉不贏他）談的是戰術態勢，「拉開夠遠就安全了」成立；
   // 絕對理由（我飛不動了）與距離無關 —— 跑到天邊也不會讓你變得飛得動。

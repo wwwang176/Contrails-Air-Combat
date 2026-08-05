@@ -1,15 +1,12 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import {
-  bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, cornerSpeed,
-  instantaneousTurnRate,
+  bestSustainedTurnRateCached, cornerSpeed, instantaneousTurnRate,
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
-import { G0 } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { AircraftSpec } from '../specs/types'
 
 /**
  * 一個時刻的完整態勢。純資料，由呼叫端持有並重複使用（熱路徑禁止配置）。
@@ -69,17 +66,20 @@ export interface Situation {
    */
   airframeTurnAdvantage: number
   /**
-   * 我的比能量 − **還打得動的最低比能量**，m。負值 = 已經見底。
+   * 我的 TAS ÷ 我的角落速度。> 1 = 快到轉不動。
    *
-   * 【為什麼需要一個絕對量】`energyAdvantage` 是相對的：兩台一起把能量磨光時
-   * 它一直接近 0，所以沒有任何機制看得見「大家都快沒能量了」。實測共速共高
-   * 開局，兩台由比能量 5,841 m 磨到 **679 m**、高度掉到 **309 m**，全程沒有
-   * 一方決定抽身。
+   * 【它同時是「我還打得動嗎」的判準】角落速度是「這架飛機能拉出最大
+   * 轉彎率的最低速度」；低於它，轉彎能力隨速度接近線性下滑。飛行員最
+   * 在意的單一數字就是它。
    *
-   * 底線的定義見 `ENERGY_FLOOR_ALTITUDE`。
+   * 【為什麼不用比能量】`Es = h + v²/2g` 出自 Boyd 的能量機動理論，發明
+   * 目的是**比較兩架飛機誰佔優勢**，不是回答「我現在能做什麼」。實測
+   * 反例：4379 m、67 m/s 的飛機比能量很漂亮，系統判它「還有 3299 m
+   * 餘裕」，而它什麼機動都做不了 —— 能量全鎖在高度裡，提取要先俯衝，
+   * 俯衝要時間、要高度、還要一開始就有速度把機頭壓下去（spec §4.1）。
+   *
+   * `energyAdvantage`（相對比較）仍然用比能量，那是對的用法。
    */
-  energyReserve: number
-  /** 我的 TAS ÷ 我的角落速度。> 1 = 快到轉不動 */
   cornerRatio: number
   /**
    * 我的 TAS ÷ **當前過載下**的失速速度。趨近 1 = 當前升力係數已逼近 CLmax。
@@ -131,7 +131,7 @@ export function createSituation(): Situation {
     range: 0, closureRate: 0, timeToMerge: Infinity,
     aspectAngle: 0, angleOffTail: 0, losRate: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
-    turnAdvantage: 0, airframeTurnAdvantage: 0, energyReserve: 0,
+    turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, stallMargin: 1, speedMargin: 1,
     climbAngle: 0,
     threatInstant: 0, shotInstant: 0,
@@ -225,8 +225,6 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   out.airframeTurnAdvantage = bestSustainedTurnRateCached(self.spec, selfAlt)
     - bestSustainedTurnRateCached(target.spec, targetAlt)
 
-  out.energyReserve = self.specificEnergy - energyFloor(self.spec)
-
   // 角落速度恆為正，不必防除以 0
   out.cornerRatio = selfTas / cornerSpeed(self.spec, selfAlt)
 
@@ -240,36 +238,6 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   // 時過載趨近 0，Vs(|n|) ∝ √n 也跟著縮小，比值於是被撐大。
   // 這一項無視過載，所以它問的是純粹的「我還有多少空速」。
   out.speedMargin = selfTas / stallSpeed(self.spec, selfAlt, 1)
-}
-
-/**
- * 能量底線所參照的高度，m。**專案負責人裁決。**
- *
- * 【底線是什麼】「我還打得動嗎」的答案是「我的比能量夠不夠讓我在一個安全的
- * 高度上，維持我最擅長的轉彎速度」：
- *
- *   Es_floor = ENERGY_FLOOR_ALTITUDE + V_best² / (2 g)
- *
- * `V_best` 取該高度下最佳持續轉彎率所需的速度（`bestSustainedTurnSpeedCached`）
- * —— 那是「還能纏鬥」的最低速度需求，不是配出來的數字。
- *
- * 【1,000 m 怎麼來的】那大約是「還有本錢做一次完整的垂直機動」的高度，而且離
- * 安全層的接管線（`DEFAULT_SAFETY.clearance` 120 m × `factor` 1.5 = 180 m）有
- * 五倍餘裕 —— 兩層不會互相打架：能量底線讓 AI **提早**抽身，安全層是**最後**
- * 一道防線。
- */
-export const ENERGY_FLOOR_ALTITUDE = 1000
-
-/** 每個機種一個常數：底線只與機體有關，與當前狀態無關。 */
-const energyFloors = new WeakMap<AircraftSpec, number>()
-
-function energyFloor(spec: AircraftSpec): number {
-  let floor = energyFloors.get(spec)
-  if (floor !== undefined) return floor
-  const vBest = bestSustainedTurnSpeedCached(spec, ENERGY_FLOOR_ALTITUDE)
-  floor = ENERGY_FLOOR_ALTITUDE + (vBest * vBest) / (2 * G0)
-  energyFloors.set(spec, floor)
-  return floor
 }
 
 /**

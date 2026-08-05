@@ -27,6 +27,16 @@ interface Outcome {
   blueEnergySpent: number
   /** 開局時藍方比紅方多出的比能量，m */
   blueEnergyEdge: number
+  /**
+   * 藍方「**我的能量比他低**」這個理由成立的時間比例。
+   *
+   * 【為什麼要挑出這一個】`extend` 有三個理由：能量比他低、機體轉不贏他、
+   * 我自己飛不動了。下面那兩條開局差的**只有能量** —— 機種配對完全相同
+   * （P-51 對 109），所以「轉不贏他」在兩場裡幾乎恆真，是機種的性質不是
+   * 開局的性質；而「我自己飛不動了」與對手是誰無關（M11 spec §4.1）。
+   * 三個混在一起量，得到的是機種配對加飛行風格，不是「吃虧的一方更常撤」。
+   */
+  blueRelativeExtend: number
 }
 
 interface Side {
@@ -91,6 +101,7 @@ function duel(blue: Side, red: Side): Outcome {
   const intentSteps: Record<string, number> = {}
   for (const i of INTENTS) intentSteps[i] = 0
   let deepNegative = 0
+  let relativeExtend = 0
   let touchedSea = false
   const blueEs0 = b.a.specificEnergy
   const blueEnergyEdge = blueEs0 - r.a.specificEnergy
@@ -101,6 +112,7 @@ function duel(blue: Side, red: Side): Outcome {
     world.step(DT)
     intentSteps[blueAi.intent] = (intentSteps[blueAi.intent] ?? 0) + 1
     if (b.a.specificExcessPowerActual < -60) deepNegative++
+    if (blueAi.rules.extendEnergyLatch) relativeExtend++
     if (b.a.specificEnergy < blueMinEs) blueMinEs = b.a.specificEnergy
     if (b.a.state.position.y <= 0 || r.a.state.position.y <= 0) touchedSea = true
     if (!Number.isFinite(b.a.state.position.y) || !Number.isFinite(r.a.state.position.y)) {
@@ -108,6 +120,7 @@ function duel(blue: Side, red: Side): Outcome {
         winner: 'nan', seconds: i * DT, finite: false, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
+        blueRelativeExtend: relativeExtend / (i + 1),
       }
     }
     if (bc.hp <= 0 || rc.hp <= 0) {
@@ -115,6 +128,7 @@ function duel(blue: Side, red: Side): Outcome {
         winner: rc.hp <= 0 ? 'blue' : 'red', seconds: i * DT, finite: true, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
+        blueRelativeExtend: relativeExtend / (i + 1),
       }
     }
   }
@@ -122,6 +136,7 @@ function duel(blue: Side, red: Side): Outcome {
     winner: 'timeout', seconds: MAX_SECONDS, finite: true, touchedSea,
     blueIntentTime: fractions(intentSteps, total), blueDeepNegativePs: deepNegative / total,
     blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
+    blueRelativeExtend: relativeExtend / total,
   }
 }
 
@@ -190,7 +205,28 @@ describe('L4-C 能量戰證據', () => {
     expect(high.finite && co.finite).toBe(true)
   })
 
-  it('能量劣勢開局時，AI 花在 extend 的時間顯著多於能量優勢開局', () => {
+  /**
+   * 【這一條原本量 `extend` 的總時間，2026-08-05 改成只量相對理由】
+   *
+   * 主張沒變：**能量吃虧的一方要更常脫離重整。** 變的是量什麼。
+   *
+   * `extend` 有三個理由，只有第一個（能量比他低）是這兩場開局的差別所在：
+   *
+   *   - 「我自己飛不動了」與對手是誰無關（M11 spec §4.1）。M11 把它由
+   *     「比能量還剩多少」換成「速度還剩角落速度的幾成」之後，俯衝掠襲的
+   *     拉升段（速度本來就會掉）一直讓它成立 —— **佔優勢的一方 `extend`
+   *     得比吃虧的一方還多**（69% 對 50%）。
+   *   - 「機體轉不贏他」在兩場裡都是 P-51 對 109，幾乎恆真 —— 那是機種
+   *     配對的性質，不是開局的性質（實測 84% 對 68%，同樣是反的）。
+   *
+   * 兩場開局差的只有能量，所以要量的就是能量那一個理由。
+   *
+   * 【為什麼不是調門檻了事】掃過 `cornerEnter`：往上調順序就對，但「能量
+   * 優勢方不得超支」那一條會紅（花 4535 > 開局優勢 3213）；往下調則相反。
+   * 兩條測試在同一個旋鈕上方向相反，沒有中間值 —— 那是「量錯東西」的
+   * 徵狀，不是「門檻沒調好」。
+   */
+  it('能量劣勢開局時，「我能量比他低」成立的時間多於能量優勢開局', () => {
     // 藍方在下方且慢 → 應該先脫離重整而不是硬纏
     const lowEnergy: [Side, Side] = [
       { spec: P51D, altitude: 3000, tas: 150, offset: [0, -1000, 0], headingDeg: 0 },
@@ -198,7 +234,9 @@ describe('L4-C 能量戰證據', () => {
     ]
     const low = duel(...lowEnergy)
     const high = duel(...HIGH_ENERGY)
-    expect(low.blueIntentTime.extend).toBeGreaterThan(high.blueIntentTime.extend)
+    expect(low.blueRelativeExtend).toBeGreaterThan(high.blueRelativeExtend)
+    // 【下限，不然「兩邊都幾乎是 0」也會通過】吃虧那一場必須真的撤過
+    expect(low.blueRelativeExtend).toBeGreaterThan(0.1)
   })
 
   /**
