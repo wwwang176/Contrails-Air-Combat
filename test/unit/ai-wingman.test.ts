@@ -17,12 +17,20 @@ interface Scene { board: TargetBoard; craft: Aircraft[] }
  * 6 架：0..2 藍（0 = 長機、1 = 僚機、2 = 另一架友機）、3..5 紅。
  * 全部平飛朝 −Z，彼此相隔 10 km —— 遠超 THREAT_RANGE，所以初始狀態下
  * 沒有任何人威脅任何人。呼叫端再把要用的那幾架搬過來。
+ *
+ * 【每一架都先跑一步】`Aircraft` 的建構子**不填 `diag`** —— 它只在 `update`
+ * 裡由 `stepDynamics` 填。僚機的計分透過 `turnTime` 讀 `diag.aero.tas`，
+ * 讀到 0 會讓每個候選的分數都變成 0，於是誰也選不上。
  */
 function scene(): Scene {
   const candidates: TargetCandidate[] = []
   const craft: Aircraft[] = []
   for (let i = 0; i < 6; i++) {
     const a = new Aircraft(P51D, 4000, 200)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    a.prevPosition.copy(a.state.position)
+    a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
     a.state.position.set(i * 10000, 4000, 0)
     a.state.velocity.set(0, 0, -200)
     a.state.orientation.identity()
@@ -240,5 +248,72 @@ describe('降級與退場', () => {
     tail(s.craft[2]!, s.craft[1]!, 300)
     const st = createWingmanState()
     expect(selectWingmanTarget(st, s.board, 1, 0, 0, DT)).toBeNull()
+  })
+})
+
+/**
+ * 把 enemy 擺在 me 的 +Z（後方）或 −Z（前方）`dz` 公尺處，**機首朝我**。
+ *
+ * 【與 `tail` 的差別】`tail` 恆把機首設成 −Z，所以它只在「擺到後方」時
+ * 才真的構成威脅。要比較兩個方位的轉向代價，兩邊都必須先真的威脅到我，
+ * 否則比的是「有威脅 vs 沒威脅」，跟代價無關。
+ */
+function aimedAt(enemy: Aircraft, me: Aircraft, dz: number): void {
+  enemy.state.position.copy(me.state.position).add(new Vector3(0, 0, dz))
+  // 由 enemy 指向 me
+  const dir = new Vector3(0, 0, dz > 0 ? -1 : 1)
+  enemy.state.velocity.copy(dir).multiplyScalar(200)
+  enemy.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), dir)
+  enemy.prevPosition.copy(enemy.state.position)
+  enemy.prevOrientation.copy(enemy.state.orientation)
+}
+
+describe('同一級內部用切換成本排序', () => {
+  /**
+   * 【只排序，不否決】級與級之間的硬優先序完全不動；一個候選通過了它
+   * 那一級的條件就一定會被選中，代價只決定「同一級裡先挑誰」（spec §4.2）。
+   *
+   * 【為什麼後方那架的索引比較小】兩架的 `threatFactor` 完全相同（同距離、
+   * 機首都正對我），舊碼的 `t > bestScore` 於是取先掃到的。把後方那架放在
+   * 索引 3、前方那架放在索引 4，沒有切換成本時會選到後方那架 —— 這條測試
+   * 才真的在量代價，而不是在量掃描順序。
+   */
+  it('兩架同樣在威脅我時，挑機首比較容易轉過去的那一架', () => {
+    const { board, craft } = scene()
+    const me = craft[1]!
+    const behind = craft[3]!
+    const ahead = craft[4]!
+    me.state.position.set(0, 4000, 0)
+    aimedAt(behind, me, 400)    // 我的正後方，要轉 180°
+    aimedAt(ahead, me, -400)    // 我的正前方，機首已經對著
+    const state = createWingmanState()
+    const picked = selectWingmanTarget(state, board, 1, 0, 0, DT, DEFAULT_WINGMAN)
+    expect(state.level).toBe(LEVEL_SELF_DEFENCE)
+    expect(picked).toBe(ahead)
+  })
+
+  /**
+   * 【第三級只有一個候選，行為必須完全不變】那一級選的是
+   * `assignments[長機]` 讀出來的一架，不是一個清單 —— 沒有東西可以排序。
+   * 若實作成「代價太高就放棄」，掩護就會消失（spec §4.2）。
+   */
+  it('第三級照選長機的目標，即使它在我正後方', () => {
+    const { board, craft } = scene()
+    const lead = craft[0]!
+    const me = craft[1]!
+    const prey = craft[3]!
+    lead.state.position.set(0, 4000, 0)
+    me.state.position.set(0, 4000, 100)
+    // 長機的目標擺在我正後方 —— 轉過去很貴，但集火不該因此放棄。
+    // 【機首朝 +Z】背對我也背對長機，第一、二級才不會先攔下來
+    prey.state.position.set(0, 4000, 700)
+    prey.state.velocity.set(0, 0, 200)
+    prey.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 0, 1))
+    prey.prevOrientation.copy(prey.state.orientation)
+    board.assignments[0] = 3
+    const state = createWingmanState()
+    const picked = selectWingmanTarget(state, board, 1, 0, 0, DT, DEFAULT_WINGMAN)
+    expect(state.level).toBe(LEVEL_FOCUS)
+    expect(picked).toBe(prey)
   })
 })

@@ -1,4 +1,4 @@
-import { THREAT_RANGE, threatFactor } from './assess'
+import { THREAT_RANGE, threatFactor, turnTime } from './assess'
 import { latch } from './rules'
 import type { TargetBoard } from './target'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -21,6 +21,15 @@ export interface WingmanConfig {
   breakExit: number
   /** 換過目標之後不再換的秒數 */
   minDwell: number
+  /**
+   * 切換成本的特徵時間與相對重要性，與 `DEFAULT_TARGET` 的同名欄位
+   * **同義同值** —— 自由獵手與僚機用同一套「轉過去要多久」的概念，
+   * 兩邊分岔的話同一個戰場上會有兩種代價觀。
+   *
+   * **起始值，待 Task 10 由實測回填。**
+   */
+  turnTimeScale: number
+  turnWeight: number
 }
 
 /**
@@ -40,6 +49,8 @@ export const DEFAULT_WINGMAN: WingmanConfig = {
   breakEnter: 800,
   breakExit: 1200,
   minDwell: 1.0,
+  turnTimeScale: 4,
+  turnWeight: 2,
 }
 
 /**
@@ -132,8 +143,13 @@ export function selectWingmanTarget(
     const c = candidates[i]!
     if (!c.alive || c.team === self.team) continue
     const t = threatFactor(c.aircraft, self.aircraft)
-    if (t > bestScore) {
-      bestScore = t
+    if (t <= 0) continue
+    // 【切換成本只在同一級內部排序】通過這一級條件的候選一定會被選，
+    // 代價只決定先挑誰（spec §4.2）。沒有它時兩架威脅相同就取先掃到的
+    // —— 那可能是要轉 180° 的那一架。
+    const s = t * turnDiscount(self.aircraft, c.aircraft, cfg)
+    if (s > bestScore) {
+      bestScore = s
       bestIndex = i
     }
   }
@@ -145,8 +161,11 @@ export function selectWingmanTarget(
       const c = candidates[i]!
       if (!c.alive || c.team === self.team) continue
       const t = threatFactor(c.aircraft, lead.aircraft)
-      if (t > bestScore) {
-        bestScore = t
+      if (t <= 0) continue
+      // 【威脅算在長機頭上、代價算在我頭上】要轉過去的是我
+      const s = t * turnDiscount(self.aircraft, c.aircraft, cfg)
+      if (s > bestScore) {
+        bestScore = s
         bestIndex = i
       }
     }
@@ -186,6 +205,18 @@ export function selectWingmanTarget(
 
   assignments[selfIndex] = state.current
   return state.current >= 0 ? candidates[state.current]!.aircraft : null
+}
+
+/**
+ * 轉向代價的折扣，`1/(1 + t/scale)^w`。與 `target.ts` 的 `discount` 同一個
+ * 形狀 —— 兩條選目標的路徑必須用同一套代價觀。
+ */
+function turnDiscount(self: Aircraft, enemy: Aircraft, cfg: WingmanConfig): number {
+  if (cfg.turnWeight === 0) return 1
+  const x = turnTime(self, enemy) / cfg.turnTimeScale
+  if (!(x > 0)) return 1
+  const d = 1 / (1 + x)
+  return cfg.turnWeight === 1 ? d : Math.pow(d, cfg.turnWeight)
 }
 
 function commit(state: WingmanState, index: number, level: number, cfg: WingmanConfig): void {
