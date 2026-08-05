@@ -548,6 +548,52 @@ describe('turnTime', () => {
     expect(t).toBeLessThan(1e-3)
   })
 
+  /**
+   * **角度由速度向量量，不是機首**（2026-08-05）。
+   *
+   * 【要解決什麼】`turnTime` 是**選目標**唯一的消費者（`target.ts` 與
+   * `wingman.ts`），而選目標是慢決策 —— 10 Hz 評估、最少停留 1~2 秒。舊版
+   * 拿瞬時機首當基準，等於把一個**一秒能甩 75° 的快變量**餵進慢決策。
+   *
+   * 破防（`defendAim`）正是 75° 的機首甩動，而轉向折扣的權重是所有折扣裡
+   * 最重的（`turnWeight = 2`）。實測加入閃躲之後，20v20 的 A→B→A 換回來由
+   * 88 次升到 194 次、長機持有時間貼回 `minDwell` 下限 —— 前一批壓下去的
+   * 猶豫大半吐了回去。
+   *
+   * 【為什麼速度向量是對的基準，不只是「比較慢」】選目標問的是「我要不要
+   * 投入去打他」，那取決於**航跡能不能過去**，不是此刻機鼻朝哪。硬機動時
+   * 機首是暫態的、指向一個並不打算久留的方向；平飛時兩者只差一個攻角
+   * （幾度），所以既有的量測結論不受影響。
+   *
+   * 這與 spec §4.2 的分頻原則同源：慢的決策要用慢的輸入。
+   */
+  it('硬機動時角度跟著速度向量，不跟著機首', () => {
+    const self = flyer()
+    const target = flyer()
+    self.state.position.set(0, 4000, 0)
+    target.state.position.set(0, 4000, -500)
+    // 速度仍朝 −Z（目標方向），但機首已經甩開 60°（破防中的姿態）
+    self.state.velocity.set(0, 0, -180)
+    const yaw = 60 * (Math.PI / 180)
+    self.state.orientation.setFromAxisAngle(new Vector3(0, 1, 0), yaw)
+    // 航跡直指目標 → 代價可忽略；若拿機首量會是 60°，代價相當可觀
+    expect(turnTime(self, target)).toBeLessThan(1e-3)
+  })
+
+  /** 速度退化時回頭用機首 —— 靜止的飛機沒有航跡。 */
+  it('速度為 0 時退回機首', () => {
+    const self = flyer()
+    const behind = flyer()
+    self.state.position.set(0, 4000, 0)
+    self.state.velocity.set(0, 0, 0)
+    self.state.orientation.identity()      // 機首朝 −Z
+    behind.state.position.set(0, 4000, 500)
+    // 機首朝 −Z、目標在 +Z → 180°，是有限且最大的代價，不是 NaN
+    const t = turnTime(self, behind)
+    expect(Number.isFinite(t)).toBe(true)
+    expect(t).toBeGreaterThan(0)
+  })
+
   it('目標在正後方最貴，正側面居中', () => {
     const self = flyer()
     const behind = flyer()
