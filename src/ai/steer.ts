@@ -101,17 +101,29 @@ export function buildEngageBasis(self: Aircraft, target: Aircraft, out: EngageBa
   out.verticalDegenerate = perpendicular(lift, out.losAxis, out.verticalAxis) < AXIS_EPSILON
 }
 
-export type SteerMode = 'normal' | 'overshoot' | 'stallGuard' | 'planeDegenerate'
+export type SteerMode = 'normal' | 'overshoot' | 'speedRecover' | 'unload' | 'planeDegenerate'
 
 export interface SteerConfig {
   /** 超前閘門的距離門檻，m */
   overshootRange: number
-  /** 失速裕度（拉太猛）低於此值才可能觸發吊機首閘門 */
-  stallGuardMargin: number
-  /** 速度裕度（TAS ÷ 1G 失速速度）低於此值也觸發吊機首閘門 */
-  stallGuardSpeed: number
-  /** 目標仰角高於此值才算「要吊上去」，rad */
-  stallGuardElevation: number
+  /**
+   * **拉太猛**的判準：失速裕度（TAS ÷ 當前過載下的失速速度）低於此值就卸載。
+   *
+   * 【它量的是攻角不是速度】代數上恆等於 √(CLmax / CL)，所以它回答的是
+   * 「我拉得太猛了嗎」。補救是停止拉桿，不是壓機頭。
+   */
+  unloadMargin: number
+  /**
+   * **快沒空速**的判準：速度裕度（TAS ÷ 1G 失速速度）低於此值就壓機頭。
+   *
+   * 【為什麼不看仰角】舊版要求「仰角 > 45° **且** 速度低」才觸發，那個
+   * `且` 讓它在 74° 仰角、速度裕度 1.49 時仍然不動，等到 1.34 才觸發
+   * —— 已經 78 m/s 了。速度不足在任何姿態都是問題；俯衝時速度自然高，
+   * 不會誤觸發（實測俯衝時觸發 0 次，spec §3.4）。
+   */
+  speedRecoverMargin: number
+  /** `speedRecover` 的壓頭角度，rad。正值，實際命令的是它的負值 */
+  speedRecoverPitch: number
   /** 瞄準點相對目標的最大角位移，rad */
   maxOffsetAngle: number
   /** cornerRatio 超過此值就開始減速 */
@@ -127,9 +139,10 @@ export interface SteerConfig {
  */
 export const DEFAULT_STEER: SteerConfig = {
   overshootRange: 120,
-  stallGuardMargin: 1.25,
-  stallGuardSpeed: 1.4,
-  stallGuardElevation: 45 * (Math.PI / 180),
+  unloadMargin: 1.25,
+  speedRecoverMargin: 1.4,
+  // 【起始值，待 Task 10 由實測回填】與安全層的 recoveryPitch（20°）對稱
+  speedRecoverPitch: 20 * (Math.PI / 180),
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.6,
   extendPitch: 25 * (Math.PI / 180),
@@ -139,7 +152,8 @@ export const DEFAULT_STEER: SteerConfig = {
 /**
  * 幾何有效性閘門（spec §7.1）。在算 yo-yo 平面之前先過。
  *
- * 【優先序：超前 > 吊機首 > 平面退化】撞上去比失速嚴重，失速比瞄不準嚴重。
+ * 【優先序：超前 > 沒空速 > 拉太猛 > 平面退化】撞上去比失速嚴重；沒空速
+ * 比拉太猛嚴重（前者要壓機頭換速度，後者只要停止拉桿）；失速比瞄不準嚴重。
  */
 export function geometryGate(
   sit: Situation,
@@ -151,28 +165,17 @@ export function geometryGate(
   // 只有約 100°/s——瞄準點每格劇烈跳動而飛機跟不上。
   if (sit.range < cfg.overshootRange && sit.closureRate > 0) return 'overshoot'
 
-  // 【吊機首與平面奇異是兩件事】平飛時目標在正上方，速度與視線互相垂直，
-  // 平面定義得非常好——壞的是能量不是幾何。所以這一條用能量判，
-  // 不用平面模長判。
+  // 【兩個判準各管一種失效模式，補救動作相反】
+  //   speedMargin 低 = 快沒空速  → 壓機頭換速度
+  //   stallMargin  低 = 拉太猛   → 卸載，機頭跟著速度向量
+  // 舊版把兩者合併成同一個 mode 並共用 `unloadAim(self, 0)`，對後者正確、
+  // 對前者是無操作 —— 那就是缺陷 3（spec §5.1）。
   //
-  // 【兩個判準是「或」，缺一不可】M4 出貨後抓到的缺陷：`stallMargin` 代數上
-  // 恆等於 √(CLmax/CL)，它問的是「我拉得太猛了嗎」。垂直爬升時飛機不需要
-  // 升力，過載趨近 0，而 Vs ∝ √n 也跟著縮小，比值被撐大——P-51D 實測在
-  // 132 km/h 時它讀 4.63，遠高於 1.25 的門檻，要掉到約 20 km/h 才觸發。
-  // `speedMargin` 無視過載，補的正是這個盲區：同一個時刻它讀 0.68。
-  //
-  // 【仰角判準也是「或」，理由同上】原本只看目標仰角，等於只問「目標是不是
-  // 吊在我上面」。人工驗收抓到的第二個缺陷：`extend` 的俯仰偏置滾雪球，會
-  // 讓 AI 把**自己**吊到 85°，而目標仍在同一空層 —— 目標仰角接近 0，閘門
-  // 一次都不觸發。「我正在把自己吊上去」與「目標吊在上面」是兩件不同的事，
-  // 而前者才是失速的直接前兆。
-  const elevation = Math.asin(Math.max(-1, Math.min(1, basis.losAxis.y)))
-  if (
-    (elevation > cfg.stallGuardElevation || sit.climbAngle > cfg.stallGuardElevation)
-    && (sit.stallMargin < cfg.stallGuardMargin || sit.speedMargin < cfg.stallGuardSpeed)
-  ) {
-    return 'stallGuard'
-  }
+  // 【仰角前提整條刪掉】舊版要求「目標仰角 > 45° 或自己航跡角 > 45°」才
+  // 可能觸發，於是同一空層平飛追擊時速度掉到一半也不動。速度不足在任何
+  // 姿態都是問題；俯衝時速度自然高，不會誤觸發。
+  if (sit.speedMargin < cfg.speedRecoverMargin) return 'speedRecover'
+  if (sit.stallMargin < cfg.unloadMargin) return 'unload'
 
   // 真正的幾何奇異：升力方向 ∥ 視線，「上方」沒有唯一解
   if (basis.verticalDegenerate) return 'planeDegenerate'
@@ -290,6 +293,13 @@ export function steerCommand(
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
+  /**
+   * 該點的海面（未來為地表）高度，m。`extend` 的俯仰會用它算離地餘裕。
+   *
+   * 【現在還沒有人讀它】底線前綴是 `noUnusedParameters` 要的。現在就把它
+   * 加進簽章，是為了讓呼叫端與測試只改一次。
+   */
+  _seaHeight: number,
   k: Knobs,
   out: Command,
   cfg: SteerConfig = DEFAULT_STEER,
@@ -298,9 +308,13 @@ export function steerCommand(
   // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
   if (mode === 'planeDegenerate') {
     out.aimWorld.copy(basis.losAxis)
-  } else if (mode === 'stallGuard') {
-    // 不追上去。回到速度向量附近讓能量恢復——追一個吊在上面的目標會
-    // 把自己也掛在那裡。
+  } else if (mode === 'speedRecover') {
+    // 【主動壓機頭】不是「沿著現在的速度向量飛」—— 在自己已經吊上去時，
+    // 那個向量正指著天空，命令沿著它飛等於命令繼續爬（spec §5.1）。
+    unloadAim(self, -cfg.speedRecoverPitch, out.aimWorld)
+  } else if (mode === 'unload') {
+    // 拉太猛：停止拉桿，機頭回到速度向量，讓升力係數退回線性段。
+    // 追一個吊在上面的目標會把自己也掛在那裡。
     unloadAim(self, 0, out.aimWorld)
   } else if (mode === 'overshoot') {
     // 後置 + 高 yo-yo。engageKnobs 在這個態勢下本來就會給負的 leadLag 與

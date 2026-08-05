@@ -175,7 +175,7 @@ export class AiController implements Controller {
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
     const mode = geometryGate(this.sit, this.basis)
-    steerCommand(this.intent, mode, this.sit, this.basis, self, this.knobs, out)
+    steerCommand(this.intent, mode, this.sit, this.basis, self, this.seaHeight, this.knobs, out)
     out.firing = shouldFire(this.sit, this.basis, self)
 
     // ── 240 Hz：安全層，可覆寫上面全部 ─────────────────────

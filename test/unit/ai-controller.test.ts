@@ -24,9 +24,18 @@ describe('DifficultyProfile', () => {
 describe('AiController', () => {
   const cmd = createCommand()
 
+  /**
+   * 【兩架都要先跑一步】`Aircraft` 的建構子**不填 `diag`** —— 它只在
+   * `update` 裡由 `stepDynamics` 填。沒跑過的飛機 `diag.aero.tas` 是 0，
+   * 於是 `speedMargin` 讀成 0，`geometryGate` 永遠回 `speedRecover`，
+   * 瞄準點就不再跟著目標動。那是 fixture 不物理，不是被測行為出錯。
+   */
   const pair = () => {
     const self = new Aircraft(BF109G6, 4000, 180)
     const target = new Aircraft(P51D, 4000, 180)
+    self.update(new Vector3(0, 0, -1), 0.7, DT)
+    target.update(new Vector3(0, 0, -1), 0.7, DT)
+    self.state.position.set(0, 4000, 0)
     target.state.position.set(0, 4000, -600)
     target.prevPosition.copy(target.state.position)
     const ai = new AiController()
