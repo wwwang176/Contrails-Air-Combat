@@ -10,11 +10,31 @@ import { P51D } from '../../src/specs/p51d'
 
 const UP = new Vector3(0, 1, 0)
 
-/** 把飛機擺在 (x, y, z)，機首繞 Y 軸轉 yaw 弧度（0 = 朝 −Z）。 */
+/**
+ * 把飛機擺在 (x, y, z)，機首繞 Y 軸轉 yaw 弧度（0 = 朝 −Z），並以 200 m/s
+ * 沿機首方向飛。
+ *
+ * 【一定要跑一步】`Aircraft` 的建構子**不填 `diag`** —— 它只在 `update` 裡
+ * 由 `stepDynamics` 填。`targetScore` 透過 `turnTime` 讀 `diag.aero.tas`，
+ * 讀到 0 會讓 `instantaneousTurnRate` 回 0、`turnTime` 回 `Infinity`、折扣
+ * 變成 0，於是**所有目標的分數都是 0**，比較兩個 0 的測試永遠通過。
+ * 舊版沒踩到是因為舊 `targetScore` 不碰 `diag`。
+ *
+ * 【速度也一定要設】威脅項改用 `threatFactor`，而它要解預瞄。兩機速度都是
+ * 0 時相對速度為 0，預瞄解退化。
+ */
 function place(x: number, y: number, z: number, yaw: number): Aircraft {
   const a = new Aircraft(P51D, 4000, 200)
+  const q = new Quaternion().setFromAxisAngle(UP, yaw)
+  a.state.orientation.copy(q)
+  a.state.velocity.set(0, 0, -200).applyQuaternion(q)
+  a.prevPosition.copy(a.state.position)
+  // 跑一步把 diag 填起來（見上方說明）
+  a.update(new Vector3(0, 0, -1).applyQuaternion(q), 0.7, 1 / 240)
+  // update 會積分位置、姿態與速度，全部重設回我們要的值
   a.state.position.set(x, y, z)
-  a.state.orientation.copy(new Quaternion().setFromAxisAngle(UP, yaw))
+  a.state.orientation.copy(q)
+  a.state.velocity.set(0, 0, -200).applyQuaternion(q)
   return a
 }
 
@@ -29,15 +49,134 @@ describe('targetScore 的機會項', () => {
     expect(targetScore(me, tail, 0, cfg)).toBeGreaterThan(targetScore(me, nose, 0, cfg))
   })
 
-  it('側面時歸零（不是負的）', () => {
+  /**
+   * 【為什麼不是斷言「分數等於 0」】分數含一個底價（見 `TargetConfig.baseScore`），
+   * 所以總分本來就不會是 0。要驗的是**機會項的貢獻**是 0 而不是負的 ——
+   * 拿同一架、同樣的折扣、但把機會權重關掉來比，相等就證明它貢獻了 0。
+   */
+  it('側面時機會項貢獻歸零（不是負的）', () => {
     const me = place(0, 4000, 0, 0)
     const beam = place(0, 4000, -300, Math.PI / 2)
-    const cfg = { ...DEFAULT_TARGET, opportunityWeight: 1, threatWeight: 0 }
-    expect(targetScore(me, beam, 0, cfg)).toBeCloseTo(0, 9)
+    const on = { ...DEFAULT_TARGET, opportunityWeight: 1, threatWeight: 0 }
+    const off = { ...DEFAULT_TARGET, opportunityWeight: 0, threatWeight: 0 }
+    expect(targetScore(me, beam, 0, on)).toBeCloseTo(targetScore(me, beam, 0, off), 12)
   })
 })
 
-describe('targetScore 的威脅項', () => {
+describe('targetScore 的底價', () => {
+  /**
+   * 【沒有它會發生什麼】開局雙方相距 10 km，前 25 秒敵機都在 THREAT_RANGE
+   * 之外（威脅 0）而且迎頭朝我飛（機會 0）—— 每一架的分數都恰好是 0。三個
+   * 折扣都是乘法，乘上 0 還是 0，選擇於是退化成「取索引最小的那一架」，
+   * 五個分隊的長機全部撲同一架。實測把 `crowdPenalty` 從 1 推到 1000 一格
+   * 都沒動，因為它乘的是 0。
+   */
+  it('既不是機會也不是威脅的敵機，分數仍然大於 0', () => {
+    const me = place(0, 4000, 0, 0)
+    // 3 km 外（超出 THREAT_RANGE）、機首與我的視線垂直（機會項也是 0）
+    const neutral = place(0, 4000, -3000, Math.PI / 2)
+    expect(targetScore(me, neutral, 0, DEFAULT_TARGET)).toBeGreaterThan(0)
+  })
+
+  it('兩架都中性時，近的贏遠的 —— 折扣重新有東西可折', () => {
+    const me = place(0, 4000, 0, 0)
+    const near = place(0, 4000, -1500, Math.PI / 2)
+    const far = place(0, 4000, -3000, Math.PI / 2)
+    expect(targetScore(me, near, 0, DEFAULT_TARGET))
+      .toBeGreaterThan(targetScore(me, far, 0, DEFAULT_TARGET))
+  })
+
+  it('兩架都中性時，沒人鎖定的贏已經很多人鎖定的', () => {
+    const me = place(0, 4000, 0, 0)
+    const t = place(0, 4000, -3000, Math.PI / 2)
+    expect(targetScore(me, t, 0, DEFAULT_TARGET))
+      .toBeGreaterThan(targetScore(me, t, 4, DEFAULT_TARGET))
+  })
+
+  /**
+   * 【比值不要寫死】兩架的距離、鎖定數、方位都相同，三個折扣完全抵銷，
+   * 所以比值恰好是 `(baseScore + 1) / baseScore` —— 寫 `> 3` 會在
+   * `baseScore` 調到 0.5 時剛好卡在等號上。要驗的是「真正咬住他明顯比
+   * 隨便一架敵機值錢」，取兩倍就夠說明，而且不綁定常數。
+   */
+  it('交戰時真正的機會與威脅仍然主導底價', () => {
+    const me = place(0, 4000, 0, 0)
+    const neutral = place(0, 4000, -400, Math.PI / 2)
+    const bitten = place(0, 4000, -400, 0)   // 同距離，但我咬著他
+    expect(targetScore(me, bitten, 0, DEFAULT_TARGET))
+      .toBeGreaterThan(targetScore(me, neutral, 0, DEFAULT_TARGET) * 2)
+  })
+})
+
+describe('三個折扣的相對重要性', () => {
+  const me = () => place(0, 4000, 0, 0)
+
+  /** 權重 0 等於把那一項關掉 —— 折扣恆為 1。 */
+  it('權重為 0 時該項完全不起作用', () => {
+    const t = place(0, 4000, 3000, 0)   // 正後方且很遠：三項折扣都很重
+    const all = targetScore(me(), t, 3, DEFAULT_TARGET)
+    const noRange = targetScore(me(), t, 3, { ...DEFAULT_TARGET, rangeWeight: 0 })
+    const noCrowd = targetScore(me(), t, 3, { ...DEFAULT_TARGET, crowdWeight: 0 })
+    const noTurn = targetScore(me(), t, 3, { ...DEFAULT_TARGET, turnWeight: 0 })
+    expect(noRange).toBeGreaterThan(all)
+    expect(noCrowd).toBeGreaterThan(all)
+    expect(noTurn).toBeGreaterThan(all)
+  })
+
+  /**
+   * 【在特徵尺度上，權重就是「折幾次半」】x = 1 時折扣恰好是 2⁻ʷ。
+   * 這條把那個語意釘住 —— 沒有它，權重就只是一個沒有解釋的旋鈕。
+   */
+  it('特徵尺度處，權重 w 讓分數折 w 次半', () => {
+    const t = place(0, 4000, -DEFAULT_TARGET.rangeScale, 0)
+    const at0 = place(0, 4000, -1e-6, 0)
+    const base = { ...DEFAULT_TARGET, crowdWeight: 0, turnWeight: 0 }
+    const w1 = { ...base, rangeWeight: 1 }
+    const w2 = { ...base, rangeWeight: 2 }
+    expect(targetScore(me(), t, 0, w1) / targetScore(me(), at0, 0, w1)).toBeCloseTo(0.5, 4)
+    expect(targetScore(me(), t, 0, w2) / targetScore(me(), at0, 0, w2)).toBeCloseTo(0.25, 4)
+  })
+
+  /**
+   * 【角度比距離重要】轉不轉得過去決定打不打得到，而距離只決定命中率。
+   * 這條驗的是預設值真的把權重放在角度那一邊。
+   */
+  it('預設值下，轉向代價的權重高於距離', () => {
+    expect(DEFAULT_TARGET.turnWeight).toBeGreaterThan(DEFAULT_TARGET.rangeWeight)
+  })
+})
+
+/**
+ * 威脅項用 `assess.ts` 那個真正的定義：要有預瞄解、機首在 15° 錐內、
+ * 900 m 內。
+ *
+ * 【為什麼要改】舊版的威脅只看「敵機首朝不朝我」，不管距離、不管有沒有
+ * 預瞄解、不管機首在不在射擊錐內。三公里外一架剛好朝我飛的敵機，在它
+ * 眼裡跟貼著我開火的一樣危險。實測換上後半球目標的當下，`threatInstant`
+ * 中位數 0.000、78.3% 為 0 —— AI 掉頭去追的是沒在威脅它的飛機
+ * （spec §3.3、§6.1）。
+ */
+describe('targetScore 的威脅項用真正的定義', () => {
+  /**
+   * 【比法與機會項那一條相同】分數含底價，所以驗的是**威脅項的貢獻**是 0，
+   * 不是總分是 0。
+   */
+  it('遠處機首朝我的敵機不算威脅', () => {
+    const me = place(0, 4000, 0, 0)
+    // 3 km 外，機首正對我（舊定義會給滿分）
+    const far = place(0, 4000, -3000, Math.PI)
+    const on = { ...DEFAULT_TARGET, opportunityWeight: 0, threatWeight: 1 }
+    const off = { ...DEFAULT_TARGET, opportunityWeight: 0, threatWeight: 0 }
+    expect(targetScore(me, far, 0, on)).toBeCloseTo(targetScore(me, far, 0, off), 12)
+  })
+
+  it('近處機首朝我且有預瞄解的敵機算威脅', () => {
+    const me = place(0, 4000, 0, 0)
+    const near = place(0, 4000, -300, Math.PI)
+    const cfg = { ...DEFAULT_TARGET, opportunityWeight: 0, threatWeight: 1 }
+    expect(targetScore(me, near, 0, cfg)).toBeGreaterThan(0)
+  })
+
   it('他機首正對我時最高', () => {
     const me = place(0, 4000, 0, 0)
     const nose = place(0, 4000, -300, Math.PI)
@@ -54,6 +193,47 @@ describe('targetScore 的威脅項', () => {
     const a = targetScore(me, tail, 0, { ...DEFAULT_TARGET, opportunityWeight: 1, threatWeight: 0 })
     const b = targetScore(me, tail, 0, { ...DEFAULT_TARGET, opportunityWeight: 1, threatWeight: 5 })
     expect(b).toBeCloseTo(a, 9)
+  })
+})
+
+describe('targetScore 的切換成本', () => {
+  /**
+   * 【這一項同時修好猶豫與追後方】現任目標的機首已經對準，代價接近 0，
+   * 因此天然具有黏性；後半球目標要轉 180°，代價極高，分數被壓下去。
+   */
+  it('同距離下，正前方的目標分數高於正後方的', () => {
+    const me = place(0, 4000, 0, 0)
+    // 兩架都背對我（機會項相同）、距離相同，只差在方位
+    const front = place(0, 4000, -400, 0)
+    const behind = place(0, 4000, 400, Math.PI)
+    expect(targetScore(me, front, 0, DEFAULT_TARGET))
+      .toBeGreaterThan(targetScore(me, behind, 0, DEFAULT_TARGET))
+  })
+
+  /**
+   * 【切換成本只是折扣，不會讓飛機黏死】目標本身的價值仍然主導：現任
+   * 目標飛到 3 km 外時，距離折扣會把它壓下去，就算轉向代價是 0 也贏不了
+   * 近處的目標（spec §4.3）。
+   */
+  it('正前方但很遠的目標，輸給側面但很近的目標', () => {
+    const me = place(0, 4000, 0, 0)
+    const farAhead = place(0, 4000, -3000, 0)
+    // 【yaw 必須是 −π/2】機首方向是 (−sin yaw, 0, −cos yaw)，−π/2 給出
+    // (1, 0, 0) ＝ 朝 +X，也就是背對我。若寫成 0，它的機首與我的視線垂直，
+    // 機會項與威脅項**同時為 0**，分數是 0，這條測試就變成在比兩個 0。
+    const nearBeam = place(300, 4000, 0, -Math.PI / 2)
+    expect(targetScore(me, nearBeam, 0, DEFAULT_TARGET))
+      .toBeGreaterThan(targetScore(me, farAhead, 0, DEFAULT_TARGET))
+  })
+
+  it('分數恆非負', () => {
+    const me = place(0, 4000, 0, 0)
+    for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      for (const z of [-2000, -400, 400, 2000]) {
+        expect(targetScore(me, place(0, 4000, z, yaw), 0, DEFAULT_TARGET))
+          .toBeGreaterThanOrEqual(0)
+      }
+    }
   })
 })
 

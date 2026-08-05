@@ -1,17 +1,59 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
+import { threatFactor, turnTime } from './assess'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Team } from '../world/World'
 
 export interface TargetConfig {
+  /**
+   * **底價**：一架既不是機會也不是威脅的敵機，仍然是一架敵機。
+   *
+   * 【沒有它會發生什麼】開局雙方相距 10 km、要飛 25 秒才碰得到。那 25 秒
+   * 裡敵機都在 `THREAT_RANGE` 之外（威脅 = 0）而且迎頭朝我飛（機會 = 0），
+   * 於是**每一架的分數都恰好是 0**。三個折扣都是乘法，乘上 0 還是 0 ——
+   * 選擇因此退化成「取掃描時第一個碰到的」，五個分隊的長機全部選中編號
+   * 最小的那一架。實測把 `crowdPenalty` 從 1 推到 1000 一格都沒動，因為
+   * 它乘的是 0。
+   *
+   * 【為什麼是固定值而不是再加一個權重】它是「值不值得打」的下限，不是
+   * 一個要跟別人比重的項。交戰階段機會與威脅（各 0..1）主導，它只是墊底。
+   */
+  baseScore: number
   /** 「我在他尾後」的權重 */
   opportunityWeight: number
   /** 「他機首指著我」的權重 */
   threatWeight: number
-  /** 距離折扣的特徵長度，m。分數在此距離減半 */
+  /** 距離折扣的特徵長度，m。分數在此距離折 `rangeWeight` 次半 */
   rangeScale: number
   /** 分攤折扣係數。1/crowdPenalty 是「分數折半所需的隊友鎖定數」 */
   crowdPenalty: number
+  /**
+   * 切換成本的特徵時間，s。轉向需時等於此值時折 `turnWeight` 次半。
+   *
+   * 【量級怎麼來的】4000 m、200 m/s、6 G 下瞬時轉彎率約 16.6°/s，轉 180°
+   * 需 10.9 秒。取 4 s 約等於「轉 66° 就折半」。
+   *
+   * **起始值，待 Task 10 由實測回填。**
+   */
+  turnTimeScale: number
+  /**
+   * 三個折扣的**相對重要性**，作為指數：`1/(1 + x)^w`。
+   *
+   * 【為什麼是指數而不是係數】三個折扣是相乘的，取對數之後
+   * `log 分數 = log 幾何 + Σ wᵢ·log 折扣ᵢ` —— 指數就是加權和裡的那個權重。
+   * 語意也很直接：在特徵尺度上（x = 1）折扣恰好是 `2⁻ʷ`，所以 `w` 就是
+   * 「到了特徵尺度要折幾次半」。`w = 0` 等於關掉這一項，`w = 1` 是原本的
+   * 形狀 —— 既有把 `crowdPenalty` 設 0 來關掉分攤的測試完全不受影響。
+   *
+   * **`turnWeight` 起始值 2：角度比距離重要。** 轉不轉得過去決定打不打得到，
+   * 而距離只決定命中率。另外兩個維持 1，因為 `rangeScale` 與 `crowdPenalty`
+   * 的特徵尺度是 M5 實測定案的，改了指數等於連帶改掉那次量測的結論。
+   *
+   * **起始值，待 Task 10 由實測回填。**
+   */
+  rangeWeight: number
+  crowdWeight: number
+  turnWeight: number
   /** 新目標要好過現任的比例才換 */
   switchMargin: number
   /** 換過之後不再換的秒數 */
@@ -37,19 +79,59 @@ export interface TargetConfig {
  *   1            387     1 / 3
  * ```
  *
- * 【`crowdPenalty` = 1】0 的時候 17 架撲同一個目標、藍隊 60 秒掉 18 架。
- * 1 與 2 都把最大鎖定壓到 3；取 1 是因為它的語意最乾淨 ——「多一架隊友
- * 鎖定，分數就減半」。
- *
- * 【`threatWeight` = 1，而且它本身就是分散機制】關掉它（0）會讓 **20 架
- * 全部撲同一個目標** —— 比 `crowdPenalty` = 0 還糟。原因是只剩機會項時，
- * 所有人對「誰最背對我」的評價幾乎一樣；而「誰正在打我」是每架各自不同的。
- * 這一點 spec §6.2 沒有預見到。往上加到 2、4 反而讓最大鎖定回升到 4、5
- * ——大家改成一起撲「最兇的那一架」。取 1，與機會項等重。
+ * 【`threatWeight` = 1，而且它本身**曾經**是分散機制】關掉它（0）會讓
+ * **20 架全部撲同一個目標** —— 比 `crowdPenalty` = 0 還糟。原因是只剩機會
+ * 項時，所有人對「誰最背對我」的評價幾乎一樣；而「誰正在打我」是每架各自
+ * 不同的。這一點 spec §6.2 沒有預見到。往上加到 2、4 反而讓最大鎖定回升到
+ * 4、5 ——大家改成一起撲「最兇的那一架」。取 1，與機會項等重。
  *
  * 【`rangeScale` = 400 m】M2 的匯聚點在 300 m，1944 年的實戰有效射程也在
  * 400 m 以內 —— 「打得到的距離」就是這個量級。掃描顯示這一項不敏感
  * （200 到 1600 之間換目標次數只在 506–570 之間）。
+ *
+ * ---
+ *
+ * ## 2026-08-05 重測（20v20 跑滿 150 秒）
+ *
+ * 威脅項改用 `assess.ts` 的嚴格定義之後，上面那個「`threatWeight` 就是分散
+ * 機制」的結論**不再成立** —— 嚴格定義在 `THREAT_RANGE` 之外恆為 0，而開局
+ * 25 秒的接近航程全部落在那之外。詳見 `baseScore` 的註解。以下重掃：
+ *
+ * ```
+ * baseScore（cp = 1）  最大鎖定  持有  後半球  開火    咬住
+ *   0.2                   8      1.90  29.5%   5.28%  20.2%
+ *   0.3                   8      1.90  29.7%   4.81%  18.1%
+ *   0.4                   8      1.90  27.1%   5.20%  19.6%
+ *   0.5                   6      2.00  27.1%   7.90%  24.2%
+ *   0.6                   6      1.70  28.4%   4.49%  19.2%
+ *   0.8                   7      1.80  28.4%   4.10%  17.9%
+ *   1.0                   6      2.00  28.1%   6.63%  21.7%
+ *
+ * crowdPenalty / crowdWeight（base = 0.2）      最大鎖定  開火    咬住
+ *   1 / 1                                          8      5.28%  20.2%
+ *   1 / 2                                          6      3.62%  15.3%
+ *   2 / 1                                          6      5.00%  18.8%
+ *   2 / 2                                          7      3.05%  15.9%
+ *   4 / 1                                          6      3.38%  17.9%
+ *   4 / 2                                          6      3.19%  16.9%
+ *
+ * 選定（cp = 2、cw = 1、base = 0.5）             最大鎖定  開火    咬住
+ *                                                  6      6.15%  21.1%
+ * ```
+ *
+ * 【`crowdPenalty` 由 1 改成 2】M5 的掃描裡 1 與 2 同樣把最大鎖定壓到 3，
+ * 當時取 1 只因為語意較乾淨。現在需要它多出力：**最大鎖定對 `baseScore`
+ * 的反應是非單調的**（0.4 → 8、0.5 → 6、0.6 → 6、0.8 → 7），對
+ * `crowdPenalty` 則穩定 —— 所以分散的功勞歸分攤，`baseScore` 不該被當成
+ * 分散旋鈕來調。
+ *
+ * 【`crowdWeight` = 1】2 反而讓開火時間掉將近四成（5.28% → 3.62%）：折得
+ * 太狠，AI 開始為了避開隊友而挑不該打的目標。
+ *
+ * 【`baseScore` = 0.5 的 7.90% 是孤峰，不要當成證據】鄰居 0.4 與 0.6 分別
+ * 只有 5.20% 與 4.49%。這個模擬是**全決定性的**（種子只決定飛行員名字，
+ * 三個種子跑出來逐字相同），所以那是對參數的混沌敏感，不是「0.5 比較好」。
+ * 選 0.5 的理由是它在 cp = 2 之下，於每一個被守的指標上都優於 0.2。
  *
  * 【`switchMargin` = 0.25】0 的時候換目標 718 次，而且**雙方 60 秒都掛零**
  * —— 一直在改主意的 AI 誰也殺不掉。0.5 以上換得少但變得死心眼。0.25 是
@@ -60,10 +142,15 @@ export interface TargetConfig {
  * 的理由是它約等於 20 個決策節拍，長到一次目標變更撐得過一個機動。
  */
 export const DEFAULT_TARGET: TargetConfig = {
+  baseScore: 0.5,
   opportunityWeight: 1,
   threatWeight: 1,
   rangeScale: 400,
-  crowdPenalty: 1,
+  crowdPenalty: 2,
+  turnTimeScale: 4,
+  rangeWeight: 1,
+  crowdWeight: 1,
+  turnWeight: 2,
   switchMargin: 0.25,
   minDwell: 2,
 }
@@ -78,13 +165,19 @@ const MIN_RANGE = 1e-3
  *
  * 令 `b = 敵機首 · 由我指向他的單位向量`：
  *
- *   機會 = max(0, b)    —— 1 = 我正咬著他
- *   威脅 = max(0, −b)   —— 1 = 他機首正對著我
+ *   機會 = max(0, b)             —— 1 = 我正咬著他
+ *   威脅 = threatFactor(他, 我)  —— 1 = 他真的打得到我
  *
- * 【為什麼取正部而不是 0.5(1 ± b)】後者相加恆等於 1，代進評分只剩
+ * 【機會項為什麼取正部而不是 0.5(1 ± b)】後者相加恆等於 1，代進評分只剩
  * `0.5(ow+tw) + 0.5(ow−tw)·b` —— 兩個權重退化成一個自由度，而且是 b 的
  * 線性函數。但要的是「我咬住他」與「他咬住我」**兩端都加分**、側面不加分，
  * 那是 V 形不是直線。
+ *
+ * 【威脅項為什麼不是 max(0, −b) 的對稱形】那個形狀只問「敵機首朝不朝我」，
+ * 不管距離、不管有沒有預瞄解、不管機首在不在射擊錐內 —— 三公里外一架剛好
+ * 朝我飛的敵機，在它眼裡跟貼著我開火的一樣危險。「誰在威脅誰」在
+ * `assess.ts` 已經有一個真正的答案，這裡再造一個近似就是**兩個答案**
+ * （spec §6.1）。
  *
  * 【為什麼三個因子全是折扣形式】分攤原本設計成減法，分數會變負；而換目標
  * 門檻是乘法的（`> 現任 × (1 + margin)`），現任為負時乘 1.25 會**更負**，
@@ -113,12 +206,42 @@ export function targetScore(
   else if (b > 1) b = 1
 
   const opportunity = b > 0 ? b : 0
-  const threat = b < 0 ? -b : 0
+  // 【威脅用 assess.ts 那個真正的定義】要有預瞄解、機首在 15° 錐內、
+  // 900 m 內。M6 spec §7.2 明確要求「不要有兩個對『誰在威脅誰』的答案」
+  // —— 那條紀律漏了這裡（spec §6.1）。
+  //
+  // 【雙重折扣是刻意的】threatFactor 內含距離因子，而下面還有一層
+  // rangeDiscount，威脅項因此被折扣兩次。方向正確 —— 現在的病正是遠處
+  // 的「威脅」被高估。
+  const threat = threatFactor(enemy, self)
 
-  const geometry = cfg.opportunityWeight * opportunity + cfg.threatWeight * threat
-  const rangeDiscount = 1 / (1 + range / cfg.rangeScale)
-  const crowdDiscount = 1 / (1 + cfg.crowdPenalty * locks)
-  return geometry * rangeDiscount * crowdDiscount
+  // 【底價在這裡】少了它，接近階段三項幾何全是 0，下面三個折扣就沒有
+  // 東西可折 —— 見 `TargetConfig.baseScore`
+  const geometry = cfg.baseScore
+    + cfg.opportunityWeight * opportunity
+    + cfg.threatWeight * threat
+
+  const rangeDiscount = discount(range / cfg.rangeScale, cfg.rangeWeight)
+  const crowdDiscount = discount(cfg.crowdPenalty * locks, cfg.crowdWeight)
+  // 【切換成本】turnTime 為 Infinity 時折扣為 0 —— 轉不動的目標不該被選
+  const turnDiscount = discount(turnTime(self, enemy) / cfg.turnTimeScale, cfg.turnWeight)
+  return geometry * rangeDiscount * crowdDiscount * turnDiscount
+}
+
+/**
+ * 折扣因子 `1/(1 + x)^w`，恆在 [0, 1]。
+ *
+ * `w` 是這一項的相對重要性：在特徵尺度上（x = 1）折扣恰好是 `2⁻ʷ`。
+ * `w = 0` 關掉這一項、`w = 1` 是最原始的形狀。
+ *
+ * 【x 為 Infinity 時回 0】`turnTime` 轉不動時回 `Infinity`，那樣的目標不該
+ * 被選 —— `1/(1+∞) = 0`，再取任何正指數仍是 0。
+ */
+function discount(x: number, w: number): number {
+  if (w === 0) return 1
+  if (!(x > 0)) return 1
+  const d = 1 / (1 + x)
+  return w === 1 ? d : Math.pow(d, w)
 }
 
 /**
