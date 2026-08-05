@@ -237,17 +237,97 @@ describe('失速的兩種診斷', () => {
     expect(commanded).toBeLessThan(0)
   })
 
-  it('unload 維持既有行為：瞄準當前速度向量', () => {
+  /**
+   * 【`unload` 不再換掉瞄準方位，2026-08-05】舊版是 `unloadAim(self, 0)`
+   * ——把瞄準點整個搬到自身速度向量上。人工驗收看到「右彎時瞬間抖一下」，
+   * 追查到的就是它：
+   *
+   *   1. `stallMargin` 長期停在 `unloadMargin` 門檻附近（實測 28.8%／52.5%
+   *      ／33.4% 的決策節拍落在 ±10% 內）——硬轉彎按定義就貼著 CLmax
+   *   2. `geometryGate` 是裸門檻（`rules.ts` 的五個述詞全部有 `latch()` 遲滯，
+   *      這裡沒有），所以模式每個決策節拍翻一次
+   *   3. 實測 `unload` 的 episode 中位長度剛好 **0.100 s**（＝一個決策節拍），
+   *      120 秒內 39／99／43 段
+   *   4. 搬到速度向量是一個約 **14° 的橫向**偏移，指揮儀讀成「你要我轉向」
+   *      —— 滾轉指令由 2–3° 暴增到 27–29°，副翼打到滿舵 ±1.00，滾轉率
+   *      由 −46°/s 翻成 +12°/s，維持 0.1 秒再彈回去
+   *
+   * 【正確的表達】卸載在物理上只有一個意思：**少拉一點 G**，與「往哪邊滾」
+   * 無關。指揮儀把瞄準誤差拆成方位（決定滾轉）與大小（決定拉多少），所以
+   * 卸載就是**把誤差角乘上一個小於 1 的係數、方位一個字都不動**。
+   */
+  it('unload 不改變瞄準方位，只縮小誤差角', () => {
     clean()
     const self = flyer()
     const target = flyer()
-    const climb = 60 * (Math.PI / 180)
-    place(self, [0, 4000, 0], [0, 180 * Math.sin(climb), -180 * Math.cos(climb)])
-    place(target, [0, 4600, -400], [0, 0, -180])
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [600, 4300, -400], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
+    sit.stallMargin = 1 + 0.4 * (DEFAULT_STEER.unloadMargin - 1)
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, cmd)
+    const normalAim = cmd.aimWorld.clone()
     steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
-    expect(Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))).toBeCloseTo(climb, 6)
+    const unloadAimDir = cmd.aimWorld.clone()
+
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    // 誤差角要縮小
+    expect(unloadAimDir.angleTo(nose)).toBeLessThan(normalAim.angleTo(nose) - 1e-3)
+    // 但方位（誤差在機首周圍的哪一邊）不動 —— 那正是滾轉指令的來源
+    const perp = (v: Vector3) => v.clone().addScaledVector(nose, -v.dot(nose)).normalize()
+    expect(perp(unloadAimDir).angleTo(perp(normalAim))).toBeCloseTo(0, 6)
+  })
+
+  /**
+   * 【這一條是消除抽動的關鍵性質】模式在門檻上翻來翻去本身不是問題，只要
+   * **翻過去的瞬間指令不跳**。係數在 `stallMargin === unloadMargin` 時剛好
+   * 等於 1，於是進入與離開 `unload` 都是無操作。
+   */
+  it('剛好在門檻上時，unload 與 normal 給出完全相同的瞄準方向', () => {
+    clean()
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [600, 4300, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = DEFAULT_STEER.unloadMargin
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, cmd)
+    const normalAim = cmd.aimWorld.clone()
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    expect(cmd.aimWorld.angleTo(normalAim)).toBeCloseTo(0, 9)
+  })
+
+  /** 貼著 CLmax（`stallMargin` = 1）時完全不拉：瞄準機首。 */
+  it('stallMargin 到 1 時瞄準機首，等於完全鬆桿', () => {
+    clean()
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [600, 4300, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 1
+
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    expect(cmd.aimWorld.angleTo(nose)).toBeCloseTo(0, 6)
+  })
+
+  it('瞄準點在機首正後方時不產生 NaN', () => {
+    clean()
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, 400], [0, 0, -180])   // 正後方
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 1.05
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    for (const v of cmd.aimWorld.toArray()) expect(Number.isFinite(v)).toBe(true)
+    expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
   })
 })
 
@@ -528,12 +608,20 @@ describe('steerCommand', () => {
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeCloseTo(0, 6)
   })
 
-  it('unload → 不追上去，瞄準點回到速度向量附近讓升力係數退回線性段', () => {
+  /**
+   * 【由「靠近速度向量」改成「靠近機首」】兩者在物理上都是「別再拉了」，
+   * 差別在指揮儀怎麼讀：搬到速度向量會產生一個橫向的方位誤差（＝命令滾轉），
+   * 往機首收則只縮小誤差角、方位不動（＝命令少拉）。詳見上面
+   * 「unload 不改變瞄準方位」那一條的註解。
+   */
+  it('unload → 不追上去，瞄準點往機首收讓升力係數退回線性段', () => {
     scene([0, 4800, -200], [0, 0, -120])
-    sit.stallMargin = 1.1
+    sit.stallMargin = 1.05
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    const normalErr = cmd.aimWorld.angleTo(nose)
     steerCommand('engage', 'unload', sit, basis, self, 0, k, cmd)
-    const velDir = self.state.velocity.clone().normalize()
-    expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(basis.losAxis.angleTo(velDir))
+    expect(cmd.aimWorld.angleTo(nose)).toBeLessThan(normalErr)
   })
 
   /**
