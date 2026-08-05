@@ -1,6 +1,6 @@
 import { THREAT_RANGE, threatFactor, turnTime } from './assess'
 import { latch } from './rules'
-import type { TargetBoard } from './target'
+import type { TargetBoard, TargetCandidate } from './target'
 import type { Aircraft } from '../aircraft/Aircraft'
 
 /**
@@ -29,6 +29,22 @@ export interface WingmanConfig {
    */
   turnTimeScale: number
   turnWeight: number
+  /**
+   * **同一級之內**，新目標要好過現任的比例才換。與 `DEFAULT_TARGET` 的
+   * 同名欄位同義同值。
+   *
+   * 【原本沒有這一道，兩條路徑不對稱】僚機的換目標條件只有
+   * `state.dwell <= 0 && bestIndex !== state.current` —— 停留一過就換成當下
+   * 最好的，新舊只要差一絲就換。長機那條路徑（`selectTarget`）從 M5 起就
+   * 有這道門檻，僚機漏了。實測 20v20：僚機 21–31% 的換目標是「換走又換
+   * 回來」，持有時間中位剛好卡在 `minDwell` 下限 1.10 s —— 遲滯完全飽和。
+   *
+   * 【為什麼只加在同一級內】跨級插隊（`bestLevel < state.level`）必須維持
+   * 無條件 —— 「有人正在打我」不能被門檻擋住，那與 `rules.ts` 讓 `defend`
+   * 豁免 `minDwell` 是同一條原則。而 `LEVEL_FOCUS` 沒有可比的分數（它就是
+   * 「長機在打誰」），那一級也不套門檻。
+   */
+  switchMargin: number
 }
 
 /**
@@ -52,6 +68,7 @@ export const DEFAULT_WINGMAN: WingmanConfig = {
   minDwell: 1.0,
   turnTimeScale: 4,
   turnWeight: 2,
+  switchMargin: 0.25,
 }
 
 /**
@@ -201,7 +218,17 @@ export function selectWingmanTarget(
     // 更緊急的一級插隊
     commit(state, bestIndex, bestLevel, cfg)
   } else if (state.dwell <= 0 && bestIndex !== state.current) {
-    commit(state, bestIndex, bestLevel, cfg)
+    // 【切換門檻只在同一級內】跨級插隊在上一個分支，無條件。這裡問的是
+    // 「這兩架都在威脅同一個人，值得換嗎」—— 兩個評分交錯時若沒有門檻，
+    // 每過一次 `minDwell` 就換一次（見 `WingmanConfig.switchMargin`）。
+    //
+    // 【現任分數為 0 時直接換】現任已經不再威脅任何人（飛走了、掉頭了），
+    // 乘法門檻在 0 上失效 —— 任何值都不「好過 0 × 1.25」。不特別處理的話
+    // 僚機會抱著一個早已無關的目標不放。
+    const curScore = levelScore(state.level, self, lead, candidates[state.current], cfg)
+    if (!(curScore > 0) || bestScore > curScore * (1 + cfg.switchMargin)) {
+      commit(state, bestIndex, bestLevel, cfg)
+    }
   }
 
   assignments[selfIndex] = state.current
@@ -218,6 +245,33 @@ function turnDiscount(self: Aircraft, enemy: Aircraft, cfg: WingmanConfig): numb
   if (!(x > 0)) return 1
   const d = 1 / (1 + x)
   return cfg.turnWeight === 1 ? d : Math.pow(d, cfg.turnWeight)
+}
+
+/**
+ * 現任目標在**它當初被選上的那一級**的評分。找不到可比的分數時回 0。
+ *
+ * 【為什麼要照原級別算】第一級問「他威脅我多少」、第二級問「他威脅長機
+ * 多少」——同一架敵機在兩級的分數完全不同。拿錯級別比，門檻就是在比兩個
+ * 不同的量。
+ */
+function levelScore(
+  level: number,
+  self: TargetCandidate,
+  lead: TargetCandidate | undefined,
+  cur: TargetCandidate | undefined,
+  cfg: WingmanConfig,
+): number {
+  if (cur === undefined || !cur.alive || cur.team === self.team) return 0
+  if (level === LEVEL_SELF_DEFENCE) {
+    return threatFactor(cur.aircraft, self.aircraft)
+      * turnDiscount(self.aircraft, cur.aircraft, cfg)
+  }
+  if (level === LEVEL_COVER && lead !== undefined) {
+    return threatFactor(cur.aircraft, lead.aircraft)
+      * turnDiscount(self.aircraft, cur.aircraft, cfg)
+  }
+  // LEVEL_FOCUS 沒有可比的分數 —— 它就是「長機在打誰」，跟著換是對的
+  return 0
 }
 
 function commit(state: WingmanState, index: number, level: number, cfg: WingmanConfig): void {

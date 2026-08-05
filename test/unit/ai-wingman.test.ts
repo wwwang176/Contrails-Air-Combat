@@ -199,6 +199,56 @@ describe('最小停留（M6 spec §7.4）', () => {
     expect(st.level).toBe(LEVEL_SELF_DEFENCE)
   })
 
+  /**
+   * **同一級內部也要有切換門檻**（2026-08-05）。
+   *
+   * 【原本沒有】僚機的換目標條件只有
+   * `state.dwell <= 0 && bestIndex !== state.current` —— 停留一過就換成當下
+   * 最好的，**新舊只要差一絲就換**。長機那條路徑（`selectTarget`）有
+   * `switchMargin`（好過 1.25 倍才換），僚機沒有，兩條路徑不對稱。
+   *
+   * 【量到的後果】20v20 實測，僚機 21–31% 的換目標是「換走又換回來」，
+   * 持有時間中位剛好卡在 `minDwell` 下限 1.10 s —— 遲滯完全飽和。
+   *
+   * 【為什麼只加在同一級內】跨級插隊（`bestLevel < state.level`）走的是上面
+   * 那個分支，必須維持無條件 —— 「有人正在打我」不能被門檻擋住，那與
+   * `rules.ts` 讓 `defend` 豁免 `minDwell` 是同一條原則。
+   */
+  it('同一級之內，新目標只好一點點時不換', () => {
+    const s = scene()
+    tail(s.craft[3]!, s.craft[1]!, 400)
+    const st = createWingmanState()
+    expect(selectWingmanTarget(st, s.board, 1, 0, 0, DT)).toBe(s.craft[3])
+    expect(st.level).toBe(LEVEL_SELF_DEFENCE)
+
+    // 400 → 380 m：威脅只高約 4%，遠不到 switchMargin 的 1.25 倍
+    tail(s.craft[4]!, s.craft[1]!, 380)
+    const ticks = Math.ceil(DEFAULT_WINGMAN.minDwell / DT) + 2
+    let last: unknown = null
+    for (let i = 0; i < ticks; i++) last = selectWingmanTarget(st, s.board, 1, 0, 0, DT)
+    expect(last).toBe(s.craft[3])
+  })
+
+  /**
+   * 【門檻不能把「現任已經不算數了」也擋住】現任不再構成威脅時它的分數是 0，
+   * 乘法門檻在 0 上失效（任何值都不「好過 0 × 1.25」）。要明確地讓這種情況
+   * 直接換 —— 否則僚機會抱著一個早已飛走的目標不放。
+   */
+  it('現任已經不再威脅我時，門檻不擋，照樣換', () => {
+    const s = scene()
+    tail(s.craft[3]!, s.craft[1]!, 400)
+    const st = createWingmanState()
+    expect(selectWingmanTarget(st, s.board, 1, 0, 0, DT)).toBe(s.craft[3])
+
+    // 3 號飛走（超出威脅距離），4 號在很遠處微弱地威脅我
+    s.craft[3]!.state.position.set(50000, 4000, 0)
+    tail(s.craft[4]!, s.craft[1]!, THREAT_RANGE * 0.9)
+    const ticks = Math.ceil(DEFAULT_WINGMAN.minDwell / DT) + 2
+    let last: unknown = null
+    for (let i = 0; i < ticks; i++) last = selectWingmanTarget(st, s.board, 1, 0, 0, DT)
+    expect(last).toBe(s.craft[4])
+  })
+
   it('現任目標退場時立刻重選，繞過停留', () => {
     const s = scene()
     tail(s.craft[3]!, s.craft[0]!, 300)
