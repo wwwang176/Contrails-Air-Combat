@@ -602,6 +602,55 @@ describe('steerCommand', () => {
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeGreaterThan(45 * Math.PI / 180)
   })
 
+  /**
+   * **破防對準的是威脅來源，不是當前目標**（2026-08-05）。
+   *
+   * 【人工驗收】「AI 好像不太會閃」。實測 20v20：長機被鎖定的時間裡有
+   * **97.8% 的鎖定來自不是它目標的敵機**，而舊版 `defendAim` 吃的是對當前
+   * 目標建的 `EngageBasis` —— 破的是錯的人。
+   */
+  it('破防繞著 threatLos 轉開，與當前目標的視線無關', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    // 威脅來自正右方，與目標（正前方）完全不同的方向
+    sit.threatLos.set(1, 0, 0)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+    const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
+    expect(off).toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
+  })
+
+  /**
+   * 【退化備援：不能變成「指著攻擊者」】舊版在升力向量平行視線時直接回傳
+   * 視線 —— 破防變成零，而且它在轉彎中並不罕見（對方咬在我的轉彎平面內
+   * 時就會發生）。
+   *
+   * 升力與機體橫軸恆正交，所以兩者不可能同時平行於視線 —— 永遠有一側可選。
+   */
+  it('威脅正好在升力方向上時，仍然轉得開（不會變成指著他）', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    // 自機平飛、機首朝 −Z，升力朝 +Y。把威脅放在正上方 → 升力 ∥ 視線
+    sit.threatLos.set(0, 1, 0)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+    const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
+    expect(off).toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
+    expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
+  })
+
+  /** 掃過整個球面：任何威脅方向都必須轉得開，而且輸出是單位向量。 */
+  it('任何威脅方向都轉得開', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
+      for (let b = -1.5; b <= 1.5; b += 0.3) {
+        sit.threatLos.set(
+          Math.cos(b) * Math.sin(a), Math.sin(b), Math.cos(b) * Math.cos(a),
+        ).normalize()
+        steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+        const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
+        expect(off, `${a.toFixed(1)}/${b.toFixed(1)}`)
+          .toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
+      }
+    }
+  })
+
   it('planeDegenerate → 退化為純追擊（指著目標，不亂偏）', () => {
     scene([0, 4600, 0], [0, 0, -180])
     steerCommand('engage', 'planeDegenerate', sit, basis, self, 0, k, cmd)

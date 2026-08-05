@@ -550,7 +550,7 @@ export function steerCommand(
         break
       }
       case 'defend':
-        defendAim(basis, out.aimWorld, cfg)
+        defendAim(self, sit.threatLos, out.aimWorld, cfg)
         break
       case 'merge':
       case 'approach':
@@ -633,22 +633,44 @@ function unloadAim(self: Aircraft, pitch: number, out: Vector3): void {
   out.set(hx * c, Math.sin(pitch), hz * c)
 }
 
+const D = makeScratch(3)
+
 /**
- * 破防：瞄準點垂直於他的射線，優先選能增加 `angleOffTail` 的一側。
+ * 破防：由**威脅來源**的視線轉開一個大角度。
  *
  * 目的是**破壞他的預瞄解**，不是逃跑——逃跑會把尾巴一直送給他。
+ *
+ * 【對準的是威脅來源，不是當前目標，2026-08-05】舊版吃 `EngageBasis`，
+ * 而那是對**當前目標**建的。實測 20v20：長機被鎖定時，**97.8% 的鎖定來自
+ * 不是它目標的敵機** —— 拿目標的視線去破防，破的是錯的人。改吃
+ * `Situation.threatLos`（由 AiController 掃全場填）。
+ *
+ * 【轉開的角度相對視線量，不是相對機首的增量】所以它是一個固定的幾何目標，
+ * 轉彎中不會像舊的 `unloadAim` 那樣每格滾雪球。
+ *
+ * 【退化時的備援由「視線」換成「機體橫軸」】舊版在升力向量平行視線時直接
+ * 回傳視線 —— **那等於指著攻擊者，破防變成零**，而且它在轉彎中並不罕見
+ * （對方咬在我的轉彎平面內時就會發生）。
+ *
+ * 換成機體橫軸之後**不可能兩個都退化**：升力與橫軸恆正交，所以
+ * `|升力⊥|² = 1 − a²`、`|橫軸⊥|² = 1 − b²`，而 `a² + b² ≤ 1`
+ * （a、b 是兩者與視線的餘弦）。`a` 趨近 ±1 時 `b` 必然趨近 0，橫軸的垂直
+ * 分量反而趨近滿額。永遠有一側可選。
  */
-function defendAim(basis: EngageBasis, out: Vector3, cfg: SteerConfig): void {
-  // 由視線繞 verticalAxis 轉開一個大角度。verticalAxis 退化時改用 leadAxis，
-  // 兩者都退化時直接回傳視線（此時幾何本來就沒有可選的一側）。
-  const axis = !basis.verticalDegenerate ? basis.verticalAxis
-    : !basis.leadDegenerate ? basis.leadAxis
-      : null
-  if (!axis) {
-    out.copy(basis.losAxis)
-    return
+function defendAim(self: Aircraft, threatLos: Vector3, out: Vector3, cfg: SteerConfig): void {
+  const axis = D.v[0]!
+  // 首選升力方向：破防在物理上就是「把升力向量甩到他打不到的地方」
+  const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
+  if (perpendicular(lift, threatLos, axis) < AXIS_EPSILON) {
+    // 升力平行視線 —— 此時機體橫軸必然垂直於視線（見上方註解的證明）
+    const right = D.v[2]!.set(1, 0, 0).applyQuaternion(self.state.orientation)
+    if (perpendicular(right, threatLos, axis) < AXIS_EPSILON) {
+      // 數學上到不了，但浮點世界留一條退路：任何非平行的方向都比「指著他」好
+      out.copy(threatLos)
+      return
+    }
   }
-  out.copy(basis.losAxis).multiplyScalar(Math.cos(cfg.defendOffset))
+  out.copy(threatLos).multiplyScalar(Math.cos(cfg.defendOffset))
     .addScaledVector(axis, Math.sin(cfg.defendOffset))
     .normalize()
 }
