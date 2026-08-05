@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import {
   bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, cornerSpeed,
+  instantaneousTurnRate,
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
 import { G0 } from '../core/math'
@@ -354,4 +355,33 @@ export function threatFactor(shooter: Aircraft, victim: Aircraft): number {
 export function evaluateThreat(self: Aircraft, target: Aircraft, out: Situation): void {
   out.threatInstant = threatFactor(target, self)
   out.shotInstant = threatFactor(self, target)
+}
+
+/** `turnTime` 的暫存。與 `S`、`T` 分開，避免與態勢評估搶用 */
+const TT = makeScratch(2)
+
+/**
+ * 把機首轉到目標身上所需的時間，s。轉不動時回傳 `Infinity`。
+ *
+ * 【為什麼用瞬時而不是持續轉彎率】問的是「我多久能把機首指過去」，那是
+ * 短時間拉 G 的事，正是瞬時轉彎率的定義。而且 `instantaneousTurnRate`
+ * 沒有二分搜尋，比 `sustainedTurnRate` 便宜得多。
+ *
+ * 【它是選目標的「代價」項】舊的評分只問「這架敵機有多值得打」，完全
+ * 不問「我要花多少代價才打得到」。實測 43% 的新目標在後半球，其中只有
+ * 1.7% 咬得到 —— 那 560 秒總共只開了 0.6 秒的火（spec §3.3）。
+ *
+ * 熱路徑之外（10 Hz），但仍然不配置。不修改 self 與 target。
+ */
+export function turnTime(self: Aircraft, target: Aircraft): number {
+  const los = TT.v[0]!.copy(target.state.position).sub(self.state.position)
+  const range = los.length()
+  // 重疊時「該轉多少」沒有意義，取 0 —— 與 evaluateGeometry 的退化處理一致
+  if (range <= MIN_RANGE) return 0
+  los.divideScalar(range)
+
+  const fwd = TT.v[1]!.copy(FWD).applyQuaternion(self.state.orientation)
+  const angle = Math.acos(clampUnit(fwd.dot(los)))
+  const rate = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
+  return rate > 1e-6 ? angle / rate : Infinity
 }
