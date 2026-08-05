@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
-import { applySafety, recoveryAltitude } from '../../src/ai/safety'
+import { applySafety, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
+import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { DEG } from '../../src/core/math'
 
@@ -160,5 +161,84 @@ describe('applySafety', () => {
       applySafety(a, 0, cmd)
     }
     expect(cmd.aimWorld.equals(first)).toBe(true)
+  })
+})
+
+/**
+ * 失速硬介入 —— 瞄準點層（`steer.ts` 的 `speedRecover`）失職時的最後一道。
+ *
+ * 【為什麼上下兩層都要】瞄準點層是技巧：它把命令改成壓機頭，但指揮儀能不能
+ * 兌現要看舵面權限。這一層是硬限制，門檻更低（1.1 對 1.4），只在技巧失效
+ * 之後才動 —— 它每觸發一次，就代表上面那一層失職一次（spec §4.4）。
+ */
+describe('失速硬介入', () => {
+  it('高空低速時介入，並壓機頭', () => {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    // 極低速平飛：speedMargin 遠低於門檻
+    a.state.velocity.set(0, 0, -30)
+    a.prevPosition.copy(a.state.position)
+    const out = createCommand()
+    out.aimWorld.set(0, 1, 0)
+    out.firing = true
+    expect(applySafety(a, 0, out)).toBe(true)
+    expect(out.aimWorld.y).toBeLessThan(0)
+    expect(out.firing).toBe(false)
+  })
+
+  /**
+   * 【撞地優先於失速】兩個安全關切在低空低速時相反：失速要壓頭、撞地要
+   * 拉起。撞地優先，因為失速還有機會改出，撞地沒有（spec §4.5）。
+   */
+  it('同時有撞地風險與失速時，走撞地分支（拉起）', () => {
+    const a = new Aircraft(P51D, 150, 200)
+    a.state.position.set(0, 150, 0)
+    a.state.velocity.set(0, -10, -30)
+    a.prevPosition.copy(a.state.position)
+    const out = createCommand()
+    expect(applySafety(a, 0, out)).toBe(true)
+    expect(out.aimWorld.y).toBeGreaterThan(0)
+  })
+
+  it('速度充足且高度充足時不介入', () => {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.prevPosition.copy(a.state.position)
+    const out = createCommand()
+    expect(applySafety(a, 0, out)).toBe(false)
+  })
+
+  /** 【低速不能收油門】換速度要推力，而且低速時沒有減速的道理。 */
+  it('失速介入時滿油門、不減速', () => {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -30)
+    a.prevPosition.copy(a.state.position)
+    const out = createCommand()
+    applySafety(a, 0, out)
+    expect(out.brake).toBe(0)
+    expect(out.throttle).toBeGreaterThan(1)
+  })
+
+  /** 脫離向量與撞地分支同樣要滾轉友善：保持航向，只改仰角。 */
+  it('失速介入時保持當前航向', () => {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(30, 0, -30)
+    a.prevPosition.copy(a.state.position)
+    const out = createCommand()
+    applySafety(a, 0, out)
+    const velHoriz = new Vector3(a.state.velocity.x, 0, a.state.velocity.z).normalize()
+    const aimHoriz = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+    expect(aimHoriz.angleTo(velHoriz)).toBeCloseTo(0, 6)
+  })
+
+  /**
+   * 【門檻必須低於瞄準點層】瞄準點層是技巧、這一層是硬限制，硬限制只在
+   * 技巧失效時才動。兩者相等會讓兩層同時觸發，硬限制就永遠蓋掉技巧層。
+   */
+  it('門檻低於瞄準點層的 speedRecoverMargin', () => {
+    expect(DEFAULT_SAFETY.stallMargin).toBeLessThan(DEFAULT_STEER.speedRecoverMargin)
   })
 })
