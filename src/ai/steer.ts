@@ -202,6 +202,27 @@ export interface SteerConfig {
   clearanceScale: number
   /** defend 的偏轉角，rad */
   defendOffset: number
+  /**
+   * 能量充足的門檻：`cornerRatio` 高於此值時完全不限制拉桿。
+   *
+   * **起始值，待實測回填。** 掃描範圍 0.9 / 1.0 / 1.1 / 1.25。
+   */
+  pullEase: number
+  /**
+   * 拉桿係數的下限。
+   *
+   * 【為什麼不是 0】能量見底也要保有基本的指向能力，0 等於「沒能量就直線飛」。
+   * 而且低於 `PULL_FLOOR_RATIO` 之後 `extend` 已經接手，這個係數不再主導。
+   *
+   * **起始值，待實測回填。** 掃描範圍 0.3 / 0.5 / 0.7。
+   */
+  pullFloor: number
+  /**
+   * 有射擊解時免除限制的飽和點：`shotInstant` 達此值即完全免除，之間內插。
+   *
+   * 與 `DEFAULT_TARGET.shotRelief` 同值同理由。
+   */
+  pullShotRelief: number
 }
 
 /**
@@ -363,6 +384,55 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   defendOffset: 75 * (Math.PI / 180),
+  pullEase: 1.0,
+  pullFloor: 0.5,
+  pullShotRelief: 0.25,
+}
+
+/**
+ * `energyPull` 斜坡的下端。**必須等於 `DEFAULT_RULES.cornerEnter`** —— 那是
+ * `extend` 接手的點，係數在該處觸底才與意圖層的分工對齊。
+ *
+ * 【為什麼不 import DEFAULT_RULES】`steer.ts` 不依賴 `rules.ts` 的設定，那會讓
+ * 幾何層反過來吃規則層。耦合由 `test/unit/ai-steer.test.ts` 的一條斷言釘住 ——
+ * 兩邊誰先被改都會立刻紅。
+ */
+export const PULL_FLOOR_RATIO = 0.75
+
+/**
+ * 能量不足時把拉桿量收小，0..1。乘在瞄準誤差角上，**方位一個字都不動**。
+ *
+ * 【它與 `unloadPull` 管的不是同一件事】`unloadPull` 問「拉太猛會失速嗎」，
+ * 這一項問「我付得起這個拉桿嗎」。誘導阻力 ∝ n²，所以 4.32 G 的誘導阻力是
+ * 1 G 的 **18.7 倍**。
+ *
+ * 【它要修的東西】實測 1v1 300 秒六場開局：`approach` 佔三分之一的時間，以
+ * 52° 坡度拉 **4.32 G**，每秒燒掉 32 公尺的比能量 —— 而引擎在同樣的高度與速度
+ * 下只給得起 13.6。三道既有的閘門（`unload` 看失速裕度、`speedRecover` 看空速、
+ * `extendFloorLatch` 看 `cornerRatio`）全部在問「我現在安不安全」，**沒有一個
+ * 在問代價**。能量因此一路被燒到見底，而見底時飛機正好又慢又機頭朝上
+ * （實測航跡角 +36°），`extend` 只能靠 split-S 翻過去，再花 8 秒與 3 G。
+ *
+ * 【有射擊解時免除】與 `rules.ts` 的「有槍在手時『比他弱』不是離開的理由」、
+ * `target.ts` 的 `shotRelief` 是同一條分野的第三次套用：**預防性的理由讓位給
+ * 「現在就打得到」**。用內插而不是布林，避免在門檻上跳變。
+ */
+export function energyPull(
+  cornerRatio: number, shotInstant: number, cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  const span = cfg.pullEase - PULL_FLOOR_RATIO
+  let base = 1
+  if (span > 0) {
+    const t = (cornerRatio - PULL_FLOOR_RATIO) / span
+    const c = t < 0 ? 0 : t > 1 ? 1 : t
+    base = cfg.pullFloor + (1 - cfg.pullFloor) * c
+  }
+  if (base >= 1) return 1
+
+  const relief = cfg.pullShotRelief > 0
+    ? Math.min(1, shotInstant / cfg.pullShotRelief)
+    : 0
+  return base + relief * (1 - base)
 }
 
 /**
