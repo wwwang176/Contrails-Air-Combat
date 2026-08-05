@@ -254,9 +254,14 @@ describe('targetScore 的折扣項', () => {
     expect(targetScore(me, at500, 0, cfg) / targetScore(me, at0, 0, cfg)).toBeCloseTo(0.5, 4)
   })
 
-  it('鎖定的人越多分數越低', () => {
+  /**
+   * 【目標放在射擊錐外】分攤折扣在**有射擊解時不適用**（見下面那一組
+   * 測試），所以要驗「鎖定越多分數越低」必須挑一個打不到的目標，否則量到
+   * 的是另一條規則。這裡把目標放在正側方 —— 機首偏離 90°，射擊解為 0。
+   */
+  it('鎖定的人越多分數越低（打不到的目標）', () => {
     const me = place(0, 4000, 0, 0)
-    const t = place(0, 4000, -300, 0)
+    const t = place(300, 4000, 0, 0)
     const s0 = targetScore(me, t, 0, DEFAULT_TARGET)
     const s1 = targetScore(me, t, 1, DEFAULT_TARGET)
     const s3 = targetScore(me, t, 3, DEFAULT_TARGET)
@@ -265,6 +270,97 @@ describe('targetScore 的折扣項', () => {
   })
 
   it('分數恆非負——乘法遲滯的前提', () => {
+    const me = place(0, 4000, 0, 0)
+    for (let yaw = 0; yaw < Math.PI * 2; yaw += 0.3) {
+      for (const locks of [0, 1, 5, 40]) {
+        const t = place(300, 4000, -300, yaw)
+        expect(targetScore(me, t, locks, DEFAULT_TARGET)).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+})
+
+/**
+ * **有射擊解時分攤折扣不適用**（2026-08-05）。
+ *
+ * 【人工驗收看到什麼】AI 把一架已經在槍口上、又近又正的敵機丟掉，去追一架
+ * 更遠、角度更差的，然後又切回來，週期 1~2 秒。
+ *
+ * 【量到的機制】20v20 實測，長機 271 次換目標裡有 **52 次（19.2%）**發生在
+ * 「對舊目標仍有射擊解」的當下。把那 52 次的分數比拆成四個乘法因子：
+ *
+ * ```
+ * 因子        新÷舊中位   >1.5 倍的比例
+ * 幾何          1.00          10%
+ * 距離折扣      0.86           8%
+ * 分攤折扣      5.00          87%   ← 只有這一項
+ * 轉向折扣      0.58           0%
+ * ```
+ *
+ * 其他三項全部說「不該換」（新目標更遠 678→812 m、角度更差），全被分攤
+ * 折扣壓過去。5.00 也不是巧合：舊目標鎖定數中位 2 → `1/(1+2×2) = 1/5`，
+ * 新目標 0 → `1`，比值恰好 5。**88% 的案例裡被丟掉的那架身上有隊友。**
+ *
+ * 【為什麼是缺一塊機制而不是參數沒調好】`crowdPenalty` 降到 0.3 以下才壓得
+ * 住這個跳變，但那樣分散就垮了（實測 `crowdPenalty` = 0 時最大鎖定 17–20
+ * 架）；`switchMargin` 要拉到 2.0 以上才擋得住，那 AI 對所有事情都會變死
+ * 心眼。兩個旋鈕方向相反、沒有中間值。
+ *
+ * 【修法照抄意圖層已經學過的那一課】`rules.ts` 的 `arbitrate` 有一條分野：
+ * 「相對理由（比他弱）→ 有槍在手就先開槍；絕對理由（我飛不動了）→ 開著槍
+ * 也得走」。分攤是**相對理由** —— 它談的是分工，不是這架敵機好不好打。
+ * 分工該決定「一開始去哪」，不該把到手的機會讓出去。
+ */
+describe('有射擊解時分攤折扣不適用', () => {
+  /** 正前方 300 m、背對我 —— 射擊解充足 */
+  const onGun = () => ({ me: place(0, 4000, 0, 0), t: place(0, 4000, -300, 0) })
+
+  it('槍口上的目標，鎖定數不再壓低分數', () => {
+    const { me, t } = onGun()
+    const s0 = targetScore(me, t, 0, DEFAULT_TARGET)
+    const s3 = targetScore(me, t, 3, DEFAULT_TARGET)
+    expect(s3).toBeCloseTo(s0, 9)
+  })
+
+  it('同一架敵機，離開射擊錐之後分攤就回來了', () => {
+    const me = place(0, 4000, 0, 0)
+    // 正側方：機首偏離 90°，射擊解為 0
+    const off = place(300, 4000, 0, 0)
+    expect(targetScore(me, off, 3, DEFAULT_TARGET))
+      .toBeLessThan(targetScore(me, off, 0, DEFAULT_TARGET))
+  })
+
+  /**
+   * 【連續性】免除的程度由 `shotInstant` 連續決定，沒有翻轉點。射擊解
+   * 剛好落在 `shotRelief` 上時免除恰好滿額，再往上不會再變 —— 兩側都連續。
+   * 這與 `steer.ts` 的 `unloadPull` 是同一手：門檻上的不連續會變成抖動。
+   */
+  it('免除程度隨射擊解連續變化，沒有跳變', () => {
+    const me = place(0, 4000, 0, 0)
+    // 【步長要細】1/(1+x) 在免除飽和附近本來就陡（那是連續函數的斜率，
+    // 不是跳變）。真正要排除的是**不連續**，所以用 5 m 的步長 —— 若有跳變，
+    // 縮小步長也縮不掉。
+    let prev = -1
+    for (let d = 1000; d >= 200; d -= 5) {
+      const t = place(0, 4000, -d, 0)
+      const s = targetScore(me, t, 3, DEFAULT_TARGET) / targetScore(me, t, 0, DEFAULT_TARGET)
+      if (prev >= 0) {
+        expect(Math.abs(s - prev)).toBeLessThan(0.12)
+        expect(s).toBeGreaterThanOrEqual(prev - 1e-12)   // 越近免除越多，單調
+      }
+      prev = s
+    }
+  })
+
+  it('shotRelief 為 0 時完全回到舊行為', () => {
+    const { me, t } = onGun()
+    const cfg = { ...DEFAULT_TARGET, shotRelief: 0 }
+    expect(targetScore(me, t, 3, cfg)).toBeLessThan(targetScore(me, t, 0, cfg))
+  })
+})
+
+describe('targetScore 的折扣項（續）', () => {
+  it('分數在有射擊解時仍然恆非負', () => {
     const me = place(0, 4000, 0, 0)
     for (let yaw = 0; yaw < Math.PI * 2; yaw += 0.3) {
       for (const locks of [0, 1, 5, 40]) {
@@ -346,15 +442,26 @@ function board3(): ReturnType<typeof createTargetBoard> {
   return createTargetBoard(cs)
 }
 
-/** 四藍兩紅：藍 1/2/3 已經鎖定紅 4，紅 4 比紅 5 近。 */
-function crowdBoard(): ReturnType<typeof createTargetBoard> {
+/**
+ * 四藍兩紅：藍 1/2/3 已經鎖定紅 4，紅 4 比紅 5 近。
+ *
+ * @param onGun `true` = 兩架紅機都在藍 0 的正前方（有射擊解）；
+ *              `false` = 都在正側方（機首偏 90°，射擊解為 0）。
+ *
+ * 【為什麼要能切換】分攤在**有射擊解時不適用**（見 `TargetConfig.shotRelief`）。
+ * 原本的幾何把紅機放在正前方，於是同一組場景現在同時受兩條規則管轄 ——
+ * 要驗分攤就必須把目標移出射擊錐，否則量到的是另一條。兩種幾何都留著，
+ * 兩條規則各有各的守門員。
+ */
+function crowdBoard(onGun: boolean): ReturnType<typeof createTargetBoard> {
+  const at = (d: number) => (onGun ? place(0, 4000, -d, 0) : place(d, 4000, 0, 0))
   const cs: TargetCandidate[] = [
     { index: 0, team: 'blue', alive: true, aircraft: place(0, 4000, 0, 0) },
     { index: 1, team: 'blue', alive: true, aircraft: place(10, 4000, 0, 0) },
     { index: 2, team: 'blue', alive: true, aircraft: place(20, 4000, 0, 0) },
     { index: 3, team: 'blue', alive: true, aircraft: place(30, 4000, 0, 0) },
-    { index: 4, team: 'red', alive: true, aircraft: place(0, 4000, -300, 0) },
-    { index: 5, team: 'red', alive: true, aircraft: place(0, 4000, -500, 0) },
+    { index: 4, team: 'red', alive: true, aircraft: at(300) },
+    { index: 5, team: 'red', alive: true, aircraft: at(500) },
   ]
   const b = createTargetBoard(cs)
   b.assignments.set([-1, 4, 4, 4, -1, -1])
@@ -443,15 +550,33 @@ describe('selectTarget 的遲滯', () => {
 })
 
 describe('selectTarget 的分攤', () => {
-  it('隊友都鎖定近的那架時，我會挑遠的那架', () => {
-    const b = crowdBoard()
+  it('打不到時：隊友都鎖定近的那架，我會挑遠的那架', () => {
+    const b = crowdBoard(false)
     selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, crowdPenalty: 1 })
     expect(b.assignments[0]).toBe(5)
   })
 
   it('crowdPenalty 為 0 時分攤完全不起作用', () => {
-    const b = crowdBoard()
+    const b = crowdBoard(false)
     selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, crowdPenalty: 0 })
     expect(b.assignments[0]).toBe(4)
+  })
+
+  /**
+   * 【這一條是新規則的守門員】同樣三個隊友壓在近的那架上，但這次我有射擊
+   * 解 —— 該扣扳機，不該讓位。人工驗收看到的正是相反的行為：AI 把槍口上
+   * 的敵機丟給隊友，去追一架更遠、角度更差的（實測佔長機換目標的 19.2%）。
+   */
+  it('打得到時：隊友再多也不讓位，選近的那架', () => {
+    const b = crowdBoard(true)
+    selectTarget(createTargetState(), b, 0, 0.1, DEFAULT_TARGET)
+    expect(b.assignments[0]).toBe(4)
+  })
+
+  /** 關掉免除就回到舊行為 —— 證明差異確實來自這條新規則。 */
+  it('shotRelief 為 0 時，打得到也照樣讓位', () => {
+    const b = crowdBoard(true)
+    selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, shotRelief: 0 })
+    expect(b.assignments[0]).toBe(5)
   })
 })

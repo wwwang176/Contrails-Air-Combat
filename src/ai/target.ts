@@ -28,6 +28,47 @@ export interface TargetConfig {
   /** 分攤折扣係數。1/crowdPenalty 是「分數折半所需的隊友鎖定數」 */
   crowdPenalty: number
   /**
+   * **有射擊解時免除分攤折扣**的飽和點：`shotInstant` 達到此值即完全免除，
+   * 之間線性內插。`0` = 關掉這條規則，完全回到舊行為。
+   *
+   * 【要解決什麼】人工驗收看到 AI 把一架**已經在槍口上、又近又正**的敵機
+   * 丟掉，去追一架更遠、角度更差的，然後又切回來，週期 1~2 秒。
+   *
+   * 【量到的機制】20v20 實測，長機 271 次換目標裡有 **52 次（19.2%）**發生
+   * 在「對舊目標仍有射擊解」的當下。把那 52 次的分數比拆成四個乘法因子：
+   *
+   * ```
+   * 因子        新÷舊中位   >1.5 倍的比例
+   * 幾何          1.00          10%
+   * 距離折扣      0.86           8%
+   * 分攤折扣      5.00          87%   ← 只有這一項
+   * 轉向折扣      0.58           0%
+   * ```
+   *
+   * 其他三項全部說「不該換」（新目標更遠 678→812 m、角度更差），全被這一項
+   * 壓過去。5.00 不是巧合：舊目標鎖定數中位 2 → `1/(1+2×2) = 1/5`，新目標
+   * 0 → `1`。**88% 的案例裡，被丟掉的那架身上有隊友。**
+   *
+   * 【它同時是「猶豫」的來源】`locks` 是整數，每多一個隊友鎖定就是一次
+   * **不連續的** 3 倍跳變，而且是**別人的決定**造成的（`countLocks` 排除
+   * 自己）。40 架互相推擠 → 長機 40.2% 的換目標是「換走又換回來」，持有
+   * 時間中位剛好卡在 `minDwell` 下限 2.00 s。
+   *
+   * 【為什麼不是調參數】`crowdPenalty` 要降到 0.3 以下才壓得住跳變，但那樣
+   * 分散就垮了（實測 0 時最大鎖定 17–20 架）；`switchMargin` 要拉到 2.0
+   * 以上才擋得住，那 AI 對所有事情都變死心眼。兩個旋鈕方向相反、沒有中間
+   * 值 —— 那是「機制缺一塊」的徵狀。
+   *
+   * 【分野照抄意圖層】`rules.ts` 的 `arbitrate` 已經學過同一課：「相對理由
+   * （比他弱）→ 有槍在手就先開槍；絕對理由（我飛不動了）→ 開著槍也得走」。
+   * **分攤是相對理由** —— 它談的是分工，不是這架敵機好不好打。分工該決定
+   * 「一開始去哪」，不該把到手的機會讓出去。
+   *
+   * 【為什麼免除得跟著 `shotInstant` 連續變】門檻式的開關會在射擊解邊界
+   * 製造新的跳變，那正是要修掉的病。與 `steer.ts` 的 `unloadPull` 同一手。
+   */
+  shotRelief: number
+  /**
    * 切換成本的特徵時間，s。轉向需時等於此值時折 `turnWeight` 次半。
    *
    * 【量級怎麼來的】4000 m、200 m/s、6 G 下瞬時轉彎率約 16.6°/s，轉 180°
@@ -168,6 +209,7 @@ export const DEFAULT_TARGET: TargetConfig = {
   threatWeight: 1,
   rangeScale: 400,
   crowdPenalty: 2,
+  shotRelief: 0.25,
   turnTimeScale: 4,
   rangeWeight: 1,
   crowdWeight: 1,
@@ -243,7 +285,17 @@ export function targetScore(
     + cfg.threatWeight * threat
 
   const rangeDiscount = discount(range / cfg.rangeScale, cfg.rangeWeight)
-  const crowdDiscount = discount(cfg.crowdPenalty * locks, cfg.crowdWeight)
+
+  // 【有射擊解就不讓位】分攤是「相對理由」—— 它談的是分工，不是這架敵機
+  // 好不好打。已經咬住了還為了避開隊友而放掉，就是意圖層在 `arbitrate`
+  // 修掉的那個錯誤（見 `TargetConfig.shotRelief`）。
+  //
+  // 【免除是連續的】`shotInstant` 由 0 升到 `shotRelief` 之間線性內插，
+  // 邊界上不跳 —— 門檻式的開關只會把跳變搬個位置。
+  const relief = cfg.shotRelief > 0
+    ? Math.min(1, threatFactor(self, enemy) / cfg.shotRelief)
+    : 0
+  const crowdDiscount = discount(cfg.crowdPenalty * locks * (1 - relief), cfg.crowdWeight)
   // 【切換成本】turnTime 為 Infinity 時折扣為 0 —— 轉不動的目標不該被選
   const turnDiscount = discount(turnTime(self, enemy) / cfg.turnTimeScale, cfg.turnWeight)
   return geometry * rangeDiscount * crowdDiscount * turnDiscount
