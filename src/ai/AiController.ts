@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import {
-  createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, trackingFactor,
+  considerThreatFrom, createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat,
+  threatFactor, trackingFactor,
 } from './assess'
 import { createRuleState, stepRules, type Intent } from './rules'
 import {
@@ -76,6 +77,19 @@ export class AiController implements Controller {
    */
   stationError = 0
 
+  /**
+   * 目前對我威脅最大的敵機。`board` 為 null 時恆為 null（退化成 M4 行為）。
+   *
+   * 【為什麼要記住是誰】`defend` 的破防方向要繞著**真正在打我的那一架**算，
+   * 而它常常不是我的目標 —— 實測 20v20，長機 97.8% 的鎖定來自非目標敵機。
+   *
+   * 【為什麼它不改變 `target`】「誰在打我」與「誰最好打」是兩個問題。把它們
+   * 綁在一起會變成：他打我 → 我切過去 → 他拉開 → 我又切回來，也就是剛修掉的
+   * A→B→A 猶豫。閃躲只改**動作**，不碰目標選擇；至於要不要轉去打他，
+   * `selectTarget` 的評分裡本來就有威脅項，會走正常的、有遲滯保護的路徑。
+   */
+  threatSource: Aircraft | null = null
+
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
   safetyActive = false
@@ -125,6 +139,7 @@ export class AiController implements Controller {
       } else {
         this.stationError = 0
       }
+      this.threatSource = this.scanThreat(self)
       if (this.board) {
         // 【角色分派】有站位參考機 = 僚機，走四級準則；否則是自由獵手
         this.target = reference
@@ -168,6 +183,12 @@ export class AiController implements Controller {
     // 100 ms 足以讓「超前」的態勢完全改變。
     evaluateGeometry(self, target, this.sit)
     evaluateThreat(self, target, this.sit)
+    // 【威脅來源每步重算，但「是誰」只在決策節拍找】掃全場要對每架敵機解
+    // 預瞄，240 Hz 跑不起；而「誰在打我」是慢變量，10 Hz 找一次夠了。找到
+    // 之後那一架的威脅值仍然每步更新 —— 與幾何 240 Hz、能量 10 Hz 同一個
+    // 分頻原則（spec §4.2）。
+    const src = this.threatSource
+    if (src !== null && src !== target) considerThreatFrom(self, src, this.sit)
     buildEngageBasis(self, target, this.basis)
 
     // 跟蹤計時器：在他的射擊錐內才累積，離開立刻歸零
@@ -188,6 +209,39 @@ export class AiController implements Controller {
 
     // ── 240 Hz：安全層，可覆寫上面全部 ─────────────────────
     this.safetyActive = applySafety(self, this.seaHeight, out)
+  }
+
+  /**
+   * 掃全場找出對我威脅最大的敵機。`board` 為 null 時回 null。
+   *
+   * 【為什麼是這裡而不是 assess.ts】掃描需要指派板，而板是 AI 層的概念；
+   * `assess.ts` 只認兩架飛機（spec §4.3）。
+   *
+   * 【為什麼不重用僚機的自衛級】那一級的產出是**目標**，這裡要的是**威脅
+   * 來源**，兩者刻意分開（見 `threatSource` 的註解）。僚機兩者都要，所以
+   * 兩條路徑各自掃一次 —— 都在 10 Hz，成本可以接受。
+   *
+   * 熱路徑之外（10 Hz），不配置。
+   */
+  private scanThreat(self: Aircraft): Aircraft | null {
+    const board = this.board
+    if (board === null) return null
+    const me = board.candidates[this.selfIndex]
+    if (me === undefined) return null
+
+    let best: Aircraft | null = null
+    let bestValue = 0
+    const cs = board.candidates
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i]!
+      if (!c.alive || c.team === me.team) continue
+      const t = threatFactor(c.aircraft, self)
+      if (t > bestValue) {
+        bestValue = t
+        best = c.aircraft
+      }
+    }
+    return best
   }
 
   /**

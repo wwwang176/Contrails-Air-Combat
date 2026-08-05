@@ -120,8 +120,29 @@ export interface Situation {
    */
   climbAngle: number
 
-  /** 他打得到我的瞬時程度，0..1。持續跟蹤的加權在 AiController（見 §偏離 2） */
+  /**
+   * **最大威脅**打得到我的瞬時程度，0..1。持續跟蹤的加權在 AiController。
+   *
+   * 【它不再限於「當前目標」，2026-08-05】舊版是 `threatFactor(target, self)`
+   * —— 只看得見自己正在打的那一架。人工驗收：「AI 好像不太會閃」。實測
+   * 20v20，長機被鎖定的時間裡有 **97.8% 的鎖定來自不是它目標的敵機**，於是
+   * `threatInstant` 恆為 0、`defend` 結構上不可能觸發：被鎖定的 48 段裡只有
+   * 1 段閃過，**4843 點傷害 100% 是在沒有閃躲的狀態下吃的**。
+   *
+   * 僚機沒有這個問題，因為它的第一級「自衛」本來就掃全場（盲區只有 9.9%、
+   * 閃躲率 25%）。這一項是把長機補到對稱。
+   */
   threatInstant: number
+  /**
+   * 由我指向**最大威脅來源**的單位向量。`defend` 的破防方向繞著它算。
+   *
+   * 【為什麼要單獨存一個方向】威脅來源常常不是當前目標（實測 97.8%），
+   * 而 `EngageBasis` 是對**當前目標**建的。拿目標的視線去破防，破的是錯的
+   * 人。存成態勢資料而不是多傳一個參數，是因為它本來就是「此刻的態勢」。
+   *
+   * 沒有任何威脅時指向當前目標 —— 那是一個永遠有定義的方向。
+   */
+  threatLos: Vector3
   /** 我打得到他的瞬時程度，0..1 */
   shotInstant: number
 }
@@ -134,7 +155,7 @@ export function createSituation(): Situation {
     turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, stallMargin: 1, speedMargin: 1,
     climbAngle: 0,
-    threatInstant: 0, shotInstant: 0,
+    threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
   }
 }
 
@@ -323,6 +344,32 @@ export function threatFactor(shooter: Aircraft, victim: Aircraft): number {
 export function evaluateThreat(self: Aircraft, target: Aircraft, out: Situation): void {
   out.threatInstant = threatFactor(target, self)
   out.shotInstant = threatFactor(self, target)
+  aimAt(self, target, out.threatLos)
+}
+
+/**
+ * 把 `threatInstant` 與 `threatLos` 換成另一架敵機 —— 當它的威脅**大於**
+ * 現值時。`shotInstant` 不動（那永遠是對當前目標的）。
+ *
+ * 【為什麼掃描住在 AiController 而不是這裡】掃全場需要指派板，而板是 AI
+ * 層的概念；`assess.ts` 只認兩架飛機（spec §4.3）。這個函數是那個掃描的
+ * 逐項比較，呼叫端負責迭代。
+ *
+ * 不修改 self 與 other。
+ */
+export function considerThreatFrom(self: Aircraft, other: Aircraft, out: Situation): void {
+  const t = threatFactor(other, self)
+  if (t <= out.threatInstant) return
+  out.threatInstant = t
+  aimAt(self, other, out.threatLos)
+}
+
+/** 由 self 指向 other 的單位向量寫進 out。退化時取機首。 */
+function aimAt(self: Aircraft, other: Aircraft, out: Vector3): void {
+  out.copy(other.state.position).sub(self.state.position)
+  const len = out.length()
+  if (len > MIN_RANGE) out.divideScalar(len)
+  else out.copy(FWD).applyQuaternion(self.state.orientation)
 }
 
 /** `turnTime` 的暫存。與 `S`、`T` 分開，避免與態勢評估搶用 */
