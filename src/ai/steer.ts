@@ -316,6 +316,22 @@ export interface SteerConfig {
   pitchAltitudeGain: number
   /** 高度赤字的特徵離地高度，m。約為安全層 clearance（120 m）的四倍 */
   clearanceScale: number
+  /**
+   * 離地底限的最大抬角，rad。餘裕歸零時要求的航跡角。
+   *
+   * 【為什麼需要這一層】`extend` 有 `extendPitchAngle` 會隨離地餘裕抬頭，
+   * 而 `engage` / `approach` / `merge` / `defend` **一個都沒有** —— 唯一的
+   * 防線是 `safety.ts` 的 120 m 硬限制，那是最後一道不是政策。
+   *
+   * 【實測的因果鏈，2026-08-07】水平面破防成功甩開射手 → AI 換目標改追
+   * 射手 → 射手是沒有高度意識的腳本、一路往下 → AI 在 `approach` 60% /
+   * `engage` 30% 的狀態跟著追，低空 90% 的時間仍在下沉。**低於 500 m 時
+   * AI 幾乎不在破防（0.0% / 0.9%）**，所以這不是破防的能量問題。
+   *
+   * 【起始值 20°，待 Task 2 掃描回填】與 `speedRecoverPitch` 和安全層的
+   * `recoveryPitch` 相同 —— 這個專案的三處抬頭／壓頭幅度目前都是 20°。
+   */
+  floorPitch: number
   /** defend 的偏轉角，rad */
   defendOffset: number
   /**
@@ -736,6 +752,7 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
+  floorPitch: 20 * (Math.PI / 180),
   defendOffset: 75 * (Math.PI / 180),
   defendTilt: 20 * (Math.PI / 180),
   // ## 反轉的三個參數（2026-08-06 掃描）
@@ -932,6 +949,28 @@ export function extendPitchAngle(
   return raw
 }
 
+/**
+ * 這個離地餘裕下，瞄準方向的航跡角至少要多少，rad。永遠 ≥ 0。
+ *
+ * 形狀與 `extendPitchAngle` 的 `altitudeDeficit` 同構，**刻意復用同一個特徵
+ * 高度 `clearanceScale`**，不新增第二套幾何 —— 兩層在同一個高度開始作用。
+ *
+ * 【`deficit <= 0` 直接回傳 0，不是回傳一個很小的數】離地底限之所以能無條件
+ * 套用在所有意圖與所有 `SteerMode` 上，前提就是它在高空是**嚴格**的無操作。
+ * 有一條單元測試把這件事釘住。
+ *
+ * @param groundClearance 離地（海面）高度，m。可以是負的
+ */
+export function floorPitchAngle(
+  groundClearance: number,
+  cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  let deficit = 1 - groundClearance / cfg.clearanceScale
+  if (deficit <= 0) return 0
+  if (deficit > 1) deficit = 1
+  return cfg.floorPitch * deficit
+}
+
 /** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
 const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
 
@@ -996,6 +1035,47 @@ function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
 
   const target = angle * factor
   aim.copy(nose).multiplyScalar(Math.cos(target)).addScaledVector(perp, Math.sin(target))
+}
+
+/**
+ * 把 `aim` 的**航跡角**抬到不低於 `minPitch`，水平方位不變。就地修改。
+ * 已經高於底限、或 `minPitch <= 0` 時逐位元不動。
+ *
+ * 【為什麼是航跡角而不是加一個偏置】見 `unloadAim` 的註解：偏置加在**當前**
+ * 方向上會每格滾雪球，實測 `extend` 4 秒內由 −27° 跑到 −56°（垂直俯衝）。
+ * 相對地平線的航跡角是一個**穩定的**目標。
+ *
+ * 【為什麼方位必須不動】見 `shrinkTowardNose` 的註解：指揮儀把瞄準誤差的
+ * 方位讀成滾轉需求，動到方位會讓副翼打到滿舵。
+ *
+ * 【只抬不壓】所以它可以無條件疊在任何意圖與任何 `SteerMode` 的輸出上，
+ * 包括 `extend`（`extendPitchAngle` 與這一層自然取較高者）。
+ *
+ * 假設 `aim` 是單位向量 —— `steerCommand` 的每一條路徑都保證這件事。
+ */
+export function applyFloor(self: Aircraft, minPitch: number, aim: Vector3): void {
+  if (minPitch <= 0) return
+  const s = Math.sin(minPitch)
+  if (aim.y >= s) return
+
+  let hx = aim.x
+  let hz = aim.z
+  let h = Math.hypot(hx, hz)
+  if (h < 1e-6) {
+    // 垂直（朝下）：方位沒有定義。與 unloadAim 走同一條退化路徑 —— 機首的
+    // 水平投影。直接 return 等於在垂直俯衝時放棄拉桿，那正是要防的情況。
+    const nose = U.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
+    hx = nose.x
+    hz = nose.z
+    h = Math.hypot(hx, hz)
+    if (h < 1e-6) {
+      // 機首也鉛直：任何水平方位都一樣好。重點是抬起來而且不是 NaN
+      aim.set(0, s, -Math.cos(minPitch))
+      return
+    }
+  }
+  const c = Math.cos(minPitch) / h
+  aim.set(hx * c, s, hz * c)
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
@@ -1077,6 +1157,17 @@ export function steerCommand(
   if (mode === 'unload') {
     shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
   }
+
+  // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
+  // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
+  // 餘裕 ≥ clearanceScale 時 floorPitchAngle 嚴格回傳 0 —— 高空完全不存在。
+  // 「沒速度」（speedRecover 主動壓機頭 20°）與「快撞地」同時發生時撞地
+  // 優先，那本來就是安全層與瞄準點層的既有順序；overshoot 刻意消耗能量，
+  // 但撞地比讓對方跑掉嚴重。
+  //
+  // 【為什麼 extend 不需要特例】extendPitchAngle 已經吃了 groundClearance，
+  // 兩者自然取較高者 —— 這正是「只抬不壓」買到的東西。
+  applyFloor(self, floorPitchAngle(self.state.position.y - seaHeight, cfg), out.aimWorld)
 
   // ── 油門與減速（spec §7.4）────────────────────────────
   if (mode === 'overshoot') {

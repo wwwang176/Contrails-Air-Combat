@@ -5,8 +5,9 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim,
+  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor,
 } from '../../src/ai/steer'
+import { DEG } from '../../src/core/math'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { P51D } from '../../src/specs/p51d'
@@ -1033,7 +1034,17 @@ describe('extend 的俯仰是連續量', () => {
     // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
     steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, createDefendState(), cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-    expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 100), 9)
+    // 【為什麼要取 max，2026-08-07】離地底限（floorPitchAngle）上線後，吃
+    // groundClearance 的層變成兩個，`steerCommand` 的輸出是兩者的較高者 ——
+    // 這正是「只抬不壓」的設計買到的東西（見 applyFloor 的註解）。這一格
+    // 剛好把它逼出來：cornerRatio 0.6、餘裕 100 m 時 extendPitchAngle 的
+    // 速度項與高度項恰好抵消成 0，而底限給 16°。
+    //
+    // 這條測試要守的性質沒有變 —— 若 steerCommand 誤用 position.y（4000）
+    // 而不是 position.y − seaHeight（100），兩層都會給高空的答案，這個等式
+    // 立刻紅。判別力完全保留。
+    const expected = Math.max(extendPitchAngle(0.6, 100), floorPitchAngle(100))
+    expect(commanded).toBeCloseTo(expected, 9)
     expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
   })
 })
@@ -1344,5 +1355,123 @@ describe('破防軸號誌的生命週期', () => {
     stepDefend(st, self, other, true, 1 / 240)
     expect(st.reversal).toBe(0)
     expect(st.axisSign).toBe(0)
+  })
+})
+
+describe('離地底限', () => {
+  const cfg = DEFAULT_STEER
+
+  /** 造一架在 4000 m、機首朝 −Z、機翼水平的飛機 */
+  function level(): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    return a
+  }
+
+  /**
+   * 【這一條是 spec §4.4 的否決條件之一】餘裕夠時必須是**嚴格**的 0，
+   * 不是「很小的值」。整層之所以能無條件套用在所有意圖與所有 mode 上，
+   * 前提就是它在高空完全不存在。
+   */
+  it('餘裕 >= clearanceScale 時嚴格回傳 0', () => {
+    expect(floorPitchAngle(cfg.clearanceScale, cfg)).toBe(0)
+    expect(floorPitchAngle(cfg.clearanceScale + 1, cfg)).toBe(0)
+    expect(floorPitchAngle(4000, cfg)).toBe(0)
+  })
+
+  it('貼地時給滿 floorPitch，再低也不超過', () => {
+    expect(floorPitchAngle(0, cfg)).toBeCloseTo(cfg.floorPitch, 12)
+    // 負餘裕（已經在地面下）不得外插出更大的值
+    expect(floorPitchAngle(-500, cfg)).toBeCloseTo(cfg.floorPitch, 12)
+  })
+
+  it('中間是線性連續，沒有跳階', () => {
+    expect(floorPitchAngle(cfg.clearanceScale / 2, cfg)).toBeCloseTo(cfg.floorPitch / 2, 12)
+    expect(floorPitchAngle(cfg.clearanceScale / 4, cfg)).toBeCloseTo(cfg.floorPitch * 0.75, 12)
+    // 門檻上下相鄰取樣不得出現階躍
+    const eps = 1e-6
+    const inside = floorPitchAngle(cfg.clearanceScale - eps, cfg)
+    expect(inside).toBeGreaterThan(0)
+    expect(inside).toBeLessThan(1e-6)
+  })
+
+  /** 由單位向量取航跡角（相對地平線），rad */
+  function pitchOf(v: Vector3): number {
+    return Math.asin(v.y / v.length())
+  }
+  /** 由單位向量取水平方位角，rad */
+  function bearingOf(v: Vector3): number {
+    return Math.atan2(v.x, v.z)
+  }
+
+  it('把朝下的瞄準點抬到底限，水平方位不變', () => {
+    const self = level()
+    // 朝下 40°、方位偏 +30°
+    const down = -40 * DEG
+    const bear = 30 * DEG
+    const aim = new Vector3(
+      Math.sin(bear) * Math.cos(down), Math.sin(down), Math.cos(bear) * Math.cos(down),
+    )
+    const before = bearingOf(aim)
+    applyFloor(self, 20 * DEG, aim)
+
+    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
+    expect(bearingOf(aim)).toBeCloseTo(before, 9)
+    expect(aim.length()).toBeCloseTo(1, 9)
+  })
+
+  /**
+   * 【只抬不壓】這是整層能無條件套用的另一半前提。已經在爬升的瞄準點
+   * 被壓下來的話，`extend` 的 `extendPitchAngle` 與這一層就會互相打架。
+   */
+  it('已經高於底限時逐位元不動', () => {
+    const self = level()
+    const aim = new Vector3(0, Math.sin(50 * DEG), -Math.cos(50 * DEG))
+    const copy = aim.clone()
+    applyFloor(self, 20 * DEG, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  it('底限為 0 時逐位元不動 —— 高空無操作', () => {
+    const self = level()
+    const aim = new Vector3(0, -Math.sin(60 * DEG), -Math.cos(60 * DEG))
+    const copy = aim.clone()
+    applyFloor(self, 0, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /**
+   * 【垂直朝下是最危險也最容易寫錯的一格】水平分量退化，「保持方位」沒有
+   * 定義。此時**必須**仍然抬起來 —— 直接 return 等於在垂直俯衝時放棄拉桿。
+   * 退化路徑與 `unloadAim` 一致：改用機首的水平投影。
+   */
+  it('垂直朝下時仍然抬得起來，用機首的水平投影當方位', () => {
+    const self = level()   // 機首朝 −Z
+    const aim = new Vector3(0, -1, 0)
+    applyFloor(self, 20 * DEG, aim)
+
+    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
+    expect(aim.length()).toBeCloseTo(1, 9)
+    // 機首朝 −Z，所以水平分量應該落在 −Z
+    expect(aim.z).toBeLessThan(0)
+    expect(Math.abs(aim.x)).toBeLessThan(1e-9)
+  })
+
+  it('瞄準點與機首都鉛直時不產生 NaN', () => {
+    const self = level()
+    // 機首朝正上方
+    self.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 1, 0))
+    const aim = new Vector3(0, -1, 0)
+    applyFloor(self, 20 * DEG, aim)
+
+    expect(Number.isNaN(aim.x + aim.y + aim.z)).toBe(false)
+    expect(aim.length()).toBeCloseTo(1, 9)
+    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
   })
 })
