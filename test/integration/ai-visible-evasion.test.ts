@@ -3,9 +3,9 @@ import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
-import { buildEngageBasis, createEngageBasis } from '../../src/ai/steer'
+import { buildEngageBasis, createEngageBasis, DEFAULT_STEER } from '../../src/ai/steer'
 import { createTargetBoard } from '../../src/ai/target'
-import { threatFactor } from '../../src/ai/assess'
+import { threatFactor, THREAT_RANGE } from '../../src/ai/assess'
 import { VETERAN } from '../../src/ai/profile'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { P51D } from '../../src/specs/p51d'
@@ -34,9 +34,44 @@ const DT = 1 / 240
 const ALT = 4000
 const TAS = 200
 const FWD = new Vector3(0, 0, -1)
+const UP = new Vector3(0, 1, 0)
 const SECONDS = 180
 /** 1 秒滑動窗（240 格）。人「看得出來變了」的時間尺度 */
 const WINDOW = 240
+/** 射手機頭離預瞄點多少度以內算「打得中」。機砲的散佈與目標張角都在這個尺度 */
+const HIT_CONE = 2
+
+/**
+ * 【這兩個數字是實測回填的，不是猜的】
+ *
+ * 真實 AI、三機、180 秒、出貨飛行模型。舊軸的那一欄是把 `defendAim` 的
+ * 首選分支關掉之後在**同一份程式碼**上量的：
+ *
+ * ```
+ *                       700 m              900 m
+ *                    舊軸    新軸       舊軸    新軸
+ * 玩家壓得住的時間   26.6%    6.3%      16.2%    5.5%   ← 主判準
+ * 視覺對比（× 直飛）  8.50×   9.20×      9.42×  11.59×  ← 副判準
+ * 射手有射擊解的格數  2398     551       1305     490
+ * ```
+ *
+ * spec §5.3 要求主判準寫成「低於現行的一半」。兩個 standoff 的一半分別是
+ * 13.3% 與 8.1%，取較嚴的 8%。實測新軸 6.3% / 5.5%，餘裕 21% / 32%。
+ *
+ * 【副判準是**地板不是鑑別器**，別誤讀】舊軸也過得了 6×（它是 8.5~9.4×）。
+ * 視覺對比在真實 AI 上幾乎不動，因為 AI 平常追擊本來就把預瞄點甩得很開，
+ * 破防的位移沒有比它突出多少。設計文件 §5.3 那個「至少是舊值的 3 倍」是
+ * 從**腳本對腳本**（12.8× 對 2.0×）算的，套到真實 AI 上不成立 —— 已在 §8
+ * 更正。這一條留著的作用是「破防的位移必須明顯大於完全不閃」，那仍然值得
+ * 守，只是它擋不住舊軸。真正鑑別新舊的是主判準。
+ *
+ * 【它們會隨手感倍率漂移】上表量於 `specs/feel.ts` 的
+ * `{ roll: 1.2, oswald: 2, power: 1.98, lift: 1.3, cd0: 2.06 }`。倍率大幅
+ * 調動後若這兩條紅了，處置是**重量並回填**（連同新倍率一起記進這段註解），
+ * 不是逕自放寬 —— 那是專案負責人的裁定。
+ */
+const SHOOTABLE_LIMIT = 0.08   // 舊軸較小的那個 16.2% 的一半
+const CONTRAST_FLOOR = 6       // 地板：明顯大於「完全不閃」，不是新舊的鑑別器
 
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
@@ -53,6 +88,15 @@ const BLUNT: AircraftSpec = { ...P51D, battery: harmless(P51D.battery) }
 class Sniper implements Controller {
   target: Aircraft | null = null
   standoff = 900
+  /**
+   * 這一格機頭離預瞄點差幾度 —— 就是玩家打不中的量。
+   *
+   * 【為什麼它是主判準而不是位移】位移量的是「準星該往哪動」，可是準星
+   * 該動不代表玩家打不中：緩慢而可預測的大彎位移很大，玩家卻一路跟得住。
+   * 誤差角量的是**跟不跟得住**，那才是「他在閃我」的操作型定義。
+   */
+  aimError = 0
+  private readonly nose = new Vector3()
   private readonly basis = createEngageBasis()
 
   update(self: Aircraft, _dt: number, out: Command): void {
@@ -62,6 +106,9 @@ class Sniper implements Controller {
       out.throttle = 0.7
       out.brake = 0
       out.firing = false
+      // 沒有目標的那一格不會被取樣（量測端有距離與威脅閘門），設 0 只是
+      // 不留下上一格的殘值
+      this.aimError = 0
       return
     }
     buildEngageBasis(self, t, this.basis)
@@ -70,8 +117,67 @@ class Sniper implements Controller {
     out.throttle = range > this.standoff ? WEP_THROTTLE : 0.6
     out.brake = range < this.standoff * 0.8 ? 1 : 0
     out.firing = true
+    this.nose.copy(FWD).applyQuaternion(self.state.orientation)
+    this.aimError = this.nose.angleTo(out.aimWorld) * RAD
   }
 }
+
+/**
+ * 腳本破防者：偏轉角一律 `DEFAULT_STEER.defendOffset`，**只有軸的取法不同**。
+ *
+ * 【為什麼要它】門檻要寫成「新軸 vs 舊軸」的比值，而舊軸已經被 commit 掉了。
+ * 把兩種軸都放進測試裡，比值就能直接寫成斷言 —— 而且這一條驗的是**軸的
+ * 幾何**，不含任何魔術數字，下次調手感倍率也不會失效。
+ *
+ * 這與設計文件 §3.1 那張抬角掃描表用的是同一個工具，數字可以直接對照。
+ */
+class ScriptedBreaker implements Controller {
+  threat: Aircraft | null = null
+  /** 'none' = 直飛基準線、'lift' = 舊軸（自身升力）、'horizUp' = 新軸 */
+  mode: BreakMode = 'horizUp'
+  private sign = 0
+  private readonly los = new Vector3()
+  private readonly axis = new Vector3()
+  private readonly lift = new Vector3()
+  private readonly up = new Vector3()
+
+  update(self: Aircraft, _dt: number, out: Command): void {
+    out.throttle = WEP_THROTTLE
+    out.brake = 0
+    out.firing = false
+    const th = this.threat
+    if (this.mode === 'none' || th === null) {
+      out.aimWorld.copy(self.state.velocity).normalize()
+      return
+    }
+    this.los.copy(th.state.position).sub(self.state.position).normalize()
+    this.lift.copy(UP).applyQuaternion(self.state.orientation)
+
+    if (this.mode === 'lift') {
+      this.axis.copy(this.lift).addScaledVector(this.los, -this.lift.dot(this.los))
+    } else {
+      this.axis.copy(UP).cross(this.los)
+      if (this.axis.lengthSq() < 1e-8) this.axis.copy(this.lift)
+      this.axis.normalize()
+      // 號誌與 stepDefend 同規則：進入時取與升力同側，之後不變
+      if (this.sign === 0) this.sign = this.axis.dot(this.lift) >= 0 ? 1 : -1
+      this.axis.multiplyScalar(this.sign)
+      this.up.copy(UP).addScaledVector(this.los, -UP.dot(this.los))
+      if (this.up.lengthSq() > 1e-12) {
+        this.up.normalize()
+        this.axis.multiplyScalar(Math.cos(DEFAULT_STEER.defendTilt))
+          .addScaledVector(this.up, Math.sin(DEFAULT_STEER.defendTilt))
+      }
+    }
+    if (this.axis.lengthSq() < 1e-12) this.axis.set(1, 0, 0)
+    this.axis.normalize()
+    out.aimWorld.copy(this.los).multiplyScalar(Math.cos(DEFAULT_STEER.defendOffset))
+      .addScaledVector(this.axis, Math.sin(DEFAULT_STEER.defendOffset))
+      .normalize()
+  }
+}
+
+type BreakMode = 'none' | 'lift' | 'horizUp'
 
 /**
  * 腳本獵物：固定角速度的慵懶水平盤旋。
@@ -108,12 +214,122 @@ interface Result {
    * 直線的閃躲接近 1，來回擺動接近 0。
    */
   straightness: number
+  /**
+   * **玩家壓得住準星的時間，佔整場的比例** —— 這一層的主判準。
+   *
+   * 分子：射手在有效射程內、機頭又落在預瞄點 `HIT_CONE` 錐內的取樣格數。
+   * 分母：**整場**的取樣格數，不是「射程內」也不是「破防期間」。
+   *
+   * 【分母為什麼一定要固定】計畫原本寫的是「破防期間、射程內，打得中的
+   * 佔比」。實測發現那個比值對這次的改動幾乎完全免疫：
+   *
+   * ```
+   * 700 m            舊軸     新軸
+   * 破防且在射程內    2243     530    ← 分母自己塌了 4.2 倍
+   * 其中打得中         954     226
+   * 比值             42.5%   42.6%   ← 看不出任何改善
+   * 佔整場            26.6%    6.3%   ← 真正發生的事
+   * ```
+   *
+   * 新軸的效果是**把飛機帶出射擊包絡**，而被帶出去的那些格子不計入分母，
+   * 於是包絡內的命中率原地不動。這與被廢掉的舊判準是同一類毛病：分母
+   * 隨著被量的東西一起動。固定分母之後才量得到「玩家一整場有多少時間
+   * 真的壓得住」。
+   */
+  shootableShare: number
+  /** 同場景、同 standoff、受測者換成腳本直飛時的位移中位數，度 */
+  straightMedian: number
+  /**
+   * 視覺對比 = `defendMedian ÷ straightMedian`。
+   *
+   * 【為什麼基準線不能用 `ordinaryMedian`】那是 AI **非破防期間**的位移，
+   * 被 AI 自己的追擊大彎污染（6~11°）—— 正是舊判準壞掉的原因。基準線必須
+   * 是「完全不動作」的那一條（0.7~0.9°）。
+   */
+  contrast: number
 }
 
 function median(v: number[]): number {
   if (v.length === 0) return 0
   const s = [...v].sort((a, b) => a - b)
   return s[Math.floor(s.length / 2)]!
+}
+
+/**
+ * 1 秒滑動窗的預瞄方向取樣器。
+ *
+ * 【為什麼抽出來】`measure()`（三機、真實 AI）與 `scripted()`（兩機、腳本）
+ * 的數字要能互相對照，取樣邏輯就必須是**同一段程式碼**，不是兩份長得像的。
+ */
+class Swing {
+  /** 這一格的 1 秒淨角位移，度。`ready` 為真才有意義 */
+  net = 0
+  /** 淨位移 ÷ 逐格位移總和。直線接近 1、來回擺動接近 0 */
+  straightness = 0
+  /** 窗填滿了沒有 */
+  ready = false
+  private readonly hist: Vector3[] = []
+  private readonly steps: number[] = new Array(WINDOW + 1).fill(0)
+  private head = 0
+  private filled = 0
+  private stepSum = 0
+
+  constructor() {
+    for (let i = 0; i < WINDOW + 1; i++) this.hist.push(new Vector3(0, 0, -1))
+  }
+
+  push(dir: Vector3): void {
+    const n = this.hist.length
+    const prevDir = this.hist[(this.head - 1 + n) % n]!
+    const cur = this.hist[this.head]!.copy(dir)
+    // 逐格位移的滑動總和：加上這一格、扣掉滑出窗的那一格
+    const stepAngle = this.filled > 0 ? cur.angleTo(prevDir) : 0
+    this.stepSum += stepAngle - this.steps[this.head]!
+    this.steps[this.head] = stepAngle
+
+    this.ready = this.filled >= WINDOW
+    if (this.ready) {
+      const old = this.hist[(this.head - WINDOW + n) % n]!
+      this.net = cur.angleTo(old) * RAD
+      this.straightness = this.stepSum > 1e-6 ? this.net / (this.stepSum * RAD) : 0
+    }
+    this.head = (this.head + 1) % n
+    if (this.filled <= WINDOW) this.filled++
+  }
+}
+
+/**
+ * 距離閘門：近距離視線亂掃、遠距離不是這個問題的場景。
+ *
+ * 【「打得中」的分母只能用這一條】不能再加 `threatFactor > 0`，因為
+ * `threatFactor` 的因子二就是「機首離預瞄方向 < `THREAT_CONE`（15°）」——
+ * 拿它當分母、再去數「機首離預瞄方向 < 2°」，是拿同一個量篩自己，**循環**。
+ *
+ * 實測差別（腳本對腳本、800 m、90 秒）：
+ *
+ * ```
+ * 閘門                     不閃      舊軸      新軸
+ * threatFactor > 0（循環） 100.0%    76.3%    14.0%
+ * 只看距離（本函式）        100.0%    58.2%     1.4%
+ * ```
+ *
+ * 循環的那一欄把「他已經閃到射手完全沒解」的格子從分母裡刪掉了 —— 而那些
+ * 正是閃躲成功的格子。設計文件 §3.1 的表用的是循環的那一欄，數字因此偏高；
+ * 已在 §8 更正。
+ */
+function inRange(hunter: Aircraft, prey: Aircraft): boolean {
+  const range = hunter.state.position.distanceTo(prey.state.position)
+  return range > 300 && range < THREAT_RANGE
+}
+
+/**
+ * 觸發涵蓋率的分母：射手真的有射擊解。
+ *
+ * 這裡**該**用 `threatFactor`——涵蓋率問的是「射手在威脅我時我有沒有反應」，
+ * 而「威脅」的定義本來就包含他的機首指向。與上面那個閘門的用途不同。
+ */
+function underFireGate(hunter: Aircraft, prey: Aircraft): boolean {
+  return inRange(hunter, prey) && threatFactor(hunter, prey) > 0
 }
 
 /**
@@ -156,59 +372,127 @@ function measure(standoff: number): Result {
   ai.profile = VETERAN
 
   const basis = createEngageBasis()
-  // 由射手位置指向預瞄點的**單位向量**的歷史 —— 就是「準星該指哪裡」
-  const hist: Vector3[] = []
-  for (let i = 0; i < WINDOW + 1; i++) hist.push(new Vector3(0, 0, -1))
-  let head = 0
-  let filled = 0
-  /** 逐格角位移的滑動總和，供同向性用 */
-  const steps: number[] = new Array(WINDOW + 1).fill(0)
-  let stepSum = 0
+  // 由射手位置指向預瞄點的**單位向量** —— 就是「準星該指哪裡」
+  const dir = new Vector3()
+  const swing = new Swing()
 
   const defending: number[] = []
   const ordinary: number[] = []
   const straight: number[] = []
   let underFire = 0
   let defendUnderFire = 0
+  let hits = 0
+  let samples = 0
 
   for (let s = 0; s < SECONDS * 240; s++) {
     world.step(DT)
     if (!pc.alive || !hc.alive) break
 
     buildEngageBasis(hunter, prey, basis)
-    const prevDir = hist[(head - 1 + hist.length) % hist.length]!
-    const cur = hist[head]!
-    cur.copy(basis.leadPoint).normalize()
+    swing.push(dir.copy(basis.leadPoint).normalize())
+    if (!swing.ready || s % 12 !== 0) continue
 
-    // 逐格位移的滑動總和：加上這一格、扣掉滑出窗的那一格
-    const stepAngle = filled > 0 ? cur.angleTo(prevDir) : 0
-    stepSum += stepAngle - steps[head]!
-    steps[head] = stepAngle
-
-    if (filled >= WINDOW && s % 12 === 0) {
-      const old = hist[(head - WINDOW + hist.length) % hist.length]!
-      const net = cur.angleTo(old) * RAD
-      const range = hunter.state.position.distanceTo(prey.state.position)
-      // 【只採有意義的幾何】近距離視線亂掃、遠距離不是這個問題的場景
-      if (threatFactor(hunter, prey) > 0 && range > 300 && range < 2000) {
-        underFire++
-        if (ai.intent === 'defend') {
-          defendUnderFire++
-          defending.push(net)
-          if (stepSum > 1e-6) straight.push(net / (stepSum * RAD))
-        } else ordinary.push(net)
-      }
+    // 【兩個分母是刻意不同的】涵蓋率問「他威脅我時我閃了沒」，那是**觸發**
+    // 的問題，用威脅閘門；主判準問「玩家一整場有多少時間壓得住」，那是
+    // **動作**的問題，分母必須是整場（見 shootableShare 與 inRange 的註解）
+    samples++
+    if (inRange(hunter, prey) && sniper.aimError < HIT_CONE) hits++
+    if (underFireGate(hunter, prey)) {
+      underFire++
+      if (ai.intent === 'defend') {
+        defendUnderFire++
+        defending.push(swing.net)
+        // 預瞄方向整整一秒完全沒動時同向性沒有定義，不採 —— 與修改前同語意
+        if (swing.straightness > 0) straight.push(swing.straightness)
+      } else ordinary.push(swing.net)
     }
-    head = (head + 1) % hist.length
-    if (filled <= WINDOW) filled++
   }
 
+  const straightMedian = scripted('none', standoff).swingMedian
+  const defendMedian = median(defending)
   return {
     underFire,
     coverage: defendUnderFire / Math.max(underFire, 1),
-    defendMedian: median(defending),
+    defendMedian,
     ordinaryMedian: median(ordinary),
     straightness: median(straight),
+    shootableShare: hits / Math.max(samples, 1),
+    straightMedian,
+    contrast: defendMedian / Math.max(straightMedian, 1e-6),
+  }
+}
+
+interface ScriptResult {
+  /** 1 秒窗的預瞄方向位移中位數，度 */
+  swingMedian: number
+  /** 射手機頭落在預瞄點 `HIT_CONE` 錐內的時間佔比 */
+  hitShare: number
+  /** 受測者整場的最低高度，m */
+  minAlt: number
+  /** 取樣數。場景本身有沒有成立 */
+  samples: number
+}
+
+/**
+ * 兩機：腳本破防者在前、腳本射手在後 `standoff` 處連續射擊。
+ *
+ * 【為什麼不需要誘餌】腳本破防者沒有自己的目標要追，不會像 AI 那樣把
+ * 追擊的大彎混進位移裡 —— 這個場景量的純粹是**軸的幾何**。
+ *
+ * 取樣邏輯（`Swing`、`sampleable`、`HIT_CONE`）與 `measure()` 是同一段，
+ * 所以兩邊的數字可以直接對照。
+ */
+function scripted(mode: BreakMode, standoff = 800, seconds = 90): ScriptResult {
+  const world = new World()
+  const prey = new Aircraft(BLUNT, ALT, TAS)
+  const hunter = new Aircraft(BLUNT, ALT, TAS)
+  const preyPos = new Vector3(0, ALT, 0)
+  const hunterPos = new Vector3(0, ALT, standoff)
+  for (const [a, p] of [[prey, preyPos], [hunter, hunterPos]] as const) {
+    a.state.position.copy(p)
+    a.state.velocity.copy(FWD).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, FWD)
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.copy(a.state.orientation)
+  }
+
+  const breaker = new ScriptedBreaker()
+  breaker.mode = mode
+  breaker.threat = hunter
+  const sniper = new Sniper()
+  sniper.standoff = standoff
+  sniper.target = prey
+  const pc = world.add(prey, breaker, 'blue', preyPos, ALT, TAS)
+  const hc = world.add(hunter, sniper, 'red', hunterPos, ALT, TAS)
+  for (const c of [pc, hc]) c.respawnOnDestroy = false
+
+  const basis = createEngageBasis()
+  const dir = new Vector3()
+  const swing = new Swing()
+  const swings: number[] = []
+  let hits = 0
+  let samples = 0
+  let minAlt = prey.state.position.y
+
+  for (let s = 0; s < seconds * 240; s++) {
+    world.step(DT)
+    if (!pc.alive || !hc.alive) break
+    minAlt = Math.min(minAlt, prey.state.position.y)
+
+    buildEngageBasis(hunter, prey, basis)
+    swing.push(dir.copy(basis.leadPoint).normalize())
+
+    if (!swing.ready || s % 12 !== 0) continue
+    samples++
+    swings.push(swing.net)
+    if (inRange(hunter, prey) && sniper.aimError < HIT_CONE) hits++
+  }
+
+  return {
+    swingMedian: median(swings),
+    hitShare: hits / Math.max(samples, 1),
+    minAlt,
+    samples,
   }
 }
 
@@ -277,8 +561,18 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
     it(`射手在 ${standoff} m 連續射擊時，AI 的閃躲看得出來`, () => {
       const r = measure(standoff)
 
-      // 場景本身要成立：射手真的一直咬著
-      expect(r.underFire).toBeGreaterThan(500)
+      // 場景本身要成立：射手真的咬上來過
+      //
+      // 【500 → 300 是 2026-08-07 換破防軸時重新定值的】這一條量的是「射手
+      // 有射擊解的取樣格數」，而**那正是新軸刻意要消滅的東西**：同場景
+      // 700 m 由 2398 掉到 551、900 m 由 1305 掉到 490，900 m 那一格因此
+      // 直接跌破舊門檻。
+      //
+      // 換句話說，這條護欄的量法與被測的功能耦合了 —— 閃得越好它越紅。
+      // 它真正該擋的是「場景根本沒成立」（射手從頭到尾沒咬上）。490 格
+      // 相當於 180 秒裡有 24.5 秒被瞄著，場景是成立的。重新定在 300
+      // （15 秒），仍然擋得住空場景，但不再懲罰閃躲成功。
+      expect(r.underFire).toBeGreaterThan(300)
 
       // ── 一：觸發涵蓋率 ──────────────────────────────────
       // 【修補前是 0.0%】`threatFactor` 的距離因子讓閃躲門檻在幾何上等價於
@@ -290,11 +584,16 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
       expect(r.coverage).toBeGreaterThan(0.5)
 
       // ── 二：閃躲的可見度 ────────────────────────────────
-      // 【5° 是專案負責人給的及格線】它的操作型意義是「準星非移動不可」。
-      // 修補前的實測：平常 2.9°（低於及格線 —— 那就是「看起來很笨」），
-      // 而它罕見地真的閃時是 12.2°（及格線的 2.4 倍）。**動作本身從來就
-      // 不是問題，問題是它幾乎不觸發。**
-      expect(r.defendMedian).toBeGreaterThanOrEqual(5)
+      // 【主判準】玩家一整場有多少時間壓得住準星。
+      //
+      // 舊的「位移 ≥ 5°」是壞的：5° 這個數字是專案負責人給的，但拿去量
+      // **絕對位移**是實作的錯。完全不閃的基準線只有 0.9°，而 AI 平常追擊
+      // 就有 6~11° —— 那條門檻連「不閃」都快要通過，而平常機動一定通過。
+      // 該量的是破防與不破防的**對比**。詳見設計文件 §5.1。
+      expect(r.shootableShare).toBeLessThan(SHOOTABLE_LIMIT)
+      // 【副判準】視覺對比 —— 相對於**腳本直飛**的基準線，不是 AI 的平常機動。
+      // 這是地板不是鑑別器，理由見 CONTRAST_FLOOR 的註解
+      expect(r.contrast).toBeGreaterThan(CONTRAST_FLOOR)
 
       // ── 三：抖動護欄 ────────────────────────────────────
       // 【為什麼需要它】上面那條有一個漏洞：每 0.1 秒左右擺一次的 AI 分數
@@ -303,6 +602,44 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
       expect(r.straightness).toBeGreaterThan(0.5)
     }, 5 * 60 * 1000)
   }
+
+  /**
+   * 【這一條驗的是軸的幾何，與 AI 的接線無關】腳本對腳本、同一個場景、
+   * 只換軸的取法，所以它不含任何魔術數字 —— 下次調手感倍率也不會失效。
+   *
+   * 上面那兩條絕對常數驗的是**真實 AI 在完整場景下**的表現，會隨倍率漂移。
+   * 兩層是不同的東西，都要留。
+   */
+  it('腳本對照：新軸必須明顯優於舊軸', () => {
+    const none = scripted('none')
+    const lift = scripted('lift')
+    const horiz = scripted('horizUp')
+
+    // 場景本身要成立
+    for (const r of [none, lift, horiz]) expect(r.samples).toBeGreaterThan(200)
+
+    // 【實測，90 秒 / 800 m / 固定分母 1780 格】
+    //
+    // ```
+    // 模式    位移中位數   玩家壓得住   對比（÷ 不閃）
+    // 不閃       0.81°       45.3%        1.00×
+    // 舊軸       2.96°       18.8%        3.67×
+    // 新軸       9.99°        1.4%       12.39×
+    // ```
+    //
+    // 基準線的 45.3%（而不是接近 100%）是分母固定的副作用：不閃的那一架
+    // 全油門直飛，一路把距離拉開到有效射程外，那些格子算它「打不中」。
+    // 那是場景的性質不是閃躲 —— 重點在它遠高於兩種破防。
+    expect(none.hitShare).toBeGreaterThan(0.4)
+    // 主判準：新軸的「打得中」低於舊軸的一半
+    expect(horiz.hitShare).toBeLessThan(lift.hitShare / 2)
+    // 副判準：新軸的視覺對比至少是舊軸的 3 倍
+    const contrastLift = lift.swingMedian / none.swingMedian
+    const contrastHoriz = horiz.swingMedian / none.swingMedian
+    expect(contrastHoriz).toBeGreaterThan(contrastLift * 3)
+    // 護欄：新軸不得比舊軸掉更多高度
+    expect(horiz.minAlt).toBeGreaterThanOrEqual(lift.minAlt)
+  }, 5 * 60 * 1000)
 
   /**
    * 【這一條在警戒上線之前是恆為 0 的】不是參數不對，是 `defend` 進入率
