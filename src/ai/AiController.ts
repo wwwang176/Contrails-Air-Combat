@@ -20,8 +20,9 @@ import {
   DEFAULT_WINGMAN, createWingmanState, selectWingmanTarget, type WingmanConfig,
 } from './wingman'
 import { ACE, type DifficultyProfile } from './profile'
+import { CommandDelay } from './delay'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { Command, Controller } from '../control/Controller'
+import { createCommand, type Command, type Controller } from '../control/Controller'
 
 /** 意圖仲裁與包絡查詢的頻率，Hz。 */
 export const AI_DECISION_HZ = 10
@@ -118,12 +119,19 @@ export class AiController implements Controller {
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
+  /**
+   * 延遲之前的指令。`update` 的三條輸出路徑全部寫進這裡，再由 `emit` 經過
+   * 反應延遲流進呼叫端的 `out`。
+   */
+  private readonly raw = createCommand()
+  private readonly delay = new CommandDelay()
   /** 距離下一次意圖仲裁還有多久，s */
   private decisionTimer = 0
 
   update(self: Aircraft, dt: number, out: Command): void {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
+    const raw = this.raw
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
     // 決定 —— 否則沒有目標時計時器不會前進，board 一設上去就會變成每個
@@ -164,17 +172,17 @@ export class AiController implements Controller {
         // 僚機目標優先序最上面的那一級「自衛」，而不是在 rules.ts 開特例
         // （M6 spec §3.2）。
         stationCommand(
-          self, reference, this.stationOffset, this.seaHeight, out, this.stationConfig,
+          self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
       } else {
         // 沒有目標也沒有站位時維持機首方向平飛。這比「保持上一格的指令」
         // 安全——上一格可能是一個俯衝中的脫離向量。
-        out.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
-        out.throttle = 0.7
-        out.brake = 0
-        out.firing = false
+        raw.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
+        raw.throttle = 0.7
+        raw.brake = 0
+        raw.firing = false
       }
-      this.safetyActive = applySafety(self, this.seaHeight, out)
+      this.emit(self, dt, out)
       return
     }
 
@@ -204,10 +212,29 @@ export class AiController implements Controller {
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
     const mode = geometryGate(this.sit, this.basis)
-    steerCommand(this.intent, mode, this.sit, this.basis, self, this.seaHeight, this.knobs, out)
-    out.firing = shouldFire(this.sit, this.basis, self)
+    steerCommand(this.intent, mode, this.sit, this.basis, self, this.seaHeight, this.knobs, raw)
+    raw.firing = shouldFire(this.sit, this.basis, self)
 
-    // ── 240 Hz：安全層，可覆寫上面全部 ─────────────────────
+    this.emit(self, dt, out)
+  }
+
+  /**
+   * 把 `raw` 送出去：先過反應延遲，再過安全層。
+   *
+   * 【安全層為什麼排在延遲之後】延遲模擬的是**判讀與決策**的耗時；「快撞地
+   * 了」是反射，不是判讀。把安全層一起延遲會讓 AI 撞地率上升，而那是一個
+   * 與難度無關的退步 —— 玩家不會覺得「敵人比較弱」，只會覺得「敵人會自殺」。
+   * 安全層讀的是飛機**當下**的狀態，所以它必須拿當下的狀態算（spec §4.2）。
+   *
+   * 【為什麼只有一個呼叫點】`update` 有三條輸出路徑（站位、平飛、交戰），
+   * 以前各自呼叫 `applySafety`。收斂成一個之後，「延遲在安全層之前」這件事
+   * 不可能被新增的分支繞過。
+   *
+   * `profile.reactionDelay = 0`（`ACE`）時 `CommandDelay` 走位元等價的捷徑，
+   * 所以這一層對既有的全部測試是無作用的。
+   */
+  private emit(self: Aircraft, dt: number, out: Command): void {
+    this.delay.push(this.raw, this.profile.reactionDelay, dt, out)
     this.safetyActive = applySafety(self, this.seaHeight, out)
   }
 
