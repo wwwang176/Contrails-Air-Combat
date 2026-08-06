@@ -5,7 +5,8 @@ import { createCommand } from '../../src/control/Controller'
 import { AiController, AI_DECISION_HZ } from '../../src/ai/AiController'
 import { createTargetBoard, type TargetCandidate } from '../../src/ai/target'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
-import { ACE } from '../../src/ai/profile'
+import { ACE, VETERAN } from '../../src/ai/profile'
+import { MAX_REACTION_DELAY } from '../../src/ai/delay'
 import { INTENTS } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -18,6 +19,15 @@ describe('DifficultyProfile', () => {
     // M5 起以此為基準把 AI 調鈍（spec §10）。
     expect(ACE.reactionDelay).toBe(0)
     expect(ACE.aimError).toBe(0)
+  })
+
+  it('遊戲預設的敵人有反應延遲，而且在緩衝區的容量之內', () => {
+    // 【為什麼把「有延遲」釘住】ACE 是 `DEFAULT_BATTLE` 的設定，也是全部
+    // AI 測試的基準；VETERAN 只在 `battleConfigFrom` 走的那條路上生效。
+    // 沒有這一條的話，有人把它改回 0 不會有任何測試變紅（見 profile.ts
+    // 的掃描表）。
+    expect(VETERAN.reactionDelay).toBeGreaterThan(0)
+    expect(VETERAN.reactionDelay).toBeLessThanOrEqual(MAX_REACTION_DELAY)
   })
 })
 
