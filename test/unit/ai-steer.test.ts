@@ -1255,3 +1255,94 @@ describe('破防軸：世界水平面往上抬', () => {
     expect(out.length()).toBeCloseTo(1, 6)
   })
 })
+
+describe('破防軸號誌的生命週期', () => {
+  /**
+   * 自機在原點朝 −Z、**滾轉 roll**（繞世界 +Z，機首朝 −Z 所以那就是滾轉）。
+   *
+   * 【為什麼一定要滾】號誌取「與當下升力同側」。機翼水平時升力恰好垂直於
+   * 水平破防軸，內積是 0 —— 那個姿態下左右兩側等價，測不出「有沒有重算」。
+   * 滾 60° 才讓內積離開 0，重算與不重算的結果才會不同。
+   */
+  function self60(roll: number): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.setFromAxisAngle(new Vector3(0, 0, 1), roll)
+    return a
+  }
+
+  /** 敵機放在 `at`、朝 −Z 飛 */
+  function foeAt(at: [number, number, number]): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(...at)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    return a
+  }
+
+  const DEG60 = 60 * (Math.PI / 180)
+
+  it('進入破防時決定一次，之後不再變', () => {
+    const self = self60(DEG60)
+    const foe = foeAt([0, 4000, 800])
+    const st = createDefendState()
+    expect(st.axisSign).toBe(0)
+
+    stepDefend(st, self, foe, true, 1 / 240)
+    // 滾 +60° 時升力偏向 −X，而水平破防軸是 +X —— 取同側就是 −1
+    expect(st.axisSign).toBe(-1)
+
+    // 滾到另一邊：逐格重算的話號誌會翻成 +1，閂住的話不動
+    self.state.orientation.setFromAxisAngle(new Vector3(0, 0, 1), -DEG60)
+    for (let i = 0; i < 240; i++) stepDefend(st, self, foe, true, 1 / 240)
+    expect(st.axisSign).toBe(-1)
+  })
+
+  it('離開破防就歸零，下次重新決定', () => {
+    const self = self60(DEG60)
+    const foe = foeAt([0, 4000, 800])
+    const st = createDefendState()
+    stepDefend(st, self, foe, true, 1 / 240)
+    expect(st.axisSign).not.toBe(0)
+    stepDefend(st, self, foe, false, 1 / 240)
+    expect(st.axisSign).toBe(0)
+  })
+
+  it('攻擊者換人就歸零 —— 新的號誌由新攻擊者的幾何算出來', () => {
+    const self = self60(DEG60)
+    const behind = foeAt([0, 4000, 800])
+    const ahead = foeAt([0, 4000, -800])
+    const st = createDefendState()
+
+    stepDefend(st, self, behind, true, 1 / 240)
+    expect(st.axisSign).toBe(-1)
+
+    // 威脅換到正前方：水平軸整個反向，所以「與升力同側」也跟著反向。
+    // 沒有歸零重算的話這裡會沿用 −1
+    stepDefend(st, self, ahead, true, 1 / 240)
+    expect(st.attacker).toBe(ahead)
+    expect(st.axisSign).toBe(1)
+  })
+
+  /**
+   * 反轉被換人取消時也要歸零。反轉那一支在函式最前面就 return，
+   * 不會走到下面的號誌邏輯 —— 漏掉的話會拿舊攻擊者的號誌去對新攻擊者破防。
+   */
+  it('反轉被換人取消時號誌也歸零', () => {
+    const self = self60(DEG60)
+    // 已經衝過頭：在我前方 300 m、朝我飛來
+    const overshot = foeAt([0, 4000, -300])
+    overshot.state.velocity.set(0, 0, 200)
+    const other = foeAt([0, 4000, 800])
+    const st = createDefendState()
+
+    stepDefend(st, self, overshot, true, 1 / 240)
+    expect(st.reversal).toBeGreaterThan(0)
+    expect(st.axisSign).not.toBe(0)
+
+    stepDefend(st, self, other, true, 1 / 240)
+    expect(st.reversal).toBe(0)
+    expect(st.axisSign).toBe(0)
+  })
+})
