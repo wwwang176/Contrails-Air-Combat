@@ -1,4 +1,5 @@
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
+import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import type { Faction } from './names'
@@ -82,5 +83,9 @@ export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
     redCount: clampSide(setup.redCount),
     blueSpec,
     redSpec: theirs[0]!,
+    // 【難度只在這條路上生效】`DEFAULT_BATTLE` 留 `ACE`，因為那是全部 AI
+    // 測試量天花板用的基準。這裡是「史實的 AI」變成「打得動的 AI」的唯一
+    // 入口，與 `specs/feel.ts` 在 `setup.ts` 的位置對稱。
+    aiProfile: VETERAN,
   }
 }

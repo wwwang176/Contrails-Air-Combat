@@ -232,6 +232,24 @@ export class AiController implements Controller {
    *
    * `profile.reactionDelay = 0`（`ACE`）時 `CommandDelay` 走位元等價的捷徑，
    * 所以這一層對既有的全部測試是無作用的。
+   *
+   * 【延遲會讓 AI 飛得更低，但那不是這個順序的錯】五個低空受控場景、120 秒、
+   * 取全場最低高度：
+   *
+   * ```
+   * 延遲     對頭@600  對頭@400  追擊@500  側舷@700  俯衝@2000   最低  觸海
+   * 0.00        387      400      121      115       228      115   無
+   * 0.30        600      170      499       63       568       63   無
+   * 0.50        386      348      257       −0       547       −0   有
+   * 0.80        549      389      488      275       524      275   無
+   * ```
+   *
+   * 0.5 s 那一場的軌跡查到根因，**在 `applySafety` 不在這裡**：它的閉式解
+   * 假設俯衝角不再變陡。t=113.0 時高度 367 m、γ=−40°，需要 279 m，通過；
+   * 0.75 秒後 γ 已經 −60°，需要 459 m，而高度只剩 292 m —— 需求的成長比
+   * 飛機拉得起來的還快。零延遲的同一場也只剩 115 m，是同一個病，延遲只是
+   * 讓 AI 更常撞上它。修它要動 `DEFAULT_SAFETY.factor`，那會移動全部既有
+   * 基準，另案處理。
    */
   private emit(self: Aircraft, dt: number, out: Command): void {
     this.delay.push(this.raw, this.profile.reactionDelay, dt, out)
