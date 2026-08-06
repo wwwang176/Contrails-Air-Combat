@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
+  ALARM_SATURATION, alarmFactor, alarmRamp,
   createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat, threatFactor, trackingFactor,
   THREAT_RANGE, TRACK_SATURATION, turnTime,
 } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
-import { RAD } from '../../src/core/math'
+import { DEG, RAD } from '../../src/core/math'
 
 /**
  * 【為什麼用 Aircraft 而不是自訂的輕量結構】評估層要讀的東西
@@ -641,5 +642,158 @@ describe('turnTime', () => {
     const first = turnTime(self, target)
     for (let i = 0; i < 10000; i++) turnTime(self, target)
     expect(turnTime(self, target)).toBe(first)
+  })
+})
+
+/**
+ * 警戒訊號 —— 「他的預瞄環套在我身上」。
+ *
+ * 【它與 threatFactor 的分工】`threatFactor` 回答「他打得中我的機率有多高」，
+ * 給目標選擇用；`alarmFactor` 回答「我該不該閃」，給 `defend` 用。後者與
+ * 命中機率無關 —— 有人把機首對準我，不管他打不打得中，我都該有反應。
+ */
+describe('alarmFactor —— 該不該閃', () => {
+  /** 造一架擺在指定位置、朝指定方向平飛的 P-51D。 */
+  function at(x: number, y: number, z: number, yaw = 0): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(x, y, z)
+    const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw)
+    a.state.orientation.copy(q)
+    a.prevOrientation.copy(q)
+    a.state.velocity.set(0, 0, -200).applyQuaternion(q)
+    a.prevPosition.copy(a.state.position)
+    return a
+  }
+
+  it('正後方 500 m、機首對準 → 接近滿值', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 500)
+    expect(alarmFactor(shooter, victim)).toBeGreaterThan(0.95)
+  })
+
+  /**
+   * 【這一條是整份改動的重點】`threatFactor` 在 1000 m 是 **0**（超過
+   * `THREAT_RANGE`），所以現行的 AI 在那裡收到的訊號是「沒有人在打我」。
+   * 而 P-51 的子彈在 887 × 1.2 ≈ 1064 m 之內打得到 —— 該閃。
+   */
+  it('正後方 1000 m 仍然接近滿值，而 threatFactor 已經是 0', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 1000)
+    expect(threatFactor(shooter, victim)).toBe(0)
+    expect(alarmFactor(shooter, victim)).toBeGreaterThan(0.95)
+  })
+
+  /**
+   * 【射程不寫死，由武器決定】`projectiles.ts` 的不變量：「看得到預瞄環」
+   * 精確等於「打得到」。1500 m 的飛行時間超過 `PROJECTILE_LIFETIME`，
+   * 子彈物理上到不了 —— 沒有東西要閃。
+   */
+  it('1500 m 子彈飛不到 → 0', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 1500)
+    expect(alarmFactor(shooter, victim)).toBe(0)
+  })
+
+  it('背對時為 0', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 300, Math.PI)
+    expect(alarmFactor(shooter, victim)).toBe(0)
+  })
+
+  /**
+   * 【速度要與機首解耦，否則量到的不是錐角】`at()` 讓速度沿機首方向 ——
+   * 轉 10° 等於連速度一起轉，相對速度把預瞄點推開，偏離角就不再等於偏航角。
+   * 要單測錐角必須維持共速尾追（相對速度 ≈ 0），此時預瞄點就是目標本身，
+   * 偏離角**恰好**等於偏航角。
+   */
+  function yawedOnly(z: number, yaw: number): Aircraft {
+    const a = at(0, 4000, z, yaw)
+    a.state.velocity.set(0, 0, -200)
+    return a
+  }
+
+  it('偏離角越大越小，超過 ALARM_CONE 為 0', () => {
+    const victim = at(0, 4000, 0)
+    const near = alarmFactor(yawedOnly(600, 4 * DEG), victim)
+    const far = alarmFactor(yawedOnly(600, 10 * DEG), victim)
+    expect(near).toBeCloseTo(1 - 4 / 15, 6)
+    expect(far).toBeCloseTo(1 - 10 / 15, 6)
+    expect(near).toBeGreaterThan(far)
+    expect(alarmFactor(yawedOnly(600, 20 * DEG), victim)).toBe(0)
+  })
+
+  /**
+   * 【實際會觸發閃躲的是 10° 不是 15°】警戒值是線性斜坡，而 `defend` 的
+   * 進入門檻是 `DEFAULT_RULES.threatEnter = 0.35`。這一條把那個關係釘住：
+   * 15° 只是外緣，9.75° 才是那條線。
+   */
+  it('配 threatEnter = 0.35 時，實際觸發角約 10°', () => {
+    const victim = at(0, 4000, 0)
+    expect(alarmFactor(yawedOnly(600, 9.5 * DEG), victim)).toBeGreaterThan(0.35)
+    expect(alarmFactor(yawedOnly(600, 10 * DEG), victim)).toBeLessThan(0.35)
+  })
+
+  /**
+   * 【`alarm ≥ threat` 必須恆成立】`rules.ts` 用 `max(threat, alarm)` 合併，
+   * 而那個寫法的正當性就建立在這條不等式上：警戒只會讓閃躲**更早**觸發，
+   * 不可能讓任何既有的觸發消失。兩者用同樣的錐與同樣的預瞄解，警戒只是
+   * 少乘一個 ≤1 的距離因子。
+   */
+  it('恆不小於 threatFactor —— max() 合併的正當性', () => {
+    const victim = at(0, 4000, 0)
+    for (const range of [200, 400, 600, 800, 900, 1000]) {
+      for (const yaw of [0, 3, 6, 9, 12]) {
+        const shooter = at(0, 4000, range, yaw * DEG)
+        expect(alarmFactor(shooter, victim)).toBeGreaterThanOrEqual(
+          threatFactor(shooter, victim),
+        )
+      }
+    }
+  })
+
+  it('位置重合、速度為零等退化情形不產生 NaN', () => {
+    const victim = at(0, 4000, 0)
+    const same = at(0, 4000, 0)
+    expect(Number.isFinite(alarmFactor(same, victim))).toBe(true)
+    const still = at(0, 4000, 500)
+    still.state.velocity.set(0, 0, 0)
+    expect(Number.isFinite(alarmFactor(still, victim))).toBe(true)
+  })
+
+  it('不配置：一萬次呼叫結果一致', () => {
+    const victim = at(0, 4000, 0)
+    const shooter = at(0, 4000, 700, 5 * DEG)
+    const first = alarmFactor(shooter, victim)
+    for (let i = 0; i < 10000; i++) alarmFactor(shooter, victim)
+    expect(alarmFactor(shooter, victim)).toBe(first)
+  })
+})
+
+describe('alarmRamp —— 警戒自己的飽和曲線', () => {
+  /**
+   * 【為什麼不共用 `trackingFactor`】`trackingSeconds` 是在
+   * `sit.threatInstant > 0` 時累加的，而那個量在 900 m 外恆為 0 —— 警戒的
+   * 範圍更大，共用計時器就等於把警戒也綁回 900 m。飽和時間也刻意不同
+   * （0.5 s 對 1.0 s）：警戒要反應得比「已經被穩穩瞄準」更快。
+   */
+  it('0 秒為 0、半飽和為 0.5、飽和後維持 1', () => {
+    expect(alarmRamp(0)).toBe(0)
+    expect(alarmRamp(ALARM_SATURATION / 2)).toBeCloseTo(0.5, 9)
+    expect(alarmRamp(ALARM_SATURATION)).toBe(1)
+    expect(alarmRamp(ALARM_SATURATION * 10)).toBe(1)
+  })
+
+  it('負數與 NaN 回 0', () => {
+    expect(alarmRamp(-1)).toBe(0)
+    expect(alarmRamp(NaN)).toBe(0)
+  })
+
+  /**
+   * 【飽和時間決定玩家還有沒有射擊窗口】警戒要 0.5 秒才滿，加上
+   * `VETERAN` 的 0.3 秒反應延遲 —— 快速的快照射擊仍然打得中，被閃掉的是
+   * 「慢慢瞄、瞄很久」那種。這是刻意的取捨。
+   */
+  it('比 TRACK_SATURATION 快', () => {
+    expect(ALARM_SATURATION).toBeLessThan(TRACK_SATURATION)
   })
 })
