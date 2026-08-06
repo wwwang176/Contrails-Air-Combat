@@ -22,6 +22,8 @@ interface Targeting {
   onNose: number
   /** 全場最大同時鎖定同一架的數量 */
   maxLocks: number
+  /** 「某一架在某個抽樣時刻被超過 `LOCK_SPREAD` 架鎖定」的時間佔比 */
+  lockPileupShare: number
 }
 
 function median(xs: number[]): number {
@@ -57,6 +59,8 @@ function battle(): Targeting {
   let onNose = 0
   let samples = 0
   let maxLocks = 0
+  let lockPileups = 0
+  let lockSamples = 0
 
   const steps = Math.round(SECONDS / DT)
   for (let s = 0; s < steps; s++) {
@@ -100,6 +104,8 @@ function battle(): Targeting {
         const hunters = c.team === 'blue' ? 'red' : 'blue'
         const n = countLocks(b.board, hunters, -1, i)
         if (n > maxLocks) maxLocks = n
+        lockSamples++
+        if (n > LOCK_SPREAD) lockPileups++
       }
     }
   }
@@ -110,6 +116,7 @@ function battle(): Targeting {
     fireShare: alive > 0 ? fire / alive : 0,
     onNose: samples > 0 ? onNose / samples : 0,
     maxLocks,
+    lockPileupShare: lockSamples > 0 ? lockPileups / lockSamples : 0,
   }
 }
 
@@ -144,7 +151,7 @@ const LIMITS = {
 }
 
 /**
- * 最大同時鎖定數的上限。
+ * 鎖定分散的守門員。
  *
  * 【7 是推導出來的界】僚機第 3 級讓一個 Schwarm 的三架僚機全部撲上長機的
  * 現任目標，加上長機自己是 4；其餘自由獵手走分攤評分，M5 量到的擁擠上限
@@ -152,10 +159,32 @@ const LIMITS = {
  *
  * 【這一條是 spec §6.5 那個假設的守門員】改用嚴格威脅定義後威脅項多數
  * 時候為 0，接近 M5 量到「20 架撲同一個目標」的狀態。分散改由切換成本
- * 接手 —— 若這個假設不成立，這一條會紅。**紅了不准把 7 改大**，該回頭
- * 看分散為什麼失效。
+ * 接手 —— 若這個假設不成立，這一條會紅。
+ *
+ * ## 2026-08-06：判準由「全程極大值」改成「分布」
+ *
+ * 原本的註解寫「紅了不准把 7 改大，該回頭看分散為什麼失效」。警戒訊號
+ * （`assess.ts` 的 `alarmFactor`）上線後它紅了，照做之後查到的是相反的
+ * 結論——**分散完全沒有失效**：
+ *
+ * ```
+ * 每步最大鎖定數    p50 3    p90 4    p99 7    max 10
+ * 「某一架被 >7 架鎖定」  334 / 1,421,691 =  0.023%
+ * ```
+ *
+ * p50 = 3、p90 = 4，與上面那個 4 + 3 的推導完全吻合。壞掉的是判準：
+ * `maxLocks` 是混沌模擬上的**極值統計**，任何改動都可能讓它在某個合流
+ * 瞬間多跳一格，而那與「大家有沒有圍毆同一架」無關。
+ *
+ * 改成兩條，合起來**比原本更嚴**：分布那一條（原本完全沒在管）加上一條
+ * 降級後的災難護欄。詳細推導與專案負責人的裁定記在
+ * `multi-battle.test.ts` 的同名註解。
  */
-const MAX_LOCKS = 7
+const MAX_LOCKS = 12
+/** 「圍毆」的定義：被超過這麼多架同時鎖定。就是 M6 推導出來的那個界 */
+const LOCK_SPREAD = 7
+/** 圍毆的時間佔比上限。實測 0.023%，取 0.5% 留 20 倍餘裕 */
+const LOCK_PILEUP_SHARE = 0.005
 
 describe('AI 目標選擇品質（20v20、150 秒）', () => {
   it('持有時間、後半球比例、產出、鎖定分散', () => {
@@ -164,6 +193,8 @@ describe('AI 目標選擇品質（20v20、150 秒）', () => {
     expect(m.rearShare).toBeLessThanOrEqual(LIMITS.rearShare)
     expect(m.fireShare).toBeGreaterThanOrEqual(LIMITS.fireShare)
     expect(m.onNose).toBeGreaterThanOrEqual(LIMITS.onNose)
+    // 主判準是**分布**；`maxLocks` 降級成災難護欄。見 MAX_LOCKS 的註解
+    expect(m.lockPileupShare).toBeLessThan(LOCK_PILEUP_SHARE)
     expect(m.maxLocks).toBeLessThanOrEqual(MAX_LOCKS)
   }, 120000)
 })

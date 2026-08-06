@@ -50,8 +50,43 @@ const STEPS_PER_DECISION = 240 / AI_DECISION_HZ
  * 【這個數字換過兩次】第一版量到 1，那是在 `lateralOffset` 還是 0、整場仗
  * 6 秒就以一方全滅收場的退化區間量的。門檻在錯的區間量出來會鬆得剛好
  * 看不出問題。
+ *
+ * ## 2026-08-06：判準由「全程極大值」改成「分布」
+ *
+ * 警戒訊號上線（`assess.ts` 的 `alarmFactor`）之後這一條紅了：全程極大值
+ * 由 7 變成 8~10。上面那句「紅了該回頭看集火為什麼跨了分隊」照做之後，
+ * **查到的是相反的結論——分散完全沒有失效**：
+ *
+ * ```
+ * 每步最大鎖定數    p50 3    p90 4    p99 7    max 10
+ * 「某一架被 >7 架鎖定」  334 / 1,421,691 =  0.023%
+ * ```
+ *
+ * p50 = 3、p90 = 4，與上面那個 4 + 3 的推導完全吻合；「17 架撲同一架」的
+ * 退化狀態離得非常遠。334 個「抽樣 × 飛機」對換算成時間，是全場 40 架、
+ * 150 秒裡合計約 **1.4 秒**的飛機時間。
+ *
+ * 也就是說**壞掉的是判準不是行為**：`maxLocks` 是一個混沌模擬上的**極值
+ * 統計**，任何改動都可能讓它在某個合流瞬間多跳一格，而那與「大家有沒有
+ * 圍毆同一架」無關。
+ *
+ * 所以改成兩條，合起來**比原本更嚴**：
+ *
+ *   1. `lockPileups / lockSamples < LOCK_PILEUP_SHARE`（0.5%，實測 0.023%）
+ *      —— 這一條釘住的是**分布**，也就是「分散」真正的意思。原本那條完全
+ *      沒有在管分布。
+ *   2. `maxLocks ≤ MAX_LOCKS`（12）—— 降級成**災難護欄**。M5 §14 記載的
+ *      退化狀態是 17~20，12 遠低於它，也高於實測的 10。
+ *
+ * **這不是把 7 改成 12 就算了。** 舊條件抓得到的災難（17~20）新條件照樣
+ * 抓得到，而新增的第 1 條抓得到舊條件抓不到的「持續性圍毆」。專案負責人
+ * 2026-08-06 裁定接受這個交換。
  */
-const MAX_LOCKS = 7
+const MAX_LOCKS = 12
+/** 「圍毆」的定義：被超過這麼多架同時鎖定。就是 M6 推導出來的那個界 */
+const LOCK_SPREAD = 7
+/** 圍毆的時間佔比上限。實測 0.023%，取 0.5% 留 20 倍餘裕 */
+const LOCK_PILEUP_SHARE = 0.005
 
 /**
  * 150 秒內全隊換目標的次數上限。
@@ -111,6 +146,10 @@ class Idle implements Controller {
 interface Observed {
   /** 全程任一抽樣時刻，單一目標被同隊多少架同時鎖定的最大值 */
   maxLocks: number
+  /** 「某一架在某個抽樣時刻被超過 `LOCK_SPREAD` 架鎖定」的次數 */
+  lockPileups: number
+  /** 上面那個計數的分母：抽樣時刻 × 存活飛機 */
+  lockSamples: number
   /** 全程是否有**存活的**飛機出現在海面之下 */
   wentUnderwater: boolean
   /** 退場的飛機自己的指派槽位沒有歸 −1 的次數 */
@@ -189,7 +228,8 @@ function observe(fair = false): Observed {
   const last = new Int32Array(cs.length).fill(-1)
   const deadTargetedRun = new Int32Array(cs.length)
   const o: Observed = {
-    maxLocks: 0, wentUnderwater: false, ownSlotDirty: 0, maxDeadTargetedSteps: 0,
+    maxLocks: 0, lockPileups: 0, lockSamples: 0,
+    wentUnderwater: false, ownSlotDirty: 0, maxDeadTargetedSteps: 0,
     switches: 0, maxDecisionsInOneStep: 0,
     blueLost: 0, redLost: 0, wipes: 0,
     blueDamage: 0, redDamage: 0,
@@ -320,6 +360,8 @@ function observe(fair = false): Observed {
         const hunters = target.team === 'blue' ? 'red' : 'blue'
         const n = countLocks(b.board, hunters, -1, target.index)
         if (n > o.maxLocks) o.maxLocks = n
+        o.lockSamples++
+        if (n > LOCK_SPREAD) o.lockPileups++
       }
     }
   }
@@ -335,7 +377,11 @@ describe('20v20 跑滿 150 秒', () => {
   let fair: Observed | null = null
   const fairOutcome = (): Observed => (fair ??= observe(true))
 
-  it('沒有任何一架被超過 MAX_LOCKS 架同時鎖定（M5 spec §3.1 條件 3）', () => {
+  it('鎖定夠分散：圍毆是瞬間而不是常態（M5 spec §3.1 條件 3）', () => {
+    // 主判準是**分布**：被超過 7 架鎖定的時間佔比。見 MAX_LOCKS 的註解。
+    expect(o.lockSamples).toBeGreaterThan(1000)
+    expect(o.lockPileups / o.lockSamples).toBeLessThan(LOCK_PILEUP_SHARE)
+    // 災難護欄：M5 §14 的退化狀態是 17~20 架撲同一架
     expect(o.maxLocks).toBeLessThanOrEqual(MAX_LOCKS)
   })
 
