@@ -336,6 +336,93 @@ export function threatFactor(shooter: Aircraft, victim: Aircraft): number {
 }
 
 /**
+ * 警戒錐的半角，rad。**外緣**，不是實際會觸發閃躲的角度。
+ *
+ * 【15° 是外緣，10° 才是那條線】警戒值是線性斜坡 `1 − off/ALARM_CONE`，而
+ * `defend` 的進入門檻是 `DEFAULT_RULES.threatEnter = 0.35`，所以實際觸發是
+ * `off ≤ 9.75°`。留一段「注意到但還沒到要閃」的緩衝，也保住連續性 ——
+ * 這個專案吃過硬截斷的虧（見 `steer.ts` 的「力道連續化」否決紀錄）。
+ */
+export const ALARM_CONE = 15 * (Math.PI / 180)
+
+/**
+ * 警戒到滿值所需的持續秒數。
+ *
+ * 【為什麼比 `TRACK_SATURATION`（1.0 s）短】警戒問的是「有人在瞄我」，
+ * 那比「他已經穩穩咬住我」更早、也更該早反應。
+ *
+ * 【它同時是玩家的射擊窗口】0.5 秒才滿，加上 `VETERAN` 的 0.3 秒反應延遲
+ * —— 快速的快照射擊仍然打得中，被閃掉的是「慢慢瞄、瞄很久」那種。這是
+ * 刻意的取捨，也是這個旋鈕最該由人工試飛定案的理由。
+ */
+export const ALARM_SATURATION = 0.5
+
+/** 警戒的持續時間 → 權重，0..1。線性上升到飽和後維持 1。 */
+export function alarmRamp(seconds: number): number {
+  if (!(seconds > 0)) return 0
+  return seconds >= ALARM_SATURATION ? 1 : seconds / ALARM_SATURATION
+}
+
+const A = makeScratch(3)
+
+/**
+ * 「他的預瞄環套在我身上嗎」，0..1。**`defend` 的觸發判準。**
+ *
+ * ## 與 `threatFactor` 的分工
+ *
+ * `threatFactor` 回答「**他打得中我的機率有多高**」——給目標選擇用，那個
+ * 用途完全正確：遠距離的敵人確實比較不致命。但 `defend` 若也用它當判準，
+ * 就變成「只有快被打死才閃」：
+ *
+ * ```
+ * threat = noseFactor × (1 − range/900) ≥ 0.35   →   range ≤ 585 m
+ * ```
+ *
+ * **超過 585 m，威脅值在數學上不可能到達閃躲門檻**，不管打多久、瞄多準。
+ * 實測（三機腳本射手場景、180 秒）：AI 在 700 與 900 m 被連續射擊，
+ * `defend` 進入率 **0.0%**。那就是「AI 看起來很笨」的成因。
+ *
+ * 這裡的兩處差別**只有**：
+ *
+ *   1. **沒有距離衰減** —— 「該不該閃」與命中機率無關。
+ *   2. **沒有 `THREAT_RANGE` 硬截斷** —— 射程改由**武器自己**決定。
+ *
+ * ## 射程為什麼不寫死
+ *
+ * `Projectiles` 的既有不變量：「看得到預瞄環」精確等於「打得到」
+ * （`t ≤ PROJECTILE_LIFETIME`）。所以警戒的定義可以講得很乾淨：**他的預瞄
+ * 環套得住我**——那是玩家看自己 HUD 時已經懂的概念。有效射程因此是湧現的：
+ * P-51D 887 × 1.2 ≈ **1064 m**，Bf109G6 705~750 × 1.2 ≈ **846~900 m**。
+ * 由 585 m 拉到約 1064 m，將近兩倍。
+ *
+ * 【1200 m 不會觸發，而那是對的】那個距離子彈物理上到不了，不反應是正確
+ * 行為，不是缺陷。
+ *
+ * ## 為什麼刻意與 `threatFactor` 重複前八行
+ *
+ * 兩者的預瞄解與偏離角算式相同，看起來該抽共用函數。**不抽。**
+ * `threatFactor` 是全部 AI 基準的來源（對戰矩陣、六場機動、防禦場景），
+ * 而這個專案對浮點層級的漂移是敏感的——重構它換來的是「所有既有基準是否
+ * 仍然逐值相同」這個無法便宜驗證的風險。八行的重複比那個風險便宜。
+ *
+ * 熱路徑（240 Hz），不配置。
+ */
+export function alarmFactor(shooter: Aircraft, victim: Aircraft): number {
+  const p = A.v[0]!.copy(victim.state.position).sub(shooter.state.position)
+  const v = A.v[1]!.copy(victim.state.velocity).sub(shooter.state.velocity)
+  const lead = A.v[2]!
+  const t = solveLead(p, v, shooter.spec.battery.sight.muzzleVelocity, lead)
+
+  // 【射程就在這一行】無解、或彈丸活不到攔截點 = 他打不到我 = 沒事
+  if (t === NO_INTERCEPT || t > PROJECTILE_LIFETIME) return 0
+
+  const fwd = A.v[0]!.copy(FWD).applyQuaternion(shooter.state.orientation)
+  const off = Math.acos(clampUnit(fwd.dot(lead)))
+  if (off >= ALARM_CONE) return 0
+  return 1 - off / ALARM_CONE
+}
+
+/**
  * 威脅與射擊機會，兩者對稱。
  *
  * `threatInstant` 只是**瞬時**值；「持續跟蹤」那一個因子由 AiController
