@@ -5,6 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
+  createDefendState, stepDefend,
 } from '../../src/ai/steer'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -231,7 +232,7 @@ describe('失速的兩種診斷', () => {
     buildEngageBasis(self, target, basis)
     // 【mode 直接傳入，不經過 geometryGate】所以這裡不必再設 speedMargin
     // —— 要驗的是「拿到這個 mode 之後做什麼」，不是「什麼時候拿到它」
-    steerCommand('engage', 'speedRecover', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'speedRecover', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
     expect(commanded).toBeCloseTo(-DEFAULT_STEER.speedRecoverPitch, 9)
     expect(commanded).toBeLessThan(0)
@@ -266,9 +267,9 @@ describe('失速的兩種診斷', () => {
     buildEngageBasis(self, target, basis)
     sit.stallMargin = 1 + 0.4 * (DEFAULT_STEER.unloadMargin - 1)
 
-    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const normalAim = cmd.aimWorld.clone()
-    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const unloadAimDir = cmd.aimWorld.clone()
 
     const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
@@ -294,9 +295,9 @@ describe('失速的兩種診斷', () => {
     buildEngageBasis(self, target, basis)
     sit.stallMargin = DEFAULT_STEER.unloadMargin
 
-    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const normalAim = cmd.aimWorld.clone()
-    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, createDefendState(), cmd)
     expect(cmd.aimWorld.angleTo(normalAim)).toBeCloseTo(0, 9)
   })
 
@@ -311,7 +312,7 @@ describe('失速的兩種診斷', () => {
     buildEngageBasis(self, target, basis)
     sit.stallMargin = 1
 
-    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
     expect(cmd.aimWorld.angleTo(nose)).toBeCloseTo(0, 6)
   })
@@ -325,7 +326,7 @@ describe('失速的兩種診斷', () => {
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
     sit.stallMargin = 1.05
-    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, knobs, createDefendState(), cmd)
     for (const v of cmd.aimWorld.toArray()) expect(Number.isFinite(v)).toBe(true)
     expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
   })
@@ -524,7 +525,7 @@ describe('steerCommand', () => {
     for (const intent of ['defend', 'merge', 'extend', 'engage', 'approach'] as const) {
       for (const mode of
         ['normal', 'overshoot', 'speedRecover', 'unload', 'planeDegenerate'] as const) {
-        steerCommand(intent, mode, sit, basis, self, 0, k, cmd)
+        steerCommand(intent, mode, sit, basis, self, 0, k, createDefendState(), cmd)
         expect(cmd.aimWorld.length(), `${intent}/${mode}`).toBeCloseTo(1, 9)
       }
     }
@@ -532,14 +533,14 @@ describe('steerCommand', () => {
 
   it('預設是 WEP、不減速', () => {
     scene([0, 4000, -600], [0, 0, -180])
-    steerCommand('approach', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('approach', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.throttle).toBe(WEP_THROTTLE)
     expect(cmd.brake).toBe(0)
   })
 
   it('超前閘門 → 減速全開且油門收掉', () => {
     scene([0, 4000, -80], [0, 0, -120])
-    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.brake).toBe(1)
     expect(cmd.throttle).toBeLessThan(0.5)
   })
@@ -547,14 +548,14 @@ describe('steerCommand', () => {
   it('速度遠高於角落速度 → 減速（不是靠 VNE 判斷）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 2.5
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.brake).toBeGreaterThan(0)
   })
 
   it('角落速度附近不減速', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1.1
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.brake).toBe(0)
   })
 
@@ -570,7 +571,7 @@ describe('steerCommand', () => {
     scene([0, 4000, -600], [0, 0, -180])
     // cornerRatio = 1：速度剛好在角落速度上，不缺也不剩 → 俯仰趨近 0
     sit.cornerRatio = 1
-    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.angleTo(velDir)).toBeLessThan(20 * Math.PI / 180)
   })
@@ -583,7 +584,7 @@ describe('steerCommand', () => {
   it('extend 在速度過剩時帶爬升分量（把速度存成高度）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1.4
-    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
   })
@@ -591,14 +592,14 @@ describe('steerCommand', () => {
   it('extend 在速度不足時帶俯衝分量（用高度換速度）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 0.6
-    steerCommand('extend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
   })
 
   it('defend 的瞄準點明顯偏離目標方向（破壞他的預瞄解）', () => {
     scene([0, 4000, 300], [0, 0, -180])
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeGreaterThan(45 * Math.PI / 180)
   })
 
@@ -613,7 +614,7 @@ describe('steerCommand', () => {
     scene([0, 4000, -600], [0, 0, -180])
     // 威脅來自正右方，與目標（正前方）完全不同的方向
     sit.threatLos.set(1, 0, 0)
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
     expect(off).toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
   })
@@ -629,7 +630,7 @@ describe('steerCommand', () => {
     scene([0, 4000, -600], [0, 0, -180])
     // 自機平飛、機首朝 −Z，升力朝 +Y。把威脅放在正上方 → 升力 ∥ 視線
     sit.threatLos.set(0, 1, 0)
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
     expect(off).toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
     expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
@@ -643,7 +644,7 @@ describe('steerCommand', () => {
         sit.threatLos.set(
           Math.cos(b) * Math.sin(a), Math.sin(b), Math.cos(b) * Math.cos(a),
         ).normalize()
-        steerCommand('defend', 'normal', sit, basis, self, 0, k, cmd)
+        steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
         const off = Math.acos(Math.max(-1, Math.min(1, cmd.aimWorld.dot(sit.threatLos))))
         expect(off, `${a.toFixed(1)}/${b.toFixed(1)}`)
           .toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
@@ -653,7 +654,7 @@ describe('steerCommand', () => {
 
   it('planeDegenerate → 退化為純追擊（指著目標，不亂偏）', () => {
     scene([0, 4600, 0], [0, 0, -180])
-    steerCommand('engage', 'planeDegenerate', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'planeDegenerate', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.aimWorld.angleTo(basis.losAxis)).toBeCloseTo(0, 6)
   })
 
@@ -667,9 +668,9 @@ describe('steerCommand', () => {
     scene([0, 4800, -200], [0, 0, -120])
     sit.stallMargin = 1.05
     const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const normalErr = cmd.aimWorld.angleTo(nose)
-    steerCommand('engage', 'unload', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.aimWorld.angleTo(nose)).toBeLessThan(normalErr)
   })
 
@@ -681,30 +682,30 @@ describe('steerCommand', () => {
   it('speedRecover → 壓到速度向量下方', () => {
     scene([0, 4800, -200], [0, 0, -120])
     sit.speedMargin = 1.1
-    steerCommand('engage', 'speedRecover', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'speedRecover', sit, basis, self, 0, k, createDefendState(), cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
   })
 
   it('approach 指向彈道預瞄點', () => {
     scene([0, 4000, -900], [150, 0, -180])
-    steerCommand('approach', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('approach', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.aimWorld.angleTo(basis.leadPoint.clone().normalize())).toBeCloseTo(0, 6)
   })
 
   it('不修改 firing —— 開火由 fire.ts 決定', () => {
     scene([0, 4000, -400], [0, 0, -180])
     cmd.firing = true
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     expect(cmd.firing).toBe(true)
   })
 
   it('連續呼叫不配置：一萬次結果一致', () => {
     scene([0, 4000, -400], [150, 0, -180])
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     const first = cmd.aimWorld.clone()
     for (let i = 0; i < 10000; i++) {
-      steerCommand('engage', 'normal', sit, basis, self, 0, k, cmd)
+      steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), cmd)
     }
     expect(cmd.aimWorld.equals(first)).toBe(true)
   })
@@ -838,7 +839,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
 
     const out: number[] = []
     for (let i = 0; i < 20; i++) {
-      steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
+      steerCommand('extend', 'normal', sit, basis, self, 0, knobs, createDefendState(), cmd)
       out.push(Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y))))
       // 完美跟隨：速度轉到剛剛的指令方向，保持速率
       self.state.velocity.copy(cmd.aimWorld).multiplyScalar(180)
@@ -869,7 +870,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     sit.speedMargin = 2
     sit.stallMargin = 2
 
-    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, createDefendState(), cmd)
     // 原航向是 −Z；指令的水平分量必須仍指向 −Z
     expect(cmd.aimWorld.x).toBeCloseTo(0, 9)
     expect(cmd.aimWorld.z).toBeLessThan(0)
@@ -1009,7 +1010,7 @@ describe('extend 的俯仰是連續量', () => {
     sit.cornerRatio = 0.6
     sit.speedMargin = 2
     sit.stallMargin = 2
-    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 0, knobs, createDefendState(), cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
     expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 4000), 9)
   })
@@ -1030,9 +1031,150 @@ describe('extend 的俯仰是連續量', () => {
     sit.speedMargin = 2
     sit.stallMargin = 2
     // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
-    steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, cmd)
+    steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, createDefendState(), cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
     expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 100), 9)
     expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
+  })
+})
+
+/**
+ * 反轉 —— 他衝過頭之後攻守易位。
+ *
+ * 真實 BFM 裡這一格是整段防禦最值錢的：破防把他甩出去 → 他衝到我前半球 →
+ * 我反向拉進去。剪刀（scissors）不是寫死的動作，是這一格重複發生長出來的。
+ *
+ * 【只做瞄準那一半】原設計（2026-08-05 batch-2 spec §3.4）還有一半是向
+ * `selectTarget` 請求越權換目標。實測否決：紅 B 真的衝過頭時，藍方的目標
+ * **100% 已經是紅 B**（兩個延遲、六個場景全部）—— 那一半解決的是一個不存在
+ * 的問題。記在 `target.ts`。
+ */
+describe('反轉', () => {
+  const sit = createSituation()
+  const basis = createEngageBasis()
+  const knobs: Knobs = { leadLag: 1, vertical: 0 }
+  const cmd = createCommand()
+
+  /** 自機朝 −Z 平飛在 4000 m；攻擊者放在 `at`、朝 `look` 飛 */
+  function scene(at: [number, number, number], look: [number, number, number]) {
+    const self = new Aircraft(P51D, 4000, 200)
+    const att = new Aircraft(P51D, 4000, 200)
+    self.state.position.set(0, 4000, 0)
+    self.state.velocity.set(0, 0, -200)
+    self.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 0, -1))
+    self.prevPosition.copy(self.state.position)
+    self.prevOrientation.copy(self.state.orientation)
+    att.state.position.set(...at)
+    const dir = new Vector3(...look).normalize()
+    att.state.velocity.copy(dir).multiplyScalar(200)
+    att.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), dir)
+    att.prevPosition.copy(att.state.position)
+    att.prevOrientation.copy(att.state.orientation)
+    self.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    att.update(dir, 0.7, 1 / 240)
+    return { self, att }
+  }
+
+  /** 已經衝過頭：在我前方 300 m、朝我飛來（他剛剛從我後面穿過去） */
+  const OVERSHOT: [[number, number, number], [number, number, number]] = [
+    [0, 4000, -300], [0, 0, 1],
+  ]
+  /** 還咬在後面：正後方 300 m、同向 */
+  const BEHIND: [[number, number, number], [number, number, number]] = [
+    [0, 4000, 300], [0, 0, -1],
+  ]
+
+  it('三個條件同時成立才觸發', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBeGreaterThan(0)
+  })
+
+  it('不在 defend 時不觸發 —— 只有正在破防的人才談得上反轉', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const d = createDefendState()
+    stepDefend(d, self, att, false, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  it('他還在我後半球時不觸發 —— 那不叫衝過頭', () => {
+    const { self, att } = scene(...BEHIND)
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  it('距離太遠時不觸發', () => {
+    const { self, att } = scene([0, 4000, -2000], [0, 0, 1])
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  it('沒有攻擊者時不觸發', () => {
+    const { self } = scene(...OVERSHOT)
+    const d = createDefendState()
+    stepDefend(d, self, null, true, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  /**
+   * 【為什麼要閂住而不是逐格重判】反轉是一個**動作**，不是一個狀態查詢。
+   * 拉進去的那一秒裡幾何一定會離開觸發條件（他被我轉到後面去了），逐格重判
+   * 等於做到一半就放手 —— 那既不是反轉也不是破防，是抖動。
+   */
+  it('觸發後即使條件消失仍然做完 reversalHold', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    const held = d.reversal
+    // 把他挪回後半球：條件不再成立
+    att.state.position.set(0, 4000, 300)
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBeGreaterThan(0)
+    expect(d.reversal).toBeLessThan(held)
+  })
+
+  it('倒數走完就結束', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    att.state.position.set(0, 4000, 300)
+    for (let i = 0; i < 240 * 10; i++) stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  it('攻擊者換人時取消 —— 對著別人做到一半的反轉沒有意義', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const other = new Aircraft(P51D, 4000, 200)
+    const d = createDefendState()
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBeGreaterThan(0)
+    stepDefend(d, self, other, true, 1 / 240)
+    expect(d.reversal).toBe(0)
+  })
+
+  /**
+   * 【這一條是整個提案的產出】破防是「轉開」，反轉是「轉進去」——兩者的
+   * 瞄準點必須在相反的半球，否則反轉只是換一個名字的破防。
+   */
+  it('反轉期間瞄準點轉向攻擊者，而不是轉開', () => {
+    const { self, att } = scene(...OVERSHOT)
+    const d = createDefendState()
+    const los = new Vector3().copy(att.state.position).sub(self.state.position).normalize()
+    sit.threatLos.copy(los)
+
+    // 破防：瞄準點與視線的夾角應該是 defendOffset
+    stepDefend(d, self, att, false, 1 / 240)
+    steerCommand('defend', 'normal', sit, basis, self, 0, knobs, d, cmd)
+    const breakAngle = cmd.aimWorld.angleTo(los)
+    expect(breakAngle).toBeCloseTo(DEFAULT_STEER.defendOffset, 3)
+
+    // 反轉：瞄準點應該落在他身上（預瞄解，所以不會恰好是 0）
+    stepDefend(d, self, att, true, 1 / 240)
+    expect(d.reversal).toBeGreaterThan(0)
+    steerCommand('defend', 'normal', sit, basis, self, 0, knobs, d, cmd)
+    expect(cmd.aimWorld.angleTo(los)).toBeLessThan(breakAngle / 2)
   })
 })

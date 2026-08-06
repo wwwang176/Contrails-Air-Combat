@@ -5,7 +5,8 @@ import {
 } from './assess'
 import { createRuleState, stepRules, type Intent } from './rules'
 import {
-  buildEngageBasis, createEngageBasis, engageKnobs, geometryGate, steerCommand, type Knobs,
+  buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
+  stepDefend, steerCommand, type Knobs,
 } from './steer'
 import { shouldFire } from './fire'
 import {
@@ -125,6 +126,12 @@ export class AiController implements Controller {
    * 這個主張只對前兩個成立（M11 spec §4.1）。
    */
   readonly rules = createRuleState()
+  /**
+   * 破防層的跨格狀態（目前只有反轉的倒數）。**唯讀** —— 只有 `stepDefend`
+   * 能寫。與 `rules` 同一個理由公開：反轉是一個展開中的動作，有沒有真的
+   * 發生過，只看 `intent` 是看不出來的。
+   */
+  readonly defend = createDefendState()
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
@@ -239,7 +246,14 @@ export class AiController implements Controller {
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
     const mode = geometryGate(this.sit, this.basis)
-    steerCommand(this.intent, mode, this.sit, this.basis, self, this.seaHeight, this.knobs, raw)
+    // 【意圖是上一個決策節拍的值】反轉的觸發只在進入的那一格用得上，晚一個
+    // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
+    // 讀到的是**同一個**，不能半新半舊。
+    stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
+    steerCommand(
+      this.intent, mode, this.sit, this.basis, self, this.seaHeight,
+      this.knobs, this.defend, raw,
+    )
     raw.firing = shouldFire(this.sit, this.basis, self)
 
     this.emit(self, dt, out)
