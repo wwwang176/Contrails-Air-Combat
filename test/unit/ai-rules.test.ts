@@ -334,4 +334,77 @@ describe('extend 的三個理由與射擊否決權', () => {
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
     expect(s.extendFloorLatch).toBe(false)
   })
+
+  /**
+   * 【破防壓過「我飛不動了」是刻意的 —— 一個被實測否決的設計，2026-08-07】
+   *
+   * `arbitrate` 第一行是 `if (s.defendLatch) return 'defend'`，它把同一個
+   * 檔案自己定義的分野（相對理由 vs 絕對理由）對 `defend` 整條蓋掉。task #136
+   * 曾經打算把絕對理由那一行搬到它之前，理由是實測三機場景 400 m 時破防期間
+   * 有 **50.1% / 45.1%** 的時間 `cornerRatio` 已經低於 `cornerEnter` ——
+   * AI 一邊轉不動一邊繼續硬破防。
+   *
+   * **改了之後量出來明顯更糟，已退回。** `ai-visible-evasion` 的主判準：
+   *
+   * ```
+   *                        原樣    搬到 defend 之前
+   * 700 m 壓得住準星的時間  6.3%       14.6%   ← 2.3 倍
+   * 900 m                   5.5%        8.3%   ← 1.5 倍
+   * 700 m 射手有射擊解格數   551         956
+   * 觸發涵蓋率            96 / 97%   40 / 44%
+   * 破防的同向性            0.99        1.00   ← 完美直線
+   * ```
+   *
+   * 設計文件 §2.2 事先寫下的風險原封不動地發生了：「被咬時切 `extend` 就是
+   * 沿速度向量直線飛（`unloadAim`），那是把尾巴送給對方」。同向性剛好 1.00
+   * 就是那句話的量測形式。能量赤字是真的，但**在被咬的當下它比不上「別被
+   * 打中」**，而低空的高度問題已經由 `steer.ts` 的離地底限（`floorPitch`）
+   * 從另一個方向解掉了。
+   *
+   * 這一條測試守著現況：**破防仍然壓過絕對理由**。
+   */
+  it('速度見底但正在被咬時，破防仍然壓過脫離', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
+    // 威脅拉滿：threatEnter 以上，defendLatch 一定閂上
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 1, DT)
+
+    expect(s.defendLatch).toBe(true)        // 破防的閂鎖確實閂著
+    expect(s.extendFloorLatch).toBe(true)   // 速度見底的閂鎖也閂著
+    expect(s.intent).toBe('defend')          // 破防勝出
+  })
+
+  /**
+   * 【相對理由當然也輸給破防】「比他弱」不是丟下防禦不管的理由。
+   * 與上一條合起來看：`defend` 壓過 extend 的**全部**三個理由。
+   */
+  it('能量劣勢不能把正在被咬的 AI 拉去 extend', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.energyAdvantage = DEFAULT_RULES.energyEnter * 1.5
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 1, DT)
+
+    expect(s.defendLatch).toBe(true)
+    expect(s.extendEnergyLatch).toBe(true)
+    expect(s.intent).toBe('defend')
+  })
+
+  /**
+   * 【`floorExempt` 的豁免對 defend 也要成立】佔著明顯能量優勢時，
+   * 「我飛不動了」不強制脫離 —— 缺的是此刻的速度，低頭換就有。
+   */
+  it('能量優勢夠大時，速度見底也不脫離', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.range = 500
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
+    sit.energyAdvantage = DEFAULT_RULES.floorExempt * 1.5
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 1, DT)
+
+    expect(s.extendFloorLatch).toBe(true)
+    expect(s.intent).toBe('defend')
+  })
 })

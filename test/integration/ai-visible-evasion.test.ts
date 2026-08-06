@@ -247,7 +247,21 @@ interface Result {
    * 是「完全不動作」的那一條（0.7~0.9°）。
    */
   contrast: number
+  /** 受測 AI 整場的最低高度，m */
+  minAlt: number
+  /** 有沒有跑滿整個觀察窗。false = 有人中途出局 */
+  survived: boolean
 }
+
+/**
+ * 射手的起始方位。
+ *
+ * `tail` = 正後方尾追；`beam` = 正側方橫越、機首指向受測 AI。
+ *
+ * 【為什麼需要 beam】撞地的兩場之一是 800 m 橫越（另一場是 1000 m 尾追）。
+ * 只有尾追的話量不到那個場景。
+ */
+type Aspect = 'tail' | 'beam'
 
 function median(v: number[]): number {
   if (v.length === 0) return 0
@@ -338,7 +352,7 @@ function underFireGate(hunter: Aircraft, prey: Aircraft): boolean {
  * 【為什麼受測 AI 需要指派板】沒有板 `scanThreat` 恆回 null，它就看不見
  * 射手 —— 場景會退化成「一架完全不知道自己被打的飛機」。
  */
-function measure(standoff: number): Result {
+function measure(standoff: number, aspect: Aspect = 'tail'): Result {
   const world = new World()
   const prey = new Aircraft(BLUNT, ALT, TAS)
   const bait = new Aircraft(BLUNT, ALT, TAS)
@@ -346,11 +360,17 @@ function measure(standoff: number): Result {
 
   const preyPos = new Vector3(0, ALT, 0)
   const baitPos = new Vector3(0, ALT, -500)
-  const hunterPos = new Vector3(0, ALT, standoff)
+  const hunterPos = aspect === 'tail'
+    ? new Vector3(0, ALT, standoff)
+    : new Vector3(standoff, ALT, 0)
   for (const [a, p] of [[prey, preyPos], [bait, baitPos], [hunter, hunterPos]] as const) {
     a.state.position.copy(p)
-    a.state.velocity.copy(FWD).multiplyScalar(TAS)
-    a.state.orientation.setFromUnitVectors(FWD, FWD)
+    // 橫越的射手機首指向受測 AI，否則它要先繞一大圈才進得了場
+    const look = a === hunter && aspect === 'beam'
+      ? new Vector3().subVectors(preyPos, hunterPos).normalize()
+      : FWD.clone()
+    a.state.velocity.copy(look).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, look)
     a.prevPosition.copy(a.state.position)
     a.prevOrientation.copy(a.state.orientation)
   }
@@ -383,10 +403,14 @@ function measure(standoff: number): Result {
   let defendUnderFire = 0
   let hits = 0
   let samples = 0
+  let minAlt = ALT
+  let steps = 0
 
   for (let s = 0; s < SECONDS * 240; s++) {
     world.step(DT)
     if (!pc.alive || !hc.alive) break
+    minAlt = Math.min(minAlt, prey.state.position.y)
+    steps = s + 1
 
     buildEngageBasis(hunter, prey, basis)
     swing.push(dir.copy(basis.leadPoint).normalize())
@@ -419,6 +443,8 @@ function measure(standoff: number): Result {
     shootableShare: hits / Math.max(samples, 1),
     straightMedian,
     contrast: defendMedian / Math.max(straightMedian, 1e-6),
+    minAlt,
+    survived: steps >= SECONDS * 240,
   }
 }
 
@@ -602,6 +628,42 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
       expect(r.straightness).toBeGreaterThan(0.5)
     }, 5 * 60 * 1000)
   }
+
+  /**
+   * 【這一條是 #136 的主判準】前一份（破防軸）的 §5.4 要求「最低高度不得
+   * 低於現行同場景」，那條標準不可執行 —— 它預設了「閃躲不該有代價」，而
+   * 舊軸不掉高度的原因正是它根本沒在閃（位移 2.96° 對新軸的 9.99°）。
+   *
+   * 可執行的標準是**不進安全層的作用區**：`safety.ts` 的 `clearance` 是
+   * 120 m，瞄準點層的 `clearanceScale` 是 500 m，取後者。
+   *
+   * 【修補前的實測，2026-08-07】離地底限上線之前的六場：
+   *
+   * ```
+   * 場景          最低高度   結局
+   * 400 尾追        2687     滿場
+   * 800 尾追        3953     滿場
+   * 1000 尾追        113 ←   113 s，腳本射手撞海
+   * 400 橫越        2556     滿場
+   * 800 橫越         225 ←    99 s，腳本射手撞海
+   * 1000 橫越       3940     滿場
+   * ```
+   *
+   * 誘餌起始位置微擾 ±20 / ±40 各跑 5 次，那兩場 10 次全部提早結束 ——
+   * 系統性可重現，不是混沌抽樣。
+   */
+  it('六場都不掉進安全層的作用區', () => {
+    const bad: string[] = []
+    for (const aspect of ['tail', 'beam'] as const) {
+      for (const standoff of [400, 800, 1000]) {
+        const r = measure(standoff, aspect)
+        if (r.minAlt <= 500 || !r.survived) {
+          bad.push(`${standoff} ${aspect}: minAlt=${r.minAlt.toFixed(0)} survived=${r.survived}`)
+        }
+      }
+    }
+    expect(bad).toEqual([])
+  }, 10 * 60 * 1000)
 
   /**
    * 【這一條驗的是軸的幾何，與 AI 的接線無關】腳本對腳本、同一個場景、
