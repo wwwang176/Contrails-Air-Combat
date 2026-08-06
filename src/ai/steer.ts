@@ -117,10 +117,19 @@ export interface DefendState {
    * 而且瞄準點會指向一架已經不相干的飛機。
    */
   attacker: Aircraft | null
+  /**
+   * 破防軸的左右號誌，+1 / −1。**0 = 尚未決定**。
+   *
+   * 【為什麼要跨格記住】`UP × threatLos` 有 ±兩側，兩側同樣「橫向破防」。
+   * 每一格重算必然存在一個切換面，跨過去就是瞄準點瞬間跳 2×75° —— 那是
+   * 這個專案 2026-08-05 才治好的抖動的同一個病。進入破防時決定一次、
+   * 整段不變。攻擊者換人或離開破防時歸零，下次重新決定。
+   */
+  axisSign: number
 }
 
 export function createDefendState(): DefendState {
-  return { reversal: 0, attacker: null }
+  return { reversal: 0, attacker: null, axisSign: 0 }
 }
 
 /**
@@ -282,6 +291,36 @@ export interface SteerConfig {
   clearanceScale: number
   /** defend 的偏轉角，rad */
   defendOffset: number
+  /**
+   * 破防軸往上抬的角度，rad。
+   *
+   * 【為什麼需要它】破防軸取世界水平面之後，75° 坡度的水平大彎會自然掉
+   * 高度 —— 那個坡度要 3.9 G 才維持水平，低速時做不到。抬角把它抵消。
+   *
+   * 【20° 是掃出來的，不是估的】出貨飛行模型、800 m 尾追、90 秒：
+   *
+   * ```
+   * 抬角     位移    瞄準誤差   打得中    最低高度   收尾TAS
+   * 不閃     0.9°     0.0°    100.0%     4000      146
+   * 現行     1.8°     0.6°     77.1%     4000       84
+   *   0°    20.0°    47.5°      2.0%     2287      162   ← 掉 1713 m
+   *  10°    16.4°    63.1°      6.8%     3969      133
+   *  20°    11.5°    55.4°      2.4%     4000      123   ← 選定
+   *  30°     9.6°    56.7°      3.2%     4000      122
+   *  40°     9.1°    55.3°      8.3%     4000      127
+   *  50°     9.5°    54.6°      7.0%     4000      145
+   * ```
+   *
+   * 20° 是「打得中」的最低點，也是高度損失歸零的第一個值。橫越與對頭同向。
+   *
+   * 【低空不需要額外規則】3000 / 1500 / 800 m 三個開局高度，抬 20° 的最低
+   * 高度都**等於開局高度**。反而是舊的升力軸在 800 m 開局時自己掉了 498 m。
+   * 原本規劃的「離地餘裕小就再抬高一點」因此沒有實測依據，不做。
+   *
+   * 【重試的前提】這一項依賴當前的升力係數與過載能力，不是幾何恆等式。
+   * `specs/feel.ts` 的 `lift` 或 `oswald` 大幅調動之後要重掃。
+   */
+  defendTilt: number
   /**
    * 反轉的距離上限，m。超過這個距離「他衝過頭」沒有意義 —— 他只是跑遠了。
    *
@@ -671,6 +710,7 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   defendOffset: 75 * (Math.PI / 180),
+  defendTilt: 20 * (Math.PI / 180),
   // ## 反轉的三個參數（2026-08-06 掃描）
   //
   // 六個高接近率場景（紅 B 起始 TAS 280 對藍方 200）× 180 秒，警戒已上線：
@@ -989,7 +1029,7 @@ export function steerCommand(
         if (defend.reversal > 0 && defend.attacker !== null) {
           reversalAim(self, defend.attacker, out.aimWorld)
         } else {
-          defendAim(self, sit.threatLos, out.aimWorld, cfg)
+          defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
         }
         break
       case 'merge':
@@ -1073,7 +1113,7 @@ function unloadAim(self: Aircraft, pitch: number, out: Vector3): void {
   out.set(hx * c, Math.sin(pitch), hz * c)
 }
 
-const D = makeScratch(3)
+const D = makeScratch(4)
 
 /**
  * 破防：由**威脅來源**的視線轉開一個大角度。
@@ -1088,21 +1128,56 @@ const D = makeScratch(3)
  * 【轉開的角度相對視線量，不是相對機首的增量】所以它是一個固定的幾何目標，
  * 轉彎中不會像舊的 `unloadAim` 那樣每格滾雪球。
  *
- * 【退化時的備援由「視線」換成「機體橫軸」】舊版在升力向量平行視線時直接
- * 回傳視線 —— **那等於指著攻擊者，破防變成零**，而且它在轉彎中並不罕見
- * （對方咬在我的轉彎平面內時就會發生）。
+ * ## 破防軸：世界水平面抬 `defendTilt`（2026-08-07）
  *
- * 換成機體橫軸之後**不可能兩個都退化**：升力與橫軸恆正交，所以
- * `|升力⊥|² = 1 − a²`、`|橫軸⊥|² = 1 − b²`，而 `a² + b² ≤ 1`
- * （a、b 是兩者與視線的餘弦）。`a` 趨近 ±1 時 `b` 必然趨近 0，橫軸的垂直
- * 分量反而趨近滿額。永遠有一側可選。
+ * 【舊版錯在哪】軸取自**飛機自己的升力向量**，而升力向量跟著滾轉走。
+ * 飛機一開始破防就會滾，滾了之後軸轉到別的地方 —— 破防因此不是一個持續
+ * 的硬彎，是一個**方向一直飄的螺旋**。實測破防期間坡度常駐 ±150~180°
+ * （倒飛）。三個後果同時發生：視覺上跟「不閃」幾乎沒差別（1.8° 對 0.9°）、
+ * 破壞不掉射擊解（玩家 77.1% 的時間仍打得中）、能量被榨乾（收尾 TAS 84）。
+ *
+ * 【新軸】`UP × threatLos` 正規化後往上抬 `defendTilt`。世界水平面不跟著
+ * 飛機滾，所以破防維持在同一個平面上。同場景實測：位移 11.5°、玩家打得中
+ * 2.4%、最低高度零損失、收尾 TAS 123。
+ *
+ * 【退化】`threatLos` 平行於世界鉛直時 `UP × threatLos` 趨近 0。此時退回
+ * 舊的升力軸 —— 那個退化路徑本身是對的（升力與視線平行時再退到機體橫軸，
+ * 兩者恆正交所以不可能同時退化）。
+ *
+ * `|升力⊥|² = 1 − a²`、`|橫軸⊥|² = 1 − b²`，而 `a² + b² ≤ 1`（a、b 是兩者
+ * 與視線的餘弦）。`a` 趨近 ±1 時 `b` 必然趨近 0，橫軸的垂直分量反而趨近
+ * 滿額。永遠有一側可選。
+ *
+ * @param sign 左右號誌 +1 / −1，由 `stepDefend` 在進入破防時決定一次。
+ *             0 視同 +1（呼叫端不該傳 0，但傳了也要有定義的行為）。
  */
-function defendAim(self: Aircraft, threatLos: Vector3, out: Vector3, cfg: SteerConfig): void {
+export function defendAim(
+  self: Aircraft,
+  threatLos: Vector3,
+  sign: number,
+  out: Vector3,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
   const axis = D.v[0]!
-  // 首選升力方向：破防在物理上就是「把升力向量甩到他打不到的地方」
   const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
-  if (perpendicular(lift, threatLos, axis) < AXIS_EPSILON) {
-    // 升力平行視線 —— 此時機體橫軸必然垂直於視線（見上方註解的證明）
+
+  // ── 首選：世界水平面內、垂直於視線 ──────────────────
+  const horiz = D.v[3]!.copy(UP).cross(threatLos)
+  if (horiz.length() >= AXIS_EPSILON) {
+    horiz.normalize()
+    if (sign < 0) horiz.multiplyScalar(-1)
+    // 視線垂面內指天的方向。抬角在定號**之後**才套，所以永遠朝天
+    const up = D.v[2]!.copy(UP).addScaledVector(threatLos, -UP.dot(threatLos))
+    const upLen = up.length()
+    if (upLen > 1e-6) {
+      up.divideScalar(upLen)
+      axis.copy(horiz).multiplyScalar(Math.cos(cfg.defendTilt))
+        .addScaledVector(up, Math.sin(cfg.defendTilt))
+    } else {
+      axis.copy(horiz)
+    }
+  } else if (perpendicular(lift, threatLos, axis) < AXIS_EPSILON) {
+    // 視線鉛直 **且** 升力平行視線 —— 此時機體橫軸必然垂直於視線
     const right = D.v[2]!.set(1, 0, 0).applyQuaternion(self.state.orientation)
     if (perpendicular(right, threatLos, axis) < AXIS_EPSILON) {
       // 數學上到不了，但浮點世界留一條退路：任何非平行的方向都比「指著他」好
@@ -1110,6 +1185,7 @@ function defendAim(self: Aircraft, threatLos: Vector3, out: Vector3, cfg: SteerC
       return
     }
   }
+
   out.copy(threatLos).multiplyScalar(Math.cos(cfg.defendOffset))
     .addScaledVector(axis, Math.sin(cfg.defendOffset))
     .normalize()
