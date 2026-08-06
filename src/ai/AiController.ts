@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import {
-  considerThreatFrom, createSituation, evaluateEnergy, evaluateGeometry, evaluateThreat,
-  threatFactor, trackingFactor,
+  alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
+  evaluateGeometry, evaluateThreat, trackingFactor,
 } from './assess'
 import { createRuleState, stepRules, type Intent } from './rules'
 import {
@@ -95,6 +95,15 @@ export class AiController implements Controller {
   intent: Intent = 'approach'
   safetyActive = false
   trackingSeconds = 0
+  /**
+   * 警戒（「有人的預瞄環套在我身上」）已經持續幾秒。
+   *
+   * 【為什麼與 `trackingSeconds` 分開】後者是在 `sit.threatInstant > 0` 時
+   * 累積的，而那個量在 `THREAT_RANGE`（900 m）外恆為 0 —— 共用計時器等於
+   * 把警戒也綁回 900 m，而警戒的射程是由武器決定的（約 1064 m）。飽和時間
+   * 也刻意不同：警戒 0.5 s、跟蹤 1.0 s。
+   */
+  alarmSeconds = 0
   /**
    * 累計做過幾次意圖仲裁。
    *
@@ -197,16 +206,34 @@ export class AiController implements Controller {
     // 分頻原則（spec §4.2）。
     const src = this.threatSource
     if (src !== null && src !== target) considerThreatFrom(self, src, this.sit)
+    // 【誰在打我】`scanThreat` 已經用 `alarmFactor` 掃過全場（含當前目標），
+    // 所以它挑出來的那一架就是警戒值最大的。`board` 為 null 時退回目標。
+    const attacker = src ?? target
     buildEngageBasis(self, target, this.basis)
 
     // 跟蹤計時器：在他的射擊錐內才累積，離開立刻歸零
     this.trackingSeconds = this.sit.threatInstant > 0 ? this.trackingSeconds + dt : 0
     const threat = this.sit.threatInstant * trackingFactor(this.trackingSeconds)
 
+    // 警戒：「他的預瞄環套在我身上嗎」。這是**閃躲的觸發判準**，與上面那個
+    // 「他打得中我的機率」分開 —— 後者的距離因子讓閃躲門檻在幾何上等價於
+    // 「他必須進到 585 m 以內」，實測 700/900 m 被連續射擊 180 秒，`defend`
+    // 進入率 0.0%。完整推導見 `assess.ts` 的 `alarmFactor`。
+    const alarmInstant = alarmFactor(attacker, self)
+    // 【自己的計時器】`trackingSeconds` 是在 `threatInstant > 0` 時累積的，
+    // 而那個量在 900 m 外恆為 0 —— 共用等於把警戒也綁回 900 m。
+    this.alarmSeconds = alarmInstant > 0 ? this.alarmSeconds + dt : 0
+    const alarm = alarmInstant * alarmRamp(this.alarmSeconds)
+    // 【為什麼是 max】`alarm ≥ threat` 在幾何上恆成立（同樣的錐、同樣的預瞄
+    // 解，只是少乘一個 ≤1 的距離因子，有單元測試釘住）。所以 `max` 等於
+    // 「以警戒為準，但保證絕不比原本遲鈍」—— 新機制只能讓閃躲**更早**觸發，
+    // 不可能讓任何既有的觸發消失。
+    const danger = threat > alarm ? threat : alarm
+
     // ── 10 Hz：昂貴的包絡查詢與意圖仲裁 ────────────────────
     if (decide) {
       evaluateEnergy(self, target, this.sit)
-      this.intent = stepRules(this.rules, this.sit, threat, period)
+      this.intent = stepRules(this.rules, this.sit, danger, period)
     }
 
     // ── 240 Hz：轉向、開火 ────────────────────────────────
@@ -280,7 +307,12 @@ export class AiController implements Controller {
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!
       if (!c.alive || c.team === me.team) continue
-      const t = threatFactor(c.aircraft, self)
+      // 【用警戒而不是威脅排序】`threatFactor` 在 900 m 外恆為 0，所以
+      // 用它掃描的話，一架咬在我 950 m 正後方的敵機得分與「不存在」相同 ——
+      // 選不出來，`defend` 的破防軸也就繞不到他身上。`alarmFactor` 的支撐集
+      // **包含** `threatFactor` 的（同樣的錐、同樣的解，只是少乘距離因子），
+      // 所以換過來只會多找到人，不會少。
+      const t = alarmFactor(c.aircraft, self)
       if (t > bestValue) {
         bestValue = t
         best = c.aircraft
