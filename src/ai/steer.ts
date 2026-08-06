@@ -167,6 +167,8 @@ export function stepDefend(
     if (attacker !== state.attacker) {
       state.reversal = 0
       state.attacker = attacker
+      // 號誌是對**舊**攻擊者的幾何算的，跟著一起丟掉
+      state.axisSign = 0
       return
     }
     state.reversal = Math.max(0, state.reversal - dt)
@@ -174,9 +176,34 @@ export function stepDefend(
     return
   }
 
+  // ── 破防軸的左右號誌（進入時決定一次）──────────────
+  // 【為什麼寫在這裡而不是 defendAim 裡】defendAim 是純函數、每格被呼叫，
+  // 它沒有「這是不是第一格」的資訊。號誌是跨格狀態，必須由持有狀態的這一層
+  // 決定（與 reversal 同一個理由）。
+  if (!defending || attacker === null) {
+    state.attacker = attacker
+    state.axisSign = 0
+    return
+  }
+  if (attacker !== state.attacker) state.axisSign = 0
   state.attacker = attacker
-  if (!defending || attacker === null) return
+  if (state.axisSign === 0) {
+    // 取與當下升力同側 —— 進入破防時轉場最小
+    const dir = D.v[0]!.copy(attacker.state.position).sub(self.state.position)
+    const dist = dir.length()
+    if (dist > 1e-3) {
+      dir.divideScalar(dist)
+      const h = D.v[2]!.copy(UP).cross(dir)
+      if (h.lengthSq() > 1e-12) {
+        h.normalize()
+        const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
+        state.axisSign = h.dot(lift) >= 0 ? 1 : -1
+      } else state.axisSign = 1
+    } else state.axisSign = 1
+  }
 
+  // 【暫存向量的重複使用】號誌那段用了 D.v[0]/[1]/[2]，算完就不再需要，
+  // 下面的反轉偵測會重新 copy。不要把號誌那段挪到反轉偵測中間。
   const los = D.v[0]!.copy(attacker.state.position).sub(self.state.position)
   const range = los.length()
   if (range >= cfg.reversalRange || range < 1e-3) return
