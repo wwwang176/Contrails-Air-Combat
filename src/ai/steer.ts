@@ -102,6 +102,86 @@ export function buildEngageBasis(self: Aircraft, target: Aircraft, out: EngageBa
   out.verticalDegenerate = perpendicular(lift, out.losAxis, out.verticalAxis) < AXIS_EPSILON
 }
 
+/**
+ * 破防這一層自己的跨格狀態。
+ *
+ * 【為什麼需要狀態】`steer.ts` 的其他東西全是純函數，而反轉不是一個「此刻
+ * 的幾何」而是一個**展開中的動作** —— 它必須跨格記得「我正在做這件事」。
+ * 由呼叫端持有、以參數傳入，模組本身仍然沒有可變的全域狀態（spec §4.3）。
+ */
+export interface DefendState {
+  /** 反轉倒數的剩餘秒數。> 0 = 正在反轉 */
+  reversal: number
+  /**
+   * 觸發那一刻的攻擊者。換人時取消 —— 對著別人做到一半的反轉沒有意義，
+   * 而且瞄準點會指向一架已經不相干的飛機。
+   */
+  attacker: Aircraft | null
+}
+
+export function createDefendState(): DefendState {
+  return { reversal: 0, attacker: null }
+}
+
+/**
+ * 每個物理步更新破防狀態。目前只有反轉用得到。
+ *
+ * **判定（三個條件同時成立）**
+ *
+ *   1. 到攻擊者的距離 < `reversalRange`
+ *   2. 我的**速度向量**與「指向他的視線」的夾角 < `reversalAspect`
+ *      —— 他已經跑到我的前半球
+ *   3. `defending` 為真 —— 只有正在破防的人才談得上反轉
+ *
+ * 條件 2 是「衝過頭」的真正定義：我硬破防而他跟得住時，視線一直留在後半球；
+ * 他過頭了，視線才會掃到前面來。
+ *
+ * 【已知窗口很小】AI 對 AI 的實測：「衝過頭」只佔 1.6% 的取樣，其中 27%
+ * 藍方本來就已經有射擊解。真正「錯過機會」的約佔全場 0.7%。專案負責人
+ * 2026-08-06 裁定照做 —— 真人玩家衝過頭的頻率遠高於 AI，而這一項的價值在
+ * 「難得發生時很精彩」，不在佔比。
+ *
+ * @param defending 這一格的意圖是不是 `defend`
+ *
+ * 熱路徑（240 Hz），不配置。
+ */
+export function stepDefend(
+  state: DefendState,
+  self: Aircraft,
+  attacker: Aircraft | null,
+  defending: boolean,
+  dt: number,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  if (state.reversal > 0) {
+    // 換人就取消；否則倒數
+    if (attacker !== state.attacker) {
+      state.reversal = 0
+      state.attacker = attacker
+      return
+    }
+    state.reversal = Math.max(0, state.reversal - dt)
+    if (state.reversal === 0) state.attacker = null
+    return
+  }
+
+  state.attacker = attacker
+  if (!defending || attacker === null) return
+
+  const los = D.v[0]!.copy(attacker.state.position).sub(self.state.position)
+  const range = los.length()
+  if (range >= cfg.reversalRange || range < 1e-3) return
+  los.divideScalar(range)
+
+  const vel = D.v[1]!.copy(self.state.velocity)
+  const speed = vel.length()
+  if (speed < 1e-3) return
+  vel.divideScalar(speed)
+  if (vel.dot(los) < Math.cos(cfg.reversalAspect)) return
+
+  state.reversal = cfg.reversalHold
+}
+
 export type SteerMode = 'normal' | 'overshoot' | 'speedRecover' | 'unload' | 'planeDegenerate'
 
 export interface SteerConfig {
@@ -202,6 +282,32 @@ export interface SteerConfig {
   clearanceScale: number
   /** defend 的偏轉角，rad */
   defendOffset: number
+  /**
+   * 反轉的距離上限，m。超過這個距離「他衝過頭」沒有意義 —— 他只是跑遠了。
+   *
+   * **起始值，待實測回填。** 掃描範圍 300 / 500 / 800。
+   */
+  reversalRange: number
+  /**
+   * 反轉的方位判準，rad。我的**速度向量**與「指向他的視線」的夾角小於它，
+   * 就代表他已經跑到我的前半球。
+   *
+   * 【為什麼用速度向量而不是機首】破防時攻角很大，機首與航跡差得多。
+   * 「他在我前面」問的是航跡的前面 —— 我正在往哪裡飛。
+   *
+   * **起始值，待實測回填。** 掃描範圍 60° / 90° / 120°。
+   */
+  reversalAspect: number
+  /**
+   * 反轉一旦觸發就做滿幾秒。
+   *
+   * 【為什麼要閂住而不是逐格重判】反轉是一個**動作**，不是一個狀態查詢。
+   * 拉進去的那一秒裡幾何一定會離開觸發條件（他被我轉到後面去了），逐格
+   * 重判等於做到一半就放手 —— 那既不是反轉也不是破防，是抖動。
+   *
+   * **起始值，待實測回填。** 掃描範圍 1 / 2 / 4。
+   */
+  reversalHold: number
 }
 
 /**
@@ -565,6 +671,34 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   defendOffset: 75 * (Math.PI / 180),
+  // ## 反轉的三個參數（2026-08-06 掃描）
+  //
+  // 六個高接近率場景（紅 B 起始 TAS 280 對藍方 200）× 180 秒，警戒已上線：
+  //
+  //   range aspect hold   反轉次數  佔時    反轉中有射擊解
+  //    500    90°   2s      19     2.64%      9.6%   ← 選定
+  //    300    90°   2s       8     1.13%      3.2%
+  //    800    90°   2s      38     6.09%     10.2%
+  //    500    60°   2s       7     1.13%      9.6%
+  //    500   120°   2s      30     4.96%      5.7%
+  //    500    90°   1s      30     2.52%      7.5%
+  //    500    90°   4s      19     4.78%      5.9%
+  //
+  // 【沒有最佳點，所以取起始值】品質（反轉期間拿到射擊解的比例）在
+  // 5.7~10.2% 之間平坦；次數則單純隨判定放寬而增加。真正的決定因素是
+  // 「要花多少比例的時間**不閃躲**」—— 反轉期間 AI 是在轉進去而不是轉開，
+  // 而它同時仍然在挨打。800/90/2 的次數多一倍、品質只多 0.6 個百分點，
+  // 代價是 6.09% 對 2.64% 的不閃躲時間。
+  //
+  // 【這一組最該由人工試飛定案】專案負責人對這一項的定位是「難得發生時
+  // 很精彩」。500/90/2 是每分鐘約一次；覺得太少就放寬 range，覺得 AI 在
+  // 該閃的時候發呆就收緊。
+  //
+  // 【對照：警戒上線之前反轉恆為 0】不是參數不對，是 `defend` 進入率只有
+  // 5%，三個條件的第三條幾乎不成立。
+  reversalRange: 500,
+  reversalAspect: 90 * (Math.PI / 180),
+  reversalHold: 2,
 }
 
 /**
@@ -818,6 +952,8 @@ export function steerCommand(
   /** 該點的海面（未來為地表）高度，m。`extend` 的俯仰用它算離地餘裕 */
   seaHeight: number,
   k: Knobs,
+  /** 破防狀態。由 `stepDefend` 每步維護 */
+  defend: DefendState,
   out: Command,
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
@@ -848,7 +984,13 @@ export function steerCommand(
         break
       }
       case 'defend':
-        defendAim(self, sit.threatLos, out.aimWorld, cfg)
+        // 【反轉讓位給破防的相反動作】他衝過頭之後，「轉開」把剛用高度與
+        // 速度換來的機會丟掉。倒數期間改成對他的追擊解 —— 轉進去。
+        if (defend.reversal > 0 && defend.attacker !== null) {
+          reversalAim(self, defend.attacker, out.aimWorld)
+        } else {
+          defendAim(self, sit.threatLos, out.aimWorld, cfg)
+        }
         break
       case 'merge':
       case 'approach':
@@ -971,6 +1113,27 @@ function defendAim(self: Aircraft, threatLos: Vector3, out: Vector3, cfg: SteerC
   out.copy(threatLos).multiplyScalar(Math.cos(cfg.defendOffset))
     .addScaledVector(axis, Math.sin(cfg.defendOffset))
     .normalize()
+}
+
+/**
+ * 反轉的瞄準點：對攻擊者的**追擊解**。
+ *
+ * 【為什麼是預瞄解而不是直接指著他】反轉的目的是攻守易位，而攻擊的瞄準點
+ * 一向是預瞄點（見 `buildEngageBasis`）。指著他本人在有相對速度時打不中，
+ * 而反轉發生的時候相對速度正是最大的。
+ *
+ * 退化（無解、重合）時指向他的位置 —— 那至少是一個有定義的方向。
+ */
+function reversalAim(self: Aircraft, attacker: Aircraft, out: Vector3): void {
+  const p = D.v[0]!.copy(attacker.state.position).sub(self.state.position)
+  const v = D.v[1]!.copy(attacker.state.velocity).sub(self.state.velocity)
+  const lead = D.v[2]!
+  const t = solveLead(p, v, self.spec.battery.sight.muzzleVelocity, lead)
+  if (t === NO_INTERCEPT) {
+    normalizeInto(p, FWD, out)
+    return
+  }
+  out.copy(lead)
 }
 
 /** 正規化 v 寫入 out；退化時用 fallback。 */

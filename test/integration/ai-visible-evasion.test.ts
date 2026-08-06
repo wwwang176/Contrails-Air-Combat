@@ -212,6 +212,66 @@ function measure(standoff: number): Result {
   }
 }
 
+/**
+ * 反轉：攻擊者衝過頭之後 AI 會**轉進去**而不是繼續轉開。
+ *
+ * 場景與上面不同 —— 這裡三架都是 AI，而且紅 B 起始速度更快（280 對 200），
+ * 有接近率才可能衝過頭。腳本射手會用油門維持距離，衝不過頭。
+ */
+function reversalEvents(behind: Vector3, overtakeTas: number): number {
+  const world = new World()
+  const blue = new Aircraft(BLUNT, ALT, TAS)
+  const bait = new Aircraft(BLUNT, ALT, TAS)
+  const chaser = new Aircraft(BLUNT, ALT, overtakeTas)
+  const bp = new Vector3(0, ALT, 0)
+  const ap = new Vector3(0, ALT, -400)
+  const cp = bp.clone().add(behind)
+  const put = (a: Aircraft, pos: Vector3, look: Vector3, tas: number) => {
+    const dir = look.clone().sub(pos).normalize()
+    a.state.position.copy(pos)
+    a.state.velocity.copy(dir).multiplyScalar(tas)
+    a.state.orientation.setFromUnitVectors(FWD, dir)
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.copy(a.state.orientation)
+  }
+  put(bait, ap, ap.clone().add(new Vector3(0, 0, -1000)), TAS)
+  put(blue, bp, ap, TAS)
+  put(chaser, cp, bp, overtakeTas)
+
+  const bc = world.add(blue, new AiController(), 'blue', bp, ALT, TAS)
+  const ac = world.add(bait, new AiController(), 'red', ap, ALT, TAS)
+  const cc = world.add(chaser, new AiController(), 'red', cp, ALT, overtakeTas)
+  for (const c of [bc, ac, cc]) c.respawnOnDestroy = false
+  const board = createTargetBoard(world.combatants)
+  for (const c of world.combatants) {
+    const ai = c.controller
+    if (!(ai instanceof AiController)) continue
+    ai.board = board
+    ai.selfIndex = c.index
+    ai.profile = VETERAN
+  }
+  const ai = bc.controller as AiController
+
+  let events = 0
+  let prev = false
+  for (let s = 0; s < SECONDS * 240; s++) {
+    world.step(DT)
+    if (!bc.alive || !cc.alive) break
+    const on = ai.defend.reversal > 0
+    if (on && !prev) events++
+    prev = on
+  }
+  return events
+}
+
+/** 高接近率的被咬幾何 */
+const OVERTAKE: readonly [Vector3, number][] = [
+  [new Vector3(0, 0, 600), 280],
+  [new Vector3(0, 0, 800), 280],
+  [new Vector3(0, 200, 700), 280],
+  [new Vector3(0, -200, 700), 280],
+]
+
 describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
   for (const standoff of [700, 900]) {
     it(`射手在 ${standoff} m 連續射擊時，AI 的閃躲看得出來`, () => {
@@ -243,4 +303,20 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
       expect(r.straightness).toBeGreaterThan(0.5)
     }, 5 * 60 * 1000)
   }
+
+  /**
+   * 【這一條在警戒上線之前是恆為 0 的】不是參數不對，是 `defend` 進入率
+   * 只有 5%，而反轉的三個條件之一就是「我正在破防」。修好觸發之後它才
+   * 有可能發生 —— 實測四個高接近率幾何合計 19 次（180 秒 × 4）。
+   *
+   * 【為什麼門檻只要 > 0】反轉刻意是**罕見**的：它佔全場約 2.6% 的時間，
+   * 而那段時間 AI 是在轉進去而不是轉開。這一條要抓的是「它有沒有悄悄變回
+   * 死碼」，不是「它夠不夠頻繁」。頻率是手感問題，掃描表在
+   * `DEFAULT_STEER.reversalRange` 的註解裡，由人工試飛定案。
+   */
+  it('攻擊者衝過頭之後 AI 會轉進去', () => {
+    let events = 0
+    for (const [behind, tas] of OVERTAKE) events += reversalEvents(behind, tas)
+    expect(events).toBeGreaterThan(0)
+  }, 5 * 60 * 1000)
 })
