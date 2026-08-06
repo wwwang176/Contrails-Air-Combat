@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
-import { applySafety, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
+import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { DEG } from '../../src/core/math'
@@ -59,6 +59,73 @@ describe('recoveryAltitude', () => {
 
   it('爬升時（gamma > 0）不需要高度', () => {
     expect(recoveryAltitude(200, 30 * DEG, 6)).toBeCloseTo(0, 9)
+  })
+})
+
+describe('flightPathRate', () => {
+  /**
+   * 把飛機擺成「以 tas 沿 γ 飛、坡度 φ、過載 n」，然後只讀 `flightPathRate`。
+   *
+   * 【為什麼不跑 `update`】要驗的是「給定姿態與過載，γ̇ 是多少」這條代數，
+   * 跑一步物理會讓過載變成飛機自己算出來的值，就驗不到指定的 n。
+   */
+  function posed(tas: number, gammaDeg: number, bankDeg: number, n: number): Aircraft {
+    const a = new Aircraft(P51D, 4000, tas)
+    const g = gammaDeg * DEG
+    const dir = new Vector3(0, Math.sin(g), -Math.cos(g))
+    a.state.velocity.copy(dir).multiplyScalar(tas)
+    a.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), dir)
+    // 繞速度向量滾 φ
+    a.state.orientation.multiply(
+      new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), bankDeg * DEG),
+    )
+    a.diag.loadFactor = n
+    return a
+  }
+
+  it('平飛 1 G 時航跡角不變', () => {
+    expect(flightPathRate(posed(200, 0, 0, 1))).toBeCloseTo(0, 6)
+  })
+
+  it('平飛 0 G 是自由落體：γ̇ = −g/V', () => {
+    expect(flightPathRate(posed(200, 0, 0, 0))).toBeCloseTo(-9.80665 / 200, 6)
+  })
+
+  it('平飛拉 4 G 時航跡角以 g(n−1)/V 上揚', () => {
+    expect(flightPathRate(posed(200, 0, 0, 4))).toBeCloseTo(9.80665 * 3 / 200, 6)
+  })
+
+  it('90° 坡度時升力完全不進垂直平面，只剩重力', () => {
+    // n·cos φ = 0，所以 γ̇ = −g·cos γ / V
+    expect(flightPathRate(posed(200, 0, 90, 4))).toBeCloseTo(-9.80665 / 200, 5)
+  })
+
+  it('倒飛拉桿會把航跡往下扯', () => {
+    // 180° 坡度：升力朝下，n·cos φ = −4
+    expect(flightPathRate(posed(200, 0, 180, 4))).toBeCloseTo(9.80665 * -5 / 200, 5)
+  })
+
+  it('俯衝時重力項按 cos γ 縮小', () => {
+    // γ = −60°，1 G 正拉：γ̇ = g(1 − cos60)/V
+    expect(flightPathRate(posed(200, -60, 0, 1))).toBeCloseTo(9.80665 * 0.5 / 200, 5)
+  })
+
+  it('速度越快同樣的過載扭轉航跡越慢', () => {
+    const slow = flightPathRate(posed(120, 0, 0, 4))
+    const fast = flightPathRate(posed(300, 0, 0, 4))
+    expect(slow).toBeGreaterThan(fast)
+    expect(slow / fast).toBeCloseTo(300 / 120, 5)
+  })
+
+  it('速度為零時回 0 而不是 NaN', () => {
+    const a = posed(200, 0, 0, 1)
+    a.state.velocity.set(0, 0, 0)
+    expect(flightPathRate(a)).toBe(0)
+  })
+
+  it('垂直俯衝時垂直平面退化，回 0 而不是 NaN', () => {
+    // γ = −90°：速度沿 −ŷ，「垂直平面內垂直於速度且朝上」沒有唯一解
+    expect(Number.isFinite(flightPathRate(posed(200, -90, 0, 4)))).toBe(true)
   })
 })
 

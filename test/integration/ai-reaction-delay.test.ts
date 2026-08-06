@@ -145,29 +145,38 @@ describe('反應延遲 —— 出貨設定', () => {
     expect(DEFAULT_BATTLE.aiProfile).toBe(ACE)
   })
 
-  it('延遲不會讓 AI 自己飛進海裡', () => {
-    // 這一條守的是「安全層排在延遲之後」（spec §4.2）。撞地保護是反射不是
-    // 判讀；一起延遲的話玩家不會覺得敵人變弱，只會覺得敵人會自殺。
+  it('低空纏鬥不會把自己飛進海裡 —— 任何反應延遲都一樣', () => {
+    // 這一條同時守兩件事：
+    //
+    //   1. **安全層排在延遲之後**（延遲 spec §4.2）。撞地保護是反射不是判讀；
+    //      一起延遲的話玩家不會覺得敵人變弱，只會覺得敵人會自殺。
+    //   2. **撞地保護會前瞻俯衝角**（`DEFAULT_SAFETY.lookahead`）。閉式解假設
+    //      γ 不再變陡，而 AI 在檢查通過後還在繼續加深俯衝。
+    //
+    // 【為什麼掃四個延遲而不是只測出貨值】這個缺陷在 `VETERAN`（0.3 s）下
+    // **看不到** —— 只有 0.5 s 那一列會觸海（修補前 644 步）。只測出貨值的
+    // 話，這條斷言在壞掉的程式上是綠的。
     //
     // 【為什麼是低空受控場景而不是 20v20】20v20 在 4000 m 開打，120 秒內
-    // 沒有任何一架靠近地面（實測全隊最低 2210 m），對這個問題零訊號 ——
-    // 那樣的斷言恆真，等於什麼都沒測。
+    // 沒有任何一架靠近地面（實測全隊最低 2210 m），對這個問題零訊號。
     //
-    // 【為什麼判準是「不觸海」而不是「不比 ACE 低」】實測全場最低高度
-    // ACE 115 m、VETERAN 63 m —— **延遲確實讓 AI 飛得更低**，拿 ACE 當
-    // 上界會直接紅。能守住而且玩家真正在意的是「敵人不會自己摔死」。
-    // 這一條不是恆真的：同一組場景把延遲調到 0.5 s 就有 644 步觸海
-    // （根因見 `AiController.emit` 的註解，在 `applySafety` 不在延遲）。
-    let sea = 0
-    let lowest = Infinity
-    for (const [blue, red] of LOW_CASES) {
-      const o = lowFight(blue, red)
-      sea += o.sea
-      if (o.minY < lowest) lowest = o.minY
+    // 【為什麼判準是「不觸海」而不是一個高度下限】安全層的 `clearance`
+    // （120 m）是**觸發時的餘裕**，不是最低高度的保證 —— 觸發之後拉平還要
+    // 時間，那段時間高度還在掉。實測全場最低在 46~275 m 之間漂，而且**是
+    // 混沌的**（同一場在六個 lookahead 下是 115/54/16/121/106/114，沒有趨勢），
+    // 拿它當門檻等於在測雜訊。「不摔死」才是玩家在意的，也是穩定的。
+    //
+    // 修補前後（五場、120 秒、全場最低高度／觸海步數）：
+    //
+    //   延遲          0      0.3      0.5      0.8    觸海
+    //   lookahead 0  115      63    −0 ✗      275    644 步
+    //   lookahead .25 54      74      46      275      0
+    for (const delay of [0, 0.3, 0.5, 0.8]) {
+      let sea = 0
+      for (const [blue, red] of LOW_CASES) sea += lowFight(blue, red, delay).sea
+      expect(sea, `反應延遲 ${delay} s`).toBe(0)
     }
-    expect(sea).toBe(0)
-    expect(lowest).toBeGreaterThan(0)
-  }, 10 * 60 * 1000)
+  }, 15 * 60 * 1000)
 })
 
 /** 五個貼地纏鬥的開局。安全層在這些場景裡幾乎全程都在動。 */
@@ -180,12 +189,12 @@ const LOW_CASES: readonly [Side, Side][] = [
 ]
 
 /**
- * 兩架 VETERAN 在低空纏鬥 120 秒，回報全程最低高度與觸海步數。
+ * 兩架同樣延遲的 AI 在低空纏鬥 120 秒，回報全程最低高度與觸海步數。
  *
  * 【子彈無傷害】要量的是 AI 會不會把自己開進海裡，不是誰先被打下來。低空
  * 對頭在有傷害時三、四秒就分勝負，那個窗口看不到任何飛行問題。
  */
-function lowFight(blue: Side, red: Side): { minY: number; sea: number } {
+function lowFight(blue: Side, red: Side, delay: number): { minY: number; sea: number } {
   const world = new World()
   const make = (s: Side) => {
     const a = new Aircraft(BLUNT, s.altitude, s.tas)
@@ -203,8 +212,8 @@ function lowFight(blue: Side, red: Side): { minY: number; sea: number } {
   const r = make(red)
   const blueAi = new AiController()
   const redAi = new AiController()
-  blueAi.profile = VETERAN
-  redAi.profile = VETERAN
+  blueAi.profile = { reactionDelay: delay, aimError: 0 }
+  redAi.profile = { reactionDelay: delay, aimError: 0 }
   const bc = world.add(b.a, blueAi, 'blue', b.pos, blue.altitude, blue.tas)
   const rc = world.add(r.a, redAi, 'red', r.pos, red.altitude, red.tas)
   blueAi.target = r.a
