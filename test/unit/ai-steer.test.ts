@@ -5,7 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend,
+  createDefendState, stepDefend, defendAim,
 } from '../../src/ai/steer'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -1176,5 +1176,82 @@ describe('反轉', () => {
     expect(d.reversal).toBeGreaterThan(0)
     steerCommand('defend', 'normal', sit, basis, self, 0, knobs, d, cmd)
     expect(cmd.aimWorld.angleTo(los)).toBeLessThan(breakAngle / 2)
+  })
+})
+
+describe('破防軸：世界水平面往上抬', () => {
+  /** 造一架在原點、機首朝 −Z、機翼水平的飛機 */
+  function level(): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    return a
+  }
+
+  /** 由 `defendAim` 的輸出反解破防軸：out = los·cos(offset) + axis·sin(offset) */
+  function axisOf(out: Vector3, los: Vector3): Vector3 {
+    return out.clone()
+      .addScaledVector(los, -Math.cos(DEFAULT_STEER.defendOffset))
+      .divideScalar(Math.sin(DEFAULT_STEER.defendOffset))
+      .normalize()
+  }
+
+  it('軸落在水平面內、再往上抬 defendTilt', () => {
+    const self = level()
+    // 威脅在正後方：視線 +Z
+    const los = new Vector3(0, 0, 1)
+    const out = new Vector3()
+    defendAim(self, los, 1, out)
+
+    const axis = axisOf(out, los)
+    // 抬角 = axis 與水平面的夾角
+    expect(Math.asin(axis.y)).toBeCloseTo(DEFAULT_STEER.defendTilt, 6)
+    // 水平分量必須垂直於視線（視線是 ±Z，所以水平分量必須純 X）
+    expect(Math.abs(axis.z)).toBeLessThan(1e-6)
+    expect(Math.abs(axis.x)).toBeGreaterThan(0.5)
+  })
+
+  it('sign 只翻水平分量，抬角永遠朝天', () => {
+    const self = level()
+    const los = new Vector3(0, 0, 1)
+    const plus = new Vector3()
+    const minus = new Vector3()
+    defendAim(self, los, 1, plus)
+    defendAim(self, los, -1, minus)
+
+    const a = axisOf(plus, los)
+    const b = axisOf(minus, los)
+
+    // 水平分量相反
+    expect(b.x).toBeCloseTo(-a.x, 6)
+    // 鉛直分量相同，而且都朝上
+    expect(b.y).toBeCloseTo(a.y, 6)
+    expect(a.y).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【為什麼不能只驗夾角】破防軸換掉之後，「轉開 defendOffset」這個幅度
+   * 不該跟著變。軸必須是單位長度且垂直於視線，否則 `out` 與視線的夾角
+   * 會偏離 `defendOffset` —— 那是幅度被偷改，不是換軸。
+   */
+  it('偏轉幅度仍然恰好是 defendOffset', () => {
+    const self = level()
+    const los = new Vector3(0.3, 0.2, 0.9).normalize()
+    const out = new Vector3()
+    defendAim(self, los, 1, out)
+    expect(out.length()).toBeCloseTo(1, 6)
+    expect(out.angleTo(los)).toBeCloseTo(DEFAULT_STEER.defendOffset, 6)
+  })
+
+  it('視線鉛直時退化回自身升力，不指向威脅', () => {
+    const self = level()
+    // 威脅在正上方：視線 +Y，UP × los 退化
+    const los = new Vector3(0, 1, 0)
+    const out = new Vector3()
+    defendAim(self, los, 1, out)
+    // 不得指著他
+    expect(out.dot(los)).toBeLessThan(0.5)
+    expect(out.length()).toBeCloseTo(1, 6)
   })
 })
