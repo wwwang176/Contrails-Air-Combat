@@ -3,6 +3,7 @@ import { World, type Combatant } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
 import { AiController } from '../ai/AiController'
 import { createTargetBoard, type TargetBoard } from '../ai/target'
+import { ACE, type DifficultyProfile } from '../ai/profile'
 import {
   SCHWARM_SIZE, STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
   type Flight, type FlightIndex,
@@ -97,6 +98,19 @@ export interface BattleConfig {
   lateralOffset: number
   /** 高度散布的半幅，m */
   altitudeSpread: number
+  /**
+   * 這一局全部 AI 的難度參數。**兩隊一起套。**
+   *
+   * 【為什麼是 config 而不是在這裡寫死】`DEFAULT_BATTLE` 給 `ACE`，遊戲
+   * 走的 `battleConfigFrom` 給 `VETERAN`。寫死的話 `multi-battle` 與
+   * `ai-targeting` 的全部基準會一起移動，而那一層量的是 AI 的天花板 ——
+   * 讓遊戲的難度設定去推那些數字，之後就分不清是誰改的。
+   *
+   * 【為什麼兩隊一起套】與 `specs/feel.ts` 的手感係數同一個理由：玩家的
+   * 僚機與敵人是同一套 AI，只給敵人加延遲等於偷偷給玩家開外掛。哪天真要
+   * 做難度選單，那時再開不對稱的口。
+   */
+  aiProfile: DifficultyProfile
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
@@ -110,6 +124,9 @@ export const DEFAULT_BATTLE: BattleConfig = {
   schwarmSpacing: 800,
   lateralOffset: 1500,
   altitudeSpread: 300,
+  // 【測試的基準是天花板】遊戲的難度由 `battleConfigFrom` 覆寫，見
+  // `aiProfile` 的註解。
+  aiProfile: ACE,
 }
 
 /** 一場戰鬥的結果。`victory` = 敵方全滅，`defeat` = 我方全滅。 */
@@ -292,6 +309,7 @@ export function createBattle(
     if (!(ai instanceof AiController)) continue
     ai.board = board
     ai.selfIndex = c.index
+    ai.profile = cfg.aiProfile
     // 【相位依索引攤平】40 架的包絡查詢因此不會擠在同一個物理步
     ai.setDecisionPhase(c.index / world.combatants.length)
   }
@@ -520,6 +538,9 @@ export function resetBattle(
     const ai = new AiController()
     ai.board = b.board
     ai.selfIndex = c.index
+    // 【難度也要抄回去】少了這一行，被玩家接手過的座位重開之後會悄悄
+    // 變回 ACE —— 一場裡有一架敵人比其他人強，而且找不出原因。
+    ai.profile = b.cfg.aiProfile
     ai.setDecisionPhase(c.index / combatants.length)
     c.controller = ai
   }
