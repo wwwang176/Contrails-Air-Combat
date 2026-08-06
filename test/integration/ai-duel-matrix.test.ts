@@ -29,6 +29,8 @@ interface Outcome {
   blueEnergyEdge: number
   /** 藍方全程掉了多少 hp */
   blueDamage: number
+  /** 紅方全程掉了多少 hp。與 `blueDamage` 合起來就是傷害交換比 */
+  redDamage: number
   /**
    * 藍方「**我的能量比他低**」這個理由成立的時間比例。
    *
@@ -110,6 +112,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
   let blueMinEs = blueEs0
 
   const blueHp0 = bc.hp
+  const redHp0 = rc.hp
   const total = maxSeconds * 240
   for (let i = 0; i < total; i++) {
     world.step(DT)
@@ -123,7 +126,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
         winner: 'nan', seconds: i * DT, finite: false, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp,
+        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
       }
     }
     if (bc.hp <= 0 || rc.hp <= 0) {
@@ -131,7 +134,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
         winner: rc.hp <= 0 ? 'blue' : 'red', seconds: i * DT, finite: true, touchedSea,
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp,
+        blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
       }
     }
   }
@@ -139,7 +142,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
     winner: 'timeout', seconds: maxSeconds, finite: true, touchedSea,
     blueIntentTime: fractions(intentSteps, total), blueDeepNegativePs: deepNegative / total,
     blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
-    blueRelativeExtend: relativeExtend / total, blueDamage: blueHp0 - bc.hp,
+    blueRelativeExtend: relativeExtend / total, blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
   }
 }
 
@@ -310,17 +313,44 @@ describe('L4-C 能量戰證據', () => {
    * 【誠實說明】時限由 90 拉到 200 這一半確實是放寬，這是專案負責人在
    * 看過上面兩張表之後做的取捨：抖動是人工驗收看得見的真實缺陷，
    * 而 43.9 → 119.4 是一個混沌指標的兩次抽樣。
+   *
+   * ## 2026-08-06：判準再換一次，由「擊落」改成「傷害交換」
+   *
+   * 警戒訊號（`assess.ts` 的 `alarmFactor`）上線之後，被俯衝掠襲的 109
+   * 會**真的閃**（`defend` 由 ~3% 升到 13~17%），200 秒內打不完了。實測：
+   *
+   * ```
+   * 觀察窗    結果          藍受傷   紅受傷   交換比
+   * 120 s    未分勝負          0       97      ∞
+   * 200 s    未分勝負          0       97      ∞
+   * 300 s    未分勝負         72      704     9.8
+   * 400 s    藍勝 @363.8 s    72     1000    13.9
+   * ```
+   *
+   * **能量優勢仍然完全兌現**，只是由 119 秒變成 364 秒，而且不再毫髮無傷。
+   * 專案負責人 2026-08-06 裁定接受 —— 敵人會閃正是那一批要的效果。
+   *
+   * 【為什麼不是把窗拉到 400 秒】363.8 / 400 只有 10% 餘裕，而擊落時間是
+   * 這份註解一開始就認定的**混沌量**。把窗拉大等於再賭一次硬幣。
+   *
+   * 【改量什麼】傷害交換是**整段窗的聚合量**，不是時序上的極值：200 秒的
+   * 97 : 0 與 400 秒的 1000 : 72 講的是同一件事，而且對時序抖動不敏感。
+   * 門檻 `redDamage > 50`（實測 97，2 倍餘裕）與
+   * `blueDamage × 3 < redDamage`（實測 0 : 97）。後者比舊的
+   * `blueDamage === 0` **更耐混沌** —— 藍方就算挨了 30 點仍然算壓倒性，
+   * 而 `=== 0` 是一條刀刃。
    */
-  it('能量優勢要換得到東西：高能量開局藍方必須毫髮無傷擊落對手', () => {
+  it('能量優勢要換得到東西：高能量開局的傷害交換必須壓倒性', () => {
     const o = duel(...HIGH_ENERGY, 200)
     expect(o.blueEnergyEdge).toBeGreaterThan(3000)   // 開局條件本身沒跑掉
     console.log(
       '高能量開局的轉化：', o.winner, `${o.seconds.toFixed(1)}s`,
-      `藍方受傷 ${o.blueDamage.toFixed(0)}`,
+      `傷害交換 紅 ${o.redDamage.toFixed(0)} : 藍 ${o.blueDamage.toFixed(0)}`,
       `花掉 ${o.blueEnergySpent.toFixed(0)} m / 開局優勢 ${o.blueEnergyEdge.toFixed(0)} m`,
     )
-    expect(o.winner).toBe('blue')
-    expect(o.blueDamage).toBe(0)
+    expect(o.redDamage).toBeGreaterThan(50)
+    expect(o.blueDamage * 3).toBeLessThan(o.redDamage)
+    expect(o.winner).not.toBe('red')
   })
 
   /**
