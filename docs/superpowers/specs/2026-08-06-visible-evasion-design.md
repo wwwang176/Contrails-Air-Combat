@@ -56,8 +56,7 @@ threat = 1 − range/900 ≥ 0.35   →   range ≤ 585 m
 ```
 
 **超過 585 m，威脅值在數學上不可能到達閃躲門檻**，不管打多久、瞄多準。真人
-玩家瞄準偏 5°（機首因子 0.67）的話，門檻要到 **430 m**。而 `THREAT_RANGE = 900`
-是**硬截斷**——1200 m 開火時 AI 收到的訊號是「沒有人在打我」（上表 0/0）。
+玩家瞄準偏 5°（機首因子 0.67）的話，門檻要到 **430 m**。
 
 ### 2.2 病因：一個函數被拿去回答兩個問題
 
@@ -65,78 +64,98 @@ threat = 1 − range/900 ≥ 0.35   →   range ≤ 585 m
 正確——遠距離的敵人確實比較不致命。但 `defend` 拿同一個函數當「**我該不該
 閃**」的判準，就變成「只有快被打死才閃」。
 
-遊戲性要的是相反的：**有人朝我開槍，我就該有反應**，不管他打不打得中。
+遊戲性要的是相反的：**有人把機首對準我，不管他打不打得中，我都該有反應**。
+
+寫實上也是這個順序。真實空戰防禦的第一順位是**目視搜索與預判**——看到有人
+往你六點鐘的射擊位置機動就先破防，不會等他開槍。「看見曳光彈才閃」是失去
+態勢感知之後的補救，是第二道，不是常態。
 
 ## 3. 設計
 
-三件事，依重要性排序。
+### 3.1 警戒訊號——「他的預瞄環套在我身上」
 
-### 3.1 「我正在挨槍」——讀真實的子彈
-
-**成本結論先講：幾乎免費，因為那個距離已經在算了。**
-
-`World.resolveHits`（全專案最熱的迴圈，4,000 發 × 40 架）現在的粗篩是：
-
-```ts
-if (segmentPointDistanceSq(ax,ay,az, bx,by,bz, cx,cy,cz) > cull.r2[j]!) continue
-```
-
-`segmentPointDistanceSq` 就是「子彈這一步掃過的線段離機體重心多遠」。近失
-偵測是**同一個數字跟一個大一點的半徑比**，多一個 `if`。真正貴的
-`hitAircraft`（六次 slab 測試 + 兩次四元數旋轉）仍然只在窄判定通過時才跑。
-
-唯一的成本是粗篩的 x 視窗要由 ±`rMax` 放寬到 ±`nearMissRadius`。40 架散在
-10 km 上，30 m 的視窗內平均不到 0.3 架。**預期量不出來**，由 900 µs 的效能
-門檻證明。
-
-**資料放哪**
-
-`Combatant`（`src/world/World.ts`）新增兩個欄位，與既有的 `hitsDealt` 同一個
-性質——`resolveHits` 寫、別人讀：
-
-```ts
-/** 自上次被**敵方**子彈近距離擦過以來的秒數。Infinity = 從未 */
-nearMissAge: number
-/** 那一發的射手索引；−1 = 無 */
-nearMissFrom: number
-```
-
-`TargetCandidate`（`src/ai/target.ts`）加上同樣兩個欄位。`Combatant` 因此在
-結構上仍然滿足 `TargetCandidate`（現在就是靠結構相容才能
-`createTargetBoard(world.combatants)`），**AI 不必 import `world/World`**，
-分層不變。
-
-【為什麼不是讓 `World` 直接寫進 `AiController`】那要 `world/` import `ai/`，
-方向相反。指派板本來就是「AI 對世界的視野」，這個訊號屬於那裡。
-
-【同隊子彈不算】`resolveHits` 已經有陣營過濾，近失沿用同一條。被隊友的流彈
-嚇到而閃躲，在畫面上是無法解釋的行為。
-
-**訊號的形狀**
+新開一個純函數，讀與 `threatFactor` **同樣的幾何**，但為「該不該擔心」校準：
 
 ```
-underFire = clamp(1 − nearMissAge / nearMissHold, 0, 1)
+alarmFactor(shooter, victim):
+    有預瞄解，且彈丸活得到攔截點（t ≤ PROJECTILE_LIFETIME）  否則 0
+    機首離預瞄方向 off < ALARM_CONE                          否則 0
+    return 1 − off / ALARM_CONE
 ```
 
-一發近失把它推到 1，再花 `nearMissHold` 秒線性衰減到 0。連續射擊會不斷
-重置，停火後自己熄掉。
+與 `threatFactor` 的差別**只有兩處**：
+
+1. **沒有距離衰減**（`1 − range/900` 整項拿掉）——「該不該閃」與命中機率無關。
+2. **沒有 `THREAT_RANGE` 硬截斷**——射程改由**武器自己**決定。
+
+【射程為什麼不寫死】`projectiles.ts` 的既有不變量：
+
+> 回收條件與預瞄環的顯示條件是**同一個數字**——「看得到預瞄環」就精確等於
+> 「打得到」。
+
+所以警戒的定義可以講得非常乾淨：**他的預瞄環套得住我**。那是玩家看自己 HUD
+時已經懂的概念，不是另一套只有 AI 知道的規則。實際射程因此是
+`muzzleVelocity × PROJECTILE_LIFETIME` 的湧現結果：
+
+- P-51D：887 × 1.2 ≈ **1064 m**
+- Bf109G6：705~750 × 1.2 ≈ **846~900 m**
+
+**由 585 m 拉到約 1064 m，將近兩倍。**
+
+【1200 m 那一組永遠不會觸發，而那是對的】P-51 的子彈在 1064 m 就被回收，
+從 1200 m 開槍**物理上打不到**。AI 不理會是正確行為。§5 的驗收因此**不要求**
+1200 m 觸發——初稿寫了那一條，是錯的。
+
+**自己的計時器**
+
+`AiController.trackingSeconds` 在 `threatInstant > 0` 時累加，而 `threatInstant`
+在 900 m 外恆為 0——警戒的範圍更大，**不能共用**。新增：
+
+```
+alarmSeconds：警戒幾何成立時累加，離開立刻歸零
+alarm = alarmFactor × min(1, alarmSeconds / ALARM_SATURATION)
+```
+
+分開之後兩者的飽和時間可以不同（1.0 s vs 0.5 s）而不互相牽動。
 
 **怎麼併進 `defend`**
 
 `rules.ts` 現在是 `latch(defendLatch, threat, threatEnter, threatExit)`。改成：
 
 ```
-danger = max(threat, underFire)
-latch(defendLatch, danger, threatEnter, threatExit)
+danger = max(threat, alarm)
 ```
 
-【為什麼是 `max` 而不是相加或取代】沒有子彈時 `underFire = 0`，`danger`
-**逐位元等於 `threat`** —— 全部既有測試因此一個數字都不會動。這與
-`CommandDelay` 在零延遲時走捷徑是同一個手法：新機制只能是**額外的一條路**，
-不能改動舊路。
+【為什麼是 `max` 而不是相加或取代】`alarm ≥ threat` 在幾何上恆成立（同樣的
+錐、同樣的解，只是少乘一個 ≤1 的距離因子），所以 `max` 等於「以警戒為準，
+但保證絕不比現在遲鈍」。這與 `CommandDelay` 在零延遲時走捷徑是同一個紀律：
+新機制只能讓行為**更早**觸發，不能讓任何既有的觸發消失。
 
-`nearMissHold = 2 s` 的話，一發近失買到約 1.7 秒的 `defend`（1.3 s 在
-`threatEnter` 之上，之後靠 `threatExit = 0.15` 的遲滯撐到 1.7 s）。
+**參數**
+
+| 參數 | 值 | 由來 |
+|---|---|---|
+| `ALARM_CONE` | **15°** | 線性斜坡配 `threatEnter = 0.35` → **實際觸發約 10°** |
+| `ALARM_SATURATION` | **0.5 s** | 警戒自己的計時器，與 `TRACK_SATURATION`（1.0 s）分開 |
+| 警戒射程 | **無** | 由 `t ≤ PROJECTILE_LIFETIME` 湧現 |
+
+【15° 是外緣，10° 才是真的會閃的線】`1 − off/15° ≥ 0.35 → off ≤ 9.75°`。
+留一段「注意到但還沒到要閃」的緩衝，也保住連續性——這個專案吃過
+`threatFactor` 硬截斷的虧（見 `steer.ts` 的「力道連續化」否決紀錄）。
+
+【0.5 s 飽和同時保護玩家的射擊窗口】警戒要 0.5 秒才滿，加上 `VETERAN` 的
+0.3 秒反應延遲，**快速的快照射擊仍然打得中**；被閃掉的是「慢慢瞄、瞄很久」
+那種。這是刻意的取捨，而且 `ALARM_SATURATION` 是可掃參數，最後由專案負責人
+試飛定案。
+
+**`scanThreat` 也改用 `alarmFactor` 評分**
+
+`AiController.scanThreat`（10 Hz，找「誰在打我」）現在用 `threatFactor` 排序，
+所以 900 m 外的攻擊者一律得 0、選不出來。改用 `alarmFactor`：它的支撐集
+**包含** `threatFactor` 的支撐集，所以只會多找到人，不會少。
+
+`considerThreatFrom` 仍然用 `threatFactor` 決定要不要取代 `sit.threatInstant`
+——那個欄位餵的是既有的意圖仲裁，語義不動。
 
 ### 3.2 異平面破防
 
@@ -168,36 +187,53 @@ latch(defendLatch, danger, threatEnter, threatExit)
 **越權換目標那一半不做。** 2026-08-06 量到：紅 B 真的衝過頭時，藍方的目標
 **100% 已經是紅 B**（兩個延遲、六個場景全部）。`TargetState.urgent` 解決的是
 一個不存在的問題，而且它會鬆動 20v20 好不容易穩定下來的 A→B→A 猶豫。
-記錄在 `src/ai/target.ts` 的註解。
 
 **窗口很小是已知的**：AI 對 AI 的量測顯示「衝過頭」只佔 1.6% 的取樣。專案
 負責人的裁決是照做——真人玩家衝過頭的頻率遠高於 AI，而且這一項的價值在
 「難得發生時很精彩」，不在佔比。
 
+### 3.4 第二階段（本案不做）：子彈近失
+
+讀真實子彈仍然是對的補充，但降為第二階段，**等 3.1 量完再決定要不要做**。
+
+理由：3.1 若把觸發涵蓋率拉到 50% 以上，子彈就是錦上添花，而它要動
+`World.resolveHits`——全專案最熱的迴圈。而且在新框架下它能補的只剩「大偏離角
+的快照射擊」（子彈本來就飛不到 1064 m 以外），那一塊很窄。
+
+成本評估已經做過，記在這裡供第二階段參考：`resolveHits` 的粗篩
+`segmentPointDistanceSq(...) > cull.r2[j]` **已經算出「子彈離我多遠」**，近失
+偵測是同一個數字跟大一點的半徑比，多一個 `if`；真正貴的 `hitAircraft` 仍然
+只在窄判定通過時才跑。唯一成本是粗篩的 x 視窗要放寬。
+
 ## 4. 介面
-
-**`src/world/World.ts`**
-
-```ts
-interface Combatant { …; nearMissAge: number; nearMissFrom: number }
-```
-`resolveHits` 寫入，`step` 每步老化（`nearMissAge += dt`）。
-
-**`src/ai/target.ts`**
-
-```ts
-interface TargetCandidate { …; nearMissAge: number; nearMissFrom: number }
-```
 
 **`src/ai/assess.ts`**
 
 ```ts
-export function underFireSignal(nearMissAge: number, cfg?: ThreatConfig): number
+export const ALARM_CONE: number        // 15°
+export const ALARM_SATURATION: number  // 0.5 s
+export function alarmFactor(shooter: Aircraft, victim: Aircraft): number
+export function alarmRamp(seconds: number): number
 ```
+
+【為什麼不與 `threatFactor` 共用內部】兩者的前八行幾乎相同，但
+`threatFactor` 是**全部 AI 基準的來源**，而這個專案的對戰矩陣對浮點層級的
+漂移是敏感的（整個 2026-08-05~06 反覆踩到）。為了八行的重複去重構它，換來
+的是「所有既有基準是否仍然逐值相同」這個無法便宜驗證的風險。刻意重複，
+並在兩邊互相指名。
 
 **`src/ai/rules.ts`**
 
-`stepRules` 的 `threat` 參數旁邊多一個 `underFire`，內部取 `max`。
+`stepRules(state, sit, threat, dt, cfg)` 的 `threat` 改為呼叫端算好的
+`danger`。**簽章不變**——`AiController` 傳進來的值換成 `max(threat, alarm)`。
+
+**`src/ai/AiController.ts`**
+
+```ts
+/** 警戒累計秒數。供 HUD、telemetry 與測試讀取 */
+alarmSeconds = 0
+```
+`scanThreat` 改用 `alarmFactor` 評分。
 
 **`src/ai/steer.ts`**（由 `stash@{0}` 還原）
 
@@ -208,12 +244,10 @@ export function stepDefend(state, self, attacker, defending, sit, seaHeight, cfg
 ```
 `steerCommand` 多一個 `defend: DefendState` 參數。
 
-**新參數**
+**新的 `SteerConfig` 參數**
 
 | 參數 | 起始值 | 掃描範圍 | 守它的量測 |
 |---|---|---|---|
-| `nearMissRadius` | 30 m | 15 / 30 / 60 / 120 | 觸發涵蓋率、`defend` 佔比 |
-| `nearMissHold` | 2.0 s | 1 / 2 / 4 | `defend` 佔比、抖動 |
 | `defendFloor` | 600 m | 600 / 2000 / ∞ | 觸地場次、最低高度 |
 | `reversalRange` | 500 m | 300 / 500 / 800 | 反轉次數 |
 | `reversalAspect` | 90° | 60 / 90 / 120 | 反轉次數、誤觸發 |
@@ -225,23 +259,33 @@ export function stepDefend(state, self, attacker, defending, sit, seaHeight, cfg
 
 ### 5.1 主判準（新增 `test/integration/ai-visible-evasion.test.ts`）
 
-場景就是 §2 的三機腳本射手場景，射手距離 700 / 900 / 1200 m。
+場景就是 §2 的三機腳本射手場景，射手距離 700 / 900 m。
 
 | 指標 | 現況 | 驗收 |
 |---|---|---|
 | 挨打取樣裡 `defend` 的佔比（**觸發涵蓋率**） | 0.0% | **> 50%** |
 | `defend` 期間的 1 秒預瞄位移中位數 | 12.2°（罕見） | **≥ 5°** |
-| 平常（非 defend）的位移中位數 | 2.9° | 不設門檻，作為對照印出 |
-| 1200 m 的挨打取樣數 | 0 | **> 0**（證明硬截斷被繞過） |
+| 平常（非 defend）的位移中位數 | 2.9° | 不設門檻，印出作對照 |
 
 【為什麼觸發涵蓋率取 50%】現況是 0，任何正數都是進步，但門檻要抓的是
-「玩家開槍時 AI **通常**會有反應」。低於一半的話玩家仍然會覺得它時靈時不靈。
-**這個值在掃完 `nearMissRadius` / `nearMissHold` 之後可能上修，不得下修。**
+「玩家開槍時 AI **通常**會有反應」。低於一半玩家仍然會覺得它時靈時不靈。
+**這個值在掃完參數之後可能上修，不得下修。**
 
-### 5.2 護欄——重新定值，由專案負責人裁定
+【1200 m 不列入驗收】見 §3.1——那個距離子彈打不到，不反應是正確的。
+
+### 5.2 抖動護欄
+
+預瞄點位移這個指標有一個漏洞：**每 0.1 秒左右擺一次的 AI 分數會很高，但玩
+起來是抽搐不是閃躲**（這個專案 2026-08-05 才治好一次同樣的病）。
+
+除了「位移 ≥ 5°」，再加一條：**那 1 秒內的位移必須同向**。實作為
+「1 秒窗的**淨**角位移 ÷ 逐格角位移總和 ≥ 0.5」——直線的閃躲接近 1，來回
+擺動接近 0。寫成斷言。
+
+### 5.3 護欄——重新定值，由專案負責人裁定
 
 3.1 上線之後 `defend` 佔比必然大幅上升，被鎖定佔比、能量、高度**都會變差**。
-那是**預期的代價，不是退步**。所以：
+那是**預期的代價，不是退步**。流程：
 
 1. 先跑一次量出新的實際值；
 2. 把「比現在差多少還可以接受」交給專案負責人裁定；
@@ -249,23 +293,26 @@ export function stepDefend(state, self, attacker, defending, sit, seaHeight, cfg
 
 **不得**拿舊基準卡新行為，也**不得**為了讓舊門檻綠而縮小改動。
 
+**受影響的範圍比前幾次大。** 警戒是純幾何、不經指派板，所以
+`board = null` 的 1v1 測試**也會吃到它**：
+
+- `test/integration/ai-manoeuvre.test.ts` 六場五門檻（`belowStall` /
+  `safetyShare` / `longestExtend` / `steepShare` / `offNose`）
+- `test/integration/ai-duel-matrix.test.ts`
+- `test/integration/ai-defence.test.ts`
+- `test/integration/multi-battle.test.ts`
+
+這是**好事**（出貨行為與量測對象一致），但要有心理準備：那五個門檻很可能
+一起紅，而重新定值是專案負責人的決定，不是我的。
+
 唯二不可讓的兩條：
 
-- **不觸地。** `test/integration/ai-reaction-delay.test.ts` 的四延遲低空條維持。
-  AI 自殺比呆滯更難看。
+- **不觸地。** `ai-reaction-delay.test.ts` 的四延遲低空條維持。AI 自殺比呆滯
+  更難看。
 - **仍然會攻擊。** `ai-defence.test.ts` 的 `dealtToA > 0` 維持。閃躲不能變成
   「只會逃」。
 
-以及效能：`test/unit/perf-gate.test.ts` 三個 900 µs，單獨跑（並行負載下會誤判）。
-
-### 5.3 抖動護欄
-
-預瞄點位移這個指標有一個漏洞：**每 0.1 秒左右擺一次的 AI 分數會很高，但玩
-起來是抽搐不是閃躲**（這個專案 2026-08-05 才治好一次同樣的病）。
-
-所以除了「位移 ≥ 5°」，再加一條：**那 1 秒內的位移必須同向**。實作為
-「1 秒窗的**淨**角位移 ÷ 逐格角位移總和 ≥ 0.5」——直線的閃躲接近 1，來回
-擺動接近 0。這一條寫成斷言。
+效能：`test/unit/perf-gate.test.ts` 三個 900 µs，**單獨跑**（並行負載下會誤判）。
 
 ### 5.4 混沌紀律（沿用）
 
@@ -273,42 +320,33 @@ export function stepDefend(state, self, attacker, defending, sit, seaHeight, cfg
 - 只採聚合比率量與受控場景的逐場可重現值。
 - 動到 `defend` 的改動一律看 **120 秒以上**的窗，而且**必須同時看最低高度**。
 
-### 5.5 覆蓋邊界（明講，以免以為測到了）
-
-新訊號經由**指派板**傳遞，所以 `board = null` 的測試
-（`ai-manoeuvre`、`ai-duel-matrix`、`ai-reaction-delay` 的 1v1）**完全吃不到
-它**，基準因此不動。那是刻意的——那一層量的是 AI 的天花板。代價是**出貨行為
-只由 §5.1 那個新檔案守著**，與 `ACE` / `VETERAN` 的分工同一個模式。
-
 ## 6. 風險
 
 1. **閃太頻繁 → 另一種難看。** 觸發涵蓋率由 0% 拉到 >50% 是很大的變化。
-   `nearMissRadius` 太大會讓 AI 對遠處的流彈也閃。由 §5.3 的抖動條與人工
-   試飛守。
-2. **AI 變得打不到人。** 一直在閃就一直不在瞄。由 `dealtToA > 0` 守，但那
-   是很鬆的護欄；真正的判準是專案負責人試飛時覺不覺得敵人變成沙包。
+   由 §5.2 的抖動條與人工試飛守。
+2. **AI 變成沙包 / 玩家永遠打不到。** 兩個方向都有可能。`ALARM_SATURATION`
+   與 `ALARM_CONE` 是這一項的旋鈕，最後由試飛定案。
 3. **異平面把飛機往地上帶。** 現況 3/12 觸地，而 `defend` 佔比還要再上升。
-   這是本案最可能失敗的一項。若 `defendFloor` 三個值都壓不下來，**異平面
-   退回同平面**（動作本身已經拿 12.2°，不需要為了可見度賭上撞地）。
-4. **效能。** 預期免費，但 x 視窗放寬是實打實的。若 900 µs 守不住，改用
-   「只在有人開火的那幾步做近失掃描」。
+   **本案最可能失敗的一項。** 若 `defendFloor` 三個值都壓不下來，**異平面
+   退回同平面**——動作本身已經拿 12.2°，不值得為可見度賭上撞地。
+4. **既有五門檻一起紅。** 見 §5.3，這是預期內的，處理方式是「量出來、交裁定」。
 5. **混沌。** 比照前五次，只採聚合量。
 
 ## 7. 明確不做
 
-- 不改 `threatFactor`（它給目標選擇用，那個用途是對的）。
-- 不改 `THREAT_RANGE` / `THREAT_CONE` / `threatEnter` / `threatExit`
-  ——調門檻只是把 585 m 推成別的任意數字，治不好 900 m 的硬截斷。
+- 不改 `threatFactor`（它給目標選擇用，那個用途是對的），也不重構它的內部。
+- 不改 `THREAT_RANGE` / `THREAT_CONE` / `threatEnter` / `threatExit`。
+- 不做子彈近失（第二階段，見 §3.4）。
 - 不做力道連續化（已量到在這個介面上表達不出來）。
 - 不做能量限制拉桿（延遲下重測仍然否決）。
 - 不做 `TargetState.urgent`（已量到不需要）。
-- 不改 `DifficultyProfile`、不改 `specs/feel.ts`。
+- 不改 `DifficultyProfile`、不改 `specs/feel.ts`、不改 `DEFAULT_SAFETY`。
 
 ## 8. 全域限制
 
 - 不得引入 `@types/node`。
 - `noUncheckedIndexedAccess` 開啟。
-- `src/world/` 不得 import `src/render/`、`src/hud/`、`src/ai/`。
+- `src/world/` 不得 import `src/render/`、`src/hud/`。
 - `src/ai/` 的 240 Hz 熱路徑不得配置記憶體。
 - 每一條新測試先驗紅。
 - **不得為了讓測試通過而放寬門檻**；門檻要改必須由專案負責人裁定並說明理由。
