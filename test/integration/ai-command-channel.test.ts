@@ -56,9 +56,29 @@ interface Observed {
   wingmanFree: number
   /** 有站位參考機、有命令的取樣數，當 strayUnderOrder 的分母 */
   wingmanUnderOrder: number
+  /** 紅方全程掉的 hp */
+  redDamage: number
+  /** 藍方全程掉的 hp */
+  blueDamage: number
+  /**
+   * 【spec §2.3 的觀測值，刻意不設門檻】命令發出的那一格，受命飛機正握有
+   * 射擊解（`shotInstant > 0`）的架數累計。
+   *
+   * 「命令絕對」明知會重踩 `rules.ts` 記載的坑（AI 咬在敵機後方 236 m、
+   * 正在開火時被切走，直飛 21 秒）而選擇踩它。這個數字把坑照亮：它高
+   * **而且**傷害交換變差，才是同一個病復發；單看它高不算失敗，那是裁定
+   * 接受的代價。
+   */
+  pulledWhileShooting: number
 }
 
-function observe(): Observed {
+/**
+ * 跑一場 20v20 並收集觀測值。
+ *
+ * @param commanders `false` = 關掉指揮層（每步把命令清乾淨），供 §7.3 對照。
+ *   **不改生產程式碼**，因為那會讓「關掉」與「開著」跑的是兩份不同的東西。
+ */
+function observe(commanders = true): Observed {
   const b: Battle = createBattle(new Idle())
   const o: Observed = {
     issued: 0, arrived: 0, defendUnderOrder: 0,
@@ -66,7 +86,10 @@ function observe(): Observed {
     orderedSamples: 0, aliveSamples: 0,
     strayFree: 0, wingmanFree: 0, wingmanUnderOrder: 0,
     tightened: 0, loosened: 0,
+    redDamage: 0, blueDamage: 0, pulledWhileShooting: 0,
   }
+  /** 開場的 hp，用來算全程掉了多少。與 `ai-duel-matrix` 同一個算法 */
+  const hp0 = b.world.combatants.map((c) => c.hp)
   // 上一格每個分隊有沒有命令，用來數「新發出」與「解除」
   const had = new Array<boolean>(b.flights.flights.length).fill(false)
   /** 發令當下該分隊僚機的平均站位誤差，解除時拿來比。−1 = 那一張沒量到 */
@@ -96,6 +119,17 @@ function observe(): Observed {
   for (let s = 0; s < SECONDS * 240; s++) {
     stepBattle(b, DT)
 
+    // 【關掉指揮層 = 每步把命令清乾淨】比改生產程式碼誠實：兩邊跑的是
+    // 完全同一份程式，差別只有「命令有沒有真的傳到戰機端」
+    if (!commanders) {
+      b.blueCommand.orders.fill(null)
+      b.redCommand.orders.fill(null)
+      for (const c of b.world.combatants) {
+        const ai = c.controller
+        if (ai instanceof AiController) ai.order = null
+      }
+    }
+
     for (let f = 0; f < b.flights.flights.length; f++) {
       const flight = b.flights.flights[f]!
       const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
@@ -103,6 +137,12 @@ function observe(): Observed {
       if (now && !had[f]) {
         o.issued++
         issuedError[f] = meanWingmanError(f)
+        // 【把「命令絕對」那個坑照亮】發令的那一格，這個分隊有幾架正握有
+        // 射擊解。刻意不設門檻 —— 見 `pulledWhileShooting` 的註解
+        for (let p = 0; p < flight.count; p++) {
+          const ai = b.world.combatants[flight.members[p]!]!.controller
+          if (ai instanceof AiController && ai.shotInstant > 0) o.pulledWhileShooting++
+        }
       }
       if (!now && had[f] && flight.count > 0) {
         o.arrived++
@@ -142,6 +182,12 @@ function observe(): Observed {
         if (stray) o.strayUnderOrder++
       }
     }
+  }
+
+  for (const c of b.world.combatants) {
+    const lost = hp0[c.index]! - c.hp
+    if (c.team === 'blue') o.blueDamage += lost
+    else o.redDamage += lost
   }
   return o
 }
@@ -251,3 +297,43 @@ describe('指令通道（20v20、120 秒）', () => {
     restore()
   }, 60 * 60 * 1000)
 }, 10 * 60 * 1000)
+
+describe('指揮層的效果（20v20 開／關對照）', () => {
+  const on = observe(true)
+  const off = observe(false)
+
+  /**
+   * 【為什麼是開／關對照而不是「有指揮的一方打贏」】spec §2.1：兩隊都有
+   * 指揮官（只有玩家那一隊自治），所以沒有「有指揮 vs 沒指揮」的兩方可比。
+   */
+  it('傷害交換不得崩掉', () => {
+    console.log(JSON.stringify({
+      on: `R${on.redDamage.toFixed(0)}:B${on.blueDamage.toFixed(0)}`,
+      off: `R${off.redDamage.toFixed(0)}:B${off.blueDamage.toFixed(0)}`,
+      share: (on.orderedSamples / Math.max(on.aliveSamples, 1) * 100).toFixed(2) + '%',
+      pulledWhileShooting: on.pulledWhileShooting,
+      issuedOn: on.issued, issuedOff: off.issued,
+    }))
+    // 【判準的邏輯】兩隊對稱，所以總傷害是「這場仗打得多激烈」的量。指揮層
+    // 讓小隊定期離場，總傷害本來就會降 —— 判準是**不得崩掉**，取關指揮的
+    // 一半。實測餘裕若很小要報告給專案負責人重新定值。
+    expect(on.redDamage + on.blueDamage)
+      .toBeGreaterThan((off.redDamage + off.blueDamage) * 0.5)
+  }, 10 * 60 * 1000)
+
+  /**
+   * 【關掉之後真的沒有命令流到戰機端】否則上面那條對照是拿同一件事跟自己比。
+   * `issued` 數的是 `CommandState.orders`，關掉的那一路每步清空，所以它應該
+   * 恆為 0。
+   */
+  it('關掉的那一路真的沒有命令', () => {
+    expect(off.issued).toBe(0)
+    expect(off.orderedSamples).toBe(0)
+  }, 10 * 60 * 1000)
+
+  it('命令佔時比例落在掃描定出的區間', () => {
+    const share = on.orderedSamples / Math.max(on.aliveSamples, 1)
+    expect(share).toBeGreaterThan(0.05)
+    expect(share).toBeLessThan(0.25)
+  }, 10 * 60 * 1000)
+})
