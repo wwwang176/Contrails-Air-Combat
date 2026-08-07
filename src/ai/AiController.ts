@@ -12,7 +12,7 @@ import { shouldFire } from './fire'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
 } from './target'
-import { applySafety } from './safety'
+import { applySafety, type SafetyAction } from './safety'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
   type StationConfig, type StationOffset,
@@ -95,6 +95,14 @@ export class AiController implements Controller {
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
   safetyActive = false
+  /**
+   * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
+   *
+   * 【為什麼不只留 `safetyActive`】兩個接管的補救方向相反，量「安全層介入率」
+   * 時混在一起會量到不相干的東西 —— 見 `SafetyAction` 的註解。`safetyActive`
+   * 保留原語意（有沒有介入），需要分辨的護欄讀這一個。
+   */
+  safetyAction: SafetyAction = 'none'
   trackingSeconds = 0
   /**
    * 警戒（「有人的預瞄環套在我身上」）已經持續幾秒。
@@ -294,7 +302,8 @@ export class AiController implements Controller {
    */
   private emit(self: Aircraft, dt: number, out: Command): void {
     this.delay.push(this.raw, this.profile.reactionDelay, dt, out)
-    this.safetyActive = applySafety(self, this.seaHeight, out)
+    this.safetyAction = applySafety(self, this.seaHeight, out)
+    this.safetyActive = this.safetyAction !== 'none'
   }
 
   /**

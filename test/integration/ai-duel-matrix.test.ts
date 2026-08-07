@@ -31,6 +31,8 @@ interface Outcome {
   blueDamage: number
   /** 紅方全程掉了多少 hp。與 `blueDamage` 合起來就是傷害交換比 */
   redDamage: number
+  /** 藍方剩下的 hp 佔起始的比例，0..1。1 = 毫髮無傷 */
+  blueHpLeft: number
   /**
    * 藍方「**我的能量比他低**」這個理由成立的時間比例。
    *
@@ -127,6 +129,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
         blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
+        blueHpLeft: bc.hp / blueHp0,
       }
     }
     if (bc.hp <= 0 || rc.hp <= 0) {
@@ -135,6 +138,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
         blueIntentTime: fractions(intentSteps, i + 1), blueDeepNegativePs: deepNegative / (i + 1),
         blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
         blueRelativeExtend: relativeExtend / (i + 1), blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
+        blueHpLeft: bc.hp / blueHp0,
       }
     }
   }
@@ -143,6 +147,7 @@ function duel(blue: Side, red: Side, maxSeconds = MAX_SECONDS): Outcome {
     blueIntentTime: fractions(intentSteps, total), blueDeepNegativePs: deepNegative / total,
     blueEnergySpent: blueEs0 - blueMinEs, blueEnergyEdge,
     blueRelativeExtend: relativeExtend / total, blueDamage: blueHp0 - bc.hp, redDamage: redHp0 - rc.hp,
+    blueHpLeft: bc.hp / blueHp0,
   }
 }
 
@@ -339,18 +344,57 @@ describe('L4-C 能量戰證據', () => {
    * `blueDamage × 3 < redDamage`（實測 0 : 97）。後者比舊的
    * `blueDamage === 0` **更耐混沌** —— 藍方就算挨了 30 點仍然算壓倒性，
    * 而 `=== 0` 是一條刀刃。
+   *
+   * ## 2026-08-07：「3 倍」換成「活得下來，而且交換仍然對它有利」
+   *
+   * 破防軸改成世界水平面（`steer.ts` 的 `defendAim`）之後，紅方**真的會閃**，
+   * 這一條就紅了：
+   *
+   * ```
+   *                    破防軸之前   之後
+   * 紅方掉的 hp            122      561   ← 藍方打得更兇
+   * 藍方掉的 hp              0      428   ← 但不再毫髮無傷
+   * 交換比                   ∞     1.31   ← 門檻 3
+   * ```
+   *
+   * 【為什麼不是調 3 這個數字】「3 倍」這個標準**建立在對手不會閃的前提上**。
+   * 對手一旦會閃，單向掠襲就變成雙向纏鬥，任何倍率門檻都只是在追著實測值跑
+   * —— 而 122 → 561 說明能量優勢其實**兌現得更多**了，被門檻擋下來的是
+   * 「對手變強」而不是「AI 變差」。判準本身量錯了東西。
+   *
+   * 【改量什麼，2026-08-07 專案負責人裁定】改看**高能量的一方活不活得下來**。
+   * 一個佔著 3213 m 比能量優勢開局的飛機，該有的結果是「它還在天上，而且
+   * 挨的打比對方少」，不是「它把對方屠殺掉」。三條合起來：
+   *
+   *   - 沒被擊落（`winner !== 'red'`）
+   *   - 還剩一半以上的 hp（實測 57%，門檻 0.4，餘裕 43%）
+   *   - 交換仍然對它有利（實測 561 : 428，比值 1.31）
+   *
+   * 【為什麼「沒被擊落」單獨不夠】它已經被最後那一行涵蓋了，而且對「藍方
+   * 剩 1 點 hp」也成立 —— 單獨用它等於把這條測試變成空轉。剩餘 hp 與交換
+   * 方向兩條才是它的牙齒。
+   *
+   * 【`ai-duel-matrix` 的 #136 重測】離地底限上線後這一場逐位元不變
+   * （561 : 428）—— 那一場全程在 3000 m 以上，而底限在 500 m 以上嚴格
+   * 回傳 0。這條的紅燈完全來自破防軸。
    */
-  it('能量優勢要換得到東西：高能量開局的傷害交換必須壓倒性', () => {
+  it('能量優勢要換得到東西：高能量開局的一方要活得下來且交換有利', () => {
     const o = duel(...HIGH_ENERGY, 200)
     expect(o.blueEnergyEdge).toBeGreaterThan(3000)   // 開局條件本身沒跑掉
     console.log(
       '高能量開局的轉化：', o.winner, `${o.seconds.toFixed(1)}s`,
       `傷害交換 紅 ${o.redDamage.toFixed(0)} : 藍 ${o.blueDamage.toFixed(0)}`,
+      `藍方剩 ${(o.blueHpLeft * 100).toFixed(0)}%`,
       `花掉 ${o.blueEnergySpent.toFixed(0)} m / 開局優勢 ${o.blueEnergyEdge.toFixed(0)} m`,
     )
+    // 場景本身要成立：真的打起來了
     expect(o.redDamage).toBeGreaterThan(50)
-    expect(o.blueDamage * 3).toBeLessThan(o.redDamage)
+    // 一：沒被擊落
     expect(o.winner).not.toBe('red')
+    // 二：還剩一半以上的 hp
+    expect(o.blueHpLeft).toBeGreaterThan(0.4)
+    // 三：交換仍然對高能量的一方有利
+    expect(o.redDamage).toBeGreaterThan(o.blueDamage)
   })
 
   /**
