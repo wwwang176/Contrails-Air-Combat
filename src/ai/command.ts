@@ -12,7 +12,7 @@ import { DEFAULT_STEER } from './steer'
  * `TargetCandidate` 是同一個手法。
  *
  * `position` / `velocity` 是 `readonly` 的**參考**（內容仍可 `copy` 進去），
- * `cornerRatio` / `hpFraction` / `alive` 每步會被呼叫端改寫。
+ * `cornerRatio` / `hpFraction` / `shotInstant` / `alive` 每步會被呼叫端改寫。
  */
 export interface CommandUnit {
   readonly position: Vector3
@@ -27,6 +27,19 @@ export interface CommandUnit {
    * 【為什麼是比例而不是絕對值】兩個機種的滿血不同，絕對值跨機種比不了。
    */
   hpFraction: number
+  /**
+   * 上一格的射擊解強度，0 = 沒有解。**排名用**（spec §4）。
+   *
+   * 【為什麼是這個量而不是「誰最有機會」】排名問的是「叫誰去，損失最小」。
+   * 純幾何量不到那件事 —— 「離最近的敵分隊多近」對正在得手的和正在挨打的
+   * 分隊是同一個數字。第二份 §12 量到側翼失敗的機制正是「一支已經咬住人的
+   * 分隊放棄了現有位置」。
+   *
+   * 【資料是現成的】`AiController.shotInstant` 已經存在，它的註解寫的就是
+   * 「只為量測存在」。`setup.ts` 每步抄過來，與 `cornerRatio`、`hpFraction`
+   * 同一手。
+   */
+  shotInstant: number
   alive: boolean
 }
 
@@ -95,6 +108,10 @@ export interface CommandConfig {
   focusRange: number
   /** 集火目標偏離小隊航向的最大夾角，rad */
   focusCone: number
+  /** 同時最多幾支分隊持有**進攻**命令。撤退不算（spec §3.2） */
+  maxOrders: number
+  /** 連續多久沒有人握著射擊解才算「閒」，s */
+  idleSeconds: number
 }
 
 /**
@@ -194,6 +211,19 @@ export interface CommandConfig {
  * - `dangerLimit` 2.0 —— 約當「兩架敵機貼在候選點上」。
  * - `focusRange` 1500 m —— `DEFAULT_RULES.extendRange` 同值。
  * - `focusCone` 60° —— 與 `flankSector` 同值：「在我們正在去的方向上」。
+ *
+ * ## 決策層的兩個起始值（2026-08-08 加，待 Task 5 掃描）
+ *
+ * - `maxOrders` 2 —— 每隊五個分隊，K = 2 表示同時最多四成的分隊在執行戰術。
+ *   **兩個端點都已經量過**：K = 0 是關掉指揮（第一份的對照組），K = 全部是
+ *   第二份的狀態（接敵瞬間八個分隊同時集火，兩隊質心 150 秒不再合流）。
+ * - `idleSeconds` 3 —— 與 `spentSeconds` 同值：一次完整的水平大彎的量級，
+ *   用來濾掉單次失去射擊解。
+ *
+ * 【`idleSeconds` 不是主角】實測射擊解很稀有（開火取樣只佔存活取樣的
+ * 1.7%），所以這個門檻幾乎所有分隊都會滿足 —— **真正在限制數量的是
+ * `maxOrders`**，門檻的作用只是防止「一支剛剛還在得手的分隊立刻被調走」。
+ * 看到「幾乎所有分隊都合格」不是 bug（spec §4.4）。
  */
 export const DEFAULT_COMMAND: CommandConfig = {
   planPeriod: 2,
@@ -211,6 +241,9 @@ export const DEFAULT_COMMAND: CommandConfig = {
   dangerLimit: 2,
   focusRange: 1500,
   focusCone: 60 * (Math.PI / 180),
+  // ── 決策層。**起始值，待 Task 5 由實測掃描回填** ──
+  maxOrders: 2,
+  idleSeconds: 3,
 }
 
 /** 水平方向退化的下限。與 `station.ts` 的 `MIN_GROUND_SPEED` 同一個量級 */
@@ -686,6 +719,14 @@ export interface CommandState {
   orders: (FlightOrder | null)[]
   /** 每個分隊「最低那一架連續低於門檻」累積的秒數 */
   spent: Float32Array
+  /**
+   * 每個分隊「連續多久沒有任何成員握著射擊解」累積的秒數。
+   *
+   * 【與 `spent` 分開】兩個計時器問的是不同的事：`spent` 問「還打得動嗎」
+   * （能量），`idle` 問「正在得手嗎」（戰果）。一支能量充足但完全沒有射擊
+   * 機會的分隊，兩個量會給出相反的答案 —— 而那正是最該被調去集火的分隊。
+   */
+  idle: Float32Array
   /** 距離下次規劃還有多久，s */
   timer: number
 }
@@ -694,6 +735,7 @@ export function createCommandState(flightCount: number): CommandState {
   return {
     orders: new Array<FlightOrder | null>(flightCount).fill(null),
     spent: new Float32Array(flightCount),
+    idle: new Float32Array(flightCount),
     // 【起始為 0，第一步就規劃一次】起始為 planPeriod 的話開場前兩秒的
     // 指揮官是啞的，而開局正是編隊最完整、最該被指揮的時候
     timer: 0,
@@ -745,6 +787,7 @@ export function stepCommand(
     if (f === skipFlight || flight.count === 0) {
       s.orders[f] = null
       s.spent[f] = 0
+      s.idle[f] = 0
       continue
     }
 
@@ -757,6 +800,19 @@ export function stepCommand(
     }
     if (worst < cfg.spentRatio) s.spent[f] = s.spent[f]! + dt
     else s.spent[f] = 0
+
+    // ── 閒置計時：隊裡**任何一架**握著射擊解就歸零 ──────────
+    // 【為什麼是最大值而不是最低那一架】見底問的是「最弱的那一架拖不拖得
+    // 動」，所以取最低；閒置問的是「這支分隊有沒有在得手」，只要有一架在
+    // 得手就不該被調走，所以取最大
+    let best = 0
+    for (let p = 0; p < flight.count; p++) {
+      const u = units[flight.members[p]!]
+      if (u === undefined || !u.alive) continue
+      if (u.shotInstant > best) best = u.shotInstant
+    }
+    if (best <= 0) s.idle[f] = s.idle[f]! + dt
+    else s.idle[f] = 0
 
     // ── 命令的維護：三種各自的解除條件 ────────────────────
     const order = s.orders[f]

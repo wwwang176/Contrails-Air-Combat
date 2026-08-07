@@ -14,6 +14,7 @@ function unit(over: Partial<CommandUnit> & { x?: number; y?: number; z?: number 
     velocity: over.velocity ?? new Vector3(0, 0, -200),
     cornerRatio: over.cornerRatio ?? 1.2,
     hpFraction: over.hpFraction ?? 1,
+    shotInstant: over.shotInstant ?? 0,
     serviceCeiling: over.serviceCeiling ?? 12000,
     alive: over.alive ?? true,
   }
@@ -315,6 +316,46 @@ describe('stepCommand：命令的生命週期', () => {
     run(sc, cfg.planPeriod * 2)
     expect(sc.s.orders[0]!.point.x).toBe(before.x)
     expect(sc.s.orders[0]!.point.z).toBe(before.z)
+  })
+
+  /**
+   * 【閒置計時】spec §4.3。`shotInstant` 是瞬時的，而分隊在一次大彎途中
+   * 會短暫失去射擊解 —— 直接讀瞬時值會把「正在纏鬥」誤判成「閒」。所以
+   * 累積一個計時器，與既有的 `spent` 逐字同一個形狀。
+   */
+  it('沒有人握著射擊解 → idle 累積', () => {
+    const sc = scene(1.2)
+    run(sc, 5)
+    expect(sc.s.idle[0]).toBeGreaterThan(4.9)
+  })
+
+  it('有人握著射擊解 → idle 歸零', () => {
+    const sc = scene(1.2)
+    run(sc, 5)
+    sc.units[1]!.shotInstant = 0.5
+    run(sc, DT)
+    expect(sc.s.idle[0]).toBe(0)
+  })
+
+  /**
+   * 【只要有一架握著就算不閒】小隊是一個單位（spec §2.4 的同一條推理）。
+   * 這一條的第一架是閒的，計時仍然要歸零。
+   */
+  it('隊裡只要一架握著射擊解就不算閒', () => {
+    const sc = scene(1.2)
+    run(sc, 5)
+    sc.units[0]!.shotInstant = 0
+    sc.units[1]!.shotInstant = 0.2
+    run(sc, DT)
+    expect(sc.s.idle[0]).toBe(0)
+  })
+
+  it('全滅的分隊 → idle 歸零', () => {
+    const sc = scene(1.2)
+    run(sc, 5)
+    sc.flights[0] = { members: sc.flights[0]!.members, count: 0 }
+    run(sc, DT * 2)
+    expect(sc.s.idle[0]).toBe(0)
   })
 })
 
