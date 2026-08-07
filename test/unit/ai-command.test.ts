@@ -545,12 +545,30 @@ describe('stepCommand：側翼與集火的生命週期', () => {
     }
   }
 
-  it('健康的小隊、敵分隊在交戰且很遠 → 側翼', () => {
+  /**
+   * 【側翼已停用】spec §12：時間對齊的實測顯示它讓開火方位角變差，而且
+   * 八組參數都救不回來。`FLANK_ENABLED` 為 false，所以遠距離不再發令。
+   *
+   * 這一條**刻意留著並反過來斷言**，而不是刪掉 —— 它是「觸發階梯現在
+   * 長什麼樣」的紀錄。第三份重新打開時改回來。
+   */
+  it('健康的小隊、敵分隊在交戰且很遠 → 不發令（側翼已停用）', () => {
     const sc = scene(4000)
     run(sc, cfg.planPeriod + DT)
-    expect(sc.s.orders[0]!.kind).toBe('flank')
-    expect(sc.s.orders[0]!.targetFlight).toBe(1)
+    expect(sc.s.orders[0]).toBeNull()
   })
+
+  /**
+   * 下面三條驗的是**側翼命令的維護**（點每步重算、幾何到位判定），與
+   * 「觸發階梯會不會選它」是兩件事（spec §2 的紀律）。所以它們直接把
+   * 命令注入進去，不依賴觸發 —— 停用觸發之後這三條照樣有意義。
+   */
+  function injectFlank(sc: ReturnType<typeof scene>): void {
+    const members = [sc.units[0]!, sc.units[1]!]
+    const target = [sc.units[2]!, sc.units[3]!]
+    sc.s.orders[0] = planFlankOrder(members, target, [], 1, cfg)
+    expect(sc.s.orders[0]).not.toBeNull()
+  }
 
   it('健康的小隊、敵分隊很近 → 集火', () => {
     const sc = scene(-800)
@@ -574,7 +592,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
   /** 【凍結的是決定，不是座標】spec §4.2 */
   it('側翼的 point 跟著敵分隊移動，side 與 targetFlight 不變', () => {
     const sc = scene(4000)
-    run(sc, cfg.planPeriod + DT)
+    injectFlank(sc)
     const o = sc.s.orders[0]!
     const before = o.point.clone()
     const side = o.side
@@ -591,8 +609,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
    */
   it('進入後側方扇區且夠近 → 側翼命令解除', () => {
     const sc = scene(4000)
-    run(sc, cfg.planPeriod + DT)
-    expect(sc.s.orders[0]).not.toBeNull()
+    injectFlank(sc)
     for (const i of [0, 1]) sc.units[i]!.position.set(100, 4000, 5000)
     run(sc, DT * 2)
     expect(sc.s.orders[0]).toBeNull()
@@ -601,7 +618,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
   /** 【還在正面就不算到達】同樣的距離，但在他們前方 */
   it('距離夠近但在敵分隊正前方 → 側翼命令不解除', () => {
     const sc = scene(4000)
-    run(sc, cfg.planPeriod + DT)
+    injectFlank(sc)
     for (const i of [0, 1]) sc.units[i]!.position.set(100, 4000, 3000)
     run(sc, DT * 2)
     expect(sc.s.orders[0]).not.toBeNull()
