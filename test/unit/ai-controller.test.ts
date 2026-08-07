@@ -8,6 +8,7 @@ import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import { ACE, VETERAN } from '../../src/ai/profile'
 import { MAX_REACTION_DELAY } from '../../src/ai/delay'
 import { INTENTS } from '../../src/ai/rules'
+import type { FlightOrder } from '../../src/ai/command'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 
@@ -402,5 +403,80 @@ describe('指揮層的命令', () => {
     for (let i = 0; i < 480; i++) ai.update(self, 1 / 240, cmd)
     expect(ai.rules.defendLatch).toBe(true)
     expect(ai.intent).toBe('defend')
+  })
+
+  /** 造一張命令，只覆寫要關心的欄位 */
+  function order(over: Partial<FlightOrder>): FlightOrder {
+    return {
+      kind: 'rally', point: new Vector3(5000, 4000, 0), radius: 300,
+      targetFlight: -1, side: 0, focusIndex: -1, ...over,
+    }
+  }
+
+  /**
+   * 【集火不碰意圖】它與另外兩種命令最大的差別，也是 `OrderKind` 必須存在
+   * 的理由：`rally` 與 `flank` 是「不要打，去那裡」，`focus` 是「打那一架」。
+   */
+  it('集火命令不把意圖壓成 rally', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const target = flyer()
+    target.state.position.set(0, 4000, -800)
+    ai.target = target
+    ai.order = order({ kind: 'focus', focusIndex: 3 })
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.intent).not.toBe('rally')
+  })
+
+  it('側翼命令把意圖壓成 rally（轉向需求與集合點相同）', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const target = flyer()
+    target.state.position.set(0, 4000, -800)
+    ai.target = target
+    ai.order = order({ kind: 'flank', targetFlight: 1, side: 1 })
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.intent).toBe('rally')
+  })
+
+  /**
+   * 【長機被覆寫】`focusTarget` 只作用在沒有站位參考機的那一架。僚機走
+   * 既有的 `LEVEL_FOCUS`（「打參考機正在打的那一架」），那一級本來就有
+   * 自衛與掩護插隊 —— 「有人正在打我」不會被集火命令擋住。
+   */
+  it('集火時長機的目標被覆寫成指定的那一架', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const chosen = flyer()
+    chosen.state.position.set(1200, 4000, -400)
+    const other = flyer()
+    other.state.position.set(0, 4000, -800)
+    ai.target = other
+    ai.order = order({ kind: 'focus', focusIndex: 3 })
+    ai.focusTarget = chosen
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.target).toBe(chosen)
+  })
+
+  /** 【僚機不被覆寫】它靠 LEVEL_FOCUS 跟上，那條路徑有自衛插隊 */
+  it('集火時僚機的目標不被覆寫', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const leader = flyer()
+    leader.state.position.set(-200, 4000, 100)
+    const chosen = flyer()
+    chosen.state.position.set(1200, 4000, -400)
+    const other = flyer()
+    other.state.position.set(0, 4000, -800)
+    ai.stationReference = leader
+    ai.target = other
+    ai.order = order({ kind: 'focus', focusIndex: 3 })
+    ai.focusTarget = chosen
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.target).not.toBe(chosen)
   })
 })
