@@ -89,6 +89,30 @@ interface Observed {
  * @param commanders `false` = 關掉指揮層（每步把命令清乾淨），供 §7.3 對照。
  *   **不改生產程式碼**，因為那會讓「關掉」與「開著」跑的是兩份不同的東西。
  */
+/**
+ * 「離場」的兩種命令：`rally` 與 `flank`。**`focus` 不算。**
+ *
+ * 【為什麼要分】第一份的兩條判準（佔時上界、編隊收攏）都是為 `rally` 一種
+ * 命令寫的，而它們的理由都建立在「這架飛機正在離開戰鬥」上：
+ *
+ * - 佔時上界 25% 的理由逐字是「場上有四分之一的飛機在離場 —— 那不是空戰」。
+ * - 收攏量的是僚機的站位誤差，而它會縮小是因為僚機被清掉目標、掉進
+ *   「沒有目標 → 飛站位」。
+ *
+ * `focus` 兩者都不成立：它是「打那一架」，一秒都沒有離場，而且僚機**刻意**
+ * 保留目標去打（那正是 spec §6.4 第 2 點的機制）。把它算進去，兩條判準量的
+ * 就不是它們自己在問的東西了。專案負責人 2026-08-07 裁定：兩條都只算
+ * `rally` 與 `flank`。
+ */
+const LEAVING: readonly string[] = ['rally', 'flank']
+
+/** 只算「離場」那兩種命令的佔時取樣 */
+function leavingSamples(o: Observed): number {
+  let n = 0
+  for (const k of LEAVING) n += o.byKind[k]!.samples
+  return n
+}
+
 function observe(commanders = true): Observed {
   const b: Battle = createBattle(new Idle())
   const o: Observed = {
@@ -288,15 +312,23 @@ describe('指令通道（20v20、120 秒）', () => {
     console.log(JSON.stringify({
       issued: o.issued, arrived: o.arrived,
       share: (o.orderedSamples / Math.max(o.aliveSamples, 1) * 100).toFixed(2) + '%',
+      leavingShare: (leavingSamples(o) / Math.max(o.aliveSamples, 1) * 100).toFixed(2) + '%',
       tightened: o.tightened, loosened: o.loosened,
       byKind: o.byKind,
       groundFree: o.groundFree + '/' + o.freeSamples,
       strayUnderOrder: `${o.strayUnderOrder}/${o.wingmanUnderOrder}`,
       strayFree: `${o.strayFree}/${o.wingmanFree}`,
     }))
+    // 【只算離場的那兩種】見 `LEAVING` 的註解
+    let tight = 0
+    let loose = 0
+    for (const k of LEAVING) {
+      tight += o.byKind[k]!.tightened
+      loose += o.byKind[k]!.loosened
+    }
     // 【要有量到的張數】否則下面那條會空洞地通過
-    expect(o.tightened + o.loosened).toBeGreaterThan(0)
-    expect(o.tightened).toBeGreaterThan(o.loosened)
+    expect(tight + loose).toBeGreaterThan(0)
+    expect(tight).toBeGreaterThan(loose)
   })
 
   it.skip('掃描指揮參數（量測用，不是判準）', () => {
@@ -345,6 +377,7 @@ describe('指揮層的效果（20v20 開／關對照）', () => {
       on: `R${on.redDamage.toFixed(0)}:B${on.blueDamage.toFixed(0)}`,
       off: `R${off.redDamage.toFixed(0)}:B${off.blueDamage.toFixed(0)}`,
       share: (on.orderedSamples / Math.max(on.aliveSamples, 1) * 100).toFixed(2) + '%',
+      leavingShare: (leavingSamples(on) / Math.max(on.aliveSamples, 1) * 100).toFixed(2) + '%',
       pulledWhileShooting: on.pulledWhileShooting,
       issuedOn: on.issued, issuedOff: off.issued,
     }))
@@ -366,7 +399,9 @@ describe('指揮層的效果（20v20 開／關對照）', () => {
   }, 10 * 60 * 1000)
 
   it('命令佔時比例落在掃描定出的區間', () => {
-    const share = on.orderedSamples / Math.max(on.aliveSamples, 1)
+    // 【量的是「離場佔時」而不是「受命佔時」】見 `LEAVING` 的註解。
+    // 專案負責人 2026-08-07 裁定：上界的語意本來就是離場，`focus` 不算。
+    const share = leavingSamples(on) / Math.max(on.aliveSamples, 1)
     expect(share).toBeGreaterThan(0.05)
     expect(share).toBeLessThan(0.25)
   }, 10 * 60 * 1000)
