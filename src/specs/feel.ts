@@ -48,7 +48,15 @@ import type { AircraftSpec } from './types'
  *
  * - **AI 的能量判準**：`steer.ts` 的 `brakeCornerRatio`、`unloadMargin`、
  *   `speedRecoverMargin`、`extendPitchAngle` 的兩個增益，全是照**舊包絡**
- *   調出來的。持續迴旋率動了 +87% 之後那些值已經對不上這台飛機。
+ *   調出來的。**2026-08-07 已全部重掃並結案**，結論是「來歷過期，值沒壞」
+ *   —— 那些判準寫的都是**比值**（TAS ÷ 失速速度、TAS ÷ 角落速度），分母
+ *   是飛機自己的氣動性能，倍率一動分母同步跟著走。`ai-manoeuvre` 五條指標
+ *   沒有一條接近門檻，三條還變好。五個旋鈕裡只有 `brakeCornerRatio` 真的
+ *   該動（1.6 → 1.8，高能量開局由「200 秒打不完、自己挨 428」變成
+ *   「156 秒擊落、毫髮無傷」）。掃描表在 `steer.ts` 各欄位的註解裡，完整
+ *   推論見 `docs/superpowers/specs/2026-08-07-ai-energy-recalibration-design.md`。
+ *   **下次再調倍率時仍然要回頭看這一項** —— 結論是「這一次沒壞」，不是
+ *   「這一層不受影響」。
  * - **目標選擇的 `turnTimeScale`**：`turnTime = 角度 ÷ 瞬間迴旋率`，飛機
  *   轉得快之後「掉頭去追後方」變便宜。實測 `rearShare` 因此由 25.6% 升到
  *   31.6%，`ai-targeting.test.ts` 的門檻已隨之重新定值（見該檔註解）。
