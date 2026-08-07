@@ -136,11 +136,25 @@
 export interface CommandUnit {
   readonly position: Vector3
   readonly velocity: Vector3
-  /** TAS ÷ 角落速度。與 `Situation.cornerRatio` 同義 */
-  readonly cornerRatio: number
-  /** 升限，m。集合點的高度上界 */
+  /**
+   * TAS ÷ 角落速度。與 `Situation.cornerRatio` 同義。
+   *
+   * **實作後修正：不是 `readonly`。** 它與 `alive` 是每步被呼叫端就地改寫
+   * 的快照欄位（`setup.ts` 的 `stepCommandLayer`）；`position` / `velocity`
+   * 才是唯讀**參考**（內容由物理層就地更新，所以自動跟著新）。
+   */
+  cornerRatio: number
+  /**
+   * 升限，m。集合點的高度上界。
+   *
+   * **實作後修正：它不在 `AircraftSpec` 上。** `specs/types.ts` 的那一個
+   * `serviceCeiling` 屬於 `HistoricalReference`，是史實對照值。呼叫端改用
+   * `analysis/envelope.ts` 的 `serviceCeiling(spec)` 實算 —— 那才是套過
+   * `feel.ts` 倍率之後真正爬得到的高度。二分搜尋不便宜，依 spec 物件記憶。
+   */
   readonly serviceCeiling: number
-  readonly alive: boolean
+  /** **實作後修正：不是 `readonly`**，理由同 `cornerRatio` */
+  alive: boolean
 }
 
 /** 一張下給小隊的命令。集合點**凍結**，不隨敵人移動重算 */
@@ -202,9 +216,16 @@ export interface CommandState {
 
 export function createCommandState(flightCount: number): CommandState
 
-/** 推進一步：累積見底計時、到期規劃、到達解除 */
+/**
+ * 推進一步：累積見底計時、到期規劃、到達解除。
+ *
+ * **實作後修正：多收一個 `enemies`。** 規劃需要敵群質心，而 `CommandUnit`
+ * 沒有 `team` 欄位；加上去會讓 `src/ai/command.ts` 依賴 `World` 的 `Team`
+ * 型別，而 `CommandState` 本來就是每隊一個，由呼叫端傳敵方名單零成本。
+ */
 export function stepCommand(
   s: CommandState, flights: readonly CommandFlight[], units: readonly CommandUnit[],
+  enemies: readonly CommandUnit[],
   skipFlight: number, dt: number, cfg?: CommandConfig,
 ): void
 ```
@@ -417,12 +438,128 @@ if (this.order && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
 |---|---|
 | `src/ai/command.ts` | **新增**：`planFlightOrder`、`CommandState`、`stepCommand`。**不得 import `src/battle/`** —— 相依方向是 `battle → ai`（見 `CommandFlight` 的註解） |
 | `src/ai/rules.ts` | `Intent` 增加 `'rally'`，`INTENTS` 同步 |
-| `src/ai/steer.ts` | `steerCommand` 增加 `rally` 分支（瞄準 `order.point`） |
-| `src/ai/AiController.ts` | 新增 `order` 欄位；兩行覆寫（§5.1）；僚機的自衛限制（§5.3） |
+| `src/ai/rally.ts` | **實作後新增**：`rallyAim` / `rallyCommand`。原本把 rally 的轉向算在 `steer.ts` 裡，但 `AiController` 的「沒有目標」分支也需要它，**而那條分支根本不經過 `steerCommand`** —— 長機收到命令又沒有敵人時走的正是它。獨立成一個檔讓兩處共用同一段幾何 |
+| `src/ai/steer.ts` | `steerCommand` 增加 `rally` 分支與 `rallyPoint` 參數（**實作後修正**：集合點走參數而不是從 `sit` 拿 —— 態勢是幾何與能量，集合點是命令） |
+| `src/ai/AiController.ts` | 新增 `order` 欄位；兩行覆寫（§5.1）；僚機的自衛限制（§5.3）；**實作後新增** `shotInstant` 公開鏡像（`sit` 是私有的，§7.3 的觀測值量不到） |
 | `src/battle/setup.ts` | 每隊一個 `CommandState`；每步推進；跳過玩家的小隊 |
-| `test/unit/ai-command.test.ts` | **新增**：§7.1 的十二條考題 |
-| `test/integration/ai-command-channel.test.ts` | **新增**：§7.2 的通道驗收 |
-| `test/integration/multi-battle.test.ts` | §7.3 的開／關對照與觀測值 |
+| `test/unit/ai-command.test.ts` | **新增**：§7.1 的考題（實際二十六條） |
+| `test/unit/ai-rally.test.ts` | **實作後新增**：`rallyAim` / `rallyCommand` 的幾何與退化 |
+| `test/integration/ai-command-channel.test.ts` | **新增**：§7.2 的通道驗收、§6 的掃描、以及 §7.3 的開／關對照 |
+
+**§7.3 的對照放在 `ai-command-channel.test.ts` 而不是 `multi-battle.test.ts`**
+（實作後修正）：後者沒有觀測指揮狀態的鉤子，擴充它會把兩件事混在一個檔案裡，
+而且對照需要 `observe(commanders)` 這個開關，那是通道檔自己的東西。
 
 **`src/ai/` 的熱路徑不得配置記憶體** —— 新向量走既有的 `makeScratch`
 暫存池。`stepCommand` 每步跑，`planFlightOrder` 每 N 秒跑。
+
+---
+
+## 9. 實作後的實測回填（2026-08-07）
+
+全部實測都在 `DEFAULT_BATTLE` 的 20v20、120 秒、玩家座位放 `Idle`（平飛不
+參戰）的場景下取得。
+
+### 9.1 五個參數：22 組掃描後全部留原值
+
+判準見 §6。完整的掃描表寫在 `src/ai/command.ts` 的 `DEFAULT_COMMAND` 註解
+裡（那才是後人會讀到的地方），這裡只記結論。
+
+**有結構的是四個邊界，不是中心點的小數第二位：**
+
+| 邊界 | 現象 | 為什麼是結構 |
+|---|---|---|
+| `withdrawRange` 8000 | 5 張發出、**0 張到達** | 8 km 在被重新咬上之前跑不完 |
+| `withdrawClimb` 2500 | 6 張發出、**0 張到達**，撞地接管 95 次 | 能量見底的小隊爬不動 2.5 km，命令變成永久狀態 |
+| `spentRatio` 0.40 | 整場只發 **1** 張 | 門檻低到幾乎碰不到 |
+| `spentRatio` 0.75 | 佔時 28.9%、撞地接管 **143** 次 | 那個值正好是個體層的 `DEFAULT_RULES.cornerEnter` |
+
+最後一條實測證實了 §6 當初「指揮層的門檻必須低於個體層」那個推理 ——
+戰鬥機每次硬拉都會掉到 0.75 以下，用它當「已經打不動了」的門檻等於恆真。
+
+中心與相鄰值的差（0.5 vs 0.6、`planPeriod` 1 vs 2）在雜訊之內。`arrived`
+的絕對數只有 0~6，比例本身是很吵的統計量 —— 這張表**論證的是原值全部落在
+可用帶的中央**，不是 0.6 比 0.5 好。
+
+`arriveRadius` 沒有掃描：它與 `withdrawRange` 不獨立（放大它等於放寬到達
+判定），單獨掃會量到兩件事混在一起。
+
+### 9.2 通道驗收：五條全綠
+
+```
+發令 5 張 · 到達 5 張 · 命令佔時 17.79% · 撞地接管 0 · 掉到 clearance 以下 0
+```
+
+### 9.3 兩條護欄依實測重新定值
+
+**一、「命令期間僚機不脫隊」原本要求 `strayUnderOrder === 0` —— 不可能滿足。**
+
+沒有命令時的基線就是 **8.31%**（58826/708096 取樣）。對一個基線非零的量
+要求零，與 task #136 那條 `minAlt > 500` 是同一類錯誤。
+
+而且「有命令時比較高」（11.73% vs 8.31%）本身也**不成立為證據**：命令正是
+發給已經打散了的小隊 —— 發令當下僚機的平均站位誤差就有 697 m，遠高於健康
+值。兩者有選擇效應。
+
+專案負責人裁定改成量**編隊有沒有收攏**：解除當下的僚機平均站位誤差小於
+發令當下。兩端量的是同一個分隊，選擇效應自然抵銷。
+
+```
+五張命令的僚機平均站位誤差（發令 → 解除）
+706 → 540      1029 → 575      826 → 413      413 → 809      512 → 459
+四張收攏，平均 697 → 559 m
+```
+
+機制確認在動：命令期間僚機 **92.2%** 的取樣 `target === null`（停止出擊）、
+長機 **95.8%** 的取樣意圖是 `rally`。
+
+**二、「命令會因為到達而解除」原本是 `arrived > 0` —— 負控制證明太鬆。**
+
+把僚機的「停止出擊」限制關掉（`AiController` 裡那一行改成恆假）之後：
+
+```
+                 發令   到達   命令期間脫隊
+開著限制           5      5     17286/147311 = 11.7%
+關掉限制           7      2     30335/145651 = 20.8%
+```
+
+僚機繼續纏鬥，小隊質心永遠走不到集合點 —— 而 `arrived > 0` 對那個壞掉的
+版本照樣是綠的。改成多數（`arrived > issued / 2`），負控制下會紅。
+
+它同時補位「編隊收攏」那一條的**倖存者偏誤**：後者只量得到走完的命令，
+壞掉的版本那 2 張全部收攏、照樣綠。兩條一起才守得住。
+
+### 9.4 開／關對照
+
+```
+              紅方掉 hp   藍方掉 hp   總傷害
+開指揮            1589        936      2525
+關指揮            3658       1169      4827
+```
+
+判準是「不得崩掉」，取關指揮的一半（2413）。**實測 2525，餘裕只有 4.6%。**
+
+這個數字要提請專案負責人注意：總傷害掉了 **48%**，遠高於命令佔時比例
+17.79% —— 因為一支小隊撤離時同時停止挨打**與**停止輸出，而它的對手也少了
+目標。這個超線性效應是真的，不是量錯。目前的判準守得住但沒有餘裕，第二份
+（戰術庫）加進來之後很可能會撞線，屆時要重新定值而不是調參數逼它過。
+
+### 9.5 `pulledWhileShooting`：實測 0
+
+§2.3「命令絕對」明知會重踩 `rules.ts` 記載的坑（AI 咬在敵機後方 236 m、
+正在開火時被切走，直飛 21 秒）而選擇踩它。這一場**一次都沒踩到**。
+
+判讀：合理而不是僥倖。命令發給的是能量見底的小隊，而能量見底的飛機本來就
+握不住射擊解 —— 兩個條件在幾何上幾乎互斥。這不代表坑不存在（第二份的
+「集火」與「側翼」會把命令發給狀態良好的小隊），但對第一份而言那個代價
+**實測是零**。
+
+### 9.6 回歸
+
+全套 2070 條全綠（`perf-gate` 與 `rematch` 依慣例單獨複測，也全綠）。
+`multi-battle` 與 `ai-duel-matrix` 都經過 `createBattle`，因此都吃到了指揮層
+—— 兩者一條都沒紅，包含 1v1（`SCHWARM_SIZE` 是 4，1v1 時每隊只有一個一架
+的分隊，指揮層照樣會對它發令）。
+
+`perf-gate` 特別確認過：指揮層的見底計時與快照更新是每步的新工作，但
+`stepCommandLayer` 不配置（兩個模組層級的重用陣列），閘門沒有動。

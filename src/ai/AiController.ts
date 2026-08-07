@@ -113,6 +113,17 @@ export class AiController implements Controller {
    * 保留原語意（有沒有介入），需要分辨的護欄讀這一個。
    */
   safetyAction: SafetyAction = 'none'
+  /**
+   * 上一格的射擊解強度鏡像。**只為量測存在**（spec §7.3 的觀測值：「命令
+   * 發出的那一格，受命飛機正握有射擊解」的次數）。
+   *
+   * 【為什麼不直接公開 `sit`】那會讓外部依賴整個 `Situation` 的形狀，而它是
+   * 內部資料結構。鏡像一個純量的相依面積最小。
+   *
+   * 【為什麼不用 `intent === 'engage'` 當代理】代理量會把「approach 中被
+   * 拉走」誤算成無害，而那正是要看的東西。
+   */
+  shotInstant = 0
   trackingSeconds = 0
   /**
    * 警戒（「有人的預瞄環套在我身上」）已經持續幾秒。
@@ -239,6 +250,8 @@ export class AiController implements Controller {
     // 100 ms 足以讓「超前」的態勢完全改變。
     evaluateGeometry(self, target, this.sit)
     evaluateThreat(self, target, this.sit)
+    // 只為量測存在，見欄位註解
+    this.shotInstant = this.sit.shotInstant
     // 【威脅來源每步重算，但「是誰」只在決策節拍找】掃全場要對每架敵機解
     // 預瞄，240 Hz 跑不起；而「誰在打我」是慢變量，10 Hz 找一次夠了。找到
     // 之後那一架的威脅值仍然每步更新 —— 與幾何 240 Hz、能量 10 Hz 同一個
