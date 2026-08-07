@@ -13,6 +13,7 @@ function unit(over: Partial<CommandUnit> & { x?: number; y?: number; z?: number 
     position: new Vector3(over.x ?? 0, over.y ?? 4000, over.z ?? 0),
     velocity: over.velocity ?? new Vector3(0, 0, -200),
     cornerRatio: over.cornerRatio ?? 1.2,
+    hpFraction: over.hpFraction ?? 1,
     serviceCeiling: over.serviceCeiling ?? 12000,
     alive: over.alive ?? true,
   }
@@ -59,6 +60,23 @@ describe('planFlightOrder：該不該下令', () => {
 
   it('敵人全陣亡 → null', () => {
     expect(planFlightOrder([unit()], [unit({ z: 1000, alive: false })], SPENT, cfg)).toBeNull()
+  })
+
+  it('撤退命令的種類是 rally', () => {
+    const members = [unit(), unit({ x: 200 })]
+    const enemies = [unit({ z: 1000 })]
+    expect(planFlightOrder(members, enemies, SPENT, cfg)!.kind).toBe('rally')
+  })
+
+  /**
+   * 【撤退命令不帶戰術欄位】四個欄位是一個聯集的四種投影，`rally` 只用
+   * `point` 與 `radius`。留著髒值會讓「這張命令是哪一種」有兩個答案。
+   */
+  it('撤退命令的戰術欄位是空的', () => {
+    const o = planFlightOrder([unit()], [unit({ z: 1000 })], SPENT, cfg)!
+    expect(o.targetFlight).toBe(-1)
+    expect(o.side).toBe(0)
+    expect(o.focusIndex).toBe(-1)
   })
 })
 

@@ -373,7 +373,10 @@ describe('指揮層的命令', () => {
     const target = flyer()
     target.state.position.set(0, 4000, -800)
     ai.target = target
-    ai.order = { point: new Vector3(5000, 4000, 0), radius: 300 }
+    ai.order = {
+      kind: 'rally', point: new Vector3(5000, 4000, 0), radius: 300,
+      targetFlight: -1, side: 0, focusIndex: -1,
+    }
     const cmd = createCommand()
     for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
     expect(ai.intent).toBe('rally')
@@ -391,7 +394,10 @@ describe('指揮層的命令', () => {
     const attacker = flyer()
     attacker.state.position.set(0, 4000, 300)
     ai.target = attacker
-    ai.order = { point: new Vector3(5000, 4000, 0), radius: 300 }
+    ai.order = {
+      kind: 'rally', point: new Vector3(5000, 4000, 0), radius: 300,
+      targetFlight: -1, side: 0, focusIndex: -1,
+    }
     const cmd = createCommand()
     for (let i = 0; i < 480; i++) ai.update(self, 1 / 240, cmd)
     expect(ai.rules.defendLatch).toBe(true)
