@@ -426,9 +426,9 @@ function wireStations(b: Battle): void {
   }
 }
 
-/** 指揮層每步收集的兩隊快照。重用陣列，與 `ASSISTS` 同一個做法 */
-const BLUE_UNITS: CommandUnit[] = []
-const RED_UNITS: CommandUnit[] = []
+/** 指揮層每步收集的兩隊**分隊索引**。重用陣列，與 `ASSISTS` 同一個做法 */
+const BLUE_FLIGHTS: number[] = []
+const RED_FLIGHTS: number[] = []
 
 /**
  * 推進兩隊的指揮官，並把命令寫進每一架的 `AiController.order`。
@@ -460,18 +460,22 @@ function stepCommandLayer(b: Battle, dt: number): void {
     u.hpFraction = frac > 0 ? frac : 0
   }
 
-  BLUE_UNITS.length = 0
-  RED_UNITS.length = 0
-  for (let i = 0; i < cs.length; i++) {
-    ;(cs[i]!.team === 'blue' ? BLUE_UNITS : RED_UNITS).push(b.commandUnits[i]!)
+  // 分隊的隊伍歸屬不會變，但 Task 6 才把它移到 createBattle 算一次。
+  // 這裡先每步算，功能正確、成本可接受
+  BLUE_FLIGHTS.length = 0
+  RED_FLIGHTS.length = 0
+  for (let f = 0; f < b.flights.flights.length; f++) {
+    ;(b.flights.flights[f]!.team === 'blue' ? BLUE_FLIGHTS : RED_FLIGHTS).push(f)
   }
 
   const playerFlight = b.flights.pinned >= 0 ? b.flights.flightOf[b.flights.pinned]! : -1
   stepCommand(
-    b.blueCommand, b.flights.flights, b.commandUnits, RED_UNITS, playerFlight, dt,
+    b.blueCommand, b.flights.flights, BLUE_FLIGHTS, RED_FLIGHTS,
+    b.commandUnits, playerFlight, dt,
   )
   stepCommand(
-    b.redCommand, b.flights.flights, b.commandUnits, BLUE_UNITS, playerFlight, dt,
+    b.redCommand, b.flights.flights, RED_FLIGHTS, BLUE_FLIGHTS,
+    b.commandUnits, playerFlight, dt,
   )
 
   // ── 發下去 ────────────────────────────────────────────

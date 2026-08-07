@@ -195,19 +195,30 @@ function flight(...idx: number[]): CommandFlight {
 const DT = 1 / 240
 
 describe('stepCommand：命令的生命週期', () => {
-  /** 兩架的小隊 + 一架敵機，小隊在原點、敵機在 +Z 1000 */
+  /**
+   * 兩架的小隊 + 一架敵機，小隊在原點朝 −Z、敵機在 +Z 1000（也就是我方
+   * **後方**）。
+   *
+   * 【敵機刻意放在後方】Task 4 之後健康的小隊也會拿到戰術命令，而這個
+   * `describe` 驗的是撤退那一條路徑。敵機在後方時：距離 1000 < FLANK_RANGE
+   * 所以走集火那一支，而集火的錐形閘門（±60°）擋掉背後的目標 → 回 null。
+   * 於是「健康的小隊永遠不發令」仍然成立，而且是**因為規則本身**成立的，
+   * 不是因為場景少了一半。
+   */
   function scene(cornerRatio: number) {
-    const units: CommandUnit[] = [unit({ cornerRatio }), unit({ x: 200, cornerRatio: 1.2 })]
-    const enemies: CommandUnit[] = [unit({ z: 1000 })]
-    const flights = [flight(0, 1)]
+    const units: CommandUnit[] = [
+      unit({ cornerRatio }), unit({ x: 200, cornerRatio: 1.2 }), unit({ z: 1000 }),
+    ]
+    const flights = [flight(0, 1), flight(2)]
     const s = createCommandState(flights.length)
-    return { units, enemies, flights, s }
+    // `enemies` 與 `units[2]` 是**同一個物件**，測試改它的位置會生效
+    return { units, enemies: [units[2]!], flights, s, own: [0], foe: [1] }
   }
   /** 推進 `seconds` 秒 */
   function run(sc: ReturnType<typeof scene>, seconds: number, skip = -1) {
     const steps = Math.round(seconds / DT)
     for (let i = 0; i < steps; i++) {
-      stepCommand(sc.s, sc.flights, sc.units, sc.enemies, skip, DT, cfg)
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, skip, DT, cfg)
     }
   }
 
@@ -262,7 +273,9 @@ describe('stepCommand：命令的生命週期', () => {
     run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
     const order = sc.s.orders[0]!
     // 把整隊瞬移到集合點上
-    for (const u of sc.units) u.position.copy(order.point)
+    // 【只搬我方】sc.units[2] 是敵機，一起搬過去會讓解除後的下一次規劃
+    // 看到「敵機貼在臉上」而發出集火令
+    for (const u of [sc.units[0]!, sc.units[1]!]) u.position.copy(order.point)
     run(sc, DT * 2)
     expect(sc.s.orders[0]).toBeNull()
   })
@@ -276,7 +289,9 @@ describe('stepCommand：命令的生命週期', () => {
     const sc = scene(0.4)
     run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
     const order = sc.s.orders[0]!
-    for (const u of sc.units) u.position.copy(order.point)
+    // 【只搬我方】sc.units[2] 是敵機，一起搬過去會讓解除後的下一次規劃
+    // 看到「敵機貼在臉上」而發出集火令
+    for (const u of [sc.units[0]!, sc.units[1]!]) u.position.copy(order.point)
     // 【剛好一步】見底計時在每一步都先累積、再判到達，所以「歸零」只在
     // 抵達的那一格上成立 —— 下一格這隊仍然是見底的（cornerRatio 0.4），
     // 計時本來就該重新開始累積。多推一步再斷言 `toBe(0)` 量到的是
@@ -503,6 +518,130 @@ describe('planFlankOrder：退化與穩定性', () => {
       prev = o.side
     }
     expect(flips).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('stepCommand：側翼與集火的生命週期', () => {
+  /**
+   * 我方分隊 0（兩架，在原點朝 −Z）、敵分隊 1（兩架）。
+   * `units` 的索引：0/1 = 我方，2/3 = 敵方。
+   */
+  function scene(foeZ: number, foeEngaged = true) {
+    const cr = foeEngaged ? 0.8 : 1.2
+    const units: CommandUnit[] = [
+      unit({ cornerRatio: 1.2 }),
+      unit({ x: 200, cornerRatio: 1.2 }),
+      unit({ z: foeZ, cornerRatio: cr }),
+      unit({ x: 200, z: foeZ, cornerRatio: cr }),
+    ]
+    const flights = [flight(0, 1), flight(2, 3)]
+    const s = createCommandState(flights.length)
+    return { units, flights, s, own: [0], foe: [1] }
+  }
+  function run(sc: ReturnType<typeof scene>, seconds: number, skip = -1) {
+    const steps = Math.round(seconds / DT)
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, skip, DT, cfg)
+    }
+  }
+
+  it('健康的小隊、敵分隊在交戰且很遠 → 側翼', () => {
+    const sc = scene(4000)
+    run(sc, cfg.planPeriod + DT)
+    expect(sc.s.orders[0]!.kind).toBe('flank')
+    expect(sc.s.orders[0]!.targetFlight).toBe(1)
+  })
+
+  it('健康的小隊、敵分隊很近 → 集火', () => {
+    const sc = scene(-800)
+    run(sc, cfg.planPeriod + DT)
+    expect(sc.s.orders[0]!.kind).toBe('focus')
+    // 兩架敵機血量相同，取近的 —— 索引 2 與 3 等距，取先掃到的 2
+    expect(sc.s.orders[0]!.focusIndex).toBe(2)
+  })
+
+  /**
+   * 【撤退優先於兩個新戰術】spec §3。打不動的小隊不該被派去執行任何進攻
+   * 戰術。這一條若紅了，代表規劃的順序寫反了。
+   */
+  it('見底的小隊拿到的是 rally 而不是 flank', () => {
+    const sc = scene(4000)
+    for (const i of [0, 1]) sc.units[i]!.cornerRatio = 0.4
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    expect(sc.s.orders[0]!.kind).toBe('rally')
+  })
+
+  /** 【凍結的是決定，不是座標】spec §4.2 */
+  it('側翼的 point 跟著敵分隊移動，side 與 targetFlight 不變', () => {
+    const sc = scene(4000)
+    run(sc, cfg.planPeriod + DT)
+    const o = sc.s.orders[0]!
+    const before = o.point.clone()
+    const side = o.side
+    for (const i of [2, 3]) sc.units[i]!.position.x += 1500
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]!.point.x).not.toBe(before.x)
+    expect(sc.s.orders[0]!.side).toBe(side)
+    expect(sc.s.orders[0]!.targetFlight).toBe(1)
+  })
+
+  /**
+   * 【側翼的到達是幾何判定】進入後側方扇區且距離進入 FLANK_RANGE。
+   * 把我方瞬移到敵分隊的正後方 1000 m 處 —— 敵方朝 −Z 飛，正後方是 +Z。
+   */
+  it('進入後側方扇區且夠近 → 側翼命令解除', () => {
+    const sc = scene(4000)
+    run(sc, cfg.planPeriod + DT)
+    expect(sc.s.orders[0]).not.toBeNull()
+    for (const i of [0, 1]) sc.units[i]!.position.set(100, 4000, 5000)
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /** 【還在正面就不算到達】同樣的距離，但在他們前方 */
+  it('距離夠近但在敵分隊正前方 → 側翼命令不解除', () => {
+    const sc = scene(4000)
+    run(sc, cfg.planPeriod + DT)
+    for (const i of [0, 1]) sc.units[i]!.position.set(100, 4000, 3000)
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).not.toBeNull()
+  })
+
+  it('集火目標陣亡 → 命令解除', () => {
+    const sc = scene(-800)
+    run(sc, cfg.planPeriod + DT)
+    const idx = sc.s.orders[0]!.focusIndex
+    sc.units[idx]!.alive = false
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【集火的遲滯】發令要求離小隊質心不到 `focusRange`（1500），解除要求
+   * 超過 `FLANK_RANGE`（2500）—— 兩個不同的數字就是遲滯。用同一個門檻
+   * 發令與解除會在邊界上抖。
+   */
+  it('集火目標跑遠 → 命令解除', () => {
+    const sc = scene(-800)
+    run(sc, cfg.planPeriod + DT)
+    for (const i of [2, 3]) sc.units[i]!.position.z = -4000
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  it('集火目標只跑到 focusRange 與 FLANK_RANGE 之間 → 命令不解除', () => {
+    const sc = scene(-800)
+    run(sc, cfg.planPeriod + DT)
+    for (const i of [2, 3]) sc.units[i]!.position.z = -2000
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).not.toBeNull()
+  })
+
+  /** 【不替敵方分隊規劃】`own` 以外的格子必須恆為 null */
+  it('own 以外的分隊完全不碰', () => {
+    const sc = scene(4000)
+    run(sc, cfg.planPeriod * 3)
+    expect(sc.s.orders[1]).toBeNull()
   })
 })
 

@@ -228,6 +228,19 @@ const MIN_HORIZONTAL = 1e-3
  */
 const ENGAGED_RATIO = 0.9
 
+/**
+ * 側翼／集火的距離分界，m。遠 → 側翼切入；近 → 集火。
+ *
+ * 2500 介於 `THREAT_RANGE`（900）與 `withdrawRange`（3000）之間。
+ *
+ * 它同時是**集火命令的解除距離**（spec §6.2 的遲滯）：發令要求離小隊質心
+ * 不到 `focusRange`（1500），解除要求超過 2500 —— 兩個不同的數字就是遲滯，
+ * 不需要第三個參數。用同一個門檻發令與解除會在邊界上抖。
+ *
+ * 【它是**觸發**，第三份會整條換掉。不要掃描它】理由同 `ENGAGED_RATIO`。
+ */
+const FLANK_RANGE = 2500
+
 
 const P = makeScratch(4)
 
@@ -659,25 +672,33 @@ export function createCommandState(flightCount: number): CommandState {
 }
 
 /**
- * 推進指揮官一步：累積見底計時、判定到達、到期時規劃。
+ * 推進指揮官一步：累積見底計時、維護命令、到期時規劃。
  *
- * 【為什麼計時每步跑而規劃每 N 秒跑】見底是一個**持續**條件（spec §2.4），
- * 漏數任何一步都會低估；而規劃是昂貴的（要掃全隊與全部敵機）而且是戰役
- * 尺度的決定，不該與戰機的機動同頻。這與 `AiController` 把幾何放 240 Hz、
- * 意圖仲裁放 10 Hz 是同一個分頻原則。
+ * 【為什麼計時每步跑而規劃每 N 秒跑】見底是一個**持續**條件（第一份
+ * spec §2.4），漏數任何一步都會低估；而規劃是昂貴的而且是戰役尺度的決定，
+ * 不該與戰機的機動同頻。這與 `AiController` 把幾何放 240 Hz、意圖仲裁放
+ * 10 Hz 是同一個分頻原則。
  *
- * 熱路徑：每步的部分不配置。發令的那一格會配置一個 `Vector3`
- * （見 `planFlightOrder`），每 `planPeriod` 秒最多一次。
+ * 【為什麼收 `own` / `foe` 兩組分隊索引】舊版收攤平的敵機名單並掃**全部**
+ * 分隊，於是藍方指揮官替紅方分隊也規劃了一遍、結果從來不被讀 —— 浪費一半
+ * 的規劃工作，而且讀起來會讓人以為藍方在指揮紅方。側翼要挑「某一個敵分隊」
+ * 本來就需要敵方的分隊結構，一併修掉。
  *
- * @param units    這一隊的每架快照，索引與 `CommandFlight.members` 對應
- * @param enemies  敵隊的每架快照
+ * 熱路徑：每步的部分不配置（側翼點的重算走 `flankPoint`，寫進既有的
+ * `order.point`）。發令的那一格會配置一個 `Vector3`。
+ *
+ * @param flights  **全部**分隊，全域索引
+ * @param own      這個指揮官管的分隊索引
+ * @param foe      敵方的分隊索引
+ * @param units    每架快照，全域索引，與 `CommandFlight.members` 對應
  * @param skipFlight 不下命令的分隊索引（玩家所在的那一隊）；−1 = 都下
  */
 export function stepCommand(
   s: CommandState,
   flights: readonly CommandFlight[],
+  own: readonly number[],
+  foe: readonly number[],
   units: readonly CommandUnit[],
-  enemies: readonly CommandUnit[],
   skipFlight: number,
   dt: number,
   cfg: CommandConfig = DEFAULT_COMMAND,
@@ -686,7 +707,8 @@ export function stepCommand(
   const plan = s.timer <= 0
   if (plan) s.timer += cfg.planPeriod
 
-  for (let f = 0; f < flights.length; f++) {
+  for (let oi = 0; oi < own.length; oi++) {
+    const f = own[oi]!
     const flight = flights[f]!
 
     // 【玩家那一隊自治】spec §2.1。也涵蓋全滅的分隊 —— 兩者都要把殘留的
@@ -707,46 +729,232 @@ export function stepCommand(
     if (worst < cfg.spentRatio) s.spent[f] = s.spent[f]! + dt
     else s.spent[f] = 0
 
-    // ── 到達判定 ────────────────────────────────────────
+    // ── 命令的維護：三種各自的解除條件 ────────────────────
     const order = s.orders[f]
     if (order !== undefined && order !== null) {
-      // 用小隊質心判到達：個別成員可能正在閃躲而落後，整隊到了就算到了
-      let cx = 0, cy = 0, cz = 0, n = 0
-      for (let p = 0; p < flight.count; p++) {
-        const u = units[flight.members[p]!]
-        if (u === undefined || !u.alive) continue
-        cx += u.position.x; cy += u.position.y; cz += u.position.z; n++
+      // 【撤退優先於兩個進攻戰術，而且是一條解除條件】spec §3。優先序若
+      // 只寫在規劃的那一格，一張已經發出的進攻命令會把小隊釘在那裡直到
+      // 它到位 —— 期間就算打不動了也換不到撤退令，而「打不動的小隊被派
+      // 出去切側翼」正是這條優先序要防的事。解除之後下一次規劃走撤退那
+      // 一支（`spent` 不歸零，所以那一支立刻成立）
+      if (order.kind !== 'rally' && s.spent[f]! >= cfg.spentSeconds) {
+        s.orders[f] = null
+        continue
       }
-      if (n > 0) {
-        cx /= n; cy /= n; cz /= n
-        const dx = cx - order.point.x, dy = cy - order.point.y, dz = cz - order.point.z
-        if (Math.hypot(dx, dy, dz) <= order.radius) {
+      if (order.kind === 'focus') {
+        const t = units[order.focusIndex]
+        // 【兩個解除條件】目標陣亡，或跑到遲滯帶之外。
+        // 發令要求 < focusRange（1500）、解除要求 > FLANK_RANGE（2500），
+        // 兩個不同的數字就是遲滯 —— 同一個門檻發令與解除會在邊界上抖
+        if (t === undefined || !t.alive
+          || centroidDistance(flight, units, t.position) > FLANK_RANGE) {
           s.orders[f] = null
-          // 【歸零就是遲滯】要再累積滿 spentSeconds 才會重發（spec §4.2）。
-          // 少了這一行，抵達的下一格就會立刻重發，小隊被永久釘在命令狀態
+        }
+      } else if (order.kind === 'flank') {
+        const tf = flights[order.targetFlight]
+        if (tf === undefined || tf.count === 0) {
+          // 目標分隊全滅：這張命令沒有對象了
+          s.orders[f] = null
+        } else {
+          gather(TARGET, tf, units)
+          gather(MEMBERS, flight, units)
+          // 【點每步重算】凍結的是 side 與 targetFlight，不是座標。
+          // 算不出來（兩邊都全滅）時保留舊點，下一步再試
+          flankPoint(TARGET, MEMBERS, order.side, cfg, order.point)
+          if (flankArrived(MEMBERS, TARGET, cfg)) s.orders[f] = null
+        }
+      } else {
+        // rally：到達用小隊質心與半徑判。個別成員可能正在閃躲而落後，
+        // 整隊到了就算到了
+        if (centroidDistance(flight, units, order.point) <= order.radius) {
+          s.orders[f] = null
+          // 【歸零就是遲滯】要再累積滿 spentSeconds 才會重發（第一份
+          // spec §4.2）。少了這一行，抵達的下一格就會立刻重發
           s.spent[f] = 0
         }
       }
       continue
     }
 
-    // ── 規劃 ────────────────────────────────────────────
+    // ── 規劃：撤退 > 側翼 > 集火 ─────────────────────────
     if (!plan) continue
-    MEMBERS.length = 0
-    for (let p = 0; p < flight.count; p++) {
-      const u = units[flight.members[p]!]
-      if (u !== undefined) MEMBERS.push(u)
+    gather(MEMBERS, flight, units)
+
+    // 一：撤退。它自己會在還沒累積滿 spentSeconds 時回 null，所以無條件
+    // 呼叫是便宜的。**優先於兩個進攻戰術** —— 打不動的小隊不該被派出去
+    FOES.length = 0
+    for (let fi = 0; fi < foe.length; fi++) {
+      const ef = flights[foe[fi]!]
+      if (ef === undefined) continue
+      for (let p = 0; p < ef.count; p++) {
+        const u = units[ef.members[p]!]
+        if (u !== undefined && u.alive) FOES.push(u)
+      }
     }
-    s.orders[f] = planFlightOrder(MEMBERS, enemies, s.spent[f]!, cfg)
+    const retreat = planFlightOrder(MEMBERS, FOES, s.spent[f]!, cfg)
+    if (retreat !== null) { s.orders[f] = retreat; continue }
+
+    // 二：挑最近的敵分隊
+    let nearest = -1
+    let nearestDist = Infinity
+    for (let fi = 0; fi < foe.length; fi++) {
+      const gi = foe[fi]!
+      const ef = flights[gi]
+      if (ef === undefined || ef.count === 0) continue
+      gather(TARGET, ef, units)
+      if (TARGET.length === 0) continue
+      let cx = 0, cz = 0, cy = 0
+      for (let i = 0; i < TARGET.length; i++) {
+        cx += TARGET[i]!.position.x; cy += TARGET[i]!.position.y; cz += TARGET[i]!.position.z
+      }
+      const k = TARGET.length
+      const d = centroidDistanceTo(MEMBERS, cx / k, cy / k, cz / k)
+      if (d < nearestDist) { nearestDist = d; nearest = gi }
+    }
+    if (nearest < 0) continue
+
+    // 三：遠 → 側翼；近 → 集火（spec §3.2）
+    const tf = flights[nearest]!
+    gather(TARGET, tf, units)
+    if (nearestDist > FLANK_RANGE) {
+      OTHERS.length = 0
+      TARGET_IDX.length = 0
+      for (let fi = 0; fi < foe.length; fi++) {
+        const gi = foe[fi]!
+        if (gi === nearest) continue
+        const ef = flights[gi]
+        if (ef === undefined) continue
+        for (let p = 0; p < ef.count; p++) {
+          const u = units[ef.members[p]!]
+          if (u !== undefined && u.alive) OTHERS.push(u)
+        }
+      }
+      s.orders[f] = planFlankOrder(MEMBERS, TARGET, OTHERS, nearest, cfg)
+    } else {
+      TARGET_IDX.length = 0
+      for (let p = 0; p < tf.count; p++) {
+        const gi = tf.members[p]!
+        const u = units[gi]
+        if (u !== undefined && u.alive) TARGET_IDX.push(gi)
+      }
+      s.orders[f] = planFocusTarget(MEMBERS, TARGET, TARGET_IDX, cfg)
+    }
   }
 }
 
 /**
  * 規劃時把分隊成員收集起來的暫存陣列。
  *
- * 【為什麼是模組層級的可變陣列】`planFlightOrder` 收 `readonly CommandUnit[]`
+ * 【為什麼是模組層級的可變陣列】三個規劃函式都收 `readonly CommandUnit[]`
  * 是為了單元測試好寫字面陣列；而這裡每次規劃都 `new Array` 會在 20v20 下
- * 每兩秒配置十次。重用一個並在每次使用前 `length = 0`，與
- * `setup.ts` 的 `ASSISTS` 同一個做法。
+ * 每兩秒配置幾十次。重用並在每次使用前 `length = 0`，與 `setup.ts` 的
+ * `ASSISTS` 同一個做法。
+ *
+ * **`MEMBERS` 與 `TARGET` 不得在同一次 `gather` 之間交錯使用** —— 它們是
+ * 不同的陣列，但同一個陣列被 gather 兩次就會失去第一次的內容。
  */
 const MEMBERS: CommandUnit[] = []
+const TARGET: CommandUnit[] = []
+const OTHERS: CommandUnit[] = []
+const FOES: CommandUnit[] = []
+const TARGET_IDX: number[] = []
+
+/** 把一個分隊的存活成員收進 `out`（先清空）。不配置 */
+function gather(
+  out: CommandUnit[], flight: CommandFlight, units: readonly CommandUnit[],
+): void {
+  out.length = 0
+  for (let p = 0; p < flight.count; p++) {
+    const u = units[flight.members[p]!]
+    if (u !== undefined && u.alive) out.push(u)
+  }
+}
+
+/** 一個分隊的存活質心離 `p` 多遠。全滅時回 `Infinity`（比不上任何門檻） */
+function centroidDistance(
+  flight: CommandFlight, units: readonly CommandUnit[], p: Vector3,
+): number {
+  let cx = 0, cy = 0, cz = 0, n = 0
+  for (let i = 0; i < flight.count; i++) {
+    const u = units[flight.members[i]!]
+    if (u === undefined || !u.alive) continue
+    cx += u.position.x; cy += u.position.y; cz += u.position.z; n++
+  }
+  if (n === 0) return Infinity
+  return Math.hypot(cx / n - p.x, cy / n - p.y, cz / n - p.z)
+}
+
+/** 已經收集好的一群的質心離 (x,y,z) 多遠。全滅時回 `Infinity` */
+function centroidDistanceTo(
+  group: readonly CommandUnit[], x: number, y: number, z: number,
+): number {
+  let cx = 0, cy = 0, cz = 0, n = 0
+  for (let i = 0; i < group.length; i++) {
+    const u = group[i]!
+    cx += u.position.x; cy += u.position.y; cz += u.position.z; n++
+  }
+  if (n === 0) return Infinity
+  return Math.hypot(cx / n - x, cy / n - y, cz / n - z)
+}
+
+/**
+ * 側翼到位了嗎 —— **幾何判定，不是距離**。
+ *
+ * ```
+ * u = 敵分隊平均速度的水平單位向量
+ * d = 由敵分隊質心指向我方質心的水平單位向量
+ * 到位 ⇔ d · u < cos(flankSector)  且  兩個質心的距離 < FLANK_RANGE
+ * ```
+ *
+ * 【為什麼不用「離側翼點小於 arriveRadius」】那個判準在追一個移動目標時
+ * 可能永遠不成立，正是第一份 spec §4.1 記載的病 —— 而敵**分隊**質心 30 秒
+ * 飄 2040~4663 m（實測）。幾何判準不會過期。
+ *
+ * 【為什麼距離門用 `FLANK_RANGE` 而不是新的一個數字】側翼命令的**發出**
+ * 條件就是距離 > `FLANK_RANGE`，所以解除用同一條線不會抖：解除的那一格
+ * 距離必然 < `FLANK_RANGE`，下一次規劃走的是集火那一支。
+ *
+ * 熱路徑：不配置（每步呼叫）。
+ */
+function flankArrived(
+  members: readonly CommandUnit[],
+  target: readonly CommandUnit[],
+  cfg: CommandConfig,
+): boolean {
+  let fx = 0, fy = 0, fz = 0, vx = 0, vz = 0, m = 0
+  for (let i = 0; i < target.length; i++) {
+    const t = target[i]!
+    fx += t.position.x; fy += t.position.y; fz += t.position.z
+    vx += t.velocity.x; vz += t.velocity.z
+    m++
+  }
+  if (m === 0) return false
+  fx /= m; fy /= m; fz /= m; vx /= m; vz /= m
+
+  let ux = vx
+  let uz = vz
+  const ulen = Math.hypot(ux, uz)
+  // 【速度退化時不算到位】方向沒有定義就沒有「後側方」可言。回 false 讓
+  // 命令繼續 —— 比誤判到位安全，下一步速度多半就回來了
+  if (ulen < MIN_HORIZONTAL) return false
+  ux /= ulen; uz /= ulen
+
+  let cx = 0, cy = 0, cz = 0, n = 0
+  for (let i = 0; i < members.length; i++) {
+    const u = members[i]!
+    cx += u.position.x; cy += u.position.y; cz += u.position.z; n++
+  }
+  if (n === 0) return false
+  cx /= n; cy /= n; cz /= n
+
+  if (Math.hypot(cx - fx, cy - fy, cz - fz) >= FLANK_RANGE) return false
+
+  let dx = cx - fx
+  let dz = cz - fz
+  const dlen = Math.hypot(dx, dz)
+  // 【水平重合】方位沒有定義。當成到位 —— 已經貼在他們身上了
+  if (dlen < MIN_HORIZONTAL) return true
+  dx /= dlen; dz /= dlen
+
+  return dx * ux + dz * uz < Math.cos(cfg.flankSector)
+}
