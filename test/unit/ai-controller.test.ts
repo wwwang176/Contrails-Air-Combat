@@ -340,3 +340,61 @@ describe('站位角色（M6 spec §3.2）', () => {
     expect(board.assignments[1]).toBe(-1)
   })
 })
+
+describe('指揮層的命令', () => {
+  /** 在 4000 m 平飛的飛機 */
+  function flyer(): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    a.prevPosition.copy(a.state.position)
+    return a
+  }
+
+  /**
+   * 【沒有命令時完全不變】這是整個指揮層能安全上線的前提 —— `order` 為
+   * null 的每一架，行為必須與加這一層之前逐位元相同。
+   */
+  it('order 為 null 時意圖照舊由 arbitrate 決定', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const target = flyer()
+    target.state.position.set(0, 4000, -800)
+    ai.target = target
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.intent).not.toBe('rally')
+  })
+
+  it('有命令且沒有威脅時，意圖是 rally', () => {
+    const ai = new AiController()
+    const self = flyer()
+    const target = flyer()
+    target.state.position.set(0, 4000, -800)
+    ai.target = target
+    ai.order = { point: new Vector3(5000, 4000, 0), radius: 300 }
+    const cmd = createCommand()
+    for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.intent).toBe('rally')
+  })
+
+  /**
+   * 【閃躲永遠優先】spec §2.2 與專案負責人 2026-08-07 的裁定。實測支持見
+   * task #136：把「速度見底就脫離」提到破防之前，AI 在被連續射擊時飛出
+   * 完美直線（同向性 0.99 → 1.00），被打中的時間變成 2.3 倍。
+   */
+  it('有命令但破防閂鎖閂上時，意圖是 defend', () => {
+    const ai = new AiController()
+    const self = flyer()
+    // 攻擊者咬在正後方 300 m，機首指向自機
+    const attacker = flyer()
+    attacker.state.position.set(0, 4000, 300)
+    ai.target = attacker
+    ai.order = { point: new Vector3(5000, 4000, 0), radius: 300 }
+    const cmd = createCommand()
+    for (let i = 0; i < 480; i++) ai.update(self, 1 / 240, cmd)
+    expect(ai.rules.defendLatch).toBe(true)
+    expect(ai.intent).toBe('defend')
+  })
+})
