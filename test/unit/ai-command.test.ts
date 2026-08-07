@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  planFlightOrder, planFlankOrder, planFocusTarget, createCommandState, stepCommand, DEFAULT_COMMAND,
-  type CommandUnit, type CommandFlight,
+  planFlightOrder, planFlankOrder, planFocusTarget, createCommandState, stepCommand, rankFlights,
+  DEFAULT_COMMAND,
+  type CommandUnit, type CommandFlight, type FlightOrder,
 } from '../../src/ai/command'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { THREAT_RANGE } from '../../src/ai/assess'
@@ -783,5 +784,114 @@ describe('planFocusTarget', () => {
     const still = [unit({ velocity: new Vector3(0, 0, 0) })]
     const cands = [unit({ x: 800, z: 0, hpFraction: 0.3 })]
     expect(planFocusTarget(still, cands, [10], cfg)!.focusIndex).toBe(10)
+  })
+})
+
+describe('rankFlights', () => {
+  /** 四個分隊，每隊一架。`units` 的索引與分隊索引相同 */
+  function scene() {
+    const units: CommandUnit[] = [unit(), unit(), unit(), unit()]
+    const flights = [flight(0), flight(1), flight(2), flight(3)]
+    const orders: (FlightOrder | null)[] = [null, null, null, null]
+    const idle = new Float32Array([10, 30, 20, 5])
+    return { units, flights, orders, idle, own: [0, 1, 2, 3] }
+  }
+  const OUT: number[] = []
+
+  it('閒最久的排第一', () => {
+    const sc = scene()
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    // idle = [10, 30, 20, 5]，門檻 3 → 四個都合格，由大到小是 1, 2, 0, 3
+    expect(OUT).toEqual([1, 2, 0, 3])
+  })
+
+  /**
+   * 【決定性】spec §7.4 的否決條件。同值不能靠 sort 的實作細節決定順序 ——
+   * 那會讓同一個態勢在不同引擎上給出不同的命令。
+   */
+  it('同 idle 值 → 以分隊索引由小到大破平手', () => {
+    const sc = scene()
+    sc.idle = new Float32Array([7, 7, 7, 7])
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([0, 1, 2, 3])
+  })
+
+  it('idle 沒到門檻的不進榜', () => {
+    const sc = scene()
+    // 門檻是 cfg.idleSeconds = 3；只有索引 3 的 2.9 不到
+    sc.idle = new Float32Array([10, 30, 20, 2.9])
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([1, 2, 0])
+  })
+
+  /** 【已持有命令的不進榜】不論哪一種命令 —— 遲滯就是這樣免費來的 */
+  it('已持有命令的不進榜', () => {
+    const sc = scene()
+    sc.orders[1] = {
+      kind: 'rally', point: new Vector3(), radius: 300,
+      targetFlight: -1, side: 0, focusIndex: -1,
+    }
+    sc.orders[2] = {
+      kind: 'focus', point: new Vector3(), radius: 0,
+      targetFlight: -1, side: 0, focusIndex: 9,
+    }
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([0, 3])
+  })
+
+  it('全滅的分隊不進榜', () => {
+    const sc = scene()
+    sc.flights[1] = { members: sc.flights[1]!.members, count: 0 }
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([2, 0, 3])
+  })
+
+  /** 【成員全部陣亡但 count 還沒壓縮】同一步裡 compactFlights 還沒跑過 */
+  it('成員全部陣亡的分隊不進榜', () => {
+    const sc = scene()
+    sc.units[1] = unit({ alive: false })
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([2, 0, 3])
+  })
+
+  it('玩家那一隊不進榜', () => {
+    const sc = scene()
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, 1, OUT, cfg)
+    expect(OUT).toEqual([2, 0, 3])
+  })
+
+  it('全部不合格 → 回空', () => {
+    const sc = scene()
+    sc.idle = new Float32Array([0, 0, 0, 0])
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([])
+  })
+
+  /**
+   * 【連續性】spec §7.4 的否決條件。排名本身是離散的，所以問的不是「輸出
+   * 連不連續」，而是**微擾只會讓相鄰兩名互換**。若一次微擾能讓整個順序
+   * 翻轉，那代表分數不是單調的。
+   */
+  it('idle 微擾 ±0.1 s 只會讓相鄰兩名互換', () => {
+    const sc = scene()
+    // 把第 2 名（索引 2，idle 20）推過第 1 名（索引 1，idle 30）需要 10 秒，
+    // 微擾 0.1 動不了任何一對；把索引 0（10）與索引 2（20）之間拉近到
+    // 0.05 之後，0.1 的微擾剛好只換那一對
+    sc.idle = new Float32Array([19.95, 30, 20, 5])
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([1, 2, 0, 3])
+    sc.idle = new Float32Array([20.05, 30, 20, 5])
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, OUT, cfg)
+    expect(OUT).toEqual([1, 0, 2, 3])
+  })
+
+  /** 【決定性】同一個輸入算兩次，逐位元相同 */
+  it('同一個快照算兩次，順序相同', () => {
+    const sc = scene()
+    const a: number[] = []
+    const b: number[] = []
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, a, cfg)
+    rankFlights(sc.flights, sc.own, sc.units, sc.orders, sc.idle, -1, b, cfg)
+    expect(a).toEqual(b)
   })
 })

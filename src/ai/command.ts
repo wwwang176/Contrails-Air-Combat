@@ -697,6 +697,82 @@ export function planFocusTarget(
 }
 
 /**
+ * 把「該優先考慮」的分隊排出來，寫進 `out`（先清空）。
+ *
+ * **純函數**：只讀五個陣列，不改它們，不碰世界。與三個規劃函式同一個地位。
+ *
+ * 分數只問一件事：**這支分隊連續多久沒有人握著射擊解**（`idle`）。閒最久的
+ * 排最前面 —— 問的是「叫誰去，損失最小」，不是「誰最有機會」（spec §4.1）。
+ *
+ * 【排名刻意不看敵方】要不要發、發給誰打由 `planFocusTarget` 決定；排名只
+ * 回答「先考慮誰」。我方這邊看閒置度，敵方那邊看有沒有打得到的目標，各管
+ * 一半，不重疊 —— 同一個問題不要有兩個答案。
+ *
+ * 【為什麼已持有命令的不進榜】遲滯就是這樣免費來的：命令照既有的解除條件
+ * 走，不會出現「這一輪排第 3 拿到命令、下一輪排第 6 又被收回」的抖動。
+ *
+ * 【為什麼是插入排序】`own` 最多五個元素，而插入排序是**穩定**的 —— 由於
+ * `own` 是遞增的，同 `idle` 值自然保持索引由小到大，破平手不需要額外的
+ * 比較。決定性是 spec §7.4 的否決條件，靠 `Array.prototype.sort` 的實作
+ * 細節來破平手是不能接受的。
+ *
+ * 熱路徑之外（每 `planPeriod` 秒），不配置。
+ *
+ * @param own        這個指揮官管的分隊索引，**必須是遞增的**
+ * @param orders     每個分隊當下的命令，`null` = 沒有
+ * @param idle       每個分隊的閒置秒數
+ * @param skipFlight 不下命令的分隊索引（玩家所在的那一隊）；−1 = 都下
+ * @param out        輸出。呼叫前不必清空，這裡會清
+ */
+export function rankFlights(
+  flights: readonly CommandFlight[],
+  own: readonly number[],
+  units: readonly CommandUnit[],
+  orders: readonly (FlightOrder | null)[],
+  idle: Readonly<Float32Array>,
+  skipFlight: number,
+  out: number[],
+  cfg: CommandConfig = DEFAULT_COMMAND,
+): void {
+  out.length = 0
+
+  for (let oi = 0; oi < own.length; oi++) {
+    const f = own[oi]!
+    if (f === skipFlight) continue
+
+    const flight = flights[f]
+    if (flight === undefined || flight.count === 0) continue
+
+    const o = orders[f]
+    if (o !== undefined && o !== null) continue
+
+    if ((idle[f] ?? 0) < cfg.idleSeconds) continue
+
+    // 【成員全滅但 count 還沒壓縮】同一步裡 compactFlights 可能還沒跑過
+    let alive = false
+    for (let p = 0; p < flight.count; p++) {
+      const u = units[flight.members[p]!]
+      if (u !== undefined && u.alive) { alive = true; break }
+    }
+    if (!alive) continue
+
+    out.push(f)
+  }
+
+  // 插入排序，idle 大的在前。穩定，所以同值保持 `own` 的遞增順序
+  for (let i = 1; i < out.length; i++) {
+    const v = out[i]!
+    const iv = idle[v] ?? 0
+    let j = i - 1
+    while (j >= 0 && (idle[out[j]!] ?? 0) < iv) {
+      out[j + 1] = out[j]!
+      j--
+    }
+    out[j + 1] = v
+  }
+}
+
+/**
  * 規劃需要知道的分隊結構。
  *
  * 【為什麼不直接收 `FlightIndex`】現行的相依方向是 `battle → ai`：
