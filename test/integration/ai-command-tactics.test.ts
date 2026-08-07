@@ -560,8 +560,13 @@ describe('戰術的效果（20v20、開／關對照）', () => {
    * 要讓這條判準**有可能失敗**。
    */
   it('側翼讓開火時的方位角往後側方移動', () => {
-    const on = flank.aspectSum / Math.max(flank.aspectCount, 1)
-    const base = off.aspectSum / Math.max(off.aspectCount, 1)
+    // 【一定要用 `...Own`】`aspectSum` 是**全場所有飛機、含命令期間**的
+    // 聚合，`aspectSumOwn` 才是這條判準要的「受命分隊、自由狀態」。
+    // 2026-08-07 這兩行一度誤用了前者，於是印出的 n 是後者的、比較的值卻是
+    // 前者的 —— 得到「側翼是反效果」這個錯誤結論。獨立探針的三個母體：
+    // 全部 −0.243（n=18747）、自由 +0.769（n=1562）、命令期間 −0.335。
+    const on = flank.aspectSumOwn / Math.max(flank.aspectCountOwn, 1)
+    const base = off.aspectSumOwn / Math.max(off.aspectCountOwn, 1)
     console.log(JSON.stringify({
       flankOwn: on.toFixed(3), offAll: base.toFixed(3),
       n: `${flank.aspectCountOwn} vs ${off.aspectCountOwn}`,
