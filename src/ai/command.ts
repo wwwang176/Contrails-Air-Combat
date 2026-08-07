@@ -247,6 +247,29 @@ const ENGAGED_RATIO = 0.9
  */
 export const FLANK_RANGE = 2500
 
+/**
+ * 觸發階梯要不要選側翼。**目前是關的。**
+ *
+ * 【為什麼關】spec §12：時間對齊的實測顯示側翼讓開火的方位角**變差**
+ * （delta +0.728，n = 3425 對 7566），總傷害也少 18%。同一批時刻，沒有
+ * 繞路的那一支已經咬在人家尾後（−0.558），繞完 2.5 km 的那一支落在正
+ * 側面附近（+0.170）—— 它把已經到手的位置丟掉了。到位判定與點位置各掃
+ * 了八組，delta 隨參數完全非單調，**不是參數問題**。
+ *
+ * 【為什麼只關觸發，不刪程式碼】`planFlankOrder`、`flankPoint`、
+ * `flankArrived` 與它們的十八條考題全部留著，強制注入的驗收也照跑 ——
+ * 那條路徑本身是對的，錯的是「什麼時候選它」。而實測樣本全部來自強制
+ * 注入：真實觸發器 120 秒只發 4 張，而注入挑的是「最近但超過 2500 m 的
+ * 敵分隊」，混戰中那通常表示要放棄現有咬尾去追一支正忙著的分隊 ——
+ * 那本來就是壞決定，不管側翼寫得多好。所以量到的是「在錯的時機執行側翼
+ * 有多糟」，不是「側翼有沒有價值」。後者要等第三份的決策層才問得出來。
+ *
+ * 【重新打開的條件】spec §12.5：命令解除時交接目標（現在解除的那一瞬，
+ * 小隊回頭走既有的自由選目標，而 `targetScore` 不知道我們剛繞到人家
+ * 後面），並用同一條時間對齊的判準重測。
+ */
+const FLANK_ENABLED: boolean = false
+
 
 const P = makeScratch(4)
 
@@ -823,6 +846,8 @@ export function stepCommand(
     const tf = flights[nearest]!
     gather(TARGET, tf, units)
     if (nearestDist > FLANK_RANGE) {
+      // 【側翼已停用】見 `FLANK_ENABLED`。遠距離時不發令，讓小隊自由交戰
+      if (!FLANK_ENABLED) continue
       OTHERS.length = 0
       TARGET_IDX.length = 0
       for (let fi = 0; fi < foe.length; fi++) {
