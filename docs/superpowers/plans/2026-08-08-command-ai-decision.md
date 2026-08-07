@@ -73,7 +73,7 @@
   - `CommandConfig` 增加 `maxOrders: number` 與 `idleSeconds: number`
   - `DEFAULT_COMMAND.maxOrders = 2`、`DEFAULT_COMMAND.idleSeconds = 3`
 
-- [ ] **Step 1: 先讀懂三個會被牽動的地方**
+- [x] **Step 1: 先讀懂三個會被牽動的地方**
 
 不要改，只讀：
 
@@ -84,7 +84,7 @@
 - `test/unit/ai-command.test.ts` 的 `unit()` 工廠（約第 11 行）—— 加欄位後
   它要跟著加，否則既有的考題全部編譯失敗。
 
-- [ ] **Step 2: 寫失敗的測試**
+- [x] **Step 2: 寫失敗的測試**
 
 在 `test/unit/ai-command.test.ts` 的 `describe('stepCommand：命令的生命週期'`
 那個 describe 的**最後**（在它的收尾 `})` 之前）追加：
@@ -131,7 +131,7 @@
   })
 ```
 
-- [ ] **Step 3: 跑測試，確認它紅**
+- [x] **Step 3: 跑測試，確認它紅**
 
 ```
 npx vitest run test/unit/ai-command.test.ts -t "idle"
@@ -139,7 +139,7 @@ npx vitest run test/unit/ai-command.test.ts -t "idle"
 
 預期：編譯失敗，`CommandState` 沒有 `idle`、`CommandUnit` 沒有 `shotInstant`。
 
-- [ ] **Step 4: `CommandUnit` 加 `shotInstant`**
+- [x] **Step 4: `CommandUnit` 加 `shotInstant`**
 
 在 `hpFraction` 的正下方加：
 
@@ -165,7 +165,7 @@ npx vitest run test/unit/ai-command.test.ts -t "idle"
  * `cornerRatio` / `hpFraction` / `shotInstant` / `alive` 每步會被呼叫端改寫。
 ```
 
-- [ ] **Step 5: `CommandConfig` 加兩個參數**
+- [x] **Step 5: `CommandConfig` 加兩個參數**
 
 在 `focusCone` 的下方加：
 
@@ -201,7 +201,7 @@ npx vitest run test/unit/ai-command.test.ts -t "idle"
  * 看到「幾乎所有分隊都合格」不是 bug（spec §4.4）。
 ```
 
-- [ ] **Step 6: `CommandState` 加 `idle`**
+- [x] **Step 6: `CommandState` 加 `idle`**
 
 把 `spent` 的下方加：
 
@@ -222,7 +222,7 @@ npx vitest run test/unit/ai-command.test.ts -t "idle"
     idle: new Float32Array(flightCount),
 ```
 
-- [ ] **Step 7: `stepCommand` 累積閒置計時**
+- [x] **Step 7: `stepCommand` 累積閒置計時**
 
 在「見底計時」那一段的正下方加：
 
@@ -247,7 +247,7 @@ npx vitest run test/unit/ai-command.test.ts -t "idle"
       s.idle[f] = 0
 ```
 
-- [ ] **Step 8: 補上所有既有的建構點**
+- [x] **Step 8: 補上所有既有的建構點**
 
 ```
 npx tsc --noEmit
@@ -264,7 +264,7 @@ npx tsc --noEmit
 2. `src/battle/setup.ts` 的 `commandUnits` 物件字面 —— 在 `hpFraction: 1,`
    下方加 `shotInstant: 0,`
 
-- [ ] **Step 9: `setup.ts` 每步抄一次**
+- [x] **Step 9: `setup.ts` 每步抄一次**
 
 在 `stepCommandLayer` 裡寫 `u.hpFraction` 那一段的下方加：
 
@@ -278,7 +278,7 @@ npx tsc --noEmit
 
 （`AiController` 在 `setup.ts` 已經 import 過，不必加。）
 
-- [ ] **Step 10: 跑測試與型別檢查**
+- [x] **Step 10: 跑測試與型別檢查**
 
 ```
 npx vitest run test/unit/ai-command.test.ts test/unit/ai-controller.test.ts
@@ -287,7 +287,7 @@ npx tsc --noEmit
 
 預期：全綠、`tsc` 無輸出。
 
-- [ ] **Step 11: 跑通道驗收，確認行為一個字都沒變**
+- [x] **Step 11: 跑通道驗收，確認行為一個字都沒變**
 
 ```
 npx vitest run test/integration/ai-command-channel.test.ts
@@ -298,7 +298,7 @@ npx vitest run test/integration/ai-command-channel.test.ts
 
 若數字變了，**停下來查根因** —— 那表示 `shotInstant` 的抄寫改到了別的東西。
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add src/ai/command.ts src/battle/setup.ts test/unit/ai-command.test.ts
@@ -341,7 +341,7 @@ spent 逐字一樣。
 - Produces:
   - `export function rankFlights(flights, own, units, orders, idle, skipFlight, out, cfg?): void`
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
 
 在 `test/unit/ai-command.test.ts` 檔案最後追加。把 `rankFlights` 加進
 `from '../../src/ai/command'` 那一組 import：
@@ -463,7 +463,7 @@ describe('rankFlights', () => {
   type CommandUnit, type CommandFlight, type FlightOrder,
 ```
 
-- [ ] **Step 2: 跑測試，確認它紅**
+- [x] **Step 2: 跑測試，確認它紅**
 
 ```
 npx vitest run test/unit/ai-command.test.ts -t "rankFlights"
@@ -471,7 +471,7 @@ npx vitest run test/unit/ai-command.test.ts -t "rankFlights"
 
 預期：編譯失敗，`rankFlights` 不存在。
 
-- [ ] **Step 3: 寫 `rankFlights`**
+- [x] **Step 3: 寫 `rankFlights`**
 
 接在 `planFocusTarget` 之後：
 
@@ -553,7 +553,7 @@ export function rankFlights(
 }
 ```
 
-- [ ] **Step 4: 跑測試與型別檢查**
+- [x] **Step 4: 跑測試與型別檢查**
 
 ```
 npx vitest run test/unit/ai-command.test.ts
@@ -567,7 +567,7 @@ npx tsc --noEmit
 一對而跨不過別的。若實作把排序寫成不穩定的，這一條會以**別的方式**紅
 （同值那一條會先紅），**不要改場景，去看排序**。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/ai/command.ts test/unit/ai-command.test.ts
@@ -606,13 +606,13 @@ Array.prototype.sort 的實作細節破平手不能接受。
 - Consumes: Task 2 的 `rankFlights`
 - Produces: `stepCommand` 的**行為**改變（簽名不變）
 
-- [ ] **Step 1: 讀懂現行規劃段的形狀**
+- [x] **Step 1: 讀懂現行規劃段的形狀**
 
 不要改，只讀 `src/ai/command.ts` 的 `stepCommand`（約第 725 行起）。注意
 現在**同一個迴圈**裡做了三件事：計時、命令維護、規劃（撤退 → 側翼／集火）。
 Task 3 把第三件事的**進攻**那一半搬到迴圈之後。
 
-- [ ] **Step 2: 寫失敗的測試**
+- [x] **Step 2: 寫失敗的測試**
 
 在 `test/unit/ai-command.test.ts` 的 `describe('stepCommand：側翼與集火的生命週期'`
 那個 describe 的**最後**追加。這個 describe 的 `scene()` 只有兩個分隊，
@@ -742,7 +742,7 @@ describe('stepCommand：配額', () => {
 })
 ```
 
-- [ ] **Step 3: 跑測試，確認它紅**
+- [x] **Step 3: 跑測試，確認它紅**
 
 ```
 npx vitest run test/unit/ai-command.test.ts -t "配額"
@@ -750,7 +750,7 @@ npx vitest run test/unit/ai-command.test.ts -t "配額"
 
 預期：多條紅 —— 現在沒有配額，四支分隊會全部拿到集火令。
 
-- [ ] **Step 4: 把進攻規劃從迴圈裡拿掉**
+- [x] **Step 4: 把進攻規劃從迴圈裡拿掉**
 
 把 `// ── 規劃：撤退 > 側翼 > 集火 ─` 那一段（從那個註解到迴圈結尾的
 `}` 之前，也就是含「二：挑最近的敵分隊」與「三：遠 → 側翼；近 → 集火」
@@ -777,7 +777,7 @@ npx vitest run test/unit/ai-command.test.ts -t "配額"
   }
 ```
 
-- [ ] **Step 5: 在迴圈之後加階段二**
+- [x] **Step 5: 在迴圈之後加階段二**
 
 緊接在上一步那個 `}`（迴圈的收尾）之後、`stepCommand` 的收尾 `}` 之前：
 
@@ -859,7 +859,7 @@ npx vitest run test/unit/ai-command.test.ts -t "配額"
   }
 ```
 
-- [ ] **Step 6: 加 `RANKED` 暫存陣列**
+- [x] **Step 6: 加 `RANKED` 暫存陣列**
 
 在 `TARGET_IDX` 那一行下方加：
 
@@ -868,7 +868,7 @@ npx vitest run test/unit/ai-command.test.ts -t "配額"
 const RANKED: number[] = []
 ```
 
-- [ ] **Step 7: 進攻命令解除時把 `idle` 歸零**
+- [x] **Step 7: 進攻命令解除時把 `idle` 歸零**
 
 在命令維護那一段，**每一處把非 rally 的命令設成 null 的地方**都補上
 `s.idle[f] = 0`。共四處：
@@ -906,7 +906,7 @@ const RANKED: number[] = []
 **rally 那一支不加** —— 它歸零的是 `spent`（第一份既有的行為）。兩個計時器
 各管各的：一支剛撤退回來的分隊本來就是閒的，沒有理由再罰它一次（spec §5.1）。
 
-- [ ] **Step 8: 跑測試與型別檢查**
+- [x] **Step 8: 跑測試與型別檢查**
 
 ```
 npx vitest run test/unit/ai-command.test.ts test/unit/ai-controller.test.ts
@@ -915,7 +915,7 @@ npx tsc --noEmit
 
 預期：全綠、`tsc` 無輸出。
 
-- [ ] **Step 9: 跑通道驗收與強制注入驗收**
+- [x] **Step 9: 跑通道驗收與強制注入驗收**
 
 ```
 npx vitest run test/integration/ai-command-channel.test.ts
@@ -932,7 +932,7 @@ npx vitest run test/integration/ai-command-tactics.test.ts
 - **強制注入驗收**：它直接寫 `orders[vf]`，繞過排名與配額，所以**應該完全
   不受影響**。若它紅了，代表階段二動到了不該動的東西，**查根因**。
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/ai/command.ts test/unit/ai-command.test.ts
@@ -972,7 +972,7 @@ spent。一支剛撤退回來的分隊本來就是閒的，沒有理由再罰它
 **Interfaces:**
 - Consumes: Task 1~3 的全部
 
-- [ ] **Step 1: 寫測試檔**
+- [x] **Step 1: 寫測試檔**
 
 建立 `test/integration/ai-command-decision.test.ts`：
 
@@ -1092,7 +1092,7 @@ describe('決策層的主判準（20v20、120 秒、三場）', () => {
 }, 30 * 60 * 1000)
 ```
 
-- [ ] **Step 2: 跑測試**
+- [x] **Step 2: 跑測試**
 
 ```
 npx vitest run test/integration/ai-command-decision.test.ts
@@ -1109,7 +1109,7 @@ npx vitest run test/integration/ai-command-decision.test.ts
   而且是跑之前定死的）。先把 Task 5 的掃描跑完再判斷 —— 起始值
   `maxOrders = 2` 是推理出來的，不是實測出來的。
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add test/integration/ai-command-decision.test.ts
@@ -1144,7 +1144,7 @@ ai.order 與 focusTarget 設為 null。兩邊跑的是完全同一份程式。
 **Interfaces:**
 - Consumes: Task 1~4 的全部
 
-- [ ] **Step 1: 加掃描用的暫存測試檔**
+- [x] **Step 1: 加掃描用的暫存測試檔**
 
 建立 `test/integration/zz-decision-sweep.test.ts`（**掃完就刪**）：
 
@@ -1228,7 +1228,7 @@ it('掃描 maxOrders 與 idleSeconds', () => {
 }, 90 * 60 * 1000)
 ```
 
-- [ ] **Step 2: 跑掃描**
+- [x] **Step 2: 跑掃描**
 
 ```
 npx vitest run test/integration/zz-decision-sweep.test.ts
@@ -1236,7 +1236,7 @@ npx vitest run test/integration/zz-decision-sweep.test.ts
 
 共 8 組、每組兩場（加一場基準），約 17 場 120 秒的 20v20。
 
-- [ ] **Step 3: 選值**
+- [x] **Step 3: 選值**
 
 判準是 §7.3 的兩條斷言（`pass1` 與 `pass2` 都要 true）。
 
@@ -1247,7 +1247,7 @@ npx vitest run test/integration/zz-decision-sweep.test.ts
 **若沒有任何一組讓兩條同時成立**：那是決策層沒有買到東西。**停下來報告**，
 把整張表附上。不得調 `MARGIN`。
 
-- [ ] **Step 4: 回填**
+- [x] **Step 4: 回填**
 
 把 `DEFAULT_COMMAND` 的 `maxOrders` 與 `idleSeconds` 改成選出來的值，
 並把 Task 1 Step 5 寫的那段「**起始值，待 Task 5 由實測掃描回填**」換成
@@ -1257,7 +1257,7 @@ npx vitest run test/integration/zz-decision-sweep.test.ts
 「重掃的前提」要寫明：這組值依賴目前的飛行包絡（`specs/feel.ts` 的五個
 倍率）與 `DEFAULT_BATTLE` 的 20v20 編成，兩者大幅改動後要重掃。
 
-- [ ] **Step 5: 刪掉掃描用的暫存檔**
+- [x] **Step 5: 刪掉掃描用的暫存檔**
 
 ```bash
 rm test/integration/zz-decision-sweep.test.ts
@@ -1265,13 +1265,13 @@ rm test/integration/zz-decision-sweep.test.ts
 
 它會改動全域設定，留著會污染同檔以外的測試。
 
-- [ ] **Step 6: 跑全套（排除兩個並行假紅的檔案）**
+- [x] **Step 6: 跑全套（排除兩個並行假紅的檔案）**
 
 ```
 npx vitest run --exclude "**/perf-gate**" --exclude "**/rematch**"
 ```
 
-- [ ] **Step 7: 單獨複測那兩個檔案**
+- [x] **Step 7: 單獨複測那兩個檔案**
 
 ```
 npx vitest run test/unit/perf-gate.test.ts
@@ -1284,7 +1284,7 @@ npx vitest run test/integration/rematch.test.ts
 路徑上，所以理論上量不到。若它紅了，先確認 `rankFlights` 沒有在配置
 （`out.length = 0` 而不是 `out = []`）。
 
-- [ ] **Step 8: 逐條處理紅掉的測試**
+- [x] **Step 8: 逐條處理紅掉的測試**
 
 `multi-battle.test.ts`、`ai-duel-matrix.test.ts`、`ai-command-channel.test.ts`
 都會受配額影響。
@@ -1303,7 +1303,7 @@ ai-command-tactics   側翼方位角（第二份刻意留紅的紀錄，不動�
 
 其他檔案若有新的紅，**先查根因再報告，不得逕自調門檻**。
 
-- [ ] **Step 9: 回填 spec**
+- [x] **Step 9: 回填 spec**
 
 在 `docs/superpowers/specs/2026-08-08-command-ai-decision-design.md` 加一節
 「## 10. 實作後的實測回填」，內容：
@@ -1314,7 +1314,7 @@ ai-command-tactics   側翼方位角（第二份刻意留紅的紀錄，不動�
 - 若有任何一節的設計在實作中被推翻，明寫「實作後修正」並保留原文供追溯
   （這個專案的既有慣例，見第一份的 §9、第二份的 §10~§12）
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/ai/command.ts docs/superpowers/specs/2026-08-08-command-ai-decision-design.md
