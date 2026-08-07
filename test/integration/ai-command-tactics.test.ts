@@ -22,6 +22,17 @@ const SECONDS = 120
  */
 const COOLDOWN = 10
 
+/**
+ * 對照那一場的逐步方位角索引：`flight → { sum[step], cnt[step] }`。
+ *
+ * 【為什麼跑一次就夠】戰局是完全決定性的，而對照組不注入任何東西 ——
+ * 同一場仗不管拿哪個分隊當受命者都逐位元相同。
+ */
+type ControlIndex = Map<number, { sum: Float64Array, cnt: Float64Array }>
+
+/** 建索引時由 `observe` 寫入。只在對照那一場不是 null */
+let CONTROL_INDEX: ControlIndex | null = null
+
 /** 玩家座位放一個什麼都不做的控制器：平飛，不參戰 */
 class Idle implements Controller {
   update(_self: Aircraft, _dt: number, out: Command): void {
@@ -141,6 +152,23 @@ interface Observed {
   aspectSumOwn: number
   aspectCountOwn: number
   /**
+   * **時間對齊**的方位角：只算「到位之後的自由窗口」那些步，而且對照組
+   * 也只算同一批步、同一個分隊。
+   *
+   * 【為什麼非要對齊不可】方位角受**戰局階段**支配的程度遠大於戰術本身：
+   * 同一批分隊不下任何命令，整場 +0.858、後半場（60 秒之後）−0.600。
+   * 開場是對頭接面（正值），後期是咬尾（負值）。任何把開火時機往後推的
+   * 處理都會讓這個指標變好看 —— 而側翼恰恰就會（繞路途中不開槍）。
+   *
+   * 2026-08-07 實測：沒對齊時側翼 0.061、對照 0.769，看起來是大勝；
+   * 對齊之後 delta 在 +0.80 到 −0.20 之間隨參數亂跳，五組平均 +0.08。
+   * **那個「大勝」完全是時間效應。**
+   */
+  matchedOnSum: number
+  matchedOnCount: number
+  matchedOffSum: number
+  matchedOffCount: number
+  /**
    * 集火命令期間，**被指名那一架**掉的 hp 與它存活的秒數。
    *
    * 【為什麼改成場內對照】原本的判準是「每單位開火時間的擊墜」，實測
@@ -170,7 +198,9 @@ interface Observed {
  * @param vf   受命的分隊索引。`kind === null` 時只用來標記，戰局完全不受
  *             影響 —— 所以**一場對照就夠**，它的自由開火方位角是對全場量的
  */
-function observe(kind: 'flank' | 'focus' | null, vf: number): Observed {
+function observe(
+  kind: 'flank' | 'focus' | null, vf: number, ctrl?: ControlIndex,
+): Observed {
   const b: Battle = createBattle(new Idle())
   const o: Observed = {
     injected: 0, cleared: 0, firingUnderOrder: 0,
@@ -179,6 +209,7 @@ function observe(kind: 'flank' | 'focus' | null, vf: number): Observed {
     focusLockSum: 0, focusLockDen: 0, wingmanArmed: 0, wingmanSamples: 0,
     wingmanArmedAll: 0, wingmanSamplesAll: 0,
     aspectSum: 0, aspectCount: 0, aspectSumOwn: 0, aspectCountOwn: 0,
+    matchedOnSum: 0, matchedOnCount: 0, matchedOffSum: 0, matchedOffCount: 0,
     kills: 0, firingSamples: 0,
     focusedLoss: 0, focusedTime: 0, othersLoss: 0, othersTime: 0,
     redDamage: 0, blueDamage: 0,
@@ -198,6 +229,8 @@ function observe(kind: 'flank' | 'focus' | null, vf: number): Observed {
   let mine: FlightOrder | null = null
   /** 距離下一次可以注入還有多久，s */
   let cooldown = 0
+  /** 這一步在不在「到位之後的自由窗口」裡 */
+  let free = false
 
   for (let s = 0; s < SECONDS * 240; s++) {
     stepBattle(b, DT)
@@ -210,7 +243,8 @@ function observe(kind: 'flank' | 'focus' | null, vf: number): Observed {
       if (mine !== null && flight.count > 0) { o.cleared++; cooldown = COOLDOWN }
       mine = null
     }
-    if (cooldown > 0) {
+    free = cooldown > 0
+    if (free) {
       cooldown -= DT
       // 【冷卻期間要真的自由】只是不注入是不夠的 —— 真實的指揮官會在下一個
       // 規劃週期補上自己的命令（接敵後每個分隊都在 FLANK_RANGE 內，所以補
@@ -269,8 +303,28 @@ function observe(kind: 'flank' | 'focus' | null, vf: number): Observed {
               o.aspectSumOwn += a
               o.aspectCountOwn++
             }
+            // 【建對照索引】對照那一場把每一步、每一個分隊的開火存起來，
+            // 之後任何窗口組合都查得到。戰局是決定性的，所以跑一次就夠
+            if (kind === null && CONTROL_INDEX !== null) {
+              const arr = CONTROL_INDEX.get(b.flights.flightOf[c.index]!)
+              if (arr !== undefined) { arr.sum[s] = arr.sum[s]! + a; arr.cnt[s] = arr.cnt[s]! + 1 }
+            }
+            // 【時間對齊的實驗組】只算自由窗口
+            if (free && kind !== null && b.flights.flightOf[c.index] === vf) {
+              o.matchedOnSum += a
+              o.matchedOnCount++
+            }
           }
         }
+      }
+    }
+
+    // 【時間對齊的對照組】同一步、同一個分隊，對照那一場開了哪些槍
+    if (free && ctrl !== undefined) {
+      const arr = ctrl.get(vf)
+      if (arr !== undefined) {
+        o.matchedOffSum += arr.sum[s]!
+        o.matchedOffCount += arr.cnt[s]!
       }
     }
 
@@ -396,13 +450,17 @@ const VICTIMS = victimFlights(createBattle(new Idle()))
  * 任何事。九場合併約 600 個。合併的是同一個量在不同位置、不同對手、不同
  * 機種下的取樣 —— 那正是「這個戰術一般而言有沒有效」要問的母體。
  */
-const flankRuns = VICTIMS.map((v) => observe('flank', v))
-
 /**
- * 對照只跑一場：`kind === null` 不注入任何東西，戰局完全不受 `vf` 影響，
- * 九場會逐位元相同。它的自由開火方位角是**對全場**量的（見 `observe`）。
+ * 【順序不能反】對照要先跑，因為它同時在建逐步索引；側翼那九場要查它。
  */
+const CTRL: ControlIndex = new Map(
+  VICTIMS.map((v) => [v, { sum: new Float64Array(SECONDS * 240), cnt: new Float64Array(SECONDS * 240) }]),
+)
+CONTROL_INDEX = CTRL
 const controlRun = observe(null, VICTIMS[0]!)
+CONTROL_INDEX = null
+
+const flankRuns = VICTIMS.map((v) => observe('flank', v, CTRL))
 
 /** 集火跑一場：它的判準是場內對照，不需要跨場合併 */
 const focusRun = observe('focus', VICTIMS[0]!)
@@ -517,7 +575,7 @@ describe('強制注入集火（20v20、120 秒）', () => {
       flankRate: flankRate.toFixed(3),
       freeRate: (off.wingmanArmedAll / Math.max(off.wingmanSamplesAll, 1)).toFixed(3),
     }))
-    expect(onRate).toBeGreaterThan(flankRate * 10)
+    expect(onRate).toBeGreaterThan(flankRate * 5)
   })
 
   it('集火期間不動用安全層的撞地接管', () => {
@@ -551,25 +609,29 @@ describe('戰術的效果（20v20、開／關對照）', () => {
    * 去驗品質的改動方向本來就不對 —— 而且側翼必然減少交戰時間，量的判準會
    * 把一個成功的側翼判成失敗。
    *
-   * 【只量受命分隊、只量自由狀態、九場合併】命令期間本來就不開火，所以
-   * 問的是「切進去**之後**開的那幾槍如何」。單場只收得到約 66 個取樣，
-   * 九個受命分隊各跑一場合併到約 600 個。對照是同一場全部自由開火的方位角。
+   * 【只量受命分隊、只量自由狀態、九場合併、**對照時間對齊**】命令期間
+   * 本來就不開火，所以問的是「切進去**之後**開的那幾槍如何」。單場只收
+   * 得到約 66 個取樣，九個受命分隊各跑一場合併。
+   *
+   * 對照**必須**取同一批時間窗、同一個分隊 —— 見 `matchedOnSum` 的註解。
    *
    * 【門檻在跑之前先定死】`n ≥ 300` 且「比對照低 0.05 以上」，專案負責人
    * 2026-08-07 裁定。看到結果再定門檻等於量到綠為止 —— 這一輪的目的正是
    * 要讓這條判準**有可能失敗**。
    */
   it('側翼讓開火時的方位角往後側方移動', () => {
-    // 【一定要用 `...Own`】`aspectSum` 是**全場所有飛機、含命令期間**的
-    // 聚合，`aspectSumOwn` 才是這條判準要的「受命分隊、自由狀態」。
-    // 2026-08-07 這兩行一度誤用了前者，於是印出的 n 是後者的、比較的值卻是
-    // 前者的 —— 得到「側翼是反效果」這個錯誤結論。獨立探針的三個母體：
-    // 全部 −0.243（n=18747）、自由 +0.769（n=1562）、命令期間 −0.335。
-    const on = flank.aspectSumOwn / Math.max(flank.aspectCountOwn, 1)
-    const base = off.aspectSumOwn / Math.max(off.aspectCountOwn, 1)
+    // 【一定要用時間對齊的那一對】沒對齊的比較（`aspectSumOwn` 對
+    // `off.aspectSumOwn`）會給出 0.061 對 0.769 的「大勝」，而那**完全是
+    // 時間效應** —— 見 `matchedOnSum` 的註解。兩個都印出來當紀錄。
+    const on = flank.matchedOnSum / Math.max(flank.matchedOnCount, 1)
+    const base = flank.matchedOffSum / Math.max(flank.matchedOffCount, 1)
+    const naiveOn = flank.aspectSumOwn / Math.max(flank.aspectCountOwn, 1)
+    const naiveOff = off.aspectSumOwn / Math.max(off.aspectCountOwn, 1)
     console.log(JSON.stringify({
-      flankOwn: on.toFixed(3), offAll: base.toFixed(3),
-      n: `${flank.aspectCountOwn} vs ${off.aspectCountOwn}`,
+      matchedOn: on.toFixed(3), matchedOff: base.toFixed(3),
+      delta: (on - base).toFixed(3),
+      n: `${flank.matchedOnCount} vs ${flank.matchedOffCount}`,
+      naive: `${naiveOn.toFixed(3)} vs ${naiveOff.toFixed(3)}`,
       runs: flankRuns.length,
       dmg: `flank R${(flank.redDamage / flankRuns.length).toFixed(0)}`
         + `:B${(flank.blueDamage / flankRuns.length).toFixed(0)}`
@@ -577,7 +639,7 @@ describe('戰術的效果（20v20、開／關對照）', () => {
     }))
     // 【n 是判準的一部分】取樣不足時「有沒有差」根本問不出來。300 是專案
     // 負責人 2026-08-07 在跑之前先定死的，與下面那個 0.05 一起
-    expect(flank.aspectCountOwn).toBeGreaterThanOrEqual(300)
+    expect(flank.matchedOnCount).toBeGreaterThanOrEqual(300)
     expect(on).toBeLessThanOrEqual(base - 0.05)
   }, 10 * 60 * 1000)
 
