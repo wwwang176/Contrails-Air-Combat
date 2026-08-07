@@ -354,6 +354,7 @@ export function createBattle(
       velocity: c.aircraft.state.velocity,
       cornerRatio: 1,
       hpFraction: 1,
+      shotInstant: 0,
       serviceCeiling: ceiling,
       alive: c.alive,
     }
@@ -469,6 +470,11 @@ function stepCommandLayer(b: Battle, dt: number): void {
     const full = a.spec.hp
     const frac = full > 0 ? c.hp / full : 0
     u.hpFraction = frac > 0 ? frac : 0
+    // 【只為排名】射擊解強度的鏡像，見 command.ts 的 `idle`。玩家座位沒有
+    // AiController，寫 0（視為閒置）—— 無害，玩家那一隊本來就被 skipFlight
+    // 跳過
+    const ctl = c.controller
+    u.shotInstant = ctl instanceof AiController ? ctl.shotInstant : 0
   }
 
   const playerFlight = b.flights.pinned >= 0 ? b.flights.flightOf[b.flights.pinned]! : -1
