@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  planFlightOrder, DEFAULT_COMMAND, type CommandUnit,
+  planFlightOrder, createCommandState, stepCommand, DEFAULT_COMMAND,
+  type CommandUnit, type CommandFlight,
 } from '../../src/ai/command'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { THREAT_RANGE } from '../../src/ai/assess'
@@ -163,5 +164,123 @@ describe('planFlightOrder：退化與穩定性', () => {
       const moved = planFlightOrder(members, [unit({ z: 1000, x: d })], SPENT, cfg)!
       expect(moved.point.distanceTo(base.point)).toBeLessThan(limit)
     }
+  })
+})
+
+/** 造一個分隊：成員是 `units` 裡的索引 */
+function flight(...idx: number[]): CommandFlight {
+  const members = new Int32Array(4).fill(-1)
+  idx.forEach((v, i) => { members[i] = v })
+  return { members, count: idx.length }
+}
+
+const DT = 1 / 240
+
+describe('stepCommand：命令的生命週期', () => {
+  /** 兩架的小隊 + 一架敵機，小隊在原點、敵機在 +Z 1000 */
+  function scene(cornerRatio: number) {
+    const units: CommandUnit[] = [unit({ cornerRatio }), unit({ x: 200, cornerRatio: 1.2 })]
+    const enemies: CommandUnit[] = [unit({ z: 1000 })]
+    const flights = [flight(0, 1)]
+    const s = createCommandState(flights.length)
+    return { units, enemies, flights, s }
+  }
+  /** 推進 `seconds` 秒 */
+  function run(sc: ReturnType<typeof scene>, seconds: number, skip = -1) {
+    const steps = Math.round(seconds / DT)
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.units, sc.enemies, skip, DT, cfg)
+    }
+  }
+
+  it('健康的小隊永遠不發令', () => {
+    const sc = scene(1.2)
+    run(sc, 30)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【最低的那一架】spec §2.4：編隊的能力等於最弱的那一架。這一條的第二架
+   * 是健康的（1.2），命令仍然要發。
+   */
+  it('最低那一架持續超時 → 發令', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    expect(sc.s.orders[0]).not.toBeNull()
+  })
+
+  it('還沒累積滿就不發令', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds * 0.5)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  it('中途回復健康 → 計時歸零，不發令', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds * 0.9)
+    sc.units[0]!.cornerRatio = 1.2
+    run(sc, cfg.spentSeconds * 0.9 + cfg.planPeriod + 1)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  it('被跳過的小隊（玩家那一隊）不發令', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1, 0)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  it('全隊陣亡 → 命令清掉、計時歸零', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    expect(sc.s.orders[0]).not.toBeNull()
+    sc.flights[0] = { members: sc.flights[0]!.members, count: 0 }
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+    expect(sc.s.spent[0]).toBe(0)
+  })
+
+  it('到達集合點 → 命令解除', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const order = sc.s.orders[0]!
+    // 把整隊瞬移到集合點上
+    for (const u of sc.units) u.position.copy(order.point)
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【這一條守著 spec §4.2 的遲滯】解除時把見底計時器歸零，就是遲滯 ——
+   * 不需要另外加一個 `latch`。若忘了歸零，抵達的下一格就會立刻重發，小隊
+   * 會被永久釘在命令狀態。
+   */
+  it('到達後不會立刻重發：見底計時歸零', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const order = sc.s.orders[0]!
+    for (const u of sc.units) u.position.copy(order.point)
+    // 【剛好一步】見底計時在每一步都先累積、再判到達，所以「歸零」只在
+    // 抵達的那一格上成立 —— 下一格這隊仍然是見底的（cornerRatio 0.4），
+    // 計時本來就該重新開始累積。多推一步再斷言 `toBe(0)` 量到的是
+    // 0.00417（一格的 dt），那是測試的步數錯了，不是實作漏了歸零。
+    run(sc, DT)
+    expect(sc.s.spent[0]).toBe(0)
+    // 再跑一個規劃週期，仍然不該有命令（要重新累積滿 spentSeconds）
+    run(sc, cfg.planPeriod + DT)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【集合點凍結】spec §4.1。敵人移動不得讓已發出的命令改點 —— 否則小隊
+   * 追著一個移動的目標跑，「到達」永遠判定不了。
+   */
+  it('命令發出後，敵人移動不會改變集合點', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const before = sc.s.orders[0]!.point.clone()
+    sc.enemies[0]!.position.set(5000, 4000, -5000)
+    run(sc, cfg.planPeriod * 2)
+    expect(sc.s.orders[0]!.point.x).toBe(before.x)
+    expect(sc.s.orders[0]!.point.z).toBe(before.z)
   })
 })
