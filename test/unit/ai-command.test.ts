@@ -614,7 +614,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
 
   it('健康的小隊、敵分隊很近 → 集火', () => {
     const sc = scene(-800)
-    run(sc, cfg.planPeriod + DT)
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
     expect(sc.s.orders[0]!.kind).toBe('focus')
     // 兩架敵機血量相同，取近的 —— 索引 2 與 3 等距，取先掃到的 2
     expect(sc.s.orders[0]!.focusIndex).toBe(2)
@@ -666,9 +666,15 @@ describe('stepCommand：側翼與集火的生命週期', () => {
     expect(sc.s.orders[0]).not.toBeNull()
   })
 
+  /**
+   * 【暖機要含 idleSeconds】第三份加了閒置門檻：一支分隊要連續
+   * `idleSeconds` 秒沒有人握著射擊解才進得了排名榜。這幾條量的是**解除
+   * 條件**，不是觸發時機，所以暖機拉長到 `idleSeconds + planPeriod` ——
+   * 改的是場景的暖機長度，不是斷言。
+   */
   it('集火目標陣亡 → 命令解除', () => {
     const sc = scene(-800)
-    run(sc, cfg.planPeriod + DT)
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
     const idx = sc.s.orders[0]!.focusIndex
     sc.units[idx]!.alive = false
     run(sc, DT * 2)
@@ -682,7 +688,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
    */
   it('集火目標跑遠 → 命令解除', () => {
     const sc = scene(-800)
-    run(sc, cfg.planPeriod + DT)
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
     for (const i of [2, 3]) sc.units[i]!.position.z = -4000
     run(sc, DT * 2)
     expect(sc.s.orders[0]).toBeNull()
@@ -690,7 +696,7 @@ describe('stepCommand：側翼與集火的生命週期', () => {
 
   it('集火目標只跑到 focusRange 與 FLANK_RANGE 之間 → 命令不解除', () => {
     const sc = scene(-800)
-    run(sc, cfg.planPeriod + DT)
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
     for (const i of [2, 3]) sc.units[i]!.position.z = -2000
     run(sc, DT * 2)
     expect(sc.s.orders[0]).not.toBeNull()
@@ -701,6 +707,128 @@ describe('stepCommand：側翼與集火的生命週期', () => {
     const sc = scene(4000)
     run(sc, cfg.planPeriod * 3)
     expect(sc.s.orders[1]).toBeNull()
+  })
+})
+
+describe('stepCommand：配額', () => {
+  /**
+   * 我方四個分隊（索引 0~3，各一架，在原點朝 −Z），敵方一個分隊
+   * （索引 4，兩架，在 −Z 800 也就是我方**航向上**，所以集火的錐形閘門
+   * 會放行）。`units` 的索引與成員一一對應。
+   */
+  function scene() {
+    const units: CommandUnit[] = [
+      unit({ x: 0 }), unit({ x: 400 }), unit({ x: 800 }), unit({ x: 1200 }),
+      unit({ z: -800 }), unit({ x: 200, z: -800 }),
+    ]
+    const flights = [
+      flight(0), flight(1), flight(2), flight(3), flight(4, 5),
+    ]
+    const s = createCommandState(flights.length)
+    return { units, flights, s, own: [0, 1, 2, 3], foe: [4] }
+  }
+  function run(sc: ReturnType<typeof scene>, seconds: number, skip = -1) {
+    const steps = Math.round(seconds / DT)
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, skip, DT, cfg)
+    }
+  }
+  /** 目前持有進攻命令的分隊數 */
+  function attacking(sc: ReturnType<typeof scene>): number {
+    let n = 0
+    for (const f of sc.own) {
+      const o = sc.s.orders[f]
+      if (o !== undefined && o !== null && o.kind !== 'rally') n++
+    }
+    return n
+  }
+
+  it('同時持有進攻命令的分隊數不超過 maxOrders', () => {
+    const sc = scene()
+    run(sc, cfg.idleSeconds + cfg.planPeriod * 3)
+    expect(attacking(sc)).toBe(cfg.maxOrders)
+  })
+
+  /** 【全程都不超過】只看終點會漏掉「中途爆量、後來才收斂」 */
+  it('全程都不超過 maxOrders', () => {
+    const sc = scene()
+    const steps = Math.round((cfg.idleSeconds + cfg.planPeriod * 5) / DT)
+    let worst = 0
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, -1, DT, cfg)
+      const n = attacking(sc)
+      if (n > worst) worst = n
+    }
+    expect(worst).toBe(cfg.maxOrders)
+  })
+
+  /** 【閒最久的先拿到】四支的 idle 一起長，所以由索引小的先拿 */
+  it('拿到命令的是排名最前面的那幾支', () => {
+    const sc = scene()
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
+    expect(sc.s.orders[0]).not.toBeNull()
+    expect(sc.s.orders[1]).not.toBeNull()
+    expect(sc.s.orders[2]).toBeNull()
+    expect(sc.s.orders[3]).toBeNull()
+  })
+
+  /** 【名額釋出後補上】命令解除 → 下一個規劃週期換別人 */
+  it('一張命令解除後，名額由下一支補上', () => {
+    const sc = scene()
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
+    // 讓分隊 0 的集火目標陣亡 → 它的命令解除
+    const idx = sc.s.orders[0]!.focusIndex
+    sc.units[idx]!.alive = false
+    run(sc, cfg.planPeriod * 2)
+    expect(attacking(sc)).toBe(cfg.maxOrders)
+    // 分隊 0 的 idle 在解除時歸零，所以補上的不是它
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【解除時 idle 歸零就是遲滯】spec §5.1。少了這一行，剛解除的分隊在
+   * 下一個週期就會回到榜首（它確實是閒的），於是被永久釘在命令狀態 ——
+   * 那正是第一份記載過的病。
+   */
+  it('進攻命令解除時 idle 歸零', () => {
+    const sc = scene()
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
+    const idx = sc.s.orders[0]!.focusIndex
+    sc.units[idx]!.alive = false
+    run(sc, DT * 2)
+    expect(sc.s.idle[0]).toBeLessThan(cfg.idleSeconds)
+  })
+
+  /**
+   * 【撤退不佔配額】spec §3.2。K 已經滿了，但一支見底的分隊仍然要拿得到
+   * 撤退令 —— 「打不動了」是一個事實，不是指揮官在分配資源。
+   */
+  it('配額滿了，見底的分隊仍然拿得到撤退令', () => {
+    const sc = scene()
+    run(sc, cfg.idleSeconds + cfg.planPeriod + DT)
+    expect(attacking(sc)).toBe(cfg.maxOrders)
+    // 讓一支還沒拿到命令的分隊（索引 2）見底
+    sc.units[2]!.cornerRatio = 0.4
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    expect(sc.s.orders[2]!.kind).toBe('rally')
+  })
+
+  /** 【K = 0】指揮官只做撤退。合法設定，也是掃描的一個端點 */
+  it('maxOrders = 0 → 完全不發進攻命令，但撤退照發', () => {
+    const zero = { ...cfg, maxOrders: 0 }
+    const sc = scene()
+    const steps = Math.round((cfg.idleSeconds + cfg.planPeriod * 3) / DT)
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, -1, DT, zero)
+    }
+    expect(attacking(sc)).toBe(0)
+
+    sc.units[2]!.cornerRatio = 0.4
+    const more = Math.round((cfg.spentSeconds + cfg.planPeriod + 1) / DT)
+    for (let i = 0; i < more; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, -1, DT, zero)
+    }
+    expect(sc.s.orders[2]!.kind).toBe('rally')
   })
 })
 
