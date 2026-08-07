@@ -9,6 +9,18 @@ import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
 const SECONDS = 120
+/**
+ * 一張注入的命令解除之後，隔多久才注入下一張，s。
+ *
+ * 【為什麼一定要有】側翼要買的是「切進去**之後**開的那幾槍角度更好」。
+ * 到位就立刻補下一張的話，受命分隊整整 120 秒一槍都不開（實測方位角取樣
+ * 0 個），品質指標量不到任何東西 —— 那不是戰術沒效果，是量測把效果的
+ * 發生時機整個切掉了。
+ *
+ * 10 秒是一次咬尾攻擊的量級（`entryRange` 10 km、對頭接近率 400 m/s 下，
+ * 第一次扣扳機到脫離約十幾秒）。
+ */
+const COOLDOWN = 10
 
 /** 玩家座位放一個什麼都不做的控制器：平飛，不參戰 */
 class Idle implements Controller {
@@ -95,6 +107,23 @@ interface Observed {
    */
   wingmanArmedAll: number
   wingmanSamplesAll: number
+  /**
+   * 開火那一刻的**方位角**累加：`敵機首 · 由敵指向我`。
+   * 越接近 −1 代表越是從他背後打。除以 `aspectCount` 得平均。
+   */
+  aspectSum: number
+  aspectCount: number
+  /** 全場的擊墜數 */
+  kills: number
+  /** 全場的開火取樣數（所有飛機），當「每單位開火時間的擊墜」的分母 */
+  firingSamples: number
+  /** 受命分隊自己開火時的方位角，與全場的分開 */
+  aspectSumOwn: number
+  aspectCountOwn: number
+  /** 紅方掉的 hp */
+  redDamage: number
+  /** 藍方掉的 hp */
+  blueDamage: number
 }
 
 /**
@@ -110,7 +139,12 @@ function observe(kind: 'flank' | 'focus' | null): Observed {
     groundUnderOrder: 0, belowClearance: 0,
     focusLockSum: 0, focusLockDen: 0, wingmanArmed: 0, wingmanSamples: 0,
     wingmanArmedAll: 0, wingmanSamplesAll: 0,
+    aspectSum: 0, aspectCount: 0, aspectSumOwn: 0, aspectCountOwn: 0,
+    kills: 0, firingSamples: 0,
+    redDamage: 0, blueDamage: 0,
   }
+  /** 開場的 hp，用來算全程掉了多少。與 `ai-command-channel.test.ts` 同一個算法 */
+  const hp0 = b.world.combatants.map((c) => c.hp)
   const vf = victimFlight(b)
   if (vf < 0) return o
   /**
@@ -121,6 +155,8 @@ function observe(kind: 'flank' | 'focus' | null): Observed {
    * 每步補位之後那一格永遠不是空的，規劃那一支就永遠輪不到它。
    */
   let mine: FlightOrder | null = null
+  /** 距離下一次可以注入還有多久，s */
+  let cooldown = 0
 
   for (let s = 0; s < SECONDS * 240; s++) {
     stepBattle(b, DT)
@@ -129,12 +165,13 @@ function observe(kind: 'flank' | 'focus' | null): Observed {
     // 【消失了就是被解除了】指揮官不會替一張還在的命令換一張（規劃只在
     // `orders[f] === null` 時跑），所以不同一性只可能來自 stepCommand 的解除
     if (b.blueCommand.orders[vf] !== mine) {
-      if (mine !== null && flight.count > 0) o.cleared++
+      if (mine !== null && flight.count > 0) { o.cleared++; cooldown = COOLDOWN }
       mine = null
     }
+    if (cooldown > 0) cooldown -= DT
 
     // ── 強制注入 ────────────────────────────────────────
-    if (mine === null && kind !== null && flight.count > 0) {
+    if (mine === null && cooldown <= 0 && kind !== null && flight.count > 0) {
       const tf = nearestRedFlight(b, vf, kind === 'flank' ? FLANK_RANGE : 0)
       if (tf >= 0) {
         const injected = makeOrder(b, kind, tf)
@@ -150,6 +187,31 @@ function observe(kind: 'flank' | 'focus' | null): Observed {
     for (const c of b.world.combatants) {
       if (!c.alive) continue
       if (c.aircraft.state.position.y < DEFAULT_SAFETY.clearance) o.belowClearance++
+      // 【這裡配置 Vector3 是可以的】它在測試檔裡，不在 `src/` 的熱路徑上。
+      // 品質指標只在量測時算
+      if (c.command.firing) {
+        o.firingSamples++
+        const ai = c.controller
+        const t = ai instanceof AiController ? ai.target : null
+        if (t !== null) {
+          // 敵機首 · 由敵指向我。−1 = 我在他正後方
+          const fwd = new Vector3(0, 0, -1).applyQuaternion(t.state.orientation)
+          const los = new Vector3().copy(c.aircraft.state.position).sub(t.state.position)
+          const len = los.length()
+          if (len > 1e-6) {
+            const a = fwd.dot(los) / len
+            o.aspectSum += a
+            o.aspectCount++
+            // 【只量自由狀態】命令期間本來就不開火（側翼）或打指定的那一架
+            // （集火）。品質問的是「戰術執行完之後，這個分隊開的槍如何」
+            const own = ai instanceof AiController && ai.order === null
+            if (own && b.flights.flightOf[c.index] === vf) {
+              o.aspectSumOwn += a
+              o.aspectCountOwn++
+            }
+          }
+        }
+      }
     }
 
     // 【基線在命令之外量】這一段刻意排在 `order === null` 的閘門**之前**
@@ -206,6 +268,13 @@ function observe(kind: 'flank' | 'focus' | null): Observed {
         }
       }
     }
+  }
+
+  for (const c of b.world.combatants) {
+    if (!c.alive) o.kills++
+    const lost = hp0[c.index]! - c.hp
+    if (c.team === 'blue') o.blueDamage += lost
+    else o.redDamage += lost
   }
   return o
 }
@@ -342,3 +411,77 @@ describe('強制注入集火（20v20、120 秒）', () => {
     expect(on.groundUnderOrder).toBe(0)
   })
 }, 10 * 60 * 1000)
+
+/**
+ * 量的地板：側翼那一場的總傷害至少要有對照組的幾成。
+ *
+ * 【還沒定值 —— 刻意的】2026-08-07 實測：側翼那一場 1736、對照 2764，
+ * 比值 **0.628**。這個地板是**護欄不是參數**，要由專案負責人依實測裁定；
+ * 在裁定之前不要猜一個數字填進去 —— 那會讓一條護欄看起來有來歷，其實沒有。
+ *
+ * 第一份 §9.4 已經記過：一條撤退規則就讓總傷害掉 48%，遠高於命令佔時
+ * 比例，因為撤離的小隊同時停止挨打與停止輸出。側翼再加一段。
+ */
+const FLOOR = 0
+
+describe('戰術的效果（20v20、開／關對照）', () => {
+  const flank = flankRun
+  const focus = focusRun
+  const off = controlRun
+
+  /**
+   * 【側翼的品質】spec §7.3 的第 29 條。開火那一刻的方位角往後側方移動 ——
+   * 值越接近 −1 代表越是從他背後打。
+   *
+   * 【為什麼是品質而不是總傷害】專案負責人 2026-08-07 裁定：側翼與集火要
+   * 買的是「從更好的角度發起攻擊」與「同一個目標被更多架咬」。用總傷害量
+   * 去驗品質的改動方向本來就不對 —— 而且側翼必然減少交戰時間，量的判準會
+   * 把一個成功的側翼判成失敗。
+   */
+  it('側翼讓開火時的方位角往後側方移動', () => {
+    const on = flank.aspectSum / Math.max(flank.aspectCount, 1)
+    const base = off.aspectSum / Math.max(off.aspectCount, 1)
+    console.log(JSON.stringify({
+      flankAspect: on.toFixed(3), offAspect: base.toFixed(3),
+      flankOwn: (flank.aspectSumOwn / Math.max(flank.aspectCountOwn, 1)).toFixed(3),
+      offOwn: (off.aspectSumOwn / Math.max(off.aspectCountOwn, 1)).toFixed(3),
+      nOwn: `${flank.aspectCountOwn} vs ${off.aspectCountOwn}`,
+      dmg: `flank R${flank.redDamage.toFixed(0)}:B${flank.blueDamage.toFixed(0)}`
+        + ` focus R${focus.redDamage.toFixed(0)}:B${focus.blueDamage.toFixed(0)}`
+        + ` off R${off.redDamage.toFixed(0)}:B${off.blueDamage.toFixed(0)}`,
+      fire: `${flank.firingSamples}/${focus.firingSamples}/${off.firingSamples}`,
+    }))
+    expect(on).toBeLessThan(base)
+  }, 10 * 60 * 1000)
+
+  /**
+   * 【集火的品質】spec §7.3 的第 30 條。集火的整個賣點就是「同一架被多人
+   * 咬 → 更快掉下來」；若它沒有變快，這個戰術沒有意義（spec §7.5 的否決
+   * 條件之一）。
+   */
+  it('集火讓每單位開火時間的擊墜上升', () => {
+    const on = focus.kills / Math.max(focus.firingSamples, 1)
+    const base = off.kills / Math.max(off.firingSamples, 1)
+    console.log(JSON.stringify({
+      focusKPF: (on * 1e4).toFixed(3), offKPF: (base * 1e4).toFixed(3),
+      focusKills: focus.kills, offKills: off.kills,
+    }))
+    expect(on).toBeGreaterThan(base)
+  }, 10 * 60 * 1000)
+
+  /**
+   * 【地板未定，所以這一條現在只擋「歸零」】`FLOOR` 是 0 的期間，
+   * `on > base * 0` 等於「總傷害不是零」—— 那不是空洞的斷言（歸零代表兩隊
+   * 完全停止交戰，是一種真的失敗模式），但它**不是** spec §7.3 要的那條
+   * 護欄。定值之後把 `FLOOR` 換掉，這一段註解也要一起改。
+   */
+  it('總傷害不得崩掉（地板待專案負責人裁定）', () => {
+    const on = flank.redDamage + flank.blueDamage
+    const base = off.redDamage + off.blueDamage
+    console.log(JSON.stringify({
+      onTotal: on.toFixed(0), offTotal: base.toFixed(0),
+      ratio: (on / Math.max(base, 1)).toFixed(3),
+    }))
+    expect(on).toBeGreaterThan(base * FLOOR)
+  }, 10 * 60 * 1000)
+})
