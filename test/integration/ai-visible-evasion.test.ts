@@ -247,10 +247,26 @@ interface Result {
    * 是「完全不動作」的那一條（0.7~0.9°）。
    */
   contrast: number
-  /** 受測 AI 整場的最低高度，m */
+  /** 受測 AI 整場的最低高度，m。**觀測值，不設門檻**（理由見六場護欄的註解） */
   minAlt: number
-  /** 有沒有跑滿整個觀察窗。false = 有人中途出局 */
-  survived: boolean
+  /**
+   * 安全層的**撞地**接管、且發生在離地 `clearanceScale` 以內的時間比例
+   * —— 六場護欄的判準。兩個限定的理由見取樣迴圈裡的註解（失速接管的
+   * 補救方向相反；撞地分支在拉不動時於任何高度都會成立）。
+   *
+   * 【為什麼量這個而不是最低高度】離地底限是一條由 `clearanceScale`（500 m）
+   * 線性降到 0 的斜坡，它在**恰好 500 m 時輸出 0**。要求「最低高度不低於
+   * 500」等於要求一個比例控制器有零穩態穿越 —— 斜坡做不到，加大增益也做
+   * 不到（實測抬角由 10° 加到 80°，800 橫越那一場的最低高度卡在 398 m
+   * 一個位數都沒動：底部由飛機當下的拉起能力決定，不由指令角度決定）。
+   *
+   * 該問的是**硬限制有沒有被動用**。政策層存在的目的就是讓那道最後防線
+   * 不必動（spec §3「政策先動，硬限制只在政策失效時動」），而它是二元的、
+   * 沒有這個穿越問題。
+   */
+  safetyShare: number
+  /** 受測 AI 有沒有活到最後。墜海或被擊落都是 false */
+  aiAlive: boolean
 }
 
 /**
@@ -404,13 +420,36 @@ function measure(standoff: number, aspect: Aspect = 'tail'): Result {
   let hits = 0
   let samples = 0
   let minAlt = ALT
-  let steps = 0
+  let safety = 0
+  let flown = 0
 
   for (let s = 0; s < SECONDS * 240; s++) {
     world.step(DT)
-    if (!pc.alive || !hc.alive) break
+    // 【受測 AI 死掉才是真的結束】腳本射手撞海只終止**瞄準指標的取樣**
+    // （沒有射手就沒有「玩家壓不壓得住準星」這個問題），高度與安全層要看
+    // 到整場結束 —— 否則量到的是「射手死掉那一刻 AI 的高度」，而 AI 的
+    // 最低點與拉起來的過程往往在那之後。實測 800 橫越就差了 347 m。
+    if (!pc.alive) break
     minAlt = Math.min(minAlt, prey.state.position.y)
-    steps = s + 1
+    // 【只數撞地那一支，而且只數在政策層地盤裡的】
+    //
+    // 一、安全層有兩個接管，補救方向相反（撞地拉起、失速壓頭）。數
+    // `safetyActive` 會把失速接管也算進來 —— 實測 800 尾追與 1000 橫越在
+    // 3950 m 各有 2.23% / 3.67%，那個高度不可能是撞地。
+    //
+    // 二、`'ground'` 本身在 4000 m 也會出現：`recoveryAltitude` 在拉不動
+    // （`nMax ≤ 1`，速度太低）時回 `Infinity`，於是撞地分支在**任何**高度都
+    // 成立。`safety.ts` 自己的註解記過這件事（「那本來該由下面的失速硬接管
+    // 處理」）。實測濾掉失速之後仍剩 0.01% / 0.92%，全部發生在 3950 m。
+    // 那是既有的分支歸屬問題，不是離地底限的事，本份不動它。
+    //
+    // 所以只數**離地餘裕在 `clearanceScale` 以內**的撞地接管 —— 那正是離地
+    // 底限這一層負責的高度帶，也正是這條護欄要問的「政策失職了沒」。
+    if (ai.safetyAction === 'ground' && prey.state.position.y < DEFAULT_STEER.clearanceScale) {
+      safety++
+    }
+    flown = s + 1
+    if (!hc.alive) continue
 
     buildEngageBasis(hunter, prey, basis)
     swing.push(dir.copy(basis.leadPoint).normalize())
@@ -444,7 +483,8 @@ function measure(standoff: number, aspect: Aspect = 'tail'): Result {
     straightMedian,
     contrast: defendMedian / Math.max(straightMedian, 1e-6),
     minAlt,
-    survived: steps >= SECONDS * 240,
+    safetyShare: safety / Math.max(flown, 1),
+    aiAlive: pc.alive,
   }
 }
 
@@ -630,35 +670,52 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
   }
 
   /**
-   * 【這一條是 #136 的主判準】前一份（破防軸）的 §5.4 要求「最低高度不得
-   * 低於現行同場景」，那條標準不可執行 —— 它預設了「閃躲不該有代價」，而
-   * 舊軸不掉高度的原因正是它根本沒在閃（位移 2.96° 對新軸的 9.99°）。
+   * 【這一條是 #136 的主判準】目標是**飛機不以任何方式墜海**，而且是靠
+   * `steer.ts` 的離地底限（`floorPitch`）自己處理掉，不是靠 `safety.ts`
+   * 那道 120 m 的硬限制接住。
    *
-   * 可執行的標準是**不進安全層的作用區**：`safety.ts` 的 `clearance` 是
-   * 120 m，瞄準點層的 `clearanceScale` 是 500 m，取後者。
+   * 【判準為什麼不是「最低高度 > 500」，2026-08-07 專案負責人裁定】
+   * 設計文件 §4.1 原本這樣寫，實作後發現那句話與底限層的形狀自相矛盾：
+   * `floorPitchAngle` 是一條由 `clearanceScale`（500 m）線性降到 0 的斜坡，
+   * 在**恰好 500 m 時輸出 0**。要求「絕不低於開始修正的高度」等於要求一台
+   * 車在踩下煞車的那一刻就停住。實測抬角由 10° 加到 80°，800 橫越那一場的
+   * 最低高度卡在 398 m 一個位數都沒動 —— 底部由飛機當下的速度姿態能拉多少
+   * 決定，不由指令角度決定。
    *
-   * 【修補前的實測，2026-08-07】離地底限上線之前的六場：
+   * 【也不是「跑滿 180 秒」】那一半被腳本射手把持著：兩場提早結束都是**它**
+   * 撞海（99 s / 113 s），而它的死亡時間對抬角完全不敏感（99/99/99、
+   * 113/113/114）—— 它沒有離地意識，AI 做什麼都救不了它。受測 AI 在全部
+   * 七個抬角設定下一次都沒死。所以這裡改成直接問 `aiAlive`，並讓觀察窗在
+   * 射手死後仍然繼續看 AI（見 `measure` 迴圈的註解）。
+   *
+   * 【實測，2026-08-07】離地底限上線前後：
    *
    * ```
-   * 場景          最低高度   結局
-   * 400 尾追        2687     滿場
-   * 800 尾追        3953     滿場
-   * 1000 尾追        113 ←   113 s，腳本射手撞海
-   * 400 橫越        2556     滿場
-   * 800 橫越         225 ←    99 s，腳本射手撞海
-   * 1000 橫越       3940     滿場
+   * 場景         最低高度（前 → 後）   安全層介入率（前 → 後）
+   * 400 尾追        2687 → 2687          0.00% → 0.00%
+   * 800 尾追        3953 → 3953          0.00% → 0.00%
+   * 1000 尾追        113 →  309          1.52% → 0.00%   ←
+   * 400 橫越        2556 → 2556          0.00% → 0.00%
+   * 800 橫越          51 →  398          3.34% → 0.00%   ←
+   * 1000 橫越       3940 → 3940          0.00% → 0.00%
    * ```
    *
-   * 誘餌起始位置微擾 ±20 / ±40 各跑 5 次，那兩場 10 次全部提早結束 ——
+   * 誘餌起始位置微擾 ±20 / ±40 各跑 5 次，撞地那兩場 10 次全部重現 ——
    * 系統性可重現，不是混沌抽樣。
+   *
+   * `minAlt` 留在錯誤訊息裡當觀測值，**但不設門檻** —— 它是極值統計，這個
+   * 專案在它身上吃過虧。
    */
-  it('六場都不掉進安全層的作用區', () => {
+  it('六場都不必動用安全層的硬限制，而且 AI 沒有墜海', () => {
     const bad: string[] = []
     for (const aspect of ['tail', 'beam'] as const) {
       for (const standoff of [400, 800, 1000]) {
         const r = measure(standoff, aspect)
-        if (r.minAlt <= 500 || !r.survived) {
-          bad.push(`${standoff} ${aspect}: minAlt=${r.minAlt.toFixed(0)} survived=${r.survived}`)
+        if (r.safetyShare > 0 || !r.aiAlive) {
+          bad.push(
+            `${standoff} ${aspect}: safetyShare=${(r.safetyShare * 100).toFixed(2)}%`
+            + ` alive=${r.aiAlive} minAlt=${r.minAlt.toFixed(0)}`,
+          )
         }
       }
     }

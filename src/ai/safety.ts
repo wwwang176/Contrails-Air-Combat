@@ -195,7 +195,18 @@ function horizontalHeading(self: Aircraft, out: Vector3): void {
 }
 
 /**
- * 安全層。**可覆寫整個 `Command`**，回傳是否介入。
+ * 安全層介入了哪一種。
+ *
+ * 【為什麼要分辨而不是回傳布林】兩個接管的補救**方向相反** ——「撞地」拉起、
+ * 「失速」壓頭。把它們混進同一個布林，量出來的「安全層介入率」就同時包含
+ * 兩件無關的事。2026-08-07 實測撞到：`ai-visible-evasion` 有兩場在 3950 m
+ * 量到 2.23% / 3.67% 的介入率，那個高度不可能是撞地，是失速接管 —— 而那條
+ * 護欄要守的是「不墜海」。
+ */
+export type SafetyAction = 'none' | 'ground' | 'stall'
+
+/**
+ * 安全層。**可覆寫整個 `Command`**，回傳它介入了哪一種（`'none'` = 沒介入）。
  *
  * 【為什麼是濾網而不是規則表的第一條】它要能改寫 `aimWorld` **本身**
  * （而不只是換一個意圖），而且新增規則的人不可能繞過它。它同時覆寫
@@ -210,7 +221,7 @@ export function applySafety(
   seaHeight: number,
   out: Command,
   cfg: SafetyConfig = DEFAULT_SAFETY,
-): boolean {
+): SafetyAction {
   const vel = self.state.velocity
   const tas = vel.length()
   const gamma = tas > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, vel.y / tas))) : 0
@@ -252,7 +263,7 @@ export function applySafety(
     }
 
     out.firing = false
-    return true
+    return 'ground'
   }
 
   // ── 失速硬接管（撞地之後才判，spec §4.5）─────────────────
@@ -269,8 +280,8 @@ export function applySafety(
     out.throttle = WEP_THROTTLE
     out.brake = 0
     out.firing = false
-    return true
+    return 'stall'
   }
 
-  return false
+  return 'none'
 }

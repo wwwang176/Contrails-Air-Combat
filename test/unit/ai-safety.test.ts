@@ -147,7 +147,7 @@ describe('applySafety', () => {
     const a = diving(4000, 180, 0)
     clean()
     const aim = cmd.aimWorld.clone()
-    expect(applySafety(a, 0, cmd)).toBe(false)
+    expect(applySafety(a, 0, cmd)).toBe('none')
     expect(cmd.aimWorld.equals(aim)).toBe(true)
     expect(cmd.throttle).toBe(1.1)
     expect(cmd.firing).toBe(true)
@@ -156,13 +156,13 @@ describe('applySafety', () => {
   it('巡航高度陡俯衝 → 不介入（高度夠，拉得起來）', () => {
     const a = diving(4000, 250, -60)
     clean()
-    expect(applySafety(a, 0, cmd)).toBe(false)
+    expect(applySafety(a, 0, cmd)).toBe('none')
   })
 
   it('低空陡俯衝 → 介入', () => {
     const a = diving(200, 250, -60)
     clean()
-    expect(applySafety(a, 0, cmd)).toBe(true)
+    expect(applySafety(a, 0, cmd)).toBe('ground')
   })
 
   it('介入時瞄準點指向地平線上方', () => {
@@ -212,10 +212,10 @@ describe('applySafety', () => {
     // 未來加入地形時，seaHeight 會換成該點的地表高度
     const a = diving(200, 250, -60)
     clean()
-    expect(applySafety(a, 0, cmd)).toBe(true)
+    expect(applySafety(a, 0, cmd)).toBe('ground')
     clean()
     // 同樣的飛機，但「海面」在 −3000 → 其實還很高
-    expect(applySafety(a, -3000, cmd)).toBe(false)
+    expect(applySafety(a, -3000, cmd)).toBe('none')
   })
 
   it('連續呼叫不配置：一萬次結果一致', () => {
@@ -248,7 +248,7 @@ describe('失速硬介入', () => {
     const out = createCommand()
     out.aimWorld.set(0, 1, 0)
     out.firing = true
-    expect(applySafety(a, 0, out)).toBe(true)
+    expect(applySafety(a, 0, out)).toBe('stall')
     expect(out.aimWorld.y).toBeLessThan(0)
     expect(out.firing).toBe(false)
   })
@@ -263,7 +263,7 @@ describe('失速硬介入', () => {
     a.state.velocity.set(0, -10, -30)
     a.prevPosition.copy(a.state.position)
     const out = createCommand()
-    expect(applySafety(a, 0, out)).toBe(true)
+    expect(applySafety(a, 0, out)).toBe('ground')
     expect(out.aimWorld.y).toBeGreaterThan(0)
   })
 
@@ -273,7 +273,7 @@ describe('失速硬介入', () => {
     a.state.velocity.set(0, 0, -200)
     a.prevPosition.copy(a.state.position)
     const out = createCommand()
-    expect(applySafety(a, 0, out)).toBe(false)
+    expect(applySafety(a, 0, out)).toBe('none')
   })
 
   /** 【低速不能收油門】換速度要推力，而且低速時沒有減速的道理。 */
