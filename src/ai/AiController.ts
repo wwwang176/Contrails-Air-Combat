@@ -102,6 +102,18 @@ export class AiController implements Controller {
    */
   order: FlightOrder | null = null
 
+  /**
+   * 集火命令指定的那一架。`null` = 沒有指定。由 `setup.ts` 每步寫入。
+   *
+   * 【為什麼不直接放在 `FlightOrder` 裡】命令住在 `src/ai/command.ts`，而
+   * 那一層只吃索引不吃 `Aircraft`（規劃是純函數，見該檔的註解）。索引解析
+   * 成 `Aircraft` 是 `battle` 層的事 —— 與 `stationReference` 同一個手法。
+   *
+   * 【陣亡由 `setup.ts` 擋】它解析索引時若那一架已經退場就寫 `null`。
+   * `AiController` 不必知道「命令裡的索引可能過期」這回事。
+   */
+  focusTarget: Aircraft | null = null
+
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
   safetyActive = false
@@ -211,9 +223,17 @@ export class AiController implements Controller {
       // 【LEVEL_SELF_DEFENCE 照樣插隊】「有人正在打我」不能被命令擋住，
       // 那與 rules.ts 讓 defend 豁免 minDwell、wingman.ts 讓跨級插隊豁免
       // switchMargin 是同一條原則。
-      if (this.order !== null && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
+      // 【集火時僚機不能被清掉目標】它要靠既有的 LEVEL_FOCUS（「打參考機
+      // 正在打的那一架」）跟上長機。清掉會讓它掉進「沒有目標 → 飛站位」，
+      // 集火就只剩長機一架在打 —— 那個戰術的整個意義就沒了
+      if (this.order !== null && this.order.kind !== 'focus'
+        && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
         this.target = null
       }
+      // 【只覆寫長機】僚機走 LEVEL_FOCUS，那一級本來就有自衛與掩護插隊，
+      // 「有人正在打我」不會被集火命令擋住。與集合點同一個手法：只操縱
+      // 長機，編隊靠既有機制跟上，wingman.ts 一個字不動
+      if (this.focusTarget !== null && !reference) this.target = this.focusTarget
     }
 
     const target = this.target
@@ -229,9 +249,13 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
-      } else if (this.order !== null) {
+      } else if (this.order !== null && this.order.kind !== 'focus') {
         // 【長機收到命令且場上沒有值得打的敵人】飛集合點。這一格與下面的
         // 平飛是同一個位置的兩種答案 —— 有命令就有地方去。
+        //
+        // 【集火要排除】它的 `point` 是零向量。這一格不看意圖，所以少了
+        // 這個條件，「集火令的長機在目標剛陣亡的那一瞬沒有目標」就會變成
+        // 「往世界原點的海平面俯衝」
         rallyCommand(self, this.order.point, raw)
       } else {
         // 沒有目標也沒有站位時維持機首方向平飛。這比「保持上一格的指令」
@@ -296,7 +320,11 @@ export class AiController implements Controller {
       //
       // 【閃躲永遠優先】專案負責人 2026-08-07 裁定，撤退也一樣。「強制
       // 脫離」的意思是「不抵抗、不回頭打」，不是「不閃彈」。
-      if (this.order !== null) {
+      //
+      // 【集火不碰意圖】它是三種命令裡唯一「要交戰」的一種（spec §5.4）。
+      // rally 與 flank 是「不要打，去那裡」，focus 是「打那一架」——
+      // 壓成 rally 會讓集火命令反而停止交戰，那是完全相反的效果
+      if (this.order !== null && this.order.kind !== 'focus') {
         this.intent = this.rules.defendLatch ? 'defend' : 'rally'
       }
     }
@@ -310,7 +338,12 @@ export class AiController implements Controller {
     stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
     steerCommand(
       this.intent, mode, this.sit, this.basis, self, this.seaHeight,
-      this.knobs, this.defend, this.order === null ? null : this.order.point, raw,
+      this.knobs, this.defend,
+      // 【集火沒有點】它的 `point` 是一個沒有意義的零向量。意圖不會是
+      // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
+      // 那個分支
+      this.order === null || this.order.kind === 'focus' ? null : this.order.point,
+      raw,
     )
     raw.firing = shouldFire(this.sit, this.basis, self)
 
