@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  planFlightOrder, planFlankOrder, createCommandState, stepCommand, DEFAULT_COMMAND,
+  planFlightOrder, planFlankOrder, planFocusTarget, createCommandState, stepCommand, DEFAULT_COMMAND,
   type CommandUnit, type CommandFlight,
 } from '../../src/ai/command'
 import { DEFAULT_STEER } from '../../src/ai/steer'
@@ -503,5 +503,88 @@ describe('planFlankOrder：退化與穩定性', () => {
       prev = o.side
     }
     expect(flips).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('planFocusTarget', () => {
+  /** 我方在原點朝 −Z 飛。候選敵機放在 −Z 方向（也就是航向上） */
+  const members = [unit(), unit({ x: 200 })]
+  /** 候選在 `units` 裡的全域索引，與 candidates 平行 */
+  const IDX = [10, 11]
+
+  it('兩架等距、一架受創 → 挑受創的', () => {
+    const cands = [
+      unit({ x: -300, z: -800, hpFraction: 1 }),
+      unit({ x: 500, z: -800, hpFraction: 0.3 }),
+    ]
+    const o = planFocusTarget(members, cands, IDX, cfg)!
+    expect(o.kind).toBe('focus')
+    expect(o.focusIndex).toBe(11)
+  })
+
+  /** 【血量同值時的破平手】近的先打 —— 追得到的機會大 */
+  it('兩架血量相同 → 挑近的', () => {
+    const cands = [
+      unit({ z: -1200, hpFraction: 0.5 }),
+      unit({ z: -400, hpFraction: 0.5 }),
+    ]
+    expect(planFocusTarget(members, cands, IDX, cfg)!.focusIndex).toBe(11)
+  })
+
+  it('唯一的敵機在 focusRange 外 → null', () => {
+    const far = [unit({ z: -(cfg.focusRange + 500) })]
+    expect(planFocusTarget(members, far, [10], cfg)).toBeNull()
+  })
+
+  /**
+   * 【可及性用夾角而不是 turnTime】`assess.ts` 的 `turnTime` 吃兩架
+   * `Aircraft`，而規劃層只吃快照 —— 收 `Aircraft` 會毀掉「能直接餵字面
+   * 物件出考題」這個性質（spec §5.2）。夾角不是它的近似，是另一個問題的
+   * 精確答案：「這架敵機在不在我們正在去的方向上」。
+   */
+  it('在射程內但偏離航向超過 focusCone → null', () => {
+    // 我方朝 −Z，這一架在正右方（夾角 90° > 60°）
+    const side = [unit({ x: 800, z: 0 })]
+    expect(planFocusTarget(members, side, [10], cfg)).toBeNull()
+  })
+
+  /**
+   * 【可及性是閘門不是加權項】一個追不到的目標再好打也沒用。這一條若寫成
+   * 「受創程度與可及性加權」就會挑錯 —— 而那正是最容易寫成的形狀。
+   */
+  it('受創但不可及、健康但可及 → 挑健康那架', () => {
+    const cands = [
+      unit({ x: 3000, z: 0, hpFraction: 0.1 }),   // 重傷但在正右方且很遠
+      unit({ z: -600, hpFraction: 1 }),           // 毫髮無傷但在航向上
+    ]
+    expect(planFocusTarget(members, cands, IDX, cfg)!.focusIndex).toBe(11)
+  })
+
+  it('全部陣亡 → null', () => {
+    const dead = [unit({ z: -600, alive: false })]
+    expect(planFocusTarget(members, dead, [10], cfg)).toBeNull()
+  })
+
+  it('我方全滅 → null', () => {
+    const gone = [unit({ alive: false })]
+    expect(planFocusTarget(gone, [unit({ z: -600 })], [10], cfg)).toBeNull()
+  })
+
+  /** 【決定性】spec §7.5 的否決條件 */
+  it('同一個快照算兩次，回同一個索引', () => {
+    const cands = [unit({ z: -600, hpFraction: 0.4 }), unit({ z: -700, hpFraction: 0.4 })]
+    const a = planFocusTarget(members, cands, IDX, cfg)!
+    const b = planFocusTarget(members, cands, IDX, cfg)!
+    expect(a.focusIndex).toBe(b.focusIndex)
+  })
+
+  /**
+   * 【我方速度退化時錐形閘門要放行】沒有速度就沒有「我們正在去的方向」，
+   * 這時把所有人都擋掉會讓集火在起飛瞬間與重生瞬間靜靜地失效。
+   */
+  it('我方速度為零 → 錐形閘門放行，仍挑得出目標', () => {
+    const still = [unit({ velocity: new Vector3(0, 0, 0) })]
+    const cands = [unit({ x: 800, z: 0, hpFraction: 0.3 })]
+    expect(planFocusTarget(still, cands, [10], cfg)!.focusIndex).toBe(10)
   })
 })

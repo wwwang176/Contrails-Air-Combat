@@ -531,6 +531,97 @@ export function planFlankOrder(
 }
 
 /**
+ * 叫整隊集火同一架。`null` = 沒有任何一架可及。
+ *
+ * **純函數**，理由同 `planFlankOrder`。
+ *
+ * 【挑血最少的，不是 `targetScore` 最高的】`targetScore` 吃 `Aircraft`
+ * （要 orientation 算機首、要 `threatFactor`），收它會毀掉這一層能出考題的
+ * 性質；用速度方向代替機首是一個近似，而近似會製造第二個「誰好打」的答案。
+ *
+ * 而且「血最少」本來就是更對的判準：集火的整個賣點是**讓目標更快掉下來**，
+ * 已經受創的那一架離掉下來最近 —— 這是史實的「打落單、打受傷」。
+ * `targetScore` 回答的是另一個問題（「誰對**我**最有價值」，含威脅項與機會
+ * 項），那是**單機**選目標的問題，不是**小隊集火**的問題。
+ *
+ * 【可及性是閘門不是加權項】一個追不到的目標再好打也沒用。寫成加權會在
+ * 「重傷但追不到」與「健康但就在眼前」之間挑錯，有測試守著。
+ *
+ * @param candidateIndices 與 `candidates` **平行**，內容是 `units` 的全域索引
+ */
+export function planFocusTarget(
+  members: readonly CommandUnit[],
+  candidates: readonly CommandUnit[],
+  candidateIndices: readonly number[],
+  cfg: CommandConfig = DEFAULT_COMMAND,
+): FlightOrder | null {
+  // ── 我方質心與平均航向 ───────────────────────────────
+  const us = P.v[0]!.set(0, 0, 0)
+  const vel = P.v[1]!.set(0, 0, 0)
+  let n = 0
+  for (let i = 0; i < members.length; i++) {
+    const u = members[i]!
+    if (!u.alive) continue
+    us.add(u.position)
+    vel.add(u.velocity)
+    n++
+  }
+  if (n === 0) return null
+  us.divideScalar(n)
+  vel.divideScalar(n)
+
+  // 【速度退化時錐形閘門放行】沒有速度就沒有「我們正在去的方向」。把所有人
+  // 都擋掉會讓集火在重生瞬間靜靜地失效 —— 而那不是一個看得出來的失效
+  let hx = vel.x
+  let hz = vel.z
+  const hlen = Math.hypot(hx, hz)
+  const hasHeading = hlen >= MIN_HORIZONTAL
+  if (hasHeading) { hx /= hlen; hz /= hlen }
+
+  const cosCone = Math.cos(cfg.focusCone)
+
+  let best = -1
+  let bestHp = Infinity
+  let bestDist = Infinity
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i]!
+    if (!c.alive) continue
+
+    const dist = us.distanceTo(c.position)
+    if (dist > cfg.focusRange) continue
+
+    if (hasHeading) {
+      const dx = c.position.x - us.x
+      const dz = c.position.z - us.z
+      const dlen = Math.hypot(dx, dz)
+      // 【水平重合時放行】方位沒有定義，而「就在我們頭上」不該被當成
+      // 「偏離航向」擋掉
+      if (dlen >= MIN_HORIZONTAL && (dx * hx + dz * hz) / dlen < cosCone) continue
+    }
+
+    // 血少的優先；同值取近的
+    if (c.hpFraction < bestHp || (c.hpFraction === bestHp && dist < bestDist)) {
+      best = i
+      bestHp = c.hpFraction
+      bestDist = dist
+    }
+  }
+  if (best < 0) return null
+
+  return {
+    kind: 'focus',
+    // 【集火不用點】給一個新的零向量而不是共用一個模組層級的常數 ——
+    // 共用的可變向量被誰改到都查不出來。每 `planPeriod` 秒最多一次，不在
+    // 熱路徑上
+    point: new Vector3(),
+    radius: 0,
+    targetFlight: -1,
+    side: 0,
+    focusIndex: candidateIndices[best]!,
+  }
+}
+
+/**
  * 規劃需要知道的分隊結構。
  *
  * 【為什麼不直接收 `FlightIndex`】現行的相依方向是 `battle → ai`：
