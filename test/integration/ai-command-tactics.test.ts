@@ -566,16 +566,32 @@ describe('強制注入集火（20v20、120 秒）', () => {
    * 【僚機不能被清掉目標】spec §7.2 的第 28 條，也是 §6.4 第 2 點最容易
    * 寫錯的地方。集火時僚機要靠 `LEVEL_FOCUS` 跟上，清掉目標會讓它掉進
    * 「沒有目標 → 飛站位」，集火就只剩長機一架在打。
+   *
+   * 【三方對照，門檻是中點】原本寫的是 `onRate > flankRate * 5`（2026-08-07
+   * 實測 8.9 倍，專案負責人裁定取 5 倍）。第三份加上配額之後掉到 4.77 倍
+   * —— 而根因不是集火壞了：**強制注入只釘住受命的那一支，另外九支仍然照
+   * 配額走，所以整場仗本來就不同**。三個母體會一起漂移（自由 0.311 →
+   * 0.404、集火 0.566 → 0.396、側翼 0.064 → 0.083），任何寫死的倍數都會
+   * 被全域效應推著跑。
+   *
+   * 改成問**同一次量測裡的三個母體誰站在哪一邊**：集火要落在自由與側翼的
+   * 中點之上。這直接說出要防的失效模式 ——「集火會不會像側翼那樣把僚機的
+   * 目標清掉」—— 而且**沒有可調的數字**，三個值一起漂移時它不動。
    */
   it('集火期間僚機仍然有目標', () => {
     const onRate = wingmanRate(on)
     const flankRate = wingmanRate(flankRun)
+    const freeRate = off.wingmanArmedAll / Math.max(off.wingmanSamplesAll, 1)
+    const mid = (freeRate + flankRate) / 2
     console.log(JSON.stringify({
       focusRate: onRate.toFixed(3),
       flankRate: flankRate.toFixed(3),
-      freeRate: (off.wingmanArmedAll / Math.max(off.wingmanSamplesAll, 1)).toFixed(3),
+      freeRate: freeRate.toFixed(3),
+      mid: mid.toFixed(3),
     }))
-    expect(onRate).toBeGreaterThan(flankRate * 5)
+    // 【自由要真的高於側翼】否則中點沒有意義，兩條斷言會一起空洞地通過
+    expect(freeRate).toBeGreaterThan(flankRate)
+    expect(onRate).toBeGreaterThan(mid)
   })
 
   it('集火期間不動用安全層的撞地接管', () => {

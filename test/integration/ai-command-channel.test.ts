@@ -48,7 +48,8 @@ interface Observed {
    * 分得出「是哪一種讓總量動的」才談得上判斷。
    */
   byKind: Record<string, { issued: number, arrived: number, samples: number,
-    tightened: number, loosened: number, ground: number }>
+    tightened: number, loosened: number, ground: number,
+    errSum0: number, errSum1: number, errN: number }>
   /** 無命令的飛機的撞地接管取樣數，與 `wingmanFree` 同一個對照組 */
   groundFree: number
   /** 無命令的取樣總數，當 `groundFree` 的分母 */
@@ -122,9 +123,9 @@ function observe(commanders = true): Observed {
     strayFree: 0, wingmanFree: 0, wingmanUnderOrder: 0,
     tightened: 0, loosened: 0,
     byKind: {
-      rally: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
-      flank: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
-      focus: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
+      rally: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0, errSum0: 0, errSum1: 0, errN: 0 },
+      flank: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0, errSum0: 0, errSum1: 0, errN: 0 },
+      focus: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0, errSum0: 0, errSum1: 0, errN: 0 },
     },
     groundFree: 0, freeSamples: 0,
     redDamage: 0, blueDamage: 0, pulledWhileShooting: 0,
@@ -202,6 +203,12 @@ function observe(commanders = true): Observed {
           const kk = o.byKind[hadKind[f]!]
           if (at1 < at0) { o.tightened++; if (kk !== undefined) kk.tightened++ }
           else { o.loosened++; if (kk !== undefined) kk.loosened++ }
+          // 【連續量，判準讀這一組】計數是離散的：整場只有個位數張命令，
+          // 「幾張變緊」量化成 0/1 之後 n = 4 的 2:2 與 n = 5 的 4:1 分不
+          // 開。誤差的**大小**每一張都帶著資訊。這個專案已經為「連續量勝過
+          // 門檻量」裁定過四次（危險核、extendPitchAngle、卸載係數、
+          // 用傷害取代擊墜）
+          if (kk !== undefined) { kk.errSum0 += at0; kk.errSum1 += at1; kk.errN++ }
         }
       }
       if (!now) issuedError[f] = -1
@@ -298,10 +305,15 @@ describe('指令通道（20v20、120 秒）', () => {
    * 較高」也不成立為證據：命令正是發給已經打散了的小隊，那是選擇效應。
    *
    * 「解除當下比發令當下小」直接對應設計主張本身，而且兩端量的是**同一個
-   * 分隊**，選擇效應自然被抵銷掉。取多數而不是全部：混戰是混沌的，個別一張
-   * 命令在途中被新的攻擊者打斷是正常的。
+   * 分隊**，選擇效應自然被抵銷掉。
    *
-   * 2026-08-07 實測：五張命令，四張收攏。平均 697 → 559 m。
+   * 【2026-08-08 由計數改成連續量】原本取的是「幾張變緊 > 幾張變鬆」。
+   * 整場只有個位數張離場命令，把每一張量化成 0/1 之後，n = 4 的 2:2 與
+   * n = 5 的 4:1 在統計上分不開 —— 第三份加上配額後就撞上了這件事。改成
+   * **平均站位誤差的變化**：同一批命令、同一個主張，但每一張的幅度都帶著
+   * 資訊。門檻是 0，**沒有可調的數字**。
+   *
+   * 2026-08-07 實測（改判準之前）：五張命令，四張收攏。平均 697 → 559 m。
    * 機制確認在動：僚機 92.2% 的取樣 `target === null`、長機 95.8% 在 `rally`。
    *
    * 【這一條有倖存者偏誤，要與上面那條一起看】它只量得到**走完**的命令。
@@ -320,15 +332,25 @@ describe('指令通道（20v20、120 秒）', () => {
       strayFree: `${o.strayFree}/${o.wingmanFree}`,
     }))
     // 【只算離場的那兩種】見 `LEAVING` 的註解
-    let tight = 0
-    let loose = 0
+    let s0 = 0
+    let s1 = 0
+    let n = 0
     for (const k of LEAVING) {
-      tight += o.byKind[k]!.tightened
-      loose += o.byKind[k]!.loosened
+      s0 += o.byKind[k]!.errSum0
+      s1 += o.byKind[k]!.errSum1
+      n += o.byKind[k]!.errN
     }
+    console.log(JSON.stringify({
+      leavingErr: `${(s0 / Math.max(n, 1)).toFixed(0)} → ${(s1 / Math.max(n, 1)).toFixed(0)} m`,
+      n,
+    }))
     // 【要有量到的張數】否則下面那條會空洞地通過
-    expect(tight + loose).toBeGreaterThan(0)
-    expect(tight).toBeGreaterThan(loose)
+    expect(n).toBeGreaterThan(0)
+    // 【門檻是 0，沒有可調的數字】斷言就是設計主張本身：命令期間編隊平均
+    // 要收攏。2026-08-08 由「幾張變緊 > 幾張變鬆」改成這個形式 —— 改的是
+    // 量什麼，不是寬鬆度。舊形式在配額之後給出 2:2（n = 4），而同一批命令
+    // 的平均誤差仍然是收攏的：計數把每一張的幅度丟掉了
+    expect(s1 / n).toBeLessThan(s0 / n)
   })
 
   it.skip('掃描指揮參數（量測用，不是判準）', () => {
