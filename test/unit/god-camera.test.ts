@@ -71,6 +71,21 @@ describe('stepGodCamera：移動', () => {
     expect(b).toBeCloseTo(a, 6)
   })
 
+  /** 【S 是 W 的反向】審查 M7：四個方向都要各自被釘住，不能只驗兩個 */
+  it('yaw = 0 時 S 往 +Z 走', () => {
+    const s = createGodCameraState()
+    stepGodCamera(s, idle({ back: true }), 1, cfg)
+    expect(s.position.z).toBeCloseTo(cfg.moveSpeed, 6)
+    expect(s.position.x).toBeCloseTo(0, 6)
+  })
+
+  it('yaw = 0 時 A 往 −X 走', () => {
+    const s = createGodCameraState()
+    stepGodCamera(s, idle({ left: true }), 1, cfg)
+    expect(s.position.x).toBeCloseTo(-cfg.moveSpeed, 6)
+    expect(s.position.z).toBeCloseTo(0, 6)
+  })
+
   /** 【相反的兩個鍵互相抵銷】W+S 同時按住不該往任何一邊漂 */
   it('W + S 互相抵銷', () => {
     const s = createGodCameraState()
@@ -93,10 +108,12 @@ describe('stepGodCamera：移動', () => {
     expect(s.position.y).toBeCloseTo(1000 + cfg.moveSpeed, 6)
   })
 
-  it('Q 讓 y 下降', () => {
+  it('Q 讓 y 下降，且不動 x/z', () => {
     const s = createGodCameraState()
-    s.position.set(0, 5000, 0)
+    s.position.set(100, 5000, 200)
     stepGodCamera(s, idle({ down: true }), 1, cfg)
+    expect(s.position.x).toBe(100)
+    expect(s.position.z).toBe(200)
     expect(s.position.y).toBeCloseTo(5000 - cfg.moveSpeed, 6)
   })
 
