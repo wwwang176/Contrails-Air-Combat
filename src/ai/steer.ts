@@ -3,6 +3,7 @@ import { makeScratch } from '../core/pool'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
+import { rallyAim } from './rally'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Situation } from './assess'
@@ -1272,6 +1273,15 @@ export function steerCommand(
   k: Knobs,
   /** 破防狀態。由 `stepDefend` 每步維護 */
   defend: DefendState,
+  /**
+   * 指揮層的集合點；`null` = 沒有命令。
+   *
+   * 【為什麼是參數而不是從 `sit` 拿】`Situation` 是**態勢**（我與目標的
+   * 幾何與能量），集合點是**命令**。混進去會讓 `assess.ts` 得知道有指揮層
+   * 這回事，而它現在完全不需要知道。與 `defend: DefendState` 同一個理由：
+   * 額外的狀態走參數，不塞進態勢。
+   */
+  rallyPoint: Vector3 | null,
   out: Command,
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
@@ -1309,6 +1319,15 @@ export function steerCommand(
         } else {
           defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
         }
+        break
+      case 'rally':
+        // 【指揮層的集合點】它不由 arbitrate 產生（見 rules.ts 的 Intent
+        // 註解），所以這一格必然來自 AiController 的覆寫。
+        //
+        // 【null 時退化成機首】兩條路徑理論上不會不同步，但一個沉默地沿用
+        // 前一格 aimWorld 的分支是查不出來的 bug。
+        if (rallyPoint !== null) rallyAim(self, rallyPoint, out.aimWorld)
+        else out.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
         break
       case 'merge':
       case 'approach':

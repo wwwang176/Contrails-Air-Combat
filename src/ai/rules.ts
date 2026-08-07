@@ -1,8 +1,16 @@
 import type { Situation } from './assess'
 
-export type Intent = 'defend' | 'merge' | 'extend' | 'engage' | 'approach'
+/**
+ * 【`rally` 不由 `arbitrate` 產生】它是指揮層的**外部覆寫**
+ * （見 `AiController` 裡那兩行）。放進這個聯集是因為 HUD、telemetry 與
+ * 測試都以 `Intent` 當意圖的全集 —— 少了它，「AI 現在在幹嘛」就有一格是
+ * 顯示不出來的。
+ */
+export type Intent = 'defend' | 'merge' | 'extend' | 'engage' | 'approach' | 'rally'
 
-export const INTENTS: readonly Intent[] = ['defend', 'merge', 'extend', 'engage', 'approach']
+export const INTENTS: readonly Intent[] = [
+  'defend', 'merge', 'extend', 'engage', 'approach', 'rally',
+]
 
 /**
  * 遲滯閂鎖。**方向由 enter 與 exit 的大小關係推得**：

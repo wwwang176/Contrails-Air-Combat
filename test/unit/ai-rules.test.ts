@@ -58,9 +58,38 @@ describe('latch（遲滯）', () => {
 })
 
 describe('stepRules（優先序）', () => {
-  it('五種意圖齊全', () => {
+  /**
+   * 【六種而不是五種】`rally` 是 2026-08-07 指揮層加進來的，而它**不由
+   * `arbitrate` 產生** —— 它是 `AiController` 的外部覆寫（見 `rules.ts` 的
+   * `Intent` 註解）。放進聯集是因為 HUD、telemetry 與測試都以 `Intent` 當
+   * 意圖的全集，少了它「AI 現在在幹嘛」就有一格顯示不出來。
+   *
+   * 這一條守的是「`INTENTS` 與 `Intent` 不會漏掉彼此」，所以聯集依設計成長
+   * 時它本來就該跟著改 —— 不是放寬門檻。下面「仲裁只會吐出這五種」那一條
+   * 才是優先序的護欄，它刻意不含 `rally`。
+   */
+  it('六種意圖齊全', () => {
     expect([...INTENTS].sort())
-      .toEqual(['approach', 'defend', 'engage', 'extend', 'merge'])
+      .toEqual(['approach', 'defend', 'engage', 'extend', 'merge', 'rally'])
+  })
+
+  /**
+   * 【`arbitrate` 永遠不吐 `rally`】指揮層是覆寫，不是仲裁表裡的一列。
+   * 這一條若紅了，代表有人把命令插進了優先序 —— 那會動到整組實測逐條談定
+   * 的關係（相對理由 vs 絕對理由、`defend` 的絕對優先權）。
+   */
+  it('仲裁的產出不含 rally', () => {
+    const s = createRuleState()
+    const sit = createSituation()
+    for (const danger of [0, 0.5, 1]) {
+      for (const cornerRatio of [0.3, 0.75, 1.5]) {
+        for (const range of [200, 900, 3000]) {
+          sit.cornerRatio = cornerRatio
+          sit.range = range
+          expect(stepRules(s, sit, danger, 0.1)).not.toBe('rally')
+        }
+      }
+    }
   })
 
   it('什麼都不觸發時走預設的 approach', () => {

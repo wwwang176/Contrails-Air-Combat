@@ -18,9 +18,12 @@ import {
   type StationConfig, type StationOffset,
 } from './station'
 import {
-  DEFAULT_WINGMAN, createWingmanState, selectWingmanTarget, type WingmanConfig,
+  DEFAULT_WINGMAN, LEVEL_SELF_DEFENCE, createWingmanState, selectWingmanTarget,
+  type WingmanConfig,
 } from './wingman'
+import { rallyCommand } from './rally'
 import { ACE, type DifficultyProfile } from './profile'
+import type { FlightOrder } from './command'
 import { CommandDelay } from './delay'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { createCommand, type Command, type Controller } from '../control/Controller'
@@ -91,6 +94,13 @@ export class AiController implements Controller {
    * `selectTarget` 的評分裡本來就有威脅項，會走正常的、有遲滯保護的路徑。
    */
   threatSource: Aircraft | null = null
+
+  /**
+   * 指揮層下來的命令；`null` = 自由交戰。由 `setup.ts` 每步寫入。
+   *
+   * 【它是外部覆寫，不是仲裁表裡的一列】見 `update` 裡那兩行的註解。
+   */
+  order: FlightOrder | null = null
 
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
@@ -183,6 +193,16 @@ export class AiController implements Controller {
             this.targetState, this.board, this.selfIndex, period, this.targetConfig,
           )
       }
+      // 【命令對僚機的意思】不是「你也飛去集合點」—— 那會讓編隊在路上散成
+      // 一排。是「停止出擊」，於是它掉進下面「沒有目標 → 飛站位」那一格，
+      // 自動貼著長機一起走。不需要任何新的協調機制（spec §5.3、§5.4）。
+      //
+      // 【LEVEL_SELF_DEFENCE 照樣插隊】「有人正在打我」不能被命令擋住，
+      // 那與 rules.ts 讓 defend 豁免 minDwell、wingman.ts 讓跨級插隊豁免
+      // switchMargin 是同一條原則。
+      if (this.order !== null && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
+        this.target = null
+      }
     }
 
     const target = this.target
@@ -198,6 +218,10 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
+      } else if (this.order !== null) {
+        // 【長機收到命令且場上沒有值得打的敵人】飛集合點。這一格與下面的
+        // 平飛是同一個位置的兩種答案 —— 有命令就有地方去。
+        rallyCommand(self, this.order.point, raw)
       } else {
         // 沒有目標也沒有站位時維持機首方向平飛。這比「保持上一格的指令」
         // 安全——上一格可能是一個俯衝中的脫離向量。
@@ -249,6 +273,19 @@ export class AiController implements Controller {
     if (decide) {
       evaluateEnergy(self, target, this.sit)
       this.intent = stepRules(this.rules, this.sit, danger, period)
+      // 【命令是外部覆寫，不是 arbitrate 的一列】那個函式的優先序關係是
+      // 實測逐條談定的（相對理由 vs 絕對理由、defend 的絕對優先權，見
+      // rules.ts 的長註解與 2026-08-07 的 #136）。把命令插進去會動到那
+      // 整組關係；覆寫在外面則一條都不受影響。
+      //
+      // 【stepRules 照常呼叫】閂鎖要繼續維護，否則命令解除的那一格會拿到
+      // 一組停在幾秒前的閂鎖。
+      //
+      // 【閃躲永遠優先】專案負責人 2026-08-07 裁定，撤退也一樣。「強制
+      // 脫離」的意思是「不抵抗、不回頭打」，不是「不閃彈」。
+      if (this.order !== null) {
+        this.intent = this.rules.defendLatch ? 'defend' : 'rally'
+      }
     }
 
     // ── 240 Hz：轉向、開火 ────────────────────────────────
@@ -260,7 +297,7 @@ export class AiController implements Controller {
     stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
     steerCommand(
       this.intent, mode, this.sit, this.basis, self, this.seaHeight,
-      this.knobs, this.defend, raw,
+      this.knobs, this.defend, this.order === null ? null : this.order.point, raw,
     )
     raw.firing = shouldFire(this.sit, this.basis, self)
 
