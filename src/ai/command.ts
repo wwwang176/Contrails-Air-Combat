@@ -12,7 +12,7 @@ import { DEFAULT_STEER } from './steer'
  * `TargetCandidate` 是同一個手法。
  *
  * `position` / `velocity` 是 `readonly` 的**參考**（內容仍可 `copy` 進去），
- * `cornerRatio` / `alive` 每步會被呼叫端改寫。
+ * `cornerRatio` / `hpFraction` / `alive` 每步會被呼叫端改寫。
  */
 export interface CommandUnit {
   readonly position: Vector3
@@ -21,21 +21,49 @@ export interface CommandUnit {
   cornerRatio: number
   /** 升限，m。集合點的高度上界 */
   readonly serviceCeiling: number
+  /**
+   * 剩餘血量佔滿血的比例，0..1（1 = 毫髮無傷）。集火挑目標用。
+   *
+   * 【為什麼是比例而不是絕對值】兩個機種的滿血不同，絕對值跨機種比不了。
+   */
+  hpFraction: number
   alive: boolean
 }
 
 /**
+ * 命令的種類。**互斥的聯集，不是一組旗標**：`flank` 與 `focus` 由距離分開
+ * （spec §3.2），永遠不會同時成立，所以命令不需要組合。
+ */
+export type OrderKind = 'rally' | 'flank' | 'focus'
+
+/**
  * 一張下給小隊的命令。
  *
- * 【集合點凍結，不隨敵人移動重算】每 N 秒重算會讓點跟著敵人飄，小隊追著
- * 一個移動的目標跑，而且「到達」永遠判定不了 —— 命令會變成永久狀態。
- * 代價是敵人追過來時點會過時；可接受的理由是命令期間 `defend` 照常運作，
- * 而且到達後立刻恢復自由交戰（spec §4.1）。
+ * 【`rally` 的集合點凍結，`flank` 的每步重算】兩者的差別來自實測：敵**隊**
+ * 質心 30 秒只飄 720 m（20 架纏鬥互相抵銷），但敵**分隊**質心飄 2040~4663 m
+ * —— 抵銷效應只在架數多時成立，四架的分隊就是一團一起動的東西。
+ *
+ * 撤退的點是**遠離**敵人的，過期不太傷（第一份 spec §4.1 明寫接受這個代價）；
+ * 側翼的點貼著敵分隊定義，凍結會在飛到一半就失效。所以側翼**凍結的是決定**
+ * （`side` 與 `targetFlight`）**而不是座標**，到達改用幾何判定（spec §4.2）。
  */
 export interface FlightOrder {
-  readonly point: Vector3
-  /** 到達判定半徑，m */
+  readonly kind: OrderKind
+  /**
+   * 飛行點。`rally` 發令後不再變；`flank` **由 `stepCommand` 每步重寫**；
+   * `focus` 不使用（恆為原點）。
+   *
+   * 【只有這一個欄位不是 readonly，而且只有 `flank` 會動它】
+   */
+  point: Vector3
+  /** 到達判定半徑，m。只有 `rally` 使用 */
   readonly radius: number
+  /** `flank`：切哪一個敵分隊。**全域**分隊索引。其餘為 −1 */
+  readonly targetFlight: number
+  /** `flank`：從哪一邊切。+1 = 敵航向的右舷，−1 = 左舷。其餘為 0 */
+  readonly side: number
+  /** `focus`：打哪一架。`units` 的**全域**索引。其餘為 −1 */
+  readonly focusIndex: number
 }
 
 export interface CommandConfig {
@@ -51,6 +79,22 @@ export interface CommandConfig {
   withdrawClimb: number
   /** 到達判定半徑，m */
   arriveRadius: number
+  /** 側翼點離敵航向的橫向偏置，m */
+  flankOffset: number
+  /** 側翼點放在敵分隊後方多遠，m */
+  flankTrail: number
+  /** 側翼點比敵分隊高多少，m */
+  flankClimb: number
+  /** 後側方扇區的半角，rad。到位判定用 */
+  flankSector: number
+  /** 危險核的特徵長度，m */
+  dangerScale: number
+  /** 危險分數的上限，超過就不發側翼令 */
+  dangerLimit: number
+  /** 集火目標的最遠距離，m */
+  focusRange: number
+  /** 集火目標偏離小隊航向的最大夾角，rad */
+  focusCone: number
 }
 
 /**
@@ -137,6 +181,19 @@ export interface CommandConfig {
  * 這組值依賴**目前的飛行包絡**（`specs/feel.ts` 的五個倍率 —— `cornerRatio`
  * 是 TAS ÷ 角落速度，倍率一動兩邊都動）與 `DEFAULT_BATTLE` 的 20v20 編成
  * （小隊大小決定「最低那一架」的取樣數）。兩者大幅改動後要重掃。
+ *
+ * ## 側翼與集火的八個起始值（2026-08-07 加，待 Task 8 掃描）
+ *
+ * - `flankOffset` 1200 m —— `DEFAULT_WINGMAN.breakExit` 同值：一個分隊散得開、
+ *   又還讀得出是編隊的量級。
+ * - `flankTrail` 800 m —— 略小於 `THREAT_RANGE`（900），到位時剛好進入可以
+ *   開始追蹤的距離。
+ * - `flankClimb` 300 m —— `DEFAULT_BATTLE.altitudeSpread` 同值，一個分隊層。
+ * - `flankSector` 60° —— 「我在他們的後 120°」。
+ * - `dangerScale` 900 m —— `THREAT_RANGE`：「這個距離內的敵機才算危險」。
+ * - `dangerLimit` 2.0 —— 約當「兩架敵機貼在候選點上」。
+ * - `focusRange` 1500 m —— `DEFAULT_RULES.extendRange` 同值。
+ * - `focusCone` 60° —— 與 `flankSector` 同值：「在我們正在去的方向上」。
  */
 export const DEFAULT_COMMAND: CommandConfig = {
   planPeriod: 2,
@@ -145,6 +202,15 @@ export const DEFAULT_COMMAND: CommandConfig = {
   withdrawRange: 3000,
   withdrawClimb: 800,
   arriveRadius: 300,
+  // ── 側翼與集火。**全部是起始值，待 Task 8 由實測掃描回填** ──
+  flankOffset: 1200,
+  flankTrail: 800,
+  flankClimb: 300,
+  flankSector: 60 * (Math.PI / 180),
+  dangerScale: 900,
+  dangerLimit: 2,
+  focusRange: 1500,
+  focusCone: 60 * (Math.PI / 180),
 }
 
 /** 水平方向退化的下限。與 `station.ts` 的 `MIN_GROUND_SPEED` 同一個量級 */
@@ -236,12 +302,16 @@ export function planFlightOrder(
   if (y < DEFAULT_STEER.clearanceScale) y = DEFAULT_STEER.clearanceScale
 
   return {
+    kind: 'rally',
     point: new Vector3(
       own.x + dir.x * cfg.withdrawRange,
       y,
       own.z + dir.z * cfg.withdrawRange,
     ),
     radius: cfg.arriveRadius,
+    targetFlight: -1,
+    side: 0,
+    focusIndex: -1,
   }
 }
 

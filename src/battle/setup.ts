@@ -345,6 +345,7 @@ export function createBattle(
       position: c.aircraft.state.position,
       velocity: c.aircraft.state.velocity,
       cornerRatio: 1,
+      hpFraction: 1,
       serviceCeiling: ceiling,
       alive: c.alive,
     }
@@ -452,6 +453,11 @@ function stepCommandLayer(b: Battle, dt: number): void {
     // 根本沒有 AiController。直接算比較誠實，也不依賴 AI 這一步跑過沒有
     const vc = cornerSpeed(a.spec, a.state.position.y)
     u.cornerRatio = vc > 1e-3 ? a.state.velocity.length() / vc : 0
+    // 【滿血由 spec 給】`c.hp` 的上界是 `c.aircraft.spec.hp`（`World` 的
+    // respawn 就是抄它）。夾在 0 以上：受創超過滿血時 hp 會是負的
+    const full = a.spec.hp
+    const frac = full > 0 ? c.hp / full : 0
+    u.hpFraction = frac > 0 ? frac : 0
   }
 
   BLUE_UNITS.length = 0
