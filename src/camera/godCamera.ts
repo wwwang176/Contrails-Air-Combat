@@ -45,8 +45,12 @@ export interface GodCameraOptions {
  *   反過來，之後每一個滑鼠位移都是反的。
  * - `entryHeight` 800 —— 看得到一個分隊的散布（分隊尺度約 1 km）。
  * - `entryPitch` 45° —— 這個俯角下自機落在畫面中央。
- * - `lookSensitivity` 5.5 —— 沿用 `input/bindings.ts` 的 `LOOK_SENSITIVITY`：
- *   自由視角要能一把甩過去，上帝視角同一個需求。
+ * - `lookSensitivity` **3.4375 = 5.5 ÷ 1.6**，實際靈敏度因此等於自由視角。
+ *   【那個除法不能省】餵進來的 `lookX` 是 `InputState.aimDeltaX`，而
+ *   `input/bindings.ts` 累積它時**已經乘過** `MOUSE_SENSITIVITY`（1.6）；
+ *   自由視角走的是另一條路徑，用的是**原始比值**乘 `LOOK_SENSITIVITY`
+ *   （5.5）。直接寫 5.5 的話實際值會是 8.8 —— 比自由視角高六成，而註解
+ *   卻寫著「沿用」。這是審查抓到的（I7）。
  */
 export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   moveSpeed: 300,
@@ -56,7 +60,7 @@ export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   pitchLimit: 85 * (Math.PI / 180),
   entryHeight: 800,
   entryPitch: 45 * (Math.PI / 180),
-  lookSensitivity: 5.5,
+  lookSensitivity: 5.5 / 1.6,
 }
 
 export interface GodCameraState {
