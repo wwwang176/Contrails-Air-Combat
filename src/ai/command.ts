@@ -216,6 +216,19 @@ export const DEFAULT_COMMAND: CommandConfig = {
 /** 水平方向退化的下限。與 `station.ts` 的 `MIN_GROUND_SPEED` 同一個量級 */
 const MIN_HORIZONTAL = 1e-3
 
+/**
+ * 「這個敵分隊已經在交戰」的 `cornerRatio` 門檻。
+ *
+ * 0.9 高於指揮層的 `spentRatio`（0.6，「已經打不動」）而低於自由巡航 ——
+ * 語意是「有人正在讓它拉桿」。與見底判定用同一個量，不新增概念。
+ *
+ * 【它是**觸發**，第三份會整條換掉。不要掃描它】刻意不放進 `CommandConfig`：
+ * 放進去會讓人以為它與那八個**執行**參數同一個地位，於是被一起掃描 ——
+ * 那就是在調第三份的東西（spec §2、§3.3）。
+ */
+const ENGAGED_RATIO = 0.9
+
+
 const P = makeScratch(4)
 
 /**
@@ -311,6 +324,208 @@ export function planFlightOrder(
     radius: cfg.arriveRadius,
     targetFlight: -1,
     side: 0,
+    focusIndex: -1,
+  }
+}
+
+/**
+ * 側翼點的幾何。寫進 `out`，回傳 `false` 代表輸入退化到連質心都算不出來
+ * （呼叫端保留舊點）。
+ *
+ * ```
+ * u    = 目標分隊平均速度的水平單位向量
+ * r    = u 的右手側水平法向量
+ * out  = 目標質心 − u × flankTrail + side × r × flankOffset
+ * out.y = clamp(目標質心.y + flankClimb, clearanceScale, 我方最低升限)
+ * ```
+ *
+ * `−u × flankTrail` 把點放到他們**後方**而不是正側方：正側方是一個過渡
+ * 位置，後側方才是能開始追蹤射擊的位置。
+ *
+ * 【退化階梯】`CommandUnit` **沒有 orientation**，所以沒有「機首」可以像
+ * `stationPoint` 那樣退回去。改成：目標速度退化 → 由我方質心指向目標質心
+ * （把他們當成正在遠離我們，點因此落在我們與他們之間，可及而且安全）→
+ * 兩個質心也重合 → 取世界 −Z。**不 return NaN**：NaN 一旦進入距離比較，
+ * 所有比較都變成 false，小隊會靜靜地永遠飛不到而且完全不報錯。
+ *
+ * 熱路徑：不配置（`stepCommand` 每步呼叫它）。
+ */
+function flankPoint(
+  target: readonly CommandUnit[],
+  own: readonly CommandUnit[],
+  side: number,
+  cfg: CommandConfig,
+  out: Vector3,
+): boolean {
+  // ── 目標分隊的質心與平均速度 ──────────────────────────
+  const foe = F.v[0]!.set(0, 0, 0)
+  const vel = F.v[1]!.set(0, 0, 0)
+  let m = 0
+  for (let i = 0; i < target.length; i++) {
+    const t = target[i]!
+    if (!t.alive) continue
+    foe.add(t.position)
+    vel.add(t.velocity)
+    m++
+  }
+  if (m === 0) return false
+  foe.divideScalar(m)
+  vel.divideScalar(m)
+
+  // ── 我方質心與最低升限 ───────────────────────────────
+  // 【上界取**我方**的升限】要飛上去的是我們，不是他們
+  const us = F.v[2]!.set(0, 0, 0)
+  let n = 0
+  let ceiling = Infinity
+  for (let i = 0; i < own.length; i++) {
+    const u = own[i]!
+    if (!u.alive) continue
+    us.add(u.position)
+    if (u.serviceCeiling < ceiling) ceiling = u.serviceCeiling
+    n++
+  }
+  if (n === 0) return false
+  us.divideScalar(n)
+
+  // ── 航向 u，退化階梯 ─────────────────────────────────
+  let ux = vel.x
+  let uz = vel.z
+  let len = Math.hypot(ux, uz)
+  if (len < MIN_HORIZONTAL) {
+    ux = foe.x - us.x
+    uz = foe.z - us.z
+    len = Math.hypot(ux, uz)
+    if (len < MIN_HORIZONTAL) {
+      ux = 0
+      uz = -1
+      len = 1
+    }
+  }
+  ux /= len
+  uz /= len
+
+  // 右手側：three 是 +X 右、+Y 上、−Z 前，所以航向 (ux, uz) 的右邊是
+  // (−uz, ux)。驗算：朝 −Z（ux=0, uz=−1）時右邊是 (1, 0) = +X。
+  // 與 `stationPoint` 的同一段驗算一致。
+  const rx = -uz
+  const rz = ux
+
+  let y = foe.y + cfg.flankClimb
+  if (y > ceiling) y = ceiling
+  if (y < DEFAULT_STEER.clearanceScale) y = DEFAULT_STEER.clearanceScale
+
+  out.set(
+    foe.x - ux * cfg.flankTrail + side * rx * cfg.flankOffset,
+    y,
+    foe.z - uz * cfg.flankTrail + side * rz * cfg.flankOffset,
+  )
+  return true
+}
+
+/** `flankPoint` 專用的暫存池。與其他函式分開，避免巢狀呼叫時別名衝突 */
+const F = makeScratch(5)
+
+/**
+ * 一個候選點的危險分數：其他敵機離它多近。
+ *
+ * ```
+ * danger(p) = Σ 1 / (1 + (|p − e| / dangerScale)²)
+ * ```
+ *
+ * 【為什麼是平方反比核而不是「半徑內的計數」】計數需要一個半徑門檻，而門檻
+ * 會讓分數在邊界上跳。連續核在相鄰輸入上連續 —— 與 `targetScore` 的三個
+ * 折扣項、`floorPitchAngle` 的連續斜坡同一條紀律（spec §7.5 的否決條件）。
+ *
+ * 【為什麼不算目標分隊自己】側翼點本來就該靠近它。把它算進去等於懲罰
+ * 「靠近要打的人」—— 呼叫端傳進來的 `others` 已經排除了目標分隊。
+ *
+ * 【為什麼不算友機】友機不危險。這裡問的是「這個點會不會被打」。
+ *
+ * 熱路徑之外（每 `planPeriod` 秒），不配置。
+ */
+function dangerAt(p: Vector3, others: readonly CommandUnit[], cfg: CommandConfig): number {
+  let sum = 0
+  for (let i = 0; i < others.length; i++) {
+    const e = others[i]!
+    if (!e.alive) continue
+    const d = p.distanceTo(e.position) / cfg.dangerScale
+    sum += 1 / (1 + d * d)
+  }
+  return sum
+}
+
+/** 選邊時「兩邊一樣安全」的判定寬容度。低於它就改用就近 */
+const DANGER_TIE = 1e-9
+
+/**
+ * 從敵分隊的後側方切進去。`null` = 不該下這張命令。
+ *
+ * **純函數**：只讀三個快照陣列，不改它們，不碰世界（spec §6.3）。
+ *
+ * 【三種 `null`】目標分隊沒在交戰（spec §3.1 的開場死鎖防護）、任一邊全滅、
+ * 兩個候選點都太危險。最後一條與 `planFocusTarget` 的「沒有一架可及」是同一
+ * 條紀律：**規劃層寧可不發，也不發一張執行不了的命令。**
+ *
+ * 【配置】發令時配置一個 `Vector3`，每 `planPeriod` 秒最多一次，
+ * **不在 240 Hz 的熱路徑上**。
+ *
+ * @param others 其餘敵機（**不含**目標分隊），算危險分數用
+ * @param targetFlight 目標分隊的全域索引，原封不動寫進命令
+ */
+export function planFlankOrder(
+  members: readonly CommandUnit[],
+  target: readonly CommandUnit[],
+  others: readonly CommandUnit[],
+  targetFlight: number,
+  cfg: CommandConfig = DEFAULT_COMMAND,
+): FlightOrder | null {
+  // ── 開場死鎖防護（spec §3.1）────────────────────────────
+  // 目標分隊要**已經被別人纏住**。少了這道閘門，開場所有人同時側翼、
+  // 途中又不交戰，兩隊會互相繞圈一槍不開 —— 而且會自我維持
+  let engaged = false
+  for (let i = 0; i < target.length; i++) {
+    const t = target[i]!
+    if (t.alive && t.cornerRatio < ENGAGED_RATIO) { engaged = true; break }
+  }
+  if (!engaged) return null
+
+  const right = P.v[0]!
+  const left = P.v[1]!
+  if (!flankPoint(target, members, 1, cfg, right)) return null
+  if (!flankPoint(target, members, -1, cfg, left)) return null
+
+  const dr = dangerAt(right, others, cfg)
+  const dl = dangerAt(left, others, cfg)
+
+  let side: number
+  if (dr < dl - DANGER_TIE) side = 1
+  else if (dl < dr - DANGER_TIE) side = -1
+  else {
+    // 【一樣安全就取近的】轉場最短，也就是輸出為零的時間最短。
+    // 用我方質心到兩個候選點的距離比
+    const us = P.v[2]!.set(0, 0, 0)
+    let n = 0
+    for (let i = 0; i < members.length; i++) {
+      const u = members[i]!
+      if (!u.alive) continue
+      us.add(u.position)
+      n++
+    }
+    // n === 0 不可能走到這裡（flankPoint 已經回 false 了），但索引後的
+    // 除法還是要防：NaN 會讓下面的比較靜靜地變成 false
+    if (n > 0) us.divideScalar(n)
+    side = us.distanceTo(right) <= us.distanceTo(left) ? 1 : -1
+  }
+
+  const chosen = side === 1 ? right : left
+  if ((side === 1 ? dr : dl) > cfg.dangerLimit) return null
+
+  return {
+    kind: 'flank',
+    point: chosen.clone(),
+    radius: cfg.arriveRadius,
+    targetFlight,
+    side,
     focusIndex: -1,
   }
 }
