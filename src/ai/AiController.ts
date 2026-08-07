@@ -345,7 +345,15 @@ export class AiController implements Controller {
       this.order === null || this.order.kind === 'focus' ? null : this.order.point,
       raw,
     )
-    raw.firing = shouldFire(this.sit, this.basis, self)
+    // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
+    // §4.4），而 `rallyCommand` 也確實把 `firing` 設成 false —— 但它只在
+    // 「沒有目標」那條分支跑。**有目標的長機走的是這一行**，於是命令期間
+    // 照樣扣扳機：強制注入側翼實測 11814/115200 個取樣在開火。
+    //
+    // 意圖是唯一該讀的判準：`focus` 的意圖不會是 rally（它要交戰），
+    // 而破防閂上時意圖是 defend —— 「不回頭打」不包含「不閃彈」，也不
+    // 包含閃躲過程中打到的那一槍。
+    raw.firing = this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self)
 
     this.emit(self, dt, out)
   }
