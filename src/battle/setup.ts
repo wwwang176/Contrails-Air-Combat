@@ -9,6 +9,11 @@ import {
   type Flight, type FlightIndex,
 } from './flights'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
+import {
+  createCommandState, stepCommand,
+  type CommandState, type CommandUnit,
+} from '../ai/command'
+import { cornerSpeed, serviceCeiling } from '../analysis/envelope'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
@@ -173,6 +178,23 @@ export interface Battle {
    */
   readonly flights: FlightIndex
   /**
+   * 兩隊的指揮官。**索引是全域的分隊索引**（`flights.flights` 的下標），
+   * 兩個 state 都開滿長度，各自只填自己隊伍的那些格。
+   *
+   * 【為什麼不各開各的長度】`flightOf[i]` 給的是全域索引，分隊要對應回
+   * 指揮官時就得再做一次轉換。開滿比較浪費幾個 null，但少一張對照表。
+   */
+  readonly blueCommand: CommandState
+  readonly redCommand: CommandState
+  /**
+   * 指揮層讀的每架快照，索引與 `world.combatants` 一致。
+   *
+   * 【為什麼要一份快照而不是直接傳 `Combatant`】`src/ai/command.ts` 收的是
+   * 最小介面 `CommandUnit`（見該檔的註解），而 `cornerRatio` 需要每步重算
+   * —— 它不是 `Aircraft` 上現成的欄位。物件重用，每步只改內容。
+   */
+  readonly commandUnits: CommandUnit[]
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -302,6 +324,33 @@ export function createBattle(
   const board = createTargetBoard(world.combatants)
   // 【編制同理】而且玩家要釘在自己分隊的 members[0]（M6 spec §5.3）
   const flights = createFlights(world.combatants, player.index)
+  // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
+  // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
+  // `envelope.ts` 用二分搜尋實算 —— 那才是**套過 `feel.ts` 倍率之後**這架
+  // 飛機真正爬得到的高度。搜尋不便宜（50 次 `maxClimbRate`），所以依 spec
+  // 物件記憶：一場 20v20 只有兩種機型，實際只算兩次。
+  const ceilings = new Map<AircraftSpec, number>()
+  const commandUnits: CommandUnit[] = world.combatants.map((c) => {
+    const spec = c.aircraft.spec
+    let ceiling = ceilings.get(spec)
+    if (ceiling === undefined) {
+      ceiling = serviceCeiling(spec)
+      // 【NaN 代表搜尋失敗】`serviceCeiling` 在區間沒括住解時回 NaN。讓它流
+      // 進規劃會使「集合點不超過升限」那個夾擠變成 false，高度限制靜靜消失。
+      // 退成 Infinity：夾擠不生效，但下界（clearanceScale）仍然守著。
+      if (!Number.isFinite(ceiling)) ceiling = Infinity
+      ceilings.set(spec, ceiling)
+    }
+    return {
+      position: c.aircraft.state.position,
+      velocity: c.aircraft.state.velocity,
+      cornerRatio: 1,
+      serviceCeiling: ceiling,
+      alive: c.alive,
+    }
+  })
+  const blueCommand = createCommandState(flights.flights.length)
+  const redCommand = createCommandState(flights.flights.length)
 
   // AI 接線：指派板、自身索引、決策相位
   for (const c of world.combatants) {
@@ -340,6 +389,9 @@ export function createBattle(
     player,
     cfg,
     flights,
+    blueCommand,
+    redCommand,
+    commandUnits,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
   }
@@ -370,6 +422,61 @@ function wireStations(b: Battle): void {
     ai.stationReference = ref >= 0 ? cs[ref]!.aircraft : null
     const pos = b.flights.positionOf[c.index]!
     ai.stationOffset = STATION_OFFSETS[pos >= 0 ? pos : 0]!
+  }
+}
+
+/** 指揮層每步收集的兩隊快照。重用陣列，與 `ASSISTS` 同一個做法 */
+const BLUE_UNITS: CommandUnit[] = []
+const RED_UNITS: CommandUnit[] = []
+
+/**
+ * 推進兩隊的指揮官，並把命令寫進每一架的 `AiController.order`。
+ *
+ * 【為什麼排在 `wireStations` 之後】`stepCommand` 讀 `flight.count` 與
+ * `flight.members`，那兩者由同一步的 `compactFlights` 重算。排在前面會用到
+ * 上一步的編制 —— 剛陣亡的成員仍在名單裡。
+ *
+ * 【玩家那一隊自治】spec §2.1：專案負責人裁定「指揮 AI 不用跟玩家這個小隊
+ * 給指令」。`flights.pinned` 已經標了玩家。
+ */
+function stepCommandLayer(b: Battle, dt: number): void {
+  const cs = b.world.combatants
+
+  // ── 快照：位置與速度是參考、每步自動新；這兩個要寫 ──────
+  for (let i = 0; i < cs.length; i++) {
+    const c = cs[i]!
+    const u = b.commandUnits[i]!
+    u.alive = c.alive
+    const a = c.aircraft
+    // 【為什麼不從 AiController 的 sit 拿】那個欄位是私有的，而且玩家座位
+    // 根本沒有 AiController。直接算比較誠實，也不依賴 AI 這一步跑過沒有
+    const vc = cornerSpeed(a.spec, a.state.position.y)
+    u.cornerRatio = vc > 1e-3 ? a.state.velocity.length() / vc : 0
+  }
+
+  BLUE_UNITS.length = 0
+  RED_UNITS.length = 0
+  for (let i = 0; i < cs.length; i++) {
+    ;(cs[i]!.team === 'blue' ? BLUE_UNITS : RED_UNITS).push(b.commandUnits[i]!)
+  }
+
+  const playerFlight = b.flights.pinned >= 0 ? b.flights.flightOf[b.flights.pinned]! : -1
+  stepCommand(
+    b.blueCommand, b.flights.flights, b.commandUnits, RED_UNITS, playerFlight, dt,
+  )
+  stepCommand(
+    b.redCommand, b.flights.flights, b.commandUnits, BLUE_UNITS, playerFlight, dt,
+  )
+
+  // ── 發下去 ────────────────────────────────────────────
+  for (let f = 0; f < b.flights.flights.length; f++) {
+    const flight = b.flights.flights[f]!
+    const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
+    const order = state.orders[f] ?? null
+    for (let p = 0; p < flight.count; p++) {
+      const ai = cs[flight.members[p]!]!.controller
+      if (ai instanceof AiController) ai.order = order
+    }
   }
 }
 
@@ -487,6 +594,7 @@ export function stepBattle(b: Battle, dt: number): void {
 
   compactFlights(b.flights, cs)
   wireStations(b)
+  stepCommandLayer(b, dt)
 
   if (b.outcome !== 'fighting') return
 
