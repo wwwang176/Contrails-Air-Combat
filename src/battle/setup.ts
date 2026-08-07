@@ -195,6 +195,14 @@ export interface Battle {
    */
   readonly commandUnits: CommandUnit[]
   /**
+   * 兩隊各自的分隊索引（`flights.flights` 的下標）。
+   *
+   * 【為什麼算一次就好】分隊的隊伍歸屬**永遠不變** —— `compactFlights` 只
+   * 壓縮成員，不會把一個分隊換隊。每步重算是白花的。
+   */
+  readonly blueFlightIndices: number[]
+  readonly redFlightIndices: number[]
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -352,6 +360,11 @@ export function createBattle(
   })
   const blueCommand = createCommandState(flights.flights.length)
   const redCommand = createCommandState(flights.flights.length)
+  const blueFlightIndices: number[] = []
+  const redFlightIndices: number[] = []
+  for (let f = 0; f < flights.flights.length; f++) {
+    ;(flights.flights[f]!.team === 'blue' ? blueFlightIndices : redFlightIndices).push(f)
+  }
 
   // AI 接線：指派板、自身索引、決策相位
   for (const c of world.combatants) {
@@ -393,6 +406,8 @@ export function createBattle(
     blueCommand,
     redCommand,
     commandUnits,
+    blueFlightIndices,
+    redFlightIndices,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
   }
@@ -426,10 +441,6 @@ function wireStations(b: Battle): void {
   }
 }
 
-/** 指揮層每步收集的兩隊**分隊索引**。重用陣列，與 `ASSISTS` 同一個做法 */
-const BLUE_FLIGHTS: number[] = []
-const RED_FLIGHTS: number[] = []
-
 /**
  * 推進兩隊的指揮官，並把命令寫進每一架的 `AiController.order`。
  *
@@ -460,21 +471,13 @@ function stepCommandLayer(b: Battle, dt: number): void {
     u.hpFraction = frac > 0 ? frac : 0
   }
 
-  // 分隊的隊伍歸屬不會變，但 Task 6 才把它移到 createBattle 算一次。
-  // 這裡先每步算，功能正確、成本可接受
-  BLUE_FLIGHTS.length = 0
-  RED_FLIGHTS.length = 0
-  for (let f = 0; f < b.flights.flights.length; f++) {
-    ;(b.flights.flights[f]!.team === 'blue' ? BLUE_FLIGHTS : RED_FLIGHTS).push(f)
-  }
-
   const playerFlight = b.flights.pinned >= 0 ? b.flights.flightOf[b.flights.pinned]! : -1
   stepCommand(
-    b.blueCommand, b.flights.flights, BLUE_FLIGHTS, RED_FLIGHTS,
+    b.blueCommand, b.flights.flights, b.blueFlightIndices, b.redFlightIndices,
     b.commandUnits, playerFlight, dt,
   )
   stepCommand(
-    b.redCommand, b.flights.flights, RED_FLIGHTS, BLUE_FLIGHTS,
+    b.redCommand, b.flights.flights, b.redFlightIndices, b.blueFlightIndices,
     b.commandUnits, playerFlight, dt,
   )
 
@@ -483,9 +486,25 @@ function stepCommandLayer(b: Battle, dt: number): void {
     const flight = b.flights.flights[f]!
     const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
     const order = state.orders[f] ?? null
+    // 【索引解析成 Aircraft 在這一層】規劃層是純函數、只吃快照，不認識
+    // Aircraft。與 wireStations 把 stationReferenceOf 的索引解析成飛機是
+    // 同一個手法。
+    //
+    // 【陣亡在這裡擋】stepCommand 同一步也會把命令解除，所以這是同一件事
+    // 的兩道保險 —— 但兩道的節奏不同：命令層的解除是每步的，而這一格擋的
+    // 是「解除與發令之間」那一瞬。留一個指向退場飛機的 target 會讓 AI
+    // 對著一個不存在的東西解預瞄
+    let focus: Aircraft | null = null
+    if (order !== null && order.kind === 'focus') {
+      const c = cs[order.focusIndex]
+      if (c !== undefined && c.alive) focus = c.aircraft
+    }
     for (let p = 0; p < flight.count; p++) {
       const ai = cs[flight.members[p]!]!.controller
-      if (ai instanceof AiController) ai.order = order
+      if (ai instanceof AiController) {
+        ai.order = order
+        ai.focusTarget = focus
+      }
     }
   }
 }

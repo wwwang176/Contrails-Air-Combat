@@ -42,6 +42,17 @@ interface Observed {
   strayUnderOrder: number
   /** 命令解除時僚機平均站位誤差**小於**發令當下的張數 */
   tightened: number
+  /**
+   * 依命令種類分開的同一組量。**只為診斷存在，沒有任何斷言讀它** ——
+   * 第一份的五條判準是為 `rally` 一種命令寫的，第二份加了兩種之後要先
+   * 分得出「是哪一種讓總量動的」才談得上判斷。
+   */
+  byKind: Record<string, { issued: number, arrived: number, samples: number,
+    tightened: number, loosened: number, ground: number }>
+  /** 無命令的飛機的撞地接管取樣數，與 `wingmanFree` 同一個對照組 */
+  groundFree: number
+  /** 無命令的取樣總數，當 `groundFree` 的分母 */
+  freeSamples: number
   /** 反之。`tightened + loosened` = 有量到的命令張數 */
   loosened: number
   /** 任何飛機掉到安全層 clearance 以下的取樣數 */
@@ -86,6 +97,12 @@ function observe(commanders = true): Observed {
     orderedSamples: 0, aliveSamples: 0,
     strayFree: 0, wingmanFree: 0, wingmanUnderOrder: 0,
     tightened: 0, loosened: 0,
+    byKind: {
+      rally: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
+      flank: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
+      focus: { issued: 0, arrived: 0, samples: 0, tightened: 0, loosened: 0, ground: 0 },
+    },
+    groundFree: 0, freeSamples: 0,
     redDamage: 0, blueDamage: 0, pulledWhileShooting: 0,
   }
   /** 開場的 hp，用來算全程掉了多少。與 `ai-duel-matrix` 同一個算法 */
@@ -94,6 +111,8 @@ function observe(commanders = true): Observed {
   const had = new Array<boolean>(b.flights.flights.length).fill(false)
   /** 發令當下該分隊僚機的平均站位誤差，解除時拿來比。−1 = 那一張沒量到 */
   const issuedError = new Array<number>(b.flights.flights.length).fill(-1)
+  /** 上一格那張命令是哪一種。解除時要知道是誰結束的 */
+  const hadKind = new Array<string>(b.flights.flights.length).fill('')
 
   /**
    * 這個分隊**僚機**的平均站位誤差，m。沒有僚機時回 −1。
@@ -133,9 +152,12 @@ function observe(commanders = true): Observed {
     for (let f = 0; f < b.flights.flights.length; f++) {
       const flight = b.flights.flights[f]!
       const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
-      const now = state.orders[f] != null
+      const cur = state.orders[f] ?? null
+      const now = cur !== null
       if (now && !had[f]) {
         o.issued++
+        o.byKind[cur!.kind]!.issued++
+        hadKind[f] = cur!.kind
         issuedError[f] = meanWingmanError(f)
         // 【把「命令絕對」那個坑照亮】發令的那一格，這個分隊有幾架正握有
         // 射擊解。刻意不設門檻 —— 見 `pulledWhileShooting` 的註解
@@ -146,13 +168,16 @@ function observe(commanders = true): Observed {
       }
       if (!now && had[f] && flight.count > 0) {
         o.arrived++
+        const k = o.byKind[hadKind[f]!]
+        if (k !== undefined) k.arrived++
         // 【全滅的那一張不算】`meanWingmanError` 對空分隊回 −1，而且分隊被
         // 打光時「編隊收攏了」是沒有意義的 —— 那不是命令的功勞
         const at0 = issuedError[f]!
         const at1 = meanWingmanError(f)
         if (at0 > 0 && at1 >= 0) {
-          if (at1 < at0) o.tightened++
-          else o.loosened++
+          const kk = o.byKind[hadKind[f]!]
+          if (at1 < at0) { o.tightened++; if (kk !== undefined) kk.tightened++ }
+          else { o.loosened++; if (kk !== undefined) kk.loosened++ }
         }
       }
       if (!now) issuedError[f] = -1
@@ -168,6 +193,8 @@ function observe(commanders = true): Observed {
       const stray = ai.stationReference !== null
         && ai.stationError > DEFAULT_WINGMAN.breakExit
       if (ai.order === null) {
+        o.freeSamples++
+        if (ai.safetyAction === 'ground') o.groundFree++
         if (ai.stationReference !== null) {
           o.wingmanFree++
           if (stray) o.strayFree++
@@ -175,8 +202,13 @@ function observe(commanders = true): Observed {
         continue
       }
       o.orderedSamples++
+      const bk = o.byKind[ai.order.kind]
+      if (bk !== undefined) bk.samples++
       if (ai.intent === 'defend') o.defendUnderOrder++
-      if (ai.safetyAction === 'ground') o.groundUnderOrder++
+      if (ai.safetyAction === 'ground') {
+        o.groundUnderOrder++
+        if (bk !== undefined) bk.ground++
+      }
       if (ai.stationReference !== null) {
         o.wingmanUnderOrder++
         if (stray) o.strayUnderOrder++
@@ -257,6 +289,8 @@ describe('指令通道（20v20、120 秒）', () => {
       issued: o.issued, arrived: o.arrived,
       share: (o.orderedSamples / Math.max(o.aliveSamples, 1) * 100).toFixed(2) + '%',
       tightened: o.tightened, loosened: o.loosened,
+      byKind: o.byKind,
+      groundFree: o.groundFree + '/' + o.freeSamples,
       strayUnderOrder: `${o.strayUnderOrder}/${o.wingmanUnderOrder}`,
       strayFree: `${o.strayFree}/${o.wingmanFree}`,
     }))
