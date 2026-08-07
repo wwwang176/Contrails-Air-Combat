@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  planFlightOrder, createCommandState, stepCommand, DEFAULT_COMMAND,
+  planFlightOrder, planFlankOrder, createCommandState, stepCommand, DEFAULT_COMMAND,
   type CommandUnit, type CommandFlight,
 } from '../../src/ai/command'
 import { DEFAULT_STEER } from '../../src/ai/steer'
@@ -300,5 +300,208 @@ describe('stepCommand：命令的生命週期', () => {
     run(sc, cfg.planPeriod * 2)
     expect(sc.s.orders[0]!.point.x).toBe(before.x)
     expect(sc.s.orders[0]!.point.z).toBe(before.z)
+  })
+})
+
+/**
+ * 側翼的標準場景：目標分隊在 +Z 3000 處、朝 −Z 飛（也就是朝我們飛過來），
+ * 而且正在交戰（cornerRatio 低）。我方在原點。
+ */
+function foeFlight(over: { x?: number; engaged?: boolean } = {}): CommandUnit[] {
+  const cr = over.engaged === false ? 1.2 : 0.8
+  return [
+    unit({ x: over.x ?? 0, z: 3000, cornerRatio: cr }),
+    unit({ x: (over.x ?? 0) + 200, z: 3000, cornerRatio: cr }),
+  ]
+}
+
+describe('planFlankOrder：該不該下令', () => {
+  it('目標分隊在交戰 → 有命令，種類是 flank', () => {
+    const o = planFlankOrder([unit(), unit({ x: 200 })], foeFlight(), [], 3, cfg)
+    expect(o).not.toBeNull()
+    expect(o!.kind).toBe('flank')
+    expect(o!.targetFlight).toBe(3)
+  })
+
+  /**
+   * 【spec §3.1】少了這道閘門，開場五個分隊對五個分隊全都健康又全都很遠，
+   * 所有人同時側翼 —— 而側翼途中不交戰，開局會變成兩隊互相繞圈一槍不開，
+   * 而且會自我維持（雙方都在繞，「已經接戰」永遠不成立）。
+   */
+  it('目標分隊沒在交戰 → null', () => {
+    expect(planFlankOrder([unit()], foeFlight({ engaged: false }), [], 3, cfg)).toBeNull()
+  })
+
+  it('我方全滅 → null', () => {
+    const dead = [unit({ alive: false })]
+    expect(planFlankOrder(dead, foeFlight(), [], 3, cfg)).toBeNull()
+  })
+
+  it('目標分隊全滅 → null', () => {
+    const dead = [unit({ z: 3000, alive: false })]
+    expect(planFlankOrder([unit()], dead, [], 3, cfg)).toBeNull()
+  })
+})
+
+describe('planFlankOrder：點放得對不對', () => {
+  const members = [unit(), unit({ x: 200 })]
+
+  /**
+   * 目標朝 −Z 飛，所以「後方」是 +Z 方向。側翼點的 Z 要**大於**目標質心，
+   * 距離約 flankTrail。
+   */
+  it('點在目標分隊的後方', () => {
+    const o = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    expect(o.point.z).toBeGreaterThan(3000)
+    expect(o.point.z - 3000).toBeCloseTo(cfg.flankTrail, 6)
+  })
+
+  it('橫向偏置約等於 flankOffset', () => {
+    const o = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    // 目標航向是 −Z，右手側是 −X（驗算：u=(0,0,−1)，r=(−u.z,0,u.x)=(1,0,0)…
+    // 見實作的註解）。這裡只驗大小，方向由下面的「就近」那兩條驗
+    expect(Math.abs(o.point.x - 100)).toBeCloseTo(cfg.flankOffset, 6)
+  })
+
+  it('比目標分隊高 flankClimb', () => {
+    const o = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    expect(o.point.y).toBeCloseTo(4000 + cfg.flankClimb, 6)
+  })
+
+  /** 【就近】沒有其他敵機時兩邊一樣安全，取轉場最短的那一邊 */
+  it('我方在目標的左邊 → 點也在左邊', () => {
+    const left = [unit({ x: -2000 }), unit({ x: -1800 })]
+    const o = planFlankOrder(left, foeFlight(), [], 3, cfg)!
+    expect(o.point.x).toBeLessThan(0)
+  })
+
+  it('我方在目標的右邊 → 點也在右邊', () => {
+    const right = [unit({ x: 2000 }), unit({ x: 1800 })]
+    const o = planFlankOrder(right, foeFlight(), [], 3, cfg)!
+    expect(o.point.x).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【危險評估壓過就近】專案負責人 2026-08-07 追加的要求：側翼點有可能正好
+   * 落在另一場交火中間。
+   */
+  it('就近的那一邊塞滿其他敵機 → 改走另一邊', () => {
+    const left = [unit({ x: -2000 }), unit({ x: -1800 })]
+    const safe = planFlankOrder(left, foeFlight(), [], 3, cfg)!
+    // 把三架敵機堆在剛才選中的那個點上
+    const others = [
+      unit({ x: safe.point.x, y: safe.point.y, z: safe.point.z }),
+      unit({ x: safe.point.x + 50, y: safe.point.y, z: safe.point.z }),
+      unit({ x: safe.point.x - 50, y: safe.point.y, z: safe.point.z }),
+    ]
+    const moved = planFlankOrder(left, foeFlight(), others, 3, cfg)!
+    expect(Math.sign(moved.point.x - 100)).toBe(-Math.sign(safe.point.x - 100))
+  })
+
+  it('兩邊都塞滿其他敵機 → null', () => {
+    const a = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    const mirrorX = 200 - a.point.x   // 以目標質心 x=100 鏡射
+    const others: CommandUnit[] = []
+    for (const x of [a.point.x, mirrorX]) {
+      for (const d of [-50, 0, 50]) {
+        others.push(unit({ x: x + d, y: a.point.y, z: a.point.z }))
+      }
+    }
+    expect(planFlankOrder(members, foeFlight(), others, 3, cfg)).toBeNull()
+  })
+
+  it('不會叫人撞海：高於 clearanceScale', () => {
+    const low = [unit({ y: 50 })]
+    const foe = [unit({ y: 50, z: 3000, cornerRatio: 0.8 })]
+    const o = planFlankOrder(low, foe, [], 3, cfg)!
+    expect(o.point.y).toBeGreaterThanOrEqual(DEFAULT_STEER.clearanceScale)
+  })
+
+  /** 高度上界取**我方**的最低升限：要飛上去的是我們，不是他們 */
+  it('不超過我方的最低升限', () => {
+    const high = [
+      unit({ y: 11900, serviceCeiling: 12000 }),
+      unit({ y: 11900, serviceCeiling: 9000 }),
+    ]
+    const foe = [unit({ y: 11900, z: 3000, cornerRatio: 0.8 })]
+    const o = planFlankOrder(high, foe, [], 3, cfg)!
+    expect(o.point.y).toBeLessThanOrEqual(9000)
+  })
+})
+
+describe('planFlankOrder：退化與穩定性', () => {
+  const members = [unit(), unit({ x: 200 })]
+
+  /**
+   * 【敵分隊速度退化】`CommandUnit` **沒有 orientation**，所以沒有「機首」
+   * 可以退回去 —— 退化階梯改成「由我方指向他們」（把他們當成正在遠離我們）。
+   * 那讓點落在我們與他們之間，可及而且安全。
+   */
+  it('敵分隊速度為零 → 不產生 NaN，仍給得出點', () => {
+    const still = [unit({ z: 3000, cornerRatio: 0.8, velocity: new Vector3(0, 0, 0) })]
+    const o = planFlankOrder(members, still, [], 3, cfg)!
+    expect(Number.isNaN(o.point.x + o.point.y + o.point.z)).toBe(false)
+  })
+
+  it('敵分隊速度為零且與我方質心重合 → 仍不產生 NaN', () => {
+    const still = [unit({ x: 100, cornerRatio: 0.8, velocity: new Vector3(0, 0, 0) })]
+    const o = planFlankOrder(members, still, [], 3, cfg)!
+    expect(Number.isNaN(o.point.x + o.point.y + o.point.z)).toBe(false)
+  })
+
+  /** 【決定性】spec §7.5 的否決條件 */
+  it('同一個快照算兩次，逐位元相同', () => {
+    const a = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    const b = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    expect(a.point.x).toBe(b.point.x)
+    expect(a.point.y).toBe(b.point.y)
+    expect(a.point.z).toBe(b.point.z)
+    expect(a.side).toBe(b.side)
+  })
+
+  /**
+   * 【連續性】spec §7.5 的否決條件。
+   *
+   * 【為什麼微擾的是目標分隊而不是「其他敵機」】選邊是一個**離散**決定，
+   * 而其他敵機的微擾在兩邊危險分數相近時會翻邊，位移就是 2×flankOffset。
+   * 那個不連續是**刻意的而且被封住了**：`side` 發令後凍結（spec §4.2），
+   * 所以翻邊只可能發生在「還沒發令」的那一刻，不會傳到飛行中的飛機身上。
+   * 這一條驗的是**給定一邊之後**，點對目標移動的連續性。
+   *
+   * 【為什麼我方擺在 x≈−1900 而不是與目標重合】沒有其他敵機時兩邊一樣安全，
+   * 選邊退回「就近」；而 `members`（質心 x=100）與目標質心（x=100）重合時
+   * 兩個候選點**恰好等距**，選邊落在 tie-break 的分界線上，目標往任一邊移
+   * 20 m 就翻邊。那是在階梯函數的階梯上量連續性 —— 場景本身病態，不是實作
+   * 不連續。把我方擺到明確的左邊，±20 m 就跨不過分界。
+   */
+  it('目標分隊位置微擾 ±20 m，側翼點的位移有界', () => {
+    const members = [unit({ x: -2000 }), unit({ x: -1800 })]
+    const base = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    for (const d of [-20, 20]) {
+      const moved = planFlankOrder(members, foeFlight({ x: d }), [], 3, cfg)!
+      expect(moved.side).toBe(base.side)
+      expect(moved.point.distanceTo(base.point)).toBeLessThan(60)
+    }
+  })
+
+  /**
+   * 【危險分數連續】用平方反比核而不是「半徑內的計數」。計數需要一個半徑
+   * 門檻，而門檻會讓分數在邊界上跳 —— 與 `targetScore` 的三個折扣項、
+   * `floorPitchAngle` 的連續斜坡同一條紀律。
+   *
+   * 驗法：把一架敵機從很遠慢慢移近選中的點，選邊不得在中途翻轉超過一次。
+   * 翻轉超過一次代表分數不是單調的，那只可能來自不連續。
+   */
+  it('單一敵機從遠處逼近時，選邊最多翻轉一次', () => {
+    const base = planFlankOrder(members, foeFlight(), [], 3, cfg)!
+    let flips = 0
+    let prev = base.side
+    for (let z = 6000; z >= base.point.z; z -= 100) {
+      const others = [unit({ x: base.point.x, y: base.point.y, z })]
+      const o = planFlankOrder(members, foeFlight(), others, 3, cfg)!
+      if (o.side !== prev) flips++
+      prev = o.side
+    }
+    expect(flips).toBeLessThanOrEqual(1)
   })
 })
