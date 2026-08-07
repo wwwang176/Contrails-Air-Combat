@@ -898,8 +898,13 @@ export function stepCommand(
       // 它到位 —— 期間就算打不動了也換不到撤退令，而「打不動的小隊被派
       // 出去切側翼」正是這條優先序要防的事。解除之後下一次規劃走撤退那
       // 一支（`spent` 不歸零，所以那一支立刻成立）
+      // 【解除進攻命令時 idle 一律歸零，四處都是】spec §5.1。少了它，剛
+      // 解除的分隊在下一個週期就會回到榜首（它確實是閒的），於是被永久釘
+      // 在命令狀態。rally 那一支**不加** —— 它歸零的是 spent，一支剛撤退
+      // 回來的分隊本來就是閒的，沒有理由再罰它一次
       if (order.kind !== 'rally' && s.spent[f]! >= cfg.spentSeconds) {
         s.orders[f] = null
+        s.idle[f] = 0
         continue
       }
       if (order.kind === 'focus') {
@@ -910,19 +915,24 @@ export function stepCommand(
         if (t === undefined || !t.alive
           || centroidDistance(flight, units, t.position) > FLANK_RANGE) {
           s.orders[f] = null
+          s.idle[f] = 0
         }
       } else if (order.kind === 'flank') {
         const tf = flights[order.targetFlight]
         if (tf === undefined || tf.count === 0) {
           // 目標分隊全滅：這張命令沒有對象了
           s.orders[f] = null
+          s.idle[f] = 0
         } else {
           gather(TARGET, tf, units)
           gather(MEMBERS, flight, units)
           // 【點每步重算】凍結的是 side 與 targetFlight，不是座標。
           // 算不出來（兩邊都全滅）時保留舊點，下一步再試
           flankPoint(TARGET, MEMBERS, order.side, cfg, order.point)
-          if (flankArrived(MEMBERS, TARGET, cfg)) s.orders[f] = null
+          if (flankArrived(MEMBERS, TARGET, cfg)) {
+            s.orders[f] = null
+            s.idle[f] = 0
+          }
         }
       } else {
         // rally：到達用小隊質心與半徑判。個別成員可能正在閃躲而落後，
@@ -937,12 +947,12 @@ export function stepCommand(
       continue
     }
 
-    // ── 規劃：撤退 > 側翼 > 集火 ─────────────────────────
+    // ── 階段一：撤退。**不佔配額**（spec §3.2）────────────
+    // 「打不動了」是一個事實，不是指揮官在分配資源。而且撤退本來就有自己
+    // 的門檻與遲滯（spentSeconds、到達歸零）
     if (!plan) continue
     gather(MEMBERS, flight, units)
 
-    // 一：撤退。它自己會在還沒累積滿 spentSeconds 時回 null，所以無條件
-    // 呼叫是便宜的。**優先於兩個進攻戰術** —— 打不動的小隊不該被派出去
     FOES.length = 0
     for (let fi = 0; fi < foe.length; fi++) {
       const ef = flights[foe[fi]!]
@@ -953,9 +963,31 @@ export function stepCommand(
       }
     }
     const retreat = planFlightOrder(MEMBERS, FOES, s.spent[f]!, cfg)
-    if (retreat !== null) { s.orders[f] = retreat; continue }
+    if (retreat !== null) s.orders[f] = retreat
+  }
 
-    // 二：挑最近的敵分隊
+  // ── 階段二：排名與配額（spec §5）──────────────────────
+  if (!plan) return
+
+  // 【在維護之後數】這一步解除的命令要立刻把名額釋出，否則名額會晚一個
+  // 規劃週期才回來
+  let held = 0
+  for (let oi = 0; oi < own.length; oi++) {
+    const o = s.orders[own[oi]!]
+    if (o !== undefined && o !== null && o.kind !== 'rally') held++
+  }
+  let slots = cfg.maxOrders - held
+  if (slots <= 0) return
+
+  rankFlights(flights, own, units, s.orders, s.idle, skipFlight, RANKED, cfg)
+
+  for (let ri = 0; ri < RANKED.length && slots > 0; ri++) {
+    const f = RANKED[ri]!
+    const flight = flights[f]!
+    gather(MEMBERS, flight, units)
+    if (MEMBERS.length === 0) continue
+
+    // 挑最近的敵分隊
     let nearest = -1
     let nearestDist = Infinity
     for (let fi = 0; fi < foe.length; fi++) {
@@ -964,7 +996,7 @@ export function stepCommand(
       if (ef === undefined || ef.count === 0) continue
       gather(TARGET, ef, units)
       if (TARGET.length === 0) continue
-      let cx = 0, cz = 0, cy = 0
+      let cx = 0, cy = 0, cz = 0
       for (let i = 0; i < TARGET.length; i++) {
         cx += TARGET[i]!.position.x; cy += TARGET[i]!.position.y; cz += TARGET[i]!.position.z
       }
@@ -974,25 +1006,26 @@ export function stepCommand(
     }
     if (nearest < 0) continue
 
-    // 三：遠 → 側翼；近 → 集火（spec §3.2）
+    // 遠 → 側翼（目前停用）；近 → 集火（spec §3.2）
     const tf = flights[nearest]!
     gather(TARGET, tf, units)
+    let issued: FlightOrder | null = null
     if (nearestDist > FLANK_RANGE) {
-      // 【側翼已停用】見 `FLANK_ENABLED`。遠距離時不發令，讓小隊自由交戰
-      if (!FLANK_ENABLED) continue
-      OTHERS.length = 0
-      TARGET_IDX.length = 0
-      for (let fi = 0; fi < foe.length; fi++) {
-        const gi = foe[fi]!
-        if (gi === nearest) continue
-        const ef = flights[gi]
-        if (ef === undefined) continue
-        for (let p = 0; p < ef.count; p++) {
-          const u = units[ef.members[p]!]
-          if (u !== undefined && u.alive) OTHERS.push(u)
+      // 【側翼已停用】見 `FLANK_ENABLED`
+      if (FLANK_ENABLED) {
+        OTHERS.length = 0
+        for (let fi = 0; fi < foe.length; fi++) {
+          const gi = foe[fi]!
+          if (gi === nearest) continue
+          const ef = flights[gi]
+          if (ef === undefined) continue
+          for (let p = 0; p < ef.count; p++) {
+            const u = units[ef.members[p]!]
+            if (u !== undefined && u.alive) OTHERS.push(u)
+          }
         }
+        issued = planFlankOrder(MEMBERS, TARGET, OTHERS, nearest, cfg)
       }
-      s.orders[f] = planFlankOrder(MEMBERS, TARGET, OTHERS, nearest, cfg)
     } else {
       TARGET_IDX.length = 0
       for (let p = 0; p < tf.count; p++) {
@@ -1000,8 +1033,13 @@ export function stepCommand(
         const u = units[gi]
         if (u !== undefined && u.alive) TARGET_IDX.push(gi)
       }
-      s.orders[f] = planFocusTarget(MEMBERS, TARGET, TARGET_IDX, cfg)
+      issued = planFocusTarget(MEMBERS, TARGET, TARGET_IDX, cfg)
     }
+
+    // 【回 null 不消耗名額】排名只決定考慮順序，能不能發由規劃函式自己說
+    if (issued === null) continue
+    s.orders[f] = issued
+    slots--
   }
 }
 
@@ -1021,6 +1059,8 @@ const TARGET: CommandUnit[] = []
 const OTHERS: CommandUnit[] = []
 const FOES: CommandUnit[] = []
 const TARGET_IDX: number[] = []
+/** 排名的輸出。重用，理由同上 */
+const RANKED: number[] = []
 
 /** 把一個分隊的存活成員收進 `out`（先清空）。不配置 */
 function gather(
