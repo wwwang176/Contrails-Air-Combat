@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { attachInput } from '../../src/input/bindings'
-import { createInputState } from '../../src/input/InputState'
+import { createInputState, CRUISE_THROTTLE } from '../../src/input/InputState'
 
 /**
  * bindings.ts 是純 DOM 外殼，但「右鍵自由視角絕不移動瞄準點」這條性質
@@ -340,5 +340,111 @@ describe('指標鎖定掉了（M10 spec §8.2）', () => {
     dom.doc.pointerLockElement = null
     b.tick(1 / 60)
     expect(state.pointerLockLost).toBe(true)
+  })
+})
+
+describe('attachInput：上帝視角', () => {
+  const key = (code: string) => ({ code, preventDefault: () => {} })
+
+  it('G 切換 godView', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    expect(state.godView).toBe(false)
+    dom.win.fire('keydown', key('KeyG'))
+    expect(state.godView).toBe(true)
+    dom.win.fire('keydown', key('KeyG'))
+    expect(state.godView).toBe(false)
+  })
+
+  /**
+   * 【油門要先推離巡航才驗得到】`applyThrottleRate` 是**彈簧回中**的
+   * （`throttle.ts:53-55`）：起始值就是 `CRUISE_THROTTLE`，放手時它原地
+   * 不動，所以在巡航值上斷言「油門沒變」有沒有守衛都會過。
+   *
+   * 推到 1.1 之後就分得開了：有 `if (!godView)` 守衛時停在 1.1，沒有的話
+   * 會以 0.6/s 掉回 0.7。
+   */
+  it('上帝視角下 W/S 不動油門、不設 braking', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyW'))
+    b.tick(1)
+    const raised = state.throttle
+    expect(raised).toBeGreaterThan(CRUISE_THROTTLE)
+
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyW'))
+    dom.win.fire('keydown', key('KeyS'))
+    b.tick(1)
+    expect(state.throttle).toBe(raised)
+    expect(state.braking).toBe(false)
+  })
+
+  it('上帝視角下六個方向鍵與 Shift 寫進 godMove', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft']) {
+      dom.win.fire('keydown', key(c))
+    }
+    expect(state.godMove).toEqual({
+      forward: true, back: true, left: true, right: true,
+      up: true, down: true, boost: true,
+    })
+    for (const c of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft']) {
+      dom.win.fire('keyup', key(c))
+    }
+    expect(state.godMove).toEqual({
+      forward: false, back: false, left: false, right: false,
+      up: false, down: false, boost: false,
+    })
+  })
+
+  /**
+   * 【離開時要清 godMove】與 `tick()` 裡記載的「切出視窗扳機卡住」同一類
+   * bug：按著 W 按 G 離開，`godMove.forward` 會留在 true，下次進上帝視角
+   * 第一幀鏡頭就自己往前衝。
+   */
+  it('離開上帝視角會清掉 godMove', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyW'))
+    expect(state.godMove.forward).toBe(true)
+    dom.win.fire('keydown', key('KeyG'))
+    expect(state.godMove.forward).toBe(false)
+  })
+
+  /**
+   * 【進入時要清飛行側的 hold】`hold.up` 是 `attachInput` 的區域變數，
+   * 外面看不到，所以用「切回來之後油門有沒有繼續漲」來驗：沒清乾淨的話
+   * 它會一路衝到 1.1。
+   */
+  it('進入上帝視角會清掉飛行側的 hold', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyW'))
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyG'))
+    // 回到飛行，而且沒有任何鍵被按著 —— 油門應該回中而不是繼續漲
+    b.tick(1)
+    expect(state.throttle).toBe(CRUISE_THROTTLE)
+  })
+
+  /** 【`clearHolds` 是給 `main.ts` 用的】重開一場時它直接改 `godView` */
+  it('clearHolds 清掉上帝側的 hold', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyE'))
+    expect(state.godMove.up).toBe(true)
+    b.clearHolds()
+    expect(state.godMove.up).toBe(false)
   })
 })
