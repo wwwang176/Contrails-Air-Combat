@@ -800,7 +800,7 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 
 | # | 嚴重度 | 內容 | 處置 |
 |---|---|---|---|
-| C1 | Important | `1 − cos|γ|` 在極淺負角捨入成 0，拉起項成 `Infinity × 0 = NaN`，會讓安全層永遠不介入 | **採納**。改半正矢 + `c/root ≡ root²/2`，並新增一條測試與 mutation #5 |
+| C1 | Important | `1 − cos|γ|` 在極淺負角捨入成 0，拉起項成 `Infinity × 0 = NaN`，會讓安全層永遠不介入 | **診斷採納，處方只採一半**（見下） |
 | C2 | Important | 「補救方向」那條行為測試可空洞通過 —— `clean()` 本來就設了 `aimWorld.y < 0`、`throttle 1.1`、`brake 0` | **採納**。改成先擺一個相反的命令，並斷言回傳值與 `firing` |
 | C3 | Important | Step 8 的三個 mutation 沒有一個守得住「逐位元相同」那條 | **採納**。新增 mutation #4 |
 | C4 | Minor | 紅綠條數自相矛盾（寫六條、實際七條） | **採納**。Step 2 改成八條，Step 4 表列十條、8 紅 2 綠 |
@@ -808,3 +808,28 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 | C6 | Minor | 263.5 m 是未套 `lookahead` 的瞬時值，實際 `needed ≈ 282 m` | **採納**。Task 1 Step 7 標明，Task 2 Step 4 實測 |
 | C7 | Important | Task 2 的「修改前」數字沒有可重現的取得方式 | **部分採納**。新增 Task 1 Step 0 先量基準並存檔、記錄兩個 commit SHA。**未採納**「移除 co-author 與 session URL、改用非 `$CLAUDE_JOB_DIR` 路徑」—— 那兩項是本專案環境既有的規範，`$CLAUDE_JOB_DIR` 在此環境確實存在 |
 | C8 | Minor | `ai-visible-evasion.test.ts:440` 的註解以現在式描述舊行為；`NaN` 契約用語過寬 | **採納**。Step 6(b) 改註解（斷言不動）；契約收窄成「`nMax` 為 NaN」，並在「不做的事」寫明為何不管 `tas`／`gamma` |
+
+## 執行中的偏離（v2 → 實作）
+
+**C1 的處方被 mutation 打掉一半。** v2 照 Codex 的建議同時做了兩件事：把 `c`
+換成半正矢 `2·sin²(|γ|/2)`，並把拉起項由 `v²·c / (g·root)` 改寫成
+`v²·root² / (2g)`。Step 8 的 mutation #5（把半正矢換回 `1 − cos`）**打紅的
+不是**「極淺的負俯衝角不會算出 NaN」，而是另一條測試 —— 也就是說半正矢對
+NaN **沒有出力**：`root = 0` 時純乘法本來就給 0，`Infinity × 0` 從來沒發生。
+
+而半正矢有代價：逐格比對量到 288 格裡 **144 格**的回傳值差 1 ULP
+（`worstRel = 2.28×10⁻¹⁶`）。那是拿「拉得動的那一側逐位元不變」這個最強的
+迴歸證據去換一個買不到的東西。
+
+**處置：**
+
+1. `c` 退回 `1 − Math.cos(Math.abs(gamma))` → 逐格比對回到 `changed = 0`。
+2. 拉起項的純乘法**保留** —— 它才是真正擋掉 NaN 的那一個。
+3. 半正矢退掉之後浮出一個新角落：`c` 捨入成 0 時 `n*` 也捨入成 1，於是
+   `nMax = 1` 會落進單段支除以 `√(1−1) = 0`。單段支加一道 `q > 0` 守衛，
+   回 `Infinity`（與修改前 `!(nMax > 1) → Infinity` 一致），並補一條測試
+   `nMax 恰為 1 且俯衝角極淺時回傳 Infinity 而不是 NaN`。
+4. Mutation 表因此由五個變成六個，全部重跑（實作換了形狀，舊的驗證不算數）。
+
+【教訓】「兩個修補一起下」會讓 mutation 分不出哪一個在出力。這次是 mutation
+把它分開的 —— 那正是這道程序存在的理由。

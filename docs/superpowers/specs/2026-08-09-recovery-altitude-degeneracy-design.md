@@ -153,13 +153,13 @@ n* = √( 1 + (2·(1 − cos|γ|))^(2/3) )
 export function recoveryAltitude(tas: number, gamma: number, nMax: number): number {
   if (gamma >= 0) return 0
   if (!(nMax > 0)) return Infinity
-  const half = Math.sin(Math.abs(gamma) * 0.5)
-  const c = 2 * half * half              // ≡ 1 − cos|γ|，見下
+  const c = 1 - Math.cos(Math.abs(gamma))
   const root = Math.cbrt(2 * c)          // √(n*² − 1)
   const nStar = Math.sqrt(1 + root * root)
   if (nMax >= nStar) {
-    // 現在就拉得動，而且再加速也不划算 —— 與修改前完全相同
-    return ((tas * tas) / (G0 * Math.sqrt(nMax * nMax - 1))) * c
+    // 現在就拉得動，而且再加速也不划算 —— 與修改前逐位元相同
+    const q = nMax * nMax - 1
+    return q > 0 ? ((tas * tas) / (G0 * Math.sqrt(q))) * c : Infinity
   }
   // 先俯衝把 n 換到 n*，再拉平。拉起項 = v²·c/(G0·root)，而 c/root ≡ root²/2
   const v2 = (tas * tas * nStar) / nMax
@@ -167,14 +167,24 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 }
 ```
 
-【`c` 為什麼寫成半正矢，拉起項為什麼不做除法】直接寫 `1 − cos|γ|` 有一個會
-炸的角落：`|γ| < 2×10⁻⁸` rad 時 `Math.cos` 捨入成 1，於是 `c = 0`、
-`root = 0`，拉起項變成 `Infinity × 0 = NaN`。**而 `NaN` 比誤觸發更糟** ——
-`margin <= NaN` 恆為假，安全層會**永遠不介入**。
+【拉起項為什麼不照字面寫】`c = 1 − cos|γ|` 在 `|γ| < 2×10⁻⁸` rad 時
+`Math.cos` 捨入成 1，於是 `c = 0`、`root = 0`。照字面寫成 `v²·c / (g·root)`
+就是 `Infinity × 0 = NaN`。**而 `NaN` 比誤觸發更糟** —— `margin <= NaN` 恆為
+假，安全層會**永遠不介入**。
 
-`2·sin²(|γ|/2)` 在數學上恆等於 `1 − cos|γ|`，但浮點下不會塌成 0（`sin` 在
-零附近是線性的）。再利用 `c / root ≡ root² / 2`（把 `root = (2c)^(1/3)` 代
-進去即得）把拉起項寫成純乘法，連除法都不剩。
+用恆等式 `c / root ≡ root² / 2`（把 `root = (2c)^(1/3)` 代進去即得）改寫成
+`v²·root² / (2g)`：`root = 0` 時它就是 0，除法整個消失。
+
+【單段那一支的 `q > 0` 守衛】同一個角落裡 `n*` 也會捨入成 1，於是
+`nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。回 `Infinity` —— 那既是拉起半徑
+真正的極限，也與修改前 `!(nMax > 1) → Infinity` 完全一致。
+
+【試過半正矢 `c = 2·sin²(|γ|/2)`，退掉了】它在數學上恆等、浮點下確實不會塌成
+0，但**沒有多擋掉任何東西** —— NaN 是上面那個純乘法擋掉的，實測把 `c` 換成
+半正矢之後，「極淺負俯衝不會算出 NaN」那條測試在字面除法版仍然紅、在純乘法版
+本來就綠。代價卻是實測 288 格安全矩陣裡有 **144 格**回傳值差 1 ULP
+（`worstRel = 2.28×10⁻¹⁶`）。那等於拿「拉得動的那一側逐位元不變」這個最強的
+迴歸證據，去換一個買不到的東西。
 
 【為什麼 `nMax >= nStar` 而不是 `nMax > 1`】用 `nMax > 1` 當分界會在
 `nMax → 1⁺` 留一個跳到無限大的斷點。用 `n*` 當分界，兩側在接縫上相等 ——
@@ -196,8 +206,8 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 | `nMax <= 0` | `Infinity` | 完全沒有升力，換多少速度都拉不動。這是真正的「救不回來」 |
 | `tas → 0` | 有限 | `v² = tas²·n*/nMax`，而 `nMax ∝ tas²`，`tas²` 上下抵消。`v*` 有極限，不是奇點 |
 | `nMax` 為 `NaN` | `Infinity`（`!(NaN > 0)` 為真） | 與修改前的 `!(nMax > 1)` 同一種寫法，行為一致 |
-| `gamma` 極接近 0⁻ | 有限 | 由 §6 的半正矢寫法保證。直接寫 `1 − cos` 會回 `NaN` |
-| `nMax` 恰為 1 **且** `|γ| < 3×10⁻¹²` | `Infinity` | 浮點下 `n*` 會捨入成 1，於是走單段支、除以 0。這是量測零測度的角落：對應的下沉率小於 10⁻⁹ m/s，`asin` 與 `flightPathRate` 產不出這組數。不加分支 |
+| `gamma` 極接近 0⁻（`nMax < n*`） | 有限 | 由 §6 的純乘法拉起項保證。照字面寫成除法會回 `NaN` |
+| `gamma` 極接近 0⁻ **且** `nMax` 恰為 1 | `Infinity` | 同一個角落裡 `n*` 捨入成 1，於是走單段支。`q > 0` 守衛把它接成 `Infinity` —— 拉起半徑真正的極限，也與修改前一致 |
 
 `tas` 與 `gamma` 為 `NaN` 的情形**不在契約內**：上游 `applySafety` 由
 `vel.length()` 與 `Math.asin` 產生這兩個值，兩者都不會是 `NaN`。為一個到不了
@@ -212,10 +222,10 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 ## 8. 影響範圍（實測）
 
 **安全矩陣完全不受影響。** 對 `ai-safety-matrix.test.ts` 的 288 組
-（2 機種 × 4 高度 × 3 速度 × 4 俯衝角 × 3 坡度）逐格比對新舊回傳值：
+（2 機種 × 4 高度 × 3 速度 × 4 俯衝角 × 3 坡度）逐格比對新舊的 `needed`：
 
 ```
-changed: 0,  min(nMax / n*): 3.332
+{"cells":288,"changed":0,"inContract":198,"minRatio":3.332}
 ```
 
 每一格的 `nMax` 都在 `n*` 的 3.3 倍以上，全部走「與修改前完全相同」那一支。
@@ -269,6 +279,9 @@ changed: 0,  min(nMax / n*): 3.332
 | 拉不動時，`nMax` 越小回傳值越大 | 越拉不動要換越多速度 |
 | **回傳值等於兩段代價在所有 `v ≥ tas` 上的數值掃描最小值** | 這是兩段模型的定義，也是唯一守得住 `n*` 的斷言。涵蓋 `nMax = 1.1`、`1.3`（即 `1 < nMax < n*`）才抓得到「分界誤寫成 `nMax > 1`」 |
 | `nMax` 為 0、負值或 `NaN` 時回傳 `Infinity` | `NaN` 若流到 `margin <= needed`，那個比較永遠為假，安全層會**永遠不介入** —— 比誤觸發更糟 |
+| 極淺的負俯衝角（`−10⁻⁴` 到 `−10⁻¹²`）回傳有限值 | 守住 §6 的純乘法拉起項 |
+| 俯衝角極淺**且** `nMax` 恰為 1 時回傳 `Infinity` | 守住 §6 的 `q > 0` 分支 |
+| 拉得動時與單段閉式解**逐位元**相同 | 釘住「不是換模型，是把定義域補完」。整張矩陣 `changed = 0` 就是靠這件事 |
 | `tas` 趨近 0 時回傳有限值 | 抵消掉的那個 `tas²` 真的抵消了 |
 
 【接縫連續不另立測試】它由「回傳值是最小值」蘊含：接縫的定義就是最佳速度
@@ -315,3 +328,125 @@ changed: 0,  min(nMax / n*): 3.332
 - **不動 `recoveryAltitude` 的簽名。** 仍是 `(tas, gamma, nMax)` 三個純數字，
   仍不需要 `spec` 與高度 —— 因為 `n(v) = nMax·(v/tas)²` 讓「任意速度下的
   過載上限」可以只從傳進來的這三個數推出來。
+
+---
+
+## 13. 實測結果（2026-08-09 回填）
+
+基準 commit `2199b7c`（未修改）；修改後 commit `1c688de`。兩組數字都是在同一
+台機器、同一份 `node_modules` 上跑的，做法是把 `src/ai/safety.ts` 單獨
+checkout 回基準版再跑一次 —— 其餘檔案不動，所以差異只可能來自這一個檔案。
+
+### 13.1 主判準 —— 命令期間的撞地接管取樣數
+
+| 護欄 | 修改前 | 修改後 |
+|---|---|---|
+| `ai-command-channel` / `groundUnderOrder` | **93** | **0** ✅ |
+| 其中 `rally` | 93 / 76,162 取樣 | 0 / 69,451 取樣 |
+| 其中 `focus` | 0 / 990,091 | 0 / 1,003,787 |
+| `ai-command-tactics` / 側翼 | 0 | 0 |
+| `ai-command-tactics` / 集火 | 0 | 0 |
+| 對照：**無命令**時的撞地接管 | 0 / 1,643,589 | 0 / 1,641,892 |
+
+最後一列是這次診斷最有力的一條線索：**誤觸發只在 `rally` 期間出現**。撤退令
+把分隊推去爬升、速度掉到 1 g 失速速度以下，`nMax` 因而小於 1，於是
+`recoveryAltitude` 回 `Infinity` —— 在五公里高空。修改後歸零。
+
+### 13.2 副判準（`ai-withdraw-anchor`）—— 逐字相同
+
+```
+{"r60":{"blue":"1659","red":"1563"},"r300":{"blue":"1738","red":"1093"},
+ "maxRadius":"5888","alive":{"blue":16,"red":17},
+ "damage":{"blue":"5917","red":"4618"},"ratio":"1.281",
+ "leavingShare":"7.20%","spentWithoutOrderShare":"0.40%",
+ "rallyPairs":6,"improvedShare":"83.3%","lifeMedian":"31.7s",
+ "maxConcurrentRally":3,"deathsUnderOrder":0}
+```
+
+修改前後**每一個字元都相同**。那一場 300 秒的模擬裡，`recoveryAltitude` 從
+未被以 `nMax < n*` 呼叫過，於是新舊碼逐位元同值、軌跡完全不分岔。這也回頭
+印證了 §8 的逐格比對：拉得動的那一側真的沒有被動到。
+
+（同時也說明 `ai-command-channel` 那 93 次不是普遍現象 —— 兩場都是 20v20、
+300 秒，只是玩家席位的控制器不同就走進了不同的軌跡。）
+
+### 13.3 安全矩陣逐格比對（暫時檔，量完已刪）
+
+```
+{"cells":288,"changed":0,"inContract":198,"minRatio":3.332}
+```
+
+288 格的 `needed` 全部逐位元不變；契約內 198 組不增不減；每一格的 `nMax` 都
+在 `n*` 的 3.3 倍以上。`ai-safety-matrix.test.ts` 本身也全綠（301 / 301）。
+
+### 13.4 兩個關鍵場景實際的 `needed`（暫時檔，量完已刪）
+
+```
+{"name":"§4.5 低空低速（既有測試）","margin":150,"tas":31.62,"gammaDeg":-18.43,
+ "worstDeg":-22.65,"nMax":0.468,"stallRatio":0.684,"needed":282.3}
+{"name":"誤觸發（本次修的）","margin":5038,"tas":50,"gammaDeg":-0.57,
+ "worstDeg":-3.38,"nMax":0.71,"stallRatio":0.843,"needed":207.3}
+```
+
+- §4.5 那一格：`282.3 > 150` → 仍走 `'ground'`，裁定不變。
+  （§8 表格裡的 263.5 m 是**未套 `lookahead`** 的瞬時值；`applySafety` 會先把
+  γ 由 −18.43° 推到 −22.65°，實際的 `needed` 是 282.3。兩者都 > 150。）
+- 誤觸發那一格：`207.3 ≪ 5038` → 不走 `'ground'`；`tas / Vs = 0.843 < 1.1`
+  → 失速分支接住，補救方向由「爬升」翻成「壓頭」。
+
+### 13.5 迴歸
+
+| 項目 | 結果 |
+|---|---|
+| `npx vitest run`（全套） | **2,298 passed / 3 failed / 1 skipped**（2,302） |
+| `npx vitest run test/unit/perf-gate.test.ts`（單獨） | 4 / 4 綠 |
+| `npx vitest run test/integration/rematch.test.ts`（單獨） | 綠 |
+| `npx tsc --noEmit` | 通過 |
+| `test/unit/ai-safety.test.ts` | 41 / 41 綠 |
+| `test/integration/ai-safety-matrix.test.ts` | 301 / 301 綠 |
+
+那 3 條紅是：`perf-gate`（全套並跑時 104 個檔案搶 CPU，**單獨跑 4/4 綠** ——
+專案慣例本來就要求它單獨跑），加上 §13.6 的兩條既有紅。
+
+### 13.6 Mutation 驗證
+
+實作在執行途中換過一次形狀（見 plan 的「執行中的偏離」），所以六個 mutation
+是對**最終**版本重跑的：
+
+| # | mutation | 打紅了哪一條 |
+|---|---|---|
+| 1 | 刪掉 `if (!(nMax > 0)) return Infinity` | `nMax 為 0、負值或 NaN 時回傳 Infinity` |
+| 2 | `nMax >= nStar` → `nMax > 1` | `回傳的是…最小值`、`nMax 恰為 1…` |
+| 3 | `sqrt(1 + root*root)` → `sqrt(1 + root)` | `回傳的是…最小值` |
+| 4 | `nMax*nMax - 1` → `nMax*nMax + 1` | `拉得動時與單段閉式解逐位元相同` 等三條 |
+| 5 | 拉起項改回除法 `(v2 / (G0*root)) * c` | `極淺的負俯衝角不會算出 NaN` |
+| 6 | 拿掉單段支的 `q > 0` 三元 | `nMax 恰為 1 且俯衝角極淺時回傳 Infinity 而不是 NaN` |
+
+六個全部轉紅，且每一個都只打到它該守的那幾條。
+
+### 13.7 兩條與本次無關、修改前後皆紅的既有護欄
+
+**兩支都是修改前就紅、修改後逐字相同**，記在這裡以免日後被誤讀成本次造成：
+
+| 測試 | 訊息 | 出處 |
+|---|---|---|
+| `ai-command-channel` > `focus 的離場語意` | `expected 0.0256 to be greater than 0.05` | 撤退令棘輪 spec 留下的獨立待決項（修改前 0.0281） |
+| `ai-command-tactics` > `側翼讓開火時的方位角往後側方移動` | `expected -0.1471 to be less than or equal to -0.5900` | 修改前後逐字相同（`-0.1470907576016707`），本次未碰 |
+
+### 13.8 一個要交裁定的副作用
+
+`ai-command-channel` 的 `rally` 觀測有兩項移動了：
+
+| 量 | 修改前 | 修改後 |
+|---|---|---|
+| `leavingErr`（撤退令發出時 → 解除時，距敵群質心） | 876 → **292** m | 876 → **705** m |
+| `leavingShare`（離場取樣佔比） | 2.81% | 2.56% |
+| 撤退令 `arrived` | 14 / 17 | 13 / 17 |
+
+**這是預期中的方向，但幅度要專案負責人看過。** 修改前，撤退令期間那 93 次
+誤觸發會把飛機接管成「20° 爬升 + WEP」—— 那個動作恰好把飛機推得又高又遠，
+於是「離場距離」這個指標被一個缺陷**順便**改善了。修好之後飛機改做正確的
+失速改出（壓頭換速度），就不再被額外推開。
+
+換句話說：**修改前那個 292 m 有一部分不是撤退令掙來的，是撞地接管誤觸發
+掙來的。** 兩者都遠低於 5% 的門檻，而那道門檻本來就是待決項；本份不動它。
