@@ -26,7 +26,11 @@ import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-
 import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
-import { CameraRig } from './camera/CameraRig'
+import { CameraRig, DEFAULT_CAMERA_OPTIONS } from './camera/CameraRig'
+import {
+  createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
+  type GodCameraInput,
+} from './camera/godCamera'
 import { deathCamAim } from './camera/deathCam'
 import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
@@ -191,6 +195,20 @@ let renderQuaternions: Quaternion[] = []
 
 const rig = new CameraRig()
 
+const godCam = createGodCameraState()
+/** 上一幀是否在上帝視角。進出的邊緣偵測用 */
+let wasGodView = false
+/**
+ * 餵給 `stepGodCamera` 的輸入。**重用，不每幀配置** —— 與 `probe`、
+ * `relPos` 那一組同一個做法。
+ */
+const godInput: GodCameraInput = {
+  forward: false, back: false, left: false, right: false,
+  up: false, down: false, boost: false, lookX: 0, lookY: 0,
+}
+/** 上帝視角的注視點。重用，理由同上 */
+const godTarget = new Vector3()
+
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
 const HUD_PROJECT_DISTANCE = 1000
@@ -293,7 +311,27 @@ function restartBattle(): void {
   player = battle.player
   // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
   rebuildVisuals()
+  leaveGodView()
   respawnPlayer()
+}
+
+/**
+ * 退出上帝視角。**重開一場與換場都要呼叫**。
+ *
+ * 不呼叫的話：上帝視角 → ESC → 回主選單 → 開始戰鬥，新的一場會直接開在
+ * 上帝視角，而鏡頭停在舊世界的座標上。與 `input.pointerLockLost = false`
+ * 是同一類殘留 —— 這兩個函數都是「換一場」的入口。
+ *
+ * 【`wasGodView` 也要一起清】只清 `input.godView` 的話邊緣偵測不會觸發，
+ * `playerAi` 會留在 true，新的一場開頭是 AI 在飛。
+ *
+ * 【按鍵狀態也要清】這裡是直接改 `input.godView` 的，繞過了 `G` 的處理器。
+ */
+function leaveGodView(): void {
+  input.godView = false
+  wasGodView = false
+  input.playerAi = false
+  bindings.clearHolds()
 }
 
 /**
@@ -348,6 +386,9 @@ function enterBattle(): void {
   // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
   // 留著的話新的一場開頭第一幀就被彈進暫停選單
   input.pointerLockLost = false
+  // 【上帝視角的殘留同理】上一場按著 G 進主選單的話，新的一場會直接開在
+  // 上帝視角、鏡頭停在舊世界的座標上
+  leaveGodView()
 }
 
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
@@ -374,6 +415,28 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 累積位移，若照常套用，相機會被拖離飛機——而這個模式的全部意義就是
   // 「看清楚 AI 在幹嘛」。鎖在機首讓相機自然地跟拍。右鍵自由視角不受影響：
   // 它是 rig 之上的獨立偏移，不經過瞄準點。
+  // ── 上帝視角的進出 ────────────────────────────────────
+  // 【一定要排在讀 `input.playerAi` 之前】進入的那一幀就要代飛，否則會有
+  // 一幀是「鏡頭已經飛走了但飛機沒人在開」
+  if (input.godView !== wasGodView) {
+    if (input.godView) {
+      input.playerAi = true
+      // 【用算繪位置而不是物理位置】這裡是幀首，算繪位置是上一幀內插的
+      // 結果 —— 那正是玩家最後看到的那個位置
+      enterGodCamera(
+        godCam,
+        visuals.get(player)!.position,
+        headingFromOrientation(player.aircraft.state.orientation),
+      )
+    } else {
+      // 【一律關掉代飛】直接對應「取消上帝視角後就回到我自己飛」。副作用
+      // 是進入前就開著的 `I` 也會被關掉，刻意不記憶原本的值
+      input.playerAi = false
+      // 【相機要重新吸附】不吸附的話它會從上帝位置一路彈簧飛回來
+      rig.snapTo(input.aimWorld)
+    }
+    wasGodView = input.godView
+  }
   const aiFlying = input.playerAi
   // 【死亡鏡頭】玩家陣亡到接手之間的那 2 秒：位置定在死亡點（殘骸化之後
   // `Visual.position` 就不再更新，而相機讀的正是它），視線平滑轉向擊殺者。
@@ -386,7 +449,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
     resetDamageMarks(hudFrame.damageMarks)
   }
   wasDying = dying
-  if (dying) {
+  if (input.godView) {
+    // 【上帝分支排在 `dying` 之前】排在後面的話，陣亡那 2 秒 `lookX/lookY`
+    // 不再更新、而下面的清除又被 `if (!input.godView)` 擋住 —— 鏡頭會以
+    // 上一幀的位移**等速自轉**兩秒。spec §7.1 說死亡不影響上帝視角，
+    // 只有這個順序做得到
+    //
+    // 【瞄準點鎖在機首】與 `I` 同一個理由：切回來時飛機才不會被一個舊的
+    // 瞄準點硬扯過去。滑鼠位移在下面被鏡頭吃掉，不進 `slewAimWorld`
+    input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    input.firing = false
+    godInput.lookX = input.aimDeltaX
+    godInput.lookY = input.aimDeltaY
+  } else if (dying) {
     const killerSeat = battle.takeoverKiller
     deathCamAim(
       input.aimWorld,
@@ -409,6 +484,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
   }
   input.aimDeltaX = 0
   input.aimDeltaY = 0
+  // 【不在上帝視角時要清掉】留著的話，下次進上帝視角的第一幀會吃到一個
+  // 陳年的位移，鏡頭會跳一下
+  if (!input.godView) {
+    godInput.lookX = 0
+    godInput.lookY = 0
+  }
 
   // 【陣亡等待接手的期間不換控制器】那一架已經退場，`World.step` 根本不會
   // 呼叫它的控制器；而交還那一支會把瞄準點拉回機首 —— 死亡鏡頭正在用它。
@@ -523,18 +604,43 @@ function stepAndDrawBattle(frameSeconds: number): void {
   }
   const renderPos = visuals.get(player)!.position
   const renderQuat = visuals.get(player)!.quaternion
-  terrain.update(elapsed, renderPos.x, renderPos.z)
+  // 【地形跟著**鏡頭**走】海面網格是以中心點捲動的（`ocean.ts`），跟著
+  // 飛機的話鏡頭飛遠之後畫面上會看到網格的邊。
+  //
+  // 【這不影響物理】`terrain.heightAt(x, z, time)` 只吃世界座標與時間，
+  // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
+  if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
+  else terrain.update(elapsed, renderPos.x, renderPos.z)
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
-  // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
-  rig.update(
-    ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
-    input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
-  )
+  if (input.godView) {
+    godInput.forward = input.godMove.forward
+    godInput.back = input.godMove.back
+    godInput.left = input.godMove.left
+    godInput.right = input.godMove.right
+    godInput.up = input.godMove.up
+    godInput.down = input.godMove.down
+    godInput.boost = input.godMove.boost
+    stepGodCamera(godCam, godInput, frameSeconds)
+    ctx.camera.position.copy(godCam.position)
+    ctx.camera.up.set(0, 1, 0)
+    ctx.camera.lookAt(godCameraTarget(godCam, godTarget))
+    // 【FOV 固定】隨速度變化的那一份吃的是飛機的 TAS，在這裡沒有意義
+    if (Math.abs(ctx.camera.fov - DEFAULT_CAMERA_OPTIONS.fovBase) > 0.01) {
+      ctx.camera.fov = DEFAULT_CAMERA_OPTIONS.fovBase
+      ctx.camera.updateProjectionMatrix()
+    }
+  } else {
+    // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
+    rig.update(
+      ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
+      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
+    )
+  }
 
   tracers.update(world.projectiles)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
@@ -584,6 +690,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.altitude = renderPos.y
   hudFrame.verticalSpeed = aircraft.state.velocity.y
   hudFrame.heading = headingFromOrientation(renderQuat)
+  // 【小地圖是機首朝上的，上帝視角下要改成鏡頭朝上】
+  if (input.godView) hudFrame.heading = godCam.yaw
   hudFrame.roll = att.roll
   hudFrame.pitch = att.pitch
   // 【陣亡期間過載歸 1】退場的飛機不再被 `world.step` 推進，`diag.loadFactor`
@@ -599,12 +707,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // input.throttle 還停在玩家鬆手前的值，顯示出來會與飛機實際在跑的油門不符。
   hudFrame.throttle = aircraft.controls.throttle
   hudFrame.powerW = aircraft.diag.powerW
-  hudFrame.worldX = renderPos.x
-  hudFrame.worldZ = renderPos.z
+  // 【上帝視角下小地圖以鏡頭為中心】小地圖吃的就是這三個欄位，所以
+  // widget 一行都不用改
+  hudFrame.worldX = input.godView ? godCam.position.x : renderPos.x
+  hudFrame.worldZ = input.godView ? godCam.position.z : renderPos.z
   hudFrame.aircraftName = aircraft.spec.name
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
   hudFrame.aiFlying = input.playerAi
+  hudFrame.godView = input.godView
   hudFrame.controlAuthority = aircraft.diag.controlAuthority
   hudFrame.blueAlive = aliveCount(battle.blue)
   hudFrame.redAlive = aliveCount(battle.red)
@@ -619,6 +730,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【每幀取一次】玩家的分隊序號。編制每個物理步重新壓縮，所以陣亡、
   // 遞補、重生都不需要額外同步 —— flightOf 直接就是最新的
   const playerFlightIndex = battle.flights.flightOf[player.index]!
+  // 【小地圖的高度符號要跟著小地圖的中心走】上帝視角下平面已經以鏡頭
+  // 重新置中（`worldX`/`worldZ`），高度基準卻還留在自機的話，三角形的
+  // 上下與畫面上的位置對應不起來 —— 一架就在鏡頭正下方的飛機會被畫成
+  // 「在你上方」。`range` 不必跟著改：小地圖不吃它，而吃它的接觸點框與
+  // 邊緣指示在上帝視角下根本不畫（`hudWidgets`）
+  const refY = input.godView ? godCam.position.y : renderPos.y
   let n = 0
   for (const c of world.combatants) {
     if (c === player || !c.alive || n >= HUD_MAX_CONTACTS) continue
@@ -638,7 +755,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     contact.hostile = c.team !== player.team
     contact.flightMate = playerFlightIndex >= 0
       && battle.flights.flightOf[c.index] === playerFlightIndex
-    contact.deltaY = v.position.y - renderPos.y
+    contact.deltaY = v.position.y - refY
     contact.worldX = v.position.x
     contact.worldZ = v.position.z
 
