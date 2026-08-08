@@ -86,10 +86,38 @@ export interface CommandConfig {
   spentRatio: number
   /** 持續多久才算見底，s */
   spentSeconds: number
-  /** 集合點離小隊質心多遠，m */
+  /**
+   * 見底取分隊 `cornerRatio` 由低到高第幾個。0 = 最低（2026-08-09 之前的
+   * 行為），1 = 次低。**存活**人數不足時夾到最後一個。
+   *
+   * 【為什麼需要它】四機小隊的最小值遠低於中位數。20v20 × 300 s 實測
+   * `< 0.6` 的時間佔比：最低 30.6%、次低 10.5%、中位數 2.1% —— 一架落單
+   * 掉速的僚機就足以把整支分隊拖出戰場三成的時間。
+   *
+   * 【它修改了一條既有裁定】spec §2.4「編隊的能力等於最弱的那一架」被限縮
+   * 成「**進攻**能力等於最弱的那一架」；「整支分隊該不該離場」改由第
+   * `spentRank` 弱的那一架決定。`spentRank = 0` 時裁定原封不動。
+   *
+   * 【戰損中會自然退化】對存活人數夾限，所以剩 1~2 架時退回「取最低」——
+   * 兩架的分隊裡「最弱的那一架」確實就是它的能力。
+   *
+   * 【為什麼是名次不是分位數】分隊固定 4 人，名次是整數、可窮舉、寫得進
+   * 測試；4 個樣本的分位數插值只會製造一個沒有人看得懂的數字。
+   */
+  spentRank: number
+  /**
+   * 集合點離**敵群質心**多遠，m。分隊已經在殼外（含 `MIN_TRIP_RATIO` 的
+   * 閘門寬度）時**不發令**。
+   *
+   * 【語意在 2026-08-09 改過】舊版是「離**小隊自己**多遠」，那讓撤退變成
+   * 一個沒有不動點的純積分器 —— 每撤一次就再往外 3 km，實測 300 秒漂到
+   * 平均 12 km、最大 18 km，TAS 從 200 掉到 110 之後四分鐘沒回來過。
+   * 錨在敵群 + 殼外不發令之後，映射是「殼內 → 殼上、殼外 → 不動」，
+   * 單調且非擴張。
+   *
+   * 【與 `arriveRadius` 不獨立】閘門寬度由它導出，兩者要一起掃。
+   */
   withdrawRange: number
-  /** 集合點比小隊質心高多少，m */
-  withdrawClimb: number
   /** 到達判定半徑，m */
   arriveRadius: number
   /** 側翼點離敵航向的橫向偏置，m */
@@ -271,8 +299,8 @@ export const DEFAULT_COMMAND: CommandConfig = {
   planPeriod: 2,
   spentRatio: 0.6,
   spentSeconds: 3,
+  spentRank: 0,
   withdrawRange: 3000,
-  withdrawClimb: 800,
   arriveRadius: 300,
   // ── 側翼與集火。**全部是起始值，待 Task 8 由實測掃描回填** ──
   flankOffset: 1200,
@@ -290,6 +318,18 @@ export const DEFAULT_COMMAND: CommandConfig = {
 
 /** 水平方向退化的下限。與 `station.ts` 的 `MIN_GROUND_SPEED` 同一個量級 */
 const MIN_HORIZONTAL = 1e-3
+
+/**
+ * 撤退令的最短行程，是 `arriveRadius` 的幾倍。分隊離殼比這個近就不發令。
+ *
+ * 【為什麼是 3】判準是「這張命令活得比一個決策週期久嗎」。短於
+ * `spentSeconds`(3 s) + `planPeriod`(2 s) 的命令唯一的作用是把見底計時歸零，
+ * 飛機幾乎沒動。實測巡弋約 110 m/s，5 秒是 550 m；3 × 300 = 900 m 約 8 秒。
+ *
+ * 【為什麼不是新參數】它由 `arriveRadius` 導出，兩者本來就不獨立 ——
+ * `arriveRadius` 是到達判定的解析度，行程至少要是它的數倍才有意義。
+ */
+const MIN_TRIP_RATIO = 3
 
 /**
  * 「這個敵分隊已經在交戰」的 `cornerRatio` 門檻。
@@ -409,6 +449,8 @@ export function planFlightOrder(
   // 首選 → 次選 → 固定方向。**不 return、不留 NaN。**
   const dir = P.v[3]!.set(own.x - foe.x, 0, own.z - foe.z)
   let len = dir.length()
+  // 【距離要在退化階梯之前另存】`len` 下面會被改成速度長度、甚至 1
+  const gap = len
   if (len < MIN_HORIZONTAL) {
     // 敵我質心水平重合：「遠離」沒有定義，改用小隊自己的前進方向
     dir.set(vel.x, 0, vel.z)
@@ -421,22 +463,50 @@ export function planFlightOrder(
   }
   dir.divideScalar(len)
 
-  // ── 高度：爬升換能量，夾在安全下界與最低升限之間 ────────
+  // ── 閘門：行程不夠長就不發令 ──────────────────────────
+  // 【為什麼需要它】行程長度是 |withdrawRange − gap|。少了閘門有兩個失敗：
+  //
+  //   gap ≈ 殼 → 行程短於到達半徑，命令在**下一格**就被判到達
+  //     （`stepCommand` 的 rally 分支）、`spent` 被歸零，飛機一步都沒動 ——
+  //     撤退在那一帶等於失效，而既有的「多數命令要到得了」會變成假綠。
+  //   gap > 殼 → 「撤退令」會把一支 `intent` 被壓成 `rally`、不開火、僚機
+  //     被清目標的四機編隊沿徑向直線送回敵群。那正是要救的分隊。
+  //
+  // 【為什麼用 gap 不用 len】`len` 在上面的退化階梯裡會被重新賦值成**速度
+  // 的長度**（敵我水平重合時），最後一階直接設成 1。用 `len` 的話行為會
+  // 取決於速度大小而不是敵我距離。
+  if (gap >= cfg.withdrawRange - cfg.arriveRadius * MIN_TRIP_RATIO) return null
+
+  // ── 高度：撤退不改變高度，只夾在安全下界與最低升限之間 ────
+  // 【為什麼不加碼】舊版是 `own.y + withdrawClimb(800)`，理由是「爬起來的
+  // 高度之後換得回速度」。實測沒有發生：20v20 四分鐘裡高度 +2000 m 而 TAS
+  // 一直停在 110。而且高度不能像水平那樣錨在敵群 —— 那會變成互相加價
+  // （紅爬到藍 +800，藍下一張就是紅 +800），一路頂到升限；垂直方向沒有
+  // 「背對」這種把兩隊分開的自由度。撤退要補的是**速度**，而爬升是消耗
+  // 速度的動作。
+  //
   // 【下界取 clearanceScale（500）而不是安全層的 clearance（120）】政策層
   // 不該把飛機送進硬限制的作用區。與 task #136 的六場護欄取同一條線。
   //
+  // 【這道下界從此是活碼】舊版要 own.y < −300 才咬得到（own.y + 800 < 500），
+  // 等於永遠不觸發。現在任何 500 m 以下的分隊都會被抬上來 —— 也就是
+  // 「撤退不改變高度」在低空是假的。
+  //
   // 【目前海面恆為 0】未來加入地形時這裡要與 `stationPoint` 一樣收
   // `seaHeight`，下界改成 `seaHeight + clearanceScale`。
-  let y = own.y + cfg.withdrawClimb
+  let y = own.y
   if (y > ceiling) y = ceiling
   if (y < DEFAULT_STEER.clearanceScale) y = DEFAULT_STEER.clearanceScale
 
   return {
     kind: 'rally',
+    // 【錨在敵群，不是自己】錨在自己的話位移量與「已經跑多遠」無關 ——
+    // 那是一個沒有不動點的純積分器。錨在敵群之後這是一個固定的球殼，
+    // 而且撤退本身不移動錨點（敵群質心不因我方撤退而動）。
     point: new Vector3(
-      own.x + dir.x * cfg.withdrawRange,
+      foe.x + dir.x * cfg.withdrawRange,
       y,
-      own.z + dir.z * cfg.withdrawRange,
+      foe.z + dir.z * cfg.withdrawRange,
     ),
     radius: cfg.arriveRadius,
     targetFlight: -1,
