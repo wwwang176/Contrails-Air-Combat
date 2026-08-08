@@ -3,6 +3,7 @@ import { createFireball } from '../../src/render/fireball'
 import { createSmoke } from '../../src/render/smoke'
 import { createSpray, WATER_COLOR } from '../../src/render/spray'
 import { createSparks } from '../../src/render/sparks'
+import { createVortex } from '../../src/render/vortex'
 import { createSplashes } from '../../src/render/splash'
 import { createDebris } from '../../src/render/debris'
 import { createWrecks } from '../../src/render/wrecks'
@@ -124,5 +125,50 @@ describe('殘骸池的歸零', () => {
     w.adopt(buildAircraft(P51D), P51D.hitBoxes, 0, 0, 0, 0)
     w.step(1 / 60, FLAT, 0)
     expect(w.live).toBe(1)
+  })
+})
+
+/**
+ * 【為什麼不塞進上面那個共用迴圈】那三條呼叫的是 `Particles` 的
+ * `emit(x, y, z, vx, vy, vz)`，而 `Vortex.emit` 吃的是「座位、G、兩個翼尖」
+ * —— 簽章不同，套不進去。
+ *
+ * 【為什麼凝結尾的 reset 比其他池多守一件事】它除了粒子還有「上一幀的翼尖
+ * 位置」與「補點的餘數」。只清粒子的話，換場後第一幀會從上一場的位置拉一
+ * 條線過來 —— 那條在 `vortex.test.ts` 裡守著，這裡守的是與其他六個池一致
+ * 的三件基本事。
+ */
+describe('凝結尾池的歸零', () => {
+  /** 讓池子裡有東西：兩幀，第二幀才會發射（見 vortex.test.ts）。 */
+  const fill = (v: ReturnType<typeof createVortex>): void => {
+    v.emit(0, 6, 0, 1000, 0, 0, 1000, 10)
+    v.emit(0, 6, 20, 1000, 0, 20, 1000, 10)
+  }
+
+  it('reset 之後存活數歸零', () => {
+    const v = createVortex()
+    fill(v)
+    expect(v.live).toBeGreaterThan(0)
+    v.reset()
+    expect(v.live).toBe(0)
+    v.dispose()
+  })
+
+  it('reset 之後再 step 也不會冒出東西', () => {
+    const v = createVortex()
+    fill(v)
+    v.reset()
+    v.step(1 / 60)
+    expect(v.live).toBe(0)
+    v.dispose()
+  })
+
+  it('reset 之後還能正常再用', () => {
+    const v = createVortex()
+    fill(v)
+    v.reset()
+    fill(v)
+    expect(v.live).toBeGreaterThan(0)
+    v.dispose()
   })
 })
