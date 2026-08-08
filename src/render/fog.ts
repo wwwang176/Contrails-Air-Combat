@@ -1,16 +1,44 @@
-import { FogExp2 } from 'three'
+import { Color, FogExp2 } from 'three'
+import { skyColorAt } from './sky'
 
 /**
- * 霧色。**刻意不等於天空球的 `SKY_HORIZON`。**
+ * 霧色相對於**地平線上的天空色**的明度倍率。
  *
- * 遠海化進霧色之後若與天空完全同色，地平線就消失了 —— 而畫面上不會有
- * 任何錯誤，也不會有任何測試紅，只是海與天連成一片。取同色相、暗一階，
- * 那一階明度就是地平線。
+ * 這是「海比天暗多少」這件事唯一的旋鈕。實測（明度為 three 工作色彩空間的
+ * HSL `l`，地平線天空 0.261、近處的海 0.060）：
+ *
+ * | 倍率 | 霧色 | 比天空暗 | 比近處的海亮 |
+ * |---|---|---|---|
+ * | 0.85 | `#5f7f9b` | 0.039 | 0.162 |
+ * | **0.65** | **`#537089`** | **0.091** | **0.110** |
+ * | 0.45 | `#465e74` | 0.143 | 0.058 |
+ *
+ * 倍率越小地平線那一階越明顯，但遠處的海與近處的海就越接近 —— 霧的深度感
+ * 是靠那個差撐起來的。0.65 是兩者都還夠用的位置。
+ */
+export const FOG_SKY_DARKEN = 0.65
+
+/**
+ * 霧色。**由地平線上的天空色乘一個明度倍率推出來，不是獨立的 hex。**
+ *
+ * 遠海化進霧色之後若與地平線的天空同色，地平線就消失了 —— 而畫面上不會有
+ * 任何錯誤，也不會有任何測試紅，只是海與天連成一片。差一階明度就是那條線，
+ * 而**海要比天暗**（反過來讀起來很怪：天壓在亮海上面）。
+ *
+ * 【為什麼是推導不是寫死】初版寫死 `0x7ea8c4`，並用「比 `SKY_HORIZON` 暗」
+ * 當判準 —— 那個判準比錯了對象。`t = dirY × 0.5 + 0.5`，所以地平線落在漸層
+ * 的**正中間**：實際看到的是 `#6788a7`（L 0.261），而 `SKY_HORIZON`
+ * （`#9fc3d8`，L 0.517）只出現在正下方、被海擋著。寫死的霧色 L 0.380 因此
+ * 比天空**亮**，專案負責人在試飛時一眼看出「海面顏色變淡、天空比較深，
+ * 怪怪的」。
+ *
+ * 推導之後，天空色怎麼調，海天的明暗關係都自動維持 —— 這是這個專案一貫的
+ * 「推導比鏡射安全」。
  *
  * 專案負責人的要求原文：「遠方可以考慮 FOG，但是要看得出地平線」。
- * 這條關係由 `test/unit/fog.test.ts` 釘住。
+ * 這條關係由 `test/unit/fog.test.ts` 釘住，而且釘的是**地平線上的**天空色。
  */
-export const FOG_COLOR = 0x7ea8c4
+export const FOG_COLOR: Color = skyColorAt(0, new Color()).multiplyScalar(FOG_SKY_DARKEN)
 
 /**
  * 指數霧的密度，m⁻¹。
@@ -46,5 +74,9 @@ export function fogFactor(distance: number, density: number): number {
 }
 
 export function createFog(): FogExp2 {
-  return new FogExp2(FOG_COLOR, FOG_DENSITY)
+  const fog = new FogExp2(0, FOG_DENSITY)
+  // 【用 copy 不用建構子傳色】`FOG_COLOR` 已經在工作色彩空間裡；傳進建構子
+  // 會被當成 sRGB 再轉一次，顏色會差一截。同理不能用 `getHex()` 繞一圈。
+  fog.color.copy(FOG_COLOR)
+  return fog
 }
