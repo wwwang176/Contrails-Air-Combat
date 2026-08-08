@@ -1,83 +1,103 @@
-import { Color, NormalBlending, type InstancedMesh } from 'three'
-import { createParticles } from './particles'
+import {
+  BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicMaterial,
+} from 'three'
+import { ringBasis, tubeIndices, tubeVertexCount, type RingBasis } from './tube'
 
 /**
- * 翼尖凝結尾。
+ * 翼尖凝結尾 —— **掃掠管**（spec §13）。
  *
  * 【物理依據】真機的翼尖渦凝結尾成因是翼尖低壓區把水氣凝出來，而低壓的
  * 強度跟著升力係數走 —— 也就是跟著 G 走。所以判準取 `|loadFactor|`。
  *
- * 【「大幅度轉彎更明顯」不必另外寫程式】大幅度轉彎就是高 G，`intensity`
- * 直接就是它。這是專案負責人的原始要求。
+ * 【為什麼不是粒子】第一版用廣告板粒子，專案負責人試飛後否決：「煙霧沒
+ * 辦法連續，看起來就會像是一點一點的圈圈」。成因算得出來 —— `particles.ts`
+ * 的著色器是 `smoothstep(0.5, 0.25, r)`，實心核心只有標稱直徑的一半：拉滿
+ * 6.5 g 時剛出生的核心 0.80 m 對間隔 1.50 m，接不上；要到 1.0 s、直徑膨脹
+ * 到 3.67 m 才連得起來，而那時 alpha 已經剩三成。要讓核心接上就得把間隔壓
+ * 到 0.8 m 以下 —— 每秒 20,000 顆，池子直接爆掉。粒子池是畫**團狀**東西的
+ * （煙、爆炸、水花）；凝結尾是一條**線**。
  *
- * 【為什麼尾跡會留在空中】粒子發射時速度是 0、`gravity` 是 0 —— 它們生在
- * 翼尖走過的地方就不動了，於是自動描出飛機剛剛走過的路徑。那就是凝結尾。
+ * 【三個通道各管各的】專案負責人裁決「管子的透明度代表他的強度」：
+ *
+ *   透明度 ← intensity（G）   真機的渦核直徑由機翼決定，G 改變的是凝不凝得出來
+ *   半徑   ← 節點的年齡        渦會擴散，與 G 無關
+ *   淡出   ← 節點的年齡
+ *
+ * 【為什麼管子畫好就不動】節點是「翼尖走過的位置」，釘在空中。所以索引
+ * 緩衝建一次就好，每幀只把活著的那幾條的節點依序寫進它固定的那一段 ——
+ * 沒有環形緩衝的接縫問題。
  */
 
 /** 開始凝結的 G。平飛 1 g 與緩轉 2 g 完全乾淨。 */
 export const VORTEX_G_ON = 3.0
-/** 濃度拉滿的 G。兩機的持續轉彎大致落在 4–6 g。 */
+/** 透明度拉滿的 G。兩機的持續轉彎大致落在 4–6 g。 */
 export const VORTEX_G_FULL = 6.5
-/** 剛過門檻時的補點間隔，m。大於粒子直徑 ⇒ 讀起來是斷續的淡痕。 */
-export const VORTEX_SPACING_MAX = 4.0
-/** 拉滿時的補點間隔，m。小於粒子直徑 ⇒ 彼此重疊、連成實心白帶。 */
-export const VORTEX_SPACING_MIN = 1.5
-/** 出生直徑，m。翼展約 11 m，尾跡粗細約 1/7 翼展。 */
-export const VORTEX_SIZE_FROM = 1.6
-/** 死亡直徑，m。渦會擴散。 */
-export const VORTEX_SIZE_TO = 4.5
-/** intensity = 0 時的尺寸倍率。 */
-export const VORTEX_SIZE_MIN_SCALE = 0.45
-/** 壽命，s。200 m/s × 1.4 = 280 m 的尾跡長度。 */
-export const VORTEX_LIFE = 1.4
-/** 壽命抖動。與 SMOKE_LIFE_JITTER 同一個理由：尾端不要切齊。 */
-export const VORTEX_LIFE_JITTER = 0.15
-/** 出生不透明度。 */
-export const VORTEX_ALPHA = 0.42
-/** 指數阻尼，s⁻¹。速度本來就發射為 0，這個只用來收掉數值殘留。 */
-export const VORTEX_DRAG = 0.8
 
 /**
- * 每個翼尖每幀最多補幾顆。**這是防爆閥，不是視覺參數。**
+ * 節點的取樣間隔，m。**常數** —— 不再隨 intensity 變（那是粒子版的事）。
  *
- * 幀率崩到 7.5 fps 時（無頭 Chromium 就是這個數量級）單幀位移 27 m，以
- * 1.5 m 的間隔會想補 18 顆 —— 一架飛機就能把池子吃光。8 顆讓極慢的幀率下
- * 尾跡變疏，但不會拖垮其他人。
+ * 管子是連續的，節點只需要抓得住**路徑的彎曲**。弦高誤差 `e ≈ L²/(8R)`：
+ *
+ *   200 m/s @ 6 g（半徑 680 m）→ 0.012 m
+ *   120 m/s @ 6 g（半徑 245 m）→ 0.033 m
+ *   100 m/s @ 7 g（半徑 146 m）→ 0.055 m   ← 最壞情形
+ *
+ * 對半徑 0.6–2.0 m 的管子完全看不出來。粒子版要 1.5 m 是為了讓圓形接得上，
+ * 那個理由已經不存在。
+ */
+export const TRAIL_NODE_SPACING = 8
+
+/**
+ * 每一條尾跡的節點數。40 × 8 m = 320 m，略長於 1.4 s × 200 m/s = 280 m。
+ *
+ * 【滿了覆蓋最舊的】環形緩衝，尾跡的**尾端先消失** —— 尾端本來就是最淡的
+ * 一段。與 `particles.ts` 的覆蓋策略一致。
+ */
+export const TRAIL_NODES = 40
+
+/** 管的邊數。50 m 外看不出是方的；6 面貴 50%。 */
+export const TRAIL_SIDES = 4
+
+/** 節點的壽命，s。 */
+export const TRAIL_LIFE = 1.4
+
+/** 剛生成的管半徑，m。 */
+export const TRAIL_RADIUS_FROM = 0.6
+/** 死亡時的管半徑，m。渦會擴散。 */
+export const TRAIL_RADIUS_TO = 2.0
+
+/** `intensity = 1` 時剛生成的不透明度。 */
+export const TRAIL_ALPHA = 0.55
+
+/** 凝結尾的顏色。近白、略帶天空的藍。 */
+export const TRAIL_COLOR = 0xeef4f8
+
+/**
+ * 每個翼尖每幀最多加幾個節點。**這是防爆閥，不是視覺參數。**
+ *
+ * 【它現在幾乎踩不到】`travelled < TRAIL_NODE_SPACING + VORTEX_MAX_STEP`
+ * = 68 m，除以 8 最多 8 個 —— 剛好貼在上限。真正的上界是 `TRAIL_NODES` 的
+ * 環形緩衝。留著是因為它不要錢，而且哪天有人調大 `MAX_STEP` 或調小間隔時
+ * 它還在。
  */
 export const VORTEX_MAX_PER_FRAME = 8
 
 /**
- * 兩幀之間的位移上限，m。超過就只記錄、不發射。
+ * 兩幀之間的位移上限，m。超過就只記錄、不加節點，並標記斷開。
  *
  * 擋的是換場、重生、接手、以及分頁切回來時的巨大 `dt` —— 否則會出現一條
- * 橫跨半個地圖的白線。與 `main.ts` 對 `prevPosition` 的處理同一個道理。
- * 200 m/s × 0.3 s = 60 m，比任何正常幀都寬得多。
+ * 橫跨半個地圖的白管。200 m/s × 0.3 s = 60 m，比任何正常幀都寬得多。
  */
 export const VORTEX_MAX_STEP = 60
 
 /**
- * 粒子容量。與 `SMOKE_CAPACITY` 同級。
- *
- * 【滿了會截短尾跡，那是刻意選的退化方向】40 架同時 6.5 G、200 m/s 的極端
- * 情形每秒要 10,667 顆，1.4 s 壽命等於 14,933 顆存活，超過這個容量。環形
- * 緩衝會覆蓋最舊的 —— 也就是**尾跡的尾端先消失**，長度從 1.4 s 縮到約
- * 0.5 s。尾端本來就是最淡的一段，而「所有人的尾跡一起變短」遠好過「有些人
- * 完全沒有尾跡」。與 `sparks.ts` / `particles.ts` 的覆蓋策略一致。
- */
-export const VORTEX_CAPACITY = 6144
-
-/**
- * 上一幀翼尖位置的座位數。
+ * 座位數。每個座位兩條尾跡（左右翼尖）。
  *
  * 【為什麼不 import MAX_COMBATANTS】它住在 `src/battle/skirmish.ts`，而這個
- * 檔不得相依 `src/battle/`。64 對 20v20 的 40 個座位有 1.6 倍餘裕，而一個
- * `Float32Array(384)` 的成本可以忽略。兩個常數不准漂開由
- * `test/unit/vortex.test.ts` 守著 —— 跨層相依在測試裡是允許的。
+ * 檔不得相依 `src/battle/`。64 對 20v20 的 40 個座位有 1.6 倍餘裕。兩個常數
+ * 不准漂開由 `test/unit/vortex.test.ts` 守著 —— 跨層相依在測試裡是允許的。
  */
 export const VORTEX_SEATS = 64
-
-/** 凝結尾的顏色。近白、略帶天空的藍。 */
-const VORTEX_COLOR = new Color(0xeef4f8)
 
 export function vortexIntensity(loadFactor: number): number {
   const g = Math.abs(loadFactor)
@@ -86,31 +106,70 @@ export function vortexIntensity(loadFactor: number): number {
   return (g - VORTEX_G_ON) / (VORTEX_G_FULL - VORTEX_G_ON)
 }
 
-export function vortexSpacing(intensity: number): number {
-  return VORTEX_SPACING_MAX + (VORTEX_SPACING_MIN - VORTEX_SPACING_MAX) * intensity
-}
-
-export function vortexSizeScale(intensity: number): number {
-  return VORTEX_SIZE_MIN_SCALE + (1 - VORTEX_SIZE_MIN_SCALE) * intensity
+/**
+ * 累積到現在這麼多距離，該加幾個節點。
+ *
+ * 【`travelled` 是「上次加點後的餘數 + 這一幀的位移」，不是這一幀的位移】
+ * 只吃這一幀位移的話，走不滿一個間隔的幀會被整幀丟掉 —— 粒子版實測那讓
+ * 起效門檻從設計的 3 g 變成 3.93 g（200 m/s @ 60 fps）、5.80 g（120 m/s），
+ * 而 120 fps 下永遠不出現。餘數累積讓「同一個動作在不同機器上長得一樣」。
+ */
+export function vortexEmitCount(travelled: number): number {
+  return Math.min(Math.floor(travelled / TRAIL_NODE_SPACING), VORTEX_MAX_PER_FRAME)
 }
 
 /**
- * 累積到現在這麼多距離，該補幾顆。
+ * 把 three 的 `MeshBasicMaterial` 著色器改造成**逐頂點 alpha**。
  *
- * 【`travelled` 是「上次補點後的餘數 + 這一幀的位移」，不是這一幀的位移】
- * 只吃這一幀位移的話，走不滿一個 `spacing` 的幀會被整幀丟掉 —— 實測那讓
- * 200 m/s @ 60 fps 的實際起效門檻變成 3.93 g（設計說 3.0）、120 m/s 變成
- * 5.80 g、而 120 fps 下 150 m/s **永遠不出現**。那與「虛線的疏密會隨幀率
- * 變化」是同一個病，只是搬到了「有／沒有」這個更嚴重的維度。
+ * 【為什麼非得動著色器】`BufferGeometry` 的頂點色只有 RGB 沒有 alpha，而
+ * 這條管子的淡出必須逐節點（尾端淡、頭端濃）。
+ *
+ * 【為什麼抽成獨立的具名函式】`String.replace` 找不到目標時**不報錯**。
+ * 抽出來之後可以拿 three 真正的 `ShaderLib.basic` 去斷言注入確實發生了 ——
+ * 否則 three 改版重新命名 chunk，逐頂點 alpha 會靜靜地失效，管子變成一片
+ * 不透明的白。與 `particles.ts` 的 `injectBillboard` 同一個理由。
+ *
+ * 【與 `injectBillboard` 不共用】那邊還要把四邊形在視圖空間攤平成廣告板，
+ * 這邊不用 —— 管子是真的幾何。共用會是硬湊。
  */
-export function vortexEmitCount(travelled: number, spacing: number): number {
-  if (!(spacing > 0)) return 0
-  return Math.min(Math.floor(travelled / spacing), VORTEX_MAX_PER_FRAME)
+export function injectVertexAlpha(
+  shader: { vertexShader: string; fragmentShader: string },
+): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+       attribute float aAlpha;
+       varying float vAlpha;`,
+    )
+    .replace(
+      '#include <project_vertex>',
+      `vAlpha = aAlpha;
+       #include <project_vertex>`,
+    )
+
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+       varying float vAlpha;`,
+    )
+    .replace(
+      // 【接在 dithering 之後】霧在更前面（`fog_fragment`），所以霧先套 RGB、
+      // 這裡再乘 alpha —— 順序正確。與 `injectBillboard` 挑同一個錨點。
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+       gl_FragColor.a *= vAlpha;`,
+    )
 }
 
 export interface Vortex {
-  object: InstancedMesh
-  /** 目前還活著幾顆。測試與 telemetry 用 */
+  object: Mesh
+  /**
+   * 目前有幾個**節點**（含斷開處的退化節點）。測試與 telemetry 用。
+   *
+   * 【不是粒子數】第二版起這是掃掠管，`live` 數的是路徑上的取樣點。
+   */
   readonly live: number
   /**
    * 一架飛機的一幀。`l*` / `r*` 是兩個翼尖的**世界座標**。
@@ -122,106 +181,227 @@ export interface Vortex {
     lx: number, ly: number, lz: number,
     rx: number, ry: number, rz: number,
   ): void
-  /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
+  /** 老化一幀並重寫頂點。**在渲染幀率呼叫，不在物理步。** */
   step(dt: number): void
   /** 全部歸零，**含上一幀的翼尖位置與餘數**。換一場戰鬥時呼叫。 */
   reset(): void
   dispose(): void
 }
 
-export function createVortex(
-  capacity: number = VORTEX_CAPACITY, seats: number = VORTEX_SEATS,
-): Vortex {
-  const pool = createParticles({
-    capacity,
-    blending: NormalBlending,
-    life: VORTEX_LIFE,
-    sizeFrom: VORTEX_SIZE_FROM,
-    sizeTo: VORTEX_SIZE_TO,
-    gravity: 0,
-    drag: VORTEX_DRAG,
-    alphaFrom: VORTEX_ALPHA,
-    lifeJitter: VORTEX_LIFE_JITTER,
-    color: (_t, out) => { out.copy(VORTEX_COLOR) },
-  })
+/** 環上各側面的 cos / sin。`TRAIL_SIDES` 是常數，算一次就好。 */
+const COS = new Float32Array(TRAIL_SIDES)
+const SIN = new Float32Array(TRAIL_SIDES)
+for (let s = 0; s < TRAIL_SIDES; s++) {
+  const a = (s / TRAIL_SIDES) * Math.PI * 2
+  COS[s] = Math.cos(a)
+  SIN[s] = Math.sin(a)
+}
 
-  /** 上一幀的兩個翼尖，世界座標。每個座位 6 個數（左 xyz、右 xyz）。 */
+/** 模組私有的暫存。熱路徑：不配置。 */
+const BASIS: RingBasis = { ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0 }
+
+export function createVortex(seats: number = VORTEX_SEATS): Vortex {
+  /** 尾跡條數：每個座位左右各一。 */
+  const trails = seats * 2
+
+  // ── 節點資料（每條一段連續的 TRAIL_NODES 格，環形緩衝）──
+  const nx = new Float32Array(trails * TRAIL_NODES)
+  const ny = new Float32Array(trails * TRAIL_NODES)
+  const nz = new Float32Array(trails * TRAIL_NODES)
+  const nAge = new Float32Array(trails * TRAIL_NODES)
+  /** 生成當下的不透明度（`TRAIL_ALPHA × intensity`）。0 = 退化節點。 */
+  const nAlpha0 = new Float32Array(trails * TRAIL_NODES)
+  /** 這一條目前有幾個節點。 */
+  const count = new Uint16Array(trails)
+  /** 環形緩衝的寫入位置。 */
+  const head = new Uint16Array(trails)
+  /** 下一個節點是否為新的一段（要先補兩個退化節點）。 */
+  const broken = new Uint8Array(trails).fill(1)
+  /** 上次加點之後剩下的距離，m。 */
+  const carry = new Float32Array(trails)
+  /** 這一條的頂點是不是還需要再寫一次（用來省下「本來就空」的重寫）。 */
+  const dirty = new Uint8Array(trails)
+
+  // ── 每個座位的上一幀翼尖位置（左 xyz、右 xyz）──
   const prev = new Float32Array(seats * 6)
-  /**
-   * 上次補點之後剩下的距離，m。每個座位兩個（左翼尖、右翼尖）。
-   *
-   * 【沒有它，功能在真人的幀率下幾乎不出現】見 `vortexEmitCount` 的註解。
-   * 與 `smoke.ts` 的 `smokeTimer` 是同一招：把「不滿一格」的部分留到下一幀，
-   * 而不是丟掉。
-   */
-  const carry = new Float32Array(seats * 2)
-  /** 這個座位有沒有上一幀。第一幀不發射，見 emit。 */
+  /** 這個座位有沒有上一幀。第一幀不加節點。 */
   const seen = new Uint8Array(seats)
 
-  /**
-   * 在一條線段上補點。
-   *
-   * @param slot `carry` 的索引：座位 × 2 +（0 = 左翼尖、1 = 右翼尖）
-   */
-  const trail = (
-    slot: number,
+  let liveNodes = 0
+
+  // ── 幾何 ──
+  const vertexCount = tubeVertexCount(trails, TRAIL_NODES, TRAIL_SIDES)
+  const position = new BufferAttribute(new Float32Array(vertexCount * 3), 3)
+  const alpha = new BufferAttribute(new Float32Array(vertexCount), 1)
+  position.setUsage(DynamicDrawUsage)
+  alpha.setUsage(DynamicDrawUsage)
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', position)
+  geometry.setAttribute('aAlpha', alpha)
+  geometry.setIndex(new BufferAttribute(
+    tubeIndices(trails, TRAIL_NODES, TRAIL_SIDES), 1,
+  ))
+
+  const material = new MeshBasicMaterial({
+    color: TRAIL_COLOR,
+    transparent: true,
+    depthWrite: false,
+    side: DoubleSide,
+  })
+  material.onBeforeCompile = injectVertexAlpha
+
+  const object = new Mesh(geometry, material)
+  // 包圍球是建立時算的（全部在原點）—— 開著視錐剔除，相機一離開原點附近
+  // 整條管子會消失。與曳光彈、火花、粒子同一個坑。
+  object.frustumCulled = false
+
+  const pos = position.array as Float32Array
+  const alp = alpha.array as Float32Array
+
+  /** 第 `j` 舊的節點在資料陣列裡的索引。 */
+  const slotOf = (trail: number, j: number): number =>
+    trail * TRAIL_NODES
+    + (((head[trail]! - count[trail]! + j) % TRAIL_NODES) + TRAIL_NODES) % TRAIL_NODES
+
+  const pushNode = (
+    trail: number, x: number, y: number, z: number, a0: number,
+  ): void => {
+    const i = trail * TRAIL_NODES + head[trail]!
+    nx[i] = x
+    ny[i] = y
+    nz[i] = z
+    nAge[i] = 0
+    nAlpha0[i] = a0
+    head[trail] = (head[trail]! + 1) % TRAIL_NODES
+    if (count[trail]! < TRAIL_NODES) {
+      count[trail] = count[trail]! + 1
+      liveNodes++
+    }
+    dirty[trail] = 1
+  }
+
+  /** 在一條線段上加節點。`trail` 是尾跡編號（座位 × 2 + 左右）。 */
+  const advance = (
+    trail: number,
     px: number, py: number, pz: number,
     x: number, y: number, z: number,
-    spacing: number, scale: number,
+    a0: number,
   ): void => {
     const dx = x - px
     const dy = y - py
     const dz = z - pz
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
     if (dist > VORTEX_MAX_STEP) {
-      // 換場／重生／分頁切回：這一段軌跡整段放棄，餘數也不該留
-      carry[slot] = 0
+      // 換場／重生／分頁切回：這一段軌跡整段放棄，下一段要重新開始
+      carry[trail] = 0
+      broken[trail] = 1
       return
     }
-    const start = carry[slot]!
+    const start = carry[trail]!
     const travelled = start + dist
-    let n = vortexEmitCount(travelled, spacing)
+    let n = vortexEmitCount(travelled)
     if (n >= VORTEX_MAX_PER_FRAME) {
       // 【被防爆閥夾住就把餘數丟掉】不丟的話 carry 會逐幀累積、沒有上界
       n = VORTEX_MAX_PER_FRAME
-      carry[slot] = 0
+      carry[trail] = 0
     } else {
-      carry[slot] = travelled - n * spacing
+      carry[trail] = travelled - n * TRAIL_NODE_SPACING
     }
+    if (n === 0) return
+
+    // 第 k 個節點在線段上的位置比例。`start` 是「已經走過但還沒取樣」的那段。
+    // 【要夾在 [0,1]】斷開之後 `start` 可能大於這一幀的位移，弧長會是負的。
+    const along = (k: number): number => {
+      const d = k * TRAIL_NODE_SPACING - start
+      return d <= 0 ? 0 : (d >= dist ? 1 : d / dist)
+    }
+
+    if (broken[trail] === 1) {
+      broken[trail] = 0
+      // 【兩個退化節點】一個在舊尾巴、一個在新段的起點，alpha 都是 0。
+      // 三個銜接帶因此全部不可見：舊尾→退化@舊位置（零長度）、
+      // 退化→退化（兩端 alpha 都是 0）、退化@新位置→新頭（零長度）。
+      // 只用一個的話中間那帶會是 a→0 的漸層，在缺口上留一道淡痕。
+      pushNode(trail, px, py, pz, 0)
+      const t0 = along(1)
+      pushNode(trail, px + dx * t0, py + dy * t0, pz + dz * t0, 0)
+    }
+
     for (let k = 1; k <= n; k++) {
-      // 第 k 顆距離 prevTip 的弧長。start 是「已經走過但還沒補點」的那一段
-      const along = k * spacing - start
-      // 【t 要夾住】spacing 隨 intensity 逐幀變。從 4.0 掉到 1.5 的那一幀，
-      // 上一幀留下的 start（最大 4.0）可能大於這一幀的 spacing，弧長於是是
-      // 負的 —— 不夾的話粒子會生在線段**後面**。夾到 0 表示「就生在上一幀
-      // 的翼尖位置」，最多兩顆重疊，看不出來。
-      const t = along <= 0 ? 0 : (along >= dist ? 1 : along / dist)
-      pool.emit(px + dx * t, py + dy * t, pz + dz * t, 0, 0, 0, scale)
+      const t = along(k)
+      pushNode(trail, px + dx * t, py + dy * t, pz + dz * t, a0)
+    }
+  }
+
+  /** 把一條尾跡的節點寫成頂點。 */
+  const writeTrail = (trail: number): void => {
+    const c = count[trail]!
+    const base = trail * TRAIL_NODES * TRAIL_SIDES * 3
+    const abase = trail * TRAIL_NODES * TRAIL_SIDES
+    // 沒用到的環塌到最後一個節點的位置、alpha 0 —— 零長度的帶不可見
+    const lastSlot = c > 0 ? slotOf(trail, c - 1) : trail * TRAIL_NODES
+    const ex = nx[lastSlot]!
+    const ey = ny[lastSlot]!
+    const ez = nz[lastSlot]!
+
+    for (let j = 0; j < TRAIL_NODES; j++) {
+      let cx = ex
+      let cy = ey
+      let cz = ez
+      let radius = 0
+      let a = 0
+      if (j < c) {
+        const s = slotOf(trail, j)
+        cx = nx[s]!
+        cy = ny[s]!
+        cz = nz[s]!
+        const u = nAge[s]! / TRAIL_LIFE
+        radius = TRAIL_RADIUS_FROM + (TRAIL_RADIUS_TO - TRAIL_RADIUS_FROM) * u
+        a = nAlpha0[s]! * (1 - u)
+        // 管軸：前後兩個節點的差；端點用單側差分
+        const p = slotOf(trail, j > 0 ? j - 1 : j)
+        const q = slotOf(trail, j < c - 1 ? j + 1 : j)
+        ringBasis(nx[q]! - nx[p]!, ny[q]! - ny[p]!, nz[q]! - nz[p]!, BASIS)
+      } else {
+        ringBasis(0, 0, 0, BASIS)
+      }
+      for (let s = 0; s < TRAIL_SIDES; s++) {
+        const co = COS[s]! * radius
+        const si = SIN[s]! * radius
+        const o = base + (j * TRAIL_SIDES + s) * 3
+        pos[o] = cx + BASIS.ax * co + BASIS.bx * si
+        pos[o + 1] = cy + BASIS.ay * co + BASIS.by * si
+        pos[o + 2] = cz + BASIS.az * co + BASIS.bz * si
+        alp[abase + j * TRAIL_SIDES + s] = a
+      }
     }
   }
 
   return {
-    object: pool.object,
-    get live() { return pool.live },
+    object,
+    get live() { return liveNodes },
 
     emit(index, loadFactor, lx, ly, lz, rx, ry, rz): void {
       if (index < 0 || index >= seats) return
       const b = index * 6
-      const s = index * 2
+      const tL = index * 2
+      const tR = tL + 1
       const intensity = vortexIntensity(loadFactor)
-      // 【門檻以下也要記錄位置（見下方的無條件寫入）】不記的話，從緩轉切進
-      // 硬拉的第一幀會拿到很久以前的位置，拉出一條長線。
       if (intensity > 0 && seen[index] === 1) {
-        const spacing = vortexSpacing(intensity)
-        const scale = vortexSizeScale(intensity)
-        trail(s, prev[b]!, prev[b + 1]!, prev[b + 2]!, lx, ly, lz, spacing, scale)
-        trail(s + 1, prev[b + 3]!, prev[b + 4]!, prev[b + 5]!, rx, ry, rz, spacing, scale)
+        const a0 = TRAIL_ALPHA * intensity
+        advance(tL, prev[b]!, prev[b + 1]!, prev[b + 2]!, lx, ly, lz, a0)
+        advance(tR, prev[b + 3]!, prev[b + 4]!, prev[b + 5]!, rx, ry, rz, a0)
       } else {
-        // 【沒在冒尾跡就把餘數歸零】飛機照樣在飛，但那一段軌跡沒有渦。
-        // 留著的話，重新拉起來的第一顆會出現在錯的位置。
-        carry[s] = 0
-        carry[s + 1] = 0
+        // 【沒在冒尾跡就把餘數歸零並標記斷開】飛機照樣在飛，但那一段軌跡
+        // 沒有渦 —— 不標記的話重新拉起來時會接到上一段的尾巴上，畫出一條
+        // 穿過中間的管子。
+        carry[tL] = 0
+        carry[tR] = 0
+        broken[tL] = 1
+        broken[tR] = 1
       }
+      // 【門檻以下也要記錄位置】不記的話，從緩轉切進硬拉的第一幀會拿到
+      // 很久以前的位置，拉出一條長管。
       prev[b] = lx
       prev[b + 1] = ly
       prev[b + 2] = lz
@@ -232,20 +412,59 @@ export function createVortex(
     },
 
     step(dt: number): void {
-      pool.step(dt)
+      let touched = false
+      for (let t = 0; t < trails; t++) {
+        const c = count[t]!
+        if (c === 0) {
+          // 【本來就空、而且上一幀已經寫乾淨了就跳過】整場只有幾架在拉 G，
+          // 其餘一百多條不該每幀重寫 160 個頂點
+          if (dirty[t] === 1) {
+            writeTrail(t)
+            dirty[t] = 0
+            touched = true
+          }
+          continue
+        }
+        // 老化，再從**最舊**那一端退休
+        for (let j = 0; j < c; j++) {
+          const s = slotOf(t, j)
+          nAge[s] = nAge[s]! + dt
+        }
+        let alive = c
+        while (alive > 0 && nAge[slotOf(t, c - alive)]! >= TRAIL_LIFE) alive--
+        if (alive !== c) {
+          liveNodes -= c - alive
+          count[t] = alive
+        }
+        writeTrail(t)
+        dirty[t] = 1
+        touched = true
+      }
+      if (touched) {
+        position.needsUpdate = true
+        alpha.needsUpdate = true
+      }
     },
 
     reset(): void {
-      pool.reset()
-      // 【這兩行不能漏】只清粒子池的話，換場後第一幀會從上一場的位置拉一條
-      // 線過來。VORTEX_MAX_STEP 擋得住，但不能靠防線當設計 —— 而且靠防線
-      // 會讓驗證它的測試變成假綠（見 vortex.test.ts 那一條的註解）。
-      seen.fill(0)
+      count.fill(0)
+      head.fill(0)
+      broken.fill(1)
       carry.fill(0)
+      nAge.fill(0)
+      nAlpha0.fill(0)
+      seen.fill(0)
+      liveNodes = 0
+      pos.fill(0)
+      alp.fill(0)
+      dirty.fill(0)
+      position.needsUpdate = true
+      alpha.needsUpdate = true
     },
 
     dispose(): void {
-      pool.dispose()
+      geometry.dispose()
+      material.dispose()
     },
   }
 }
