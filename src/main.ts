@@ -13,6 +13,7 @@ import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './rend
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
+import { createVortex } from './render/vortex'
 import { createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
@@ -177,6 +178,8 @@ const smoke = createSmoke()
 ctx.scene.add(smoke.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
+const vortex = createVortex()
+ctx.scene.add(vortex.object)
 const debris = createDebris()
 ctx.scene.add(debris.object)
 const wrecks = createWrecks(MAX_COMBATANTS, (m) => {
@@ -208,6 +211,10 @@ const godInput: GodCameraInput = {
 }
 /** 上帝視角的注視點。重用，理由同上 */
 const godTarget = new Vector3()
+
+/** 兩個翼尖的世界座標。熱路徑：不配置。 */
+const TIP_L = new Vector3()
+const TIP_R = new Vector3()
 
 /** HUD 投影用的暫存向量；投影距離取 1000 m，遠到視差可以忽略。 */
 const probe = new Vector3()
@@ -352,6 +359,7 @@ function enterBattle(): void {
   sparks.reset()
   splashes.reset()
   debris.reset()
+  vortex.reset()
 
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
@@ -601,6 +609,23 @@ function stepAndDrawBattle(frameSeconds: number): void {
 
     v.model.group.visible = true
     v.model.setPropSpin(propRotation, c.command.throttle > 0.15)
+
+    // 【翼尖凝結尾】接線點在 `v.wrecked` 與 `!c.alive` 的 continue 之後 ——
+    // 翻滾的殘骸沒有升力，本來就不該冒尾跡，那是免費得到的。
+    //
+    // 【用 v.position / v.quaternion 而不是 c.aircraft.state.*】尾跡要接在
+    // **畫面上看到的**翼尖，不是物理子步的位置。與殘骸接管用 `v` 的理由
+    // 完全相同（見上方那段註解）。
+    //
+    // 【翼尖寫在造型檔上】每一台的機翼位置都不一樣，見 `HullSpec.wingTip`。
+    const tip = v.model.wingTip
+    TIP_L.set(-tip.x, tip.y, tip.z).applyQuaternion(v.quaternion).add(v.position)
+    TIP_R.set(tip.x, tip.y, tip.z).applyQuaternion(v.quaternion).add(v.position)
+    vortex.emit(
+      c.index, c.aircraft.diag.loadFactor,
+      TIP_L.x, TIP_L.y, TIP_L.z,
+      TIP_R.x, TIP_R.y, TIP_R.z,
+    )
   }
   const renderPos = visuals.get(player)!.position
   const renderQuat = visuals.get(player)!.quaternion
@@ -664,6 +689,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  vortex.step(frameSeconds)
   spray.step(frameSeconds)
   ctx.renderer.render(ctx.scene, ctx.camera)
 
