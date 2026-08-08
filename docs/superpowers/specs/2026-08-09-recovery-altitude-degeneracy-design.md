@@ -153,18 +153,28 @@ n* = √( 1 + (2·(1 − cos|γ|))^(2/3) )
 export function recoveryAltitude(tas: number, gamma: number, nMax: number): number {
   if (gamma >= 0) return 0
   if (!(nMax > 0)) return Infinity
-  const c = 1 - Math.cos(Math.abs(gamma))
+  const half = Math.sin(Math.abs(gamma) * 0.5)
+  const c = 2 * half * half              // ≡ 1 − cos|γ|，見下
   const root = Math.cbrt(2 * c)          // √(n*² − 1)
   const nStar = Math.sqrt(1 + root * root)
   if (nMax >= nStar) {
     // 現在就拉得動，而且再加速也不划算 —— 與修改前完全相同
     return ((tas * tas) / (G0 * Math.sqrt(nMax * nMax - 1))) * c
   }
-  // 先俯衝把 n 換到 n*，再拉平
+  // 先俯衝把 n 換到 n*，再拉平。拉起項 = v²·c/(G0·root)，而 c/root ≡ root²/2
   const v2 = (tas * tas * nStar) / nMax
-  return (v2 - tas * tas) / (2 * G0) + (v2 / (G0 * root)) * c
+  return (v2 - tas * tas) / (2 * G0) + (v2 * root * root) / (2 * G0)
 }
 ```
+
+【`c` 為什麼寫成半正矢，拉起項為什麼不做除法】直接寫 `1 − cos|γ|` 有一個會
+炸的角落：`|γ| < 2×10⁻⁸` rad 時 `Math.cos` 捨入成 1，於是 `c = 0`、
+`root = 0`，拉起項變成 `Infinity × 0 = NaN`。**而 `NaN` 比誤觸發更糟** ——
+`margin <= NaN` 恆為假，安全層會**永遠不介入**。
+
+`2·sin²(|γ|/2)` 在數學上恆等於 `1 − cos|γ|`，但浮點下不會塌成 0（`sin` 在
+零附近是線性的）。再利用 `c / root ≡ root² / 2`（把 `root = (2c)^(1/3)` 代
+進去即得）把拉起項寫成純乘法，連除法都不剩。
 
 【為什麼 `nMax >= nStar` 而不是 `nMax > 1`】用 `nMax > 1` 當分界會在
 `nMax → 1⁺` 留一個跳到無限大的斷點。用 `n*` 當分界，兩側在接縫上相等 ——
@@ -185,7 +195,13 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 | `gamma >= 0` | 0 | 不變。沒有在下降就不需要拉起高度 |
 | `nMax <= 0` | `Infinity` | 完全沒有升力，換多少速度都拉不動。這是真正的「救不回來」 |
 | `tas → 0` | 有限 | `v² = tas²·n*/nMax`，而 `nMax ∝ tas²`，`tas²` 上下抵消。`v*` 有極限，不是奇點 |
-| `NaN` 輸入 | 落到 `Infinity`（`!(NaN > 0)` 為真） | 與修改前的 `!(nMax > 1)` 同一種寫法，行為一致 |
+| `nMax` 為 `NaN` | `Infinity`（`!(NaN > 0)` 為真） | 與修改前的 `!(nMax > 1)` 同一種寫法，行為一致 |
+| `gamma` 極接近 0⁻ | 有限 | 由 §6 的半正矢寫法保證。直接寫 `1 − cos` 會回 `NaN` |
+| `nMax` 恰為 1 **且** `|γ| < 3×10⁻¹²` | `Infinity` | 浮點下 `n*` 會捨入成 1，於是走單段支、除以 0。這是量測零測度的角落：對應的下沉率小於 10⁻⁹ m/s，`asin` 與 `flightPathRate` 產不出這組數。不加分支 |
+
+`tas` 與 `gamma` 為 `NaN` 的情形**不在契約內**：上游 `applySafety` 由
+`vel.length()` 與 `Math.asin` 產生這兩個值，兩者都不會是 `NaN`。為一個到不了
+的狀態加守衛只會多一行測不到的程式。
 
 【能量模型忽略了什麼】第一段用 `Δh = (v² − tas²) / 2g`，等於假設推力與阻力
 相消。實際上 WEP 下的低速段推力大於阻力，所以這個式子**高估**所需高度 ——
@@ -205,6 +221,15 @@ changed: 0,  min(nMax / n*): 3.332
 每一格的 `nMax` 都在 `n*` 的 3.3 倍以上，全部走「與修改前完全相同」那一支。
 所以 `withinContract` 的分界不動、`MIN_IN_CONTRACT = 190` 不動、198 組契約內
 案例一組不增不減。
+
+【這件事必須逐格比對，不能靠「矩陣測試全綠」】那個測試只斷言每格有限、
+契約內不觸海、契約內案例 ≥ 190 —— 它連實測的 198 都沒釘住。少數幾格的
+`needed` 變了它仍然可能全綠。實作時要另外跑一次逐格比對並記錄
+`changed` 與 `inContract`（見 plan Task 1 Step 9）。
+
+**§4.5 那一格的 263.5 m 是未套 `lookahead` 的瞬時值。** `applySafety` 會先把
+γ 往前推 0.25 s；那台飛機是新建的、`diag.loadFactor` 為 0，前瞻後
+`worst ≈ −22.65°`，實際 `needed ≈ 282 m`。兩個數字都 > 150，結論相同。
 
 **兩個關鍵場景**（`needed = recoveryAltitude × 1.5 + 120`）：
 
