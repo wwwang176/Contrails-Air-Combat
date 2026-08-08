@@ -61,10 +61,19 @@ export const TRAIL_SIDES = 4
 /** 節點的壽命，s。 */
 export const TRAIL_LIFE = 1.4
 
-/** 剛生成的管半徑，m。 */
-export const TRAIL_RADIUS_FROM = 0.6
-/** 死亡時的管半徑，m。渦會擴散。 */
-export const TRAIL_RADIUS_TO = 2.0
+/**
+ * 剛生成的管半徑，m。
+ *
+ * 【0.2 是試飛定的】第一版用 0.6，專案負責人回報「管子太粗，應只要 1/3 的
+ * 粗度就好」。兩個半徑一起收成三分之一。
+ *
+ * 【`DoubleSide` 讓實效不透明度加倍】視線穿過一條管子恆疊近側壁與遠側壁
+ * 兩層，`1 − (1 − 0.55)² ≈ 0.80`。調 `TRAIL_ALPHA` 時要記得這件事，否則會
+ * 把「太白」誤判成參數選得不好。
+ */
+export const TRAIL_RADIUS_FROM = 0.2
+/** 死亡時的管半徑，m。渦會擴散。同樣收成第一版（2.0）的三分之一。 */
+export const TRAIL_RADIUS_TO = 0.65
 
 /** `intensity = 1` 時剛生成的不透明度。 */
 export const TRAIL_ALPHA = 0.55
@@ -222,6 +231,25 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
   /** 這一條的頂點是不是還需要再寫一次（用來省下「本來就空」的重寫）。 */
   const dirty = new Uint8Array(trails)
 
+  // ── 活動頭端 ──
+  /**
+   * **每幀重寫**的頭端，永遠貼在當下的翼尖上。
+   *
+   * 【為什麼需要它】正式節點每 `TRAIL_NODE_SPACING`（8 m）才落一個，所以
+   * 最新的正式節點永遠落後翼尖最多 8 m —— 專案負責人試飛時看到的正是這個：
+   * 「管子是飛機飛出一段距離後才出現，會跟飛機有一個距離差」。
+   *
+   * 頭端不進環形緩衝、不計入 `live`、也不會老化 —— 它只是「這一幀翼尖在
+   * 哪裡」，滿 8 m 之後才由 `advance` 固化成正式節點。
+   */
+  const hx = new Float32Array(trails)
+  const hy = new Float32Array(trails)
+  const hz = new Float32Array(trails)
+  /** 頭端的不透明度（＝當下的 `TRAIL_ALPHA × intensity`）。 */
+  const hAlpha = new Float32Array(trails)
+  /** 這一條這一幀有沒有頭端。**斷開中的那一條不可以有** —— 見 `advance`。 */
+  const hasHead = new Uint8Array(trails)
+
   // ── 每個座位的上一幀翼尖位置（左 xyz、右 xyz）──
   const prev = new Float32Array(seats * 6)
   /** 這個座位有沒有上一幀。第一幀不加節點。 */
@@ -280,6 +308,25 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
     dirty[trail] = 1
   }
 
+  /**
+   * 把頭端貼到當下的翼尖上。**斷開中的那一條不給頭端** —— 它的最後一個
+   * 正式節點屬於上一段，接上去就是一條穿過缺口的管子。
+   */
+  const attachHead = (
+    trail: number, x: number, y: number, z: number, a0: number,
+  ): void => {
+    if (broken[trail] === 1) {
+      hasHead[trail] = 0
+      return
+    }
+    hx[trail] = x
+    hy[trail] = y
+    hz[trail] = z
+    hAlpha[trail] = a0
+    hasHead[trail] = 1
+    dirty[trail] = 1
+  }
+
   /** 在一條線段上加節點。`trail` 是尾跡編號（座位 × 2 + 左右）。 */
   const advance = (
     trail: number,
@@ -295,6 +342,8 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       // 換場／重生／分頁切回：這一段軌跡整段放棄，下一段要重新開始
       carry[trail] = 0
       broken[trail] = 1
+      hasHead[trail] = 0
+      dirty[trail] = 1
       return
     }
     const start = carry[trail]!
@@ -307,7 +356,15 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
     } else {
       carry[trail] = travelled - n * TRAIL_NODE_SPACING
     }
-    if (n === 0) return
+
+    if (n === 0) {
+      // 這一幀還走不滿一個間隔：沒有新的正式節點，但頭端照樣要跟上翼尖。
+      // 【`broken` 時不給頭端】那條尾跡的最後一個正式節點屬於**上一段**，
+      // 頭端接上去就會畫出一條穿過缺口的管子 —— 那正是兩個退化節點要避免
+      // 的事。等真的落下新一段的正式節點之後才給。
+      attachHead(trail, x, y, z, a0)
+      return
+    }
 
     // 第 k 個節點在線段上的位置比例。`start` 是「已經走過但還沒取樣」的那段。
     // 【要夾在 [0,1]】斷開之後 `start` 可能大於這一幀的位移，弧長會是負的。
@@ -331,18 +388,34 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       const t = along(k)
       pushNode(trail, px + dx * t, py + dy * t, pz + dz * t, a0)
     }
+    attachHead(trail, x, y, z, a0)
   }
 
-  /** 把一條尾跡的節點寫成頂點。 */
+  /** 有效環的 X 座標。`j < count` 是正式節點，`j === count` 是活動頭端。 */
+  const ringX = (trail: number, j: number): number =>
+    j < count[trail]! ? nx[slotOf(trail, j)]! : hx[trail]!
+  const ringY = (trail: number, j: number): number =>
+    j < count[trail]! ? ny[slotOf(trail, j)]! : hy[trail]!
+  const ringZ = (trail: number, j: number): number =>
+    j < count[trail]! ? nz[slotOf(trail, j)]! : hz[trail]!
+
+  /**
+   * 把一條尾跡寫成頂點。
+   *
+   * 有效環 = `count` 個正式節點（最舊 → 最新）＋ 可有可無的活動頭端。
+   * 之後的環全部塌到**最後一個有效環**的位置、半徑 0、alpha 0 ——
+   * 零長度、零面積的帶畫不出東西。塌到「第一個」的話，環 `used−1`
+   * （最新、alpha 最高）與環 `used` 之間會連出一條**從管頭回到管尾**的
+   * 320 m 長錐，而且不會有任何測試紅。
+   */
   const writeTrail = (trail: number): void => {
     const c = count[trail]!
+    const used = c + (hasHead[trail] === 1 ? 1 : 0)
     const base = trail * TRAIL_NODES * TRAIL_SIDES * 3
     const abase = trail * TRAIL_NODES * TRAIL_SIDES
-    // 沒用到的環塌到最後一個節點的位置、alpha 0 —— 零長度的帶不可見
-    const lastSlot = c > 0 ? slotOf(trail, c - 1) : trail * TRAIL_NODES
-    const ex = nx[lastSlot]!
-    const ey = ny[lastSlot]!
-    const ez = nz[lastSlot]!
+    const ex = used > 0 ? ringX(trail, used - 1) : 0
+    const ey = used > 0 ? ringY(trail, used - 1) : 0
+    const ez = used > 0 ? ringZ(trail, used - 1) : 0
 
     for (let j = 0; j < TRAIL_NODES; j++) {
       let cx = ex
@@ -350,18 +423,33 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       let cz = ez
       let radius = 0
       let a = 0
-      if (j < c) {
-        const s = slotOf(trail, j)
-        cx = nx[s]!
-        cy = ny[s]!
-        cz = nz[s]!
-        const u = nAge[s]! / TRAIL_LIFE
-        radius = TRAIL_RADIUS_FROM + (TRAIL_RADIUS_TO - TRAIL_RADIUS_FROM) * u
-        a = nAlpha0[s]! * (1 - u)
-        // 管軸：前後兩個節點的差；端點用單側差分
-        const p = slotOf(trail, j > 0 ? j - 1 : j)
-        const q = slotOf(trail, j < c - 1 ? j + 1 : j)
-        ringBasis(nx[q]! - nx[p]!, ny[q]! - ny[p]!, nz[q]! - nz[p]!, BASIS)
+      if (j < used) {
+        cx = ringX(trail, j)
+        cy = ringY(trail, j)
+        cz = ringZ(trail, j)
+        if (j < c) {
+          const s = slotOf(trail, j)
+          const u = nAge[s]! / TRAIL_LIFE
+          a = nAlpha0[s]! * (1 - u)
+          // 【退化節點的半徑也要是 0】`nAlpha0 === 0` 就是退化節點的記號。
+          // 不收半徑的話，它與相鄰的正式環同位置、不同半徑，會連出一片
+          // 扁平的環形貼片（alpha 由邊緣漸層到 0）。收成 0 之後那一帶是
+          // 一個零長度的錐 —— 讀起來是把管口封起來的軟端蓋。
+          radius = a > 0 ? TRAIL_RADIUS_FROM + (TRAIL_RADIUS_TO - TRAIL_RADIUS_FROM) * u : 0
+        } else {
+          // 活動頭端：永遠是最新的，年齡 0
+          a = hAlpha[trail]!
+          radius = TRAIL_RADIUS_FROM
+        }
+        // 管軸：前後兩個有效環的差；端點用單側差分
+        const p = j > 0 ? j - 1 : j
+        const q = j < used - 1 ? j + 1 : j
+        ringBasis(
+          ringX(trail, q) - ringX(trail, p),
+          ringY(trail, q) - ringY(trail, p),
+          ringZ(trail, q) - ringZ(trail, p),
+          BASIS,
+        )
       } else {
         ringBasis(0, 0, 0, BASIS)
       }
@@ -399,6 +487,9 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
         carry[tR] = 0
         broken[tL] = 1
         broken[tR] = 1
+        // 頭端也要收掉：G 掉回門檻以下之後，管子應該停在最後一個正式節點
+        if (hasHead[tL] === 1) { hasHead[tL] = 0; dirty[tL] = 1 }
+        if (hasHead[tR] === 1) { hasHead[tR] = 0; dirty[tR] = 1 }
       }
       // 【門檻以下也要記錄位置】不記的話，從緩轉切進硬拉的第一幀會拿到
       // 很久以前的位置，拉出一條長管。
@@ -415,7 +506,7 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       let touched = false
       for (let t = 0; t < trails; t++) {
         const c = count[t]!
-        if (c === 0) {
+        if (c === 0 && hasHead[t] === 0) {
           // 【本來就空、而且上一幀已經寫乾淨了就跳過】整場只有幾架在拉 G，
           // 其餘一百多條不該每幀重寫 160 個頂點
           if (dirty[t] === 1) {
@@ -425,7 +516,8 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
           }
           continue
         }
-        // 老化，再從**最舊**那一端退休
+        // 老化，再從**最舊**那一端退休。**必須是 while** —— 分頁切回來的
+        // 巨大 dt 會讓好幾個節點同時到期
         for (let j = 0; j < c; j++) {
           const s = slotOf(t, j)
           nAge[s] = nAge[s]! + dt
@@ -451,6 +543,7 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       head.fill(0)
       broken.fill(1)
       carry.fill(0)
+      hasHead.fill(0)
       nAge.fill(0)
       nAlpha0.fill(0)
       seen.fill(0)

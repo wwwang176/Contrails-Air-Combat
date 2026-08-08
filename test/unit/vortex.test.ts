@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   createVortex, vortexEmitCount, vortexIntensity,
-  TRAIL_NODES, TRAIL_NODE_SPACING,
+  TRAIL_LIFE, TRAIL_NODES, TRAIL_NODE_SPACING,
   VORTEX_G_FULL, VORTEX_G_ON, VORTEX_MAX_PER_FRAME, VORTEX_MAX_STEP, VORTEX_SEATS,
 } from '../../src/render/vortex'
 import { MAX_COMBATANTS } from '../../src/battle/skirmish'
@@ -262,5 +262,150 @@ describe('逐頂點 alpha 的著色器注入', () => {
     expect(shader.vertexShader).toContain('attribute float aAlpha')
     expect(shader.vertexShader).toContain('vAlpha = aAlpha')
     expect(shader.fragmentShader).toContain('gl_FragColor.a *= vAlpha')
+  })
+})
+
+/**
+ * 【這一組守的是「畫成什麼」】獨立審查指出：新增的測試全部落在 `tube.ts`
+ * 的純函數與節點數上，而這一份的**全部目的**（頂點怎麼擺、alpha 怎麼寫、
+ * 斷開處長什麼樣）一條斷言都沒有。
+ *
+ * 【測得起來】`vite.config.ts` 是 `environment: 'node'`，而 `BufferGeometry`
+ * / `BufferAttribute` 是純 JS，不需要 WebGL context。
+ */
+describe('繪製層', () => {
+  const alphaOf = (v: ReturnType<typeof createVortex>): Float32Array =>
+    v.object.geometry.getAttribute('aAlpha').array as Float32Array
+  const posOf = (v: ReturnType<typeof createVortex>): Float32Array =>
+    v.object.geometry.getAttribute('position').array as Float32Array
+
+  /**
+   * 【頭端要黏在翼尖】正式節點每 8 m 才落一個，所以最新的正式節點永遠落後
+   * 翼尖最多 8 m —— 專案負責人試飛時看到的正是這個：「管子是飛機飛出一段
+   * 距離後才出現，會跟飛機有一個距離差」。活動頭端每幀重寫，永遠貼在當下
+   * 的翼尖上。
+   */
+  it('走不滿一個間隔時，管子的頭端仍然在翼尖上', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(20))     // 落下 2 個正式節點（在 8 m 與 16 m）
+    v.emit(0, 6, ...tips(23))     // 再走 3 m，不滿一個間隔
+    v.step(1 / 60)
+    // 右翼尖那一條（trail 1）的有效環裡，必須有一環的中心在 x = 23 附近
+    const p = posOf(v)
+    const base = 1 * TRAIL_NODES * 4 * 3
+    let best = Infinity
+    for (let j = 0; j < TRAIL_NODES; j++) {
+      // 一環四個頂點的 x 平均就是環心
+      let sx = 0
+      for (let s = 0; s < 4; s++) sx += p[base + (j * 4 + s) * 3]!
+      best = Math.min(best, Math.abs(sx / 4 - 23))
+    }
+    expect(best).toBeLessThan(0.01)
+    v.dispose()
+  })
+
+  it('沒有頭端時（G 掉回門檻以下）管子停在最後一個正式節點', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(20))
+    v.emit(0, 1, ...tips(23))     // G 掉下去
+    v.step(1 / 60)
+    const p = posOf(v)
+    const base = 1 * TRAIL_NODES * 4 * 3
+    let best = Infinity
+    for (let j = 0; j < TRAIL_NODES; j++) {
+      let sx = 0
+      for (let s = 0; s < 4; s++) sx += p[base + (j * 4 + s) * 3]!
+      best = Math.min(best, Math.abs(sx / 4 - 23))
+    }
+    expect(best).toBeGreaterThan(1)
+    v.dispose()
+  })
+
+  /**
+   * 【reset 之後頂點要被寫乾淨】只把節點數歸零的話，那 160 個頂點會維持
+   * 上一場的內容（含非零 alpha）—— 換一場之後上一場的管子原地不動、
+   * 而且永遠不會消失（沒有年齡可以讓它淡掉，`step` 根本不會碰它）。
+   *
+   * 粒子版靠 `pool.reset()` 把矩陣歸零解決，換成自建幾何之後那條路徑不見了。
+   * 只斷言 `live === 0` 守不到這件事。
+   */
+  it('reset 之後每一個頂點的 alpha 都是 0', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(40))
+    v.step(1 / 60)
+    expect(alphaOf(v).some((a) => a > 0)).toBe(true)
+    v.reset()
+    expect(alphaOf(v).every((a) => a === 0)).toBe(true)
+    v.dispose()
+  })
+
+  /** 節點全部老死之後也要寫乾淨 —— 否則最後一截會凍在空中。 */
+  it('節點全部超過壽命之後 alpha 全歸零', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(40))
+    v.emit(0, 1, ...tips(45))          // 收掉頭端，只留正式節點
+    v.step(1 / 60)
+    expect(alphaOf(v).some((a) => a > 0)).toBe(true)
+    v.step(TRAIL_LIFE * 2)             // 全部過期
+    v.step(1 / 60)                     // 再一幀把頂點寫乾淨
+    expect(v.live).toBe(0)
+    expect(alphaOf(v).every((a) => a === 0)).toBe(true)
+    v.dispose()
+  })
+
+  /**
+   * 【退化節點的半徑必須是 0】不收的話，它與相鄰的正式環同位置、不同半徑，
+   * 會連出一片扁平的環形貼片。收成 0 之後那一帶是零長度的錐 —— 讀起來是
+   * 把管口封起來的軟端蓋。
+   */
+  it('斷開處的退化節點半徑是 0（四個頂點重合在環心）', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(40))
+    v.step(1 / 60)
+    const p = posOf(v)
+    const a = alphaOf(v)
+    const base = 1 * TRAIL_NODES * 4
+    // 第 0、1 環是斷開處推入的兩個退化節點（alpha 0）
+    for (const j of [0, 1]) {
+      expect(a[base + j * 4]).toBe(0)
+      const x0 = p[(base + j * 4) * 3]!
+      const y0 = p[(base + j * 4) * 3 + 1]!
+      const z0 = p[(base + j * 4) * 3 + 2]!
+      for (let s = 1; s < 4; s++) {
+        expect(p[(base + j * 4 + s) * 3]).toBeCloseTo(x0, 6)
+        expect(p[(base + j * 4 + s) * 3 + 1]).toBeCloseTo(y0, 6)
+        expect(p[(base + j * 4 + s) * 3 + 2]).toBeCloseTo(z0, 6)
+      }
+    }
+    v.dispose()
+  })
+
+  /**
+   * 【沒用到的環要塌到**最後**一個有效環】塌到第一個的話，環 `used−1`
+   * （最新、alpha 最高）與環 `used` 之間會連出一條從管頭回到管尾的
+   * 320 m 長錐 —— 而且不會有任何別的測試紅。
+   */
+  it('沒用到的環塌到最後一個有效環的位置', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))
+    v.emit(0, 6, ...tips(40))     // 2 退化 + 5 實 = 7 個節點，+ 頭端 = 8 環
+    v.step(1 / 60)
+    const p = posOf(v)
+    const base = 1 * TRAIL_NODES * 4 * 3
+    const cx = (j: number): number => {
+      let s = 0
+      for (let k = 0; k < 4; k++) s += p[base + (j * 4 + k) * 3]!
+      return s / 4
+    }
+    // 頭端在 x = 40；其後每一環都該塌在那裡，而不是回到 x = 0
+    const last = cx(7)
+    expect(last).toBeCloseTo(40, 6)
+    for (let j = 8; j < TRAIL_NODES; j++) expect(cx(j)).toBeCloseTo(last, 6)
+    v.dispose()
   })
 })
