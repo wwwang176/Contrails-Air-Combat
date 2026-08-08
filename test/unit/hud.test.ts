@@ -10,6 +10,8 @@ import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { flightLabel } from '../../src/hud/widgets/roster'
+import { hudWidgets } from '../../src/hud/Hud'
+import { hintKeys } from '../../src/hud/widgets/hints'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -370,5 +372,49 @@ describe('flightLabel —— 分隊存活（M6 spec §10）', () => {
 
   it('沒有分隊時不顯示', () => {
     expect(flightLabel(0, 0)).toBeNull()
+  })
+})
+
+describe('上帝視角的 HUD', () => {
+  /**
+   * 【為什麼要把「畫哪些」抽成純函數】canvas 在 node 環境驗不到，而
+   * 「準星在上帝視角下絕不能出現」是一條真的會壞、而且壞了很難察覺的
+   * 性質 —— 它會讓人以為那個方向會有子彈出去。抽出來就驗得到。
+   *
+   * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
+   * 壓在接觸點之上）不會被這次改動悄悄弄丟。
+   */
+  it('上帝視角只畫小地圖、名冊、提示', () => {
+    expect(hudWidgets(true)).toEqual(['minimap', 'roster', 'hints'])
+  })
+
+  it('一般飛行畫得到準星，上帝視角畫不到', () => {
+    expect(hudWidgets(false)).toContain('reticle')
+    expect(hudWidgets(true)).not.toContain('reticle')
+  })
+
+  /**
+   * 【繪製順序是有意義的，不只是集合】黑視／紅視必須在最底（其餘元件疊
+   * 在上面才維持可讀），接觸點必須在準星**之前**（準星壓在最上層）。
+   * 這兩條理由本來只活在註解裡，抽成純函數之後才釘得住。
+   */
+  it('一般飛行的順序：黑視最底、接觸點在準星之前', () => {
+    const w = hudWidgets(false)
+    expect(w[0]).toBe('gEffect')
+    expect(w.indexOf('contacts')).toBeLessThan(w.indexOf('reticle'))
+  })
+
+  /** 【提示行要換】上帝視角下 W/S 不是油門，寫著油門就是騙人 */
+  it('上帝視角的提示行提到 WASD 與 Q/E，不提油門', () => {
+    const god = hintKeys(true)
+    expect(god).toContain('WASD')
+    expect(god).toContain('Q/E')
+    expect(god).not.toContain('油門')
+    expect(hintKeys(false)).toContain('油門')
+  })
+
+  /** 【G 要寫在一般飛行的提示行裡】不然這個模式是不可發現的 */
+  it('一般飛行的提示行要告訴玩家 G 進得去', () => {
+    expect(hintKeys(false)).toContain('G')
   })
 })

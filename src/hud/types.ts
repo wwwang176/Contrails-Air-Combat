@@ -155,6 +155,13 @@ export interface HudFrame {
   /** 自機是否交給 AI 駕駛（`I`）。純觀測模式的指示燈 */
   aiFlying: boolean
   /**
+   * 是否在上帝視角（`G`）。
+   *
+   * 為真時 `worldX` / `worldZ` / `heading` 填的是**鏡頭**的，不是自機的 ——
+   * 小地圖因此一行都不用改就變成以鏡頭為中心。
+   */
+  godView: boolean
+  /**
    * 雙方存活架數。
    *
    * 【為什麼顯示數量而不顯示各機血量】與 §8 的裁決一致：你看不出對方的
@@ -184,6 +191,7 @@ export function createHudFrame(): HudFrame {
     damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,
     aiFlying: false,
+    godView: false,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
   }
