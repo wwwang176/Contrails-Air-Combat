@@ -5,7 +5,7 @@ import { createCommand } from '../../src/control/Controller'
 import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
-import { DEG } from '../../src/core/math'
+import { DEG, G0 } from '../../src/core/math'
 
 /** 讓飛機以 tas 沿 dir 飛，位於 altitude。 */
 function diving(altitude: number, tas: number, gammaDeg: number): Aircraft {
@@ -49,12 +49,125 @@ describe('recoveryAltitude', () => {
     expect(strong).toBeLessThan(weak)
   })
 
-  it('拉不動（nMax ≤ 1）時回傳 Infinity', () => {
-    // 【為什麼是 Infinity 而不是一個很大的數】它會流進「離海高度夠不夠」
-    // 的比較。用大數的話，在極高空仍然可能通過比較而不介入；Infinity
-    // 保證任何有限高度都會觸發。
-    expect(recoveryAltitude(200, -45 * DEG, 1)).toBe(Infinity)
-    expect(recoveryAltitude(200, -45 * DEG, 0.5)).toBe(Infinity)
+  /**
+   * 【`nMax > 1` 只是說「用現在這個速度」拉不平，不是說救不回來】俯衝會把
+   * 高度換成速度，而 `nMax ∝ V²`。真正的改出是兩段：先換速度、再拉平，
+   * 兩段的高度代價都是有限的。回 Infinity 會讓撞地分支在任何高度接管，
+   * 而那台飛機其實只是失速（spec 2026-08-09 §2）。
+   */
+  it('拉不動（nMax < 1）時回傳有限值，不是 Infinity', () => {
+    const h = recoveryAltitude(200, -45 * DEG, 0.5)
+    expect(Number.isFinite(h)).toBe(true)
+    expect(h).toBeGreaterThan(0)
+  })
+
+  it('拉不動時，俯衝角越陡仍然需要越多高度', () => {
+    const shallow = recoveryAltitude(200, -20 * DEG, 0.5)
+    const steep = recoveryAltitude(200, -60 * DEG, 0.5)
+    expect(steep).toBeGreaterThan(shallow)
+  })
+
+  /** 越拉不動，要換的速度越多，第一段就越長。 */
+  it('拉不動時，nMax 越小需要越多高度', () => {
+    const weak = recoveryAltitude(200, -45 * DEG, 0.3)
+    const strong = recoveryAltitude(200, -45 * DEG, 0.9)
+    expect(weak).toBeGreaterThan(strong)
+  })
+
+  /**
+   * 【真正的「救不回來」與無效輸入】完全沒有升力時 `n(v) = nMax·(v/tas)²`
+   * 恆為 0，換多少速度都拉不動。負值與 `NaN` 也走這條 —— 少了這道守衛，
+   * `nMax` 為 `NaN` 會讓回傳值變成 `NaN`，一路流到 `margin <= needed`，
+   * 那個比較永遠為假，安全層就**永遠不介入**，比誤觸發更糟。
+   */
+  it('nMax 為 0、負值或 NaN 時回傳 Infinity', () => {
+    expect(recoveryAltitude(200, -45 * DEG, 0)).toBe(Infinity)
+    expect(recoveryAltitude(200, -45 * DEG, -1)).toBe(Infinity)
+    expect(recoveryAltitude(200, -45 * DEG, NaN)).toBe(Infinity)
+  })
+
+  /**
+   * 【極淺的負俯衝不能算出 NaN】`c = 1 − cos|γ|` 在 `|γ| < 2×10⁻⁸` rad 時會
+   * 被捨入成 0，於是 `√(n*²−1)` 也是 0。拉起項若照字面寫成 `v²·c / (g·root)`
+   * 就是 `Infinity × 0 = NaN` —— 而 NaN 流進 `margin <= needed` 會讓那個比較
+   * 永遠為假，安全層永遠不介入。
+   *
+   * 實作改用恆等式 `c / root ≡ root² / 2` 把它寫成純乘法。這一條是那個改寫
+   * 的守門人。
+   */
+  it('極淺的負俯衝角不會算出 NaN', () => {
+    for (const g of [-1e-4, -1e-6, -1e-8, -1e-12]) {
+      const h = recoveryAltitude(200, g, 0.5)
+      expect(Number.isFinite(h)).toBe(true)
+      expect(h).toBeGreaterThan(0)
+    }
+  })
+
+  /**
+   * 【同一個角落的另一半：單段支的 nMax 恰為 1】`c` 捨入成 0 時 `n*` 也捨入
+   * 成 1，於是 `nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。那裡要回
+   * `Infinity`（拉起半徑真正的極限，也與修改前一致），不是 `NaN`。
+   */
+  it('nMax 恰為 1 且俯衝角極淺時回傳 Infinity 而不是 NaN', () => {
+    expect(recoveryAltitude(200, -1e-12, 1)).toBe(Infinity)
+  })
+
+  /**
+   * 【這一條是兩段模型的定義，也是唯一守得住 `n*` 的斷言】兩段模型是
+   * 「先俯衝到某個速度 `v`，再在 `v` 上拉平」，而 `v` 只能比現在快
+   * （俯衝只會加速）。`recoveryAltitude` 宣稱回傳的是**所有可行 `v` 之中
+   * 最便宜的那一個**，`n*` 只是那個最小值點的閉式解。
+   *
+   * 所以直接數值掃描一遍，比對兩件事：回傳值不高於掃描到的最小值（`n*`
+   * 沒有解錯），也不顯著低於它（沒有少算某一段）。
+   *
+   * 【為什麼要涵蓋 1 < nMax < n*】那一段是「現在拉得動，但加速一點更划算」。
+   * 若分界誤寫成 `nMax > 1`，這幾格會走單段公式而偏高，只有這條會抓到。
+   */
+  it('回傳的是兩段模型在所有可行拉起速度上的最小值', () => {
+    const g = -45 * DEG
+    const c = 1 - Math.cos(Math.abs(g))
+    const tas = 200
+    for (const nMax of [0.4, 0.9, 1.1, 1.3, 3]) {
+      let best = Infinity
+      // v 從 tas 掃到 5 × tas，步長 0.2 m/s
+      for (let i = 0; i <= 4000; i++) {
+        const v = tas * (1 + i * 0.001)
+        const r = v / tas
+        const n = nMax * r * r
+        if (n <= 1) continue
+        const dive = (v * v - tas * tas) / (2 * G0)
+        const pull = ((v * v) / (G0 * Math.sqrt(n * n - 1))) * c
+        best = Math.min(best, dive + pull)
+      }
+      const h = recoveryAltitude(tas, g, nMax)
+      expect(h).toBeLessThanOrEqual(best)
+      expect(h).toBeGreaterThan(best * 0.999)
+    }
+  })
+
+  /**
+   * 【拉得動的那一側一個字都沒變】這一條釘住「不是換模型，是把定義域補完」。
+   * 用 `toBe` 逐位元比 —— 式子與運算順序都與修改前的單段閉式解相同，浮點
+   * 結果必須完全一致。實測整張安全矩陣 288 格 `changed = 0`，就是靠這件事。
+   */
+  it('拉得動時與單段閉式解逐位元相同', () => {
+    const radius = (200 * 200) / (G0 * Math.sqrt(6 * 6 - 1))
+    expect(recoveryAltitude(200, -45 * DEG, 6))
+      .toBe(radius * (1 - Math.cos(45 * DEG)))
+  })
+
+  /**
+   * 【`tas` 會抵消掉】第一段要換到的速度是 `v² = tas²·n* / nMax`，而
+   * `nMax ∝ tas²`，所以 `tas²` 上下相消 —— `v` 有極限，不是奇點。
+   * 這裡用固定的 `nMax/tas²` 比值把速度一路壓小來驗。
+   */
+  it('速度趨近 0 時回傳有限值', () => {
+    const a = 0.5 / (200 * 200) // nMax / tas²，固定
+    for (const tas of [200, 20, 2, 0.2]) {
+      const h = recoveryAltitude(tas, -45 * DEG, a * tas * tas)
+      expect(Number.isFinite(h)).toBe(true)
+    }
   })
 
   it('爬升時（gamma > 0）不需要高度', () => {
@@ -216,6 +329,46 @@ describe('applySafety', () => {
     clean()
     // 同樣的飛機，但「海面」在 −3000 → 其實還很高
     expect(applySafety(a, -3000, cmd)).toBe('none')
+  })
+
+  /**
+   * 【缺陷複現，spec 2026-08-09 §1】實測 `ai-command-channel` 的
+   * `groundUnderOrder` 護欄紅掉時，六次事件全部長這樣：五公里以上、
+   * TAS 48–58、下沉率約 0.5 m/s。那個高度不可能有撞地風險，飛機只是
+   * 失速了 —— 而撞地分支會命令它爬升，正好是最不該做的事。
+   *
+   * 修改前這裡回 `'ground'`：`nMax = 0.71 ≤ 1` → `recoveryAltitude`
+   * 回 Infinity → `margin <= Infinity` 在任何高度都成立。
+   */
+  it('五公里高空、失速速度、微幅下沉 → 走失速分支而不是撞地分支', () => {
+    const a = new Aircraft(P51D, 5038, 50)
+    a.state.position.set(0, 5038, 0)
+    a.state.velocity.set(0, -0.5, -50)
+    a.prevPosition.copy(a.state.position)
+    clean()
+    expect(applySafety(a, 0, cmd)).toBe('stall')
+  })
+
+  /**
+   * 【光是換分支不夠，補救方向要真的反過來】所以這裡**不用** `clean()` ——
+   * 它設的命令本來就是壓頭、滿油門、不減速，`applySafety` 就算完全不介入
+   * 也會通過。改成先擺一個抬頭、收油門、放減速板、開火的命令，再看它有沒有
+   * 被整個覆寫掉。
+   */
+  it('那一格的補救是壓頭加油門，而且真的覆寫了原本的命令', () => {
+    const a = new Aircraft(P51D, 5038, 50)
+    a.state.position.set(0, 5038, 0)
+    a.state.velocity.set(0, -0.5, -50)
+    a.prevPosition.copy(a.state.position)
+    cmd.aimWorld.set(0, 1, 0)
+    cmd.throttle = 0.2
+    cmd.brake = 1
+    cmd.firing = true
+    expect(applySafety(a, 0, cmd)).toBe('stall')
+    expect(cmd.aimWorld.y).toBeLessThan(0)
+    expect(cmd.throttle).toBeGreaterThan(1)
+    expect(cmd.brake).toBe(0)
+    expect(cmd.firing).toBe(false)
   })
 
   it('連續呼叫不配置：一萬次結果一致', () => {
