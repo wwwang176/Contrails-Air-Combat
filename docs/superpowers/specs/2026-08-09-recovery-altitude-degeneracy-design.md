@@ -156,10 +156,10 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
   const c = 1 - Math.cos(Math.abs(gamma))
   const root = Math.cbrt(2 * c)          // √(n*² − 1)
   const nStar = Math.sqrt(1 + root * root)
-  if (nMax >= nStar) {
+  const q = nMax * nMax - 1
+  if (q > 0 && nMax >= nStar) {
     // 現在就拉得動，而且再加速也不划算 —— 與修改前逐位元相同
-    const q = nMax * nMax - 1
-    return q > 0 ? ((tas * tas) / (G0 * Math.sqrt(q))) * c : Infinity
+    return ((tas * tas) / (G0 * Math.sqrt(q))) * c
   }
   // 先俯衝把 n 換到 n*，再拉平。拉起項 = v²·c/(G0·root)，而 c/root ≡ root²/2
   const v2 = (tas * tas * nStar) / nMax
@@ -176,8 +176,21 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 `v²·root² / (2g)`：`root = 0` 時它就是 0，除法整個消失。
 
 【單段那一支的 `q > 0` 守衛】同一個角落裡 `n*` 也會捨入成 1，於是
-`nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。回 `Infinity` —— 那既是拉起半徑
-真正的極限，也與修改前 `!(nMax > 1) → Infinity` 完全一致。
+`nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。所以分界條件是
+**`q > 0 && nMax >= nStar`** —— 兩個都成立才走單段支，否則落到兩段公式。
+
+【那裡的答案是 0，不是 `Infinity`】初版寫成 `q > 0 ? … : Infinity`，理由是
+「拉起半徑真正的極限」。**那是錯的** —— 那是**單段**模型的極限。兩段模型在
+`nMax = 1`、γ→0⁻ 的答案是 **0**：只要加速無限小就能拿到正的剩餘過載，再穿過
+一個無限小的角度。回 `Infinity` 等於在一個窄角落裡把本份要修掉的缺陷
+（撞地分支在任何高度成立）原封不動地重建一次，而且製造出一個跳變：
+
+| γ | −1.5×10⁻⁸ | −10⁻⁸ | 0 |
+|---|---|---|---|
+| 初版 | 1.12×10⁻⁷ m | **∞** | 0 |
+| 現版 | 1.12×10⁻⁷ m | ~0 | 0 |
+
+落到兩段公式即可：`nStar = 1` ⟹ `v2 = tas²` ⟹ 兩項自然都是 0。
 
 【試過半正矢 `c = 2·sin²(|γ|/2)`，退掉了】它在數學上恆等、浮點下確實不會塌成
 0，但**沒有多擋掉任何東西** —— NaN 是上面那個純乘法擋掉的，實測把 `c` 換成
@@ -207,7 +220,7 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 | `tas → 0` | 有限 | `v² = tas²·n*/nMax`，而 `nMax ∝ tas²`，`tas²` 上下抵消。`v*` 有極限，不是奇點 |
 | `nMax` 為 `NaN` | `Infinity`（`!(NaN > 0)` 為真） | 與修改前的 `!(nMax > 1)` 同一種寫法，行為一致 |
 | `gamma` 極接近 0⁻（`nMax < n*`） | 有限 | 由 §6 的純乘法拉起項保證。照字面寫成除法會回 `NaN` |
-| `gamma` 極接近 0⁻ **且** `nMax` 恰為 1 | `Infinity` | 同一個角落裡 `n*` 捨入成 1，於是走單段支。`q > 0` 守衛把它接成 `Infinity` —— 拉起半徑真正的極限，也與修改前一致 |
+| `gamma` 極接近 0⁻ **且** `nMax` 恰為 1 | `0` | 同一個角落裡 `n*` 捨入成 1，`q` 為 0。`q > 0 && nMax >= nStar` 把它交給兩段公式，`v2 = tas²` ⟹ 兩項都是 0。**不能回 `Infinity`**，那會重建本份要修掉的缺陷 |
 
 `tas` 與 `gamma` 為 `NaN` 的情形**不在契約內**：上游 `applySafety` 由
 `vel.length()` 與 `Math.asin` 產生這兩個值，兩者都不會是 `NaN`。為一個到不了
@@ -396,22 +409,31 @@ checkout 回基準版再跑一次 —— 其餘檔案不動，所以差異只可
 
 ### 13.5 迴歸
 
+最終版（`cc194cf`，含 §13.8 的三條審查修正）：
+
 | 項目 | 結果 |
 |---|---|
-| `npx vitest run`（全套） | **2,298 passed / 3 failed / 1 skipped**（2,302） |
+| `npx vitest run`（全套） | **2,372 passed / 3 failed / 1 skipped**（2,376） |
 | `npx vitest run test/unit/perf-gate.test.ts`（單獨） | 4 / 4 綠 |
-| `npx vitest run test/integration/rematch.test.ts`（單獨） | 綠 |
+| `npx vitest run test/integration/rematch.test.ts`（單獨） | 3 / 3 綠 |
 | `npx tsc --noEmit` | 通過 |
-| `test/unit/ai-safety.test.ts` | 41 / 41 綠 |
-| `test/integration/ai-safety-matrix.test.ts` | 301 / 301 綠 |
+| `test/unit/ai-safety.test.ts` | 42 / 42 綠 |
+| `test/integration/ai-safety-matrix.test.ts` | **374 / 374** 綠（301 + 73 新的低速改出） |
+| `ai-command-channel` 的 `groundUnderOrder` | 0（與 `1c688de` 逐字相同） |
 
 那 3 條紅是：`perf-gate`（全套並跑時 104 個檔案搶 CPU，**單獨跑 4/4 綠** ——
-專案慣例本來就要求它單獨跑），加上 §13.6 的兩條既有紅。
+專案慣例本來就要求它單獨跑），加上 §13.7 的兩條既有紅。
 
-### 13.6 Mutation 驗證
+（`1c688de` 那一版的對應數字是 2,298 / 2,302 與矩陣 301 / 301；差額 74 條
+全部是 §13.8 新增的低速改出護欄與三條邊界／連續性測試。）
 
-實作在執行途中換過一次形狀（見 plan 的「執行中的偏離」），所以六個 mutation
-是對**最終**版本重跑的：
+### 13.6 Mutation 驗證（八個）
+
+實作在執行途中換過兩次形狀，所以 mutation 分兩批，各自對**當時**的版本跑。
+
+**第一批（對 `1c688de`）** —— 半正矢退掉之後重跑的六個（見 plan 的
+「執行中的偏離」）。第 6 條當時守的是 `q > 0 ? … : Infinity`，那個設計在
+`cc194cf` 被 §13.8 的 D1 推翻，所以它連同測試一起被第 7 條取代：
 
 | # | mutation | 打紅了哪一條 |
 |---|---|---|
@@ -422,7 +444,15 @@ checkout 回基準版再跑一次 —— 其餘檔案不動，所以差異只可
 | 5 | 拉起項改回除法 `(v2 / (G0*root)) * c` | `極淺的負俯衝角不會算出 NaN` |
 | 6 | 拿掉單段支的 `q > 0` 三元 | `nMax 恰為 1 且俯衝角極淺時回傳 Infinity 而不是 NaN` |
 
-六個全部轉紅，且每一個都只打到它該守的那幾條。
+**第二批（對 `cc194cf`，也就是現行版本）** —— D1 修正之後的分界條件：
+
+| # | mutation | 打紅了哪一條 |
+|---|---|---|
+| 7 | `q > 0 && nMax >= nStar` → `nMax >= nStar`（退回 D1 的 Infinity） | `nMax 恰為 1 且俯衝角極淺時回傳 0，而且沒有跳變` |
+| 8 | `q > 0 && nMax >= nStar` → `q > 0`（分界退回 `nMax > 1`） | `回傳的是兩段模型在所有可行拉起速度上的最小值` |
+
+八個全部轉紅，且每一個都只打到它該守的那幾條。現行版本（`cc194cf`）由
+第 1–5 條與第 7–8 條共同守著。
 
 ### 13.7 兩條與本次無關、修改前後皆紅的既有護欄
 
@@ -433,7 +463,46 @@ checkout 回基準版再跑一次 —— 其餘檔案不動，所以差異只可
 | `ai-command-channel` > `focus 的離場語意` | `expected 0.0256 to be greater than 0.05` | 撤退令棘輪 spec 留下的獨立待決項（修改前 0.0281） |
 | `ai-command-tactics` > `側翼讓開火時的方位角往後側方移動` | `expected -0.1471 to be less than or equal to -0.5900` | 修改前後逐字相同（`-0.1470907576016707`），本次未碰 |
 
-### 13.8 一個要交裁定的副作用
+### 13.8 Codex 對 `1c688de` 的審查（三條 Important，全部處理）
+
+**D1 —— 真缺陷，我的推理錯了。** 見 §6 的「那裡的答案是 0，不是 `Infinity`」。
+修正在 `cc194cf`，並補一條測試把 `−1.5×10⁻⁸ / −10⁻⁸` 兩側的連續性釘住。
+
+**D3 —— 真缺口。** `1 < nMax < n*` 是唯一「比舊公式更不保守」的有效區間
+（TAS 200 / −45° / `nMax = 1.1`：2607 → 2070 m，**少 20.6%**），而 §13.3 那
+288 組 physics-in-loop 全部落在 `nMax / n* ≥ 3.332`，**一格都沒踩到新分支**。
+換句話說，舊行為有物理護欄、新行為只有代數護欄。
+
+補上 `L4-A 安全矩陣 —— 低速改出（兩段式的新分支）`：2 機種 × 3 高度
+（600 / 1200 / 2500 m）× 4 個目標 `nMax`（0.5 / 0.9 / 1.1 / 1.3，由
+`tas = Vs(1g)·√nMax` 反推速度）× 3 俯衝角（−20° / −45° / −70°）= **72 組**，
+每組跑 20 秒完整 AI + 物理。實測：
+
+```
+72 組全部契約內、66 組走新分支、觸海 0
+最緊的一格：600 m / nMax 0.5 / −70° → 實掉 364 m，契約給 472 m
+次緊的：600 m / nMax 0.5 / −45° → 實掉 279 m，契約給 293 m
+```
+
+`factor = 1.5` 在新分支上仍然夠 —— 但只夠一點，與既有那 288 組最緊的一格
+（357 對 341）是同一個量級。**這一組同時附帶一條反空洞化斷言**：契約內組數
+≥ 66、走新分支組數 ≥ 60，防止日後題目漂掉之後這一組還全綠。
+
+**D2 —— 診斷正確，歸屬要更正。** 低空低速時分支翻轉落在垂直速度的正負號上
+（150 m、TAS 30：`vy = 0` 走 `stall` 壓頭，`vy = −0.001` 走 `ground` 抬頭）。
+原因是 `gamma >= 0` 直接回 0，而 γ 一轉負就要付「換到拉得動的速度」那段高度
+（實測約 52 m），`needed` 由 120 跳到約 198。
+
+**但這不是本次引入的。** 把舊版 `safety.ts` 單獨 checkout 回來跑同一條 `vy`
+掃描，八個取樣點的分支與瞄準點**逐字相同** —— 舊碼在 γ<0 且 `nMax ≤ 1` 時回
+`Infinity`，所以當時的跳變是「120 → ∞」。本次**縮小**了這個不連續，沒有
+製造它。
+
+要不要讓它連續（把第一段的推力／阻力做功算進去）是**另一份 spec 的事**：
+那會改變模型本身、引入新的自由度，而且要重掃。本份只加一條變更偵測測試
+`低空低速的分界落在垂直速度的正負號上（既有行為）` 把邊界釘住。
+
+### 13.9 一個要交裁定的副作用
 
 `ai-command-channel` 的 `rally` 觀測有兩項移動了：
 
