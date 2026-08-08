@@ -182,6 +182,15 @@ export function buildBf109E(): AircraftModel {
     // 眼點：艙緣 0.520 上方 0.26，罩頂在 z 0.60 約 0.955、頭部餘裕僅 0.175
     // ——109 的座艙本來就以窄小出名；z 0.60 落在風擋（0.255…0.425）後方 0.18 m
     eyePoint: new Vector3(0, 0.78, 0.60),
+    // 右翼尖弦的中點，由 WING 推出（`buildWingPanel` 的 u = 1 站位）：
+    //   x = halfSpan                          = 4.935
+    //   y = rootY + tan(dihedral) × halfSpan  = −0.34 + tan(6.5°)×4.935 =  0.2223
+    //   翼尖弦 = tipChord（**方翼尖，沒有 tipRound**）                   =  1.0100
+    //   前緣  = rootZ + tan(sweep) × halfSpan                           = −0.2575
+    //   z    = 前緣 + 弦/2                                               =  0.2475
+    // 與 P-51D 的差別一眼可見：上反角大 1.5°、翼尖弦是它的兩倍多（方翼尖），
+    // 半翼展小 0.7 m —— 共用一條推導規則不可能對兩台都準。
+    wingTip: new Vector3(4.935, 0.2223, 0.2475),
   })
 
   h.cockpit(RINGS, CANOPY, CANOPY_SHAPE)

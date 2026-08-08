@@ -387,6 +387,63 @@ describe('buildAircraft', () => {
         expect(lead + 0.25 * (trail - lead)).toBeCloseTo(0, 6)
         m.dispose()
       })
+
+      /**
+       * 【這一條屬於跨模組一致性，不是造型】`wingTip` 是**手寫在造型檔上**
+       * 的（見 `HullSpec.wingTip`：每一台的機翼位置都不一樣，沒有一條共用的
+       * 推導規則對兩台都準）。手寫的代價是會與幾何漂開 —— 移動機翼卻忘了改
+       * 那個常數，症狀是尾跡從機身中間冒出來，而不會有任何錯誤。
+       *
+       * 這條就是那個漂開的防線：宣告的點必須真的落在建出來的翼尖上。
+       *
+       * 【為什麼是「落在範圍內」而不是精確值】翼尖是一片有厚度、有弦長的
+       * 剖面，`wingTip` 取的是弦中點。斷言它落在那一站的 y／z 範圍內，
+       * 守的是「這個點確實在翼尖上」；寫死一個數字就變成對造型數字的同義
+       * 反覆，那正是檔頭裁決要避免的。
+       */
+      it('宣告的 wingTip 真的落在建出來的翼尖上', () => {
+        const m = buildAircraft(spec)
+        m.group.updateMatrixWorld(true)
+        const v = new Vector3()
+        // 先找出全機最外側的 |x|（＝半翼展）
+        let maxAbsX = 0
+        m.group.traverse((o) => {
+          const p = (o as Mesh).geometry?.getAttribute?.('position')
+          if (!p) return
+          for (let i = 0; i < p.count; i++) {
+            v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(o.matrixWorld)
+            maxAbsX = Math.max(maxAbsX, Math.abs(v.x))
+          }
+        })
+        // 再取最外側那一站（99% 之外）的 y／z 範圍
+        let loY = Infinity, hiY = -Infinity, loZ = Infinity, hiZ = -Infinity
+        m.group.traverse((o) => {
+          const p = (o as Mesh).geometry?.getAttribute?.('position')
+          if (!p) return
+          for (let i = 0; i < p.count; i++) {
+            v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(o.matrixWorld)
+            if (Math.abs(v.x) < maxAbsX * 0.99) continue
+            loY = Math.min(loY, v.y); hiY = Math.max(hiY, v.y)
+            loZ = Math.min(loZ, v.z); hiZ = Math.max(hiZ, v.z)
+          }
+        })
+
+        expect(m.wingTip.x).toBeCloseTo(maxAbsX, 3)
+        expect(m.wingTip.y).toBeGreaterThanOrEqual(loY)
+        expect(m.wingTip.y).toBeLessThanOrEqual(hiY)
+        expect(m.wingTip.z).toBeGreaterThanOrEqual(loZ)
+        expect(m.wingTip.z).toBeLessThanOrEqual(hiZ)
+        m.dispose()
+      })
+
+      it('wingTip 的展向位置等於 spec 的半翼展', () => {
+        // 【跨到飛行模型】翼展是飛行模型（spec.wing.span）與視覺模型共有的
+        // 數字。上面那條守的是「宣告值 vs 建出來的幾何」，這一條守的是
+        // 「宣告值 vs 氣動參數」—— 兩邊都對上，尾跡才真的在翼尖。
+        const m = buildAircraft(spec)
+        expect(m.wingTip.x).toBeCloseTo(spec.wing.span / 2, 3)
+        m.dispose()
+      })
     })
   }
 })

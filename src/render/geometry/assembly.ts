@@ -54,6 +54,8 @@ export interface AircraftModel {
   metrics: HullMetrics
   /** 機首視角的眼點，**機體座標**（已含重心位移）。見 HullSpec.eyePoint */
   eyePoint: Vector3
+  /** **右**翼尖，**機體座標**（已含重心位移）。左翼取 −x。見 HullSpec.wingTip */
+  wingTip: Vector3
   /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
   setPropSpin(rotation: number, blurred: boolean): void
   dispose(): void
@@ -145,6 +147,26 @@ export interface HullSpec {
    * 玻璃外面。值寫在各機種的造型檔裡，就緊挨著它推導所依據的量測站位。
    */
   eyePoint: Vector3
+  /**
+   * **右**翼尖，**造型座標**（`finish` 會補上 `offsetZ`）。左翼取 −x。
+   *
+   * 取的是**翼尖弦的中點**：`x` = 半翼展、`y` = 翼尖站位的高度（含上反角）、
+   * `z` = 翼尖前緣 + 弦長/2。
+   *
+   * 【為什麼一機一個值而不是從幾何推】與 `eyePoint` 同一個理由，而且更明顯：
+   * 每一台的機翼位置都不一樣（後掠、上反、翼根站位、翼尖收縮各不相同），
+   * 沒有一條共用的推導規則對兩台都準。原本的實作是「取 |x| > 0.92 × 半翼展
+   * 那批頂點的平均」—— 它對現在這兩台碰巧夠用，但那個 0.92 是個會被下一台
+   * 飛機（雙尾桁、大水平尾翼、橢圓翼）默默弄壞的啟發式，而壞掉的症狀是
+   * 尾跡從機身中間冒出來，不會有任何錯誤。
+   *
+   * 【不會與幾何漂開】`geometry.test.ts` 有一條護欄：宣告的這個點必須真的
+   * 落在建出來的翼尖上（x 等於包圍盒半翼展，y／z 落在翼尖那一站的範圍內）。
+   * 移動機翼卻忘了改這裡就會紅。
+   *
+   * 【用途】翼尖凝結尾（`render/vortex.ts`）要知道渦從哪裡脫離。
+   */
+  wingTip: Vector3
 }
 
 /**
@@ -363,6 +385,7 @@ export function createHull(spec: HullSpec) {
       return {
         group,
         eyePoint: new Vector3(spec.eyePoint.x, spec.eyePoint.y, spec.eyePoint.z + spec.offsetZ),
+        wingTip: new Vector3(spec.wingTip.x, spec.wingTip.y, spec.wingTip.z + spec.offsetZ),
         metrics: {
           realLength: spec.realLength, noseZ,
           noseY: (noseLo + noseHi) / 2,

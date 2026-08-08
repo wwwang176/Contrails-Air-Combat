@@ -254,6 +254,14 @@ export function buildP51D(): AircraftModel {
     // 眼點：艙緣 0.520 上方 0.28（肩膀齊艙緣），罩頂在 z 0.685 為 1.029、
     // 頭部餘裕 0.23；z 0.70 落在風擋底框（0.085）後方 0.6 m
     eyePoint: new Vector3(0, 0.80, 0.70),
+    // 右翼尖弦的中點，由 WING 推出（`buildWingPanel` 的 u = 1 站位）：
+    //   x = halfSpan                          = 5.640
+    //   y = rootY + tan(dihedral) × halfSpan  = −0.6375 + tan(5°)×5.64  = −0.1441
+    //   翼尖弦 = tipChord × tipFactor(1, 0.40) = 1.22 × 0.40             =  0.4880
+    //   前緣  = rootZ + tan(sweep)×halfSpan + (tipChord − 弦)×TIP_ANCHOR = −0.0804
+    //   z    = 前緣 + 弦/2                                               =  0.1636
+    // 圓翼尖（tipRound 0.40）讓這一台的翼尖弦只剩 0.49 m。
+    wingTip: new Vector3(5.640, -0.1441, 0.1636),
   })
 
   h.cockpit(RINGS, CANOPY, CANOPY_SHAPE)
