@@ -23,6 +23,35 @@ export const SKY_RADIUS = 40000
 export const SKY_HORIZON = 0x9fc3d8
 export const SKY_ZENITH = 0x1f4f80
 
+/**
+ * 漸層的指數。`< 1` 讓地平色的範圍變窄、天頂色往下壓。
+ *
+ * 【注意這個常數與 `FOG_SKY_DARKEN` 無關】兩個都碰巧是 0.65，但一個是
+ * 漸層曲線的指數、一個是霧色的明度倍率。
+ */
+export const SKY_GRADIENT_POWER = 0.65
+
+/**
+ * 天空在某個視線仰角上的顏色，**CPU 的那一份**。
+ *
+ * 【為什麼要有它】著色器裡的漸層測不到，而霧色必須比**地平線上的天空**暗
+ * 才看得出地平線（見 `fog.ts` 的 `FOG_COLOR`）。
+ *
+ * **兩份必須一致** —— 這是上面 `FRAG` 那兩行的 JS 版。
+ *
+ * 【`dirY = 0` 才是地平線，不是 `SKY_HORIZON`】`t = dirY × 0.5 + 0.5`，所以
+ * 地平線落在漸層的**正中間**（`t = 0.5`），已經往天頂色混了六成。
+ * `SKY_HORIZON` 這個顏色只出現在 `dirY = −1`（正下方）—— 而那裡被海擋著，
+ * 畫面上永遠看不到。拿它當「地平線的顏色」是錯的。
+ */
+export function skyColorAt(dirY: number, out: Color): Color {
+  const t = Math.pow(Math.min(Math.max(dirY * 0.5 + 0.5, 0), 1), SKY_GRADIENT_POWER)
+  return out.lerpColors(SKY_HORIZON_COLOR, SKY_ZENITH_COLOR, t)
+}
+
+const SKY_HORIZON_COLOR = new Color(SKY_HORIZON)
+const SKY_ZENITH_COLOR = new Color(SKY_ZENITH)
+
 const VERT = /* glsl */ `
   varying vec3 vDir;
   void main() {
@@ -36,6 +65,7 @@ const FRAG = /* glsl */ `
   uniform vec3 zenith;
   varying vec3 vDir;
   void main() {
+    // 【改這兩行就要同步改 skyColorAt】那是這段的 CPU 版，霧色靠它推導
     float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
     gl_FragColor = vec4(mix(horizon, zenith, pow(t, 0.65)), 1.0);
   }
