@@ -20,6 +20,7 @@ function fakeModel(): Fake {
     group: new Group(),
     metrics: { realLength: 9.83, noseZ: -3.4, noseY: 0.3, tipY: 0 },
     eyePoint: new Vector3(),
+    wingTip: new Vector3(5.64, 0, 0),
     setPropSpin: (rotation: number, blurred: boolean) => { spins.push({ rotation, blurred }) },
     dispose: () => {},
   }
