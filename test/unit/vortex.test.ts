@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   createVortex, vortexEmitCount, vortexIntensity,
-  TRAIL_LIFE, TRAIL_NODES, TRAIL_NODE_SPACING,
+  TRAIL_LIFE, TRAIL_NODES, TRAIL_NODE_SPACING, TRAIL_REAL_NODES,
   VORTEX_G_FULL, VORTEX_G_ON, VORTEX_MAX_PER_FRAME, VORTEX_MAX_STEP, VORTEX_SEATS,
 } from '../../src/render/vortex'
 import { MAX_COMBATANTS } from '../../src/battle/skirmish'
@@ -177,14 +177,19 @@ describe('凝結尾的節點', () => {
   })
 
   /**
-   * 【環形緩衝】每一條最多 `TRAIL_NODES` 個節點，滿了覆蓋最舊的 ——
-   * 尾跡的尾端先消失。與 `particles.ts` 的覆蓋策略一致。
+   * 【環形緩衝】每一條最多 `TRAIL_REAL_NODES` 個正式節點，滿了覆蓋最舊的
+   * —— 尾跡的尾端先消失。與 `particles.ts` 的覆蓋策略一致。
+   *
+   * 【上限是環數減一，不是環數】最後一格留給活動頭端。塞滿到 `TRAIL_NODES`
+   * 的話有效環數會變成 41 而 `writeTrail` 只寫得下 40 —— 頭端被擠掉，管頭
+   * 退回最新的正式節點。見下方「高速塞滿緩衝之後，頭端仍然黏在翼尖」。
    */
-  it('每一條的節點數不超過 TRAIL_NODES', () => {
+  it('每一條的正式節點不超過 TRAIL_REAL_NODES，且它比環數少一', () => {
     const v = createVortex()
     v.emit(0, 6, ...tips(0))
     for (let k = 1; k <= 100; k++) v.emit(0, 6, ...tips(k * 40))
-    expect(v.live).toBe(TRAIL_NODES * 2)
+    expect(v.live).toBe(TRAIL_REAL_NODES * 2)
+    expect(TRAIL_REAL_NODES).toBe(TRAIL_NODES - 1)
     v.dispose()
   })
 })
@@ -382,6 +387,48 @@ describe('繪製層', () => {
         expect(p[(base + j * 4 + s) * 3 + 2]).toBeCloseTo(z0, 6)
       }
     }
+    v.dispose()
+  })
+
+  /**
+   * 【緩衝塞滿之後頭端會被靜靜丟掉】`writeTrail` 只寫得下 `TRAIL_NODES` 環，
+   * 而有效環數是「正式節點 + 頭端」。正式節點若佔滿全部 40 格，有效環數會是
+   * 41 —— 頭端排在最後，於是永遠輪不到它，管頭退回最新的正式節點，與翼尖
+   * 差最多一個間隔（8 m），而且隨著取樣相位在 0 與 8 m 之間來回跳。
+   *
+   * 【為什麼只有俯衝拉起看得到】緩衝要塞滿，得在 `TRAIL_LIFE`（1.4 s）之內
+   * 走完 `(TRAIL_NODES − 1) × TRAIL_NODE_SPACING` = 312 m —— 也就是 223 m/s
+   * 以上。緩轉（120 m/s）只用得到 21 格、200 m/s 也才 35 格，頭端一直都在；
+   * 唯一衝得過那條線的動作就是俯衝拉起。專案負責人回報的「有的時候還是會
+   * 斷頭，例如在俯衝抬升的時候」就是這個。
+   *
+   * 【修法是留一格，不是把 TRAIL_NODES 調大】調大只是把門檻推到更高的速度，
+   * 而俯衝速度沒有上界。留一格之後「有效環數 ≤ TRAIL_NODES」是結構上成立的，
+   * 與速度無關。
+   */
+  it('高速塞滿緩衝之後，頭端仍然黏在翼尖', () => {
+    const v = createVortex()
+    const dt = 1 / 60
+    const stepM = 250 * dt              // 250 m/s，已在 228.6 m/s 的分界之上
+    const base = 1 * TRAIL_NODES * 4
+    let worst = 0
+    for (let f = 0; f < 180; f++) {
+      const x = f * stepM
+      v.emit(0, 5, x, 1000, 0, x, 1000, 10)
+      v.step(dt)
+      if (f < 90) continue               // 前 1.5 s 等緩衝塞滿
+      const p = posOf(v)
+      const a = alphaOf(v)
+      let best = Infinity
+      for (let j = 0; j < TRAIL_NODES; j++) {
+        if (a[base + j * 4]! <= 0) continue   // 退化節點與沒用到的環不算
+        let sx = 0
+        for (let s = 0; s < 4; s++) sx += p[base * 3 + (j * 4 + s) * 3]!
+        best = Math.min(best, Math.abs(sx / 4 - x))
+      }
+      worst = Math.max(worst, best)
+    }
+    expect(worst).toBeLessThan(1e-3)
     v.dispose()
   })
 

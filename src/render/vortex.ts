@@ -48,12 +48,32 @@ export const VORTEX_G_FULL = 6.5
 export const TRAIL_NODE_SPACING = 8
 
 /**
- * 每一條尾跡的節點數。40 × 8 m = 320 m，略長於 1.4 s × 200 m/s = 280 m。
+ * 每一條尾跡在幾何裡佔幾個環。40 × 8 m = 320 m，略長於
+ * 1.4 s × 200 m/s = 280 m。
  *
  * 【滿了覆蓋最舊的】環形緩衝，尾跡的**尾端先消失** —— 尾端本來就是最淡的
  * 一段。與 `particles.ts` 的覆蓋策略一致。
  */
 export const TRAIL_NODES = 40
+
+/**
+ * 正式節點的容量。**比環數少一 —— 那一格是留給活動頭端的。**
+ *
+ * 【不留會斷頭】`writeTrail` 寫得下 `TRAIL_NODES` 環，而有效環數是
+ * 「正式節點 + 頭端」。正式節點若佔滿全部 40 格，有效環數變成 41，頭端排在
+ * 最後於是永遠輪不到 —— 管頭退回最新的正式節點，與翼尖差最多一個間隔，
+ * 並隨取樣相位在 0 與 8 m 之間來回跳。
+ *
+ * 【只有俯衝拉起才踩得到，所以差點漏掉】緩衝要塞滿，得在 `TRAIL_LIFE`
+ * 1.4 s 之內走完 39 × 8 = 312 m —— 228.6 m/s 以上。緩轉（120 m/s）只用得到
+ * 21 格、200 m/s 也才 35 格。專案負責人回報「有的時候還是會斷頭，例如在
+ * 俯衝抬升的時候」，指的就是這條線。
+ *
+ * 【為什麼不是把 TRAIL_NODES 調大】調大只把門檻推到更高的速度，而俯衝速度
+ * 沒有上界。留一格之後「有效環數 ≤ TRAIL_NODES」與速度無關。代價是尾跡的
+ * 上限短 8 m。
+ */
+export const TRAIL_REAL_NODES = TRAIL_NODES - 1
 
 /** 管的邊數。50 m 外看不出是方的；6 面貴 50%。 */
 export const TRAIL_SIDES = 4
@@ -68,15 +88,21 @@ export const TRAIL_LIFE = 1.4
  * 粗度就好」。兩個半徑一起收成三分之一。
  *
  * 【`DoubleSide` 讓實效不透明度加倍】視線穿過一條管子恆疊近側壁與遠側壁
- * 兩層，`1 − (1 − 0.55)² ≈ 0.80`。調 `TRAIL_ALPHA` 時要記得這件事，否則會
- * 把「太白」誤判成參數選得不好。
+ * 兩層，實效是 `1 − (1 − TRAIL_ALPHA)²`。調 `TRAIL_ALPHA` 時要記得這件事，
+ * 否則會把「太白」誤判成參數選得不好。
  */
 export const TRAIL_RADIUS_FROM = 0.2
 /** 死亡時的管半徑，m。渦會擴散。同樣收成第一版（2.0）的三分之一。 */
 export const TRAIL_RADIUS_TO = 0.65
 
-/** `intensity = 1` 時剛生成的不透明度。 */
-export const TRAIL_ALPHA = 0.55
+/**
+ * `intensity = 1` 時剛生成的不透明度 —— 整條管子最不透明的那一點。
+ *
+ * 【0.385 是試飛定的】第一版 0.55，專案負責人回報「最不透明的透明度要
+ * −30%」。0.55 × 0.7 = 0.385。經 `DoubleSide` 疊兩層之後實效
+ * `1 − (1 − 0.385)² ≈ 0.62`（原本 0.80）。
+ */
+export const TRAIL_ALPHA = 0.385
 
 /** 凝結尾的顏色。近白、略帶天空的藍。 */
 export const TRAIL_COLOR = 0xeef4f8
@@ -301,7 +327,8 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
     nAge[i] = 0
     nAlpha0[i] = a0
     head[trail] = (head[trail]! + 1) % TRAIL_NODES
-    if (count[trail]! < TRAIL_NODES) {
+    // 【容量比環數少一】留最後一格給活動頭端，否則高速時頭端會被擠掉
+    if (count[trail]! < TRAIL_REAL_NODES) {
       count[trail] = count[trail]! + 1
       liveNodes++
     }
