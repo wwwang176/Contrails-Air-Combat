@@ -181,6 +181,30 @@ ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
 const debris = createDebris()
+
+/**
+ * 每一場結束時要歸零的粒子池。**清單只有這一份。**
+ *
+ * 【為什麼要有這個陣列與 `resetPools`】換一場有**兩個**入口 ——
+ * `enterBattle()`（設定頁的「開始戰鬥」、結算的「再打一場」）與
+ * `restartBattle()`（暫停選單的「重新開始」）。原本只有前者列了七行
+ * `xxx.reset()`，後者一行都沒有，於是按「重新開始」之後上一場的煙與碎片
+ * 會飄在舊位置上等自己過期。
+ *
+ * **那幾秒不是重點**，重點是「兩個入口、兩份清單」這個結構：下一個人加第
+ * 八個池的時候會加到其中一份。抽成一份之後，加池子只要動這個陣列，兩個
+ * 入口自動跟上。`test/unit/pool-reset-entrypoints.test.ts` 釘住這件事 ——
+ * 它連「入口裡不准再出現 `xxx.reset()`」都一起守，否則兩份清單會再長出來。
+ *
+ * 【殘骸不在這裡】殘骸池持有飛機模型，必須在 `visuals` 清空**之前**還回去，
+ * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
+ */
+const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex]
+
+function resetPools(): void {
+  for (const p of POOLS) p.reset()
+}
+
 ctx.scene.add(debris.object)
 const wrecks = createWrecks(MAX_COMBATANTS, (m) => {
   ctx.scene.remove(m.group)
@@ -315,6 +339,10 @@ function leaveBattle(): void {
  */
 function restartBattle(): void {
   resetBattle(battle)
+  // 【池子也要清】少了這一行，上一場的煙（最多 3.1 s）、碎片（1.5–2 s）、
+  // 水柱（~2.1 s）會飄在舊位置上等自己過期。殘骸不在其中 —— 下面的
+  // `rebuildVisuals` 會把殘骸池持有的模型還回去。
+  resetPools()
   player = battle.player
   // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
   rebuildVisuals()
@@ -353,13 +381,7 @@ function enterBattle(): void {
   releaseVisuals()
 
   // 2. 其餘的池子歸零
-  fireball.reset()
-  smoke.reset()
-  spray.reset()
-  sparks.reset()
-  splashes.reset()
-  debris.reset()
-  vortex.reset()
+  resetPools()
 
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
