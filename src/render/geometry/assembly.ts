@@ -1,6 +1,6 @@
 import {
-  BoxGeometry, CircleGeometry, ConeGeometry, Group, Mesh, MeshStandardMaterial, SphereGeometry,
-  Vector3,
+  BoxGeometry, CircleGeometry, ConeGeometry, DoubleSide, Group, Mesh, MeshStandardMaterial,
+  SphereGeometry, Vector3,
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
@@ -194,8 +194,20 @@ export function createHull(spec: HullSpec) {
     color: 0x9fd4e8, flatShading: true, transparent: true, opacity: 0.45,
     roughness: 0.2, depthWrite: false,
   })
+  /**
+   * 模糊圓盤的材質。
+   *
+   * 【`side: DoubleSide` 非有不可】`CircleGeometry` 的法線指 +Z，而機首朝
+   * −Z —— 預設的 `FrontSide` 讓圓盤**只有從飛機後方才畫得出來**。而
+   * `setPropSpin` 在 blurred 時會把槳葉全部藏起來（見下方），所以油門一過
+   * 0.15，從前方或斜前方看螺旋槳就整個不存在。
+   *
+   * 座艙相機永遠在圓盤後方，所以這個缺陷從 M1 活到上帝視角才被看見 ——
+   * 那是第一個會從機頭方向看自己飛機的視角。
+   */
   const blur = new MeshStandardMaterial({
-    color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5, depthWrite: false,
+    color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
+    depthWrite: false, side: DoubleSide,
   })
   /** 座艙內裝：機身開口下方的暗色內殼，見 buildCockpitTub。 */
   const cockpitMat = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })

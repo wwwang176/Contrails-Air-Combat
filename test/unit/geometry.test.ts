@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BufferGeometry, Mesh, Vector3 } from 'three'
+import { BufferGeometry, DoubleSide, Mesh, Vector3, type MeshStandardMaterial } from 'three'
 import { buildFuselage, type FuselageSection } from '../../src/render/geometry/fuselage'
 import { buildCanopy } from '../../src/render/geometry/canopy'
 import { buildHull, prepareRings, type HullRing } from '../../src/render/geometry/hull'
@@ -434,4 +434,32 @@ describe('透明材質不寫深度（M10 驗收）', () => {
     expect(discs[0]!.renderOrder).toBeGreaterThan(0)
     m.dispose()
   })
+
+  /**
+   * 【為什麼這條不是造型測試】它測的是材質的一個旗標，改壞了的症狀是
+   * 「螺旋槳整個不見」而不是「不好看」—— 屬於檔頭裁決留下的「產生器的
+   * 機制」那一類。
+   *
+   * 【它守的是什麼】圓盤是 `CircleGeometry`，法線指 +Z，而機首朝 −Z。
+   * 材質若是 `FrontSide`（`MeshStandardMaterial` 的預設），圓盤**只有從
+   * 飛機後方畫得出來**；而油門 > 0.15 時 `setPropSpin` 會把三／四片槳葉
+   * 全部隱藏（`assembly.ts:319`）。兩件事合起來的結果是：**從飛機前方或
+   * 斜前方看，螺旋槳整個不存在。**
+   *
+   * 座艙相機永遠在圓盤後方，所以這個缺陷從 M1 活到上帝視角才被看見 ——
+   * 那是第一個會從機頭方向看自己飛機的視角。
+   */
+  for (const [name, spec] of [['P-51D', P51D], ['Bf 109 G-6', BF109G6]] as const) {
+    it(`${name}：模糊圓盤兩面都畫得出來`, () => {
+      const m = buildAircraft(spec)
+      const discs: Mesh[] = []
+      m.group.traverse((o) => {
+        const mesh = o as Mesh
+        if (mesh.isMesh && mesh.geometry.type === 'CircleGeometry') discs.push(mesh)
+      })
+      expect(discs).toHaveLength(1)
+      expect((discs[0]!.material as MeshStandardMaterial).side).toBe(DoubleSide)
+      m.dispose()
+    })
+  }
 })
