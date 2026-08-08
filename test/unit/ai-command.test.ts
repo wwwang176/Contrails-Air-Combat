@@ -24,6 +24,8 @@ function unit(over: Partial<CommandUnit> & { x?: number; y?: number; z?: number 
 const cfg = DEFAULT_COMMAND
 /** 剛好滿足「已見底」的秒數 */
 const SPENT = cfg.spentSeconds
+/** 撤退令的最短行程。與 `command.ts` 的 `MIN_TRIP_RATIO` 對齊 */
+const MIN_TRIP = cfg.arriveRadius * 3
 
 describe('planFlightOrder：該不該下令', () => {
   it('見底且敵人在附近 → 必有命令', () => {
@@ -107,9 +109,122 @@ describe('planFlightOrder：集合點給得對不對', () => {
     expect(o.point.distanceTo(foe)).toBeGreaterThan(own.distanceTo(foe))
   })
 
-  it('真的補得到能量：高於小隊質心', () => {
+  /**
+   * 【撤退不再改變高度】舊設計是「小隊質心 + withdrawClimb(800)」，理由是
+   * 「爬起來的高度之後換得回速度」。實測沒有發生：20v20 四分鐘裡高度
+   * +2000 m 而 TAS 一直停在 110（spec §2.1）。
+   *
+   * 而且高度不能像水平那樣錨在敵群 —— 那會變成互相加價（紅爬到藍 +800，
+   * 藍下一張就是紅 +800 = 原本的 +1600），一路頂到升限。垂直方向沒有
+   * 「背對」這種把兩隊分開的自由度。
+   *
+   * 撤退要補的是**速度**（`cornerRatio` 是 TAS / 角落速度），而爬升是消耗
+   * 速度的動作。
+   */
+  it('撤退不改變高度', () => {
     const o = planFlightOrder(members, enemies, SPENT, cfg)!
-    expect(o.point.y).toBeGreaterThan(4000)
+    expect(o.point.y).toBeCloseTo(4000, 6)
+  })
+
+  /**
+   * 【殼的半徑是「離敵群多遠」】舊設計是「離小隊自己多遠」，那讓撤退變成
+   * 一個沒有不動點的純積分器：每撤一次就再往外一個 withdrawRange，實測
+   * 300 秒漂到平均 12 km、最大 18 km（spec §2）。
+   */
+  it('集合點離敵群質心恰好 withdrawRange（水平）', () => {
+    const o = planFlightOrder(members, enemies, SPENT, cfg)!
+    const foe = new Vector3(50, 4000, 1000)   // 兩架敵機的質心
+    expect(Math.hypot(o.point.x - foe.x, o.point.z - foe.z))
+      .toBeCloseTo(cfg.withdrawRange, 3)
+  })
+
+  /**
+   * 【棘輪的直接反例】把小隊搬到第一張的集合點上再發一次 —— 它已經在殼上，
+   * 閘門必須擋掉。舊設計會再往外一個 withdrawRange。
+   */
+  it('連發兩張：第二張被閘門擋掉', () => {
+    const foes = [unit({ z: 1000 })]
+    const a = planFlightOrder(members, foes, SPENT, cfg)!
+    const moved = [
+      unit({ x: a.point.x, y: a.point.y, z: a.point.z }),
+      unit({ x: a.point.x + 200, y: a.point.y, z: a.point.z }),
+    ]
+    expect(planFlightOrder(moved, foes, SPENT, cfg)).toBeNull()
+  })
+
+  /**
+   * 【已經在殼外就不發令】它本來就脫離了，需要的是時間而不是一張把它送回
+   * 敵人身邊的命令。少了這條閘門，一支 TAS 110、intent 被壓成 rally、
+   * 不開火、僚機被清目標的四機編隊會沿徑向直線飛進敵群（spec §3.1）。
+   */
+  it('已經在殼外的分隊不發撤退令', () => {
+    const far = [unit({ z: -9000 }), unit({ z: -9000, x: 200 })]
+    expect(planFlightOrder(far, [unit({ z: 1000 })], SPENT, cfg)).toBeNull()
+  })
+
+  /**
+   * 【閘門的邊界：防空轉】行程若太短，命令會在下一格就被判到達、`spent`
+   * 被歸零，飛機一步都沒動 —— 撤退在那一帶等於失效，而既有的「多數命令
+   * 要到得了」會變成假綠（每一張都瞬間「到達」）。
+   *
+   * 【兩側都要驗】只驗外側的話，把閘門寫成「永遠回 null」也會綠。
+   */
+  it('離殼不到最短行程時不發令', () => {
+    const d = cfg.withdrawRange - MIN_TRIP + 1
+    const near = [unit({ z: -d }), unit({ z: -d, x: 1 })]
+    expect(planFlightOrder(near, [unit({ z: 0 })], SPENT, cfg)).toBeNull()
+  })
+
+  it('離殼剛好超過最短行程就發令，而且行程真的夠長', () => {
+    const d = cfg.withdrawRange - MIN_TRIP - 1
+    const near = [unit({ z: -d }), unit({ z: -d, x: 1 })]
+    const o = planFlightOrder(near, [unit({ z: 0 })], SPENT, cfg)
+    expect(o).not.toBeNull()
+    const own = new Vector3(0.5, 4000, -d)
+    expect(Math.hypot(o!.point.x - own.x, o!.point.z - own.z))
+      .toBeGreaterThanOrEqual(MIN_TRIP)
+  })
+
+  /**
+   * 【閘門要用距離，不是 len】`len` 在退化階梯裡會被重新賦值成**速度的
+   * 長度**（敵我水平重合時），最後一階直接設成 1。誤用 `len` 的話「水平
+   * 重合但速度很大」會被當成「已經在殼外」而擋掉撤退，「連速度也退化」
+   * 又永遠放行 —— 行為取決於速度大小而不是敵我距離。既有的退化測試速度
+   * 預設 200（遠小於閘門），守不到這件事。
+   */
+  it('敵我水平重合但速度很大時，閘門用的是距離不是速度', () => {
+    const fast = new Vector3(0, 0, 5000)
+    const co = [unit({ velocity: fast }), unit({ velocity: fast })]
+    expect(planFlightOrder(co, [unit({ velocity: fast })], SPENT, cfg))
+      .not.toBeNull()
+  })
+
+  /**
+   * 【低空：下界從死碼變活碼】舊設計要 own.y < -300 才咬得到 clearanceScale
+   * （own.y + 800 < 500），等於永遠不觸發。新設計下任何 500 m 以下的分隊都會
+   * 被抬上來 —— 也就是「撤退不改變高度」在低空是假的，這個分支要有測試。
+   */
+  it('低空時集合點被抬到 clearanceScale', () => {
+    const low = [unit({ y: 200 }), unit({ y: 200, x: 200 })]
+    const o = planFlightOrder(low, [unit({ y: 200, z: 1000 })], SPENT, cfg)!
+    expect(o.point.y).toBeCloseTo(DEFAULT_STEER.clearanceScale, 6)
+  })
+
+  /**
+   * 【敵群散開時剩下的不變式】spec §3.3：錨是敵**隊**質心，質心距離
+   * `withdrawRange` **不保證**最近的一架在武器射程之外 —— 舊設計「相對自己
+   * 再退 3 km」給的是實的保證，新設計換成一個對敵群分布的假設。真正還成立
+   * 的只有這一條。
+   *
+   * 【它在舊設計上也會綠】所以它是不變式的**紀錄**，不是新行為的驗證。
+   */
+  it('敵群沿撤退方向散開數公里時，集合點仍比分隊現在更遠離敵群質心', () => {
+    const spread = [unit({ z: 1000 }), unit({ z: 4000 }), unit({ z: -2000 })]
+    const o = planFlightOrder(members, spread, SPENT, cfg)!
+    const foe = new Vector3(0, 4000, 1000)   // 三架的質心
+    const own = new Vector3(100, 4000, 0)
+    expect(Math.hypot(o.point.x - foe.x, o.point.z - foe.z))
+      .toBeGreaterThan(Math.hypot(own.x - foe.x, own.z - foe.z))
   })
 
   it('不超過最低的升限', () => {
@@ -624,11 +739,32 @@ describe('stepCommand：側翼與集火的生命週期', () => {
    * 【撤退優先於兩個新戰術】spec §3。打不動的小隊不該被派去執行任何進攻
    * 戰術。這一條若紅了，代表規劃的順序寫反了。
    */
-  it('見底的小隊拿到的是 rally 而不是 flank', () => {
-    const sc = scene(4000)
+  it('見底的小隊拿到的是 rally 而不是進攻戰術', () => {
+    // 【距離從 4000 挪到 1200】2026-08-09 起撤退令有一道閘門：分隊離敵群
+    // 比殼（withdrawRange 3000）更遠時不發令 —— 它本來就脫離了。4000 m
+    // 落在閘門外，於是這個場景測到的會是閘門而不是優先序。
+    //
+    // 1200 m 同時滿足兩件事：在殼內（發得出 rally），而且在 focusRange
+    // （1500）之內 —— 也就是**若優先序寫反，這裡會拿到 focus**。換句話說
+    // 這個場景比原本的更強：原本 flank 已停用、4000 m 也不在 focusRange
+    // 內，錯的優先序只會得到 null。斷言一字未改。
+    const sc = scene(1200)
     for (const i of [0, 1]) sc.units[i]!.cornerRatio = 0.4
     run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
     expect(sc.s.orders[0]!.kind).toBe('rally')
+  })
+
+  /**
+   * 【殼外的見底分隊不發令】上一條原本的場景（4000 m）現在記在這裡。
+   * 它拿到的是 `null` 而不是任何進攻戰術 —— 優先序仍然成立，只是撤退令
+   * 在這個距離上沒有事情可做：分隊已經脫離了，需要的是時間不是一張把它
+   * 送回敵人身邊的命令（spec §3.1）。
+   */
+  it('見底但已在殼外的小隊不發令，也不會被派去進攻', () => {
+    const sc = scene(4000)
+    for (const i of [0, 1]) sc.units[i]!.cornerRatio = 0.4
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    expect(sc.s.orders[0]).toBeNull()
   })
 
   /** 【凍結的是決定，不是座標】spec §4.2 */

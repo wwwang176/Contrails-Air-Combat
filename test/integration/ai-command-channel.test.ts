@@ -376,8 +376,11 @@ describe('指令通道（20v20、120 秒）', () => {
     for (const v of [1500, 3000, 5000, 8000]) {
       restore(); DEFAULT_COMMAND.withdrawRange = v; report('withdrawRange', v)
     }
-    for (const v of [400, 800, 1500, 2500]) {
-      restore(); DEFAULT_COMMAND.withdrawClimb = v; report('withdrawClimb', v)
+    // 【withdrawClimb 已於 2026-08-09 刪除】撤退不再改變高度：舊版的
+    // 「小隊質心 + 800」讓兩隊互相加價一路頂到升限，而撤退要補的是速度、
+    // 爬升是消耗速度的動作。見 2026-08-09-withdraw-anchor-design.md §3.2。
+    for (const v of [0, 1]) {
+      restore(); DEFAULT_COMMAND.spentRank = v; report('spentRank', v)
     }
     for (const v of [1, 2, 5, 10]) {
       restore(); DEFAULT_COMMAND.planPeriod = v; report('planPeriod', v)
