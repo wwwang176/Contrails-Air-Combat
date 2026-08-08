@@ -1,0 +1,205 @@
+/**
+ * 上帝視角的人工驗收。**不由 vitest 執行** —— 副檔名是 `.e2e.ts`，而
+ * `vite.config.ts:19-24` 的 `test.include` 只收 `test/**\/*.test.ts`。
+ *
+ * 跑法（兩個終端機）：
+ *
+ * ```
+ * npm run dev                                   # 終端機一，開在 5173
+ * npx vite-node test/e2e/god-view.e2e.ts        # 終端機二
+ * ```
+ *
+ * 【為什麼要有它】`main.ts` 沒有單元測試，而這一份改動有一半在那裡：
+ * 鏡頭分派、地形的跟隨點、HUD 的欄位。整合測試的護欄守得到「鏡頭不改
+ * 戰局」，守不到「鏡頭飛遠之後海面還在不在」。
+ *
+ * 【為什麼不用 process / fs】專案沒有 `@types/node`。截圖交給 playwright
+ * 自己寫檔，判斷全部走 `page.evaluate`。這個目錄若讓 `tsc --noEmit` 收，
+ * playwright 的 `.d.ts` 會把 node 的型別拉進來 —— 見下方 Step 4 的處置。
+ *
+ * ── 這個腳本裡哪些是斷言、哪些是給人看的 ──
+ *
+ * **是斷言**（會 throw）：準星像素、儀表區像素、console 錯誤。
+ *
+ * **給人看的**（只印數字與截圖）：三個「畫面差異百分比」。原本的設計把
+ * 它們當斷言，但那是**恆真**的 —— 比的是 PNG 位元組，改一個像素整條
+ * deflate 流就變了，而海浪與 40 架飛機一直在動，任何兩張截圖的差異都
+ * 會是 ≈100%。恆真的斷言比沒有斷言更糟：它看起來像在守什麼。
+ *
+ * ── 【無頭下量不到的那一條】離開後準星是否回來 ──
+ *
+ * 這一條**只印不斷言**，理由是儀器本身量不到：無頭 chromium 跑這個場景
+ * 只有 ~7.5 fps（實測 `frameSeconds` 0.13 ~ 0.25 s），而 `CameraRig` 的
+ * 彈簧 k=120、辛歐拉積分，穩定條件約 `dt < 2/√k ≈ 0.18 s`，實測 0.13 s
+ * 已經在發散區。任何擾動之後相機位置會逐幀 ×1.1 ~ ×1.4 地飛走（實測從
+ * 1e4 一路到 1e38），於是接觸點與準星全部落到相機背後，`aimVisible` 恆
+ * 為 false。
+ *
+ * **這與上帝視角無關**：只按既有的 `I`（自機交給 AI，同樣把瞄準點鎖在
+ * 機首）就重現得一模一樣，而且把 `src/` 整個切回這一份動工之前的
+ * `f83c5c2` 也重現。真人以 60 fps 玩的時候 `dt` = 0.017 s，遠在穩定區內。
+ *
+ * **那個低幀率的不穩定本身是一個真的缺陷**（掉幀掉到 11 fps 以下就會發生），
+ * 但它是既有的、範圍在 `CameraRig`，要獨立處理，不該在這一份裡被順手改掉
+ * 或用一個放寬的斷言蓋過去。
+ *
+ * 換上來的是**不經過 3D 相機**的判準：右下角儀表區的像素。上帝視角下
+ * `hudWidgets` 不排儀表、血條、能量、名冊，那一區必須是空的；回到座艙
+ * 必須再度有東西。它驗的正是「上帝視角只畫三個 widget，離開後全部回來」，
+ * 而且完全不吃相機的狀態。
+ */
+import { chromium } from 'playwright'
+
+const URL = 'http://localhost:5173/'
+const SHOTS = '.shots/'
+
+/** 兩張截圖的位元組差異比例。**不是斷言** —— 見檔頭 */
+function diff(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length) return 1
+  let n = 0
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++
+  return n / a.length
+}
+
+async function main(): Promise<void> {
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const errors: string[] = []
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+    page.on('pageerror', (e) => errors.push(String(e)))
+
+    /**
+     * HUD 畫布中央 ±`half` 裝置像素內有多少個不透明像素。
+     *
+     * 【為什麼驗得到】HUD 是一張獨立的 **2D** canvas（`index.html` 的
+     * `#hud`），2D context 的 `getImageData` 讀得回來 —— 而 WebGL 的那一張
+     * 讀不到（未設 `preserveDrawingBuffer`）。準星畫在正中央（圓圈恆在畫面
+     * 中心，因為相機跟著瞄準點走），上帝視角下 `hudWidgets` 根本不排它，
+     * 而那個模式留下的三個 widget（小地圖、名冊、提示）沒有一個畫在中央。
+     */
+    const hudInk = (half: number): Promise<{ centre: number, dials: number }> =>
+      page.evaluate((h: number) => {
+        const c = document.querySelector<HTMLCanvasElement>('#hud')
+        if (c === null) return { centre: -1, dials: -1 }
+        const ctx = c.getContext('2d')
+        if (ctx === null) return { centre: -1, dials: -1 }
+        // 【兩塊一起在同一次 evaluate 裡讀完】分兩次呼叫會落在不同幀，
+        // 於是「中央有、整塊沒有」這種自相矛盾的讀數就出現了（實測踩過）
+        const count = (x: number, y: number, w: number, hh: number): number => {
+          const d = ctx.getImageData(x, y, w, hh).data
+          let n = 0
+          for (let i = 3; i < d.length; i += 4) if (d[i]! > 0) n++
+          return n
+        }
+        const cx = Math.round(c.width / 2)
+        const cy = Math.round(c.height / 2)
+        return {
+          centre: count(cx - h, cy - h, h * 2, h * 2),
+          // 右下角的儀表／血條／能量／名冊區。不經過 3D 相機
+          dials: count(
+            Math.round(c.width * 0.66), Math.round(c.height * 0.72),
+            Math.round(c.width * 0.34), Math.round(c.height * 0.28),
+          ),
+        }
+      }, half)
+
+    await page.goto(URL)
+    // 【三次點擊】首頁 → 模式選單 → 遭遇戰設定 → 戰鬥。按鈕在 `index.html`
+    // （不在 `screens.ts`，那裡只有切換邏輯）。用 `data-act` 而不是文字：
+    // 「開　始」中間是全形空格 U+3000，而「開始戰鬥」在結算板上還有一顆
+    // 同 `data-act` 的雙胞胎，所以第三次要限定在 `#skirmish` 之內
+    await page.click('[data-act="start"]')
+    await page.click('[data-act="skirmish"]')
+    await page.click('#skirmish [data-act="fight"]')
+    await page.waitForTimeout(3000)
+
+    const before = await page.screenshot({ path: SHOTS + 'god-1-cockpit.png' })
+
+    // 【刻意不點畫面鎖指標】原本這裡有一次 `page.mouse.click(640, 360)`
+    // 用來取得指標鎖定。**在無頭 chromium 下那一下會把瞄準方向甩到天上**：
+    // 點擊之後接觸點與準星全部落到相機背後（實測 HUD 中央的不透明像素從
+    // 每幀穩定的 ~510 變成永遠 0，而畫面上只剩天空、沒有海也沒有飛機）。
+    //
+    // 這**不是上帝視角造成的**：把 `src/` 整個切回這一份動工之前的
+    // `f83c5c2` 再跑同一支腳本，數字逐條相同（點擊前 b20≈500、點擊後 0）。
+    // 推測是鎖定生效那一刻瀏覽器補送的一個巨大 `movementX/movementY` 被
+    // `slewAimWorld` 吃了 —— 640 px / 半高 360 px × 1.6 ≈ 2.8 rad，正好把
+    // 視線甩到近乎正上方。真人玩的時候看不到這個現象（滑鼠是連續移動的）。
+    //
+    // 這一份的驗收全部走鍵盤，不需要指標鎖定，所以直接不點。**那個現象
+    // 本身值得獨立追**，但不該在這裡被一次點擊順手蓋掉。
+    //
+    // 16. 座艙裡畫面中央有準星、右下角有儀表
+    const cockpit = await hudInk(40)
+    console.log(`[16] 座艙：中央 ${cockpit.centre}、儀表區 ${cockpit.dials}`)
+    if (cockpit.centre <= 0) {
+      throw new Error('座艙裡畫面中央沒有準星 —— 這一條驗收本身壞了，不是上帝視角的問題')
+    }
+    if (cockpit.dials <= 0) throw new Error('座艙裡右下角沒有儀表 —— 同上，驗收本身壞了')
+
+    await page.keyboard.press('KeyG')
+    await page.waitForTimeout(1500)
+    const god = await page.screenshot({ path: SHOTS + 'god-2-entered.png' })
+
+    // 17. 上帝視角下中央與右下角都必須是空的 —— 準星是**誤導**，不只是雜訊
+    const inGod = await hudInk(40)
+    console.log(`[17] 上帝視角：中央 ${inGod.centre}、儀表區 ${inGod.dials}（都必須是 0）`)
+    if (inGod.centre !== 0) throw new Error('上帝視角下畫面中央還有東西 —— 準星沒有被關掉？')
+    if (inGod.dials !== 0) throw new Error('上帝視角下右下角還有儀表 —— hudWidgets 沒有生效？')
+
+    console.log(`[給人看] 進上帝視角後的畫面差異 ${(diff(before, god) * 100).toFixed(1)}%`)
+
+    // 18. WASD 之後畫面再次改變（給人看：god-3-moved.png）
+    await page.keyboard.down('KeyW')
+    await page.waitForTimeout(1500)
+    await page.keyboard.up('KeyW')
+    const moved = await page.screenshot({ path: SHOTS + 'god-3-moved.png' })
+    console.log(`[給人看] W 之後的畫面差異 ${(diff(god, moved) * 100).toFixed(1)}%`)
+
+    // 19. 飛遠之後海面仍然鋪滿畫面（terrain.update 的中心點沒接錯）
+    await page.keyboard.down('ShiftLeft')
+    await page.keyboard.down('KeyW')
+    await page.waitForTimeout(6000)
+    await page.keyboard.up('KeyW')
+    await page.keyboard.up('ShiftLeft')
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: SHOTS + 'god-4-far.png' })
+    // 【怎麼判斷「海還在」】把鏡頭壓到低空俯視，畫面下半應該幾乎全是海色。
+    // 網格的邊跑掉的話下半會出現大片天空色。**這一條沒有自動判準** ——
+    // WebGL 那張畫布讀不回像素，只能人工看
+    await page.keyboard.down('KeyQ')
+    await page.waitForTimeout(2000)
+    await page.keyboard.up('KeyQ')
+    const far = await page.screenshot({ path: SHOTS + 'god-5-far-low.png' })
+    console.log(`[人工看] ${SHOTS}god-5-far-low.png —— 畫面下半應為海，不是天空或黑色`)
+
+    // 20. 再按 G 回到座艙，整套座艙 HUD 要回來
+    await page.keyboard.press('KeyG')
+    await page.waitForTimeout(1500)
+    const back = await page.screenshot({ path: SHOTS + 'god-6-back.png' })
+    const inkBack = await hudInk(40)
+    console.log(`[20] 回到座艙：儀表區 ${inkBack.dials}（必須 > 0）`)
+    if (inkBack.dials <= 0) throw new Error('回到座艙之後儀表沒有回來')
+    // 【中央只印不斷言】無頭 ~7.5 fps 下 CameraRig 的彈簧在發散區，任何
+    // 擾動之後相機會飛走，接觸點與準星全部落到相機背後。詳見檔頭
+    console.log(`[給人看] 回到座艙：中央 ${inkBack.centre}`
+      + '（無頭下恆為 0，是 CameraRig 在低幀率下的既有不穩定，見檔頭）')
+    console.log(`[給人看] 回到跟拍後的畫面差異 ${(diff(far, back) * 100).toFixed(1)}%`)
+
+    // 21. 全程沒有 console 錯誤
+    console.log(`[21] console 錯誤 ${errors.length} 則`)
+    for (const e of errors) console.log('  ' + e)
+    if (errors.length > 0) throw new Error('有 console 錯誤')
+    console.log('全部通過')
+  } finally {
+    // 【一定要 finally】上面每一個 throw 都排在 close 之前，直接寫的話
+    // 失敗時會留下孤兒 chromium
+    await browser.close()
+  }
+}
+
+main().catch((e: unknown) => {
+  console.error(e)
+  throw e
+})
