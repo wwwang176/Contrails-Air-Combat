@@ -3,6 +3,27 @@ import { Vector3 } from 'three'
 /** 油門初始值：巡航設定（spec 中的「預設 1 倍速」）。 */
 export const CRUISE_THROTTLE = 0.7
 
+/**
+ * 上帝視角的六個方向與加速。與 `camera/godCamera.ts` 的 `GodCameraInput`
+ * 的前七個欄位**同名**，所以 `main.ts` 抄過去是一對一的，不需要換算。
+ */
+export interface GodMove {
+  /** W */
+  forward: boolean
+  /** S */
+  back: boolean
+  /** A */
+  left: boolean
+  /** D */
+  right: boolean
+  /** E */
+  up: boolean
+  /** Q */
+  down: boolean
+  /** Shift */
+  boost: boolean
+}
+
 export interface InputState {
   /**
    * 瞄準點，**世界座標**的單位向量（專案負責人裁決：世界固定瞄準點）。
@@ -51,6 +72,21 @@ export interface InputState {
    */
   playerAi: boolean
   /**
+   * 是否在上帝視角（`G`）。
+   *
+   * 【它同時開關代飛】進入時 `main.ts` 把 `playerAi` 設為 true，離開時設回
+   * false —— 直接對應「取消上帝視角後就回到我自己飛」。副作用是進入前就
+   * 開著的 `I` 也會被關掉；刻意不記憶原本的值，那是隱藏狀態，而這個副作用
+   * 按一下 `I` 就回來了。
+   *
+   * 【滑鼠沿用 `aimDeltaX` / `aimDeltaY`】不新增第二組累積器 —— 兩組只會
+   * 製造「這一幀該清哪一個」的問題。上帝視角下由 `main.ts` 餵給鏡頭而不是
+   * `slewAimWorld`。
+   */
+  godView: boolean
+  /** 上帝視角的移動輸入。`godView` 為 false 時全部為 false */
+  godMove: GodMove
+  /**
    * 記分板是否按住（Tab）。
    *
    * 【為什麼是按住而不是切換】看戰績是一個「瞄一眼」的動作。切換式的話，
@@ -80,6 +116,11 @@ export function createInputState(): InputState {
     firing: false,
     braking: false,
     playerAi: false,
+    godView: false,
+    godMove: {
+      forward: false, back: false, left: false, right: false,
+      up: false, down: false, boost: false,
+    },
     scoreboardHeld: false,
     pointerLockLost: false,
   }

@@ -28,7 +28,7 @@ interface KeyHold {
 export function attachInput(
   canvas: HTMLCanvasElement,
   state: InputState,
-): { detach(): void; tick(dt: number): void } {
+): { detach(): void; clearHolds(): void; tick(dt: number): void } {
   const hold: KeyHold = { up: false, down: false }
   /**
    * 上一次觀察到有沒有鎖定。用來做邊緣偵測 —— 見 `InputState.pointerLockLost`。
@@ -83,7 +83,55 @@ export function attachInput(
     state.aimDeltaY -= (e.movementY / half) * MOUSE_SENSITIVITY
   }
 
+  /**
+   * 清掉所有會「卡住」的按鍵狀態。
+   *
+   * 【為什麼進出上帝視角一定要呼叫】與 `tick()` 裡「切出視窗扳機卡住」
+   * 同一類 bug：按著 W 按 G，飛行側的 `hold.up` 會留在 true；反過來按著
+   * W 離開上帝視角，`godMove.forward` 會留著，下次進來第一幀鏡頭就自己
+   * 往前衝。
+   *
+   * 【也匯出給 `main.ts`】重開一場與換場是直接改 `state.godView` 的，
+   * 繞過了 `G` 的處理器。
+   */
+  const clearHolds = () => {
+    hold.up = false
+    hold.down = false
+    state.braking = false
+    const g = state.godMove
+    g.forward = false
+    g.back = false
+    g.left = false
+    g.right = false
+    g.up = false
+    g.down = false
+    g.boost = false
+  }
+
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.code === 'KeyG') {
+      state.godView = !state.godView
+      clearHolds()
+      e.preventDefault()
+      return
+    }
+    // 【上帝視角把 WASD 整組改道】W/S 是唯一與飛行共用的按鍵；照舊送進
+    // 油門的話，你切回來時油門已經飄到 0.7 或 1.1 了
+    if (state.godView) {
+      switch (e.code) {
+        case 'KeyW': state.godMove.forward = true; break
+        case 'KeyS': state.godMove.back = true; break
+        case 'KeyA': state.godMove.left = true; break
+        case 'KeyD': state.godMove.right = true; break
+        case 'KeyE': state.godMove.up = true; break
+        case 'KeyQ': state.godMove.down = true; break
+        case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = true; break
+        case 'Tab': state.scoreboardHeld = true; break
+        default: return
+      }
+      e.preventDefault()
+      return
+    }
     switch (e.code) {
       case 'KeyW': hold.up = true; break
       case 'KeyS': hold.down = true; state.braking = true; break
@@ -96,9 +144,19 @@ export function attachInput(
   }
 
   const onKeyUp = (e: KeyboardEvent) => {
-    if (e.code === 'KeyW') hold.up = false
-    if (e.code === 'KeyS') { hold.down = false; state.braking = false }
-    if (e.code === 'Tab') state.scoreboardHeld = false
+    // 【放開一律兩邊都清】按下時在飛行、放開時已經在上帝視角（中間按了 G）
+    // 是做得到的順序。只清當下那一側會留下一個按不掉的鍵
+    switch (e.code) {
+      case 'KeyW': hold.up = false; state.godMove.forward = false; break
+      case 'KeyS': hold.down = false; state.braking = false; state.godMove.back = false; break
+      case 'KeyA': state.godMove.left = false; break
+      case 'KeyD': state.godMove.right = false; break
+      case 'KeyE': state.godMove.up = false; break
+      case 'KeyQ': state.godMove.down = false; break
+      case 'ShiftLeft': case 'ShiftRight': state.godMove.boost = false; break
+      case 'Tab': state.scoreboardHeld = false; break
+      default: break
+    }
   }
 
   const onContextMenu = (e: Event) => e.preventDefault()
@@ -111,6 +169,7 @@ export function attachInput(
   canvas.addEventListener('contextmenu', onContextMenu)
 
   return {
+    clearHolds,
     detach() {
       canvas.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('mouseup', onMouseUp)
@@ -133,7 +192,12 @@ export function attachInput(
       // 玩家按「繼續」會立刻被彈回暫停選單
       if (wasLocked && !locked) state.pointerLockLost = true
       wasLocked = locked
-      state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
+      // 【上帝視角不套用油門變化率】W/S 在那個模式下是鏡頭前後，而
+      // `applyThrottleRate` 是**彈簧回中**的 —— 照跑的話你切回來時油門
+      // 已經被拉回巡航了，等於這個模式偷改了你的飛機設定
+      if (!state.godView) {
+        state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
+      }
     },
   }
 }
