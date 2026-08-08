@@ -3,11 +3,25 @@ import { BackSide, Mesh, ShaderMaterial, SphereGeometry, Color, Vector3 } from '
 /**
  * 天空球半徑，m。
  *
- * 【與相機遠平面的關係】遠平面是 60 km（見 render/scene.ts）。天空球跟著
- * 相機走，所以它永遠在視野正中央，只要半徑落在近平面與遠平面之間即可。
- * 40 km 留了 1.5 倍的餘裕，同時遠大於任何場景物件（海面 10 km）。
+ * 【與相機遠平面的關係】遠平面是 `CAMERA_FAR`（`render/scene.ts`）。天空球
+ * 跟著相機走，所以它永遠在視野正中央，只要半徑落在近平面與遠平面之間即可。
+ *
+ * 【為什麼遠海比它還大卻沒問題】遠海半邊 250 km，遠大於這顆球。但天空球
+ * `depthWrite: false` 而且 `renderOrder = −1000` —— 先畫、不寫深度，所以
+ * 任何東西都蓋得過它。它是背景不是物件。
  */
 export const SKY_RADIUS = 40000
+
+/**
+ * 天空球的地平色與天頂色。
+ *
+ * 【為什麼要具名】`fog.ts` 的霧色必須比地平色暗一階，否則遠海化進霧色之後
+ * 會與天空同色、地平線消失（見 `FOG_COLOR`）。那條關係要被測試釘住，而釘
+ * 它需要這個值有名字 —— 原本它是 `uniforms` 字面量裡的一個 magic number。
+ * 純粹是取名，值沒有動。
+ */
+export const SKY_HORIZON = 0x9fc3d8
+export const SKY_ZENITH = 0x1f4f80
 
 const VERT = /* glsl */ `
   varying vec3 vDir;
@@ -47,8 +61,8 @@ export function createSky(): Mesh {
     vertexShader: VERT,
     fragmentShader: FRAG,
     uniforms: {
-      horizon: { value: new Color(0x9fc3d8) },
-      zenith: { value: new Color(0x1f4f80) },
+      horizon: { value: new Color(SKY_HORIZON) },
+      zenith: { value: new Color(SKY_ZENITH) },
     },
     side: BackSide,
     depthWrite: false,

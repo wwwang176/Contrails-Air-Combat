@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { createSky, SKY_RADIUS } from '../../src/render/sky'
+import { CAMERA_FAR, CAMERA_NEAR } from '../../src/render/scene'
 
 /**
  * 天空球必須跟著相機走。
@@ -40,9 +41,11 @@ describe('天空球跟隨相機', () => {
   })
 
   it('半徑落在相機的近／遠平面之間', () => {
-    // 近平面 1、遠平面 60,000（見 render/scene.ts）
-    expect(SKY_RADIUS).toBeGreaterThan(1)
-    expect(SKY_RADIUS).toBeLessThan(60000)
+    // 【用具名常數不用字面量】原本寫死 1 與 60000 並在註解裡重複一次。
+    // 遠平面改成 800 km 之後那兩個數字與註解全都變成死的，而測試照樣綠 ——
+    // 不會有任何東西提醒下一個人。改成直接對照 scene.ts 的來源。
+    expect(SKY_RADIUS).toBeGreaterThan(CAMERA_NEAR)
+    expect(SKY_RADIUS).toBeLessThan(CAMERA_FAR)
   })
 
   it('縮放沒有被跟隨邏輯覆寫掉', () => {
