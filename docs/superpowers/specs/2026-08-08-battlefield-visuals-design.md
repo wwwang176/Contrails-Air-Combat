@@ -100,6 +100,25 @@ splash、sparks、tracers、muzzle、fireball、debris、wrecks、tumble。
 **遠海用 `MeshStandardMaterial` 而不是 `MeshBasicMaterial`**：要跟細浪面
 接得上，就得受同一組燈光。顏色、roughness、metalness 全部沿用細浪面的值。
 
+**遠海必須設 `renderOrder = -1`。**
+
+> **實作後修正（獨立審查 I2）。** 初稿寫的是「不必設 `renderOrder`，three 的
+> 不透明物件由近到遠排序，細浪面會先畫」—— **那是錯的**。實際的排序函式是
+> `WebGLRenderLists.js` 的 `painterSortStable`，主鍵依序是
+> `renderOrder → material.id → z`：**`material.id` 排在 `z` 前面**。
+> `createOcean` 先 `new` 細浪面的材質、後 `new` 遠海的，所以細浪面先畫、
+> 遠海後畫；而 `Material` 的預設 `depthFunc` 是 `LessEqualDepth` ——
+> **深度相同時後畫的遠海勝出，把浪蓋掉**。
+>
+> 而深度會相同：深度量化 `Δz ≈ z²·(f−n)/(n·f·2²⁴) ≈ z²/2²⁴`（近平面 1 m），
+> 7,000 m 處是 2.92 m，已經與那 3 m 的落差同量級；12,000 m 處是 8.58 m。
+> 上帝視角 7,000 m 以上，**整片細浪面**（永遠是 ±5 km）都落在失效區。
+>
+> `renderOrder = -1`（仍遠大於天空球的 −1000）讓遠海先畫，平手時細浪面與
+> 參照物勝出。成本是一次全螢幕 overdraw，兩個三角形，可忽略。這不是把
+> 排序「排對」——那做不到，見 `assembly.ts:150` 的同類討論——而是把平手
+> 的倒向固定成正確的那一邊。
+
 ### 4.2 指數霧
 
 `scene.fog = new FogExp2(FOG_COLOR, FOG_DENSITY)`。
@@ -139,7 +158,13 @@ splash、sparks、tracers、muzzle、fireball、debris、wrecks、tumble。
 **深度精度的代價幾乎是零**。透視投影的深度解析度是
 `Δz ≈ z²·(f−n)/(n·f·2²⁴)`，而 `f ≫ n` 時 `(f−n)/(n·f) → 1/n`。近平面
 （1 m）沒有動，所以近場精度不變：100 m 處仍然是 0.6 mm。遠平面從 60 km
-拉到 800 km 只改變那個趨近於 1/n 的因子的第三位小數。
+拉到 800 km 只把那個因子從 0.99998333 變成 0.99999875 —— 差 1.5e-5，
+**第五位小數**（初稿寫「第三位」，數字寫錯，結論不變）。
+
+**但「遠平面沒有讓精度變差」不等於「精度夠用」。** 決定 `Δz` 的是**近平面
+與距離**，而這一份新增了一對相距只有 3 m、卻要在 5–14 km 外分出前後的
+表面。那是遠平面拉大之前就已經存在的限制，只是這一份第一次踩到它 ——
+見 §4.1 的 `renderOrder` 與 §4.4。
 
 天空球半徑 40 km 遠小於遠海，但它 `depthWrite: false` 而且
 `renderOrder = −1000`（先畫、不寫深度），所以遠海照樣蓋得過去。
@@ -159,6 +184,18 @@ splash、sparks、tracers、muzzle、fireball、debris、wrecks、tumble。
 
 實際刺不刺眼要在手動試飛時判定（§10）。若判定要修，(a) 是唯一不違反
 既有不變量的路，屆時單獨開單。
+
+**高空俯視時的深度平手（獨立審查 I2）。** 遠海與細浪面相距只有 3 m，而
+深度量化在 7,000 m 是 2.92 m、12,000 m 是 8.58 m、13,900 m（12 km 高看向
+細浪面外角）是 11.5 m。也就是說**上帝視角 7,000 m 以上，整片細浪面都落在
+「深度分不出前後」的區間**。
+
+`renderOrder = -1`（§4.1）把平手的倒向固定成細浪面勝出，所以症狀不會是
+閃爍，而是**確定性的**。但它治的是倒向，不是精度：若實際看起來仍然不對
+（浪不見了、參照物的泡沫塊被吞掉），可用的手段是提高近平面（`CAMERA_NEAR`
+1 m → 10 m 就讓 12 km 處的 `Δz` 從 8.58 m 降到 0.86 m）或加大 `FAR_SEA_Y`
+的落差。**兩者都是護欄重新定值，屬於專案負責人的決定**，所以列進 §10 的
+手動試飛清單而不是先改掉。
 
 ---
 
@@ -201,12 +238,53 @@ sizeScale = SIZE_MIN    + (SIZE_MAX    − SIZE_MIN   ) · intensity   // 0.45 �
 動作在不同機器上長得不一樣。
 
 所以每幀在「上一幀的翼尖位置 → 這一幀的翼尖位置」這條線段上，**每
-`spacing` 公尺補一顆**：
+`spacing` 公尺補一顆**。
+
+> **實作前修正（獨立審查 I1）。** 初稿的公式是
+> `count = min(floor(distance / spacing), MAX_PER_FRAME)`，**沒有餘數累積**
+> —— 一幀走不滿一個 `spacing` 就整幀丟掉。實測那讓功能在真人的幀率下
+> 幾乎不出現：
+>
+> | 速度 / 幀率 | 每幀位移 | 需要 `spacing ≤` | **實際起效 G** |
+> |---|---|---|---|
+> | 200 m/s @ 60 fps | 3.33 m | 3.33 | **3.93 g** |
+> | 150 m/s @ 60 fps | 2.50 m | 2.50 | **5.10 g** |
+> | 120 m/s @ 60 fps（低速纏鬥，正是拉最大 G 的地方） | 2.00 m | 2.00 | **5.80 g** |
+> | 150 m/s @ 120 fps | 1.25 m | 1.25 | **永遠不出現**（< `SPACING_MIN`） |
+> | 200 m/s @ 7.5 fps（無頭測試） | 26.7 m | — | 3.00 g ✓ |
+>
+> 設計說 3 g，真人看到的是 3.9–5.8 g，而且**跟著幀率跑** —— 與這一節開頭
+> 明文要消除的正是同一個病，只是搬到了「有／沒有」這個更嚴重的維度。
+> 而**沒有任何一條測試抓得到**：所有有狀態的測試與 e2e 都在 7.5 fps 的
+> 量級。手動試飛看到的症狀會是「門檻好像太高」，而去調 `VORTEX_G_ON`
+> 治不到病因。
+
+**每個翼尖各帶一個「上次補點後剩下的距離」**（`carry`），與 `smoke.ts` 的
+`smokeTimer` 是同一招：
 
 ```
-count = min(floor(distance / spacing), VORTEX_MAX_PER_FRAME)
-第 k 顆的位置 = lerp(prevTip, tip, (k + 1) / count)
+travelled = carry + distance
+n         = floor(travelled / spacing)
+if n > MAX_PER_FRAME:  n = MAX_PER_FRAME;  carry = 0        # 夾住就把餘數丟掉
+else:                  carry = travelled − n × spacing
+
+第 k 顆（k = 1..n）距離 prevTip 的弧長 = k × spacing − carry_before
+                       t = clamp(弧長 / distance, 0, 1)
 ```
+
+**為什麼 `t` 要夾住**：`spacing` 會隨 `intensity` 逐幀變。從 4.0 掉到 1.5 的
+那一幀，上一幀留下的 `carry`（最大 4.0）可能大於這一幀的 `spacing`，弧長
+因此會是負的 —— 不夾的話粒子會生在線段**後面**。夾到 0 表示「就生在上一幀
+的翼尖位置」，最多兩顆重疊，看不出來。
+
+**為什麼夾住時把餘數歸零**：不歸零的話 `carry` 會逐幀累積、無上界。而
+`MAX_PER_FRAME` 本來就是防爆閥（見下），被它夾到就代表這一幀已經放棄了
+一部分軌跡。
+
+**這條規則的驗收判準**：走同樣的總距離，**一大步與多小步發出同樣多的
+粒子**。9 m 一次 → `floor(9/1.857) = 4`；1.5 m 六次 → 0+1+1+1+1+0 = 4。
+兩者相同，這就是「同一個動作在不同機器上長得一樣」的操作型定義，
+§8.3 有一條測試直接斷言它。
 
 粒子生出來之後速度是 0、`gravity` 是 0、`drag` 只用來讓它稍微收斂 ——
 **尾跡因此留在空中不動，自動描出飛機剛剛走過的路徑**。那就是凝結尾的
@@ -265,6 +343,9 @@ export function createVortex(capacity?: number, seats?: number): Vortex
 ```
 
 - 四個純函數各自可測，不碰 three。
+- `emit` 內部持有「上次補點後剩下的距離」——`Float32Array(seats × 2)`
+  （左、右翼尖各一），見 §5.3。`intensity` 掉到 0、位移超過 `MAX_STEP`、
+  以及 `reset()` 時都要歸零。
 - `emit` 內部持有「上一幀的翼尖位置」——`Float32Array(seats × 6)`，
   以 `index`（`Combatant.index`）定址，外加一個 `Uint8Array` 的
   「有沒有上一幀」旗標。`index` 超出 `seats` 直接 return（`emit` 是熱
@@ -278,9 +359,11 @@ export function createVortex(capacity?: number, seats?: number): Vortex
   而它正是「兩個常數不准漂開」的唯一防線。
 - **狀態放在特效模組裡而不是 `main.ts`**：與
   smoke / spray / splash 一致，`main.ts` 只負責餵資料與呼叫 `reset()`。
-- `reset()` 清粒子池**與**上一幀的翼尖位置。漏掉後者的話，換場後第一幀
-  會從上一場的位置拉一條線過來 —— 這正是 `VORTEX_MAX_STEP` 的第二道防線，
-  但不能靠防線當設計。
+- `reset()` 清粒子池**與**上一幀的翼尖位置**與** `carry`。漏掉第二項的話，
+  換場後第一幀會從上一場的位置拉一條線過來 —— 這正是 `VORTEX_MAX_STEP`
+  的第二道防線，但不能靠防線當設計。
+  **§8.3 那條測試因此不能拿一個超過 `MAX_STEP` 的位移去驗**，否則防線會
+  把要驗的 bug 蓋掉、變成假綠（獨立審查 C3 用 mutation 抓到過）。
 - 粒子池本身直接用 `createParticles`（`particles.ts`），與火球／煙／噴濺
   同一個池子實作。**不新寫一份積分器。**
 
@@ -299,8 +382,19 @@ vortex.emit(c.index, c.aircraft.diag.loadFactor, ...)
 `TIP` / `TIP2` 是模組層的暫存，**熱路徑不配置**。
 
 `vortex.step(frameSeconds)` 放在 `smoke.step` 那一段；`vortex.reset()`
-放在 `restartBattle()` / `enterBattle()` 既有的那五個 `reset()` 旁邊
-（`main.ts:349–353`）。
+放在 `enterBattle()` 既有的那**六**個 `reset()` 旁邊（`main.ts:349–354`：
+`fireball` / `smoke` / `spray` / `sparks` / `splashes` / `debris`）。
+
+> **修正（獨立審查 I4）。** 初稿寫的是「`restartBattle()` / `enterBattle()`
+> 既有的那五個 `reset()`」，兩個數字都錯：`enterBattle()` 有**六**個，而
+> **`restartBattle()` 一個都沒有**（`main.ts:309-316` 只做 `resetBattle` /
+> `rebuildVisuals` / `leaveGodView` / `respawnPlayer`）。
+>
+> 後果是按「重新開始」重開一場時，上一場的煙、火球、噴濺、殘骸碎片**全部
+> 留在畫面上**，凝結尾接上去之後會多一項。**這是既有缺陷，不是這一份引入
+> 的**，範圍在重開的生命週期 —— 與上帝視角那三張未修的單同一類，記錄、
+> 另開單，不在這一份順手改掉。凝結尾照既有慣例只掛在 `enterBattle()`，
+> 與其他六個池一致。
 
 ### 5.7 已知取捨
 
@@ -384,6 +478,13 @@ vortex.emit(c.index, c.aircraft.diag.loadFactor, ...)
 3. `update(t, cx, cz)` 同時搬動兩者，且遠海的 XZ 精確等於中心
    （不做格點對齊）。
 4. `dispose()` 把遠海的幾何與材質也釋放掉。
+5. **既有的 `test/unit/terrain.test.ts` 有兩條會被打紅**（獨立審查 C1）：
+   `children.length).toBe(2)` → 3、`disposed).toBe(4)` → 6。這兩條是
+   **要一併更新的**，不是失敗 —— 更新的理由要寫進註解，否則下一個人會
+   以為自己弄壞了什麼。同檔 `update 之後海面跟著中心捲動` 用
+   `t.object.children[0]!` 當「海面」，遠海先 `add` 之後那個索引會變成
+   遠海（測試碰巧仍然過，因為遠海也跟著中心走）—— 要改成明確取
+   `ocean.mesh`，否則它從此測的是另一個東西。
 
 ### 8.2 `test/unit/fog.test.ts`（新）
 
@@ -420,7 +521,23 @@ vortex.emit(c.index, c.aircraft.diag.loadFactor, ...)
 8. 單幀的發射數不超過 `VORTEX_MAX_PER_FRAME × 2`（兩個翼尖）。
 9. `reset()` 之後 `live === 0`，**而且**下一幀不發射（上一幀位置也被清掉）。
    ——這一條是 §5.5 那個「不能靠防線當設計」的斷言。
-10. `index >= VORTEX_SEATS` 不會爆（靜默 return），而且不影響其他座位。
+   **第三幀的位移必須落在 `VORTEX_MAX_STEP` 之內**（獨立審查 C3：初稿用
+   500 m，而 500 > 60，`MAX_STEP` 那道防線會先擋掉 —— 把 `seen` 的清除
+   拿掉之後測試**照樣綠**，是假綠）。改用 20 m 的位移，壞掉的實作會發出
+   16 顆。
+10. `index >= VORTEX_SEATS` 不會爆（靜默 return），**而且不踩到別的座位**
+    —— 後半段要真的驗得到就不能只斷言 `live === 0`（獨立審查 I5：拿掉
+    守衛之後 `prev[384]` 讀回 `undefined`，`undefined!` 算出 NaN，
+    `NaN > 60` 為 false、`floor(NaN/s)` 為 NaN、`k <= NaN` 不執行，
+    而 typed array 的越界寫入在 JS 是靜默 no-op —— `live` 仍是 0，
+    **測試照樣綠**）。改成：越界 `emit` 兩幀之後，座位 0 的第一次 `emit`
+    仍然必須是「第一幀」（不發射）。
+11. **餘數會跨幀累積**（§5.3，獨立審查 I1）：連續數幀各走遠小於 `spacing`
+    的距離，前幾幀不發射，累到超過一個 `spacing` 就發射。
+12. **幀率不變性**：同樣的總距離，一大步與多小步發出**同樣多**的粒子。
+    9 m 一次 vs 1.5 m 六次，兩者都是每翼尖 4 顆。這一條是 §5.3 那句
+    「同一個動作在不同機器上長得一樣」的操作型定義 —— 也是整份 spec 裡
+    最該存在的一條測試，因為初稿的演算法在這一條上是壞的而沒有人發現。
 11. **跨層一致性**：`VORTEX_SEATS >= MAX_COMBATANTS`。`vortex.ts` 依 §9
     不得 import `src/battle/`，所以這兩個常數只有在測試裡才碰得到面 ——
     這是「有人把 20v20 改成 32v32 卻沒動 `VORTEX_SEATS`」的唯一防線。
@@ -496,6 +613,9 @@ vortex.emit(c.index, c.aircraft.diag.loadFactor, ...)
    **地平線是不是一條看得出來的線**。
 2. 5 km 處細浪面與遠海的明暗接縫**刺不刺眼**（§4.4）。若刺眼，
    §4.4 的 (a) 另開單。
+2b. **12,000 m 高空俯視時浪還在不在**（§4.4 的深度平手）。症狀會是海變成
+   一片平色、或參照物的白色泡沫塊被吞掉。若發生，處置是提高 `CAMERA_NEAR`
+   或加大 `FAR_SEA_Y` 的落差 —— 兩者都是護欄重新定值，等你裁定。
 3. 遠處的敵機有沒有被霧吃掉（`FOG_DENSITY` 太大的症狀）。
 4. 凝結尾：平飛乾淨嗎？緩轉是不是斷續的淡痕？硬拉是不是兩條白帶？
    `VORTEX_G_ON` / `VORTEX_G_FULL` 兩個門檻是否要調。
@@ -517,3 +637,5 @@ vortex.emit(c.index, c.aircraft.diag.loadFactor, ...)
   `particles.ts:170` 已經記錄過的既有限制，凝結尾繼承它。
 - 上帝視角那三張未修的單（`CameraRig` 低幀率發散、指標鎖定的滑鼠位移
   尖峰、`playerAi` 留在被接手的舊座位）**不在這一份的範圍內**。
+- **不修「`restartBattle()` 不清粒子池」**（§5.6，獨立審查 I4）。既有缺陷，
+  範圍在重開的生命週期，另開單 —— 第四張。

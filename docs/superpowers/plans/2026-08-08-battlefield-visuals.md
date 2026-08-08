@@ -406,10 +406,21 @@ export const CAMERA_NEAR = 1
  *
  * 【深度精度的代價幾乎是零】解析度是 `Δz ≈ z²·(f−n)/(n·f·2²⁴)`，而 `f ≫ n`
  * 時 `(f−n)/(n·f) → 1/n`。近平面沒有動，所以近場精度不變 —— 100 m 處仍然
- * 是 0.6 mm。遠平面只改變那個趨近 1/n 的因子的第三位小數。
+ * 是 0.6 mm。這個改動只把那個因子從 0.99998333 變成 0.99999875，差 1.5e-5。
+ *
+ * 【但「沒有變差」不等於「夠用」】決定 `Δz` 的是**近平面與距離**：12,000 m
+ * 處是 8.58 m。遠海與細浪面只相距 3 m，所以高空俯視時兩者的深度分不出
+ * 前後 —— 那是遠平面拉大之前就存在的限制，處置見 `ocean.ts` 的
+ * `farMesh.renderOrder`。
  */
 export const CAMERA_FAR = 800_000
 ```
+
+**同時更新 `test/unit/sky.test.ts`**：它有一條
+`expect(SKY_RADIUS).toBeLessThan(60000)`，註解寫著「遠平面 60,000（見
+render/scene.ts）」。改成 `expect(SKY_RADIUS).toBeLessThan(CAMERA_FAR)`
+並更新註解 —— 否則那個 magic number 與它的理由從此都是死的（它仍然會綠，
+所以不會有任何東西提醒下一個人）。
 
 `createScene` 裡：
 
@@ -529,8 +540,14 @@ describe('遠海', () => {
     const o = createOcean()
     o.update(3, 1234.5, -6789.25)
     const cell = OCEAN_SIZE / OCEAN_SEGMENTS
-    expect(o.mesh.position.x % cell).toBeCloseTo(0, 6)
-    expect(o.mesh.position.z % cell).toBeCloseTo(0, 6)
+    // 【不能用 `pos % cell`】cell = 52.083333333333336，而 24 × cell 的實數值
+    // 是 1250.000000000000006…，浮點乘積回捨成剛好 1250 —— 於是
+    // `1250 % cell` 得到的是 52.0833…（近乎一整格）而不是 0。實測 x 那一條
+    // 必紅、z 那一條碰巧綠。改成看「除以 cell 之後離最近整數多遠」。
+    const qx = o.mesh.position.x / cell
+    const qz = o.mesh.position.z / cell
+    expect(qx - Math.round(qx)).toBeCloseTo(0, 6)
+    expect(qz - Math.round(qz)).toBeCloseTo(0, 6)
     o.dispose()
   })
 
@@ -538,12 +555,62 @@ describe('遠海', () => {
     const o = createOcean()
     let disposed = 0
     o.farMesh.geometry.addEventListener('dispose', () => { disposed++ })
-    ;(o.farMesh.material as { addEventListener(t: string, f: () => void): void })
-      .addEventListener('dispose', () => { disposed++ })
+    // 【`as unknown as`】`Mesh.material` 的型別是 `Material | Material[]`，
+    // 直接斷言成一個帶 addEventListener 的物件兩個方向都不可賦值（TS2352）。
+    // 專案既有的正確寫法在 test/unit/terrain.test.ts:29-33。
+    ;(o.farMesh.material as unknown as {
+      addEventListener(t: string, f: () => void): void
+    }).addEventListener('dispose', () => { disposed++ })
     o.dispose()
     expect(disposed).toBe(2)
   })
 })
+```
+
+**注意**：前兩條（`FAR_SEA_SIZE > OCEAN_SIZE*20`、`FAR_SEA_Y < −Σamp`）在
+Task 2 已經把兩個常數放進 `ocean.ts` 之後，**Task 3 一行實作都還沒寫就會是
+綠的**。整檔會因為 `OCEAN_SIZE` 沒 export 而紅，所以流程過得去 —— 但要知道
+**它們是回歸護欄，不是驅動這個任務的 TDD 測試**。真正驅動的是後三條。
+
+**同時要更新兩條既有測試**（`test/unit/terrain.test.ts`）—— 遠海加進
+`terrain` 的 group 會把它們打紅，那是**預期中的更新**不是失敗：
+
+```ts
+  it('object 底下同時有海面、遠海與參照物', () => {
+    const t = createTerrain('sea')
+    // 2 → 3：遠海（`ocean.farMesh`）是第三個。海是兩層 ——
+    // 以鏡頭為中心 10 km 的細浪面，加上墊在底下、跟著鏡頭走的 500 km 平海。
+    expect(t.object.children.length).toBe(3)
+    t.dispose()
+  })
+```
+
+```ts
+    // 海面一組、遠海一組、參照物一組（4 → 6）
+    expect(disposed).toBe(6)
+```
+
+第三條 `update 之後海面跟著中心捲動` 用的是 `t.object.children[0]!`。遠海
+**先** `add`，所以那個索引會變成遠海 —— 測試碰巧仍然過（遠海也跟著中心走），
+但它從此測的是另一個東西。改成明確找細浪面：
+
+```ts
+  it('update 之後海面跟著中心捲動', () => {
+    const t = createTerrain('sea')
+    // 【索引要自我驗證】group 裡現在有三個東西，順序是遠海、細浪面、參照物。
+    // 原本寫死 children[0] 當「海面」—— 遠海插進來之後那一條會靜靜地改測
+    // 遠海（而且照樣綠，因為遠海也跟著中心走）。先用高度確認抓對了人：
+    // 遠海在 FAR_SEA_Y，細浪面在 0。
+    const far = t.object.children[0]!
+    const sea = t.object.children[1]!
+    t.update(0, 5000, -3000)
+    expect(far.position.y).toBe(FAR_SEA_Y)
+    expect(sea.position.y).toBe(0)
+
+    expect(sea.position.x).toBeGreaterThan(4000)
+    expect(sea.position.z).toBeLessThan(-2000)
+    t.dispose()
+  })
 ```
 
 `OCEAN_SIZE` 與 `OCEAN_SEGMENTS` 目前是模組私有的 —— 這個 Task 要把
@@ -602,10 +669,25 @@ export interface Ocean {
   })
   const farMesh = new Mesh(farGeometry, farMaterial)
   farMesh.frustumCulled = false // 隨鏡頭捲動，永遠可見
-```
-
-**不要設 `renderOrder`。** three 的不透明物件預設由近到遠排序，細浪面因此
-先畫、遠海被深度測試擋掉大部分 —— 那正是想要的。設了反而變慢。
+  // 建立時就擺好，讓「還沒 update 過」的狀態也是一致的（與 sky.ts 同一招）
+  farMesh.position.y = FAR_SEA_Y
+  /**
+   * 【`renderOrder` 非設不可】遠海與細浪面只相距 3 m，而深度量化
+   * `Δz ≈ z²/2²⁴`（近平面 1 m）在 7,000 m 是 2.92 m、12,000 m 是 8.58 m
+   * —— 上帝視角 7,000 m 以上，整片細浪面（永遠是 ±5 km）的深度都與遠海
+   * **分不出前後**。
+   *
+   * 平手時誰贏由繪製順序決定，而 three 的不透明排序是
+   * `renderOrder → material.id → z`（`WebGLRenderLists.js` 的
+   * `painterSortStable`）—— **`material.id` 排在 `z` 前面**。細浪面的材質
+   * 先 `new`、id 較小、因此先畫，遠海後畫；而預設的 `depthFunc` 是
+   * `LessEqualDepth`，於是**後畫的遠海勝出，把浪蓋掉**。
+   *
+   * −1 讓遠海先畫，平手時細浪面與參照物勝出。這不是把順序「排對」——
+   * 那做不到（同 `assembly.ts:150` 的討論）——而是把平手的倒向固定成
+   * 正確的那一邊。成本是一次全螢幕 overdraw，兩個三角形，可忽略。
+   */
+  farMesh.renderOrder = -1
 
 5. `update` 末尾加：
 
@@ -634,6 +716,10 @@ export interface Ocean {
 npx vitest run test/unit/ocean.test.ts test/unit/terrain.test.ts test/unit/fog.test.ts
 npx tsc --noEmit
 ```
+
+`terrain.test.ts` 的三條更新（2→3、4→6、`children[0]` → 自我驗證的索引）
+必須在這一步一起綠。**不要因為它們紅就以為實作壞了** —— 那是遠海加進
+group 的必然結果，Step 1 已經寫好新的斷言。
 
 - [ ] **Step 5: 提交**
 
@@ -713,8 +799,8 @@ it('翼尖的縱向位置落在機身的前後界之間', () => {
 })
 ```
 
-（放進既有的 `for (const [name, spec] of ...)` 迴圈裡，兩個機種各跑一次；
-若既有結構不是這樣，照既有結構擺。）
+放進既有的 `for (const spec of [P51D, BF109G6])` 迴圈裡（`geometry.test.ts:265`
+—— **沒有 `name` 這個變數**），兩個機種各跑一次。
 
 - [ ] **Step 2: 跑測試確認它紅**
 
@@ -957,8 +1043,10 @@ describe('凝結尾的發射', () => {
     v.emit(0, 1, ...tips(0))
     v.emit(0, 1, ...tips(20))   // 低 G 走了 20 m
     v.emit(0, 6, ...tips(23))   // 切進高 G，只走了 3 m
-    // 3 m / 1.5 m 間隔 = 2 顆 × 兩個翼尖 = 4；若拿到的是 0 m 那一幀的位置，
-    // 距離會是 23 m，會被每幀上限夾到 8 × 2 = 16
+    // intensity(6) = (6−3)/3.5 = 0.857 → spacing = 4.0 − 2.5×0.857 = 1.857
+    // （**不是 1.5**；1.5 是 6.5 g 才有的）。floor(3 / 1.857) = 1，
+    // 兩個翼尖共 2 顆。若拿到的是 0 m 那一幀的位置，距離會是 23 m →
+    // floor(23/1.857) = 12 → 被每幀上限夾到 8，兩翼尖 16 顆。
     expect(v.live).toBeLessThanOrEqual(2 * 2)
     v.dispose()
   })
@@ -997,22 +1085,83 @@ describe('凝結尾的發射', () => {
     expect(v.live).toBeGreaterThan(0)
     v.reset()
     expect(v.live).toBe(0)
-    v.emit(0, 6, ...tips(500))
+    // 【位移必須落在 MAX_STEP 之內】初稿用 tips(500)，而 |500 − 20| = 480
+    // > 60，`trail` 的 MAX_STEP 守衛會先擋掉 —— 把 reset 裡的 seen.fill(0)
+    // 拿掉，這一條**照樣綠**。那正是 spec §5.5 說的「不能靠防線當設計」。
+    // 20 m 的位移下，壞掉的實作會發出 floor(20/1.857)=10→夾8，兩翼尖 16 顆。
+    v.emit(0, 6, ...tips(40))
     expect(v.live).toBe(0)      // 又是第一幀
     v.dispose()
   })
 
-  it('座位超出範圍不會爆，也不影響別的座位', () => {
+  it('座位超出範圍不會爆，也不踩到別的座位', () => {
     const v = createVortex()
     v.emit(VORTEX_SEATS, 6, ...tips(0))
     v.emit(VORTEX_SEATS, 6, ...tips(20))
-    expect(v.live).toBe(0)
     v.emit(-1, 6, ...tips(0))
     expect(v.live).toBe(0)
+    // 【只斷言 live === 0 是守不住「不踩別人」的】拿掉守衛之後：
+    // prev[384] 讀回 undefined → undefined! 參與運算得 NaN → NaN > 60 為
+    // false → floor(NaN/s) 為 NaN → k <= NaN 不執行 → 0 顆；而 typed
+    // array 的越界寫入在 JS 是靜默 no-op。live 仍是 0，測試照樣綠。
+    // 真正驗得到的是：座位 0 的第一次 emit 仍然必須是「第一幀」。
     v.emit(0, 6, ...tips(0))
+    expect(v.live).toBe(0)
     v.emit(0, 6, ...tips(20))
     expect(v.live).toBeGreaterThan(0)
     v.dispose()
+  })
+})
+
+/**
+ * 【這一組是整份 spec 裡最該存在的兩條】初稿的 `vortexEmitCount` 是
+ * `floor(distance / spacing)`，**沒有餘數累積** —— 一幀走不滿一個 spacing
+ * 就整幀丟掉。實測那讓功能在真人的幀率下幾乎不出現：
+ *
+ *   200 m/s @ 60 fps（每幀 3.33 m）→ 實際起效 3.93 g（設計說 3.0）
+ *   120 m/s @ 60 fps（每幀 2.00 m）→ 實際起效 5.80 g  ← 低速纏鬥，正是拉最大 G 的地方
+ *   150 m/s @ 120 fps（每幀 1.25 m）→ **永遠不出現**（< SPACING_MIN）
+ *
+ * 而原本沒有任何一條測試抓得到：所有有狀態的測試與 e2e 都在 7.5 fps 的
+ * 量級（每幀 20 m 以上），那正好是唯一不會出問題的區間。
+ */
+describe('餘數跨幀累積（幀率不變性）', () => {
+  it('連續幾幀各走不滿一個間隔，累積之後才發射', () => {
+    const v = createVortex()
+    v.emit(0, 6, ...tips(0))          // 第一幀只記錄
+    // spacing = 1.857。每幀走 0.5 m：
+    v.emit(0, 6, ...tips(0.5))        // 累積 0.5
+    expect(v.live).toBe(0)
+    v.emit(0, 6, ...tips(1.0))        // 累積 1.0
+    expect(v.live).toBe(0)
+    v.emit(0, 6, ...tips(1.5))        // 累積 1.5
+    expect(v.live).toBe(0)
+    v.emit(0, 6, ...tips(2.0))        // 累積 2.0 > 1.857 → 兩個翼尖各 1 顆
+    expect(v.live).toBe(2)
+    v.dispose()
+  })
+
+  /**
+   * 【幀率不變性的操作型定義】走同樣的總距離，一大步與多小步必須發出
+   * 同樣多的粒子。這就是 spec §5.3 那句「同一個動作在不同機器上長得
+   * 一樣」——沒有這一條，那句話只是一個願望。
+   */
+  it('9 m 走一步與 1.5 m 走六步發出一樣多', () => {
+    const big = createVortex()
+    big.emit(0, 6, ...tips(0))
+    big.emit(0, 6, ...tips(9))
+    const one = big.live
+    big.dispose()
+
+    const small = createVortex()
+    small.emit(0, 6, ...tips(0))
+    for (let k = 1; k <= 6; k++) small.emit(0, 6, ...tips(k * 1.5))
+    const many = small.live
+    small.dispose()
+
+    // floor(9 / 1.857) = 4；小步版本 0+1+1+1+1+0 = 4。各 × 兩個翼尖 = 8
+    expect(one).toBe(8)
+    expect(many).toBe(8)
   })
 })
 
@@ -1136,15 +1285,17 @@ export function vortexSizeScale(intensity: number): number {
 }
 
 /**
- * 這一段線段要補幾顆。
+ * 累積到現在這麼多距離，該補幾顆。
  *
- * 【為什麼是沿線段補點而不是每幀一顆】200 m/s 在 60 fps 下一幀走 3.3 m，
- * 在 7.5 fps 下走 27 m。每幀一顆的話尾跡是虛線，而且**虛線的疏密會隨幀率
- * 變化** —— 同一個動作在不同機器上長得不一樣。
+ * 【`travelled` 是「上次補點後的餘數 + 這一幀的位移」，不是這一幀的位移】
+ * 只吃這一幀位移的話，走不滿一個 `spacing` 的幀會被整幀丟掉 —— 實測那讓
+ * 200 m/s @ 60 fps 的實際起效門檻變成 3.93 g（設計說 3.0）、120 m/s 變成
+ * 5.80 g、而 120 fps 下 150 m/s **永遠不出現**。那與「虛線的疏密會隨幀率
+ * 變化」是同一個病，只是搬到了「有／沒有」這個更嚴重的維度。
  */
-export function vortexEmitCount(distance: number, spacing: number): number {
+export function vortexEmitCount(travelled: number, spacing: number): number {
   if (!(spacing > 0)) return 0
-  return Math.min(Math.floor(distance / spacing), VORTEX_MAX_PER_FRAME)
+  return Math.min(Math.floor(travelled / spacing), VORTEX_MAX_PER_FRAME)
 }
 
 export interface Vortex {
@@ -1185,10 +1336,22 @@ export function createVortex(
 
   /** 上一幀的兩個翼尖，世界座標。每個座位 6 個數（左 xyz、右 xyz）。 */
   const prev = new Float32Array(seats * 6)
+  /**
+   * 上次補點之後剩下的距離，m。每個座位兩個（左翼尖、右翼尖）。
+   *
+   * 【沒有它，功能在真人的幀率下幾乎不出現】見 `vortexEmitCount` 的註解。
+   * 與 `smoke.ts` 的 `smokeTimer` 是同一招：把「不滿一格」的部分留到下一幀，
+   * 而不是丟掉。
+   */
+  const carry = new Float32Array(seats * 2)
   /** 這個座位有沒有上一幀。第一幀不發射，見 emit。 */
   const seen = new Uint8Array(seats)
 
+  /**
+   * @param slot `carry` 的索引：座位 × 2 + （0 = 左翼尖、1 = 右翼尖）
+   */
   const trail = (
+    slot: number,
     px: number, py: number, pz: number,
     x: number, y: number, z: number,
     spacing: number, scale: number,
@@ -1197,10 +1360,29 @@ export function createVortex(
     const dy = y - py
     const dz = z - pz
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-    if (dist > VORTEX_MAX_STEP) return
-    const n = vortexEmitCount(dist, spacing)
+    if (dist > VORTEX_MAX_STEP) {
+      // 換場／重生／分頁切回：這一段軌跡整段放棄，餘數也不該留
+      carry[slot] = 0
+      return
+    }
+    const start = carry[slot]!
+    const travelled = start + dist
+    let n = vortexEmitCount(travelled, spacing)
+    if (n >= VORTEX_MAX_PER_FRAME) {
+      // 【被防爆閥夾住就把餘數丟掉】不丟的話 carry 會逐幀累積、沒有上界
+      n = VORTEX_MAX_PER_FRAME
+      carry[slot] = 0
+    } else {
+      carry[slot] = travelled - n * spacing
+    }
     for (let k = 1; k <= n; k++) {
-      const t = k / n
+      // 第 k 顆距離 prevTip 的弧長。start 是「已經走過但還沒補點」的那一段
+      const along = k * spacing - start
+      // 【t 要夾住】spacing 隨 intensity 逐幀變。從 4.0 掉到 1.5 的那一幀，
+      // 上一幀留下的 start（最大 4.0）可能大於這一幀的 spacing，弧長於是
+      // 是負的 —— 不夾的話粒子會生在線段**後面**。夾到 0 表示「就生在上
+      // 一幀的翼尖位置」，最多兩顆重疊，看不出來。
+      const t = along <= 0 ? 0 : (along >= dist ? 1 : along / dist)
       pool.emit(px + dx * t, py + dy * t, pz + dz * t, 0, 0, 0, scale)
     }
   }
@@ -1212,14 +1394,20 @@ export function createVortex(
     emit(index, loadFactor, lx, ly, lz, rx, ry, rz): void {
       if (index < 0 || index >= seats) return
       const b = index * 6
+      const s = index * 2
       const intensity = vortexIntensity(loadFactor)
       // 【門檻以下也要記錄位置（見下方的無條件寫入）】不記的話，從緩轉
       // 切進硬拉的第一幀會拿到很久以前的位置，拉出一條長線。
       if (intensity > 0 && seen[index] === 1) {
         const spacing = vortexSpacing(intensity)
         const scale = vortexSizeScale(intensity)
-        trail(prev[b]!, prev[b + 1]!, prev[b + 2]!, lx, ly, lz, spacing, scale)
-        trail(prev[b + 3]!, prev[b + 4]!, prev[b + 5]!, rx, ry, rz, spacing, scale)
+        trail(s, prev[b]!, prev[b + 1]!, prev[b + 2]!, lx, ly, lz, spacing, scale)
+        trail(s + 1, prev[b + 3]!, prev[b + 4]!, prev[b + 5]!, rx, ry, rz, spacing, scale)
+      } else {
+        // 【沒在冒尾跡就把餘數歸零】飛機照樣在飛，但那一段軌跡沒有渦。
+        // 留著的話，重新拉起來的第一顆會出現在錯的位置。
+        carry[s] = 0
+        carry[s + 1] = 0
       }
       prev[b] = lx
       prev[b + 1] = ly
@@ -1236,9 +1424,11 @@ export function createVortex(
 
     reset(): void {
       pool.reset()
-      // 【這一行不能漏】只清粒子池的話，換場後第一幀會從上一場的位置拉一條
-      // 線過來。VORTEX_MAX_STEP 擋得住，但不能靠防線當設計。
+      // 【這兩行不能漏】只清粒子池的話，換場後第一幀會從上一場的位置拉一條
+      // 線過來。VORTEX_MAX_STEP 擋得住，但不能靠防線當設計 —— 而且靠防線
+      // 會讓驗證它的測試變成假綠（見 vortex.test.ts 那一條的註解）。
       seen.fill(0)
+      carry.fill(0)
     },
 
     dispose(): void {
@@ -1257,14 +1447,10 @@ npx tsc --noEmit
 
 - [ ] **Step 5: 併進既有的池歸零測試**
 
-`test/unit/pool-reset.test.ts` 的 `pools` 陣列加一項：
-
-```ts
-    ['凝結尾', () => createVortex()],
-```
-並補 import。**注意**：那三條測試呼叫的是 `p.emit(0, 100, 0, 1, 2, 3)`
-（`Particles` 的簽章），而 `Vortex.emit` 的簽章不同 —— 所以這一項要另外寫，
-不能塞進共用迴圈。改成在該檔末尾加一個獨立的 `describe`：
+**不要**動 `test/unit/pool-reset.test.ts` 既有的 `pools` 陣列 —— 那三條測試
+呼叫的是 `p.emit(0, 100, 0, 1, 2, 3)`（`Particles` 的簽章），而 `Vortex.emit`
+的簽章不同，塞不進共用迴圈。在該檔末尾加一個獨立的 `describe`（並補
+`createVortex` 的 import）：
 
 ```ts
 describe('凝結尾池的歸零', () => {
@@ -1480,12 +1666,18 @@ const TIP_L = new Vector3()
 const TIP_R = new Vector3()
 ```
 
-4. 換場歸零 —— 在既有那五行旁邊（`main.ts:349–353` 的
-   `fireball.reset()` … `splashes.reset()`）加：
+4. 換場歸零 —— 在 `enterBattle()` 既有那**六**行旁邊（`main.ts:349–354`：
+   `fireball` / `smoke` / `spray` / `sparks` / `splashes` / `debris`）加：
 
 ```ts
   vortex.reset()
 ```
+
+**`restartBattle()` 不加。** 它（`main.ts:309–316`）目前一個池的 `reset()`
+都沒有 —— 按「重新開始」重開一場時，上一場的煙、火球、噴濺、殘骸碎片全部
+留在畫面上。**那是既有缺陷，不是這一份引入的**，範圍在重開的生命週期，
+另開單。凝結尾照既有慣例與其他六個池一致，不在這裡順手改掉，否則六個池
+會分成「有清」與「沒清」兩派，比現在更難懂。
 
 5. 發射 —— 在逐 combatant 的視覺更新迴圈裡，`v.model.setPropSpin(...)`
    那一行**之後**：
