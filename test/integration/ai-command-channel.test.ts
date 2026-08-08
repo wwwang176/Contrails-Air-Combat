@@ -8,7 +8,20 @@ import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
-const SECONDS = 120
+/**
+ * 【2026-08-09 由 120 改成 300】專案負責人裁定。
+ *
+ * 接敵約在開場 60 秒，所以 120 秒的窗口有一半在量開場巡航 —— 撤退令幾乎
+ * 都發生在後半。撤退令改錨（`withdrawRange` 的語意換成「離敵群多遠」、
+ * 加上殼外不發令的閘門）之後它不再自我延續，於是 120 秒窗口量到的離場
+ * 佔時掉到 2.13%，而同一個指標在 300 秒是 7.20% —— 落在下面那條 5%~25%
+ * 的帶內。**改的是取樣區間，5% 下界的語意原封不動。**
+ *
+ * 順帶一提：2026-08-07 那 22 組掃描用的正是這個 120 秒窗口，而撤退令的
+ * 棘輪（每撤一次就再往外一個 withdrawRange）要到接敵之後才展開 ——
+ * 窗口太短正是它當初漏掉的原因之一。
+ */
+const SECONDS = 300
 
 /** 玩家座位放一個什麼都不做的控制器：平飛，不參戰 */
 class Idle implements Controller {
@@ -255,7 +268,7 @@ function observe(commanders = true): Observed {
   return o
 }
 
-describe('指令通道（20v20、120 秒）', () => {
+describe('指令通道（20v20、300 秒）', () => {
   const o = observe()
 
   /**
@@ -389,7 +402,7 @@ describe('指令通道（20v20、120 秒）', () => {
   }, 60 * 60 * 1000)
 }, 10 * 60 * 1000)
 
-describe('指揮層的效果（20v20 開／關對照）', () => {
+describe('指揮層的效果（20v20 開／關對照、300 秒）', () => {
   const on = observe(true)
   const off = observe(false)
 
