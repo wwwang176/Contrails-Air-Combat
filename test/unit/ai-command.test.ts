@@ -322,9 +322,18 @@ describe('stepCommand：命令的生命週期', () => {
    * 於是「健康的小隊永遠不發令」仍然成立，而且是**因為規則本身**成立的，
    * 不是因為場景少了一半。
    */
+  /**
+   * 【兩架都用同一個 cornerRatio】原本第二架寫死 1.2，那讓這一組測試意外
+   * 依賴「見底取最低那一架」。`spentRank` 出現之後那是一個隱藏的耦合 ——
+   * 這幾條要測的是命令的**生命週期**，不是取樣名次。名次由
+   * `describe('見底的取樣名次')` 專門測。
+   *
+   * 這不是放寬門檻：每一條原本要驗的東西一字未動，只是把場景從「意外依賴
+   * 名次」改成「不依賴」。
+   */
   function scene(cornerRatio: number) {
     const units: CommandUnit[] = [
-      unit({ cornerRatio }), unit({ x: 200, cornerRatio: 1.2 }), unit({ z: 1000 }),
+      unit({ cornerRatio }), unit({ x: 200, cornerRatio }), unit({ z: 1000 }),
     ]
     const flights = [flight(0, 1), flight(2)]
     const s = createCommandState(flights.length)
@@ -364,7 +373,9 @@ describe('stepCommand：命令的生命週期', () => {
   it('中途回復健康 → 計時歸零，不發令', () => {
     const sc = scene(0.4)
     run(sc, cfg.spentSeconds * 0.9)
-    sc.units[0]!.cornerRatio = 1.2
+    // 【兩架都要回復】`scene` 兩架都用同一個 ratio（見它的註解），
+    // 只回復一架的話分隊仍然見底 —— 那測到的是取樣名次不是計時歸零
+    for (const i of [0, 1]) sc.units[i]!.cornerRatio = 1.2
     run(sc, cfg.spentSeconds * 0.9 + cfg.planPeriod + 1)
     expect(sc.s.orders[0]).toBeNull()
   })
@@ -675,6 +686,69 @@ describe('planFlankOrder：退化與穩定性', () => {
       prev = o.side
     }
     expect(flips).toBeLessThanOrEqual(1)
+  })
+})
+
+/**
+ * 【為什麼要能不看最低那一架】四機小隊的最小值遠低於中位數。20v20 × 300 s
+ * 實測 `cornerRatio < 0.6` 的時間佔比：最低 30.6%、次低 10.5%、中位數 2.1%
+ * —— 一架落單掉速的僚機就足以把整支分隊拖出戰場三成的時間（spec §2.2）。
+ *
+ * 【自備場景，不共用上面的 helper】上面那個 `run` 把 `cfg` 寫死成模組層的
+ * `DEFAULT_COMMAND`。**絕對不要用 `DEFAULT_COMMAND.spentRank = 1` 來測** ——
+ * `cfg` 是同一個物件參考，那會洩漏到同檔後面所有測試，造成與執行順序相關
+ * 的偽紅／偽綠。
+ */
+describe('見底的取樣名次', () => {
+  /** 兩架我方（ratio 各自指定）+ 一架敵機。敵機在 1000 m，在殼內。 */
+  function rankScene(a: number, b: number) {
+    const units: CommandUnit[] = [
+      unit({ cornerRatio: a }), unit({ x: 200, cornerRatio: b }), unit({ z: 1000 }),
+    ]
+    const flights = [flight(0, 1), flight(2)]
+    const s = createCommandState(flights.length)
+    return { units, flights, s, own: [0], foe: [1] }
+  }
+  function runWith(sc: ReturnType<typeof rankScene>, seconds: number, c: typeof cfg) {
+    const steps = Math.round(seconds / DT)
+    for (let i = 0; i < steps; i++) {
+      stepCommand(sc.s, sc.flights, sc.own, sc.foe, sc.units, -1, DT, c)
+    }
+  }
+  const rank1 = { ...cfg, spentRank: 1 }
+
+  it('spentRank = 1 時，只有一架見底不發令', () => {
+    const sc = rankScene(0.3, 1.2)
+    runWith(sc, 30, rank1)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【這是正控制，預期在舊實作上也綠】舊實作取最低值，兩架都 0.3 時最低也
+   * 是 0.3，照樣發令。它守的是「上一條不是用錯誤的方式變綠的」（例如把
+   * 撤退整個關掉），不是新行為本身。
+   */
+  it('spentRank = 1 時，兩架見底才發令', () => {
+    const sc = rankScene(0.3, 0.3)
+    runWith(sc, 30, rank1)
+    expect(sc.s.orders[0]).not.toBeNull()
+  })
+
+  /**
+   * 【這一條在舊實作上也會綠】舊實作根本不看 `spentRank`。所以它守不到
+   * 夾限本身 —— 夾限由 **mutation** 驗證（把三面夾限拿掉，看它轉紅）。
+   *
+   * 留著它是因為夾限一旦寫錯，症狀是**靜默**的：`RATIOS[-1]`、
+   * `RATIOS[0.5]`、`RATIOS[9]` 都是 `undefined`，而 `undefined < spentRatio`
+   * 是 `false` —— 見底計時從此不再累積，撤退令再也不會發出，不丟任何例外，
+   * 也沒有任何錯誤訊息。
+   */
+  it('spentRank 超出範圍、為負、為小數，都不會靜靜關掉撤退', () => {
+    for (const r of [9, -1, 0.5]) {
+      const sc = rankScene(0.3, 0.3)
+      expect(() => runWith(sc, 30, { ...cfg, spentRank: r })).not.toThrow()
+      expect(sc.s.orders[0]).not.toBeNull()
+    }
   })
 })
 
