@@ -63,8 +63,20 @@ export const FAR_SEA_SIZE = 500_000
  */
 export const FAR_SEA_Y = -3
 
+/**
+ * 海的基本色。細浪面與遠海**必須共用**這一個值 —— 兩份會漂開，而漂開的
+ * 症狀是 5 km 處出現一條色帶。
+ */
+export const SEA_COLOR = 0x1d3f5c
+
 export interface Ocean {
   mesh: Mesh
+  /**
+   * 遠海。**平的、單色、只有兩個三角形**，墊在細浪面底下把海接到地平線。
+   *
+   * 見 `FAR_SEA_SIZE` / `FAR_SEA_Y` 與下方 `renderOrder` 的註解。
+   */
+  farMesh: Mesh
   update(time: number, centerX: number, centerZ: number): void
   heightAt(x: number, z: number, time: number): number
   dispose(): void
@@ -75,7 +87,7 @@ export function createOcean(): Ocean {
   geometry.rotateX(-Math.PI / 2)
 
   const material = new MeshStandardMaterial({
-    color: 0x1d3f5c,
+    color: SEA_COLOR,
     roughness: 0.72,
     metalness: 0.05,
     flatShading: true,
@@ -119,8 +131,42 @@ export function createOcean(): Ocean {
   const mesh = new Mesh(geometry, material)
   mesh.frustumCulled = false // 隨玩家捲動，永遠可見
 
+  // 遠海。用 MeshStandardMaterial 而不是 Basic：要跟細浪面接得上就得受同一
+  // 組燈光。roughness / metalness 全部沿用細浪面的值。
+  const farGeometry = new PlaneGeometry(FAR_SEA_SIZE, FAR_SEA_SIZE, 1, 1)
+  farGeometry.rotateX(-Math.PI / 2)
+  const farMaterial = new MeshStandardMaterial({
+    color: SEA_COLOR,
+    roughness: 0.72,
+    metalness: 0.05,
+  })
+  const farMesh = new Mesh(farGeometry, farMaterial)
+  farMesh.frustumCulled = false // 隨鏡頭捲動，永遠可見
+  // 建立時就擺好，讓「還沒 update 過」的狀態也是一致的（與 sky.ts 同一招）
+  farMesh.position.y = FAR_SEA_Y
+  /**
+   * 【`renderOrder` 非設不可】遠海與細浪面只相距 3 m，而深度量化
+   * `Δz ≈ z²·(f−n)/(n·f·2²⁴) ≈ z²/2²⁴`（近平面 1 m）在 7,000 m 是 2.92 m、
+   * 12,000 m 是 8.58 m —— 上帝視角 7,000 m 以上，整片細浪面（永遠是 ±5 km）
+   * 的深度都與遠海**分不出前後**。
+   *
+   * 平手時誰贏由繪製順序決定，而 three 的不透明排序是
+   * `renderOrder → material.id → z`（`WebGLRenderLists.js` 的
+   * `painterSortStable`）—— **`material.id` 排在 `z` 前面**。不設的話順序
+   * 只是「誰先 new 材質」的巧合：細浪面的材質先建、id 較小、因此先畫，
+   * 遠海後畫；而預設的 `depthFunc` 是 `LessEqualDepth`，於是**後畫的遠海
+   * 勝出，把浪蓋掉**。
+   *
+   * −1 讓遠海先畫，平手時細浪面與參照物勝出（仍遠大於天空球的 −1000）。
+   * 這不是把順序「排對」——那做不到，同 `assembly.ts` 那段關於曳光彈與
+   * 模糊圓盤的討論 —— 而是把平手的倒向固定成正確的那一邊。成本是一次
+   * 全螢幕 overdraw，兩個三角形，可忽略。
+   */
+  farMesh.renderOrder = -1
+
   return {
     mesh,
+    farMesh,
     update(time, centerX, centerZ) {
       uTime.value = time
       // 以網格單元對齊捲動，避免頂點在格點間滑動造成抖動
@@ -129,11 +175,16 @@ export function createOcean(): Ocean {
       const sz = Math.round(centerZ / cell) * cell
       mesh.position.set(sx, 0, sz)
       uOrigin.value.set(sx, sz)
+      // 【遠海不做格點對齊】對齊是為了避免頂點在格點之間滑動造成波形抖動，
+      // 而遠海沒有波。精確跟著中心走，才不會在極端座標下累積偏差。
+      farMesh.position.set(centerX, FAR_SEA_Y, centerZ)
     },
     heightAt: gerstnerHeight,
     dispose() {
       geometry.dispose()
       material.dispose()
+      farGeometry.dispose()
+      farMaterial.dispose()
     },
   }
 }

@@ -36,6 +36,10 @@ export function createTerrain(kind: TerrainKind): Terrain {
   const ocean = createOcean()
   const props = createProps(PROP_COUNT)
   const group = new Group()
+  // 【順序：遠海先進去】繪製順序其實由 `farMesh.renderOrder` 決定（見
+  // `ocean.ts`），這裡的次序只影響 `children` 的索引 —— 但讀起來由遠到近，
+  // 而測試也靠這個次序（並自我驗證抓對了人）。
+  group.add(ocean.farMesh)
   group.add(ocean.mesh)
   group.add(props.mesh)
 
