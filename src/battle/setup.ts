@@ -150,7 +150,7 @@ export interface Battle {
    * 觀測用 AI 與第一人稱眼點一起搬過去。
    */
   player: Combatant
-  /** 玩家的**開局**座位。R 重開時要還原回這裡 */
+  /** 玩家的**開局**座位。重新開始（暫停選單）時要還原回這裡 */
   readonly playerSeat: number
   /** 玩家的控制器。接手時要把它裝到新座位上 */
   readonly playerController: Controller
@@ -449,8 +449,10 @@ function wireStations(b: Battle): void {
  * `flight.members`，那兩者由同一步的 `compactFlights` 重算。排在前面會用到
  * 上一步的編制 —— 剛陣亡的成員仍在名單裡。
  *
- * 【玩家那一隊自治】spec §2.1：專案負責人裁定「指揮 AI 不用跟玩家這個小隊
- * 給指令」。`flights.pinned` 已經標了玩家。
+ * 【玩家那一隊自治，但只在**真的有人在操縱**的時候】第一份 spec §2.1：
+ * 專案負責人裁定「指揮 AI 不用跟玩家這個小隊給指令」，理由是不跟人類搶
+ * 操縱。座位上坐的是 `AiController` 時（`I` 代飛、上帝視角）那個理由就
+ * 不成立了 —— 見下方 `playerFlight` 的推導。
  */
 function stepCommandLayer(b: Battle, dt: number): void {
   const cs = b.world.combatants
@@ -470,14 +472,30 @@ function stepCommandLayer(b: Battle, dt: number): void {
     const full = a.spec.hp
     const frac = full > 0 ? c.hp / full : 0
     u.hpFraction = frac > 0 ? frac : 0
-    // 【只為排名】射擊解強度的鏡像，見 command.ts 的 `idle`。玩家座位沒有
-    // AiController，寫 0（視為閒置）—— 無害，玩家那一隊本來就被 skipFlight
-    // 跳過
+    // 【只為排名】射擊解強度的鏡像，見 command.ts 的 `idle`。
+    //
+    // 【玩家座位可能沒有 AiController，那時寫 0】人類在操縱的那一支分隊
+    // 本來就被 `skipFlight` 跳過，所以那個 0 不會被任何排名讀到；而代飛
+    // 或上帝視角時座位上是 AiController，這一行就抄得到真值 —— 那一支
+    // 分隊這時也確實會進排名（見下方 `playerFlight` 的推導）
     const ctl = c.controller
     u.shotInstant = ctl instanceof AiController ? ctl.shotInstant : 0
   }
 
-  const playerFlight = b.flights.pinned >= 0 ? b.flights.flightOf[b.flights.pinned]! : -1
+  // 【跳過的是「有人類在操縱的那一支」，不是「玩家的座位」】第一份 spec
+  // §2.1 裁定指揮 AI 不對玩家的小隊下令，理由是不跟人類搶操縱 —— 座位上
+  // 坐的是 AiController 時（`I` 代飛、上帝視角）那個理由就不成立了。
+  //
+  // 【為什麼用推導而不是加一個旗標】推導比鏡射安全：鏡射要求每一條會改變
+  // 狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失的幽靈狀態。
+  // 這與 `wireStations` 靠 `instanceof AiController` 自動跟上、編制每步
+  // 重算而不是增量維護，是同一條紀律。
+  //
+  // 【`pinned < 0` 時】`combatants[-1]` 是 undefined → `human` 為 false
+  // → 回 −1，與改之前逐字相同。
+  const seat = b.world.combatants[b.flights.pinned]
+  const human = seat !== undefined && !(seat.controller instanceof AiController)
+  const playerFlight = human ? b.flights.flightOf[b.flights.pinned]! : -1
   stepCommand(
     b.blueCommand, b.flights.flights, b.blueFlightIndices, b.redFlightIndices,
     b.commandUnits, playerFlight, dt,
