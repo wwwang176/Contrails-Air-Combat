@@ -36,8 +36,32 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
   return h
 }
 
-const OCEAN_SIZE = 10000
-const OCEAN_SEGMENTS = 192
+export const OCEAN_SIZE = 10000
+export const OCEAN_SEGMENTS = 192
+
+/**
+ * 遠海的邊長，m。**這是一片平的四邊形，不是網格。**
+ *
+ * 【為什麼要 500 km】12,000 m（上帝視角的 `maxAltitude`）往下看時，半邊
+ * 250 km 的邊緣落在俯角 `atan(12/250) ≈ 2.7°` —— 幾乎就在地平線上，而該處
+ * 的霧已經吃滿（`fogFactor(250000, FOG_DENSITY) > 0.999`），看不到硬邊。
+ *
+ * 【為什麼不必分段】它是平的，分段沒有任何意義。霧是逐片段算的，所以顏色
+ * 在整面上仍然是連續漸層。
+ */
+export const FAR_SEA_SIZE = 500_000
+
+/**
+ * 遠海的高度，m。
+ *
+ * 【為什麼是負的】三道波的振幅和是 2.15 m，細浪面的最低點因此是 −2.15。
+ * 遠海放在 0 會在波谷之間穿插、產生 z-fighting。放在 −3 保證它在 ±5 km
+ * 的範圍內**永遠被細浪面蓋住**。
+ *
+ * 代價是接縫處有一道 3 m 的落差 —— 在 5 km 外張角 0.6 mrad（0.034°），
+ * 而 1080p / 65° FOV 的一個像素是 0.06°。落在一個像素以內。
+ */
+export const FAR_SEA_Y = -3
 
 export interface Ocean {
   mesh: Mesh
