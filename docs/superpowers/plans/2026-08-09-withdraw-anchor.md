@@ -95,10 +95,14 @@ const SECONDS = 300
 - `aliveSamples`（每步每架存活 +1）與 `leavingSamples`（該架所屬分隊此刻
   持有 `kind === 'rally'` 的命令 +1）。分隊歸屬由 `b.flights` 反查。
 - 撤退令的生命：`orders[f]` 由 `null`／別的種類變成 `rally` 時，記下該分隊
-  存活成員的平均 `cornerRatio`；變回 `null` 時再記一次，配成一對。
+  存活成員的平均 `cornerRatio` 與當時的秒數；變回 `null` 時再記一次，配成一對。
+  **解除時分隊已全滅的那幾對要丟掉** —— 沒有存活成員可比，平均是 NaN。
 - 開場 `hp` 快照，結束相減。
-- 觀測值（不設門checked）：兩隊存活數、平均 TAS、平均高度、同時持有 rally
-  的分隊比例的最大值、撤退令期間陣亡的架數。
+- 觀測值（**只印，不設門檻**）：兩隊存活數、平均 TAS、平均高度、同時持有
+  rally 的分隊比例的最大值、撤退令期間陣亡的架數、兩隊掉血與傷害比、
+  **「見底但因閘門而沒有命令」的佔時**（spec §3.1 那個洞的可證偽量）、
+  **撤退令的壽命分布**（「短命令空轉」的直接觀測量，中位數若接近
+  `planPeriod` 就代表 `MIN_TRIP` 取得不夠）。
 
 **斷言**（spec §7.2；每一條的註解都要寫上修前基準）：
 
@@ -106,6 +110,7 @@ const SECONDS = 300
 // ── 主判準一：戰鬥不得漂出戰場 ──
 expect(r300.blue).toBeLessThanOrEqual(r60.blue + 2000)   // 基準 1676 → 8944（仍在升）
 expect(r300.red).toBeLessThanOrEqual(r60.red + 2000)
+// 【綁死 DEFAULT_BATTLE】開場散布、entryRange、編成任一改動這個門檻就會變脆
 expect(maxRadius).toBeLessThanOrEqual(6000)              // 基準 18188；開場半徑 5287
 
 // ── 主判準二：撤退令要真的補到能量 ──
@@ -116,7 +121,11 @@ expect(pairs.length).toBeGreaterThan(0)                  // 沒有命令 = 沒�
 expect(improved / pairs.length).toBeGreaterThan(0.5)
 
 // ── 次判準 ──
-expect(leavingShare).toBeGreaterThan(0.05)               // 基準 24.34%
+// 【24.34% 不是這把尺量的，不要拿來當基準】它是用錯誤的分母（分隊格數）量的。
+// 正確的基準由 Step 3（護欄跑在**現行**程式上）量出，回填到註解裡。
+// 【與既有的 LEAVING 有一點差】既有那個數的是 rally + flank，這裡只數 rally。
+// 目前 flank 實務上不觸發，所以兩者接近 —— 但不是同一個數。
+expect(leavingShare).toBeGreaterThan(0.05)
 expect(leavingShare).toBeLessThan(0.25)
 expect(blueDmg + redDmg).toBeGreaterThanOrEqual(7345)    // 基準 9181 的八成，粗篩
 ```
@@ -233,14 +242,43 @@ commit message 要寫明「這一版是紅的，Task 2-3 才會轉綠」。
   })
 
   /**
-   * 【閘門的邊界：防空轉】行程若短於 arriveRadius，命令會在下一格就被判
-   * 到達、`spent` 被歸零，飛機一步都沒動 —— 撤退機制在那一帶等於失效，
-   * 而「多數命令要到得了」會變成假綠。
+   * 【閘門的邊界：防空轉】行程若太短，命令會在下一格就被判到達、`spent`
+   * 被歸零，飛機一步都沒動 —— 撤退機制在那一帶等於失效，而「多數命令要
+   * 到得了」會變成假綠。
+   *
+   * 【兩側都要驗】只驗外側的話，把閘門寫成「永遠回 null」也會綠。
    */
-  it('離殼只差不到 arriveRadius 時不發令', () => {
-    const d = cfg.withdrawRange - cfg.arriveRadius + 1
+  const MIN_TRIP = cfg.arriveRadius * 3
+  it('離殼不到最短行程時不發令', () => {
+    const d = cfg.withdrawRange - MIN_TRIP + 1
     const near = [unit({ z: -d }), unit({ z: -d, x: 1 })]
     expect(planFlightOrder(near, [unit({ z: 0 })], SPENT, cfg)).toBeNull()
+  })
+
+  it('離殼剛好超過最短行程就發令，而且行程真的夠長', () => {
+    const d = cfg.withdrawRange - MIN_TRIP - 1
+    const near = [unit({ z: -d }), unit({ z: -d, x: 1 })]
+    const o = planFlightOrder(near, [unit({ z: 0 })], SPENT, cfg)!
+    expect(o).not.toBeNull()
+    const own = new Vector3(0.5, 4000, -d)
+    expect(Math.hypot(o.point.x - own.x, o.point.z - own.z))
+      .toBeGreaterThanOrEqual(MIN_TRIP)
+  })
+
+  /**
+   * 【閘門要用距離，不是 len】`len` 在退化階梯裡會被重新賦值成**速度的
+   * 長度**（敵我水平重合時），最後一階直接設成 1。誤用 `len` 的話「水平
+   * 重合但速度很大」會被當成「已經在殼外」而擋掉撤退。既有的退化測試速度
+   * 預設 200（< 2700），守不到這件事 —— 所以這裡刻意把速度拉到殼外。
+   *
+   * 【場景照抄既有的「敵我質心重合」那條退化測試】只把 `velocity` 換成
+   * 長度 5000 的向量。`unit()` 收的是 `velocity: Vector3`，沒有 `vz`。
+   */
+  it('敵我水平重合但速度很大時，閘門用的是距離不是速度', () => {
+    const fast = new Vector3(0, 0, 5000)
+    const co = [unit({ velocity: fast }), unit({ velocity: fast })]
+    expect(planFlightOrder(co, [unit({ velocity: fast })], SPENT, cfg))
+      .not.toBeNull()
   })
 
   /**
@@ -359,20 +397,31 @@ npx vitest run test/unit/ai-command.test.ts
 高度與 `return`：
 
 ```ts
+  // ── 敵我水平距離。**必須在退化階梯之前另存** ─────────────
+  // 【為什麼不能用 len】`len` 在下面的退化階梯裡會被重新賦值成**速度的
+  // 長度**（敵我水平重合時），最後一階甚至直接設成 1。閘門要問的是距離，
+  // 用 `len` 的話「水平重合但速度很大」會被當成「已經在殼外」而擋掉撤退，
+  // 「連速度也退化」則永遠放行 —— 行為取決於速度大小而不是敵我距離。
+  // 既有的退化測試速度預設 200，守不到這件事。
+  const gap = Math.hypot(own.x - foe.x, own.z - foe.z)
+
+  // ...（既有的 dir 退化階梯原封不動）...
   dir.divideScalar(len)
 
-  // ── 閘門：已經在殼外（含閘門寬度）就不發令 ──────────────
-  // 【為什麼需要它】行程長度是 |withdrawRange − len|。少了閘門有兩個失敗：
+  // ── 閘門：行程不夠長就不發令 ──────────────────────────
+  // 【為什麼需要它】行程長度是 |withdrawRange − gap|。少了閘門有兩個失敗：
   //
-  //   len ∈ 殼 ± arriveRadius → 行程短於到達半徑，命令在**下一格**就被判
-  //     到達（`stepCommand` 的 rally 分支）、`spent` 被歸零，飛機一步都沒動
+  //   gap ≈ 殼 → 行程短於到達半徑，命令在**下一格**就被判到達
+  //     （`stepCommand` 的 rally 分支）、`spent` 被歸零，飛機一步都沒動
   //     —— 撤退在那一帶等於失效，而「多數命令要到得了」會變成假綠。
-  //   len > 殼 → 「撤退令」會把一支 intent 被壓成 rally、不開火、僚機被清
+  //   gap > 殼 → 「撤退令」會把一支 intent 被壓成 rally、不開火、僚機被清
   //     目標的四機編隊沿徑向直線送回敵群。那正是要救的分隊。
   //
-  // 閘門把兩者一起解掉：發令的前提是「真的有一段往外的行程」。已經在殼外
-  // 的分隊本來就脫離了，它需要的是時間，而那由自由交戰給。
-  if (len >= cfg.withdrawRange - cfg.arriveRadius) return null
+  // 【MIN_TRIP 為什麼是 3 × arriveRadius】判準是「這張命令活得比一個決策
+  // 週期久嗎」。命令若比 `spentSeconds`(3 s) + `planPeriod`(2 s) 短，它做的
+  // 事就只是把見底計時歸零。實測巡弋約 110 m/s，5 秒是 550 m；取 900 m
+  // （約 8 秒）留餘裕，而且它由既有參數導出，不是另一個要掃的數字。
+  if (gap >= cfg.withdrawRange - MIN_TRIP) return null
 
   // ── 高度：撤退不改變高度，只夾在安全下界與最低升限之間 ────
   // 【為什麼不加碼】見 spec §3.2：垂直方向錨在敵群會變成互相加價，一路頂到
@@ -407,11 +456,24 @@ npx vitest run test/unit/ai-command.test.ts
   }
 ```
 
-**注意 `len` 這個變數**：它在退化階梯裡被重新賦值過（敵我水平重合時改用
-速度方向），那時 `len` 是**速度的長度**不是距離。閘門要用的是**距離**，
-所以必須在退化階梯**之前**另外算一個水平距離，或在階梯裡把距離另存一份。
-實作時請新增一個 `const gap = Math.hypot(own.x - foe.x, own.z - foe.z)`，
-閘門用 `gap`，方向仍然用 `dir`／`len`。
+`MIN_TRIP` **必須由 `cfg.arriveRadius` 算，不能綁 `DEFAULT_COMMAND`** ——
+否則測試傳自訂 cfg 時閘門會用錯寬度。所以模組層放的是倍率，函式內算長度：
+
+```ts
+/**
+ * 撤退令的最短行程，是 `arriveRadius` 的幾倍。`gap` 離殼比這個近就不發令。
+ *
+ * 【為什麼是 3】判準是「這張命令活得比一個決策週期久嗎」。短於
+ * `spentSeconds`(3 s) + `planPeriod`(2 s) 的命令唯一的作用是把見底計時歸零，
+ * 飛機幾乎沒動。實測巡弋約 110 m/s，5 秒是 550 m；3 × 300 = 900 m 約 8 秒。
+ *
+ * 【為什麼不是新參數】它由 `arriveRadius` 導出，兩者本來就不獨立
+ * （`arriveRadius` 是到達判定的解析度，行程至少要是它的數倍才有意義）。
+ */
+const MIN_TRIP_RATIO = 3
+```
+
+函式內：`const MIN_TRIP = cfg.arriveRadius * MIN_TRIP_RATIO`
 
 - [ ] **Step 7：跑，確認轉綠**
 
@@ -530,11 +592,20 @@ describe('見底的取樣名次', () => {
     expect(sc.s.orders[0]).not.toBeNull()
   })
 
-  it('spentRank 超出存活人數時夾到最後一個，不丟例外', () => {
-    const sc = rankScene(0.3, 0.3)
-    expect(() => runWith(sc, 30, { ...cfg, spentRank: 9 })).not.toThrow()
-    // 兩架都 0.3 → 夾到最後一個（也是 0.3）→ 仍然要發令
-    expect(sc.s.orders[0]).not.toBeNull()
+  /**
+   * 【這一條在舊實作上也會綠】舊實作根本不看 `spentRank`。所以它守不到
+   * 夾限 —— 夾限由 Step 6 的 **mutation** 驗證。留著它是因為夾限一旦寫錯
+   * （讀到 `undefined`），見底計時會被**靜靜地關掉**：`undefined < 0.6`
+   * 是 `false`，不丟任何例外，撤退從此不再發生而沒有人會知道。
+   *
+   * 【負數與小數也要夾】`RATIOS[-1]` 與 `RATIOS[0.5]` 同樣是 `undefined`。
+   */
+  it('spentRank 超出範圍、為負、為小數，都不會靜靜關掉撤退', () => {
+    for (const r of [9, -1, 0.5]) {
+      const sc = rankScene(0.3, 0.3)
+      expect(() => runWith(sc, 30, { ...cfg, spentRank: r })).not.toThrow()
+      expect(sc.s.orders[0]).not.toBeNull()
+    }
   })
 })
 ```
@@ -585,9 +656,12 @@ const RATIOS: number[] = []
     }
     // 【空的時候是 Infinity】與舊碼的 `let worst = Infinity` 逐位元等價 ——
     // 成員全部陣亡時不該累積見底
-    const rank = RATIOS.length === 0
-      ? Infinity
-      : RATIOS[Math.min(cfg.spentRank, RATIOS.length - 1)]!
+    //
+    // 【三面都要夾】上界是存活人數，下界是 0，而且要取整。`RATIOS[-1]`、
+    // `RATIOS[0.5]`、`RATIOS[9]` 都是 `undefined`，而 `undefined < spentRatio`
+    // 是 `false` —— 見底計時會被**靜靜地關掉**，撤退從此不發生而不丟例外。
+    const k = Math.min(Math.max(Math.floor(cfg.spentRank), 0), RATIOS.length - 1)
+    const rank = RATIOS.length === 0 ? Infinity : RATIOS[k]!
     if (rank < cfg.spentRatio) s.spent[f] = s.spent[f]! + dt
     else s.spent[f] = 0
 ```
