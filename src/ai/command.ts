@@ -294,13 +294,55 @@ export interface CommandConfig {
  * 20v20 編成（**含玩家佔掉藍方一個分隊**）。另外，若接敵時間大幅提前
  * （開場距離縮短、或巡航速度提高到分隊十幾秒內就接觸），`idleSeconds`
  * 會第一次真的咬到人，那時要重掃它。
+
+ * ## 撤退令改錨之後的重掃（2026-08-09、6 組 20v20 × 300 秒）
+ *
+ * **這張表與上面那張不可比** —— `withdrawRange` 的語意換了（「離敵群多遠」
+ * 而不是「再往外多遠」），量的是另一個東西。上面那張表的 `withdrawRange`
+ * 四列與已刪除的 `withdrawClimb` 四列都只有歷史價值。
+ *
+ * 判準（`test/integration/ai-withdraw-anchor.test.ts`）：接敵後的半徑成長
+ * ≤ 2000 m、全場最大半徑 ≤ 6500 m、撤退令佔時 5%~25%、撤退令「解除時比
+ * 發令時快」的張數過半、300 秒總掉血 ≥ 7345。
+ *
+ * ```
+ * range  rank   成長   最大   佔時   補到能量   掉血   傷害比  過?
+ *  1200   0     319   5888   2.3%   33%(n=3)  13183   1.29   ✗ 佔時／補能量
+ *  1200   1    1103   5888   0.0%   —  (n=0)  13457   1.43   ✗ 一張都不發
+ *  2000   0     891   5888  11.3%   82%(n=11) 10164   1.73   ✓
+ * **2000   1    −205   5888   7.2%   83%(n=6)  10535   1.28   ✓ ← 選定**
+ *  3000   0    3248   9189  12.5%   90%(n=10)  8780   1.87   ✗ 半徑
+ *  3000   1    1856   6456  10.2%  100%(n=6)  12207   1.35   ✗ 最大半徑
+ * ```
+ *
+ * ## 怎麼讀這張表
+ *
+ * **有結構的是兩個邊界。** 1200 太小：殼落在混戰半徑之內，閘門幾乎恆成立，
+ * 撤退令等於被關掉（佔時 2.3% → 0%）。3000 太大：殼本身就把隊形攤開到 3 km
+ * 外，半徑守不住。2000 是唯一同時滿足「機制還活著」與「戰鬥不漂走」的值。
+ *
+ * **`spentRank = 1` 在每一項上都不輸 rank 0**，而且 2000 那一組的成長由
+ * +891 變成 −205（接敵之後半徑不再成長，反而收斂）。它把 spec §2.4
+ * 「編隊的能力等於最弱的那一架」限縮成「**進攻**能力等於最弱的那一架」——
+ * 見 `spentRank` 的註解。
+ *
+ * **對照組（完全不發撤退令，`spentRatio = 0`）**：成長 −341、最大 5888、
+ * 存活 B18R13。它證明殘餘外擴確實來自撤退令而不是混戰本身的漂移 ——
+ * 但它也殺得更兇，而撤退令的存在理由（把藍方從 3.13 打到 1.05）是另一份
+ * spec 的結論，不在這一份的範圍內。
+ *
+ * ## 重掃的前提
+ *
+ * `withdrawRange` 的新語意依賴閘門寬度（`arriveRadius × MIN_TRIP_RATIO`），
+ * 兩者不獨立。`spentRank` 依賴分隊是 4 人（`STATION_OFFSETS` 的長度）。
+ *
  */
 export const DEFAULT_COMMAND: CommandConfig = {
   planPeriod: 2,
   spentRatio: 0.6,
   spentSeconds: 3,
-  spentRank: 0,
-  withdrawRange: 3000,
+  spentRank: 1,
+  withdrawRange: 2000,
   arriveRadius: 300,
   // ── 側翼與集火。**全部是起始值，待 Task 8 由實測掃描回填** ──
   flankOffset: 1200,
@@ -979,13 +1021,34 @@ export function stepCommand(
       continue
     }
 
-    // ── 見底計時：小隊裡**最低**的那一架 ──────────────────
-    let worst = Infinity
+    // ── 見底計時：小隊裡第 `spentRank` 低的那一架 ──────────
+    // 【為什麼不是恆取最低】見 `CommandConfig.spentRank`：四機小隊的最小值
+    // 遠低於中位數，一架落單掉速的僚機就能把整支分隊拖出戰場三成的時間。
+    //
+    // 【為什麼是插入排序不是 Array.sort】分隊最多 4 人，而這一段每 dt 都跑
+    // 一次（40 架 × 240 Hz）。`sort` 會配置 —— 熱路徑不得配置。
+    RATIOS.length = 0
     for (let p = 0; p < flight.count; p++) {
       const u = units[flight.members[p]!]
       if (u === undefined || !u.alive) continue
-      if (u.cornerRatio < worst) worst = u.cornerRatio
+      let i = RATIOS.length
+      RATIOS.push(u.cornerRatio)
+      while (i > 0 && RATIOS[i - 1]! > RATIOS[i]!) {
+        const t = RATIOS[i - 1]!
+        RATIOS[i - 1] = RATIOS[i]!
+        RATIOS[i] = t
+        i--
+      }
     }
+    // 【空的時候是 Infinity】與舊碼的 `let worst = Infinity` 逐位元等價 ——
+    // 成員全部陣亡時不該累積見底。
+    //
+    // 【三面都要夾】上界是存活人數，下界是 0，而且要取整。`RATIOS[-1]`、
+    // `RATIOS[0.5]`、`RATIOS[9]` 都是 `undefined`，而 `undefined < spentRatio`
+    // 是 `false` —— 見底計時會被**靜靜地關掉**，撤退令從此不再發出，不丟
+    // 任何例外也沒有錯誤訊息。
+    const k = Math.min(Math.max(Math.floor(cfg.spentRank), 0), RATIOS.length - 1)
+    const worst = RATIOS.length === 0 ? Infinity : RATIOS[k]!
     if (worst < cfg.spentRatio) s.spent[f] = s.spent[f]! + dt
     else s.spent[f] = 0
 
@@ -1170,6 +1233,8 @@ const MEMBERS: CommandUnit[] = []
 const TARGET: CommandUnit[] = []
 const OTHERS: CommandUnit[] = []
 const FOES: CommandUnit[] = []
+/** 見底排序用的模組層暫存。熱路徑：不配置。 */
+const RATIOS: number[] = []
 const TARGET_IDX: number[] = []
 /** 排名的輸出。重用，理由同上 */
 const RANKED: number[] = []
