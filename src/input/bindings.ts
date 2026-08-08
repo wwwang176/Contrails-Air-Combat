@@ -65,7 +65,11 @@ export function attachInput(
   const onMouseMove = (e: MouseEvent) => {
     if (document.pointerLockElement !== canvas) return
     const half = window.innerHeight / 2
-    if (state.lookActive) {
+    // 【上帝視角下右鍵不接管滑鼠】自由視角是「相機繞著飛機轉」，而上帝
+    // 視角的相機根本不在飛機上，那個概念不存在。照舊接管的話這一段會提早
+    // return，`aimDelta` 不再累積 —— 而上帝視角餵給鏡頭的就是那兩個值，
+    // 症狀是「按住右鍵鏡頭就不動了」，而按鍵提示裡根本沒有右鍵。
+    if (state.lookActive && !state.godView) {
       state.lookYaw = clamp(
         state.lookYaw - (e.movementX / half) * LOOK_SENSITIVITY,
         -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT,
@@ -190,7 +194,18 @@ export function attachInput(
       if (!locked) state.firing = false
       // 【邊緣偵測】沒有它的話，鎖定沒回來的每一幀都會再送一次暫停，
       // 玩家按「繼續」會立刻被彈回暫停選單
-      if (wasLocked && !locked) state.pointerLockLost = true
+      //
+      // 【卡住的按鍵也在這裡清】切出視窗時瀏覽器不送 keyup。扳機上面已經
+      // 清了，但 `godMove` 更嚴重 —— 油門有 1.1 的上界，鏡頭速度沒有：
+      // 上帝視角按著 W 時 Alt-Tab，回來按「繼續」鏡頭就以 300 m/s（按著
+      // Shift 是 1200）一路飛走，而且要再按一次 W 並放開才停得下來。
+      //
+      // 【一定要用邊緣而不是「只要沒鎖定就清」】上帝視角在取得指標鎖之前
+      // 也該能用（它全部走鍵盤）；每幀清的話 WASD 永遠不會動。
+      if (wasLocked && !locked) {
+        state.pointerLockLost = true
+        clearHolds()
+      }
       wasLocked = locked
       // 【上帝視角不套用油門變化率】W/S 在那個模式下是鏡頭前後，而
       // `applyThrottleRate` 是**彈簧回中**的 —— 照跑的話你切回來時油門

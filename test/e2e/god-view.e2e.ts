@@ -15,7 +15,9 @@
  *
  * 【為什麼不用 process / fs】專案沒有 `@types/node`。截圖交給 playwright
  * 自己寫檔，判斷全部走 `page.evaluate`。這個目錄若讓 `tsc --noEmit` 收，
- * playwright 的 `.d.ts` 會把 node 的型別拉進來 —— 見下方 Step 4 的處置。
+ * playwright 的 `.d.ts` 會把 node 的型別拉進來。實測沒有發生（`skipLibCheck`
+ * 吞掉了），所以 `tsconfig.json` 沒有加 `exclude`；哪天 `tsc --noEmit` 因為
+ * 這個檔案紅了，加 `"exclude": ["test/e2e"]` 就是。
  *
  * ── 這個腳本裡哪些是斷言、哪些是給人看的 ──
  *
@@ -44,7 +46,7 @@
  * 或用一個放寬的斷言蓋過去。
  *
  * 換上來的是**不經過 3D 相機**的判準：右下角儀表區的像素。上帝視角下
- * `hudWidgets` 不排儀表、血條、能量、名冊，那一區必須是空的；回到座艙
+ * `hudWidgets` 不排儀表、血條、能量，那一區必須是空的；回到座艙
  * 必須再度有東西。它驗的正是「上帝視角只畫三個 widget，離開後全部回來」，
  * 而且完全不吃相機的狀態。
  */
@@ -96,7 +98,10 @@ async function main(): Promise<void> {
         const cy = Math.round(c.height / 2)
         return {
           centre: count(cx - h, cy - h, h * 2, h * 2),
-          // 右下角的儀表／血條／能量／名冊區。不經過 3D 相機
+          // 右下角的儀表／血條／能量區。不經過 3D 相機。
+          // 【名冊不在這一區】它畫在畫面**上方**置中（`roster.ts` 的
+          // `y = L.height * 0.04`），而且上帝視角下照畫 —— 它是留下的三個
+          // widget 之一
           dials: count(
             Math.round(c.width * 0.66), Math.round(c.height * 0.72),
             Math.round(c.width * 0.34), Math.round(c.height * 0.28),

@@ -362,15 +362,20 @@ describe('attachInput：上帝視角', () => {
    * （`throttle.ts:53-55`）：起始值就是 `CRUISE_THROTTLE`，放手時它原地
    * 不動，所以在巡航值上斷言「油門沒變」有沒有守衛都會過。
    *
-   * 推到 1.1 之後就分得開了：有 `if (!godView)` 守衛時停在 1.1，沒有的話
+   * 推離巡航之後就分得開了：有 `if (!godView)` 守衛時停在原處，沒有的話
    * 會以 0.6/s 掉回 0.7。
+   *
+   * 【`tick(0.5)` 而不是 `tick(1)`】1 秒會把油門推到上界 1.1，而 1.1 正是
+   * `applyThrottleRate(_, up=true, …)` 的**不動點**（`throttle.ts:47` 的
+   * `Math.min`）—— 停在那裡的話，「W 真的被改道了」與「W 還在餵 hold.up」
+   * 分不出來。0.5 秒落在 1.0，兩種壞法都測得到。
    */
   it('上帝視角下 W/S 不動油門、不設 braking', () => {
     const dom = setupDom()
     const state = createInputState()
     const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
     dom.win.fire('keydown', key('KeyW'))
-    b.tick(1)
+    b.tick(0.5)
     const raised = state.throttle
     expect(raised).toBeGreaterThan(CRUISE_THROTTLE)
 
@@ -380,6 +385,63 @@ describe('attachInput：上帝視角', () => {
     b.tick(1)
     expect(state.throttle).toBe(raised)
     expect(state.braking).toBe(false)
+  })
+
+  /**
+   * 【失去指標鎖也要清 hold】與「切出視窗扳機卡住」是同一類 bug，但比它
+   * 嚴重：油門有 1.1 的上界，`godMove` 沒有。
+   *
+   * 失敗情境：上帝視角按著 `W` 時 Alt-Tab —— 瀏覽器不送 `keyup`，
+   * `godMove.forward` 留在 true。失去鎖定會讓 `main.ts` 進暫停（所以當下
+   * 不會動），玩家按「繼續」之後鏡頭就以 300 m/s（按著 Shift 是 1200）
+   * 一路飛走，而且他找不到原因 —— 要再按一次 `W` 並放開才停得下來。
+   */
+  it('上帝視角下失去指標鎖，卡住的 godMove 要被清掉', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyW'))
+    dom.win.fire('keydown', key('ShiftLeft'))
+    expect(state.godMove.forward).toBe(true)
+
+    // Alt-Tab：鎖定沒了，而 keyup 永遠不會來
+    dom.doc.pointerLockElement = null
+    b.tick(1 / 60)
+    expect(state.godMove.forward).toBe(false)
+    expect(state.godMove.boost).toBe(false)
+  })
+
+  /**
+   * 【沒有鎖定時不能每幀清】清了的話 `WASD` 在取得指標鎖之前完全不會動 ——
+   * 而上帝視角是可以在沒鎖定的情況下用的（全部走鍵盤）。要清的是**邊緣**，
+   * 與 `pointerLockLost` 同一個判斷。
+   */
+  it('一直沒有鎖定時，godMove 照常累積', () => {
+    const dom = setupDom(false)
+    const state = createInputState()
+    const b = attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyW'))
+    b.tick(1 / 60)
+    b.tick(1 / 60)
+    expect(state.godMove.forward).toBe(true)
+  })
+
+  /**
+   * 【上帝視角下右鍵不能吃掉滑鼠】`onMouseMove` 在 `lookActive` 時提早
+   * return，`aimDelta` 因此不再累積 —— 而上帝視角餵給鏡頭的就是那兩個值。
+   * 不擋的話按住右鍵等於「鏡頭壞了」，而按鍵提示裡根本沒有右鍵。
+   */
+  it('上帝視角下按住右鍵，滑鼠照樣轉得動鏡頭', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.canvas.fire('mousedown', { button: 2 })
+    dom.win.fire('mousemove', { movementX: 100, movementY: 0 })
+    expect(state.aimDeltaX).not.toBe(0)
+    expect(state.lookYaw).toBe(0)
   })
 
   it('上帝視角下六個方向鍵與 Shift 寫進 godMove', () => {

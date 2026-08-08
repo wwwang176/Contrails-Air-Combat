@@ -156,14 +156,27 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   ctx.textBaseline = 'middle'
   ctx.fillText('N', cx + dx * reachEdge, cy + dy * reachEdge)
 
-  // 自機恆位於中心且恆朝上
-  ctx.fillStyle = HUD_COLORS.friendly
-  ctx.beginPath()
-  ctx.moveTo(cx, cy - 7 * L.scale)
-  ctx.lineTo(cx + 5 * L.scale, cy + 6 * L.scale)
-  ctx.lineTo(cx - 5 * L.scale, cy + 6 * L.scale)
-  ctx.closePath()
-  ctx.fill()
+  // 中心的標記。座艙裡它是自機（恆位於中心且恆朝上）。
+  //
+  // 【上帝視角下它不是一架飛機】那時候 `worldX`/`worldZ`/`heading` 填的是
+  // **鏡頭**的，中心代表鏡頭在哪。照畫友機三角形的話它就是在騙人 —— 那個
+  // 位置沒有飛機，而自機是以一般接觸點的身分畫在別的地方（`main.ts` 在
+  // 上帝視角下把自己也放進接觸點）。改畫一個空心方框，讀起來是「視野中心」
+  // 而不是「一架友機」。
+  if (f.godView) {
+    ctx.strokeStyle = HUD_COLORS.dim
+    ctx.lineWidth = 1 * L.scale
+    const h = 5 * L.scale
+    ctx.strokeRect(cx - h, cy - h, h * 2, h * 2)
+  } else {
+    ctx.fillStyle = HUD_COLORS.friendly
+    ctx.beginPath()
+    ctx.moveTo(cx, cy - 7 * L.scale)
+    ctx.lineTo(cx + 5 * L.scale, cy + 6 * L.scale)
+    ctx.lineTo(cx - 5 * L.scale, cy + 6 * L.scale)
+    ctx.closePath()
+    ctx.fill()
+  }
 
   // 比例尺與座標放在框**外**：N 標記貼著框邊跑，某些航向會正好落在角落上
   ctx.fillStyle = HUD_COLORS.dim

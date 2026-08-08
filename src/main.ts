@@ -738,7 +738,14 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const refY = input.godView ? godCam.position.y : renderPos.y
   let n = 0
   for (const c of world.combatants) {
-    if (c === player || !c.alive || n >= HUD_MAX_CONTACTS) continue
+    // 【上帝視角下自機也要進接觸點】座艙裡排除自己是對的（你就坐在裡面），
+    // 但上帝視角下中心是**鏡頭**不是自機 —— 不放進來的話，玩家自己那一架
+    // （正被 AI 代飛，也就是這個模式最想看的東西）在小地圖上一個像素都沒有。
+    // 池子夠：`HUD_MAX_CONTACTS` 48，20v20 最多 39 個他機。
+    //
+    // 【`range` 與 `radius` 會是 0 與一個很大的值】兩者只有接觸點框與邊緣
+    // 指示在吃，而那兩個 widget 在上帝視角下根本不畫（`hudWidgets`）。
+    if ((c === player && !input.godView) || !c.alive || n >= HUD_MAX_CONTACTS) continue
     const contact = hudFrame.contacts[n]!
     const v = visuals.get(c)!
 
