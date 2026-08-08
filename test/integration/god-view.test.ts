@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
+import {
+  createGodCameraState, stepGodCamera, type GodCameraInput,
+} from '../../src/camera/godCamera'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
@@ -65,5 +68,51 @@ describe('指揮權跟著代飛走（20v20、120 秒）', () => {
    */
   it('玩家座位坐人類控制器 → 整場一次都拿不到命令', () => {
     expect(orderedSteps(new Human())).toBe(0)
+  }, 10 * 60 * 1000)
+})
+
+describe('鏡頭不得改變戰局（20v20、120 秒、兩場）', () => {
+  /**
+   * 【這條護欄實際在守什麼】它看起來近乎恆真 —— `godCamera.ts` 不 import
+   * `src/battle/`，怎麼可能改到戰局？但這個專案裡有一個真的會踩到的機制：
+   * **模組層級的共用暫存池**（`core/pool.ts` 的 `makeScratch`，`src/ai/` 與
+   * `CameraRig` 都在用）。鏡頭若借用了別人的池子，就會在別人用到一半時把
+   * 內容改掉，而症狀是「戰局悄悄變了」而不是任何錯誤。
+   *
+   * 對照挑代飛對代飛：代飛本身會改戰局（那是它該做的），而鏡頭不該。
+   *
+   * 它**守不到** `main.ts` 的算繪路徑（`terrain.update` 的中心點接錯之類），
+   * 那一段沒有無頭測試 —— 由 Playwright 驗收補（spec §8.6）。
+   */
+  function damage(stepCamera: boolean): { blue: number, red: number } {
+    const b = createBattle(new AiController())
+    const hp0 = b.world.combatants.map((c) => c.hp)
+    const cam = createGodCameraState()
+    const input: GodCameraInput = {
+      forward: true, back: false, left: false, right: true,
+      up: true, down: false, boost: true, lookX: 0.01, lookY: -0.005,
+    }
+    for (let s = 0; s < SECONDS * 240; s++) {
+      stepBattle(b, DT)
+      if (stepCamera) stepGodCamera(cam, input, DT)
+    }
+    const out = { blue: 0, red: 0 }
+    for (const c of b.world.combatants) {
+      const lost = hp0[c.index]! - c.hp
+      if (c.team === 'blue') out.blue += lost
+      else out.red += lost
+    }
+    return out
+  }
+
+  it('推進上帝鏡頭不改變任何一架的掉血', () => {
+    const off = damage(false)
+    const on = damage(true)
+    console.log(JSON.stringify({
+      off: `B${off.blue.toFixed(0)}:R${off.red.toFixed(0)}`,
+      on: `B${on.blue.toFixed(0)}:R${on.red.toFixed(0)}`,
+    }))
+    expect(on.blue).toBe(off.blue)
+    expect(on.red).toBe(off.red)
   }, 10 * 60 * 1000)
 })
