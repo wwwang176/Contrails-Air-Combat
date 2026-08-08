@@ -105,11 +105,23 @@ describe('recoveryAltitude', () => {
 
   /**
    * 【同一個角落的另一半：單段支的 nMax 恰為 1】`c` 捨入成 0 時 `n*` 也捨入
-   * 成 1，於是 `nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。那裡要回
-   * `Infinity`（拉起半徑真正的極限，也與修改前一致），不是 `NaN`。
+   * 成 1，於是 `nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。
+   *
+   * 那裡的正確答案是 **0**，不是 `Infinity` —— 兩段模型只要加速無限小就能
+   * 拿到正的剩餘過載，再穿過一個無限小的角度。回 `Infinity` 是**單段**模型
+   * 的極限，套在這裡等於在一個窄角落裡重建這次要修掉的缺陷（撞地分支在
+   * 任何高度成立）。所以 `q <= 0` 要落到兩段公式。
+   *
+   * 【也要連續】`−1.5×10⁻⁸`（`c` 還沒塌成 0）與 `−10⁻⁸`（已經塌成 0）之間
+   * 不能有跳變。
    */
-  it('nMax 恰為 1 且俯衝角極淺時回傳 Infinity 而不是 NaN', () => {
-    expect(recoveryAltitude(200, -1e-12, 1)).toBe(Infinity)
+  it('nMax 恰為 1 且俯衝角極淺時回傳 0，而且沒有跳變', () => {
+    expect(recoveryAltitude(200, -1e-12, 1)).toBe(0)
+    const justAbove = recoveryAltitude(200, -1.5e-8, 1)
+    const justBelow = recoveryAltitude(200, -1e-8, 1)
+    expect(Number.isFinite(justAbove)).toBe(true)
+    expect(Number.isFinite(justBelow)).toBe(true)
+    expect(Math.abs(justAbove - justBelow)).toBeLessThan(1e-3)
   })
 
   /**
@@ -418,6 +430,48 @@ describe('失速硬介入', () => {
     const out = createCommand()
     expect(applySafety(a, 0, out)).toBe('ground')
     expect(out.aimWorld.y).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【低空低速的分界就落在垂直速度的正負號上 —— 這是既有行為，不是本次裁定】
+   *
+   * 150 m、TAS 30（`nMax ≈ 0.42`，遠低於 1）：
+   *
+   * | vy | 分支 | 補救 |
+   * |---|---|---|
+   * | 0 | `stall` | 壓頭 |
+   * | −0.001 | `ground` | 抬頭 |
+   *
+   * 為什麼：`gamma >= 0` 時 `recoveryAltitude` 回 0，`needed` 就只剩
+   * `clearance` = 120 < 150；一旦 γ 轉負，兩段模型要求「先換到能拉得動的速度」
+   * 的那段高度（實測約 52 m），`needed` 跳到約 198 > 150。
+   *
+   * 【2026-08-09 之前一模一樣，只是跳得更遠】舊碼在 γ < 0 且 `nMax ≤ 1` 時回
+   * `Infinity`，所以那時的跳變是「120 → ∞」。實測把舊版 `safety.ts` 單獨
+   * checkout 回來跑同一條掃描，八個 `vy` 的分支與瞄準點**逐字相同**。也就是說
+   * 本次修改**縮小**了這個不連續，沒有製造它。
+   *
+   * 【這條測試在守什麼】它是變更偵測器：這個邊界要不要改（例如把第一段的
+   * 推力做功算進去讓它連續）是另一份 spec 的事，但在那之前，任何人不小心
+   * 移動了它都會在這裡看到。
+   */
+  it('低空低速的分界落在垂直速度的正負號上（既有行為）', () => {
+    const at = (vy: number) => {
+      const a = new Aircraft(P51D, 150, 30)
+      a.state.position.set(0, 150, 0)
+      a.state.velocity.set(0, vy, -30)
+      a.prevPosition.copy(a.state.position)
+      const out = createCommand()
+      return { action: applySafety(a, 0, out), aimY: out.aimWorld.y }
+    }
+    const level = at(0)
+    expect(level.action).toBe('stall')
+    expect(level.aimY).toBeLessThan(0)
+    for (const vy of [-0.001, -0.5, -3]) {
+      const sinking = at(vy)
+      expect(sinking.action).toBe('ground')
+      expect(sinking.aimY).toBeGreaterThan(0)
+    }
   })
 
   it('速度充足且高度充足時不介入', () => {

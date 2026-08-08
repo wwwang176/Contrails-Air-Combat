@@ -4,7 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
 import { AiController } from '../../src/ai/AiController'
 import { recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
-import { maxLoadFactorAero } from '../../src/analysis/envelope'
+import { maxLoadFactorAero, stallSpeed } from '../../src/analysis/envelope'
 import { PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -158,6 +158,98 @@ describe('L4-A 安全矩陣 —— 契約內永不觸海', () => {
       }
     }
     expect(n).toBeGreaterThanOrEqual(MIN_IN_CONTRACT)
+  })
+})
+
+/**
+ * 低速改出 —— 2026-08-09 的兩段式改出**新開的那一支**的 physics-in-loop 護欄。
+ *
+ * 【為什麼上面那 288 組蓋不到】它們的速度是 120／200／300 m/s，每一格的
+ * `nMax` 都在 `n*` 的 **3.3 倍**以上，全部走「與修改前逐位元相同」的單段支。
+ * 換句話說：上面那張矩陣證明了「舊行為沒被動到」，卻**一格都沒踩進新行為**。
+ *
+ * 而新分支在 `1 < nMax < n*` 那一段給出的值**比舊公式小**（實測
+ * TAS 200 / −45° / `nMax = 1.1`：2607 → 2070 m，少 20.6%）。那是理想兩段模型
+ * 的最佳值沒錯，但「理想模型算得出來」不等於「這台飛機真的在那個高度內拉得
+ * 回來」—— 那要真的跑物理才知道。這一組就是在跑物理。
+ *
+ * 【速度怎麼選】直接指定目標 `nMax`，再由 `tas = Vs(1g) × √nMax` 反推 ——
+ * 因為 `nMax = (tas / Vs)²`。0.5 與 0.9 落在「拉不動」那一側，1.1 與 1.3 落在
+ * 「拉得動但加速更划算」那一段（`n*` 在 −20°／−45°／−70° 分別是
+ * 1.119／1.304／1.463）。
+ */
+describe('L4-A 安全矩陣 —— 低速改出（兩段式的新分支）', () => {
+  const LOW_ALTITUDES = [600, 1200, 2500] as const
+  /** 目標過載上限。由它反推速度 */
+  const LOW_LOADS = [0.5, 0.9, 1.1, 1.3] as const
+  const LOW_DIVES = [-20, -45, -70] as const
+
+  /** 這個俯衝角的最佳拉起過載 `n*`，與速度、高度、機種都無關。 */
+  function nStarOf(gammaDeg: number): number {
+    const c = 1 - Math.cos(Math.abs(gammaDeg * DEG))
+    const root = Math.cbrt(2 * c)
+    return Math.sqrt(1 + root * root)
+  }
+
+  function speedFor(spec: AircraftSpec, alt: number, load: number): number {
+    return stallSpeed(spec, alt, 1) * Math.sqrt(load)
+  }
+
+  for (const [name, spec] of SPECS) {
+    for (const alt of LOW_ALTITUDES) {
+      for (const load of LOW_LOADS) {
+        for (const dive of LOW_DIVES) {
+          const tas = speedFor(spec, alt, load)
+          const inContract = withinContract(spec, alt, tas, dive)
+          const label = `${name} / ${alt} m / nMax≈${load} / ${dive}°`
+          it(`${label}${inContract ? '' : '（契約外）'}`, () => {
+            const r = fly(spec, alt, tas, dive, 0)
+            expect(r.finite).toBe(true)
+            if (!inContract) return
+            expect(r.minAltitude).toBeGreaterThan(0)
+          })
+        }
+      }
+    }
+  }
+
+  /**
+   * 【防止這一組空洞化】兩個方向都要守：
+   *
+   * 一、若哪天門檻被放寬到讓這些格子全變成「契約外」，上面的斷言會整組被
+   *     `return` 跳過，看起來還是綠的。
+   * 二、若日後有人調整上面的高度／過載／俯衝角清單，或改了機種的失速速度，
+   *     這些格子可能悄悄漂出 `nMax < n*` 的範圍，於是這一組就不再是新分支的
+   *     護欄了，卻仍然全綠。
+   *
+   * 【它擋不住什麼】`nStarOf` 是本檔自己算的，所以**實作層**把分界改回
+   * `nMax > 1` 這種 mutation 不會在這裡轉紅 —— 那一條由
+   * `test/unit/ai-safety.test.ts` 的「回傳的是兩段模型在所有可行拉起速度上的
+   * 最小值」守（已用 mutation 驗過）。這一條守的是**題目**有沒有漂掉，
+   * 不是實作有沒有壞掉。
+   */
+  it('這一組真的踩在新分支上，而且真的在契約內', () => {
+    let inContract = 0
+    let newBranch = 0
+    let total = 0
+    for (const [, spec] of SPECS) {
+      for (const alt of LOW_ALTITUDES) {
+        for (const load of LOW_LOADS) {
+          for (const dive of LOW_DIVES) {
+            total++
+            const tas = speedFor(spec, alt, load)
+            if (withinContract(spec, alt, tas, dive)) inContract++
+            const nMax = Math.min(maxLoadFactorAero(spec, alt, tas), PILOT_G_POSITIVE)
+            if (nMax < nStarOf(dive)) newBranch++
+          }
+        }
+      }
+    }
+    // 實測 72 組全部契約內、66 組走新分支（只有 nMax≈1.3 / −20° 那 6 格
+    // 因為 n* = 1.119 < 1.3 而走單段支）。留一點浮動空間
+    expect(total).toBe(72)
+    expect(inContract).toBeGreaterThanOrEqual(66)
+    expect(newBranch).toBeGreaterThanOrEqual(60)
   })
 })
 

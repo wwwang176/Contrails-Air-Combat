@@ -121,11 +121,15 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
   const root = Math.cbrt(2 * c)
   const nStar = Math.sqrt(1 + root * root)
 
-  if (nMax >= nStar) {
-    // 這一支與修改前逐位元相同。`q` 只在 `c` 捨入成 0（於是 n* 捨入成 1）
-    // 而 nMax 又恰為 1 的角落為 0，那時拉起半徑真的是無限大
-    const q = nMax * nMax - 1
-    return q > 0 ? ((tas * tas) / (G0 * Math.sqrt(q))) * c : Infinity
+  // 【`q > 0` 也要成立才走單段支】`q` 只在 `c` 捨入成 0（於是 n* 也捨入成 1）
+  // 而 nMax 又恰為 1 的角落為 0。那時不能回 Infinity —— 兩段模型在那裡的答案
+  // 是 **0**（加速無限小就能拿到正的剩餘過載，再穿過一個無限小的角度）。
+  // 回 Infinity 等於在一個窄角落裡重建這次要修掉的缺陷本身。落到下面的兩段
+  // 公式即可：`nStar = 1` ⟹ `v2 = tas²` ⟹ 兩項都自然是 0。
+  const q = nMax * nMax - 1
+  if (q > 0 && nMax >= nStar) {
+    // 這一支與修改前逐位元相同
+    return ((tas * tas) / (G0 * Math.sqrt(q))) * c
   }
 
   // 先換速度到 n = n*（`n ∝ V²` ⟹ `V² = tas² · n* ÷ nMax`），再拉平。
