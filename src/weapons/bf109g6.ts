@@ -6,7 +6,7 @@ export const MG151_20: WeaponSpec = {
   name: 'MG 151/20',
   muzzleVelocity: 705,
   roundsPerMinute: 700,
-  damage: 28,
+  damage: 84,
 }
 
 export const MG131: WeaponSpec = {
@@ -14,7 +14,7 @@ export const MG131: WeaponSpec = {
   name: 'MG 131',
   muzzleVelocity: 750,
   roundsPerMinute: 900,
-  damage: 10,
+  damage: 30,
 }
 
 /**

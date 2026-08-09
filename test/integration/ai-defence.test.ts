@@ -6,6 +6,8 @@ import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { threatFactor } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
+import { P51D_BATTERY } from '../../src/weapons/p51d'
+import { batteryDps } from '../../src/weapons/types'
 
 const DT = 1 / 240
 const SECONDS = 30
@@ -117,6 +119,25 @@ function scenario(behind: Vector3): Outcome {
   }
 }
 
+/**
+ * 藍方可以挨的打，以**紅方持續火力的秒數**表示（三架都是 P-51）。
+ *
+ * 【為什麼不是寫死 150 HP】原本是。2026-08-09 三個單發傷害一律 ×3 之後，
+ * 這個場景的行為**一格都沒變** —— 四種幾何的 `defendShare`、反應秒數、
+ * `huntedShare` 全部逐位元相同（30 s 內沒有人死，傷害只是被累加），只有
+ * 掉血量精確地變成三倍：40.2 / 68.4 / 0 / 108.0 → 120.6 / 205.2 / 0 / 324.0。
+ * 150 這條線因此紅了兩組，而紅的原因與閃躲品質無關 —— 是尺的單位被換掉了。
+ *
+ * 改用「紅方開火 0.3125 s 的量」之後，這條線與單發傷害脫鉤：
+ * 舊值 0.3125 × 480 = 150，新值 0.3125 × 1440 = 450。**這不是放寬** ——
+ * 四組的餘裕以秒為單位一字未動（0.084 / 0.143 / 0 / 0.225 s，上限 0.3125）。
+ *
+ * 【0.3125 是怎麼來的】就是舊門檻 150 ÷ 舊 DPS 480。它承接 2026-08-05 的
+ * 回填值（實測 103 / 126 / 0 / 25，修補前 130 / 205 / 235 / 45，150 這條線
+ * 在修補前有兩組會紅），沒有重新挑過。
+ */
+const DAMAGE_BUDGET_SECONDS = 150 / 480
+
 /** 四種被咬的幾何。距離都在射擊解範圍內。 */
 const CASES: { name: string; behind: Vector3 }[] = [
   { name: '正後方 400 m', behind: new Vector3(0, 0, 400) },
@@ -171,9 +192,8 @@ describe('被夾擊時的閃躲（1 藍 2 紅、30 秒）', () => {
       // 【三：閃躲不該讓 AI 停止進攻】
       expect(o.dealtToA).toBeGreaterThan(0)
 
-      // 【四：真正的產出 —— 少挨打】實測 103 / 126 / 0 / 25，
-      // 修補前 130 / 205 / 235 / 45。150 這條線在修補前有兩組會紅。
-      expect(o.blueDamage).toBeLessThanOrEqual(150)
+      // 【四：真正的產出 —— 少挨打】
+      expect(o.blueDamage).toBeLessThanOrEqual(DAMAGE_BUDGET_SECONDS * batteryDps(P51D_BATTERY))
     })
   }
 })

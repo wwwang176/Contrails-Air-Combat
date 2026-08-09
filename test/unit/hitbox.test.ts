@@ -134,12 +134,16 @@ describe('AircraftSpec 的新欄位', () => {
     for (const spec of CASES) expect(spec.hp).toBe(1000)
   })
 
-  it('TTK 對得上 spec §6.3 的表（P-51 2.1 s、109 1.6 s）', () => {
+  it('TTK 對得上 spec §6.3 的表（P-51 0.69 s、109 0.53 s）', () => {
     // HP / DPS，全中機身（倍率 1.0）。
+    //
+    // 【2026-08-09：三個單發傷害一律 ×3】專案負責人的調參決定，TTK 因此
+    // 由 2.08 / 1.60 s 縮到約三分之一。**精度沒有放寬** —— 還是 2 位小數
+    // （原本寫 1 位，那對 0.69 與 0.53 太鬆，兩者只差 0.16）。
     const ttk = (s: AircraftSpec): number =>
       s.hp / s.battery.mounts.reduce(
         (a, m) => a + (m.weapon.roundsPerMinute / 60) * m.weapon.damage, 0)
-    expect(ttk(P51D)).toBeCloseTo(2.08, 1)
-    expect(ttk(BF109G6)).toBeCloseTo(1.60, 1)
+    expect(ttk(P51D)).toBeCloseTo(0.694, 2)
+    expect(ttk(BF109G6)).toBeCloseTo(0.532, 2)
   })
 })
