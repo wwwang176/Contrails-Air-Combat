@@ -213,7 +213,16 @@ Expected: 兩者都通過。
 
 - [ ] **Step 6: 突變驗證這幾條測試是承重的**
 
-把 `types.ts` 的 `contactBoxRadius` 暫時改成 `Math.max(BOX_MIN, Math.min(BOX_MAX, radius * unit)) * scale`（先夾再乘），跑 `npx vitest run test/unit/hud.test.ts`，確認「上下界跟著 scale 走」與「scale 不會把中間段乘第二次」轉紅，然後改回來。
+**兩個突變，各自對應不同的一半。** 每個都跑 `npx vitest run test/unit/hud.test.ts`，確認**指定的那幾條**轉紅（不是「跑跑看」），然後改回來。
+
+| 突變 | 應該紅的 | 應該仍綠的 |
+|---|---|---|
+| `Math.max(BOX_MIN, Math.min(BOX_MAX, radius * unit)) * scale`（先夾再乘） | 只有「scale 不會把中間段乘第二次」（20 → 40） | 兩條夾制測試 —— **它們照樣過**：先夾出 9／46 再乘 2 剛好也是 18／92 |
+| `Math.max(BOX_MIN, Math.min(BOX_MAX, radius * unit))`（完全不乘 scale） | 「scale = 2 時下界是 18」（9 ≠ 18）與上界那條（46 ≠ 92） | 中間段那條（20 = 20） |
+
+【為什麼要兩個】第一個突變**單靠夾制測試抓不到**，這一點在初版計畫裡寫錯了
+（Codex 2026-08-09 審查時算出來的）。兩條測試各守一半，缺一不可 —— 這正是
+它們兩條都要存在的理由。
 
 - [ ] **Step 7: Commit**
 
@@ -360,22 +369,133 @@ describe('flightStrengthLabel', () => {
 })
 
 describe('godMarkerColor', () => {
-  it('敵方是危險色、我方是友軍色', () => {
+  /**
+   * 【兩色不是三色】座艙的 `contactColor` 有第三個顏色給玩家自己的 Schwarm
+   * （警示黃 `HUD_COLORS.warn`），用來標「誰會在你被咬時回頭掩護你」。
+   * 上帝視角是旁觀全場，那個區別沒有意義 —— 專案負責人 2026-08-09 的裁決。
+   * 下面兩條精確相等就把「不得是警示黃」一起釘住了；**不要再補一條
+   * `not.toBe(HUD_COLORS.warn)`**，那在相等斷言已經成立之後是恆真的，
+   * 什麼都不守（Codex 2026-08-09 審查指出）。
+   */
+  it('敵方是危險色、我方是友軍色，沒有第三個', () => {
     expect(godMarkerColor(true)).toBe(HUD_COLORS.danger)
     expect(godMarkerColor(false)).toBe(HUD_COLORS.friendly)
   })
+})
 
-  /**
-   * 【兩色不是三色】座艙的 `contactColor` 有第三個顏色給玩家自己的 Schwarm
-   * （警示黃），用來標「誰會在你被咬時回頭掩護你」。上帝視角是旁觀全場，
-   * 那個區別沒有意義 —— 專案負責人 2026-08-09 的裁決。
-   */
-  it('沒有第三個顏色 —— 玩家分隊的長機不得是警示黃', () => {
-    expect(godMarkerColor(true)).not.toBe(HUD_COLORS.warn)
-    expect(godMarkerColor(false)).not.toBe(HUD_COLORS.warn)
+/**
+ * 【為什麼要一個假的 canvas context】上面那些純函數全部通過，`drawGodMarkers`
+ * 卻可能根本沒被呼叫、或把 `flightAlive` 與 `flightSize` 寫反、或把 y 軸翻錯 ——
+ * 沒有任何一條會紅（Codex 2026-08-09 審查指出）。canvas 在 node 環境沒有實作，
+ * 但這個 widget 只碰五個成員，手寫一個記錄呼叫的替身就夠。
+ *
+ * **這不是「測試繪製好不好看」**（那條紀律不變，好不好看只有專案負責人判定
+ * 得了）。它測的是「畫了幾個、畫在哪、字是什麼」—— 三件有明確正確答案的事。
+ */
+describe('drawGodMarkers', () => {
+  const LAYOUT: HudLayout = {
+    width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1,
+  }
+
+  function fakeCtx(): {
+    ctx: CanvasRenderingContext2D
+    rects: { x: number, y: number, w: number, h: number }[]
+    texts: { text: string, x: number, y: number }[]
+  } {
+    const rects: { x: number, y: number, w: number, h: number }[] = []
+    const texts: { text: string, x: number, y: number }[] = []
+    const ctx = {
+      font: '', textAlign: '', textBaseline: '',
+      strokeStyle: '', fillStyle: '', lineWidth: 0,
+      strokeRect(x: number, y: number, w: number, h: number): void {
+        rects.push({ x, y, w, h })
+      },
+      fillText(text: string, x: number, y: number): void {
+        texts.push({ text, x, y })
+      },
+    } as unknown as CanvasRenderingContext2D
+    return { ctx, rects, texts }
+  }
+
+  /** 長機在 (0, 0.5)、半徑 0.05（× unit 360 = 18，落在夾制的中間段） */
+  function twoContacts(): ReturnType<typeof createHudFrame> {
+    const f = createHudFrame()
+    const leader = f.contacts[0]!
+    leader.active = true
+    leader.flightLeader = true
+    leader.hostile = true
+    leader.x = 0
+    leader.y = 0.5
+    leader.radius = 0.05
+    leader.flightAlive = 2
+    leader.flightSize = 4
+
+    const wingman = f.contacts[1]!
+    wingman.active = true
+    wingman.flightLeader = false
+    wingman.hostile = true
+    wingman.x = 0.2
+    wingman.y = 0.1
+    wingman.radius = 0.05
+    wingman.flightAlive = 2
+    wingman.flightSize = 4
+
+    f.contactCount = 2
+    return f
+  }
+
+  it('兩架同隊只畫一個框 —— 僚機沒有', () => {
+    const { ctx, rects, texts } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    expect(rects).toHaveLength(1)
+    expect(texts).toHaveLength(1)
+  })
+
+  /** 【y 要翻】螢幕座標往下為正，接觸點的 y 往上為正 */
+  it('框以長機為中心，而且 y 軸有翻', () => {
+    const { ctx, rects } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    // cx + 0 × 360 = 640；cy − 0.5 × 360 = 180；r = 0.05 × 360 = 18
+    expect(rects[0]).toEqual({ x: 640 - 18, y: 180 - 18, w: 36, h: 36 })
+  })
+
+  /** 【分子分母不能對調】寫反的話畫出來是 (4/2)，而純函數測試抓不到 */
+  it('框下的字是 (存活/編制)，貼在框底下', () => {
+    const { ctx, texts } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    expect(texts[0]!.text).toBe('(2/4)')
+    expect(texts[0]!.x).toBe(640)
+    expect(texts[0]!.y).toBe(180 + 18 + 3)
+  })
+})
+
+/**
+ * 【接觸點池必須裝得下整場】`drawGodMarkers` 是從池子裡**過濾**長機的，
+ * 而池子在 `main.ts` 是先到先得（`n >= HUD_MAX_CONTACTS` 就不再收）。
+ * 池子若比參戰架數小，被擠掉的可能正好是某個分隊的長機 —— 那一隊就
+ * **靜靜地沒有標示**，沒有錯誤、沒有警告（Codex 2026-08-09 審查指出）。
+ *
+ * 【為什麼這條護欄只能住在測試裡】`src/hud/` 不得 import `src/battle/`
+ * （`HudFrame` 是純 DTO）。測試沒有這個限制，兩邊都 import 得到 ——
+ * 與 `src/render/vortex.ts:131` 註解記的「為什麼不 import MAX_COMBATANTS」
+ * 是同一個處置。
+ */
+describe('接觸點池的容量', () => {
+  it('裝得下整場最大架數', () => {
+    expect(HUD_MAX_CONTACTS).toBeGreaterThanOrEqual(MAX_COMBATANTS)
   })
 })
 ```
+
+這一段還要在 import 區補三個：
+
+```ts
+import { drawGodMarkers } from '../../src/hud/widgets/godMarkers'
+import type { HudLayout } from '../../src/hud/types'
+import { MAX_COMBATANTS } from '../../src/battle/skirmish'
+```
+
+（`createHudFrame` 與 `HUD_MAX_CONTACTS` 既有的 import 已經有了。）
 
 - [ ] **Step 2: 跑測試確認是紅的**
 
@@ -437,7 +557,9 @@ export function godMarkerColor(hostile: boolean): string {
  * 框的線寬、字級、間距全部沿用座艙目標框（`contacts.ts`），因為兩者是同一套
  * 視覺語言 —— 只是框底下那個讀數的意思由「距離」換成「這一隊還剩幾架」。
  *
- * 熱路徑：不配置。
+ * 【配置：每個標示一個字串，每幀】`flightStrengthLabel` 與 `hudFont` 都回傳
+ * 新字串。**這不是零配置**，但與 `drawContacts` 的距離讀數是同一個取捨，而且
+ * 量級更小（最多十個分隊 vs 最多四十架）。`hudFont` 已經提到迴圈外，一幀一次。
  */
 export function drawGodMarkers(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
@@ -536,16 +658,151 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 
 ---
 
-### Task 3：`main.ts` 接線，並修掉上帝視角下算錯的 `range`
+### Task 3：編制查詢的純函數 + `main.ts` 接線 + 修掉算錯的 `range`
 
 **Files:**
+- Modify: `src/battle/flights.ts`（新增兩個純函數）
 - Modify: `src/main.ts:786`（`refY`）、`:804`（`range`）、`:810-812`（欄位填寫）
+- Test: `test/unit/battle-flights.test.ts`
 
 **Interfaces:**
 - Consumes: `HudContact.flightLeader` / `.flightAlive` / `.flightSize`（Task 1）、`drawGodMarkers` 已接進 `Hud.render`（Task 2）
-- Produces: 執行期真的會畫出標示。**這個 task 沒有單元測試** —— `main.ts` 進不了 vitest（它在模組載入時就摸 `document`）。它的驗收在 Task 4 的 Playwright。
+- Produces:
+  - `flightOfIndex(fi: FlightIndex, index: number): Flight | null`（由 `src/battle/flights.ts` 匯出）
+  - `isFlightLeader(fi: FlightIndex, index: number): boolean`（同上）
 
-- [ ] **Step 1: 把 `range` 的基準改成鏡頭**
+**【為什麼要多這兩個純函數】** `main.ts` 進不了 vitest（它在模組載入時就摸
+`document`），所以寫在那裡的東西一行都測不到。而這一段裡**有兩條會靜靜出錯
+的規則**：把 `positionOf` 寫成 `flightOf`、或反過來。兩者都是 `Int32Array`，
+型別上完全合法，畫面上的症狀是「標示跑到僚機身上」或「每一架都有標示」——
+離成因很遠。抽成純函數就守得住（Codex 2026-08-09 審查指出這一段完全裸奔）。
+
+`flightAlive` / `flightSize` 對調則由 Task 2 的 `drawGodMarkers` 測試守住
+`(2/4)` 的方向；`range` 換基準沒有自動判準，靠 Task 4 的人工驗收。**這兩件
+事在此明說，不假裝有覆蓋。**
+
+- [ ] **Step 1: 先寫會紅的測試**
+
+`test/unit/battle-flights.test.ts` 的 import 補兩個名字：
+
+```ts
+import {
+  SCHWARM_SIZE, STATION_REFERENCE, createFlights, compactFlights, stationReferenceOf,
+  flightOfIndex, isFlightLeader,
+  type FlightMember, type FlightIndex,
+} from '../../src/battle/flights'
+```
+
+檔案尾端加：
+
+```ts
+describe('flightOfIndex 與 isFlightLeader —— HUD 分隊標示要用的兩條查詢', () => {
+  /**
+   * 【為什麼這兩條值得純函數】它們的呼叫端是 `main.ts`，而那裡進不了 vitest。
+   * 兩個索引表都是 `Int32Array`，把 `positionOf` 寫成 `flightOf` 型別上完全
+   * 合法 —— 症狀是「標示跑到僚機身上」，離成因很遠。
+   */
+  it('每個分隊的 members[0] 是長機，其餘不是', () => {
+    const fi = createFlights(roster(8))
+    for (const f of fi.flights) {
+      expect(isFlightLeader(fi, f.members[0]!)).toBe(true)
+      for (let p = 1; p < f.count; p++) {
+        expect(isFlightLeader(fi, f.members[p]!)).toBe(false)
+      }
+    }
+  })
+
+  it('長機陣亡後由繼任者接手，舊長機不再是長機', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const first = fi.flights[0]!
+    const dead = first.members[0]!
+    const heir = first.members[1]!
+
+    all[dead]!.alive = false
+    compactFlights(fi, all)
+
+    expect(isFlightLeader(fi, heir)).toBe(true)
+    expect(isFlightLeader(fi, dead)).toBe(false)
+  })
+
+  it('已退場的那一架沒有分隊，也不是長機', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const dead = fi.flights[0]!.members[1]!
+    all[dead]!.alive = false
+    compactFlights(fi, all)
+
+    expect(flightOfIndex(fi, dead)).toBe(null)
+    expect(isFlightLeader(fi, dead)).toBe(false)
+  })
+
+  /** 【回傳的是同一個物件不是複本】呼叫端每幀跑幾十次，不能配置 */
+  it('flightOfIndex 回傳的就是 flights 裡那一個物件', () => {
+    const fi = createFlights(roster(8))
+    expect(flightOfIndex(fi, fi.flights[1]!.members[0]!)).toBe(fi.flights[1])
+  })
+
+  /** 存活數與編制員額是兩個不同的數，陣亡之後才分得出來 */
+  it('count 是存活數、roster.length 是編制員額', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const idx = fi.flights[0]!.members[0]!
+    expect(flightOfIndex(fi, idx)!.count).toBe(4)
+    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
+
+    all[fi.flights[0]!.members[3]!]!.alive = false
+    compactFlights(fi, all)
+    expect(flightOfIndex(fi, idx)!.count).toBe(3)
+    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
+  })
+})
+```
+
+- [ ] **Step 2: 跑測試確認是紅的**
+
+Run: `npx vitest run test/unit/battle-flights.test.ts`
+Expected: FAIL —— `flightOfIndex` 與 `isFlightLeader` 不存在。
+
+- [ ] **Step 3: 在 `src/battle/flights.ts` 尾端實作**
+
+```ts
+/**
+ * 第 `index` 架所屬的分隊；已退場（或不在編制內）回傳 null。
+ *
+ * 【為什麼回傳物件而不是三個數】呼叫端（`main.ts` 的 HUD 迴圈）每幀跑幾十次，
+ * 回傳一個新物件就是每幀幾十次配置。這裡回的是 `flights` 陣列裡那一個實體。
+ */
+export function flightOfIndex(fi: FlightIndex, index: number): Flight | null {
+  const f = fi.flightOf[index]!
+  return f >= 0 ? fi.flights[f]! : null
+}
+
+/**
+ * 第 `index` 架是不是它那個分隊的長機（`members[0]`）。
+ *
+ * 【`positionOf` 不是 `flightOf`】兩者都是 `Int32Array`，寫錯了型別上完全
+ * 合法。前者是「在分隊裡的第幾位」，後者是「屬於第幾個分隊」——
+ * 用錯的話第 0 個分隊的每一架都會被當成長機。
+ */
+export function isFlightLeader(fi: FlightIndex, index: number): boolean {
+  return fi.flightOf[index]! >= 0 && fi.positionOf[index] === 0
+}
+```
+
+- [ ] **Step 4: 跑測試並突變驗證**
+
+Run: `npx vitest run test/unit/battle-flights.test.ts`
+Expected: PASS。
+
+接著兩個突變，各跑一次確認**指定的那條**轉紅，然後改回來：
+
+| 突變 | 應該紅的 |
+|---|---|
+| `isFlightLeader` 的 `fi.positionOf[index] === 0` 改成 `fi.flightOf[index] === 0` | 「每個分隊的 members[0] 是長機，其餘不是」 |
+| `flightOfIndex` 的 `f >= 0` 改成 `f >= -1` | 「已退場的那一架沒有分隊」（`fi.flights[-1]` 是 `undefined`，`!` 之後回傳 undefined 而不是 null） |
+
+- [ ] **Step 5: 把 `range` 的基準改成鏡頭**
 
 `main.ts` 第 786 行目前是：
 
@@ -580,7 +837,10 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 **只動 `range`。** 預瞄環那一段（`leadProbe.copy(renderPos)...`）不要碰 —— 那是
 玩家的槍線，本來就該以玩家飛機為基準，而且上帝視角下不畫。
 
-- [ ] **Step 2: 填三個分隊欄位**
+- [ ] **Step 6: 填三個分隊欄位**
+
+把 import 補上兩個名字（`main.ts` 已經從 `./battle/flights` import 過東西，
+加進那一行即可；若沒有就新增一行 `import { flightOfIndex, isFlightLeader } from './battle/flights'`）。
 
 第 811~812 行目前是：
 
@@ -589,19 +849,31 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
       && battle.flights.flightOf[c.index] === playerFlightIndex
 ```
 
-在它之後、`contact.deltaY = ...` 之前插入：
+把它連同新的三行一起換成：
 
 ```ts
-    // 【分隊標示只認長機】`positionOf` 的 0 就是 `members[0]`，而
-    // `compactFlights` 每個物理步重壓，所以長機陣亡時標示自動跳到繼任者，
-    // 這裡不需要任何同步。玩家那一架恆為 true —— 他釘死在 `members[0]`。
-    const cFlight = battle.flights.flightOf[c.index]!
-    contact.flightLeader = cFlight >= 0 && battle.flights.positionOf[c.index] === 0
-    contact.flightAlive = cFlight >= 0 ? battle.flights.flights[cFlight]!.count : 0
-    contact.flightSize = cFlight >= 0 ? battle.flights.flights[cFlight]!.roster.length : 0
+    contact.flightMate = playerFlightIndex >= 0
+      && battle.flights.flightOf[c.index] === playerFlightIndex
+    // 【分隊標示只認長機】`compactFlights` 每個物理步重壓，所以長機陣亡時
+    // 標示自動跳到繼任者，這裡不需要任何同步。玩家那一架恆為 true ——
+    // 他釘死在 `members[0]`（`FlightIndex.pinned`）。
+    const cFlight = flightOfIndex(battle.flights, c.index)
+    contact.flightLeader = isFlightLeader(battle.flights, c.index)
+    contact.flightAlive = cFlight?.count ?? 0
+    contact.flightSize = cFlight?.roster.length ?? 0
 ```
 
-- [ ] **Step 3: 型別檢查與全套回歸**
+**`flightMate` 那兩行一個字都不要動。** 它需要 `playerFlightIndex >= 0` 這道
+守衛：玩家退場時 `playerFlightIndex` 是 −1，而場上每一架已退場者的 `flightOf`
+也是 −1 —— 少了守衛就會 `-1 === -1`，一整批飛機被畫成隊友色。
+
+**這一段對 `flightOf` 讀了兩次**（一次給 `flightMate`、一次在 `flightOfIndex`
+與 `isFlightLeader` 裡）。Codex 建議合併成一次；**不採納** —— 那要把守衛的
+語意攤平回呼叫端，而上一段講的正是那道守衛有多容易寫錯。代價是每幀每架多
+兩次 `Int32Array` 索引（40 架 × 60 fps ≈ 每秒五千次讀取，不配置），換到的是
+兩條規則從「一行都沒測」變成「有測試守著」。這個交換是划算的。
+
+- [ ] **Step 7: 型別檢查與全套回歸**
 
 Run: `npx tsc --noEmit && npx vitest run --reporter=basic`
 
@@ -618,10 +890,10 @@ npx vitest run test/integration/rematch.test.ts
 
 跑效能測試前要先確認 5173 沒有殘留的 dev server（`netstat -ano | grep :5173`）。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/main.ts
+git add src/battle/flights.ts src/main.ts test/unit/battle-flights.test.ts
 git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 ```
 
@@ -673,11 +945,19 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
         //
         // **這比原本的判準更強不是更弱** —— 原本只要中央有任何墨水就算違規，
         // 包含與準星無關的東西；現在它真正只盯準星。
+        //
+        // 【`a >= 128` 這道下限是必要的，不是保守】`getImageData` 回傳的是
+        // **未預乘**的 RGB，而瀏覽器內部存的是預乘值。除回來時在極低 alpha
+        // 下捨入誤差會大到把色相整個換掉：α = 1/255 的紅色 (255,90,77) 預乘後
+        // 是 (1.0, 0.35, 0.30)，取整成 (1,0,0)，再除以 α 還原就變成
+        // (255,0,0)；同一條路徑上別的顏色可能被還原成綠色最大的值，於是
+        // 一個紅框的邊緣像素被算成準星。準星的筆畫在 dpr 2 下有大量
+        // α = 255 的像素（第 16 條會驗證這件事），所以這道下限不會削弱偵測。
         const greenCount = (x: number, y: number, w: number, hh: number): number => {
           const d = ctx.getImageData(x, y, w, hh).data
           let n = 0
           for (let i = 0; i < d.length; i += 4) {
-            if (d[i + 3]! > 0 && d[i + 1]! > d[i]! && d[i + 1]! > d[i + 2]!) n++
+            if (d[i + 3]! >= 128 && d[i + 1]! > d[i]! && d[i + 1]! > d[i + 2]!) n++
           }
           return n
         }
@@ -771,6 +1051,32 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 
 ---
 
+## 審查紀錄（Codex，2026-08-09）
+
+Codex 第一輪**完全讀不到檔案**（`codex-windows-sandbox-setup.exe` not found、
+MCP 被拒、node 備援模組找不到），所以它誠實地回報「不會假裝已讀過檔案」。
+把十個檔案的相關片段貼進第二輪之後才拿到實質意見。
+
+| Codex 的意見 | 判定 | 處置 |
+|---|---|---|
+| Critical：`contacts.ts` 沒說要補 import、沒說要刪 `BOX_MIN`/`BOX_MAX` | **誤判** | 計畫 Task 1 Step 4 兩件事都寫了。是我貼給它的摘要省略了 |
+| Critical：`Hud.ts` 沒說要 import `drawGodMarkers` | **誤判** | 同上，Task 2 Step 4 第一行就是 |
+| Critical：`drawGodMarkers` 每幀建字串，不是零配置 | **成立** | 註解裡那句「熱路徑：不配置」是假的，改成誠實的說明。`hudFont` 提到迴圈外 |
+| Important：`contactBoxRadius` 的突變描述不準 | **成立，而且是我算錯** | 先夾再乘的突變下，18／92 兩條**照樣過**。改成兩個互補的突變，各自指名該紅的那條 |
+| Minor：`not.toBe(HUD_COLORS.warn)` 是恆真的 | **成立** | 刪掉，理由寫進留下那條的註解 |
+| Critical：`main.ts` 那一段一行都沒測 | **成立** | 抽出 `flightOfIndex` 與 `isFlightLeader` 到 `flights.ts`，五條測試 + 兩個突變 |
+| Critical：`drawGodMarkers` 本身沒測，刪掉 switch case 仍全綠 | **成立** | 加一個記錄呼叫的假 `CanvasRenderingContext2D`，三條測試（畫幾個、畫在哪、字是什麼） |
+| Critical：池子塞滿時後面分隊的長機會靜靜消失 | **成立但目前不會發生** | `MAX_COMBATANTS = 40` < `HUD_MAX_CONTACTS = 48`。加一條護欄把這個不等式釘住 |
+| Important：`flightOf` 被讀兩次，應合併 | **成立但不採納** | 合併要把 `flightMate` 的守衛語意攤回呼叫端，而那道守衛正是最容易寫錯的地方。理由寫在 Task 3 Step 6 |
+| Important：上帝視角下池子只收長機，可以整個省掉 `flightLeader` | **否決** | **會把小地圖清空。** 小地圖畫的就是接觸點池，而它在上帝視角是主要的資訊來源（`main.ts:789` 的註解記著「不放進來的話玩家自己那一架一個像素都沒有」）。只收長機等於把 40 架的小地圖砍成 10 個點 |
+| Important：`f.contacts[i]!` 是非空斷言不是執行期保護 | **不改** | `contacts` 是 `Array.from({length: HUD_MAX_CONTACTS}, createHudContact)`，而迴圈上界是 `contactCount ≤ HUD_MAX_CONTACTS`。與 `drawContacts` 同一個既有寫法 |
+| Minor：`refPos` 型別沒問題、長機接手沒問題、單機分隊沒問題、命名不衝突 | **確認** | 無 |
+
+§4 的 e2e 判準意見另外處理：Codex 假設讀的是合成後的畫面，所以抗鋸齒邊緣會與
+3D 背景混色 —— **那個前提不成立**，`hudInk` 讀的是 `#hud` 這張獨立的透明 2D
+canvas。但順著它的方向查下去有一個真的漏洞：`getImageData` 回傳未預乘的 RGB，
+極低 alpha 下除回來的捨入誤差足以換掉色相。已加一道 `a >= 128` 的下限。
+
 ## 自我檢查
 
 **Spec 覆蓋**
@@ -786,7 +1092,7 @@ git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 | §5.4 繪製內容 | Task 2 Step 3 |
 | §6 三件不必特例的事 | Task 3 Step 2 的註解（長機陣亡、玩家恆為長機）；全隊覆沒由 `contactCount` 自然涵蓋 |
 | §7 e2e 判準換掉 | Task 4 Step 1~2 |
-| §8.1 十四條單元測試 | Task 1（6 條）+ Task 2（12 條，含改寫既有那條） |
+| §8.1 十四條單元測試 | Task 1（6 條）+ Task 2（12 條，含改寫既有那條）+ Codex 審查後追加：`drawGodMarkers` 三條、池子容量一條、`flights.ts` 五條 |
 | §8.2 e2e | Task 4 |
 | §9 不做 | 全計畫沒有任何一個 task 碰它們 |
 | §10 回填 | Task 4 Step 6 |
