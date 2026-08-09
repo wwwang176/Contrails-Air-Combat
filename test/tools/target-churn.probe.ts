@@ -50,6 +50,7 @@ interface Factors {
   range: number
   crowd: number
   turn: number
+  vision: number
   product: number
   /** 離軸角，度。由**速度向量**量 —— 與 turnTime 同一個基準 */
   offAxis: number
@@ -87,7 +88,7 @@ function factorsOf(self: Aircraft, enemy: Aircraft, locks: number, cfg: TargetCo
   else if (d > 1) d = 1
 
   return {
-    geometry, range: rangeD, crowd: crowdD, turn: turnD,
+    geometry, range: rangeD, crowd: crowdD, turn: turnD, vision: visionD,
     product: geometry * rangeD * crowdD * turnD * visionD,
     offAxis: (Math.acos(d) * 180) / Math.PI,
     rangeM: range,
@@ -118,6 +119,22 @@ interface Result {
   newRear: number
   withShot: number
   shotToNoShot: number
+  /** 長機的換目標裡，當下有集火命令的（那時 target 被 focusTarget 覆寫）*/
+  leaderFocusDriven: number
+  /** 長機「有槍解卻換走」的次數，依機制拆開 */
+  leaderShotFocus: number
+  leaderShotSelect: number
+  /** 長機處於集火命令下的取樣比例 */
+  focusShare: number
+  /** 長機「有槍解卻換走」那一群的因子分解 */
+  shotRatioMedian: Record<string, number>
+  shotRatioBig: Record<string, number>
+  shotOldRange: number[]
+  shotNewRange: number[]
+  shotOldAxis: number[]
+  shotNewAxis: number[]
+  shotOldLocks: number[]
+  shotNewLocks: number[]
   offAxisOldMed: number
   offAxisNewMed: number
   rangeOldMed: number
@@ -163,12 +180,26 @@ function run(perSide: number, visionPower: number): Result {
   let withShot = 0
   let shotToNoShot = 0
   let rearNose = 0
+  let leaderFocusDriven = 0
+  let leaderShotFocus = 0
+  let leaderShotSelect = 0
+  let focusSamples = 0
+  let leaderSamples = 0
   let fire = 0
   let alive = 0
   let onNose = 0
   let samples = 0
   const axisBuckets = [0, 0, 0, 0, 0, 0]
-  const ratios: Record<string, number[]> = { geometry: [], range: [], crowd: [], turn: [] }
+  const ratios: Record<string, number[]> = { geometry: [], range: [], crowd: [], turn: [], vision: [] }
+  const shotRatios: Record<string, number[]> = {
+    geometry: [], range: [], crowd: [], turn: [], vision: [],
+  }
+  const shotOldRange: number[] = []
+  const shotNewRange: number[] = []
+  const shotOldAxis: number[] = []
+  const shotNewAxis: number[] = []
+  const shotOldLocks: number[] = []
+  const shotNewLocks: number[] = []
   const offAxisOld: number[] = []
   const offAxisNew: number[] = []
   const rangeOld: number[] = []
@@ -198,6 +229,10 @@ function run(perSide: number, visionPower: number): Result {
       if (c.command.firing) fire += DT
       if (s % 60 === 0) {
         samples++
+        if (isFlightLeader(b.flights, i)) {
+          leaderSamples++
+          if (ai.focusTarget !== null) focusSamples++
+        }
         if (ai.target && aspectOf(c.aircraft, ai.target) < (15 * Math.PI) / 180) onNose++
       }
 
@@ -230,13 +265,14 @@ function run(perSide: number, visionPower: number): Result {
           if (rel > selfCheckWorst) selfCheckWorst = rel
 
           const newC = cs[tgt]!
-          const fNew = factorsOf(c.aircraft, newC.aircraft,
-            countLocks(b.board, c.team, i, tgt), cfg)
+          const newLocks = countLocks(b.board, c.team, i, tgt)
+          const fNew = factorsOf(c.aircraft, newC.aircraft, newLocks, cfg)
 
           ratios.geometry!.push(fNew.geometry / Math.max(fOld.geometry, 1e-12))
           ratios.range!.push(fNew.range / Math.max(fOld.range, 1e-12))
           ratios.crowd!.push(fNew.crowd / Math.max(fOld.crowd, 1e-12))
           ratios.turn!.push(fNew.turn / Math.max(fOld.turn, 1e-12))
+          ratios.vision!.push(fNew.vision / Math.max(fOld.vision, 1e-12))
           offAxisOld.push(fOld.offAxis)
           offAxisNew.push(fNew.offAxis)
           rangeOld.push(fOld.rangeM)
@@ -245,9 +281,33 @@ function run(perSide: number, visionPower: number): Result {
           if (fNew.offAxis > 90) newRear++
           axisBuckets[Math.min(5, Math.floor(fNew.offAxis / 30))]!++
 
-          if (threatFactor(c.aircraft, oldC.aircraft) > 0) {
+          const hadShot = threatFactor(c.aircraft, oldC.aircraft) > 0
+          if (hadShot) {
             withShot++
             if (threatFactor(c.aircraft, newC.aircraft) <= 0) shotToNoShot++
+          }
+          // 【長機的機制歸類】`AiController:236` 對長機無條件覆寫：
+          // focusTarget 非 null 時 target 就是它，繞過 minDwell/switchMargin/shotRelief
+          if (leader) {
+            const byFocus = ai.focusTarget !== null
+            if (byFocus) leaderFocusDriven++
+            if (hadShot) {
+              if (byFocus) leaderShotFocus++
+              else {
+                leaderShotSelect++
+                shotRatios.geometry!.push(fNew.geometry / Math.max(fOld.geometry, 1e-12))
+                shotRatios.range!.push(fNew.range / Math.max(fOld.range, 1e-12))
+                shotRatios.crowd!.push(fNew.crowd / Math.max(fOld.crowd, 1e-12))
+                shotRatios.turn!.push(fNew.turn / Math.max(fOld.turn, 1e-12))
+                shotRatios.vision!.push(fNew.vision / Math.max(fOld.vision, 1e-12))
+                shotOldRange.push(fOld.rangeM)
+                shotNewRange.push(fNew.rangeM)
+                shotOldAxis.push(fOld.offAxis)
+                shotNewAxis.push(fNew.offAxis)
+                shotOldLocks.push(oldLocks)
+                shotNewLocks.push(newLocks)
+              }
+            }
           }
         }
       }
@@ -260,9 +320,13 @@ function run(perSide: number, visionPower: number): Result {
 
   const med: Record<string, number> = {}
   const big: Record<string, number> = {}
-  for (const k of ['geometry', 'range', 'crowd', 'turn']) {
+  const smed: Record<string, number> = {}
+  const sbig: Record<string, number> = {}
+  for (const k of ['geometry', 'range', 'crowd', 'turn', 'vision']) {
     med[k] = median(ratios[k]!)
     big[k] = share(ratios[k]!, (x) => x > 1.5)
+    smed[k] = median(shotRatios[k]!)
+    sbig[k] = share(shotRatios[k]!, (x) => x > 1.5)
   }
 
   return {
@@ -272,6 +336,10 @@ function run(perSide: number, visionPower: number): Result {
     worseAxis: worseAxis / Math.max(switchesOldAlive, 1),
     newRear: newRear / Math.max(switchesOldAlive, 1),
     withShot, shotToNoShot,
+    leaderFocusDriven, leaderShotFocus, leaderShotSelect,
+    focusShare: leaderSamples > 0 ? focusSamples / leaderSamples : 0,
+    shotRatioMedian: smed, shotRatioBig: sbig,
+    shotOldRange, shotNewRange, shotOldAxis, shotNewAxis, shotOldLocks, shotNewLocks,
     offAxisOldMed: median(offAxisOld), offAxisNewMed: median(offAxisNew),
     rangeOldMed: median(rangeOld), rangeNewMed: median(rangeNew),
     ratioMedian: med, ratioBig: big, axisBuckets,
@@ -287,77 +355,77 @@ const f2 = (x: number): string => x.toFixed(2)
 
 /**
  * 【為什麼要跑三種架數】這個模擬是**全決定性的**（種子只決定飛行員名字），
- * 所以單一場次只有**一個樣本**，而 `DEFAULT_TARGET` 的註解已經記過參數敏感度
- * 是混沌的。換架數是這個專案唯一拿得到獨立實現的辦法。2026-08-09 的
- * `engagedMargin` 提案就是這樣被否決的：20v20 看起來 −43%，12v12 只有 −3%。
- *
- * 【視野折扣的 A/B 在同一輪跑】`visionPower` 0 = 關掉，2 = 現行值。
+ * 所以單一場次只有**一個樣本**。換架數是這個專案唯一拿得到獨立實現的辦法。
+ * 2026-08-09 的 `engagedMargin` 提案就是這樣被否決的：20v20 看起來 −43%，
+ * 12v12 只有 −3%。
  */
 const SIZES = [20, 12, 8]
-const ARMS = [0, DEFAULT_TARGET.visionPower]
-const results = new Map<string, Result>()
-for (const n of SIZES) {
-  for (const v of ARMS) results.set(`${n}|${v}`, run(n, v))
-}
-const get = (n: number, v: number): Result => results.get(`${n}|${v}`)!
+const results = new Map<number, Result>()
+for (const n of SIZES) results.set(n, run(n, DEFAULT_TARGET.visionPower))
 
-for (const [k, r] of results) {
+for (const [n, r] of results) {
   if (!(r.selfCheckWorst < 1e-9)) {
-    throw new Error(`${k}：探針算的公式與 targetScore 對不上（${r.selfCheckWorst}）`)
+    throw new Error(`${n}v${n}：探針算的公式與 targetScore 對不上`)
   }
 }
 console.log('自我檢查通過（五因子乘積 vs targetScore，最差相對誤差 '
   + `${Math.max(...[...results.values()].map((r) => r.selfCheckWorst)).toExponential(2)}）`)
 
-const arrow = (a: number, b: number, f: (x: number) => string): string =>
-  `${f(a)} → ${f(b)}`
-
-console.log('\n=== 視野折扣 A/B（150 s、種子 20260805）visionPower 0 → 2 ===')
-console.log('【這次要打的：換去後半球】')
-console.log('架數    新目標在後半球      離軸更差           換去 90-180° 的次數')
-for (const n of SIZES) {
-  const a = get(n, 0)
-  const b = get(n, ARMS[1]!)
-  console.log(
-    `${n}v${n}`.padStart(6) + `  ${arrow(a.newRear, b.newRear, pct).padStart(16)}`
-    + `  ${arrow(a.worseAxis, b.worseAxis, pct).padStart(16)}`
-    + `  ${arrow(Math.round(a.newRear * a.switchesOldAlive),
-      Math.round(b.newRear * b.switchesOldAlive), (x) => String(Math.round(x))).padStart(14)}`,
-  )
-}
-
-console.log('\n【專案負責人抱怨的：猶豫】')
-console.log('架數    活著時換目標        A→B→A              長機 A→B→A')
-for (const n of SIZES) {
-  const a = get(n, 0)
-  const b = get(n, ARMS[1]!)
+console.log('\n=== 換目標的組成（150 s、種子 20260805）===')
+console.log('架數    總換  舊的已陣亡  舊的還活著  A→B→A   長機持有中位  貼在下限')
+for (const [n, r] of results) {
   console.log(
     `${n}v${n}`.padStart(6)
-    + `  ${arrow(a.switchesOldAlive, b.switchesOldAlive, (x) => String(x)).padStart(16)}`
-    + `  ${arrow(a.backToPrev / Math.max(a.switchesOldAlive, 1),
-      b.backToPrev / Math.max(b.switchesOldAlive, 1), pct).padStart(16)}`
-    + `  ${arrow(a.leaderBackToPrev / Math.max(a.leaderSwitchesAlive, 1),
-      b.leaderBackToPrev / Math.max(b.leaderSwitchesAlive, 1), pct).padStart(16)}`,
+    + `  ${String(r.switchesAll).padStart(4)}  ${String(r.switchesAll - r.switchesOldAlive).padStart(10)}`
+    + `  ${String(r.switchesOldAlive).padStart(10)}`
+    + `  ${pct(r.backToPrev / Math.max(r.switchesOldAlive, 1)).padStart(6)}`
+    + `  ${f2(r.leaderHoldMedian).padStart(11)} s  ${pct(r.atFloor).padStart(7)}`,
   )
 }
 
-console.log('\n【既有護欄 —— ai-targeting.test.ts，20v20 才是它的定義域】')
-console.log('架數    holdMedian(≥1.5)   rearShare(≤0.35)   fireShare(≥0.025)  onNose(≥0.12)')
-for (const n of SIZES) {
-  const a = get(n, 0)
-  const b = get(n, ARMS[1]!)
+console.log('\n=== 【機制歸類】長機的換目標是誰造成的 ===')
+console.log('AiController:236 對長機無條件覆寫：focusTarget 非 null 時 target 就是它，')
+console.log('繞過 minDwell / switchMargin / shotRelief。')
+console.log('架數    長機換目標  集火命令造成  selectTarget 造成  長機在集火令下的時間')
+for (const [n, r] of results) {
+  const sel = r.leaderSwitchesAlive - r.leaderFocusDriven
   console.log(
-    `${n}v${n}`.padStart(6) + `  ${arrow(a.holdMedian, b.holdMedian, f2).padStart(15)}`
-    + `  ${arrow(a.rearShare, b.rearShare, pct).padStart(17)}`
-    + `  ${arrow(a.fireShare, b.fireShare, pct).padStart(16)}`
-    + `  ${arrow(a.onNose, b.onNose, pct).padStart(14)}`,
+    `${n}v${n}`.padStart(6) + `  ${String(r.leaderSwitchesAlive).padStart(10)}`
+    + `  ${String(r.leaderFocusDriven).padStart(8)}`
+    + `（${pct(r.leaderFocusDriven / Math.max(r.leaderSwitchesAlive, 1))}）`
+    + `  ${String(sel).padStart(11)}`
+    + `（${pct(sel / Math.max(r.leaderSwitchesAlive, 1))}）`
+    + `  ${pct(r.focusShare).padStart(14)}`,
   )
 }
 
-console.log('\n【20v20 的離軸分布】')
-for (const v of ARMS) {
-  const r = get(20, v)
-  console.log(`visionPower ${v}：`
-    + r.axisBuckets.map((c, k) => `${k * 30}-${k * 30 + 30}° `
-      + `${pct(c / Math.max(r.switchesOldAlive, 1))}`).join('　'))
+console.log('\n=== 【專案負責人看到的那一幕】有射擊解卻換走，依機制拆開 ===')
+console.log('架數    全體有槍解卻換走  長機的  其中集火造成  其中 selectTarget 造成')
+for (const [n, r] of results) {
+  const tot = r.leaderShotFocus + r.leaderShotSelect
+  console.log(
+    `${n}v${n}`.padStart(6) + `  ${String(r.withShot).padStart(14)}`
+    + `  ${String(tot).padStart(6)}`
+    + `  ${String(r.leaderShotFocus).padStart(11)}`
+    + `（${pct(r.leaderShotFocus / Math.max(tot, 1))}）`
+    + `  ${String(r.leaderShotSelect).padStart(16)}`
+    + `（${pct(r.leaderShotSelect / Math.max(tot, 1))}）`,
+  )
+}
+
+console.log('\n=== 【核心問題】長機「有槍解卻換走」那一群，是誰把分數推過門檻 ===')
+console.log('（門檻 ' + `${(1 + DEFAULT_TARGET.switchMargin).toFixed(2)}` + ' 倍。>1.5 倍那一欄越高，代表這一項越常是主因）')
+for (const [n, r] of results) {
+  const k = r.leaderShotSelect
+  console.log(`
+${n}v${n}　樣本 ${k} 次`)
+  if (k === 0) continue
+  console.log('  因子        新÷舊中位   >1.5 倍的比例')
+  for (const key of ['geometry', 'range', 'crowd', 'turn', 'vision']) {
+    console.log(`  ${key.padEnd(10)}  ${f2(r.shotRatioMedian[key]!).padStart(9)}   `
+      + `${pct(r.shotRatioBig[key]!).padStart(8)}`)
+  }
+  console.log(`  距離中位 ${median(r.shotOldRange).toFixed(0)} → ${median(r.shotNewRange).toFixed(0)} m`
+    + `　離軸中位 ${f2(median(r.shotOldAxis))}° → ${f2(median(r.shotNewAxis))}°`
+    + `　鎖定數中位 ${median(r.shotOldLocks)} → ${median(r.shotNewLocks)}`)
 }
