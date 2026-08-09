@@ -45,7 +45,7 @@ import { AiController } from './ai/AiController'
 import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
-import { flightOfIndex, isFlightLeader } from './battle/flights'
+import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
@@ -827,10 +827,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【分隊標示只認長機】`compactFlights` 每個物理步重壓，所以長機陣亡時
     // 標示自動跳到繼任者，這裡不需要任何同步。玩家那一架恆為 true ——
     // 他釘死在 `members[0]`（`FlightIndex.pinned`）。
-    const cFlight = flightOfIndex(battle.flights, c.index)
+    const flight = flightOfCombatant(battle.flights, c.index)
     contact.flightLeader = isFlightLeader(battle.flights, c.index)
-    contact.flightAlive = cFlight?.count ?? 0
-    contact.flightSize = cFlight?.roster.length ?? 0
+    contact.flightAlive = flight?.count ?? 0
+    contact.flightSize = flight?.roster.length ?? 0
     contact.deltaY = v.position.y - refY
     contact.worldX = v.position.x
     contact.worldZ = v.position.z

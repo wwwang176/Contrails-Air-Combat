@@ -183,6 +183,10 @@ export function stationReferenceOf(fi: FlightIndex, index: number): number {
 /**
  * 第 `index` 架所屬的分隊；已退場、不在編制內、索引越界都回傳 null。
  *
+ * 【名字不叫 `flightOfIndex`】那會被讀成「回傳分隊的序號」，而它回傳的是
+ * **分隊物件**。`FlightIndex` 裡本來就有一個叫 `flightOf` 的 `Int32Array`
+ * 在回傳序號，兩者混淆的代價很高（Codex 2026-08-09 審查指出）。
+ *
  * 【為什麼回傳物件而不是三個數】呼叫端（`main.ts` 的 HUD 迴圈）每幀跑幾十次，
  * 回傳一個新物件就是每幀幾十次配置。這裡回的是 `flights` 陣列裡那一個實體。
  *
@@ -190,7 +194,7 @@ export function stationReferenceOf(fi: FlightIndex, index: number): number {
  * `main.ts` 裡那兩條規則測得到** —— 那個檔案在模組載入時就摸 `document`，
  * 進不了 vitest。
  */
-export function flightOfIndex(fi: FlightIndex, index: number): Flight | null {
+export function flightOfCombatant(fi: FlightIndex, index: number): Flight | null {
   if (index < 0 || index >= fi.flightOf.length) return null
   const f = fi.flightOf[index]!
   return f >= 0 ? fi.flights[f]! : null

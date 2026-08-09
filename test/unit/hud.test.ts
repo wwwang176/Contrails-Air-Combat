@@ -535,6 +535,27 @@ describe('godMarkerVisible —— 上帝視角要畫誰', () => {
     expect(godMarkerVisible(outside, 16 / 9)).toBe(false)
   })
 
+  /**
+   * 【邊界是含端點的】`<=` 而不是 `<`，與 `drawContacts` 的 on-screen 判斷
+   * 逐字一致 —— 兩邊若一個含端點一個不含，同一個投影座標會在座艙與上帝
+   * 視角得到不同的答案。上面那兩條用的是 ±0.01，抓不到 `<=` 被改成 `<`
+   * （Codex 2026-08-09 審查指出）。
+   */
+  it('恰好在邊界上要畫', () => {
+    const aspect = 16 / 9
+    const atX = leader()
+    atX.x = aspect
+    expect(godMarkerVisible(atX, aspect)).toBe(true)
+
+    const atY = leader()
+    atY.y = 1
+    expect(godMarkerVisible(atY, aspect)).toBe(true)
+
+    const atNegY = leader()
+    atNegY.y = -1
+    expect(godMarkerVisible(atNegY, aspect)).toBe(true)
+  })
+
   /** 池子是固定長度的，沒在用的格子裡是上一場留下來的值 */
   it('沒啟用的格子不畫', () => {
     const c = leader()
@@ -594,21 +615,24 @@ describe('drawGodMarkers', () => {
 
   function fakeCtx(): {
     ctx: CanvasRenderingContext2D
-    rects: { x: number, y: number, w: number, h: number }[]
-    texts: { text: string, x: number, y: number }[]
+    rects: { x: number, y: number, w: number, h: number, color: string }[]
+    texts: { text: string, x: number, y: number, color: string }[]
   } {
-    const rects: { x: number, y: number, w: number, h: number }[] = []
-    const texts: { text: string, x: number, y: number }[] = []
+    const rects: { x: number, y: number, w: number, h: number, color: string }[] = []
+    const texts: { text: string, x: number, y: number, color: string }[] = []
+    // 【顏色要在呼叫的當下抄下來】`strokeStyle` 是一個會被下一圈覆寫的欄位。
+    // 只在最後讀一次的話，十個標示都會顯示成最後那一個的顏色 —— 於是
+    // 「敵紅我藍」根本沒有被測到（Codex 2026-08-09 審查指出）。
     const ctx = {
       font: '', textAlign: '', textBaseline: '',
       strokeStyle: '', fillStyle: '', lineWidth: 0,
       strokeRect(x: number, y: number, w: number, h: number): void {
-        rects.push({ x, y, w, h })
+        rects.push({ x, y, w, h, color: String(ctx.strokeStyle) })
       },
       fillText(text: string, x: number, y: number): void {
-        texts.push({ text, x, y })
+        texts.push({ text, x, y, color: String(ctx.fillStyle) })
       },
-    } as unknown as CanvasRenderingContext2D
+    } as unknown as CanvasRenderingContext2D & { strokeStyle: string, fillStyle: string }
     return { ctx, rects, texts }
   }
 
@@ -651,7 +675,7 @@ describe('drawGodMarkers', () => {
     const { ctx, rects } = fakeCtx()
     drawGodMarkers(ctx, LAYOUT, twoContacts())
     // cx + 0 × 360 = 640；cy − 0.5 × 360 = 180；r = 0.05 × 360 = 18
-    expect(rects[0]).toEqual({ x: 640 - 18, y: 180 - 18, w: 36, h: 36 })
+    expect(rects[0]).toMatchObject({ x: 640 - 18, y: 180 - 18, w: 36, h: 36 })
   })
 
   /** 【分子分母不能對調】寫反的話畫出來是 (4/2)，而純函數測試抓不到 */
@@ -661,6 +685,46 @@ describe('drawGodMarkers', () => {
     expect(texts[0]!.text).toBe('(2/4)')
     expect(texts[0]!.x).toBe(640)
     expect(texts[0]!.y).toBe(180 + 18 + 3)
+  })
+
+  /**
+   * 【要求原文是「敵我雙方都要有」】上面那些案例只有一個分隊，證明不了
+   * 「兩個分隊各畫一個」，也證明不了顏色真的接上去了 —— 把顏色寫死成
+   * `HUD_COLORS.danger`，或把紅藍寫反，前面每一條都照樣綠
+   * （Codex 2026-08-09 審查指出）。
+   */
+  it('敵我各一個長機時，兩個框各自用自己的顏色、字也是', () => {
+    const f = createHudFrame()
+    const foe = f.contacts[0]!
+    foe.active = true
+    foe.flightLeader = true
+    foe.hostile = true
+    foe.x = -0.5
+    foe.y = 0.5
+    foe.radius = 0.05
+    foe.flightAlive = 3
+    foe.flightSize = 4
+
+    const friend = f.contacts[1]!
+    friend.active = true
+    friend.flightLeader = true
+    friend.hostile = false
+    friend.x = 0.5
+    friend.y = -0.5
+    friend.radius = 0.05
+    friend.flightAlive = 1
+    friend.flightSize = 4
+
+    f.contactCount = 2
+
+    const { ctx, rects, texts } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, f)
+
+    expect(rects).toHaveLength(2)
+    expect(rects[0]!.color).toBe(HUD_COLORS.danger)
+    expect(rects[1]!.color).toBe(HUD_COLORS.friendly)
+    expect(texts.map((t) => t.color)).toEqual([HUD_COLORS.danger, HUD_COLORS.friendly])
+    expect(texts.map((t) => t.text)).toEqual(['(3/4)', '(1/4)'])
   })
 })
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SCHWARM_SIZE, STATION_REFERENCE, createFlights, compactFlights, stationReferenceOf,
-  flightOfIndex, isFlightLeader,
+  flightOfCombatant, isFlightLeader,
   type FlightMember, type FlightIndex,
 } from '../../src/battle/flights'
 
@@ -169,7 +169,7 @@ describe('stationReferenceOf', () => {
   })
 })
 
-describe('flightOfIndex 與 isFlightLeader —— HUD 分隊標示要用的兩條查詢', () => {
+describe('flightOfCombatant 與 isFlightLeader —— HUD 分隊標示要用的兩條查詢', () => {
   /**
    * 【為什麼這兩條值得純函數】它們的呼叫端是 `main.ts`，而那裡進不了 vitest
    * （模組載入時就摸 `document`）。兩個索引表都是 `Int32Array`，把
@@ -207,14 +207,38 @@ describe('flightOfIndex 與 isFlightLeader —— HUD 分隊標示要用的兩�
     all[dead]!.alive = false
     compactFlights(fi, all)
 
-    expect(flightOfIndex(fi, dead)).toBe(null)
+    expect(flightOfCombatant(fi, dead)).toBe(null)
     expect(isFlightLeader(fi, dead)).toBe(false)
   })
 
-  /** 【回傳的是同一個物件不是複本】呼叫端每幀跑幾十次，不能配置 */
-  it('flightOfIndex 回傳的就是 flights 裡那一個物件', () => {
+  /**
+   * 【這一條守的是契約，不是某一行實作 —— 而且實測過】把兩個函數開頭那道
+   * 長度檢查刪掉，這一條**照樣綠**：`Int32Array` 的越界讀取回傳 `undefined`，
+   * 而 `undefined >= 0` 是 false，所以答案剛好還是對的。那道檢查因此是
+   * 明寫的保險，不是承重的。
+   *
+   * **但這一條仍然要存在**，因為它擋的是下一步：某天有人把 `f >= 0` 改成
+   * `f !== -1`（看起來等價），越界那一路就會變成 `undefined !== -1` 為真，
+   * 回傳 `fi.flights[undefined]` —— 型別上宣稱是 `Flight`，執行期是
+   * `undefined`。有這一條，那個改動當場紅。
+   *
+   * 與 `stationReferenceOf` 的「不在編制內或越界」是同一道契約
+   * （Codex 2026-08-09 審查指出這個缺口）。
+   */
+  it('索引越界回傳 null 與 false', () => {
     const fi = createFlights(roster(8))
-    expect(flightOfIndex(fi, fi.flights[1]!.members[0]!)).toBe(fi.flights[1])
+    expect(flightOfCombatant(fi, -1)).toBe(null)
+    expect(flightOfCombatant(fi, fi.flightOf.length)).toBe(null)
+    expect(flightOfCombatant(fi, 999)).toBe(null)
+    expect(isFlightLeader(fi, -1)).toBe(false)
+    expect(isFlightLeader(fi, fi.flightOf.length)).toBe(false)
+    expect(isFlightLeader(fi, 999)).toBe(false)
+  })
+
+  /** 【回傳的是同一個物件不是複本】呼叫端每幀跑幾十次，不能配置 */
+  it('flightOfCombatant 回傳的就是 flights 裡那一個物件', () => {
+    const fi = createFlights(roster(8))
+    expect(flightOfCombatant(fi, fi.flights[1]!.members[0]!)).toBe(fi.flights[1])
   })
 
   /** 存活數與編制員額是兩個不同的數，陣亡之後才分得出來 */
@@ -222,12 +246,12 @@ describe('flightOfIndex 與 isFlightLeader —— HUD 分隊標示要用的兩�
     const all = roster(8)
     const fi = createFlights(all)
     const idx = fi.flights[0]!.members[0]!
-    expect(flightOfIndex(fi, idx)!.count).toBe(4)
-    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
+    expect(flightOfCombatant(fi, idx)!.count).toBe(4)
+    expect(flightOfCombatant(fi, idx)!.roster.length).toBe(4)
 
     all[fi.flights[0]!.members[3]!]!.alive = false
     compactFlights(fi, all)
-    expect(flightOfIndex(fi, idx)!.count).toBe(3)
-    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
+    expect(flightOfCombatant(fi, idx)!.count).toBe(3)
+    expect(flightOfCombatant(fi, idx)!.roster.length).toBe(4)
   })
 })
