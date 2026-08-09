@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SCHWARM_SIZE, STATION_REFERENCE, createFlights, compactFlights, stationReferenceOf,
+  flightOfIndex, isFlightLeader,
   type FlightMember, type FlightIndex,
 } from '../../src/battle/flights'
 
@@ -165,5 +166,68 @@ describe('stationReferenceOf', () => {
     const fi = createFlights(roster(20))
     expect(stationReferenceOf(fi, -1)).toBe(-1)
     expect(stationReferenceOf(fi, 999)).toBe(-1)
+  })
+})
+
+describe('flightOfIndex 與 isFlightLeader —— HUD 分隊標示要用的兩條查詢', () => {
+  /**
+   * 【為什麼這兩條值得純函數】它們的呼叫端是 `main.ts`，而那裡進不了 vitest
+   * （模組載入時就摸 `document`）。兩個索引表都是 `Int32Array`，把
+   * `positionOf` 寫成 `flightOf` 型別上完全合法 —— 症狀是「標示跑到僚機
+   * 身上」或「整個分隊都有標示」，離成因很遠。
+   */
+  it('每個分隊的 members[0] 是長機，其餘不是', () => {
+    const fi = createFlights(roster(8))
+    for (const f of fi.flights) {
+      expect(isFlightLeader(fi, f.members[0]!)).toBe(true)
+      for (let p = 1; p < f.count; p++) {
+        expect(isFlightLeader(fi, f.members[p]!)).toBe(false)
+      }
+    }
+  })
+
+  it('長機陣亡後由繼任者接手，舊長機不再是長機', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const first = fi.flights[0]!
+    const dead = first.members[0]!
+    const heir = first.members[1]!
+
+    all[dead]!.alive = false
+    compactFlights(fi, all)
+
+    expect(isFlightLeader(fi, heir)).toBe(true)
+    expect(isFlightLeader(fi, dead)).toBe(false)
+  })
+
+  it('已退場的那一架沒有分隊，也不是長機', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const dead = fi.flights[0]!.members[1]!
+    all[dead]!.alive = false
+    compactFlights(fi, all)
+
+    expect(flightOfIndex(fi, dead)).toBe(null)
+    expect(isFlightLeader(fi, dead)).toBe(false)
+  })
+
+  /** 【回傳的是同一個物件不是複本】呼叫端每幀跑幾十次，不能配置 */
+  it('flightOfIndex 回傳的就是 flights 裡那一個物件', () => {
+    const fi = createFlights(roster(8))
+    expect(flightOfIndex(fi, fi.flights[1]!.members[0]!)).toBe(fi.flights[1])
+  })
+
+  /** 存活數與編制員額是兩個不同的數，陣亡之後才分得出來 */
+  it('count 是存活數、roster.length 是編制員額', () => {
+    const all = roster(8)
+    const fi = createFlights(all)
+    const idx = fi.flights[0]!.members[0]!
+    expect(flightOfIndex(fi, idx)!.count).toBe(4)
+    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
+
+    all[fi.flights[0]!.members[3]!]!.alive = false
+    compactFlights(fi, all)
+    expect(flightOfIndex(fi, idx)!.count).toBe(3)
+    expect(flightOfIndex(fi, idx)!.roster.length).toBe(4)
   })
 })
