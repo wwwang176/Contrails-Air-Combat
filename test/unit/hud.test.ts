@@ -3,8 +3,12 @@ import { Quaternion, Vector3 } from 'three'
 import {
   createHudContact, createHudFrame, indicatedAirspeed,
   contactColor, nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
-  contactBoxRadius,
+  contactBoxRadius, type HudLayout,
 } from '../../src/hud/types'
+import {
+  godMarkerVisible, flightStrengthLabel, godMarkerColor, drawGodMarkers,
+} from '../../src/hud/widgets/godMarkers'
+import { MAX_COMBATANTS } from '../../src/battle/skirmish'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
@@ -385,8 +389,17 @@ describe('上帝視角的 HUD', () => {
    * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
    * 壓在接觸點之上）不會被這次改動悄悄弄丟。
    */
-  it('上帝視角只畫小地圖、名冊、提示', () => {
-    expect(hudWidgets(true)).toEqual(['minimap', 'roster', 'hints'])
+  it('上帝視角畫分隊標示、小地圖、名冊、提示', () => {
+    expect(hudWidgets(true)).toEqual(['godMarkers', 'minimap', 'roster', 'hints'])
+  })
+
+  /**
+   * 【座艙裡不畫分隊標示】那裡已經有完整的目標框與預瞄環，再疊一層分隊框
+   * 是雜訊。這一條與「準星在上帝視角不出現」是對稱的兩半 —— 只守一邊的話，
+   * 哪天有人把 `godMarkers` 加進 `FULL` 也不會有東西紅。
+   */
+  it('座艙不畫分隊標示', () => {
+    expect(hudWidgets(false)).not.toContain('godMarkers')
   })
 
   it('一般飛行畫得到準星，上帝視角畫不到', () => {
@@ -464,5 +477,206 @@ describe('HudContact 的分隊欄位', () => {
     expect(c.flightLeader).toBe(false)
     expect(c.flightAlive).toBe(0)
     expect(c.flightSize).toBe(0)
+  })
+})
+
+describe('godMarkerVisible —— 上帝視角要畫誰', () => {
+  /** 在畫面正中央、已啟用的長機。各條測試由它出發只改一個欄位 */
+  const leader = (): ReturnType<typeof createHudContact> => {
+    const c = createHudContact()
+    c.active = true
+    c.flightLeader = true
+    c.x = 0
+    c.y = 0
+    c.behind = false
+    return c
+  }
+
+  it('長機且在畫面內就畫', () => {
+    expect(godMarkerVisible(leader(), 16 / 9)).toBe(true)
+  })
+
+  /** 【這是這一份的核心要求】「只需標記小隊的長機」 */
+  it('不是長機就不畫，即使它在畫面正中央', () => {
+    const c = leader()
+    c.flightLeader = false
+    expect(godMarkerVisible(c, 16 / 9)).toBe(false)
+  })
+
+  /**
+   * 【背後的接觸點必須擋掉】NDC 在相機背後會翻號，正前方 30° 與正後方 150°
+   * 的目標會投影到同一側。不擋的話，你背後的分隊會被畫在你面前
+   * —— 與 `edgeIndicatorPosition` 要吃 `behind` 是同一個成因。
+   */
+  it('在鏡頭背後就不畫', () => {
+    const c = leader()
+    c.behind = true
+    expect(godMarkerVisible(c, 16 / 9)).toBe(false)
+  })
+
+  it('水平超出畫面就不畫（邊界是 aspect 不是 1）', () => {
+    const aspect = 16 / 9
+    const inside = leader()
+    inside.x = aspect - 0.01
+    expect(godMarkerVisible(inside, aspect)).toBe(true)
+
+    const outside = leader()
+    outside.x = aspect + 0.01
+    expect(godMarkerVisible(outside, aspect)).toBe(false)
+  })
+
+  it('垂直超出畫面就不畫（邊界是 1）', () => {
+    const inside = leader()
+    inside.y = 0.99
+    expect(godMarkerVisible(inside, 16 / 9)).toBe(true)
+
+    const outside = leader()
+    outside.y = 1.01
+    expect(godMarkerVisible(outside, 16 / 9)).toBe(false)
+  })
+
+  /** 池子是固定長度的，沒在用的格子裡是上一場留下來的值 */
+  it('沒啟用的格子不畫', () => {
+    const c = leader()
+    c.active = false
+    expect(godMarkerVisible(c, 16 / 9)).toBe(false)
+  })
+})
+
+describe('flightStrengthLabel', () => {
+  it('存活與編制寫成 (2/4)', () => {
+    expect(flightStrengthLabel(2, 4)).toBe('(2/4)')
+  })
+
+  /**
+   * 【與 `roster.ts` 的 `flightLabel` 相反，這裡剩一架照樣顯示】那一個在
+   * `alive < 2` 時回傳 null，理由是「剩一架時沒有『隊』這回事」。上帝視角是
+   * 旁觀全場：`(1/4)` 正是「那一隊快被打光了」，是最值得看的資訊之一。
+   */
+  it('剩一架照樣顯示 (1/4)', () => {
+    expect(flightStrengthLabel(1, 4)).toBe('(1/4)')
+  })
+
+  /** 架數不是 SCHWARM_SIZE 的倍數時，最後一個分隊比較小 —— 不需要特例 */
+  it('編制員額 1 的分隊是 (1/1)', () => {
+    expect(flightStrengthLabel(1, 1)).toBe('(1/1)')
+  })
+})
+
+describe('godMarkerColor', () => {
+  /**
+   * 【兩色不是三色】座艙的 `contactColor` 有第三個顏色給玩家自己的 Schwarm
+   * （警示黃 `HUD_COLORS.warn`），用來標「誰會在你被咬時回頭掩護你」。
+   * 上帝視角是旁觀全場，那個區別沒有意義 —— 專案負責人 2026-08-09 的裁決。
+   * 下面兩條精確相等就把「不得是警示黃」一起釘住了；**不要再補一條
+   * `not.toBe(HUD_COLORS.warn)`**，那在相等斷言已經成立之後是恆真的，
+   * 什麼都不守（Codex 2026-08-09 審查指出）。
+   */
+  it('敵方是危險色、我方是友軍色，沒有第三個', () => {
+    expect(godMarkerColor(true)).toBe(HUD_COLORS.danger)
+    expect(godMarkerColor(false)).toBe(HUD_COLORS.friendly)
+  })
+})
+
+/**
+ * 【為什麼要一個假的 canvas context】上面那些純函數全部通過，`drawGodMarkers`
+ * 卻可能根本沒被呼叫、或把 `flightAlive` 與 `flightSize` 寫反、或把 y 軸翻錯 ——
+ * 沒有任何一條會紅（Codex 2026-08-09 審查指出）。canvas 在 node 環境沒有實作，
+ * 但這個 widget 只碰幾個成員，手寫一個記錄呼叫的替身就夠。
+ *
+ * **這不是「測試繪製好不好看」**（那條紀律不變，好不好看只有專案負責人判定
+ * 得了）。它測的是「畫了幾個、畫在哪、字是什麼」—— 三件有明確正確答案的事。
+ */
+describe('drawGodMarkers', () => {
+  const LAYOUT: HudLayout = {
+    width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1,
+  }
+
+  function fakeCtx(): {
+    ctx: CanvasRenderingContext2D
+    rects: { x: number, y: number, w: number, h: number }[]
+    texts: { text: string, x: number, y: number }[]
+  } {
+    const rects: { x: number, y: number, w: number, h: number }[] = []
+    const texts: { text: string, x: number, y: number }[] = []
+    const ctx = {
+      font: '', textAlign: '', textBaseline: '',
+      strokeStyle: '', fillStyle: '', lineWidth: 0,
+      strokeRect(x: number, y: number, w: number, h: number): void {
+        rects.push({ x, y, w, h })
+      },
+      fillText(text: string, x: number, y: number): void {
+        texts.push({ text, x, y })
+      },
+    } as unknown as CanvasRenderingContext2D
+    return { ctx, rects, texts }
+  }
+
+  /** 長機在 (0, 0.5)、半徑 0.05（× unit 360 = 18，落在夾制的中間段） */
+  function twoContacts(): ReturnType<typeof createHudFrame> {
+    const f = createHudFrame()
+    const leader = f.contacts[0]!
+    leader.active = true
+    leader.flightLeader = true
+    leader.hostile = true
+    leader.x = 0
+    leader.y = 0.5
+    leader.radius = 0.05
+    leader.flightAlive = 2
+    leader.flightSize = 4
+
+    const wingman = f.contacts[1]!
+    wingman.active = true
+    wingman.flightLeader = false
+    wingman.hostile = true
+    wingman.x = 0.2
+    wingman.y = 0.1
+    wingman.radius = 0.05
+    wingman.flightAlive = 2
+    wingman.flightSize = 4
+
+    f.contactCount = 2
+    return f
+  }
+
+  it('兩架同隊只畫一個框 —— 僚機沒有', () => {
+    const { ctx, rects, texts } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    expect(rects).toHaveLength(1)
+    expect(texts).toHaveLength(1)
+  })
+
+  /** 【y 要翻】螢幕座標往下為正，接觸點的 y 往上為正 */
+  it('框以長機為中心，而且 y 軸有翻', () => {
+    const { ctx, rects } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    // cx + 0 × 360 = 640；cy − 0.5 × 360 = 180；r = 0.05 × 360 = 18
+    expect(rects[0]).toEqual({ x: 640 - 18, y: 180 - 18, w: 36, h: 36 })
+  })
+
+  /** 【分子分母不能對調】寫反的話畫出來是 (4/2)，而純函數測試抓不到 */
+  it('框下的字是 (存活/編制)，貼在框底下', () => {
+    const { ctx, texts } = fakeCtx()
+    drawGodMarkers(ctx, LAYOUT, twoContacts())
+    expect(texts[0]!.text).toBe('(2/4)')
+    expect(texts[0]!.x).toBe(640)
+    expect(texts[0]!.y).toBe(180 + 18 + 3)
+  })
+})
+
+/**
+ * 【接觸點池必須裝得下整場】`drawGodMarkers` 是從池子裡**過濾**長機的，
+ * 而池子在 `main.ts` 是先到先得（`n >= HUD_MAX_CONTACTS` 就不再收）。
+ * 池子若比參戰架數小，被擠掉的可能正好是某個分隊的長機 —— 那一隊就
+ * **靜靜地沒有標示**，沒有錯誤、沒有警告（Codex 2026-08-09 審查指出）。
+ *
+ * 【為什麼這條護欄只能住在測試裡】`src/hud/` 不得 import `src/battle/`
+ * （`HudFrame` 是純 DTO）。測試沒有這個限制，兩邊都 import 得到 ——
+ * 與 `src/render/vortex.ts:131` 註解記的「為什麼不 import MAX_COMBATANTS」
+ * 是同一個處置。
+ */
+describe('接觸點池的容量', () => {
+  it('裝得下整場最大架數', () => {
+    expect(HUD_MAX_CONTACTS).toBeGreaterThanOrEqual(MAX_COMBATANTS)
   })
 })
