@@ -203,19 +203,33 @@ function median(xs: readonly number[]): number {
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2
 }
 
-const CENTRE_A = new Vector3()
-const CENTRE_B = new Vector3()
-
-/** 兩隊**存活者**重心的距離，m。任一方全滅時回傳 Infinity。 */
-function centroidGap(b: Battle): number {
-  CENTRE_A.set(0, 0, 0)
-  CENTRE_B.set(0, 0, 0)
-  let na = 0
-  let nb = 0
-  for (const c of b.blue) if (c.alive) { CENTRE_A.add(c.aircraft.state.position); na++ }
-  for (const c of b.red) if (c.alive) { CENTRE_B.add(c.aircraft.state.position); nb++ }
-  if (na === 0 || nb === 0) return Infinity
-  return CENTRE_A.divideScalar(na).distanceTo(CENTRE_B.divideScalar(nb))
+/**
+ * 全場最近的一對敵我的距離，m。任一方全滅時回傳 Infinity。
+ *
+ * 【為什麼取代了 `centroidGap`】巡航階段的結束條件本來寫成「兩隊**重心**
+ * 靠到 `THREAT_RANGE` 以內」。那個判準暗含一個假設：兩隊會塌成一團混戰，
+ * 重心因此重合。2026-08-10「分攤折扣不數同小隊」打開之後那個假設不成立了
+ * —— 各分隊咬住自己的目標各打各的，重心在 150 s 內從未靠到 900 m，於是
+ * 巡航視窗把整場混戰吞了進去：取樣數 22,860 → 72,554，中位 69.7 → 383.9 m。
+ *
+ * **編隊本身沒散** —— 依時間切窗量，開局 20 s 的站位誤差中位改前改後同為
+ * 26.8 m（`test/tools/cruise-station.probe.ts`）。壞掉的是這把尺。
+ *
+ * 【為什麼改成最近的一對】「巡航」的定義本來就是**還沒接敵**，而接敵是
+ * 第一對飛機進入交戰半徑，不是兩團人的平均位置重合。新判準不對戰鬥的
+ * 形狀做任何假設，O(N²) 每 12 步一次（40 × 40 = 1,600 次比較）。
+ */
+function nearestEnemyGap(b: Battle): number {
+  let best = Infinity
+  for (const p of b.blue) {
+    if (!p.alive) continue
+    for (const q of b.red) {
+      if (!q.alive) continue
+      const d = p.aircraft.state.position.distanceTo(q.aircraft.state.position)
+      if (d < best) best = d
+    }
+  }
+  return best
 }
 
 function observe(fair = false): Observed {
@@ -245,12 +259,14 @@ function observe(fair = false): Observed {
   /** 每架是否曾經離站超過 breakExit（歸隊偵測用） */
   const wasBeyond = new Uint8Array(cs.length)
   /**
-   * 開局巡航是否已經結束（兩隊重心第一次靠到 THREAT_RANGE 以內）。
+   * 開局巡航是否已經結束（第一對敵我第一次靠到 THREAT_RANGE 以內）。
    *
-   * 【為什麼要閂住而不是每步重判】交錯之後兩隊重心會再度拉開，若只看
-   * 「重心距離 > THREAT_RANGE」，混戰中散開的僚機會被算成巡航樣本 ——
-   * 實測中位數因此從 66 m 被灌到 270 m。spec §4.1 條件 12 要量的是**開局**
-   * 那一段編隊推進，而那一段只發生一次。
+   * 【為什麼要閂住而不是每步重判】交錯之後雙方會再度拉開，若只看當下的
+   * 距離，混戰中散開的僚機會被算成巡航樣本 —— 實測中位數因此從 66 m 被灌
+   * 到 270 m。spec §4.1 條件 12 要量的是**開局**那一段編隊推進，而那一段
+   * 只發生一次。
+   *
+   * 【判準由重心改成最近的一對，2026-08-10】理由見 `nearestEnemyGap`。
    */
   let cruisePhase = true
   /** 各分隊上一步的 members[0] 與 members[1] */
@@ -337,7 +353,7 @@ function observe(fair = false): Observed {
     // 每步取樣只是把同一個值抄 24 遍，還會讓中位數被「停在站上不動」的
     // 那幾架灌爆。
     if (i % 12 === 0) {
-      if (cruisePhase && centroidGap(b) <= THREAT_RANGE) cruisePhase = false
+      if (cruisePhase && nearestEnemyGap(b) <= THREAT_RANGE) cruisePhase = false
       for (let k = 0; k < ais.length; k++) {
         // `?? null` 是為了 noUncheckedIndexedAccess —— 索引存取的型別是
         // `AiController | null | undefined`，只比對 null 收不掉 undefined
