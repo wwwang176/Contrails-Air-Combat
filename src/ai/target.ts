@@ -683,6 +683,40 @@ export function createTargetBoard(candidates: readonly TargetCandidate[]): Targe
  *
  * 【為什麼要限定同隊】`assignments` 是全場共用一份。不限定的話，紅隊鎖定
  * 某架紅機（不該發生，但這是一條資料而不是一條保證）會污染藍隊的統計。
+ *
+ * ---
+ *
+ * ## 【已定位、未修】計數單位是「架」，於是長機被自己的僚機罰（2026-08-10）
+ *
+ * 這個函數的計數單位是**每一架同隊飛機**，全隊一起數，看不見小隊。而
+ * `wingman.ts` 的 LEVEL_FOCUS 是「打站位參考機正在打的那一架」，並把結果
+ * 寫回同一份 `assignments`（`wingman.ts:234`）。兩者接起來就是一個回授迴路：
+ *
+ * ```
+ * 長機選中 A → 僚機跟上也鎖 A → countLocks(A) 從 0 變 2~3
+ *            → A 的分攤折扣塌成 1/5 → 長機換走 → 僚機跟著換 → …
+ * ```
+ *
+ * **長機是被自己的僚機罰的。** 實測（`test/tools/target-churn.probe.ts`，
+ * 150 s）：
+ *
+ * ```
+ * 架數    全場鎖定裡同小隊佔比   長機「有槍解卻換走」時舊目標身上的鎖定
+ *                                中位  其中同小隊  全部來自同小隊的比例
+ * 20v20        76.7%              2       2            87.5%
+ * 12v12        75.2%              1       1            80.0%
+ *   8v8        79.7%              3       3            75.0%
+ * ```
+ *
+ * 也就是**四分之三以上的分攤壓力來自自己的小隊** —— 而那正是編隊該做的事。
+ * Dicta Boelcke 第八條「避免兩人打同一個對手」談的是兩次**攻擊**，不是長機
+ * 與他的僚機（那是一次攻擊）。分攤要數的單位應該是**小隊**，不是飛機。
+ *
+ * 【為什麼不是直接改】`src/ai/` 不准 import `src/battle/`，所以這裡看不到
+ * `FlightIndex`。可行的形狀是讓 `TargetCandidate` 多帶一個 `flight: number`
+ * （純數字，不引入相依），`countLocks` 改成數不重複的小隊編號。但那會把
+ * 「最大鎖定數」這個既有護欄的單位從「架」換成「小隊」，`crowdPenalty` 的
+ * 特徵尺度也得重掃 —— 是一次分散度的重新定值，不是小修改。
  */
 export function countLocks(
   board: TargetBoard, team: Team, selfIndex: number, candidateIndex: number,
