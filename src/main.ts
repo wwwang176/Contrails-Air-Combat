@@ -45,6 +45,7 @@ import { AiController } from './ai/AiController'
 import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
+import { flightOfIndex, isFlightLeader } from './battle/flights'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
@@ -783,7 +784,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 上下與畫面上的位置對應不起來 —— 一架就在鏡頭正下方的飛機會被畫成
   // 「在你上方」。`range` 不必跟著改：小地圖不吃它，而吃它的接觸點框與
   // 邊緣指示在上帝視角下根本不畫（`hudWidgets`）
-  const refY = input.godView ? godCam.position.y : renderPos.y
+  // 【`range` 的基準也要跟著鏡頭走】原本恆用 `renderPos`（玩家飛機）。
+  // 那在 2026-08-09 之前無害 —— 吃 `range`／`radius` 的兩個 widget（目標框、
+  // 邊緣指示）在上帝視角根本不畫。分隊標示要「框依距離縮放」之後它就變成
+  // 承重的了：不改的話，鏡頭飛到戰場另一頭，框卻會因為**玩家飛機**靠近某架
+  // 敵機而變大。
+  const refPos = input.godView ? godCam.position : renderPos
+  const refY = refPos.y
   let n = 0
   for (const c of world.combatants) {
     // 【上帝視角下自機也要進接觸點】座艙裡排除自己是對的（你就坐在裡面），
@@ -801,15 +808,25 @@ function stepAndDrawBattle(frameSeconds: number): void {
     contact.behind = probe.z >= 1
     contact.x = probe.x * ctx.camera.aspect
     contact.y = probe.y
-    contact.range = v.position.distanceTo(renderPos)
+    contact.range = v.position.distanceTo(refPos)
     // 【單位是螢幕半高】透視投影的 NDC y = tan(θ) / tan(fov/2)，而
     // tan(atan(halfSpan / range)) 就是 halfSpan / range——所以直接寫比值，
     // 不要繞一圈 atan（那會算成 θ / tan(fov/2)，近距離時低估框的大小）。
     contact.radius = ((c.aircraft.spec.wing.span / 2) / Math.max(contact.range, 1))
       / Math.tan((ctx.camera.fov * DEG) / 2)
     contact.hostile = c.team !== player.team
+    // 【`playerFlightIndex >= 0` 這道守衛不能省】玩家退場時它是 −1，而場上
+    // 每一架已退場者的 `flightOf` 也是 −1 —— 少了守衛就會 `-1 === -1`，
+    // 一整批飛機被畫成隊友色。
     contact.flightMate = playerFlightIndex >= 0
       && battle.flights.flightOf[c.index] === playerFlightIndex
+    // 【分隊標示只認長機】`compactFlights` 每個物理步重壓，所以長機陣亡時
+    // 標示自動跳到繼任者，這裡不需要任何同步。玩家那一架恆為 true ——
+    // 他釘死在 `members[0]`（`FlightIndex.pinned`）。
+    const cFlight = flightOfIndex(battle.flights, c.index)
+    contact.flightLeader = isFlightLeader(battle.flights, c.index)
+    contact.flightAlive = cFlight?.count ?? 0
+    contact.flightSize = cFlight?.roster.length ?? 0
     contact.deltaY = v.position.y - refY
     contact.worldX = v.position.x
     contact.worldZ = v.position.z
