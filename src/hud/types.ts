@@ -47,6 +47,17 @@ export interface HudContact {
   leadY: number
   leadValid: boolean
   leadBehind: boolean
+  /**
+   * 這一架是不是自己分隊的長機（`members[0]`）。上帝視角的分隊標示只認它。
+   *
+   * 【玩家那一架恆為 true】玩家釘死在 `members[0]`（`FlightIndex.pinned`），
+   * 所以他永遠是長機 —— 這是既有設計的直接後果，不是新特例。
+   */
+  flightLeader: boolean
+  /** 它那個分隊還活著幾架。`flightLeader` 為 false 時無意義 */
+  flightAlive: number
+  /** 它那個分隊的編制員額。`flightAlive` 的分母 */
+  flightSize: number
 }
 
 /**
@@ -62,6 +73,7 @@ export function createHudContact(): HudContact {
     active: false, x: 0, y: 0, behind: false, radius: 0, hostile: true, flightMate: false,
     deltaY: 0, worldX: 0, worldZ: 0, range: 0,
     leadX: 0, leadY: 0, leadValid: false, leadBehind: false,
+    flightLeader: false, flightAlive: 0, flightSize: 0,
   }
 }
 
@@ -236,6 +248,26 @@ export const HUD_COLORS = {
 export function contactColor(hostile: boolean, flightMate: boolean): string {
   if (hostile) return HUD_COLORS.danger
   return flightMate ? HUD_COLORS.warn : HUD_COLORS.friendly
+}
+
+/** 目標框在螢幕上的最小／最大半徑，px（**未乘 scale**）。 */
+const BOX_MIN = 9
+const BOX_MAX = 46
+
+/**
+ * 一個接觸點的框半徑，CSS px。
+ *
+ * 【為什麼住在 types.ts 而不是某個 widget 裡】座艙的目標框（`contacts.ts`）
+ * 與上帝視角的分隊標示（`godMarkers.ts`）都要用同一把尺。留在其中一邊就會
+ * 變成另一邊自己寫一份 —— 與 `contactColor` 搬來這裡是同一條理由，而那條
+ * 註解記的正是 M6 改色時踩到的：目標框改了，小地圖沒改。
+ *
+ * 【夾制的上下界要先乘 scale 再夾】`radius * unit` 已經是 CSS px，若把夾完
+ * 的結果再乘一次 scale，動態尺寸會被二次縮放，而固定的上下界卻只縮放一次
+ * —— 兩者在不同視窗高度下對不起來。
+ */
+export function contactBoxRadius(radius: number, unit: number, scale: number): number {
+  return Math.max(BOX_MIN * scale, Math.min(BOX_MAX * scale, radius * unit))
 }
 
 /** HUD 統一字型。字級由呼叫端乘上 L.scale。 */

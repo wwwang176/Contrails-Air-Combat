@@ -1,8 +1,7 @@
-import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
-
-/** 目標框在螢幕上的最小／最大半徑，px（未乘 L.scale）。 */
-const BOX_MIN = 9
-const BOX_MAX = 46
+import {
+  contactBoxRadius, contactColor, HUD_COLORS, hudFont,
+  type HudFrame, type HudLayout,
+} from '../types'
 
 /**
  * 畫面外指示的箭頭離邊緣的內縮量，螢幕半高單位。
@@ -55,10 +54,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
     if (onScreen) {
       const x = L.cx + c.x * L.unit
       const y = L.cy - c.y * L.unit
-      // 【夾制的上下界要先乘 L.scale 再夾】`c.radius * L.unit` 已經是 CSS px，
-      // 若把夾完的結果再乘一次 L.scale，動態尺寸會被二次縮放，而固定的
-      // 上下界卻只縮放一次——兩者在不同視窗高度下對不起來。
-      const r = Math.max(BOX_MIN * L.scale, Math.min(BOX_MAX * L.scale, c.radius * L.unit))
+      const r = contactBoxRadius(c.radius, L.unit, L.scale)
 
       ctx.strokeStyle = color
       ctx.lineWidth = 1.5 * L.scale
