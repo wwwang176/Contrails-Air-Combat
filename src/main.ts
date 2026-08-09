@@ -779,16 +779,18 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【每幀取一次】玩家的分隊序號。編制每個物理步重新壓縮，所以陣亡、
   // 遞補、重生都不需要額外同步 —— flightOf 直接就是最新的
   const playerFlightIndex = battle.flights.flightOf[player.index]!
-  // 【小地圖的高度符號要跟著小地圖的中心走】上帝視角下平面已經以鏡頭
-  // 重新置中（`worldX`/`worldZ`），高度基準卻還留在自機的話，三角形的
-  // 上下與畫面上的位置對應不起來 —— 一架就在鏡頭正下方的飛機會被畫成
-  // 「在你上方」。`range` 不必跟著改：小地圖不吃它，而吃它的接觸點框與
-  // 邊緣指示在上帝視角下根本不畫（`hudWidgets`）
-  // 【`range` 的基準也要跟著鏡頭走】原本恆用 `renderPos`（玩家飛機）。
-  // 那在 2026-08-09 之前無害 —— 吃 `range`／`radius` 的兩個 widget（目標框、
-  // 邊緣指示）在上帝視角根本不畫。分隊標示要「框依距離縮放」之後它就變成
-  // 承重的了：不改的話，鏡頭飛到戰場另一頭，框卻會因為**玩家飛機**靠近某架
-  // 敵機而變大。
+  // 【上帝視角下的基準點是鏡頭，不是自機】兩個地方吃它：
+  //
+  //   `refY`   小地圖的高度符號。平面已經以鏡頭重新置中（`worldX`/`worldZ`），
+  //            高度基準卻還留在自機的話，三角形的上下與畫面上的位置對應不
+  //            起來 —— 一架就在鏡頭正下方的飛機會被畫成「在你上方」。
+  //   `refPos` `contact.range`，而 `radius` 由它推出來。
+  //
+  // 【`range` 是 2026-08-09 才跟上的】在那之前它恆用 `renderPos`（玩家飛機），
+  // 而且無害 —— 吃 `range`／`radius` 的兩個 widget（目標框、邊緣指示）在
+  // 上帝視角根本不畫。分隊標示（`godMarkers`）要「框依距離縮放」之後那句話
+  // 就不成立了：不改的話，鏡頭飛到戰場另一頭，框卻會因為**玩家飛機**靠近
+  // 某架敵機而變大。
   const refPos = input.godView ? godCam.position : renderPos
   const refY = refPos.y
   let n = 0
@@ -798,8 +800,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // （正被 AI 代飛，也就是這個模式最想看的東西）在小地圖上一個像素都沒有。
     // 池子夠：`HUD_MAX_CONTACTS` 48，20v20 最多 39 個他機。
     //
-    // 【`range` 與 `radius` 會是 0 與一個很大的值】兩者只有接觸點框與邊緣
-    // 指示在吃，而那兩個 widget 在上帝視角下根本不畫（`hudWidgets`）。
+    // 【自機那一格的 `range` 是 0】上帝視角下鏡頭與自機是兩個東西，所以
+    // `range` 不再恆為 0 —— 那是 `refPos` 改成鏡頭之後的直接後果（見上面）。
+    // 恆為 0 的只剩「鏡頭正好貼在某架身上」那個退化情形，而 `radius` 的
+    // `Math.max(range, 1)` 已經擋住除以零。
     if ((c === player && !input.godView) || !c.alive || n >= HUD_MAX_CONTACTS) continue
     const contact = hudFrame.contacts[n]!
     const v = visuals.get(c)!
