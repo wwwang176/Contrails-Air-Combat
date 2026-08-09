@@ -332,11 +332,14 @@ export function createBattle(
   const flights = createFlights(world.combatants, player.index)
   // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
   //
-  // 【為什麼不傳 `flights.flightOf`】傳了就開啟「分攤折扣不數同小隊」（見
-  // `countLocks` 的註解）。那一版實測過，症狀確實好了很多，但它**同時改掉
-  // 整場戰鬥的樣貌**，是一次分散度的重新定值 —— 2026-08-10 待專案負責人
-  // 裁定。開關就是這一行加一個參數，編制刻意排在前面就是為了讓它是一個字。
-  const board = createTargetBoard(world.combatants)
+  // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
+  // `countLocks` 的註解）。沒有它時長機會被自己的僚機罰：僚機的職責就是
+  // 打長機正在打的那一架，跟上之後卻被算成「這架已經有人在打了」，長機
+  // 於是把到手的射擊解讓出去。專案負責人 2026-08-10 裁定打開。
+  //
+  // 【編制刻意排在前面】就是為了讓這裡拿得到 `flightOf` 那一個實體 ——
+  // `compactFlights` 每個物理步就地重填它，板子因此永遠讀到當步的編制。
+  const board = createTargetBoard(world.combatants, flights.flightOf)
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
   // `envelope.ts` 用二分搜尋實算 —— 那才是**套過 `feel.ts` 倍率之後**這架
