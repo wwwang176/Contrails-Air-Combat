@@ -650,6 +650,15 @@ export interface TargetBoard {
   readonly candidates: readonly TargetCandidate[]
   /** `assignments[i]` = 第 i 架正在鎖定的候選索引；−1 = 無 */
   readonly assignments: Int32Array
+  /**
+   * `flightOf[i]` = 第 i 架屬於哪個編隊；**−1 = 不屬於任何編隊**（不是
+   * 「同屬第 −1 隊」—— 兩架獨行俠彼此仍是外人，見 `countLocks`）。
+   *
+   * 【為什麼是一條資料而不是一個相依】`src/ai/` 不准 import `src/battle/`。
+   * 這裡收的是 `FlightIndex.flightOf` **那一個實體**，`compactFlights` 每個
+   * 物理步就地重填，所以永遠是當步的編制，不需要同步。
+   */
+  readonly flightOf: Int32Array
 }
 
 /**
@@ -660,8 +669,14 @@ export interface TargetBoard {
  * 給的遞增序號。兩者恆等（`add` 就是用 `combatants.length` 當 index），但
  * 「恆等」若沒有被檢查，某天有人插入一架就會變成無聲的錯位 —— 所有 AI 都
  * 會鎖到隔壁那一架。設定期檢查一次，成本為零。
+ *
+ * @param flightOf 每一架的編隊索引（見 `TargetBoard.flightOf`）。**省略等於
+ * 全部 −1**，也就是「沒有編制」—— `countLocks` 逐字回到分編隊之前的行為。
+ * 單元測試多半不需要編制，所以預設就是那一個。
  */
-export function createTargetBoard(candidates: readonly TargetCandidate[]): TargetBoard {
+export function createTargetBoard(
+  candidates: readonly TargetCandidate[], flightOf?: Int32Array,
+): TargetBoard {
   for (let i = 0; i < candidates.length; i++) {
     if (candidates[i]!.index !== i) {
       throw new Error(
@@ -669,11 +684,22 @@ export function createTargetBoard(candidates: readonly TargetCandidate[]): Targe
       )
     }
   }
-  return { candidates, assignments: new Int32Array(candidates.length).fill(-1) }
+  if (flightOf !== undefined && flightOf.length !== candidates.length) {
+    throw new Error(
+      `flightOf 長度必須等於候選數：${flightOf.length} vs ${candidates.length}`,
+    )
+  }
+  return {
+    candidates,
+    assignments: new Int32Array(candidates.length).fill(-1),
+    flightOf: flightOf ?? new Int32Array(candidates.length).fill(-1),
+  }
 }
 
 /**
- * 有幾架**同隊且存活**的飛機正鎖定 `candidateIndex`，不含 `selfIndex` 自己。
+ * 有幾架**同隊且存活**的飛機正鎖定 `candidateIndex`，不含 `selfIndex` 自己，
+ * 也**不含與 `selfIndex` 同一個編隊的**（`board.flightOf`；全 −1 時等於沒有
+ * 編制，逐字回到分編隊之前的行為 —— 那就是 `setup.ts` 目前的接法）。
  *
  * 【為什麼每次重掃而不是維護一個增減計數器】計數器要求每一次「放棄目標」
  * 都配一次遞減 —— 陣亡、撞地、重置、換目標各是一條路徑，漏掉任何一條就
@@ -686,7 +712,7 @@ export function createTargetBoard(candidates: readonly TargetCandidate[]): Targe
  *
  * ---
  *
- * ## 【已定位、未修】計數單位是「架」，於是長機被自己的僚機罰（2026-08-10）
+ * ## 【已做好、預設關】計數單位是「架」，於是長機被自己的僚機罰（2026-08-10）
  *
  * 這個函數的計數單位是**每一架同隊飛機**，全隊一起數，看不見小隊。而
  * `wingman.ts` 的 LEVEL_FOCUS 是「打站位參考機正在打的那一架」，並把結果
@@ -712,20 +738,52 @@ export function createTargetBoard(candidates: readonly TargetCandidate[]): Targe
  * Dicta Boelcke 第八條「避免兩人打同一個對手」談的是兩次**攻擊**，不是長機
  * 與他的僚機（那是一次攻擊）。分攤要數的單位應該是**小隊**，不是飛機。
  *
- * 【為什麼不是直接改】`src/ai/` 不准 import `src/battle/`，所以這裡看不到
- * `FlightIndex`。可行的形狀是讓 `TargetCandidate` 多帶一個 `flight: number`
- * （純數字，不引入相依），`countLocks` 改成數不重複的小隊編號。但那會把
- * 「最大鎖定數」這個既有護欄的單位從「架」換成「小隊」，`crowdPenalty` 的
- * 特徵尺度也得重掃 —— 是一次分散度的重新定值，不是小修改。
+ * ### 機制已經做好了，開關在 `setup.ts` 那一行（目前不傳 `flightOf`）
+ *
+ * `src/ai/` 不准 import `src/battle/`，所以這裡不能認識 `FlightIndex`；
+ * `TargetBoard.flightOf` 收的是一條 `Int32Array`，是資料不是相依。
+ *
+ * 【打開之後量到什麼】20v20、150 s、與 `multi-battle` 逐字相同的假駕駛：
+ *
+ * ```
+ * 判準                        每一架都數   不數同小隊
+ * 長機「有槍解卻換走」（20/12/8v8）  25/10/4      3/2/0    ← 專案負責人看到的那一幕
+ * 換目標總數（20v20）              742          454
+ * 長機持有時間中位                2.00 s       5.70 s
+ * 貼在 minDwell 下限              79.4%        55.7%
+ * 最大鎖定數                        8            6        ← 分散反而更好
+ * 鎖定堆疊次數                      2            0
+ * 命中事件                        402          534        ← 咬得住，打得中
+ * 開局 20 s 的站位誤差中位        26.8 m       26.8 m      ← 編隊完全沒受影響
+ * ```
+ *
+ * 【為什麼還是預設關】它同時改掉整場戰鬥的樣貌。最硬的一項：兩隊重心在
+ * 150 s 內**再也沒有靠到 900 m 以內**（原本 38.1 s 就合流），於是
+ * `multi-battle`「開局巡航時編隊維持得住」那條的取樣視窗由 22,860 暴增到
+ * 72,554 —— 它是用「重心靠攏」判定巡航結束的，視窗因此把整場混戰吞了進去，
+ * 中位數 69.7 → 383.9 m（門檻 100）。**編隊本身沒散**（開局 20 s 兩者同為
+ * 26.8 m，見 `test/tools/cruise-station.probe.ts`），壞掉的是那把尺。
+ *
+ * 連帶：傷害對比由 藍 9,223 / 紅 3,852（2.39 倍）變成 7,395 / 7,534
+ * （1.02 倍），而 `ai-command-channel`、`ai-command-tactics`、
+ * `ai-withdraw-anchor` 三份**本來就紅**的護欄全部惡化到量測值歸零。
+ *
+ * 那是一次分散度的重新定值，不是實作者能自己定的。
  */
 export function countLocks(
   board: TargetBoard, team: Team, selfIndex: number, candidateIndex: number,
 ): number {
-  const { candidates, assignments } = board
+  const { candidates, assignments, flightOf } = board
+  // 【−1 不合併】「不屬於任何編隊」不是一個編隊。兩架獨行俠彼此仍是外人，
+  // 所以自己沒有編制時這個條件恆假，逐字回到分編隊之前的行為
+  const selfFlight = selfIndex >= 0 && selfIndex < flightOf.length
+    ? flightOf[selfIndex]!
+    : -1
   let n = 0
   for (let i = 0; i < assignments.length; i++) {
     if (i === selfIndex) continue
     if (assignments[i]! !== candidateIndex) continue
+    if (selfFlight >= 0 && flightOf[i] === selfFlight) continue
     const c = candidates[i]
     if (c === undefined || !c.alive || c.team !== team) continue
     n++

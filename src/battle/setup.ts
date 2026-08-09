@@ -327,11 +327,16 @@ export function createBattle(
 
   if (player === null) throw new Error('玩家沒有被建立——blueCount 必須 >= 1')
 
-  // 【指派板必須在全部 add 完之後才建】它會檢查 index 與陣列位置一致，
-  // 而 index 是 add 依序給的
-  const board = createTargetBoard(world.combatants)
-  // 【編制同理】而且玩家要釘在自己分隊的 members[0]（M6 spec §5.3）
+  // 【編制必須在全部 add 完之後才建】玩家要釘在自己分隊的 members[0]
+  // （M6 spec §5.3）
   const flights = createFlights(world.combatants, player.index)
+  // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
+  //
+  // 【為什麼不傳 `flights.flightOf`】傳了就開啟「分攤折扣不數同小隊」（見
+  // `countLocks` 的註解）。那一版實測過，症狀確實好了很多，但它**同時改掉
+  // 整場戰鬥的樣貌**，是一次分散度的重新定值 —— 2026-08-10 待專案負責人
+  // 裁定。開關就是這一行加一個參數，編制刻意排在前面就是為了讓它是一個字。
+  const board = createTargetBoard(world.combatants)
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
   // `envelope.ts` 用二分搜尋實算 —— 那才是**套過 `feel.ts` 倍率之後**這架

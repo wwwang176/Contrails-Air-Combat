@@ -548,6 +548,36 @@ describe('countLocks', () => {
     const b = createTargetBoard(cs)
     expect(countLocks(b, 'blue', 0, 1)).toBe(0)
   })
+
+  it('不數同一個編隊的隊友 —— 僚機跟上不算搶', () => {
+    // 0、1 同編隊；2 是別的編隊；3 是紅機，三架藍機都鎖定它
+    const cs = candidates(['blue', 'blue', 'blue', 'red'])
+    const b = createTargetBoard(cs, Int32Array.from([0, 0, 1, -1]))
+    b.assignments.set([3, 3, 3, -1])
+    expect(countLocks(b, 'blue', 0, 3)).toBe(1)
+  })
+
+  it('沒有給編隊時逐字照舊 —— 每一架都算', () => {
+    const cs = candidates(['blue', 'blue', 'blue', 'red'])
+    const b = createTargetBoard(cs)
+    b.assignments.set([3, 3, 3, -1])
+    expect(countLocks(b, 'blue', 0, 3)).toBe(2)
+  })
+
+  it('無編隊（−1）不會互相合併', () => {
+    // −1 是「不屬於任何編隊」，不是「同屬第 −1 隊」。兩架獨行俠彼此仍是外人
+    const cs = candidates(['blue', 'blue', 'blue', 'red'])
+    const b = createTargetBoard(cs, Int32Array.from([-1, -1, -1, -1]))
+    b.assignments.set([3, 3, 3, -1])
+    expect(countLocks(b, 'blue', 0, 3)).toBe(2)
+  })
+
+  it('自己有編隊、隊友沒有時，隊友照算', () => {
+    const cs = candidates(['blue', 'blue', 'red'])
+    const b = createTargetBoard(cs, Int32Array.from([0, -1, -1]))
+    b.assignments.set([2, 2, -1])
+    expect(countLocks(b, 'blue', 0, 2)).toBe(1)
+  })
 })
 
 /** 造一個「藍 0 對紅 1、紅 2」的板，紅 1 在近處、紅 2 在遠處。 */
