@@ -261,10 +261,13 @@ function run(perSide: number, visionPower: number): Result {
         }
         if (ai.target && aspectOf(c.aircraft, ai.target) < (15 * Math.PI) / 180) onNose++
         // 【分攤的來源結構】此刻壓在我目標上的隊友，有幾個是我自己的僚機
+        // 【為什麼分母要自己加起來】`countLocks` 現在**已經排除同小隊**，
+        // 直接拿它當分母會算出 >100% 的比例
         if (ai.target) {
           const ti = indexOf.get(ai.target)!
-          lockTotal += countLocks(b.board, c.team, i, ti)
-          lockOwn += ownFlightLocks(i, ti)
+          const own = ownFlightLocks(i, ti)
+          lockOwn += own
+          lockTotal += countLocks(b.board, c.team, i, ti) + own
         }
       }
 
@@ -472,17 +475,12 @@ ${n}v${n}　樣本 ${k} 次`)
  * 自己目標上的分攤折扣。這一段量的就是那個回授迴路有多大。
  */
 console.log('\n=== 【分攤的計數單位】壓在我目標上的隊友，有幾個是我自己的僚機 ===')
-console.log('架數    全場鎖定裡同小隊佔比   長機「有槍解卻換走」時：舊目標鎖定中位  其中同小隊中位  全部來自同小隊的比例')
+console.log('（`countLocks` 只數別的小隊，所以「同小隊」那一欄是它看不見、也不再處罰的那一群）')
+console.log('架數    全場鎖定裡同小隊佔比   長機「有槍解卻換走」時的舊目標：別隊鎖定中位  同小隊中位')
 for (const [n, r] of results) {
-  const k = r.shotOldLocksOwn.length
-  const allOwn = k > 0
-    ? r.shotOldLocksOwn.filter((own, j) => r.shotOldLocks[j]! > 0 && own === r.shotOldLocks[j]!).length
-      / Math.max(r.shotOldLocks.filter((x) => x > 0).length, 1)
-    : NaN
   console.log(
     `${n}v${n}`.padStart(6) + `  ${pct(r.ownLockShare).padStart(18)}`
-    + `  ${String(median(r.shotOldLocks)).padStart(36)}`
-    + `  ${String(median(r.shotOldLocksOwn)).padStart(14)}`
-    + `  ${pct(allOwn).padStart(20)}`,
+    + `  ${String(median(r.shotOldLocks)).padStart(42)}`
+    + `  ${String(median(r.shotOldLocksOwn)).padStart(11)}`,
   )
 }
