@@ -3,8 +3,9 @@ import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
   countLocks, createTargetBoard, createTargetState, selectTarget, targetScore,
-  DEFAULT_TARGET, type TargetCandidate,
+  visionFactor, DEFAULT_TARGET, type TargetCandidate,
 } from '../../src/ai/target'
+import { trackAngle } from '../../src/ai/assess'
 import type { Team } from '../../src/world/World'
 import { P51D } from '../../src/specs/p51d'
 
@@ -234,6 +235,123 @@ describe('targetScore 的切換成本', () => {
           .toBeGreaterThanOrEqual(0)
       }
     }
+  })
+})
+
+const DEG = Math.PI / 180
+
+/**
+ * ## 視野折扣：只咬後半球
+ *
+ * 【量到的缺陷】20v20、150 s：**29.6% 的換目標換去後半球**，而 `turnDiscount`
+ * 在那裡太平 —— 由 57°（實測中位）到正後方只損失 3.4 倍，而分攤折扣每多一個
+ * 隊友鎖定就是 3.0 倍。「正後方、沒人鎖」與「57°、有一個隊友鎖著」幾乎等價。
+ *
+ * 【為什麼只咬後半球】全域的 cos 斜坡**必定**打破下面那條「正前方但很遠的
+ * 目標，輸給側面但很近的目標」（實算餘裕 1.203 → 0.692 / 0.391 / 0.203）。
+ * 詳見 `TargetConfig.visionPower`。
+ */
+/**
+ * 【為什麼要一個明確開啟的設定】`DEFAULT_TARGET.visionPower` 是 **0**（關掉）
+ * —— 這一項是方向相反的取捨（後方追逐變好、A→B→A 變差），預設由專案負責人
+ * 裁定，見 `TargetConfig.visionPower` 的 A/B 表。用 `DEFAULT_TARGET` 來測
+ * 這一組的話，量到的會是「關掉時它不動」，那什麼都沒守到。
+ */
+const VISION_ON = { ...DEFAULT_TARGET, visionPower: 2 }
+
+describe('visionFactor —— 視野折扣', () => {
+  const cfg = VISION_ON
+
+  /**
+   * 【這一條是那條不變式的結構保證】只要前半球恆為 1，視野折扣就**不可能**
+   * 影響任何 θ ≤ 90° 的比較 —— 不必再逐個場景去試。
+   */
+  it('前半球恆為 1，一個字都不動', () => {
+    for (const deg of [0, 15, 30, 45, 57, 60, 75, 89.9, 90]) {
+      expect(visionFactor(deg * DEG, cfg)).toBeCloseTo(1, 12)
+    }
+  })
+
+  it('後半球才開始扣，而且單調遞減', () => {
+    let last = 1
+    for (const deg of [90, 100, 110, 120, 135, 150, 165, 180]) {
+      const v = visionFactor(deg * DEG, cfg)
+      expect(v).toBeLessThanOrEqual(last + 1e-12)
+      last = v
+    }
+    expect(visionFactor(180 * DEG, cfg)).toBeLessThan(visionFactor(120 * DEG, cfg))
+  })
+
+  /**
+   * 【下限不能是 0】三個折扣都是乘法。歸零的話全部候選都會被壓成 0，選擇
+   * 退化成「取掃描時第一個碰到的」—— 那正是 `baseScore` 註解記下的缺陷。
+   */
+  it('正後方仍然大於 0 —— 背後是很差，不是不存在', () => {
+    expect(visionFactor(180 * DEG, cfg)).toBe(cfg.visionFloor)
+    expect(cfg.visionFloor).toBeGreaterThan(0)
+  })
+
+  /** 【90° 是轉折點，不是斷點】硬截斷這個專案吃過虧 */
+  it('90° 兩側連續', () => {
+    const eps = 1e-6
+    const lo = visionFactor((90 - eps) * DEG, cfg)
+    const hi = visionFactor((90 + eps) * DEG, cfg)
+    expect(Math.abs(lo - hi)).toBeLessThan(1e-4)
+  })
+
+  it('visionPower 為 0 時整條規則關掉', () => {
+    const off = { ...cfg, visionPower: 0 }
+    for (const deg of [0, 90, 120, 180]) {
+      expect(visionFactor(deg * DEG, off)).toBe(1)
+    }
+  })
+
+  /**
+   * 【預設是關的，而且那是一個裁定】不是忘了開。實測它讓後方追逐變好、
+   * A→B→A 變差六場六場 —— 兩個都是專案負責人抱怨過的事，孰輕孰重是他的
+   * 決定。這一條把「現在是關的」釘住，免得日後有人以為它一直在跑。
+   */
+  it('預設是關掉的 —— 待裁定', () => {
+    expect(DEFAULT_TARGET.visionPower).toBe(0)
+    for (const deg of [0, 90, 120, 180]) {
+      expect(visionFactor(deg * DEG, DEFAULT_TARGET)).toBe(1)
+    }
+  })
+})
+
+describe('targetScore 的視野折扣', () => {
+  /**
+   * 【這是要修的行為】正後方 400 m 與正前方 400 m，兩架都背對我（機會項
+   * 相同）。原本正後方只差 3.4 倍，加了視野折扣之後差距明顯拉開。
+   */
+  it('正後方的目標被壓得比沒有視野折扣時更低', () => {
+    const me = place(0, 4000, 0, 0)
+    const behind = place(0, 4000, 400, Math.PI)
+    expect(targetScore(me, behind, 0, VISION_ON))
+      .toBeLessThan(targetScore(me, behind, 0, DEFAULT_TARGET))
+  })
+
+  /** 【前半球逐位元相同】不是「差不多」，是這條規則的結構保證 */
+  it('前半球的目標分數逐位元不受影響', () => {
+    const me = place(0, 4000, 0, 0)
+    for (const [x, z] of [[0, -400], [0, -3000], [300, 0], [-300, 0], [200, -200]] as const) {
+      const t = place(x, 4000, z, 0)
+      expect(trackAngle(me, t)).toBeLessThanOrEqual(Math.PI / 2 + 1e-9)
+      expect(targetScore(me, t, 0, VISION_ON)).toBe(targetScore(me, t, 0, DEFAULT_TARGET))
+    }
+  })
+
+  /**
+   * 【視野折扣用的角與 turnTime 同一個】兩者都由 `trackAngle` 來，所以不會
+   * 出現「轉向折扣用航跡、視野折扣用機首」這種一個決策裡兩個方位定義。
+   */
+  it('用的是航跡而不是機首', () => {
+    const me = place(0, 4000, 0, 0)
+    // 機首朝 −Z，但速度硬轉成 +Z：目標在 −Z 正前方，對機首是 0°、對航跡是 180°
+    me.state.velocity.set(0, 0, 200)
+    const t = place(0, 4000, -400, 0)
+    expect(trackAngle(me, t) * (180 / Math.PI)).toBeCloseTo(180, 6)
+    expect(visionFactor(trackAngle(me, t), VISION_ON)).toBe(VISION_ON.visionFloor)
   })
 })
 

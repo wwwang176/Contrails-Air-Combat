@@ -496,6 +496,24 @@ const TT = makeScratch(2)
  * 熱路徑之外（10 Hz），但仍然不配置。不修改 self 與 target。
  */
 export function turnTime(self: Aircraft, target: Aircraft): number {
+  const rate = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
+  return rate > 1e-6 ? trackAngle(self, target) / rate : Infinity
+}
+
+/**
+ * 我的**航跡**與目標視線的夾角，rad。0 = 他正在我的航跡正前方，π = 正後方。
+ *
+ * 【它就是 `turnTime` 的分子】兩者共用同一個角，所以「由速度向量量而不是
+ * 機首」這條裁決（見 `turnTime` 的註解）自動適用於兩邊 —— 不會出現「轉向
+ * 折扣用航跡、視野折扣用機首」這種一個決策裡有兩個方位定義的情形。
+ *
+ * 【為什麼獨立匯出】`target.ts` 的視野折扣要的是**純角度**，不是除以迴旋率
+ * 之後的秒數。在那邊自己再算一次會是第二份同義的幾何 —— 這個專案在
+ * `contactColor`、`threatFactor` 上都記過那樣會漂開。
+ *
+ * 熱路徑之外（10 Hz），但仍然不配置。不修改 self 與 target。
+ */
+export function trackAngle(self: Aircraft, target: Aircraft): number {
   const los = TT.v[0]!.copy(target.state.position).sub(self.state.position)
   const range = los.length()
   // 重疊時「該轉多少」沒有意義，取 0 —— 與 evaluateGeometry 的退化處理一致
@@ -508,7 +526,5 @@ export function turnTime(self: Aircraft, target: Aircraft): number {
   if (speed > MIN_RANGE) dir.divideScalar(speed)
   else dir.copy(FWD).applyQuaternion(self.state.orientation)
 
-  const angle = Math.acos(clampUnit(dir.dot(los)))
-  const rate = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
-  return rate > 1e-6 ? angle / rate : Infinity
+  return Math.acos(clampUnit(dir.dot(los)))
 }
