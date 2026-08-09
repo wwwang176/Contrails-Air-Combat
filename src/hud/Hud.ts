@@ -3,6 +3,7 @@ import { drawDamageEdge } from './widgets/damageEdge'
 import { drawDials } from './widgets/dials'
 import { drawEnergy } from './widgets/energy'
 import { drawGEffect } from './widgets/gEffect'
+import { drawGodMarkers } from './widgets/godMarkers'
 import { drawHealth } from './widgets/health'
 import { drawHints } from './widgets/hints'
 import { drawMinimap } from './widgets/minimap'
@@ -14,6 +15,7 @@ import type { HudFrame, HudLayout } from './types'
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
+  | 'godMarkers'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -26,13 +28,20 @@ const FULL: readonly HudWidget[] = [
 ]
 
 /**
- * 上帝視角只畫這三個。
+ * 上帝視角畫這四個。
  *
  * 其餘（姿態儀、速度高度帶、準星、過載黑視、受擊邊框、儀表、血條、能量、
  * 接觸點）全部是**座艙儀表** —— 鏡頭都不在飛機上了，留著只是雜訊，而
  * **準星更是直接誤導**：它會讓人以為那個方向會有子彈出去。
+ *
+ * 【`godMarkers` 不是座艙儀表】它標的是分隊，而分隊只有在看得見全場的時候
+ * 才讀得出來。反過來座艙裡也不排它：那裡已經有完整的目標框與預瞄環，再疊
+ * 一層分隊框是雜訊。
+ *
+ * 【排在最前面】世界疊加層在面板底下 —— 與 `FULL` 裡 `contacts` 排在
+ * `dials`／`minimap` 之前是同一條理由。
  */
-const GOD: readonly HudWidget[] = ['minimap', 'roster', 'hints']
+const GOD: readonly HudWidget[] = ['godMarkers', 'minimap', 'roster', 'hints']
 
 /**
  * 這一幀要畫哪些 widget，依序。
@@ -82,6 +91,7 @@ export class Hud {
     for (const w of hudWidgets(f.godView)) {
       switch (w) {
         case 'gEffect': drawGEffect(ctx, L, f, dt); break
+        case 'godMarkers': drawGodMarkers(ctx, L, f); break
         case 'damageEdge': drawDamageEdge(ctx, L, f); break
         case 'contacts': drawContacts(ctx, L, f); break
         case 'reticle': drawReticle(ctx, L, f); break
