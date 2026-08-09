@@ -3,6 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import {
   createHudContact, createHudFrame, indicatedAirspeed,
   contactColor, nextHitFlash, HIT_FLASH_SECONDS, HUD_COLORS, HUD_MAX_CONTACTS,
+  contactBoxRadius,
 } from '../../src/hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
@@ -416,5 +417,52 @@ describe('上帝視角的 HUD', () => {
   /** 【G 要寫在一般飛行的提示行裡】不然這個模式是不可發現的 */
   it('一般飛行的提示行要告訴玩家 G 進得去', () => {
     expect(hintKeys(false)).toContain('G')
+  })
+})
+
+describe('contactBoxRadius', () => {
+  /**
+   * 【為什麼這個夾制值得一條測試】它原本寫在 `contacts.ts` 的繪製函數裡，
+   * 而繪製函數在 node 環境驗不到 —— 於是那段註解記下的錯（先夾再乘 scale，
+   * 動態尺寸被二次縮放）沒有任何東西守著。搬到 `types.ts` 給兩個 widget
+   * 共用的同時，順帶讓它第一次有測試。
+   */
+  it('小於下界時夾到下界', () => {
+    expect(contactBoxRadius(0.0001, 400, 1)).toBe(9)
+  })
+
+  it('大於上界時夾到上界', () => {
+    expect(contactBoxRadius(10, 400, 1)).toBe(46)
+  })
+
+  it('中間段就是 radius × unit', () => {
+    expect(contactBoxRadius(0.05, 400, 1)).toBeCloseTo(20, 10)
+  })
+
+  /**
+   * 【順序不能反】上下界要**先乘 scale 再夾**。反過來的話固定的上下界只縮放
+   * 一次、動態尺寸卻縮放兩次，兩者在不同視窗高度下對不起來。
+   */
+  it('上下界跟著 scale 走：scale = 2 時下界是 18 不是 9', () => {
+    expect(contactBoxRadius(0.0001, 400, 2)).toBe(18)
+    expect(contactBoxRadius(10, 400, 2)).toBe(92)
+  })
+
+  it('scale 不會把中間段乘第二次', () => {
+    // radius × unit = 20，落在 [18, 92] 之內，所以原封不動
+    expect(contactBoxRadius(0.05, 400, 2)).toBeCloseTo(20, 10)
+  })
+})
+
+describe('HudContact 的分隊欄位', () => {
+  /**
+   * 【為什麼要守初始值】接觸點是**固定長度的池**，格子會被重複使用。
+   * 新欄位若沒有初始值，型別上是 undefined、執行期會畫出 `(undefined/undefined)`。
+   */
+  it('createHudContact 把三個分隊欄位設成不畫標示的狀態', () => {
+    const c = createHudContact()
+    expect(c.flightLeader).toBe(false)
+    expect(c.flightAlive).toBe(0)
+    expect(c.flightSize).toBe(0)
   })
 })
