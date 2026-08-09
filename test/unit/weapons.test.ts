@@ -54,9 +54,12 @@ describe('L3 火力平衡的相對關係', () => {
     expect(batteryDps(BF109G6_BATTERY)).toBeGreaterThan(batteryDps(P51D_BATTERY))
   })
 
-  it('DPS 對得上 spec §6.3 的表（P-51 480、109 627）', () => {
-    expect(batteryDps(P51D_BATTERY)).toBeCloseTo(480, 0)
-    expect(batteryDps(BF109G6_BATTERY)).toBeCloseTo(626.67, 1)
+  it('DPS 對得上 spec §6.3 的表（P-51 1440、109 1880）', () => {
+    // 【2026-08-09：三個單發傷害一律 ×3】專案負責人的調參決定，DPS 因此
+    // 由 480 / 626.67 變成 1440 / 1880。**精度沒有放寬** —— 還是 0 位與
+    // 1 位小數，只是被釘住的值換成了新的設計值。
+    expect(batteryDps(P51D_BATTERY)).toBeCloseTo(1440, 0)
+    expect(batteryDps(BF109G6_BATTERY)).toBeCloseTo(1880, 1)
   })
 })
 
