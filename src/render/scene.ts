@@ -15,20 +15,26 @@ export const CAMERA_NEAR = 1
 /**
  * 遠平面，m。
  *
- * 【為什麼從 60 km 拉到 800 km】遠海半邊 250 km（半對角線 354 km），遠平面
- * 小於它的話遠海的角會被裁掉，而被裁掉的邊緣就是這一整件事正要消除的那條
- * 硬邊。
+ * 【它只有一個約束】必須大於遠海的**半對角線**（`FAR_SEA_SIZE / 2 × √2`
+ * = 4,243 km），否則遠海的四個角會被裁掉，而被裁掉的邊緣就是一條硬邊。
+ * 2026-08-09 遠海由半邊 250 km 放大到 3,000 km（見 `ocean.ts` 的
+ * `FAR_SEA_SIZE`），這裡跟著由 800 km 拉到 5,000 km。
  *
- * 【深度精度的代價幾乎是零】解析度是 `Δz ≈ z²·(f−n)/(n·f·2²⁴)`，而 `f ≫ n`
- * 時 `(f−n)/(n·f) → 1/n`。近平面沒有動，所以近場精度不變 —— 100 m 處仍然
- * 是 0.6 mm。這個改動只把那個因子從 0.99998333 變成 0.99999875，差 1.5e-5。
+ * 【深度精度的代價幾乎是零】解析度是 `Δz ≈ z²·(f−n)/(n·f·2^bits)`，而
+ * `f ≫ n` 時 `(f−n)/(n·f) → 1/n`。**近平面沒有動**，所以近場精度不變。
+ * 這次只把那個因子從 0.99999875 變成 0.9999998。
  *
- * 【但「沒有變差」不等於「夠用」】決定 `Δz` 的是**近平面與距離**：12,000 m
- * 處是 8.58 m。遠海與細浪面只相距 3 m，所以高空俯視時兩者的深度分不出前後
- * —— 那是遠平面拉大之前就存在的限制，處置見 `ocean.ts` 的
- * `farMesh.renderOrder`。
+ * 【但那個計算假設 24-bit 深度緩衝，而 WebGL 只保證 16 bit】24-bit 下
+ * 100 m 處是 0.6 mm、12,000 m 處是 8.58 m；16-bit 下是 0.15 m 與 2.2 km。
+ * **這是遠平面拉到 800 km 時就存在的事，不是後來引入的** —— `f ≫ n` 之後
+ * 精度幾乎只由近平面決定。實際位元數由 `battlefield-visuals.e2e.ts` 讀
+ * `gl.getParameter(gl.DEPTH_BITS)` 記錄。
+ *
+ * 【遠海與細浪面只相距 3 m】高空俯視時兩者的深度分不出前後 —— 既有的限制，
+ * 處置見 `ocean.ts` 的 `farMesh.renderOrder`。那個 `renderOrder` 只固定
+ * 平手的倒向，不會增加深度精度。
  */
-export const CAMERA_FAR = 800_000
+export const CAMERA_FAR = 5_000_000
 
 export interface SceneContext {
   renderer: WebGLRenderer
@@ -45,9 +51,10 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   const scene = new Scene()
   scene.add(createSky())
   // 【霧掛在 scene 上，逐材質生效】three 的 `material.fog` 預設為 true，
-  // 所以飛機、海、參照物、殘骸、曳光彈、粒子全部吃霧。天空球是
-  // `ShaderMaterial`（`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。
-  // HUD 是另一張 2D canvas，與這裡無關。
+  // 所以飛機、參照物、殘骸、曳光彈、粒子都吃霧。天空球是 `ShaderMaterial`
+  // （`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。
+  // **海面自 2026-08-09 起明確關掉**（`ocean.ts` 的 `fog: false`），否則
+  // 遠海會往天空色靠、地平線糊掉。HUD 是另一張 2D canvas，與這裡無關。
   scene.fog = createFog()
 
   const sun = new DirectionalLight(0xfff2e0, 2.2)

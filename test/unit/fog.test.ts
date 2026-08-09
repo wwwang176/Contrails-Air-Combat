@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { Color } from 'three'
+import { Color, type MeshStandardMaterial, type ShaderMaterial } from 'three'
 import { createFog, fogFactor, FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
-import { skyColorAt, SKY_HORIZON } from '../../src/render/sky'
+import { createSky, skyColorAt, SKY_HORIZON, SKY_ZENITH } from '../../src/render/sky'
 import { CAMERA_FAR } from '../../src/render/scene'
-import { FAR_SEA_SIZE, SEA_COLOR } from '../../src/render/ocean'
+import { createOcean, FAR_SEA_SIZE, FAR_SEA_Y, SEA_COLOR } from '../../src/render/ocean'
+import { DEFAULT_GOD_CAMERA } from '../../src/camera/godCamera'
 
 describe('fogFactor', () => {
   it('零距離沒有霧', () => {
@@ -40,9 +41,6 @@ describe('霧的濃度落在設計意圖上', () => {
     expect(f).toBeLessThan(0.25)
   })
 
-  it('遠海邊緣完全化進霧色（才不會看到硬邊）', () => {
-    expect(fogFactor(FAR_SEA_SIZE / 2, FOG_DENSITY)).toBeGreaterThan(0.999)
-  })
 })
 
 /** three 工作色彩空間下的 HSL 明度。 */
@@ -50,33 +48,119 @@ const lightness = (c: Color): number => c.getHSL({ h: 0, s: 0, l: 0 }).l
 
 /**
  * 【這一組守的是需求本身，不是實作細節】專案負責人的原話是「遠方可以考慮
- * FOG，但是要看得出地平線」。霧色若等於地平線上的天空色，遠海化進霧色之後
- * 就與天空同色 —— 地平線消失，而畫面上不會有任何錯誤。
+ * FOG，但是要看得出地平線」，2026-08-09 又補上「海面要比天空深、海面近到遠
+ * 幾乎沒有顏色變化」。
+ *
+ * 【地平線由誰撐起來，換過一次】原本是**霧色**與天空色的差：遠海化進霧色，
+ * 而霧色比天空暗一階。但那個做法讓海面自己近到遠變了 0.109，比地平線那一階
+ * （0.092）還大 —— 那條線讀起來只是一整片洗白裡的一段。
+ *
+ * 現在是**海色**與天空色的差（0.371），而海面完全退出全域霧。所以這一組的
+ * 主角由 `FOG_COLOR` 換成 `SEA_COLOR` 加上兩個材質的 `fog` 旗標。
  *
  * 【比的是 `skyColorAt(0)` 不是 `SKY_HORIZON`】初版比錯了對象。天空著色器
- * 的 `t = dirY × 0.5 + 0.5`，地平線（`dirY = 0`）落在漸層的**正中間**，
- * 實際看到的是 `#6788a7`（L 0.261）；`SKY_HORIZON`（`#9fc3d8`，L 0.517）
- * 只出現在正下方、被海擋著，畫面上永遠不會出現。當時的霧色 L 0.380 因此
- * 比天空**亮**，而測試照樣綠 —— 專案負責人在試飛時一眼看出來。
+ * 的 `t = dirY × 0.5 + 0.5`，地平線（`dirY = 0`）落在漸層的**正中間**；
+ * `SKY_HORIZON` 只出現在正下方、被海擋著，畫面上永遠不會出現。當時的霧色
+ * 因此比天空**亮**，而測試照樣綠 —— 專案負責人在試飛時一眼看出來。
+ * 那個教訓由本組最後一條記錄著。
  */
 describe('地平線要看得出來', () => {
-  it('霧色比**地平線上的**天空色暗', () => {
+  /**
+   * 【地平線現在由海色與天空色的差撐起來，不再由霧色】專案負責人的要求原文
+   * 是「海面要比天空深」。海面不吃霧之後（見下面兩條），霧不再讓海面往天空
+   * 色靠，所以這條關係變成兩個常數之間的事。
+   *
+   * 【比的是 base color，那是刻意的】畫面上的像素還要過一次 PBR 著色，測不到
+   * 也不該測 —— 那會把燈光綁進這條斷言。base color 與天空色是唯一測得到、
+   * 也唯一不會隨燈光漂掉的一組數（spec 2026-08-09 §4.2）。
+   *
+   * 【0.25 是怎麼來的】實測：天空 0.431、海 0.060，階差 0.371。改動前那一階
+   * 只有 0.092（霧化後的遠海 0.169 對天空 0.261）—— 那正是「接縫太怪」的
+   * 成因。取 0.25 留浮動空間，但遠高於改動前。
+   */
+  it('海色比地平線上的天空色暗，而且差得很開', () => {
     const sky = skyColorAt(0, new Color())
-    expect(lightness(FOG_COLOR)).toBeLessThan(lightness(sky))
-  })
-
-  it('暗的幅度看得出來（不是差幾個位元）', () => {
-    const sky = skyColorAt(0, new Color())
-    expect(lightness(sky) - lightness(FOG_COLOR)).toBeGreaterThan(0.05)
+    const sea = new Color(SEA_COLOR)
+    expect(lightness(sea)).toBeLessThan(lightness(sky))
+    expect(lightness(sky) - lightness(sea)).toBeGreaterThan(0.25)
   })
 
   /**
-   * 【另一頭也要守】霧色若暗到接近海的基本色，遠處的海與近處的海就一樣暗
-   * —— 霧的深度感整個不見，而地平線那一階反而更明顯。兩件事互相拉扯，
-   * 所以兩頭都要有斷言。
+   * 【這是「霧不再讓海面近遠變色」唯一的來源】海面的近遠色差**完全**來自霧。
+   *
+   * 【兩個材質要分開斷言】只測一個的話，漏掉另一個的那種錯誤 —— 也就是
+   * `ocean.ts` 自己註解裡警告的「5 km 處出現一條色帶」—— 就沒有被守住。
    */
-  it('霧色仍然比近處的海亮（深度感靠這個差）', () => {
-    expect(lightness(FOG_COLOR)).toBeGreaterThan(lightness(new Color(SEA_COLOR)) + 0.05)
+  it('細浪面不吃霧', () => {
+    const ocean = createOcean()
+    try {
+      expect((ocean.mesh.material as MeshStandardMaterial).fog).toBe(false)
+    } finally {
+      ocean.dispose()
+    }
+  })
+
+  it('遠海不吃霧', () => {
+    const ocean = createOcean()
+    try {
+      expect((ocean.farMesh.material as MeshStandardMaterial).fog).toBe(false)
+    } finally {
+      ocean.dispose()
+    }
+  })
+
+  /**
+   * 【天空頂部比較深】專案負責人要求的第四件事。它改動前就成立，這條是防止
+   * 日後有人把漸層調反或壓平 —— 那會讓天空變成一片死板的單色。
+   * 實測落差 0.154（改動前 0.146）。
+   */
+  it('天頂比地平線上的天空暗', () => {
+    const top = skyColorAt(1, new Color())
+    const hz = skyColorAt(0, new Color())
+    expect(lightness(hz) - lightness(top)).toBeGreaterThan(0.10)
+  })
+
+  /**
+   * 【天空整體要比改動前亮】改動前地平線 0.261、天頂 0.115；現在是 0.431
+   * 與 0.277。
+   *
+   * 【兩頭都要釘】只釘地平線的話，有人可以把天頂調得**更黑**而仍然通過 ——
+   * 那不是「整體淡一點」，是把落差拉大。所以天頂也要有下限。
+   */
+  it('天空整體比改動前亮（地平線與天頂都要）', () => {
+    expect(lightness(skyColorAt(0, new Color()))).toBeGreaterThan(0.35)
+    expect(lightness(skyColorAt(1, new Color()))).toBeGreaterThan(0.20)
+  })
+
+  /**
+   * 【把著色器那一份接上來】上面幾條測的都是 CPU 的 `skyColorAt`，而畫面是
+   * 天空球的著色器畫的。`sky.ts` 寫著「兩份必須一致」，但那句話原本沒有任何
+   * 測試 —— 有人改了 `uniforms` 而沒改 `skyColorAt`（或反過來），上面每一條
+   * 都還是綠的，畫面卻變了。
+   *
+   * 這一條只能守住「uniform 餵的是同兩個常數」，守不住 `FRAG` 裡的混色公式
+   * （那是字串，測不到）。守得住一半也比零好。
+   */
+  it('天空球的 uniform 用的是同兩個常數', () => {
+    const sky = createSky()
+    const mat = sky.material as ShaderMaterial
+    expect((mat.uniforms.horizon!.value as Color).getHex()).toBe(SKY_HORIZON)
+    expect((mat.uniforms.zenith!.value as Color).getHex()).toBe(SKY_ZENITH)
+  })
+
+  /**
+   * 【取代被刪掉的「霧色比天空暗」】那條斷言的**關係**被需求推翻了，但它
+   * 背後的需求沒有 —— **霧色必須跟著天空走**。改動後的關係是「相等」。
+   *
+   * 【為什麼下面 `createFog` 那條守不住這件事】它比的是 `createFog().color`
+   * 與 exported `FOG_COLOR`。兩邊一起改照樣綠，`FOG_COLOR` 可以被寫成任意
+   * 常數。這一條比的是 `FOG_COLOR` 與它宣稱的來源。
+   */
+  it('霧色就是地平線上的天空色', () => {
+    const sky = skyColorAt(0, new Color())
+    expect(FOG_COLOR.r).toBeCloseTo(sky.r, 9)
+    expect(FOG_COLOR.g).toBeCloseTo(sky.g, 9)
+    expect(FOG_COLOR.b).toBeCloseTo(sky.b, 9)
   })
 
   it('`SKY_HORIZON` 這個常數本身並不出現在地平線上', () => {
@@ -108,8 +192,53 @@ describe('createFog', () => {
 })
 
 /**
- * 遠平面若小於遠海的半邊，遠海的四個角會被裁掉 —— 而被裁掉的邊緣就是這
- * 一整件事正要消除的那條硬邊。
+ * 【畫面上那條地平線必須接近幾何地平線】這個世界的海是平的，所以幾何地平線
+ * 永遠是與海面平行的那條視線（世界仰角 0°），與高度無關。但 `farMesh` 是
+ * **有限**的四邊形，它的邊落在 `atan(離海高度 / 半邊)` —— **那才是畫面上
+ * 實際看到的那條線**。
+ *
+ * 【那是上界】正方形朝**邊的中點**看時俯角最深，朝**角**看時距離是
+ * `半邊 × √2`、俯角更淺。所以這裡算的是最壞值。
+ *
+ * 改動前半邊 250 km，上帝視角上限（12,000 m）時那條邊在幾何地平線以下
+ * 2.751°，1080p / 65° 下是 40.7 px，而且**隨高度往下跑**。以前被霧糊掉所以
+ * 看不出來；海面不吃霧之後它會變成 L 0.060 對 L 0.431 的硬階。
+ * 半邊 3,000 km 之後只剩 0.229°（3.4 px）。
+ */
+describe('地平線接近幾何地平線', () => {
+  /** 透視投影下的像素數：`(H/2)·tanθ / tan(FOV_v/2)`。1080p / 65° */
+  const pixels = (deg: number): number =>
+    (1080 / 2) * Math.tan(deg * (Math.PI / 180)) / Math.tan(32.5 * (Math.PI / 180))
+
+  /** 遠海邊的最壞俯角，度。高度是**離海面**的高度，所以要扣掉 `FAR_SEA_Y` */
+  const edgeDeg = (cameraY: number): number =>
+    Math.atan((cameraY - FAR_SEA_Y) / (FAR_SEA_SIZE / 2)) * (180 / Math.PI)
+
+  /**
+   * 【為什麼要這一條】負的或零的 `FAR_SEA_SIZE` 會讓 `edgeDeg` 變成負值或
+   * 無限大，下面那條斷言可能因此假綠。先把輸入釘住。
+   */
+  it('遠海的尺寸是正的', () => {
+    expect(FAR_SEA_SIZE).toBeGreaterThan(0)
+  })
+
+  it('上帝視角的高度上限處，遠海的邊落在幾何地平線以下不到 0.3°', () => {
+    // 【用實際的設定值不寫死】上帝視角的上限日後若調高，這條要跟著紅
+    const deg = edgeDeg(DEFAULT_GOD_CAMERA.maxAltitude)
+    expect(deg).toBeGreaterThan(0)
+    expect(deg).toBeLessThan(0.3)
+    expect(pixels(deg)).toBeLessThan(4)
+  })
+
+  /** 【纏鬥的整個高度帶要低於兩個像素】那才是實際會一直看到的高度。 */
+  it('6,000 m 處低於兩個像素', () => {
+    expect(pixels(edgeDeg(6_000))).toBeLessThan(2)
+  })
+})
+
+/**
+ * 遠平面若小於遠海的半對角線，遠海的四個角會被裁掉 —— 而被裁掉的邊緣就是
+ * 一條硬邊。
  */
 describe('相機遠平面容得下遠海', () => {
   it('遠平面大於遠海的半對角線', () => {
