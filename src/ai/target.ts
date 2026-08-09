@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
-import { threatFactor, turnTime } from './assess'
+import { threatFactor, trackAngle, turnTime } from './assess'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Team } from '../world/World'
 
@@ -116,6 +116,100 @@ export interface TargetConfig {
   rangeWeight: number
   crowdWeight: number
   turnWeight: number
+  /**
+   * 視野折扣的指數。**只咬後半球**；`0` = 關掉這一項。
+   *
+   * ```
+   * vis(θ) = visionFloor + (1 − visionFloor) · min(1, 1 + cos θ)^visionPower
+   * ```
+   *
+   * θ 是**航跡**與視線的夾角（`assess.ts` 的 `trackAngle`，與 `turnTime`
+   * 同一個角）。θ ≤ 90° 時 `1 + cos θ ≥ 1`，夾成 1 —— **前半球一個字都不動**。
+   *
+   * ## 為什麼需要它：`turnDiscount` 對後半球太寬容
+   *
+   * 專案負責人 2026-08-09 回報「AI 還是會在兩個敵人之間猶豫」，並提議
+   * 「在我背後的扣分」。量測（`test/tools/target-churn.probe.ts`，20v20、
+   * 150 s）：**29.6% 的換目標換去後半球**（90–120° 13.5%、120–150° 10.6%、
+   * 150–180° 5.5%），而且 52.7% 的換目標讓離軸角變差。
+   *
+   * 成因是 `turnDiscount` 在後半球太平。P-51D 於 4000 m、TAS 200（瞬時
+   * 迴旋率 22.3°/s）：
+   *
+   * ```
+   * 離軸角    0°     57°(中位)   90°     120°    180°
+   * 折扣    1.000     0.372     0.248   0.182   0.110
+   * ```
+   *
+   * 由 57° 到正後方只損失 **3.4 倍**，而分攤折扣每多一個隊友鎖定就是
+   * **3.0 倍** —— **「正後方、沒人鎖」與「57°、有一個隊友鎖著」幾乎等價**。
+   * 掉頭去追後方因此是划算的。
+   *
+   * ## 為什麼只咬後半球，而不是全域的斜坡
+   *
+   * 初版設計的是全域 `((1+cos θ)/2)^k` 斜坡。**算過才發現它必定打破
+   * `ai-target.test.ts` 的「正前方但很遠的目標，輸給側面但很近的目標」**
+   * —— 那條守的是「切換成本只是折扣，不會讓飛機黏死」，也正是當年殺掉
+   * `turnWeight = 3` 的同一條。實算（`test/tools/vision-shape.probe.ts`）：
+   *
+   * ```
+   * 形狀                      餘裕（必須 > 1）
+   * 現行                          1.203
+   * 全域 k=1 下限 0.15            0.692   ✗
+   * 全域 k=2 下限 0.10            0.391   ✗
+   * 全域 k=3 下限 0.05            0.203   ✗
+   * 後半球 k=2 下限 0.10          1.203   ✓ 一絲未動
+   * ```
+   *
+   * 那條的餘裕本來只有 1.203 倍，而全域斜坡會打側面的近目標、卻完全不打
+   * 正前方的遠目標。**只咬後半球的形狀在 90° 恰好等於 1，所以它結構上
+   * 不可能動到那條不變式**，而後半球的壓制力反而更強（180° 33.9 倍
+   * 對全域 k=2 的 21.6 倍）。
+   *
+   * ## 為什麼下限不能是 0
+   *
+   * 三個折扣都是乘法。若視野項在 180° 歸零，全部候選都會被乘成 0，選擇
+   * 退化成「取掃描時第一個碰到的」—— 那正是 `baseScore` 的註解記下的那個
+   * 缺陷。下限讓「背後」是**很差**而不是**不存在**。
+   *
+   * ## 實測 A/B（150 s、種子 20260805，`visionPower` 0 → 2）
+   *
+   * ```
+   * 架數     換去後半球        A→B→A            rearShare        總換（活著）
+   * 20v20   29.6% → 25.0%   19.0% → 25.9%   28.3% → 23.3%    733 → 704
+   * 12v12   41.9% → 34.0%   23.5% → 26.4%   40.6% → 31.7%    439 → 535
+   *   8v8   41.2% → 40.6%   23.5% → 27.6%   39.8% → 36.5%    277 → 340
+   * ```
+   *
+   * **它做到了它被設計來做的事**：後方追逐三場全降，深後方的桶也縮了
+   * （20v20 的 120–150° 由 10.6% 到 8.1%、150–180° 由 5.5% 到 4.1%）。
+   *
+   * **但它讓「猶豫」變差，六場六場**（長機 18.0→25.4、29.3→35.1、
+   * 10.0→28.6），而且小場次的總換目標次數還上升。
+   *
+   * ## 為什麼會反向 —— 與 `engagedMargin` 同一個成因
+   *
+   * `trackAngle` 是**我自己速度向量**的方向，硬機動時以約 22°/s 在變。
+   * 視野項在後半球 90° 的跨度內橫跨十倍，等於**每秒 2.6 倍**的變化率，
+   * 而換敵門檻只有 1.25 倍。又一次把**快變量**接到**慢決策**上 ——
+   * 前一次是 `threatFactor`（15° 錐，閃爍），這次是 `trackAngle` 配陡響應。
+   *
+   * `assess.ts` 的 `turnTime` 也吃同一個角，但它的響應很緩（0 到 180° 全程
+   * 只有 9 倍且平滑），所以不會這樣。**這一層扛不住任何幾何量的陡響應**：
+   * 所有幾何量都在機動的時間尺度（約 1 秒）上變，而決策的停留是 2 秒。
+   *
+   * 兩次改動、兩次同樣的失敗模式 —— 那不是參數問題，是**修猶豫的地方不在
+   * 評分的形狀，在決策層本身**（節拍、遲滯、或把輸入時間平均掉）。
+   *
+   * ## 預設為什麼是 0
+   *
+   * 這是一個**方向相反的取捨** —— 專案負責人同時抱怨過後方追逐與猶豫，
+   * 而這一項讓前者變好、後者變差。哪一個比較重要是他的裁定。預設 0 讓行為
+   * 與加入這一項之前**逐位元相同**（乘以 1.0），要開只需把 0 改成 2。
+   */
+  visionPower: number
+  /** 視野折扣在正後方的下限。**必須 > 0**，理由見 `visionPower` */
+  visionFloor: number
   /** 新目標要好過現任的比例才換 */
   switchMargin: number
   /** 換過之後不再換的秒數 */
@@ -200,7 +294,25 @@ export interface TargetConfig {
  * 已經維護的持續跟蹤計時器（`trackingFactor`）而不是瞬時的 `threatFactor`。
  * 那要改 `selectTarget` 的簽名，不再是小修改。
  *
- * ### 四、順帶量到的結構事實
+ * ### 四、第二次嘗試：視野折扣（實作了、量了、預設關掉）
+ *
+ * 第一項的另一半 ——「背後扣分」—— 做成 `visionPower` / `visionFloor`，只咬
+ * 後半球。**它做到了它被設計來做的事**（後方追逐三場全降），**但 A→B→A
+ * 六場六場變差**。完整的 A/B 表與成因寫在 `TargetConfig.visionPower`。
+ *
+ * 成因與 `engagedMargin` **完全相同**：`trackAngle` 在硬機動時以 22°/s 在變，
+ * 而視野項在後半球的 90° 跨度內橫跨十倍 —— 每秒 2.6 倍，遠大於 1.25 倍的
+ * 換敵門檻。又是快變量餵慢決策。
+ *
+ * **兩次改動、兩次同一個失敗模式，這已經不是參數問題。** 這一層扛不住任何
+ * 幾何量的陡響應：所有幾何量都在機動的時間尺度（約 1 秒）上變，而決策的
+ * 停留是 2 秒。修猶豫的地方不在評分的形狀，在**決策層本身** —— 節拍、遲滯、
+ * 或把輸入時間平均掉。下一次動手應該從那裡開始，不要再改分數的形狀。
+ *
+ * 視野折扣**預設 0（關掉）**，行為與加它之前逐位元相同。它是一個方向相反的
+ * 取捨，開不開是專案負責人的裁定。
+ *
+ * ### 五、順帶量到的結構事實
  *
  * **`selectTarget` 只碰得到三分之一的換目標。** 僚機的目標是跟著長機或吃
  * 集火命令的（`AiController` 直接寫 `this.target`），完全繞過遲滯 ——
@@ -301,6 +413,11 @@ export const DEFAULT_TARGET: TargetConfig = {
   rangeWeight: 1,
   crowdWeight: 1,
   turnWeight: 2,
+  // 【預設關掉，2026-08-09】做完也量完了，但它是一個**方向相反的取捨**：
+  // 後方追逐變好、A→B→A 變差。哪一個比較重要是專案負責人的裁定，不是
+  // 實作者的。要開就把這個 0 改成 2 —— 見 `visionPower` 的 A/B 表。
+  visionPower: 0,
+  visionFloor: 0.1,
   switchMargin: 0.25,
   minDwell: 2,
 }
@@ -385,7 +502,38 @@ export function targetScore(
   const crowdDiscount = discount(cfg.crowdPenalty * locks * (1 - relief), cfg.crowdWeight)
   // 【切換成本】turnTime 為 Infinity 時折扣為 0 —— 轉不動的目標不該被選
   const turnDiscount = discount(turnTime(self, enemy) / cfg.turnTimeScale, cfg.turnWeight)
-  return geometry * rangeDiscount * crowdDiscount * turnDiscount
+  // 【視野】只咬後半球。轉向折扣在那裡太平 —— 見 `TargetConfig.visionPower`
+  //
+  // 【關掉時連角度都不算】`visionFactor` 自己也擋 0，但那擋的是回傳值；
+  // `trackAngle` 的 acos 仍然會跑。預設是關的（待裁定），所以這裡短路掉 ——
+  // 10 Hz × 每架 × 每個候選，關著的規則不該收費。
+  const visionDiscount = cfg.visionPower === 0
+    ? 1
+    : visionFactor(trackAngle(self, enemy), cfg)
+  return geometry * rangeDiscount * crowdDiscount * turnDiscount * visionDiscount
+}
+
+/**
+ * 視野折扣，`(visionFloor, 1]`。**θ ≤ 90° 時恆為 1。**
+ *
+ * @param angle 航跡與視線的夾角，rad（`assess.ts` 的 `trackAngle`）
+ *
+ * 【為什麼抽成純函數】它的三條性質決定這條規則成不成立，而 `targetScore`
+ * 要建兩架飛機才跑得動，在那裡驗不乾淨：
+ *
+ *   一、前半球恆為 1 —— 這是它不會打破「切換成本只是折扣」那條不變式的**結構
+ *       保證**，不是碰巧（見 `TargetConfig.visionPower` 的實算表）。
+ *   二、單調遞減，而且在 90° 沒有轉折以外的跳變 —— 硬截斷這個專案吃過虧。
+ *   三、下限恆 > 0 —— 歸零會讓乘法把全部候選壓成 0，選擇退化。
+ *
+ * 與 `discount`、`trackingFactor` 是同一個做法。
+ */
+export function visionFactor(angle: number, cfg: TargetConfig): number {
+  if (cfg.visionPower === 0) return 1
+  // 【夾在 1】θ ≤ 90° 時 1 + cos θ ≥ 1，前半球因此一個字都不動
+  const u = Math.min(1, 1 + Math.cos(angle))
+  const rear = u > 0 ? Math.pow(u, cfg.visionPower) : 0
+  return cfg.visionFloor + (1 - cfg.visionFloor) * rear
 }
 
 /**

@@ -22,8 +22,10 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
-import { countLocks, targetScore, DEFAULT_TARGET, type TargetConfig } from '../../src/ai/target'
-import { threatFactor, turnTime } from '../../src/ai/assess'
+import {
+  countLocks, targetScore, visionFactor, DEFAULT_TARGET, type TargetConfig,
+} from '../../src/ai/target'
+import { threatFactor, trackAngle, turnTime } from '../../src/ai/assess'
 import { isFlightLeader } from '../../src/battle/flights'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
@@ -74,6 +76,7 @@ function factorsOf(self: Aircraft, enemy: Aircraft, locks: number, cfg: TargetCo
     : 0
   const crowdD = discount(cfg.crowdPenalty * locks * (1 - relief), cfg.crowdWeight)
   const turnD = discount(turnTime(self, enemy) / cfg.turnTimeScale, cfg.turnWeight)
+  const visionD = visionFactor(trackAngle(self, enemy), cfg)
 
   const vel = S3.copy(self.state.velocity)
   const speed = vel.length()
@@ -85,7 +88,7 @@ function factorsOf(self: Aircraft, enemy: Aircraft, locks: number, cfg: TargetCo
 
   return {
     geometry, range: rangeD, crowd: crowdD, turn: turnD,
-    product: geometry * rangeD * crowdD * turnD,
+    product: geometry * rangeD * crowdD * turnD * visionD,
     offAxis: (Math.acos(d) * 180) / Math.PI,
     rangeM: range,
   }
@@ -129,8 +132,8 @@ interface Result {
   selfCheckWorst: number
 }
 
-function run(perSide = 20): Result {
-  const cfg: TargetConfig = DEFAULT_TARGET
+function run(perSide: number, visionPower: number): Result {
+  const cfg: TargetConfig = { ...DEFAULT_TARGET, visionPower }
   const b = createBattle(
     new AiController(),
     { ...DEFAULT_BATTLE, blueCount: perSide, redCount: perSide },
@@ -283,75 +286,78 @@ const pct = (x: number): string => `${(100 * x).toFixed(1)}%`
 const f2 = (x: number): string => x.toFixed(2)
 
 /**
- * 【為什麼要跑三種架數】這個模擬是**全決定性的**（種子只決定飛行員名字，
- * 三顆種子逐字相同），所以單一場次只有**一個樣本**。而 `DEFAULT_TARGET`
- * 的註解已經記過參數敏感度是混沌的（`baseScore` 0.5 那個 7.90% 被判定為
- * 「孤峰，不要當成證據」）。換架數是這個專案唯一拿得到獨立實現的辦法。
+ * 【為什麼要跑三種架數】這個模擬是**全決定性的**（種子只決定飛行員名字），
+ * 所以單一場次只有**一個樣本**，而 `DEFAULT_TARGET` 的註解已經記過參數敏感度
+ * 是混沌的。換架數是這個專案唯一拿得到獨立實現的辦法。2026-08-09 的
+ * `engagedMargin` 提案就是這樣被否決的：20v20 看起來 −43%，12v12 只有 −3%。
+ *
+ * 【視野折扣的 A/B 在同一輪跑】`visionPower` 0 = 關掉，2 = 現行值。
  */
 const SIZES = [20, 12, 8]
-const results = new Map<number, Result>()
-for (const n of SIZES) results.set(n, run(n))
+const ARMS = [0, DEFAULT_TARGET.visionPower]
+const results = new Map<string, Result>()
+for (const n of SIZES) {
+  for (const v of ARMS) results.set(`${n}|${v}`, run(n, v))
+}
+const get = (n: number, v: number): Result => results.get(`${n}|${v}`)!
 
-for (const [n, r] of results) {
+for (const [k, r] of results) {
   if (!(r.selfCheckWorst < 1e-9)) {
-    throw new Error(`${n}v${n}：探針算的公式與 targetScore 對不上`)
+    throw new Error(`${k}：探針算的公式與 targetScore 對不上（${r.selfCheckWorst}）`)
   }
 }
-console.log('自我檢查通過（四因子乘積 vs targetScore，最差相對誤差 '
+console.log('自我檢查通過（五因子乘積 vs targetScore，最差相對誤差 '
   + `${Math.max(...[...results.values()].map((r) => r.selfCheckWorst)).toExponential(2)}）`)
 
-console.log('\n=== 換目標的組成（150 s、種子 20260805）===')
-console.log('架數    總換  舊的已陣亡  舊的還活著  A→B→A   長機A→B→A  長機持有中位  貼在下限')
-for (const [n, r] of results) {
+const arrow = (a: number, b: number, f: (x: number) => string): string =>
+  `${f(a)} → ${f(b)}`
+
+console.log('\n=== 視野折扣 A/B（150 s、種子 20260805）visionPower 0 → 2 ===')
+console.log('【這次要打的：換去後半球】')
+console.log('架數    新目標在後半球      離軸更差           換去 90-180° 的次數')
+for (const n of SIZES) {
+  const a = get(n, 0)
+  const b = get(n, ARMS[1]!)
+  console.log(
+    `${n}v${n}`.padStart(6) + `  ${arrow(a.newRear, b.newRear, pct).padStart(16)}`
+    + `  ${arrow(a.worseAxis, b.worseAxis, pct).padStart(16)}`
+    + `  ${arrow(Math.round(a.newRear * a.switchesOldAlive),
+      Math.round(b.newRear * b.switchesOldAlive), (x) => String(Math.round(x))).padStart(14)}`,
+  )
+}
+
+console.log('\n【專案負責人抱怨的：猶豫】')
+console.log('架數    活著時換目標        A→B→A              長機 A→B→A')
+for (const n of SIZES) {
+  const a = get(n, 0)
+  const b = get(n, ARMS[1]!)
   console.log(
     `${n}v${n}`.padStart(6)
-    + `  ${String(r.switchesAll).padStart(4)}  ${String(r.switchesAll - r.switchesOldAlive).padStart(10)}`
-    + `  ${String(r.switchesOldAlive).padStart(10)}`
-    + `  ${pct(r.backToPrev / Math.max(r.switchesOldAlive, 1)).padStart(6)}`
-    + `  ${pct(r.leaderBackToPrev / Math.max(r.leaderSwitchesAlive, 1)).padStart(9)}`
-    + `  ${f2(r.leaderHoldMedian).padStart(11)} s  ${pct(r.atFloor).padStart(7)}`,
+    + `  ${arrow(a.switchesOldAlive, b.switchesOldAlive, (x) => String(x)).padStart(16)}`
+    + `  ${arrow(a.backToPrev / Math.max(a.switchesOldAlive, 1),
+      b.backToPrev / Math.max(b.switchesOldAlive, 1), pct).padStart(16)}`
+    + `  ${arrow(a.leaderBackToPrev / Math.max(a.leaderSwitchesAlive, 1),
+      b.leaderBackToPrev / Math.max(b.leaderSwitchesAlive, 1), pct).padStart(16)}`,
   )
 }
 
-console.log('\n=== 幾何：換過去之後變好還是變差 ===')
-console.log('架數    離軸更差  後半球  離軸中位(舊→新)  距離中位(舊→新)')
-for (const [n, r] of results) {
+console.log('\n【既有護欄 —— ai-targeting.test.ts，20v20 才是它的定義域】')
+console.log('架數    holdMedian(≥1.5)   rearShare(≤0.35)   fireShare(≥0.025)  onNose(≥0.12)')
+for (const n of SIZES) {
+  const a = get(n, 0)
+  const b = get(n, ARMS[1]!)
   console.log(
-    `${n}v${n}`.padStart(6) + `  ${pct(r.worseAxis).padStart(8)}  ${pct(r.newRear).padStart(6)}`
-    + `  ${`${f2(r.offAxisOldMed)}°→${f2(r.offAxisNewMed)}°`.padStart(15)}`
-    + `  ${`${r.rangeOldMed.toFixed(0)}→${r.rangeNewMed.toFixed(0)} m`.padStart(15)}`,
+    `${n}v${n}`.padStart(6) + `  ${arrow(a.holdMedian, b.holdMedian, f2).padStart(15)}`
+    + `  ${arrow(a.rearShare, b.rearShare, pct).padStart(17)}`
+    + `  ${arrow(a.fireShare, b.fireShare, pct).padStart(16)}`
+    + `  ${arrow(a.onNose, b.onNose, pct).padStart(14)}`,
   )
 }
 
-console.log('\n=== Dicta Boelcke 第二條「一旦開始攻擊就要打完」的反面 ===')
-console.log('架數    有槍解卻換走  其中換去沒槍解')
-for (const [n, r] of results) {
-  console.log(
-    `${n}v${n}`.padStart(6) + `  ${String(r.withShot).padStart(10)}`
-    + `（${pct(r.withShot / Math.max(r.switchesOldAlive, 1))}）`
-    + `  ${String(r.shotToNoShot).padStart(10)}`
-    + `（${pct(r.shotToNoShot / Math.max(r.withShot, 1))}）`,
-  )
-}
-
-console.log('\n=== ai-targeting.test.ts 的四條門檻（20v20 才是它的定義域）===')
-console.log('架數    holdMedian(≥1.5)  rearShare(≤0.35)  fireShare(≥0.025)  onNose(≥0.12)')
-for (const [n, r] of results) {
-  console.log(
-    `${n}v${n}`.padStart(6) + `  ${f2(r.holdMedian).padStart(14)}  ${pct(r.rearShare).padStart(14)}`
-    + `  ${pct(r.fireShare).padStart(15)}  ${pct(r.onNose).padStart(12)}`,
-  )
-}
-
-const main = results.get(20)
-if (main !== undefined) {
-  console.log('\n=== 20v20 的因子分解：誰把分數推過門檻 ===')
-  console.log('因子        新÷舊中位   >1.5 倍的比例')
-  for (const k of ['geometry', 'range', 'crowd', 'turn']) {
-    console.log(`${k.padEnd(10)}  ${f2(main.ratioMedian[k]!).padStart(9)}   `
-      + `${pct(main.ratioBig[k]!).padStart(8)}`)
-  }
-  console.log('新目標離軸角分布：'
-    + main.axisBuckets.map((n, k) => `${k * 30}-${k * 30 + 30}° `
-      + `${pct(n / Math.max(main.switchesOldAlive, 1))}`).join('　'))
+console.log('\n【20v20 的離軸分布】')
+for (const v of ARMS) {
+  const r = get(20, v)
+  console.log(`visionPower ${v}：`
+    + r.axisBuckets.map((c, k) => `${k * 30}-${k * 30 + 30}° `
+      + `${pct(c / Math.max(r.switchesOldAlive, 1))}`).join('　'))
 }
