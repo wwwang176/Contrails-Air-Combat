@@ -26,7 +26,7 @@ import {
   countLocks, targetScore, visionFactor, DEFAULT_TARGET, type TargetConfig,
 } from '../../src/ai/target'
 import { threatFactor, trackAngle, turnTime } from '../../src/ai/assess'
-import { isFlightLeader } from '../../src/battle/flights'
+import { isFlightLeader, flightOfCombatant } from '../../src/battle/flights'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
@@ -135,6 +135,10 @@ interface Result {
   shotNewAxis: number[]
   shotOldLocks: number[]
   shotNewLocks: number[]
+  /** 舊目標身上的鎖定裡，有幾個是**長機自己那個小隊的僚機** */
+  shotOldLocksOwn: number[]
+  /** 全場任一時刻的鎖定裡，同小隊佔的比例（每 60 步取樣一次） */
+  ownLockShare: number
   offAxisOldMed: number
   offAxisNewMed: number
   rangeOldMed: number
@@ -200,6 +204,28 @@ function run(perSide: number, visionPower: number): Result {
   const shotNewAxis: number[] = []
   const shotOldLocks: number[] = []
   const shotNewLocks: number[] = []
+  const shotOldLocksOwn: number[] = []
+  let lockTotal = 0
+  let lockOwn = 0
+
+  /**
+   * `countLocks(board, team, self, candidate)` 的同小隊子集。
+   *
+   * 【為什麼可以在探針裡跨層】`src/ai/` 不准 import `src/battle/`，但探針在
+   * `test/tools/`，兩邊都摸得到。這正是要量的東西：分攤折扣目前**看不見
+   * 小隊**，所以只能從外面對照。
+   */
+  const ownFlightLocks = (self: number, candidate: number): number => {
+    const flight = flightOfCombatant(b.flights, self)
+    if (flight === null) return 0
+    let n = 0
+    for (let m = 0; m < flight.count; m++) {
+      const idx = flight.members[m]!
+      if (idx === self) continue
+      if (b.board.assignments[idx] === candidate && cs[idx]!.alive) n++
+    }
+    return n
+  }
   const offAxisOld: number[] = []
   const offAxisNew: number[] = []
   const rangeOld: number[] = []
@@ -234,6 +260,12 @@ function run(perSide: number, visionPower: number): Result {
           if (ai.focusTarget !== null) focusSamples++
         }
         if (ai.target && aspectOf(c.aircraft, ai.target) < (15 * Math.PI) / 180) onNose++
+        // 【分攤的來源結構】此刻壓在我目標上的隊友，有幾個是我自己的僚機
+        if (ai.target) {
+          const ti = indexOf.get(ai.target)!
+          lockTotal += countLocks(b.board, c.team, i, ti)
+          lockOwn += ownFlightLocks(i, ti)
+        }
       }
 
       const tgt = ai.target ? indexOf.get(ai.target)! : -1
@@ -306,6 +338,7 @@ function run(perSide: number, visionPower: number): Result {
                 shotNewAxis.push(fNew.offAxis)
                 shotOldLocks.push(oldLocks)
                 shotNewLocks.push(newLocks)
+                shotOldLocksOwn.push(ownFlightLocks(i, old))
               }
             }
           }
@@ -340,6 +373,8 @@ function run(perSide: number, visionPower: number): Result {
     focusShare: leaderSamples > 0 ? focusSamples / leaderSamples : 0,
     shotRatioMedian: smed, shotRatioBig: sbig,
     shotOldRange, shotNewRange, shotOldAxis, shotNewAxis, shotOldLocks, shotNewLocks,
+    shotOldLocksOwn,
+    ownLockShare: lockTotal > 0 ? lockOwn / lockTotal : 0,
     offAxisOldMed: median(offAxisOld), offAxisNewMed: median(offAxisNew),
     rangeOldMed: median(rangeOld), rangeNewMed: median(rangeNew),
     ratioMedian: med, ratioBig: big, axisBuckets,
@@ -428,4 +463,26 @@ ${n}v${n}　樣本 ${k} 次`)
   console.log(`  距離中位 ${median(r.shotOldRange).toFixed(0)} → ${median(r.shotNewRange).toFixed(0)} m`
     + `　離軸中位 ${f2(median(r.shotOldAxis))}° → ${f2(median(r.shotNewAxis))}°`
     + `　鎖定數中位 ${median(r.shotOldLocks)} → ${median(r.shotNewLocks)}`)
+}
+
+/**
+ * 【分攤的計數單位】`countLocks` 數的是**每一架**同隊存活飛機，完全看不見
+ * 小隊。而 `wingman.ts` 的 LEVEL_FOCUS 讓僚機去打「長機正在打的那一架」，
+ * 並寫進同一份 `assignments` —— 所以長機的僚機跟過來，會回頭變成壓在長機
+ * 自己目標上的分攤折扣。這一段量的就是那個回授迴路有多大。
+ */
+console.log('\n=== 【分攤的計數單位】壓在我目標上的隊友，有幾個是我自己的僚機 ===')
+console.log('架數    全場鎖定裡同小隊佔比   長機「有槍解卻換走」時：舊目標鎖定中位  其中同小隊中位  全部來自同小隊的比例')
+for (const [n, r] of results) {
+  const k = r.shotOldLocksOwn.length
+  const allOwn = k > 0
+    ? r.shotOldLocksOwn.filter((own, j) => r.shotOldLocks[j]! > 0 && own === r.shotOldLocks[j]!).length
+      / Math.max(r.shotOldLocks.filter((x) => x > 0).length, 1)
+    : NaN
+  console.log(
+    `${n}v${n}`.padStart(6) + `  ${pct(r.ownLockShare).padStart(18)}`
+    + `  ${String(median(r.shotOldLocks)).padStart(36)}`
+    + `  ${String(median(r.shotOldLocksOwn)).padStart(14)}`
+    + `  ${pct(allOwn).padStart(20)}`,
+  )
 }
