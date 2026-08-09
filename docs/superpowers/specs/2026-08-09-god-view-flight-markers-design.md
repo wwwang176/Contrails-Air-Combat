@@ -290,8 +290,8 @@ export function contactBoxRadius(radius: number, unit: number, scale: number): n
 
 | 項目 | 結果 |
 |---|---|
-| `test/unit/hud.test.ts` | 66 → **81 條**（+15：`contactBoxRadius` 5、欄位初始值 1、`godMarkerVisible` 6、`flightStrengthLabel` 3、`godMarkerColor` 1、`drawGodMarkers` 3、池子容量 1、座艙不畫 1，其中一條既有的改寫） |
-| `test/unit/battle-flights.test.ts` | 14 → **19 條**（+5：`flightOfIndex` / `isFlightLeader`） |
+| `test/unit/hud.test.ts` | 66 → **83 條**（`contactBoxRadius` 5、欄位初始值 1、`godMarkerVisible` 7、`flightStrengthLabel` 3、`godMarkerColor` 1、`drawGodMarkers` 4、池子容量 1、座艙不畫 1，其中一條既有的改寫） |
+| `test/unit/battle-flights.test.ts` | 14 → **20 條**（`flightOfCombatant` / `isFlightLeader`） |
 | 全套 | **2395 / 2401** —— 紅的是既有的那五條（三條傷害 ×3 待裁定、兩條更早的），**沒有多出第六條** |
 | `perf-gate`、`rematch` | 4/4、3/3（單獨跑） |
 | `npx tsc --noEmit` | 通過 |
@@ -308,11 +308,22 @@ export function contactBoxRadius(radius: number, unit: number, scale: number): n
 | `flightStrengthLabel` 分子分母對調 | 三條（含假 ctx 的「框下的字是 (存活/編制)」） |
 | `drawGodMarkers` 的 y 軸不翻 | 假 ctx 的兩條位置測試 |
 | `isFlightLeader` 把 `positionOf` 寫成 `flightOf` | 「每個分隊的 members[0] 是長機」 |
-| `flightOfIndex` 的 `f >= 0` 放寬成 `f >= -1` | 「已退場的那一架沒有分隊」 |
+| `flightOfCombatant` 的 `f >= 0` 放寬成 `f >= -1` | 「已退場的那一架沒有分隊」 |
+| `godMarkerVisible` 的 `<=` 改成 `<` | 「恰好在邊界上要畫」 |
+| `drawGodMarkers` 的顏色寫死成 `godMarkerColor(true)` | **只有**「敵我各一個長機時，兩個框各自用自己的顏色」 |
+| `godMarkerColor` 傳 `!hostile`（紅藍寫反） | 上面那條 + 「敵方是危險色、我方是友軍色」 |
+| `flightOfCombatant` 拿掉長度守衛 **並且** `f >= 0` 改成 `f !== -1` | 「索引越界回傳 null 與 false」 |
 
 第一個突變**推翻了初版計畫的說法** —— 它原本宣稱兩條夾制測試會抓到，實際不會。
-Codex 在審查時算出來的（`docs/superpowers/plans/2026-08-09-god-view-flight-markers.md`
+Codex 在審查計畫時算出來的（`docs/superpowers/plans/2026-08-09-god-view-flight-markers.md`
 的審查紀錄）。
+
+**一個誠實的負面結果**：單獨拿掉 `flightOfCombatant` / `isFlightLeader` 的長度
+守衛，越界測試**照樣綠** —— `Int32Array` 越界讀出 `undefined`，而
+`undefined >= 0` 就是 false，答案剛好還是對的。那道守衛因此是明寫的保險，
+不是承重的。它仍然留著，因為擋的是**下一步**：把 `f >= 0` 改成看起來等價的
+`f !== -1`，越界那一路就會回傳 `fi.flights[undefined]`（型別上宣稱是 `Flight`，
+執行期是 `undefined`）。那個組合突變當場紅。這件事寫在測試的註解裡。
 
 ### 10.3 e2e
 
@@ -356,6 +367,19 @@ Codex 在審查時算出來的（`docs/superpowers/plans/2026-08-09-god-view-fli
 `.shots/god-2b-markers.png`：上方五個紅框、下方四個藍框，全部 `(4/4)`，
 一個分隊一個框。
 
-### 10.6 專案負責人判定
+### 10.6 Codex 對實作的審查（第二輪）
+
+| 意見 | 判定 | 處置 |
+|---|---|---|
+| `flightOfIndex` 這個名字會被讀成「回傳序號」，而它回傳的是物件 | **成立** | 改名 `flightOfCombatant`；`main.ts` 的 `cFlight` 改成 `flight` |
+| `godMarkerVisible` 的 `<=` 沒有被守住（測試用的是 ±0.01） | **成立** | 補「恰好在邊界上要畫」，突變實測轉紅 |
+| `drawGodMarkers` 沒證明兩個分隊各一個框，也沒證明顏色接上了 | **成立** | 假 ctx 改成在呼叫當下抄顏色（那是會被下一圈覆寫的欄位），補敵我各一的案例。寫死顏色**只有**這條抓得到 |
+| 兩個 helper 的索引越界沒有測試 | **成立** | 補了，並量出那道守衛其實是死碼 —— 誠實寫進註解（見 §10.2） |
+| 座艙視角的 `refPos` 零行為差異 | **確認** | 無 |
+| `cFlight?.count ?? 0` 不會畫出 `(0/0)` | **確認** | 全滅的分隊沒有存活成員，進不了接觸點迴圈 |
+| 加 `f < fi.flights.length` 的防損檢查 | **不採納** | `compactFlights` 是 `flightOf` 的唯一寫入者且只寫合法序號，與 `stationReferenceOf` 的既有假設一致。加了是死碼 |
+| 把 `isFlightLeader` 內聯回 `main.ts` 省一次查找 | **不採納** | 那正好抵銷掉它存在的唯一理由（讓那條規則測得到），而那是 Codex 自己上一輪指出的缺口 |
+
+### 10.7 專案負責人判定
 
 （待填 —— 截圖已交付，等回覆。**這一格不得由實作者代填。**）
