@@ -34,7 +34,17 @@ function screenCodeNow(hex: number): [number, number, number] {
   return [c.r, c.g, c.b]
 }
 
-/** 要在「有轉換」之下重現同一個螢幕外觀，新的線性值 = sRGBToLinear(舊的線性值) */
+/**
+ * 要在「有轉換」之下重現同一個螢幕外觀，新的線性值 = sRGBToLinear(舊的線性值)。
+ *
+ * 【它只保住端點，保不住整條漸層 —— Codex 第四輪審查】decode 是非線性的、
+ * 內插是線性的，兩者不可交換。所以換算過去之後 `t = 0` 與 `t = 1` 兩處的
+ * 外觀確實不變，中間整段仍會偏移。「保持現在的畫面」這個說法過度承諾了。
+ *
+ * 也因為這樣，下面那張表的地平線 `0.314` 是**甲-1 之下 `fog.test.ts` 會看到
+ * 的值**（`mix(decode(H), decode(Z), t)`），不是現在螢幕上的 `0.241`
+ * （`decode(mix(H, Z, t))`）。兩條算式問的是不同的事，別把它當成殘留的錯誤。
+ */
 function preserveAppearance(hex: number): number {
   const c = new Color(hex)
   const out = new Color()
@@ -76,7 +86,7 @@ console.log(`海色 L = 0.041（走 MeshStandardMaterial，本來就有轉換）
 console.log(`→ 現況螢幕上的海天階差 = ${(screenLightnessNow(0) - 0.041).toFixed(3)}`
   + `，補 include 之後 = ${(L(sky(HZ_OLD, ZEN_OLD, POW, 0)) - 0.041).toFixed(3)}`)
 
-console.log('\n=== 甲-1：修好管線並保持現在的畫面 ===')
+console.log('\n=== 甲-1：修好管線並把兩個端點換算回現在的外觀（中間漸層仍會偏移）===')
 const HZ_KEEP = preserveAppearance(HZ_OLD)
 const ZEN_KEEP = preserveAppearance(ZEN_OLD)
 console.log(`SKY_HORIZON 0x${HZ_OLD.toString(16)} → 0x${HZ_KEEP.toString(16).padStart(6, '0')}`)

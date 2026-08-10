@@ -15,9 +15,18 @@
  *
  * 之後，峰值恆為 1。這支把兩者並排算出來 —— GLSL 那一份就是 float32。
  *
- * 【結論】教科書式在 roughness 0.02 已經差 20%、0.005 直接 Infinity；
- * 穩定式全部剛好 1.000000000。這是 `GLINT_ROUGHNESS_FLOOR = 0.02` 與
- * 穩定寫法兩層保險的依據。
+ * 【結論】教科書式在 roughness 0.02 已經差 20%、0.005 直接 Infinity；穩定式
+ * 在**所有正常路徑會用到的粗糙度**上都剛好 1.000000000。
+ *
+ * 【但穩定式不是無條件的 —— Codex 第四輪審查】它有兩個仍然會壞的邊界，兩個
+ * 都由 `glintFromNDotH` 的夾擋住，而下面的表把它們都印出來：
+ *
+ *   1. **下溢**：峰值處分子分母都是 `roughness⁸`，float32 的最小正規數是
+ *      1.18e-38，所以 `roughness < 1.82e-5` 時兩邊一起塌成 0 → `0/0 = NaN`。
+ *      表格最後一列 `roughness = 1e-6` 印出的就是 `NaN` —— 這才是
+ *      `GLINT_ROUGHNESS_FLOOR` 真正擋的東西（不是 1.0 附近的抵銷）。
+ *   2. **`n·h` 略大於 1**：兩個 float32 正規化向量的內積可以是 `1 + 2⁻²³`，
+ *      此時回傳值會**超過 1**（roughness 0.04 → 1.10、0.02 → 15.39）。
  */
 const f32 = (x: number) => Math.fround(x)
 /** α = roughness²（GGX / three 的慣例）。教科書形式的分母，會抵銷 */
@@ -61,4 +70,30 @@ for (const nh of [1, 0.9999, 0.999, 0.99, 0.95]) {
     + ` ${wrongAlpha(nh, 0.04, id).toExponential(2).padStart(9)}`
     + ` ${stable(nh, 0.20, id).toExponential(2).padStart(9)}`
     + ` ${wrongAlpha(nh, 0.20, id).toExponential(2).padStart(9)}`)
+}
+/** 離峰 25° 的錨點 —— `ocean-shading.test.ts` 用來把 α 慣例釘死的那兩個數 */
+const NH_25 = Math.cos((12.5 * Math.PI) / 180) // 視線偏 25° → 半向量偏 12.5°
+console.log('\n偏離峰值 25°（n·h = cos 12.5°）—— 測試的錨點值：')
+for (const r of [0.2, 0.04]) {
+  console.log(`  rough=${r.toString().padEnd(5)} 對 ${stable(NH_25, r, id).toExponential(11)}`
+    + `   錯 ${wrongAlpha(NH_25, r, id).toExponential(11)}`
+    + `   倍率 ${(wrongAlpha(NH_25, r, id) / stable(NH_25, r, id)).toExponential(2)}`)
+}
+
+/**
+ * 【`n·h` 超過 1 —— Codex 第四輪審查的 Important】上面全部假設 `n·h ≤ 1`。
+ * 但 GLSL 的 `dot` 吃的是兩個 float32 正規化向量，結果可以是 `1 + 2⁻²³`。
+ * 穩定式在那裡不會 Infinity，卻會**悄悄超過 1**，違反「歸一化、峰值恆為 1」
+ * 這個宣告 —— `GLINT_STRENGTH` 也就不再是亮度上限。
+ *
+ * three 自己的 `BRDF_GGX` 是先 `saturate(dot(normal, halfDir))` 才平方；
+ * `glintFromNDotH` 與 `glintGLSL` 現在跟它一致。
+ */
+console.log('\n=== n·h 略大於 1 時（float32 的 dot 真的會這樣）===')
+const OVER = Math.sqrt(1 + Math.pow(2, -23)) // 讓 nh² 恰好是 1 + 2⁻²³
+console.log('rough      不夾（壞）        夾成 [0,1]（現在的寫法）')
+for (const r of [0.2, 0.04, 0.02]) {
+  const clamped = Math.min(Math.max(OVER, 0), 1)
+  console.log(`${r.toString().padEnd(10)} ${stable(OVER, r, id).toFixed(5).padStart(10)}`
+    + ` ${stable(clamped, r, id).toFixed(9).padStart(22)}`)
 }
