@@ -1133,11 +1133,16 @@ export function glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: nu
   //
   // 後者沒有減法抵銷：`n·h = 1` 時 `d = a²`，回傳 `a⁴/a⁴ = 1` —— **恰好是
   // 峰值 1，而且對任何 `a > 0` 都成立**，包含被 epsilon 夾住的情形。
-  const a = Math.max(roughness, GLINT_ROUGHNESS_FLOOR)
-  const a2 = a * a * (a * a) // (roughness²)² = roughness⁴
+  // 【α = roughness²，這是 GGX 與 three 的慣例】上一版把 α 寫成 roughness
+  // 本身，兩者都在 n·h = 1 時給出峰值 1，所以「峰值恆為 1」與「越粗越寬」
+  // 兩條測試**都假綠**，而反光帶的寬度差非常多：roughness 0.20、偏離峰值
+  // 25° 時，錯的那版是 0.222、對的是 0.00109 —— 窄碎光帶會變成一大片發亮。
+  // Codex 第三輪審查抓到。
+  const r = Math.max(roughness, GLINT_ROUGHNESS_FLOOR)
+  const a2 = r * r * (r * r) // α² = roughness⁴
   const nh2 = nDotH * nDotH
-  const d = (a * a) * nh2 + (1 - nh2)
-  return a2 / (d * d)
+  const d = a2 * nh2 + (1 - nh2)
+  return (a2 * a2) / (d * d) // α⁴ / d²
 }
 ```
 
@@ -1342,6 +1347,11 @@ const FRAG = /* glsl */ `
     float disc = smoothstep(sunCosOuter, sunCosInner, c);
     float halo = pow(max(c, 0.0), sunHaloPower) * sunHaloStrength;
     gl_FragColor = vec4(base + sunDiscColor * (disc + halo), 1.0);
+    // 【非有不可】three 不會替自寫的 ShaderMaterial 呼叫輸出色彩空間轉換。
+    // 少了它，天空把線性值原樣寫進 sRGB 緩衝區 —— 螢幕上比常數所表達的暗
+    // 一大截，而且與吃霧的物件（那些有轉換）對不起來。裁定與實測見本檔
+    // 「天空球沒有做輸出色彩空間轉換」那一節
+    #include <colorspace_fragment>
   }
 `
 ```
@@ -1517,11 +1527,12 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
     float nDotH = dot(n, h) / hLen;
     // 【與 CPU 版逐字對應的穩定形式】d = a²·(n·h)² + (1 − (n·h)²)。
     // 教科書的 (n·h)²·(a²−1)+1 在 float32 會把 a²−1 捨成 −1 → d = 0 → Infinity
-    float a = max(roughness, GLINT_ROUGH_FLOOR);
-    float a2 = a * a;
+    // α = roughness²（GGX / three 的慣例）—— 與 CPU 版逐字對應
+    float r = max(roughness, GLINT_ROUGH_FLOOR);
+    float a2 = r * r * (r * r); // α² = roughness⁴
     float nh2 = nDotH * nDotH;
     float d = a2 * nh2 + (1.0 - nh2);
-    return (a2 * a2) / (d * d);
+    return (a2 * a2) / (d * d); // α⁴ / d²
   }
 
   float glitterFadeGLSL(float distance) {
@@ -1797,6 +1808,20 @@ describe('注入真的發生了（著色器原始碼層級）', () => {
         expect(anchor).toBeGreaterThanOrEqual(0)
         // 而且在 anchor 之後 = 在線性空間、tone mapping 之前
         expect(marker).toBeGreaterThan(anchor)
+
+        /**
+         * 【只驗標記位置抓不到「呼叫被刪掉」—— Codex 第三輪審查的 Important】
+         * 把 `glintGLSL(...)` 那一行刪掉、標記留著的話，上面三條全部照樣綠，
+         * 而畫面上完全沒有反光。
+         *
+         * 【為什麼切在標記之後就夠】所有函數**定義**都在 `<common>` 那一段，
+         * 位置遠在標記之前。所以標記之後的字串裡出現的函數名，只可能是呼叫。
+         */
+        const afterMarker = fragment.slice(marker)
+        expect(afterMarker).toContain('glintGLSL(')
+        expect(afterMarker).toContain('fresnelGLSL(')
+        expect(afterMarker).toContain('skyGradient(')
+        expect(afterMarker).toContain('uGlintStrength')
       } finally {
         ocean.dispose()
       }
@@ -1811,7 +1836,13 @@ describe('注入真的發生了（著色器原始碼層級）', () => {
         expect(marker).toBeGreaterThanOrEqual(0)
         expect(marker).toBeGreaterThan(anchor)
         // 而且要在反光之前 —— 反光讀的就是它算出來的東西
-        expect(marker).toBeLessThan(fragment.indexOf(OCEAN_GLINT_MARKER))
+        const glintAt = fragment.indexOf(OCEAN_GLINT_MARKER)
+        expect(marker).toBeLessThan(glintAt)
+        // 【同上：標記之後必須真的有呼叫】只留標記、刪掉內容會被抓到
+        const between = fragment.slice(marker, glintAt)
+        expect(between).toContain('waveGradient(')
+        expect(between).toContain('waveNormalGLSL(')
+        expect(between).toContain('viewMatrix')
       } finally {
         ocean.dispose()
       }
@@ -2484,10 +2515,22 @@ uniform:
 
 ```
                     測試斷言的   螢幕上實際的
-地平線上的天空 L       0.495        0.314
+地平線上的天空 L       0.495        0.241
 天頂 L                 0.277        0.101
-海天階差               0.454        0.273
+海天階差               0.454        0.200
 ```
+
+【地平線那個數字更正過 —— Codex 第三輪審查的 Minor】初版探針先對兩個端點各自
+decode 再內插，但著色器實際是**先在線性空間內插、再把結果誤當 sRGB code 輸出**
+—— 非線性轉換與內插不可交換：
+
+```
+探針初版： mix(decode(H), decode(Z), t)   → 0.315
+實際：     decode(mix(H, Z, t))           → 0.241
+```
+
+天頂因為 `t = 1` 沒有內插，0.101 兩種算法一致。**差得比原本以為的更多**，
+裁定的方向不變。
 
 海面走 `MeshStandardMaterial`,**本來就有轉換**,所以 `SEA_COLOR` 一個字都不用
 動 —— 它顯示的就是 L 0.041。錯的只有天空那一邊。
