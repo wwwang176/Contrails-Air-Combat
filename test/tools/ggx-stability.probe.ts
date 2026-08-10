@@ -21,10 +21,15 @@
  * 【但穩定式不是無條件的 —— Codex 第四輪審查】它有兩個仍然會壞的邊界，兩個
  * 都由 `glintFromNDotH` 的夾擋住，而下面的表把它們都印出來：
  *
- *   1. **下溢**：峰值處分子分母都是 `roughness⁸`，float32 的最小正規數是
- *      1.18e-38，所以 `roughness < 1.82e-5` 時兩邊一起塌成 0 → `0/0 = NaN`。
+ *   1. **下溢**：峰值處分子分母都是 `roughness⁸`，兩邊一起塌成 0 → `0/0 = NaN`。
  *      表格最後一列 `roughness = 1e-6` 印出的就是 `NaN` —— 這才是
  *      `GLINT_ROUGHNESS_FLOOR` 真正擋的東西（不是 1.0 附近的抵銷）。
+ *
+ *      【界線有兩條，別混為一談 —— Codex 第五輪審查】float32 的最小正規數
+ *      1.18e-38 的八次方根是 **1.8146e-5**；最小次正規數 1.40e-45 的八次方根
+ *      是 **2.4735e-6**。次正規數仍可表示，所以實測 `roughness = 2.5e-6` 峰值
+ *      還是 1，`2e-6` 才真的 NaN。文件用 1.8146e-5 當界線是因為 **GPU 可以
+ *      合法地 flush 次正規數**，不是因為低於它就一定歸零。
  *   2. **`n·h` 略大於 1**：兩個 float32 正規化向量的內積可以是 `1 + 2⁻²³`，
  *      此時回傳值會**超過 1**（roughness 0.04 → 1.10、0.02 → 15.39）。
  */
@@ -52,7 +57,7 @@ function wrongAlpha(nh: number, rough: number, f: (x: number) => number): number
 const id = (x: number) => x
 console.log('=== nh=1（峰值）：教科書形式 vs 穩定形式，α = roughness² ===')
 console.log('rough    double教科書      f32教科書       double穩定    f32穩定')
-for (const r of [0.3, 0.1, 0.04, 0.02, 0.005, 1e-6]) {
+for (const r of [0.3, 0.1, 0.04, 0.02, 0.005, 1e-5, 2.5e-6, 2e-6, 1e-6]) {
   console.log(`${r.toString().padEnd(8)} ${textbook(1, r, id).toExponential(4).padStart(14)}`
     + ` ${textbook(1, r, f32).toExponential(4).padStart(14)}`
     + ` ${stable(1, r, id).toFixed(9).padStart(13)} ${stable(1, r, f32).toFixed(9).padStart(11)}`)
