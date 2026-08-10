@@ -97,6 +97,32 @@ const VERT = /* glsl */ `
  * `SKY_GRADIENT_POWER` 是兩份各自獨立的 0.65。改一份忘了另一份，畫面與霧色
  * 就會分家，而 `fog.test.ts` 只釘得住兩個顏色 uniform —— 測不到字串裡的字面
  * 值。改成 uniform 之後那個縫就不存在了，而且測得到。
+ *
+ * 【`#include <colorspace_fragment>` 非有不可 —— 2026-08-10 量到、2026-08-11 修】
+ * 天空球是**自寫的 `ShaderMaterial`**，而 three **不會**替自寫的片段著色器呼叫
+ * `linearToOutputTexel` —— 那是 built-in 材質才有的 chunk。少了它，天空把線性
+ * 值原樣寫進 sRGB 緩衝區，螢幕上比常數所表達的暗一大截：
+ *
+ *   常數要求（`fog.test.ts` 斷言的）  地平線 L 0.495   天頂 L 0.277
+ *   螢幕上實際                        地平線 L 0.241   天頂 L 0.101
+ *
+ * **所以 2026-08-09 的「天空整體淡一點」與 08-10 的「接近地面再淡一點」兩次
+ * 調整都沒有真正生效** —— 畫面確實有變，但遠遠不到常數所表達的程度。專案
+ * 負責人抱怨兩次的那件事，成因有一部分就在這裡。
+ *
+ * 順帶修好的：霧色 `FOG_COLOR` 由 `skyColorAt(0)` 推導，而霧作用在飛機／殘骸／
+ * 煙霧上，那些走 built-in 材質、**本來就有**做轉換。所以在這條 bug 之下，遠處
+ * 的飛機一直是往一個比背後天空更亮的顏色化開的 —— `fog.ts` 註解裡寫的「霧色
+ * 就該是地平線上的天空色」從來沒有真正成立過。
+ *
+ * 【常數一個都不動】專案負責人 2026-08-10 裁定走「甲」：補轉換、常數不動，
+ * 天空跳到常數本來就要求的亮度。另一條路（換算常數以保持現在的畫面）會讓
+ * `fog.test.ts` 的兩條門檻紅掉（地平線 0.314 < 0.35、天頂 0.101 < 0.20），
+ * 而那兩條正是 2026-08-09 因為「天空太暗」才加上的。
+ *
+ * 【不要順手加 `tonemapping_fragment`】renderer 目前是 `NoToneMapping`，那個
+ * chunk 會展開成空字串；但真要開 tone mapping 時，天空該不該吃是一個**設計
+ * 決定**（天空是背景不是物件），不在這次的範圍。
  */
 const FRAG = /* glsl */ `
   uniform vec3 horizon;
@@ -107,6 +133,7 @@ const FRAG = /* glsl */ `
     // 【改這兩行就要同步改 skyColorAt】那是這段的 CPU 版，霧色靠它推導
     float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
     gl_FragColor = vec4(mix(horizon, zenith, pow(t, power)), 1.0);
+    #include <colorspace_fragment>
   }
 `
 
