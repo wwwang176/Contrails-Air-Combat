@@ -180,6 +180,24 @@ describe('地平線要看得出來', () => {
     expect(FOG_COLOR.b).toBeCloseTo(sky.b, 9)
   })
 
+  /**
+   * 【2026-08-11 補】天空球是自寫的 `ShaderMaterial`，three **不會**替它做
+   * 輸出色彩空間轉換 —— `linearToOutputTexel` 是 built-in 材質才有的 chunk。
+   * 少了它，天空把線性值原樣寫進 sRGB 緩衝區，螢幕上比常數所表達的暗一大截
+   * （地平線 L 0.495 → 實際只有 0.241），而**上面每一條斷言都還是綠的**：
+   * 它們測的是 CPU 的線性工作空間，看不到輸出那一段。
+   *
+   * 所以 2026-08-09 與 08-10 兩次「把天空調亮」都沒有真正生效。這一條就是
+   * 那個洞的補丁 —— 少了它，有人刪掉那行 include 不會有東西紅。
+   *
+   * 這一條同時守住「天空與霧色在螢幕上一致」：霧作用的物件走 built-in 材質，
+   * 本來就有轉換。
+   */
+  it('天空球有做輸出色彩空間轉換', () => {
+    const mat = createSky().material as ShaderMaterial
+    expect(mat.fragmentShader).toContain('#include <colorspace_fragment>')
+  })
+
   it('`SKY_HORIZON` 這個常數本身並不出現在地平線上', () => {
     // 這一條記錄的是上面那個錯誤本身 —— 有人日後想「直接比 SKY_HORIZON
     // 不是更簡單嗎」，這裡有現成的反證。
