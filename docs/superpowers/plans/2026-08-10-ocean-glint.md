@@ -1,5 +1,34 @@
 # 海面太陽反光 Implementation Plan
 
+> ## ⛔ 狀態（2026-08-11）：**不要照著這份實作**
+>
+> 這份計畫審過六輪（2C+6I+1M → 4I+2M → 2I+2M → 3I+3M → 3I+3M → 2I+3M），
+> 但它的**核心機制在寫任何程式碼之前就被實測推翻了**。理由與數字見
+> `docs/superpowers/specs/2026-08-10-ocean-glint-design.md` 頂端的狀態區塊。
+>
+> ### 逐 Task 的狀態
+>
+> | Task | 狀態 |
+> |---|---|
+> | 1 `sun.ts` | **未開工，仍然有效** —— `sun.ts` 不存在；`ocean.ts` 現在有一份複製的 `SUN_DIR` |
+> | 2 `oceanShading.ts` 三條幾何公式 | **作廢** —— `oceanShading.ts` 不存在；`slopeRoughness` 那條機制已被推翻 |
+> | 3 Fresnel 與 glint 的 CPU 版 | **作廢** —— glint 換成密度場 × 噪聲；Fresnel 那半仍然有效但未開工 |
+> | 4 GLSL 與 `sky.ts` 太陽盤 | **一半作廢**：海面的 GLSL 已由別的做法取代；**太陽盤與色彩空間修正仍然有效且未開工** |
+> | 5 接進 `ocean.ts` 的兩個材質 | **作廢** —— 已用別的方式接好了 |
+> | 6 e2e 驗收、效能、參數回填 | **未開工，仍然有效** |
+>
+> ### 這份文件現在的價值
+>
+> 1. **Task 1 與 Task 6 可以直接拿來用。**
+> 2. **Task 4 Step 1 的天空色彩空間修正是一個已裁定但未修的既有 bug** ——
+>    見 spec 頂端。那一段（含「甲／乙」的推導與 `fog.test.ts` 四條門檻的實算）
+>    仍然完全有效。
+> 3. 六輪審查抓到的**測試設計教訓**（`mix` 兩個均勻隨機值不是均勻分佈、只驗
+>    marker 位置抓不到呼叫被刪、GGX 的 α 慣例、float32 的下溢與次正規區、
+>    `smoothstep(1,1,x)` 未定義）大多在實作時真的踩到了，值得保留當參考。
+>
+> 實際的實作在 `src/render/ocean.ts`，commit `da4bf2e` → `dcc057b` → `70a52bc`。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 海面在特定視角出現太陽反光（glitter path），維持 low-poly 輪廓，遠海與近海無接縫，天空有對應的太陽盤。
