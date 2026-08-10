@@ -193,8 +193,18 @@ const SUN_DIR: readonly [number, number, number] = (() => {
 export const SPARKLE_SIGMA = (4 * Math.PI) / 180
 /** 完全對齊時有多少比例的格子會亮。 */
 export const SPARKLE_DENSITY = 0.4
-/** 參考距離內的格子邊長，m —— 這決定白點的顆粒大小。 */
-export const SPARKLE_CELL = 0.85
+/**
+ * 參考距離內的格子邊長，m —— 這決定白點的顆粒大小。
+ *
+ * 【改這個不會改總覆蓋率】覆蓋率 = 每單位面積的點數 x 每點面積
+ * = (p / cellW²) x (π (r·cellW)²) = p·π·r² —— cellW 消掉了。所以縮小格子只是
+ * 把同樣多的白分成更細的顆粒，不會變亮也不會變暗。
+ *
+ * 【螢幕上的大小是常數】LOD 交叉淡入之後格子邊長連續正比於距離，張角恆為
+ * uCell/uCellRef。0.425/150 = 0.163°，1280 寬 / 65° 下約 3.2 px，而且 1 km
+ * 與 500 km 一樣。再往下就會逼近單像素，混疊會回來。
+ */
+export const SPARKLE_CELL = 0.425
 /** 超過這個距離，格子邊長開始隨距離加倍（壓次像素混疊）。 */
 export const SPARKLE_CELL_REF = 150
 /** 重擲頻率，Hz。真實波的週期是 6～16 s，靠波自己動不會「閃」。 */
