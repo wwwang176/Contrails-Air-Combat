@@ -50,6 +50,32 @@ for (const [name, hex] of [['SKY_HORIZON', HZ_OLD], ['SKY_ZENITH', ZEN_OLD]] as 
     + `  → 螢幕上看起來像 sRGB #${[r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`)
 }
 
+/**
+ * 【內插與非線性轉換不可交換 —— Codex 第三輪審查的 Minor】
+ *
+ * 初版先對兩個端點各自 decode 再內插：mix(decode(H), decode(Z), t)。
+ * 但著色器實際做的是**先在線性空間內插**，再把結果誤當成 sRGB code 輸出：
+ * decode(mix(H, Z, t))。兩者不相等。
+ *
+ * 地平線因此不是 0.315 而是 **0.241**；天頂 t = 1 沒有內插，0.101 是對的。
+ */
+function screenLightnessNow(dirY: number): number {
+  const mixed = sky(HZ_OLD, ZEN_OLD, POW, dirY) // 線性空間的內插結果
+  const decoded = new Color()
+  decoded.setRGB(mixed.r, mixed.g, mixed.b, SRGBColorSpace) // 當成 sRGB code 解回線性
+  return L(decoded)
+}
+
+console.log('\n=== 螢幕上「實際」的明度（先內插、再誤當 sRGB 輸出）===')
+console.log(`地平線 L = ${screenLightnessNow(0).toFixed(3)}`
+  + `   天頂 L = ${screenLightnessNow(1).toFixed(3)}`)
+console.log('對照：常數所表達的（fog.test.ts 斷言的）'
+  + ` 地平線 ${L(sky(HZ_OLD, ZEN_OLD, POW, 0)).toFixed(3)}`
+  + ` 天頂 ${L(sky(HZ_OLD, ZEN_OLD, POW, 1)).toFixed(3)}`)
+console.log(`海色 L = 0.041（走 MeshStandardMaterial，本來就有轉換）`)
+console.log(`→ 現況螢幕上的海天階差 = ${(screenLightnessNow(0) - 0.041).toFixed(3)}`
+  + `，補 include 之後 = ${(L(sky(HZ_OLD, ZEN_OLD, POW, 0)) - 0.041).toFixed(3)}`)
+
 console.log('\n=== 甲-1：修好管線並保持現在的畫面 ===')
 const HZ_KEEP = preserveAppearance(HZ_OLD)
 const ZEN_KEEP = preserveAppearance(ZEN_OLD)
