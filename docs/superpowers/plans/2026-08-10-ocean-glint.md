@@ -345,8 +345,9 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   MAX_WAVE_SLOPE, waveNormal, waveSlope,
-  GLITTER_ROUGHNESS_MIN, GLITTER_ROUGHNESS_MAX, slopeRoughness,
+  GLITTER_ROUGHNESS_MIN, GLITTER_ROUGHNESS_MAX, slopeRoughness, slopeRoughnessWith,
   GLITTER_FADE_START, GLITTER_FADE_END, glitterFade,
+  GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR, OCEAN_SHADING_GLSL, WATER_F0,
 } from '../../src/render/oceanShading'
 import { gerstnerHeight, WAVES } from '../../src/render/ocean'
 
@@ -460,6 +461,57 @@ describe('slopeRoughness', () => {
     for (const s of [0, -0, NaN, Infinity, -Infinity, 1e-300, MAX_WAVE_SLOPE]) {
       expect(Number.isFinite(slopeRoughness(s))).toBe(true)
     }
+  })
+})
+
+/**
+ * 【零振幅的守衛必須真的被執行到 —— Codex 第二輪審查的 Important】
+ *
+ * 初稿宣稱測了「零振幅」，但那組測試全部走生產用的正值 `MAX_WAVE_SLOPE`
+ * —— 新加的守衛**一行都沒有被執行到**。假綠。
+ *
+ * `slopeRoughnessWith` 這條縫存在的唯一理由就是讓分母測得到。
+ */
+describe('slopeRoughnessWith 的退化分母', () => {
+  it('分母為 0 / 負 / NaN 時回下限，不是 NaN', () => {
+    for (const m of [0, -0, -1, NaN]) {
+      expect(slopeRoughnessWith(0.1, m)).toBeCloseTo(GLITTER_ROUGHNESS_MIN, 12)
+    }
+  })
+
+  it('分母正常時與 slopeRoughness 逐值相同', () => {
+    for (const s of [0, 0.05, 0.1, MAX_WAVE_SLOPE, 999]) {
+      expect(slopeRoughnessWith(s, MAX_WAVE_SLOPE)).toBe(slopeRoughness(s))
+    }
+  })
+
+  it('slope 為 NaN 或 Infinity 時回下限', () => {
+    expect(slopeRoughnessWith(NaN, 1)).toBeCloseTo(GLITTER_ROUGHNESS_MIN, 12)
+    expect(slopeRoughnessWith(Infinity, 1)).toBeCloseTo(GLITTER_ROUGHNESS_MIN, 12)
+  })
+})
+
+/**
+ * 【GLSL 的常數必須真的來自 TS 常數 —— Codex 第二輪審查的 Minor】
+ * 計畫承諾了這兩條卻沒寫。字串模板本身已經解掉現在的雙份問題，但沒有測試
+ * 的話，日後有人改回硬編碼不會有東西紅。
+ */
+describe('GLSL 裡的常數來自 TS，不是重打的字面值', () => {
+  it('WATER_F0 / GLINT_EPSILON / GLINT_ROUGHNESS_FLOOR 都出現在 GLSL 裡', () => {
+    expect(OCEAN_SHADING_GLSL).toContain(WATER_F0.toFixed(6))
+    expect(OCEAN_SHADING_GLSL).toContain(GLINT_EPSILON.toExponential())
+    expect(OCEAN_SHADING_GLSL).toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
+  })
+
+  /**
+   * 【這一條擋的是「改回硬編碼」】把 `${WATER_F0.toFixed(6)}` 換成字面值
+   * `0.0204` 之後，上面那條仍然綠（0.020400 也含 0.0204 這個子字串就不一定
+   * 了 —— 但更直接的是：改 TS 常數之後 GLSL 必須跟著變）。
+   */
+  it('改變 TS 常數會讓 GLSL 字串跟著變（不是硬編碼）', () => {
+    // 生產值一定在字串裡；一個「不是生產值」的數字一定不在
+    expect(OCEAN_SHADING_GLSL).toContain(`#define WATER_F0 ${WATER_F0.toFixed(6)}`)
+    expect(OCEAN_SHADING_GLSL).not.toContain('#define WATER_F0 0.0204\n')
   })
 })
 
@@ -644,8 +696,24 @@ export const GLITTER_ROUGHNESS_MAX = 0.20
  * 白點）。振幅全為 0 的海是平的,平的海就是最光滑的那一端。
  */
 export function slopeRoughness(slope: number): number {
-  if (!(MAX_WAVE_SLOPE > 0)) return GLITTER_ROUGHNESS_MIN
-  const t = Math.min(Math.max(slope / MAX_WAVE_SLOPE, 0), 1)
+  return slopeRoughnessWith(slope, MAX_WAVE_SLOPE)
+}
+
+/**
+ * `slopeRoughness` 的可測版本 —— 分母由呼叫端給。
+ *
+ * 【為什麼需要這條縫 —— Codex 第二輪審查的 Important】`MAX_WAVE_SLOPE` 是
+ * 模組載入時由 `WAVES` 算出來的常數，測試裡改不了。初稿宣稱測了「零振幅」，
+ * 但那組測試全部走的是**生產用的正值**分母 —— 新加的守衛**一行都沒有被執行
+ * 到**。假綠。
+ *
+ * 【`!(x > 0)` 同時擋掉 0、負數與 NaN】NaN 的任何比較都是 false，所以
+ * `!(NaN > 0)` 為 true —— 這一個判斷式就把三種壞輸入一起接住了。
+ * `slope` 自己是 NaN 時也一樣：`Math.min/max` 會把 NaN 傳下去，所以另外檢查。
+ */
+export function slopeRoughnessWith(slope: number, maxSlope: number): number {
+  if (!(maxSlope > 0) || !Number.isFinite(slope)) return GLITTER_ROUGHNESS_MIN
+  const t = Math.min(Math.max(slope / maxSlope, 0), 1)
   return GLITTER_ROUGHNESS_MIN + (GLITTER_ROUGHNESS_MAX - GLITTER_ROUGHNESS_MIN) * t
 }
 
@@ -743,7 +811,9 @@ WAVES / gerstnerHeight 一個字沒動。
 
 ```ts
 import { SUN_DIRECTION, sunElevationRad } from '../../src/render/sun'
-import { WATER_F0, fresnel, glintIntensity } from '../../src/render/oceanShading'
+import {
+  GLINT_ROUGHNESS_FLOOR, WATER_F0, fresnel, glintIntensity,
+} from '../../src/render/oceanShading'
 
 describe('fresnel', () => {
   it('正對水面時是 F0（水 = 0.02）', () => {
@@ -886,6 +956,33 @@ describe('glintIntensity', () => {
   })
 
   /**
+   * 【退化的粗糙度 —— Codex 第二輪審查的 Important】初稿宣稱「epsilon 已經
+   * 處理零粗糙度」，但用教科書形式的 `d` 時，`roughness = 0` 在 double 會
+   * 漏出 1.000044（**大於 1**），在 float32 更會塌成 `d = 0` → `Infinity`。
+   *
+   * 改成數值穩定的 `d = a²·(n·h)² + (1 − (n·h)²)` 之後，任何 `a > 0` 的峰值
+   * 都恰好是 1。這一條把那件事釘住 —— 它是「值域 [0,1]」這個宣告的邊界。
+   */
+  it('粗糙度為 0 或負時仍然落在 [0, 1]，峰值仍是 1', () => {
+    for (const r of [0, -1, 1e-9]) {
+      const g = glintIntensity(N, viewVecFor(sunElevDeg, sunAzimuth), L, r)
+      expect(Number.isFinite(g)).toBe(true)
+      expect(g).toBeLessThanOrEqual(1)
+      expect(g).toBeCloseTo(1, 6)
+    }
+  })
+
+  /**
+   * 【粗糙度下限必須遠離 float32 的懸崖】`d` 在峰值等於 `roughness⁴`，而
+   * float32 在 1.0 附近的解析度是 1.19e-7 —— `roughness < 0.0186` 時
+   * `1 − roughness⁴` 會被捨入成 1。GLSL 那一份就是 float32。
+   */
+  it('GLINT_ROUGHNESS_FLOOR 在 float32 的懸崖之外，且低於美術下限', () => {
+    expect(Math.pow(GLINT_ROUGHNESS_FLOOR, 4)).toBeGreaterThan(1.19e-7)
+    expect(GLINT_ROUGHNESS_FLOOR).toBeLessThan(GLITTER_ROUGHNESS_MIN)
+  })
+
+  /**
    * 【粗糙度的作用要測得到】它是 spec §4.4 唯一的產出。只測「有輸出」的話，
    * 把 roughness 完全忽略掉也會通過。
    */
@@ -940,6 +1037,38 @@ export function fresnel(nDotV: number): number {
 export const GLINT_EPSILON = 1e-6
 
 /**
+ * 粗糙度的下限。**不是美術參數，是數值安全的下限。**
+ *
+ * 【0.02 怎麼來的 —— Codex 第二輪審查】GGX 的 `d` 在 `n·h = 1` 時等於
+ * `roughness⁴`。float32 在 1.0 附近的解析度是 `1.19e-7`，所以只要
+ * `roughness⁴ < 1.19e-7`（也就是 `roughness < 0.0186`），`1 − roughness⁴`
+ * 就會被捨入成 1，峰值處的 `d` 塌成 0。
+ *
+ * 取 0.02 —— 剛好在那個懸崖之外，而且**遠低於** `GLITTER_ROUGHNESS_MIN`
+ * （0.04），所以正常路徑永遠碰不到它。它擋的是「有人把粗糙度下限調到
+ * 0」那種未來。
+ *
+ * 【它與穩定形式是兩層保險】`glintIntensity` 的 `d` 已經改成不會抵銷的
+ * 寫法，理論上不需要這個夾。留著是因為兩層都便宜，而失效的症狀
+ * （整片海出現 `Infinity` → 白屏）非常昂貴。
+ */
+export const GLINT_ROUGHNESS_FLOOR = 0.02
+
+/**
+ * 注入到片段著色器裡的兩個唯一標記。**只為測試存在。**
+ *
+ * 【為什麼不能用函數名當定位點 —— Codex 第二輪審查的 Important】
+ * `glintGLSL(` 的第一個匹配是**函數定義**，它必然在 `<opaque_fragment>`
+ * 之前，所以「呼叫點在 anchor 之後」這個斷言用函數名去比對，對**正確的
+ * 實作**也會失敗。反過來，只剩定義、呼叫被刪掉時 `toContain` 仍然是真 ——
+ * 那正是要抓的 mutation。
+ *
+ * 標記只出現在呼叫點，兩個問題一起解掉。GLSL 註解對編譯完全無影響。
+ */
+export const OCEAN_NORMAL_MARKER = '// @ocean-analytic-normal'
+export const OCEAN_GLINT_MARKER = '// @ocean-glint-apply'
+
+/**
  * 太陽在水面上的鏡面反光**形狀**，0..1，峰值恆為 1。
  *
  * GGX(Trowbridge–Reitz) 的法線分布項 `D`，**除以它自己的峰值**：
@@ -992,10 +1121,23 @@ export function glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: nu
   const nDotH = (n.x * hx + n.y * hy + n.z * hz) / hLen
 
   // 【a 有下界】roughness 為 0 時 d 會在 n·h = 1 上變成 0，a⁴/d² = 0/0
-  const a = Math.max(roughness * roughness, GLINT_EPSILON)
-  const a2 = a * a
-  const d = nDotH * nDotH * (a2 - 1) + 1
-  return (a2 * a2) / (d * d)
+  // 【`d` 的寫法是數值穩定的那一種 —— Codex 第二輪審查的 Important】
+  //
+  //   教科書形式  d = (n·h)²·(a² − 1) + 1
+  //   這裡用的    d = a²·(n·h)² + (1 − (n·h)²)
+  //
+  // 兩者代數上完全相同（展開即得），但前者在 `a²` 遠小於 1 時會發生
+  // **災難性抵銷**：`a² − 1` 在 float32 直接捨入成 −1，於是 `n·h = 1` 時
+  // `d = 0`，回傳 `Infinity`；在 JS 的 double 也會漏出 1.000044 這種
+  // 「大於 1」的值，違反本函數宣告的值域。
+  //
+  // 後者沒有減法抵銷：`n·h = 1` 時 `d = a²`，回傳 `a⁴/a⁴ = 1` —— **恰好是
+  // 峰值 1，而且對任何 `a > 0` 都成立**，包含被 epsilon 夾住的情形。
+  const a = Math.max(roughness, GLINT_ROUGHNESS_FLOOR)
+  const a2 = a * a * (a * a) // (roughness²)² = roughness⁴
+  const nh2 = nDotH * nDotH
+  const d = (a * a) * nh2 + (1 - nh2)
+  return a2 / (d * d)
 }
 ```
 
@@ -1042,11 +1184,19 @@ console.log(`太陽仰角 ${sunElev.toFixed(1)}°、方位 ${(sunAz * DEG).toFix
 console.log(`坡度上限 ${MAX_WAVE_SLOPE.toFixed(4)}（${(Math.atan(MAX_WAVE_SLOPE) * DEG).toFixed(2)}°）`)
 console.log(`粗糙度 ${GLITTER_ROUGHNESS_MIN} ~ ${GLITTER_ROUGHNESS_MAX}`)
 
-const view = (elevDeg: number, az: number): Vector3 => new Vector3(
-  Math.cos(elevDeg * RAD) * Math.sin(az),
-  Math.sin(elevDeg * RAD),
-  Math.cos(elevDeg * RAD) * Math.cos(az),
-).normalize()
+/**
+ * 玩家以 `depressionDeg` 的**俯角**、朝 `az` 方位看水面時的 `V`（水面→眼睛）。
+ *
+ * 【與單元測試逐字同一條 —— Codex 第二輪審查的 Important】初稿的探針直接
+ * 建了一個「水平分量與太陽同方位」的向量卻標成「朝太陽方位」，方位差 180°。
+ * 那會讓 `flatPeak` 不是真正的峰值、方位掃描的峰值出現在標示的 180° 處，
+ * 而 spec §11 的參數就會依據一份錯的報告去回填。
+ */
+const view = (depressionDeg: number, az: number): Vector3 => new Vector3(
+  Math.cos(depressionDeg * RAD) * Math.sin(az),
+  -Math.sin(depressionDeg * RAD),
+  Math.cos(depressionDeg * RAD) * Math.cos(az),
+).normalize().negate()
 
 /**
  * 【為什麼要對真實的水面取樣而不是只用平靜水面】平靜水面（n = +Y）的
@@ -1115,8 +1265,9 @@ feat: Fresnel 與 GGX 反光的 CPU 版，加一支反光帶的量測探針
 「一定角度會反光」這句需求被拆成兩個可斷言的東西：在對的角度會亮，而且
 在別的角度不會亮。只測前者的話「整片海一直在閃」也會通過。
 
-峰值落在「視線仰角 = 太陽仰角、同方位」（GGX 的 n·h = 1）；偏離 25° 掉到
-十分之一以下；背對太陽掉到百分之一以下。太陽或視線在水面下時回 0 —— 那
+峰值落在「玩家朝太陽方位、俯角 = 太陽仰角」（GGX 的 n·h = 1）。注意 V 是
+「水面→眼睛」，與玩家的視線朝向差 180° —— 那是初稿寫錯的地方。偏離 25°
+掉到十分之一以下；背對太陽掉到百分之一以下。太陽或視線在水面下時回 0 —— 那
 兩個分支是給著色器的，它會對每個像素求值而 pow 對負數未定義。
 
 只取 GGX 的 D 項不取完整 BRDF：D 就是「反光帶落在哪、多寬」的全部內容，
@@ -1312,6 +1463,8 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
   // 【這兩個由 TS 常數插值進來，不是重打的字面值】見上面的註解
   #define WATER_F0 ${WATER_F0.toFixed(6)}
   #define GLINT_EPS ${GLINT_EPSILON.toExponential()}
+  #define GLINT_ROUGH_FLOOR ${GLINT_ROUGHNESS_FLOOR.toFixed(6)}
+  #define MAX_SLOPE_EPS ${GLINT_EPSILON.toExponential()}
 
   uniform vec3 uSunDirection;
   uniform float uMaxSlope;
@@ -1336,8 +1489,13 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
     return normalize(vec3(-g.x, 1.0, -g.y));
   }
 
+  // 【分母要夾 —— Codex 第二輪審查的 Important】CPU 版加了
+  // 「MAX_WAVE_SLOPE <= 0 就回下限」的守衛，但 GLSL 這一份漏了。
+  // 振幅全為 0 時 uMaxSlope 是 0，`0/0` = NaN，NaN 乘進顏色的症狀是
+  // 黑點、白點或整片異常 —— 而 CPU 測試完全看不到
   float slopeRoughnessGLSL(float slope) {
-    return mix(uRoughMin, uRoughMax, clamp(slope / uMaxSlope, 0.0, 1.0));
+    return mix(uRoughMin, uRoughMax,
+               clamp(slope / max(uMaxSlope, MAX_SLOPE_EPS), 0.0, 1.0));
   }
 
   float fresnelGLSL(float nDotV) {
@@ -1357,9 +1515,12 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
     float hLen = length(h);
     if (hLen <= GLINT_EPS) return 0.0;
     float nDotH = dot(n, h) / hLen;
-    float a = max(roughness * roughness, GLINT_EPS);
+    // 【與 CPU 版逐字對應的穩定形式】d = a²·(n·h)² + (1 − (n·h)²)。
+    // 教科書的 (n·h)²·(a²−1)+1 在 float32 會把 a²−1 捨成 −1 → d = 0 → Infinity
+    float a = max(roughness, GLINT_ROUGH_FLOOR);
     float a2 = a * a;
-    float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
+    float nh2 = nDotH * nDotH;
+    float d = a2 * nh2 + (1.0 - nh2);
     return (a2 * a2) / (d * d);
   }
 
@@ -1441,6 +1602,7 @@ import { createOcean, SEA_COLOR } from '../../src/render/ocean'
 import {
   GLINT_STRENGTH, GLITTER_FADE_END, GLITTER_FADE_START,
   GLITTER_ROUGHNESS_MAX, GLITTER_ROUGHNESS_MIN, MAX_WAVE_SLOPE,
+  OCEAN_GLINT_MARKER, OCEAN_NORMAL_MARKER,
 } from '../../src/render/oceanShading'
 import { SUN_DIRECTION } from '../../src/render/sun'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from '../../src/render/sky'
@@ -1609,20 +1771,61 @@ describe('注入真的發生了（著色器原始碼層級）', () => {
     expect(opaque).toBeLessThan(src.indexOf('#include <colorspace_fragment>'))
   })
 
+  /**
+   * 【初稿這一條會讓「正確的實作」變紅 —— Codex 第二輪審查的 Important】
+   *
+   * 原本寫 `fragment.indexOf('glintGLSL(')`，但**第一個**匹配是
+   * `<common>` 之後插入的**函數定義** `float glintGLSL(...)`，它必然在
+   * `<opaque_fragment>` 之前。於是「必須在 opaque 之後」對正確的實作也
+   * 成立不了。
+   *
+   * 而且反過來也不成立：`toContain('glintGLSL(')` 在「呼叫被刪掉、只剩
+   * 定義」時仍然是真 —— 那正是要抓的 mutation。
+   *
+   * 兩個問題同一個解法：**注入的那一段帶一個唯一的標記**，斷言標記的位置，
+   * 而不是斷言函數名的位置。標記只出現在呼叫點，定義裡沒有。
+   */
   for (const which of ['near', 'far'] as const) {
-    it(`${which}：注入後的片段著色器含 Fresnel 與 glint 的呼叫`, () => {
+    it(`${which}：反光真的接在 opaque_fragment 之後`, () => {
       const ocean = createOcean()
       try {
         const { fragment } = ocean.compiledShaderFor(which)
-        // 【比對「呼叫」而不是「定義」】只貼上函數定義卻沒接進去，是初稿
-        // 最可能的失手，而那種失手不會編譯失敗
-        expect(fragment).toContain('fresnelGLSL(')
-        expect(fragment).toContain('glintGLSL(')
-        expect(fragment).toContain('waveGradient(')
-        expect(fragment).toContain('uGlintStrength')
-        // anchor 真的被換掉了：注入的內容出現在 opaque_fragment 之後
-        expect(fragment.indexOf('glintGLSL('))
-          .toBeGreaterThan(fragment.indexOf('#include <opaque_fragment>'))
+        const marker = fragment.indexOf(OCEAN_GLINT_MARKER)
+        const anchor = fragment.indexOf('#include <opaque_fragment>')
+        // 標記存在 = 那一段真的被注入了（anchor 拼錯的話 replace 不發生）
+        expect(marker).toBeGreaterThanOrEqual(0)
+        expect(anchor).toBeGreaterThanOrEqual(0)
+        // 而且在 anchor 之後 = 在線性空間、tone mapping 之前
+        expect(marker).toBeGreaterThan(anchor)
+      } finally {
+        ocean.dispose()
+      }
+    })
+
+    it(`${which}：法線段真的接在 normal_fragment_begin 之後`, () => {
+      const ocean = createOcean()
+      try {
+        const { fragment } = ocean.compiledShaderFor(which)
+        const marker = fragment.indexOf(OCEAN_NORMAL_MARKER)
+        const anchor = fragment.indexOf('#include <normal_fragment_begin>')
+        expect(marker).toBeGreaterThanOrEqual(0)
+        expect(marker).toBeGreaterThan(anchor)
+        // 而且要在反光之前 —— 反光讀的就是它算出來的東西
+        expect(marker).toBeLessThan(fragment.indexOf(OCEAN_GLINT_MARKER))
+      } finally {
+        ocean.dispose()
+      }
+    })
+
+    it(`${which}：函數定義也在（不是只有呼叫）`, () => {
+      const ocean = createOcean()
+      try {
+        const { fragment } = ocean.compiledShaderFor(which)
+        // 【比對「定義」用的是回傳型別 + 名字】只有定義沒有呼叫、或只有呼叫
+        // 沒有定義，都會編譯失敗 —— 但那是 GPU 上才發現，這裡先擋住
+        expect(fragment).toContain('float glintGLSL(')
+        expect(fragment).toContain('float fresnelGLSL(')
+        expect(fragment).toContain('vec2 waveGradient(')
       } finally {
         ocean.dispose()
       }
@@ -1897,6 +2100,7 @@ export const GLINT_STRENGTH = 0.6
         // 會讓 DirectionalLight / HemisphereLight 全部算錯 —— 而畫面只是
         // 「怪怪的」，不會報錯。
         .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+          ${OCEAN_NORMAL_MARKER}
           // 【法線由解析導數取代】不是 flatShading 的面法線，也不是內插的
           // 頂點法線 —— 那兩者都受 52 m 網格限制，而反光吃的正是法線
           // （spec §4.1）
@@ -1915,6 +2119,7 @@ export const GLINT_STRENGTH = 0.6
         // sRGB 空間**，反光會過亮而且色調不對。opaque_fragment 剛把
         // gl_FragColor 設成線性的 outgoingLight，那才是該加的地方。
         .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+          ${OCEAN_GLINT_MARKER}
           {
             vec3 V = normalize(cameraPosition - vWorldPos);
             vec3 N = oceanShadingNormal;
@@ -2132,19 +2337,35 @@ GPU 完全空閒也會是 16.7 ms，120 Hz 就是 8.3 ms。**它根本回答不�
       const gl = canvas.getContext('webgl2')
       const ext = gl?.getExtension('EXT_disjoint_timer_query_webgl2')
       if (!gl || !ext) return null // 沒有這個擴充就誠實回報量不到
-      const q = gl.createQuery()!
-      gl.beginQuery(ext.TIME_ELAPSED_EXT, q)
-      await new Promise((r) => requestAnimationFrame(r))
-      gl.endQuery(ext.TIME_ELAPSED_EXT)
-      // 結果不會馬上好，要輪詢
-      for (let i = 0; i < 120; i++) {
+      /**
+       * 【要取多幀取中位 —— Codex 第二輪審查的 Minor】單幀會被著色器首次
+       * 編譯、瀏覽器排程、背景 GPU 工作影響，用它去比 2× 很容易假紅假綠。
+       * 前 10 幀丟掉（暖機），再取 30 幀的中位。
+       */
+      const samples: number[] = []
+      for (let i = 0; i < 40; i++) {
+        const q = gl.createQuery()!
+        gl.beginQuery(ext.TIME_ELAPSED_EXT, q)
         await new Promise((r) => requestAnimationFrame(r))
-        if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)
-          && !gl.getParameter(ext.GPU_DISJOINT_EXT)) {
-          return gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6 // ns → ms
+        gl.endQuery(ext.TIME_ELAPSED_EXT)
+        // 結果不會馬上好，要輪詢
+        let got: number | null = null
+        for (let k = 0; k < 60; k++) {
+          await new Promise((r) => requestAnimationFrame(r))
+          if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) {
+            // 【disjoint 的那一幀要丟掉】GPU 被搶走時計時無效
+            if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) {
+              got = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6 // ns → ms
+            }
+            break
+          }
         }
+        gl.deleteQuery(q)
+        if (i >= 10 && got !== null) samples.push(got)
       }
-      return null
+      if (samples.length < 10) return null
+      samples.sort((a, b) => a - b)
+      return samples[Math.floor(samples.length / 2)]!
     })
     console.log(gpuMs === null
       ? '[人工看] 這台機器量不到 GPU 時間（沒有 EXT_disjoint_timer_query_webgl2）'
