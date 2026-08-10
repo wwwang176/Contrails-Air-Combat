@@ -335,6 +335,11 @@ sun.ts 是葉節點，不 import 任何 render 模組（sky.ts → fog.ts 已經
   - `waveSlope(x: number, z: number, time: number): number`
   - `GLITTER_ROUGHNESS_MIN: number`、`GLITTER_ROUGHNESS_MAX: number`
   - `slopeRoughness(slope: number): number`
+  - `slopeRoughnessWith(slope: number, maxSlope: number): number`
+    （`slopeRoughness` 的核心。獨立匯出**只為了讓零分母守衛測得到** ——
+    `MAX_WAVE_SLOPE` 是模組載入時算出來的常數，測試改不動它。同 Task 3 的
+    `glintFromNDotH` 與 Task 4 的 `buildOceanShadingGLSL`。產品程式碼一律用
+    `slopeRoughness`。）
   - `GLITTER_FADE_START: number`、`GLITTER_FADE_END: number`
   - `glitterFade(distance: number): number`
 
@@ -1505,6 +1510,8 @@ glint-geometry.probe.ts 掃視線仰角與方位，平靜水面（幾何上界�
 - Modify: `src/render/oceanShading.ts`（append GLSL 字串）
 - Modify: `src/render/sky.ts`
 - Modify: `test/unit/fog.test.ts`
+- Modify: `test/unit/ocean-shading.test.ts`（append GLSL 字串的那一組測試 ——
+  它原本錯放在 Task 2，但它要測的符號到這個 Task 才存在。Codex 第五輪審查）
 
 **Interfaces:**
 - Consumes: Task 1、Task 2、Task 3 的全部常數
@@ -1803,14 +1810,19 @@ Task 2 寫的 `glitterFade` 測試（單調、值域、端點、接縫）**全�
 
 - [ ] **Step 5: 寫 GLSL 字串的那一組測試（append 到 `ocean-shading.test.ts`）**
 
-**先把這三個符號加進檔案最上面的 import**（它們到這個 Task 才存在，Task 2／3
-不准提早 import —— 見 Task 2 Step 1 的表）：
+**先補這一行 import**（這三個符號到這個 Task 才存在，Task 2／3 不准提早
+import —— 見 Task 2 Step 1 的表）：
 
 ```ts
 import {
   GLINT_EPSILON, OCEAN_SHADING_GLSL, buildOceanShadingGLSL,
 } from '../../src/render/oceanShading'
 ```
+
+這是**另一個** import 陳述式，不是改寫 Task 2／3 那兩個 —— 同一個模組出現多次
+`import` 在 ES module 合法，只要沒有同名綁定重複。這三個名字前面都沒出現過。
+下面測試裡用到的 `WATER_F0` 與 `GLINT_ROUGHNESS_FLOOR` **不必再 import**，
+Task 3 那一行已經帶進來了。
 
 **GLSL 是字串，vitest 跑不到它。** 所以這一組全部是字串斷言 —— 它們守的不是
 語意而是「那幾行還在」。這是這個專案能對 GLSL 做到的上限，真正的語意由 Task 6
