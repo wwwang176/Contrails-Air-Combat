@@ -1557,42 +1557,73 @@ export const GLINT_STRENGTH = 0.02
           ${waveDecls}
           varying vec3 vWorldPos;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-          vec2 worldXZ = transformed.xz + uOrigin;
           ${withVertexWaves ? `
+          // 【這一段與改動前逐字相同】頂點位移不准動 —— gerstnerHeight、
+          // crash.ts 的入水判定、splash、wrecks 全部靠它
+          vec2 worldXZ = transformed.xz + uOrigin;
           float waveH = 0.0;
           for (int i = 0; i < WAVE_COUNT; i++) {
             float k = 6.28318530718 / uWaveLen[i];
             waveH += uWaveAmp[i] * sin(k * dot(uWaveDir[i], worldXZ) - uWaveSpd[i] * k * uTime);
           }
           transformed.y += waveH;` : ''}
-          vWorldPos = vec3(worldXZ.x, transformed.y, worldXZ.y);`)
+          // 【世界座標由 modelMatrix 取得，不是 transformed.xz + uOrigin】
+          // uOrigin 是**細浪面**的格點對齊原點；遠海放在 (centerX, −3, centerZ)
+          // 而且不做格點對齊，兩者的原點不同。用 modelMatrix 對兩片都對。
+          vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
 
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           ${waveDecls}
           varying vec3 vWorldPos;
+          // 【這三個是全域變數不是 varying】片段著色器裡的 varying 是唯讀的，
+          // 寫進去會編譯失敗。名字刻意不用 v 開頭，免得被讀成 varying。
+          // 它們的用途是把 normal_fragment_begin 那一段算出來的東西帶到
+          // opaque_fragment 之後 —— 兩段之間隔著整條光照鏈。
+          vec3 oceanShadingNormal;
+          float oceanShadingSlope;
+          float oceanShadingFade;
           ${SKY_GRADIENT_GLSL}
           ${OCEAN_SHADING_GLSL}`)
-        .replace('#include <normal_fragment_begin>', `
-          // 【法線完全由解析導數取代】不是 flatShading 的面法線，也不是
-          // 內插的頂點法線 —— 那兩者都受 52 m 網格限制，而反光吃的正是
-          // 法線（spec §4.1）
-          vec2 grad = waveGradient(vWorldPos.xz, uTime);
-          vec3 normal = waveNormalGLSL(grad);
-          float waveSlopeV = length(grad);`)
-        .replace('#include <dithering_fragment>', `
-          #include <dithering_fragment>
-          vec3 V = normalize(cameraPosition - vWorldPos);
-          float fade = glitterFadeGLSL(length(cameraPosition.xz - vWorldPos.xz));
-          vec3 N = mix(vec3(0.0, 1.0, 0.0), normal, fade);
-          float rough = slopeRoughnessGLSL(waveSlopeV * fade);
-          // Fresnel：平視反射天空、俯視看深海
-          float F = fresnelGLSL(max(dot(N, V), 0.0));
-          vec3 skyRefl = skyGradient(reflect(-V, N));
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, skyRefl, F);
-          // 太陽反光
-          gl_FragColor.rgb += uGlintStrength * fade
-            * glintGLSL(N, V, normalize(uSunDirection), rough);`)
+        // 【為什麼是「附加在 normal_fragment_begin 之後」而不是取代它】
+        // 那個 chunk 除了 `normal` 還定義 `faceDirection` 與
+        // `nonPerturbedNormal`，後面的 chunk（clearcoat、anisotropy）會用。
+        // 取代掉會在某些 define 組合下編譯失敗，而那種失敗不會每次出現。
+        //
+        // 【必須轉進 view space】`vNormal` 是 `normalMatrix * objectNormal`，
+        // three 整條光照鏈都在 view space。直接把世界空間的法線寫進 `normal`
+        // 會讓 DirectionalLight / HemisphereLight 全部算錯 —— 而畫面只是
+        // 「怪怪的」，不會報錯。
+        .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+          // 【法線由解析導數取代】不是 flatShading 的面法線，也不是內插的
+          // 頂點法線 —— 那兩者都受 52 m 網格限制，而反光吃的正是法線
+          // （spec §4.1）
+          vec2 oceanGrad = waveGradient(vWorldPos.xz, uTime);
+          oceanShadingSlope = length(oceanGrad);
+          oceanShadingFade = glitterFadeGLSL(length(cameraPosition.xz - vWorldPos.xz));
+          // 遠處淡回平面：浮點精度與「一個像素涵蓋許多個波」兩個理由
+          vec3 oceanWorldN = normalize(mix(vec3(0.0, 1.0, 0.0),
+                                          waveNormalGLSL(oceanGrad), oceanShadingFade));
+          oceanShadingNormal = oceanWorldN;
+          normal = normalize((viewMatrix * vec4(oceanWorldN, 0.0)).xyz);
+          nonPerturbedNormal = normal;`)
+        // 【為什麼是 opaque_fragment 而不是 dithering_fragment】three 0.180 的
+        // 片段尾段順序是 opaque_fragment → tonemapping → colorspace → fog →
+        // premultiplied_alpha → dithering。在 dithering 之後加等於**加在
+        // sRGB 空間**，反光會過亮而且色調不對。opaque_fragment 剛把
+        // gl_FragColor 設成線性的 outgoingLight，那才是該加的地方。
+        .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+          {
+            vec3 V = normalize(cameraPosition - vWorldPos);
+            vec3 N = oceanShadingNormal;
+            float rough = slopeRoughnessGLSL(oceanShadingSlope * oceanShadingFade);
+            // Fresnel：平視反射天空、俯視看深海
+            float F = fresnelGLSL(max(dot(N, V), 0.0));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, skyGradient(reflect(-V, N)), F);
+            // 太陽反光
+            gl_FragColor.rgb += uGlintStrength * oceanShadingFade
+              * glintGLSL(N, V, normalize(uSunDirection), rough);
+          }`)
     }
 ```
 
@@ -1827,6 +1858,31 @@ test: 海面反光的 Playwright 觀察點與幀時取樣
 
 spec §11 的五個參數留待專案負責人回填。
 ```
+
+---
+
+## 對 three.js 0.180 的實地查證（寫 plan 時做的，三個缺陷都已修進 Task 5）
+
+計畫初稿的著色器注入是憑印象寫的。對照 `node_modules/three@0.180.0` 的實際
+chunk 原始碼查過之後，找到三個會壞掉的地方。**它們留在這裡是因為它們很容易
+再犯一次。**
+
+| # | 初稿寫的 | 為什麼壞 | 已改成 |
+|---|---|---|---|
+| 1 | 在 `#include <dithering_fragment>` 之後加反光 | `meshphysical.glsl.js` 的尾段順序是 `opaque_fragment → tonemapping → colorspace → fog → premultiplied_alpha → dithering`。在最後加等於**加在 sRGB 空間**，反光會過亮、色調不對，而且沒有任何測試看得到 | 改在 `#include <opaque_fragment>` 之後 —— 那裡 `gl_FragColor` 剛被設成線性的 `outgoingLight` |
+| 2 | **取代** `#include <normal_fragment_begin>`，並把**世界空間**的法線寫進 `normal` | 兩個問題：(a) 那個 chunk 還定義 `faceDirection` 與 `nonPerturbedNormal`，後面的 clearcoat / anisotropy chunk 會用，取代掉會在某些 define 組合下編譯失敗；(b) `vNormal` 是 `normalMatrix * objectNormal`，**view space** —— 把世界空間的法線寫進去會讓整條光照鏈算錯，而畫面只是「怪怪的」不會報錯 | 改成**附加在該 include 之後**，並用 `viewMatrix` 轉進 view space 再賦值，同時更新 `nonPerturbedNormal` |
+| 3 | `vWorldPos` 用 `transformed.xz + uOrigin` | `uOrigin` 是**細浪面**的格點對齊原點。遠海放在 `(centerX, −3, centerZ)` 而且**不做**格點對齊 —— 兩片的原點不同，遠海的波相位會整片偏掉 | 改用 `(modelMatrix * vec4(transformed, 1.0)).xyz`，兩片都對 |
+
+已查證為**可用**的三件事（不要再懷疑）：
+
+- `cameraPosition` 與 `viewMatrix` 都在片段著色器的前置宣告裡
+  （`WebGLProgram.js:826-827`）。
+- 片段著色器裡的 `varying` 是唯讀的，所以跨 chunk 傳值必須用**全域變數**
+  （`oceanShadingNormal` / `Slope` / `Fade`），不能宣告成 varying。
+- `PlaneGeometry(FAR_SEA_SIZE, FAR_SEA_SIZE, 1, 1)` 只有四個頂點，但
+  `vWorldPos` 在平面上的線性內插是**精確**的，所以遠海拿得到正確的世界座標。
+
+**Task 5 Step 4 的程式碼已經是修正後的版本。** 實作者照抄即可。
 
 ---
 
