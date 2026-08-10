@@ -44,8 +44,9 @@
 | `src/render/ocean.ts` | 修改 | 把 `oceanShading.ts` 的 GLSL 拼進兩個材質的片段著色器；關掉 `flatShading`。 |
 | `src/render/scene.ts` | 修改 | `DirectionalLight` 改讀 `sun.ts`。 |
 | `test/unit/sun.test.ts` | 新增 | 太陽常數本身，以及三個消費端真的用的是它。 |
-| `test/unit/ocean-shading.test.ts` | 新增 | 五個 CPU 版公式的性質與邊界。 |
-| `test/unit/fog.test.ts` | 修改 | 補「天空的太陽 uniform 來自 `sun.ts`」。 |
+| `test/unit/ocean-shading.test.ts` | 新增 | CPU 版公式的性質與邊界（Task 2／3 append），以及 GLSL 字串的常數與公式（Task 4 append）。 |
+| `test/unit/ocean.test.ts` | **修改（已存在）** | 在檔尾 append 兩個材質的 uniform 與著色器注入。**既有的 10 條（`gerstnerHeight`、遠海）一條都不能動** —— 它們是 `crash.ts`／水花／殘骸所依賴的 `WAVES`／`FAR_SEA_Y`／`OCEAN_SIZE` 的唯一守門員。 |
+| `test/unit/fog.test.ts` | 修改 | 補「天空的太陽 uniform 來自 `sun.ts`」與「天空有做輸出色彩空間轉換」。 |
 | `test/tools/glint-geometry.probe.ts` | 新增 | 掃描視角，印出反光帶落在哪、多寬。 |
 | `test/e2e/battlefield-visuals.e2e.ts` | 修改 | 四個新的人工觀察點＋一次幀時取樣。 |
 
@@ -803,7 +804,14 @@ WAVES / gerstnerHeight 一個字沒動。
   - `glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: number): number`
   - `glintFromNDotH(nDotH: number, roughness: number): number`（`glintIntensity`
     的數值核心。獨立匯出**只為了讓兩個浮點守衛測得到** —— 同 Task 2 的
-    `slopeRoughnessWith`。產品程式碼不應該直接呼叫它。）
+    `slopeRoughnessWith`、Task 4 的 `buildOceanShadingGLSL`。產品程式碼不應該
+    直接呼叫它。）
+  - `GLINT_EPSILON: number`（`1e-6`。半向量退化的門檻，**CPU 與 GLSL 共用
+    這一個** —— GLSL 那份由 Task 4 的字串模板插值進去）
+  - `GLINT_ROUGHNESS_FLOOR: number`（`0.02`。數值安全的粗糙度下限，不是美術
+    參數）
+  - `OCEAN_NORMAL_MARKER: string`、`OCEAN_GLINT_MARKER: string`（注入片段
+    著色器的兩個唯一標記，**只為測試存在** —— Task 5 用它們定位注入點）
 
 - [ ] **Step 1: 寫會紅的測試（append 到 `ocean-shading.test.ts`）**
 
@@ -1826,7 +1834,7 @@ Task 3 那一行已經帶進來了。
 
 **GLSL 是字串，vitest 跑不到它。** 所以這一組全部是字串斷言 —— 它們守的不是
 語意而是「那幾行還在」。這是這個專案能對 GLSL 做到的上限，真正的語意由 Task 6
-的人工畫面驗收守（spec §10）。
+的人工畫面驗收守（**spec §8.4**，不是 §10 —— §10 是「明確不做」）。
 
 ```ts
 /**
@@ -1949,20 +1957,34 @@ glitterFade 的 CPU 版改成 smoothstep 與 GLSL 對齊。Task 2 那組測試�
 
 **Files:**
 - Modify: `src/render/ocean.ts`
-- Create: `test/unit/ocean.test.ts`
+- **Modify（不是 Create！）**: `test/unit/ocean.test.ts`
+
+> **⚠️ `test/unit/ocean.test.ts` 已經存在，裡面有 10 條既有的回歸測試**
+> （`gerstnerHeight` 的波高範圍與導數、遠海的位置／尺寸／render order／
+> dispose）。這個 Task 是**在檔尾 append**，不是建立新檔 ——
+> 照「建立」字面執行會把那 10 條整批覆寫掉，而且 `WAVES`／`gerstnerHeight`／
+> `FAR_SEA_Y`／`OCEAN_SIZE`／`OCEAN_SEGMENTS` 正是 `crash.ts`、水花與殘骸
+> 依賴的東西，那批測試是它們唯一的守門員。（Codex 第六輪審查抓到。）
+>
+> 先 `Read` 一次確認檔案內容，再 append。
 
 **Interfaces:**
 - Consumes: Task 4 的 `OCEAN_SHADING_GLSL`、`SKY_GRADIENT_GLSL`；Task 1~3 的全部常數
-- Produces: 無新的公開介面（`createOcean` 的簽名不變）
+- Produces:
+  - `GLINT_STRENGTH: number`（`oceanShading.ts` 匯出。**暫定 0.6，spec §11
+    的六組之一，最終值由專案負責人回填**）
+  - `Ocean` 介面擴充（見 Step 3 —— 新增查詢方法，既有欄位不動）
+  - `createOcean` 的**簽名**不變
 
 - [ ] **Step 1: 寫會紅的測試**
 
-建立 `test/unit/ocean.test.ts`：
+**append 到既有的 `test/unit/ocean.test.ts`**，並把新用到的符號補進檔案最上面
+既有的那個 import（`createOcean` 已經在裡面了，不要重複）：
 
 ```ts
 import { describe, it, expect } from 'vitest'
 import { Color, FrontSide, MeshStandardMaterial, ShaderLib, Vector3 } from 'three'
-import { createOcean, SEA_COLOR } from '../../src/render/ocean'
+import { SEA_COLOR } from '../../src/render/ocean' // createOcean 既有 import 已含
 import {
   GLINT_STRENGTH, GLITTER_FADE_END, GLITTER_FADE_START,
   GLITTER_ROUGHNESS_MAX, GLITTER_ROUGHNESS_MIN, MAX_WAVE_SLOPE,
@@ -2319,7 +2341,7 @@ npx vitest run test/unit/ocean.test.ts
 
 - [ ] **Step 3: 擴充 `Ocean` 介面（`src/render/ocean.ts`）**
 
-在 `export interface Ocean` 加三個查詢方法：
+在 `export interface Ocean` 加**四個**查詢方法（全部**只為測試存在**）：
 
 ```ts
   /**
@@ -2550,7 +2572,7 @@ export const GLINT_STRENGTH = 0.6
 
 並把細浪面的 `flatShading: true` 改成 `flatShading: false`。
 
-三個查詢方法：
+四個查詢方法（uniformsFor / sunDirectionFor / skyColorsFor / compiledShaderFor）：
 
 ```ts
     uniformsFor() {
@@ -2635,7 +2657,11 @@ feat: 海面接上解析法線、Fresnel 與太陽反光
 
 ---
 
-### Task 6：Playwright 驗收、效能實測、參數回填
+### Task 6：e2e 人工驗收、效能實測、參數回填
+
+> **這個 Task 的 e2e 不是 Playwright Test。** `battlefield-visuals.e2e.ts` 用的
+> 是 `playwright` 這個函式庫（`chromium.launch()`），但它是一支 standalone
+> script，由 `npx vite-node` 跑，而且**需要 dev server 已經開著**。細節見 Step 4。
 
 **Files:**
 - Modify: `test/e2e/battlefield-visuals.e2e.ts`
@@ -2763,13 +2789,22 @@ GPU 完全空閒也會是 16.7 ms，120 Hz 就是 8.3 ms。**它根本回答不�
 記下數字，再 `git stash pop` 跑一次。兩個數字一起貼進報告。沒有基準的絕對值
 是沒有意義的。
 
-- [ ] **Step 4: 跑 Playwright**
+- [ ] **Step 4: 跑 e2e**
+
+**`battlefield-visuals.e2e.ts` 不是 Playwright Test 檔** —— 它是一支直接呼叫
+`chromium.launch()` 的 standalone script（`import { chromium } from 'playwright'`，
+沒有任何 `test()` 宣告），由 `vite-node` 執行。`npx playwright test` 會回
+`0 tests in 0 files` 並以錯誤結束，這一步就整個不會跑（Codex 第六輪審查抓到）。
+
+它也**需要 dev server 已經開著**，跑法是兩個終端機：
 
 ```
-npx playwright test test/e2e/battlefield-visuals.e2e.ts
+npm run dev                                            # 終端機一，開在 5173
+npx vite-node test/e2e/battlefield-visuals.e2e.ts      # 終端機二
 ```
 
-把四張截圖與幀時**貼進報告**。
+Step 1 已經要求先確認沒有殘留的 dev server 與開著遊戲的分頁 —— 那一步就是
+為了這裡。跑完把四張截圖與幀時**貼進報告**。
 
 - [ ] **Step 5: 全套回歸**
 
