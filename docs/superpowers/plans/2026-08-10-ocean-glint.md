@@ -342,6 +342,19 @@ sun.ts 是葉節點，不 import 任何 render 模組（sky.ts → fog.ts 已經
 
 建立 `test/unit/ocean-shading.test.ts`：
 
+> **這個檔由 Task 2、3、4 分三次 append，import 區塊也要跟著長。**
+> 每一次只准 import**該 Task 自己會實作出來**的符號 —— 提早 import 後面 Task
+> 才有的東西，這個 Task 的「跑測試確認它綠」就永遠綠不了，紅／綠序列直接
+> 不可執行。（Codex 第五輪審查抓到：`WATER_F0`、`GLINT_EPSILON`、
+> `GLINT_ROUGHNESS_FLOOR`、`OCEAN_SHADING_GLSL`、`buildOceanShadingGLSL`
+> 本來都寫在這裡，但它們分別要到 Task 3 與 Task 4 才存在。）
+>
+> | Task | 這一次 append 的 describe | 新增的 import |
+> |---|---|---|
+> | 2 | 波法線／坡度／粗糙度／淡出 | 本區塊這些 |
+> | 3 | `fresnel`、`glintIntensity`、`glintFromNDotH` | `WATER_F0`、`GLINT_ROUGHNESS_FLOOR`、`fresnel`、`glintIntensity`、`glintFromNDotH`、`sun.ts` 的兩個 |
+> | 4 | GLSL 字串的那一組 | `GLINT_EPSILON`、`OCEAN_SHADING_GLSL`、`buildOceanShadingGLSL` |
+
 ```ts
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
@@ -349,8 +362,6 @@ import {
   MAX_WAVE_SLOPE, waveNormal, waveSlope,
   GLITTER_ROUGHNESS_MIN, GLITTER_ROUGHNESS_MAX, slopeRoughness, slopeRoughnessWith,
   GLITTER_FADE_START, GLITTER_FADE_END, glitterFade,
-  GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR, OCEAN_SHADING_GLSL, WATER_F0,
-  buildOceanShadingGLSL,
 } from '../../src/render/oceanShading'
 import { gerstnerHeight, WAVES } from '../../src/render/ocean'
 
@@ -491,59 +502,6 @@ describe('slopeRoughnessWith 的退化分母', () => {
   it('slope 為 NaN 或 Infinity 時回下限', () => {
     expect(slopeRoughnessWith(NaN, 1)).toBeCloseTo(GLITTER_ROUGHNESS_MIN, 12)
     expect(slopeRoughnessWith(Infinity, 1)).toBeCloseTo(GLITTER_ROUGHNESS_MIN, 12)
-  })
-})
-
-/**
- * 【GLSL 的常數必須真的來自 TS 常數 —— Codex 第二輪審查的 Minor】
- * 計畫承諾了這兩條卻沒寫。字串模板本身已經解掉現在的雙份問題，但沒有測試
- * 的話，日後有人改回硬編碼不會有東西紅。
- */
-describe('GLSL 裡的常數來自 TS，不是重打的字面值', () => {
-  it('WATER_F0 / GLINT_EPSILON / GLINT_ROUGHNESS_FLOOR 都出現在 GLSL 裡', () => {
-    expect(OCEAN_SHADING_GLSL).toContain(WATER_F0.toFixed(6))
-    expect(OCEAN_SHADING_GLSL).toContain(GLINT_EPSILON.toExponential())
-    expect(OCEAN_SHADING_GLSL).toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
-  })
-
-  /**
-   * 【上面那條擋不住硬編碼 —— Codex 第三／第四輪審查的 M-a】只要有人把
-   * `${WATER_F0.toFixed(6)}` 換成字面值 `0.020400`，上面每一條斷言都還是綠的。
-   * 「目前的數字出現在字串裡」證明不了「這個數字來自 TS 常數」。
-   *
-   * 唯一能證明的方式是**餵不同的值進去，看輸出跟著變**。那需要一個縫，所以
-   * 模板抽成了 `buildOceanShadingGLSL(...)`。同樣的手法見 `slopeRoughnessWith`
-   * 與 `glintFromNDotH`。
-   *
-   * 用來當哨兵的三個值刻意挑成不可能是生產值的數字 —— 這樣「不含生產值」那
-   * 幾條負向斷言才有意義。
-   */
-  it('GLSL 的常數真的來自參數（餵哨兵值，輸出跟著變）', () => {
-    const glsl = buildOceanShadingGLSL(0.123456, 7e-3, 0.654321)
-    expect(glsl).toContain('#define WATER_F0 0.123456')
-    expect(glsl).toContain('#define GLINT_EPS 7e-3')
-    expect(glsl).toContain('#define GLINT_ROUGH_FLOOR 0.654321')
-    expect(glsl).toContain('#define MAX_SLOPE_EPS 7e-3')
-    // 哨兵版本裡不該還留著生產值 —— 有的話就是硬編碼
-    expect(glsl).not.toContain(WATER_F0.toFixed(6))
-    expect(glsl).not.toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
-  })
-
-  it('OCEAN_SHADING_GLSL 就是 builder 套用生產常數的結果', () => {
-    expect(OCEAN_SHADING_GLSL).toBe(
-      buildOceanShadingGLSL(WATER_F0, GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR),
-    )
-  })
-
-  /**
-   * 【GLSL 的兩個夾必須存在 —— Codex 第四輪審查的 Important】`glintFromNDotH`
-   * 的兩個夾由 `ocean-shading.test.ts` 的單元測試守住，但 GLSL 那一份是字串，
-   * **跑不到**，只能用字串斷言守。而它才是真正跑在 float32 上的那一份 ——
-   * 少了 `clamp`，`dot` 漏出 `1 + 2⁻²³` 時 roughness 0.02 會回傳 15.39。
-   */
-  it('GLSL 的 glintGLSL 有夾住 n·h 與 roughness', () => {
-    expect(OCEAN_SHADING_GLSL).toContain('clamp(dot(n, h) / hLen, 0.0, 1.0)')
-    expect(OCEAN_SHADING_GLSL).toContain('clamp(roughness, GLINT_ROUGH_FLOOR, 1.0)')
   })
 })
 
@@ -1013,17 +971,44 @@ describe('glintIntensity', () => {
    * 失效機制；穩定形式根本不做那個減法，所以那不是它現在的懸崖。
    *
    * 真正的機制是**下溢**：峰值處分子與分母都是 `roughness⁸`，兩邊一起塌成
-   * 0 就得到 `0/0 = NaN`。float32 的最小正規數是 `1.18e-38`，所以
-   * `roughness > 1.82e-5` 才保證 `roughness⁸` 還在正規數範圍內；
-   * `ggx-stability.probe.ts` 在 `roughness = 1e-6` 印出的 `NaN` 就是這一段。
+   * 0 就得到 `0/0 = NaN`。
    *
-   * 0.02 的 `roughness⁸ = 2.56e-14`，離那個懸崖 24 個數量級 —— 非常安全。
-   * 它真正的作用是「有人把美術下限調到 0」時的兜底，所以第二條斷言（低於
-   * `GLITTER_ROUGHNESS_MIN`）才是它存在的理由。
+   * 【「進入次正規區」不等於「歸零」—— Codex 第五輪審查的 Minor】前一版把這
+   * 兩件事混為一談。實測（`Math.fround` 走 float32）：
+   *
+   *   最小正規數 1.18e-38 的八次方根   = 1.8146e-5  ← 保證仍是正規數
+   *   最小次正規數 1.40e-45 的八次方根 = 2.4735e-6  ← 保證仍可表示
+   *   roughness 1e-5  → r⁸ = 1e-40（次正規）→ 峰值仍是 1
+   *   roughness 2e-6  → r⁸ = 2.56e-46      → 峰值 NaN
+   *
+   * 所以真正塌掉是在 2.5e-6 附近，不是 1.82e-5。但**斷言仍用 1.18e-38**：
+   * GPU 可以合法地把次正規數 flush 成 0，所以「保證留在正規數範圍內」才是
+   * 對 GLSL 那一份成立的保守界線。
+   *
+   * 0.02 的 `roughness⁸ = 2.56e-14`，離那個保守界線 24 個數量級。這條斷言不
+   * 是永遠不會紅 —— 下限一旦被調到 1.8146e-5 以下它就紅。只是以目前的值來說，
+   * 它真正的作用是第二條（低於 `GLITTER_ROUGHNESS_MIN`）：擋「有人把美術下限
+   * 調到 0」那種未來，因為 `roughness = 0` 會讓 `a² = 0`，峰值處 `0/0 = NaN`。
    */
-  it('GLINT_ROUGHNESS_FLOOR 的八次方遠離 float32 的下溢，且低於美術下限', () => {
+  it('GLINT_ROUGHNESS_FLOOR 的八次方仍是 float32 正規數，且低於美術下限', () => {
     expect(Math.pow(GLINT_ROUGHNESS_FLOOR, 8)).toBeGreaterThan(1.18e-38)
     expect(GLINT_ROUGHNESS_FLOOR).toBeLessThan(GLITTER_ROUGHNESS_MIN)
+  })
+
+  /**
+   * 【上面那條只看數字，這一條看實際運算 —— Codex 第五輪審查的 Minor】
+   * 用與 `ggx-stability.probe.ts` 相同的 float32 路徑跑一次，確認生產下限
+   * 真的算得出有限的峰值，而退化值真的會壞。這一條才是「症狀」本身。
+   */
+  it('float32 路徑下：生產下限的峰值有限，2e-6 會是 NaN', () => {
+    const f = Math.fround
+    const peakF32 = (r: number): number => {
+      const a2 = f(f(r * r) * f(r * r))
+      return f(f(a2 * a2) / f(a2 * a2)) // n·h = 1 → d = a²
+    }
+    expect(peakF32(GLINT_ROUGHNESS_FLOOR)).toBeCloseTo(1, 6)
+    expect(Number.isFinite(peakF32(GLINT_ROUGHNESS_FLOOR))).toBe(true)
+    expect(Number.isNaN(peakF32(2e-6))).toBe(true)
   })
 
   /**
@@ -1045,8 +1030,15 @@ describe('glintIntensity', () => {
    * 曲線」，只有固定的離峰**絕對值**擋得住。
    *
    * 幾何：`V` 在垂直平面內偏離峰值 25°，半向量就偏離法線 25°/2 = 12.5°
-   * （兩個單位向量的半向量是角平分線），所以 `n·h = cos(12.5°)` —— 與太陽
-   * 的仰角無關，搬動 `SUN_DIRECTION` 不會動到這兩個數字。
+   * （兩個單位向量的半向量是角平分線），所以 `n·h = cos(12.5°)`。
+   *
+   * 【它「與太陽仰角無關」是有前提的 —— Codex 第五輪審查的 Minor】前一版把
+   * 這句寫得太滿。`n·h` 確實與仰角無關，但 `glintIntensity` 在 `n·v ≤ 0` 時
+   * 會**早退成 0**：太陽仰角若低於 25°，`sunElevDeg − 25` 那一邊的視線就跑到
+   * 水面下，錨點立刻假紅。目前是 53.03°，兩邊都在水面上。
+   *
+   * 所以下面第一條斷言先把這個前提釘住 —— 有人搬太陽時，紅的會是「前提不
+   * 成立」這條清楚的訊息，而不是兩個看不懂的數值不符。
    *
    *   α = roughness²（對）  roughness 0.20 → 1.09412537753889e-3
    *                        roughness 0.04 → 2.98598544973283e-9
@@ -1058,6 +1050,9 @@ describe('glintIntensity', () => {
    * 假紅、緊到擋得住任何公式退化。
    */
   it('離峰的絕對值釘住 α = roughness²（GGX / three 的慣例）', () => {
+    // 前提：太陽仰角要高過 25°，否則 −25° 那一邊的視線在水面下、會早退成 0
+    expect(sunElevDeg).toBeGreaterThan(25)
+    expect(sunElevDeg).toBeLessThan(65) // +25° 也不能翻過天頂
     const anchors: ReadonlyArray<readonly [number, number]> = [
       [0.20, 1.09412537753889e-3],
       [0.04, 2.98598544973283e-9],
@@ -1116,12 +1111,45 @@ describe('glintFromNDotH（數值核心）', () => {
     expect(glintFromNDotH(-0.5, 0.1)).toBeLessThan(1e-7)
   })
 
-  it('粗糙度大於 1 時仍落在 [0, 1]', () => {
-    for (const r of [1.5, 10]) {
-      const g = glintFromNDotH(1, r)
-      expect(g).toBeLessThanOrEqual(1)
-      expect(g).toBeCloseTo(1, 12)
+  /**
+   * 【上界只有在**離峰**才測得到 —— Codex 第五輪審查的 Important】前一版只用
+   * `glintFromNDotH(1, r)` 測，那是假綠：峰值處 `d = a²`，回傳 `a²/a² = 1`，
+   * **對任何非零 roughness 都成立**，所以把上界的 clamp 整條刪掉那條測試照樣綠。
+   *
+   * 未夾版本的實際值（`n·h` 離峰時）：
+   *
+   *   n·h = 0.5, r = 1.5  →   6.308
+   *   n·h = 0.5, r = 10   →  15.990
+   *   n·h = 0,   r = 10   →   1e8
+   *
+   * 所以要釘的是離峰。`r > 1` 沒有物理意義，夾成 1 之後整條曲線就是 r = 1
+   * 那一條。
+   */
+  it('粗糙度大於 1 時整條曲線都落在 [0, 1]，且與 r = 1 相同', () => {
+    for (const nh of [1, 0.9, 0.5, 0.1, 0]) {
+      for (const r of [1.5, 10, 1e6]) {
+        const g = glintFromNDotH(nh, r)
+        expect(g).toBeGreaterThanOrEqual(0)
+        expect(g).toBeLessThanOrEqual(1)
+        // 夾成 1 之後就該與 r = 1 逐值相同
+        expect(g).toBe(glintFromNDotH(nh, 1))
+      }
     }
+  })
+
+  /**
+   * 這一條把「不夾上界會壞多少」記在測試裡 —— 同上面 `n·h` 那一對的做法。
+   */
+  it('未夾上界的算式在離峰處會遠遠超過 1 —— 這是上界存在的理由', () => {
+    const unclampedRough = (nh: number, r: number): number => {
+      const a2 = r * r * (r * r)
+      const q = nh * nh
+      const d = a2 * q + (1 - q)
+      return (a2 * a2) / (d * d)
+    }
+    expect(unclampedRough(0.5, 1.5)).toBeGreaterThan(6)
+    expect(unclampedRough(0.5, 10)).toBeGreaterThan(15)
+    expect(unclampedRough(0, 10)).toBeGreaterThan(1e7)
   })
 })
 ```
@@ -1177,10 +1205,15 @@ export const GLINT_EPSILON = 1e-6
  *
  * 真正的機制是**下溢**：峰值處 `d = roughness⁴`，分子分母都是
  * `roughness⁸`，兩邊一起塌成 0 就得到 `0/0 = NaN`。float32 的最小正規數是
- * `1.18e-38`，所以要 `roughness > 1.82e-5` 才保證 `roughness⁸` 仍是正規數。
- * `ggx-stability.probe.ts` 在 `roughness = 1e-6` 印出的 `NaN` 就是這一段。
+ * `1.18e-38`，所以要 `roughness > 1.8146e-5` 才保證 `roughness⁸` 仍是正規數。
  *
- * 【0.02 這個值】`0.02⁸ = 2.56e-14`，離懸崖 24 個數量級 —— 數值上非常寬鬆。
+ * 【保守界線，不是實際懸崖 —— Codex 第五輪審查】次正規數仍可表示，所以實測
+ * 到 `roughness = 2.5e-6` 峰值都還是 1，`2e-6` 才真的變 `NaN`
+ * （`ggx-stability.probe.ts` 在 `1e-6` 印的就是它）。用 `1.8146e-5` 當界線是
+ * 因為 **GPU 可以合法地把次正規數 flush 成 0** —— 對 GLSL 那一份，只有留在
+ * 正規數範圍內才是有保證的。
+ *
+ * 【0.02 這個值】`0.02⁸ = 2.56e-14`，離保守界線 24 個數量級 —— 數值上非常寬鬆。
  * 它真正的作用是**下限本身**：`roughness = 0` 會讓 `a² = 0`，峰值處
  * `0/0 = NaN`。取 0.02 是因為它**遠低於** `GLITTER_ROUGHNESS_MIN`（0.04），
  * 所以正常路徑永遠碰不到，它擋的是「有人把美術下限調到 0」那種未來。
@@ -1372,7 +1405,16 @@ const view = (depressionDeg: number, az: number): Vector3 => new Vector3(
  */
 const FLAT = new Vector3(0, 1, 0)
 const n = new Vector3()
-function meanOverSurface(elevDeg: number, az: number): number {
+
+/**
+ * 【平均與峰值都要回傳 —— Codex 第五輪審查的 Minor】前一版算了 `peak` 卻只
+ * 回傳平均。而 `GLINT_STRENGTH` 的驗收依據是**峰值**（碎光有多亮），平均只
+ * 說明「整片海有多少在閃」。只印平均的話，專案負責人拿不到他要回填那個參數
+ * 所需的數字。
+ */
+interface SurfaceStat { readonly mean: number; readonly peak: number }
+
+function meanOverSurface(elevDeg: number, az: number): SurfaceStat {
   const v = view(elevDeg, az)
   let sum = 0
   let peak = 0
@@ -1385,7 +1427,7 @@ function meanOverSurface(elevDeg: number, az: number): number {
     sum += g
     if (g > peak) peak = g
   }
-  return sum / N
+  return { mean: sum / N, peak }
 }
 
 console.log('\n=== 平靜水面（幾何上界）：朝太陽方位，強度 vs 視線仰角 ===')
@@ -1397,16 +1439,22 @@ for (let e = 5; e <= 85; e += 5) {
     + `  ${(100 * g / flatPeak).toFixed(2).padStart(8)}%`)
 }
 
-console.log('\n=== 真實水面（400 個取樣點的平均）：朝太陽方位 ===')
-console.log('仰角    平均強度')
+// 【平均與峰值並排】平均是「整片海有多少在閃」，峰值是「最亮的那一點多亮」
+// —— 回填 GLINT_STRENGTH 看的是後者，回填 roughness 看的是前者
+console.log('\n=== 真實水面（400 個取樣點）：朝太陽方位 ===')
+console.log('仰角    平均強度        取樣峰值')
 for (let e = 5; e <= 85; e += 5) {
-  console.log(`${String(e).padStart(3)}°  ${meanOverSurface(e, sunAz).toExponential(2).padStart(12)}`)
+  const s = meanOverSurface(e, sunAz)
+  console.log(`${String(e).padStart(3)}°  ${s.mean.toExponential(2).padStart(12)}`
+    + `  ${s.peak.toExponential(2).padStart(12)}`)
 }
 
 console.log('\n=== 方位掃描（仰角固定在太陽仰角）===')
-console.log('方位差   平均強度')
+console.log('方位差   平均強度        取樣峰值')
 for (let d = 0; d <= 180; d += 15) {
-  console.log(`${String(d).padStart(4)}°  ${meanOverSurface(sunElev, sunAz + d * RAD).toExponential(2).padStart(12)}`)
+  const s = meanOverSurface(sunElev, sunAz + d * RAD)
+  console.log(`${String(d).padStart(4)}°  ${s.mean.toExponential(2).padStart(12)}`
+    + `  ${s.peak.toExponential(2).padStart(12)}`)
 }
 ```
 
@@ -1444,7 +1492,9 @@ feat: Fresnel 與 GGX 反光的 CPU 版，加一支反光帶的量測探針
 而完整 BRDF 會把亮度綁進去，亮度是可調的。
 
 glint-geometry.probe.ts 掃視線仰角與方位，平靜水面（幾何上界）與真實水面
-（400 取樣點）各一組 —— 那是回填 §11 那六組參數的依據。
+（400 取樣點的平均**與峰值**）各一組 —— 那是回填 §11 那六組參數的依據。
+平均說明「整片海有多少在閃」（回填 roughness），峰值說明「最亮那點多亮」
+（回填 GLINT_STRENGTH），兩個都要印。
 ```
 
 ---
@@ -1751,17 +1801,114 @@ export function glitterFade(distance: number): number {
 Task 2 寫的 `glitterFade` 測試（單調、值域、端點、接縫）**全部仍然成立** ——
 它們沒有斷言線性。跑一次確認。
 
-- [ ] **Step 5: 跑測試確認 Task 2 的那組沒被改壞**
+- [ ] **Step 5: 寫 GLSL 字串的那一組測試（append 到 `ocean-shading.test.ts`）**
+
+**先把這三個符號加進檔案最上面的 import**（它們到這個 Task 才存在，Task 2／3
+不准提早 import —— 見 Task 2 Step 1 的表）：
+
+```ts
+import {
+  GLINT_EPSILON, OCEAN_SHADING_GLSL, buildOceanShadingGLSL,
+} from '../../src/render/oceanShading'
+```
+
+**GLSL 是字串，vitest 跑不到它。** 所以這一組全部是字串斷言 —— 它們守的不是
+語意而是「那幾行還在」。這是這個專案能對 GLSL 做到的上限，真正的語意由 Task 6
+的人工畫面驗收守（spec §10）。
+
+```ts
+/**
+ * 【GLSL 的常數必須真的來自 TS 常數 —— Codex 第二輪審查的 Minor】
+ * 字串模板本身已經解掉現在的雙份問題，但沒有測試的話，日後有人改回硬編碼
+ * 不會有東西紅。
+ */
+describe('GLSL 裡的常數與公式', () => {
+  it('WATER_F0 / GLINT_EPSILON / GLINT_ROUGHNESS_FLOOR 都出現在 GLSL 裡', () => {
+    expect(OCEAN_SHADING_GLSL).toContain(WATER_F0.toFixed(6))
+    expect(OCEAN_SHADING_GLSL).toContain(GLINT_EPSILON.toExponential())
+    expect(OCEAN_SHADING_GLSL).toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
+  })
+
+  /**
+   * 【上面那條擋不住硬編碼 —— Codex 第三／第四輪審查的 M-a】只要有人把
+   * `${WATER_F0.toFixed(6)}` 換成字面值 `0.020400`，上面每一條斷言都還是綠的。
+   * 「目前的數字出現在字串裡」證明不了「這個數字來自 TS 常數」。
+   *
+   * 唯一能證明的方式是**餵不同的值進去，看輸出跟著變**。那需要一個縫，所以
+   * 模板抽成了 `buildOceanShadingGLSL(...)`。同樣的手法見 `slopeRoughnessWith`
+   * 與 `glintFromNDotH`。
+   *
+   * 用來當哨兵的三個值刻意挑成不可能是生產值的數字 —— 這樣「不含生產值」那
+   * 幾條負向斷言才有意義。
+   */
+  it('GLSL 的常數真的來自參數（餵哨兵值，輸出跟著變）', () => {
+    const glsl = buildOceanShadingGLSL(0.123456, 7e-3, 0.654321)
+    expect(glsl).toContain('#define WATER_F0 0.123456')
+    expect(glsl).toContain('#define GLINT_EPS 7e-3')
+    expect(glsl).toContain('#define GLINT_ROUGH_FLOOR 0.654321')
+    expect(glsl).toContain('#define MAX_SLOPE_EPS 7e-3')
+    // 哨兵版本裡不該還留著生產值 —— 有的話就是硬編碼
+    expect(glsl).not.toContain(WATER_F0.toFixed(6))
+    expect(glsl).not.toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
+  })
+
+  it('OCEAN_SHADING_GLSL 就是 builder 套用生產常數的結果', () => {
+    expect(OCEAN_SHADING_GLSL).toBe(
+      buildOceanShadingGLSL(WATER_F0, GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR),
+    )
+  })
+
+  /**
+   * 【GLSL 的兩個夾必須存在 —— Codex 第四輪審查的 Important】`glintFromNDotH`
+   * 的兩個夾由上面的單元測試守住，但那是 CPU 版；GLSL 才是真正跑在 float32
+   * 上的那一份 —— 少了 `clamp`，`dot` 漏出 `1 + 2⁻²³` 時 roughness 0.02 會
+   * 回傳 15.39。
+   */
+  it('GLSL 的 glintGLSL 有夾住 n·h 與 roughness', () => {
+    expect(OCEAN_SHADING_GLSL).toContain('clamp(dot(n, h) / hLen, 0.0, 1.0)')
+    expect(OCEAN_SHADING_GLSL).toContain('clamp(roughness, GLINT_ROUGH_FLOOR, 1.0)')
+  })
+
+  /**
+   * 【α 慣例在 GLSL 也要有守門員 —— Codex 第五輪審查的 Important】上面那條
+   * CPU 的錨點測試（`glintIntensity` 的離峰絕對值）只守得住 CPU 那一份。
+   * **畫面上跑的是這一份。** GLSL 誤寫回 `a2 = r * r` 時，所有 CPU 錨點仍然
+   * 全綠，而海面在 roughness 0.20 會寬 203 倍、0.04 會寬 366000 倍 ——
+   * 窄碎光帶變成一大片發亮，正是這一整串修正要擋的退化。
+   *
+   * 【為什麼是比對字面】GLSL 跑不到，只能守「那一行還在」。負向斷言把
+   * `a2 = r * r;` 這個確切的錯誤寫法釘死。
+   */
+  it('GLSL 的 α 是 roughness²（a2 = roughness⁴），不是 roughness', () => {
+    expect(OCEAN_SHADING_GLSL).toContain('float a2 = r * r * (r * r);')
+    expect(OCEAN_SHADING_GLSL).not.toContain('float a2 = r * r;')
+  })
+
+  /**
+   * 【CPU 與 GLSL 的穩定形式必須是同一條】`d` 一旦有一邊寫回教科書形式，
+   * float32 那邊就會在峰值 `Infinity`。
+   */
+  it('GLSL 的 d 是數值穩定的那一種寫法', () => {
+    expect(OCEAN_SHADING_GLSL).toContain('float d = a2 * nh2 + (1.0 - nh2);')
+  })
+})
+```
+
+- [ ] **Step 6: 跑測試，確認新的綠、Task 2／3 的那組沒被改壞**
 
 ```
 npx vitest run test/unit/ocean-shading.test.ts
 npx tsc --noEmit
 ```
 
-- [ ] **Step 6: Commit**
+**先把 `a2 = r * r * (r * r)` 暫時改成 `a2 = r * r` 跑一次**，確認那條 α 測試
+真的會紅 —— 它是這一組裡唯一擋得住 runtime 退化的斷言，不能是假綠。改回來。
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/render/sky.ts src/render/oceanShading.ts test/unit/fog.test.ts
+git add src/render/sky.ts src/render/oceanShading.ts \
+  test/unit/fog.test.ts test/unit/ocean-shading.test.ts
 git commit -F "$CLAUDE_JOB_DIR/tmp/msg.txt"
 ```
 
