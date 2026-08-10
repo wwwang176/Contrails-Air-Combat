@@ -24,21 +24,44 @@ export const SKY_RADIUS = 40000
  * 天空由 L 0.261 提到 0.431，天頂由 0.115 提到 0.277 —— 天頂到地平線的落差
  * 由 0.146 變成 0.154，「頂部比較深」這個關係維持。
  *
+ * 【2026-08-10 只提亮下半】專案負責人：「天空的頂部顏色不動，接近地面再淡
+ * 一點。」`SKY_ZENITH` 因此**一位元都沒動** —— `dirY = 1` 時 `t = 1`，混色
+ * 直接取天頂色，與 `SKY_HORIZON` 和指數都無關，所以頂部不動是**恆等**而不
+ * 是調出來的。
+ *
+ * 兩個旋鈕一起動，因為它們管的是同一個形狀的兩件事：
+ *
+ * ```
+ *              地平線 L   45° L   天頂 L   地平線−天頂
+ * 改前 c6dfec/0.65   0.431   0.318   0.277      0.154
+ * 改後 d6e9f4/0.80   0.495   0.338   0.277      0.218
+ * ```
+ *
+ * `SKY_HORIZON` 抬高整個下半球，指數決定**淡的部分往上延伸多遠**。只動前者
+ * 會連 45° 一起提亮 0.03 以上；只動後者則受限於
+ * 「`SKY_HORIZON` 本身不得出現在地平線上」那條測試（0.95 就只剩 0.020 餘裕）。
+ * 兩者各走一半，45° 只動 0.020，而地平線動了 0.064 —— 那正是「接近地面」。
+ *
  * 海天的明暗關係由 `test/unit/fog.test.ts` 釘住，而它比的是**海色**與
  * **地平線上的**天空色，不是這兩個常數。同一份測試也釘住下面 `createSky`
- * 的 uniform 真的餵了這兩個值 —— 否則 CPU 那一份與著色器可以各走各的。
+ * 的 uniform 真的餵了這三個值 —— 否則 CPU 那一份與著色器可以各走各的。
  */
-export const SKY_HORIZON = 0xc6dfec
+export const SKY_HORIZON = 0xd6e9f4
 export const SKY_ZENITH = 0x4d84b8
 
 /**
- * 漸層的指數。`< 1` 讓地平色的範圍變窄、天頂色往下壓。
+ * 漸層的指數。`< 1` 讓地平色的範圍變窄、天頂色往下壓；愈接近 1 愈線性，
+ * 也就是下半球愈淡。
  *
  * 【它不是明度倍率】曾經有一個 `FOG_SKY_DARKEN` 也是 0.65，兩者常被搞混。
- * 那個已於 2026-08-09 移除（霧色不再壓暗，見 `fog.ts`），這裡的 0.65 是
- * 漸層曲線的**指數**，與明度無關。
+ * 那個已於 2026-08-09 移除（霧色不再壓暗，見 `fog.ts`），這裡是漸層曲線的
+ * **指數**，與明度無關。
+ *
+ * 【上界不是 1，是那條測試】`SKY_HORIZON` 這個常數必須明顯亮於畫面上的地平線
+ * （`fog.test.ts` 要求差 0.2 以上），否則「拿 `SKY_HORIZON` 當地平線顏色」
+ * 那個錯誤就不再有反證。指數 0.95 時餘裕只剩 0.020，0.80 有 0.094。
  */
-export const SKY_GRADIENT_POWER = 0.65
+export const SKY_GRADIENT_POWER = 0.8
 
 /**
  * 天空在某個視線仰角上的顏色，**CPU 的那一份**。
@@ -69,14 +92,21 @@ const VERT = /* glsl */ `
   }
 `
 
+/**
+ * 【指數為什麼是 uniform 而不是寫死的字面值】它原本是 `pow(t, 0.65)`，與
+ * `SKY_GRADIENT_POWER` 是兩份各自獨立的 0.65。改一份忘了另一份，畫面與霧色
+ * 就會分家，而 `fog.test.ts` 只釘得住兩個顏色 uniform —— 測不到字串裡的字面
+ * 值。改成 uniform 之後那個縫就不存在了，而且測得到。
+ */
 const FRAG = /* glsl */ `
   uniform vec3 horizon;
   uniform vec3 zenith;
+  uniform float power;
   varying vec3 vDir;
   void main() {
     // 【改這兩行就要同步改 skyColorAt】那是這段的 CPU 版，霧色靠它推導
     float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-    gl_FragColor = vec4(mix(horizon, zenith, pow(t, 0.65)), 1.0);
+    gl_FragColor = vec4(mix(horizon, zenith, pow(t, power)), 1.0);
   }
 `
 
@@ -102,6 +132,7 @@ export function createSky(): Mesh {
     uniforms: {
       horizon: { value: new Color(SKY_HORIZON) },
       zenith: { value: new Color(SKY_ZENITH) },
+      power: { value: SKY_GRADIENT_POWER },
     },
     side: BackSide,
     depthWrite: false,

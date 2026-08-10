@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Color, type MeshStandardMaterial, type ShaderMaterial } from 'three'
 import { createFog, fogFactor, FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
-import { createSky, skyColorAt, SKY_HORIZON, SKY_ZENITH } from '../../src/render/sky'
+import {
+  createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
+} from '../../src/render/sky'
 import { CAMERA_FAR } from '../../src/render/scene'
 import { createOcean, FAR_SEA_SIZE, FAR_SEA_Y, SEA_COLOR } from '../../src/render/ocean'
 import { DEFAULT_GOD_CAMERA } from '../../src/camera/godCamera'
@@ -55,7 +57,8 @@ const lightness = (c: Color): number => c.getHSL({ h: 0, s: 0, l: 0 }).l
  * 而霧色比天空暗一階。但那個做法讓海面自己近到遠變了 0.109，比地平線那一階
  * （0.092）還大 —— 那條線讀起來只是一整片洗白裡的一段。
  *
- * 現在是**海色**與天空色的差（0.371），而海面完全退出全域霧。所以這一組的
+ * 現在是**海色**與天空色的差（2026-08-10 起 0.454），而海面完全退出全域霧。
+ * 所以這一組的
  * 主角由 `FOG_COLOR` 換成 `SEA_COLOR` 加上兩個材質的 `fog` 旗標。
  *
  * 【比的是 `skyColorAt(0)` 不是 `SKY_HORIZON`】初版比錯了對象。天空著色器
@@ -74,9 +77,13 @@ describe('地平線要看得出來', () => {
    * 也不該測 —— 那會把燈光綁進這條斷言。base color 與天空色是唯一測得到、
    * 也唯一不會隨燈光漂掉的一組數（spec 2026-08-09 §4.2）。
    *
-   * 【0.25 是怎麼來的】實測：天空 0.431、海 0.060，階差 0.371。改動前那一階
-   * 只有 0.092（霧化後的遠海 0.169 對天空 0.261）—— 那正是「接縫太怪」的
-   * 成因。取 0.25 留浮動空間，但遠高於改動前。
+   * 【0.25 是怎麼來的】2026-08-09 實測：天空 0.431、海 0.060，階差 0.371。
+   * 在那之前只有 0.092（霧化後的遠海 0.169 對天空 0.261）—— 那正是「接縫太
+   * 怪」的成因。取 0.25 留浮動空間，但遠高於改動前。
+   *
+   * 【2026-08-10 又拉開了】天空的下半提亮、海色壓深，階差變成 **0.454**
+   * （天空 0.495、海 0.041）。門檻不動 —— 它守的是下限，而兩次改動都是往
+   * 上走。
    */
   it('海色比地平線上的天空色暗，而且差得很開', () => {
     const sky = skyColorAt(0, new Color())
@@ -112,7 +119,7 @@ describe('地平線要看得出來', () => {
   /**
    * 【天空頂部比較深】專案負責人要求的第四件事。它改動前就成立，這條是防止
    * 日後有人把漸層調反或壓平 —— 那會讓天空變成一片死板的單色。
-   * 實測落差 0.154（改動前 0.146）。
+   * 實測落差 0.218（2026-08-09 是 0.154，在那之前 0.146）。
    */
   it('天頂比地平線上的天空暗', () => {
     const top = skyColorAt(1, new Color())
@@ -121,8 +128,12 @@ describe('地平線要看得出來', () => {
   })
 
   /**
-   * 【天空整體要比改動前亮】改動前地平線 0.261、天頂 0.115；現在是 0.431
-   * 與 0.277。
+   * 【天空整體要比 2026-08-09 之前亮】那時地平線 0.261、天頂 0.115；提亮後
+   * 是 0.431 與 0.277；2026-08-10 只再提下半，成為 **0.495 與 0.277**。
+   *
+   * 【天頂的下限就是這條在守】專案負責人 2026-08-10 要求「頂部不動」，而
+   * 「不動」在這個漸層裡是恆等式（`dirY = 1` → `t = 1` → 直接取天頂色），
+   * 不需要另一條測試。這條守的是有人日後真的去改 `SKY_ZENITH`。
    *
    * 【兩頭都要釘】只釘地平線的話，有人可以把天頂調得**更黑**而仍然通過 ——
    * 那不是「整體淡一點」，是把落差拉大。所以天頂也要有下限。
@@ -138,14 +149,20 @@ describe('地平線要看得出來', () => {
    * 測試 —— 有人改了 `uniforms` 而沒改 `skyColorAt`（或反過來），上面每一條
    * 都還是綠的，畫面卻變了。
    *
-   * 這一條只能守住「uniform 餵的是同兩個常數」，守不住 `FRAG` 裡的混色公式
-   * （那是字串，測不到）。守得住一半也比零好。
+   * 這一條守得住三個 uniform，守不住 `FRAG` 裡混色的**形狀**（`mix` 與
+   * `clamp` 那兩行是字串，測不到）。2026-08-10 把指數由字面值改成 uniform，
+   * 因此多守住一格 —— 原本 `pow(t, 0.65)` 與 `SKY_GRADIENT_POWER` 是兩份
+   * 獨立的常數。
    */
-  it('天空球的 uniform 用的是同兩個常數', () => {
+  it('天空球的 uniform 用的是同三個常數', () => {
     const sky = createSky()
     const mat = sky.material as ShaderMaterial
     expect((mat.uniforms.horizon!.value as Color).getHex()).toBe(SKY_HORIZON)
     expect((mat.uniforms.zenith!.value as Color).getHex()).toBe(SKY_ZENITH)
+    // 【2026-08-10 補上】指數原本是 FRAG 字串裡的字面值 0.65，與
+    // SKY_GRADIENT_POWER 是兩份獨立的常數 —— 改一份忘另一份，畫面與霧色就
+    // 分家而沒有東西會紅。改成 uniform 之後這條守得住。
+    expect(mat.uniforms.power!.value).toBe(SKY_GRADIENT_POWER)
   })
 
   /**

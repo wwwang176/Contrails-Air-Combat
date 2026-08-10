@@ -86,8 +86,18 @@ export const FAR_SEA_Y = -3
 /**
  * 海的基本色。細浪面與遠海**必須共用**這一個值 —— 兩份會漂開，而漂開的
  * 症狀是 5 km 處出現一條色帶。
+ *
+ * 【2026-08-10 壓深】專案負責人：「海再深色一點。」`0x1d3f5c`（L 0.060）→
+ * `0x18344c`（L 0.041），色相與飽和不動，只降明度 32%。
+ *
+ * 同一次把天空的下半提亮（`sky.ts`），所以海天那一階由 0.371 變成 **0.454**
+ * —— `fog.test.ts` 要求 > 0.25，更遠離門檻而不是更接近。
+ *
+ * 【這是 base color，不是畫面上的像素】海面走 `MeshStandardMaterial`，實際
+ * 亮度還要過一次 PBR 著色，比這個值亮。要再深就繼續降這裡，測試那一側只會
+ * 更寬鬆。
  */
-export const SEA_COLOR = 0x1d3f5c
+export const SEA_COLOR = 0x18344c
 
 export interface Ocean {
   mesh: Mesh
