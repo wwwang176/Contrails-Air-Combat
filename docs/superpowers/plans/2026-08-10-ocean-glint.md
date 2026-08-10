@@ -30,7 +30,9 @@
 - 分支：`feat/ocean-glint`（已建立，spec 已 commit 於 `9568be1`）。
 - **`WAVES`、`gerstnerHeight`、`FAR_SEA_Y`、`OCEAN_SIZE`、`OCEAN_SEGMENTS` 一個字都不准動** —— `crash.ts` / `splash` / `wrecks` 全走 `heightAt`，動它就動到物理。
 - **`fog.test.ts` 既有的任何門檻都不准改。**
-- §11 那五個參數（`GLITTER_ROUGHNESS_MIN`/`MAX`、`GLITTER_FADE_START`/`END`、`SUN_ANGULAR_RADIUS`、`SUN_HALO_POWER`/`STRENGTH`、法線量化階數）用本計畫給的暫定值實作，**最終值由專案負責人人工驗收回填，實作者不得代填**。
+- §11 那**六組**參數（`GLITTER_ROUGHNESS_MIN`/`MAX`、**`GLINT_STRENGTH`**、`GLITTER_FADE_START`/`END`、`SUN_ANGULAR_RADIUS`、`SUN_HALO_POWER`/`STRENGTH`、法線量化階數）用本計畫給的暫定值實作，**最終值由專案負責人人工驗收回填，實作者不得代填**。
+  - 【`GLINT_STRENGTH` 是第四輪補進這份清單的】它在 spec §11 的表裡本來就有一列，但計畫的三處清單都漏掉它，實作者照著清單交回五組就會把一個**未經驗收的亮度值**留在程式碼裡。
+  - 而且它**必須與 roughness 一起重新驗收**：α 慣例修正（第三輪）讓反光帶大幅變窄 —— 依 Task 3 的 400 點取樣，表面平均由錯版的 0.537 掉到 0.00152、取樣峰值由 0.996 掉到 0.207。歸一化的定義沒變（峰值仍恆為 1），所以 0.6 的**尺度**仍然合理；但「看起來夠不夠亮」這件事的舊觀感結論**一律作廢**。
 
 ## 檔案結構
 
@@ -348,6 +350,7 @@ import {
   GLITTER_ROUGHNESS_MIN, GLITTER_ROUGHNESS_MAX, slopeRoughness, slopeRoughnessWith,
   GLITTER_FADE_START, GLITTER_FADE_END, glitterFade,
   GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR, OCEAN_SHADING_GLSL, WATER_F0,
+  buildOceanShadingGLSL,
 } from '../../src/render/oceanShading'
 import { gerstnerHeight, WAVES } from '../../src/render/ocean'
 
@@ -504,14 +507,43 @@ describe('GLSL 裡的常數來自 TS，不是重打的字面值', () => {
   })
 
   /**
-   * 【這一條擋的是「改回硬編碼」】把 `${WATER_F0.toFixed(6)}` 換成字面值
-   * `0.0204` 之後，上面那條仍然綠（0.020400 也含 0.0204 這個子字串就不一定
-   * 了 —— 但更直接的是：改 TS 常數之後 GLSL 必須跟著變）。
+   * 【上面那條擋不住硬編碼 —— Codex 第三／第四輪審查的 M-a】只要有人把
+   * `${WATER_F0.toFixed(6)}` 換成字面值 `0.020400`，上面每一條斷言都還是綠的。
+   * 「目前的數字出現在字串裡」證明不了「這個數字來自 TS 常數」。
+   *
+   * 唯一能證明的方式是**餵不同的值進去，看輸出跟著變**。那需要一個縫，所以
+   * 模板抽成了 `buildOceanShadingGLSL(...)`。同樣的手法見 `slopeRoughnessWith`
+   * 與 `glintFromNDotH`。
+   *
+   * 用來當哨兵的三個值刻意挑成不可能是生產值的數字 —— 這樣「不含生產值」那
+   * 幾條負向斷言才有意義。
    */
-  it('改變 TS 常數會讓 GLSL 字串跟著變（不是硬編碼）', () => {
-    // 生產值一定在字串裡；一個「不是生產值」的數字一定不在
-    expect(OCEAN_SHADING_GLSL).toContain(`#define WATER_F0 ${WATER_F0.toFixed(6)}`)
-    expect(OCEAN_SHADING_GLSL).not.toContain('#define WATER_F0 0.0204\n')
+  it('GLSL 的常數真的來自參數（餵哨兵值，輸出跟著變）', () => {
+    const glsl = buildOceanShadingGLSL(0.123456, 7e-3, 0.654321)
+    expect(glsl).toContain('#define WATER_F0 0.123456')
+    expect(glsl).toContain('#define GLINT_EPS 7e-3')
+    expect(glsl).toContain('#define GLINT_ROUGH_FLOOR 0.654321')
+    expect(glsl).toContain('#define MAX_SLOPE_EPS 7e-3')
+    // 哨兵版本裡不該還留著生產值 —— 有的話就是硬編碼
+    expect(glsl).not.toContain(WATER_F0.toFixed(6))
+    expect(glsl).not.toContain(GLINT_ROUGHNESS_FLOOR.toFixed(6))
+  })
+
+  it('OCEAN_SHADING_GLSL 就是 builder 套用生產常數的結果', () => {
+    expect(OCEAN_SHADING_GLSL).toBe(
+      buildOceanShadingGLSL(WATER_F0, GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR),
+    )
+  })
+
+  /**
+   * 【GLSL 的兩個夾必須存在 —— Codex 第四輪審查的 Important】`glintFromNDotH`
+   * 的兩個夾由 `ocean-shading.test.ts` 的單元測試守住，但 GLSL 那一份是字串，
+   * **跑不到**，只能用字串斷言守。而它才是真正跑在 float32 上的那一份 ——
+   * 少了 `clamp`，`dot` 漏出 `1 + 2⁻²³` 時 roughness 0.02 會回傳 15.39。
+   */
+  it('GLSL 的 glintGLSL 有夾住 n·h 與 roughness', () => {
+    expect(OCEAN_SHADING_GLSL).toContain('clamp(dot(n, h) / hLen, 0.0, 1.0)')
+    expect(OCEAN_SHADING_GLSL).toContain('clamp(roughness, GLINT_ROUGH_FLOOR, 1.0)')
   })
 })
 
@@ -806,13 +838,16 @@ WAVES / gerstnerHeight 一個字沒動。
   - `WATER_F0: number`
   - `fresnel(nDotV: number): number`
   - `glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: number): number`
+  - `glintFromNDotH(nDotH: number, roughness: number): number`（`glintIntensity`
+    的數值核心。獨立匯出**只為了讓兩個浮點守衛測得到** —— 同 Task 2 的
+    `slopeRoughnessWith`。產品程式碼不應該直接呼叫它。）
 
 - [ ] **Step 1: 寫會紅的測試（append 到 `ocean-shading.test.ts`）**
 
 ```ts
 import { SUN_DIRECTION, sunElevationRad } from '../../src/render/sun'
 import {
-  GLINT_ROUGHNESS_FLOOR, WATER_F0, fresnel, glintIntensity,
+  GLINT_ROUGHNESS_FLOOR, WATER_F0, fresnel, glintFromNDotH, glintIntensity,
 } from '../../src/render/oceanShading'
 
 describe('fresnel', () => {
@@ -973,12 +1008,21 @@ describe('glintIntensity', () => {
   })
 
   /**
-   * 【粗糙度下限必須遠離 float32 的懸崖】`d` 在峰值等於 `roughness⁴`，而
-   * float32 在 1.0 附近的解析度是 1.19e-7 —— `roughness < 0.0186` 時
-   * `1 − roughness⁴` 會被捨入成 1。GLSL 那一份就是 float32。
+   * 【粗糙度下限守的是下溢，不是 1.0 附近的抵銷 —— Codex 第四輪審查的 Minor】
+   * 上一版的理由寫「`1 − roughness⁴` 會被捨入成 1」。那是**教科書形式**的
+   * 失效機制；穩定形式根本不做那個減法，所以那不是它現在的懸崖。
+   *
+   * 真正的機制是**下溢**：峰值處分子與分母都是 `roughness⁸`，兩邊一起塌成
+   * 0 就得到 `0/0 = NaN`。float32 的最小正規數是 `1.18e-38`，所以
+   * `roughness > 1.82e-5` 才保證 `roughness⁸` 還在正規數範圍內；
+   * `ggx-stability.probe.ts` 在 `roughness = 1e-6` 印出的 `NaN` 就是這一段。
+   *
+   * 0.02 的 `roughness⁸ = 2.56e-14`，離那個懸崖 24 個數量級 —— 非常安全。
+   * 它真正的作用是「有人把美術下限調到 0」時的兜底，所以第二條斷言（低於
+   * `GLITTER_ROUGHNESS_MIN`）才是它存在的理由。
    */
-  it('GLINT_ROUGHNESS_FLOOR 在 float32 的懸崖之外，且低於美術下限', () => {
-    expect(Math.pow(GLINT_ROUGHNESS_FLOOR, 4)).toBeGreaterThan(1.19e-7)
+  it('GLINT_ROUGHNESS_FLOOR 的八次方遠離 float32 的下溢，且低於美術下限', () => {
+    expect(Math.pow(GLINT_ROUGHNESS_FLOOR, 8)).toBeGreaterThan(1.18e-38)
     expect(GLINT_ROUGHNESS_FLOOR).toBeLessThan(GLITTER_ROUGHNESS_MIN)
   })
 
@@ -991,6 +1035,94 @@ describe('glintIntensity', () => {
     const rough = glintIntensity(N, viewVecFor(sunElevDeg + 15, sunAzimuth), L, 0.30)
     expect(rough).toBeGreaterThan(sharp)
   })
+
+  /**
+   * 【這一條是唯一擋得住 α 慣例寫錯的斷言 —— Codex 第四輪審查的 Important】
+   *
+   * 上面那三條（峰值恆為 1、離峰掉到十分之一以下、越粗越寬）在**錯的**
+   * `α = roughness` 版本下全部都是綠的 —— 這正是第三輪那個 bug 能活下來的
+   * 原因。形狀類的斷言擋不住「整條曲線被換成另一條同樣單調、同樣峰值 1 的
+   * 曲線」，只有固定的離峰**絕對值**擋得住。
+   *
+   * 幾何：`V` 在垂直平面內偏離峰值 25°，半向量就偏離法線 25°/2 = 12.5°
+   * （兩個單位向量的半向量是角平分線），所以 `n·h = cos(12.5°)` —— 與太陽
+   * 的仰角無關，搬動 `SUN_DIRECTION` 不會動到這兩個數字。
+   *
+   *   α = roughness²（對）  roughness 0.20 → 1.09412537753889e-3
+   *                        roughness 0.04 → 2.98598544973283e-9
+   *   α = roughness（錯）   roughness 0.20 → 2.21597890258e-1   （203 倍）
+   *                        roughness 0.04 → 1.09412537754e-3    （366000 倍）
+   *
+   * 相對容差取 1e-12：實際走向量路徑算出來的值與解析值一致到第 15 位有效
+   * 數字，而錯的版本差 2 個數量級以上 —— 這個容差同時鬆到不會因浮點抖動
+   * 假紅、緊到擋得住任何公式退化。
+   */
+  it('離峰的絕對值釘住 α = roughness²（GGX / three 的慣例）', () => {
+    const anchors: ReadonlyArray<readonly [number, number]> = [
+      [0.20, 1.09412537753889e-3],
+      [0.04, 2.98598544973283e-9],
+    ]
+    for (const [r, expected] of anchors) {
+      for (const off of [25, -25]) {
+        const g = glintIntensity(N, viewVecFor(sunElevDeg + off, sunAzimuth), L, r)
+        expect(Math.abs(g / expected - 1)).toBeLessThan(1e-12)
+      }
+    }
+  })
+})
+
+/**
+ * 【為什麼要直接測核心 —— Codex 第四輪審查的 Important】`glintFromNDotH` 的
+ * 兩個守衛擋的都是 float32 的越界，而 JS 的 double 在 `glintIntensity` 的
+ * 路徑上永遠產生不出 `n·h > 1`。不開這個縫，那兩個守衛就是**寫了也測不到**
+ * 的程式碼 —— 與 `slopeRoughnessWith` 完全同一個理由。
+ */
+describe('glintFromNDotH（數值核心）', () => {
+  /** float32 在 1.0 附近的解析度。GLSL 那一份的 `dot` 就會漏出這個量級。 */
+  const F32_ULP_AT_1 = Math.pow(2, -23)
+
+  it('n·h 略大於 1 時仍是 1，不會爆成 15.39', () => {
+    for (const r of [0.02, 0.04, 0.20, 1]) {
+      const g = glintFromNDotH(1 + F32_ULP_AT_1, r)
+      expect(Number.isFinite(g)).toBe(true)
+      expect(g).toBeLessThanOrEqual(1)
+      expect(g).toBeCloseTo(1, 12)
+    }
+  })
+
+  /**
+   * 這一條把「不夾會壞多少」本身記在測試裡：如果有人把 clamp 拿掉，上面
+   * 那條會紅；而這一條說明它為什麼會紅。
+   */
+  it('未夾的算式在 n·h² = 1 + 2⁻²³ 會超過 1 —— 這是 clamp 存在的理由', () => {
+    const unclamped = (r: number): number => {
+      const a2 = r * r * (r * r)
+      const q = 1 + F32_ULP_AT_1
+      const d = a2 * q + (1 - q)
+      return (a2 * a2) / (d * d)
+    }
+    expect(unclamped(0.04)).toBeGreaterThan(1.09)
+    expect(unclamped(0.02)).toBeGreaterThan(15)
+  })
+
+  /**
+   * 注意 GGX 的 D 在 `n·h = 0` **不是** 0，而是 `α⁴`（roughness 0.1 時是
+   * 1e-8）—— 它只是小到看不見。所以這裡斷言的是「負值與 0 等價」，不是
+   * 「等於 0」。真正把水面下的情形擋成 0 的是 `glintIntensity` 的
+   * `n·l ≤ 0 || n·v ≤ 0` 那兩個早退。
+   */
+  it('n·h 為負時與 0 等價，且小到看不見', () => {
+    expect(glintFromNDotH(-0.5, 0.1)).toBe(glintFromNDotH(0, 0.1))
+    expect(glintFromNDotH(-0.5, 0.1)).toBeLessThan(1e-7)
+  })
+
+  it('粗糙度大於 1 時仍落在 [0, 1]', () => {
+    for (const r of [1.5, 10]) {
+      const g = glintFromNDotH(1, r)
+      expect(g).toBeLessThanOrEqual(1)
+      expect(g).toBeCloseTo(1, 12)
+    }
+  })
 })
 ```
 
@@ -1000,7 +1132,7 @@ describe('glintIntensity', () => {
 npx vitest run test/unit/ocean-shading.test.ts
 ```
 
-預期：`WATER_F0`、`fresnel`、`glintIntensity` 未匯出而失敗。
+預期：`WATER_F0`、`fresnel`、`glintIntensity`、`glintFromNDotH` 未匯出而失敗。
 
 - [ ] **Step 3: 實作（append 到 `src/render/oceanShading.ts`）**
 
@@ -1039,18 +1171,22 @@ export const GLINT_EPSILON = 1e-6
 /**
  * 粗糙度的下限。**不是美術參數，是數值安全的下限。**
  *
- * 【0.02 怎麼來的 —— Codex 第二輪審查】GGX 的 `d` 在 `n·h = 1` 時等於
- * `roughness⁴`。float32 在 1.0 附近的解析度是 `1.19e-7`，所以只要
- * `roughness⁴ < 1.19e-7`（也就是 `roughness < 0.0186`），`1 − roughness⁴`
- * 就會被捨入成 1，峰值處的 `d` 塌成 0。
+ * 【它擋的是下溢，不是 1.0 附近的抵銷 —— Codex 第四輪審查的 Minor】前一版
+ * 的理由寫「`1 − roughness⁴` 會被捨入成 1」。那是**教科書形式**的失效機制；
+ * 現在用的穩定形式根本不做那個減法，所以那不是它的懸崖。
  *
- * 取 0.02 —— 剛好在那個懸崖之外，而且**遠低於** `GLITTER_ROUGHNESS_MIN`
- * （0.04），所以正常路徑永遠碰不到它。它擋的是「有人把粗糙度下限調到
- * 0」那種未來。
+ * 真正的機制是**下溢**：峰值處 `d = roughness⁴`，分子分母都是
+ * `roughness⁸`，兩邊一起塌成 0 就得到 `0/0 = NaN`。float32 的最小正規數是
+ * `1.18e-38`，所以要 `roughness > 1.82e-5` 才保證 `roughness⁸` 仍是正規數。
+ * `ggx-stability.probe.ts` 在 `roughness = 1e-6` 印出的 `NaN` 就是這一段。
  *
- * 【它與穩定形式是兩層保險】`glintIntensity` 的 `d` 已經改成不會抵銷的
- * 寫法，理論上不需要這個夾。留著是因為兩層都便宜，而失效的症狀
- * （整片海出現 `Infinity` → 白屏）非常昂貴。
+ * 【0.02 這個值】`0.02⁸ = 2.56e-14`，離懸崖 24 個數量級 —— 數值上非常寬鬆。
+ * 它真正的作用是**下限本身**：`roughness = 0` 會讓 `a² = 0`，峰值處
+ * `0/0 = NaN`。取 0.02 是因為它**遠低於** `GLITTER_ROUGHNESS_MIN`（0.04），
+ * 所以正常路徑永遠碰不到，它擋的是「有人把美術下限調到 0」那種未來。
+ *
+ * 【它與穩定形式是兩層保險】`glintFromNDotH` 的 `d` 已經是不會抵銷的寫法，
+ * 但仍需要這個夾 —— 穩定形式擋得住抵銷，擋不住 `a² = 0`。
  */
 export const GLINT_ROUGHNESS_FLOOR = 0.02
 
@@ -1119,7 +1255,33 @@ export function glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: nu
   const hLen = Math.hypot(hx, hy, hz)
   if (hLen <= GLINT_EPSILON) return 0
   const nDotH = (n.x * hx + n.y * hy + n.z * hz) / hLen
+  return glintFromNDotH(nDotH, roughness)
+}
 
+/**
+ * `glintIntensity` 的數值核心 —— 只吃 `n·h` 與粗糙度。
+ *
+ * 【為什麼要獨立成一個匯出的函數】兩個守衛（夾 `n·h`、夾 `roughness`）擋的
+ * 都是**浮點誤差**造成的越界，而在 JS 的 double 裡從正規化過的向量算出來的
+ * `n·h` 永遠不會超過 1 —— 也就是說，經由 `glintIntensity` 根本**測不到**那
+ * 兩個守衛。這是 `slopeRoughnessWith` 同一個縫（Codex 第二輪審查的 I-d）：
+ * 要能被測到的守衛，就得有一個能直接餵值的入口。
+ *
+ * 【夾 `n·h` 是必須的 —— Codex 第四輪審查的 Important】兩個經過 float32
+ * `normalize` 的單位向量，其內積仍可能略大於 1（float32 在 1.0 附近的解析度
+ * 是 `2⁻²³ ≈ 1.19e-7`）。`nh² = 1 + 2⁻²³` 時：
+ *
+ *   roughness 0.04 → 回傳 1.10
+ *   roughness 0.02 → 回傳 15.39   ← 下限本身也不安全
+ *
+ * 也就是「值域 [0,1]、峰值恆為 1」在 GLSL 會直接不成立，鏡射峰附近會出現
+ * 過亮的白點，而 `GLINT_STRENGTH` 也不再是亮度上限。three 自己的 `BRDF_GGX`
+ * 就是先 `saturate(dot(normal, halfDir))` 才平方，這裡跟它一致。
+ *
+ * 【夾 `roughness` 的上界】`d − a² = (1 − (n·h)²)(1 − a²)`，所以 `a² ≤ 1`
+ * 時才保證 `d ≥ a²`、回傳值 `≤ 1`。粗糙度大於 1 沒有物理意義，夾掉即可。
+ */
+export function glintFromNDotH(nDotH: number, roughness: number): number {
   // 【a 有下界】roughness 為 0 時 d 會在 n·h = 1 上變成 0，a⁴/d² = 0/0
   // 【`d` 的寫法是數值穩定的那一種 —— Codex 第二輪審查的 Important】
   //
@@ -1132,15 +1294,16 @@ export function glintIntensity(n: Vector3, v: Vector3, l: Vector3, roughness: nu
   // 「大於 1」的值，違反本函數宣告的值域。
   //
   // 後者沒有減法抵銷：`n·h = 1` 時 `d = a²`，回傳 `a⁴/a⁴ = 1` —— **恰好是
-  // 峰值 1，而且對任何 `a > 0` 都成立**，包含被 epsilon 夾住的情形。
+  // 峰值 1，而且對任何 `0 < a ≤ 1` 都成立**，包含被下限夾住的情形。
   // 【α = roughness²，這是 GGX 與 three 的慣例】上一版把 α 寫成 roughness
   // 本身，兩者都在 n·h = 1 時給出峰值 1，所以「峰值恆為 1」與「越粗越寬」
   // 兩條測試**都假綠**，而反光帶的寬度差非常多：roughness 0.20、偏離峰值
-  // 25° 時，錯的那版是 0.222、對的是 0.00109 —— 窄碎光帶會變成一大片發亮。
-  // Codex 第三輪審查抓到。
-  const r = Math.max(roughness, GLINT_ROUGHNESS_FLOOR)
+  // 25° 時，錯的那版是 0.2216、對的是 0.0010941 —— 窄碎光帶會變成一大片
+  // 發亮。Codex 第三輪審查抓到，第四輪要求由固定數值的斷言釘死。
+  const r = Math.min(Math.max(roughness, GLINT_ROUGHNESS_FLOOR), 1)
   const a2 = r * r * (r * r) // α² = roughness⁴
-  const nh2 = nDotH * nDotH
+  const nh = Math.min(Math.max(nDotH, 0), 1) // ← 見上面「夾 n·h」
+  const nh2 = nh * nh
   const d = a2 * nh2 + (1 - nh2)
   return (a2 * a2) / (d * d) // α⁴ / d²
 }
@@ -1253,7 +1416,9 @@ for (let d = 0; d <= 180; d += 15) {
 npx vite-node test/tools/glint-geometry.probe.ts
 ```
 
-**把輸出貼進報告** —— 這是專案負責人回填 §11 那五個參數的依據。
+**把輸出貼進報告** —— 這是專案負責人回填 §11 那**六組**參數的依據，其中
+`GLINT_STRENGTH` 與 `GLITTER_ROUGHNESS_MIN`/`MAX` 必須**一起**看：粗糙度決定
+反光帶多寬，強度決定峰值多亮，而兩者對「看起來像不像碎光路」的影響是耦合的。
 
 - [ ] **Step 7: Commit**
 
@@ -1279,7 +1444,7 @@ feat: Fresnel 與 GGX 反光的 CPU 版，加一支反光帶的量測探針
 而完整 BRDF 會把亮度綁進去，亮度是可調的。
 
 glint-geometry.probe.ts 掃視線仰角與方位，平靜水面（幾何上界）與真實水面
-（400 取樣點）各一組 —— 那是回填五個參數的依據。
+（400 取樣點）各一組 —— 那是回填 §11 那六組參數的依據。
 ```
 
 ---
@@ -1296,6 +1461,9 @@ glint-geometry.probe.ts 掃視線仰角與方位，平靜水面（幾何上界�
 - Produces:
   - `SKY_GRADIENT_GLSL: string`（`sky.ts` 匯出）
   - `OCEAN_SHADING_GLSL: string`（`oceanShading.ts` 匯出）
+  - `buildOceanShadingGLSL(f0: number, eps: number, roughFloor: number): string`
+    （`OCEAN_SHADING_GLSL` 就是它套用生產常數的結果。獨立匯出**只為了讓
+    「常數真的來自 TS」測得到** —— 消費端一律用 `OCEAN_SHADING_GLSL`。）
 
 - [ ] **Step 1: 把天空漸層的 GLSL 抽成可共用的字串**
 
@@ -1468,13 +1636,26 @@ npx tsc --noEmit
  * `1e-6`（CPU 那邊是 `1e-12`）。那是兩個現成的無聲分家點:改 TS 常數不會改
  * GLSL,而沒有任何測試看得到。凡是兩邊都要用的數字,一律 `${...}` 插值,
  * 並由 `ocean-shading.test.ts` 斷言字串裡真的含那個值。
+ *
+ * 【為什麼是一個吃參數的 builder，不是直接寫成 const —— Codex 第三／第四輪
+ * 審查的 M-a】「字串裡含 `0.020400`」這種斷言**分不出**它是模板插值還是有人
+ * 手打了同一個數字上去。要真的證明它來自 TS 常數，測試就得能餵**不同的**值
+ * 進來、看輸出跟著變。所以把模板抽成 `buildOceanShadingGLSL(...)`，
+ * `OCEAN_SHADING_GLSL` 只是它套用生產常數的結果。
+ *
+ * 這與 `slopeRoughnessWith`、`glintFromNDotH` 是同一個手法：**測不到的東西
+ * 就開一個縫讓它測得到。** 產品程式碼一律用 `OCEAN_SHADING_GLSL`，builder
+ * 只給測試用。
  */
-export const OCEAN_SHADING_GLSL = /* glsl */ `
-  // 【這兩個由 TS 常數插值進來，不是重打的字面值】見上面的註解
-  #define WATER_F0 ${WATER_F0.toFixed(6)}
-  #define GLINT_EPS ${GLINT_EPSILON.toExponential()}
-  #define GLINT_ROUGH_FLOOR ${GLINT_ROUGHNESS_FLOOR.toFixed(6)}
-  #define MAX_SLOPE_EPS ${GLINT_EPSILON.toExponential()}
+export function buildOceanShadingGLSL(
+  f0: number, eps: number, roughFloor: number,
+): string {
+  return /* glsl */ `
+  // 【這幾個由 TS 常數插值進來，不是重打的字面值】見上面的註解
+  #define WATER_F0 ${f0.toFixed(6)}
+  #define GLINT_EPS ${eps.toExponential()}
+  #define GLINT_ROUGH_FLOOR ${roughFloor.toFixed(6)}
+  #define MAX_SLOPE_EPS ${eps.toExponential()}
 
   uniform vec3 uSunDirection;
   uniform float uMaxSlope;
@@ -1524,11 +1705,16 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
     vec3 h = v + l;
     float hLen = length(h);
     if (hLen <= GLINT_EPS) return 0.0;
-    float nDotH = dot(n, h) / hLen;
+    // 【必須夾 —— 這一份才是真的 float32】兩個 normalize 過的單位向量，其
+    // 內積仍可能是 1 + 2⁻²³。不夾的話 roughness 0.04 回傳 1.10、0.02 回傳
+    // 15.39，鏡射峰附近出現過亮白點。three 自己的 BRDF_GGX 也是先 saturate
+    // 才平方。與 CPU 版的 glintFromNDotH 逐字對應。Codex 第四輪審查。
+    float nDotH = clamp(dot(n, h) / hLen, 0.0, 1.0);
     // 【與 CPU 版逐字對應的穩定形式】d = a²·(n·h)² + (1 − (n·h)²)。
     // 教科書的 (n·h)²·(a²−1)+1 在 float32 會把 a²−1 捨成 −1 → d = 0 → Infinity
     // α = roughness²（GGX / three 的慣例）—— 與 CPU 版逐字對應
-    float r = max(roughness, GLINT_ROUGH_FLOOR);
+    // 上界 1.0：d − a² = (1−(n·h)²)(1−a²)，a² > 1 時回傳值會超過 1
+    float r = clamp(roughness, GLINT_ROUGH_FLOOR, 1.0);
     float a2 = r * r * (r * r); // α² = roughness⁴
     float nh2 = nDotH * nDotH;
     float d = a2 * nh2 + (1.0 - nh2);
@@ -1539,6 +1725,14 @@ export const OCEAN_SHADING_GLSL = /* glsl */ `
     return 1.0 - smoothstep(uFadeStart, uFadeEnd, distance);
   }
 `
+}
+
+/**
+ * 生產用的著色器原始碼。**消費端一律用這個，不要自己呼叫 builder。**
+ */
+export const OCEAN_SHADING_GLSL = buildOceanShadingGLSL(
+  WATER_F0, GLINT_EPSILON, GLINT_ROUGHNESS_FLOOR,
+)
 ```
 
 **注意**：GLSL 的 `glitterFadeGLSL` 用 `smoothstep`，CPU 版用線性。這是刻意
@@ -2430,10 +2624,18 @@ npx tsc --noEmit
 預期：既有的 5 條紅（4 條指揮層 + 併行跑的 perf-gate）不變，**沒有新的紅**。
 若有新的紅，**停下來量、報告、問** —— 不要改門檻。
 
-- [ ] **Step 6: 把 spec §11 的五個參數交給專案負責人**
+- [ ] **Step 6: 把 spec §11 的六組參數交給專案負責人**
 
 在報告裡列出目前值、`glint-geometry.probe.ts` 的輸出、以及四張截圖，然後
 問專案負責人要不要調。**spec §11 的表格由專案負責人回填，實作者不得代填。**
+
+六組是：`GLITTER_ROUGHNESS_MIN`/`MAX`、**`GLINT_STRENGTH`**、
+`GLITTER_FADE_START`/`END`、`SUN_ANGULAR_RADIUS`、`SUN_HALO_POWER`/`STRENGTH`、
+法線量化階數。**不要漏掉 `GLINT_STRENGTH`** —— 它在 spec §11 的表裡本來就
+有，是計畫前幾版的清單漏了它（Codex 第四輪審查）。而且它與粗糙度是耦合的：
+α 慣例修正之後反光帶大幅變窄（400 點取樣的表面平均 0.537 → 0.00152、取樣
+峰值 0.996 → 0.207），所以「0.6 看起來夠不夠亮」必須**重新**看，不能沿用
+任何舊的觀感結論。
 
 若專案負責人認為「太寫實、不夠 low poly」，套用 spec §4.2 的退路：在
 `waveNormalGLSL` 之後把法線量化：
@@ -2473,7 +2675,7 @@ test: 海面反光的 Playwright 觀察點與幀時取樣
 幀時只印不斷言：CI 與開發機的 GPU 不同，斷言只會變成假紅。低於 60 fps
 的處置是砍功能，不是放寬門檻。
 
-spec §11 的五個參數留待專案負責人回填。
+spec §11 的六組參數留待專案負責人回填，含 GLINT_STRENGTH。
 ```
 
 ---
@@ -2551,6 +2753,22 @@ decode 再內插，但著色器實際是**先在線性空間內插、再把結�
 而那兩條正是 2026-08-09 因為「天空太暗」才加上的。調鬆它們等於把使用者抱怨過
 的問題重新寫成規格,而專案的紀律是**絕不為了讓測試變綠而放寬門檻**。
 
+> **這裡的 0.314 不是前一版那個算錯的數字。** 兩者長得像但問的是不同的事:
+>
+> | 問句 | 算式 | 值 |
+> |---|---|---|
+> | 現在螢幕上的地平線有多亮 | `decode(mix(H, Z, t))` | **0.241** |
+> | 甲-1 之下 `fog.test.ts` 會看到什麼 | `mix(decode(H), decode(Z), t)` | **0.314** |
+>
+> 甲-1 是「把兩個**端點**常數各自 decode 過去」,所以它的 `skyColorAt(0)` 本來
+> 就是先 decode 再內插 —— 那正是第三輪指出「拿來當現況模型是錯的」的那條算式,
+> 但拿來當甲-1 的模型是**對的**。probe 的 `preserveAppearance` 也是同一件事。
+>
+> 順帶記下甲-1 的一個真實限制(Codex 第四輪):它只保住**兩個端點**的外觀,
+> 中間整段漸層仍會偏移 —— 因為 decode 是非線性的,而內插是線性的,兩者不可
+> 交換。所以「保持現在的畫面」這個說法本身就過度承諾了。這不影響裁定(甲-1
+> 已因門檻紅掉而否決),但別讓它留在文件裡誤導人。
+
 #### 順帶修好的一件事
 
 霧色 `FOG_COLOR` 由 `skyColorAt(0)` 推導,而霧作用在飛機／殘骸／煙霧上,那些
@@ -2582,8 +2800,8 @@ three 哪天改了轉換方式我們自動跟上。
   /**
    * 【2026-08-10 補】天空球是自寫 ShaderMaterial,three **不會**自動替它做輸出
    * 色彩空間轉換 —— 要著色器自己 include 那個 chunk。少了它,天空把線性值原樣
-   * 寫進 sRGB 緩衝區,螢幕上比常數所表達的暗一大截(地平線 L 0.495 → 實際
-   * 0.314),而上面每一條斷言都還是綠的。
+   * 寫進 sRGB 緩衝區,螢幕上比常數所表達的暗一大截(地平線 L 0.495 → 螢幕上
+   * 實際只有 0.241),而上面每一條斷言都還是綠的。
    *
    * 這一條同時守住「天空與霧色在螢幕上一致」—— 霧作用的物件本來就有轉換。
    */
