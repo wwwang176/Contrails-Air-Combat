@@ -200,9 +200,23 @@ export const SPARKLE_DENSITY = 0.4
  * = (p / cellW²) x (π (r·cellW)²) = p·π·r² —— cellW 消掉了。所以縮小格子只是
  * 把同樣多的白分成更細的顆粒，不會變亮也不會變暗。
  *
- * 【螢幕上的大小是常數】LOD 交叉淡入之後格子邊長連續正比於距離，張角恆為
- * uCell/uCellRef。0.425/150 = 0.163°，1280 寬 / 65° 下約 3.2 px，而且 1 km
- * 與 500 km 一樣。再往下就會逼近單像素，混疊會回來。
+ * 【螢幕上的大小是常數】LOD 之後格子邊長正比於距離，張角恆為
+ * uCell/uCellRef。0.425/150 = 0.163 度，1280 寬 / 65 度下約 3.2 px，而且
+ * 1 km 與 500 km 一樣。再往下就會逼近單像素，混疊會回來。
+ *
+ * 【絕對座標的上限 —— Codex 2026-08-11 審查的 Minor】上面那個「LOD 讓相對
+ * 精度不變」的論證只在**絕對世界座標與視距同量級**時成立。vOceanWorld 是
+ * 絕對座標，而 LOD 只看距離 —— 玩家若朝單一方向一路飛遠，世界座標會遠大於
+ * 眼前的視距，LOD 不會放大近處的格子來補償。
+ *
+ * 絕對座標約 4,194 km 時 float32 的 ULP 是 0.5 m，已經大於低空的 0.425 m
+ * 格子（Hoskins hash 本身也在格號 10^7 左右開始退化）。症狀是近處碎光鎖成
+ * 條帶或隨鏡頭抖動。
+ *
+ * 【為什麼不處理】那大約是 700 km/h 直線飛 6 小時。而這個遊戲的戰場是有界的
+ * （參照物散佈半徑 9 km，撤退令本身就有把戰鬥拉回戰場的護欄），實際座標不會
+ * 到那個量級。真要處理得改用「相對於某個週期性對齊原點」的座標，而那會在
+ * 原點跳動時讓整片碎光圖案跳一次 —— 代價比問題大。記錄下來就好。
  */
 export const SPARKLE_CELL = 0.425
 /** 超過這個距離，格子邊長開始隨距離加倍（壓次像素混疊）。 */
@@ -222,13 +236,16 @@ export const SPARKLE_SOFTNESS = 0.9
  * 白點的淡出區間，m。
  *
  * 【它擋的不是「顆粒太小」—— 2026-08-11 修正】初版設 6→25 km，理由寫「遠處
- * 顆粒必然小於一個像素」。加了 LOD 交叉淡入之後那個理由**不成立**了：格子
- * 邊長變成連續地正比於距離，所以螢幕張角是常數 0.325°（約 6.4 px），
- * 1 km 與 500 km 完全一樣清楚。6→25 km 等於把碎光路砍在遠海剛開始的地方
- * （遠海從 5 km 起），遠海上只剩一條窄帶。
+ * 顆粒必然小於一個像素」。有了 LOD 之後那個理由**不成立**了：格子邊長正比於
+ * 距離，所以螢幕張角是常數（見 SPARKLE_CELL），1 km 與 500 km 一樣清楚。
+ * 6→25 km 等於把碎光路砍在遠海剛開始的地方（遠海從 5 km 起），遠海上只剩
+ * 一條窄帶。
  *
  * 真正需要淡出的是**地平線附近**：視線幾乎與海面平行時，一個像素橫跨的距離
  * 範圍極大，LOD 在單一像素內劇烈變化，那裡的混疊沒救。所以在地平線之前收掉。
+ *
+ * 【它同時是效能的關卡】fragment 那一段一開始就先算 fade，等於 0 就整段跳過
+ * ——見 SPARKLE_FRAGMENT 的註解。
  */
 export const SPARKLE_FADE_START = 60000
 export const SPARKLE_FADE_END = 250000
@@ -295,8 +312,16 @@ const SPARKLE_COMMON = /* glsl */ `
     float n = fract(phase + t * rate);
 
     // 【時間上的柔化】step 是硬性 0/1，白點會瞬間亮滅。改成在門檻上方
-    // uSoftness 的區間內漸亮。min 是因為門檻本身可能已經貼近 1
-    float lit = smoothstep(thr, min(thr + uSoftness, 1.0), n);
+    // uSoftness 的區間內漸亮。
+    //
+    // 【hi > thr 這個守衛非有不可 —— Codex 2026-08-11 審查的 Important】
+    // thr 會**恰好等於 1**：dist >= uFadeEnd 時 fade 明確是 0，align 在大角度
+    // 下也會 underflow 成 0。而 GLSL 規範明定 smoothstep 在 edge0 >= edge1 時
+    // **行為未定義**（實作上是 (x-e0)/(e1-e0) 除以 0）。回傳 0 只是常見實作，
+    // 規範允許 NaN —— 一旦 NaN 進了 gl_FragColor，250 km 外那一整片海會出現
+    // 黑塊或色彩破損，而且是平台相依的。
+    float hi = min(thr + uSoftness, 1.0);
+    float lit = hi > thr ? smoothstep(thr, hi, n) : 0.0;
 
     // 【形狀上的柔化】格子是方的，整格上色邊緣就是直角。改成格內取一個隨機
     // 圓心、從圓心就開始漸層 —— 柔到底的圓，也比硬方塊好抗鋸齒。圓心夾在
@@ -318,53 +343,63 @@ const SPARKLE_COMMON = /* glsl */ `
  */
 const SPARKLE_FRAGMENT = /* glsl */ `
   {
-    vec2 wxz = vOceanWorld.xz;
-
-    // 解析波坡度。**與頂點位移用同一組波、同一個未正規化的 uWaveDir** ——
-    // 不一致的話白點就會與浪的形狀分家
-    vec2 g = vec2(0.0);
-    for (int i = 0; i < ${WAVES.length}; i++) {
-      float k = 6.28318530718 / uWaveLen[i];
-      float c = uWaveAmp[i] * k * cos(k * dot(uWaveDir[i], wxz) - uWaveSpd[i] * k * uTime);
-      g += c * uWaveDir[i];
-    }
-    vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
-
     vec3 toEye = cameraPosition - vOceanWorld;
     float dist = length(toEye);
-    vec3 V = toEye / max(dist, 1e-4);
-    vec3 H = normalize(V + uSunDirection);
-
-    // 【用 1 − cos 而不是 acos】acos 在接近 1 的地方數值極差，而鏡面附近
-    // 正好全都在那裡。θ² ≈ 2(1 − cos θ)，所以高斯可以直接用 1 − cos 寫
-    float cosNH = clamp(dot(N, H), 0.0, 1.0);
-    float align = exp(-(1.0 - cosNH) / (uSigma * uSigma));
-
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, dist);
-    float thr = 1.0 - align * uDensity * fade;
 
-    // 【跨階交叉淡入，不然會看到一圈一圈的環 —— 2026-08-11 實測】
-    //
-    // 遠處的顆粒必然小於一個像素，所以格子邊長要隨距離放大。用 2 的冪整數階
-    // （exp2(floor(...))）可以避免格線隨鏡頭爬動，但代價是**跳階**：邊長在
-    // dist = 150 / 300 / 600 / 1200 m 這些距離上瞬間變兩倍。
-    //
-    // 那些等距離面在海上就是一圈圈的圓。相機高 h、水平距離 ρ 的點距離是
-    // sqrt(h*h + ρ*ρ)，所以 h 降低時「距離 = 150」的 ρ 會變大 —— 環往外擴，
-    // 環內顆粒細、環外顆粒粗。慢慢降高度就會看到一圈內圈往外長。
-    //
-    // 解法與貼圖的 trilinear mipmap 完全相同：同時算相鄰兩階，用小數部分
-    // 交叉淡入。代價是這一段的 hash 算兩次。
-    float f = max(0.0, log2(max(1.0, dist / uCellRef)));
-    float lo = floor(f);
-    float cellW = uCell * exp2(lo);
-    float sparkle = mix(
-      sparkleLayer(wxz, cellW, thr, uTime * uTwinkle),
-      sparkleLayer(wxz, cellW * 2.0, thr, uTime * uTwinkle),
-      f - lo
-    );
+    // 【先算淡出、能收就收 —— Codex 2026-08-11 審查的 Important】
+    // 遠海 renderOrder = -1（先畫），所以近海覆蓋掉的區域**無法**靠 early-Z
+    // 省掉遠海的 fragment，而遠海是全螢幕的。uFadeEnd（250 km）之外佔了遠海
+    // 絕大部分的面積，在這裡收掉就跳過三次 cos、一次 exp、五次 hash。
+    if (fade > 0.0) {
+      vec2 wxz = vOceanWorld.xz;
 
-    gl_FragColor.rgb += sparkle * uSparkleStrength * vec3(1.0, 0.98, 0.94);
+      // 解析波坡度。**與頂點位移用同一組波、同一個未正規化的 uWaveDir** ——
+      // 不一致的話白點就會與浪的形狀分家
+      vec2 g = vec2(0.0);
+      for (int i = 0; i < ${WAVES.length}; i++) {
+        float k = 6.28318530718 / uWaveLen[i];
+        float c = uWaveAmp[i] * k * cos(k * dot(uWaveDir[i], wxz) - uWaveSpd[i] * k * uTime);
+        g += c * uWaveDir[i];
+      }
+      vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
+
+      vec3 V = toEye / max(dist, 1e-4);
+      vec3 H = normalize(V + uSunDirection);
+
+      // 【用 1 - cos 而不是 acos】acos 在接近 1 的地方數值極差，而鏡面附近
+      // 正好全都在那裡。theta^2 約等於 2(1 - cos theta)，所以高斯可以直接用
+      // 1 - cos 寫。sigma 4 度時相對誤差 0.02%，8 度 0.33%，12 度 1.7%
+      float cosNH = clamp(dot(N, H), 0.0, 1.0);
+      float align = exp(-(1.0 - cosNH) / (uSigma * uSigma));
+      float thr = 1.0 - align * uDensity * fade;
+
+      // 【LOD：隨機挑一階，不要混兩階 —— Codex 2026-08-11 審查的 Important】
+      //
+      // 遠處顆粒必然小於一個像素，所以格子邊長要隨距離放大。用 2 的冪整數階
+      // 可以避免格線隨鏡頭爬動，但代價是跳階：邊長在 dist = 150 / 300 / 600 /
+      // 1200 m 瞬間變兩倍，而等距離面在海上是一圈圈的圓 —— 相機降高度時
+      // sqrt(h*h + rho*rho) = 150 的 rho 變大，就看到一圈內圈往外擴。
+      //
+      // 前一版仿 trilinear mipmap 同時算兩階再 mix。那**修掉了環，卻換來另一
+      // 個問題**：mix 兩個近似獨立的 0/1 分佈，平均值不變（所以不是先前那個
+      // 密度脹縮的 bug），但變異數掉一半 —— 「拿到完整強度」的機率從 p 掉到
+      // p²（中心 0.4 → 0.16）。症狀是每個 LOD 中點附近白點變少、碎光發灰，
+      // 形成按二倍距離重複的低對比同心帶。
+      //
+      // 改成**以粗階格號為單位隨機挑一階**：每個像素拿到的都是完整強度的一層，
+      // 分佈完全不變；階與階的過渡用空間抖動化開。而且只算一層，成本減半。
+      // 用粗階格號當 key 是為了讓同一格內的像素挑到同一階（不然一顆點會被
+      // 撕成兩半），而且與時間無關 —— 不會閃。
+      float f = max(0.0, log2(max(1.0, dist / uCellRef)));
+      float lo = floor(f);
+      float coarse = uCell * exp2(lo + 1.0);
+      float pick = step(oceanHash(floor(wxz / coarse) + vec2(7.7, 3.3)), f - lo);
+      float cellW = uCell * exp2(lo + pick);
+
+      float sparkle = sparkleLayer(wxz, cellW, thr, uTime * uTwinkle);
+      gl_FragColor.rgb += sparkle * uSparkleStrength * vec3(1.0, 0.98, 0.94);
+    }
   }
 `
 
