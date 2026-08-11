@@ -1342,11 +1342,22 @@ export function steerCommand(
   // 而那正是舊版（瞄準速度向量）製造出橫向誤差、害飛機每 0.1 秒抖一下的
   // 來源。當成係數套在既有指令上，方位天然保持不變。
   //
-  // 【`overshoot` 與 `speedRecover` 不套】它們的優先序高於 `unload`
-  // （見 `geometryGate`），拿到那兩個 mode 時就不會是 `unload`。
-  if (mode === 'unload') {
-    shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
-  }
+  // 【2026-08-11：`unload` 由一個 mode 變成兩個來源取較小值】
+  //   unloadPull(stallMargin)  防**失速**（迎角太大）—— 只在 `unload` 這個
+  //                            幾何下有意義，那是 `geometryGate` 判出來的
+  //   sit.pullCeiling          防**能量見底**（速度太低）—— 任何幾何下都要
+  //                            生效，因為 AI 把自己拉爆不限於 `unload`
+  //
+  // 實測：2026-08-11 的迴轉半徑改動讓 `ai-defence` 正後方 400 m 挨打由
+  // 0.084 s 惡化到 0.518 s，而那一場的 mode 大多不是 `unload` —— 只掛在
+  // `unload` 上的紀律看不到它。見 `ai/doctrine.ts` 的 `energyPull`。
+  //
+  // 【`overshoot` 與 `speedRecover` 仍然不套失速那一層】它們的優先序高於
+  // `unload`（見 `geometryGate`），拿到那兩個 mode 時 `mode !== 'unload'`。
+  // 但**能量那一層照套** —— 它們同樣會把速度拉光。
+  const stallPull = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
+  const pull = stallPull < sit.pullCeiling ? stallPull : sit.pullCeiling
+  shrinkTowardNose(self, pull, out.aimWorld)
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且

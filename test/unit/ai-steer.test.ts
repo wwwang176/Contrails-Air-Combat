@@ -5,7 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor,
+  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull,
 } from '../../src/ai/steer'
 import { rallyAim } from '../../src/ai/rally'
 import { DEG } from '../../src/core/math'
@@ -1549,5 +1549,114 @@ describe('rally 意圖', () => {
       'rally', 'normal', sit, basis, self, 3900, knobs, createDefendState(), point, cmd,
     )
     expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(floorPitchAngle(100), 9)
+  })
+})
+
+/**
+ * 拉桿紀律（`Situation.pullCeiling`，見 `ai/doctrine.ts`）。
+ *
+ * 【它與失速那一層的差別】`unloadPull` 只在 `unload` 這個幾何下有意義，
+ * 因為它防的是「拉太猛」。能量見底防的是「速度太低」，那在**任何**幾何下
+ * 都會發生 —— AI 把自己拉爆不限於 `unload`。所以這一層無條件套。
+ */
+describe('steerCommand：拉桿紀律', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 1, vertical: 0 }
+  let self: Aircraft
+
+  /** 目標在側前方，製造一個夠大的瞄準誤差角。 */
+  const scene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [600, 4000, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5      // 離失速很遠 → unloadPull 回傳 1
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+  }
+
+  /** 機首與瞄準點的夾角，rad。 */
+  const errAngle = (a: Aircraft, aim: Vector3) => {
+    const nose = new Vector3(0, 0, -1).applyQuaternion(a.state.orientation)
+    return Math.acos(Math.min(1, Math.max(-1, nose.dot(aim))))
+  }
+
+  it('非 unload 的 mode 下也生效', () => {
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = errAngle(self, cmd.aimWorld)
+    expect(before).toBeGreaterThan(30 * DEG)   // 場景真的有誤差角可以收
+
+    sit.pullCeiling = 0.4
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(before * 0.4, 6)
+  })
+
+  /**
+   * 【這一條守的是「沒有能量問題時什麼也不做」】把 `shrinkTowardNose` 由
+   * 「只在 unload」變成無條件，是這批改動裡行為改變最大的一步。參照值由
+   * `aimFromKnobs` 獨立算出，不是拿同一支函式的另一次呼叫比自己。
+   */
+  it('pullCeiling 為 1 時與未經這一層的輸出逐位元相同', () => {
+    scene()
+    const reference = new Vector3()
+    aimFromKnobs(basis, sit, k, reference, DEFAULT_STEER)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.aimWorld.x).toBe(reference.x)
+    expect(cmd.aimWorld.y).toBe(reference.y)
+    expect(cmd.aimWorld.z).toBe(reference.z)
+  })
+
+  /**
+   * 【方位是硬性不變量】見 `shrinkTowardNose` 的註解：指揮儀把瞄準誤差的
+   * 方位讀成滾轉需求。舊版違反這條時實測滾轉指令由 2–3° 暴增到 27–29°、
+   * 副翼打到滿舵。
+   *
+   * 【量的是機體座標的滾轉方位，不是世界水平方位】指揮儀讀的是
+   * `atan2(aimBody.x, aimBody.y)`。沿大圓往機首收**本來就會**改世界方位
+   * （誤差角變小了），改不得的是「往哪邊滾」。`applyFloor` 保的才是世界
+   * 水平方位 —— 兩個不同的「方位」，別搞混。
+   */
+  it('滾轉方位不動', () => {
+    const rollAzimuth = (a: Aircraft, aim: Vector3) => {
+      const body = aim.clone().applyQuaternion(a.state.orientation.clone().invert())
+      return Math.atan2(body.x, body.y)
+    }
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = rollAzimuth(self, cmd.aimWorld)
+
+    sit.pullCeiling = 0.3
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(rollAzimuth(self, cmd.aimWorld)).toBeCloseTo(before, 6)
+  })
+
+  /** 兩層取較小值 —— 誰先擋住算誰的。 */
+  it('unload 時與失速那一層取較小值', () => {
+    scene()
+    // unloadMargin 是 1.15，所以要落在 (1, 1.15) 之間才拿得到小於 1 的係數
+    sit.stallMargin = 1.06
+    const stall = unloadPull(1.06, DEFAULT_STEER)
+    expect(stall).toBeGreaterThan(0)
+    expect(stall).toBeLessThan(1)
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const raw = errAngle(self, cmd.aimWorld)
+
+    // 失速那一層比較嚴 → 由它決定
+    sit.pullCeiling = 0.95
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(raw * stall, 6)
+
+    // 能量那一層比較嚴 → 換它決定
+    sit.pullCeiling = 0.2
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(raw * 0.2, 6)
   })
 })
