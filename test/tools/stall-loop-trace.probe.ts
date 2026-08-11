@@ -18,6 +18,11 @@
  * 速度控制器，會產生自己的振盪 —— 兩者混在一起看不出東西。長機以
  * `stationReference === null` 判定。
  *
+ * 【`LONE_ONLY`：只找附近沒有敵機的】人工試飛回報的情境是「戰鬥區域已經
+ * 遠離，長機還在原地垂直繞圈」。那個情境下 `overshoot` 閘門
+ * （距離 < 120 m 且正在接近）**結構上不可能觸發**，所以它是另一條路徑的
+ * 毛病。打開這個開關才找得到 —— 不然搜出來的永遠是纏鬥中的那些。
+ *
  * 【`intent` 與 `mode` 在早退路徑上是過期值】沒有目標的三條分支（站位、
  * 集合、平飛）直接寫 `aimWorld` 然後 return，不更新那兩個欄位，所以它們
  * 留著上一次有目標時的值。**表裡多印一欄「有沒有目標」就是為了這件事** ——
@@ -28,9 +33,13 @@ import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup
 import { AiController } from '../../src/ai/AiController'
 import { cornerSpeed, stallSpeed } from '../../src/analysis/envelope'
 import { extendPitchAngle, DEFAULT_STEER } from '../../src/ai/steer'
+import type { Combatant } from '../../src/world/World'
 
+// 【為什麼可以調長】人工回報的情境是「戰鬥區域已經遠離」，那要等到大半
+// 陣亡、殘存者散開才會出現 —— 180 秒的 20v20 全程黏在一起，最孤立的繞圈
+// 段落旁邊仍然有一架敵機在 147 m。
 const DT = 1 / 240
-const SECONDS = 180
+const SECONDS = 600
 const SEED = 20260811
 const RAD = 180 / Math.PI
 const STRIDE = 24
@@ -38,7 +47,28 @@ const WINDOW = 20
 const FLIP_ANGLE = 15 / RAD
 const windowSamples = Math.round(WINDOW / (DT * STRIDE))
 
-interface Worst { index: number; startSample: number; straight: number; flips: number }
+interface Worst {
+  index: number; startSample: number; straight: number; flips: number
+  /** 該視窗內「最近的敵機」的最小值，m。大 = 這一段真的是孤立的 */
+  lonely: number
+}
+
+/**
+ * 最近的活著的敵機距離，m。
+ *
+ * 【為什麼不用硬門檻篩】先寫成「整個視窗都沒有敵機在 1500 m 內」，在 20v20
+ * 的預設開局裡**一個視窗都找不到** —— 40 架由 10 km 對進，全程黏在一起。
+ * 改成「在所有繞圈視窗裡挑最孤立的那一個」，不必先猜距離該定多少。
+ */
+function nearestEnemy(cs: readonly Combatant[], me: Combatant): number {
+  let best = Infinity
+  for (const o of cs) {
+    if (!o.alive || o.team === me.team || o.index === me.index) continue
+    const d = o.aircraft.state.position.distanceTo(me.aircraft.state.position)
+    if (d < best) best = d
+  }
+  return best
+}
 
 /** 第一趟：找出直線度最低、且視窗內至少翻轉兩次的那一段。 */
 function findWorst(): Worst {
@@ -46,12 +76,15 @@ function findWorst(): Worst {
   const cs = b.world.combatants
   const st = cs.map(() => ({
     sign: 0, flips: 0, n: 0, path: 0, start: new Vector3(), prev: new Vector3(),
+    lonely: Infinity,
   }))
   for (let i = 0; i < cs.length; i++) {
     st[i]!.start.copy(cs[i]!.aircraft.state.position)
     st[i]!.prev.copy(cs[i]!.aircraft.state.position)
   }
-  let worst: Worst = { index: -1, startSample: 0, straight: 2, flips: 0 }
+  // 【排序判準是「孤立程度」不是直線度】人工回報的情境是「戰鬥區域已經
+  // 遠離，長機還在繞圈」，所以要找的是離敵機最遠的那個繞圈段落。
+  let worst: Worst = { index: -1, startSample: 0, straight: 2, flips: 0, lonely: -1 }
   let sample = 0
   for (let s = 0; s < Math.round(SECONDS / DT); s++) {
     stepBattle(b, DT)
@@ -63,6 +96,8 @@ function findWorst(): Worst {
       const t = st[i]!
       // 【只找長機】見檔頭
       if ((c.controller as AiController).stationReference !== null) continue
+      const near = nearestEnemy(cs, c)
+      if (near < t.lonely) t.lonely = near
       const pos = c.aircraft.state.position
       const vel = c.aircraft.state.velocity
       const speed = vel.length()
@@ -75,13 +110,17 @@ function findWorst(): Worst {
       if (t.n >= windowSamples) {
         const net = Math.hypot(pos.x - t.start.x, pos.z - t.start.z)
         const straight = t.path > 1 ? net / t.path : 1
-        if (t.flips >= 2 && straight < worst.straight) {
-          worst = { index: i, startSample: sample - windowSamples, straight, flips: t.flips }
+        if (t.flips >= 2 && straight < 0.3 && t.lonely > worst.lonely) {
+          worst = {
+            index: i, startSample: sample - windowSamples, straight, flips: t.flips,
+            lonely: t.lonely,
+          }
         }
         t.start.copy(pos)
         t.path = 0
         t.n = 0
         t.flips = 0
+        t.lonely = Infinity
       }
     }
   }
@@ -94,7 +133,8 @@ if (worst.index < 0) {
 } else {
   console.log(`最糟的視窗：第 ${worst.index} 架　t = ${(worst.startSample * DT * STRIDE).toFixed(1)}`
     + `–${((worst.startSample + windowSamples) * DT * STRIDE).toFixed(1)} s`
-    + `　直線度 ${worst.straight.toFixed(3)}　翻轉 ${worst.flips} 次`)
+    + `　直線度 ${worst.straight.toFixed(3)}　翻轉 ${worst.flips} 次`
+    + `　整段最近的敵機 ${worst.lonely.toFixed(0)} m`)
   console.log('')
 
   // 第二趟：同一個開局原封不動再跑，只印那一架在那一段的細節
@@ -134,6 +174,7 @@ if (worst.index < 0) {
       + `${(ai.sit.sweetPitch * RAD).toFixed(0).padStart(6)}°`
       + `${extGamma.toFixed(0).padStart(8)}°`
       + `  ${c.command.throttle.toFixed(2)}/${c.command.brake.toFixed(2)}`
+      + `  敵${nearestEnemy(b.world.combatants, c).toFixed(0).padStart(5)}`
       + `  ${ai.safetyAction}`,
     )
     if (sample > to) break
