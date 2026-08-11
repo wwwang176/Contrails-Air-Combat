@@ -11,7 +11,8 @@ import {
 import { MAX_COMBATANTS } from '../../src/battle/skirmish'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
-import { PILOT_G_NEGATIVE, PILOT_G_POSITIVE } from '../../src/control/limiters'
+import { PILOT_G_NEGATIVE } from '../../src/control/limiters'
+import { P51D } from '../../src/specs/p51d'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { flightLabel } from '../../src/hud/widgets/roster'
@@ -87,11 +88,17 @@ describe('advanceGEffect', () => {
     expect(g.redout).toBeLessThan(0.01)
   })
 
-  it('限制器夾住的 6.5 G 持續轉彎看得到黑視（否則整套是死碼）', () => {
-    // PILOT_G_POSITIVE 就是指揮儀的過載上限，玩家實際飛得到的最大值。
-    // 黑視起點若設在同一個數字，overG 恆為 0，畫面永遠不會暗。
-    for (let i = 0; i < 300; i++) advanceGEffect(PILOT_G_POSITIVE, DT)
-    expect(advanceGEffect(PILOT_G_POSITIVE, DT).blackout).toBeGreaterThan(0.15)
+  it('限制器夾住的過載持續轉彎看得到黑視（否則整套是死碼）', () => {
+    // 【意圖不變，輸入改了】這條守的是「黑視起點不能設在過載上限之上，
+    // 否則 overG 恆為 0、整套黑視是死碼」。
+    //
+    // 2026-08-11 之前，玩家飛得到的最大過載是 PILOT_G_POSITIVE = 6.5
+    // （指揮儀硬夾）。那個硬夾已經拿掉，現在的上限是**結構極限**
+    // （control/limiters.ts）。所以輸入換成 P-51D 的 8 G —— 換的是
+    // 「誰是上限」這個事實，不是這條測試的判準。
+    const CAP = P51D.limits.gPositive
+    for (let i = 0; i < 300; i++) advanceGEffect(CAP, DT)
+    expect(advanceGEffect(CAP, DT).blackout).toBeGreaterThan(0.15)
   })
 
   it('瞬間拉一下大 G 不會立刻全黑（時間常數必須生效）', () => {
@@ -102,9 +109,15 @@ describe('advanceGEffect', () => {
   })
 
   it('持續大 G 約兩秒後明顯變暗，放鬆後恢復', () => {
+    // 【0.6 → 0.5：門檻隨黑視曲線重新定值，專案負責人 2026-08-11 試飛認可】
+    // 曲線由 6/8 搬到 7.5/9.5（見 hud/widgets/gEffect.ts 的推導：兩個門檻
+    // 同時 +1.5，等於過載上限由 6.5 移到 8.0 的同一個位移，好讓極限持續
+    // 轉彎維持在 25% 強度這個原始設計意圖）。
+    // 9 G 在舊曲線早已飽和到 1.0，在新曲線是 75%，兩秒的累積因此到 0.537。
+    // 這條測的是「持續大 G 兩秒後**明顯**變暗」，0.5 仍然明顯。
     for (let i = 0; i < 120; i++) advanceGEffect(9, DT)
     const peak = advanceGEffect(9, DT).blackout
-    expect(peak).toBeGreaterThan(0.6)
+    expect(peak).toBeGreaterThan(0.5)
 
     for (let i = 0; i < 360; i++) advanceGEffect(1, DT)
     expect(advanceGEffect(1, DT).blackout).toBeLessThan(0.15)

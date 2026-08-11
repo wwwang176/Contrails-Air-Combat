@@ -2,7 +2,6 @@ import { Vector3 } from 'three'
 import { G0 } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { cornerSpeed, maxLoadFactorAero, stallSpeed } from '../analysis/envelope'
-import { PILOT_G_POSITIVE } from '../control/limiters'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -295,9 +294,14 @@ export function applySafety(
   const tas = vel.length()
   const gamma = tas > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, vel.y / tas))) : 0
 
+  // 【2026-08-11：改用結構極限】原本第二項是 PILOT_G_POSITIVE=6.5，與當時
+  // `pitchRateLimit` 的硬夾一致。那個硬夾已經拿掉（生理極限改以黑視呈現），
+  // 這裡若不跟著走，AI 會以為自己只拉得到 6.5 G 去算改出高度，算出比實際
+  // 需要更高的門檻 —— 不會撞海，但會提早拉起、多出無謂的脫離。
+  // 這一項必須與 `pitchRateLimit` 的 nLimit 用同一個上限。
   const nMax = Math.min(
     maxLoadFactorAero(self.spec, self.state.position.y, tas),
-    PILOT_G_POSITIVE,
+    self.spec.limits.gPositive,
   )
   // 【前瞻只在已經下降時生效】它要補的是「**我正在俯衝，而且還在加深**」。
   // 平飛或爬升時套用會製造出一個不存在的俯衝：實測 4000 m、TAS 30 的平飛
