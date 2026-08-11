@@ -4,6 +4,7 @@ import {
   bestSustainedTurnRateCached, cornerSpeed, instantaneousTurnRate,
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
+import { DEFAULT_DOCTRINE, energyPull, sweetSpotPitch } from './doctrine'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -111,6 +112,20 @@ export interface Situation {
   speedMargin: number
 
   /**
+   * 拉桿係數的上限，0..1。1 = 本層不介入。
+   *
+   * 【它與 `stallMargin` 那一層的關係】`steer.ts` 的 `unloadPull` 防的是
+   * 失速（迎角太大），這一個防的是能量見底（速度太低）。消費端取兩者的
+   * 較小值 —— 誰先擋住算誰的。
+   */
+  pullCeiling: number
+  /**
+   * 甜蜜區的航跡角偏置，rad。正 = 該抬頭、負 = 該低頭。0 = 沒有偏好
+   * （同機種對打時恆為 0）。
+   */
+  sweetPitch: number
+
+  /**
    * **我自己的**航跡角，rad。正為爬升。
    *
    * 【為什麼需要它】吊機首閘門原本只看目標的仰角，也就是只問「目標是不是
@@ -154,6 +169,7 @@ export function createSituation(): Situation {
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, stallMargin: 1, speedMargin: 1,
+    pullCeiling: 1, sweetPitch: 0,
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
   }
@@ -259,6 +275,12 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   // 時過載趨近 0，Vs(|n|) ∝ √n 也跟著縮小，比值於是被撐大。
   // 這一項無視過載，所以它問的是純粹的「我還有多少空速」。
   out.speedMargin = selfTas / stallSpeed(self.spec, selfAlt, 1)
+
+  // ── 打法層：機體對這場仗的偏好（見 `doctrine.ts`）────────────────
+  out.pullCeiling = energyPull(out.cornerRatio, DEFAULT_DOCTRINE)
+  out.sweetPitch = sweetSpotPitch(
+    self.spec, target.spec, selfAlt, selfTas, DEFAULT_DOCTRINE,
+  )
 }
 
 /**
