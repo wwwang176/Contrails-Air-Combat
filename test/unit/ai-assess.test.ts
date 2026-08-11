@@ -9,6 +9,15 @@ import {
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { DEG, RAD } from '../../src/core/math'
+import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
+
+/**
+ * 【為什麼提到模組層】`applyFeel` 每次呼叫產生新的 spec 物件，而 `doctrine.ts`
+ * 的迴旋率表以 spec 的物件識別當 WeakMap 的鍵。在測試裡逐次呼叫等於每次
+ * 重填一張表（實測 30–40 ms）。出貨路徑（`createBattle`）也是每場只套一次。
+ */
+const FEEL_P51D = applyFeel(P51D, GAME_FEEL)
+const FEEL_BF109 = applyFeel(BF109G6, GAME_FEEL)
 
 /**
  * 【為什麼用 Aircraft 而不是自訂的輕量結構】評估層要讀的東西
@@ -795,5 +804,62 @@ describe('alarmRamp —— 警戒自己的飽和曲線', () => {
    */
   it('比 TRACK_SATURATION 快', () => {
     expect(ALARM_SATURATION).toBeLessThan(TRACK_SATURATION)
+  })
+})
+
+describe('Situation：打法層的兩個量', () => {
+  /** 把飛機放在指定高度與速度，機首朝 −Z，並跑一步讓 diag 填上真實值。 */
+  const at = (spec: typeof P51D, altitude: number, tas: number): Aircraft => {
+    const a = new Aircraft(spec, altitude, tas)
+    a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    return a
+  }
+
+  it('createSituation 把兩個欄位初始化成中性值', () => {
+    const sit = createSituation()
+    expect(sit.pullCeiling).toBe(1)
+    expect(sit.sweetPitch).toBe(0)
+  })
+
+  it('速度充足時拉桿上限為 1（本層不介入）', () => {
+    const self = at(FEEL_P51D, 4000, 200)
+    const target = at(FEEL_BF109, 4000, 200)
+    const sit = createSituation()
+    evaluateEnergy(self, target, sit)
+    expect(sit.cornerRatio).toBeGreaterThan(1)
+    expect(sit.pullCeiling).toBe(1)
+  })
+
+  it('速度見底時拉桿上限下降但不為零', () => {
+    const self = at(FEEL_P51D, 4000, 60)
+    const target = at(FEEL_BF109, 4000, 200)
+    const sit = createSituation()
+    evaluateEnergy(self, target, sit)
+    expect(sit.cornerRatio).toBeLessThan(1)
+    expect(sit.pullCeiling).toBeLessThan(1)
+    expect(sit.pullCeiling).toBeGreaterThan(0)
+  })
+
+  it('同機種對打時甜蜜區偏置為零', () => {
+    const self = at(FEEL_P51D, 4000, 120)
+    const target = at(FEEL_P51D, 4000, 120)
+    const sit = createSituation()
+    evaluateEnergy(self, target, sit)
+    expect(sit.sweetPitch).toBeCloseTo(0, 12)
+  })
+
+  /**
+   * 【為什麼這一條值得寫】它是整個打法層在態勢層的兌現：兩台在同一個
+   * (高度, 速度) 拿到**方向相反**的偏好。低速帶是 109 的地盤，所以被推的
+   * 是 P-51（低頭換速度），109 拿到 0（它已經在自己的地方）。
+   */
+  it('低速帶：P-51 被推去低頭，109 不被推', () => {
+    const sit = createSituation()
+    const p = at(FEEL_P51D, 3000, 300 / 3.6)
+    const b = at(FEEL_BF109, 3000, 300 / 3.6)
+    evaluateEnergy(p, b, sit)
+    expect(sit.sweetPitch).toBeLessThan(0)
+    evaluateEnergy(b, p, sit)
+    expect(sit.sweetPitch).toBe(0)
   })
 })
