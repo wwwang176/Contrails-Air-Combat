@@ -17,7 +17,6 @@ import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   sustainedTurnRate, maxRollRate, specificExcessPower, maxLoadFactorAero,
 } from '../../src/analysis/envelope'
-import { G0 } from '../../src/core/math'
 import type { AircraftSpec } from '../../src/specs/types'
 
 const KMH = 3.6
