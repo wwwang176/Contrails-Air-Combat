@@ -1180,9 +1180,14 @@ const U = makeScratch(2)
  * 產生約 14° 的偏移，指揮儀讀成轉向需求：實測滾轉指令由 2–3° 暴增到
  * 27–29°、副翼打到滿舵、滾轉率由 −46°/s 翻成 +12°/s。純量縮放不會。
  *
+ * 【誰在呼叫它】`steerCommand` 的後處理，**以及 `AiController` 的早退路徑**
+ * （rally／station／平飛）—— 那三格直接寫 `aimWorld` 然後 return，不經過
+ * `steerCommand`，所以拉桿紀律要自己補一次（spec §4.4）。改動這個函式時
+ * 兩個呼叫點都要顧到。
+ *
  * @param factor 0..1。0 = 瞄準機首（完全鬆桿）、1 = 原樣不動
  */
-function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
+export function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
   if (factor >= 1) return
   const nose = U.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
   if (factor <= 0) {
@@ -1248,6 +1253,47 @@ export function applyFloor(self: Aircraft, minPitch: number, aim: Vector3): void
   }
   const c = Math.cos(minPitch) / h
   aim.set(hx * c, s, hz * c)
+}
+
+/**
+ * `applyPitchBias` 的角度上界，rad。
+ *
+ * 【為什麼直接寫算式而不 import `DEG`】這個檔案裡的角度常數一律如此
+ * （見 `EXTEND_PITCH`）—— 不為了一個常數多一條相依。
+ */
+const PITCH_BIAS_LIMIT = 80 * (Math.PI / 180)
+
+/**
+ * 把 `aim` 的**航跡角**加上 `deltaPitch`，水平方位不變。就地修改。
+ *
+ * 【與 `applyFloor` 的關係】`applyFloor` 只抬不壓（那是它能無條件疊加的
+ * 理由），甜蜜區的偏置需要雙向，所以是它的姊妹函式而不是它本身。兩者共用
+ * 同一個「改航跡角、不改方位」的作法 —— 見 `applyFloor` 與 `shrinkTowardNose`
+ * 的註解為什麼方位不能動（動了會被指揮儀讀成滾轉需求，副翼打到滿舵）。
+ *
+ * 【夾在 ±80°】超過就變成垂直，而俯仰偏置的用途是「偏一點」不是「翻過去」。
+ *
+ * 【它必須排在 `applyFloor` 之前】撞地底限的優先序最高，必須有最後決定權
+ * ——「想低頭換速度」不能贏過「快撞海了」。
+ *
+ * 【為什麼不吃 `self`】姊妹函式 `applyFloor` 需要它，因為鉛直退化時要拿
+ * 機首的水平投影當方位（那一層非動不可）。這一層在同樣的退化情況直接
+ * 放棄 —— 它只是偏好，所以簽名裡不需要飛機。
+ *
+ * `deltaPitch === 0` 時逐位元不動。假設 `aim` 是單位向量。
+ */
+export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
+  if (deltaPitch === 0) return
+  const horiz = Math.hypot(aim.x, aim.z)
+  // 【已經鉛直：方位沒有定義】與 `applyFloor` 走同一條退化路徑的理由相反
+  // —— 那一層非動不可（不動就撞地），這一層只是偏好，放棄是安全的。
+  if (horiz < 1e-9) return
+  const pitch = Math.atan2(aim.y, horiz)
+  let next = pitch + deltaPitch
+  if (next > PITCH_BIAS_LIMIT) next = PITCH_BIAS_LIMIT
+  else if (next < -PITCH_BIAS_LIMIT) next = -PITCH_BIAS_LIMIT
+  const scale = Math.cos(next) / horiz
+  aim.set(aim.x * scale, Math.sin(next), aim.z * scale)
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
@@ -1358,6 +1404,15 @@ export function steerCommand(
   const stallPull = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
   const pull = stallPull < sit.pullCeiling ? stallPull : sit.pullCeiling
   shrinkTowardNose(self, pull, out.aimWorld)
+
+  // ── 甜蜜區：把航跡角偏向自己佔優的高度／速度，方位不動 ──
+  // 【為什麼排在撞地底限之前】底限的優先序最高，必須有最後決定權 ——
+  // 「想低頭換速度」不能贏過「快撞海了」。
+  //
+  // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
+  // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
+  // 命令的內容是「把自己拉爆」。見 spec §4.4。
+  if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
