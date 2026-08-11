@@ -7,7 +7,26 @@ import type { AeroState } from '../physics/types'
 
 const S = makeScratch(1, 1)
 
-/** 飛行員持續耐 G 上限。超過此值畫面開始漸暗（黑視）。 */
+/**
+ * 飛行員持續耐 G 的參考值。
+ *
+ * 【2026-08-11 起它不再是硬夾】原本 `pitchRateLimit` 拿它當俯仰率的上限，
+ * 於是飛機在 6.5 G 就**拉不動了**。那是錯的機制：真實的飛行員不會被擋住，
+ * 他會拉過去然後眼前發黑 —— 硬上限是**結構**（P-51D 8 G、Bf109 7.5 G），
+ * 生理極限是一個漸進的懲罰，不是一道牆。
+ *
+ * 副作用是 spec 裡那兩個史實的結構數字**從來沒有生效過**（本檔舊註解自己
+ * 記錄了「結構分支對出貨機隊不可達」），而黑視系統的可用區間被壓在
+ * 6.0~6.5 這 0.5 G 裡。
+ *
+ * 現在它只剩兩個用途：`hud/widgets/gEffect.ts` 的生理曲線參考點，以及
+ * 這裡的文件錨點。**任何新的「夾住過載」邏輯都不該讀它** —— 要夾就夾
+ * `spec.limits.gPositive`。
+ *
+ * 實測代價（20v20、三種開局、量航跡半徑）：中位半徑 362 → 322 m（−11%），
+ * 能力利用率 0.78 → 0.84，角落速度 452 → 501 km/h。極速／爬升／升限／
+ * 失速／兩機平衡全部不動 —— 這條改動只碰一個東西。
+ */
 export const PILOT_G_POSITIVE = 6.5
 // 【Task 17 尚未消費】brief 要求此常數存在，但目前沒有任何負 G 限制
 // 邏輯讀取它（正俯仰率限制只處理正過載）。保留匯出供 Task 18 的負 G／
@@ -27,6 +46,11 @@ export const ALPHA_MARGIN = 0.95
  */
 export const QMAX_FLOOR = 0.01
 
+/**
+ * `'pilot'` 自 2026-08-11 起**不再產生** —— 生理極限改以黑視呈現，不夾過載
+ * （見 `PILOT_G_POSITIVE`）。保留這個變體是為了讓未來若要重新引入生理夾制
+ * 時有現成的標籤；目前任何讀到它的程式碼都是踩到死路。
+ */
 export type LimiterSource = 'alpha' | 'structure' | 'pilot' | 'none'
 
 export interface PitchLimit {
@@ -107,19 +131,15 @@ export function pitchRateLimit(
 
   let nLimit = nAero
   let source: LimiterSource = 'alpha'
-  // 【結構分支目前對出貨機隊不可達】P-51D gPositive=8、Bf109 G-6=7.5，
-  // 兩者皆高於 PILOT_G_POSITIVE=6.5，所以 nLimit 在觸及結構極限前
-  // 必定已先被飛行員上限夾住，source==='structure' 對這兩款機體
-  // 實際上永遠不會發生（下方 :37-43 一帶的測試目前是靠飛行員上限
-  // 通過，不是靠這個分支）。保留此分支是因為未來機體（例如結構更
-  // 脆弱、飛行員耐力設定更高的載具）可能讓它成為真正的限制來源。
+  // 【結構是唯一的硬上限，生理不是】2026-08-11 之前這裡還有第三個分支，
+  // 拿 PILOT_G_POSITIVE=6.5 再夾一次；因為 6.5 低於兩款機體的結構極限
+  // （8 / 7.5），結構分支形同死碼，而飛機在 6.5 G 就拉不動了。
+  // 那個模型是錯的：飛行員拉得過去，代價是黑視（`hud/widgets/gEffect.ts`），
+  // 不是操縱面突然不理他。生理極限現在**只**以漸進的視覺懲罰呈現。
+  // 見 PILOT_G_POSITIVE 的註解。
   if (spec.limits.gPositive < nLimit) {
     nLimit = spec.limits.gPositive
     source = 'structure'
-  }
-  if (PILOT_G_POSITIVE < nLimit) {
-    nLimit = PILOT_G_POSITIVE
-    source = 'pilot'
   }
 
   out.nLimit = Math.max(nLimit, 0)

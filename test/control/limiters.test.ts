@@ -49,10 +49,18 @@ describe('pitchRateLimit', () => {
     }
   })
 
-  it('可用過載永不超過飛行員極限', () => {
+  it('飛行員極限**不再**夾住過載 —— 生理限制只以黑視呈現', () => {
+    // 【這條測的是 2026-08-11 的裁決，方向與它取代的那條相反】
+    // 舊測試斷言 nLimit ≤ PILOT_G_POSITIVE。那個硬夾是錯的模型：真實的
+    // 飛行員拉得過去，代價是黑視（hud/widgets/gEffect.ts），不是操縱面
+    // 突然不理他。副作用是 spec 裡的結構極限從來沒有生效過。
+    //
+    // 保留一條**反向**斷言而不是直接刪掉，是因為「有沒有人把夾制加回來」
+    // 需要被守住 —— 直接刪掉的話，重新引入 6.5 G 硬夾不會有任何測試轉紅。
     const { aero } = setup(0, 300)
     const out = pitchRateLimit(P51D, aero, false, LEVEL, createPitchLimit())
-    expect(out.nLimit).toBeLessThanOrEqual(PILOT_G_POSITIVE + 1e-9)
+    expect(out.nLimit).toBeGreaterThan(PILOT_G_POSITIVE)
+    expect(out.source).not.toBe('pilot')
   })
 
   it('qMax 隨速度上升先增後受過載上限壓平', () => {
@@ -84,23 +92,38 @@ describe('pitchRateLimit', () => {
     expect(out.nAero).toBeLessThan(P51D.limits.gPositive * 0.5)
   })
 
-  it('高速時限制來源是飛行員，且氣動可用過載遠超過飛行員上限', () => {
-    // 實測（P-51D 海平面 V=160 m/s）：nAero=11.6258，飛行員上限 6.5G，
-    // 比值 1.7886——機翼還能給更多，是飛行員先撐不住，不是機翼先斷。
+  it('高速時限制來源是結構，且氣動可用過載遠超過結構極限', () => {
+    // 實測（P-51D 海平面 V=160 m/s）：nAero=11.6258，結構極限 8G，
+    // 比值 1.4532——機翼還能給更多，是機體先撐不住。
+    //
+    // 【2026-08-11 之前這條測的是 'pilot'】當時 6.5 G 的飛行員硬夾比結構
+    // 極限低，所以結構分支形同死碼。硬夾拿掉之後 source 換成 'structure'，
+    // nAero 本身沒變（它不受任何夾制影響）。
     const { aero } = setup(0, 160)
     const out = pitchRateLimit(P51D, aero, false, LEVEL, createPitchLimit())
-    expect(out.source).toBe('pilot')
-    expect(out.nLimit).toBeCloseTo(PILOT_G_POSITIVE, 10)
-    expect(out.nAero).toBeGreaterThan(PILOT_G_POSITIVE * 1.5)
+    expect(out.source).toBe('structure')
+    expect(out.nLimit).toBeCloseTo(P51D.limits.gPositive, 10)
+    expect(out.nAero).toBeGreaterThan(P51D.limits.gPositive * 1.4)
   })
 
   it('qMax 峰值落在轉折速度附近，與 envelope.cornerSpeed 有可解釋的偏移', () => {
     // 峰值位置只由 nAero(V) 與 min(結構,飛行員) 的交叉點決定，與 gLoad
     // 無關（qMax = (nLimit−gLoad)·g/V 在交叉點左側嚴格遞增、右側嚴格
     // 遞減，極值必在交叉點——加回 gLoad 只改變峰值「高度」，不改變
-    // 「位置」）。故此測試的邊界沿用第一輪推導：cornerSpeed 用結構
-    // 極限 8G／滿 CL_max，峰值用飛行員 6.5G／0.95·α_crit 的迎角餘裕
-    // CL，兩者不精確重合，落在 cornerSpeed 的 (0.85, 0.98) 倍區間內。
+    // 「位置」）。
+    //
+    // 【2026-08-11：偏移方向反轉，而且現在有閉式解】飛行員硬夾拿掉之後，
+    // cornerSpeed 與 qMax 峰值**用的是同一個過載上限**（結構極限），
+    // 差別只剩 CL：cornerSpeed 用滿 CL_max，峰值用 0.95·α_crit 的餘裕 CL。
+    // 於是比值可以直接算出來：
+    //
+    //   CL 比 = (0.95·α_crit − α_0) / (α_crit − α_0)
+    //         = (0.95×17 + 2.5) / (17 + 2.5) = 18.65 / 19.5 = 0.9564
+    //   速度比 = 1/√0.9564 = 1.0225          （n ∝ V²·CL，n 相同時 V ∝ 1/√CL）
+    //
+    // 峰值因此落在 cornerSpeed 的**上方** 2.25%（舊制是下方 2~15%，因為
+    // 當時峰值用 6.5 G 而 cornerSpeed 用 8 G，過載差主導了方向）。
+    // 實測 132.73 / 129.80 = 1.0226，與閉式解差 1e-4。
     let bestV = 0
     let bestQ = -Infinity
     for (let v = 50; v <= 200; v += 0.5) {
@@ -114,8 +137,9 @@ describe('pitchRateLimit', () => {
       if (q > bestQ) { bestQ = q; bestV = v }
     }
     const corner = cornerSpeed(P51D, 0)
-    expect(bestV).toBeGreaterThan(corner * 0.85)
-    expect(bestV).toBeLessThan(corner * 0.98)
+    // 閉式解 1.0225；區間留 ±1% 給掃描解析度（0.01 m/s）與浮點誤差
+    expect(bestV).toBeGreaterThan(corner * 1.012)
+    expect(bestV).toBeLessThan(corner * 1.033)
   })
 
   it('Bf 109 縫翼展開時可用過載高於未展開，且幅度與縫翼加成一致', () => {
