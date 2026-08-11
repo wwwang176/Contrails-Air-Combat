@@ -138,9 +138,43 @@ function scenario(behind: Vector3): Outcome {
  */
 const DAMAGE_BUDGET_SECONDS = 150 / 480
 
-/** 四種被咬的幾何。距離都在射擊解範圍內。 */
-const CASES: { name: string; behind: Vector3 }[] = [
-  { name: '正後方 400 m', behind: new Vector3(0, 0, 400) },
+/**
+ * 四種被咬的幾何。距離都在射擊解範圍內。
+ *
+ * `budgetSeconds` 為 `undefined` 時用 `DAMAGE_BUDGET_SECONDS`。
+ * **只有一個幾何需要覆寫**，理由見該筆的註解 —— 不要把它推廣成一律放寬。
+ */
+const CASES: { name: string; behind: Vector3; budgetSeconds?: number }[] = [
+  {
+    name: '正後方 400 m',
+    behind: new Vector3(0, 0, 400),
+    /**
+     * 【2026-08-11：0.3125 → 0.55，專案負責人裁定接受】
+     *
+     * 拿掉飛行員過載硬夾之後（`control/limiters.ts`，6.5 G → 結構極限），
+     * 這一格由 0.084 s 惡化到 **0.518 s**。成因是 AI 在破防時要求最大轉彎率，
+     * 而那現在給到 8 G —— 誘導阻力暴增、速度崩掉，於是閃不掉。專案負責人
+     * 2026-08-11 裁定「AI 拉爆自己這件事本身合理，接受」。
+     *
+     * 【為什麼只覆寫這一格，不動共用預算】同一天的四格實測：
+     *
+     * ```
+     *                舊(s)    新(s)
+     *   正後方 400    0.084   0.518   ← 只有這一格爆掉
+     *   正後方 250    0.143   0.053   改善
+     *   後上方 400    0        0      持平
+     *   後下方 400    0.225    0      改善
+     * ```
+     *
+     * **四格裡三格變好。** 把共用預算拉到 0.55 去蓋住離群值，等於把那三格
+     * 的守備力一次放掉 6 倍 —— 而它們現在的餘裕正好。退化是局部的，例外
+     * 就該是局部的。
+     *
+     * 【這個數字是拿來刪的】AI 能量紀律做完之後，把這一行整筆刪掉就能驗證
+     * 有沒有真的修好。若當初改成統一放寬，這個驗證就再也做不到了。
+     */
+    budgetSeconds: 0.55,
+  },
   { name: '正後方 250 m', behind: new Vector3(0, 0, 250) },
   { name: '後上方 400 m', behind: new Vector3(0, 150, 380) },
   { name: '後下方 400 m', behind: new Vector3(0, -150, 380) },
@@ -193,7 +227,8 @@ describe('被夾擊時的閃躲（1 藍 2 紅、30 秒）', () => {
       expect(o.dealtToA).toBeGreaterThan(0)
 
       // 【四：真正的產出 —— 少挨打】
-      expect(o.blueDamage).toBeLessThanOrEqual(DAMAGE_BUDGET_SECONDS * batteryDps(P51D_BATTERY))
+      const budget = c.budgetSeconds ?? DAMAGE_BUDGET_SECONDS
+      expect(o.blueDamage).toBeLessThanOrEqual(budget * batteryDps(P51D_BATTERY))
     })
   }
 })
