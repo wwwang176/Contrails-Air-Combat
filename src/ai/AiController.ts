@@ -6,7 +6,7 @@ import {
 import { createRuleState, stepRules, type Intent } from './rules'
 import {
   buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
-  shrinkTowardNose, stepDefend, steerCommand, type Knobs,
+  shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull } from './doctrine'
 import { cornerSpeed } from '../analysis/envelope'
@@ -118,6 +118,18 @@ export class AiController implements Controller {
 
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
+  /**
+   * 上一個決策節拍的幾何模式。**只為量測存在**，與 `intent` 同一個理由公開。
+   *
+   * 【為什麼光看 `intent` 不夠】幾何模式**壓過**意圖（`steerCommand` 的第一
+   * 個分支），所以「AI 現在在做什麼」是 `(intent, mode)` 這一對決定的，不是
+   * 意圖單獨決定的。診斷「AI 在原地垂直繞圈」時，只有意圖的時間序列看不出
+   * 迴路 —— `extend` 與 `speedRecover` 都會壓機頭，而它們一個是意圖、一個
+   * 是模式。見 `test/tools/stall-loop.probe.ts`。
+   *
+   * 沒有目標的那三條早退路徑不更新它（那些路徑根本不算幾何模式）。
+   */
+  mode: SteerMode = 'normal'
   safetyActive = false
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
@@ -157,7 +169,16 @@ export class AiController implements Controller {
    */
   decisionsMade = 0
 
-  private readonly sit = createSituation()
+  /**
+   * 這一格的態勢。**唯讀** —— 只有 `evaluateGeometry` / `evaluateEnergy` /
+   * `evaluateThreat` 能寫。
+   *
+   * 【為什麼公開】與 `rules`、`defend`、`mode` 同一個理由：診斷「AI 為什麼
+   * 這樣飛」時，行為是態勢的函數，只看輸出（`intent`、`aimWorld`）永遠只能
+   * 猜。`test/tools/stall-loop.probe.ts` 讀 `cornerRatio` 與 `pullCeiling`
+   * 去分辨「速度不足」與「拉桿被紀律夾住」——兩者的症狀一樣、修法相反。
+   */
+  readonly sit = createSituation()
   private readonly targetState = createTargetState()
   private readonly basis = createEngageBasis()
   /**
@@ -353,6 +374,7 @@ export class AiController implements Controller {
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
     const mode = geometryGate(this.sit, this.basis)
+    this.mode = mode
     // 【意圖是上一個決策節拍的值】反轉的觸發只在進入的那一格用得上，晚一個
     // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
     // 讀到的是**同一個**，不能半新半舊。
