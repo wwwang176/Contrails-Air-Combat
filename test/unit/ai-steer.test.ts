@@ -5,7 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull,
+  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
 } from '../../src/ai/steer'
 import { rallyAim } from '../../src/ai/rally'
 import { DEG } from '../../src/core/math'
@@ -1658,5 +1658,115 @@ describe('steerCommand：拉桿紀律', () => {
     sit.pullCeiling = 0.2
     steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), null, cmd)
     expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(raw * 0.2, 6)
+  })
+})
+
+/**
+ * 甜蜜區偏置（`Situation.sweetPitch`，見 `ai/doctrine.ts`）。
+ *
+ * 【與 `applyFloor` 的分工】`applyFloor` 只抬不壓（那是它能無條件疊加的
+ * 理由），甜蜜區需要雙向，所以是它的姊妹函式。兩者保的都是**世界水平
+ * 方位** —— 與 `shrinkTowardNose` 保的「機體滾轉方位」不是同一個東西。
+ */
+describe('applyPitchBias', () => {
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+  const azOf = (v: Vector3) => Math.atan2(v.x, -v.z)
+
+  it('抬頭與低頭都能，方位不動', () => {
+    const aim = new Vector3(0.5, 0, -1).normalize()
+    const az = azOf(aim)
+    const p0 = pitchOf(aim)
+
+    applyPitchBias(10 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(p0 + 10 * DEG, 9)
+    expect(azOf(aim)).toBeCloseTo(az, 9)
+    expect(aim.length()).toBeCloseTo(1, 12)
+
+    applyPitchBias(-20 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(p0 - 10 * DEG, 9)
+    expect(azOf(aim)).toBeCloseTo(az, 9)
+  })
+
+  it('偏置為 0 時逐位元不動', () => {
+    const aim = new Vector3(0.5, 0.2, -1).normalize()
+    const copy = aim.clone()
+    applyPitchBias(0, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  it('夾在 ±80°：偏置的用途是偏一點，不是翻過去', () => {
+    const aim = new Vector3(0, 0, -1)
+    applyPitchBias(120 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(80 * DEG, 9)
+    const down = new Vector3(0, 0, -1)
+    applyPitchBias(-120 * DEG, down)
+    expect(pitchOf(down)).toBeCloseTo(-80 * DEG, 9)
+  })
+})
+
+describe('steerCommand：甜蜜區偏置', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+  let self: Aircraft
+
+  const scene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -800], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+  }
+
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+
+  it('抬頭偏置反映在航跡角上', () => {
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = pitchOf(cmd.aimWorld)
+
+    sit.sweetPitch = 12 * DEG
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(before + 12 * DEG, 6)
+  })
+
+  /**
+   * 【指揮位階比戰術偏好高】「我想飛高一點」不該蓋過「去那個點集合」。
+   * 見 spec §4.4。
+   */
+  it('rally 意圖不套甜蜜區', () => {
+    scene()
+    const point = new Vector3(3000, 4000, -3000)
+    sit.sweetPitch = 0
+    steerCommand('rally', 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd)
+    const without = cmd.aimWorld.clone()
+
+    sit.sweetPitch = 15 * DEG
+    steerCommand('rally', 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd)
+    expect(cmd.aimWorld.x).toBe(without.x)
+    expect(cmd.aimWorld.y).toBe(without.y)
+    expect(cmd.aimWorld.z).toBe(without.z)
+  })
+
+  /** 【底限的優先序最高】「想低頭換速度」不能贏過「快撞海了」。 */
+  it('撞地底限壓過甜蜜區的低頭', () => {
+    scene()
+    sit.sweetPitch = -20 * DEG
+    // 地表抬到離自機只剩 50 m
+    steerCommand(
+      'engage', 'normal', sit, basis, self, self.state.position.y - 50,
+      k, createDefendState(), null, cmd,
+    )
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(floorPitchAngle(50), 9)
+    expect(pitchOf(cmd.aimWorld)).toBeGreaterThan(0)
   })
 })
