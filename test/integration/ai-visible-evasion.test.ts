@@ -89,8 +89,9 @@ const HIT_CONE = 2
  * 等於把它的牙齒一起拔掉。同日 `ai-defence` 是同樣的模式（四格裡三格變好、
  * 一格爆掉），處置也一樣：**退化是局部的，例外就該是局部的。**
  *
- * 【0.14 是拿來刪的】AI 能量紀律做完之後把 700 m 這一格改回 0.08，就能
- * 直接驗證有沒有修好。
+ * 【0.14 已經刪掉了，2026-08-11】AI 能量紀律（`ai/doctrine.ts` 的
+ * `energyPull`）上線後 700 m 這一格回到 0.08 並通過 —— 驗證成功，例外
+ * 整筆撤銷。上面那段留著是為了記錄它為什麼曾經存在。
  *
  * 【原本的來歷】0.08 = 舊軸較小的那個 16.2% 的一半。量於 `specs/feel.ts`
  * 的 `{ roll: 1.2, oswald: 2, power: 1.98, lift: 1.3, cd0: 2.06 }`；現在的
@@ -98,7 +99,7 @@ const HIT_CONE = 2
  * **史實 spec**（`new Aircraft(P51D, …)`），不經過手感層 —— 所以上面那次
  * 紅燈與手感倍率無關，純粹是過載上限造成的。
  */
-const SHOOTABLE_LIMIT: Record<number, number> = { 700: 0.14, 900: 0.08 }
+const SHOOTABLE_LIMIT = 0.08
 const CONTRAST_FLOOR = 6       // 地板：明顯大於「完全不閃」，不是新舊的鑑別器
 
 function harmless(b: Battery): Battery {
@@ -685,7 +686,7 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
       // **絕對位移**是實作的錯。完全不閃的基準線只有 0.9°，而 AI 平常追擊
       // 就有 6~11° —— 那條門檻連「不閃」都快要通過，而平常機動一定通過。
       // 該量的是破防與不破防的**對比**。詳見設計文件 §5.1。
-      expect(r.shootableShare).toBeLessThan(SHOOTABLE_LIMIT[standoff]!)
+      expect(r.shootableShare).toBeLessThan(SHOOTABLE_LIMIT)
       // 【副判準】視覺對比 —— 相對於**腳本直飛**的基準線，不是 AI 的平常機動。
       // 這是地板不是鑑別器，理由見 CONTRAST_FLOOR 的註解
       expect(r.contrast).toBeGreaterThan(CONTRAST_FLOOR)
