@@ -44,6 +44,8 @@ const SEED = 20260811
 const RAD = 180 / Math.PI
 const STRIDE = 24
 const WINDOW = 20
+/** 印出來的區間要比判定視窗長 —— 迴路的起因在視窗開始之前 */
+const TRACE_PAD = 30
 const FLIP_ANGLE = 15 / RAD
 const windowSamples = Math.round(WINDOW / (DT * STRIDE))
 
@@ -140,9 +142,10 @@ if (worst.index < 0) {
   // 第二趟：同一個開局原封不動再跑，只印那一架在那一段的細節
   const b = createBattle(new AiController(), DEFAULT_BATTLE, SEED)
   const c = b.world.combatants[worst.index]!
-  const from = worst.startSample
-  const to = worst.startSample + windowSamples
-  console.log(`  t(s)   TAS  高度   γ   目標 意圖      模式         corner  speedM  pull  sweet  extendγ  油門/煞  安全層`)
+  const padSamples = Math.round(TRACE_PAD / (DT * STRIDE))
+  const from = Math.max(1, worst.startSample - padSamples)
+  const to = worst.startSample + windowSamples + padSamples
+  console.log(`  t(s)   TAS  高度   γ   目標 意圖      模式        corner  sweet  油門/煞  敵距 ┃ 目標: id  TAS  高度    γ   距我`)
   let sample = 0
   for (let s = 0; s < Math.round(SECONDS / DT); s++) {
     stepBattle(b, DT)
@@ -159,7 +162,21 @@ if (worst.index < 0) {
     const corner = tas / cornerSpeed(a.spec, alt)
     const speedM = tas / Math.max(stallSpeed(a.spec, alt, 1), 1)
     // `extend` 若在跑，它命令的航跡角是多少（不管現在是不是 extend）
-    const extGamma = extendPitchAngle(corner, alt - ai.seaHeight, DEFAULT_STEER) * RAD
+    void extendPitchAngle; void DEFAULT_STEER; void speedM
+
+    /** 目標的狀態 —— 「我在追一個也在上下跑的東西嗎」是首要嫌疑 */
+    function tgtLine(ctl: AiController, me: typeof a): string {
+      const t = ctl.target
+      if (t === null) return '（無目標）'
+      const tv = t.state.velocity
+      const tsp = tv.length()
+      const tg = tsp > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, tv.y / tsp))) * RAD : 0
+      const idx = b.world.combatants.findIndex((o) => o.aircraft === t)
+      return `#${String(idx).padStart(2)} ${(t.diag.aero.tas * 3.6).toFixed(0).padStart(4)}`
+        + `${t.state.position.y.toFixed(0).padStart(7)}`
+        + `${tg.toFixed(0).padStart(5)}°`
+        + `${t.state.position.distanceTo(me.state.position).toFixed(0).padStart(6)}`
+    }
     console.log(
       `${(sample * DT * STRIDE).toFixed(1).padStart(6)}`
       + `${(tas * 3.6).toFixed(0).padStart(6)}`
@@ -170,12 +187,10 @@ if (worst.index < 0) {
       + ` ${ai.mode.padEnd(13)}`
       + `${corner.toFixed(2).padStart(6)}`
       + `${speedM.toFixed(2).padStart(8)}`
-      + `${ai.sit.pullCeiling.toFixed(2).padStart(6)}`
       + `${(ai.sit.sweetPitch * RAD).toFixed(0).padStart(6)}°`
-      + `${extGamma.toFixed(0).padStart(8)}°`
       + `  ${c.command.throttle.toFixed(2)}/${c.command.brake.toFixed(2)}`
-      + `  敵${nearestEnemy(b.world.combatants, c).toFixed(0).padStart(5)}`
-      + `  ${ai.safetyAction}`,
+      + `  ${nearestEnemy(b.world.combatants, c).toFixed(0).padStart(5)}`
+      + ` ┃ ${tgtLine(ai, a)}`,
     )
     if (sample > to) break
   }
