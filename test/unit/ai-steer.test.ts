@@ -540,11 +540,35 @@ describe('steerCommand', () => {
     expect(cmd.brake).toBe(0)
   })
 
-  it('超前閘門 → 減速全開且油門收掉', () => {
+  /**
+   * 【2026-08-13：超前不再收油門】舊版是 `throttle = THROTTLE_FLOOR` +
+   * `brake = 1`，三個手段（後置、高 yo-yo、減速）同時消耗能量。實測的
+   * 症狀：525 km/h 掉到 149 km/h 同時爬升 700 m —— 而 `overshoot` 的
+   * 觸發條件（`range < 120 && closureRate > 0`）**純幾何、不看速度**，
+   * 且優先序最高，所以「我沒速度了該俯衝」的 `speedRecover` 永遠輪不到。
+   * 進入 `overshoot` 的取樣有 73~88% 早就低於角落速度。
+   *
+   * 新版只留幾何手段（瞄準點的後置與高 yo-yo），能量交給既有的角落速度
+   * 判準 —— 真的超速才減速，低於角落速度時一點都不減。
+   */
+  it('超前閘門不收油門', () => {
     scene([0, 4000, -80], [0, 0, -120])
     steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
-    expect(cmd.brake).toBe(1)
-    expect(cmd.throttle).toBeLessThan(0.5)
+    expect(cmd.throttle).toBe(WEP_THROTTLE)
+  })
+
+  it('超前閘門且速度低於角落速度 → 不減速', () => {
+    scene([0, 4000, -80], [0, 0, -120])
+    sit.cornerRatio = 0.8
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.brake).toBe(0)
+  })
+
+  it('超前閘門但速度遠高於角落速度 → 仍然減速', () => {
+    scene([0, 4000, -80], [0, 0, -120])
+    sit.cornerRatio = 2.5
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.brake).toBeGreaterThan(0)
   })
 
   it('速度遠高於角落速度 → 減速（不是靠 VNE 判斷）', () => {

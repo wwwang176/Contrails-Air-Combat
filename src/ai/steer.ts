@@ -2,7 +2,6 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { WEP_THROTTLE } from '../physics/propulsion'
-import { THROTTLE_FLOOR } from '../input/throttle'
 import { rallyAim } from './rally'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
@@ -1426,12 +1425,23 @@ export function steerCommand(
   applyFloor(self, floorPitchAngle(self.state.position.y - seaHeight, cfg), out.aimWorld)
 
   // ── 油門與減速（spec §7.4）────────────────────────────
-  if (mode === 'overshoot') {
-    // 沒有減速板的年代這是做不到的，但本專案刻意加了（spec §2.1）。
-    // 配合後置與高 yo-yo，三者都在增加能量消耗。
-    out.throttle = THROTTLE_FLOOR
-    out.brake = 1
-  } else if (sit.cornerRatio > cfg.brakeCornerRatio) {
+  //
+  // 【2026-08-13：`overshoot` 不再有自己的一支】舊版是
+  // `throttle = THROTTLE_FLOOR` + `brake = 1` —— 後置、高 yo-yo、減速三者
+  // 同時消耗能量。問題出在它的觸發條件**純幾何**：`geometryGate` 只看
+  // `range < overshootRange && closureRate > 0`，一個字都沒問「我還有速度
+  // 嗎」，而它的優先序又是最高的，所以「我沒速度了該壓機頭」的
+  // `speedRecover` 在同一個態勢下永遠輪不到。
+  //
+  // 實測（`stall-loop-trace.probe.ts`）：525 km/h 掉到 149 km/h 同時爬升
+  // 700 m，安全層在壓機頭而瞄準點層還在拉 —— 兩層互相打架。進入
+  // `overshoot` 的取樣有 73~88% 本來就已經低於角落速度，也就是它專挑
+  // 最不該減速的時候減速。
+  //
+  // 現在只留**幾何**手段（瞄準點的後置與高 yo-yo，見上面的分支），能量
+  // 交給下面這條既有的角落速度判準：真的超速才減速，低於角落速度時一點
+  // 都不減。「衝過頭」在低速時本來就不成立 —— 低速的飛機追不上任何人。
+  if (sit.cornerRatio > cfg.brakeCornerRatio) {
     // 【判準是角落速度不是 VNE】limits.vne 在整個 src/ 裡沒有任何程式碼
     // 消費它——超速在本模型沒有後果，拿它當判準是死碼。速度遠高於角落
     // 速度則是模型真的模擬的代價：轉彎半徑 ∝ V²，而且高速舵面變重。

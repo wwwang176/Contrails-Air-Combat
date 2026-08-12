@@ -412,6 +412,17 @@ function enterBattle(): void {
   playerAi.board = battle.board
   playerAi.selfIndex = player.index
   playerAi.setDecisionPhase(player.index / world.combatants.length)
+  // 【重現一場戰鬥的鑰匙】種子是 `Math.random()` 抽的，不印出來就永遠
+  // 找不回這一場。（設定, 種子, 秒數, 座位）四樣湊齊，無頭環境就能把
+  // 同一場逐位元重跑 —— 人工試飛回報異常行為時，那是唯一的復現途徑。
+  //
+  // 【種子不進物理路徑】它只配飛行員名字，但它是 `createBattle` 唯一的
+  // 非決定性輸入，所以仍然是鑰匙的一部分。
+  console.log(
+    `[戰鬥] 種子 ${battle.seed}　藍 ${setup.blueCount} × ${setup.specId}`
+    + `　紅 ${setup.redCount}　玩家座位 #${player.index}`,
+  )
+  telemetryAt = 0
   respawnPlayer()
   wasDying = false
   // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
@@ -422,9 +433,44 @@ function enterBattle(): void {
   leaveGodView()
 }
 
+/**
+ * 每 `TELEMETRY_PERIOD` 秒印一行玩家那一架的狀態。
+ *
+ * 【印的是玩家那一架，不是全場】全場 40 行會把 console 淹掉，而回報者
+ * 看的永遠是自己跟拍的那一架。要看別架就用（種子, 秒數）重跑。
+ *
+ * 【AI 代飛時才有意圖可印】玩家自己飛的時候 `controller` 不是
+ * `AiController`，那幾欄留白 —— 這也順便標示出「這一段是誰在飛」。
+ */
+function logTelemetry(): void {
+  const a = player.aircraft
+  const v = a.state.velocity
+  const speed = v.length()
+  const gamma = speed > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, v.y / speed))) * (180 / Math.PI) : 0
+  const ctl = player.controller
+  const ai = ctl instanceof AiController ? ctl : null
+  console.log(
+    `[t=${elapsed.toFixed(0)}s] #${player.index}`
+    + `　${(a.diag.aero.tas * 3.6).toFixed(0)} km/h`
+    + `　${a.state.position.y.toFixed(0)} m`
+    + `　航跡 ${gamma.toFixed(0)}°`
+    + (ai === null ? '　（玩家操縱）' : `　${ai.intent}/${ai.mode}`
+      + `　目標 ${ai.target === null ? '無' : '#' + world.combatants.findIndex((c) => c.aircraft === ai.target)}`
+      + `　命令 ${ai.order === null ? '無' : ai.order.kind}`),
+  )
+}
+
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
+/**
+ * 下一次印遙測的時間，s。
+ *
+ * 【為什麼是週期而不是按鍵】人工試飛看到異常時，手已經在操縱上了 ——
+ * 要他再按一個鍵去標記，那一刻就過去了。定期印讓他事後往回捲就找得到。
+ */
+let telemetryAt = 0
+const TELEMETRY_PERIOD = 15
 
 /**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
@@ -977,6 +1023,10 @@ function frame(now: number) {
     if (!paused) {
       elapsed += frameSeconds
       stepAndDrawBattle(frameSeconds)
+      if (elapsed >= telemetryAt) {
+        telemetryAt = elapsed + TELEMETRY_PERIOD
+        logTelemetry()
+      }
     } else {
       ctx.renderer.render(ctx.scene, ctx.camera)
     }
