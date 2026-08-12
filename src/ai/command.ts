@@ -1110,9 +1110,20 @@ export function stepCommand(
           }
         }
       } else {
-        // rally：到達用小隊質心與半徑判。個別成員可能正在閃躲而落後，
-        // 整隊到了就算到了
-        if (centroidDistance(flight, units, order.point) <= order.radius) {
+        // rally：到達判**長機**，不是小隊質心。
+        //
+        // 【為什麼不是質心】兩層各自都對，合起來卻永遠不成立：`AiController`
+        // 只把集合點給長機（「只操縱長機，編隊靠既有機制跟上」），僚機拿到
+        // 的是「別打了」+ 站位保持；而質心被落在站位偏置上的僚機拖著，長機
+        // 飛過點的那一瞬質心離點還有一整個編隊尺度。
+        //
+        // 而 `rallyAim` 是對固定點的**純追擊、沒有抵達行為** —— 命令不解除
+        // 就等於長機繞著那個點無限盤旋。實測回報（seed 297534859、座位 #8）：
+        // `命令 rally` 連握 200 秒以上，高度鎖在 5258~5306 m、速度
+        // 319~333 km/h、mode 恆為 `unload`（吃滿迎角在轉彎）。
+        //
+        // 判長機就沒有這個縫：被送去的那一架自己說了算。
+        if (leaderDistance(flight, units, order.point) <= order.radius) {
           s.orders[f] = null
           // 【歸零就是遲滯】要再累積滿 spentSeconds 才會重發（第一份
           // spec §4.2）。少了這一行，抵達的下一格就會立刻重發
@@ -1262,6 +1273,26 @@ function centroidDistance(
   }
   if (n === 0) return Infinity
   return Math.hypot(cx / n - p.x, cy / n - p.y, cz / n - p.z)
+}
+
+/**
+ * 分隊長機離 `p` 多遠。全滅時回 `Infinity`（比不上任何門檻）。
+ *
+ * 【為什麼掃第一個**存活**的成員而不是 `members[0]`】`compactFlights` 每個
+ * 物理步保序重壓，正常情況下 `members[0]` 就是活著的長機。但這一層吃的是
+ * 快照，壓縮與 `stepCommand` 的先後順序是呼叫端的事 —— 寫死索引 0 會在
+ * 「長機剛陣亡、還沒重壓」的那一格算到一具屍體的座標，命令從此解除不了。
+ * 保序壓縮下「第一個存活者」與「繼位後的長機」是同一架，所以這不是近似。
+ */
+function leaderDistance(
+  flight: CommandFlight, units: readonly CommandUnit[], p: Vector3,
+): number {
+  for (let i = 0; i < flight.count; i++) {
+    const u = units[flight.members[i]!]
+    if (u === undefined || !u.alive) continue
+    return Math.hypot(u.position.x - p.x, u.position.y - p.y, u.position.z - p.z)
+  }
+  return Infinity
 }
 
 /** 已經收集好的一群的質心離 (x,y,z) 多遠。全滅時回 `Infinity` */
