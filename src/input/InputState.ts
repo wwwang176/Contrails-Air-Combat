@@ -87,6 +87,16 @@ export interface InputState {
   /** 上帝視角的移動輸入。`godView` 為 false 時全部為 false */
   godMove: GodMove
   /**
+   * 是否顯示指揮官的集合點（`O`）。**觀測工具，不影響任何模擬。**
+   *
+   * 【為什麼與 `godView` 獨立】要看的正是「跟拍某一架長機時，它與集合點的
+   * 相對位置」—— 綁在上帝視角上就看不到那個畫面了。
+   *
+   * 【為什麼是切換而不是按住】它要觀察的是一個持續數十秒到數分鐘的現象
+   * （集合令遲遲不解除），按住式的等於要按著幾分鐘。
+   */
+  orderMarkers: boolean
+  /**
    * 記分板是否按住（Tab）。
    *
    * 【為什麼是按住而不是切換】看戰績是一個「瞄一眼」的動作。切換式的話，
@@ -121,6 +131,7 @@ export function createInputState(): InputState {
       forward: false, back: false, left: false, right: false,
       up: false, down: false, boost: false,
     },
+    orderMarkers: false,
     scoreboardHeld: false,
     pointerLockLost: false,
   }

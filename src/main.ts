@@ -14,6 +14,7 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
 import { createVortex } from './render/vortex'
+import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
@@ -46,6 +47,7 @@ import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
+import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
@@ -181,6 +183,10 @@ const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
+// 【不進 POOLS】它沒有粒子狀態要在換場時歸零 —— 每一幀由指揮層的命令
+// 重新填滿，上一場的內容活不過一幀
+const orderMarkers = createOrderMarkers()
+ctx.scene.add(orderMarkers.object)
 const debris = createDebris()
 
 /**
@@ -760,6 +766,21 @@ function stepAndDrawBattle(frameSeconds: number): void {
   smoke.step(frameSeconds)
   vortex.step(frameSeconds)
   spray.step(frameSeconds)
+
+  // ── 集合點的可視化（`O`）───────────────────────────────
+  // 【觀測工具，不進任何模擬】只讀指揮層的狀態，不寫。
+  //
+  // 【為什麼要有它】集合令的到達判定是「長機進到 `order.radius` 以內」，而
+  // `rallyAim` 對那個點是**純追擊、沒有抵達行為** —— 迴轉半徑大於半徑時，
+  // 長機會在球外面繞著它盤旋而永遠判不到達。那個現象在無頭模擬裡重現不
+  // 出來（2026-08-13 紀錄 §3.1），但畫出來就一眼看得到。
+  //
+  // 【為什麼用 `state.position` 而不是內插後的位置】這條線只是要看「離多
+  // 遠」，一個物理步的抖動（240 Hz）在 300 m 的尺度下看不出來，而拿內插
+  // 位置要把整個 combatants 迴圈的暫存搬出來。
+  orderMarkers.setVisible(input.orderMarkers)
+  if (input.orderMarkers) fillOrderView(battle, orderMarkers)
+
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
