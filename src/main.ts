@@ -475,10 +475,22 @@ function logTelemetry(): void {
 /**
  * 命令那一欄。**張數與已握秒數是重點，不是 `kind`。**
  *
- * 集合令另外印**離集合點多遠** —— 到達判定就是這個距離與 `order.radius`
- * 的比較（`command.ts` 的 `leaderDistance`），而玩家恆佔自己分隊的
- * `members[0]`（`flights.ts` 的 `pinned`），所以玩家那一架的距離**就是**
- * 判定用的那一個數。
+ * 集合令另外印兩個距離:**我的**與**長機的**。
+ *
+ * 【為什麼要印兩個】到達判定比的是 `command.ts` 的 `leaderDistance`，也就是
+ * 分隊裡**第一個存活成員**離集合點多遠。而 `compactFlights` 把玩家釘在
+ * `members[0]`（`flights.ts` 的 `pinned`），所以理論上兩者恆等 —— 這一版
+ * 之前就是靠那個理論只印一個數。
+ *
+ * 2026-08-14 的實機回報打破了那個理論：座位 #8 的距離連續進到 250 m、
+ * 209 m、145 m（判定 300 m），命令卻握了 196 秒沒解除。而 headless 用全 AI
+ * 與「人飛 15 秒再交接」兩種條件、約 40 張命令、幾十萬個物理步，一次都
+ * 複製不出來（`test/tools/rally-stuck.probe.ts`、`rally-handover.probe.ts`
+ * 量的不變式是 0 違反）。
+ *
+ * 所以下一次要讓症狀自己說出是誰：**長機是哪一架、它離集合點多遠**。
+ *   兩個數相同而仍未解除 → 解除路徑本身壞了
+ *   長機不是玩家那一架   → `pinned` 的不變式在遊戲裡不成立，往 compactFlights 查
  *
  * 一直繞不進去的話，這一欄會是一串遠大於 300 的數字而張數不動；churn 的
  * 話會是張數一直跳而秒數一直被歸零。兩種病在同一行裡分得開。
@@ -489,7 +501,30 @@ function orderLabel(order: FlightOrder | null): string {
   const base = `${order.kind}（第 ${orderCount} 張，已握 ${held}s`
   if (order.kind !== 'rally') return base + '）'
   const d = player.aircraft.state.position.distanceTo(order.point)
-  return `${base}，離集合點 ${d.toFixed(0)} m／判定 ${order.radius.toFixed(0)} m）`
+  return `${base}，我離 ${d.toFixed(0)} m，${leaderLabel(order.point)}`
+    + `／判定 ${order.radius.toFixed(0)} m）`
+}
+
+/**
+ * 判定實際用的那個數：分隊第一個存活成員是誰、離集合點多遠。
+ *
+ * 【為什麼在這裡重算而不是從 command.ts 匯出】`leaderDistance` 是那個模組的
+ * 私有函數，為了一行遙測把它公開會讓「誰可以問到達判定」這件事變模糊。這裡
+ * 逐字重寫五行，並且**刻意讀同一份 `commandUnits` 快照** —— 若快照與飛機
+ * 本體不同步，這一行印出來的就會與「我離」矛盾，那本身就是線索。
+ */
+function leaderLabel(point: Vector3): string {
+  const f = battle.flights.flightOf[player.index] ?? -1
+  const flight = f >= 0 ? battle.flights.flights[f] : undefined
+  if (flight === undefined) return '長機 無編制'
+  for (let i = 0; i < flight.count; i++) {
+    const idx = flight.members[i]!
+    const u = battle.commandUnits[idx]
+    if (u === undefined || !u.alive) continue
+    const d = Math.hypot(u.position.x - point.x, u.position.y - point.y, u.position.z - point.z)
+    return `長機 #${idx} 離 ${d.toFixed(0)} m`
+  }
+  return '長機 全滅'
 }
 
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
