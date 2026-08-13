@@ -43,6 +43,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import type { FlightOrder } from './ai/command'
 import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
@@ -429,6 +430,11 @@ function enterBattle(): void {
     + `　紅 ${setup.redCount}　玩家座位 #${player.index}`,
   )
   telemetryAt = 0
+  // 【命令的計數也要歸零】不歸零的話「第 87 張」會跨場累積，那個數字
+  // 從此不能拿來比較
+  orderRef = null
+  orderSince = 0
+  orderCount = 0
   respawnPlayer()
   wasDying = false
   // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
@@ -462,8 +468,28 @@ function logTelemetry(): void {
     + `　航跡 ${gamma.toFixed(0)}°`
     + (ai === null ? '　（玩家操縱）' : `　${ai.intent}/${ai.mode}`
       + `　目標 ${ai.target === null ? '無' : '#' + world.combatants.findIndex((c) => c.aircraft === ai.target)}`
-      + `　命令 ${ai.order === null ? '無' : ai.order.kind}`),
+      + `　命令 ${orderLabel(ai.order)}`),
   )
+}
+
+/**
+ * 命令那一欄。**張數與已握秒數是重點，不是 `kind`。**
+ *
+ * 集合令另外印**離集合點多遠** —— 到達判定就是這個距離與 `order.radius`
+ * 的比較（`command.ts` 的 `leaderDistance`），而玩家恆佔自己分隊的
+ * `members[0]`（`flights.ts` 的 `pinned`），所以玩家那一架的距離**就是**
+ * 判定用的那一個數。
+ *
+ * 一直繞不進去的話，這一欄會是一串遠大於 300 的數字而張數不動；churn 的
+ * 話會是張數一直跳而秒數一直被歸零。兩種病在同一行裡分得開。
+ */
+function orderLabel(order: FlightOrder | null): string {
+  if (order === null) return '無'
+  const held = (elapsed - orderSince).toFixed(0)
+  const base = `${order.kind}（第 ${orderCount} 張，已握 ${held}s`
+  if (order.kind !== 'rally') return base + '）'
+  const d = player.aircraft.state.position.distanceTo(order.point)
+  return `${base}，離集合點 ${d.toFixed(0)} m／判定 ${order.radius.toFixed(0)} m）`
 }
 
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
@@ -479,6 +505,33 @@ let telemetryAt = 0
 const TELEMETRY_PERIOD = 15
 
 /**
+ * 玩家那一架**目前**握著的命令物件，用來認同一性。`null` = 沒有命令。
+ *
+ * 【為什麼要認同一性而不是只印 `kind`】`spentSeconds` 是 3 秒、`planPeriod`
+ * 是 2 秒 —— 一張命令解除之後，只要分隊仍然見底，五秒內就會發出新的一張。
+ * 每 15 秒印一次 `kind` 的話，「一張握了 1600 秒」與「一百張各握 16 秒」
+ * 印出來**一模一樣**，而這兩件事的診斷完全相反。
+ *
+ * 2026-08-13 的實機 log 就卡在這裡：`命令 rally` 連續 1600 秒，但那份數據
+ * 分不出集合令到底有沒有在解除。
+ */
+let orderRef: FlightOrder | null = null
+/** `orderRef` 是在哪一秒換上來的 */
+let orderSince = 0
+/** 這一場總共發過幾張命令給玩家那一架。churn 的直接指標 */
+let orderCount = 0
+
+/** 每幀認一次玩家那一架的命令有沒有換人。換了就重新計時 */
+function trackPlayerOrder(): void {
+  const ctl = player.controller
+  const now = ctl instanceof AiController ? ctl.order : null
+  if (now === orderRef) return
+  orderRef = now
+  orderSince = elapsed
+  if (now !== null) orderCount++
+}
+
+/**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
  *
  * 【為什麼抽出來】選單期間這一整段都不該跑（沒有 `Battle`）。抽成函數
@@ -486,6 +539,7 @@ const TELEMETRY_PERIOD = 15
  * `main.ts` 沒有測試護著，這一步必須看得出來只是搬家。
  */
 function stepAndDrawBattle(frameSeconds: number): void {
+  trackPlayerOrder()
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
   // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
   // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續
