@@ -1171,6 +1171,201 @@ describe('破防的能量讓位', () => {
     expect(defendPitchBias(Number.NaN, armed)).toBe(0)
     expect(defendPitchBias(Number.NaN)).toBe(0)
   })
+
+  /**
+   * 【接線的守門員】純函數綠不代表接上了。
+   *
+   * 【為什麼「關閉組」明寫 `defendEnergyGain: 0` 而不是用 `DEFAULT_STEER`】
+   * Task 3 會把出貨值回填成非零。拿 `DEFAULT_STEER` 當關閉組的話，回填到
+   * 1×錨 時兩組相等、回填到 1.5× 或 2× 時大小關係反轉 —— 這條測試會在調參
+   * 的那一刻失效或反向紅。一條會因為調參而失效的測試，等於沒有測試。
+   *
+   * 【`threatLos` 明寫】`evaluateGeometry` **不會**填 `threatLos` —— 那是
+   * `evaluateThreat` 的工作。不寫的話這個場景實際上是靠 `createSituation()`
+   * 的預設值 `(0, 0, −1)` 才成立，而那是一個會被無關重構悄悄改掉的相依。
+   *
+   * 【`sweetPitch = 0`、`pullCeiling = 1`、4000 m】三者讓瞄準點之後的每一層
+   * 後處理都逐位元不動：`shrinkTowardNose` 在 `factor >= 1` 直接 return、
+   * `applyPitchBias` 在 `deltaPitch === 0` 直接 return、`floorPitchAngle` 在
+   * 高空嚴格回 0 所以 `applyFloor` 直接 return。恆等測試才能逐分量比。
+   */
+  const scene = () => {
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -400], [0, 0, -180])
+    const sit = createSituation()
+    const basis = createEngageBasis()
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.threatLos.set(0, 0, -1)
+    sit.stallMargin = 2
+    sit.speedMargin = 5
+    sit.cornerRatio = 0.6
+    sit.sweetPitch = 0
+    sit.pullCeiling = 1
+    return { self, sit, basis }
+  }
+  const OFF = { ...DEFAULT_STEER, defendEnergyGain: 0 }
+  const ON = { ...DEFAULT_STEER, defendEnergyGain: ANCHOR }
+  const K: Knobs = { leadLag: 0, vertical: 0 }
+  const gammaOf = (cmd: ReturnType<typeof createCommand>) =>
+    Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+
+  it('接線：只有 defend 吃這一層', () => {
+    const { self, sit, basis } = scene()
+    const cmd = createCommand()
+
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, OFF)
+    const defendOff = gammaOf(cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, ON)
+    const defendOn = gammaOf(cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, OFF)
+    const engageOff = gammaOf(cmd)
+    steerCommand('engage', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, ON)
+    const engageOn = gammaOf(cmd)
+
+    // defend 被壓低了
+    expect(defendOn).toBeLessThan(defendOff)
+    // engage 完全不受影響
+    expect(engageOn).toBeCloseTo(engageOff, 12)
+  })
+
+  /**
+   * 【`intent === 'defend'` 不等於本幀套上了 `defendTilt`】`steerCommand` 的
+   * 瞄準分支裡，`defend` 意圖有**五條**不同的路徑：
+   *
+   * ```
+   *   mode === 'planeDegenerate'   losAxis          沒有 defendTilt
+   *   mode === 'speedRecover'      unloadAim(−20°)  沒有，而且**已經在壓機頭**
+   *   mode === 'overshoot'         高 yo-yo          沒有
+   *   reversal > 0                 reversalAim      沒有
+   *   其餘                          defendAim        只有這條**可能**有抬角
+   * ```
+   *
+   * 這一層的存在理由是「抵銷那個固定抬角」。在沒有抬角的路徑上套負偏置只是
+   * 平白壓機頭 —— 最糟的是 `speedRecover`：它本來就在壓 `speedRecoverPitch`
+   * （20°），疊上去變兩倍，而它觸發的時機**正是速度最低、偏置最大的時候**。
+   * 那正是 2026-08-13 前兩次調參「安全層替 AI 飛」的路徑。
+   */
+  it('幾何 mode 壓過意圖時不套這一層', () => {
+    const { self, sit, basis } = scene()
+    const cmd = createCommand()
+
+    for (const mode of ['planeDegenerate', 'speedRecover', 'overshoot'] as const) {
+      steerCommand('defend', mode, sit, basis, self, 0, K, createDefendState(), null, cmd, OFF)
+      const off = gammaOf(cmd)
+      steerCommand('defend', mode, sit, basis, self, 0, K, createDefendState(), null, cmd, ON)
+      const on = gammaOf(cmd)
+      expect(on, mode).toBeCloseTo(off, 12)
+    }
+  })
+
+  it('反轉期間不套這一層', () => {
+    const { self, sit, basis } = scene()
+    const attacker = flyer()
+    place(attacker, [0, 4000, 300], [0, 0, -180])
+    const cmd = createCommand()
+
+    const reversing = () => {
+      const d = createDefendState()
+      d.reversal = 1
+      d.attacker = attacker
+      return d
+    }
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, reversing(), null, cmd, OFF)
+    const off = gammaOf(cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, reversing(), null, cmd, ON)
+    const on = gammaOf(cmd)
+    expect(on).toBeCloseTo(off, 12)
+  })
+
+  /**
+   * 【`defendAim` 內部的鉛直退化路徑也沒有抬角】`threatLos` 近乎鉛直時
+   * `UP × threatLos` 退化，`defendAim` 改走升力軸／機體橫軸的備援 —— 那條
+   * 路徑**一個字都沒用到 `cfg.defendTilt`**。所以「意圖是 defend 且 mode 是
+   * normal 且沒在反轉」仍然不足以判定有抬角可以讓位，旗標必須由 `defendAim`
+   * 自己回報。
+   *
+   * 而鉛直威脅正是垂直纏鬥的幾何 —— 也就是速度最低、偏置最大的那個場景。
+   */
+  it('威脅在正上方（defendAim 走退化路徑）時不套這一層', () => {
+    const { self, sit, basis } = scene()
+    sit.threatLos.set(0, 1, 0)
+    const cmd = createCommand()
+
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, OFF)
+    const off = gammaOf(cmd)
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, ON)
+    const on = gammaOf(cmd)
+    expect(on).toBeCloseTo(off, 12)
+  })
+
+  it('defendAim 回報自己有沒有套上抬角', () => {
+    const self = flyer()
+    const out = new Vector3()
+    expect(defendAim(self, new Vector3(0, 0, -1), 1, out)).toBe(true)
+    expect(defendAim(self, new Vector3(0, 1, 0), 1, out)).toBe(false)
+    expect(defendAim(self, new Vector3(0, -1, 0), 1, out)).toBe(false)
+  })
+
+  /**
+   * 【關著就等於不存在 —— 逐分量比，不是只看長度】只驗「純函數回 0」與
+   * 「向量長度是 1」是 vacuous 的：任何寫壞的接線（誤用 `defendEnergyLimit`、
+   * 固定減一個角、旗標設錯）最後都仍然 normalize 成單位向量，那種測試會照樣綠。
+   *
+   * 這個場景的後處理三層全部逐位元不動（見 `scene` 的註解），所以
+   * `steerCommand` 的輸出必須**逐分量嚴格等於** `defendAim` 的輸出。
+   */
+  it('增益 0 時瞄準點逐分量等於 defendAim 的原始輸出', () => {
+    const { self, sit, basis } = scene()
+    const ref = new Vector3()
+    defendAim(self, sit.threatLos, createDefendState().axisSign, ref, OFF)
+    const cmd = createCommand()
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, OFF)
+    expect(cmd.aimWorld.x).toBe(ref.x)
+    expect(cmd.aimWorld.y).toBe(ref.y)
+    expect(cmd.aimWorld.z).toBe(ref.z)
+  })
+
+  /**
+   * 【合成角度只夾一次】`sweetPitch` 與 `defendBias` 相加之後由
+   * `applyPitchBias` 統一夾在 ±80°。若實作者改成呼叫兩次 `applyPitchBias`，
+   * 各自夾制的結果會與相加後夾一次不同 —— 這一條就是那個差異的守門員。
+   *
+   * 【`applyPitchBias` 是加在現有航跡角上，不是設定絕對值】所以基準是
+   * `defendAim` 輸出的航跡角 p0（這個場景約 19.3°），不是 0。
+   *
+   * 取 `sweetPitch = +85°`：
+   *
+   * ```
+   *   相加後夾一次   clamp(19.3 + 85 − 32) = 72.3°   ← 沒碰到 80° 的夾制
+   *   分兩次各夾     clamp(19.3 + 85) = 80°，再 −32 = 48°
+   * ```
+   *
+   * 兩者差 24°。這個 `sweetPitch` 是刻意挑的 —— 要讓「第一次就飽和」成立
+   * （19.3 + 85 > 80），同時「相加後不飽和」也成立（72.3 < 80），差異才顯現。
+   * 測試裡把這兩個前提也斷言出來，免得日後 `defendTilt` 或 `defendOffset` 改動
+   * 讓 p0 漂掉、這條測試靜默退化成恆真。
+   */
+  it('sweetPitch 與能量偏置相加後只夾一次', () => {
+    const { self, sit, basis } = scene()
+    const ref = new Vector3()
+    defendAim(self, sit.threatLos, createDefendState().axisSign, ref, ON)
+    const p0 = Math.asin(Math.max(-1, Math.min(1, ref.y)))
+    const bias = defendPitchBias(sit.cornerRatio, ON)
+    const LIMIT = 80 * DEG
+
+    // 前提一：分兩次的話第一次就會撞到夾制
+    expect(p0 + 85 * DEG).toBeGreaterThan(LIMIT)
+    // 前提二：相加之後沒撞到，所以兩種寫法的結果不同
+    expect(p0 + 85 * DEG + bias).toBeLessThan(LIMIT)
+
+    sit.sweetPitch = 85 * DEG
+    const cmd = createCommand()
+    steerCommand('defend', 'normal', sit, basis, self, 0, K, createDefendState(), null, cmd, ON)
+    expect(gammaOf(cmd)).toBeCloseTo(p0 + 85 * DEG + bias, 6)
+  })
 })
 
 /**

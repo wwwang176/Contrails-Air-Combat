@@ -1458,6 +1458,11 @@ export function steerCommand(
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
   // ── 瞄準點 ──────────────────────────────────────────────
+  // 【為什麼要這個旗標】`intent === 'defend'` 不等於本幀套上了 `defendTilt`
+  // —— 三個幾何 mode 壓過意圖、`reversal` 期間走 `reversalAim`，而 `defendAim`
+  // 自己在視線鉛直時也會走沒有抬角的退化路徑。只有真的有那個固定抬角，才有
+  // 東西可以讓位。所以旗標由 `defendAim` 回報，不由意圖推論。
+  let defendTilted = false
   // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
   if (mode === 'planeDegenerate') {
     out.aimWorld.copy(basis.losAxis)
@@ -1489,7 +1494,7 @@ export function steerCommand(
         if (defend.reversal > 0 && defend.attacker !== null) {
           reversalAim(self, defend.attacker, out.aimWorld)
         } else {
-          defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
+          defendTilted = defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
         }
         break
       case 'rally':
@@ -1538,7 +1543,21 @@ export function steerCommand(
   // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
   // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
   // 命令的內容是「把自己拉爆」。見 spec §4.4。
-  if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
+  //
+  // 【2026-08-14：多了破防的能量讓位】兩個偏置**相加，只旋轉一次**。兩次呼叫
+  // `applyPitchBias` 會有次序相依，而且各自夾制會讓合成結果難以推理 —— 相加
+  // 之後由那一層統一夾在 ±PITCH_BIAS_LIMIT。有一條單元測試釘住這個差異
+  // （sweetPitch = 85° 時，相加後夾一次得 53°，分兩次夾會得 48°）。
+  //
+  // 【為什麼要那一層】`defendAim` 固定往上抬 `defendTilt`（20°），不管有沒有
+  // 速度。實測 20v20 下 `defend` 每秒淨爬升 12.8 m，而系統整體是只上不下的
+  // 棘輪。見 `defendEnergyGain` 的註解。
+  //
+  // 【條件是 `defendTilted` 不是 `intent === 'defend'`】見上面那個旗標的註解。
+  if (intent !== 'rally') {
+    const defendBias = defendTilted ? defendPitchBias(sit.cornerRatio, cfg) : 0
+    applyPitchBias(sit.sweetPitch + defendBias, out.aimWorld)
+  }
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
@@ -1668,7 +1687,14 @@ export function defendAim(
   sign: number,
   out: Vector3,
   cfg: SteerConfig = DEFAULT_STEER,
-): void {
+): boolean {
+  // 【回傳值的意義】這一格有沒有真的套上 `defendTilt` 的固定抬角。
+  //
+  // 下面有兩條退化路徑（視線鉛直、以及視線鉛直且升力平行視線）**一個字都
+  // 沒用到 `cfg.defendTilt`**。`defendPitchBias` 的存在理由就是抵銷那個抬角
+  // —— 沒抬角的路徑上套負偏置只是平白壓機頭，而鉛直威脅正是垂直纏鬥的幾何，
+  // 也就是速度最低、偏置最大的那個場景。呼叫端不需要這個資訊時忽略即可。
+  let tilted = false
   const axis = D.v[0]!
   const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
 
@@ -1684,6 +1710,7 @@ export function defendAim(
       up.divideScalar(upLen)
       axis.copy(horiz).multiplyScalar(Math.cos(cfg.defendTilt))
         .addScaledVector(up, Math.sin(cfg.defendTilt))
+      tilted = true
     } else {
       axis.copy(horiz)
     }
@@ -1693,13 +1720,14 @@ export function defendAim(
     if (perpendicular(right, threatLos, axis) < AXIS_EPSILON) {
       // 數學上到不了，但浮點世界留一條退路：任何非平行的方向都比「指著他」好
       out.copy(threatLos)
-      return
+      return false
     }
   }
 
   out.copy(threatLos).multiplyScalar(Math.cos(cfg.defendOffset))
     .addScaledVector(axis, Math.sin(cfg.defendOffset))
     .normalize()
+  return tilted
 }
 
 /**
