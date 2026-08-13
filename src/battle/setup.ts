@@ -13,7 +13,8 @@ import {
   createCommandState, stepCommand,
   type CommandState, type CommandUnit,
 } from '../ai/command'
-import { cornerSpeed, serviceCeiling } from '../analysis/envelope'
+import { serviceCeiling } from '../analysis/envelope'
+import { manoeuvreSpeed } from '../ai/doctrine'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
@@ -473,7 +474,11 @@ function stepCommandLayer(b: Battle, dt: number): void {
     const a = c.aircraft
     // 【為什麼不從 AiController 的 sit 拿】那個欄位是私有的，而且玩家座位
     // 根本沒有 AiController。直接算比較誠實，也不依賴 AI 這一步跑過沒有
-    const vc = cornerSpeed(a.spec, a.state.position.y)
+    // 【分母與 `assess.ts` 的 `cornerRatio` 必須是同一個】指揮層的
+    // `spentRatio`（見底）與 `ENGAGED_RATIO`（已交戰）吃這個比值，若它與
+    // 戰機端用不同的尺標，「指揮官認為誰沒能量」就會與「飛機自己覺得沒
+    // 能量」對不起來。見 `ai/doctrine.ts` 的 `manoeuvreGFraction`
+    const vc = manoeuvreSpeed(a.spec, a.state.position.y)
     u.cornerRatio = vc > 1e-3 ? a.state.velocity.length() / vc : 0
     // 【滿血由 spec 給】`c.hp` 的上界是 `c.aircraft.spec.hp`（`World` 的
     // respawn 就是抄它）。夾在 0 以上：受創超過滿血時 hp 會是負的
