@@ -455,12 +455,12 @@ git commit -m "feat: defendPitchBias 純函數 —— 破防時的能量讓位�
 ### Task 2: 接進 `steerCommand`,確認逐位元恆等
 
 **Files:**
-- Modify: `src/ai/steer.ts:1456`(`applyPitchBias` 的呼叫點)
+- Modify: `src/ai/steer.ts` —— `steerCommand` 的瞄準分支(約 1375~1424 行,加 `defendTilted` 旗標)與 `applyPitchBias` 的呼叫點(原 1456 行)
 - Test: `test/unit/ai-steer.test.ts`
 
 **Interfaces:**
-- Consumes: `defendPitchBias`(Task 1)、`Situation.cornerRatio`、`applyPitchBias(deltaPitch: number, aim: Vector3): void`(既有)
-- Produces: 無新介面。`steerCommand` 的簽名不變。
+- Consumes: `defendPitchBias`(Task 1)、`Situation.cornerRatio`、`applyPitchBias(deltaPitch: number, aim: Vector3): void`(既有)、`DefendState.reversal` / `DefendState.attacker`(既有)
+- Produces: 無新介面。`steerCommand` 的簽名不變,`defendTilted` 是函數內的區域變數。
 
 - [ ] **Step 1: 寫失敗的測試**
 
@@ -468,10 +468,14 @@ git commit -m "feat: defendPitchBias 純函數 —— 破防時的能量讓位�
 
 ```ts
   /**
-   * 【接線的守門員】純函數綠不代表接上了。這一條把增益開起來，比較
-   * `defend` 與 `engage` 在同一個態勢下的航跡角 —— 只有 `defend` 該被壓。
+   * 【接線的守門員】純函數綠不代表接上了。
+   *
+   * 【為什麼「關閉組」明寫 `defendEnergyGain: 0` 而不是用 `DEFAULT_STEER`】
+   * Task 3 會把出貨值回填成非零。拿 `DEFAULT_STEER` 當關閉組的話，回填到
+   * 1×錨 時兩組相等、回填到 1.5× 或 2× 時大小關係反轉 —— 這條測試會在調參
+   * 的那一刻失效或反向紅。
    */
-  it('接線：只有 defend 吃這一層', () => {
+  const scene = () => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -485,29 +489,83 @@ git commit -m "feat: defendPitchBias 純函數 —— 破防時的能量讓位�
     sit.cornerRatio = 0.6
     sit.sweetPitch = 0
     sit.pullCeiling = 1
+    return { self, sit, basis }
+  }
+  const OFF = { ...DEFAULT_STEER, defendEnergyGain: 0 }
+  const ON = { ...DEFAULT_STEER, defendEnergyGain: DEFAULT_STEER.defendTilt / 0.25 }
+
+  it('接線：只有 defend 吃這一層', () => {
+    const { self, sit, basis } = scene()
     const k: Knobs = { leadLag: 0, vertical: 0 }
     const cmd = createCommand()
     const gamma = () => Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
 
-    const armedCfg = { ...DEFAULT_STEER, defendEnergyGain: DEFAULT_STEER.defendTilt / 0.25 }
-
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd,
-      DEFAULT_STEER)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
     const defendOff = gamma()
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd,
-      armedCfg)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, ON)
     const defendOn = gamma()
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd,
-      armedCfg)
-    const engageOn = gamma()
-    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd,
-      DEFAULT_STEER)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
     const engageOff = gamma()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, ON)
+    const engageOn = gamma()
 
     // defend 被壓低了
     expect(defendOn).toBeLessThan(defendOff)
     // engage 完全不受影響
     expect(engageOn).toBeCloseTo(engageOff, 12)
+  })
+
+  /**
+   * 【`intent === 'defend'` 不等於本幀走了 `defendAim`】這是 Codex 審查抓出來
+   * 的。`steerCommand` 的瞄準分支裡，`defend` 意圖有**五條**不同的路徑：
+   *
+   * ```
+   *   mode === 'planeDegenerate'   losAxis          沒有 defendTilt
+   *   mode === 'speedRecover'      unloadAim(−20°)  沒有，而且**已經在壓機頭**
+   *   mode === 'overshoot'         高 yo-yo          沒有
+   *   reversal > 0                 reversalAim      沒有
+   *   其餘                          defendAim        **只有這條有那 20° 抬角**
+   * ```
+   *
+   * 這一層的存在理由是「抵銷那個固定抬角」。在沒有抬角的四條路徑上套負偏置
+   * 只是平白壓機頭 —— 最糟的是 `speedRecover`：它本來就在壓
+   * `speedRecoverPitch`（20°），疊上去變兩倍，而它觸發的時機**正是速度最低、
+   * 偏置最大的時候**。那正是 2026-08-13 前兩次調參「安全層替 AI 飛」的路徑。
+   */
+  it('幾何 mode 壓過意圖時不套這一層', () => {
+    const { self, sit, basis } = scene()
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const cmd = createCommand()
+    const gamma = () => Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+
+    for (const mode of ['planeDegenerate', 'speedRecover', 'overshoot'] as const) {
+      steerCommand('defend', mode, sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
+      const off = gamma()
+      steerCommand('defend', mode, sit, basis, self, 0, k, createDefendState(), null, cmd, ON)
+      const on = gamma()
+      expect(on, mode).toBeCloseTo(off, 12)
+    }
+  })
+
+  it('反轉期間不套這一層', () => {
+    const { self, sit, basis } = scene()
+    const attacker = flyer()
+    place(attacker, [0, 4000, 300], [0, 0, -180])
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const cmd = createCommand()
+    const gamma = () => Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+
+    const reversing = () => {
+      const d = createDefendState()
+      d.reversal = 1
+      d.attacker = attacker
+      return d
+    }
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, reversing(), null, cmd, OFF)
+    const off = gamma()
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, reversing(), null, cmd, ON)
+    const on = gamma()
+    expect(on).toBeCloseTo(off, 12)
   })
 
   /**
@@ -518,29 +576,15 @@ git commit -m "feat: defendPitchBias 純函數 —— 破防時的能量讓位�
    * 成非零。寫死 0 的設定讓這一條在回填之後**仍然驗得到同一件事**，不必跟著改
    * —— 一條會因為調參而失效的測試，等於沒有測試。
    */
-  it('增益 0 時 defend 的瞄準點與這一層不存在時相同', () => {
-    const off = { ...DEFAULT_STEER, defendEnergyGain: 0 }
-    const self = flyer()
-    const target = flyer()
-    place(self, [0, 4000, 0], [0, 0, -180])
-    place(target, [0, 4000, -400], [0, 0, -180])
-    const sit = createSituation()
-    const basis = createEngageBasis()
-    evaluateGeometry(self, target, sit)
-    buildEngageBasis(self, target, basis)
-    sit.stallMargin = 2
-    sit.speedMargin = 5
-    sit.cornerRatio = 0.6
-    sit.sweetPitch = 0
-    sit.pullCeiling = 1
+  it('增益 0 時偏置恆為 0，瞄準點仍是單位向量', () => {
+    const { self, sit, basis } = scene()
     const k: Knobs = { leadLag: 0, vertical: 0 }
     const cmd = createCommand()
 
     // 增益 0 時 defendPitchBias 恆回傳 0，applyPitchBias 對 0 直接 return
-    expect(defendPitchBias(sit.cornerRatio, off)).toBe(0)
-    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, off)
-    const withLayer = cmd.aimWorld.clone()
-    expect(withLayer.length()).toBeCloseTo(1, 9)
+    expect(defendPitchBias(sit.cornerRatio, OFF)).toBe(0)
+    steerCommand('defend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
+    expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
   })
 ```
 
@@ -549,9 +593,55 @@ git commit -m "feat: defendPitchBias 純函數 —— 破防時的能量讓位�
 Run: `npx vitest run test/unit/ai-steer.test.ts -t "接線"`
 Expected: FAIL —— `expect(defendOn).toBeLessThan(defendOff)`,兩者相等
 
-- [ ] **Step 3: 改呼叫點**
+- [ ] **Step 3: 在瞄準分支裡標記「真的用了 `defendAim`」**
 
-`src/ai/steer.ts:1456`,把
+**這一步是 Codex 審查加進來的。** `intent === 'defend'` **不等於**本幀走了
+`defendAim`:三個幾何 mode 會壓過意圖,而 `reversal` 期間走的是 `reversalAim`。
+那四條路徑都沒有 `defendTilt` 的固定抬角,補一個負偏置只是平白壓機頭 ——
+最糟的是 `speedRecover`,它本來就在壓 `speedRecoverPitch`(20°),疊上去變兩倍,
+而它觸發的時機正是速度最低、偏置最大的時候。
+
+在 `src/ai/steer.ts` 的 `steerCommand` 裡,把瞄準點那一段(約 1375~1424 行)
+的開頭
+
+```ts
+  // ── 瞄準點 ──────────────────────────────────────────────
+  // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
+  if (mode === 'planeDegenerate') {
+```
+
+改成
+
+```ts
+  // ── 瞄準點 ──────────────────────────────────────────────
+  // 【為什麼要這個旗標】`intent === 'defend'` 不等於本幀走了 `defendAim` ——
+  // 三個幾何 mode 壓過意圖，而 `reversal` 期間走的是 `reversalAim`。只有真的
+  // 套了 `defendTilt` 的那一條路徑，才有那個固定抬角可以讓位。
+  let defendTilted = false
+  // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
+  if (mode === 'planeDegenerate') {
+```
+
+再把 `case 'defend':` 那一支的 `else` 分支
+
+```ts
+        } else {
+          defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
+        }
+```
+
+改成
+
+```ts
+        } else {
+          defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
+          defendTilted = true
+        }
+```
+
+- [ ] **Step 4: 改 `applyPitchBias` 的呼叫點**
+
+`src/ai/steer.ts`(原 1456 行,加了旗標之後往後位移),把
 
 ```ts
   if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
@@ -560,32 +650,34 @@ Expected: FAIL —— `expect(defendOn).toBeLessThan(defendOff)`,兩者相等
 改成
 
 ```ts
-  // 【兩個偏置相加，只旋轉一次】`defendPitchBias` 恆 ≤ 0，只在 `defend` 且
-  // 速度見底時非零。兩次呼叫 `applyPitchBias` 會有次序相依，而且各自夾制會
-  // 讓合成結果難以推理 —— 相加之後由那一層統一夾在 ±PITCH_BIAS_LIMIT。
+  // 【兩個偏置相加，只旋轉一次】兩次呼叫 `applyPitchBias` 會有次序相依，而且
+  // 各自夾制會讓合成結果難以推理 —— 相加之後由那一層統一夾在
+  // ±PITCH_BIAS_LIMIT。
   //
-  // 【為什麼 `defend` 需要這一層】`defendAim` 固定往上抬 `defendTilt`（20°），
-  // 不管有沒有速度。實測 20v20 下 `defend` 每秒淨爬升 12.8 m，而系統整體是
-  // 只上不下的棘輪。見 `defendEnergyGain` 的註解。
+  // 【為什麼要這一層】`defendAim` 固定往上抬 `defendTilt`（20°），不管有沒有
+  // 速度。實測 20v20 下 `defend` 每秒淨爬升 12.8 m，而系統整體是只上不下的
+  // 棘輪。見 `defendEnergyGain` 的註解。
+  //
+  // 【條件是 `defendTilted` 不是 `intent === 'defend'`】見上面那個旗標的註解。
   if (intent !== 'rally') {
-    const defendBias = intent === 'defend' ? defendPitchBias(sit.cornerRatio, cfg) : 0
+    const defendBias = defendTilted ? defendPitchBias(sit.cornerRatio, cfg) : 0
     applyPitchBias(sit.sweetPitch + defendBias, out.aimWorld)
   }
 ```
 
-- [ ] **Step 4: 跑測試確認全綠**
+- [ ] **Step 5: 跑測試確認全綠**
 
 Run: `npx vitest run test/unit/ai-steer.test.ts`
-Expected: PASS(124 條)
+Expected: PASS。既有 115 條 + Task 1 的 7 條 + 本任務的 4 條 = 126 條。
 
-- [ ] **Step 5: 全套回歸,確認逐位元恆等**
+- [ ] **Step 6: 全套回歸,確認逐位元恆等**
 
 Run: `npx vitest run`
 Expected: 與接線之前**完全相同**的紅燈清單。基準是 4 條已知紅(`ai-command-channel` 編隊收攏、`ai-command-channel` 命令佔時、`ai-command-tactics` 側翼方位角、`ai-withdraw-anchor` 半徑)+ `perf-gate`(全套並行下的假紅,單獨跑會綠)。
 
 **多出任何一條紅 = 恆等被破壞,停下來查,不要往下做。**
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/ai/steer.ts test/unit/ai-steer.test.ts
