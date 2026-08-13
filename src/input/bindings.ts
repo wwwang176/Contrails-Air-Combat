@@ -119,6 +119,14 @@ export function attachInput(
       e.preventDefault()
       return
     }
+    // 【排在上帝視角的改道之前】它兩種視角下都要能按 —— 要看的正是
+    // 「跟拍長機時它與集合點的相對位置」，而下面那段會把上帝視角下的
+    // 未知按鍵直接吃掉
+    if (e.code === 'KeyO') {
+      state.orderMarkers = !state.orderMarkers
+      e.preventDefault()
+      return
+    }
     // 【上帝視角把 WASD 整組改道】W/S 是唯一與飛行共用的按鍵；照舊送進
     // 油門的話，你切回來時油門已經飄到 0.7 或 1.1 了
     if (state.godView) {
