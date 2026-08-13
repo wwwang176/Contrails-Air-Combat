@@ -6,7 +6,9 @@ import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
+  defendPitchBias,
 } from '../../src/ai/steer'
+import { DEFAULT_RULES } from '../../src/ai/rules'
 import { rallyAim } from '../../src/ai/rally'
 import { DEG } from '../../src/core/math'
 import { createCommand } from '../../src/control/Controller'
@@ -1071,6 +1073,103 @@ describe('extend 的俯仰是連續量', () => {
     const expected = Math.max(extendPitchAngle(0.6, 100), floorPitchAngle(100))
     expect(commanded).toBeCloseTo(expected, 9)
     expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
+  })
+})
+
+describe('破防的能量讓位', () => {
+  /**
+   * 錨：`cornerRatio` 掉到該撤退的那條線時，偏置剛好抵銷 `defendTilt`。
+   *
+   * 【為什麼 import `DEFAULT_RULES` 而不是寫死 0.25】註解宣稱錨在
+   * `cornerEnter`，寫死 `1 − 0.75` 的話那句話會在有人調 `cornerEnter` 的那天
+   * 悄悄變成謊話。
+   */
+  const ANCHOR = DEFAULT_STEER.defendTilt / (1 - DEFAULT_RULES.cornerEnter)
+  /** 一組非零的增益，用來測形狀。出貨值是 0（恆等） */
+  const armed = { ...DEFAULT_STEER, defendEnergyGain: ANCHOR }
+
+  /**
+   * 【恆 ≤ 0 是這一層的核心約束】系統已經只上不下（2026-08-13 追出的棘輪），
+   * 任何新機制都不該再加「上」。少了這一條，`cornerRatio > 1` 時偏置會變正，
+   * 等於再疊一份爬升 —— 那正是 `pitchSurplusGain` 那一輪證實無效且方向錯誤
+   * 的東西。
+   */
+  it('永遠不會是正的（只壓不抬）', () => {
+    for (let r = 0; r <= 3; r += 0.05) {
+      expect(defendPitchBias(r, armed)).toBeLessThanOrEqual(0)
+    }
+  })
+
+  it('速度充足（cornerRatio ≥ 1）→ 恰為 0，防禦抬角原封不動', () => {
+    expect(defendPitchBias(1, armed)).toBe(0)
+    expect(defendPitchBias(1.5, armed)).toBe(0)
+    expect(defendPitchBias(3, armed)).toBe(0)
+  })
+
+  /**
+   * 【錨在脫離門檻】`cornerRatio` 掉到 `DEFAULT_RULES.cornerEnter`（0.75，
+   * 該撤退的那條線）時，偏置剛好抵銷 `defendTilt`（20°）—— 還撐得住就照原本
+   * 閃，撐到該撤退了就先別再往上爬。
+   */
+  it('掉到脫離門檻時剛好抵銷防禦抬角', () => {
+    expect(defendPitchBias(DEFAULT_RULES.cornerEnter, armed))
+      .toBeCloseTo(-DEFAULT_STEER.defendTilt, 9)
+  })
+
+  it('比脫離門檻更低 → 真的變成俯衝（超過抵銷）', () => {
+    expect(defendPitchBias(0.5, armed)).toBeLessThan(-DEFAULT_STEER.defendTilt)
+  })
+
+  it('夾在 −defendEnergyLimit 以上', () => {
+    expect(defendPitchBias(-10, armed)).toBeCloseTo(-armed.defendEnergyLimit, 9)
+  })
+
+  /**
+   * 【直接驗公式，不用「相鄰差夠小」】只要求相鄰輸出差小於上限的 1%（約
+   * 0.4°）的話，一個每隔一段跳 0.39° 的階梯函數也會綠 —— 那種測試守不住
+   * 連續性。驗公式本身才真的釘住它，另外在 `cornerRatio = 1` 與飽和邊界兩側
+   * 各取極小的 ε 明確跨過去。
+   *
+   * 這個專案治過三次「相鄰輸入給出跳躍的輸出」（`latch` 的遲滯、
+   * `extendPitchAngle` 的連續化、破防軸的號誌閂鎖），每一次的症狀都是極限環。
+   */
+  it('未飽和區逐點等於 −gain × (1 − ratio)', () => {
+    for (let r = 0.6; r <= 1; r += 0.01) {
+      expect(defendPitchBias(r, armed)).toBeCloseTo(-ANCHOR * (1 - r), 12)
+    }
+  })
+
+  it('跨過 cornerRatio = 1 與飽和邊界都不跳', () => {
+    const eps = 1e-9
+    expect(defendPitchBias(1 - eps, armed)).toBeCloseTo(0, 8)
+    expect(defendPitchBias(1 + eps, armed)).toBe(0)
+    // 飽和點：−gain × (1 − r) = −limit
+    const rSat = 1 - armed.defendEnergyLimit / ANCHOR
+    expect(defendPitchBias(rSat + eps, armed))
+      .toBeCloseTo(defendPitchBias(rSat - eps, armed), 8)
+  })
+
+  /**
+   * 【`-0` 會讓恆等基準紅】`-0 * 0.4` 在 JavaScript 是 `-0`，而 vitest 的
+   * `toBe` 走 `Object.is` 語義 —— `Object.is(-0, 0)` 為偽。這一條就是那個
+   * 陷阱的守門員。
+   */
+  it('出貨值是 0 —— 這一層預設不生效，且回傳的是 +0 不是 −0', () => {
+    expect(DEFAULT_STEER.defendEnergyGain).toBe(0)
+    for (let r = 0; r <= 3; r += 0.1) {
+      expect(defendPitchBias(r)).toBe(0)
+      expect(Object.is(defendPitchBias(r), 0)).toBe(true)
+    }
+  })
+
+  /**
+   * 【NaN 不能流出去】`cornerRatio` 是從 TAS 除出來的；速度歸零或飛機被移除的
+   * 那一格它可能是 NaN。NaN 進了 `applyPitchBias` 之後整個瞄準向量變 NaN，
+   * 而 NaN 的比較恆為偽 —— 下游每一層的守衛都會靜默失效。
+   */
+  it('cornerRatio 是 NaN 時回傳 0', () => {
+    expect(defendPitchBias(Number.NaN, armed)).toBe(0)
+    expect(defendPitchBias(Number.NaN)).toBe(0)
   })
 })
 
