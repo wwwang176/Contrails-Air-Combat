@@ -8,8 +8,7 @@ import {
   buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
   shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
 } from './steer'
-import { DEFAULT_DOCTRINE, energyPull } from './doctrine'
-import { cornerSpeed } from '../analysis/envelope'
+import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import { shouldFire } from './fire'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
@@ -296,14 +295,17 @@ export class AiController implements Controller {
       // 【為什麼不能靠 steerCommand】上面三個分支直接寫 `aimWorld` 然後
       // return，根本不經過 `steerCommand`，那一層的紀律對它們無效。
       //
-      // 【為什麼是 cornerSpeed 而不是 sit.cornerRatio】這條路徑沒有目標，
+      // 【為什麼直接算而不是讀 sit.cornerRatio】這條路徑沒有目標，
       // `evaluateEnergy` 因此沒有跑過，`this.sit` 是上一次有目標時的舊值。
-      // 直接算 —— 這個量本來就只與自己有關（`cornerSpeed` 已快取）。
+      // 直接算 —— 這個量本來就只與自己有關。
+      //
+      // 【分母必須與 `assess.ts` 是同一個】兩邊都用 `manoeuvreSpeed`，否則
+      // 「有目標」與「沒目標」兩條路徑會用不同的尺標量同一件事。
       //
       // 【安全層仍然有最後決定權】`emit` 裡的 `applySafety` 排在這之後，
       // 撞地與失速的硬接管會整個換掉 `aimWorld`。順序是對的。
       const ceiling = energyPull(
-        self.diag.aero.tas / cornerSpeed(self.spec, self.state.position.y),
+        self.diag.aero.tas / manoeuvreSpeed(self.spec, self.state.position.y),
         DEFAULT_DOCTRINE,
       )
       shrinkTowardNose(self, ceiling, raw.aimWorld)

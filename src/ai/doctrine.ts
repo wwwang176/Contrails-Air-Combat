@@ -12,10 +12,99 @@
  * 測試裡直接算。
  */
 import { DEG } from '../core/math'
-import { sustainedTurnRate } from '../analysis/envelope'
+import { stallSpeed, sustainedTurnRate } from '../analysis/envelope'
 import type { AircraftSpec } from '../specs/types'
 
 export interface DoctrineConfig {
+  /**
+   * **AI 的能量比值用哪個過載當參考。** `spec.limits.gPositive` 的倍率，
+   * 1.0 = 結構極限本身（2026-08-13 之前的行為，逐位元相同）。
+   *
+   * ---
+   *
+   * 【為什麼這個數字存在】`cornerRatio` 是幾乎所有 AI 能量判準的分母：
+   *
+   * ```
+   *   rules.ts    cornerEnter / cornerExit      要不要放棄追擊
+   *   doctrine.ts energyFloorRatio              拉桿上限
+   *   steer.ts    brakeCornerRatio              要不要減速
+   *   steer.ts    extendPitchAngle 的速度增益   低頭換速的量
+   *   command.ts  spentRatio / ENGAGED_RATIO    指揮層的「見底」與「已交戰」
+   * ```
+   *
+   * 而它原本的分母是 `cornerSpeed = stallSpeed(spec, alt, gPositive)` ——
+   * 「拉得出**結構極限 8 G** 的最低速度」。空戰實際用的是 3~5 G，所以那個
+   * 分母系統性偏高：5000 m 是 473 km/h，而實測交戰速度帶是 250~470。
+   * **AI 因此幾乎永遠覺得自己沒能量。**
+   *
+   * 【為什麼是倍率而不是絕對 G 值】機種的結構極限不同（P-51 是 8）。寫成
+   * 倍率，兩台飛機之間的相對關係不變，而 1.0 是一個**精確的恆等基準** ——
+   * 重構有沒有改到行為，用它一跑就知道。
+   *
+   * 【為什麼不改 `cornerSpeed` 本身】那是教科書定義（CLmax ∩ 結構極限），
+   * `historical.test.ts` 與 EM 圖工具都靠它。政策參數放在 doctrine，物理
+   * 留在 `analysis/envelope.ts` —— 這與 `specs/feel.ts` 把「史實的飛機」與
+   * 「玩起來的飛機」分兩層是同一條界線。
+   *
+   * 【`safety.ts` 刻意不跟】那裡的 `cornerSpeed` 判的是「速度快到拉不起來」
+   * —— 拉起半徑 ∝ V²，那是**物理**，不是戰術偏好。
+   *
+   * ---
+   *
+   * # 2026-08-13 的掃描：**出貨值維持 1.0**
+   *
+   * 20v20、300 秒、VETERAN、兩個開局（`manoeuvre-g.probe.ts`）：
+   *
+   * ```
+   * 倍率(=幾G)   extend  engage  安全層   TAS   傷害   額外紅燈
+   *  1.000(8.0)  34.8%   11.4%   0.20%   444   3662    —（基準）
+   *  0.850(6.8)  36.4%   11.2%   0.45%   428   4190    1
+   *  0.750(6.0)  35.0%   11.3%   0.74%   423   5457    2
+   *  0.625(5.0)  32.7%   12.1%   0.61%   412   6203    7
+   *  0.500(4.0)  32.9%   12.0%   0.81%   405   6640    —（未跑全套）
+   * ```
+   *
+   * ## 一起平移確實避開了上一次的失敗模式
+   *
+   * 只搬 `cornerEnter`（`rules.ts` 的註解）時安全層佔時衝到 65.6%。這一次
+   * 一起平移，安全層最高只到 0.81% —— **「兩邊打架」的診斷是對的**。
+   *
+   * ## 但 0.625 的「傷害 +69%」是假的
+   *
+   * 全套回歸在 0.625 下由 4 紅變 11 紅，其中三條是
+   * `expected 0 to be greater than 0` —— **指揮層一張命令都沒發出來**。
+   * 成因是 `command.ts` 的 `spentRatio`（0.6，「見底」門檻）也吃這個比值：
+   * 平均 `cornerRatio` 由 0.94 升到 1.07 之後，**再也沒有分隊會被判見底**。
+   *
+   * 沒有撤退令，大家就不脫離、一路打到底 —— 傷害當然翻倍。那是**撤退機制
+   * 被關掉**的副作用，不是空戰變好。同一組設定下另有一條硬失敗：
+   * `低空纏鬥不會把自己飛進海裡` 由 0 變成 5566。
+   *
+   * ## 這次學到的東西
+   *
+   * 「換分母讓判準保持一致」這句話是**錯的**。換分母等於同時把**每一個**讀
+   * 這個比值的門檻重新定值，包括那些本來就調對、不該動的：
+   *
+   * ```
+   *   該動的   cornerEnter / cornerExit      「我還追不追得動」
+   *   不該動的 spentRatio                    「指揮官認為誰該撤」
+   *   不該動的 brakeCornerRatio              「我快到轉不動了」
+   *   不該動的 energyFloorRatio              「我不能再拉了」
+   * ```
+   *
+   * 真要做，得在換分母的同時把「不該動的」那幾個按 `1 / fraction` 反向
+   * 補回去，只讓想動的那幾個真的動 —— 而那在數學上就等於直接調那幾個門檻，
+   * 也就回到已經被否決的做法。**這條路要通，需要的是一份新設計，不是一個
+   * 倍率。**
+   *
+   * ## 為什麼這個參數留著
+   *
+   * 值是 1.0，行為與 2026-08-13 之前逐位元相同，所以它不花任何代價。留著的
+   * 理由是：它把「AI 用哪個過載當參考」這個**先前隱含在 `cornerSpeed` 裡的
+   * 政策決定**變成一個有名字、有掃描表、有否決紀錄的旋鈕。下一個人想動它
+   * 時，看得到已經試過什麼、為什麼不行。
+   */
+  manoeuvreGFraction: number
   /**
    * `cornerRatio` 高於此值時拉桿完全放行。1.0 = 角落速度。
    *
@@ -95,11 +184,34 @@ export interface DoctrineConfig {
  * 的掉血是 0（與基準相同），而本層未修正時是 605。所以定值用它。
  */
 export const DEFAULT_DOCTRINE: DoctrineConfig = {
+  // 【1.0 = 恆等，行為與 2026-08-13 之前逐位元相同】0.85 / 0.75 / 0.625 都
+  // 試過並否決 —— 0.625 會讓指揮層一張命令都發不出來。掃描表見欄位註解
+  manoeuvreGFraction: 1.0,
   energyFreeRatio: 1.0,
   energyFloorRatio: 0.70,
   energyMinPull: 0.65,
   sweetSpotMaxPitch: 10 * DEG,
   sweetSpotFullAt: 0.05,
+}
+
+/**
+ * **AI 的能量比值用的參考速度**，m/s。`cornerRatio` 的分母就是它。
+ *
+ * `manoeuvreGFraction = 1` 時它等於 `cornerSpeed`（`stallSpeed` 取
+ * `gPositive`），所以那個值是一個精確的恆等基準。
+ *
+ * 【為什麼不是 `cornerSpeed` 的包裝】兩者的**語意不同**：`cornerSpeed` 回答
+ * 「我從哪個速度開始拉得出結構極限」，這一個回答「我從哪個速度開始拉得出
+ * **我實際會用的**過載」。前者是飛機的性質，後者是打法的選擇。名字分開，
+ * 下一個人才不會把政策改到物理層去。
+ *
+ * 熱路徑：`stallSpeed` 每次呼叫都會算一次 `atmosphere`，與改動前相同 ——
+ * 這個函數沒有讓既有的呼叫變貴。
+ */
+export function manoeuvreSpeed(
+  spec: AircraftSpec, altitude: number, cfg: DoctrineConfig = DEFAULT_DOCTRINE,
+): number {
+  return stallSpeed(spec, altitude, spec.limits.gPositive * cfg.manoeuvreGFraction)
 }
 
 /**

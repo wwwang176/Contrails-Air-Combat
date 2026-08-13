@@ -1,10 +1,10 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import {
-  bestSustainedTurnRateCached, cornerSpeed, instantaneousTurnRate,
+  bestSustainedTurnRateCached, instantaneousTurnRate,
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
-import { DEFAULT_DOCTRINE, energyPull, sweetSpotPitch } from './doctrine'
+import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed, sweetSpotPitch } from './doctrine'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -262,8 +262,11 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   out.airframeTurnAdvantage = bestSustainedTurnRateCached(self.spec, selfAlt)
     - bestSustainedTurnRateCached(target.spec, targetAlt)
 
-  // 角落速度恆為正，不必防除以 0
-  out.cornerRatio = selfTas / cornerSpeed(self.spec, selfAlt)
+  // 【分母是 `manoeuvreSpeed` 不是 `cornerSpeed`】兩者在
+  // `manoeuvreGFraction = 1` 時完全相同；那個參數存在的意義是讓所有吃
+  // `cornerRatio` 的判準（脫離、拉桿上限、減速、換速、指揮層見底）**一起
+  // 平移**。見 `doctrine.ts` 的欄位註解。恆為正，不必防除以 0
+  out.cornerRatio = selfTas / manoeuvreSpeed(self.spec, selfAlt)
 
   // 【失速速度可能極小或為 0】極高空、極低過載時 stallSpeed 會趨近 0。
   // 除以 0 會得到 Infinity，而 Infinity 通過所有「stallMargin > X」的檢查
