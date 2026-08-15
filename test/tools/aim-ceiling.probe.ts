@@ -236,7 +236,8 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
 const PROBES: Probe[] = ['ahead', 'crossing', 'above', 'below']
 
 function table(standoff: number, lookahead: number): void {
-  console.log(`\n══ ${standoff} m ／ 前瞻 ${lookahead} 秒 ═══════════════════════════`)
+  console.log(`
+══ ${standoff} m ／ 前瞻 ${lookahead} 秒 ═══════════════════════════`)
   console.log('  場景            AI      裸破防公式   直飛自檢    AI/公式   有效窗(AI)')
   for (const p of PROBES) {
     const ai = run(p, 'ai', standoff, lookahead)
@@ -256,10 +257,47 @@ function table(standoff: number, lookahead: number): void {
   }
 }
 
+/**
+ * 前瞻窗長的掃描 —— **這是「要更高」唯一乾淨的槓桿**。
+ *
+ * 【為什麼要並排看訊噪比】前瞻拉長時，直飛的自檢地板也跟著長（物理積分的
+ * 殘差、推力與阻力讓速度不是嚴格常數）。單看 AI 的度數會誤判「越長越好」；
+ * 真正該看的是 **AI ÷ 直飛** —— 判準把「在閃」與「沒在閃」分得多開。
+ *
+ * 【也要看取樣數】取樣要等前瞻窗填滿才開始（`s - from >= steps`），所以
+ * 前瞻越長、能用的樣本越少。落地的掃描斷言 `samples >= 40`，這一欄直接
+ * 顯示哪些組合會撞到那條線。
+ */
+function sweepLookahead(standoff: number): void {
+  console.log(`
+
+╔══ 前瞻窗長掃描（${standoff} m）═══════════════════════════════════`)
+  for (const p of PROBES) {
+    console.log(`
+  ${ASPECTS[p].label}`)
+    console.log('    前瞻      AI     直飛自檢   訊噪比   取樣數   有效窗')
+    for (const la of [0.5, 1, 1.5, 2]) {
+      const ai = run(p, 'ai', standoff, la)
+      const no = run(p, 'none', standoff, la)
+      const snr = no.err > 1e-6 ? (ai.err / no.err).toFixed(1) + '×' : '—'
+      const thin = ai.samples < 40 ? '  ⚠ 取樣數低於落地斷言的 40' : ''
+      console.log(
+        `    ${(la + 's').padEnd(8)}`
+        + `${ai.err.toFixed(2).padStart(6)}°`
+        + `${no.err.toFixed(2).padStart(11)}°`
+        + `${snr.padStart(9)}`
+        + `${String(ai.samples).padStart(9)}`
+        + `${ai.window.toFixed(1).padStart(9)}s`
+        + thin,
+      )
+    }
+  }
+}
+
 console.log('「裸破防公式」= ScriptedBreaker 的 horizUp 軸。**它不是機體極限** ——')
 console.log('橫飛時命令幾乎是掉頭（155°）、上下方時破防軸整個退化，見檔頭。')
 console.log('它只在尾追幾何下有意義；AI 在另外三個幾何遠優於它。')
 
 table(800, 1)
 table(400, 1)
-table(800, 2)
+sweepLookahead(800)
