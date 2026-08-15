@@ -21,7 +21,7 @@
 | 前兩版的問題 | 為什麼消失 |
 |---|---|
 | 主判準無法歸因(審查 C4):射手自己的滾轉與拉桿灌進預瞄點位移 | 觀測儀不機動,貢獻是 0。**配對消融整個不要了** |
-| 垂直場景 2.5 秒就收斂成尾追(審查 C3) | 觀測儀不追擊,方位由建構保證 |
+| 垂直場景 2.5 秒就收斂成尾追(審查 C3) | 觀測儀不追擊,所以不會**主動**壓上去。方位仍會隨 AI 自己的機動漂移 —— 但那正是訊號 |
 | `Command.aimWorld` 同時是飛行方向與射擊方向,「維持站位」與「機首指著目標」互斥 | 觀測儀不飛,死結不存在 |
 
 連帶不再需要:方位閘門 `aspectHolds`、場景有效性計數 `aspectSamples`、`hunterLook`、對 `scripted` 的改動、以及整套「逐位元恆等」的驗證負擔(因為根本不碰既有路徑)。
@@ -32,6 +32,131 @@
 - **不動 `measure()`、`scripted()`、`Sniper`、六場墜海護欄、700 / 900 兩條既有測試。** 新路徑是獨立函數。這一條讓「有沒有破壞既有基準」變成一個**看 diff 就能回答**的問題。
 - **門檻由專案負責人依試玩裁定,不由掃描的現況推導。** 2026-08-05 的「位移 ≥ 5°」是猜的;第一版的「現況最小值 × 0.8」是照著現況畫靶 —— 同一類錯誤的兩面。
 - **量的形狀不變:** 滑動窗、窗長 `WINDOW`(240 步 = 1 秒)、取「現在的預瞄方向」與「1 秒前」的淨夾角。沿用既有的 `Swing`。
+- **「只改一個檔案」指的是程式碼。** Task 3 回填 spec 是文件,不在那條約束裡。
+- **觀察窗 60 秒,不是 180 秒。** 既有路徑的 180 秒是為了等真射手追上來;觀測儀從第一格就在位。
+
+## 第三版又被推翻了一次 —— 記著這個坑
+
+Codex 第四輪審查抓到一個**致命**問題:計畫原本寫「觀測儀位置 = 受測 AI 的**當下**位置 + 固定位移」,也就是把它**黏在目標身上**。
+
+那樣的話,從觀測儀指向 AI 的向量**恆等於 −位移**,是個常數;相對速度又是 0,於是預瞄方向**一格都不會動**。`leadSwing ≡ 0`、`straightness ≡ 0` —— 量測會忠實地回報「AI 完全沒動」,不管它做什麼,而且**四個方位、開關兩組全部都是 0**,看起來像一致的結果。
+
+專案負責人的原話是「可以**自由轉動**的手電筒」—— **自由的是轉動,不是位置**。
+
+**改成等速直線:** 起點 = AI 的開局位置 + 方位位移,初速 = AI 的開局速度,之後只按 `位置 += 初速 × dt` 前進,姿態始終指向預瞄點。
+
+**這件事三行代數就能發現,不該蓋完 180 秒場景才知道 —— 所以這一版加了 Task 0。**
+
+---
+
+### Task 0: O(1) 合約檢查(三行代數,不跑場景)
+
+**這個任務可能會結束整個計畫。** 它用兩個合成狀態驗三件事,成本是毫秒級。第三版的致命缺陷(觀測儀黏在目標身上 → 量測恆為 0)本來就該在這裡被抓到。
+
+**Files:**
+- Modify: `test/integration/ai-visible-evasion.test.ts`(新增一個 `describe`)
+
+- [ ] **Step 1: 寫三條合約**
+
+```ts
+describe('手電筒觀測儀的合約（O(1)，不跑場景）', () => {
+  /** 造一架擺在指定位置、機首指向 look 的飛機 */
+  const at = (pos: Vector3, look: Vector3, vel: Vector3): Aircraft => {
+    const a = new Aircraft(BLUNT, ALT, TAS)
+    a.state.position.copy(pos)
+    a.state.velocity.copy(vel)
+    a.state.orientation.setFromUnitVectors(FWD, look)
+    a.prevPosition.copy(pos)
+    a.prevOrientation.copy(a.state.orientation)
+    return a
+  }
+
+  /**
+   * 【一】800 m 精準瞄準時，觸發閃躲的是 `alarmFactor` 而不是 `threatFactor`。
+   *
+   * `threatFactor` 有距離因子，800 m 時只有 1 − 800/900 ≈ 0.111，遠低於
+   * `threatEnter`（0.35）。本專案早就發現並修過那個缺陷（`AiController` 的
+   * 註解：「實測 700/900 m 被連續射擊 180 秒，`defend` 進入率 0.0%」），
+   * 修法就是另做 `alarmFactor` —— 它沒有距離因子。
+   *
+   * 少了這一條，整個掃描會在「AI 從頭到尾不閃」的情況下跑完，而讀表的人
+   * 會以為那是 AI 的問題。
+   */
+  it('800 m 精準瞄準：alarmFactor 滿值，threatFactor 遠低於門檻', () => {
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const los = new Vector3(0, 0, -1)
+    const lamp = at(new Vector3(0, ALT, 800), los, new Vector3(0, 0, -TAS))
+    expect(alarmFactor(lamp, prey)).toBeCloseTo(1, 6)
+    expect(threatFactor(lamp, prey)).toBeLessThan(DEFAULT_RULES.threatEnter)
+  })
+
+  /**
+   * 【二】彈丸壽命是 `alarmFactor` 唯一的距離閘門。800 m 過得了，
+   * 1200 m 過不了 —— 這條把「為什麼 standoff 選 800」釘在測試裡。
+   */
+  it('彈丸壽命是唯一的距離閘門', () => {
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const los = new Vector3(0, 0, -1)
+    const far = at(new Vector3(0, ALT, 1200), los, new Vector3(0, 0, -TAS))
+    expect(alarmFactor(far, prey)).toBe(0)
+  })
+
+  /**
+   * 【三 —— 致命缺陷的守門員】觀測儀**不能黏在目標身上**。
+   *
+   * 若位置永遠是「目標當下位置 + 固定位移」，從它指向目標的向量恆等於
+   * −位移，是個常數 —— 預瞄方向一格都不會動，`leadSwing` 恆為 0，而且
+   * 四個方位、開關兩組**全部**都是 0，看起來像一致的結果。
+   *
+   * 這一條用兩個時間點證明：等速直線的觀測儀，在目標轉了向之後，看過去的
+   * 方向**必須改變**。
+   */
+  it('等速直線的觀測儀：目標一轉向，看過去的方向就變', () => {
+    const basis = createEngageBasis()
+    const dir0 = new Vector3()
+    const dir1 = new Vector3()
+    const los = new Vector3(0, 0, -1)
+
+    // t=0：兩者同向並飛，觀測儀在正後方 800 m
+    const prey0 = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const lamp0 = at(new Vector3(0, ALT, 800), los, new Vector3(0, 0, -TAS))
+    buildEngageBasis(lamp0, prey0, basis)
+    dir0.copy(basis.leadPoint).normalize()
+
+    // t=1 秒後：觀測儀等速直線前進 200 m；目標**轉了向**，往 −X 偏開
+    const prey1 = at(new Vector3(-150, ALT, -150), new Vector3(-1, 0, 0), new Vector3(-TAS, 0, 0))
+    const lamp1 = at(new Vector3(0, ALT, 600), los, new Vector3(0, 0, -TAS))
+    buildEngageBasis(lamp1, prey1, basis)
+    dir1.copy(basis.leadPoint).normalize()
+
+    // 目標轉了 90°，看過去的方向必須有可觀的改變
+    expect(dir0.angleTo(dir1) * (180 / Math.PI)).toBeGreaterThan(5)
+  })
+})
+```
+
+檔頭補 import:
+
+```ts
+import { alarmFactor, threatFactor } from '../../src/ai/assess'
+import { DEFAULT_RULES } from '../../src/ai/rules'
+```
+
+(`threatFactor` 可能已經在 import 清單裡,別重複。)
+
+- [ ] **Step 2: 跑**
+
+Run: `npx vitest run test/integration/ai-visible-evasion.test.ts -t "合約"`
+Expected: 三條全綠,秒級完成。
+
+**任何一條紅就停** —— 那代表這條路的前提不成立,整個計畫要重想,而不是繼續往下蓋。
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add test/integration/ai-visible-evasion.test.ts
+git commit -m "test: 手電筒觀測儀的 O(1) 合約 —— 蓋場景之前先驗前提"
+```
 
 ---
 
@@ -74,8 +199,13 @@ type Probe = 'tail' | 'beam' | 'high' | 'low'
 /**
  * 觀測儀相對受測 AI 的固定位移。
  *
- * 【為什麼可以是固定的】它不追擊、不受物理支配，方位由建構保證 ——
- * 這正是它取代真射手的理由（真射手 2.5 秒就收斂成尾追，spec §3.2）。
+ * 【這是**開局**的相對方位，不是全程】位移是世界固定方向；AI 一轉向，
+ * `+Z` 就不再是它的正後方。文件與表頭都必須這樣寫（spec §5 風險三）——
+ * 宣稱「180 秒全程維持 tail」是錯的。
+ *
+ * 【但方位漂移在這裡不是問題】觀測儀不追擊，所以漂移**完全由被測者造成**，
+ * 那正是要量的訊號。前兩版需要方位閘門，是為了濾掉「射手自己壓上來造成的
+ * 方位改變」—— 污染源移除之後那道閘門就沒有存在的理由了。
  */
 function probeOffset(probe: Probe, standoff: number, out: Vector3): Vector3 {
   if (probe === 'tail') return out.set(0, 0, standoff)
@@ -96,7 +226,12 @@ interface SwingResult {
   defendShare: number
   /** 有效取樣數 */
   samples: number
+  /** 取樣結束時目標仍是誘餌 —— 場景護欄 */
+  onBait: boolean
 }
+
+/** 這條路徑的觀察窗，秒 */
+const LAMP_SECONDS = 60
 
 /**
  * 手電筒量測：觀測儀在 `probe` 方位、`standoff` 距離處始終瞄著受測 AI，
@@ -153,26 +288,41 @@ function lampMeasure(standoff: number, probe: Probe, evade: boolean): SwingResul
   ai.board = board
   ai.selfIndex = pc.index
   ai.target = bait
+  // 【釘住誘餌】只設 `target` 沒有用 —— `board` 非 null 時每個決策節拍都會
+  // 呼叫 `selectTarget` 覆寫它，而觀測儀也是紅隊候選，AI 可能中途改去追
+  // 儀器（審查 I4）。`focusTarget` 是既有的覆寫入口（`AiController` 在沒有
+  // 站位參考時會用它蓋掉 `target`）。
+  ai.focusTarget = bait
   ai.profile = VETERAN
 
   const basis = createEngageBasis()
   const dir = new Vector3()
   const swing = new Swing()
-  const offset = new Vector3()
+  /** 觀測儀的起點與恆定速度 —— 等速直線的兩個參數 */
+  const lampStart = lampPos.clone()
+  const lampVel = new Vector3(0, 0, -TAS)
   const look = new Vector3()
   const swings: number[] = []
   const straights: number[] = []
   let defendN = 0
   let samples = 0
 
-  for (let s = 0; s < SECONDS * 240; s++) {
+  // 【60 秒不是 180】既有路徑的 180 秒是為了等真射手追上來；觀測儀從第一
+  // 格就在位（審查 I7：新增 4 方位 × 開關會讓單檔成本 +46%）。
+  for (let s = 0; s < LAMP_SECONDS * 240; s++) {
     world.step(DT)
     if (!pc.alive) break
 
-    // ── 觀測儀歸位：位置、速度、姿態 ────────────────────
-    probeOffset(probe, standoff, offset)
-    lamp.state.position.copy(prey.state.position).add(offset)
-    lamp.state.velocity.copy(prey.state.velocity)
+    // ── 觀測儀歸位：等速直線 + 自由轉動 ──────────────────
+    //
+    // 【**絕對不能**寫成 `prey.state.position + offset`】那會把觀測儀黏在
+    // 目標身上，從它指向目標的向量恆等於 −offset、是個常數，預瞄方向一格
+    // 都不會動 —— `leadSwing` 恆為 0，而且四個方位、開關兩組全部都是 0，
+    // 看起來像一致的結果。2026-08-15 Codex 審查抓出的致命缺陷。
+    //
+    // 自由的是**轉動**，不是位置。
+    lamp.state.position.copy(lampStart).addScaledVector(lampVel, (s + 1) * DT)
+    lamp.state.velocity.copy(lampVel)
     look.subVectors(prey.state.position, lamp.state.position).normalize()
     lamp.state.orientation.setFromUnitVectors(FWD, look)
     lamp.prevPosition.copy(lamp.state.position)
@@ -189,6 +339,8 @@ function lampMeasure(standoff: number, probe: Probe, evade: boolean): SwingResul
   }
 
   return {
+    /** 目標一直是誘餌嗎 —— 場景護欄（審查 I4） */
+    onBait: ai.target === bait,
     leadSwing: median(swings),
     straightness: median(straights),
     defendShare: defendN / Math.max(samples, 1),
@@ -243,10 +395,19 @@ describe('預瞄點偏移（手電筒觀測儀、800 m、180 秒）', () => {
         + ` defend佔時=${(on.defendShare * 100).toFixed(1)}%`
         + ` 取樣=${on.samples}`,
       )
-      // 【這一輪唯一的斷言】場景要成立：受測 AI 真的感覺到被瞄準。
-      // 觀測儀始終精準瞄著，所以 `defend` 佔時應該很高；若接近 0，代表
-      // 威脅判定沒有如預期觸發，那要先查，不是調門檻（spec §4.2）。
+      // 【這一輪的斷言只驗「量測有效」，不驗「AI 夠好」】後者的門檻由專案
+      // 負責人裁定（Task 3）。審查 I5 指出上一版只驗 defendShare 不夠 ——
+      // `defendShare` 可以很高而 `leadSwing` 與 `straightness` 同時是 0，
+      // 那正是黏在目標身上那個致命缺陷的表現。
+      expect(on.samples).toBeGreaterThan(0)
+      expect(Number.isFinite(on.leadSwing)).toBe(true)
+      expect(Number.isFinite(off.leadSwing)).toBe(true)
+      // 場景成立：AI 真的感覺到被瞄準，而且一直在追誘餌不是追儀器
       expect(on.defendShare).toBeGreaterThan(0.5)
+      expect(on.onBait).toBe(true)
+      // 量測非退化：閃躲一定要比「完全不閃」動得多，而且是閃不是抽搐
+      expect(on.leadSwing).toBeGreaterThan(off.leadSwing)
+      expect(on.straightness).toBeGreaterThan(0.5)
     }, 10 * 60 * 1000)
   }
 })
