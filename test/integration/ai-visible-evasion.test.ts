@@ -1353,3 +1353,158 @@ describe('預瞄點偏移（手電筒觀測儀、開局 800 m）', () => {
     }, 10 * 60 * 1000)
   }
 })
+
+/**
+ * 把一組位置與速度直線外推 `seconds` 秒，寫進 `ghost` 並回傳它。
+ *
+ * 【為什麼吃裸的位置速度而不是一架 `Aircraft`】量測路徑的來源是環形
+ * 緩衝裡的兩個向量，不是一架飛機。若這裡收 `Aircraft`，量測就只能自己
+ * 再手寫一次外推 —— 而**合約驗的就會是另一份實作**。Codex 連三輪抓到
+ * 的正是這一類缺陷（2026-08-16 審查 I3）。
+ *
+ * 【幽靈機只是資料載體】它不進世界、不受物理、不被任何人看見。存在的
+ * 唯一理由是 `buildEngageBasis` 吃的是 `Aircraft`，而我們必須用**產線
+ * 那一份**彈道解，不能自己重寫一個 `solveLead`。
+ */
+function predictAhead(
+  pos: Vector3, vel: Vector3, seconds: number, ghost: Aircraft, look: Vector3,
+): Aircraft {
+  ghost.state.position.copy(pos).addScaledVector(vel, seconds)
+  ghost.state.velocity.copy(vel)
+  ghost.state.angularVelocity.set(0, 0, 0)
+  // 【姿態取速度方向，不複製當下的 prey 姿態】前者與「它照這樣飛下去」
+  // 自洽；後者會把**實際狀態**漏進預測裡，那正是這個量要排除的東西
+  const speed = vel.length()
+  if (speed > 1e-6) {
+    ghost.state.orientation.setFromUnitVectors(FWD, look.copy(vel).divideScalar(speed))
+  }
+  ghost.prevPosition.copy(ghost.state.position)
+  ghost.prevOrientation.copy(ghost.state.orientation)
+  return ghost
+}
+
+/**
+ * **主判準的算法。** 從 `lamp` 的當下位置看出去，「實際的預瞄方向」與
+ * 「預測的預瞄方向」差幾度。
+ *
+ * 【兩條都用同一個 `lamp`】差距因此純粹來自目標狀態的不同，不含觀測者
+ * 自己的位移。
+ *
+ * 【為什麼不是比位置而是比方向】玩家修正的是**準星的角度**，不是目標的
+ * 公尺數。同樣 50 m 的偏移，在 300 m 與 900 m 對玩家的意義差三倍。
+ */
+function aimErrorDeg(
+  lamp: Aircraft, actual: Aircraft, predicted: Aircraft,
+  basis: EngageBasis, a: Vector3, b: Vector3,
+): number {
+  buildEngageBasis(lamp, actual, basis)
+  a.copy(basis.leadPoint).normalize()
+  buildEngageBasis(lamp, predicted, basis)
+  b.copy(basis.leadPoint).normalize()
+  return a.angleTo(b) * RAD
+}
+
+describe('預測誤差的合約（O(1)，不跑場景）', () => {
+  /**
+   * 【六 —— 第五版的地基】理想等速直線的目標，預測誤差恆為 0。
+   *
+   * 這是整個第五版的核心主張：地板不是實測出來的，是**代數上的**。
+   * 第四版的地板是 4.10 / 3.15 / 3.19 / 0.44 度、**方位相依**，害得跨
+   * 方位不能比絕對度數；第五版四個方位對齊在 0。
+   *
+   * 【限定：理想】真實飛機受推力與阻力，速度大小不是嚴格常數，所以
+   * **物理**直飛的自我檢查只能要求接近 0，不能宣稱恆等於 0（審查 M1）。
+   * 這一條驗的是代數，不是物理。
+   *
+   * 這一條紅掉 = 那個主張是假的 = 整個計畫要重想。
+   */
+  it('理想等速直線的目標：預測誤差是 0', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // 目標帶一個任意的斜向等速 —— 直線就好，不必與觀測儀同向
+    const vel = new Vector3(60, -10, -TAS)
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(0, ALT, 0)
+    prey.state.velocity.copy(vel)
+    prey.state.orientation.setFromUnitVectors(FWD, vel.clone().normalize())
+
+    // 一秒前的位置拿來外推，與「一秒後的實際狀態」比
+    const pastPos = prey.state.position.clone().addScaledVector(vel, -1)
+
+    advanceLamp(lamp, prey, track, 0, basis, new Vector3())
+    expect(aimErrorDeg(lamp, prey, predictAhead(pastPos, vel, 1, ghost, look), basis, a, b))
+      .toBeCloseTo(0, 6)
+  })
+
+  /**
+   * 【七 —— 「角度變小也算閃」的守門員】這是專案負責人推翻第四版的那個
+   * 例子，直接寫成測試。
+   *
+   * 目標在一秒前是往 −X 橫飛的；一秒之內它**把橫向速度收掉**（拉回同向）。
+   * 從觀測者看過去，預瞄點跑的**距離變短了** —— 第四版會判「動得比較少
+   * = 沒在閃」。預測誤差不會：它比的是落點，而落點差很多。
+   */
+  it('角度變小也是閃躲：預測誤差抓得到', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // 一秒前：往 −X 橫飛
+    const pastPos = new Vector3(0, ALT, 0)
+    const pastVel = new Vector3(-150, 0, -TAS)
+    // 一秒後的實際：橫向收掉了，所以位置落在「繼續橫飛」的右邊
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(-40, ALT, -TAS)
+    prey.state.velocity.set(0, 0, -TAS)
+
+    // 【17.3° 是動工前算出來的，不是跑出來回填的】獨立解一次彈道：
+    //   實際   p=(-40,0,-800) v=(0,0,0)      → t=0.903，lead 方向偏 2.9°
+    //   預測   p=(-150,0,-800) v=(-150,0,0)  → t=0.961，lead 方向偏 20.2°
+    // 差 17.33°。用區間而不是 toBeCloseTo：容得下浮點與求根分支的差異，
+    // 但擋得住「少乘一個提前量」或「正負號寫反」那一類的錯
+    advanceLamp(lamp, prey, track, 1, basis, new Vector3())
+    const err = aimErrorDeg(lamp, prey, predictAhead(pastPos, pastVel, 1, ghost, look), basis, a, b)
+    expect(err).toBeGreaterThan(14)
+    expect(err).toBeLessThan(21)
+  })
+
+  /**
+   * 【八 —— 「往上下偏開也算閃」的守門員】同樣的位移量，改成鉛直方向。
+   *
+   * 負責人原話的後半句：「或是預瞄點往上或往下（這樣也是成功閃躲）」。
+   * 這一條確認判準不是只對水平面敏感。
+   */
+  it('往上偏開也是閃躲：預測誤差抓得到', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    const pastPos = new Vector3(0, ALT, 0)
+    const pastVel = new Vector3(0, 0, -TAS)
+    // 一秒後：它拉起來了，比「繼續直飛」高 40 m
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(0, ALT + 40, -TAS)
+    prey.state.velocity.set(0, 60, -TAS)
+
+    // 獨立解一次彈道：預測是純尾追（相對速度 0，lead 就是 (0,0,-1)），
+    // 實際 p=(0,40,-800) v=(0,60,0) → t=0.908，lead=(0,94.5,-800)，偏 6.74°
+    advanceLamp(lamp, prey, track, 1, basis, new Vector3())
+    const err = aimErrorDeg(lamp, prey, predictAhead(pastPos, pastVel, 1, ghost, look), basis, a, b)
+    expect(err).toBeGreaterThan(5)
+    expect(err).toBeLessThan(9)
+  })
+})
