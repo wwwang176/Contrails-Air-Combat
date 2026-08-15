@@ -32,7 +32,10 @@
 
 - [ ] **Step 1: 寫失敗的測試**
 
-加到 `test/unit/ai-steer.test.ts` 尾端。若該檔沒有 `sweetYield` 的 import,把它加進既有的 `from '../../src/ai/steer'` 那一行。`PROJECTILE_LIFETIME` 由 `../../src/world/Projectiles` 匯入。
+加到 `test/unit/ai-steer.test.ts` 尾端。**三個 import 都要補**（Codex 審查）：
+`sweetYield` 與 `type SteerConfig` 加進既有的 `from '../../src/ai/steer'` 那一行；
+`NO_INTERCEPT` 由 `../../src/world/lead` 匯入；`PROJECTILE_LIFETIME` 由
+`../../src/world/Projectiles` 匯入。
 
 ```ts
 describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
@@ -167,9 +170,9 @@ Expected: PASS，全檔綠。
 Run: `npx tsc --noEmit`
 Expected: 沒有輸出。
 
-**注意**：`SteerConfig` 加了必填欄位,所有以物件字面量建構 `SteerConfig` 的地方都會轉紅。
-用 `npx tsc --noEmit` 找出來,一律改成 `{ ...DEFAULT_STEER, ... }` 的展開寫法（既有測試多半
-已經如此）。若有測試檔手寫完整字面量,補上 `sweetYieldTime: PROJECTILE_LIFETIME`。
+**注意**：Codex 查證全專案只有 `src/ai/steer.ts:954` 一處完整的 `SteerConfig` 字面量,
+測試裡的消融都是 `{ ...DEFAULT_STEER, ... }`,會自動帶入新欄位。所以填完 `DEFAULT_STEER`
+之後**不會成批轉紅**。仍要跑 `tsc` 確認。
 
 - [ ] **Step 6: Commit**
 
@@ -263,7 +266,18 @@ Expected: 第一條 FAIL（讓位還沒接上,兩者相等）；第二、三條�
   // 偏置是 +10°，機首因此穩定停在目標線上方 10°，而開火錐只有 3° ——
   // 結構上開不了火。見 `sweetYield`。
   if (intent !== 'rally') {
-    applyPitchBias(sit.sweetPitch * sweetYield(basis.interceptTime, cfg), out.aimWorld)
+    // 【2026-08-16：讓位給射擊解】同一個位階問題的第三個對象。「我想把仗帶到
+    // 我的甜蜜區」不該蓋過「射擊解已經到手了」。人工回報：109 在 500 km/h 的
+    // 偏置是 +10°，機首因此穩定停在目標線上方 10°，而開火錐只有 3° ——
+    // 結構上開不了火。見 `sweetYield`。
+    //
+    // 【為什麼 defend 不讓位】`basis` 永遠對**攻擊目標**建立
+    // （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的
+    // （`defendAim` 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套
+    // 讓位會變成「我正在閃 A，但要不要讓位由我能不能射中 B 決定」——
+    // 無意義的耦合。排除之後 defend 的行為逐位元不變。見 spec §4.2b。
+    const yieldFactor = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
+    applyPitchBias(sit.sweetPitch * yieldFactor, out.aimWorld)
   }
 ```
 
@@ -353,8 +367,10 @@ describe('甜蜜區偏置不得擋住扳機（開局 150 m、預瞄點在下方 
 
 - [ ] **Step 2: 跑測試確認第一條失敗**
 
-先把 Task 2 的改動 `git stash`,或把 `sweetYieldTime` 暫時設 0 跑一次,確認第一條會紅。
-確認完恢復。
+**不能用 `git stash`** —— Task 2 已經 commit,stash 撤不回已提交的改動（Codex 審查）。
+用 `DEFAULT_STEER.sweetYieldTime = 0` 注入 + `finally` 還原,前例
+`test/tools/defend-tilt.probe.ts:24-29`。那正是第二條測試自己在做的事,所以
+「第一條會紅」由第二條反證：若關閉與開啟量到同一個數,代表判準沒有量到這一層。
 
 Run: `npx vitest run test/integration/ai-shot-yield.test.ts`
 
@@ -395,7 +411,7 @@ Run: `npx vite-node test/tools/shot-yield.probe.ts`
 
 - [ ] **Step 2: 全套回歸**
 
-Run: `npx vitest run`
+Run: `npx vitest run`（**由 Claude 或 CI 跑,不在 Codex 的 124 秒工具時限內**）
 
 **逐條與改動前比較。** 改動前的基準：本分支 `HEAD` 在 Task 1 之前的那一次
 `npx vitest run`（若沒有,先 `git stash` 跑一次存下來）。
