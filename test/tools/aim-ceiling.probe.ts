@@ -7,10 +7,32 @@
  *
  * 那是兩個問題，這支只答得出第二個的一半。
  *
- * ## 一、門檻能訂多高 —— 5.42°（現況最小值）
+ * ## 一、門檻能訂多高 —— **4°（= 2 × HIT_CONE）**，理由在下面
  *
- * 但拿現況定門檻就是照著現況畫靶，本專案第三次的教訓（2026-08-13
- * spec §7.5）。若要一個有牙齒的數字，它得錨在別的東西上，不是這張表。
+ * 拿現況最小值 5.42° 當門檻是照著現況畫靶（2026-08-13 spec §7.5 的第三次
+ * 教訓）。2026-08-16 補了兩張掃描，答案才有依據。
+ *
+ * 【穩健性掃描：距離 700/800/900 × yaw ±8° × pitch ±8°，共 108 組】
+ * 這些擾動都不改變場景語意，落差就是判準的體質雜訊。
+ *
+ *   場景          釘死那點    最小     中位     最大
+ *   正前方‧前飛     5.85°     5.18°    5.86°    6.45°
+ *   正前方‧橫飛     5.50°     0.99°    5.50°    6.37°
+ *   我的正上方      7.46°     0.97°    7.39°    8.41°
+ *   我的正下方      7.17°     0.60°    6.71°    7.65°
+ *
+ * 【俯仰細掃：這個判準是雙峰的，中間幾乎沒有東西】
+ * 曲線在多數區間平滑（前飛整段 5.83~5.86，紋風不動），但有**懸崖**：
+ * 橫飛 pitch +2° 從 5.50 掉到 1.07、上方 −8° 掉到 2.22、下方 −6~−2° 掉到
+ * 約 2。也就是 AI 要嘛落在 5.2~8.4°（破防成立），要嘛落在 0.6~3.2°
+ * （某個分支翻掉），**3.2~5.2 之間是空的**。
+ *
+ * 所以門檻訂在那個空帶裡的任何值，鑑別力一樣；該挑的是兩邊餘裕最平均的
+ * 那個。**4°** 落在空帶正中，且剛好 = 2 × `HIT_CONE`，錨的語意不變：
+ * 「預瞄點一秒內移動超過**兩個**命中錐」。它不是從現況那張表推出來的。
+ *
+ * 【順帶：那些懸崖本身可能是缺陷】橫飛只要俯仰擺 +2° 就整個塌掉，離釘死
+ * 那一點非常近。查不查是專案負責人的決定。
  *
  * ## 二、AI 還能不能閃更兇 —— **這支答不出來，原因記在下面**
  *
@@ -152,9 +174,33 @@ interface Row {
   radial: number
   /** 垂直視線的分量（**切向 —— 看得見**），m */
   tangential: number
+  /** 取樣格裡意圖是 `defend` 的比例 —— 場景成不成立 */
+  defendShare: number
 }
 
-function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): Row {
+/**
+ * 開局擾動，度。`yaw` 繞鉛直軸、`pitch` 繞「航向 × 鉛直」。
+ *
+ * 【為什麼要有這個】護欄釘死在 800 m、航向零誤差的那一點上。要判斷門檻能
+ * 訂多高，得先知道這個數字**對語意上無關的小擾動有多敏感** —— 若擺歪 8°
+ * 就掉一半，那把門檻頂到現況最小值附近，一次無害的重構就會踩到。
+ */
+interface Tilt { yaw: number; pitch: number }
+const NO_TILT: Tilt = { yaw: 0, pitch: 0 }
+
+function tilted(course: Vector3, t: Tilt): Vector3 {
+  const c = course.clone()
+  if (t.yaw !== 0) c.applyAxisAngle(UP, (t.yaw * Math.PI) / 180)
+  if (t.pitch !== 0) {
+    const axis = new Vector3().crossVectors(c, UP)
+    if (axis.lengthSq() > 1e-12) c.applyAxisAngle(axis.normalize(), (t.pitch * Math.PI) / 180)
+  }
+  return c.normalize()
+}
+
+function run(
+  probe: Probe, pilot: Pilot, standoff: number, lookahead: number, tilt: Tilt = NO_TILT,
+): Row {
   const steps = Math.round(lookahead * 240)
   const world = new World()
   const prey = new Aircraft(BLUNT, ALT, TAS)
@@ -164,7 +210,8 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
   const asp = ASPECTS[probe]
   const lampPos = new Vector3(0, ALT, 0)
   const preyPos = asp.off(standoff).add(lampPos)
-  for (const [a, p, c] of [[prey, preyPos, asp.course], [lamp, lampPos, FWD]] as const) {
+  const course = tilted(asp.course, tilt)
+  for (const [a, p, c] of [[prey, preyPos, course], [lamp, lampPos, FWD]] as const) {
     a.state.position.copy(p)
     a.state.velocity.copy(c).multiplyScalar(TAS)
     a.state.orientation.setFromUnitVectors(FWD, c)
@@ -195,6 +242,11 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
   const histV: Vector3[] = []
   for (let i = 0; i <= steps; i++) { histP.push(new Vector3()); histV.push(new Vector3()) }
   let head = 0, filled = 0
+  // 【與落地護欄對齊】整段前瞻都必須在 defend、而且反應延遲已排空。
+  // 少了這道閘門，擾動掃描會把「AI 還沒開始閃」的格子也算成「閃得很小」
+  const settle = Math.ceil(VETERAN.reactionDelay * 240)
+  let defendRun = 0
+  let defendN = 0
   const errs: number[] = []
   const devs: number[] = []
   const rads: number[] = []
@@ -220,6 +272,8 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
     if (!inside) { if (!valid) continue; inside = true; from = s } else if (!valid) break
     to = s
 
+    defendRun = pilot !== 'ai' || ai.intent === 'defend' ? defendRun + 1 : 0
+
     const n = histP.length
     histP[head]!.copy(prey.state.position)
     histV[head]!.copy(prey.state.velocity)
@@ -228,6 +282,8 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
     if (filled <= steps) filled++
 
     if (filled <= steps || s - from < steps || s % 12 !== 0) continue
+    if (defendRun < steps + settle) continue
+    if (pilot === 'ai' && ai.intent === 'defend') defendN++
 
     const pv = histV[old]!
     ghost.state.position.copy(histP[old]!).addScaledVector(pv, lookahead)
@@ -255,6 +311,7 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
   return {
     err: median(errs), samples: errs.length, window: (to - from) * DT, alive,
     dev: median(devs), radial: median(rads), tangential: median(tans),
+    defendShare: defendN / Math.max(errs.length, 1),
   }
 }
 
@@ -361,6 +418,126 @@ function anatomy(standoff: number, lookahead: number): void {
   }
 }
 
+/**
+ * **穩健性掃描 —— 門檻能訂多高，答案在這一張，不在現況那張。**
+ *
+ * 【問題】專案負責人問：不改程式碼的話，`AIM_ERROR_FLOOR` 從 2° 可以改成
+ * 幾度？現況四場是 5.42~7.42°，直覺會想頂到 5° 附近。
+ *
+ * 【為什麼不能那樣訂】護欄釘死在「800 m、航向零誤差」那**一個點**上。
+ * 那一點的數字高，不代表附近都高。若擺歪一點就掉一半，門檻頂到現況最小值
+ * 附近時，一次語意上無害的重構就會踩線 —— 護欄變成雜訊產生器。
+ *
+ * 【所以掃什麼】距離 700/800/900、開局航向 yaw 與 pitch 各 0/±8°。
+ * 這些擾動**都不改變場景的語意**（還是「800 m 左右、大致某個方位」），
+ * 所以它們之間的落差就是這個判準的**體質雜訊**。
+ *
+ * 門檻該訂在這張表的**最小值以下**，不是現況那一點以下。
+ */
+function robust(lookahead: number): void {
+  console.log(`
+`)
+  console.log(`╔══ 穩健性掃描（前瞻 ${lookahead} 秒）═══════════════════════════`)
+  console.log('  距離 700/800/900 × yaw 0/±8° × pitch 0/±8°，每場 27 組')
+  console.log('  場景          釘死那點    最小     中位     最大    低於 4° 的組數')
+  let worst = Infinity
+  let worstAt = ''
+  for (const p of PROBES) {
+    const pin = run(p, 'ai', 800, lookahead).err
+    const errs: number[] = []
+    for (const d of [700, 800, 900]) {
+      for (const yaw of [-8, 0, 8]) {
+        for (const pitch of [-8, 0, 8]) {
+          const r = run(p, 'ai', d, lookahead, { yaw, pitch })
+          // 樣本不足或墜毀的組合不納入 —— 那是量測失效，不是 AI 不閃
+          if (!r.alive || r.samples < 20) continue
+          errs.push(r.err)
+          if (r.err < worst) {
+            worst = r.err
+            worstAt = `${ASPECTS[p].label} ${d}m yaw${yaw} pitch${pitch}`
+          }
+        }
+      }
+    }
+    const lo = Math.min(...errs)
+    const hi = Math.max(...errs)
+    const under4 = errs.filter((e) => e < 4).length
+    console.log(
+      `  ${ASPECTS[p].label.padEnd(12)}`
+      + `${pin.toFixed(2).padStart(7)}°`
+      + `${lo.toFixed(2).padStart(9)}°`
+      + `${median(errs).toFixed(2).padStart(9)}°`
+      + `${hi.toFixed(2).padStart(9)}°`
+      + `${(under4 + '/' + errs.length).padStart(12)}`,
+    )
+  }
+  console.log(`
+  全域最小值 ${worst.toFixed(2)}° @ ${worstAt}`)
+}
+
+/**
+ * 低點的解剖 —— **「AI 沒動」還是「動了但你看不見」？**
+ *
+ * 兩者對門檻的意義完全不同：前者是 AI 真的有洞，門檻頂高就會抓到它；
+ * 後者是這個判準在那個幾何下失去解析度，門檻頂高只會製造假警報。
+ *
+ * 分辨方法就是 `anatomy` 那一張的欄位：位移總量大但切向小 = 動了看不見；
+ * 位移總量本身就小（接近直飛地板的 2~3 m）= 真的沒動。
+ */
+function lowDetail(lookahead: number, cut: number): void {
+  console.log(`
+
+╔══ 低於 ${cut}° 的組合，逐一解剖 ═══════════════════════════`)
+  console.log('  場景          距離  yaw pitch   誤差   位移總量   徑向    切向   取樣')
+  for (const p of PROBES) {
+    for (const d of [700, 800, 900]) {
+      for (const yaw of [-8, 0, 8]) {
+        for (const pitch of [-8, 0, 8]) {
+          const r = run(p, 'ai', d, lookahead, { yaw, pitch })
+          if (!r.alive || r.samples < 20 || r.err >= cut) continue
+          console.log(
+            `  ${ASPECTS[p].label.padEnd(12)}`
+            + `${String(d).padStart(5)}`
+            + `${String(yaw).padStart(5)}`
+            + `${String(pitch).padStart(6)}`
+            + `${r.err.toFixed(2).padStart(8)}°`
+            + `${r.dev.toFixed(1).padStart(10)}m`
+            + `${r.radial.toFixed(1).padStart(8)}m`
+            + `${r.tangential.toFixed(1).padStart(8)}m`
+            + `${String(r.samples).padStart(7)}`,
+          )
+        }
+      }
+    }
+  }
+}
+
+
+/**
+ * 細掃 —— **釘死那一點是穩定盆地，還是運氣好的尖峰？**
+ *
+ * 粗掃（±8°）看到低到 1° 的組合，但那不足以定門檻：如果曲線是平滑的、
+ * 只在 ±8° 的邊緣才掉下去，釘死那點就在一個安全盆地裡，門檻可以訂高一些；
+ * 如果 ±2° 就開始劇烈跳動，那它只是運氣好，門檻必須留大餘裕。
+ */
+function fine(lookahead: number): void {
+  console.log(`
+
+╔══ 開局俯仰細掃（800 m，pitch −8~+8 每 2°）═══════════════`)
+  const cols = [-8, -6, -4, -2, 0, 2, 4, 6, 8]
+  console.log('  場景        ' + cols.map((c) => (c + '°').padStart(7)).join(''))
+  for (const p of PROBES) {
+    const row = cols.map((pitch) => {
+      const r = run(p, 'ai', 800, lookahead, { yaw: 0, pitch })
+      return (!r.alive || r.samples < 20 ? '—' : r.err.toFixed(2)).padStart(7)
+    })
+    console.log('  ' + ASPECTS[p].label.padEnd(12) + row.join(''))
+  }
+}
+
 table(800, 1)
 sweepLookahead(800)
 anatomy(800, 1)
+robust(1)
+fine(1)
+lowDetail(1, 4)
