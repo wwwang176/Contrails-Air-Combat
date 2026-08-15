@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
+import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { rallyAim } from './rally'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -573,6 +574,32 @@ export interface SteerConfig {
    * **起始值，待實測回填。** 掃描範圍 1 / 2 / 4。
    */
   reversalHold: number
+  /**
+   * 甜蜜區俯仰偏置的**讓位時間尺度**，秒。彈道飛行時間短於它時，偏置按
+   * `interceptTime / sweetYieldTime` 的比例收掉。**0 = 這一層關閉**（消融用）。
+   *
+   * 【為什麼需要讓位】`sit.sweetPitch` 只看機種對、高度、空速 —— 不看距離、
+   * 不看瞄準誤差、不看有沒有射擊解。命令的航跡角是
+   * `−(下瞄角 × pullCeiling) + sweetPitch`，所以偏置本身就是一個**平衡偏移**：
+   * 109 在 4000 m／500 km/h 的偏置是 +10°、`pullCeiling` 是 1.00，機首於是
+   * 穩定停在目標線上方 10°。而 `DEFAULT_FIRE.trackingCone` 只有 3° ——
+   * **那個態勢下 AI 結構上開不了火**（人工回報，2026-08-16）。
+   *
+   * 【為什麼閘門不掛在瞄準誤差上】會鎖死。平衡點是 10°，閘門若設在 5°，系統
+   * 永遠停在 10°、進不了 5°、閘門永遠不開。閘門必須掛在**偏置控制不到**的量
+   * 上，`interceptTime` 由雙方位置與速度決定，當格不讀 `aimWorld` 也不讀機首。
+   *
+   * 【為什麼是 `PROJECTILE_LIFETIME`】`shouldFire` 的第一條就是
+   * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增第二
+   * 套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale` 同一
+   * 個手法。
+   *
+   * 【實測效果】109 對 P-51、4000 m、500 km/h：150 m 的偏置由 10° 降到 1.8°
+   * （低於開火錐），800 m 仍有 9.5° —— 近戰讓位、遠距離維持原樣。
+   *
+   * spec `2026-08-16-sweet-spot-shot-yield-design.md`。
+   */
+  sweetYieldTime: number
 }
 
 /**
@@ -996,6 +1023,7 @@ export const DEFAULT_STEER: SteerConfig = {
   reversalRange: 500,
   reversalAspect: 90 * (Math.PI / 180),
   reversalHold: 2,
+  sweetYieldTime: PROJECTILE_LIFETIME,
 }
 
 /**
@@ -1336,6 +1364,33 @@ export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
   else if (next < -PITCH_BIAS_LIMIT) next = -PITCH_BIAS_LIMIT
   const scale = Math.cos(next) / horiz
   aim.set(aim.x * scale, Math.sin(next), aim.z * scale)
+}
+
+/**
+ * 甜蜜區偏置的讓位係數，0..1。1 = 照原樣偏、0 = 完全不偏。
+ *
+ * 【與 `unloadPull` / `energyPull` 同一族】三者都回傳係數、都由呼叫端乘上去、
+ * 都不動方位。差別只在防的物理：
+ *
+ *   unloadPull   看 stallMargin    —— 防**失速**（迎角太大）
+ *   energyPull   看 cornerRatio    —— 防**能量見底**（速度太低）
+ *   sweetYield   看 interceptTime  —— 防**打法偏好擋住扳機**
+ *
+ * 【`NO_INTERCEPT` 回傳 1 而不是 0】沒有攔截解 = 沒有射擊機會 = 沒有東西要讓。
+ * 回傳 0 會把「彈道無解」變成「連打法都不准表態」，方向剛好相反。
+ *
+ * 【`sweetYieldTime <= 0` 回傳 1】與 `energyPull` 的退化處理同一個理由：設定
+ * 寫壞時讓本層失效、退回既有行為，比讓它把 AI 鎖死安全。這也是消融的開關。
+ *
+ * @param interceptTime `EngageBasis.interceptTime`，s。`NO_INTERCEPT` 表示無解
+ */
+export function sweetYield(interceptTime: number, cfg: SteerConfig = DEFAULT_STEER): number {
+  if (interceptTime === NO_INTERCEPT) return 1
+  const span = cfg.sweetYieldTime
+  if (!(span > 0)) return 1
+  if (interceptTime >= span) return 1
+  if (interceptTime <= 0) return 0
+  return interceptTime / span
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
