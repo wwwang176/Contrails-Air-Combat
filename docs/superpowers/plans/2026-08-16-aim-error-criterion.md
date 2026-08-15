@@ -171,9 +171,16 @@ function aimErrorDeg(
     prey.state.position.set(-40, ALT, -TAS)
     prey.state.velocity.set(0, 0, -TAS)
 
+    // 【17.3° 是算出來的，不是觀察出來的】獨立解一次彈道：
+    //   實際   p=(-40,0,-800) v=(0,0,0)      → t=0.903，lead 方向偏 2.9°
+    //   預測   p=(-150,0,-800) v=(-150,0,0)  → t=0.961，lead 方向偏 20.2°
+    // 差 17.3°。用區間而不是 toBeCloseTo：容得下浮點與求根分支的差異，
+    // 但擋得住「少乘一個提前量」或「正負號寫反」那一類的錯
     advanceLamp(lamp, prey, track, 1, basis, new Vector3())
     expect(aimErrorDeg(lamp, prey, predictAhead(past, 1, ghost), basis, a, b))
-      .toBeGreaterThan(3)
+      .toBeGreaterThan(14)
+    expect(aimErrorDeg(lamp, prey, predictAhead(past, 1, ghost), basis, a, b))
+      .toBeLessThan(21)
   })
 
   /**
@@ -198,11 +205,26 @@ function aimErrorDeg(
     prey.state.position.set(0, ALT + 40, -TAS)
     prey.state.velocity.set(0, 60, -TAS)
 
+    // 獨立解一次彈道：預測是純尾追（相對速度 0，lead 就是 (0,0,-1)），
+    // 實際 p=(0,40,-800) v=(0,60,0) → t=0.908，lead=(0,94.5,-800)，偏 6.7°
     advanceLamp(lamp, prey, track, 1, basis, new Vector3())
     expect(aimErrorDeg(lamp, prey, predictAhead(past, 1, ghost), basis, a, b))
-      .toBeGreaterThan(3)
+      .toBeGreaterThan(5)
+    expect(aimErrorDeg(lamp, prey, predictAhead(past, 1, ghost), basis, a, b))
+      .toBeLessThan(9)
   })
 ```
+
+**這三條的數字是動工前獨立算出來的**(自己解 `|p + v·t| = 887 t`,不呼叫專案的
+`solveLead`),不是跑出來之後回填的 —— 那樣就變成照著現況畫靶:
+
+| 合約 | 獨立算出來的值 |
+|---|---|
+| 六(等速直線) | **0.0000000000°** —— 精確,不是近似 |
+| 七(橫向收掉) | 17.32° |
+| 八(拉起 40 m) | 6.74° |
+
+合約六算出精確的 0,是第五版整個地基成立的證據:**地板不是實測的,是代數的。**
 
 - [ ] **Step 3: 跑**
 
