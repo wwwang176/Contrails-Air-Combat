@@ -1509,7 +1509,22 @@ export function steerCommand(
   // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
   // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
   // 命令的內容是「把自己拉爆」。見 spec §4.4。
-  if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
+  //
+  // 【2026-08-16：讓位給射擊解】同一個位階問題的第三個對象。「我想把仗帶到
+  // 我的甜蜜區」不該蓋過「射擊解已經到手了」。人工回報：109 在 500 km/h 的
+  // 偏置是 +10°，機首因此穩定停在目標線上方 10°，而開火錐只有 3° ——
+  // 結構上開不了火。見 `sweetYield` 與 `SteerConfig.sweetYieldTime`。
+  //
+  // 【為什麼 defend 不讓位】`basis` 永遠對**攻擊目標**建立
+  // （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的（`defendAim`
+  // 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套讓位會變成
+  // 「我正在閃 A，但要不要讓位由我能不能射中 B 決定」—— 無意義的耦合。
+  // 排除之後 defend 的行為逐位元不變。要正確地讓位需要對威脅來源另建一組
+  // `EngageBasis`，那要動 `AiController`，列為未解（spec §7.3）。
+  if (intent !== 'rally') {
+    const yieldFactor = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
+    applyPitchBias(sit.sweetPitch * yieldFactor, out.aimWorld)
+  }
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
