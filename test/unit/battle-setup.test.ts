@@ -753,4 +753,57 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
     for (let i = 0; i < 240; i++) stepBattle(b, DT)
     expect(b.outcome).toBe('fighting')
   })
+
+  /**
+   * 【2026-08-15 的缺陷：再打一場之後指揮層讀凍結座標】
+   *
+   * 舊版 `Aircraft.reset` 做 `this.state = createFlightState(...)`，把
+   * `state.position` 換成一個**新的** `Vector3`；而 `createBattle` 把指揮層
+   * 快照的位置抓成那個向量的**別名**。`resetBattle`（再打一場）對每一架都
+   * 呼叫 `World.respawn` → `reset()`，於是 40 個別名全部指向孤兒，指揮層
+   * 從此讀一整場凍結的座標。
+   *
+   * 實測（`test/tools/rally-reset.probe.ts`）：重開後 40/40 架失聯、最大
+   * 落差 5300 m，集合令因此解除不掉、最長握了 344 秒 —— 人工回報的症狀是
+   * AI 繞著一個五公里外的鬼位置無限盤旋。壞掉的不只集合令：側翼落點、
+   * 集火解除、撤退令錨的敵群質心全都一起讀鬼影。
+   *
+   * 兩道修法各配一條斷言：`reset` 就地寫回（物件同一性），指揮層每步
+   * `copy`（數值跟得上）。兩者任一被改回去，這裡就紅。
+   */
+  it('再打一場之後，指揮層的快照仍然跟著飛機走', () => {
+    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, blueCount: 8, redCount: 8 }, 7)
+    const before = b.world.combatants.map((c) => c.aircraft.state)
+
+    for (let i = 0; i < 240; i++) stepBattle(b, DT)
+    resetBattle(b, 9)
+    // 重開之後要真的飛一段，凍結才會顯現 —— 剛重置時兩者恰好都在出生點
+    for (let i = 0; i < 240 * 20; i++) stepBattle(b, DT)
+
+    for (let i = 0; i < b.world.combatants.length; i++) {
+      const c = b.world.combatants[i]!
+      // 一、`reset` 不得換掉 `state` 物件（根因）
+      expect(c.aircraft.state).toBe(before[i])
+      // 二、快照的數值必須等於當下的真實座標（第二道防線）
+      const u = b.commandUnits[i]!
+      const p = c.aircraft.state.position
+      expect(u.position.distanceTo(p)).toBeLessThan(1e-6)
+      expect(u.velocity.distanceTo(c.aircraft.state.velocity)).toBeLessThan(1e-6)
+    }
+  })
+
+  /**
+   * 【快照要是**副本**，不是別名】上一條驗數值跟得上，這一條驗它不是靠
+   * 「指到同一個物件」才跟得上的 —— 那正是舊版的作法，而它把「那個物件
+   * 永遠不會被換掉」變成一條沒人守的默契。
+   */
+  it('指揮層快照持有自己的向量，不是飛機那一份的別名', () => {
+    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, blueCount: 4, redCount: 4 }, 3)
+    stepBattle(b, DT)
+    for (let i = 0; i < b.world.combatants.length; i++) {
+      const c = b.world.combatants[i]!
+      expect(b.commandUnits[i]!.position).not.toBe(c.aircraft.state.position)
+      expect(b.commandUnits[i]!.velocity).not.toBe(c.aircraft.state.velocity)
+    }
+  })
 })
