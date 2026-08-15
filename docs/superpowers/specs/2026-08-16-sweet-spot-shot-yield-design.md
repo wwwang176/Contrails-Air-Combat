@@ -94,7 +94,7 @@ if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 
 - 不改 `sweetSpotPitch` 本身的方向或大小算式。
 - 不改 `sweetSpotMaxPitch`（那是護欄重新定值,專案負責人的決定,而且 §1.5 已證實掃不出來）。
-- 不碰 `defendPitchBias`（破防路徑另有一層,不在本輪範圍）。
+- 不碰破防路徑。`defend` 完全排除在讓位之外,行為逐位元不變 —— 理由見 §4.2b。
 - 不碰 `pullCeiling` / `unloadPull`。
 
 ---
@@ -131,6 +131,28 @@ if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 
 **閘門要掛在偏置控制不到的量上。**
 
+### 4.2b `defend` 必須排除 —— `basis` 是對「錯的飛機」建的
+
+（Codex 審查 2026-08-16 抓到,已自行驗證屬實。）
+
+`AiController.ts:327-332`：
+
+```ts
+const src = this.threatSource
+const attacker = src ?? target
+buildEngageBasis(self, target, this.basis)   // ← 永遠是 target，不是 attacker
+```
+
+**`basis` 永遠對「我正在攻擊的目標」建立,而 `defend` 是對「正在打我的那一架」做的**
+（`defendAim` 讀 `sit.threatLos`）。兩者可以是不同的飛機。
+
+若對 `defend` 也套讓位,語意會變成**「我正在閃 A,但要不要讓位由我能不能射中 B 決定」**
+—— 那是無意義的耦合。
+
+**本輪的處理:`defend` 完全排除讓位,維持現狀的滿額偏置。** 這樣 `defend` 的行為
+逐位元不變,不引入新的錯誤耦合。「破防時該不該讓位」需要對**威脅來源**的彈道解,
+而那要動 `AiController` 多建一組 basis —— 列為未解（§7.3）。
+
 ### 4.3 掛在哪：`basis.interceptTime`
 
 `shouldFire` 的四個條件裡,前三條都與機首無關：
@@ -139,7 +161,13 @@ if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 2. 距離不能太近（`minRange`）
 3. 視線角速度不能太大（`losRate`）
 
-只有第四條看機首。**取第一條當閘門的自變數,沒有回授迴路。**
+只有第四條看機首。**取第一條當閘門的自變數,沒有同一格的代數回授。**
+
+【措辭要精確】（Codex 審查 2026-08-16）`interceptTime` 當格只讀雙方位置與速度,不讀
+`aimWorld`、不讀機首,所以**不會**像「用偏置後的瞄準誤差算偏置」那樣當格自我鎖死。
+但命令會在同一步推進飛機（`World.ts:277-305`）,下一格的 `interceptTime` 當然跟著變
+—— 那是**一般的動態閉迴路**,每一個控制律都有,不是這裡要防的東西。要防的是**代數
+自鎖**,而這個選擇沒有。
 
 只取第一條、不取另外兩條的理由：
 - `interceptTime` 直接回答「我的子彈現在飛得到那裡嗎」,那正是「射擊機會」的定義。
@@ -211,11 +239,16 @@ sweetYieldTime: number
 ```ts
 - if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 + if (intent !== 'rally') {
-+   applyPitchBias(sit.sweetPitch * sweetYield(basis.interceptTime, cfg), out.aimWorld)
++   // 【defend 不讓位】見 §4.2b：basis 是對攻擊目標建的，不是對威脅來源
++   const yield_ = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
++   applyPitchBias(sit.sweetPitch * yield_, out.aimWorld)
 + }
 ```
 
 `basis` 已經是 `steerCommand` 的參數,不必改簽名。
+
+**受影響的意圖**：`engage`、`extend`、`merge`、`approach`（以及所有 `SteerMode`,
+因為偏置是模式無關的後處理）。**不受影響**：`rally`（本來就排除）、`defend`（§4.2b）。
 
 ---
 
@@ -238,19 +271,60 @@ sweetYieldTime: number
 把 `nose-bias.probe.ts` 的場景收斂成護欄：109 交 AI、敵機正前方 150 m、預瞄點在下方
 15°、我機 500 km/h、敵機爬升 10°,跑 6 秒。
 
-**判準：最後一秒的「預瞄點在機首下方」中位數必須小於 `DEFAULT_FIRE.trackingCone`。**
+**判準有兩條,缺一不可**（Codex 審查 2026-08-16：只驗 `trackingCone` 不足以證明
+「扣得下扳機」—— 它只是 `shouldFire` 四條裡的第四條）：
 
-錨在既有常數上,不是照著改完的現況畫靶（2026-08-13 spec §7.5 的第三次教訓）。意思很短：
-**AI 必須能把機首帶到扣得下扳機的位置。**
+1. **最後一秒的「預瞄點在機首下方」中位數 < `DEFAULT_FIRE.trackingCone`** —— 定位根因用
+2. **最後一秒的 `command.firing` 佔比 > 0** —— 真的扣得下扳機
 
-**同時要有一條會失敗的對照**：把 `sweetYieldTime` 設成 0（關閉這一層）跑同一場,斷言它
-**大於** 開火錐。那條讓「這個缺陷是真的」可證偽 —— 若關閉與開啟沒有差別,代表判準沒有
-量到這一層。
+錨在既有常數上,不是照著改完的現況畫靶（2026-08-13 spec §7.5 的第三次教訓）。
+
+**這是端到端驗收,不是隔離量測。** 場景經過 `VETERAN` 的 0.3 秒反應延遲,命令最後還會
+被安全層覆寫（`AiController.ts:403-404`）。所以量測函數要回傳一個結構
+`{ median, fireShare, bothAlive, safetyShare, intent, mode }`,把「不是別層碰巧把機首
+帶進 3°」這件事一起釘住。真正隔離這一層的是 §6.1b 的直接比較。
+
+**同時要有一條會失敗的對照**：把 `DEFAULT_STEER.sweetYieldTime` 暫時設成 0（關閉這一層）
+跑同一場,斷言它**大於** 開火錐。那條讓「這個缺陷是真的」可證偽。
+
+**消融怎麼注入**：`AiController` **沒有** `SteerConfig` 的入口（`AiController.ts:384`
+省略 `cfg`）。既有手法是直接改 `DEFAULT_STEER` 的欄位再在 `finally` 還原
+（前例：`test/tools/defend-tilt.probe.ts:24-29`）。**不替 `AiController` 加
+`steerConfig` 欄位** —— 那個欄位若只傳給 `steerCommand`、不傳給 `geometryGate` /
+`engageKnobs` / `stepDefend`（四者各自有 `cfg = DEFAULT_STEER`）,就是一個名不副實
+只控制半套行為的欄位。要加就要全套接,那是另一輪的重構。
+
+### 6.1b 隔離量測：同一態勢直接比較兩個設定
+
+在 `test/unit/ai-steer.test.ts` 的既有 `describe('steerCommand：甜蜜區偏置')` 裡加,
+沿用它的 `scene()` 而不是另造半套假態勢：
+
+| 案例 | 期望 |
+|---|---|
+| `interceptTime = 0.2`,讓位開 vs 關 | 開的抬頭量明顯小於關的 |
+| `interceptTime = 2 × sweetYieldTime`,開 vs 關 | 兩者相等 |
+| `intent = 'rally'` | 兩者逐位元相等（既有行為,不得改動） |
+| `intent = 'defend'` | 兩者相等 —— §4.2b 的排除 |
 
 ### 6.3 遠距離不得被改壞
 
-同一支測試加一場 800 m 開局,斷言 `sweetYield` 在該格 > 0.9 —— 釘住「遠距離幾乎不動」
-這個設計意圖。
+用 `buildEngageBasis` 建一個**真的** 800 m 態勢,比較讓位開／關的 `aimWorld`,兩者的
+航跡角差必須小於 1°。
+
+**不用 `expect(sweetYield(1.135) > 0.9)`** —— 那只是把 §6.1 的純函數測試抄一遍,沒有
+建立幾何、也沒有量命令輸出,守不住行為（Codex 審查 2026-08-16）。
+
+### 6.3b 既有測試的責任要保住,不是放寬
+
+`test/unit/ai-steer.test.ts:1755-1762`「抬頭偏置反映在航跡角上」把目標放在 800 m,
+斷言 `+12°` **精確**成立。P-51 槍口初速 887 m/s,同速尾追的 `interceptTime ≈ 0.902 s`,
+新係數約 0.75 —— **接上讓位後那一條會紅,只剩約 9°。**
+
+**處理方式：在該條測試裡把 `basis.interceptTime` 設成 `2 * DEFAULT_STEER.sweetYieldTime`。**
+
+這**不是**放寬護欄。那一條的責任是「`applyPitchBias` 有沒有正確地把角度加到航跡角上」,
+把 `interceptTime` 推到讓位範圍外正是**保住它原本的責任**;縮放由 §6.1b 的新測試驗。
+改動仍會在回報裡逐條列出,交專案負責人確認。
 
 ### 6.4 全套回歸
 
@@ -283,12 +357,57 @@ sweetYieldTime: number
 §1.5 已記載：掃了但掃不出來,留在起手值。本輪不動它 —— 讓位機制解決的是「該開火時被
 擋住」,不是「10° 對不對」。後者需要一個解析得出這個尺度的判準,那是另一輪的事。
 
-### 7.3 `defend` 路徑同時吃兩層俯仰偏置
+### 7.3 `defend` 路徑同時吃兩層俯仰,而且讓位在那裡沒有正確的自變數
 
-`defendPitchBias` 與 `sweetPitch` 在 `intent === 'defend'` 時都會生效。是否重複、要不要
-互斥,本輪沒查。列為未解。
+（本節在 Codex 審查後重寫 —— 原文寫成「`defendPitchBias` 與 `sweetPitch`」,**程式裡
+沒有 `defendPitchBias` 這個量**,那是誤記。）
 
-### 7.4 P-51 的方向相反,同一個病
+實際的兩層是：
+
+1. `defendAim` 用 `defendTilt`（20°）以 `sin`／`cos` 建出破防軸（`steer.ts:1581-1605`）
+2. 整個破防向量再被 `applyPitchBias(sit.sweetPitch)` 改航跡角（`steer.ts:1450-1457`）
+
+兩者不是單純相乘,但在接近水平的態勢下近似相加或相消：正的 `sweetPitch` 把破防再抬高,
+負的可能吃掉原本 20° 的上仰。
+
+**本輪把 `defend` 排除在讓位之外**（§4.2b）,所以 `defend` 的行為逐位元不變。但上面那個
+兩層疊加的問題**本來就存在,本輪沒有解決**。要解決需要對**威脅來源**建一組獨立的
+`EngageBasis`,那要動 `AiController`。列為未解。
+
+### 7.4 兩個被接受的邊界不一致
+
+（Codex 審查 2026-08-16 指出,判定為可接受。）
+
+- **`range < 60 m`**：`shouldFire` 明確禁止開火（怕相撞）,但讓位係數已經趨近 0、偏置
+  幾乎全收。判定無害 —— 那個距離下「瞄準點指著目標」不會造成任何壞事,而且
+  `geometryGate` 的 `overshoot`（`range < 120`）本來就已經接管了瞄準點。
+- **高視線角速度的掠過**：`shouldFire` 第三條會擋掉,但讓位仍然生效。判定無害 ——
+  掠過的接觸時間很短,少偏一點不會改變結果。
+
+兩者都可以用「`range >= minRange && losRate <= maxLosRate`」多加兩道閘門補起來,代價是
+兩個定不了值的新常數（§1.5 已證實現有測試組解析不出這個尺度）。YAGNI。
+
+### 7.5 更根本的問題：`sweetPitch` 是無條件的最末級後處理器
+
+（Codex 審查 2026-08-16 提出,判定為**真問題,但不在本輪範圍**。）
+
+`steerCommand` 的結構是：各 mode／intent 先產生自己的動作（`steer.ts:1378-1424`）→
+能量上限收桿（`:1446-1448`）→ **甜蜜區偏置再無條件加回去**（`:1450-1457`）。
+
+於是它不只擋住射擊,還會：
+
+- 繞過 `pullCeiling`（收完桿又把角度加回去）
+- 抵消 `speedRecover` 的主動壓機頭（−20° 遇上 +10° 剩一半）
+- 改寫 `extend`、`overshoot`、`planeDegenerate` 各自的動作
+- 污染 `defend`（§7.3）
+
+**本輪只解決「擋住射擊」那一條**,因為那是人工回報的、可複現的、有既有常數當門檻的
+缺陷。其餘幾條各自需要自己的判準與掃描。
+
+真正的修法是先定義一張**意圖／模式的所有權矩陣**：哪些動作允許戰術偏好介入、哪些是
+硬優先權,然後只在允許的分支裡套偏置。那是下一輪的 spec。
+
+### 7.6 P-51 的方向相反,同一個病
 
 P-51 對 109 在 250~350 km/h 是 **−3.1 ~ −4.1°**（低頭,去換速度）。同樣不看射擊解,
 所以慢速的 P-51 對付高於自己 4° 以內的目標時有同樣的病,只是幅度較小。本輪的修法對
