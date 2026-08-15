@@ -1,464 +1,330 @@
-# 預瞄點偏移判準 Implementation Plan(第二版)
+# 預瞄點偏移判準 Implementation Plan(第三版:手電筒觀測儀)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 建立一個**排除得掉射手機動與正常追擊**的「玩家看得出 AI 在閃」量測 —— 配對消融的效果量 —— 並讓四個方位場景真的成立。
+**Goal:** 用一隻**始終瞄準敵機、不受物理支配**的觀測儀,量「照著 N 秒之後,預瞄點相對 N 秒前偏移幾度」,四個方位各一個值。
 
-**Architecture:** 只動 `test/integration/ai-visible-evasion.test.ts`。不新增檔案、不動任何出貨程式碼。三件事:配對消融(`threatEnter` 開/關)、垂直射手的初速改成同向並飛、逐格方位閘門。
+**Architecture:** 在 `test/integration/ai-visible-evasion.test.ts` **新增**一條獨立的量測路徑。既有的 `measure()`、`scripted()`、`Sniper`、六場墜海護欄、700 / 900 兩條可見度測試 —— **一個字都不動**。
 
-**Tech Stack:** TypeScript、vitest。無新相依。
+**Tech Stack:** TypeScript、vitest。無新相依、無新檔案、不動任何 `src/`。
 
-**Spec:** `docs/superpowers/specs/2026-08-15-lead-swing-criterion-design.md`(2026-08-15 審查後改版)
+**Spec:** `docs/superpowers/specs/2026-08-15-lead-swing-criterion-design.md`(第三版)
 
-## 這一版與第一版的差異
+## 這一版與前兩版的差異
 
-第一版被 Codex 審查推翻了兩處設計。**兩處都是「量到的不是要量的東西」**,不是實作細節:
+專案負責人 2026-08-15:
 
-| 第一版 | 為什麼錯 | 這一版 |
-|---|---|---|
-| `defendMedian` 直接當主判準 | 射手機動與 AI 追誘餌的大彎都灌進去 —— `ordinaryMedian` 6~11° 就是證據 | **配對消融的差值**(§Task 2) |
-| `high`/`low` 只改起始座標 | `Sniper` 是純追擊,2.5 秒就收斂;`Swing` 要滿 1 秒才 ready,取樣開始時幾何已消失 | **同向並飛的初速 + 逐格方位閘門**(§Task 1) |
-| `inRangeCount` 當場景閘門 | 閃得好 → AI 跑出 `THREAT_RANGE` → 計數反而下降,仍然耦合 | **方位閘門的取樣數**(§Task 1) |
-| 門檻 = 現況最小值 × 0.5 / 0.8 | 照著現況畫靶,現況必然通過 | **由專案負責人依需求裁定**(§Task 4) |
+> 射手不要用真的飛機去測量,因為真的飛機轉向瞄準也是需要滾轉的時間。把射手當成一隻可以自由轉動的手電筒,始終瞄準在敵機身上就好。原本的「預瞄點動了幾度」直接當判準就可以保留。
+
+**把污染源移除,比把污染扣掉簡單。** 這一句話同時消掉了前兩版的三個問題:
+
+| 前兩版的問題 | 為什麼消失 |
+|---|---|
+| 主判準無法歸因(審查 C4):射手自己的滾轉與拉桿灌進預瞄點位移 | 觀測儀不機動,貢獻是 0。**配對消融整個不要了** |
+| 垂直場景 2.5 秒就收斂成尾追(審查 C3) | 觀測儀不追擊,方位由建構保證 |
+| `Command.aimWorld` 同時是飛行方向與射擊方向,「維持站位」與「機首指著目標」互斥 | 觀測儀不飛,死結不存在 |
+
+連帶不再需要:方位閘門 `aspectHolds`、場景有效性計數 `aspectSamples`、`hunterLook`、對 `scripted` 的改動、以及整套「逐位元恆等」的驗證負擔(因為根本不碰既有路徑)。
 
 ## Global Constraints
 
-- **不動任何出貨參數與任何 `src/` 檔案。** 本輪只改一個測試檔。
-- **不改 `ai-defence` 的門檻。** 護欄重新定值是專案負責人的決定。
-- **不重寫 `measure()` 的既有算法。** `shootableShare`、`contrast`、`straightness`、`coverage` 一個字不動 —— 否則所有既有基準作廢。
-- **恆等的精確範圍:**
-  - **`tail` 的每一個既有欄位逐位元不變。** 那是既有兩條可見度測試唯一用到的 aspect。
-  - **`beam` 的 `straightMedian` / `contrast` 會改變**(Task 1 把 aspect 傳給 `scripted`,基準線由「尾追直飛」換成「橫越直飛」)。**那是刻意的修正**,而且 `beam` 目前只出現在六場護欄(741 行),那裡只讀 `safetyShare` 與 `aiAlive` —— `scripted` 開的是獨立 `World`、又排在取樣迴圈之後,碰不到那兩個值。**實作時必須確認這一點仍然成立。**
-- **「逐位元」的驗證方式要名副其實**(第一版被審查點名 I4):不得只比 `toFixed` 的四個欄位。做法見 Task 1 Step 6。
-- **門檻一律由專案負責人裁定,不由現況推導。** 2026-08-05 的「位移 ≥ 5°」是猜的,結果它連「完全不閃」都快通過;第一版的「現況最小值 × 0.8」是照著現況畫靶,同一類錯誤的另一面。
+- **不動任何 `src/` 檔案。** 本輪只在一個測試檔裡新增。
+- **不動 `measure()`、`scripted()`、`Sniper`、六場墜海護欄、700 / 900 兩條既有測試。** 新路徑是獨立函數。這一條讓「有沒有破壞既有基準」變成一個**看 diff 就能回答**的問題。
+- **門檻由專案負責人依試玩裁定,不由掃描的現況推導。** 2026-08-05 的「位移 ≥ 5°」是猜的;第一版的「現況最小值 × 0.8」是照著現況畫靶 —— 同一類錯誤的兩面。
+- **量的形狀不變:** 滑動窗、窗長 `WINDOW`(240 步 = 1 秒)、取「現在的預瞄方向」與「1 秒前」的淨夾角。沿用既有的 `Swing`。
 
 ---
 
-### Task 1: 方位閘門、四個 aspect、同向並飛的垂直射手
+### Task 1: 觀測儀與量測函數
 
 **Files:**
-- Modify: `test/integration/ai-visible-evasion.test.ts`
+- Modify: `test/integration/ai-visible-evasion.test.ts`(只新增,不改既有符號)
 
 **Interfaces:**
+- Consumes: 既有的 `Swing`、`median`、`BLUNT`、`Lazy`、`ALT`、`TAS`、`DT`、`FWD`、`buildEngageBasis`、`createEngageBasis`、`createTargetBoard`、`VETERAN`
 - Produces:
-  - `Aspect` 多兩個成員 `'high' | 'low'`
-  - `hunterOffset(aspect, standoff, out): Vector3` —— 射手相對受測 AI 的起始位移
-  - `hunterLook(aspect, preyPos, hunterPos, out): Vector3` —— 射手的起始機首/速度方向
-  - `aspectHolds(aspect, hunter, prey): boolean` —— **逐格**的方位閘門
-  - `Result.aspectSamples: number`
-  - `scripted(mode, standoff, seconds, aspect)` —— 第四個參數,預設 `'tail'`
+  - `type Probe = 'tail' | 'beam' | 'high' | 'low'`
+  - `probeOffset(probe, standoff, out): Vector3`
+  - `interface SwingResult { leadSwing, straightness, defendShare, samples }`
+  - `function lampMeasure(standoff: number, probe: Probe, evade: boolean): SwingResult`
 
-- [ ] **Step 1: 先存下 `tail` 的完整基準**
+- [ ] **Step 1: 觀測儀的擺位**
 
-**在改任何一行之前**,把現況的 `Result` 完整存下來 —— 這是 Task 1 Step 6 唯一有效的恆等證據。
-
-在 `it` 內、`const r = measure(standoff)` 之後暫時插入:
+在檔案**末尾**(既有的 `describe` 之後)新增:
 
 ```ts
-      console.log(`[基準] ${standoff} ${JSON.stringify(r)}`)
-```
+// ══ 手電筒觀測儀 ═══════════════════════════════════════════
+//
+// 【為什麼要另一條量測路徑】上面那一套用的是**真飛機**射手，而真飛機要
+// 滾轉、要拉桿才轉得過來 —— 那些動作全都灌進「預瞄點動了幾度」，量到的
+// 不只是 AI 的閃躲（2026-08-15 Codex 審查 C4；同一份檔案記錄的
+// `ordinaryMedian` 6~11° 就是證據）。
+//
+// 專案負責人 2026-08-15 的解法：把射手當成一隻**可以自由轉動的手電筒**，
+// 始終瞄準在敵機身上。污染源直接移除，比把污染扣掉簡單。
+//
+// 【這是新增不是取代】完美的手電筒瞄準誤差恆為 0，所以上面那條路徑的主
+// 判準 `shootableShare`（機首落在預瞄錐內的佔比）在它身上恆為 1、完全失
+// 去意義。兩條路徑回答兩個不同的問題：真射手問「一個受物理限制的追擊者
+// 跟不跟得住」，手電筒問「預瞄點本身動了多少」。見 spec §3.3。
 
-Run: `npx vitest run test/integration/ai-visible-evasion.test.ts -t "連續射擊"`
-
-把兩列 JSON **原封不動**貼進一個暫存檔(`/tmp` 或 scratchpad),它含 `Result` 的**全部**欄位、全精度。跑完把這一行**移除**。
-
-【為什麼不能用 `toFixed` 的四個欄位】那會讓「底層變了但四捨五入後相同」的改動矇混過關。
-
-- [ ] **Step 2: 擴充 `Aspect` 與兩個擺位輔助函數**
-
-把 `type Aspect = 'tail' | 'beam'` 那一段(304~309 行)換成:
-
-```ts
-/**
- * 射手的起始方位。
- *
- * `tail` = 正後方尾追;`beam` = 正側方橫越;`high` / `low` = 正上方 / 正下方。
- *
- * 【為什麼需要 beam】撞地的兩場之一是 800 m 橫越（另一場是 1000 m 尾追）。
- * 只有尾追的話量不到那個場景。
- *
- * 【為什麼需要 high / low，2026-08-15】專案負責人指定的三個場景之一是
- * 「敵人在我下方或上方」。而且 `defendAim` 在**視線接近鉛直**時會走一條
- * 完全沒有用到 `defendTilt` 的退化路徑（見 `steer.ts` 的註解），那條路徑
- * 目前零測試覆蓋。
- *
- * 【起始方位不等於量測期間的方位】`Sniper` 是**純追擊**腳本，而
- * `Command.aimWorld` 在這個框架裡同時是飛行方向 —— 任何起始方位最後都會
- * 收斂成尾追。所以除了擺位之外還需要 `aspectHolds` 這道**逐格**閘門，
- * 只有視線真的還在該方位帶內的取樣才算數。詳見 spec §3.2。
- */
-type Aspect = 'tail' | 'beam' | 'high' | 'low'
+/** 觀測儀相對受測 AI 的方位 */
+type Probe = 'tail' | 'beam' | 'high' | 'low'
 
 /**
- * 射手相對受測 AI 的起始位移。
+ * 觀測儀相對受測 AI 的固定位移。
  *
- * 【`low` 為什麼不會碰到地板】受測 AI 在 `ALT`（4000 m），射手在 3200 m，
- * 兩者都遠高於離地底限的 `clearanceScale`（500 m）。
+ * 【為什麼可以是固定的】它不追擊、不受物理支配，方位由建構保證 ——
+ * 這正是它取代真射手的理由（真射手 2.5 秒就收斂成尾追，spec §3.2）。
  */
-function hunterOffset(aspect: Aspect, standoff: number, out: Vector3): Vector3 {
-  if (aspect === 'tail') return out.set(0, 0, standoff)
-  if (aspect === 'beam') return out.set(standoff, 0, 0)
-  return out.set(0, aspect === 'high' ? standoff : -standoff, 0)
-}
-
-/**
- * 射手的起始機首與速度方向。
- *
- * 【垂直的兩個為什麼是同向並飛而不是對著目標】對著目標的話它會以 200 m/s
- * 直直俯衝，800 m 的垂直間距**2.5 秒**就跌破 `inRange` 的 300 m 下限，而
- * `Swing` 要滿 1 秒才 `ready` —— 正式取樣開始時垂直幾何早就不存在了
- * （spec §3.2）。同向並飛是「高位待機」，它仍然會被 `leadPoint` 拉成俯衝，
- * 但過程由 2.5 秒的直線對撞變成十幾秒的漸進俯衝，取樣窗才有東西可量。
- *
- * 【`tail` 維持 `FWD` 是為了逐位元恆等】它本來就已經對著目標。
- */
-function hunterLook(
-  aspect: Aspect, preyPos: Vector3, hunterPos: Vector3, out: Vector3,
-): Vector3 {
-  if (aspect === 'tail' || aspect === 'high' || aspect === 'low') return out.copy(FWD)
-  return out.subVectors(preyPos, hunterPos).normalize()
+function probeOffset(probe: Probe, standoff: number, out: Vector3): Vector3 {
+  if (probe === 'tail') return out.set(0, 0, standoff)
+  if (probe === 'beam') return out.set(standoff, 0, 0)
+  return out.set(0, probe === 'high' ? standoff : -standoff, 0)
 }
 ```
 
-- [ ] **Step 3: `measure` 與 `scripted` 共用同一段擺位**
-
-**第一版被審查點名 C2:** `scripted` 只改位置、沒同步機首與速度,基準線的幾何會與被比的那一場對不上。兩邊必須走同一段程式。
-
-在 `measure` 裡把
+- [ ] **Step 2: 量測函數**
 
 ```ts
-  const hunterPos = aspect === 'tail'
-    ? new Vector3(0, ALT, standoff)
-    : new Vector3(standoff, ALT, 0)
-```
+interface SwingResult {
+  /** **主判準**：預瞄方向的 1 秒窗淨角位移中位數，度 */
+  leadSwing: number
+  /** 淨位移 ÷ 逐格位移總和。直線接近 1、來回抽搐接近 0 */
+  straightness: number
+  /** 取樣裡受測 AI 進 `defend` 的比例。觀測值 —— 見下面的註解 */
+  defendShare: number
+  /** 有效取樣數 */
+  samples: number
+}
 
-改成
+/**
+ * 手電筒量測：觀測儀在 `probe` 方位、`standoff` 距離處始終瞄著受測 AI，
+ * 量預瞄方向的 1 秒窗淨角位移。
+ *
+ * @param evade `false` 時把受測方換成腳本直飛（`ScriptedBreaker` + `mode='none'`）
+ *              —— 那是「完全不閃」的地板，任何數字都要跟它並排看。
+ *
+ * 【觀測儀怎麼實作】它是一個真的 `Combatant`（受測 AI 要靠
+ * `threatFactor(觀測儀, AI)` 才會進入 `defend`，那需要姿態與武裝），但每個
+ * 物理步之後把它的狀態**直接覆寫**：位置 = AI 的位置 + 固定位移、速度 = 與
+ * AI 相同、機首指向預瞄點。移除的是它的飛行動力學，不是它的存在。
+ *
+ * 【覆寫為什麼排在 `world.step` 之後】`World.step` 是「先全部跑控制器、
+ * 再全部積分物理」。排在之後，AI 下一格才讀到修正過的位置 —— 延遲一個
+ * 物理步（4 ms），可忽略；排在之前會被同一步的積分立刻蓋掉。
+ *
+ * 【`prevPosition` / `prevOrientation` 必須一起覆寫】它們是內插與角速度的
+ * 來源。只改 `state` 的話會產生假的角速度（spec §5 風險三）。
+ *
+ * 【預瞄點在這裡等於目標位置】`solveLead` 吃的是**相對**速度，而觀測儀與
+ * AI 等速並飛，相對速度為零 —— 預瞄解因此就是目標本身。這是正確的（等速
+ * 並飛的觀測者不需要提前量），但下一個人要知道：這條路徑量到的是**目標
+ * 方向**的變化，不是提前量的變化。
+ */
+function lampMeasure(standoff: number, probe: Probe, evade: boolean): SwingResult {
+  const world = new World()
+  const prey = new Aircraft(BLUNT, ALT, TAS)
+  const bait = new Aircraft(BLUNT, ALT, TAS)
+  const lamp = new Aircraft(BLUNT, ALT, TAS)
 
-```ts
-  const hunterPos = hunterOffset(aspect, standoff, new Vector3()).add(preyPos)
-```
-
-並把迴圈裡的 `look` 改成
-
-```ts
-    const look = a === hunter
-      ? hunterLook(aspect, preyPos, hunterPos, new Vector3())
-      : FWD.clone()
-```
-
-`scripted` 的簽名與擺位同步改:
-
-```ts
-function scripted(
-  mode: BreakMode, standoff = 800, seconds = 90, aspect: Aspect = 'tail',
-): ScriptResult {
-```
-
-```ts
-  const hunterPos = hunterOffset(aspect, standoff, new Vector3()).add(preyPos)
-```
-
-```ts
-  for (const [a, p] of [[prey, preyPos], [hunter, hunterPos]] as const) {
+  const preyPos = new Vector3(0, ALT, 0)
+  const baitPos = new Vector3(0, ALT, -500)
+  const lampPos = probeOffset(probe, standoff, new Vector3()).add(preyPos)
+  for (const [a, p] of [[prey, preyPos], [bait, baitPos], [lamp, lampPos]] as const) {
     a.state.position.copy(p)
-    const look = a === hunter
-      ? hunterLook(aspect, preyPos, hunterPos, new Vector3())
-      : FWD.clone()
-    a.state.velocity.copy(look).multiplyScalar(TAS)
-    a.state.orientation.setFromUnitVectors(FWD, look)
+    a.state.velocity.copy(FWD).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, FWD)
     a.prevPosition.copy(a.state.position)
     a.prevOrientation.copy(a.state.orientation)
   }
-```
 
-在 `measure` 結尾把 aspect 傳下去:
+  const ai = new AiController()
+  const breaker = new ScriptedBreaker()
+  breaker.mode = 'none'
+  breaker.threat = lamp
+  const pc = world.add(prey, evade ? ai : breaker, 'blue', preyPos, ALT, TAS)
+  const bc = world.add(bait, new Lazy(), 'red', baitPos, ALT, TAS)
+  // 【觀測儀不開火】它是量測儀器，不是戰鬥單位（spec §6）
+  const lc = world.add(lamp, new Lazy(), 'red', lampPos, ALT, TAS)
+  for (const c of [pc, bc, lc]) c.respawnOnDestroy = false
 
-```ts
-  const straightMedian = scripted('none', standoff, 90, aspect).swingMedian
-```
+  const board = createTargetBoard(world.combatants)
+  ai.board = board
+  ai.selfIndex = pc.index
+  ai.target = bait
+  ai.profile = VETERAN
 
-【`tail` 為什麼仍然逐位元不變】`hunterOffset('tail', s)` 給 `(0,0,s)`,加上 `preyPos = (0,ALT,0)` 三個分量都是精確加法;`hunterLook('tail', …)` 回 `FWD` 的複本。與舊碼逐值相同。
+  const basis = createEngageBasis()
+  const dir = new Vector3()
+  const swing = new Swing()
+  const offset = new Vector3()
+  const look = new Vector3()
+  const swings: number[] = []
+  const straights: number[] = []
+  let defendN = 0
+  let samples = 0
 
-- [ ] **Step 4: 逐格方位閘門**
+  for (let s = 0; s < SECONDS * 240; s++) {
+    world.step(DT)
+    if (!pc.alive) break
 
-在 `underFireGate` 之後新增:
+    // ── 觀測儀歸位：位置、速度、姿態 ────────────────────
+    probeOffset(probe, standoff, offset)
+    lamp.state.position.copy(prey.state.position).add(offset)
+    lamp.state.velocity.copy(prey.state.velocity)
+    look.subVectors(prey.state.position, lamp.state.position).normalize()
+    lamp.state.orientation.setFromUnitVectors(FWD, look)
+    lamp.prevPosition.copy(lamp.state.position)
+    lamp.prevOrientation.copy(lamp.state.orientation)
 
-```ts
-/** 該 aspect 的方位帶,rad */
-const ASPECT_CONE = 45 * DEG
-/** 垂直方位帶的仰／俯角下限,rad */
-const VERTICAL_CONE = 30 * DEG
+    buildEngageBasis(lamp, prey, basis)
+    swing.push(dir.copy(basis.leadPoint).normalize())
+    if (!swing.ready || s % 12 !== 0) continue
 
-/**
- * **逐格**判斷「射手現在還在不在這個方位」。
- *
- * 【為什麼需要它】起始方位不等於量測期間的方位：`Sniper` 是純追擊腳本，
- * 任何起始方位最後都會收斂成尾追（spec §3.2）。少了這道閘門，`high` 的
- * 統計裡混的其實幾乎全是尾追的取樣。
- *
- * 【它同時是場景有效性的判準】它只描述兩機的相對幾何，不含「射手有沒有
- * 射擊解」也不含距離上界 —— 與 AI 的閃躲品質真正解耦。第一版打算用的
- * `inRangeCount` 做不到這件事：`inRange` 要求距離 < `THREAT_RANGE`，而閃得
- * 好的 AI 會跑出去，計數反而下降（審查 I1）。
- *
- * 【角度是起始值，待實測回填】45° / 30° 沒有實測依據。第一輪把
- * `aspectSamples` 當**觀測值**印出來，看四個 aspect 各累積多少秒，再決定
- * 要不要調（spec §5 風險三）。
- */
-function aspectHolds(aspect: Aspect, hunter: Aircraft, prey: Aircraft): boolean {
-  const los = new Vector3().subVectors(prey.state.position, hunter.state.position)
-  const len = los.length()
-  if (len < 1e-6) return false
-  los.divideScalar(len)
-  if (aspect === 'high') return -los.y >= Math.sin(VERTICAL_CONE)
-  if (aspect === 'low') return los.y >= Math.sin(VERTICAL_CONE)
-  // 水平兩個看的是「射手在受測 AI 的哪個鐘面」：視線反向 vs AI 的速度方向
-  const v = prey.state.velocity
-  const vl = v.length()
-  if (vl < 1e-6) return false
-  const cos = -los.dot(v) / vl
-  return aspect === 'tail' ? cos >= Math.cos(ASPECT_CONE) : cos < Math.cos(ASPECT_CONE)
-}
-```
+    samples++
+    swings.push(swing.net)
+    if (swing.straightness > 0) straights.push(swing.straightness)
+    if (evade && ai.intent === 'defend') defendN++
+  }
 
-**注意:** 這個函數每格配置三個 `Vector3`。取樣是每 12 格一次、180 秒 = 3600 次,不在熱路徑,可接受;但若 `tsc` 或既有的效能護欄抱怨,改成模組層的暫存向量。
-
-- [ ] **Step 5: `Result` 加 `aspectSamples`,取樣迴圈接上閘門**
-
-`interface Result` 加:
-
-```ts
-  /**
-   * 方位閘門成立的取樣格數 —— **場景有效性的判準**。
-   *
-   * 除以每秒取樣數（240 ÷ 12 = 20）就是「這個方位維持了幾秒」。
-   */
-  aspectSamples: number
-```
-
-取樣迴圈裡,把
-
-```ts
-    if (underFireGate(hunter, prey)) {
-```
-
-改成
-
-```ts
-    const holds = aspectHolds(aspect, hunter, prey)
-    if (holds) aspectSamples++
-    if (holds && underFireGate(hunter, prey)) {
-```
-
-並宣告 `let aspectSamples = 0`、回傳物件加上它。
-
-【`tail` 會不會因此改變】會 —— `tail` 的取樣現在多了一道 `cos >= cos(45°)` 的條件。**這一步會破壞 Task 1 的恆等基準,所以它必須排在 Step 6 的驗證之後。**
-
-**因此 Step 5 的正確順序是:先做 Step 3(擺位),跑 Step 6 驗恆等,通過之後才做 Step 4 與 Step 5。** 實作者請照這個順序。
-
-- [ ] **Step 6: 驗證 `tail` 逐位元恆等(在 Step 4/5 之前)**
-
-Run: `npx vitest run test/integration/ai-visible-evasion.test.ts -t "連續射擊"`
-
-把印出的兩列 JSON 與 Step 1 存下來的**逐字比對**(`diff`)。
-
-Expected: **完全相同,一個字元都不差。**
-
-**任何差異 = 擺位的重構不是純搬家,停下來查。**
-
-- [ ] **Step 7: 型別檢查**
-
-Run: `npx tsc --noEmit`
-Expected: 無輸出
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add test/integration/ai-visible-evasion.test.ts
-git commit -m "test: 閃躲量測加 high/low aspect 與逐格方位閘門（tail 逐位元恆等）"
-```
-
----
-
-### Task 2: 配對消融 —— 把「射手機動 + 正常追擊」的貢獻扣掉
-
-**Files:**
-- Modify: `test/integration/ai-visible-evasion.test.ts`
-
-**Interfaces:**
-- Consumes: `DEFAULT_RULES.threatEnter`(既有,`src/ai/rules.ts`)
-- Produces: `Result.swingUnderFire`、`ablate(standoff, aspect): { on, off }`
-
-- [ ] **Step 1: `Result` 加一個不分意圖的欄位**
-
-現有的 `defendMedian` / `ordinaryMedian` 依 `intent` 分組。消融的 off 那一組**永遠不會有 `defend`**,所以兩組沒得比 —— 需要一個不分意圖、同一個閘門下的量:
-
-```ts
-  /**
-   * `underFireGate` 且 `aspectHolds` 成立的取樣裡，1 秒窗預瞄方向淨角位移
-   * 的中位數，度。**不依 `intent` 分組。**
-   *
-   * 【為什麼需要它】配對消融的 off 那一組把 `defend` 整個關掉了，
-   * `defendMedian` 在那一組是 NaN。要比就得用同一個閘門下的全部取樣。
-   */
-  swingUnderFire: number
-```
-
-在取樣迴圈的 `if (holds && underFireGate(...))` 區塊裡,無條件 `underFireSwings.push(swing.net)`,回傳 `swingUnderFire: median(underFireSwings)`。
-
-- [ ] **Step 2: 寫消融函數**
-
-```ts
-/**
- * 配對消融：同一個場景跑兩次，唯一差別是**閃躲關掉、正常追擊保留**。
- *
- * 【為什麼主判準一定要是差值】`swingUnderFire` 量的是「從移動中的射手看向
- * 移動中的預瞄點」，貢獻它的有三件事：射手自己的轉彎、AI 追誘餌的正常大彎、
- * 以及真正的閃躲。同一份檔案記著 `ordinaryMedian` 有 6~11°，而完全不閃的
- * 地板只有 0.7~0.9° —— **非閃躲的機動足以撐起絕大部分的絕對數字**。一個
- * 只把 `intent` 切成 `defend`、實際仍沿原軌跡飛的 AI 也會拿到很高的分數。
- * 只有配對消融的差值排除得掉它（spec §3.1，2026-08-15 Codex 審查 C4）。
- *
- * 【`threatEnter = 2` 為什麼等於關掉閃躲】威脅值的上界是 1，而 `rules.ts`
- * 的 `s.defendLatch = latch(s.defendLatch, threat, cfg.threatEnter, ...)` 是
- * `defend` 意圖的唯一入口。調到 2 之後閂鎖永遠不成立，AI 就當作沒發現有人
- * 在打它，繼續追誘餌 —— 正是要的反事實。
- */
-function ablate(standoff: number, aspect: Aspect): { on: Result, off: Result } {
-  const on = measure(standoff, aspect)
-  const saved = DEFAULT_RULES.threatEnter
-  DEFAULT_RULES.threatEnter = 2
-  try {
-    return { on, off: measure(standoff, aspect) }
-  } finally {
-    DEFAULT_RULES.threatEnter = saved
+  return {
+    leadSwing: median(swings),
+    straightness: median(straights),
+    defendShare: defendN / Math.max(samples, 1),
+    samples,
   }
 }
 ```
 
-需要在檔頭加 `import { DEFAULT_RULES } from '../../src/ai/rules'`。
+- [ ] **Step 3: 型別檢查**
 
-- [ ] **Step 3: 驗證消融真的關掉了 `defend`**
+Run: `npx tsc --noEmit`
+Expected: 無輸出。
 
-**spec §5 風險二明寫這一條不能靠推論。** `Result` 已經有 `coverage`(`defend` 佔 under-fire 取樣的比例)。off 那一組的 `coverage` 必須是 **0**:
+若 `ScriptedBreaker` 的 `threat` 欄位型別或 `Lazy` 的建構不合,依既有用法調整 —— **但不得修改那兩個類別**。
 
-```ts
-      expect(r.off.coverage).toBe(0)
+- [ ] **Step 4: 確認既有路徑一個字都沒動**
+
+Run: `git diff test/integration/ai-visible-evasion.test.ts`
+
+Expected: diff **只有新增的行**,沒有任何一行被刪除或修改。
+
+**有任何既有行被動到 = 違反 Global Constraints,回退重做。**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/integration/ai-visible-evasion.test.ts
+git commit -m "test: 手電筒觀測儀 —— 量預瞄點偏移，排除射手自身機動的污染"
 ```
 
-若不是 0,代表 `threatEnter` 不是唯一入口 —— **停下來查,不要繼續**。
+---
 
-- [ ] **Step 4: 掃描 —— 四個 aspect × 800 m**
+### Task 2: 掃描四個方位
 
-把 800 m 那一組寫成新的 `describe`(700 / 900 的既有兩條**不動**):
+**Files:**
+- Modify: `test/integration/ai-visible-evasion.test.ts`
+
+- [ ] **Step 1: 寫掃描的 describe**
 
 ```ts
-describe('預瞄點偏移：配對消融（三機、腳本射手、180 秒 × 2）', () => {
-  for (const aspect of ['tail', 'beam', 'high', 'low'] as const) {
-    it(`${aspect} 800 m：閃躲讓預瞄點多動了多少`, () => {
-      const { on, off } = ablate(800, aspect)
+describe('預瞄點偏移（手電筒觀測儀、800 m、180 秒）', () => {
+  for (const probe of ['tail', 'beam', 'high', 'low'] as const) {
+    it(`${probe}：手電筒照著 1 秒，預瞄點偏移幾度`, () => {
+      const on = lampMeasure(800, probe, true)
+      const off = lampMeasure(800, probe, false)
       console.log(
-        `[消融] ${aspect} 800m`
-        + ` swingOn=${on.swingUnderFire.toFixed(2)}°`
-        + ` swingOff=${off.swingUnderFire.toFixed(2)}°`
-        + ` 效果量=${(on.swingUnderFire - off.swingUnderFire).toFixed(2)}°`
-        + ` straight=${on.straightMedian.toFixed(2)}°`
-        + ` aspectSamples=${on.aspectSamples}（${(on.aspectSamples / 20).toFixed(1)}s）`
-        + ` shootable=${(on.shootableShare * 100).toFixed(2)}%`
-        + ` coverage=${(on.coverage * 100).toFixed(1)}%`,
+        `[手電筒] ${probe} 800m`
+        + ` 閃躲=${on.leadSwing.toFixed(2)}°`
+        + ` 直飛地板=${off.leadSwing.toFixed(2)}°`
+        + ` 倍率=${(on.leadSwing / Math.max(off.leadSwing, 1e-6)).toFixed(1)}`
+        + ` 同向性=${on.straightness.toFixed(3)}`
+        + ` defend佔時=${(on.defendShare * 100).toFixed(1)}%`
+        + ` 取樣=${on.samples}`,
       )
-      expect(off.coverage).toBe(0)
+      // 【這一輪唯一的斷言】場景要成立：受測 AI 真的感覺到被瞄準。
+      // 觀測儀始終精準瞄著，所以 `defend` 佔時應該很高；若接近 0，代表
+      // 威脅判定沒有如預期觸發，那要先查，不是調門檻（spec §4.2）。
+      expect(on.defendShare).toBeGreaterThan(0.5)
     }, 10 * 60 * 1000)
   }
 })
 ```
 
-**這一輪只有 `off.coverage === 0` 這一條斷言。** 其餘全是輸出 —— 門檻是 Task 4 的事,而且由專案負責人定。
+**這一輪只有這一條斷言。** 主判準的門檻是 Task 3 的事,而且由專案負責人定。
 
-- [ ] **Step 5: 跑,收表**
+- [ ] **Step 2: 跑**
 
-Run: `npx vitest run test/integration/ai-visible-evasion.test.ts -t "配對消融"`
-Expected: 四列 `[消融]`。把表抄下來。
+Run: `npx vitest run test/integration/ai-visible-evasion.test.ts -t "手電筒"`
+Expected: 四列 `[手電筒]`。把表抄下來。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: 判讀**
+
+1. **`defend佔時`** —— 應該很高(觀測儀始終瞄著)。若某個方位接近 0,先查威脅判定,不要繼續。
+2. **`閃躲` vs `直飛地板`** —— 地板應該在 1° 上下。倍率就是「閃躲讓預瞄點多動了幾倍」。
+3. **`high` / `low` 與水平兩個的差距** —— spec 預期它們**比較差**,因為 `defendAim` 在視線接近鉛直時走的是**沒有抬角的退化路徑**。若成立,那是一個新的待辦(要不要補那條路徑),交專案負責人。
+4. **`同向性`** —— 應該遠高於 0.5。低的話代表那是抽搐不是閃躲。
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add test/integration/ai-visible-evasion.test.ts
-git commit -m "test: 預瞄點偏移的配對消融 —— 扣掉射手機動與正常追擊的貢獻"
+git commit -m "test: 手電筒量測四個方位的掃描"
 ```
 
 ---
 
-### Task 3: 判讀,交專案負責人
+### Task 3: 交裁定、回填門檻、全套回歸
 
-**Files:** 無(這是一個判讀與回報的任務)
+**前置:** Task 2 的表。**沒有專案負責人的裁定就不做 Step 2 之後。**
 
-- [ ] **Step 1: 四件事逐一判讀**
+- [ ] **Step 1: 交專案負責人**
 
-1. **`aspectSamples` 夠不夠。** 除以 20 是秒數。若 `high` / `low` 只有兩三秒 —— **那是「這個框架量不到那個場景」的證據,回報,不要調參數硬湊**(spec §5 風險四)。
-2. **效果量佔絕對值的比重。** `(on − off) / on`。若某個 aspect 的效果量接近 0,代表那個幾何下閃躲**幾乎沒有貢獻**,絕對數字全部來自射手機動與正常追擊 —— 那個 aspect 的絕對度數判準沒有鑑別力。
-3. **`swingOff` 與 `straightMedian` 的距離。** 前者是「三機、正常追擊、不閃」,後者是「兩機、直飛」。兩者的差就是 AI 追誘餌那個大彎的貢獻。
-4. **`shootableShare` / `coverage`** 有沒有比現況(700 m 6.23% / 96.5%、900 m 5.43% / 98.4%)惡化。
+把四列表與 Task 2 Step 3 的四點判讀交出去。要裁定的是:
 
-- [ ] **Step 2: 交專案負責人裁定兩個門檻**
+- **`leadSwing` 的下限,度**(主判準)—— 依他的試玩感受定,不由現況推導
+- 是否要調整**窗長**(現況 1 秒)。他的敘述是「N 秒內偏移 N 度」,兩個 N 都是他的
 
-把表交出去,附上上面四點的判讀。要裁定的是:
+若他的判斷是「現況不夠好」,那本身就是下一輪的入口(`defendTilt` 由 20° 調低 —— 2026-08-15 已量到 0° 讓玩家壓得住準星的時間由 6.23% 降到 1.28%),而不是把門檻降到現況之下。
 
-- **效果量的下限**(主判準)
-- **`aspectSamples` 的下限**(場景有效性,以秒計)
-
-**這兩個數字不由實作者決定。** 第一版寫成「現況最小值 × 0.8 / × 0.5」被審查點名是照著現況畫靶(I1、I2)—— 現況必然通過,護欄沒有牙齒。
-
-若負責人的判斷是「現況不夠好」,那本身就是下一輪的入口(`defendTilt` 由 20° 調低),而不是把門檻降到現況之下。
-
----
-
-### Task 4: 回填門檻與全套回歸
-
-**前置:** Task 3 的裁定。**沒有裁定就不做這個任務。**
-
-- [ ] **Step 1: 加常數與斷言**
+- [ ] **Step 2: 回填**
 
 ```ts
 /**
- * 閃躲讓預瞄點多動的度數下限（`swingOn − swingOff`）—— **主判準**。
+ * 預瞄點偏移的下限：手電筒照著 1 秒，預瞄方向的淨角位移中位數，度。
  *
- * 【為什麼是差值不是絕對值】見 `ablate` 的註解。
+ * **這就是「玩家看得出 AI 在閃」的直接判準** —— 預瞄點在玩家視角裡動了
+ * 多少度，正是他手上必須修正的量。
  *
- * 【定值】專案負責人 2026-08-15 依配對消融的四場實測裁定。表見 spec §7。
+ * 【為什麼用手電筒而不是真射手】真飛機要滾轉、要拉桿才轉得過來，那些動作
+ * 全都會灌進這個數字（同檔的 `ordinaryMedian` 6~11° 就是證據）。觀測儀不
+ * 機動，量到的只剩 AI 自己的動作。專案負責人 2026-08-15 裁定。
+ *
+ * 【讀這個數字一定要並排看直飛地板】完全不閃是 1° 上下。
+ *
+ * 【定值】專案負責人依試玩裁定，不由掃描的現況推導 —— 那會照著現況畫靶。
  */
-const SWING_EFFECT_FLOOR = <負責人裁定>
-
-/**
- * 方位維持的最短秒數 —— **場景有效性**。
- *
- * 【為什麼不用 `underFire` 或 `inRangeCount`】兩者都與被測的功能耦合：
- * 閃得越好，射手的射擊解越少、距離越常跑出 `THREAT_RANGE`，計數反而下降。
- * 方位閘門只描述兩機的相對幾何，解耦。
- */
-const ASPECT_SECONDS_FLOOR = <負責人裁定>
+const LEAD_SWING_FLOOR = <負責人裁定>
 ```
 
 ```ts
-      expect(on.aspectSamples / 20).toBeGreaterThan(ASPECT_SECONDS_FLOOR)
-      expect(on.swingUnderFire - off.swingUnderFire).toBeGreaterThan(SWING_EFFECT_FLOOR)
+      expect(on.leadSwing).toBeGreaterThan(LEAD_SWING_FLOOR)
 ```
 
-- [ ] **Step 2: 單檔跑**
+- [ ] **Step 3: 單檔與全套**
 
 Run: `npx vitest run test/integration/ai-visible-evasion.test.ts`
 Expected: 全綠。
 
-- [ ] **Step 3: 全套回歸**
-
 Run: `npx vitest run`
 Expected: 與基準相同的 4 條紅(`ai-command-channel` 編隊收攏、`ai-command-channel` 命令佔時、`ai-command-tactics` 側翼方位角、`ai-withdraw-anchor` 半徑)。`perf-gate` 在全套並行下假紅,單獨跑會綠。
 
-**本輪只改一個測試檔、不動任何 `src/`,所以多出任何一條紅都是異常。**
+**本輪只在一個測試檔裡新增、不動任何 `src/`,所以多出任何一條紅都是異常。**
 
 - [ ] **Step 4: 寫「實作結果」進 spec,commit**
 
-含:配對消融四場表、四點判讀、兩個門檻的定值與裁定理由、`high`/`low` 是否成立(以及那對 `defendAim` 鉛直退化路徑的意義)、全套紅燈清單、下一輪的入口。
+含:四列掃描表、四點判讀、門檻的定值與裁定理由、`high` / `low` 是否真的比較差(以及那對 `defendAim` 鉛直退化路徑的意義)、全套紅燈清單、下一輪的入口。
 
 ```bash
 git add test/integration/ai-visible-evasion.test.ts docs/superpowers/specs/2026-08-15-lead-swing-criterion-design.md
