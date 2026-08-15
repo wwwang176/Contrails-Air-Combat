@@ -216,8 +216,15 @@ describe(`甜蜜區偏置不得擋住扳機（109 交 AI、敵機正前方 ${RAN
     expect(on.noseOff).toBeLessThan(DEFAULT_FIRE.trackingCone)
   })
 
-  it('讓位開啟時，真的扣得下扳機', () => {
-    expect(on.fireShare).toBeGreaterThan(0)
+  /**
+   * 【要釘住的是「開比關好」，不只是「開 > 0」】只斷言 `on.fireShare > 0` 的話，
+   * 日後若 `shouldFire` 壞到忽略 tracking cone、兩組都開火，這支測試仍然全綠
+   * （Codex 審查 2026-08-16）。實測是 100% 對 0%，所以兩邊都釘。
+   */
+  it('讓位開啟時，真的扣得下扳機，而且明顯優於關閉', () => {
+    expect(on.fireShare).toBeGreaterThan(0.5)
+    expect(off.fireShare).toBeLessThan(0.1)
+    expect(on.fireShare).toBeGreaterThan(off.fireShare)
   })
 
   /** 這一條讓「這個缺陷是真的」可證偽 —— 關掉這一層，判準必須變差。 */

@@ -1385,9 +1385,15 @@ export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
  * @param interceptTime `EngageBasis.interceptTime`，s。`NO_INTERCEPT` 表示無解
  */
 export function sweetYield(interceptTime: number, cfg: SteerConfig = DEFAULT_STEER): number {
+  // 【非有限值一律不讓位】`NaN` 會穿過下面每一個比較（與任何數比都是 false）
+  // 然後從最後一行帶著 `NaN / span` 出去，乘進偏置、汙染整個 `aimWorld`。
+  // 回傳 1 = 本層失效、退回既有行為，與 `sweetYieldTime <= 0` 同一個方向。
+  if (!Number.isFinite(interceptTime)) return 1
   if (interceptTime === NO_INTERCEPT) return 1
   const span = cfg.sweetYieldTime
-  if (!(span > 0)) return 1
+  // `span` 同樣要求有限：`Infinity` 會讓 `t / span` 恆為 0，變成「永遠完全
+  // 讓位」—— 那是設定寫壞時最不該發生的方向。
+  if (!Number.isFinite(span) || span <= 0) return 1
   if (interceptTime >= span) return 1
   if (interceptTime <= 0) return 0
   return interceptTime / span

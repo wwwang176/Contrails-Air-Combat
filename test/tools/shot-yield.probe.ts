@@ -10,10 +10,20 @@
  * 斜坡調陡（`sweetYieldTime` 取 1.5× 或 2×）能把那一段壓下去，代價是中距離
  * 幾乎廢掉這一層。這支把兩邊都量出來，交專案負責人定值。
  *
- * 【三張表】
+ * 【兩張表】
  *   一、人工回報的場景：機首離預瞄、開火佔時 —— 主判準本身
  *   二、距離對讓位係數與有效偏置 —— 「中距離被廢掉多少」
- *   三、1v1 對戰：雙方各當一次 109，看命中產出有沒有真的變好
+ *
+ * 【`ai-duel-matrix` 的深度耗能為什麼會轉紅】那條護欄的分母是**這場仗打了
+ * 幾步**（`deepNegative / (i + 1)`，`ai-duel-matrix.test.ts:135`），而取樣在
+ * 任一方被擊落時就停。讓位讓 AI 打得中之後，那一場由「90 秒逾時、敵方掉
+ * 711 血」變成「40 秒擊落、敵方掉滿 1000 血」—— 分母砍掉一半，深度耗能的
+ * 佔比自然由 0.356 升到 0.754。
+ *
+ * **那不是能量迴歸，是護欄在仗提早結束時失去意義。** 這件事要用
+ * `ai-duel-matrix.test.ts` 本身重跑才看得到（本檔案不重造那個場景 ——
+ * 那會變成第二份會漂開的複本）。手工掃描的做法記在
+ * spec `2026-08-16-sweet-spot-shot-yield-design.md` §8.3。
  */
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
@@ -146,11 +156,14 @@ function withYieldTime<T>(seconds: number, fn: () => T): T {
   }
 }
 
+/** 與 spec §8.3 的手工掃描同一組值，才對得起來 */
 const CANDIDATES: Array<[string, number]> = [
   ['0（關閉）', 0],
-  ['1.0× L', L],
-  ['1.5× L', 1.5 * L],
-  ['2.0× L', 2 * L],
+  ['0.3 s', 0.3],
+  ['0.6 s', 0.6],
+  ['0.9 s', 0.9],
+  ['1.2 s（出貨）', L],
+  ['1.8 s', 1.8],
 ]
 
 console.log(`彈丸壽命 L = ${L} s；開火錐 = ${(DEFAULT_FIRE.trackingCone * RAD).toFixed(1)}°`)
@@ -172,7 +185,7 @@ for (const [label, t] of CANDIDATES) {
 
 console.log(`
 ╔══ 二、距離 → 讓位係數 → 有效偏置（原始 10°）══`)
-console.log('  距離   攔截時間      1.0×L        1.5×L        2.0×L')
+console.log('  距離   攔截時間      0.6 s       1.2 s（出貨）    1.8 s')
 for (const range of [100, 150, 200, 300, 400, 600, 800, 1000]) {
   const t = interceptAt(range)
   const cell = (span: number) => {
@@ -184,9 +197,9 @@ for (const range of [100, 150, 200, 300, 400, 600, 800, 1000]) {
   console.log(
     `${String(range).padStart(6)}m`
     + `${t.toFixed(3).padStart(10)}s`
-    + `${cell(L).padStart(13)}`
-    + `${cell(1.5 * L).padStart(13)}`
-    + `${cell(2 * L).padStart(13)}`,
+    + `${cell(0.6).padStart(13)}`
+    + `${cell(L).padStart(15)}`
+    + `${cell(1.8).padStart(13)}`,
   )
 }
 console.log('  ✓ = 有效偏置已低於開火錐，那個距離上這一層不再擋住扳機')
