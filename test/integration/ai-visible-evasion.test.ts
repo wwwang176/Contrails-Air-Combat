@@ -1091,23 +1091,49 @@ describe('手電筒觀測儀的合約（O(1)，不跑場景）', () => {
 // 跟不跟得住」，手電筒問「預瞄點本身動了多少」。見 spec §3.3。
 
 /** 觀測儀相對受測 AI 的方位 */
-type Probe = 'tail' | 'beam' | 'high' | 'low'
+type Probe = 'ahead' | 'crossing' | 'above' | 'below'
 
 /**
- * 觀測儀相對受測 AI 的固定位移。
+ * 開局幾何。**一律從玩家（觀測儀）的視角描述** —— 專案負責人的原話就是
+ * 這樣講的：「敵人**離我** 800M **在我**正前方前飛 / 在前方往左橫飛 /
+ * 在我下方或上方飛」。
  *
- * 【這是**開局**的相對方位，不是全程】位移是世界固定方向；AI 一轉向，
- * `+Z` 就不再是它的正後方。文件與表頭都必須這樣寫（spec §5 風險三）——
- * 宣稱「全程維持 tail」是錯的。
+ * 【2026-08-16 修正：前一版的 `beam` 根本不是橫飛】它寫成「觀測儀在敵機
+ * 正右方、兩機同向並排」。那不是橫越，是編隊 —— 而且相對速度為零、視線
+ * 角度永遠不變，**幾何本身就是死局**。量到的「AI 破一次就穩住」有可能
+ * 只是那個死局的產物，不是 AI 的行為。
  *
- * 【但方位漂移在這裡不是問題】觀測儀不追擊，所以漂移**完全由被測者造成**，
- * 那正是要量的訊號。前兩版需要方位閘門，是為了濾掉「射手自己壓上來造成的
- * 方位改變」—— 污染源移除之後那道閘門就沒有存在的理由了。
+ * 【同一輪修正：`high` / `low` 上下顛倒】前一版寫成「觀測儀在敵機上方」，
+ * 也就是「敵人在我下方」—— 與負責人的敘述相反。
+ *
+ * `offset` 是敵機相對觀測儀的位置，`course` 是敵機的開局航向。
+ * 觀測儀一律在原點、機首 `FWD`、等速直線。
  */
-function probeOffset(probe: Probe, standoff: number, out: Vector3): Vector3 {
-  if (probe === 'tail') return out.set(0, 0, standoff)
-  if (probe === 'beam') return out.set(standoff, 0, 0)
-  return out.set(0, probe === 'high' ? standoff : -standoff, 0)
+interface LampAspect {
+  /** 敵機在我的哪個方向、多遠 */
+  offset: Vector3
+  /** 敵機的開局航向（單位向量） */
+  course: Vector3
+  /** 表頭用的中文 */
+  label: string
+}
+
+function aspectOf(probe: Probe, standoff: number): LampAspect {
+  if (probe === 'ahead') {
+    // 正前方，與我同向遠離 —— 典型的尾追
+    return { offset: new Vector3(0, 0, -standoff), course: FWD.clone(), label: '正前方‧前飛' }
+  }
+  if (probe === 'crossing') {
+    // 正前方，往我的左方橫越 —— 視線與它的航跡垂直
+    return { offset: new Vector3(0, 0, -standoff), course: new Vector3(-1, 0, 0), label: '正前方‧橫飛' }
+  }
+  // 正上方 / 正下方，水平飛
+  const sign = probe === 'above' ? 1 : -1
+  return {
+    offset: new Vector3(0, sign * standoff, 0),
+    course: FWD.clone(),
+    label: probe === 'above' ? '我的正上方' : '我的正下方',
+  }
 }
 
 /**
@@ -1347,12 +1373,16 @@ function aimMeasure(standoff: number, probe: Probe, evade: boolean): AimResult {
   const lamp = new Aircraft(BLUNT, ALT, TAS)
   const ghost = new Aircraft(BLUNT, ALT, TAS)
 
-  const preyPos = new Vector3(0, ALT, 0)
-  const lampPos = probeOffset(probe, standoff, new Vector3()).add(preyPos)
-  for (const [a, p] of [[prey, preyPos], [lamp, lampPos]] as const) {
+  // 【觀測儀在原點，敵機依開局幾何擺位】見 `aspectOf` —— 一律從玩家視角
+  const aspect = aspectOf(probe, standoff)
+  const lampPos = new Vector3(0, ALT, 0)
+  const preyPos = aspect.offset.clone().add(lampPos)
+  for (const [a, p, c] of [
+    [prey, preyPos, aspect.course], [lamp, lampPos, FWD],
+  ] as const) {
     a.state.position.copy(p)
-    a.state.velocity.copy(FWD).multiplyScalar(TAS)
-    a.state.orientation.setFromUnitVectors(FWD, FWD)
+    a.state.velocity.copy(c).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, c)
     a.prevPosition.copy(a.state.position)
     a.prevOrientation.copy(a.state.orientation)
   }
@@ -1467,12 +1497,12 @@ function aimMeasure(standoff: number, probe: Probe, evade: boolean): AimResult {
 }
 
 describe('預瞄預測誤差（手電筒觀測儀、兩架、開局 800 m）', () => {
-  for (const probe of ['tail', 'beam', 'high', 'low'] as const) {
-    it(`開局 ${probe}：我以為它一秒後在哪 vs 它實際在哪`, () => {
+  for (const probe of ['ahead', 'crossing', 'above', 'below'] as const) {
+    it(`${aspectOf(probe, 800).label}：我以為它一秒後在哪 vs 它實際在哪`, () => {
       const on = aimMeasure(800, probe, true)
       const off = aimMeasure(800, probe, false)
       console.log(
-        `[預測誤差] 開局${probe} 800m`
+        `[預測誤差] ${aspectOf(probe, 800).label} 800m`
         + ` 閃躲=${on.aimError.toFixed(2)}°`
         + ` 直飛自檢=${off.aimError.toFixed(2)}°`
         + ` defend佔時=${(on.defendShare * 100).toFixed(1)}%`
