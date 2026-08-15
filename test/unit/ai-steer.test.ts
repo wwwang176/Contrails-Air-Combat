@@ -1751,6 +1751,13 @@ describe('steerCommand：甜蜜區偏置', () => {
     sit.pullCeiling = 1
     sit.sweetPitch = 0
     engageKnobs(sit, k)
+    // 【把射擊讓位那一層推開，這個 describe 才量得到偏置本身】2026-08-16 加。
+    // 這幾條的責任是「`applyPitchBias` 有沒有正確地把角度加到航跡角上」，
+    // 不是「讓位係數對不對」。800 m 同速尾追的 `interceptTime ≈ 0.90 s`，
+    // 落在讓位範圍內（係數 0.75），會把 12° 量成 9°。推到範圍外正是**保住**
+    // 它原本的責任；縮放由下面的 `甜蜜區偏置讓位給射擊解` 那個 describe 驗。
+    // 見 spec `2026-08-16-sweet-spot-shot-yield-design.md` §6.3b。
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 2
   }
 
   const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
@@ -1853,5 +1860,112 @@ describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
    */
   it('出貨的時間尺度就是彈丸壽命', () => {
     expect(DEFAULT_STEER.sweetYieldTime).toBe(PROJECTILE_LIFETIME)
+  })
+})
+
+/**
+ * 讓位接上消費點之後的行為。**沿用上面那個 describe 的 `scene()` 形狀**，
+ * 但把目標擺在近距離（150 m）以取得短的 `interceptTime`。
+ *
+ * 【為什麼比較兩個 cfg，而不是斷言一個絕對角度】絕對角度會把 `sweetSpotPitch`
+ * 的值、`pullCeiling`、機種對全部綁進判準，那些都不是這幾條要驗的東西。
+ * 比較「讓位開」與「讓位關」隔離出這一層自己的貢獻。
+ */
+describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
+  const OFF: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: 0 }
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+
+  function aimPitch(
+    interceptTime: number,
+    cfg: SteerConfig,
+    intent: 'engage' | 'rally' | 'defend' = 'engage',
+  ): number {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const self = flyer()
+    const target = flyer()
+    // 目標在正前方 150 m、下方約 15°
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000 - 40, -145], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 10 * DEG
+    engageKnobs(sit, k)
+    // 【最後才蓋掉】buildEngageBasis 會寫這個欄位，所以覆寫必須排在它之後
+    basis.interceptTime = interceptTime
+    const point = intent === 'rally' ? new Vector3(3000, 4000, -3000) : null
+    steerCommand(intent, 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd, cfg)
+    return pitchOf(cmd.aimWorld)
+  }
+
+  it('射擊解已經到手時，抬頭偏置被收掉大半', () => {
+    const on = aimPitch(0.2, DEFAULT_STEER)
+    const off = aimPitch(0.2, OFF)
+    // 0.2 / 1.2 = 1/6，10° 只剩 1.67°，所以差距要超過 8°
+    expect(off - on).toBeGreaterThan(8 * DEG)
+  })
+
+  it('彈丸飛不到時，偏置維持原樣', () => {
+    const far = DEFAULT_STEER.sweetYieldTime * 2
+    expect(aimPitch(far, DEFAULT_STEER)).toBeCloseTo(aimPitch(far, OFF), 12)
+  })
+
+  it('沒有攔截解時，偏置維持原樣', () => {
+    expect(aimPitch(NO_INTERCEPT, DEFAULT_STEER)).toBeCloseTo(aimPitch(NO_INTERCEPT, OFF), 12)
+  })
+
+  /** 既有行為，本輪不得改動 —— 指揮位階比戰術偏好高。 */
+  it('rally 仍然完全不吃這一層', () => {
+    expect(aimPitch(0.2, DEFAULT_STEER, 'rally')).toBe(aimPitch(0.2, OFF, 'rally'))
+  })
+
+  /**
+   * 【為什麼 defend 排除】`basis` 永遠對**攻擊目標**建立
+   * （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的（`defendAim`
+   * 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套讓位會變成
+   * 「我正在閃 A，但要不要讓位由我能不能射中 B 決定」—— 無意義的耦合。
+   *
+   * 這一條釘住「defend 的行為逐位元不變」。見 spec §4.2b。
+   */
+  it('defend 排除在讓位之外，行為逐位元不變', () => {
+    for (const t of [0.05, 0.2, 0.6, NO_INTERCEPT]) {
+      expect(aimPitch(t, DEFAULT_STEER, 'defend')).toBe(aimPitch(t, OFF, 'defend'))
+    }
+  })
+
+  /**
+   * 【遠距離不得被改壞】建一個真的 800 m 態勢，比較讓位開／關的命令輸出。
+   * 不用 `expect(sweetYield(...) > 0.9)` —— 那只是把純函數測試抄一遍，沒有
+   * 建立幾何、也沒有量命令，守不住行為。
+   */
+  it('800 m 的真實態勢下，命令幾乎不動', () => {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -800], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 10 * DEG
+    engageKnobs(sit, k)
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
+    const off = pitchOf(cmd.aimWorld)
+    steerCommand(
+      'engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, DEFAULT_STEER,
+    )
+    // 同速尾追 800 m 的 interceptTime ≈ 0.90 s，係數 ≈ 0.75，10° 只少 2.5°
+    expect(off - pitchOf(cmd.aimWorld)).toBeLessThan(3 * DEG)
   })
 })
