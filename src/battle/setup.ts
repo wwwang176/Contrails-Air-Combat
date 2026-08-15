@@ -359,8 +359,12 @@ export function createBattle(
       ceilings.set(spec, ceiling)
     }
     return {
-      position: c.aircraft.state.position,
-      velocity: c.aircraft.state.velocity,
+      // 【自己的向量，不是飛機那一份的別名】`stepCommandLayer` 每步 copy 進來。
+      // 舊版抓的是別名，倚賴「`state.position` 這個物件永遠是同一個」——
+      // 而 `Aircraft.reset` 當時會換掉整個 `state`，於是「再打一場」之後
+      // 這 40 個別名全部指向孤兒向量。見 `Aircraft.reset` 的註解。
+      position: new Vector3(),
+      velocity: new Vector3(),
       cornerRatio: 1,
       hpFraction: 1,
       shotInstant: 0,
@@ -466,12 +470,28 @@ function wireStations(b: Battle): void {
 function stepCommandLayer(b: Battle, dt: number): void {
   const cs = b.world.combatants
 
-  // ── 快照：位置與速度是參考、每步自動新；這兩個要寫 ──────
+  // ── 快照：每步抄一份 ──────────────────────────────────
+  //
+  // 【2026-08-15：位置與速度由「抓參考」改成「每步 copy」】舊版倚賴
+  // 「`c.aircraft.state.position` 這個 `Vector3` 物件永遠是同一個」，而
+  // `Aircraft.reset` 當時會整個換掉 `state` —— 於是 `resetBattle`（再打一場）
+  // 之後這裡的 40 個參考全部指向孤兒向量，指揮層讀一整場凍結的座標
+  // （最大落差 5300 m，集合令因此解除不掉）。
+  //
+  // 根因已經在 `Aircraft.reset` 修掉（就地寫回 + `state` 標 `readonly`），
+  // 這一段是第二道：`CommandUnit` 的名字是**快照**，那就真的抄一份，不要
+  // 倚賴任何「那個物件不會被換掉」的默契。下一個在別處換掉物件的人，
+  // 不會再連累指揮層。
+  //
+  // 【成本】40 架 × 2 個三分量向量 × 240 Hz。與同一迴圈裡的 `manoeuvreSpeed`
+  // （查表 + 開方）相比可以忽略，而且不配置。
   for (let i = 0; i < cs.length; i++) {
     const c = cs[i]!
     const u = b.commandUnits[i]!
     u.alive = c.alive
     const a = c.aircraft
+    u.position.copy(a.state.position)
+    u.velocity.copy(a.state.velocity)
     // 【為什麼不從 AiController 的 sit 拿】那個欄位是私有的，而且玩家座位
     // 根本沒有 AiController。直接算比較誠實，也不依賴 AI 這一步跑過沒有
     // 【分母與 `assess.ts` 的 `cornerRatio` 必須是同一個】指揮層的

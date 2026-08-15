@@ -99,9 +99,11 @@ function run(label: string, doReset: boolean): void {
   }
 
   console.log(`── ${label} ──`)
+  // 【「別名」那一欄修好之後恆為 40/40，那是預期的】快照現在本來就是副本。
+  // 有判別力的是**落差** —— 修好前重開一場會是 5300 m，修好後是 0 m。
   console.log(
-    `  快照位置**不再指向飛機本體**的架數：${stale}/${cs.length}　`
-    + `最大座標落差 ${worstGap.toFixed(0)} m`,
+    `  快照與本體非同一物件的架數：${stale}/${cs.length}（修好後恆為全部）　`
+    + `**最大座標落差 ${worstGap.toFixed(0)} m**`,
   )
   console.log(
     `  不變式違反 ${violations} 步（長機在判定圈內、命令仍未解除）　`
