@@ -1,38 +1,27 @@
 /**
- * 「威脅在正側面時，AI 為什麼閃了卻看不出來」的量測。**不是測試**（`.probe.ts`）。
+ * 四個開局幾何的逐秒診斷。**不是測試**（`.probe.ts`）。
  * 跑法：npx vite-node test/tools/beam-blind.probe.ts
  *
- * 【它要回答什麼】2026-08-16 的預瞄預測誤差掃描給出：
+ * 【這支探針記著一個坑，不要再踩】它原本是為了追「敵人在正側面時 AI 為
+ * 什麼閃了卻看不出來」而寫的 —— 那個現象**不存在**，是場景擺錯擺出來的。
  *
- *   開局方位  預測誤差  直飛自檢
- *   tail      5.85°     0.42°
- *   beam      0.70°     0.48°   ← 幾乎貼著地板
- *   high      6.82°     0.32°
- *   low       7.53°     0.19°
+ * 專案負責人的原話是「敵人離我 800M **在前方**往左橫飛」。第一版實作成
+ * 「觀測儀在敵機**正右方**、兩機**同向並排**」—— 那不是橫越，是編隊，而且
+ * 相對速度為零、視線角度永遠不變，**幾何本身就是死局**。在那個死局裡量到
+ * 預測誤差 0.70°（幾乎貼著地板），還順著它推出一套「破防軸與航向平行、
+ * AI 破一次就穩住」的說法。場景改成真正的橫越之後，數字是 5.50°，
+ * 與正後方的 5.85° 幾乎一樣 —— **那個缺陷從頭到尾不存在**。
  *
- * 靜態讀 `defendAim` 只回答了一半：正側面威脅下命令的飛行方向離現在航向
- * **24.8°**（正後方是 105°）。24.8° 不是 0，所以「算出來等於沒轉」是錯的。
- * 那為什麼預瞄點不動？
+ * 同一輪還查出上下顛倒：`high`/`low` 原本是「觀測儀在敵機上方」，也就是
+ * 「敵人在我下方」，與負責人的敘述相反。
  *
- * 【三個互斥的假說，這支探針要分辨它們】
+ * 教訓：**幾何是判準的一部分，擺錯場景的量測會給出自洽而完整的假結論。**
+ * 三個獨立指標（預測誤差、有效窗長、正常模式佔比）當時全部互相印證，
+ * 而它們印證的是同一個錯誤前提。
  *
- *   甲 **它根本沒轉** —— 命令 24.8° 但飛機沒跟上（舵面飽和、指揮儀壓制、
- *      拉桿紀律把它收掉）。證據：實際航向變化 ≈ 0。
- *
- *   乙 **它轉了，但轉去觀測者看不見的方向** —— 觀測者在正側面時，「朝他／
- *      背他」是**徑向**的，徑向位移不改變視線方位。證據：位移相對直飛預測
- *      的偏差幾乎全在徑向，切向幾乎是 0。
- *
- *   丙 **它轉了一次就穩住** —— 轉到新航向之後直線飛。預測誤差量的是「偏離
- *      直線多少」，一條**新的**直線的誤差是 0。證據：航向在前一兩秒變化很
- *      大，之後每秒變化趨近 0。
- *
- * 三者要的修法完全不同：甲 要查指揮儀，乙 要改破防軸的選法（正側面時該用
- * 鉛直面而不是水平面），丙 則根本不是缺陷而是判準的盲點（一條新直線對玩家
- * 而言確實不需要修正準星）。
- *
- * 【為什麼要一支探針而不是直接改】前四版的判準每一版都被推翻，其中兩次是
- * 因為「看起來合理的推論」沒有被量。這一支只產生證據，不動任何出貨程式。
+ * 【現在它量什麼】每秒一列：航向變化、預測誤差、位置偏差拆成徑向（沿
+ * 觀測者視線，看不見）與切向（垂直視線，看得見），加上意圖與轉向模式。
+ * 判準只給一個中位數，這支給的是那個中位數底下的時間結構。
  */
 import { Vector3, Quaternion } from 'three'
 import { World } from '../../src/world/World'
@@ -52,7 +41,6 @@ const DT = 1 / 240
 const ALT = 4000
 const TAS = 200
 const FWD = new Vector3(0, 0, -1)
-const UP = new Vector3(0, 1, 0)
 const STANDOFF = 800
 const SECONDS = 12
 const LOOKAHEAD_STEPS = 240
@@ -73,12 +61,16 @@ class Idle implements Controller {
   }
 }
 
-/** 四個開局方位的位移 */
+/**
+ * 開局幾何，**一律從玩家（觀測儀）的視角**描述 —— 與 ai-visible-evasion
+ * 的 `aspectOf` 是同一組定義。`offset` 是敵機相對我的位置，`course` 是
+ * 敵機的開局航向。觀測儀一律在原點、機首 `FWD`、等速直線。
+ */
 const PROBES = {
-  tail: new Vector3(0, 0, STANDOFF),
-  beam: new Vector3(STANDOFF, 0, 0),
-  high: new Vector3(0, STANDOFF, 0),
-  low: new Vector3(0, -STANDOFF, 0),
+  ahead: { offset: new Vector3(0, 0, -STANDOFF), course: FWD, label: '正前方‧前飛' },
+  crossing: { offset: new Vector3(0, 0, -STANDOFF), course: new Vector3(-1, 0, 0), label: '正前方‧橫飛' },
+  above: { offset: new Vector3(0, STANDOFF, 0), course: FWD, label: '我的正上方' },
+  below: { offset: new Vector3(0, -STANDOFF, 0), course: FWD, label: '我的正下方' },
 } as const
 
 function run(probe: keyof typeof PROBES): void {
@@ -86,12 +78,13 @@ function run(probe: keyof typeof PROBES): void {
   const prey = new Aircraft(BLUNT, ALT, TAS)
   const lamp = new Aircraft(BLUNT, ALT, TAS)
 
-  const preyPos = new Vector3(0, ALT, 0)
-  const lampPos = PROBES[probe].clone().add(preyPos)
-  for (const [a, p] of [[prey, preyPos], [lamp, lampPos]] as const) {
+  const asp = PROBES[probe]
+  const lampPos = new Vector3(0, ALT, 0)
+  const preyPos = asp.offset.clone().add(lampPos)
+  for (const [a, p, c] of [[prey, preyPos, asp.course], [lamp, lampPos, FWD]] as const) {
     a.state.position.copy(p)
-    a.state.velocity.copy(FWD).multiplyScalar(TAS)
-    a.state.orientation.setFromUnitVectors(FWD, FWD)
+    a.state.velocity.copy(c).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, c)
     a.prevPosition.copy(a.state.position)
     a.prevOrientation.copy(a.state.orientation)
   }
@@ -207,4 +200,4 @@ console.log('  甲「根本沒轉」  → 航向變化 ≈ 0')
 console.log('  乙「轉去看不見的方向」→ 徑向佔比接近 100%')
 console.log('  丙「轉一次就穩住」→ 航向變化前幾秒大、之後趨近 0')
 
-for (const p of ['tail', 'beam', 'high', 'low'] as const) run(p)
+for (const p of ['ahead', 'crossing', 'above', 'below'] as const) run(p)
