@@ -6,7 +6,10 @@ import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
+  sweetYield, type SteerConfig,
 } from '../../src/ai/steer'
+import { NO_INTERCEPT } from '../../src/world/lead'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { rallyAim } from '../../src/ai/rally'
 import { DEG } from '../../src/core/math'
 import { createCommand } from '../../src/control/Controller'
@@ -1791,5 +1794,64 @@ describe('steerCommand：甜蜜區偏置', () => {
     )
     expect(pitchOf(cmd.aimWorld)).toBeCloseTo(floorPitchAngle(50), 9)
     expect(pitchOf(cmd.aimWorld)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 甜蜜區偏置的射擊讓位。spec `2026-08-16-sweet-spot-shot-yield-design.md`。
+ *
+ * 【它在防什麼】`sit.sweetPitch` 只看機種對、高度、空速 —— 不看距離、不看
+ * 瞄準誤差、不看有沒有射擊解。命令的航跡角是
+ * `−(下瞄角 × pullCeiling) + sweetPitch`，所以偏置本身就是一個**平衡偏移**。
+ * 109 在 4000 m／500 km/h 的偏置是 +10°，機首因此穩定停在目標線上方 10°，
+ * 而 `DEFAULT_FIRE.trackingCone` 只有 3° —— 結構上開不了火（人工回報）。
+ */
+describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
+  it('沒有攔截解時完全不讓位', () => {
+    expect(sweetYield(NO_INTERCEPT)).toBe(1)
+  })
+
+  it('彈丸飛不到時完全不讓位', () => {
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime)).toBe(1)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 2)).toBe(1)
+  })
+
+  it('貼著臉時完全讓位', () => {
+    expect(sweetYield(0)).toBe(0)
+  })
+
+  it('中間是線性的', () => {
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 2)).toBeCloseTo(0.5, 12)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 4)).toBeCloseTo(0.25, 12)
+  })
+
+  /** 【設定寫壞時讓本層失效，不是把 AI 鎖死】與 `energyPull` 同一個退化方向。 */
+  it('時間尺度設為 0 = 這一層關閉', () => {
+    const off: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: 0 }
+    for (const t of [0, 0.1, 0.5, 1.2, 5]) expect(sweetYield(t, off)).toBe(1)
+  })
+
+  it('單調不減，而且值域永遠在 [0, 1]', () => {
+    let prev = -Infinity
+    for (let i = 0; i <= 400; i++) {
+      const t = -1 + i * 0.01
+      // NO_INTERCEPT（−1）是哨兵值不是時間，不參與單調性
+      if (Math.abs(t - NO_INTERCEPT) < 1e-12) continue
+      const y = sweetYield(t)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThanOrEqual(1)
+      expect(y).toBeGreaterThanOrEqual(prev)
+      prev = y
+    }
+  })
+
+  /**
+   * 【出貨值錨在哪】`shouldFire` 的第一條就是
+   * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增
+   * 第二套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale`
+   * 同一個手法。
+   */
+  it('出貨的時間尺度就是彈丸壽命', () => {
+    expect(DEFAULT_STEER.sweetYieldTime).toBe(PROJECTILE_LIFETIME)
   })
 })
