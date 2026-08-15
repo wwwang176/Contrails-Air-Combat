@@ -1838,6 +1838,24 @@ describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
     for (const t of [0, 0.1, 0.5, 1.2, 5]) expect(sweetYield(t, off)).toBe(1)
   })
 
+  /**
+   * 【NaN 會汙染整個操縱向量】它與任何數比較都是 false，所以會穿過每一個
+   * 分支，從最後一行帶著 `NaN / span` 出去，乘進偏置後讓 `aimWorld` 整個
+   * 變 NaN。Codex 審查 2026-08-16 抓到。
+   */
+  it('非有限的攔截時間不讓位，不吐出 NaN', () => {
+    for (const t of [Number.NaN, Infinity, -Infinity]) {
+      expect(sweetYield(t)).toBe(1)
+    }
+  })
+
+  it('壞掉的時間尺度一律讓本層失效', () => {
+    for (const span of [0, -1, Number.NaN, Infinity]) {
+      const bad: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: span }
+      for (const t of [0, 0.2, 1.2, 5]) expect(sweetYield(t, bad)).toBe(1)
+    }
+  })
+
   it('單調不減，而且值域永遠在 [0, 1]', () => {
     let prev = -Infinity
     for (let i = 0; i <= 400; i++) {
@@ -1965,7 +1983,16 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     steerCommand(
       'engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, DEFAULT_STEER,
     )
-    // 同速尾追 800 m 的 interceptTime ≈ 0.90 s，係數 ≈ 0.75，10° 只少 2.5°
-    expect(off - pitchOf(cmd.aimWorld)).toBeLessThan(3 * DEG)
+    const on = pitchOf(cmd.aimWorld)
+
+    // 【兩邊都要夾】只寫 `< 3°` 是單邊的：讓位若把號搞反、`on` 比 `off` 還
+    // 抬頭，差值變負仍然會通過（Codex 審查 2026-08-16）。所以直接對上由
+    // 真實 `interceptTime` 算出的期望值。
+    const expected = 10 * DEG * (1 - sweetYield(basis.interceptTime))
+    expect(on).toBeCloseTo(off - expected, 9)
+    // 這一場的實際幅度：同速尾追 800 m 的 interceptTime ≈ 0.90 s，
+    // 係數 ≈ 0.75，10° 少掉約 2.5°
+    expect(expected).toBeGreaterThan(0)
+    expect(expected).toBeLessThan(3 * DEG)
   })
 })

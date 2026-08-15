@@ -111,7 +111,9 @@ import { PROJECTILE_LIFETIME } from '../world/Projectiles'
    *
    * 【為什麼閘門不掛在瞄準誤差上】會鎖死。平衡點是 10°，閘門若設在 5°，系統
    * 永遠停在 10°、進不了 5°、閘門永遠不開。閘門必須掛在**偏置控制不到**的量
-   * 上，`interceptTime` 由雙方位置與速度決定，沒有回授迴路。
+   * 上。`interceptTime` 當格只讀雙方位置與速度，不讀 `aimWorld` 也不讀機首，
+   * 所以沒有**同一格的代數自鎖**（跨格的動態閉迴路每個控制律都有，不是這裡
+   * 要防的東西）。
    *
    * 【為什麼是 `PROJECTILE_LIFETIME`】`shouldFire` 的第一條就是
    * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增第二套
