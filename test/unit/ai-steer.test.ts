@@ -1153,13 +1153,26 @@ describe('破防的能量讓位', () => {
    * 【`-0` 會讓恆等基準紅】`-0 * 0.4` 在 JavaScript 是 `-0`，而 vitest 的
    * `toBe` 走 `Object.is` 語義 —— `Object.is(-0, 0)` 為偽。這一條就是那個
    * 陷阱的守門員。
+   *
+   * 【為什麼用明寫 `defendEnergyGain: 0` 的 `OFF` 而不是出貨值】2026-08-14
+   * 掃描把出貨值回填成 2.0×錨。靠出貨值的話這一條會在那一刻失效 —— 而它守的
+   * 是「關掉時逐位元恆等」，那個性質與出貨值選多少無關。
    */
-  it('出貨值是 0 —— 這一層預設不生效，且回傳的是 +0 不是 −0', () => {
-    expect(DEFAULT_STEER.defendEnergyGain).toBe(0)
+  it('增益 0 時回傳的是 +0 不是 −0', () => {
     for (let r = 0; r <= 3; r += 0.1) {
-      expect(defendPitchBias(r)).toBe(0)
-      expect(Object.is(defendPitchBias(r), 0)).toBe(true)
+      expect(defendPitchBias(r, OFF)).toBe(0)
+      expect(Object.is(defendPitchBias(r, OFF), 0)).toBe(true)
     }
+  })
+
+  /**
+   * 【出貨值只驗號誌，不驗數值】數值是掃描定出來的，寫死在測試裡等於把
+   * 掃描表複製兩份 —— 下次重掃就有一份會忘了改。這裡只守住這一層的核心
+   * 契約：增益非負（負的會讓它變成抬頭，方向完全相反）。掃描表本身記在
+   * `SteerConfig.defendEnergyGain` 的註解裡。
+   */
+  it('出貨值由掃描定出，且非負', () => {
+    expect(DEFAULT_STEER.defendEnergyGain).toBeGreaterThanOrEqual(0)
   })
 
   /**
