@@ -144,7 +144,15 @@ function median(v: number[]): number {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2
 }
 
-interface Row { err: number; samples: number; window: number; alive: boolean }
+interface Row {
+  err: number; samples: number; window: number; alive: boolean
+  /** 實際位置與「照前瞻窗前那樣直飛」的距離中位數，m */
+  dev: number
+  /** 上面那個偏差沿觀測者視線的分量（**徑向 —— 看不見**），m */
+  radial: number
+  /** 垂直視線的分量（**切向 —— 看得見**），m */
+  tangential: number
+}
 
 function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): Row {
   const steps = Math.round(lookahead * 240)
@@ -188,6 +196,11 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
   for (let i = 0; i <= steps; i++) { histP.push(new Vector3()); histV.push(new Vector3()) }
   let head = 0, filled = 0
   const errs: number[] = []
+  const devs: number[] = []
+  const rads: number[] = []
+  const tans: number[] = []
+  const dev = new Vector3()
+  const losv = new Vector3()
   let inside = false, from = 0, to = 0, alive = true
 
   for (let s = 0; s < LAMP_SECONDS * 240; s++) {
@@ -229,8 +242,20 @@ function run(probe: Probe, pilot: Pilot, standoff: number, lookahead: number): R
     buildEngageBasis(lamp, ghost, basis)
     b.copy(basis.leadPoint).normalize()
     errs.push(a.angleTo(b) * RAD)
+
+    // 位移分解：偏差有多少落在觀測者看得見的方向上
+    dev.subVectors(prey.state.position, ghost.state.position)
+    losv.subVectors(prey.state.position, lamp.state.position).normalize()
+    const r = dev.dot(losv)
+    const tot = dev.length()
+    devs.push(tot)
+    rads.push(Math.abs(r))
+    tans.push(Math.sqrt(Math.max(tot * tot - r * r, 0)))
   }
-  return { err: median(errs), samples: errs.length, window: (to - from) * DT, alive }
+  return {
+    err: median(errs), samples: errs.length, window: (to - from) * DT, alive,
+    dev: median(devs), radial: median(rads), tangential: median(tans),
+  }
 }
 
 const PROBES: Probe[] = ['ahead', 'crossing', 'above', 'below']
@@ -298,6 +323,44 @@ console.log('「裸破防公式」= ScriptedBreaker 的 horizUp 軸。**它不�
 console.log('橫飛時命令幾乎是掉頭（155°）、上下方時破防軸整個退化，見檔頭。')
 console.log('它只在尾追幾何下有意義；AI 在另外三個幾何遠優於它。')
 
+/**
+ * **倍率的分子分母解剖。**
+ *
+ * 【為什麼要這一張】訊噪比（AI ÷ 直飛）在四個場景是 9~48 倍，差 5 倍。
+ * 但分子只差 1.37 倍（5.42~7.42°），分母差 4 倍（0.15~0.60°）——
+ * **那個落差主要來自分母**。
+ *
+ * 【假說】直飛的地板不是 0，是因為飛機有長週期俯仰起伏。那個擺動是
+ * **鉛直**的：從正下方看是徑向（不改變視線方位、看不見），從正前方看是
+ * 切向（全看得見）。若成立，四個場景的**位移總量應該一樣**，只有切向
+ * 分量不同 —— 因為 above/below/ahead 三場的受測機航跡**逐位元相同**
+ * （都是 FWD 直飛，只有手電筒擺的位置不同），crossing 也只是旋轉 90°。
+ *
+ * 【這一張若成立，代表什麼】**訊噪比不能拿來跨場景比較** —— 它的分母被
+ * 「殘餘擺動剛好指向哪裡」污染了。跨場景該比的是分子本身。
+ */
+function anatomy(standoff: number, lookahead: number): void {
+  console.log(`
+
+╔══ 倍率的分子分母解剖（${standoff} m ／ 前瞻 ${lookahead} 秒）════════════`)
+  for (const pilot of ['none', 'ai'] as const) {
+    console.log(`
+  受測方 = ${pilot === 'none' ? '腳本直飛（分母／地板）' : '出貨 AI（分子）'}`)
+    console.log('    場景          預瞄誤差   位移總量    徑向     切向    切向佔比')
+    for (const p of PROBES) {
+      const r = run(p, pilot, standoff, lookahead)
+      console.log(
+        `    ${ASPECTS[p].label.padEnd(12)}`
+        + `${r.err.toFixed(2).padStart(7)}°`
+        + `${r.dev.toFixed(1).padStart(10)}m`
+        + `${r.radial.toFixed(1).padStart(9)}m`
+        + `${r.tangential.toFixed(1).padStart(9)}m`
+        + `${(r.tangential / Math.max(r.dev, 1e-9) * 100).toFixed(0).padStart(10)}%`,
+      )
+    }
+  }
+}
+
 table(800, 1)
-table(400, 1)
 sweepLookahead(800)
+anatomy(800, 1)
