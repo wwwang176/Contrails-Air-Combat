@@ -548,115 +548,6 @@ export interface SteerConfig {
    */
   defendTilt: number
   /**
-   * 破防時「速度赤字 → 壓機頭」的增益，rad。**0 = 這一層不生效（出貨值）。**
-   *
-   * 【為什麼要有這一層】`defendAim` 固定往上抬 `defendTilt`（20°），不管有沒有
-   * 速度。那 20° 是 2026-08-07 在 800 m 尾追、90 秒的場景掃出來的，當初的判準
-   * 就是高度（0° 會掉 1713 m），選 20° 是為了**止跌**。同一個常數在 20v20 裡
-   * 變成一路爬：2026-08-13 量到 `defend` 每秒淨爬升 12.8 m。
-   *
-   * **不是漏做，是一個為單一場景校準的常數在別的場景過頭了。**
-   *
-   * 【消融實證】2026-08-14 的 `defend-tilt.probe.ts`，20v20、420 秒、VETERAN：
-   *
-   * ```
-   *   抬角   2000 開局 結束高度／回落   4000 開局 結束高度／回落
-   *   20°        4823 m ／  151 m           5245 m ／  531 m
-   *   10°        4147 m ／  243 m           5652 m ／  262 m
-   *    0°        3889 m ／  299 m           4740 m ／  672 m
-   *  −10°        3644 m ／  346 m           4464 m ／ 1053 m
-   * ```
-   *
-   * 端點降 1179 m 與 781 m（雜訊底線 393 m），回落由 151→346、531→1053 ——
-   * 這根槓桿接得上，而且「只上不下」確實被撬鬆。4000 開局的 10° 那一點非單調
-   * （比 20° 高 407 m，僅超出雜訊 14 m），專案負責人 2026-08-14 裁定為雜訊。
-   *
-   * 【錨】`defendTilt / (1 − DEFAULT_RULES.cornerEnter)` = 20° / 0.25 = 80°，
-   * 意思是「`cornerRatio` 掉到該撤退的那條線時，偏置剛好把防禦抬角抵銷成
-   * 平飛」。再低才真的變成俯衝。
-   *
-   * ## 2026-08-15：**整個機制被護欄否決，出貨值維持 0**
-   *
-   * 掃描挑出的兩個候選都在護欄前倒下，而且倒的方式指出這不是劑量問題：
-   *
-   * ```
-   *                              2.0×錨      1.0×錨    門檻
-   *   ai-reaction-delay 低空飛進海裡  13292          0    = 0
-   *   ai-visible-evasion 墜海場次      （紅）     1 場    0 場
-   *   ai-defence 正後方 250 m         0.96      0.887   < 0.85
-   *   ai-defence 後下方 400 m         0.87    （綠）    < 0.85
-   *   ai-targeting 產出                1.30       1.40   ≥ 1.5
-   *   ai-withdraw-anchor 半徑          5839    （綠）  ≤ 3574
-   * ```
-   *
-   * 【為什麼不是「再降一點就好」】`ai-defence` 的場景在 **4000 m**（`ALT`），
-   * 地面遠在天邊。它在兩個劑量都紅，代表**壓機頭本身讓閃躲變差**，與低空
-   * 無關。所以「加一道離地餘裕的閘門」（像 `extendPitchAngle` 那樣）救不了
-   * 它 —— 那條退路也堵死了。
-   *
-   * **結論：這一層在用閃躲品質換能量，而閃躲正是 `defend` 存在的理由。**
-   * spec §3.3 把 `ai-defence` 轉紅列為否決條件，就是為了攔住這件事。
-   *
-   * 【我自己的低空壓力測試為什麼沒抓到】它從 600 m 與 1000 m 開局，四項安全
-   * 指標全過、安全層佔時甚至下降。但看窗中位序列就知道 **AI 一分鐘內就爬到
-   * 3000 m 以上**、整場平均 4312 m —— 它根本沒待在低空。真正把飛機按在低空
-   * 打的是 `ai-reaction-delay`，它一跑就抓到。這是本專案第三次「自訂量測全過、
-   * 護欄一跑就死」（前兩次是 `cornerEnter` 的安全層 87%、`manoeuvreGFraction`
-   * 的飛進海裡 5566）。**自訂量測不能取代護欄。**
-   *
-   * 【保留這個欄位而不是刪掉的理由】否決的是**定值**，不是這條路的存在。
-   * 若日後改成「只在脫離動作、不在閃躲動作上壓」，或改成調 `defendTilt`
-   * 本身，這個旋鈕與它的九條單元測試就是現成的。刪掉等於把這一輪買到的
-   * 資訊一起丟了。
-   *
-   * ---
-   *
-   * 【掃描表 —— 主判準確實達成過，所以否決的是取捨不是效果】
-   * 2026-08-14，20v20、420 秒、VETERAN。每一欄都與同一開局的 `0.0×錨`
-   * （恆等基準）比。
-   *
-   * ```
-   * 高空　　　結束高度 2000 開局 ／ 4000 開局　　回落　　　　最低高度
-   *   0.0×錨      4823 ／ 5245                151 ／  531    1700 ／ 3700
-   *   0.5×錨      4132 ／ 5721 ↑爬更高         315 ／  414 ↓  1700 ／ 3700
-   *   1.0×錨      4152 ／ 4991                213 ／  605    1700 ／ 3657
-   *   1.5×錨      3898 ／ 5251 ＝沒動          276 ／  422 ↓  1700 ／ 3401
-   *   2.0×錨      4007 ／ 4773                283 ／  774    1700 ／ 3133
-   *
-   * 低空（壓力測試）　結束高度 1000 ／ 600　安全層　　　　地板佔比
-   *   0.0×錨            4392 ／ 4312        0.35 ／ 0.62%  0.00 ／ 0.60%
-   *   0.5×錨            4286 ／ 4267        0.34 ／ 0.19%  0.00 ／ 0.61%
-   *   1.0×錨            4236 ／ 3938        0.25 ／ 0.17%  0.00 ／ 0.60%
-   *   1.5×錨            3944 ／ 4087        0.14 ／ 0.34%  0.00 ／ 0.62%
-   *   2.0×錨            3741 ／ 3769        0.13 ／ 0.31%  0.00 ／ 0.61%
-   * ```
-   *
-   * 【主判準確實達成了】`2.0×` 讓兩個開局**各自**都超過 393 m 的雜訊底線
-   * （−816、−472），回落也兩邊同向變大（151→283、531→774）。棘輪真的被
-   * 撬鬆了 —— 否決的是它的代價，不是它的效果。
-   *
-   * 【劑量不是問題所在】`0.5×` 讓 4000 開局**爬得更高**（+476 m），`1.5×`
-   * 等於沒動，`1.0×` 只靠平均勉強過門檻。也就是說更小的劑量連效果都沒有，
-   * 而有效果的劑量會踩到護欄 —— 兩端都不通。
-   *
-   * 【飽和點剛好落在撤退線】2.0× 之下 `−160° × 赤字` 在赤字 0.25（也就是
-   * `cornerRatio = cornerEnter = 0.75`）就撞到 `defendEnergyLimit`（40°）。
-   * 讀法是「撐到該撤退的那條線時，機頭已經壓到這一層的上限」。所以低於
-   * 0.75 的區間是**飽和**的，量到的是 gain 與 limit 的混合效果。
-   *
-   * 【副判準沒有跟著動 —— 一個否證】原本的推論是「高度降 → 角落速度降 →
-   * `extend` 減少」。兩輪獨立量測都不支持：2.0× 讓平均高度降了 644 m，而
-   * `extend` 佔時在 2000 開局降（40.6→34.8%）、在 4000 開局**反而升**
-   * （37.1→40.9%）。**「AI 常放棄追擊」不是飛太高造成的**，那要另外查。
-   * 這一輪治的是「一路往上爬」，不是「追一半跑掉」。
-   *
-   * 【為什麼不直接改 `defendTilt`】那會作廢 2026-08-07 的掃描表。這一層疊在
-   * 後處理（`applyPitchBias`），幾何軸一個字不動。
-   */
-  defendEnergyGain: number
-  /** `defendPitchBias` 的絕對值上限，rad。防止極低速時把機頭壓到垂直 */
-  defendEnergyLimit: number
-  /**
    * 反轉的距離上限，m。超過這個距離「他衝過頭」沒有意義 —— 他只是跑遠了。
    *
    * **起始值，待實測回填。** 掃描範圍 300 / 500 / 800。
@@ -1077,10 +968,6 @@ export const DEFAULT_STEER: SteerConfig = {
   floorPitch: 20 * (Math.PI / 180),
   defendOffset: 75 * (Math.PI / 180),
   defendTilt: 20 * (Math.PI / 180),
-  // 【0 = 這一層不生效】掃描挑出的兩個候選（1.0×、2.0×錨）**都被護欄否決**，
-  // 依計畫的挑值規則第 5 條維持 0。詳見 `SteerConfig.defendEnergyGain` 的註解。
-  defendEnergyGain: 0,
-  defendEnergyLimit: 40 * (Math.PI / 180),
   // ## 反轉的三個參數（2026-08-06 掃描）
   //
   // 六個高接近率場景（紅 B 起始 TAS 280 對藍方 200）× 180 秒，警戒已上線：
@@ -1275,53 +1162,6 @@ export function extendPitchAngle(
   return raw
 }
 
-/**
- * 破防時的能量讓位偏置，rad。**恆 ≤ 0**（只壓不抬）。
- *
- * ```
- * bias = −defendEnergyGain × max(0, 1 − cornerRatio)，夾在 [−defendEnergyLimit, 0]
- * ```
- *
- * 【為什麼恆 ≤ 0】2026-08-13 追出的病是**只上不下的棘輪**：往上是拉桿轉彎的
- * 自然結果、隨時做得到；往下需要幾秒不被打擾，而一段 `extend` 中位只有
- * 3.6 秒、56~58% 被 `defend` 插隊終止。系統已經缺「下」，任何新機制都不該
- * 再加「上」。
- *
- * 少了那個下限，`cornerRatio > 1` 時偏置會變正，等於再疊一份爬升 —— 那正是
- * `pitchSurplusGain` 那一輪證實無效且方向錯誤的東西（見 `pitchSpeedGain`）。
- *
- * 【三個守衛都是正面判斷，不是 `<= 0`】
- *
- *   `!(gain > 0)`     `0 * 正數` 在 JavaScript 是 **`-0`**，而 `Object.is(-0, 0)`
- *                     為偽 —— 「出貨值 0 時逐位元恆等」會因此紅。順帶擋掉
- *                     負增益（那會讓這一層變成抬頭）與 NaN 增益。
- *   `!(deficit > 0)`  `NaN <= 0` 為偽，寫成 `deficit <= 0` 會讓 NaN 一路穿過去。
- *                     NaN 進了 `applyPitchBias` 之後整個瞄準向量變 NaN，而
- *                     下游每一層守衛的比較對 NaN 都恆為偽 —— 靜默全滅。
- *   `!(limit > 0)`    limit 是 NaN 時 `raw < -NaN` 為偽，夾制會靜默失效。
- *
- * 【與 `extendPitchAngle` 的分工】那一個是 `extend` 的**主要動作**（換能量
- * 本身就是它的目的）；這一個是 `defend` 的**讓位** —— 閃躲仍然由 `defendAim`
- * 的幾何決定，這一層只在速度見底時把航跡角壓下來。所以它單向、而且上限
- * 小得多。
- *
- * 【消費者】`steerCommand` 在**本幀真的套了 `defendTilt`** 時把它加進既有的
- * 那一次 `applyPitchBias` 呼叫。**不新增第二次旋轉** —— 兩次旋轉有次序相依，
- * 而且各自夾制會讓合成結果難以推理。
- *
- * @param cornerRatio `Situation.cornerRatio` = TAS ÷ 角落速度
- */
-export function defendPitchBias(
-  cornerRatio: number,
-  cfg: SteerConfig = DEFAULT_STEER,
-): number {
-  const limit = cfg.defendEnergyLimit
-  if (!(cfg.defendEnergyGain > 0) || !(limit > 0)) return 0
-  const deficit = 1 - cornerRatio
-  if (!(deficit > 0)) return 0
-  const raw = -cfg.defendEnergyGain * deficit
-  return raw < -limit ? -limit : raw
-}
 
 /**
  * 這個離地餘裕下，瞄準方向的航跡角至少要多少，rad。永遠 ≥ 0。
@@ -1534,11 +1374,6 @@ export function steerCommand(
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
   // ── 瞄準點 ──────────────────────────────────────────────
-  // 【為什麼要這個旗標】`intent === 'defend'` 不等於本幀套上了 `defendTilt`
-  // —— 三個幾何 mode 壓過意圖、`reversal` 期間走 `reversalAim`，而 `defendAim`
-  // 自己在視線鉛直時也會走沒有抬角的退化路徑。只有真的有那個固定抬角，才有
-  // 東西可以讓位。所以旗標由 `defendAim` 回報，不由意圖推論。
-  let defendTilted = false
   // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
   if (mode === 'planeDegenerate') {
     out.aimWorld.copy(basis.losAxis)
@@ -1570,7 +1405,7 @@ export function steerCommand(
         if (defend.reversal > 0 && defend.attacker !== null) {
           reversalAim(self, defend.attacker, out.aimWorld)
         } else {
-          defendTilted = defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
+          defendAim(self, sit.threatLos, defend.axisSign, out.aimWorld, cfg)
         }
         break
       case 'rally':
@@ -1619,21 +1454,7 @@ export function steerCommand(
   // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
   // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
   // 命令的內容是「把自己拉爆」。見 spec §4.4。
-  //
-  // 【2026-08-14：多了破防的能量讓位】兩個偏置**相加，只旋轉一次**。兩次呼叫
-  // `applyPitchBias` 會有次序相依，而且各自夾制會讓合成結果難以推理 —— 相加
-  // 之後由那一層統一夾在 ±PITCH_BIAS_LIMIT。有一條單元測試釘住這個差異
-  // （sweetPitch = 85° 時，相加後夾一次得 53°，分兩次夾會得 48°）。
-  //
-  // 【為什麼要那一層】`defendAim` 固定往上抬 `defendTilt`（20°），不管有沒有
-  // 速度。實測 20v20 下 `defend` 每秒淨爬升 12.8 m，而系統整體是只上不下的
-  // 棘輪。見 `defendEnergyGain` 的註解。
-  //
-  // 【條件是 `defendTilted` 不是 `intent === 'defend'`】見上面那個旗標的註解。
-  if (intent !== 'rally') {
-    const defendBias = defendTilted ? defendPitchBias(sit.cornerRatio, cfg) : 0
-    applyPitchBias(sit.sweetPitch + defendBias, out.aimWorld)
-  }
+  if (intent !== 'rally') applyPitchBias(sit.sweetPitch, out.aimWorld)
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
@@ -1763,14 +1584,11 @@ export function defendAim(
   sign: number,
   out: Vector3,
   cfg: SteerConfig = DEFAULT_STEER,
-): boolean {
-  // 【回傳值的意義】這一格有沒有真的套上 `defendTilt` 的固定抬角。
-  //
-  // 下面有兩條退化路徑（視線鉛直、以及視線鉛直且升力平行視線）**一個字都
-  // 沒用到 `cfg.defendTilt`**。`defendPitchBias` 的存在理由就是抵銷那個抬角
-  // —— 沒抬角的路徑上套負偏置只是平白壓機頭，而鉛直威脅正是垂直纏鬥的幾何，
-  // 也就是速度最低、偏置最大的那個場景。呼叫端不需要這個資訊時忽略即可。
-  let tilted = false
+): void {
+  // 【視線鉛直時沒有抬角】下面兩條退化路徑（視線鉛直、以及視線鉛直且升力
+  // 平行視線）**一個字都沒用到 `cfg.defendTilt`**。2026-08-15 量到那 20°
+  // 抬角其實是閃躲動作本身的一部分（見 spec §7），所以「鉛直威脅下閃躲會
+  // 變弱」是一個已知的缺口 —— 目前沒有實測支持要補它。
   const axis = D.v[0]!
   const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
 
@@ -1786,7 +1604,6 @@ export function defendAim(
       up.divideScalar(upLen)
       axis.copy(horiz).multiplyScalar(Math.cos(cfg.defendTilt))
         .addScaledVector(up, Math.sin(cfg.defendTilt))
-      tilted = true
     } else {
       axis.copy(horiz)
     }
@@ -1796,14 +1613,13 @@ export function defendAim(
     if (perpendicular(right, threatLos, axis) < AXIS_EPSILON) {
       // 數學上到不了，但浮點世界留一條退路：任何非平行的方向都比「指著他」好
       out.copy(threatLos)
-      return false
+      return
     }
   }
 
   out.copy(threatLos).multiplyScalar(Math.cos(cfg.defendOffset))
     .addScaledVector(axis, Math.sin(cfg.defendOffset))
     .normalize()
-  return tilted
 }
 
 /**
