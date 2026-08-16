@@ -6,8 +6,9 @@ import {
 import { createRuleState, stepRules, type Intent } from './rules'
 import {
   buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
-  stepDefend, steerCommand, type Knobs,
+  shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
 } from './steer'
+import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import { shouldFire } from './fire'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
@@ -116,6 +117,18 @@ export class AiController implements Controller {
 
   /** 供 HUD、telemetry 與測試讀取 */
   intent: Intent = 'approach'
+  /**
+   * 上一個決策節拍的幾何模式。**只為量測存在**，與 `intent` 同一個理由公開。
+   *
+   * 【為什麼光看 `intent` 不夠】幾何模式**壓過**意圖（`steerCommand` 的第一
+   * 個分支），所以「AI 現在在做什麼」是 `(intent, mode)` 這一對決定的，不是
+   * 意圖單獨決定的。診斷「AI 在原地垂直繞圈」時，只有意圖的時間序列看不出
+   * 迴路 —— `extend` 與 `speedRecover` 都會壓機頭，而它們一個是意圖、一個
+   * 是模式。見 `test/tools/stall-loop.probe.ts`。
+   *
+   * 沒有目標的那三條早退路徑不更新它（那些路徑根本不算幾何模式）。
+   */
+  mode: SteerMode = 'normal'
   safetyActive = false
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
@@ -155,7 +168,16 @@ export class AiController implements Controller {
    */
   decisionsMade = 0
 
-  private readonly sit = createSituation()
+  /**
+   * 這一格的態勢。**唯讀** —— 只有 `evaluateGeometry` / `evaluateEnergy` /
+   * `evaluateThreat` 能寫。
+   *
+   * 【為什麼公開】與 `rules`、`defend`、`mode` 同一個理由：診斷「AI 為什麼
+   * 這樣飛」時，行為是態勢的函數，只看輸出（`intent`、`aimWorld`）永遠只能
+   * 猜。`test/tools/stall-loop.probe.ts` 讀 `cornerRatio` 與 `pullCeiling`
+   * 去分辨「速度不足」與「拉桿被紀律夾住」——兩者的症狀一樣、修法相反。
+   */
+  readonly sit = createSituation()
   private readonly targetState = createTargetState()
   private readonly basis = createEngageBasis()
   /**
@@ -265,6 +287,28 @@ export class AiController implements Controller {
         raw.brake = 0
         raw.firing = false
       }
+      // 【拉桿紀律連早退路徑也涵蓋，甜蜜區不涵蓋】兩者的位階不同：甜蜜區
+      // 是戰術偏好，指揮官比它高，執行命令時讓位；拉桿紀律是「不要弄壞
+      // 自己」—— **沒有任何命令的內容是「把自己拉爆」**，所以它在任何時候
+      // 都生效，包括飛去集合點與飛回站位的途中。見 spec §4.4。
+      //
+      // 【為什麼不能靠 steerCommand】上面三個分支直接寫 `aimWorld` 然後
+      // return，根本不經過 `steerCommand`，那一層的紀律對它們無效。
+      //
+      // 【為什麼直接算而不是讀 sit.cornerRatio】這條路徑沒有目標，
+      // `evaluateEnergy` 因此沒有跑過，`this.sit` 是上一次有目標時的舊值。
+      // 直接算 —— 這個量本來就只與自己有關。
+      //
+      // 【分母必須與 `assess.ts` 是同一個】兩邊都用 `manoeuvreSpeed`，否則
+      // 「有目標」與「沒目標」兩條路徑會用不同的尺標量同一件事。
+      //
+      // 【安全層仍然有最後決定權】`emit` 裡的 `applySafety` 排在這之後，
+      // 撞地與失速的硬接管會整個換掉 `aimWorld`。順序是對的。
+      const ceiling = energyPull(
+        self.diag.aero.tas / manoeuvreSpeed(self.spec, self.state.position.y),
+        DEFAULT_DOCTRINE,
+      )
+      shrinkTowardNose(self, ceiling, raw.aimWorld)
       this.emit(self, dt, out)
       return
     }
@@ -332,6 +376,7 @@ export class AiController implements Controller {
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
     const mode = geometryGate(this.sit, this.basis)
+    this.mode = mode
     // 【意圖是上一個決策節拍的值】反轉的觸發只在進入的那一格用得上，晚一個
     // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
     // 讀到的是**同一個**，不能半新半舊。

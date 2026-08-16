@@ -23,7 +23,16 @@ import type { Controls, FlightState } from '../physics/types'
  */
 export class Aircraft {
   spec: AircraftSpec
-  state: FlightState
+  /**
+   * 運動狀態。**物件本身恆不更換** —— `reset` 就地寫回四個欄位。
+   *
+   * 【`readonly` 是護欄不是裝飾】2026-08-15 的缺陷：舊版 `reset` 做
+   * `this.state = createFlightState(...)`，把 `state.position` 換成新的
+   * `Vector3`，於是指揮層在 `createBattle` 抓的那個參考變成孤兒，
+   * 「再打一場」之後整場讀凍結座標（40/40 架失聯、最大落差 5300 m）。
+   * 這個修飾字讓那件事在型別層就不可能重演。見 `reset` 的註解。
+   */
+  readonly state: FlightState
   readonly diag: StepDiagnostics = createDiagnostics()
   /** 指揮儀輸出的舵面**指令**。舵面實際位置見 `surfaces`。 */
   readonly controls: Controls = { aileron: 0, elevator: 0, rudder: 0, throttle: 0, brake: 0 }
@@ -86,8 +95,38 @@ export class Aircraft {
     this.surfaces.rudder = 0
   }
 
+  /**
+   * 回到「朝 −Z 平飛」的初始狀態。
+   *
+   * 【2026-08-15：就地寫回，不換 `state` 物件】舊版是
+   * `this.state = createFlightState(...)` —— 它把 `state.position` 換成一個
+   * **新的** `Vector3`，於是任何在此之前抓過那個向量的人，從此永遠讀到一個
+   * 停在重置那一刻的孤兒。
+   *
+   * 實際中招的是指揮層：`setup.ts` 的 `createBattle` 把快照的位置抓成參考
+   * （`position: c.aircraft.state.position`，而且是 `readonly`，抓一次就再也
+   * 接不回去）。`resetBattle`（再打一場）對每一架都呼叫 `World.respawn` →
+   * `reset()`，所以**重開一場之後整個指揮層讀到的是一整場凍結的座標**。
+   * 實測 40/40 架失聯、最大落差 5300 m，集合令因此解除不掉，最長握了 344 秒
+   * （人工回報 196 秒）—— 症狀是 AI 繞著一個五公里外的鬼位置無限盤旋。
+   * 見 `test/tools/rally-reset.probe.ts`。
+   *
+   * 壞掉的不只集合令：側翼落點、集火解除、撤退令錨的敵群質心，指揮層每一個
+   * 吃位置的判斷都一起讀鬼影。
+   *
+   * 【為什麼修這裡而不是只修指揮層】換物件是一顆對**所有**持有者的地雷，
+   * 指揮層只是第一個踩到的。`FlightState` 只有四個欄位，就地寫回是完整的，
+   * 而且與 `createFlightState` 的初值逐位元相同（`new Quaternion()` 是單位
+   * 四元數、`new Vector3()` 是零向量）。
+   *
+   * 【`state` 已標成 `readonly`】那一行才是真正的護欄 —— 它讓「換掉 state」
+   * 這件事在型別層就不可能再發生。
+   */
   reset(altitude: number, tas: number): void {
-    this.state = createFlightState(altitude, tas)
+    this.state.position.set(0, altitude, 0)
+    this.state.velocity.set(0, 0, -tas)
+    this.state.orientation.set(0, 0, 0, 1)
+    this.state.angularVelocity.set(0, 0, 0)
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
     this.director.reset()

@@ -1,8 +1,8 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
+import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { WEP_THROTTLE } from '../physics/propulsion'
-import { THROTTLE_FLOOR } from '../input/throttle'
 import { rallyAim } from './rally'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
@@ -392,6 +392,48 @@ export interface SteerConfig {
    * 中間幾格同樣是混沌（3×EP 在共速共高讓藍方挨 461、5×EP 讓紅方挨 712，
    * 而兩者的高能量開局都比現值「好看」）。與 `unloadMargin` 同一個道理：
    * 不要拿單格的好看數字去調它。
+   *
+   * ---
+   *
+   * # 2026-08-13：拆成「赤字」與「過剩」兩個增益 —— **實測完全無效，已收回**
+   *
+   * 【動機】這個增益是**雙向**的：`speedDeficit = 1 − cornerRatio`，過剩時
+   * 它變負，乘上負增益就變正 —— 命令爬升，把速度存成高度（`extendPitchAngle`
+   * 的既有設計，`ai-steer.test.ts` 有三條測試在守）。
+   *
+   * 而 2026-08-13 追出的病是**只上不下的棘輪**：往上拉桿就有，往下需要幾秒
+   * 不被打擾，而一段 `extend` 中位只有 3.6 秒、56~58% 被 `defend` 插隊終止。
+   * 專案負責人裁定「被打就該閃」是對的（不動優先序），所以試著從「讓往上
+   * 別那麼放縱」下手 —— 拆一個 `pitchSurplusGain` 只管過剩那半邊。
+   *
+   * 【掃描，`surplus-gain.probe.ts`，20v20/420s/VETERAN/兩開局，結束高度 m】
+   *
+   * ```
+   *   增益      2000 開局   4000 開局   平均
+   *   4.0×EP      4854        5247      5051   ← 現值（恆等）
+   *   2.0×EP      4719        5964      5342
+   *   1.0×EP      5042        5439      5241
+   *   0.5×EP      4541        5193      4867
+   *   0.0×EP      4643        5416      5030   ← 完全不准爬升
+   * ```
+   *
+   * **把爬升完全關掉，高度平均 5030，與基準 5051 沒有差別。** 而且不單調
+   * （2.0×EP 反而飄到 5964）。兩個開局在基準下就差 393 m，所有效果都落在
+   * 這個雜訊裡。`extend` 佔時、`engage` 佔時、`cornerRatio` 也一欄都沒動。
+   *
+   * 【為什麼無效 —— 這一條值得記住】高度歸戶（`climb-blame.probe.ts`）顯示
+   * `extend` 的淨爬升是 +28.7 km，但那**不是被命令出來的**：
+   *
+   * ```
+   *   命令的爬升    p90 只有 +6.1°，而且只佔 30% 的取樣
+   *   做不到的俯衝  進入 extend 當下的航跡角中位 +9.7°，離開時才 +2.3°
+   * ```
+   *
+   * 它進來時機頭就朝上，而且一直朝上。**命令為正的那 30% 是枝節，真正的量
+   * 在「進來就朝上、壓不下去」。** 調命令那一端沒有用。
+   *
+   * 【參數已收回】一個實測完全沒作用的旋鈕留著只會誤導下一個人。探針也一起
+   * 刪掉 —— 它引用那個欄位，留著會讓 tsc 紅。上面那張表就是它的全部產出。
    */
   pitchSpeedGain: number
   /**
@@ -532,6 +574,32 @@ export interface SteerConfig {
    * **起始值，待實測回填。** 掃描範圍 1 / 2 / 4。
    */
   reversalHold: number
+  /**
+   * 甜蜜區俯仰偏置的**讓位時間尺度**，秒。彈道飛行時間短於它時，偏置按
+   * `interceptTime / sweetYieldTime` 的比例收掉。**0 = 這一層關閉**（消融用）。
+   *
+   * 【為什麼需要讓位】`sit.sweetPitch` 只看機種對、高度、空速 —— 不看距離、
+   * 不看瞄準誤差、不看有沒有射擊解。命令的航跡角是
+   * `−(下瞄角 × pullCeiling) + sweetPitch`，所以偏置本身就是一個**平衡偏移**：
+   * 109 在 4000 m／500 km/h 的偏置是 +10°、`pullCeiling` 是 1.00，機首於是
+   * 穩定停在目標線上方 10°。而 `DEFAULT_FIRE.trackingCone` 只有 3° ——
+   * **那個態勢下 AI 結構上開不了火**（人工回報，2026-08-16）。
+   *
+   * 【為什麼閘門不掛在瞄準誤差上】會鎖死。平衡點是 10°，閘門若設在 5°，系統
+   * 永遠停在 10°、進不了 5°、閘門永遠不開。閘門必須掛在**偏置控制不到**的量
+   * 上，`interceptTime` 由雙方位置與速度決定，當格不讀 `aimWorld` 也不讀機首。
+   *
+   * 【為什麼是 `PROJECTILE_LIFETIME`】`shouldFire` 的第一條就是
+   * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增第二
+   * 套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale` 同一
+   * 個手法。
+   *
+   * 【實測效果】109 對 P-51、4000 m、500 km/h：150 m 的偏置由 10° 降到 1.8°
+   * （低於開火錐），800 m 仍有 9.5° —— 近戰讓位、遠距離維持原樣。
+   *
+   * spec `2026-08-16-sweet-spot-shot-yield-design.md`。
+   */
+  sweetYieldTime: number
 }
 
 /**
@@ -955,6 +1023,7 @@ export const DEFAULT_STEER: SteerConfig = {
   reversalRange: 500,
   reversalAspect: 90 * (Math.PI / 180),
   reversalHold: 2,
+  sweetYieldTime: PROJECTILE_LIFETIME,
 }
 
 /**
@@ -1121,6 +1190,7 @@ export function extendPitchAngle(
   return raw
 }
 
+
 /**
  * 這個離地餘裕下，瞄準方向的航跡角至少要多少，rad。永遠 ≥ 0。
  *
@@ -1180,9 +1250,14 @@ const U = makeScratch(2)
  * 產生約 14° 的偏移，指揮儀讀成轉向需求：實測滾轉指令由 2–3° 暴增到
  * 27–29°、副翼打到滿舵、滾轉率由 −46°/s 翻成 +12°/s。純量縮放不會。
  *
+ * 【誰在呼叫它】`steerCommand` 的後處理，**以及 `AiController` 的早退路徑**
+ * （rally／station／平飛）—— 那三格直接寫 `aimWorld` 然後 return，不經過
+ * `steerCommand`，所以拉桿紀律要自己補一次（spec §4.4）。改動這個函式時
+ * 兩個呼叫點都要顧到。
+ *
  * @param factor 0..1。0 = 瞄準機首（完全鬆桿）、1 = 原樣不動
  */
-function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
+export function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): void {
   if (factor >= 1) return
   const nose = U.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
   if (factor <= 0) {
@@ -1248,6 +1323,80 @@ export function applyFloor(self: Aircraft, minPitch: number, aim: Vector3): void
   }
   const c = Math.cos(minPitch) / h
   aim.set(hx * c, s, hz * c)
+}
+
+/**
+ * `applyPitchBias` 的角度上界，rad。
+ *
+ * 【為什麼直接寫算式而不 import `DEG`】這個檔案裡的角度常數一律如此
+ * （見 `EXTEND_PITCH`）—— 不為了一個常數多一條相依。
+ */
+const PITCH_BIAS_LIMIT = 80 * (Math.PI / 180)
+
+/**
+ * 把 `aim` 的**航跡角**加上 `deltaPitch`，水平方位不變。就地修改。
+ *
+ * 【與 `applyFloor` 的關係】`applyFloor` 只抬不壓（那是它能無條件疊加的
+ * 理由），甜蜜區的偏置需要雙向，所以是它的姊妹函式而不是它本身。兩者共用
+ * 同一個「改航跡角、不改方位」的作法 —— 見 `applyFloor` 與 `shrinkTowardNose`
+ * 的註解為什麼方位不能動（動了會被指揮儀讀成滾轉需求，副翼打到滿舵）。
+ *
+ * 【夾在 ±80°】超過就變成垂直，而俯仰偏置的用途是「偏一點」不是「翻過去」。
+ *
+ * 【它必須排在 `applyFloor` 之前】撞地底限的優先序最高，必須有最後決定權
+ * ——「想低頭換速度」不能贏過「快撞海了」。
+ *
+ * 【為什麼不吃 `self`】姊妹函式 `applyFloor` 需要它，因為鉛直退化時要拿
+ * 機首的水平投影當方位（那一層非動不可）。這一層在同樣的退化情況直接
+ * 放棄 —— 它只是偏好，所以簽名裡不需要飛機。
+ *
+ * `deltaPitch === 0` 時逐位元不動。假設 `aim` 是單位向量。
+ */
+export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
+  if (deltaPitch === 0) return
+  const horiz = Math.hypot(aim.x, aim.z)
+  // 【已經鉛直：方位沒有定義】與 `applyFloor` 走同一條退化路徑的理由相反
+  // —— 那一層非動不可（不動就撞地），這一層只是偏好，放棄是安全的。
+  if (horiz < 1e-9) return
+  const pitch = Math.atan2(aim.y, horiz)
+  let next = pitch + deltaPitch
+  if (next > PITCH_BIAS_LIMIT) next = PITCH_BIAS_LIMIT
+  else if (next < -PITCH_BIAS_LIMIT) next = -PITCH_BIAS_LIMIT
+  const scale = Math.cos(next) / horiz
+  aim.set(aim.x * scale, Math.sin(next), aim.z * scale)
+}
+
+/**
+ * 甜蜜區偏置的讓位係數，0..1。1 = 照原樣偏、0 = 完全不偏。
+ *
+ * 【與 `unloadPull` / `energyPull` 同一族】三者都回傳係數、都由呼叫端乘上去、
+ * 都不動方位。差別只在防的物理：
+ *
+ *   unloadPull   看 stallMargin    —— 防**失速**（迎角太大）
+ *   energyPull   看 cornerRatio    —— 防**能量見底**（速度太低）
+ *   sweetYield   看 interceptTime  —— 防**打法偏好擋住扳機**
+ *
+ * 【`NO_INTERCEPT` 回傳 1 而不是 0】沒有攔截解 = 沒有射擊機會 = 沒有東西要讓。
+ * 回傳 0 會把「彈道無解」變成「連打法都不准表態」，方向剛好相反。
+ *
+ * 【`sweetYieldTime <= 0` 回傳 1】與 `energyPull` 的退化處理同一個理由：設定
+ * 寫壞時讓本層失效、退回既有行為，比讓它把 AI 鎖死安全。這也是消融的開關。
+ *
+ * @param interceptTime `EngageBasis.interceptTime`，s。`NO_INTERCEPT` 表示無解
+ */
+export function sweetYield(interceptTime: number, cfg: SteerConfig = DEFAULT_STEER): number {
+  // 【非有限值一律不讓位】`NaN` 會穿過下面每一個比較（與任何數比都是 false）
+  // 然後從最後一行帶著 `NaN / span` 出去，乘進偏置、汙染整個 `aimWorld`。
+  // 回傳 1 = 本層失效、退回既有行為，與 `sweetYieldTime <= 0` 同一個方向。
+  if (!Number.isFinite(interceptTime)) return 1
+  if (interceptTime === NO_INTERCEPT) return 1
+  const span = cfg.sweetYieldTime
+  // `span` 同樣要求有限：`Infinity` 會讓 `t / span` 恆為 0，變成「永遠完全
+  // 讓位」—— 那是設定寫壞時最不該發生的方向。
+  if (!Number.isFinite(span) || span <= 0) return 1
+  if (interceptTime >= span) return 1
+  if (interceptTime <= 0) return 0
+  return interceptTime / span
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
@@ -1342,10 +1491,45 @@ export function steerCommand(
   // 而那正是舊版（瞄準速度向量）製造出橫向誤差、害飛機每 0.1 秒抖一下的
   // 來源。當成係數套在既有指令上，方位天然保持不變。
   //
-  // 【`overshoot` 與 `speedRecover` 不套】它們的優先序高於 `unload`
-  // （見 `geometryGate`），拿到那兩個 mode 時就不會是 `unload`。
-  if (mode === 'unload') {
-    shrinkTowardNose(self, unloadPull(sit.stallMargin, cfg), out.aimWorld)
+  // 【2026-08-11：`unload` 由一個 mode 變成兩個來源取較小值】
+  //   unloadPull(stallMargin)  防**失速**（迎角太大）—— 只在 `unload` 這個
+  //                            幾何下有意義，那是 `geometryGate` 判出來的
+  //   sit.pullCeiling          防**能量見底**（速度太低）—— 任何幾何下都要
+  //                            生效，因為 AI 把自己拉爆不限於 `unload`
+  //
+  // 實測：2026-08-11 的迴轉半徑改動讓 `ai-defence` 正後方 400 m 挨打由
+  // 0.084 s 惡化到 0.518 s，而那一場的 mode 大多不是 `unload` —— 只掛在
+  // `unload` 上的紀律看不到它。見 `ai/doctrine.ts` 的 `energyPull`。
+  //
+  // 【`overshoot` 與 `speedRecover` 仍然不套失速那一層】它們的優先序高於
+  // `unload`（見 `geometryGate`），拿到那兩個 mode 時 `mode !== 'unload'`。
+  // 但**能量那一層照套** —— 它們同樣會把速度拉光。
+  const stallPull = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
+  const pull = stallPull < sit.pullCeiling ? stallPull : sit.pullCeiling
+  shrinkTowardNose(self, pull, out.aimWorld)
+
+  // ── 甜蜜區：把航跡角偏向自己佔優的高度／速度，方位不動 ──
+  // 【為什麼排在撞地底限之前】底限的優先序最高，必須有最後決定權 ——
+  // 「想低頭換速度」不能贏過「快撞海了」。
+  //
+  // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
+  // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
+  // 命令的內容是「把自己拉爆」。見 spec §4.4。
+  //
+  // 【2026-08-16：讓位給射擊解】同一個位階問題的第三個對象。「我想把仗帶到
+  // 我的甜蜜區」不該蓋過「射擊解已經到手了」。人工回報：109 在 500 km/h 的
+  // 偏置是 +10°，機首因此穩定停在目標線上方 10°，而開火錐只有 3° ——
+  // 結構上開不了火。見 `sweetYield` 與 `SteerConfig.sweetYieldTime`。
+  //
+  // 【為什麼 defend 不讓位】`basis` 永遠對**攻擊目標**建立
+  // （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的（`defendAim`
+  // 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套讓位會變成
+  // 「我正在閃 A，但要不要讓位由我能不能射中 B 決定」—— 無意義的耦合。
+  // 排除之後 defend 的行為逐位元不變。要正確地讓位需要對威脅來源另建一組
+  // `EngageBasis`，那要動 `AiController`，列為未解（spec §7.3）。
+  if (intent !== 'rally') {
+    const yieldFactor = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
+    applyPitchBias(sit.sweetPitch * yieldFactor, out.aimWorld)
   }
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
@@ -1360,12 +1544,23 @@ export function steerCommand(
   applyFloor(self, floorPitchAngle(self.state.position.y - seaHeight, cfg), out.aimWorld)
 
   // ── 油門與減速（spec §7.4）────────────────────────────
-  if (mode === 'overshoot') {
-    // 沒有減速板的年代這是做不到的，但本專案刻意加了（spec §2.1）。
-    // 配合後置與高 yo-yo，三者都在增加能量消耗。
-    out.throttle = THROTTLE_FLOOR
-    out.brake = 1
-  } else if (sit.cornerRatio > cfg.brakeCornerRatio) {
+  //
+  // 【2026-08-13：`overshoot` 不再有自己的一支】舊版是
+  // `throttle = THROTTLE_FLOOR` + `brake = 1` —— 後置、高 yo-yo、減速三者
+  // 同時消耗能量。問題出在它的觸發條件**純幾何**：`geometryGate` 只看
+  // `range < overshootRange && closureRate > 0`，一個字都沒問「我還有速度
+  // 嗎」，而它的優先序又是最高的，所以「我沒速度了該壓機頭」的
+  // `speedRecover` 在同一個態勢下永遠輪不到。
+  //
+  // 實測（`stall-loop-trace.probe.ts`）：525 km/h 掉到 149 km/h 同時爬升
+  // 700 m，安全層在壓機頭而瞄準點層還在拉 —— 兩層互相打架。進入
+  // `overshoot` 的取樣有 73~88% 本來就已經低於角落速度，也就是它專挑
+  // 最不該減速的時候減速。
+  //
+  // 現在只留**幾何**手段（瞄準點的後置與高 yo-yo，見上面的分支），能量
+  // 交給下面這條既有的角落速度判準：真的超速才減速，低於角落速度時一點
+  // 都不減。「衝過頭」在低速時本來就不成立 —— 低速的飛機追不上任何人。
+  if (sit.cornerRatio > cfg.brakeCornerRatio) {
     // 【判準是角落速度不是 VNE】limits.vne 在整個 src/ 裡沒有任何程式碼
     // 消費它——超速在本模型沒有後果，拿它當判準是死碼。速度遠高於角落
     // 速度則是模型真的模擬的代價：轉彎半徑 ∝ V²，而且高速舵面變重。
@@ -1466,6 +1661,10 @@ export function defendAim(
   out: Vector3,
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
+  // 【視線鉛直時沒有抬角】下面兩條退化路徑（視線鉛直、以及視線鉛直且升力
+  // 平行視線）**一個字都沒用到 `cfg.defendTilt`**。2026-08-15 量到那 20°
+  // 抬角其實是閃躲動作本身的一部分（見 spec §7），所以「鉛直威脅下閃躲會
+  // 變弱」是一個已知的缺口 —— 目前沒有實測支持要補它。
   const axis = D.v[0]!
   const lift = D.v[1]!.copy(UP).applyQuaternion(self.state.orientation)
 
