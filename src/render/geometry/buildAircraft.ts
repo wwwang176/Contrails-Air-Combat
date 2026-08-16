@@ -1,6 +1,7 @@
 import type { AircraftModel } from './assembly'
 import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
 import { buildP51D, P51D_BODY_COLOR } from './p51d'
+import { buildHe111, HE111_BODY_COLOR } from './he111'
 import type { AircraftSpec } from '../../specs/types'
 
 export type { AircraftModel, HullMetrics } from './assembly'
@@ -23,6 +24,7 @@ export type { AircraftModel, HullMetrics } from './assembly'
 const BUILDERS: Record<string, () => AircraftModel> = {
   p51d: buildP51D,
   bf109g6: buildBf109E,
+  he111: buildHe111,
 }
 
 export function buildAircraft(spec: AircraftSpec): AircraftModel {
@@ -40,6 +42,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
 const BODY_COLORS: Record<string, number> = {
   p51d: P51D_BODY_COLOR,
   bf109g6: BF109_BODY_COLOR,
+  he111: HE111_BODY_COLOR,
 }
 
 /** 零件用它上色 —— 打爆的飛機掉下來的碎片必須跟機身同色。 */

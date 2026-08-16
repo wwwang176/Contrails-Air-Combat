@@ -12,6 +12,7 @@ import { collectTriangles, extentSlices, radialSlices, type Axis } from './slice
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
+import { HE111 } from '../specs/he111'
 import type { AircraftSpec } from '../specs/types'
 
 /**
@@ -25,7 +26,7 @@ import type { AircraftSpec } from '../specs/types'
  * 進入方式：`npm run dev` 之後開 /hangar.html。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109G6]
+const SPECS: AircraftSpec[] = [P51D, BF109G6, HE111]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 // preserveDrawingBuffer：外部工具要把畫面複製到 2D canvas 抽輪廓，
@@ -133,11 +134,6 @@ const REFS: Record<string, RefSpec> = {
   bf109g6: { url: '/ref/bf109e4.glb', yaw: 180, pitch: 0 },
   /**
    * He 111 H-6。**2026-08-16 量的，量法與數字見下。**
-   *
-   * 【這一筆現在還接不上】`syncRef` 是拿機種 id 查這張表的，而 He 111 還沒有
-   * `AircraftSpec` —— 所以它要等 `src/specs/he111.ts` 落地才會被讀到。
-   * 先寫在這裡是因為**這兩個數字是量出來的,不是設定出來的**，而量測的成本
-   * 遠高於它們佔的兩行；丟掉就要重量一次。
    *
    * ```
    *   yaw −90    長度在 X、機首朝 −X、翼展在 Z（另外兩台是長度在 Z）
@@ -255,7 +251,10 @@ function rebuild(): void {
 const specRow = $<HTMLDivElement>('specRow')
 const specButtons = SPECS.map((s, i) => {
   const b = document.createElement('button')
-  b.textContent = s.id === 'p51d' ? 'P-51D' : 'Bf 109'
+  // 【為什麼查表而不是三元式】原本是 `id === 'p51d' ? 'P-51D' : 'Bf 109'`
+  // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
+  // 任何東西提醒你。查表少一筆是一個 undefined，看得見
+  b.textContent = ({ p51d: 'P-51D', bf109g6: 'Bf 109', he111: 'He 111' } as Record<string, string>)[s.id] ?? s.id
   b.dataset['id'] = s.id
   b.onclick = () => { specIndex = i; rebuild() }
   specRow.appendChild(b)

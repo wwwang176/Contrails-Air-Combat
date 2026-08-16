@@ -85,17 +85,28 @@ export function crossSection(tris: Float32Array, axis: Axis, plane: number): Seg
 }
 
 /**
- * 由 (0, axisV) 往角度 th 射出，回傳與所有線段交點中**最外側**且不超過
+ * 由 (axisU, axisV) 往角度 th 射出，回傳與所有線段交點中**最外側**且不超過
  * maxRadius 的距離；沒有交點回傳 0。
+ *
+ * 【axisU 是 2026-08-16 為 He 111 加的】原本原點固定在 u = 0（機身軸心）。
+ * 那對單發戰機夠用，但**掛在機翼上的發動機艙**在 u = ±3 m 外 —— 從機身
+ * 軸心射出去的射線會先穿過機身、再穿過機翼，取到的「最外側」是機翼下表面
+ * 或翼尖，不是發動機艙。
+ *
+ * 這與座艙罩那一招是同一個手法（`aircraft-from-reference` 第 2 步）：
+ * **換一個射線原點，就能把被擋住的東西單獨量出來。** 那次移的是 v，
+ * 這次移的是 u。
  */
-function castRay(segs: readonly Seg[], axisV: number, th: number, maxRadius: number): number {
+function castRay(
+  segs: readonly Seg[], axisU: number, axisV: number, th: number, maxRadius: number,
+): number {
   const du = Math.cos(th), dv = Math.sin(th)
   let best = 0
   for (const s of segs) {
     const eu = s.u1 - s.u0, ev = s.v1 - s.v0
     const den = du * ev - dv * eu
     if (Math.abs(den) < 1e-12) continue
-    const pu = s.u0, pv = s.v0 - axisV
+    const pu = s.u0 - axisU, pv = s.v0 - axisV
     const t = (pu * ev - pv * eu) / den          // 沿射線的距離
     const w = (pu * dv - pv * du) / den          // 線段參數
     if (t <= 0 || t > maxRadius || w < 0 || w > 1) continue
@@ -110,13 +121,26 @@ export interface RadialSlices {
   theta: number[]
   /** r[平面][角度]，量不到就是 0 */
   r: number[][]
+  /** 射線原點，量到的 r 要配這一組才還原得回座標 */
+  axisU: number
+  axisV: number
 }
 
-/** 沿 axis 切 N 刀，每刀量 r(θ)。用於機身剖面。 */
+/**
+ * 沿 axis 切 N 刀，每刀量 r(θ)。用於機身剖面。
+ *
+ * `axisU` 省略時是 0（機身軸心），與 2026-08-16 之前的行為逐字相同。
+ */
 export function radialSlices(
   tris: Float32Array, axis: Axis,
-  o: { from: number; to: number; count: number; angles: number; axisV: number; maxRadius: number },
+  o: {
+    from: number; to: number; count: number; angles: number
+    axisV: number; maxRadius: number
+    /** 射線原點的橫向偏移。發動機艙那類離軸的零件要用，見 castRay */
+    axisU?: number
+  },
 ): RadialSlices {
+  const axisU = o.axisU ?? 0
   const theta = Array.from({ length: o.angles }, (_, j) => (j / o.angles) * Math.PI * 2)
   const planes: number[] = []
   const r: number[][] = []
@@ -124,9 +148,9 @@ export function radialSlices(
     const p = o.from + ((o.to - o.from) * k) / (o.count - 1)
     const segs = crossSection(tris, axis, p)
     planes.push(p)
-    r.push(theta.map((th) => castRay(segs, o.axisV, th, o.maxRadius)))
+    r.push(theta.map((th) => castRay(segs, axisU, o.axisV, th, o.maxRadius)))
   }
-  return { axis, planes, theta, r }
+  return { axis, planes, theta, r, axisU, axisV: o.axisV }
 }
 
 export interface ExtentSlices {

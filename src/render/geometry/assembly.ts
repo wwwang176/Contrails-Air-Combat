@@ -116,10 +116,25 @@ export interface PropSpec {
   spinnerLength: number
   /** 整流罩軸心的垂直位置，需與機首環中心一致 */
   spinnerY: number
-  /** 槳葉數：P-51D 四葉、Bf 109 三葉 */
+  /** 槳葉數：P-51D 四葉、Bf 109／He 111 三葉 */
   blades: number
   propZ: number
   propRadius: number
+  /**
+   * 軸心的橫向位置。省略即 0（機首）。
+   *
+   * 【為什麼需要】He 111 的兩具發動機掛在機翼上，x = ±2.6。單發機的整流罩
+   * 一律在機身軸線上，所以在它之前這個欄位不存在。
+   */
+  x?: number
+  /**
+   * 整流罩尖端的 Z。省略時由 `propeller` 的第二個參數（機身首站）給。
+   *
+   * 【為什麼需要】單發機的整流罩接在機首上，所以「機身首站」就是答案。
+   * 掛在機翼上的發動機艙與機首毫無關係 —— 這台的艙前緣在 z = −2.75，
+   * 而機首在 −3.25。
+   */
+  noseZ?: number
 }
 
 export interface HullSpec {
@@ -241,7 +256,15 @@ export function createHull(spec: HullSpec) {
     return mesh
   }
 
-  let setPropSpin: AircraftModel['setPropSpin'] = () => {}
+  /**
+   * 全部的螺旋槳組。**是一個陣列而不是一個**，因為 He 111 是雙發。
+   *
+   * 【原本是一個被覆寫的閉包】`propeller()` 每次呼叫都把 `setPropSpin`
+   * 整個換掉 —— 對單發機沒差，但雙發時第二次呼叫會把第一具的驅動丟掉，
+   * 症狀是**左邊那具螺旋槳永遠不轉**（而且它靜止時看起來只是「還沒起動」，
+   * 不像壞掉）。
+   */
+  const props: { hub: Group; disc: Mesh; blades: Mesh[] }[] = []
 
   const api = {
     body, accent, glass, add,
@@ -307,19 +330,26 @@ export function createHull(spec: HullSpec) {
       }
     },
 
-    /** 整流罩 + 槳葉 + 模糊圓盤。noseZ 是機身首站的 Z。 */
+    /**
+     * 整流罩 + 槳葉 + 模糊圓盤。`noseZ` 是機身首站的 Z，`p.noseZ` 可以覆寫它
+     * （掛在機翼上的發動機艙用），`p.x` 給橫向位置。
+     *
+     * **可以呼叫多次** —— 每一具各自登記，`setPropSpin` 一起驅動。
+     */
     propeller(p: PropSpec, noseZ: number): void {
+      const px = p.x ?? 0
+      const tip = p.noseZ ?? noseZ
       // 圓錐預設沿 +Y、頂點在上，繞 X 轉 −90° 讓頂點指向 −Z（機首）。
       const spinner = new Mesh(new ConeGeometry(p.spinnerRadius, p.spinnerLength, 8), accent)
       spinner.rotation.x = -90 * DEG
-      spinner.position.set(0, p.spinnerY, noseZ - p.spinnerLength / 2)
+      spinner.position.set(px, p.spinnerY, tip - p.spinnerLength / 2)
       add(spinner)
 
       // 槳葉：從整流罩外緣長到槳尖的**單片**葉片。
       // 【原本是貫穿直徑的長條】三根長條在畫面上是六片槳葉；真機 P-51D
       // 四葉、Bf 109 三葉，葉數是辨識機種的線索之一。
       const propHub = new Group()
-      propHub.position.set(0, p.spinnerY, p.propZ)
+      propHub.position.set(px, p.spinnerY, p.propZ)
       const bladeRoot = p.spinnerRadius * 0.8
       const bladeLength = p.propRadius - bladeRoot
       const blades: Mesh[] = []
@@ -347,11 +377,7 @@ export function createHull(spec: HullSpec) {
       propHub.add(disc)
       hull.add(propHub)
 
-      setPropSpin = (rotation, blurred) => {
-        propHub.rotation.z = rotation
-        disc.visible = blurred
-        for (const b of blades) b.visible = !blurred
-      }
+      props.push({ hub: propHub, disc, blades })
     },
 
     /** 收尾：量出 HullMetrics 並組成 AircraftModel。 */
@@ -391,7 +417,13 @@ export function createHull(spec: HullSpec) {
           noseY: (noseLo + noseHi) / 2,
           tipY: n ? sum / n : 0,
         },
-        setPropSpin: (r, b) => setPropSpin(r, b),
+        setPropSpin: (r, b) => {
+          for (const p of props) {
+            p.hub.rotation.z = r
+            p.disc.visible = b
+            for (const blade of p.blades) blade.visible = !b
+          }
+        },
         dispose() {
           for (const d of disposables) d.dispose()
         },
