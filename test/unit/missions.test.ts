@@ -5,6 +5,7 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
+import { ENTRY_PLANS } from '../../src/battle/entry'
 
 describe('任務卡（M10 spec §10）', () => {
   it('兩個陣營各五張', () => {
@@ -173,6 +174,27 @@ describe('missionConfigFrom', () => {
     const cfg = missionConfigFrom(evacAllies, 'allies')
     if (cfg.rules.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(cfg.rules.point.y).toBe(DEFAULT_BATTLE.altitude)
+  })
+
+  /**
+   * 【擺法是每張卡自己的欄位】撤離用追擊（敵機在正後方 800 m、高 1,000 m），
+   * 其餘用對頭。這一條驗的是**卡片指的那份表真的被套上去**，不是它好不好玩
+   * —— 後者由試飛裁定（專案負責人 2026-08-16）。
+   */
+  it('撤離用追擊，其餘用對頭', () => {
+    for (const [faction, cards] of Object.entries(MISSIONS)) {
+      for (const m of cards) {
+        expect(m.entry, `${m.title}`).toBe(m.type === '撤離' ? 'pursuit' : 'headOn')
+        const cfg = missionConfigFrom(m, faction as 'allies' | 'axis')
+        expect(cfg.entry, m.title).toBe(ENTRY_PLANS[m.entry])
+      }
+    }
+  })
+
+  it('每張卡指的擺法都真的在表上', () => {
+    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
+      expect(ENTRY_PLANS[m.entry], m.title).toBeDefined()
+    }
   })
 
   it('殲滅卡的 rules 是 annihilate', () => {

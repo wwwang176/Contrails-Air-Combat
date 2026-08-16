@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, resetBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ScriptedController } from '../../src/control/ScriptedController'
+import { ENTRY_PLANS, HEAD_ON, PURSUIT, type EntryPlan } from '../../src/battle/entry'
 
 const DT = 1 / 240
 
@@ -117,5 +118,132 @@ describe('撤離規則接得上 Battle', () => {
     resetBattle(b)
     expect(b.mission.secondsLeft).toBe(240)
     expect(b.mission.hasTarget).toBe(true)
+  })
+})
+
+/**
+ * **開局擺法：只驗擺位對不對。**
+ *
+ * 【範圍由專案負責人 2026-08-16 定】「任務的測試應該只要寫是否擺位正常就好，
+ * 玩起來怎樣還是以玩家自己測得為主。」所以這一段**不量難度、不量存活率、
+ * 不量到達時間** —— 那些是試飛的事。這裡只回答一個問題：**`entry.ts` 那張
+ * 表裡寫的東西，有沒有原封不動地變成飛機的出生狀態。**
+ *
+ * 反過來說，這一段守得住的是「改了表就會照著變、沒改就一個字不動」——
+ * 而那正是把擺法變成資料之後唯一該由機器守的東西。
+ */
+describe('開局擺法（entry.ts 的表）', () => {
+  /**
+   * 一隊的**分隊長機**，用來與 `SideEntry` 逐欄對照。
+   *
+   * 【為什麼讀長機而不是全隊的中位數】`entryRange` 與 `lateralOffset` 定義
+   * 在**分隊原點**上，不是重心 —— `BattleConfig.entryRange` 的註解寫得很
+   * 清楚：站位偏置的 `along` 全是負的（僚機在後方），平均 −90 m，而「後方」
+   * 對兩隊是反向的，所以重心比分隊原點多拉開 180 m。橫向同理，站位的
+   * 累積橫向量讓中位數多偏 250 m。
+   *
+   * 長機在 `STATION_REFERENCE[0] < 0` 的位置 —— 也就是分隊原點本身。
+   * 讀它，量到的才是這張表寫的那個數字。
+   */
+  function read(cs: readonly { aircraft: { state: { position: Vector3, velocity: Vector3 } } }[]) {
+    const a = cs[0]!.aircraft.state
+    return {
+      z: a.position.z, x: a.position.x, y: a.position.y,
+      vz: a.velocity.z, speed: a.velocity.length(),
+    }
+  }
+
+  /** 架數相同時兩隊的分隊數、高度鋸齒、站位都逐項對稱，差值才乾淨 */
+  function even(entry: EntryPlan) {
+    return createBattle(new ScriptedController(), {
+      ...DEFAULT_BATTLE, blueCount: 4, redCount: 4, entry,
+    })
+  }
+
+  it('DEFAULT_BATTLE 用的是對頭 —— 全部既有護欄都建立在它上面', () => {
+    expect(DEFAULT_BATTLE.entry).toBe(HEAD_ON)
+    expect(DEFAULT_BATTLE.entry.id).toBe('headOn')
+  })
+
+  it('表上的每一份都有 id，而且與鍵一致', () => {
+    for (const [key, plan] of Object.entries(ENTRY_PLANS)) {
+      expect(plan.id, key).toBe(key)
+    }
+  })
+
+  describe('對頭', () => {
+    it('沿 Z 的間距就是 entryRange，兩隊對稱於原點', () => {
+      const r = read(even(HEAD_ON).blue)
+      const b = read(even(HEAD_ON).red)
+      expect(r.z - b.z).toBeCloseTo(DEFAULT_BATTLE.entryRange, 6)
+      expect(r.z + b.z).toBeCloseTo(0, 6)
+    })
+
+    it('橫向錯開就是 lateralOffset，兩隊對稱於原點', () => {
+      const w = even(HEAD_ON)
+      const bl = read(w.blue)
+      const rd = read(w.red)
+      expect(rd.x - bl.x).toBeCloseTo(DEFAULT_BATTLE.lateralOffset, 6)
+      expect(rd.x + bl.x).toBeCloseTo(0, 6)
+    })
+
+    it('兩隊對飛：藍朝 −Z、紅朝 +Z', () => {
+      const w = even(HEAD_ON)
+      expect(read(w.blue).vz).toBeLessThan(0)
+      expect(read(w.red).vz).toBeGreaterThan(0)
+    })
+
+    it('同高、同速', () => {
+      const w = even(HEAD_ON)
+      expect(read(w.red).y - read(w.blue).y).toBeCloseTo(0, 6)
+      expect(read(w.red).speed).toBeCloseTo(DEFAULT_BATTLE.tas, 3)
+      expect(read(w.blue).speed).toBeCloseTo(DEFAULT_BATTLE.tas, 3)
+    })
+  })
+
+  describe('追擊', () => {
+    it('藍隊的出生點與對頭時完全相同 —— 撤離的時限是照那個位置量的', () => {
+      expect(read(even(PURSUIT).blue).z).toBeCloseTo(read(even(HEAD_ON).blue).z, 6)
+    })
+
+    it('紅隊在藍隊後方，間距就是表上的 gap', () => {
+      const w = even(PURSUIT)
+      expect(read(w.red).z - read(w.blue).z).toBeCloseTo(PURSUIT.red.gap, 6)
+    })
+
+    it('紅隊比藍隊高，高度差就是表上的 climb', () => {
+      const w = even(PURSUIT)
+      const bl = w.blue.map((c) => c.aircraft.state.position.y)
+      const rd = w.red.map((c) => c.aircraft.state.position.y)
+      for (let i = 0; i < bl.length; i++) {
+        expect(rd[i]! - bl[i]!, `第 ${i} 架`).toBeCloseTo(PURSUIT.red.climb, 6)
+      }
+    })
+
+    it('兩隊同向 —— 不同向的話那不是追擊，是又一次對頭', () => {
+      const w = even(PURSUIT)
+      for (const c of [...w.blue, ...w.red]) {
+        expect(c.aircraft.state.velocity.z, `座位 #${c.index}`).toBeLessThan(0)
+      }
+    })
+
+    /**
+     * 【橫向要歸零】`lateralOffset` 是為了解**對頭**的匯聚問題。追擊沒有
+     * 對頭，而 1,500 m 的橫向錯開會把「後方 800 m」變成「側後方 62°」——
+     * 那不是被咬，是並排飛。
+     */
+    it('橫向不錯開 —— 追兵在正後方而不是側後方', () => {
+      const w = even(PURSUIT)
+      expect(read(w.red).x - read(w.blue).x).toBeCloseTo(0, 6)
+    })
+
+    it('4v16 的實戰編制下，最低的紅仍然高於最高的藍', () => {
+      const w = createBattle(new ScriptedController(), {
+        ...DEFAULT_BATTLE, blueCount: 4, redCount: 16, entry: PURSUIT,
+      })
+      const bl = w.blue.map((c) => c.aircraft.state.position.y)
+      const rd = w.red.map((c) => c.aircraft.state.position.y)
+      expect(Math.min(...rd)).toBeGreaterThan(Math.max(...bl))
+    })
   })
 })

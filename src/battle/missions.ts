@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { specsFor, type FactionChoice } from './skirmish'
 import { VETERAN } from '../ai/profile'
+import { ENTRY_PLANS, type EntryPlanId } from './entry'
 import type { MissionRules } from './mission'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
@@ -47,6 +48,15 @@ export interface MissionCard {
   /** 時限，秒。無時限為 `Infinity` */
   seconds: number
   /**
+   * 開局怎麼擺。**`battle/entry.ts` 那張表的鍵。**
+   *
+   * 【為什麼是每張卡自己的欄位】專案負責人 2026-08-16：「任務的擺位不一定
+   * 只有對頭 OR 追我，應該要把擺位、面向、初始狀態都寫成陣列，讓每個任務
+   * 有不同的擺法。」寫成 `type === '撤離' ? 追擊 : 對頭` 的話，第三種擺法
+   * 一出現那條式子就要改，而且它會散落在別處。
+   */
+  entry: EntryPlanId
+  /**
    * 這一張卡做了沒有。false 的在選單上維持 disabled。
    *
    * 【為什麼是資料而不是由 `type` 推導】推導要寫成
@@ -58,7 +68,8 @@ export interface MissionCard {
 
 /** 沒有撤離點、沒有時限、還沒做的卡共用這一組 */
 const LOCKED = {
-  objective: '', evacDistance: 0, evacRadius: 0, seconds: Infinity, playable: false,
+  objective: '', evacDistance: 0, evacRadius: 0, seconds: Infinity,
+  entry: 'headOn', playable: false,
 } as const
 
 /**
@@ -68,7 +79,8 @@ const LOCKED = {
  */
 const KILL = {
   objective: '擊落全部敵機',
-  evacDistance: 0, evacRadius: 0, seconds: Infinity, playable: true,
+  evacDistance: 0, evacRadius: 0, seconds: Infinity,
+  entry: 'headOn', playable: true,
 } as const
 
 /**
@@ -91,7 +103,10 @@ const KILL = {
  */
 const EVAC = {
   objective: '飛抵撤離點',
-  evacDistance: 20000, evacRadius: 1000, playable: true,
+  evacDistance: 20000, evacRadius: 1000,
+  // 【追兵在正後方 800 m、高 1,000 m】專案負責人 2026-08-16 指定，理由與
+  // 三個數字的推導見 `entry.ts` 的 `PURSUIT`
+  entry: 'pursuit', playable: true,
 } as const
 
 /**
@@ -240,5 +255,6 @@ export function missionConfigFrom(card: MissionCard, faction: FactionChoice): Ba
     redSpec: theirs[0]!,
     aiProfile: VETERAN,
     rules: missionRules(card, DEFAULT_BATTLE.altitude),
+    entry: ENTRY_PLANS[card.entry],
   }
 }
