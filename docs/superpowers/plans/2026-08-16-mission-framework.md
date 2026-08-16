@@ -12,7 +12,17 @@
 
 ## Global Constraints
 
-- **遭遇戰的行為必須逐字不變。** 全套既有護欄的數字不得移動。基準是 `b4ddff8`：2506 綠 / 3 紅（`ai-command-channel` ×2、`ai-withdraw-anchor` ×1，均為 `docs/backlog.md` §1 待裁定），外加 `perf-gate` 在平行負載下的偽紅。
+- **遭遇戰的既有 `outcome` 語意與判定位置不變。** 全套既有護欄的數字不得移動。
+  【Codex 審查 2026-08-16 的措辭修正】原本寫「逐字不變」是不準確的：新版多了
+  狀態寫入、多了一次 `playerPos` 的 copy，而且紅隊全滅時也會多掃一次藍隊
+  （`aliveCount(b.blue)` 從短路變成必算）。**行為**不變，**指令**不是逐字。
+- **回歸基準**（本分支 `7c20aae` 實測）：
+  ```
+  Test Files   2 failed | 106 passed (108)
+  Tests        3 failed | 2507 passed | 1 skipped (2511)
+  ```
+  三條紅是 `ai-command-channel` ×2、`ai-withdraw-anchor` ×1，均為 `docs/backlog.md`
+  §1 待裁定。**綠數只能增加，紅數必須仍是這三條。**
 - **護欄重新定值是專案負責人的決定。** 任何既有門檻要動，停下來問。
 - **熱路徑不配置。** `stepMission` 每個物理步跑 240 次：不組字串、不 `new`、就地寫回 `out`。
 - **起始值不是定值。** Task 9 掃描並回填 spec §8；在那之前每一個常數都要標 `【起始值，待掃描】`。
@@ -185,46 +195,66 @@ describe('stepMission：撤離', () => {
 })
 
 describe('stepMission：定案之後不再改任何欄位', () => {
-  it('已經 victory 之後再呼叫，欄位全部凍結', () => {
+  /**
+   * 【為什麼要逐欄比而不是只比 outcome/metric】少比的那幾欄正是最容易被
+   * 「順手清一下」的（Codex 審查 2026-08-16）。`hasTarget` 若在定案後被清掉，
+   * 圓環會在勝利畫面上憑空消失。
+   */
+  it('已經 victory 之後再呼叫，六個欄位全部凍結', () => {
     const r = evac()
     const s = createMissionState(r)
     stepMission(r, inputs({ playerPos: new Vector3(0, 4000, -19500) }), DT, s)
-    const frozen = { ...s, target: s.target.clone() }
-    stepMission(r, inputs({ aliveBlue: 0 }), DT, s)
+    const frozen = {
+      outcome: s.outcome, metric: s.metric, secondsLeft: s.secondsLeft,
+      hasTarget: s.hasTarget, targetRadius: s.targetRadius, target: s.target.clone(),
+    }
+    stepMission(r, inputs({ aliveBlue: 0, playerPos: new Vector3(0, 0, 0) }), DT, s)
     expect(s.outcome).toBe(frozen.outcome)
     expect(s.metric).toBe(frozen.metric)
     expect(s.secondsLeft).toBe(frozen.secondsLeft)
+    expect(s.hasTarget).toBe(frozen.hasTarget)
+    expect(s.targetRadius).toBe(frozen.targetRadius)
+    expect(s.target.equals(frozen.target)).toBe(true)
   })
 })
 
 /**
  * ★ **選項丙的核心保證。這一條紅了就代表 HUD 會騙人。**
  *
- * 判定與顯示在同一次呼叫寫出，所以「畫面上的數字」與「勝負」必須是同一件事的
- * 兩個面。以性質斷言而不是單點斷言 —— 單點只證明那一個點對。
+ * 【Codex 審查 2026-08-16：原版不是獨立的 oracle】原版同時讀同一次
+ * `stepMission` 算出的 `metric` 與 `outcome`，所以「兩者用同一條錯誤公式」
+ * 仍然會全綠 —— 例如距離被錯誤地縮放，再用那個錯的距離判勝，等價式照樣成立。
+ *
+ * 改成：**期望值由測試自己算**（`playerPos.distanceTo(point)`），再分別斷言
+ * `metric` 與 `outcome`。這樣「顯示對」與「判定對」兩件事各自有獨立的證據，
+ * 而「兩者一致」是它們的推論。
  */
-describe('同源：metric 與 outcome 必須是同一件事', () => {
-  it('撤離：metric < radius ⟺ victory', () => {
+describe('同源：metric 與 outcome 各自對，所以一致', () => {
+  it('撤離：metric 是真距離，outcome 由真距離決定', () => {
     const r = evac()
+    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     for (let z = -21000; z <= -18000; z += 50) {
+      const pos = new Vector3(0, 4000, z)
+      const expected = pos.distanceTo(r.point)          // ← 獨立算出來的期望值
       const s = createMissionState(r)
-      stepMission(r, inputs({ playerPos: new Vector3(0, 4000, z) }), DT, s)
-      expect(s.metric < r.radius, `z=${z} metric=${s.metric}`)
-        .toBe(s.outcome === 'victory')
+      stepMission(r, inputs({ playerPos: pos }), DT, s)
+      expect(s.metric, `z=${z}`).toBeCloseTo(expected, 6)
+      expect(s.outcome, `z=${z}`).toBe(expected < r.radius ? 'victory' : 'fighting')
     }
   })
 
-  it('殲滅：metric === 0 ⟺ victory', () => {
+  it('殲滅：metric 是真的剩餘敵機數，outcome 由它決定', () => {
     for (let red = 0; red <= 20; red++) {
       const s = createMissionState(ANNIHILATE)
       stepMission(ANNIHILATE, inputs({ aliveRed: red }), DT, s)
-      expect(s.metric === 0, `red=${red}`).toBe(s.outcome === 'victory')
+      expect(s.metric, `red=${red}`).toBe(red)
+      expect(s.outcome, `red=${red}`).toBe(red === 0 ? 'victory' : 'fighting')
     }
   })
 })
 
 describe('resetMissionState', () => {
-  it('打完一場之後重設，狀態與新建的一樣', () => {
+  it('打完一場之後重設，六個欄位都與新建的一樣', () => {
     const r = evac()
     const s = createMissionState(r)
     stepMission(r, inputs({ playerPos: new Vector3(0, 4000, -19500) }), DT, s)
@@ -233,7 +263,38 @@ describe('resetMissionState', () => {
     expect(s.outcome).toBe(fresh.outcome)
     expect(s.secondsLeft).toBe(fresh.secondsLeft)
     expect(s.metric).toBe(fresh.metric)
+    expect(s.hasTarget).toBe(fresh.hasTarget)
+    expect(s.targetRadius).toBe(fresh.targetRadius)
     expect(s.target.equals(fresh.target)).toBe(true)
+  })
+
+  /**
+   * 【為什麼要跨 rules 重設】`resetMissionState` 的 annihilate 分支若忘了把
+   * `hasTarget` 清成 false，撤離打完換遭遇戰時圓環會留在畫面上、小地圖上
+   * 也會留一個指向不存在座標的圈（Codex 審查 2026-08-16）。
+   */
+  it('用 annihilate 重設一個撤離過的狀態，目標要被清乾淨', () => {
+    const s = createMissionState(evac())
+    expect(s.hasTarget).toBe(true)
+    resetMissionState(ANNIHILATE, s)
+    expect(s.hasTarget).toBe(false)
+    expect(s.targetRadius).toBe(0)
+    expect(s.secondsLeft).toBe(Infinity)
+    expect(s.target.equals(new Vector3(0, 0, 0))).toBe(true)
+  })
+
+  /**
+   * 【為什麼要釘住物件身分】`Battle.mission` 是 readonly 參考，而 `main.ts`
+   * 每幀讀 `mission.target`。換掉那個 `Vector3` 會讓 HUD 與圓環指向孤兒物件
+   * —— 與 `Aircraft.reset` 改成就地寫回是同一條教訓。
+   */
+  it('重設不換掉 target 這個物件', () => {
+    const r = evac()
+    const s = createMissionState(r)
+    const before = s.target
+    resetMissionState(ANNIHILATE, s)
+    resetMissionState(r, s)
+    expect(s.target).toBe(before)
   })
 })
 ```
@@ -403,7 +464,8 @@ export function stepMission(
 - [ ] **Step 4：跑測試確認全綠**
 
 Run：`npx vitest run test/unit/mission.test.ts`
-Expected：PASS（19 條）
+Expected：PASS（**18 條** —— 殲滅 4、撤離 8、凍結 1、同源 2、重設 3。
+若跑出來少於 18，是漏貼了某個 `it`，不是「測試比較少」）
 
 - [ ] **Step 5：把 `Outcome` 從 `setup.ts` 改成轉出**
 
@@ -517,7 +579,15 @@ Expected：FAIL，`rules` 與 `mission` 都不存在
 
 - [ ] **Step 3：寫實作**
 
-`src/battle/setup.ts` 的四處改動：
+`src/battle/setup.ts` 的四處改動。**先補 import**（Codex 審查 2026-08-16：
+原版只寫了 `Outcome`，漏掉其餘六個）：
+
+```ts
+import {
+  createMissionState, resetMissionState, stepMission,
+  type MissionInputs, type MissionRules, type MissionState, type Outcome,
+} from './mission'
+```
 
 （a）`BattleConfig` 尾端加欄位：
 
@@ -612,7 +682,10 @@ git commit -m "feat: 遭遇戰改走任務判定 —— 那條路徑因此每一
 - Delete: `src/ui/missions.ts`
 - Create: `src/battle/missions.ts`
 - Modify: `src/ui/menu.ts:1`（import 路徑）
-- Test: `test/unit/missions.test.ts`（新）
+- **Modify（不是 Create）**: `test/unit/missions.test.ts` —— **這個檔案已經存在**，
+  有 5 條測試（兩陣營各五張、難度 1~5、標題不重複、五種類型各一、summary 非空），
+  而且 `import { MISSIONS } from '../../src/ui/missions'` 會因為搬檔而壞掉
+  （Codex 審查 2026-08-16）。**保留那 5 條**，只改 import 路徑，新的測試接在後面。
 
 **Interfaces:**
 - Consumes：Task 1 的 `MissionRules`；Task 2 的 `BattleConfig.rules`；`specsFor`（`battle/skirmish.ts:40`）
@@ -620,9 +693,12 @@ git commit -m "feat: 遭遇戰改走任務判定 —— 那條路徑因此每一
 
 - [ ] **Step 1：先寫失敗的測試**
 
-`test/unit/missions.test.ts`：
+`test/unit/missions.test.ts` —— **既有那 5 條原封不動保留**（只把第 2 行的
+`'../../src/ui/missions'` 改成 `'../../src/battle/missions'`），下面這些**接在
+既有的 `describe` 之後**：
 
 ```ts
+// ↑ 既有的 describe('任務卡（M10 spec §10）', …) 5 條留著，import 補上：
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, missionConfigFrom, missionRules } from '../../src/battle/missions'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
@@ -983,7 +1059,9 @@ export type ScreenEvent =
   battle: { fight: 'battle', toMenu: 'menu', toSetup: 'skirmish', toMission: 'mission' },
 ```
 
-`src/ui/menu.ts`：
+`src/ui/menu.ts`：第 1 行的 import 改成
+`import { MISSIONS, type MissionCard } from '../battle/missions'`
+（Codex 審查 2026-08-16：`MenuHooks` 用得到 `MissionCard`，原版沒列）。
 
 `MenuHooks` 加：
 
@@ -1051,9 +1129,27 @@ git commit -m "feat: 任務卡可點，結算多一個回任務列表的出口"
 - Modify: `src/hud/types.ts`（`HudFrame` 8 個欄位、`createHudFrame`）
 - Create: `src/hud/widgets/objective.ts`
 - Modify: `src/hud/widgets/minimap.ts`（撤離點符號）
-- Modify: `src/hud/widgets/hints.ts:44,52`（橫幅讓位，見 Step 3 末）
-- Modify: `src/hud/Hud.ts`（`HudWidget`、`FULL`、`GOD`、`draw` 的 switch）
-- Test: `test/unit/hud-objective.test.ts`（新）、`test/unit/hud-widgets.test.ts`（既有，補條目）
+- Modify: `src/hud/Hud.ts`（`HudWidget`、`FULL`、`GOD`，**switch 換成 `Record`**）
+- Test: `test/unit/hud-objective.test.ts`（新）
+- **Test: `test/unit/hud.test.ts:396-432`（既有的 `hudWidgets` 順序測試在這裡，
+  不是 `hud-widgets.test.ts` —— 那個檔案不存在）**（Codex 審查 2026-08-16）
+
+**★ 版面：目標列放左上角，不放上緣正中。**
+
+上緣正中已經有**三層**，塞不下第四個（Codex 審查 2026-08-16 指出，實測 900 px 高、
+`L.scale = 1`）：
+
+| 元件 | y | 高 | 出處 |
+|---|---|---|---|
+| AI／上帝視角橫幅 | 18 | 13 | `hints.ts:44,52` |
+| 存活數「20 vs 20」 | 36 | 15 | `roster.ts:31` |
+| 航向帶 | 63 | — | `tape.ts:13` |
+
+原本的「把橫幅移到 44」會直接壓在存活數上。**左上角是空的** —— `energy` 在
+`x=30, y=0.32·height`、`health` 與 `minimap` 在左下，上方沒有東西。目標列因此
+放 `x = 30 · scale`（與左欄同一條邊界）、`y = 18 · scale`、`textAlign = 'left'`。
+
+**`hints.ts` 與 `roster.ts` 都不用改。**
 
 **Interfaces:**
 - Consumes：Task 1 的 `MissionState`（只透過 `HudFrame` 的欄位，widget 不 import `battle/`）
@@ -1109,8 +1205,26 @@ describe('hudWidgets', () => {
   it('上帝視角也畫 —— 它不是座艙儀表，是這一場的目標', () => {
     expect(hudWidgets(true)).toContain('objective')
   })
+
+  /**
+   * 【為什麼光是「在清單裡」不夠】清單與繪製是兩件事。`FULL` 更新了卻漏掉
+   * 繪製分派的話，上面兩條仍然全綠而 HUD 完全不畫（Codex 審查 2026-08-16）。
+   * 分派改成 `Record` 之後這一條是防禦而不是主要保證 —— 主要保證是編譯錯誤。
+   */
+  it('清單上的每一個 widget 都真的有繪製函數', () => {
+    for (const godView of [false, true]) {
+      for (const w of hudWidgets(godView)) {
+        expect(WIDGET_DRAW[w], `${w}（godView=${godView}）`).toBeTypeOf('function')
+      }
+    }
+  })
 })
 ```
+
+（`WIDGET_DRAW` 從 `../../src/hud/Hud` import。**這些 `describe` 加在
+`test/unit/hud.test.ts`，不是新檔案** —— 既有的 `hudWidgets` 順序測試在
+`hud.test.ts:396-432`。`formatObjectiveMetric` / `formatCountdown` 那兩個
+`describe` 才放新的 `test/unit/hud-objective.test.ts`。）
 
 - [ ] **Step 2：跑測試確認它失敗**
 
@@ -1191,10 +1305,15 @@ export function formatCountdown(seconds: number): string {
 const URGENT = 30
 
 /**
- * 目標列。畫面上緣正中，一行。
+ * 目標列。**畫面左上角**，一行。
  *
- * 【為什麼在上緣正中而不是角落】它是這一場唯一的「你現在該做什麼」。角落
- * 的資訊玩家在纏鬥時不會看 —— 而纏鬥正是最容易忘記還有時限的時候。
+ * 【為什麼不放上緣正中】那裡已經有三層：AI／上帝視角橫幅（`hints.ts:44,52`，
+ * y=18）、存活數（`roster.ts:31`，y=0.04·height）、航向帶（`tape.ts:13`，
+ * y=0.07·height）。900 px 高時它們分別落在 18–31、36–51、63 —— 塞第四個
+ * 一定壓到某一個（Codex 審查 2026-08-16）。
+ *
+ * 【為什麼左上角】`x = 30·scale` 是這個 HUD 的左欄邊界（`energy.ts:17`、
+ * `health.ts:17`、`minimap.ts:54` 都用它），而左欄的**上方是空的**。
  *
  * 【組字串在這裡是可以的】HUD 走的是**畫面**頻率（~60 Hz）而不是物理步
  * （240 Hz），而且 `dials.ts` 等既有 widget 本來就在組。不配置的紀律守的是
@@ -1210,31 +1329,22 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
     : `${f.objectiveText}　${metric}　${clock}`
 
   const size = 14 * L.scale
-  const pad = 10 * L.scale
-  const y = 14 * L.scale
+  const pad = 8 * L.scale
+  const x = 30 * L.scale
+  const y = 18 * L.scale
   ctx.font = hudFont(size, true)
-  ctx.textAlign = 'center'
+  ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
 
   const w = ctx.measureText(text).width + pad * 2
   ctx.fillStyle = HUD_COLORS.panel
-  ctx.fillRect(L.cx - w / 2, y - pad * 0.4, w, size + pad * 0.8)
+  ctx.fillRect(x - pad, y - pad * 0.5, w, size + pad)
 
   // 【倒數快到時整列轉紅，不只轉那三個字元】纏鬥中的餘光掃不到三個字元的
   // 顏色變化，掃得到一整列。`Infinity < URGENT` 是 false，所以無時限恆是綠的。
   ctx.fillStyle = f.objectiveSeconds < URGENT ? HUD_COLORS.danger : HUD_COLORS.primary
-  ctx.fillText(text, L.cx, y)
+  ctx.fillText(text, x, y)
 }
-```
-
-**★ 版面衝突要一起修**：`hints.ts` 的 `AI_BANNER` / `GOD_BANNER` 也畫在
-`L.cx, 18 * L.scale`（`hints.ts:44,52`），代飛或上帝視角時會與目標列疊在一起。
-把那兩處的 y 改成：
-
-```ts
-  // 【目標列在的時候往下讓】兩者都在上緣正中。讓位的是橫幅而不是目標列 ——
-  // 目標列是這一場的規則，橫幅是操作提示。
-  const bannerY = (f.objectiveActive ? 44 : 18) * L.scale
 ```
 
 `src/hud/widgets/minimap.ts`：在接觸點迴圈之後、`ctx.restore()` 之前加撤離點：
@@ -1264,17 +1374,60 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
 ```
 
 `src/hud/Hud.ts`：`HudWidget` 加 `'objective'`；`FULL` 與 `GOD` 都加（放在最後 ——
-它壓在最上層，是這一場的目標，不該被任何面板蓋住）；`draw` 的 switch 加分支。
+它壓在最上層，是這一場的目標，不該被任何面板蓋住）；補
+`import { drawObjective } from './widgets/objective'`。
+
+**★ `render` 的 switch 換成 `Record`**（Codex 審查 2026-08-16）：原本的 switch
+少一個 `case` 只是**靜靜地不畫** —— `FULL` 更新了卻漏掉分支的話，Task 5 的
+測試仍然全綠而 HUD 完全不顯示。`Record<HudWidget, …>` 少一格是**編譯錯誤**。
+
+```ts
+type WidgetDraw = (
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame, dt: number,
+) => void
+
+/**
+ * widget → 繪製函數。
+ *
+ * 【為什麼是 `Record` 而不是 switch】少一個分支在 switch 裡是靜靜地不畫；
+ * 在 `Record<HudWidget, …>` 裡是編譯錯誤。`hudWidgets` 的清單與這張表是
+ * 同一個聯集的兩個消費者，型別系統因此保證它們對得起來。
+ *
+ * 【為什麼統一吃 dt】只有 `drawGEffect` 用得到（黑視的淡入淡出）。讓其餘
+ * 的忽略它，比開兩張表或在呼叫點分歧簡單。
+ */
+export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
+  gEffect: (ctx, L, f, dt) => drawGEffect(ctx, L, f, dt),
+  godMarkers: (ctx, L, f) => drawGodMarkers(ctx, L, f),
+  damageEdge: (ctx, L, f) => drawDamageEdge(ctx, L, f),
+  contacts: (ctx, L, f) => drawContacts(ctx, L, f),
+  reticle: (ctx, L, f) => drawReticle(ctx, L, f),
+  tape: (ctx, L, f) => drawHeadingTape(ctx, L, f),
+  dials: (ctx, L, f) => drawDials(ctx, L, f),
+  minimap: (ctx, L, f) => drawMinimap(ctx, L, f),
+  health: (ctx, L, f) => drawHealth(ctx, L, f),
+  energy: (ctx, L, f) => drawEnergy(ctx, L, f),
+  roster: (ctx, L, f) => drawRoster(ctx, L, f),
+  hints: (ctx, L, f) => drawHints(ctx, L, f),
+  objective: (ctx, L, f) => drawObjective(ctx, L, f),
+}
+```
+
+`render` 的迴圈變成：
+
+```ts
+    for (const w of hudWidgets(f.godView)) WIDGET_DRAW[w](ctx, L, f, dt)
+```
 
 - [ ] **Step 4：跑測試確認全綠**
 
-Run：`npx vitest run test/unit/hud-objective.test.ts test/unit/hud-widgets.test.ts && npx tsc --noEmit`
-Expected：PASS，0 error（既有的 `hudWidgets` 順序測試要跟著補上 `'objective'`）
+Run：`npx vitest run test/unit/hud-objective.test.ts test/unit/hud.test.ts && npx tsc --noEmit`
+Expected：PASS，0 error（`hud.test.ts:396-432` 既有的順序測試要跟著補上 `'objective'`）
 
 - [ ] **Step 5：Commit**
 
 ```bash
-git add src/hud test/unit/hud-objective.test.ts test/unit/hud-widgets.test.ts
+git add src/hud test/unit/hud-objective.test.ts test/unit/hud.test.ts
 git commit -m "feat: HUD 目標列與小地圖上的撤離點"
 ```
 
@@ -1453,6 +1606,17 @@ git commit -m "feat: 撤離點的 3D 圓環 —— 看到的圈就是判定範�
 **Interfaces:**
 - Consumes：Task 3 的 `missionConfigFrom`、`MissionCard`；Task 5 的 `HudFrame` 欄位；Task 6 的 `createObjectiveRing`
 
+- [ ] **Step 0：補 import**
+
+（Codex 審查 2026-08-16：`main.ts:47-57` 目前沒有這些。）
+
+```ts
+import { missionConfigFrom, type MissionCard } from './battle/missions'
+import { createObjectiveRing } from './render/objectiveRing'
+```
+
+`FactionChoice` 已經由 `./battle/skirmish` 匯出，確認既有的 import 行有帶上它。
+
 - [ ] **Step 1：模式狀態**
 
 在 `let setup: SkirmishSetup = { ...DEFAULT_SKIRMISH }`（`main.ts:86`）附近加：
@@ -1500,9 +1664,24 @@ let missionFaction: FactionChoice = 'allies'
 
 `leaveBattle()` 要把圓環從場景移除（否則回主選單還看得到它浮在背景上）。
 
-- [ ] **Step 3：每幀更新圓環與 HudFrame**
+- [ ] **Step 3：★ 圓環在 3D 渲染之前更新，HudFrame 在 `hud.render` 之前填**
 
-`stepAndDrawBattle` 裡，在 `hud.render(...)` 之前：
+**這是兩個不同的位置。**（Codex 審查 2026-08-16：原版把兩件事都放在
+`hud.render` 之前，而 `ctx.renderer.render` 在 `main.ts:873`、`hud.render` 在
+`main.ts:1022` —— 圓環會**慢整整一幀**，而且新建的那一幀會以原點、半徑 1 畫出來。）
+
+（a）`stepAndDrawBattle` 裡，緊接在 `orderMarkers` 那一段之後、
+**`ctx.renderer.render(ctx.scene, ctx.camera)`（`main.ts:873`）之前**：
+
+```ts
+  // 【一定要排在 renderer.render 之前】billboard 的 lookAt 讀的是相機**這一幀**
+  // 的位置。排在渲染之後的話環會慢一幀，而且新建的第一幀會停在原點、半徑 1。
+  if (battle.mission.hasTarget) {
+    objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
+  }
+```
+
+（b）在 `hud.render(hudFrame, frameSeconds)`（`main.ts:1022`）之前：
 
 ```ts
   // ── 任務目標 ──────────────────────────────────────────
@@ -1515,11 +1694,22 @@ let missionFaction: FactionChoice = 'allies'
   hudFrame.objectiveHasTarget = m.hasTarget
   hudFrame.objectiveWorldX = m.target.x
   hudFrame.objectiveWorldZ = m.target.z
-  if (m.hasTarget) objectiveRing.update(m.target, m.targetRadius, ctx.camera)
 ```
 
-【圓環要在 `ctx.renderer.render` 之前更新】lookAt 讀的是相機這一幀的位置，
-排在渲染之後的話環會慢一幀 —— 高速通過時看得出來。
+- [ ] **Step 3b：重現紀錄要印真正的設定**
+
+`main.ts:428-431` 的那一行印的是 `setup.blueCount / setup.specId / setup.redCount`
+—— 任務模式下那三個是**遭遇戰**的設定，與這一場毫無關係。而那段註解明寫它是
+「重現一場戰鬥的鑰匙」（Codex 審查 2026-08-16）。改成印 `battle.cfg` 的實值：
+
+```ts
+  console.log(
+    `[戰鬥] 種子 ${battle.seed}　${mode === 'mission' ? pendingMission?.id ?? '?' : '遭遇戰'}`
+    + `　藍 ${battle.cfg.blueCount} × ${battle.cfg.blueSpec.id}`
+    + `　紅 ${battle.cfg.redCount} × ${battle.cfg.redSpec.id}`
+    + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`,
+  )
+```
 
 - [ ] **Step 4：結算的兩顆按鈕**
 
@@ -1561,6 +1751,18 @@ let missionFaction: FactionChoice = 'allies'
       pendingMission = null
     }
 ```
+
+- [ ] **Step 5b：釘住圓環的生命週期**
+
+在 `test/unit/hud.test.ts` 之外另開一條註記即可（`main.ts` 進不了單元測試），
+但**要在 Task 10 的 Playwright 裡驗**：
+
+> 暫停選單的「重新開始」走 `resetBattle` 而不是 `enterBattle`（`main.ts:348`），
+> 所以圓環**不重建**。它必須留在場景裡而且下一幀照常更新 —— rules、target、
+> 幾何與場景歸屬都沒有換（Codex 審查 2026-08-16 建議 7）。
+>
+> 「再打一場」走 `enterBattle`（`main.ts:1073-1087`），那時才重建。
+> 所有 `battle → 非 battle` 都會呼叫 `leaveBattle`，圓環在那裡移出場景。
 
 - [ ] **Step 6：型別檢查與手動驗證**
 
@@ -1617,33 +1819,56 @@ class Runner implements Controller {
   }
 }
 
-/** 原地平飛，哪裡都不去 */
-class Loiter implements Controller {
-  update(self: Aircraft, _dt: number, out: Command): void {
+/**
+ * 往**反方向**飛，永遠到不了撤離點。
+ *
+ * 【為什麼不是「維持現在的航向」】Codex 審查 2026-08-16：藍隊出生時機首朝
+ * −Z（`setup.ts:271-285`），而撤離點也在 −Z —— 一個「維持航向」的控制器
+ * 會直飛撤離點然後判 victory，那條「超時落敗」的測試會量到完全相反的東西。
+ */
+class Away implements Controller {
+  update(_self: Aircraft, _dt: number, out: Command): void {
     out.throttle = 0.6
     out.brake = 0
     out.firing = false
-    const v = self.state.velocity
-    const h = Math.hypot(v.x, v.z)
-    if (h < 1e-6) { out.aimWorld.set(0, 0, -1); return }
-    out.aimWorld.set(v.x / h, 0, v.z / h)
+    out.aimWorld.set(0, 0, 1)   // +Z：撤離點的反方向
   }
 }
 
 const CARD = MISSIONS.allies.find((c) => c.type === '撤離')!
+
+/**
+ * 讓兩隊的槍都不痛。
+ *
+ * 【為什麼一定要】Codex 審查 2026-08-16：不隔離戰損的話，「超時落敗」與
+ * 「被打死落敗」在 `outcome === 'defeat'` 上長得一模一樣 —— 時限根本沒接上
+ * 的實作，兩場都因戰損落敗，三條測試仍然全綠。前例：`ai-shot-yield.test.ts:61`。
+ */
+function harmless(b: Battery): Battery {
+  return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
+}
 
 function run(controller: Controller, seconds: number, over: Partial<{ seconds: number }> = {}) {
   const base = missionConfigFrom(CARD, 'allies')
   const rules = base.rules.kind === 'evacuate' && over.seconds !== undefined
     ? { ...base.rules, seconds: over.seconds }
     : base.rules
-  const b = createBattle(controller, { ...base, rules })
+  const b = createBattle(controller, {
+    ...base,
+    rules,
+    blueSpec: { ...base.blueSpec, battery: harmless(base.blueSpec.battery) },
+    redSpec: { ...base.redSpec, battery: harmless(base.redSpec.battery) },
+  })
   const steps = Math.round(seconds * 240)
   for (let i = 0; i < steps; i++) {
     stepBattle(b, DT)
     if (b.outcome !== 'fighting') break
   }
   return b
+}
+
+function aliveBlue(b: ReturnType<typeof run>): number {
+  return b.blue.filter((c) => c.alive).length
 }
 
 describe('撤離任務', () => {
@@ -1653,29 +1878,53 @@ describe('撤離任務', () => {
     const b = run(new Runner(rules.point), CARD.seconds)
     console.log(
       `[撤離] 直飛：${b.outcome}　剩餘 ${b.mission.secondsLeft.toFixed(1)} s`
-      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${b.blue.filter((c) => c.alive).length}`,
+      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}`,
     )
     expect(b.outcome).toBe('victory')
     expect(b.mission.secondsLeft).toBeGreaterThan(0)
   })
 
-  it('原地盤旋 → 時限歸零 → defeat', () => {
-    const b = run(new Loiter(), CARD.seconds + 5)
-    console.log(`[撤離] 盤旋：${b.outcome}　剩餘 ${b.mission.secondsLeft.toFixed(1)} s`)
+  /**
+   * 【四條斷言缺一不可】只斷言 `defeat` 的話，任何原因的落敗都算通過。
+   * 這四條合起來說的是「**它是因為時限到了才輸的**」：
+   * 還有人活著、玩家在圈外、倒數確實歸零、結果是落敗。
+   */
+  it('反方向飛 → 時限歸零 → defeat（而且不是被打死的）', () => {
+    const rules = missionConfigFrom(CARD, 'allies').rules
+    if (rules.kind !== 'evacuate') throw new Error('應為 evacuate')
+    const b = run(new Away(), CARD.seconds + 5)
+    console.log(
+      `[撤離] 反向：${b.outcome}　剩餘 ${b.mission.secondsLeft.toFixed(1)} s`
+      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}`,
+    )
     expect(b.outcome).toBe('defeat')
+    expect(b.mission.secondsLeft).toBeLessThanOrEqual(0)
+    expect(aliveBlue(b), '不得是被全滅輸的').toBeGreaterThan(0)
+    expect(b.mission.metric, '玩家必須還在圈外').toBeGreaterThan(rules.radius)
   })
 
-  /** ★ 消融：拿掉時限，上一條必須不再成立 */
-  it('把時限設成 Infinity 之後，原地盤旋不再因為超時而落敗', () => {
-    const b = run(new Loiter(), CARD.seconds + 5, { seconds: Infinity })
+  /**
+   * ★ **消融：拿掉時限，上一條必須不再成立。**
+   *
+   * 【為什麼斷言 `fighting` 而不是「若 defeat 則全滅」】後者在時限沒接上時
+   * 也成立（Codex 審查 2026-08-16）。槍已經不痛了，所以跑完同樣的時長之後
+   * 唯一正確的結果就是**還在打**。
+   */
+  it('把時限設成 Infinity 之後，同樣的跑法仍然是 fighting', () => {
+    const b = run(new Away(), CARD.seconds + 5, { seconds: Infinity })
     expect(b.mission.secondsLeft).toBe(Infinity)
-    // 還活著就一定不是超時輸的；被打死是另一回事，那時 aliveBlue === 0
-    if (b.outcome === 'defeat') {
-      expect(b.blue.filter((c) => c.alive).length).toBe(0)
-    }
+    expect(b.outcome).toBe('fighting')
+    expect(aliveBlue(b)).toBeGreaterThan(0)
   })
 }, 5 * 60 * 1000)
 ```
+
+**import 要多兩個**：`import type { Battery } from '../../src/weapons/types'`、
+`import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'`。
+
+【`createBattle` 沒有設 `crashPolicy`】`World.crashPolicy` 的預設是「永不撞地」
+（`main.ts:415` 才裝上真的那一條）。所以無頭測試裡沒有人會墜海 —— 實作時**要
+確認這一點**，若預設不是那樣，`Away` 要改成維持高度而不是純水平。
 
 - [ ] **Step 2：跑測試**
 
@@ -1702,18 +1951,38 @@ git commit -m "test: 撤離任務的整合驗收與時限消融"
 - [ ] **Step 1：寫探針**
 
 `test/tools/evacuate.probe.ts`（**不是測試**，跑法 `npx vite-node test/tools/evacuate.probe.ts`）。
+
+**★ 這一輪量得到什麼、量不到什麼，先講清楚。**
+
+Codex 審查 2026-08-16 指出：`AiController`（`AiController.ts:210-289`）**只認識
+敵機、站位與 `FlightOrder`，完全沒有任務目標的輸入**。所以「AI 代飛的撤離到達率」
+量出來的是「戰鬥 AI 恰好飛進圓環的機率」—— 那個數字不能用來定距離與時限。
+
+**這一輪只量得到兩個界**，而這兩個界已經足以定出起始值：
+
+- **下界（時間）**：帶槍但**不迴避**的直飛。它給的是「路徑要飛多久」的下限。
+- **難度讀數（存活）**：同一場直飛時的被擊落率。它給的是「頂著 16 架背後追打
+  能不能活著飛完」。
+
+**量不到的是「一邊打一邊走」** —— 那需要 AI 長出撤離行為，屬於下一輪
+（進 `docs/backlog.md`，與「僚機不會撤離」同一條）。
+
 三張表：
 
-1. **撤離點距離 × 時限** —— 直飛的到達時間、AI 代飛的到達時間、被擊落率。
-   候選距離 `12000 / 16000 / 20000 / 25000 / 30000`，時限由到達時間反推。
-2. **架數** —— `4/12`、`4/16`、`4/20`、`6/16` 各跑一次，記玩家（AI 代飛）
-   的存活率與到達率。**要回答的是「5 星該有多難」。**
-3. **抵達半徑** —— `500 / 1000 / 1500 / 2000`，記「直飛時第一次進入半徑的距離
-   誤差」與「圓環在 20 km 外佔螢幕的比例」。
+1. **撤離點距離 × 到達時間**（`Runner` 直飛，帶槍、雙方都會開火）。
+   候選距離 `12000 / 16000 / 20000 / 25000 / 30000`。
+   每格記：到達秒數、玩家是否活著到、藍隊剩幾架。
+   **時限由「到達秒數 × 餘裕」反推**，餘裕本身也掃（`1.2 / 1.4 / 1.6`）。
+2. **架數** —— `4/8`、`4/12`、`4/16`、`4/20`、`6/16`，同樣是直飛。
+   記玩家的存活率（各跑 5 顆種子）。**要回答的是「5 星該有多難」。**
+3. **抵達半徑** —— `500 / 1000 / 1500 / 2000`。
+   記「直飛時第一次進入半徑的那一步、距離圓心多遠」（驗證判定沒有跳過），
+   以及「這個半徑的圓環在 20 km 外佔螢幕高度的比例」（`2·atan(r/20000)/65°`）。
 
-【為什麼玩家那一側用 AI 代飛而不是腳本】腳本直飛量的是「路徑長度」，而 5 星
-難不難取決於「一邊打一邊走」走不走得掉。`AiController` 是這個專案裡唯一會
-打空戰的東西。
+【為什麼種子要跑 5 顆】`createBattle` 的 `seed` 只配名字、不進物理路徑
+（M9 spec §6.2），所以**同一組設定跑五次是逐位元相同的**。要有變異必須改
+設定本身 —— 用五個不同的**開局空速**（`tas`：180/190/200/210/220）代替種子。
+這件事實作時要先確認，若真的完全決定性，表格就只跑一次並在 spec 註明。
 
 - [ ] **Step 2：跑探針，把三張表貼進 spec §8**
 
@@ -1724,8 +1993,11 @@ Run：`npx vite-node test/tools/evacuate.probe.ts 2>&1 | tee /tmp/evac.txt`
 改 `src/battle/missions.ts` 的 `EVAC` / `KILL` / 各卡的 `blueCount` / `redCount`，
 並把每一個常數的註解從 `【起始值，待掃描】` 改成推導。
 
-**判準**：撤離的 AI 代飛到達率要落在「不是必到、也不是必死」之間。
-**具體門檻由專案負責人裁定** —— 掃描的結果先呈上去，不自己定。
+**判準**：直飛的存活率要落在「不是必到、也不是必死」之間，時限要讓直飛「到得了
+但不寬鬆」。**具體門檻由專案負責人裁定** —— 掃描的結果先呈上去，不自己定
+（護欄重新定值是負責人的決定）。
+
+同時把 spec §10 加一條已知未解：**「一邊打一邊走」量不到，因為 AI 沒有撤離行為。**
 
 - [ ] **Step 4：重跑 Task 8 的整合測試**
 
