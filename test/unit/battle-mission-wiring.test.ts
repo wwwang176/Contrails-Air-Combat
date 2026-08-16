@@ -237,13 +237,20 @@ describe('開局擺法（entry.ts 的表）', () => {
       expect(read(w.red).x - read(w.blue).x).toBeCloseTo(0, 6)
     })
 
-    it('4v16 的實戰編制下，最低的紅仍然高於最高的藍', () => {
+    /**
+     * 【為什麼比長機而不是比極值】初版斷言的是「最低的紅高於最高的藍」。
+     * 那在 `climb = 1000` 時成立，但它**是巧合不是設計** —— 高度散布是
+     * ±`altitudeSpread`（300），所以 `climb` 一旦被調到 300 以下，那條就會
+     * 因為「調參數」而不是「壞掉」變紅。
+     *
+     * 真正的不變量是：**`climb` 有沒有被套上去，與兩隊各有幾個分隊無關。**
+     * 分隊長機在分隊原點上，比它才量得到這件事。
+     */
+    it('4v16 的實戰編制下，長機的高度差仍然是表上的 climb', () => {
       const w = createBattle(new ScriptedController(), {
         ...DEFAULT_BATTLE, blueCount: 4, redCount: 16, entry: PURSUIT,
       })
-      const bl = w.blue.map((c) => c.aircraft.state.position.y)
-      const rd = w.red.map((c) => c.aircraft.state.position.y)
-      expect(Math.min(...rd)).toBeGreaterThan(Math.max(...bl))
+      expect(read(w.red).y - read(w.blue).y).toBeCloseTo(PURSUIT.red.climb, 6)
     })
   })
 })
