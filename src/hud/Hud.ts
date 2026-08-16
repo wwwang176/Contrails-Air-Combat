@@ -9,13 +9,14 @@ import { drawHints } from './widgets/hints'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
 import { drawRoster } from './widgets/roster'
+import { drawObjective } from './widgets/objective'
 import { drawHeadingTape } from './widgets/tape'
 import type { HudFrame, HudLayout } from './types'
 
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
-  | 'godMarkers'
+  | 'godMarkers' | 'objective'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -25,6 +26,8 @@ export type HudWidget =
 const FULL: readonly HudWidget[] = [
   'gEffect', 'damageEdge', 'contacts', 'reticle', 'tape',
   'dials', 'minimap', 'health', 'energy', 'roster', 'hints',
+  // 【排最後】它壓在最上層 —— 這一場的目標不該被任何面板蓋住
+  'objective',
 ]
 
 /**
@@ -41,7 +44,11 @@ const FULL: readonly HudWidget[] = [
  * 【排在最前面】世界疊加層在面板底下 —— 與 `FULL` 裡 `contacts` 排在
  * `dials`／`minimap` 之前是同一條理由。
  */
-const GOD: readonly HudWidget[] = ['godMarkers', 'minimap', 'roster', 'hints']
+/**
+ * 【`objective` 也在這裡】它不是座艙儀表，是**這一場的規則**。上帝視角下
+ * 玩家仍然需要知道還剩幾架、倒數剩幾秒 —— 那與鏡頭在哪裡無關。
+ */
+const GOD: readonly HudWidget[] = ['godMarkers', 'minimap', 'roster', 'hints', 'objective']
 
 /**
  * 這一幀要畫哪些 widget，依序。
@@ -52,6 +59,38 @@ const GOD: readonly HudWidget[] = ['godMarkers', 'minimap', 'roster', 'hints']
  */
 export function hudWidgets(godView: boolean): readonly HudWidget[] {
   return godView ? GOD : FULL
+}
+
+type WidgetDraw = (
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame, dt: number,
+) => void
+
+/**
+ * widget → 繪製函數。
+ *
+ * 【為什麼是 `Record` 而不是 switch】少一個分支在 switch 裡是**靜靜地不畫**
+ * —— `FULL` 更新了卻漏掉分支的話，`hudWidgets` 的測試仍然全綠而 HUD 完全
+ * 不顯示。`Record<HudWidget, …>` 少一格是**編譯錯誤**：`hudWidgets` 的清單
+ * 與這張表是同一個聯集的兩個消費者，型別系統因此保證它們對得起來
+ * （Codex 審查 2026-08-16）。
+ *
+ * 【為什麼統一吃 dt】只有 `drawGEffect` 用得到（黑視的淡入淡出）。讓其餘的
+ * 忽略它，比開兩張表或在呼叫點分歧簡單。
+ */
+export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
+  gEffect: (ctx, L, f, dt) => drawGEffect(ctx, L, f, dt),
+  godMarkers: (ctx, L, f) => drawGodMarkers(ctx, L, f),
+  damageEdge: (ctx, L, f) => drawDamageEdge(ctx, L, f),
+  contacts: (ctx, L, f) => drawContacts(ctx, L, f),
+  reticle: (ctx, L, f) => drawReticle(ctx, L, f),
+  tape: (ctx, L, f) => drawHeadingTape(ctx, L, f),
+  dials: (ctx, L, f) => drawDials(ctx, L, f),
+  minimap: (ctx, L, f) => drawMinimap(ctx, L, f),
+  health: (ctx, L, f) => drawHealth(ctx, L, f),
+  energy: (ctx, L, f) => drawEnergy(ctx, L, f),
+  roster: (ctx, L, f) => drawRoster(ctx, L, f),
+  hints: (ctx, L, f) => drawHints(ctx, L, f),
+  objective: (ctx, L, f) => drawObjective(ctx, L, f),
 }
 
 export class Hud {
@@ -88,21 +127,6 @@ export class Hud {
   render(f: HudFrame, dt: number): void {
     const { ctx, layout: L } = this
     ctx.clearRect(0, 0, L.width, L.height)
-    for (const w of hudWidgets(f.godView)) {
-      switch (w) {
-        case 'gEffect': drawGEffect(ctx, L, f, dt); break
-        case 'godMarkers': drawGodMarkers(ctx, L, f); break
-        case 'damageEdge': drawDamageEdge(ctx, L, f); break
-        case 'contacts': drawContacts(ctx, L, f); break
-        case 'reticle': drawReticle(ctx, L, f); break
-        case 'tape': drawHeadingTape(ctx, L, f); break
-        case 'dials': drawDials(ctx, L, f); break
-        case 'minimap': drawMinimap(ctx, L, f); break
-        case 'health': drawHealth(ctx, L, f); break
-        case 'energy': drawEnergy(ctx, L, f); break
-        case 'roster': drawRoster(ctx, L, f); break
-        case 'hints': drawHints(ctx, L, f); break
-      }
-    }
+    for (const w of hudWidgets(f.godView)) WIDGET_DRAW[w](ctx, L, f, dt)
   }
 }
