@@ -122,7 +122,20 @@ export interface HullResult {
  * 【為什麼不再用超橢圓參數即時算】環的數值是從參考模型切片量出來的，本來
  * 就是一組頂點；保留成頂點才有辦法挖洞。參數式只能生出封閉的管子。
  */
-export function buildHull(rings: readonly HullRing[], cut?: CockpitCut): HullResult {
+export function buildHull(
+  rings: readonly HullRing[], cut?: CockpitCut,
+  /**
+   * 首尾要不要封口。預設都封。
+   *
+   * 【為什麼會有不封的情形】He 111 的**全玻璃機首**：機身外殼在某一站切成
+   * 兩截，前段用玻璃材質、後段用機身色。兩截都封口的話，接縫處會有兩張
+   * 完全重疊的面 —— z-fighting，而且透過玻璃看過去閃爍得很明顯。
+   *
+   * 讓玻璃那一截**不封後端**，只留機身那一截的前封口 —— 那張面就是真機
+   * 玻璃機首後方的**隔框**，本來就該在那裡。
+   */
+  caps?: { front?: boolean; back?: boolean },
+): HullResult {
   const n = rings[0]!.half.length
   const ringCount = 2 * n - 2
 
@@ -171,8 +184,8 @@ export function buildHull(rings: readonly HullRing[], cut?: CockpitCut): HullRes
       else tri([0, cy], r.pts[j]!, r.pts[i]!, r.z, r.z, r.z)
     }
   }
-  cap(built[0]!, true)
-  cap(built[built.length - 1]!, false)
+  if (caps?.front !== false) cap(built[0]!, true)
+  if (caps?.back !== false) cap(built[built.length - 1]!, false)
 
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))

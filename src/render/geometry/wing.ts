@@ -38,6 +38,39 @@ export interface WingParams {
    * TIP_ANCHOR。
    */
   tipRound?: number
+  /**
+   * 內外段的轉折。省略即單一梯形（兩台戰機都是）。
+   *
+   * 【為什麼需要，以及它抓到了什麼】2026-08-17 量 He 111 的俯視剪影：
+   *
+   * ```
+   *   X      前緣Z    後緣Z    弦長
+   *   1.40   2.074    6.513    4.439   ← 內段
+   *   1.80   2.074    6.629    4.555
+   *   3.40   2.106    6.959    4.853   ← 外段起點
+   *   3.60   2.155    6.944    4.789
+   * ```
+   *
+   * 內段的前緣幾乎不後掠（0.9°），外段才是 14°。原本的做法是「拿外段配一條
+   * 直線，外推到 X = 0 當翼根」—— 那讓翼根前緣偏前 0.47 m、後緣偏後 0.60 m，
+   * **俯視就是把靠機身那塊凹陷整個填平**。
+   *
+   * 而且它有一個免費的證據：填平之後的梯形面積 93.2 m²，史實 86.5；改成
+   * 兩段折線之後是 87.1 m²，**+0.7%**。先前那個「翼面積莫名其妙大 7.8%」
+   * 的帳，根因就在這裡。
+   *
+   * 【`sweep` 的意思跟著改成「外段」】轉折存在時，前緣是
+   * `rootZ` → `kink.lead` →（後掠 `sweep`）→ 翼尖。這樣三個欄位各自對應一
+   * 段量測值，不必先解一個聯立方程式才填得出來。
+   */
+  kink?: {
+    /** 轉折的展向位置，半翼展的比例 */
+    at: number
+    /** 轉折處的弦長 */
+    chord: number
+    /** 轉折處的前緣 Z */
+    lead: number
+  }
 }
 
 /** 圓翼尖起始的展向位置（之內維持線性梯形）。 */
@@ -88,16 +121,35 @@ const PROFILE: readonly (readonly [number, number])[] = [
 export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry {
   const sx = mirrored ? -1 : 1
   const round = p.tipRound ?? 1
-  const fractions = p.tipRound === undefined ? [0, 1] : [0, ROUND_START, 0.95, 1]
+  const base = p.tipRound === undefined ? [0, 1] : [0, ROUND_START, 0.95, 1]
+  // 轉折自己必須是一個站位，否則它會被兩側的內插抹平
+  const fractions = p.kink
+    ? [...new Set([...base, p.kink.at])].sort((a, b) => a - b)
+    : base
 
   // 厚度沿翼展線性收；省略 tipThickness 時退回「厚弦比固定」的舊行為
   const tipT = p.tipThickness ?? (p.thickness * p.tipChord) / p.rootChord
 
+  /**
+   * 弦長與前緣的展向分佈。沒有轉折時是 root → tip 的一條直線（與 2026-08-17
+   * 之前**逐字相同**）；有轉折時是 root → kink → tip 的兩段折線。
+   */
+  const k = p.kink
+  const tipLead = k
+    ? k.lead + Math.tan(p.sweep) * (1 - k.at) * p.halfSpan
+    : p.rootZ + Math.tan(p.sweep) * p.halfSpan
+  const piecewise = (u: number, root: number, mid: number | undefined, tip: number): number => {
+    if (!k || mid === undefined) return root + (tip - root) * u
+    return u <= k.at
+      ? root + (mid - root) * (u / k.at)
+      : mid + (tip - mid) * ((u - k.at) / (1 - k.at))
+  }
+
   const stations: Station[] = fractions.map((u) => {
     const span = u * p.halfSpan
-    const baseChord = p.rootChord + (p.tipChord - p.rootChord) * u
+    const baseChord = piecewise(u, p.rootChord, k?.chord, p.tipChord)
     // 【符號】機首是 −Z，所以「後掠」＝翼尖前緣往 +Z（機尾方向）移動。
-    const baseLead = p.rootZ + Math.tan(p.sweep) * span
+    const baseLead = piecewise(u, p.rootZ, k?.lead, tipLead)
     const chord = baseChord * tipFactor(u, round)
     return {
       x: sx * span,

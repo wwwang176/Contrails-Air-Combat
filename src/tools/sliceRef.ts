@@ -38,8 +38,18 @@ export function planeAxes(axis: Axis): [Axis, Axis] {
 
 const IDX: Record<Axis, number> = { x: 0, y: 1, z: 2 }
 
-/** 世界座標的三角形，攤平成 [ax,ay,az, bx,by,bz, cx,cy,cz] × T。 */
-export function collectTriangles(root: Object3D): Float32Array {
+/**
+ * 世界座標的三角形，攤平成 [ax,ay,az, bx,by,bz, cx,cy,cz] × T。
+ *
+ * 【`only` 是 2026-08-17 為玻璃機首加的，而且它是坑 5 的**例外**不是反例】
+ * 坑 5 說「不要靠節點分類去隔離機身」—— 因為蒙皮、隔框、內裝在第三方模型
+ * 裡混成一團，猜錯了不會有任何症狀。但**玻璃**是另一種材質，任何模型都會
+ * 把它分成獨立 mesh，名字也叫得出來（這台是 `windows_windows_0`）。
+ *
+ * 更關鍵的是：玻璃的範圍**根本沒有別的量法**。射線只回報「最外側打到什麼」，
+ * 不會說那是蒙皮還是玻璃 —— 不給名字就只能用眼睛看照片猜（坑 15）。
+ */
+export function collectTriangles(root: Object3D, only?: RegExp): Float32Array {
   root.updateMatrixWorld(true)
   const out: number[] = []
   const v = new Vector3()
@@ -47,6 +57,7 @@ export function collectTriangles(root: Object3D): Float32Array {
     const mesh = o as Mesh
     const pos = mesh.geometry?.getAttribute?.('position')
     if (!pos) return
+    if (only && !only.test(mesh.name)) return
     const idx = mesh.geometry.index
     const count = idx ? idx.count : pos.count
     for (let i = 0; i < count; i++) {

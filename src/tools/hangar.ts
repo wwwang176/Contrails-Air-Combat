@@ -598,6 +598,8 @@ function applyRefMaterial(root: Object3D): void {
        * 兩邊用同一支切片器，量到的才是同一個定義下的同一件事。
        */
       target: 'ref' | 'mine' = 'ref',
+      /** 只收名字符合的 mesh。玻璃機首要用（見 collectTriangles 的 `only`） */
+      only?: string,
     ) => {
       const root = target === 'mine' ? model?.group : refModel
       if (!root) return null
@@ -610,7 +612,10 @@ function applyRefMaterial(root: Object3D): void {
         model.group.updateMatrixWorld(true)
       }
       // 自家模型每次重建都是新物件，不快取；參考模型很大，快取（placeRef 會清）
-      const tris = target === 'mine' ? collectTriangles(root) : (refTris ??= collectTriangles(root))
+      // 【指名 mesh 時不吃快取】快取存的是整台，過濾後的是另一組三角形
+      const tris = only
+        ? collectTriangles(root, new RegExp(only))
+        : target === 'mine' ? collectTriangles(root) : (refTris ??= collectTriangles(root))
       return kind === 'radial'
         ? radialSlices(tris, axis, o as never)
         : extentSlices(tris, axis, o as never)

@@ -4,8 +4,10 @@ import {
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
-import { buildCanopy, type CanopyShape, type CanopyStation } from './canopy'
-import { buildCockpitTub, buildHull, type CockpitCut, type HullRing } from './hull'
+import {
+  buildCanopy, buildFrames, type CanopyShape, type CanopyStation, type FrameSpec,
+} from './canopy'
+import { buildCockpitTub, buildHull, ringAt, type CockpitCut, type HullRing } from './hull'
 import { buildWingPanel, type WingParams } from './wing'
 
 /**
@@ -290,6 +292,43 @@ export function createHull(spec: HullSpec) {
       // 免得「法線朝外」的檢查把這個刻意的方向當成缺陷。
       tub.userData['inwardShell'] = true
       add(new Mesh(buildCanopy(rings, stations, shape), glass))
+    },
+
+    /**
+     * 全玻璃機首 —— 機身外殼在 `splitZ` 切成兩截，前段玻璃、後段機身色。
+     *
+     * 【為什麼不是「在機身上蓋一頂罩子」】另外兩台的座艙是「機身開一個口、
+     * 蓋一頂罩子」，因為它們的玻璃確實是加在蒙皮上的一個零件。He 111 不是：
+     * 2026-08-17 只切參考模型的 `windows` mesh 量到 ——
+     *
+     * ```
+     *   機體Z    玻璃佔剖面   蒙皮腹底   玻璃腹底
+     *   −2.75      93.1%       0.077      —（前端）
+     *   −2.55      97.2%      −0.058     −0.058   ← 一模一樣
+     *   −2.15      75.0%      −0.329     −0.329
+     *   −1.75      62.5%      −0.491     −0.491
+     *   −1.35      54.2%      −0.616      —
+     *   −1.15       8.3%                        ← 玻璃結束
+     * ```
+     *
+     * 玻璃的下緣**逐字等於蒙皮的下緣** —— 那一段機身沒有蒙皮，玻璃就是外殼。
+     * 用罩子做出來的是「機背上一條窄玻璃 + 底下一大片綠漆」，而真機的機首
+     * 是整個透明的。
+     *
+     * 【接縫的封口只留一張】見 `buildHull` 的 `caps`：玻璃那一截不封後端，
+     * 機身那一截的前封口就是真機的隔框。
+     */
+    glazedNose(rings: readonly HullRing[], splitZ: number): void {
+      const at = ringAt(rings, splitZ)
+      const nose = [...rings.filter((r) => r.z < splitZ - 1e-6), at]
+      const aft = [at, ...rings.filter((r) => r.z > splitZ + 1e-6)]
+      add(new Mesh(buildHull(nose, undefined, { back: false }).geometry, glass))
+      add(new Mesh(buildHull(aft).geometry, body))
+    },
+
+    /** 玻璃的骨架（隔框 + 桁條）。機身色 —— 它是結構不是裝飾。 */
+    frames(rings: readonly HullRing[], spec: FrameSpec): void {
+      add(new Mesh(buildFrames(rings, spec), body))
     },
 
     /** 左右成對的翼面（主翼、水平尾翼）。 */
