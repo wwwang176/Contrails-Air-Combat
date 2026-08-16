@@ -1,4 +1,4 @@
-import { MISSIONS } from './missions'
+import { MISSIONS, type MissionCard } from '../battle/missions'
 import {
   specsFor, MAX_SIDE, MIN_SIDE, type FactionChoice, type SkirmishSetup,
 } from '../battle/skirmish'
@@ -18,6 +18,15 @@ export interface MenuHooks {
    * 與 `onResume` 同一類：overlay 上的動作，不是畫面之間的轉移。
    */
   onRestart(): void
+  /**
+   * 使用者點了一張任務卡。
+   *
+   * 【為什麼是獨立的 hook 而不是塞進 `onEvent`】`ScreenEvent` 是一個字串，
+   * 帶不了「哪一張卡」。與 `onSetup` 同一類：畫面之外的資料。
+   *
+   * 【先送這個，再送 `fight`】呼叫端要先知道打哪一關，才建得出戰鬥。
+   */
+  onMission(card: MissionCard): void
 }
 
 export interface Menu {
@@ -108,13 +117,22 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     for (const m of MISSIONS[missionFaction]) {
       const b = document.createElement('button')
       b.className = 'card'
-      // 【全部不可點】M10 沒有任務內容。看起來可點卻沒反應才是真的壞掉
-      b.disabled = true
+      // 【只有做好的卡可點】看起來可點卻沒反應才是真的壞掉。攔截與護航缺
+      // 第三種機體、打擊缺對地武器，那三張維持 M10 的樣子
+      b.disabled = !m.playable
       b.innerHTML =
         `<span class="card-title">${escapeHtml(m.title)}</span>`
         + `<span class="card-desc">${escapeHtml(m.summary)}</span>`
         + `<span class="card-meta">${escapeHtml(m.type)}　${stars(m.difficulty)}</span>`
-        + '<span class="locked">未開放</span>'
+        + (m.playable ? '' : '<span class="locked">未開放</span>')
+      // 【為什麼卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個
+      // 字串，而這裡要帶「哪一張卡」。`factionRow` 與 `stepper` 早就這樣做
+      if (m.playable) {
+        b.addEventListener('click', () => {
+          hooks.onMission(m)
+          hooks.onEvent('fight')
+        })
+      }
       missionList.appendChild(b)
     }
   }

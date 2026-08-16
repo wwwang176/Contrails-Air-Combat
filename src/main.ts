@@ -50,8 +50,10 @@ import {
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import { fillOrderView } from './battle/orderView'
 import {
-  battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
+  battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS,
+  type FactionChoice, type SkirmishSetup,
 } from './battle/skirmish'
+import { missionConfigFrom, type MissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
@@ -84,6 +86,24 @@ let screen: Screen = 'landing'
 let paused = false
 /** 遭遇戰的設定。設定頁改它，「開始戰鬥」與「再打一場」都讀它 */
 let setup: SkirmishSetup = { ...DEFAULT_SKIRMISH }
+
+/**
+ * 這一場是從哪裡進來的。
+ *
+ * 【為什麼不由 `battle.cfg.rules` 推導】遭遇戰與殲滅任務的 `rules`
+ * **完全相同**（任務框架 spec §5）—— 差別只在來路。它決定 HUD 畫不畫
+ * 目標列、結算的第二顆按鈕回哪裡。
+ */
+let mode: 'skirmish' | 'mission' = 'skirmish'
+/** 玩家點的那一張卡。`mode === 'mission'` 時才有意義 */
+let pendingMission: MissionCard | null = null
+/**
+ * 任務模式的陣營。與遭遇戰的那一個互不相干（`menu.ts` 的 `missionFaction`）。
+ *
+ * 【為什麼從 id 的前綴推而不是多開一條 hook】`MISSIONS` 的鍵就是陣營，
+ * 而 id 的前綴是照那個鍵取的 —— 由 `test/unit/missions.test.ts` 釘住。
+ */
+let missionFaction: FactionChoice = 'allies'
 
 /**
  * 目前這一場。**只有 `screen === 'battle'` 時才有值。**
@@ -125,6 +145,9 @@ const DAMAGE_DIR = new Vector3()
 const DAMAGE_VIEW = new Quaternion()
 const boardEl = document.getElementById('board') as HTMLElement
 const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
+/** 結算的兩個回頭出口。依 `mode` 擇一顯示 —— 見 `stepAndDrawBattle` 尾端 */
+const backToSetup = boardActions.querySelector('[data-act="toSetup"]') as HTMLElement
+const backToMission = boardActions.querySelector('[data-act="toMission"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
 
 /**
@@ -398,8 +421,12 @@ function enterBattle(): void {
   terrain = createTerrain('sea')
   ctx.scene.add(terrain.object)
 
-  // 4. 新的世界
-  battle = createBattle(playerController, battleConfigFrom(setup))
+  // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
+  //    任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個函數裡套
+  const cfg = mode === 'mission' && pendingMission !== null
+    ? missionConfigFrom(pendingMission, missionFaction)
+    : battleConfigFrom(setup)
+  battle = createBattle(playerController, cfg)
   world = battle.world
   /**
    * 撞地判定，套用於**所有**飛機。
@@ -425,9 +452,14 @@ function enterBattle(): void {
   //
   // 【種子不進物理路徑】它只配飛行員名字，但它是 `createBattle` 唯一的
   // 非決定性輸入，所以仍然是鑰匙的一部分。
+  //
+  // 【印 `battle.cfg` 而不是 `setup`】任務模式下 `setup` 是**遭遇戰**的設定，
+  // 與這一場毫無關係 —— 那會讓這把鑰匙在最需要它的時候（任務出問題）失效。
   console.log(
-    `[戰鬥] 種子 ${battle.seed}　藍 ${setup.blueCount} × ${setup.specId}`
-    + `　紅 ${setup.redCount}　玩家座位 #${player.index}`,
+    `[戰鬥] 種子 ${battle.seed}　${mode === 'mission' ? pendingMission?.id ?? '?' : '遭遇戰'}`
+    + `　藍 ${battle.cfg.blueCount} × ${battle.cfg.blueSpec.id}`
+    + `　紅 ${battle.cfg.redCount} × ${battle.cfg.redSpec.id}`
+    + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`,
   )
   telemetryAt = 0
   // 【命令的計數也要歸零】不歸零的話「第 87 張」會跨場累積，那個數字
@@ -1039,6 +1071,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【結算時才讓那兩顆按鈕出現，而且 #board 這時要能點】按住 TAB 看戰績
   // 的期間它是 pointer-events: none —— 那時它只是看
   boardActions.hidden = !finished
+  // 【兩個出口依模式擇一】不逐幀改 `data-act` —— 它是選單那一層唯一的協定
+  // （`menu.ts` 的事件委派註解），改它等於讓一個 DOM 屬性變成隱性狀態
+  backToSetup.hidden = mode !== 'skirmish'
+  backToMission.hidden = mode !== 'mission'
   boardEl.classList.toggle('finished', finished)
 }
 
@@ -1074,6 +1110,12 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onEvent(event) {
     const from = screen
     screen = nextScreen(screen, event)
+    // 【走遭遇戰那條路就要把模式換回來】少了這一行，打過一關任務之後再打
+    // 遭遇戰，HUD 會留著上一關的目標列、結算的出口也會回到任務列表
+    if (event === 'skirmish' || event === 'toSetup') {
+      mode = 'skirmish'
+      pendingMission = null
+    }
     // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
     if (event === 'fight' && screen === 'battle') {
       enterBattle()
@@ -1091,6 +1133,15 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onSetup(next) {
     setup = next
     menu.renderSetup(setup)
+  },
+  /**
+   * 【`menu.ts` 保證這個先於 `onEvent('fight')`】所以 `enterBattle` 讀得到
+   * 這一關。陣營由 id 的前綴推 —— 見 `missionFaction` 的註解。
+   */
+  onMission(card) {
+    mode = 'mission'
+    pendingMission = card
+    missionFaction = card.id.startsWith('axis') ? 'axis' : 'allies'
   },
   onResume() {
     paused = false
