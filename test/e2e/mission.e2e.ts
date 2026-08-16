@@ -142,6 +142,14 @@ async function main(): Promise<void> {
     console.log('[任務] 圓環的截圖已存：' + SHOTS + 'mission-1-evac.png')
 
     // ── 4. 結算的出口：任務模式顯示「回任務列表」 ──────────
+    //
+    // 【這一條驗的是「模式分流」，不是結算流程】戰鬥還沒結束，所以
+    // `#board-actions` 整塊是藏的 —— 下面兩條讀的是那兩顆子按鈕的 `hidden`，
+    // 而 `main.ts` 每一幀都會依 `mode` 重設它們，與結算板出不出來無關
+    // （Codex 審查 2026-08-16）。**結算流程本身沒有 e2e 覆蓋**，因為要把一場
+    // 4v16 打完；記在 `docs/backlog.md`。
+    const actionsHidden = await hidden('#board-actions')
+    if (actionsHidden !== true) fail('戰鬥進行中 #board-actions 應該是藏的')
     const toSetupHidden = await hidden('[data-act="toSetup"]')
     const toMissionHidden = await hidden('[data-act="toMission"]')
     console.log(`[任務] 結算出口：回設定頁 hidden=${toSetupHidden}、回任務列表 hidden=${toMissionHidden}`)

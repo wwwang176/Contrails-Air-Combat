@@ -138,9 +138,20 @@ export function stepMission(
   }
 
   // ── 撤離 ──────────────────────────────────────────────
-  // 【`Infinity - dt` 仍是 `Infinity`】無時限因此不必特例。有測試釘住這件
+  //
+  // 【`dt` 要守】非有限或負的 `dt` 是呼叫端的 bug，但代價全部落在這裡：
+  // `NaN` 會**永久污染** `secondsLeft`（一旦是 NaN，`<= 0` 恆為 false，
+  // 任務再也不會超時），而 `formatCountdown` 對 NaN 回空字串 —— 玩家看到
+  // 的只是「倒數消失了」。負的 `dt` 則會把時間加回去。
+  //
+  // 【為什麼是降級而不是丟例外】專案的既有作風：`sweetYield` 對非有限值
+  // 回 1（不讓位）、`clampSide` 對 NaN 回 `MIN_SIDE`。丟例外會讓一個顯示
+  // 用的計時器炸掉整個遊戲迴圈。夾成 0 的意思是「這一步時間不前進」，
+  // 而下面的勝負判定照跑。
+  //
+  // 【`Infinity - 0` 仍是 `Infinity`】無時限因此不必特例。有測試釘住這件
   // 事，否則哪天改成一個計時器物件就會靜靜壞掉。
-  out.secondsLeft -= dt
+  out.secondsLeft -= Number.isFinite(dt) && dt > 0 ? dt : 0
   out.metric = inp.playerPos.distanceTo(rules.point)
 
   // 【NaN 走這條】`NaN < radius` 是 false，所以位置壞掉時不會誤判成功；

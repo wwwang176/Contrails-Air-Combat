@@ -123,6 +123,30 @@ describe('stepMission：撤離', () => {
   })
 
   /**
+   * 【為什麼一定要守 `dt`】非有限或負的 `dt` 是呼叫端的 bug，但代價全部落在
+   * `stepMission`：`NaN` 會**永久污染** `secondsLeft`（一旦是 NaN，`<= 0`
+   * 恆為 false，任務再也不會超時），而 `formatCountdown` 對 NaN 回空字串
+   * —— 玩家看到的只是「倒數消失了」（Codex 審查 2026-08-16）。
+   */
+  it('dt 是 NaN／Infinity／負數時，倒數不動而不是被污染', () => {
+    for (const bad of [NaN, Infinity, -Infinity, -1, -0.5]) {
+      const r = evac(100)
+      const s = createMissionState(r)
+      stepMission(r, inputs(), bad, s)
+      expect(s.secondsLeft, `dt=${bad}`).toBe(100)
+      expect(s.outcome, `dt=${bad}`).toBe('fighting')
+    }
+  })
+
+  it('dt 為 0 時倒數不動，但勝負照判', () => {
+    const r = evac(100)
+    const s = createMissionState(r)
+    stepMission(r, inputs({ aliveBlue: 0 }), 0, s)
+    expect(s.secondsLeft).toBe(100)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /**
    * 【為什麼要跑一千步】`Infinity - dt` 仍是 `Infinity`，所以無時限不必特例。
    * 但這件事要有測試釘住，否則哪天改成一個計時器物件就會靜靜壞掉。
    */
