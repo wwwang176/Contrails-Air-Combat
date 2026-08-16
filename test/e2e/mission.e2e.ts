@@ -17,10 +17,13 @@
  *
  * ── 哪些是斷言、哪些是給人看的 ──
  *
- * **是斷言**（會 throw）：卡片的可點狀態、畫面轉移、目標列的像素、圓環的
- * 像素、結算兩顆按鈕的顯示、console 錯誤。
+ * **是斷言**（會 throw）：卡片的可點狀態、畫面轉移、目標列的像素、結算
+ * 兩顆按鈕的顯示、console 錯誤。
  *
  * **給人看的**：截圖。
+ *
+ * 【圓環暫時無從驗起】撤離卡 2026-08-16 由專案負責人裁定關閉，而它是唯一
+ * 會產生撤離點的卡 —— 下面第 3 段因此留空待命。判準的推導留在那裡沒刪。
  *
  * 【為什麼圓環驗得到而準星那一套驗不到】圓環畫在 **WebGL** 那一張畫布上，
  * `getImageData` 讀不回來（未設 `preserveDrawingBuffer`）。所以圓環走的是
@@ -93,7 +96,7 @@ async function main(): Promise<void> {
 
     await page.goto(URL)
 
-    // ── 1. 任務列表：四張可點、六張未開放 ──────────────────
+    // ── 1. 任務列表：同盟國五張，一張可點、四張未開放 ──────
     await page.click('[data-act="start"]')
     await page.click('[data-act="mission"]')
     await page.waitForTimeout(300)
@@ -112,18 +115,18 @@ async function main(): Promise<void> {
     for (const c of cards) {
       console.log(`  ${c.disabled ? '✗' : '✓'} ${c.title}${c.locked ? '（未開放）' : ''}`)
     }
-    if (cards.length !== 5) fail(`同盟國應有 5 張卡，實得 ${cards.length}`)
+    // 【為什麼不斷言可點的張數】那個數字是專案負責人裁定的（2026-08-16 關掉
+    // 撤離就是一次），每開關一張卡就要改一次腳本 —— 那是雜訊不是護欄。
+    // 「有沒有卡可點」與「可不可點標對了沒」才是這一段真正要問的
     const playable = cards.filter((c) => !c.disabled)
-    if (playable.length !== 2) {
-      fail(`同盟國應有 2 張可點（殲滅、撤離），實得 ${playable.length}`)
-    }
+    if (playable.length === 0) fail('一張可點的卡都沒有，下面的驗收無從跑起')
     // 【未開放的卡必須看得出來】看起來可點卻沒反應才是真的壞掉
     for (const c of cards) {
       if (c.disabled !== c.locked) fail(`「${c.title}」的 disabled 與「未開放」標記不一致`)
     }
 
-    // ── 2. 點撤離卡進得了戰鬥，目標列出現 ──────────────────
-    await page.click('#mission-list .card:not([disabled]):last-of-type')
+    // ── 2. 點殲滅卡進得了戰鬥，目標列出現 ──────────────────
+    await page.click('#mission-list .card:not([disabled])')
     await page.waitForTimeout(3000)
 
     const inBattle = await page.evaluate(
@@ -132,14 +135,18 @@ async function main(): Promise<void> {
     if (inBattle !== 0) fail(`進入戰鬥後不該有任何 .screen 可見，實得 ${inBattle}`)
 
     const objectiveInk = await hudGreen(OBJECTIVE_BOX)
-    console.log(`[任務] 撤離：目標列區的綠色像素 ${objectiveInk}`)
-    if (objectiveInk <= 0) fail('撤離任務的目標列沒有畫出來')
-    await page.screenshot({ path: SHOTS + 'mission-1-evac.png' })
+    console.log(`[任務] 殲滅：目標列區的綠色像素 ${objectiveInk}`)
+    if (objectiveInk <= 0) fail('殲滅任務的目標列沒有畫出來')
+    await page.screenshot({ path: SHOTS + 'mission-1-kill.png' })
 
-    // ── 3. 圓環：WebGL 那一張要從 PNG 讀 ───────────────────
-    // 【只印不斷言】無頭 chromium 下相機在低幀率會發散（`god-view.e2e.ts`
-    // 的檔頭有完整推導），撤離點是不是還在視野內不可控。截圖留給人看。
-    console.log('[任務] 圓環的截圖已存：' + SHOTS + 'mission-1-evac.png')
+    // ── 3. 圓環：**撤離關掉之後這一段沒有東西可驗** ─────────
+    //
+    // 【為什麼是留空而不是刪掉】圓環的程式（`render/objectiveRing.ts`）與
+    // `main.ts` 的建置／釋放都還在，只是現在沒有任何一張可點的卡會讓
+    // `mission.hasTarget` 變 true。撤離翻回來的那一天，這一段要跟著回來：
+    // 判準是「畫面上緣（天空區）出現圓環的綠」，而反證是殲滅任務同一區必須
+    // 沒有 —— 檔頭第五段有完整推導。
+    console.log('[任務] 圓環：撤離關閉中，這一段暫時沒有東西可驗')
 
     // ── 4. 結算的出口：任務模式顯示「回任務列表」 ──────────
     //
