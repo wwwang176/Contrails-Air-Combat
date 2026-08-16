@@ -4,6 +4,7 @@ import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { VETERAN } from '../../src/ai/profile'
+import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 
 describe('任務卡（M10 spec §10）', () => {
   it('兩個陣營各五張', () => {
@@ -70,6 +71,37 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
       expect(m.blueCount, m.title).toBeGreaterThanOrEqual(1)
       expect(m.redCount, m.title).toBeGreaterThanOrEqual(1)
     }
+  })
+
+  /**
+   * 【為什麼要守上界】`missionConfigFrom` 刻意不夾制（夾制會把寫錯的關卡
+   * 藏起來），而 `createBattle` 只有在 `blueCount === 0` 時才拋 ——
+   * **大於 MAX_SIDE 不會拋**，只會建一個超出特效池容量假設的超大戰場
+   * （Codex 審查 2026-08-16）。這一條就是那道保險。
+   */
+  it('每一張卡的架數都是 1~MAX_SIDE 的整數', () => {
+    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
+      for (const [name, n] of [['藍', m.blueCount], ['紅', m.redCount]] as const) {
+        expect(Number.isInteger(n), `${m.title} ${name}`).toBe(true)
+        expect(n, `${m.title} ${name}`).toBeGreaterThanOrEqual(MIN_SIDE)
+        expect(n, `${m.title} ${name}`).toBeLessThanOrEqual(MAX_SIDE)
+      }
+    }
+  })
+
+  /**
+   * 【為什麼要逐值釘死時限】它們是算出來的（`實測直飛 × EVAC_MARGIN`），
+   * 而我在註解裡把 `168.2 × 1.4` 心算成 235.5 進位到 236 —— 實際是 235.48，
+   * `Math.round` 給 235。**程式一直是對的，錯的是註解**，而當時沒有任何
+   * 測試看得出這件事（Codex 審查 2026-08-16）。
+   */
+  it('兩張撤離卡的時限是實測算出來的那兩個值', () => {
+    const allies = MISSIONS.allies.find((m) => m.type === '撤離')!
+    const axis = MISSIONS.axis.find((m) => m.type === '撤離')!
+    expect(allies.seconds, '125.5 × 1.4 = 175.70').toBe(176)
+    expect(axis.seconds, '168.2 × 1.4 = 235.48').toBe(235)
+    // 【軸心國一定要比較久】它開 Bf109 逃、被更快的 P-51 追（spec §8.4）
+    expect(axis.seconds).toBeGreaterThan(allies.seconds)
   })
 
   /** 【未開放的卡不得帶目標文字】否則哪天翻開 playable 會冒出半套 UI */

@@ -118,9 +118,16 @@ const EVAC_MARGIN = 1.4
 const EVAC_STRAIGHT_ALLIES = 125.5
 const EVAC_STRAIGHT_AXIS = 168.2
 
-/** 同盟國「且戰且走」：125.5 × 1.4 = 175.7 → 176 */
+/** 同盟國「且戰且走」：125.5 × 1.4 = 175.70 → 176 */
 const EVAC_SECONDS_ALLIES = Math.round(EVAC_STRAIGHT_ALLIES * EVAC_MARGIN)
-/** 軸心國「撤出包圍」：168.2 × 1.4 = 235.5 → 236 */
+/**
+ * 軸心國「撤出包圍」：168.2 × 1.4 = 235.48 → **235**。
+ *
+ * 【這裡原本寫 236】我心算成 235.5 才進位。實際是 235.48，`Math.round`
+ * 給 235（Codex 審查 2026-08-16）。**程式一直是對的，錯的是註解** ——
+ * 這正是「把推導寫進程式而不是寫死結果」的價值：算式不會算錯，只有
+ * 註解會。兩個秒數現在由 `test/unit/missions.test.ts` 逐值釘住。
+ */
 const EVAC_SECONDS_AXIS = Math.round(EVAC_STRAIGHT_AXIS * EVAC_MARGIN)
 
 /**
@@ -215,8 +222,12 @@ export function missionRules(card: MissionCard, altitude: number): MissionRules 
  * 【玩家恆在藍隊】換的是機種不是隊伍顏色（M9 spec §14、M10 spec §7.1）。
  *
  * 【為什麼架數不夾制】`battleConfigFrom` 要夾是因為那些數字從 DOM 讀進來；
- * 這裡的來源是本檔的常數表，夾制只會把一個寫錯的關卡藏起來。真的寫錯的話
- * `createBattle` 會拋「玩家沒有被建立」，而那正是要的。
+ * 這裡的來源是本檔的常數表，夾制只會把一個寫錯的關卡藏起來。
+ *
+ * 【但「寫錯就會炸」只對一半】`blueCount` 為 0 時 `createBattle` 確實會拋
+ * 「玩家沒有被建立」；**大於 `MAX_SIDE` 不會拋**，只會建一個超出特效池容量
+ * 假設的超大戰場（Codex 審查 2026-08-16）。所以那道保險由
+ * `test/unit/missions.test.ts` 的「架數落在 1~MAX_SIDE 的整數」補上。
  */
 export function missionConfigFrom(card: MissionCard, faction: FactionChoice): BattleConfig {
   const mine = specsFor(faction)
