@@ -115,7 +115,11 @@
       <div id="tables"></div>
       <div id="board-actions" hidden>
         <button class="primary" data-act="fight">再打一場</button>
+        <!-- 兩個回頭的出口依模式擇一顯示（main.ts）。為什麼是兩顆按鈕而不是
+             逐幀改 data-act：data-act 是選單那一層唯一的協定，改它等於讓一個
+             DOM 屬性變成隱性狀態 -->
         <button class="ghost" data-act="toSetup">回設定頁</button>
+        <button class="ghost" data-act="toMission" hidden>回任務列表</button>
       </div>
     </div>
     <div id="ui">

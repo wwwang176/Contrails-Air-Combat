@@ -36,6 +36,15 @@ export const CAMERA_NEAR = 1
  */
 export const CAMERA_FAR = 5_000_000
 
+/**
+ * 垂直視角，度。
+ *
+ * 【為什麼是具名常數而不是建構子裡的 65】任何「這個東西在 N 公里外佔螢幕
+ * 多少」的推導都要用到它 —— 撤離圓環的半徑就是這樣定的（任務框架 spec
+ * §6.4）。留在建構子裡的話那些推導會各自抄一份 65，而抄本不會跟著改。
+ */
+export const CAMERA_FOV_DEG = 65
+
 export interface SceneContext {
   renderer: WebGLRenderer
   scene: Scene
@@ -63,7 +72,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   scene.add(new HemisphereLight(0xbfd8ee, 0x2a3a48, 0.9))
   scene.add(new AmbientLight(0xffffff, 0.15))
 
-  const camera = new PerspectiveCamera(65, 1, CAMERA_NEAR, CAMERA_FAR)
+  const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR)
 
   const resize = () => {
     const w = window.innerWidth

@@ -138,6 +138,34 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.fill()
     ctx.restore()
   }
+
+  // 撤離點。**與接觸點共用 `edgeClamp`** —— 不新增幾何原語。
+  //
+  // 【為什麼畫成圓圈而不是第四種三角形】三角／方／倒三角在這張圖上的語意是
+  // 「相對高度」，而撤離點沒有那個語意。借用會讓玩家讀出一個不存在的意思。
+  //
+  // 【為什麼一定要貼邊】撤離點在 20 km 外，而這張圖的半徑只有 4 km ——
+  // 不貼邊的話它從開局到最後一刻都不在圖上，等於沒有這個功能。
+  if (f.objectiveHasTarget) {
+    let rx = (f.objectiveWorldX - f.worldX) * px
+    let rz = (f.objectiveWorldZ - f.worldZ) * px
+    const sx = rx * cosH + rz * sinH
+    const sy = -rx * sinH + rz * cosH
+    const k = edgeClamp(sx, sy, edge)
+    const beyond = k < 1
+    if (beyond) {
+      rx *= k
+      rz *= k
+    }
+    ctx.save()
+    ctx.globalAlpha = beyond ? 0.5 : 1
+    ctx.strokeStyle = HUD_COLORS.primary
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(rx, rz, 5 * L.scale, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+  }
   ctx.restore()
 
   ctx.strokeStyle = HUD_COLORS.dim

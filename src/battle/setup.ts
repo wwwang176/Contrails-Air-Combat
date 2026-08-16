@@ -23,6 +23,13 @@ import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { applyFeel, GAME_FEEL } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
+// 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
+// 區域範圍，而 `Battle.outcome` 的宣告用得到它。
+import { HEAD_ON, type EntryPlan, type SideEntry } from './entry'
+import {
+  createMissionState, resetMissionState, stepMission,
+  type MissionInputs, type MissionRules, type MissionState, type Outcome,
+} from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 
@@ -117,6 +124,27 @@ export interface BattleConfig {
    * 做難度選單，那時再開不對稱的口。
    */
   aiProfile: DifficultyProfile
+  /**
+   * 這一場怎麼算贏。
+   *
+   * 【為什麼遭遇戰也吃這個】遭遇戰就是「一個沒有時限的殲滅任務」。判定
+   * 路徑因此**每一場都在走**，不是一條等著被第一次使用的死碼 —— 與地形
+   * 「種類沒變也重建」是同一條紀律（M10 spec §5.3）。
+   *
+   * 反過來說：若任務判定是一條只有任務模式才走的旁路，它會在沒有人注意
+   * 的時候腐爛，而症狀要等到玩家點下那張卡才出現。
+   */
+  rules: MissionRules
+  /**
+   * 這一場的擺法。**是 `battle/entry.ts` 那張表裡的一份，不是一個列舉。**
+   *
+   * 【為什麼不是分支】專案負責人 2026-08-16：擺位、面向、初始狀態要寫成
+   * 資料，讓每個任務有不同的擺法。加一種 = 那張表多一個字面值，這裡不動。
+   *
+   * 【為什麼既有護欄不會動】`HEAD_ON` 展開之後與改動前的算式逐字相同，
+   * 而 `DEFAULT_BATTLE` 給的就是它。
+   */
+  entry: EntryPlan
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
@@ -133,10 +161,17 @@ export const DEFAULT_BATTLE: BattleConfig = {
   // 【測試的基準是天花板】遊戲的難度由 `battleConfigFrom` 覆寫，見
   // `aiProfile` 的註解。
   aiProfile: ACE,
+  // 【遭遇戰＝沒有時限的殲滅】改動前寫死的那兩行，現在是這一條規則
+  rules: { kind: 'annihilate' },
+  // 【對頭是預設】全部既有護欄都建立在它上面
+  entry: HEAD_ON,
 }
 
-/** 一場戰鬥的結果。`victory` = 敵方全滅，`defeat` = 我方全滅。 */
-export type Outcome = 'fighting' | 'victory' | 'defeat'
+/**
+ * 一場戰鬥的結果。**定義搬到 `mission.ts`** —— 它現在是任務判定的產物，
+ * 而勝負條件不再只有「誰全滅」。這裡再匯出，既有的 import 站點不用動。
+ */
+export type { Outcome } from './mission'
 
 export interface Battle {
   readonly world: World
@@ -211,6 +246,18 @@ export interface Battle {
    * （M9 spec §8）。
    */
   outcome: Outcome
+  /**
+   * 這一場的任務狀態。**`mission.outcome` 是權威，`outcome` 是它的複本。**
+   *
+   * 【為什麼留著 `outcome` 而不是處處改讀 `mission.outcome`】`main.ts`、
+   * `ui/scoreboard`、Playwright 判準與既有的五支測試都讀它。全面改讀是一次
+   * 與這一輪無關的擴散性修改，而它換來的只是少一行賦值。
+   *
+   * 【為什麼是 readonly】`main.ts` 與 HUD 每幀讀 `mission.target`。換掉整個
+   * 物件會讓那些參考指向孤兒 —— 與 `Aircraft.reset` 改成就地寫回是同一條
+   * 教訓（見下方 `stepCommandLayer` 的註解）。重設走 `resetMissionState`。
+   */
+  readonly mission: MissionState
   /** 這一場的飛行員名冊，依座位索引 */
   readonly roster: Roster
   /** 名字用的隨機種子。記下來就能重現同一場的名單 */
@@ -279,18 +326,37 @@ export function createBattle(
     // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
     // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
     const spec = applyFeel(blueSide ? cfg.blueSpec : cfg.redSpec, GAME_FEEL)
-    const z = blueSide ? cfg.entryRange / 2 : -cfg.entryRange / 2
-    const yaw = blueSide ? 0 : Math.PI
-    const orientation = new Quaternion().setFromAxisAngle(UP, yaw)
-    const velocity = FWD.clone().applyQuaternion(orientation).multiplyScalar(cfg.tas)
+
+    /**
+     * 追擊：紅隊搬到藍隊**後方**、拉高、而且**同向**。
+     *
+     * 【藍隊的位置一個字都不動】撤離的時限是由「直飛到撤離點要多久」推出來
+     * 的（`missions.ts` 的 `EVAC_STRAIGHT_*`）。動了藍隊的出生點，那兩個
+     * 數字就要重新量。
+     *
+     * 【為什麼要同向】不同向的話那不是追擊，是又一次對頭 —— 而對頭正是
+     * 這一版要換掉的東西。
+     */
+    /**
+     * 這一隊的擺法。**六個欄位就是這一段全部的自由度** —— 想要新的排列
+     * 就去 `entry.ts` 加一份，這裡一個字都不用改。
+     */
+    const entry: SideEntry = blueSide ? cfg.entry.blue : cfg.entry.red
+    // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
+    // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
+    // 那些覆寫靜靜失效
+    const z = entry.along * cfg.entryRange + entry.gap
+    const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
+    const velocity = FWD.clone().applyQuaternion(orientation)
+      .multiplyScalar(cfg.tas * entry.speed)
 
     // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
-    const lateral = (blueSide ? -1 : 1) * cfg.lateralOffset / 2
+    const lateral = entry.across * cfg.lateralOffset
 
     let slot = 0
     for (let f = 0; f < flightCount; f++) {
       const leadX = (f - (flightCount - 1) / 2) * cfg.schwarmSpacing + lateral
-      const leadY = cfg.altitude + altitudeOffset(f, cfg.altitudeSpread)
+      const leadY = cfg.altitude + entry.climb + altitudeOffset(f, cfg.altitudeSpread)
       /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
       const made: Aircraft[] = []
 
@@ -424,6 +490,7 @@ export function createBattle(
     redFlightIndices,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
+    mission: createMissionState(cfg.rules),
   }
   wireStations(battle)
   return battle
@@ -577,6 +644,20 @@ export function aliveCount(cs: readonly Combatant[]): number {
 const ASSISTS: number[] = []
 
 /**
+ * `stepMission` 的輸入快照。每個物理步就地重填 —— 熱路徑不配置。
+ *
+ * 【為什麼是模組級而不是 `Battle` 的欄位】它不是戰鬥的狀態，是一個呼叫的
+ * 參數。放進 `Battle` 會讓人以為讀它是有意義的 —— 而它在兩次 `stepBattle`
+ * 之間的內容是上一場、上一步的殘留。
+ */
+const MISSION_INPUTS: MissionInputs = {
+  aliveBlue: 0,
+  aliveRed: 0,
+  playerPos: new Vector3(),
+  playerAlive: true,
+}
+
+/**
  * 把擊墜緩衝裡的每一筆記進名冊。
  *
  * 【為什麼在 `stepBattle` 而不是 `World`】`World` 不該知道有「名字」或
@@ -686,8 +767,22 @@ export function stepBattle(b: Battle, dt: number): void {
 
   // 【玩家恆在藍隊】M9 的機種與陣營都還是寫死的（M10 才做選擇），所以
   // 「我方」就是藍隊。M10 交換的是兩邊的機種，不是隊伍顏色。
-  if (aliveCount(b.red) === 0) b.outcome = 'victory'
-  else if (aliveCount(b.blue) === 0) b.outcome = 'defeat'
+  //
+  // 【為什麼要填一份快照而不是把 `Battle` 傳進去】`stepMission` 是純函數，
+  // 吃快照才能單元測試而不用建一個世界出來 —— 與 `CommandUnit`
+  // （`ai/command.ts`）是同一套手法。物件是模組級的，重用不配置。
+  //
+  // 【`playerAlive` 為什麼一定要傳】接手有 2 秒延遲，那段期間 `b.player`
+  // 仍然指著已經退場的那一架、位置停在墜落點。少了它，撤離任務會把
+  // 「玩家死在圓環裡、僚機還活著」判成撤離成功（見 `mission.ts`）。
+  const inp = MISSION_INPUTS
+  inp.aliveBlue = aliveCount(b.blue)
+  inp.aliveRed = aliveCount(b.red)
+  inp.playerPos.copy(b.player.aircraft.state.position)
+  inp.playerAlive = b.player.alive
+  stepMission(b.cfg.rules, inp, dt, b.mission)
+  // 【誰是權威】`b.mission.outcome`。這一行是複本，見 `Battle.mission` 的註解。
+  b.outcome = b.mission.outcome
 }
 
 /**
@@ -764,6 +859,12 @@ export function resetBattle(
   // 【wireStations 要在最後】它會依 `instanceof AiController` 重接站位參考，
   // 而上面剛換過控制器
   wireStations(b)
+  // 【任務狀態也要重設】少了這一行，「再打一場」會直接開在上一場的結果上，
+  // 而撤離的倒數會從 0 開始 —— 開局第一個物理步就判 defeat。
+  //
+  // 【就地寫回而不是換一個 MissionState】`b.mission` 是 readonly 參考，
+  // `main.ts` 與 HUD 每幀讀 `mission.target`。
+  resetMissionState(b.cfg.rules, b.mission)
   b.outcome = 'fighting'
 }
 
