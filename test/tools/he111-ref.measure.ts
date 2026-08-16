@@ -84,7 +84,12 @@ interface Extent {
 declare global {
   interface Window {
     __hangarProbe: (u: string, a?: typeof ALIGN) => Promise<Probe>
-    __hangarSlice: (k: string, a: string, o: Record<string, unknown>) => Promise<unknown>
+    __hangarSlice: (
+      k: string, a: string, o: Record<string, unknown>, t?: 'mine',
+    ) => Promise<unknown>
+    __hangarSpec: (id: string) => boolean
+    __hangarRef: (on: boolean, solid?: boolean) => Promise<boolean>
+    __hangarInfo: () => { metrics: { noseZ: number; noseY: number } } | null
     __hangarShow: (mine: boolean, ref: boolean) => void
     __hangarCam: (x: number, y: number, z: number) => void
     __hangarOrtho: (v: string | null) => void
@@ -105,17 +110,43 @@ async function main(): Promise<void> {
     await page.goto(URL)
     await page.waitForFunction(() => '__hangarProbe' in window, null, { timeout: 30000 })
 
-    const probe = await page.evaluate(
-      ([u, a]) => window.__hangarProbe(u as string, a as typeof ALIGN),
-      [GLB, ALIGN] as const,
-    )
-    console.log(`載入 ${probe.tris.toLocaleString()} 三角形、${probe.meshes} 個 mesh，已套對齊`)
-    console.log(`對齊參數  yaw ${ALIGN.yaw}°  pitch ${ALIGN.pitch}°  scale ${ALIGN.scale}\n`)
+    /**
+     * 【`verify` 走的是機庫自己的疊圖路徑，不是 probe】
+     *
+     * `__hangarProbe` 是給「還沒有自家模型」用的旁路：它自己套一組對齊參數，
+     * 不經過 `placeRef`。而驗收要問的正是**遊戲裡實際疊出來的那一份對不對**
+     * —— 用旁路量等於驗了一個玩家永遠看不到的東西。
+     *
+     * 所以 `verify` 先切機種、再開參考模型，讓 `syncRef → placeRef` 照常跑。
+     */
+    let probe: Probe = {
+      tris: 0, meshes: 0, min: [0, 0, 0], max: [0, 0, 0], size: [0, 0, 0], parts: [],
+    }
+    if (stage === 'verify') {
+      await page.evaluate(() => window.__hangarSpec('he111'))
+      for (let i = 0; i < 120; i++) {
+        if (await page.evaluate(() => window.__hangarRef(true, false))) break
+        await page.waitForTimeout(500)
+      }
+      console.log('走機庫的 placeRef 疊圖路徑（不是 __hangarProbe 旁路）\n')
+    } else {
+      probe = await page.evaluate(
+        ([u, a]) => window.__hangarProbe(u as string, a as typeof ALIGN),
+        [GLB, ALIGN] as const,
+      )
+      console.log(`載入 ${probe.tris.toLocaleString()} 三角形、${probe.meshes} 個 mesh，已套對齊`)
+      console.log(`對齊參數  yaw ${ALIGN.yaw}°  pitch ${ALIGN.pitch}°  scale ${ALIGN.scale}\n`)
+    }
 
-    const slice = (kind: 'radial' | 'extent', axis: string, o: Record<string, unknown>) =>
+    const slice = (
+      kind: 'radial' | 'extent', axis: string, o: Record<string, unknown>,
+      target?: 'mine',
+    ) =>
       page.evaluate(
-        ([k, a, opt]) => window.__hangarSlice(k as string, a as string, opt as never),
-        [kind, axis, o] as const,
+        ([k, a, opt, t]) => window.__hangarSlice(
+          k as string, a as string, opt as never, t as 'mine' | undefined,
+        ),
+        [kind, axis, o, target] as const,
       )
 
     // 【不認識的名字退回 align】它最便宜，也是後面每一格的前提
@@ -125,7 +156,9 @@ async function main(): Promise<void> {
   }
 }
 
-type Slicer = (k: 'radial' | 'extent', a: string, o: Record<string, unknown>) => Promise<unknown>
+type Slicer = (
+  k: 'radial' | 'extent', a: string, o: Record<string, unknown>, t?: 'mine',
+) => Promise<unknown>
 type Stage = (page: Page, probe: Probe, slice: Slicer) => Promise<void>
 
 const stages: Record<string, Stage> = {
@@ -327,6 +360,159 @@ const stages: Record<string, Stage> = {
         `  ${n(rs.planes[k]!, 6, 2)}  ${n(u)}  ${n(near[0]!)}  ${n(near[1]!)}`
         + `  ${n(near[2]!)}  ${n(near[3]!)}   ${solid ? '實體' : '← 鋼索'}`,
       )
+    }
+  },
+
+  /**
+   * 【驗收】自家模型 vs 參考模型，**同一支切片器逐站對切**。
+   *
+   * 【為什麼不在疊圖上量】產線第 6 步明講過一個實例：疊圖上背鰭看起來浮出
+   * 參考模型 0.23 m，用同一支切片器對切之後逐站差只有 0.008~0.020 —— 那
+   * 0.23 是**水平尾翼擋在前面**造成的錯覺。疊圖裡離鏡頭近的零件會遮住參考
+   * 模型，遮出來的邊界看起來就像自家模型的輪廓。
+   *
+   * 【第一件要驗的是對齊本身】`placeRef` 用 `scaled.min.z` 與 `noseY()` 對齊，
+   * 而那兩個都取自**包圍盒的極值**。這台參考模型的包圍盒被離群幾何污染過
+   * （整體高度量到 12.6 m，真機 4 m）—— 若機首前方也有一顆散落頂點，整台
+   * 就會被平移對錯，而疊圖上看起來只是「形狀差很多」。
+   */
+  verify: async (page, _probe, slice) => {
+    const info = await page.evaluate(() => window.__hangarInfo())
+    console.log('── 一、對齊本身 ──────────────────────────────')
+    console.log(`  自家模型的機首 noseZ ${n(info!.metrics.noseZ)}  noseY ${n(info!.metrics.noseY)}`)
+
+    // 沿 Z 掃兩邊的「有沒有幾何」，看機首與機尾對不對得上
+    const span = { from: -4.0, to: 14.0, count: 37 }
+    const em = await slice('extent', 'z', span, 'mine') as Extent
+    const er = await slice('extent', 'z', span) as Extent
+    console.log('\n      Z    ── 自家 ──   ── 參考 ──   X幅度差   Y下差   Y上差')
+    for (let i = 0; i < em.planes.length; i++) {
+      const a = em.count[i]! > 0
+      const b = er.count[i]! > 0
+      if (!a && !b) continue
+      const xw = (m: Extent) => m.uMax[i]! - m.uMin[i]!
+      console.log(
+        `  ${n(em.planes[i]!, 6, 2)}   ${a ? n(xw(em), 8) : '     ——'}`
+        + `  ${b ? n(xw(er), 9) : '      ——'}`
+        + `  ${a && b ? n(xw(em) - xw(er)) : '      ——'}`
+        + `  ${a && b ? n(em.vMin[i]! - er.vMin[i]!) : '      ——'}`
+        + `  ${a && b ? n(em.vMax[i]! - er.vMax[i]!) : '      ——'}`,
+      )
+    }
+
+    // ── 二、機身剖面逐站 ────────────────────────────
+    const opt = {
+      from: -3.0, to: 9.5, count: 26, angles: 72, axisV: 0.25, maxRadius: 1.45,
+    }
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const rm = await slice('radial', 'z', opt, 'mine') as Rad
+    const rr = await slice('radial', 'z', opt) as Rad
+    const at = (T: readonly number[], deg: number) =>
+      T.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(T[b]! - deg * Math.PI / 180) ? j : b
+      ), 0)
+    /**
+     * 某個角度的半徑。
+     *
+     * `window` 是取樣的半角：預設 12° 取那一撮的**中位數**（擋單點漏失，
+     * 機身剖面用這個）；傳 0 則只讀**那一條**射線。
+     *
+     * 【薄板一定要用單條】垂尾是一片薄板，偏 12° 的射線立刻離開它 —— 中位數
+     * 因此會塌回機背。第一版用中位數量垂尾，兩邊都被低估，而且**低估的幅度
+     * 不一樣**（參考模型的垂尾根部有結構、我的沒有），差值看起來像形狀誤差。
+     */
+    const pick = (
+      row: readonly number[], T: readonly number[], deg: number, windowDeg = 12,
+    ) => {
+      const want = deg * Math.PI / 180
+      if (windowDeg === 0) return row[at(T, deg)]! || NaN
+      const near: number[] = []
+      for (let j = 0; j < T.length; j++) {
+        let d = T[j]! - want
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        if (Math.abs(d) <= windowDeg * Math.PI / 180 && row[j]! > 0) near.push(row[j]!)
+      }
+      if (near.length === 0) return NaN
+      near.sort((a, b) => a - b)
+      return near[near.length >> 1]!
+    }
+    console.log('\n── 二、機身剖面（自家 − 參考）────────────────')
+    console.log('      Z     半寬差   背線差   腹線差')
+    const diffs: number[] = []
+    for (let k = 0; k < rm.planes.length; k++) {
+      const w = pick(rm.r[k]!, rm.theta, 0) - pick(rr.r[k]!, rr.theta, 0)
+      const t = pick(rm.r[k]!, rm.theta, 90) - pick(rr.r[k]!, rr.theta, 90)
+      const b = pick(rm.r[k]!, rm.theta, -90) - pick(rr.r[k]!, rr.theta, -90)
+      for (const d of [w, t, b]) if (Number.isFinite(d)) diffs.push(Math.abs(d))
+      console.log(`  ${n(rm.planes[k]!, 6, 2)}  ${n(w)}  ${n(t)}  ${n(b)}`)
+    }
+    diffs.sort((a, b) => a - b)
+    const rms = Math.sqrt(diffs.reduce((s, d) => s + d * d, 0) / Math.max(diffs.length, 1))
+    console.log(`\n  ${diffs.length} 筆：中位數 ${n(diffs[diffs.length >> 1] ?? NaN)}`
+      + `  RMS ${n(rms)}  最大 ${n(diffs[diffs.length - 1] ?? NaN)}`)
+
+    /**
+     * ── 三、主翼 ────────────────────────────────────
+     *
+     * 【為什麼不用第一段的 Z 掃描判機翼】那一段是 `extentSlices`（取全部線段的
+     * 極值，沒有射線），所以參考模型的**離群幾何**會混進去 —— 實測它在
+     * z = −0.50 報出 11.18 m 寬，而同一台的機翼在該處只到 7.9 m。
+     *
+     * 沿翼展切、`uWindow` 限住 Z，量到的就是該站位的前後緣本身；線段數
+     * 一千出頭代表那一刀只切到機翼一片。
+     */
+    console.log('\n── 三、主翼逐站（uWindow Z ∈ [−1.8, 6.8]）──────')
+    const wOpt = { from: 3.4, to: 11.2, count: 27, uWindow: [-1.8, 6.8] }
+    const wm = await slice('extent', 'x', wOpt, 'mine') as Extent
+    const wr = await slice('extent', 'x', wOpt) as Extent
+    console.log('      X   ── 前緣 ──  ── 後緣 ──  ── 弦長 ──  ── 厚度 ──')
+    console.log('          自家   參考  自家   參考  自家   參考  自家   參考')
+    for (let i = 0; i < wm.planes.length; i++) {
+      if (wm.count[i]! === 0 || wr.count[i]! === 0) continue
+      const c = (m: Extent) => m.uMax[i]! - m.uMin[i]!
+      const t = (m: Extent) => m.vMax[i]! - m.vMin[i]!
+      console.log(
+        `  ${n(wm.planes[i]!, 6, 2)}${n(wm.uMin[i]!, 7, 2)}${n(wr.uMin[i]!, 7, 2)}`
+        + `${n(wm.uMax[i]!, 7, 2)}${n(wr.uMax[i]!, 7, 2)}`
+        + `${n(c(wm), 7, 2)}${n(c(wr), 7, 2)}${n(t(wm), 7, 2)}${n(t(wr), 7, 2)}`,
+      )
+    }
+
+    // ── 三之二、水平尾翼：與主翼同一個手法，uWindow 限住 Z 才不會混到主翼
+    console.log('\n── 三之二、水平尾翼（uWindow Z ∈ [9.5, 13.6]）──')
+    const tOpt = { from: 0.6, to: 3.9, count: 12, uWindow: [9.5, 13.6] }
+    const tm = await slice('extent', 'x', tOpt, 'mine') as Extent
+    const tr = await slice('extent', 'x', tOpt) as Extent
+    console.log('      X   ── 前緣 ──  ── 後緣 ──  ── 弦長 ──')
+    console.log('          自家   參考  自家   參考  自家   參考')
+    for (let i = 0; i < tm.planes.length; i++) {
+      if (tm.count[i]! === 0 || tr.count[i]! === 0) continue
+      const c = (m: Extent) => m.uMax[i]! - m.uMin[i]!
+      console.log(
+        `  ${n(tm.planes[i]!, 6, 2)}${n(tm.uMin[i]!, 7, 2)}${n(tr.uMin[i]!, 7, 2)}`
+        + `${n(tm.uMax[i]!, 7, 2)}${n(tr.uMax[i]!, 7, 2)}`
+        + `${n(c(tm), 7, 2)}${n(c(tr), 7, 2)}`,
+      )
+    }
+
+    /**
+     * ── 四、側視上緣線（垂尾與背線）────────────────
+     *
+     * **正上方那一條射線**，`maxRadius` 開大。射線不吃離群幾何，也不吃天線
+     * 鋼索（實測：`extent` 那一段量到的 Y 上界差 0.8~2.1 m 全是鋼索，
+     * 射線量到的同一段只差 0.04）。
+     */
+    console.log('\n── 四、側視上緣線（正上方射線）────────────────')
+    const fOpt = { from: 8.0, to: 13.4, count: 28, angles: 72, axisV: 0.0, maxRadius: 4.0 }
+    const fm = await slice('radial', 'z', fOpt, 'mine') as Rad
+    const fr = await slice('radial', 'z', fOpt) as Rad
+    console.log('      Z     自家    參考     差')
+    for (let k = 0; k < fm.planes.length; k++) {
+      // 【windowDeg 0】垂尾是薄板，只讀正上方那一條
+      const a = pick(fm.r[k]!, fm.theta, 90, 0)
+      const b = pick(fr.r[k]!, fr.theta, 90, 0)
+      console.log(`  ${n(fm.planes[k]!, 6, 2)}  ${n(a)}  ${n(b)}  ${n(a - b)}`)
     }
   },
 

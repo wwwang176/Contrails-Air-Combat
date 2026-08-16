@@ -415,12 +415,10 @@ function placeRef(): void {
   const m = model.metrics
   refModel.scale.setScalar(1)
   refModel.position.set(0, 0, 0)
-  refModel.updateMatrixWorld(true)
-  const raw = new Box3().setFromObject(refModel)
   // 轉向在內層（模型自己的軸向），俯仰在外層（世界 X 軸）——兩者若擠在
   // 同一個 Euler 上，180° 的翻轉會把俯仰的正負也一起翻掉。
   //
-  // 【He 111 讓這件事更嚴重】它的 yaw 是 90°，而 pitch 繞的是世界 X 軸 ——
+  // 【He 111 讓這件事更嚴重】它的 yaw 是 −90°，而 pitch 繞的是世界 X 軸 ——
   // 順序反過來的話 pitch 套在一台長度還躺在 X 上的模型上，那是滾轉不是俯仰。
   const cfg = REFS[SPECS[specIndex]!.id]!
   refModel.children[0]!.rotation.y = cfg.yaw * DEG
@@ -433,7 +431,20 @@ function placeRef(): void {
    * 都短了——Bf 109 是 9.481 對 9.87（−4.0%）、P-51D 是 11.030 對 11.286
    * （−2.3%）。整台縮小幾個百分點，之後量到的每一個尺寸都跟著錯。
    * 翼尖是乾淨的基準：±X 的極端點必然是翼尖，沒有起落架、螺旋槳、天線。
+   *
+   * 【`raw` 必須在**轉向之後**量 —— 2026-08-17 修】原本這一行在
+   * `rotation.y` 之前，量到的是模型**自己座標系**的 X 幅度。
+   *
+   * P-51D 與 Bf 109 的 yaw 都是 180°，繞 Y 轉半圈不改 X 的幅度，所以那個
+   * 順序錯誤在它們身上是隱形的。**He 111 的 yaw 是 −90°** —— 轉之前的 X
+   * 是它的**長度軸**（2.890），轉之後才是翼展（3.765）。
+   *
+   * 後果是縮放算成 22.60/2.890 = 7.820 而不是 6.003：**整台大 30%**。
+   * 而且它是**時好時壞**的：`placeRef` 第二次被呼叫時 `children[0]` 已經
+   * 轉過了，量到的就是對的 —— 所以症狀是「勾一次太大、再勾一次就正常」，
+   * 而中間沒有任何東西會提醒你第一次是錯的。
    */
+  const raw = new Box3().setFromObject(refModel)
   refModel.scale.setScalar(SPECS[specIndex]!.wing.span / raw.getSize(new Vector3()).x)
   refModel.updateMatrixWorld(true)
   const scaled = new Box3().setFromObject(refModel)
