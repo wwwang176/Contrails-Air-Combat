@@ -72,21 +72,56 @@ const KILL = {
 } as const
 
 /**
- * 撤離。**四個數字全部是起始值，待 spec §8 的掃描回填。**
+ * 撤離的共用幾何。**由 `test/tools/evacuate.probe.ts` 實測定值**（spec §8）。
  *
  * ```
- *   撤離點 −20,000 m ── 玩家起點 z≈+5,000（entryRange/2），直線 25 km
- *   抵達半徑  1,000 m ── 20 km 外佔螢幕高度 8.8%（2·atan(1000/20000)/65°）
- *   時限        240 s ── 巡航 200 m/s 要 125 s；纏鬥速度 100~130 m/s 要 190~250 s
+ *   撤離點 −20,000 m ── 玩家起點 z≈+5,000（entryRange/2），直線 25 km。
+ *                       表一實測直飛 12/16/20/25/30 km 各要 84.0/104.8/125.5/
+ *                       151.3/177.0 s —— 線性，沒有結構，所以維持 20 km
+ *   抵達半徑  1,000 m ── 表三：四個候選的判定都是精確的（判到達時的距離
+ *                       等於半徑，差 0~1 m），沒有跨步漏判。挑 1,000 是
+ *                       因為它在 20 km 外佔螢幕高度 8.8%：500 只有 4.4%
+ *                       （太小），2,000 有 17.6%（大到擋視野）
  * ```
  *
  * 【為什麼撤離點在敵人後方】藍隊開局朝 −Z，紅隊在 −Z。所以玩家必須打穿
  * 出去 —— 撤離點若在背後，最佳打法是開局轉頭直線飛，那不是一場仗。
+ *
+ * 【時限不在這裡】它逐卡不同，見下面兩張撤離卡。
  */
 const EVAC = {
   objective: '飛抵撤離點',
-  evacDistance: 20000, evacRadius: 1000, seconds: 240, playable: true,
+  evacDistance: 20000, evacRadius: 1000, playable: true,
 } as const
+
+/**
+ * 時限的餘裕倍率。**這是難度的旋鈕**，起始值 1.4（四成的機動預算）。
+ *
+ * 表一實測（直飛、不迴避、WEP）給的是路徑時間的**下限**；乘上餘裕才是
+ * 「一邊閃一邊走」的預算。1.2 = 兩成，緊到完全不能停下來打；1.6 = 六成，
+ * 寬到時限形同虛設。
+ *
+ * 【為什麼兩張卡的秒數不一樣】表四：同盟國玩家開 P-51（全場最快），
+ * 對頭交錯之後 16 架 Bf109 追不上，125.5 s 到；軸心國玩家開 Bf109，
+ * 被更快的 P-51 追，168.2 s 到而且掉一架僚機。**同一個秒數會讓一張卡
+ * 太鬆、另一張幾乎不可能。**
+ */
+const EVAC_MARGIN = 1.4
+
+/**
+ * 直飛到撤離點的實測秒數（`evacuate.probe.ts` 表四，20 km、WEP、不迴避）。
+ *
+ * 【為什麼把它們寫成常數再乘】時限**是推導出來的**，不是挑出來的。
+ * 直接寫 175 與 235 的話，下一次量出不同的路徑時間時，沒有人知道要
+ * 怎麼重算。
+ */
+const EVAC_STRAIGHT_ALLIES = 125.5
+const EVAC_STRAIGHT_AXIS = 168.2
+
+/** 同盟國「且戰且走」：125.5 × 1.4 = 175.7 → 176 */
+const EVAC_SECONDS_ALLIES = Math.round(EVAC_STRAIGHT_ALLIES * EVAC_MARGIN)
+/** 軸心國「撤出包圍」：168.2 × 1.4 = 235.5 → 236 */
+const EVAC_SECONDS_AXIS = Math.round(EVAC_STRAIGHT_AXIS * EVAC_MARGIN)
 
 /**
  * 兩個陣營的任務。
@@ -120,7 +155,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'allies-evac', title: '且戰且走', type: '撤離', difficulty: 5,
       summary: '頂著數量劣勢活著退出戰區。',
-      blueCount: 4, redCount: 16, ...EVAC,
+      blueCount: 4, redCount: 16, ...EVAC, seconds: EVAC_SECONDS_ALLIES,
     },
   ],
   axis: [
@@ -147,7 +182,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'axis-evac', title: '撤出包圍', type: '撤離', difficulty: 5,
       summary: '在補給斷絕的機場起飛並脫離。',
-      blueCount: 4, redCount: 16, ...EVAC,
+      blueCount: 4, redCount: 16, ...EVAC, seconds: EVAC_SECONDS_AXIS,
     },
   ],
 }
