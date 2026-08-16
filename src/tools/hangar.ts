@@ -140,8 +140,11 @@ const REFS: Record<string, RefSpec> = {
    * 遠高於它們佔的兩行；丟掉就要重量一次。
    *
    * ```
-   *   yaw 90     長度在 X、翼展在 Z（另外兩台是長度在 Z）
+   *   yaw −90    長度在 X、機首朝 −X、翼展在 Z（另外兩台是長度在 Z）
    *              Z 的包圍盒對稱於 0（−1.881 / +1.883）→ 那是翼展軸
+   *              【正負是實證的】我先憑算的寫成 +90，套下去機首朝 +Z。
+   *              轉正後的驗收：機首在 −Z、翼展落在 X 且幅度 22.600 m、
+   *              水平尾翼落在 Z 13.5~15.5（尾端）——三條都要對才算擺對
    *
    *   pitch 2.4  這台機首朝下 2.4°，所以要往上轉回來
    *              量法：沿弦向（X）切 33 刀，uWindow 限住 Z 只留單邊機翼，
@@ -161,7 +164,7 @@ const REFS: Record<string, RefSpec> = {
    * 16.40 m，只差 −1.2%。對照坑 21：Bf 109 那台主翼偏大 2.7%、尾翼偏小
    * 11%，是「位置可信、尺寸不可信」；這台兩項都可信。
    */
-  he111: { url: '/ref/he_111-h6.glb', yaw: 90, pitch: 2.4 },
+  he111: { url: '/ref/he_111-h6.glb', yaw: -90, pitch: 2.4 },
 }
 const refCache: Record<string, Object3D | null> = {}
 let refVisible = false
@@ -627,32 +630,56 @@ function applyRefMaterial(root: Object3D): void {
  * 整條產線從第一格就歪了。**
  *
  * 【為什麼刻意不呼叫 placeRef】那會把 He 111 縮放到當前自家模型（P-51D）的
- * 翼展上 —— 疊出來很好看，量出來全是錯的。這個口回的是**原始座標系**的
- * 數字，`__hangarSlice` 接著切的也是原始座標；縮放與轉正等自家模型出現、
- * 進 `REFS` 之後再走正常路徑。
+ * 翼展上 —— 疊出來很好看，量出來全是錯的。
+ *
+ * 【align：量測要在對齊後的座標系裡做】不給 `align` 時回的是原始座標系，
+ * 那是第 1 步（確認朝向與姿態）要的。第 2 步開始就要給 —— 坑 16 要求
+ * **所有零件在同一個座標系裡量**，而把量出來的原始數字拿回腳本裡二次換算
+ * 就是「自己手推換算」的另一種形式（`__hangarInfo` 的註解記過那個教訓：
+ * 推過至少四次，錯過一次）。讓場景先轉好，切片器量到的就直接是答案。
+ *
+ * 【內外兩層與 placeRef 同構】內層繞模型自己的 Y 轉正朝向、外層繞世界 X
+ * 轉正俯仰。擠在同一個 Euler 上的話，轉向會把俯仰的正負一起翻掉。
  *
  * 【三角形數要看】`crossSection` 每切一刀就掃過全部三角形。He 111 H-6 是
- * 3.6 M（P-51D 的 4 倍），一輪 44 刀的徑向掃描要以分鐘計，不是秒。
+ * 3.6 M（P-51D 的 4 倍），實測 29 刀約 6 秒。
  */
 ;(window as unknown as Record<string, unknown>)['__hangarProbe'] =
-    (url: string) => new Promise((resolve, reject) => {
+    (
+      url: string,
+      align?: { yaw: number; pitch: number; scale: number },
+    ) => new Promise((resolve, reject) => {
       new GLTFLoader().load(url, (gltf) => {
         // 【要在量之前套】節點的位移／旋轉／縮放都在矩陣上，不套的話量到的
         // 是各 mesh 自己的區域座標 —— 而那正是「原始包圍盒讀起來很怪」的
         // 成因（有的模型把整台的縮放放在節點上，accessor 正規化到 ±1）
         gltf.scene.updateMatrixWorld(true)
-        const box = new Box3().setFromObject(gltf.scene)
-        const size = new Vector3()
-        box.getSize(size)
 
         // 舊的參考模型讓位，並清掉世界座標的三角形快取（坑 2c）
         if (refModel) refModel.visible = false
         refTris = null
         applyRefMaterial(gltf.scene)
-        scene.add(gltf.scene)
-        refModel = gltf.scene
+
+        let root: Object3D = gltf.scene
+        if (align) {
+          const inner = new Group()
+          inner.add(gltf.scene)
+          inner.rotation.y = align.yaw * DEG
+          const outer = new Group()
+          outer.add(inner)
+          outer.rotation.x = align.pitch * DEG
+          outer.scale.setScalar(align.scale)
+          outer.updateMatrixWorld(true)
+          root = outer
+        }
+        scene.add(root)
+        refModel = root
         refVisible = true
         refCheck.checked = true
+
+        const box = new Box3().setFromObject(root)
+        const size = new Vector3()
+        box.getSize(size)
 
         /**
          * 逐 mesh 的世界包圍盒。
@@ -669,8 +696,10 @@ function applyRefMaterial(root: Object3D): void {
           name: string; tris: number
           min: number[]; max: number[]; size: number[]
         }[] = []
+        // 【從 root 走而不是從 gltf.scene】兩者涵蓋的 mesh 相同，但只有
+        // 從 root 走才保證讀到的 `matrixWorld` 已經含 align 那兩層
         const pb = new Box3()
-        gltf.scene.traverse((o) => {
+        root.traverse((o) => {
           const mesh = o as Mesh
           const g = mesh.geometry
           if (!g?.getAttribute) return
