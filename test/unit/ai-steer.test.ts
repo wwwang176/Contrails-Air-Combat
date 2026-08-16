@@ -5,8 +5,11 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor,
+  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
+  sweetYield, type SteerConfig,
 } from '../../src/ai/steer'
+import { NO_INTERCEPT } from '../../src/world/lead'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { rallyAim } from '../../src/ai/rally'
 import { DEG } from '../../src/core/math'
 import { createCommand } from '../../src/control/Controller'
@@ -540,11 +543,35 @@ describe('steerCommand', () => {
     expect(cmd.brake).toBe(0)
   })
 
-  it('超前閘門 → 減速全開且油門收掉', () => {
+  /**
+   * 【2026-08-13：超前不再收油門】舊版是 `throttle = THROTTLE_FLOOR` +
+   * `brake = 1`，三個手段（後置、高 yo-yo、減速）同時消耗能量。實測的
+   * 症狀：525 km/h 掉到 149 km/h 同時爬升 700 m —— 而 `overshoot` 的
+   * 觸發條件（`range < 120 && closureRate > 0`）**純幾何、不看速度**，
+   * 且優先序最高，所以「我沒速度了該俯衝」的 `speedRecover` 永遠輪不到。
+   * 進入 `overshoot` 的取樣有 73~88% 早就低於角落速度。
+   *
+   * 新版只留幾何手段（瞄準點的後置與高 yo-yo），能量交給既有的角落速度
+   * 判準 —— 真的超速才減速，低於角落速度時一點都不減。
+   */
+  it('超前閘門不收油門', () => {
     scene([0, 4000, -80], [0, 0, -120])
     steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
-    expect(cmd.brake).toBe(1)
-    expect(cmd.throttle).toBeLessThan(0.5)
+    expect(cmd.throttle).toBe(WEP_THROTTLE)
+  })
+
+  it('超前閘門且速度低於角落速度 → 不減速', () => {
+    scene([0, 4000, -80], [0, 0, -120])
+    sit.cornerRatio = 0.8
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.brake).toBe(0)
+  })
+
+  it('超前閘門但速度遠高於角落速度 → 仍然減速', () => {
+    scene([0, 4000, -80], [0, 0, -120])
+    sit.cornerRatio = 2.5
+    steerCommand('engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.brake).toBeGreaterThan(0)
   })
 
   it('速度遠高於角落速度 → 減速（不是靠 VNE 判斷）', () => {
@@ -1049,7 +1076,6 @@ describe('extend 的俯仰是連續量', () => {
     expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
   })
 })
-
 /**
  * 反轉 —— 他衝過頭之後攻守易位。
  *
@@ -1549,5 +1575,424 @@ describe('rally 意圖', () => {
       'rally', 'normal', sit, basis, self, 3900, knobs, createDefendState(), point, cmd,
     )
     expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(floorPitchAngle(100), 9)
+  })
+})
+
+/**
+ * 拉桿紀律（`Situation.pullCeiling`，見 `ai/doctrine.ts`）。
+ *
+ * 【它與失速那一層的差別】`unloadPull` 只在 `unload` 這個幾何下有意義，
+ * 因為它防的是「拉太猛」。能量見底防的是「速度太低」，那在**任何**幾何下
+ * 都會發生 —— AI 把自己拉爆不限於 `unload`。所以這一層無條件套。
+ */
+describe('steerCommand：拉桿紀律', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 1, vertical: 0 }
+  let self: Aircraft
+
+  /** 目標在側前方，製造一個夠大的瞄準誤差角。 */
+  const scene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [600, 4000, -400], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5      // 離失速很遠 → unloadPull 回傳 1
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+  }
+
+  /** 機首與瞄準點的夾角，rad。 */
+  const errAngle = (a: Aircraft, aim: Vector3) => {
+    const nose = new Vector3(0, 0, -1).applyQuaternion(a.state.orientation)
+    return Math.acos(Math.min(1, Math.max(-1, nose.dot(aim))))
+  }
+
+  it('非 unload 的 mode 下也生效', () => {
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = errAngle(self, cmd.aimWorld)
+    expect(before).toBeGreaterThan(30 * DEG)   // 場景真的有誤差角可以收
+
+    sit.pullCeiling = 0.4
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(before * 0.4, 6)
+  })
+
+  /**
+   * 【這一條守的是「沒有能量問題時什麼也不做」】把 `shrinkTowardNose` 由
+   * 「只在 unload」變成無條件，是這批改動裡行為改變最大的一步。參照值由
+   * `aimFromKnobs` 獨立算出，不是拿同一支函式的另一次呼叫比自己。
+   */
+  it('pullCeiling 為 1 時與未經這一層的輸出逐位元相同', () => {
+    scene()
+    const reference = new Vector3()
+    aimFromKnobs(basis, sit, k, reference, DEFAULT_STEER)
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(cmd.aimWorld.x).toBe(reference.x)
+    expect(cmd.aimWorld.y).toBe(reference.y)
+    expect(cmd.aimWorld.z).toBe(reference.z)
+  })
+
+  /**
+   * 【方位是硬性不變量】見 `shrinkTowardNose` 的註解：指揮儀把瞄準誤差的
+   * 方位讀成滾轉需求。舊版違反這條時實測滾轉指令由 2–3° 暴增到 27–29°、
+   * 副翼打到滿舵。
+   *
+   * 【量的是機體座標的滾轉方位，不是世界水平方位】指揮儀讀的是
+   * `atan2(aimBody.x, aimBody.y)`。沿大圓往機首收**本來就會**改世界方位
+   * （誤差角變小了），改不得的是「往哪邊滾」。`applyFloor` 保的才是世界
+   * 水平方位 —— 兩個不同的「方位」，別搞混。
+   */
+  it('滾轉方位不動', () => {
+    const rollAzimuth = (a: Aircraft, aim: Vector3) => {
+      const body = aim.clone().applyQuaternion(a.state.orientation.clone().invert())
+      return Math.atan2(body.x, body.y)
+    }
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = rollAzimuth(self, cmd.aimWorld)
+
+    sit.pullCeiling = 0.3
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(rollAzimuth(self, cmd.aimWorld)).toBeCloseTo(before, 6)
+  })
+
+  /** 兩層取較小值 —— 誰先擋住算誰的。 */
+  it('unload 時與失速那一層取較小值', () => {
+    scene()
+    // unloadMargin 是 1.15，所以要落在 (1, 1.15) 之間才拿得到小於 1 的係數
+    sit.stallMargin = 1.06
+    const stall = unloadPull(1.06, DEFAULT_STEER)
+    expect(stall).toBeGreaterThan(0)
+    expect(stall).toBeLessThan(1)
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const raw = errAngle(self, cmd.aimWorld)
+
+    // 失速那一層比較嚴 → 由它決定
+    sit.pullCeiling = 0.95
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(raw * stall, 6)
+
+    // 能量那一層比較嚴 → 換它決定
+    sit.pullCeiling = 0.2
+    steerCommand('engage', 'unload', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(errAngle(self, cmd.aimWorld)).toBeCloseTo(raw * 0.2, 6)
+  })
+})
+
+/**
+ * 甜蜜區偏置（`Situation.sweetPitch`，見 `ai/doctrine.ts`）。
+ *
+ * 【與 `applyFloor` 的分工】`applyFloor` 只抬不壓（那是它能無條件疊加的
+ * 理由），甜蜜區需要雙向，所以是它的姊妹函式。兩者保的都是**世界水平
+ * 方位** —— 與 `shrinkTowardNose` 保的「機體滾轉方位」不是同一個東西。
+ */
+describe('applyPitchBias', () => {
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+  const azOf = (v: Vector3) => Math.atan2(v.x, -v.z)
+
+  it('抬頭與低頭都能，方位不動', () => {
+    const aim = new Vector3(0.5, 0, -1).normalize()
+    const az = azOf(aim)
+    const p0 = pitchOf(aim)
+
+    applyPitchBias(10 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(p0 + 10 * DEG, 9)
+    expect(azOf(aim)).toBeCloseTo(az, 9)
+    expect(aim.length()).toBeCloseTo(1, 12)
+
+    applyPitchBias(-20 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(p0 - 10 * DEG, 9)
+    expect(azOf(aim)).toBeCloseTo(az, 9)
+  })
+
+  it('偏置為 0 時逐位元不動', () => {
+    const aim = new Vector3(0.5, 0.2, -1).normalize()
+    const copy = aim.clone()
+    applyPitchBias(0, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  it('夾在 ±80°：偏置的用途是偏一點，不是翻過去', () => {
+    const aim = new Vector3(0, 0, -1)
+    applyPitchBias(120 * DEG, aim)
+    expect(pitchOf(aim)).toBeCloseTo(80 * DEG, 9)
+    const down = new Vector3(0, 0, -1)
+    applyPitchBias(-120 * DEG, down)
+    expect(pitchOf(down)).toBeCloseTo(-80 * DEG, 9)
+  })
+})
+
+describe('steerCommand：甜蜜區偏置', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+  let self: Aircraft
+
+  const scene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -800], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+    // 【把射擊讓位那一層推開，這個 describe 才量得到偏置本身】2026-08-16 加。
+    // 這幾條的責任是「`applyPitchBias` 有沒有正確地把角度加到航跡角上」，
+    // 不是「讓位係數對不對」。800 m 同速尾追的 `interceptTime ≈ 0.90 s`，
+    // 落在讓位範圍內（係數 0.75），會把 12° 量成 9°。推到範圍外正是**保住**
+    // 它原本的責任；縮放由下面的 `甜蜜區偏置讓位給射擊解` 那個 describe 驗。
+    // 見 spec `2026-08-16-sweet-spot-shot-yield-design.md` §6.3b。
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 2
+  }
+
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+
+  it('抬頭偏置反映在航跡角上', () => {
+    scene()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const before = pitchOf(cmd.aimWorld)
+
+    sit.sweetPitch = 12 * DEG
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(before + 12 * DEG, 6)
+  })
+
+  /**
+   * 【指揮位階比戰術偏好高】「我想飛高一點」不該蓋過「去那個點集合」。
+   * 見 spec §4.4。
+   */
+  it('rally 意圖不套甜蜜區', () => {
+    scene()
+    const point = new Vector3(3000, 4000, -3000)
+    sit.sweetPitch = 0
+    steerCommand('rally', 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd)
+    const without = cmd.aimWorld.clone()
+
+    sit.sweetPitch = 15 * DEG
+    steerCommand('rally', 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd)
+    expect(cmd.aimWorld.x).toBe(without.x)
+    expect(cmd.aimWorld.y).toBe(without.y)
+    expect(cmd.aimWorld.z).toBe(without.z)
+  })
+
+  /** 【底限的優先序最高】「想低頭換速度」不能贏過「快撞海了」。 */
+  it('撞地底限壓過甜蜜區的低頭', () => {
+    scene()
+    sit.sweetPitch = -20 * DEG
+    // 地表抬到離自機只剩 50 m
+    steerCommand(
+      'engage', 'normal', sit, basis, self, self.state.position.y - 50,
+      k, createDefendState(), null, cmd,
+    )
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(floorPitchAngle(50), 9)
+    expect(pitchOf(cmd.aimWorld)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 甜蜜區偏置的射擊讓位。spec `2026-08-16-sweet-spot-shot-yield-design.md`。
+ *
+ * 【它在防什麼】`sit.sweetPitch` 只看機種對、高度、空速 —— 不看距離、不看
+ * 瞄準誤差、不看有沒有射擊解。命令的航跡角是
+ * `−(下瞄角 × pullCeiling) + sweetPitch`，所以偏置本身就是一個**平衡偏移**。
+ * 109 在 4000 m／500 km/h 的偏置是 +10°，機首因此穩定停在目標線上方 10°，
+ * 而 `DEFAULT_FIRE.trackingCone` 只有 3° —— 結構上開不了火（人工回報）。
+ */
+describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
+  it('沒有攔截解時完全不讓位', () => {
+    expect(sweetYield(NO_INTERCEPT)).toBe(1)
+  })
+
+  it('彈丸飛不到時完全不讓位', () => {
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime)).toBe(1)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 2)).toBe(1)
+  })
+
+  it('貼著臉時完全讓位', () => {
+    expect(sweetYield(0)).toBe(0)
+  })
+
+  it('中間是線性的', () => {
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 2)).toBeCloseTo(0.5, 12)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 4)).toBeCloseTo(0.25, 12)
+  })
+
+  /** 【設定寫壞時讓本層失效，不是把 AI 鎖死】與 `energyPull` 同一個退化方向。 */
+  it('時間尺度設為 0 = 這一層關閉', () => {
+    const off: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: 0 }
+    for (const t of [0, 0.1, 0.5, 1.2, 5]) expect(sweetYield(t, off)).toBe(1)
+  })
+
+  /**
+   * 【NaN 會汙染整個操縱向量】它與任何數比較都是 false，所以會穿過每一個
+   * 分支，從最後一行帶著 `NaN / span` 出去，乘進偏置後讓 `aimWorld` 整個
+   * 變 NaN。Codex 審查 2026-08-16 抓到。
+   */
+  it('非有限的攔截時間不讓位，不吐出 NaN', () => {
+    for (const t of [Number.NaN, Infinity, -Infinity]) {
+      expect(sweetYield(t)).toBe(1)
+    }
+  })
+
+  it('壞掉的時間尺度一律讓本層失效', () => {
+    for (const span of [0, -1, Number.NaN, Infinity]) {
+      const bad: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: span }
+      for (const t of [0, 0.2, 1.2, 5]) expect(sweetYield(t, bad)).toBe(1)
+    }
+  })
+
+  it('單調不減，而且值域永遠在 [0, 1]', () => {
+    let prev = -Infinity
+    for (let i = 0; i <= 400; i++) {
+      const t = -1 + i * 0.01
+      // NO_INTERCEPT（−1）是哨兵值不是時間，不參與單調性
+      if (Math.abs(t - NO_INTERCEPT) < 1e-12) continue
+      const y = sweetYield(t)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThanOrEqual(1)
+      expect(y).toBeGreaterThanOrEqual(prev)
+      prev = y
+    }
+  })
+
+  /**
+   * 【出貨值錨在哪】`shouldFire` 的第一條就是
+   * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增
+   * 第二套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale`
+   * 同一個手法。
+   */
+  it('出貨的時間尺度就是彈丸壽命', () => {
+    expect(DEFAULT_STEER.sweetYieldTime).toBe(PROJECTILE_LIFETIME)
+  })
+})
+
+/**
+ * 讓位接上消費點之後的行為。**沿用上面那個 describe 的 `scene()` 形狀**，
+ * 但把目標擺在近距離（150 m）以取得短的 `interceptTime`。
+ *
+ * 【為什麼比較兩個 cfg，而不是斷言一個絕對角度】絕對角度會把 `sweetSpotPitch`
+ * 的值、`pullCeiling`、機種對全部綁進判準，那些都不是這幾條要驗的東西。
+ * 比較「讓位開」與「讓位關」隔離出這一層自己的貢獻。
+ */
+describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
+  const OFF: SteerConfig = { ...DEFAULT_STEER, sweetYieldTime: 0 }
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+
+  function aimPitch(
+    interceptTime: number,
+    cfg: SteerConfig,
+    intent: 'engage' | 'rally' | 'defend' = 'engage',
+  ): number {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const self = flyer()
+    const target = flyer()
+    // 目標在正前方 150 m、下方約 15°
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000 - 40, -145], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 10 * DEG
+    engageKnobs(sit, k)
+    // 【最後才蓋掉】buildEngageBasis 會寫這個欄位，所以覆寫必須排在它之後
+    basis.interceptTime = interceptTime
+    const point = intent === 'rally' ? new Vector3(3000, 4000, -3000) : null
+    steerCommand(intent, 'normal', sit, basis, self, 0, k, createDefendState(), point, cmd, cfg)
+    return pitchOf(cmd.aimWorld)
+  }
+
+  it('射擊解已經到手時，抬頭偏置被收掉大半', () => {
+    const on = aimPitch(0.2, DEFAULT_STEER)
+    const off = aimPitch(0.2, OFF)
+    // 0.2 / 1.2 = 1/6，10° 只剩 1.67°，所以差距要超過 8°
+    expect(off - on).toBeGreaterThan(8 * DEG)
+  })
+
+  it('彈丸飛不到時，偏置維持原樣', () => {
+    const far = DEFAULT_STEER.sweetYieldTime * 2
+    expect(aimPitch(far, DEFAULT_STEER)).toBeCloseTo(aimPitch(far, OFF), 12)
+  })
+
+  it('沒有攔截解時，偏置維持原樣', () => {
+    expect(aimPitch(NO_INTERCEPT, DEFAULT_STEER)).toBeCloseTo(aimPitch(NO_INTERCEPT, OFF), 12)
+  })
+
+  /** 既有行為，本輪不得改動 —— 指揮位階比戰術偏好高。 */
+  it('rally 仍然完全不吃這一層', () => {
+    expect(aimPitch(0.2, DEFAULT_STEER, 'rally')).toBe(aimPitch(0.2, OFF, 'rally'))
+  })
+
+  /**
+   * 【為什麼 defend 排除】`basis` 永遠對**攻擊目標**建立
+   * （`AiController.ts:332`），而 `defend` 是對**威脅來源**做的（`defendAim`
+   * 讀 `sit.threatLos`），兩者可以是不同的飛機。對 defend 套讓位會變成
+   * 「我正在閃 A，但要不要讓位由我能不能射中 B 決定」—— 無意義的耦合。
+   *
+   * 這一條釘住「defend 的行為逐位元不變」。見 spec §4.2b。
+   */
+  it('defend 排除在讓位之外，行為逐位元不變', () => {
+    for (const t of [0.05, 0.2, 0.6, NO_INTERCEPT]) {
+      expect(aimPitch(t, DEFAULT_STEER, 'defend')).toBe(aimPitch(t, OFF, 'defend'))
+    }
+  })
+
+  /**
+   * 【遠距離不得被改壞】建一個真的 800 m 態勢，比較讓位開／關的命令輸出。
+   * 不用 `expect(sweetYield(...) > 0.9)` —— 那只是把純函數測試抄一遍，沒有
+   * 建立幾何、也沒有量命令，守不住行為。
+   */
+  it('800 m 的真實態勢下，命令幾乎不動', () => {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -800], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 10 * DEG
+    engageKnobs(sit, k)
+
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, OFF)
+    const off = pitchOf(cmd.aimWorld)
+    steerCommand(
+      'engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, DEFAULT_STEER,
+    )
+    const on = pitchOf(cmd.aimWorld)
+
+    // 【兩邊都要夾】只寫 `< 3°` 是單邊的：讓位若把號搞反、`on` 比 `off` 還
+    // 抬頭，差值變負仍然會通過（Codex 審查 2026-08-16）。所以直接對上由
+    // 真實 `interceptTime` 算出的期望值。
+    const expected = 10 * DEG * (1 - sweetYield(basis.interceptTime))
+    expect(on).toBeCloseTo(off - expected, 9)
+    // 這一場的實際幅度：同速尾追 800 m 的 interceptTime ≈ 0.90 s，
+    // 係數 ≈ 0.75，10° 少掉約 2.5°
+    expect(expected).toBeGreaterThan(0)
+    expect(expected).toBeLessThan(3 * DEG)
   })
 })

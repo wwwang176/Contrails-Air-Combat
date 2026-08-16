@@ -51,7 +51,7 @@ describe('手感係數層', () => {
   })
 
   it('滾轉倍率只動 clDa，其餘欄位逐一相同', () => {
-    const f = applyFeel(P51D, { roll: 1.2, oswald: 1, power: 1, lift: 1, cd0: 1 })
+    const f = applyFeel(P51D, { roll: 1.2, oswald: 1, power: 1, lift: 1, cd0: 1, mass: 1 })
     expect(f.moments.clDa).toBeCloseTo(P51D.moments.clDa * 1.2, 12)
     expect(f.id).toBe(P51D.id)
     // 其餘力矩導數不動
@@ -70,7 +70,7 @@ describe('手感係數層', () => {
 
   it('不修改傳入的 spec', () => {
     const before = P51D.moments.clDa
-    applyFeel(P51D, { roll: 1.5, oswald: 1, power: 1, lift: 1, cd0: 1 })
+    applyFeel(P51D, { roll: 1.5, oswald: 1, power: 1, lift: 1, cd0: 1, mass: 1 })
     expect(P51D.moments.clDa).toBe(before)
   })
 

@@ -13,6 +13,10 @@ import { RAD } from '../../src/core/math'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Battery } from '../../src/weapons/types'
+import { alarmFactor } from '../../src/ai/assess'
+import { DEFAULT_RULES } from '../../src/ai/rules'
+import { createCommand } from '../../src/control/Controller'
+import type { EngageBasis } from '../../src/ai/steer'
 
 /**
  * # 看得見的閃躲
@@ -70,7 +74,36 @@ const HIT_CONE = 2
  * 調動後若這兩條紅了，處置是**重量並回填**（連同新倍率一起記進這段註解），
  * 不是逕自放寬 —— 那是專案負責人的裁定。
  */
-const SHOOTABLE_LIMIT = 0.08   // 舊軸較小的那個 16.2% 的一半
+/**
+ * 「玩家壓得住準星」的上限，**逐距離**。
+ *
+ * 【2026-08-11 由單一常數 0.08 拆成兩格，專案負責人裁定接受】拿掉飛行員
+ * 過載硬夾之後（`control/limiters.ts`，6.5 G → 結構極限）實測：
+ *
+ * ```
+ *   700 m   0.130   ← 紅了（原門檻 0.08）
+ *   900 m   通過     ← 一格沒動
+ * ```
+ *
+ * **退化是局部的**：近距離時瞄準誤差大，指揮儀要求最大轉彎率、現在給到
+ * 8 G，AI 拉爆自己於是閃不掉；900 m 要求的轉彎率本來就碰不到上限，毫髮
+ * 無傷。專案負責人裁定「AI 拉爆自己這件事本身合理，接受」。
+ *
+ * 【為什麼拆開而不是一律拉到 0.14】900 m 那一格現在守得好好的，一律拉高
+ * 等於把它的牙齒一起拔掉。同日 `ai-defence` 是同樣的模式（四格裡三格變好、
+ * 一格爆掉），處置也一樣：**退化是局部的，例外就該是局部的。**
+ *
+ * 【0.14 已經刪掉了，2026-08-11】AI 能量紀律（`ai/doctrine.ts` 的
+ * `energyPull`）上線後 700 m 這一格回到 0.08 並通過 —— 驗證成功，例外
+ * 整筆撤銷。上面那段留著是為了記錄它為什麼曾經存在。
+ *
+ * 【原本的來歷】0.08 = 舊軸較小的那個 16.2% 的一半。量於 `specs/feel.ts`
+ * 的 `{ roll: 1.2, oswald: 2, power: 1.98, lift: 1.3, cd0: 2.06 }`；現在的
+ * 出貨值是 `{ …, power: 1.572, cd0: 1.636, mass: 0.8 }`，但這條測試走的是
+ * **史實 spec**（`new Aircraft(P51D, …)`），不經過手感層 —— 所以上面那次
+ * 紅燈與手感倍率無關，純粹是過載上限造成的。
+ */
+const SHOOTABLE_LIMIT = 0.08
 const CONTRAST_FLOOR = 6       // 地板：明顯大於「完全不閃」，不是新舊的鑑別器
 
 function harmless(b: Battery): Battery {
@@ -725,10 +758,32 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
 
   /**
    * 【這一條驗的是軸的幾何，與 AI 的接線無關】腳本對腳本、同一個場景、
-   * 只換軸的取法，所以它不含任何魔術數字 —— 下次調手感倍率也不會失效。
+   * 只換軸的取法。
    *
    * 上面那兩條絕對常數驗的是**真實 AI 在完整場景下**的表現，會隨倍率漂移。
    * 兩層是不同的東西，都要留。
+   *
+   * 【2026-08-11 更正一個過度的宣告】原註解寫「不含任何魔術數字 —— 下次
+   * 調手感倍率也不會失效」。**那個自信只對一半**：它對 `feel.ts` 的倍率
+   * 免疫（兩軸同時受惠、比值不動），但對**過載上限**不免疫。當天拿掉
+   * 飛行員硬夾（6.5 G → 結構極限）之後這條就紅了。
+   *
+   * 【而且紅的方向是好的】實測對照：
+   *
+   * ```
+   *              舊軸對比   新軸對比
+   *   原本        3.67×     12.39×
+   *   8 G 之後    6.44×     12.17×
+   * ```
+   *
+   * **新軸沒變差，是舊軸變好了** —— 升力軸的閃躲在 8 G 下甩得動了，而新軸
+   * 本來就接近天花板，於是 3 倍的餘裕被壓縮成 1.9 倍。主判準
+   * （`horiz.hitShare < lift.hitShare / 2`）全程通過，「新軸比較好」這個
+   * 設計結論仍然成立。
+   *
+   * 倍率因此由 3 改為 1.8。**這一條與同日另外三條的放寬不是同一筆帳** ——
+   * 那三條是「接受 AI 拉爆自己」的後果，這一條是舊軸受惠於更高的過載上限，
+   * 與 AI 的判斷無關。
    */
   it('腳本對照：新軸必須明顯優於舊軸', () => {
     const none = scripted('none')
@@ -756,7 +811,7 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
     // 副判準：新軸的視覺對比至少是舊軸的 3 倍
     const contrastLift = lift.swingMedian / none.swingMedian
     const contrastHoriz = horiz.swingMedian / none.swingMedian
-    expect(contrastHoriz).toBeGreaterThan(contrastLift * 3)
+    expect(contrastHoriz).toBeGreaterThan(contrastLift * 1.8)
     // 護欄：新軸不得比舊軸掉更多高度
     expect(horiz.minAlt).toBeGreaterThanOrEqual(lift.minAlt)
   }, 5 * 60 * 1000)
@@ -776,4 +831,731 @@ describe('看得見的閃躲（三機、腳本射手、180 秒）', () => {
     for (const [behind, tas] of OVERTAKE) events += reversalEvents(behind, tas)
     expect(events).toBeGreaterThan(0)
   }, 5 * 60 * 1000)
+})
+
+// ══ 手電筒觀測儀 ═══════════════════════════════════════════
+
+/** 觀測儀的等速直線軌跡 —— 兩個參數就定義了它的一生 */
+interface LampTrack {
+  /** 起點（世界座標） */
+  start: Vector3
+  /** 恆定速度。位置 = `start + vel × elapsed`，與被觀測者無關 */
+  vel: Vector3
+}
+
+/**
+ * 把觀測儀放到軌跡上 `elapsed` 秒處，機首指向對 `prey` 的**彈道預瞄點**，
+ * 並把那個方向寫進 `outDir` 回傳。
+ *
+ * 【這是唯一一份歸位邏輯】合約與 `lampMeasure` 都呼叫它。分成兩份的話，
+ * 合約驗的就不是量測真正跑的東西（2026-08-15 Codex 第五輪 C2）。
+ *
+ * 【位置只由軌跡決定，**絕對不參考 `prey` 的當下位置**】黏在目標身上的話，
+ * 從它指向目標的向量恆等於 −offset、是個常數 —— 預瞄方向一格都不會動，
+ * `leadSwing` 恆為 0，而且四個方位、開關兩組全部都是 0，看起來像一致的
+ * 結果（Codex 第四輪抓到的致命缺陷）。**自由的是轉動，不是位置。**
+ *
+ * 【先算預瞄點、再擺機首 —— 順序反了就是另一個致命缺陷】`alarmFactor`
+ * 比的是「機首 vs **彈道預瞄方向**」，不是「機首 vs 目標」（見 `assess.ts`
+ * 的 `alarmFactor`）。指著目標本體的話，橫向相對速度 200 m/s 就產生 12.7°
+ * 的提前角，而 `defend` 的門檻只有 9.75°（`ALARM_CONE` 15° ×
+ * (1 − `threatEnter` 0.35)）—— **AI 閃得越用力，手電筒越照不到它**。
+ * 而且警戒斜坡（`ALARM_SATURATION` = 0.5 s）一歸零就要重來，等於閃躲
+ * 本身把威脅關掉了。
+ *
+ * 指著預瞄點則讓 `alarmFactor` 在**建構上**恆等於 1（同樣的 `solveLead`、
+ * 同樣的輸入），那道閘門於是退化成純粹的彈道有效性：解存在，且飛行時間
+ * ≤ `PROJECTILE_LIFETIME`。那才是「玩家的預瞄環真的套在它身上」。
+ *
+ * 【`buildEngageBasis` 在這裡不吃姿態】`leadPoint` 只由雙方的位置與速度
+ * 決定。姿態只影響 `losAxis` 的退化退路與 `verticalAxis`，兩者本函數都
+ * 不用 —— 所以「用上一格的姿態算這一格的預瞄點」沒有循環。量測值因此與
+ * 觀測儀的姿態無關；姿態存在的唯一理由是讓 AI 感覺被瞄準。
+ *
+ * 【`angularVelocity` 要清零】位置被外部改寫之後它是垃圾值，而物理是直接
+ * 累積 `state.angularVelocity`（不是從 `prevOrientation` 反推）。
+ */
+function advanceLamp(
+  lamp: Aircraft,
+  prey: Aircraft,
+  track: LampTrack,
+  elapsed: number,
+  basis: EngageBasis,
+  outDir: Vector3,
+): Vector3 {
+  lamp.state.position.copy(track.start).addScaledVector(track.vel, elapsed)
+  lamp.state.velocity.copy(track.vel)
+  lamp.state.angularVelocity.set(0, 0, 0)
+
+  buildEngageBasis(lamp, prey, basis)
+  outDir.copy(basis.leadPoint).normalize()
+  lamp.state.orientation.setFromUnitVectors(FWD, outDir)
+
+  lamp.prevPosition.copy(lamp.state.position)
+  lamp.prevOrientation.copy(lamp.state.orientation)
+  return outDir
+}
+
+describe('手電筒觀測儀的合約（O(1)，不跑場景）', () => {
+  /** 造一架擺在指定位置、機首指向 look 的飛機 */
+  const at = (pos: Vector3, look: Vector3, vel: Vector3): Aircraft => {
+    const a = new Aircraft(BLUNT, ALT, TAS)
+    a.state.position.copy(pos)
+    a.state.velocity.copy(vel)
+    a.state.orientation.setFromUnitVectors(FWD, look)
+    a.prevPosition.copy(pos)
+    a.prevOrientation.copy(a.state.orientation)
+    return a
+  }
+
+  /**
+   * 【一】800 m 精準瞄準時，觸發閃躲的是 `alarmFactor` 而不是 `threatFactor`。
+   *
+   * `threatFactor` 有距離因子，800 m 時只有 1 − 800/900 ≈ 0.111，遠低於
+   * `threatEnter`（0.35）。本專案早就發現並修過那個缺陷（`AiController` 的
+   * 註解：「實測 700/900 m 被連續射擊 180 秒，`defend` 進入率 0.0%」），
+   * 修法就是另做 `alarmFactor` —— 它沒有距離因子。
+   *
+   * 少了這一條，整個掃描會在「AI 從頭到尾不閃」的情況下跑完，而讀表的人
+   * 會以為那是 AI 的問題。
+   */
+  it('800 m 精準瞄準：alarmFactor 滿值，threatFactor 遠低於門檻', () => {
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+    advanceLamp(lamp, prey, track, 0, createEngageBasis(), new Vector3())
+    expect(alarmFactor(lamp, prey)).toBeCloseTo(1, 6)
+    expect(threatFactor(lamp, prey)).toBeLessThan(DEFAULT_RULES.threatEnter)
+  })
+
+  /**
+   * 【二】彈丸壽命是 `alarmFactor` 唯一的距離閘門。800 m 過得了，
+   * 1200 m 過不了 —— 這條把「為什麼 standoff 選 800」釘在測試裡。
+   */
+  it('彈丸壽命是唯一的距離閘門', () => {
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const track: LampTrack = { start: new Vector3(0, ALT, 1200), vel: new Vector3(0, 0, -TAS) }
+    const far = new Aircraft(BLUNT, ALT, TAS)
+    advanceLamp(far, prey, track, 0, createEngageBasis(), new Vector3())
+    expect(alarmFactor(far, prey)).toBe(0)
+  })
+
+  /**
+   * 【二之二 —— 排除「偷偷加回固定截斷」】1000 m 仍然要有值。
+   *
+   * 只驗「800 過、1200 不過」的話，一個把 `THREAT_RANGE`（900）或任何
+   * 900~1000 的固定截斷加回來的實作照樣全綠（Codex 第五輪 C2）。1000 m 在
+   * 彈丸壽命內（1.2 s × 887 m/s ≈ 1064 m）卻在 900 m 外，正好把兩者分開。
+   */
+  it('900 m 外、彈丸壽命內：仍然有警戒', () => {
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    const track: LampTrack = { start: new Vector3(0, ALT, 1000), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+    advanceLamp(lamp, prey, track, 0, createEngageBasis(), new Vector3())
+    expect(alarmFactor(lamp, prey)).toBeGreaterThan(0)
+    expect(threatFactor(lamp, prey)).toBe(0)
+  })
+
+  /**
+   * 【三 —— 「瞄準敵機」那個歧義的守門員】機首要指**預瞄點**，不是目標本體。
+   *
+   * `alarmFactor` 比的是「機首 vs 彈道預瞄方向」。橫向相對速度 200 m/s 對
+   * 887 m/s 的機砲產生 atan(200 × 0.9 / 800) ≈ 12.7° 的提前角，而 `defend`
+   * 的門檻只有 `ALARM_CONE` × (1 − `threatEnter`) = 15° × 0.65 = 9.75°。
+   *
+   * 也就是說：指著目標本體的手電筒，**在 AI 開始橫向閃躲的那一刻就失去了
+   * 觸發 defend 的資格** —— 閃得越用力越量不到，是最壞的一種選樣偏差。
+   *
+   * 這一條同時證明「瞄預瞄點」不是風格選擇，而是這條路唯一能走的走法。
+   */
+  it('橫向閃躲時：瞄目標本體會掉出 defend 門檻，瞄預瞄點不會', () => {
+    // 目標帶 200 m/s 的橫向速度 —— 這就是「正在往旁邊閃」
+    const prey = at(new Vector3(0, ALT, 0), FWD, new Vector3(200, 0, -TAS))
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // 正確：advanceLamp 指向預瞄點 —— 在建構上滿值
+    advanceLamp(lamp, prey, track, 0, createEngageBasis(), new Vector3())
+    expect(alarmFactor(lamp, prey)).toBeCloseTo(1, 6)
+
+    // 舊做法：指向目標本體
+    const los = new Vector3().subVectors(prey.state.position, lamp.state.position).normalize()
+    lamp.state.orientation.setFromUnitVectors(FWD, los)
+    const atBody = alarmFactor(lamp, prey)
+    expect(atBody).toBeGreaterThan(0)                        // 還在 15° 錐內
+    expect(atBody).toBeLessThan(DEFAULT_RULES.threatEnter)   // 但不足以觸發 defend
+  })
+
+  /**
+   * 【四 —— 「黏在目標身上」的守門員】觀測儀必須有自己獨立的軌跡。
+   *
+   * 若位置永遠是「目標當下位置 + 固定位移」，從它指向目標的向量恆等於
+   * −位移，是個常數 —— 預瞄方向一格都不會動，`leadSwing` 恆為 0，而且
+   * 四個方位、開關兩組**全部**都是 0，看起來像一致的結果。
+   *
+   * 【這一條必須呼叫 `advanceLamp` 本人】手工擺兩個狀態的話，一個仍然
+   * 黏著的實作照樣全綠（Codex 第五輪 C2）。所以下面直接斷言 helper 產出
+   * 的位置**等於軌跡公式**、且**不等於黏著公式**。
+   */
+  it('歸位函數不黏在目標身上：位置逐位元由軌跡決定', () => {
+    const basis = createEngageBasis()
+    const dir0 = new Vector3()
+    const dir1 = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // t=0：同向並飛，觀測儀在正後方 800 m
+    const prey0 = at(new Vector3(0, ALT, 0), FWD, new Vector3(0, 0, -TAS))
+    advanceLamp(lamp, prey0, track, 0, basis, dir0)
+    expect(lamp.state.position.distanceTo(track.start)).toBeLessThan(1e-6)
+
+    // t=1 秒：目標**轉了 90°**往 −X 飛，而且離開了原本的航跡
+    const prey1 = at(new Vector3(-150, ALT, -150), new Vector3(-1, 0, 0), new Vector3(-TAS, 0, 0))
+    advanceLamp(lamp, prey1, track, 1, basis, dir1)
+
+    // 位置 = start + vel × 1，與目標做了什麼無關
+    const onTrack = track.start.clone().addScaledVector(track.vel, 1)
+    expect(lamp.state.position.distanceTo(onTrack)).toBeLessThan(1e-6)
+    // 而且**不是**「目標當下位置 + 固定位移」—— 黏著版本會落在這裡
+    const glued = prey1.state.position.clone().add(new Vector3(0, 0, 800))
+    expect(lamp.state.position.distanceTo(glued)).toBeGreaterThan(100)
+    // 目標轉了向，看過去的方向就必須改變
+    expect(dir0.angleTo(dir1) * RAD).toBeGreaterThan(5)
+  })
+
+  /**
+   * 【五 —— 接線】前四條都只驗純函數。這一條驗**產線真的走這條路**：
+   * `AiController.scanThreat` 用 `alarmFactor` 掃全場、挑出手電筒當
+   * `threatSource`，最後意圖變成 `defend`。
+   *
+   * 少了它，前四條可以全綠而 `lampMeasure` 仍然量到一架從頭到尾不閃的 AI
+   * （Codex 第五輪 C2）。
+   *
+   * 【不跑 `world.step`】幾何由手動維持，只餵決策 —— 480 次 `update`，
+   * 仍然是毫秒級。警戒斜坡 `ALARM_SATURATION` = 0.5 s，2 秒綽綽有餘。
+   *
+   * 【遠處那一架紅隊的用途】沒有它的話 `threatSource === lamp` 是唯一解，
+   * 證明不了「掃描真的在比較」。
+   */
+  it('接線：AI 靠 alarmFactor 進 defend，且認得是手電筒在瞄它', () => {
+    const world = new World()
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+    const far = new Aircraft(BLUNT, ALT, TAS)
+
+    const preyPos = new Vector3(0, ALT, 0)
+    const farPos = new Vector3(3000, ALT, 0)
+    const vel = new Vector3(0, 0, -TAS)
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: vel.clone() }
+
+    const pc = world.add(prey, new Lazy(), 'blue', preyPos, ALT, TAS)
+    const lc = world.add(lamp, new Lazy(), 'red', track.start, ALT, TAS)
+    const fc = world.add(far, new Lazy(), 'red', farPos, ALT, TAS)
+    for (const c of [pc, lc, fc]) c.respawnOnDestroy = false
+
+    const ai = new AiController()
+    ai.board = createTargetBoard(world.combatants)
+    ai.selfIndex = pc.index
+    ai.profile = VETERAN
+
+    const basis = createEngageBasis()
+    const dir = new Vector3()
+    const cmd = createCommand()
+    for (let i = 0; i < 2 * 240; i++) {
+      const t = i * DT
+      // 手動維持幾何：受測方與遠處那架都等速直飛，間距因此恆定
+      prey.state.position.copy(preyPos).addScaledVector(vel, t)
+      prey.state.velocity.copy(vel)
+      far.state.position.copy(farPos).addScaledVector(vel, t)
+      far.state.velocity.copy(vel)
+      advanceLamp(lamp, prey, track, t, basis, dir)
+      ai.update(prey, DT, cmd)
+    }
+
+    expect(ai.threatSource).toBe(lamp)
+    expect(ai.intent).toBe('defend')
+  })
+})
+
+// 【為什麼要另一條量測路徑】上面那一套用的是**真飛機**射手，而真飛機要
+// 滾轉、要拉桿才轉得過來 —— 那些動作全都灌進「預瞄點動了幾度」，量到的
+// 不只是 AI 的閃躲（2026-08-15 Codex 審查 C4；同一份檔案記錄的
+// `ordinaryMedian` 6~11° 就是證據）。
+//
+// 專案負責人 2026-08-15 的解法：把射手當成一隻**可以自由轉動的手電筒**，
+// 始終瞄準在敵機身上。污染源直接移除，比把污染扣掉簡單。
+//
+// 【這是新增不是取代】完美的手電筒瞄準誤差恆為 0，所以上面那條路徑的主
+// 判準 `shootableShare`（機首落在預瞄錐內的佔比）在它身上恆為 1、完全失
+// 去意義。兩條路徑回答兩個不同的問題：真射手問「一個受物理限制的追擊者
+// 跟不跟得住」，手電筒問「預瞄點本身動了多少」。見 spec §3.3。
+
+/** 觀測儀相對受測 AI 的方位 */
+type Probe = 'ahead' | 'crossing' | 'above' | 'below'
+
+/**
+ * 開局幾何。**一律從玩家（觀測儀）的視角描述** —— 專案負責人的原話就是
+ * 這樣講的：「敵人**離我** 800M **在我**正前方前飛 / 在前方往左橫飛 /
+ * 在我下方或上方飛」。
+ *
+ * 【2026-08-16 修正：前一版的 `beam` 根本不是橫飛】它寫成「觀測儀在敵機
+ * 正右方、兩機同向並排」。那不是橫越，是編隊 —— 而且相對速度為零、視線
+ * 角度永遠不變，**幾何本身就是死局**。量到的「AI 破一次就穩住」有可能
+ * 只是那個死局的產物，不是 AI 的行為。
+ *
+ * 【同一輪修正：`high` / `low` 上下顛倒】前一版寫成「觀測儀在敵機上方」，
+ * 也就是「敵人在我下方」—— 與負責人的敘述相反。
+ *
+ * `offset` 是敵機相對觀測儀的位置，`course` 是敵機的開局航向。
+ * 觀測儀一律在原點、機首 `FWD`、等速直線。
+ */
+interface LampAspect {
+  /** 敵機在我的哪個方向、多遠 */
+  offset: Vector3
+  /** 敵機的開局航向（單位向量） */
+  course: Vector3
+  /** 表頭用的中文 */
+  label: string
+}
+
+function aspectOf(probe: Probe, standoff: number): LampAspect {
+  if (probe === 'ahead') {
+    // 正前方，與我同向遠離 —— 典型的尾追
+    return { offset: new Vector3(0, 0, -standoff), course: FWD.clone(), label: '正前方‧前飛' }
+  }
+  if (probe === 'crossing') {
+    // 正前方，往我的左方橫越 —— 視線與它的航跡垂直
+    return { offset: new Vector3(0, 0, -standoff), course: new Vector3(-1, 0, 0), label: '正前方‧橫飛' }
+  }
+  // 正上方 / 正下方，水平飛
+  const sign = probe === 'above' ? 1 : -1
+  return {
+    offset: new Vector3(0, sign * standoff, 0),
+    course: FWD.clone(),
+    label: probe === 'above' ? '我的正上方' : '我的正下方',
+  }
+}
+
+/**
+ * 把一組位置與速度直線外推 `seconds` 秒，寫進 `ghost` 並回傳它。
+ *
+ * 【為什麼吃裸的位置速度而不是一架 `Aircraft`】量測路徑的來源是環形
+ * 緩衝裡的兩個向量，不是一架飛機。若這裡收 `Aircraft`，量測就只能自己
+ * 再手寫一次外推 —— 而**合約驗的就會是另一份實作**。Codex 連三輪抓到
+ * 的正是這一類缺陷（2026-08-16 審查 I3）。
+ *
+ * 【幽靈機只是資料載體】它不進世界、不受物理、不被任何人看見。存在的
+ * 唯一理由是 `buildEngageBasis` 吃的是 `Aircraft`，而我們必須用**產線
+ * 那一份**彈道解，不能自己重寫一個 `solveLead`。
+ */
+function predictAhead(
+  pos: Vector3, vel: Vector3, seconds: number, ghost: Aircraft, look: Vector3,
+): Aircraft {
+  ghost.state.position.copy(pos).addScaledVector(vel, seconds)
+  ghost.state.velocity.copy(vel)
+  ghost.state.angularVelocity.set(0, 0, 0)
+  // 【姿態取速度方向，不複製當下的 prey 姿態】前者與「它照這樣飛下去」
+  // 自洽；後者會把**實際狀態**漏進預測裡，那正是這個量要排除的東西
+  const speed = vel.length()
+  if (speed > 1e-6) {
+    ghost.state.orientation.setFromUnitVectors(FWD, look.copy(vel).divideScalar(speed))
+  }
+  ghost.prevPosition.copy(ghost.state.position)
+  ghost.prevOrientation.copy(ghost.state.orientation)
+  return ghost
+}
+
+/**
+ * **主判準的算法。** 從 `lamp` 的當下位置看出去，「實際的預瞄方向」與
+ * 「預測的預瞄方向」差幾度。
+ *
+ * 【兩條都用同一個 `lamp`】差距因此純粹來自目標狀態的不同，不含觀測者
+ * 自己的位移。
+ *
+ * 【為什麼不是比位置而是比方向】玩家修正的是**準星的角度**，不是目標的
+ * 公尺數。同樣 50 m 的偏移，在 300 m 與 900 m 對玩家的意義差三倍。
+ */
+function aimErrorDeg(
+  lamp: Aircraft, actual: Aircraft, predicted: Aircraft,
+  basis: EngageBasis, a: Vector3, b: Vector3,
+): number {
+  buildEngageBasis(lamp, actual, basis)
+  a.copy(basis.leadPoint).normalize()
+  buildEngageBasis(lamp, predicted, basis)
+  b.copy(basis.leadPoint).normalize()
+  return a.angleTo(b) * RAD
+}
+
+describe('預測誤差的合約（O(1)，不跑場景）', () => {
+  /**
+   * 【六 —— 第五版的地基】理想等速直線的目標，預測誤差恆為 0。
+   *
+   * 這是整個第五版的核心主張：地板不是實測出來的，是**代數上的**。
+   * 第四版的地板是 4.10 / 3.15 / 3.19 / 0.44 度、**方位相依**，害得跨
+   * 方位不能比絕對度數；第五版四個方位對齊在 0。
+   *
+   * 【限定：理想】真實飛機受推力與阻力，速度大小不是嚴格常數，所以
+   * **物理**直飛的自我檢查只能要求接近 0，不能宣稱恆等於 0（審查 M1）。
+   * 這一條驗的是代數，不是物理。
+   *
+   * 這一條紅掉 = 那個主張是假的 = 整個計畫要重想。
+   */
+  it('理想等速直線的目標：預測誤差是 0', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // 目標帶一個任意的斜向等速 —— 直線就好，不必與觀測儀同向
+    const vel = new Vector3(60, -10, -TAS)
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(0, ALT, 0)
+    prey.state.velocity.copy(vel)
+    prey.state.orientation.setFromUnitVectors(FWD, vel.clone().normalize())
+
+    // 一秒前的位置拿來外推，與「一秒後的實際狀態」比
+    const pastPos = prey.state.position.clone().addScaledVector(vel, -1)
+
+    advanceLamp(lamp, prey, track, 0, basis, new Vector3())
+    expect(aimErrorDeg(lamp, prey, predictAhead(pastPos, vel, 1, ghost, look), basis, a, b))
+      .toBeCloseTo(0, 6)
+  })
+
+  /**
+   * 【七 —— 「角度變小也算閃」的守門員】這是專案負責人推翻第四版的那個
+   * 例子，直接寫成測試。
+   *
+   * 目標在一秒前是往 −X 橫飛的；一秒之內它**把橫向速度收掉**（拉回同向）。
+   * 從觀測者看過去，預瞄點跑的**距離變短了** —— 第四版會判「動得比較少
+   * = 沒在閃」。預測誤差不會：它比的是落點，而落點差很多。
+   */
+  it('角度變小也是閃躲：預測誤差抓得到', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    // 一秒前：往 −X 橫飛
+    const pastPos = new Vector3(0, ALT, 0)
+    const pastVel = new Vector3(-150, 0, -TAS)
+    // 一秒後的實際：橫向收掉了，所以位置落在「繼續橫飛」的右邊
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(-40, ALT, -TAS)
+    prey.state.velocity.set(0, 0, -TAS)
+
+    // 【17.3° 是動工前算出來的，不是跑出來回填的】獨立解一次彈道：
+    //   實際   p=(-40,0,-800) v=(0,0,0)      → t=0.903，lead 方向偏 2.9°
+    //   預測   p=(-150,0,-800) v=(-150,0,0)  → t=0.961，lead 方向偏 20.2°
+    // 差 17.33°。用區間而不是 toBeCloseTo：容得下浮點與求根分支的差異，
+    // 但擋得住「少乘一個提前量」或「正負號寫反」那一類的錯
+    advanceLamp(lamp, prey, track, 1, basis, new Vector3())
+    const err = aimErrorDeg(lamp, prey, predictAhead(pastPos, pastVel, 1, ghost, look), basis, a, b)
+    expect(err).toBeGreaterThan(14)
+    expect(err).toBeLessThan(21)
+  })
+
+  /**
+   * 【八 —— 「往上下偏開也算閃」的守門員】同樣的位移量，改成鉛直方向。
+   *
+   * 負責人原話的後半句：「或是預瞄點往上或往下（這樣也是成功閃躲）」。
+   * 這一條確認判準不是只對水平面敏感。
+   */
+  it('往上偏開也是閃躲：預測誤差抓得到', () => {
+    const basis = createEngageBasis()
+    const ghost = new Aircraft(BLUNT, ALT, TAS)
+    const a = new Vector3()
+    const b = new Vector3()
+    const look = new Vector3()
+    const track: LampTrack = { start: new Vector3(0, ALT, 800), vel: new Vector3(0, 0, -TAS) }
+    const lamp = new Aircraft(BLUNT, ALT, TAS)
+
+    const pastPos = new Vector3(0, ALT, 0)
+    const pastVel = new Vector3(0, 0, -TAS)
+    // 一秒後：它拉起來了，比「繼續直飛」高 40 m
+    const prey = new Aircraft(BLUNT, ALT, TAS)
+    prey.state.position.set(0, ALT + 40, -TAS)
+    prey.state.velocity.set(0, 60, -TAS)
+
+    // 獨立解一次彈道：預測是純尾追（相對速度 0，lead 就是 (0,0,-1)），
+    // 實際 p=(0,40,-800) v=(0,60,0) → t=0.908，lead=(0,94.5,-800)，偏 6.74°
+    advanceLamp(lamp, prey, track, 1, basis, new Vector3())
+    const err = aimErrorDeg(lamp, prey, predictAhead(pastPos, pastVel, 1, ghost, look), basis, a, b)
+    expect(err).toBeGreaterThan(5)
+    expect(err).toBeLessThan(9)
+  })
+})
+
+/**
+ * 預測窗長，秒。判準問的是「我以為它**一秒後**會在哪」。
+ *
+ * 【它與 `WINDOW` 是同一個數字但不是同一件事】`WINDOW`（240 步）是
+ * `Swing` 的滑動窗；這裡是外推的前瞻時間。第五版不用 `Swing`，兩者
+ * 因此不再耦合 —— 專案負責人日後要調「N 秒」時只改這一個。
+ */
+const LOOKAHEAD = 1
+const LOOKAHEAD_STEPS = LOOKAHEAD * 240
+
+/** 觀察窗上界，秒。實際窗長是第一段連續彈道有效期，見 `validSeconds` */
+const LAMP_SECONDS = 20
+
+/**
+ * 【取樣前要先讓場景進入穩態】2026-08-16 Codex 審查 I1：
+ *
+ * 第一筆樣本在 `t ≈ 1s`，它比的是 `t=0` 到 `t=1s` —— 而那一秒的歷史
+ * **完整包含開場**：`alarmRamp` 約 0.2 秒才跨過門檻，`VETERAN.reactionDelay`
+ * 是 0.3 秒（意圖已是 `defend`，舵令還要再等）。也就是說第一批樣本量到的
+ * 是「AI 還沒開始閃」。
+ *
+ * 修法不是猜一個延遲常數，而是**直接要求整段前瞻窗都在閃**：維護一個
+ * 連續 `defend` 的計數器，只有連續時間 ≥ `LOOKAHEAD` + 反應延遲才取樣。
+ */
+const SETTLE_STEPS = Math.ceil(VETERAN.reactionDelay * 240)
+
+/**
+ * **主判準的下限**：玩家一秒前把準星放在預瞄點上，一秒後必須修正的角度，
+ * 度。中位數。低於它 = 玩家看不出 AI 在閃。
+ *
+ * 【錨在哪】就是同檔的 `HIT_CONE` —— 「射手機頭離預瞄點多少度以內算打得
+ * 中」，它的註解寫著「機砲的散佈與目標張角都在這個尺度」。所以這條門檻的
+ * 意思很短：**預瞄點在一秒內移動超過這個角度，玩家原本會命中的那一槍就
+ * 打不中了**。那正是「他必須重新瞄」的操作型定義。
+ *
+ * 【為什麼不從掃描的現況推導】那是照著現況畫靶 —— 現況必然通過，護欄沒有
+ * 牙齒。這專案已經三次栽在「自訂量測看起來過關、實際沒解決問題」
+ * （2026-08-13 spec §7.5）。`HIT_CONE` 是為了別的用途、在這一輪之前就存在
+ * 的常數，與 AI 現在的表現無關。
+ *
+ * 【兩個交叉檢查】800 m 的機體翼展張角是 0.81°（翼端 5.65 m）；量測本身的
+ * 雜訊地板是 0.16~0.59°（腳本直飛的自我檢查）。2° 在兩者之上都有餘裕。
+ *
+ * 【它現在擋不住任何東西】改正幾何之後四個場景是 5.50~7.46°，全部通過。
+ * 這條門檻目前的作用是**防迴歸**，不是**推動改善** —— 專案負責人 2026-08-16
+ * 裁定就這樣落地，之後依試玩再調。
+ */
+const AIM_ERROR_FLOOR = HIT_CONE
+
+interface AimResult {
+  /** **主判準**：預測誤差的中位數，度 */
+  aimError: number
+  /** 有效取樣裡受測方進 `defend` 的比例 */
+  defendShare: number
+  /**
+   * 取樣點上 `defend.reversal > 0` 的比例 —— **歸因的破口**。
+   *
+   * `defend` 的意圖不保證轉向命令是閃躲：`reversalAim` 是明確的**追擊解**，
+   * 而 `geometryGate` 的 `overshoot` / `speedRecover` / `planeDegenerate`
+   * 也會在意圖仍是 `defend` 時覆蓋防禦分支（審查 I2）。這一欄與
+   * `normalModeShare` 把那些情況印出來，不用嘴巴保證。
+   */
+  reversalShare: number
+  /** 取樣點上 `ai.mode === 'normal'` 的比例 —— 沒有被幾何閘門改寫 */
+  normalModeShare: number
+  /** 有效取樣裡 AI 認定「在瞄我的是手電筒」的比例 —— 歸因護欄 */
+  lampShare: number
+  /** 有效取樣數 */
+  samples: number
+  /** 第一段**連續**有效窗的長度，秒 */
+  validSeconds: number
+  /** 兩架飛機全程都活著 */
+  allAlive: boolean
+}
+
+/**
+ * 手電筒量測（第五版）：場上只有受測方與觀測儀。
+ *
+ * @param evade `false` 時把受測方換成腳本直飛（`ScriptedBreaker` + `mode='none'`）
+ *              —— 那是**量測工具的自我檢查**，預測誤差應該接近 0。它不是
+ *              對照組：第五版的數學地板是 0，不需要跑第二場來取得。
+ *
+ * 【為什麼沒有誘餌】專案負責人 2026-08-16：「量測時不應該讓敵機去追逐
+ * 敵人，也不是追逐手電筒，是讓敵機直飛，但是被手電筒瞄準時閃躲。」
+ * 誘餌會讓受測 AI 為了追它而轉彎，那個彎一樣會讓預瞄點移動而且無法歸因。
+ *
+ * 【目標是手電筒，會不會變成追逐手電筒】場上只有兩架，受測 AI 必然選
+ * 觀測儀當目標（`selectTarget` 只在自己死了或無活敵人時回 null）。緩解
+ * 在於它全程處在 `defend`，而破防的瞄準是 `LOS·cos(75°) + axis·sin(75°)`
+ * —— **偏離視線 75°，是破開不是追擊**。
+ *
+ * 但這**不是**一個程式上的不變量（審查 I2）：`cos 75° ≈ 0.259`，仍含
+ * 26% 朝攻擊者的分量；`reversalAim` 更是明確的追擊解；`geometryGate` 也
+ * 會覆蓋防禦分支。所以本函數回報 `defendShare`、`reversalShare` 與
+ * `normalModeShare` 三個數字，讓讀表的人自己判斷，不靠敘述保證。
+ *
+ * 【歷史環形緩衝】要拿「一秒前的位置與速度」，所以存 `LOOKAHEAD_STEPS + 1`
+ * 格，先寫後讀。只存位置與速度 —— 外推只需要這兩個。
+ */
+function aimMeasure(standoff: number, probe: Probe, evade: boolean): AimResult {
+  const world = new World()
+  const prey = new Aircraft(BLUNT, ALT, TAS)
+  const lamp = new Aircraft(BLUNT, ALT, TAS)
+  const ghost = new Aircraft(BLUNT, ALT, TAS)
+
+  // 【觀測儀在原點，敵機依開局幾何擺位】見 `aspectOf` —— 一律從玩家視角
+  const aspect = aspectOf(probe, standoff)
+  const lampPos = new Vector3(0, ALT, 0)
+  const preyPos = aspect.offset.clone().add(lampPos)
+  for (const [a, p, c] of [
+    [prey, preyPos, aspect.course], [lamp, lampPos, FWD],
+  ] as const) {
+    a.state.position.copy(p)
+    a.state.velocity.copy(c).multiplyScalar(TAS)
+    a.state.orientation.setFromUnitVectors(FWD, c)
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.copy(a.state.orientation)
+  }
+
+  const ai = new AiController()
+  const breaker = new ScriptedBreaker()
+  breaker.mode = 'none'
+  breaker.threat = lamp
+  const pc = world.add(prey, evade ? ai : breaker, 'blue', preyPos, ALT, TAS)
+  // 【觀測儀不開火】它是量測儀器，不是戰鬥單位（spec §6）。`Lazy.update`
+  // 明確 `firing = false`，而且兩架都用 `BLUNT`（無傷害彈藥）
+  const lc = world.add(lamp, new Lazy(), 'red', lampPos, ALT, TAS)
+  for (const c of [pc, lc]) c.respawnOnDestroy = false
+
+  ai.board = createTargetBoard(world.combatants)
+  ai.selfIndex = pc.index
+  ai.profile = VETERAN
+
+  const basis = createEngageBasis()
+  const dir = new Vector3()
+  const look = new Vector3()
+  const va = new Vector3()
+  const vb = new Vector3()
+  const track: LampTrack = { start: lampPos.clone(), vel: new Vector3(0, 0, -TAS) }
+
+  // 歷史環形緩衝：一秒前的位置與速度
+  const histP: Vector3[] = []
+  const histV: Vector3[] = []
+  for (let i = 0; i <= LOOKAHEAD_STEPS; i++) {
+    histP.push(new Vector3())
+    histV.push(new Vector3())
+  }
+  let head = 0
+  let filled = 0
+
+  const errors: number[] = []
+  let defendN = 0
+  let reversalN = 0
+  let normalN = 0
+  let lampN = 0
+  let samples = 0
+  let inside = false
+  let validFrom = 0
+  let validTo = 0
+  let allAlive = true
+  /** 連續處在 `defend` 的格數 —— 見 `SETTLE_STEPS` 的註解 */
+  let defendRun = 0
+
+  for (let s = 0; s < LAMP_SECONDS * 240; s++) {
+    world.step(DT)
+    if (!pc.alive || !lc.alive) {
+      allAlive = false
+      break
+    }
+
+    advanceLamp(lamp, prey, track, (s + 1) * DT, basis, dir)
+
+    // ── 有效窗：第一段連續的「彈道解成立」，失效即停 ──────
+    const valid = alarmFactor(lamp, prey) > 0
+    if (!inside) {
+      if (!valid) continue
+      inside = true
+      validFrom = s
+    } else if (!valid) {
+      break
+    }
+    validTo = s
+
+    defendRun = !evade || ai.intent === 'defend' ? defendRun + 1 : 0
+
+    // 記這一格的狀態，然後回頭拿 LOOKAHEAD 秒前的那一格
+    const n = histP.length
+    histP[head]!.copy(prey.state.position)
+    histV[head]!.copy(prey.state.velocity)
+    const oldIdx = (head - LOOKAHEAD_STEPS + n) % n
+    head = (head + 1) % n
+    if (filled <= LOOKAHEAD_STEPS) filled++
+
+    // 【整段前瞻必須落在有效期內，而且整段都在閃】
+    // `filled` 保證環形緩衝有一秒歷史；`s - validFrom` 保證那一秒都在
+    // 彈道有效期內；`defendRun` 保證那一秒 AI 都在 defend 而且反應延遲
+    // 已經排空（審查 I1）
+    if (filled <= LOOKAHEAD_STEPS) continue
+    if (s - validFrom < LOOKAHEAD_STEPS) continue
+    if (defendRun < LOOKAHEAD_STEPS + SETTLE_STEPS) continue
+    if (s % 12 !== 0) continue
+
+    samples++
+    errors.push(aimErrorDeg(
+      lamp, prey, predictAhead(histP[oldIdx]!, histV[oldIdx]!, LOOKAHEAD, ghost, look),
+      basis, va, vb,
+    ))
+    if (evade) {
+      if (ai.intent === 'defend') defendN++
+      if (ai.defend.reversal > 0) reversalN++
+      if (ai.mode === 'normal') normalN++
+      if (ai.threatSource === lamp) lampN++
+    }
+  }
+
+  const d = Math.max(samples, 1)
+  return {
+    aimError: median(errors),
+    defendShare: defendN / d,
+    reversalShare: reversalN / d,
+    normalModeShare: normalN / d,
+    lampShare: lampN / d,
+    samples,
+    validSeconds: (validTo - validFrom) * DT,
+    allAlive,
+  }
+}
+
+describe('預瞄預測誤差（手電筒觀測儀、兩架、開局 800 m）', () => {
+  for (const probe of ['ahead', 'crossing', 'above', 'below'] as const) {
+    it(`${aspectOf(probe, 800).label}：我以為它一秒後在哪 vs 它實際在哪`, () => {
+      const on = aimMeasure(800, probe, true)
+      const off = aimMeasure(800, probe, false)
+      console.log(
+        `[預測誤差] ${aspectOf(probe, 800).label} 800m`
+        + ` 閃躲=${on.aimError.toFixed(2)}°`
+        + ` 直飛自檢=${off.aimError.toFixed(2)}°`
+        + ` defend佔時=${(on.defendShare * 100).toFixed(1)}%`
+        + ` 反轉=${(on.reversalShare * 100).toFixed(1)}%`
+        + ` 正常模式=${(on.normalModeShare * 100).toFixed(1)}%`
+        + ` 瞄我的是手電筒=${(on.lampShare * 100).toFixed(1)}%`
+        + ` 有效窗=${on.validSeconds.toFixed(1)}s／自檢 ${off.validSeconds.toFixed(1)}s`
+        + ` 取樣=${on.samples}／自檢 ${off.samples}`
+        + ` 存活=${on.allAlive}／${off.allAlive}`,
+      )
+      // 【這一輪的斷言只驗「量測有效」，不驗「AI 夠好」】主判準的門檻由
+      // 專案負責人裁定，這一輪連寫都不寫。
+      for (const [name, r] of [['閃躲', on], ['自檢', off]] as const) {
+        expect(r.allAlive, `${name}：兩架飛機要全程活著`).toBe(true)
+        // 【直接斷言取樣數，不用秒數間接推】審查 I4：validSeconds 只比 2
+        // 大一點時大約只有 21 筆、涵蓋約一秒實際資料，容易被一次短暫機動
+        // 主導中位數
+        expect(r.samples, `${name}：取樣數`).toBeGreaterThanOrEqual(40)
+        expect(r.validSeconds, `${name}：連續有效窗`).toBeGreaterThan(3)
+        expect(Number.isFinite(r.aimError)).toBe(true)
+      }
+      // 【量測工具的自我檢查】腳本直飛的預測誤差必須接近 0。
+      // 它若不接近 0，代表外推或彈道解寫錯了，整張表都不能看。
+      // 【為什麼不是恰好 0】真實飛機受推力與阻力，速度大小不是嚴格常數
+      expect(off.aimError, '直飛的預測誤差要接近 0').toBeLessThan(1)
+      // 場景成立：AI 真的在閃、而且知道是誰在瞄它
+      expect(on.defendShare).toBeGreaterThan(0.9)
+      expect(on.lampShare).toBeGreaterThan(0.9)
+      // 【主判準】玩家看得出 AI 在閃 —— 見 `AIM_ERROR_FLOOR`
+      expect(on.aimError, '預瞄偏移要大於一個命中錐').toBeGreaterThan(AIM_ERROR_FLOOR)
+    }, 10 * 60 * 1000)
+  }
 })

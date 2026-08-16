@@ -409,6 +409,62 @@ describe('stepCommand：命令的生命週期', () => {
   })
 
   /**
+   * 【2026-08-13：到達判定由小隊質心改成長機】兩層各自都對，合起來卻永遠
+   * 不成立：
+   *
+   * - `AiController` 只把集合點給**長機**（見該檔「只操縱長機，編隊靠既有
+   *   機制跟上」）。僚機拿到的是「別打了」+ 站位保持，它們貼著長機飛。
+   * - 而解除判的是**小隊質心**。僚機在站位偏置上落後，質心永遠被拖在長機
+   *   後面 —— 長機飛過點的那一瞬，質心離點還有站位尺度的距離。
+   *
+   * 症狀是實機回報的：長機在高空無限垂直繞圈。`rallyAim` 是對一個固定點的
+   * 純追擊、沒有抵達行為，所以命令不解除就等於繞圈不會停。實測 log
+   * （seed 297534859、座位 #8）`命令 rally` 連續握了 200 秒以上，高度鎖在
+   * 5258~5306 m、速度 319~333 km/h、mode 恆為 `unload`。
+   *
+   * 判長機就沒有這個縫：被送去的那一架自己說了算。
+   */
+  it('只有長機到達也解除（僚機沒跟上）', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const order = sc.s.orders[0]!
+    // 只搬長機（units[0] = flights[0].members[0]），僚機留在原地
+    sc.units[0]!.position.copy(order.point)
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
+   * 【反向】質心到了但長機沒到 → 不解除。少了這一條，實作偷偷退回質心
+   * 判定時上面那條仍然會綠（質心也在點上）。
+   */
+  it('質心到了但長機沒到 → 不解除', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const order = sc.s.orders[0]!
+    // 長機在點的一側 1000 m，僚機在對側 1000 m → 質心恰在點上
+    sc.units[0]!.position.copy(order.point).x -= 1000
+    sc.units[1]!.position.copy(order.point).x += 1000
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).not.toBeNull()
+  })
+
+  /**
+   * 【長機陣亡時繼位】`compactFlights` 保序重壓，`members[0]` 自動換人。
+   * 但命令層拿到的是快照，所以這一條驗的是「掃第一個**存活**的成員」——
+   * 若實作寫死 `members[0]` 而那一架已陣亡，命令會永遠解除不了。
+   */
+  it('長機陣亡 → 改看繼位的那一架', () => {
+    const sc = scene(0.4)
+    run(sc, cfg.spentSeconds + cfg.planPeriod + 1)
+    const order = sc.s.orders[0]!
+    sc.units[0]!.alive = false
+    sc.units[1]!.position.copy(order.point)
+    run(sc, DT * 2)
+    expect(sc.s.orders[0]).toBeNull()
+  })
+
+  /**
    * 【這一條守著 spec §4.2 的遲滯】解除時把見底計時器歸零，就是遲滯 ——
    * 不需要另外加一個 `latch`。若忘了歸零，抵達的下一格就會立刻重發，小隊
    * 會被永久釘在命令狀態。

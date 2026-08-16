@@ -14,6 +14,7 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
 import { createVortex } from './render/vortex'
+import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
@@ -42,10 +43,12 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import type { FlightOrder } from './ai/command'
 import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
+import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
@@ -181,6 +184,10 @@ const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
+// 【不進 POOLS】它沒有粒子狀態要在換場時歸零 —— 每一幀由指揮層的命令
+// 重新填滿，上一場的內容活不過一幀
+const orderMarkers = createOrderMarkers()
+ctx.scene.add(orderMarkers.object)
 const debris = createDebris()
 
 /**
@@ -412,6 +419,22 @@ function enterBattle(): void {
   playerAi.board = battle.board
   playerAi.selfIndex = player.index
   playerAi.setDecisionPhase(player.index / world.combatants.length)
+  // 【重現一場戰鬥的鑰匙】種子是 `Math.random()` 抽的，不印出來就永遠
+  // 找不回這一場。（設定, 種子, 秒數, 座位）四樣湊齊，無頭環境就能把
+  // 同一場逐位元重跑 —— 人工試飛回報異常行為時，那是唯一的復現途徑。
+  //
+  // 【種子不進物理路徑】它只配飛行員名字，但它是 `createBattle` 唯一的
+  // 非決定性輸入，所以仍然是鑰匙的一部分。
+  console.log(
+    `[戰鬥] 種子 ${battle.seed}　藍 ${setup.blueCount} × ${setup.specId}`
+    + `　紅 ${setup.redCount}　玩家座位 #${player.index}`,
+  )
+  telemetryAt = 0
+  // 【命令的計數也要歸零】不歸零的話「第 87 張」會跨場累積，那個數字
+  // 從此不能拿來比較
+  orderRef = null
+  orderSince = 0
+  orderCount = 0
   respawnPlayer()
   wasDying = false
   // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
@@ -422,9 +445,126 @@ function enterBattle(): void {
   leaveGodView()
 }
 
+/**
+ * 每 `TELEMETRY_PERIOD` 秒印一行玩家那一架的狀態。
+ *
+ * 【印的是玩家那一架，不是全場】全場 40 行會把 console 淹掉，而回報者
+ * 看的永遠是自己跟拍的那一架。要看別架就用（種子, 秒數）重跑。
+ *
+ * 【AI 代飛時才有意圖可印】玩家自己飛的時候 `controller` 不是
+ * `AiController`，那幾欄留白 —— 這也順便標示出「這一段是誰在飛」。
+ */
+function logTelemetry(): void {
+  const a = player.aircraft
+  const v = a.state.velocity
+  const speed = v.length()
+  const gamma = speed > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, v.y / speed))) * (180 / Math.PI) : 0
+  const ctl = player.controller
+  const ai = ctl instanceof AiController ? ctl : null
+  console.log(
+    `[t=${elapsed.toFixed(0)}s] #${player.index}`
+    + `　${(a.diag.aero.tas * 3.6).toFixed(0)} km/h`
+    + `　${a.state.position.y.toFixed(0)} m`
+    + `　航跡 ${gamma.toFixed(0)}°`
+    + (ai === null ? '　（玩家操縱）' : `　${ai.intent}/${ai.mode}`
+      + `　目標 ${ai.target === null ? '無' : '#' + world.combatants.findIndex((c) => c.aircraft === ai.target)}`
+      + `　命令 ${orderLabel(ai.order)}`),
+  )
+}
+
+/**
+ * 命令那一欄。**張數與已握秒數是重點，不是 `kind`。**
+ *
+ * 集合令另外印兩個距離:**我的**與**長機的**。
+ *
+ * 【為什麼要印兩個】到達判定比的是 `command.ts` 的 `leaderDistance`，也就是
+ * 分隊裡**第一個存活成員**離集合點多遠。而 `compactFlights` 把玩家釘在
+ * `members[0]`（`flights.ts` 的 `pinned`），所以理論上兩者恆等 —— 這一版
+ * 之前就是靠那個理論只印一個數。
+ *
+ * 2026-08-14 的實機回報打破了那個理論：座位 #8 的距離連續進到 250 m、
+ * 209 m、145 m（判定 300 m），命令卻握了 196 秒沒解除。而 headless 用全 AI
+ * 與「人飛 15 秒再交接」兩種條件、約 40 張命令、幾十萬個物理步，一次都
+ * 複製不出來（`test/tools/rally-stuck.probe.ts`、`rally-handover.probe.ts`
+ * 量的不變式是 0 違反）。
+ *
+ * 所以下一次要讓症狀自己說出是誰：**長機是哪一架、它離集合點多遠**。
+ *   兩個數相同而仍未解除 → 解除路徑本身壞了
+ *   長機不是玩家那一架   → `pinned` 的不變式在遊戲裡不成立，往 compactFlights 查
+ *
+ * 一直繞不進去的話，這一欄會是一串遠大於 300 的數字而張數不動；churn 的
+ * 話會是張數一直跳而秒數一直被歸零。兩種病在同一行裡分得開。
+ */
+function orderLabel(order: FlightOrder | null): string {
+  if (order === null) return '無'
+  const held = (elapsed - orderSince).toFixed(0)
+  const base = `${order.kind}（第 ${orderCount} 張，已握 ${held}s`
+  if (order.kind !== 'rally') return base + '）'
+  const d = player.aircraft.state.position.distanceTo(order.point)
+  return `${base}，我離 ${d.toFixed(0)} m，${leaderLabel(order.point)}`
+    + `／判定 ${order.radius.toFixed(0)} m）`
+}
+
+/**
+ * 判定實際用的那個數：分隊第一個存活成員是誰、離集合點多遠。
+ *
+ * 【為什麼在這裡重算而不是從 command.ts 匯出】`leaderDistance` 是那個模組的
+ * 私有函數，為了一行遙測把它公開會讓「誰可以問到達判定」這件事變模糊。這裡
+ * 逐字重寫五行，並且**刻意讀同一份 `commandUnits` 快照** —— 若快照與飛機
+ * 本體不同步，這一行印出來的就會與「我離」矛盾，那本身就是線索。
+ */
+function leaderLabel(point: Vector3): string {
+  const f = battle.flights.flightOf[player.index] ?? -1
+  const flight = f >= 0 ? battle.flights.flights[f] : undefined
+  if (flight === undefined) return '長機 無編制'
+  for (let i = 0; i < flight.count; i++) {
+    const idx = flight.members[i]!
+    const u = battle.commandUnits[idx]
+    if (u === undefined || !u.alive) continue
+    const d = Math.hypot(u.position.x - point.x, u.position.y - point.y, u.position.z - point.z)
+    return `長機 #${idx} 離 ${d.toFixed(0)} m`
+  }
+  return '長機 全滅'
+}
+
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
+/**
+ * 下一次印遙測的時間，s。
+ *
+ * 【為什麼是週期而不是按鍵】人工試飛看到異常時，手已經在操縱上了 ——
+ * 要他再按一個鍵去標記，那一刻就過去了。定期印讓他事後往回捲就找得到。
+ */
+let telemetryAt = 0
+const TELEMETRY_PERIOD = 15
+
+/**
+ * 玩家那一架**目前**握著的命令物件，用來認同一性。`null` = 沒有命令。
+ *
+ * 【為什麼要認同一性而不是只印 `kind`】`spentSeconds` 是 3 秒、`planPeriod`
+ * 是 2 秒 —— 一張命令解除之後，只要分隊仍然見底，五秒內就會發出新的一張。
+ * 每 15 秒印一次 `kind` 的話，「一張握了 1600 秒」與「一百張各握 16 秒」
+ * 印出來**一模一樣**，而這兩件事的診斷完全相反。
+ *
+ * 2026-08-13 的實機 log 就卡在這裡：`命令 rally` 連續 1600 秒，但那份數據
+ * 分不出集合令到底有沒有在解除。
+ */
+let orderRef: FlightOrder | null = null
+/** `orderRef` 是在哪一秒換上來的 */
+let orderSince = 0
+/** 這一場總共發過幾張命令給玩家那一架。churn 的直接指標 */
+let orderCount = 0
+
+/** 每幀認一次玩家那一架的命令有沒有換人。換了就重新計時 */
+function trackPlayerOrder(): void {
+  const ctl = player.controller
+  const now = ctl instanceof AiController ? ctl.order : null
+  if (now === orderRef) return
+  orderRef = now
+  orderSince = elapsed
+  if (now !== null) orderCount++
+}
 
 /**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
@@ -434,6 +574,7 @@ let elapsed = 0
  * `main.ts` 沒有測試護著，這一步必須看得出來只是搬家。
  */
 function stepAndDrawBattle(frameSeconds: number): void {
+  trackPlayerOrder()
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
   // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
   // 右鍵自由視角時 bindings 不累積 aimDelta，所以瞄準點原地不動，飛機繼續
@@ -714,6 +855,21 @@ function stepAndDrawBattle(frameSeconds: number): void {
   smoke.step(frameSeconds)
   vortex.step(frameSeconds)
   spray.step(frameSeconds)
+
+  // ── 集合點的可視化（`O`）───────────────────────────────
+  // 【觀測工具，不進任何模擬】只讀指揮層的狀態，不寫。
+  //
+  // 【為什麼要有它】集合令的到達判定是「長機進到 `order.radius` 以內」，而
+  // `rallyAim` 對那個點是**純追擊、沒有抵達行為** —— 迴轉半徑大於半徑時，
+  // 長機會在球外面繞著它盤旋而永遠判不到達。那個現象在無頭模擬裡重現不
+  // 出來（2026-08-13 紀錄 §3.1），但畫出來就一眼看得到。
+  //
+  // 【為什麼用 `state.position` 而不是內插後的位置】這條線只是要看「離多
+  // 遠」，一個物理步的抖動（240 Hz）在 300 m 的尺度下看不出來，而拿內插
+  // 位置要把整個 combatants 迴圈的暫存搬出來。
+  orderMarkers.setVisible(input.orderMarkers)
+  if (input.orderMarkers) fillOrderView(battle, orderMarkers)
+
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
@@ -977,6 +1133,10 @@ function frame(now: number) {
     if (!paused) {
       elapsed += frameSeconds
       stepAndDrawBattle(frameSeconds)
+      if (elapsed >= telemetryAt) {
+        telemetryAt = elapsed + TELEMETRY_PERIOD
+        logTelemetry()
+      }
     } else {
       ctx.renderer.render(ctx.scene, ctx.camera)
     }

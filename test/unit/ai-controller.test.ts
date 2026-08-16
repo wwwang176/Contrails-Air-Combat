@@ -8,6 +8,7 @@ import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import { ACE, VETERAN } from '../../src/ai/profile'
 import { MAX_REACTION_DELAY } from '../../src/ai/delay'
 import { INTENTS } from '../../src/ai/rules'
+import { rallyAim } from '../../src/ai/rally'
 import type { FlightOrder } from '../../src/ai/command'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -478,5 +479,69 @@ describe('指揮層的命令', () => {
     const cmd = createCommand()
     for (let i = 0; i < 240; i++) ai.update(self, 1 / 240, cmd)
     expect(ai.target).not.toBe(chosen)
+  })
+})
+
+/**
+ * 早退路徑的拉桿紀律（spec §4.4）。
+ *
+ * 【為什麼要獨立一條】`rallyCommand` 與 `stationCommand` **直接寫 `aimWorld`
+ * 然後 return，根本不經過 `steerCommand`** —— 所以 `steerCommand` 裡的紀律
+ * 對它們無效，「飛去集合點」的途中仍然可以把自己拉爆。
+ *
+ * 【方向性】甜蜜區**不**補到這裡（指揮位階較高），拉桿紀律**要**補：
+ * 沒有任何命令的內容是「把自己拉爆」。
+ */
+describe('AiController：早退路徑的拉桿紀律', () => {
+  const POINT = new Vector3(6000, 4000, -6000)   // 側前方 45°，製造大誤差角
+
+  /** 沒有目標、只有集合命令的長機。`tas` 決定 cornerRatio。 */
+  const rallying = (tas: number) => {
+    const self = new Aircraft(P51D, 4000, tas)
+    self.update(new Vector3(0, 0, -1), 0.7, DT)
+    self.state.position.set(0, 4000, 0)
+    const ai = new AiController()
+    ai.order = {
+      kind: 'rally', point: POINT, radius: 300,
+      targetFlight: -1, side: 0, focusIndex: -1,
+    }
+    return { self, ai }
+  }
+
+  /** 機首與瞄準點的夾角，rad。 */
+  const errAngle = (a: Aircraft, aim: Vector3) => {
+    const nose = new Vector3(0, 0, -1).applyQuaternion(a.state.orientation)
+    return Math.acos(Math.min(1, Math.max(-1, nose.dot(aim))))
+  }
+
+  /**
+   * 【為什麼是 110 m/s 而不是更慢】更慢會踩到 `applySafety` 的**失速硬接管**
+   * ——它整個換掉 `aimWorld`（改成壓頭改出），本層就量不到了。實測 60 m/s
+   * 時誤差角由 45° 變成 25°，那全部是安全層做的。110 m/s 的
+   * `cornerRatio` 是 0.693（角落速度 158.7 m/s），低於 `energyFloorRatio`
+   * 而遠高於失速接管的門檻。
+   */
+  it('速度見底時集合途中的誤差角被收小', () => {
+    const { self, ai } = rallying(110)
+    const raw = new Vector3()
+    rallyAim(self, POINT, raw)
+    const before = errAngle(self, raw)
+    expect(before).toBeGreaterThan(30 * Math.PI / 180)
+
+    const out = createCommand()
+    ai.update(self, DT, out)
+    expect(errAngle(self, out.aimWorld)).toBeLessThan(before * 0.9)
+  })
+
+  it('速度充足時集合路徑逐位元不動', () => {
+    const { self, ai } = rallying(200)
+    const raw = new Vector3()
+    rallyAim(self, POINT, raw)
+
+    const out = createCommand()
+    ai.update(self, DT, out)
+    expect(out.aimWorld.x).toBe(raw.x)
+    expect(out.aimWorld.y).toBe(raw.y)
+    expect(out.aimWorld.z).toBe(raw.z)
   })
 })
