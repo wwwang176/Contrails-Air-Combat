@@ -86,6 +86,28 @@ const KILL = {
 /**
  * 撤離的共用幾何。**由 `test/tools/evacuate.probe.ts` 實測定值**（spec §8）。
  *
+ * ── ⚠ 【暫時關閉：`playable: false`】專案負責人 2026-08-16 ──────────
+ *
+ * 試飛兩輪之後的裁定：**「我發現，根本追不到，撤退這個任務先 DISABLED。」**
+ *
+ * ```
+ *   第一版  後方 800 m、高 1,000 m  →  斜距 1,281 m、俯角 51°  →  追不到
+ *   第二版  後方 400 m、高   200 m  →  斜距   447 m、俯角 27°  →  還是追不到
+ * ```
+ *
+ * 【關掉的是卡片，不是機制】撤離的判定、圓環、目標列、時限全部留著，而且
+ * 仍然由 `test/unit/mission.test.ts` 與 `test/integration/mission-evacuate.test.ts`
+ * 守著 —— 那三支測試不讀 `playable`，所以這面旗子翻下來它們一條都不會少。
+ * **這一張卡缺的不是判定，是一個玩得起來的追逐。**
+ *
+ * 【真正的缺口】把敵機擺在身後只是把「追不上」推遲了幾秒 —— 開局幾何管
+ * 得了第一次接觸，管不了之後。要讓追逐成立，缺的是**AI 的撤離行為**
+ * （`docs/backlog.md` §2.12）：目前紅隊只會照一般空戰邏輯纏鬥，沒有人負責
+ * 「壓在逃跑者的能量線上不放」。**這件事沒補上之前，調 `gap` 與 `climb`
+ * 只是在換一個追不到的距離。**
+ *
+ * 【要翻回來的條件】§2.12 補上之後重跑 `evacuate.probe.ts`，再由試飛裁定。
+ *
  * ```
  *   撤離點 −20,000 m ── 玩家起點 z≈+5,000（entryRange/2），直線 25 km。
  *                       表一實測直飛 12/16/20/25/30 km 各要 84.0/104.8/125.5/
@@ -104,9 +126,8 @@ const KILL = {
 const EVAC = {
   objective: '飛抵撤離點',
   evacDistance: 20000, evacRadius: 1000,
-  // 【追兵在正後方 800 m、高 1,000 m】專案負責人 2026-08-16 指定，理由與
-  // 三個數字的推導見 `entry.ts` 的 `PURSUIT`
-  entry: 'pursuit', playable: true,
+  // 【追兵在正後方 400 m、高 200 m】理由與數字的推導見 `entry.ts` 的 `PURSUIT`
+  entry: 'pursuit', playable: false,
 } as const
 
 /**
@@ -148,9 +169,15 @@ const EVAC_SECONDS_AXIS = Math.round(EVAC_STRAIGHT_AXIS * EVAC_MARGIN)
 /**
  * 兩個陣營的任務。
  *
- * 【只有殲滅與撤離可打】其餘三種缺前置：攔截與護航要第三種機體（轟炸機／
- * 運輸機），打擊要對地武器與地面目標 —— 兩者都不存在。它們的架數照填，
- * 補上前置時只要把 `playable` 翻成 true。
+ * 【現在只有殲滅可打】其餘四種各缺各的：
+ *
+ * ```
+ *   攔截／護航  缺第三種機體（轟炸機／運輸機）—— 不存在
+ *   打擊        缺對地武器與地面目標 —— 兩者都不存在
+ *   撤離        判定做好了，缺一個追得到的追兵（見上面 EVAC 的 ⚠）
+ * ```
+ *
+ * 架數照填，補上前置時只要把 `playable` 翻成 true。
  */
 export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
   allies: [

@@ -42,14 +42,17 @@ describe('任務卡（M10 spec §10）', () => {
 })
 
 describe('關卡資料（任務框架 spec §7.3）', () => {
-  it('可打的只有殲滅與撤離', () => {
-    for (const list of [MISSIONS.allies, MISSIONS.axis]) {
-      for (const m of list) {
-        expect(m.playable, m.title).toBe(m.type === '殲滅' || m.type === '撤離')
-      }
-    }
-  })
-
+  /*
+   * 【這裡原本有一條「可打的只有殲滅與撤離」】拿掉了。專案負責人
+   * 2026-08-16：「幾張卡這個不用寫測試吧?」—— 對，那條在數卡片，而
+   * **哪幾張開著是負責人裁定的事**（關掉撤離就是一次）。每開關一張卡就要
+   * 改一次測試，那是雜訊不是護欄。
+   *
+   * 真正該由機器守的兩件事都還在，而且開關旗標時一個字都不用動：
+   *
+   *   可打的卡 ⇒ 有目標文字與編制        （下面「可打的卡都有目標文字與編制」）
+   *   沒有目標文字 ⇒ 資料全空且不可點    （下面「沒有目標文字的卡＝還沒做」）
+   */
   it('每張卡的 id 全域唯一', () => {
     const ids = [...MISSIONS.allies, ...MISSIONS.axis].map((m) => m.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -105,13 +108,42 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
     expect(axis.seconds).toBeGreaterThan(allies.seconds)
   })
 
-  /** 【未開放的卡不得帶目標文字】否則哪天翻開 playable 會冒出半套 UI */
-  it('未開放的卡沒有目標文字、沒有撤離點、沒有時限', () => {
+  /**
+   * 【判準為什麼從 `playable` 換成 `objective`】原本這一條讀的是「未開放的卡
+   * 一定全空」。撤離被關掉之後那句話不再成立 —— 它**做好了才被關掉**，資料
+   * 是實測推導出來的，清掉等於把 `evacuate.probe.ts` 量的東西丟了。
+   *
+   * 所以要守的不變量其實一直是：**卡片資料要嘛完整、要嘛全空，不能半套。**
+   * 而「做好了沒」的標記是 `objective`（HUD 目標列的文字）不是 `playable`
+   * （這一版要不要開放）。半套的話，哪天翻開旗標會冒出一個沒有目標列的任務。
+   */
+  it('沒有目標文字的卡＝還沒做，資料必須全空而且不可點', () => {
     for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      if (m.playable) continue
-      expect(m.objective, m.title).toBe('')
+      if (m.objective !== '') continue
       expect(m.evacDistance, m.title).toBe(0)
+      expect(m.evacRadius, m.title).toBe(0)
       expect(m.seconds, m.title).toBe(Infinity)
+      expect(m.playable, m.title).toBe(false)
+    }
+  })
+
+  /**
+   * 【為什麼要正面釘住這幾個數字】關掉一張卡最省事的做法是把它的資料一起
+   * 清空 —— 而那會靜靜地丟掉 `evacuate.probe.ts` 實測出來的
+   * 20 km／1,000 m／176 s／235 s。這一條讓「清掉」變成一次紅燈而不是一次
+   * 無聲的刪除。
+   *
+   * 【它不讀 `playable`】所以撤離翻回來的那一天，這一條也不用改；判定機制
+   * 本身則由 `mission.test.ts` 與 `mission-evacuate.test.ts` 繼續守著
+   * （那兩支同樣不讀 `playable`）。
+   */
+  it('撤離：實測推導出來的資料一個都沒掉', () => {
+    for (const list of [MISSIONS.allies, MISSIONS.axis]) {
+      const evac = list.find((m) => m.type === '撤離')!
+      expect(evac.objective.length, evac.title).toBeGreaterThan(0)
+      expect(evac.evacDistance, evac.title).toBe(20000)
+      expect(evac.evacRadius, evac.title).toBe(1000)
+      expect(Number.isFinite(evac.seconds), evac.title).toBe(true)
     }
   })
 })
