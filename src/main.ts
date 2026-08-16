@@ -4,6 +4,7 @@ import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createTerrain } from './render/terrain'
+import { createObjectiveRing } from './render/objectiveRing'
 import { createTracers } from './render/tracers'
 import { createMuzzles } from './render/muzzle'
 import { createSparks } from './render/sparks'
@@ -70,6 +71,14 @@ const perf = createPerfOverlay(ctx.renderer)
  * 高度場，而症狀（飛機撞到看不見的海面）離成因非常遠（M10 spec §5.2）。
  */
 let terrain = createTerrain('sea')
+/**
+ * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
+ *
+ * 【為什麼「重新開始」不重建】暫停選單的重開走 `resetBattle` 而不是
+ * `enterBattle`（見 `restartBattle`）—— 那時 rules、撤離點、幾何與場景歸屬
+ * 都沒有換，環必須留在場景裡而且下一幀照常更新。
+ */
+let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
 
 const tracers = createTracers()
@@ -347,6 +356,8 @@ function rebuildVisuals(): void {
 /** 離開戰鬥：清場並收掉記分板。 */
 function leaveBattle(): void {
   releaseVisuals()
+  // 【圓環要移出場景】不移的話回到主選單，那個環還浮在選單的背景海上
+  ctx.scene.remove(objectiveRing.object)
   // 【記分板要一起收】`stepAndDrawBattle` 不再跑，結算板會就這樣留在
   // 選單上面 —— 從結算按「回設定頁」時看得最清楚
   input.scoreboardHeld = false
@@ -442,6 +453,14 @@ function enterBattle(): void {
   world.crashPolicy = (c) => isCrashed(c.aircraft.state.position, terrain.heightAt, elapsed)
   player = battle.player
   rebuildVisuals()
+
+  // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
+  //    一條等著被第一次使用的死碼。沒有撤離點的一場就是建了不加進場景 ——
+  //    `hasTarget` 是唯一的判準，`mode` 不參與（殲滅任務也沒有環）
+  ctx.scene.remove(objectiveRing.object)
+  objectiveRing.dispose()
+  objectiveRing = createObjectiveRing()
+  if (battle.mission.hasTarget) ctx.scene.add(objectiveRing.object)
 
   playerAi.board = battle.board
   playerAi.selfIndex = player.index
@@ -902,6 +921,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
   orderMarkers.setVisible(input.orderMarkers)
   if (input.orderMarkers) fillOrderView(battle, orderMarkers)
 
+  // 【撤離圓環一定要排在 renderer.render 之前】billboard 的 `lookAt` 讀的是
+  // 相機**這一幀**的位置。排在渲染之後的話環會慢整整一幀（3D 在這裡畫、
+  // HUD 到 `hud.render` 才畫），而且新建的第一幀會停在原點、半徑 1。
+  if (battle.mission.hasTarget) {
+    objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
+  }
+
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
@@ -1050,6 +1076,24 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【一幀一次，不是一個子步一次】淡出走的是畫面時間。在子步裡步進的話，
   // 一幀跑幾個子步就淡幾倍快 —— 而子步數會隨幀率變動。
   stepDamageMarks(hudFrame.damageMarks, frameSeconds)
+
+  // ── 任務目標 ──────────────────────────────────────────
+  //
+  // 【`objectiveActive` 由 `mode` 給而不是由 rules 推導】遭遇戰與殲滅任務的
+  // `rules` **完全相同**（任務框架 spec §5）—— 差別只在來路，那是畫面模式，
+  // 不是規則。
+  //
+  // 【計量的種類跟著 `hasTarget` 走】有撤離點就顯示距離、沒有就顯示剩餘
+  // 敵機數 —— 與 `stepMission` 寫進 `metric` 的意思逐條對應。
+  const m = battle.mission
+  hudFrame.objectiveActive = mode === 'mission'
+  hudFrame.objectiveText = pendingMission?.objective ?? ''
+  hudFrame.objectiveMetric = m.metric
+  hudFrame.objectiveMetricKind = m.hasTarget ? 'distance' : 'count'
+  hudFrame.objectiveSeconds = m.secondsLeft
+  hudFrame.objectiveHasTarget = m.hasTarget
+  hudFrame.objectiveWorldX = m.target.x
+  hudFrame.objectiveWorldZ = m.target.z
 
   hud.render(hudFrame, frameSeconds)
 
