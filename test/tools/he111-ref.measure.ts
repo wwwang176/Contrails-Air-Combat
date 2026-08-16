@@ -28,6 +28,16 @@
  */
 import { chromium, type Page } from 'playwright'
 
+/**
+ * 【為什麼要自己宣告 `process`】專案的 `tsconfig` 沒有把 `node` 放進 `types`，
+ * 所以 `process` 沒有型別 —— 而 `tsc --noEmit` 會掃到 `test/` 底下。
+ *
+ * 為了一支開發腳本的一個欄位把 `@types/node` 拉進整個專案，代價是全專案的
+ * 型別環境多一整組 node 的全域名稱（`Buffer`、`__dirname`、`require`…），
+ * 而那些在瀏覽器端的程式裡出現時**應該要紅**。宣告用到的那一個欄位就好。
+ */
+declare const process: { argv: readonly string[] }
+
 const URL = 'http://localhost:5177/hangar.html'
 const GLB = '/ref/he_111-h6.glb'
 const SHOTS = '.shots/'
@@ -85,7 +95,9 @@ const n = (v: number, w = 7, d = 3): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
 
 async function main(): Promise<void> {
-  const stage = process.argv[process.argv.length - 1]
+  // 【跑法】`npx vite-node test/tools/he111-ref.measure.ts -- <階段>`
+  // 【`?? ''`】`noUncheckedIndexedAccess` 下索引出來是 `string | undefined`
+  const stage = process.argv[process.argv.length - 1] ?? ''
   const browser = await chromium.launch()
   try {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } })
@@ -106,7 +118,8 @@ async function main(): Promise<void> {
         [kind, axis, o] as const,
       )
 
-    await stages[stage === 'all' || !(stage in stages) ? 'align' : stage]!(page, probe, slice)
+    // 【不認識的名字退回 align】它最便宜，也是後面每一格的前提
+    await (stages[stage] ?? stages['align']!)(page, probe, slice)
   } finally {
     await browser.close()
   }
