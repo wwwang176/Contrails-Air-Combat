@@ -23,6 +23,9 @@ import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { applyFeel, GAME_FEEL } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
+// 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
+// 區域範圍，而 `Battle.outcome` 的宣告用得到它。
+import type { Outcome } from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 
@@ -135,8 +138,11 @@ export const DEFAULT_BATTLE: BattleConfig = {
   aiProfile: ACE,
 }
 
-/** 一場戰鬥的結果。`victory` = 敵方全滅，`defeat` = 我方全滅。 */
-export type Outcome = 'fighting' | 'victory' | 'defeat'
+/**
+ * 一場戰鬥的結果。**定義搬到 `mission.ts`** —— 它現在是任務判定的產物，
+ * 而勝負條件不再只有「誰全滅」。這裡再匯出，既有的 import 站點不用動。
+ */
+export type { Outcome } from './mission'
 
 export interface Battle {
   readonly world: World
