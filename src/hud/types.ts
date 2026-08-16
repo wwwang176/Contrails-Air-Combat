@@ -186,6 +186,31 @@ export interface HudFrame {
   flightAlive: number
   /** 玩家分隊的編制員額。`flightAlive` 的分母 */
   flightSize: number
+  /**
+   * 這一場有沒有任務目標。false 時**下面整組欄位無意義**。
+   *
+   * 【為什麼不由 `rules` 推導】遭遇戰與殲滅任務的 `rules` **完全相同**
+   * （任務框架 spec §5），差別只在「這一場是不是從任務列表進來的」——
+   * 那是畫面模式，不是規則。所以由 `main.ts` 給。
+   */
+  objectiveActive: boolean
+  /**
+   * 目標文字，例如「飛抵撤離點」。
+   *
+   * 【逐幀指派同一個字串參考，不組字串】它是 `MissionCard.objective` 這個
+   * 常數 —— 組字串的是 widget，而 widget 走畫面頻率不是物理步。
+   */
+  objectiveText: string
+  /** 計量。殲滅＝剩餘敵機數，撤離＝到撤離點的距離 m */
+  objectiveMetric: number
+  /** 計量的種類，決定 widget 怎麼格式化 */
+  objectiveMetricKind: 'count' | 'distance'
+  /** 剩餘秒數。`Infinity` 時不畫倒數 */
+  objectiveSeconds: number
+  /** 撤離點的世界平面座標，供小地圖。false 時下面兩格無意義 */
+  objectiveHasTarget: boolean
+  objectiveWorldX: number
+  objectiveWorldZ: number
 }
 
 export function createHudFrame(): HudFrame {
@@ -206,6 +231,22 @@ export function createHudFrame(): HudFrame {
     godView: false,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
+    objectiveActive: false,
+    objectiveText: '',
+    objectiveMetric: 0,
+    objectiveMetricKind: 'count',
+    // 【為什麼是 0 而不是 Infinity】既有護欄「初始值不含 NaN」實際斷言的是
+    // `Number.isFinite`（`test/unit/hud.test.ts:71-78`），而 `Infinity` 過不了。
+    // 那條護欄不歸這一輪動。
+    //
+    // 這個 0 不會被看見：`objectiveActive` 預設 false，整組欄位不畫；任務模式
+    // 下 `main.ts` 每一幀從 `MissionState.secondsLeft` 抄真值進來 —— **執行期
+    // 這一格確實會是 `Infinity`**（無時限的任務），`formatCountdown` 為此
+    // 回空字串。護欄管的只有開局那一格。
+    objectiveSeconds: 0,
+    objectiveHasTarget: false,
+    objectiveWorldX: 0,
+    objectiveWorldZ: 0,
   }
 }
 

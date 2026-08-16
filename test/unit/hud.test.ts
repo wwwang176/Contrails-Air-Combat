@@ -16,7 +16,7 @@ import { P51D } from '../../src/specs/p51d'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { flightLabel } from '../../src/hud/widgets/roster'
-import { hudWidgets } from '../../src/hud/Hud'
+import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
 import { hintKeys } from '../../src/hud/widgets/hints'
 import { DEG, RAD } from '../../src/core/math'
 
@@ -402,8 +402,35 @@ describe('上帝視角的 HUD', () => {
    * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
    * 壓在接觸點之上）不會被這次改動悄悄弄丟。
    */
-  it('上帝視角畫分隊標示、小地圖、名冊、提示', () => {
-    expect(hudWidgets(true)).toEqual(['godMarkers', 'minimap', 'roster', 'hints'])
+  it('上帝視角畫分隊標示、小地圖、名冊、提示、任務目標', () => {
+    expect(hudWidgets(true)).toEqual(
+      ['godMarkers', 'minimap', 'roster', 'hints', 'objective'],
+    )
+  })
+
+  /**
+   * 【`objective` 不是座艙儀表】它是**這一場的規則** —— 還剩幾架、倒數剩
+   * 幾秒，與鏡頭在哪裡無關。所以它是唯一同時出現在兩張清單裡的新成員。
+   */
+  it('任務目標兩種視角都畫，而且壓在最上層', () => {
+    for (const godView of [false, true]) {
+      const w = hudWidgets(godView)
+      expect(w, `godView=${godView}`).toContain('objective')
+      expect(w[w.length - 1], `godView=${godView}`).toBe('objective')
+    }
+  })
+
+  /**
+   * 【為什麼光是「在清單裡」不夠】清單與繪製是兩件事。`FULL` 更新了卻漏掉
+   * 繪製分派的話，上面兩條仍然全綠而 HUD 完全不畫（Codex 審查 2026-08-16）。
+   * 分派改成 `Record` 之後這一條是防禦而不是主要保證 —— 主要保證是編譯錯誤。
+   */
+  it('清單上的每一個 widget 都真的有繪製函數', () => {
+    for (const godView of [false, true]) {
+      for (const w of hudWidgets(godView)) {
+        expect(WIDGET_DRAW[w], `${w}（godView=${godView}）`).toBeTypeOf('function')
+      }
+    }
   })
 
   /**
