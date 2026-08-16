@@ -90,9 +90,17 @@ let model: AircraftModel | null = null
  * ——一旦某台的 pitch 定案，下次開機庫沒有理由再打一次，打錯了還很難發現
  * （實測 P-51D 用 −9.5° 時剪影上看起來已經差不多平了，正確值卻是 −14.0°）。
  *
- * 【flip：為什麼不自動判斷】試過用「螺旋槳端的 X 延伸較大」自動判向，但
+ * 【yaw：為什麼不自動判斷】試過用「螺旋槳端的 X 延伸較大」自動判向，但
  * 109 那個模型的機尾也有寬達 ±1.31 的部件，判準直接失效；第一版疊圖整台
  * 頭尾顛倒，還一度被讀成「機身形狀差很多」。
+ *
+ * 【yaw 為什麼從布林換成角度】2026-08-16 加 He 111 H-6 時發現原本的
+ * `flip: boolean` 表達不了它 —— 那台模型的**長度在 X、翼展在 Z**，與另外
+ * 兩台（長度在 Z）差 90°，不是 180°。
+ *
+ * 而且**順序有關係**：`pitch` 是繞世界 X 軸轉的，對一台長度還躺在 X 上的
+ * 模型來說那是**滾轉不是俯仰**。所以一定要先繞 Y 把機身擺到 Z 上，pitch
+ * 才有意義。`placeRef` 的內外兩層 Group 正是為此。
  *
  * 【pitch：參考模型不保證是飛行姿態】P-51D 那個模型是三點著陸姿態、起落架
  * 放下，整台機首朝上 14°。不轉正會被讀成「機身前段太低、後段太高」。求法
@@ -110,14 +118,50 @@ let model: AircraftModel | null = null
  */
 interface RefSpec {
   url: string
-  /** true = 模型的機首朝 +Z，需要繞 Y 轉 180° */
-  flip: boolean
-  /** 繞世界 X 軸轉正的角度，度 */
+  /**
+   * 繞**模型自己的** Y 軸轉正的角度，度。轉完之後機首要朝 −Z。
+   *
+   * 180 = 機首本來朝 +Z（P-51D、Bf 109 都是）
+   *  90 = 機首本來朝 −X，長度躺在 X 上（He 111）
+   */
+  yaw: number
+  /** 繞世界 X 軸轉正的角度，度。**在 yaw 之後套** */
   pitch: number
 }
 const REFS: Record<string, RefSpec> = {
-  p51d: { url: '/ref/p51d.glb', flip: true, pitch: -14.0 },
-  bf109g6: { url: '/ref/bf109e4.glb', flip: true, pitch: 0 },
+  p51d: { url: '/ref/p51d.glb', yaw: 180, pitch: -14.0 },
+  bf109g6: { url: '/ref/bf109e4.glb', yaw: 180, pitch: 0 },
+  /**
+   * He 111 H-6。**2026-08-16 量的，量法與數字見下。**
+   *
+   * 【這一筆現在還接不上】`syncRef` 是拿機種 id 查這張表的，而 He 111 還沒有
+   * `AircraftSpec` —— 所以它要等 `src/specs/he111.ts` 落地才會被讀到。
+   * 先寫在這裡是因為**這兩個數字是量出來的,不是設定出來的**，而量測的成本
+   * 遠高於它們佔的兩行；丟掉就要重量一次。
+   *
+   * ```
+   *   yaw 90     長度在 X、翼展在 Z（另外兩台是長度在 Z）
+   *              Z 的包圍盒對稱於 0（−1.881 / +1.883）→ 那是翼展軸
+   *
+   *   pitch 2.4  這台機首朝下 2.4°，所以要往上轉回來
+   *              量法：沿弦向（X）切 33 刀，uWindow 限住 Z 只留單邊機翼，
+   *              每站取 (vMin+vMax)/2 當中厚線，對 X 做最小平方
+   *              右翼內段 2.85° / 右翼外段 1.54° / 左翼內段 2.82°
+   * ```
+   *
+   * 【為什麼用機翼而不是坑 2 的掃描法】那一套比的是「參考值 − 本模型值」，
+   * 需要自家模型存在。這裡用的是坑 2 自己的**驗收條件**（轉正之後機翼中線
+   * 要整段吻合）當引導 —— 主翼安裝角只有 1~2°，所以「讓機翼弦線水平」是
+   * 俯仰角的一階估計。自家模型出來之後要照坑 2 重掃一次定案。
+   *
+   * 【我第一次估錯了】先用機身背線估成 7~9°。後機身背線本來就往上收，那是
+   * 真的外形不是姿態 —— 與坑 2「不要用剪影目測」是同一個教訓的另一個形式。
+   *
+   * 【這台量尺可信】依翼展縮放（係數 6.003285）之後全長 16.209 m 對真機
+   * 16.40 m，只差 −1.2%。對照坑 21：Bf 109 那台主翼偏大 2.7%、尾翼偏小
+   * 11%，是「位置可信、尺寸不可信」；這台兩項都可信。
+   */
+  he111: { url: '/ref/he_111-h6.glb', yaw: 90, pitch: 2.4 },
 }
 const refCache: Record<string, Object3D | null> = {}
 let refVisible = false
@@ -371,10 +415,13 @@ function placeRef(): void {
   refModel.position.set(0, 0, 0)
   refModel.updateMatrixWorld(true)
   const raw = new Box3().setFromObject(refModel)
-  // 翻轉在內層（模型自己的軸向），俯仰在外層（世界 X 軸）——兩者若擠在
+  // 轉向在內層（模型自己的軸向），俯仰在外層（世界 X 軸）——兩者若擠在
   // 同一個 Euler 上，180° 的翻轉會把俯仰的正負也一起翻掉。
+  //
+  // 【He 111 讓這件事更嚴重】它的 yaw 是 90°，而 pitch 繞的是世界 X 軸 ——
+  // 順序反過來的話 pitch 套在一台長度還躺在 X 上的模型上，那是滾轉不是俯仰。
   const cfg = REFS[SPECS[specIndex]!.id]!
-  refModel.children[0]!.rotation.y = cfg.flip ? Math.PI : 0
+  refModel.children[0]!.rotation.y = cfg.yaw * DEG
   refModel.rotation.x = (pitchOverride ?? cfg.pitch) * DEG
   refModel.updateMatrixWorld(true)
   /**
@@ -566,6 +613,89 @@ function applyRefMaterial(root: Object3D): void {
       // 回報是否已就緒，讓呼叫端可以輪詢而不是硬等
       return refModel !== null
     }
+
+/**
+ * 開發用：載入一份**還沒有自家模型**的參考模型，量它的原始尺寸。
+ *
+ * 【為什麼機庫需要這個口】`aircraft-from-reference` 的第 1 步是「確認機首
+ * 朝向與姿態」，而那一步**一定發生在自家模型存在之前** —— 新增機種時參考
+ * 模型永遠先到。但既有的路徑走不了：`syncRef` 用機種 id 查 `REFS`，
+ * `placeRef` 又要求 `model` 存在（它把參考模型縮放對齊到自家模型上）。
+ *
+ * 少了這個口，第 1 步只能先瞎寫一份 spec 出來湊 —— 而那份 spec 的翼展正是
+ * 後面要拿來當縮放基準的東西（坑 1）。**用一個猜出來的數字當量尺的基準，
+ * 整條產線從第一格就歪了。**
+ *
+ * 【為什麼刻意不呼叫 placeRef】那會把 He 111 縮放到當前自家模型（P-51D）的
+ * 翼展上 —— 疊出來很好看，量出來全是錯的。這個口回的是**原始座標系**的
+ * 數字，`__hangarSlice` 接著切的也是原始座標；縮放與轉正等自家模型出現、
+ * 進 `REFS` 之後再走正常路徑。
+ *
+ * 【三角形數要看】`crossSection` 每切一刀就掃過全部三角形。He 111 H-6 是
+ * 3.6 M（P-51D 的 4 倍），一輪 44 刀的徑向掃描要以分鐘計，不是秒。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarProbe'] =
+    (url: string) => new Promise((resolve, reject) => {
+      new GLTFLoader().load(url, (gltf) => {
+        // 【要在量之前套】節點的位移／旋轉／縮放都在矩陣上，不套的話量到的
+        // 是各 mesh 自己的區域座標 —— 而那正是「原始包圍盒讀起來很怪」的
+        // 成因（有的模型把整台的縮放放在節點上，accessor 正規化到 ±1）
+        gltf.scene.updateMatrixWorld(true)
+        const box = new Box3().setFromObject(gltf.scene)
+        const size = new Vector3()
+        box.getSize(size)
+
+        // 舊的參考模型讓位，並清掉世界座標的三角形快取（坑 2c）
+        if (refModel) refModel.visible = false
+        refTris = null
+        applyRefMaterial(gltf.scene)
+        scene.add(gltf.scene)
+        refModel = gltf.scene
+        refVisible = true
+        refCheck.checked = true
+
+        /**
+         * 逐 mesh 的世界包圍盒。
+         *
+         * 【為什麼要逐 mesh 而不只是整體】整體包圍盒被**任何一片**離群幾何
+         * 撐大之後就不能拿來推比例了 —— 而那一片在算圖上可能完全看不見
+         * （無材質、在鏡頭外、或整片透明）。實測 He 111 H-6：整體算出來的
+         * 「高」是真機的三倍。逐 mesh 一列就指得出是誰。
+         *
+         * 【這不是坑 5 的節點分類】那條說的是「不要靠猜測挑出機身再去量」。
+         * 這裡不挑、不猜、不排除任何東西，只是把每一片各報一行給人看。
+         */
+        const parts: {
+          name: string; tris: number
+          min: number[]; max: number[]; size: number[]
+        }[] = []
+        const pb = new Box3()
+        gltf.scene.traverse((o) => {
+          const mesh = o as Mesh
+          const g = mesh.geometry
+          if (!g?.getAttribute) return
+          const p = g.getAttribute('position')
+          if (!p) return
+          g.computeBoundingBox()
+          pb.copy(g.boundingBox!).applyMatrix4(mesh.matrixWorld)
+          const s = new Vector3()
+          pb.getSize(s)
+          parts.push({
+            name: o.name === '' ? '(無名)' : o.name,
+            tris: (g.index ? g.index.count : p.count) / 3,
+            min: pb.min.toArray(), max: pb.max.toArray(), size: s.toArray(),
+          })
+        })
+
+        resolve({
+          url,
+          tris: parts.reduce((n, p) => n + p.tris, 0),
+          meshes: parts.length,
+          min: box.min.toArray(), max: box.max.toArray(), size: size.toArray(),
+          parts,
+        })
+      }, undefined, reject)
+    })
 
 // 開發用：分別開關兩個模型，讓外部工具各自截一張純剪影來抽輪廓。
 ;(window as unknown as Record<string, unknown>)['__hangarShow'] =
