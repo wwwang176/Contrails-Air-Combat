@@ -60,3 +60,29 @@ describe('nextScreen（M10 spec §3、§4）', () => {
     }
   })
 })
+
+describe('任務模式的兩條轉移（任務框架 spec §7.8）', () => {
+  it('任務列表可以開打', () => {
+    expect(nextScreen('mission', 'fight')).toBe('battle')
+  })
+
+  it('結算可以回任務列表', () => {
+    expect(nextScreen('battle', 'toMission')).toBe('mission')
+  })
+
+  /**
+   * 【為什麼是兩個事件而不是一個「回上一頁」】狀態機不該記得歷史 ——
+   * 那會讓同一個轉移在不同的來路下有不同的結果，也就不再是一張表。
+   */
+  it('遭遇戰頁送 toMission 不動 —— 不合法的組合回傳 current', () => {
+    expect(nextScreen('skirmish', 'toMission')).toBe('skirmish')
+  })
+
+  it('任務列表送 toSetup 也不動', () => {
+    expect(nextScreen('mission', 'toSetup')).toBe('mission')
+  })
+
+  it('任務列表仍然回得了主選單', () => {
+    expect(nextScreen('mission', 'back')).toBe('menu')
+  })
+})
