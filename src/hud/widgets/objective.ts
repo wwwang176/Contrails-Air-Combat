@@ -46,15 +46,20 @@ export function formatCountdown(seconds: number): string {
 }
 
 /**
- * 目標列。**畫面左上角**，一行。
+ * 目標列。**畫面右上角**，一行、靠右對齊。
  *
  * 【為什麼不放上緣正中】那裡已經有三層：AI／上帝視角橫幅（`hints.ts`，
  * y=18）、存活數（`roster.ts`，y=0.04·height）、航向帶（`tape.ts`，
  * y=0.07·height）。900 px 高時它們分別落在 18–31、36–51、63 —— 塞第四個
  * 一定壓到某一個。
  *
- * 【為什麼左上角】`x = 30·scale` 是這個 HUD 的左欄邊界（`energy.ts`、
- * `health.ts`、`minimap.ts` 都用它），而左欄的**上方是空的**。
+ * 【為什麼也不放左上角】那裡有**效能面板**（`core/perf.ts`），而它
+ * `visible = true`、預設就是開的（F3 才關）。它不是 HUD 的 widget 是一個
+ * DOM overlay，所以只看 `hud/widgets/` 是看不到這個衝突的 —— Playwright
+ * 的截圖才照出來（2026-08-16）。
+ *
+ * 【右上角】整片是空的：航向帶與存活數置中、儀表血條能量在下半、
+ * 小地圖與提示在左下。
  *
  * 【組字串在這裡是可以的】HUD 走的是**畫面**頻率（~60 Hz）而不是物理步
  * （240 Hz），而且 `dials.ts` 等既有 widget 本來就在組。不配置的紀律守的是
@@ -71,14 +76,17 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
 
   const size = Math.round(14 * L.scale)
   const pad = 8 * L.scale
-  const x = 30 * L.scale
+  // 【與左欄同一個邊距，鏡射到右邊】`energy.ts`／`health.ts`／`minimap.ts`
+  // 用的都是 30·scale
+  const x = L.width - 30 * L.scale
   const y = 18 * L.scale
   ctx.font = hudFont(size, true)
-  ctx.textAlign = 'left'
+  ctx.textAlign = 'right'
   ctx.textBaseline = 'top'
 
+  const w = ctx.measureText(text).width
   ctx.fillStyle = HUD_COLORS.panel
-  ctx.fillRect(x - pad, y - pad * 0.5, ctx.measureText(text).width + pad * 2, size + pad)
+  ctx.fillRect(x - w - pad, y - pad * 0.5, w + pad * 2, size + pad)
 
   // 【倒數快到時整列轉紅，不只轉那三個字元】纏鬥中的餘光掃不到三個字元的
   // 顏色變化，掃得到一整列。

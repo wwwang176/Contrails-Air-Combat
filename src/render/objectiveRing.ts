@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, DoubleSide, Mesh, MeshBasicMaterial, RingGeometry,
+  DoubleSide, Mesh, MeshBasicMaterial, RingGeometry,
   type Camera, type Object3D, type Vector3,
 } from 'three'
 
@@ -56,9 +56,10 @@ export function createObjectiveRing(): ObjectiveRing {
     // 相機移動就會露出背面 —— 那一幀環會整個消失
     side: DoubleSide,
     transparent: true,
-    opacity: 0.85,
-    // 【加法混色】天空背景上它會發亮，而不是變成一個灰掉的圈
-    blending: AdditiveBlending,
+    opacity: 0.9,
+    // 【不用加法混色】試過，Playwright 的截圖顯示它在**亮天空**背景上會
+    // 洗白（加法把綠推向白）—— 而環的背景絕大多數就是天空，因為它在
+    // 4,000 m、大致水平地看過去。一般混色在亮天空與深海上都讀得出綠。
     // 【不寫深度】它是半透明的疊加物。寫深度會讓後面的飛機被一個看不見的
     // 圓盤切掉 —— 而那個圓盤的邊界正好在環的內圈上
     depthWrite: false,
