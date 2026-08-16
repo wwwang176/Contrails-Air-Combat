@@ -25,6 +25,7 @@ import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
 // 區域範圍，而 `Battle.outcome` 的宣告用得到它。
+import { HEAD_ON, type EntryPlan, type SideEntry } from './entry'
 import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules, type MissionState, type Outcome,
@@ -134,6 +135,16 @@ export interface BattleConfig {
    * 的時候腐爛，而症狀要等到玩家點下那張卡才出現。
    */
   rules: MissionRules
+  /**
+   * 這一場的擺法。**是 `battle/entry.ts` 那張表裡的一份，不是一個列舉。**
+   *
+   * 【為什麼不是分支】專案負責人 2026-08-16：擺位、面向、初始狀態要寫成
+   * 資料，讓每個任務有不同的擺法。加一種 = 那張表多一個字面值，這裡不動。
+   *
+   * 【為什麼既有護欄不會動】`HEAD_ON` 展開之後與改動前的算式逐字相同，
+   * 而 `DEFAULT_BATTLE` 給的就是它。
+   */
+  entry: EntryPlan
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
@@ -152,6 +163,8 @@ export const DEFAULT_BATTLE: BattleConfig = {
   aiProfile: ACE,
   // 【遭遇戰＝沒有時限的殲滅】改動前寫死的那兩行，現在是這一條規則
   rules: { kind: 'annihilate' },
+  // 【對頭是預設】全部既有護欄都建立在它上面
+  entry: HEAD_ON,
 }
 
 /**
@@ -313,18 +326,37 @@ export function createBattle(
     // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
     // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
     const spec = applyFeel(blueSide ? cfg.blueSpec : cfg.redSpec, GAME_FEEL)
-    const z = blueSide ? cfg.entryRange / 2 : -cfg.entryRange / 2
-    const yaw = blueSide ? 0 : Math.PI
-    const orientation = new Quaternion().setFromAxisAngle(UP, yaw)
-    const velocity = FWD.clone().applyQuaternion(orientation).multiplyScalar(cfg.tas)
+
+    /**
+     * 追擊：紅隊搬到藍隊**後方**、拉高、而且**同向**。
+     *
+     * 【藍隊的位置一個字都不動】撤離的時限是由「直飛到撤離點要多久」推出來
+     * 的（`missions.ts` 的 `EVAC_STRAIGHT_*`）。動了藍隊的出生點，那兩個
+     * 數字就要重新量。
+     *
+     * 【為什麼要同向】不同向的話那不是追擊，是又一次對頭 —— 而對頭正是
+     * 這一版要換掉的東西。
+     */
+    /**
+     * 這一隊的擺法。**六個欄位就是這一段全部的自由度** —— 想要新的排列
+     * 就去 `entry.ts` 加一份，這裡一個字都不用改。
+     */
+    const entry: SideEntry = blueSide ? cfg.entry.blue : cfg.entry.red
+    // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
+    // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
+    // 那些覆寫靜靜失效
+    const z = entry.along * cfg.entryRange + entry.gap
+    const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
+    const velocity = FWD.clone().applyQuaternion(orientation)
+      .multiplyScalar(cfg.tas * entry.speed)
 
     // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
-    const lateral = (blueSide ? -1 : 1) * cfg.lateralOffset / 2
+    const lateral = entry.across * cfg.lateralOffset
 
     let slot = 0
     for (let f = 0; f < flightCount; f++) {
       const leadX = (f - (flightCount - 1) / 2) * cfg.schwarmSpacing + lateral
-      const leadY = cfg.altitude + altitudeOffset(f, cfg.altitudeSpread)
+      const leadY = cfg.altitude + entry.climb + altitudeOffset(f, cfg.altitudeSpread)
       /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
       const made: Aircraft[] = []
 
