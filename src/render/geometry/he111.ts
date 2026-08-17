@@ -255,6 +255,67 @@ const NACELLE: LoftPart = {
 const NACELLE_X = 2.6
 
 /**
+ * 機腹吊艙（Bola）—— **獨立零件，整個用玻璃材質**。
+ *
+ * 【為什麼不能烘進機身外殼】外殼一圈只有 16 點、相鄰差 12°。吊艙的半寬只有
+ * 0.32 而它掛在 r ≈ 1.5 的地方 —— 偏 12° 的那一點橫向已經 0.31，**早就在
+ * 吊艙外面**。硬烘進來做出的是一根沿中線的尖刺，不是一顆圓凸起。
+ *
+ * 這與發動機艙是同一個判斷：**尺度夠大、又不在剖面取樣解析度之內的東西，
+ * 要另外做成零件。**
+ *
+ * 【第一版把兩根細桿當成吊艙的端面】舊的機身外殼在機體 2.41 有一步 −0.337、
+ * 5.41 有一步 ＋0.381，我讀成「前後兩道垂直面」。從吊艙**內部** (0, −1.05)
+ * 射線量之後才知道那兩處的**半寬是 0**：
+ *
+ * ```
+ *   量測Z   半寬    艙底
+ *    5.50   0.000  −1.218   ← 半寬 0 ＝ 那不是吊艙
+ *    5.90   0.016  −1.058   ← 吊艙從這裡才開始
+ *    6.40   0.311  −1.234
+ *    8.00   0.293  −1.079   ← 到這裡結束
+ *    8.40   0.000  −1.288   ← 又是半寬 0
+ * ```
+ *
+ * 中線上另有兩根細長的東西（天線桿之類）。專案負責人：「機腹玻璃差太多了吧
+ * 應該跟機背一樣圓形凸起?」—— 對，真正的吊艙是一顆圓的水滴。
+ *
+ * 【截面是烘出來的】射線原點放在吊艙裡，往下與往兩側的射線直接打到艙壁。
+ * **往上的射線沒有意義** —— 吊艙與機身在參考模型裡是同一個實體，中間沒有面；
+ * 上界改用機身自己的腹線（`he111.hull.ts` 在那一段內插出來的那條），並且
+ * 多埋 0.05 進機身，接縫才藏得住。
+ */
+const BOLA: LoftPart = {
+  roundness: 2.0,
+  segments: 14,
+  sections: [
+    { z: 2.811, halfWidth: 0.040, halfHeight: 0.060, centerY: -0.912 },
+    { z: 2.911, halfWidth: 0.207, halfHeight: 0.137, centerY: -0.962 },
+    { z: 3.011, halfWidth: 0.259, halfHeight: 0.165, centerY: -0.989 },
+    { z: 3.111, halfWidth: 0.285, halfHeight: 0.187, centerY: -1.009 },
+    { z: 3.211, halfWidth: 0.301, halfHeight: 0.200, centerY: -1.021 },
+    { z: 3.311, halfWidth: 0.311, halfHeight: 0.207, centerY: -1.027 },
+    { z: 3.411, halfWidth: 0.317, halfHeight: 0.211, centerY: -1.030 },
+    { z: 3.511, halfWidth: 0.320, halfHeight: 0.215, centerY: -1.032 },
+    { z: 3.611, halfWidth: 0.321, halfHeight: 0.217, centerY: -1.034 },
+    { z: 3.711, halfWidth: 0.321, halfHeight: 0.220, centerY: -1.035 },
+    { z: 3.811, halfWidth: 0.320, halfHeight: 0.223, centerY: -1.037 },
+    { z: 3.911, halfWidth: 0.319, halfHeight: 0.226, centerY: -1.038 },
+    { z: 4.011, halfWidth: 0.317, halfHeight: 0.228, centerY: -1.040 },
+    { z: 4.111, halfWidth: 0.315, halfHeight: 0.231, centerY: -1.041 },
+    { z: 4.211, halfWidth: 0.312, halfHeight: 0.233, centerY: -1.042 },
+    { z: 4.311, halfWidth: 0.310, halfHeight: 0.236, centerY: -1.043 },
+    { z: 4.411, halfWidth: 0.308, halfHeight: 0.238, centerY: -1.044 },
+    { z: 4.511, halfWidth: 0.306, halfHeight: 0.240, centerY: -1.045 },
+    { z: 4.611, halfWidth: 0.303, halfHeight: 0.241, centerY: -1.044 },
+    { z: 4.711, halfWidth: 0.301, halfHeight: 0.215, centerY: -1.018 },
+    { z: 4.811, halfWidth: 0.299, halfHeight: 0.180, centerY: -0.982 },
+    { z: 4.911, halfWidth: 0.293, halfHeight: 0.139, centerY: -0.940 },
+    { z: 5.011, halfWidth: 0.050, halfHeight: 0.060, centerY: -0.900 },
+  ],
+}
+
+/**
  * 全玻璃機首的後界 —— 機身外殼在這一站切成兩截。
  *
  * 【量出來的，不是照片上抓的】只切參考模型的 `windows` mesh，逐站看玻璃
@@ -341,8 +402,6 @@ const GLASS_SPLIT_Z = -1.64
 const GLASS_PATCHES: readonly GlassPatch[] = [
   // 機背機槍座的玻璃圓頂 —— 整個隆起，與蒙皮共面
   { from: 0.41, to: 3.01, i0: 0, i1: 3 },
-  // 機腹吊艙（Bola）—— 整個凸起，與蒙皮共面
-  { from: 2.41, to: 5.41, i0: 13, i1: 15 },
   // 機身側窗 —— 嵌在平面蒙皮上，凹槽
   { from: 3.11, to: 4.31, i0: 5, i1: 7, recess: true },
 ]
@@ -410,6 +469,10 @@ export function buildHe111(): AircraftModel {
   // 欄位要動 `buildFuselage` 的內圈迴圈；`loft` 本來就回傳 Mesh，位移它
   // 是同一件事而且不碰共用的產生器。
   for (const sx of [1, -1]) h.loft(NACELLE, h.body).position.x = sx * NACELLE_X
+
+  // 機腹吊艙。整個用玻璃 —— 專案負責人：「機腹也是[整個凸起都是玻璃]」。
+  // 不必另做暗色襯裡：透過去看到的是機身腹線的**外側**面，本來就擋得住。
+  h.loft(BOLA, h.glass)
 
   h.wingPair(WING)
   h.wingPair(TAILPLANE)

@@ -377,6 +377,120 @@ const stages: Record<string, Stage> = {
   },
 
   /**
+   * 【烘焙腹艙（Bola）】吐成 `LoftPart` 的截面串，貼進 `he111.ts`。
+   *
+   * 【為什麼它不能烘進機身外殼】外殼一圈只有 16 點，相鄰兩點差 12°。吊艙的
+   * 半寬只有 0.3 而它掛在 1.5 m 遠的地方 —— 偏 12° 的那一點橫向已經是 0.31，
+   * **早就在吊艙外面了**。所以外殼在那裡做出來的是一根沿中線的尖刺，不是
+   * 一顆圓凸起。這與發動機艙是同一個判斷：**尺度夠大又不在剖面取樣解析度
+   * 之內的東西，要另外做成零件。**
+   *
+   * 【射線原點放在吊艙裡】(0, −1.05) 在吊艙內部、機身腹線之下。往下與往兩側
+   * 的射線因此直接打到吊艙的壁。**往上的射線沒有意義** —— 吊艙與機身在參考
+   * 模型裡是同一個實體，中間沒有面；上界改用機身自己的腹線（由 `bake` 在
+   * 那一段內插出來的那條）。
+   */
+  bolabake: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const AXIS_V = -1.05
+    const rs = await slice('radial', 'z', {
+      from: 5.3, to: 8.7, count: 35, angles: 144,
+      axisU: 0, axisV: AXIS_V, maxRadius: 0.9,
+    }) as { planes: number[]; theta: number[]; r: number[][] }
+    const at = (deg: number) =>
+      rs.theta.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(rs.theta[b]! - deg * Math.PI / 180)
+          ? j : b
+      ), 0)
+    const [ri, le, dn] = [at(0), at(180), at(270)]
+    /**
+     * 機身在那一段的腹線 —— `bake` 把吊艙標成洞、由前後乾淨站位內插出來的
+     * 那一條。量測 5.40 是 −0.882、8.60 是 −0.843，幾乎是直線。
+     */
+    const skin = (m: number) => -0.882 + (-0.843 + 0.882) * ((m - 5.40) / (8.60 - 5.40))
+    console.log('── 腹艙：射線原點 (0, −1.05)，量測系 ──────────')
+    console.log('   量測Z   機體Z   半寬   艙底    機身腹線   halfHeight  centerY')
+    const secs: { z: number; hw: number; hh: number; cy: number }[] = []
+    for (let k = 0; k < rs.planes.length; k++) {
+      const m = rs.planes[k]!
+      const row = rs.r[k]!
+      const hw = (row[ri]! + row[le]!) / 2
+      const bottom = row[dn]! > 0 ? AXIS_V - row[dn]! : NaN
+      const top = skin(m)
+      // 半寬小於 0.08 的站位丟掉 —— 吊艙的頭尾在那裡只剩幾公分，留著會在
+      // 前後兩個收尖的截面之間夾出一個腰身
+      if (!(hw > 0.08) || !Number.isFinite(bottom) || bottom >= top) {
+        console.log(`  ${n(m, 6, 2)}  ${n(m - QC, 6, 2)}  ${n(hw)}  ${n(bottom)}  ${n(top)}   —`)
+        continue
+      }
+      /**
+       * 【上緣往機身裡多埋 0.05】吊艙是獨立的 `LoftPart`，而 `loft` 產生的是
+       * 一根**封閉的管子**。上緣正好貼在機身腹線上的話，兩個曲面在那條線上
+       * 相切 —— 低多邊形下必然對不齊，會看到一圈縫。多埋一點，接縫藏進機身。
+       *
+       * 【只抬上緣、不動艙底】直接加在 halfHeight 上會**同時**把艙底推深
+       * 0.05，那是把量到的形狀改掉。
+       */
+      const hh = (top + 0.05 - bottom) / 2
+      const cy = (top + 0.05 + bottom) / 2
+      secs.push({ z: m - QC, hw, hh, cy })
+      console.log(
+        `  ${n(m, 6, 2)}  ${n(m - QC, 6, 2)}  ${n(hw)}  ${n(bottom)}  ${n(top)}`
+        + `   ${n(hh)}  ${n(cy)}`,
+      )
+    }
+    /** 前後各接一個收成一點的截面 —— 量測在那裡只剩幾公分寬 */
+    const head = secs[0]!, rear = secs[secs.length - 1]!
+    secs.unshift({ z: head.z - 0.10, hw: 0.04, hh: 0.06, cy: head.cy + 0.05 })
+    secs.push({ z: rear.z + 0.10, hw: 0.05, hh: 0.06, cy: rear.cy + 0.04 })
+
+    console.log('\n  sections: [')
+    for (const s of secs) {
+      console.log(
+        `    { z: ${s.z.toFixed(3)}, halfWidth: ${s.hw.toFixed(3)},`
+        + ` halfHeight: ${s.hh.toFixed(3)}, centerY: ${s.cy.toFixed(3)} },`,
+      )
+    }
+    console.log('  ],')
+  },
+
+  /**
+   * 【腹艙有多寬】朝下的射線，原點沿 X 橫移 —— 與 `nactail` 同一招。
+   *
+   * 【要分辨什麼】機腹那一段深下去的東西可能是**一條窄吊艙（Bola）**，也可能
+   * 是**整個機腹都那麼深**。前者只在 |x| < 0.4 深，後者一路深到機身的半寬
+   * 0.88。側視圖上兩者長得一模一樣。
+   *
+   * 這決定造型要做成「掛在機腹下的一顆凸起」還是「機身腹線本來就低」。
+   */
+  bolawidth: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const XS = [0.0, 0.2, 0.4, 0.6, 0.8]
+    const cols: number[][] = []
+    let planes: number[] = []
+    for (const x of XS) {
+      const rs = await slice('radial', 'z', {
+        from: 4.5, to: 9.5, count: 51, angles: 144,
+        axisU: x, axisV: 0.25, maxRadius: 2.1,
+      }) as { planes: number[]; theta: number[]; r: number[][] }
+      planes = rs.planes
+      const dn = rs.theta.reduce((b, th, j) => (
+        Math.abs(th - 270 * Math.PI / 180) < Math.abs(rs.theta[b]! - 270 * Math.PI / 180)
+          ? j : b
+      ), 0)
+      cols.push(rs.r.map((row) => (row[dn]! > 0 ? 0.25 - row[dn]! : NaN)))
+    }
+    console.log('── 腹線，射線原點沿 X 橫移（量測系）──────────')
+    console.log('   量測Z   機體Z ' + XS.map((x) => `   x=${x.toFixed(1)}`).join(''))
+    for (let k = 0; k < planes.length; k++) {
+      console.log(
+        `  ${n(planes[k]!, 6, 2)}  ${n(planes[k]! - QC, 6, 2)} `
+        + cols.map((c) => n(c[k]!, 8)).join(''),
+      )
+    }
+  },
+
+  /**
    * 【烘焙發動機艙】把截面串吐成 `FuselageSection[]` 的字面值，貼進 `he111.ts`。
    *
    * 【為什麼要烘而不是手抄】第一版是我從 0.4 m 的表格**手抄**成 16 個截面的。
@@ -1306,8 +1420,53 @@ const stages: Record<string, Stage> = {
      */
     const GUN_HOLES: { deg: number; from: number; to: number }[] = [
       // 量測系 = 機體 + 3.0889
-      { deg: 90, from: 1.85 + QUARTER_CHORD, to: 2.45 + QUARTER_CHORD },
+      /**
+       * 【90° 與 78° 同一個範圍 —— 先前把 90° 收窄是被天線騙的】曾經只標到
+       * 機體 2.45，理由是「正上方那一條在 2.51 就乾淨了」。但那個判讀用的是
+       * **單條射線**，而單條射線在那一段打到的是**天線鋼索**（從機背拉到
+       * 垂尾頂，永遠比機背高）。改用中位數之後 5.90 給 1.458、6.10 給 1.247
+       * —— 一步掉 0.21，而前後都是每站 0.017 的平順下降。那不是形狀。
+       */
+      { deg: 90, from: 1.85 + QUARTER_CHORD, to: 3.05 + QUARTER_CHORD },
       { deg: 78, from: 1.85 + QUARTER_CHORD, to: 3.05 + QUARTER_CHORD },
+      /**
+       * ── 主翼翼根整流罩（機體 2.6～3.6，接近水平的那四點）──────
+       *
+       * 機身最寬處是 0.88，而這一段量到 **1.033**（機體 3.21 的 −30° 那一點）
+       * —— 寬了 18%，而且同一圈的鄰點是 0.924／0.863，是一根**單點的凸起**。
+       * 那是翼根整流罩：它只出現在主翼翼根後緣附近（翼根弦 −1.04…3.11），
+       * 前後都沒有。
+       *
+       * 【在水平線**下方**】機翼裝在機身中線之下（`WING.rootY` −0.30），所以
+       * 整流罩長在 −18°／−30° 那兩點上，不是正側面。第一版標了 ±18°／±6°，
+       * 全部標在錯的一邊，鼓包原封不動。
+       *
+       * 【為什麼要讓出來】主翼在這個模型裡是**獨立的翼面板**，整流罩烘進機身
+       * 等於在機腰上長一顆與機翼無關的鼓包 —— 側視是一坨、俯視是一圈。
+       * 讓出來之後機身是乾淨的水滴，整流罩本身沒有做（坑 15：量得到但故意
+       * 不用的東西也要交代）。
+       */
+      { deg: -18, from: 2.60 + QUARTER_CHORD, to: 3.60 + QUARTER_CHORD },
+      { deg: -30, from: 2.60 + QUARTER_CHORD, to: 3.60 + QUARTER_CHORD },
+      /**
+       * ── 腹艙（Bola）整段也標成洞 ──────────────────────────
+       *
+       * 【它不屬於機身外殼】外殼一圈 16 點、相鄰差 12°。吊艙的半寬只有 0.32
+       * 而它掛在 r ≈ 1.5 的地方 —— 偏 12° 那一點橫向已經 0.31，**早就在吊艙
+       * 外面**。硬烘進來做出的是一根沿中線的尖刺，不是一顆圓凸起。
+       *
+       * 所以吊艙改成獨立零件（`he111.ts` 的 `BOLA`，與發動機艙同一個判斷），
+       * 這裡把它讓出來、由前後的乾淨站位內插出機身自己的腹線。
+       *
+       * 【範圍 5.45～8.55 比吊艙本身寬】從吊艙內部 (0, −1.05) 射線量到的
+       * 半寬顯示：5.50～5.80 與 8.10～8.40 這兩段的**半寬是 0** —— 那是中線
+       * 上兩根細長的東西（天線桿之類），不是吊艙。它們一樣不該進外殼。
+       *
+       * 【−78° 也要標，−66° 不用】r ≈ 1.1 時 −78° 橫向是 0.23（在吊艙上），
+       * −66° 是 0.45（已經在外面）。
+       */
+      { deg: -90, from: 5.45, to: 8.55 },
+      { deg: -78, from: 5.45, to: 8.55 },
     ]
 
     /**
@@ -1357,37 +1516,22 @@ const stages: Record<string, Stage> = {
       rad.push(OUT_DEG.map((deg) => {
         if (GUN_HOLES.some((h) => h.deg === deg && z >= h.from && z <= h.to)) return NaN
         /**
-         * 左右對稱化，見下方。朝下那三點另外處理：
+         * 左右對稱化，見下方。朝下那三點只換上限、不換視窗：
          *
-         *   上限  改用開大的那一趟（見 KEEL_MAXR）
-         *   視窗  ±6° 改成 ±3°
+         *   上限  改用開大的那一趟（見 KEEL_MAXR）—— 1.45 只夠到 y = −1.20，
+         *         而機腹最深處在 −1.28，**超出上限的射線直接回 0**（坑 6）
+         *   視窗  仍然是 ±6°
          *
-         * 【為什麼視窗要收成單條】腹艙是一條**窄龍骨**，而它的**前後兩道
-         * 端面比 ±3° 還窄** —— 只有正下方那一條射線打得到，鄰居已經離開
-         * 吊艙了。上面那張並排表是證據：
-         *
-         * ```
-         *   量測Z   單條射線  ±3°中位數    差
-         *    5.50    1.468    1.132    −0.336   ← 前端面
-         *    5.70    1.382    1.163    −0.219
-         *    8.10    1.378    1.235    −0.143
-         *    8.30    1.476    1.114    −0.362   ← 後端面
-         *   其餘 17 站                   ±0.001
-         * ```
-         *
-         * 21 站有 17 站兩者一致到 0.001，只有這四站不一致 —— 而中位數在
-         * 這四站給的是**錯的那一個**：端面被抹成 0.6 m 的斜坡，位置還往後
-         * 拖了 0.27 m。中位數的價值是擋單點漏失，而這裡根本沒有漏失。
-         *
-         * 這與垂尾那一條是同一個教訓（`verify` 的 `pick`）：**細長的東西
-         * 不能用中位數量。**
+         * 【曾經改成單條射線，後來改回來】為了做出腹艙的「前後兩道垂直面」
+         * 試過 `win = 0`。後來從吊艙內部射線量到那兩處的**半寬是 0** —— 那是
+         * 中線上兩根細桿，不是吊艙的端面。單條射線因此只是把兩根桿子畫了
+         * 出來，代價是腹艙以外的整段機腹失去中位數保護，尾段的腹線抖動
+         * ±0.03、五次變號。吊艙改成獨立零件之後，這裡回到中位數。
          */
-        const keelPt = deg <= KEEL_DEG
-        const src = keelPt ? keel : rs
-        const win = keelPt ? 0 : 6
+        const src = deg <= KEEL_DEG ? keel : rs
         const row2 = src.r[k]!
-        const right = robust(row2, src.theta, deg, win)
-        const left = robust(row2, src.theta, 180 - deg, win)
+        const right = robust(row2, src.theta, deg)
+        const left = robust(row2, src.theta, 180 - deg)
         /**
          * 【只有一側量到 → 當成洞，不要拿另一側頂替】
          *
@@ -1572,7 +1716,6 @@ const stages: Record<string, Stage> = {
     }) as { planes: number[]; theta: number[]; r: number[][] }
 
     const last = rings[rings.length - 1]!
-    const lastW = Math.max(...last.pts.map((p) => p[0]))
     const lastTop = last.pts[0]![1]
     const lastBot = last.pts[OUT_DEG.length - 1]![1]
     /** 背線的內插起點：最後一個乾淨站位量到的值 */
@@ -1607,6 +1750,29 @@ const stages: Record<string, Stage> = {
       return n
     }
     const filled = fill(wRaw) + fill(bRaw)
+
+    /**
+     * 【尾錐那兩條線也要平滑】它們是單獨一趟切片、沒有經過主段的平滑，
+     * 實測腹線在機體 11.21 有一根 −0.089／＋0.110 的尖刺。等距三點加權
+     * ［0.25, 0.5, 0.25］一輪。
+     */
+    for (const a of [wRaw, bRaw]) {
+      const src2 = [...a]
+      for (let k = 1; k < a.length - 1; k++) {
+        a[k] = src2[k - 1]! * 0.25 + src2[k]! * 0.5 + src2[k + 1]! * 0.25
+      }
+    }
+
+    /**
+     * 【縮放的基準必須與 wRaw 量的是同一件事】原本用「最後一個機身環的
+     * **最大半寬**」當分母，而 `wRaw` 是**0° 那一條射線**的半徑 —— 剖面最寬處
+     * 不在正水平時兩者不相等，實測差 19%，於是尾錐第一站一步縮掉 0.101
+     * （0.520 → 0.419），側視看起來是機尾突然被掐了一下。
+     *
+     * `tail` 的第一站與機身的最後一站切在同一個平面（量測 12.3），所以拿
+     * `wRaw[0]` 當分母，接縫處的比例恆為 1。
+     */
+    const lastW = wRaw[0]!
 
     let tailCount = 0
     for (let k = 1; k < tail.planes.length; k++) {
