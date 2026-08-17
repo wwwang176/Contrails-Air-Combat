@@ -91,7 +91,10 @@ declare global {
     __hangarRef: (on: boolean, solid?: boolean) => Promise<boolean>
     __hangarInfo: () => { metrics: { noseZ: number; noseY: number } } | null
     __hangarShow: (mine: boolean, ref: boolean) => void
-    __hangarCam: (x: number, y: number, z: number) => void
+    /** 後三個是看向點；順手把 autoRotate 關掉、model.rotation.y 歸零 */
+    __hangarCam: (
+      x: number, y: number, z: number, tx?: number, ty?: number, tz?: number,
+    ) => void
     __hangarOrtho: (v: string | null) => void
   }
 }
@@ -883,6 +886,110 @@ const stages: Record<string, Stage> = {
   },
 
   /**
+   * 【發動機艙拆件】專案負責人：「參考模型其實是一個圓錐體的引擎，但是加了
+   * 下方進氣罩跟上方進氣罩而已。」這一格就是去證實這個拆法。
+   *
+   * 【為什麼一定要拆】現在的 `NACELLE` 是**一個** loft，等於逼一個橢圓截面
+   * 同時交代圓錐與兩個罩子。烘出來的表格自己就露餡了：半寬是乾淨的圓錐
+   * （0.61 → 0.65 峰 → 收），**半高卻在 −1.289 → −1.279 一步跳 0.573 →
+   * 0.730、centerY 同步跳 −0.140 → −0.252**。截面是整圈一起放大的，所以
+   * 那一步把**頂線**也一起抬了 +0.045（0.433 → 0.478）—— 而艙頂那個位置
+   * 實際上什麼都沒有。這是「憑空多出來的一圈」，打光之下就是不平整。
+   *
+   * 【量法】頂線與底線各自用五個 X 原點（艙心 2.6 起，往外每 0.15 一欄）。
+   * 判讀規則與 `nactail`／`nacfloor` 同一條：
+   *
+   *   五欄一起起伏 → 那是機翼（機翼在 X 上是一整片）
+   *   只有內側幾欄凸出去 → 那是掛在艙上的罩子，而**凸出去的欄數就是罩寬**
+   *
+   * 【頂線在機翼弦內量不到艙】艙頂只比機翼上表面高 0.07（造型檔檔頭記過），
+   * 而兩者在參考模型裡是同一個實體。所以頂線的表格只有機翼前緣**之前**那
+   * 一段能拿來判上方進氣罩；之後那一段本來就該讀到機翼。
+   */
+  nacparts: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const DX = [0, 0.15, 0.30, 0.45, 0.60]
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const iAt = (T: readonly number[], deg: number): number =>
+      T.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(T[b]! - deg * Math.PI / 180) ? j : b
+      ), 0)
+
+    const zs: number[] = []
+    const roof: number[][] = []
+    const floor: number[][] = []
+    for (const [i, dx] of DX.entries()) {
+      const rs = await slice('radial', 'z', {
+        from: 0.0, to: 5.4, count: 109, angles: 144,
+        axisU: 2.6 + dx, axisV: 0.0, maxRadius: 1.4,
+      }) as Rad
+      const up = iAt(rs.theta, 90), dn = iAt(rs.theta, 270)
+      for (let k = 0; k < rs.planes.length; k++) {
+        if (i === 0) { zs.push(rs.planes[k]!); roof.push([]); floor.push([]) }
+        // 半徑 → 機體 Y。量不到（r = 0）印成 NaN，不要與 y = 0 混為一談
+        roof[k]!.push(rs.r[k]![up]! > 0 ? rs.r[k]![up]! : NaN)
+        floor[k]!.push(rs.r[k]![dn]! > 0 ? -rs.r[k]![dn]! : NaN)
+      }
+    }
+    const head = '  量測Z   機體Z' + DX.map((d) => n(2.6 + d, 8, 2)).join('')
+    console.log('── 發動機艙 頂線（機體 Y，射線朝上）──────────────')
+    console.log(head)
+    for (let k = 0; k < zs.length; k++) {
+      console.log(`  ${n(zs[k]!, 6, 2)}  ${n(zs[k]! - QC, 6, 2)}`
+        + roof[k]!.map((v) => n(v, 8)).join(''))
+    }
+    console.log('')
+    console.log('── 發動機艙 底線（機體 Y，射線朝下）──────────────')
+    console.log(head)
+    for (let k = 0; k < zs.length; k++) {
+      console.log(`  ${n(zs[k]!, 6, 2)}  ${n(zs[k]! - QC, 6, 2)}`
+        + floor[k]!.map((v) => n(v, 8)).join(''))
+    }
+  },
+
+  /**
+   * 【發動機艙的**截面輪廓**，幾站，逐點印 (u, v)】
+   *
+   * `nacparts` 只取 θ=90／270 兩個角度，回答得了「有沒有罩子」，回答不了
+   * 「罩子多寬、中心在哪」——後者要看整條輪廓。一次 radial 切片本來就把 144
+   * 個角度都算好了，只是之前只挑了兩個出來印。
+   *
+   * 【為什麼一定要問「中心在哪」】上方進氣罩只在 x = 2.60／2.75 兩欄出現，
+   * 2.90 那欄讀到的是錐面。只掃外側等於預設它對稱於艙心 —— 而 Jumo 211 的
+   * 增壓器進氣口在真機上是偏一側的。做錯邊會比做小還醜。
+   */
+  nacsection: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const AXIS_V = -0.10
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    // 機體 Z → 量測 Z。取樣落在 0.05 的格線上，from/to/count 要對得起來
+    const WANT = [-2.19, -1.89, -1.64, -1.44, -1.24, -0.89, -0.54]
+    const rs = await slice('radial', 'z', {
+      from: 0.0, to: 5.4, count: 109, angles: 144,
+      axisU: 2.6, axisV: AXIS_V, maxRadius: 1.4,
+    }) as Rad
+    console.log(`── 發動機艙截面輪廓（原點 x=2.6, y=${AXIS_V}；u 是離艙心的橫距）──`)
+    for (const zb of WANT) {
+      const k = rs.planes.reduce((b, p, j) =>
+        Math.abs(p - (zb + QC)) < Math.abs(rs.planes[b]! - (zb + QC)) ? j : b, 0)
+      console.log(`\n  機體 Z = ${n(rs.planes[k]! - QC, 6, 2)}`)
+      for (const [tag, lo, hi] of [['上緣', 40, 140], ['下緣', 220, 320]] as const) {
+        const cells: string[] = []
+        for (let j = 0; j < rs.theta.length; j++) {
+          const deg = rs.theta[j]! * 180 / Math.PI
+          if (deg < lo || deg > hi) continue
+          const r = rs.r[k]![j]!
+          if (r <= 0) continue
+          const u = r * Math.cos(rs.theta[j]!)
+          const v = AXIS_V + r * Math.sin(rs.theta[j]!)
+          cells.push(`${u.toFixed(2)}/${v.toFixed(3)}`)
+        }
+        console.log(`   ${tag} ` + cells.join(' '))
+      }
+    }
+  },
+
+  /**
    * 【發動機艙逐站對切】自家模型 vs 參考模型，射線原點都橫移到 x = 2.6。
    *
    * 【為什麼要單獨一格】`verify` 的射線原點在機身軸心，量不到掛在機翼上的
@@ -892,6 +999,37 @@ const stages: Record<string, Stage> = {
    *
    * 【0.1 m 一刀】艙上有真的是垂直面的東西（散熱器進氣口）。0.4 m 一刀
    * 只會看到一個斜坡。
+   *
+   * ── 2026-08-18：這一格的「差」帶著一個剛體偏移，不要直接讀 ──────
+   *
+   * 這一格在 `overlay` 名單裡，所以參考模型走 `placeRef`；而 `nacparts` 與
+   * `nacsection` 走 `__hangarProbe` 旁路。兩條路徑擺的**不是同一個位置**：
+   *
+   * ```
+   *   特徵                 probe      placeRef    差
+   *   整流罩尖端          −3.09       −2.95      +0.14
+   *   下方罩前壁          −1.265      −1.15      +0.115
+   *   艙底最深（Z −0.9）  −1.012      −0.91      +0.102
+   *   艙頂（Z −1.8）      +0.522      +0.62      +0.098
+   * ```
+   *
+   * 也就是 placeRef 把參考模型往**後 0.12、往上 0.105** 擺。整個機身都是
+   * 同一個偏移（`belly` 那一格早就在扣 −0.105 了）。造型檔的截面是在 probe
+   * 座標烘的，所以這一格印出來的「自家比參考深 0.10」是**擺放差**不是形狀差。
+   *
+   * 【而且那還不是單純的平移 —— 試過了】把參考那一趟的刀往前挪 0.12、射線
+   * 原點抬 0.105（對純平移這是正確的補償），殘差反而由中位數 0.095 惡化到
+   * **0.269**，而且參考的頂緣不減反增（−1.80 那一站 0.62 → 0.77）。所以兩條
+   * 路徑的差**不是剛體位移**，很可能連縮放或對齊基準都不同（`placeRef` 是拿
+   * 「最前端的頂點」對 Z 與 Y 的，見 `verify` 的註解）。補償已經收回。
+   *
+   * 【所以形狀不要在這一格判】造型檔的截面是在 probe 座標烘的，要比形狀就看
+   * `nacparts`／`nacsection`（同一個座標）。這一格回答的是另一個問題：
+   * **玩家在機庫裡疊出來看到的那一份**差多少 —— 那個差裡混著擺放，數字不能
+   * 直接當成形狀誤差讀。這條與 §「三條紅護欄」是同一件懸案，等專案負責人裁定。
+   *
+   * 【`target: 'mine'` 只能在這條路徑上用】probe 旁路下 `mine` 量到的不是
+   * 這台飛機（試過：切了機種、關了自動旋轉、重載 probe 都一樣）。
    */
   nacverify: async (_page, _probe, slice) => {
     const AXIS_U = 2.6
@@ -908,7 +1046,7 @@ const stages: Record<string, Stage> = {
       ), 0)
     const [ri, up, le, dn] = [at(mine.theta, 0), at(mine.theta, 90),
       at(mine.theta, 180), at(mine.theta, 270)]
-    console.log('── 發動機艙（射線原點 X=2.6、Y=0）──────────────')
+    console.log('── 發動機艙（射線原點 X=2.6、Y=0；差裡混著擺放，見檔頭）──')
     console.log('      Z   ── 外側 ──  ── 上緣 ──  ── 內側 ──  ── 下緣 ──')
     console.log('          自家   參考  自家   參考  自家   參考  自家   參考')
     const diffs: number[] = []
