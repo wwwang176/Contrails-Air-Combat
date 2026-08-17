@@ -265,42 +265,62 @@ const stages: Record<string, Stage> = {
    */
   glass: async (_page, _probe, slice) => {
     const AXIS_V = 0.25
+    const QC = 3.0889
     const ONLY = 'windows'
-    const rs = await slice('radial', 'z', {
-      from: -0.4, to: 6.0, count: 33, angles: 72, axisV: AXIS_V, maxRadius: 1.6,
-    }, undefined, ONLY) as { planes: number[]; theta: number[]; r: number[][] }
-    const T = rs.theta
+    /**
+     * 【`he111.hull.ts` 的十六個輸出角】玻璃要貼在**外殼的哪幾片**上，所以
+     * 要問的不是「玻璃佔剖面幾成」，而是「第幾號到第幾號那幾片是玻璃」。
+     */
+    const OUT_DEG = Array.from({ length: 16 }, (_, i) => 90 - i * 12)
+    const opt = {
+      from: -0.4, to: 11.6, count: 61, angles: 144, axisV: AXIS_V, maxRadius: 1.6,
+    }
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const g = await slice('radial', 'z', opt, undefined, ONLY) as Rad
+    const all = await slice('radial', 'z', opt) as Rad
+
+    /** 某個角度附近 ±6° 有沒有射線打到 */
+    const hitAt = (row: readonly number[], T: readonly number[], deg: number): boolean => {
+      const want = deg * Math.PI / 180
+      for (let j = 0; j < T.length; j++) {
+        let d = T[j]! - want
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        if (Math.abs(d) <= 6 * Math.PI / 180 && row[j]! > 0) return true
+      }
+      return false
+    }
+
+    console.log(`── 只切 mesh /${ONLY}/：玻璃落在哪幾號輸出角 ────`)
+    console.log('  索引 0 = 正上方、15 = 正下方（與 he111.hull.ts 同一組角）')
+    console.log('   量測Z   機體Z   0123456789012345   說明')
+    for (let k = 0; k < g.planes.length; k++) {
+      const row = g.r[k]!
+      const mark = OUT_DEG.map((deg) => (hitAt(row, g.theta, deg) ? '#' : '.')).join('')
+      // 同站位整台的剖面，讓「玻璃就是蒙皮」看得出來
+      const top = AXIS_V + (all.r[k]![0] ?? 0)
+      console.log(
+        `  ${n(g.planes[k]!, 6, 2)}  ${n(g.planes[k]! - QC, 6, 2)}   ${mark}`
+        + `   蒙皮背頂 ${n(top, 6, 2)}`,
+      )
+    }
+
+    // 玻璃自己的上下界，量出機背座艙與腹艙吊艙的高度
+    console.log('\n── 玻璃自己的背頂與腹底（沒打到就是 —）──────')
+    console.log('   量測Z   機體Z   玻璃背頂  玻璃腹底  玻璃半寬')
+    const T = g.theta
     const iAt = (deg: number) =>
       T.reduce((b, th, j) => (
         Math.abs(th - deg * Math.PI / 180) < Math.abs(T[b]! - deg * Math.PI / 180) ? j : b
       ), 0)
     const [up, ri, dn] = [iAt(90), iAt(0), iAt(270)]
-    console.log(`── 只切 mesh /${ONLY}/（玻璃）──────────────────`)
-    console.log('   量測Z   機體Z    背頂     半寬     腹底   有玻璃的射線數')
-    for (let k = 0; k < rs.planes.length; k++) {
-      const row = rs.r[k]!
-      const hit = row.filter((v) => v > 0).length
-      const top = row[up]! > 0 ? AXIS_V + row[up]! : NaN
-      const bot = row[dn]! > 0 ? AXIS_V - row[dn]! : NaN
+    for (let k = 0; k < g.planes.length; k++) {
+      const row = g.r[k]!
       console.log(
-        `  ${n(rs.planes[k]!, 6, 2)}  ${n(rs.planes[k]! - 2.7465, 6, 2)}`
-        + `  ${n(top)}  ${n(row[ri]!)}  ${n(bot)}  ${String(hit).padStart(6)}`,
-      )
-    }
-
-    // 同一組站位切**整台**，玻璃佔剖面的比例才讀得出來
-    const all = await slice('radial', 'z', {
-      from: -0.4, to: 6.0, count: 33, angles: 72, axisV: AXIS_V, maxRadius: 1.6,
-    }) as { planes: number[]; theta: number[]; r: number[][] }
-    console.log('\n── 對照：同站位的整台剖面（玻璃／蒙皮的分界）──')
-    console.log('   量測Z   機體Z   蒙皮背頂  蒙皮半寬  蒙皮腹底   玻璃佔剖面')
-    for (let k = 0; k < all.planes.length; k++) {
-      const row = all.r[k]!, g = rs.r[k]!
-      const hit = g.filter((v) => v > 0).length
-      console.log(
-        `  ${n(all.planes[k]!, 6, 2)}  ${n(all.planes[k]! - 2.7465, 6, 2)}`
-        + `  ${n(AXIS_V + row[up]!)}  ${n(row[ri]!)}  ${n(AXIS_V - row[dn]!)}`
-        + `  ${n(hit / 72 * 100, 8, 1)}%`,
+        `  ${n(g.planes[k]!, 6, 2)}  ${n(g.planes[k]! - QC, 6, 2)}`
+        + `  ${n(row[up]! > 0 ? AXIS_V + row[up]! : NaN)}`
+        + `  ${n(row[dn]! > 0 ? AXIS_V - row[dn]! : NaN)}`
+        + `  ${n(row[ri]! > 0 ? row[ri]! : NaN)}`,
       )
     }
   },

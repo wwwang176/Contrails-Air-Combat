@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { DEG } from '../../core/math'
 import { createHull, type AircraftModel, type LoftPart, type FinParams } from './assembly'
 import type { FrameSpec } from './canopy'
+import type { GlassPatch } from './hull'
 import { HE111_HULL } from './he111.hull'
 import type { WingParams } from './wing'
 
@@ -24,6 +25,7 @@ import type { WingParams } from './wing'
  *   1 發動機艙下方要有垂直面   → `NACELLE` 的 −1.289／−1.279 那一組截面
  *   2 玻璃罩要有結構條         → `FRAMES`
  *   3 玻璃是整個機頭           → `h.glazedNose`，不是罩子
+ *   3b 頂部與機腹也有玻璃      → `GLASS_PATCHES`（我第一次只做了機首）
  *   4 主翼靠機身有向前的凹陷   → `WING.kink`
  *   5 機身要平滑（單純的水滴） → `he111.hull.ts`：站位與點數加倍、加一輪環向平滑
  *
@@ -246,6 +248,40 @@ const NACELLE_X = 2.6
 const GLASS_SPLIT_Z = -1.64
 
 /**
+ * 機首以外的三塊玻璃 —— 專案負責人：「飛機頂部與機腹有玻璃區域」。
+ *
+ * 【我漏了，而且我自己那一趟量測就印出來了】上一版只把 `windows` mesh 用來
+ * 決定機首玻璃的後界，沒有往後看。同一支腳本的 `glass` 那一格逐站印出玻璃
+ * 落在**第幾號輸出角**（索引與 `he111.hull.ts` 的十六點一致）：
+ *
+ * ```
+ *   機體Z    0123456789012345
+ *   +0.71    ##..............   機背機槍座（前緣）
+ *   +1.11    ####.##.........   ← 機背 0~3，另外 5~6 是座艙側窗
+ *   +1.51    ####............
+ *   +1.91    ..##............   機背機槍座（後緣）
+ *   +2.71    ..............##   機腹吊艙（Bola）起
+ *   +3.11    .....###......##   ← 側窗 5~7 與 Bola 同時在
+ *   +4.51    ............####
+ *   +5.91    ..............##   Bola 止
+ *   +6.11    ................
+ * ```
+ *
+ * 【機背玻璃與機身那個「量不到的開口」不是同一段】玻璃在 0.71…1.91，而
+ * 正上方射線穿進去的那五站在 1.91…2.91（見 `he111.hull.ts`）。真機的 H-6
+ * 就是這樣：前面是有蓋的玻璃座、後面是機槍的開口。
+ *
+ * 【側窗 5~7 只取連續的那一段】3.11…4.31 之間逐站都在（6.80 那一站漏一格，
+ * 射線角度的取樣問題）。更前面 0.11／0.31／0.91～1.31 也有零星的 5~6，
+ * 但中間斷開 —— 硬連起來會做出一條 4 m 長的玻璃帶，那不是真機的樣子。
+ */
+const GLASS_PATCHES: readonly GlassPatch[] = [
+  { from: 0.71, to: 1.91, i0: 0, i1: 3 },     // 機背機槍座
+  { from: 2.71, to: 5.91, i0: 13, i1: 15 },   // 機腹吊艙（Bola）
+  { from: 3.11, to: 4.31, i0: 5, i1: 7 },     // 機身側窗
+]
+
+/**
  * 玻璃的骨架 —— 專案負責人的第 2 點。
  *
  * 【為什麼一定要有】一大片沒有分割線的透明曲面在遊戲距離下讀不出「那是
@@ -298,7 +334,7 @@ export function buildHe111(): AircraftModel {
   })
 
   // 全玻璃機首：外殼切成兩截，前段玻璃、後段機身色（見 GLASS_SPLIT_Z）
-  h.glazedNose(HE111_HULL, GLASS_SPLIT_Z)
+  h.glazedNose(HE111_HULL, GLASS_SPLIT_Z, GLASS_PATCHES)
   h.frames(HE111_HULL, FRAMES)
 
   // 兩具發動機艙。機身色而不是強調色 —— 它們是蒙皮的一部分。

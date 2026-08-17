@@ -107,8 +107,44 @@ export function hullXAtY(half: readonly (readonly [number, number])[], y: number
   return xAtY(half, y)
 }
 
+/**
+ * 外殼上的一塊玻璃 —— z 範圍 × 剖面點索引範圍，左右對稱。
+ *
+ * 【為什麼玻璃是「外殼的一部分」而不是貼上去的零件】另外兩台的座艙罩確實
+ * 是加在蒙皮上的罩子，但轟炸機的機背機槍座與機腹吊艙不是：那幾片**就是
+ * 蒙皮**，只是材質不同。實測參考模型的 `windows` mesh，玻璃的下緣與蒙皮的
+ * 下緣逐字相同。
+ *
+ * 用「哪幾片」而不是「哪個高度」來描述，是因為外殼已經是烘焙好的頂點 ——
+ * 索引直接對應 `HullRing.half` 的第幾點，量測腳本的 `glass` 那一格印出來的
+ * 就是這個索引。
+ */
+export interface GlassPatch {
+  from: number
+  to: number
+  /** `HullRing.half` 的索引範圍（含）。0 = 正上方、最後一點 = 正下方 */
+  i0: number
+  i1: number
+}
+
 export interface HullResult {
   geometry: BufferGeometry
+  /**
+   * 玻璃那幾片。**與 `geometry` 互補** —— 兩者合起來仍然是完整的一層外殼，
+   * 玻璃只是被挑出來換材質。
+   */
+  glassGeometry: BufferGeometry
+  /**
+   * 玻璃後面的暗色襯裡。
+   *
+   * 【為什麼非有不可】玻璃是半透明的，透過去看到的是機身**另一側的背面**
+   * ——而背面被剔除，於是看到的是背景。機首那一段靠後段外殼的前封口擋住
+   * （那就是真機的隔框），但機背與機腹那兩塊沒有東西擋。
+   *
+   * 襯裡是同幾片往內縮的複製品，法線仍然朝外 —— 從玻璃看進去看到的是它的
+   * 正面，讀起來就是「玻璃後面有個暗艙」。
+   */
+  glassBackGeometry: BufferGeometry
   /**
    * 開口邊緣：每個被挖到的站位的 (z, x, y)，x 為右側艙緣的半寬。
    * 座艙玻璃與內裝直接接在這條線上，機體與玻璃因此一定銜接。
@@ -135,9 +171,26 @@ export function buildHull(
    * 玻璃機首後方的**隔框**，本來就該在那裡。
    */
   caps?: { front?: boolean; back?: boolean },
+  glass?: readonly GlassPatch[],
 ): HullResult {
   const n = rings[0]!.half.length
   const ringCount = 2 * n - 2
+  /**
+   * 完整一圈的索引 → `half` 的索引。右半 0…n−1 直接對應；左半 n…2n−3 是
+   * `half.slice(1, -1).reverse()`，所以是 2n−2−k。
+   */
+  const halfIndex = (k: number) => (k < n ? k : ringCount - k)
+  /** 這一片（跨站位 s→s+1、跨環向 i→j）是不是玻璃 */
+  const isGlass = (z: number, i: number, j: number): boolean => {
+    if (!glass) return false
+    const a = halfIndex(i), b = halfIndex(j)
+    return glass.some((p) => (
+      z >= p.from && z <= p.to
+      && a >= p.i0 && a <= p.i1 && b >= p.i0 && b <= p.i1
+    ))
+  }
+  /** 襯裡往內縮的比例。0.88 在 1 m 直徑的機身上是 6 cm，看得出深度又不穿幫 */
+  const BACK_INSET = 0.88
 
   /** 每個站位：完整一圈的座標，以及「哪些點被艙緣壓平了」。 */
   const built = rings.map((r) => {
@@ -156,13 +209,27 @@ export function buildHull(
   })
 
   const positions: number[] = []
-  const tri = (a: number[], b: number[], c: number[], z0: number, z1: number, z2: number) => {
-    positions.push(a[0]!, a[1]!, z0, b[0]!, b[1]!, z1, c[0]!, c[1]!, z2)
+  const glassPos: number[] = []
+  const backPos: number[] = []
+  const into = (out: number[]) =>
+    (a: number[], b: number[], c: number[], z0: number, z1: number, z2: number) => {
+      out.push(a[0]!, a[1]!, z0, b[0]!, b[1]!, z1, c[0]!, c[1]!, z2)
+    }
+  const tri = into(positions)
+  const triGlass = into(glassPos)
+  const triBack = into(backPos)
+
+  /** 剖面中心（背線與腹線的中點）—— 襯裡往這裡縮 */
+  const centerY = (r: typeof built[number]) => (r.pts[0]![1]! + r.pts[n - 1]![1]!) / 2
+  const inset = (r: typeof built[number], p: number[]): number[] => {
+    const cy = centerY(r)
+    return [p[0]! * BACK_INSET, cy + (p[1]! - cy) * BACK_INSET]
   }
 
   for (let s = 0; s < built.length - 1; s++) {
     const A = built[s]!
     const B = built[s + 1]!
+    const zMid = (A.z + B.z) / 2
     for (let i = 0; i < ringCount; i++) {
       const j = (i + 1) % ringCount
       // 四個角都被壓到艙緣 → 這一塊整個在開口裡，不輸出
@@ -170,8 +237,15 @@ export function buildHull(
       // 環是由正上方**順時針**繞回正上方（右半由上而下、左半由下而上），
       // 站位方向是 +Z。右側的 (−Y)×(+Z) = −X 是朝內的，所以要用下面這個
       // 順序才會朝外——與 buildFuselage 的逆時針環剛好相反。
-      tri(A.pts[i]!, B.pts[i]!, B.pts[j]!, A.z, B.z, B.z)
-      tri(A.pts[i]!, B.pts[j]!, A.pts[j]!, A.z, B.z, A.z)
+      const put = isGlass(zMid, i, j) ? triGlass : tri
+      put(A.pts[i]!, B.pts[i]!, B.pts[j]!, A.z, B.z, B.z)
+      put(A.pts[i]!, B.pts[j]!, A.pts[j]!, A.z, B.z, A.z)
+      // 玻璃那幾片再往內做一層暗色襯裡（同樣朝外，見 HullResult）
+      if (put !== triGlass) continue
+      const [ai, aj] = [inset(A, A.pts[i]!), inset(A, A.pts[j]!)]
+      const [bi, bj] = [inset(B, B.pts[i]!), inset(B, B.pts[j]!)]
+      triBack(ai, bi, bj, A.z, B.z, B.z)
+      triBack(ai, bj, aj, A.z, B.z, A.z)
     }
   }
 
@@ -187,13 +261,21 @@ export function buildHull(
   if (caps?.front !== false) cap(built[0]!, true)
   if (caps?.back !== false) cap(built[built.length - 1]!, false)
 
-  const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
-  geometry.computeVertexNormals()
+  const mesh = (pts: readonly number[]): BufferGeometry => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3))
+    g.computeVertexNormals()
+    return g
+  }
 
   const rim = built.filter((b) => b.sill !== null)
     .map((b) => ({ z: b.z, x: b.xs, y: b.sill! }))
-  return { geometry, rim }
+  return {
+    geometry: mesh(positions),
+    glassGeometry: mesh(glassPos),
+    glassBackGeometry: mesh(backPos),
+    rim,
+  }
 }
 
 /**

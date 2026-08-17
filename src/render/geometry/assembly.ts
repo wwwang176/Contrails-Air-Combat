@@ -7,7 +7,10 @@ import { buildFuselage, type FuselageSection } from './fuselage'
 import {
   buildCanopy, buildFrames, type CanopyShape, type CanopyStation, type FrameSpec,
 } from './canopy'
-import { buildCockpitTub, buildHull, ringAt, type CockpitCut, type HullRing } from './hull'
+import {
+  buildCockpitTub, buildHull, ringAt,
+  type CockpitCut, type GlassPatch, type HullRing,
+} from './hull'
 import { buildWingPanel, type WingParams } from './wing'
 
 /**
@@ -318,12 +321,28 @@ export function createHull(spec: HullSpec) {
      * 【接縫的封口只留一張】見 `buildHull` 的 `caps`：玻璃那一截不封後端，
      * 機身那一截的前封口就是真機的隔框。
      */
-    glazedNose(rings: readonly HullRing[], splitZ: number): void {
+    glazedNose(
+      rings: readonly HullRing[], splitZ: number,
+      /**
+       * 機首之外的玻璃 —— 機背機槍座、機腹吊艙、機身側窗。
+       *
+       * 【為什麼它們不能也用切一刀的做法】機首是**整個剖面**都是玻璃，所以
+       * 沿 z 切開就對了。這三塊只佔剖面的一小段角度（實測：機背是第 0～3 點、
+       * 機腹是第 13～15 點、側窗是第 5～7 點），沿 z 切會把整圈都變成玻璃。
+       */
+      patches?: readonly GlassPatch[],
+    ): void {
       const at = ringAt(rings, splitZ)
       const nose = [...rings.filter((r) => r.z < splitZ - 1e-6), at]
       const aft = [at, ...rings.filter((r) => r.z > splitZ + 1e-6)]
       add(new Mesh(buildHull(nose, undefined, { back: false }).geometry, glass))
-      add(new Mesh(buildHull(aft).geometry, body))
+      const rear = buildHull(aft, undefined, undefined, patches)
+      add(new Mesh(rear.geometry, body))
+      if (patches?.length) {
+        add(new Mesh(rear.glassGeometry, glass))
+        // 襯裡是實心的暗色殼，不是內裝 —— 它朝外，所以不掛 inwardShell
+        add(new Mesh(rear.glassBackGeometry, cockpitMat))
+      }
     },
 
     /** 玻璃的骨架（隔框 + 桁條）。機身色 —— 它是結構不是裝飾。 */
