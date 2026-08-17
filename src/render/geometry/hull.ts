@@ -232,9 +232,12 @@ export function buildHull(
    * 上。罩子隆起多少，弦就在它下面多少 —— 而且兩端**正好落在蒙皮上**，
    * 碗緣與罩緣接得起來，不必再補框壁。
    *
-   * 再往內沉一點點（`BACK_SINK`）只是為了讓弦不要與玻璃在兩端共面。
+   * 【碗底一定要沉在**玻璃**之下，不是沉在蒙皮之下】第一版寫的是 0.985 ——
+   * 對機背（玻璃與蒙皮共面）沒問題，但側窗是**凹槽**、玻璃已經沉到 0.94，
+   * 0.985 的碗底於是落在玻璃**外面**，整片黑板蓋住了那扇窗。所以係數要乘上
+   * 該補丁自己的玻璃深度。
    */
-  const BACK_SINK = 0.985
+  const LID_SINK = 0.93
 
   /** 每個站位：完整一圈的座標，以及「哪些點被艙緣壓平了」。 */
   const built = rings.map((r) => {
@@ -307,7 +310,8 @@ export function buildHull(
       const P = r.pts[run[0]!]!, Q = r.pts[run[run.length - 1]!]!
       for (let t = 0; t < run.length; t++) {
         const u = run.length === 1 ? 0 : t / (run.length - 1)
-        out[run[t]!] = sink(r, [P[0]! + (Q[0]! - P[0]!) * u, P[1]! + (Q[1]! - P[1]!) * u], BACK_SINK)
+        const k = LID_SINK * (patch.recess ? GLASS_SINK : 1)
+        out[run[t]!] = sink(r, [P[0]! + (Q[0]! - P[0]!) * u, P[1]! + (Q[1]! - P[1]!) * u], k)
       }
     }
     lidCache.set(key, out)
@@ -370,15 +374,18 @@ export function buildHull(
       const wall = wallInto(tri)
 
       /**
-       * 【碗的前後端壁】站位方向上補丁的第一刀與最後一刀，弦與蒙皮之間夾著
-       * 一塊月牙形的空隙。不補的話，斜前方的視線會越過碗緣、穿到機身另一側
-       * ——而另一側是背面、被剔除，於是又看到天空。
+       * 【碗壁：四邊都要】碗底是沉在玻璃底下的一片弦，四周與玻璃之間都夾著
+       * 空隙。不補的話，斜著看的視線會越過碗緣、穿到機身另一側 —— 而另一側
+       * 是背面、被剔除，於是又看到天空。
        *
-       * 環向的兩端不必補：弦的端點**就落在蒙皮上**（見 `lidAt`）。
+       * 接的是**玻璃的邊**不是蒙皮的邊：凹槽式的補丁（側窗）玻璃已經沉了
+       * 6%，接蒙皮會在框壁外面再多一圈黑。
        */
       const wallBack = wallInto(triBack)
-      if (!glassQuad(s - 1, i)) wallBack(A.pts[i]!, A.pts[j]!, bAi, bAj, A.z, A.z)
-      if (!glassQuad(s + 1, i)) wallBack(B.pts[i]!, B.pts[j]!, bBi, bBj, B.z, B.z)
+      if (!glassQuad(s - 1, i)) wallBack(gAi, gAj, bAi, bAj, A.z, A.z)
+      if (!glassQuad(s + 1, i)) wallBack(gBi, gBj, bBi, bBj, B.z, B.z)
+      if (!glassQuad(s, i - 1)) wallBack(gAi, gBi, bAi, bBi, A.z, B.z)
+      if (!glassQuad(s, i + 1)) wallBack(gAj, gBj, bAj, bBj, A.z, B.z)
 
       if (!patch.recess) continue
       // 前緣（站位 A 那一側）／後緣（站位 B 那一側）

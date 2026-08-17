@@ -84,6 +84,17 @@ import type { WingParams } from './wing'
  *
  * 這一輪的教訓：**「補一塊暗色的東西」與「挖一個凹槽」不是同一件事。**
  * 凹槽要有開口、要有朝內的壁、而且壁要接到緣上。
+ *
+ * ── 2026-08-18（五）：同一條規則套到其餘四處 ─────────────────
+ *
+ *   12 整流罩與艙首之間的縫  → `NAC_COWL_DARK`（艙首改成不封）
+ *   13 下方進氣口的**後端**  → `NAC_INTAKE_LOW_EXIT`（散熱器出風口）
+ *   14 機腹吊艙的玻璃        → `liner(BOLA, 0.86)`
+ *   15 機身側邊的兩塊觀景窗  → `hull.ts` 的 `LID_SINK`
+ *
+ * 第 15 條是個真的缺陷而不是漏做：碗底原本沉 0.985，對機背（玻璃與蒙皮
+ * 共面）沒問題，但側窗是**凹槽**、玻璃已經沉到 0.94 —— 碗底於是落在玻璃
+ * **外面**，整片黑板蓋住了那扇窗，看起來是一張黑貼紙。
  */
 
 /**
@@ -358,6 +369,8 @@ const NACELLE: LoftPart = {
    * 直徑 1.3 m 的艙用 12 段等於 30° 一個面，稜線在近距離很明顯。
    */
   segments: 20,
+  // 艙首不封：整流罩與艙首之間那一圈要是黑的，見 NAC_COWL_DARK
+  caps: { front: false },
   /**
    * halfWidth 沿用上一版烘出來的（那一欄本來就是乾淨的），halfHeight 與
    * centerY 改由**量到的頂線與底線**反推：hh = (頂−底)/2、cy = (頂+底)/2。
@@ -410,8 +423,8 @@ const NACELLE: LoftPart = {
 const NAC_INTAKE_LOW: LoftPart = {
   roundness: 2.6,
   segments: 20,
-  // 罩口是開的：那片朝前的封蓋原本是一面機身色的平板，見 NAC_INTAKE_LOW_DARK
-  caps: { front: false },
+  // 前後都不封：兩端各是一個碗，見 NAC_INTAKE_LOW_DARK／NAC_INTAKE_LOW_EXIT
+  caps: { front: false, back: false },
   sections: [
     { z: -1.270, halfWidth: 0.630, halfHeight: 0.245, centerY: -0.740 },
     { z: -1.190, halfWidth: 0.630, halfHeight: 0.245, centerY: -0.747 },
@@ -512,6 +525,72 @@ const NAC_INTAKE_TOP_DARK: LoftPart = {
     { z: -2.050, halfWidth: 0.190, halfHeight: 0.082, centerY: 0.410 },
     { z: -2.000, halfWidth: 0.120, halfHeight: 0.052, centerY: 0.410 },
     { z: -1.970, halfWidth: 0.050, halfHeight: 0.022, centerY: 0.410 },
+  ],
+}
+
+/**
+ * 散熱器的**出口**。專案負責人：「引擎下方進氣口從後面也可以看到縫隙，
+ * 也是補上截面。」
+ *
+ * 進氣口是一根管子，前面挖了碗、後面卻還是一片機身色的平板 —— 從後方看
+ * 就是「一道與蒙皮同色的橫牆」，而真機那裡是散熱器的出風口，是黑的。
+ *
+ * 做法與前面的碗完全對稱：罩子的後端也不封（`caps.back: false`），這一根
+ * 朝**後**開口、比罩尾大 2%。前後兩個碗的封蓋把管子中段封死，所以不會從
+ * 前面看穿到後面。
+ */
+const NAC_INTAKE_LOW_EXIT: LoftPart = {
+  roundness: 2.6,
+  segments: 20,
+  caps: { back: false },
+  sections: [
+    { z: -0.620, halfWidth: 0.150, halfHeight: 0.058, centerY: -0.722 },
+    { z: -0.560, halfWidth: 0.380, halfHeight: 0.148, centerY: -0.713 },
+    { z: -0.505, halfWidth: 0.560, halfHeight: 0.218, centerY: -0.703 },
+    { z: -0.453, halfWidth: 0.643, halfHeight: 0.250, centerY: -0.693 },
+  ],
+}
+
+/**
+ * 整流罩與艙首之間那一圈。專案負責人：「螺旋槳頭與引擎也有縫隙，也補上
+ * 黑截面。」
+ *
+ * 【那裡本來是什麼】整流罩是半徑 0.32 的圓錐（−3.090…−2.560），艙首在
+ * −2.590 是 0.375 × 0.350 —— 兩者互相穿插，其實沒有破洞。露出來的是艙首
+ * 那片**朝前的機身色封蓋**，在整流罩四周圍出一圈同色的環。真機那裡是
+ * 整流罩與發動機罩之間的縫，是暗的。
+ *
+ * 所以艙首改成不封，前面補一個朝前開口的暗碗；整流罩的底座（−2.560）落在
+ * 碗裡面，碗自己在 −2.440 收口封死。
+ */
+/**
+ * 玻璃罩裡的暗艙：同一組截面往**該站的中心**縮 k，首尾各去掉一站。
+ *
+ * 去掉首尾是因為那兩站通常已經收成一點（0.04 上下），縮 14% 只差 0.006，
+ * 兩層面貼在一起會閃爍。
+ */
+function liner(part: LoftPart, k: number): LoftPart {
+  return {
+    roundness: part.roundness,
+    segments: part.segments,
+    sections: part.sections.slice(1, -1).map((s) => ({
+      z: s.z,
+      halfWidth: s.halfWidth * k,
+      halfHeight: s.halfHeight * k,
+      centerY: s.centerY,
+    })),
+  }
+}
+
+const NAC_COWL_DARK: LoftPart = {
+  roundness: 2.4,
+  segments: 20,
+  caps: { front: false },
+  sections: [
+    { z: -2.592, halfWidth: 0.383, halfHeight: 0.357, centerY: -0.020 },
+    { z: -2.520, halfWidth: 0.356, halfHeight: 0.333, centerY: -0.024 },
+    { z: -2.470, halfWidth: 0.281, halfHeight: 0.263, centerY: -0.028 },
+    { z: -2.440, halfWidth: 0.131, halfHeight: 0.123, centerY: -0.030 },
   ],
 }
 
@@ -771,14 +850,31 @@ export function buildHe111(): AircraftModel {
     for (const part of [NACELLE, NAC_INTAKE_LOW, NAC_INTAKE_TOP]) {
       h.loft(part, h.body).position.x = sx * NACELLE_X
     }
-    // 進氣口裡的碗狀凹槽。材質是雙面的 —— 從罩口看進去看到的是內壁的背面
-    for (const part of [NAC_INTAKE_LOW_DARK, NAC_INTAKE_TOP_DARK]) {
+    // 四個碗狀凹槽：整流罩接縫、上下進氣口、散熱器出口。材質是雙面的 ——
+    // 從開口看進去看到的是內壁的背面
+    for (const part of [
+      NAC_COWL_DARK, NAC_INTAKE_LOW_DARK, NAC_INTAKE_LOW_EXIT, NAC_INTAKE_TOP_DARK,
+    ]) {
       h.loft(part, h.darkInner).position.x = sx * NACELLE_X
     }
   }
 
   // 機腹吊艙。整個用玻璃 —— 專案負責人：「機腹也是[整個凸起都是玻璃]」。
   // 不必另做暗色襯裡：透過去看到的是機身腹線的**外側**面，本來就擋得住。
+  /**
+   * 機腹吊艙的**暗艙**。專案負責人：「機腹的玻璃也補上黑碗。」
+   *
+   * 吊艙整個是玻璃，而它掛在機身外面 —— 透過去看到的是天空，不是機身腹線
+   * （腹線只擋得住正上方那一小段）。
+   *
+   * 【為什麼這一顆可以是「縮小一份的實心殼」，機頭卻不行】機頭的罩子長
+   * 2 m、直徑 1.8 m，縮小一份就是罩子裡飄著一台小飛機。吊艙只有 0.47 半寬，
+   * 而且**上半截整個埋在機身裡**（頂緣 −0.17、該處機身腹線 −0.72），暗艙
+   * 露出來的只有底下那一片 —— 讀起來就是艙裡是暗的。
+   *
+   * 【首尾各去掉一站】兩端的截面只有 0.04，縮 14% 只差 0.006，會與玻璃打架。
+   */
+  h.loft(liner(BOLA, 0.86), h.dark)
   h.loft(BOLA, h.glass)
 
   h.wingPair(WING)
