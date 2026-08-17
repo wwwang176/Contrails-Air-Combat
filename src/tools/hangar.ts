@@ -61,8 +61,10 @@ controls.dampingFactor = 0.08
 const sun = new DirectionalLight(0xfff2e0, 2.2)
 sun.position.set(14, 18, 10)
 scene.add(sun)
-scene.add(new HemisphereLight(0xbfd8ee, 0x2a3a48, 0.9))
-scene.add(new AmbientLight(0xffffff, 0.15))
+const hemi = new HemisphereLight(0xbfd8ee, 0x2a3a48, 0.9)
+scene.add(hemi)
+const ambient = new AmbientLight(0xffffff, 0.15)
+scene.add(ambient)
 
 // 環境反射預設關閉：遊戲場景目前沒有它，開著會讓機庫比遊戲好看。
 // 按鈕可切換，用來評估「要不要把它加進遊戲」。
@@ -74,6 +76,35 @@ grid.position.y = -3
 grid.material.transparent = true
 grid.material.opacity = 0.35
 scene.add(grid)
+
+/**
+ * 亮／暗兩檔打光。**預設是暗的那一檔，而且那一檔才是「對」的。**
+ *
+ * 【為什麼不直接把機庫調亮】上面那行寫著「燈光刻意與遊戲場景一致，這樣機庫
+ * 看到的明暗就是遊戲裡的明暗，而不是一個打光更討喜的攝影棚」。把預設調亮
+ * 等於把那個約定作廢 —— 機庫從此會告訴你「這台飛機很好看」，而玩家在遊戲裡
+ * 看到的是另一回事。
+ *
+ * 但**檢查造型**時暗的那一檔會擋路：場景只有 0.15 環境光加一盞半球光，而
+ * 半球光的地面色是 0x2a3a48（暗藍灰）—— 機腹因此幾乎全黑，機腹吊艙的玻璃
+ * 在畫面上看不出來。那不是模型的問題，是燈光的問題。
+ *
+ * 所以做成一個**明確要按的**開關：預設暗（＝遊戲的真相），要看細節時按亮。
+ *
+ * 【亮的那一檔動三個東西，都是為了照到機腹】
+ *   背景        深藍 → 淺灰藍，剪影才分得出來
+ *   半球光地面色 暗藍灰 → 淺灰，這一個才是真正照亮機腹的
+ *   環境光      0.15 → 0.55，把最暗處拉離全黑
+ * 太陽光不動 —— 它決定的是高光與陰影的方向，改了連形狀的讀法都會變。
+ */
+let studio = false
+function syncLight(): void {
+  scene.background = new Color(studio ? 0x8ea6ba : 0x0d1620)
+  hemi.groundColor.set(studio ? 0xc4ced6 : 0x2a3a48)
+  hemi.intensity = studio ? 1.1 : 0.9
+  ambient.intensity = studio ? 0.55 : 0.15
+  grid.material.opacity = studio ? 0.18 : 0.35
+}
 
 // 機體座標軸：X 紅（右翼）、Y 綠（座艙上方）、Z 藍（機尾，機首為 −Z）
 const axes = new AxesHelper(4)
@@ -345,6 +376,12 @@ $<HTMLButtonElement>('env').onclick = (ev) => {
 $<HTMLButtonElement>('axes').onclick = (ev) => {
   axes.visible = !axes.visible
   ;(ev.currentTarget as HTMLElement).classList.toggle('on', axes.visible)
+}
+const litBtn = $<HTMLButtonElement>('lit')
+litBtn.onclick = () => {
+  studio = !studio
+  syncLight()
+  litBtn.classList.toggle('on', studio)
 }
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { autoRotate = !autoRotate; e.preventDefault() }
@@ -746,6 +783,20 @@ function applyRefMaterial(root: Object3D): void {
     (mine: boolean, ref: boolean) => {
       if (model) model.group.visible = mine
       if (refModel) refModel.visible = ref
+    }
+
+/**
+ * 開發用：切換亮／暗兩檔打光（＝面板上的「打光」按鈕）。
+ *
+ * 【為什麼截圖腳本需要它】機腹在暗的那一檔幾乎全黑，截圖交出去看不出東西。
+ * 但預設**不能**改成亮的，理由見 `syncLight` 的檔頭 —— 所以留一個口給腳本
+ * 自己開。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarLit'] =
+    (on: boolean) => {
+      studio = on
+      syncLight()
+      litBtn.classList.toggle('on', studio)
     }
 
 let last = performance.now()

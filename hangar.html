@@ -9,7 +9,7 @@
         font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
       canvas { display: block; }
       #panel {
-        position: fixed; top: 12px; left: 12px; width: 232px; padding: 12px 14px;
+        position: fixed; top: 12px; left: 12px; width: 268px; padding: 12px 14px;
         background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
         backdrop-filter: blur(4px);
       }
@@ -20,7 +20,7 @@
       .row .val { flex: 0 0 46px; text-align: right; color: #e6f0f8; }
       button {
         font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
-        border-radius: 4px; padding: 4px 9px; cursor: pointer;
+        border-radius: 4px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
       }
       button:hover { background: #1e364c; }
       button.on { background: #2d5a86; border-color: #4f8ec0; }
@@ -50,6 +50,7 @@
         <button id="wire">線框</button>
         <button id="env">環境反射</button>
         <button id="axes">軸向</button>
+        <button id="lit">打光</button>
       </div>
       <div class="row chk" style="margin-top:10px">
         <input type="checkbox" id="refOn" /><label for="refOn">參考模型</label>
