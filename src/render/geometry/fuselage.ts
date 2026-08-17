@@ -31,6 +31,14 @@ export function buildFuselage(
   sections: readonly FuselageSection[],
   radialSegments = 8,
   roundness = 2,
+  /**
+   * 首尾要不要封口。省略即兩端都封（原本的行為）。
+   *
+   * 【誰需要不封】**碗**。進氣口裡的暗色凹槽是一個朝前開口的管子 —— 封了
+   * 前端就變成一片平板塞子，看到的是塞子的正面而不是凹槽的內壁。與
+   * `buildHull` 的 `caps` 是同一個參數、同一個理由。
+   */
+  caps?: { front?: boolean; back?: boolean },
 ): BufferGeometry {
   const rings: number[][] = sections.map((s) => {
     // 超橢圓的參數式：x = a·sgn(cos t)·|cos t|^(2/n)，y 同理。
@@ -84,8 +92,8 @@ export function buildFuselage(
       else pushTri(centre, v1, v0)
     }
   }
-  cap(rings[0]!, sections[0]!, true)
-  cap(rings[rings.length - 1]!, sections[sections.length - 1]!, false)
+  if (caps?.front !== false) cap(rings[0]!, sections[0]!, true)
+  if (caps?.back !== false) cap(rings[rings.length - 1]!, sections[sections.length - 1]!, false)
 
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))

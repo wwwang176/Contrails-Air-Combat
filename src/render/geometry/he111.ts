@@ -57,12 +57,33 @@ import type { WingParams } from './wing'
  *   9  進氣口內要有黑色凹槽 → `NAC_INTAKE_LOW_DARK`／`NAC_INTAKE_TOP_DARK`
  *   10 玻璃支架從背面是透明的 → `assembly` 的 `bothSides` 材質（窄帶只有
  *                               一個朝向，而全玻璃機首看得到對側骨架的背面）
- *   11 機背玻璃罩內要有黑色凹槽 → **本來就有**。把襯裡暫時改成純紅重跑，
- *                               罩內整片是紅的。看起來偏亮是玻璃自己的鏡面，
- *                               不是漏光；要更黑得動三台共用的 `glass` 材質。
+ *   11 機背玻璃罩內要有黑色凹槽 → 襯裡本來就有（把它暫時改成純紅重跑，
+ *                               罩內整片是紅的），但**形狀是錯的**，見下。
  *
- * 第 10 條連帶修好了真正嚴重的那一個：**全玻璃機首整條是通的**（見
- * `glazedNose` 的 `NOSE_LINER`）。
+ * 第 10 條連帶修好了真正嚴重的那一個：**全玻璃機首整條是通的**。
+ *
+ * ── 2026-08-18（四）：三條都做過頭或做反了 ──────────────────
+ *
+ *   9' 「應該是碗狀的，內壁是黑色的；側面內壁畫反了，但是底面是對的；
+ *        進氣口跟內壁也沒有連接好」
+ *        我做的是**塞子**不是碗：一根縮小一號的封閉管子塞在罩口前面。看得
+ *        到的只有它的封蓋（＝底面），側壁法線朝外、從凹槽裡看是背面，被
+ *        剔除；而且它比罩口小 0.10，中間一圈是空的。現在罩子 `caps:
+ *        { front: false }` 真的開口，內壁是朝前開口、比罩口大 2% 的雙面
+ *        暗色管子。
+ *
+ *   10' 「機頭玻璃內不應該有一個黑色物體，用黑色剖面直接垂直連接玻璃與
+ *        機身的位置就好」
+ *        我放的是整組環往內縮 0.88 的一層殼 —— 從外面看就是罩子裡飄著一台
+ *        小飛機。改成 `splitZ` 前 1 cm 的一片整剖面黑板（真機的前隔框）。
+ *
+ *   11' 「機背的黑色應該也要改成碗狀凹槽，現在是凸起跟隨玻璃」
+ *        `glassBackGeometry` 是「玻璃那幾片往內縮 0.84」＝**跟著玻璃縮小
+ *        一份**，而機背那塊玻璃是個隆起的罩子，所以襯裡也是個隆起。改成
+ *        補丁那一段的**弦**（見 `hull.ts` 的 `lidAt`）。
+ *
+ * 這一輪的教訓：**「補一塊暗色的東西」與「挖一個凹槽」不是同一件事。**
+ * 凹槽要有開口、要有朝內的壁、而且壁要接到緣上。
  */
 
 /**
@@ -389,6 +410,8 @@ const NACELLE: LoftPart = {
 const NAC_INTAKE_LOW: LoftPart = {
   roundness: 2.6,
   segments: 20,
+  // 罩口是開的：那片朝前的封蓋原本是一面機身色的平板，見 NAC_INTAKE_LOW_DARK
+  caps: { front: false },
   sections: [
     { z: -1.270, halfWidth: 0.630, halfHeight: 0.245, centerY: -0.740 },
     { z: -1.190, halfWidth: 0.630, halfHeight: 0.245, centerY: -0.747 },
@@ -416,6 +439,7 @@ const NAC_INTAKE_LOW: LoftPart = {
 const NAC_INTAKE_TOP: LoftPart = {
   roundness: 2.6,
   segments: 16,
+  caps: { front: false },
   sections: [
     { z: -2.180, halfWidth: 0.240, halfHeight: 0.106, centerY: 0.406 },
     { z: -2.090, halfWidth: 0.250, halfHeight: 0.109, centerY: 0.409 },
@@ -437,46 +461,57 @@ const NAC_INTAKE_TOP: LoftPart = {
 }
 
 /**
- * 兩個進氣口裡面的**暗色凹槽**。專案負責人：「進氣口內必須要有黑色凹槽或
- * 擋板，不然會直接看到內部破圖。」
+ * 兩個進氣口裡面的**碗狀凹槽**。專案負責人：「進氣口內必須要有黑色凹槽或
+ * 擋板」、「應該是碗狀的，也就是內壁是黑色的」。
  *
- * 【它們做的是什麼】罩子本身是封閉的 loft，`buildFuselage` 會替首站生成一片
- * 朝前的封蓋 —— 那是一面**機身色的平板**。一個進氣口長成一片與蒙皮同色的
- * 平板，讀起來不是進氣口，是「那裡有一塊補丁」。真的進氣口是「一圈唇緣 +
- * 裡面是黑的」。
+ * ── 第一版是塞子，不是碗 ─────────────────────────────────
  *
- * 【做法】同形狀縮小一號的短管，用暗色材質，首站比罩子的首站**前 0.008**。
- * 於是從前面看：外圈剩下罩子的封蓋當唇緣，中間是這根暗管的封蓋。0.008 是
- * 為了避開兩片共面的 z-fighting，那個距離在畫面上量不出來。
+ * 罩子是封閉的 loft，`buildFuselage` 會替首站生成一片朝前的封蓋 —— 一面
+ * **機身色的平板**。我第一版的修法是在它前面塞一根縮小一號的暗色管子，於是
+ * 看到的是「機身色的環 + 暗管的封蓋」。兩個毛病，專案負責人都指出來了：
  *
- * 【尺寸怎麼定】兩個罩子都有一大半埋在錐體裡，只有一條帶露在外面：
+ *   「側面內壁畫反了，但是底面是對的」
+ *        塞子只有正面（封蓋）看得到，那就是底面；側壁的法線朝外，從凹槽
+ *        裡面看是背面，被剔除 —— 等於沒有內壁。
+ *   「進氣口跟內壁好像也沒有連接好」
+ *        塞子比罩口小 0.10，中間那一圈是空的。斜著看得到罩子的內側，而那
+ *        也是背面 —— 一路穿出去。
  *
- * ```
- *            罩口的範圍        錐面在該站     露出來的帶
- *   下方   y −0.985…−0.495     −0.694      −0.985…−0.694
- *   上方   y  0.300… 0.512      0.410       0.410… 0.512
- * ```
+ * ── 現在的做法：真的把碗挖出來 ───────────────────────────
  *
- * 暗管要落在那條帶裡而且四周留唇。下方留 0.06、上方留 0.03 —— 上方那條帶
- * 本來就只有 0.10 高，唇再厚就沒有黑的了。
+ *   罩子    `caps: { front: false }` —— 罩口是**開的**，不再有那片平板
+ *   內壁    朝前開口的暗色管子，材質 `darkInner`（暗色 + 雙面）。從開口看
+ *           進去看到的是它的內側，雙面才畫得出來。
+ *   接合    內壁在罩口那一站比罩子**大 2%**、而且往前多伸 0.006 —— 專案
+ *           負責人給的兩條路裡的第二條「不動進氣口只擴大內壁」。多出來的
+ *           那一圈從外面看就是進氣口的**厚度**。
+ *
+ * 【剖面沿用罩子的】內壁與罩子同 `roundness`、同 `segments`，等比放大，
+ * 兩者的邊才會逐點對齊，不會在罩口出現鋸齒。
  */
 const NAC_INTAKE_LOW_DARK: LoftPart = {
   roundness: 2.6,
   segments: 20,
+  caps: { front: false },
   sections: [
-    { z: -1.278, halfWidth: 0.530, halfHeight: 0.185, centerY: -0.740 },
-    { z: -1.150, halfWidth: 0.530, halfHeight: 0.185, centerY: -0.748 },
-    { z: -1.060, halfWidth: 0.510, halfHeight: 0.170, centerY: -0.755 },
+    { z: -1.276, halfWidth: 0.643, halfHeight: 0.250, centerY: -0.740 },
+    { z: -1.190, halfWidth: 0.600, halfHeight: 0.232, centerY: -0.749 },
+    { z: -1.090, halfWidth: 0.520, halfHeight: 0.200, centerY: -0.760 },
+    { z: -1.010, halfWidth: 0.380, halfHeight: 0.145, centerY: -0.768 },
+    { z: -0.960, halfWidth: 0.150, halfHeight: 0.060, centerY: -0.772 },
   ],
 }
 
 const NAC_INTAKE_TOP_DARK: LoftPart = {
   roundness: 2.6,
   segments: 16,
+  caps: { front: false },
   sections: [
-    { z: -2.188, halfWidth: 0.192, halfHeight: 0.076, centerY: 0.406 },
-    { z: -2.090, halfWidth: 0.192, halfHeight: 0.076, centerY: 0.409 },
-    { z: -2.000, halfWidth: 0.180, halfHeight: 0.068, centerY: 0.410 },
+    { z: -2.186, halfWidth: 0.245, halfHeight: 0.108, centerY: 0.406 },
+    { z: -2.120, halfWidth: 0.228, halfHeight: 0.100, centerY: 0.408 },
+    { z: -2.050, halfWidth: 0.190, halfHeight: 0.082, centerY: 0.410 },
+    { z: -2.000, halfWidth: 0.120, halfHeight: 0.052, centerY: 0.410 },
+    { z: -1.970, halfWidth: 0.050, halfHeight: 0.022, centerY: 0.410 },
   ],
 }
 
@@ -736,9 +771,9 @@ export function buildHe111(): AircraftModel {
     for (const part of [NACELLE, NAC_INTAKE_LOW, NAC_INTAKE_TOP]) {
       h.loft(part, h.body).position.x = sx * NACELLE_X
     }
-    // 進氣口裡的暗色凹槽，畫在罩子之後（它的首站比罩口前 0.008）
+    // 進氣口裡的碗狀凹槽。材質是雙面的 —— 從罩口看進去看到的是內壁的背面
     for (const part of [NAC_INTAKE_LOW_DARK, NAC_INTAKE_TOP_DARK]) {
-      h.loft(part, h.dark).position.x = sx * NACELLE_X
+      h.loft(part, h.darkInner).position.x = sx * NACELLE_X
     }
   }
 

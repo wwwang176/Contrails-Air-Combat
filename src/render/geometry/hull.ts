@@ -222,7 +222,19 @@ export function buildHull(
    * 讀不出來而且側面看得到破口。
    */
   const GLASS_SINK = 0.94
-  const BACK_INSET = 0.84
+  /**
+   * 【襯裡改成碗底 —— 2026-08-18】舊版是「玻璃那幾片往內縮 0.84」，也就是
+   * **跟著玻璃的形狀縮小一份**。機背機槍座的玻璃是個隆起的罩子，縮小的複本
+   * 於是也是個隆起 —— 專案負責人：「機背的黑色應該也要改成碗狀凹槽，現在是
+   * 凸起跟隨玻璃。」
+   *
+   * 碗底改成補丁那一段的**弦**：把補丁覆蓋的那串頂點放到「補丁兩端的連線」
+   * 上。罩子隆起多少，弦就在它下面多少 —— 而且兩端**正好落在蒙皮上**，
+   * 碗緣與罩緣接得起來，不必再補框壁。
+   *
+   * 再往內沉一點點（`BACK_SINK`）只是為了讓弦不要與玻璃在兩端共面。
+   */
+  const BACK_SINK = 0.985
 
   /** 每個站位：完整一圈的座標，以及「哪些點被艙緣壓平了」。 */
   const built = rings.map((r) => {
@@ -258,6 +270,50 @@ export function buildHull(
     return [p[0]! * k, cy + (p[1]! - cy) * k]
   }
 
+  /**
+   * 碗底：某個站位上，補丁覆蓋的那一串頂點各自搬到**弦**上的位置。
+   *
+   * 【為什麼要一段一段找】補丁是用 `half` 的索引範圍描述的，展開成整圈之後
+   * 可能是一段（機背跨過中線，左右連成一段）也可能是兩段（側窗左右各一）。
+   * 弦的兩端是各自那一段的頭尾，所以要先把段找出來。
+   */
+  const lidCache = new Map<string, (number[] | null)[]>()
+  const lidAt = (s: number, patch: GlassPatch): (number[] | null)[] => {
+    const key = `${s}|${glass!.indexOf(patch)}`
+    const hit = lidCache.get(key)
+    if (hit) return hit
+    const r = built[s]!
+    const inPatch = (k: number): boolean => {
+      const h = halfIndex(((k % ringCount) + ringCount) % ringCount)
+      return h >= patch.i0 && h <= patch.i1
+    }
+    const out: (number[] | null)[] = new Array(ringCount).fill(null)
+    const seen: boolean[] = new Array(ringCount).fill(false)
+    for (let start = 0; start < ringCount; start++) {
+      if (seen[start] || !inPatch(start)) continue
+      // 退到這一段的頭。整圈都在補丁裡的話會繞回原點，所以要擋住。
+      let a = start
+      for (let guard = 0; guard < ringCount; guard++) {
+        const prev = (a - 1 + ringCount) % ringCount
+        if (!inPatch(prev) || prev === start) break
+        a = prev
+      }
+      const run: number[] = []
+      for (let k = a, guard = 0; guard < ringCount; guard++, k = (k + 1) % ringCount) {
+        if (!inPatch(k) || seen[k]) break
+        seen[k] = true
+        run.push(k)
+      }
+      const P = r.pts[run[0]!]!, Q = r.pts[run[run.length - 1]!]!
+      for (let t = 0; t < run.length; t++) {
+        const u = run.length === 1 ? 0 : t / (run.length - 1)
+        out[run[t]!] = sink(r, [P[0]! + (Q[0]! - P[0]!) * u, P[1]! + (Q[1]! - P[1]!) * u], BACK_SINK)
+      }
+    }
+    lidCache.set(key, out)
+    return out
+  }
+
   /** 站位 s→s+1、環向 i→i+1 那一片是不是玻璃（超出範圍算不是） */
   const glassQuad = (s: number, i: number): boolean => {
     if (s < 0 || s >= built.length - 1) return false
@@ -291,8 +347,9 @@ export function buildHull(
       triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
       triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
 
-      const [bAi, bAj] = [sink(A, A.pts[i]!, BACK_INSET), sink(A, A.pts[j]!, BACK_INSET)]
-      const [bBi, bBj] = [sink(B, B.pts[i]!, BACK_INSET), sink(B, B.pts[j]!, BACK_INSET)]
+      const lidA = lidAt(s, patch), lidB = lidAt(s + 1, patch)
+      const [bAi, bAj] = [lidA[i] ?? gAi, lidA[j] ?? gAj]
+      const [bBi, bBj] = [lidB[i] ?? gBi, lidB[j] ?? gBj]
       triBack(bAi, bBi, bBj, A.z, B.z, B.z)
       triBack(bAi, bBj, bAj, A.z, B.z, A.z)
 
@@ -305,11 +362,24 @@ export function buildHull(
        * 便宜，也不可能錯。帶符號體積互相抵銷，所以「法線朝外」那條護欄
        * 仍然量得到機身本體。
        */
-      const wall = (p0: number[], p1: number[], q0: number[], q1: number[],
-        z0: number, z1: number) => {
-        tri(p0, p1, q1, z0, z1, z1); tri(p0, q1, q0, z0, z1, z0)
-        tri(p0, q1, p1, z0, z1, z1); tri(p0, q0, q1, z0, z0, z1)
-      }
+      const wallInto = (t: typeof tri) =>
+        (p0: number[], p1: number[], q0: number[], q1: number[], z0: number, z1: number) => {
+          t(p0, p1, q1, z0, z1, z1); t(p0, q1, q0, z0, z1, z0)
+          t(p0, q1, p1, z0, z1, z1); t(p0, q0, q1, z0, z0, z1)
+        }
+      const wall = wallInto(tri)
+
+      /**
+       * 【碗的前後端壁】站位方向上補丁的第一刀與最後一刀，弦與蒙皮之間夾著
+       * 一塊月牙形的空隙。不補的話，斜前方的視線會越過碗緣、穿到機身另一側
+       * ——而另一側是背面、被剔除，於是又看到天空。
+       *
+       * 環向的兩端不必補：弦的端點**就落在蒙皮上**（見 `lidAt`）。
+       */
+      const wallBack = wallInto(triBack)
+      if (!glassQuad(s - 1, i)) wallBack(A.pts[i]!, A.pts[j]!, bAi, bAj, A.z, A.z)
+      if (!glassQuad(s + 1, i)) wallBack(B.pts[i]!, B.pts[j]!, bBi, bBj, B.z, B.z)
+
       if (!patch.recess) continue
       // 前緣（站位 A 那一側）／後緣（站位 B 那一側）
       if (!glassQuad(s - 1, i)) wall(A.pts[i]!, A.pts[j]!, gAi, gAj, A.z, A.z)

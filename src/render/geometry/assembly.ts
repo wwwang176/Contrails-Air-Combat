@@ -66,31 +66,14 @@ export interface AircraftModel {
   dispose(): void
 }
 
-/**
- * 全玻璃機首的暗色內襯往內縮多少。
- *
- * 0.88：機首半寬 0.6～0.9，往內縮 7～11 cm。再深就會在正側視露出「玻璃與
- * 內襯之間的空隙」，再淺則會與蒙皮同面而閃爍（z-fighting）。
- */
-const NOSE_LINER = 0.88
-
-/**
- * 把一組環整體往剖面中心縮。中心取「正上方與正下方兩點的中點」——與
- * `buildHull` 的封口用的是同一個定義，兩者才會同心。
- */
-function insetRings(rings: readonly HullRing[], k: number): HullRing[] {
-  return rings.map((r) => {
-    const cy = (r.half[0]![1] + r.half[r.half.length - 1]![1]) / 2
-    return { z: r.z, half: r.half.map(([x, y]) => [x * k, cy + (y - cy) * k] as const) }
-  })
-}
-
 /** 一個 lofting 部件：截面串 + 超橢圓指數 + 徑向分段數。 */
 export interface LoftPart {
   sections: readonly FuselageSection[]
   /** 超橢圓指數：2 = 橢圓，越大越接近圓角矩形。見 buildFuselage。 */
   roundness: number
   segments: number
+  /** 首尾封口，省略即兩端都封。碗狀的凹槽要 `{ front: false }`。 */
+  caps?: { front?: boolean; back?: boolean }
 }
 
 /** 垂直安定面／背鰭延伸板，以 WingParams 立起 90° 描述。 */
@@ -307,14 +290,34 @@ export function createHull(spec: HullSpec) {
    */
   const props: { hub: Group; disc: Mesh; blades: Mesh[] }[] = []
 
+  /**
+   * 碗狀凹槽的內壁。**暗色而且兩面都畫。**
+   *
+   * 【為什麼一定要雙面】凹槽是一根朝前開口、法線朝外的管子；從開口看進去，
+   * 看到的是它的**內側**，也就是背面。單面材質下背面被剔除 —— 專案負責人
+   * 回報的「側面內壁畫反了」。`gl_FrontFacing` 會替背面翻法線，所以內壁
+   * 照樣有明暗，不是一片死黑。
+   *
+   * 【為什麼不與 `cockpitMat` 共用】座艙內裝是朝內的殼、法線本來就對，開了
+   * 雙面只是白畫一份。而且那一份掛著 `inwardShell` 給護欄看。
+   */
+  const darkBothSides = new MeshStandardMaterial({
+    color: 0x191d1a, roughness: 0.95, side: DoubleSide,
+  })
+  disposables.push(darkBothSides)
+
   const api = {
     body, accent, glass, add,
-    /** 暗色內襯／凹槽。玻璃後面與進氣口裡面用的就是它。 */
+    /** 暗色內襯。玻璃後面用的就是它。 */
     dark: cockpitMat,
+    /** 碗狀凹槽的內壁（暗色、雙面）。進氣口裡面用的是它。 */
+    darkInner: darkBothSides,
 
     /** 管狀部件（機身、氣泡座艙罩、散熱器導管）。 */
     loft(part: LoftPart, mat: MeshStandardMaterial): Mesh {
-      return add(new Mesh(buildFuselage(part.sections, part.segments, part.roundness), mat))
+      return add(new Mesh(
+        buildFuselage(part.sections, part.segments, part.roundness, part.caps), mat,
+      ))
     },
 
     /**
@@ -374,24 +377,26 @@ export function createHull(spec: HullSpec) {
       const nose = [...rings.filter((r) => r.z < splitZ - 1e-6), at]
       const aft = [at, ...rings.filter((r) => r.z > splitZ + 1e-6)]
       /**
-       * 【暗色內襯】專案負責人：「機背玻璃罩內也是要做黑色凹槽。」同一條也
-       * 適用於全玻璃機首 —— 而且機首更嚴重。
+       * 【玻璃機首後面的黑色隔框】
        *
        * 玻璃是 45% 半透明而且 `depthWrite: false`，所以從機外看進去，光線
-       * 穿過近側玻璃、穿過空的艙內、再穿過對側玻璃**看到天空**。中間那一段
-       * 只有後段外殼的前封口（真機的隔框）擋得住，隔框左右兩側整片是通的。
+       * 穿過近側玻璃、穿過空的艙內、再穿過對側玻璃**看到天空**。
        *
-       * 做法是同一組環往內縮一份、法線仍朝外，用內裝的暗色畫。從玻璃看進去
-       * 看到的是它的正面 —— 讀起來就是「玻璃後面有個暗艙」。與 `GlassPatch`
-       * 的 `glassBackGeometry` 是同一招，只是那裡只襯玻璃那幾片。
+       * 第一版是把整組環往內縮一份做成暗色內襯 —— 專案負責人否決：「機頭
+       * 玻璃內不應該有一個黑色物體，機頭你用黑色剖面直接垂直連接玻璃與機身
+       * 的位置就好。」縮小的殼從外面看就是**罩子裡飄著一個小飛機**。
        *
-       * 【後端不封】內襯止於 `splitZ`，讓後段外殼的前封口接手；封了就會與
-       * 隔框同一平面打架。
+       * 現在只放一片東西：`splitZ` 前面 1 cm 的一片**整剖面**的黑板。它是
+       * 真機的前隔框，把「看穿」擋在該擋的地方，而玻璃罩裡是空的。
+       *
+       * 【為什麼要前移 1 cm】後段外殼自己的前封口就在 `splitZ`，同一平面
+       * 會閃爍。1 cm 在畫面上量不出來。
        */
-      add(new Mesh(
-        buildHull(insetRings(nose, NOSE_LINER), undefined, { back: false }).geometry,
-        cockpitMat,
-      ))
+      const BULKHEAD = 0.010
+      add(new Mesh(buildHull(
+        [{ z: at.z - BULKHEAD - 0.002, half: at.half }, { z: at.z - BULKHEAD, half: at.half }],
+        undefined, { back: false },
+      ).geometry, cockpitMat))
       add(new Mesh(buildHull(nose, undefined, { back: false }).geometry, glass))
       const rear = buildHull(aft, undefined, undefined, patches)
       add(new Mesh(rear.geometry, body))
