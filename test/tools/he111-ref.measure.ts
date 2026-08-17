@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     let probe: Probe = {
       tris: 0, meshes: 0, min: [0, 0, 0], max: [0, 0, 0], size: [0, 0, 0], parts: [],
     }
-    if (stage === 'verify' || stage === 'belly') {
+    if (stage === 'verify' || stage === 'belly' || stage === 'nacverify') {
       await page.evaluate(() => window.__hangarSpec('he111'))
       for (let i = 0; i < 120; i++) {
         if (await page.evaluate(() => window.__hangarRef(true, false))) break
@@ -374,6 +374,205 @@ const stages: Record<string, Stage> = {
         + `  ${n(g > 0 && skin > 0 ? g - skin : NaN)}`,
       )
     }
+  },
+
+  /**
+   * 【烘焙發動機艙】把截面串吐成 `FuselageSection[]` 的字面值，貼進 `he111.ts`。
+   *
+   * 【為什麼要烘而不是手抄】第一版是我從 0.4 m 的表格**手抄**成 16 個截面的。
+   * 抄出來的東西有兩個曲率反轉（halfHeight 0.668→0.675、centerY
+   * −0.041→−0.033），而那是純粹的抄寫雜訊 —— 沒有任何東西會提醒你。機身
+   * 早就是烘的了，這裡沒有理由不是。
+   *
+   * 【四個方向各有各的問題】
+   *   上緣  乾淨（艙上面只有螺旋槳，而它在更前面）
+   *   下緣  乾淨，但**有一道真的垂直面**（散熱器進氣口，一步 0.33）
+   *   外側  y = 0 的射線會穿出艙、打到**機翼的表面** —— 實測 m=2.20 那一站
+   *         回 1.087，而鄰站是 0.66／0.69。外側比內側大 0.20 以上就是它。
+   *   內側  同樣的問題，但艙在內側比較深，被穿透的機會少
+   *
+   * 【坑 15：艙的寬度在機翼覆蓋的那一段量不到】艙與機翼在參考模型裡是**同一
+   * 個實體**，中間沒有面可以打。寬度只在機翼前後量得準，中段是由兩端內插的
+   * —— 這一條沒有辦法用更好的量法解決，只能標出來。
+   */
+  nacbake: async (_page, _probe, slice) => {
+    const AXIS_U = 2.6
+    const QC = 3.0889
+    /** 【1.3】舊的 1.0 把艙底切掉了：最深處量到 0.994，貼著上限（坑 6） */
+    /** 【站位取 0.20 起】散熱器進氣口的那道面在量測 1.81，落在 1.80／2.00 之間 */
+    const rs = await slice('radial', 'z', {
+      from: 0.20, to: 5.00, count: 25, angles: 144,
+      axisU: AXIS_U, axisV: 0.0, maxRadius: 1.3,
+    }) as { planes: number[]; theta: number[]; r: number[][] }
+    const at = (deg: number) =>
+      rs.theta.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(rs.theta[b]! - deg * Math.PI / 180)
+          ? j : b
+      ), 0)
+    const [ri, up, le, dn] = [at(0), at(90), at(180), at(270)]
+
+    type Sec = { z: number; hw: number; hh: number; cy: number }
+    /**
+     * 【任一側射線回 0 的站位整站丟掉】那代表射線在該高度找不到艙壁 —— 艙
+     * 已經併進機翼裡了，寬度在那裡不存在。留著會把機身的半寬（實測某一站
+     * 內側回 0.735）當成艙寬用。
+     */
+    const secs: Sec[] = rs.planes.flatMap((m, k) => {
+      const row = rs.r[k]!
+      const [o, u, i, d] = [row[ri]!, row[up]!, row[le]!, row[dn]!]
+      if (o <= 0 || i <= 0 || u <= 0 || d <= 0) return []
+      // 外側穿進機翼時只採內側（見檔頭）
+      const hw = o > i + 0.20 ? i : (o + i) / 2
+      return [{ z: m - QC, hw, hh: (u + d) / 2, cy: (u - d) / 2 }]
+    })
+
+    /**
+     * 保邊的 z 平滑，一輪 λ = 0.5 —— 與機身同一招（坑 19 + 保邊）。門檻 0.15
+     * 讓散熱器進氣口那一步 0.33 原封不動。
+     */
+    const keys = ['hw', 'hh', 'cy'] as const
+    const src = secs.map((s) => ({ ...s }))
+    for (let k = 1; k < secs.length - 1; k++) {
+      for (const key of keys) {
+        const a = src[k]![key] - src[k - 1]![key]
+        const b = src[k + 1]![key] - src[k]![key]
+        if (Math.abs(a) > 0.15 || Math.abs(b) > 0.15) continue
+        const mid = (src[k - 1]![key] + src[k + 1]![key]) / 2
+        secs[k]![key] = src[k]![key] + (mid - src[k]![key]) * 0.5
+      }
+    }
+
+    // 曲率變號＝抄寫雜訊的指標（坑 19）
+    for (const key of keys) {
+      let flips = 0
+      for (let k = 2; k < secs.length; k++) {
+        const a = secs[k]![key] - secs[k - 1]![key]
+        const b = secs[k - 1]![key] - secs[k - 2]![key]
+        if (a * b < 0) flips++
+      }
+      console.log(`// ${key} 曲率變號 ${flips}/${secs.length} 站`)
+    }
+
+    /**
+     * ── 三個量不到、要手工接的地方（坑 15）────────────────────
+     *
+     * 【艙首】射線在量測 0.00 回 0.030、0.20 回 0.254 —— 尖端在 0.0 附近，
+     *         但那一站量不到形狀。接一個收成一點的截面，z 取 0.0（機體
+     *         −3.089），整流罩就接在上面。
+     *
+     * 【散熱器進氣口】量測 1.81 一步掉 0.33（`nacelle` 那一格切細 8 倍問出來
+     *         的）。`loft` 在截面之間線性內插，所以要做成垂直面就得在同一個
+     *         位置前後各放一個截面 —— 兩者相距 0.01 m（坑 10）。前面那一站
+     *         照量，後面那一站借用下一站的高度、寬度沿用前一站。
+     *
+     * 【艙尾】`nactail` 那一格用三個射線原點分辨過：x = 2.6 明顯比 2.0／3.2
+     *         深的那一段只到機體 1.75，再往後三欄收斂 —— 那是**機翼下表面**
+     *         不是發動機艙。所以艙在 2.1 附近收乾淨，不要跟著機翼一路拖下去。
+     */
+    const STEP_Z = 1.81 - QC
+    const out: Sec[] = []
+    out.push({ z: 0.0 - QC, hw: 0.05, hh: 0.05, cy: secs[0]!.cy })
+    for (const s of secs) {
+      out.push(s)
+      if (Math.abs(s.z - (1.80 - QC)) < 1e-6) {
+        const nxt = secs[secs.indexOf(s) + 1]
+        if (nxt) out.push({ z: STEP_Z, hw: s.hw, hh: nxt.hh, cy: nxt.cy })
+      }
+    }
+    const last = out[out.length - 1]!
+    out.push({ z: 2.11, hw: 0.06, hh: last.hh * 0.45, cy: last.cy })
+
+    console.log('  sections: [')
+    for (const s of out) {
+      console.log(
+        `    { z: ${s.z.toFixed(3)}, halfWidth: ${s.hw.toFixed(3)},`
+        + ` halfHeight: ${s.hh.toFixed(3)}, centerY: ${s.cy.toFixed(3)} },`,
+      )
+    }
+    console.log('  ],')
+  },
+
+  /**
+   * 【發動機艙的尾錐到哪裡結束】走 probe 旁路，量測系。
+   *
+   * 【為什麼要三個原點】朝下的射線在艙尾量到的東西可能是**發動機艙的尾整流
+   * 罩**，也可能是**機翼的下表面** —— 兩者在同一個 z 範圍內都在。分辨的方法
+   * 是把射線原點橫移：艙只在 x ≈ 2.6 附近深，機翼是一整片。
+   *
+   * x = 2.6 明顯比 2.0／3.2 深 → 那是艙；三者差不多 → 那是機翼。
+   */
+  nactail: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const rows: { z: number; d: number[] }[] = []
+    const XS = [2.0, 2.6, 3.2]
+    for (const [i, x] of XS.entries()) {
+      const rs = await slice('radial', 'z', {
+        from: 4.0, to: 8.0, count: 41, angles: 144,
+        axisU: x, axisV: 0.0, maxRadius: 1.3,
+      }) as { planes: number[]; theta: number[]; r: number[][] }
+      const dn = rs.theta.reduce((b, th, j) => (
+        Math.abs(th - 270 * Math.PI / 180) < Math.abs(rs.theta[b]! - 270 * Math.PI / 180)
+          ? j : b
+      ), 0)
+      for (let k = 0; k < rs.planes.length; k++) {
+        if (i === 0) rows.push({ z: rs.planes[k]!, d: [] })
+        rows[k]!.d.push(rs.r[k]![dn]!)
+      }
+    }
+    console.log('── 艙尾：朝下的射線，三個原點（量測系）────────')
+    console.log('   量測Z   機體Z   x=2.0   x=2.6   x=3.2   判讀')
+    for (const r of rows) {
+      const [a, b, c] = r.d as [number, number, number]
+      const deep = b - Math.max(a, c)
+      const tag = b <= 0 ? '' : deep > 0.12 ? '  ← 發動機艙' : '  機翼下表面'
+      console.log(
+        `  ${n(r.z, 6, 2)}  ${n(r.z - QC, 6, 2)}  ${n(a)}  ${n(b)}  ${n(c)}${tag}`,
+      )
+    }
+  },
+
+  /**
+   * 【發動機艙逐站對切】自家模型 vs 參考模型，射線原點都橫移到 x = 2.6。
+   *
+   * 【為什麼要單獨一格】`verify` 的射線原點在機身軸心，量不到掛在機翼上的
+   * 發動機艙 —— 它從頭到尾沒有被驗收過（造型檔自己標了這一條）。艙的截面是
+   * 我從 0.4 m 的表格**手抄**成 16 個 `FuselageSection` 的，抄錯或抄漏
+   * 不會有任何東西提醒。
+   *
+   * 【0.1 m 一刀】艙上有真的是垂直面的東西（散熱器進氣口）。0.4 m 一刀
+   * 只會看到一個斜坡。
+   */
+  nacverify: async (_page, _probe, slice) => {
+    const AXIS_U = 2.6
+    const opt = {
+      from: -3.2, to: 2.2, count: 55, angles: 144,
+      axisU: AXIS_U, axisV: 0.0, maxRadius: 1.1,
+    }
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const mine = await slice('radial', 'z', opt, 'mine') as Rad
+    const ref = await slice('radial', 'z', opt) as Rad
+    const at = (T: readonly number[], deg: number) =>
+      T.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(T[b]! - deg * Math.PI / 180) ? j : b
+      ), 0)
+    const [ri, up, le, dn] = [at(mine.theta, 0), at(mine.theta, 90),
+      at(mine.theta, 180), at(mine.theta, 270)]
+    console.log('── 發動機艙（射線原點 X=2.6、Y=0）──────────────')
+    console.log('      Z   ── 外側 ──  ── 上緣 ──  ── 內側 ──  ── 下緣 ──')
+    console.log('          自家   參考  自家   參考  自家   參考  自家   參考')
+    const diffs: number[] = []
+    for (let k = 0; k < mine.planes.length; k++) {
+      const cell = (j: number) => {
+        const a = mine.r[k]![j]!, b = ref.r[k]![j]!
+        if (a > 0 && b > 0) diffs.push(Math.abs(a - b))
+        return `${n(a, 7, 2)}${n(b, 7, 2)}`
+      }
+      console.log(`  ${n(mine.planes[k]!, 6, 2)}${cell(ri)}${cell(up)}${cell(le)}${cell(dn)}`)
+    }
+    diffs.sort((a, b) => a - b)
+    const rms = Math.sqrt(diffs.reduce((s, d) => s + d * d, 0) / Math.max(diffs.length, 1))
+    console.log(`\n  ${diffs.length} 筆：中位數 ${n(diffs[diffs.length >> 1] ?? NaN)}`
+      + `  RMS ${n(rms)}  最大 ${n(diffs[diffs.length - 1] ?? NaN)}`)
   },
 
   /**
@@ -1466,7 +1665,12 @@ const stages: Record<string, Stage> = {
   nacelle: async (_page, _probe, slice) => {
     const AXIS_U = 2.6
     const AXIS_V = 0.0
-    const MAXR = 1.0
+    /**
+     * 【1.0 → 1.3】舊值把艙底切掉了：實測下緣量到 **0.994**，貼著上限
+     * ——「等於邊界值的參數就是垃圾資料」（坑 6）。而超出的射線回 0、被
+     * 當成量不到，看不出來。
+     */
+    const MAXR = 1.3
     const rs = await slice('radial', 'z', {
       from: -0.4, to: 8.0, count: 43, angles: 72,
       axisU: AXIS_U, axisV: AXIS_V, maxRadius: MAXR,
