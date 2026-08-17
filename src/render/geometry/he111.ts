@@ -51,6 +51,18 @@ import type { WingParams } from './wing'
  *                            `NAC_INTAKE_LOW`／`NAC_INTAKE_TOP` 三個零件。
  *
  * 這一條的教訓與前三條是同一句話的另一半：**量對了東西，還要放進對的零件。**
+ *
+ * ── 2026-08-18（三）：三件「看穿」──────────────────────────
+ *
+ *   9  進氣口內要有黑色凹槽 → `NAC_INTAKE_LOW_DARK`／`NAC_INTAKE_TOP_DARK`
+ *   10 玻璃支架從背面是透明的 → `assembly` 的 `bothSides` 材質（窄帶只有
+ *                               一個朝向，而全玻璃機首看得到對側骨架的背面）
+ *   11 機背玻璃罩內要有黑色凹槽 → **本來就有**。把襯裡暫時改成純紅重跑，
+ *                               罩內整片是紅的。看起來偏亮是玻璃自己的鏡面，
+ *                               不是漏光；要更黑得動三台共用的 `glass` 材質。
+ *
+ * 第 10 條連帶修好了真正嚴重的那一個：**全玻璃機首整條是通的**（見
+ * `glazedNose` 的 `NOSE_LINER`）。
  */
 
 /**
@@ -424,6 +436,50 @@ const NAC_INTAKE_TOP: LoftPart = {
   ],
 }
 
+/**
+ * 兩個進氣口裡面的**暗色凹槽**。專案負責人：「進氣口內必須要有黑色凹槽或
+ * 擋板，不然會直接看到內部破圖。」
+ *
+ * 【它們做的是什麼】罩子本身是封閉的 loft，`buildFuselage` 會替首站生成一片
+ * 朝前的封蓋 —— 那是一面**機身色的平板**。一個進氣口長成一片與蒙皮同色的
+ * 平板，讀起來不是進氣口，是「那裡有一塊補丁」。真的進氣口是「一圈唇緣 +
+ * 裡面是黑的」。
+ *
+ * 【做法】同形狀縮小一號的短管，用暗色材質，首站比罩子的首站**前 0.008**。
+ * 於是從前面看：外圈剩下罩子的封蓋當唇緣，中間是這根暗管的封蓋。0.008 是
+ * 為了避開兩片共面的 z-fighting，那個距離在畫面上量不出來。
+ *
+ * 【尺寸怎麼定】兩個罩子都有一大半埋在錐體裡，只有一條帶露在外面：
+ *
+ * ```
+ *            罩口的範圍        錐面在該站     露出來的帶
+ *   下方   y −0.985…−0.495     −0.694      −0.985…−0.694
+ *   上方   y  0.300… 0.512      0.410       0.410… 0.512
+ * ```
+ *
+ * 暗管要落在那條帶裡而且四周留唇。下方留 0.06、上方留 0.03 —— 上方那條帶
+ * 本來就只有 0.10 高，唇再厚就沒有黑的了。
+ */
+const NAC_INTAKE_LOW_DARK: LoftPart = {
+  roundness: 2.6,
+  segments: 20,
+  sections: [
+    { z: -1.278, halfWidth: 0.530, halfHeight: 0.185, centerY: -0.740 },
+    { z: -1.150, halfWidth: 0.530, halfHeight: 0.185, centerY: -0.748 },
+    { z: -1.060, halfWidth: 0.510, halfHeight: 0.170, centerY: -0.755 },
+  ],
+}
+
+const NAC_INTAKE_TOP_DARK: LoftPart = {
+  roundness: 2.6,
+  segments: 16,
+  sections: [
+    { z: -2.188, halfWidth: 0.192, halfHeight: 0.076, centerY: 0.406 },
+    { z: -2.090, halfWidth: 0.192, halfHeight: 0.076, centerY: 0.409 },
+    { z: -2.000, halfWidth: 0.180, halfHeight: 0.068, centerY: 0.410 },
+  ],
+}
+
 /** 發動機艙的中心。量測值：`wing` 那一趟的翼厚在 X 2.2～3.2 由 0.9 暴增到 1.54，峰值 2.6 */
 const NACELLE_X = 2.6
 
@@ -679,6 +735,10 @@ export function buildHe111(): AircraftModel {
   for (const sx of [1, -1]) {
     for (const part of [NACELLE, NAC_INTAKE_LOW, NAC_INTAKE_TOP]) {
       h.loft(part, h.body).position.x = sx * NACELLE_X
+    }
+    // 進氣口裡的暗色凹槽，畫在罩子之後（它的首站比罩口前 0.008）
+    for (const part of [NAC_INTAKE_LOW_DARK, NAC_INTAKE_TOP_DARK]) {
+      h.loft(part, h.dark).position.x = sx * NACELLE_X
     }
   }
 

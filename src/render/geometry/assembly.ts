@@ -66,6 +66,25 @@ export interface AircraftModel {
   dispose(): void
 }
 
+/**
+ * 全玻璃機首的暗色內襯往內縮多少。
+ *
+ * 0.88：機首半寬 0.6～0.9，往內縮 7～11 cm。再深就會在正側視露出「玻璃與
+ * 內襯之間的空隙」，再淺則會與蒙皮同面而閃爍（z-fighting）。
+ */
+const NOSE_LINER = 0.88
+
+/**
+ * 把一組環整體往剖面中心縮。中心取「正上方與正下方兩點的中點」——與
+ * `buildHull` 的封口用的是同一個定義，兩者才會同心。
+ */
+function insetRings(rings: readonly HullRing[], k: number): HullRing[] {
+  return rings.map((r) => {
+    const cy = (r.half[0]![1] + r.half[r.half.length - 1]![1]) / 2
+    return { z: r.z, half: r.half.map(([x, y]) => [x * k, cy + (y - cy) * k] as const) }
+  })
+}
+
 /** 一個 lofting 部件：截面串 + 超橢圓指數 + 徑向分段數。 */
 export interface LoftPart {
   sections: readonly FuselageSection[]
@@ -253,8 +272,25 @@ export function createHull(spec: HullSpec) {
   })
   /** 座艙內裝：機身開口下方的暗色內殼，見 buildCockpitTub。 */
   const cockpitMat = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
+  /**
+   * 機身色，但**兩面都畫**。
+   *
+   * 【為什麼非有不可】玻璃的骨架（`buildFrames`）是一條條窄帶 —— 一片面只有
+   * 一個朝向，背面被剔除就整條消失。而 He 111 的機首是**整個透明**的，於是
+   * 從機外看得到對側的骨架，而對側骨架給你看的正是它的背面：專案負責人
+   * 回報的「從背面看支架是透明的」。
+   *
+   * `DoubleSide` 下 three.js 會替背面翻轉法線（`gl_FrontFacing`），所以打光
+   * 仍然正確，不會變成一條黑帶。
+   *
+   * 【為什麼不改 `body`】機身外殼、機翼、發動機艙都是封閉實體，開雙面只是
+   * 讓 GPU 白畫一份看不見的內面。窄帶才需要。
+   */
+  const bothSides = new MeshStandardMaterial({
+    color: spec.bodyColor, flatShading: true, roughness: 0.75, side: DoubleSide,
+  })
 
-  const disposables: { dispose(): void }[] = [body, accent, glass, blur, cockpitMat]
+  const disposables: { dispose(): void }[] = [body, accent, glass, blur, cockpitMat, bothSides]
   const add = (mesh: Mesh): Mesh => {
     disposables.push(mesh.geometry)
     hull.add(mesh)
@@ -273,6 +309,8 @@ export function createHull(spec: HullSpec) {
 
   const api = {
     body, accent, glass, add,
+    /** 暗色內襯／凹槽。玻璃後面與進氣口裡面用的就是它。 */
+    dark: cockpitMat,
 
     /** 管狀部件（機身、氣泡座艙罩、散熱器導管）。 */
     loft(part: LoftPart, mat: MeshStandardMaterial): Mesh {
@@ -335,19 +373,54 @@ export function createHull(spec: HullSpec) {
       const at = ringAt(rings, splitZ)
       const nose = [...rings.filter((r) => r.z < splitZ - 1e-6), at]
       const aft = [at, ...rings.filter((r) => r.z > splitZ + 1e-6)]
+      /**
+       * 【暗色內襯】專案負責人：「機背玻璃罩內也是要做黑色凹槽。」同一條也
+       * 適用於全玻璃機首 —— 而且機首更嚴重。
+       *
+       * 玻璃是 45% 半透明而且 `depthWrite: false`，所以從機外看進去，光線
+       * 穿過近側玻璃、穿過空的艙內、再穿過對側玻璃**看到天空**。中間那一段
+       * 只有後段外殼的前封口（真機的隔框）擋得住，隔框左右兩側整片是通的。
+       *
+       * 做法是同一組環往內縮一份、法線仍朝外，用內裝的暗色畫。從玻璃看進去
+       * 看到的是它的正面 —— 讀起來就是「玻璃後面有個暗艙」。與 `GlassPatch`
+       * 的 `glassBackGeometry` 是同一招，只是那裡只襯玻璃那幾片。
+       *
+       * 【後端不封】內襯止於 `splitZ`，讓後段外殼的前封口接手；封了就會與
+       * 隔框同一平面打架。
+       */
+      add(new Mesh(
+        buildHull(insetRings(nose, NOSE_LINER), undefined, { back: false }).geometry,
+        cockpitMat,
+      ))
       add(new Mesh(buildHull(nose, undefined, { back: false }).geometry, glass))
       const rear = buildHull(aft, undefined, undefined, patches)
       add(new Mesh(rear.geometry, body))
       if (patches?.length) {
         add(new Mesh(rear.glassGeometry, glass))
-        // 襯裡是實心的暗色殼，不是內裝 —— 它朝外，所以不掛 inwardShell
+        /**
+         * 襯裡是實心的暗色殼，不是內裝 —— 它朝外，所以不掛 inwardShell。
+         *
+         * 【這一塊夠用，不要再加整圈的暗艙】2026-08-18 我以為它是一張浮片、
+         * 斜看會從邊緣漏過去，還替每個補丁補了一圈整圈的內殼 —— 渲染出來
+         * **一個像素都沒變**。把 `cockpitMat` 暫時改成純紅重跑，機背罩內整片
+         * 是紅的：襯裡本來就擋住了。
+         *
+         * 罩內看起來偏亮（實測 (150,170,180)）不是漏光，是**玻璃自己**：45%
+         * 不透明、顏色 0x9fd4e8、roughness 0.2，掠角下鏡面很強，那一半的貢獻
+         * 就有這麼亮。要更黑只能動 `glass` 材質，而那是三台共用的觀感。
+         */
         add(new Mesh(rear.glassBackGeometry, cockpitMat))
       }
     },
 
-    /** 玻璃的骨架（隔框 + 桁條）。機身色 —— 它是結構不是裝飾。 */
+    /**
+     * 玻璃的骨架（隔框 + 桁條）。機身色 —— 它是結構不是裝飾。
+     *
+     * 【材質是 `bothSides`】窄帶只有一個朝向，而全玻璃機首讓你從機外看到
+     * **對側骨架的背面**。見那個材質的註解。
+     */
     frames(rings: readonly HullRing[], spec: FrameSpec): void {
-      add(new Mesh(buildFrames(rings, spec), body))
+      add(new Mesh(buildFrames(rings, spec), bothSides))
     },
 
     /** 左右成對的翼面（主翼、水平尾翼）。 */
