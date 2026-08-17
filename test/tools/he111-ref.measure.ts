@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     let probe: Probe = {
       tris: 0, meshes: 0, min: [0, 0, 0], max: [0, 0, 0], size: [0, 0, 0], parts: [],
     }
-    if (stage === 'verify') {
+    if (stage === 'verify' || stage === 'belly') {
       await page.evaluate(() => window.__hangarSpec('he111'))
       for (let i = 0; i < 120; i++) {
         if (await page.evaluate(() => window.__hangarRef(true, false))) break
@@ -374,6 +374,82 @@ const stages: Record<string, Stage> = {
         + `  ${n(g > 0 && skin > 0 ? g - skin : NaN)}`,
       )
     }
+  },
+
+  /**
+   * 【腹艙的兩道端面站在哪一刀上】走 `__hangarProbe` 旁路 —— **不經過
+   * `placeRef`**，所以這一格量到的是量測系的原始位置，與 `bake` 同一個座標。
+   *
+   * 【為什麼需要它】`belly` 那一格量的是**擺放過**的參考模型，帶著 0.13 m
+   * 的剛體位移；拿它跟烘出來的機身逐站比，端面的位置差看起來像形狀錯，其實
+   * 混了平移。要問「端面在哪一刀」只能在原始座標裡問。
+   */
+  keel: async (_page, _probe, slice) => {
+    const AXIS_V = 0.25
+    const QC = 3.0889
+    const rs = await slice('radial', 'z', {
+      from: 5.0, to: 9.4, count: 89, angles: 144, axisV: AXIS_V, maxRadius: 2.1,
+    }) as { planes: number[]; theta: number[]; r: number[][] }
+    const dn = rs.theta.reduce((b, th, j) => (
+      Math.abs(th - 270 * Math.PI / 180) < Math.abs(rs.theta[b]! - 270 * Math.PI / 180) ? j : b
+    ), 0)
+    console.log('── 腹艙：0.05 m 一刀，正下方單條射線（量測系）──')
+    console.log('   量測Z   機體Z    腹線    逐刀落差')
+    let prev = NaN
+    for (let k = 0; k < rs.planes.length; k++) {
+      const r = rs.r[k]![dn]!
+      const y = r > 0 ? AXIS_V - r : NaN
+      const d = y - prev
+      const flag = Number.isFinite(d) && Math.abs(d) > 0.06 ? '  ← 端面' : ''
+      console.log(
+        `  ${n(rs.planes[k]!, 6, 2)}  ${n(rs.planes[k]! - QC, 6, 2)}  ${n(y)}  ${n(d)}${flag}`,
+      )
+      prev = y
+    }
+  },
+
+  /**
+   * 【機腹線】腹艙（Bola）那一段的曲線對不對。
+   *
+   * 【一定要單條射線】腹艙是一條**窄龍骨**，偏 12° 的射線就離開它、打在旁邊
+   * 的機腹上 —— 中位數會把整條吊艙抹掉（`verify` 第一版就是這樣，量出來
+   * 「我的機腹淺了 0.3 m」，其實是尺的問題）。
+   *
+   * 【兩邊都切、同一組站位】自家模型走 `placeRef` 的疊圖路徑，所以還帶著
+   * 那個剛體位移；但**曲線的形狀**不受平移影響，逐站的一階差分（相鄰兩站
+   * 的高低差）可以直接比。
+   */
+  belly: async (_page, _probe, slice) => {
+    const opt = {
+      from: -1.0, to: 7.0, count: 41, angles: 144, axisV: 0.25, maxRadius: 1.6,
+    }
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const mine = await slice('radial', 'z', opt, 'mine') as Rad
+    const ref = await slice('radial', 'z', opt) as Rad
+    const dn = mine.theta.reduce((b, th, j) => (
+      Math.abs(th - 270 * Math.PI / 180) < Math.abs(mine.theta[b]! - 270 * Math.PI / 180) ? j : b
+    ), 0)
+    const y = (m: Rad, k: number) => (m.r[k]![dn]! > 0 ? 0.25 - m.r[k]![dn]! : NaN)
+    console.log('── 機腹線（正下方單條射線）──────────────────')
+    console.log('      Z     自家     參考      差    ── 逐站落差 ──')
+    console.log('                                     自家     參考     差')
+    let pm = NaN, pr = NaN
+    const slopeDiff: number[] = []
+    for (let k = 0; k < mine.planes.length; k++) {
+      const a = y(mine, k), b = y(ref, k)
+      const da = a - pm, db = b - pr
+      if (Number.isFinite(da) && Number.isFinite(db)) slopeDiff.push(Math.abs(da - db))
+      console.log(
+        `  ${n(mine.planes[k]!, 6, 2)}  ${n(a)}  ${n(b)}  ${n(a - b)}`
+        + `   ${n(da)}  ${n(db)}  ${n(da - db)}`,
+      )
+      pm = a; pr = b
+    }
+    slopeDiff.sort((p, q) => p - q)
+    console.log(`\n  逐站落差的差 ${slopeDiff.length} 筆：`
+      + `中位數 ${n(slopeDiff[slopeDiff.length >> 1] ?? NaN)}`
+      + `  最大 ${n(slopeDiff[slopeDiff.length - 1] ?? NaN)}`)
+    console.log('  （這一欄不受剛體位移影響 —— 它比的是曲線的形狀，不是位置）')
   },
 
   /**
@@ -935,7 +1011,31 @@ const stages: Record<string, Stage> = {
     }) as { planes: number[]; theta: number[]; r: number[][] }
 
     /**
-     * 指定視窗內、非零的半徑中位數；全空回 NaN。
+     * ── 朝下那幾條射線要另外一趟，上限開大 ────────────────────
+     *
+     * 【maxRadius 把腹艙整個吃掉了】1.45 配上原點 y = 0.25，射線只夠到
+     * y = −1.20。而腹艙（Bola）的底在 −1.27 左右 —— **超出上限的射線直接
+     * 回 0**，`robust` 把 0 當成「沒量到」濾掉，那幾站於是變成洞、被沿 z
+     * 內插填掉。烘出來的機腹因此淺了 0.2～0.3 m，而且是一條平滑的波浪，
+     * 看不出曾經有東西被拿掉。
+     *
+     * 這是坑 6 的變體：**上限不會報錯，它只是把樣本悄悄拿掉。**
+     *
+     * 【為什麼不是整趟都開大】`maxRadius` 本來就是用來擋機翼與起落架的
+     * （見 `sliceRef` 的檔頭）。水平方向的射線一開大就會穿出機身打到機翼。
+     * 但**朝下**的那幾條不會：機翼在 |x| > 0.9 之外，而 −66° 的射線走到
+     * r = 1.5 也才 x = 0.61，仍然在機身正下方。
+     */
+    const KEEL_MAXR = 2.1
+    const keel = await slice('radial', 'z', {
+      from: -0.10, to: 12.3, count: 63, angles: 144, axisV: AXIS_V, maxRadius: KEEL_MAXR,
+    }) as { planes: number[]; theta: number[]; r: number[][] }
+    /** 用大上限那一趟的角度（正下方那三點） */
+    const KEEL_DEG = -66
+
+    /**
+     * 指定視窗內、非零的半徑中位數；全空回 NaN。**`win = 0` 改成只讀最接近
+     * 的那一條射線**（細長的零件要用它，見下方腹艙）。
      *
      * 【視窗 ±12° → ±6°】輸出點的間距是 12°，視窗還開 ±12° 的話相鄰輸出點
      * 的取樣範圍會互相重疊一半，剖面被抹平。射線加倍到 144 條之後，±6° 內
@@ -945,12 +1045,22 @@ const stages: Record<string, Stage> = {
       row: readonly number[], theta: readonly number[], deg: number, win = 6,
     ): number => {
       const want = deg * Math.PI / 180
-      const near: number[] = []
-      for (let j = 0; j < theta.length; j++) {
+      const norm = (j: number) => {
         let d = theta[j]! - want
         while (d > Math.PI) d -= 2 * Math.PI
         while (d < -Math.PI) d += 2 * Math.PI
-        if (Math.abs(d) <= win * Math.PI / 180 && row[j]! > 0) near.push(row[j]!)
+        return d
+      }
+      if (win === 0) {
+        let best = 0
+        for (let j = 1; j < theta.length; j++) {
+          if (Math.abs(norm(j)) < Math.abs(norm(best))) best = j
+        }
+        return row[best]! > 0 ? row[best]! : NaN
+      }
+      const near: number[] = []
+      for (let j = 0; j < theta.length; j++) {
+        if (Math.abs(norm(j)) <= win * Math.PI / 180 && row[j]! > 0) near.push(row[j]!)
       }
       if (near.length === 0) return NaN
       near.sort((a, b) => a - b)
@@ -1047,9 +1157,38 @@ const stages: Record<string, Stage> = {
       topPair.push([z, robust(row, rs.theta, 90), robust(row, rs.theta, 90, 20)])
       rad.push(OUT_DEG.map((deg) => {
         if (GUN_HOLES.some((h) => h.deg === deg && z >= h.from && z <= h.to)) return NaN
-        // 左右對稱化，見下方
-        const right = robust(row, rs.theta, deg)
-        const left = robust(row, rs.theta, 180 - deg)
+        /**
+         * 左右對稱化，見下方。朝下那三點另外處理：
+         *
+         *   上限  改用開大的那一趟（見 KEEL_MAXR）
+         *   視窗  ±6° 改成 ±3°
+         *
+         * 【為什麼視窗要收成單條】腹艙是一條**窄龍骨**，而它的**前後兩道
+         * 端面比 ±3° 還窄** —— 只有正下方那一條射線打得到，鄰居已經離開
+         * 吊艙了。上面那張並排表是證據：
+         *
+         * ```
+         *   量測Z   單條射線  ±3°中位數    差
+         *    5.50    1.468    1.132    −0.336   ← 前端面
+         *    5.70    1.382    1.163    −0.219
+         *    8.10    1.378    1.235    −0.143
+         *    8.30    1.476    1.114    −0.362   ← 後端面
+         *   其餘 17 站                   ±0.001
+         * ```
+         *
+         * 21 站有 17 站兩者一致到 0.001，只有這四站不一致 —— 而中位數在
+         * 這四站給的是**錯的那一個**：端面被抹成 0.6 m 的斜坡，位置還往後
+         * 拖了 0.27 m。中位數的價值是擋單點漏失，而這裡根本沒有漏失。
+         *
+         * 這與垂尾那一條是同一個教訓（`verify` 的 `pick`）：**細長的東西
+         * 不能用中位數量。**
+         */
+        const keelPt = deg <= KEEL_DEG
+        const src = keelPt ? keel : rs
+        const win = keelPt ? 0 : 6
+        const row2 = src.r[k]!
+        const right = robust(row2, src.theta, deg, win)
+        const left = robust(row2, src.theta, 180 - deg, win)
         /**
          * 【只有一側量到 → 當成洞，不要拿另一側頂替】
          *
@@ -1066,6 +1205,21 @@ const stages: Record<string, Stage> = {
         if (!Number.isFinite(right) || !Number.isFinite(left)) return NaN
         return (right + left) / 2
       }))
+    }
+    // 腹艙那一段的腹線：單條射線 vs ±3° 中位數（端面是不是被抹掉了）
+    console.log('// ── 腹線：單條射線 對 ±3° 中位數（腹艙那一段）──')
+    {
+      const dnJ = keel.theta.reduce((b, th, j) => (
+        Math.abs(th - 270 * Math.PI / 180) < Math.abs(keel.theta[b]! - 270 * Math.PI / 180)
+          ? j : b
+      ), 0)
+      for (let k = 0; k < planes.length; k++) {
+        const z = planes[k]!
+        if (z < 4.8 || z > 9.0) continue
+        const one = keel.r[k]![dnJ]!
+        const med = robust(keel.r[k]!, keel.theta, -90, 3)
+        console.log(`//   量測 ${n(z, 6, 2)}  單條 ${n(one)}  ±3° ${n(med)}  差 ${n(med - one)}`)
+      }
     }
     console.log('// ── 背線：±6° 對 ±20°（機背機槍座那一段兩者互相矛盾）──')
     for (const [z, a, b] of topPair) {
@@ -1113,11 +1267,25 @@ const stages: Record<string, Stage> = {
      * 【為什麼不是等權的 [.25,.5,.25]】站距不等距時等權濾波會把密集區壓扁。
      * 這裡把每一站往「前後兩站在該 z 的連線」拉 λ = 0.5。
      */
+    /**
+     * 【保邊：一步跳超過 EDGE 的地方不平滑】
+     *
+     * 平滑是為了除漣漪（坑 19）。但機身上有**真的是垂直面**的東西 —— 腹艙
+     * 的前後兩道端面在參考模型上是一步 0.30／0.41 m。兩輪 λ=0.5 會把那一步
+     * 攤成 0.8 m 的斜坡，吊艙於是變成一坨圓潤的鼓包。
+     *
+     * 判準用**跳的幅度**：漣漪的振幅是公分級，端面是 0.3 m 級，兩者差一個
+     * 數量級，門檻取 0.15 落在正中間。
+     */
+    const EDGE = 0.15
     for (let pass = 0; pass < 2; pass++) {
       const src = rad.map((r) => [...r])
       for (let k = 1; k < planes.length - 1; k++) {
         const t = (planes[k]! - planes[k - 1]!) / (planes[k + 1]! - planes[k - 1]!)
         for (let p = 0; p < OUT_DEG.length; p++) {
+          const a = src[k]![p]! - src[k - 1]![p]!
+          const b = src[k + 1]![p]! - src[k]![p]!
+          if (Math.abs(a) > EDGE || Math.abs(b) > EDGE) continue
           const line = src[k - 1]![p]! + (src[k + 1]![p]! - src[k - 1]![p]!) * t
           rad[k]![p] = src[k]![p]! + (line - src[k]![p]!) * 0.5
         }
@@ -1201,7 +1369,7 @@ const stages: Record<string, Stage> = {
      * 而那一條在文件裡標出來了（坑 15 要求逐段交代）。
      */
     const tail = await slice('radial', 'z', {
-      from: 12.3, to: 15.9, count: 19, angles: 144, axisV: AXIS_V, maxRadius: MAXR,
+      from: 12.3, to: 15.9, count: 19, angles: 144, axisV: AXIS_V, maxRadius: KEEL_MAXR,
     }) as { planes: number[]; theta: number[]; r: number[][] }
 
     const last = rings[rings.length - 1]!
