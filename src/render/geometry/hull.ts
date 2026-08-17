@@ -189,8 +189,29 @@ export function buildHull(
       && a >= p.i0 && a <= p.i1 && b >= p.i0 && b <= p.i1
     ))
   }
-  /** 襯裡往內縮的比例。0.88 在 1 m 直徑的機身上是 6 cm，看得出深度又不穿幫 */
-  const BACK_INSET = 0.88
+  /**
+   * ── 玻璃是**凹槽**，不是貼平的一片窗 ────────────────────────
+   *
+   * 【P-51D 的做法，以及為什麼要照抄】它的座艙是 `CockpitCut` 把艙緣以上的
+   * 面**整片不輸出**（機身真的挖開）、底下墊一層暗色內裝、玻璃再蓋上去。
+   * 那三件事合起來才讀得出「這裡凹進去了」。
+   *
+   * 第一版的玻璃與蒙皮**共面** —— 只是同一批三角形換了材質。低多邊形下那
+   * 讀起來是一張貼紙，不是艙口。
+   *
+   * 【為什麼不直接用 CockpitCut】它只支援**一個**開口、而且永遠切頂部
+   * （艙緣是一條 (z, y) 折線，把該高度以上壓平）。機腹吊艙在正下方、側窗在
+   * 腰線 —— 三個都要，所以改成「任意角度區段」的版本。
+   *
+   * 【三個數字】
+   *   蒙皮      1.00  那幾片不輸出，機身在這裡是破的
+   *   玻璃      0.94  沉下去約 6 cm（機身半徑 ~1 m）
+   *   襯裡      0.84  再往內 10 cm，暗色，擋住「看穿到背景」
+   * 中間由**框壁**接起來 —— 沒有框壁的話蒙皮與玻璃之間是一圈空隙，凹槽
+   * 讀不出來而且側面看得到破口。
+   */
+  const GLASS_SINK = 0.94
+  const BACK_INSET = 0.84
 
   /** 每個站位：完整一圈的座標，以及「哪些點被艙緣壓平了」。 */
   const built = rings.map((r) => {
@@ -219,11 +240,18 @@ export function buildHull(
   const triGlass = into(glassPos)
   const triBack = into(backPos)
 
-  /** 剖面中心（背線與腹線的中點）—— 襯裡往這裡縮 */
+  /** 剖面中心（背線與腹線的中點）—— 玻璃與襯裡都往這裡縮 */
   const centerY = (r: typeof built[number]) => (r.pts[0]![1]! + r.pts[n - 1]![1]!) / 2
-  const inset = (r: typeof built[number], p: number[]): number[] => {
+  const sink = (r: typeof built[number], p: number[], k: number): number[] => {
     const cy = centerY(r)
-    return [p[0]! * BACK_INSET, cy + (p[1]! - cy) * BACK_INSET]
+    return [p[0]! * k, cy + (p[1]! - cy) * k]
+  }
+
+  /** 站位 s→s+1、環向 i→i+1 那一片是不是玻璃（超出範圍算不是） */
+  const glassQuad = (s: number, i: number): boolean => {
+    if (s < 0 || s >= built.length - 1) return false
+    const k = ((i % ringCount) + ringCount) % ringCount
+    return isGlass((built[s]!.z + built[s + 1]!.z) / 2, k, (k + 1) % ringCount)
   }
 
   for (let s = 0; s < built.length - 1; s++) {
@@ -234,18 +262,47 @@ export function buildHull(
       const j = (i + 1) % ringCount
       // 四個角都被壓到艙緣 → 這一塊整個在開口裡，不輸出
       if (A.cutFlag[i] && A.cutFlag[j] && B.cutFlag[i] && B.cutFlag[j]) continue
-      // 環是由正上方**順時針**繞回正上方（右半由上而下、左半由下而上），
-      // 站位方向是 +Z。右側的 (−Y)×(+Z) = −X 是朝內的，所以要用下面這個
-      // 順序才會朝外——與 buildFuselage 的逆時針環剛好相反。
-      const put = isGlass(zMid, i, j) ? triGlass : tri
-      put(A.pts[i]!, B.pts[i]!, B.pts[j]!, A.z, B.z, B.z)
-      put(A.pts[i]!, B.pts[j]!, A.pts[j]!, A.z, B.z, A.z)
-      // 玻璃那幾片再往內做一層暗色襯裡（同樣朝外，見 HullResult）
-      if (put !== triGlass) continue
-      const [ai, aj] = [inset(A, A.pts[i]!), inset(A, A.pts[j]!)]
-      const [bi, bj] = [inset(B, B.pts[i]!), inset(B, B.pts[j]!)]
-      triBack(ai, bi, bj, A.z, B.z, B.z)
-      triBack(ai, bj, aj, A.z, B.z, A.z)
+
+      if (!isGlass(zMid, i, j)) {
+        // 環是由正上方**順時針**繞回正上方（右半由上而下、左半由下而上），
+        // 站位方向是 +Z。右側的 (−Y)×(+Z) = −X 是朝內的，所以要用下面這個
+        // 順序才會朝外——與 buildFuselage 的逆時針環剛好相反。
+        tri(A.pts[i]!, B.pts[i]!, B.pts[j]!, A.z, B.z, B.z)
+        tri(A.pts[i]!, B.pts[j]!, A.pts[j]!, A.z, B.z, A.z)
+        continue
+      }
+
+      // ── 凹槽：蒙皮那一片不輸出，改成沉下去的玻璃 + 暗色襯裡 ──
+      const [gAi, gAj] = [sink(A, A.pts[i]!, GLASS_SINK), sink(A, A.pts[j]!, GLASS_SINK)]
+      const [gBi, gBj] = [sink(B, B.pts[i]!, GLASS_SINK), sink(B, B.pts[j]!, GLASS_SINK)]
+      triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
+      triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
+
+      const [bAi, bAj] = [sink(A, A.pts[i]!, BACK_INSET), sink(A, A.pts[j]!, BACK_INSET)]
+      const [bBi, bBj] = [sink(B, B.pts[i]!, BACK_INSET), sink(B, B.pts[j]!, BACK_INSET)]
+      triBack(bAi, bBi, bBj, A.z, B.z, B.z)
+      triBack(bAi, bBj, bAj, A.z, B.z, A.z)
+
+      /**
+       * ── 框壁：只長在**凹槽的邊界**上 ────────────────────────
+       *
+       * 【兩面各畫一次】框壁只有 6 cm 高，從凹槽外側與內側都看得到。逐邊
+       * 判斷該朝哪一面是四個 case（前緣朝 +Z、後緣朝 −Z、左右各一），
+       * **錯一個那一片就整條消失**而且不會有任何錯誤 —— 兩面各畫一次比較
+       * 便宜，也不可能錯。帶符號體積互相抵銷，所以「法線朝外」那條護欄
+       * 仍然量得到機身本體。
+       */
+      const wall = (p0: number[], p1: number[], q0: number[], q1: number[],
+        z0: number, z1: number) => {
+        tri(p0, p1, q1, z0, z1, z1); tri(p0, q1, q0, z0, z1, z0)
+        tri(p0, q1, p1, z0, z1, z1); tri(p0, q0, q1, z0, z0, z1)
+      }
+      // 前緣（站位 A 那一側）／後緣（站位 B 那一側）
+      if (!glassQuad(s - 1, i)) wall(A.pts[i]!, A.pts[j]!, gAi, gAj, A.z, A.z)
+      if (!glassQuad(s + 1, i)) wall(B.pts[i]!, B.pts[j]!, gBi, gBj, B.z, B.z)
+      // 環向的兩側
+      if (!glassQuad(s, i - 1)) wall(A.pts[i]!, B.pts[i]!, gAi, gBi, A.z, B.z)
+      if (!glassQuad(s, i + 1)) wall(A.pts[j]!, B.pts[j]!, gAj, gBj, A.z, B.z)
     }
   }
 
