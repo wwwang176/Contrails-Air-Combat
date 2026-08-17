@@ -125,6 +125,17 @@ export interface GlassPatch {
   /** `HullRing.half` 的索引範圍（含）。0 = 正上方、最後一點 = 正下方 */
   i0: number
   i1: number
+  /**
+   * 玻璃沉進蒙皮、四周長出框壁（＝凹槽）。省略即**與蒙皮共面**。
+   *
+   * 【什麼時候該共面】玻璃**本身就是外殼**的時候 —— 全玻璃機首是一例，
+   * 機背機槍座的**凸起玻璃罩**是另一例。實測參考模型的蒙皮背線在那一段
+   * 由 1.438 隆到 1.669 再回到 1.426：那是一個凸出 0.23 m 的罩子，把它
+   * 沉進去等於把真機凸的東西做成凹的。
+   *
+   * 【什麼時候該凹】玻璃嵌在蒙皮開口裡的時候 —— 機腹吊艙、機身側窗。
+   */
+  recess?: boolean
 }
 
 export interface HullResult {
@@ -180,14 +191,14 @@ export function buildHull(
    * `half.slice(1, -1).reverse()`，所以是 2n−2−k。
    */
   const halfIndex = (k: number) => (k < n ? k : ringCount - k)
-  /** 這一片（跨站位 s→s+1、跨環向 i→j）是不是玻璃 */
-  const isGlass = (z: number, i: number, j: number): boolean => {
-    if (!glass) return false
+  /** 這一片（跨站位 s→s+1、跨環向 i→j）屬於哪一塊玻璃；不是玻璃回 null */
+  const patchAt = (z: number, i: number, j: number): GlassPatch | null => {
+    if (!glass) return null
     const a = halfIndex(i), b = halfIndex(j)
-    return glass.some((p) => (
+    return glass.find((p) => (
       z >= p.from && z <= p.to
       && a >= p.i0 && a <= p.i1 && b >= p.i0 && b <= p.i1
-    ))
+    )) ?? null
   }
   /**
    * ── 玻璃是**凹槽**，不是貼平的一片窗 ────────────────────────
@@ -251,7 +262,7 @@ export function buildHull(
   const glassQuad = (s: number, i: number): boolean => {
     if (s < 0 || s >= built.length - 1) return false
     const k = ((i % ringCount) + ringCount) % ringCount
-    return isGlass((built[s]!.z + built[s + 1]!.z) / 2, k, (k + 1) % ringCount)
+    return patchAt((built[s]!.z + built[s + 1]!.z) / 2, k, (k + 1) % ringCount) !== null
   }
 
   for (let s = 0; s < built.length - 1; s++) {
@@ -263,7 +274,8 @@ export function buildHull(
       // 四個角都被壓到艙緣 → 這一塊整個在開口裡，不輸出
       if (A.cutFlag[i] && A.cutFlag[j] && B.cutFlag[i] && B.cutFlag[j]) continue
 
-      if (!isGlass(zMid, i, j)) {
+      const patch = patchAt(zMid, i, j)
+      if (!patch) {
         // 環是由正上方**順時針**繞回正上方（右半由上而下、左半由下而上），
         // 站位方向是 +Z。右側的 (−Y)×(+Z) = −X 是朝內的，所以要用下面這個
         // 順序才會朝外——與 buildFuselage 的逆時針環剛好相反。
@@ -272,9 +284,10 @@ export function buildHull(
         continue
       }
 
-      // ── 凹槽：蒙皮那一片不輸出，改成沉下去的玻璃 + 暗色襯裡 ──
-      const [gAi, gAj] = [sink(A, A.pts[i]!, GLASS_SINK), sink(A, A.pts[j]!, GLASS_SINK)]
-      const [gBi, gBj] = [sink(B, B.pts[i]!, GLASS_SINK), sink(B, B.pts[j]!, GLASS_SINK)]
+      // 蒙皮那一片改用玻璃材質。凹槽的話再沉下去、四周補框壁（見 GlassPatch）
+      const k = patch.recess ? GLASS_SINK : 1
+      const [gAi, gAj] = [sink(A, A.pts[i]!, k), sink(A, A.pts[j]!, k)]
+      const [gBi, gBj] = [sink(B, B.pts[i]!, k), sink(B, B.pts[j]!, k)]
       triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
       triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
 
@@ -297,6 +310,7 @@ export function buildHull(
         tri(p0, p1, q1, z0, z1, z1); tri(p0, q1, q0, z0, z1, z0)
         tri(p0, q1, p1, z0, z1, z1); tri(p0, q0, q1, z0, z0, z1)
       }
+      if (!patch.recess) continue
       // 前緣（站位 A 那一側）／後緣（站位 B 那一側）
       if (!glassQuad(s - 1, i)) wall(A.pts[i]!, A.pts[j]!, gAi, gAj, A.z, A.z)
       if (!glassQuad(s + 1, i)) wall(B.pts[i]!, B.pts[j]!, gBi, gBj, B.z, B.z)

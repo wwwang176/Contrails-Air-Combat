@@ -326,6 +326,57 @@ const stages: Record<string, Stage> = {
   },
 
   /**
+   * 【機背機槍座】兩個問題一起問：
+   *
+   *   一、開口有多寬  `bake` 只把**正上方**那一條標成量不到，但開口顯然更寬
+   *       —— 烘出來的第 1、2 點各塌下去 0.43／0.21 m，而第 0 點是內插的平滑
+   *       線，於是機背變成「中間一條脊、兩旁兩條溝」。標多寬要用量的。
+   *
+   *   二、玻璃在蒙皮之上還是之下  真機的 B-Stand 是**凸起的玻璃罩**還是嵌進
+   *       機背的窗，決定造型該做凸還是做凹。把 `windows` mesh 的背頂與整台的
+   *       背頂並排就看得出來。
+   */
+  dorsal: async (_page, _probe, slice) => {
+    const AXIS_V = 0.25
+    const QC = 3.0889
+    const opt = {
+      from: 3.2, to: 7.4, count: 22, angles: 144, axisV: AXIS_V, maxRadius: 1.6,
+    }
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const all = await slice('radial', 'z', opt) as Rad
+    const gl = await slice('radial', 'z', opt, undefined, 'windows') as Rad
+    const at = (T: readonly number[], deg: number) =>
+      T.reduce((b, th, j) => (
+        Math.abs(th - deg * Math.PI / 180) < Math.abs(T[b]! - deg * Math.PI / 180) ? j : b
+      ), 0)
+
+    console.log('── 一、整台的 r(θ)：開口把哪幾條射線吞掉了 ────')
+    console.log('  每一欄是離正上方幾度（負＝右側）。單條射線，不取中位數')
+    const DEGS = [90, 84, 78, 72, 66, 60, 54, 48, 42]
+    console.log('   量測Z   機體Z ' + DEGS.map((d) => `${String(d).padStart(7)}°`).join(''))
+    for (let k = 0; k < all.planes.length; k++) {
+      const row = all.r[k]!
+      console.log(
+        `  ${n(all.planes[k]!, 6, 2)}  ${n(all.planes[k]! - QC, 6, 2)} `
+        + DEGS.map((d) => n(row[at(all.theta, d)]!, 8)).join(''),
+      )
+    }
+
+    console.log('\n── 二、玻璃的背頂 vs 蒙皮的背頂（正上方單條射線）──')
+    console.log('   量測Z   機體Z   蒙皮背頂  玻璃背頂    差')
+    const up = at(all.theta, 90)
+    for (let k = 0; k < all.planes.length; k++) {
+      const skin = all.r[k]![up]!
+      const g = gl.r[k]![up]!
+      console.log(
+        `  ${n(all.planes[k]!, 6, 2)}  ${n(all.planes[k]! - QC, 6, 2)}`
+        + `  ${n(skin > 0 ? AXIS_V + skin : NaN)}  ${n(g > 0 ? AXIS_V + g : NaN)}`
+        + `  ${n(g > 0 && skin > 0 ? g - skin : NaN)}`,
+      )
+    }
+  },
+
+  /**
    * 【主翼內段的平面形】`wing` 那一趟從 X = 1.0 起切，而且是用「Z 幅度＝弦長」
    * 讀的 —— X < 3.4 被發動機艙與機身整流罩污染，所以造型檔的翼根其實是由
    * **外段外推**來的。外推假設前後緣各是一條直線，翼根附近如果另有轉折就
@@ -920,11 +971,35 @@ const stages: Record<string, Stage> = {
      * ——**兩個視窗互相矛盾**，代表射線在那裡打到的根本不是同一個面。開口的
      * 角寬比 20° 還大，放寬只是換一個錯的答案。
      *
-     * 【範圍 5.0～6.0 是量出來的】乾淨段的背線是 1.409（4.50）、1.402、
-     * 1.393（4.90）→ 崩成 0.998／0.612／0.607／1.209／1.208 → 1.010（6.10）
-     * 之後又平順地 1.059／1.044／1.028。崩掉的正好是這五站。
+     * 【2026-08-17 第二修：範圍每一點都不一樣】第一版只標**正上方**那一條、
+     * 而且 z 範圍抓錯邊。烘出來的後果是機背「中間一條平滑的脊、兩旁各一條
+     * 塌下去 0.43／0.21 m 的溝」—— 因為第 0 點是內插的乾淨線，第 1、2 點
+     * 卻還是穿過開口量到的值。
+     *
+     * `dorsal` 那一格逐條射線印出來（機體座標、單條射線的半徑）：
+     *
+     * ```
+     *   機體Z    90°    78°    72°    66°    54°
+     *    2.31   0.610  0.625  1.033  1.069  1.058   ← 90／78 穿進去
+     *    2.51   1.206  0.000  0.000  1.055  1.047   ← 78／72 完全打不到
+     *    2.91   1.190  0.972  1.035  1.060  1.034   ← 78 比 66 還低 → 不可能
+     *    3.11   1.176  1.063  1.060  1.049  1.023   ← 恢復正常
+     * ```
+     *
+     * 判準有兩個，都不必猜：**射線回 0**（打不到任何東西），以及**外側的
+     * 點比內側的點還低**（凸剖面不可能）。
+     *
+     * 正上方那一條在 2.51 就乾淨了（1.206 → 絕對高度 1.456，與後方的 1.426、
+     * 1.418 連得上）；78° 那一條一路壞到 3.05。所以逐點各自一個範圍。
+     *
+     * 【66° 以外都是真的】第 2、3 點在 1.91→2.11 之間同步下降 0.16／0.10
+     * —— 兩條一起降代表那是**剖面本身**在圓頂之後收窄，不是開口。
      */
-    const GUN_Z: [number, number] = [5.0, 6.0]
+    const GUN_HOLES: { deg: number; from: number; to: number }[] = [
+      // 量測系 = 機體 + 3.0889
+      { deg: 90, from: 1.85 + QUARTER_CHORD, to: 2.45 + QUARTER_CHORD },
+      { deg: 78, from: 1.85 + QUARTER_CHORD, to: 3.05 + QUARTER_CHORD },
+    ]
 
     /**
      * ── 站位 × 16 點，**存極座標的半徑** ─────────────────────
@@ -971,7 +1046,7 @@ const stages: Record<string, Stage> = {
       const z = planes[k]!
       topPair.push([z, robust(row, rs.theta, 90), robust(row, rs.theta, 90, 20)])
       rad.push(OUT_DEG.map((deg) => {
-        if (deg === 90 && z >= GUN_Z[0] && z <= GUN_Z[1]) return NaN
+        if (GUN_HOLES.some((h) => h.deg === deg && z >= h.from && z <= h.to)) return NaN
         // 左右對稱化，見下方
         const right = robust(row, rs.theta, deg)
         const left = robust(row, rs.theta, 180 - deg)
@@ -994,7 +1069,8 @@ const stages: Record<string, Stage> = {
     }
     console.log('// ── 背線：±6° 對 ±20°（機背機槍座那一段兩者互相矛盾）──')
     for (const [z, a, b] of topPair) {
-      const flag = z >= GUN_Z[0] && z <= GUN_Z[1] ? ' ←丟掉，沿 z 內插' : ''
+      const holes = GUN_HOLES.filter((h) => z >= h.from && z <= h.to).map((h) => h.deg)
+      const flag = holes.length ? `  ←丟掉 ${holes.join('/')}°，沿 z 內插` : ''
       console.log(`//   量測 ${n(z, 6, 2)}  ±6° ${n(a)}  ±20° ${n(b)}  差 ${n(b - a)}${flag}`)
     }
 
