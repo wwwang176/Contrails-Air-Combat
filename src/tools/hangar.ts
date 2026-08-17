@@ -411,16 +411,24 @@ rebuild()
       grid.visible = !(view && hideGrid)
       frameOrtho()
     }
+/**
+ * 開發用：擺相機。**看向點可以指定**（`tx/ty/tz`，預設原點）。
+ *
+ * 【為什麼需要看向點】沒有它就只能看原點，而要看的東西（發動機艙在
+ * x 2.6、腹艙在 z 3.9）都不在原點上 —— 近拍時它們被推到畫面角落，或者
+ * 乾脆被機翼擋住。把看向點放到零件上才叫近拍。
+ */
 ;(window as unknown as Record<string, unknown>)['__hangarCam'] =
-    (x: number, y: number, z: number) => {
+    (x: number, y: number, z: number, tx = 0, ty = 0, tz = 0) => {
       autoRotate = false
       orthoView = null
       if (model) model.group.rotation.y = 0
       camera.position.set(x, y, z)
       // 只有正上方俯視需要換 up（否則 lookAt 退化）；其餘一律 +Y 朝上，
       // 不然斜視角會被轉得歪七扭八。
-      const overhead = x === 0 && z === 0
+      const overhead = x === tx && z === tz
       camera.up.set(0, overhead ? 0 : 1, overhead ? -1 : 0)
+      controls.target.set(tx, ty, tz)
       controls.update()
     }
 
