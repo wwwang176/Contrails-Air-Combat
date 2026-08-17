@@ -564,12 +564,18 @@ const NAC_INTAKE_LOW_EXIT: LoftPart = {
  * 碗裡面，碗自己在 −2.440 收口封死。
  */
 /**
- * 玻璃罩裡的暗艙：同一組截面往**該站的中心**縮 k，首尾各去掉一站。
+ * 玻璃罩裡的暗艙：同一組截面往**該站的中心**縮 k、再整體抬高 `lift`，
+ * 首尾各去掉一站。
  *
- * 去掉首尾是因為那兩站通常已經收成一點（0.04 上下），縮 14% 只差 0.006，
+ * 去掉首尾是因為那兩站通常已經收成一點（0.04 上下），縮一成只差 0.004，
  * 兩層面貼在一起會閃爍。
+ *
+ * 【k 要貼、`lift` 要往上】專案負責人：「機腹的黑碗應該是往上。」第一版
+ * 縮 0.86，在吊艙底下留了 0.17 m 的空玻璃 —— 看起來是艙裡塞了一個小東西，
+ * 不是艙壁。碗要**貼著玻璃**（k 接近 1），而且往上頂進機身裡，只在龍骨留
+ * 一道極窄的玻璃邊。
  */
-function liner(part: LoftPart, k: number): LoftPart {
+function liner(part: LoftPart, k: number, lift = 0): LoftPart {
   return {
     roundness: part.roundness,
     segments: part.segments,
@@ -577,7 +583,7 @@ function liner(part: LoftPart, k: number): LoftPart {
       z: s.z,
       halfWidth: s.halfWidth * k,
       halfHeight: s.halfHeight * k,
-      centerY: s.centerY,
+      centerY: s.centerY + lift,
     })),
   }
 }
@@ -872,9 +878,12 @@ export function buildHe111(): AircraftModel {
    * 而且**上半截整個埋在機身裡**（頂緣 −0.17、該處機身腹線 −0.72），暗艙
    * 露出來的只有底下那一片 —— 讀起來就是艙裡是暗的。
    *
-   * 【首尾各去掉一站】兩端的截面只有 0.04，縮 14% 只差 0.006，會與玻璃打架。
+   * 【0.94 而不是 0.86】0.86 在龍骨留了 0.17 m 的空玻璃，讀起來是「艙裡塞了
+   * 一個小東西」而不是艙壁。0.94 + 抬高 0.02 之後龍骨只剩 0.05 m 的玻璃邊，
+   * 而暗艙的頂（機體 −0.19 上下）整個頂進機身腹線（−0.74）裡面 —— 等於一個
+   * **開口朝上、接到機身的碗**。
    */
-  h.loft(liner(BOLA, 0.86), h.dark)
+  h.loft(liner(BOLA, 0.94, 0.02), h.dark)
   h.loft(BOLA, h.glass)
 
   h.wingPair(WING)
