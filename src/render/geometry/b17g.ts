@@ -97,119 +97,222 @@ const TAILPLANE: WingParams = {
 }
 
 /**
- * 垂尾 —— **下半**（含背鰭整流罩）。沿 Y 切 45 刀量到的側視平面形
- * （機體座標）：
+ * 垂尾 —— **六片**。這是第二版，第一版整片是照一條**天線鋼索**配的。
+ *
+ * ══ 第一版錯在哪：把天線鋼索當成了前緣 ═══════════════════
+ *
+ * 參考模型有一個 mesh `Object_36`：**32 個三角形、透明材質、Y −1.13…5.06、
+ * Z −5.27…11.42**，那是從垂尾頂拉到機身前段的兩條天線鋼索。`extent` 切片
+ * 取的是**極值**，鋼索比垂尾前緣更靠前，所以沿 Y 切的每一層量到的「前緣」
+ * 都是鋼索。症狀是那張表**完美的線性**：
  *
  * ```
- *   Y      2.40    3.02    4.03    4.65    5.03    5.65
- *   前緣   4.948   6.673   9.435  11.161  12.196  13.415
- *   後緣  15.343  15.210  15.015  14.874  14.699  13.827
+ *   Y      2.40   2.52   2.65   2.77   2.90   3.02
+ *   前緣   3.827  4.172  4.517  4.862  5.207  5.552   每一步剛好 0.345
  * ```
  *
- * 前緣在 Y 2.40…5.03 幾乎是一條直線（dz/dy = 2.756），之後才急收 —— 與
- * He 111 一樣配不進單一梯形，所以拆成主片與頂蓋兩片。
+ * 排掉 `Object_36` 之後的**真前緣**（機體座標）差了整整 5.2 m：
  *
- * 【rootY 1.30 必須低於整段機尾背線】坑 17：取「前緣所在站位的背線」很直覺，
- * 但背線一路降到尾錐。量到的機尾背線由 Z 4.5 的 1.695 降到 Z 12.85 的 1.559，
- * 取 1.30 讓虛擬翼根低於每一個機身環，多出來的部分埋進機身反正看不到。
+ * ```
+ *   Y      2.50    3.00    3.50    4.00    4.50    5.00    5.60
+ *   真值  10.104  11.173  11.722  12.073  12.312  12.552  13.217
+ *   一版   4.948   6.673   7.998   9.435  10.618  11.796  13.415
+ * ```
  *
- * ── 為什麼是三片不是兩片 ──────────────────────────────
+ * **驗收那一輪的「垂尾前緣中位差 0.004」是假的**：參考那邊量到鋼索、自家
+ * 那邊量到照鋼索造的垂尾，兩者當然吻合。對切只能證明兩邊一致，證明不了
+ * 兩邊都對 —— 那要靠「這個量測值有沒有物理上說不通的地方」，而**逐格剛好
+ * 0.345** 就是說不通的地方。
  *
- * 第一版用兩片（主片 rootY 1.30 → 4.40、頂蓋 4.40 → 5.65），驗收對切抓到
- * **垂尾前緣在 Y 2.40 少了 1.22 m**，而且缺口一路線性收到 Y 4.40 才歸零 ——
- * 那正是背鰭整流罩被一條直線吃掉的形狀。
+ * ══ 第二版的來源：兩組互相印證的量測 ═══════════════════
  *
- * 直接把主片的根部外推到 Y 1.30 會得到前緣 z 1.91，那在**機翼後緣之前**，
- * 整流罩會長到機翼上面去。參考模型的整流罩前緣是**凹的**，一條直線只能
- * 二選一。所以下面那 1.1 m 另外切一片（`DORSAL`），折線就配得上了。
+ * **前緣**（Y ≥ 2.50）沿 Y 切、排掉 `Object_36`／`Object_6`。
+ * **背鰭整流罩**（Y < 2.50）改讀側視上緣線 —— 沿 Z 切、只留中線那條 X 帶
+ * 的 `vMax`。整流罩是機背上唯一的東西，所以那條線就是它。
  *
- * 坑 20b 的另一面：這一次「少」的量大到看得出來（1.22 m 是全機長的 5%），
- * 那就不該再用「寧可少」帶過。
+ * 兩組在交界處**互相印證**：上緣線說機體 z 10.40 的最高點是 2.576，平面形
+ * 說 Y 2.50 的前緣在 10.104、Y 2.60 在 10.475 —— 內插得 z 10.40 對應
+ * Y 2.58。兩個獨立的量法差 0.004。
+ *
+ * ```
+ *   Y      1.693  1.764  1.915  2.066  2.216  2.377  ← 上緣線（整流罩）
+ *   前緣    4.90   5.40   6.40   7.40   8.40   9.40     dz/dy ≈ 6.5，很線性
+ *
+ *   Y      2.50    3.00    4.00    5.00    5.40    5.60   ← 平面形（鰭）
+ *   前緣  10.104  11.173  12.073  12.552  12.865  13.217
+ *   後緣  15.322  15.215  15.020  14.716  14.362  14.000
+ *   厚度   0.468   0.419   0.322   0.247   0.151   0.084
+ * ```
+ *
+ * 頂點在機體 z 13.60、Y 5.670。
+ *
+ * ── 為什麼要六片 ──────────────────────────────────────
+ *
+ * 前緣是**凹的**：Y 2.50→2.60 就走了 0.372，而 Y 4.50→5.00 只走 0.24。
+ * 一片梯形從 2.50 拉到 5.00 會在中段偏 0.4 以上。切點取在曲率變化處：
+ * 2.50 / 2.60 / 3.00 / 4.00 / 5.00 / 5.40 / 5.67。根部那 0.10 一定要單獨
+ * 切 —— 只切到 3.00 的話 Y 2.60 少 0.156，那正好是鰭根最顯眼的地方。
+ *
+ * ── `rootY` 1.10 必須低於**整段**機尾背線（坑 17）──────────
+ *
+ * 背鰭那一片的下緣是一條 z 1.045…15.34 的直線，它必須整條埋在機身裡。
+ * 重烘之後的機身背線在 z 15.30 只剩 1.180，所以 rootY 只能取 1.10。
+ * 這一片自然從 z 4.90 冒出來（那一站的背線正好 1.693 ＝ 前緣的高度）。
+ *
+ * 【每一片都要給 tipThickness】不給的話厚度按弦長比收，背鰭那片
+ * 5.218/14.295 會把 0.50 收到 0.183，層與層之間差一倍，側視是一疊階梯。
  */
 const DORSAL: FinParams = {
-  chordRoot: 11.80, chordTip: 10.395, height: 1.10, sweep: 50.8 * DEG,
-  z: 3.60, rootY: 1.30,
+  chordRoot: 14.295, chordTip: 5.218, height: 1.40,
+  sweep: 81.22 * DEG, z: 1.045, rootY: 1.10,
 }
-
-const FIN: FinParams = {
-  chordRoot: 10.395, chordTip: 4.471, height: 2.00, sweep: 70.1 * DEG,
-  z: 4.948, rootY: 2.40,
+const FIN_0: FinParams = {
+  chordRoot: 5.218, chordTip: 4.827, height: 0.10,
+  sweep: 74.87 * DEG, z: 10.104, rootY: 2.50,
 }
-
-/** 垂尾 —— 上半的圓頂。前緣 10.470 → 13.415、後緣 14.941 → 13.827 */
+const FIN_1: FinParams = {
+  chordRoot: 4.827, chordTip: 4.042, height: 0.40,
+  sweep: 60.19 * DEG, z: 10.474, rootY: 2.60,
+}
+const FIN_2: FinParams = {
+  chordRoot: 4.042, chordTip: 2.947, height: 1.00,
+  sweep: 41.99 * DEG, z: 11.173, rootY: 3.00,
+}
+const FIN_3: FinParams = {
+  chordRoot: 2.947, chordTip: 2.164, height: 1.00,
+  sweep: 25.60 * DEG, z: 12.073, rootY: 4.00,
+}
+const FIN_4: FinParams = {
+  chordRoot: 2.164, chordTip: 1.497, height: 0.40,
+  sweep: 38.03 * DEG, z: 12.552, rootY: 5.00,
+}
+/** 頂蓋。前緣 12.865 → 13.34、後緣 14.362 → 13.74，頂點 Y 5.67 */
 const FIN_CAP: FinParams = {
-  chordRoot: 4.471, chordTip: 0.412, height: 1.25, sweep: 67.0 * DEG,
-  z: 10.470, rootY: 4.40,
+  chordRoot: 1.497, chordTip: 0.400, height: 0.27,
+  sweep: 60.38 * DEG, z: 12.865, rootY: 5.40,
 }
 
 /**
- * 四具發動機艙。**沿 Z 切、`uWindow` 只留該艙那一條翼展帶**量出來的。
+ * 四具發動機艙。**沿 Z 每 0.1 m 切、`uWindow` 只留該艙那一條翼展帶**量出來
+ * 的。這是第二版，第一版取樣 0.4 m 而且半寬那一欄是假的。
  *
- * 【為什麼不用射線】第一版把射線原點放進艙裡（座艙罩那一招），但艙與機翼是
- * **連在一起**的：側向射線一出艙就沿著機翼跑，量到的「半寬」是機翼。座艙罩
- * 那招成立是因為罩子與機身之間有一圈明顯的凹陷，發動機艙沒有。
+ * 【第一版錯在哪】兩條，都是坑 6／坑 30 的同一件事：
  *
- * 【內外艙不是同一個形狀】外艙整個高 0.28（機翼上反角），而且**沒有主輪
- * 艙的鼓包** —— B-17 的主輪只收在內艙。內艙量到腹線在機體 z −1.5…−0.9
- * 掉到 −1.15，其餘各站是 −0.75 上下，那 0.4 就是輪艙。
+ * **（甲）0.4 m 取樣配不上 0.1 m 級的特徵。** 整流罩唇口、輪艙鼓包的前後
+ * 端都在 0.1～0.2 這一級，粗取樣量出來是波浪，配出來自然是波浪（坑 30）。
+ * 0.1 m 重取樣之後頂線是 0.740 → 0.744 → 0.747 → 0.750 → 0.751 → 0.753，
+ * 乾淨到不像話。
+ *
+ * **（乙）`uWindow` 開太窄，半寬變成窗口自己的寬度。** 第一版的窗是
+ * [2.6, 3.6]，而艙比那還寬 —— 量到的「X 幅度」整段是 0.95～1.00，那是
+ * 窗的寬度不是艙的寬度。窗放到 [2.0, 4.3] 之後真值出來了：
+ *
+ * ```
+ *   機體Z   X最左   X最右   寬度    艙心    半寬
+ *   -2.88   2.286   3.814   1.528   3.050   0.764
+ *   -2.08   2.265   3.835   1.569   3.050   0.785
+ *   -1.28   2.309   3.792   1.483   3.050   0.742
+ * ```
+ *
+ * 所以**艙心在 x 3.050 不是 3.10、最大半寬 0.785 不是 0.70**。外艙同理：
+ * 乾淨段量到 X 5.805…7.337，艙心 **6.571**、半寬 0.766。
+ *
+ * 交叉驗證：Wright R-1820 的整流罩直徑約 1.4 m，量到的 1.53～1.57 含艙身
+ * 側面的整流，對得上。
+ *
+ * ── 量不到的那一段（坑 15）──────────────────────────────
+ *
+ * 半寬只量得到機翼前緣進來之前（內艙機體 z ≤ −1.28）加上射線還乾淨的一小段
+ * （−1.18…−0.38，原點 x 3.10 的 −X 那條，減 0.05 回到艙心；它在 −1.28 與
+ * 窗量到的 0.741 對得上，所以可信）。再往後**射線一出艙就沿著機翼跑**，
+ * 量不到 —— 那一段的半寬照半高的收縮率外推到艙尾的 0.300。
+ *
+ * 這一段本來就大半被機翼蓋住，而上下輪廓（`halfHeight`／`centerY`）全程是
+ * 量到的。
+ *
+ * ── 內外艙不是同一個形狀 ────────────────────────────────
+ *
+ * 外艙整個高 0.25（機翼上反角），而且**沒有主輪艙的鼓包** —— B-17 的主輪
+ * 只收在內艙。內艙量到腹線在機體 z −1.8…−0.6 掉到 −1.15，其餘各站是 −0.78
+ * 上下，那 0.37 就是輪艙。
+ *
+ * 外艙前端 −2.78 之前被螺旋槳蓋住（量到 z −2.78/−2.68 的高度 2.4、寬度
+ * 2.2，那是槳葉），唇口那一環按內艙量到的比例 0.84 補。
  */
-const NAC_X_INNER = 3.10
-const NAC_X_OUTER = 6.50
+const NAC_X_INNER = 3.050
+const NAC_X_OUTER = 6.571
 
-/**
- * 【艙的半寬 0.70 是從 `wing` 那一格讀的，不是從艙的縱剖】
- *
- * 縱剖那一趟用 `uWindow` 把 X 限在艙的那一條帶（內艙 [2.6, 3.6]），量到的
- * 「X 幅度」整段都是 0.99 上下 —— 那是**窗口自己的寬度**不是艙的寬度。
- * 照抄下去半寬變成 0.50，驗收對切立刻抓到：X 3.80 那一站自家的前緣比參考
- * 晚了 **1.99 m**（參考在那裡有艙、自家只有機翼）。
- *
- * 這是坑 6 的同一條在另一個參數上：**上限／窗口不會報錯，它只是把答案
- * 換成自己**。正確的來源是沿翼展切的那一趟 —— 厚度突然變兩倍的區間就是艙：
- * 內艙 X 2.40…3.80、外艙 5.80…7.20，兩者半寬都是 0.70。
- *
- * 交叉驗證：Wright R-1820 的整流罩直徑約 1.4 m，正好對上。
- *
- * 下面兩串截面的 `halfWidth` 就是縱剖那一趟的值乘 1.4 再夾在 0.70。
- */
 const NACELLE_INNER: LoftPart = {
   roundness: 2.3,
-  segments: 12,
+  segments: 16,
   caps: { front: false },
   sections: [
-    { z: -3.15, halfWidth: 0.658, halfHeight: 0.700, centerY: -0.020 },
-    { z: -2.88, halfWidth: 0.700, halfHeight: 0.764, centerY: -0.020 },
-    { z: -2.48, halfWidth: 0.696, halfHeight: 0.767, centerY: -0.014 },
-    { z: -2.08, halfWidth: 0.668, halfHeight: 0.798, centerY: -0.007 },
-    { z: -1.68, halfWidth: 0.697, halfHeight: 0.901, centerY: -0.106 },
-    { z: -1.28, halfWidth: 0.692, halfHeight: 0.972, centerY: -0.182 },
-    { z: -0.88, halfWidth: 0.697, halfHeight: 0.918, centerY: -0.138 },
-    { z: -0.48, halfWidth: 0.700, halfHeight: 0.758, centerY: 0.004 },
-    { z: 0.12, halfWidth: 0.686, halfHeight: 0.711, centerY: -0.012 },
-    { z: 0.72, halfWidth: 0.689, halfHeight: 0.593, centerY: 0.005 },
-    { z: 1.32, halfWidth: 0.676, halfHeight: 0.571, centerY: -0.070 },
-    { z: 1.92, halfWidth: 0.655, halfHeight: 0.403, centerY: 0.003 },
-    { z: 2.52, halfWidth: 0.616, halfHeight: 0.220, centerY: 0.100 },
-    { z: 3.00, halfWidth: 0.532, halfHeight: 0.110, centerY: 0.150 },
+    { z: -3.18, halfWidth: 0.648, halfHeight: 0.643, centerY: +0.002 },
+    { z: -2.98, halfWidth: 0.760, halfHeight: 0.760, centerY: -0.021 },
+    { z: -2.78, halfWidth: 0.765, halfHeight: 0.765, centerY: -0.018 },
+    { z: -2.58, halfWidth: 0.767, halfHeight: 0.766, centerY: -0.016 },
+    { z: -2.38, halfWidth: 0.769, halfHeight: 0.770, centerY: -0.008 },
+    { z: -2.18, halfWidth: 0.784, halfHeight: 0.792, centerY: -0.007 },
+    { z: -1.98, halfWidth: 0.782, halfHeight: 0.798, centerY: -0.006 },
+    { z: -1.78, halfWidth: 0.775, halfHeight: 0.854, centerY: -0.059 },
+    { z: -1.58, halfWidth: 0.766, halfHeight: 0.932, centerY: -0.138 },
+    { z: -1.38, halfWidth: 0.750, halfHeight: 0.967, centerY: -0.174 },
+    { z: -1.18, halfWidth: 0.653, halfHeight: 0.970, centerY: -0.181 },
+    { z: -0.98, halfWidth: 0.647, halfHeight: 0.944, centerY: -0.159 },
+    { z: -0.78, halfWidth: 0.642, halfHeight: 0.880, centerY: -0.103 },
+    { z: -0.58, halfWidth: 0.636, halfHeight: 0.757, centerY: +0.010 },
+    { z: -0.38, halfWidth: 0.630, halfHeight: 0.747, centerY: +0.008 },
+    { z: -0.18, halfWidth: 0.617, halfHeight: 0.731, centerY: +0.006 },
+    { z: 0.02, halfWidth: 0.603, halfHeight: 0.714, centerY: -0.001 },
+    { z: 0.22, halfWidth: 0.593, halfHeight: 0.702, centerY: -0.017 },
+    { z: 0.42, halfWidth: 0.563, halfHeight: 0.664, centerY: -0.013 },
+    { z: 0.62, halfWidth: 0.537, halfHeight: 0.632, centerY: -0.010 },
+    { z: 0.82, halfWidth: 0.528, halfHeight: 0.620, centerY: -0.017 },
+    { z: 1.02, halfWidth: 0.509, halfHeight: 0.598, centerY: -0.012 },
+    { z: 1.22, halfWidth: 0.483, halfHeight: 0.565, centerY: -0.005 },
+    { z: 1.42, halfWidth: 0.457, halfHeight: 0.533, centerY: -0.003 },
+    { z: 1.62, halfWidth: 0.418, halfHeight: 0.484, centerY: +0.016 },
+    { z: 1.82, halfWidth: 0.382, halfHeight: 0.441, centerY: +0.029 },
+    { z: 2.02, halfWidth: 0.360, halfHeight: 0.412, centerY: +0.023 },
+    { z: 2.22, halfWidth: 0.338, halfHeight: 0.386, centerY: +0.009 },
+    { z: 2.42, halfWidth: 0.321, halfHeight: 0.364, centerY: -0.013 },
+    { z: 2.62, halfWidth: 0.300, halfHeight: 0.339, centerY: -0.032 },
   ],
 }
 
 const NACELLE_OUTER: LoftPart = {
   roundness: 2.3,
-  segments: 12,
+  segments: 16,
   caps: { front: false },
   sections: [
-    { z: -2.75, halfWidth: 0.602, halfHeight: 0.660, centerY: 0.260 },
-    { z: -2.48, halfWidth: 0.692, halfHeight: 0.737, centerY: 0.245 },
-    { z: -2.08, halfWidth: 0.678, halfHeight: 0.766, centerY: 0.246 },
-    { z: -1.48, halfWidth: 0.676, halfHeight: 0.799, centerY: 0.245 },
-    { z: -0.88, halfWidth: 0.645, halfHeight: 0.766, centerY: 0.265 },
-    { z: -0.28, halfWidth: 0.694, halfHeight: 0.742, centerY: 0.241 },
-    { z: 0.32, halfWidth: 0.658, halfHeight: 0.597, centerY: 0.273 },
-    { z: 0.92, halfWidth: 0.560, halfHeight: 0.442, centerY: 0.273 },
-    { z: 1.52, halfWidth: 0.504, halfHeight: 0.343, centerY: 0.303 },
-    { z: 2.12, halfWidth: 0.476, halfHeight: 0.274, centerY: 0.281 },
-    { z: 2.92, halfWidth: 0.322, halfHeight: 0.101, centerY: 0.199 },
+    { z: -2.78, halfWidth: 0.643, halfHeight: 0.549, centerY: +0.257 },
+    { z: -2.58, halfWidth: 0.678, halfHeight: 0.654, centerY: +0.253 },
+    { z: -2.38, halfWidth: 0.735, halfHeight: 0.735, centerY: +0.246 },
+    { z: -2.18, halfWidth: 0.764, halfHeight: 0.764, centerY: +0.244 },
+    { z: -1.98, halfWidth: 0.766, halfHeight: 0.768, centerY: +0.247 },
+    { z: -1.78, halfWidth: 0.771, halfHeight: 0.777, centerY: +0.248 },
+    { z: -1.58, halfWidth: 0.781, halfHeight: 0.790, centerY: +0.248 },
+    { z: -1.38, halfWidth: 0.784, halfHeight: 0.790, centerY: +0.253 },
+    { z: -1.18, halfWidth: 0.777, halfHeight: 0.781, centerY: +0.259 },
+    { z: -0.98, halfWidth: 0.769, halfHeight: 0.773, centerY: +0.261 },
+    { z: -0.78, halfWidth: 0.754, halfHeight: 0.758, centerY: +0.266 },
+    { z: -0.58, halfWidth: 0.739, halfHeight: 0.743, centerY: +0.268 },
+    { z: -0.38, halfWidth: 0.737, halfHeight: 0.740, centerY: +0.252 },
+    { z: -0.18, halfWidth: 0.732, halfHeight: 0.735, centerY: +0.231 },
+    { z: 0.02, halfWidth: 0.699, halfHeight: 0.701, centerY: +0.231 },
+    { z: 0.22, halfWidth: 0.635, halfHeight: 0.634, centerY: +0.256 },
+    { z: 0.42, halfWidth: 0.574, halfHeight: 0.571, centerY: +0.272 },
+    { z: 0.62, halfWidth: 0.527, halfHeight: 0.522, centerY: +0.272 },
+    { z: 0.82, halfWidth: 0.482, halfHeight: 0.475, centerY: +0.278 },
+    { z: 1.02, halfWidth: 0.441, halfHeight: 0.433, centerY: +0.285 },
+    { z: 1.22, halfWidth: 0.414, halfHeight: 0.405, centerY: +0.288 },
+    { z: 1.42, halfWidth: 0.401, halfHeight: 0.391, centerY: +0.292 },
+    { z: 1.62, halfWidth: 0.383, halfHeight: 0.373, centerY: +0.289 },
+    { z: 1.82, halfWidth: 0.360, halfHeight: 0.348, centerY: +0.279 },
+    { z: 2.02, halfWidth: 0.340, halfHeight: 0.327, centerY: +0.267 },
+    { z: 2.22, halfWidth: 0.324, halfHeight: 0.311, centerY: +0.252 },
+    { z: 2.42, halfWidth: 0.307, halfHeight: 0.293, centerY: +0.230 },
+    { z: 2.62, halfWidth: 0.280, halfHeight: 0.265, centerY: +0.202 },
   ],
 }
 
@@ -226,6 +329,14 @@ const NACELLE_OUTER: LoftPart = {
  * `b17g.hull.ts` 最後五環的手工尾錐代表，不另外貼球。
  */
 const TURRETS: readonly Blister[] = [
+  /**
+   * 【導航員的圓頂】機身那一層特意把它丟掉（`b17g.hull.ts` 的背線可信區間
+   * 排掉量測 −6.18…−5.28），因為留在裡面等於把它抹進整條蒙皮。量到的是
+   * 機體 z −5.00…−4.20 有一塊**只在中線附近**的凸起：中線那條 X 帶讀
+   * 1.574，而 x 0.3～0.5 的帶同一站只有 1.18～1.38 —— 高出蒙皮 0.36、
+   * 寬度不到 0.6、長 0.8。
+   */
+  { x: 0, y: 1.30, z: -4.60, width: 0.52, height: 0.56, length: 0.85, round: true },
   { x: 0, y: -0.55, z: -4.98, width: 0.95, height: 1.00, length: 1.05, round: true },
   { x: 0, y: 1.95, z: -1.28, width: 0.90, height: 0.85, length: 0.90, round: true },
   { x: 0, y: -0.68, z: 5.12, width: 1.10, height: 1.15, length: 1.10, round: true },
@@ -328,9 +439,13 @@ export function buildB17G(): AircraftModel {
   h.wingPair(WING)
   h.wingPair(TAILPLANE)
   // 主垂尾的頂不圓化（頂蓋接在上面）；頂蓋自己收圓
-  h.upright(DORSAL, 0.20)
-  h.upright(FIN, 0.18)
-  h.upright(FIN_CAP, 0.16, 0.80)
+  h.upright(DORSAL, 0.50, undefined, 0.468)
+  h.upright(FIN_0, 0.468, undefined, 0.458)
+  h.upright(FIN_1, 0.458, undefined, 0.419)
+  h.upright(FIN_2, 0.419, undefined, 0.322)
+  h.upright(FIN_3, 0.322, undefined, 0.247)
+  h.upright(FIN_4, 0.247, undefined, 0.151)
+  h.upright(FIN_CAP, 0.151, 0.60, 0.070)
 
   h.blisters(TURRETS)
 
@@ -343,7 +458,7 @@ export function buildB17G(): AircraftModel {
    * loft 又從同一點長一個錐尖接上去，接縫看不出來、只是引擎長了半公尺
    * （坑 27）。
    *
-   * 這裡的 `noseZ` 直接取每一具艙的**首站**：內艙 −3.15、外艙 −2.75。
+   * 這裡的 `noseZ` 直接取每一具艙的**首站**：內艙 −3.18、外艙 −2.78。
    *
    * 【槳盤半徑 1.765】真機三葉槳直徑 11 ft 7 in = 3.53 m。注意
    * `specs/b17g.ts` 的 `prop.diameter` 是**等效單槳盤**（四具的合計面積換算
@@ -351,7 +466,7 @@ export function buildB17G(): AircraftModel {
    */
   for (const sx of [1, -1]) {
     for (const [x, noseZ] of [
-      [sx * NAC_X_INNER, -3.15], [sx * NAC_X_OUTER, -2.75],
+      [sx * NAC_X_INNER, -3.18], [sx * NAC_X_OUTER, -2.78],
     ] as const) {
       h.propeller({
         x, noseZ, spinnerRadius: 0.30, spinnerLength: 0.42, spinnerY: 0,

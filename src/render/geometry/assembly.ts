@@ -436,12 +436,22 @@ export function createHull(spec: HullSpec) {
       add(new Mesh(buildWingPanel(p, true), body))
     },
 
-    /** 垂直安定面／背鰭：水平翼面板繞 Z 軸立起 90°（+X → +Y）。 */
-    upright(f: FinParams, thickness: number, tipRound?: number): void {
+    /**
+     * 垂直安定面／背鰭：水平翼面板繞 Z 軸立起 90°（+X → +Y）。
+     *
+     * 【`tipThickness` 是 2026-08-18 為 B-17G 加的】不給的話 `buildWingPanel`
+     * 退回「厚弦比固定」，而垂尾要疊好幾片來配一條凹的前緣時，每一片的弦長
+     * 比都很大 —— 背鰭那片 5.218/14.295，厚度會被收到 0.183，而量到的是
+     * 0.468。層與層之間於是差一倍，側視是一疊階梯。
+     */
+    upright(
+      f: FinParams, thickness: number, tipRound?: number, tipThickness?: number,
+    ): void {
       const mesh = new Mesh(buildWingPanel({
         rootChord: f.chordRoot, tipChord: f.chordTip, halfSpan: f.height,
         sweep: f.sweep, dihedral: 0, thickness, rootZ: f.z, rootY: 0,
         ...(tipRound === undefined ? {} : { tipRound }),
+        ...(tipThickness === undefined ? {} : { tipThickness }),
       }, false), body)
       // 面板繞 Z 轉 90° 後，它自己的 rootY 會變成 X 向偏移，所以垂直位置
       // 必須由 mesh.position.y 承擔，不能寫進 WingParams.rootY。
