@@ -27,6 +27,7 @@
  * 階段抓到** —— 它會驗「機首在 −Z、翼展在 X、機翼是平的」。
  */
 import { chromium, type Page } from 'playwright'
+import type { Align, Extent, Probe } from './hangar-hooks'
 
 /**
  * 【為什麼要自己宣告 `process`】專案的 `tsconfig` 沒有把 `node` 放進 `types`，
@@ -65,39 +66,7 @@ const REAL = {
  * pitch 2.4：機首朝下 2.4°，往上轉回來。
  * scale：22.60 / 3.7646（切片量到的翼展）。
  */
-const ALIGN = { yaw: -90, pitch: 2.4, scale: 6.003285 }
-
-interface Probe {
-  tris: number
-  meshes: number
-  min: number[]
-  max: number[]
-  size: number[]
-  parts: { name: string; tris: number; min: number[]; max: number[]; size: number[] }[]
-}
-interface Extent {
-  planes: number[]
-  uMin: number[]; uMax: number[]; vMin: number[]; vMax: number[]
-  count: number[]
-}
-
-declare global {
-  interface Window {
-    __hangarProbe: (u: string, a?: typeof ALIGN) => Promise<Probe>
-    __hangarSlice: (
-      k: string, a: string, o: Record<string, unknown>, t?: 'mine', only?: string,
-    ) => Promise<unknown>
-    __hangarSpec: (id: string) => boolean
-    __hangarRef: (on: boolean, solid?: boolean) => Promise<boolean>
-    __hangarInfo: () => { metrics: { noseZ: number; noseY: number } } | null
-    __hangarShow: (mine: boolean, ref: boolean) => void
-    /** 後三個是看向點；順手把 autoRotate 關掉、model.rotation.y 歸零 */
-    __hangarCam: (
-      x: number, y: number, z: number, tx?: number, ty?: number, tz?: number,
-    ) => void
-    __hangarOrtho: (v: string | null) => void
-  }
-}
+const ALIGN: Align = { yaw: -90, pitch: 2.4, scale: 6.003285 }
 
 const n = (v: number, w = 7, d = 3): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)

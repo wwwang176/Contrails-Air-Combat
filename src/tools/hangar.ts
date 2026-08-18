@@ -1,6 +1,7 @@
 import {
   AmbientLight, AxesHelper, Box3, Color, DirectionalLight, GridHelper, HemisphereLight,
-  Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OrthographicCamera,
+  Group, type Material, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
+  OrthographicCamera,
   PerspectiveCamera,
   PMREMGenerator, Scene, Vector3, WebGLRenderer,
 } from 'three'
@@ -619,6 +620,28 @@ function applyRefMaterial(root: Object3D): void {
   root.traverse((o) => {
     const mesh = o as Mesh
     if (!mesh.isMesh) return
+    /**
+     * 【原材質的名字只有這一刻讀得到】下一行就把它 dispose 掉換成平塗了。
+     *
+     * 【為什麼要留】skill 第 5b 步要按 mesh 名稱分別打射線，才能量出「那裡
+     * 到底是不是玻璃」。但那招吃的是**名字**——B-17G 那台把每個 mesh 都叫
+     * `Object_12`、`Object_14`，名字一點資訊都沒有。而**材質**一定有：玻璃
+     * 在任何 GLB 裡都是另一份材質（透明、或名字就叫 Glass）。
+     *
+     * 只在第一次記（`=== undefined`）：反覆勾選「實體」會重跑這個函式，
+     * 那時讀到的已經是平塗材質自己的名字了。
+     */
+    if (mesh.userData['refMat'] === undefined) {
+      const m0 = [mesh.material].flat()[0] as (Material & {
+        opacity?: number; transmission?: number
+      }) | undefined
+      mesh.userData['refMat'] = m0
+        ? `${m0.name || '(無名)'}`
+          + `${m0.transparent ? ' 透明' : ''}`
+          + `${(m0.opacity ?? 1) < 1 ? ` α${m0.opacity!.toFixed(2)}` : ''}`
+          + `${(m0.transmission ?? 0) > 0 ? ` 穿透${m0.transmission!.toFixed(2)}` : ''}`
+        : '(無材質)'
+    }
     // 切換材質時回收舊的，否則反覆勾選會累積 GPU 資源
     for (const m of [mesh.material].flat()) m.dispose()
     mesh.material = refSolid
@@ -803,7 +826,7 @@ function applyRefMaterial(root: Object3D): void {
          * 這裡不挑、不猜、不排除任何東西，只是把每一片各報一行給人看。
          */
         const parts: {
-          name: string; tris: number
+          name: string; mat: string; tris: number
           min: number[]; max: number[]; size: number[]
         }[] = []
         // 【從 root 走而不是從 gltf.scene】兩者涵蓋的 mesh 相同，但只有
@@ -821,6 +844,8 @@ function applyRefMaterial(root: Object3D): void {
           pb.getSize(s)
           parts.push({
             name: o.name === '' ? '(無名)' : o.name,
+            // 原材質的摘要——名字沒資訊時，靠它認出哪一片是玻璃
+            mat: String(mesh.userData['refMat'] ?? ''),
             tris: (g.index ? g.index.count : p.count) / 3,
             min: pb.min.toArray(), max: pb.max.toArray(), size: s.toArray(),
           })

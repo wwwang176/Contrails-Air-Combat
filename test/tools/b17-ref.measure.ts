@@ -24,6 +24,7 @@
  *   align   套上 ALIGN，驗「機首在 −Z、翼展在 X、幅度對得上真機」
  */
 import { chromium, type Page } from 'playwright'
+import type { Align, Extent, Probe, Radial } from './hangar-hooks'
 
 /**
  * 【為什麼要自己宣告 `process`】專案的 `tsconfig` 沒有把 `node` 放進 `types`，
@@ -68,38 +69,7 @@ const REAL = {
  * scale 要等 `raw` 量到未縮放的翼展（= 31.62 / 量到的幅度）；pitch 要等
  * 機翼中線配線（坑 2）。在那之前這組值只是佔位。
  */
-const ALIGN = { yaw: 180, pitch: -1.03, scale: 1.011554 }
-
-interface Probe {
-  tris: number
-  meshes: number
-  min: number[]
-  max: number[]
-  size: number[]
-  parts: { name: string; tris: number; min: number[]; max: number[]; size: number[] }[]
-}
-interface Extent {
-  planes: number[]
-  uMin: number[]; uMax: number[]; vMin: number[]; vMax: number[]
-  count: number[]
-}
-
-declare global {
-  interface Window {
-    __hangarProbe: (u: string, a?: typeof ALIGN) => Promise<Probe>
-    __hangarSlice: (
-      k: string, a: string, o: Record<string, unknown>, t?: 'mine', only?: string,
-    ) => Promise<unknown>
-    __hangarSpec: (id: string) => boolean
-    __hangarRef: (on: boolean, solid?: boolean) => Promise<boolean>
-    __hangarInfo: () => { metrics: { noseZ: number; noseY: number } } | null
-    __hangarShow: (mine: boolean, ref: boolean) => void
-    __hangarCam: (
-      x: number, y: number, z: number, tx?: number, ty?: number, tz?: number,
-    ) => void
-    __hangarOrtho: (v: string | null) => void
-  }
-}
+const ALIGN: Align = { yaw: 180, pitch: -1.03, scale: 1.011554 }
 
 const n = (v: number, w = 7, d = 3): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
@@ -211,23 +181,33 @@ const stages: Record<string, Stage> = {
    */
   parts: async (_page, probe) => {
     console.log(`── ${probe.parts.length} 個 mesh，依三角形數排序 ──────────`)
-    console.log('  三角形  名稱                          X範圍            Y範圍            Z範圍')
+    console.log('  三角形  名稱          原材質                    '
+      + '  X範圍            Y範圍            Z範圍')
     const sorted = [...probe.parts].sort((a, b) => b.tris - a.tris)
     for (const p of sorted) {
       if (p.tris < 20) continue
       console.log(
-        `  ${String(p.tris).padStart(6)}  ${p.name.slice(0, 26).padEnd(28)}`
+        `  ${String(p.tris).padStart(6)}  ${p.name.slice(0, 12).padEnd(14)}`
+        + `${p.mat.slice(0, 24).padEnd(26)}`
         + `${n(p.min[0]!, 6, 2)}..${n(p.max[0]!, 6, 2)}  `
         + `${n(p.min[1]!, 6, 2)}..${n(p.max[1]!, 6, 2)}  `
         + `${n(p.min[2]!, 6, 2)}..${n(p.max[2]!, 6, 2)}`,
       )
     }
+    /**
+     * 【這台的 mesh 名字沒有資訊】25 個 mesh 全部叫 `Object_12`、`Object_14`
+     * ……所以 skill 第 5b 步那招「按名字挑玻璃」在這台上直接失效。
+     *
+     * 改用**材質**：玻璃在任何 GLB 裡都是另一份材質（透明、有穿透、或名字
+     * 就叫 Glass）。`__hangarProbe` 現在會把原材質的摘要一起交出來。
+     */
     const glassy = sorted.filter(
-      (p) => /glass|canop|window|glaz|cockpit|turret|cristal|vidr/i.test(p.name),
+      (p) => /glass|canop|window|glaz|cristal|vidr|透明|穿透/i.test(p.mat + ' ' + p.name),
     )
-    console.log(`\n── 名字看起來像玻璃／炮塔的 ${glassy.length} 個 ────────`)
+    console.log(`\n── 材質看起來是玻璃的 ${glassy.length} 個 ──────────────`)
     for (const p of glassy) {
-      console.log(`  ${p.name}  X ${n(p.min[0]!)}..${n(p.max[0]!)}`
+      console.log(`  ${p.name.padEnd(12)} ${p.mat.padEnd(24)}`
+        + ` X ${n(p.min[0]!)}..${n(p.max[0]!)}`
         + `  Y ${n(p.min[1]!)}..${n(p.max[1]!)}  Z ${n(p.min[2]!)}..${n(p.max[2]!)}`)
     }
   },
@@ -415,7 +395,7 @@ const stages: Record<string, Stage> = {
       const rs = await slice('radial', 'z', {
         from: z0, to: z1, count: Math.round((z1 - z0) / 0.25) + 1,
         angles: 72, axisV: 0.3, maxRadius: 1.6,
-      }) as { planes: number[]; theta: number[]; r: number[][] }
+      }) as Radial
       const zs: number[] = []
       const ys: number[] = []
       for (let k = 0; k < rs.planes.length; k++) {
