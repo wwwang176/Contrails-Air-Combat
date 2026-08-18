@@ -948,6 +948,59 @@ const stages: Record<string, Stage> = {
   },
 
   /**
+   * 【機腹吊艙：參考模型的**蒙皮**與**玻璃**各佔哪裡】
+   *
+   * 專案負責人：「你對照一下參考模型，是不是挖洞是矩形？還是弧形？」
+   *
+   * 【量法】同一組射線切兩次：`only: 'hull'`（蒙皮）與 `only: 'windows'`
+   * （玻璃）。逐站、逐角度看誰在那裡：
+   *
+   *   兩者都有、半徑相同 → 玻璃貼在蒙皮上（或蒙皮就是那一段外殼）
+   *   只有玻璃           → 蒙皮在那裡是**破的**，那就是艙口
+   *   只有蒙皮           → 那一段是金屬
+   *
+   * 角度由正下方（270°）往兩側各取幾格，看艙口沿 z 與沿角度各到哪裡 ——
+   * 邊界沿 z 是直的還是跟著剖面收放，答案就在這張表上。
+   */
+  bolahole: async (_page, _probe, slice) => {
+    const QC = 3.0889
+    const AXIS_V = 0.25
+    type Rad = { planes: number[]; theta: number[]; r: number[][] }
+    const opt = {
+      from: 5.2, to: 8.6, count: 35, angles: 360,
+      axisV: AXIS_V, maxRadius: 1.8,
+    }
+    const skin = await slice('radial', 'z', opt, undefined, 'hull') as Rad
+    const glassOnly = await slice('radial', 'z', opt, undefined, 'windows') as Rad
+    const idxAt = (d: number) => skin.theta.reduce((b, th, j) => (
+      Math.abs(th - d * Math.PI / 180) < Math.abs(skin.theta[b]! - d * Math.PI / 180) ? j : b
+    ), 0)
+    const DEGS = [230, 245, 255, 265, 270, 275, 285, 295, 310]
+    console.log('── 機腹：蒙皮 vs 玻璃（Ｓ=只有蒙皮 Ｇ=只有玻璃 ＝兩者同高 ・=都沒有）──')
+    console.log('   量測Z   機體Z   ' + DEGS.map((d) => String(d).padStart(4)).join(''))
+    for (let k = 0; k < skin.planes.length; k++) {
+      const cells = DEGS.map((d) => {
+        const j = idxAt(d)
+        const a = skin.r[k]![j]!, b = glassOnly.r[k]![j]!
+        if (a <= 0 && b <= 0) return '   ・'
+        if (b <= 0) return '   Ｓ'
+        if (a <= 0) return '   Ｇ'
+        return Math.abs(a - b) < 0.02 ? '   ＝' : (b > a ? '   ｇ' : '   ｓ')
+      })
+      console.log(`  ${n(skin.planes[k]!, 6, 2)}  ${n(skin.planes[k]! - QC, 6, 2)}   `
+        + cells.join(''))
+    }
+    console.log('\n── 同一組站位的深度（正下方 270°，機體 Y）──────────')
+    console.log('   機體Z    蒙皮     玻璃')
+    for (let k = 0; k < skin.planes.length; k++) {
+      const j = idxAt(270)
+      const a = skin.r[k]![j]!, b = glassOnly.r[k]![j]!
+      console.log(`  ${n(skin.planes[k]! - QC, 6, 2)}  ${n(a > 0 ? AXIS_V - a : NaN)}`
+        + `  ${n(b > 0 ? AXIS_V - b : NaN)}`)
+    }
+  },
+
+  /**
    * 【發動機艙的**截面輪廓**，幾站，逐點印 (u, v)】
    *
    * `nacparts` 只取 θ=90／270 兩個角度，回答得了「有沒有罩子」，回答不了
