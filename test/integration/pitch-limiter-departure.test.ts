@@ -4,6 +4,7 @@ import { pitchRateLimit, createPitchLimit, gLoadFromOrientation } from '../../sr
 import { clamp } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
+import { B17G } from '../../src/specs/b17g'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Controls } from '../../src/physics/types'
 
@@ -54,7 +55,7 @@ function peakAlphaUnderRampedPull(
 }
 
 describe('限制後的俯仰率指令在真實動力學下不放飛機失速（迴歸測試）', () => {
-  const specs: AircraftSpec[] = [P51D, BF109G6]
+  const specs: AircraftSpec[] = [P51D, BF109G6, B17G]
   const speeds = [70, 110, 160]
   const gains = [3, 8]
 

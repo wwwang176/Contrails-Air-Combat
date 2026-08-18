@@ -113,13 +113,27 @@ const TAILPLANE: WingParams = {
  * 但背線一路降到尾錐。量到的機尾背線由 Z 4.5 的 1.695 降到 Z 12.85 的 1.559，
  * 取 1.30 讓虛擬翼根低於每一個機身環，多出來的部分埋進機身反正看不到。
  *
- * 【前緣根部取 3.80 而不是把直線外推】外推到 Y 1.30 會得到 1.91 —— 那把
- * 整流罩的起點一路拉到機翼後緣。參考模型的整流罩前緣是**凹的**，直線配不出
- * 來；坑 20b：寧可少也不要多，少的地方看起來只是整流罩短一點。
+ * ── 為什麼是三片不是兩片 ──────────────────────────────
+ *
+ * 第一版用兩片（主片 rootY 1.30 → 4.40、頂蓋 4.40 → 5.65），驗收對切抓到
+ * **垂尾前緣在 Y 2.40 少了 1.22 m**，而且缺口一路線性收到 Y 4.40 才歸零 ——
+ * 那正是背鰭整流罩被一條直線吃掉的形狀。
+ *
+ * 直接把主片的根部外推到 Y 1.30 會得到前緣 z 1.91，那在**機翼後緣之前**，
+ * 整流罩會長到機翼上面去。參考模型的整流罩前緣是**凹的**，一條直線只能
+ * 二選一。所以下面那 1.1 m 另外切一片（`DORSAL`），折線就配得上了。
+ *
+ * 坑 20b 的另一面：這一次「少」的量大到看得出來（1.22 m 是全機長的 5%），
+ * 那就不該再用「寧可少」帶過。
  */
+const DORSAL: FinParams = {
+  chordRoot: 11.80, chordTip: 10.395, height: 1.10, sweep: 50.8 * DEG,
+  z: 3.60, rootY: 1.30,
+}
+
 const FIN: FinParams = {
-  chordRoot: 11.60, chordTip: 4.471, height: 3.10, sweep: 65.1 * DEG,
-  z: 3.80, rootY: 1.30,
+  chordRoot: 10.395, chordTip: 4.471, height: 2.00, sweep: 70.1 * DEG,
+  z: 4.948, rootY: 2.40,
 }
 
 /** 垂尾 —— 上半的圓頂。前緣 10.470 → 13.415、後緣 14.941 → 13.827 */
@@ -142,25 +156,41 @@ const FIN_CAP: FinParams = {
 const NAC_X_INNER = 3.10
 const NAC_X_OUTER = 6.50
 
+/**
+ * 【艙的半寬 0.70 是從 `wing` 那一格讀的，不是從艙的縱剖】
+ *
+ * 縱剖那一趟用 `uWindow` 把 X 限在艙的那一條帶（內艙 [2.6, 3.6]），量到的
+ * 「X 幅度」整段都是 0.99 上下 —— 那是**窗口自己的寬度**不是艙的寬度。
+ * 照抄下去半寬變成 0.50，驗收對切立刻抓到：X 3.80 那一站自家的前緣比參考
+ * 晚了 **1.99 m**（參考在那裡有艙、自家只有機翼）。
+ *
+ * 這是坑 6 的同一條在另一個參數上：**上限／窗口不會報錯，它只是把答案
+ * 換成自己**。正確的來源是沿翼展切的那一趟 —— 厚度突然變兩倍的區間就是艙：
+ * 內艙 X 2.40…3.80、外艙 5.80…7.20，兩者半寬都是 0.70。
+ *
+ * 交叉驗證：Wright R-1820 的整流罩直徑約 1.4 m，正好對上。
+ *
+ * 下面兩串截面的 `halfWidth` 就是縱剖那一趟的值乘 1.4 再夾在 0.70。
+ */
 const NACELLE_INNER: LoftPart = {
   roundness: 2.3,
   segments: 12,
   caps: { front: false },
   sections: [
-    { z: -3.15, halfWidth: 0.470, halfHeight: 0.700, centerY: -0.020 },
-    { z: -2.88, halfWidth: 0.500, halfHeight: 0.764, centerY: -0.020 },
-    { z: -2.48, halfWidth: 0.497, halfHeight: 0.767, centerY: -0.014 },
-    { z: -2.08, halfWidth: 0.477, halfHeight: 0.798, centerY: -0.007 },
-    { z: -1.68, halfWidth: 0.498, halfHeight: 0.901, centerY: -0.106 },
-    { z: -1.28, halfWidth: 0.494, halfHeight: 0.972, centerY: -0.182 },
-    { z: -0.88, halfWidth: 0.498, halfHeight: 0.918, centerY: -0.138 },
-    { z: -0.48, halfWidth: 0.500, halfHeight: 0.758, centerY: 0.004 },
-    { z: 0.12, halfWidth: 0.490, halfHeight: 0.711, centerY: -0.012 },
-    { z: 0.72, halfWidth: 0.492, halfHeight: 0.593, centerY: 0.005 },
-    { z: 1.32, halfWidth: 0.483, halfHeight: 0.571, centerY: -0.070 },
-    { z: 1.92, halfWidth: 0.468, halfHeight: 0.403, centerY: 0.003 },
-    { z: 2.52, halfWidth: 0.440, halfHeight: 0.220, centerY: 0.100 },
-    { z: 3.00, halfWidth: 0.380, halfHeight: 0.110, centerY: 0.150 },
+    { z: -3.15, halfWidth: 0.658, halfHeight: 0.700, centerY: -0.020 },
+    { z: -2.88, halfWidth: 0.700, halfHeight: 0.764, centerY: -0.020 },
+    { z: -2.48, halfWidth: 0.696, halfHeight: 0.767, centerY: -0.014 },
+    { z: -2.08, halfWidth: 0.668, halfHeight: 0.798, centerY: -0.007 },
+    { z: -1.68, halfWidth: 0.697, halfHeight: 0.901, centerY: -0.106 },
+    { z: -1.28, halfWidth: 0.692, halfHeight: 0.972, centerY: -0.182 },
+    { z: -0.88, halfWidth: 0.697, halfHeight: 0.918, centerY: -0.138 },
+    { z: -0.48, halfWidth: 0.700, halfHeight: 0.758, centerY: 0.004 },
+    { z: 0.12, halfWidth: 0.686, halfHeight: 0.711, centerY: -0.012 },
+    { z: 0.72, halfWidth: 0.689, halfHeight: 0.593, centerY: 0.005 },
+    { z: 1.32, halfWidth: 0.676, halfHeight: 0.571, centerY: -0.070 },
+    { z: 1.92, halfWidth: 0.655, halfHeight: 0.403, centerY: 0.003 },
+    { z: 2.52, halfWidth: 0.616, halfHeight: 0.220, centerY: 0.100 },
+    { z: 3.00, halfWidth: 0.532, halfHeight: 0.110, centerY: 0.150 },
   ],
 }
 
@@ -169,17 +199,17 @@ const NACELLE_OUTER: LoftPart = {
   segments: 12,
   caps: { front: false },
   sections: [
-    { z: -2.75, halfWidth: 0.430, halfHeight: 0.660, centerY: 0.260 },
-    { z: -2.48, halfWidth: 0.494, halfHeight: 0.737, centerY: 0.245 },
-    { z: -2.08, halfWidth: 0.484, halfHeight: 0.766, centerY: 0.246 },
-    { z: -1.48, halfWidth: 0.483, halfHeight: 0.799, centerY: 0.245 },
-    { z: -0.88, halfWidth: 0.461, halfHeight: 0.766, centerY: 0.265 },
-    { z: -0.28, halfWidth: 0.496, halfHeight: 0.742, centerY: 0.241 },
-    { z: 0.32, halfWidth: 0.470, halfHeight: 0.597, centerY: 0.273 },
-    { z: 0.92, halfWidth: 0.400, halfHeight: 0.442, centerY: 0.273 },
-    { z: 1.52, halfWidth: 0.360, halfHeight: 0.343, centerY: 0.303 },
-    { z: 2.12, halfWidth: 0.340, halfHeight: 0.274, centerY: 0.281 },
-    { z: 2.92, halfWidth: 0.230, halfHeight: 0.101, centerY: 0.199 },
+    { z: -2.75, halfWidth: 0.602, halfHeight: 0.660, centerY: 0.260 },
+    { z: -2.48, halfWidth: 0.692, halfHeight: 0.737, centerY: 0.245 },
+    { z: -2.08, halfWidth: 0.678, halfHeight: 0.766, centerY: 0.246 },
+    { z: -1.48, halfWidth: 0.676, halfHeight: 0.799, centerY: 0.245 },
+    { z: -0.88, halfWidth: 0.645, halfHeight: 0.766, centerY: 0.265 },
+    { z: -0.28, halfWidth: 0.694, halfHeight: 0.742, centerY: 0.241 },
+    { z: 0.32, halfWidth: 0.658, halfHeight: 0.597, centerY: 0.273 },
+    { z: 0.92, halfWidth: 0.560, halfHeight: 0.442, centerY: 0.273 },
+    { z: 1.52, halfWidth: 0.504, halfHeight: 0.343, centerY: 0.303 },
+    { z: 2.12, halfWidth: 0.476, halfHeight: 0.274, centerY: 0.281 },
+    { z: 2.92, halfWidth: 0.322, halfHeight: 0.101, centerY: 0.199 },
   ],
 }
 
@@ -298,6 +328,7 @@ export function buildB17G(): AircraftModel {
   h.wingPair(WING)
   h.wingPair(TAILPLANE)
   // 主垂尾的頂不圓化（頂蓋接在上面）；頂蓋自己收圓
+  h.upright(DORSAL, 0.20)
   h.upright(FIN, 0.18)
   h.upright(FIN_CAP, 0.16, 0.80)
 

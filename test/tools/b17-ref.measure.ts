@@ -84,13 +84,30 @@ async function main(): Promise<void> {
     await page.waitForFunction(() => '__hangarProbe' in window, null, { timeout: 30000 })
 
     // `raw` 不套對齊——它要問的正是「原始座標長什麼樣」
-    const align = stage === 'raw' ? undefined : ALIGN
-    const probe: Probe = await page.evaluate(
+    /**
+     * 【`verify` 走機庫自己的疊圖路徑，不是 probe】`__hangarProbe` 是給
+     * 「還沒有自家模型」用的旁路：它自己套一組對齊參數、不經過 `placeRef`。
+     * 而驗收要問的正是**遊戲裡實際疊出來的那一份對不對** —— 用旁路量等於
+     * 驗了一個玩家永遠看不到的東西（坑 28）。
+     */
+    if (stage === 'verify') {
+      await page.evaluate(() => window.__hangarSpec('b17g'))
+      for (let i = 0; i < 120; i++) {
+        if (await page.evaluate(() => window.__hangarRef(true, false))) break
+        await page.waitForTimeout(500)
+      }
+      console.log('走機庫的 placeRef 疊圖路徑（不是 __hangarProbe 旁路）')
+    }
+    const align = stage === 'raw' || stage === 'verify' ? undefined : ALIGN
+    const probe: Probe = stage === 'verify'
+      ? { tris: 0, meshes: 0, min: [], max: [], size: [], parts: [] }
+      : await page.evaluate(
       ([u, a]) => window.__hangarProbe(u as string, a as typeof ALIGN | undefined),
       [GLB, align] as const,
     )
-    console.log(`載入 ${probe.tris.toLocaleString()} 三角形、${probe.meshes} 個 mesh`)
-    console.log(align
+    if (stage !== 'verify') console.log(
+      `載入 ${probe.tris.toLocaleString()} 三角形、${probe.meshes} 個 mesh`)
+    if (stage !== 'verify') console.log(align
       ? `對齊參數  yaw ${ALIGN.yaw}°  pitch ${ALIGN.pitch}°  scale ${ALIGN.scale}\n`
       : '**未套對齊**（原始座標）\n')
 
@@ -1016,6 +1033,125 @@ const stages: Record<string, Stage> = {
       console.log(`\n── 射線原點 x = ${ax} ──`)
       console.log('   量測Z ' + rs.planes.map((z) => n(z, 6, 1)).join(''))
       console.log('   背線Y ' + up.map((v) => n(v, 6, 2)).join(''))
+    }
+  },
+
+  /**
+   * 【驗收】自家模型與參考模型**用同一支切片器對切**，逐站比對。
+   *
+   * 【不要在疊圖上量像素】He 111 那次疊圖上背鰭看起來浮出 0.23 m，對切之後
+   * 逐站差只有 0.008~0.020 —— 那 0.23 是水平尾翼擋在前面造成的錯覺。疊圖裡
+   * 離鏡頭近的零件會遮住參考模型，遮出來的邊界看起來就像自家模型的輪廓。
+   */
+  verify: async (page, _probe, slice) => {
+    const stat = (xs: readonly number[], label: string): void => {
+      const v = xs.filter(Number.isFinite).map(Math.abs).sort((a, b) => a - b)
+      if (v.length === 0) { console.log(`  ${label}  沒有可比的站位`); return }
+      console.log(`  ${label}  ${String(v.length).padStart(3)} 站`
+        + `  中位 ${n(v[v.length >> 1]!)}  90% ${n(v[Math.floor(v.length * 0.9)]!)}`
+        + `  最大 ${n(v[v.length - 1]!)}`)
+    }
+
+    // ── 機身：沿 Z 的半寬、背線、腹線 ───────────────────────
+    const OPT = {
+      from: -5.6, to: 12.6, count: 74, angles: 72, axisV: 0.20, maxRadius: 1.6,
+    }
+    const ref = await slice('radial', 'z', OPT) as Radial
+    const mine = await slice('radial', 'z', OPT, 'mine') as Radial
+    const at = (src: Radial, k: number, deg: number): number => {
+      const want = deg * Math.PI / 180
+      let best = 0
+      const d = (j: number) => {
+        let t = src.theta[j]! - want
+        while (t > Math.PI) t -= 2 * Math.PI
+        while (t < -Math.PI) t += 2 * Math.PI
+        return Math.abs(t)
+      }
+      for (let j = 1; j < src.theta.length; j++) if (d(j) < d(best)) best = j
+      return src.r[k]![best]! > 0 ? src.r[k]![best]! : NaN
+    }
+    console.log('\n── 機身逐站對切（自家 − 參考，公尺）─────────────')
+    console.log('   機體Z   半寬差   背線差   腹線差')
+    const dW: number[] = []
+    const dU: number[] = []
+    const dD: number[] = []
+    for (let k = 0; k < ref.planes.length; k++) {
+      const w = at(mine, k, 0) - at(ref, k, 0)
+      const u = at(mine, k, 90) - at(ref, k, 90)
+      const b = at(mine, k, -90) - at(ref, k, -90)
+      dW.push(w)
+      dU.push(u)
+      dD.push(b)
+      if (k % 4 === 0) {
+        console.log(`  ${n(ref.planes[k]!, 6, 2)}  ${n(w)}  ${n(u)}  ${n(b)}`)
+      }
+    }
+    console.log('')
+    stat(dW, '半寬')
+    stat(dU, '背線')
+    stat(dD, '腹線')
+
+    // ── 機翼：沿翼展的前後緣與厚度 ──────────────────────────
+    /**
+     * 【下界 −2.5 是為了排掉螺旋槳】第一版開到 −3.0，X 5.0 那一站量到前緣
+     * 差 −2.07 —— 那不是機翼，是**自家的槳葉剛好轉到那個角度而參考的沒有**。
+     * 兩邊的槳都是固定姿態的三葉，時鐘角不同就會產生兩公尺級的假差。
+     * 槳盤在 z −3.30（內）與 −2.93（外），窗口收到 −2.5 就乾淨了。
+     */
+    const wOpt = { from: 1.4, to: 15.4, count: 36, uWindow: [-2.5, 5.0] }
+    const rw = await slice('extent', 'x', wOpt) as Extent
+    const mw = await slice('extent', 'x', wOpt, 'mine') as Extent
+    console.log('\n── 右半翼逐站對切（自家 − 參考）───────────────')
+    console.log('      X    前緣差   後緣差   弦長差   厚度差')
+    const dL: number[] = []
+    const dT: number[] = []
+    const dC: number[] = []
+    for (let i = 0; i < rw.planes.length; i++) {
+      if (rw.count[i]! === 0 || mw.count[i]! === 0) continue
+      const le = mw.uMin[i]! - rw.uMin[i]!
+      const te = mw.uMax[i]! - rw.uMax[i]!
+      const ch = (mw.uMax[i]! - mw.uMin[i]!) - (rw.uMax[i]! - rw.uMin[i]!)
+      const th = (mw.vMax[i]! - mw.vMin[i]!) - (rw.vMax[i]! - rw.vMin[i]!)
+      dL.push(le)
+      dT.push(te)
+      dC.push(ch)
+      if (i % 3 === 0) {
+        console.log(`  ${n(rw.planes[i]!, 6, 2)}  ${n(le)}  ${n(te)}  ${n(ch)}  ${n(th)}`)
+      }
+    }
+    console.log('')
+    stat(dL, '前緣')
+    stat(dT, '後緣')
+    stat(dC, '弦長')
+
+    // ── 垂尾：沿 Y 切的側視平面形 ──────────────────────────
+    const fOpt = { from: 1.8, to: 5.8, count: 21, uWindow: [-1.0, 1.0] }
+    const rf = await slice('extent', 'y', fOpt) as Extent
+    const mf = await slice('extent', 'y', fOpt, 'mine') as Extent
+    console.log(`
+── 垂尾逐層對切（自家 − 參考；u 是 X、v 是 Z）────`)
+    console.log('      Y    前緣差   後緣差   弦長差')
+    const fL: number[] = []
+    const fT: number[] = []
+    for (let i = 0; i < rf.planes.length; i++) {
+      if (rf.count[i]! === 0 || mf.count[i]! === 0) continue
+      const le = mf.vMin[i]! - rf.vMin[i]!
+      const te = mf.vMax[i]! - rf.vMax[i]!
+      fL.push(le)
+      fT.push(te)
+      console.log(`  ${n(rf.planes[i]!, 6, 2)}  ${n(le)}  ${n(te)}`
+        + `  ${n((mf.vMax[i]! - mf.vMin[i]!) - (rf.vMax[i]! - rf.vMin[i]!))}`)
+    }
+    console.log('')
+    stat(fL, '垂尾前緣')
+    stat(fT, '垂尾後緣')
+
+    // ── 疊圖：側視與俯視兩個都要看（坑 4）──────────────────
+    for (const v of ['side', 'top']) {
+      await page.evaluate((x) => window.__hangarOrtho(x), v)
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: `${SHOTS}b17-verify-${v}.png` })
+      console.log(`  截圖 ${v} → ${SHOTS}b17-verify-${v}.png`)
     }
   },
 

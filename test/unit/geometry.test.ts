@@ -7,6 +7,7 @@ import { buildWingPanel } from '../../src/render/geometry/wing'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
+import { B17G } from '../../src/specs/b17g'
 import { DEG } from '../../src/core/math'
 
 /**
@@ -262,7 +263,7 @@ describe('buildAircraft', () => {
     expect(() => buildAircraft({ ...P51D, id: 'unknown' })).toThrow(/未定義機種外型/)
   })
 
-  for (const spec of [P51D, BF109G6]) {
+  for (const spec of [P51D, BF109G6, B17G]) {
     describe(spec.name, () => {
       it('每一個網格都是法線朝外', () => {
         const m = buildAircraft(spec)
@@ -459,7 +460,7 @@ describe('透明材質不寫深度（M10 驗收）', () => {
    * 都已經關掉 `depthWrite`；`assembly.ts` 那兩個是 M1 寫的，比這條慣例更早，
    * 於是一路漏到 M10 才被人眼抓到。
    */
-  for (const spec of [P51D, BF109G6]) {
+  for (const spec of [P51D, BF109G6, B17G]) {
     it(`${spec.id}：機體上每一個 transparent 材質都關掉 depthWrite`, () => {
       const m = buildAircraft(spec)
       const offenders: string[] = []
