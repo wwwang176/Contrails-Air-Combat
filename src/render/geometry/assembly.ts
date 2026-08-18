@@ -74,6 +74,8 @@ export interface LoftPart {
   segments: number
   /** 首尾封口，省略即兩端都封。碗狀的凹槽要 `{ front: false }`。 */
   caps?: { front?: boolean; back?: boolean }
+  /** 只吐這一段角度的面（度），省略即整圈。給了就不封口，見 buildFuselage。 */
+  arc?: { fromDeg: number; toDeg: number }
 }
 
 /** 垂直安定面／背鰭延伸板，以 WingParams 立起 90° 描述。 */
@@ -316,7 +318,7 @@ export function createHull(spec: HullSpec) {
     /** 管狀部件（機身、氣泡座艙罩、散熱器導管）。 */
     loft(part: LoftPart, mat: MeshStandardMaterial): Mesh {
       return add(new Mesh(
-        buildFuselage(part.sections, part.segments, part.roundness, part.caps), mat,
+        buildFuselage(part.sections, part.segments, part.roundness, part.caps, part.arc), mat,
       ))
     },
 

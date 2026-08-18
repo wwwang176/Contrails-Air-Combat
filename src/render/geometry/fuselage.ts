@@ -39,6 +39,17 @@ export function buildFuselage(
    * `buildHull` 的 `caps` 是同一個參數、同一個理由。
    */
   caps?: { front?: boolean; back?: boolean },
+  /**
+   * 只吐截面上這一段角度的面（度，0 = 右側水平、90 = 正上方、逆時針）。
+   * 省略即整圈。**給了角度就不封口** —— 開口的殼沒有「端面」可言。
+   *
+   * 【誰需要】**往上凹的碗**。任何閉合凸截面的下半面，從底下看都是往下凸的
+   * ——「中間高、兩邊低」的面只可能是上半面的**內側**，而那需要一個沒有
+   * 下半面的殼。機腹吊艙的暗色拱頂就是這樣做的（`he111.ts` 的 `BOLA_VAULT`）。
+   *
+   * 材質要用雙面的：從凹面那一側看到的是它的背面。
+   */
+  arc?: { fromDeg: number; toDeg: number },
 ): BufferGeometry {
   const rings: number[][] = sections.map((s) => {
     // 超橢圓的參數式：x = a·sgn(cos t)·|cos t|^(2/n)，y 同理。
@@ -65,10 +76,14 @@ export function buildFuselage(
     return [ring[k]!, ring[k + 1]!, ring[k + 2]!]
   }
 
+  /** 角度範圍換成頂點索引；沒給就是整圈（0 … radialSegments−1，會繞回去） */
+  const first = arc ? Math.ceil((arc.fromDeg / 360) * radialSegments) : 0
+  const last = arc ? Math.floor((arc.toDeg / 360) * radialSegments) : radialSegments
+
   for (let s = 0; s < rings.length - 1; s++) {
     const a = rings[s]!
     const b = rings[s + 1]!
-    for (let i = 0; i < radialSegments; i++) {
+    for (let i = first; i < last; i++) {
       const a0 = vertexOf(a, i)
       const a1 = vertexOf(a, i + 1)
       const b0 = vertexOf(b, i)
@@ -92,8 +107,10 @@ export function buildFuselage(
       else pushTri(centre, v1, v0)
     }
   }
-  if (caps?.front !== false) cap(rings[0]!, sections[0]!, true)
-  if (caps?.back !== false) cap(rings[rings.length - 1]!, sections[sections.length - 1]!, false)
+  if (!arc && caps?.front !== false) cap(rings[0]!, sections[0]!, true)
+  if (!arc && caps?.back !== false) {
+    cap(rings[rings.length - 1]!, sections[sections.length - 1]!, false)
+  }
 
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
