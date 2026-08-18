@@ -14,6 +14,7 @@ import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircr
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import { HE111 } from '../specs/he111'
+import { B17G } from '../specs/b17g'
 import type { AircraftSpec } from '../specs/types'
 
 /**
@@ -27,7 +28,7 @@ import type { AircraftSpec } from '../specs/types'
  * 進入方式：`npm run dev` 之後開 /hangar.html。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109G6, HE111]
+const SPECS: AircraftSpec[] = [P51D, BF109G6, HE111, B17G]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 // preserveDrawingBuffer：外部工具要把畫面複製到 2D canvas 抽輪廓，
@@ -336,7 +337,7 @@ const specButtons = SPECS.map((s, i) => {
   // 【為什麼查表而不是三元式】原本是 `id === 'p51d' ? 'P-51D' : 'Bf 109'`
   // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
   // 任何東西提醒你。查表少一筆是一個 undefined，看得見
-  b.textContent = ({ p51d: 'P-51D', bf109g6: 'Bf 109', he111: 'He 111' } as Record<string, string>)[s.id] ?? s.id
+  b.textContent = ({ p51d: 'P-51D', bf109g6: 'Bf 109', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
   b.dataset['id'] = s.id
   b.onclick = () => { specIndex = i; rebuild() }
   specRow.appendChild(b)

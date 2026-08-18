@@ -235,7 +235,7 @@ const stages: Record<string, Stage> = {
     }) as Extent
     console.log('── 右半翼：沿翼展切（u = Z 弦向、v = Y 厚度）──────')
     console.log('  uWindow Z ∈ [−3.5, 4.5] —— 排掉螺旋槳與水平尾翼')
-    console.log('      X      前緣Z     後緣Z     弦長     厚度   厚弦比  線段數')
+    console.log('      X      前緣Z     後緣Z     弦長     厚度   厚弦比   中厚Y  線段數')
 
     const xs: number[] = []
     const chords: number[] = []
@@ -249,7 +249,8 @@ const stages: Record<string, Stage> = {
       chords.push(chord)
       console.log(
         `  ${n(ex.planes[i]!, 6, 2)}  ${n(le)}  ${n(te)}  ${n(chord)}`
-        + `  ${n(thick)}  ${n(thick / chord * 100, 6, 1)}%  ${String(ex.count[i]).padStart(6)}`,
+        + `  ${n(thick)}  ${n(thick / chord * 100, 6, 1)}%`
+        + `  ${n((ex.vMin[i]! + ex.vMax[i]!) / 2)}  ${String(ex.count[i]).padStart(6)}`,
       )
     }
 
@@ -373,7 +374,7 @@ const stages: Record<string, Stage> = {
       for (let i = 0; i < N; i++) rss += (ys[i]! - (a * (zs[i]! - mz) + my)) ** 2
       console.log(`  ${label}  X ∈ [${n(x0, 6, 1)}, ${n(x1, 6, 1)}]  ${N} 站`
         + `  斜率 ${n(a, 8, 5)}  = ${n(Math.atan(a) * 180 / Math.PI, 6, 2)}°`
-        + `  殘差RMS ${n(Math.sqrt(rss / N))}`)
+        + `  殘差RMS ${n(Math.sqrt(rss / N))}  中厚Y ${n(my)}`)
     }
 
 
@@ -581,35 +582,32 @@ const stages: Record<string, Stage> = {
   },
 
   /**
-   * 【四具發動機艙】`wing` 那一格量到內艙佔 X 2.40…3.80、外艙 5.80…7.20。
-   * 這一格把射線原點放進**艙自己的剖面中心**，機翼就干擾不到（與座艙罩
-   * 那一招同源）。
+   * 【四具發動機艙】沿 **Z** 切、`uWindow` 只留該艙那一條翼展帶。每一刀的
+   * v 幅度就是艙在該站的上下界，u 幅度是橫向寬度。
+   *
+   * 【為什麼不用射線】第一版把射線原點放進艙裡（座艙罩那一招），但艙與機翼
+   * 是**連在一起**的：側向射線一出艙就沿著機翼跑，量到的「半寬」是機翼。
+   * 座艙罩那招成立是因為罩子與機身之間有一圈明顯的凹陷，發動機艙沒有。
+   *
+   * 帶寬取 ±0.5：`wing` 量到內艙佔 X 2.40…3.80、外艙 5.80…7.20，所以
+   * [2.6, 3.6] 與 [6.0, 7.0] 落在艙身之內、不吃到旁邊的機翼。
    */
   nacelle: async (_page, _probe, slice) => {
-    const AXIS_V = -0.10
-    for (const [label, axisU] of [['內艙', 3.10], ['外艙', 6.50]] as const) {
-      const rs = await slice('radial', 'z', {
-        from: -5.0, to: 3.6, count: 44, angles: 72,
-        axisU, axisV: AXIS_V, maxRadius: 1.1,
-      }) as Radial
-      const at = (k: number, deg: number): number => {
-        const want = deg * Math.PI / 180
-        const row = rs.r[k]!
-        let best = 0
-        const norm = (j: number) => {
-          let d = rs.theta[j]! - want
-          while (d > Math.PI) d -= 2 * Math.PI
-          while (d < -Math.PI) d += 2 * Math.PI
-          return Math.abs(d)
-        }
-        for (let j = 1; j < rs.theta.length; j++) if (norm(j) < norm(best)) best = j
-        return row[best]! > 0 ? row[best]! : NaN
-      }
-      console.log(`\n── ${label}（射線原點 x = ${axisU}, y = ${AXIS_V}，上限 1.1）──`)
-      console.log('   量測Z    頂Y     右半寬   左半寬    底Y')
-      for (let k = 0; k < rs.planes.length; k++) {
-        console.log(`  ${n(rs.planes[k]!, 6, 2)}  ${n(AXIS_V + at(k, 90))}`
-          + `  ${n(at(k, 0))}  ${n(at(k, 180))}  ${n(AXIS_V - at(k, -90))}`)
+    for (const [label, x0, x1] of [
+      ['內艙 X ∈ [2.6, 3.6]', 2.6, 3.6],
+      ['外艙 X ∈ [6.0, 7.0]', 6.0, 7.0],
+    ] as const) {
+      const ez = await slice('extent', 'z', {
+        from: -5.4, to: 4.2, count: 49, uWindow: [x0, x1],
+      }) as Extent
+      console.log(`
+── ${label} ─────────────────`)
+      console.log('   量測Z   機體Z    底Y     頂Y    高度    X幅度  線段數')
+      for (let i = 0; i < ez.planes.length; i++) {
+        if (ez.count[i]! === 0) continue
+        console.log(`  ${n(ez.planes[i]!, 6, 2)}  ${n(ez.planes[i]! + 1.1212, 6, 2)}`
+          + `  ${n(ez.vMin[i]!)}  ${n(ez.vMax[i]!)}  ${n(ez.vMax[i]! - ez.vMin[i]!)}`
+          + `  ${n(ez.uMax[i]! - ez.uMin[i]!)}  ${String(ez.count[i]).padStart(6)}`)
       }
     }
   },
@@ -626,7 +624,8 @@ const stages: Record<string, Stage> = {
   glass: async (_page, _probe, slice) => {
     const AXIS_V = 0.20
     const OPT = {
-      from: -7.4, to: 15.6, count: 47, angles: 72, axisV: AXIS_V, maxRadius: 1.8,
+      from: -7.4, to: 15.6, count: process.argv.includes('--fine') ? 185 : 47,
+      angles: 72, axisV: AXIS_V, maxRadius: 1.8,
     }
     const all = await slice('radial', 'z', OPT) as Radial
     const gls = await slice('radial', 'z', OPT, undefined, 'Object_50') as Radial
@@ -651,11 +650,373 @@ const stages: Record<string, Stage> = {
       for (const j of cols) {
         const a = all.r[k]![j]!
         const g = gls.r[k]![j]!
-        line += (a <= 0 ? '    ·' : g > 0 && Math.abs(g - a) < 0.02 ? '   玻' : '   蒙')
+        // 玻 = 玻璃在最外；內 = 有玻璃但在蒙皮裡面（凹進去的窗）；蒙 = 沒有玻璃
+        line += (a <= 0 ? '    ·'
+          : g > 0 && Math.abs(g - a) < 0.02 ? '   玻'
+            : g > 0 ? '   內' : '   蒙')
       }
       console.log(line)
     }
     console.log(`\n  · = 那個方向沒打到東西（上限 1.8 之內）`)
+  },
+
+  /**
+   * 【烘焙】把機身量成 `b17g.hull.ts` 的顯式頂點。輸出直接就是那一檔的內容。
+   *
+   * ── 座標平移 ────────────────────────────────────────────
+   *
+   * 機體 Z = 量測 Z − `QUARTER_CHORD`。主翼**翼根**四分之一弦線必須壓在
+   * 原點，因為原點是物理模型的重心（`geometry.test.ts` 有護欄在守）。
+   *
+   * 翼根弦由 `wing` 那一格的**乾淨段**（X 2.2…4.0，避開翼根整流罩與內艙）
+   * 各配一條直線外推到 X = 0：
+   *
+   * ```
+   *   前緣  X 2.2 −2.358、X 4.0 −2.139  → 斜率 0.1217/m → X0 −2.6257
+   *   後緣  X 2.2  3.189、X 4.0  3.023  → 斜率 0.0922/m → X0  3.3919
+   *   翼根弦 6.018   四分之一弦 −2.6257 + 1.5045 = −1.1212
+   * ```
+   *
+   * **免費的交叉驗證（坑 16）**：這條翼根弦配上量到的翼尖，梯形面積
+   * 133.3 m² 對真機 131.92，+1.0%。`wing` 那一格直接梯形積分得到的 140.2
+   * （+6.3%）含 X < 1.2 的**機身**站位，不是翼。
+   *
+   * ── 為什麼不照 He 111 那樣「十六條射線直接烘」──────────────
+   *
+   * 那一招要求十六條射線每一條都乾淨。這台不行：`body` 那一格量到後機身
+   * 45° 的射線給出 **x = 0.904 而同一站的半寬只有 0.851** —— 一個凸截面
+   * 不可能在 45° 比在 0° 還寬，所以那條射線打到的是別的東西（平尾／背鰭
+   * 整流罩）。正上方那條更慘，整個後段打不到。
+   *
+   * 改走 P-51D 那條：**半寬、背線、腹線各自當錨點曲線，中間用超橢圓補**。
+   * 坑 20 仍然滿足 —— 上下端點是射線量到的，不是擬合的 bUp／bDn；擬合的
+   * 只有指數 n，而 n 控制的是兩端之間怎麼連。
+   *
+   * ── 三條錨點曲線各自的可信區間（坑 15）────────────────────
+   *
+   * ```
+   *   半寬  −7.15…12.60 全段可信，只有翼根接合 −2.50…−1.30 要丟
+   *                     （蒙皮被翼盒打斷，量到 1.44 / 1.00 / 1.18 三種值）
+   *   腹線  全段可信，丟兩塊砲塔：下巴 −6.60…−5.60、球形 3.40…4.60
+   *   背線  只有四段可信：−7.40…−5.90（機首）、−5.15…−4.15、
+   *                       −1.40…1.10、3.35…8.60
+   *         丟座艙罩、上部砲塔、無線電艙頂窗；**後段 8.85 之後整段打不到**
+   * ```
+   *
+   * 後段的背線用**斷面比例**補：Z 8.60 那一站量到高/寬 = 2.044/1.702 = 1.201，
+   * 尾錐一路收下去比例不變，所以 `背線 = 腹線 + 1.201 × 2 × 半寬`。這比
+   * 「線性內插到一個猜的尾錐頂」好，因為它跟著另外兩條**量到的**線走。
+   */
+  bake: async (_page, _probe, slice) => {
+    const AXIS_V = 0.20
+    const QUARTER_CHORD = -1.1212
+    /** 每站 16 點：正上方 → 右側 → 正下方，12° 一格（與 He 111 同） */
+    const OUT_DEG = Array.from({ length: 16 }, (_, i) => 90 - i * 12)
+
+    /**
+     * 【兩端都是量出來的】
+     *
+     * 起點 −7.35：`align` 的包圍盒說幾何從 −7.501 開始，但那一端是**下巴
+     *             砲塔的槍管**。`body` 每 0.25 m 一刀，機身自己的環從
+     *             −7.15 起整圈才都有。
+     * 終點 12.60：`body` 表上 12.60 的半寬只剩 0.085，12.85 起整圈打不到
+     *             ——那之後是尾砲塔，不是機身。
+     */
+    const Z0 = -7.15
+    const Z1 = 12.60
+    const STEP = 0.175
+    const COUNT = Math.round((Z1 - Z0) / STEP) + 1
+    const rs = await slice('radial', 'z', {
+      from: Z0, to: Z1, count: COUNT, angles: 144, axisV: AXIS_V, maxRadius: 1.60,
+    }) as Radial
+
+    /**
+     * 指定角度 ±win° 內、非零射線的中位數，而且**左右對稱化**（取 θ 與
+     * 180°−θ 的平均）。
+     *
+     * 【為什麼要對稱化】這一檔只存右半、左半一律鏡像。只往 +X 射再鏡像的話
+     * 任何橫向偏移都會被**加倍**——He 111 的機首機槍座偏右 0.147，鏡像之後
+     * 機首寬了 0.29 m。B-17G 的腰部槍窗本來就左右交錯。
+     */
+    const robust = (row: readonly number[], deg: number, win = 6): number => {
+      const one = (want: number): number => {
+        const near: number[] = []
+        for (let j = 0; j < rs.theta.length; j++) {
+          let d = rs.theta[j]! - want * Math.PI / 180
+          while (d > Math.PI) d -= 2 * Math.PI
+          while (d < -Math.PI) d += 2 * Math.PI
+          if (Math.abs(d) <= win * Math.PI / 180 && row[j]! > 0) near.push(row[j]!)
+        }
+        if (near.length === 0) return NaN
+        near.sort((a, b) => a - b)
+        return near[near.length >> 1]!
+      }
+      const a = one(deg)
+      const b = one(180 - deg)
+      if (!Number.isFinite(a)) return b
+      if (!Number.isFinite(b)) return a
+      return (a + b) / 2
+    }
+
+    /** 只留落在任一可信區間內的站位，其餘設 NaN */
+    const keep = (
+      v: readonly number[], spans: readonly (readonly [number, number])[],
+    ): number[] => v.map((x, k) => {
+      const z = rs.planes[k]!
+      return spans.some(([a, b]) => z >= a && z <= b) ? x : NaN
+    })
+
+    /** 沿 z 線性內插補洞；兩端外推用最近的乾淨值 */
+    const fill = (v: readonly number[]): number[] => {
+      const good = v.map((x, i) => [i, x] as const).filter(([, x]) => Number.isFinite(x))
+      if (good.length === 0) return v.map(() => NaN)
+      return v.map((x, i) => {
+        if (Number.isFinite(x)) return x
+        let lo = good[0]!
+        let hi = good[good.length - 1]!
+        for (const g of good) if (g[0] <= i) lo = g
+        for (let t = good.length - 1; t >= 0; t--) if (good[t]![0] >= i) hi = good[t]!
+        if (lo[0] === hi[0]) return lo[1]
+        return lo[1] + (hi[1] - lo[1]) * ((i - lo[0]) / (hi[0] - lo[0]))
+      })
+    }
+
+    /**
+     * 【單邊修剪】skill 第 3 步：**污染一律讓半徑偏大**。所以只丟「比鄰域
+     * 中位數大太多」的點，不丟小的——小的多半是真的（機身本來就在收）。
+     *
+     * 【為什麼保邊平滑救不了】保邊那一招（一步跳超過 0.15 就不平滑）是為了
+     * 保住機身上真的 0.2 m 級轉折。但單站尖峰的跳幅也超過 0.15，於是它**保護
+     * 了尖峰**。實測背線在量測 −6.10 有一個 1.55 的單站值，左右鄰站都是
+     * 1.19～1.23 —— 那是機首上方的天線桿。門檻對 He 111 是對的，對這台反而
+     * 幫倒忙，所以修剪要在平滑之前另外做一道。
+     *
+     * `sign` = +1 丟偏大的（半寬、背線），−1 丟偏小的（腹線是負值，砲塔會
+     * 讓它更負）。
+     */
+    const despike = (v: readonly number[], tol: number, sign: number): number[] => {
+      const out = [...v]
+      for (let k = 0; k < v.length; k++) {
+        const win: number[] = []
+        for (let d = -2; d <= 2; d++) {
+          const t = k + d
+          if (t >= 0 && t < v.length && Number.isFinite(v[t]!)) win.push(v[t]!)
+        }
+        if (win.length < 3) continue
+        win.sort((a, b) => a - b)
+        const med = win[win.length >> 1]!
+        if (sign * (v[k]! - med) > tol) out[k] = NaN
+      }
+      return out
+    }
+
+
+    /**
+     * ── 後段要換一組射線原點，兩個理由都是「原點跑到剖面外面了」──────
+     *
+     * **半寬**：尾錐的腹線一路升到 +0.19，而原點在 y = 0.20 —— 水平射線是
+     * 貼著機身**底線**擦過去的，量到的是那條線上的寬度不是最大半寬。實測
+     * 半寬因此一路收到 0.085，看起來像一個平滑漂亮的尾錐，其實是假的。
+     * 這是坑 6 的近親：**取樣幾何自己讓一整段悄悄失效，而且不會報錯。**
+     *
+     * **背線**：正上方那條射線與垂尾**共面**，Z 8.85 之後整段回 0。把原點往
+     * X 挪就離開那個平面 —— 實測掃了四個位置：
+     *
+     * ```
+     *   x = 0     Z 9.0 起整段回 0（與垂尾共面）
+     *   x = 0.15  Z 8.8 起壞掉
+     *   x = 0.25  Z 10.0 起被背鰭整流罩汙染，衝到 1.96
+     *   x = 0.35  Z 7.0…13.0 完全連續而且單調 1.65 → 1.49  ← 採這個
+     * ```
+     *
+     * 所以後段跑兩趟：`rearW`（原點 (0, 0.90)）給半寬與腹線、`rearT`
+     * （原點 (0.35, 0.90)）給背線。0.90 是後機身剖面中心的量測值。
+     */
+    const REAR_Z = 8.60
+    const REAR_V = 0.90
+    const REAR_U = 0.35
+    const rearOpt = {
+      from: Z0, to: Z1, count: COUNT, angles: 144, axisV: REAR_V, maxRadius: 1.60,
+    }
+    const rearW = await slice('radial', 'z', rearOpt) as Radial
+    const rearT = await slice('radial', 'z', { ...rearOpt, axisU: REAR_U }) as Radial
+    /** 換原點之後同一組取樣規則（中位數 + 左右對稱化） */
+    const robustOf = (src: Radial, k: number, deg: number, win = 6): number => {
+      const one = (want: number): number => {
+        const near: number[] = []
+        for (let j = 0; j < src.theta.length; j++) {
+          let d = src.theta[j]! - want * Math.PI / 180
+          while (d > Math.PI) d -= 2 * Math.PI
+          while (d < -Math.PI) d += 2 * Math.PI
+          if (Math.abs(d) <= win * Math.PI / 180 && src.r[k]![j]! > 0) near.push(src.r[k]![j]!)
+        }
+        if (near.length === 0) return NaN
+        near.sort((a, b) => a - b)
+        return near[near.length >> 1]!
+      }
+      const a = one(deg)
+      const b = one(180 - deg)
+      if (!Number.isFinite(a)) return b
+      if (!Number.isFinite(b)) return a
+      return (a + b) / 2
+    }
+    const rear = (k: number): boolean => rs.planes[k]! > REAR_Z
+
+    const halfW = fill(despike(keep(
+      rs.planes.map((_, k) => rear(k) ? robustOf(rearW, k, 0) : robust(rs.r[k]!, 0)),
+      [[-99, -2.50], [-1.30, 99]],
+    ), 0.10, 1))
+    const belly = fill(despike(despike(keep(
+      rs.planes.map((_, k) => rear(k)
+        ? REAR_V - robustOf(rearW, k, -90) : AXIS_V - robust(rs.r[k]!, -90)),
+      [[-99, -6.60], [-5.60, 3.40], [4.60, 99]],
+    ), 0.08, -1), 0.08, 1))
+
+    /**
+     * 前段的背線只有四段可信（見檔頭），其餘丟掉沿 z 內插。
+     * 後段整段由 `rearT` 量到，不必內插。
+     */
+    const rawTop = despike(keep(
+      rs.planes.map((_, k) => AXIS_V + robust(rs.r[k]!, 90)),
+      [[-99, -5.90], [-5.15, -4.15], [-1.40, 1.10], [3.35, REAR_Z]],
+    ), 0.10, 1)
+    const topFront = fill(rawTop)
+
+    /**
+     * 【指數 n 由 45° 那條射線反解】只在**背線本身是量到的**那些站算 ——
+     * 那保證 45° 也落在乾淨區。第一版沒有這道閘門，後段的 45° 射線打到平尾／
+     * 背鰭，二分法一路把 n 推到上界 6.00 整整二十站（坑 6）。
+     *
+     * 這是整個剖面裡唯一「擬合出來」的量，而它控制的只是上下端點之間怎麼連
+     * ——坑 20 禁的是用擬合值當**端點**，不是禁止擬合本身。
+     */
+    const expo = fill(rs.planes.map((_, k) => {
+      if (!Number.isFinite(rawTop[k]!)) return NaN
+      const r = robust(rs.r[k]!, 45)
+      if (!Number.isFinite(r)) return NaN
+      const x = r * Math.SQRT1_2
+      const y = r * Math.SQRT1_2
+      const a = halfW[k]!
+      const b = topFront[k]! - AXIS_V
+      if (!(x > 0 && x < a * 0.999) || !(y > 0 && y < b * 0.999)) return NaN
+      let lo = 1.2, hi = 6.0
+      for (let it = 0; it < 40; it++) {
+        const m = (lo + hi) / 2
+        if ((x / a) ** m + (y / b) ** m > 1) lo = m
+        else hi = m
+      }
+      const fit = (lo + hi) / 2
+      /**
+       * 【物理閘門：機身剖面不是長方形】n > 3.4 代表 45° 那一點落在橢圓外面
+       * 很遠 —— 打到的是平尾或背鰭整流罩。坑 6 的同一條。
+       */
+      return fit > 3.4 ? NaN : fit
+    }))
+
+    /**
+     * 後段的背線是 **x = 0.35 處的高度**不是正中線。用同一站的超橢圓換算回
+     * 中線：`y(x) = b·(1 − (x/a)^n)^(1/n)` → `b = y(0.35) / (…)`。
+     * 半寬在那一帶是 0.8 上下，0.35/a ≈ 0.44，修正量約 +3%。不修的話尾錐的
+     * 背線會整段低 0.05。
+     */
+    const top = topFront.map((v, k) => {
+      if (!rear(k)) return v
+      const y = robustOf(rearT, k, 90)
+      const a = halfW[k]!
+      const nn = Math.min(3.4, Math.max(1.4, expo[k]!))
+      const f = (1 - Math.min(0.98, (REAR_U / a) ** nn)) ** (1 / nn)
+      return REAR_V + y / f
+    })
+
+
+    /** 沿 z 的拉普拉斯，z 不等距、保邊（坑 19）。`edge` 是不平滑的門檻 */
+    const smoothZ = (v: number[], edge: number, passes = 2): number[] => {
+      for (let pass = 0; pass < passes; pass++) {
+        const src = [...v]
+        for (let k = 1; k < src.length - 1; k++) {
+          if (Math.abs(src[k]! - src[k - 1]!) > edge) continue
+          if (Math.abs(src[k + 1]! - src[k]!) > edge) continue
+          const zA = rs.planes[k - 1]!, zB = rs.planes[k]!, zC = rs.planes[k + 1]!
+          const u = (zB - zA) / (zC - zA)
+          v[k] = src[k]! + 0.5 * (src[k - 1]! + (src[k + 1]! - src[k - 1]!) * u - src[k]!)
+        }
+      }
+      return v
+    }
+    smoothZ(halfW, 0.15)
+    smoothZ(belly, 0.15)
+    smoothZ(top, 0.15)
+    // 指數本來就該是平滑變化的；門檻開大讓它整條被抹平
+    smoothZ(expo, 9, 6)
+
+    // 【診斷】三條錨點曲線與指數，每 6 站一列。看得出哪一段是內插來的
+    if (process.argv.includes('--peek')) {
+      console.log('   量測Z   機體Z    半寬    背線    腹線     n')
+      for (let k = 0; k < rs.planes.length; k += 6) {
+        console.log(`  ${n(rs.planes[k]!, 6, 2)}  ${n(rs.planes[k]! - QUARTER_CHORD, 6, 2)}`
+          + `  ${n(halfW[k]!)}  ${n(top[k]!)}  ${n(belly[k]!)}  ${n(expo[k]!, 6, 2)}`)
+      }
+      return
+    }
+    console.log('// ── 貼進 src/render/geometry/b17g.hull.ts 的 B17G_HULL ──')
+    console.log(`// QUARTER_CHORD ${QUARTER_CHORD}  站距 ${STEP}  ${rs.planes.length} 站`)
+    for (let k = 0; k < rs.planes.length; k++) {
+      const a = halfW[k]!
+      const bUp = top[k]! - AXIS_V
+      const bDn = AXIS_V - belly[k]!
+      const nn = Math.min(6, Math.max(1.4, expo[k]!))
+      const pts = OUT_DEG.map((deg) => {
+        const u = deg * Math.PI / 180
+        const b = deg >= 0 ? bUp : bDn
+        const x = a * Math.abs(Math.cos(u)) ** (2 / nn)
+        const y = AXIS_V + Math.sign(Math.sin(u)) * b * Math.abs(Math.sin(u)) ** (2 / nn)
+        return `[${x.toFixed(4)}, ${y.toFixed(4)}]`
+      })
+      console.log(`  { z: ${(rs.planes[k]! - QUARTER_CHORD).toFixed(4)}, `
+        + `half: [${pts.join(', ')}] },`)
+    }
+
+    /** 最寬線的曲率變號次數——平順度的唯一有效指標（坑 19），門檻 8/34 */
+    let flips = 0
+    for (let k = 2; k < halfW.length - 1; k++) {
+      const a = halfW[k - 1]! - 2 * halfW[k]! + halfW[k + 1]!
+      const b = halfW[k - 2]! - 2 * halfW[k - 1]! + halfW[k]!
+      if (a * b < 0) flips++
+    }
+    console.log(`\n// 最寬線曲率變號 ${flips}/${halfW.length} 站（門檻 8/34）`)
+    const nn = expo.filter(Number.isFinite)
+    console.log(`// 超橢圓指數 n ${n(Math.min(...nn), 5, 2)} … ${n(Math.max(...nn), 5, 2)}`)
+    console.log(`// 機身全長 ${n(rs.planes[rs.planes.length - 1]! - rs.planes[0]!)} m`
+      + `（尾錐與尾砲塔另外接）`)
+  },
+
+
+  /**
+   * 【後機身的背線：把射線原點往旁邊挪】正上方那條射線與垂尾**共面**，
+   * 打到與打不到全看浮點運算，Z 8.85 之後整段回 0。
+   *
+   * 座艙罩那一招的另一面：**換一個射線原點，就能把被擋住的東西量出來**。
+   * 原點挪到 x = 0.25（後機身半寬 0.42…0.85，還在裡面），射線就離開垂尾的
+   * 平面了；量到的是該 x 的高度，不是正中線，但兩者在剖面頂附近差得很少。
+   */
+  rearback: async (_page, _probe, slice) => {
+    for (const ax of [0, 0.15, 0.25, 0.35]) {
+      const rs = await slice('radial', 'z', {
+        from: 7.0, to: 13.0, count: 25, angles: 72,
+        axisU: ax, axisV: 0.20, maxRadius: 1.8,
+      }) as Radial
+      const up = rs.planes.map((_, k) => {
+        const row = rs.r[k]!
+        let best = 0
+        for (let j = 1; j < rs.theta.length; j++) {
+          if (Math.abs(rs.theta[j]! - Math.PI / 2) < Math.abs(rs.theta[best]! - Math.PI / 2)) best = j
+        }
+        return row[best]! > 0 ? 0.20 + row[best]! : NaN
+      })
+      console.log(`\n── 射線原點 x = ${ax} ──`)
+      console.log('   量測Z ' + rs.planes.map((z) => n(z, 6, 1)).join(''))
+      console.log('   背線Y ' + up.map((v) => n(v, 6, 2)).join(''))
+    }
   },
 
   /**
