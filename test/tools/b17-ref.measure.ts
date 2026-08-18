@@ -1036,7 +1036,18 @@ const stages: Record<string, Stage> = {
      */
     smoothZ(halfW, 0.15, 4)
     smoothZ(belly, 0.15, 4)
-    smoothZ(top, 0.15, 3)
+    /**
+     * 【背線的保邊門檻要 0.08 不是 0.15】座艙那一段的背線是一個**膝**：
+     * 1.524 → 1.570 → 1.687 → 1.803 → 1.893 → 1.931 → 1.949 → 1.957，
+     * 逐步 0.046 / 0.117 / 0.116 / 0.090 / 0.038 / 0.018 / 0.008。整段的
+     * 跳幅都在 0.15 之下，所以保邊放行，而拉普拉斯平滑對凸的膝就是**削角**
+     * ——實測三趟之後機體 z −2.98…−2.58 整段低了 0.09…0.12，那正是駕駛艙罩
+     * 該冒出來的地方。門檻收到 0.08 就把這個膝保住了。
+     *
+     * 背線現在由 `extent` 量（無射線、無上限），本來就比射線乾淨，不需要
+     * 那麼多趟。
+     */
+    smoothZ(top, 0.08, 2)
     // 指數本來就該是平滑變化的；門檻開大讓它整條被抹平
     smoothZ(expo, 9, 6)
 
@@ -1051,24 +1062,35 @@ const stages: Record<string, Stage> = {
       return
     }
     /**
-     * 【風擋是兩個平面，不是圓弧】超橢圓在任何指數下都是**圓滑**的，而 B-17
-     * 的風擋是兩片平玻璃夾出來的一道中脊。實測同一站（機體 z −3.08）：
+     * 【駕駛艙罩：俯視是一個**向前的三角**】
+     *
+     * 超橢圓在任何指數下都是圓滑的，配不出座艙罩。逐條 X 帶量上緣 y(x)：
      *
      * ```
-     *   x     0.00   0.30   0.60
-     *   y    1.803  1.517  1.349     ← 0→0.3 掉 0.286、0.3→0.6 只掉 0.168
+     *   機體Z    x0.00  x0.15  x0.30  x0.45  x0.60  x0.80
+     *   -3.38    1.524  1.510  1.487  1.436  1.347  1.189  ← 一般機身
+     *   -3.08    1.803  1.650  1.517  1.453  1.349  1.205  ← 中脊，平頂寬 ~0.05
+     *   -2.88    1.931  1.879  1.710    —    1.466  1.210  ← 平頂寬 ~0.16
+     *   -2.68    1.957  1.949  1.925  1.835  1.693  1.214  ← 平頂寬 ~0.30
+     *   -2.48    1.964  1.958  1.942  1.914  1.783  1.218  ← 平頂寬 ~0.45
      * ```
      *
-     * 對照一般機身站位（機體 z −1.68）：1.977 / 1.953 / 1.799 —— 頂上幾乎
-     * 是平的。差別不在指數 n，在**頂點是尖的還是圓的**。
+     * **平頂的寬度沿 z 由 0 長到 0.45** —— 俯視就是那個向前的三角。第一版做成
+     * 一道貫穿整段的直線 V（一個「帳篷」），俯視沒有三角，而且 x 0.15 那一條
+     * 整段低 0.17～0.20。
      *
-     * 做法：風擋那一段的上半圈，把索引 0…`RIDGE_I` 的點拉到「頂點 → 第
-     * `RIDGE_I` 點」的**直線**上。兩端各留兩站做過渡，否則相鄰環的剖面
-     * 形狀突變會折出一道橫向摺痕。
+     * 做法：那一段的上半圈，`x ≤ w(z)` 的點一律拉到頂點的高度，`w` 到
+     * `w + SHOULDER` 之間用平滑步進併回超橢圓。兩端的 `w` 都收到 0 就自然
+     * 過渡，不必另外做混合。
+     *
+     * 【尚未處理】參考模型的剖面在肩部（x > 0.6）掉得比任何單一指數的超橢圓
+     * 都快 —— 機體 z −2.68 的 x 0.80 量到 1.214，而 n = 2.5 的超橢圓給 1.630。
+     * 這是「平頂 + 快速收肩」的形狀，單一 n 配不出來，本輪不動。
      */
-    const WSHIELD = [-4.55, -3.65] as const   // 量測座標，機體 −3.43…−2.53
-    const WSHIELD_FLAT = [-4.35, -3.85] as const
-    const RIDGE_I = 3                          // OUT_DEG[3] = 54°
+    const WSHIELD = [-4.50, -2.20] as const    // 量測座標，機體 −3.38…−1.08
+    const WSHIELD_FULL = [-3.70, -2.60] as const
+    const DECK_W = 0.45                        // 平頂的半寬
+    const SHOULDER = 0.40                      // 併回超橢圓的過渡寬度
     /** 一站的十六點半剖面（右半，左半由 `buildHull` 鏡像） */
     const ringOf = (k: number): [number, number][] => {
       const a = halfW[k]!
@@ -1084,16 +1106,20 @@ const stages: Record<string, Stage> = {
         ]
       })
       const z = rs.planes[k]!
-      const w = z < WSHIELD[0] || z > WSHIELD[1] ? 0
-        : z < WSHIELD_FLAT[0] ? (z - WSHIELD[0]) / (WSHIELD_FLAT[0] - WSHIELD[0])
-        : z > WSHIELD_FLAT[1] ? (WSHIELD[1] - z) / (WSHIELD[1] - WSHIELD_FLAT[1])
-        : 1
+      const w = DECK_W * (
+        z < WSHIELD[0] || z > WSHIELD[1] ? 0
+          : z < WSHIELD_FULL[0] ? (z - WSHIELD[0]) / (WSHIELD_FULL[0] - WSHIELD[0])
+          : z > WSHIELD_FULL[1] ? (WSHIELD[1] - z) / (WSHIELD[1] - WSHIELD_FULL[1])
+          : 1)
       if (w > 0) {
-        const [xR, yR] = pts[RIDGE_I]!
         const y0 = pts[0]![1]!
-        for (let i = 1; i < RIDGE_I; i++) {
-          const flat = y0 + (yR - y0) * (pts[i]![0]! / xR)
-          pts[i]![1] = pts[i]![1]! + (flat - pts[i]![1]!) * w
+        for (let i = 1; i < pts.length / 2; i++) {
+          const x = pts[i]![0]!
+          if (x >= w + SHOULDER) break
+          const t = x <= w ? 0 : (x - w) / SHOULDER
+          const e = t * t * (3 - 2 * t)          // smoothstep
+          const deck = y0 + (pts[i]![1]! - y0) * e
+          pts[i]![1] = Math.max(pts[i]![1]!, deck)
         }
       }
       return pts
