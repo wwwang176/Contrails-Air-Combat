@@ -11,7 +11,7 @@ import {
   buildCockpitTub, buildHull, ringAt,
   type CockpitCut, type GlassPatch, type HullRing,
 } from './hull'
-import { buildWingPanel, type WingParams } from './wing'
+import { buildWingPanel, type Break, type WingParams } from './wing'
 
 /**
  * 機體組裝的共用鷹架 —— **不含任何機種的造型**。
@@ -95,6 +95,8 @@ export interface FinParams {
    * 看不見**。
    */
   rootY?: number
+  /** 展向轉折。前緣是凹曲線時用，見 `WingParams.breaks`。 */
+  breaks?: readonly Break[]
 }
 
 /**
@@ -452,6 +454,7 @@ export function createHull(spec: HullSpec) {
         sweep: f.sweep, dihedral: 0, thickness, rootZ: f.z, rootY: 0,
         ...(tipRound === undefined ? {} : { tipRound }),
         ...(tipThickness === undefined ? {} : { tipThickness }),
+        ...(f.breaks === undefined ? {} : { breaks: f.breaks }),
       }, false), body)
       // 面板繞 Z 轉 90° 後，它自己的 rootY 會變成 X 向偏移，所以垂直位置
       // 必須由 mesh.position.y 承擔，不能寫進 WingParams.rootY。

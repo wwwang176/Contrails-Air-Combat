@@ -762,7 +762,7 @@ const stages: Record<string, Stage> = {
    * ```
    *   半寬  −7.15…12.60 全段可信，只有翼根接合 −2.50…−1.30 要丟
    *                     （蒙皮被翼盒打斷，量到 1.44 / 1.00 / 1.18 三種值）
-   *   腹線  全段可信，丟三塊：下巴砲塔 −6.60…−5.60、球形砲塔 3.40…4.60、尾輪 9.80…11.40
+   *   腹線  全段可信，丟三塊：下巴砲塔 −6.60…−5.60、球形砲塔 3.40…4.60、尾輪艙 9.10…10.60
    *   背線  中線那條 X 帶要丟四塊**長在機背上的東西**（量測座標）：
    *           −6.18…−5.28  導航員的圓頂（0.8 m 長、寬 < 0.6、高出蒙皮 0.36）
    *           −2.58…−1.98  上部砲塔
@@ -862,6 +862,14 @@ const stages: Record<string, Stage> = {
      */
     const topC = await slice('extent', 'z',
       { ...GRID, uWindow: [-0.06, 0.06] }, undefined, NOWIRE) as Extent
+    /**
+     * 【腹線的帶要寬一點】機首尖端那一站的剖面只有 0.39 半寬，而且面片粗 ——
+     * ±0.06 的帶只撈到罩頂那一個頂點，`vMin` 讀出 **0.799**（真值 0.039）。
+     * 那一站是手工機首尖端的縮放基準，錯了整台的 `noseY` 跟著錯，疊圖會整台
+     * 平移 0.33。±0.12 就撈得到底部，而且還沒碰到下巴砲塔（±0.30 會）。
+     */
+    const bellyC = await slice('extent', 'z',
+      { ...GRID, uWindow: [-0.12, 0.12] }, undefined, NOWIRE) as Extent
     const OFF_U = 0.40
     const topOff = await slice('extent', 'z',
       { ...GRID, uWindow: [OFF_U, OFF_U + 0.10] }, undefined, NOWIRE) as Extent
@@ -928,13 +936,17 @@ const stages: Record<string, Stage> = {
       }),
       [[-99, -2.50], [-1.30, 99]],
     ), 0.10, 1))
+    /**
+     * 【腹線也不用射線】原本是「四個原點的朝下射線取最低」，但 `castRay` 取的
+     * 是**上限以內最遠**的交點 —— 由 y = 0.90 往下射、上限 1.60 可以到 −0.70，
+     * 於是後機身那一段抓到了蒙皮**之外**的東西，整段低了 0.11。取極值把它
+     * 選了出來。這是坑 36 的同一條：上限不會落空，它換一個答案給你。
+     *
+     * 腹線與背線一樣落在中線上，直接讀 `extent` 中線帶的 `vMin`。
+     */
     const belly = fill(despike(despike(keep(
-      rs.planes.map((_, k) => {
-        const vs = rays.map((src, i) => ORIGINS[i]! - robustOf(src, k, -90))
-          .filter(Number.isFinite)
-        return vs.length ? Math.min(...vs) : NaN
-      }),
-      [[-99, -6.60], [-5.60, 3.40], [4.60, 9.80], [11.40, 99]],
+      bellyC.vMin.map((v) => (Number.isFinite(v) ? v : NaN)),
+      [[-99, -6.60], [-5.60, 3.40], [4.60, 9.10], [10.60, 99]],
     ), 0.08, -1), 0.08, 1))
 
     /**
@@ -1038,13 +1050,32 @@ const stages: Record<string, Stage> = {
       }
       return
     }
+    /**
+     * 【風擋是兩個平面，不是圓弧】超橢圓在任何指數下都是**圓滑**的，而 B-17
+     * 的風擋是兩片平玻璃夾出來的一道中脊。實測同一站（機體 z −3.08）：
+     *
+     * ```
+     *   x     0.00   0.30   0.60
+     *   y    1.803  1.517  1.349     ← 0→0.3 掉 0.286、0.3→0.6 只掉 0.168
+     * ```
+     *
+     * 對照一般機身站位（機體 z −1.68）：1.977 / 1.953 / 1.799 —— 頂上幾乎
+     * 是平的。差別不在指數 n，在**頂點是尖的還是圓的**。
+     *
+     * 做法：風擋那一段的上半圈，把索引 0…`RIDGE_I` 的點拉到「頂點 → 第
+     * `RIDGE_I` 點」的**直線**上。兩端各留兩站做過渡，否則相鄰環的剖面
+     * 形狀突變會折出一道橫向摺痕。
+     */
+    const WSHIELD = [-4.55, -3.65] as const   // 量測座標，機體 −3.43…−2.53
+    const WSHIELD_FLAT = [-4.35, -3.85] as const
+    const RIDGE_I = 3                          // OUT_DEG[3] = 54°
     /** 一站的十六點半剖面（右半，左半由 `buildHull` 鏡像） */
     const ringOf = (k: number): [number, number][] => {
       const a = halfW[k]!
       const bUp = top[k]! - AXIS_V
       const bDn = AXIS_V - belly[k]!
       const nn = Math.min(6, Math.max(1.4, expo[k]!))
-      return OUT_DEG.map((deg) => {
+      const pts: [number, number][] = OUT_DEG.map((deg) => {
         const u = deg * Math.PI / 180
         const b = deg >= 0 ? bUp : bDn
         return [
@@ -1052,6 +1083,20 @@ const stages: Record<string, Stage> = {
           AXIS_V + Math.sign(Math.sin(u)) * b * Math.abs(Math.sin(u)) ** (2 / nn),
         ]
       })
+      const z = rs.planes[k]!
+      const w = z < WSHIELD[0] || z > WSHIELD[1] ? 0
+        : z < WSHIELD_FLAT[0] ? (z - WSHIELD[0]) / (WSHIELD_FLAT[0] - WSHIELD[0])
+        : z > WSHIELD_FLAT[1] ? (WSHIELD[1] - z) / (WSHIELD[1] - WSHIELD_FLAT[1])
+        : 1
+      if (w > 0) {
+        const [xR, yR] = pts[RIDGE_I]!
+        const y0 = pts[0]![1]!
+        for (let i = 1; i < RIDGE_I; i++) {
+          const flat = y0 + (yR - y0) * (pts[i]![0]! / xR)
+          pts[i]![1] = pts[i]![1]! + (flat - pts[i]![1]!) * w
+        }
+      }
+      return pts
     }
     /**
      * 【機首尖端與尾錐是手工的，但尺度錨在量到的環上】（坑 15）

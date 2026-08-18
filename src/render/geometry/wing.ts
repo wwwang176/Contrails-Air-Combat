@@ -63,14 +63,29 @@ export interface WingParams {
    * `rootZ` → `kink.lead` →（後掠 `sweep`）→ 翼尖。這樣三個欄位各自對應一
    * 段量測值，不必先解一個聯立方程式才填得出來。
    */
-  kink?: {
-    /** 轉折的展向位置，半翼展的比例 */
-    at: number
-    /** 轉折處的弦長 */
-    chord: number
-    /** 轉折處的前緣 Z */
-    lead: number
-  }
+  kink?: Break
+  /**
+   * 多個轉折。`kink` 是它只有一個時的寫法，兩者不要同時給。
+   *
+   * 【為什麼需要】B-17G 的垂尾前緣是一條**凹曲線**：Y 2.50→2.60 走 0.372，
+   * 而 4.50→5.00 只走 0.24。第一版拿七片獨立的 `upright` 疊出來，逐片的
+   * 前緣是對的，但**每一片都是一個封閉的實體** —— 相鄰兩片的翼尖端面與
+   * 翼根端面完全重合，於是整片垂尾看起來是一疊有橫向接縫的階梯。
+   *
+   * 換成單一面板 + 七個轉折之後只有一個 mesh、沒有內部端面，而且厚度沿展向
+   * 連續。
+   */
+  breaks?: readonly Break[]
+}
+
+/** 展向的一個轉折站位。 */
+export interface Break {
+  /** 展向位置，半翼展的比例 */
+  at: number
+  /** 該處的弦長 */
+  chord: number
+  /** 該處的前緣 Z */
+  lead: number
 }
 
 /** 圓翼尖起始的展向位置（之內維持線性梯形）。 */
@@ -122,9 +137,11 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
   const sx = mirrored ? -1 : 1
   const round = p.tipRound ?? 1
   const base = p.tipRound === undefined ? [0, 1] : [0, ROUND_START, 0.95, 1]
-  // 轉折自己必須是一個站位，否則它會被兩側的內插抹平
-  const fractions = p.kink
-    ? [...new Set([...base, p.kink.at])].sort((a, b) => a - b)
+  /** 轉折自己必須是一個站位，否則它會被兩側的內插抹平 */
+  const breaks = [...(p.breaks ?? (p.kink ? [p.kink] : []))]
+    .sort((a, b) => a.at - b.at)
+  const fractions = breaks.length
+    ? [...new Set([...base, ...breaks.map((b) => b.at)])].sort((a, b) => a - b)
     : base
 
   // 厚度沿翼展線性收；省略 tipThickness 時退回「厚弦比固定」的舊行為
@@ -134,22 +151,28 @@ export function buildWingPanel(p: WingParams, mirrored: boolean): BufferGeometry
    * 弦長與前緣的展向分佈。沒有轉折時是 root → tip 的一條直線（與 2026-08-17
    * 之前**逐字相同**）；有轉折時是 root → kink → tip 的兩段折線。
    */
-  const k = p.kink
-  const tipLead = k
-    ? k.lead + Math.tan(p.sweep) * (1 - k.at) * p.halfSpan
+  const last0 = breaks[breaks.length - 1]
+  const tipLead = last0
+    ? last0.lead + Math.tan(p.sweep) * (1 - last0.at) * p.halfSpan
     : p.rootZ + Math.tan(p.sweep) * p.halfSpan
-  const piecewise = (u: number, root: number, mid: number | undefined, tip: number): number => {
-    if (!k || mid === undefined) return root + (tip - root) * u
-    return u <= k.at
-      ? root + (mid - root) * (u / k.at)
-      : mid + (tip - mid) * ((u - k.at) / (1 - k.at))
+  /** root →（逐個轉折）→ tip 的折線；沒有轉折時退回單一直線。 */
+  const piecewise = (u: number, root: number, tip: number, pick: (b: Break) => number): number => {
+    if (breaks.length === 0) return root + (tip - root) * u
+    let a0 = 0
+    let v0 = root
+    for (const b of breaks) {
+      if (u <= b.at) return v0 + (pick(b) - v0) * ((u - a0) / (b.at - a0))
+      a0 = b.at
+      v0 = pick(b)
+    }
+    return v0 + (tip - v0) * ((u - a0) / (1 - a0))
   }
 
   const stations: Station[] = fractions.map((u) => {
     const span = u * p.halfSpan
-    const baseChord = piecewise(u, p.rootChord, k?.chord, p.tipChord)
+    const baseChord = piecewise(u, p.rootChord, p.tipChord, (b) => b.chord)
     // 【符號】機首是 −Z，所以「後掠」＝翼尖前緣往 +Z（機尾方向）移動。
-    const baseLead = piecewise(u, p.rootZ, k?.lead, tipLead)
+    const baseLead = piecewise(u, p.rootZ, tipLead, (b) => b.lead)
     const chord = baseChord * tipFactor(u, round)
     return {
       x: sx * span,
