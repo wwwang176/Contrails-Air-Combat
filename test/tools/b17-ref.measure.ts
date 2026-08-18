@@ -431,6 +431,234 @@ const stages: Record<string, Stage> = {
   },
 
   /**
+   * 【探索用：機身的五條射線並排】烘焙之前要先知道**每一條射線分別在哪一站
+   * 開始打到別的東西**——機翼、發動機艙、水平尾翼、垂尾、背鰭整流罩、下巴
+   * 砲塔、球形腹部砲塔。坑 15：有些東西量不到，重點是**知道是哪些**。
+   *
+   * 五個角度：正上 90、右上 45、正右 0、右下 −45、正下 −90。
+   */
+  body: async (_page, _probe, slice) => {
+    const AXIS_V = 0.20
+    const rs = await slice('radial', 'z', {
+      from: -7.4, to: 15.6, count: 93, angles: 144, axisV: AXIS_V, maxRadius: 1.6,
+    }) as Radial
+
+    /** 最接近該角度的那一條射線；沒打到回 NaN */
+    const at = (row: readonly number[], deg: number): number => {
+      const want = deg * Math.PI / 180
+      let best = 0
+      const norm = (j: number) => {
+        let d = rs.theta[j]! - want
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        return Math.abs(d)
+      }
+      for (let j = 1; j < rs.theta.length; j++) if (norm(j) < norm(best)) best = j
+      return row[best]! > 0 ? row[best]! : NaN
+    }
+
+    console.log(`── 機身五條射線（原點 y = ${AXIS_V}，上限 1.6）─────────`)
+    console.log('   量測Z    背線Y   右上45   半寬X   右下45    腹線Y')
+    for (let k = 0; k < rs.planes.length; k++) {
+      const row = rs.r[k]!
+      const up = at(row, 90)
+      const dn = at(row, -90)
+      console.log(
+        `  ${n(rs.planes[k]!, 6, 2)}  ${n(AXIS_V + up)}  ${n(at(row, 45))}`
+        + `  ${n(at(row, 0))}  ${n(at(row, -45))}  ${n(AXIS_V - dn)}`,
+      )
+    }
+    console.log(`\n  背線／腹線是絕對高度（原點 ${AXIS_V} ± 射線長），中間三欄是射線長`)
+  },
+
+  /**
+   * 【哪一片才是機身蒙皮】`body` 量到背線整欄破破爛爛——砲塔、無線電艙的
+   * 開放槍位、背鰭整流罩都在正上方那條射線上。坑 20 說背線**必須**取正上方
+   * 的射線（擬合的 bUp 會把頂點往下拉），所以不能用擬合繞過去。
+   *
+   * 這一格用 `only` 逐片打同一組射線，問「哪一片打出來是連續而且平滑的」。
+   *
+   * 【這不是坑 5 的節點分類】坑 5 禁的是「猜哪一片是機身，然後直接拿它的
+   * 包圍盒當答案」。這裡不猜：每一片都打，用**連續性與平滑度**當判準，
+   * 判準是量出來的。
+   */
+  bodymesh: async (_page, _probe, slice) => {
+    const AXIS_V = 0.20
+    const CAND = ['Object_10', 'Object_16', 'Object_18', 'Object_20',
+      'Object_28', 'Object_30', 'Object_34']
+    const OPT = {
+      from: -7.0, to: 15.0, count: 45, angles: 72, axisV: AXIS_V, maxRadius: 1.8,
+    }
+    const at = (rs: Radial, k: number, deg: number): number => {
+      const want = deg * Math.PI / 180
+      const row = rs.r[k]!
+      let best = 0
+      const norm = (j: number) => {
+        let d = rs.theta[j]! - want
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        return Math.abs(d)
+      }
+      for (let j = 1; j < rs.theta.length; j++) if (norm(j) < norm(best)) best = j
+      return row[best]! > 0 ? row[best]! : NaN
+    }
+    /** 二階差分的 RMS —— 平滑度。破破爛爛的那幾片會大一個數量級 */
+    const rough = (v: readonly number[]): string => {
+      const good = v.map((x, i) => [i, x] as const).filter(([, x]) => Number.isFinite(x))
+      if (good.length < 5) return `站太少 ${good.length}`
+      let sum = 0, cnt = 0
+      for (let i = 1; i < good.length - 1; i++) {
+        if (good[i + 1]![0] - good[i - 1]![0] !== 2) continue
+        sum += (good[i - 1]![1] - 2 * good[i]![1] + good[i + 1]![1]) ** 2
+        cnt++
+      }
+      return cnt ? `${good.length} 站  二階差RMS ${n(Math.sqrt(sum / cnt))}` : `${good.length} 站`
+    }
+
+    console.log('── 逐片打正上方那條射線（原點 y = 0.2，上限 1.8）──────')
+    for (const only of ['(全部)', ...CAND]) {
+      const rs = await slice('radial', 'z', OPT, undefined,
+        only === '(全部)' ? undefined : only) as Radial
+      const ups = rs.planes.map((_, k) => AXIS_V + at(rs, k, 90))
+      console.log(`  ${only.padEnd(11)} 背線 ${rough(ups)}`)
+    }
+
+    console.log(`\n── 逐站對照：全部 vs 各片（背線絕對高度）────────────`)
+    const cols: number[][] = []
+    for (const only of ['(全部)', ...CAND]) {
+      const rs = await slice('radial', 'z', OPT, undefined,
+        only === '(全部)' ? undefined : only) as Radial
+      cols.push(rs.planes.map((_, k) => AXIS_V + at(rs, k, 90)))
+    }
+    const rs0 = await slice('radial', 'z', OPT, undefined, undefined) as Radial
+    console.log('   量測Z   全部  ' + CAND.map((c) => c.replace('Object', 'O').padStart(7)).join(''))
+    for (let k = 0; k < rs0.planes.length; k++) {
+      console.log(`  ${n(rs0.planes[k]!, 6, 2)}` + cols.map((c) => n(c[k]!)).join(''))
+    }
+  },
+
+  /**
+   * 【尾翼】水平尾翼沿 X 切、垂尾沿 Y 切。
+   *
+   * 【uWindow 一定要給】平尾與垂尾的 Z 範圍重疊，不限的話兩者混成一片。
+   */
+  tail: async (_page, _probe, slice) => {
+    const ex = await slice('extent', 'x', {
+      from: 0.3, to: 7.0, count: 68, uWindow: [9.0, 14.5],
+    }) as Extent
+    console.log('── 右半水平尾翼（uWindow Z ∈ [9.0, 14.5]）──────────')
+    console.log('      X      前緣Z     後緣Z     弦長     厚度   線段數')
+    const xs: number[] = []
+    for (let i = 0; i < ex.planes.length; i++) {
+      if (ex.count[i]! === 0) continue
+      xs.push(ex.planes[i]!)
+      console.log(`  ${n(ex.planes[i]!, 6, 2)}  ${n(ex.uMin[i]!)}  ${n(ex.uMax[i]!)}`
+        + `  ${n(ex.uMax[i]! - ex.uMin[i]!)}  ${n(ex.vMax[i]! - ex.vMin[i]!)}`
+        + `  ${String(ex.count[i]).padStart(6)}`)
+    }
+    console.log(`\n  半展 ${n(xs[xs.length - 1]!)}  ×2 = ${n(xs[xs.length - 1]! * 2)}`
+      + `   真機 ${REAL.tailSpan}`)
+
+    /**
+     * 【`extent` 沿 Y 切時，u 是 X、v 是 Z】不是「另外兩軸照 XYZ 順序」——
+     * 第一版把 `uWindow` 當成濾 Z 用，[7.0, 17.0] 於是濾成「只留 |x| 7…17」
+     * ＝**外翼**，量出來的四行是機翼不是垂尾，而且看起來完全正常。
+     *
+     * 對照 skill 的範例：`extent, y` 那一刀「x 幅度是翼展、每個 x 的 z 幅度
+     * 是弦長」。所以垂尾要濾的是 X（只留中線附近），讀的是 v。
+     */
+    const ey = await slice('extent', 'y', {
+      from: 0.4, to: 5.9, count: 45, uWindow: [-1.2, 1.2],
+    }) as Extent
+    console.log(`\n── 垂尾＋背鰭（沿 Y 切，uWindow X ∈ [−1.2, 1.2]）────`)
+    console.log('      Y      前緣Z     後緣Z     弦長    X幅度   線段數')
+    for (let i = 0; i < ey.planes.length; i++) {
+      if (ey.count[i]! === 0) continue
+      console.log(`  ${n(ey.planes[i]!, 6, 2)}  ${n(ey.vMin[i]!)}  ${n(ey.vMax[i]!)}`
+        + `  ${n(ey.vMax[i]! - ey.vMin[i]!)}  ${n(ey.uMax[i]! - ey.uMin[i]!)}`
+        + `  ${String(ey.count[i]).padStart(6)}`)
+    }
+  },
+
+  /**
+   * 【四具發動機艙】`wing` 那一格量到內艙佔 X 2.40…3.80、外艙 5.80…7.20。
+   * 這一格把射線原點放進**艙自己的剖面中心**，機翼就干擾不到（與座艙罩
+   * 那一招同源）。
+   */
+  nacelle: async (_page, _probe, slice) => {
+    const AXIS_V = -0.10
+    for (const [label, axisU] of [['內艙', 3.10], ['外艙', 6.50]] as const) {
+      const rs = await slice('radial', 'z', {
+        from: -5.0, to: 3.6, count: 44, angles: 72,
+        axisU, axisV: AXIS_V, maxRadius: 1.1,
+      }) as Radial
+      const at = (k: number, deg: number): number => {
+        const want = deg * Math.PI / 180
+        const row = rs.r[k]!
+        let best = 0
+        const norm = (j: number) => {
+          let d = rs.theta[j]! - want
+          while (d > Math.PI) d -= 2 * Math.PI
+          while (d < -Math.PI) d += 2 * Math.PI
+          return Math.abs(d)
+        }
+        for (let j = 1; j < rs.theta.length; j++) if (norm(j) < norm(best)) best = j
+        return row[best]! > 0 ? row[best]! : NaN
+      }
+      console.log(`\n── ${label}（射線原點 x = ${axisU}, y = ${AXIS_V}，上限 1.1）──`)
+      console.log('   量測Z    頂Y     右半寬   左半寬    底Y')
+      for (let k = 0; k < rs.planes.length; k++) {
+        console.log(`  ${n(rs.planes[k]!, 6, 2)}  ${n(AXIS_V + at(k, 90))}`
+          + `  ${n(at(k, 0))}  ${n(at(k, 180))}  ${n(AXIS_V - at(k, -90))}`)
+      }
+    }
+  },
+
+  /**
+   * 【哪裡是玻璃】skill 第 5b 步。**先問「那裡到底是不是玻璃」，再問
+   * 「暗色要怎麼補」**——He 111 的機腹就是敗在這一步沒做，前提從照片讀來，
+   * 六次修正每一次都合理、每一次都不對（坑 22）。
+   *
+   * 【量法】同一組射線打兩次：不過濾（＝最外側是什麼就回什麼）與
+   * `only: Object_50`（＝整台的玻璃合成的那一片，見 `parts`）。兩者在同一
+   * 格相等 → 那一格最外面就是玻璃。
+   */
+  glass: async (_page, _probe, slice) => {
+    const AXIS_V = 0.20
+    const OPT = {
+      from: -7.4, to: 15.6, count: 47, angles: 72, axisV: AXIS_V, maxRadius: 1.8,
+    }
+    const all = await slice('radial', 'z', OPT) as Radial
+    const gls = await slice('radial', 'z', OPT, undefined, 'Object_50') as Radial
+    const DEGS = [90, 60, 30, 0, -30, -60, -90, -120, -150, 180, 150, 120]
+    const idx = (deg: number): number => {
+      const want = deg * Math.PI / 180
+      let best = 0
+      const norm = (j: number) => {
+        let d = all.theta[j]! - want
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        return Math.abs(d)
+      }
+      for (let j = 1; j < all.theta.length; j++) if (norm(j) < norm(best)) best = j
+      return best
+    }
+    const cols = DEGS.map(idx)
+    console.log('── 每一格最外面是蒙皮還是玻璃（玻 = Object_50 在最外）──')
+    console.log('   量測Z  ' + DEGS.map((d) => String(d).padStart(5)).join(''))
+    for (let k = 0; k < all.planes.length; k++) {
+      let line = `  ${n(all.planes[k]!, 6, 2)}  `
+      for (const j of cols) {
+        const a = all.r[k]![j]!
+        const g = gls.r[k]![j]!
+        line += (a <= 0 ? '    ·' : g > 0 && Math.abs(g - a) < 0.02 ? '   玻' : '   蒙')
+      }
+      console.log(line)
+    }
+    console.log(`\n  · = 那個方向沒打到東西（上限 1.8 之內）`)
+  },
+
+  /**
    * 【對齊驗收】轉正之後三條都要對（He 111 那台就是靠這三條抓出 yaw 的正負
    * 憑推理寫反了）：
    *
