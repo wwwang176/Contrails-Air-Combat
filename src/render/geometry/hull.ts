@@ -126,6 +126,18 @@ export interface GlassPatch {
   i0: number
   i1: number
   /**
+   * 這一塊**不放玻璃，直接把蒙皮挖掉**。省略即照常放玻璃。
+   *
+   * 【誰需要】機腹吊艙。它是一個獨立的 loft（`BOLA`）插在封閉的機身上 ——
+   * 玻璃是吊艙自己的，機身在那一段仍然是完整的蒙皮，於是從吊艙的玻璃看
+   * 進去看到的是**機身的漆**。專案負責人：「機腹玻璃跟機身的連接處，機身
+   * 並沒有像機背一樣切開成缺口。」
+   *
+   * 挖掉之後，`glassBackGeometry` 的碗底（弦）就是艙口的頂，四周的碗壁
+   * 就是開口的框 —— 兩樣本來就會生，不必另外做。
+   */
+  hole?: boolean
+  /**
    * 玻璃沉進蒙皮、四周長出框壁（＝凹槽）。省略即**與蒙皮共面**。
    *
    * 【什麼時候該共面】玻璃**本身就是外殼**的時候 —— 全玻璃機首是一例，
@@ -348,8 +360,11 @@ export function buildHull(
       const k = patch.recess ? GLASS_SINK : 1
       const [gAi, gAj] = [sink(A, A.pts[i]!, k), sink(A, A.pts[j]!, k)]
       const [gBi, gBj] = [sink(B, B.pts[i]!, k), sink(B, B.pts[j]!, k)]
-      triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
-      triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
+      // `hole` 的補丁不放玻璃：這一片就是真的缺口
+      if (!patch.hole) {
+        triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
+        triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
+      }
 
       const lidA = lidAt(s, patch), lidB = lidAt(s + 1, patch)
       const [bAi, bAj] = [lidA[i] ?? gAi, lidA[j] ?? gAj]
