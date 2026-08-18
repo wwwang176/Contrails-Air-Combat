@@ -964,18 +964,20 @@ const stages: Record<string, Stage> = {
    */
   bolahole: async (_page, _probe, slice) => {
     const QC = 3.0889
-    const AXIS_V = 0.25
+    // 射線原點放在**吊艙自己的剖面中心**（BOLA 的 centerY ≈ −0.75），
+    // 量到的角度才能直接當成 `LoftPart.arc` 用
+    const AXIS_V = -0.75
     type Rad = { planes: number[]; theta: number[]; r: number[][] }
     const opt = {
       from: 5.2, to: 8.6, count: 35, angles: 360,
-      axisV: AXIS_V, maxRadius: 1.8,
+      axisV: AXIS_V, maxRadius: 1.0,
     }
     const skin = await slice('radial', 'z', opt, undefined, 'hull') as Rad
     const glassOnly = await slice('radial', 'z', opt, undefined, 'windows') as Rad
     const idxAt = (d: number) => skin.theta.reduce((b, th, j) => (
       Math.abs(th - d * Math.PI / 180) < Math.abs(skin.theta[b]! - d * Math.PI / 180) ? j : b
     ), 0)
-    const DEGS = [230, 245, 255, 265, 270, 275, 285, 295, 310]
+    const DEGS = [190, 200, 215, 230, 245, 260, 270, 280, 295, 310, 325, 340, 350]
     console.log('── 機腹：蒙皮 vs 玻璃（Ｓ=只有蒙皮 Ｇ=只有玻璃 ＝兩者同高 ・=都沒有）──')
     console.log('   量測Z   機體Z   ' + DEGS.map((d) => String(d).padStart(4)).join(''))
     for (let k = 0; k < skin.planes.length; k++) {
