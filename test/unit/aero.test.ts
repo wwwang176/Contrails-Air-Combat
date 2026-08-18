@@ -10,6 +10,7 @@ import { atmosphere } from '../../src/physics/atmosphere'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
+import { B17G } from '../../src/specs/b17g'
 import { DEG } from '../../src/core/math'
 import type { AeroState, AirData, ForceMoment } from '../../src/physics/types'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -357,7 +358,7 @@ describe('stallDynamicPressure', () => {
    * 高度——9,000 m 要 268 km/h 才有同樣的動壓，這正是真實情況。
    */
   it('與高度無關：對照 stallSpeed() 在四個高度算出的 ½ρVs²', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const expected = stallDynamicPressure(spec)
       for (const alt of [0, 3000, 6000, 9000]) {
         const vs = stallSpeed(spec, alt, 1)
@@ -387,7 +388,7 @@ describe('lowSpeedEffectiveness', () => {
   const knee = (spec: AircraftSpec) => LOW_SPEED_KNEE * stallDynamicPressure(spec)
 
   it('拐點以上恆為 1', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const q = knee(spec)
       expect(lowSpeedEffectiveness(spec, q)).toBe(1)
       expect(lowSpeedEffectiveness(spec, q * 1.5)).toBe(1)
@@ -396,7 +397,7 @@ describe('lowSpeedEffectiveness', () => {
   })
 
   it('拐點以下等於 q / q_low', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const q = knee(spec)
       expect(lowSpeedEffectiveness(spec, q * 0.5)).toBeCloseTo(0.5, 12)
       expect(lowSpeedEffectiveness(spec, q * 0.25)).toBeCloseTo(0.25, 12)
@@ -404,7 +405,7 @@ describe('lowSpeedEffectiveness', () => {
   })
 
   it('在拐點連續（左右極限相等）', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const q = knee(spec)
       const below = lowSpeedEffectiveness(spec, q * (1 - 1e-9))
       expect(below).toBeCloseTo(1, 8)
@@ -415,7 +416,7 @@ describe('lowSpeedEffectiveness', () => {
   it('q = 0 時為 0，不是 NaN', () => {
     // 【為什麼不必設下限】力矩 = 動壓 × 面積 × 係數，動壓為 0 時力矩本來
     // 就是 0。乘數再小也不會除出無限大（spec §4.5）。
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       expect(lowSpeedEffectiveness(spec, 0)).toBe(0)
       expect(Number.isFinite(lowSpeedEffectiveness(spec, 0))).toBe(true)
     }
@@ -436,7 +437,7 @@ describe('lowSpeedEffectiveness', () => {
    * 1858 Pa、q_ref 是 10884 Pa，相隔 5.9 倍。兩個機制不會同時作用。
    */
   it('低速端與高速端的作用區間不重疊', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       expect(knee(spec)).toBeLessThan(spec.controlStiffening.qRef)
       // 在兩者中間取一點，兩個乘數都應該是 1
       const mid = Math.sqrt(knee(spec) * spec.controlStiffening.qRef)
@@ -471,14 +472,14 @@ describe('aeroForceMoment 的低速舵面衰減', () => {
   }
 
   it('拐點以上：升降舵力矩係數就是 cmDe，未被衰減', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const q = LOW_SPEED_KNEE * stallDynamicPressure(spec) * 1.5
       expect(elevatorCmDe(spec, q)).toBeCloseTo(spec.moments.cmDe, 9)
     }
   })
 
   it('拐點以下：力矩係數等於 cmDe × (q / q_low)', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109G6, B17G]) {
       const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
       for (const frac of [0.75, 0.5, 0.25]) {
         expect(elevatorCmDe(spec, qLow * frac))
