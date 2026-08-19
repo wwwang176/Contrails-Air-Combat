@@ -1026,11 +1026,13 @@ const stages: Record<string, Stage> = {
      * 中線，跟 `rearTop` 同一招。上限壓在 `top` —— 圓管不可能比中線高。
      */
     /**
-     * ── 【尚未處理】風擋是一片平面，而網格切不出它 ──────────────
+     * ── 風擋：先定平面，再讓 poly 遷就它 ──────────────────
      *
-     * 專案負責人：「是不是先決定玻璃位置，再想辦法讓機身的 poly 變形？」
-     * 方向是對的，而且平面**量得到**。參考模型的透明件全部在 `Object_50`，
-     * 只切它就讀得到玻璃自己的表面（`extent`、`only: '^Object_50$'`）：
+     * 專案負責人：「玻璃是兩個斜的正方形；是不是先決定玻璃位置，再想辦法讓
+     * 機身的 poly 變形？」—— 這一段就是那個做法。
+     *
+     * 【平面是量出來的】參考模型的透明件全部在 `Object_50`，只切它就讀得到
+     * 玻璃自己的表面（`extent`、`only: '^Object_50$'`，機體座標）：
      *
      * ```
      *   機體Z   x0.05  x0.15  x0.25  x0.35  x0.45  x0.55  x0.65
@@ -1044,37 +1046,48 @@ const stages: Record<string, Stage> = {
      *   -2.88                 1.803  1.710         1.496  1.466
      * ```
      *
-     * 下緣（每條 X 帶上玻璃的起點）與上緣（y ≈ 1.80）各是一條直線。取三點
-     * 解平面、第四點驗證 —— **偏差 0.011 m，真的共面**：
+     * 下緣（每條 X 帶上玻璃的起點）與上緣（y ≈ 1.80）各是一條直線。取三點解
+     * 平面、第四點驗證 —— **偏差 0.011 m，真的共面**：
      *
      * ```
      *   y = 4.8235 − 0.8013·|x| + 0.9850·z
      *   法線 (0.496, 0.619, −0.609)，與水平面 51.7°，中線上的傾斜 44.6°
-     *   下緣  z = −3.24 + 0.583·x      上緣  z = −3.07 + 0.813·x
-     *   艙緣  x ≈ 0.70
+     *   上緣 x = (z + 3.07) / 0.813     下緣 x = (z + 3.24) / 0.583
      * ```
      *
-     * 另一台 lowpoly 的 `B17.dae` 量到 (0.65, 0.58, −0.50)、55° —— 同一個量級。
+     * 另一台 lowpoly 的 `B17.dae` 量到 (0.65, 0.58, −0.50)、55°，同一個量級。
      *
-     * ── 兩次嘗試都退掉了，原因是網格 ─────────────────────
+     * 【為什麼「只是把 y 算在平面上」不夠】試過。烘出來**每一站只有一個頂點
+     * 落在平面上** —— 風擋在 z 方向只有 0.20…0.32 m，而站距 0.175、環的取樣
+     * 角度又固定，平面斜著穿過網格，連不成一片。
      *
-     * 甲、「那兩條緣線之間的頂點，y 直接由平面算」。烘出來**每一站只有一個
-     *     頂點落在平面上** —— 風擋在 z 方向只有 0.20…0.32 m，而站距 0.175、
-     *     環的取樣角度又固定，平面斜著穿過網格，連不成一片。
+     * 【做法】兩件事一起做：
      *
-     * 乙、「指定索引 2 與 3 坐在平面的內外緣上，其餘重新分佈」。那一格確實
-     *     每一站都共面了，但**索引 2 的 x 在相鄰兩站之間要由 0.48 跳到 0.02**
-     *     （風擋的前尖在中線上、後端在 x 0.66），loft 因此扭掉，算圖比原本
-     *     還糟。
+     * ① **站位在這一段加密**（機體 −3.62…−2.12 改成 0.06 一站）。烘焙因此由
+     *    `ringOf(k)` 改成 `ringAt(z)`，錨點曲線在任意 z 內插。
+     * ② **索引 1 與 2 改坐在平面的上緣與下緣上**，其餘索引重新分佈；而且是
+     *    **漸變**的（`blendAt`），不能在進出風擋那一站突然切換 —— 第一版讓
+     *    索引跟著最近的自然位置走，於是索引 2 的 x 在相鄰兩站之間由 0.48
+     *    跳到 0.02，loft 整個扭掉。
      *
-     * 要做對得動兩件事，那是重寫烘焙不是調參數：
-     *
-     *   ① 站位在這一段要加密（0.175 → 0.06 上下），現在整條機身是等距的
-     *   ② 索引的重新分佈要在更寬的一段 z 裡**漸變**，不能在進出風擋那一站
-     *      突然切換
-     *
-     * **交專案負責人決定要不要做。**
+     * 於是 `(1, 2)` 那一格每一站都是風擋，四個角都在同一個平面上 —— 沿 z 連
+     * 起來是一片**真正的**平面，不是「接近平面」。
      */
+    const PANE_A = 4.8235
+    const PANE_B = 0.8013
+    const PANE_C = 0.9850
+    const PANE_X = 0.70                        // 艙緣的半寬
+    /** 風擋在某一站佔的 x 區間（上緣、下緣兩條線反解，機體 z） */
+    const paneLo = (zb: number): number => (zb + 3.07) / 0.813
+    const paneHi = (zb: number): number => (zb + 3.24) / 0.583
+    const paneY = (x: number, zb: number): number => PANE_A - PANE_B * x + PANE_C * zb
+    /** 索引重分佈的融入／融出（機體 z）。中間兩個值是風擋自己的頭尾 */
+    const BLEND = [-3.40, -3.22, -2.50, -2.20] as const
+    const smooth = (t: number): number => t * t * (3 - 2 * t)
+    const blendAt = (zb: number): number => (
+      zb <= BLEND[0] || zb >= BLEND[3] ? 0
+        : zb < BLEND[1] ? smooth((zb - BLEND[0]) / (BLEND[1] - BLEND[0]))
+          : zb > BLEND[2] ? smooth((BLEND[3] - zb) / (BLEND[3] - BLEND[2])) : 1)
     const BOX = [-4.27, 3.18] as const         // 量測座標，機體 −3.15…+4.30
     const BOX_FULL = [-3.62, 1.98] as const    // 機體 −2.50…+3.10
     const BOX_W = 0.60                         // 方盒的半寬
@@ -1200,12 +1213,24 @@ const stages: Record<string, Stage> = {
      * 風擋緣線量到 50.6°、另一台 lowpoly 量到 50.1° 與 52.8°；牆比玻璃的緣線
      * 陡一點是對的 —— 玻璃是**斜**的平面，牆是垂直的。
      */
+    /**
+     * 錨點曲線在任意量測 z 的值。站位是等距的，所以直接線性內插。
+     *
+     * 【為什麼需要】風擋只有 0.2…0.3 m 長，站距 0.175 切不出它（見上面）。
+     * 那一段要加密，而錨點是逐站量的 —— 加密的站位只能由曲線內插來。
+     */
+    const at = (v: readonly number[], zm: number): number => {
+      const u = (zm - rs.planes[0]!) / STEP
+      const i = Math.max(0, Math.min(v.length - 2, Math.floor(u)))
+      const f = Math.max(0, Math.min(1, u - i))
+      return v[i]! + (v[i + 1]! - v[i]!) * f
+    }
     /** 一站的十六點半剖面（右半，左半由 `buildHull` 鏡像） */
-    const ringOf = (k: number): [number, number][] => {
-      const a = halfW[k]!
-      const bUp = fuse[k]! - AXIS_V        // 圓管自己的背線，不是中線最高點
-      const bDn = AXIS_V - belly[k]!
-      const nn = Math.min(6, Math.max(1.4, expo[k]!))
+    const ringAt = (zm: number): [number, number][] => {
+      const a = at(halfW, zm)
+      const bUp = at(fuse, zm) - AXIS_V     // 圓管自己的背線，不是中線最高點
+      const bDn = AXIS_V - at(belly, zm)
+      const nn = Math.min(6, Math.max(1.4, at(expo, zm)))
       const pts: [number, number][] = OUT_DEG.map((deg) => {
         const u = deg * Math.PI / 180
         const b = deg >= 0 ? bUp : bDn
@@ -1223,16 +1248,87 @@ const stages: Record<string, Stage> = {
        * 是 2.35。**牆的位置由取樣點決定**，所以 `BOX_W` 不必訂得很準 ——
        * 0.41 與 0.63 之間的任何值都生出同一面牆。
        */
-      const w = boxWAt(rs.planes[k]!)
+      const half = pts.length / 2
+      const t = at(top, zm)
+      const w = boxWAt(zm)
+      const zb = zm - QUARTER_CHORD
+      /** 同一站的超橢圓在任意 x 的上緣 */
+      const hullY = (x: number): number =>
+        AXIS_V + bUp * (1 - Math.min(1, (Math.min(x, a) / a) ** nn)) ** (1 / nn)
+
+      // ① 索引重新分佈：1 與 2 坐到風擋的上緣與下緣上（漸變）
+      const bw = blendAt(zb)
+      if (bw > 0) {
+        /**
+         * 【上下限用半寬的比例，不要用 `PANE_X`】兩條緣線在風擋結束之後會
+         * 一路往外跑，夾在 `PANE_X` 上就會**兩個都停在 0.70**、退化成一點
+         * （實測機體 −2.48 那一站 i1 與 i2 都是 0.70，而且 y 由 1.761 掉到
+         * 1.439 —— 一道崖）。夾在半寬的比例上就繼續分得開。
+         */
+        const xLo = Math.min(PANE_X - 0.03, Math.max(0.02, paneLo(zb)))
+        const xHi = Math.min(PANE_X, Math.max(xLo + 0.03, paneHi(zb)))
+        /**
+         * 【只動 1 與 2，其餘只保證單調】第一版把索引 3…6 整段重排到
+         * `[xHi, 半寬]`，而 `xHi` 由 0.07 走到 0.70，於是那幾條在相鄰站位
+         * 之間跑很遠 —— 算圖上是一片扇形的細條。改成「不小於原位，也不小於
+         * 前一個 + 0.03」，絕大多數站位它們一個字都不動。
+         */
+        const x1 = pts[1]![0]! + (xLo - pts[1]![0]!) * bw
+        const x2 = pts[2]![0]! + (xHi - pts[2]![0]!) * bw
+        pts[1] = [x1, hullY(x1)]
+        pts[2] = [x2, hullY(x2)]
+        let prev = x2
+        for (let i = 3; i < half - 1; i++) {
+          const x = Math.max(pts[i]![0]!, prev + 0.10)
+          pts[i] = [x, hullY(x)]
+          prev = x
+        }
+      }
+
+      // ② 方盒
       if (w > 0) {
-        const t = top[k]!
-        for (let i = 0; i < pts.length / 2; i++) {
+        for (let i = 0; i < half; i++) {
           if (pts[i]![0]! > w) break
           pts[i]![1] = Math.max(pts[i]![1]!, t)
         }
       }
+
+      /**
+       * ③ 風擋平面。範圍就是上下兩條緣線之間，不必另外訂 z 範圍。
+       *
+       * 【要**取代**不能 `Math.max`】風擋的上緣（y ≈ 1.80）比甲板（1.92…1.96）
+       * 低 0.12～0.16 —— 參考模型量到的就是這樣，那是風擋的上框。用 `max` 的
+       * 話方盒會把上緣那個頂點提到甲板高度，那一格就**不共面**了，整片又不是
+       * 平面。取代之後 (0,1) 那一格自然變成上框的那個面。
+       *
+       * 【範圍之內要無條件取代】原本加了「平面高於機殼才用」，結果機體
+       * −3.02 那一站的索引 2 被擋掉了 —— 那裡我的圓管給 1.671 而參考的玻璃
+       * 是 1.544，**圓管自己偏高 0.13**（`fuse` 在機首那幾站的反解偏高，見
+       * 檔頭）。玻璃是量到的外表面，範圍之內它**就是**蒙皮，該以它為準。
+       */
+      const eLo = paneLo(zb)
+      const eHi = Math.min(paneHi(zb), PANE_X)
+      for (let i = 0; i < half; i++) {
+        const x = pts[i]![0]!
+        if (x < eLo - 1e-9 || x > eHi + 1e-9) continue
+        pts[i]![1] = paneY(x, zb)
+      }
       return pts
     }
+    /**
+     * 站位。整條機身照量測的等距站位，**駕駛艙那一段換成 0.06 一站**
+     * （見上面：風擋在 z 方向只有 0.2…0.3 m，0.175 切不出它）。
+     */
+    const DENSE = { from: -3.44, to: -2.24, step: 0.09 } as const   // 機體座標
+    const stations: number[] = []
+    for (const zm of rs.planes) {
+      const zb = zm - QUARTER_CHORD
+      if (zb < DENSE.from || zb > DENSE.to) stations.push(zm)
+    }
+    for (let zb = DENSE.from; zb <= DENSE.to + 1e-9; zb += DENSE.step) {
+      stations.push(zb + QUARTER_CHORD)
+    }
+    stations.sort((p, q) => p - q)
     /**
      * 【機首尖端與尾錐是手工的，但尺度錨在量到的環上】（坑 15）
      *
@@ -1254,17 +1350,18 @@ const stages: Record<string, Stage> = {
       `  { z: ${z.toFixed(4)}, half: [${pts}] },`
 
     console.log('// ── 貼進 src/render/geometry/b17g.hull.ts 的 B17G_HULL ──')
-    console.log(`// QUARTER_CHORD ${QUARTER_CHORD}  站距 ${STEP}  ${rs.planes.length} 站`)
-    const first = ringOf(0)
+    console.log(`// QUARTER_CHORD ${QUARTER_CHORD}  站距 ${STEP}`
+      + `（駕駛艙 ${DENSE.step}）  ${stations.length} 站`)
+    const first = ringAt(stations[0]!)
     for (const [z, f] of [[-6.3798, 0.22], [-6.2200, 0.62]] as const) {
       console.log(line(z, shrink(first, f, 0)))
     }
-    for (let k = 0; k < rs.planes.length; k++) {
-      const pts = ringOf(k).map(([x, y]) => `[${x.toFixed(4)}, ${y.toFixed(4)}]`)
-      console.log(line(rs.planes[k]! - QUARTER_CHORD, pts.join(', ')))
+    for (const zm of stations) {
+      const pts = ringAt(zm).map(([x, y]) => `[${x.toFixed(4)}, ${y.toFixed(4)}]`)
+      console.log(line(zm - QUARTER_CHORD, pts.join(', ')))
     }
-    const last = ringOf(rs.planes.length - 1)
-    const lastZ = rs.planes[rs.planes.length - 1]! - QUARTER_CHORD
+    const last = ringAt(stations[stations.length - 1]!)
+    const lastZ = stations[stations.length - 1]! - QUARTER_CHORD
     for (const [z, f] of [
       [13.9000, 0.92], [14.2500, 0.74], [14.6000, 0.52],
       [14.9500, 0.30], [15.3000, 0.10],
