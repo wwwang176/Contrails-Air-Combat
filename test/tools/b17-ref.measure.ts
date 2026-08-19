@@ -1090,11 +1090,46 @@ const stages: Record<string, Stage> = {
           : zb > BLEND[2] ? smooth((BLEND[3] - zb) / (BLEND[3] - BLEND[2])) : 1)
     const BOX = [-4.27, 3.18] as const         // 量測座標，機體 −3.15…+4.30
     const BOX_FULL = [-3.62, 1.98] as const    // 機體 −2.50…+3.10
-    const BOX_W = 0.60                         // 方盒的半寬
-    const boxWAt = (z: number): number => BOX_W * (
+    /**
+     * 【方盒的半寬不是定值，駕駛艙那一段比較寬】逐條 X 帶量「y 掉出頂點
+     * 0.25 的那個 x」：機體 −2.48 是 **0.668**、−1.98 是 **0.669**，而
+     * 0.02 之後是 0.59…0.62。取 0.70 → 0.60，在機體 −2.60…−1.00 之間收。
+     *
+     * 這一條是人工回報「玻璃跟機身沒有好好銜接，有一個奇怪的斷面」的根因之
+     * 一：風擋的下緣在機體 −2.54 走到 x 0.70 才結束，而甲板只到 0.60 ——
+     * 索引 2 掉進「風擋已經沒了、甲板又還沒到」的空隙，一站掉 0.29 再跳
+     * 回 0.50。
+     */
+    const boxWOf = (zb: number): number => (
+      zb <= -1.40 ? 0.70 : zb >= 0.00 ? 0.60 : 0.70 - 0.10 * (zb + 1.40) / 1.40)
+    const boxWAt = (z: number): number => boxWOf(z - QUARTER_CHORD) * (
       z < BOX[0] || z > BOX[1] ? 0
         : z < BOX_FULL[0] ? (z - BOX[0]) / (BOX_FULL[0] - BOX[0])
           : z > BOX_FULL[1] ? (BOX[1] - z) / (BOX[1] - BOX_FULL[1]) : 1)
+    /**
+     * 【甲板不是硬平頂，外側是一段緩降的冠】參考模型量到的：
+     *
+     * ```
+     *   機體Z   x0.45  x0.55  x0.65  x0.75
+     *   -2.48   1.914  1.891  1.783  1.405
+     *    0.02   1.949  1.920  1.652  1.417
+     * ```
+     *
+     * 由 x 0.45 起以 **0.65** 的斜率緩降，到艙緣才硬收。硬平頂配上艙緣那一
+     * 刀，銜接處會是一道 0.2 的階；緩降之後風擋的後緣（1.761）接到甲板
+     * （1.800）只差 0.04。
+     */
+    const BOX_FLAT = 0.45
+    const BOX_CROWN = 0.90
+    /**
+     * 【艙緣不能是一刀切】方盒的外緣如果是硬邊，**任何頂點在相鄰兩站之間跨
+     * 過它就是一階**：實測索引 3 由 x 0.78 走到 0.68，y 一站跳 0.473。
+     * 給它一段有斜率的外緣（量到 x 0.65→0.75 是 3.8、0.75→0.85 是 1.9，
+     * 取 3.0），跨過去的時候就只是換一段斜率。
+     */
+    const BOX_OUT = 3.0
+    const boxY = (x: number, t: number, w: number): number =>
+      t - BOX_CROWN * Math.max(0, x - BOX_FLAT) - BOX_OUT * Math.max(0, x - w)
     const fuseAt = (k: number, nn: number): number => {
       /**
        * 【方盒之外一律直接用中線】那裡沒有盒子，中線最高點**就是**機身的背線，
@@ -1279,17 +1314,16 @@ const stages: Record<string, Stage> = {
         pts[2] = [x2, hullY(x2)]
         let prev = x2
         for (let i = 3; i < half - 1; i++) {
-          const x = Math.max(pts[i]![0]!, prev + 0.10)
+          const x = Math.max(pts[i]![0]!, prev + 0.03)
           pts[i] = [x, hullY(x)]
           prev = x
         }
       }
 
-      // ② 方盒
+      // ② 方盒。外緣有斜率，掉到機殼之下自然收手，不必再用 `w` 截斷
       if (w > 0) {
         for (let i = 0; i < half; i++) {
-          if (pts[i]![0]! > w) break
-          pts[i]![1] = Math.max(pts[i]![1]!, t)
+          pts[i]![1] = Math.max(pts[i]![1]!, boxY(pts[i]![0]!, t, w))
         }
       }
 
