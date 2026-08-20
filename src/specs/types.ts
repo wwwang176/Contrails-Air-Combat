@@ -5,6 +5,15 @@ export interface AircraftSpec {
   id: string
   name: string
   faction: 'allied' | 'axis'
+  /**
+   * 機種定位。**只有 `specs/feel.ts` 讀它** —— 兩類飛機套不同的手感輪廓。
+   *
+   * 【為什麼是一個欄位而不是一份 id 清單】寫成 `['he111', 'b17g']` 那種硬編
+   * 清單的話，下一台轟炸機加進來時不會有任何東西提醒你去補；型別上少一個
+   * 必填欄位會直接編譯失敗。這個專案已經被硬編機種清單咬過一次（見
+   * `.claude/skills/aircraft-from-reference` 的「不要為外型寫測試」末段）。
+   */
+  role: 'fighter' | 'bomber'
 
   /** 戰鬥重量，kg */
   mass: number

@@ -43,6 +43,7 @@ export const B17G: AircraftSpec = {
   id: 'b17g',
   name: 'B-17G Flying Fortress',
   faction: 'allied',
+  role: 'bomber',
 
   /**
    * 史實：空重 16,391 kg（36,135 lb）、最大起飛 29,710 kg（65,500 lb）。

@@ -36,6 +36,7 @@ export const BF109G6: AircraftSpec = {
   id: 'bf109g6',
   name: 'Bf 109 E-4',
   faction: 'axis',
+  role: 'fighter',
 
   mass: 3150,
   inertia: { pitch: 6200, yaw: 10500, roll: 4200 },

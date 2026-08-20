@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { applyFeel, GAME_FEEL, HISTORICAL } from '../../src/specs/feel'
+import {
+  applyFeel, GAME_FEEL, HISTORICAL, BOMBER_FEEL, BOMBER_EXCESS_POWER, feelFor,
+} from '../../src/specs/feel'
+import { maxLevelSpeed, maxClimbRate } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
-import type { AircraftSpec } from '../../src/specs/types'
+import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
+import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
+import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const DT = 1 / 240
 const FWD = new Vector3(0, 0, -1)
@@ -101,5 +106,54 @@ describe('手感係數層', () => {
     const ratioFeel = rollTravel(applyFeel(P51D, GAME_FEEL), 1.5)
       / rollTravel(applyFeel(BF109G6, GAME_FEEL), 1.5)
     expect(Math.abs(ratioFeel / ratioBase - 1)).toBeLessThan(0.05)
+  })
+})
+
+/**
+ * 轟炸機的手感輪廓（2026-08-20）。守的是**設計的兩個支點**，不是六個數字：
+ * 「只動多出來的功率」與「極速不動」。倍率本身要重新裁定時，這四條裡只有
+ * 最後一條的區間需要跟著改。
+ */
+describe('轟炸機另一組手感輪廓', () => {
+  it('feelFor 依 role 分流，不靠機種 id 硬編清單', () => {
+    expect(feelFor(P51D)).toBe(GAME_FEEL)
+    expect(feelFor(BF109G6)).toBe(GAME_FEEL)
+    expect(feelFor(HE111)).toBe(BOMBER_FEEL)
+    expect(feelFor(B17G)).toBe(BOMBER_FEEL)
+  })
+
+  it('只有 power 與 cd0 不同，其餘四項與 GAME_FEEL 逐字相同', () => {
+    expect(BOMBER_FEEL.roll).toBe(GAME_FEEL.roll)
+    expect(BOMBER_FEEL.oswald).toBe(GAME_FEEL.oswald)
+    expect(BOMBER_FEEL.lift).toBe(GAME_FEEL.lift)
+    expect(BOMBER_FEEL.mass).toBe(GAME_FEEL.mass)
+    expect(BOMBER_FEEL.power).toBeCloseTo(GAME_FEEL.power * BOMBER_EXCESS_POWER, 10)
+    expect(BOMBER_FEEL.cd0).toBeCloseTo(GAME_FEEL.cd0 * BOMBER_EXCESS_POWER, 10)
+  })
+
+  /**
+   * 這一條是整組設計的支點。`V_max³ ∝ power / cd0`，同乘一個因子時比值不變，
+   * 所以極速不該動。若日後有人只調其中一項，這裡會先紅。
+   */
+  it('power 與 cd0 同乘 ⇒ 海平面極速不動（1% 之內）', () => {
+    for (const spec of [HE111, B17G]) {
+      const a = maxLevelSpeed(applyFeel(spec, GAME_FEEL), 0)
+      const b = maxLevelSpeed(applyFeel(spec, BOMBER_FEEL), 0)
+      expect(Math.abs(b - a) / a).toBeLessThan(0.01)
+    }
+  })
+
+  /**
+   * 裁定的內容本身：轟炸機的出貨爬升率對史實的倍數，要落在戰鬥機那個
+   * 1.89× 附近。不另訂輪廓時是 2.71×／2.94×，會直接超出上界。
+   */
+  it('出貨爬升倍數落在 [1.7, 2.1]（戰鬥機是 1.89×）', () => {
+    const cases: [AircraftSpec, HistoricalReference][] = [
+      [HE111, HE111_HISTORICAL], [B17G, B17G_HISTORICAL]]
+    for (const [spec, hist] of cases) {
+      const r = maxClimbRate(applyFeel(spec, BOMBER_FEEL), 0).rate / hist.climbRateSeaLevel
+      expect(r).toBeGreaterThanOrEqual(1.7)
+      expect(r).toBeLessThanOrEqual(2.1)
+    }
   })
 })

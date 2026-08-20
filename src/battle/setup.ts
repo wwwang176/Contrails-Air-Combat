@@ -20,7 +20,7 @@ import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
 import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
 import { pickTakeover, TAKEOVER_DELAY } from './takeover'
-import { applyFeel, GAME_FEEL } from '../specs/feel'
+import { applyFeel, feelFor } from '../specs/feel'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
@@ -325,7 +325,12 @@ export function createBattle(
     // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
     // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
     // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
-    const spec = applyFeel(blueSide ? cfg.blueSpec : cfg.redSpec, GAME_FEEL)
+    //
+    // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
+    // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
+    // 戰鬥機放大，爬升率變成史實的三倍。
+    const base = blueSide ? cfg.blueSpec : cfg.redSpec
+    const spec = applyFeel(base, feelFor(base))
 
     /**
      * 追擊：紅隊搬到藍隊**後方**、拉高、而且**同向**。

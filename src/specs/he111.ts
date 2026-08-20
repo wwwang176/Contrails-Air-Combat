@@ -37,6 +37,7 @@ export const HE111: AircraftSpec = {
   id: 'he111',
   name: 'He 111 H-6',
   faction: 'axis',
+  role: 'bomber',
 
   /**
    * 史實：空重 8,680 kg、最大起飛 14,000 kg。

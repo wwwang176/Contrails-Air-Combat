@@ -10,6 +10,7 @@ export const P51D: AircraftSpec = {
   id: 'p51d',
   name: 'P-51D Mustang',
   faction: 'allied',
+  role: 'fighter',
 
   mass: 4300,
   inertia: { pitch: 11000, yaw: 20000, roll: 8800 },
