@@ -355,8 +355,9 @@ export const BARREL_LENGTH = 0.9
  * 回走 0.9 只到 15.504，落在盒外；用槍管長度當護欄距離會讓它**必然假紅**。
  *
  * 這個常數等於「槍管 + 砲塔本體埋在機內的深度 + 命中盒的簡化餘量」。
- * 2.0 對已知的十三座都成立，而且仍然遠小於任何一台的機身長度 —— 一座
- * 位置打錯而飄在機外三公尺的砲塔照樣抓得到。
+ * **已驗算的只有三座已填位置**（B-17G 的 chin 與 tail、He 111 的 nose），
+ * 其餘十座要等 Task 3 量完才由測試保證。2.0 仍然遠小於任何一台的機身長度
+ * —— 一座位置打錯而飄在機外三公尺的砲塔照樣抓得到。
  */
 export const TURRET_MOUNT_REACH = 2.0
 
@@ -841,8 +842,10 @@ describe('砲塔的位置與射界', () => {
        * （`src/specs/b17g.ts:269`）—— 那條斷言必然紅，而正確的反應不是
        * 把命中盒撐大，是換一條有意義的護欄。
        *
-       * 真正要守的是「這挺槍**接在飛機上**」：從槍口沿 −axis 回走一段槍管
-       * 長度，必須碰到某個命中盒。缺陷情境：某座砲塔的位置打錯正負號而
+       * 真正要守的是「這挺槍**接在飛機上**」：從槍口沿 −axis 回走
+       * `TURRET_MOUNT_REACH`，必須碰到某個命中盒。**那個距離刻意比槍管長**
+       * —— 命中盒是簡化的傷害體積，比實際機體小（B-17G 的機身外殼到
+       * z 16.25，而 tail 盒只到 15.30）。缺陷情境：某座砲塔的位置打錯而
        * 飄在機外三公尺。
        *
        * 【判準用 `!== NO_HIT` 而不是 `> 0`】`segmentBox` 的回傳值有三種
@@ -932,8 +935,8 @@ Expected: FAIL —— `expect(B17G.turrets).toHaveLength(8)` 得到 0
  *
  * 【`position` 是槍口不是樞軸】真機的槍管本來就伸出蒙皮之外，所以尾砲塔的
  * 槍口（z 16.4）在 `tail` 命中盒（到 15.30）**之外**，那是對的。護欄是
- * 「沿 −axis 回走一段 `BARREL_LENGTH` 會碰到機體」（判準是 `!== NO_HIT` ——
- * `segmentBox` 起點在盒內時回傳 `0`），見 `test/unit/turret-mount.test.ts`。
+ * 「沿 −axis 回走 `TURRET_MOUNT_REACH` 會碰到機體」（判準是 `!== NO_HIT`
+ * —— `segmentBox` 起點在盒內時回傳 `0`），見 `test/unit/turret-mount.test.ts`。
  *
  * 【半角是設計值不是量測值】真機的射界不規則，照片讀不出精確邊界。
  * 一個中心方向 + 一個半角是可以被試飛推翻的形式。見 spec §5。
@@ -2166,10 +2169,11 @@ export const BARREL_RADIUS = 0.045
 export const MAX_BARRELS_PER_TURRET = 2
 ```
 
-**`BARREL_LENGTH` 與 `BARREL_SPACING` 不在這裡定義** —— 它們由
+**`BARREL_LENGTH` 與 `BARREL_SPACING` 不在這裡定義** —— 它們分別由
 `src/weapons/turret.ts` 與 `src/world/turrets.ts` 匯出，這個檔案 import 過來。
-理由：`BARREL_LENGTH` 同時是 `turret-mount.test.ts` 的護欄長度，`BARREL_SPACING`
-同時是彈丸左右輪替的偏移量。各寫一份的話，第一次改就會有一邊被漏掉。
+理由：`BARREL_SPACING` 同時是彈丸左右輪替的偏移量，各寫一份的話彈丸與槍管
+會對不齊。（護欄用的是另一個常數 `TURRET_MOUNT_REACH`，刻意比槍管長 ——
+命中盒比實際機體小，見 `weapons/turret.ts` 的註解。）
 
 實例容量 `aircraftCapacity * MAX_TURRETS * MAX_BARRELS_PER_TURRET`。材質 `MeshBasicMaterial({ color: 0x101010 })`。用不到的實例壓成零尺度（照 `muzzle.ts` 的既有做法）。
 
@@ -2378,12 +2382,12 @@ git commit -m "feat: 整合驗收、HUD 不畫預瞄環、backlog §2.21、spec 
 | §3.2 檔案 | 全部（Task 5 的 `turrets.ts` 不 import `World.ts`，比 spec 寫的更嚴） |
 | §4 資料形狀、`guns` 乘傷害 | 1、4 |
 | §5 錐不是多邊形 | 1、4 |
-| §6 搖晃、相位、只作用在砲塔 | 1、5（參數位置與 spec 不同，Task 10 Step 4 修 spec） |
+| §6 搖晃、相位、只作用在砲塔 | 1、5 |
 | §7.1 每步流程 | 5、6 |
 | §7.2 彈丸預算 | 5、10 |
 | §8 沒有前射武器、保留 sight、已知後果、HUD | 4、10 |
 | §9 兩台的配置 | 3、4 |
-| §10 視覺 | 9（槍管數與 spec 不同，Task 10 Step 4 修 spec） |
+| §10 視覺 | 9 |
 | §11 測試 | 1、4、5、6、7、8、10 |
 | §12 起始值 | 4、5 |
 
