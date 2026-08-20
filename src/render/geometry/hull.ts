@@ -138,6 +138,15 @@ export interface GlassPatch {
    */
   hole?: boolean
   /**
+   * 連**暗色襯裡都不生**，只把蒙皮挖掉。`hole` 的更徹底版。
+   *
+   * 【誰需要】風擋。它的玻璃已經是 `flatGlass` 直接訂死的四邊形，後面的碗
+   * 也由同一組角生（`assembly.bowl`）—— 環格再湊一份襯裡出來的話，那一份
+   * 只沉 7%（≈0.08 m）而碗沉 0.22，於是**擋在碗前面**：看到的是一片貼著
+   * 機殼的平板，碗完全看不到。
+   */
+  bare?: boolean
+  /**
    * 玻璃沉進蒙皮、四周長出框壁（＝凹槽）。省略即**與蒙皮共面**。
    *
    * 【什麼時候該共面】玻璃**本身就是外殼**的時候 —— 全玻璃機首是一例，
@@ -365,6 +374,9 @@ export function buildHull(
         triGlass(gAi, gBi, gBj, A.z, B.z, B.z)
         triGlass(gAi, gBj, gAj, A.z, B.z, A.z)
       }
+
+      // `bare` 連襯裡都不生 —— 洞後面另外有東西擋（見 GlassPatch.bare）
+      if (patch.bare) continue
 
       const lidA = lidAt(s, patch), lidB = lidAt(s + 1, patch)
       const [bAi, bAj] = [lidA[i] ?? gAi, lidA[j] ?? gAj]

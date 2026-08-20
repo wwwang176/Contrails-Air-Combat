@@ -366,7 +366,7 @@ const GLASS_PATCHES: readonly GlassPatch[] = [
    *
    * 90° 那一格由 `TURRETS` 裡的圓頂代表（機體 −4.60），這裡只留頰窗。
    */
-  { from: -5.35, to: -4.10, i0: 4, i1: 6, recess: true },
+  { from: -5.35, to: -4.10, i0: 6, i1: 8, recess: true },
   /**
    * 【風擋不能開 `recess`】`recess` 把整片往內沉到半徑的 0.94，而風擋在中線
    * 上 —— 沉下去之後**最外面的那一層就是玻璃**，逐站對切量到的「背線」因此
@@ -408,20 +408,68 @@ const GLASS_PATCHES: readonly GlassPatch[] = [
    * 兩片的 z 範圍是逐站驗過的：那幾格**整格落在四邊形之內**，所以它們參差
    * 的邊界會被上面那片四邊形完整蓋住，看不到。
    */
-  { from: -3.17, to: -3.00, i0: 1, i1: 2 },
-  { from: -3.11, to: -2.65, i0: 2, i1: 3 },
+  /**
+   * 【範圍是逐帶驗出來的，不是估的】改成挖洞之後，挖到四邊形外面就是一個
+   * 看穿到天空的破口。逐「站位對」量四個角離四邊形多遠：
+   *
+   * ```
+   *   帶（機體 z）        索引 1…2        索引 2…3
+   *   −3.26…−3.20          −0.178          −0.239
+   *   −3.20…−3.14          −0.074          −0.126   ← 漸變帶，索引還沒走到緣上
+   *   −3.14…−3.08          +0.030          −0.026
+   *   −3.08…−3.02          +0.011           0
+   *   −3.02…−2.96          −0.056           0       ← 索引 1 上了艙頂的簷
+   *   −2.60…−2.54            —             −0.193   ← 四邊形結束
+   * ```
+   *
+   * 索引 2、3 在 −3.08…−2.60 這一段**正好坐在四邊形的上緣與外緣上**（烘焙
+   * 時就是照 `paneSpan` 擺的），所以那一段整段可挖。索引 1 只有前面兩帶在
+   * 裡面 —— 再往後它是艙頂的簷，在玻璃之上。
+   */
+  { from: -3.13, to: -3.04, i0: 1, i1: 2, hole: true, bare: true },
+  { from: -3.06, to: -2.62, i0: 2, i1: 3, hole: true, bare: true },
   // 座艙側窗：在方盒**之下**的圓管肩上，不是盒壁
-  { from: -2.40, to: -2.05, i0: 3, i1: 4, recess: true },
-  // 無線電艙的頂窗。細取樣：量測 1.35…3.22 ＝ 機體 2.47…4.34，只有 90°
-  { from: 2.47, to: 4.34, i0: 0, i1: 2 },
+  { from: -2.40, to: -2.05, i0: 5, i1: 6, recess: true },
+  /**
+   * ── 機背的**兩片**頂窗：這裡只挖蒙皮 ──────────────────────
+   *
+   * 舊版是一條 `2.47…4.34 × 索引 0…3` 的方帶，三件事都錯：
+   *
+   * ```
+   *   數量  參考模型在 2.80…3.23 之間**是金屬**，那是兩片窗不是一片
+   *   寬度  索引 3 在那一段是 x 0.50…0.55，而量到的玻璃只到 x 0.44
+   *   收尾  後窗的尾端是收尖的，方帶做出來是一刀切齊
+   * ```
+   *
+   * 形狀改由 `ROOF_PANES` 訂死（量測表寫在那裡），這兩片補丁退回**只負責
+   * 把蒙皮挖掉**，`bare` 連襯裡都不生 —— 暗艙由 `h.bowl` 生。
+   *
+   * 【範圍收在索引 0…1】只有落在玻璃外框**之內**的格子才能挖，挖到外面就是
+   * 一個看穿到天空的洞。索引 1 在那一段是 x 0.265…0.312，外框最窄處（後窗
+   * 的 4.11）是 0.355 —— 整段都在裡面。索引 2（x 0.386…0.427）在後窗尾端
+   * 就超出去了，所以不用。剩下的那一圈蒙皮就是艙口的框。
+   *
+   * 【z 的兩端要落在**站位之間**】補丁是逐「站位對」判斷的（`patchAt` 吃的
+   * 是兩站的中點），逐帶量餘裕之後可挖的是：
+   *
+   * ```
+   *   前窗  2.5354…2.7101  +0.076         前後兩帶各 −0.09（外框已經收窄）
+   *   後窗  3.4093…4.1084  +0.150…+0.030  3.2345 那一站外框只有 0.180 而
+   *                                       索引 1 在 0.279 —— 挖下去會透光
+   * ```
+   *
+   * 剩下的那一圈蒙皮就是艙口的框，真機那裡本來就是。
+   */
+  { from: 2.50, to: 2.70, i0: 0, i1: 1, hole: true, bare: true },
+  { from: 3.45, to: 4.10, i0: 0, i1: 1, hole: true, bare: true },
   /**
    * 腰部與無線電艙的側窗。細取樣量到三段，左右**交錯**（B-17G 本來就是）：
    * 機體 5.97…6.59（30°）、7.34…8.22（150°）、9.34…9.59（30°）。
    * 這一檔的環是左右鏡像的，所以三段都做成同一側的 z（坑 20b：寧可少）。
    */
-  { from: 5.97, to: 6.59, i0: 4, i1: 6, recess: true },
-  { from: 7.34, to: 8.22, i0: 4, i1: 6, recess: true },
-  { from: 9.34, to: 9.59, i0: 4, i1: 6, recess: true },
+  { from: 5.97, to: 6.59, i0: 6, i1: 8, recess: true },
+  { from: 7.34, to: 8.22, i0: 6, i1: 8, recess: true },
+  { from: 9.34, to: 9.59, i0: 6, i1: 8, recess: true },
 ]
 
 /**
@@ -434,7 +482,7 @@ const GLASS_PATCHES: readonly GlassPatch[] = [
  */
 const FRAMES: FrameSpec = {
   hoops: [-6.00, -5.83, GLASS_SPLIT_Z],
-  rails: [0, 4, 8],
+  rails: [0, 6, 10],
   from: -6.03, to: GLASS_SPLIT_Z,
   width: 0.030, out: 0.012,
 }
@@ -448,22 +496,220 @@ export /**
  * 0.6345·x`；外緣 0.60（艙頂的冠降到上緣高度的那個 x）。
  *
  * ```
- *   內下 A (0.03, 1.5689, −3.2758)   內上 B (0.03, 1.8120, −3.0607)
+ *   內下 A (0.03, 1.5881, −3.2568)   內上 B (0.03, 1.8120, −3.0356)
  *   外上 C (0.60, 1.8120, −2.5588)   外下 D (0.60, 1.4716, −2.8951)
  * ```
  *
- * 【內側縮 0.03】中線留一根中框 —— 真機本來就有，而且俯視才看得出是兩片。
- * A 的 y 因此是 `paneY(0.03, −3.2758) = 1.5689`，仍在平面上。
+ * 【內側縮 0.03，z 要跟著走】中線留一根中框 —— 真機本來就有，而且俯視才
+ * 看得出是兩片。第一版只把 x 由 0 縮到 0.03、z 卻留在 x = 0 的值，於是上緣
+ * 的斜率變成 0.8805 而烘焙用的是 0.8365：玻璃整片微微轉了一點，蒙皮上該
+ * 落在上緣的那一排頂點（索引 2）**整段落在玻璃外面 0.003…0.013**。
+ * 補丁只是換材質時看不出來；改成挖洞之後那就是一條會透光的縫。
+ *
+ * 現在兩個內角的 z 各自落在自己的緣線上：
+ * `A.z = FZ0 + FZK × 0.03`、`B.z = UZ0 + UZK × 0.03`。
  *
  * 【蒙皮不挖】那一段的環在烘焙時就壓在同一個平面上（逐站離面 ±0.1 mm），
  * 玻璃浮 4 mm 蓋上去。蒙皮留成金屬 —— 它是玻璃後面的結構。
  */
 const WINDSCREEN: readonly (readonly (readonly [number, number, number])[])[] = [
-  [[0.03, 1.5689, -3.2758], [0.03, 1.8120, -3.0607],
+  [[0.03, 1.5881, -3.2568], [0.03, 1.8120, -3.0356],
     [0.60, 1.8120, -2.5588], [0.60, 1.4716, -2.8951]],
-  [[-0.03, 1.5689, -3.2758], [-0.60, 1.4716, -2.8951],
-    [-0.60, 1.8120, -2.5588], [-0.03, 1.8120, -3.0607]],
+  [[-0.03, 1.5881, -3.2568], [-0.60, 1.4716, -2.8951],
+    [-0.60, 1.8120, -2.5588], [-0.03, 1.8120, -3.0356]],
 ]
+
+/**
+ * ── 機背的兩片頂窗：**先訂外框，蒙皮再遷就** ────────────────
+ *
+ * 與風擋同一條原則（見 `WINDSCREEN`），只是這裡的窗不是平的 —— 它就是艙頂
+ * 本身。所以訂死的是**外框**（逐 z 的半寬），y 由烘好的蒙皮取值。
+ *
+ * 【量測】只打參考模型的透明 mesh（`Object_50`），x 每 0.03 一帶、z 每
+ * 0.025 一刀，讀該帶有玻璃的 z 區間：
+ *
+ * ```
+ *   x     前段 z             後段 z
+ *   0.00  2.425 … 2.800     3.225 … 4.375
+ *   0.21  2.425 … 2.800     3.225 … 4.300
+ *   0.30  2.425 … 2.800     3.300 … 4.200
+ *   0.36  2.475 … 2.775     3.225 … 4.075
+ *   0.42  2.450 … 2.750     3.250 … 3.900
+ *   0.45      —             3.275 … 3.775
+ *   0.48      —                 —
+ * ```
+ *
+ * 三件事一次讀出來：**2.80…3.23 是金屬**（兩片窗不是一片）、半寬到 0.44～
+ * 0.46 為止（舊版的索引 3 是 0.50…0.55，太寬）、後窗的尾端是**收尖的**。
+ *
+ * 【平面殘差】前窗配平面 RMS 0.0053、最大 0.0123 —— 它是平的。後窗 RMS
+ * 0.0208、最大 0.0557，因為它有 1.15 m 長、艙頂在那一段一路往下彎。所以
+ * 後窗不能像風擋那樣訂成一片平板，得貼著蒙皮走。
+ */
+const ROOF_FRONT: readonly (readonly [number, number])[] = [
+  [2.425, 0.10], [2.470, 0.34], [2.510, 0.42],
+  [2.740, 0.42], [2.780, 0.34], [2.800, 0.10],
+]
+
+const ROOF_REAR: readonly (readonly [number, number])[] = [
+  [3.225, 0.12], [3.260, 0.34], [3.300, 0.44], [3.850, 0.44], [3.900, 0.42],
+  [4.000, 0.39], [4.075, 0.36], [4.125, 0.33], [4.200, 0.30], [4.300, 0.21],
+  [4.375, 0.02],
+]
+
+/** 某一站的半剖面折線上，x 處的 y（折線在 x ≤ 0.55 這一段是單調的）。 */
+function ringY(half: readonly (readonly number[])[], x: number): number {
+  for (let i = 1; i < half.length; i++) {
+    const a = half[i - 1]!, b = half[i]!
+    if (x <= b[0]! || i === half.length - 1) {
+      const d = b[0]! - a[0]!
+      return d === 0 ? a[1]! : a[1]! + (b[1]! - a[1]!) * ((x - a[0]!) / d)
+    }
+  }
+  return half[0]![1]!
+}
+
+/** 烘好的蒙皮在 (x, z) 的 y。站位之間線性內插。 */
+function skinY(z: number, x: number): number {
+  const R = B17G_HULL
+  let k = 1
+  while (k < R.length - 1 && R[k]!.z < z) k++
+  const a = R[k - 1]!, b = R[k]!
+  const t = (z - a.z) / (b.z - a.z)
+  return ringY(a.half, Math.abs(x)) * (1 - t) + ringY(b.half, Math.abs(x)) * t
+}
+
+/**
+ * 四個進氣口的**碗狀凹槽**。專案負責人：「引擎與螺旋槳目前可以看穿，是不是
+ * 要補上一個黑內碗填補空洞?」
+ *
+ * 【看穿的機制】兩具艙都是 `caps: { front: false }` —— 罩口是開的（封起來
+ * 那裡就是一片機身色的平板，He 111 踩過）。而整流罩只有半徑 0.30、罩口是
+ * 0.65：中間那一圈是空的，看進去是艙的**內側**，內側是背面、被剔除，於是
+ * 一路看到天空。
+ *
+ * 【為什麼不照 He 111 那樣用一段 loft】He 111 的 `NAC_COWL_DARK` 是「朝前
+ * 開口、比罩口大 2% 的暗色管子」，第一版照抄過來 —— 結果 `geometry.test.ts`
+ * 的「每一個網格都是法線朝外」當場紅四片。開口朝 −Z 又整段坐在 z ≈ −3.0
+ * 的殼，帶符號體積本來就是負的；He 111 沒紅只是因為**它還沒被加進那條護欄
+ * 的機種清單**（skill 檢查清單的最後一項）。
+ *
+ * 改用 `assembly.bowl`：緣照罩口那一圈超橢圓逐點放大 2%（同 `roundness`、
+ * 同 16 段，兩者的邊逐點對齊，罩口不會有鋸齒），法線朝**前**、離原點更遠，
+ * 帶符號體積是正的。多出來的那 2% 從外面看就是進氣口的厚度。
+ *
+ * ```
+ *   內艙  z −3.18  0.648 × 0.643  中心 +0.002
+ *   外艙  z −2.78  0.643 × 0.549  中心 +0.257
+ * ```
+ */
+function cowlRim(
+  x: number, cy: number, z: number, hw: number, hh: number,
+  grow = 1.02, seg = 16,
+): (readonly [number, number, number])[] {
+  const e = 2 / 2.3
+  const shape = (v: number): number => Math.sign(v) * Math.abs(v) ** e
+  const out: (readonly [number, number, number])[] = []
+  for (let i = 0; i < seg; i++) {
+    // 由 +Z 看是順時針 → Newell 法線朝 −Z → 碗往機尾凹（而不是往機首凸）
+    const t = (-i / seg) * Math.PI * 2
+    out.push([x + shape(Math.cos(t)) * hw * grow,
+      cy + shape(Math.sin(t)) * hh * grow, z])
+  }
+  return out
+}
+
+/** 索引 `i` 那條稜在 z 的 x。站位之間線性內插 —— 那正是網格的邊。 */
+function ringX(z: number, i: number): number {
+  const R = B17G_HULL
+  let k = 1
+  while (k < R.length - 1 && R[k]!.z < z) k++
+  const a = R[k - 1]!, b = R[k]!
+  const t = (z - a.z) / (b.z - a.z)
+  return a.half[i]![0]! * (1 - t) + b.half[i]![0]! * t
+}
+
+/**
+ * 照外框在蒙皮上鋪一片玻璃。
+ *
+ * 【格線要與蒙皮對齊，不能自己等分】第一版橫向只切兩格（那一段的艙頂是平
+ * 的，看起來切再細也一樣）。錯在**外框比平頂寬**：平頂只到索引 2（x 0.386…
+ * 0.427），而外框到 0.44，中間那一段蒙皮已經在往下斜。一格由中線直接拉到
+ * 0.44 的四邊形，於是整片**沉在平頂之下**幾 mm —— 算圖上是玻璃被蒙皮咬出
+ * 一圈缺口。加大浮高治不了，那是斜率不對不是高度不對。
+ *
+ * 現在兩個方向都取齊：
+ *
+ * ```
+ *   站位  外框自己的 z ∪ 這一段的所有環 z
+ *   橫向  0 → 索引 2 那條稜 → 外框
+ * ```
+ *
+ * 每一格於是整格落在蒙皮的同一片上，只差三角化的對角線那幾 mm。
+ *
+ * 【纏繞方向】外側 → 內側 → 內側（下一站）→ 外側（下一站），法線才朝上；
+ * 反過來的話正面被剔除，從機外看整片消失。
+ */
+function roofPane(
+  outline: readonly (readonly [number, number])[],
+): (readonly [number, number, number])[][] {
+  const z0 = outline[0]![0]!, z1 = outline[outline.length - 1]![0]!
+  const zs = new Set(outline.map((o) => o[0]))
+  for (const r of B17G_HULL) if (r.z > z0 && r.z < z1) zs.add(r.z)
+  const list = [...zs].sort((a, b) => a - b)
+  const wAt = (z: number): number => {
+    for (let i = 1; i < outline.length; i++) {
+      const [za, wa] = outline[i - 1]!, [zb, wb] = outline[i]!
+      if (z <= zb) return wa + (wb - wa) * ((z - za) / (zb - za))
+    }
+    return outline[outline.length - 1]![1]!
+  }
+  /**
+   * 兩條稜都要斷：索引 1、索引 2。機背 z 3.4 之後甲板一路收窄，最外的那條
+   * 平頂的邊界由索引 2 換成索引 1（z 3.93 的索引 1 已經比中線低 0.19）——
+   * 只在索引 2 斷的話，跨過索引 1 的那一格又會沉下去。
+   *
+   * 稜落在外框之外時夾住：兩格都在同一片蒙皮上，只是白切一刀。
+   */
+  const kAt = (z: number, i: number, lo: number, hi: number): number =>
+    Math.max(lo, Math.min(hi, ringX(z, i) / wAt(z)))
+  const at = (z: number, u: number): readonly [number, number, number] => {
+    const x = wAt(z) * u
+    return [x, skinY(z, x), z]
+  }
+  const colsAt = (z: number): number[] => {
+    const k1 = kAt(z, 1, 0.05, 0.95)
+    const k2 = kAt(z, 2, k1 + 0.02, 0.98)
+    return [-1, -k2, -k1, 0, k1, k2, 1]
+  }
+  const out: (readonly [number, number, number])[][] = []
+  for (let i = 1; i < list.length; i++) {
+    const za = list[i - 1]!, zb = list[i]!
+    const ca = colsAt(za), cb = colsAt(zb)
+    for (let j = 0; j + 1 < ca.length; j++) {
+      out.push([
+        at(za, ca[j + 1]!), at(za, ca[j]!), at(zb, cb[j]!), at(zb, cb[j + 1]!),
+      ])
+    }
+  }
+  return out
+}
+
+/**
+ * 頂窗後面的暗艙。緣取外框自己（少取幾個點就夠 —— 緣與艙口之間隔著一圈
+ * 蒙皮，差一點看不到），逆時針繞才會讓碗**往下**凹。
+ */
+function roofBowl(
+  outline: readonly (readonly [number, number])[],
+): (readonly [number, number, number])[] {
+  const rim: (readonly [number, number, number])[] = []
+  for (const [z, w] of outline) rim.push([-w, skinY(z, -w), z])
+  for (let i = outline.length - 1; i >= 0; i--) {
+    const [z, w] = outline[i]!
+    rim.push([w, skinY(z, w), z])
+  }
+  return rim
+}
 
 export const B17G_BODY_COLOR = 0x8d9299
 
@@ -494,6 +740,23 @@ export function buildB17G(): AircraftModel {
   // 機首罩：外殼切成兩截，前段玻璃、後段機身色
   h.glazedNose(B17G_HULL, GLASS_SPLIT_Z, GLASS_PATCHES)
   h.flatGlass(WINDSCREEN)
+  /**
+   * 【浮 12 mm 不是預設的 4】玻璃取的 y 是「兩站之間線性內插」，而蒙皮那一格
+   * 實際上是兩個三角形 —— 對角線那一側會比內插值低幾 mm。4 mm 推不過去，
+   * 算圖上是一圈被蒙皮咬出來的缺口。
+   */
+  h.flatGlass([...roofPane(ROOF_FRONT), ...roofPane(ROOF_REAR)], 0.012)
+  /**
+   * 玻璃後面的四個暗艙。
+   *
+   * 【為什麼不沿用 `glassBackGeometry`】那一份是「補丁那串頂點搬到兩端的
+   * 弦上」。風擋只跨兩格，弦幾乎就是蒙皮 —— 做出來是一片跟著機殼隆起的
+   * 薄板，下緣還從蒙皮戳出去。專案負責人：「駕駛玻璃內的黑碗應該要內凹」。
+   * 所以那幾片補丁掛了 `bare`（連襯裡都不生），暗艙改由這裡按玻璃的框生。
+   */
+  for (const q of WINDSCREEN) h.bowl(q, 0.18)
+  h.bowl(roofBowl(ROOF_FRONT), 0.14)
+  h.bowl(roofBowl(ROOF_REAR), 0.20)
   h.frames(B17G_HULL, FRAMES)
 
   /**
@@ -506,6 +769,9 @@ export function buildB17G(): AircraftModel {
   for (const sx of [1, -1]) {
     h.loft(NACELLE_INNER, h.body).position.x = sx * NAC_X_INNER
     h.loft(NACELLE_OUTER, h.body).position.x = sx * NAC_X_OUTER
+    // 四個進氣口的暗碗，見 cowlRim
+    h.bowl(cowlRim(sx * NAC_X_INNER, +0.002, -3.186, 0.648, 0.643), 0.24)
+    h.bowl(cowlRim(sx * NAC_X_OUTER, +0.257, -2.786, 0.643, 0.549), 0.24)
   }
 
   h.wingPair(WING)
@@ -526,16 +792,21 @@ export function buildB17G(): AircraftModel {
    *
    * 這裡的 `noseZ` 直接取每一具艙的**首站**：內艙 −3.18、外艙 −2.78。
    *
+   * 【`spinnerY` 要跟著艙心走，不是一律 0】外艙整個高 0.25（機翼上反角），
+   * 首站的中心在 **+0.257**；整流罩留在 0 的話它偏在罩口下緣，補上進氣口的
+   * 暗碗之後一眼就看得出來 —— 碗是照罩口生的，槳轂卻不在碗心。內艙的首站
+   * 中心是 +0.002，所以那一對本來就對。
+   *
    * 【槳盤半徑 1.765】真機三葉槳直徑 11 ft 7 in = 3.53 m。注意
    * `specs/b17g.ts` 的 `prop.diameter` 是**等效單槳盤**（四具的合計面積換算
    * 成一個），與這裡的視覺尺寸是兩件事。
    */
   for (const sx of [1, -1]) {
-    for (const [x, noseZ] of [
-      [sx * NAC_X_INNER, -3.18], [sx * NAC_X_OUTER, -2.78],
+    for (const [x, noseZ, y] of [
+      [sx * NAC_X_INNER, -3.18, 0.002], [sx * NAC_X_OUTER, -2.78, 0.257],
     ] as const) {
       h.propeller({
-        x, noseZ, spinnerRadius: 0.30, spinnerLength: 0.42, spinnerY: 0,
+        x, noseZ, spinnerRadius: 0.30, spinnerLength: 0.42, spinnerY: y,
         blades: 3, propZ: noseZ - 0.18, propRadius: 1.765,
       }, B17G_HULL[0]!.z)
     }

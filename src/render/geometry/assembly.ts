@@ -462,6 +462,67 @@ export function createHull(spec: HullSpec) {
     },
 
     /**
+     * **直接給一圈緣**的碗狀暗色內襯 —— 玻璃後面的艙、進氣口裡的凹槽。
+     *
+     * 【為什麼不能沿用 `glassBackGeometry`】那一份是「補丁覆蓋的那串頂點搬到
+     * 兩端的**弦**上」。弦要成立，補丁在環向上得跨好幾格；風擋只跨兩格
+     * （索引 1→2、2→3），弦幾乎就是蒙皮自己 —— 做出來是一片貼著機殼隆起的
+     * 暗色薄板，而且下緣還會從蒙皮戳出去。專案負責人：「駕駛玻璃內的黑碗
+     * 應該要內凹」。
+     *
+     * 玻璃既然已經是**輸入**（`flatGlass`），它後面的碗就該由同一組角決定：
+     *
+     * ```
+     *   緣    = 傳進來的那一圈點（風擋就是那四個角，與玻璃逐點重合）
+     *   碗底  = 形心再往內 depth
+     *   中間  = 往形心收 t、往內沉 depth·t(2−t)（在緣上切線與緣共面，不起稜）
+     * ```
+     *
+     * 【材質是 `darkInner`】雙面。碗是從**開口那一側**看進去的，看到的是
+     * 內面；單面材質下背面被剔除，整個碗消失（坑 23 的第一種錯法）。雙面
+     * 就不必去推纏繞方向該是哪一邊。
+     */
+    bowl(rim: readonly (readonly [number, number, number])[], depth: number,
+      rings = 3): void {
+      const m = rim.length
+      const c = [0, 0, 0]
+      for (const p of rim) { c[0]! += p[0] / m; c[1]! += p[1] / m; c[2]! += p[2] / m }
+      // Newell 法線：不必假設緣是平的（進氣口那一圈就不是）
+      const n = [0, 0, 0]
+      for (let i = 0; i < m; i++) {
+        const a = rim[i]!, b = rim[(i + 1) % m]!
+        n[0]! += (a[1] - b[1]) * (a[2] + b[2])
+        n[1]! += (a[2] - b[2]) * (a[0] + b[0])
+        n[2]! += (a[0] - b[0]) * (a[1] + b[1])
+      }
+      const len = Math.hypot(n[0]!, n[1]!, n[2]!) || 1
+      const at = (k: number, i: number): number[] => {
+        const t = k / rings
+        const d = depth * t * (2 - t)
+        const p = rim[i % m]!
+        return [0, 1, 2].map((j) =>
+          p[j]! + (c[j]! - p[j]!) * t - (n[j]! / len) * d)
+      }
+      const pos: number[] = []
+      const put = (p: readonly number[]): void => { pos.push(p[0]!, p[1]!, p[2]!) }
+      for (let k = 0; k < rings; k++) {
+        for (let i = 0; i < m; i++) {
+          const a = at(k, i), b = at(k, i + 1)
+          // 最後一圈收在碗底那一點，只吐一個三角形——不然是一整排零面積的面，
+          // `computeVertexNormals` 會在那裡吐出 NaN 法線。
+          if (k === rings - 1) { put(a); put(b); put(at(rings, 0)); continue }
+          const d = at(k + 1, i), e = at(k + 1, i + 1)
+          put(a); put(b); put(e)
+          put(a); put(e); put(d)
+        }
+      }
+      const g = new BufferGeometry()
+      g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+      g.computeVertexNormals()
+      add(new Mesh(g, darkBothSides))
+    },
+
+    /**
      * 玻璃的骨架（隔框 + 桁條）。機身色 —— 它是結構不是裝飾。
      *
      * 【材質是 `bothSides`】窄帶只有一個朝向，而全玻璃機首讓你從機外看到
