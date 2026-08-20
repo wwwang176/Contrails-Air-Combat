@@ -363,6 +363,20 @@ const NACELLE_OUTER: LoftPart = {
  * 玻璃只有 **14.90…16.00**。所以罩子的前段（13.9…14.9，鑽進垂尾的前緣
  * 整流罩裡）是金屬，後段才是射手的玻璃艙。
  *
+ * 【前段是一道**長而低的斜坡**，不是一個立起來的方塊】逐帶量「參考頂線 −
+ * 自家頂線」（x0.32 那一條，剛好在垂尾的半厚之外）：
+ *
+ * ```
+ *   機體Z  10.0…13.7  13.9   14.2   14.4   14.8   15.0…15.7  15.8
+ *   落差    +0.02…0.05 +0.08  +0.10  +0.21  +0.24  +0.31      收掉
+ * ```
+ *
+ * 13.7 之前那 0.02～0.05 是背線本來就有的偏差，不是凸起；13.8 開始爬，
+ * **15.0 才滿高**。第一版把斜坡壓在 13.85…14.60（0.75 m）而且前段只有
+ * 0.22 寬，看起來就是「一個矮胖的方塊立在尾樑上」，而不是由機背一路長上來
+ * 的整流。專案負責人：「我看他是向前延伸將近半個垂直尾翼耶」。現在斜坡拉到
+ * 13.80…14.92（1.1 m），半寬一開始就給 0.16 → 0.30。
+ *
  * 【剖面：圓角矩形】`roundness` 3.0、半寬 0.33、頂 1.97。半寬取 0.33 是由
  * x0.32 那一條帶反推的 —— 0.35 配 3.2 在那裡會做到 1.84，量到的是 1.70。
  *
@@ -373,10 +387,10 @@ const HOOD_FWD: LoftPart = {
   roundness: 3.0,
   segments: 16,
   sections: [
-    { z: 13.85, halfWidth: 0.10, halfHeight: 0.10, centerY: 1.44 },
-    { z: 14.20, halfWidth: 0.22, halfHeight: 0.24, centerY: 1.56 },
-    { z: 14.60, halfWidth: 0.30, halfHeight: 0.32, centerY: 1.62 },
-    { z: 14.90, halfWidth: 0.33, halfHeight: 0.35, centerY: 1.62 },
+    { z: 13.80, halfWidth: 0.16, halfHeight: 0.10, centerY: 1.44 },
+    { z: 14.35, halfWidth: 0.30, halfHeight: 0.16, centerY: 1.47 },
+    { z: 14.80, halfWidth: 0.33, halfHeight: 0.26, centerY: 1.55 },
+    { z: 14.92, halfWidth: 0.33, halfHeight: 0.31, centerY: 1.60 },
   ],
 }
 
@@ -394,7 +408,8 @@ const HOOD_GLASS: LoftPart = {
   roundness: 3.0,
   segments: 16,
   sections: [
-    { z: 14.88, halfWidth: 0.33, halfHeight: 0.35, centerY: 1.62 },
+    { z: 14.90, halfWidth: 0.33, halfHeight: 0.30, centerY: 1.60 },
+    { z: 15.10, halfWidth: 0.33, halfHeight: 0.34, centerY: 1.61 },
     { z: 15.30, halfWidth: 0.33, halfHeight: 0.36, centerY: 1.61 },
     { z: 15.70, halfWidth: 0.33, halfHeight: 0.36, centerY: 1.61 },
     { z: 15.88, halfWidth: 0.29, halfHeight: 0.33, centerY: 1.61 },
@@ -414,7 +429,7 @@ const HOOD_DARK: LoftPart = {
   roundness: 3.0,
   segments: 16,
   sections: [
-    { z: 14.86, halfWidth: 0.24, halfHeight: 0.26, centerY: 1.62 },
+    { z: 14.96, halfWidth: 0.26, halfHeight: 0.24, centerY: 1.60 },
     { z: 15.30, halfWidth: 0.28, halfHeight: 0.31, centerY: 1.61 },
     { z: 15.70, halfWidth: 0.28, halfHeight: 0.31, centerY: 1.61 },
     { z: 15.86, halfWidth: 0.23, halfHeight: 0.26, centerY: 1.60 },
