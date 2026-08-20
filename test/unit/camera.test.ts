@@ -266,12 +266,20 @@ describe('thirdPersonFor（第三人稱依翼展縮放）', () => {
     expect(fit.height).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.thirdHeight, 10)
   })
 
-  it('翼展與距離同比例 —— 每一台在畫面上佔一樣寬', () => {
-    // 視角 2·atan(b/2d) 相同 ⟺ b/d 相同
-    const ref = REFERENCE_SPAN / thirdPersonFor(REFERENCE_SPAN).distance
-    for (const span of [9.92, 22.60, 31.62]) {
-      expect(span / thirdPersonFor(span).distance).toBeCloseTo(ref, 10)
-    }
+  it('大飛機看起來比較大 —— 但不是同比例放大', () => {
+    // 佔畫面的比例 ∝ b/d。次線性 ⟺ 翼展越大這個比值越大（但不是線性成長）
+    const ratio = (span: number) => span / thirdPersonFor(span).distance
+    expect(ratio(9.92)).toBeLessThan(ratio(REFERENCE_SPAN))
+    expect(ratio(REFERENCE_SPAN)).toBeLessThan(ratio(22.60))
+    expect(ratio(22.60)).toBeLessThan(ratio(31.62))
+  })
+
+  it('B-17G 佔畫面約 1.5 倍寬，不是 2.8 倍 —— 不會佔滿', () => {
+    const k = (31.62 / thirdPersonFor(31.62).distance)
+      / (REFERENCE_SPAN / thirdPersonFor(REFERENCE_SPAN).distance)
+    // 翼展是 2.80 倍；線性縮放會是 1.00、完全不縮會是 2.80
+    expect(k).toBeGreaterThan(1.3)
+    expect(k).toBeLessThan(1.7)
   })
 
   it('俯角不隨機種變 —— 高度與距離同比例', () => {
