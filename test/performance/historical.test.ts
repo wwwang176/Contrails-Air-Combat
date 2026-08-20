@@ -92,12 +92,13 @@ const ALL: readonly Check[] = [
   'vmaxCritical', 'vmaxSeaLevel', 'climb', 'stall', 'ceiling', 'peak']
 
 /**
- * 兩台轟炸機**還沒守住**的四項，連同 2026-08-20 的實測偏差。
+ * 兩台轟炸機**還沒守住**的三項，連同 2026-08-20 的實測偏差。
+ *
+ * He 111 的 5,000 m 極速本來也在這張表上（−6.2%）。第二輪把 `powerCritical`
+ * 由 2,120 調到 2,216 之後收到 **−3.6%**，已經升級成守死 —— 理由與代價
+ * （升限 −0.9% → +3.5%）寫在 `specs/he111.ts` 的引擎註解裡。
  *
  * ```
- *   He 111  5,000 m 極速  −6.2%   引擎在 1,900 m 才到爬升檔峰值（1,210 PS），
- *                                 本模型的單一 gear 只會單調下降，配不出那個
- *                                 駝峰。要動的是 engine.gears 的結構，不是係數
  *   He 111  失速          +5.6%   derivedClMax 1.313 對 HE111_HISTORICAL.clMax
  *                                 的 1.55 差 15%。要動 alphaCrit／clAlpha，
  *                                 而那兩個現在都貼著升力線理論值
@@ -112,13 +113,14 @@ const ALL: readonly Check[] = [
  * 一個是「到 20,000 ft 約 37 分 → 2.7，海平面較高，取 4.5」猜的，來源撐不起
  * 任何精度。實測 He 111 −13.0%、B-17G +12.4%（都是未套手感的值）。
  */
-const PENDING = ['He111 5000m 極速', 'He111 失速', 'B17G 失速', 'B17G 升限'] as const
+const PENDING = ['He111 失速', 'B17G 失速', 'B17G 升限'] as const
 
 const CASES: { spec: AircraftSpec; hist: HistoricalReference; checks: readonly Check[] }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, checks: ALL },
   { spec: BF109G6, hist: BF109G6_HISTORICAL, checks: ALL },
   // 極速兩點與升限守死；失速與爬升見 PENDING
-  { spec: HE111, hist: HE111_HISTORICAL, checks: ['vmaxSeaLevel', 'ceiling', 'peak'] },
+  { spec: HE111, hist: HE111_HISTORICAL,
+    checks: ['vmaxCritical', 'vmaxSeaLevel', 'ceiling', 'peak'] },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
 ]
@@ -162,13 +164,13 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, �
 
   // PENDING 是文件，但讓它進斷言，才不會有人把它刪掉之後沒人發現。
   it('還沒守住的四項有被逐條記錄', () => {
-    expect(PENDING).toHaveLength(4)
+    expect(PENDING).toHaveLength(3)
     const covered = CASES.flatMap(({ spec, checks }) =>
       ALL.filter((c) => !checks.includes(c)).map((c) => `${spec.id}:${c}`))
-    // He111 少 vmaxCritical/climb/stall、B17G 少 climb/stall/ceiling
+      // He111 少 climb/stall、B17G 少 climb/stall/ceiling
     expect(covered.sort()).toEqual([
       'b17g:ceiling', 'b17g:climb', 'b17g:stall',
-      'he111:climb', 'he111:stall', 'he111:vmaxCritical',
+      'he111:climb', 'he111:stall',
     ])
   })
 

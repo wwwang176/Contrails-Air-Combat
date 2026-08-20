@@ -19,7 +19,7 @@ import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
 import { BF109G6, BF109G6_HISTORICAL } from '../../src/specs/bf109g6'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
-import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
+import { applyFeel, feelFor } from '../../src/specs/feel'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const KMH = 3.6
@@ -28,8 +28,8 @@ const RAD = 180 / Math.PI
 const CASES: { spec: AircraftSpec; hist: HistoricalReference; inL2: boolean }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, inL2: true },
   { spec: BF109G6, hist: BF109G6_HISTORICAL, inL2: true },
-  { spec: HE111, hist: HE111_HISTORICAL, inL2: false },
-  { spec: B17G, hist: B17G_HISTORICAL, inL2: false },
+  { spec: HE111, hist: HE111_HISTORICAL, inL2: true },
+  { spec: B17G, hist: B17G_HISTORICAL, inL2: true },
 ]
 
 const n = (v: number, w = 8, d = 1): string => v.toFixed(d).padStart(w)
@@ -67,7 +67,7 @@ console.log(`  ${'機種'.padEnd(14)}${'爬升 m/s'.padStart(18)}${'升限 m'.pa
 console.log(`  ${''.padEnd(14)}${'史實'.padStart(8)}${'出貨'.padStart(8)}${'倍'.padStart(6)}`
   + `${'史實'.padStart(8)}${'出貨'.padStart(8)}${'倍'.padStart(6)}`)
 for (const { spec, hist } of CASES) {
-  const g = applyFeel(spec, GAME_FEEL)
+  const g = applyFeel(spec, feelFor(spec))
   const c = maxClimbRate(g, 0).rate
   const s = serviceCeiling(g)
   console.log(`  ${spec.name.padEnd(14)}${n(hist.climbRateSeaLevel, 8, 1)}${n(c, 8, 1)}`
@@ -86,7 +86,7 @@ const BOOK: Record<string, string> = {
 }
 for (const { spec } of CASES) {
   const tas = 400 / KMH
-  const g = applyFeel(spec, GAME_FEEL)
+  const g = applyFeel(spec, feelFor(spec))
   console.log(`  ${spec.name.padEnd(14)}${n(spec.moments.clDa, 8, 3)}`
     + `${n(spec.wing.span, 7, 2)}${n(rollRate(spec, tas), 10, 1)}`
     + `${n(rollRate(g, tas), 8, 1)}   ${BOOK[spec.name] ?? ''}`)
