@@ -102,9 +102,19 @@ export function buildFuselage(
     for (let i = 0; i < radialSegments; i++) {
       const v0 = vertexOf(ring, i)
       const v1 = vertexOf(ring, i + 1)
-      // 封口跟著側面一起翻：機首端（reverse）朝 −Z、機尾端朝 +Z。
-      if (reverse) pushTri(centre, v0, v1)
-      else pushTri(centre, v1, v0)
+      /**
+       * 【兩個分支原本是反的 —— 2026-08-20】環是由 +Z 看**逆時針**繞的，
+       * 所以 (中心, v0, v1) 的法線朝 +Z。機首端要朝 −Z、機尾端要朝 +Z，
+       * 因此機首端該用 (中心, v1, v0) 才對，原本剛好寫顛倒。
+       *
+       * 【為什麼一直沒被看到】封口幾乎都埋在別的零件裡（發動機艙的尾端在
+       * 機翼裡、進氣罩的首端在整流罩裡）。這次尾砲塔的罩子把封口露了出來，
+       * 而且它坐在 z ≈ 15 ——  的帶符號體積是對原點取的，
+       * 封口的貢獻與 z 成正比，在那裡放大了 15 倍才紅。近原點的零件即使
+       * 反了也只差一點點，護欄看不出來。
+       */
+      if (reverse) pushTri(centre, v1, v0)
+      else pushTri(centre, v0, v1)
     }
   }
   if (!arc && caps?.front !== false) cap(rings[0]!, sections[0]!, true)

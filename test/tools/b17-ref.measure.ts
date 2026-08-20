@@ -1677,7 +1677,7 @@ const stages: Record<string, Stage> = {
      * 機首：`align` 的包圍盒說幾何從機體 −6.380 開始，但 −6.03 之前只有上半
      *       打得到。前兩環是第一個乾淨環按 0.22 / 0.62 收出來的，**中心不動**
      *       ——只縮橫向與上下半高。不補的話全長少 0.35，側視看起來只是機首鈍。
-     * 尾錐：**由憑空收尖改成量測值 —— 2026-08-20。**
+     * 尾錐：**由「等比縮最後一環」改成逐站量測烘頂點 —— 2026-08-20。**
      *
      *       第一版說「量到機體 13.97 之後整圈打不到」，於是五環憑一條曲線收
      *       到 15.30 的 0.10 倍，中心再以 0.16/m 抬。做出來是一根 1.4 m 就
@@ -1728,15 +1728,105 @@ const stages: Record<string, Stage> = {
     }
     const last = ringAt(stations[stations.length - 1]!)
     const lastZ = stations[stations.length - 1]! - QUARTER_CHORD
-    // f = 參考模型該站的半寬 ÷ 13.70 那一站的 0.713
-    for (const [z, f] of [
-      [13.9000, 0.975], [14.3000, 0.924], [14.7000, 0.875], [15.1000, 0.821],
-      [15.5000, 0.766], [15.8000, 0.713], [15.9000, 0.668], [16.0000, 0.557],
-      [16.1000, 0.478], [16.2000, 0.327], [16.2700, 0.150],
-    ] as const) {
-      console.log(line(z, shrink(last, f, 0)))
+    /**
+     * ── 尾樑：**逐站量測，烘成頂點** ──────────────────────
+     *
+     * 中間版本是「拿最後一個乾淨環等比縮 f 倍」。等比縮保得住比例，保不住
+     * 剖面**沿 z 的變化**：實測尾樑是「背線幾乎不降、腹線一路抬上來」，等比
+     * 縮做出來卻是上下對稱地縮。專案負責人：「你一樣要把機身烘成頂點，不要
+     * 再用圓錐體去改」。
+     *
+     * 現在與機身其餘部分同一條路：逐站量、同一個超橢圓吐頂點。差別只在
+     * **射線的原點**：主那一組在機身軸心、`maxRadius` 大，尾段一出來就先撞
+     * 垂尾；這一組原點放進尾樑裡（y 0.90）、`maxRadius` 收到 0.95。
+     *
+     * ── 量得到的與量不到的（坑 15）──────────────────────
+     *
+     * ```
+     *   半寬   0° / 180° 兩條射線，13.0…16.2 完全連續    ← 量得到
+     *   腹線   270° 那一條，同上                          ← 量得到
+     *   背線   90° 那一條**整段回 0**                     ← 量不到
+     * ```
+     *
+     * 背線量不到是坑 32：正上方那條射線與**垂尾共面**，打不打得到全看浮點
+     * 運算，這台是整段打不到。（第一版把角度比對寫成「theta 當度數」而 theta
+     * 其實是弧度，於是三個方向全部取到同一條 0° 的射線 —— 背線與腹線都變成
+     * 「0.90 ± 半寬」。數字看起來平順又單調，完全看不出是假的。）
+     *
+     * 背線改用**厚寬比**推：最後一個乾淨主站（機體 13.7212）的半高 ÷ 半寬 =
+     * 0.6695 / 0.712 = 0.9403，尾樑照這個比例走。驗算：那一站推回去是
+     * 背線 1.528、腹線 0.189，與主流程逐字相同 —— 接縫連續。
+     *
+     * ```
+     *   機體Z   13.70  14.20  14.70  15.20  15.70  16.00  16.20
+     *   半寬    0.713  0.668  0.624  0.575  0.526  0.397  0.233
+     *   腹線    0.190  0.262  0.334  0.405  0.477  0.548  0.680
+     *   背線    1.530  1.518  1.508  1.487  1.467  1.294  1.118
+     * ```
+     *
+     * **背線幾乎是平的、腹線一路抬** —— 尾樑是由下方收，不是上下一起收。
+     */
+    const TAIL_AXIS = 0.90
+    const trs = await slice('radial', 'z', {
+      from: 13.6000 + QUARTER_CHORD, to: 16.3000 + QUARTER_CHORD, count: 55,
+      angles: 72, axisV: TAIL_AXIS, maxRadius: 0.95,
+    }) as Radial
+    /** 取最接近該角度的那條射線（`theta` 是**弧度**） */
+    const rayAt = (k: number, deg: number): number => {
+      let best = -1, bi = 0
+      for (let i = 0; i < trs.theta.length; i++) {
+        const d = Math.abs(((trs.theta[i]! * 180 / Math.PI - deg + 540) % 360) - 180)
+        if (180 - d > best) { best = 180 - d; bi = i }
+      }
+      return trs.r[k]![bi]!
     }
-    void lastZ
+    /** 由一個已知點反解超橢圓指數：|dx/a|^n + |dy/b|^n = 1 */
+    const expoOf = (a: number, b: number, dx: number, dy: number): number => {
+      if (!(a > 0 && b > 0 && dx > 0 && dy > 0)) return 2
+      const f = (nn: number): number =>
+        Math.abs(dx / a) ** nn + Math.abs(dy / b) ** nn - 1
+      let lo = 1.4, hi = 6
+      for (let i = 0; i < 40; i++) {
+        const m = (lo + hi) / 2
+        if (f(m) > 0) lo = m; else hi = m
+      }
+      return (lo + hi) / 2
+    }
+    const tailRaw = (zb: number): [number, number, number] => {
+      const zm = zb + QUARTER_CHORD
+      let k = 1
+      while (k < trs.planes.length - 1 && trs.planes[k]! < zm) k++
+      const t = (zm - trs.planes[k - 1]!) / (trs.planes[k]! - trs.planes[k - 1]!)
+      const mix = (deg: number): number =>
+        rayAt(k - 1, deg) * (1 - t) + rayAt(k, deg) * t
+      return [(mix(0) + mix(180)) / 2, TAIL_AXIS - mix(270), mix(315)]
+    }
+    // 接縫：最後一個主站上，量到的與烘出來的差（半寬與腹線各一個定值）
+    const lastA = Math.max(...last.map(([x]) => x))
+    const lastBelly = last[last.length - 1]![1]!
+    const [ra0, rb0] = tailRaw(lastZ)
+    const KH = ((last[0]![1]! - lastBelly) / 2) / lastA
+    const TAIL_Z: readonly number[] = [
+      13.90, 14.10, 14.30, 14.50, 14.70, 14.90, 15.10, 15.30, 15.50,
+      15.70, 15.85, 15.95, 16.05, 16.15, 16.25,
+    ]
+    for (const z of TAIL_Z) {
+      const [ra, rb, r315] = tailRaw(z)
+      const a = ra + (lastA - ra0)
+      const belly = rb + (lastBelly - rb0)
+      const hh = a * KH
+      const cy = belly + hh
+      const nn = Math.min(6, Math.max(1.4, expoOf(
+        a, hh, r315 / Math.SQRT2, cy - (TAIL_AXIS - r315 / Math.SQRT2))))
+      const pts = OUT_DEG.map((deg) => {
+        const u = deg * Math.PI / 180
+        return `[${(a * Math.abs(Math.cos(u)) ** (2 / nn)).toFixed(4)}, `
+          + `${(cy + Math.sign(Math.sin(u)) * hh
+            * Math.abs(Math.sin(u)) ** (2 / nn)).toFixed(4)}]`
+      })
+      console.log(line(z, pts.join(', ')))
+    }
+    void shrink
 
     /** 最寬線的曲率變號次數——平順度的唯一有效指標（坑 19），門檻 8/34 */
     const flipsOf = (v: readonly number[]): number => {
