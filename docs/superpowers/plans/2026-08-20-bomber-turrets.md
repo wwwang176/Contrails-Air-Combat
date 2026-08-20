@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-20-bomber-turrets-design.md`
 
-**這一版的來歷**：Codex 審過兩輪。
+**這一版的來歷**：Codex 審過三輪。
 
 第一輪抓出 14 條，其中三條是真缺陷：尾砲塔的槍口在命中盒之外（那條斷言必紅）、`resetBattle` 沒有把 `World.time` 歸零（搖晃吃它，重播會從不同相位開始）、`castRay` 對超出 `maxRadius` 的交點是**忽略**不是夾住（原本的量測驗收判準因此永遠不會觸發）。
 
@@ -20,7 +20,9 @@
 - **`battleConfigFrom({ faction: 'allies', specId: 'b17g' })` 產生的是「藍隊 B-17G vs 紅隊 Bf 109 G-6」**（`redSpec` 取敵方陣營的第一台），整合測試的場景裡**根本沒有 P-51D**，而主判準寫的是「P-51 的存活數」。
 - **`resetBattle` 保留 AI 控制器的目標與計時狀態。** Codex 實測「跑 20 秒 → reset → 再跑 20 秒」與全新一場的最大位置差 **508.939 m**。這是**既有缺陷**（`src/main.ts:389` 的註解宣稱「`resetBattle` 產出的遊戲狀態已經與新建一場等價」是錯的），不在這一輪範圍 —— 改成記進 backlog，並把 Task 7 的第二條斷言拿掉。
 
-全部已自行驗證並反映在下面。
+第三輪抓出 6 條，其中一條又是它**實算**出來的硬矛盾：**B-17G 的尾砲塔在 0.9 m 的回走距離下必然判成「沒接在飛機上」** —— 槍口 z 16.4 回走 0.9 只到 15.504，而 `tail` 命中盒止於 15.30。根因不是護欄訂錯，是**命中盒是簡化的傷害體積，比實際機體小**：B-17G 的機身外殼一路到 z = 16.25（`b17g.hull.ts` 的最後一站），差將近 1 m。所以回走距離必須與槍管長度**分開**，並吸收這個差。
+
+全部已自行驗證並反映在下面。**spec 也已經完整同步**（不只是原本 Task 0 的兩句）—— 那個 Task 因此拿掉了。
 
 ## Global Constraints
 
@@ -76,39 +78,6 @@
 | `bench/turret-load.ts`（新）、`test/unit/perf-gate.test.ts` | B-17 專用的砲塔負載與門檻 | 8 |
 | `src/render/turretBarrels.ts`（新）、`src/render/muzzle.ts`、`src/main.ts` | 槍管與砲塔槍焰 | 9 |
 | `test/integration/turrets.test.ts`（新）、`src/main.ts`、`docs/backlog.md` | A/B 驗收、HUD、backlog | 10 |
-
----
-
-### Task 0: 先修 spec 的兩處內部矛盾
-
-**Files:**
-- Modify: `docs/superpowers/specs/2026-08-20-bomber-turrets-design.md`
-
-**為什麼放在最前面**：spec §6 寫「搖晃的參數放在 `Turret` 上」，而實作要放在 `world/turrets.ts` 的模組常數。**先改 spec 再實作**，不是實作完再回頭改 —— 否則 Task 1–9 的整段執行期都在違反現行 spec，而「計畫與 spec 不一致」正是這種缺陷最容易藏身的地方。
-
-- [ ] **Step 1: 改兩處**
-
-用 Read/Write 工具（**不要用 PowerShell**，中文會變亂碼）：
-
-1. **§6「搖晃只作用在砲塔」**：把「所以搖晃的參數放在 `Turret` 上，不放在 `WeaponSpec` 上」改成：
-
-   > 所以搖晃的參數是 `world/turrets.ts` 的**模組常數**，不放在 `WeaponSpec` 上。真正要守的是「不滲進玩家的六挺翼槍」，模組常數同樣滿足；讓每一座砲塔各自可調是 YAGNI —— 十三座砲塔各兩個旋鈕，而目前沒有任何一座需要與別座不同。
-
-2. **§10「視覺」**：把「B-17G 十一根 ≈ 88」改成「B-17G **十二根** ≈ 96」。§9 配置表的 `guns` 合計是 12（下巴 2、頰 2、上 2、腹 2、腰 2、尾 2）。
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add docs/superpowers/specs/2026-08-20-bomber-turrets-design.md
-git commit -m "spec: 修兩處內部矛盾（搖晃參數的位置、槍管數）
-
-搖晃參數改成模組常數而不是 Turret 的欄位：真正要守的是「不滲進玩家的
-六挺翼槍」，模組常數同樣滿足；十三座砲塔各兩個旋鈕是 YAGNI。
-
-槍管數 11 → 12，與 §9 配置表的 guns 合計一致。
-
-先改 spec 再實作，不是實作完再回頭改 —— 否則整段執行期都在違反現行 spec。"
-```
 
 ---
 
@@ -372,14 +341,24 @@ export interface Turret {
 export const MAX_TURRETS = 8
 
 /**
- * 槍管長度，m。**護欄與渲染共用同一個數字。**
- *
- * 【為什麼放在這裡而不是 render/】`turret-mount.test.ts` 的「這挺槍接在
- * 飛機上」護欄要沿 −axis 回走一段槍管長度，而槍管的幾何在 `render/` 畫。
- * 兩邊各寫一個數字的話，第一次改長度就會有一邊被漏掉 —— 計畫的第二版就
- * 犯過這個錯（護欄寫 1.5、渲染寫 0.9）。
+ * 槍管長度，m。**畫出來的那根管子有多長。** `render/turretBarrels.ts`
+ * import 這一個，不自己再寫一份。
  */
 export const BARREL_LENGTH = 0.9
+
+/**
+ * 「這挺槍接在飛機上」護欄的回走距離，m。**刻意比 `BARREL_LENGTH` 長。**
+ *
+ * 【為什麼不能共用同一個數字】`hitBoxes` 是**簡化的傷害體積，比實際機體
+ * 小**。B-17G 的機身外殼一路到 z = 16.25（`b17g.hull.ts` 的最後一站），
+ * 而 `tail` 命中盒止於 **15.30** —— 差將近 1 m。尾砲塔的槍口在 16.4，
+ * 回走 0.9 只到 15.504，落在盒外；用槍管長度當護欄距離會讓它**必然假紅**。
+ *
+ * 這個常數等於「槍管 + 砲塔本體埋在機內的深度 + 命中盒的簡化餘量」。
+ * 2.0 對已知的十三座都成立，而且仍然遠小於任何一台的機身長度 —— 一座
+ * 位置打錯而飄在機外三公尺的砲塔照樣抓得到。
+ */
+export const TURRET_MOUNT_REACH = 2.0
 
 /** 黃金比。搖晃的第二個頻率乘它，兩個頻率因此不整除。 */
 export const GOLDEN = 1.618033988749895
@@ -806,7 +785,7 @@ import { Vector3 } from 'three'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { segmentBox, NO_HIT } from '../../src/world/hit'
-import { BARREL_LENGTH } from '../../src/weapons/turret'
+import { TURRET_MOUNT_REACH } from '../../src/weapons/turret'
 import type { AircraftSpec } from '../../src/specs/types'
 
 /**
@@ -826,6 +805,37 @@ describe('砲塔的位置與射界', () => {
       })
 
       /**
+       * 【為什麼要另外測方向】上面那條「回走會碰到機體」抓不到正負號打反：
+       * 下巴砲塔與機首槍的槍口**本來就在座艙盒內**，`segmentBox` 的起點
+       * 在盒內時回傳 `0`，所以 axis 正著反著都判成「有接觸」。
+       *
+       * 這一條直接斷言每一座朝哪邊，抓的就是那個最容易犯的錯。
+       */
+      it('每一座砲塔的朝向符合它的名字', () => {
+        const dir = (id: string): { axis: 'x' | 'y' | 'z'; sign: number } | undefined => {
+          if (id === 'chin' || id === 'nose' || id.startsWith('cheek')) {
+            return { axis: 'z', sign: -1 }   // 朝機首
+          }
+          if (id === 'tail' || id === 'dorsal' || id === 'ventral') {
+            return { axis: 'z', sign: +1 }   // 朝機尾
+          }
+          if (id === 'top') return { axis: 'y', sign: +1 }
+          if (id === 'ball') return { axis: 'y', sign: -1 }
+          if (id.endsWith('L')) return { axis: 'x', sign: -1 }
+          if (id.endsWith('R')) return { axis: 'x', sign: +1 }
+          return undefined
+        }
+        for (const t of spec.turrets) {
+          const want = dir(t.id)
+          expect(want, `砲塔 ${t.id} 沒有登記朝向 —— 新增砲塔時要一起補`)
+            .not.toBeUndefined()
+          const v = want!.axis === 'x' ? t.axis.x : want!.axis === 'y' ? t.axis.y : t.axis.z
+          expect(Math.sign(v), `砲塔 ${t.id} 的 ${want!.axis} 分量方向錯了`)
+            .toBe(want!.sign)
+        }
+      })
+
+      /**
        * 【為什麼不是「槍口在命中盒內」】真機的槍管本來就伸出蒙皮之外。
        * B-17G 的尾砲塔槍口在 z ≈ 16.4，而它的 tail 命中盒只到 15.30
        * （`src/specs/b17g.ts:269`）—— 那條斷言必然紅，而正確的反應不是
@@ -840,15 +850,15 @@ describe('砲塔的位置與射界', () => {
        * 參數。下巴砲塔與機首槍的槍口本來就在座艙盒內，用 `> 0` 判斷會
        * **必假紅** —— 這份計畫的前兩版都犯過這個錯。
        */
-      it('每個砲塔沿 −axis 回走一段槍管長度都會碰到機體', () => {
+      it('每個砲塔沿 −axis 回走 TURRET_MOUNT_REACH 都會碰到機體', () => {
         const back = new Vector3()
         for (const t of spec.turrets) {
-          back.copy(t.position).addScaledVector(t.axis, -BARREL_LENGTH)
+          back.copy(t.position).addScaledVector(t.axis, -TURRET_MOUNT_REACH)
           const attached = spec.hitBoxes.some((b) => segmentBox(
             t.position.x, t.position.y, t.position.z,
             back.x, back.y, back.z, b,
           ) !== NO_HIT)
-          expect(attached, `砲塔 ${t.id} 回走 ${BARREL_LENGTH} m 沒有碰到機體`).toBe(true)
+          expect(attached, `砲塔 ${t.id} 回走 ${TURRET_MOUNT_REACH} m 沒有碰到機體`).toBe(true)
         }
       })
     })
@@ -951,7 +961,9 @@ Expected: 全部 PASS
 Run: `npx tsc --noEmit`
 Expected: 沒有輸出
 
-**若「回走一段槍管長度會碰到機體」紅了**：那是 `position` 或 `axis` 訂錯了（最常見的是正負號）。回去看 Task 3 的量測值，**不要擴大命中盒，也不要加長 `BARREL_LENGTH` 來硬湊**。
+**若「回走會碰到機體」紅了**：那是 `position` 訂錯了（Task 3 的量測值抄錯，或正負號打反）。回去看量測值。**不要擴大命中盒，也不要加長 `TURRET_MOUNT_REACH` 來硬湊** —— 2.0 已經含了「命中盒比實際機體小將近 1 m」的餘量，還過不了就是位置真的錯了。
+
+**若「朝向符合名字」紅了**：`axis` 的正負號打反。這一條就是為了抓它。
 
 - [ ] **Step 5: Commit**
 
@@ -986,7 +998,7 @@ B-17G 八座 12 管、He 111 五座 5 管。位置量自參考模型，半角與
 **Interfaces:**
 - Consumes: Task 1 全部、`stepCadence`、`solveLead`／`NO_INTERCEPT`、`PROJECTILE_LIFETIME`／`Projectiles`
 - Produces:
-  - `interface TurretState { aim, phase, targetIndex, searchCooldown, burstFiring, burstTimer, flash, nextBarrel }`
+  - `interface TurretState { aim, phase, targetIndex, searchCooldown, burstFiring, burstTimer, flash, lastBarrel }`
   - `interface TurretCombatant`（結構相容的最小介面，**不 import `World.ts`**）
   - `createTurretStates(spec, combatantIndex): TurretState[]`
   - `resetTurretStates(states, spec, combatantIndex): void`（**就地重設、零配置**）
@@ -999,7 +1011,7 @@ B-17G 八座 12 管、He 111 五座 5 管。位置量自參考模型，半角與
 
 4. **槍焰的遞減不在 `stepTurrets` 裡。** `World.step` 已經有一個「對**所有** combatant（含死掉的）遞減 `muzzleFlash`」的迴圈（`World.ts:290`，註解寫明理由：遞減若寫在 `continue` 之後，被打爆那一瞬間亮著的槍焰會永遠停在那裡）。砲塔的 `flash` 併進**同一個迴圈**，`stepTurrets` 因此只在活著時被呼叫、只負責**設定** flash。這比讓 `stepTurrets` 自己遞減乾淨：死掉的飛機不必每步再跑一次砲塔迴圈。
 
-5. **雙聯砲塔的兩根槍管輪流出彈。** `guns` 乘傷害（一道彈流）與「畫兩根管子」原本是矛盾的 —— 彈流會從兩根管子中間冒出來。解法是彈丸的生成點在兩根管口之間**輪替**（`nextBarrel`），仍然只有一道彈流、DPS 不變，但每一發都從某一根真的管口出來。`nextBarrel` 進 `TurretState` 才能跨步保存，也才進得了逐位元快照。
+5. **雙聯砲塔的兩根槍管輪流出彈。** `guns` 乘傷害（一道彈流）與「畫兩根管子」原本是矛盾的 —— 彈流會從兩根管子中間冒出來。解法是彈丸的生成點在兩根管口之間**輪替**（`lastBarrel`），仍然只有一道彈流、DPS 不變，但每一發都從某一根真的管口出來。記的是「**上一發**從哪一根」而不是「下一發」—— 槍焰要畫在剛剛發射的那一根上，記下一發的話渲染層會固定偏在錯的一邊。`lastBarrel` 進 `TurretState` 才能跨步保存，也才進得了逐位元快照。
 2. **冷卻用 `Combatant.turretCooldowns: Float32Array`，直接餵給 `stepCadence`。** 不要用一格的 scratch 陣列轉接 —— 那個寫法在「沒有目標」與「預瞄失敗」兩條分支上都漏了寫回，冷卻會凍結，破壞既有的「放開扳機仍倒數到零」行為。**每座砲塔每步都必須恰好呼叫 `stepCadence` 一次**，即使 `trigger === false`。
 3. **預瞄從槍口解，不是從重心解。** B-17 的尾砲塔離重心 16 m，300 m 尾追時方向誤差可達數度 —— 大於 2° 的開火門檻，砲塔會一直「對不準」而不開火，或開火但打偏。
 
@@ -1052,6 +1064,7 @@ describe('點放狀態機', () => {
     const s: TurretState = {
       aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1,
       searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, flash: 0,
+      lastBarrel: 0,
     }
     let firing = 0
     const steps = Math.round((BURST_ON + BURST_OFF) * 10 / DT)
@@ -1064,6 +1077,7 @@ describe('點放狀態機', () => {
     const s: TurretState = {
       aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1,
       searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, flash: 0,
+      lastBarrel: 0,
     }
     // 一步 10 秒，遠大於 BURST_ON + BURST_OFF
     for (let k = 0; k < 20; k++) stepBurst(s, 10)
@@ -1142,12 +1156,20 @@ describe('stepTurrets', () => {
     // 把原本近的挪遠、原本遠的挪近
     near.aircraft.state.position.z = 900
     far.aircraft.state.position.z = 250
-    // 冷卻期間內：不換
-    const half = warm + Math.floor((SEARCH_INTERVAL * 0.4) / DT)
+    /**
+     * 【時序要讀實際的 cooldown，不能用固定比例】warm-up 之後距離下一次
+     * 搜尋還剩多少取決於初始錯開（黃金比攤出來的值，每一座不同）。用
+     * 「再跑 0.4 × SEARCH_INTERVAL」這種固定比例會**剛好跨過**下一次搜尋，
+     * 斷言「還沒換」就必紅 —— 計畫第三版犯的錯。
+     */
+    const remain = b.turretStates[tail]!.searchCooldown
+    expect(remain).toBeGreaterThan(0)
+    // 冷卻期間內（剩餘時間的一半）：不換
+    const half = warm + Math.floor((remain * 0.5) / DT)
     for (let k = warm; k < half; k++) stepTurrets(b, all, projectiles, k * DT, DT)
     expect(b.turretStates[tail]!.targetIndex).toBe(1)
-    // 過了冷卻：換成 2
-    const past = warm + Math.ceil((SEARCH_INTERVAL * 1.2) / DT)
+    // 跑完剩餘時間再多一點：換成 2
+    const past = warm + Math.ceil((remain + SEARCH_INTERVAL * 0.1) / DT)
     for (let k = half; k < past; k++) stepTurrets(b, all, projectiles, k * DT, DT)
     expect(b.turretStates[tail]!.targetIndex).toBe(2)
   })
@@ -1256,6 +1278,20 @@ describe('stepTurrets', () => {
     // 尾砲塔是雙聯，所以至少有兩個不同的生成 x
     expect(xs.size).toBeGreaterThanOrEqual(2)
   })
+
+  it('lastBarrel 記的是剛剛發射的那一根 —— 槍焰要畫在那裡', () => {
+    const b = fake(B17G, 0, 'blue', new Vector3(0, 3000, 0), new Vector3())
+    const f = fake(P51D, 1, 'red', new Vector3(0, 3000, 300), new Vector3())
+    const tail = B17G.turrets.findIndex((t) => t.id === 'tail')
+    const seen = new Set<number>()
+    for (let k = 0; k < 960; k++) {
+      const before = projectiles.live
+      stepTurrets(b, [b, f], projectiles, k * DT, DT)
+      if (projectiles.live > before) seen.add(b.turretStates[tail]!.lastBarrel)
+    }
+    // 雙聯：兩根都用過
+    expect(seen.size).toBe(2)
+  })
 })
 ```
 
@@ -1272,7 +1308,9 @@ Expected: FAIL —— `Failed to resolve import "../../src/world/turrets"`
 import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
 import { stepCadence } from '../weapons/cadence'
-import { applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, wobblePhase } from '../weapons/turret'
+import {
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, wobbleBasis, wobblePhase,
+} from '../weapons/turret'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
 import type { Projectiles } from './Projectiles'
@@ -1318,8 +1356,14 @@ export interface TurretState {
    * 迴圈做**（與固定槍的 `muzzleFlash` 同一個迴圈、同一個理由）。
    */
   flash: number
-  /** 雙聯砲塔下一發要從哪一根管口出。單管恆為 0。 */
-  nextBarrel: number
+  /**
+   * 上一發從哪一根管口出（0 = 左、1 = 右）。單管恆為 0。
+   *
+   * 【為什麼要記「上一發」而不是「下一發」】槍焰要畫在**剛剛發射的那一根**
+   * 管口上。記「下一發」的話，渲染層讀到的是還沒發生的那一根，槍焰會固定
+   * 偏在錯的一邊。
+   */
+  lastBarrel: number
 }
 
 /** 搖晃振幅，rad。**起始值，由試飛裁定。** 400 m 處 1° ≈ 7 m。 */
@@ -1364,7 +1408,7 @@ export function createTurretStates(
     out.push({
       aim: spec.turrets[i]!.axis.clone(),
       phase: 0, targetIndex: -1, searchCooldown: 0,
-      burstFiring: true, burstTimer: BURST_ON, flash: 0, nextBarrel: 0,
+      burstFiring: true, burstTimer: BURST_ON, flash: 0, lastBarrel: 0,
     })
   }
   resetTurretStates(out, spec, combatantIndex)
@@ -1401,7 +1445,7 @@ export function resetTurretStates(
     s.burstFiring = true
     s.burstTimer = BURST_ON
     s.flash = 0
-    s.nextBarrel = 0
+    s.lastBarrel = 0
   }
 }
 
@@ -1428,6 +1472,14 @@ const V = /* @__PURE__ */ new Vector3()
 const LEAD = /* @__PURE__ */ new Vector3()
 const WANT = /* @__PURE__ */ new Vector3()
 const BEST_WANT = /* @__PURE__ */ new Vector3()
+/**
+ * 【兩組基底，不共用】側偏用的與搖晃用的必須分開。共用的話，第一發之後的
+ * `BARREL_E1` 會是被 `applyWobble` 內部的 `wobbleBasis` 覆寫過的值 ——
+ * 目前兩者的輸入都是同一個未被修改的 `s.aim`，所以**碰巧**相同，但那依賴
+ * 「`applyWobble` 永遠用同一種基底算法」這個沒有人守著的前提。
+ */
+const BARREL_E1 = /* @__PURE__ */ new Vector3()
+const BARREL_E2 = /* @__PURE__ */ new Vector3()
 const E1 = /* @__PURE__ */ new Vector3()
 const E2 = /* @__PURE__ */ new Vector3()
 const SHOT = /* @__PURE__ */ new Vector3()
@@ -1500,11 +1552,12 @@ export function stepTurrets(
 
     // 雙聯的兩根管口輪流出彈。仍然只有一道彈流（guns 乘的是傷害），但每
     // 一發都從某一根真的管口出來，不會從兩根管子中間冒出來。
-    wobbleBasis(s.aim, E1, E2)
+    wobbleBasis(s.aim, BARREL_E1, BARREL_E2)
     for (let n = 0; n < shots; n++) {
-      const side = t.guns > 1 ? (s.nextBarrel === 0 ? -1 : 1) : 0
-      s.nextBarrel = t.guns > 1 ? 1 - s.nextBarrel : 0
-      OFFSET.copy(E1).multiplyScalar(side * BARREL_SPACING).applyQuaternion(q)
+      const barrel = t.guns > 1 ? 1 - s.lastBarrel : 0
+      s.lastBarrel = barrel
+      const side = t.guns > 1 ? (barrel === 0 ? -1 : 1) : 0
+      OFFSET.copy(BARREL_E1).multiplyScalar(side * BARREL_SPACING).applyQuaternion(q)
       applyWobble(s.aim, WOBBLE_AMPLITUDE, WOBBLE_OMEGA, s.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(t.weapon.muzzleVelocity).add(vel)
@@ -1828,9 +1881,13 @@ respawn 只清固定槍的 cooldowns，resetBattle 更是連 world.time 都沒�
 而搖晃直接吃 world.time，不歸零的話第二場會從不同的相位開始，逐位元重播
 破功而症狀看起來像隨機的。
 
-step 的呼叫點在 fire 之後、彈丸推進之前，而且**不跳過死掉的** —— 槍焰的
-遞減在 stepTurrets 內部、存活檢查之前，與固定槍一致（World.ts:290 的
-註解：遞減若寫在 continue 之後，被打爆那一瞬間亮著的槍焰會永遠停在那裡）。"
+砲塔的 flash 遞減併進 World.step 既有的那個「對所有 combatant 遞減
+muzzleFlash」的迴圈（在存活檢查之前），stepTurrets 因此只對活著的呼叫 ——
+死掉的飛機不必每步再跑一次砲塔迴圈，而「被打爆那一瞬間亮著的槍焰不會永遠
+停在那裡」仍然成立。
+
+step 的呼叫點在 fire 之後、彈丸推進之前：兩者都往同一個池子寫，順序固定
+才可重現。"
 ```
 
 ---
@@ -1856,6 +1913,7 @@ step 的呼叫點在 fire 之後、彈丸推進之前，而且**不跳過死掉�
 ```ts
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
+import { PURSUIT } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -1878,15 +1936,20 @@ class Idle implements Controller {
  * `{ faction: 'allies', specId: 'b17g' }` 得到的是「藍隊 B-17G vs 紅隊
  * Bf 109」，場景裡根本沒有 P-51D。計畫第二版犯過這個錯。
  *
- * 【要近距離】砲塔的射程上界只有約 1.46 km，而預設遭遇戰兩隊相距約 10 km。
- * 用 `PURSUIT` 起始（紅隊在藍隊後方且同向）保證一開始就在射程內。
+ * 【要近距離】砲塔的射程上界只有約 1.46 km，而預設遭遇戰兩隊相距約 10 km，
+ * 跑 30 秒可能一發都沒射 —— 那樣「逐位元相同」就只證明了飛機的確定性。
+ *
+ * `BattleConfig` 的欄位是 **`entry: EntryPlan`**（不是 `start: string`），
+ * 值取 `battle/entry.ts` 匯出的 `PURSUIT`：兩隊同向同速、紅隊在後方 400 m
+ * 且高 200 m。實測開場就有二十九組合法攔截解、成對距離約 442 m、攔截時間
+ * 約 0.5 s、下巴砲塔的初始軸與預瞄方向只差 6.91°（60°/s 約 0.116 s 就追到）。
  */
 function config(): typeof DEFAULT_BATTLE {
   return {
     ...DEFAULT_BATTLE,
     blueSpec: P51D, redSpec: B17G,
     blueCount: 8, redCount: 8,
-    start: 'pursuit',
+    entry: PURSUIT,
   }
 }
 
@@ -1913,7 +1976,7 @@ function snapshot(b: Battle): Float64Array {
     for (const t of c.turretStates) {
       out.push(t.aim.x, t.aim.y, t.aim.z)
       out.push(t.phase, t.targetIndex, t.searchCooldown)
-      out.push(t.burstFiring ? 1 : 0, t.burstTimer, t.flash, t.nextBarrel)
+      out.push(t.burstFiring ? 1 : 0, t.burstTimer, t.flash, t.lastBarrel)
     }
     for (let i = 0; i < c.turretCooldowns.length; i++) out.push(c.turretCooldowns[i]!)
   }
@@ -1952,17 +2015,29 @@ function expectIdentical(a: Float64Array, c: Float64Array): void {
 }
 
 describe('砲塔的逐位元重播（P-51D 8 對 B-17G 8、追擊起始、30 秒）', () => {
+  /**
+   * 【要逐步累積，不能只看結束時還活著的彈丸】彈丸壽命只有 1.2 秒。整場
+   * 打了幾千發、但最後 1.2 秒剛好沒打，收場時 `live` 就是 0 —— 那個檢查
+   * 會誤報「整場沒開火」。
+   */
   it('砲塔真的開火了 —— 否則下一條只證明了飛機的確定性', () => {
-    const b = run()
-    const p = b.world.projectiles
+    const b = createBattle(new Idle(), config(), SEED)
     const bomberIndices = new Set(
       b.world.combatants.filter((c) => c.aircraft.spec.turrets.length > 0)
         .map((c) => c.index))
-    let fromTurret = 0
-    for (let i = 0; i < p.capacity; i++) {
-      if (bomberIndices.has(p.owner[i]!)) fromTurret++
+    let sawTurretShot = 0
+    let prevLive = 0
+    for (let k = 0; k < STEPS; k++) {
+      stepBattle(b, DT)
+      const p = b.world.projectiles
+      if (p.live > prevLive) {
+        for (let i = 0; i < p.capacity; i++) {
+          if (bomberIndices.has(p.owner[i]!)) { sawTurretShot++; break }
+        }
+      }
+      prevLive = p.live
     }
-    expect(fromTurret, '整場沒有任何一發來自砲塔，重播測試等於沒測到搖晃')
+    expect(sawTurretShot, '整場沒有任何一發來自砲塔，重播測試等於沒測到搖晃')
       .toBeGreaterThan(0)
   }, 5 * 60 * 1000)
 
@@ -1971,8 +2046,6 @@ describe('砲塔的逐位元重播（P-51D 8 對 B-17G 8、追擊起始、30 秒
   }, 5 * 60 * 1000)
 })
 ```
-
-**若 `start: 'pursuit'` 不是 `BattleConfig` 的合法值**：去 `src/battle/setup.ts` 看 `BattleConfig` 實際有哪些起始配置欄位，改用正確的那一個。目標只有一個 —— 讓兩隊一開始就在 1.46 km 之內。
 
 - [ ] **Step 2: 跑測試**
 
@@ -2104,7 +2177,23 @@ export const MAX_BARRELS_PER_TURRET = 2
 
 - [ ] **Step 2: 砲塔的槍焰池**
 
-在 `src/render/muzzle.ts` 加 `createTurretMuzzles(aircraftCapacity)`：與 `createMuzzles` 共用 `crossFlare()` 與同一份材質設定，差別只有容量（`aircraftCapacity * MAX_TURRETS`）與 `update` 讀 `c.turretStates[i].aim` / `.flash`（除以 `TURRET_FLASH_SECONDS`）。
+在 `src/render/muzzle.ts` 加 `createTurretMuzzles(aircraftCapacity)`：與 `createMuzzles` 共用 `crossFlare()` 與同一份材質設定，差別有三處 ——
+
+1. 容量是 `aircraftCapacity * MAX_TURRETS`
+2. `update` 讀 `c.turretStates[i].aim` 與 `.flash`（除以 `TURRET_FLASH_SECONDS`）
+3. **槍焰的位置要跟著 `lastBarrel` 側偏**：
+
+```ts
+// 【槍焰要畫在剛剛發射的那一根管口上】雙聯砲塔的彈丸在兩根之間輪替
+// （見 world/turrets.ts）。槍焰若固定畫在 turret.position，它會停在兩根
+// 管子**中間** —— 彈丸從管口出、火光在中間，一眼就看得出不對。
+const side = t.guns > 1 ? (st.lastBarrel === 0 ? -1 : 1) : 0
+wobbleBasis(st.aim, E1, E2)
+POS.copy(t.position).addScaledVector(E1, side * BARREL_SPACING)
+  .applyQuaternion(q).add(p)
+```
+
+`BARREL_SPACING` 由 `world/turrets.ts` import，與生彈丸用的是同一個數字。
 
 - [ ] **Step 3: main.ts 接線**
 
@@ -2225,10 +2314,11 @@ const hasFixedGuns = aircraft.spec.battery.mounts.length > 0
 
 Run: `npx tsx test/tools/projectile-peak.probe.ts`
 
-用 Read/Write 工具把量到的數字寫進 spec §7.2（取代「這是算的不是量的」那一段），並修正 spec 的兩處內部矛盾：
+用 Read/Write 工具把量到的數字寫進 spec §7.2（取代「這是算的不是量的」那一段）。
 
-- §10 寫「11 根 ≈ 88 三角形」，但配置表的 `guns` 合計是 **12**（下巴 2、頰 2、上 2、腹 2、腰 2、尾 2）。改成 12 根 ≈ 96。
-- §6 寫「搖晃的參數放在 `Turret` 上」，實作放在 `world/turrets.ts` 的模組常數。改寫成：**參數是模組常數，不放在 `WeaponSpec` 上**（真正要守的是「不滲進玩家的六挺翼槍」，模組常數同樣滿足；每座砲塔各自可調是 YAGNI）。
+**spec 的其餘部分在改版時已經完整同步過**（搖晃參數的位置、槍管數、
+`TurretState` 的形狀、`searchCooldown` 的語意、雙聯的 `position` 是中點、
+§11.2 的護欄、§11.5 的 rematch 說明），這裡不必再改。
 
 - [ ] **Step 5: backlog §2.21**
 
@@ -2265,7 +2355,9 @@ git commit -m "feat: 整合驗收、HUD 不畫預瞄環、backlog §2.21、spec 
 回收後的殘量。
 
 整合驗收的主判準是 A/B 對照（砲塔開／關比 P-51 的存活數），四條斷言共用
-一次 beforeAll。關的那一份用 { ...B17G, turrets: [] } 經 setSpec 換上，
+一次 beforeAll。關的那一份用 c.aircraft.spec 的複本經 setSpec 換上
+（**不是原始的 B17G** —— 那會把 applyFeel 的手感倍率一起拿掉，A/B 就不再
+只差砲塔），
 不加全域開關 —— 那會多一條只有測試在走的路徑。
 
 轟炸機不畫預瞄環：它們的槍全部是砲塔由 AI 操作，畫了會讓人以為按了會發射。
@@ -2324,12 +2416,25 @@ git commit -m "feat: 整合驗收、HUD 不畫預瞄環、backlog §2.21、spec 
 | 2 | 搜尋節流的測試只看 cooldown 變小 —— 「每步全掃順便遞減」也會通過；換目標測試在第一步就斷言，但初始錯開讓第一步不搜尋，**必紅** | Task 5 的測試改成**數 `searchCooldown` 變大的次數**（那是搜尋唯一的外顯，不必在正式碼加計數器）；換目標測試先跑滿一個 `SEARCH_INTERVAL` |
 | 3 | `resetBattle` 保留 AI 控制器狀態，實測最大位置差 **508.939 m**；Task 7 的第二條斷言測不過而且不是砲塔的錯 | Task 7 **拿掉那條斷言**，只測「兩場全新的相同戰局」；既有缺陷記進 backlog §2.22 |
 | 4 | Task 7 的場景相距 10 km 而砲塔射程只有 1.46 km，可能一發都沒射；`a[i] !== c[i]` 不是逐位元（±0 相同、NaN 不同）；快照漏了 `angularVelocity`、固定槍 cooldowns／flash、彈丸 `sx/sy/sz`／`damage` | 改成追擊起始 + **前置斷言「砲塔真的開火了」**；比較改成底層 `Uint8Array`；快照補齊 |
-| 5 | 雙聯畫兩根管但只有一道置中的彈流與槍焰 —— Task 9 的目視驗收**無法通過** | `TurretState` 加 `nextBarrel`，彈丸在兩根管口間**輪替**。仍是一道彈流、DPS 不變，但每發都從真的管口出來；`BARREL_SPACING` 由 `world/turrets.ts` 匯出，渲染 import 同一個 |
+| 5 | 雙聯畫兩根管但只有一道置中的彈流與槍焰 —— Task 9 的目視驗收**無法通過** | `TurretState` 加 `lastBarrel`，彈丸在兩根管口間**輪替**。仍是一道彈流、DPS 不變，但每發都從真的管口出來；`BARREL_SPACING` 由 `world/turrets.ts` 匯出，渲染 import 同一個 |
 | 6 | Task 10 的場景其實沒有 P-51D（`battleConfigFrom` 的 `redSpec` 取敵方陣營第一台）；關砲塔用 `{ ...B17G, turrets: [] }` 會把 `applyFeel` 的手感倍率一起拿掉，A/B 不再只差砲塔 | 自己組 `BattleConfig`（`blueSpec: P51D, redSpec: B17G`）；關砲塔的複本從 `c.aircraft.spec` 複製 |
 | 7 | spec 說搖晃參數在 `Turret`，計畫等實作完才改 spec —— Task 1–9 全程都在違反現行 spec | 新增 **Task 0：先修 spec**，再實作 |
 
-第二輪另外三條「檢查過沒問題」也記下來，免得日後重複懷疑：`TurretCombatant` 與 `World.Combatant` **結構相容**（`Team` 就是 `'blue' | 'red'`、`aircraft` 是 `readonly aircraft: Aircraft`）、`World.time` **已經是公開可寫的**不必改可見性、`peakLive` 的做法正確。
+第三輪抓出 6 條（本版 v4 處理）：
+
+| # | 問題 | 本版的處理 |
+| --- | --- | --- |
+| 1 | **B-17G 尾砲塔在 0.9 m 的回走距離下必然假紅** —— 槍口 z 16.4 回走只到 15.504，而 `tail` 命中盒止於 15.30 | 拆出 `TURRET_MOUNT_REACH = 2.0`，與 `BARREL_LENGTH` 分開。根因是**命中盒是簡化的傷害體積，比實際機體小**（B-17G 機身外殼到 z 16.25，差將近 1 m），回走距離必須吸收它 |
+| 2 | 換目標測試的 cooldown 時序仍必紅（warm-up 之後剩餘時間是黃金比攤出來的，用固定比例會剛好跨過） | 改成**讀實際的 `searchCooldown`** 再決定跑幾步 |
+| 3 | 漏 import `wobbleBasis`；兩個 `TurretState` 測試字面值漏欄位 | 補齊 |
+| 4 | `start: 'pursuit'` 不是合法欄位，測試不能編譯 | 改成 `entry: PURSUIT`（`BattleConfig.entry: EntryPlan`）。開火前置斷言也改成**逐步累積**，不看結束時的 `live`（彈丸壽命只有 1.2 秒，最後一秒沒打就會誤報「整場沒開火」） |
+| 5 | 槍焰仍固定在砲塔中心，雙聯會停在兩根管子中間 | `TurretState.nextBarrel` 改成 **`lastBarrel`**（記剛剛發射的那一根），渲染層用同一個 `BARREL_SPACING` 側偏 |
+| 6 | spec 只改兩句仍有八處不一致 | **spec 在改版時直接完整同步**，原本的 Task 0 因此拿掉 |
+
+另外把兩個 Task 的 commit message 從舊設計改回來（Task 6 的 flash 遞減位置、Task 10 的關砲塔 spec 複本），並拿掉 Task 10 Step 4 裡重複的 spec 修改。
+
+Codex 三輪的「檢查過沒問題」也記下來，免得日後重複懷疑：`TurretCombatant` 與 `World.Combatant` **結構相容**（`Team` 就是 `'blue' | 'red'`、`aircraft` 是 `readonly aircraft: Aircraft`）、`World.time` **已經是公開可寫的**不必改可見性、`peakLive` 的做法正確。
 
 第一輪的四條「檢查過沒問題」：`applyWobble` 的 `A√2` 是**精確上界**、`Vector3.applyAxisAngle` 在 r180 不配置、`WANT` 的 aliasing 沒有實際錯值（仍改成 `BEST_WANT` 消除隱式別名）、既有 API 簽名全部正確。
 
-**3. 型別一致性**：`TurretState` 的八個欄位（`aim`、`phase`、`targetIndex`、`searchCooldown`、`burstFiring`、`burstTimer`、`flash`、`nextBarrel`）在 Task 5 定義，Task 6、7、9 消費，名字一致。`createTurretStates(spec, combatantIndex)` 與 `resetTurretStates(states, spec, combatantIndex)` 的簽名在 Task 5、6 一致。`Combatant.turretStates` / `turretCooldowns` 的名字在 Task 5 的介面、Task 6 的真欄位、Task 7 的快照一致。`TURRET_FLASH_SECONDS` 在 Task 5 定義、Task 9 消費。
+**3. 型別一致性**：`TurretState` 的八個欄位（`aim`、`phase`、`targetIndex`、`searchCooldown`、`burstFiring`、`burstTimer`、`flash`、`lastBarrel`）在 Task 5 定義，Task 6、7、9 消費，名字一致。`createTurretStates(spec, combatantIndex)` 與 `resetTurretStates(states, spec, combatantIndex)` 的簽名在 Task 5、6 一致。`Combatant.turretStates` / `turretCooldowns` 的名字在 Task 5 的介面、Task 6 的真欄位、Task 7 的快照一致。`TURRET_FLASH_SECONDS` 在 Task 5 定義、Task 9 消費。
