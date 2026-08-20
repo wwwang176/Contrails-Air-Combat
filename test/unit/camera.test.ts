@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
-import { CameraRig, DEFAULT_CAMERA_OPTIONS } from '../../src/camera/CameraRig'
+import {
+  CameraRig, DEFAULT_CAMERA_OPTIONS, REFERENCE_SPAN, thirdPersonFor,
+} from '../../src/camera/CameraRig'
 import { DEG } from '../../src/core/math'
 
 const DT = 1 / 60
@@ -254,5 +256,34 @@ describe('CameraRig', () => {
       rig.update(cam, pos, q, fwd(q), 200, 'third', 0.5, -0.3, DT)
     }
     expect(Number.isFinite(cam.position.length())).toBe(true)
+  })
+})
+
+describe('thirdPersonFor（第三人稱依翼展縮放）', () => {
+  it('基準翼展逐字給回預設值', () => {
+    const fit = thirdPersonFor(REFERENCE_SPAN)
+    expect(fit.distance).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.thirdDistance, 10)
+    expect(fit.height).toBeCloseTo(DEFAULT_CAMERA_OPTIONS.thirdHeight, 10)
+  })
+
+  it('翼展與距離同比例 —— 每一台在畫面上佔一樣寬', () => {
+    // 視角 2·atan(b/2d) 相同 ⟺ b/d 相同
+    const ref = REFERENCE_SPAN / thirdPersonFor(REFERENCE_SPAN).distance
+    for (const span of [9.92, 22.60, 31.62]) {
+      expect(span / thirdPersonFor(span).distance).toBeCloseTo(ref, 10)
+    }
+  })
+
+  it('俯角不隨機種變 —— 高度與距離同比例', () => {
+    const ref = DEFAULT_CAMERA_OPTIONS.thirdHeight / DEFAULT_CAMERA_OPTIONS.thirdDistance
+    for (const span of [9.92, 22.60, 31.62]) {
+      const f = thirdPersonFor(span)
+      expect(f.height / f.distance).toBeCloseTo(ref, 10)
+    }
+  })
+
+  it('B-17G 的相機在機尾之後 —— 不然整台戳穿鏡頭', () => {
+    // 機尾在機體 z 16.27（`b17g.hull.ts` 的最後一環）
+    expect(thirdPersonFor(31.62).distance).toBeGreaterThan(16.27 + 5)
   })
 })

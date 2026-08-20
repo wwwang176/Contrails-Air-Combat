@@ -2,6 +2,8 @@ import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
+import { B17G } from '../specs/b17g'
+import { HE111 } from '../specs/he111'
 import type { Faction } from './names'
 import type { AircraftSpec } from '../specs/types'
 
@@ -31,10 +33,24 @@ export interface SkirmishSetup {
   redCount: number
 }
 
-/** 各陣營可選的機種。**順序即卡片順序**，第一台是預設 */
+/**
+ * 各陣營可選的機種。**順序即卡片順序，第一台是預設**。
+ *
+ * 【第一台同時是「敵隊開什麼」】`battleConfigFrom` 的敵方一律取
+ * `specsFor(對面)[0]`，`missionConfigFrom` 的雙方也都取 `[0]`。所以往後面
+ * 加機種**不會動到任何既有的對戰組合** —— 加的是玩家的選項，不是敵人的。
+ *
+ * 【轟炸機兩台 2026-08-20 開放】外型與武裝都已經落地（`specs/b17g.ts`、
+ * `specs/he111.ts`、`weapons/*.ts`），飛行模型與 HUD 對機種是無關的，
+ * 缺的一直只有這張名單。
+ *
+ * 一件要知道的事：`blueSpec` 套用在**整隊**，所以選 B-17G 就是一個
+ * B-17 編隊而不是「一架轟炸機配一群野馬」。那是刻意的（真機就是編隊
+ * 出擊），但它把畫面上的三角形數乘上架數 —— 見 `test/unit/perf-gate.test.ts`。
+ */
 const SPECS: Record<FactionChoice, readonly AircraftSpec[]> = {
-  allies: [P51D],
-  axis: [BF109G6],
+  allies: [P51D, B17G],
+  axis: [BF109G6, HE111],
 }
 
 export function specsFor(faction: FactionChoice): readonly AircraftSpec[] {
