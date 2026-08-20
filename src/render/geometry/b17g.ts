@@ -214,6 +214,11 @@ const FIN: FinParams = {
  * 窗量到的 0.741 對得上，所以可信）。再往後**射線一出艙就沿著機翼跑**，
  * 量不到 —— 那一段的半寬照半高的收縮率外推到艙尾的 0.300。
  *
+ * 【兩種量法的接縫要抹平】兩段各自可信，接起來卻是一階：−1.38 的 0.750 到
+ * −1.18 的 0.653 是 0.097，0.1 m 之內掉 13%。真的艙不會這樣，那是量法換了。
+ * −1.18／−0.98 改成由 −1.38（0.750）到 −0.78（0.642）內插。專案負責人：
+ * 「引擎好像還是有一點鼓包，是不是可以更平順?」
+ *
  * 這一段本來就大半被機翼蓋住，而上下輪廓（`halfHeight`／`centerY`）全程是
  * 量到的。
  *
@@ -267,8 +272,10 @@ const NACELLE_INNER: LoftPart = {
     { z: -1.78, halfWidth: 0.775, halfHeight: 0.795, centerY: -0.000 },
     { z: -1.58, halfWidth: 0.766, halfHeight: 0.791, centerY: +0.003 },
     { z: -1.38, halfWidth: 0.750, halfHeight: 0.786, centerY: +0.007 },
-    { z: -1.18, halfWidth: 0.653, halfHeight: 0.780, centerY: +0.009 },
-    { z: -0.98, halfWidth: 0.647, halfHeight: 0.774, centerY: +0.011 },
+    // 半寬在這裡是兩種量法的接縫，原值 0.653／0.647 對前一站的 0.750 是一階
+    // 0.097 的落差 —— 那是量法換了不是形狀變了，改成兩端內插（見檔頭）
+    { z: -1.18, halfWidth: 0.714, halfHeight: 0.780, centerY: +0.009 },
+    { z: -0.98, halfWidth: 0.678, halfHeight: 0.774, centerY: +0.011 },
     { z: -0.78, halfWidth: 0.642, halfHeight: 0.766, centerY: +0.011 },
     { z: -0.58, halfWidth: 0.636, halfHeight: 0.757, centerY: +0.010 },
     { z: -0.38, halfWidth: 0.630, halfHeight: 0.747, centerY: +0.008 },
@@ -449,8 +456,8 @@ const GLASS_PATCHES: readonly GlassPatch[] = [
    * 時就是照 `paneSpan` 擺的），所以那一段整段可挖。索引 1 只有前面兩帶在
    * 裡面 —— 再往後它是艙頂的簷，在玻璃之上。
    */
-  { from: -3.19, to: -3.04, i0: 1, i1: 2, hole: true, bare: true },
-  { from: -3.19, to: -2.62, i0: 2, i1: 3, hole: true, bare: true },
+  { from: -3.20, to: -3.04, i0: 1, i1: 2, hole: true, bare: true },
+  { from: -3.19, to: -2.60, i0: 2, i1: 3, hole: true, bare: true },
   // 座艙側窗：在方盒**之下**的圓管肩上，不是盒壁
   { from: -2.40, to: -2.05, i0: 5, i1: 6, recess: true },
   /**
@@ -713,16 +720,30 @@ function roofPane(
   const colsAt = (z: number): number[] => {
     const k1 = kAt(z, 1, 0.05, 0.95)
     const k2 = kAt(z, 2, k1 + 0.02, 0.98)
-    return [-1, -k2, -k1, 0, k1, k2, 1]
+    return [0, k1, k2, 1]
   }
+  /**
+   * 【左半是右半的鏡像，不是自己再跑一次】兩邊各自由 −1 排到 +1 的話，四個
+   * 角一樣、**對角線卻反向** —— `flatGlass` 的三角化是固定的 q0–q2，所以
+   * 同一格在左右兩邊被切成不同的兩個三角形。四個角不共面（z 不同、蒙皮的 y
+   * 也不同），於是兩邊的內部各差 1～2 mm：算圖上左右的亮暗不一樣，人工回報
+   * 「一邊破碎、另一邊沒有」。
+   *
+   * 鏡像 = x 取負 + 順序反轉。反射本身翻一次定向、反轉再翻一次，法線的 y
+   * 分量因此保持朝上。
+   */
+  const mirror = (q: (readonly [number, number, number])[]):
+  (readonly [number, number, number])[] =>
+    [q[3]!, q[2]!, q[1]!, q[0]!].map((v) => [-v[0], v[1], v[2]] as const)
   const out: (readonly [number, number, number])[][] = []
   for (let i = 1; i < list.length; i++) {
     const za = list[i - 1]!, zb = list[i]!
     const ca = colsAt(za), cb = colsAt(zb)
     for (let j = 0; j + 1 < ca.length; j++) {
-      out.push([
+      const q = [
         at(za, ca[j + 1]!), at(za, ca[j]!), at(zb, cb[j]!), at(zb, cb[j + 1]!),
-      ])
+      ]
+      out.push(q, mirror(q))
     }
   }
   return out
