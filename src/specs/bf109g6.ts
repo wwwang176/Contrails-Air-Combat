@@ -153,6 +153,8 @@ export const BF109G6: AircraftSpec = {
   ],
 
   battery: BF109G6_BATTERY,
+  // 戰鬥機沒有自衛砲塔
+  turrets: [],
 }
 
 export const BF109G6_HISTORICAL: HistoricalReference = {

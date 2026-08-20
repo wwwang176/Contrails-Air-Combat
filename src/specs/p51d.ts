@@ -126,6 +126,8 @@ export const P51D: AircraftSpec = {
   ],
 
   battery: P51D_BATTERY,
+  // 戰鬥機沒有自衛砲塔
+  turrets: [],
 }
 
 export const P51D_HISTORICAL: HistoricalReference = {

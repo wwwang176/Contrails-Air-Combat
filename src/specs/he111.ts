@@ -300,6 +300,8 @@ export const HE111: AircraftSpec = {
   ],
 
   battery: HE111_BATTERY,
+  // 自衛砲塔在配置那一輪填（見實作計畫 Task 4）
+  turrets: [],
 }
 
 /**

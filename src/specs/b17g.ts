@@ -276,6 +276,8 @@ export const B17G: AircraftSpec = {
   ],
 
   battery: B17G_BATTERY,
+  // 自衛砲塔在配置那一輪填（見實作計畫 Task 4）
+  turrets: [],
 }
 
 /**
