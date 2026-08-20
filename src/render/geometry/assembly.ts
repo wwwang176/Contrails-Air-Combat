@@ -1,6 +1,6 @@
 import {
-  BoxGeometry, CircleGeometry, ConeGeometry, DoubleSide, Group, Mesh, MeshStandardMaterial,
-  SphereGeometry, Vector3,
+  BoxGeometry, BufferGeometry, CircleGeometry, ConeGeometry, DoubleSide, Float32BufferAttribute,
+  Group, Mesh, MeshStandardMaterial, SphereGeometry, Vector3,
 } from 'three'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
@@ -420,6 +420,45 @@ export function createHull(spec: HullSpec) {
          */
         add(new Mesh(rear.glassBackGeometry, cockpitMat))
       }
+    },
+
+    /**
+     * **直接給四個角**的平板玻璃。
+     *
+     * 【為什麼需要它】`GlassPatch` 是「z 範圍 × 環索引範圍」的矩形，貼出來的
+     * 形狀由**網格**決定 —— 一格要嘛整格落在玻璃裡、要嘛不是玻璃。風擋是一片
+     * 斜穿六個站位的四邊形，網格湊不出它的邊：前端那個銳角沒有一格整格落在
+     * 裡面，兩片補丁的交界又對不齊，算圖上就是缺角加糊出去。
+     *
+     * 這裡反過來：**玻璃是輸入**。四個角照量到的值擺，兩個三角形，沿法線
+     * 外推 `lift` 讓它浮在蒙皮上一點點（蒙皮在那一段本來就烘在同一個平面上，
+     * 不推的話 z-fighting）。蒙皮留成金屬 —— 它是玻璃後面的結構，透過 45%
+     * 的玻璃看出去正好。
+     *
+     * 【纏繞方向】頂點照 A→B→C→D 給，(A,B,C) 的法線就是平面的外法線；反了
+     * 的話正面被剔除，從機外看整片消失。
+     */
+    flatGlass(quads: readonly (readonly (readonly [number, number, number])[])[],
+      lift = 0.004): void {
+      const pos: number[] = []
+      for (const q of quads) {
+        const [a, b, c] = [q[0]!, q[1]!, q[2]!]
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]] as const
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]] as const
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+          u[0] * v[1] - u[1] * v[0]]
+        const len = Math.hypot(n[0]!, n[1]!, n[2]!) || 1
+        const off = n.map((t) => (t / len) * lift)
+        const put = (p: readonly [number, number, number]): void => {
+          pos.push(p[0] + off[0]!, p[1] + off[1]!, p[2] + off[2]!)
+        }
+        put(q[0]!); put(q[1]!); put(q[2]!)
+        put(q[0]!); put(q[2]!); put(q[3]!)
+      }
+      const g = new BufferGeometry()
+      g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+      g.computeVertexNormals()
+      add(new Mesh(g, glass))
     },
 
     /**
