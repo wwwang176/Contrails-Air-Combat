@@ -79,6 +79,39 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
 }
 
 /**
+ * 第三人稱那兩個距離的基準翼展，m。**`DEFAULT_CAMERA_OPTIONS` 就是照它訂的**
+ * —— P-51D 的 11.28 m 在 1280 寬的畫面上約佔 37%。
+ */
+export const REFERENCE_SPAN = 11.28
+
+/**
+ * 依翼展算第三人稱的距離與高度，讓**每一台在畫面上佔的比例一樣**。
+ *
+ * 【為什麼非有不可】12 m 是照 11.28 m 的翼展訂的。He 111 是 22.60、B-17G
+ * 是 31.62 —— 同一個 12 m 之下，B-17G 的翼尖直接切出畫面兩側，而且機尾
+ * （機體 z 16.27）比相機還遠 4 m，等於整台飛機戳穿鏡頭。
+ *
+ * 【為什麼線性而不是別的】相機距離 d 之下，翼展 b 佔的視角是
+ * `2·atan(b/2d)`；要讓它與基準相同就是 `d ∝ b`。高度用同一個比例，
+ * 俯角才不會隨機種變。
+ *
+ * ```
+ *   機種      翼展    距離    高度
+ *   Bf109    9.92   10.6    2.6
+ *   P-51D   11.28   12.0    3.0     ← 基準，逐字不變
+ *   He 111  22.60   24.0    6.0
+ *   B-17G   31.62   33.6    8.4
+ * ```
+ */
+export function thirdPersonFor(span: number): { distance: number; height: number } {
+  const k = span / REFERENCE_SPAN
+  return {
+    distance: DEFAULT_CAMERA_OPTIONS.thirdDistance * k,
+    height: DEFAULT_CAMERA_OPTIONS.thirdHeight * k,
+  }
+}
+
+/**
  * 相機。第三人稱彈簧阻尼跟隨、機首視角、右鍵自由視角、FOV 隨速度變化。
  *
  * 【相機不隨機體側滾】瞄準點是世界固定的，滑鼠位移繞相機的右／上軸旋轉它

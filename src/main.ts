@@ -29,7 +29,7 @@ import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-
 import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
-import { CameraRig, DEFAULT_CAMERA_OPTIONS } from './camera/CameraRig'
+import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -351,6 +351,20 @@ function rebuildVisuals(): void {
   renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
   // 眼點是量出來的座艙位置，一機一個值
   rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+  fitCameraToPlayer()
+}
+
+/**
+ * 第三人稱的距離與高度跟著機種的翼展走（見 `thirdPersonFor`）。
+ *
+ * 【為什麼與眼點分開一個函式】眼點來自**幾何**（量出來的座艙位置），
+ * 距離來自**氣動 spec**（翼展）。兩者的來源不同，換機時要一起做但理由
+ * 各自成立 —— 合成一行的話，日後有人只改其中一邊就會靜靜地漏掉另一邊。
+ */
+function fitCameraToPlayer(): void {
+  const fit = thirdPersonFor(player.aircraft.spec.wing.span)
+  rig.options.thirdDistance = fit.distance
+  rig.options.thirdHeight = fit.height
 }
 
 /** 離開戰鬥：清場並收掉記分板。 */
@@ -783,6 +797,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     playerAi.setDecisionPhase(player.index / world.combatants.length)
     // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
     rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+    fitCameraToPlayer()
     // 【瞄準點要放回機首】不放的話它還指著舊機體墜落前指的地方（多半是
     // 海面），接手的第一瞬間新機就被硬扯下去 —— 與 `I` 交還操縱時把瞄準點
     // 留在機首是同一條理由。必須排在 snapTo 之前，相機吃的是它。
