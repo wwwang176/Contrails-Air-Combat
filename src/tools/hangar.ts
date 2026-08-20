@@ -740,6 +740,52 @@ function applyRefMaterial(root: Object3D): void {
         : extentSlices(tris, axis, o as never)
     }
 
+/**
+ * 開發用：列出參考模型的每一個 mesh —— 名字、三角形數、**對齊後**的包圍盒。
+ *
+ * 【為什麼需要它】射線法適合量「連續的蒙皮輪廓」，不適合量「掛在機身上的
+ * 小零件」。從機身裡往外打的射線會飛過砲塔打到對側機身或機翼，`max` 那一欄
+ * 因此被遠處的幾何主導 —— 實測 B-17 的上部砲塔，maxRadius 0.9 量到 0.89、
+ * 換成 1.4 就變成 1.34，兩者永遠不一致（那正是「換一個更大的半徑重跑看輪廓
+ * 有沒有變」這條驗收判準要抓的東西）。
+ *
+ * 砲塔若在模型裡是獨立命名的節點，直接讀它的包圍盒就結束了。`__hangarSlice`
+ * 的第五個參數本來就吃 mesh 名稱的 RegExp（見 `aircraft-from-reference`
+ * 第 5b 步），這個出口只是先讓人知道有哪些名字可以填。
+ *
+ * 座標系與 `__hangarSlice` 相同（都走 `refModel` 的世界矩陣），所以量到的
+ * 數字直接可以填進 spec —— 不必自己再換算一次（坑 16）。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarRefNodes'] = () => {
+  if (!refModel) return null
+  refModel.updateMatrixWorld(true)
+  const out: { name: string; tris: number; box: number[] }[] = []
+  const v = new Vector3()
+  refModel.traverse((o) => {
+    const mesh = o as Mesh
+    const pos = mesh.geometry?.getAttribute?.('position')
+    if (!pos) return
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity
+    let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
+    for (let i = 0; i < pos.count; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(mesh.matrixWorld)
+      if (v.x < x0) x0 = v.x
+      if (v.y < y0) y0 = v.y
+      if (v.z < z0) z0 = v.z
+      if (v.x > x1) x1 = v.x
+      if (v.y > y1) y1 = v.y
+      if (v.z > z1) z1 = v.z
+    }
+    const idx = mesh.geometry.index
+    out.push({
+      name: mesh.name,
+      tris: Math.round((idx ? idx.count : pos.count) / 3),
+      box: [x0, y0, z0, x1, y1, z1],
+    })
+  })
+  return out
+}
+
 // 開發用：外部工具（Playwright）用來開啟參考模型並等它載入完成。
 ;(window as unknown as Record<string, unknown>)['__hangarRef'] =
     async (on: boolean, solid = false) => {
