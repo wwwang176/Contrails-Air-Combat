@@ -92,13 +92,26 @@ const ALL: readonly Check[] = [
   'vmaxCritical', 'vmaxSeaLevel', 'climb', 'stall', 'ceiling', 'peak']
 
 /**
- * 兩台轟炸機**還沒守住**的三項，連同 2026-08-20 的實測偏差。
+ * 兩台轟炸機**還沒守住**的四項，連同 2026-08-20 的實測偏差。
  *
- * He 111 的 5,000 m 極速本來也在這張表上（−6.2%）。第二輪把 `powerCritical`
- * 由 2,120 調到 2,216 之後收到 **−3.6%**，已經升級成守死 —— 理由與代價
- * （升限 −0.9% → +3.5%）寫在 `specs/he111.ts` 的引擎註解裡。
+ * 【He 111 的升限是這一輪**新降級**的】專案負責人裁定「5,000 m 極速與海平面
+ * 爬升都要提高，可以超過史實」。那兩項各自的旋鈕（`powerCritical` 與
+ * `powerSeaLevel`）都會連帶抬高升限，而升限只剩 1.5 點餘裕：
  *
  * ```
+ *                 前      後
+ *   5,000 m 極速  −3.6%   −0.1%   ← 目標達成，仍守死
+ *   海平面爬升   −13.0%   +0.0%   ← 目標達成，本來就不斷言
+ *   實用升限      +3.5%   +8.9%   ← 代價，由守死降級成 PENDING
+ * ```
+ *
+ * **這是把一條護欄拿掉，不是調參沒調到位。** 拿掉的理由是負責人的取捨
+ * （高空性能優先於升限的絕對值），不是因為做不到 —— 做得到，代價是那兩項
+ * 回到原本的偏差。要復原就是把 `powerSeaLevel` 退回 2,680、
+ * `powerCritical` 退回 2,216。
+ *
+ * ```
+ *   He 111  實用升限      +8.9%   見上方
  *   He 111  失速          +5.6%   derivedClMax 1.313 對 HE111_HISTORICAL.clMax
  *                                 的 1.55 差 15%。要動 alphaCrit／clAlpha，
  *                                 而那兩個現在都貼著升力線理論值
@@ -113,14 +126,14 @@ const ALL: readonly Check[] = [
  * 一個是「到 20,000 ft 約 37 分 → 2.7，海平面較高，取 4.5」猜的，來源撐不起
  * 任何精度。實測 He 111 −13.0%、B-17G +12.4%（都是未套手感的值）。
  */
-const PENDING = ['He111 失速', 'B17G 失速', 'B17G 升限'] as const
+const PENDING = ['He111 升限', 'He111 失速', 'B17G 失速', 'B17G 升限'] as const
 
 const CASES: { spec: AircraftSpec; hist: HistoricalReference; checks: readonly Check[] }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, checks: ALL },
   { spec: BF109G6, hist: BF109G6_HISTORICAL, checks: ALL },
-  // 極速兩點與升限守死；失速與爬升見 PENDING
+  // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: HE111, hist: HE111_HISTORICAL,
-    checks: ['vmaxCritical', 'vmaxSeaLevel', 'ceiling', 'peak'] },
+    checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
 ]
@@ -164,13 +177,13 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, �
 
   // PENDING 是文件，但讓它進斷言，才不會有人把它刪掉之後沒人發現。
   it('還沒守住的四項有被逐條記錄', () => {
-    expect(PENDING).toHaveLength(3)
+    expect(PENDING).toHaveLength(4)
     const covered = CASES.flatMap(({ spec, checks }) =>
       ALL.filter((c) => !checks.includes(c)).map((c) => `${spec.id}:${c}`))
       // He111 少 climb/stall、B17G 少 climb/stall/ceiling
     expect(covered.sort()).toEqual([
       'b17g:ceiling', 'b17g:climb', 'b17g:stall',
-      'he111:climb', 'he111:stall',
+      'he111:ceiling', 'he111:climb', 'he111:stall',
     ])
   })
 
