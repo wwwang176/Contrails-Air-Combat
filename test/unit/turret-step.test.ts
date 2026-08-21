@@ -3,11 +3,13 @@ import { Vector3, Quaternion } from 'three'
 import { Projectiles } from '../../src/world/Projectiles'
 import {
   createTurretStates, resetTurretStates, stepTurrets, stepBurst,
-  WOBBLE_AMPLITUDE, BURST_ON, BURST_OFF, FIRE_THRESHOLD, SEARCH_INTERVAL,
+  WOBBLE_AMPLITUDE, BURST_ON, BURST_OFF, BURST_SCATTER, FIRE_THRESHOLD,
+  SEARCH_INTERVAL,
 } from '../../src/world/turrets'
 import type { TurretCombatant, TurretState } from '../../src/world/turrets'
 import { B17G } from '../../src/specs/b17g'
 import { P51D } from '../../src/specs/p51d'
+import { HE111 } from '../../src/specs/he111'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import type { AircraftSpec } from '../../src/specs/types'
 
@@ -33,8 +35,8 @@ const fighterAt = (z: number, vz: number): TurretCombatant =>
 
 const freshState = (): TurretState => ({
   aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1,
-  searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, flash: 0,
-  lastBarrel: 0,
+  searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+  flash: 0, lastBarrel: 0,
 })
 
 describe('點放狀態機', () => {
@@ -59,6 +61,65 @@ describe('點放狀態機', () => {
     for (let k = 0; k < 20; k++) stepBurst(s, 10)
     expect(s.burstTimer).toBeGreaterThan(0)
     expect(Number.isFinite(s.burstTimer)).toBe(true)
+  })
+
+  /**
+   * 【這一條守的是火力平衡，不是節奏】週期倍率同時乘開火段與停火段，
+   * 所以不管倍率是多少，每一座仍然是同樣比例的時間在開火 —— 錯開節奏
+   * **不可以順便改動火力總量**（那是另一個決定，見 `TURRET_DAMAGE_SCALE`）。
+   * 只乘其中一段的話這一條會紅。
+   */
+  it('週期倍率不改工作週期 —— 火力總量不受錯開影響', () => {
+    for (const scale of [1 - BURST_SCATTER, 1, 1 + BURST_SCATTER]) {
+      const s = freshState()
+      s.burstScale = scale
+      s.burstTimer = BURST_ON * scale
+      let firing = 0
+      const steps = Math.round((BURST_ON + BURST_OFF) * scale * 40 / DT)
+      for (let k = 0; k < steps; k++) if (stepBurst(s, DT)) firing++
+      expect(firing / steps).toBeCloseTo(BURST_ON / (BURST_ON + BURST_OFF), 2)
+    }
+  })
+})
+
+/**
+ * 人工回報 2026-08-21：「開火時間、冷卻時間都一樣」。改之前實測是**完全
+ * 同步** —— 260 座砲塔每一步不是全開就是全關。
+ */
+describe('點放的錯開', () => {
+  it('同一架的八座，開火段的起點各不相同', () => {
+    const states = createTurretStates(B17G, 0)
+    const starts = new Set(states.map((s) => s.burstTimer.toFixed(6)))
+    expect(states.length).toBe(8)
+    expect(starts.size).toBe(8)
+  })
+
+  it('同一架的八座，週期各不相同 —— 相對關係不會凍結', () => {
+    const states = createTurretStates(B17G, 0)
+    const scales = new Set(states.map((s) => s.burstScale.toFixed(6)))
+    expect(scales.size).toBe(8)
+  })
+
+  /**
+   * 【判準刻意是「嚴格介於 0 與全部之間」，沒有可調的門檻】改之前這一條
+   * 是 100% 違反（每一步都是 0 或 260），不是「差一點」。用標準差當門檻就
+   * 會多一個要有人裁定的數字。
+   *
+   * 混編是必要的：`MAX_TURRETS` 當 stride 的理由就是不同砲塔數的機種不能
+   * 撞號（見 `wobblePhase` 的註解）。
+   */
+  it('混編機隊不會出現「全部一起開火」或「全部一起停火」的一步', () => {
+    const all: TurretState[] = []
+    let index = 0
+    for (let k = 0; k < 8; k++) all.push(...createTurretStates(B17G, index++))
+    for (let k = 0; k < 8; k++) all.push(...createTurretStates(HE111, index++))
+    const N = all.length
+    for (let k = 0; k < Math.round(30 / DT); k++) {
+      let on = 0
+      for (const s of all) if (stepBurst(s, DT)) on++
+      expect(on).toBeGreaterThan(0)
+      expect(on).toBeLessThan(N)
+    }
   })
 })
 
