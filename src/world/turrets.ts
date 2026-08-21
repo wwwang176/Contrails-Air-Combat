@@ -2,7 +2,7 @@ import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
 import { stepCadence } from '../weapons/cadence'
 import {
-  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle,
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, ROOT3, SILVER, slew, turretMuzzle,
   TURRET_DAMAGE_SCALE, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
 import { NO_INTERCEPT, solveLead } from './lead'
@@ -46,6 +46,12 @@ export interface TurretState {
   /** 點放：目前這一段還剩幾秒。**恆為正。** */
   burstTimer: number
   /**
+   * 這一座自己的點放週期倍率。開火段與停火段**同時**乘它，所以
+   * 工作週期恆為 `BURST_ON / (BURST_ON + BURST_OFF)`，**火力總量不變**，
+   * 變的只有節奏。見 `BURST_SCATTER`。
+   */
+  burstScale: number
+  /**
    * 槍焰剩餘秒數。**這裡只負責設定，遞減由 `World.step` 的全 combatant
    * 迴圈做**（與固定槍的 `muzzleFlash` 同一個迴圈、同一個理由：遞減若寫在
    * `continue` 之後，被打爆那一瞬間亮著的槍焰會永遠停在那裡）。
@@ -69,6 +75,33 @@ export const WOBBLE_OMEGA = 2 * Math.PI * 0.7
 export const BURST_ON = 1.2
 /** 點放的停火秒數。**起始值。** */
 export const BURST_OFF = 0.8
+/**
+ * 點放週期的分散幅度，±這個比例。**起始值，由試飛裁定。**
+ *
+ * ── 為什麼需要它（人工回報 2026-08-21）──────────────────
+ *
+ * 「轟炸機上的機槍，開火時間、冷卻時間都一樣」。實測確認是**完全同步**：
+ * `resetTurretStates` 對每一座都寫死 `burstFiring = true` 與
+ * `burstTimer = BURST_ON`，而 `stepBurst` 只吃 `dt` —— 沒有任何一項與砲塔
+ * 或載機有關，所以一旦同步就永遠同步。20 架 B-17G + 20 架 He 111 = 260 座
+ * 砲塔跑 60 秒，同時開火的座數**每一步不是 260 就是 0**，60% 的時間全開、
+ * 40% 的時間全關。整個機隊像同一根扳機。
+ *
+ * ── 為什麼「錯開起點」還不夠 ──────────────────────────
+ *
+ * 只錯開起點的話，260 座是一組**頻率相同、只差相位**的方波：相對關係凍結，
+ * 每一座自己也永遠是精準的 1.2 開 / 0.8 關。週期也散開之後，任兩座的相對
+ * 關係一直在漂，聽起來才不像節拍器。
+ *
+ * ── 為什麼是倍率而不是各自加一個隨機量 ──────────────
+ *
+ * 開火段與停火段乘同一個數，**工作週期完全不變** —— 每一座仍然是 60% 的
+ * 時間在開火，所以火力總量與這一輪剛裁定的 `TURRET_DAMAGE_SCALE` 都不受
+ * 影響。分別加減的話會連帶動到平衡，那是另一個決定。
+ *
+ * 0.25 → 週期落在 1.5 … 2.5 秒（開火段 0.9 … 1.5 秒）。
+ */
+export const BURST_SCATTER = 0.25
 /**
  * 開火門檻角，rad。**追瞄誤差**的門檻，與搖晃無關 —— 搖晃作用在射出去的
  * 子彈上，不作用在 `aim` 上。取搖晃振幅的兩倍。
@@ -104,7 +137,8 @@ export function createTurretStates(
     out.push({
       aim: spec.turrets[i]!.axis.clone(),
       phase: 0, targetIndex: -1, searchCooldown: 0,
-      burstFiring: true, burstTimer: BURST_ON, flash: 0, lastBarrel: 0,
+      burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+      flash: 0, lastBarrel: 0,
     })
   }
   resetTurretStates(out, spec, combatantIndex)
@@ -138,8 +172,19 @@ export function resetTurretStates(
     // 黃金比的小數部分：低差異序列，任意前綴都接近均勻
     const k = combatantIndex * MAX_TURRETS + i
     s.searchCooldown = ((k * GOLDEN) % 1) * SEARCH_INTERVAL
-    s.burstFiring = true
-    s.burstTimer = BURST_ON
+
+    /*
+     * 點放的錯開。**三條序列各用各的乘子**（GOLDEN / SILVER / ROOT3）——
+     * 共用的話「搜尋早的那一座必然開火也早、週期也一起偏長」，三件事縮成
+     * 一件。三個乘子彼此是無理數比，所以三維上一樣鋪得開。
+     */
+    s.burstScale = 1 + (((k * ROOT3) % 1) - 0.5) * 2 * BURST_SCATTER
+    const on = BURST_ON * s.burstScale
+    const cycle = (BURST_ON + BURST_OFF) * s.burstScale
+    // 起點攤在整個週期上：落在開火段就是開火段，落在後段就是停火段
+    const at = ((k * SILVER) % 1) * cycle
+    s.burstFiring = at < on
+    s.burstTimer = s.burstFiring ? on - at : cycle - at
     s.flash = 0
     s.lastBarrel = 0
   }
@@ -157,7 +202,8 @@ export function stepBurst(s: TurretState, dt: number): boolean {
   s.burstTimer -= dt
   while (s.burstTimer <= 0) {
     s.burstFiring = !s.burstFiring
-    s.burstTimer += s.burstFiring ? BURST_ON : BURST_OFF
+    // 兩段乘同一個倍率 —— 工作週期不變，只有節奏跟著這一座走
+    s.burstTimer += (s.burstFiring ? BURST_ON : BURST_OFF) * s.burstScale
   }
   return firingThisStep
 }
