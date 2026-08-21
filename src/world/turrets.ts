@@ -2,7 +2,8 @@ import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
 import { stepCadence } from '../weapons/cadence'
 import {
-  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle, wobbleBasis, wobblePhase,
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle,
+  TURRET_DAMAGE_SCALE, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
@@ -268,7 +269,10 @@ export function stepTurrets(
       projectiles.spawn(
         MUZZLE.x + OFFSET.x, MUZZLE.y + OFFSET.y, MUZZLE.z + OFFSET.z,
         VEL.x, VEL.y, VEL.z,
-        t.weapon.damage * t.guns, c.index,
+        // 【倍率只作用在砲塔】玩家扣扳機走的是 World.fire，那條路徑沒有
+        // 這一項 —— 而 B-17G 的砲塔與 P-51D 的翼槍共用同一份 M2_BROWNING，
+        // 改 WeaponSpec.damage 會把野馬一起砍半。見 TURRET_DAMAGE_SCALE。
+        t.weapon.damage * t.guns * TURRET_DAMAGE_SCALE, c.index,
       )
     }
   }
