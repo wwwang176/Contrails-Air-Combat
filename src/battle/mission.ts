@@ -175,6 +175,40 @@ export interface MissionState {
   remaining: number
 }
 
+/**
+ * 分出勝負之後的時間流速。**專案負責人 2026-08-21 指定 0.05**（二十分之一）。
+ *
+ * 【為什麼不是 0】定格看起來像當掉 —— 那正是 M10 spec §8.1 裁定「暫停時
+ * 所有模擬時間都不前進」時要避免的觀感（一批定格的飛機浮在繼續起伏的
+ * 海上）。但結算不是暫停：玩家沒有要回來繼續打，他在看戰果。慢動作讓
+ * 最後那一下（被打爆的僚機、還在墜落的殘骸）演完，而不是硬生生卡住。
+ */
+export const FINISHED_TIME_SCALE = 0.05
+
+/**
+ * 這一幀的模擬時間要乘多少。**分出勝負之後切慢動作。**
+ *
+ * 【為什麼抽成一支函數住在這裡】它的呼叫端是 `main.ts` 的主迴圈，而那個
+ * 檔案沒有任何測試（見 `test/e2e/` 幾支的檔頭）。抽出來之後這件事拆成
+ * 兩半，兩半各自有護欄：
+ *
+ * ```
+ *   一、分出勝負會改 dt      ← 這支函數，`test/unit/mission.test.ts`
+ *   二、dt 會影響遊戲速度    ← `FixedStepAccumulator`，`test/unit/loop.test.ts`
+ * ```
+ *
+ * 【為什麼是縮放而不是換步長】`loop.setStepHz` 會清掉 accumulator，而且會
+ * 改變物理的積分步長 —— 那是**換一套動力學**，不是放慢播放。餵給
+ * `loop.advance` 的時間變少，它自然就少跑幾個 240 Hz 的子步，每一步的
+ * 內容一個字都沒變。
+ *
+ * 【呼叫端要連 `elapsed` 一起乘】海浪與地形讀的是那個累加值。只慢飛機的話
+ * 畫面上是一批慢動作的飛機浮在照常起伏的海上（M10 spec §8.1 的同一條）。
+ */
+export function timeScale(outcome: Outcome): number {
+  return outcome === 'fighting' ? 1 : FINISHED_TIME_SCALE
+}
+
 export function createMissionState(rules: MissionRules): MissionState {
   const s: MissionState = {
     outcome: 'fighting',
