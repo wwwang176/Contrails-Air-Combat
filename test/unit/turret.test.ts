@@ -71,20 +71,41 @@ describe('搖晃基底', () => {
 
 describe('搖晃相位', () => {
   it('同一架的各座互不相同', () => {
-    const phases = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => wobblePhase(3, 8, i))
+    const phases = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => wobblePhase(3, i))
     expect(new Set(phases.map((p) => p.toFixed(6))).size).toBe(8)
   })
 
   it('相鄰兩架的同一座也不同 —— 編隊不會同步擺動', () => {
-    expect(Math.abs(wobblePhase(3, 8, 0) - wobblePhase(4, 8, 0))).toBeGreaterThan(1e-3)
+    expect(Math.abs(wobblePhase(3, 0) - wobblePhase(4, 0))).toBeGreaterThan(1e-3)
   })
 
   it('落在 [0, 2π)', () => {
     for (let k = 0; k < 200; k++) {
-      const p = wobblePhase(k, 8, k % 8)
+      const p = wobblePhase(k, k % 8)
       expect(p).toBeGreaterThanOrEqual(0)
       expect(p).toBeLessThan(Math.PI * 2)
     }
+  })
+
+  /**
+   * 【混編機種不得有兩座同相位】Codex 2026-08-21 抓到的真缺陷：stride 用
+   * 「這台有幾座」的話，砲塔數不同的兩個機種編號區間會重疊。20 架 B-17G
+   * （8 座）加 20 架 He 111（5 座）共 260 座，舊實作只有 200 個唯一相位、
+   * **60 對完全同步**。
+   *
+   * 這一條直接用兩個不同的砲塔數建索引，抓的就是那個。
+   */
+  it('混編機種（8 座 + 5 座）沒有任何兩座同相位', () => {
+    const seen = new Set<string>()
+    let total = 0
+    for (let c = 0; c < 20; c++) {
+      for (let i = 0; i < 8; i++) { seen.add(wobblePhase(c, i).toFixed(12)); total++ }
+    }
+    for (let c = 20; c < 40; c++) {
+      for (let i = 0; i < 5; i++) { seen.add(wobblePhase(c, i).toFixed(12)); total++ }
+    }
+    expect(total).toBe(260)
+    expect(seen.size, `${total} 座只有 ${seen.size} 個唯一相位`).toBe(total)
   })
 })
 

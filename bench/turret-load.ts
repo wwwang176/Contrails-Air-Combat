@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import { GOLDEN_ANGLE } from '../src/weapons/turret'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle, type BattleConfig } from '../src/battle/setup'
 import { HEAD_ON, PURSUIT } from '../src/battle/entry'
 import { P51D } from '../src/specs/p51d'
@@ -21,6 +22,14 @@ class Idle implements Controller {
 
 export interface TurretLoadState {
   battle: Battle
+  /**
+   * 這一份是不是「包圍」擺位。
+   *
+   * 【為什麼要記】`resetTurretLoad` 走 `World.respawn`，而那會把飛機送回
+   * **出生點** —— 也就是把 `surround()` 的擺位整個還原成 `PURSUIT`。不記的話
+   * 第一次重置之後追瞄負載就悄悄退化成 114/160，而測試照樣綠。
+   */
+  surrounded: boolean
 }
 
 /**
@@ -50,7 +59,7 @@ function build(entry: BattleConfig['entry']): TurretLoadState {
   const battle = createBattle(new Idle(), {
     ...DEFAULT_BATTLE, blueSpec: P51D, redSpec: B17G, entry,
   })
-  const state: TurretLoadState = { battle }
+  const state: TurretLoadState = { battle, surrounded: false }
   fill(state)
   return state
 }
@@ -64,11 +73,66 @@ export function createTurretSearchLoad(): TurretLoadState {
 }
 
 /**
- * 追擊起始：紅隊在後方 400 m、高 200 m，開場就在射程內 —— 每一座砲塔每步
- * 解預瞄、轉向、生彈丸。
+ * **每一座砲塔都有目標**的最壞負載 —— 每步解預瞄、轉向、生彈丸。
+ *
+ * 【為什麼不能只用 `PURSUIT`】第一版就是那樣，而它**達不到它宣稱的東西** ——
+ * Codex 2026-08-21 實測：暖機 300 步之後只有 **114 / 160 座**取得目標，
+ * `top` 與 `tail` 是 **0 座**（追擊起始把敵機全部放在同一側，上方與正後方
+ * 的錐裡一台都沒有）。門檻因此沒有涵蓋合法的最壞情形。
+ *
+ * 【怎麼做到 160/160】把敵機擺成**包圍**：轟炸機收成一小團（半徑 80 m），
+ * 戰鬥機沿費波那契球均勻鋪在半徑 500 m 的球面上。這樣每一台轟炸機的每一個
+ * 射界錐裡都有敵機，而 500 m 遠在射程之內。
+ *
+ * 【為什麼合成擺位是合理的】與 `fill()` 把彈丸池人工灌滿同一個道理：要量的
+ * 是**最壞情形**，而最壞情形在一場真的戰鬥裡不會穩定出現。合成擺位是可達的
+ * 輸入（Codex 已驗證同一套正式邏輯能到 160/160），不是虛構的。
  */
 export function createTurretTrackLoad(): TurretLoadState {
-  return build(PURSUIT)
+  const state = build(PURSUIT)
+  state.surrounded = true
+  surround(state)
+  return state
+}
+
+/** 轟炸機團的半徑，m。收得比射程小很多，讓每一台都被同一批敵機包住。 */
+const BOMBER_CLUSTER = 80
+/** 戰鬥機球殼的半徑，m。要遠小於射程上界（約 2.0 km）。 */
+const FIGHTER_SHELL = 500
+
+/**
+ * 把場景擺成「轟炸機在中間、戰鬥機包一圈」。
+ *
+ * 費波那契球（黃金角螺旋）是**確定性**的均勻鋪點 —— 不用亂數，也不會像
+ * 經緯度格點那樣在兩極擠成一團。
+ */
+function surround(state: TurretLoadState): void {
+  const cs = state.battle.world.combatants
+  const centre = new Vector3()
+  for (const c of cs) centre.add(c.aircraft.state.position)
+  centre.divideScalar(cs.length)
+
+  const turreted = cs.filter((c) => c.aircraft.spec.turrets.length > 0)
+  const others = cs.filter((c) => c.aircraft.spec.turrets.length === 0)
+
+  // 轟炸機：收成一小團，仍然散開到不重疊
+  for (let k = 0; k < turreted.length; k++) {
+    const p = turreted[k]!.aircraft.state.position
+    fibonacci(k, turreted.length, BOMBER_CLUSTER, p).add(centre)
+  }
+  // 戰鬥機：均勻鋪在球殼上，把每一個射界錐都填滿
+  for (let k = 0; k < others.length; k++) {
+    const p = others[k]!.aircraft.state.position
+    fibonacci(k, others.length, FIGHTER_SHELL, p).add(centre)
+  }
+}
+
+/** 費波那契球的第 k 點（共 n 點），半徑 r，寫進 `out`。 */
+function fibonacci(k: number, n: number, r: number, out: Vector3): Vector3 {
+  const y = n === 1 ? 0 : 1 - (2 * k) / (n - 1)
+  const rad = Math.sqrt(Math.max(0, 1 - y * y))
+  const theta = k * GOLDEN_ANGLE
+  return out.set(Math.cos(theta) * rad * r, y * r, Math.sin(theta) * rad * r)
 }
 
 /**
@@ -108,5 +172,7 @@ export function stepTurretLoad(state: TurretLoadState): void {
 export function resetTurretLoad(state: TurretLoadState): void {
   state.battle.world.projectiles.clear()
   for (const c of state.battle.world.combatants) state.battle.world.respawn(c)
+  // 【重置之後要重新擺】`respawn` 把飛機送回出生點，也就是把 surround 還原
+  if (state.surrounded) surround(state)
   fill(state)
 }
