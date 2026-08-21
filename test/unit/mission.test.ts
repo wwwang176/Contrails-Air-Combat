@@ -13,6 +13,8 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     aliveRed: 16,
     playerPos: new Vector3(0, 4000, 5000),
     playerAlive: true,
+    convoyAlive: 0,
+    convoyLead: Infinity,
     ...over,
   }
 }

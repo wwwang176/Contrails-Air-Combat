@@ -201,10 +201,18 @@ export interface HudFrame {
    * 常數 —— 組字串的是 widget，而 widget 走畫面頻率不是物理步。
    */
   objectiveText: string
-  /** 計量。殲滅＝剩餘敵機數，撤離＝到撤離點的距離 m */
+  /** 計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
   objectiveMetric: number
   /** 計量的種類，決定 widget 怎麼格式化 */
   objectiveMetricKind: 'count' | 'distance'
+  /**
+   * **第二個**計量：護送／攔截還剩幾架。**−1 = 不畫**（其餘每一種任務）。
+   *
+   * 【為什麼護送要兩個數字】它們回答兩個不同的問題：距離說「還要撐多久」，
+   * 架數說「還剩多少籌碼」。護送的敗北條件是全部被擊落 —— 那件事在距離上
+   * 完全看不出來。專案負責人 2026-08-21 裁定兩個都顯示。
+   */
+  objectiveRemaining: number
   /** 剩餘秒數。`Infinity` 時不畫倒數 */
   objectiveSeconds: number
   /** 撤離點的世界平面座標，供小地圖。false 時下面兩格無意義 */
@@ -235,6 +243,7 @@ export function createHudFrame(): HudFrame {
     objectiveText: '',
     objectiveMetric: 0,
     objectiveMetricKind: 'count',
+    objectiveRemaining: -1,
     // 【為什麼是 0 而不是 Infinity】既有護欄「初始值不含 NaN」實際斷言的是
     // `Number.isFinite`（`test/unit/hud.test.ts:71-78`），而 `Infinity` 過不了。
     // 那條護欄不歸這一輪動。

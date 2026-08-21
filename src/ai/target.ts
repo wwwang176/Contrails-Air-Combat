@@ -531,7 +531,7 @@ const MIN_RANGE = 1e-3
  * 熱路徑：不配置。不修改 self 與 enemy。
  */
 export function targetScore(
-  self: Aircraft, enemy: Aircraft, locks: number, cfg: TargetConfig,
+  self: Aircraft, enemy: Aircraft, locks: number, cfg: TargetConfig, priority = 1,
 ): number {
   const los = S.v[0]!.copy(enemy.state.position).sub(self.state.position)
   const range = los.length()
@@ -587,7 +587,9 @@ export function targetScore(
   const visionDiscount = cfg.visionPower === 0
     ? 1
     : visionFactor(trackAngle(self, enemy), cfg)
-  return geometry * rangeDiscount * crowdDiscount * turnDiscount * visionDiscount
+  // 【任務加權是最後一道乘法】理由見 `TargetBoard.priority`：它與幾何無關，
+  // 是關卡說「這一架比較值錢」。乘在最後才不會被任何一個折扣稀釋掉。
+  return geometry * rangeDiscount * crowdDiscount * turnDiscount * visionDiscount * priority
 }
 
 /**
@@ -659,6 +661,28 @@ export interface TargetBoard {
    * 物理步就地重填，所以永遠是當步的編制，不需要同步。
    */
   readonly flightOf: Int32Array
+  /**
+   * `priority[i]` = 打第 i 架**值幾倍**。1 = 與一般敵機同分，**預設全 1**。
+   *
+   * 【它解決的是什麼】護航機把攔截方的目標全部吸走：實測 4 架 P-51 對上
+   * 「2 或 4 架 Bf109 + 4 架 He 111」，轟炸機**一發都不會挨到**
+   * （`docs/backlog.md` §2.26）。原因是 `targetScore` 只看威脅與幾何，而
+   * 護航機兩者都更強 —— 它會還手、而且擺在更高更近的位置。「這一關的目標
+   * 是轟炸機」這件事在評分裡完全不存在。
+   *
+   * 【為什麼是一條資料而不是一個相依】與 `flightOf` 一模一樣的理由：
+   * `src/ai/` 不准 import `src/battle/`，而「誰是這一關的目標」是編組表
+   * （`duty === 'transit'`）說了算。這裡收的是一個由 `battle` 層填好的
+   * 陣列，AI 只管乘。
+   *
+   * 【為什麼是乘法而不是加法】`targetScore` 恆非負，而換目標門檻是乘法的
+   * （`bestScore > curScore × (1 + margin)`）。乘一個正數不動零點、不動
+   * 單調性，遲滯照舊；加法會把「分數為 0 的候選」也抬起來，那些正是幾何
+   * 上完全打不到的目標。
+   *
+   * 【它是每一關自己的旋鈕】值由 `BattleConfig.tuning` 給，見那裡。
+   */
+  readonly priority: Float64Array
 }
 
 /**
@@ -675,7 +699,7 @@ export interface TargetBoard {
  * 單元測試多半不需要編制，所以預設就是那一個。
  */
 export function createTargetBoard(
-  candidates: readonly TargetCandidate[], flightOf?: Int32Array,
+  candidates: readonly TargetCandidate[], flightOf?: Int32Array, priority?: Float64Array,
 ): TargetBoard {
   for (let i = 0; i < candidates.length; i++) {
     if (candidates[i]!.index !== i) {
@@ -689,10 +713,18 @@ export function createTargetBoard(
       `flightOf 長度必須等於候選數：${flightOf.length} vs ${candidates.length}`,
     )
   }
+  if (priority !== undefined && priority.length !== candidates.length) {
+    throw new Error(
+      `priority 長度必須等於候選數：${priority.length} vs ${candidates.length}`,
+    )
+  }
   return {
     candidates,
     assignments: new Int32Array(candidates.length).fill(-1),
     flightOf: flightOf ?? new Int32Array(candidates.length).fill(-1),
+    // 【省略等於全 1】也就是「每一架都一樣值錢」—— 遭遇戰與殲滅任務逐字
+    // 回到加這個欄位之前的行為
+    priority: priority ?? new Float64Array(candidates.length).fill(1),
   }
 }
 
@@ -829,7 +861,7 @@ export function selectTarget(
   state: TargetState, board: TargetBoard, selfIndex: number,
   dt: number, cfg: TargetConfig,
 ): Aircraft | null {
-  const { candidates, assignments } = board
+  const { candidates, assignments, priority } = board
   const self = candidates[selfIndex]
   if (self === undefined || !self.alive) {
     state.current = -1
@@ -854,7 +886,7 @@ export function selectTarget(
     const c = candidates[i]!
     if (!c.alive || c.team === self.team) continue
     const locks = countLocks(board, self.team, selfIndex, i)
-    const s = targetScore(self.aircraft, c.aircraft, locks, cfg)
+    const s = targetScore(self.aircraft, c.aircraft, locks, cfg, priority[i]!)
     if (s > bestScore) {
       bestScore = s
       bestIndex = i
@@ -873,7 +905,8 @@ export function selectTarget(
   } else if (state.dwell <= 0 && bestIndex !== state.current) {
     const cur = candidates[state.current]!
     const curLocks = countLocks(board, self.team, selfIndex, state.current)
-    const curScore = targetScore(self.aircraft, cur.aircraft, curLocks, cfg)
+    const curScore = targetScore(
+      self.aircraft, cur.aircraft, curLocks, cfg, priority[state.current]!)
     // 【乘法門檻在這裡才安全】targetScore 恆非負（見該函數註解）
     if (bestScore > curScore * (1 + cfg.switchMargin)) {
       state.current = bestIndex

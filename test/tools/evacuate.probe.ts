@@ -113,12 +113,12 @@ function pad(s: string | number, n: number): string {
 
 // ═════════════════════════════════════════════════════════
 console.log(`
-══ 一、撤離點距離 × 到達時間（直飛、藍 ${CARD.blueCount} 紅 ${CARD.redCount}、半徑 ${CARD.evacRadius} m）══
+══ 一、撤離點距離 × 到達時間（直飛、藍 ${CARD.blueCount} 紅 ${CARD.redCount}、半徑 ${CARD.targetRadius} m）══
 【時限的候選是「到達秒數 × 餘裕」】餘裕太小 → 直飛都到不了；太大 → 時限形同虛設
 
   距離 km   到達 s   我方剩   敵方剩   玩家活   ×1.2    ×1.4    ×1.6`)
 for (const d of [12000, 16000, 20000, 25000, 30000]) {
-  const r = runTimed(d, CARD.evacRadius, CARD.blueCount, CARD.redCount, 200)
+  const r = runTimed(d, CARD.targetRadius, CARD.blueCount, CARD.redCount, 200)
   const t = r.seconds
   console.log(
     `${pad((d / 1000).toFixed(0), 9)}`
@@ -134,7 +134,7 @@ for (const d of [12000, 16000, 20000, 25000, 30000]) {
 
 // ═════════════════════════════════════════════════════════
 console.log(`
-══ 二、架數 × 存活（直飛、距離 ${CARD.evacDistance / 1000} km）══
+══ 二、架數 × 存活（直飛、距離 ${CARD.targetDistance / 1000} km）══
 【為什麼變異用開局空速而不是種子】createBattle 的 seed 只配飛行員名字、
 不進物理路徑（M9 spec §6.2），同一組設定跑五次是逐位元相同的。要有變異
 必須改設定本身。
@@ -143,7 +143,7 @@ console.log(`
 for (const [blue, red] of [[4, 8], [4, 12], [4, 16], [4, 20], [6, 16]] as const) {
   let line = pad(`${blue}/${red}`, 7)
   for (const tas of [180, 190, 200, 210, 220]) {
-    const r = runTimed(CARD.evacDistance, CARD.evacRadius, blue, red, tas)
+    const r = runTimed(CARD.targetDistance, CARD.targetRadius, blue, red, tas)
     line += pad(`${r.aliveBlue}${r.playerAlive ? '✓' : '✗'}`, 8)
   }
   console.log(line)
@@ -158,7 +158,7 @@ console.log(`
 
   半徑 m   判到達時的距離 m   差 m   ${SCREEN_AT / 1000} km 外佔螢幕高度`)
 for (const radius of [500, 1000, 1500, 2000]) {
-  const r = runTimed(CARD.evacDistance, radius, CARD.blueCount, CARD.redCount, 200)
+  const r = runTimed(CARD.targetDistance, radius, CARD.blueCount, CARD.redCount, 200)
   const share = (2 * Math.atan(radius / SCREEN_AT) * 180 / Math.PI) / CAMERA_FOV_DEG
   console.log(
     `${pad(radius, 8)}`
@@ -175,20 +175,20 @@ for (const radius of [500, 1000, 1500, 2000]) {
  * 玩家開 Bf109，追他的是更快的 P-51。同一組參數在兩張卡上可能是兩種難度。
  */
 console.log(`
-══ 四、陣營不對稱（直飛、距離 ${CARD.evacDistance / 1000} km、藍 4 紅 16）══
+══ 四、陣營不對稱（直飛、距離 ${CARD.targetDistance / 1000} km、藍 4 紅 16）══
 
   陣營     我機      追兵      到達 s   我方剩   玩家活`)
 for (const faction of ['allies', 'axis'] as const) {
   const card = MISSIONS[faction].find((c) => c.type === '撤離')!
   const base = missionConfigFrom(card, faction)
-  const point = new Vector3(0, base.altitude, -card.evacDistance)
+  const point = new Vector3(0, base.altitude, -card.targetDistance)
   const ctl = new Runner()
   ctl.point.copy(point)
   const b: Battle = createBattle(ctl, {
     ...base,
-    rules: { kind: 'evacuate', point, radius: card.evacRadius, seconds: Infinity },
+    rules: { kind: 'evacuate', point, radius: card.targetRadius, seconds: Infinity },
   })
-  const cap = Math.round((card.evacDistance / 80) * 2 * 240)
+  const cap = Math.round((card.targetDistance / 80) * 2 * 240)
   let steps = 0
   for (let i = 0; i < cap; i++) {
     stepBattle(b, DT)

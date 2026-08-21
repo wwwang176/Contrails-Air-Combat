@@ -73,7 +73,7 @@ function evacPoint(): Vector3 {
   return rules.point
 }
 
-function evacRadius(): number {
+function targetRadius(): number {
   const rules = missionConfigFrom(CARD, 'allies').rules
   if (rules.kind !== 'evacuate') throw new Error('撤離卡的 rules 應為 evacuate')
   return rules.radius
@@ -131,7 +131,7 @@ describe('撤離任務', () => {
     expect(b.outcome).toBe('defeat')
     expect(b.mission.secondsLeft).toBeLessThanOrEqual(0)
     expect(aliveBlue(b), '不得是被全滅輸的').toBeGreaterThan(0)
-    expect(b.mission.metric, '玩家必須還在圈外').toBeGreaterThan(evacRadius())
+    expect(b.mission.metric, '玩家必須還在圈外').toBeGreaterThan(targetRadius())
   })
 
   /**

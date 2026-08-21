@@ -122,8 +122,8 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
   it('沒有目標文字的卡＝還沒做，資料必須全空而且不可點', () => {
     for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
       if (m.objective !== '') continue
-      expect(m.evacDistance, m.title).toBe(0)
-      expect(m.evacRadius, m.title).toBe(0)
+      expect(m.targetDistance, m.title).toBe(0)
+      expect(m.targetRadius, m.title).toBe(0)
       expect(m.seconds, m.title).toBe(Infinity)
       expect(m.playable, m.title).toBe(false)
     }
@@ -143,8 +143,8 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
     for (const list of [MISSIONS.allies, MISSIONS.axis]) {
       const evac = list.find((m) => m.type === '撤離')!
       expect(evac.objective.length, evac.title).toBeGreaterThan(0)
-      expect(evac.evacDistance, evac.title).toBe(20000)
-      expect(evac.evacRadius, evac.title).toBe(1000)
+      expect(evac.targetDistance, evac.title).toBe(20000)
+      expect(evac.targetRadius, evac.title).toBe(1000)
       expect(Number.isFinite(evac.seconds), evac.title).toBe(true)
     }
   })
@@ -155,28 +155,28 @@ describe('missionRules', () => {
   const evac = MISSIONS.allies.find((m) => m.type === '撤離')!
 
   it('殲滅卡給 annihilate', () => {
-    expect(missionRules(kill, 4000).kind).toBe('annihilate')
+    expect(missionRules(kill, 4000, 1500).kind).toBe('annihilate')
   })
 
   it('撤離卡給 evacuate，撤離點在 −Z、高度取自參數', () => {
-    const r = missionRules(evac, 4000)
+    const r = missionRules(evac, 4000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.x).toBe(0)
     expect(r.point.y).toBe(4000)
-    expect(r.point.z).toBe(-evac.evacDistance)
-    expect(r.radius).toBe(evac.evacRadius)
+    expect(r.point.z).toBe(-evac.targetDistance)
+    expect(r.radius).toBe(evac.targetRadius)
     expect(r.seconds).toBe(evac.seconds)
   })
 
   /** 【高度是參數不是常數】否則某次調高度之後，圓環會浮在戰場上方 */
   it('高度改了，撤離點跟著改', () => {
-    const r = missionRules(evac, 6000)
+    const r = missionRules(evac, 6000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.y).toBe(6000)
   })
 
   it('撤離點真的在敵人那一側 —— 藍隊開局朝 −Z', () => {
-    const r = missionRules(evac, 4000)
+    const r = missionRules(evac, 4000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.z).toBeLessThan(-DEFAULT_BATTLE.entryRange / 2)
   })

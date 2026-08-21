@@ -143,7 +143,7 @@ describe('sideSummary', () => {
     const u = lineAbreast(HEAD_ON, P51D, 4, BF109G6, 4)
     const mixed: OrderOfBattle = [
       u[0]!,
-      { team: 'blue', members: [B17G, B17G], entry: HEAD_ON.blue, lane: 1, tier: 1 },
+      { team: 'blue', members: [B17G, B17G], entry: HEAD_ON.blue, duty: 'combat', lane: 1, tier: 1 },
       ...u.slice(1),
     ]
     expect(sideSummary(mixed, 'blue')).toBe('4 × p51d + 2 × b17g')
