@@ -133,6 +133,13 @@ export function assertOrderOfBattle(units: OrderOfBattle): void {
   if (!seenRed) throw new Error('編組表裡沒有紅隊')
 }
 
+/** 一隊的總架數。 */
+export function sideCount(units: OrderOfBattle, team: Team): number {
+  let n = 0
+  for (const u of units) if (u.team === team) n += u.members.length
+  return n
+}
+
 /**
  * 一隊的機種摘要，例如 `20 × p51d` 或 `4 × p51d + 4 × b17g`。
  * 只給 `main.ts` 的除錯行用 —— **不是熱路徑**。

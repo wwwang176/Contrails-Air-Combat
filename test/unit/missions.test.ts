@@ -6,6 +6,8 @@ import { BF109G6 } from '../../src/specs/bf109g6'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
+import type { BattleConfig } from '../../src/battle/setup'
+import { sideCount } from '../../src/battle/order'
 
 describe('任務卡（M10 spec §10）', () => {
   it('兩個陣營各五張', () => {
@@ -184,18 +186,25 @@ describe('missionConfigFrom', () => {
   const evacAllies = MISSIONS.allies.find((m) => m.type === '撤離')!
   const evacAxis = MISSIONS.axis.find((m) => m.type === '撤離')!
 
+  /**
+   * 編組表版本的讀取器。**斷言的意思一個字沒變** —— 改動前讀
+   * `cfg.blueSpec`，現在取那一隊第一個小隊的長機。
+   */
+  const specOf = (c: BattleConfig, team: 'blue' | 'red') =>
+    c.units.find((u) => u.team === team)!.members[0]!
+
   it('同盟國：藍隊飛 P-51、紅隊飛 Bf 109，架數照卡片', () => {
     const cfg = missionConfigFrom(evacAllies, 'allies')
-    expect(cfg.blueSpec.id).toBe(P51D.id)
-    expect(cfg.redSpec.id).toBe(BF109G6.id)
-    expect(cfg.blueCount).toBe(evacAllies.blueCount)
-    expect(cfg.redCount).toBe(evacAllies.redCount)
+    expect(specOf(cfg, 'blue').id).toBe(P51D.id)
+    expect(specOf(cfg, 'red').id).toBe(BF109G6.id)
+    expect(sideCount(cfg.units, 'blue')).toBe(evacAllies.blueCount)
+    expect(sideCount(cfg.units, 'red')).toBe(evacAllies.redCount)
   })
 
   it('軸心國：藍隊飛 Bf 109 —— 玩家恆在藍隊，換的是機種不是顏色', () => {
     const cfg = missionConfigFrom(evacAxis, 'axis')
-    expect(cfg.blueSpec.id).toBe(BF109G6.id)
-    expect(cfg.redSpec.id).toBe(P51D.id)
+    expect(specOf(cfg, 'blue').id).toBe(BF109G6.id)
+    expect(specOf(cfg, 'red').id).toBe(P51D.id)
   })
 
   it('難度套 VETERAN —— 與 battleConfigFrom 同一條理由', () => {
@@ -218,7 +227,12 @@ describe('missionConfigFrom', () => {
       for (const m of cards) {
         expect(m.entry, `${m.title}`).toBe(m.type === '撤離' ? 'pursuit' : 'headOn')
         const cfg = missionConfigFrom(m, faction as 'allies' | 'axis')
-        expect(cfg.entry, m.title).toBe(ENTRY_PLANS[m.entry])
+        // 【編組表版本】改動前 `cfg.entry` 是整份 `EntryPlan`；現在每個小隊
+        // 各帶自己那一側的 `SideEntry`，所以逐側比
+        expect(cfg.units.find((u) => u.team === 'blue')!.entry, m.title)
+          .toBe(ENTRY_PLANS[m.entry].blue)
+        expect(cfg.units.find((u) => u.team === 'red')!.entry, m.title)
+          .toBe(ENTRY_PLANS[m.entry].red)
       }
     }
   })

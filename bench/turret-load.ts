@@ -1,7 +1,8 @@
 import { Vector3 } from 'three'
 import { GOLDEN_ANGLE } from '../src/weapons/turret'
-import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle, type BattleConfig } from '../src/battle/setup'
-import { HEAD_ON, PURSUIT } from '../src/battle/entry'
+import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../src/battle/setup'
+import { lineAbreast } from '../src/battle/order'
+import { HEAD_ON, PURSUIT, type EntryPlan } from '../src/battle/entry'
 import { P51D } from '../src/specs/p51d'
 import { B17G } from '../src/specs/b17g'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
@@ -55,9 +56,9 @@ export interface TurretLoadState {
  *
  * 只量其中一種會漏掉另一種。
  */
-function build(entry: BattleConfig['entry']): TurretLoadState {
+function build(entry: EntryPlan): TurretLoadState {
   const battle = createBattle(new Idle(), {
-    ...DEFAULT_BATTLE, blueSpec: P51D, redSpec: B17G, entry,
+    ...DEFAULT_BATTLE, units: lineAbreast(entry, P51D, 20, B17G, 20),
   })
   const state: TurretLoadState = { battle, surrounded: false }
   fill(state)

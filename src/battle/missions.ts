@@ -3,6 +3,7 @@ import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { specsFor, type FactionChoice } from './skirmish'
 import { VETERAN } from '../ai/profile'
 import { ENTRY_PLANS, type EntryPlanId } from './entry'
+import { lineAbreast } from './order'
 import type { MissionRules } from './mission'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
@@ -276,12 +277,11 @@ export function missionConfigFrom(card: MissionCard, faction: FactionChoice): Ba
   const theirs = specsFor(faction === 'allies' ? 'axis' : 'allies')
   return {
     ...DEFAULT_BATTLE,
-    blueCount: card.blueCount,
-    redCount: card.redCount,
-    blueSpec: mine[0]!,
-    redSpec: theirs[0]!,
+    // 【擺法現在是 lineAbreast 的第一個參數】`card.entry` 仍然是
+    // `ENTRY_PLANS` 的鍵，那張表一個字不動
+    units: lineAbreast(
+      ENTRY_PLANS[card.entry], mine[0]!, card.blueCount, theirs[0]!, card.redCount),
     aiProfile: VETERAN,
     rules: missionRules(card, DEFAULT_BATTLE.altitude),
-    entry: ENTRY_PLANS[card.entry],
   }
 }

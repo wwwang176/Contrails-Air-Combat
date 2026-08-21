@@ -1,4 +1,6 @@
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
+import { lineAbreast } from './order'
+import { HEAD_ON } from './entry'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
@@ -95,10 +97,11 @@ export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
   const blueSpec = mine.find((s) => s.id === setup.specId) ?? mine[0]!
   return {
     ...DEFAULT_BATTLE,
-    blueCount: clampSide(setup.blueCount),
-    redCount: clampSide(setup.redCount),
-    blueSpec,
-    redSpec: theirs[0]!,
+    // 【夾制留在這裡】來源是 DOM 的字串，`Number('')` 是 NaN 而
+    // `Math.min/max` 對 NaN 是傳染的。見 `clampSide`
+    units: lineAbreast(
+      HEAD_ON, blueSpec, clampSide(setup.blueCount),
+      theirs[0]!, clampSide(setup.redCount)),
     // 【難度只在這條路上生效】`DEFAULT_BATTLE` 留 `ACE`，因為那是全部 AI
     // 測試量天花板用的基準。這裡是「史實的 AI」變成「打得動的 AI」的唯一
     // 入口，與 `specs/feel.ts` 在 `setup.ts` 的位置對稱。

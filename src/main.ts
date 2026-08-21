@@ -50,6 +50,7 @@ import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
+import { sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS,
@@ -497,8 +498,8 @@ function enterBattle(): void {
   // 與這一場毫無關係 —— 那會讓這把鑰匙在最需要它的時候（任務出問題）失效。
   console.log(
     `[戰鬥] 種子 ${battle.seed}　${mode === 'mission' ? pendingMission?.id ?? '?' : '遭遇戰'}`
-    + `　藍 ${battle.cfg.blueCount} × ${battle.cfg.blueSpec.id}`
-    + `　紅 ${battle.cfg.redCount} × ${battle.cfg.redSpec.id}`
+    + `　藍 ${sideSummary(battle.cfg.units, 'blue')}`
+    + `　紅 ${sideSummary(battle.cfg.units, 'red')}`
     + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`,
   )
   telemetryAt = 0

@@ -3,6 +3,8 @@ import {
   battleConfigFrom, specsFor, DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE,
   type SkirmishSetup,
 } from '../../src/battle/skirmish'
+import type { BattleConfig } from '../../src/battle/setup'
+import { sideCount } from '../../src/battle/order'
 
 function setup(over: Partial<SkirmishSetup> = {}): SkirmishSetup {
   return { ...DEFAULT_SKIRMISH, ...over }
@@ -20,23 +22,30 @@ describe('specsFor', () => {
   })
 })
 
+/**
+ * 編組表版本的兩支讀取器。**斷言的意思一個字沒變** —— 改動前讀
+ * `cfg.blueSpec` / `cfg.blueCount`，現在從編組表算出同一件事。
+ */
+const specOf = (c: BattleConfig, team: 'blue' | 'red') =>
+  c.units.find((u) => u.team === team)!.members[0]!
+
 describe('battleConfigFrom（M10 spec §7）', () => {
   it('選同盟國：藍隊 P-51D、紅隊 Bf109', () => {
     const c = battleConfigFrom(setup({ faction: 'allies' }))
-    expect(c.blueSpec.id).toBe('p51d')
-    expect(c.redSpec.id).toBe('bf109g6')
+    expect(specOf(c, 'blue').id).toBe('p51d')
+    expect(specOf(c, 'red').id).toBe('bf109g6')
   })
 
   it('選軸心國：藍隊 Bf109、紅隊 P-51D —— 換的是機種不是顏色', () => {
     const c = battleConfigFrom(setup({ faction: 'axis' }))
-    expect(c.blueSpec.id).toBe('bf109g6')
-    expect(c.redSpec.id).toBe('p51d')
+    expect(specOf(c, 'blue').id).toBe('bf109g6')
+    expect(specOf(c, 'red').id).toBe('p51d')
   })
 
   it('架數照抄', () => {
     const c = battleConfigFrom(setup({ blueCount: 3, redCount: 7 }))
-    expect(c.blueCount).toBe(3)
-    expect(c.redCount).toBe(7)
+    expect(sideCount(c.units, 'blue')).toBe(3)
+    expect(sideCount(c.units, 'red')).toBe(7)
   })
 
   it('架數被夾在 1~20', () => {
@@ -44,20 +53,20 @@ describe('battleConfigFrom（M10 spec §7）', () => {
     // （玩家沒有被建立），改成 999 會炸掉特效池的容量假設。
     for (const [given, want] of [[0, 1], [-5, 1], [21, 20], [999, 20]] as const) {
       const c = battleConfigFrom(setup({ blueCount: given, redCount: given }))
-      expect(c.blueCount).toBe(want)
-      expect(c.redCount).toBe(want)
+      expect(sideCount(c.units, 'blue')).toBe(want)
+      expect(sideCount(c.units, 'red')).toBe(want)
     }
   })
 
   it('NaN 落回預設而不是傳下去', () => {
     const c = battleConfigFrom(setup({ blueCount: NaN }))
-    expect(Number.isFinite(c.blueCount)).toBe(true)
-    expect(c.blueCount).toBeGreaterThanOrEqual(MIN_SIDE)
+    expect(Number.isFinite(sideCount(c.units, 'blue'))).toBe(true)
+    expect(sideCount(c.units, 'blue')).toBeGreaterThanOrEqual(MIN_SIDE)
   })
 
   it('未知的機種代號落回該陣營的第一台', () => {
     const c = battleConfigFrom(setup({ faction: 'allies', specId: '不存在' }))
-    expect(c.blueSpec.id).toBe(specsFor('allies')[0]!.id)
+    expect(specOf(c, 'blue').id).toBe(specsFor('allies')[0]!.id)
   })
 
   it('其餘欄位沿用 DEFAULT_BATTLE 的幾何', () => {
