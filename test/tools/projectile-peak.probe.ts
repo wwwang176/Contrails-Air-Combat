@@ -14,6 +14,8 @@
  */
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { PROJECTILE_CAPACITY } from '../../src/world/Projectiles'
+import { HEAD_ON } from '../../src/battle/entry'
+import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -33,7 +35,7 @@ class Idle implements Controller {
 
 function measure(label: string, red: AircraftSpec): void {
   const b = createBattle(new Idle(), {
-    ...DEFAULT_BATTLE, blueSpec: P51D, redSpec: red, blueCount: 20, redCount: 20,
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, red, 20),
   }, 20260821)
   let sum = 0
   const steps = SECONDS / DT

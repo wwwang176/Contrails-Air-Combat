@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
 import { PROJECTILE_CAPACITY } from '../../src/world/Projectiles'
+import { HEAD_ON } from '../../src/battle/entry'
+import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -25,7 +27,7 @@ class Idle implements Controller {
  */
 const config = (): typeof DEFAULT_BATTLE => ({
   ...DEFAULT_BATTLE,
-  blueSpec: P51D, redSpec: B17G, blueCount: 20, redCount: 20,
+  units: lineAbreast(HEAD_ON, P51D, 20, B17G, 20),
 })
 
 function run(turretsOn: boolean): Battle {

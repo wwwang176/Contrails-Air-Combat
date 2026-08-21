@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
 import { PURSUIT } from '../../src/battle/entry'
+import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
@@ -26,16 +27,14 @@ class Idle implements Controller {
  * 【要近距離】砲塔的射程上界只有約 1.46 km，而預設遭遇戰兩隊相距約 10 km，
  * 跑 30 秒可能一發都沒射 —— 那樣「逐位元相同」就只證明了飛機的確定性。
  *
- * `BattleConfig` 的欄位是 **`entry: EntryPlan`**（不是 `start: string`），
- * 值取 `battle/entry.ts` 匯出的 `PURSUIT`：兩隊同向同速、紅隊在後方 400 m
+ * 編制由 `lineAbreast(擺法, 藍機種, 藍架數, 紅機種, 紅架數)` 組出來；擺法
+ * 取 `battle/entry.ts` 匯出的 `PURSUIT`：兩隊同向同速、紅隊在後方 400 m
  * 且高 200 m。
  */
 function config(): typeof DEFAULT_BATTLE {
   return {
     ...DEFAULT_BATTLE,
-    blueSpec: P51D, redSpec: B17G,
-    blueCount: 8, redCount: 8,
-    entry: PURSUIT,
+    units: lineAbreast(PURSUIT, P51D, 8, B17G, 8),
   }
 }
 

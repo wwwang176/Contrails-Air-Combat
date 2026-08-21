@@ -21,6 +21,10 @@
  */
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { HEAD_ON } from '../../src/battle/entry'
+import { lineAbreast } from '../../src/battle/order'
+import { P51D } from '../../src/specs/p51d'
+import { BF109G6 } from '../../src/specs/bf109g6'
 import { AiController } from '../../src/ai/AiController'
 import {
   countLocks, targetScore, visionFactor, DEFAULT_TARGET, type TargetConfig,
@@ -157,7 +161,10 @@ function run(perSide: number, visionPower: number): Result {
   const cfg: TargetConfig = { ...DEFAULT_TARGET, visionPower }
   const b = createBattle(
     new AiController(),
-    { ...DEFAULT_BATTLE, blueCount: perSide, redCount: perSide },
+    {
+      ...DEFAULT_BATTLE,
+      units: lineAbreast(HEAD_ON, P51D, perSide, BF109G6, perSide),
+    },
     SEED,
   )
   const cs = b.world.combatants

@@ -26,7 +26,7 @@ import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
 // 區域範圍，而 `Battle.outcome` 的宣告用得到它。
-import { HEAD_ON, type EntryPlan } from './entry'
+import { HEAD_ON } from './entry'
 import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules, type MissionState, type Outcome,
@@ -42,18 +42,17 @@ import type { AircraftSpec } from '../specs/types'
  */
 export interface BattleConfig {
   /**
-   * 藍隊架數，**含玩家**。1~20。
+   * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
    *
-   * 【為什麼含玩家】專案負責人裁決：20 vs 20 名副其實。這也正是 M9 以前
-   * `perSide` 的意思，語意不變，只是拆成兩個。
+   * 【為什麼取代了 blueSpec / redSpec / blueCount / redCount / entry】專案
+   * 負責人 2026-08-21：「設定檔應該是一個陣列決定什麼機種、初始方位、初始
+   * 姿態、小隊等等，而不是加開欄位，不然未來越多類型會更新不完。」加第三種
+   * 機體時前者只要多一列。見 `battle/order.ts`。
+   *
+   * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20)` ——
+   * 產出的座標與改動前逐位元相同。
    */
-  blueCount: number
-  /** 紅隊架數。1~20 */
-  redCount: number
-  /** 藍隊機種。**玩家恆在藍隊** —— 選軸心國就是這裡放 Bf109（M10 spec §7.1） */
-  blueSpec: AircraftSpec
-  /** 紅隊機種 */
-  redSpec: AircraftSpec
+  units: OrderOfBattle
   altitude: number
   tas: number
   /**
@@ -136,31 +135,11 @@ export interface BattleConfig {
    * 的時候腐爛，而症狀要等到玩家點下那張卡才出現。
    */
   rules: MissionRules
-  /**
-   * 這一場的擺法。**是 `battle/entry.ts` 那張表裡的一份，不是一個列舉。**
-   *
-   * 【為什麼不是分支】專案負責人 2026-08-16：擺位、面向、初始狀態要寫成
-   * 資料，讓每個任務有不同的擺法。加一種 = 那張表多一個字面值，這裡不動。
-   *
-   * 【為什麼既有護欄不會動】`HEAD_ON` 展開之後與改動前的算式逐字相同，
-   * 而 `DEFAULT_BATTLE` 給的就是它。
-   */
-  entry: EntryPlan
-  /**
-   * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
-   *
-   * 【這一步是選擇性的，下一個 commit 才變成唯一的來源】沒給時由
-   * `blueSpec` / `redSpec` / `blueCount` / `redCount` / `entry` 就地組一張
-   * 出來 —— 那五個欄位下一步就會刪掉。見 `battle/order.ts`。
-   */
-  units?: OrderOfBattle
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
-  blueCount: 20,
-  redCount: 20,
-  blueSpec: P51D,
-  redSpec: BF109G6,
+  // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
+  units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
   altitude: 4000,
   tas: 200,
   entryRange: 10000,
@@ -172,8 +151,6 @@ export const DEFAULT_BATTLE: BattleConfig = {
   aiProfile: ACE,
   // 【遭遇戰＝沒有時限的殲滅】改動前寫死的那兩行，現在是這一條規則
   rules: { kind: 'annihilate' },
-  // 【對頭是預設】全部既有護欄都建立在它上面
-  entry: HEAD_ON,
 }
 
 /**
@@ -311,14 +288,7 @@ export function createBattle(
   cfg: BattleConfig = DEFAULT_BATTLE,
   seed: number = (Math.random() * 0x100000000) >>> 0,
 ): Battle {
-  /**
-   * 【fallback 只活到下一個 commit】沒給 `units` 就由五個舊欄位組一張 ——
-   * 那五個欄位下一步就會刪掉，這一行也跟著刪。它存在的唯一理由是讓
-   * 「換迴圈」與「呼叫端搬家」變成兩個各自能編譯、各自能驗收的步驟。
-   */
-  const units = cfg.units ?? lineAbreast(
-    cfg.entry, cfg.blueSpec, cfg.blueCount, cfg.redSpec, cfg.redCount)
-  assertOrderOfBattle(units)
+  assertOrderOfBattle(cfg.units)
 
   const world = new World()
   const blue: Combatant[] = []
@@ -358,7 +328,7 @@ export function createBattle(
   }
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
-  for (const unit of units) {
+  for (const unit of cfg.units) {
     const entry = unit.entry
     // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
     // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓

@@ -25,6 +25,9 @@
  */
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { ENTRY_PLANS } from '../../src/battle/entry'
+import { lineAbreast, sideSummary } from '../../src/battle/order'
+import { specsFor } from '../../src/battle/skirmish'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { CAMERA_FOV_DEG } from '../../src/render/scene'
@@ -78,8 +81,11 @@ function runTimed(
   ctl.point.copy(point)
   const b: Battle = createBattle(ctl, {
     ...base,
-    blueCount: blue,
-    redCount: red,
+    // 【架數要重新組一張表】改動前是覆寫 `blueCount` / `redCount` 兩個欄位。
+    // 機種與擺法沿用那張卡的（`CARD.entry` 是 `ENTRY_PLANS` 的鍵）
+    units: lineAbreast(
+      ENTRY_PLANS[CARD.entry], specsFor('allies')[0]!, blue,
+      specsFor('axis')[0]!, red),
     tas,
     rules: { kind: 'evacuate', point, radius, seconds: Infinity },
   })
@@ -192,8 +198,8 @@ for (const faction of ['allies', 'axis'] as const) {
   const done = b.outcome === 'victory'
   console.log(
     `${pad(faction === 'allies' ? '同盟國' : '軸心國', 7)}`
-    + `${pad(base.blueSpec.id, 9)}`
-    + `${pad(base.redSpec.id, 10)}`
+    + `${pad(sideSummary(base.units, 'blue'), 9)}`
+    + `${pad(sideSummary(base.units, 'red'), 10)}`
     + `${pad(done ? (steps * DT).toFixed(1) : '未到', 9)}`
     + `${pad(`${b.blue.filter((c) => c.alive).length}/${card.blueCount}`, 9)}`
     + `${pad(b.player.alive ? '是' : '否', 8)}`,

@@ -18,7 +18,8 @@
  * 重跑 `spawn-baseline.probe.ts`，把輸出整段貼回
  * `test/fixtures/spawn-baseline.ts`。
  */
-import { DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
+import { DEFAULT_BATTLE, type Battle, type BattleConfig } from '../../src/battle/setup'
+import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
@@ -178,14 +179,21 @@ export async function replayDigest(b: Battle): Promise<string> {
   return `${f.length}:${hex}`
 }
 
-/** 兩個場景。**非鏡像與鏡像各一** —— 鏡像那一場專門守 applyFeel 的記憶化。 */
+/**
+ * 兩個場景。**非鏡像與鏡像各一** —— 鏡像那一場專門守 applyFeel 的記憶化。
+ *
+ * 【每一支的回傳型別要明寫 `BattleConfig`】不寫的話 TS 推斷出來的是那個字面值
+ * 自己的型別，而 `createBattle(…, SCENES[name](), …)` 收的**不是新鮮的物件
+ * 字面值**，多餘屬性檢查因此不會跑。編組表那一輪實測過這個洞：五個舊欄位
+ * 刪掉之後，這裡若還寫著 `blueCount: 8` 會**靜靜地被忽略**，spread 進來的
+ * `DEFAULT_BATTLE.units` 讓「追擊、鏡像、8v8」變成「對頭、20v20」——
+ * 而失敗訊息指的是 fixture（51 行對上 21 行），不會指向這裡。
+ */
 export const SCENES = {
-  HEADON_20V20: () => ({
-    ...DEFAULT_BATTLE,
-    blueSpec: P51D, redSpec: BF109G6, blueCount: 20, redCount: 20, entry: HEAD_ON,
+  HEADON_20V20: (): BattleConfig => ({
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
   }),
-  PURSUIT_MIRROR_8V8: () => ({
-    ...DEFAULT_BATTLE,
-    blueSpec: P51D, redSpec: P51D, blueCount: 8, redCount: 8, entry: PURSUIT,
+  PURSUIT_MIRROR_8V8: (): BattleConfig => ({
+    ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 8, P51D, 8),
   }),
 }
