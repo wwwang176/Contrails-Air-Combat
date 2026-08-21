@@ -1,10 +1,12 @@
 import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
+import { BURST_ON, resetBurst, stepBurst } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import {
-  applyWobble, GOLDEN, inArc, MAX_TURRETS, ROOT3, SILVER, slew, turretMuzzle,
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle,
   TURRET_DAMAGE_SCALE, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
+import type { BurstCycle } from '../weapons/burst'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
 import type { Projectiles } from './Projectiles'
@@ -32,7 +34,12 @@ export interface TurretCombatant {
   turretCooldowns: Float32Array
 }
 
-export interface TurretState {
+/**
+ * 【點放的三個欄位在 `weapons/burst.ts`】那一份實作與 AI 戰鬥機的扳機共用
+ * （專案負責人 2026-08-21：「AI 的戰鬥機也要跟轟炸機的機槍一樣，會有冷卻
+ * 時間」）。欄位名一個字都沒改，所以兩支快照測試不受影響。
+ */
+export interface TurretState extends BurstCycle {
   /** 目前指向，**機體座標**單位向量。初始 = spec 的 `axis`。 */
   aim: Vector3
   /** 搖晃相位。 */
@@ -41,16 +48,6 @@ export interface TurretState {
   targetIndex: number
   /** 距離下一次重新搜尋還有幾秒。 */
   searchCooldown: number
-  /** 點放：現在是開火段還是停火段。 */
-  burstFiring: boolean
-  /** 點放：目前這一段還剩幾秒。**恆為正。** */
-  burstTimer: number
-  /**
-   * 這一座自己的點放週期倍率。開火段與停火段**同時**乘它，所以
-   * 工作週期恆為 `BURST_ON / (BURST_ON + BURST_OFF)`，**火力總量不變**，
-   * 變的只有節奏。見 `BURST_SCATTER`。
-   */
-  burstScale: number
   /**
    * 槍焰剩餘秒數。**這裡只負責設定，遞減由 `World.step` 的全 combatant
    * 迴圈做**（與固定槍的 `muzzleFlash` 同一個迴圈、同一個理由：遞減若寫在
@@ -71,37 +68,14 @@ export interface TurretState {
 export const WOBBLE_AMPLITUDE = 1.0 * DEG
 /** 搖晃頻率，rad/s。**起始值。** 週期 1.4 秒。 */
 export const WOBBLE_OMEGA = 2 * Math.PI * 0.7
-/** 點放的開火秒數。**起始值。** */
-export const BURST_ON = 1.2
-/** 點放的停火秒數。**起始值。** */
-export const BURST_OFF = 0.8
 /**
- * 點放週期的分散幅度，±這個比例。**起始值，由試飛裁定。**
- *
- * ── 為什麼需要它（人工回報 2026-08-21）──────────────────
- *
- * 「轟炸機上的機槍，開火時間、冷卻時間都一樣」。實測確認是**完全同步**：
- * `resetTurretStates` 對每一座都寫死 `burstFiring = true` 與
- * `burstTimer = BURST_ON`，而 `stepBurst` 只吃 `dt` —— 沒有任何一項與砲塔
- * 或載機有關，所以一旦同步就永遠同步。20 架 B-17G + 20 架 He 111 = 260 座
- * 砲塔跑 60 秒，同時開火的座數**每一步不是 260 就是 0**，60% 的時間全開、
- * 40% 的時間全關。整個機隊像同一根扳機。
- *
- * ── 為什麼「錯開起點」還不夠 ──────────────────────────
- *
- * 只錯開起點的話，260 座是一組**頻率相同、只差相位**的方波：相對關係凍結，
- * 每一座自己也永遠是精準的 1.2 開 / 0.8 關。週期也散開之後，任兩座的相對
- * 關係一直在漂，聽起來才不像節拍器。
- *
- * ── 為什麼是倍率而不是各自加一個隨機量 ──────────────
- *
- * 開火段與停火段乘同一個數，**工作週期完全不變** —— 每一座仍然是 60% 的
- * 時間在開火，所以火力總量與這一輪剛裁定的 `TURRET_DAMAGE_SCALE` 都不受
- * 影響。分別加減的話會連帶動到平衡，那是另一個決定。
- *
- * 0.25 → 週期落在 1.5 … 2.5 秒（開火段 0.9 … 1.5 秒）。
+ * 【點放的三個常數與兩支函數搬去 `weapons/burst.ts`】那一份實作現在與
+ * AI 戰鬥機的扳機共用。**這裡照原名 re-export** —— 四支測試與一支探針
+ * 都是從這個模組 import 的，搬家不該讓它們改一個字。
  */
-export const BURST_SCATTER = 0.25
+export {
+  BURST_ON, BURST_OFF, BURST_SCATTER, stepBurst, type BurstCycle,
+} from '../weapons/burst'
 /**
  * 開火門檻角，rad。**追瞄誤差**的門檻，與搖晃無關 —— 搖晃作用在射出去的
  * 子彈上，不作用在 `aim` 上。取搖晃振幅的兩倍。
@@ -176,36 +150,13 @@ export function resetTurretStates(
     /*
      * 點放的錯開。**三條序列各用各的乘子**（GOLDEN / SILVER / ROOT3）——
      * 共用的話「搜尋早的那一座必然開火也早、週期也一起偏長」，三件事縮成
-     * 一件。三個乘子彼此是無理數比，所以三維上一樣鋪得開。
+     * 一件。三個乘子彼此是無理數比，所以三維上一樣鋪得開。GOLDEN 在上面
+     * 的 `searchCooldown`，另外兩條在 `resetBurst` 裡。
      */
-    s.burstScale = 1 + (((k * ROOT3) % 1) - 0.5) * 2 * BURST_SCATTER
-    const on = BURST_ON * s.burstScale
-    const cycle = (BURST_ON + BURST_OFF) * s.burstScale
-    // 起點攤在整個週期上：落在開火段就是開火段，落在後段就是停火段
-    const at = ((k * SILVER) % 1) * cycle
-    s.burstFiring = at < on
-    s.burstTimer = s.burstFiring ? on - at : cycle - at
+    resetBurst(s, k)
     s.flash = 0
     s.lastBarrel = 0
   }
-}
-
-/**
- * 推進點放一步，回傳這一步是否在開火段。
- *
- * 【為什麼用 while 而不是 if】低更新率（工具程式可能用 0.3 s 甚至更大的
- * 步長）下一步可能跨過好幾個週期。用 if 會讓 `burstTimer` 變成負數而
- * 永遠不再回復。
- */
-export function stepBurst(s: TurretState, dt: number): boolean {
-  const firingThisStep = s.burstFiring
-  s.burstTimer -= dt
-  while (s.burstTimer <= 0) {
-    s.burstFiring = !s.burstFiring
-    // 兩段乘同一個倍率 —— 工作週期不變，只有節奏跟著這一座走
-    s.burstTimer += (s.burstFiring ? BURST_ON : BURST_OFF) * s.burstScale
-  }
-  return firingThisStep
 }
 
 // ── 模組私有暫存，熱路徑零配置。禁止跨模組共用。 ──────────

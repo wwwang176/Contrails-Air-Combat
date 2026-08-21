@@ -9,7 +9,8 @@ import {
   shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
-import { shouldFire } from './fire'
+import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
+import { resetBurst, stepBurst } from '../weapons/burst'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
 } from './target'
@@ -230,10 +231,53 @@ export class AiController implements Controller {
   /** 距離下一次意圖仲裁還有多久，s */
   private decisionTimer = 0
 
+  /**
+   * 扳機的點放狀態，滿足 `weapons/burst.ts` 的 `BurstCycle`。**唯讀** ——
+   * 只有 `stepBurst` / `resetBurst` 能寫。
+   *
+   * 【為什麼是三個公開欄位而不是一個私有物件】結構型相容要求欄位名逐字
+   * 相同（`TurretState` 那一側先有這三個名字，而它被兩支快照測試釘住）。
+   * 公開的另一個好處與 `rules`、`defend` 相同：測試分得出「沒開火」是
+   * 幾何不成立還是正好在停火段。
+   */
+  burstFiring = true
+  burstTimer = DEFAULT_AI_BURST.on
+  burstScale = 1
+  /**
+   * 點放的節奏。**與 `targetConfig`、`wingmanConfig` 同一類：可注入。**
+   * `{ on: 任意, off: 0 }` 等於關掉這一層 —— 消融用。
+   */
+  burstConfig: BurstConfig = DEFAULT_AI_BURST
+  /**
+   * 上一次拿來錯開點放的座位索引。**−2 是哨兵** —— `selfIndex` 的初值是
+   * −1，兩者不同才保證第一次 `update` 一定會攤一次。
+   *
+   * 【為什麼是 lazy 而不是由 `setup.ts` 呼叫】`selfIndex` 在建構之後才寫入
+   * （`setup.ts` 兩處、`main.ts` 兩處），要求四個呼叫端都記得再呼叫一次
+   * 「攤點放」是一條遲早會漏掉的規矩，而漏掉的症狀是**整隊同一根扳機**
+   * ——那正是這一層要避免的東西。索引換人（代飛）時也會自動重攤。
+   */
+  private burstSeed = -2
+
   update(self: Aircraft, dt: number, out: Command): void {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
+
+    // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
+    // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會
+    // 在沒有目標的那幾秒**停住** —— 於是每一架一咬上目標都是從各自停下來
+    // 的地方繼續，錯開的相位一場打下來就糊掉了。
+    const burst = this.burstConfig
+    if (this.burstSeed !== this.selfIndex) {
+      this.burstSeed = this.selfIndex
+      // `selfIndex` 為 −1（沒接指派板）時全部落在 k = 0，那本來就是
+      // 「單機測試」的場景，沒有要錯開的對象
+      resetBurst(this, Math.max(this.selfIndex, 0), burst.on, burst.off)
+    }
+    // 【`off === 0` 就是沒有這一層】`stepBurst` 在停火段的長度為 0 時會在
+    // 同一步立刻翻回開火段（while 迴圈），所以恆為 true —— 消融不必另開分支
+    const burstOpen = stepBurst(this, dt, burst.on, burst.off)
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
     // 決定 —— 否則沒有目標時計時器不會前進，board 一設上去就會變成每個
@@ -436,7 +480,12 @@ export class AiController implements Controller {
     // 意圖是唯一該讀的判準：`focus` 的意圖不會是 rally（它要交戰），
     // 而破防閂上時意圖是 defend —— 「不回頭打」不包含「不閃彈」，也不
     // 包含閃躲過程中打到的那一槍。
-    raw.firing = this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self)
+    //
+    // 【點放是最後一道閘】它與四條幾何條件是 AND，位置刻意放在最外層：
+    // `shouldFire` 是純函數而且被一整支單元測試逐條釘住，把跨格狀態塞進去
+    // 會讓「幾何上打不打得到」與「現在該不該扣」混成一件事。見 `AI_BURST_ON`。
+    raw.firing = burstOpen
+      && (this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self))
 
     this.emit(self, dt, out)
   }
