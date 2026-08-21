@@ -46,6 +46,20 @@ export class Projectiles {
   private cursor = 0
   private liveCount = 0
 
+  /**
+   * 存活數的歷史高水位。
+   *
+   * 【為什麼在 `spawn()` 裡更新而不是在外面讀 `live`】在 `World.step()`
+   * 回來之後才讀會**低估**：一步之內的順序是生成 → 推進／過期 → 命中／
+   * 回收，讀到的是回收後的殘量，抓不到生成瞬間逼近容量的情況。
+   *
+   * 【它是誰要用的】「彈丸池夠不夠大」這個問題只有它答得出來。轟炸機把
+   * 每步的生成量提高了一個量級（160 座砲塔），而池滿時是**覆寫最舊的
+   * 那一發**（不是拒絕發射）—— 也就是說溢位不會有任何錯誤，只會讓遠處
+   * 的曳光彈憑空消失。
+   */
+  peakLive = 0
+
   constructor(capacity: number = PROJECTILE_CAPACITY) {
     this.capacity = capacity
     const f = (): Float32Array => new Float32Array(capacity)
@@ -82,6 +96,7 @@ export class Projectiles {
     this.age[i] = 0
     this.damage[i] = damage
     this.owner[i] = owner
+    if (this.liveCount > this.peakLive) this.peakLive = this.liveCount
     return i
   }
 
@@ -96,6 +111,7 @@ export class Projectiles {
     this.owner.fill(-1)
     this.liveCount = 0
     this.cursor = 0
+    this.peakLive = 0
   }
 
   /**

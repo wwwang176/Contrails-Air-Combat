@@ -1013,6 +1013,16 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.flightAlive = flight?.count ?? 0
   hudFrame.flightSize = flight?.roster.length ?? 0
 
+  /**
+   * 【轟炸機沒有瞄準具】它們的槍全部是砲塔、由 AI 操作 —— 玩家沒有任何
+   * 可扣扳機的武器，畫一個預瞄環會讓人以為按了會發射。
+   *
+   * 【判準用 mounts 而不是 role】要問的是「玩家扣得到扳機嗎」，而那正是
+   * `battery.mounts` 的定義。用 `role === 'bomber'` 的話，日後若有哪一台
+   * 轟炸機真的裝了固定前射武器，這裡會靜靜地漏掉它的預瞄環。
+   */
+  const hasFixedGuns = aircraft.spec.battery.mounts.length > 0
+
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight
   // 【每幀取一次】玩家的分隊序號。編制每個物理步重新壓縮，所以陣亡、
@@ -1078,7 +1088,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 指的是一個打不到的點——畫出來只會是「往這裡開槍」的錯誤暗示。19 架
     // 友機同時畫更是滿畫面的雜訊。順帶省掉每架一次的預瞄解。
     contact.leadValid = false
-    if (contact.hostile) {
+    if (contact.hostile && hasFixedGuns) {
       relPos.copy(c.aircraft.state.position).sub(aircraft.state.position)
       relVel.copy(c.aircraft.state.velocity).sub(aircraft.state.velocity)
       const t = solveLead(relPos, relVel, sight.muzzleVelocity, leadDir)
