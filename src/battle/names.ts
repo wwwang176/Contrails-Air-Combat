@@ -6,9 +6,20 @@
  */
 export type Faction = 'allies' | 'axis'
 
-/** 機種代號 → 陣營。 */
+/**
+ * 機種代號 → 陣營。
+ *
+ * 【2026-08-21 補上 He 111】它上線時漏了，於是一整隊 He 111 的機組拿到的
+ * 是 Ray Bishop、Hal Carter 這種名字。以前撞不到：遭遇戰的敵方一律取
+ * `specsFor(對面)[0]`，也就是戰鬥機，而任務模式的紅隊第一架是護航的
+ * Bf109。**逐架名單上線之後「紅隊第一架是 He 111」變成一次點擊的事。**
+ *
+ * 【為什麼是白名單而不是「不是同盟就是軸心」】名冊只有兩本，漏一個機種的
+ * 症狀是拿到錯的那一本 —— 不是錯誤，是一排讀起來怪怪的名字。列舉的話
+ * 新機種漏填會**立刻**被下面那條測試抓到。
+ */
 export function factionOf(specId: string): Faction {
-  return specId === 'bf109g6' ? 'axis' : 'allies'
+  return specId === 'bf109g6' || specId === 'he111' ? 'axis' : 'allies'
 }
 
 /**

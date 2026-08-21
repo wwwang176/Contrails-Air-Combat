@@ -58,14 +58,21 @@ async function main(): Promise<void> {
     await page.click('[data-act="start"]')
     await page.click('[data-act="skirmish"]')
 
-    // 【機型按鈕沒有 data-act】它是 renderSetup 動態長出來的一排 button，
+    // 【2026-08-21 遇遇戰改成出戰名單】以前是「選一個機型套到整隊」，
+    // 現在是逐架的名單：先清空我方，再點 20 下 B-17。紅隊維持預設
+    // （20 架 Bf109），所以場景跟以前一樣。
+    //
+    // 【機種按鈕沒有 data-act】它是 renderSetup 動態長出來的一排 button，
     // 只認得出文字。B-17G 的 `name` 見 `src/specs/b17g.ts`。
-    const specs = page.locator('#skirmish-specs button')
+    await page.click('#blue-add button.ghost')
+    const specs = page.locator('#blue-add button:not(.ghost)')
     const names = await specs.allTextContents()
     const idx = names.findIndex((t) => t.includes('B-17'))
-    if (idx < 0) throw new Error(`機型清單裡沒有 B-17：${names.join(' / ')}`)
-    await specs.nth(idx).click()
-    console.log(`  機型選了「${names[idx]}」（清單：${names.join(' / ')}）`)
+    if (idx < 0) throw new Error(`機種清單裡沒有 B-17：${names.join(' / ')}`)
+    for (let k = 0; k < 20; k++) await specs.nth(idx).click()
+    const roster = await page.locator('#blue-roster .chip').count()
+    if (roster !== 20) throw new Error(`我方名單應該有 20 架，實際 ${roster}`)
+    console.log(`  我方編了 20 架「${names[idx]}」（清單：${names.join(' / ')}）`)
 
     await page.click('#skirmish [data-act="fight"]')
     await page.waitForTimeout(2000)

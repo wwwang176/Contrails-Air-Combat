@@ -31,7 +31,7 @@
  * 不是 AI 的判準問題。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
+import { battleConfigFrom, uniform } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -61,7 +61,7 @@ function pct(sorted: number[], p: number): number {
 const median = (xs: number[]) => pct([...xs].sort((a, b) => a - b), 0.5)
 
 function run(perSide: number): Span[] {
-  const cfg = battleConfigFrom({ ...DEFAULT_SKIRMISH, blueCount: perSide, redCount: perSide })
+  const cfg = battleConfigFrom(uniform('p51d', perSide, 'bf109g6', perSide))
   const b = createBattle(new AiController(), cfg, 20260813)
   const cs: Combatant[] = b.world.combatants
   const spans: Span[] = []

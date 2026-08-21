@@ -1,6 +1,7 @@
 import { MISSIONS, type MissionCard } from '../battle/missions'
 import {
-  specsFor, MAX_SIDE, MIN_SIDE, type FactionChoice, type SkirmishSetup,
+  ALL_SPECS, specOf, withAircraft, withoutAircraft,
+  MAX_SIDE, type FactionChoice, type SkirmishSetup,
 } from '../battle/skirmish'
 import type { Screen, ScreenEvent } from './screens'
 
@@ -43,6 +44,22 @@ const FACTION_LABEL: Record<FactionChoice, string> = {
   axis: '軸心國',
 }
 
+/**
+ * 機種在設定頁上的短名。**找不到就用 `spec.name`。**
+ *
+ * 【為什麼不直接用 `spec.name`】「B-17G Flying Fortress」在一顆按鈕上
+ * 是 22 個字，四顆排下來會把那一欄撐到溢出畫面 —— 實測就是這樣。
+ *
+ * 【為什麼漏填只是變長而不是報錯】這是一張顯示用的對照表，不是設定。
+ * 新機種沒填進來的代價是那一顆按鈕比別人寬，看得見、修得快，而且
+ * 不會擋住任何人玩。
+ */
+const SHORT_NAME: Record<string, string> = {
+  p51d: 'P-51D', bf109g6: 'Bf 109', b17g: 'B-17G', he111: 'He 111',
+}
+
+const shortName = (id: string): string => SHORT_NAME[id] ?? specOf(id).name
+
 /** 難度星等。實心到 difficulty，其餘空心 */
 function stars(n: number): string {
   return '★'.repeat(n) + '☆'.repeat(5 - n)
@@ -70,10 +87,26 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const pause = root.querySelector('#pause') as HTMLElement
   const missionFactions = root.querySelector('#mission-factions') as HTMLElement
   const missionList = root.querySelector('#mission-list') as HTMLElement
-  const skirmishFactions = root.querySelector('#skirmish-factions') as HTMLElement
-  const skirmishSpecs = root.querySelector('#skirmish-specs') as HTMLElement
-  const blueStepper = root.querySelector('#blue-count') as HTMLElement
-  const redStepper = root.querySelector('#red-count') as HTMLElement
+  const adders: Record<'blue' | 'red', HTMLElement> = {
+    blue: root.querySelector('#blue-add') as HTMLElement,
+    red: root.querySelector('#red-add') as HTMLElement,
+  }
+  const rosters: Record<'blue' | 'red', HTMLElement> = {
+    blue: root.querySelector('#blue-roster') as HTMLElement,
+    red: root.querySelector('#red-roster') as HTMLElement,
+  }
+  const heads: Record<'blue' | 'red', HTMLElement> = {
+    blue: root.querySelector('#blue-head') as HTMLElement,
+    red: root.querySelector('#red-head') as HTMLElement,
+  }
+  /**
+   * 遭遇戰那一頁的「開始戰鬥」。**任一邊空著就禁用。**
+   *
+   * 【為什麼不靠 `battleConfigFrom` 補一架】那一層的補救是防禦性的
+   * （名單是從 DOM 來的），拿它當 UI 的行為會變成「畫面上是空的卻打得
+   * 起來，而且憑空多一架沒人點過的飛機」—— 兩個不一致的真相。
+   */
+  const fightButton = root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement
 
   /** 任務模式自己的陣營選擇 —— 與遭遇戰的那一個互不相干 */
   let missionFaction: FactionChoice = 'allies'
@@ -137,37 +170,77 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     }
   }
 
-  function stepper(host: HTMLElement, value: number, onChange: (v: number) => void): void {
-    host.innerHTML = ''
-    const dec = document.createElement('button')
-    dec.textContent = '◀'
-    dec.disabled = value <= MIN_SIDE
-    dec.addEventListener('click', () => onChange(value - 1))
-    const span = document.createElement('span')
-    span.className = 'value'
-    span.textContent = String(value)
-    const inc = document.createElement('button')
-    inc.textContent = '▶'
-    inc.disabled = value >= MAX_SIDE
-    inc.addEventListener('click', () => onChange(value + 1))
-    host.append(dec, span, inc)
+  /**
+   * 一隻的名單卡。**兩顆按鈕，不是一顆。**
+   *
+   * 【為什麼不把「選我」跟「移除」合成一顆】一顆按鈕只能有一個動作，
+   * 而這裡真的有兩個。分開之後「✕ 才會刪掉東西」在兩邊都成立——
+   * 點卡片本體不可能誤刪。
+   */
+  function chip(
+    host: HTMLElement, team: 'blue' | 'red', setup: SkirmishSetup, index: number,
+  ): void {
+    const list = team === 'blue' ? setup.blue : setup.red
+    const wrap = document.createElement('span')
+    wrap.className = 'chip'
+
+    const body = document.createElement('button')
+    body.textContent = `${index + 1}　${shortName(list[index]!)}`
+    if (team === 'blue') {
+      // 【藍隊的卡片點一下就是「我開這一台」】選中的那一台高亮，
+      // 而且 `mixedLine` 會把它換到它那一小隊的長機位
+      if (index === setup.playerAt) body.classList.add('me')
+      body.addEventListener('click', () => hooks.onSetup({ ...setup, playerAt: index }))
+    } else {
+      // 【敵方沒有「選我」】本體不收點擊，但仍然是一顆按鈕——
+      // 換成 span 的話字型、邊框、高度全都要另外再寫一份。
+      // 【不用 disabled】那條 CSS 把透明度壓到 .38，一整排敵機看起來
+      // 像壞掉的按鈕；`.static` 只是把指標事件關掉
+      body.classList.add('static')
+    }
+    wrap.appendChild(body)
+
+    const del = document.createElement('button')
+    del.className = 'del'
+    del.textContent = '✕'
+    del.addEventListener('click', () => hooks.onSetup(withoutAircraft(setup, team, index)))
+    wrap.appendChild(del)
+    host.appendChild(wrap)
+  }
+
+  function renderSide(team: 'blue' | 'red', setup: SkirmishSetup): void {
+    const list = team === 'blue' ? setup.blue : setup.red
+    const label = team === 'blue' ? '我方' : '敵方'
+
+    adders[team].innerHTML = ''
+    for (const spec of ALL_SPECS) {
+      const b = document.createElement('button')
+      b.textContent = shortName(spec.id)
+      // 【滿編時禁用而不是點了沒反應】看起來可點卻沒反應才是真的壞掉
+      b.disabled = list.length >= MAX_SIDE
+      b.addEventListener('click', () => hooks.onSetup(withAircraft(setup, team, spec.id)))
+      adders[team].appendChild(b)
+    }
+    // 【清空】預設是 20 對 20，要重編一整組時一架一架按 ✕ 是二十下
+    const clear = document.createElement('button')
+    clear.className = 'ghost'
+    clear.textContent = '清空'
+    clear.disabled = list.length === 0
+    clear.addEventListener('click', () => hooks.onSetup(
+      team === 'blue' ? { ...setup, blue: [], playerAt: 0 } : { ...setup, red: [] },
+    ))
+    adders[team].appendChild(clear)
+
+    heads[team].textContent = `${label}出戰　${list.length} / ${MAX_SIDE}`
+      + (team === 'blue' ? '　（點一台選我開哪一架）' : '')
+    rosters[team].innerHTML = ''
+    for (let i = 0; i < list.length; i++) chip(rosters[team], team, setup, i)
   }
 
   function renderSetup(setup: SkirmishSetup): void {
-    factionRow(skirmishFactions, setup.faction, (f) => {
-      // 【換陣營要把機種一起換掉】否則 specId 會留著上一個陣營的機
-      hooks.onSetup({ ...setup, faction: f, specId: specsFor(f)[0]!.id })
-    })
-    skirmishSpecs.innerHTML = ''
-    for (const s of specsFor(setup.faction)) {
-      const b = document.createElement('button')
-      b.textContent = s.name
-      if (s.id === setup.specId) b.classList.add('sel')
-      b.addEventListener('click', () => hooks.onSetup({ ...setup, specId: s.id }))
-      skirmishSpecs.appendChild(b)
-    }
-    stepper(blueStepper, setup.blueCount, (v) => hooks.onSetup({ ...setup, blueCount: v }))
-    stepper(redStepper, setup.redCount, (v) => hooks.onSetup({ ...setup, redCount: v }))
+    renderSide('blue', setup)
+    renderSide('red', setup)
+    fightButton.disabled = setup.blue.length === 0 || setup.red.length === 0
   }
 
   renderMissions()

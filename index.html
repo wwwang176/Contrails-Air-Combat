@@ -90,8 +90,28 @@
       }
       #ui .row { display: flex; gap: 12px; flex-wrap: wrap; }
       #ui .row button.sel { border-color: #5a96d2; color: #eaf4ff; }
-      #ui .two-col { display: flex; gap: 56px; align-items: flex-start; }
-      #ui .col { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+      /* 【要 justify-content 與固定寬度】自訂編組那一頁的兩欄裡各有一排
+         機種按鈕與一片名單，內容寬度隨機種名字長短而變 —— 只給 min-width
+         的話兩欄會各自長成不同寬度，而且會從畫面左緣溢出去 */
+      #ui .two-col {
+        display: flex; gap: 48px; align-items: flex-start; justify-content: center;
+      }
+      #ui .col { display: flex; flex-direction: column; gap: 10px; width: 380px; }
+      /* 出戰名單：一架一個 chip，chip 裡是「選我」與「移除」兩顆 */
+      #ui .roster {
+        display: flex; gap: 8px; flex-wrap: wrap;
+        min-height: 34px; align-content: flex-start;
+      }
+      #ui .chip { display: inline-flex; }
+      #ui .chip button { padding: 5px 10px; font-size: 12px; letter-spacing: .08em; }
+      /* 【玩家那一架要一眼看得出來】它同時是「我開的」與「該小隊的長機」 */
+      #ui .chip button.me { border-color: #5a96d2; color: #eaf4ff; }
+      /* 【敵方的卡片本體不可點，但不能用 disabled】那條規則把透明度壓到
+         .38，一整排敵機看起來像壞掉的按鈕。這裡只是「沒有動作」*/
+      #ui .chip button.static { pointer-events: none; }
+      /* 【移除鍵與本體共用一條邊】兩顆看起來是同一個 chip 的兩半 */
+      #ui .chip button.del { border-left: none; padding: 5px 9px; color: #9a7b7b; }
+      #ui .chip button.del:hover:not(:disabled) { color: #e8b4b4; }
       #ui .stepper { display: flex; align-items: center; gap: 14px; }
       #ui .stepper button { padding: 6px 16px; }
       #ui .stepper .value {
@@ -151,21 +171,26 @@
 
       <section id="skirmish" class="screen" hidden>
         <h2>遭遇戰</h2>
+        <!-- 【為什麼沒有陣營選擇了】混搭上線之後兩隊各自的名單就是全部的
+             設定，陣營不再是一個選擇（`battle/skirmish.ts` 的 ALL_SPECS）。
+             任務模式那一頁仍然有，那裡的陣營決定的是打哪一組關卡 -->
         <div class="two-col">
           <div class="col">
-            <h3>陣營</h3>
-            <div class="row" id="skirmish-factions"></div>
-            <h3>機型</h3>
-            <div class="row" id="skirmish-specs"></div>
+            <h3>我方　點一下加一台</h3>
+            <div class="row" id="blue-add"></div>
+            <h3 id="blue-head">我方出戰</h3>
+            <div class="roster" id="blue-roster"></div>
           </div>
           <div class="col">
-            <h3>我方數量</h3>
-            <div class="stepper" id="blue-count"></div>
-            <h3>敵方數量</h3>
-            <div class="stepper" id="red-count"></div>
-            <button class="primary" data-act="fight">開始戰鬥</button>
-            <button class="ghost" data-act="back">返　回</button>
+            <h3>敵方　點一下加一台</h3>
+            <div class="row" id="red-add"></div>
+            <h3 id="red-head">敵方出戰</h3>
+            <div class="roster" id="red-roster"></div>
           </div>
+        </div>
+        <div class="row">
+          <button class="primary" data-act="fight">開始戰鬥</button>
+          <button class="ghost" data-act="back">返　回</button>
         </div>
       </section>
 

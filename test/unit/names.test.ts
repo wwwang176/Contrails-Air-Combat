@@ -32,6 +32,10 @@ describe('factionOf', () => {
   it('P-51 是同盟國、Bf109 是軸心國', () => {
     expect(factionOf('p51d')).toBe('allies')
     expect(factionOf('bf109g6')).toBe('axis')
+    // 【轟炸機兩台也要對】2026-08-21 之前 He 111 被判成同盟，一整隊
+    // 德國轟炸機的機組因此叫 Ray Bishop、Hal Carter
+    expect(factionOf('b17g')).toBe('allies')
+    expect(factionOf('he111')).toBe('axis')
   })
 })
 

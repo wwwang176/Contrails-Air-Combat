@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, resetBattle } from '../../src/battle/setup'
-import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
+import { battleConfigFrom, uniform } from '../../src/battle/skirmish'
 import { B17G } from '../../src/specs/b17g'
 import { HE111 } from '../../src/specs/he111'
 import { P51D } from '../../src/specs/p51d'
@@ -14,9 +14,8 @@ class Idle implements Controller {
   }
 }
 
-const cfg = (): ReturnType<typeof battleConfigFrom> => battleConfigFrom({
-  ...DEFAULT_SKIRMISH, specId: 'b17g', blueCount: 2, redCount: 2,
-})
+const cfg = (): ReturnType<typeof battleConfigFrom> =>
+  battleConfigFrom(uniform('b17g', 2, 'bf109g6', 2))
 
 describe('砲塔狀態的生命週期', () => {
   it('建立時每架都配好，長度等於該機種的砲塔數', () => {
