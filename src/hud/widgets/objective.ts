@@ -70,9 +70,12 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
 
   const metric = formatObjectiveMetric(f.objectiveMetric, f.objectiveMetricKind)
   const clock = formatCountdown(f.objectiveSeconds)
+  // 【剩餘架數排在距離之前】它是勝負的直接量：護送輸在「全部被擊落」，
+  // 而距離只說還要多久。−1 的意思是這一關沒有這個數字
+  const left = f.objectiveRemaining >= 0 ? `${Math.round(f.objectiveRemaining)} 架　` : ''
   const text = clock === ''
-    ? `${f.objectiveText}　${metric}`
-    : `${f.objectiveText}　${metric}　${clock}`
+    ? `${f.objectiveText}　${left}${metric}`
+    : `${f.objectiveText}　${left}${metric}　${clock}`
 
   const size = Math.round(14 * L.scale)
   const pad = 8 * L.scale

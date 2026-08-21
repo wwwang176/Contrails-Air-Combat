@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import type { Team } from '../world/World'
 
 /**
  * 一場戰鬥的結果。`victory` = 任務達成，`defeat` = 任務失敗。
@@ -28,6 +29,79 @@ export type MissionRules =
     /** 時限，秒。無時限給 `Infinity` */
     seconds: number
   }
+  | {
+    kind: 'convoy'
+    /**
+     * 被護送的那些飛機屬於哪一隊。**護送與攔截的唯一差別就是這個欄位。**
+     *
+     * ```
+     *   'blue'  護送 —— 我方的轟炸機，飛到就贏、全滅就輸
+     *   'red'   攔截 —— 敵方的轟炸機，飛到就輸、全滅就贏
+     * ```
+     *
+     * 【為什麼是一條規則而不是兩種 kind】專案負責人 2026-08-21 給的兩組
+     * 條件是對稱的：「護送勝＝我方轟炸機任一台到達終點」「攔截勝＝敵方
+     * 轟炸機被殲滅（護航的戰鬥機忽略）」。攤開來就是同一句話 ——
+     * **某一隊的轟炸機：抵達終點，那一隊贏；全部被擊落，那一隊輸。**
+     * 寫成兩個分支的話，兩邊的判定順序、邊界、NaN 處理會各自漂移。
+     */
+    owner: Team
+    /**
+     * 終點的世界座標。**判定與畫面上的圓環都用這一個點。**
+     *
+     * 【它不是每一架各自的飛行點】那幾架各自飛一條平行線（見
+     * `setup.ts` 的 `convoyPoints`），但**判定只有一個圈**。整隊的寬度由
+     * `order.ts` 的 `CONVOY_LANE` 壓在半徑之內，所以「平行飛」與「一個圈」
+     * 不衝突。
+     */
+    point: Vector3
+    /** 抵達半徑，m。**也就是圓環的半徑** */
+    radius: number
+  }
+
+/**
+ * 這一關自己的小旋鈕。**每一項都是一個獨立的數字，預設值等於「沒有這一關」。**
+ *
+ * ── 為什麼要有這一層 ──────────────────────────────────────
+ *
+ * 專案負責人 2026-08-21：「戰鬥機在選敵人的時候，可以讓轟炸機被選到的機會
+ * 變高嗎？尤其在攔截、護送任務中；等於是任務可能會需要有一些獨立的小參數
+ * 可以調。」
+ *
+ * 關卡要調的東西與 **AI 的通則**是兩回事。`TargetConfig`、`SteerConfig`、
+ * `CommandConfig` 那幾組是「一架飛機該怎麼打」，它們的每一個值都由掃描
+ * 定案、被一整排既有護欄釘住 —— 為了一張關卡去動它們，等於讓遭遇戰的
+ * 基準跟著關卡走。這一層則是「**這一場**有什麼特別的」。
+ *
+ * ── 加新旋鈕的規矩 ────────────────────────────────────────
+ *
+ * 1. **預設值必須是「行為與沒有它時逐字相同」。** 遭遇戰與殲滅任務吃的是
+ *    `DEFAULT_BATTLE.tuning`，那一份的每一項都是中性值。
+ * 2. **一項只調一件事。** 這裡不放組合開關 —— 那會變成第二套難度系統，
+ *    而難度一貫由編制與幾何給（見 `setup.ts` 的 `aiProfile`）。
+ * 3. **值住在卡片上**（`MissionCard`），這裡只是它流到 `BattleConfig` 的
+ *    型別。每一張卡因此可以不一樣。
+ */
+export interface MissionTuning {
+  /**
+   * 被護送／被攔截的那幾架（`duty === 'transit'`）在**敵方**目標挑選裡
+   * 值幾倍。**1 = 與一般敵機同分**，也就是關掉這條規則。
+   *
+   * 【它要解決什麼】護航機把攔截方的目標全部吸走 —— 實測 4 架 P-51 對上
+   * 「2 或 4 架護航機 + 4 架轟炸機」，轟炸機**一發都不會挨到**
+   * （`docs/backlog.md` §2.26）。
+   *
+   * 【為什麼一個數字同時管護送與攔截】它掛在**被護送的那幾架身上**，而
+   * 只有敵人會替它們評分。護送時是紅隊更想打我方轟炸機（那正是這一關
+   * 要防的事），攔截時是藍隊更想打敵方轟炸機。**同一個偏置，兩張卡。**
+   *
+   * 【起始值，待掃描】見 `missions.ts` 的 `CONVOY_PRIORITY`。
+   */
+  convoyPriority: number
+}
+
+/** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */
+export const NEUTRAL_TUNING: MissionTuning = { convoyPriority: 1 }
 
 /**
  * `stepMission` 讀的快照。**就地重填，不配置。**
@@ -49,6 +123,23 @@ export interface MissionInputs {
    * 判成撤離成功。
    */
   playerAlive: boolean
+  /**
+   * 編組表上 `duty === 'transit'` 的那些飛機**還活著幾架**。
+   *
+   * 【為什麼是 duty 而不是 `spec.role === 'bomber'`】遭遇戰選 B-17 時整隊
+   * 都是轟炸機，那時這一關的規則是殲滅、根本不讀這個欄位；但用 role 推導
+   * 的話，哪天有人在護送任務裡放一架轟炸機當護航（真機也這樣用過），
+   * 它就會被算進「要保護的目標」。**duty 說的是任務角色，role 說的是機體。**
+   */
+  convoyAlive: number
+  /**
+   * 那幾架**還活著的**裡面，離終點最近的距離，m。全滅時 `Infinity`。
+   *
+   * 【為什麼只算活著的】把死掉的算進來會讓「最後一架在圈裡被打下來」同時
+   * 滿足抵達與全滅兩個條件 —— 那時判定的順序就決定勝負，而任何一種順序
+   * 都說得出道理。只算活著的之後兩者**互斥**，順序不再是一個要裁決的問題。
+   */
+  convoyLead: number
 }
 
 /**
@@ -67,8 +158,21 @@ export interface MissionState {
   targetRadius: number
   /** 剩餘秒數。無時限時是 `Infinity` */
   secondsLeft: number
-  /** HUD 的計量。殲滅＝剩餘敵機數，撤離＝到撤離點的距離 m */
+  /** HUD 的計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
   metric: number
+  /**
+   * HUD 的**第二個**計量：還剩幾架要護送／要打掉。**−1 = 這一關沒有這個
+   * 數字**，目標列就不畫它。
+   *
+   * 【為什麼護送要兩個數字】專案負責人 2026-08-21 裁定兩個都顯示。它們
+   * 回答的是兩個不同的問題：距離說「還要撐多久」，架數說「還剩多少籌碼」。
+   * 護送的敗北條件是**全部被擊落**，那件事在距離上完全看不出來。
+   *
+   * 【為什麼是 −1 而不是 0】0 在護送的意思是「全滅了」，也就是輸。讓
+   * 「這一關沒有這個數字」長得像敗北，與 `formatObjectiveMetric` 拒絕把
+   * 壞掉的值印成 0 是同一條理由。
+   */
+  remaining: number
 }
 
 export function createMissionState(rules: MissionRules): MissionState {
@@ -79,6 +183,7 @@ export function createMissionState(rules: MissionRules): MissionState {
     targetRadius: 0,
     secondsLeft: Infinity,
     metric: 0,
+    remaining: -1,
   }
   resetMissionState(rules, s)
   return s
@@ -97,6 +202,19 @@ export function createMissionState(rules: MissionRules): MissionState {
  */
 export function resetMissionState(rules: MissionRules, out: MissionState): void {
   out.outcome = 'fighting'
+  if (rules.kind === 'convoy') {
+    out.target.copy(rules.point)
+    out.hasTarget = true
+    out.targetRadius = rules.radius
+    out.secondsLeft = Infinity
+    // 【開局兩個計量都給「不知道」】這裡拿不到任何一架的位置與存活狀態，
+    // 而第一個物理步就會覆蓋它們。`remaining` 特別不能給 0 —— 那個值的
+    // 意思是「全滅」，也就是輸
+    out.metric = 0
+    out.remaining = -1
+    return
+  }
+  out.remaining = -1
   if (rules.kind === 'evacuate') {
     out.target.copy(rules.point)
     out.hasTarget = true
@@ -134,6 +252,36 @@ export function stepMission(
     out.metric = inp.aliveRed
     if (inp.aliveRed === 0) out.outcome = 'victory'
     else if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
+  // ── 護送／攔截 ────────────────────────────────────────
+  //
+  // 【一條規則，兩張卡】**某一隊的轟炸機：抵達終點，那一隊贏；全部被擊落，
+  // 那一隊輸。** `owner` 說那一隊是誰，而玩家恆在藍隊，所以 `good` 就是
+  // 「那一隊是不是我方」。護送是 `owner: 'blue'`，攔截是 `owner: 'red'`，
+  // 兩者共用下面每一行 —— 包含邊界與 NaN 的行為。
+  //
+  // 【兩個條件互斥，所以順序不是一個要裁決的問題】`convoyLead` 只算活著
+  // 的那幾架（見 `MissionInputs`），全滅時它是 `Infinity`。
+  if (rules.kind === 'convoy') {
+    const good = rules.owner === 'blue'
+    out.metric = inp.convoyLead
+    out.remaining = inp.convoyAlive
+
+    // 【NaN 走這條】`NaN < radius` 是 false，位置壞掉時不會誤判抵達
+    if (inp.convoyLead < rules.radius) {
+      out.outcome = good ? 'victory' : 'defeat'
+      return
+    }
+    if (inp.convoyAlive === 0) {
+      out.outcome = good ? 'defeat' : 'victory'
+      return
+    }
+    // 【為什麼還要這一條】攔截時我方全滅要算輸，而那件事上面兩條都涵蓋
+    // 不到（敵轟炸機還活著、也還沒到）。護送時它是多餘的但無害：轟炸機
+    // 本來就在藍隊，`aliveBlue === 0` 蘊含 `convoyAlive === 0`。
+    if (inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }
 

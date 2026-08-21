@@ -104,6 +104,29 @@ export class AiController implements Controller {
   order: FlightOrder | null = null
 
   /**
+   * **無條件飛向 `order.point`。** 被護送的那幾架（編組表上 `duty === 'transit'`）
+   * 由 `setup.ts` 每步寫成 true。
+   *
+   * ── 它與一般的集合令差在哪 ──────────────────────────────
+   *
+   * 一般的集合令仍然讓位給閃躲：`defendLatch` 一上，意圖就變成 `defend`
+   * （2026-08-07 專案負責人裁定「閃躲永遠優先」）。那對戰鬥機是對的 ——
+   * 撤退途中被咬住還硬飛就是送死。
+   *
+   * 對**被護送的**那幾架不是。專案負責人 2026-08-21：「轟炸機目前如果被
+   * 瞄準就會滾轉，這不合理；有辦法讓轟炸機有一個新的行動狀態，是無條件的
+   * 移動到集合點嗎？」實測值印證了那個「不合理」：接觸之前滾轉恆為 0.0°，
+   * 接觸之後衝到 85~89°，整隊的橫向散布由 600 m 撐開到 1,731 m ——
+   * 畫面上是四架 B-17 一邊翻滾一邊各自跑掉，而真機的編隊是硬著頭皮飛完。
+   *
+   * ── 它關掉的**只有**閃躲 ───────────────────────────────
+   *
+   * 安全層（`applySafety`，拉平不撞海）照跑，砲塔照打（那一層完全不經過
+   * 控制器，見 `world/turrets.ts`）。**這一條不是無敵，是不迴避。**
+   */
+  transit = false
+
+  /**
    * 集火命令指定的那一架。`null` = 沒有指定。由 `setup.ts` 每步寫入。
    *
    * 【為什麼不直接放在 `FlightOrder` 裡】命令住在 `src/ai/command.ts`，而
@@ -227,7 +250,17 @@ export class AiController implements Controller {
         this.stationError = 0
       }
       this.threatSource = this.scanThreat(self)
-      if (this.board) {
+      if (this.transit) {
+        // 【被護送的不挑目標，而且要把槽位還回去】`assignments` 是全場共用
+        // 的一份，`countLocks` 靠它算分攤折扣。一架永遠不會開火的轟炸機
+        // 若「鎖著」某個敵人，真正在打的護航機就會以為那一架已經有人顧了
+        // ——一個看不出來的、只表現成「火力莫名其妙變弱」的損失。
+        this.target = null
+        const b = this.board
+        if (b && this.selfIndex >= 0 && this.selfIndex < b.assignments.length) {
+          b.assignments[this.selfIndex] = -1
+        }
+      } else if (this.board) {
         // 【角色分派】有站位參考機 = 僚機，走四級準則；否則是自由獵手
         this.target = reference
           ? selectWingmanTarget(
@@ -368,8 +401,13 @@ export class AiController implements Controller {
       // 【集火不碰意圖】它是三種命令裡唯一「要交戰」的一種（spec §5.4）。
       // rally 與 flank 是「不要打，去那裡」，focus 是「打那一架」——
       // 壓成 rally 會讓集火命令反而停止交戰，那是完全相反的效果
+      //
+      // 【transit 連閃躲都不讓位】那是「無條件飛完航程」的**全部意思**，
+      // 見 `transit` 的註解。寫在這一行而不是另開一個 `Intent` 值：轉向的
+      // 行為與 rally **逐字相同**（純追擊一個固定點、不開火），差別只在
+      // 「有沒有東西搶得走它」—— 那是一個條件，不是一種飛法。
       if (this.order !== null && this.order.kind !== 'focus') {
-        this.intent = this.rules.defendLatch ? 'defend' : 'rally'
+        this.intent = !this.transit && this.rules.defendLatch ? 'defend' : 'rally'
       }
     }
 

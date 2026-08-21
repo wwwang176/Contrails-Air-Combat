@@ -32,9 +32,22 @@ export interface TakeoverSeat {
  * `members[0]`，而壓縮保序，所以「roster 上第一個非玩家的存活者」就是
  * `members[1]`。但 `roster` **不隨陣亡改變**，所以這個函數與
  * `compactFlights` 在同一步裡跑過沒跑過無關。少一個順序相依。
+ *
+ * @param exclude 不可接手的座位（`duty === 'transit'` 的那幾架）。
+ *
+ * 【為什麼被護送的不能接手】專案負責人 2026-08-21 裁定排除。它是**要保護
+ * 的對象**，不是備用座位 —— 坐進去之後那一架就停止自動飛終點（覆寫只作用
+ * 在 `AiController` 上），等於玩家要自己把自己送到終點。
+ *
+ * 【為什麼是參數而不是讀 `duty`】這一支只吃「存活 + 隊伍」兩個欄位，
+ * 刻意不認識編組表 —— 那正是它能用字面物件單元測試的原因。與
+ * `flights.ts` 的 `FlightMember` 是同一個做法。
+ *
+ * 【清單通常是空的】遭遇戰與殲滅任務一架都沒有，那時這個函數逐字如舊。
  */
 export function pickTakeover(
   flights: FlightIndex, seats: readonly TakeoverSeat[], playerSeat: number,
+  exclude: readonly number[] = [],
 ): number {
   const team = seats[playerSeat]?.team
   if (team === undefined) return -1
@@ -42,7 +55,7 @@ export function pickTakeover(
   for (const f of flights.flights) {
     if (!f.roster.includes(playerSeat)) continue
     for (const i of f.roster) {
-      if (i !== playerSeat && seats[i]!.alive) return i
+      if (i !== playerSeat && seats[i]!.alive && !exclude.includes(i)) return i
     }
     break
   }
@@ -50,7 +63,7 @@ export function pickTakeover(
   for (let i = 0; i < seats.length; i++) {
     if (i === playerSeat) continue
     const s = seats[i]!
-    if (s.alive && s.team === team) return i
+    if (s.alive && s.team === team && !exclude.includes(i)) return i
   }
   return -1
 }
