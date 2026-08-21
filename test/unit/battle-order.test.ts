@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  lineAbreast, assertOrderOfBattle, sideSummary, type OrderOfBattle,
+  lineAbreast, mixedLine, assertOrderOfBattle, sideSummary, type OrderOfBattle,
 } from '../../src/battle/order'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
@@ -147,5 +147,67 @@ describe('sideSummary', () => {
       ...u.slice(1),
     ]
     expect(sideSummary(mixed, 'blue')).toBe('4 × p51d + 2 × b17g')
+  })
+})
+
+/**
+ * `mixedLine` —— 遭遇戰自訂編組的編組函數。
+ *
+ * 【第一條是全部的重點】它必須是 `lineAbreast` 的推廣，而不是另一種排法：
+ * `test/fixtures/spawn-baseline.ts` 的每一個座標、`world.add` 的順序、
+ * 以及由順序決定的 AI 決策相位／名字指派／點放錯開，全部釘在後者上。
+ */
+describe('mixedLine', () => {
+  /** 同機種、同架數時玩家的座位，等於 `lineAbreast` 的 `playerFlight` 長機 */
+  const leadSeat = (n: number) => Math.floor(Math.ceil(n / SCHWARM_SIZE) / 2) * SCHWARM_SIZE
+
+  it('同機種時與 lineAbreast 逐項相同 —— 這一條守著全部的出生基準', () => {
+    for (const [b, r] of [[20, 20], [16, 16], [8, 8], [3, 7], [1, 1]] as const) {
+      const want = lineAbreast(HEAD_ON, P51D, b, BF109G6, r)
+      const got = mixedLine(
+        HEAD_ON,
+        Array.from({ length: b }, () => P51D),
+        Array.from({ length: r }, () => BF109G6),
+        leadSeat(b),
+      )
+      expect(got.length).toBe(want.length)
+      for (let i = 0; i < want.length; i++) {
+        const g = got[i]!
+        const w = want[i]!
+        expect(g.team).toBe(w.team)
+        expect(g.lane).toBe(w.lane)
+        expect(g.tier).toBe(w.tier)
+        expect(g.duty).toBe(w.duty)
+        expect(g.player).toBe(w.player)
+        expect(g.members.map((m) => m.id)).toEqual(w.members.map((m) => m.id))
+      }
+    }
+  })
+
+  it('混編：一隊裡可以有不同陣營的機種', () => {
+    const u = mixedLine(HEAD_ON, [P51D, BF109G6, B17G], [BF109G6, P51D], 0)
+    expect(sideSummary(u, 'blue')).toBe('1 × p51d + 1 × bf109g6 + 1 × b17g')
+    expect(sideSummary(u, 'red')).toBe('1 × bf109g6 + 1 × p51d')
+    // 【護欄照樣要過】混編不是繞過 assertOrderOfBattle 的後門
+    expect(() => assertOrderOfBattle(u)).not.toThrow()
+  })
+
+  it('玩家選第幾架，那一架就與該小隊的長機對調', () => {
+    // 五架：小隊 0 是前四架、小隊 1 是第五架。選 index 2 → 小隊 0 的第三格
+    const u = mixedLine(HEAD_ON, [P51D, B17G, BF109G6, P51D, B17G], [P51D], 2)
+    const lead = u.find((f) => f.player === true)!
+    expect(lead.members[0]!.id).toBe('bf109g6')
+    // 對調而不是插隊：原本的長機去了第三格，其餘不動
+    expect(lead.members.map((m) => m.id)).toEqual(['bf109g6', 'b17g', 'p51d', 'p51d'])
+  })
+
+  it('玩家在第二個小隊時，player 落在那一隊', () => {
+    const u = mixedLine(
+      HEAD_ON, Array.from({ length: 8 }, () => P51D), [P51D], 5,
+    )
+    const b = blue(u)
+    expect(b[0]!.player).toBe(undefined)
+    expect(b[1]!.player).toBe(true)
+    expect(u.filter((f) => f.player === true).length).toBe(1)
   })
 })

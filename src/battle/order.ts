@@ -123,6 +123,63 @@ export function lineAbreast(
 }
 
 /**
+ * 產出「兩隊各自一份**逐架的機種名單**、橫隊排開」的編組表。
+ * 遭遇戰的自訂編組走這一支。
+ *
+ * 【與 `lineAbreast` 的關係：它是這一支的特例】同機種、同架數、
+ * `playerAt` 取那個小隊的長機座位時，兩者**逐項相同**（有測試釘住）。
+ * 那條等價是這一支唯一的驗收基準 —— `test/fixtures/spawn-baseline.ts`
+ * 的每一個座標都是照 `lineAbreast` 釘死的。
+ *
+ * 【為什麼不把 `lineAbreast` 改成呼叫這一支】那份基準的浮點運算序列必須
+ * 一個字不變，而這一支還在長。等價由測試守著，比由共用實作守著更誠實 ——
+ * 共用之後「等價」就變成同義反覆，測不到任何東西。
+ *
+ * 【`playerAt` 是藍隊名單的索引，不是小隊序號】玩家選的那一架若不在小隊
+ * 的第一格，就**與該小隊的長機對調**：`player` 這個旗標的語意是
+ * 「玩家開這一小隊的 `members[0]`」（見 `FlightPlan.player`），而換一架
+ * 當長機比為了一個座位去改那個語意便宜得多。
+ *
+ * 【混編是免費的】`members` 本來就是機種陣列（那是 2026-08-21 編組表那一輪
+ * 定下來的形狀），所以「P-51 與 Bf109 同一隊」不需要 battle 層做任何事。
+ */
+export function mixedLine(
+  plan: EntryPlan,
+  blue: readonly AircraftSpec[],
+  red: readonly AircraftSpec[],
+  playerAt: number,
+): OrderOfBattle {
+  const out: FlightPlan[] = []
+  const playerFlight = Math.floor(playerAt / SCHWARM_SIZE)
+  const playerSeat = playerAt % SCHWARM_SIZE
+  for (const team of ['blue', 'red'] as const) {
+    const blueSide = team === 'blue'
+    const list = blueSide ? blue : red
+    const entry = blueSide ? plan.blue : plan.red
+    const flights = Math.ceil(list.length / SCHWARM_SIZE)
+    for (let f = 0; f < flights; f++) {
+      const members: AircraftSpec[] = []
+      for (let k = f * SCHWARM_SIZE; k < Math.min(list.length, (f + 1) * SCHWARM_SIZE); k++) {
+        members.push(list[k]!)
+      }
+      const withPlayer = blueSide && f === playerFlight
+      // 【對調而不是插隊】插到最前面會把整個小隊的機種順序往後推一格，
+      // 而那個順序就是玩家在設定頁上排的東西
+      if (withPlayer && playerSeat < members.length) {
+        const lead = members[0]!
+        members[0] = members[playerSeat]!
+        members[playerSeat] = lead
+      }
+      const lane = f - (flights - 1) / 2
+      out.push(withPlayer
+        ? { team, members, entry, duty: 'combat', lane, tier: f, player: true }
+        : { team, members, entry, duty: 'combat', lane, tier: f })
+    }
+  }
+  return out
+}
+
+/**
  * 被護送的那些飛機所在的高度層。`altitudeOffset(0, spread)` = **−spread**，
  * 也就是最低的一層。
  */

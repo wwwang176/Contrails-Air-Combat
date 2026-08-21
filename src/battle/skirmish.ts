@@ -1,5 +1,6 @@
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
-import { lineAbreast } from './order'
+import { mixedLine } from './order'
+import { SCHWARM_SIZE } from './flights'
 import { HEAD_ON } from './entry'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
@@ -19,36 +20,53 @@ export const MAX_SIDE = 20
 /** 特效池的容量。兩隊都滿編時的總架數 */
 export const MAX_COMBATANTS = MAX_SIDE * 2
 
+/**
+ * 遭遇戰的出戰名單。**逐架一個機種代號，順序即編隊順序。**
+ *
+ * ── 為什麼不是「陣營 + 一個機種 + 兩個架數」（2026-08-21 之前的形狀）──
+ *
+ * 專案負責人 2026-08-21：「遭遇戰改一下 UI，要可以設定我方機種、敵方機種
+ * ……點一台 P51 就增加一台 P51 到出戰卡牌中，點幾台出幾台（不是用數量
+ * 增減），然後要可以讓我選我是當哪一台；陣營可以混搭，也就是 P51 可以跟
+ * BF109 同一隊。」
+ *
+ * 「一隊一個機種」在舊形狀裡是**型別層級的限制**，不是一個可以放寬的設定。
+ * 換成逐架的名單之後，混編、每隊各自的組成、玩家坐哪一架三件事同時成立，
+ * 而且**與 `FlightPlan.members` 是同一個形狀** —— 那是編組表那一輪就定下
+ * 來的（見 `order.ts` 的 `FlightPlan`），所以 battle 層一個字都不用改。
+ */
 export interface SkirmishSetup {
-  faction: FactionChoice
+  /** 我方（藍隊）逐架的機種代號 */
+  readonly blue: readonly string[]
+  /** 敵方（紅隊）逐架的機種代號 */
+  readonly red: readonly string[]
   /**
-   * 玩家的機種代號。
+   * 玩家坐 `blue` 的第幾架。
    *
-   * 【為什麼 M10 只有一個合法值還要有這個欄位】每個陣營目前就一台，卡片
-   * 畫出來只有一個選項。M11 補第三台機時，版面、選取狀態與這條資料流
-   * 都已經在了（M10 spec §7.2）。
+   * 【它不是小隊序號】`mixedLine` 會把那一架與它所在小隊的長機對調，
+   * 因為 `player` 旗標的語意是「玩家開這一小隊的 `members[0]`」。
    */
-  specId: string
-  /** 我方架數，含玩家 */
-  blueCount: number
-  /** 敵方架數 */
-  redCount: number
+  readonly playerAt: number
 }
 
 /**
- * 各陣營可選的機種。**順序即卡片順序，第一台是預設**。
+ * **遭遇戰可以編進名單的全部機種。順序即卡片順序。**
  *
- * 【第一台同時是「敵隊開什麼」】`battleConfigFrom` 的敵方一律取
- * `specsFor(對面)[0]`，`missionConfigFrom` 的雙方也都取 `[0]`。所以往後面
- * 加機種**不會動到任何既有的對戰組合** —— 加的是玩家的選項，不是敵人的。
+ * 【為什麼不分陣營】混搭上線之後「陣營」不再是一個選擇 —— 兩隊各自的
+ * 名單就是全部的設定。任務模式仍然分陣營（`specsFor`），那是另一回事：
+ * 那裡的陣營決定的是**打哪一組關卡**。
  *
- * 【轟炸機兩台 2026-08-20 開放】外型與武裝都已經落地（`specs/b17g.ts`、
- * `specs/he111.ts`、`weapons/*.ts`），飛行模型與 HUD 對機種是無關的，
- * 缺的一直只有這張名單。
+ * 【順序】戰鬥機在前、轟炸機在後。與 `SPECS` 每一列的順序一致，
+ * `missions.ts` 依賴「`specsFor(f)[0]` 是戰鬥機、`[1]` 是轟炸機」。
+ */
+export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109G6, B17G, HE111]
+
+/**
+ * 各陣營的機種。**任務模式專用** —— 遭遇戰請用 `ALL_SPECS`。
  *
- * 一件要知道的事：`blueSpec` 套用在**整隊**，所以選 B-17G 就是一個
- * B-17 編隊而不是「一架轟炸機配一群野馬」。那是刻意的（真機就是編隊
- * 出擊），但它把畫面上的三角形數乘上架數 —— 見 `test/unit/perf-gate.test.ts`。
+ * 【第一台是戰鬥機、第二台是轟炸機】`missions.ts` 的 `missionConfigFrom`
+ * 直接吃這個順序（`[0]` 護航、`[1]` 被護送），改順序會靜靜地換掉四張卡的
+ * 編成。
  */
 const SPECS: Record<FactionChoice, readonly AircraftSpec[]> = {
   allies: [P51D, B17G],
@@ -59,17 +77,71 @@ export function specsFor(faction: FactionChoice): readonly AircraftSpec[] {
   return SPECS[faction]
 }
 
-export const DEFAULT_SKIRMISH: SkirmishSetup = {
-  faction: 'allies',
-  specId: P51D.id,
-  blueCount: MAX_SIDE,
-  redCount: MAX_SIDE,
+/**
+ * 機種代號 → 機種。**找不到落回第一台**（`ALL_SPECS[0]`）。
+ *
+ * 【為什麼要有落回】名單從 DOM 來，而一個打錯的代號若一路傳到生成迴圈，
+ * 症狀是「開始戰鬥之後那一架不見了」而不是任何錯誤。與 `clampSide` 對
+ * NaN 的處理同一條理由。
+ */
+export function specOf(id: string): AircraftSpec {
+  return ALL_SPECS.find((s) => s.id === id) ?? ALL_SPECS[0]!
 }
 
-/** 另一個陣營。 */
-function opposing(f: FactionChoice): FactionChoice {
-  return f === 'allies' ? 'axis' : 'allies'
+/**
+ * 「兩隊各自同一種機」的名單。**探針與測試的一行替換。**
+ *
+ * 【玩家的座位取那個小隊的長機】`Math.floor(小隊數 / 2) × SCHWARM_SIZE`
+ * 就是 `lineAbreast` 的 `playerFlight` 長機 —— 所以這一支產出的編組表與
+ * 舊路徑**逐項相同**（`test/unit/battle-order.test.ts` 釘住那條等價）。
+ */
+export function uniform(
+  blueId: string, blueCount: number, redId: string, redCount: number,
+): SkirmishSetup {
+  const n = clampSide(blueCount)
+  return {
+    blue: Array.from({ length: n }, () => blueId),
+    red: Array.from({ length: clampSide(redCount) }, () => redId),
+    playerAt: Math.floor(Math.ceil(n / SCHWARM_SIZE) / 2) * SCHWARM_SIZE,
+  }
 }
+
+/**
+ * 名單末端加一架。**滿編時原樣回傳。**
+ *
+ * 【為什麼是純函數而不是留在 `ui/menu.ts`】那個檔案沒有測試（要 DOM），
+ * 而「玩家的座位有沒有跟著動」正是最容易錯又最看不出來的一件事。
+ */
+export function withAircraft(
+  setup: SkirmishSetup, team: 'blue' | 'red', id: string,
+): SkirmishSetup {
+  const list = team === 'blue' ? setup.blue : setup.red
+  if (list.length >= MAX_SIDE) return setup
+  const next = [...list, id]
+  return team === 'blue' ? { ...setup, blue: next } : { ...setup, red: next }
+}
+
+/**
+ * 名單拿掉第 `index` 架。
+ *
+ * 【玩家的座位要跟著動】拿掉的若在他前面，他就往前移一格；拿掉的就是他
+ * 本人則留在同一格（也就是接下來那一架）。**不管的話玩家會默默換一台
+ * 飛機開** —— 而畫面上只是一張卡消失，完全看不出來。
+ *
+ * 【可以刪到空】那是重編一整組時的正常中間狀態。設定頁在兩邊任一邊
+ * 空著時會禁用「開始戰鬥」，所以不會有「名單是空的卻打得起來」。
+ */
+export function withoutAircraft(
+  setup: SkirmishSetup, team: 'blue' | 'red', index: number,
+): SkirmishSetup {
+  const list = team === 'blue' ? setup.blue : setup.red
+  const next = list.filter((_, i) => i !== index)
+  if (team === 'red') return { ...setup, red: next }
+  const at = index < setup.playerAt ? setup.playerAt - 1 : setup.playerAt
+  return { ...setup, blue: next, playerAt: Math.max(0, Math.min(at, next.length - 1)) }
+}
+
+export const DEFAULT_SKIRMISH: SkirmishSetup = uniform(P51D.id, MAX_SIDE, BF109G6.id, MAX_SIDE)
 
 /**
  * 夾進 [MIN_SIDE, MAX_SIDE]。非有限值落回 `MIN_SIDE`。
@@ -84,24 +156,37 @@ function clampSide(n: number): number {
 }
 
 /**
+ * 名單 → 機種陣列。空名單補一架預設機，超編砍到 `MAX_SIDE`。
+ *
+ * 【為什麼空名單不是錯誤】設定頁上「把我方清空」是一個正常的中間狀態
+ * （要換一整組編制），只有按下開始戰鬥時它才是問題。在這裡補一架，
+ * UI 那一層就不必為了防呆去禁用按鈕。
+ */
+function roster(ids: readonly string[], fallback: AircraftSpec): AircraftSpec[] {
+  if (ids.length === 0) return [fallback]
+  return ids.slice(0, MAX_SIDE).map(specOf)
+}
+
+/**
  * 設定 → 戰鬥設定。
  *
- * 【為什麼不讓 DOM 直接組 `BattleConfig`】「選軸心國時紅隊是不是真的變成
- * P-51」這件事必須測得到，而 DOM 測不到。夾制也放在這裡（M10 spec §7.3）。
+ * 【為什麼不讓 DOM 直接組 `BattleConfig`】夾制、落回、玩家座位這三件事
+ * 必須測得到，而 DOM 測不到（M10 spec §7.3）。
  *
  * 【玩家恆在藍隊】換的是機種不是隊伍顏色（M9 spec §14、M10 spec §7.1）。
  */
 export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
-  const mine = specsFor(setup.faction)
-  const theirs = specsFor(opposing(setup.faction))
-  const blueSpec = mine.find((s) => s.id === setup.specId) ?? mine[0]!
+  const blue = roster(setup.blue, P51D)
+  const red = roster(setup.red, BF109G6)
+  // 【座位也要夾】名單縮短之後 `playerAt` 可能指到不存在的那一架，而
+  // `mixedLine` 那時會找不到任何小隊標 `player` —— `assertOrderOfBattle`
+  // 會拋「必須恰好有一筆 player」，也就是按下開始戰鬥直接白畫面
+  const at = Number.isFinite(setup.playerAt)
+    ? Math.max(0, Math.min(blue.length - 1, Math.floor(setup.playerAt)))
+    : 0
   return {
     ...DEFAULT_BATTLE,
-    // 【夾制留在這裡】來源是 DOM 的字串，`Number('')` 是 NaN 而
-    // `Math.min/max` 對 NaN 是傳染的。見 `clampSide`
-    units: lineAbreast(
-      HEAD_ON, blueSpec, clampSide(setup.blueCount),
-      theirs[0]!, clampSide(setup.redCount)),
+    units: mixedLine(HEAD_ON, blue, red, at),
     // 【難度只在這條路上生效】`DEFAULT_BATTLE` 留 `ACE`，因為那是全部 AI
     // 測試量天花板用的基準。這裡是「史實的 AI」變成「打得動的 AI」的唯一
     // 入口，與 `specs/feel.ts` 在 `setup.ts` 的位置對稱。
