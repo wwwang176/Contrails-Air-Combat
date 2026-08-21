@@ -60,6 +60,36 @@ export const MAX_TURRETS = 8
 export const BARREL_LENGTH = 0.9
 
 /**
+ * 槍管露在蒙皮外的長度，m。**`muzzleAt` 用它把量到的蒙皮點推成槍口。**
+ *
+ * 【為什麼需要它 —— 實測】第一版把砲塔的 `position` 直接填成量到的蒙皮點，
+ * 而槍管是**由槍口往機體方向長**的（`render/turretBarrels.ts`）。結果是
+ * 整根管子埋在機身裡，畫面上只剩 0.15–0.20 m 的管口端面 —— 機庫近照
+ * （`test/tools/turret-shots.probe.ts`）拍出來是**一個黑點，不是一根管子**。
+ * 那與專案負責人要的「黑色管子（三角形柱子）」不是同一個東西。
+ *
+ * 【0.45 是怎麼來的】`BARREL_LENGTH` 的一半 —— 露一半、埋一半。真機的
+ * B-17 尾砲與腰槍本來就明顯伸出蒙皮，所以往外推是**更接近史實**而不是
+ * 為了好看而失真。
+ *
+ * 【它同時是彈丸的生成點】`Turret.position` 的語意是槍口，`stepTurrets`
+ * 就從那裡生彈丸。推 0.45 m 對彈道沒有可量測的影響（初速 765–887 m/s），
+ * 但保證「彈丸從畫出來的那根管子的**尖端**出來」。
+ */
+export const BARREL_PROTRUDE = 0.45
+
+/**
+ * 由**量到的蒙皮點**與射界中心方向算出槍口。
+ *
+ * 【為什麼要一個函數而不是把數字加好寫死】兩件事分開才看得懂：表格裡的
+ * 座標全部是「量測值」，外伸是一個可以整批調的設計參數。寫死的話日後要
+ * 調外伸量得把十三格逐一重算，而那正是會算錯一格的做法。
+ */
+export function muzzleAt(skin: Vector3, axis: Vector3): Vector3 {
+  return skin.clone().addScaledVector(axis, BARREL_PROTRUDE)
+}
+
+/**
  * 「這挺槍接在飛機上」護欄的回走距離，m。**刻意比 `BARREL_LENGTH` 長。**
  *
  * 【為什麼不能共用同一個數字】`hitBoxes` 是**簡化的傷害體積，比實際機體

@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import type { Battery, WeaponSpec } from './types'
 import type { Turret } from './turret'
+import { muzzleAt } from './turret'
 import { DEG } from '../core/math'
 
 /**
@@ -79,19 +80,24 @@ export const HE111_BATTERY: Battery = {
  * 可以被試飛推翻的形式（坑 22）。五挺全是手持槍，所以旋轉速率一律 90 °/s。
  */
 export const HE111_TURRETS: readonly Turret[] = [
-  { id: 'nose', weapon: MG15, position: new Vector3(0.25, 0.35, -2.93),
+  { id: 'nose', weapon: MG15, position: muzzleAt(new Vector3(0.25, 0.35, -2.93),
+      new Vector3(0, 0, -1)),
     axis: new Vector3(0, 0, -1),
     halfAngle: 40 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'dorsal', weapon: MG15, position: new Vector3(0, 1.72, 2.40),
+  { id: 'dorsal', weapon: MG15, position: muzzleAt(new Vector3(0, 1.72, 2.40),
+      new Vector3(0, 0.64, 0.77).normalize()),
     axis: new Vector3(0, 0.64, 0.77).normalize(),
     halfAngle: 70 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'ventral', weapon: MG15, position: new Vector3(0, -0.85, 5.30),
+  { id: 'ventral', weapon: MG15, position: muzzleAt(new Vector3(0, -0.85, 5.30),
+      new Vector3(0, -0.64, 0.77).normalize()),
     axis: new Vector3(0, -0.64, 0.77).normalize(),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'beamR', weapon: MG15, position: new Vector3(1.05, 0.20, 2.80),
+  { id: 'beamR', weapon: MG15, position: muzzleAt(new Vector3(1.05, 0.20, 2.80),
+      new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),
     halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'beamL', weapon: MG15, position: new Vector3(-1.05, 0.20, 2.80),
+  { id: 'beamL', weapon: MG15, position: muzzleAt(new Vector3(-1.05, 0.20, 2.80),
+      new Vector3(-1, 0, 0)),
     axis: new Vector3(-1, 0, 0),
     halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
 ]

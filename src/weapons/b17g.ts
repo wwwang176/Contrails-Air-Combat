@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import type { Battery } from './types'
 import type { Turret } from './turret'
+import { muzzleAt } from './turret'
 import { M2_BROWNING } from './p51d'
 import { DEG } from '../core/math'
 
@@ -79,28 +80,36 @@ export const B17G_BATTERY: Battery = {
  * （轉得快但射界小）。**兩個數字都沒有實測支撐**，由試飛裁定。
  */
 export const B17G_TURRETS: readonly Turret[] = [
-  { id: 'chin', weapon: M2_BROWNING, position: new Vector3(0, -0.70, -5.43),
+  { id: 'chin', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -0.70, -5.43),
+      new Vector3(0, -0.34, -0.94).normalize()),
     axis: new Vector3(0, -0.34, -0.94).normalize(),
     halfAngle: 45 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'cheekL', weapon: M2_BROWNING, position: new Vector3(-1.15, 0.35, -4.60),
+  { id: 'cheekL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-1.15, 0.35, -4.60),
+      new Vector3(-0.57, 0, -0.82).normalize()),
     axis: new Vector3(-0.57, 0, -0.82).normalize(),
     halfAngle: 35 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'cheekR', weapon: M2_BROWNING, position: new Vector3(1.15, 0.35, -4.60),
+  { id: 'cheekR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.15, 0.35, -4.60),
+      new Vector3(0.57, 0, -0.82).normalize()),
     axis: new Vector3(0.57, 0, -0.82).normalize(),
     halfAngle: 35 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'top', weapon: M2_BROWNING, position: new Vector3(0, 2.15, -1.10),
+  { id: 'top', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, 2.15, -1.10),
+      new Vector3(0, 1, 0)),
     axis: new Vector3(0, 1, 0),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'ball', weapon: M2_BROWNING, position: new Vector3(0, -1.20, 5.10),
+  { id: 'ball', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, -1.20, 5.10),
+      new Vector3(0, -1, 0)),
     axis: new Vector3(0, -1, 0),
     halfAngle: 80 * DEG, rotationRate: 60 * DEG, guns: 2 },
-  { id: 'waistR', weapon: M2_BROWNING, position: new Vector3(1.35, 0.55, 6.20),
+  { id: 'waistR', weapon: M2_BROWNING, position: muzzleAt(new Vector3(1.35, 0.55, 6.20),
+      new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'waistL', weapon: M2_BROWNING, position: new Vector3(-1.35, 0.55, 6.80),
+  { id: 'waistL', weapon: M2_BROWNING, position: muzzleAt(new Vector3(-1.35, 0.55, 6.80),
+      new Vector3(-1, 0, 0)),
     axis: new Vector3(-1, 0, 0),
     halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'tail', weapon: M2_BROWNING, position: new Vector3(0, 1.0, 16.4),
+  { id: 'tail', weapon: M2_BROWNING, position: muzzleAt(new Vector3(0, 1.0, 16.4),
+      new Vector3(0, 0.09, 1).normalize()),
     axis: new Vector3(0, 0.09, 1).normalize(),
     halfAngle: 30 * DEG, rotationRate: 90 * DEG, guns: 2 },
 ]

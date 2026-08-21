@@ -6,7 +6,8 @@ import { createScene } from './render/scene'
 import { createTerrain } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { createTracers } from './render/tracers'
-import { createMuzzles } from './render/muzzle'
+import { createMuzzles, createTurretMuzzles } from './render/muzzle'
+import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { createFireball, emitFireball } from './render/fireball'
@@ -201,6 +202,12 @@ function attachVisual(c: Combatant): Visual {
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
 const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
+// 【砲塔的槍管與槍焰各一個池】槍管必須跟著砲塔轉 —— 烘進機身的靜態槍管，
+// 在砲塔轉向時彈流會從管子旁邊飛出去，而砲塔的重點就是它會轉。
+const turretBarrels = createTurretBarrels(MAX_COMBATANTS)
+ctx.scene.add(turretBarrels.object)
+const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
+ctx.scene.add(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const splashes = createSplashes()
@@ -901,6 +908,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
+  // 【砲塔的槍管也用內插姿態】理由與槍焰完全相同
+  turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
+  turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
   // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
   sparks.step(frameSeconds)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的

@@ -11,6 +11,9 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { DEG } from '../core/math'
 import { collectTriangles, extentSlices, radialSlices, type Axis } from './sliceRef'
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
+import { barrelGeometry } from '../render/turretBarrels'
+import { BARREL_SPACING } from '../world/turrets'
+import { wobbleBasis } from '../weapons/turret'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import { HE111 } from '../specs/he111'
@@ -296,14 +299,56 @@ function applyWireframe(m: AircraftModel, on: boolean): void {
   })
 }
 
+/**
+ * 砲塔的槍管，畫在**靜止位置**（`turret.axis`）上。
+ *
+ * 【為什麼機庫要畫它】槍管在遊戲裡是由 combatant 狀態驅動的
+ * `InstancedMesh`，機庫沒有 combatant。但砲塔位置是這一輪最需要用眼睛驗
+ * 的東西（十三座裡有六座是「量到的機身剖面 + 史實站位」推算出來的），而
+ * 機庫是這個專案唯一截得到 3D 畫面的地方 —— 遊戲的畫布沒開
+ * `preserveDrawingBuffer`，截圖只有 HUD。
+ *
+ * **幾何與側偏都與 `render/turretBarrels.ts` 共用同一份推導**，看到的就是
+ * 遊戲裡會畫的那根管子。差別只有「這裡是靜止指向，遊戲裡會跟著砲塔轉」。
+ */
+function buildBarrels(spec: AircraftSpec): Group {
+  const g = new Group()
+  if (spec.turrets.length === 0) return g
+  const geo = barrelGeometry()
+  const mat = new MeshBasicMaterial({ color: 0x101010 })
+  const e1 = new Vector3()
+  const e2 = new Vector3()
+  for (const t of spec.turrets) {
+    wobbleBasis(t.axis, e1, e2)
+    for (let b = 0; b < t.guns; b++) {
+      const side = t.guns > 1 ? (b === 0 ? -1 : 1) : 0
+      const m = new Mesh(geo, mat)
+      m.position.copy(t.position).addScaledVector(e1, side * BARREL_SPACING)
+      // +Z 對準 −axis：管子由槍口往機體方向長
+      m.quaternion.setFromUnitVectors(UNIT_Z, e2.copy(t.axis).negate())
+      g.add(m)
+    }
+  }
+  return g
+}
+
+const UNIT_Z = new Vector3(0, 0, 1)
+let barrels: Group | null = null
+
 function rebuild(): void {
   if (model) {
     scene.remove(model.group)
     model.dispose()
   }
+  if (barrels) {
+    scene.remove(barrels)
+    barrels = null
+  }
   const spec = SPECS[specIndex]!
   model = buildAircraft(spec)
   scene.add(model.group)
+  barrels = buildBarrels(spec)
+  scene.add(barrels)
   applyWireframe(model, wireframe)
 
   const box = new Box3().setFromObject(model.group)
