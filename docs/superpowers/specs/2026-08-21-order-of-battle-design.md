@@ -252,21 +252,29 @@ export function lineAbreast(
 **`lane` 為小數是正常的**：四個小隊時是 `±0.5`、`±1.5`。乘法的順序也刻意
 維持「先乘 `schwarmSpacing` 再加 `lateral`」，浮點加法不可交換。
 
-### 4.2 一個必須寫進註解的差異：`applyFeel` 的物件識別
+### 4.2 `applyFeel` 的物件識別：每陣營一張表
 
 改動前 `applyFeel(base, feelFor(base))` **一側算一次**，所以同一側的 20 架共用
-同一個 spec 物件。改動後若逐小隊算，同隊多個小隊會從「一個物件」變成
-「多個」，而鏡像對戰（兩隊同機種）仍然是兩個。
+同一個 spec 物件。逐小隊算的話同隊會變成好幾個物件。
 
-**做法：在 `createBattle` 內用一個 `Map<AircraftSpec, AircraftSpec>` 依 base
-記憶。** 這同時：
+**做法：在 `createBattle` 內用「每陣營一張 `Map<AircraftSpec, AircraftSpec>`」
+依 base 記憶。** 這與改動前完全一致：同隊同機種共用一份、兩隊各自一份。
 
-- 保住同隊同機種共用一份（與改動前相同）；
-- 讓 `ceilings` 那個 `Map<AircraftSpec, number>` 的記憶化照舊只算一次
-  （`serviceCeiling` 是 50 次二分搜尋，不便宜）；
-- **鏡像對戰時由兩份變成一份** —— 這是唯一一個對改動前不等價的地方。數值
-  完全相同（`applyFeel` 是純函數），差別只在物件識別。逐位元重播測試會證明
-  它不影響任何狀態；`ceilings` 少算一次也只是更快。
+【為什麼不是全場一張】第一版寫的是全場一張，理由是「數值相同，只差
+`ceilings` 少算一次」。**Codex 2026-08-21 指出那個理由不完整** —— 依
+`AircraftSpec` 物件識別的快取有三個，不只一個：
+
+```
+  setup.ts       Map<AircraftSpec, number>             serviceCeiling
+  envelope.ts    WeakMap<AircraftSpec, Float64Array>   最佳迴旋表
+  doctrine.ts    WeakMap<AircraftSpec, Float64Array>   持續迴旋率表
+```
+
+後兩者都在 **AI 更新路徑**上，而 `doctrine.ts` 自己的註解記載：逐格惰性填
+會讓 AI 步的 p999 由 217 µs 惡化到 3.8 ms。鏡像對戰共用一張表雖然數值相同，
+卻是一個沒有必要冒的啟動成本與 perf gate 變動。
+
+**每陣營一張之後，這一輪沒有任何一處對改動前不等價。**
 
 ---
 
@@ -432,7 +440,7 @@ flights = createFlights(world.combatants, player.index, sizes)
 | `lineAbreast` 的 `lane` | 5 個小隊給 `−2 … +2`、4 個給 `±0.5 / ±1.5`、1 個給 `0` |
 | `lineAbreast` 的 `tier` | 等於小隊序號 |
 | `lineAbreast` 的最後一隊 | `count = 6` → `[4, 2]`；`count = 1` → `[1]` |
-| `lineAbreast` 的玩家 | `blueCount` 20 → 第 2 隊、6 → 第 0 隊、1 → 第 0 隊，且恰好一筆 |
+| `lineAbreast` 的玩家 | `blueCount` 20 → 第 2 隊、**6 → 第 1 隊**、1 → 第 0 隊，且恰好一筆。（6 那一格原本寫 0，Codex 2026-08-21 實測糾正：`floor(ceil(6/4)/2) = 1`）|
 | `lineAbreast` 的順序 | 全部 blue 在全部 red 之前 |
 | `assertOrderOfBattle` | §6.1 的四條各一個反例，各自拋出可辨識的訊息 |
 | `createFlights` 吃 `sizes` | `[4,2,4]` 切出三隊；總和不符、跨隊各拋一次 |
@@ -469,7 +477,7 @@ flights = createFlights(world.combatants, player.index, sizes)
 | --- | --- |
 | 130 處機械式替換打錯一處，而那一處是某條護欄的基準 | 型別會擋掉大部分（五個欄位刪掉之後舊寫法直接編不過）。剩下的靠 §8.2「數字不變」 |
 | 逐位元基準本身抓錯（例如少抓了一個欄位） | 基準探針同時輸出**筆數**與**校驗和**；重播測試先斷言筆數，再逐位元比 |
-| `applyFeel` 記憶化改變了鏡像對戰的行為 | §4.1 的逐位元測試就是用 P-51 vs Bf109（非鏡像）。**另外加一條鏡像對戰的重播**（P-51 vs P-51），基準同樣先落地 |
+| `applyFeel` 記憶化改變了鏡像對戰的行為 | 改成**每陣營一張表**之後不存在（§4.2）。鏡像對戰的重播場景仍然保留 —— 它現在守的是「真的完全一致」而不是「差異可接受」 |
 | `lane` 的浮點：`f − (n−1)/2` 先算再乘，與改動前的括號順序不同 | 刻意保持**同一個算式**：`lineAbreast` 算出的 `lane` 就是 `f − (n−1)/2` 這個 `number`，`createBattle` 再乘 `schwarmSpacing`。改動前是 `(f − (n−1)/2) × schwarmSpacing` —— 同一個中間值、同一次乘法 |
 | 小隊順序斷言太嚴，擋掉日後合理的表 | 只斷言「藍全部在紅之前」，不管小隊之間的順序。真的需要交錯時再改 `createFlights` 的分段邏輯，那時是一個有意識的決定 |
 
