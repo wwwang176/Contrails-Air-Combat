@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
+import { Idle, spawnLines } from '../tools/spawn-snapshot'
 import {
   lineAbreast, assertOrderOfBattle, sideSummary, type OrderOfBattle,
 } from '../../src/battle/order'
@@ -147,5 +149,25 @@ describe('sideSummary', () => {
       ...u.slice(1),
     ]
     expect(sideSummary(mixed, 'blue')).toBe('4 × p51d + 2 × b17g')
+  })
+})
+
+/**
+ * 【為什麼要單獨守這一條】換迴圈那一步的 `createBattle` 有兩條入口：
+ * `cfg.units` 直接給、以及由五個舊欄位 fallback。基準測試走的是後者（它的
+ * config 還是舊寫法），前者要到「呼叫端搬家」那一步才有使用者 —— 中間這一段
+ * 沒有人守。
+ *
+ * **舊欄位刪掉之後這一條要跟著刪** —— 那時 fallback 已經不存在。
+ */
+describe('createBattle 直接吃編組表', () => {
+  it('與由舊欄位 fallback 出來的結果完全相同', () => {
+    const units = lineAbreast(HEAD_ON, P51D, 8, BF109G6, 8)
+    const direct = createBattle(new Idle(), { ...DEFAULT_BATTLE, units }, 7)
+    const viaFallback = createBattle(new Idle(), {
+      ...DEFAULT_BATTLE,
+      blueSpec: P51D, redSpec: BF109G6, blueCount: 8, redCount: 8, entry: HEAD_ON,
+    }, 7)
+    expect(spawnLines(direct)).toEqual(spawnLines(viaFallback))
   })
 })

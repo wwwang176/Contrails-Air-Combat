@@ -5,9 +5,10 @@ import { AiController } from '../ai/AiController'
 import { createTargetBoard, type TargetBoard } from '../ai/target'
 import { ACE, type DifficultyProfile } from '../ai/profile'
 import {
-  SCHWARM_SIZE, STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
+  STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
   type Flight, type FlightIndex,
 } from './flights'
+import { assertOrderOfBattle, lineAbreast, type OrderOfBattle } from './order'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import {
   createCommandState, stepCommand,
@@ -25,7 +26,7 @@ import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
 // 區域範圍，而 `Battle.outcome` 的宣告用得到它。
-import { HEAD_ON, type EntryPlan, type SideEntry } from './entry'
+import { HEAD_ON, type EntryPlan } from './entry'
 import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules, type MissionState, type Outcome,
@@ -145,6 +146,14 @@ export interface BattleConfig {
    * 而 `DEFAULT_BATTLE` 給的就是它。
    */
   entry: EntryPlan
+  /**
+   * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
+   *
+   * 【這一步是選擇性的，下一個 commit 才變成唯一的來源】沒給時由
+   * `blueSpec` / `redSpec` / `blueCount` / `redCount` / `entry` 就地組一張
+   * 出來 —— 那五個欄位下一步就會刪掉。見 `battle/order.ts`。
+   */
+  units?: OrderOfBattle
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
@@ -302,51 +311,55 @@ export function createBattle(
   cfg: BattleConfig = DEFAULT_BATTLE,
   seed: number = (Math.random() * 0x100000000) >>> 0,
 ): Battle {
+  /**
+   * 【fallback 只活到下一個 commit】沒給 `units` 就由五個舊欄位組一張 ——
+   * 那五個欄位下一步就會刪掉，這一行也跟著刪。它存在的唯一理由是讓
+   * 「換迴圈」與「呼叫端搬家」變成兩個各自能編譯、各自能驗收的步驟。
+   */
+  const units = cfg.units ?? lineAbreast(
+    cfg.entry, cfg.blueSpec, cfg.blueCount, cfg.redSpec, cfg.redCount)
+  assertOrderOfBattle(units)
+
   const world = new World()
   const blue: Combatant[] = []
   const red: Combatant[] = []
-  const blueFlights = Math.ceil(cfg.blueCount / SCHWARM_SIZE)
-  /**
-   * 玩家是**正中央分隊的長機**（M6 spec §9）。
-   *
-   * 【為什麼是長機而不是某個僚機】玩家不會照站位飛。把他擺在有站位的
-   * 位置上，那個 Schwarm 從此有一個永遠對不齊的槽位。
-   */
-  const playerSlot = Math.floor(blueFlights / 2) * SCHWARM_SIZE
   let player: Combatant | null = null
+  /**
+   * 每個小隊的架數，依 `world.add` 的順序。**交給 `createFlights`** ——
+   * 分組只能有一份，不能讓它自己再猜一次（見 `flights.ts` 的 `sizes`）。
+   */
+  const sizes: number[] = []
+  /**
+   * base spec → 套過手感係數的 spec。**每陣營一張表。**
+   *
+   * 【為什麼要記憶】改動前 `applyFeel` 一側算一次，所以同一側的 20 架共用
+   * 同一個物件。逐小隊算的話同隊會變成好幾個物件 —— 數值完全相同
+   * （`applyFeel` 是純函數），但下游有三個**依物件識別**的快取會失效。
+   *
+   * 【為什麼是每陣營一張而不是全場一張】全場一張會讓鏡像對戰（兩隊同機種）
+   * 由兩個 spec 物件變成一份，而依物件識別的快取有三個，不只 `ceilings`：
+   *
+   * ```
+   *   setup.ts       Map<AircraftSpec, number>            serviceCeiling
+   *   envelope.ts    WeakMap<AircraftSpec, Float64Array>  最佳迴旋表
+   *   doctrine.ts    WeakMap<AircraftSpec, Float64Array>  持續迴旋率表
+   * ```
+   *
+   * 後兩者都在 **AI 更新路徑**上，而 `doctrine.ts` 的註解明寫「一次填滿、
+   * 不惰性逐格填」是因為逐格填會讓 AI 步的 p999 由 217 µs 惡化到 3.8 ms。
+   * 共用會少填一張表 —— 數值仍然相同，但那是一個沒有必要冒的啟動成本與
+   * perf gate 的變動。
+   *
+   * 每陣營一張則與改動前**完全一致**：同隊同機種共用一份、兩隊各自一份。
+   */
+  const feeled = {
+    blue: new Map<AircraftSpec, AircraftSpec>(),
+    red: new Map<AircraftSpec, AircraftSpec>(),
+  }
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
-  for (const side of ['blue', 'red'] as const) {
-    const blueSide = side === 'blue'
-    // 【兩邊各算各的】M10 起雙方架數可以不同，分隊數因此也不同
-    const count = blueSide ? cfg.blueCount : cfg.redCount
-    const flightCount = blueSide ? blueFlights : Math.ceil(cfg.redCount / SCHWARM_SIZE)
-    // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
-    // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
-    // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
-    // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
-    //
-    // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
-    // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
-    // 戰鬥機放大，爬升率變成史實的三倍。
-    const base = blueSide ? cfg.blueSpec : cfg.redSpec
-    const spec = applyFeel(base, feelFor(base))
-
-    /**
-     * 追擊：紅隊搬到藍隊**後方**、拉高、而且**同向**。
-     *
-     * 【藍隊的位置一個字都不動】撤離的時限是由「直飛到撤離點要多久」推出來
-     * 的（`missions.ts` 的 `EVAC_STRAIGHT_*`）。動了藍隊的出生點，那兩個
-     * 數字就要重新量。
-     *
-     * 【為什麼要同向】不同向的話那不是追擊，是又一次對頭 —— 而對頭正是
-     * 這一版要換掉的東西。
-     */
-    /**
-     * 這一隊的擺法。**六個欄位就是這一段全部的自由度** —— 想要新的排列
-     * 就去 `entry.ts` 加一份，這裡一個字都不用改。
-     */
-    const entry: SideEntry = blueSide ? cfg.entry.blue : cfg.entry.red
+  for (const unit of units) {
+    const entry = unit.entry
     // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
     // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
     // 那些覆寫靜靜失效
@@ -354,54 +367,69 @@ export function createBattle(
     const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
     const velocity = FWD.clone().applyQuaternion(orientation)
       .multiplyScalar(cfg.tas * entry.speed)
+    // 【乘法的順序要與改動前逐字相同】改動前是
+    // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
+    // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
+    const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+    const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
 
-    // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
-    const lateral = entry.across * cfg.lateralOffset
-
-    let slot = 0
-    for (let f = 0; f < flightCount; f++) {
-      const leadX = (f - (flightCount - 1) / 2) * cfg.schwarmSpacing + lateral
-      const leadY = cfg.altitude + entry.climb + altitudeOffset(f, cfg.altitudeSpread)
-      /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
-      const made: Aircraft[] = []
-
-      for (let k = 0; k < SCHWARM_SIZE && slot < count; k++, slot++) {
-        // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
-        // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
-        // 走 `World.respawn` 是同一個理由。
-        //
-        // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
-        // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
-        const ref = STATION_REFERENCE[k]!
-        if (ref < 0) SPAWN.set(leadX, leadY, z)
-        else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
-
-        const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
-        aircraft.state.position.copy(SPAWN)
-        aircraft.state.orientation.copy(orientation)
-        aircraft.state.velocity.copy(velocity)
-        aircraft.prevPosition.copy(aircraft.state.position)
-        aircraft.prevOrientation.copy(orientation)
-        made.push(aircraft)
-
-        const isPlayer = blueSide && slot === playerSlot
-        const controller = isPlayer ? playerController : new AiController()
-        const c = world.add(
-          aircraft, controller, side, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
-        )
-        // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
-        c.respawnOnDestroy = false
-        if (isPlayer) player = c
-        ;(blueSide ? blue : red).push(c)
+    /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
+    const made: Aircraft[] = []
+    for (let k = 0; k < unit.members.length; k++) {
+      const base = unit.members[k]!
+      // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
+      // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
+      // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一
+      // 入口，而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
+      //
+      // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
+      // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
+      // 戰鬥機放大，爬升率變成史實的三倍。
+      //
+      // 【查表在內層】混編小隊裡兩種機各查各的
+      const cache = feeled[unit.team]
+      let spec = cache.get(base)
+      if (spec === undefined) {
+        spec = applyFeel(base, feelFor(base))
+        cache.set(base, spec)
       }
+
+      // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
+      // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
+      // 走 `World.respawn` 是同一個理由。
+      //
+      // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
+      // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
+      const ref = STATION_REFERENCE[k]!
+      if (ref < 0) SPAWN.set(leadX, leadY, z)
+      else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+
+      const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
+      aircraft.state.position.copy(SPAWN)
+      aircraft.state.orientation.copy(orientation)
+      aircraft.state.velocity.copy(velocity)
+      aircraft.prevPosition.copy(aircraft.state.position)
+      aircraft.prevOrientation.copy(orientation)
+      made.push(aircraft)
+
+      const isPlayer = unit.player === true && k === 0
+      const controller = isPlayer ? playerController : new AiController()
+      const c = world.add(
+        aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
+      )
+      // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
+      c.respawnOnDestroy = false
+      if (isPlayer) player = c
+      ;(unit.team === 'blue' ? blue : red).push(c)
     }
+    sizes.push(unit.members.length)
   }
 
-  if (player === null) throw new Error('玩家沒有被建立——blueCount 必須 >= 1')
+  if (player === null) throw new Error('玩家沒有被建立——編組表必須有一筆 player')
 
   // 【編制必須在全部 add 完之後才建】玩家要釘在自己分隊的 members[0]
   // （M6 spec §5.3）
-  const flights = createFlights(world.combatants, player.index)
+  const flights = createFlights(world.combatants, player.index, sizes)
   // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
   //
   // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
