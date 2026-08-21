@@ -132,7 +132,7 @@ export function resetTurretStates(
   for (let i = 0; i < n; i++) {
     const s = states[i]!
     s.aim.copy(spec.turrets[i]!.axis)
-    s.phase = wobblePhase(combatantIndex, n, i)
+    s.phase = wobblePhase(combatantIndex, i)
     s.targetIndex = -1
     // 黃金比的小數部分：低差異序列，任意前綴都接近均勻
     const k = combatantIndex * MAX_TURRETS + i
@@ -286,10 +286,30 @@ function leadInBody(
 }
 
 /**
- * 射程的必要條件：即使迎頭全速接近也追不上就不必解二次式。
- * 887 是專案裡最快的初速（M2 白朗寧），400 m 是接近速度的餘量。
+ * 粗篩用的接近速度上界，m/s。
+ *
+ * 【它必須寬到永遠不會假陰性】粗篩的唯一職責是省下 `solveLead` 的平方根；
+ * 放進來的多餘候選會被 `solveLead` 自己擋掉，**成本只是幾次二次式**。反過來
+ * 擋掉一個真的打得到的目標，症狀是「砲塔對著一台迎頭衝過來的戰鬥機完全不
+ * 開火」，而且沒有任何錯誤。
+ *
+ * 【舊值 400 是錯的 —— Codex 2026-08-21 實測】它被當成「相對接近速度」的
+ * 餘量，但那是**兩台加起來**：B-17 巡航 160 m/s 加上俯衝進場的 P-51 300 m/s
+ * 就是 460。實算的假陰性區間是 **1464.4 … 1616.4 m，寬 152 m** —— 在那一段
+ * 裡 `solveLead` 有解（實測 1.109 s < 1.2 s 的彈丸壽命）、方向也在射界錐內，
+ * 但候選在解二次式之前就被丟掉了。
+ *
+ * 800 = 兩台各 400 m/s（1,440 km/h）—— 遠高於這個專案裡任何一台的極速，
+ * 連垂直俯衝也到不了。多出來的粗篩半徑不會讓搜尋變貴：實測 160 座砲塔的
+ * 搜尋成本本來就落在 20v20 的雜訊之內（見 `test/unit/perf-gate.test.ts`）。
  */
-const MAX_REACH_SQ = (887 * PROJECTILE_LIFETIME + 400) ** 2
+const MAX_CLOSING_SPEED = 800
+
+/**
+ * 射程的必要條件：即使迎頭全速接近也追不上就不必解二次式。
+ * 887 是專案裡最快的初速（M2 白朗寧）。
+ */
+const MAX_REACH_SQ = ((887 + MAX_CLOSING_SPEED) * PROJECTILE_LIFETIME) ** 2
 
 /**
  * 挑目標：敵隊、存活、有解、在射界內，取**離槍口**最近的。

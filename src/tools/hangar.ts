@@ -1,5 +1,6 @@
 import {
-  AmbientLight, AxesHelper, Box3, Color, DirectionalLight, GridHelper, HemisphereLight,
+  AmbientLight, AxesHelper, Box3, type BufferGeometry, Color, DirectionalLight,
+  GridHelper, HemisphereLight,
   Group, type Material, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
   OrthographicCamera,
   PerspectiveCamera,
@@ -311,6 +312,25 @@ function applyWireframe(m: AircraftModel, on: boolean): void {
  * **幾何與側偏都與 `render/turretBarrels.ts` 共用同一份推導**，看到的就是
  * 遊戲裡會畫的那根管子。差別只有「這裡是靜止指向，遊戲裡會跟著砲塔轉」。
  */
+/**
+ * 釋放 `buildBarrels` 配置的幾何與材質。
+ *
+ * 【為什麼一根一根找而不是記在外面】那一組 mesh 共用同一份幾何與材質，所以
+ * 取第一根的就夠；用 `Set` 收是為了「日後若改成一根一份」也不會漏。
+ */
+function disposeBarrels(g: Group): void {
+  const geos = new Set<BufferGeometry>()
+  const mats = new Set<Material>()
+  for (const child of g.children) {
+    if (!(child instanceof Mesh)) continue
+    geos.add(child.geometry as BufferGeometry)
+    if (Array.isArray(child.material)) for (const m of child.material) mats.add(m)
+    else mats.add(child.material as Material)
+  }
+  for (const x of geos) x.dispose()
+  for (const x of mats) x.dispose()
+}
+
 function buildBarrels(spec: AircraftSpec): Group {
   const g = new Group()
   if (spec.turrets.length === 0) return g
@@ -342,6 +362,11 @@ function rebuild(): void {
   }
   if (barrels) {
     scene.remove(barrels)
+    // 【要 dispose 幾何與材質】`scene.remove` 只是把它從場景圖拿掉，three 的
+    // `WebGLGeometries` / `WebGLMaterials` 是在 geometry 與 material 的
+    // `dispose` 事件裡才釋放 GPU buffer 與著色器程式。少了這一步，每切換
+    // 一次機種就漏一組 —— Codex 2026-08-21 抓到。
+    disposeBarrels(barrels)
     barrels = null
   }
   const spec = SPECS[specIndex]!

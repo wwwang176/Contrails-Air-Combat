@@ -149,13 +149,20 @@ export function wobbleBasis(aim: Vector3, e1: Vector3, e2: Vector3): void {
  * 【為什麼要把載機索引也算進去】只用砲塔索引的話，編隊裡每一架的第 0 座
  * 都同相位，二十架 B-17 的尾砲塔會整齊劃一地擺動 —— 那看起來像機械故障
  * 而不是二十個砲手。
+ *
+ * 【stride 一定要是 `MAX_TURRETS`，不能是「這台有幾座」】—— Codex 2026-08-21
+ * 實測抓到：用各機種自己的砲塔數當 stride 時，砲塔數不同的兩個機種**編號區間
+ * 會重疊**。20 架 B-17G（8 座）加 20 架 He 111（5 座）共 260 座，實際只有
+ * **200 個唯一相位、60 對完全同步** —— 例如 B-17 的 `c=12, i=4`（12×8+4）
+ * 與 He 111 的 `c=20, i=0`（20×5+0）都是編號 100。那正是這個函數存在要
+ * 避免的機械式同步。
+ *
+ * 固定 stride 之後同一組配置是 260 個唯一相位、0 對重複。這與
+ * `resetTurretStates` 裡 `searchCooldown` 的錯開用同一個 stride —— 那裡
+ * 本來就寫對了，只有這裡漏掉。
  */
-export function wobblePhase(
-  combatantIndex: number,
-  turretCount: number,
-  turretIndex: number,
-): number {
-  const n = combatantIndex * turretCount + turretIndex
+export function wobblePhase(combatantIndex: number, turretIndex: number): number {
+  const n = combatantIndex * MAX_TURRETS + turretIndex
   const p = (n * GOLDEN_ANGLE) % (Math.PI * 2)
   return p < 0 ? p + Math.PI * 2 : p
 }
