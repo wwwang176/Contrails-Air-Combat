@@ -44,6 +44,18 @@ export class Projectiles {
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一發身上。 */
   private cursor = 0
+
+  /**
+   * 下一發會寫進哪一格。**唯讀，只給重播快照用**
+   * （`test/tools/spawn-snapshot.ts`）。
+   *
+   * 【為什麼要開這個口】兩場的彈丸陣列完全相同、但游標差一格時，下一發就
+   * 會覆寫不同的格子而分岔 —— 而分岔要好幾秒才顯現在畫面上，那時已經查不
+   * 出源頭。快照少了它就抓不到這件事。
+   *
+   * **`cursor` 維持 private**：可寫的入口仍然只有 `spawn` 與 `clear`。
+   */
+  get writeCursor(): number { return this.cursor }
   private liveCount = 0
 
   /**
