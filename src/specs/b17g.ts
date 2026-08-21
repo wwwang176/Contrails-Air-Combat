@@ -1,6 +1,6 @@
 import { DEG } from '../core/math'
 import { makeHitBox } from '../world/hit'
-import { B17G_BATTERY } from '../weapons/b17g'
+import { B17G_BATTERY, B17G_TURRETS } from '../weapons/b17g'
 import type { AircraftSpec, HistoricalReference } from './types'
 
 const HP = 745.7
@@ -276,8 +276,7 @@ export const B17G: AircraftSpec = {
   ],
 
   battery: B17G_BATTERY,
-  // 自衛砲塔在配置那一輪填（見實作計畫 Task 4）
-  turrets: [],
+  turrets: B17G_TURRETS,
 }
 
 /**

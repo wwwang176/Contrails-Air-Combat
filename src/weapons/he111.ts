@@ -1,5 +1,7 @@
 import { Vector3 } from 'three'
 import type { Battery, WeaponSpec } from './types'
+import type { Turret } from './turret'
+import { DEG } from '../core/math'
 
 /**
  * MG 15，7.92 mm。**步槍口徑**，這件事是整個轟炸機難度的關鍵。
@@ -24,27 +26,72 @@ export const MG15: WeaponSpec = {
 }
 
 /**
- * He 111 H-6 的機首前射機槍。
+ * He 111 H-6 的 `Battery` —— **掛架是空的**。
  *
- * 【這一版只有機首那一挺】自衛炮塔（機背、機腹、兩側）要等 `Mount` 長出
- * 射界與旋轉之後才做 —— 現有的 `mountDirection` 是純幾何、所有掛架同向，
- * 表達不了「這一挺朝後」。見這一輪的 spec。
+ * 【為什麼空的】機首那挺 MG 15 是球形槍座上的**手持活動槍**，由投彈手操作，
+ * 駕駛員扣不到。專案負責人 2026-08-20 裁定：可以轉向的都交給 AI，玩家不控
+ * 火砲。所以它搬到 `HE111_TURRETS` 的 `nose` 那一座。
  *
- * 【位置】機首玻璃罩的球形機槍座，在機體座標 z = −2.93（機首尖端 −3.23 之後
- * 0.30）、略偏右 x = 0.25（He 111 的機首機槍座是**偏右**的，那也是它機首
- * 不對稱的原因）、y = 0.35。
- *
- * 【2026-08-17 由 −2.95 改成 −2.93】原點的定義變了（翼根弦改成量測值），
- * 整台往前挪 0.3424；但機首尖端也跟著由 −3.25 變成 −3.23，所以掛架相對
- * 機首的 0.30 m 不變 —— 改的是絕對座標不是相對位置。
- *
- * 【convergence 取 300】與 109 同 —— 轟炸機沒有翼槍，匯聚幾何本來就不適用，
- * 但這個欄位是必填的，取一個不會讓「橫向收斂」產生可見偏折的值。
+ * 【為什麼還留著這個 Battery】`sight` 仍然被讀：`ai/assess.ts` 與
+ * `ai/steer.ts` 共四處用它的 `muzzleVelocity` 解射擊提前量。`convergence`
+ * 沒有掛架可以匯聚，留著只是欄位必填。
  */
 export const HE111_BATTERY: Battery = {
-  mounts: [
-    { weapon: MG15, position: new Vector3(0.25, 0.35, -2.93) },
-  ],
+  mounts: [],
   convergence: 300,
   sight: MG15,
 }
+
+/**
+ * He 111 H-6 的自衛砲塔 —— **五座、槍管合計 5 根**，全部是單管 MG 15。
+ *
+ * 真機的槍位編號是 A（機首）／B（機背）／C（機腹吊艙後）／D（兩側腰窗）。
+ * H-6 的側窗兩挺不是每一架都裝，這裡照最完整的配置。
+ *
+ * 【與 B-17G 的差別就是這五挺 7.92 mm 對十二根 .50】He 111 是「會咬人但
+ * 咬不死」，B-17 是「不能久留」。兩台的難度差距來自槍的口徑與數量，不是
+ * 來自射界 —— 射界反而是 He 111 的機腹那座比較好。
+ *
+ * ── 位置的來源，逐項標明 ───────────────────────────────────
+ *
+ * ```
+ *   nose     量測  機體 z −2.93（機首尖端 −3.23 之後 0.30）、**偏右 x 0.25**
+ *                   —— 真機的機首機槍座就是偏右的，那也是它機首不對稱的
+ *                   原因（he111.hull.ts 量到固定 0.147 的橫向偏心）。
+ *                   這是舊 HE111_BATTERY 掛架的同一個值，原樣搬過來
+ *   dorsal   量測  開口機體 z 1.85…3.05（he111.hull.ts 標為「射線穿過開口
+ *                   量到艙內」而丟掉的那一段），取中段 2.40；機身背線在該
+ *                   站 1.59，槍口取罩子外的 1.72
+ *   ventral  量測  吊艙後窗機體 z 4.51…5.51（BOLA_PARTS 的實測表），艙底
+ *                   在 z 4.911 是 −1.077（BOLA 截面 centerY −0.732 −
+ *                   halfHeight 0.345）；槍口取艙尾 5.30、y −0.85
+ *   beam     推算  z 2.80 取自史實站位（腰窗與吊艙前段同一段機身）；
+ *                   x 由 he111.hull.ts 在該站量到的半寬 0.91 外推一段槍管
+ * ```
+ *
+ * 【三座量測、兩座推算】側窗那兩挺量不出來 —— 參考模型的側窗是機身蒙皮上
+ * 的一塊玻璃，玻璃本身量得到、**槍座量不到**（那是艙內的東西，射線先打到
+ * 玻璃就停了）。與 B-17G 的頰槍、腰槍同一個處境，處理方式也相同：放在已經
+ * 逐站量過的機身剖面上，z 取真機站位，護欄擋粗錯、試飛裁細節。
+ *
+ * 【半角與旋轉速率是設計值】理由與 `weapons/b17g.ts` 的 `B17G_TURRETS`
+ * 完全相同 —— 射界不規則而照片讀不出邊界，一個中心方向 + 一個半角才是
+ * 可以被試飛推翻的形式（坑 22）。五挺全是手持槍，所以旋轉速率一律 90 °/s。
+ */
+export const HE111_TURRETS: readonly Turret[] = [
+  { id: 'nose', weapon: MG15, position: new Vector3(0.25, 0.35, -2.93),
+    axis: new Vector3(0, 0, -1),
+    halfAngle: 40 * DEG, rotationRate: 90 * DEG, guns: 1 },
+  { id: 'dorsal', weapon: MG15, position: new Vector3(0, 1.72, 2.40),
+    axis: new Vector3(0, 0.64, 0.77).normalize(),
+    halfAngle: 70 * DEG, rotationRate: 90 * DEG, guns: 1 },
+  { id: 'ventral', weapon: MG15, position: new Vector3(0, -0.85, 5.30),
+    axis: new Vector3(0, -0.64, 0.77).normalize(),
+    halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
+  { id: 'beamR', weapon: MG15, position: new Vector3(1.05, 0.20, 2.80),
+    axis: new Vector3(1, 0, 0),
+    halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
+  { id: 'beamL', weapon: MG15, position: new Vector3(-1.05, 0.20, 2.80),
+    axis: new Vector3(-1, 0, 0),
+    halfAngle: 45 * DEG, rotationRate: 90 * DEG, guns: 1 },
+]

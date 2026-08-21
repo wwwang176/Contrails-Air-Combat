@@ -1,6 +1,6 @@
 import { DEG } from '../core/math'
 import { makeHitBox } from '../world/hit'
-import { HE111_BATTERY } from '../weapons/he111'
+import { HE111_BATTERY, HE111_TURRETS } from '../weapons/he111'
 import type { AircraftSpec, HistoricalReference } from './types'
 
 const PS = 735.5
@@ -300,8 +300,7 @@ export const HE111: AircraftSpec = {
   ],
 
   battery: HE111_BATTERY,
-  // 自衛砲塔在配置那一輪填（見實作計畫 Task 4）
-  turrets: [],
+  turrets: HE111_TURRETS,
 }
 
 /**
