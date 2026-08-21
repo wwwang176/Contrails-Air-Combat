@@ -803,6 +803,10 @@ export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
 ): void {
   b.world.projectiles.clear()
+  // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
+  // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
+  // 看起來像隨機的。
+  b.world.time = 0
   const combatants = b.world.combatants
   for (let i = 0; i < combatants.length; i++) {
     const c = combatants[i]!
