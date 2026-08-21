@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  inArc, wobbleBasis, wobblePhase, applyWobble, slew,
+  inArc, wobbleBasis, wobblePhase, applyWobble, slew, turretPivot, turretMuzzle,
   BASIS_PARALLEL, GOLDEN, MAX_TURRETS, BARREL_LENGTH, TURRET_MOUNT_REACH,
 } from '../../src/weapons/turret'
 import type { Turret } from '../../src/weapons/turret'
@@ -208,5 +208,76 @@ describe('常數', () => {
    */
   it('TURRET_MOUNT_REACH 比 BARREL_LENGTH 長', () => {
     expect(TURRET_MOUNT_REACH).toBeGreaterThan(BARREL_LENGTH)
+  })
+})
+
+/**
+ * 【人工回報 2026-08-21】「B17 機腹底的機槍，旋轉點好像不對」。
+ *
+ * 根因：彈丸、槍管、槍焰三處都把 `t.position` 當成**固定的管口**，再把
+ * 管身朝 −aim 擺出去。那是**繞管口轉** —— 砲塔瞄右邊時管口一動也不動、
+ * 整根槍往左邊甩（實測球形腹部砲塔偏 80° 時後膛跑到 x = −0.886）。
+ * 真槍是樞軸不動、管口掃出去。
+ *
+ * 這一組守的就是那件事，而且**不靠任何一處的實作** —— 只問
+ * `turretMuzzle` 這個共用推導本身對不對。
+ */
+describe('槍管繞樞軸轉，不是繞管口轉', () => {
+  const BALL: Turret = {
+    id: 'test-ball',
+    weapon: M2_BROWNING,
+    position: new Vector3(0, -1.65, 5.10),
+    axis: new Vector3(0, -1, 0),
+    halfAngle: 80 * DEG,
+    rotationRate: 60 * DEG,
+    guns: 2,
+  }
+
+  it('靜止時（aim === axis）槍口就是 position —— 量到的位置全部不受影響', () => {
+    const m = turretMuzzle(BALL, BALL.axis, new Vector3())
+    expect(m.distanceTo(BALL.position)).toBeCloseTo(0, 10)
+  })
+
+  /**
+   * **這一條是主判準。** 樞軸在機體座標裡是一個定點，不管砲塔轉到哪裡。
+   * 「繞管口轉」的壞實作會讓樞軸整個甩出去，這一條就會紅。
+   */
+  it('aim 掃過整個射界，樞軸都待在同一點', () => {
+    const pivot = turretPivot(BALL, new Vector3())
+    const aim = new Vector3()
+    const muzzle = new Vector3()
+    const back = new Vector3()
+    for (let deg = 0; deg <= 80; deg += 5) {
+      for (const sign of [1, -1]) {
+        aim.set(sign * Math.sin(deg * DEG), -Math.cos(deg * DEG), 0)
+        turretMuzzle(BALL, aim, muzzle)
+        // 由槍口沿 −aim 回走一根管長，必須回到同一個樞軸
+        back.copy(muzzle).addScaledVector(aim, -BARREL_LENGTH)
+        expect(back.distanceTo(pivot), `偏 ${sign * deg}° 時樞軸跑掉了`)
+          .toBeCloseTo(0, 10)
+      }
+    }
+  })
+
+  /**
+   * 【為什麼還要測「管口真的會動」】只斷言樞軸不動的話，一個「槍管完全
+   * 不轉」的實作也會通過 —— 那個測試測不到它宣稱的東西。
+   */
+  it('管口會往 aim 那一側掃出去，而且掃的方向與 aim 同號', () => {
+    const rest = turretMuzzle(BALL, BALL.axis, new Vector3())
+    const aim = new Vector3(Math.sin(60 * DEG), -Math.cos(60 * DEG), 0)
+    const swung = turretMuzzle(BALL, aim, new Vector3())
+    expect(swung.x).toBeGreaterThan(0.5)
+    expect(swung.distanceTo(rest)).toBeGreaterThan(0.5)
+    // 掃出去的量恆為 |aim − axis| × 管長
+    const want = new Vector3().copy(aim).sub(BALL.axis).length() * BARREL_LENGTH
+    expect(swung.distanceTo(rest)).toBeCloseTo(want, 10)
+  })
+
+  it('樞軸比槍口靠機體內側一整根管長', () => {
+    const pivot = turretPivot(BALL, new Vector3())
+    expect(pivot.distanceTo(BALL.position)).toBeCloseTo(BARREL_LENGTH, 10)
+    // 球形腹部砲塔朝下，所以樞軸在槍口**上方**
+    expect(pivot.y).toBeGreaterThan(BALL.position.y)
   })
 })

@@ -11,7 +11,13 @@ export interface Turret {
   id: string
   weapon: WeaponSpec
   /**
-   * **槍口**位置，機體座標，m。彈丸與槍焰都從這裡生。
+   * **靜止時**的槍口位置，機體座標，m。「靜止」= `aim` 還等於 `axis`。
+   *
+   * 【它不是彈丸的生成點】砲塔轉起來之後槍口會跟著掃出去，真正的生成點由
+   * `turretMuzzle(t, aim, out)` 算。**釘住不動的是樞軸**（`turretPivot`），
+   * 不是這個點 —— 人工回報 2026-08-21：「B17 機腹底的機槍，旋轉點好像不對」，
+   * 根因就是三處都把這個點當成固定的管口，於是砲塔瞄右邊時整根槍往左邊擺
+   * （實測 80° 時後膛甩到 x = −0.886，而管口一動也不動）。
    *
    * 【是槍口不是樞軸】真機的槍管本來就會伸出蒙皮之外，所以這個點**可以在
    * 命中盒外面**（B-17G 的尾砲塔就是：槍口 z ≈ 16.4，而尾部命中盒只到
@@ -105,6 +111,26 @@ export function muzzleAt(skin: Vector3, axis: Vector3): Vector3 {
  */
 export function turretPivot(t: Turret, out: Vector3): Vector3 {
   return out.copy(t.position).addScaledVector(t.axis, -BARREL_LENGTH)
+}
+
+/**
+ * 砲塔指向 `aim` 時的**槍口**，機體座標，寫進 `out` 並回傳。
+ *
+ * ```
+ *   槍口 = 樞軸 + BARREL_LENGTH × aim
+ * ```
+ *
+ * 【這是「繞樞軸轉」與「繞管口轉」的分水嶺】`aim === axis` 時它恰好等於
+ * `t.position`，所以所有量到的位置與 `test/unit/turret-mount.test.ts` 的
+ * 護欄都不受影響；一轉起來才看得出差別。
+ *
+ * **彈丸、槍管、槍焰三處都要用它**，各自寫一份遲早會有一份沒改到 —— 上一版
+ * 就是三處都直接用 `t.position`，於是三處一起錯。
+ */
+export function turretMuzzle(t: Turret, aim: Vector3, out: Vector3): Vector3 {
+  return out.copy(t.position)
+    .addScaledVector(t.axis, -BARREL_LENGTH)
+    .addScaledVector(aim, BARREL_LENGTH)
 }
 
 /**
