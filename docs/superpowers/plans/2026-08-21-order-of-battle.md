@@ -110,18 +110,21 @@ import 一個會執行的模組，等於每跑一次測試就順便跑一次 30 
  * 重跑 `spawn-baseline.probe.ts`，把輸出整段貼回
  * `test/fixtures/spawn-baseline.ts`。
  */
-import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
+import { DEFAULT_BATTLE, type Battle } from '../../src/battle/setup'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
-const DT = 1 / 240
-const SEED = 20260821
-const STEPS = 240 * 30
+// 【這四個都要 export】探針與測試必須用同一組值，各寫一份就是遲早會漂開的
+// 那種。`createBattle` / `stepBattle` **不要** import 進來 —— 這個檔只組
+// 設定與讀快照，跑模擬的是它的兩個使用者（`noUnusedLocals` 開著）
+export const DT = 1 / 240
+export const SEED = 20260821
+export const STEPS = 240 * 30
 
-class Idle implements Controller {
+export class Idle implements Controller {
   update(_a: Aircraft, _dt: number, out: Command): void {
     out.firing = false
     out.throttle = 0.7
@@ -173,7 +176,7 @@ export function spawnLines(b: Battle): string[] {
 }
 
 /**
- * 30 秒之後整個世界的 **SHA-256**，外加元素個數。
+ * 30 秒之後**可觀測狀態**的 SHA-256，外加元素個數。
  *
  * 【為什麼不是 32 位元 FNV-1a —— Codex 2026-08-21】32 位元的碰撞空間只有
  * 43 億，而這裡比的是四萬多個浮點數。長度相同 + 32 位元雜湊相同**推不出**
@@ -186,17 +189,48 @@ export function spawnLines(b: Battle): string[] {
  *
  * 【`crypto.subtle` 不需要 @types/node】它在 `lib: ["DOM"]` 裡，實測
  * `npx tsx` 與 vitest 下都可用。代價是這支必須是 async。
+ *
+ * ── 【它涵蓋什麼、不涵蓋什麼】Codex 複審 2026-08-21 ──────────
+ *
+ * **涵蓋**：飛機的完整運動狀態（含 `prev*` 與作動器 `surfaces`）、血量、
+ * 命中數、射速時鐘、槍焰、全部砲塔狀態、全部彈丸的並排陣列、彈丸環狀游標、
+ * `World.damageTime`、指派板、編制的壓縮結果、任務狀態與勝負。
+ *
+ * **不涵蓋**：`AiController` 的決策計時器與延遲佇列、`FlightDirector` 的
+ * PID 積分、`World` 的事件緩衝區 —— 那些都是 private 或需要新增
+ * production API 才讀得到。
+ *
+ * 【為什麼不補那些 —— 這是一個刻意的取捨】要補就要在 `World`、`Aircraft`、
+ * `AiController`、`FlightDirector` **四個生產檔各開一個 replay snapshot 方法**，
+ * 而這一輪一個字都沒碰那四個檔。用四個新的公開 API 去守一個不碰它們的重構，
+ * 代價與收益不成比例。
+ *
+ * 【為什麼這樣仍然守得住】隱藏狀態分岔**不會沉默**：AI 讀位置、寫控制面，
+ * 控制面改變位置，而這條回饋迴路每秒跑 240 次。一個分岔的 `decisionTimer`
+ * 會改變決策時刻 → 改變控制輸入 → 改變位置。30 秒之後仍然一模一樣的位置，
+ * 幾乎不可能來自一個真的分岔了的世界。
+ *
+ * **所以這一支是「高可信」而不是「完備」。** 真正逐位元、真正完備的那一半
+ * 是**出生表** —— 而出生表正好就是這個重構會弄壞的東西。
  */
 export async function replayDigest(b: Battle): Promise<string> {
   const cs = b.world.combatants
   const p = b.world.projectiles
   const v: number[] = [b.world.time, p.live]
+  // 【勝負與任務狀態】它們由 `stepBattle` 每步更新，而且是玩家真的看得到的
+  v.push(b.outcome === 'victory' ? 1 : b.outcome === 'defeat' ? -1 : 0)
+  v.push(b.mission.secondsLeft, b.mission.metric, b.mission.hasTarget ? 1 : 0)
+  for (let i = 0; i < b.world.damageTime.length; i++) v.push(b.world.damageTime[i]!)
   for (const c of cs) {
     const st = c.aircraft.state
     v.push(st.position.x, st.position.y, st.position.z)
     v.push(st.velocity.x, st.velocity.y, st.velocity.z)
     v.push(st.angularVelocity.x, st.angularVelocity.y, st.angularVelocity.z)
     v.push(st.orientation.x, st.orientation.y, st.orientation.z, st.orientation.w)
+    // 【prev* 也是每步變動的】內插算圖讀它們；漏掉等於漏掉一整條每步寫入
+    v.push(c.aircraft.prevPosition.x, c.aircraft.prevPosition.y, c.aircraft.prevPosition.z)
+    v.push(c.aircraft.prevOrientation.x, c.aircraft.prevOrientation.y,
+      c.aircraft.prevOrientation.z, c.aircraft.prevOrientation.w)
     v.push(c.hp, c.alive ? 1 : 0, c.hitsDealt)
     // 【controls 與 surfaces 都要 —— Codex 2026-08-21 指出漏了】`surfaces`
     // 是作動器落後的狀態，**會延續到下一步**。漏掉它等於漏掉一整條積分。
@@ -211,9 +245,18 @@ export async function replayDigest(b: Battle): Promise<string> {
     }
     for (let i = 0; i < c.turretCooldowns.length; i++) v.push(c.turretCooldowns[i]!)
   }
+  // 【編制與指派板】這一輪直接改了 `createFlights` 的分組來源，所以壓縮
+  // 結果與指派板必須進表 —— 它們是「僚機認錯長機」那個症狀唯一的外顯
+  for (let i = 0; i < b.flights.flightOf.length; i++) {
+    v.push(b.flights.flightOf[i]!, b.flights.positionOf[i]!)
+  }
+  v.push(b.flights.pinned)
+  for (let i = 0; i < b.board.assignments.length; i++) v.push(b.board.assignments[i]!)
   // 【環狀游標也要】它決定下一發覆寫哪一格。兩場的彈丸完全相同但游標差一格，
-  // 之後就會分岔 —— 而分岔要好幾秒才顯現，那時已經查不出源頭
-  v.push(p.cursor, p.peakLive)
+  // 之後就會分岔 —— 而分岔要好幾秒才顯現，那時已經查不出源頭。
+  //
+  // 【它現在是 private，要開一個唯讀 getter】見 Task 1 Step 1c
+  v.push(p.writeCursor, p.peakLive)
   for (let i = 0; i < p.capacity; i++) {
     v.push(p.owner[i]!, p.damage[i]!, p.age[i]!)
     v.push(p.sx[i]!, p.sy[i]!, p.sz[i]!)
@@ -240,6 +283,26 @@ export const SCENES = {
 }
 
 ```
+
+- [ ] **Step 1c：`Projectiles` 開一個唯讀的游標 getter**
+
+`src/world/Projectiles.ts` 的 `private cursor = 0` **底下**加：
+
+```ts
+  /**
+   * 下一發會寫進哪一格。**唯讀，只給重播快照用**（`test/tools/spawn-snapshot.ts`）。
+   *
+   * 【為什麼要開這個口】兩場的彈丸陣列完全相同、但游標差一格時，下一發就
+   * 會覆寫不同的格子而分岔 —— 而分岔要好幾秒才顯現在畫面上，那時已經查不
+   * 出源頭。快照少了它就抓不到這件事。
+   *
+   * **維持 `cursor` 是 private**：可寫的入口仍然只有 `spawn` 與 `clear`。
+   */
+  get writeCursor(): number { return this.cursor }
+```
+
+**這是這一輪唯一動到的生產檔（除了 `battle/`）**，而且只加一個 getter，
+不改任何行為。
 
 - [ ] **Step 1b：寫探針本體**
 
@@ -272,8 +335,16 @@ for (const [name, make] of Object.entries(SCENES)) {
 **`DT` / `SEED` / `STEPS` / `Idle` / `SCENES` 都要從 `spawn-snapshot.ts`
 `export` 出來** —— 探針與測試必須用同一組值，各寫一份就是遲早會漂開的那種。
 
-**注意**：`SCENES` 的兩個字面值在 Task 4 會被換成 `units: lineAbreast(...)`，
-但 fixture 的內容不變 —— 那正是這一輪要證明的事。
+**注意**：`SCENES` 的兩個字面值會在 **Task 5**（不是 Task 4）換成
+`units: lineAbreast(...)`，但 fixture 的內容不變 —— 那正是這一輪要證明的事。
+
+**【這一條漏掉會靜靜壞掉 —— Codex 複審抓到】** `SCENES` 住在
+`spawn-snapshot.ts`，而它不在原本那份「19 支測試／探針」的清單裡（清單列的是
+只負責印的 probe）。Task 5 若沒改它，第二個場景的 `blueCount` / `redCount` /
+`entry` 會變成**無效的多餘屬性**，spread 進來的 `DEFAULT_BATTLE.units` 仍是
+「對頭 P-51 vs Bf109 20v20」—— 於是「追擊、鏡像、8v8」那個場景**悄悄變成
+預設場景**，51 行的出生表對上 21 行的 fixture 而失敗。而失敗訊息會指向
+fixture，不會指向這裡。
 
 - [ ] **Step 2：跑探針，確認它印得出東西**
 
@@ -355,8 +426,9 @@ Expected：4 passed。**這一刻它們是同義反覆（拿現況比現況）�
 - [ ] **Step 6：Commit**
 
 ```bash
-git add test/tools/spawn-baseline.probe.ts test/fixtures/spawn-baseline.ts \
-        test/integration/order-of-battle-replay.test.ts
+git add test/tools/spawn-snapshot.ts test/tools/spawn-baseline.probe.ts \
+        test/fixtures/spawn-baseline.ts \
+        test/integration/order-of-battle-replay.test.ts src/world/Projectiles.ts
 git commit -m "test: 編組表重構的基準 —— 出生表、編制表、30 秒重播校驗和
 
 重構之後就跑不出「改動前」的那一份了，所以基準必須先落地。
@@ -776,10 +848,15 @@ describe('createFlights 吃指定的小隊大小', () => {
     return all
   }
 
+  /**
+   * 【期望值刻意選一組舊行為切不出來的 —— Codex 複審抓到】`sides(6, 4)` 配
+   * `[4, 2, 4]` 的話，**舊函數即使完全忽略第三個參數也會切出一模一樣的結果**
+   * （藍 6 架本來就切 4 + 2、紅 4 架本來就是一隊）—— 那條測試證明不了
+   * `sizes` 有生效。`[3, 3, 4]` 就不同：舊行為給 `[[0..3],[4,5],[6..9]]`。
+   */
   it('照給的大小切，不是每四個切', () => {
-    // 藍 6（切 4 + 2）＋ 紅 4 —— 正是下一輪「戰鬥機 4 架 + 轟炸機 6 架」的形狀
-    const fi = createFlights(sides(6, 4), -1, [4, 2, 4])
-    expect(fi.flights.map((f) => f.roster)).toEqual([[0, 1, 2, 3], [4, 5], [6, 7, 8, 9]])
+    const fi = createFlights(sides(6, 4), -1, [3, 3, 4])
+    expect(fi.flights.map((f) => f.roster)).toEqual([[0, 1, 2], [3, 4, 5], [6, 7, 8, 9]])
     expect(fi.flights.map((f) => f.team)).toEqual(['blue', 'blue', 'red'])
   })
 
@@ -821,8 +898,22 @@ describe('createFlights 吃指定的小隊大小', () => {
 npx vitest run test/unit/battle-flights.test.ts
 ```
 
-Expected：新增的六條 FAIL（多傳一個參數目前被忽略，分組還是每四個切），
-既有 22 條仍然 PASS。
+Expected：**新增六條裡 4 條 FAIL、2 條 PASS**，既有 22 條全部 PASS。
+
+【為什麼不是六條全紅】舊函數會直接忽略第三個參數，所以「舊行為本來就切得
+出來」的那兩條會照樣通過：
+
+```
+  FAIL  照給的大小切（[3, 3, 4]）    舊行為切成 [[0..3],[4,5],[6..9]]
+  PASS  三機小隊（[3, 3]）           舊行為本來就是 3 + 3
+  FAIL  總和不符 → 拋                舊函數不拋
+  FAIL  大小超界 → 拋                舊函數不拋
+  FAIL  跨兩隊 → 拋                  舊函數不拋
+  PASS  省略時與改動前相同           同義反覆，本來就會過
+```
+
+**這個紅綠數本身就是一條護欄**：若第一條是綠的，表示 `sizes` 根本沒被讀到
+（那正是原本用 `[4, 2, 4]` 時的情況 —— Codex 複審抓到的就是這件事）。
 
 - [ ] **Step 3：改 `createFlights`**
 
@@ -970,8 +1061,13 @@ import { assertOrderOfBattle, lineAbreast, type OrderOfBattle } from './order'
 
 - [ ] **Step 2：`createBattle` 換迴圈**
 
-把 `src/battle/setup.ts` 裡從 `const blueFlights = ...` 到雙層 `for` 結束
-（現行約 308–397 行）整段換成：
+把 `src/battle/setup.ts` 裡**從 `const world = new World()` 開始**、到雙層
+`for` 結束（現行約 305–397 行）整段換成下面這一段。
+
+**【起點是 `const world`，不是 `const blueFlights` —— Codex 複審抓到】**
+新片段自己重新宣告了 `world` / `blue` / `red`，而現行程式裡那三行在
+`blueFlights` **之前**。從 `blueFlights` 開始換的話會重複宣告，實測是三個
+`TS2451 Cannot redeclare block-scoped variable`。
 
 ```ts
   /**
@@ -1137,6 +1233,32 @@ Expected：4 passed。
 **這是整輪最重要的一關**：測試的 config 仍然是舊寫法，但 `createBattle` 走的
 已經是新迴圈。所以紅了**必定**是新迴圈的問題，與呼叫端無關。
 
+**但它只走到 fallback 那一條**（Codex 複審指出）。`cfg.units` 直接給的那一條
+這一步還沒有任何測試，所以在 `test/unit/battle-order.test.ts` 最後補一條：
+
+```ts
+/**
+ * 【為什麼要單獨守這一條】Task 4 的 `createBattle` 有兩條入口：`cfg.units`
+ * 直接給、以及由五個舊欄位 fallback。基準測試走的是後者（它的 config 還是
+ * 舊寫法），前者要到 Task 5 才有呼叫端 —— 中間這一段沒有人守。
+ */
+describe('createBattle 直接吃編組表', () => {
+  it('與由舊欄位 fallback 出來的結果完全相同', () => {
+    const units = lineAbreast(HEAD_ON, P51D, 8, BF109G6, 8)
+    const direct = createBattle(new Idle(), { ...DEFAULT_BATTLE, units }, 7)
+    const viaFallback = createBattle(new Idle(), {
+      ...DEFAULT_BATTLE, blueSpec: P51D, redSpec: BF109G6,
+      blueCount: 8, redCount: 8, entry: HEAD_ON,
+    }, 7)
+    expect(spawnLines(direct)).toEqual(spawnLines(viaFallback))
+  })
+})
+```
+
+`Idle` 與 `spawnLines` 從 `../tools/spawn-snapshot` import。
+**這一條在 Task 5 刪掉舊欄位時要一起刪掉** —— 那時 fallback 已經不存在，
+它會編不過。計畫在 Task 5 Step 4 有提醒。
+
 **紅了怎麼辦**（照順序查，不要跳）：
 
 | 症狀 | 多半是哪裡 |
@@ -1275,11 +1397,27 @@ npx tsc --noEmit 2>&1 | grep -o "^[^(]*" | sort -u
   test/tools/evacuate.probe.ts                  test/tools/turn-shrink.probe.ts
   test/tools/extend-why.probe.ts                test/tools/projectile-peak.probe.ts
   test/tools/target-churn.probe.ts              test/tools/turret-balance.probe.ts
-  test/tools/spawn-baseline.probe.ts            test/e2e/turret-visuals.e2e.ts
+  test/tools/spawn-snapshot.ts                  test/e2e/turret-visuals.e2e.ts
   bench/turret-load.ts
 ```
 
-**三處要特別小心**：
+**四處要特別小心**：
+
+0. **`test/tools/spawn-snapshot.ts` 才是要改的那一支**，不是
+   `spawn-baseline.probe.ts` —— `SCENES` 定義在前者，probe 只是呼叫它。
+   兩個場景都要改成明確的 `units: lineAbreast(...)`：
+
+```ts
+export const SCENES = {
+  HEADON_20V20: () => ({
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
+  }),
+  PURSUIT_MIRROR_8V8: () => ({
+    ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 8, P51D, 8),
+  }),
+}
+```
+
 
 1. `test/unit/skirmish.test.ts`（16 處）斷言的是 `battleConfigFrom` 的產物。
    斷言 `cfg.blueSpec === X` 這種要改成讀編組表，例如
@@ -1342,6 +1480,10 @@ npx tsc --noEmit 2>&1 | grep -o "^[^(]*" | sort -u
 import { HEAD_ON } from './entry'
 ```
 
+5. **刪掉 Task 4 加的那條「直接吃編組表」測試**（`test/unit/battle-order.test.ts`
+   最後那個 `describe`）—— 它比對的是 fallback 與直接給，而 fallback 已經不
+   存在了，留著會編不過。它的職責這時已經由全部呼叫端接手。
+
 - [ ] **Step 5：型別過**
 
 ```bash
@@ -1390,7 +1532,14 @@ npm run dev     # 埠 5178
 git add src/battle/setup.ts src/battle/skirmish.ts src/battle/missions.ts src/main.ts \
         test/unit/skirmish.test.ts test/unit/battle-setup.test.ts \
         test/unit/missions.test.ts test/unit/battle-mission-wiring.test.ts \
-        test/unit/turret-lifecycle.test.ts test/integration/ test/tools/ test/e2e/ \
+        test/unit/turret-lifecycle.test.ts test/unit/battle-order.test.ts \
+        test/integration/multi-battle.test.ts test/integration/mission-evacuate.test.ts \
+        test/integration/rematch.test.ts test/integration/turret-replay.test.ts \
+        test/integration/turrets.test.ts test/integration/ai-command-decision.test.ts \
+        test/tools/spawn-snapshot.ts test/tools/evacuate.probe.ts \
+        test/tools/turn-shrink.probe.ts test/tools/extend-why.probe.ts \
+        test/tools/projectile-peak.probe.ts test/tools/target-churn.probe.ts \
+        test/tools/turret-balance.probe.ts test/e2e/turret-visuals.e2e.ts \
         bench/turret-load.ts
 git commit -m "refactor: 全部呼叫端改用編組表，刪掉五個舊欄位
 
@@ -1405,9 +1554,10 @@ lineAbreast，沒有覆寫的欄位填 DEFAULT_BATTLE 的值（P51D / BF109G6 / 
 docs/superpowers/ 底下的歷史 spec 與 plan 刻意不改，它們內含當時的 API。"
 ```
 
-**注意**：上面的 `git add` 用了目錄（`test/integration/` 等）。先跑
-`git status --short` 確認那些目錄底下沒有不相干的檔案（例如 `test-results/`），
-有的話改成逐檔列出。**不准 `git add -A`。**
+**【逐檔列，不要用目錄 —— Codex 複審】** 用 `test/integration/` 這種目錄當
+staging target，會在某個檔案不小心漏 commit 時把它靜靜帶進來（複審就是這樣
+發現 Task 1 漏了 `spawn-snapshot.ts` 的）。**清單長不是問題，意外才是。**
+**不准 `git add -A`。**
 
 ---
 
@@ -1494,7 +1644,7 @@ git commit -m "docs: 編組表回填 —— backlog §2.24 與 spec §8.5
 | §3.1 `lane` / `tier` 是序號 | Task 2 Step 3（型別註解）+ Task 2 Step 1（測試） |
 | §3.2 `EntryPlan` 留著 | Task 2 Step 3（`lineAbreast` 的第一個參數） |
 | §4 `lineAbreast` | Task 2 |
-| §4.1 逐位元等價 | Task 1（基準）+ Task 4 Step 7（驗收） |
+| §4.1 逐位元等價 | Task 1（基準）+ Task 4 Step 4 + Task 5 Step 6 |
 | §4.2 `applyFeel` 每陣營一張表 | Task 4 Step 2 + Task 1 的鏡像場景 |
 | §5 `createFlights` 吃邊界 | Task 3 |
 | §6 新迴圈 | Task 4 Step 2 |

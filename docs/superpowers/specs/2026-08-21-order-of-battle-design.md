@@ -395,25 +395,40 @@ flights = createFlights(world.combatants, player.index, sizes)
 
 ## 8. 驗收
 
-### 8.1 主判準：逐位元不變
+### 8.1 主判準：出生表逐位元 + 重播高可信
 
-新增 `test/integration/order-of-battle-replay.test.ts`，作法照抄
-`test/integration/turret-replay.test.ts`：
+分成強度不同的兩半，**而且刻意講清楚哪一半是哪一種**。
 
-1. 用 `lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20)` 建一場，跑 30 秒。
-2. 把全部 combatant 的 `position` / `orientation` / `velocity` / `hp` 蒐集成
-   一個 `Float64Array`。
-3. **與改動前的同一場逐位元比較。**
+**一、出生表與編制表 —— 真的逐位元。** 逐架把位置、姿態、速度、`prev*`、
+出生點、`spawnTas` / `spawnAltitude`、是不是玩家寫成一行字串，加上每個小隊的
+成員索引與玩家座位，存進 `test/fixtures/spawn-baseline.ts`。
 
-改動前那一份怎麼來：實作的第一步先跑一支探針
-`test/tools/oob-baseline.probe.ts` 輸出基準陣列（十六進位），**在動任何
-`setup.ts` 之前 commit 進 repo**，重構完之後比對。
+`String(number)` 對有限值是**可逆的最短表示**，所以字串相等就是位元相等 ——
+唯一的例外是**負零**（`String(-0)` 是 `'0'`，轉回去變 `+0`），由 `num()` 特判。
 
-【為什麼不是「重構前後各跑一次然後比」】重構之後就跑不出改動前的那一份了。
-基準必須先落地。
+**這一半正好涵蓋這個重構會弄壞的東西**：生成幾何、生成順序、小隊分組、
+玩家的位置。
 
-【為什麼判準是逐位元而不是「差在容差內」】這一輪宣稱的就是**同一個浮點運算
-序列**。容許 1e-9 的差等於承認算式變了，而那時「哪裡變了」沒有人答得出來。
+**二、30 秒重播 —— SHA-256 的高可信校驗。** 涵蓋飛機的完整運動狀態與作動器
+`surfaces`、血量、射速時鐘、砲塔狀態、全部彈丸與環狀游標、`damageTime`、
+指派板、編制壓縮結果、任務狀態與勝負。
+
+**不涵蓋** `AiController` 的決策計時器與延遲佇列、`FlightDirector` 的 PID
+積分、`World` 的事件緩衝區 —— 那些是 private，要讀就得在四個生產檔各開一個
+replay snapshot 方法，而這一輪一個字都沒碰那四個檔（Codex 複審 2026-08-21
+建議補完，**專案負責人裁定不補**，理由與這條記在這裡）。
+
+**為什麼仍然守得住**：隱藏狀態分岔不會沉默。AI 讀位置、寫控制面，控制面改變
+位置，而這條回饋迴路每秒跑 240 次 —— 一個分岔的決策計時器會改變決策時刻、
+改變控制輸入、改變位置。30 秒之後位置仍然一模一樣，幾乎不可能來自一個真的
+分岔了的世界。
+
+**兩個場景**：`HEADON_20V20`（P-51 vs Bf109，非鏡像）與 `PURSUIT_MIRROR_8V8`
+（P-51 vs P-51，鏡像）。後者專門守 §4.2 的每陣營記憶化。
+
+**基準必須先落地**：`test/tools/spawn-baseline.probe.ts` 在動任何
+`setup.ts` / `flights.ts` **之前**跑一次、commit 進 repo。重構之後就跑不出
+改動前的那一份了。
 
 ### 8.2 副判準：既有護欄的數字不准動
 
@@ -466,7 +481,10 @@ flights = createFlights(world.combatants, player.index, sizes)
 | `docs/backlog.md` | 記 §7.1 的名字限制 |
 | 19 支測試／探針 | 機械式替換成 `units: lineAbreast(...)` |
 | `test/integration/order-of-battle-replay.test.ts` | **新增** |
-| `test/tools/oob-baseline.probe.ts` | **新增**，只在重構前跑一次 |
+| `test/tools/spawn-snapshot.ts` | **新增**：共用的快照函數，沒有頂層執行碼 |
+| `test/tools/spawn-baseline.probe.ts` | **新增**：只負責印，重構前跑一次 |
+| `test/fixtures/spawn-baseline.ts` | **新增**：凍結的基準 |
+| `src/world/Projectiles.ts` | 加一個唯讀的 `writeCursor` getter（`cursor` 維持 private） |
 | `test/unit/battle-order.test.ts` | **新增**，§8.3 的那幾條 |
 
 ---
