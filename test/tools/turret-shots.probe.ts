@@ -53,6 +53,9 @@ async function shoot(page: Page, id: string, shots: readonly Shot[]): Promise<vo
   await page.evaluate((x) => (window as unknown as {
     __hangarSpec: (s: string) => boolean }).__hangarSpec(x), id)
   await page.waitForTimeout(1200)
+  const cones = await page.evaluate(() => (window as unknown as {
+    __hangarArcs: (on: boolean) => number }).__hangarArcs(true))
+  console.log(`  ${id}: arcs=${cones}`)
   for (const s of shots) {
     const [tx, ty, tz] = s.at
     const [dx, dy, dz] = s.from

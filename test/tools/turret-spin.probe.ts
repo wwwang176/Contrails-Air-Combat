@@ -14,7 +14,10 @@ import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5178/hangar.html'
 
-interface Angles { model: number; barrels: number; barrelCount: number }
+interface Angles {
+  model: number; barrels: number; arcs: number
+  barrelCount: number; arcCount: number
+}
 
 void (async (): Promise<void> => {
   const browser = await chromium.launch()
@@ -33,17 +36,18 @@ void (async (): Promise<void> => {
   }
   await browser.close()
 
-  console.log('     機身 rad   槍管 rad        差    槍管根數')
+  console.log('     機身 rad   槍管 rad   射界 rad     最大差   槍管/射界')
   let worst = 0
   for (const r of rows) {
-    const d = Math.abs(r.model - r.barrels)
+    const d = Math.max(Math.abs(r.model - r.barrels), Math.abs(r.model - r.arcs))
     worst = Math.max(worst, d)
     console.log(`  ${r.model.toFixed(4).padStart(10)}${r.barrels.toFixed(4).padStart(11)}`
-      + `${d.toFixed(6).padStart(10)}${String(r.barrelCount).padStart(12)}`)
+      + `${r.arcs.toFixed(4).padStart(11)}${d.toFixed(6).padStart(11)}`
+      + `${(r.barrelCount + '/' + r.arcCount).padStart(12)}`)
   }
   const span = Math.abs(rows[rows.length - 1]!.model - rows[0]!.model)
   console.log('')
   console.log(`  轉盤走了 ${span.toFixed(3)} rad（必須 > 0，否則這支探針自己壞了）`)
   console.log(`  最大角度差 ${worst.toFixed(6)} rad（必須是 0）`)
-  console.log(worst === 0 && span > 0 ? '  ✓ 槍管跟著轉' : '  ✗ 槍管沒跟著轉')
+  console.log(worst === 0 && span > 0 ? '  ✓ 槍管與射界錐都跟著轉' : '  ✗ 有東西沒跟著轉')
 })()

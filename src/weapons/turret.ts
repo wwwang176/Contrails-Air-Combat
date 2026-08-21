@@ -90,6 +90,24 @@ export function muzzleAt(skin: Vector3, axis: Vector3): Vector3 {
 }
 
 /**
+ * 砲塔的**旋轉點**，機體座標，寫進 `out` 並回傳。
+ *
+ * 【資料裡沒有這個量，這是推導出來的】`Turret` 只存槍口。旋轉點取
+ * **畫出來那根槍管的後端** —— 也就是槍口沿 −axis 回走一整根 `BARREL_LENGTH`。
+ *
+ * 換算回蒙皮：槍口 = 蒙皮 + `BARREL_PROTRUDE`（0.45），所以旋轉點 =
+ * 蒙皮 − 0.45，**在蒙皮內 0.45 m**。對一顆直徑約 0.9 m 的砲塔球來說那就是
+ * 它的球心，對手持槍座來說就是槍架的樞軸 —— 兩種都說得通。
+ *
+ * 【它目前只有視覺在用】射界錐的頂點（`tools/hangar.ts` 的射界開關）。
+ * 彈道仍然從**槍口**出發，那是 `Turret.position` 的語意，不要混用：
+ * 從旋轉點射的話，彈丸會從機身內部生出來。
+ */
+export function turretPivot(t: Turret, out: Vector3): Vector3 {
+  return out.copy(t.position).addScaledVector(t.axis, -BARREL_LENGTH)
+}
+
+/**
  * 「這挺槍接在飛機上」護欄的回走距離，m。**刻意比 `BARREL_LENGTH` 長。**
  *
  * 【為什麼不能共用同一個數字】`hitBoxes` 是**簡化的傷害體積，比實際機體
