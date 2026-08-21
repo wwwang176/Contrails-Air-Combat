@@ -992,6 +992,20 @@ function applyRefMaterial(root: Object3D): void {
  * 但預設**不能**改成亮的，理由見 `syncLight` 的檔頭 —— 所以留一個口給腳本
  * 自己開。
  */
+/**
+ * 開發用：讀機身與槍管的旋轉角，量「槍管有沒有跟著轉」。
+ *
+ * 【為什麼需要一個出口】這個缺陷**在截圖上不存在** —— `__hangarCam` 會把
+ * `rotation.y` 歸零並停掉自動旋轉，所以外部工具拍出來的每一張都落在
+ * 「兩者都是 0」的情況上。只有讓它轉起來再讀兩個角度才看得到。
+ * 見 `test/tools/turret-spin.probe.ts`。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarSpin'] = () => ({
+  model: model ? model.group.rotation.y : 0,
+  barrels: barrels ? barrels.rotation.y : 0,
+  barrelCount: barrels ? barrels.children.length : 0,
+})
+
 ;(window as unknown as Record<string, unknown>)['__hangarLit'] =
     (on: boolean) => {
       studio = on
@@ -1009,6 +1023,34 @@ function frame(now: number): void {
     propRotation += p * 30 * dt
     model.setPropSpin(propRotation, p >= 0.5)
     if (autoRotate && !orthoView) model.group.rotation.y += dt * 0.35
+    /**
+     * 【槍管每幀跟上機身的變換】人工回報 2026-08-21：「機庫飛機旋轉時，
+     * 機槍沒跟著轉」。`barrels` 是**掛在 scene 上的兄弟節點**，不是
+     * `model.group` 的子物件，所以轉盤動它不會動。
+     *
+     * 【為什麼不乾脆掛成子物件】那會污染三個東西，而且三個都不會報錯：
+     *
+     *   `__hangarSlice(..., 'mine')`  它的 root 就是 `model.group`，
+     *                                 槍管會被當成機身的一部分收進去 ——
+     *                                 對切驗收從此量到 12 根管子
+     *   `Box3.setFromObject`          翼展／全長／高的讀數。尾砲塔的槍口在
+     *                                 z 16.85 而機身只到 16.25，全長會多 0.6
+     *   `countTriangles`              三角形數與 mesh 數（+96 / +12）
+     *
+     * 那三個數字是**外型量測流程在依賴的**，不能為了一個開發工具的視覺
+     * 問題去動它們。複製變換是兩邊各一份，代價是「日後轉盤若長出新的自由度
+     * 要記得補」—— 所以這裡複製的是整組 `rotation`／`position`／`scale`，
+     * 不是只有 `rotation.y`。
+     *
+     * 【截圖為什麼看起來是對的】`__hangarCam` 會把 `rotation.y` 歸零並停掉
+     * 自動旋轉，所以逐座近照那一輪剛好落在「兩者都是 0」的情況上 —— 這個
+     * 缺陷只有在**互動時**看得到。
+     */
+    if (barrels) {
+      barrels.rotation.copy(model.group.rotation)
+      barrels.position.copy(model.group.position)
+      barrels.scale.copy(model.group.scale)
+    }
   }
   controls.update()
   renderer.render(scene, orthoView ? orthoCam : camera)
