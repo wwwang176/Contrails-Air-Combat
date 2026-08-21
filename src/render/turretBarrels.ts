@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, DynamicDrawUsage, InstancedMesh, Matrix4,
   MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
-import { BARREL_LENGTH, MAX_TURRETS, wobbleBasis } from '../weapons/turret'
+import { BARREL_LENGTH, MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
 import { BARREL_SPACING } from '../world/turrets'
 import type { Combatant } from '../world/World'
 
@@ -157,7 +157,9 @@ export function createTurretBarrels(aircraftCapacity: number): TurretBarrels {
             // 推導是唯一能保證「彈丸恰好從畫出來的那根管口出來」的方式。
             wobbleBasis(st.aim, E1, E2)
             const side = t.guns > 1 ? (b === 0 ? -1 : 1) : 0
-            POS.copy(t.position).addScaledVector(E1, side * BARREL_SPACING)
+            // 【槍口跟著 aim 掃】`t.position` 只是靜止時的管口；直接用它
+            // 等於讓槍管繞管口轉，見 `weapons/turret.ts` 的 turretMuzzle
+            turretMuzzle(t, st.aim, POS).addScaledVector(E1, side * BARREL_SPACING)
               .applyQuaternion(q).add(p)
             // +Z 對準 −aim：管子由槍口往機體方向長
             DIR.copy(st.aim).applyQuaternion(q).negate()

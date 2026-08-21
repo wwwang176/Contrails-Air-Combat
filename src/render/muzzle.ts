@@ -3,7 +3,7 @@ import {
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
 import { MAX_MOUNTS, mountDirection } from '../weapons/types'
-import { MAX_TURRETS, wobbleBasis } from '../weapons/turret'
+import { MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
 import { BARREL_SPACING, TURRET_FLASH_SECONDS } from '../world/turrets'
 import { FLASH_SECONDS } from '../world/World'
 import type { Combatant } from '../world/World'
@@ -268,7 +268,9 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
           // turretBarrels 畫管子用的是同一組基底與同一個 BARREL_SPACING
           wobbleBasis(st.aim, E1, E2)
           const side = t.guns > 1 ? (st.lastBarrel === 0 ? -1 : 1) : 0
-          POS.copy(t.position).addScaledVector(E1, side * BARREL_SPACING)
+          // 【槍口跟著 aim 掃】與彈丸、槍管共用 turretMuzzle —— 三處各寫
+          // 一份的話遲早有一份沒改到，而上一版正是三處一起錯
+          turretMuzzle(t, st.aim, POS).addScaledVector(E1, side * BARREL_SPACING)
             .applyQuaternion(q).add(p)
           DIR.copy(st.aim).applyQuaternion(q)
           ROT.setFromUnitVectors(UNIT_Z, DIR)

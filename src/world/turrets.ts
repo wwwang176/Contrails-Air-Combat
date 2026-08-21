@@ -2,7 +2,7 @@ import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
 import { stepCadence } from '../weapons/cadence'
 import {
-  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, wobbleBasis, wobblePhase,
+  applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
@@ -219,7 +219,10 @@ export function stepTurrets(
 
     // 槍口的世界位置。**預瞄要從這裡解，不是從重心** —— B-17 的尾砲塔
     // 離重心 16 m，300 m 尾追時方向誤差可達數度，大於 2° 的開火門檻。
-    MUZZLE.copy(t.position).applyQuaternion(q).add(pos)
+    //
+    // 【槍口跟著 aim 掃，樞軸才是釘住的】`t.position` 只是**靜止時**的槍口。
+    // 直接用它等於讓槍管繞管口轉（人工回報的「旋轉點不對」），見 turretMuzzle。
+    turretMuzzle(t, s.aim, MUZZLE).applyQuaternion(q).add(pos)
 
     // 選目標。搜尋一律受冷卻節流，**與現在有沒有目標無關**
     s.searchCooldown -= dt
@@ -246,6 +249,10 @@ export function stepTurrets(
       c.turretCooldowns, i, t.weapon.roundsPerMinute, trigger, dt)
     if (shots === 0) continue
     s.flash = TURRET_FLASH_SECONDS
+
+    // 【生彈丸之前重算一次槍口】上面那一次是給預瞄用的，算在 `slew` 之前；
+    // 這一次用轉完之後的 `aim`，彈丸才真的從畫出來的那根管子的尖端出來。
+    turretMuzzle(t, s.aim, MUZZLE).applyQuaternion(q).add(pos)
 
     // 雙聯的兩根管口輪流出彈。仍然只有一道彈流（guns 乘的是傷害），但每
     // 一發都從某一根真的管口出來，不會從兩根管子中間冒出來。
