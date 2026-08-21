@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  createMissionState, resetMissionState, stepMission,
+  FINISHED_TIME_SCALE, createMissionState, resetMissionState, stepMission, timeScale,
   type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
 
@@ -268,5 +268,31 @@ describe('resetMissionState', () => {
     resetMissionState(ANNIHILATE, s)
     resetMissionState(r, s)
     expect(s.target).toBe(before)
+  })
+})
+
+/**
+ * 【這一支只驗第一件事】「分出勝負會改 dt」。
+ *
+ * 第二件事 —— 「dt 會影響遊戲速度」—— 由 `FixedStepAccumulator` 負責，
+ * 而它有自己的護欄（`test/unit/loop.test.ts`：「60fps 的一幀跑 4 個 240Hz
+ * 子步」「單幀經過時間被 maxFrameSeconds 夾制」等九條）。兩件事各自成立，
+ * 合起來就是慢動作 —— **不需要第三支去驗那個合成**。
+ */
+describe('timeScale：分出勝負之後切慢動作', () => {
+  it('打鬥中是原速', () => {
+    expect(timeScale('fighting')).toBe(1)
+  })
+
+  it('勝利與失敗都切到同一個流速', () => {
+    expect(timeScale('victory')).toBe(FINISHED_TIME_SCALE)
+    expect(timeScale('defeat')).toBe(FINISHED_TIME_SCALE)
+  })
+
+  it('流速在 0 與 1 之間 —— 是慢動作，不是暫停也不是快轉', () => {
+    // 【為什麼要釘住這兩個邊界】0 會讓畫面定格（看起來像當掉，M10 spec
+    // §8.1 的裁定就是為了避免那個觀感）；≥ 1 則是這條規則整個沒生效
+    expect(FINISHED_TIME_SCALE).toBeGreaterThan(0)
+    expect(FINISHED_TIME_SCALE).toBeLessThan(1)
   })
 })

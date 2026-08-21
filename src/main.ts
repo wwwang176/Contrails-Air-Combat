@@ -5,6 +5,7 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createTerrain } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
+import { timeScale } from './battle/mission'
 import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
@@ -1264,8 +1265,20 @@ function frame(now: number) {
       }
     }
     if (!paused) {
-      elapsed += frameSeconds
-      stepAndDrawBattle(frameSeconds)
+      // 【分出勝負之後切超級慢動作】理由與流速的定值見 `mission.ts` 的
+      // `timeScale`。結算板背後的戰場繼續，只是慢下來。
+      //
+      // 【為什麼是縮放 dt，而不是像暫停那樣整個跳過 `stepAndDrawBattle`】
+      // 結算板、兩顆按鈕、放開指標鎖**全部**在那支函數的尾巴。跳過它就得
+      // 記一個「已經畫過結算了嗎」的旗標，而那種鏡射狀態要求每一條重開的
+      // 路徑都記得重設它 —— 漏掉任何一條就留下一個永遠不消失的幽靈。
+      // 由 `battle.outcome` 推導不必維護任何東西（與 `stepCommandLayer` 用
+      // `instanceof` 推導、編制每步重算是同一條紀律）。
+      //
+      // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解
+      const sim = frameSeconds * timeScale(battle.outcome)
+      elapsed += sim
+      stepAndDrawBattle(sim)
       if (elapsed >= telemetryAt) {
         telemetryAt = elapsed + TELEMETRY_PERIOD
         logTelemetry()
