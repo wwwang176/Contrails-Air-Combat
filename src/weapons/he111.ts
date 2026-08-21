@@ -17,6 +17,11 @@ import { DEG } from '../core/math'
  * 「你不能久留」而不是「你進來就死」，而那個分寸完全由這個數字與射速決定。
  *
  * **這是起始值，由試飛裁定。**
+ *
+ * 【2026-08-21：實際生效的是這個數字的一半】專案負責人試飛後裁定「轟炸機的
+ * 機槍攻擊力減半」。**沒有改這裡**，因為 B-17G 的砲塔與 P-51D 的六挺翼槍
+ * 共用同一份 `M2_BROWNING`，改 `WeaponSpec.damage` 會把野馬一起砍半。
+ * 倍率統一在 `weapons/turret.ts` 的 `TURRET_DAMAGE_SCALE`，只作用在砲塔。
  */
 export const MG15: WeaponSpec = {
   id: 'mg15',

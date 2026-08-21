@@ -148,6 +148,30 @@ export function turretMuzzle(t: Turret, aim: Vector3, out: Vector3): Vector3 {
  */
 export const TURRET_MOUNT_REACH = 2.0
 
+/**
+ * 砲塔傷害的倍率。**專案負責人 2026-08-21 試飛後裁定減半。**
+ *
+ * ── 為什麼是一個倍率，不是去改 `WeaponSpec.damage` ──────────
+ *
+ * B-17G 的砲塔用的 `M2_BROWNING` **與 P-51D 的六挺翼槍是同一份**
+ * （`weapons/p51d.ts` 匯出，兩邊 import 同一個物件）。直接把它的 `damage`
+ * 從 18 改成 9，會把野馬一起砍半 —— 而這一輪要調的只有轟炸機。
+ *
+ * 另一條路是替砲塔複製一份 `M2_TURRET`，但那會多一個「兩份要一起維護」的
+ * 地方，而且 He 111 那邊還要再複製一次。倍率只有一個數字，而且**它名字就
+ * 是那個決定**。
+ *
+ * ── 它作用在哪 ────────────────────────────────────────────
+ *
+ * 只在 `world/turrets.ts` 的 `stepTurrets` 生彈丸那一行。玩家扣扳機走的是
+ * `World.fire`，那條路徑完全沒碰到 —— 所以**任何機種的固定前射武器都不受
+ * 影響**，包含日後真的裝了前射武器的轟炸機。
+ *
+ * 【`guns` 仍然照乘】雙聯砲塔一發是 `damage × guns × 這個倍率`，所以球形
+ * 腹部砲塔由 18 × 2 = 36 變成 18。
+ */
+export const TURRET_DAMAGE_SCALE = 0.5
+
 /** 黃金比。搖晃的第二個頻率乘它，兩個頻率因此不整除。 */
 export const GOLDEN = 1.618033988749895
 
