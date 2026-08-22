@@ -254,6 +254,16 @@ const LOCK_PILEUP_SHARE = 0.005
 describe('AI 目標選擇品質（20v20、150 秒）', () => {
   it('持有時間、後半球比例、產出、鎖定分散', () => {
     const m = battle()
+    // 【印出全部量測】只有斷言的話，一條紅了就看不到其餘幾條的值，
+    // 而判斷「這是迴歸還是雜訊」需要整組。與 `ai-withdraw-anchor` 同一手法。
+    console.log(JSON.stringify({
+      holdMedian: m.holdMedian.toFixed(2),
+      rearShare: m.rearShare.toFixed(3),
+      fireShare: m.fireShare.toFixed(4),
+      onNose: m.onNose.toFixed(3),
+      maxLocks: m.maxLocks,
+      lockPileupShare: m.lockPileupShare.toFixed(5),
+    }))
     expect(m.holdMedian).toBeGreaterThanOrEqual(LIMITS.holdMedian)
     expect(m.rearShare).toBeLessThanOrEqual(LIMITS.rearShare)
     expect(m.fireShare).toBeGreaterThanOrEqual(LIMITS.fireShare)
