@@ -121,10 +121,13 @@ describe('stepRules（優先序）', () => {
     expect(stepRules(s, sit, 0, DT)).toBe('merge')
   })
 
-  it('能量劣勢 → extend', () => {
+  it('能量劣勢**且**速度沒補回來 → extend', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.energyAdvantage = -800
+    // 【要明寫】`neutral()` 的 cornerRatio 是 1.2，那會讓
+    // `extendRecoveredLatch` 成立，而「因能量脫離」是兩者的合取。
+    sit.cornerRatio = 0.80
     sit.range = 900
     expect(stepRules(s, sit, 0, DT)).toBe('extend')
   })
@@ -475,5 +478,51 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
     const sit = neutral()   // cornerRatio 預設 1.2，遠高於進場門檻
     stepRules(s, sit, 0, DT, { ...DEFAULT_RULES, recoveredExit: false })
     expect(s.extendRecoveredLatch).toBe(false)
+  })
+})
+
+describe('因能量脫離改成合取', () => {
+  /** 四個象限，只有「弱且飛不動」才脫離 */
+  const cases: [string, number, number, boolean][] = [
+    ['弱、飛不動 → extend', -800, 0.80, true],
+    ['弱、飛得動 → 不 extend', -800, 1.10, false],
+    ['不弱、飛不動 → 不 extend', 0, 0.80, false],
+    ['不弱、飛得動 → 不 extend', 0, 1.10, false],
+  ]
+  for (const [name, energy, ratio, want] of cases) {
+    it(name, () => {
+      const s = createRuleState()
+      const sit = neutral()
+      sit.energyAdvantage = energy
+      sit.cornerRatio = ratio
+      sit.range = 900
+      for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+      expect(s.intent === 'extend').toBe(want)
+    })
+  }
+
+  /**
+   * 【迴旋理由不套合取】「轉不贏他」談的是機體，補速度改變不了它。
+   */
+  it('迴旋劣勢時，飛得動也照樣脫離', () => {
+    const s = createRuleState()
+    const sit = neutral()              // cornerRatio 1.2，recovered 會成立
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.range = 900
+    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendRecoveredLatch).toBe(true)
+    expect(s.intent).toBe('extend')
+  })
+
+  /** 【關掉時退回舊行為】消融的恆等基準 */
+  it('recoveredExit 關掉時，弱且飛得動仍然 extend', () => {
+    const cfg = { ...DEFAULT_RULES, recoveredExit: false }
+    const s = createRuleState()
+    const sit = neutral()
+    sit.energyAdvantage = -800
+    sit.cornerRatio = 1.10
+    sit.range = 900
+    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, cfg)
+    expect(s.intent).toBe('extend')
   })
 })
