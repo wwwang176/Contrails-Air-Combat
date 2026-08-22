@@ -12,8 +12,13 @@ import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
 import { resetBurst, stepBurst } from '../weapons/burst'
 import {
-  createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
+  createTargetState, selectTarget, teamSlot, DEFAULT_TARGET,
+  type TargetBoard, type TargetConfig,
 } from './target'
+import {
+  DEFAULT_TACTICS, createTacticalState, hasSlot, resetTacticalState, stepTactics,
+  tacticalCommand, teamIndexOf, type TacticalConfig, type TacticalInput,
+} from './tactics'
 import { applySafety, type SafetyAction } from './safety'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
@@ -259,6 +264,54 @@ export class AiController implements Controller {
    */
   private burstSeed = -2
 
+  /**
+   * 當前目標在指派板上的索引。−1 = 沒有目標。
+   *
+   * 【為什麼不用 `board.assignments[selfIndex]`】集火時 `this.target` 被
+   * `focusTarget` 覆寫，而 `assignments` 沒有跟著更新（焦點索引是 `battle`
+   * 層另外解析的）。戰術層用它判斷「換目標了沒有」，錯的識別會讓計量的重置
+   * 每一拍都誤觸發。
+   */
+  targetIndex = -1
+  /**
+   * 戰術相位。**公開是為了量測** —— 與 `intent`、`mode` 同一個理由：
+   * 「AI 現在在做什麼」是 `(intent, mode, phase)` 這一組決定的。
+   */
+  readonly tactics = createTacticalState()
+  /**
+   * 可注入的戰術設定。`quota: 0` = 完全關掉這一層。
+   *
+   * 【為什麼可注入】掃描與消融要能在不改預設值的情況下換一組數字跑，與
+   * `burstConfig`、`targetConfig`、`wingmanConfig` 同一類。
+   */
+  tacticalConfig: TacticalConfig = DEFAULT_TACTICS
+  /** `stepTactics` 的輸入。每步就地重填 —— 熱路徑不配置 */
+  private readonly tacticalInput: TacticalInput = {
+    slot: false, suspended: false, targetIndex: -1, range: 0,
+    energyRatio: 0, psTarget: 0, closureRate: 0, shotInstant: 0, pressure: false,
+  }
+  /**
+   * 名額的快取。`slotSeed = −2` = 還沒算。
+   *
+   * 【為什麼是 lazy】`selfIndex` 與 `board` 在建構之後才寫入。要求每個呼叫端
+   * 都記得再呼叫一次「算隊內序號」是一條遲早會漏掉的規矩，而漏掉的症狀是
+   * 名額分配靜靜地變成全域索引 —— 也就是這一層存在的理由被抵消掉。
+   *
+   * 【失效條件含 `quota`】掃描與消融會在控制器跑過之後換 `tacticalConfig`，
+   * 只以 `selfIndex` 失效的話名額不會重算，整張消融表會是錯的。
+   */
+  private slotSeed = -2
+  private slotQuota = Number.NaN
+  private slotHas = false
+
+  /** 重置戰術狀態。`resetBattle` 每一顆呼叫一次 */
+  resetTactics(): void {
+    resetTacticalState(this.tactics)
+    this.slotSeed = -2
+    this.slotQuota = Number.NaN
+    this.slotHas = false
+  }
+
   update(self: Aircraft, dt: number, out: Command): void {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
@@ -300,6 +353,7 @@ export class AiController implements Controller {
         // 若「鎖著」某個敵人，真正在打的護航機就會以為那一架已經有人顧了
         // ——一個看不出來的、只表現成「火力莫名其妙變弱」的損失。
         this.target = null
+        this.targetIndex = -1
         const b = this.board
         if (b && this.selfIndex >= 0 && this.selfIndex < b.assignments.length) {
           b.assignments[this.selfIndex] = -1
@@ -314,6 +368,10 @@ export class AiController implements Controller {
           : selectTarget(
             this.targetState, this.board, this.selfIndex, period, this.targetConfig,
           )
+        // 【這裡讀 `assignments` 是對的】上面那兩支函數就是它的作者
+        this.targetIndex = this.selfIndex >= 0
+          && this.selfIndex < this.board.assignments.length
+          ? this.board.assignments[this.selfIndex]! : -1
       }
       // 【命令對僚機的意思】不是「你也飛去集合點」—— 那會讓編隊在路上散成
       // 一排。是「停止出擊」，於是它掉進下面「沒有目標 → 飛站位」那一格，
@@ -328,15 +386,39 @@ export class AiController implements Controller {
       if (this.order !== null && this.order.kind !== 'focus'
         && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
         this.target = null
+        this.targetIndex = -1
       }
       // 【只覆寫長機】僚機走 LEVEL_FOCUS，那一級本來就有自衛與掩護插隊，
       // 「有人正在打我」不會被集火命令擋住。與集合點同一個手法：只操縱
       // 長機，編隊靠既有機制跟上，wingman.ts 一個字不動
-      if (this.focusTarget !== null && !reference) this.target = this.focusTarget
+      if (this.focusTarget !== null && !reference) {
+        this.target = this.focusTarget
+        // 【集火的權威索引在命令上】`assignments` 那一格是它自由選的那一架
+        this.targetIndex = this.order !== null ? this.order.focusIndex : -1
+      }
     }
 
     const target = this.target
     if (!target) {
+      // 【戰術層在這裡歸零】下面有三條 `return`（飛站位、飛集合點、平飛）。
+      // 少了這一格，「目標消失 → off」永遠不會執行，下一個目標會繼承上一個
+      // 目標留下的相位與計時。
+      //
+      // 【只在決策拍呼叫】相位是 10 Hz 的決定。每個物理步呼叫一次等於讓
+      // FSM 以 240 Hz 仲裁，而所有期限都是秒級的。
+      if (decide) {
+        const ti = this.tacticalInput
+        ti.slot = false
+        ti.suspended = true
+        ti.targetIndex = -1
+        ti.range = 0
+        ti.energyRatio = 0
+        ti.psTarget = 0
+        ti.closureRate = 0
+        ti.shotInstant = 0
+        ti.pressure = false
+        stepTactics(this.tactics, ti, period, this.tacticalConfig)
+      }
       if (reference) {
         // 【隊形保持就在這一格】沒有值得打的敵人時飛回站位。
         //
@@ -453,6 +535,48 @@ export class AiController implements Controller {
       if (this.order !== null && this.order.kind !== 'focus') {
         this.intent = !this.transit && this.rules.defendLatch ? 'defend' : 'rally'
       }
+
+      // ── 戰術相位 ────────────────────────────────────────
+      //
+      // 【讀的是當步的態勢】`evaluateGeometry` 每個物理步跑、`evaluateEnergy`
+      // 每個決策拍跑，兩者都排在這一行之前。放在 `update` 最前面的話
+      // `energyRatio` 會是上一拍（最多 100 ms 前）的值。
+      const tcfg = this.tacticalConfig
+      if (this.slotSeed !== this.selfIndex || this.slotQuota !== tcfg.quota) {
+        this.slotSeed = this.selfIndex
+        this.slotQuota = tcfg.quota
+        this.slotHas = this.board !== null
+          && hasSlot(teamIndexOf(this.board, this.selfIndex), tcfg.quota)
+      }
+      const ti = this.tacticalInput
+      ti.slot = this.slotHas
+      ti.suspended = this.transit || this.order !== null
+      ti.targetIndex = this.targetIndex
+      ti.range = this.sit.range
+      ti.energyRatio = this.sit.energyRatio
+      ti.psTarget = this.sit.psTarget
+      ti.closureRate = this.sit.closureRate
+      ti.shotInstant = this.sit.shotInstant
+      // 【O(1)，沒有掃描】那一格由 `battle` 層每 10 Hz 算一次，全隊共用
+      ti.pressure = this.board !== null && this.selfIndex >= 0
+        && this.selfIndex < this.board.candidates.length
+        && this.board.pressure[teamSlot(this.board.candidates[this.selfIndex]!.team)] !== 0
+      stepTactics(this.tactics, ti, period, tcfg)
+
+      // 【戰術層排在命令與破防之後】完整的優先序見 spec §6.1。它讓位給：
+      // transit、命令、集火、defend，以及**絕對能量見底**（`extendFloorLatch`）
+      // —— 最後那一條是安全問題：`build` 要求正航跡角，一架低於角落速度的
+      // 飛機會繼續爬到失速。`extendEnergyLatch` 與 `extendTurnLatch` 是**相對**
+      // 理由，戰術層不必讓位給它們。
+      //
+      // 【`stepRules` 照常呼叫】閂鎖要繼續維護，否則戰術層解除的那一格會拿到
+      // 一組停在幾秒前的閂鎖。與命令層同一個手法。
+      const ph = this.tactics.phase
+      if (ph !== 'off' && this.order === null
+        && !this.rules.defendLatch && !this.rules.extendFloorLatch) {
+        if (ph === 'dive') this.intent = 'engage'
+        else if (ph === 'cooldown') this.intent = 'extend'
+      }
     }
 
     // ── 240 Hz：轉向、開火 ────────────────────────────────
@@ -463,15 +587,31 @@ export class AiController implements Controller {
     // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
     // 讀到的是**同一個**，不能半新半舊。
     stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
-    steerCommand(
-      this.intent, mode, this.sit, this.basis, self, this.seaHeight,
-      this.knobs, this.defend,
-      // 【集火沒有點】它的 `point` 是一個沒有意義的零向量。意圖不會是
-      // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
-      // 那個分支
-      this.order === null || this.order.kind === 'focus' ? null : this.order.point,
-      raw,
-    )
+    // 【三個相位是主要的瞄準解，不是 `steerCommand` 尾端的偏置】那個位階已經
+    // 有一個 `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在
+    // 破防軸上。再加一個同位階的後處理器會讓那個問題更嚴重。
+    //
+    // 【`dive` 與 `cooldown` 不在這裡】它們覆寫的是**意圖**（engage 與
+    // extend），走的仍然是 `steerCommand`。
+    const phase = this.tactics.phase
+    const tactical = (phase === 'build' || phase === 'perch' || phase === 'zoom')
+      && this.order === null
+      && !this.rules.defendLatch && !this.rules.extendFloorLatch
+    if (tactical) {
+      tacticalCommand(
+        phase, this.sit, this.basis, self, this.seaHeight, this.tacticalConfig, raw,
+      )
+    } else {
+      steerCommand(
+        this.intent, mode, this.sit, this.basis, self, this.seaHeight,
+        this.knobs, this.defend,
+        // 【集火沒有點】它的 `point` 是一個沒有意義的零向量。意圖不會是
+        // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
+        // 那個分支
+        this.order === null || this.order.kind === 'focus' ? null : this.order.point,
+        raw,
+      )
+    }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
     // §4.4），而 `rallyCommand` 也確實把 `firing` 設成 false —— 但它只在
     // 「沒有目標」那條分支跑。**有目標的長機走的是這一行**，於是命令期間
@@ -484,7 +624,11 @@ export class AiController implements Controller {
     // 【點放是最後一道閘】它與四條幾何條件是 AND，位置刻意放在最外層：
     // `shouldFire` 是純函數而且被一整支單元測試逐條釘住，把跨格狀態塞進去
     // 會讓「幾何上打不打得到」與「現在該不該扣」混成一件事。見 `AI_BURST_ON`。
-    raw.firing = burstOpen
+    //
+    // 【戰術層的三個相位不開火】它們都在遠距離經營能量，扣扳機只會把彈藥丟在
+    // 一個打不到的方向上。`tacticalCommand` 自己也寫了 `firing = false`，這裡
+    // 再擋一次是因為這一行在它之後。
+    raw.firing = !tactical && burstOpen
       && (this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self))
 
     this.emit(self, dt, out)

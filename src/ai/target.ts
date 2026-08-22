@@ -683,6 +683,44 @@ export interface TargetBoard {
    * 【它是每一關自己的旋鈕】值由 `BattleConfig.tuning` 給，見那裡。
    */
   readonly priority: Float64Array
+  /**
+   * `protectedMask[i] !== 0` = 第 i 架是這一關「要被護送／要被攔截」的那些
+   * （編組表上 `duty === 'transit'`）。**預設全 0，不分隊。**
+   *
+   * 【為什麼不借用 `priority > 1`】那個欄位的正式語意是「目標評分倍率」，
+   * 不是角色標籤。某次調整若把 `convoyPriority` 設回 1，任務壓力止損會
+   * **無聲消失**，而且沒有任何測試會紅。
+   */
+  readonly protectedMask: Uint8Array
+  /**
+   * `pressure[teamSlot(team)] !== 0` = 那一隊的被保護單位正在被敵機貼上。
+   * **由 `battle` 層每 10 Hz 算一次，全隊共用。**
+   *
+   * 【為什麼不讓每架自己掃】這個值對同隊的每一架**完全相同**，沒有理由
+   * 算 20 次。20v20、4 架被保護單位時，自己掃是每秒 16,000 次距離平方；
+   * 算一次是 1,600 次。而且每架自己掃還要各自處理隊別過濾，多一處會錯。
+   */
+  readonly pressure: Uint8Array
+}
+
+/**
+ * 敵機多近算「被保護單位正在挨打」，m。
+ *
+ * 【為什麼住在這裡而不是 `TacticalConfig`】它的消費端是 `battle` 層算的那
+ * 一次掃描，而那一層拿不到每架自己的戰術設定。放在資料的旁邊，兩邊讀的
+ * 就是同一個值。**起始值，待掃描。**
+ */
+export const PRESSURE_RANGE = 2000
+
+/**
+ * 隊別對應到 `pressure` 的格子。
+ *
+ * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
+ * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀是「某一
+ * 隊的護航機從來不緊張」。
+ */
+export function teamSlot(team: Team): number {
+  return team === 'blue' ? 0 : 1
 }
 
 /**
@@ -700,6 +738,7 @@ export interface TargetBoard {
  */
 export function createTargetBoard(
   candidates: readonly TargetCandidate[], flightOf?: Int32Array, priority?: Float64Array,
+  protectedMask?: Uint8Array,
 ): TargetBoard {
   for (let i = 0; i < candidates.length; i++) {
     if (candidates[i]!.index !== i) {
@@ -711,6 +750,11 @@ export function createTargetBoard(
   if (flightOf !== undefined && flightOf.length !== candidates.length) {
     throw new Error(
       `flightOf 長度必須等於候選數：${flightOf.length} vs ${candidates.length}`,
+    )
+  }
+  if (protectedMask !== undefined && protectedMask.length !== candidates.length) {
+    throw new Error(
+      `protectedMask 長度必須等於候選數：${protectedMask.length} vs ${candidates.length}`,
     )
   }
   if (priority !== undefined && priority.length !== candidates.length) {
@@ -725,6 +769,10 @@ export function createTargetBoard(
     // 【省略等於全 1】也就是「每一架都一樣值錢」—— 遭遇戰與殲滅任務逐字
     // 回到加這個欄位之前的行為
     priority: priority ?? new Float64Array(candidates.length).fill(1),
+    // 【省略等於全 0】沒有任何一架是被保護單位，任務壓力恆為假
+    protectedMask: protectedMask ?? new Uint8Array(candidates.length),
+    // 【不收參數】它是每步重算的輸出，不是設定
+    pressure: new Uint8Array(2),
   }
 }
 

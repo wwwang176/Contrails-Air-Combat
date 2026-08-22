@@ -523,6 +523,24 @@ describe('能量帳與長冷卻', () => {
   })
 })
 
+describe('任務壓力', () => {
+  it('任務壓力讓 perch 直接俯衝，不等承諾', () => {
+    const s = createTacticalState()
+    until(s, input({ energyRatio: 0 }))
+    expect(until(s, input({ energyRatio: 0.6 }))).toBe('perch')
+    // psTarget 是正的（他沒有在耗能量），承諾判準完全不成立
+    expect(until(s, input({ energyRatio: 0.6, psTarget: 5, pressure: true }))).toBe('dive')
+  })
+
+  it('沒有壓力時承諾判準照舊', () => {
+    const s = createTacticalState()
+    until(s, input({ energyRatio: 0 }))
+    expect(until(s, input({ energyRatio: 0.6 }))).toBe('perch')
+    run(s, input({ energyRatio: 0.6, psTarget: 5, pressure: false }), 5)
+    expect(s.phase).toBe('perch')
+  })
+})
+
 /** 造一組「我在下面、他在前上方 3 km」的態勢 */
 function scene() {
   const self = new Aircraft(BF109G6, 5000, 200)

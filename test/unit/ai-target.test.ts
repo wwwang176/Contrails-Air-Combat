@@ -3,7 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import {
   countLocks, createTargetBoard, createTargetState, selectTarget, targetScore,
-  visionFactor, DEFAULT_TARGET, type TargetCandidate,
+  teamSlot, visionFactor, DEFAULT_TARGET, type TargetCandidate,
 } from '../../src/ai/target'
 import { trackAngle } from '../../src/ai/assess'
 import type { Team } from '../../src/world/World'
@@ -726,5 +726,44 @@ describe('selectTarget 的分攤', () => {
     const b = crowdBoard(true)
     selectTarget(createTargetState(), b, 0, 0.1, { ...DEFAULT_TARGET, shotRelief: 0 })
     expect(b.assignments[0]).toBe(5)
+  })
+})
+
+describe('指派板的被保護標記', () => {
+  /** 造 n 架的候選陣列。只有 index / team / alive 有意義 */
+  function candidates(n: number): TargetCandidate[] {
+    const out: TargetCandidate[] = []
+    for (let i = 0; i < n; i++) {
+      out.push({
+        index: i,
+        team: (i < n / 2 ? 'blue' : 'red') as Team,
+        alive: true,
+      } as unknown as TargetCandidate)
+    }
+    return out
+  }
+
+  it('省略時 protectedMask 全 0', () => {
+    const b = createTargetBoard(candidates(4))
+    expect(b.protectedMask.length).toBe(4)
+    for (let i = 0; i < 4; i++) expect(b.protectedMask[i]).toBe(0)
+  })
+
+  it('長度不符要拋', () => {
+    expect(() => createTargetBoard(candidates(4), undefined, undefined, new Uint8Array(1)))
+      .toThrow()
+  })
+
+  it('pressure 恆為兩格，起始全 0', () => {
+    const b = createTargetBoard(candidates(4))
+    expect(b.pressure.length).toBe(2)
+    expect(b.pressure[0]).toBe(0)
+    expect(b.pressure[1]).toBe(0)
+  })
+
+  it('teamSlot 兩隊不同格', () => {
+    expect(teamSlot('blue')).not.toBe(teamSlot('red'))
+    expect(teamSlot('blue')).toBeGreaterThanOrEqual(0)
+    expect(teamSlot('red')).toBeLessThan(2)
   })
 })
