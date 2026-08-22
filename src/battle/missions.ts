@@ -219,39 +219,24 @@ const CONVOY_DISTANCE = 12000
  */
 const CONVOY_RADIUS = 1000
 /**
- * 被護送的那幾架在敵方目標挑選裡值幾倍。**由 `convoy.probe.ts` 表五實測定值。**
+ * 被護送的那幾架在敵方目標挑選裡值幾倍。**專案負責人的裁定，試飛中。**
  *
- * 【為什麼一定要大於 1】實測（表三）：護航機只要有兩架，轟炸機的血量就是
- * 100 / 100 / 100 / 100 —— **一發都沒挨到**。`targetScore` 只看威脅與幾何，
- * 而護航機兩者都更強（它會還手、擺得更高更近）。
- *
- * 【掃描 2026-08-21，玩家席位由 AI 代飛】
- *
- * ```
- *   偏置   攔截                          護送
- *     1    defeat  轟炸機 100/100/100/100   defeat   49.9 s 全滅
- *     2    victory  80.7 s 全打掉           victory 114.5 s 剩 2 架
- *     3    victory  80.7 s（一模一樣）      defeat   73.6 s 全滅
- *     5    victory  80.7 s（一模一樣）      defeat   73.6 s 全滅
- * ```
- *
- * **2 是唯一兩張卡都成立的值。** 攔截那一側在 2 就飽和了 —— 2、3、5 的秒數
- * 完全相同，也就是說偏置已經大到「該打的一定被打」，再加只是把同一件事
- * 說得更大聲。而護送那一側對它非常敏感：3 就足以讓十架 Bf109 全部撲向
- * B-17，七十秒內全滅。
+ * 【為什麼一定要大於 1】不加偏置時護航機只要有兩架，轟炸機就**一發都挨不
+ * 到**（實測血量 100/100/100/100）—— `targetScore` 只看威脅與幾何，而護航機
+ * 兩者都更強：它會還手、而且擺得更高更近。
  *
  * 【為什麼一個數字管兩張卡】它掛在被護送的那幾架身上，只有敵人替它們評分。
  * 護送時是紅隊更想打我方轟炸機，攔截時是藍隊更想打敵方轟炸機 —— **同一個
- * 偏置，兩側都動**。所以它不能只照著一張卡調，那正是上表要並排看的原因。
+ * 偏置，兩側同時動**，所以不能只照著一張卡調。
  *
  * 【它不是「只打轟炸機」】乘法偏置仍然會被幾何否決：一架在正後方三公里外
- * 的轟炸機，乘 2 之後照樣輸給眼前這架咬著我的護航機。要的正是這個 ——
+ * 的轟炸機，乘上去之後照樣輸給眼前這架咬著我的護航機。要的正是這個 ——
  * 「優先」不是「無視戰場」。
  *
  * 【每張卡都可以自己覆寫】值住在 `MissionCard.convoyPriority`；這裡只是
  * 四張卡目前共用的那一個。
  */
-const CONVOY_PRIORITY = 2
+const CONVOY_PRIORITY = 5
 
 /** 護送與攔截共用的幾何。差別只有目標列的文字 */
 const CONVOY = {
@@ -297,9 +282,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'allies-intercept', title: '攔截 He 111 轟炸群', type: '攔截', difficulty: 3,
       summary: '在轟炸機投彈前擊落它們。',
-      // 【紅隊 4 架 Bf109 護航 + 4 架 He 111】總數 8，與開放之前那張鎖著的
-      // 卡一樣 —— 星等的意思因此沒有變
-      blueCount: 4, redCount: 4, ...INTERCEPT,
+      blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
       id: 'allies-strike', title: '打擊魯爾鐵路', type: '打擊', difficulty: 3,
@@ -328,7 +311,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'axis-intercept', title: '攔截 B-17 轟炸群', type: '攔截', difficulty: 3,
       summary: '突破護航網，打掉重轟炸機。',
-      blueCount: 4, redCount: 4, ...INTERCEPT,
+      blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
       id: 'axis-strike', title: '打擊登陸艦隊', type: '打擊', difficulty: 4,

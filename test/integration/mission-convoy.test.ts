@@ -169,7 +169,14 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('攔截 —— 同一件事（敵轟炸機抵達）判成輸', () => {
-    const { b } = outcomeOf('allies', 'allies-intercept')
+    // 【把我方的槍拆掉】與上面那條護送的 disarm 完全對稱：要量的是抵達
+    // 那一刻的判定，不是十架 P-51 追不追得完四架 He 111。
+    //
+    // 【它原本沒有 disarm，於是綁在平衡上】2026-08-22 攔截方由 4 架改成
+    // 10 架之後這條就紅了 —— 轟炸機在抵達前先被打光，`victory` 而不是
+    // `defeat`。那正是這個 describe 開頭警告過的事：「每一次調難度都會
+    // 弄紅一條與難度無關的測試」。修的是測試的自變數，不是門檻
+    const { b } = outcomeOf('allies', 'allies-intercept', {}, 'blue')
     expect(b.outcome).toBe('defeat')
     expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
   }, 120_000)

@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import type { Battery, WeaponSpec } from './types'
 import type { Turret } from './turret'
 import { muzzleAt } from './turret'
+import { MG131 } from './bf109g6'
 import { DEG } from '../core/math'
 
 /**
@@ -18,10 +19,9 @@ import { DEG } from '../core/math'
  *
  * **這是起始值，由試飛裁定。**
  *
- * 【2026-08-21：實際生效的是這個數字的一半】專案負責人試飛後裁定「轟炸機的
- * 機槍攻擊力減半」。**沒有改這裡**，因為 B-17G 的砲塔與 P-51D 的六挺翼槍
- * 共用同一份 `M2_BROWNING`，改 `WeaponSpec.damage` 會把野馬一起砍半。
- * 倍率統一在 `weapons/turret.ts` 的 `TURRET_DAMAGE_SCALE`，只作用在砲塔。
+ * 【砲塔實際打出來的傷害不是這個數字】它還要乘上 `turret.ts` 的
+ * `TURRET_DAMAGE_SCALE` —— 那個倍率統一調整全部轟炸機的自衛火力，而
+ * `WeaponSpec.damage` 是「這款槍本身多痛」。
  */
 export const MG15: WeaponSpec = {
   id: 'mg15',
@@ -49,13 +49,20 @@ export const HE111_BATTERY: Battery = {
 }
 
 /**
- * He 111 H-6 的自衛砲塔 —— **五座、槍管合計 5 根**，全部是單管 MG 15。
+ * He 111 的自衛砲塔 —— **五座、槍管合計 6 根**。
  *
  * 真機的槍位編號是 A（機首）／B（機背）／C（機腹吊艙後）／D（兩側腰窗）。
- * H-6 的側窗兩挺不是每一架都裝，這裡照最完整的配置。
+ * 側窗兩挺不是每一架都裝，這裡照最完整的配置。
  *
- * 【與 B-17G 的差別就是這五挺 7.92 mm 對十二根 .50】He 111 是「會咬人但
- * 咬不死」，B-17 是「不能久留」。兩台的難度差距來自槍的口徑與數量，不是
+ * ```
+ *   nose     MG 15    7.92 mm 單管
+ *   dorsal   MG 131   13 mm 單管      ← H-16 起的配置
+ *   ventral  MG 15    7.92 mm 雙聯    ← MG 81Z
+ *   beamL/R  MG 15    7.92 mm 單管
+ * ```
+ *
+ * 【它仍然遠弱於 B-17G】那是對的：十三挺 .50 對這六根，He 111 是「會咬人
+ * 但咬不死」，B-17 是「不能久留」。兩台的難度差距來自槍的口徑與數量，不是
  * 來自射界 —— 射界反而是 He 111 的機腹那座比較好。
  *
  * ── 位置的來源，逐項標明 ───────────────────────────────────
@@ -89,14 +96,18 @@ export const HE111_TURRETS: readonly Turret[] = [
       new Vector3(0, 0, -1)),
     axis: new Vector3(0, 0, -1),
     halfAngle: 40 * DEG, rotationRate: 90 * DEG, guns: 1 },
-  { id: 'dorsal', weapon: MG15, position: muzzleAt(new Vector3(0, 1.72, 2.40),
+  // 【機背是 MG 131】H-16 起的實際配置，13 mm 取代原本的 7.92 mm。
+  // 與 Bf109 的機首兩挺是**同一份** `MG131` —— 同一款槍就該是同一個物件
+  { id: 'dorsal', weapon: MG131, position: muzzleAt(new Vector3(0, 1.72, 2.40),
       new Vector3(0, 0.64, 0.77).normalize()),
     axis: new Vector3(0, 0.64, 0.77).normalize(),
     halfAngle: 70 * DEG, rotationRate: 90 * DEG, guns: 1 },
+  // 【腹艙後是雙聯】H-16 起的 MG 81Z（Zwilling）。這裡用 `guns: 2` 表達 ——
+  // 乘的是傷害不是射速，理由見 `turret.ts` 的 `Turret.guns`
   { id: 'ventral', weapon: MG15, position: muzzleAt(new Vector3(0, -0.85, 5.30),
       new Vector3(0, -0.64, 0.77).normalize()),
     axis: new Vector3(0, -0.64, 0.77).normalize(),
-    halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 1 },
+    halfAngle: 60 * DEG, rotationRate: 90 * DEG, guns: 2 },
   { id: 'beamR', weapon: MG15, position: muzzleAt(new Vector3(1.05, 0.20, 2.80),
       new Vector3(1, 0, 0)),
     axis: new Vector3(1, 0, 0),

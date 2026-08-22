@@ -107,8 +107,16 @@ describe('砲塔數量與管數', () => {
     expect(B17G.turrets.reduce((sum, t) => sum + t.guns, 0)).toBe(12)
   })
 
-  it('He 111 五座、槍管合計 5 根', () => {
+  it('He 111 五座、槍管合計 6 根（機腹是雙聯）', () => {
     expect(HE111.turrets).toHaveLength(5)
-    expect(HE111.turrets.reduce((sum, t) => sum + t.guns, 0)).toBe(5)
+    expect(HE111.turrets.reduce((sum, t) => sum + t.guns, 0)).toBe(6)
+  })
+
+  it('He 111 的機背是 13 mm，其餘是 7.92 mm', () => {
+    const byId = new Map(HE111.turrets.map((t) => [t.id, t.weapon.id]))
+    expect(byId.get('dorsal')).toBe('mg131')
+    for (const id of ['nose', 'ventral', 'beamL', 'beamR']) {
+      expect(byId.get(id)).toBe('mg15')
+    }
   })
 })
