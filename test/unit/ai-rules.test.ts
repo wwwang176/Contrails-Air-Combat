@@ -437,3 +437,43 @@ describe('extend 的三個理由與射擊否決權', () => {
     expect(s.intent).toBe('defend')
   })
 })
+
+describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', () => {
+  it('初始 false，門檻夾在 cornerEnter 與 cornerExit 之間', () => {
+    expect(createRuleState().extendRecoveredLatch).toBe(false)
+    expect(DEFAULT_RULES.recoverExit).toBeGreaterThan(DEFAULT_RULES.cornerEnter)
+    expect(DEFAULT_RULES.recoverExit).toBeLessThan(DEFAULT_RULES.cornerExit)
+  })
+
+  it('高於 cornerExit 才進場，掉到 recoverExit（含）才出場', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.cornerRatio = DEFAULT_RULES.cornerExit
+    stepRules(s, sit, 0, DT)
+    expect(s.extendRecoveredLatch).toBe(false)   // 嚴格 >，等於不算
+
+    sit.cornerRatio = DEFAULT_RULES.cornerExit + 0.01
+    stepRules(s, sit, 0, DT)
+    expect(s.extendRecoveredLatch).toBe(true)
+
+    sit.cornerRatio = 0.90                        // 遲滯帶內維持
+    stepRules(s, sit, 0, DT)
+    expect(s.extendRecoveredLatch).toBe(true)
+
+    // 【等值就解除，不是「低於才解除」】latch 的維持條件是 value > exit
+    sit.cornerRatio = DEFAULT_RULES.recoverExit
+    stepRules(s, sit, 0, DT)
+    expect(s.extendRecoveredLatch).toBe(false)
+  })
+
+  /**
+   * 【為什麼關掉時閂鎖也不能更新】消融的兩檔不得有不同的狀態演進，
+   * 否則差異會在日後打開時以「殘留的舊值」的形式冒出來。
+   */
+  it('recoveredExit 關掉時閂鎖不更新', () => {
+    const s = createRuleState()
+    const sit = neutral()   // cornerRatio 預設 1.2，遠高於進場門檻
+    stepRules(s, sit, 0, DT, { ...DEFAULT_RULES, recoveredExit: false })
+    expect(s.extendRecoveredLatch).toBe(false)
+  })
+})
