@@ -3,7 +3,9 @@ import {
   alarmFactor, alarmRamp, considerThreatFrom, createSituation, evaluateEnergy,
   evaluateGeometry, evaluateThreat, trackingFactor,
 } from './assess'
-import { createRuleState, stepRules, type Intent } from './rules'
+import {
+  createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
+} from './rules'
 import {
   buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
   shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
@@ -218,6 +220,12 @@ export class AiController implements Controller {
    * 這個主張只對前兩個成立（M11 spec §4.1）。
    */
   readonly rules = createRuleState()
+  /**
+   * 意圖仲裁的設定。**掃描與消融換這個欄位，不要改 `DEFAULT_RULES`** ——
+   * 那是模組層級的共用物件，改它會讓同一支測試裡的兩檔互相污染，而且逼
+   * 所有用到它的測試必須串行。與 `tacticalConfig` 同一個手法。
+   */
+  rulesConfig: RuleConfig = DEFAULT_RULES
   /**
    * 破防層的跨格狀態（目前只有反轉的倒數）。**唯讀** —— 只有 `stepDefend`
    * 能寫。與 `rules` 同一個理由公開：反轉是一個展開中的動作，有沒有真的
@@ -512,7 +520,7 @@ export class AiController implements Controller {
     // ── 10 Hz：昂貴的包絡查詢與意圖仲裁 ────────────────────
     if (decide) {
       evaluateEnergy(self, target, this.sit)
-      this.intent = stepRules(this.rules, this.sit, danger, period)
+      this.intent = stepRules(this.rules, this.sit, danger, period, this.rulesConfig)
       // 【命令是外部覆寫，不是 arbitrate 的一列】那個函式的優先序關係是
       // 實測逐條談定的（相對理由 vs 絕對理由、defend 的絕對優先權，見
       // rules.ts 的長註解與 2026-08-07 的 #136）。把命令插進去會動到那
