@@ -141,8 +141,18 @@ describe('起始設定的內部一致性', () => {
     expect(c.exitRange).toBeLessThan(c.enterRange)
   })
 
-  it('等待不該比建能久', () => {
-    expect(c.perchMax).toBeLessThan(c.buildMax)
+  it('每個期限都留得住它要等的那件事', () => {
+    // 【它擋的是「參數自我否定」】期限比它要等的條件還短，那個條件就永遠
+    // 不會成立，相位只會被期限踢走 —— 機制看起來在跑，實際上退化成計時器。
+    //
+    // 【原本這裡寫的是 `perchMax < buildMax`】那是設計期的假設，被實測推翻：
+    // `energy-cycle.probe.ts` 量到 `build` 的停留中位是 0.4 s（也就是
+    // `minDwell`），進場時 `energyRatio` 多半已經高於 `perchEnter`。「建能要
+    // 多久」根本不是這一層的限制，拿它當另一個期限的上界沒有依據。
+    expect(c.buildMax).toBeGreaterThan(c.minDwell)
+    expect(c.perchMax).toBeGreaterThan(c.commitSeconds)
+    expect(c.diveMax).toBeGreaterThan(c.passSeconds)
+    expect(c.zoomMax).toBeGreaterThan(c.zoomMin)
   })
 
   it('盤旋半徑落在兩個距離門檻之間', () => {

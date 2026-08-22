@@ -151,10 +151,18 @@ export const DEFAULT_TACTICS: TacticalConfig = {
   perchExit: 0.35,
   minDwell: 0.5,
   commitSeconds: 1.5,
-  // 【待實測回填】用自己的爬升率推相對建能時間會系統性低估 —— 高度與速度是
-  // 同一份比能量的分配，而且敵人同時也在累積能量。正確的量是
-  // `d(energyRatio)/dt = (psSelf − psTarget) / (vc² / 2 G0)`
-  buildMax: 60,
+  // 【13 的來源是實測】`energy-cycle.probe.ts`，五張卡各 300 s、quota 0.5：
+  // 真的走完 `build → perch` 的 71 次裡 p90 是 9.8 s，加三成餘裕。
+  //
+  // 【為什麼不是用速率反推】計畫寫的是
+  // `buildMax = perchEnter / p10(d(energyRatio)/dt) × 1.3`，但實測 p10 是
+  // **−0.0099**（中位 +0.0069）—— 一成的時間裡敵人累積得比自己快，那個除法
+  // 沒有定義。直接量「實際花了多久」才是那個速率本來要估的東西。
+  //
+  // 【它幾乎不會咬到】同一批量測裡 `build` 的停留中位是 0.4 s，也就是
+  // `minDwell` —— 進場時 `energyRatio` 多半已經高於 `perchEnter`。這道期限是
+  // 止損，不是節奏；60 s 的舊值不會弄壞什麼，只是它擋不住任何東西。
+  buildMax: 13,
   perchMax: 20,
   passSeconds: 1,
   diveMax: 12,
