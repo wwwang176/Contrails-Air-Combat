@@ -432,9 +432,16 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 【絕對理由的豁免】見 `RuleConfig.floorExempt`：佔著明顯能量優勢時，
   // 「我飛不動了」不強制脫離 —— 缺的是此刻的速度，低頭換就有，不必跑掉。
   if (s.extendFloorLatch && sit.energyAdvantage < cfg.floorExempt) return 'extend'
+  // 【能量理由是合取，迴旋理由不是】「我比他弱」（相對）與「我還飛不動」
+  // （絕對）是兩件事，兩件都成立才該脫離。速度補回來了就回去打 ——
+  // 「比對手強」那個出場條件對劣勢方在整場戰鬥中都達不到，實測能量閂鎖
+  // 曾連續開著 166 秒。
+  //
+  // 迴旋劣勢不套合取：那談的是機體，補速度改變不了它。
+  const weakAndSlow = s.extendEnergyLatch && !s.extendRecoveredLatch
   if (
     !shooting
-    && (s.extendEnergyLatch || s.extendTurnLatch)
+    && (weakAndSlow || s.extendTurnLatch)
     && sit.range < cfg.extendRange
   ) return 'extend'
 
