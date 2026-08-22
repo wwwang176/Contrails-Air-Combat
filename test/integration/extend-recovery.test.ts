@@ -140,9 +140,12 @@ function run(id: string, faction: 'allies' | 'axis', salt: number, on: boolean):
   jitter(b, salt)
 
   // 【設定點】`createBattle` 已經替每個座位建好 controller（`setup.ts:459`）
-  const cfg: RuleConfig = on
-    ? DEFAULT_RULES
-    : { ...DEFAULT_RULES, recoveredExit: false }
+  //
+  // 【兩檔都要明寫，不能拿 `DEFAULT_RULES` 當「開啟」】那個預設值是
+  // **關閉**的（實測否決，見 `RuleConfig.recoveredExit` 的註解）。直接用它
+  // 當開啟組，兩檔會變成同一個東西，而測試會以「效果為零」的形式失敗 ——
+  // 那個紅看起來像迴歸，其實是量具接錯。
+  const cfg: RuleConfig = { ...DEFAULT_RULES, recoveredExit: on }
   for (const c of b.world.combatants) {
     if (c.controller instanceof AiController) c.controller.rulesConfig = cfg
   }
