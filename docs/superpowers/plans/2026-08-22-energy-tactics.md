@@ -491,17 +491,37 @@ const NO_FOE_DEFICIT = Infinity
 npx vitest run test/unit/ai-steer.test.ts 2>&1 | head -40
 ```
 
-**但有四處要特別處理** —— 它們拿 `steerCommand` 的輸出與
-`extendPitchAngle(...)` 對照（第 880、1044、1074、1076 行附近）。那幾處要把
-**該測試自己的 `sit.speedAdvantage`** 傳進去，不是 `NO_FOE_DEFICIT`：
+**四處對照測試要連 fixture 一起改，而且其中一條的前提變了。**
+
+那四處拿 `steerCommand` 的輸出與 `extendPitchAngle(...)` 對照（第 880、
+1044、1074、1076 行附近）。期望值要傳**該測試自己的 `sit.speedAdvantage`**：
 
 ```ts
     const expected = extendPitchAngle(sit.cornerRatio, sit.speedAdvantage, 4000)
 ```
 
-【為什麼】`steerCommand` 讀的是 `sit.speedAdvantage`（測試 fixture 裡預設是
-`createSituation()` 的 0）。期望值若用 `NO_FOE_DEFICIT`，兩邊會用不同的赤字
-算，測試會紅而且原因很難看出來。
+**但光這樣還不夠。** `followLoop` 的 fixture 沒有設 `speedAdvantage`，所以它
+是 `createSituation()` 的 0。於是「速度過剩時每一輪都是同一個爬升角」
+（`ai-steer.test.ts:879`）會算出 `max(1 − 1.4, −0) = 0`，而它斷言 `> 0`。
+
+**這條測試的前提真的變了**，不是實作寫錯：新規則下「速度過剩」需要**兩個**
+維度都過剩（比自己的角落速度快，也比敵人快）。fixture 只指定了一半。
+
+修法是在 `followLoop` 裡把場景補完整：
+
+```ts
+    sit.cornerRatio = ratio
+    // 【新增】速度過剩的場景要兩個維度都過剩：比自己的角落速度快（ratio），
+    // 也比敵人快。只指定一半的話新規則會取相對赤字那一邊
+    sit.speedAdvantage = ratio - 1
+```
+
+`followLoop(1.4)` → `speedAdvantage = 0.4`（我也比敵人快）→ 爬升，斷言成立。
+`followLoop(0.6)` → `speedAdvantage = −0.4`（我比敵人慢）→ 俯衝，斷言也成立。
+
+**這是一次要向專案負責人報備的既有測試改動**，因為它動到了一條測試的前提。
+它**不是**放寬門檻——兩條斷言的方向與嚴格度一個字都沒改，改的是場景的完整
+性。做完 Task 2 的報告要列出這一條。
 
 - [ ] **Step 6：改探針**
 
@@ -719,7 +739,7 @@ describe('戰術層的名額', () => {
     expect(c.perchMax).toBeLessThan(c.buildMax)
     // 距離：進入的門檻比離開遠
     expect(c.exitRange).toBeLessThan(c.enterRange)
-    // 盤旋與壓力的半徑落在兩個距離門檻之間
+    // 盤旋半徑落在兩個距離門檻之間
     expect(c.perchRange).toBeGreaterThan(c.exitRange)
     expect(c.perchRange).toBeLessThan(c.enterRange)
     // 長冷卻比短冷卻長
@@ -841,9 +861,13 @@ export interface TacticalConfig {
   dryRounds: number
   /** `perch` 盤旋時保持的距離，m */
   perchRange: number
-  /** 被保護單位多近算「正在挨打」，m */
-  pressureRange: number
 }
+
+/**
+ * 【`pressureRange` 為什麼不在這裡】任務壓力由 `battle` 層算一次寫進
+ * `TargetBoard.pressure`（見 Task 9），而那一層拿不到每架自己的
+ * `TacticalConfig`。把它放在 `target.ts` 當一個常數，兩邊讀的就是同一個值。
+ */
 
 /**
  * **全部是起始值，待掃描**（spec §11）。掃描的優先序：
@@ -856,7 +880,12 @@ export interface TacticalConfig {
  * `focusRange`，動它等於發明第二套幾何。
  */
 export const DEFAULT_TACTICS: TacticalConfig = {
-  quota: 0.5,
+  // 【開發期間先出 0】戰術層一開就會改變 `order-of-battle-replay` 的
+  // digest，而那個基準每重跑一次都要專案負責人裁定。出 0 的話整個開發期間
+  // 那條測試都是綠的，**最後一個 Task 才翻成 0.5 並一次重跑**。
+  //
+  // 消融與整合測試自己注入 `quota`，不受這個預設影響。
+  quota: 0,
   // 【與指揮層共用同一對】側翼命令的 FLANK_RANGE 與集火的 focusRange
   enterRange: 2500,
   exitRange: 1500,
@@ -880,7 +909,6 @@ export const DEFAULT_TACTICS: TacticalConfig = {
   cycleLossMax: 0.3,
   dryRounds: 2,
   perchRange: 2000,
-  pressureRange: 2000,
 }
 
 export function createTacticalState(): TacticalState {
@@ -1110,8 +1138,10 @@ describe('戰術層的狀態機', () => {
   })
 
   it('minDwell 生效 —— 任何相位不得停留短於它', () => {
+    // 【前置只能跑不到 minDwell】跑滿一秒的話 build 的停留早就過了 0.5 s，
+    // 下一格立刻進 perch，這條測試就什麼都沒驗到。
     const s = createTacticalState()
-    run(s, input(), 1)
+    run(s, input(), DEFAULT_TACTICS.minDwell * 0.4)
     expect(s.phase).toBe('build')
     // 立刻給滿能量，但還沒過 minDwell
     stepTactics(s, input({ energyRatio: 0.9 }), DT, DEFAULT_TACTICS)
@@ -1257,6 +1287,82 @@ describe('戰術層的狀態機', () => {
     expect(s.phase).toBe('off')
   })
 
+  it('一輪淨損超標 → cooldown', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0.2 }), 1)
+    expect(s.phase).toBe('build')
+    // 這一輪的基準是 0.2，掉到 0.2 − cycleLossMax − 餘裕
+    run(s, input({ energyRatio: 0.2 - DEFAULT_TACTICS.cycleLossMax - 0.05 }), 0.5)
+    expect(s.phase).toBe('cooldown')
+  })
+
+  it('換目標那一輪不參與能量帳止損', () => {
+    // 【為什麼】energyRatio 是相對當前目標的。換目標時它不連續地跳，硬算
+    // 那個差會得到一個沒有意義的數字。
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0.2 }), 1)
+    // 換目標，同時能量「暴跌」—— 那只是換了比較對象
+    run(s, input({ energyRatio: -0.5, targetIndex: 99 }), 1)
+    expect(s.phase).not.toBe('cooldown')
+  })
+
+  it('連續兩輪沒有射擊窗 → 長冷卻', () => {
+    const s = createTacticalState()
+    const C = DEFAULT_TACTICS
+    // 跑兩整圈，全程 shotInstant = 0
+    for (let round = 0; round < 2; round++) {
+      run(s, input({ energyRatio: 0 }), 1)
+      run(s, input({ energyRatio: 0.6 }), 1)
+      run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+      run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+      run(s, input({ energyRatio: 0.1, psTarget: -5, closureRate: -120 }),
+        C.passSeconds + 0.5)
+      run(s, input({ energyRatio: 0.1 }), C.zoomMax + 1)
+    }
+    expect(s.phase).toBe('cooldown')
+    expect(s.cooldown).toBeGreaterThan(C.cooldownSeconds)
+  })
+
+  it('有射擊窗就把連續計數歸零', () => {
+    const s = createTacticalState()
+    const C = DEFAULT_TACTICS
+    run(s, input({ energyRatio: 0 }), 1)
+    run(s, input({ energyRatio: 0.6 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120, shotInstant: 0.4 }), 1)
+    run(s, input({ energyRatio: 0.1, psTarget: -5, closureRate: -120 }), C.passSeconds + 0.5)
+    run(s, input({ energyRatio: 0.1 }), C.zoomMax + 1)
+    expect(s.dryRounds).toBe(0)
+  })
+
+  it('zoom 只回 build，不直接跳 perch', () => {
+    // 【它擋的是輪次永不結算】直接跳 perch 的話會形成
+    // build → perch → dive → zoom → perch → … 永遠不回 build。
+    const s = createTacticalState()
+    const C = DEFAULT_TACTICS
+    run(s, input({ energyRatio: 0 }), 1)
+    run(s, input({ energyRatio: 0.6 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: -120 }), C.passSeconds + 0.5)
+    expect(s.phase).toBe('zoom')
+    // 能量還在（perchLatch 仍為真），但過了 zoomMin 之後要先回 build
+    run(s, input({ energyRatio: 0.6 }), C.zoomMin + 0.1)
+    expect(s.phase).toBe('build')
+  })
+
+  it('接近率恰好為 0 不算「正在拉開」', () => {
+    // 切向飛行時接近率是 0。那不是通過目標。
+    const s = createTacticalState()
+    const C = DEFAULT_TACTICS
+    run(s, input({ energyRatio: 0 }), 1)
+    run(s, input({ energyRatio: 0.6 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 0 }), C.passSeconds + 2)
+    expect(s.phase).toBe('dive')
+  })
+
   it('quota = 0 時 stepTactics 恆回 off', () => {
     // 【這一條守著整張消融表的對照組】若關不乾淨，「上線前的行為」那一列
     // 量到的就不是基準。
@@ -1346,12 +1452,16 @@ export function stepTactics(
   //
   // 【為什麼必須做】energyRatio、psTarget、closureRate 全部是**相對當前
   // 目標**的。目標一換它們不連續地跳，而下面每一個都是差分或計時。
-  if (inp.targetIndex !== s.lastTarget) {
+  const switched = inp.targetIndex !== s.lastTarget
+  if (switched) {
     s.lastTarget = inp.targetIndex
     s.perchLatch = false
     s.commit = 0
     s.closed = false
     s.passing = 0
+    // 【基準重設成當下，而且該輪標記為無效】只設 cycleValid 的話，基準還
+    // 停在舊目標的尺度上，下一輪開帳前的每一格都在跟一個沒有意義的數字比
+    s.cycleBase = inp.energyRatio
     s.cycleValid = false
     s.cycleShot = false
     s.lastCooldownRatio = NaN
@@ -1371,12 +1481,22 @@ export function stepTactics(
   //
   // 【為什麼全程】`latch` 的語意是一段獨立的記憶。`rules.ts` 的
   // `stepRules` 每拍更新所有閂鎖，即使那一拍沒有選到那個意圖。
-  s.perchLatch = latch(s.perchLatch, inp.energyRatio, cfg.perchEnter, cfg.perchExit)
+  //
+  // 【換目標的那一拍全部跳過】否則清成 false 的閂鎖會在同一拍被新目標的
+  // 數字重新算成 true —— 「切換拍重置」就只是一句沒有效果的話。下一拍才
+  // 開始用新目標的數字重新累積。
+  if (!switched) {
+    s.perchLatch = latch(s.perchLatch, inp.energyRatio, cfg.perchEnter, cfg.perchExit)
+    s.commit = inp.psTarget < 0 ? s.commit + dt : 0
+    if (inp.shotInstant > 0) s.cycleShot = true
+    // 【通過的判定要「轉負」不是「非正」】接近率恰好為 0 是切向飛行，
+    // 那不是「正在拉開」
+    if (inp.closureRate > 0) { s.closed = true; s.passing = 0 }
+    else if (s.closed && inp.closureRate < 0) s.passing += dt
+  }
+  // 【距離閂鎖與目標無關】它問的是「我離**這個**目標多遠」，換目標時距離
+  // 本來就該重算，而閂鎖的記憶對新目標仍然有意義（都是同一片天空）
   s.farLatch = latch(s.farLatch, inp.range, cfg.enterRange, cfg.exitRange)
-  s.commit = inp.psTarget < 0 ? s.commit + dt : 0
-  if (inp.shotInstant > 0) s.cycleShot = true
-  if (inp.closureRate > 0) { s.closed = true; s.passing = 0 }
-  else if (s.closed) s.passing += dt
 
   const dwellDone = s.dwell >= cfg.minDwell
 
@@ -1431,29 +1551,39 @@ export function stepTactics(
       break
     case 'perch':
       if (s.commit >= cfg.commitSeconds) enter(s, 'dive')
-      else if (!s.perchLatch) enter(s, 'build')
-      break
-    case 'dive':
-      if (s.passing >= cfg.passSeconds) enter(s, 'zoom')
-      break
-    case 'zoom':
-      if (s.dwell < cfg.zoomMin) break
-      if (s.perchLatch) { enter(s, 'perch'); break }
-      if (s.dwell >= cfg.zoomMax) {
-        // 一輪結束：結算能量帳
-        if (s.cycleValid && !s.cycleShot) s.dryRounds++
-        else if (s.cycleShot) s.dryRounds = 0
-        if (s.dryRounds >= cfg.dryRounds) {
-          s.lastCooldownRatio = inp.energyRatio
-          s.cooldown = cfg.longCooldownSeconds
-          s.dryRounds = 0
-          enter(s, 'cooldown')
-          break
-        }
+      else if (!s.perchLatch) {
+        // 【回 build 也要開新帳】一輪的定義是「進入 build 到下一次進入
+        // build」。少了這一行，cycleBase 會跨過好幾次 perch → build，
+        // 能量帳比的就不是本輪
         enter(s, 'build')
         openCycle(s, inp.energyRatio)
       }
       break
+    case 'dive':
+      if (s.passing >= cfg.passSeconds) enter(s, 'zoom')
+      break
+    case 'zoom': {
+      if (s.dwell < cfg.zoomMin) break
+      // 【zoom 的唯一出口是 build，不能直接跳 perch】直接跳的話會形成
+      //     build → perch → dive → zoom → perch → dive → zoom → …
+      // 永遠不回 build，於是輪次永遠不結算、dryRounds 永遠不累積，整條
+      // 能量帳止損等於不存在。回 build 之後若能量還在，下一格的 perchLatch
+      // 會自然把它帶回 perch —— 那才是 spec 描述的兩步路徑。
+      if (!s.perchLatch && s.dwell < cfg.zoomMax) break
+      // 一輪結束：結算能量帳
+      if (s.cycleValid && !s.cycleShot) s.dryRounds++
+      else if (s.cycleShot) s.dryRounds = 0
+      if (s.dryRounds >= cfg.dryRounds) {
+        s.lastCooldownRatio = inp.energyRatio
+        s.cooldown = cfg.longCooldownSeconds
+        s.dryRounds = 0
+        enter(s, 'cooldown')
+        break
+      }
+      enter(s, 'build')
+      openCycle(s, inp.energyRatio)
+      break
+    }
     default:
       break
   }
@@ -1800,7 +1930,7 @@ npx tsc --noEmit
 - [ ] **Step 5：commit**
 
 ```bash
-git add src/ai/tactics.ts test/unit/ai-tactics.test.ts src/ai/steer.ts
+git add src/ai/tactics.ts test/unit/ai-tactics.test.ts
 git commit -m "feat: tacticalCommand —— build / perch / zoom 的瞄準解
 
 dive 與 cooldown 不走這裡，它們覆寫既有的 engage 與 extend。
@@ -1873,67 +2003,128 @@ import {
 } from './tactics'
 ```
 
-- [ ] **Step 2：在 `update` 最前面推進**
+- [ ] **Step 2：在決策節拍推進，一拍恰好一次**
 
-**位置在點放推進之後、`decisionTimer` 之前。**
+**戰術相位是 10 Hz 的決定**（spec §9）。放在 `update` 最前面會讓它每個物理步
+仲裁一次，而且讀到的是上一拍的態勢。正確的位置有**兩處**，兩處都在 `decide`
+裡：
 
-【它讀到的是舊值，而那是對的】這個位置在 `evaluateGeometry` 與 `decide`
-之前，所以：
+**（甲）早退路徑：沒有目標時歸零。**
 
-- `this.sit.*` 是**上一個物理步**（4 ms 前）的值。TAS、距離、接近率在 4 ms
-  內的變化遠小於這個 10 Hz 狀態機的解析度。
-- `this.target` 與 `board.assignments` 是**上一個決策節拍**（100 ms 前）
-  寫的。戰術相位本來就是 10 Hz 的決定，晚一拍不影響。
-- **沒有目標時 `ti.targetIndex` 是 −1**，第 1 級的強制離場直接把相位打回
-  `off`，那些舊值一個都不會被讀到。
-
-換句話說，唯一會用到舊值的情況是「有目標而且相位在跑」，而那時舊值與新值
-差 4 ms。**放在態勢更新之後才是錯的** —— 那會讓三條早退路徑跳過整個戰術層，
-「目標消失 → off」永遠不執行。
+在 `const target = this.target` 之後、`if (!target) {` 的區塊**最前面**：
 
 ```ts
-    // 【戰術層每步恰好推進一次，而且要在早退路徑之前】理由與點放相同：
-    // `update` 有三條 `return`。只在交戰那條推進的話，「目標消失 → off」
-    // 永遠不會執行，下一個目標會繼承上一個目標留下的相位與計時。
-    const tcfg = this.tacticalConfig
-    if (this.slotSeed !== this.selfIndex) {
-      this.slotSeed = this.selfIndex
-      this.slotHas = this.board !== null
-        && hasSlot(teamIndexOf(this.board, this.selfIndex), tcfg.quota)
-    }
-    const ti = this.tacticalInput
-    ti.slot = this.slotHas
-    ti.suspended = this.transit || this.order !== null
-    ti.targetIndex = this.target !== null && this.board !== null
-      ? this.indexOfTarget()
-      : -1
-    ti.range = this.sit.range
-    ti.energyRatio = this.sit.energyRatio
-    ti.psTarget = this.sit.psTarget
-    ti.closureRate = this.sit.closureRate
-    ti.shotInstant = this.sit.shotInstant
-    ti.pressure = false   // Task 9 接上
-    stepTactics(this.tactics, ti, dt, tcfg)
+    const target = this.target
+    if (!target) {
+      // 【戰術層在這裡歸零】`update` 有三條 return（飛站位、飛集合點、
+      // 平飛）。少了這一格，「目標消失 → off」永遠不會執行，下一個目標會
+      // 繼承上一個目標留下的相位與計時。
+      //
+      // 【只在決策拍呼叫】相位是 10 Hz 的決定。每個物理步呼叫一次等於讓
+      // FSM 以 240 Hz 仲裁，違反分頻。
+      if (decide) {
+        const ti = this.tacticalInput
+        ti.slot = false
+        ti.suspended = true
+        ti.targetIndex = -1
+        ti.range = 0
+        ti.energyRatio = 0
+        ti.psTarget = 0
+        ti.closureRate = 0
+        ti.shotInstant = 0
+        ti.pressure = false
+        stepTactics(this.tactics, ti, period, this.tacticalConfig)
+      }
+      if (reference) {
 ```
 
-**`indexOfTarget()`** —— `AiController` 目前用 `this.target`（一個
-`Aircraft`）。目標的識別要一個穩定的數字。加一個私有輔助：
+**（乙）交戰路徑：在 `evaluateEnergy` 之後。**
+
+`decide` 區塊裡，`stepRules` 與命令覆寫之後：
 
 ```ts
-  /** 當前目標在指派板上的索引。−1 = 沒有目標或找不到 */
-  private indexOfTarget(): number {
-    const b = this.board
-    const t = this.target
-    if (b === null || t === null) return -1
-    if (this.selfIndex >= 0 && this.selfIndex < b.assignments.length) {
-      return b.assignments[this.selfIndex]!
-    }
-    return -1
-  }
+      // 【讀的是當步的態勢】`evaluateGeometry` 每個物理步跑、`evaluateEnergy`
+      // 每個決策拍跑，兩者都排在這一行之前。放在 `update` 最前面的話
+      // `energyRatio` 會是上一拍（最多 100 ms 前）的值。
+      const tcfg = this.tacticalConfig
+      if (this.slotSeed !== this.selfIndex || this.slotQuota !== tcfg.quota) {
+        this.slotSeed = this.selfIndex
+        this.slotQuota = tcfg.quota
+        this.slotHas = this.board !== null
+          && hasSlot(teamIndexOf(this.board, this.selfIndex), tcfg.quota)
+      }
+      const ti = this.tacticalInput
+      ti.slot = this.slotHas
+      ti.suspended = this.transit || this.order !== null
+      ti.targetIndex = this.targetIndex
+      ti.range = this.sit.range
+      ti.energyRatio = this.sit.energyRatio
+      ti.psTarget = this.sit.psTarget
+      ti.closureRate = this.sit.closureRate
+      ti.shotInstant = this.sit.shotInstant
+      ti.pressure = this.board !== null && this.selfIndex >= 0
+        && this.board.pressure[teamSlot(this.board.candidates[this.selfIndex]!.team)] !== 0
+      stepTactics(this.tactics, ti, period, tcfg)
 ```
 
-【為什麼用 `assignments` 而不是掃 `candidates` 找 `t`】那一格已經是「我鎖著
-誰」的權威來源，而且是 O(1)。掃描等於為了一個已經存在的答案再算一次。
+**快取的失效條件要含 `quota`**：掃描與消融會在控制器跑過之後換
+`tacticalConfig`，只以 `selfIndex` 失效的話名額不會重算，整張消融表會是錯的。
+所以欄位是兩個：
+
+```ts
+  private slotSeed = -2
+  private slotQuota = Number.NaN
+  private slotHas = false
+```
+
+`resetTactics()` 要把三個都清掉。
+
+- [ ] **Step 2b：目標的識別要與 `this.target` 同步寫入**
+
+**不能用 `board.assignments[selfIndex]`。** 那一格是 `selectTarget` 與
+`selectWingmanTarget` 寫的，而長機收到集火令時 `this.target` 會被
+`focusTarget` 覆寫、`assignments` **沒有跟著更新**（焦點索引是 `battle` 層
+另外解析的）。集火期間 `assignments` 指的是它原本自由選的那一架 —— 一個錯的
+識別會讓 §7.0 的重置在每一拍都誤觸發。
+
+加一個欄位，在**每一個**寫 `this.target` 的地方同步寫它：
+
+```ts
+  /**
+   * 當前目標在指派板上的索引。−1 = 沒有目標。
+   *
+   * 【為什麼不用 `board.assignments[selfIndex]`】集火時 `this.target` 被
+   * `focusTarget` 覆寫，而 `assignments` 沒有跟著更新。戰術層用它判斷
+   * 「換目標了沒有」，錯的識別會讓計量的重置每一拍都誤觸發。
+   */
+  targetIndex = -1
+```
+
+四個寫入點：
+
+```ts
+      if (this.transit) {
+        this.target = null
+        this.targetIndex = -1          // ← 新增
+        ...
+      } else if (this.board) {
+        this.target = reference ? selectWingmanTarget(...) : selectTarget(...)
+        // ← 新增。這兩支函數就是 assignments 的作者，所以這裡讀它是對的
+        this.targetIndex = this.selfIndex >= 0
+          && this.selfIndex < this.board.assignments.length
+          ? this.board.assignments[this.selfIndex]! : -1
+      }
+      if (this.order !== null && this.order.kind !== 'focus'
+        && reference && this.wingmanState.level > LEVEL_SELF_DEFENCE) {
+        this.target = null
+        this.targetIndex = -1          // ← 新增
+      }
+      if (this.focusTarget !== null && !reference) {
+        this.target = this.focusTarget
+        // ← 新增。集火的權威索引在命令上
+        this.targetIndex = this.order !== null ? this.order.focusIndex : -1
+      }
+```
 
 - [ ] **Step 3：接上覆寫**
 
@@ -1969,7 +2160,9 @@ import {
       && this.order === null
       && !this.rules.defendLatch && !this.rules.extendFloorLatch
     if (tactical) {
-      tacticalCommand(phase, this.sit, this.basis, self, this.seaHeight, tcfg, raw)
+      tacticalCommand(
+        phase, this.sit, this.basis, self, this.seaHeight, this.tacticalConfig, raw,
+      )
     } else {
       steerCommand(
         this.intent, mode, this.sit, this.basis, self, this.seaHeight,
@@ -2045,6 +2238,7 @@ import { PlayerController } from '../../src/control/PlayerController'
 import { createInputState } from '../../src/input/InputState'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_TACTICS } from '../../src/ai/tactics'
+import { replayDigest } from '../tools/spawn-snapshot'
 
 const DT = 1 / 240
 const SECONDS = 30
@@ -2059,7 +2253,7 @@ const SEED = 20260822
  * 跑兩次會不會不一樣」——而那正是 `Math.random`、`Map` 迭代順序、未初始化
  * 記憶體這幾類缺陷的唯一症狀。
  */
-function snapshot(quota: number): number[] {
+async function snapshot(quota: number): Promise<string> {
   const b = createBattle(new PlayerController(createInputState()), DEFAULT_BATTLE, SEED)
   for (const c of b.world.combatants) {
     if (c.controller instanceof AiController) {
@@ -2067,24 +2261,23 @@ function snapshot(quota: number): number[] {
     }
   }
   for (let k = 0; k < Math.round(SECONDS / DT); k++) stepBattle(b, DT)
-  const out: number[] = []
-  for (const c of b.world.combatants) {
-    const p = c.aircraft.state.position
-    out.push(p.x, p.y, p.z, c.hp)
-  }
-  return out
+  // 【用專案既有的那一支】它把完整狀態（含速度、姿態、作動器、指派、彈丸）
+  // 轉成 Float64Array 再做 SHA-256。自己挑幾個欄位比會漏掉整條積分。
+  return replayDigest(b)
 }
 
 describe('同設定雙跑', () => {
-  it('戰術層關掉時兩次完全相同', () => {
-    expect(snapshot(0)).toEqual(snapshot(0))
-  })
+  // 【timeout 不能省】每條各跑兩次 30 秒的 20v20 模擬，而 vitest 預設是
+  // 5 秒。既有的 order-of-battle-replay 給的是 5 分鐘。
+  it('戰術層關掉時兩次完全相同', async () => {
+    expect(await snapshot(0)).toBe(await snapshot(0))
+  }, 300_000)
 
-  it('戰術層開著時兩次也完全相同', () => {
+  it('戰術層開著時兩次也完全相同', async () => {
     // 【這一條才驗得到戰術層自己的決定性】名額用低差異序列而不是亂數、
     // 隊內序號由候選陣列的順序推導 —— 兩者都必須是確定的。
-    expect(snapshot(0.5)).toEqual(snapshot(0.5))
-  })
+    expect(await snapshot(0.5)).toBe(await snapshot(0.5))
+  }, 300_000)
 })
 ```
 
@@ -2099,60 +2292,79 @@ npx vitest run test/integration/replay-determinism.test.ts
 
 - [ ] **Step 3：寫 `quota = 0` 的整合級等價**
 
+**直接與 `order-of-battle-replay` 的既有基準比，而且用同一支 `replayDigest`。**
+
+`toFixed(6)` 不是逐位元——小於 5×10⁻⁷ 的差會被四捨五入掉，而且它只抓位置與
+血量，漏掉速度、姿態、作動器、指派與彈丸。`test/tools/spawn-snapshot.ts` 的
+`replayDigest` 把完整狀態轉成 `Float64Array` 再做 SHA-256，那才是專案的權威
+工具。
+
+**而且「與自己比」證明不了等價。** `digest(0) === digest(0)` 只是同設定雙跑，
+與 `replay-determinism` 重複。真正要證的是**等於 BASE′**（方向修正之後、
+戰術層之前的那個基準）。
+
 新建 `test/integration/tactics-off.test.ts`：
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { PlayerController } from '../../src/control/PlayerController'
-import { createInputState } from '../../src/input/InputState'
+import {
+  Idle, SCENES, SEED, STEPS, DT, replayDigest,
+} from '../tools/spawn-snapshot'
+import { createBattle, stepBattle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_TACTICS } from '../../src/ai/tactics'
-
-const DT = 1 / 240
-const SECONDS = 30
-const SEED = 20260822
+import { BASE } from '../fixtures/spawn-baseline'
 
 /**
- * `quota = 0` 必須與**戰術層上線前**逐位元相同。
+ * 戰術層關掉時，必須與**它上線之前**逐位元相同。
  *
  * 【為什麼單元測試不夠】`stepTactics` 恆回 `off` 只證明那個純函數。
- * `AiController` 整體是否等價還牽涉到：新增的 `Situation` 欄位有沒有被別的
- * 地方讀到、覆寫的順序、早退路徑的推進、以及 `raw` 有沒有被多寫過。
+ * `AiController` 整體是否等價還牽涉到新增的 `Situation` 欄位有沒有被別處
+ * 讀到、覆寫的順序、早退路徑的推進、以及 `raw` 有沒有被多寫過。
  *
- * 【基準是「方向修正之後」那一版，不是最原始的那一版】§4 的方向修正對所有
- * AI 生效、不受 `quota` 控制，所以它必然改變結果。兩件事分兩次裁定，diff
- * 才歸因得清楚。
+ * 【基準是 BASE′，不是最原始的那一版】§4 的方向修正對所有 AI 生效、不受
+ * `quota` 控制，所以它必然改變結果。Task 3 已經重跑過一次基準；這一條比的
+ * 是那一次之後的值。
+ *
+ * 【為什麼把等價寫成永久測試而不是一次性的人工步驟】人工步驟需要「暫時改
+ * 一行預設值、跑、記得改回來」，而那一行如果忘了改回去就會被 commit 進去。
  */
-function digest(quota: number): string {
-  const b = createBattle(new PlayerController(createInputState()), DEFAULT_BATTLE, SEED)
-  for (const c of b.world.combatants) {
-    if (c.controller instanceof AiController) {
-      c.controller.tacticalConfig = { ...DEFAULT_TACTICS, quota }
-    }
-  }
-  for (let k = 0; k < Math.round(SECONDS / DT); k++) stepBattle(b, DT)
-  let s = ''
-  for (const c of b.world.combatants) {
-    const p = c.aircraft.state.position
-    s += `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)},${c.hp}\n`
-  }
-  return s
-}
+describe('戰術層關掉時等於它上線之前', () => {
+  for (const [name, cfg] of Object.entries(SCENES)) {
+    it(`${name}：quota = 0 的 digest 等於基準`, async () => {
+      const b = createBattle(new Idle(), cfg, SEED)
+      for (const c of b.world.combatants) {
+        if (c.controller instanceof AiController) {
+          c.controller.tacticalConfig = { ...DEFAULT_TACTICS, quota: 0 }
+        }
+      }
+      for (let k = 0; k < STEPS; k++) stepBattle(b, DT)
+      expect(await replayDigest(b)).toBe(BASE[`${name}_REPLAY`])
+    }, 300_000)
 
-describe('戰術層關掉時的等價', () => {
-  it('quota = 0 與 quota = 0 的另一次呼叫相同', () => {
-    expect(digest(0)).toBe(digest(0))
-  })
-
-  it('quota = 0.5 與 quota = 0 不同 —— 否則這一層根本沒接上', () => {
-    // 【為什麼要這一條】一個「永遠沒接上」的機制會讓所有等價測試都綠，
-    // 而消融表會顯示「開關沒有差別」—— 那看起來像「這個功能沒用」，
-    // 而不是「這個功能沒裝」。
-    expect(digest(0.5)).not.toBe(digest(0))
-  })
+    it(`${name}：quota = 0.5 的 digest 不同 —— 否則這一層沒接上`, async () => {
+      // 【為什麼要這一條】一個「永遠沒接上」的機制會讓所有等價測試都綠，
+      // 而消融表會顯示「開關沒有差別」—— 那看起來像「這個功能沒用」，
+      // 不是「這個功能沒裝」。
+      const b = createBattle(new Idle(), cfg, SEED)
+      for (const c of b.world.combatants) {
+        if (c.controller instanceof AiController) {
+          c.controller.tacticalConfig = { ...DEFAULT_TACTICS, quota: 0.5 }
+        }
+      }
+      for (let k = 0; k < STEPS; k++) stepBattle(b, DT)
+      expect(await replayDigest(b)).not.toBe(BASE[`${name}_REPLAY`])
+    }, 300_000)
+  }
 })
 ```
+
+**先看 `test/integration/order-of-battle-replay.test.ts` 第 1–50 行**，照抄它
+`import` 的名字與 `BASE` 的 key 形狀（`${name}_REPLAY`）。`Idle` 是那支測試
+用的空控制器；`SCENES` / `SEED` / `STEPS` / `DT` 也都在 `spawn-snapshot` 裡。
+
+**`300_000` 的 timeout 不能省。** vitest 預設 5 秒，而既有那支 30 秒重播明確
+給了 5 分鐘。
 
 - [ ] **Step 4：跑它**
 
@@ -2160,90 +2372,157 @@ describe('戰術層關掉時的等價', () => {
 npx vitest run test/integration/tactics-off.test.ts
 ```
 
-**「`quota = 0.5` 與 `quota = 0` 不同」紅了的話**，表示戰術層根本沒生效。
-檢查順序：名額有沒有算出來（`slotHas`）、`suspended` 是不是恆為 true、
-距離閂鎖有沒有進得去。
+**第一組（`quota = 0` 等於基準）紅了**表示戰術層關掉時沒有關乾淨。診斷順序：
+`stepTactics` 有沒有在 `quota = 0` 時真的恆回 `off`（Task 5 有那條單元測試）
+→ `tacticalCommand` 有沒有被呼叫到 → 新增的 `Situation` 欄位有沒有被別的地方
+讀到。
 
-- [ ] **Step 5：跑既有的重播護欄，記錄結果**
+**第二組（`quota = 0.5` 不同）紅了**表示戰術層根本沒生效。檢查順序：名額有
+沒有算出來（`slotHas`）、`suspended` 是不是恆為 true、距離閂鎖進不進得去。
+
+- [ ] **Step 5：跑既有的重播護欄**
 
 ```
 npx vitest run test/integration/order-of-battle-replay.test.ts
 ```
 
-**預期會紅**（digest 變了）。這是 spec §10.4 的**第二次**裁定。
+**預期全綠。** `DEFAULT_TACTICS.quota` 在開發期間是 0，所以預設路徑上戰術層
+是關掉的，digest 不該變。
 
-**不要自己重跑基準。** 先做 Step 6。
+**紅了的話**表示「關掉」沒有關乾淨——某個東西在 `quota = 0` 時仍然改變了
+行為。診斷順序與 Step 4 相同。**不要重跑基準**：這個階段還沒有任何要求它
+改變的理由。
 
-- [ ] **Step 6：向專案負責人報告**
-
-報告要說清楚：
-
-1. `tactics-off.test.ts` 綠 —— `quota = 0` 內部一致
-2. `replay-determinism.test.ts` 綠 —— 開著也是決定性的
-3. `order-of-battle-replay` 紅
-
-**關鍵問題**：如果戰術層關掉時真的關乾淨，`quota = 0` 應該等於 Task 3 之後
-的那個基準。若 `order-of-battle-replay` 用的預設設定是 `quota = 0.5`
-（`DEFAULT_TACTICS`），那它紅是預期的；但**要另外跑一次把 `DEFAULT_TACTICS`
-的 `quota` 暫時設成 0**，確認那時候 digest 與 Task 3 的基準**完全相同**。
-
-那一次「沒有 diff」就是「關掉時真的關乾淨」的證據，帶著它去請求第二次重跑。
-
-- [ ] **Step 7：裁定通過後重跑基準並 commit**
+- [ ] **Step 6：commit**
 
 ```bash
 git add test/integration/tactics-off.test.ts \
-  test/integration/replay-determinism.test.ts test/fixtures/<基準檔>
-git commit -m "test: 戰術層的等價與決定性護欄，重跑 order-of-battle-replay 基準
+  test/integration/replay-determinism.test.ts
+git commit -m "test: 戰術層的等價與決定性護欄
 
-專案負責人 <日期> 裁定。quota 暫設 0 時 digest 與方向修正後的基準完全
-相同 —— 關掉時真的關乾淨。
+quota = 0 直接與 order-of-battle-replay 的既有基準比，用同一支 replayDigest
+（完整狀態的 SHA-256，含速度、姿態、作動器、指派、彈丸）。自己挑幾個欄位
+比會漏掉整條積分。
+
+把 BASE 等價寫成永久測試而不是一次性的人工步驟 —— 人工步驟需要「暫時改一行
+預設值、跑、記得改回來」，而那一行忘了改回去就會被 commit 進去。
 
 順帶補上專案缺少的「同設定跑兩次結果相同」護欄：rematch.test.ts 測的是換
 設定與效能，order-of-battle-replay 比的是固定基準，兩者都不回答這個問題。"
 ```
-
----
 
 # 階段三：跨層與剩下的止損
 
 ## Task 9：`protectedMask` 與任務壓力止損
 
 **檔案**
-- Modify：`src/ai/target.ts`（`TargetBoard` 加欄位、`createTargetBoard` 收它）
-- Modify：`src/battle/setup.ts`（填它）
-- Modify：`src/ai/AiController.ts`（算 `pressure`）
+- Modify：`src/ai/target.ts`（`TargetBoard` 加兩條、`PRESSURE_RANGE`、`teamSlot`）
+- Modify：`src/battle/setup.ts`（填 `protectedMask`、10 Hz 算 `pressure`）
+- Modify：`src/ai/AiController.ts`（讀 `pressure`）
 - Modify：`test/unit/ai-tactics.test.ts`
 
 **介面**
-- 產出：`TargetBoard.protectedMask: Uint8Array`
+- 產出：`TargetBoard.protectedMask: Uint8Array`、`TargetBoard.pressure: Uint8Array`、
+  `PRESSURE_RANGE`、`teamSlot(team): number`
 
-- [ ] **Step 1：加欄位**
-
-`src/ai/target.ts` 的 `TargetBoard`：
+- [ ] **Step 1：`target.ts` 加兩條資料與兩個常數**
 
 ```ts
   /**
-   * `protectedMask[i] !== 0` = 第 i 架是這一關「要被保護／要被打掉」的那些
-   * （編組表上 `duty === 'transit'`）。**預設全 0。**
+   * `protectedMask[i] !== 0` = 第 i 架是這一關「要被護送／要被攔截」的那些
+   * （編組表上 `duty === 'transit'`）。**預設全 0，不分隊。**
    *
    * 【為什麼不借用 `priority > 1`】那個欄位的正式語意是「目標評分倍率」，
    * 不是角色標籤。某次調整若把 `convoyPriority` 設回 1，任務壓力止損會
    * **無聲消失**，而且沒有任何測試會紅。
-   *
-   * 【為什麼是一條資料而不是一個相依】與 `flightOf`、`priority` 一模一樣的
-   * 理由：`src/ai/` 不准 import `src/battle/`。
-   *
-   * 【它不分隊】消費端用 `candidates[i].team` 自己過濾。護航機要找的是
-   * **我方**的被保護單位，攔截方要找的是**敵方**的。
    */
   readonly protectedMask: Uint8Array
+  /**
+   * `pressure[teamSlot(team)] !== 0` = 那一隊的被保護單位正在被敵機貼上。
+   * **由 `battle` 層每 10 Hz 算一次，全隊共用。**
+   *
+   * 【為什麼不讓每架自己掃】這個值對同隊的每一架**完全相同**，沒有理由
+   * 算 20 次。20v20、4 架被保護單位時，自己掃是每秒 16,000 次距離平方；
+   * 算一次是 3,200 次。而且每架自己掃還要各自處理隊別過濾，多一處會錯。
+   */
+  readonly pressure: Uint8Array
 ```
 
-`createTargetBoard` 加一個可選參數，與 `priority` 完全同型（含長度檢查與
-「省略等於全 0」的註解）。
+```ts
+/**
+ * 敵機多近算「被保護單位正在挨打」，m。
+ *
+ * 【為什麼住在這裡而不是 `TacticalConfig`】它的消費端是 `battle` 層算的那
+ * 一次掃描，而那一層拿不到每架自己的戰術設定。放在資料的旁邊，兩邊讀的
+ * 就是同一個值。**起始值，待掃描。**
+ */
+export const PRESSURE_RANGE = 2000
 
-- [ ] **Step 2：`setup.ts` 填它**
+/**
+ * 隊別對應到 `pressure` 的格子。
+ *
+ * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
+ * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀是「某一
+ * 隊的護航機從來不緊張」。
+ */
+export function teamSlot(team: Team): number {
+  return team === 'blue' ? 0 : 1
+}
+```
+
+`createTargetBoard` 加第四個可選參數 `protectedMask`，長度檢查與 `priority`
+完全同型（照抄那三行的形狀與註解）。`pressure` **不收參數**，一律
+`new Uint8Array(2)`——它是每步重算的輸出，不是設定。
+
+- [ ] **Step 2：寫 `target.ts` 的測試**
+
+加到 `test/unit/ai-target.test.ts`。**這個檔案沒有 describe 層級的 `cs`**
+（現有的 `cs` 都是各個測試裡的區域變數），所以要自己造：
+
+```ts
+describe('指派板的被保護標記', () => {
+  /** 造 n 架的候選陣列。只有 index / team / alive 有意義 */
+  function candidates(n: number): TargetCandidate[] {
+    const out: TargetCandidate[] = []
+    for (let i = 0; i < n; i++) {
+      out.push({
+        index: i,
+        team: (i < n / 2 ? 'blue' : 'red') as Team,
+        alive: true,
+      } as unknown as TargetCandidate)
+    }
+    return out
+  }
+
+  it('省略時 protectedMask 全 0', () => {
+    const cs = candidates(4)
+    const b = createTargetBoard(cs)
+    expect(b.protectedMask.length).toBe(4)
+    for (let i = 0; i < 4; i++) expect(b.protectedMask[i]).toBe(0)
+  })
+
+  it('長度不符要拋', () => {
+    const cs = candidates(4)
+    expect(() => createTargetBoard(cs, undefined, undefined, new Uint8Array(1)))
+      .toThrow()
+  })
+
+  it('pressure 恆為兩格，起始全 0', () => {
+    const b = createTargetBoard(candidates(4))
+    expect(b.pressure.length).toBe(2)
+    expect(b.pressure[0]).toBe(0)
+    expect(b.pressure[1]).toBe(0)
+  })
+
+  it('teamSlot 兩隊不同格', () => {
+    expect(teamSlot('blue')).not.toBe(teamSlot('red'))
+    expect(teamSlot('blue')).toBeGreaterThanOrEqual(0)
+    expect(teamSlot('red')).toBeLessThan(2)
+  })
+})
+```
+
+- [ ] **Step 3：`setup.ts` 填 `protectedMask`**
 
 找到 `priority` 那三行（`setup.ts:494` 附近）：
 
@@ -2259,85 +2538,116 @@ git commit -m "test: 戰術層的等價與決定性護欄，重跑 order-of-batt
   )
 ```
 
-- [ ] **Step 3：寫測試**
+- [ ] **Step 4：`setup.ts` 每 10 Hz 算一次 `pressure`**
+
+`Battle` 加一個欄位（放在 `blueCommand` 那幾行附近）：
+
+```ts
+  /** 距離下次重算任務壓力還有多久，s。見 `stepPressure` */
+  pressureTimer: number
+```
+
+`createBattle` 的回傳物件裡給 `pressureTimer: 0`（**起始為 0，第一步就算一
+次**——開局正是護航機該知道轟炸機有沒有被咬的時候）。
+
+`resetBattle` 要把它設回 0。
+
+新增函數，放在 `stepCommandLayer` 旁邊：
+
+```ts
+/**
+ * 重算兩隊的任務壓力，寫進 `board.pressure`。
+ *
+ * 「這一隊的被保護單位有沒有敵機貼上來」對同隊的每一架**完全相同**，所以
+ * 算一次全隊共用（見 `TargetBoard.pressure`）。
+ *
+ * 【為什麼是 10 Hz 而不是每步】它是一個慢變量，而且是戰術層 10 Hz 決策的
+ * 輸入。每步算等於把成本乘 24。
+ *
+ * 【非護送關卡的成本是零】`protectedMask` 全 0 時外層迴圈直接跑完，一次
+ * 距離平方都不算。
+ *
+ * 熱路徑：不配置。
+ */
+function stepPressure(b: Battle, dt: number): void {
+  b.pressureTimer -= dt
+  if (b.pressureTimer > 0) return
+  b.pressureTimer += 1 / AI_DECISION_HZ
+
+  const board = b.board
+  const cs = board.candidates
+  const mask = board.protectedMask
+  const out = board.pressure
+  out[0] = 0
+  out[1] = 0
+
+  const r2 = PRESSURE_RANGE * PRESSURE_RANGE
+  for (let i = 0; i < cs.length; i++) {
+    if (mask[i] === 0) continue
+    const ward = cs[i]!
+    if (!ward.alive) continue
+    const slot = teamSlot(ward.team)
+    if (out[slot] !== 0) continue        // 這一隊已經成立，不必再找
+    const wp = ward.aircraft.state.position
+    for (let k = 0; k < cs.length; k++) {
+      const foe = cs[k]!
+      if (!foe.alive || foe.team === ward.team) continue
+      if (foe.aircraft.state.position.distanceToSquared(wp) < r2) {
+        out[slot] = 1
+        break
+      }
+    }
+  }
+}
+```
+
+在 `stepBattle` 裡呼叫，**排在 `stepCommandLayer` 之後**（兩者都讀當步的
+存活狀態，順序一致比較好讀）：
+
+```ts
+  stepCommandLayer(b, dt)
+  stepPressure(b, dt)
+```
+
+**`b.board` 是不是這個名字要先確認**——`createBattle` 裡建的那個
+`createTargetBoard(...)` 存在哪個欄位上，照實際的寫。
+
+- [ ] **Step 5：`AiController` 讀它**
+
+Task 7 Step 2 的（乙）已經寫了那一行：
+
+```ts
+      ti.pressure = this.board !== null && this.selfIndex >= 0
+        && this.board.pressure[teamSlot(this.board.candidates[this.selfIndex]!.team)] !== 0
+```
+
+這一步只要把 `teamSlot` 加進 import。**O(1)，沒有掃描。**
+
+- [ ] **Step 6：戰術層的測試**
 
 加到 `test/unit/ai-tactics.test.ts`：
 
 ```ts
   it('任務壓力讓 perch 直接俯衝，不等承諾', () => {
     const s = createTacticalState()
-    run(s, input(), 1)
+    run(s, input({ energyRatio: 0 }), 1)
     run(s, input({ energyRatio: 0.6 }), 1)
     expect(s.phase).toBe('perch')
     // psTarget 是正的（他沒有在耗能量），承諾判準完全不成立
     run(s, input({ energyRatio: 0.6, psTarget: 5, pressure: true }), 1)
     expect(s.phase).toBe('dive')
   })
-```
 
-加到 `test/unit/ai-target.test.ts`（或該檔案對應的測試）：
-
-```ts
-  it('protectedMask 省略時全 0', () => {
-    const b = createTargetBoard(cs)
-    expect(b.protectedMask.length).toBe(cs.length)
-    for (let i = 0; i < cs.length; i++) expect(b.protectedMask[i]).toBe(0)
-  })
-
-  it('protectedMask 的長度必須等於候選數', () => {
-    expect(() => createTargetBoard(cs, undefined, undefined, new Uint8Array(1)))
-      .toThrow()
+  it('沒有壓力時承諾判準照舊', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), 1)
+    run(s, input({ energyRatio: 0.6 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: 5, pressure: false }), 5)
+    expect(s.phase).toBe('perch')
   })
 ```
 
-- [ ] **Step 4：`AiController` 算 `pressure`**
-
-在 `decide` 區塊裡（**10 Hz**，不要放 240 Hz）：
-
-```ts
-      // 【任務壓力】敵機貼到我方被保護單位身上時，不等承諾姿態，立刻下去。
-      //
-      // 【成本】敵機 × 被保護單位的配對掃描。護送卡只有 4 架被保護單位，
-      // 40 × 4 = 160 次距離平方，10 Hz。非護送關卡 `protectedMask` 全 0，
-      // 第一層迴圈就跳掉。
-      //
-      // 【隊別要用候選板推導】`Aircraft` 沒有 team，而 `scanThreat` 已經是
-      // 這樣做的。不得寫成 `self.team`。
-      this.pressure = this.scanPressure()
-```
-
-```ts
-  /** 我方的被保護單位有沒有敵機貼上來 */
-  private scanPressure(): boolean {
-    const b = this.board
-    if (b === null || this.selfIndex < 0) return false
-    const me = b.candidates[this.selfIndex]
-    if (me === undefined) return false
-    const r = this.tacticalConfig.pressureRange
-    const r2 = r * r
-    const cs = b.candidates
-    for (let i = 0; i < cs.length; i++) {
-      if (b.protectedMask[i] === 0) continue
-      const ward = cs[i]!
-      if (!ward.alive || ward.team !== me.team) continue
-      for (let k = 0; k < cs.length; k++) {
-        const foe = cs[k]!
-        if (!foe.alive || foe.team === me.team) continue
-        if (foe.aircraft.state.position
-          .distanceToSquared(ward.aircraft.state.position) < r2) return true
-      }
-    }
-    return false
-  }
-```
-
-【座標從 `aircraft` 拿】`TargetCandidate` 只有 `index` / `aircraft` / `team` /
-`alive` 四個欄位，**沒有** `position`。
-
-然後把 `ti.pressure = false` 改成 `ti.pressure = this.pressure`，並加一個
-私有欄位 `private pressure = false`。
-
-- [ ] **Step 5：跑測試**
+- [ ] **Step 7：跑測試**
 
 ```
 npx vitest run test/unit/ai-tactics.test.ts test/unit/ai-target.test.ts
@@ -2345,35 +2655,39 @@ npx vitest run test/integration/tactics-off.test.ts
 npx tsc --noEmit
 ```
 
-`tactics-off` 的第一條**必須還是綠的**——`protectedMask` 在遭遇戰全 0，
-不該改變任何東西。
+`tactics-off` **必須還是綠的**——遭遇戰的 `protectedMask` 全 0，`pressure`
+恆為 0，不該改變任何東西。
 
-- [ ] **Step 6：效能檢查**
+- [ ] **Step 8：效能檢查**
 
 ```
 npx vitest run test/unit/perf-gate.test.ts
 ```
 
-紅了的話**先量**：把 `scanPressure` 暫時改成 `return false` 再跑一次，確認
-是不是它造成的。是的話再想辦法（例如先算一次「我方有沒有被保護單位」快取
-起來），**不要放寬效能門檻**。
+【注意 `perf-gate` 量不到護送的最壞情況】它用 `DEFAULT_BATTLE`，那是沒有
+convoy 的殲滅戰，所以 `protectedMask` 全 0、`stepPressure` 一次距離平方都
+不算。**要另外手動量一次護送卡**：
 
-- [ ] **Step 7：commit**
+```
+npx tsx -e "..."   ← 用 Task 10 的探針順便量
+```
+
+真實的最壞情況是 20v20 + 4 架被保護單位：每 tick 最多 4 × 40 = 160 次距離
+平方、10 Hz，也就是每秒 1,600 次。這比每架自己掃的 16,000 次低一個數量級。
+
+- [ ] **Step 9：commit**
 
 ```bash
 git add src/ai/target.ts src/ai/AiController.ts src/battle/setup.ts \
   test/unit/ai-tactics.test.ts test/unit/ai-target.test.ts
-git commit -m "feat: TargetBoard 加 protectedMask，接上任務壓力止損
+git commit -m "feat: 任務壓力止損 —— protectedMask 與全隊共用的 pressure
 
-用專用欄位而不是借用 priority > 1 —— 那個欄位的語意是評分倍率，某次調整
-若把 convoyPriority 設回 1，任務壓力會無聲消失而且沒有測試會紅。
+用專用欄位而不是借用 priority > 1：那個欄位的語意是評分倍率，某次調整若把
+convoyPriority 設回 1，任務壓力會無聲消失而且沒有測試會紅。
 
-非護送關卡 protectedMask 全 0，這道止損自動不作用。"
+壓力由 battle 層每 10 Hz 算一次全隊共用，不是每架自己掃 —— 那個值對同隊的
+每一架完全相同，自己掃是每秒 16,000 次距離平方，算一次是 1,600 次。"
 ```
-
----
-
-# 階段四：量測與回填
 
 ## Task 10：`energy-cycle.probe.ts`
 
@@ -2407,11 +2721,30 @@ npx tsx test/tools/energy-cycle.probe.ts
 ```
 
 `buildMax` 的回填規則：**取「`energyRatio` 從 0 建到 `perchEnter` 需要多久」
-的 p90**，也就是 `perchEnter / (psSelf − psTarget 的能量比率化速率)` 的 p90，
-再加三成餘裕。
+的 p90，再加三成餘裕。**
 
-【為什麼是 p90 不是中位】期限是一道**止損**，它該擋掉的是異常慢的那些，不是
-一半的人。訂在中位等於一半的循環永遠跑不完。
+**單位要換算，不能直接除。** `psSelf − psTarget` 的單位是 **m/s**（比能量的
+變化率），而 `energyRatio` 是**無因次**的。兩者差一個尺標：
+
+```
+d(energyRatio)/dt = (psSelf − psTarget) / (vc² / 2 G0)
+```
+
+`vc` = 自己在**當下高度**的 `manoeuvreSpeed`。**這個尺標隨高度變**，所以探
+針要逐格算、取分布，不能用一個代表值反推。
+
+探針要輸出的是 `d(energyRatio)/dt` 的分布（中位、p10、p90），然後：
+
+```
+buildMax = perchEnter / p10(d(energyRatio)/dt) × 1.3
+```
+
+**取 p10 而不是中位**：期限是一道止損，它該擋掉的是異常慢的那些，不是一半
+的人。用 p10 的速率算出來的就是「九成的循環跑得完」的時間。
+
+【為什麼不能用自己的爬升率反推】舊版的推導是「109 爬 630 m 要多久」，那把
+「爬升」與「加速」當成兩份可以相加的收益 —— 但它們是**同一份比能量**的分配，
+而且敵人同時也在累積能量。用 `psSelf − psTarget` 才是相對的建能速率。
 
 把量到的值寫回 `DEFAULT_TACTICS.buildMax`，並在註解裡記下量到的分布。
 
@@ -2687,7 +3020,47 @@ git commit -m "docs: backlog §2.0 收尾 —— AI 主動能量經營
 以及護送卡的 convoyPriority 偏置（那張卡的 extend 佔時是 0.0%）。"
 ```
 
-- [ ] **Step 8：交 Codex 審程式碼**
+- [ ] **Step 8：翻開預設並重跑基準（第二次裁定）**
+
+到這一步，**所有出貨參數都已經定案**（`buildMax` 由 Task 10 回填、`quota`
+由 Task 12 的消融表決定）。現在才把預設翻開：
+
+```ts
+  quota: 0.5,     // ← 由 0 翻成 Task 12 定案的值
+```
+
+【為什麼拖到現在】戰術層一開就會改變 `order-of-battle-replay` 的 digest，
+而每重跑一次基準都要專案負責人裁定。開發期間預設出 0 的話那條測試全程是
+綠的，**只需要這一次重跑**。若在 Task 8 就翻開，Task 10 改 `buildMax` 會
+再推翻一次，變成要裁定兩次而且第二次的 diff 混了兩個原因。
+
+跑：
+
+```
+npx vitest run test/integration/order-of-battle-replay.test.ts
+```
+
+**預期會紅。** 向專案負責人報告，內容要包含：
+
+1. `tactics-off.test.ts` 全綠 —— 關掉時逐位元等於基準（這是「diff 全部
+   來自戰術層、沒有別的東西混進來」的證據）
+2. `replay-determinism.test.ts` 全綠 —— 開著也是決定性的
+3. Task 12 的消融表與通用性表
+4. 請求重跑 `order-of-battle-replay` 的基準
+
+裁定通過後重跑並 commit：
+
+```bash
+git add src/ai/tactics.ts test/fixtures/<基準檔>
+git commit -m "feat: 戰術層預設上線，重跑 order-of-battle-replay 基準
+
+專案負責人 <日期> 裁定。quota 由開發期間的 0 翻成 <定案值>。
+
+tactics-off 全綠證明關掉時仍逐位元等於舊基準，所以這次的 diff 全部來自
+戰術層本身，沒有別的東西混進來。"
+```
+
+- [ ] **Step 9：交 Codex 審程式碼**
 
 `codex exec -s danger-full-access`，prompt 走 stdin，**背景執行**。
 
@@ -2695,7 +3068,7 @@ git commit -m "docs: backlog §2.0 收尾 —— AI 主動能量經營
 spec 寫的那樣、`tacticalCommand` 四個欄位有沒有漏寫、`resetTactics` 有沒有
 漏掉某個欄位。
 
-- [ ] **Step 9：交專案負責人試玩驗收**
+- [ ] **Step 10：交專案負責人試玩驗收**
 
 ---
 

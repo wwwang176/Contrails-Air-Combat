@@ -554,7 +554,13 @@ build」確實是主要失效模式，再把它加回來。
 
 ### 7.3 任務壓力
 
-被保護單位正在挨打時，立刻 `dive`，不等承諾姿態。
+**我方**的被保護單位正在挨打時，立刻 `dive`，不等承諾姿態。攔截方沒有自己
+的被保護單位，所以這道止損對它自動不作用。
+
+**由 `battle` 層每 10 Hz 算一次、全隊共用**，寫進 `TargetBoard.pressure`
+（兩格，一隊一格）。這個值對同隊的每一架完全相同，讓每架自己掃是把同一件事
+算 20 次：20v20、4 架被保護單位時，自己掃是每秒 16,000 次距離平方，算一次
+是 1,600 次。
 
 **`TargetBoard` 加一條專用的 `protectedMask: Uint8Array`**，由 `battle` 層
 在填 `priority` 的同一個迴圈填（`setup.ts:494`），與 `flightOf`、`priority`
@@ -767,7 +773,7 @@ test/unit/ai-steer.test.ts   17 處呼叫要更新簽名
 
 | 參數 | 起始值 | 來源 |
 |---|---|---|
-| `quota` | 0.5 | 一半的人打 boom and zoom |
+| `quota` | 0.5 | 一半的人打 boom and zoom。**開發期間預設出 0**，所有參數定案後才翻開，這樣 `order-of-battle-replay` 的基準只需要重跑一次 |
 | `enterRange` | 2500 | `FLANK_RANGE`，既有常數 |
 | `exitRange` | 1500 | `focusRange`，既有常數 |
 | `perchEnter` | 0.50 | 見 §11.1 |
@@ -785,7 +791,7 @@ test/unit/ai-steer.test.ts   17 處呼叫要更新簽名
 | `cycleLossMax` | 0.30 | `perchEnter` 的六成 |
 | `dryRounds` | 2 | 兩輪沒打到就是這個戰術對這個對手無效 |
 | `perchRange` | 2000 m | 在 `enterRange` 與 `exitRange` 之間 |
-| `pressureRange` | 2000 m | 同上 |
+| `PRESSURE_RANGE` | 2000 m | 住在 `target.ts` 而不是 `TacticalConfig` —— 消費端是 `battle` 層算的那一次掃描，那一層拿不到每架自己的設定 |
 
 ### 11.1 `perchEnter` 的推導與它的極限
 
@@ -860,8 +866,11 @@ d(energyAdvantage)/dt = psSelf − psTarget
 
 - 化簡等價：`max(...)` 恆等於 `(max(Vc, Vt) − Vs) / Vc`
 - `speedAdvantage` 極負時**恆為低頭**，不管 `cornerRatio` 多高
-- `speedAdvantage = 0` 時與改動前**逐位元相同**（那是 `foeDeficit = 0`，
-  只有 `selfDeficit < 0` 時才有差；這一條要把兩種情形都列）
+- **逐位元相同的條件是 `speedAdvantage = Infinity`（相對敵人沒有赤字），
+  不是 0。** `foeDeficit = -0 = 0`，而 `max(selfDeficit, 0)` 在
+  `selfDeficit < 0`（速度過剩）時給 0 而不是 `selfDeficit` —— 那正是這次
+  要改的那一半。兩種情形都要有測試：`cornerRatio < 1` 時兩者相同，
+  `cornerRatio > 1` 時新版不再無條件爬升。
 - 兩者都是盈餘時才爬升
 - 離地餘裕那一項不受影響
 - **§4.4 的三類反例各一條**：近距離高速交叉、同向追逐、戰鬥機對轟炸機。
