@@ -484,6 +484,23 @@ describe('上帝視角的 HUD', () => {
     expect(line).not.toContain('off')
   })
 
+  it('extend 的理由緊跟在意圖後面', () => {
+    const f = createHudFrame()
+    f.aiIntent = 'extend'
+    f.aiMode = 'normal'
+    f.aiExtendWhy = '迴旋'
+    // 【為什麼要釘位置】理由修飾的是意圖，不是另一項讀數。
+    // 拆開兩格會讓人以為它是一個獨立的狀態
+    expect(aiStateLine(f)).toContain('extend（迴旋）')
+  })
+
+  it('不是 extend 時不印理由', () => {
+    const f = createHudFrame()
+    f.aiIntent = 'engage'
+    f.aiExtendWhy = ''
+    expect(aiStateLine(f)).not.toContain('（')
+  })
+
   it('戰術相位不是 off 時才多印一格', () => {
     const f = createHudFrame()
     f.aiIntent = 'engage'

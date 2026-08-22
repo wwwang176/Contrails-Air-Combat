@@ -178,6 +178,16 @@ export interface HudFrame {
   aiMode: string
   aiPhase: string
   /**
+   * 意圖是 `extend` 時，**是哪一個閂鎖把它推過去的**：能量／迴旋／見底。
+   * 其餘意圖時是空字串。
+   *
+   * 【為什麼要分到這個細度】三個理由要修的東西完全不同 ——「比他弱」是相對
+   * 的戰術判斷、「轉不贏他」是機體，「我飛不動了」是絕對的自保。人工回報
+   * 「它又直直飛了」在畫面上長得一模一樣，但那三種各自對應到不同的一段程式。
+   * 這一格是把「只有人看得到的現象」接上「只有程式知道的成因」的唯一途徑。
+   */
+  aiExtendWhy: string
+  /**
    * 是否在上帝視角（`G`）。
    *
    * 為真時 `worldX` / `worldZ` / `heading` 填的是**鏡頭**的，不是自機的 ——
@@ -250,6 +260,7 @@ export function createHudFrame(): HudFrame {
     aiIntent: '',
     aiMode: '',
     aiPhase: '',
+    aiExtendWhy: '',
     godView: false,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
