@@ -132,6 +132,8 @@ engage 佔時          2.2%      同一批 AI 在掃蕩卡是 28.3%
   `src/ai/tactics.ts`。
 - 四道量化止損（§7）。
 - 配額（§8），兼作消融旋鈕。
+- `TargetBoard` 加一條 `protectedMask`（§7.3）。這是 `src/battle/` 唯一的
+  改動，與 `priority`、`flightOf` 完全同型。
 - 逐機型、逐卡片的通用性驗收表（§10）。
 
 **不做**（各有理由，不是遺漏）：
@@ -152,14 +154,11 @@ engage 佔時          2.2%      同一批 AI 在掃蕩卡是 28.3%
 專案負責人 2026-08-22：「要注意每種機型、情境都要適用，如果真的沒辦法適用，
 可以考慮按機型、情境分開定義。」
 
-**判準一律寫成無因次的相對量**，用**自己的角落速度**當分母。這樣同一個數字
-對 109 對 P-51、P-51 對 109、109 對 B-17 全部成立，不必分機型。
+**判準一律寫成無因次的相對量**，用**自己的角落速度**當分母。
 
 `cornerRatio` 的病根不是「它是絕對值」——它已經是無因次的——而是**它自我
 參照**（TAS ÷ 自己的角落速度，看不到敵人）。替代量同樣無因次，但看的是兩者
 的**關係**。
-
-情境同理：判準是幾何與能量的函數，不是任務類型的函數，所以七張卡自動生效。
 
 `Situation.cornerRatio` 的欄位註解自己就寫著這個區分：
 
@@ -167,15 +166,30 @@ engage 佔時          2.2%      同一批 AI 在掃蕩卡是 28.3%
 
 程式碼早就知道要分開，`extendPitchAngle` 只是拿錯了那一個。
 
-**退路**：§10 的驗收要逐機型、逐卡片列出同一組參數的表現。若真的找不到共用
+### 3.1 無因次化能宣稱什麼、不能宣稱什麼
+
+**能宣稱**：同一個數字在不同機種、不同高度上代表**同一件事**——「敵我的差
+佔我自己操縱尺度的多少」。所以參數不必按機型分。
+
+**不能宣稱**：不同機種配對有**相同的戰術意義**。分母只有自己的角落速度，
+沒有敵方的包絡、沒有航向、沒有雙方的最大平飛速度。戰鬥機對轟炸機時
+（角落速度差很大）這個量仍然有定義，但它不是對稱的優勢度量。
+
+**因此 §10.1 的驗收必須把「戰鬥機對轟炸機」列成獨立的一格**，不能靠無因次化
+直接宣告成立。
+
+情境同理：判準是幾何與能量的函數，不是任務類型的函數，所以七張卡自動生效。
+
+**退路**：§10.1 的驗收要逐機型、逐卡片列出同一組參數的表現。若真的找不到共用
 值，才退到分開定義，而且那時候它是負責人的裁定。
 
 ## 4. 方向修正
 
 ### 4.1 `Situation` 加兩個無因次欄位
 
-兩者都在 `evaluateEnergy` 裡算，那裡已經有雙方的 TAS 與各自的角落速度，
-成本接近零。**分母與 `cornerRatio` 是同一個**——那是既有紀律。
+兩者都在 `evaluateEnergy` 裡算。**分母與 `cornerRatio` 是同一個**——那是既有
+紀律，而且 `evaluateEnergy` 現在就已經算了自己的 `manoeuvreSpeed`
+（`assess.ts:269`），新公式也只需要自己的那一個。
 
 ```ts
 /**
@@ -184,14 +198,19 @@ engage 佔時          2.2%      同一批 AI 在掃蕩卡是 28.3%
 speedAdvantage: number
 
 /**
- * `energyAdvantage` ÷ 我的角落速度動能高度（vc² / 2g）。正 = 我能量多。
+ * `energyAdvantage` ÷ 我的角落速度**動能高度**（vc² / 2g）。正 = 我能量多。
  */
 energyRatio: number
 ```
 
-`vc² / 2g` 是「把角落速度的動能全部換成高度會有多高」，是這架飛機在這個
-高度的天然能量尺標。用它正規化之後，`energyRatio = 0.5` 對任何機種都是
-「我比他多半個角落速度的能量」。
+`vc² / 2g` 是「把角落速度的動能全部換成高度會有多高」。`energyRatio = 0.5`
+的意思是「我比他多半個**角落速度動能高度**」——**不是**「半個角落速度的
+能量」，動能與速度平方成正比。
+
+**分頻**：兩者與 `cornerRatio` 一樣是 `evaluateEnergy` 算的，也就是 10 Hz
+取樣、240 Hz 保持。這不是新引入的性質——現行的 `cornerRatio` 就是這樣供
+`steerCommand` 用的（`AiController.ts:393`、`steer.ts:1454`）。TAS 在 100 ms
+內比近距離幾何慢變，合理。
 
 ### 4.2 `extendPitchAngle` 換算式
 
@@ -202,9 +221,25 @@ const speedDeficit = selfDeficit > foeDeficit ? selfDeficit : foeDeficit
 const raw = -cfg.pitchSpeedGain * speedDeficit + cfg.pitchAltitudeGain * altitudeDeficit
 ```
 
-**沒有新參數，沒有距離門檻。** `max` 有折點但沒有翻號，所以不會產生
-`extendPitchAngle` 註解裡記的那個極限環（舊版用兩個裸門檻決定爬或衝，跨線
-瞬間翻號，在 1000 m 線上震盪 40 秒）。
+**沒有新參數，沒有距離門檻。**
+
+### 4.3 這條規則實際上在說什麼
+
+化簡（`Vs` = 我的 TAS、`Vc` = 我的角落速度、`Vt` = 他的 TAS）：
+
+```
+selfDeficit = (Vc − Vs) / Vc
+foeDeficit  = (Vt − Vs) / Vc
+max(...)    = (max(Vc, Vt) − Vs) / Vc
+```
+
+所以新規則是：**只有當我的 TAS 同時高過「我自己的角落速度」與「敵人的
+TAS」才爬升，否則低頭。**
+
+這比原本的說法準確。**先前寫的「近距離自動維持現行行為」不成立**——哪一項
+主導只取決於 `Vt > Vc`，與距離無關。§1.3 的量測表看起來像是保持了現行行為，
+那是因為近距離纏鬥中雙方都低於角落速度（`Vt < Vc`），所以 `selfDeficit`
+主導。**那是那些局面的統計規律，不是結構保證。**
 
 代進 §1.3 的實測值：
 
@@ -216,10 +251,36 @@ const raw = -cfg.pitchSpeedGain * speedDeficit + cfg.pitchAltitudeGain * altitud
 攔截  3642m      -0.59        +0.19      foe       低頭（現行是滿舵爬升 25°）
 ```
 
-**近距離自動維持現行行為**（纏鬥中自我赤字主導），**遠距離自動翻正**（那裡
-相對赤字主導）。這個性質不是設計出來的，是兩個量各自的物理意義帶來的。
+### 4.4 三類已知的反例，全部要有測試
 
-### 4.3 簽名
+**（一）近距離但敵機很快。** `Vc = 160`、`Vs = 176`、`Vt = 208`：舊值
+`selfDeficit = −0.10` 爬升，新值 `foeDeficit = +0.20` 低頭。低頭會增加接近率
+與轉彎半徑，**可能讓超前更糟**。現行的超前攔截只在 `range < 120 m &&
+closureRate > 0` 才觸發（`steer.ts:1035`），所以 120 m 之外仍有反例。
+
+**（二）TAS 差沒有方向資訊。** 敵機迎面飛來、橫越、同向逃跑都可能得到相同的
+`speedAdvantage`。把它解讀成「追不上」只在**大致同向**時可靠。
+
+**（三）戰鬥機對轟炸機。** 角落速度差很大時這個量的戰術意義不同（見 §3.1）。
+
+**這三類是 §12.2 的測試，不是延後事項。** 若量測顯示（一）真的讓超前變糟，
+下一步是把 `foeDeficit` 乘上一個由 `angleOffTail` 導出的連續權重（追擊 → 1、
+橫越 → 0、迎面 → 0），而不是加距離門檻——那會引入新的翻號點。**這一步刻意
+不先做**：多一層權重就多一組要掃描的東西，而現在還不知道它需不需要。
+
+### 4.5 連續性的宣稱要收窄
+
+`max` 的兩個分支在交界處**數值相等**，所以不會像裸門檻那樣瞬間跳變——那個
+機制（`steer.ts:1157` 記的、在 1000 m 線上震盪 40 秒的那次）確實被消除了。
+
+**但推不出「所以不會有極限環」。** `max` 的輸出仍會在 `Vs = max(Vc, Vt)` 穿過
+零，加上高度項還有第二條零線，而整個迴路含 10 Hz 取樣、240 Hz 執行、飽和、
+俯仰慣性與反應延遲。連續的非線性閉迴路照樣可能振盪。
+
+**正確的宣稱**：不會在兩個 `max` 分支的交界處產生不連續的指令。**震盪要靠
+§12.2 的測試與 §10 的量測排除，不能靠這個論證。**
+
+### 4.6 簽名
 
 ```ts
 export function extendPitchAngle(
@@ -230,9 +291,11 @@ export function extendPitchAngle(
 ): number
 ```
 
-呼叫端只有 `steer.ts` 內部一處。`test/tools/extend-pitch.probe.ts` 與
-`test/tools/climb-blame.probe.ts` 要跟著改（它們是探針不是測試）。**沒有任何
-單元測試直接呼叫它**，已查證。
+**`test/unit/ai-steer.test.ts` 有 17 處直接呼叫它，全部要更新。**（先前的
+spec 寫「沒有任何單元測試直接呼叫」是錯的，那次 grep 被 `head` 截斷。）
+
+`test/tools/extend-pitch.probe.ts` 要跟著改。`test/tools/climb-blame.probe.ts`
+**只有註解提到**，不必改。
 
 ## 5. 六個狀態
 
@@ -248,49 +311,93 @@ zoom      一輪射擊結束 → 拉起爬回
 cooldown  止損 → 強制脫離一段時間
 ```
 
-循環是 `build → perch → dive → zoom → build`；`cooldown` 是止損出口，
-結束後回 `off`（下一個決策節拍重新判斷能不能進 `build`）。
+循環是 `build → perch → dive → zoom → build`；`cooldown` 是止損出口。
 
 ### 5.1 轉移一律走閂鎖，不得有裸門檻
 
-`rules.ts` 已經有 `latch(active, value, enter, exit)`，`Intent` 那六個狀態
-就是靠它加 `minDwell` 才沒有震盪。戰術層照抄，理由與 §4.2 引的那次極限環
-完全相同：**FSM 本質上就是「用門檻決定爬或衝」**。
+`rules.ts:29` 的 `latch(active, value, enter, exit)` 依賴**獨立的 `active`
+記憶**，而 `stepRules` 每個決策節拍更新**所有**閂鎖，即使那一拍沒有選到那個
+意圖（`rules.ts:297`）。戰術層要真的照抄這個語意：
+
+- **`perchLatch` 是獨立的欄位**，不得用 `phase === 'perch'` 代替
+- 它在 `build` / `perch` / `dive` / `zoom` **全程**更新，不只在 `perch` 時
+- 由 `zoomMax` 強制回 `build` 而 `perchLatch` 仍為真時，**允許**在 `minDwell`
+  之後直接回 `perch`（能量本來就還在，不該再存一次）
+
+理由與 §4.5 引的那次極限環相同：**FSM 本質上就是「用門檻決定爬或衝」。**
 
 每個狀態有最短停留 `minDwell`，`cooldown` 除外（它自己就是計時的）。
 
-### 5.2 逐條轉移
+### 5.2 轉移的優先序
+
+**同一拍可能有多條轉移成立，順序不同會產生不同的戰術。** 由高到低：
+
+```
+1. 強制離場   命令／transit／目標消失／名額取消／selfIndex < 0  → off
+2. 絕對止損   §7.1 的建能期限、§7.4 的能量帳                    → cooldown
+3. 任務壓力   §7.3                                              → dive
+4. 期限出口   perchMax → dive、diveMax → zoom、zoomMax → build
+5. 條件轉移   perchLatch、承諾姿態、通過判定
+```
+
+於是先前含糊的三處有了答案：
+
+- `build` 同時達到 `perchEnter` 與建能期限 → **`cooldown` 贏**（第 2 級高於
+  第 5 級）。理由：期限到了表示這一輪的建能不健康，帶著它進 `perch` 只是把
+  問題延後。
+- `perch` 同時要 `dive`（承諾）與要 `build`（能量掉破 `perchExit`）→
+  **`dive` 贏**（第 3、4 級高於第 5 級）。理由：承諾姿態是稍縱即逝的，能量
+  掉一點還打得到。
+- `cooldown` 倒數歸零 → **一律先回 `off` 停一拍**，下一個決策節拍才重新判斷
+  能不能進 `build`。理由見 §5.4。
+
+### 5.3 距離閘門與再進入
+
+距離閘門只在 `off → build`：進入用 `FLANK_RANGE`（2500）、離開用 `focusRange`
+（1500）。**直接用指揮層已經在用的那一對**，免費得到遲滯，也不發明第二套幾何。
+
+進了循環之後不再受距離限制——否則 `dive` 一貼近就掉出戰術層，`zoom` 永遠做
+不出來。
+
+### 5.4 永久循環的出口
+
+只靠距離閘門會產生一個永久迴圈：
+
+```
+build 45s → cooldown 12s → off → 因為仍然很遠，立刻 build → …
+```
+
+**這正好會把原問題換成另一種永久循環**，所以必須有出口：
+
+- `cooldown` 結束後回 `off`，而 `off → build` 額外要求**下列任一**成立：
+  **目標換過**，或 `energyRatio` 比進入上一輪 `cooldown` 時**高**。
+- 也就是：同一個目標、同樣打不動的能量狀態，不會一直重試。
+
+這個條件用一個 `lastCooldownRatio` 欄位就夠，不需要新參數。
+
+### 5.5 逐條轉移
 
 | 從 | 到 | 條件 |
 |---|---|---|
-| `off` | `build` | 有名額 && `order === null` && `!transit` && 有目標 && `range` 閂鎖在「遠」 |
-| `build` | `perch` | `latch(energyRatio, perchEnter, perchExit)` 為真 |
-| `build` | `cooldown` | 建能期限或建能率止損（§7.1） |
-| `perch` | `dive` | 目標承諾姿態閂鎖為真，**或**待機期限到，**或**任務壓力（§7.2、§7.3） |
-| `perch` | `build` | 閂鎖掉回 `perchExit` 之下——能量花掉了就回去再存，不是止損 |
-| `dive` | `zoom` | 射擊窗結束：`closureRate` 由正轉負持續 `passSeconds` |
-| `dive` | `zoom` | `diveMax` 到期。**進場沒打到也要拉起**，否則它會退化成一路追擊 |
-| `zoom` | `build` | `zoomMin` 已過，且（`energyRatio` 回到 `perchExit` 或 `zoomMax` 到期） |
-| 任何 | `off` | 收到命令、`transit`、目標消失、名額被取消 |
+| `off` | `build` | 有名額 && `selfIndex >= 0` && `order === null` && `!transit` && 有目標 && 距離閂鎖在「遠」 && §5.4 的再進入條件 |
+| `build` | `cooldown` | 建能期限（§7.1） |
+| `build` | `perch` | `perchLatch` 為真 |
+| `perch` | `dive` | 承諾姿態閂鎖為真、待機期限到、或任務壓力（§7.2、§7.3） |
+| `perch` | `build` | `perchLatch` 掉回假——能量花掉了就回去再存，不是止損 |
+| `dive` | `zoom` | 射擊窗結束（`closureRate` 由正轉負持續 `passSeconds`）或 `diveMax` 到期 |
+| `zoom` | `build` | `zoomMin` 已過，且（`perchLatch` 為真或 `zoomMax` 到期） |
+| `zoom` | `perch` | `zoomMax` 強制回 `build` 但 `perchLatch` 仍為真時，`minDwell` 後可直接回 |
+| 任何 | `cooldown` | 能量帳止損（§7.4） |
+| 任何 | `off` | §5.2 的第 1 級 |
 | `cooldown` | `off` | 計時歸零 |
 
-**距離閘門只在 `off → build`。** 進了循環之後不再受距離限制——否則 `dive`
-一貼近就掉出戰術層，`zoom` 永遠做不出來。
-
-進入用 `FLANK_RANGE`（2500）、離開用 `focusRange`（1500）。**直接用指揮層
-已經在用的那一對**，免費得到遲滯，也不發明第二套幾何。
-
-### 5.3 「承諾姿態」怎麼判
+### 5.6 「承諾姿態」怎麼判
 
 boom and zoom 的 `dive` 不能只看「目標很慢」——慢也可能是在閃躲。要看**持續**
-的承諾：
+的承諾：`psTarget < 0`（他在耗能量）連續成立 `commitSeconds`。
 
-- `psTarget < 0`：他在耗能量（拉桿或爬升）
-- 這個條件連續成立 `commitSeconds`
-
-`Situation.psTarget` 已經存在。**刻意不加第三個訊號**（例如「他的機首指向被
-保護單位」）：那需要目標的姿態與被保護單位的位置，兩者都拿得到，但每加一個
-訊號就多一組要掃描的參數。先用最少的訊號量，不夠再加——這是專案的既有紀律。
+`Situation.psTarget` 已經存在（`assess.ts:41`）。**刻意不加第三個訊號**：每加
+一個就多一組要掃描的參數。先用最少的訊號量，不夠再加。
 
 ## 6. 每個狀態怎麼飛
 
@@ -298,146 +405,244 @@ boom and zoom 的 `dive` 不能只看「目標很慢」——慢也可能是在�
 
 | 狀態 | 飛法 |
 |---|---|
-| `build` / `perch` / `zoom` | `tacticalCommand`（新的瞄準解，§6.1） |
-| `dive` | **強制 `intent = 'engage'`**。俯衝進場之後就是普通交戰，只是帶著能量。不需要新的轉向邏輯 |
-| `cooldown` | **強制 `intent = 'extend'`**。「劣勢止損」正是它的語意；§4 修完方向之後這個復用是對的 |
+| `build` / `perch` / `zoom` | `tacticalCommand`（新的瞄準解，§6.2） |
+| `dive` | 覆寫 `intent = 'engage'` |
+| `cooldown` | 覆寫 `intent = 'extend'`。「劣勢止損」正是它的語意 |
 | `off` | 一個字都不改，現行行為 |
 
-`defend` 永遠可以插隊——與命令層「閃躲永遠優先」是同一條紀律（專案負責人
-2026-08-07 裁定）。實作上：戰術層的覆寫排在 `defend` 判定**之後**。
+### 6.1 完整的優先序
 
-### 6.1 `tacticalCommand`
+**先前的 spec 只寫「defend 讓位」，那不夠。** 現行 `arbitrate` 的順序是
+defend、merge、**絕對能量見底的 extend**、相對 extend、engage、approach
+（`rules.ts:354`）。戰術層排在 `arbitrate` 前面等於**繞過**中間那幾條，
+即使一行都沒有改 `rules.ts`。
+
+其中一條是安全問題：**`extendFloorLatch`（「我自己已經飛不動了」）被蓋掉，
+而 `build` 要求正航跡角——那會讓一架低於角落速度的飛機繼續爬升，直到失速。**
+
+完整的優先序，由高到低：
+
+```
+1. safety          撞地／失速硬接管（applySafety，在最後執行）
+2. transit         無條件飛完航程                      → 戰術層 off
+3. rally / flank   命令                                → 戰術層 off
+4. focus           集火（§9.1）                        → 戰術層 off
+5. defend          破防閂                              → 戰術層讓位
+6. extendFloorLatch 絕對能量見底                       → 戰術層讓位
+7. geometryGate    overshoot / speedRecover / planeDegenerate → 見 §6.3
+8. 戰術層          build / perch / dive / zoom / cooldown
+9. arbitrate       merge / 相對 extend / engage / approach
+```
+
+第 6 級是這一輪新加的，理由如上。第 5、6 級的做法相同：**`stepRules` 照常
+呼叫**（閂鎖要繼續維護），戰術層只在那兩個閂鎖都不成立時才覆寫
+`AiController.intent`，**不改寫 `RuleState.intent`**——與命令層現行的做法
+逐字相同（`AiController.ts:430`、`AiController.ts:439`）。
+
+副作用要被定義：`cooldown` 結束後，既有的 `extend` 閂鎖可能讓自然意圖仍是
+`extend`，也就是「狀態已離開 `cooldown`，但飛法繼續 `extend`」。**這是對的**
+——那表示能量真的還沒回來——但要有一條測試釘住它，否則它看起來像 bug。
+
+### 6.2 `tacticalCommand`
 
 ```ts
 export function tacticalCommand(
-  state: TacticalPhase,
+  phase: TacticalPhase,
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
   seaHeight: number,
   cfg: TacticalConfig,
-  out: RawCommand,
+  out: Command,
 ): void
 ```
 
+**型別是 `Command`（`src/control/Controller.ts:11`），不是 `RawCommand`**
+（那個型別不存在，先前的 spec 寫錯了）。它有四個欄位：`aimWorld`、
+`throttle`、`brake`、`firing`。
+
+**四個欄位每一步都要完整寫入。** `AiController` 的 `raw` 是重用的物件
+（`AiController.ts:225`），不寫的欄位會保留上一格的值——上一格可能是一個
+俯衝中的脫離向量或一個扣著的扳機。
+
 三個狀態的瞄準：
 
-- `build`：航跡角取正，大小由 `energyRatio` 的赤字連續決定（與
-  `extendPitchAngle` 同構），水平分量取**遠離目標**的方向。
-- `perch`：航跡角取 0（保持能量），水平分量繞著目標保持 `perchRange` 的
-  距離——不遠離（否則跟丟）也不接近（否則被拖進纏鬥）。
-- `zoom`：航跡角取正且大，水平分量維持當前航向（拉起，不轉彎——轉彎會把
-  剛換到的速度花掉）。
+- `build`：航跡角取正，大小由 `energyRatio` 的赤字連續決定；水平分量取**遠離
+  目標**的方向。`firing = false`。
+- `perch`：航跡角取 0（保持能量）；水平分量繞著目標保持 `perchRange` 的距離
+  ——不遠離（跟丟）也不接近（被拖進纏鬥）。`firing = false`。
+- `zoom`：航跡角取正且大；水平分量**維持當前航向**（轉彎會把剛換到的速度
+  花掉）。`firing = false`。
 
-**必須自己補拉桿紀律**：`tacticalCommand` 繞過 `steerCommand`，那一層的
-`shrinkTowardNose(self, pullCeiling, aim)` 對它無效。這是早退路徑踩過的坑
-（見 `AiController` 那段長註解），修法現成。
+**拉桿紀律要取兩者的較小值**：`min(unloadPull(stallMargin), pullCeiling)`，
+與 `steer.ts:1488` 相同。只套 `pullCeiling` 會失去「拉太猛」那一半的軟限制。
+這是早退路徑踩過的坑（見 `AiController` 那段長註解），但修法要比那裡完整。
 
 安全層（`applySafety`）排在最後，撞地與失速的硬接管照舊有最終決定權。
 
+### 6.3 `geometryGate` 仍然優先
+
+`steerCommand` 的第一個分支是幾何模式，它**壓過意圖**（`steer.ts:1437`）：
+`overshoot`、`speedRecover`、`planeDegenerate` 會直接忽略 `engage` 或
+`extend`。
+
+**裁定：這三個仍然優先。** 所以：
+
+- `dive` 覆寫 `intent = 'engage'` **不保證**走普通交戰瞄準——超前時仍然走
+  超前的解，那是對的（超前是「我衝過頭了」的事實，不因為戰術意圖而改變）。
+- `cooldown` 覆寫 `intent = 'extend'` 同樣可能在近距離被超前的解蓋掉。
+
+`build` / `perch` / `zoom` 走 `tacticalCommand`，**完全繞過 `geometryGate`**。
+這是刻意的：那三個狀態的前提就是「離得夠遠」，超前與速度回復在那個距離帶
+不會觸發。**但 `speedRecover` 是一個例外要檢查**——它防的是速度見底，而
+`build` 正在爬升。§6.1 的第 6 級（`extendFloorLatch`）已經涵蓋這件事：能量
+見底時戰術層根本不會拿到方向盤。
+
 ## 7. 四道止損
 
-「AI 一直爬高不打仗」是這種機制最經典的死法，而且會讓 20v20 變成一場沒有人
-接戰的爬升比賽。四道止損全部是**量化的**，而且**零跨層改動**。
+「AI 一直爬高不打仗」是這種機制最經典的死法。四道止損全部是**量化的**。
 
-### 7.0 目標切換會讓兩個計量跳掉
+### 7.0 目標切換的完整重置表
 
-`energyRatio` 與 `speedAdvantage` 都是**相對當前目標**的。目標一換，兩者
-不連續地跳到另一個值——而 §7.1 的建能率與 §7.4 的能量帳都是**差分**，
-跳變會被讀成「這一秒暴漲 0.4」或「這一輪淨損 0.6」。
+`energyRatio`、`speedAdvantage`、`psTarget` 全部是**相對當前目標**的。目標一
+換，它們不連續地跳到另一個值——而下面每一個計量都是差分或計時，跳變會被讀成
+假訊號。
+
+**具體的誤判**：換目標前已累積 1.4 秒的 `psTarget < 0`，新目標第一拍也是負
+值，於是 0.1 秒後就誤判「新目標已持續承諾 1.5 秒」而俯衝。`dive` 中換目標
+也可能繼承舊目標的通過計時，立刻跳 `zoom`。
 
 **做法**：`stepTactics` 收目標的識別（`selectTarget` 回傳的那一架），與上一
-節拍不同時**重置建能率視窗與該輪的能量帳基準**，狀態本身不重置。
+節拍不同時逐欄重置：
 
-【為什麼不重置狀態】換目標是常態（實測持有中位只有幾秒），跟著重置等於這個
-戰術層永遠跑不完一輪。跳掉的是**計量**，不是決定。
+| 欄位 | 換目標時 |
+|---|---|
+| `phase` | **不重置** |
+| `perchLatch` | 重置為假 |
+| `commitSeconds` 的累積 | 歸零 |
+| 通過判定的計時與「曾經為正」記憶 | 歸零 |
+| 本輪能量帳的基準 | 重設為當下，且**該輪標記為無效** |
+| 本輪是否形成過射擊窗 | 歸零 |
+| `buildMax` / `perchMax` / `diveMax` / `zoomMax` 的計時 | **不重置**（它們是「這個狀態待多久」，與目標無關） |
+| `dryRounds` 的連續計數 | **不重置**（它問的是「這個戰術對我有沒有用」，不是對某一個目標） |
+| `lastCooldownRatio`（§5.4） | 清掉，讓再進入條件成立 |
+
+【為什麼 `phase` 不重置】換目標是常態（實測持有中位只有幾秒），跟著重置等於
+這個戰術層永遠跑不完一輪。跳掉的是**計量**，不是決定。
+
+【為什麼該輪能量帳要標記無效而不是重算】§7.4 的定義是「從進入 `build` 到下
+一次進入 `build` 的淨變化」。中途換目標之後那個差已經不是同一個量的差，
+硬算會得到一個沒有意義的數字。標記無效 = 這一輪不參與能量帳止損。
 
 【為什麼不改用絕對的比能量】那就回到 `cornerRatio` 的老問題——絕對量看不到
 「我比敵人如何」，而那正是這份 spec 要修的東西。
 
 ### 7.1 建能期限
 
-`build` 停留超過 `buildMax`，**或**近 `buildRateWindow` 秒內 `energyRatio`
-的累積速率低於 `buildRateMin` → `cooldown`。
+`build` 停留超過 `buildMax` → `cooldown`。
 
-第二個條件治的是「爬不動了還在爬」：升限附近、被拖住、或機體本來就沒有那個
-爬升率。
+**先前的 spec 還有第二個條件（10 秒滾動視窗的建能率下限），這一版拿掉。**
+理由：未滿視窗的 grace period、目標切換後清空視窗的行為、以及零配置的資料
+結構全都要另外定義，而 `buildMax` 已經給了硬上界。等量到「爬不動但仍在
+build」確實是主要失效模式，再把它加回來。
 
 ### 7.2 待機期限
 
 `perch` 停留超過 `perchMax` → **強制 `dive`**，不是 `cooldown`。
 
-已經有能量了就該用掉。這一道保證「不會無限等待」，也是 §5.3 只用一個承諾
-訊號的安全網——承諾判準再怎麼保守，也有一個時限強制出手。
+已經有能量了就該用掉。這一道也是 §5.6 只用一個承諾訊號的安全網。
 
 ### 7.3 任務壓力
 
 被保護單位正在挨打時，立刻 `dive`，不等承諾姿態。
 
-**零跨層改動**：`TargetBoard.candidates` 含**全隊**（消費端用 `team` 欄位
-過濾），而 `priority[i] > 1` 已經標出被保護的那幾架
-（`setup.ts`：`priority[seat] = cfg.tuning.convoyPriority`，不分隊）。
-所以「我方的被保護單位」= `candidates` 裡 `team === self.team && priority > 1`
-的那些。
+**`TargetBoard` 加一條專用的 `protectedMask: Uint8Array`**，由 `battle` 層
+在填 `priority` 的同一個迴圈填（`setup.ts:494`），與 `flightOf`、`priority`
+完全同型。`src/ai/` 仍然不 import `src/battle/`。
 
-判準：最近的敵機到最近的我方被保護單位的距離 < `pressureRange`。
+【為什麼不借用 `priority > 1`】那個欄位的正式語意是「目標評分倍率」
+（`target.ts:665`），不是角色標籤。某次調整若把 `convoyPriority` 設回 1，
+任務壓力會**無聲消失**，而且沒有任何測試會紅。一條 `Uint8Array` 比一個脆弱
+的語意借用便宜得多。
 
-非護送關卡的 `convoyPriority` 是 1，所以這道止損在遭遇戰／掃蕩自動不作用
-——正確而且免費。
+判準：任一敵機到任一我方被保護單位的最短距離 < `pressureRange`。
 
-成本：10 Hz × 40 架 × 40 個候選的掃描，與 `selectTarget` 同一個數量級。
+【成本】這是**敵機 × 被保護單位**的配對掃描，不是單純掃 40 個候選。護送卡
+只有 4 架被保護單位，所以是 40 × 4 = 160 次距離平方，10 Hz，可接受。
+非護送關卡 `protectedMask` 全零，第一層迴圈就跳掉。
+
+【取得自己的隊別】`Aircraft` 沒有 `team`。用
+`board.candidates[selfIndex].team` 推導——`scanThreat` 已經是這樣做的
+（`AiController.ts:544`）。**不得寫成 `self.team`。**
 
 ### 7.4 能量帳
 
-一輪 = `build` 進入到下一次 `build` 進入。記兩件事：
+一輪 = 進入 `build` 到下一次進入 `build`。記兩件事：
 
-- 該輪的 `energyRatio` 淨變化。低於 `−cycleLossMax` → `cooldown`
+- 該輪 `energyRatio` 的淨變化。低於 `−cycleLossMax` → `cooldown`。
+  **該輪被 §7.0 標記為無效時跳過這一條。**
 - 該輪有沒有形成過射擊窗（`shotInstant > 0` 出現過）。連續 `dryRounds` 輪
-  沒有 → **長 `cooldown`**（`longCooldownSeconds`）
+  沒有 → 長 `cooldown`（`longCooldownSeconds`）。
 
-第二條治的是「循環跑得順但打不到人」——那時候問題不在戰術層，硬跑只是浪費。
+第二條治的是「循環跑得順但打不到人」。
 
 ## 8. 配額
 
 ```
-(selfIndex × 黃金比) mod 1 < quota
+(teamIndex × 黃金比) mod 1 < quota
 ```
 
-固定分配、零協調、**逐位元重播友善**、熱路徑零配置。與砲塔點放的相位錯開
-（`ROOT3` / `SILVER`）同一個手法，乘子取黃金比與那兩個互為無理數比，三件事
-才不會縮成一件。
+`teamIndex` = **我是我方第幾架**，不是全域的 `selfIndex`。
 
-- `quota = 0` → **完全關掉戰術層**，消融表的對照組免費得到。與
-  `burstConfig.off = 0` 同一個手法。
+### 8.1 為什麼不能用 selfIndex
+
+編組表是一隊一個連續區塊（`order.ts:93` 保證藍隊全部排在紅隊之前），
+`world.add` 照那個順序給索引（`setup.ts:401`）。用全域索引的話低差異序列會
+在兩個區塊上取到不同的比例：
+
+```
+quota = 0.5 的實算
+   3v3    藍 2 / 紅 2     0
+   6v6    藍 4 / 紅 2    +2   ← 33% 的偏差
+   7v7    藍 4 / 紅 4     0
+  10v10   藍 5 / 紅 5     0
+  14v14   藍 8 / 紅 6    +2
+  20v20   藍 10 / 紅 11  −1
+```
+
+**偏差的方向與大小都隨編制變，而且沒有任何測試會紅**——它會直接變成平衡
+偏差。改用隊內序號之後兩隊拿到**完全相同的序列**，對稱編制的偏差恆為 0。
+
+### 8.2 怎麼取得隊內序號
+
+掃一次 `board.candidates`，數出「在我之前有幾架同隊的」。
+
+`selfIndex` 在一場之內不變（`resetBattle` 是就地 respawn，`setup.ts:967`；
+接手重建控制器時也把同一個 `c.index` 寫回，`setup.ts:995`），所以**開場算
+一次就夠**。用哨兵欄位快取，與 `AiController.burstSeed` 完全同一個手法。
+
+### 8.3 `selfIndex < 0`
+
+**必須明確擋掉。** JavaScript 的負數取模仍是負數：`(-1 × 0.618) % 1 =
+−0.618`，而 `−0.618 < 0.5` 為**真**——沒有接 `board` 的單元測試會意外啟用
+戰術層。
+
+`selfIndex < 0` 或 `board === null` 時一律 `off`（§5.2 的第 1 級）。
+
+### 8.4 消融
+
+- `quota = 0` → **完全關掉戰術層**。與 `burstConfig.off = 0` 同一個手法。
 - `quota = 1` → 全員參與。
+
+**消融表只用 0 / 0.5 / 1 三檔。** 中間值在小編制上的顆粒度太粗（四架的小隊
+顆粒度是 1/4），要掃更細時必須逐隊列出實際比例，不能假設它等於設定值。
 
 固定分配的副作用是史實的：一場裡有些人打 boom and zoom、有些人纏鬥。
 
-### 8.1 隊間偏差已經算過
-
-`selfIndex` 由 `world.add` 的順序給，而編組表是**一隊一個連續區塊**
-（`order.ts` 先推藍隊的全部小隊、再推紅隊）。所以「某一隊系統性拿到比較多
-名額」是一個真實的風險——它會直接變成平衡偏差，而且沒有任何測試會紅。
-
-實際算過（黃金比 = 0.6180339887…）：
-
-```
-quota   遭遇 20v20 藍   紅      攔截 10 藍   紅 8    撤離 4 藍   紅 16
-0.25       0.300      0.300      0.300    0.250     0.500     0.250
-0.50       0.500      0.550      0.500    0.500     0.500     0.500
-0.75       0.800      0.750      0.800    0.750     0.750     0.812
-```
-
-**起始值 0.5 在每一種編制上的偏差都是 0 或 0.05**，可以接受。
-
-**但 `quota = 0.25` 在四架的小隊上會給到 0.5**（顆粒度 = 1/4，任何非四分之
-一的 quota 都會落在格子之間）。所以 §10.4 的消融表**只能比 0 / 0.5 / 1
-三列**；要掃更細的 quota 時必須逐隊列出實際比例，不能假設它等於設定值。
-
-**為什麼不做動態名額**（例如「同時最多 N 架在 build」）：那需要跨機協調，
-而協調要嘛走指揮層（§2 明確不做），要嘛在戰機端維護全域計數（會產生一個
-必須每步同步的幽靈狀態，`stepCommandLayer` 的 `playerFlight` 註解記著為什麼
-推導比鏡射安全）。
+**為什麼不做動態名額**（「同時最多 N 架在 build」）：那需要跨機協調，而協調
+要嘛走指揮層（§2 明確不做），要嘛在戰機端維護全域計數（會產生一個必須每步
+同步的幽靈狀態，`stepCommandLayer` 的 `playerFlight` 註解記著為什麼推導比
+鏡射安全）。
 
 ## 9. 檔案與分頻
 
@@ -446,58 +651,64 @@ src/ai/tactics.ts        新檔。TacticalPhase / TacticalState / TacticalConfig
                          DEFAULT_TACTICS / createTacticalState / stepTactics
                          tacticalCommand。全部純函數，狀態集中在 AiController
 src/ai/assess.ts         Situation 加 speedAdvantage、energyRatio
-                         （evaluateEnergy 內算）
-src/ai/steer.ts          extendPitchAngle 換簽名（§4.3）
-src/ai/AiController.ts   戰術狀態欄位、10 Hz 推進、覆寫（與命令層同型）
+src/ai/steer.ts          extendPitchAngle 換簽名（§4.6）
+src/ai/target.ts         TargetBoard 加 protectedMask
+src/ai/AiController.ts   戰術狀態欄位、10 Hz 推進、覆寫、resetTactics
                          tacticalConfig 可注入（掃描與消融用）
+src/battle/setup.ts      填 protectedMask（與 priority 同一個迴圈）
+                         resetBattle 呼叫 resetTactics
+test/unit/ai-steer.test.ts   17 處呼叫要更新簽名
 ```
 
 - **狀態轉移 10 Hz**（`decide` 節拍，與意圖仲裁同頻）
-- **執行 240 Hz**（`tacticalCommand` 與轉向同頻）
+- **執行 240 Hz**
 - 熱路徑零配置，不使用 `Math.random`
-- **不動** `rules.ts` 的 `arbitrate`、**不動** `command.ts`、**不動**
-  `src/battle/`
+- **不動** `rules.ts` 的 `arbitrate`、**不動** `command.ts`
 
-覆寫的位置與命令層完全同型（`AiController` 裡的外部覆寫，不插進仲裁表）：
+### 9.1 早退路徑也要推進戰術層
 
-```
-1. safety        撞地／失速硬接管        最後執行
-2. transit       無條件飛完航程          戰術層讓位
-3. rally/flank   intent 強制 'rally'     戰術層讓位
-4. focus         持有時戰術層退到 off    §9.1
-5. defend        破防閂                  戰術層讓位
-6. 戰術層        build/perch/dive/zoom/cooldown
-7. arbitrate     engage/merge/extend/approach
-```
+`AiController.update` 在**沒有目標時早退**，而且早退發生在態勢與規則更新之前
+（`AiController.ts:338`）。若 `stepTactics` 只插在 `evaluateEnergy` 附近，
+「目標消失 → `off`」永遠不會執行，下一個目標會繼承上一個目標留下的狀態。
 
-### 9.1 集火期間關掉戰術層
+**做法**：`stepTactics` 的「強制離場」判定（§5.2 第 1 級）放在 `update`
+**最前面**，與 AI 點放的時鐘推進同一個位置、同一個理由。
 
-專案負責人 2026-08-22 裁定。理由是量出來的（§1.5）：集火期間質心距離中位
-只有 233–1032 m，而戰術層的建能佔位在 2 km 以外；兩個分布的重疊
-（1500–2500 遲滯帶）只佔 5–12% 的取樣。代價幾乎是零，而做法只是一行條件。
+### 9.2 rematch 的狀態重置契約
 
-被否決的替代方案是「戰術層照跑但目標鎖死成 `focusTarget`」——它要引進「集火
-決定打誰、戰術決定怎麼打」這條新語意，而那條語意需要自己的測試與邊界情況
-（`focusTarget` 陣亡的那一格戰術層在哪個狀態？）。**關掉錯了可以無痛升級成
-鎖目標，鎖目標錯了要拆語意。**
+`resetBattle` **保留絕大多數既有的 `AiController` 實體**，只重建曾被玩家接手
+過的那幾顆（`setup.ts:975`、`setup.ts:995`）。所以 FSM 的相位、計時、輪次、
+`cooldown` 與上一個目標**會跨場殘留**。
 
-### 9.2 AI 代飛照開
+**做法**：`AiController` 提供 `resetTactics()`，`resetBattle` 對每一顆
+`AiController` 呼叫一次。這是 `src/battle/` 的第二個改動（第一個是
+`protectedMask`），兩者都不違反「`src/ai/` 不 import `src/battle/`」。
 
-專案負責人 2026-08-22 裁定：代飛（`I` 鍵）與上帝視角時座位上是
-`AiController`，戰術層跟一般 AI 一樣開。
+### 9.3 集火期間關掉戰術層
 
-人接手時掛的是 `PlayerController`，結構上就沒有戰術層——與 AI 點放
-「代飛結束要改回來」是同一個機制（換的是控制器參考，不是一段要維護的程式碼）。
+專案負責人 2026-08-22 裁定。理由是量出來的（§1.5）：集火期間質心距離中位只有
+233–1032 m，而戰術層的建能佔位在 2 km 以外；重疊只佔 5–12% 的取樣。
+
+被否決的替代方案是「戰術層照跑但目標鎖死成 `focusTarget`」——它要引進新語意
+與新的邊界情況。**關掉錯了可以無痛升級成鎖目標，鎖目標錯了要拆語意。**
+
+### 9.4 AI 代飛照開
+
+專案負責人 2026-08-22 裁定。人接手時掛的是 `PlayerController`，結構上就沒有
+戰術層——與 AI 點放「代飛結束要改回來」是同一個機制。
 
 ## 10. 驗收
 
 ### 10.1 通用性表（負責人指定）
 
 七張卡 × 每個機型，同一組參數，逐格列出：`engage` 佔時、`extend` 佔時、
-比能量差、與最近敵機距離、單輪能量帳、射擊窗形成率。
+比能量差、與最近敵機距離、射擊窗形成率。
 
-**判準**：沒有任何一格因為戰術層而變差超過雜訊。找不到共用值時才退到分機型
-定值，而且那是負責人的裁定。
+**「戰鬥機對轟炸機」是獨立的一格**，不能靠無因次化直接宣告成立（§3.1）。
+
+**通過門檻**：五個種子、每格取中位數；任何一格的退步不得超過該格在五個種子
+上的全距。**先跑一次 `quota = 0` 的五種子表當雜訊帶**——那是「什麼都沒改」的
+分散度，比任何憑空訂的百分比誠實。
 
 ### 10.2 主判準
 
@@ -508,9 +719,9 @@ src/ai/AiController.ts   戰術狀態欄位、10 Hz 推進、覆寫（與命令�
 | `extend` 期間航跡角 | +6.5° | 下降或翻負 |
 | 單輪能量帳 | 不存在 | 淨值不為負 |
 
-### 10.3 `extend-payoff` 探針的三個數字
+### 10.3 `extend-payoff` 探針
 
-`test/tools/extend-payoff.probe.ts` 已經存在，2026-08-22 的基準：
+2026-08-22 的基準（20v20、420 秒、VETERAN）：
 
 ```
 開局        段數   越撤越糟   補到門檻才走   收益中位
@@ -518,123 +729,197 @@ src/ai/AiController.ts   戰術狀態欄位、10 Hz 推進、覆寫（與命令�
 5500/150    481     33.9%       47.8%        +0.036
 ```
 
-**只有「越撤越糟」是這份 spec 的判準。** 「補到門檻才走」低是因為被 `defend`
+**只有「越撤越糟」是這份 spec 的判準。**「補到門檻才走」低是因為被 `defend`
 插隊（離開後 53–58% 接 `defend`），那是 §2 明確不做的那一項。
 
-### 10.4 消融
+### 10.4 兩支重播護欄要分開處理
 
-`quota` = 0 / 0.5 / 1 三列，跨七張卡。`quota = 0` 必須與上線前**逐位元
-相同**——這一條要有單元測試釘住，否則整張消融表的對照組是錯的
-（`test/unit/ai-burst.test.ts` 的 `off = 0` 那一條是先例）。
+**`test/integration/rematch.test.ts` 不是逐位元重播**（先前的 spec 寫錯了）。
+它測的是換設定、戰績隔離與十場效能（`rematch.test.ts:19`）。**所以專案目前
+沒有「同設定跑兩次、結果相同」的直接護欄**——這份改動要補一支。
+
+**`test/integration/order-of-battle-replay.test.ts` 是 SHA-256 digest 比對**
+（`order-of-battle-replay.test.ts:47`），拿 30 秒的結果對固定基準。
+**`quota = 0.5` 在 2500 m 外立刻改變部分 AI 的行為，那個 digest 必然改變。**
+
+這**不是**「無關的既有紅燈」，而是一次**基準重跑**——**要專案負責人裁定**。
+順序是：先做完 §12.3 的 `quota = 0` 等價測試（證明關掉時逐位元不變），再帶
+著「改動確實只在 `quota > 0` 時生效」的證據去要求重跑基準。
 
 ### 10.5 不量勝率
 
-先證明循環跑得起來（存高度 → 換進場速度 → 一輪後拉離 → 期限內回到下一輪），
-才值得放進 20v20 與人工試飛。這是 Codex 的建議，理由是勝率把十幾個機制的
-效果混在一個數字裡。
+先證明循環跑得起來，才值得放進 20v20 與人工試飛。勝率把十幾個機制的效果混在
+一個數字裡。
 
-### 10.6 護欄
+### 10.6 既有護欄
 
-既有的三條紅測試（`ai-command-channel` ×2、`ai-withdraw-anchor` ×1）是既有
-的，不動。
+三條既有的紅測試（`ai-command-channel` ×2、`ai-withdraw-anchor` ×1）不動。
 
-`test/integration/ai-targeting.test.ts` 的 `rearShare` / `fireShare` / `onNose`
-可能被動到。**紅了先量、先報告、先問**——護欄重新定值是專案負責人的決定。
+`test/integration/ai-targeting.test.ts` 的 `rearShare` / `fireShare` /
+`onNose` 可能被動到。**紅了先量、先報告、先問**——護欄重新定值是專案負責人
+的決定。
 
-`test/unit/perf-gate.test.ts` 與 `test/integration/rematch.test.ts` 必須單獨
-跑。後者是逐位元重播，戰術層的任何非決定性都會被它抓到。
+`test/unit/perf-gate.test.ts` 與 `test/integration/rematch.test.ts` 必須單獨跑。
 
 ## 11. 起始值
 
-**全部是起始值，待掃描。** 掃描的優先序見 §11.1。
+**全部是起始值，待掃描。**
 
 | 參數 | 起始值 | 來源 |
 |---|---|---|
 | `quota` | 0.5 | 一半的人打 boom and zoom |
 | `enterRange` | 2500 | `FLANK_RANGE`，既有常數 |
 | `exitRange` | 1500 | `focusRange`，既有常數 |
-| `perchEnter` | 0.50 | 見下方推導 |
+| `perchEnter` | 0.50 | 見 §11.1 |
 | `perchExit` | 0.35 | 遲滯，`perchEnter` 的七成 |
 | `minDwell` | 0.5 s | `rules.ts` 同名參數的數量級 |
 | `commitSeconds` | 1.5 s | 比 `VETERAN` 的反應延遲 0.3 s 大一個數量級 |
-| `buildMax` | 45 s | 見下方推導 |
-| `buildRateWindow` | 10 s | `buildMax` 的四分之一 |
-| `buildRateMin` | 0.01 /s | 10 秒內至少要漲 0.1 個 `energyRatio` |
-| `perchMax` | 20 s | `buildMax` 的一半以下——等待不該比建能久 |
+| `buildMax` | 60 s | 見 §11.2 |
+| `perchMax` | 20 s | `buildMax` 的三分之一——等待不該比建能久 |
 | `passSeconds` | 1.0 s | 通過目標的判定，比 `commitSeconds` 短 |
-| `diveMax` | 12 s | 進場沒打到也要拉起。比 `cooldownSeconds` 略短 |
+| `diveMax` | 12 s | 進場沒打到也要拉起 |
 | `zoomMin` | 4 s | 拉起至少要這麼久才算一次 zoom |
 | `zoomMax` | 15 s | 拉不上去就別拉了 |
-| `cooldownSeconds` | 12 s | 約一個 `extend` 段的 p90（實測 25 s）的一半 |
+| `cooldownSeconds` | 12 s | 一個 `extend` 段的 p90（實測 25 s）的一半 |
 | `longCooldownSeconds` | 30 s | `cooldownSeconds` 的 2.5 倍 |
 | `cycleLossMax` | 0.30 | `perchEnter` 的六成 |
 | `dryRounds` | 2 | 兩輪沒打到就是這個戰術對這個對手無效 |
 | `perchRange` | 2000 m | 在 `enterRange` 與 `exitRange` 之間 |
 | `pressureRange` | 2000 m | 同上 |
 
-**`perchEnter` 的推導**：要俯衝到比 P-51 快一成，109 需要約 630 m 的高度
-盈餘。109 在 6000 m 的角落速度取 160 m/s，能量尺標
-`vc² / 2g = 160² / 19.61 ≈ 1305 m`，於是 `630 / 1305 ≈ 0.48`。取 0.50。
+### 11.1 `perchEnter` 的推導與它的極限
 
-**`buildMax` 的推導**：109 的海平面爬升率 1150 m/min ≈ 19 m/s，高空打對折
-取 10 m/s。爬 630 m 需要 63 秒，但建能同時也在加速（`energyRatio` 兩項一起
-漲），所以取 45 秒。**這是三個假設疊起來的數字，掃描時優先掃它。**
+要俯衝到比 P-51 快一成，109 需要約 630 m 的高度盈餘。109 在 6000 m 的角落
+速度取 160 m/s，能量尺標 `vc² / 2g = 160² / 19.61 ≈ 1305 m`，於是
+`630 / 1305 ≈ 0.48`。取 0.50。
 
-### 11.1 掃描優先序
+**這個推導的三個限制要寫明**：
 
-1. `quota`（0 / 0.25 / 0.5 / 1）——它同時是消融
-2. `perchEnter` 與 `buildMax`——兩者一起決定「循環跑不跑得完一輪」，
-   而且它們的起始值各自疊了兩三個假設
+- 只用了 Bf 109 對 P-51、6000 m、單一角落速度。**不能自動外推**到 P-51 對
+  109 或戰鬥機對轟炸機。
+- 假設高度可以無損換成速度，沒有計入俯衝阻力。
+- 沒有計入目標同時在加速／爬升，也沒有計入進場轉向本身要耗掉的能量。
+
+所以它是**量級合理的起點**，不是通用值。§11.3 把它列為第二優先掃描。
+
+### 11.2 `buildMax` 的推導改用比超量功率
+
+**先前的推導（用 109 的海平面爬升率反推 630 m 要爬多久）是錯的。** 它把
+「爬升 630 m」與「同時加速」當成兩份可以相加的收益，但高度與速度是**同一份
+比能量**的分配——最大爬升率已經是動力剩餘的結果，邊爬邊加速不會憑空多出
+第二份能量。
+
+正確的量是雙方比超量功率之差，而 `Situation` 本來就同時提供兩者
+（`assess.ts:41`、`assess.ts:251`）：
+
+```
+d(energyAdvantage)/dt = psSelf − psTarget
+```
+
+用自己的爬升率推相對建能時間會**系統性低估**——敵人同時也在累積能量。
+
+**做法**：起始值先取 60 s（比先前的 45 s 寬），並在第一支探針裡**直接量**
+`psSelf − psTarget` 的實際分布，用量到的值回填。這是「先量再訂」而不是
+「先訂再掃」，因為這個量本來就在態勢裡，不必猜。
+
+**先前版本的內部矛盾也一併修掉**：舊的 `buildRateMin = 0.01/s` 建到
+`perchEnter = 0.50` 要 50 秒，超過舊的 `buildMax = 45 s`——一架「剛好合格」的
+飛機必然超時。§7.1 已經拿掉建能率那一條，矛盾隨之消失。
+
+### 11.3 掃描優先序
+
+1. `quota`（0 / 0.5 / 1）——它同時是消融
+2. `buildMax` 與 `perchEnter`——兩者一起決定「循環跑不跑得完一輪」。
+   `buildMax` 用 §11.2 的量測回填而不是掃描
 3. `commitSeconds` 與 `perchMax`——決定「等太久」與「出手太早」的平衡
 4. 其餘的只在實測顯示它們卡住某件事時才掃
 
-**不掃**：`enterRange` / `exitRange`（沿用既有常數，動它等於發明第二套幾何）。
+**不掃**：`enterRange` / `exitRange`（沿用既有常數）。
 
 ## 12. 測試
 
 ### 12.1 純函數（`test/unit/ai-tactics.test.ts`）
 
 - 六個狀態的轉移逐條
-- **閂鎖不震盪**：把 `energyRatio` 停在 `perchEnter` 與 `perchExit` 之間
-  來回 100 次，狀態不得翻超過一次
-- **`minDwell` 生效**：任何狀態的停留不得短於 `minDwell`
-- 四道止損各一條
-- **`quota = 0` 時 `stepTactics` 恆回 `off`**（§10.4 的對照組）
+- **§5.2 的優先序逐條**：同時成立時誰贏
+- **閂鎖不震盪**：`energyRatio` 在 `perchEnter` 與 `perchExit` 之間來回 100
+  次，狀態不得翻超過一次
+- **`perchLatch` 是獨立記憶**：在 `dive` / `zoom` 期間也持續更新
+- **`minDwell` 生效**
+- **§7.0 的重置表逐欄**，特別是「換目標後承諾計時歸零」那條誤判
+- **§5.4 的再進入條件**：同一個目標、同樣的能量，`cooldown` 之後不會立刻
+  重進 `build`
+- **`quota = 0` 時 `stepTactics` 恆回 `off`**
+- **`selfIndex < 0` 時恆回 `off`**（負數取模的陷阱）
+- **隊內序號的配額對稱**：6v6 與 14v14 兩隊拿到相同的名額數
 
 ### 12.2 方向修正（`test/unit/extend-direction.test.ts`，新建）
 
 【檔名刻意不叫 `extend-pitch`】`test/tools/extend-pitch.probe.ts` 已經存在，
 同名會讓「哪一個是護欄、哪一個是量測」變得要看目錄才分得出來。
 
-- `speedAdvantage` 極負（我比敵人慢很多）時**恆為低頭**，不管 `cornerRatio`
-  多高
-- `cornerRatio < 1` 且 `speedAdvantage` 接近 0 時，與改動前**逐位元相同**
+- 化簡等價：`max(...)` 恆等於 `(max(Vc, Vt) − Vs) / Vc`
+- `speedAdvantage` 極負時**恆為低頭**，不管 `cornerRatio` 多高
+- `speedAdvantage = 0` 時與改動前**逐位元相同**（那是 `foeDeficit = 0`，
+  只有 `selfDeficit < 0` 時才有差；這一條要把兩種情形都列）
 - 兩者都是盈餘時才爬升
-- 離地餘裕那一項不受影響（`altitudeDeficit` 的行為一個字不動）
+- 離地餘裕那一項不受影響
+- **§4.4 的三類反例各一條**：近距離高速交叉、同向追逐、戰鬥機對轟炸機。
+  這三條**記錄行為**而不是斷言好壞——它們的作用是讓下一個人看到取捨。
 
-### 12.3 整合（`test/integration/ai-tactics.test.ts`，新建）
+### 12.3 `quota = 0` 的整合級等價（`test/integration/tactics-off.test.ts`）
+
+**單元測試不夠。** `stepTactics` 恆回 `off` 只證明純函數，證不了
+`AiController` 整體逐位元不變——新增的 `Situation` 欄位、覆寫的順序、早退
+路徑的推進都在函數之外。
+
+**而且不能拿改動前的基準比。** §4 的方向修正對**所有** AI 生效、不受
+`quota` 控制（它是一個錯誤的修正，不是戰術層的一部分），所以 `quota = 0`
+必然與改動前不同。
+
+**要兩個基準，分兩次裁定**：
+
+```
+BASE    改動前                          既有
+BASE'   只做 §4 方向修正                ← 第一次重跑，要裁定
+        戰術層上線、quota = 0           必須逐位元等於 BASE'
+        戰術層 quota = 0.5              預期不同，不比 digest
+```
+
+這個順序讓兩件事的影響分得開：第一次重跑的 diff 全部歸因於方向修正，
+第二次「沒有 diff」證明戰術層關掉時真的關乾淨了。
+
+### 12.4 同設定雙跑（`test/integration/replay-determinism.test.ts`，新建）
+
+專案目前沒有這條護欄（§10.4）。同一組設定、同一個種子跑兩次，digest 必須
+相同。`quota = 0.5` 也要跑——那才驗得到戰術層本身的決定性。
+
+### 12.5 整合（`test/integration/ai-tactics.test.ts`，新建）
 
 - 攔截卡跑 150 秒，戰術層開／關，`engage` 佔時與距離的方向
 - **一輪能跑完**：至少有一架完成過 `build → perch → dive → zoom → build`
+- **rematch 之後狀態乾淨**（§9.2）
 
-### 12.4 探針
+### 12.6 探針
 
-- `test/tools/energy-cycle.probe.ts`（新建）：單輪能量帳與攻擊生命週期
-- `test/tools/tactics-ablation.probe.ts`（新建）：`quota` 三列 × 七張卡
+- `test/tools/energy-cycle.probe.ts`（新建）：單輪能量帳、攻擊生命週期、
+  以及 §11.2 要回填的 `psSelf − psTarget` 分布
+- `test/tools/tactics-ablation.probe.ts`（新建）：`quota` 三檔 × 七張卡 ×
+  五種子
 - `test/tools/extend-payoff.probe.ts`（既有）：改動前後對照
 
-### 12.5 不寫的測試
+### 12.7 不寫的測試
 
-- **不寫勝率的測試**。見 §10.5。
-- **不為起始值寫測試**。它們是待掃描的旋鈕，寫測試等於把旋鈕焊死。
+- **不寫勝率的測試。**
+- **不為起始值寫測試**——它們是待掃描的旋鈕，寫測試等於把旋鈕焊死。
 
 ## 13. 已知後果
 
-- **`quota = 0.5` 時半數 AI 的行為會明顯不同**。這是設計，不是缺陷。
-- **戰術層會讓部分 AI 在開局的前 45 秒不接戰**（`build`）。20v20 的前
-  一分鐘會比現在安靜。這是 boom and zoom 的定義性代價，也是 §7 四道止損
-  存在的理由。
-- **`rematch` 的逐位元重播是最嚴格的護欄**。戰術層的任何非決定性（例如用
-  `Math.random` 錯開、或依賴 `Map` 的迭代順序）都會被它抓到。
-- **`order-of-battle-replay` 那兩條既有的紅測試**與這份改動無關，但改完要
-  確認它們的紅法沒有變化。
+- **`quota = 0.5` 時半數 AI 的行為會明顯不同。** 這是設計。
+- **戰術層會讓部分 AI 在開局的前一分鐘不接戰**（`build`）。這是 boom and
+  zoom 的定義性代價，也是 §7 四道止損存在的理由。
+- **`order-of-battle-replay` 的 digest 必然改變**（§10.4）。這是一次要負責人
+  裁定的基準重跑，不是一條可以忽略的紅燈。
+- **`§4` 的方向修正對所有 AI 生效，不受 `quota` 控制。** 它不是戰術層的一
+  部分，是一個錯誤的修正。所以 `quota = 0` 的等價測試要**在方向修正之前**
+  先跑一次基準，兩件事的影響才分得開。
