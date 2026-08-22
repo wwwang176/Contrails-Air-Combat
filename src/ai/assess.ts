@@ -5,6 +5,7 @@ import {
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed, sweetSpotPitch } from './doctrine'
+import { G0 } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -82,6 +83,33 @@ export interface Situation {
    * `energyAdvantage`（相對比較）仍然用比能量，那是對的用法。
    */
   cornerRatio: number
+  /**
+   * （我的 TAS − 他的 TAS）÷ **我的**角落速度。正 = 我比較快。
+   *
+   * 【它與 `cornerRatio` 的分工】那一個是**自我參照**的（TAS 除以自己的角落
+   * 速度，看不到敵人），這一個看的是兩者的關係。兩者的答案可以相反：遠距離
+   * 時沒有人在拉桿，TAS 自然貼近極速，於是每一架都判定「我速度過剩」——
+   * 包括那架其實比對手慢 28 m/s 的護航機。
+   *
+   * 【分母為什麼是自己的】它要餵給替**我**產生俯仰命令的函數，以自己的
+   * 操縱速度尺度正規化才有意義；敵人的角落速度不決定我需要多少控制量。
+   * 而且與 `cornerRatio` 同分母，兩者才比得起來。
+   *
+   * 【它不含方向】迎面、橫越、同向逃跑可能得到相同的值。解讀成「追不上」
+   * 只在大致同向時可靠。
+   */
+  speedAdvantage: number
+  /**
+   * `energyAdvantage` ÷ 我的角落速度**動能高度**（vc² / 2g）。正 = 我能量多。
+   *
+   * 【尺標為什麼是 vc² / 2g】它是「把角落速度的動能全部換成高度會有多高」，
+   * 也就是這架飛機在這個高度的天然能量尺度。除以它之後同一個數字對任何機種
+   * 都代表同一件事 —— 那是戰術層「一組參數對所有機型成立」的根據。
+   *
+   * `energyRatio = 0.5` 的意思是「我比他多半個角落速度動能高度」，**不是**
+   * 「半個角落速度的能量」：動能與速度平方成正比。
+   */
+  energyRatio: number
   /**
    * 我的 TAS ÷ **當前過載下**的失速速度。趨近 1 = 當前升力係數已逼近 CLmax。
    *
@@ -168,7 +196,7 @@ export function createSituation(): Situation {
     aspectAngle: 0, angleOffTail: 0, losRate: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
-    cornerRatio: 1, stallMargin: 1, speedMargin: 1,
+    cornerRatio: 1, speedAdvantage: 0, energyRatio: 0, stallMargin: 1, speedMargin: 1,
     pullCeiling: 1, sweetPitch: 0,
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
@@ -266,7 +294,14 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   // `manoeuvreGFraction = 1` 時完全相同；那個參數存在的意義是讓所有吃
   // `cornerRatio` 的判準（脫離、拉桿上限、減速、換速、指揮層見底）**一起
   // 平移**。見 `doctrine.ts` 的欄位註解。恆為正，不必防除以 0
-  out.cornerRatio = selfTas / manoeuvreSpeed(self.spec, selfAlt)
+  const vc = manoeuvreSpeed(self.spec, selfAlt)
+  out.cornerRatio = selfTas / vc
+  out.speedAdvantage = (selfTas - targetTas) / vc
+  // 【尺標是角落速度的動能高度】恆為正，不必防除以 0。分子的
+  // `energyAdvantage` 是兩個 `specificEnergy` 的差，而那個 getter 用的
+  // 也是 `G0` —— 兩邊必須是同一個常數，否則這個比值會有一個看不出來的
+  // 固定偏差（不會讓任何測試變紅，只會讓門檻偏離它的推導）
+  out.energyRatio = out.energyAdvantage / ((vc * vc) / (2 * G0))
 
   // 【失速速度可能極小或為 0】極高空、極低過載時 stallSpeed 會趨近 0。
   // 除以 0 會得到 Infinity，而 Infinity 通過所有「stallMargin > X」的檢查

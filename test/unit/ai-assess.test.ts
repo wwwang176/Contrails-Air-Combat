@@ -8,7 +8,8 @@ import {
 } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
-import { DEG, RAD } from '../../src/core/math'
+import { DEG, G0, RAD } from '../../src/core/math'
+import { manoeuvreSpeed } from '../../src/ai/doctrine'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 
 /**
@@ -273,6 +274,83 @@ describe('evaluateEnergy', () => {
       expect(Number.isFinite(v)).toBe(true)
     }
   })
+
+  /**
+   * 【為什麼要第二個無因次的速度量】`cornerRatio` 是**自我參照**的：TAS 除以
+   * 自己的角落速度，看不到敵人。遠距離時沒有人在拉桿，TAS 自然貼近極速，
+   * 於是每一架都判定「我速度過剩」—— 包括那架其實比對手慢 28 m/s 的護航機。
+   */
+  it('speedAdvantage：雙方 TAS 差除以我的角落速度', () => {
+    const self = at(BF109G6, 5000, 200)
+    const target = at(P51D, 5000, 240)
+    evaluateEnergy(self, target, sit)
+
+    const vc = manoeuvreSpeed(self.spec, self.state.position.y)
+    expect(sit.speedAdvantage)
+      .toBeCloseTo((self.diag.aero.tas - target.diag.aero.tas) / vc, 9)
+    // 慢的那一方是負的
+    expect(sit.speedAdvantage).toBeLessThan(0)
+  })
+
+  it('speedAdvantage 的分母與 cornerRatio 是同一個', () => {
+    // 【為什麼要釘住這件事】兩個量若用不同的尺標，`extendPitchAngle` 裡取
+    // 較大值的那一步就是在比兩個不同單位的數字。
+    const self = at(P51D, 6000, 220)
+    const target = at(BF109G6, 6000, 180)
+    evaluateEnergy(self, target, sit)
+
+    // cornerRatio = Vs / vc、speedAdvantage = (Vs − Vt) / vc
+    const vc = self.diag.aero.tas / sit.cornerRatio
+    expect((self.diag.aero.tas - target.diag.aero.tas) / vc)
+      .toBeCloseTo(sit.speedAdvantage, 9)
+  })
+
+  it('speedAdvantage 反號：交換雙方角色時符號相反', () => {
+    // 【它只是**近似**反號，而且這件事重要】分母是各自的角落速度，所以嚴格
+    // 的反對稱要兩機的角落速度完全相同。連同機種、同標稱高度都不夠：跑一
+    // 步之後速度不同的那兩架已經有了微小的高度差（實測 3e-9 的相對誤差）。
+    //
+    // `turnAdvantage` 那一條可以要求 9 位精度，因為它是兩個絕對量相減；
+    // 這一個是相除，分母不同就不可能精確互為相反數。**不要為了讓它變成
+    // 9 位而把分母改成雙方的平均** —— 那會讓它與 `cornerRatio` 用不同的
+    // 尺標，而兩者要在 `extendPitchAngle` 裡比大小。
+    const a = at(P51D, 5000, 240)
+    const b = at(P51D, 5000, 180)
+    evaluateEnergy(a, b, sit)
+    const forward = sit.speedAdvantage
+    evaluateEnergy(b, a, sit)
+    expect(sit.speedAdvantage).toBeCloseTo(-forward, 6)
+  })
+
+  /**
+   * 【尺標為什麼是 vc² / 2g】它是「把角落速度的動能全部換成高度會有多高」，
+   * 也就是這架飛機在這個高度的天然能量尺度。除以它之後，同一個數字對任何
+   * 機種都代表同一件事 —— 那是「一組參數對所有機型成立」的根據。
+   */
+  it('energyRatio：比能量差除以角落速度的動能高度', () => {
+    const self = at(BF109G6, 6000, 200)
+    const target = at(P51D, 5500, 200)
+    evaluateEnergy(self, target, sit)
+
+    const vc = manoeuvreSpeed(self.spec, self.state.position.y)
+    expect(sit.energyRatio).toBeCloseTo(sit.energyAdvantage / ((vc * vc) / (2 * G0)), 9)
+    // 高 500 m、同速 ⇒ 我能量多
+    expect(sit.energyRatio).toBeGreaterThan(0)
+  })
+
+  it('energyRatio 的分子就是 energyAdvantage —— 兩者同號', () => {
+    evaluateEnergy(at(P51D, 5000, 200), at(P51D, 4000, 200), sit)
+    expect(sit.energyRatio).toBeGreaterThan(0)
+    evaluateEnergy(at(P51D, 4000, 200), at(P51D, 5000, 200), sit)
+    expect(sit.energyRatio).toBeLessThan(0)
+  })
+
+  it('createSituation 的兩個新欄位起始為 0', () => {
+    const fresh = createSituation()
+    expect(fresh.speedAdvantage).toBe(0)
+    expect(fresh.energyRatio).toBe(0)
+  })
+
 })
 
 describe('trackingFactor', () => {
