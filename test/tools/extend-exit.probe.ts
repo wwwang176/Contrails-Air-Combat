@@ -1,29 +1,35 @@
 /**
- * **每一段 `extend` 是被哪一條路徑結束的？如果早有絕對出路，會短多少？**
+ * **每一段 `extend` 是被哪一條路徑結束的？`recoverExit` 該訂多少？**
  * 不是測試（`.probe.ts`）。跑法：npx vite-node test/tools/extend-exit.probe.ts
  *
  * 【為什麼要這一支】`2026-08-22-extend-recovery-design.md` §4 的整個賭注是
  * 「能量型 `extend` 拖很久，而速度其實 3~5 秒就補完了」。但那個推論有一個
- * 沒有量過的前提：**`extend` 真的是被能量閂鎖決定結束的嗎？**
+ * 沒有量過的前提：**`extend` 真的是被能量閂鎖決定結束的嗎？** 若大多數段落
+ * 其實是被距離或射擊解結束的，那麼新增一條絕對出路什麼都不會改變。
  *
- * 若大多數段落其實是被距離或射擊解結束的，那麼 §4 新增一條絕對出路
- * **什麼都不會改變** —— 整份 spec 是空轉。這一支在**改動前**回答那個問題。
+ * 改動後它同時是 `recoverExit` 的**掃描器** —— `EXITS` 的每一檔各跑一遍。
+ * `null` 那一檔關閉新閂鎖，精確重現改動前的行為（state 初始為 false、
+ * `recoveredExit: false` 時永不更新，合取因而退化成原式）。
  *
  * 【歸類要照 `arbitrate` 的真實優先序】第一版把「閂鎖全滅」排在「相對出場」
  * 之前，而相對出場的定義就是能量閂鎖被 `energyAdvantage > energyExit` 解除
- * —— 那一刻閂鎖當然是全滅的，於是相對出場恆為 0，被吃掉了。改成**比對前
- * 一拍的閂鎖狀態看是哪一個翻掉的**。
+ * —— 那一刻閂鎖當然是全滅的，於是相對出場恆為 0，被整個吃掉。改成**比對
+ * 前一拍的閂鎖狀態看是哪一個翻掉的**。
+ *
+ * 【`kind` 要看整段，不能只看進場那一拍】迴旋閂鎖可能中途成立又解除，
+ * 那一段就不是純能量型了。逐拍把 turn/floor 的成立 OR 進一個 mask，
+ * **整段結束才歸類**。
  *
  * 【反事實怎麼量】對每一段，記下 `cornerRatio` 第一次**嚴格大於**
- * `cornerExit` 的時刻（`latch()` 用的是嚴格 `>`，要一致）。§4 上線後那一刻
- * 就會結束這一段，所以
+ * `cornerExit` 的時刻（`latch()` 用的是嚴格 `>`，要一致）：
  *
  * ```
  *   反事實長度 = min(實際長度, cornerRatio 首次 > 0.95 的時刻)
  * ```
  *
- * 兩者的差是 §4 能省下來的時間**上界** —— 段落變短之後後續的態勢整個不同，
- * 那不是這一支答得了的。
+ * 那是新出路能省下來的時間**上界** —— 段落變短之後後續的態勢整個不同，
+ * 那不是這一支答得了的。**只有 `null` 那一檔需要它**，其餘檔位的實際長度
+ * 就是答案。
  *
  * 【右設限要標出來，不能靜默丟掉】自機死亡、失去目標、觀測窗結束這三種
  * 情況下段落是被外部截斷的，不是被任何規則結束的。把它們算成「成功出場」
@@ -36,7 +42,7 @@
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
-import { DEFAULT_RULES } from '../../src/ai/rules'
+import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
 
 const DT = 1 / 240
@@ -50,8 +56,11 @@ const CARDS: [string, 'allies' | 'axis'][] = [
   ['allies-escort', 'allies'],
 ]
 
-/** 五次微擾，0 = 不擾動。與 extend-trigger.probe.ts 同一個雜湊 */
+/** 五次微擾。0 = 不擾動的那一次 */
 const SALTS = [0, 101, 202, 303, 404]
+
+/** `recoverExit` 的掃描檔位。`null` = 關閉新閂鎖，重現改動前 */
+const EXITS: (number | null)[] = [null, 0.80, 0.85, 0.90]
 
 const n = (v: number, w: number, d = 1): string =>
   (Number.isFinite(v) ? v.toFixed(d) : '—').padStart(w)
@@ -72,22 +81,20 @@ function pct(sorted: number[], p: number): number {
   return sorted[i]!
 }
 
-/** 結束原因。前五個是規則出場，後三個是右設限（被外部截斷） */
+/** 結束原因。前八個是規則出場，後三個是右設限（被外部截斷） */
 const CAUSES = [
   'defend', 'merge', 'rally', '射擊解', '距離',
-  '相對出場', '迴旋解除', '見底解除', '其他',
+  '絕對出場', '相對出場', '迴旋解除', '見底解除', '其他',
   '失去目標*', '自機死亡*', '觀測窗結束*',
 ] as const
 type Cause = typeof CAUSES[number]
-/** 右設限：段落不是被規則結束的，長度不可信 */
 const CENSORED = new Set<Cause>(['失去目標*', '自機死亡*', '觀測窗結束*'])
 
-/** 進場那一拍的理由組合 */
+/** 進場理由 —— **整段結束才判定** */
 type Kind = '純能量' | '混合' | '純迴旋' | '見底' | '其他'
 
 interface Seg {
   seconds: number
-  /** cornerRatio 首次 > cornerExit 的時刻，相對段落起點。從未達到 = Infinity */
   recoveredAt: number
   cause: Cause
   kind: Kind
@@ -95,173 +102,218 @@ interface Seg {
   gap: number
 }
 
-function kindOf(energy: boolean, turn: boolean, floor: boolean): Kind {
-  if (floor) return '見底'
-  if (energy && turn) return '混合'
-  if (energy) return '純能量'
-  if (turn) return '純迴旋'
+interface Live {
+  t0: number
+  rec: number
+  entryEnergy: boolean
+  entryTurn: boolean
+  entryFloor: boolean
+  everTurn: boolean
+  everFloor: boolean
+}
+
+function kindOf(l: Live): Kind {
+  if (l.entryFloor || l.everFloor) return '見底'
+  if (l.entryEnergy && l.everTurn) return '混合'
+  if (l.entryEnergy) return '純能量'
+  if (l.entryTurn || l.everTurn) return '純迴旋'
   return '其他'
 }
 
-for (const [id, faction] of CARDS) {
-  const segs: Seg[] = []
-
-  for (const salt of SALTS) {
-    const card = MISSIONS[faction].find((m) => m.id === id)!
-    const b = createBattle(new AiController(), missionConfigFrom(card, faction), SEED)
-    jitter(b, salt)
-    const cs: Combatant[] = b.world.combatants
-
-    const inSeg = new Uint8Array(cs.length)
-    const t0 = new Float64Array(cs.length)
-    const rec = new Float64Array(cs.length)
-    const kind: Kind[] = cs.map(() => '其他')
-    // 前一拍的閂鎖狀態 —— 用來看是哪一個翻掉的
-    const pe = new Uint8Array(cs.length)
-    const pt = new Uint8Array(cs.length)
-    const pf = new Uint8Array(cs.length)
-    const hadTarget = new Uint8Array(cs.length)
-    const lastEnd = new Float64Array(cs.length).fill(Number.NaN)
-    let t = 0
-
-    const close = (i: number, cause: Cause, at: number): void => {
-      inSeg[i] = 0
-      segs.push({
-        seconds: at - t0[i]!,
-        recoveredAt: rec[i]!,
-        cause,
-        kind: kind[i]!,
-        gap: Number.isNaN(lastEnd[i]!) ? Infinity : Number.NaN,
-      })
-      lastEnd[i] = at
-    }
-
-    for (let k = 0; k < Math.round(SECONDS / DT); k++) {
-      stepBattle(b, DT)
-      if (k % STRIDE !== 0) continue
-      t += STEP
-
-      for (const c of cs) {
-        const ai = c.controller
-        if (!(ai instanceof AiController)) continue
-        const i = c.index
-
-        if (!c.alive) {
-          if (inSeg[i] === 1) close(i, '自機死亡*', t)
-          continue
-        }
-        // 【失去目標時 stepRules 不跑】那條路徑改飛站位／集合點／平飛，
-        // 而 ai.intent 可能仍殘留 'extend' —— 不能只靠字串判斷段落。
-        if (ai.target === null) {
-          if (inSeg[i] === 1) close(i, '失去目標*', t)
-          hadTarget[i] = 0
-          continue
-        }
-        hadTarget[i] = 1
-
-        const r = ai.rules
-        const isExtend = ai.intent === 'extend'
-
-        if (isExtend && inSeg[i] === 0) {
-          // 【段落起點】上一段的結束到這裡就是 churn 的間隔
-          if (!Number.isNaN(lastEnd[i]!)) {
-            for (let j = segs.length - 1; j >= 0; j--) {
-              if (!Number.isFinite(segs[j]!.gap)) { segs[j]!.gap = t - lastEnd[i]!; break }
-            }
-          }
-          inSeg[i] = 1
-          t0[i] = t
-          rec[i] = Infinity
-          kind[i] = kindOf(r.extendEnergyLatch, r.extendTurnLatch, r.extendFloorLatch)
-        }
-        // 【嚴格 `>`】latch() 用的就是嚴格比較，量測要一致
-        if (inSeg[i] === 1 && rec[i] === Infinity
-          && ai.sit.cornerRatio > DEFAULT_RULES.cornerExit) {
-          rec[i] = t - t0[i]!
-        }
-
-        if (!isExtend && inSeg[i] === 1) {
-          let cause: Cause = '其他'
-          if (ai.intent === 'defend') cause = 'defend'
-          else if (ai.intent === 'merge') cause = 'merge'
-          else if (ai.intent === 'rally') cause = 'rally'
-          else if (ai.sit.shotInstant > 0) cause = '射擊解'
-          else if (ai.sit.range >= DEFAULT_RULES.extendRange) cause = '距離'
-          // 【看是哪一個閂鎖翻掉的】相對出場的定義就是能量閂鎖被
-          // energyAdvantage > energyExit 解除
-          else if (pe[i] === 1 && !r.extendEnergyLatch) cause = '相對出場'
-          else if (pt[i] === 1 && !r.extendTurnLatch) cause = '迴旋解除'
-          else if (pf[i] === 1 && !r.extendFloorLatch) cause = '見底解除'
-          close(i, cause, t)
-        }
-
-        pe[i] = r.extendEnergyLatch ? 1 : 0
-        pt[i] = r.extendTurnLatch ? 1 : 0
-        pf[i] = r.extendFloorLatch ? 1 : 0
-      }
-    }
-    // 觀測窗結束時仍在段落中的，全部右設限
-    for (const c of cs) {
-      if (inSeg[c.index] === 1) close(c.index, '觀測窗結束*', t)
-    }
-  }
-
-  const clean = segs.filter((s) => !CENSORED.has(s.cause))
-  const energy = clean.filter((s) => s.kind === '純能量')
-  const mixed = clean.filter((s) => s.kind === '混合')
-  const censored = segs.length - clean.length
-
-  console.log(`\n══ ${id}　${SECONDS} s × 5 次微擾　共 ${segs.length} 段`
-    + `（右設限 ${censored} 段，下列統計已排除）══`)
-
-  console.log('  進場理由      段數    佔比')
-  for (const kd of ['純能量', '混合', '純迴旋', '見底', '其他'] as Kind[]) {
-    const a = clean.filter((s) => s.kind === kd).length
-    if (a > 0) {
-      console.log(`  ${kd.padEnd(10)}${n(a, 6, 0)}  ${n(100 * a / clean.length, 5, 1)}%`)
-    }
-  }
-
-  console.log('\n  結束原因         全部          純能量型')
-  for (const c of CAUSES) {
-    if (CENSORED.has(c)) continue
-    const a = clean.filter((s) => s.cause === c).length
-    const e = energy.filter((s) => s.cause === c).length
-    if (a === 0) continue
-    console.log(`  ${c.padEnd(12)}${n(a, 6, 0)} 段 ${n(100 * a / clean.length, 5, 1)}%`
-      + `${n(e, 9, 0)} 段 ${n(100 * e / Math.max(1, energy.length), 5, 1)}%`)
-  }
-
-  for (const [label, set] of [['純能量型', energy], ['混合型', mixed]] as const) {
-    if (set.length === 0) continue
-    const dur = set.map((s) => s.seconds).sort((a, x) => a - x)
-    const cut = set.map((s) => Math.min(s.seconds, s.recoveredAt)).sort((a, x) => a - x)
-    const shorter = set.filter((s) => s.recoveredAt < s.seconds).length
-    const never = set.filter((s) => !Number.isFinite(s.recoveredAt)).length
-    console.log(`\n  ${label}段落的長度（秒），${set.length} 段`)
-    console.log('                    p50     p75     p90     max')
-    console.log(`  實際          ${n(pct(dur, 0.5), 8, 1)}${n(pct(dur, 0.75), 8, 1)}`
-      + `${n(pct(dur, 0.9), 8, 1)}${n(dur[dur.length - 1] ?? NaN, 8, 1)}`)
-    console.log(`  §4 反事實     ${n(pct(cut, 0.5), 8, 1)}${n(pct(cut, 0.75), 8, 1)}`
-      + `${n(pct(cut, 0.9), 8, 1)}${n(cut[cut.length - 1] ?? NaN, 8, 1)}`)
-    console.log(`  §4 會縮短 ${shorter} / ${set.length}`
-      + `（${(100 * shorter / set.length).toFixed(0)}%）`
-      + `　整段沒補到 ${DEFAULT_RULES.cornerExit} 的 ${never} 段`)
-  }
-
-  // 【churn 基準】§4.3 主張「不需要冷卻」，那句話要有現況的對照
-  const gaps = segs.map((s) => s.gap).filter((g) => Number.isFinite(g))
-    .sort((a, x) => a - x)
-  console.log(`\n  現況的 churn：段落結束到同一架下一次進場的間隔（${gaps.length} 筆）`)
-  console.log(`    p10 ${n(pct(gaps, 0.1), 6, 1)} s   p50 ${n(pct(gaps, 0.5), 6, 1)} s`
-    + `   p90 ${n(pct(gaps, 0.9), 6, 1)} s`)
-  const tight = gaps.filter((g) => g <= DEFAULT_RULES.minDwell * 2).length
-  console.log(`    間隔 ≤ 2×minDwell（${(DEFAULT_RULES.minDwell * 2).toFixed(1)} s）的：`
-    + `${tight} 筆（${(100 * tight / Math.max(1, gaps.length)).toFixed(1)}%）`)
+interface Run {
+  segs: Seg[]
+  /** 存活積分，aircraft-seconds */
+  protectedAlive: number
+  fighterAlive: number
 }
 
-console.log(`\n【怎麼讀】「§4 反事實」= min(實際長度, cornerRatio 首次 > `
-  + `${DEFAULT_RULES.cornerExit} 的時刻)，是 §4 能省下來的時間**上界**。`)
-console.log('帶 * 的結束原因是右設限（被外部截斷），已從長度統計排除。')
-console.log('churn 那一段是 §4.3「不需要冷卻」的現況對照 —— '
-  + '改動後這幾個數字不該惡化。')
+function run(id: string, faction: 'allies' | 'axis', salt: number, exit: number | null): Run {
+  const card = MISSIONS[faction].find((m) => m.id === id)!
+  const b = createBattle(new AiController(), missionConfigFrom(card, faction), SEED)
+  jitter(b, salt)
+
+  const cfg: RuleConfig = exit === null
+    ? { ...DEFAULT_RULES, recoveredExit: false }
+    : { ...DEFAULT_RULES, recoveredExit: true, recoverExit: exit }
+  for (const c of b.world.combatants) {
+    if (c.controller instanceof AiController) c.controller.rulesConfig = cfg
+  }
+
+  const cs: Combatant[] = b.world.combatants
+  const guarded = cs.filter((c) => b.board.protectedMask[c.index] !== 0)
+  const mine = cs.filter((c) => c.team === b.player.team
+    && c.controller instanceof AiController
+    && c.aircraft.spec.role === 'fighter')
+
+  const segs: Seg[] = []
+  const live: (Live | null)[] = cs.map(() => null)
+  const pe = new Uint8Array(cs.length)
+  const pt = new Uint8Array(cs.length)
+  const pf = new Uint8Array(cs.length)
+  const pr = new Uint8Array(cs.length)
+  const lastEnd = new Float64Array(cs.length).fill(Number.NaN)
+  let protectedAlive = 0
+  let fighterAlive = 0
+  let t = 0
+
+  const close = (i: number, cause: Cause, at: number): void => {
+    const l = live[i] ?? null
+    if (l === null) return
+    live[i] = null
+    segs.push({
+      seconds: at - l.t0,
+      recoveredAt: l.rec,
+      cause,
+      kind: kindOf(l),
+      gap: Infinity,
+    })
+    lastEnd[i] = at
+  }
+
+  for (let k = 0; k < Math.round(SECONDS / DT); k++) {
+    stepBattle(b, DT)
+    if (k % STRIDE !== 0) continue
+    t += STEP
+
+    for (const c of guarded) if (c.alive) protectedAlive += STEP
+
+    for (const c of cs) {
+      const ai = c.controller
+      if (!(ai instanceof AiController)) continue
+      const i = c.index
+
+      if (!c.alive) { close(i, '自機死亡*', t); continue }
+      // 【失去目標時 stepRules 不跑】那條路徑改飛站位／集合點／平飛，
+      // 而 ai.intent 可能仍殘留 'extend' —— 不能只靠字串判斷段落。
+      if (ai.target === null) { close(i, '失去目標*', t); continue }
+
+      const r = ai.rules
+      const isExtend = ai.intent === 'extend'
+      const l = live[i] ?? null
+
+      if (isExtend && l === null) {
+        if (!Number.isNaN(lastEnd[i]!)) {
+          for (let j = segs.length - 1; j >= 0; j--) {
+            if (!Number.isFinite(segs[j]!.gap)) { segs[j]!.gap = t - lastEnd[i]!; break }
+          }
+        }
+        live[i] = {
+          t0: t,
+          rec: Infinity,
+          entryEnergy: r.extendEnergyLatch,
+          entryTurn: r.extendTurnLatch,
+          entryFloor: r.extendFloorLatch,
+          everTurn: r.extendTurnLatch,
+          everFloor: r.extendFloorLatch,
+        }
+      } else if (isExtend && l !== null) {
+        // 【逐拍 OR 進 mask】整段結束才歸類
+        if (r.extendTurnLatch) l.everTurn = true
+        if (r.extendFloorLatch) l.everFloor = true
+      }
+
+      const cur = live[i] ?? null
+      // 【嚴格 `>`】latch() 用的就是嚴格比較，量測要一致
+      if (cur !== null && cur.rec === Infinity
+        && ai.sit.cornerRatio > DEFAULT_RULES.cornerExit) {
+        cur.rec = t - cur.t0
+      }
+
+      if (!isExtend && l !== null) {
+        let cause: Cause = '其他'
+        if (ai.intent === 'defend') cause = 'defend'
+        else if (ai.intent === 'merge') cause = 'merge'
+        else if (ai.intent === 'rally') cause = 'rally'
+        else if (ai.sit.shotInstant > 0) cause = '射擊解'
+        else if (ai.sit.range >= DEFAULT_RULES.extendRange) cause = '距離'
+        // 【新的絕對出路】recovered 由假翻真，而能量閂鎖仍開著
+        else if (pr[i] === 0 && r.extendRecoveredLatch && r.extendEnergyLatch) {
+          cause = '絕對出場'
+        }
+        // 【看是哪一個閂鎖翻掉的】相對出場的定義就是能量閂鎖被
+        // energyAdvantage > energyExit 解除
+        else if (pe[i] === 1 && !r.extendEnergyLatch) cause = '相對出場'
+        else if (pt[i] === 1 && !r.extendTurnLatch) cause = '迴旋解除'
+        else if (pf[i] === 1 && !r.extendFloorLatch) cause = '見底解除'
+        close(i, cause, t)
+      }
+
+      pe[i] = r.extendEnergyLatch ? 1 : 0
+      pt[i] = r.extendTurnLatch ? 1 : 0
+      pf[i] = r.extendFloorLatch ? 1 : 0
+      pr[i] = r.extendRecoveredLatch ? 1 : 0
+    }
+
+    for (const c of mine) if (c.alive && c.controller instanceof AiController) fighterAlive += STEP
+  }
+  for (const c of cs) close(c.index, '觀測窗結束*', t)
+
+  return { segs, protectedAlive, fighterAlive }
+}
+
+for (const [id, faction] of CARDS) {
+  console.log(`\n══════ ${id} ══════ ${SECONDS} s × ${SALTS.length} 次微擾 ══════`)
+
+  for (const exit of EXITS) {
+    const segs: Seg[] = []
+    let protectedAlive = 0
+    let fighterAlive = 0
+    for (const salt of SALTS) {
+      const r = run(id, faction, salt, exit)
+      segs.push(...r.segs)
+      protectedAlive += r.protectedAlive
+      fighterAlive += r.fighterAlive
+    }
+
+    const clean = segs.filter((s) => !CENSORED.has(s.cause))
+    const energy = clean.filter((s) => s.kind === '純能量')
+    const label = exit === null ? '關閉（改動前）' : `recoverExit ${exit.toFixed(2)}`
+
+    console.log(`\n── ${label} ── 共 ${segs.length} 段`
+      + `（右設限 ${segs.length - clean.length}）`
+      + `　存活積分 protected ${protectedAlive.toFixed(0)}`
+      + `／戰鬥機 ${fighterAlive.toFixed(0)} 機秒`)
+
+    const kinds = ['純能量', '混合', '純迴旋', '見底', '其他'] as Kind[]
+    console.log('  進場理由 '
+      + kinds.map((kd) => {
+        const a = clean.filter((s) => s.kind === kd).length
+        return `${kd} ${a}`
+      }).join('　'))
+
+    const causes = CAUSES.filter((c) => !CENSORED.has(c)
+      && energy.some((s) => s.cause === c))
+    console.log('  純能量的結束原因 '
+      + causes.map((c) => {
+        const e = energy.filter((s) => s.cause === c).length
+        return `${c} ${(100 * e / Math.max(1, energy.length)).toFixed(0)}%`
+      }).join('　'))
+
+    const dur = energy.map((s) => s.seconds).sort((a, x) => a - x)
+    console.log(`  純能量段落 ${energy.length} 段　長度 p50 ${n(pct(dur, 0.5), 5, 1)}`
+      + `　p90 ${n(pct(dur, 0.9), 5, 1)}　max ${n(dur[dur.length - 1] ?? NaN, 6, 1)} s`)
+
+    if (exit === null) {
+      const cut = energy.map((s) => Math.min(s.seconds, s.recoveredAt)).sort((a, x) => a - x)
+      const shorter = energy.filter((s) => s.recoveredAt < s.seconds).length
+      console.log(`  反事實上界   長度 p50 ${n(pct(cut, 0.5), 5, 1)}`
+        + `　p90 ${n(pct(cut, 0.9), 5, 1)}　max ${n(cut[cut.length - 1] ?? NaN, 6, 1)} s`
+        + `　會縮短 ${(100 * shorter / Math.max(1, energy.length)).toFixed(0)}%`)
+    }
+
+    // 【churn】§4.3 主張「不需要冷卻」，這幾個數字是它唯一的證據
+    const gaps = segs.map((s) => s.gap).filter((g) => Number.isFinite(g))
+      .sort((a, x) => a - x)
+    const tight = gaps.filter((g) => g <= DEFAULT_RULES.minDwell * 2).length
+    console.log(`  churn 間隔 p10 ${n(pct(gaps, 0.1), 5, 1)}`
+      + `　p50 ${n(pct(gaps, 0.5), 5, 1)}　p90 ${n(pct(gaps, 0.9), 5, 1)} s`
+      + `　≤ ${(DEFAULT_RULES.minDwell * 2).toFixed(1)} s 的佔 `
+      + `${(100 * tight / Math.max(1, gaps.length)).toFixed(1)}%`)
+  }
+}
+
+console.log('\n【選值規則】兩階段：')
+console.log('  一、安全先過 —— protected 與戰鬥機的存活積分都不得比「關閉」那一檔差')
+console.log('  二、在通過的檔位裡取 churn（≤ 2×minDwell 的佔比）最低者')
+console.log('不用效果量選值 —— recoverExit 只控制 recovered 何時失效，')
+console.log('它不影響第一次達到 cornerExit，三檔在效果量上很可能同分。')
