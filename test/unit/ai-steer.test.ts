@@ -29,6 +29,15 @@ function flyer(): Aircraft {
   return a
 }
 
+/**
+ * 相對敵人完全沒有赤字 —— 這幾條只測 `extendPitchAngle` 的**自我赤字**那一半。
+ *
+ * 【為什麼不是 0】`foeDeficit = −0 = 0`，而 `max(selfDeficit, 0)` 在速度過剩
+ * （`selfDeficit < 0`）時會給 0 而不是 `selfDeficit` —— 那正是這次改掉的那
+ * 一半。要讓相對赤字完全不參與，值必須是 `Infinity`。
+ */
+const NO_FOE_DEFICIT = Infinity
+
 describe('buildEngageBasis', () => {
   const basis = createEngageBasis()
 
@@ -606,16 +615,34 @@ describe('steerCommand', () => {
   })
 
   /**
-   * 【俯仰跟的是速度不是相對能量差】舊版用 `−sign(energyAdvantage)` 決定
-   * 爬或衝，那是缺陷 4 的極限環來源之一（spec §3.5）。現在問的是「我自己
-   * 還轉得動嗎」。
+   * 【俯仰跟的是兩個速度赤字的較大值，不是相對能量差的符號】用
+   * `−sign(energyAdvantage)` 決定爬或衝會在零點瞬間翻號，加上俯仰慣性就是
+   * 極限環。現在問的是兩個連續量：「我自己還轉得動嗎」（`cornerRatio`）
+   * 與「我追不追得上」（`speedAdvantage`），取赤字較大的那一個。
+   *
+   * 所以「速度過剩」的場景要**兩個維度都指定** —— 只給 `cornerRatio` 的話
+   * 另一半會留在預設的 0 並反過來主導。
    */
   it('extend 在速度過剩時帶爬升分量（把速度存成高度）', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1.4
+    sit.speedAdvantage = 0.4
     steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
+  })
+
+  /**
+   * 【新增：相對赤字會壓過自我盈餘】這就是護航 Bf 109 的局面 —— 相對自己
+   * 速度過剩（1.4），但比敵人慢。舊版在這裡爬升，把追不上變成更追不上。
+   */
+  it('extend 在相對敵人落後時帶俯衝分量，即使自己速度過剩', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 1.4
+    sit.speedAdvantage = -0.2
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
   })
 
   it('extend 在速度不足時帶俯衝分量（用高度換速度）', () => {
@@ -863,6 +890,11 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
     sit.cornerRatio = cornerRatio
+    // 【場景要兩個維度都指定】速度赤字取「相對自己」與「相對敵人」的較大
+    // 值，所以「速度過剩」不再只是 `cornerRatio > 1`——那樣只說了一半，
+    // 而另一半（相對敵人）留在預設的 0 會反過來主導。這裡讓兩者同號：
+    // `cornerRatio` 1.4 ⇒ 也比敵人快 0.4 個角落速度。
+    sit.speedAdvantage = cornerRatio - 1
     sit.speedMargin = 2
     sit.stallMargin = 2
 
@@ -877,13 +909,13 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
   }
 
   it('速度過剩時：每一輪都是同一個爬升角，不會愈爬愈陡', () => {
-    const expected = extendPitchAngle(1.4, 4000)
+    const expected = extendPitchAngle(1.4, 1.4 - 1, 4000)
     expect(expected).toBeGreaterThan(0)
     for (const a of followLoop(1.4)) expect(a).toBeCloseTo(expected, 9)
   })
 
   it('速度不足時：每一輪都是同一個俯衝角，不會愈俯愈陡', () => {
-    const expected = extendPitchAngle(0.6, 4000)
+    const expected = extendPitchAngle(0.6, 0.6 - 1, 4000)
     expect(expected).toBeLessThan(0)
     for (const a of followLoop(0.6)) expect(a).toBeCloseTo(expected, 9)
   })
@@ -966,11 +998,11 @@ describe('extend 的俯仰是連續量', () => {
   const CLEAR = DEFAULT_STEER.clearanceScale
 
   it('高空缺速度 → 俯衝換速度', () => {
-    expect(extendPitchAngle(0.6, 4000)).toBeLessThan(0)
+    expect(extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000)).toBeLessThan(0)
   })
 
   it('高空速度充足 → 爬升把速度存成高度', () => {
-    expect(extendPitchAngle(1.3, 4000)).toBeGreaterThan(0)
+    expect(extendPitchAngle(1.3, NO_FOE_DEFICIT, 4000)).toBeGreaterThan(0)
   })
 
   /**
@@ -978,24 +1010,24 @@ describe('extend 的俯仰是連續量', () => {
    * 寫的規則 —— 低空不能用高度換速度（spec §7.2）。
    */
   it('低空缺速度時，俯衝傾向被高度項抵消', () => {
-    const high = extendPitchAngle(0.6, 4000)
-    const low = extendPitchAngle(0.6, CLEAR * 0.4)
+    const high = extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000)
+    const low = extendPitchAngle(0.6, NO_FOE_DEFICIT, CLEAR * 0.4)
     expect(low).toBeGreaterThan(high)
   })
 
   it('極低空 → 爬升（高度項主導）', () => {
-    expect(extendPitchAngle(0.6, 0)).toBeGreaterThan(0)
+    expect(extendPitchAngle(0.6, NO_FOE_DEFICIT, 0)).toBeGreaterThan(0)
   })
 
   it('都不缺時趨近平飛', () => {
-    expect(extendPitchAngle(1, 4000)).toBeCloseTo(0, 9)
+    expect(extendPitchAngle(1, NO_FOE_DEFICIT, 4000)).toBeCloseTo(0, 9)
   })
 
   it('夾在 ±extendPitch 之間', () => {
     // cornerRatio 極低 = 嚴重缺速度 → 俯衝到底（負）
-    expect(extendPitchAngle(-5, 4000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
+    expect(extendPitchAngle(-5, NO_FOE_DEFICIT, 4000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
     // cornerRatio 極高 = 速度過剩 → 爬升到底，把速度存成高度（正）
-    expect(extendPitchAngle(5, 4000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+    expect(extendPitchAngle(5, NO_FOE_DEFICIT, 4000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
   })
 
   /**
@@ -1010,8 +1042,8 @@ describe('extend 的俯仰是連續量', () => {
   it('對高度連續：相鄰 1 m 的俯仰差不超過上限的 1%', () => {
     const limit = DEFAULT_STEER.extendPitch * 0.01
     for (let h = 0; h <= 2000; h += 25) {
-      const a = extendPitchAngle(0.8, h)
-      const b = extendPitchAngle(0.8, h + 1)
+      const a = extendPitchAngle(0.8, NO_FOE_DEFICIT, h)
+      const b = extendPitchAngle(0.8, NO_FOE_DEFICIT, h + 1)
       expect(Math.abs(b - a)).toBeLessThan(limit)
     }
   })
@@ -1019,8 +1051,8 @@ describe('extend 的俯仰是連續量', () => {
   it('對速度連續：相鄰 0.01 的 cornerRatio 差不超過上限的 10%', () => {
     const limit = DEFAULT_STEER.extendPitch * 0.1
     for (let r = 0.2; r <= 2; r += 0.01) {
-      const a = extendPitchAngle(r, 4000)
-      const b = extendPitchAngle(r + 0.01, 4000)
+      const a = extendPitchAngle(r, NO_FOE_DEFICIT, 4000)
+      const b = extendPitchAngle(r + 0.01, NO_FOE_DEFICIT, 4000)
       expect(Math.abs(b - a)).toBeLessThan(limit)
     }
   })
@@ -1041,7 +1073,7 @@ describe('extend 的俯仰是連續量', () => {
     sit.stallMargin = 2
     steerCommand('extend', 'normal', sit, basis, self, 0, knobs, createDefendState(), null, cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-    expect(commanded).toBeCloseTo(extendPitchAngle(0.6, 4000), 9)
+    expect(commanded).toBeCloseTo(extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000), 9)
   })
 
   /** 【離地餘裕不是絕對高度】`seaHeight` 抬高時，同一個海拔就變成低空。 */
@@ -1071,9 +1103,9 @@ describe('extend 的俯仰是連續量', () => {
     // 這條測試要守的性質沒有變 —— 若 steerCommand 誤用 position.y（4000）
     // 而不是 position.y − seaHeight（100），兩層都會給高空的答案，這個等式
     // 立刻紅。判別力完全保留。
-    const expected = Math.max(extendPitchAngle(0.6, 100), floorPitchAngle(100))
+    const expected = Math.max(extendPitchAngle(0.6, NO_FOE_DEFICIT, 100), floorPitchAngle(100))
     expect(commanded).toBeCloseTo(expected, 9)
-    expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, 4000))
+    expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000))
   })
 })
 /**

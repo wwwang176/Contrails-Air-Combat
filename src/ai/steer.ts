@@ -1171,15 +1171,38 @@ const C = makeScratch(2)
  *   低空缺速度 → 兩項抵消，平飛加速
  *   極低空     → 高度項主導，爬升
  *
- * @param cornerRatio TAS ÷ 角落速度
+ * 【速度赤字取兩者的較大值】「相對自己」（`1 − cornerRatio`）回答「我轉不
+ * 轉得動」，「相對敵人」（`−speedAdvantage`）回答「我追不追得上」。兩者的
+ * 答案可以相反：遠距離時沒有人在拉桿，TAS 貼近極速，於是每一架都判定
+ * 「我速度過剩」—— 包括那架其實比對手慢 28 m/s 的護航機。實測它因此滿舵
+ * 爬升 25°（增益是 4 倍，`cornerRatio` 超過 1.25 就飽和），累積 445 m 高度
+ * 卻永遠花不掉。
+ *
+ * 等價的說法：**只有我的 TAS 同時高過自己的角落速度與敵人的 TAS 才爬升**。
+ *
+ * ```
+ *   max(1 − Vs/Vc, (Vt − Vs)/Vc) = (max(Vc, Vt) − Vs) / Vc
+ * ```
+ *
+ * 【`max` 只保證交界處不跳變，保證不了不振盪】兩個分支在交界處數值相等，
+ * 所以不會像上面說的裸門檻那樣瞬間翻號。但輸出仍會在 `Vs = max(Vc, Vt)`
+ * 穿過零，而迴路含 10 Hz 取樣、飽和與俯仰慣性。
+ *
+ * @param cornerRatio TAS ÷ 自己的角落速度
+ * @param speedAdvantage （我的 TAS − 他的）÷ 我的角落速度。
+ *                       `Infinity` = 相對敵人完全沒有赤字
  * @param groundClearance 離地（海面）高度，m
  */
 export function extendPitchAngle(
   cornerRatio: number,
+  speedAdvantage: number,
   groundClearance: number,
   cfg: SteerConfig = DEFAULT_STEER,
 ): number {
-  const speedDeficit = 1 - cornerRatio
+  const selfDeficit = 1 - cornerRatio
+  const foeDeficit = -speedAdvantage
+  const speedDeficit = selfDeficit > foeDeficit ? selfDeficit : foeDeficit
+
   let altitudeDeficit = 1 - groundClearance / cfg.clearanceScale
   if (altitudeDeficit < 0) altitudeDeficit = 0
   else if (altitudeDeficit > 1) altitudeDeficit = 1
@@ -1457,7 +1480,11 @@ export function steerCommand(
         // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
         // 俯仰由速度赤字與離地餘裕連續決定（見 extendPitchAngle）。
         const clearance = self.state.position.y - seaHeight
-        unloadAim(self, extendPitchAngle(sit.cornerRatio, clearance, cfg), out.aimWorld)
+        unloadAim(
+          self,
+          extendPitchAngle(sit.cornerRatio, sit.speedAdvantage, clearance, cfg),
+          out.aimWorld,
+        )
         break
       }
       case 'defend':
