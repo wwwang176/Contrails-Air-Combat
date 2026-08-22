@@ -75,8 +75,13 @@
 
 - [ ] **Step 1：寫失敗的測試**
 
-加到 `test/unit/ai-rules.test.ts`。`sit()` 這個 helper 檔案裡已經有了，
-沿用；沒有的話照既有測試的作法組一個 `Situation`。
+加到 `test/unit/ai-rules.test.ts`。
+
+**helper 叫 `neutral()`，不是 `sit()`** —— 它回傳一組「什麼都不觸發」的
+`Situation`，各測試自己改在乎的欄位（`test/unit/ai-rules.test.ts:10`）。
+
+**它的 `cornerRatio` 預設是 1.2** —— 那高於 `cornerExit`（0.95），所以
+**新閂鎖會立刻成立**。每一條測試都要明寫自己要的 `cornerRatio`。
 
 ```ts
 describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', () => {
@@ -88,13 +93,18 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
 
   it('高於 cornerExit 才進場，掉到 recoverExit 以下才出場', () => {
     const s = createRuleState()
-    stepRules(s, sit({ cornerRatio: 0.95 }), 0, 0.1)
+    const sit = neutral()
+    sit.cornerRatio = 0.95
+    stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(false)   // 嚴格 >，等於不算
-    stepRules(s, sit({ cornerRatio: 0.96 }), 0, 0.1)
+    sit.cornerRatio = 0.96
+    stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(true)
-    stepRules(s, sit({ cornerRatio: 0.90 }), 0, 0.1)
+    sit.cornerRatio = 0.90
+    stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(true)    // 遲滯帶內維持
-    stepRules(s, sit({ cornerRatio: 0.84 }), 0, 0.1)
+    sit.cornerRatio = 0.84
+    stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(false)
   })
 
@@ -104,12 +114,16 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
    */
   it('recoveredExit 關掉時閂鎖不更新', () => {
     const s = createRuleState()
-    stepRules(s, sit({ cornerRatio: 1.5 }), 0, 0.1,
-      { ...DEFAULT_RULES, recoveredExit: false })
+    const sit = neutral()   // cornerRatio 預設 1.2，遠高於進場門檻
+    stepRules(s, sit, 0, DT, { ...DEFAULT_RULES, recoveredExit: false })
     expect(s.extendRecoveredLatch).toBe(false)
   })
 })
 ```
+
+【`stepRules` 的第五個參數】簽名是
+`stepRules(s, sit, threat, dt, cfg = DEFAULT_RULES)`，所以 config 排在
+`dt` 之後。
 
 - [ ] **Step 2：跑它，確認紅**
 
@@ -231,12 +245,13 @@ describe('因能量脫離改成合取', () => {
   for (const [name, energy, ratio, want] of cases) {
     it(name, () => {
       const s = createRuleState()
-      // 先跑一拍讓閂鎖進入該有的狀態，再看第二拍的仲裁
-      stepRules(s, sit({ cornerRatio: ratio, energyAdvantage: energy }), 0, 0.1)
-      const got = stepRules(
-        s, sit({ cornerRatio: ratio, energyAdvantage: energy, range: 800 }), 0, 0.1,
-      )
-      expect(got === 'extend').toBe(want)
+      const sit = neutral()
+      sit.energyAdvantage = energy
+      sit.cornerRatio = ratio
+      sit.range = 900
+      // 跑幾拍讓閂鎖穩定（能量閂鎖是遲滯的，一拍就到位但寫成迴圈較安全）
+      for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+      expect(s.intent === 'extend').toBe(want)
     })
   }
 
@@ -245,30 +260,55 @@ describe('因能量脫離改成合取', () => {
    */
   it('迴旋劣勢時，飛得動也照樣脫離', () => {
     const s = createRuleState()
-    stepRules(s, sit({ cornerRatio: 1.5, airframeTurnAdvantage: -0.05 }), 0, 0.1)
-    const got = stepRules(s, sit({
-      cornerRatio: 1.5, airframeTurnAdvantage: -0.05, range: 800,
-    }), 0, 0.1)
-    expect(got).toBe('extend')
+    const sit = neutral()              // cornerRatio 1.2，recovered 會成立
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.range = 900
+    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+    expect(s.intent).toBe('extend')
   })
 
   /** 【關掉時退回舊行為】消融的恆等基準 */
   it('recoveredExit 關掉時，弱且飛得動仍然 extend', () => {
     const cfg = { ...DEFAULT_RULES, recoveredExit: false }
     const s = createRuleState()
-    stepRules(s, sit({ cornerRatio: 1.10, energyAdvantage: -800 }), 0, 0.1, cfg)
-    const got = stepRules(s, sit({
-      cornerRatio: 1.10, energyAdvantage: -800, range: 800,
-    }), 0, 0.1, cfg)
-    expect(got).toBe('extend')
+    const sit = neutral()
+    sit.energyAdvantage = -800
+    sit.cornerRatio = 1.10
+    sit.range = 900
+    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, cfg)
+    expect(s.intent).toBe('extend')
   })
 })
 ```
 
-【`minDwell` 注意】`createRuleState()` 的 `dwell` 初值是 `Infinity`
-（刻意的，見該處註解），所以第一次切換不會被擋。上面每條先跑一拍再看
-第二拍，是為了讓閂鎖先到位。若某條因 `minDwell` 卡住，在測試裡明寫
-`s.dwell = Infinity`，**不要改 `minDwell` 本身**。
+【為什麼跑五拍而不是一拍】`createRuleState()` 的 `dwell` 初值是 `Infinity`
+（刻意的，見該處註解），所以第一次切換不會被 `minDwell` 擋。但寫成迴圈
+可以順帶涵蓋「閂鎖要幾拍才穩定」，而且與檔案裡既有測試的寫法一致。
+若某條反而因 `minDwell` 卡住，在測試裡明寫 `s.dwell = Infinity`，
+**不要改 `minDwell` 本身**。
+
+- [ ] **Step 1b：更新那一條必然會翻的既有測試**
+
+`test/unit/ai-rules.test.ts:124` 的「能量劣勢 → extend」用的是
+`neutral()`（`cornerRatio` 1.2）**只設了 `energyAdvantage`**。合取上線後
+它必然變紅 —— **而且那正是這次要改的行為，不是迴歸**。
+
+改成明寫「而且飛不動」，並把敘述一起改對：
+
+```ts
+  it('能量劣勢**且**速度沒補回來 → extend', () => {
+    const s = createRuleState()
+    const sit = neutral()
+    sit.energyAdvantage = -800
+    sit.cornerRatio = 0.80        // 低於 recoverExit，還沒回到能打的狀態
+    sit.range = 900
+    expect(stepRules(s, sit, 0, DT)).toBe('extend')
+  })
+```
+
+**已逐條核對過：這是唯一一條會翻的。** 其餘 `toBe('extend')` 的測試走的
+是迴旋閂鎖（`airframeTurnAdvantage`）或見底閂鎖（`cornerRatio` 明寫成
+低值），兩者都不套合取。
 
 - [ ] **Step 2：跑它，確認紅**
 
@@ -277,7 +317,10 @@ npx vitest run test/unit/ai-rules.test.ts -t "因能量脫離改成合取"
 ```
 
 預期：只有「弱、飛得動 → 不 extend」紅。**其餘三條是防迴歸的，
-現在就該綠；紅了表示測試本身寫錯**（多半是 `sit()` 的中性值不對）。
+現在就該綠；紅了表示測試本身寫錯**（多半是 `neutral()` 的某個欄位沒改到）。
+
+Step 1b 那一條在改程式**之前**應該是綠的（舊行為也滿足它），改完之後
+仍然綠 —— 它是這次改動的「不該動的那一半」。
 
 - [ ] **Step 3：改仲裁**
 
@@ -448,8 +491,19 @@ interface Result {
 `extendTurnLatch` 與 `extendFloorLatch` 都為假，且段落期間那兩個
 **都不曾成立過**。實測混合型只佔 0.3~1.8%，直接排除即可。
 
-**`on` 檔設 `ai.rulesConfig = { ...DEFAULT_RULES, recoveredExit: true }`，
-`off` 檔設 `false`。** 兩檔都建新的 battle，`AiController` 逐架設定。
+**設定點**：`createBattle` 在 `src/battle/setup.ts:459` 就替每個非玩家座位
+建好 `new AiController()`。所以測試在 `createBattle` 之後、`stepBattle`
+之前逐架設定即可：
+
+```ts
+for (const c of b.world.combatants) {
+  const ai = c.controller
+  if (ai instanceof AiController) ai.rulesConfig = cfg
+}
+```
+
+`on` 檔的 `cfg` 是 `DEFAULT_RULES` 本身（省一個物件），`off` 檔是
+`{ ...DEFAULT_RULES, recoveredExit: false }`。兩檔各建自己的 battle。
 
 微擾直接抄 `test/tools/extend-exit.probe.ts` 的 `jitter()`
 （整數雜湊，不得 `Math.random`）。
@@ -502,6 +556,22 @@ describe('extend 的絕對出場條件（消融對照）', () => {
 npx vitest run test/integration/extend-recovery.test.ts
 ```
 
+**先估時間再寫死參數。** 2 張卡 × 5 salt × 2 檔 × 300 秒 = 6,000 模擬秒。
+`ai-withdraw-anchor` 跑 300 秒的 20v20 要 46 秒，所以這支粗估 **15 分鐘**
+—— 太久。
+
+**先跑一組（1 卡 × 1 salt × 2 檔）量實際秒數**，再決定：
+
+```
+維持 5 salt，SECONDS 砍到 120        涵蓋接敵後的第一波，最省
+維持 300 秒，salt 砍到 3             保留長尾，統計力較弱
+拆成兩支測試，一卡一支                總時間不變，但可以各自跑
+```
+
+**優先砍 `SECONDS` 不砍 salt** —— §2.5 已經證明這個系統的雜訊很大，
+微擾的次數是統計力的來源，比單次的長度重要。若砍到 120 秒之後
+`dShare` 的效果量掉進雜訊帶，那是「這個窗口不夠」的訊號，**回報，
+不要用加長單次來湊**。
 **紅了不一定是錯的。** 三種可能，處理方式不同：
 
 | 現象 | 意思 | 怎麼辦 |
