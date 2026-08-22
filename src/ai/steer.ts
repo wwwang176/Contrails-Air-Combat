@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
+import { smoothstep } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { WEP_THROTTLE } from '../physics/propulsion'
@@ -127,10 +128,24 @@ export interface DefendState {
    * 整段不變。攻擊者換人或離開破防時歸零，下次重新決定。
    */
   axisSign: number
+  /**
+   * `extend` 的轉向側，+1 / −1。**0 = 尚未決定**。
+   *
+   * 【與 `axisSign` 是同一個病、同一個治法】脫離時錨點（當前目標）**幾乎
+   * 總是在正後方** —— 而 `atan2` 的誤差角在正後方由 +179° 跳到 −179°，
+   * 每格重算的側別會跟著翻，瞄準點瞬間跳 2 × `extendTurnCap`。進入脫離時
+   * 決定一次、整段不變；離開或換目標時歸零。
+   *
+   * 【為什麼放在 `DefendState` 裡】這個型別實際上是**操縱層的跨拍記憶**，
+   * 破防只是第一個用戶。拆成兩個型別要動 `steerCommand` 的簽名，而它有
+   * 57 個呼叫點、`createDefendState()` 有 68 個 —— 那個風險換不到等值的
+   * 清晰度。名字保留，語意以這段註解為準。
+   */
+  extendSide: number
 }
 
 export function createDefendState(): DefendState {
-  return { reversal: 0, attacker: null, axisSign: 0 }
+  return { reversal: 0, attacker: null, axisSign: 0, extendSide: 0 }
 }
 
 /**
@@ -360,6 +375,79 @@ export interface SteerConfig {
   brakeCornerRatio: number
   /** extend 的爬升／俯衝角上限，rad */
   extendPitch: number
+  /**
+   * `extend` 期間瞄準點**偏離當前航向**的上限，rad。0 = 這一層關閉（消融用）。
+   *
+   * 【它為什麼取代得了「坡度上限」】指揮儀把瞄準誤差拆成兩件事：**方位
+   * 決定往哪邊滾**（`rollCommand = atan2(aimBody.x, aimBody.y)`），**大小
+   * 決定拉多少 G**（見 `shrinkTowardNose` 的註解）。而「轉彎會掉速度」的
+   * 物理量是**誘導阻力**，誘導阻力由**過載**決定 —— 不是由坡度決定。
+   * 90° 坡度拉 1.05 G 幾乎不掉能量，30° 坡度拉 4 G 掉得很快。
+   *
+   * 所以限制誤差角的**大小**直接限制了過載，也就直接限制了能量損失。
+   * 第一版的 `extendBankMax = 15°` 盯錯了量，而且傾斜角在 `aimWorld` 這個
+   * 介面下**根本下不了指令**（spec §2.6）—— 這個欄位兩個問題都沒有。
+   *
+   * 【為什麼不分脫離理由】spec §9.4 擔心「見底時最該做的是低頭換速度，
+   * 不是轉彎」。那已經被兩層既有機制承擔：`extendPitchAngle` 在速度赤字
+   * 0.25 時給滿俯衝，而 `sit.pullCeiling`（`energyPull`）在同一個區間把
+   * 整個誤差角縮到 0.65。連續的縮放勝過再開一個分支 —— 而 `steerCommand`
+   * 也讀不到 `RuleState`，分理由就得再改一次簽名。
+   *
+   * 【這個機制修的是「合理性」，不是效率】專案負責人的原話：「之所以會希望
+   * `extend` 轉向就是因為一直直直飛很不合理」。**攻擊效率有沒有提高沒差**，
+   * 那只是附加價值 —— 不要拿 `fireShare`／`redDamage` 之類來否決它。行為的
+   * 絕對量測（卡住幾秒、跑多遠）才是判準。
+   *
+   * 【掃描表，2026-08-23，`extendTurnFade: 1500`】兩個指標**方向相反**，
+   * 而且對 `maxRadius` **非單調**：
+   *
+   * ```
+   *   cap    longestExtend（≤55）   maxRadius（≤~4740）
+   *     0°   綠                     10744
+   *     5°   綠                     15107   ← 比不做更遠
+   *     8°   綠                     12899   ← 比不做更遠
+   *    10°   55.5 / 57.5 / 65       8450
+   *    15°   75.5 / 70              6212
+   * ```
+   *
+   * 【為什麼小角度反而更遠】轉彎半徑 `R = V² / (g·tanθ)`。小偏置＝小過載＝
+   * **超大的弧**，那個弧的最遠點比直線跑還遠。要嘛不轉，要嘛轉得夠快。
+   *
+   * 【為什麼大角度讓脫離變長】見底型脫離的出場條件**就是能量恢復**，而轉彎
+   * 正在消耗能量。這是 spec §9.4 預言過的（「見底時最該做的是低頭換速度」），
+   * 而 `sit.pullCeiling` 那一層**實測承擔不住** —— 原本的判斷是錯的。
+   *
+   * **15° 是專案負責人 2026-08-23 裁定翻開的值，待人工試飛定案。** 已知代價：
+   * `ai-manoeuvre` 側舷 @1000/@4000 的 `longestExtend` 破線（75.5 / 70）。
+   * 換到的是 `maxRadius` 由 10.7 km 降到 6.2 km —— 那條**本來就是紅的**。
+   */
+  extendTurnCap: number
+  /**
+   * 回場偏置**開始**淡入的距離，m。到 `2 ×` 這個值時淡到滿。
+   *
+   * 【為什麼一定要有這一層】沒有它時 AI 會**繞著目標盤旋**：`extend` 的兩個
+   * 出口是「拉開到 `extendRange`」與「閂鎖釋放」，而全程朝目標偏轉會把兩個
+   * 一起堵死 —— 距離永遠到不了 1,500 m，轉彎又補不回能量。實測
+   * `ai-manoeuvre` 側舷 @1000 m 的 `longestExtend` 由 55 s 的上限暴增到
+   * **284.5 s** —— 300 秒的場次有 284 秒在脫離，那不是空戰，是繞圈。
+   * （`ai-duel-matrix` 的 `redDamage` 同時掉到 0，但那只是旁證：**這個
+   * 機制修的是「直直飛不合理」，不是攻擊效率**。）
+   *
+   * 【為什麼分界在 `extendRange`】那正好把兩種脫離理由分開，而且不必讓
+   * `steerCommand` 去讀 `RuleState`（spec §9.4 的分理由要求）：
+   *
+   * - **近距離**（相對理由的地盤）不偏 —— 它本來就會在 1,500 m 出場，
+   *   行為逐位元退回改動前
+   * - **遠距離**只剩不受距離約束的見底型 —— 那正是 `maxRadius` 跑到
+   *   10.7 km 的來源，也正是「脫離太遠回不來」這個回報的真正對象
+   *
+   * 【0 = 全程套用】不是關閉。要關閉這一層請用 `extendTurnCap: 0`。
+   *
+   * **起始值＝`DEFAULT_RULES.extendRange`。** 兩者是同一件事的兩面，但分屬
+   * 意圖層與操縱層，不共用常數 —— 跨模組耦合換不到等值的好處。
+   */
+  extendTurnFade: number
   /**
    * 速度赤字 → 俯仰的增益。
    *
@@ -1006,6 +1094,8 @@ export const DEFAULT_STEER: SteerConfig = {
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.8,
   extendPitch: EXTEND_PITCH,
+  extendTurnCap: 15 * (Math.PI / 180),
+  extendTurnFade: 1500,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
@@ -1228,6 +1318,126 @@ export function extendPitchAngle(
   if (raw < -cfg.extendPitch) return -cfg.extendPitch
   if (raw > cfg.extendPitch) return cfg.extendPitch
   return raw
+}
+
+const E = makeScratch(2)
+
+/** 正後方的側別死區，rad。錨點落在這個扇形內時沿用上一格的側別 */
+const EXTEND_SIDE_HOLD = 20 * (Math.PI / 180)
+
+/**
+ * 由**當前航向**轉到 `toTarget` 的水平方位要轉多少，rad，值域 (−π, π]。
+ * `toTarget` 是**指向錨點的方向**（不必單位化），不是它的世界座標。
+ * 正 = 繞 +Y 的正向（左）。與 `unloadAim` 的 `yaw` 同一個約定。
+ *
+ * 航向取**速度向量**的水平投影而不是機首：脫離時要問的是「我正在往哪裡
+ * 走」，而機首在有側滑或大迎角時與航跡差一個角度。速度鉛直時水平投影
+ * 退化，改用機首的水平投影（與 `unloadAim` 走同一條退化階梯）。
+ *
+ * 熱路徑（240 Hz），不配置。
+ */
+export function headingErrorTo(self: Aircraft, toTarget: Vector3): number {
+  const v = self.state.velocity
+  let ax = v.x
+  let az = v.z
+  let ah = Math.hypot(ax, az)
+  if (ah < 1e-6) {
+    const nose = E.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
+    ax = nose.x
+    az = nose.z
+    ah = Math.hypot(ax, az)
+    if (ah < 1e-6) return 0
+  }
+  ax /= ah
+  az /= ah
+
+  let bx = toTarget.x
+  let bz = toTarget.z
+  const bh = Math.hypot(bx, bz)
+  // 【正上／正下方】水平方位沒有定義。回 0 = 不轉，那是安全的方向 ——
+  // 目標就在頭頂時「往哪邊繞」本來就沒有答案，交給俯仰去處理。
+  if (bh < 1e-6) return 0
+  bx /= bh
+  bz /= bh
+
+  return Math.atan2(az * bx - ax * bz, ax * bx + az * bz)
+}
+
+/**
+ * `extend` 期間瞄準點要偏離當前航向多少，rad。正 = 左，與 `unloadAim` 的
+ * `yaw` 同一個約定。
+ *
+ * 【為什麼是 `min` 而不是比例】要的是「一直朝錨點轉，但每一格只准偏這麼
+ * 多」。錨點已經在 `cap` 之內時就直接對準它 —— 用比例的話永遠差一截，
+ * 航向會漸近而不抵達。
+ *
+ * 【側別由呼叫端給】與 `defendAim` 收 `axisSign` 是同一個分工：純函數沒有
+ * 「這是不是第一格」的資訊，而正後方的翻轉只有跨格記憶治得了。
+ *
+ * @param side         `DefendState.extendSide`，+1 / −1。**0 = 不偏**
+ * @param headingError `headingErrorTo` 的值
+ */
+export function extendHeadingBias(
+  side: number,
+  headingError: number,
+  range: number,
+  cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  const cap = cfg.extendTurnCap
+  // 【`!(cap > 0)`】同時擋掉 0、負值與 NaN —— 後者會讓下面的 min 回傳 NaN
+  // 然後汙染整個 aimWorld。0 = 這一層關閉，是消融的開關。
+  if (side === 0 || !(cap > 0)) return 0
+  if (!Number.isFinite(headingError) || !Number.isFinite(range)) return 0
+  // 【近距離不偏】見 `SteerConfig.extendTurnFade` —— 沒有這一層 AI 會繞著
+  // 目標盤旋。壞掉的淡入距離退化成「全程套用」，與 0 同義。
+  const fade = cfg.extendTurnFade > 0
+    ? smoothstep(cfg.extendTurnFade, 2 * cfg.extendTurnFade, range)
+    : 1
+  if (fade === 0) return 0
+  const want = headingError < 0 ? -headingError : headingError
+  return side * (want < cap ? want : cap) * fade
+}
+
+/**
+ * 每個物理步更新 `extend` 的轉向側。與 `stepDefend` 同一個位階、同一個
+ * 理由 —— 跨格狀態必須由持有它的那一層決定。
+ *
+ * 【為什麼不是純閂鎖】純閂鎖（進入時決定一次、整段不變）在換目標之後會
+ * 讓 AI 往錯的一側繞遠路，而實測 23~33% 的脫離段落中途換過目標
+ * （`energy-window.probe.ts`）。改成**只在錨點接近正後方時**沿用上一格 ——
+ * 翻轉點被死區蓋住，其餘角度照實跟隨。這與 `FlightDirector` 的
+ * `reverseHysteresis` 是同一個手法。
+ *
+ * @param extending 這一格的意圖是不是 `extend`
+ */
+export function stepExtendSide(
+  state: DefendState,
+  self: Aircraft,
+  target: Aircraft | null,
+  extending: boolean,
+): void {
+  if (!extending || target === null) {
+    state.extendSide = 0
+    return
+  }
+  const dir = E.v[1]!.copy(target.state.position).sub(self.state.position)
+  const err = headingErrorTo(self, dir)
+  if (state.extendSide !== 0 && Math.abs(err) > Math.PI - EXTEND_SIDE_HOLD) return
+  state.extendSide = err >= 0 ? 1 : -1
+}
+
+/**
+ * 繞 +Y 把向量轉 `yaw`，就地修改。**航跡角與長度天然不變** —— 這正是它
+ * 適合當 `unloadAim` 的後處理的理由：俯仰那一層的決定完全不受影響。
+ */
+function rotateHeading(v: Vector3, yaw: number): void {
+  if (yaw === 0) return
+  const s = Math.sin(yaw)
+  const c = Math.cos(yaw)
+  const x = v.x * c + v.z * s
+  const z = -v.x * s + v.z * c
+  v.x = x
+  v.z = z
 }
 
 
@@ -1504,6 +1714,21 @@ export function steerCommand(
           self,
           extendPitchAngle(sit.cornerRatio, sit.speedAdvantage, clearance, cfg),
           out.aimWorld,
+        )
+        // 【回場方向】卸載保住了「不轉向」，代價是脫離時機頭朝哪就一路朝哪
+        // 飛到出場 —— 剛 merge 完就正對著敵人直直飛（人工回報）。往錨點偏
+        // 一個**有上限**的角度：誤差角的大小決定拉多少 G，上限因此直接是
+        // 能量損失的上限（見 `SteerConfig.extendTurnCap`）。
+        //
+        // 【錨點是當前目標】`losAxis` 由 `buildEngageBasis` 對攻擊目標建立。
+        // spec §9.5 一把「敵人 vs 被保護單位」列為待裁定，取前者：專案負責人
+        // 的原話就是「朝向敵人」，而且它每一格都有、不像編隊形心會在一架
+        // 陣亡時跳半個間距。
+        rotateHeading(
+          out.aimWorld,
+          extendHeadingBias(
+            defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range, cfg,
+          ),
         )
         break
       }

@@ -7,6 +7,7 @@ import {
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
+  headingErrorTo, extendHeadingBias, stepExtendSide,
 } from '../../src/ai/steer'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
@@ -2052,5 +2053,232 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     const { drop, t } = pitchDrop(2500)
     expect(t).toBeGreaterThan(2 * DEFAULT_STEER.sweetYieldTime)
     expect(drop).toBe(0)
+  })
+})
+
+describe('extend 的回場方向', () => {
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+  /** 機首與速度向量都朝 −Z 的自機 */
+  const level = (): Aircraft => {
+    const a = flyer()
+    place(a, [0, 4000, 0], [0, 0, -180])
+    return a
+  }
+  const at = (pos: [number, number, number]): Aircraft => {
+    const t = flyer()
+    place(t, pos, [0, 0, -180])
+    return t
+  }
+
+  describe('headingErrorTo —— 由當前航向轉到錨點要轉多少', () => {
+    it('正前方 → 0', () => {
+      expect(headingErrorTo(level(), new Vector3(0, 0, -1))).toBeCloseTo(0, 12)
+    })
+
+    /** 【符號約定】正 = 繞 +Y 的正向。機首朝 −Z 時那是**左**（−X）。 */
+    it('左邊 → +90°、右邊 → −90°', () => {
+      expect(headingErrorTo(level(), new Vector3(-1, 0, 0))).toBeCloseTo(Math.PI / 2, 12)
+      expect(headingErrorTo(level(), new Vector3(1, 0, 0))).toBeCloseTo(-Math.PI / 2, 12)
+    })
+
+    it('垂直分量不參與 —— 只看水平方位', () => {
+      const flat = headingErrorTo(level(), new Vector3(-1, 0, 0))
+      expect(headingErrorTo(level(), new Vector3(-1, 5, 0))).toBeCloseTo(flat, 12)
+      expect(headingErrorTo(level(), new Vector3(-1, -5, 0))).toBeCloseTo(flat, 12)
+    })
+
+    /** 正上方的水平方位沒有定義 —— 回 0（不轉）而不是 NaN。 */
+    it('正上／正下方回 0，不吐 NaN', () => {
+      expect(headingErrorTo(level(), new Vector3(0, 1, 0))).toBe(0)
+      expect(headingErrorTo(level(), new Vector3(0, -1, 0))).toBe(0)
+    })
+
+    /** 【退化階梯】速度鉛直時航向沒有定義，改用機首的水平投影。 */
+    it('速度鉛直時改用機首', () => {
+      const a = flyer()
+      place(a, [0, 4000, 0], [0, 180, 0])
+      expect(headingErrorTo(a, new Vector3(-1, 0, 0))).toBeCloseTo(Math.PI / 2, 12)
+    })
+  })
+
+  describe('extendHeadingBias —— 偏多少', () => {
+    const cap = DEFAULT_STEER.extendTurnCap
+    /** 淡入距離之外 —— 這一組測的是偏置本身，不是淡入 */
+    const FAR = DEFAULT_STEER.extendTurnFade * 2
+
+    it('側別 0 = 尚未決定 → 不偏', () => {
+      expect(extendHeadingBias(0, Math.PI / 2, FAR)).toBe(0)
+    })
+
+    /** 【不是比例】錨點已在上限之內就直接對準，否則航向永遠漸近而不抵達。 */
+    it('誤差小於上限時直接對準錨點', () => {
+      expect(extendHeadingBias(1, cap / 2, FAR)).toBeCloseTo(cap / 2, 12)
+      expect(extendHeadingBias(-1, -cap / 2, FAR)).toBeCloseTo(-cap / 2, 12)
+    })
+
+    it('誤差大於上限時夾在上限', () => {
+      expect(extendHeadingBias(1, Math.PI, FAR)).toBeCloseTo(cap, 12)
+      expect(extendHeadingBias(-1, Math.PI, FAR)).toBeCloseTo(-cap, 12)
+    })
+
+    /** 【側別壓過誤差的符號】正後方的翻轉正是靠這個治的。 */
+    it('偏的方向由側別決定，不是由誤差的符號決定', () => {
+      expect(extendHeadingBias(1, -Math.PI / 2, FAR)).toBeCloseTo(cap, 12)
+      expect(extendHeadingBias(-1, Math.PI / 2, FAR)).toBeCloseTo(-cap, 12)
+    })
+
+    /**
+     * 【沒有這一層 AI 會繞著目標盤旋】脫離的兩個出口是「拉開到
+     * extendRange」與「閂鎖釋放」，全程朝目標偏轉會把兩個一起堵死 ——
+     * 距離永遠到不了 1,500 m，轉彎又補不回能量。實測 ai-manoeuvre 的
+     * longestExtend 由 55 s 的上限暴增到 284.5 s，ai-duel-matrix 的
+     * redDamage 掉到 0（雙方都在盤旋，誰也打不到誰）。
+     */
+    it('近距離不偏，遠距離才淡到滿', () => {
+      const fade = DEFAULT_STEER.extendTurnFade
+      expect(extendHeadingBias(1, Math.PI, 0)).toBe(0)
+      expect(extendHeadingBias(1, Math.PI, fade)).toBe(0)
+      const mid = extendHeadingBias(1, Math.PI, fade * 1.5)
+      expect(mid).toBeGreaterThan(0)
+      expect(mid).toBeLessThan(cap)
+      expect(extendHeadingBias(1, Math.PI, fade * 2)).toBeCloseTo(cap, 12)
+      expect(extendHeadingBias(1, Math.PI, fade * 10)).toBeCloseTo(cap, 12)
+    })
+
+    it('壞掉的距離不偏，不吐 NaN', () => {
+      for (const r of [Number.NaN, Infinity, -Infinity]) {
+        expect(extendHeadingBias(1, Math.PI, r)).toBe(0)
+      }
+    })
+
+    it('上限設 0 = 這一層關閉', () => {
+      const off: SteerConfig = { ...DEFAULT_STEER, extendTurnCap: 0 }
+      for (const e of [0, 0.5, Math.PI]) expect(extendHeadingBias(1, e, FAR, off)).toBe(0)
+    })
+
+    /** 【NaN 會汙染整個 aimWorld】與 sweetYield 同一個理由。 */
+    it('壞掉的輸入一律不偏，不吐 NaN', () => {
+      expect(extendHeadingBias(1, Number.NaN, FAR)).toBe(0)
+      expect(extendHeadingBias(1, Infinity, FAR)).toBe(0)
+      for (const c of [Number.NaN, -1]) {
+        const bad: SteerConfig = { ...DEFAULT_STEER, extendTurnCap: c }
+        expect(extendHeadingBias(1, 1, FAR, bad)).toBe(0)
+      }
+    })
+  })
+
+  describe('stepExtendSide —— 側別的跨格記憶', () => {
+    it('不在 extend 時歸零', () => {
+      const s = createDefendState()
+      s.extendSide = 1
+      stepExtendSide(s, level(), at([-1000, 4000, 0]), false)
+      expect(s.extendSide).toBe(0)
+    })
+
+    it('沒有目標時歸零', () => {
+      const s = createDefendState()
+      s.extendSide = 1
+      stepExtendSide(s, level(), null, true)
+      expect(s.extendSide).toBe(0)
+    })
+
+    it('進入時由誤差的符號決定', () => {
+      const left = createDefendState()
+      stepExtendSide(left, level(), at([-1000, 4000, 0]), true)
+      expect(left.extendSide).toBe(1)
+      const right = createDefendState()
+      stepExtendSide(right, level(), at([1000, 4000, 0]), true)
+      expect(right.extendSide).toBe(-1)
+    })
+
+    /**
+     * 【這一條就是缺陷本身】脫離時錨點幾乎總是在正後方，而 `atan2` 在那裡由
+     * +179° 跳到 −179°。逐格重算的側別會跟著翻，瞄準點瞬間跳 2 × 上限。
+     */
+    it('錨點在正後方時沿用上一格，兩側都不翻', () => {
+      for (const sign of [1, -1]) {
+        const s = createDefendState()
+        s.extendSide = sign
+        stepExtendSide(s, level(), at([-20, 4000, 5000]), true)
+        expect(s.extendSide).toBe(sign)
+        stepExtendSide(s, level(), at([20, 4000, 5000]), true)
+        expect(s.extendSide).toBe(sign)
+      }
+    })
+
+    /** 【不是純閂鎖】離開死區就照實跟隨 —— 換目標之後才不會繞遠路。 */
+    it('離開正後方的死區之後照實跟隨', () => {
+      const s = createDefendState()
+      s.extendSide = -1
+      stepExtendSide(s, level(), at([-1000, 4000, 0]), true)
+      expect(s.extendSide).toBe(1)
+    })
+  })
+
+  describe('steerCommand 的 extend 分支', () => {
+    const OFF_TURN: SteerConfig = { ...DEFAULT_STEER, extendTurnCap: 0 }
+
+    const run = (
+      targetPos: [number, number, number], side: number, cfg: SteerConfig,
+    ): Vector3 => {
+      const basis = createEngageBasis()
+      const sit = createSituation()
+      const cmd = createCommand()
+      const k: Knobs = { leadLag: 0, vertical: 0 }
+      const self = level()
+      const target = at(targetPos)
+      evaluateGeometry(self, target, sit)
+      buildEngageBasis(self, target, basis)
+      sit.stallMargin = 5
+      // 【速度赤字要非零】否則 extendPitchAngle 回 0，「旋轉不動航跡角」
+      // 那一條就退化成 0 對 0，什麼都沒守到
+      sit.cornerRatio = 0.8
+      sit.pullCeiling = 1
+      sit.sweetPitch = 0
+      engageKnobs(sit, k)
+      const d = createDefendState()
+      d.extendSide = side
+      steerCommand('extend', 'normal', sit, basis, self, 0, k, d, null, cmd, cfg)
+      return cmd.aimWorld.clone()
+    }
+
+    /** 錨點在左後方 135°，遠超過上限 */
+    const LEFT_REAR: [number, number, number] = [-3000, 4000, 3000]
+
+    /** 【核心設計主張】繞 +Y 旋轉保持航跡角與長度，俯仰那一層不受影響。 */
+    it('方向偏置不動航跡角', () => {
+      const off = run(LEFT_REAR, 1, OFF_TURN)
+      const on = run(LEFT_REAR, 1, DEFAULT_STEER)
+      expect(pitchOf(off)).toBeLessThan(-0.1)
+      expect(pitchOf(on)).toBeCloseTo(pitchOf(off), 12)
+      expect(on.length()).toBeCloseTo(off.length(), 12)
+    })
+
+    it('瞄準點轉向錨點那一側，剛好轉滿上限', () => {
+      const off = run(LEFT_REAR, 1, OFF_TURN)
+      const on = run(LEFT_REAR, 1, DEFAULT_STEER)
+      const turn = Math.atan2(
+        off.z * on.x - off.x * on.z, off.x * on.x + off.z * on.z,
+      )
+      expect(turn).toBeCloseTo(DEFAULT_STEER.extendTurnCap, 9)
+    })
+
+    it('側別 −1 轉向另一邊', () => {
+      const off = run(LEFT_REAR, 1, OFF_TURN)
+      const on = run(LEFT_REAR, -1, DEFAULT_STEER)
+      const turn = Math.atan2(
+        off.z * on.x - off.x * on.z, off.x * on.x + off.z * on.z,
+      )
+      expect(turn).toBeCloseTo(-DEFAULT_STEER.extendTurnCap, 9)
+    })
+
+    /** 【消融】上限 0 與側別 0 都該逐位元退回原本的卸載。 */
+    it('關閉時逐位元退回卸載', () => {
+      const a = run(LEFT_REAR, 1, OFF_TURN)
+      const b = run(LEFT_REAR, 0, DEFAULT_STEER)
+      expect(a.x).toBe(b.x)
+      expect(a.y).toBe(b.y)
+      expect(a.z).toBe(b.z)
+    })
   })
 })

@@ -8,7 +8,7 @@ import {
 } from './rules'
 import {
   buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
-  shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
+  shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
@@ -595,6 +595,10 @@ export class AiController implements Controller {
     // 物理步（4 ms）不影響；重要的是這裡讀到的意圖與下面 `steerCommand`
     // 讀到的是**同一個**，不能半新半舊。
     stepDefend(this.defend, self, attacker, this.intent === 'defend', dt)
+    // 【與 stepDefend 同一個位階】`extend` 的轉向側也是跨格記憶，必須由持有
+    // 狀態的這一層決定 —— `steerCommand` 是純函數，它沒有「這是不是第一格」
+    // 的資訊。錨點是攻擊目標，與 `basis` 一致（見 steerCommand 的 extend 分支）。
+    stepExtendSide(this.defend, self, target, this.intent === 'extend')
     // 【三個相位是主要的瞄準解，不是 `steerCommand` 尾端的偏置】那個位階已經
     // 有一個 `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在
     // 破防軸上。再加一個同位階的後處理器會讓那個問題更嚴重。
