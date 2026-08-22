@@ -17,7 +17,7 @@ import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contact
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { flightLabel } from '../../src/hud/widgets/roster'
 import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
-import { hintKeys } from '../../src/hud/widgets/hints'
+import { aiStateLine, hintKeys } from '../../src/hud/widgets/hints'
 import { DEG, RAD } from '../../src/core/math'
 
 describe('indicatedAirspeed', () => {
@@ -470,6 +470,32 @@ describe('上帝視角的 HUD', () => {
   /** 【G 要寫在一般飛行的提示行裡】不然這個模式是不可發現的 */
   it('一般飛行的提示行要告訴玩家 G 進得去', () => {
     expect(hintKeys(false)).toContain('G')
+  })
+
+  it('代飛讀數印得出意圖與模式', () => {
+    const f = createHudFrame()
+    f.aiIntent = 'extend'
+    f.aiMode = 'speedRecover'
+    f.aiPhase = 'off'
+    const line = aiStateLine(f)
+    expect(line).toContain('extend')
+    expect(line).toContain('speedRecover')
+    // 【`off` 不印】那是「戰術層沒有參與」，印出來會被讀成一個動作
+    expect(line).not.toContain('off')
+  })
+
+  it('戰術相位不是 off 時才多印一格', () => {
+    const f = createHudFrame()
+    f.aiIntent = 'engage'
+    f.aiMode = 'normal'
+    f.aiPhase = 'perch'
+    expect(aiStateLine(f)).toContain('perch')
+  })
+
+  it('欄位是空的時候不印出空格子', () => {
+    // 【為什麼要釘】`createHudFrame` 給的是空字串，而不代飛時 main.ts 不填。
+    // 少了破折號會出現「意圖 」後面什麼都沒有的一行。
+    expect(aiStateLine(createHudFrame())).toContain('—')
   })
 })
 

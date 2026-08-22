@@ -1010,6 +1010,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.hp = player.hp
   hudFrame.hpMax = player.aircraft.spec.hp
   hudFrame.aiFlying = input.playerAi
+  // 【只在代飛時填】不代飛時 `playerAi` 沒有在跑，那三個欄位是上一次的殘值
+  if (input.playerAi) {
+    hudFrame.aiIntent = playerAi.intent
+    hudFrame.aiMode = playerAi.mode
+    hudFrame.aiPhase = playerAi.tactics.phase
+  }
   hudFrame.godView = input.godView
   hudFrame.controlAuthority = aircraft.diag.controlAuthority
   hudFrame.blueAlive = aliveCount(battle.blue)
