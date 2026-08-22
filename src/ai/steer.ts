@@ -575,8 +575,26 @@ export interface SteerConfig {
    */
   reversalHold: number
   /**
-   * 甜蜜區俯仰偏置的**讓位時間尺度**，秒。彈道飛行時間短於它時，偏置按
-   * `interceptTime / sweetYieldTime` 的比例收掉。**0 = 這一層關閉**（消融用）。
+   * 甜蜜區俯仰偏置的**讓位時間尺度**，秒。**0 = 這一層關閉**（消融用）。
+   *
+   * 斜坡整段落在開火範圍**之外**：
+   *
+   * ```
+   *   interceptTime ≤ span        →  0    完全讓位（打得到，扳機優先）
+   *   span .. 2 × span            →  線性淡出
+   *   interceptTime ≥ 2 × span    →  1    照原樣偏（還打不到，把仗帶到甜蜜區）
+   * ```
+   *
+   * 【為什麼分界要正好落在 `span`】三個地方共用這一個數字，而且它們說的
+   * 是同一件事：`shouldFire` 的第一條是 `interceptTime > span → 不開火`，
+   * HUD 的 `leadValid` 是 `t !== NO_INTERCEPT && t <= span`（`main.ts`）。
+   * 於是有一個玩家在畫面上就能驗證的定義 —— **預瞄環出現＝打得到＝甜蜜區
+   * 讓位**。分界若落在斜坡的另一端，預瞄環出現的那一刻偏置仍是滿的，
+   * 開火錐 3° 對上 10° 的平衡偏移，結構上開不了火。
+   *
+   * 【為什麼不是階梯】`interceptTime` 在分界附近抖動時，階梯會讓偏置在
+   * 0° 與 10° 之間跳，機首跟著抖。淡出段買到平滑，而它整段都在預瞄環出現
+   * 之前 —— 在玩家看得到的區間裡，兩者逐位元相同。
    *
    * 【為什麼需要讓位】`sit.sweetPitch` 只看機種對、高度、空速 —— 不看距離、
    * 不看瞄準誤差、不看有沒有射擊解。命令的航跡角是
@@ -589,13 +607,12 @@ export interface SteerConfig {
    * 永遠停在 10°、進不了 5°、閘門永遠不開。閘門必須掛在**偏置控制不到**的量
    * 上，`interceptTime` 由雙方位置與速度決定，當格不讀 `aimWorld` 也不讀機首。
    *
-   * 【為什麼是 `PROJECTILE_LIFETIME`】`shouldFire` 的第一條就是
-   * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增第二
-   * 套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale` 同一
-   * 個手法。
+   * 【為什麼是 `PROJECTILE_LIFETIME`】不新增第二套尺度 —— 與 `applyFloor`
+   * 和 `extendPitchAngle` 共用 `clearanceScale` 同一個手法。
    *
-   * 【實測效果】109 對 P-51、4000 m、500 km/h：150 m 的偏置由 10° 降到 1.8°
-   * （低於開火錐），800 m 仍有 9.5° —— 近戰讓位、遠距離維持原樣。
+   * 【尺度感】800 m 同速尾追的 `interceptTime ≈ 0.90 s`（`ai-steer.test.ts`
+   * 的場景註解），低於 `span` —— 整個尾追射程內偏置都是 0。要拿回滿偏得等
+   * `interceptTime ≥ 2 × span`，那是預瞄環還沒出現的距離。
    *
    * spec `2026-08-16-sweet-spot-shot-yield-design.md`。
    */
@@ -1417,9 +1434,12 @@ export function sweetYield(interceptTime: number, cfg: SteerConfig = DEFAULT_STE
   // `span` 同樣要求有限：`Infinity` 會讓 `t / span` 恆為 0，變成「永遠完全
   // 讓位」—— 那是設定寫壞時最不該發生的方向。
   if (!Number.isFinite(span) || span <= 0) return 1
-  if (interceptTime >= span) return 1
-  if (interceptTime <= 0) return 0
-  return interceptTime / span
+  // 【斜坡整段在開火範圍之外】`interceptTime <= span` 就是「打得到」——
+  // 那一段必須完全讓位，見 `SteerConfig.sweetYieldTime`。淡出發生在
+  // `span`..`2 × span`，玩家在畫面上看不到那一段（預瞄環還沒出現）。
+  if (interceptTime >= 2 * span) return 1
+  if (interceptTime <= span) return 0
+  return interceptTime / span - 1
 }
 
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
