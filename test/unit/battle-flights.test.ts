@@ -255,3 +255,65 @@ describe('flightOfCombatant 與 isFlightLeader —— HUD 分隊標示要用的�
     expect(flightOfCombatant(fi, idx)!.roster.length).toBe(4)
   })
 })
+
+/**
+ * 【為什麼要讓呼叫端指定分組】改動前 `createFlights` **自己**照連續索引每
+ * `SCHWARM_SIZE` 個切一隊，而 `createBattle` 生成時**又獨立算了一次**。今天
+ * 兩者碰巧一致（都是連續每 4 個）。
+ *
+ * 編組表一旦允許「6 架轟炸機切成 4 + 2 但排在 4 架戰鬥機後面」或「3 機小隊」，
+ * 兩邊就會切出不同的分組 —— **症狀是編隊飛行的僚機認錯長機，而且不會有任何
+ * 錯誤**。所以分組只能有一份，由編組表給。
+ */
+describe('createFlights 吃指定的小隊大小', () => {
+  /**
+   * 【`roster(n)` 是 n 藍 + n 紅，總共 2n 架】要測的正是「藍 6 紅 4 這種
+   * 不對稱的切法」，所以另外造一個。
+   */
+  const sides = (blueN: number, redN: number): FlightMember[] => {
+    const all: FlightMember[] = []
+    for (let i = 0; i < blueN; i++) all.push({ index: all.length, team: 'blue', alive: true })
+    for (let i = 0; i < redN; i++) all.push({ index: all.length, team: 'red', alive: true })
+    return all
+  }
+
+  /**
+   * 【期望值刻意選一組舊行為切不出來的】`sides(6, 4)` 配 `[4, 2, 4]` 的話，
+   * **舊函數即使完全忽略第三個參數也會切出一模一樣的結果**（藍 6 架本來就
+   * 切 4 + 2、紅 4 架本來就是一隊）—— 那條測試證明不了 `sizes` 有生效。
+   * `[3, 3, 4]` 就不同：舊行為給 `[[0..3],[4,5],[6..9]]`。
+   */
+  it('照給的大小切，不是每四個切', () => {
+    const fi = createFlights(sides(6, 4), -1, [3, 3, 4])
+    expect(fi.flights.map((f) => f.roster)).toEqual([[0, 1, 2], [3, 4, 5], [6, 7, 8, 9]])
+    expect(fi.flights.map((f) => f.team)).toEqual(['blue', 'blue', 'red'])
+  })
+
+  it('三機小隊', () => {
+    // roster(3) = 3 藍 + 3 紅 = 6 架
+    const fi = createFlights(roster(3), -1, [3, 3])
+    expect(fi.flights.map((f) => f.roster.length)).toEqual([3, 3])
+  })
+
+  it('總和與人數不符 → 拋', () => {
+    // roster(4) = 8 架，而 4 + 3 = 7
+    expect(() => createFlights(roster(4), -1, [4, 3])).toThrow(/總和/)
+  })
+
+  it('小隊大小超出 1…SCHWARM_SIZE → 拋', () => {
+    expect(() => createFlights(roster(4), -1, [5, 3])).toThrow(/1 … 4/)
+    expect(() => createFlights(roster(4), -1, [0, 8])).toThrow(/1 … 4/)
+  })
+
+  it('一個小隊跨兩隊 → 拋', () => {
+    // roster(4) = 前 4 藍、後 4 紅；[3, 2, 3] 總和是 8（先過總和那一關），
+    // 而第二隊 [3, 4] 橫跨隊界 —— 這一條要測的正是這個分支
+    expect(() => createFlights(roster(4), -1, [3, 2, 3])).toThrow(/同一隊/)
+  })
+
+  it('省略時與改動前相同', () => {
+    const all = roster(5)
+    expect(createFlights(all).flights.map((f) => f.roster))
+      .toEqual(createFlights(all, -1, undefined).flights.map((f) => f.roster))
+  })
+})

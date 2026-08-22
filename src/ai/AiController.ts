@@ -9,7 +9,8 @@ import {
   shrinkTowardNose, stepDefend, steerCommand, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
-import { shouldFire } from './fire'
+import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
+import { resetBurst, stepBurst } from '../weapons/burst'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET, type TargetBoard, type TargetConfig,
 } from './target'
@@ -102,6 +103,29 @@ export class AiController implements Controller {
    * 【它是外部覆寫，不是仲裁表裡的一列】見 `update` 裡那兩行的註解。
    */
   order: FlightOrder | null = null
+
+  /**
+   * **無條件飛向 `order.point`。** 被護送的那幾架（編組表上 `duty === 'transit'`）
+   * 由 `setup.ts` 每步寫成 true。
+   *
+   * ── 它與一般的集合令差在哪 ──────────────────────────────
+   *
+   * 一般的集合令仍然讓位給閃躲：`defendLatch` 一上，意圖就變成 `defend`
+   * （2026-08-07 專案負責人裁定「閃躲永遠優先」）。那對戰鬥機是對的 ——
+   * 撤退途中被咬住還硬飛就是送死。
+   *
+   * 對**被護送的**那幾架不是。專案負責人 2026-08-21：「轟炸機目前如果被
+   * 瞄準就會滾轉，這不合理；有辦法讓轟炸機有一個新的行動狀態，是無條件的
+   * 移動到集合點嗎？」實測值印證了那個「不合理」：接觸之前滾轉恆為 0.0°，
+   * 接觸之後衝到 85~89°，整隊的橫向散布由 600 m 撐開到 1,731 m ——
+   * 畫面上是四架 B-17 一邊翻滾一邊各自跑掉，而真機的編隊是硬著頭皮飛完。
+   *
+   * ── 它關掉的**只有**閃躲 ───────────────────────────────
+   *
+   * 安全層（`applySafety`，拉平不撞海）照跑，砲塔照打（那一層完全不經過
+   * 控制器，見 `world/turrets.ts`）。**這一條不是無敵，是不迴避。**
+   */
+  transit = false
 
   /**
    * 集火命令指定的那一架。`null` = 沒有指定。由 `setup.ts` 每步寫入。
@@ -207,10 +231,53 @@ export class AiController implements Controller {
   /** 距離下一次意圖仲裁還有多久，s */
   private decisionTimer = 0
 
+  /**
+   * 扳機的點放狀態，滿足 `weapons/burst.ts` 的 `BurstCycle`。**唯讀** ——
+   * 只有 `stepBurst` / `resetBurst` 能寫。
+   *
+   * 【為什麼是三個公開欄位而不是一個私有物件】結構型相容要求欄位名逐字
+   * 相同（`TurretState` 那一側先有這三個名字，而它被兩支快照測試釘住）。
+   * 公開的另一個好處與 `rules`、`defend` 相同：測試分得出「沒開火」是
+   * 幾何不成立還是正好在停火段。
+   */
+  burstFiring = true
+  burstTimer = DEFAULT_AI_BURST.on
+  burstScale = 1
+  /**
+   * 點放的節奏。**與 `targetConfig`、`wingmanConfig` 同一類：可注入。**
+   * `{ on: 任意, off: 0 }` 等於關掉這一層 —— 消融用。
+   */
+  burstConfig: BurstConfig = DEFAULT_AI_BURST
+  /**
+   * 上一次拿來錯開點放的座位索引。**−2 是哨兵** —— `selfIndex` 的初值是
+   * −1，兩者不同才保證第一次 `update` 一定會攤一次。
+   *
+   * 【為什麼是 lazy 而不是由 `setup.ts` 呼叫】`selfIndex` 在建構之後才寫入
+   * （`setup.ts` 兩處、`main.ts` 兩處），要求四個呼叫端都記得再呼叫一次
+   * 「攤點放」是一條遲早會漏掉的規矩，而漏掉的症狀是**整隊同一根扳機**
+   * ——那正是這一層要避免的東西。索引換人（代飛）時也會自動重攤。
+   */
+  private burstSeed = -2
+
   update(self: Aircraft, dt: number, out: Command): void {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
+
+    // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
+    // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會
+    // 在沒有目標的那幾秒**停住** —— 於是每一架一咬上目標都是從各自停下來
+    // 的地方繼續，錯開的相位一場打下來就糊掉了。
+    const burst = this.burstConfig
+    if (this.burstSeed !== this.selfIndex) {
+      this.burstSeed = this.selfIndex
+      // `selfIndex` 為 −1（沒接指派板）時全部落在 k = 0，那本來就是
+      // 「單機測試」的場景，沒有要錯開的對象
+      resetBurst(this, Math.max(this.selfIndex, 0), burst.on, burst.off)
+    }
+    // 【`off === 0` 就是沒有這一層】`stepBurst` 在停火段的長度為 0 時會在
+    // 同一步立刻翻回開火段（while 迴圈），所以恆為 true —— 消融不必另開分支
+    const burstOpen = stepBurst(this, dt, burst.on, burst.off)
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
     // 決定 —— 否則沒有目標時計時器不會前進，board 一設上去就會變成每個
@@ -227,7 +294,17 @@ export class AiController implements Controller {
         this.stationError = 0
       }
       this.threatSource = this.scanThreat(self)
-      if (this.board) {
+      if (this.transit) {
+        // 【被護送的不挑目標，而且要把槽位還回去】`assignments` 是全場共用
+        // 的一份，`countLocks` 靠它算分攤折扣。一架永遠不會開火的轟炸機
+        // 若「鎖著」某個敵人，真正在打的護航機就會以為那一架已經有人顧了
+        // ——一個看不出來的、只表現成「火力莫名其妙變弱」的損失。
+        this.target = null
+        const b = this.board
+        if (b && this.selfIndex >= 0 && this.selfIndex < b.assignments.length) {
+          b.assignments[this.selfIndex] = -1
+        }
+      } else if (this.board) {
         // 【角色分派】有站位參考機 = 僚機，走四級準則；否則是自由獵手
         this.target = reference
           ? selectWingmanTarget(
@@ -368,8 +445,13 @@ export class AiController implements Controller {
       // 【集火不碰意圖】它是三種命令裡唯一「要交戰」的一種（spec §5.4）。
       // rally 與 flank 是「不要打，去那裡」，focus 是「打那一架」——
       // 壓成 rally 會讓集火命令反而停止交戰，那是完全相反的效果
+      //
+      // 【transit 連閃躲都不讓位】那是「無條件飛完航程」的**全部意思**，
+      // 見 `transit` 的註解。寫在這一行而不是另開一個 `Intent` 值：轉向的
+      // 行為與 rally **逐字相同**（純追擊一個固定點、不開火），差別只在
+      // 「有沒有東西搶得走它」—— 那是一個條件，不是一種飛法。
       if (this.order !== null && this.order.kind !== 'focus') {
-        this.intent = this.rules.defendLatch ? 'defend' : 'rally'
+        this.intent = !this.transit && this.rules.defendLatch ? 'defend' : 'rally'
       }
     }
 
@@ -398,7 +480,12 @@ export class AiController implements Controller {
     // 意圖是唯一該讀的判準：`focus` 的意圖不會是 rally（它要交戰），
     // 而破防閂上時意圖是 defend —— 「不回頭打」不包含「不閃彈」，也不
     // 包含閃躲過程中打到的那一槍。
-    raw.firing = this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self)
+    //
+    // 【點放是最後一道閘】它與四條幾何條件是 AND，位置刻意放在最外層：
+    // `shouldFire` 是純函數而且被一整支單元測試逐條釘住，把跨格狀態塞進去
+    // 會讓「幾何上打不打得到」與「現在該不該扣」混成一件事。見 `AI_BURST_ON`。
+    raw.firing = burstOpen
+      && (this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self))
 
     this.emit(self, dt, out)
   }

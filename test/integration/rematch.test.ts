@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, aliveCount } from '../../src/battle/setup'
-import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
+import { battleConfigFrom, uniform, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { clearKills } from '../../src/world/kills'
 import { clearImpacts } from '../../src/world/events'
 import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
@@ -26,9 +26,7 @@ describe('換一場（M10 spec §5.3）', () => {
 
     const second = createBattle(
       new Idle(),
-      battleConfigFrom({
-        ...DEFAULT_SKIRMISH, faction: 'axis', specId: 'bf109g6', blueCount: 2, redCount: 5,
-      }),
+      battleConfigFrom(uniform('bf109g6', 2, 'p51d', 5)),
       1,
     )
     expect(second.blue).toHaveLength(2)
@@ -57,7 +55,7 @@ describe('換一場（M10 spec §5.3）', () => {
     const times: number[] = []
     for (let n = 0; n < 10; n++) {
       const b = createBattle(
-        new Idle(), battleConfigFrom({ ...DEFAULT_SKIRMISH, blueCount: 4, redCount: 4 }), n,
+        new Idle(), battleConfigFrom(uniform('p51d', 4, 'bf109g6', 4)), n,
       )
       const t0 = performance.now()
       for (let i = 0; i < 240; i++) {

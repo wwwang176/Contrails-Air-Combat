@@ -5,8 +5,10 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { createTerrain } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
+import { timeScale } from './battle/mission'
 import { createTracers } from './render/tracers'
-import { createMuzzles } from './render/muzzle'
+import { createMuzzles, createTurretMuzzles } from './render/muzzle'
+import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { createFireball, emitFireball } from './render/fireball'
@@ -49,6 +51,7 @@ import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
+import { sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS,
@@ -201,6 +204,12 @@ function attachVisual(c: Combatant): Visual {
 // 【容量照滿編訂而不是照這一場的架數】池子是基礎設施，建一次永不重建
 const muzzles = createMuzzles(MAX_COMBATANTS)
 ctx.scene.add(muzzles.object)
+// 【砲塔的槍管與槍焰各一個池】槍管必須跟著砲塔轉 —— 烘進機身的靜態槍管，
+// 在砲塔轉向時彈流會從管子旁邊飛出去，而砲塔的重點就是它會轉。
+const turretBarrels = createTurretBarrels(MAX_COMBATANTS)
+ctx.scene.add(turretBarrels.object)
+const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
+ctx.scene.add(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const splashes = createSplashes()
@@ -490,8 +499,8 @@ function enterBattle(): void {
   // 與這一場毫無關係 —— 那會讓這把鑰匙在最需要它的時候（任務出問題）失效。
   console.log(
     `[戰鬥] 種子 ${battle.seed}　${mode === 'mission' ? pendingMission?.id ?? '?' : '遭遇戰'}`
-    + `　藍 ${battle.cfg.blueCount} × ${battle.cfg.blueSpec.id}`
-    + `　紅 ${battle.cfg.redCount} × ${battle.cfg.redSpec.id}`
+    + `　藍 ${sideSummary(battle.cfg.units, 'blue')}`
+    + `　紅 ${sideSummary(battle.cfg.units, 'red')}`
     + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`,
   )
   telemetryAt = 0
@@ -901,6 +910,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
+  // 【砲塔的槍管也用內插姿態】理由與槍焰完全相同
+  turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
+  turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
   // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
   sparks.step(frameSeconds)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
@@ -1003,6 +1015,16 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.flightAlive = flight?.count ?? 0
   hudFrame.flightSize = flight?.roster.length ?? 0
 
+  /**
+   * 【轟炸機沒有瞄準具】它們的槍全部是砲塔、由 AI 操作 —— 玩家沒有任何
+   * 可扣扳機的武器，畫一個預瞄環會讓人以為按了會發射。
+   *
+   * 【判準用 mounts 而不是 role】要問的是「玩家扣得到扳機嗎」，而那正是
+   * `battery.mounts` 的定義。用 `role === 'bomber'` 的話，日後若有哪一台
+   * 轟炸機真的裝了固定前射武器，這裡會靜靜地漏掉它的預瞄環。
+   */
+  const hasFixedGuns = aircraft.spec.battery.mounts.length > 0
+
   // 【接觸點】畫全部，沒有距離門檻；預瞄環的條件是「真的打得到」。
   const sight = aircraft.spec.battery.sight
   // 【每幀取一次】玩家的分隊序號。編制每個物理步重新壓縮，所以陣亡、
@@ -1068,7 +1090,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 指的是一個打不到的點——畫出來只會是「往這裡開槍」的錯誤暗示。19 架
     // 友機同時畫更是滿畫面的雜訊。順帶省掉每架一次的預瞄解。
     contact.leadValid = false
-    if (contact.hostile) {
+    if (contact.hostile && hasFixedGuns) {
       relPos.copy(c.aircraft.state.position).sub(aircraft.state.position)
       relVel.copy(c.aircraft.state.velocity).sub(aircraft.state.velocity)
       const t = solveLead(relPos, relVel, sight.muzzleVelocity, leadDir)
@@ -1105,6 +1127,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.objectiveText = pendingMission?.objective ?? ''
   hudFrame.objectiveMetric = m.metric
   hudFrame.objectiveMetricKind = m.hasTarget ? 'distance' : 'count'
+  // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
+  hudFrame.objectiveRemaining = m.remaining
   hudFrame.objectiveSeconds = m.secondsLeft
   hudFrame.objectiveHasTarget = m.hasTarget
   hudFrame.objectiveWorldX = m.target.x
@@ -1241,8 +1265,20 @@ function frame(now: number) {
       }
     }
     if (!paused) {
-      elapsed += frameSeconds
-      stepAndDrawBattle(frameSeconds)
+      // 【分出勝負之後切超級慢動作】理由與流速的定值見 `mission.ts` 的
+      // `timeScale`。結算板背後的戰場繼續，只是慢下來。
+      //
+      // 【為什麼是縮放 dt，而不是像暫停那樣整個跳過 `stepAndDrawBattle`】
+      // 結算板、兩顆按鈕、放開指標鎖**全部**在那支函數的尾巴。跳過它就得
+      // 記一個「已經畫過結算了嗎」的旗標，而那種鏡射狀態要求每一條重開的
+      // 路徑都記得重設它 —— 漏掉任何一條就留下一個永遠不消失的幽靈。
+      // 由 `battle.outcome` 推導不必維護任何東西（與 `stepCommandLayer` 用
+      // `instanceof` 推導、編制每步重算是同一條紀律）。
+      //
+      // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解
+      const sim = frameSeconds * timeScale(battle.outcome)
+      elapsed += sim
+      stepAndDrawBattle(sim)
       if (elapsed >= telemetryAt) {
         telemetryAt = elapsed + TELEMETRY_PERIOD
         logTelemetry()

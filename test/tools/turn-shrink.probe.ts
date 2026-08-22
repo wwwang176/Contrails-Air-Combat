@@ -14,6 +14,8 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
+import { HEAD_ON } from '../../src/battle/entry'
+import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
@@ -92,8 +94,7 @@ function run(blue: AircraftSpec, red: AircraftSpec, vi: number): Result {
     new AiController(),
     {
       ...DEFAULT_BATTLE,
-      blueSpec: blue,
-      redSpec: red,
+      units: lineAbreast(HEAD_ON, blue, 20, red, 20),
       altitude: V.alt,
       tas: V.tas,
       entryRange: V.entry,

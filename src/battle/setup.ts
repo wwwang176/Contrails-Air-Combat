@@ -5,13 +5,14 @@ import { AiController } from '../ai/AiController'
 import { createTargetBoard, type TargetBoard } from '../ai/target'
 import { ACE, type DifficultyProfile } from '../ai/profile'
 import {
-  SCHWARM_SIZE, STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
+  STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
   type Flight, type FlightIndex,
 } from './flights'
+import { assertOrderOfBattle, lineAbreast, type OrderOfBattle } from './order'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import {
   createCommandState, stepCommand,
-  type CommandState, type CommandUnit,
+  type CommandState, type CommandUnit, type FlightOrder,
 } from '../ai/command'
 import { serviceCeiling } from '../analysis/envelope'
 import { manoeuvreSpeed } from '../ai/doctrine'
@@ -25,10 +26,12 @@ import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
 // 區域範圍，而 `Battle.outcome` 的宣告用得到它。
-import { HEAD_ON, type EntryPlan, type SideEntry } from './entry'
+import { HEAD_ON } from './entry'
 import {
+  NEUTRAL_TUNING,
   createMissionState, resetMissionState, stepMission,
-  type MissionInputs, type MissionRules, type MissionState, type Outcome,
+  type MissionInputs, type MissionRules, type MissionState, type MissionTuning,
+  type Outcome,
 } from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
@@ -41,18 +44,17 @@ import type { AircraftSpec } from '../specs/types'
  */
 export interface BattleConfig {
   /**
-   * 藍隊架數，**含玩家**。1~20。
+   * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
    *
-   * 【為什麼含玩家】專案負責人裁決：20 vs 20 名副其實。這也正是 M9 以前
-   * `perSide` 的意思，語意不變，只是拆成兩個。
+   * 【為什麼取代了 blueSpec / redSpec / blueCount / redCount / entry】專案
+   * 負責人 2026-08-21：「設定檔應該是一個陣列決定什麼機種、初始方位、初始
+   * 姿態、小隊等等，而不是加開欄位，不然未來越多類型會更新不完。」加第三種
+   * 機體時前者只要多一列。見 `battle/order.ts`。
+   *
+   * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20)` ——
+   * 產出的座標與改動前逐位元相同。
    */
-  blueCount: number
-  /** 紅隊架數。1~20 */
-  redCount: number
-  /** 藍隊機種。**玩家恆在藍隊** —— 選軸心國就是這裡放 Bf109（M10 spec §7.1） */
-  blueSpec: AircraftSpec
-  /** 紅隊機種 */
-  redSpec: AircraftSpec
+  units: OrderOfBattle
   altitude: number
   tas: number
   /**
@@ -136,22 +138,15 @@ export interface BattleConfig {
    */
   rules: MissionRules
   /**
-   * 這一場的擺法。**是 `battle/entry.ts` 那張表裡的一份，不是一個列舉。**
-   *
-   * 【為什麼不是分支】專案負責人 2026-08-16：擺位、面向、初始狀態要寫成
-   * 資料，讓每個任務有不同的擺法。加一種 = 那張表多一個字面值，這裡不動。
-   *
-   * 【為什麼既有護欄不會動】`HEAD_ON` 展開之後與改動前的算式逐字相同，
-   * 而 `DEFAULT_BATTLE` 給的就是它。
+   * 這一關自己的小旋鈕。**遭遇戰與殲滅任務給 `NEUTRAL_TUNING`**，
+   * 那一份的每一項都等於「沒有這一關」。見 `mission.ts` 的 `MissionTuning`。
    */
-  entry: EntryPlan
+  tuning: MissionTuning
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
-  blueCount: 20,
-  redCount: 20,
-  blueSpec: P51D,
-  redSpec: BF109G6,
+  // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
+  units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
   altitude: 4000,
   tas: 200,
   entryRange: 10000,
@@ -163,8 +158,7 @@ export const DEFAULT_BATTLE: BattleConfig = {
   aiProfile: ACE,
   // 【遭遇戰＝沒有時限的殲滅】改動前寫死的那兩行，現在是這一條規則
   rules: { kind: 'annihilate' },
-  // 【對頭是預設】全部既有護欄都建立在它上面
-  entry: HEAD_ON,
+  tuning: NEUTRAL_TUNING,
 }
 
 /**
@@ -172,6 +166,45 @@ export const DEFAULT_BATTLE: BattleConfig = {
  * 而勝負條件不再只有「誰全滅」。這裡再匯出，既有的 import 站點不用動。
  */
 export type { Outcome } from './mission'
+
+/**
+ * 這一場「要被護送／要被打掉」的那幾架，以及它們各自要去哪裡。
+ * **全部是常數**：開局算一次，之後只讀（重置也不必動）。
+ *
+ * 【為什麼是索引表而不是每架身上的一個旗標】`Combatant` 由 `World` 定義，
+ * 而 `World` 連「隊伍」都只知道 `'blue' | 'red'` —— 它不該知道有「任務」
+ * 這回事。與 `roster`（名字）、`flights`（編制）住在 `Battle` 而不是
+ * `World` 上是同一條界線。
+ */
+export interface ConvoyIndex {
+  /** `duty === 'transit'` 的座位索引，依 `world.add` 的順序 */
+  readonly seats: readonly number[]
+  /**
+   * 判定用的終點。**畫面上的圓環就是這一個**，整場只有一個圈。
+   */
+  readonly goal: Vector3
+  /**
+   * 與 `seats` 對齊：**那一架自己要飛的點**。x 取它的出生 x，所以每一架
+   * 飛的是一條**與 Z 軸平行**的直線。
+   *
+   * 【為什麼不是全部瞄同一個點】專案負責人 2026-08-21：「這些轟炸機都有
+   * 各自的前方集合點，這樣既可以排除滾轉，又可以每台轟炸機平行飛。」
+   * 共用一個點的話整隊會沿途向內收攏 —— 起始值下只有 1° 的夾角，看起來
+   * 差別不大，但那是「慢慢擠成一團」而不是編隊。
+   *
+   * 【判定仍然只有一個圈】兩者不衝突：整隊的寬度由 `order.ts` 的
+   * `CONVOY_LANE` 壓在抵達半徑之內。
+   */
+  readonly points: readonly Vector3[]
+  /**
+   * 依**分隊**索引的集合令；不是 transit 的分隊是 `null`。
+   *
+   * 【為什麼是一張永遠不解除的令】`stepCommand` 的集合令到了就解除，而
+   * 這一張的意思是「**永遠**往終點飛」。做法是根本不讓指揮層看到這些
+   * 分隊（見 `blueOrderFlights`），改由 `stepCommandLayer` 直接發這一張。
+   */
+  readonly orders: readonly (FlightOrder | null)[]
+}
 
 export interface Battle {
   readonly world: World
@@ -239,6 +272,25 @@ export interface Battle {
   readonly blueFlightIndices: number[]
   readonly redFlightIndices: number[]
   /**
+   * 指揮官**可以下令**的分隊，依隊伍分開。與上面那兩個的差別只有一項：
+   * **被護送的那些小隊不在裡面。**
+   *
+   * 【為什麼要分成兩份而不是直接把 transit 拿掉】上面那兩個同時是對手的
+   * `foe` 清單 —— 攔截時藍隊的指揮官必須**看得到**敵方轟炸機小隊才切得到
+   * 它們的側翼。拿掉的話那幾架在指揮層眼中不存在，而它們正是這一關的
+   * 全部重點。
+   *
+   * 【為什麼下令端要拿掉】命令有**配額**（`command.ts` 的 `held`）。被護送
+   * 的小隊拿著一張永遠不解除的集合令（見 `convoy.orders`），若它們也進了
+   * 排名，就會從真正在打的護航機手上分走名額 —— 而那個損失完全看不出來。
+   */
+  readonly blueOrderFlights: number[]
+  readonly redOrderFlights: number[]
+  /**
+   * 這一場被護送／被攔截的那幾架。**沒有就是 null**（遭遇戰與其餘任務）。
+   */
+  readonly convoy: ConvoyIndex | null
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -302,51 +354,53 @@ export function createBattle(
   cfg: BattleConfig = DEFAULT_BATTLE,
   seed: number = (Math.random() * 0x100000000) >>> 0,
 ): Battle {
+  assertOrderOfBattle(cfg.units)
+
   const world = new World()
   const blue: Combatant[] = []
   const red: Combatant[] = []
-  const blueFlights = Math.ceil(cfg.blueCount / SCHWARM_SIZE)
-  /**
-   * 玩家是**正中央分隊的長機**（M6 spec §9）。
-   *
-   * 【為什麼是長機而不是某個僚機】玩家不會照站位飛。把他擺在有站位的
-   * 位置上，那個 Schwarm 從此有一個永遠對不齊的槽位。
-   */
-  const playerSlot = Math.floor(blueFlights / 2) * SCHWARM_SIZE
   let player: Combatant | null = null
+  /**
+   * 每個小隊的架數，依 `world.add` 的順序。**交給 `createFlights`** ——
+   * 分組只能有一份，不能讓它自己再猜一次（見 `flights.ts` 的 `sizes`）。
+   */
+  const sizes: number[] = []
+  /** `duty === 'transit'` 的座位索引與它們各自的出生 x（見 `ConvoyIndex`） */
+  const convoySeats: number[] = []
+  const convoyX: number[] = []
+  /** 那幾架各自的**分隊**索引。編制依 `cfg.units` 的順序建，所以就是單位序號 */
+  const convoyFlights: number[] = []
+  /**
+   * base spec → 套過手感係數的 spec。**每陣營一張表。**
+   *
+   * 【為什麼要記憶】改動前 `applyFeel` 一側算一次，所以同一側的 20 架共用
+   * 同一個物件。逐小隊算的話同隊會變成好幾個物件 —— 數值完全相同
+   * （`applyFeel` 是純函數），但下游有三個**依物件識別**的快取會失效。
+   *
+   * 【為什麼是每陣營一張而不是全場一張】全場一張會讓鏡像對戰（兩隊同機種）
+   * 由兩個 spec 物件變成一份，而依物件識別的快取有三個，不只 `ceilings`：
+   *
+   * ```
+   *   setup.ts       Map<AircraftSpec, number>            serviceCeiling
+   *   envelope.ts    WeakMap<AircraftSpec, Float64Array>  最佳迴旋表
+   *   doctrine.ts    WeakMap<AircraftSpec, Float64Array>  持續迴旋率表
+   * ```
+   *
+   * 後兩者都在 **AI 更新路徑**上，而 `doctrine.ts` 的註解明寫「一次填滿、
+   * 不惰性逐格填」是因為逐格填會讓 AI 步的 p999 由 217 µs 惡化到 3.8 ms。
+   * 共用會少填一張表 —— 數值仍然相同，但那是一個沒有必要冒的啟動成本與
+   * perf gate 的變動。
+   *
+   * 每陣營一張則與改動前**完全一致**：同隊同機種共用一份、兩隊各自一份。
+   */
+  const feeled = {
+    blue: new Map<AircraftSpec, AircraftSpec>(),
+    red: new Map<AircraftSpec, AircraftSpec>(),
+  }
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
-  for (const side of ['blue', 'red'] as const) {
-    const blueSide = side === 'blue'
-    // 【兩邊各算各的】M10 起雙方架數可以不同，分隊數因此也不同
-    const count = blueSide ? cfg.blueCount : cfg.redCount
-    const flightCount = blueSide ? blueFlights : Math.ceil(cfg.redCount / SCHWARM_SIZE)
-    // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
-    // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
-    // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一入口，
-    // 而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
-    //
-    // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
-    // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
-    // 戰鬥機放大，爬升率變成史實的三倍。
-    const base = blueSide ? cfg.blueSpec : cfg.redSpec
-    const spec = applyFeel(base, feelFor(base))
-
-    /**
-     * 追擊：紅隊搬到藍隊**後方**、拉高、而且**同向**。
-     *
-     * 【藍隊的位置一個字都不動】撤離的時限是由「直飛到撤離點要多久」推出來
-     * 的（`missions.ts` 的 `EVAC_STRAIGHT_*`）。動了藍隊的出生點，那兩個
-     * 數字就要重新量。
-     *
-     * 【為什麼要同向】不同向的話那不是追擊，是又一次對頭 —— 而對頭正是
-     * 這一版要換掉的東西。
-     */
-    /**
-     * 這一隊的擺法。**六個欄位就是這一段全部的自由度** —— 想要新的排列
-     * 就去 `entry.ts` 加一份，這裡一個字都不用改。
-     */
-    const entry: SideEntry = blueSide ? cfg.entry.blue : cfg.entry.red
+  for (const unit of cfg.units) {
+    const entry = unit.entry
     // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
     // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
     // 那些覆寫靜靜失效
@@ -354,54 +408,77 @@ export function createBattle(
     const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
     const velocity = FWD.clone().applyQuaternion(orientation)
       .multiplyScalar(cfg.tas * entry.speed)
+    // 【乘法的順序要與改動前逐字相同】改動前是
+    // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
+    // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
+    const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+    const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
 
-    // 對稱錯開，戰場才會維持以原點為中心（相機與小地圖都吃這個）
-    const lateral = entry.across * cfg.lateralOffset
+    /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
+    const made: Aircraft[] = []
+    for (let k = 0; k < unit.members.length; k++) {
+      const base = unit.members[k]!
+      // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
+      // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
+      // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一
+      // 入口，而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
+      //
+      // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
+      // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
+      // 戰鬥機放大，爬升率變成史實的三倍。
+      //
+      // 【查表在內層】混編小隊裡兩種機各查各的
+      const cache = feeled[unit.team]
+      let spec = cache.get(base)
+      if (spec === undefined) {
+        spec = applyFeel(base, feelFor(base))
+        cache.set(base, spec)
+      }
 
-    let slot = 0
-    for (let f = 0; f < flightCount; f++) {
-      const leadX = (f - (flightCount - 1) / 2) * cfg.schwarmSpacing + lateral
-      const leadY = cfg.altitude + entry.climb + altitudeOffset(f, cfg.altitudeSpread)
-      /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
-      const made: Aircraft[] = []
+      // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
+      // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
+      // 走 `World.respawn` 是同一個理由。
+      //
+      // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
+      // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
+      const ref = STATION_REFERENCE[k]!
+      if (ref < 0) SPAWN.set(leadX, leadY, z)
+      else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
 
-      for (let k = 0; k < SCHWARM_SIZE && slot < count; k++, slot++) {
-        // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
-        // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
-        // 走 `World.respawn` 是同一個理由。
-        //
-        // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
-        // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
-        const ref = STATION_REFERENCE[k]!
-        if (ref < 0) SPAWN.set(leadX, leadY, z)
-        else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+      const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
+      aircraft.state.position.copy(SPAWN)
+      aircraft.state.orientation.copy(orientation)
+      aircraft.state.velocity.copy(velocity)
+      aircraft.prevPosition.copy(aircraft.state.position)
+      aircraft.prevOrientation.copy(orientation)
+      made.push(aircraft)
 
-        const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
-        aircraft.state.position.copy(SPAWN)
-        aircraft.state.orientation.copy(orientation)
-        aircraft.state.velocity.copy(velocity)
-        aircraft.prevPosition.copy(aircraft.state.position)
-        aircraft.prevOrientation.copy(orientation)
-        made.push(aircraft)
-
-        const isPlayer = blueSide && slot === playerSlot
-        const controller = isPlayer ? playerController : new AiController()
-        const c = world.add(
-          aircraft, controller, side, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
-        )
-        // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
-        c.respawnOnDestroy = false
-        if (isPlayer) player = c
-        ;(blueSide ? blue : red).push(c)
+      const isPlayer = unit.player === true && k === 0
+      const controller = isPlayer ? playerController : new AiController()
+      const c = world.add(
+        aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
+      )
+      // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
+      c.respawnOnDestroy = false
+      if (isPlayer) player = c
+      ;(unit.team === 'blue' ? blue : red).push(c)
+      if (unit.duty === 'transit') {
+        convoySeats.push(c.index)
+        // 【取出生 x 而不是重推 lane】重推要把 `lane × schwarmSpacing +
+        // across × lateralOffset` 再算一次，而那條式子的浮點順序是被
+        // `test/fixtures/spawn-baseline.ts` 釘住的。抄現成的值不可能算錯
+        convoyX.push(SPAWN.x)
+        convoyFlights.push(sizes.length)
       }
     }
+    sizes.push(unit.members.length)
   }
 
-  if (player === null) throw new Error('玩家沒有被建立——blueCount 必須 >= 1')
+  if (player === null) throw new Error('玩家沒有被建立——編組表必須有一筆 player')
 
   // 【編制必須在全部 add 完之後才建】玩家要釘在自己分隊的 members[0]
   // （M6 spec §5.3）
-  const flights = createFlights(world.combatants, player.index)
+  const flights = createFlights(world.combatants, player.index, sizes)
   // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
   //
   // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
@@ -411,7 +488,12 @@ export function createBattle(
   //
   // 【編制刻意排在前面】就是為了讓這裡拿得到 `flightOf` 那一個實體 ——
   // `compactFlights` 每個物理步就地重填它，板子因此永遠讀到當步的編制。
-  const board = createTargetBoard(world.combatants, flights.flightOf)
+  // 【被護送的那幾架在敵方眼中值幾倍】沒有它的話護航機會把攔截方的目標
+  // 全部吸走 —— 實測轟炸機**一發都不會挨到**（`docs/backlog.md` §2.26）。
+  // 中性值是 1，所以遭遇戰與殲滅任務這一整條逐字如舊。見 `MissionTuning`
+  const priority = new Float64Array(world.combatants.length).fill(1)
+  for (const seat of convoySeats) priority[seat] = cfg.tuning.convoyPriority
+  const board = createTargetBoard(world.combatants, flights.flightOf, priority)
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
   // `envelope.ts` 用二分搜尋實算 —— 那才是**套過 `feel.ts` 倍率之後**這架
@@ -445,10 +527,60 @@ export function createBattle(
   })
   const blueCommand = createCommandState(flights.flights.length)
   const redCommand = createCommandState(flights.flights.length)
+  // ── 被護送的那幾架 ────────────────────────────────────
+  //
+  // 【兩個方向都要擋】少了任何一邊，症狀都是「這一關永遠打不完」而畫面上
+  // 一切正常：沒有 transit 的護送任務，勝利條件從第一幀起就不可能成立；
+  // 有 transit 卻不是護送規則的話，那幾架沒有地方可去，會照一般空戰打。
+  const convoyOrders: (FlightOrder | null)[] = flights.flights.map(() => null)
+  let convoy: ConvoyIndex | null = null
+  if (cfg.rules.kind === 'convoy') {
+    const rules = cfg.rules
+    const points: Vector3[] = []
+    let owned = 0
+    for (let t = 0; t < convoySeats.length; t++) {
+      const seat = convoySeats[t]!
+      if (world.combatants[seat]!.team === rules.owner) owned++
+      // 【x 是自己的、y 與 z 是共用的】平行直線的定義
+      const point = new Vector3(convoyX[t]!, rules.point.y, rules.point.z)
+      // 【整隊必須落得進判定圈】每一架飛的是 (自己的 x, 終點的 y, 終點的 z)，
+      // 所以它抵達時離圈心恰好是這個橫向偏移。大於半徑的那幾架**永遠判不到**,
+      // 而畫面上的症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」。
+      // 2026-08-21 實測踩過一次：圈釘在 x = 0 而整隊偏 −750，最外側 1,050 > 1,000
+      const off = Math.abs(point.x - rules.point.x)
+      if (!(off < rules.radius)) {
+        throw new Error(
+          `被護送的第 ${t} 架離判定圈心 ${off.toFixed(0)} m，不小於抵達半徑 ${rules.radius} m`
+          + '——它永遠判不到。把編隊收窄（order.ts 的 CONVOY_LANE）或把半徑放大',
+        )
+      }
+      points.push(point)
+      convoyOrders[convoyFlights[t]!] = {
+        kind: 'rally',
+        point,
+        radius: rules.radius,
+        targetFlight: -1,
+        side: 0,
+        focusIndex: -1,
+      }
+    }
+    if (owned === 0) {
+      throw new Error(`護送／攔截的規則說目標在 ${rules.owner} 隊，但編組表裡那一隊沒有任何 transit`)
+    }
+    convoy = { seats: convoySeats, goal: rules.point, points, orders: convoyOrders }
+  } else if (convoySeats.length > 0) {
+    throw new Error('編組表裡有 transit 的小隊，但這一場的規則不是護送／攔截——它們沒有終點可飛')
+  }
+
   const blueFlightIndices: number[] = []
   const redFlightIndices: number[] = []
+  const blueOrderFlights: number[] = []
+  const redOrderFlights: number[] = []
   for (let f = 0; f < flights.flights.length; f++) {
-    ;(flights.flights[f]!.team === 'blue' ? blueFlightIndices : redFlightIndices).push(f)
+    const blueSide = flights.flights[f]!.team === 'blue'
+    ;(blueSide ? blueFlightIndices : redFlightIndices).push(f)
+    // 【被護送的小隊不進下令端】理由見 `Battle.blueOrderFlights`
+    if (convoyOrders[f] === null) (blueSide ? blueOrderFlights : redOrderFlights).push(f)
   }
 
   // AI 接線：指派板、自身索引、決策相位
@@ -493,6 +625,9 @@ export function createBattle(
     commandUnits,
     blueFlightIndices,
     redFlightIndices,
+    blueOrderFlights,
+    redOrderFlights,
+    convoy,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
@@ -601,12 +736,15 @@ function stepCommandLayer(b: Battle, dt: number): void {
   const seat = b.world.combatants[b.flights.pinned]
   const human = seat !== undefined && !(seat.controller instanceof AiController)
   const playerFlight = human ? b.flights.flightOf[b.flights.pinned]! : -1
+  // 【下令端與被看見端是兩份清單】`own` 拿掉被護送的小隊、`foe` 不拿掉 ——
+  // 攔截時對面的指揮官必須看得到那幾架才切得到它們的側翼。見
+  // `Battle.blueOrderFlights`
   stepCommand(
-    b.blueCommand, b.flights.flights, b.blueFlightIndices, b.redFlightIndices,
+    b.blueCommand, b.flights.flights, b.blueOrderFlights, b.redFlightIndices,
     b.commandUnits, playerFlight, dt,
   )
   stepCommand(
-    b.redCommand, b.flights.flights, b.redFlightIndices, b.blueFlightIndices,
+    b.redCommand, b.flights.flights, b.redOrderFlights, b.blueFlightIndices,
     b.commandUnits, playerFlight, dt,
   )
 
@@ -614,7 +752,11 @@ function stepCommandLayer(b: Battle, dt: number): void {
   for (let f = 0; f < b.flights.flights.length; f++) {
     const flight = b.flights.flights[f]!
     const state = flight.team === 'blue' ? b.blueCommand : b.redCommand
-    const order = state.orders[f] ?? null
+    // 【被護送的小隊拿自己那一張永遠不解除的集合令】它們不在下令端的清單
+    // 裡，所以 `state.orders[f]` 恆為 null —— 這裡的 `??` 只是把兩條路寫在
+    // 一起，不是在跟指揮官搶
+    const convoyOrder = b.convoy?.orders[f] ?? null
+    const order = convoyOrder ?? state.orders[f] ?? null
     // 【索引解析成 Aircraft 在這一層】規劃層是純函數、只吃快照，不認識
     // Aircraft。與 wireStations 把 stationReferenceOf 的索引解析成飛機是
     // 同一個手法。
@@ -633,6 +775,10 @@ function stepCommandLayer(b: Battle, dt: number): void {
       if (ai instanceof AiController) {
         ai.order = order
         ai.focusTarget = focus
+        // 【無條件飛完航程】被護送的那幾架連閃躲都不讓位，見
+        // `AiController.transit`。每步重寫而不是生成時設一次 —— 玩家接手
+        // 或代飛會換掉座位上的控制器物件，設一次的話新的那顆會漏掉
+        ai.transit = convoyOrder !== null
       }
     }
   }
@@ -660,6 +806,8 @@ const MISSION_INPUTS: MissionInputs = {
   aliveRed: 0,
   playerPos: new Vector3(),
   playerAlive: true,
+  convoyAlive: 0,
+  convoyLead: Infinity,
 }
 
 /**
@@ -694,7 +842,8 @@ function drainKills(b: Battle): void {
     // 移交延遲期間玩家的身分已經在新座位上，但 `b.player` 還沒換。用後者
     // 的話，延遲期間新座位被打死就不會再觸發接手（M9 spec §7.4）。
     if (b.roster.pilots[victim]?.isPlayer === true) {
-      const target = pickTakeover(b.flights, w.combatants, victim)
+      // 【被護送的那幾架不進接手名單】理由見 `pickTakeover` 的 `exclude`
+      const target = pickTakeover(b.flights, w.combatants, victim, b.convoy?.seats)
       if (target >= 0) {
         swapPilots(b.roster, victim, target)
         b.takeoverSeat = target
@@ -785,6 +934,22 @@ export function stepBattle(b: Battle, dt: number): void {
   inp.aliveRed = aliveCount(b.red)
   inp.playerPos.copy(b.player.aircraft.state.position)
   inp.playerAlive = b.player.alive
+  // 【只掃被護送的那幾架，而且只掃活著的】兩者的理由見 `MissionInputs`。
+  // 起始值下最多 4 架，遭遇戰是 0 架 —— 這一段的成本與架數無關
+  inp.convoyAlive = 0
+  inp.convoyLead = Infinity
+  const cv = b.convoy
+  if (cv !== null) {
+    for (let t = 0; t < cv.seats.length; t++) {
+      const c = cs[cv.seats[t]!]!
+      if (!c.alive) continue
+      inp.convoyAlive++
+      // 【量到判定點，不是量到它自己那條平行線的終點】圓環只有一個，
+      // 而玩家看到的圈就必須是判定用的那一個
+      const d = c.aircraft.state.position.distanceTo(cv.goal)
+      if (d < inp.convoyLead) inp.convoyLead = d
+    }
+  }
   stepMission(b.cfg.rules, inp, dt, b.mission)
   // 【誰是權威】`b.mission.outcome`。這一行是複本，見 `Battle.mission` 的註解。
   b.outcome = b.mission.outcome
@@ -803,6 +968,10 @@ export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
 ): void {
   b.world.projectiles.clear()
+  // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
+  // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
+  // 看起來像隨機的。
+  b.world.time = 0
   const combatants = b.world.combatants
   for (let i = 0; i < combatants.length; i++) {
     const c = combatants[i]!

@@ -6,6 +6,8 @@ import { BF109G6 } from '../../src/specs/bf109g6'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
+import type { BattleConfig } from '../../src/battle/setup'
+import { sideCount } from '../../src/battle/order'
 
 describe('任務卡（M10 spec §10）', () => {
   it('兩個陣營各五張', () => {
@@ -120,8 +122,8 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
   it('沒有目標文字的卡＝還沒做，資料必須全空而且不可點', () => {
     for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
       if (m.objective !== '') continue
-      expect(m.evacDistance, m.title).toBe(0)
-      expect(m.evacRadius, m.title).toBe(0)
+      expect(m.targetDistance, m.title).toBe(0)
+      expect(m.targetRadius, m.title).toBe(0)
       expect(m.seconds, m.title).toBe(Infinity)
       expect(m.playable, m.title).toBe(false)
     }
@@ -141,8 +143,8 @@ describe('關卡資料（任務框架 spec §7.3）', () => {
     for (const list of [MISSIONS.allies, MISSIONS.axis]) {
       const evac = list.find((m) => m.type === '撤離')!
       expect(evac.objective.length, evac.title).toBeGreaterThan(0)
-      expect(evac.evacDistance, evac.title).toBe(20000)
-      expect(evac.evacRadius, evac.title).toBe(1000)
+      expect(evac.targetDistance, evac.title).toBe(20000)
+      expect(evac.targetRadius, evac.title).toBe(1000)
       expect(Number.isFinite(evac.seconds), evac.title).toBe(true)
     }
   })
@@ -153,28 +155,28 @@ describe('missionRules', () => {
   const evac = MISSIONS.allies.find((m) => m.type === '撤離')!
 
   it('殲滅卡給 annihilate', () => {
-    expect(missionRules(kill, 4000).kind).toBe('annihilate')
+    expect(missionRules(kill, 4000, 1500).kind).toBe('annihilate')
   })
 
   it('撤離卡給 evacuate，撤離點在 −Z、高度取自參數', () => {
-    const r = missionRules(evac, 4000)
+    const r = missionRules(evac, 4000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.x).toBe(0)
     expect(r.point.y).toBe(4000)
-    expect(r.point.z).toBe(-evac.evacDistance)
-    expect(r.radius).toBe(evac.evacRadius)
+    expect(r.point.z).toBe(-evac.targetDistance)
+    expect(r.radius).toBe(evac.targetRadius)
     expect(r.seconds).toBe(evac.seconds)
   })
 
   /** 【高度是參數不是常數】否則某次調高度之後，圓環會浮在戰場上方 */
   it('高度改了，撤離點跟著改', () => {
-    const r = missionRules(evac, 6000)
+    const r = missionRules(evac, 6000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.y).toBe(6000)
   })
 
   it('撤離點真的在敵人那一側 —— 藍隊開局朝 −Z', () => {
-    const r = missionRules(evac, 4000)
+    const r = missionRules(evac, 4000, 1500)
     if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
     expect(r.point.z).toBeLessThan(-DEFAULT_BATTLE.entryRange / 2)
   })
@@ -184,18 +186,25 @@ describe('missionConfigFrom', () => {
   const evacAllies = MISSIONS.allies.find((m) => m.type === '撤離')!
   const evacAxis = MISSIONS.axis.find((m) => m.type === '撤離')!
 
+  /**
+   * 編組表版本的讀取器。**斷言的意思一個字沒變** —— 改動前讀
+   * `cfg.blueSpec`，現在取那一隊第一個小隊的長機。
+   */
+  const specOf = (c: BattleConfig, team: 'blue' | 'red') =>
+    c.units.find((u) => u.team === team)!.members[0]!
+
   it('同盟國：藍隊飛 P-51、紅隊飛 Bf 109，架數照卡片', () => {
     const cfg = missionConfigFrom(evacAllies, 'allies')
-    expect(cfg.blueSpec.id).toBe(P51D.id)
-    expect(cfg.redSpec.id).toBe(BF109G6.id)
-    expect(cfg.blueCount).toBe(evacAllies.blueCount)
-    expect(cfg.redCount).toBe(evacAllies.redCount)
+    expect(specOf(cfg, 'blue').id).toBe(P51D.id)
+    expect(specOf(cfg, 'red').id).toBe(BF109G6.id)
+    expect(sideCount(cfg.units, 'blue')).toBe(evacAllies.blueCount)
+    expect(sideCount(cfg.units, 'red')).toBe(evacAllies.redCount)
   })
 
   it('軸心國：藍隊飛 Bf 109 —— 玩家恆在藍隊，換的是機種不是顏色', () => {
     const cfg = missionConfigFrom(evacAxis, 'axis')
-    expect(cfg.blueSpec.id).toBe(BF109G6.id)
-    expect(cfg.redSpec.id).toBe(P51D.id)
+    expect(specOf(cfg, 'blue').id).toBe(BF109G6.id)
+    expect(specOf(cfg, 'red').id).toBe(P51D.id)
   })
 
   it('難度套 VETERAN —— 與 battleConfigFrom 同一條理由', () => {
@@ -218,7 +227,12 @@ describe('missionConfigFrom', () => {
       for (const m of cards) {
         expect(m.entry, `${m.title}`).toBe(m.type === '撤離' ? 'pursuit' : 'headOn')
         const cfg = missionConfigFrom(m, faction as 'allies' | 'axis')
-        expect(cfg.entry, m.title).toBe(ENTRY_PLANS[m.entry])
+        // 【編組表版本】改動前 `cfg.entry` 是整份 `EntryPlan`；現在每個小隊
+        // 各帶自己那一側的 `SideEntry`，所以逐側比
+        expect(cfg.units.find((u) => u.team === 'blue')!.entry, m.title)
+          .toBe(ENTRY_PLANS[m.entry].blue)
+        expect(cfg.units.find((u) => u.team === 'red')!.entry, m.title)
+          .toBe(ENTRY_PLANS[m.entry].red)
       }
     }
   })
