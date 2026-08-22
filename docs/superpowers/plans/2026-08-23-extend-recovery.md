@@ -91,7 +91,7 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
     expect(DEFAULT_RULES.recoverExit).toBeLessThan(DEFAULT_RULES.cornerExit)
   })
 
-  it('高於 cornerExit 才進場，掉到 recoverExit 以下才出場', () => {
+  it('高於 cornerExit 才進場，掉到 recoverExit（含）才出場', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.cornerRatio = 0.95
@@ -103,7 +103,9 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
     sit.cornerRatio = 0.90
     stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(true)    // 遲滯帶內維持
-    sit.cornerRatio = 0.84
+    // 【等值就退出，不是「低於才退出」】latch 的維持條件是 value > exit，
+    // 所以 cornerRatio 剛好等於 recoverExit 時已經解除。這條釘住那個邊界。
+    sit.cornerRatio = DEFAULT_RULES.recoverExit
     stepRules(s, sit, 0, DT)
     expect(s.extendRecoveredLatch).toBe(false)
   })
@@ -131,7 +133,9 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
 npx vitest run test/unit/ai-rules.test.ts -t extendRecoveredLatch
 ```
 
-預期：`Property 'extendRecoveredLatch' does not exist` 的型別錯誤。
+預期：紅。**但不是型別錯誤** —— `vitest` 不跑 `tsc`，所以會是
+`expect(undefined).toBe(false)` 這類斷言失敗。型別錯誤要到 Step 4 的
+`npx tsc --noEmit` 才會出現。
 
 - [ ] **Step 3：加欄位**
 
@@ -481,15 +485,36 @@ interface Result {
   protectedAlive: number
   /** 己方戰鬥機的存活積分，aircraft-seconds */
   fighterAlive: number
-  /** 診斷用，不斷言：純能量段落數、平均長度 */
+  /** 診斷用，不斷言 */
   entries: number
   meanSeconds: number
+  /**
+   * 每段相對**進場那一刻凍結的位置**的最大離場距離，p90 與 max，m。
+   *
+   * **這是 spec §8.2 裁定「§9 要不要做」的唯一資料來源**，不是 §9 的
+   * 完整統計 —— 只要這兩個數字。錨點凍結不逐拍重算，否則會把 protected
+   * 的死亡與編隊移動混進自機的效果。
+   */
+  driftP90: number
+  driftMax: number
 }
 ```
 
-**「純能量型」的認定**：進場那一拍 `extendEnergyLatch` 為真、
-`extendTurnLatch` 與 `extendFloorLatch` 都為假，且段落期間那兩個
-**都不曾成立過**。實測混合型只佔 0.3~1.8%，直接排除即可。
+**「純能量型」的認定** —— 這裡有一個容易做錯的地方：
+
+```
+進場那一拍   extendEnergyLatch 為真、extendTurnLatch 與 extendFloorLatch 為假
+段落期間     那兩個都**不曾**成立過   ← 每個決策拍 OR 進一個 mask
+```
+
+**不能只看進場與離場兩拍。** turn latch 可能中途成立又解除，那一段就
+不是純能量型了。既有的 `extend-exit.probe.ts:175` 只在進場設一次
+`kind`，**不符合這個定義**，不要照抄那一段。
+
+取樣 10 Hz 就夠 —— 閂鎖本身只在決策拍更新，兩拍之間保持不變。
+
+段落的秒數也要先存在段落上，**整段結束、確認是純能量型之後**才計入
+總秒數。實測混合型只佔 0.3~1.8%，直接排除。
 
 **設定點**：`createBattle` 在 `src/battle/setup.ts:459` 就替每個非玩家座位
 建好 `new AiController()`。所以測試在 `createBattle` 之後、`stepBattle`
@@ -531,6 +556,11 @@ describe('extend 的絕對出場條件（消融對照）', () => {
         dFighter: d((r) => r.fighterAlive).toFixed(0),
         entriesOn: on.map((r) => r.entries),
         entriesOff: off.map((r) => r.entries),
+        // spec §8.2 的裁定依據
+        driftP90: { on: on.map((r) => r.driftP90.toFixed(0)),
+                    off: off.map((r) => r.driftP90.toFixed(0)) },
+        driftMax: { on: on.map((r) => r.driftMax.toFixed(0)),
+                    off: off.map((r) => r.driftMax.toFixed(0)) },
       }))
 
       // ── 一：脫離的總量要真的下降，而且幅度要超過雜訊 ──
@@ -556,22 +586,22 @@ describe('extend 的絕對出場條件（消融對照）', () => {
 npx vitest run test/integration/extend-recovery.test.ts
 ```
 
-**先估時間再寫死參數。** 2 張卡 × 5 salt × 2 檔 × 300 秒 = 6,000 模擬秒。
-`ai-withdraw-anchor` 跑 300 秒的 20v20 要 46 秒，所以這支粗估 **15 分鐘**
-—— 太久。
+**每個 `it` 都要明寫 timeout。** `vite.config.ts` 沒有設 `testTimeout`
+（預設 5 秒），而既有的慢測都在 `it` 的第三個參數明寫 ——
+見 `ai-withdraw-anchor.test.ts:263`。
 
-**先跑一組（1 卡 × 1 salt × 2 檔）量實際秒數**，再決定：
-
-```
-維持 5 salt，SECONDS 砍到 120        涵蓋接敵後的第一波，最省
-維持 300 秒，salt 砍到 3             保留長尾，統計力較弱
-拆成兩支測試，一卡一支                總時間不變，但可以各自跑
+```ts
+    it(`${id}：脫離的總量下降，且沒有人死得更快`, () => {
+      // ...
+    }, 600_000)
 ```
 
-**優先砍 `SECONDS` 不砍 salt** —— §2.5 已經證明這個系統的雜訊很大，
-微擾的次數是統計力的來源，比單次的長度重要。若砍到 120 秒之後
-`dShare` 的效果量掉進雜訊帶，那是「這個窗口不夠」的訊號，**回報，
-不要用加長單次來湊**。
+**時間是實測過的**：`extend-exit.probe.ts` 的 2 卡 × 5 salt × 300 秒
+（10 場）跑 221 秒。這支是 20 場，線性估 **約 7.4 分鐘**，兩個 `it`
+各約 220 秒 —— 600 秒的 timeout 有三倍餘裕。
+
+**所以 `SECONDS` 維持 300，不要砍。** 微擾的次數是統計力的來源
+（§2.5），單次長度決定看不看得到長尾，兩個都不該為了跑快而讓步。
 **紅了不一定是錯的。** 三種可能，處理方式不同：
 
 | 現象 | 意思 | 怎麼辦 |
@@ -604,16 +634,35 @@ test: extend 絕對出場的消融對照
 
 - [ ] **Step 1：讓既有探針能掃**
 
-`extend-exit.probe.ts` 已經在量結束原因、段落長度、churn。加兩個常數
-與一層迴圈就能當掃描器 —— **不要另寫一支新探針**：
+`extend-exit.probe.ts` 已經在量結束原因、段落長度、churn。**但不只是加
+一層迴圈** —— 它還缺三樣掃描裁定要用的東西：
 
 ```ts
-/** 掃描檔位。`null` = 關閉（消融的對照組） */
+/** 掃描檔位。`null` = 關閉（消融的對照組，必須重現現況） */
 const EXITS: (number | null)[] = [null, 0.80, 0.85, 0.90]
 ```
 
 每個 combatant 的 `AiController` 設
 `ai.rulesConfig = { ...DEFAULT_RULES, recoveredExit: v !== null, recoverExit: v ?? 0.85 }`。
+
+**要補的三樣：**
+
+1. **`CAUSES` 加「絕對出場」** —— 新的出口目前會落進「其他」那一格。
+   判定：離場那一拍 `extendRecoveredLatch` 由前一拍的 false 翻成 true，
+   且能量閂鎖仍為真。放在「相對出場」之前。
+2. **`kind` 要追蹤段落期間的 active mask**，不能只看進場那一拍
+   （`extend-exit.probe.ts:175`）。與 Task 4 同一個定義。
+3. **protected 與己方戰鬥機的存活積分**（aircraft-seconds）——
+   Step 2 的安全判準要用它。**不另加 per-salt 全滅硬否決**：
+   積分本身就抓得到提早全滅（全滅越早，積分越小）。
+
+【`null` 那一檔為什麼精確等於現況】state 初始 `extendRecoveredLatch`
+為 false，`recoveredExit: false` 時永不更新，新仲裁的
+`energy && !recovered` 因而退化成原本的 `energy`。**前提是每個檔位都建
+新的 battle。**
+
+【時間】四檔約是現有探針的四倍，實測基準 221 秒 → **約 15 分鐘**。
+這是探針不是測試，不受 vitest timeout 限制，但要有心理準備。
 
 - [ ] **Step 2：跑，兩階段選值**
 
@@ -621,7 +670,8 @@ const EXITS: (number | null)[] = [null, 0.80, 0.85, 0.90]
 npx vite-node test/tools/extend-exit.probe.ts
 ```
 
-1. **安全先過**：三檔的 protected 全滅時刻、存活數都不得比 `null` 那一檔差。
+1. **安全先過**：三檔的 protected 與己方戰鬥機**存活積分**都不得比
+   `null` 那一檔差。
 2. **再看 churn**：在通過的檔位裡取「段落結束 → 下一次進場的間隔
    ≤ 2×`minDwell`」比例最低者。
 
@@ -664,9 +714,22 @@ npx vitest run
   → 那是真正的取捨，**回報給專案負責人**。
 - **`ai-withdraw-anchor`**：本來就紅（`maxRadius 11110.26 > 6500`）。
   要看的是那個數字**沒有變大**。
-- **replay digest 變了 → 預期會變**（行為改了）。要證明的是：
-  `recoveredExit: false` 時 digest 逐位元等於改動前。基準要不要更新是
-  專案負責人的決定。
+- **replay digest 變了 → 預期會變**（行為改了）。
+
+  **但「關掉時逐位元等於改動前」這條硬護欄需要一個實際的執行路徑** ——
+  `order-of-battle-replay.test.ts:44` 用的是預設 controller，跑全套本身
+  證明不了這件事。做法：
+
+  ```
+  一、在改動前的 commit 上跑 test/tools/replay-print.probe.ts，記下 digest
+  二、在 probe 裡加上與 Task 5 同一個 rulesConfig 注入（recoveredExit: false）
+  三、在改動後跑同一支，比對兩個 digest 逐位元相同
+  ```
+
+  這是一次性的證明，用探針做就好，**不要為它改動 `order-of-battle-replay`
+  那支測試** —— 那支守的是別的東西。
+
+  開啟後的新 digest 要不要更新基準，是專案負責人的決定。
 
 - [ ] **Step 5：回填 spec 並整理驗收說明**
 

@@ -297,7 +297,7 @@ churn 問題，不是 §4 造成的 —— 但也表示 §4.3 的「遲滯足以
 
 ```
 進場（回到能打的狀態）   cornerRatio > recoverEnter (= cornerExit = 0.95)
-出場（又飛不動了）       cornerRatio < recoverExit  (0.85)
+出場（又飛不動了）       cornerRatio <= recoverExit (0.85)
 ```
 
 仲裁時把「因能量而脫離」改成兩者的合取：
