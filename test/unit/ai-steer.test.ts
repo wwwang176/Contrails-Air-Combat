@@ -1786,10 +1786,13 @@ describe('steerCommand：甜蜜區偏置', () => {
     // 【把射擊讓位那一層推開，這個 describe 才量得到偏置本身】2026-08-16 加。
     // 這幾條的責任是「`applyPitchBias` 有沒有正確地把角度加到航跡角上」，
     // 不是「讓位係數對不對」。800 m 同速尾追的 `interceptTime ≈ 0.90 s`，
-    // 落在讓位範圍內（係數 0.75），會把 12° 量成 9°。推到範圍外正是**保住**
+    // 落在開火範圍內（係數 0），會把 12° 整個量成 0°。推到範圍外正是**保住**
     // 它原本的責任；縮放由下面的 `甜蜜區偏置讓位給射擊解` 那個 describe 驗。
+    //
+    // 【`× 3` 不是 `× 2`】淡出段是 `span`..`2 × span`，`2 × span` 正好卡在
+    // 邊界上 —— 能過，但一個貼著邊界的前提在門檻再動時會沉默地失效。
     // 見 spec `2026-08-16-sweet-spot-shot-yield-design.md` §6.3b。
-    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 2
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 3
   }
 
   const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
@@ -1851,17 +1854,24 @@ describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
   })
 
   it('彈丸飛不到時完全不讓位', () => {
-    expect(sweetYield(DEFAULT_STEER.sweetYieldTime)).toBe(1)
     expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 2)).toBe(1)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 5)).toBe(1)
   })
 
-  it('貼著臉時完全讓位', () => {
-    expect(sweetYield(0)).toBe(0)
+  /**
+   * 【分界正好是開火範圍的邊界】`shouldFire` 的第一條與 HUD 的 `leadValid`
+   * 都是 `interceptTime <= sweetYieldTime`。**預瞄環出現的那一刻偏置就該是
+   * 0** —— 偏置是一個 10° 的平衡偏移，而 `trackingCone` 只有 3°，晚一點讓位
+   * 等於那一整段射程都開不了火（人工回報兩次）。
+   */
+  it('打得到的整個範圍都完全讓位', () => {
+    const span = DEFAULT_STEER.sweetYieldTime
+    for (const t of [0, span / 4, span / 2, span]) expect(sweetYield(t)).toBe(0)
   })
 
   it('中間是線性的', () => {
-    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 2)).toBeCloseTo(0.5, 12)
-    expect(sweetYield(DEFAULT_STEER.sweetYieldTime / 4)).toBeCloseTo(0.25, 12)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 1.5)).toBeCloseTo(0.5, 12)
+    expect(sweetYield(DEFAULT_STEER.sweetYieldTime * 1.25)).toBeCloseTo(0.25, 12)
   })
 
   /** 【設定寫壞時讓本層失效，不是把 AI 鎖死】與 `energyPull` 同一個退化方向。 */
@@ -1989,11 +1999,11 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
   })
 
   /**
-   * 【遠距離不得被改壞】建一個真的 800 m 態勢，比較讓位開／關的命令輸出。
+   * 建一個真的同速尾追態勢，比較讓位開／關的命令輸出，回傳偏置被讓掉多少。
    * 不用 `expect(sweetYield(...) > 0.9)` —— 那只是把純函數測試抄一遍，沒有
    * 建立幾何、也沒有量命令，守不住行為。
    */
-  it('800 m 的真實態勢下，命令幾乎不動', () => {
+  const pitchDrop = (rangeM: number): { drop: number, t: number } => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
@@ -2001,7 +2011,7 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
-    place(target, [0, 4000, -800], [0, 0, -180])
+    place(target, [0, 4000, -rangeM], [0, 0, -180])
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
     sit.stallMargin = 5
@@ -2017,14 +2027,30 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     )
     const on = pitchOf(cmd.aimWorld)
 
-    // 【兩邊都要夾】只寫 `< 3°` 是單邊的：讓位若把號搞反、`on` 比 `off` 還
-    // 抬頭，差值變負仍然會通過（Codex 審查 2026-08-16）。所以直接對上由
-    // 真實 `interceptTime` 算出的期望值。
+    // 【兩邊都要夾】只寫「小於某個角度」是單邊的：讓位若把號搞反、`on` 比
+    // `off` 還抬頭，差值變負仍然會通過（Codex 審查 2026-08-16）。所以直接
+    // 對上由真實 `interceptTime` 算出的期望值。
     const expected = 10 * DEG * (1 - sweetYield(basis.interceptTime))
     expect(on).toBeCloseTo(off - expected, 9)
-    // 這一場的實際幅度：同速尾追 800 m 的 interceptTime ≈ 0.90 s，
-    // 係數 ≈ 0.75，10° 少掉約 2.5°
-    expect(expected).toBeGreaterThan(0)
-    expect(expected).toBeLessThan(3 * DEG)
+    return { drop: expected, t: basis.interceptTime }
+  }
+
+  /**
+   * 【這一條就是人工回報的那個態勢】109 停在目標線上方 10°、開火錐只有 3°，
+   * 敵人在射程內卻結構上開不了火（回報兩次：2026-08-16、2026-08-23）。
+   * 分界與 `shouldFire`／HUD `leadValid` 共用同一個 `PROJECTILE_LIFETIME`，
+   * 所以這條守的是「**預瞄環亮著的時候偏置必須是 0**」。
+   */
+  it('打得到的距離：整個偏置讓掉', () => {
+    const { drop, t } = pitchDrop(800)
+    expect(t).toBeLessThan(DEFAULT_STEER.sweetYieldTime)
+    expect(drop).toBeCloseTo(10 * DEG, 9)
+  })
+
+  /** 【遠距離不得被改壞】預瞄環還沒出現時，打法偏好照舊全額表態。 */
+  it('預瞄環還沒出現的距離：命令逐位元不動', () => {
+    const { drop, t } = pitchDrop(2500)
+    expect(t).toBeGreaterThan(2 * DEFAULT_STEER.sweetYieldTime)
+    expect(drop).toBe(0)
   })
 })
