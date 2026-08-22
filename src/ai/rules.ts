@@ -180,6 +180,27 @@ export interface RuleConfig {
   cornerEnter: number
   cornerExit: number
   /**
+   * 「我回到能打的狀態」失效的門檻 —— `extendRecoveredLatch` 的出場。
+   * 進場門檻**直接用 `cornerExit`**：「我飛得動了」只該有一個定義，
+   * 與 `extendFloorLatch` 共用同一把尺。
+   *
+   * 值域被夾在 `cornerEnter`（0.75）與 `cornerExit`（0.95）之間 ——
+   * 低於前者等於沒有這個閂鎖（要撐到見底才失效），高於後者等於沒有遲滯。
+   *
+   * **起始值，待掃描後回填。**
+   */
+  recoverExit: number
+  /**
+   * 關掉時 `extendRecoveredLatch` 不更新、仲裁退化成「只看能量劣勢」。
+   * **消融用**，出貨恆為 `true`。
+   *
+   * 【為什麼是布林而不是把進場門檻設成 `Infinity`】那個做法只在「全新、
+   * 未啟動」的狀態下等價 —— `latch()` 在 `active === true` 時走的是
+   * `value > exit`，仍然會被評估。而且 `JSON.stringify` 會把 `Infinity`
+   * 輸出成 `null`，設定一旦被印出或傳遞就失真。
+   */
+  recoveredExit: boolean
+  /**
    * 絕對理由的**豁免門檻**：能量優勢高於此值時，「我飛不動了」不強制脫離。
    *
    * 【為什麼絕對理由需要一個與對手有關的豁免】`extend` 的意思是「撤下來把
@@ -244,6 +265,8 @@ export const DEFAULT_RULES: RuleConfig = {
   // 實測否決、值不動。掃描表與否決證據見型別註解
   cornerEnter: 0.75,
   cornerExit: 0.95,
+  recoverExit: 0.85,
+  recoveredExit: true,
   floorExempt: 2000,
   extendRange: 1500,
   engageTimeEnter: 8,
@@ -262,6 +285,14 @@ export interface RuleState {
   extendTurnLatch: boolean
   /** 絕對能量見底的閂鎖 */
   extendFloorLatch: boolean
+  /**
+   * 「我回到能打的狀態」的閂鎖，**絕對量，與對手無關**。
+   *
+   * 與 `extendEnergyLatch` 正交：那一個說「我比他弱」（相對），這一個說
+   * 「我飛得動」（絕對）。仲裁時取合取 —— 兩件事都成立才是「該脫離」。
+   * **一個閂鎖只維護一種事實**，不要把兩者併成一個。
+   */
+  extendRecoveredLatch: boolean
   /** 上面兩者的或。**由 `stepRules` 寫入，不要回寫** */
   extendLatch: boolean
   engageLatch: boolean
@@ -278,6 +309,7 @@ export function createRuleState(): RuleState {
     dwell: Infinity,
     defendLatch: false,
     extendEnergyLatch: false, extendTurnLatch: false, extendFloorLatch: false,
+    extendRecoveredLatch: false,
     extendLatch: false,
     engageLatch: false,
   }
@@ -335,6 +367,18 @@ export function stepRules(
   s.extendFloorLatch = latch(
     s.extendFloorLatch, sit.cornerRatio, cfg.cornerEnter, cfg.cornerExit,
   )
+  // 【第四個閂鎖：絕對的「我回到能打的狀態」】進場用 `cornerExit`、出場用
+  // `recoverExit`。進場門檻與 `extendFloorLatch` 的出場共用同一個值，因為
+  // 那是同一件事的同一把尺；出場另設一個較低的值製造遲滯，否則速度在
+  // 0.95 附近抖動就會讓意圖跟著抖。
+  //
+  // 【關掉時不更新】消融的兩檔不得有不同的狀態演進，否則差異會在日後打開
+  // 時以「殘留的舊值」的形式冒出來。
+  if (cfg.recoveredExit) {
+    s.extendRecoveredLatch = latch(
+      s.extendRecoveredLatch, sit.cornerRatio, cfg.cornerExit, cfg.recoverExit,
+    )
+  }
   s.extendLatch = s.extendEnergyLatch || s.extendTurnLatch || s.extendFloorLatch
   s.engageLatch = latch(
     s.engageLatch, sit.timeToMerge, cfg.engageTimeEnter, cfg.engageTimeExit,
