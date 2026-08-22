@@ -1,8 +1,8 @@
 import { Quaternion, Vector3 } from 'three'
 import { World, type Combatant } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
-import { AiController } from '../ai/AiController'
-import { createTargetBoard, type TargetBoard } from '../ai/target'
+import { AI_DECISION_HZ, AiController } from '../ai/AiController'
+import { PRESSURE_RANGE, createTargetBoard, teamSlot, type TargetBoard } from '../ai/target'
 import { ACE, type DifficultyProfile } from '../ai/profile'
 import {
   STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
@@ -255,6 +255,8 @@ export interface Battle {
    */
   readonly blueCommand: CommandState
   readonly redCommand: CommandState
+  /** 距離下次重算任務壓力還有多久，s。見 `stepPressure` */
+  pressureTimer: number
   /**
    * 指揮層讀的每架快照，索引與 `world.combatants` 一致。
    *
@@ -492,8 +494,14 @@ export function createBattle(
   // 全部吸走 —— 實測轟炸機**一發都不會挨到**（`docs/backlog.md` §2.26）。
   // 中性值是 1，所以遭遇戰與殲滅任務這一整條逐字如舊。見 `MissionTuning`
   const priority = new Float64Array(world.combatants.length).fill(1)
-  for (const seat of convoySeats) priority[seat] = cfg.tuning.convoyPriority
-  const board = createTargetBoard(world.combatants, flights.flightOf, priority)
+  const protectedMask = new Uint8Array(world.combatants.length)
+  for (const seat of convoySeats) {
+    priority[seat] = cfg.tuning.convoyPriority
+    protectedMask[seat] = 1
+  }
+  const board = createTargetBoard(
+    world.combatants, flights.flightOf, priority, protectedMask,
+  )
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
   // `envelope.ts` 用二分搜尋實算 —— 那才是**套過 `feel.ts` 倍率之後**這架
@@ -622,6 +630,9 @@ export function createBattle(
     flights,
     blueCommand,
     redCommand,
+    // 【起始為 0，第一步就算一次】開局正是護航機該知道被護送的那幾架
+    // 有沒有被咬的時候
+    pressureTimer: 0,
     commandUnits,
     blueFlightIndices,
     redFlightIndices,
@@ -659,6 +670,52 @@ function wireStations(b: Battle): void {
     ai.stationReference = ref >= 0 ? cs[ref]!.aircraft : null
     const pos = b.flights.positionOf[c.index]!
     ai.stationOffset = STATION_OFFSETS[pos >= 0 ? pos : 0]!
+  }
+}
+
+/**
+ * 重算兩隊的任務壓力，寫進 `board.pressure`。
+ *
+ * 「這一隊的被保護單位有沒有敵機貼上來」對同隊的每一架**完全相同**，所以
+ * 算一次全隊共用（見 `TargetBoard.pressure`）。
+ *
+ * 【為什麼是 10 Hz 而不是每步】它是一個慢變量，而且是戰術層 10 Hz 決策的
+ * 輸入。每步算等於把成本乘 24。
+ *
+ * 【非護送關卡的成本是零】`protectedMask` 全 0 時外層迴圈直接跑完，一次
+ * 距離平方都不算。
+ *
+ * 熱路徑：不配置。
+ */
+function stepPressure(b: Battle, dt: number): void {
+  b.pressureTimer -= dt
+  if (b.pressureTimer > 0) return
+  b.pressureTimer += 1 / AI_DECISION_HZ
+
+  const board = b.board
+  const cs = board.candidates
+  const mask = board.protectedMask
+  const out = board.pressure
+  out[0] = 0
+  out[1] = 0
+
+  const r2 = PRESSURE_RANGE * PRESSURE_RANGE
+  for (let i = 0; i < cs.length; i++) {
+    if (mask[i] === 0) continue
+    const ward = cs[i]!
+    if (!ward.alive) continue
+    const slot = teamSlot(ward.team)
+    // 這一隊已經成立，不必再找
+    if (out[slot] !== 0) continue
+    const wp = ward.aircraft.state.position
+    for (let k = 0; k < cs.length; k++) {
+      const foe = cs[k]!
+      if (!foe.alive || foe.team === ward.team) continue
+      if (foe.aircraft.state.position.distanceToSquared(wp) < r2) {
+        out[slot] = 1
+        break
+      }
+    }
   }
 }
 
@@ -916,6 +973,7 @@ export function stepBattle(b: Battle, dt: number): void {
   compactFlights(b.flights, cs)
   wireStations(b)
   stepCommandLayer(b, dt)
+  stepPressure(b, dt)
 
   if (b.outcome !== 'fighting') return
 
@@ -997,7 +1055,9 @@ export function resetBattle(
       c.controller = b.playerController
       continue
     }
-    if (c.controller instanceof AiController) continue
+    // 【保留下來的那幾顆要清戰術狀態】相位、計時、輪次、冷卻與上一個目標
+    // 都會跨場殘留，第二場的第一秒就會有幾架飛機從別人的 perch 中途開始
+    if (c.controller instanceof AiController) { c.controller.resetTactics(); continue }
     const ai = new AiController()
     ai.board = b.board
     ai.selfIndex = c.index
@@ -1029,6 +1089,8 @@ export function resetBattle(
   // 不留上一場的傷害紀錄」這個意圖自己成立，不倚賴迴圈涵蓋了每一個座位。
   b.world.clearDamageLog()
   b.board.assignments.fill(-1)
+  b.board.pressure.fill(0)
+  b.pressureTimer = 0
   compactFlights(b.flights, combatants)
   // 【wireStations 要在最後】它會依 `instanceof AiController` 重接站位參考，
   // 而上面剛換過控制器
