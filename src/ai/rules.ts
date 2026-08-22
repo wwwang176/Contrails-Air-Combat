@@ -399,3 +399,21 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   if (sit.airframeTurnAdvantage > cfg.turnEnter && s.engageLatch) return 'engage'
   return 'approach'
 }
+
+/**
+ * `extend` 是被哪一個閂鎖推過去的，供 HUD 顯示。**三個都成立就全列。**
+ *
+ * 【為什麼是純函數而不是在 HUD 那邊拆】那三個欄位的語意（相對／相對／絕對）
+ * 住在這個檔案裡，判讀也該住在這裡。HUD 只負責畫字。
+ *
+ * 【為什麼不回傳空字串當「沒有理由」】意圖是 `extend` 而三個閂鎖都沒開是
+ * 可能的 —— `arbitrate` 還有別的路徑（例如命令）。那時候誠實寫「無」，
+ * 不要讓畫面看起來像是漏了一格。
+ */
+export function extendReason(s: RuleState): string {
+  const parts: string[] = []
+  if (s.extendEnergyLatch) parts.push('能量')
+  if (s.extendTurnLatch) parts.push('迴旋')
+  if (s.extendFloorLatch) parts.push('見底')
+  return parts.length > 0 ? parts.join('+') : '無'
+}

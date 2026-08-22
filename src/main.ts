@@ -46,6 +46,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
 import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
@@ -1015,6 +1016,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     hudFrame.aiIntent = playerAi.intent
     hudFrame.aiMode = playerAi.mode
     hudFrame.aiPhase = playerAi.tactics.phase
+    hudFrame.aiExtendWhy = playerAi.intent === 'extend'
+      ? extendReason(playerAi.rules) : ''
   }
   hudFrame.godView = input.godView
   hudFrame.controlAuthority = aircraft.diag.controlAuthority
