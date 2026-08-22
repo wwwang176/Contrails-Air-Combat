@@ -241,9 +241,10 @@ describe('extend 的兩個閂鎖互不汙染', () => {
     sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     stepRules(s, sit, 0, DT)
 
-    // 轉彎劣勢消失，但能量仍在維持區間內（< energyExit）
+    // 轉彎劣勢消失，但能量仍在維持區間內（< energyExit）。跟著門檻走而不
+    // 寫死 —— 這條測的是兩個閂鎖互不汙染，不是門檻訂在哪個值
     sit.airframeTurnAdvantage = 0.05
-    sit.energyAdvantage = 0
+    sit.energyAdvantage = DEFAULT_RULES.energyExit - 100
     for (let i = 0; i < 40; i++) stepRules(s, sit, 0, DT)
     expect(s.extendTurnLatch).toBe(false)
     expect(s.extendEnergyLatch).toBe(true)
