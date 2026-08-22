@@ -1551,6 +1551,37 @@ describe('戰術層的瞄準解', () => {
     expect(Math.abs(out.aimWorld.y)).toBeLessThan(0.2)
   })
 
+  it('perch 的徑向修正是連續的 —— 在 perchRange 上不得翻號', () => {
+    // 【它擋的是一個極限環】寫成「距離小於 perchRange 就轉開」會在門檻上
+    // 翻號：飛離 → 距離變大 → 翻號 → 飛近 → 距離變小 → 翻號。振幅由飛機
+    // 的響應決定，不由任何設計參數決定。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    const R = DEFAULT_TACTICS.perchRange
+    let prev: number | null = null
+    let jumps = 0
+    for (const range of [R * 0.9, R * 0.97, R, R * 1.03, R * 1.1, R * 1.03, R, R * 0.97]) {
+      sit.range = range
+      tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+      const radial = out.aimWorld.dot(basis.losAxis)
+      if (prev !== null && Math.abs(radial - prev) > 0.5) jumps++
+      prev = radial
+    }
+    // 連續的話相鄰兩格的徑向分量不會跳
+    expect(jumps).toBe(0)
+  })
+
+  it('perch 太遠時靠近、太近時遠離', () => {
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.range = DEFAULT_TACTICS.perchRange * 3
+    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeGreaterThan(0)
+    sit.range = DEFAULT_TACTICS.perchRange * 0.2
+    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
+  })
+
   it('三個相位都不開火', () => {
     // 【為什麼】build / perch / zoom 都在遠距離經營能量。這一層扣扳機只會
     // 把彈藥丟在一個打不到的方向上，而且 `fireShare` 是護欄指標。
@@ -1680,9 +1711,38 @@ export function tacticalCommand(
       break
     }
     case 'perch': {
-      // 保持能量（平飛）與距離。近了就繞開、遠了就靠近
+      // 保持能量（平飛）與距離。
+      //
+      // 【徑向分量是連續的，不是一個門檻】寫成「距離小於 perchRange 就
+      // 轉開」會在門檻上翻號：飛離 → 距離變大 → 翻號 → 飛近 → 距離變小
+      // → 翻號。那是專案在 1000 m 線上震盪 40 秒那次的同型錯誤，見
+      // extendPitchAngle 的註解。
+      //
+      // 誤差夾在 ±1：+1 = 太遠，全力靠近；−1 = 太近，全力遠離；
+      // 0 = 剛好，純切向繞行。三者之間連續過渡。
       pitch = 0
-      if (sit.range < cfg.perchRange) flat.negate()
+      const err = (sit.range - cfg.perchRange) / cfg.perchRange
+      const radial = err < -1 ? -1 : err > 1 ? 1 : err
+
+      // 切向：自己當前的水平航向去掉徑向分量。
+      //
+      // 【為什麼用自己的航向而不是一個固定的側向】固定側向要選左或右，
+      // 而那個選擇本身就是一個會翻的號。用當前航向則是「繼續往前繞」，
+      // 沒有選擇也就沒有翻轉點。
+      const tan = T.v[2]!
+      tan.copy(FWD).applyQuaternion(self.state.orientation)
+      tan.y = 0
+      tan.addScaledVector(flat, -tan.dot(flat))
+      if (tan.lengthSq() < 1e-6) {
+        // 航向正對或正背著目標時切向沒有定義。取視線的水平法向
+        tan.set(-flat.z, 0, flat.x)
+      }
+      tan.normalize()
+
+      const w = radial < 0 ? -radial : radial
+      flat.multiplyScalar(radial).addScaledVector(tan, 1 - w)
+      if (flat.lengthSq() < 1e-6) flat.copy(tan)
+      flat.normalize()
       break
     }
     case 'zoom':
@@ -1816,6 +1876,20 @@ import {
 - [ ] **Step 2：在 `update` 最前面推進**
 
 **位置在點放推進之後、`decisionTimer` 之前。**
+
+【它讀到的是舊值，而那是對的】這個位置在 `evaluateGeometry` 與 `decide`
+之前，所以：
+
+- `this.sit.*` 是**上一個物理步**（4 ms 前）的值。TAS、距離、接近率在 4 ms
+  內的變化遠小於這個 10 Hz 狀態機的解析度。
+- `this.target` 與 `board.assignments` 是**上一個決策節拍**（100 ms 前）
+  寫的。戰術相位本來就是 10 Hz 的決定，晚一拍不影響。
+- **沒有目標時 `ti.targetIndex` 是 −1**，第 1 級的強制離場直接把相位打回
+  `off`，那些舊值一個都不會被讀到。
+
+換句話說，唯一會用到舊值的情況是「有目標而且相位在跑」，而那時舊值與新值
+差 4 ms。**放在態勢更新之後才是錯的** —— 那會讓三條早退路徑跳過整個戰術層，
+「目標消失 → off」永遠不執行。
 
 ```ts
     // 【戰術層每步恰好推進一次，而且要在早退路徑之前】理由與點放相同：
