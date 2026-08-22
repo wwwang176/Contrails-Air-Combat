@@ -621,6 +621,49 @@ describe('戰術層的矄準解', () => {
     expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
   })
 
+  it('build 太遠時要靠近 —— 離場不是無界的', () => {
+    // 【它擋的是實測過的一個崩潰】`build` 原本一律取反（遠離目標），於是
+    // 離場只有能量出口、沒有距離出口。實測（`tactics-ablation.probe.ts`）：
+    // 掃蕩卡上只要 3 架進過 `build`，全場戰鬥機與目標的距離中位就由 734 m
+    // 變成 12 301 m、射擊解由 5.5% 掉到 0.0% —— 跑掉的人會把鎖定它們的人
+    // 一起帶出去。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.range = DEFAULT_TACTICS.perchRange * 4
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeGreaterThan(0)
+  })
+
+  it('build 太近時仍然遠離', () => {
+    // 【爬升要空間】離場的那一半沒有被拿掉，只是有了上界
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.range = DEFAULT_TACTICS.perchRange * 0.2
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
+  })
+
+  it('build 與 perch 的水平分量是同一條律', () => {
+    // 【為什麼要釘住】兩者只差一個爬升角。各寫一份的話，日後改了其中一份
+    // 就會出現「存能量時往外、保持時往內」這種自己跟自己打架的組合。
+    const { self, sit, basis } = scene()
+    const a = createCommand()
+    const b = createCommand()
+    for (const r of [500, 2000, 6000]) {
+      sit.range = r
+      tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, a)
+      tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, b)
+      // 去掉垂直分量之後方向相同
+      const ax = a.aimWorld.x
+      const az = a.aimWorld.z
+      const bx = b.aimWorld.x
+      const bz = b.aimWorld.z
+      const la = Math.hypot(ax, az)
+      const lb = Math.hypot(bx, bz)
+      expect((ax * bx + az * bz) / (la * lb)).toBeCloseTo(1, 6)
+    }
+  })
+
   it('三個相位都不開火', () => {
     // 【為什麼】build / perch / zoom 都在遠距離經營能量。這一層扣扳機只會
     // 把彈藥丟在一個打不到的方向上，而且 `fireShare` 是護欄指標。

@@ -490,6 +490,53 @@ function selfHeading(self: Aircraft, out: Vector3): void {
 }
 
 /**
+ * 站位保持：把 `flat`（由我指向目標的水平方向）改寫成「往 `perchRange` 靠」
+ * 的水平指令。**`build` 與 `perch` 共用同一條律。**
+ *
+ * ```
+ *   誤差 = (range − perchRange) / perchRange，夾在 ±1
+ *   +1  太遠 → 全力靠近
+ *    0  剛好 → 純切向繞行
+ *   −1  太近 → 全力遠離
+ * ```
+ *
+ * 【它擋的是兩件事】
+ *
+ * 一、**門檻式的翻號**。寫成「距離小於 perchRange 就轉開」會在門檻上翻：
+ * 飛離 → 距離變大 → 翻號 → 飛近 → 距離變小 → 翻號。振幅由飛機的響應決定，
+ * 不由任何設計參數決定 —— 那是專案在 1000 m 線上震盪 40 秒那次的同型錯誤，
+ * 見 `extendPitchAngle` 的註解。
+ *
+ * 二、**無界的後退**。`build` 原本一律取反（`flat.negate()`），離場因此只有
+ * 能量出口、沒有距離出口。實測（`tactics-ablation.probe.ts`）：掃蕩卡上只要
+ * **3 架**進過 `build`，全場戰鬥機與目標的距離中位就由 734 m 變成 12 301 m、
+ * 射擊解由 5.5% 掉到 0.0% —— 跑掉的人會把鎖定它們的人一起帶出去。**建能是
+ * 爬升，不是拉開距離**；水平方向該做的事與 `perch` 完全一樣。
+ *
+ * 【切向為什麼用自己的航向】固定側向要選左或右，而那個選擇本身就是一個會翻
+ * 的號。用當前航向則是「繼續往前繞」，沒有選擇也就沒有翻轉點。
+ */
+function stationKeeping(
+  range: number, self: Aircraft, cfg: TacticalConfig, flat: Vector3, tan: Vector3,
+): void {
+  const err = (range - cfg.perchRange) / cfg.perchRange
+  const radial = err < -1 ? -1 : err > 1 ? 1 : err
+
+  selfHeading(self, tan)
+  tan.addScaledVector(flat, -tan.dot(flat))
+  if (tan.lengthSq() < 1e-6) {
+    // 航向正對或正背著目標時切向沒有定義。取視線的水平法向
+    tan.set(-flat.z, 0, flat.x)
+  }
+  tan.normalize()
+
+  const w = radial < 0 ? -radial : radial
+  flat.multiplyScalar(radial).addScaledVector(tan, 1 - w)
+  if (flat.lengthSq() < 1e-6) flat.copy(tan)
+  flat.normalize()
+}
+
+/**
  * `build` / `perch` / `zoom` 的矄準解。**`dive` 與 `cooldown` 不走這裡**
  * ——它們覆寫既有的意圖（`engage` 與 `extend`），不需要新的轉向邏輯。
  *
@@ -528,44 +575,16 @@ export function tacticalCommand(
       const deficit = cfg.perchEnter - sit.energyRatio
       const k = deficit <= 0 ? 0 : deficit >= cfg.perchEnter ? 1 : deficit / cfg.perchEnter
       pitch = BUILD_PITCH * k
-      // 遠離目標：水平分量取反
-      flat.negate()
+      // 【水平方向與 perch 同一條律】建能是爬升，不是拉開距離。見
+      // `stationKeeping` 的第二段註解
+      stationKeeping(sit.range, self, cfg, flat, T.v[2]!)
       break
     }
-    case 'perch': {
-      // 保持能量（平飛）與距離。
-      //
-      // 【徑向分量是連續的，不是一個門檻】寫成「距離小於 perchRange 就
-      // 轉開」會在門檻上翻號：飛離 → 距離變大 → 翻號 → 飛近 → 距離變小
-      // → 翻號。那是專案在 1000 m 線上震盪 40 秒那次的同型錯誤，見
-      // `extendPitchAngle` 的註解。
-      //
-      // 誤差夾在 ±1：+1 = 太遠，全力靠近；−1 = 太近，全力遠離；
-      // 0 = 剛好，純切向緕行。三者之間連續過渡。
+    case 'perch':
+      // 保持能量（平飛）與距離
       pitch = 0
-      const err = (sit.range - cfg.perchRange) / cfg.perchRange
-      const radial = err < -1 ? -1 : err > 1 ? 1 : err
-
-      // 切向：自己當前的水平航向去掉徑向分量。
-      //
-      // 【為什麼用自己的航向而不是一個固定的側向】固定側向要選左或右，
-      // 而那個選擇本身就是一個會翻的號。用當前航向則是「繼續往前繞」，
-      // 沒有選擇也就沒有翻轉點。
-      const tan = T.v[2]!
-      selfHeading(self, tan)
-      tan.addScaledVector(flat, -tan.dot(flat))
-      if (tan.lengthSq() < 1e-6) {
-        // 航向正對或正背著目標時切向沒有定義。取視線的水平法向
-        tan.set(-flat.z, 0, flat.x)
-      }
-      tan.normalize()
-
-      const w = radial < 0 ? -radial : radial
-      flat.multiplyScalar(radial).addScaledVector(tan, 1 - w)
-      if (flat.lengthSq() < 1e-6) flat.copy(tan)
-      flat.normalize()
+      stationKeeping(sit.range, self, cfg, flat, T.v[2]!)
       break
-    }
     case 'zoom':
       // 【維持當前航向】轉彎會把剛換到的速度花掉
       pitch = ZOOM_PITCH
