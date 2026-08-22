@@ -1,5 +1,12 @@
+import { Vector3 } from 'three'
+import { makeScratch } from '../core/pool'
 import { latch } from './rules'
+import { DEFAULT_STEER, shrinkTowardNose, unloadPull } from './steer'
+import type { Situation } from './assess'
+import type { EngageBasis } from './steer'
 import type { TargetBoard } from './target'
+import type { Aircraft } from '../aircraft/Aircraft'
+import type { Command } from '../control/Controller'
 
 /**
  * 單機的戰術相位。
@@ -456,4 +463,135 @@ export function stepTactics(
     default:
       break
   }
+}
+
+const T = makeScratch(3)
+const FWD = new Vector3(0, 0, -1)
+
+/** `build` 的最大爬升角，rad。與 `EXTEND_PITCH` 同級 */
+const BUILD_PITCH = 20 * (Math.PI / 180)
+/** `zoom` 的爬升角，rad。比 `build` 陡 —— 它在花掉剛換到的速度 */
+const ZOOM_PITCH = 35 * (Math.PI / 180)
+
+/** 取一個永遠有定義的水平航向：自己的機首投影到水平面 */
+function selfHeading(self: Aircraft, out: Vector3): void {
+  out.copy(FWD).applyQuaternion(self.state.orientation)
+  out.y = 0
+  if (out.lengthSq() < 1e-6) out.set(0, 0, -1)
+  out.normalize()
+}
+
+/**
+ * `build` / `perch` / `zoom` 的矄準解。**`dive` 與 `cooldown` 不走這裡**
+ * ——它們覆寫既有的意圖（`engage` 與 `extend`），不需要新的轉向邏輯。
+ *
+ * 【為什麼不做成 `steerCommand` 尾端的偏置】那個位階已經有一個
+ * `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在破防軸上。
+ * 再加一個同位階的後處理器會讓那個問題更嚴重。戰術相位要成為**主要**的
+ * 矄準解。
+ *
+ * 【四個欄位每次都要寫】`out` 是呼叫端重用的物件。
+ *
+ * 熱路徑：不配置。
+ */
+export function tacticalCommand(
+  phase: TacticalPhase,
+  sit: Situation,
+  basis: EngageBasis,
+  self: Aircraft,
+  seaHeight: number,
+  cfg: TacticalConfig,
+  out: Command,
+): void {
+  const aim = T.v[0]!
+  const flat = T.v[1]!
+
+  // 水平方向：由視線導出，各相位取不同的號
+  flat.copy(basis.losAxis)
+  flat.y = 0
+  if (flat.lengthSq() < 1e-6) selfHeading(self, flat)
+  else flat.normalize()
+
+  let pitch = 0
+  switch (phase) {
+    case 'build': {
+      // 【爬升角隨赤字連續變化】與 `extendPitchAngle` 同構 —— 差得越多爬
+      // 得越陡，接近門檻時自然收斂，不會在門檻上翻號
+      const deficit = cfg.perchEnter - sit.energyRatio
+      const k = deficit <= 0 ? 0 : deficit >= cfg.perchEnter ? 1 : deficit / cfg.perchEnter
+      pitch = BUILD_PITCH * k
+      // 遠離目標：水平分量取反
+      flat.negate()
+      break
+    }
+    case 'perch': {
+      // 保持能量（平飛）與距離。
+      //
+      // 【徑向分量是連續的，不是一個門檻】寫成「距離小於 perchRange 就
+      // 轉開」會在門檻上翻號：飛離 → 距離變大 → 翻號 → 飛近 → 距離變小
+      // → 翻號。那是專案在 1000 m 線上震盪 40 秒那次的同型錯誤，見
+      // `extendPitchAngle` 的註解。
+      //
+      // 誤差夾在 ±1：+1 = 太遠，全力靠近；−1 = 太近，全力遠離；
+      // 0 = 剛好，純切向緕行。三者之間連續過渡。
+      pitch = 0
+      const err = (sit.range - cfg.perchRange) / cfg.perchRange
+      const radial = err < -1 ? -1 : err > 1 ? 1 : err
+
+      // 切向：自己當前的水平航向去掉徑向分量。
+      //
+      // 【為什麼用自己的航向而不是一個固定的側向】固定側向要選左或右，
+      // 而那個選擇本身就是一個會翻的號。用當前航向則是「繼續往前繞」，
+      // 沒有選擇也就沒有翻轉點。
+      const tan = T.v[2]!
+      selfHeading(self, tan)
+      tan.addScaledVector(flat, -tan.dot(flat))
+      if (tan.lengthSq() < 1e-6) {
+        // 航向正對或正背著目標時切向沒有定義。取視線的水平法向
+        tan.set(-flat.z, 0, flat.x)
+      }
+      tan.normalize()
+
+      const w = radial < 0 ? -radial : radial
+      flat.multiplyScalar(radial).addScaledVector(tan, 1 - w)
+      if (flat.lengthSq() < 1e-6) flat.copy(tan)
+      flat.normalize()
+      break
+    }
+    case 'zoom':
+      // 【維持當前航向】轉彎會把剛換到的速度花掉
+      pitch = ZOOM_PITCH
+      selfHeading(self, flat)
+      break
+    default:
+      // 【`off` / `dive` / `cooldown` 不該走到這裡】呼叫端已經分流。
+      // 給一個永遠有定義的方向，不要留下上一格的值
+      selfHeading(self, flat)
+      break
+  }
+
+  const c = Math.cos(pitch)
+  aim.set(flat.x * c, Math.sin(pitch), flat.z * c).normalize()
+
+  // 【離地底限】低空不能用高度換速度，這一層與 `extendPitchAngle` 的高度項
+  // 是同一個安全關切
+  const clearance = self.state.position.y - seaHeight
+  if (clearance < DEFAULT_STEER.clearanceScale && aim.y < 0) {
+    aim.y = 0
+    if (aim.lengthSq() < 1e-6) aim.copy(flat)
+    aim.normalize()
+  }
+
+  out.aimWorld.copy(aim)
+
+  // 【拉桿紀律取兩層的較小值】`unloadPull` 防的是失速（迎角太大），
+  // `pullCeiling` 防的是能量見底（速度太低）。誰先擋住算誰的
+  const unload = unloadPull(sit.stallMargin, DEFAULT_STEER)
+  const ceiling = unload < sit.pullCeiling ? unload : sit.pullCeiling
+  shrinkTowardNose(self, ceiling, out.aimWorld)
+
+  // 【四個欄位都要寫】見函數註解
+  out.throttle = 1.1
+  out.brake = 0
+  out.firing = false
 }

@@ -1,12 +1,19 @@
 import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
 import {
-  createTacticalState, resetTacticalState, stepTactics,
+  createTacticalState, resetTacticalState, stepTactics, tacticalCommand,
   teamIndexOf, hasSlot, DEFAULT_TACTICS,
 } from '../../src/ai/tactics'
 import type { TacticalInput, TacticalPhase, TacticalState } from '../../src/ai/tactics'
 import { createTargetBoard } from '../../src/ai/target'
 import type { TargetCandidate } from '../../src/ai/target'
 import type { Team } from '../../src/world/World'
+import { createCommand } from '../../src/control/Controller'
+import { createSituation, evaluateGeometry, evaluateEnergy } from '../../src/ai/assess'
+import { buildEngageBasis, createEngageBasis } from '../../src/ai/steer'
+import { Aircraft } from '../../src/aircraft/Aircraft'
+import { BF109G6 } from '../../src/specs/bf109g6'
+import { P51D } from '../../src/specs/p51d'
 
 /**
  * 造一組只有 `index` / `team` / `alive` 有意義的候選。
@@ -513,5 +520,127 @@ describe('能量帳與長冷卻', () => {
     expect(s.dryRounds).toBe(1)
     oneRound(s, 0.4)
     expect(s.dryRounds).toBe(0)
+  })
+})
+
+/** 造一組「我在下面、他在前上方 3 km」的態勢 */
+function scene() {
+  const self = new Aircraft(BF109G6, 5000, 200)
+  const target = new Aircraft(P51D, 5300, 240)
+  target.state.position.set(0, 5300, -3000)
+  self.update(new Vector3(0, 0, -1), 0.8, DT)
+  target.update(new Vector3(0, 0, -1), 0.8, DT)
+  const sit = createSituation()
+  evaluateGeometry(self, target, sit)
+  evaluateEnergy(self, target, sit)
+  const basis = createEngageBasis()
+  buildEngageBasis(self, target, basis)
+  return { self, target, sit, basis }
+}
+
+describe('戰術層的矄準解', () => {
+  it('build 命令爬升', () => {
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.y).toBeGreaterThan(0)
+  })
+
+  it('zoom 命令的爬升比 build 陡', () => {
+    const { self, sit, basis } = scene()
+    const a = createCommand()
+    const b = createCommand()
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, a)
+    tacticalCommand('zoom', sit, basis, self, 0, DEFAULT_TACTICS, b)
+    expect(b.aimWorld.y).toBeGreaterThan(a.aimWorld.y)
+  })
+
+  it('perch 大致平飛 —— 保持能量而不是繼續存', () => {
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(Math.abs(out.aimWorld.y)).toBeLessThan(0.2)
+  })
+
+  it('perch 的徑向修正是連續的 —— 在 perchRange 上不得翻號', () => {
+    // 【它擋的是一個極限環】寫成「距離小於 perchRange 就轉開」會在門檻上
+    // 翻號：飛離 → 距離變大 → 翻號 → 飛近 → 距離變小 → 翻號。振幅由飛機
+    // 的響應決定，不由任何設計參數決定。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    const R = DEFAULT_TACTICS.perchRange
+    let prev: number | null = null
+    let jumps = 0
+    for (const range of [R * 0.9, R * 0.97, R, R * 1.03, R * 1.1, R * 1.03, R, R * 0.97]) {
+      sit.range = range
+      tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+      const radial = out.aimWorld.dot(basis.losAxis)
+      if (prev !== null && Math.abs(radial - prev) > 0.5) jumps++
+      prev = radial
+    }
+    // 連續的話相鄰兩格的徑向分量不會跳
+    expect(jumps).toBe(0)
+  })
+
+  it('perch 太遠時靠近、太近時遠離', () => {
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.range = DEFAULT_TACTICS.perchRange * 3
+    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeGreaterThan(0)
+    sit.range = DEFAULT_TACTICS.perchRange * 0.2
+    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
+  })
+
+  it('三個相位都不開火', () => {
+    // 【為什麼】build / perch / zoom 都在遠距離經營能量。這一層扣扳機只會
+    // 把彈藥丟在一個打不到的方向上，而且 `fireShare` 是護欄指標。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    out.firing = true
+    for (const phase of ['build', 'perch', 'zoom'] as const) {
+      tacticalCommand(phase, sit, basis, self, 0, DEFAULT_TACTICS, out)
+      expect(out.firing).toBe(false)
+    }
+  })
+
+  it('四個欄位每次都完整寫入 —— out 是重用的物件', () => {
+    // 【為什麼要釘住】AiController 的 raw 是重用的。不寫的欄位會保留上一
+    // 格的值，而上一格可能是一個俯衝中的脫離向量或一個扣著的扳機。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    out.aimWorld.set(1, 0, 0)
+    out.throttle = 0
+    out.brake = 1
+    out.firing = true
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    expect(out.aimWorld.x).not.toBe(1)
+    expect(out.throttle).toBeGreaterThan(0)
+    expect(out.brake).toBe(0)
+    expect(out.firing).toBe(false)
+  })
+
+  it('矄準方向恆為單位向量', () => {
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    for (const phase of ['build', 'perch', 'zoom'] as const) {
+      tacticalCommand(phase, sit, basis, self, 0, DEFAULT_TACTICS, out)
+      expect(out.aimWorld.length()).toBeCloseTo(1, 6)
+    }
+  })
+
+  it('拉桿紀律取兩層的較小值', () => {
+    // 【為什麼不能只套 pullCeiling】正常轉向取的是
+    // min(unloadPull(stallMargin), pullCeiling)。只套一層會失去「拉太猛」
+    // 那一半的軟限制，而這條路徑繞過了 steerCommand。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.pullCeiling = 0.2
+    sit.stallMargin = 1.02      // 已經逼近 CLmax
+    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    // 收得比純 pullCeiling 更緊 —— 也就是更靠近機首
+    expect(out.aimWorld.dot(nose)).toBeGreaterThan(0.9)
   })
 })
