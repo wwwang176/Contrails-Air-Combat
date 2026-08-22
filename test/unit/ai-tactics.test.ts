@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createTacticalState, resetTacticalState, teamIndexOf, hasSlot, DEFAULT_TACTICS,
+  createTacticalState, resetTacticalState, stepTactics,
+  teamIndexOf, hasSlot, DEFAULT_TACTICS,
 } from '../../src/ai/tactics'
+import type { TacticalInput, TacticalPhase, TacticalState } from '../../src/ai/tactics'
 import { createTargetBoard } from '../../src/ai/target'
 import type { TargetCandidate } from '../../src/ai/target'
 import type { Team } from '../../src/world/World'
@@ -151,5 +153,365 @@ describe('起始設定的內部一致性', () => {
     // 基準每重跑一次都要專案負責人裁定。出 0 的話整個開發期間那條測試都是
     // 綠的，所有參數定案後才翻開，只需要重跑一次。
     expect(c.quota).toBe(0)
+  })
+})
+
+const DT = 1 / 240
+const C = DEFAULT_TACTICS
+
+/** 一個「有名額、有目標、很遠、能量持平」的預設輸入 */
+function input(over: Partial<TacticalInput> = {}): TacticalInput {
+  return {
+    slot: true,
+    suspended: false,
+    targetIndex: 7,
+    range: 3000,
+    energyRatio: 0,
+    psTarget: 5,
+    closureRate: 0,
+    shotInstant: 0,
+    pressure: false,
+    ...over,
+  }
+}
+
+/** 跑 `seconds` 秒，每一步用同一組輸入 */
+function run(s: TacticalState, inp: TacticalInput, seconds: number): void {
+  for (let k = 0; k < Math.round(seconds / DT); k++) stepTactics(s, inp, DT, C)
+}
+
+/**
+ * 一步一步走到相位改變為止，回傳新的相位。最多走 `capSeconds`。
+ *
+ * 【為什麼需要它】用固定秒數跑完再看相位，多跑的那零點幾秒會讓狀態又往前
+ * 走一格 —— 測試於是在問「N 秒後在哪裡」而不是「下一個相位是什麼」，而後者
+ * 才是這些條款要釘的東西。
+ */
+function until(s: TacticalState, inp: TacticalInput, capSeconds = 120): TacticalPhase {
+  const from = s.phase
+  const n = Math.round(capSeconds / DT)
+  for (let k = 0; k < n; k++) {
+    stepTactics(s, inp, DT, C)
+    if (s.phase !== from) return s.phase
+  }
+  return s.phase
+}
+
+/** 把一架推進到 `perch`（能量達標、還沒承諾） */
+function toPerch(): TacticalState {
+  const s = createTacticalState()
+  run(s, input({ energyRatio: 0 }), 1)
+  run(s, input({ energyRatio: 0.6 }), 1)
+  return s
+}
+
+/**
+ * 跑完一整圈 `build → perch → dive → zoom → 下一個相位`，回傳那個相位。
+ *
+ * 【為什麼每一段都用 `until` 而不是固定秒數】固定秒數多跑的那零點幾秒會讓
+ * 狀態又往前走一格，於是「一輪」的邊界會漂。
+ */
+function oneRound(s: TacticalState, shot: number): TacticalPhase {
+  // 【第二輪以後已經在 build】上一輪的出口就是 build，再跑一次「進入
+  // build」會卡在那裡直到建能期限到期 —— 整個序列就從這裡開始錯開。
+  if (s.phase === 'off') until(s, input({ energyRatio: 0 }))             // → build
+  until(s, input({ energyRatio: 0.6 }))                                  // → perch
+  until(s, input({ energyRatio: 0.6, psTarget: -5 }))                    // → dive
+  run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120, shotInstant: shot }), 1)
+  until(s, input({ energyRatio: 0.4, psTarget: -5, closureRate: -120 })) // → zoom
+  return until(s, input({ energyRatio: 0.4 }))                           // → build 或 cooldown
+}
+
+describe('戰術層的狀態機', () => {
+  it('沒有名額時恆為 off', () => {
+    const s = createTacticalState()
+    run(s, input({ slot: false }), 120)
+    expect(s.phase).toBe('off')
+  })
+
+  it('有命令或 transit 時恆為 off', () => {
+    const s = createTacticalState()
+    run(s, input({ suspended: true }), 120)
+    expect(s.phase).toBe('off')
+  })
+
+  it('太近時不進戰術層', () => {
+    const s = createTacticalState()
+    run(s, input({ range: 800 }), 120)
+    expect(s.phase).toBe('off')
+  })
+
+  it('夠遠、有目標、有名額 → 進 build', () => {
+    const s = createTacticalState()
+    run(s, input(), 1)
+    expect(s.phase).toBe('build')
+  })
+
+  it('距離的進出是遲滯的', () => {
+    const s = createTacticalState()
+    // 2000 m 落在 exitRange(1500) 與 enterRange(2500) 之間 —— 進不去
+    run(s, input({ range: 2000 }), 5)
+    expect(s.phase).toBe('off')
+    // 拉到 2600 進得去
+    run(s, input({ range: 2600 }), 1)
+    expect(s.phase).toBe('build')
+    // 回到 2000 不會馬上掉出來（閂鎖記著「遠」）
+    run(s, input({ range: 2000 }), 1)
+    expect(s.phase).not.toBe('off')
+  })
+
+  it('能量達標 → 進 perch', () => {
+    expect(toPerch().phase).toBe('perch')
+  })
+
+  it('perchLatch 是獨立記憶，dive 期間也更新', () => {
+    // 【為什麼重要】少了這個性質，離開 perch 再回來時遲滯就沒有記憶，而遲滯
+    // 正是擋震盪的東西。
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    expect(s.phase).toBe('dive')
+    expect(s.perchLatch).toBe(true)
+    // dive 期間能量掉破 perchExit，閂鎖要跟著掉
+    run(s, input({ energyRatio: 0.1, psTarget: -5 }), 1)
+    expect(s.perchLatch).toBe(false)
+  })
+
+  it('能量在遲滯帶裡來回 100 次，相位不得翻超過一次', () => {
+    // 【這一條守的是極限環】專案在 1000 m 線上震盪 40 秒那次，根因就是裸
+    // 門檻。閂鎖 + 最短停留是既有的解藥。
+    const s = toPerch()
+    let flips = 0
+    let prev = s.phase
+    for (let k = 0; k < 100; k++) {
+      // 0.42 / 0.44 都落在 perchExit(0.35) 與 perchEnter(0.5) 之間
+      run(s, input({ energyRatio: k % 2 === 0 ? 0.42 : 0.44 }), 0.1)
+      if (s.phase !== prev) { flips++; prev = s.phase }
+    }
+    expect(flips).toBeLessThanOrEqual(1)
+  })
+
+  it('minDwell 生效 —— 任何相位不得停留短於它', () => {
+    // 【前置只能跑不到 minDwell】跑滿一秒的話 build 的停留早就過了 0.5 s，
+    // 下一格立刻進 perch，這條測試什麼都沒驗到。
+    const s = createTacticalState()
+    run(s, input(), C.minDwell * 0.4)
+    expect(s.phase).toBe('build')
+    stepTactics(s, input({ energyRatio: 0.9 }), DT, C)
+    expect(s.phase).toBe('build')
+    run(s, input({ energyRatio: 0.9 }), C.minDwell)
+    expect(s.phase).toBe('perch')
+  })
+
+  it('建能期限到 → cooldown，而且贏過同拍成立的 perch', () => {
+    // 【優先序】期限到了表示這一輪的建能不健康，帶著它進 perch 只是把問題
+    // 延後。絕對止損（第 2 級）高於條件轉移（第 5 級）。
+    const s = createTacticalState()
+    // 全程能量為 0（不會進 perch），跑到期限
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    expect(s.phase).toBe('cooldown')
+  })
+
+  it('建能期限與 perch 同拍成立時，cooldown 贏', () => {
+    // 【為什麼手工造狀態而不是跑到那一拍】要讓「期限到期」與「閂鎖翻真」
+    // 落在同一個 dt 上，靠累加 14400 次浮點是碰運氣的。直接把狀態擺成
+    // 「還差半拍到期、閂鎖還沒開」，一步就是那一拍。
+    const s = createTacticalState()
+    s.phase = 'build'
+    s.dwell = C.buildMax - DT / 2
+    s.lastTarget = 7
+    s.farLatch = true
+    s.cycleValid = true
+    stepTactics(s, input({ energyRatio: 0.9 }), DT, C)
+    expect(s.phase).toBe('cooldown')
+  })
+
+  it('待機期限到 → 強制 dive，不是 cooldown', () => {
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6 }), C.perchMax + 1)
+    expect(s.phase).toBe('dive')
+  })
+
+  it('dive 期限到也要拉起 —— 否則退化成一路追擊', () => {
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    expect(s.phase).toBe('dive')
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.diveMax + 1)
+    expect(s.phase).toBe('zoom')
+  })
+
+  it('通過目標 → zoom', () => {
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    expect(s.phase).toBe('dive')
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+    expect(s.phase).toBe('dive')
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: -120 }), C.passSeconds + 0.5)
+    expect(s.phase).toBe('zoom')
+  })
+
+  it('接近率恰好為 0 不算「正在拉開」', () => {
+    // 切向飛行時接近率是 0。那不是通過目標。
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 0 }), C.passSeconds + 2)
+    expect(s.phase).toBe('dive')
+  })
+
+  it('zoom 只回 build，不直接跳 perch', () => {
+    // 【它擋的是輪次永不結算】直接跳 perch 會形成
+    // build → perch → dive → zoom → perch → … 永遠不回 build，於是輪次永遠
+    // 不結算、dryRounds 永遠不累積，整條能量帳止損等於不存在。
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds + 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: -120 }), C.passSeconds + 0.5)
+    expect(s.phase).toBe('zoom')
+    // 能量還在（perchLatch 仍為真），但過了 zoomMin 之後**下一個相位**要是
+    // build，不是 perch
+    expect(until(s, input({ energyRatio: 0.6 }))).toBe('build')
+  })
+
+  it('一整圈跑得完', () => {
+    const s = createTacticalState()
+    expect(oneRound(s, 0.4)).toBe('build')
+  })
+
+  it('cooldown 之後先回 off，不會同拍重進 build', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    expect(s.phase).toBe('cooldown')
+    run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 0.1)
+    expect(s.phase).toBe('off')
+  })
+
+  it('同一個目標、同樣的能量，cooldown 之後不會一直重試', () => {
+    // 【它擋的是一個永久迴圈】build → cooldown → off → 立刻 build → …
+    // 目標一直很遠的話會永遠繞下去，正好把原問題換成另一種永久循環。
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
+    expect(s.phase).toBe('off')
+    run(s, input({ energyRatio: 0 }), 60)
+    expect(s.phase).toBe('off')
+  })
+
+  it('換了目標就可以重進', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
+    expect(s.phase).toBe('off')
+    run(s, input({ energyRatio: 0, targetIndex: 99 }), 1)
+    expect(s.phase).toBe('build')
+  })
+
+  it('能量比上次冷卻時高也可以重進', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
+    expect(s.phase).toBe('off')
+    run(s, input({ energyRatio: 0.3 }), 1)
+    expect(s.phase).toBe('build')
+  })
+
+  it('目標消失 → 立刻 off', () => {
+    const s = toPerch()
+    stepTactics(s, input({ targetIndex: -1 }), DT, C)
+    expect(s.phase).toBe('off')
+  })
+
+  it('quota = 0 時 stepTactics 恆回 off', () => {
+    // 【這一條守著整張消融表的對照組】若關不乾淨，「上線前的行為」那一列量
+    // 到的就不是基準。
+    const s = createTacticalState()
+    const off = { ...C, quota: 0 }
+    for (let k = 0; k < Math.round(300 / DT); k++) {
+      stepTactics(s, input({ slot: false, energyRatio: 0.9, psTarget: -5 }), DT, off)
+      expect(s.phase).toBe('off')
+    }
+  })
+})
+
+describe('目標切換的重置', () => {
+  it('承諾計時歸零 —— 否則會誤判新目標已經承諾很久', () => {
+    // 【具體的誤判】換目標前累積 1.4 秒的 psTarget < 0，新目標第一拍也是負
+    // 值，於是 0.1 秒後就誤判「已持續承諾 1.5 秒」而俯衝。
+    const s = toPerch()
+    run(s, input({ energyRatio: 0.6, psTarget: -5 }), C.commitSeconds - 0.2)
+    expect(s.phase).toBe('perch')
+    expect(s.commit).toBeGreaterThan(C.commitSeconds - 0.3)
+    stepTactics(s, input({ energyRatio: 0.6, psTarget: -5, targetIndex: 99 }), DT, C)
+    expect(s.commit).toBe(0)
+    expect(s.phase).toBe('perch')
+  })
+
+  it('perchLatch 與通過計時歸零，而且那一拍不會被重新算回來', () => {
+    // 【為什麼要專門測「不會被算回來」】清成 false 之後若同一拍又用新目標的
+    // 數字跑一次 latch，「切換拍重置」就只是一句沒有效果的話。
+    const s = toPerch()
+    expect(s.perchLatch).toBe(true)
+    stepTactics(s, input({ energyRatio: 0.6, targetIndex: 99 }), DT, C)
+    expect(s.perchLatch).toBe(false)
+    expect(s.passing).toBe(0)
+    expect(s.closed).toBe(false)
+    expect(s.cycleValid).toBe(false)
+  })
+
+  it('相位不重置 —— 換目標是常態，跟著重置就永遠跑不完一輪', () => {
+    const s = toPerch()
+    stepTactics(s, input({ energyRatio: 0.6, targetIndex: 99 }), DT, C)
+    expect(s.phase).toBe('perch')
+  })
+
+  it('相位的計時不歸零 —— 它問的是「這個相位待多久」', () => {
+    const s = createTacticalState()
+    run(s, input(), 10)
+    const before = s.dwell
+    stepTactics(s, input({ targetIndex: 99 }), DT, C)
+    expect(s.dwell).toBeGreaterThan(before)
+  })
+
+  it('能量帳的基準重設成當下', () => {
+    // 【只設 cycleValid 不夠】基準若還停在舊目標的尺度上，下一輪開帳之前的
+    // 每一格都在跟一個沒有意義的數字比。
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0.2 }), 1)
+    stepTactics(s, input({ energyRatio: -0.9, targetIndex: 99 }), DT, C)
+    expect(s.cycleBase).toBeCloseTo(-0.9, 9)
+  })
+})
+
+describe('能量帳與長冷卻', () => {
+  it('一輪淨損超標 → cooldown', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0.2 }), 1)
+    expect(s.phase).toBe('build')
+    run(s, input({ energyRatio: 0.2 - C.cycleLossMax - 0.05 }), 0.5)
+    expect(s.phase).toBe('cooldown')
+  })
+
+  it('換目標那一輪不參與能量帳止損', () => {
+    // 【為什麼】energyRatio 是相對當前目標的。換目標時它不連續地跳，硬算那個
+    // 差會得到一個沒有意義的數字。
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0.2 }), 1)
+    run(s, input({ energyRatio: -0.9, targetIndex: 99 }), 1)
+    expect(s.phase).not.toBe('cooldown')
+  })
+
+  it('連續兩輪沒有射擊窗 → 長冷卻', () => {
+    const s = createTacticalState()
+    expect(oneRound(s, 0)).toBe('build')
+    expect(s.dryRounds).toBe(1)
+    expect(oneRound(s, 0)).toBe('cooldown')
+    expect(s.cooldown).toBeGreaterThan(C.cooldownSeconds)
+  })
+
+  it('有射擊窗就把連續計數歸零', () => {
+    const s = createTacticalState()
+    oneRound(s, 0)
+    expect(s.dryRounds).toBe(1)
+    oneRound(s, 0.4)
+    expect(s.dryRounds).toBe(0)
   })
 })

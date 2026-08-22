@@ -1,3 +1,4 @@
+import { latch } from './rules'
 import type { TargetBoard } from './target'
 
 /**
@@ -248,4 +249,211 @@ export function hasSlot(teamIndex: number, quota: number): boolean {
   if (teamIndex < 0 || quota <= 0) return false
   if (quota >= 1) return true
   return ((teamIndex * GOLDEN) % 1) < quota
+}
+
+/**
+ * `stepTactics` 的輸入。**呼叫端每步就地重填，不配置。**
+ *
+ * 【為什麼是一個結構而不是九個參數】九個參數的呼叫端沒有人看得懂順序，而且
+ * 加一個量就要改所有測試的呼叫。與 `command.ts` 的 `CommandUnit` 同一手法。
+ */
+export interface TacticalInput {
+  /** 有名額（`hasSlot` 的結果）。`selfIndex < 0` 時呼叫端給 `false` */
+  slot: boolean
+  /** 有命令（rally / flank / focus）或 `transit` */
+  suspended: boolean
+  /** 目標的識別。−1 = 沒有目標 */
+  targetIndex: number
+  /** 兩機距離，m */
+  range: number
+  energyRatio: number
+  /** 他的比超量功率。負 = 他在耗能量 */
+  psTarget: number
+  /** 接近率，m/s。正 = 正在接近 */
+  closureRate: number
+  /** 我打得到他的瞬時程度，0..1 */
+  shotInstant: number
+  /** 我方的被保護單位正在挨打 */
+  pressure: boolean
+}
+
+/** 換相位：重設計時，其餘不動 */
+function enter(s: TacticalState, phase: TacticalPhase): void {
+  s.phase = phase
+  s.dwell = 0
+}
+
+/** 開一輪新的能量帳 */
+function openCycle(s: TacticalState, energyRatio: number): void {
+  s.cycleBase = energyRatio
+  s.cycleValid = true
+  s.cycleShot = false
+}
+
+/** 進 `cooldown`，並記下這次是在什麼能量下放棄的 */
+function goCooldown(s: TacticalState, energyRatio: number, seconds: number): void {
+  s.lastCooldownRatio = energyRatio
+  s.cooldown = seconds
+  enter(s, 'cooldown')
+}
+
+/**
+ * 推進一架飛機的戰術狀態。**純函數（就地改寫 `s`），熱路徑不配置。**
+ *
+ * 【轉移的優先序】同一拍可能有多條成立，順序不同會產生不同的戰術：
+ *
+ * ```
+ *   1. 強制離場   沒名額／有命令／目標消失            → off
+ *   2. 絕對止損   建能期限、能量帳                    → cooldown
+ *   3. 任務壓力                                       → dive
+ *   4. 期限出口   perchMax → dive、diveMax → zoom …
+ *   5. 條件轉移   perchLatch、承諾姿態、通過判定
+ * ```
+ *
+ * 三個實際的後果：`build` 同時達到 `perchEnter` 與建能期限時 **cooldown 贏**
+ * （期限到了表示這一輪的建能不健康，帶著它進 `perch` 只是把問題延後）；
+ * `perch` 同時要 `dive` 與要回 `build` 時 **dive 贏**（承諾姿態稍縱即逝，
+ * 能量掉一點還打得到）；`cooldown` 倒數歸零一律先回 `off` 停一拍。
+ *
+ * 【呼叫頻率是 10 Hz】相位是決策層級的事。每個物理步呼叫一次等於讓它以
+ * 240 Hz 仲裁，而所有期限都是秒級的。
+ */
+export function stepTactics(
+  s: TacticalState, inp: TacticalInput, dt: number, cfg: TacticalConfig,
+): void {
+  // ── 目標切換：逐欄重置計量，相位不動 ──────────────────
+  //
+  // 【為什麼必須做】`energyRatio`、`psTarget`、`closureRate` 全部是**相對
+  // 當前目標**的。目標一換它們不連續地跳，而下面每一個都是差分或計時。
+  // 具體的誤判：換目標前累積 1.4 秒的 `psTarget < 0`，新目標第一拍也是負
+  // 值，於是 0.1 秒後就誤判「已持續承諾 1.5 秒」而俯衝。
+  const switched = inp.targetIndex !== s.lastTarget
+  if (switched) {
+    s.lastTarget = inp.targetIndex
+    s.perchLatch = false
+    s.commit = 0
+    s.closed = false
+    s.passing = 0
+    // 【基準重設成當下，而且該輪標記為無效】只設 `cycleValid` 的話基準還停
+    // 在舊目標的尺度上，下一輪開帳前的每一格都在跟一個沒有意義的數字比
+    s.cycleBase = inp.energyRatio
+    s.cycleValid = false
+    s.cycleShot = false
+    s.lastCooldownRatio = NaN
+  }
+
+  s.dwell += dt
+  if (s.cooldown > 0) s.cooldown -= dt
+
+  // ── 第 1 級：強制離場 ────────────────────────────────
+  if (!inp.slot || inp.suspended || inp.targetIndex < 0) {
+    if (s.phase !== 'off') enter(s, 'off')
+    s.farLatch = false
+    return
+  }
+
+  // 【換目標的那一拍整拍讓過】所有的閂鎖與計時剛剛才被清空，而**相位轉移
+  // 讀的就是它們**：`perchLatch` 清成 false 之後若同一拍跑轉移邏輯，
+  // `perch` 會立刻被踢回 `build` —— 那等於「相位不重置」這條規則被自己的
+  // 重置動作推翻。下一拍用新目標的數字重新算，一切照常。
+  if (switched) return
+
+  // ── 全程維護的閂鎖與計時（不論在哪一個相位）──────────
+  //
+  // 【為什麼全程】`latch` 的語意是一段獨立的記憶。`rules.ts` 的 `stepRules`
+  // 每拍更新所有閂鎖，即使那一拍沒有選到那個意圖。
+  s.perchLatch = latch(s.perchLatch, inp.energyRatio, cfg.perchEnter, cfg.perchExit)
+  s.farLatch = latch(s.farLatch, inp.range, cfg.enterRange, cfg.exitRange)
+  s.commit = inp.psTarget < 0 ? s.commit + dt : 0
+  if (inp.shotInstant > 0) s.cycleShot = true
+  // 【通過的判定要「轉負」不是「非正」】接近率恰好為 0 是切向飛行，那不是
+  // 「正在拉開」
+  if (inp.closureRate > 0) { s.closed = true; s.passing = 0 }
+  else if (s.closed && inp.closureRate < 0) s.passing += dt
+
+  // ── cooldown 自己的出口 ───────────────────────────────
+  if (s.phase === 'cooldown') {
+    if (s.cooldown <= 0) enter(s, 'off')
+    return
+  }
+
+  // ── off → build ──────────────────────────────────────
+  if (s.phase === 'off') {
+    if (!s.farLatch) return
+    // 【再進入條件】同一個目標、同樣打不動的能量，不會一直重試。少了它，
+    // `build → cooldown → off → 立刻 build → …` 會永遠繞下去，正好把原問題
+    // 換成另一種永久循環
+    const fresh = Number.isNaN(s.lastCooldownRatio)
+      || inp.energyRatio > s.lastCooldownRatio
+    if (!fresh) return
+    enter(s, 'build')
+    openCycle(s, inp.energyRatio)
+    return
+  }
+
+  // ── 第 2 級：絕對止損 ────────────────────────────────
+  if (s.phase === 'build' && s.dwell >= cfg.buildMax) {
+    goCooldown(s, inp.energyRatio, cfg.cooldownSeconds)
+    return
+  }
+  if (s.cycleValid && inp.energyRatio - s.cycleBase < -cfg.cycleLossMax) {
+    goCooldown(s, inp.energyRatio, cfg.cooldownSeconds)
+    return
+  }
+
+  // ── 第 3、4 級：任務壓力與期限出口 ────────────────────
+  if (s.phase === 'perch' && (inp.pressure || s.dwell >= cfg.perchMax)) {
+    enter(s, 'dive')
+    return
+  }
+  if (s.phase === 'dive' && s.dwell >= cfg.diveMax) {
+    enter(s, 'zoom')
+    return
+  }
+
+  if (s.dwell < cfg.minDwell) return
+
+  // ── 第 5 級：條件轉移 ────────────────────────────────
+  switch (s.phase) {
+    case 'build':
+      if (s.perchLatch) enter(s, 'perch')
+      break
+    case 'perch':
+      if (s.commit >= cfg.commitSeconds) enter(s, 'dive')
+      else if (!s.perchLatch) {
+        // 【回 build 也要開新帳】一輪的定義是「進入 build 到下一次進入
+        // build」。少了這一行，`cycleBase` 會跨過好幾次 perch → build，
+        // 能量帳比的就不是本輪
+        enter(s, 'build')
+        openCycle(s, inp.energyRatio)
+      }
+      break
+    case 'dive':
+      if (s.passing >= cfg.passSeconds) enter(s, 'zoom')
+      break
+    case 'zoom': {
+      // 【zoomMin 是拉起的最短時間】少了它，`zoom` 只會待 `minDwell`（0.5 s）
+      // 就走，整個循環會在一秒半內轉完一圈 —— 那不是 boom and zoom，是抖動。
+      if (s.dwell < cfg.zoomMin) break
+      // 【zoom 的唯一出口是 build，不能直接跳 perch】直接跳的話會形成
+      //     build → perch → dive → zoom → perch → dive → zoom → …
+      // 永遠不回 build，於是輪次永遠不結算、`dryRounds` 永遠不累積，整條
+      // 能量帳止損等於不存在。回 build 之後若能量還在，下一格的 `perchLatch`
+      // 會自然把它帶回 perch —— 那才是兩步的路徑。
+      if (!s.perchLatch && s.dwell < cfg.zoomMax) break
+      // 一輪結束：結算能量帳
+      if (s.cycleValid && !s.cycleShot) s.dryRounds++
+      else if (s.cycleShot) s.dryRounds = 0
+      if (s.dryRounds >= cfg.dryRounds) {
+        s.dryRounds = 0
+        goCooldown(s, inp.energyRatio, cfg.longCooldownSeconds)
+        break
+      }
+      enter(s, 'build')
+      openCycle(s, inp.energyRatio)
+      break
+    }
+    default:
+      break
+  }
 }
