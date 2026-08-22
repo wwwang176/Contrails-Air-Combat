@@ -48,4 +48,24 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   ctx.fillText(AI_BANNER, L.cx, 18 * L.scale)
+
+  // 【AI 現在以為自己在做什麼】飛機在做什麼看得見，AI 的判讀看不見。少了
+  // 這一行，「它抬頭又低頭」這種回報對不回任何一條規則。
+  //
+  // 【為什麼跟橫幅放在一起而不是另開一個 widget】它與橫幅是同一件事的兩半
+  // ——「誰在飛」與「它在想什麼」，而且生死條件完全相同（`aiFlying`）。
+  ctx.fillStyle = HUD_COLORS.dim
+  ctx.font = hudFont(12 * L.scale)
+  ctx.fillText(aiStateLine(f), L.cx, 36 * L.scale)
+}
+
+/**
+ * 代飛讀數的那一行。**抽出來是為了驗得到** —— canvas 在 node 環境驗不到，
+ * 但「相位是 off 時不該印出一個空格子」這種事會壞。
+ */
+export function aiStateLine(f: HudFrame): string {
+  const parts = [`意圖 ${f.aiIntent || '—'}`, `模式 ${f.aiMode || '—'}`]
+  // 【`off` 不印】那是「戰術層沒有參與」，印出來只會讓人以為它是一個動作
+  if (f.aiPhase && f.aiPhase !== 'off') parts.push(`戰術 ${f.aiPhase}`)
+  return parts.join('   ')
 }

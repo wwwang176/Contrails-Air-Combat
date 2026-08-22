@@ -167,6 +167,17 @@ export interface HudFrame {
   /** 自機是否交給 AI 駕駛（`I`）。純觀測模式的指示燈 */
   aiFlying: boolean
   /**
+   * 代飛時 AI 當下的意圖／轉向模式／戰術相位。**只在 `aiFlying` 時有意義。**
+   *
+   * 【為什麼要顯示在畫面上】人工驗收看得到飛機在做什麼，看不到 AI **以為**
+   * 自己在做什麼。少了這三個字，「它抬頭又低頭」這種回報沒辦法對回任何一條
+   * 規則 —— 只能靠無頭探針重跑一次去猜是哪一段。這三個欄位就是把探針看得到
+   * 的東西搬到座艙裡。
+   */
+  aiIntent: string
+  aiMode: string
+  aiPhase: string
+  /**
    * 是否在上帝視角（`G`）。
    *
    * 為真時 `worldX` / `worldZ` / `heading` 填的是**鏡頭**的，不是自機的 ——
@@ -236,6 +247,9 @@ export function createHudFrame(): HudFrame {
     damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,
     aiFlying: false,
+    aiIntent: '',
+    aiMode: '',
+    aiPhase: '',
     godView: false,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
