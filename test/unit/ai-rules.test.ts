@@ -441,6 +441,13 @@ describe('extend 的三個理由與射擊否決權', () => {
   })
 })
 
+/**
+ * 【為什麼要明寫 `ON`】`DEFAULT_RULES.recoveredExit` **預設是 `false`**
+ * （實測否決，見該欄位的註解）。下面這些測的是機制本身，所以要自己把它
+ * 打開；出貨行為由 `recoveredExit 關掉時…` 那幾條守。
+ */
+const ON = { ...DEFAULT_RULES, recoveredExit: true }
+
 describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', () => {
   it('初始 false，門檻夾在 cornerEnter 與 cornerExit 之間', () => {
     expect(createRuleState().extendRecoveredLatch).toBe(false)
@@ -452,20 +459,20 @@ describe('extendRecoveredLatch —— 絕對的「我回到能打的狀態」', 
     const s = createRuleState()
     const sit = neutral()
     sit.cornerRatio = DEFAULT_RULES.cornerExit
-    stepRules(s, sit, 0, DT)
+    stepRules(s, sit, 0, DT, ON)
     expect(s.extendRecoveredLatch).toBe(false)   // 嚴格 >，等於不算
 
     sit.cornerRatio = DEFAULT_RULES.cornerExit + 0.01
-    stepRules(s, sit, 0, DT)
+    stepRules(s, sit, 0, DT, ON)
     expect(s.extendRecoveredLatch).toBe(true)
 
     sit.cornerRatio = 0.90                        // 遲滯帶內維持
-    stepRules(s, sit, 0, DT)
+    stepRules(s, sit, 0, DT, ON)
     expect(s.extendRecoveredLatch).toBe(true)
 
     // 【等值就解除，不是「低於才解除」】latch 的維持條件是 value > exit
     sit.cornerRatio = DEFAULT_RULES.recoverExit
-    stepRules(s, sit, 0, DT)
+    stepRules(s, sit, 0, DT, ON)
     expect(s.extendRecoveredLatch).toBe(false)
   })
 
@@ -496,7 +503,7 @@ describe('因能量脫離改成合取', () => {
       sit.energyAdvantage = energy
       sit.cornerRatio = ratio
       sit.range = 900
-      for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+      for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, ON)
       expect(s.intent === 'extend').toBe(want)
     })
   }
@@ -509,7 +516,7 @@ describe('因能量脫離改成合取', () => {
     const sit = neutral()              // cornerRatio 1.2，recovered 會成立
     sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     sit.range = 900
-    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT)
+    for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, ON)
     expect(s.extendRecoveredLatch).toBe(true)
     expect(s.intent).toBe('extend')
   })

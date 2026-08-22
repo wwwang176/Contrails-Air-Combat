@@ -192,7 +192,38 @@ export interface RuleConfig {
   recoverExit: number
   /**
    * 關掉時 `extendRecoveredLatch` 不更新、仲裁退化成「只看能量劣勢」。
-   * **消融用**，出貨恆為 `true`。
+   *
+   * **預設關閉 —— 實測否決，等專案負責人裁定。** 關閉時逐位元等於這個
+   * 機制上線之前（已驗證：`ai-withdraw-anchor` 的九項讀數全部重現）。
+   *
+   * ## 為什麼否決
+   *
+   * 20v20 遭遇戰、五次 ±0.5% 初速微擾（`encounter-balance.probe.ts`）：
+   *
+   * ```
+   *            戰損比中位   最大半徑中位
+   *   關閉        1.42        5,888 m
+   *   開啟        5.00        7,820 m
+   * ```
+   *
+   * 五次裡四次偏向同一隊，是系統性偏斜不是極值統計。最大半徑也一起惡化。
+   *
+   * 【機制】`extendEnergyLatch` 存在的理由就是**讓能量戰鬥機脫離**。把它
+   * 閘在 `cornerRatio > cornerExit` 上等於說「我速度夠就別跑」—— 而 P-51
+   * 可以速度完全正常、同時比 109 低 800 m。它於是留下來纏鬥，那是它最不該
+   * 做的事。**`cornerRatio`（我此刻的速度）不能替代 `energyAdvantage`
+   * （我相對他的總能量）來回答「該不該留下來跟他纏鬥」。**
+   *
+   * ## 開啟時量到的好處（供裁定參考）
+   *
+   * ```
+   *   ai-targeting fireShare   0.0160 → 0.0256   長期紅的那一條，轉綠
+   *   ai-targeting onNose      0.171  → 0.192
+   *   護送關 extend 離場長尾    1,874  → 573 m
+   *   護送關 extend 進場次數    90     → 58
+   *   ai-targeting holdMedian  2.00   → 1.40     破線
+   *   ai-targeting rearShare   0.312  → 0.354    破線
+   * ```
    *
    * 【為什麼是布林而不是把進場門檻設成 `Infinity`】那個做法只在「全新、
    * 未啟動」的狀態下等價 —— `latch()` 在 `active === true` 時走的是
@@ -266,7 +297,7 @@ export const DEFAULT_RULES: RuleConfig = {
   cornerEnter: 0.75,
   cornerExit: 0.95,
   recoverExit: 0.85,
-  recoveredExit: true,
+  recoveredExit: false,
   floorExempt: 2000,
   extendRange: 1500,
   engageTimeEnter: 8,
