@@ -599,7 +599,8 @@ export class AiController implements Controller {
       && !this.rules.defendLatch && !this.rules.extendFloorLatch
     if (tactical) {
       tacticalCommand(
-        phase, this.sit, this.basis, self, this.seaHeight, this.tacticalConfig, raw,
+        this.tactics, this.sit, this.basis, self, this.seaHeight,
+        this.tacticalConfig, raw,
       )
     } else {
       steerCommand(

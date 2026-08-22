@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import {
   createTacticalState, resetTacticalState, stepTactics, tacticalCommand,
   teamIndexOf, hasSlot, DEFAULT_TACTICS,
@@ -130,6 +130,20 @@ describe('戰術狀態的建立與重置', () => {
     const fresh = createTacticalState()
     fresh.lastCooldownRatio = 0
     expect(s).toEqual(fresh)
+    // 【污染清單必須窮舉】TypeScript 會逼 `createTacticalState` 補新欄位，
+    // 但不會逼 `resetTacticalState` 寫到每一個。手列的污染清單漏掉新欄位時
+    // 這條仍然會綠 —— 所以改由 `createTacticalState()` 的鍵推導
+    const keys = Object.keys(createTacticalState()) as (keyof TacticalState)[]
+    const dirty = createTacticalState()
+    for (const k of keys) {
+      const v = dirty[k]
+      // 每一種型別都換成一個「絕不等於起始值」的值
+      if (typeof v === 'number') (dirty[k] as number) = Number.isNaN(v) ? 7 : v + 13
+      else if (typeof v === 'boolean') (dirty[k] as boolean) = !v
+      else (dirty[k] as unknown) = 'dirty'
+    }
+    resetTacticalState(dirty)
+    expect(dirty).toEqual(createTacticalState())
   })
 })
 
@@ -533,6 +547,55 @@ describe('能量帳與長冷卻', () => {
   })
 })
 
+describe('強制離場的計量', () => {
+  /** 把一架推到「承諾快滿、剛通過」的狀態 */
+  function loaded(): TacticalState {
+    const s = createTacticalState()
+    until(s, input({ energyRatio: 0 }))
+    until(s, input({ energyRatio: 0.6 }))
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: 120 }), 1.4)
+    run(s, input({ energyRatio: 0.6, psTarget: -5, closureRate: -120 }), 0.9)
+    return s
+  }
+
+  it('有命令時計量要清乾淨 —— 不是只切到 off', () => {
+    // 【它擋的是什麼】相位切到 off 但計量留著，等於讓命令期間的空白時間
+    // 「算數」：命令前累積 1.4 s 的承諾 + 0.9 s 的通過，解除的**第一拍**
+    // 就變成 1.5 / 1.0 而立刻俯衝。「連續承諾 1.5 秒」於是是假的。
+    //
+    // 【為什麼原本沒抓到】舊測試只驗 `phase === 'off'`。
+    const s = loaded()
+    expect(s.commit).toBeGreaterThan(1.3)
+    expect(s.passing).toBeGreaterThan(0.8)
+
+    stepTactics(s, input({ suspended: true }), DT, C)
+    expect(s.phase).toBe('off')
+    expect(s.commit).toBe(0)
+    expect(s.passing).toBe(0)
+    expect(s.closed).toBe(false)
+    expect(s.perchLatch).toBe(false)
+    expect(s.cycleValid).toBe(false)
+  })
+
+  it('沒名額與沒目標走同一條路', () => {
+    for (const over of [{ slot: false }, { targetIndex: -1 }]) {
+      const s = loaded()
+      stepTactics(s, input(over), DT, C)
+      expect(s.phase).toBe('off')
+      expect(s.commit).toBe(0)
+      expect(s.passing).toBe(0)
+    }
+  })
+
+  it('命令解除之後要重新累積，不是接著算', () => {
+    const s = loaded()
+    run(s, input({ suspended: true }), 2)
+    // 解除。承諾要從 0 開始重數，所以 commitSeconds 之內不會俯衝
+    until(s, input({ energyRatio: 0.6 }))            // off → build
+    expect(s.commit).toBeLessThan(C.commitSeconds)
+  })
+})
+
 describe('任務壓力', () => {
   it('任務壓力讓 perch 直接俯衝，不等承諾', () => {
     const s = createTacticalState()
@@ -550,6 +613,18 @@ describe('任務壓力', () => {
     expect(s.phase).toBe('perch')
   })
 })
+
+/**
+ * 造一個只有 `phase` 有意義的戰術狀態。
+ *
+ * 【為什麼瞄準解收的是狀態不是相位】繞行的邊要記住（見 `orbitSide`），
+ * 而那是狀態的一部分。
+ */
+function st(phase: TacticalPhase): TacticalState {
+  const s = createTacticalState()
+  s.phase = phase
+  return s
+}
 
 /** 造一組「我在下面、他在前上方 3 km」的態勢 */
 function scene() {
@@ -570,7 +645,7 @@ describe('戰術層的矄準解', () => {
   it('build 命令爬升', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.y).toBeGreaterThan(0)
   })
 
@@ -578,15 +653,15 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const a = createCommand()
     const b = createCommand()
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, a)
-    tacticalCommand('zoom', sit, basis, self, 0, DEFAULT_TACTICS, b)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, a)
+    tacticalCommand(st('zoom'), sit, basis, self, 0, DEFAULT_TACTICS, b)
     expect(b.aimWorld.y).toBeGreaterThan(a.aimWorld.y)
   })
 
   it('perch 大致平飛 —— 保持能量而不是繼續存', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
-    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('perch'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(Math.abs(out.aimWorld.y)).toBeLessThan(0.2)
   })
 
@@ -599,9 +674,10 @@ describe('戰術層的矄準解', () => {
     const R = DEFAULT_TACTICS.perchRange
     let prev: number | null = null
     let jumps = 0
+    const s = st('perch')
     for (const range of [R * 0.9, R * 0.97, R, R * 1.03, R * 1.1, R * 1.03, R, R * 0.97]) {
       sit.range = range
-      tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+      tacticalCommand(s, sit, basis, self, 0, DEFAULT_TACTICS, out)
       const radial = out.aimWorld.dot(basis.losAxis)
       if (prev !== null && Math.abs(radial - prev) > 0.5) jumps++
       prev = radial
@@ -614,10 +690,10 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
     sit.range = DEFAULT_TACTICS.perchRange * 3
-    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('perch'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.dot(basis.losAxis)).toBeGreaterThan(0)
     sit.range = DEFAULT_TACTICS.perchRange * 0.2
-    tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('perch'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
   })
 
@@ -630,7 +706,7 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
     sit.range = DEFAULT_TACTICS.perchRange * 4
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.dot(basis.losAxis)).toBeGreaterThan(0)
   })
 
@@ -639,8 +715,43 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
     sit.range = DEFAULT_TACTICS.perchRange * 0.2
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.dot(basis.losAxis)).toBeLessThan(0)
+  })
+
+  it('航向掃過退化帶時水平指令不得翻號', () => {
+    // 【它擋的是一個藏在守衛邊界上的翻轉點】舊版把「航向去掉徑向分量」的
+    // 投影**正規化**，模長趨近 0 時方向由浮點雜訊主導。Codex 實測：同一條
+    // 視線、range = perchRange 上，yaw +0.0009 rad 給 +X、+0.0011 rad 給
+    // −X —— 差 0.011° 而水平指令翻半圈。
+    //
+    // 徑向係數對距離連續，保證不了整條向量律連續 —— 這一條問的是另一個
+    // 自由度。
+    const { self, sit, basis } = scene()
+    const out = createCommand()
+    sit.range = DEFAULT_TACTICS.perchRange * 1.4
+    const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
+    // 讓機首幾乎正對目標，再一格一格掃過那個退化帶
+    const axis = new Vector3(0, 1, 0)
+    const base = self.state.orientation.clone()
+    let prev: Vector3 | null = null
+    let jumps = 0
+    // 【整段掃描共用同一個狀態】繞行的邊是閂鎖 —— 每格造一個新狀態等於每格
+    // 重選一次邊，那就把要測的東西測掉了
+    const s = st('perch')
+    for (let k = -6; k <= 6; k++) {
+      self.state.orientation.copy(base)
+      self.state.orientation.multiply(
+        new Quaternion().setFromAxisAngle(axis, k * 0.0005),
+      )
+      tacticalCommand(s, sit, basis, self, 0, DEFAULT_TACTICS, out)
+      const cur = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+      if (prev !== null && prev.dot(cur) < 0.9) jumps++
+      prev = cur
+    }
+    self.state.orientation.copy(base)
+    void nose
+    expect(jumps).toBe(0)
   })
 
   it('build 與 perch 的水平分量是同一條律', () => {
@@ -649,10 +760,15 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const a = createCommand()
     const b = createCommand()
+    // 【兩個狀態要繞同一邊】否則比的是「兩架不同的飛機」
+    const sa = st('build')
+    const sb = st('perch')
+    sa.orbitSide = 1
+    sb.orbitSide = 1
     for (const r of [500, 2000, 6000]) {
       sit.range = r
-      tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, a)
-      tacticalCommand('perch', sit, basis, self, 0, DEFAULT_TACTICS, b)
+      tacticalCommand(sa, sit, basis, self, 0, DEFAULT_TACTICS, a)
+      tacticalCommand(sb, sit, basis, self, 0, DEFAULT_TACTICS, b)
       // 去掉垂直分量之後方向相同
       const ax = a.aimWorld.x
       const az = a.aimWorld.z
@@ -671,7 +787,7 @@ describe('戰術層的矄準解', () => {
     const out = createCommand()
     out.firing = true
     for (const phase of ['build', 'perch', 'zoom'] as const) {
-      tacticalCommand(phase, sit, basis, self, 0, DEFAULT_TACTICS, out)
+      tacticalCommand(st(phase), sit, basis, self, 0, DEFAULT_TACTICS, out)
       expect(out.firing).toBe(false)
     }
   })
@@ -685,7 +801,7 @@ describe('戰術層的矄準解', () => {
     out.throttle = 0
     out.brake = 1
     out.firing = true
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     expect(out.aimWorld.x).not.toBe(1)
     expect(out.throttle).toBeGreaterThan(0)
     expect(out.brake).toBe(0)
@@ -696,7 +812,7 @@ describe('戰術層的矄準解', () => {
     const { self, sit, basis } = scene()
     const out = createCommand()
     for (const phase of ['build', 'perch', 'zoom'] as const) {
-      tacticalCommand(phase, sit, basis, self, 0, DEFAULT_TACTICS, out)
+      tacticalCommand(st(phase), sit, basis, self, 0, DEFAULT_TACTICS, out)
       expect(out.aimWorld.length()).toBeCloseTo(1, 6)
     }
   })
@@ -709,7 +825,7 @@ describe('戰術層的矄準解', () => {
     const out = createCommand()
     sit.pullCeiling = 0.2
     sit.stallMargin = 1.02      // 已經逼近 CLmax
-    tacticalCommand('build', sit, basis, self, 0, DEFAULT_TACTICS, out)
+    tacticalCommand(st('build'), sit, basis, self, 0, DEFAULT_TACTICS, out)
     const nose = new Vector3(0, 0, -1).applyQuaternion(self.state.orientation)
     // 收得比純 pullCeiling 更緊 —— 也就是更靠近機首
     expect(out.aimWorld.dot(nose)).toBeGreaterThan(0.9)

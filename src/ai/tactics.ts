@@ -74,6 +74,18 @@ export interface TacticalState {
    */
   lastCooldownRatio: number
   /** 上一個目標的識別。−2 = 尚未設定 */
+  /**
+   * 繞行的邊，+1 或 −1；**0 = 還沒選。**
+   *
+   * 【為什麼要記住它】水平面上「切向」只有兩個選擇，而**沒有任何連續的方式
+   * 從幾何決定要繞哪一邊** —— 那是一個拓撲上的事實，不是實作沒寫好。任何
+   * 由當下幾何導出的側向都會在某條線上翻號：由航向導出的會在「機首正對
+   * 目標」翻，由距離導出的會在 `perchRange` 上翻。
+   *
+   * 專案對翻轉點的答案一向是**給它記憶**（`rules.ts` 的 `latch`）。進入
+   * 站位保持時選一次邊，之後就一直繞同一邊，於是兩個自由度上都連續。
+   */
+  orbitSide: number
   lastTarget: number
 }
 
@@ -191,6 +203,7 @@ export function createTacticalState(): TacticalState {
     dryRounds: 0,
     lastCooldownRatio: NaN,
     lastTarget: -2,
+    orbitSide: 0,
   }
 }
 
@@ -216,6 +229,7 @@ export function resetTacticalState(s: TacticalState): void {
   s.dryRounds = 0
   s.lastCooldownRatio = NaN
   s.lastTarget = -2
+  s.orbitSide = 0
 }
 
 /**
@@ -298,6 +312,36 @@ function enter(s: TacticalState, phase: TacticalPhase): void {
   s.dwell = 0
 }
 
+/**
+ * 清掉所有「相對當前目標、而且是差分或計時」的量。
+ *
+ * 【誰會用到它】兩個情境，而它們是同一件事：**這些量在中斷期間的累積是假的**。
+ *
+ * ```
+ *   換目標   energyRatio / psTarget / closureRate 全部換了參考對象
+ *   強制離場 沒名額、有命令、transit、目標消失 —— 期間根本沒有在經營
+ * ```
+ *
+ * 具體的誤判：命令下達前累積了 1.4 秒的 `psTarget < 0`，命令期間相位是
+ * `off` 但計量原封不動，命令一解除**第一拍**就變成 1.5 秒而立刻俯衝。
+ * 「連續承諾 1.5 秒」於是是假的。換目標那一版的誤判形狀完全相同。
+ *
+ * 【`farLatch` 不在這裡】它問的是「我離這個目標多遠」，是一個瞬時量的閂鎖，
+ * 不是差分也不是計時。強制離場另外清它（那是「離場就重新來過」的意思）。
+ */
+function clearRelative(s: TacticalState, energyRatio: number): void {
+  s.perchLatch = false
+  s.commit = 0
+  s.closed = false
+  s.passing = 0
+  // 【基準重設成當下，而且該輪標記為無效】只設 `cycleValid` 的話基準還停在
+  // 舊的尺度上，下一輪開帳前的每一格都在跟一個沒有意義的數字比
+  s.cycleBase = energyRatio
+  s.cycleValid = false
+  s.cycleShot = false
+  s.lastCooldownRatio = NaN
+}
+
 /** 開一輪新的能量帳 */
 function openCycle(s: TacticalState, energyRatio: number): void {
   s.cycleBase = energyRatio
@@ -345,24 +389,20 @@ export function stepTactics(
   const switched = inp.targetIndex !== s.lastTarget
   if (switched) {
     s.lastTarget = inp.targetIndex
-    s.perchLatch = false
-    s.commit = 0
-    s.closed = false
-    s.passing = 0
-    // 【基準重設成當下，而且該輪標記為無效】只設 `cycleValid` 的話基準還停
-    // 在舊目標的尺度上，下一輪開帳前的每一格都在跟一個沒有意義的數字比
-    s.cycleBase = inp.energyRatio
-    s.cycleValid = false
-    s.cycleShot = false
-    s.lastCooldownRatio = NaN
+    clearRelative(s, inp.energyRatio)
   }
 
   s.dwell += dt
   if (s.cooldown > 0) s.cooldown -= dt
 
   // ── 第 1 級：強制離場 ────────────────────────────────
+  //
+  // 【計量要一起清】相位切到 `off` 但計量留著，等於讓命令期間的空白時間
+  // 「算數」—— 解除的第一拍就會拿一組幾秒前的累積去觸發轉移。見
+  // `clearRelative`。
   if (!inp.slot || inp.suspended || inp.targetIndex < 0) {
     if (s.phase !== 'off') enter(s, 'off')
+    clearRelative(s, inp.energyRatio)
     s.farLatch = false
     return
   }
@@ -371,7 +411,13 @@ export function stepTactics(
   // 讀的就是它們**：`perchLatch` 清成 false 之後若同一拍跑轉移邏輯，
   // `perch` 會立刻被踢回 `build` —— 那等於「相位不重置」這條規則被自己的
   // 重置動作推翻。下一拍用新目標的數字重新算，一切照常。
-  if (switched) return
+  if (switched) {
+    // 【但射擊窗不能丟】`cycleShot` 剛被清成 false，而這一拍若真的有射擊解，
+    // 那是**新目標**的第一筆。丟掉它會讓一輪被誤判成空手而回，`dryRounds`
+    // 因此少清一次
+    if (inp.shotInstant > 0) s.cycleShot = true
+    return
+  }
 
   // ── 全程維護的閂鎖與計時（不論在哪一個相位）──────────
   //
@@ -473,7 +519,7 @@ export function stepTactics(
   }
 }
 
-const T = makeScratch(3)
+const T = makeScratch(4)
 const FWD = new Vector3(0, 0, -1)
 
 /** `build` 的最大爬升角，rad。與 `EXTEND_PITCH` 同級 */
@@ -513,26 +559,33 @@ function selfHeading(self: Aircraft, out: Vector3): void {
  * 射擊解由 5.5% 掉到 0.0% —— 跑掉的人會把鎖定它們的人一起帶出去。**建能是
  * 爬升，不是拉開距離**；水平方向該做的事與 `perch` 完全一樣。
  *
- * 【切向為什麼用自己的航向】固定側向要選左或右，而那個選擇本身就是一個會翻
- * 的號。用當前航向則是「繼續往前繞」，沒有選擇也就沒有翻轉點。
+ * 【切向為什麼是閂鎖而不是算出來的】水平面上的切向只有 ±1 兩個選擇，沒有
+ * 連續的選法。舊版由航向投影導出並正規化，實測（Codex 2026-08-22）在同一條
+ * 視線、`range === perchRange` 上，yaw +0.0009 rad 給 `+X`、+0.0011 rad 給
+ * `−X` —— 差 0.011° 而水平指令翻半圈。改成不正規化則翻轉點搬到 `perchRange`
+ * 上（徑向穿零時整個向量穿零）。兩個都是翻。見 `TacticalState.orbitSide`。
  */
 function stationKeeping(
-  range: number, self: Aircraft, cfg: TacticalConfig, flat: Vector3, tan: Vector3,
+  st: TacticalState, range: number, self: Aircraft, cfg: TacticalConfig,
+  flat: Vector3, tan: Vector3,
 ): void {
   const err = (range - cfg.perchRange) / cfg.perchRange
   const radial = err < -1 ? -1 : err > 1 ? 1 : err
 
-  selfHeading(self, tan)
-  tan.addScaledVector(flat, -tan.dot(flat))
-  if (tan.lengthSq() < 1e-6) {
-    // 航向正對或正背著目標時切向沒有定義。取視線的水平法向
-    tan.set(-flat.z, 0, flat.x)
+  // 切向取**視線的水平法向**（與航向無關，所以不會隨機首擺動而變），繞哪
+  // 一邊由 `orbitSide` 記住。見那個欄位的註解 —— 「連續地從幾何選邊」不存在。
+  tan.set(-flat.z, 0, flat.x).normalize()
+  if (st.orbitSide === 0) {
+    // 第一次：往當前航向比較順的那一邊繞，少轉一點
+    const head = T.v[3]!
+    selfHeading(self, head)
+    st.orbitSide = head.dot(tan) >= 0 ? 1 : -1
   }
-  tan.normalize()
+  tan.multiplyScalar(st.orbitSide)
 
   const w = radial < 0 ? -radial : radial
   flat.multiplyScalar(radial).addScaledVector(tan, 1 - w)
-  if (flat.lengthSq() < 1e-6) flat.copy(tan)
+  // 【不會退化】兩項正交，模長是 √(radial² + (1−|radial|)²) ≥ √2/2
   flat.normalize()
 }
 
@@ -550,7 +603,7 @@ function stationKeeping(
  * 熱路徑：不配置。
  */
 export function tacticalCommand(
-  phase: TacticalPhase,
+  st: TacticalState,
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
@@ -568,7 +621,7 @@ export function tacticalCommand(
   else flat.normalize()
 
   let pitch = 0
-  switch (phase) {
+  switch (st.phase) {
     case 'build': {
       // 【爬升角隨赤字連續變化】與 `extendPitchAngle` 同構 —— 差得越多爬
       // 得越陡，接近門檻時自然收斂，不會在門檻上翻號
@@ -577,13 +630,13 @@ export function tacticalCommand(
       pitch = BUILD_PITCH * k
       // 【水平方向與 perch 同一條律】建能是爬升，不是拉開距離。見
       // `stationKeeping` 的第二段註解
-      stationKeeping(sit.range, self, cfg, flat, T.v[2]!)
+      stationKeeping(st, sit.range, self, cfg, flat, T.v[2]!)
       break
     }
     case 'perch':
       // 保持能量（平飛）與距離
       pitch = 0
-      stationKeeping(sit.range, self, cfg, flat, T.v[2]!)
+      stationKeeping(st, sit.range, self, cfg, flat, T.v[2]!)
       break
     case 'zoom':
       // 【維持當前航向】轉彎會把剛換到的速度花掉

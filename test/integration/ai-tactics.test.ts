@@ -78,10 +78,17 @@ describe('戰術層的整合行為', () => {
 
   it('rematch 之後戰術狀態是乾淨的', () => {
     const b = battle(1)
-    for (let k = 0; k < Math.round(60 / DT); k++) stepBattle(b, DT)
-    // 先確認真的有人不在 off —— 否則這一條會在機制沒接上時也是綠的
-    const busy = b.world.combatants.some((c) =>
-      c.controller instanceof AiController && c.controller.tactics.phase !== 'off')
+    // 【要問「曾經離開過」，不是「此刻在不在」】`off` 的佔時約九成，取一個
+    // 瞬間看「有沒有人不在 off」是在賭機率 —— 17 架同時都在 off 的機率約
+    // 兩成，任何無關的軌跡擾動都會讓這條隨機紅。
+    let busy = false
+    for (let k = 0; k < Math.round(60 / DT); k++) {
+      stepBattle(b, DT)
+      if (busy) continue
+      busy = b.world.combatants.some((c) =>
+        c.controller instanceof AiController && c.controller.tactics.phase !== 'off')
+    }
+    // 先確認機制真的動過 —— 否則這一條會在機制沒接上時也是綠的
     expect(busy).toBe(true)
 
     resetBattle(b, SEED)
