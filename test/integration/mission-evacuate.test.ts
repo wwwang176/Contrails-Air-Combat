@@ -73,7 +73,7 @@ function evacPoint(): Vector3 {
   return rules.point
 }
 
-function evacRadius(): number {
+function targetRadius(): number {
   const rules = missionConfigFrom(CARD, 'allies').rules
   if (rules.kind !== 'evacuate') throw new Error('撤離卡的 rules 應為 evacuate')
   return rules.radius
@@ -87,8 +87,13 @@ function run(controller: Controller, seconds: number, limit?: number) {
   const b = createBattle(controller, {
     ...base,
     rules,
-    blueSpec: { ...base.blueSpec, battery: harmless(base.blueSpec.battery) },
-    redSpec: { ...base.redSpec, battery: harmless(base.redSpec.battery) },
+    // 【逐架把槍拆掉】改動前是換掉 `blueSpec` / `redSpec` 兩個欄位；編組表
+    // 版本掃過每一個小隊的每一架。**混編也照樣正確** —— 每一種機各自被
+    // 換成自己的無害版本，而不是整隊被壓成同一台
+    units: base.units.map((u) => ({
+      ...u,
+      members: u.members.map((m) => ({ ...m, battery: harmless(m.battery) })),
+    })),
   })
   const steps = Math.round(seconds * 240)
   for (let i = 0; i < steps; i++) {
@@ -126,7 +131,7 @@ describe('撤離任務', () => {
     expect(b.outcome).toBe('defeat')
     expect(b.mission.secondsLeft).toBeLessThanOrEqual(0)
     expect(aliveBlue(b), '不得是被全滅輸的').toBeGreaterThan(0)
-    expect(b.mission.metric, '玩家必須還在圈外').toBeGreaterThan(evacRadius())
+    expect(b.mission.metric, '玩家必須還在圈外').toBeGreaterThan(targetRadius())
   })
 
   /**

@@ -3,6 +3,8 @@ import {
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
 import { MAX_MOUNTS, mountDirection } from '../weapons/types'
+import { MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
+import { BARREL_SPACING, TURRET_FLASH_SECONDS } from '../world/turrets'
 import { FLASH_SECONDS } from '../world/World'
 import type { Combatant } from '../world/World'
 
@@ -97,6 +99,9 @@ const SCALE = new Vector3()
 const ROT = new Quaternion()
 const TINT = new Color()
 const ZERO = new Vector3(0, 0, 0)
+/** 砲塔槍焰的側偏基底。與 `DIR` 分開 —— 兩者在同一次迭代裡都活著。 */
+const E1 = new Vector3()
+const E2 = new Vector3()
 
 /**
  * 槍焰 —— **單一** `InstancedMesh`，每個掛架一個實例。
@@ -171,6 +176,108 @@ export function createMuzzles(aircraftCapacity: number): Muzzles {
           object.setMatrixAt(slot, M)
           // 加法混合：顏色淡到黑就等於淡出，不必逐實例透明度
           TINT.setRGB(t, t * 0.8, t * 0.45)
+          object.setColorAt(slot, TINT)
+          slot++
+        }
+      }
+      for (; slot < capacity; slot++) {
+        M.compose(ZERO, ROT.identity(), ZERO)
+        object.setMatrixAt(slot, M)
+      }
+      object.instanceMatrix.needsUpdate = true
+      if (object.instanceColor) object.instanceColor.needsUpdate = true
+    },
+
+    dispose(): void {
+      geometry.dispose()
+      material.dispose()
+      object.dispose()
+    },
+  }
+}
+
+/**
+ * 砲塔的槍焰 —— 與 `createMuzzles` 共用 `crossFlare()` 與同一份材質設定。
+ *
+ * 【為什麼是另一個池而不是把容量加大】固定槍的池容量是
+ * `架數 × MAX_MOUNTS`，砲塔是 `架數 × MAX_TURRETS`。硬塞進同一個池要嘛
+ * 讓兩邊共用一個更大的每架上界（浪費），要嘛讓槽位計算同時依賴兩個常數
+ * （改一個就會靜靜地畫錯）。兩個池各自單純。
+ *
+ * 【槍焰要畫在剛剛發射的那一根管口上】雙聯砲塔的彈丸在兩根之間輪替
+ * （見 `world/turrets.ts` 的 `lastBarrel`）。槍焰若固定畫在 `turret.position`，
+ * 它會停在兩根管子**中間** —— 彈丸從管口出、火光在中間，一眼就看得出不對。
+ *
+ * @param aircraftCapacity 最多幾架飛機。實例數是它乘上 `MAX_TURRETS`
+ */
+export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
+  const geometry = crossFlare()
+
+  const material = new MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.95,
+    depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
+  })
+
+  const capacity = aircraftCapacity * MAX_TURRETS
+  const object = new InstancedMesh(geometry, material, capacity)
+  object.instanceMatrix.setUsage(DynamicDrawUsage)
+  // 見 createMuzzles：包圍球是建立時算的，開著視錐剔除會整批消失
+  object.frustumCulled = false
+
+  M.compose(ZERO, ROT.identity(), ZERO)
+  for (let i = 0; i < capacity; i++) {
+    object.setMatrixAt(i, M)
+    object.setColorAt(i, TINT.setRGB(0, 0, 0))
+  }
+  object.instanceMatrix.needsUpdate = true
+  if (object.instanceColor) object.instanceColor.needsUpdate = true
+
+  return {
+    object,
+
+    update(
+      combatants: readonly Combatant[],
+      positions: readonly Vector3[],
+      quaternions: readonly Quaternion[],
+    ): void {
+      let slot = 0
+      for (let k = 0; k < combatants.length; k++) {
+        const c = combatants[k]!
+        const turrets = c.aircraft.spec.turrets
+        const p = positions[c.index]
+        const q = quaternions[c.index]
+
+        for (let i = 0; i < MAX_TURRETS; i++) {
+          if (slot >= capacity) break
+          const t = i < turrets.length ? turrets[i]! : undefined
+          const st = i < c.turretStates.length ? c.turretStates[i] : undefined
+          const f = t !== undefined && st !== undefined && c.alive
+            && p !== undefined && q !== undefined
+            ? st.flash / TURRET_FLASH_SECONDS
+            : 0
+          if (f <= 0 || t === undefined || st === undefined
+            || p === undefined || q === undefined) {
+            M.compose(ZERO, ROT.identity(), ZERO)
+            object.setMatrixAt(slot, M)
+            object.setColorAt(slot, TINT.setRGB(0, 0, 0))
+            slot++
+            continue
+          }
+
+          // 側偏到剛剛發射的那一根管口 —— 與 stepTurrets 生彈丸、
+          // turretBarrels 畫管子用的是同一組基底與同一個 BARREL_SPACING
+          wobbleBasis(st.aim, E1, E2)
+          const side = t.guns > 1 ? (st.lastBarrel === 0 ? -1 : 1) : 0
+          // 【槍口跟著 aim 掃】與彈丸、槍管共用 turretMuzzle —— 三處各寫
+          // 一份的話遲早有一份沒改到，而上一版正是三處一起錯
+          turretMuzzle(t, st.aim, POS).addScaledVector(E1, side * BARREL_SPACING)
+            .applyQuaternion(q).add(p)
+          DIR.copy(st.aim).applyQuaternion(q)
+          ROT.setFromUnitVectors(UNIT_Z, DIR)
+          SCALE.set(f, f, f)
+          M.compose(POS, ROT, SCALE)
+          object.setMatrixAt(slot, M)
+          TINT.setRGB(f, f * 0.8, f * 0.45)
           object.setColorAt(slot, TINT)
           slot++
         }

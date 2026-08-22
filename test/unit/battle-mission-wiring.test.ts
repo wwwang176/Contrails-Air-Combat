@@ -13,6 +13,9 @@ import { Vector3 } from 'three'
 import { createBattle, resetBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ScriptedController } from '../../src/control/ScriptedController'
 import { ENTRY_PLANS, HEAD_ON, PURSUIT, type EntryPlan } from '../../src/battle/entry'
+import { BF109G6 } from '../../src/specs/bf109g6'
+import { P51D } from '../../src/specs/p51d'
+import { lineAbreast } from '../../src/battle/order'
 
 const DT = 1 / 240
 
@@ -23,7 +26,7 @@ describe('遭遇戰＝沒有時限的殲滅任務', () => {
 
   it('Battle 一建好就有 mission 狀態，且與 outcome 一致', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2 },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2) },
     )
     expect(b.mission.outcome).toBe('fighting')
     expect(b.outcome).toBe('fighting')
@@ -33,7 +36,7 @@ describe('遭遇戰＝沒有時限的殲滅任務', () => {
 
   it('紅隊全滅時 outcome 與 mission.outcome 同步翻成 victory', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2 },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2) },
     )
     for (const c of b.red) b.world.destroy(c)
     stepBattle(b, DT)
@@ -43,7 +46,7 @@ describe('遭遇戰＝沒有時限的殲滅任務', () => {
 
   it('藍隊全滅時同步翻成 defeat', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2 },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2) },
     )
     for (const c of b.blue) b.world.destroy(c)
     stepBattle(b, DT)
@@ -53,7 +56,7 @@ describe('遭遇戰＝沒有時限的殲滅任務', () => {
 
   it('metric 是剩餘敵機數', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 3 },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 3) },
     )
     stepBattle(b, DT)
     expect(b.mission.metric).toBe(3)
@@ -64,7 +67,7 @@ describe('遭遇戰＝沒有時限的殲滅任務', () => {
 
   it('resetBattle 之後任務狀態回到開局', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2 },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2) },
     )
     for (const c of b.red) b.world.destroy(c)
     stepBattle(b, DT)
@@ -85,7 +88,7 @@ describe('撤離規則接得上 Battle', () => {
 
   it('把玩家放到撤離點上，下一步就 victory', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2, rules },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2), rules },
     )
     expect(b.mission.hasTarget).toBe(true)
     expect(b.mission.target.equals(rules.point)).toBe(true)
@@ -100,7 +103,7 @@ describe('撤離規則接得上 Battle', () => {
    */
   it('倒數每一步都在走', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2, rules },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2), rules },
     )
     stepBattle(b, DT)
     const after1 = b.mission.secondsLeft
@@ -111,7 +114,7 @@ describe('撤離規則接得上 Battle', () => {
 
   it('撤離場重設之後倒數回到滿的', () => {
     const b = createBattle(
-      new ScriptedController(), { ...DEFAULT_BATTLE, blueCount: 2, redCount: 2, rules },
+      new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109G6, 2), rules },
     )
     for (let i = 0; i < 240; i++) stepBattle(b, DT)
     expect(b.mission.secondsLeft).toBeLessThan(240)
@@ -156,13 +159,17 @@ describe('開局擺法（entry.ts 的表）', () => {
   /** 架數相同時兩隊的分隊數、高度鋸齒、站位都逐項對稱，差值才乾淨 */
   function even(entry: EntryPlan) {
     return createBattle(new ScriptedController(), {
-      ...DEFAULT_BATTLE, blueCount: 4, redCount: 4, entry,
+      ...DEFAULT_BATTLE, units: lineAbreast(entry, P51D, 4, BF109G6, 4),
     })
   }
 
   it('DEFAULT_BATTLE 用的是對頭 —— 全部既有護欄都建立在它上面', () => {
-    expect(DEFAULT_BATTLE.entry).toBe(HEAD_ON)
-    expect(DEFAULT_BATTLE.entry.id).toBe('headOn')
+    // 【編組表版本】擺法現在住在每個小隊上。斷言的意思一個字沒變：
+    // 藍隊那些小隊拿的是 HEAD_ON.blue、紅隊拿的是 HEAD_ON.red
+    const u = DEFAULT_BATTLE.units
+    expect(u.find((f) => f.team === 'blue')!.entry).toBe(HEAD_ON.blue)
+    expect(u.find((f) => f.team === 'red')!.entry).toBe(HEAD_ON.red)
+    expect(HEAD_ON.id).toBe('headOn')
   })
 
   it('表上的每一份都有 id，而且與鍵一致', () => {
@@ -248,7 +255,7 @@ describe('開局擺法（entry.ts 的表）', () => {
      */
     it('4v16 的實戰編制下，長機的高度差仍然是表上的 climb', () => {
       const w = createBattle(new ScriptedController(), {
-        ...DEFAULT_BATTLE, blueCount: 4, redCount: 16, entry: PURSUIT,
+        ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 4, BF109G6, 16),
       })
       expect(read(w.red).y - read(w.blue).y).toBeCloseTo(PURSUIT.red.climb, 6)
     })

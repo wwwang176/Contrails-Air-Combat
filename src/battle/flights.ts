@@ -72,8 +72,22 @@ export interface FlightIndex {
 /**
  * 依隊伍把成員切成 Schwarm。架數不是 `SCHWARM_SIZE` 的倍數時，最後一個
  * 分隊比較小 —— 那不需要特例，壓縮與站位查詢都只看 `count`。
+ *
+ * @param sizes 每個小隊的架數，**依 `all` 的索引順序**。總和必須等於
+ *   `all.length`，每一段必須同隊，每一段必須是 1 … `SCHWARM_SIZE` 架。
+ *
+ *   【省略時退回每 `SCHWARM_SIZE` 個切一隊】那是「全員都是標準四機小隊」的
+ *   意思，測試走的都是這一條。**正式路徑（`createBattle`）一律明寫。**
+ *
+ *   【為什麼要開這個參數】改動前分組**被算了兩次**：這裡自己照連續索引每
+ *   四個切一隊，而 `createBattle` 生成時又獨立算了一次。今天兩者碰巧一致。
+ *   編組表一旦允許「6 架轟炸機切成 4 + 2 但排在 4 架戰鬥機後面」或三機小隊，
+ *   兩邊就會切出不同的分組 —— **症狀是編隊飛行的僚機認錯長機，而且不會有
+ *   任何錯誤**。分組只能有一份。
  */
-export function createFlights(all: readonly FlightMember[], pinned = -1): FlightIndex {
+export function createFlights(
+  all: readonly FlightMember[], pinned = -1, sizes?: readonly number[],
+): FlightIndex {
   for (let i = 0; i < all.length; i++) {
     if (all[i]!.index !== i) {
       throw new Error(`FlightMember.index 必須等於陣列位置：第 ${i} 個是 ${all[i]!.index}`)
@@ -81,17 +95,43 @@ export function createFlights(all: readonly FlightMember[], pinned = -1): Flight
   }
 
   const flights: Flight[] = []
-  for (const team of ['blue', 'red'] as const) {
-    const ids: number[] = []
-    for (let i = 0; i < all.length; i++) if (all[i]!.team === team) ids.push(i)
-    for (let s = 0; s < ids.length; s += SCHWARM_SIZE) {
-      const roster = ids.slice(s, s + SCHWARM_SIZE)
-      flights.push({
-        team,
-        roster,
-        members: new Int32Array(roster.length).fill(-1),
-        count: 0,
-      })
+  if (sizes === undefined) {
+    for (const team of ['blue', 'red'] as const) {
+      const ids: number[] = []
+      for (let i = 0; i < all.length; i++) if (all[i]!.team === team) ids.push(i)
+      for (let s = 0; s < ids.length; s += SCHWARM_SIZE) {
+        const roster = ids.slice(s, s + SCHWARM_SIZE)
+        flights.push({
+          team,
+          roster,
+          members: new Int32Array(roster.length).fill(-1),
+          count: 0,
+        })
+      }
+    }
+  } else {
+    // 【總和先檢查完再切】切到一半才發現不夠，會留下一個半成品的 FlightIndex
+    let sum = 0
+    for (const n of sizes) {
+      if (!Number.isInteger(n) || n < 1 || n > SCHWARM_SIZE) {
+        throw new Error(`小隊的架數必須是 1 … ${SCHWARM_SIZE} 的整數，收到 ${n}`)
+      }
+      sum += n
+    }
+    if (sum !== all.length) {
+      throw new Error(`小隊架數的總和 ${sum} 與成員數 ${all.length} 不符`)
+    }
+    let at = 0
+    for (const n of sizes) {
+      const roster: number[] = []
+      for (let k = 0; k < n; k++, at++) roster.push(at)
+      const team = all[roster[0]!]!.team
+      for (const id of roster) {
+        if (all[id]!.team !== team) {
+          throw new Error(`一個小隊必須同一隊：${roster.join(',')} 橫跨了藍紅`)
+        }
+      }
+      flights.push({ team, roster, members: new Int32Array(n).fill(-1), count: 0 })
     }
   }
 

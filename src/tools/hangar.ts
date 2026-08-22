@@ -1,5 +1,6 @@
 import {
-  AmbientLight, AxesHelper, Box3, Color, DirectionalLight, GridHelper, HemisphereLight,
+  AmbientLight, AxesHelper, Box3, BufferAttribute, BufferGeometry, Color,
+  DirectionalLight, DoubleSide, GridHelper, HemisphereLight,
   Group, type Material, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D,
   OrthographicCamera,
   PerspectiveCamera,
@@ -11,6 +12,9 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { DEG } from '../core/math'
 import { collectTriangles, extentSlices, radialSlices, type Axis } from './sliceRef'
 import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
+import { barrelGeometry } from '../render/turretBarrels'
+import { BARREL_SPACING } from '../world/turrets'
+import { turretPivot, wobbleBasis } from '../weapons/turret'
 import { P51D } from '../specs/p51d'
 import { BF109G6 } from '../specs/bf109g6'
 import { HE111 } from '../specs/he111'
@@ -296,14 +300,147 @@ function applyWireframe(m: AircraftModel, on: boolean): void {
   })
 }
 
+/**
+ * 砲塔的槍管，畫在**靜止位置**（`turret.axis`）上。
+ *
+ * 【為什麼機庫要畫它】槍管在遊戲裡是由 combatant 狀態驅動的
+ * `InstancedMesh`，機庫沒有 combatant。但砲塔位置是這一輪最需要用眼睛驗
+ * 的東西（十三座裡有六座是「量到的機身剖面 + 史實站位」推算出來的），而
+ * 機庫是這個專案唯一截得到 3D 畫面的地方 —— 遊戲的畫布沒開
+ * `preserveDrawingBuffer`，截圖只有 HUD。
+ *
+ * **幾何與側偏都與 `render/turretBarrels.ts` 共用同一份推導**，看到的就是
+ * 遊戲裡會畫的那根管子。差別只有「這裡是靜止指向，遊戲裡會跟著砲塔轉」。
+ */
+/**
+ * 釋放 `buildBarrels` 配置的幾何與材質。
+ *
+ * 【為什麼一根一根找而不是記在外面】那一組 mesh 共用同一份幾何與材質，所以
+ * 取第一根的就夠；用 `Set` 收是為了「日後若改成一根一份」也不會漏。
+ */
+function disposeBarrels(g: Group): void {
+  const geos = new Set<BufferGeometry>()
+  const mats = new Set<Material>()
+  for (const child of g.children) {
+    if (!(child instanceof Mesh)) continue
+    geos.add(child.geometry as BufferGeometry)
+    if (Array.isArray(child.material)) for (const m of child.material) mats.add(m)
+    else mats.add(child.material as Material)
+  }
+  for (const x of geos) x.dispose()
+  for (const x of mats) x.dispose()
+}
+
+function buildBarrels(spec: AircraftSpec): Group {
+  const g = new Group()
+  if (spec.turrets.length === 0) return g
+  const geo = barrelGeometry()
+  const mat = new MeshBasicMaterial({ color: 0x101010 })
+  const e1 = new Vector3()
+  const e2 = new Vector3()
+  for (const t of spec.turrets) {
+    wobbleBasis(t.axis, e1, e2)
+    for (let b = 0; b < t.guns; b++) {
+      const side = t.guns > 1 ? (b === 0 ? -1 : 1) : 0
+      const m = new Mesh(geo, mat)
+      m.position.copy(t.position).addScaledVector(e1, side * BARREL_SPACING)
+      // +Z 對準 −axis：管子由槍口往機體方向長
+      m.quaternion.setFromUnitVectors(UNIT_Z, e2.copy(t.axis).negate())
+      g.add(m)
+    }
+  }
+  return g
+}
+
+/**
+ * 射界錐的**斜邊**長度，m。
+ *
+ * 【為什麼是斜邊而不是軸向長度】半角 80° 的錐（球形腹部與上部砲塔）用
+ * 「軸向長度 × tan」算半徑會得到 5.67 倍 —— 一個橫跨半個機庫的大盤子。
+ * 用斜邊參數化的話，錐緣恆在離頂點 `ARC_LENGTH` 的球面上：80° 的錐是一個
+ * 又寬又淺的碗（軸向只有 0.17 倍），那才是 80° 真正的樣子。
+ */
+const ARC_LENGTH = 8
+/** 錐緣的分段數。24 段在 80° 的大錐上也看不出稜。 */
+const ARC_SEGMENTS = 24
+
+/**
+ * 一個射界錐的側面 —— 頂點在原點、繞 **+Z**、半角 `half`、斜邊 `ARC_LENGTH`。
+ *
+ * 只畫側面不封底：封了之後從錐內往外看是一片不透明的蓋子，而「站在砲塔的
+ * 位置往外看射界」正是這個開關要回答的問題。
+ */
+function arcGeometry(half: number): BufferGeometry {
+  const s = Math.sin(half) * ARC_LENGTH
+  const c = Math.cos(half) * ARC_LENGTH
+  const v: number[] = []
+  for (let k = 0; k < ARC_SEGMENTS; k++) {
+    const a0 = (k / ARC_SEGMENTS) * Math.PI * 2
+    const a1 = ((k + 1) / ARC_SEGMENTS) * Math.PI * 2
+    v.push(0, 0, 0)
+    v.push(Math.cos(a0) * s, Math.sin(a0) * s, c)
+    v.push(Math.cos(a1) * s, Math.sin(a1) * s, c)
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new BufferAttribute(Float32Array.from(v), 3))
+  return g
+}
+
+/**
+ * 全部砲塔的射界錐，**頂點在旋轉點**（`turretPivot`，不是槍口）。
+ *
+ * 【為什麼要半透明而且不寫深度】十三個錐互相重疊，寫深度的話誰蓋住誰完全
+ * 取決於繪製順序，看起來像一團破碎的補丁。`depthWrite: false` + 低不透明度
+ * 讓重疊區自然疊深，重疊得多的方向（例如正後方）顏色也就深 —— 那反而是
+ * 有用的資訊。
+ */
+function buildArcs(spec: AircraftSpec): Group {
+  const g = new Group()
+  const pivot = new Vector3()
+  for (const t of spec.turrets) {
+    const mesh = new Mesh(arcGeometry(t.halfAngle), new MeshBasicMaterial({
+      color: 0x4fc3f7, transparent: true, opacity: 0.16,
+      depthWrite: false, side: DoubleSide,
+    }))
+    mesh.position.copy(turretPivot(t, pivot))
+    mesh.quaternion.setFromUnitVectors(UNIT_Z, t.axis)
+    g.add(mesh)
+  }
+  return g
+}
+
+const UNIT_Z = new Vector3(0, 0, 1)
+let barrels: Group | null = null
+let arcs: Group | null = null
+let arcsOn = false
+
 function rebuild(): void {
   if (model) {
     scene.remove(model.group)
     model.dispose()
   }
+  if (arcs) {
+    scene.remove(arcs)
+    disposeBarrels(arcs)
+    arcs = null
+  }
+  if (barrels) {
+    scene.remove(barrels)
+    // 【要 dispose 幾何與材質】`scene.remove` 只是把它從場景圖拿掉，three 的
+    // `WebGLGeometries` / `WebGLMaterials` 是在 geometry 與 material 的
+    // `dispose` 事件裡才釋放 GPU buffer 與著色器程式。少了這一步，每切換
+    // 一次機種就漏一組 —— Codex 2026-08-21 抓到。
+    disposeBarrels(barrels)
+    barrels = null
+  }
   const spec = SPECS[specIndex]!
   model = buildAircraft(spec)
   scene.add(model.group)
+  barrels = buildBarrels(spec)
+  scene.add(barrels)
+  arcs = buildArcs(spec)
+  arcs.visible = arcsOn
+  scene.add(arcs)
   applyWireframe(model, wireframe)
 
   const box = new Box3().setFromObject(model.group)
@@ -425,6 +562,13 @@ $<HTMLButtonElement>('env').onclick = (ev) => {
   scene.environment = on ? envTexture : null
   ;(ev.currentTarget as HTMLElement).classList.toggle('on', on)
 }
+const arcBtn = $<HTMLButtonElement>('arcs')
+arcBtn.onclick = () => {
+  arcsOn = !arcsOn
+  if (arcs) arcs.visible = arcsOn
+  arcBtn.classList.toggle('on', arcsOn)
+}
+
 $<HTMLButtonElement>('axes').onclick = (ev) => {
   axes.visible = !axes.visible
   ;(ev.currentTarget as HTMLElement).classList.toggle('on', axes.visible)
@@ -438,6 +582,26 @@ litBtn.onclick = () => {
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { autoRotate = !autoRotate; e.preventDefault() }
 })
+
+/**
+ * 把掛在 scene 上的附件對齊機身的變換。
+ *
+ * 【為什麼這些附件不是 `model.group` 的子物件】掛成子物件會污染三個東西，
+ * 而且三個都不會報錯：`__hangarSlice(..., 'mine')` 的 root 就是
+ * `model.group`（對切驗收會量到槍管與射界錐）、`Box3.setFromObject`
+ * （翼展／全長／高，尾砲塔槍口在 z 16.85 而機身只到 16.25）、以及
+ * `countTriangles`。那三個數字是外型量測流程在依賴的。
+ *
+ * 代價是「轉盤日後長出新的自由度要記得補」—— 所以這裡複製的是整組
+ * `rotation`／`position`／`scale`，不是只有 `rotation.y`。
+ * 護欄見 `test/tools/turret-spin.probe.ts`。
+ */
+function syncToModel(g: Group | null): void {
+  if (!g || !model) return
+  g.rotation.copy(model.group.rotation)
+  g.position.copy(model.group.position)
+  g.scale.copy(model.group.scale)
+}
 
 function resize(): void {
   const w = window.innerWidth
@@ -740,6 +904,52 @@ function applyRefMaterial(root: Object3D): void {
         : extentSlices(tris, axis, o as never)
     }
 
+/**
+ * 開發用：列出參考模型的每一個 mesh —— 名字、三角形數、**對齊後**的包圍盒。
+ *
+ * 【為什麼需要它】射線法適合量「連續的蒙皮輪廓」，不適合量「掛在機身上的
+ * 小零件」。從機身裡往外打的射線會飛過砲塔打到對側機身或機翼，`max` 那一欄
+ * 因此被遠處的幾何主導 —— 實測 B-17 的上部砲塔，maxRadius 0.9 量到 0.89、
+ * 換成 1.4 就變成 1.34，兩者永遠不一致（那正是「換一個更大的半徑重跑看輪廓
+ * 有沒有變」這條驗收判準要抓的東西）。
+ *
+ * 砲塔若在模型裡是獨立命名的節點，直接讀它的包圍盒就結束了。`__hangarSlice`
+ * 的第五個參數本來就吃 mesh 名稱的 RegExp（見 `aircraft-from-reference`
+ * 第 5b 步），這個出口只是先讓人知道有哪些名字可以填。
+ *
+ * 座標系與 `__hangarSlice` 相同（都走 `refModel` 的世界矩陣），所以量到的
+ * 數字直接可以填進 spec —— 不必自己再換算一次（坑 16）。
+ */
+;(window as unknown as Record<string, unknown>)['__hangarRefNodes'] = () => {
+  if (!refModel) return null
+  refModel.updateMatrixWorld(true)
+  const out: { name: string; tris: number; box: number[] }[] = []
+  const v = new Vector3()
+  refModel.traverse((o) => {
+    const mesh = o as Mesh
+    const pos = mesh.geometry?.getAttribute?.('position')
+    if (!pos) return
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity
+    let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
+    for (let i = 0; i < pos.count; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(mesh.matrixWorld)
+      if (v.x < x0) x0 = v.x
+      if (v.y < y0) y0 = v.y
+      if (v.z < z0) z0 = v.z
+      if (v.x > x1) x1 = v.x
+      if (v.y > y1) y1 = v.y
+      if (v.z > z1) z1 = v.z
+    }
+    const idx = mesh.geometry.index
+    out.push({
+      name: mesh.name,
+      tris: Math.round((idx ? idx.count : pos.count) / 3),
+      box: [x0, y0, z0, x1, y1, z1],
+    })
+  })
+  return out
+}
+
 // 開發用：外部工具（Playwright）用來開啟參考模型並等它載入完成。
 ;(window as unknown as Record<string, unknown>)['__hangarRef'] =
     async (on: boolean, solid = false) => {
@@ -876,6 +1086,30 @@ function applyRefMaterial(root: Object3D): void {
  * 但預設**不能**改成亮的，理由見 `syncLight` 的檔頭 —— 所以留一個口給腳本
  * 自己開。
  */
+/**
+ * 開發用：讀機身與槍管的旋轉角，量「槍管有沒有跟著轉」。
+ *
+ * 【為什麼需要一個出口】這個缺陷**在截圖上不存在** —— `__hangarCam` 會把
+ * `rotation.y` 歸零並停掉自動旋轉，所以外部工具拍出來的每一張都落在
+ * 「兩者都是 0」的情況上。只有讓它轉起來再讀兩個角度才看得到。
+ * 見 `test/tools/turret-spin.probe.ts`。
+ */
+/** 開發用：開關射界錐，讓截圖腳本不必去點 DOM。回傳目前是不是開著。 */
+;(window as unknown as Record<string, unknown>)['__hangarArcs'] = (on: boolean) => {
+  arcsOn = on
+  if (arcs) arcs.visible = on
+  arcBtn.classList.toggle('on', on)
+  return arcs ? arcs.children.length : 0
+}
+
+;(window as unknown as Record<string, unknown>)['__hangarSpin'] = () => ({
+  model: model ? model.group.rotation.y : 0,
+  barrels: barrels ? barrels.rotation.y : 0,
+  arcs: arcs ? arcs.rotation.y : 0,
+  barrelCount: barrels ? barrels.children.length : 0,
+  arcCount: arcs ? arcs.children.length : 0,
+})
+
 ;(window as unknown as Record<string, unknown>)['__hangarLit'] =
     (on: boolean) => {
       studio = on
@@ -893,6 +1127,31 @@ function frame(now: number): void {
     propRotation += p * 30 * dt
     model.setPropSpin(propRotation, p >= 0.5)
     if (autoRotate && !orthoView) model.group.rotation.y += dt * 0.35
+    /**
+     * 【槍管每幀跟上機身的變換】人工回報 2026-08-21：「機庫飛機旋轉時，
+     * 機槍沒跟著轉」。`barrels` 是**掛在 scene 上的兄弟節點**，不是
+     * `model.group` 的子物件，所以轉盤動它不會動。
+     *
+     * 【為什麼不乾脆掛成子物件】那會污染三個東西，而且三個都不會報錯：
+     *
+     *   `__hangarSlice(..., 'mine')`  它的 root 就是 `model.group`，
+     *                                 槍管會被當成機身的一部分收進去 ——
+     *                                 對切驗收從此量到 12 根管子
+     *   `Box3.setFromObject`          翼展／全長／高的讀數。尾砲塔的槍口在
+     *                                 z 16.85 而機身只到 16.25，全長會多 0.6
+     *   `countTriangles`              三角形數與 mesh 數（+96 / +12）
+     *
+     * 那三個數字是**外型量測流程在依賴的**，不能為了一個開發工具的視覺
+     * 問題去動它們。複製變換是兩邊各一份，代價是「日後轉盤若長出新的自由度
+     * 要記得補」—— 所以這裡複製的是整組 `rotation`／`position`／`scale`，
+     * 不是只有 `rotation.y`。
+     *
+     * 【截圖為什麼看起來是對的】`__hangarCam` 會把 `rotation.y` 歸零並停掉
+     * 自動旋轉，所以逐座近照那一輪剛好落在「兩者都是 0」的情況上 —— 這個
+     * 缺陷只有在**互動時**看得到。
+     */
+    syncToModel(barrels)
+    syncToModel(arcs)
   }
   controls.update()
   renderer.render(scene, orthoView ? orthoCam : camera)

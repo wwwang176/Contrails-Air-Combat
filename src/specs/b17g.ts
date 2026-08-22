@@ -1,6 +1,6 @@
 import { DEG } from '../core/math'
 import { makeHitBox } from '../world/hit'
-import { B17G_BATTERY } from '../weapons/b17g'
+import { B17G_BATTERY, B17G_TURRETS } from '../weapons/b17g'
 import type { AircraftSpec, HistoricalReference } from './types'
 
 const HP = 745.7
@@ -276,6 +276,7 @@ export const B17G: AircraftSpec = {
   ],
 
   battery: B17G_BATTERY,
+  turrets: B17G_TURRETS,
 }
 
 /**

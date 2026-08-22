@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
 import { BF109G6, BF109G6_HISTORICAL } from '../../src/specs/bf109g6'
+import { HE111 } from '../../src/specs/he111'
+import { B17G } from '../../src/specs/b17g'
+import { MAX_TURRETS } from '../../src/weapons/turret'
 
 const CASES = [
   { spec: P51D, hist: P51D_HISTORICAL },
@@ -135,5 +138,31 @@ describe('機種資料', () => {
     expect(BF109G6.controlStiffening.aileronK).toBeGreaterThan(
       P51D.controlStiffening.aileronK * 3,
     )
+  })
+})
+
+/**
+ * 【為什麼還是硬編一份清單】這個專案沒有機種 registry，硬編清單散在十幾個
+ * 檔案裡（見 `.claude/skills/aircraft-from-reference` 的「不要為外型寫測試」
+ * 末段）。這裡照既有做法，但 `turrets` 是**必填**欄位，所以漏掉的機種會先被
+ * 型別擋下來，不會靜靜地沒有測試在跑。
+ */
+const ALL = [P51D, BF109G6, HE111, B17G]
+
+describe('砲塔欄位', () => {
+  it('戰鬥機沒有砲塔', () => {
+    expect(P51D.turrets).toHaveLength(0)
+    expect(BF109G6.turrets).toHaveLength(0)
+  })
+
+  /**
+   * 砲塔的槍焰與槍管用「架數 × MAX_TURRETS」預配實例，超出上界的那一座會
+   * **靜靜地畫不出來**。與 `weapons.test.ts` 守 MAX_MOUNTS 的那一條同理。
+   */
+  it('沒有任何機種的砲塔數超過 MAX_TURRETS', () => {
+    for (const spec of ALL) {
+      expect(spec.turrets.length, `${spec.id} 超過 MAX_TURRETS`)
+        .toBeLessThanOrEqual(MAX_TURRETS)
+    }
   })
 })

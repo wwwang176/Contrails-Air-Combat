@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   aliveCount, createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
+  type BattleConfig,
 } from '../../src/battle/setup'
+import { HEAD_ON } from '../../src/battle/entry'
+import { BF109G6 } from '../../src/specs/bf109g6'
+import { lineAbreast } from '../../src/battle/order'
+import { P51D } from '../../src/specs/p51d'
 import { countLocks } from '../../src/ai/target'
 import { AI_DECISION_HZ, AiController } from '../../src/ai/AiController'
 import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
@@ -236,7 +241,10 @@ function observe(fair = false): Observed {
   // 【fair = true：公平對照組】同機種、且玩家格也由 AI 開。理由見
   // 「雙方都吃得到對方」那條測試的註解。
   const b: Battle = fair
-    ? createBattle(new AiController(), { ...DEFAULT_BATTLE, redSpec: DEFAULT_BATTLE.blueSpec })
+    ? createBattle(new AiController(), {
+      // 【兩隊同機種】改動前寫的是 `redSpec: DEFAULT_BATTLE.blueSpec`
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, P51D, 20),
+    })
     : createBattle(new Idle())
   const cs = b.world.combatants
   const last = new Int32Array(cs.length).fill(-1)
@@ -275,8 +283,10 @@ function observe(fair = false): Observed {
 
   const ais = cs.map((c) => (c.controller instanceof AiController ? c.controller : null))
   const prevDecisions = ais.map((a) => a?.decisionsMade ?? 0)
-  let prevBlue = b.cfg.blueCount
-  let prevRed = b.cfg.redCount
+  // 【改讀實際生出來的架數】改動前讀 `cfg.blueCount`。編組表沒有那個欄位，
+  // 而 `b.blue` / `b.red` 就是生成時分好的兩隊 —— 開局全員存活，兩者相等
+  let prevBlue = b.blue.length
+  let prevRed = b.red.length
 
   for (let i = 0; i < SECONDS / DT; i++) {
     stepBattle(b, DT)
@@ -750,7 +760,14 @@ describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
     //
     // 【8v8 是為了跨分隊接手】藍隊兩個 Schwarm，玩家在第二個。同分隊的
     // 三位用完之後，接手目標必須落到第一個分隊 —— 那條分支只有在這裡走得到。
-    const cfg = { ...DEFAULT_BATTLE, blueCount: 8, redCount: 8 }
+    // 【型別要明寫】不寫的話 TS 推斷出 `cfg` 自己的型別，`createBattle(…, cfg, …)`
+    // 收的又不是新鮮的物件字面值 —— 多餘屬性檢查兩邊都不會跑。編組表那一輪
+    // 實測過：這裡若還寫著 `blueCount: 8` 會靜靜地被忽略，實際跑的是
+    // `DEFAULT_BATTLE.units` 的 20v20，而 tsc 一個字都不會說
+    const BLUE = 8
+    const cfg: BattleConfig = {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, BLUE, BF109G6, 8),
+    }
     const b = createBattle(new Idle(), cfg, 1)
     const cs = b.world.combatants
     const seatsUsed = new Set<number>()
@@ -771,7 +788,7 @@ describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
     expect(b.outcome).toBe('defeat')
     expect(aliveCount(b.blue)).toBe(0)
     // 八個藍隊座位都當過玩家 —— 接手鏈真的走完了，含跨分隊那一步
-    expect(seatsUsed.size).toBe(cfg.blueCount)
+    expect(seatsUsed.size).toBe(BLUE)
     // 名冊裡活著的人數 = 場上活著的座位數
     expect(b.roster.pilots.filter((p) => p.alive).length)
       .toBe(cs.filter((c) => c.alive).length)

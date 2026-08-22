@@ -44,7 +44,33 @@ export class Projectiles {
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一發身上。 */
   private cursor = 0
+
+  /**
+   * 下一發會寫進哪一格。**唯讀，只給重播快照用**
+   * （`test/tools/spawn-snapshot.ts`）。
+   *
+   * 【為什麼要開這個口】兩場的彈丸陣列完全相同、但游標差一格時，下一發就
+   * 會覆寫不同的格子而分岔 —— 而分岔要好幾秒才顯現在畫面上，那時已經查不
+   * 出源頭。快照少了它就抓不到這件事。
+   *
+   * **`cursor` 維持 private**：可寫的入口仍然只有 `spawn` 與 `clear`。
+   */
+  get writeCursor(): number { return this.cursor }
   private liveCount = 0
+
+  /**
+   * 存活數的歷史高水位。
+   *
+   * 【為什麼在 `spawn()` 裡更新而不是在外面讀 `live`】在 `World.step()`
+   * 回來之後才讀會**低估**：一步之內的順序是生成 → 推進／過期 → 命中／
+   * 回收，讀到的是回收後的殘量，抓不到生成瞬間逼近容量的情況。
+   *
+   * 【它是誰要用的】「彈丸池夠不夠大」這個問題只有它答得出來。轟炸機把
+   * 每步的生成量提高了一個量級（160 座砲塔），而池滿時是**覆寫最舊的
+   * 那一發**（不是拒絕發射）—— 也就是說溢位不會有任何錯誤，只會讓遠處
+   * 的曳光彈憑空消失。
+   */
+  peakLive = 0
 
   constructor(capacity: number = PROJECTILE_CAPACITY) {
     this.capacity = capacity
@@ -82,6 +108,7 @@ export class Projectiles {
     this.age[i] = 0
     this.damage[i] = damage
     this.owner[i] = owner
+    if (this.liveCount > this.peakLive) this.peakLive = this.liveCount
     return i
   }
 
@@ -96,6 +123,7 @@ export class Projectiles {
     this.owner.fill(-1)
     this.liveCount = 0
     this.cursor = 0
+    this.peakLive = 0
   }
 
   /**

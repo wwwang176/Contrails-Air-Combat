@@ -1,5 +1,6 @@
 import type { HitBox } from '../world/hit'
 import type { Battery } from '../weapons/types'
+import type { Turret } from '../weapons/turret'
 
 export interface AircraftSpec {
   id: string
@@ -135,6 +136,19 @@ export interface AircraftSpec {
 
   /** 機載武裝。資料在 src/weapons/，這裡只是把它掛上機體。 */
   battery: Battery
+
+  /**
+   * 自衛砲塔。**必填，戰鬥機填空陣列。**
+   *
+   * 【為什麼必填而不是選填】選填的話新增機種時不會有任何東西提醒你去補；
+   * 必填欄位由型別直接擋下來。這個專案已經被硬編機種清單咬過一次
+   * （見 `.claude/skills/aircraft-from-reference` 的「不要為外型寫測試」
+   * 末段），`role` 那一輪也是同一個理由。
+   *
+   * 與 `battery` 的差別：`battery` 由**玩家的扳機**驅動
+   * （`Combatant.command.firing`），砲塔自己找目標、自己決定開火。
+   */
+  turrets: readonly Turret[]
 }
 
 /** 史實性能參考值，供 L2 測試斷言。全部為 SI 單位。 */

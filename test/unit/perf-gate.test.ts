@@ -5,6 +5,10 @@ import {
 } from '../../bench/projectile-load'
 import { createAiLoad, resetAiLoad, stepAiLoad } from '../../bench/ai-load'
 import { createMultiLoad, resetMultiLoad, stepMultiLoad } from '../../bench/multi-load'
+import {
+  createTurretSearchLoad, createTurretTrackLoad, resetTurretLoad, stepTurretLoad,
+  type TurretLoadState,
+} from '../../bench/turret-load'
 
 /**
  * 效能守門測試（spec §3.10 驗收要求）。
@@ -248,6 +252,138 @@ describe('20v20 perf gate', () => {
       console.warn(
         `20v20 步 ${best.toFixed(0)} µs 超過 ${MULTI_BUDGET_US} µs 的設計預算；`
         + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
+      )
+    }
+  })
+})
+
+/**
+ * 砲塔的效能守門。
+ *
+ * 【為什麼需要另外一條】既有的 20v20 門檻用 `bench/multi-load.ts`，
+ * 那一份是 P-51D 對 Bf 109 —— **兩者的 `turrets` 都是空陣列**，所以它
+ * 完全沒有量到砲塔。`bench/turret-load.ts` 把紅隊換成 B-17G（160 座砲塔），
+ * 架數、彈丸池、控制器都不動，兩個數字因此直接可減。
+ *
+ * ── ⚠ 第一版的追瞄負載沒有量到它宣稱的東西（Codex 2026-08-21）────
+ *
+ * 第一版直接用 `PURSUIT` 起始，而那把敵機全部放在同一側 —— 暖機之後只有
+ * **114 / 160 座**取得目標，`top` 與 `tail` 是 **0 座**。門檻因此完全沒有
+ * 涵蓋合法的最壞情形。`bench/turret-load.ts` 現在改成把敵機擺成包圍，
+ * 實測 **160/160**（八種砲塔各 20 座）。
+ *
+ * **真正的最壞情形比舊負載貴 46%**（+204 µs 對 +140 µs）—— 也就是說舊門檻
+ * 不只是宣稱錯了，它守的位置也偏低。
+ *
+ * ── 實測（`npx tsx test/tools/turret-perf.probe.ts`，獨立跑兩次）──────
+ *
+ * ```
+ *   負載                    每步 µs（兩次）      比 20v20 多
+ *   20v20（無砲塔）       188.5 / 182.1            ——
+ *   搜尋（搜不到目標）    184.5 / 185.2       −4.1 / +3.1
+ *   追瞄（160/160 有目標） 392.5 / 402.0      +204.0 / +219.9
+ * ```
+ *
+ * **搜尋那一份落在雜訊之內** —— 160 座砲塔每秒各掃一次 40 個候選，攤到
+ * 240 Hz 是每步 27 次 `solveLead`，量不出來是對的。這正是 `SEARCH_INTERVAL`
+ * 節流要做到的事；計畫第一版「沒有目標就每步重掃」會是它的 240 倍。
+ *
+ * ── ⚠ 同一份負載在三個執行環境下是三個數字 ───────────────────
+ *
+ * ```
+ *                        20v20    追瞄    追瞄／20v20
+ *   tsx（權威）           185      397        2.1×
+ *   vite-node（走 SSR）   258      770        3.0×
+ *   vitest（這一檔單獨跑） 227     1774        7.8×
+ * ```
+ *
+ * 【第一版的解釋是錯的，已被實測推翻】原本寫「vite 的 SSR transform 讓跨
+ * 模組呼叫難以內聯」。用 `vite-node` 跑同一支探針（同樣走 SSR）可以把這件事
+ * 單獨隔離出來：**SSR 只解釋到 1.9×**（770 / 397），而 vitest 是 4.5×
+ * （1774 / 397）。
+ *
+ * SSR 對砲塔路徑的懲罰確實比對 20v20 重（1.9× 對 1.4×），那部分推論沒錯 ——
+ * 砲塔的熱路徑跨四個檔（`inArc`／`slew`／`applyWobble`／`wobbleBasis`／
+ * `stepCadence`／`solveLead`），20v20 的 `resolveHits` 幾乎都在 `World.ts`
+ * 檔內。**但那不是主因。** 剩下的 2.3× 是**同一個 worker 先跑過好幾種不同
+ * 形狀的 `World` 負載之後的 JIT 狀態** —— Codex 實測「vitest 只跑追瞄那一條」
+ * 是 435 µs（與 vite-node 的 436 幾乎相同），跑完整個 perf 檔之後才變 1107。
+ *
+ * 【權威數字是獨立那一份】與這一檔既有的立場一致：「權威數字是獨立的
+ * `npm run bench`，這個警告只是提醒去複測」。
+ *
+ * ── 門檻怎麼訂 ──────────────────────────────────────────
+ *
+ * **預算**取獨立量測上界之上的整百；**門檻**必須擋得住 vitest 的環境因子，
+ * 否則會時紅時綠 —— 而會飄的效能門檻比沒有門檻更糟。
+ *
+ * ```
+ *   搜尋  獨立上界 185、vitest 229  → 預算 300、門檻  900
+ *   追瞄  獨立上界 402、vitest 1774 → 預算 500、門檻 3500
+ * ```
+ *
+ * 搜尋那一條與 20v20 的 300/900 完全相同 —— 它量到的本來就是同一件事。
+ *
+ * **⚠ 追瞄那一條的守門能力比這一檔其他幾條弱，這是已知的限制不是疏忽。**
+ * 3500 對 vitest 實測只有 2.0 倍餘裕（與彈丸門檻的 2× 同級），也就是說
+ * **一個「讓 `stepTurrets` 慢一倍」的迴歸不會被它抓到** —— 1774 會變成
+ * 約 3200，仍在門檻之下。要抓那一級的迴歸只能靠獨立探針
+ * （`test/tools/turret-perf.probe.ts`，那裡 397 → 794 一眼可見）。
+ *
+ * 之所以不把門檻壓到 2500：vitest 那個 4.5× 的環境因子來自 JIT 狀態，
+ * 而 JIT 狀態會隨 V8 版本、機器、以及這一檔前面幾條測試的內容而變。壓在
+ * 觀測值附近的門檻會開始時紅時綠，那比守不住還糟。
+ *
+ * **修法是讓量測抗干擾，不是放寬斷言** —— 這一檔的既有立場。真正的修法是
+ * 讓追瞄那一條在**乾淨的 worker** 裡跑（例如自己一個檔案）。沒有這麼做是
+ * 因為那會多一支「必須單獨跑」的測試，而這個專案已經有兩支了。
+ * **這一項待專案負責人裁定。**
+ *
+ * 這幾條要抓的具體迴歸：把 `SEARCH_INTERVAL` 的節流拿掉（每步 27 次
+ * `solveLead` 變成 6,400 次，搜尋那一條會直接衝破 900），或把每座砲塔的
+ * 逆姿態四元數從「一架算一次」改回「每座各算一次」。
+ */
+const TURRET_SEARCH_BUDGET_US = 300
+const TURRET_SEARCH_GATE_US = 900
+const TURRET_TRACK_BUDGET_US = 500
+const TURRET_TRACK_GATE_US = 3500
+
+function measureTurretLoad(make: () => TurretLoadState): number {
+  const state = make()
+  for (let i = 0; i < 300; i++) stepTurretLoad(state)
+  resetTurretLoad(state)
+
+  // 取多批的最小值，批次多而短 —— 見上面關於並行雜訊的說明
+  const BATCHES = 40
+  const N = 25
+  let best = Infinity
+  for (let b = 0; b < BATCHES; b++) {
+    const t0 = performance.now()
+    for (let i = 0; i < N; i++) stepTurretLoad(state)
+    best = Math.min(best, ((performance.now() - t0) * 1000) / N)
+  }
+  return best
+}
+
+describe('turret perf gate', () => {
+  it('160 座砲塔搜不到目標時，成本仍在 20v20 的雜訊之內', () => {
+    const best = measureTurretLoad(createTurretSearchLoad)
+    expect(best).toBeLessThan(TURRET_SEARCH_GATE_US)
+    if (best >= TURRET_SEARCH_BUDGET_US) {
+      console.warn(
+        `砲塔搜尋步 ${best.toFixed(0)} µs 超過 ${TURRET_SEARCH_BUDGET_US} µs 的設計預算；`
+        + '若非並行雜訊所致，先確認 SEARCH_INTERVAL 的節流還在。',
+      )
+    }
+  })
+
+  it('160 座砲塔**全部**有目標時沒有數量級的迴歸', () => {
+    const best = measureTurretLoad(createTurretTrackLoad)
+    expect(best).toBeLessThan(TURRET_TRACK_GATE_US)
+    if (best >= TURRET_TRACK_BUDGET_US) {
+      console.warn(
+        `砲塔追瞄步 ${best.toFixed(0)} µs 超過 ${TURRET_TRACK_BUDGET_US} µs 的設計預算；`
+        + '若非並行雜訊所致，請以 test/tools/turret-perf.probe.ts 獨立複測。',
       )
     }
   })

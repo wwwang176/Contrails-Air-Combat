@@ -11,6 +11,8 @@ import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
+import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
+import type { TurretState } from './turrets'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
@@ -42,6 +44,15 @@ export interface Combatant {
    * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時掛架數會變。
    */
   muzzleFlash: Float32Array
+
+  /**
+   * 每座砲塔的執行期狀態。
+   *
+   * 【不是 readonly】與 `cooldowns` 同一個理由：換裝機種時砲塔數會變。
+   */
+  turretStates: TurretState[]
+  /** 每座砲塔的射速時鐘。與 `cooldowns` 平行，但砲塔走自己那一條。 */
+  turretCooldowns: Float32Array
   hp: number
   /**
    * 包圍球半徑，m。命中判定的粗篩用，隨 spec 一起更新。
@@ -241,6 +252,8 @@ export class World {
       command: createCommand(),
       cooldowns: new Float32Array(aircraft.spec.battery.mounts.length),
       muzzleFlash: new Float32Array(aircraft.spec.battery.mounts.length),
+      turretStates: createTurretStates(aircraft.spec, this.combatants.length),
+      turretCooldowns: new Float32Array(aircraft.spec.turrets.length),
       hp: aircraft.spec.hp,
       hitRadius: boundingRadius(aircraft.spec.hitBoxes),
       team,
@@ -292,6 +305,15 @@ export class World {
         const v = flash[i]! - dt
         flash[i] = v > 0 ? v : 0
       }
+      // 【砲塔的槍焰跟固定槍在同一個迴圈】理由與上面那一段一模一樣：遞減
+      // 若寫在存活檢查之後，被打爆那一瞬間亮著的槍焰會永遠停在那裡。併在
+      // 一起而不是讓 stepTurrets 自己遞減，是為了讓死掉的飛機不必每步再跑
+      // 一次砲塔迴圈。
+      for (let i = 0; i < c.turretStates.length; i++) {
+        const st = c.turretStates[i]!
+        const v = st.flash - dt
+        st.flash = v > 0 ? v : 0
+      }
       if (!c.alive) continue
       c.controller.update(c.aircraft, dt, c.command)
     }
@@ -309,6 +331,13 @@ export class World {
     for (const c of this.combatants) {
       if (!c.alive) continue
       this.fire(c, dt)
+    }
+    // 【砲塔在 fire 之後、彈丸推進之前】兩者都往同一個池子寫，順序固定
+    // 才可重現。跳過死掉的 —— 槍焰的遞減已經在上面那個全 combatant 的
+    // 迴圈裡做過了。
+    for (const c of this.combatants) {
+      if (!c.alive) continue
+      stepTurrets(c, this.combatants, this.projectiles, this.time, dt)
     }
 
     // 3. 彈丸推進
@@ -340,6 +369,15 @@ export class World {
       c.muzzleFlash = new Float32Array(spec.battery.mounts.length)
     } else {
       c.muzzleFlash.fill(0)
+    }
+    // 【砲塔狀態跟著 spec 一起重配】與射速時鐘、槍焰計時器同一個理由，
+    // 而且必須在同一個地方 —— 分開寫就是只有一份會被修好的那種危險。
+    if (c.turretCooldowns.length !== spec.turrets.length) {
+      c.turretCooldowns = new Float32Array(spec.turrets.length)
+      c.turretStates = createTurretStates(spec, c.index)
+    } else {
+      c.turretCooldowns.fill(0)
+      resetTurretStates(c.turretStates, spec, c.index)
     }
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)
@@ -583,6 +621,10 @@ export class World {
     c.aircraft.prevPosition.copy(c.spawnPosition)
     c.hp = c.aircraft.spec.hp
     c.cooldowns.fill(0)
+    // 【砲塔也要清】不清的話重生後會從上一條命的指向、目標與點放相位接著
+    // 跑。就地重設，不配置 —— respawn 可能在物理步之內被呼叫。
+    c.turretCooldowns.fill(0)
+    resetTurretStates(c.turretStates, c.aircraft.spec, c.index)
     c.hitsDealt = 0
     c.alive = true
     // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條

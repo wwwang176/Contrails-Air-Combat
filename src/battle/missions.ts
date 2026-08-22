@@ -3,7 +3,10 @@ import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { specsFor, type FactionChoice } from './skirmish'
 import { VETERAN } from '../ai/profile'
 import { ENTRY_PLANS, type EntryPlanId } from './entry'
+import { convoyLine, lineAbreast } from './order'
 import type { MissionRules } from './mission'
+import type { AircraftSpec } from '../specs/types'
+import type { Team } from '../world/World'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
@@ -38,13 +41,43 @@ export interface MissionCard {
    * `stepMission` 每個物理步跑 240 次，等於每秒配置 240 個字串。
    */
   objective: string
-  /** 我方架數，含玩家 */
+  /**
+   * 我方**戰鬥機**的架數，含玩家。
+   *
+   * 【2026-08-21 起不含被護送的那幾架】它們由 `convoyCount` 另外給 ——
+   * 兩者的編隊方式、高度層與行為完全不同（見 `order.ts` 的 `SideOrder`），
+   * 混在同一個數字裡的話這一層要自己去猜哪幾架是哪一種。
+   */
   blueCount: number
   redCount: number
-  /** 撤離點在 −Z 多遠，m。非撤離任務為 0 */
-  evacDistance: number
-  /** 抵達半徑，m。**就是圓環半徑**。非撤離任務為 0 */
-  evacRadius: number
+  /**
+   * 被護送／被攔截的那幾架有幾架。**護送算在藍隊、攔截算在紅隊**，
+   * 其餘任務為 0。
+   *
+   * 【為什麼一個欄位就夠】一張卡只會有一邊有轟炸機 —— 那正是護送與攔截的
+   * 定義。哪一邊由 `type` 決定，見 `missionRules`。
+   */
+  convoyCount: number
+  /**
+   * 被護送的那幾架在**敵方**目標挑選裡值幾倍。**1 = 沒有偏置。**
+   *
+   * 【為什麼在卡片上而不是一個全域常數】專案負責人 2026-08-21：「任務可能
+   * 會需要有一些獨立的小參數可以調。」護送與攔截要的量不一定一樣 —— 護送
+   * 是「敵人更想打我方轟炸機」（讓這一關真的變成護送），攔截是「我方更想
+   * 打敵方轟炸機」（突破護航網）。同一個機制、兩個可以分開調的數字。
+   *
+   * 詳見 `mission.ts` 的 `MissionTuning.convoyPriority`。
+   */
+  convoyPriority: number
+  /**
+   * 終點在該隊機首方向多遠，m。沒有終點的任務為 0。
+   *
+   * 【為什麼是距離而不是座標】方向跟著那一隊走：撤離與護送是藍隊、
+   * 朝 −Z；攔截是紅隊、朝 +Z。寫成座標的話這件事會被藏進一個負號。
+   */
+  targetDistance: number
+  /** 抵達半徑，m。**就是圓環半徑**。沒有終點的任務為 0 */
+  targetRadius: number
   /** 時限，秒。無時限為 `Infinity` */
   seconds: number
   /**
@@ -68,7 +101,8 @@ export interface MissionCard {
 
 /** 沒有撤離點、沒有時限、還沒做的卡共用這一組 */
 const LOCKED = {
-  objective: '', evacDistance: 0, evacRadius: 0, seconds: Infinity,
+  objective: '', convoyCount: 0, convoyPriority: 1,
+  targetDistance: 0, targetRadius: 0, seconds: Infinity,
   entry: 'headOn', playable: false,
 } as const
 
@@ -79,7 +113,7 @@ const LOCKED = {
  */
 const KILL = {
   objective: '擊落全部敵機',
-  evacDistance: 0, evacRadius: 0, seconds: Infinity,
+  convoyCount: 0, convoyPriority: 1, targetDistance: 0, targetRadius: 0, seconds: Infinity,
   entry: 'headOn', playable: true,
 } as const
 
@@ -125,7 +159,7 @@ const KILL = {
  */
 const EVAC = {
   objective: '飛抵撤離點',
-  evacDistance: 20000, evacRadius: 1000,
+  convoyCount: 0, convoyPriority: 1, targetDistance: 20000, targetRadius: 1000,
   // 【追兵在正後方 400 m、高 200 m】理由與數字的推導見 `entry.ts` 的 `PURSUIT`
   entry: 'pursuit', playable: false,
 } as const
@@ -167,17 +201,76 @@ const EVAC_SECONDS_ALLIES = Math.round(EVAC_STRAIGHT_ALLIES * EVAC_MARGIN)
 const EVAC_SECONDS_AXIS = Math.round(EVAC_STRAIGHT_AXIS * EVAC_MARGIN)
 
 /**
+ * 護送／攔截的終點離出發線多遠，m。**四張卡共用。**
+ *
+ * 【起始值 12,000，待掃描】藍隊由 z ≈ +5,000（`entryRange / 2`）出發，
+ * 所以全程 17 km。B-17G 的臨界高度極速 462 km/h = 128 m/s，直飛約 133 s
+ * （2.2 分鐘）—— 護航機打完一輪還追得上，而攔截方有第二次機會。
+ *
+ * 【為什麼不沿用撤離的 20 km】那個數字是照 P-51 的速度訂的。轟炸機慢四成，
+ * 同樣距離會把一場仗拖成三分半。
+ */
+const CONVOY_DISTANCE = 12000
+/**
+ * 抵達半徑，m。**沿用撤離掃描出來的 1,000**（見 `EVAC` 的表三）。
+ *
+ * 【它同時是編隊寬度的上界】整隊只有一個判定圈，所以最外側那一架也必須
+ * 落得進來。`order.ts` 的 `CONVOY_LANE` 就是照這個數字訂的。
+ */
+const CONVOY_RADIUS = 1000
+/**
+ * 被護送的那幾架在敵方目標挑選裡值幾倍。**專案負責人的裁定，試飛中。**
+ *
+ * 【為什麼一定要大於 1】不加偏置時護航機只要有兩架，轟炸機就**一發都挨不
+ * 到**（實測血量 100/100/100/100）—— `targetScore` 只看威脅與幾何，而護航機
+ * 兩者都更強：它會還手、而且擺得更高更近。
+ *
+ * 【為什麼一個數字管兩張卡】它掛在被護送的那幾架身上，只有敵人替它們評分。
+ * 護送時是紅隊更想打我方轟炸機，攔截時是藍隊更想打敵方轟炸機 —— **同一個
+ * 偏置，兩側同時動**，所以不能只照著一張卡調。
+ *
+ * 【它不是「只打轟炸機」】乘法偏置仍然會被幾何否決：一架在正後方三公里外
+ * 的轟炸機，乘上去之後照樣輸給眼前這架咬著我的護航機。要的正是這個 ——
+ * 「優先」不是「無視戰場」。
+ *
+ * 【每張卡都可以自己覆寫】值住在 `MissionCard.convoyPriority`；這裡只是
+ * 四張卡目前共用的那一個。
+ */
+const CONVOY_PRIORITY = 5
+
+/** 護送與攔截共用的幾何。差別只有目標列的文字 */
+const CONVOY = {
+  convoyCount: 4, convoyPriority: CONVOY_PRIORITY,
+  targetDistance: CONVOY_DISTANCE, targetRadius: CONVOY_RADIUS,
+  // 【無時限】專案負責人 2026-08-21 給的兩組勝負條件裡沒有時間 —— 護送
+  // 敗北只有「全部被擊落」，攔截敗北只有「任一台抵達」
+  seconds: Infinity,
+  // 【對頭】護送要打穿出去（理由同 `EVAC`），攔截則是迎向轟炸機流 ——
+  // 同一個擺法對兩邊都成立，因為它們本來就是同一個局面的兩側
+  entry: 'headOn', playable: true,
+} as const
+
+/** 護送：把自己那幾架帶到終點 */
+const ESCORT = { ...CONVOY, objective: '護送轟炸機抵達集合點' } as const
+/** 攔截：在對方那幾架抵達之前打光 */
+const INTERCEPT = { ...CONVOY, objective: '在轟炸機抵達前擊落' } as const
+
+/**
  * 兩個陣營的任務。
  *
- * 【現在只有殲滅可打】其餘四種各缺各的：
+ * 【還沒開的是打擊與撤離】
  *
  * ```
- *   攔截／護航  缺第三種機體（轟炸機／運輸機）—— 不存在
- *   打擊        缺對地武器與地面目標 —— 兩者都不存在
- *   撤離        判定做好了，缺一個追得到的追兵（見上面 EVAC 的 ⚠）
+ *   打擊  缺對地武器與地面目標 —— 兩者都不存在
+ *   撤離  判定做好了，缺一個追得到的追兵（見上面 EVAC 的 ⚠）
  * ```
  *
- * 架數照填，補上前置時只要把 `playable` 翻成 true。
+ * 【攔截與護航 2026-08-21 開放】兩者共用 `mission.ts` 的 convoy 一條規則、
+ * `order.ts` 的 `convoyLine` 一支生成器。轟炸機兩台早就落地了
+ * （`specs/b17g.ts`、`specs/he111.ts`），缺的一直是「永遠往終點飛」這個
+ * 行為與那條勝負條件。
+ *
+ * 剩下兩張的架數照填，補上前置時只要把 `playable` 翻成 true。
  */
 export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
   allies: [
@@ -189,7 +282,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'allies-intercept', title: '攔截 He 111 轟炸群', type: '攔截', difficulty: 3,
       summary: '在轟炸機投彈前擊落它們。',
-      blueCount: 4, redCount: 8, ...LOCKED,
+      blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
       id: 'allies-strike', title: '打擊魯爾鐵路', type: '打擊', difficulty: 3,
@@ -198,8 +291,10 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     },
     {
       id: 'allies-escort', title: '護送 B-17 至集合點', type: '護航', difficulty: 4,
-      summary: '把每一架轟炸機帶到集合點。',
-      blueCount: 4, redCount: 10, ...LOCKED,
+      // 【文案由「每一架」改成「轟炸機」】勝利條件是**任一架**抵達，不是
+      // 全部。卡片上的字若與判定相反，玩家會照錯的目標去打
+      summary: '把轟炸機帶到集合點。',
+      blueCount: 4, redCount: 10, ...ESCORT,
     },
     {
       id: 'allies-evac', title: '且戰且走', type: '撤離', difficulty: 5,
@@ -216,7 +311,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
     {
       id: 'axis-intercept', title: '攔截 B-17 轟炸群', type: '攔截', difficulty: 3,
       summary: '突破護航網，打掉重轟炸機。',
-      blueCount: 4, redCount: 8, ...LOCKED,
+      blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
       id: 'axis-strike', title: '打擊登陸艦隊', type: '打擊', difficulty: 4,
@@ -224,9 +319,12 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
       blueCount: 4, redCount: 8, ...LOCKED,
     },
     {
-      id: 'axis-escort', title: '護送運輸機', type: '護航', difficulty: 3,
-      summary: '掩護運輸機穿越敵方巡邏區。',
-      blueCount: 4, redCount: 8, ...LOCKED,
+      // 【標題由「護送運輸機」改成 He 111】專案沒有運輸機，被護送的實際上
+      // 是 He 111（`specsFor('axis')[1]`）。標題與畫面上飛的東西不一致，
+      // 是那種每個人都會看到、卻沒有任何測試會抓到的錯
+      id: 'axis-escort', title: '護送 He 111 編隊', type: '護航', difficulty: 3,
+      summary: '掩護轟炸機穿越敵方巡邏區。',
+      blueCount: 4, redCount: 8, ...ESCORT,
     },
     {
       id: 'axis-evac', title: '撤出包圍', type: '撤離', difficulty: 5,
@@ -243,17 +341,41 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
  * 寫死 4000 的話兩者會在某次調整之後靜靜地差開 —— 而症狀是「圓環浮在
  * 戰場上方，飛過去卻沒判到」。
  *
- * 【為什麼判準是 `type` 而不是 `evacDistance > 0`】後者把「這是撤離任務」
+ * 【為什麼判準是 `type` 而不是 `targetDistance > 0`】後者把「這是撤離任務」
  * 這件事編碼進一個數字的正負，而那個數字的意思是距離。
  */
-export function missionRules(card: MissionCard, altitude: number): MissionRules {
-  if (card.type !== '撤離') return { kind: 'annihilate' }
-  return {
-    kind: 'evacuate',
-    point: new Vector3(0, altitude, -card.evacDistance),
-    radius: card.evacRadius,
-    seconds: card.seconds,
+export function missionRules(
+  card: MissionCard, altitude: number, lateralOffset: number,
+): MissionRules {
+  if (card.type === '撤離') {
+    return {
+      kind: 'evacuate',
+      point: new Vector3(0, altitude, -card.targetDistance),
+      radius: card.targetRadius,
+      seconds: card.seconds,
+    }
   }
+  if (card.type === '護航' || card.type === '攔截') {
+    // 【護航是我方的轟炸機、攔截是敵方的】這一行就是兩張卡的**全部**差別，
+    // 判定那一側是同一條規則（見 `mission.ts` 的 convoy）
+    const owner: Team = card.type === '護航' ? 'blue' : 'red'
+    // 【方向跟著那一隊的機首】藍隊開局朝 −Z、紅隊朝 +Z。所以護送的終點在
+    // 敵人後方（要打穿出去，理由同撤離），而攔截的終點在**我方**後方 ——
+    // 那正是「別讓它飛過去」的意思
+    const z = owner === 'blue' ? -card.targetDistance : card.targetDistance
+    // 【圈要放在那一隊自己的航道上，不是 x = 0】兩隊對頭時各自橫向偏
+    // `across × lateralOffset`（起始值 ∓750 m，見 `entry.ts` 的 `HEAD_ON`
+    // 與 `BattleConfig.lateralOffset`）—— 那是為了不對撞。判定圈釘在 0 的話，
+    // 最外側那一架到圈心是 750 + 300 = 1,050 m，**永遠判不到**，而症狀是
+    // 「轟炸機從圈旁邊飛過去，任務永遠不結束」（2026-08-21 由
+    // `test/tools/convoy.probe.ts` 表三抓到）。
+    //
+    // 【撤離刻意不跟著改】那一組座標是實測定值（見 `EVAC`），而且撤離是
+    // 玩家自己操縱著飛過去 —— 他看得到圈在哪裡。這裡不行，飛的是 AI。
+    const x = ENTRY_PLANS[card.entry][owner].across * lateralOffset
+    return { kind: 'convoy', owner, point: new Vector3(x, altitude, z), radius: card.targetRadius }
+  }
+  return { kind: 'annihilate' }
 }
 
 /**
@@ -274,14 +396,38 @@ export function missionRules(card: MissionCard, altitude: number): MissionRules 
 export function missionConfigFrom(card: MissionCard, faction: FactionChoice): BattleConfig {
   const mine = specsFor(faction)
   const theirs = specsFor(faction === 'allies' ? 'axis' : 'allies')
+  const rules = missionRules(card, DEFAULT_BATTLE.altitude, DEFAULT_BATTLE.lateralOffset)
+  // 【擺法是生成器的第一個參數】`card.entry` 仍然是 `ENTRY_PLANS` 的鍵，
+  // 那張表一個字不動
+  const plan = ENTRY_PLANS[card.entry]
+  // 【`[1]` 是那個陣營的轟炸機】`specsFor` 的第一台是戰鬥機、第二台是
+  // 轟炸機（見 `skirmish.ts` 的 `SPECS`）。第三台加進去時這一行不必動 ——
+  // 它取的是「那個陣營的轟炸機」而不是「最後一台」
+  const bomber = (side: readonly AircraftSpec[]): AircraftSpec => {
+    const b = side[1]
+    if (b === undefined) throw new Error('這個陣營沒有第二台機體，護送／攔截無法生成')
+    return b
+  }
+  const units = rules.kind === 'convoy'
+    ? convoyLine(plan, {
+      fighter: mine[0]!,
+      fighters: card.blueCount,
+      bomber: rules.owner === 'blue' ? bomber(mine) : null,
+      bombers: card.convoyCount,
+    }, {
+      fighter: theirs[0]!,
+      fighters: card.redCount,
+      bomber: rules.owner === 'red' ? bomber(theirs) : null,
+      bombers: card.convoyCount,
+    })
+    : lineAbreast(plan, mine[0]!, card.blueCount, theirs[0]!, card.redCount)
   return {
     ...DEFAULT_BATTLE,
-    blueCount: card.blueCount,
-    redCount: card.redCount,
-    blueSpec: mine[0]!,
-    redSpec: theirs[0]!,
+    units,
     aiProfile: VETERAN,
-    rules: missionRules(card, DEFAULT_BATTLE.altitude),
-    entry: ENTRY_PLANS[card.entry],
+    rules,
+    // 【只有護送／攔截會偏離中性值】其餘卡片的 `convoyPriority` 是 1，
+    // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
+    tuning: { convoyPriority: card.convoyPriority },
   }
 }
