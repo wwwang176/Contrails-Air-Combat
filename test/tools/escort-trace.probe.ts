@@ -31,13 +31,57 @@ import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
+import type { Controller } from '../../src/control/Controller'
+import type { Command } from '../../src/control/Controller'
+import type { Aircraft } from '../../src/aircraft/Aircraft'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
 
 const DT = 1 / 240
 const SECONDS = 300
+/**
+ * 【換 seed 不會換軌跡 —— 別再試了】`createBattle` 的 seed **只抽飛行員
+ * 名字**（`setup.ts` 自己的註解寫著「不進入任何物理路徑」）。出生位置、
+ * 高度、航向全部是寫死的常數，整場模擬完全決定性。實測掃過 12 個 seed，
+ * 主判準三個數字逐位元相同。
+ *
+ * 要取得「不同的一場」得換初始條件 —— 見 `HANDOFF`。
+ */
 const SEED = 20260805
+
+/**
+ * **幾秒之後才交給 AI 代飛**（0 = 從頭就代飛，即原本的行為）。
+ *
+ * 【為什麼需要這個】專案負責人自己在遊戲裡按代飛，飛出來的路徑與這支探針
+ * 不同。模擬是決定性的，所以差別只能來自初始條件 —— 而遊戲裡玩家是**自己
+ * 先飛了一段才按代飛**，接手時的位置、速度、與敵機的相對關係都不一樣。
+ *
+ * 掃這一個等於掃「從不同的局面接手」，這是這張任務卡唯一拿得到的樣本
+ * 多樣性。接手之前由 `CruiseController` 維持巡航，把起點挪開而已。
+ */
+const HANDOFF = Number(process.env.HANDOFF ?? 0)
+
+/**
+ * 玩家替身：維持當前航向、機首水平、八成油門。
+ *
+ * 【不做迴避也不開火】它要代表的是「玩家還在巡航、還沒按代飛」的那一段，
+ * 不是另一個 AI。加上任何戰術動作，「接手時的局面」就變成它的產物了。
+ */
+class CruiseController implements Controller {
+  private readonly aim = new Vector3()
+
+  update(self: Aircraft, _dt: number, out: Command): void {
+    const v = self.state.velocity
+    const h = Math.hypot(v.x, v.z)
+    if (h > 1e-3) this.aim.set(v.x / h, 0, v.z / h)
+    else this.aim.set(0, 0, -1).applyQuaternion(self.state.orientation)
+    out.aimWorld.copy(this.aim)
+    out.throttle = 0.8
+    out.brake = 0
+    out.firing = false
+  }
+}
 const STRIDE = 12
 const STEP = DT * STRIDE
 
@@ -115,6 +159,8 @@ function main(): void {
   const me: Combatant = b.player
   const ai = me.controller
   if (!(ai instanceof AiController)) throw new Error('玩家座位不是 AI 代飛')
+  // 【接手之前先巡航】見 `HANDOFF`
+  if (HANDOFF > 0) me.controller = new CruiseController()
 
   const guarded = b.world.combatants.filter((c) => b.board.protectedMask[c.index] !== 0)
 
@@ -125,6 +171,8 @@ function main(): void {
   let t = 0
 
   for (let k = 0; k < Math.round(SECONDS / DT); k++) {
+    // 【切換要在步進之前】按下代飛的那一拍，AI 就要接管這一步的指令
+    if (HANDOFF > 0 && me.controller !== ai && k * DT >= HANDOFF) me.controller = ai
     stepBattle(b, DT)
     if (k % STRIDE !== 0) continue
     t += STEP
