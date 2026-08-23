@@ -8,6 +8,7 @@ import {
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
+  createTrackState, stepTrack, type TrackState,
 } from '../../src/ai/steer'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
@@ -2279,5 +2280,121 @@ describe('extend 的回場方向', () => {
       expect(a.y).toBe(b.y)
       expect(a.z).toBe(b.z)
     })
+  })
+})
+
+/**
+ * 「追不上」的閘鎖。spec `2026-08-23-track-break-design.md` §5。
+ *
+ * 【為什麼一定要閘】實測連續超過 `trackEnter` 的最長一段只有 **1.7 秒**。
+ * 直接讀瞬時值的話 AI 會佈局 1.7 秒、切回追矄、再觸發 —— 機首每兩秒抖一次。
+ */
+describe('stepTrack —— 追不上的閘鎖', () => {
+  const cfg = DEFAULT_STEER
+  const DT = 1 / 240
+
+  /**
+   * 視線角速度的餵法：`HOT` 遠高於 `trackLosFloor`，所以下面每一條都在
+   * 「本來就開不了火」的區域，量的是閘鎖本身。地板那一條另外測。
+   */
+  const HOT = 1.0
+
+  /** 餵 `seconds` 秒的 `ratio`，回傳結束時的狀態 */
+  function feed(state: TrackState, ratio: number, seconds: number): TrackState {
+    const steps = Math.round(seconds / DT)
+    for (let i = 0; i < steps; i++) stepTrack(state, ratio, HOT, true, DT, cfg)
+    return state
+  }
+
+  it('起始沒有閘上', () => {
+    expect(createTrackState().latched).toBe(false)
+  })
+
+  it('超過 trackEnter 立刻閘上', () => {
+    const s = createTrackState()
+    stepTrack(s, cfg.trackEnter + 0.01, HOT, true, DT, cfg)
+    expect(s.latched).toBe(true)
+  })
+
+  it('恰好等於 trackEnter 不閘 —— 嚴格大於', () => {
+    const s = createTrackState()
+    stepTrack(s, cfg.trackEnter, HOT, true, DT, cfg)
+    expect(s.latched).toBe(false)
+  })
+
+  /** 【這一條是整個閘鎖存在的理由】1.7 秒的脈衝要撐得住。 */
+  it('1.7 秒的脈衝之後仍然閘著', () => {
+    const s = createTrackState()
+    feed(s, 2.5, 1.7)
+    expect(s.latched).toBe(true)
+    // 訊號消失，但還沒滿 trackHold
+    feed(s, 0.2, cfg.trackHold * 0.9)
+    expect(s.latched).toBe(true)
+  })
+
+  it('低於 trackExit 連續滿 trackHold 秒才釋放', () => {
+    const s = createTrackState()
+    feed(s, 2.5, 0.5)
+    feed(s, 0.2, cfg.trackHold + 0.05)
+    expect(s.latched).toBe(false)
+  })
+
+  /** 【計時器要能被打斷】中途又超過門檻就重新計。 */
+  it('安靜期被打斷就重新計時', () => {
+    const s = createTrackState()
+    feed(s, 2.5, 0.5)
+    feed(s, 0.2, cfg.trackHold * 0.8)
+    feed(s, 2.5, 0.1)                    // 又爆一次
+    feed(s, 0.2, cfg.trackHold * 0.8)    // 再等 0.8 倍 —— 不夠
+    expect(s.latched).toBe(true)
+  })
+
+  /**
+   * 【介於兩個門檻之間不算安靜】遲滞帶：閘上之後要掉到 `trackExit` 以下
+   * 才開始計時，不是掉到 `trackEnter` 以下。
+   */
+  it('落在遲滞帶裡不開始計時', () => {
+    const s = createTrackState()
+    feed(s, 2.5, 0.5)
+    feed(s, (cfg.trackEnter + cfg.trackExit) / 2, cfg.trackHold * 3)
+    expect(s.latched).toBe(true)
+  })
+
+  it('沒有目標時立刻釋放', () => {
+    const s = createTrackState()
+    feed(s, 2.5, 0.5)
+    stepTrack(s, 0, 0, false, DT, cfg)
+    expect(s.latched).toBe(false)
+  })
+
+  /** 非有限值不得讓狀態卡死或閘上。 */
+  it('NaN 不閘上', () => {
+    const s = createTrackState()
+    stepTrack(s, NaN, HOT, true, DT, cfg)
+    expect(s.latched).toBe(false)
+  })
+
+  /** 【消融開關】trackEnter <= 0 時永遠不閘。 */
+  it('trackEnter <= 0 永遠不閘', () => {
+    const s = createTrackState()
+    const off = { ...cfg, trackEnter: 0 }
+    for (let i = 0; i < 2400; i++) stepTrack(s, 99, HOT, true, DT, off)
+    expect(s.latched).toBe(false)
+  })
+
+  /**
+   * 【打得到就別佈局，扴機優先】比值大不代表開不了火 —— 一台轉彎率很低的
+   * 飛機在很慢的視線角速度下也會讓比值超過門檻，而那個角速度低到
+   * `shouldFire` 根本沒擋。那一格要讓給扴機。
+   *
+   * 【為什麼不是靠推論】原本的計畫寫「比值大蘊含開不了火」，Codex 指出
+   * 那在 `instantaneousTurnRate` 很小時不成立。改成明寫一道地板。
+   */
+  it('視線角速度低於 trackLosFloor 時不閘', () => {
+    const s = createTrackState()
+    for (let i = 0; i < 2400; i++) {
+      stepTrack(s, 99, cfg.trackLosFloor, true, DT, cfg)
+    }
+    expect(s.latched).toBe(false)
   })
 })
