@@ -1763,6 +1763,91 @@ export function turnPlaneClimb(
   return lerp(cfg.climbMin, cfg.climbMax, clamp(energyAdvantage / cfg.energyFull, 0, 1))
 }
 
+/**
+ * 把**負的**航跡角往水平拉 `weight` 的比例，水平方位不變。就地修改。
+ *
+ * `weight = 1` 等於「航跡角下限 0」、`weight = 0` 逐位元不動，中間連續 ——
+ * 這正是「下限本身也乘上方位係數」（方位差小時不介入）。
+ *
+ * 【為什麼不是 `applyFloor(self, 0, aim)`】那一層的 `minPitch <= 0` 直接
+ * return（高空無操作是它能無條件疊加的前提），而且它沒有權重的概念。
+ *
+ * 【只抬不壓】已經在爬升時逐位元不動，所以可以疊在任何東西上。
+ *
+ * 假設 `aim` 是單位向量。
+ */
+export function raiseTowardLevel(weight: number, aim: Vector3): void {
+  if (!(weight > 0)) return
+  if (aim.y >= 0) return
+  const horiz = Math.hypot(aim.x, aim.z)
+  // 【鉛直朝下：方位沒有定義】與 `applyPitchBias` 走同一條退化路徑 —— 這一層
+  // 只是偏好，放棄是安全的；撞地那一條由後面的 `applyFloor` 接手，那一層非
+  // 動不可
+  if (horiz < 1e-9) return
+  const next = weight >= 1 ? 0 : Math.atan2(aim.y, horiz) * (1 - weight)
+  const scale = Math.cos(next) / horiz
+  aim.set(aim.x * scale, Math.sin(next), aim.z * scale)
+}
+
+/**
+ * 迴轉平面的紀律：方位差大時**不准把航跡角壓成負的**，並依能量優勢帶一點
+ * 拉高。就地修改 `aim`，**水平方位一格不動**。
+ *
+ * 這是 `steerCommand` 後處理鏈的第三層，排在 `applyPitchBias` 之後、
+ * `applyFloor` 之前。兩個效果共用同一個方位係數，所以能量剛好持平時偏置自然
+ * 落在中間，沒有任何一刻跳變。
+ *
+ * 【它在回答一個沒有人回答的問題】其餘各層回答了「做什麼」（意圖）與「瞄
+ * 哪裡」（瞄準解），**沒有人回答「往哪個面轉」**。所以 `engage` 一路追預瞄
+ * 點，而預瞄點在目標往下往後跑的時候會把 AI 整個帶著繞下去 —— 人工回報：
+ * 109 交會之後向下繞一圈掉頭，掉了 1,093 m，最後低於被護送的轟炸機。
+ * 史實上交會之後追不上就別追：有能量拉高脫離、沒能量水平緊轉，**兩種都不
+ * 往下**。
+ *
+ * 【它不修「不該跟著繞」】那個追擊判斷本身目前沒有好答案（前瞻判準
+ * `psSelf − psTarget` 實測否決：追擊期間它給的是「繼續」的訊號）。AI 一樣會
+ * 繞，只是繞的時候不再往下掉。
+ */
+export function applyTurnPlane(
+  self: Aircraft,
+  intent: Intent,
+  sit: Situation,
+  basis: EngageBasis,
+  aim: Vector3,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  // 【消融開關】兩個效果一起關掉，行為逐位元退回改動前
+  if (!(cfg.climbMax > 0)) return
+  // 【extend 完全豁免】`extendPitchAngle` 在速度見底時給滿俯衝，那是低頭換
+  // 速度、是脫離的核心手段，而脫離時方位差幾乎必然很大（背對敵人）。不豁免
+  // 等於把換速度的能力關掉，比原本的問題嚴重得多。
+  //
+  // 【rally 不套】指揮層的位階比戰術偏好高，與 `applyPitchBias` 同一條紀律。
+  if (intent === 'extend' || intent === 'rally') return
+
+  // 【射擊解讓位，判準複用 `sweetYield`】`interceptTime <= PROJECTILE_LIFETIME`
+  // 已經同時是三件事：HUD 畫預瞄環、`shouldFire` 允許開火、甜蜜區讓位。
+  // 不新增第四套尺度。
+  //
+  // 【為什麼 defend 不讓位】與甜蜜區那一層同一個理由：`basis` 永遠對**攻擊
+  // 目標**建立，而 `defend` 是對**威脅來源**做的，兩者可以是不同的飛機。
+  // 而且防禦的優先序在射擊解之上。
+  const yieldFactor = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
+  const weight = turnPlaneWeight(turnPlaneAngle(self, basis.leadPoint), cfg) * yieldFactor
+  if (!(weight > 0)) return
+
+  // 【下限先於拉高，順序不能反】反過來的話拉高量會被下限吃掉：−30° 的航跡角
+  // 加 8° 還是負的，下限再把它拉成 0 —— 那八度就這樣消失了，而且「能量越高
+  // 拉得越高」在任何俯衝態勢下都量不出來。先拉平、再往上加。
+  raiseTowardLevel(weight, aim)
+
+  // 【defend 只要下限那一半】`defendPitchBias` 已經在管破防時的俯仰，兩者
+  // 疊加的效果沒有量過。先保留「不准壓低」，把「拉多少」留給那一層。
+  if (intent !== 'defend') {
+    applyPitchBias(turnPlaneClimb(sit.energyAdvantage, cfg) * weight * sit.pullCeiling, aim)
+  }
+}
+
 /** 夾到 [−1, 1]。浮點誤差會讓點積跑出範圍，acos 於是回傳 NaN。 */
 function clampUnit(x: number): number {
   return x < -1 ? -1 : x > 1 ? 1 : x

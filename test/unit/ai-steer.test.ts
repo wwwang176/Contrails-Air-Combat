@@ -8,8 +8,10 @@ import {
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
-  turnPlaneAngle, turnPlaneWeight, turnPlaneClimb,
+  turnPlaneAngle, turnPlaneWeight, turnPlaneClimb, raiseTowardLevel, applyTurnPlane,
+  type EngageBasis,
 } from '../../src/ai/steer'
+import type { Situation } from '../../src/ai/assess'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { rallyAim } from '../../src/ai/rally'
@@ -2401,5 +2403,196 @@ describe('turnPlaneClimb —— 拉高量', () => {
     const bad = { ...cfg, energyFull: 0 }
     expect(turnPlaneClimb(100, bad)).toBe(cfg.climbMax)
     expect(turnPlaneClimb(-100, bad)).toBe(cfg.climbMin)
+  })
+})
+
+describe('raiseTowardLevel —— 軟性的航跡角下限 0', () => {
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+  const bearingOf = (v: Vector3) => Math.atan2(v.x, v.z)
+
+  /** 朝下 `deg` 度、水平方位偏 +30° 的單位向量 */
+  function diving(deg: number): Vector3 {
+    const p = -deg * DEG
+    const b = 30 * DEG
+    return new Vector3(
+      Math.sin(b) * Math.cos(p), Math.sin(p), Math.cos(b) * Math.cos(p),
+    )
+  }
+
+  it('權重 1 時把航跡角拉到 0，水平方位不變', () => {
+    const aim = diving(30)
+    const before = bearingOf(aim)
+    raiseTowardLevel(1, aim)
+    expect(pitchOf(aim)).toBeCloseTo(0, 9)
+    expect(bearingOf(aim)).toBeCloseTo(before, 9)
+    expect(aim.length()).toBeCloseTo(1, 9)
+  })
+
+  /** 【下限本身也乘上方位係數】方位差小時不介入。 */
+  it('權重 0.5 時只拉一半', () => {
+    const aim = diving(30)
+    raiseTowardLevel(0.5, aim)
+    expect(pitchOf(aim)).toBeCloseTo(-15 * DEG, 9)
+  })
+
+  it('權重 0 時逐位元不動', () => {
+    const aim = diving(30)
+    const copy = aim.clone()
+    raiseTowardLevel(0, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /** 【只抬不壓】這是它能疊在任何東西上的前提，與 `applyFloor` 同一條紀律。 */
+  it('已經在爬升時逐位元不動', () => {
+    const aim = new Vector3(0, Math.sin(20 * DEG), -Math.cos(20 * DEG))
+    const copy = aim.clone()
+    raiseTowardLevel(1, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /**
+   * 【鉛直朝下時放棄】方位沒有定義。與 `applyPitchBias` 走同一條退化路徑
+   * （它只是偏好），撞地那一條由後面的 `applyFloor` 接手 —— 那一層非動不可。
+   */
+  it('鉛直朝下時放棄，不產生 NaN', () => {
+    const aim = new Vector3(0, -1, 0)
+    raiseTowardLevel(1, aim)
+    expect(aim.y).toBe(-1)
+    expect(Number.isNaN(aim.x + aim.y + aim.z)).toBe(false)
+  })
+})
+
+describe('applyTurnPlane —— 整層的豁免與消融', () => {
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+
+  /** 機首朝 −Z、平飛的自機 */
+  function nosed(): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    return a
+  }
+
+  /**
+   * 預瞄點在**後下方**、與機鼻夾角 150°，瞄準點朝下 30° —— 本層該全量生效。
+   *
+   * 【為什麼是 sin30/cos30 而不是 sin60/cos60】機鼻是 −Z，所以方向
+   * `(0, −sin30°, cos30°)` 與機鼻的點積是 `−cos30°`，夾角 150°。用 60° 那一組
+   * 算出來是 **120°**，剛好壓在 `planeFull` 的邊界上 —— 能過，但一個貼著邊界
+   * 的前提在門檻再動時會沉默地失效。
+   */
+  function rearLow(): { sit: Situation, basis: EngageBasis, aim: Vector3 } {
+    const sit = createSituation()
+    sit.energyAdvantage = 0
+    sit.pullCeiling = 1
+    const basis = createEngageBasis()
+    basis.leadPoint.set(0, -Math.sin(30 * DEG), Math.cos(30 * DEG)).multiplyScalar(900)
+    // 打不到 → 不豁免
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 3
+    const aim = new Vector3(0, -Math.sin(30 * DEG), -Math.cos(30 * DEG))
+    return { sit, basis, aim }
+  }
+
+  it('全量生效時航跡角不再為負', () => {
+    const { sit, basis, aim } = rearLow()
+    applyTurnPlane(nosed(), 'engage', sit, basis, aim)
+    expect(pitchOf(aim)).toBeGreaterThan(0)
+    expect(aim.length()).toBeCloseTo(1, 9)
+  })
+
+  it('能量優勢越大拉得越高，而且單調', () => {
+    const climb = (ea: number) => {
+      const { sit, basis, aim } = rearLow()
+      sit.energyAdvantage = ea
+      applyTurnPlane(nosed(), 'engage', sit, basis, aim)
+      return pitchOf(aim)
+    }
+    expect(climb(1000)).toBeGreaterThan(climb(250))
+    expect(climb(250)).toBeGreaterThan(climb(-1000))
+  })
+
+  /**
+   * 【覆蓋度表要特別確認的第一格：後方 × 明顯劣勢】拉高的同時速度可能已經很
+   * 低。`pullCeiling` 必須真的在節流 —— 這一條就是守它。
+   */
+  it('pullCeiling 見底時拉高偏置趨近 0，但下限仍在', () => {
+    const { sit, basis, aim } = rearLow()
+    sit.pullCeiling = 0
+    applyTurnPlane(nosed(), 'engage', sit, basis, aim)
+    // 拉高沒了，但「不准壓低」那一半照舊
+    expect(pitchOf(aim)).toBeCloseTo(0, 9)
+  })
+
+  /** 【消融開關】climbMax <= 0 時整層無操作。 */
+  it('climbMax = 0 時逐位元不動', () => {
+    const { sit, basis, aim } = rearLow()
+    const copy = aim.clone()
+    applyTurnPlane(nosed(), 'engage', sit, basis, aim, { ...DEFAULT_STEER, climbMax: 0 })
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /**
+   * 【extend 完全豁免】`extendPitchAngle` 在速度見底時給滿 −25° 俯衝，那是
+   * 低頭換速度、是脫離的核心手段，而脫離時方位差幾乎必然很大（背對敵人）。
+   * 不豁免等於把換速度的能力關掉。
+   */
+  it('extend 逐位元不動', () => {
+    const { sit, basis, aim } = rearLow()
+    const copy = aim.clone()
+    applyTurnPlane(nosed(), 'extend', sit, basis, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  it('rally 逐位元不動', () => {
+    const { sit, basis, aim } = rearLow()
+    const copy = aim.clone()
+    applyTurnPlane(nosed(), 'rally', sit, basis, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /** 【扳機優先】預瞄環亮著時完全讓位，判準與 `sweetYield` 共用。 */
+  it('打得到時逐位元不動', () => {
+    const { sit, basis, aim } = rearLow()
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime / 2
+    const copy = aim.clone()
+    applyTurnPlane(nosed(), 'engage', sit, basis, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
+  })
+
+  /**
+   * 【防禦永遠優先】優先序是 `defend` ＞ 射擊解 ＞ 限制。而拉高那一半讓給
+   * 既有的 `defendPitchBias`（疊加的效果沒有量過）。
+   */
+  it('defend 不因射擊解豁免，而且只有下限沒有拉高', () => {
+    const { sit, basis, aim } = rearLow()
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime / 2
+    sit.energyAdvantage = 5000
+    applyTurnPlane(nosed(), 'defend', sit, basis, aim)
+    // 限制生效：不再朝下。而且**恰好**是 0 —— 拉高那一半沒有介入
+    expect(pitchOf(aim)).toBeCloseTo(0, 9)
+  })
+
+  /** 【正前方完全不介入】覆蓋度表的第一列，消融時最該逐位元相同的區域。 */
+  it('預瞄點在正前方時逐位元不動', () => {
+    const { sit, basis, aim } = rearLow()
+    basis.leadPoint.set(0, 0, -900)
+    const copy = aim.clone()
+    applyTurnPlane(nosed(), 'engage', sit, basis, aim)
+    expect(aim.x).toBe(copy.x)
+    expect(aim.y).toBe(copy.y)
+    expect(aim.z).toBe(copy.z)
   })
 })
