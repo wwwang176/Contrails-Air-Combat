@@ -67,25 +67,33 @@ describe('sweetSpotAdvantage：在哪裡我贏得過他', () => {
 })
 
 describe('sweetSpotPitch：往優勢上升的方向偏俯仰', () => {
+  /**
+   * 【為什麼不用 `DEFAULT_DOCTRINE`】出貨值的 `sweetSpotMaxPitch` 目前是 **0**
+   * ——這一層在出貨路徑上是關著的（見該欄位的註解）。函式本身沒有變，
+   * 也還有呼叫端，所以它的行為要繼續被釘住；用出貨值測會讓每一條都回 0，
+   * 那不是「函式對了」，是「函式沒被叫到」。
+   */
+  const ON = { ...DEFAULT_DOCTRINE, sweetSpotMaxPitch: 10 * (Math.PI / 180) }
+
   it('鏡像對戰不偏', () => {
-    expect(sweetSpotPitch(P, P, 4000, 450 * KMH, DEFAULT_DOCTRINE)).toBeCloseTo(0, 12)
+    expect(sweetSpotPitch(P, P, 4000, 450 * KMH, ON)).toBeCloseTo(0, 12)
   })
 
   it('P-51 太慢時低頭換速度', () => {
     // 300 km/h 在分水嶺以下，P-51 該加速 → 低頭 → 負
-    expect(sweetSpotPitch(P, B, 4000, 300 * KMH, DEFAULT_DOCTRINE)).toBeLessThan(0)
+    expect(sweetSpotPitch(P, B, 4000, 300 * KMH, ON)).toBeLessThan(0)
   })
 
   it('109 太快時抬頭換高度（減速）', () => {
     // 109 在 500 km/h 是劣勢，它的優勢在更慢處 → 該減速 → 抬頭 → 正
-    expect(sweetSpotPitch(B, P, 4000, 500 * KMH, DEFAULT_DOCTRINE)).toBeGreaterThan(0)
+    expect(sweetSpotPitch(B, P, 4000, 500 * KMH, ON)).toBeGreaterThan(0)
   })
 
   it('偏置不得超過上界', () => {
     for (const alt of [0, 4000, 8000]) {
       for (let kmh = 250; kmh <= 700; kmh += 10) {
         const p = Math.abs(sweetSpotPitch(P, B, alt, kmh * KMH, DEFAULT_DOCTRINE))
-        expect(p).toBeLessThanOrEqual(DEFAULT_DOCTRINE.sweetSpotMaxPitch + 1e-12)
+        expect(p).toBeLessThanOrEqual(ON.sweetSpotMaxPitch + 1e-12)
       }
     }
   })
