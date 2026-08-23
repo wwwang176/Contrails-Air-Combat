@@ -441,10 +441,26 @@ const PLAN_MAX = 20
  * 一個迴轉候選的結果。`seconds` 非有限 = 這個走法做不到。
  */
 export interface TurnPlaneCost {
-  /** 把機鼻轉到預瞄點要幾秒 */
+  /** 把機鼻轉到預瞄點要幾秒。積分上限內轉不完 = `Infinity` */
   seconds: number
-  /** 轉完之後我的能量高度，m（= 高度 + 空速²/2g） */
+  /** 積分結束時我的能量高度，m（= 高度 + 空速²/2g） */
   endEnergyAlt: number
+  /**
+   * 積分結束時機鼻還差幾度到預瞄點，rad。轉完 = 0。
+   *
+   * 【為什麼要留這個】「轉不完」不等於「不能轉」。三個走法都轉不完的時候
+   * 還是要挑一個 —— 挑轉得最多的那個。見 `turnPlanePitch`。
+   */
+  remaining: number
+  /**
+   * 這個走法**飛不出來**（過程中會失速）。
+   *
+   * 【與「轉不完」是兩件事】轉不完只是慢，失速是這條路根本不存在。前者仍然
+   * 要納入比較，後者要排除。舊版把兩者都回 `Infinity`，於是「轉不完」也被
+   * 排除了 —— 三個都轉不完時整層回 0、什麼都不做，而那等於**這個彎永遠
+   * 不會開始**。
+   */
+  stalled: boolean
 }
 
 /**
@@ -475,9 +491,8 @@ export function turnPlaneCost(
   losRate: number,
   gamma: number,
 ): TurnPlaneCost {
-  const fail: TurnPlaneCost = { seconds: Infinity, endEnergyAlt: -Infinity }
   if (!(altitude > 0) || !(tas > 1) || !Number.isFinite(swing) || !Number.isFinite(losRate)) {
-    return fail
+    return { seconds: Infinity, endEnergyAlt: -Infinity, remaining: Infinity, stalled: true }
   }
   let h = altitude
   let v = tas
@@ -487,22 +502,29 @@ export function turnPlaneCost(
 
   while (t < PLAN_MAX) {
     const omega = instantaneousTurnRate(spec, h, v)
-    // 【轉不贏視線就永遠收斂不了】機鼻追不上預瞄點的飄動，剩餘角不會變小
-    if (!(omega > losRate)) return fail
     const n = Math.sqrt(1 + (omega * v / G0) ** 2)
-    if (v <= stallSpeed(spec, h, n)) return fail
+    // 【失速 = 這條路飛不出來】與「轉不完」不同，這一個要排除
+    if (v <= stallSpeed(spec, h, n) || !(h > 0)) {
+      return {
+        seconds: Infinity, endEnergyAlt: h + (v * v) / (2 * G0), remaining, stalled: true,
+      }
+    }
 
     const es = h + (v * v) / (2 * G0) + specificExcessPower(spec, h, v, n, 1) * PLAN_DT
     h += v * sinG * PLAN_DT
-    if (!(h > 0)) return fail
     const vv = 2 * G0 * (es - h)
     v = vv > 1 ? Math.sqrt(vv) : 1
 
+    // 【轉不贏視線時剩餘角會變大】不提早結束 —— 那也是一個比得出來的結果
+    // （誰被拉開得最慢），提早回傳等於把它排除掉
     remaining -= (omega - losRate) * PLAN_DT
     t += PLAN_DT
-    if (remaining <= 0) return { seconds: t, endEnergyAlt: h + (v * v) / (2 * G0) }
+    if (remaining <= 0) {
+      return { seconds: t, endEnergyAlt: h + (v * v) / (2 * G0), remaining: 0, stalled: false }
+    }
   }
-  return fail
+  // 上限內沒轉完 —— 仍然是一個可以比較的結果
+  return { seconds: Infinity, endEnergyAlt: h + (v * v) / (2 * G0), remaining, stalled: false }
 }
 
 /**
@@ -547,26 +569,64 @@ export function turnPlanePitch(
   if (!Number.isFinite(wanted)) return 0
 
   const g = cfg.turnPlaneGamma
+  const flyable: { gamma: number, cost: TurnPlaneCost }[] = []
+  for (const gamma of [-g, 0, g]) {
+    const cost = turnPlaneCost(spec, altitude, tas, swing, losRate, gamma)
+    // 失速的排除 —— 那條路飛不出來
+    if (!cost.stalled) flyable.push({ gamma, cost })
+  }
+  if (flyable.length === 0) return 0
+
+  /**
+   * 【就算轉不完也要挑一個】專案負責人的原話：「就算做不完也要做，而不是
+   * 進入能量重整，**因為你不做迴轉根本不會再迴轉了**」。
+   *
+   * 舊版在三個都轉不完時回 0，把方向盤交還給下面原本的層 —— 那等於這個彎
+   * 永遠不會開始。改成兩段比較：
+   *
+   *   有人轉得完 → 在轉得完的裡面比「轉完之後離想要的位置多遠」
+   *   都轉不完   → 比「誰轉得最多」（剩餘角最小）
+   *
+   * 【為什麼分兩段而不是加權】把角度與公尺加成一個分數需要一個換算係數，
+   * 而那個係數沒有依據 —— 這個專案已經栽在「隨手訂的常數」上三次了。
+   * 兩段比較不需要任何係數。
+   */
+  const done = flyable.filter((x) => Number.isFinite(x.cost.seconds))
+  const pool = done.length > 0 ? done : flyable
+  const score = done.length > 0
+    // 【離想要的位置多遠，不是越高越好】見 `turnPlaneMargin`
+    ? (x: { cost: TurnPlaneCost }) => -Math.abs(x.cost.endEnergyAlt - wanted)
+    : (x: { cost: TurnPlaneCost }) => -x.cost.remaining
+
   let bestScore = -Infinity
   let secondScore = -Infinity
   let bestGamma = 0
-  for (const gamma of [-g, 0, g]) {
-    const c = turnPlaneCost(spec, altitude, tas, swing, losRate, gamma)
-    if (!Number.isFinite(c.seconds)) continue
-    // 【離想要的位置多遠，不是越高越好】見 `turnPlaneMargin`
-    const score = -Math.abs(c.endEnergyAlt - wanted)
-    if (score > bestScore) {
+  for (const x of pool) {
+    const sc = score(x)
+    if (sc > bestScore) {
       secondScore = bestScore
-      bestScore = score
-      bestGamma = gamma
-    } else if (score > secondScore) {
-      secondScore = score
+      bestScore = sc
+      bestGamma = x.gamma
+    } else if (sc > secondScore) {
+      secondScore = sc
     }
   }
-  // 沒有任何候選可行，或只有一個 —— 沒得選就不出手
-  if (!Number.isFinite(bestScore) || !Number.isFinite(secondScore)) return 0
+  // 贏的是水平迴旋 —— 它的俯仰偏置本來就是 0
   if (bestGamma === 0) return 0
 
-  const strength = Math.min((bestScore - secondScore) / cfg.turnPlaneFullAt, 1)
+  /**
+   * 【什麼時候給滿】
+   * ```
+   *   只剩一條路飛得出來 → 1（沒得選正是最該出手的時候）
+   *   三個都轉不完       → 1（被迫的選擇，猶豫沒有意義）
+   *   有得選             → 由「最好與次好差幾公尺」決定
+   * ```
+   * 舊版寫「沒得選就不出手」—— 那是反的。實測 t=34.5 s 那一格只有水平轉
+   * 可行，而水平轉的偏置本來就是 0，所以這個缺陷被自己蓋住了；若那一格
+   * 只有拉高可行，舊版一樣回 0。
+   */
+  const strength = (done.length > 0 && Number.isFinite(secondScore))
+    ? Math.min((bestScore - secondScore) / cfg.turnPlaneFullAt, 1)
+    : 1
   return Math.sign(bestGamma) * strength * cfg.turnPlaneMaxPitch
 }
