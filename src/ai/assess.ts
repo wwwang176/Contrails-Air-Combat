@@ -4,7 +4,9 @@ import {
   bestSustainedTurnRateCached, instantaneousTurnRate,
   specificExcessPower, stallSpeed, sustainedTurnRate,
 } from '../analysis/envelope'
-import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed, sweetSpotPitch } from './doctrine'
+import {
+  DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed, sweetSpotPitch, turnPlanePitch,
+} from './doctrine'
 import { G0 } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
@@ -170,6 +172,21 @@ export interface Situation {
    * （同機種對打時恆為 0）。
    */
   sweetPitch: number
+  /**
+   * 迴轉平面的俯仰偏置，rad。正 = 抬頭（拉高迴旋）、負 = 低頭（俯衝迴旋）。
+   *
+   * 由 `turnPlanePitch` 對三個候選各跑一次前向積分挑出來的：三者的終點相同
+   * （機鼻對上目標），差別只在路上付掉多少能量、轉完之後相對敵人站在哪。
+   *
+   * 【與 `sweetPitch` 的分工】那一個只看速度離最佳點多遠，**不看要轉幾度**；
+   * 這一個把角度算進去。實測 t=38 s 敵人在機體仰角 +86°（座艙罩正上方）而
+   * 只看角速度的舊判準說「追得上」—— 差別就在這裡。
+   *
+   * 【夾角用 `aspectAngle` 而不是到預瞄點的角】預瞄點要 `EngageBasis` 才有，
+   * 而那是 `steer.ts` 的東西；態勢層不該反過來依賴它。兩者在射程內差幾度，
+   * 對「要轉一個大彎還是小修正」這個問題不影響。
+   */
+  turnPitch: number
 
   /**
    * **我自己的**航跡角，rad。正為爬升。
@@ -215,7 +232,7 @@ export function createSituation(): Situation {
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, speedAdvantage: 0, energyRatio: 0, stallMargin: 1, speedMargin: 1,
-    pullCeiling: 1, sweetPitch: 0,
+    pullCeiling: 1, sweetPitch: 0, turnPitch: 0,
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
   }
@@ -360,6 +377,13 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   out.pullCeiling = energyPull(out.cornerRatio, DEFAULT_DOCTRINE)
   out.sweetPitch = sweetSpotPitch(
     self.spec, target.spec, selfAlt, selfTas, DEFAULT_DOCTRINE,
+  )
+  // 【為什麼在這條 10 Hz 的路徑上】三個候選各跑一次前向積分，實測一次
+  // 73 µs；出貨規模（40 架 × 10 Hz）是 2.9% 的單核。放到 240 Hz 會變 24 倍。
+  // 而「要往上轉還是往下轉」本來就是幾秒鐘一次的決定，不是逐格的。
+  out.turnPitch = turnPlanePitch(
+    self.spec, selfAlt, selfTas, out.aspectAngle, out.losRate,
+    targetAlt, targetTas, DEFAULT_DOCTRINE,
   )
 }
 

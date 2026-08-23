@@ -11,7 +11,10 @@
  * 本模組**不 import 任何 AI 狀態**，只吃 spec 與純量，所以整支可以在單元
  * 測試裡直接算。
  */
-import { stallSpeed, sustainedTurnRate } from '../analysis/envelope'
+import {
+  instantaneousTurnRate, specificExcessPower, stallSpeed, sustainedTurnRate,
+} from '../analysis/envelope'
+import { G0 } from '../core/math'
 import type { AircraftSpec } from '../specs/types'
 
 export interface DoctrineConfig {
@@ -143,6 +146,48 @@ export interface DoctrineConfig {
    * 真的轉不贏他」的界線。取它的 2.5 倍當作「差距大到值得整個航跡去遷就」。
    */
   sweetSpotFullAt: number
+  /**
+   * 迴轉平面偏置的上界，rad。**`0` 關掉整個機制。**
+   *
+   * 【它在回答什麼】敵人在機鼻夾角很大的地方時，「轉過去」有三種走法 ——
+   * 俯衝迴旋、水平迴旋、拉高迴旋。三者的終點相同（機鼻對上預瞄點），差別
+   * 只在**路上付掉多少能量、轉完之後我相對他站在哪**。這個偏置就是把選出
+   * 來的那一個表達成瞄準點的俯仰偏移。
+   *
+   * 【為什麼與 `sweetSpotMaxPitch` 是兩件事】那一個只看速度離最佳點多遠，
+   * 不看敵人在哪、不看要轉多少度。這一個把**角度**算進去 —— 實測 t=38 s
+   * 敵人在機體仰角 +86°（座艙罩正上方）而舊判準說「追得上」，差別就在這裡。
+   */
+  turnPlaneMaxPitch: number
+  /**
+   * 最好與次好的候選差多少公尺的能量高度，就給滿上界。
+   *
+   * 【為什麼用「差距」當強度】三個候選差不多的時候本來就不該動作 —— 實測
+   * 機鼻夾角 15° 以內三者的差距中位數是 **0 公尺**，45~60° 才到 46~160 m。
+   * 用差距當強度，這一層在小角度時自動安靜，**不需要任何角度門檻**。
+   */
+  turnPlaneFullAt: number
+  /**
+   * 三個候選各自的航跡角，rad。俯衝取負、水平 0、拉高取正。
+   *
+   * 【為什麼是固定角而不是掃描】它定義的是「哪三個走法」，不是可調的力道；
+   * 力道由 `turnPlaneMaxPitch` 管。真正的高 yo-yo 是「拉起、轉、再下來」，
+   * 固定航跡角是為了讓三者有可比的封閉形式 —— 它算得出「轉過去要多久、付
+   * 多少能量」，算不出「轉完機頭正好指著哪」。
+   */
+  turnPlaneGamma: number
+  /**
+   * 想要比敵人多出多少能量高度，m。分數是「離這個位置多遠」，不是「越高越好」。
+   *
+   * 【為什麼不是越高越好】那樣敵人的能量會變成三個候選的共同常數，比大小時
+   * 直接消掉 —— 實測敵人在下方 0 m 與 3000 m 時偏置都是 3.4°，完全一樣。
+   * 「除非敵人真的非常低才俯衝」這條就生不出來。
+   *
+   * 改成「離目標位置多遠」之後：敵人在下方很多時三個候選都**超過**目標，
+   * 於是挑最低的那個（俯衝）；敵人同高時三個都不夠，挑最高的（拉高）。
+   * 同一個算式，兩種行為，不需要另外寫例外。
+   */
+  turnPlaneMargin: number
 }
 
 /**
@@ -197,6 +242,10 @@ export const DEFAULT_DOCTRINE: DoctrineConfig = {
   energyMinPull: 0.65,
   sweetSpotMaxPitch: 0,
   sweetSpotFullAt: 0.05,
+  turnPlaneMaxPitch: 10 * (Math.PI / 180),
+  turnPlaneFullAt: 300,
+  turnPlaneGamma: 30 * (Math.PI / 180),
+  turnPlaneMargin: 500,
 }
 
 /**
@@ -382,4 +431,142 @@ export function sweetSpotPitch(
   if (dir === 0) return 0
   const strength = Math.min(-here / cfg.sweetSpotFullAt, 1)
   return dir * strength * cfg.sweetSpotMaxPitch
+}
+
+/** 前向積分的步長與上限，s。10 Hz 的決策拍不需要更細 */
+const PLAN_DT = 0.1
+const PLAN_MAX = 20
+
+/**
+ * 一個迴轉候選的結果。`seconds` 非有限 = 這個走法做不到。
+ */
+export interface TurnPlaneCost {
+  /** 把機鼻轉到預瞄點要幾秒 */
+  seconds: number
+  /** 轉完之後我的能量高度，m（= 高度 + 空速²/2g） */
+  endEnergyAlt: number
+}
+
+/**
+ * 對一個候選前向積分到「機鼻對上預瞄點」為止。
+ *
+ * 兩個狀態量：
+ * ```
+ *   比能量  Es = h + v²/2g       dEs/dt = specificExcessPower(spec, h, v, n, 1)
+ *   高度                          dh/dt = v·sin(γ)
+ *   剩餘角                        d/dt  = −(ω − losRate)
+ * ```
+ * 過載 `n` 由該速度的瞬時轉彎率反推（`ω = g√(n²−1)/v`），所以 `Ps` 吃到的
+ * 是這個轉彎率真正的誘導阻力代價。**候選之間唯一的差別是 `gamma`。**
+ *
+ * 【為什麼要積分而不是一步估算】一步估算只快 38 倍，但跟完整積分只有 62.6%
+ * 挑到同一個 —— 它抓不到「速度掉向迴旋速度 → 轉彎率變好」那個回饋，而那
+ * 正是拉高迴旋會贏的原因。完整積分在出貨規模（40 架 × 10 Hz）是 2.9% 的
+ * 單核，付得起。
+ *
+ * @param swing   機鼻到預瞄點的夾角，rad
+ * @param losRate 視線角速度，rad/s —— 轉的期間目標還在飄
+ */
+export function turnPlaneCost(
+  spec: AircraftSpec,
+  altitude: number,
+  tas: number,
+  swing: number,
+  losRate: number,
+  gamma: number,
+): TurnPlaneCost {
+  const fail: TurnPlaneCost = { seconds: Infinity, endEnergyAlt: -Infinity }
+  if (!(altitude > 0) || !(tas > 1) || !Number.isFinite(swing) || !Number.isFinite(losRate)) {
+    return fail
+  }
+  let h = altitude
+  let v = tas
+  let remaining = Math.max(0, swing)
+  let t = 0
+  const sinG = Math.sin(gamma)
+
+  while (t < PLAN_MAX) {
+    const omega = instantaneousTurnRate(spec, h, v)
+    // 【轉不贏視線就永遠收斂不了】機鼻追不上預瞄點的飄動，剩餘角不會變小
+    if (!(omega > losRate)) return fail
+    const n = Math.sqrt(1 + (omega * v / G0) ** 2)
+    if (v <= stallSpeed(spec, h, n)) return fail
+
+    const es = h + (v * v) / (2 * G0) + specificExcessPower(spec, h, v, n, 1) * PLAN_DT
+    h += v * sinG * PLAN_DT
+    if (!(h > 0)) return fail
+    const vv = 2 * G0 * (es - h)
+    v = vv > 1 ? Math.sqrt(vv) : 1
+
+    remaining -= (omega - losRate) * PLAN_DT
+    t += PLAN_DT
+    if (remaining <= 0) return { seconds: t, endEnergyAlt: h + (v * v) / (2 * G0) }
+  }
+  return fail
+}
+
+/**
+ * 三個迴轉候選挑一個，回傳瞄準點的俯仰偏置，rad。正 = 抬頭。
+ *
+ * ```
+ *   想要的 = 敵人的能量高度 + turnPlaneMargin
+ *   分數   = −|轉完之後我的能量高度 − 想要的|
+ *   挑分數最高的；偏置 = 該候選的航跡角方向 × 強度 × 上界
+ *   強度   = min((最好 − 次好) / turnPlaneFullAt, 1)
+ * ```
+ *
+ * 【為什麼是「離目標多遠」而不是「越高越好」】專案負責人的原話：「如果我迴旋
+ * 後高度還比別人低，那我等於讓自己陷入 extend 地獄⋯⋯除非敵人真的非常低，我
+ * 付出代價也值得，才會用俯衝迴旋」。**「越高越好」生不出後半句** —— 敵人的
+ * 能量對三個候選是同一個常數，比大小時會消掉。見 `turnPlaneMargin`。
+ *
+ * 【敵人的能量取現在的值】我們不模擬他的機動。他在我轉的那幾秒也會動，但那
+ * 對三個候選是同一個偏移，不影響排序。
+ *
+ * 【為什麼沒有角度門檻】強度由「最好與次好的差距」決定，而實測夾角 15° 以內
+ * 三者差距中位數是 0 公尺 —— 這一層在小角度時自己就不出手。門檻是前三輪
+ * 翻車的東西（每一次都訂錯），這裡結構上不需要。
+ *
+ * @param swing   機鼻到預瞄點的夾角，rad
+ * @param losRate 視線角速度，rad/s
+ */
+export function turnPlanePitch(
+  spec: AircraftSpec,
+  altitude: number,
+  tas: number,
+  swing: number,
+  losRate: number,
+  targetAltitude: number,
+  targetTas: number,
+  cfg: DoctrineConfig,
+): number {
+  // 【消融開關】見 `DoctrineConfig.turnPlaneMaxPitch`
+  if (!(cfg.turnPlaneMaxPitch > 0) || !(cfg.turnPlaneFullAt > 0)) return 0
+
+  const wanted = targetAltitude + (targetTas * targetTas) / (2 * G0) + cfg.turnPlaneMargin
+  if (!Number.isFinite(wanted)) return 0
+
+  const g = cfg.turnPlaneGamma
+  let bestScore = -Infinity
+  let secondScore = -Infinity
+  let bestGamma = 0
+  for (const gamma of [-g, 0, g]) {
+    const c = turnPlaneCost(spec, altitude, tas, swing, losRate, gamma)
+    if (!Number.isFinite(c.seconds)) continue
+    // 【離想要的位置多遠，不是越高越好】見 `turnPlaneMargin`
+    const score = -Math.abs(c.endEnergyAlt - wanted)
+    if (score > bestScore) {
+      secondScore = bestScore
+      bestScore = score
+      bestGamma = gamma
+    } else if (score > secondScore) {
+      secondScore = score
+    }
+  }
+  // 沒有任何候選可行，或只有一個 —— 沒得選就不出手
+  if (!Number.isFinite(bestScore) || !Number.isFinite(secondScore)) return 0
+  if (bestGamma === 0) return 0
+
+  const strength = Math.min((bestScore - secondScore) / cfg.turnPlaneFullAt, 1)
+  return Math.sign(bestGamma) * strength * cfg.turnPlaneMaxPitch
 }

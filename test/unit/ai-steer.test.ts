@@ -2292,7 +2292,13 @@ describe('extend 的回場方向', () => {
  * 直接讀瞬時值的話 AI 會佈局 1.7 秒、切回追矄、再觸發 —— 機首每兩秒抖一次。
  */
 describe('stepTrack —— 追不上的閘鎖', () => {
-  const cfg = DEFAULT_STEER
+  /**
+   * 【為什麼不用 `DEFAULT_STEER`】出貨值的 `trackEnter` 目前是 **0**——
+   * 這一層在出貨路徑上關著（見該欄位的註解）。函式本身沒有變，
+   * 所以行為要繼續被釘住；用出貨值測會讓每一條都走消融早退，
+   * 那不是「函式對了」，是「函式沒被叫到」。
+   */
+  const cfg = { ...DEFAULT_STEER, trackEnter: 1.4 }
   const DT = 1 / 240
 
   /**
