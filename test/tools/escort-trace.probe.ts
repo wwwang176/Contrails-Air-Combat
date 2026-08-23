@@ -90,6 +90,10 @@ interface Sample {
   clo: number
   /** 視線角速度，°/s —— 「機頭跟不跟得上預瞄點」的直接量度 */
   lr: number
+  /** 追不追得上的比值 */
+  tr2: number
+  /** 閂鎖有沒有閂上，0 / 1 */
+  lat: number
   /** 我在當下高度與空速的**瞬時**轉彎率上限，°/s —— 拿來跟 lr 比 */
   str: number
   /**
@@ -183,6 +187,8 @@ function main(): void {
       asp: +(ai.sit.aspectAngle * DEG).toFixed(1),
       clo: +ai.sit.closureRate.toFixed(1),
       lr: +(ai.sit.losRate * DEG).toFixed(1),
+      tr2: +ai.sit.trackRatio.toFixed(3),
+      lat: ai.track.latched ? 1 : 0,
       str: +(instantaneousTurnRate(a.spec, a.state.position.y, speed) * DEG).toFixed(1),
       L: (r.extendEnergyLatch ? 1 : 0) | (r.extendTurnLatch ? 2 : 0)
         | (r.extendFloorLatch ? 4 : 0) | (r.defendLatch ? 8 : 0),
@@ -255,6 +261,15 @@ function main(): void {
       + '  |  第一段指令 γ 極值 ' + dive.toFixed(1) + '°'
       + '  |  谷底 ' + trough.y.toFixed(0) + ' m @ ' + trough.t.toFixed(1) + ' s'
       + '  |  交會 @ ' + out[mergeAt]!.t.toFixed(1) + ' s',
+    )
+    const latched = out.filter(s => s.lat === 1).length
+    console.error(
+      '        閂鎖佔時 ' + (100 * latched / out.length).toFixed(1) + '%'
+      + '  |  交會後 20 s 內的平均坡度 ' + (() => {
+        const seg = out.filter(s => s.t >= out[mergeAt]!.t && s.t <= out[mergeAt]!.t + 20)
+        const m = seg.reduce((a, s) => a + Math.abs(s.bk), 0) / Math.max(1, seg.length)
+        return m.toFixed(0) + '°'
+      })(),
     )
   }
 

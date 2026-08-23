@@ -32,7 +32,7 @@ import { BF109G6 } from '../../src/specs/bf109g6'
 // 定義了一個叫 `DEG` 的 `180/π` —— 別跟著抄。
 import { RAD } from '../../src/core/math'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
-import { engageKnobs, type Knobs } from '../../src/ai/steer'
+import { DEFAULT_STEER, engageKnobs, type Knobs } from '../../src/ai/steer'
 import type { AircraftSpec } from '../../src/specs/types'
 
 const DT = 1 / 240
@@ -75,6 +75,19 @@ declare const process: { env: Record<string, string | undefined> }
 const CARD = process.env.CARD ?? 'high'
 const HIGH_ENERGY = CARDS[CARD] ?? CARDS.high!
 
+/**
+ * 【設定覆寫】與 `escort-trace.probe.ts` 同一個做法 —— `TP` 是一段 JSON，
+ * 逐欄蓋掉 `DEFAULT_STEER`。掃描 `trackHold` 時少了它，每一組都會跑到預設值。
+ *
+ *   TP='{"trackEnter":0}'  —— 整個機制關掉，等於改動前
+ *   TP='{"trackHold":5}'   —— 掃描單一參數
+ */
+const override = process.env.TP
+if (override !== undefined && override !== '') {
+  Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
+  console.error('TP override: ' + override)
+}
+
 interface Sample {
   t: number
   /** 高度，m */
@@ -106,6 +119,10 @@ interface Sample {
   z: number
   /** 自機姿態四元數 */
   q: [number, number, number, number]
+  /** `Situation.trackRatio` —— 出貨路徑算的那一份（本檔的 `ratio` 是探針自算） */
+  tr2: number
+  /** 閂鎖有沒有閂上，0 / 1 */
+  lat: number
   /** 目標位置與姿態 */
   tx: number
   ty: number
@@ -186,6 +203,8 @@ function main(): void {
         +a.state.orientation.x.toFixed(4), +a.state.orientation.y.toFixed(4),
         +a.state.orientation.z.toFixed(4), +a.state.orientation.w.toFixed(4),
       ],
+      tr2: +blueAi.sit.trackRatio.toFixed(3),
+      lat: blueAi.track.latched ? 1 : 0,
       tx: +r.a.state.position.x.toFixed(0),
       ty: +r.a.state.position.y.toFixed(0),
       tz: +r.a.state.position.z.toFixed(0),
@@ -231,6 +250,8 @@ function main(): void {
     rows.push(`追不上的取樣裡，距離 < 600 m 的佔 ${(100 * near / over.length).toFixed(0)}%`
       + `（距離中位數 ${over.map(s => s.r).sort((x, y) => x - y)[over.length >> 1]} m）`)
   }
+  const latched = out.filter(s => s.lat === 1).length
+  rows.push(`閂鎖佔時 ${(100 * latched / out.length).toFixed(1)}%`)
   console.error(rows.join('\n'))
 
   console.log(JSON.stringify({ card: CARD, step: STEP, samples: out }))
