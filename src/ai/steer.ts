@@ -2000,6 +2000,19 @@ export function steerCommand(
     applyPitchBias(sit.sweetPitch * yieldFactor, out.aimWorld)
   }
 
+  // ── 迴轉平面的紀律：方位差大時不准壓低航跡角，方位不動 ──
+  // 【它在回答一個沒有人回答的問題】上面幾層回答了「做什麼」（意圖）與
+  // 「瞄哪裡」（瞄準解），**沒有人回答「往哪個面轉」**。所以 `engage` 一路
+  // 追預瞄點，而預瞄點在目標往下往後跑的時候會把 AI 整個帶著繞下去 ——
+  // 人工回報：109 護送 He 111，交會之後向下繞一圈掉頭，掉了 1,093 m。
+  //
+  // 【為什麼排在甜蜜區之後】兩者都改航跡角。順序上甜蜜區在前，本層看到的
+  // 是已經偏過的值，「不得為負」因此對兩者的**合計**生效 —— 那是對的方向。
+  //
+  // 【為什麼排在撞地底限之前】底限的優先序最高，必須有最後決定權。
+  // 見 `applyFloor` 的註解。
+  applyTurnPlane(self, intent, sit, basis, out.aimWorld, cfg)
+
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
   // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
   // 餘裕 ≥ clearanceScale 時 floorPitchAngle 嚴格回傳 0 —— 高空完全不存在。
