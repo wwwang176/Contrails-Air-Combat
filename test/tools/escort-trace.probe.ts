@@ -31,6 +31,12 @@ import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
+import {
+  DEFAULT_STEER, buildEngageBasis, createEngageBasis, turnPlaneAngle, turnPlaneWeight,
+} from '../../src/ai/steer'
+
+/** 探針自己的交戰基底 —— AiController 那一份是 private */
+const probeBasis = createEngageBasis()
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -84,6 +90,10 @@ interface Sample {
   at: number
   /** 交會時間 s 與進入角 度 —— 回答「`merge` 為什麼沒出現」 */
   tm: number, asp: number
+  /** 預瞄點相對機鼻的 3D 夾角，度 —— 迴轉平面紀律的方位維度 */
+  tp: number
+  /** 上面那個角換算出來的方位係數，0..1 */
+  tw: number
   /**
    * 四個閂鎖的位元遮罩：1 = 能量、2 = 迴旋、4 = 見底、8 = 破防。
    * 「該擋的閘門有沒有響」直接看這一欄。
@@ -154,6 +164,14 @@ function main(): void {
       }
     }
 
+    // 【迴轉平面紀律的方位維度】`AiController.basis` 是 private，所以自己
+    // 重建一份 —— 同一支 `buildEngageBasis`、同一組輸入，是精確值不是代理量
+    let tpAngle = 0
+    if (tgt !== null) {
+      buildEngageBasis(a, tgt, probeBasis)
+      tpAngle = turnPlaneAngle(a, probeBasis.leadPoint)
+    }
+
     out.push({
       t: +t.toFixed(2),
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
@@ -173,6 +191,8 @@ function main(): void {
       at: +ai.sit.airframeTurnAdvantage.toFixed(4),
       tm: Number.isFinite(ai.sit.timeToMerge) ? +ai.sit.timeToMerge.toFixed(2) : -1,
       asp: +(ai.sit.aspectAngle * DEG).toFixed(1),
+      tp: +(tpAngle * DEG).toFixed(1),
+      tw: +turnPlaneWeight(tpAngle).toFixed(3),
       L: (r.extendEnergyLatch ? 1 : 0) | (r.extendTurnLatch ? 2 : 0)
         | (r.extendFloorLatch ? 4 : 0) | (r.defendLatch ? 8 : 0),
     })
@@ -192,6 +212,78 @@ function main(): void {
   const from = loAt >= 0 ? Math.max(0, hiAt - pad) : 0
   const to = loAt >= 0 ? Math.min(out.length - 1, loAt + pad) : out.length - 1
 
+  // ── 主判準 ──────────────────────────────────────────────
+  //
+  // 三個量都是**行為的絕對量測**，不是效率。判準是「玩起來合不合理」——
+  // 攻擊效率有沒有提高沒差，那只是附加價值。
+  //
+  // 【量測窗必須與結果無關】上面那個事件窗的條件是「曾掉到轟炸機下方 400 m」
+  // —— 而那正是這一輪要修掉的東西。沿用它的話**修好之後窗就框不出來、摘要
+  // 變成空的**，成功反而讀不到數字。這裡改用**交會**當錨點：目標距離第一次
+  // 進到 600 m 以內。那件事不論修得成不成功都會發生。
+  const MERGE_RANGE = 600
+  const LEAD_IN = 10
+  const SPAN = 40
+  // 坡度低於這個值算「機翼接近水平」。第一段要量的是**平飛時主動壓了多少
+  // 機頭**，把已經明顯滾轉的取樣算進來就會混進第二段的「大坡度撐不住」。
+  const BANK_LEVEL = 10
+
+  let mergeAt = -1
+  for (let i = 0; i < out.length; i++) {
+    const s = out[i]!
+    if (s.tr > 0 && s.tr < MERGE_RANGE) { mergeAt = i; break }
+  }
+  if (mergeAt < 0) {
+    console.error('主判準  這一場沒有交會（目標距離從未進到 ' + MERGE_RANGE + ' m）')
+  } else {
+    const lo = Math.max(0, mergeAt - Math.round(LEAD_IN / STEP))
+    const hi = Math.min(out.length - 1, mergeAt + Math.round(SPAN / STEP))
+    const win = out.slice(lo, hi + 1)
+
+    // 谷底 = 窗內高度最低的取樣
+    let trough = win[0]!
+    for (const s of win) if (s.y < trough.y) trough = s
+    // 峰值 = 谷底**之前**高度最高的取樣
+    let peak = win[0]!
+    for (const s of win) {
+      if (s.t >= trough.t) break
+      if (s.y > peak.y) peak = s
+    }
+    // 第一段 = 峰值之後、坡度首次超過 BANK_LEVEL 之前
+    let dive = 0
+    for (const s of win) {
+      if (s.t < peak.t) continue
+      if (Math.abs(s.bk) > BANK_LEVEL) break
+      if (s.cmd < dive) dive = s.cmd
+    }
+    // 【`by` 可能是 NaN】被護送單位全滅時沒有平均高度可言
+    const gap = Number.isFinite(trough.by) ? (trough.y - trough.by).toFixed(0) : 'n/a'
+    console.error(
+      '主判準  谷底對轟炸機 ' + gap + ' m'
+      + '  |  峰值→谷底 ' + (peak.y - trough.y).toFixed(0) + ' m'
+      + '  |  第一段指令 γ 極值 ' + dive.toFixed(1) + '°'
+      + '  |  谷底 ' + trough.y.toFixed(0) + ' m @ ' + trough.t.toFixed(1) + ' s'
+      + '  |  交會 @ ' + out[mergeAt]!.t.toFixed(1) + ' s',
+    )
+    // 【第一段的方位角】這一層有沒有機會生效，看的就是它。角度小 = 目標在
+    // 機鼻前方 = 那不是「迴轉」而是「直線追下去」，本層依定義不介入。
+    let tpLo = 999
+    let tpHi = -1
+    let twHi = 0
+    for (const s of win) {
+      if (s.t < peak.t) continue
+      if (Math.abs(s.bk) > BANK_LEVEL) break
+      if (s.tp < tpLo) tpLo = s.tp
+      if (s.tp > tpHi) tpHi = s.tp
+      if (s.tw > twHi) twHi = s.tw
+    }
+    console.error(
+      '        第一段方位角 ' + tpLo.toFixed(0) + '°..' + tpHi.toFixed(0) + '°'
+      + '  |  方位係數最大 ' + twHi.toFixed(3)
+      + '  （planeEnter ' + (DEFAULT_STEER.planeEnter * 180 / Math.PI).toFixed(0) + '°）',
+    )
+  }
+
   console.log(JSON.stringify({
     card: 'axis-escort', seed: SEED, step: STEP,
     spec: me.aircraft.spec.name ?? 'Bf 109',
@@ -199,6 +291,27 @@ function main(): void {
     event: loAt >= 0 ? { hiAt, loAt, from, to } : null,
     samples: out,
   }))
+}
+/**
+ * 【設定覆寫】`TP` 是一段 JSON，逐欄蓋掉 `DEFAULT_STEER`。A/B 與掃描都用它：
+ *
+ *   TP='{"climbMax":0}'        —— 迴轉平面紀律關掉，等於改動前
+ *   TP='{"planeEnter":1.571}'  —— 掃描單一參數（rad）
+ *
+ * 【為什麼直接改 `DEFAULT_STEER`】`AiController` 不帶自己的 `SteerConfig`，
+ * 走的就是這個預設物件。探針是一次性的行程，就地改比穿一整條參數鏈誠實。
+ *
+ * 【PowerShell 注意】`$env:TP` 會留在整個工作階段，下一次跑會沉默地沿用。
+ * 用 bash 的 `TP=... npx ...`，或每次跑完 `Remove-Item Env:TP`。
+ */
+// 【就地宣告而不裝 @types/node】與 `b17-ref.measure.ts` 同一個做法 ——
+// 不為一支探針多一條開發相依
+declare const process: { env: Record<string, string | undefined> }
+
+const override = process.env.TP
+if (override !== undefined && override !== '') {
+  Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
+  console.error('TP override: ' + override)
 }
 
 main()
