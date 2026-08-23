@@ -489,6 +489,19 @@ function enterBattle(): void {
   playerAi.board = battle.board
   playerAi.selfIndex = player.index
   playerAi.setDecisionPhase(player.index / world.combatants.length)
+  /**
+   * 【難度也要給】`createBattle` 的接線迴圈只走 `combatants` 上的
+   * `AiController`，而玩家座位掛的是**手動**控制器 —— 代飛這一顆從來不在
+   * 那個迴圈裡。漏掉的話它留在 `AiController` 的預設 `ACE`（反應延遲 0），
+   * 場上其他每一架卻是關卡指定的 `VETERAN`（0.3 s）。
+   *
+   * 【為什麼這個漏接很難發現】它不會報錯、不會掉幀，只是讓代飛比友軍反應
+   * 快三成秒。實測代價是**離線探針與遊戲跑出兩條完全不同的軌跡** —— 探針
+   * 把 `AiController` 當成玩家座位的 controller 傳進 `createBattle`，於是
+   * 它拿得到 `VETERAN`。同一張卡、同樣從 t=0 代飛，一邊谷底低 263 m、
+   * 一邊低 697 m，而我一度以為那是混沌。
+   */
+  playerAi.profile = cfg.aiProfile
   // 【戰術狀態也要清】`playerAi` 是跨關卡重用的同一顆。少了這一行，上一場
   // 代飛留下的相位、計時、輪次與冷卻會帶進新的一場 —— 而且只有「新場的目標
   // 剛好用到同一個數字索引」時才看得出來，那是最難查的一種殘留。
