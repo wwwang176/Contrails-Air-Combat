@@ -160,6 +160,27 @@ describe('turnPlanePitch：俯衝／水平／拉高，挑一個', () => {
     }
   })
 
+  /**
+   * 【只剩一條路就給滿】舊版寫「沒得選就不出手」，那是反的 —— 沒得選正是
+   * 最該出手的時候。
+   *
+   * 這一格是掃出來的實例：109 在 1000 m、110 m/s、夾角 60°、視線角速度
+   * 26°/s，只有俯衝轉得過去（低速時往下換速度會把轉彎率拉起來，水平與
+   * 拉高都收斂不了）。舊版在這裡回 0 —— 明明只剩一條路卻不動。
+   *
+   * 【為什麼這個缺陷在護送關看不出來】那一場「只剩一個候選」時贏的都是水平
+   * 迴旋，而水平迴旋的偏置本來就是 0。它被自己蓋住了。
+   */
+  it('只有一個候選可行時給滿偏置，不是回 0', () => {
+    const only = [-1, 0, 1].map((k) =>
+      Number.isFinite(turnPlaneCost(B, 1000, 110, 60 * DEG2, 26 * DEG2,
+        k * DEFAULT_DOCTRINE.turnPlaneGamma).seconds))
+    expect(only).toEqual([true, false, false])   // 只有俯衝可行
+
+    const b = turnPlanePitch(B, 1000, 110, 60 * DEG2, 26 * DEG2, 1000, 110, DEFAULT_DOCTRINE)
+    expect(b).toBeCloseTo(-DEFAULT_DOCTRINE.turnPlaneMaxPitch, 12)
+  })
+
   /** 【消融開關】上界 0 = 整層關掉。 */
   it('turnPlaneMaxPitch = 0 時恆為 0', () => {
     const off = { ...DEFAULT_DOCTRINE, turnPlaneMaxPitch: 0 }
