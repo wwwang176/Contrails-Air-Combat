@@ -93,6 +93,8 @@ interface Sample {
   lr: number
   /** 追不追得上的比值 */
   tr2: number
+  /** 迴轉平面的俯仰偏置，度。正 = 拉高迴旋、負 = 俯衝迴旋 */
+  tpb: number
   /** 閂鎖有沒有閂上，0 / 1 */
   lat: number
   /** 我在當下高度與空速的**瞬時**轉彎率上限，°/s —— 拿來跟 lr 比 */
@@ -189,6 +191,7 @@ function main(): void {
       clo: +ai.sit.closureRate.toFixed(1),
       lr: +(ai.sit.losRate * DEG).toFixed(1),
       tr2: +ai.sit.trackRatio.toFixed(3),
+      tpb: +(ai.sit.turnPitch * DEG).toFixed(2),
       lat: ai.track.latched ? 1 : 0,
       str: +(instantaneousTurnRate(a.spec, a.state.position.y, speed) * DEG).toFixed(1),
       L: (r.extendEnergyLatch ? 1 : 0) | (r.extendTurnLatch ? 2 : 0)
