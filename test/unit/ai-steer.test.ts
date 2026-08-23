@@ -17,6 +17,8 @@ import { DEG } from '../../src/core/math'
 import { createCommand } from '../../src/control/Controller'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { P51D } from '../../src/specs/p51d'
+import { DEFAULT_FIRE } from '../../src/ai/fire'
+import type { Intent } from '../../src/ai/rules'
 
 function place(a: Aircraft, pos: [number, number, number], vel: [number, number, number]) {
   a.state.position.set(...pos)
@@ -2454,5 +2456,147 @@ describe('repositionKnobs —— 佈局下一次機會', () => {
   it('非有限的 cornerRatio 不產生 NaN', () => {
     const v = at(NaN).vertical
     expect(Number.isNaN(v)).toBe(false)
+  })
+})
+
+/**
+ * 佈局在 `steerCommand` 這一層的接線。
+ * spec `2026-08-23-track-break-design.md` §6。
+ *
+ * 【與 `repositionKnobs` 的單元測試分工】那一組驗「旋鈕算得對不對」，
+ * 這一組驗「哪些意圖會用它、哪些不會」—— 而後者是這份設計的核心約束。
+ */
+describe('steerCommand：追不上就改為佈局', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+  let self: Aircraft
+
+  /** 目標在右前方 900 m、橫向高速穿越 —— 追不上的典型幾何 */
+  const crossing = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -200])
+    place(target, [300, 4000, -800], [200, 0, 0])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1.5
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+  }
+
+  /**
+   * 【要比整個 `Command`，不只 `aimWorld`】`steerCommand` 同時負責
+   * `throttle` 與 `brake`。「逐位元不變」的主張要是只驗矄準點，就漏了
+   * 三分之二。
+   */
+  interface Shot { aim: Vector3, throttle: number, brake: number }
+
+  const run = (intent: Intent, repositioning: boolean): Shot => {
+    steerCommand(
+      intent, 'normal', sit, basis, self, 0, k, createDefendState(), null,
+      cmd, DEFAULT_STEER, repositioning,
+    )
+    return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
+  }
+
+  const same = (a: Shot, b: Shot) => {
+    expect(a.aim.x).toBe(b.aim.x)
+    expect(a.aim.y).toBe(b.aim.y)
+    expect(a.aim.z).toBe(b.aim.z)
+    expect(a.throttle).toBe(b.throttle)
+    expect(a.brake).toBe(b.brake)
+  }
+
+  it('engage 閘上時矄準點改變', () => {
+    crossing()
+    const off = run('engage', false)
+    const on = run('engage', true)
+    expect(on.aim.distanceTo(off.aim)).toBeGreaterThan(0.01)
+    expect(on.aim.length()).toBeCloseTo(1, 9)
+  })
+
+  /** 【問題窗的 53.2%】`approach` 原本是純預矄追擊、零旋鈕。 */
+  it('approach 閘上時矄準點改變', () => {
+    crossing()
+    const off = run('approach', false)
+    const on = run('approach', true)
+    expect(on.aim.distanceTo(off.aim)).toBeGreaterThan(0.01)
+    expect(on.aim.length()).toBeCloseTo(1, 9)
+  })
+
+  /**
+   * 【merge 刻意排除】它管交會的那 2.5 秒，要的是「乾淨的預矄追擊，拿一次
+   * 正面快照」—— 見 `engageKnobs` 的註解，那是既有的刻意設計。
+   */
+  it('merge 逐位元不變', () => {
+    crossing()
+    same(run('merge', true), run('merge', false))
+  })
+
+  it('defend 逐位元不變', () => {
+    crossing()
+    same(run('defend', true), run('defend', false))
+  })
+
+  it('extend 逐位元不變', () => {
+    crossing()
+    sit.cornerRatio = 0.7
+    sit.speedAdvantage = -0.3
+    same(run('extend', true), run('extend', false))
+  })
+
+  it('rally 逐位元不變', () => {
+    crossing()
+    const shoot = (repositioning: boolean): Shot => {
+      steerCommand(
+        'rally', 'normal', sit, basis, self, 0, k, createDefendState(),
+        new Vector3(3000, 4000, -3000), cmd, DEFAULT_STEER, repositioning,
+      )
+      return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
+    }
+    same(shoot(true), shoot(false))
+  })
+
+  /**
+   * 【幾何閘門壓過佈局】撞上去、失速、沒空速都比「佈局下一次」急。
+   * 那是既有的順序（mode 分支在意圖分支之前），這一條釘住它。
+   */
+  it('overshoot 這個 mode 壓過佈局', () => {
+    crossing()
+    const shoot = (repositioning: boolean): Shot => {
+      steerCommand(
+        'engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null,
+        cmd, DEFAULT_STEER, repositioning,
+      )
+      return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
+    }
+    same(shoot(true), shoot(false))
+  })
+
+  /** 【預設值】既有的 59 個呼叫點不帶這個參數，行為必須逐位元不變。 */
+  it('不傳參數等同於沒閘上', () => {
+    crossing()
+    steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const bare: Shot = {
+      aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake,
+    }
+    same(bare, run('engage', false))
+  })
+
+  /**
+   * 【扴機優先是明寫的，不是推論出來的】原本的計畫主張「比值大蘊含開不了
+   * 火」，Codex 指出那在 `instantaneousTurnRate` 很小時不成立 —— 一台轉彎率
+   * 很低的飛機在慢速視線下也會超過門檻，而那個角速度低到 `shouldFire`
+   * 根本沒擋。所以改成 `stepTrack` 明寫一道 `trackLosFloor`。
+   *
+   * 這一條釘住那道地板與開火紀律的關係：**只要地板不低於 `maxLosRate`，
+   * 閘上時就一定開不了火。**
+   */
+  it('trackLosFloor 不低於開火的視線角速度上限', () => {
+    expect(DEFAULT_STEER.trackLosFloor).toBeGreaterThanOrEqual(DEFAULT_FIRE.maxLosRate)
   })
 })
