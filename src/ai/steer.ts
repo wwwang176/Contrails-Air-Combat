@@ -149,6 +149,70 @@ export function createDefendState(): DefendState {
 }
 
 /**
+ * 「追不上預瞄點」的跨格狀態。由 `stepTrack` 每步維護。
+ *
+ * 【為什麼與 `DefendState` 分開】那一個是破防的狀態（反轉倒數、破防軸、
+ * 脫離側別），這一個是追擊幾何的狀態。兩者的生命週期無關。
+ */
+export interface TrackState {
+  /** 閂上 = 正在佈局下一次機會，而不是追瞄 */
+  latched: boolean
+  /** 已經連續低於 `trackExit` 幾秒。只在閂上時有意義 */
+  quiet: number
+}
+
+export function createTrackState(): TrackState {
+  return { latched: false, quiet: 0 }
+}
+
+/**
+ * 維護「追不上」的閂鎖。就地修改 `state`。
+ *
+ * 生命週期（spec §5.2）：
+ * ```
+ *   未閂 → 閂上：  trackRatio > trackEnter
+ *   閂上 → 釋放：  trackRatio < trackExit 連續維持 trackHold 秒
+ * ```
+ *
+ * @param ratio   `Situation.trackRatio`
+ * @param losRate `Situation.losRate`，rad/s。低於 `trackLosFloor` 不閂（扳機優先）
+ * @param active  有沒有攻擊目標。沒有目標時立刻釋放
+ */
+export function stepTrack(
+  state: TrackState,
+  ratio: number,
+  losRate: number,
+  active: boolean,
+  dt: number,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  // 【消融開關】見 `SteerConfig.trackEnter`
+  if (!active || !(cfg.trackEnter > 0) || !Number.isFinite(ratio)) {
+    state.latched = false
+    state.quiet = 0
+    return
+  }
+  if (!state.latched) {
+    // 【扳機優先】見 `SteerConfig.trackLosFloor`
+    if (ratio > cfg.trackEnter && losRate > cfg.trackLosFloor) {
+      state.latched = true
+      state.quiet = 0
+    }
+    return
+  }
+  // 【遲滯帶裡不算安靜】要掉到 `trackExit` 以下才開始計時
+  if (ratio < cfg.trackExit) {
+    state.quiet += dt
+    if (state.quiet >= cfg.trackHold) {
+      state.latched = false
+      state.quiet = 0
+    }
+  } else {
+    state.quiet = 0
+  }
+}
+
+/**
  * 每個物理步更新破防狀態。目前只有反轉用得到。
  *
  * **判定（三個條件同時成立）**
@@ -713,6 +777,58 @@ export interface SteerConfig {
    * spec `2026-08-16-sweet-spot-shot-yield-design.md`。
    */
   sweetYieldTime: number
+  /**
+   * 「追不上」的閂上門檻（`Situation.trackRatio`）。嚴格大於才閂。
+   *
+   * 【1.4 是四個場景一起決定的】非護送場景的最高點是纏鬥的 **1.28**，
+   * 護送關的峰值是 **2.36~2.73** —— 中間有 1.8 倍的空隙。1.4 落在纏鬥
+   * 上界之上 9%、護送峰值之下 41%。
+   *
+   * 【為什麼不是 1.0】門檻 1.0 會讓共速共高的純纏鬥有 **47.4%** 的時間在
+   * 收手。近距離繞圈時比值本來就在 1 附近徘徊，而那時候繼續轉才是對的。
+   * 取 1.0 等於照著護送關過擬合。
+   *
+   * **`<= 0` 是整個機制的消融開關** —— 閂鎖永遠不成立，兩個意圖分支逐位元
+   * 退回改動前。（0 在語意上是「任何值都觸發」，那是永遠不會要的設定。）
+   */
+  trackEnter: number
+  /**
+   * 釋放的門檻。低於它才開始累積安靜時間。
+   *
+   * 【遲滯帶】`trackExit` 到 `trackEnter` 之間既不閂上也不開始釋放，
+   * 防止在門檻上抖動。與 `RuleState` 那幾個閂鎖同一個手法。
+   */
+  trackExit: number
+  /**
+   * 低於 `trackExit` 之後還要連續維持幾秒才釋放，s。
+   *
+   * 【為什麼要計時而不只是遲滯】遲滯處理的是門檻附近的抖動；這裡的問題是
+   * **訊號本身只有 1.7 秒**（實測最長一段）。佈局是一個要花好幾秒走完的
+   * 動作，不能訊號一掉就中止。
+   */
+  trackHold: number
+  /**
+   * 閂上還要求的最低視線角速度，rad/s。低於它就不閂 —— **扳機優先**。
+   *
+   * 【為什麼不能只靠比值】比值大只表示「相對於我的能力追不上」。一台轉彎率
+   * 很低的飛機在很慢的視線角速度下也會超過門檻，而那個角速度低到
+   * `DEFAULT_FIRE.maxLosRate` 根本沒擋 —— 那一格是打得到的，該讓給扳機。
+   *
+   * 【為什麼與 `DEFAULT_FIRE.maxLosRate` 同值卻不共用常數】兩者是同一件事的
+   * 兩面（「準星穩不穩得住」），但分屬操縱層與開火紀律。跨模組耦合換不到
+   * 等值的好處 —— 與 `extendTurnFade` 對 `DEFAULT_RULES.extendRange` 同一個
+   * 判斷。**調其中一個時要想到另一個。**
+   */
+  trackLosFloor: number
+  /**
+   * 開始往上佈局的 `cornerRatio`。低於它只做水平轉向。
+   *
+   * 【為什麼用 `cornerRatio` 而不是比能量】它問的是「**現在**拉得動嗎」，
+   * 而比能量問的是「帳面上有多少本錢」。後者在這個專案已經被否決兩次。
+   */
+  zoomEnter: number
+  /** 往上佈局到滿的 `cornerRatio`。中間連續，不會跳。 */
+  zoomFull: number
 }
 
 /**
@@ -1139,6 +1255,12 @@ export const DEFAULT_STEER: SteerConfig = {
   reversalAspect: 90 * (Math.PI / 180),
   reversalHold: 2,
   sweetYieldTime: PROJECTILE_LIFETIME,
+  trackEnter: 1.4,
+  trackExit: 1.0,
+  trackHold: 3.0,
+  trackLosFloor: 0.35,
+  zoomEnter: 1.00,
+  zoomFull: 1.30,
 }
 
 /**
