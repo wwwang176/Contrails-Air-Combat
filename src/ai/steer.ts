@@ -1380,6 +1380,9 @@ export function repositionKnobs(
 
 const A = makeScratch(2)
 
+/** `repositionKnobs` 的輸出暫存。與 `makeScratch` 同一個理由：不在熱路徑配置 */
+const RK: Knobs = { leadLag: 0, vertical: 0 }
+
 /**
  * 由旋鈕算出世界座標的瞄準方向（單位向量）。
  *
@@ -1839,6 +1842,18 @@ export function steerCommand(
   rallyPoint: Vector3 | null,
   out: Command,
   cfg: SteerConfig = DEFAULT_STEER,
+  /**
+   * 「機頭追不上預瞄點，改為佈局下一次機會」。由 `stepTrack` 維護的閂鎖，
+   * 呼叫端傳 `track.latched`。
+   *
+   * 【為什麼傳布林而不是 `TrackState`】這一層需要的是**決定**不是狀態；
+   * 狀態的持有者是 `AiController`，與 `DefendState` 由 `stepDefend` 維護
+   * 同一個道理。
+   *
+   * 【為什麼在最尾端】`steerCommand` 有 59 個呼叫點。插在中間會動到每一個，
+   * 而那些呼叫點與本機制無關。預設 `false` = 既有行為逐位元不變。
+   */
+  repositioning = false,
 ): void {
   // ── 瞄準點 ──────────────────────────────────────────────
   // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
@@ -1855,7 +1870,14 @@ export function steerCommand(
   } else {
     switch (intent) {
       case 'engage':
-        aimFromKnobs(basis, sit, k, out.aimWorld, cfg)
+        // 【追不上就改為佈局】見 `repositionKnobs`。幾何閘門（上面的 mode
+        // 分支）壓過這裡 —— 撞上去、失速、沒空速都比佈局急。
+        if (repositioning) {
+          repositionKnobs(sit, RK, cfg)
+          aimFromKnobs(basis, sit, RK, out.aimWorld, cfg)
+        } else {
+          aimFromKnobs(basis, sit, k, out.aimWorld, cfg)
+        }
         break
       case 'extend': {
         // 【卸載】把瞄準點放到自身速度向量上，指揮儀就沒有轉向需求，
@@ -1903,8 +1925,19 @@ export function steerCommand(
         if (rallyPoint !== null) rallyAim(self, rallyPoint, out.aimWorld)
         else out.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
         break
-      case 'merge':
       case 'approach':
+        // 【它原本是純預瞄追擊、零旋鈕】而問題窗裡它佔 53.2% —— 交會之後
+        // 一路追著預瞄點往下繞的就是這一格。
+        if (repositioning) {
+          repositionKnobs(sit, RK, cfg)
+          aimFromKnobs(basis, sit, RK, out.aimWorld, cfg)
+        } else {
+          normalizeInto(basis.leadPoint, basis.losAxis, out.aimWorld)
+        }
+        break
+      case 'merge':
+        // 【merge 不套佈局】它管交會的那 2.5 秒，要的是乾淨的預瞄追擊、
+        // 拿一次正面快照。見 `engageKnobs` 的註解。
         normalizeInto(basis.leadPoint, basis.losAxis, out.aimWorld)
         break
     }

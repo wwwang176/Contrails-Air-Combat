@@ -7,8 +7,9 @@ import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
 import {
-  buildEngageBasis, createDefendState, createEngageBasis, engageKnobs, geometryGate,
-  shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, type Knobs, type SteerMode,
+  buildEngageBasis, createDefendState, createEngageBasis, createTrackState, engageKnobs,
+  geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
+  DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
@@ -232,6 +233,11 @@ export class AiController implements Controller {
    * 發生過，只看 `intent` 是看不出來的。
    */
   readonly defend = createDefendState()
+  /**
+   * 「追不上預瞄點」的閂鎖。**唯讀** —— 只有 `stepTrack` 能改。
+   * 探針與測試靠它讀閂鎖佔時。
+   */
+  readonly track = createTrackState()
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
@@ -408,6 +414,12 @@ export class AiController implements Controller {
 
     const target = this.target
     if (!target) {
+      // 【目標消失就放掉】那條路徑下面有三個 `return`（飛站位、飛集合點、
+      // 平飛），走不到下面的 `stepTrack`。少了這一行，閂鎖會帶著上一個目標
+      // 的狀態一路殘留到下一次接敵。與同一個分支裡「戰術層在這裡歸零」
+      // 同一個理由。
+      stepTrack(this.track, 0, 0, false, dt)
+
       // 【戰術層在這裡歸零】下面有三條 `return`（飛站位、飛集合點、平飛）。
       // 少了這一格，「目標消失 → off」永遠不會執行，下一個目標會繼承上一個
       // 目標留下的相位與計時。
@@ -599,6 +611,9 @@ export class AiController implements Controller {
     // 狀態的這一層決定 —— `steerCommand` 是純函數，它沒有「這是不是第一格」
     // 的資訊。錨點是攻擊目標，與 `basis` 一致（見 steerCommand 的 extend 分支）。
     stepExtendSide(this.defend, self, target, this.intent === 'extend')
+    // 【與 stepDefend 同一個位階】追不追得上是跨格的閂鎖，必須由持有者每步
+    // 維護。訊號本身只有 1.7 秒，讀瞬時值會讓機首每兩秒抖一次。
+    stepTrack(this.track, this.sit.trackRatio, this.sit.losRate, true, dt)
     // 【三個相位是主要的瞄準解，不是 `steerCommand` 尾端的偏置】那個位階已經
     // 有一個 `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在
     // 破防軸上。再加一個同位階的後處理器會讓那個問題更嚴重。
@@ -622,7 +637,7 @@ export class AiController implements Controller {
         // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
         // 那個分支
         this.order === null || this.order.kind === 'focus' ? null : this.order.point,
-        raw,
+        raw, DEFAULT_STEER, this.track.latched,
       )
     }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
