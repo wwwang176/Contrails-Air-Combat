@@ -12,6 +12,7 @@ import {
   type EngageBasis,
 } from '../../src/ai/steer'
 import type { Situation } from '../../src/ai/assess'
+import type { Intent } from '../../src/ai/rules'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { rallyAim } from '../../src/ai/rally'
@@ -2594,5 +2595,162 @@ describe('applyTurnPlane —— 整層的豁免與消融', () => {
     expect(aim.x).toBe(copy.x)
     expect(aim.y).toBe(copy.y)
     expect(aim.z).toBe(copy.z)
+  })
+})
+
+/**
+ * 迴轉平面紀律在 `steerCommand` 這一層的行為 —— 後處理鏈的第三層。
+ *
+ * 【與 `applyTurnPlane` 的單元測試分工】那一組驗的是「這個函式自己對不對」，
+ * 這一組驗的是「它在鏈上的位置對不對」—— 順序、豁免、與相鄰兩層的互動。
+ */
+describe('steerCommand：迴轉平面的紀律', () => {
+  const basis = createEngageBasis()
+  const sit = createSituation()
+  const cmd = createCommand()
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+  let self: Aircraft
+
+  const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
+  const bearingOf = (v: Vector3) => Math.atan2(v.x, v.z)
+
+  /**
+   * 人工回報那個態勢的最小重現：自機平飛朝 −Z、目標在**後下方** 900 m 且
+   * 正在遠離 —— 「他從下方穿越到後下方」之後的那一刻。
+   */
+  const rearLowScene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -200])
+    place(target, [0, 3400, 780], [0, 0, 200])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+    // 【把射擊讓位那一層推開，這個 describe 才量得到本層本身】900 m 後下方
+    // 且正在遠離的 interceptTime 約 1.5 s，落在 sweetYield 的淡出段
+    // （span..2×span）——係數 0.25，本層只會抬四分之一。那是機制正確運作
+    // （扳機優先），但這幾條的責任是「層在鏈上的位置對不對」，不是「讓位
+    // 係數對不對」。讓位由 applyTurnPlane 的單元測試驗。
+    //
+    // 【× 3 不是 × 2】淡出段是 span..2×span，2×span 正好卡在邊界上。
+    basis.interceptTime = DEFAULT_STEER.sweetYieldTime * 3
+  }
+
+  /** 正常追擊：目標在正前方 800 m 同速同高 */
+  const tailChaseScene = () => {
+    self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 4000, -800], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    sit.stallMargin = 5
+    sit.cornerRatio = 1
+    sit.pullCeiling = 1
+    sit.sweetPitch = 0
+    engageKnobs(sit, k)
+  }
+
+  const run = (intent: Intent, cfg = DEFAULT_STEER) => {
+    steerCommand(intent, 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd, cfg)
+    return cmd.aimWorld.clone()
+  }
+
+  /** 【主判準對應物】方位差大時命令的航跡角不得為負。 */
+  it('後下方的目標：命令不再壓低航跡角', () => {
+    rearLowScene()
+    const off = run('engage', { ...DEFAULT_STEER, climbMax: 0 })
+    const on = run('engage')
+    expect(pitchOf(off)).toBeLessThan(0)
+    expect(pitchOf(on)).toBeGreaterThanOrEqual(0)
+  })
+
+  /** 【每一層只能動一個東西】本層只准動航跡角。 */
+  it('水平方位一格不動', () => {
+    rearLowScene()
+    const off = run('engage', { ...DEFAULT_STEER, climbMax: 0 })
+    const on = run('engage')
+    expect(bearingOf(on)).toBeCloseTo(bearingOf(off), 9)
+    expect(on.length()).toBeCloseTo(1, 9)
+  })
+
+  /**
+   * 【覆蓋度表「正前 × 任何能量」那一列】正常追擊必須逐位元不受影響 ——
+   * 這一格保證了這一層不會偷偷改掉既有的攻擊行為。
+   */
+  it('正前方追擊逐位元不變，能量差再大也一樣', () => {
+    tailChaseScene()
+    for (const ea of [-3000, 0, 3000]) {
+      sit.energyAdvantage = ea
+      const off = run('engage', { ...DEFAULT_STEER, climbMax: 0 })
+      const on = run('engage')
+      expect(on.x).toBe(off.x)
+      expect(on.y).toBe(off.y)
+      expect(on.z).toBe(off.z)
+    }
+  })
+
+  /**
+   * 【它證明的是早退沒有副作用，不是「等同改動前」】兩條互相獨立的「整層
+   * 無操作」路徑必須給出一模一樣的位元：`climbMax: 0` 走早退，
+   * `planeEnter/planeFull` 推到天上則是走完整條路徑但權重為 0。
+   *
+   * **這一條抓不到「新呼叫點本身改變了行為」** —— 兩邊都跑同一份接好線的
+   * `steerCommand`。那一半由 `escort-trace.probe.ts` 負責：`TP='{"climbMax":0}"'`
+   * 跑出來的主判準必須逐字重現改動前的數字，那才是真正的跨版本對照。
+   */
+  it('climbMax = 0 與權重恆 0 逐位元相同', () => {
+    rearLowScene()
+    const ablated = run('engage', { ...DEFAULT_STEER, climbMax: 0 })
+    const zeroWeight = run('engage', {
+      ...DEFAULT_STEER, planeEnter: 1e9, planeFull: 1e9 + 1,
+    })
+    expect(ablated.x).toBe(zeroWeight.x)
+    expect(ablated.y).toBe(zeroWeight.y)
+    expect(ablated.z).toBe(zeroWeight.z)
+  })
+
+  /** 【脫離時方位差必然很大】豁免掉才留得住「低頭換速度」。 */
+  it('extend 逐位元不變，而且還在俯衝', () => {
+    rearLowScene()
+    sit.cornerRatio = 0.7
+    sit.speedAdvantage = -0.3
+    const off = run('extend', { ...DEFAULT_STEER, climbMax: 0 })
+    const on = run('extend')
+    expect(on.x).toBe(off.x)
+    expect(on.y).toBe(off.y)
+    expect(on.z).toBe(off.z)
+    // 換速度的能力沒有被關掉
+    expect(pitchOf(on)).toBeLessThan(0)
+  })
+
+  /**
+   * 【與甜蜜區疊加】順序上 `sweetPitch` 在前，所以本層看到的是已經偏過的值，
+   * 「不得為負」對兩者的**合計**生效。
+   */
+  it('甜蜜區把航跡角壓下去之後，下限對合計生效', () => {
+    rearLowScene()
+    sit.sweetPitch = -25 * DEG
+    const off = run('engage', { ...DEFAULT_STEER, climbMax: 0 })
+    const on = run('engage')
+    expect(pitchOf(off)).toBeLessThan(-20 * DEG)
+    expect(pitchOf(on)).toBeGreaterThanOrEqual(0)
+  })
+
+  /**
+   * 【安全層永遠最後】撞地底限必須有最後決定權。本層只抬不壓，兩者同向，
+   * 所以驗的是底限仍然贏得了 —— 抬得比本層更多。
+   */
+  it('撞地底限仍然是最後一個說話的', () => {
+    rearLowScene()
+    steerCommand(
+      'engage', 'normal', sit, basis, self, self.state.position.y - 50,
+      k, createDefendState(), null, cmd,
+    )
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(floorPitchAngle(50), 9)
   })
 })
