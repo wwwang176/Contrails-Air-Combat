@@ -8,6 +8,7 @@ import {
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
+  turnPlaneAngle, turnPlaneWeight, turnPlaneClimb,
 } from '../../src/ai/steer'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
@@ -2279,5 +2280,126 @@ describe('extend 的回場方向', () => {
       expect(a.y).toBe(b.y)
       expect(a.z).toBe(b.z)
     })
+  })
+})
+
+
+/**
+ * 迴轉平面的紀律 —— 方位與能量兩個維度。
+ * spec `2026-08-23-turn-plane-discipline-design.md` §2。
+ */
+describe('turnPlaneAngle —— 預瞄點相對機鼻的 3D 夾角', () => {
+  /** 機首朝 −Z、平飛 */
+  function nosed(): Aircraft {
+    const a = new Aircraft(P51D, 4000, 200)
+    a.state.position.set(0, 4000, 0)
+    a.state.velocity.set(0, 0, -200)
+    a.state.orientation.identity()
+    return a
+  }
+
+  it('正前方是 0', () => {
+    expect(turnPlaneAngle(nosed(), new Vector3(0, 0, -800))).toBeCloseTo(0, 9)
+  })
+
+  it('正後方是 π', () => {
+    expect(turnPlaneAngle(nosed(), new Vector3(0, 0, 800))).toBeCloseTo(Math.PI, 9)
+  })
+
+  it('正側方是 π/2，長度不影響結果', () => {
+    expect(turnPlaneAngle(nosed(), new Vector3(800, 0, 0))).toBeCloseTo(Math.PI / 2, 9)
+    expect(turnPlaneAngle(nosed(), new Vector3(5, 0, 0))).toBeCloseTo(Math.PI / 2, 9)
+  })
+
+  /**
+   * 【正上方也是 π/2】它是 **3D** 夾角，不是水平投影 ——「要轉多少才瞄得到」
+   * 在垂直方向與水平方向一樣是要轉。
+   */
+  it('正上方是 π/2', () => {
+    expect(turnPlaneAngle(nosed(), new Vector3(0, 800, 0))).toBeCloseTo(Math.PI / 2, 9)
+  })
+
+  /**
+   * 【零向量回 0 = 不介入】預瞄點與自機重合時方位沒有定義。回 0 讓方位係數
+   * 也是 0，整層無操作 —— 與 `sweetYield` 的退化方向一致（讓本層失效）。
+   */
+  it('零向量回 0', () => {
+    expect(turnPlaneAngle(nosed(), new Vector3(0, 0, 0))).toBe(0)
+  })
+
+  it('機首轉向之後跟著轉', () => {
+    const a = nosed()
+    // 機首朝 +X
+    a.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(1, 0, 0))
+    // 【只到 6 位】acos 在 0 附近本來就會放大誤差：點積是 1 − 1e−16，開出來
+    // 是 3e−8。轉過的四元數不可能給出**恰好** 1 的點積
+    expect(turnPlaneAngle(a, new Vector3(800, 0, 0))).toBeCloseTo(0, 6)
+    expect(turnPlaneAngle(a, new Vector3(0, 0, -800))).toBeCloseTo(Math.PI / 2, 9)
+  })
+})
+
+describe('turnPlaneWeight —— 方位係數', () => {
+  const cfg = DEFAULT_STEER
+
+  it('小於 planeEnter 嚴格是 0', () => {
+    expect(turnPlaneWeight(0, cfg)).toBe(0)
+    expect(turnPlaneWeight(cfg.planeEnter, cfg)).toBe(0)
+    expect(turnPlaneWeight(cfg.planeEnter - 1e-6, cfg)).toBe(0)
+  })
+
+  it('大於等於 planeFull 是 1', () => {
+    expect(turnPlaneWeight(cfg.planeFull, cfg)).toBe(1)
+    expect(turnPlaneWeight(Math.PI, cfg)).toBe(1)
+  })
+
+  it('中點是 0.5，而且單調遞增', () => {
+    const mid = (cfg.planeEnter + cfg.planeFull) / 2
+    expect(turnPlaneWeight(mid, cfg)).toBeCloseTo(0.5, 9)
+    let prev = -1
+    for (let d = 0; d <= 180; d += 5) {
+      const w = turnPlaneWeight(d * DEG, cfg)
+      expect(w).toBeGreaterThanOrEqual(prev)
+      prev = w
+    }
+  })
+
+  /** NaN 會穿過每一個比較然後汙染整個 `aimWorld`。回 0 = 本層失效。 */
+  it('非有限值回 0', () => {
+    expect(turnPlaneWeight(NaN, cfg)).toBe(0)
+    expect(turnPlaneWeight(Infinity, cfg)).toBe(0)
+  })
+})
+
+describe('turnPlaneClimb —— 拉高量', () => {
+  const cfg = DEFAULT_STEER
+
+  /** 【能量劣勢也要帶一點拉高】專案負責人的規則明寫，見 spec §6。 */
+  it('能量劣勢時給 climbMin，而且不為零', () => {
+    expect(turnPlaneClimb(-5000, cfg)).toBe(cfg.climbMin)
+    expect(turnPlaneClimb(0, cfg)).toBe(cfg.climbMin)
+    expect(cfg.climbMin).toBeGreaterThan(0)
+  })
+
+  it('能量優勢滿了給 climbMax', () => {
+    expect(turnPlaneClimb(cfg.energyFull, cfg)).toBe(cfg.climbMax)
+    expect(turnPlaneClimb(cfg.energyFull * 10, cfg)).toBe(cfg.climbMax)
+  })
+
+  it('中間線性連續，沒有跳階', () => {
+    expect(turnPlaneClimb(cfg.energyFull / 2, cfg))
+      .toBeCloseTo((cfg.climbMin + cfg.climbMax) / 2, 12)
+    // 門檻上下相鄰取樣不得出現階躍
+    expect(turnPlaneClimb(1e-6, cfg) - cfg.climbMin).toBeLessThan(1e-6)
+  })
+
+  it('非有限值回 climbMin', () => {
+    expect(turnPlaneClimb(NaN, cfg)).toBe(cfg.climbMin)
+  })
+
+  /** 設定寫壞時不得產生 NaN —— `0 / 0` 會穿過 `clamp` 出去。 */
+  it('energyFull <= 0 退化成 0 處的階梯，不產生 NaN', () => {
+    const bad = { ...cfg, energyFull: 0 }
+    expect(turnPlaneClimb(100, bad)).toBe(cfg.climbMax)
+    expect(turnPlaneClimb(-100, bad)).toBe(cfg.climbMin)
   })
 })
