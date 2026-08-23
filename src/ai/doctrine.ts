@@ -11,7 +11,6 @@
  * 本模組**不 import 任何 AI 狀態**，只吃 spec 與純量，所以整支可以在單元
  * 測試裡直接算。
  */
-import { DEG } from '../core/math'
 import { stallSpeed, sustainedTurnRate } from '../analysis/envelope'
 import type { AircraftSpec } from '../specs/types'
 
@@ -124,8 +123,14 @@ export interface DoctrineConfig {
    */
   energyMinPull: number
   /**
-   * 甜蜜區俯仰偏置的上界，rad。**Task 7 掃描定值**，候選 5°／10°／15°／20°。
-   * 起手值取 10°。
+   * 甜蜜區俯仰偏置的上界，rad。**目前是 0 —— 這一層關著。**
+   *
+   * 【為什麼關掉】它與「迴轉候選的選擇」在講同一件事（速度離最佳點多遠、
+   * 該用高度換速度還是反過來），而後者算得更完整：它連「轉完之後相對敵人
+   * 的能量位置」都算進去。兩層同時作用會讓量測分不清是誰的功勞。
+   *
+   * 實測 109 對 P-51 在 3400 m：120~188 m/s 全段給 +8.7°~+10°（抬頭），
+   * 也就是幾乎一直在作用 —— 那正是「遠距離會往敵人頭上補仰角」的來源。
    *
    * 【為什麼一定要有上界】偏置與意圖是疊加的。無上界時 AI 會為了顧自己的
    * 框而把機首帶離敵人 —— 症狀會先出現在 `ai-targeting` 的 `onNose`。
@@ -190,7 +195,7 @@ export const DEFAULT_DOCTRINE: DoctrineConfig = {
   energyFreeRatio: 1.0,
   energyFloorRatio: 0.70,
   energyMinPull: 0.65,
-  sweetSpotMaxPitch: 10 * DEG,
+  sweetSpotMaxPitch: 0,
   sweetSpotFullAt: 0.05,
 }
 

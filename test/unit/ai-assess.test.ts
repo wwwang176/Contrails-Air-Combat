@@ -931,14 +931,22 @@ describe('Situation：打法層的兩個量', () => {
    * (高度, 速度) 拿到**方向相反**的偏好。低速帶是 109 的地盤，所以被推的
    * 是 P-51（低頭換速度），109 拿到 0（它已經在自己的地方）。
    */
-  it('低速帶：P-51 被推去低頭，109 不被推', () => {
+  /**
+   * 【出貨值關著這一層】`DEFAULT_DOCTRINE.sweetSpotMaxPitch` 目前是 0，所以
+   * 走出貨路徑的 `evaluateEnergy` 兩邊都會拿到 0。這一條因此改成釘住
+   * **接線**（態勢確實有去問 `sweetSpotPitch`），方向的斷言留在
+   * `ai-doctrine.test.ts` 那一組，那裡用明確的設定測函式本身。
+   */
+  it('低速帶：甜蜜區偏置隨出貨設定關著', () => {
     const sit = createSituation()
     const p = at(FEEL_P51D, 3000, 300 / 3.6)
     const b = at(FEEL_BF109, 3000, 300 / 3.6)
+    // 【用 === 不用 toBe】上界是 0 時函式回的是 −0（方向 × 強度 × 0），
+    // 而 `toBe` 走 Object.is，−0 與 +0 不相等。−0 === 0 為真。
     evaluateEnergy(p, b, sit)
-    expect(sit.sweetPitch).toBeLessThan(0)
+    expect(sit.sweetPitch === 0).toBe(true)
     evaluateEnergy(b, p, sit)
-    expect(sit.sweetPitch).toBe(0)
+    expect(sit.sweetPitch === 0).toBe(true)
   })
 })
 
