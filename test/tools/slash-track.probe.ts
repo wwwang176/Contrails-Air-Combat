@@ -48,11 +48,32 @@ interface Side {
   headingDeg: number
 }
 
-/** `ai-duel-matrix.test.ts` 的 HIGH_ENERGY，逐字照抄 */
-const HIGH_ENERGY: [Side, Side] = [
-  { spec: P51D, altitude: 5500, tas: 250, offset: [0, 0, 800], headingDeg: 180 },
-  { spec: BF109G6, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
-]
+/**
+ * 三組開局，全部逐字照抄 `ai-duel-matrix.test.ts`。
+ *
+ * 【為什麼三組都要量】判準要通用就得在**不同的打法**下都成立：
+ *   high —— 能量戰法。距離拉得開，比值該一直很低
+ *   co   —— 純纏鬥。兩台貼在一起繞，比值最可能爆表，而那時候繼續轉才對
+ *   low  —— 吃虧的一方。它會一直被咬，防禦動作最多
+ */
+const CARDS: Record<string, [Side, Side]> = {
+  high: [
+    { spec: P51D, altitude: 5500, tas: 250, offset: [0, 0, 800], headingDeg: 180 },
+    { spec: BF109G6, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
+  ],
+  co: [
+    { spec: P51D, altitude: 4000, tas: 190, offset: [400, 0, 400], headingDeg: 135 },
+    { spec: BF109G6, altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 },
+  ],
+  low: [
+    { spec: P51D, altitude: 3000, tas: 150, offset: [0, -1000, 0], headingDeg: 0 },
+    { spec: BF109G6, altitude: 4000, tas: 250, offset: [0, 0, 600], headingDeg: 0 },
+  ],
+}
+
+declare const process: { env: Record<string, string | undefined> }
+const CARD = process.env.CARD ?? 'high'
+const HIGH_ENERGY = CARDS[CARD] ?? CARDS.high!
 
 interface Sample {
   t: number
@@ -80,6 +101,16 @@ interface Sample {
   bk: number
   /** 航跡角，度 */
   ga: number
+  /** 自機位置的水平分量，m */
+  x: number
+  z: number
+  /** 自機姿態四元數 */
+  q: [number, number, number, number]
+  /** 目標位置與姿態 */
+  tx: number
+  ty: number
+  tz: number
+  oq: [number, number, number, number]
 }
 
 function make(side: Side) {
@@ -149,13 +180,26 @@ function main(): void {
       mode: blueAi.mode,
       bk: +bk.toFixed(0),
       ga: +ga.toFixed(1),
+      x: +a.state.position.x.toFixed(0),
+      z: +a.state.position.z.toFixed(0),
+      q: [
+        +a.state.orientation.x.toFixed(4), +a.state.orientation.y.toFixed(4),
+        +a.state.orientation.z.toFixed(4), +a.state.orientation.w.toFixed(4),
+      ],
+      tx: +r.a.state.position.x.toFixed(0),
+      ty: +r.a.state.position.y.toFixed(0),
+      tz: +r.a.state.position.z.toFixed(0),
+      oq: [
+        +r.a.state.orientation.x.toFixed(4), +r.a.state.orientation.y.toFixed(4),
+        +r.a.state.orientation.z.toFixed(4), +r.a.state.orientation.w.toFixed(4),
+      ],
     })
   }
 
   // ── 逐秒表（只印前 60 秒，那是掠襲循環最密的一段）──────
   const every = Math.max(1, Math.round(1 / STEP))
   const rows: string[] = []
-  rows.push('掠襲場景（HIGH_ENERGY：P-51 5500 m/250 對 109 4000 m/170）')
+  rows.push('場景 ' + CARD)
   rows.push('')
   rows.push('   t    高度   距離   接近率  視線ω  上限ω  比值   判定     旋鈕 前後/上下  意圖    坡度')
   for (let i = 0; i < out.length; i += every) {
@@ -189,7 +233,7 @@ function main(): void {
   }
   console.error(rows.join('\n'))
 
-  console.log(JSON.stringify({ card: 'HIGH_ENERGY', step: STEP, samples: out }))
+  console.log(JSON.stringify({ card: CARD, step: STEP, samples: out }))
 }
 
 main()
