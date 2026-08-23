@@ -941,3 +941,100 @@ describe('Situation：打法層的兩個量', () => {
     expect(sit.sweetPitch).toBe(0)
   })
 })
+
+/**
+ * 「機頭追不追得上預瞄點」。
+ * spec `2026-08-23-track-break-design.md` §2。
+ */
+describe('trackRatio —— 視線角速度 ÷ 瞬時轉彎率上限', () => {
+  const sit = createSituation()
+
+  /**
+   * 造一架在 `alt` 平飛、機首朝 −Z、速度 `tas` 的飛機。
+   *
+   * 【一定要先跑一步】與下方 `flyer()` 同一個理由 —— 建構子不填 `diag`，
+   * 而 `trackRatio` 的分母讀 `diag.aero.tas`。沒跑過的飛機那裡是 0，
+   * `instantaneousTurnRate` 回 0，比值整條線都是 0 —— 而且不會報錯。
+   * 跑完那一步再把位置與速度寫回去，才能造出想要的幾何。
+   */
+  function flyerAt(alt: number, tas: number): Aircraft {
+    const a = new Aircraft(P51D, alt, tas)
+    a.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    a.state.position.set(0, alt, 0)
+    a.state.velocity.set(0, 0, -tas)
+    a.state.orientation.identity()
+    a.prevPosition.copy(a.state.position)
+    return a
+  }
+
+  /**
+   * 【共速同向尾追 = 沒有橫向相對運動】視線角速度是 0，所以比值也是 0。
+   * 這一格保證了正常追擊不會誤觸發。
+   */
+  it('共速同向尾追是 0', () => {
+    const self = flyerAt(4000, 200)
+    const target = flyerAt(4000, 200)
+    target.state.position.set(0, 4000, -800)
+    evaluateGeometry(self, target, sit)
+    expect(sit.trackRatio).toBe(0)
+  })
+
+  /**
+   * 【近距離高交叉會爆表】300 m 外橫向 200 m/s → 視線角速度 0.67 rad/s
+   * = 38°/s，而 P-51 在 4000 m / 200 m/s 的瞬時上限約 22~25°/s。
+   */
+  it('近距離橫向穿越時大於 1', () => {
+    const self = flyerAt(4000, 200)
+    const target = flyerAt(4000, 200)
+    target.state.position.set(0, 4000, -300)
+    target.state.velocity.set(200, 0, 0)
+    evaluateGeometry(self, target, sit)
+    expect(sit.trackRatio).toBeGreaterThan(1)
+  })
+
+  /**
+   * 【同樣的橫向速度，距離拉遠就追得上】這是這個判準能分開「近距離纏鬥」
+   * 與「遠距離俯衝」的結構性原因：分母是距離。
+   */
+  it('同樣的橫向速度，距離拉到 3 km 就遠小於 1', () => {
+    const self = flyerAt(4000, 200)
+    const target = flyerAt(4000, 200)
+    target.state.position.set(0, 4000, -3000)
+    target.state.velocity.set(200, 0, 0)
+    evaluateGeometry(self, target, sit)
+    expect(sit.trackRatio).toBeLessThan(0.3)
+  })
+
+  /**
+   * 【極近距離會炸】分母趨近 0。護送關全場實測到 20.15。夾住上限，
+   * 否則它乘進任何東西都會污染整條鏈。
+   */
+  it('極近距離夾在上限', () => {
+    const self = flyerAt(4000, 200)
+    const target = flyerAt(4000, 200)
+    target.state.position.set(0, 4000, -30)
+    target.state.velocity.set(200, 0, 0)
+    evaluateGeometry(self, target, sit)
+    expect(sit.trackRatio).toBeLessThanOrEqual(4)
+    expect(Number.isFinite(sit.trackRatio)).toBe(true)
+  })
+
+  /**
+   * 【非有限的速度會讓 `losRate` 變 NaN】而 `Math.min(NaN, cap)` 還是 NaN，
+   * 一路乘進矄準點。值域宣稱是 `[0, TRACK_CAP]`，就得真的守住。
+   */
+  it('非有限的相對速度不產生 NaN', () => {
+    const self = flyerAt(4000, 200)
+    const target = flyerAt(4000, 200)
+    target.state.position.set(0, 4000, -800)
+    target.state.velocity.set(NaN, 0, 0)
+    evaluateGeometry(self, target, sit)
+    expect(Number.isNaN(sit.trackRatio)).toBe(false)
+    expect(sit.trackRatio).toBeGreaterThanOrEqual(0)
+    expect(sit.trackRatio).toBeLessThanOrEqual(4)
+  })
+
+  it('createSituation 的預設值是 0', () => {
+    expect(createSituation().trackRatio).toBe(0)
+  })
+})
