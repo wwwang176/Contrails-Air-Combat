@@ -46,6 +46,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
 import {
@@ -1322,3 +1323,86 @@ function frame(now: number) {
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
+
+/**
+ * **量測出口**：把當前戰鬥的玩家座位讀成一個純資料點，給 Playwright 用。
+ *
+ * 【為什麼需要它】離線探針量的是 `stepBattle`，人工回報的卻是**在遊戲裡**
+ * 按代飛看到的行為。兩者中間隔著這個檔案的接線 —— 何時換控制器、指揮層、
+ * 暫停、掉幀丟時間。少了這個出口，Playwright 只讀得到像素，量不出軌跡。
+ *
+ * 【為什麼是函式而不是掛物件】`battle` 每開一場就換一顆，抓著舊的參考會
+ * 量到上一場。
+ *
+ * 【為什麼回純數字而不是回 `battle`】跨 CDP 傳一整棵物件圖既慢又會踩到
+ * 循環參考；而且要量什麼在這裡寫清楚，比在腳本裡挖欄位誠實。
+ */
+/**
+ * **打法設定的消融開關**，逐欄蓋掉 `DEFAULT_DOCTRINE`，回蓋完的值。
+ * 與離線探針的 `DP` 環境變數是同一件事 —— 那一個走 `process.env`，瀏覽器
+ * 裡沒有那條路。
+ *
+ * 【必須在開戰之前呼叫】`AiController` 每步都讀這顆物件，中途改等於換規則，
+ * 那條軌跡兩邊都不是。
+ */
+;(window as unknown as Record<string, unknown>)['__doctrine'] = (
+  patch: Record<string, number>,
+) => {
+  Object.assign(DEFAULT_DOCTRINE, patch)
+  return { ...DEFAULT_DOCTRINE }
+}
+
+;(window as unknown as Record<string, unknown>)['__probe'] = () => {
+  if (screen !== 'battle') return null
+  const a = player.aircraft
+  const pos = a.state.position
+  const vel = a.state.velocity
+  const speed = vel.length()
+  const right = new Vector3(1, 0, 0).applyQuaternion(a.state.orientation)
+  const up = new Vector3(0, 1, 0).applyQuaternion(a.state.orientation)
+  const aim = player.command.aimWorld
+  // 被護送的單位（護航關才有），取還活著的平均高度
+  let by = 0
+  let bn = 0
+  for (const c of world.combatants) {
+    if (!c.alive) continue
+    if (battle.board.protectedMask[c.index] === 0) continue
+    by += c.aircraft.state.position.y
+    bn++
+  }
+  const tgt = playerAi.target
+  return {
+    /**
+     * **物理時鐘**，秒。用 `world.time` 而不是 `elapsed` —— 後者累加的是
+     * 牆鐘（`frameSeconds`），而固定步長迴圈撞到 `maxSubsteps` 時會丟時間。
+     * 無頭瀏覽器跑 WebGL 幾乎一定會撞到，兩者於是分家。
+     */
+    t: +world.time.toFixed(2),
+    ai: input.playerAi,
+    alive: player.alive,
+    x: +pos.x.toFixed(1), y: +pos.y.toFixed(1), z: +pos.z.toFixed(1),
+    v: +speed.toFixed(1),
+    // 航跡角：速度向量相對地平線。正 = 爬升
+    ga: speed > 1e-3 ? +(Math.asin(vel.y / speed) * 180 / Math.PI).toFixed(2) : 0,
+    // 【坡度用 atan2 不用 asin】asin 的值域是 ±90°，**分不出正飛與倒飛**。
+    // 實測踩過一次：一段「坡度只有 −11°、幾乎平飛」的取樣，真值是 179°
+    bk: +(Math.atan2(-right.y, up.y) * 180 / Math.PI).toFixed(1),
+    // 指令的航跡角 —— 與 ga 對照就知道低頭是被命令的還是掉下去的
+    cmd: +(Math.atan2(aim.y, Math.hypot(aim.x, aim.z)) * 180 / Math.PI).toFixed(2),
+    intent: playerAi.intent,
+    mode: playerAi.mode,
+    // 迴轉平面的俯仰偏置，度。正 = 拉高迴旋、負 = 俯衝迴旋、0 = 水平
+    tpb: +(playerAi.sit.turnPitch * 180 / Math.PI).toFixed(2),
+    asp: +(playerAi.sit.aspectAngle * 180 / Math.PI).toFixed(1),
+    // 被護送單位的平均高度；全滅或非護航關時 NaN
+    by: bn > 0 ? +(by / bn).toFixed(1) : Number.NaN,
+    tr: tgt !== null ? +tgt.state.position.distanceTo(pos).toFixed(1) : -1,
+    // 掉幀會讓固定步長迴圈丟時間，軌跡就與離線探針分家 —— 要看得到
+    sub: loop.lastSubstepCount,
+    /**
+     * 代飛這一顆 AI 的反應延遲，秒。**這是兩條量測路徑對不對得起來的鑰匙。**
+     * `ACE` 是 0、`VETERAN` 不是 —— 延遲不同，軌跡四十秒後就完全不一樣。
+     */
+    rd: playerAi.profile.reactionDelay,
+  }
+}
