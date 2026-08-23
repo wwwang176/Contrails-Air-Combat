@@ -49,7 +49,7 @@ import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
-import type { Aircraft } from '../../src/flight/Aircraft'
+import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
 const SECONDS = 300

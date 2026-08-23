@@ -2134,14 +2134,13 @@ describe('extend 的回場方向', () => {
      * longestExtend 由 55 s 的上限暴增到 284.5 s，ai-duel-matrix 的
      * redDamage 掉到 0（雙方都在盤旋，誰也打不到誰）。
      */
-    it('近距離不偏，遠距離才淡到滿', () => {
+    it('貼身不偏，淡入距離之後全程滿偏', () => {
       const fade = DEFAULT_STEER.extendTurnFade
       expect(extendHeadingBias(1, Math.PI, 0)).toBe(0)
-      expect(extendHeadingBias(1, Math.PI, fade)).toBe(0)
-      const mid = extendHeadingBias(1, Math.PI, fade * 1.5)
+      const mid = extendHeadingBias(1, Math.PI, fade / 2)
       expect(mid).toBeGreaterThan(0)
       expect(mid).toBeLessThan(cap)
-      expect(extendHeadingBias(1, Math.PI, fade * 2)).toBeCloseTo(cap, 12)
+      expect(extendHeadingBias(1, Math.PI, fade)).toBeCloseTo(cap, 12)
       expect(extendHeadingBias(1, Math.PI, fade * 10)).toBeCloseTo(cap, 12)
     })
 

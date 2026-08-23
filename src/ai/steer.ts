@@ -424,7 +424,13 @@ export interface SteerConfig {
    */
   extendTurnCap: number
   /**
-   * 回場偏置**開始**淡入的距離，m。到 `2 ×` 這個值時淡到滿。
+   * 回場偏置**淡到滿**的距離，m。由 0 漸進到這個值，之後全程滿偏。
+   *
+   * 【淡入區本身有害，要讓 AI 快速通過】它存在只是為了不抖 —— 距離在門檻
+   * 附近晃一下，偏置若在 0 與 `extendTurnCap` 之間跳，機首就跟著抖。但區
+   * 間裡的偏置是「一點點」，而一點點偏置＝小過載＝**超大的弧**（見
+   * `extendTurnCap` 的掃描表：偏 5° 跑 15.1 km，比完全不轉的 10.7 km 還
+   * 遠）。所以這個值決定的是「不上不下的地帶有多寬、多早開始」。
    *
    * 【為什麼一定要有這一層】沒有它時 AI 會**繞著目標盤旋**：`extend` 的兩個
    * 出口是「拉開到 `extendRange`」與「閂鎖釋放」，而全程朝目標偏轉會把兩個
@@ -434,18 +440,20 @@ export interface SteerConfig {
    * （`ai-duel-matrix` 的 `redDamage` 同時掉到 0，但那只是旁證：**這個
    * 機制修的是「直直飛不合理」，不是攻擊效率**。）
    *
-   * 【為什麼分界在 `extendRange`】那正好把兩種脫離理由分開，而且不必讓
-   * `steerCommand` 去讀 `RuleState`（spec §9.4 的分理由要求）：
+   * 【750 的取捨】淡入區蓋住 0..750 m，能量型脫離（`extendRange` 1,500 m
+   * 出場）整批落在裡面 —— 它們會被帶著走大弧。換到的是 750 m 之後**全程
+   * 滿偏**，回場比把淡入區推遠積極得多。哪一邊划算由人工試飛判定，這是
+   * 「玩起來合不合理」的問題，不是數字問題。
    *
-   * - **近距離**（相對理由的地盤）不偏 —— 它本來就會在 1,500 m 出場，
-   *   行為逐位元退回改動前
-   * - **遠距離**只剩不受距離約束的見底型 —— 那正是 `maxRadius` 跑到
-   *   10.7 km 的來源，也正是「脫離太遠回不來」這個回報的真正對象
+   * 【0 = 全程滿偏】不是關閉。要關閉這一層請用 `extendTurnCap: 0`。
    *
-   * 【0 = 全程套用】不是關閉。要關閉這一層請用 `extendTurnCap: 0`。
+   * **待人工試飛定案。** 已量過的兩組（`extendTurnCap` 20°）：
    *
-   * **起始值＝`DEFAULT_RULES.extendRange`。** 兩者是同一件事的兩面，但分屬
-   * 意圖層與操縱層，不共用常數 —— 跨模組耦合換不到等值的好處。
+   * ```
+   *   淡入區          longestExtend@1000   maxRadius
+   *   1500..3000 m    75.5（cap 15°）      6212（cap 15°）
+   *    750..1500 m    79                   10494
+   * ```
    */
   extendTurnFade: number
   /**
@@ -1094,8 +1102,8 @@ export const DEFAULT_STEER: SteerConfig = {
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.8,
   extendPitch: EXTEND_PITCH,
-  extendTurnCap: 15 * (Math.PI / 180),
-  extendTurnFade: 1500,
+  extendTurnCap: 10 * (Math.PI / 180),
+  extendTurnFade: 750,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
@@ -1391,7 +1399,7 @@ export function extendHeadingBias(
   // 【近距離不偏】見 `SteerConfig.extendTurnFade` —— 沒有這一層 AI 會繞著
   // 目標盤旋。壞掉的淡入距離退化成「全程套用」，與 0 同義。
   const fade = cfg.extendTurnFade > 0
-    ? smoothstep(cfg.extendTurnFade, 2 * cfg.extendTurnFade, range)
+    ? smoothstep(0, cfg.extendTurnFade, range)
     : 1
   if (fade === 0) return 0
   const want = headingError < 0 ? -headingError : headingError
