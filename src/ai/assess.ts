@@ -38,6 +38,24 @@ export interface Situation {
   angleOffTail: number
   /** 視線角速度，rad/s。「跟不跟得上」的直接量度 */
   losRate: number
+  /**
+   * 視線角速度 ÷ 我此刻的**瞬時**轉彎率上限。無因次，夾在 `TRACK_CAP` 以內。
+   *
+   * **> 1 = 即使拉到極限過載，機頭也追不上預瞄點。** 那是真人飛行員收手改為
+   * 佈局下一次機會的訊號 —— 「準星跟不上預瞄點的移動」。
+   *
+   * 【為什麼分子分母都要】`losRate` 單獨是有因次的，換一台轉彎率不同的飛機
+   * 就得重訂門檻。除以自己的能力之後它變成「相對於我做得到的」，換機種、
+   * 換高度、換關卡都不必調。
+   *
+   * 【為什麼用瞬時而不是持續轉彎率】`sustainedTurnRate`（Ps = 0 的最大轉速）
+   * 在空戰高度撐不住時回傳 0，拿它當分母整條線都是「追不上」。而「準星跟不
+   * 跟得上」問的是**此刻拉得出多少角速度**。
+   *
+   * 【它是保守的】分母用的是最大過載，所以 `> 1` 的意思是「連極限都不夠」，
+   * 不是「我現在懶得拉」。
+   */
+  trackRatio: number
 
   /** 我的比能量 − 他的，m */
   energyAdvantage: number
@@ -193,7 +211,7 @@ export interface Situation {
 export function createSituation(): Situation {
   return {
     range: 0, closureRate: 0, timeToMerge: Infinity,
-    aspectAngle: 0, angleOffTail: 0, losRate: 0,
+    aspectAngle: 0, angleOffTail: 0, losRate: 0, trackRatio: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, speedAdvantage: 0, energyRatio: 0, stallMargin: 1, speedMargin: 1,
@@ -205,6 +223,14 @@ export function createSituation(): Situation {
 
 /** 視線退化的距離下限，m。低於此值方向沒有意義。 */
 const MIN_RANGE = 1e-3
+
+/**
+ * `trackRatio` 的上限。極近距離時分母趨近 0，實測護送關全場出現過 20.15。
+ *
+ * 【為什麼是常數而不是設定】它是防爆用的夾子，不是可調的判準 —— 任何大於
+ * 門檻兩倍的值在語意上都是同一件事（「完全追不上」）。
+ */
+const TRACK_CAP = 4
 
 const FWD = new Vector3(0, 0, -1)
 const S = makeScratch(5)
@@ -235,6 +261,22 @@ export function evaluateGeometry(self: Aircraft, target: Aircraft, out: Situatio
   // 視線角速度 = 相對速度的橫向分量 / 距離
   const tangential = S.v[3]!.copy(relVel).addScaledVector(losUnit, -radial)
   out.losRate = range > MIN_RANGE ? tangential.length() / range : 0
+
+  // ── 追不追得上：視線角速度相對於我的機頭能力 ────────────────
+  //
+  // 【為什麼在這裡而不是 `evaluateEnergy`】訊號本身只有 1.7 秒（實測最長
+  // 一段），10 Hz 取樣有可能整段錯過。`instantaneousTurnRate` 只是一次
+  // `maxLoadFactorAero` 加一個開方，比這個函式裡既有的向量運算便宜。
+  //
+  // 【非有限的 `losRate` 要先擋掉】`Math.min(NaN, cap)` 仍然是 `NaN`，
+  // 而它會乘進瞄準點汙染整條鏈。
+  const itr = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
+  out.trackRatio = Number.isFinite(out.losRate) && itr > 0
+    ? Math.min(out.losRate / itr, TRACK_CAP)
+    // 【拉不出任何過載時回 0，不是回上限】那個狀態該做的是換速度，而
+    // `geometryGate` 的 `speedRecover` 已經在管它，而且 mode 壓過意圖。
+    // 回上限會讓佈局在一個它幫不上忙的狀態下閂上。
+    : 0
 
   const selfFwd = S.v[4]!.copy(FWD).applyQuaternion(self.state.orientation)
   out.aspectAngle = Math.acos(clampUnit(selfFwd.dot(losUnit)))
