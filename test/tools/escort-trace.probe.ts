@@ -32,13 +32,7 @@ import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
-import {
-  DEFAULT_STEER, buildEngageBasis, createEngageBasis, sweetYield,
-  turnPlaneAngle, turnPlaneWeight,
-} from '../../src/ai/steer'
-
-/** 探針自己的交戰基底 —— AiController 那一份是 private */
-const probeBasis = createEngageBasis()
+import { DEFAULT_STEER } from '../../src/ai/steer'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -92,15 +86,6 @@ interface Sample {
   at: number
   /** 交會時間 s 與進入角 度 —— 回答「`merge` 為什麼沒出現」 */
   tm: number, asp: number
-  /** 預瞄點相對機鼻的 3D 夾角，度 —— 迴轉平面紀律的方位維度 */
-  tp: number
-  /** 上面那個角換算出來的方位係數，0..1（**只有方位那一半**） */
-  tw: number
-  /**
-   * 迴轉平面紀律**真正生效**的係數，0..1 —— 方位係數再乘上射擊解讓位，
-   * 並套用意圖豁免。`tw` 與它的差就是「被豁免掉了多少」。
-   */
-  te: number
   /** 接近率，m/s。正 = 正在拉近 */
   clo: number
   /** 視線角速度，°/s —— 「機頭跟不跟得上預瞄點」的直接量度 */
@@ -177,22 +162,6 @@ function main(): void {
       }
     }
 
-    // 【迴轉平面紀律的方位維度】`AiController.basis` 是 private，所以自己
-    // 重建一份 —— 同一支 `buildEngageBasis`、同一組輸入，是精確值不是代理量
-    let tpAngle = 0
-    let tpEffective = 0
-    if (tgt !== null) {
-      buildEngageBasis(a, tgt, probeBasis)
-      tpAngle = turnPlaneAngle(a, probeBasis.leadPoint)
-      // `applyTurnPlane` 的完整閘門，逐字照抄：消融開關、兩個意圖豁免、
-      // 射擊解讓位。只看方位那一半會嚴重高估這一層的作用。
-      const it = ai.intent
-      if (DEFAULT_STEER.climbMax > 0 && it !== 'extend' && it !== 'rally') {
-        const y = it === 'defend' ? 1 : sweetYield(probeBasis.interceptTime)
-        tpEffective = turnPlaneWeight(tpAngle) * y
-      }
-    }
-
     out.push({
       t: +t.toFixed(2),
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
@@ -212,9 +181,6 @@ function main(): void {
       at: +ai.sit.airframeTurnAdvantage.toFixed(4),
       tm: Number.isFinite(ai.sit.timeToMerge) ? +ai.sit.timeToMerge.toFixed(2) : -1,
       asp: +(ai.sit.aspectAngle * DEG).toFixed(1),
-      tp: +(tpAngle * DEG).toFixed(1),
-      tw: +turnPlaneWeight(tpAngle).toFixed(3),
-      te: +tpEffective.toFixed(3),
       clo: +ai.sit.closureRate.toFixed(1),
       lr: +(ai.sit.losRate * DEG).toFixed(1),
       str: +(instantaneousTurnRate(a.spec, a.state.position.y, speed) * DEG).toFixed(1),
@@ -290,23 +256,6 @@ function main(): void {
       + '  |  谷底 ' + trough.y.toFixed(0) + ' m @ ' + trough.t.toFixed(1) + ' s'
       + '  |  交會 @ ' + out[mergeAt]!.t.toFixed(1) + ' s',
     )
-    // 【第一段的方位角】這一層有沒有機會生效，看的就是它。角度小 = 目標在
-    // 機鼻前方 = 那不是「迴轉」而是「直線追下去」，本層依定義不介入。
-    let tpLo = 999
-    let tpHi = -1
-    let twHi = 0
-    for (const s of win) {
-      if (s.t < peak.t) continue
-      if (Math.abs(s.bk) > BANK_LEVEL) break
-      if (s.tp < tpLo) tpLo = s.tp
-      if (s.tp > tpHi) tpHi = s.tp
-      if (s.tw > twHi) twHi = s.tw
-    }
-    console.error(
-      '        第一段方位角 ' + tpLo.toFixed(0) + '°..' + tpHi.toFixed(0) + '°'
-      + '  |  方位係數最大 ' + twHi.toFixed(3)
-      + '  （planeEnter ' + (DEFAULT_STEER.planeEnter * 180 / Math.PI).toFixed(0) + '°）',
-    )
   }
 
   console.log(JSON.stringify({
@@ -320,8 +269,8 @@ function main(): void {
 /**
  * 【設定覆寫】`TP` 是一段 JSON，逐欄蓋掉 `DEFAULT_STEER`。A/B 與掃描都用它：
  *
- *   TP='{"climbMax":0}'        —— 迴轉平面紀律關掉，等於改動前
- *   TP='{"planeEnter":1.571}'  —— 掃描單一參數（rad）
+ *   TP='{"trackEnter":0}'      —— 整個機制關掉，等於改動前
+ *   TP='{"trackHold":5}'       —— 掃描單一參數
  *
  * 【為什麼直接改 `DEFAULT_STEER`】`AiController` 不帶自己的 `SteerConfig`，
  * 走的就是這個預設物件。探針是一次性的行程，就地改比穿一整條參數鏈誠實。
