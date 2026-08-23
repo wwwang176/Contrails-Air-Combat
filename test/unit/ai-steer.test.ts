@@ -8,7 +8,7 @@ import {
   createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
-  createTrackState, stepTrack, type TrackState,
+  createTrackState, stepTrack, type TrackState, repositionKnobs,
 } from '../../src/ai/steer'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
@@ -2396,5 +2396,63 @@ describe('stepTrack —— 追不上的閘鎖', () => {
       stepTrack(s, 99, cfg.trackLosFloor, true, DT, cfg)
     }
     expect(s.latched).toBe(false)
+  })
+})
+
+/**
+ * 佈局的旋鈕。spec `2026-08-23-track-break-design.md` §4。
+ *
+ * 專案負責人的原話：「我就會拉平並轉向方位，或是抬高 90 度轉方位（因為我有
+ * 能量所以可以垂直抬高）⋯⋯之所以轉向的原因是**我要創造下一次矄準敵人的
+ * 機會**。」—— 後置追擊 + 高 yo-yo 正是這兩個動作。
+ */
+describe('repositionKnobs —— 佈局下一次機會', () => {
+  const cfg = DEFAULT_STEER
+  const k: Knobs = { leadLag: 0, vertical: 0 }
+
+  function at(cornerRatio: number): Knobs {
+    const sit = createSituation()
+    sit.cornerRatio = cornerRatio
+    repositionKnobs(sit, k, cfg)
+    return k
+  }
+
+  /**
+   * 【後置給滿】後置的目的是把需要的角速度降下來，而觸發條件本身就是
+   * 「降不下來」。要調的是保持多久，不是深淺。
+   */
+  it('永遠全後置追擊', () => {
+    expect(at(0.5).leadLag).toBe(-1)
+    expect(at(1.0).leadLag).toBe(-1)
+    expect(at(2.0).leadLag).toBe(-1)
+  })
+
+  /** 【速度見底就別再拿速度換高度】水平轉向就好。 */
+  it('cornerRatio 低於 zoomEnter 時不往上', () => {
+    expect(at(cfg.zoomEnter).vertical).toBe(0)
+    expect(at(cfg.zoomEnter - 0.2).vertical).toBe(0)
+    expect(at(0.5).vertical).toBe(0)
+  })
+
+  it('cornerRatio 高於 zoomFull 時給滿', () => {
+    expect(at(cfg.zoomFull).vertical).toBe(1)
+    expect(at(cfg.zoomFull + 1).vertical).toBe(1)
+  })
+
+  it('中間連續而且單調遞增', () => {
+    const mid = (cfg.zoomEnter + cfg.zoomFull) / 2
+    expect(at(mid).vertical).toBeCloseTo(0.5, 9)
+    let prev = -1
+    for (let c = 0.6; c <= 2.0; c += 0.05) {
+      const v = at(c).vertical
+      expect(v).toBeGreaterThanOrEqual(prev)
+      prev = v
+    }
+  })
+
+  /** NaN 會穿過每一個比較然後污染矄準點。 */
+  it('非有限的 cornerRatio 不產生 NaN', () => {
+    const v = at(NaN).vertical
+    expect(Number.isNaN(v)).toBe(false)
   })
 })
