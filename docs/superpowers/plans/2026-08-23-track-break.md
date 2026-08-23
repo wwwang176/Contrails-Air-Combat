@@ -17,7 +17,7 @@
 - **不做成 `SteerMode`。** `mode` 在 `steerCommand` 裡壓過意圖，做成 mode 會連 `defend` 與 `extend` 一起蓋掉（spec §6.2）。
 - **只碰 `engage` 與 `approach`。** `merge` / `defend` / `extend` / `rally` 不受影響，而且要是**結構上保證**的，不是靠額外的 if。
 - **`trackEnter <= 0` 是消融開關**，關掉時兩個意圖分支逐位元退回改動前（spec §7）。
-- 起始參數值（spec §7）：`trackEnter: 1.4`、`trackExit: 1.0`、`trackHold: 3.0`、`zoomEnter: 1.00`、`zoomFull: 1.30`、`trackCap: 4.0`。
+- 起始參數值（spec §7）：`trackEnter: 1.4`、`trackExit: 1.0`、`trackHold: 3.0`、`zoomEnter: 1.00`、`zoomFull: 1.30`、`trackCap: 4.0`、`trackLosFloor: 0.35`（最後一個是 Codex 審查後補的，見 Task 3）。
 - 角度常數就地寫 `X * (Math.PI / 180)`；註解寫**現狀**不寫沿革（專案紀律）。
 - **`RAD = 180/π`（弧度→度）、`DEG = π/180`（度→弧度）。** `escort-trace.probe.ts` 自己定義了一個叫 `DEG` 的 `180/π` —— 別跟著抄。
 
@@ -64,14 +64,27 @@ git revert --no-commit 816dbda f748bce 6129cc9
 `test/tools/escort-trace.probe.ts` 引用了剛被移除的函式。把 import 改成：
 
 ```ts
-import {
-  DEFAULT_STEER, buildEngageBasis, createEngageBasis,
-} from '../../src/ai/steer'
+import { DEFAULT_STEER } from '../../src/ai/steer'
 ```
 
-刪掉 `Sample` 介面裡的三個欄位宣告（`tp`、`tw`、`te`）與它們的註解，刪掉 `out.push` 裡對應的三行，刪掉算 `tpAngle` / `tpEffective` 的那一段，以及摘要裡「第一段方位角」那一整段 `console.error`。
+刪掉這些：
 
-`probeBasis` 與 `buildEngageBasis` **留著** —— 下一個 Task 還要用它算 `trackRatio` 的對照。
+- `Sample` 介面裡的三個欄位宣告（`tp`、`tw`、`te`）與它們的註解
+- `out.push` 裡對應的三行
+- 算 `tpAngle` / `tpEffective` 的那一整段
+- 摘要裡「第一段方位角」那一整段 `console.error`
+- **`probeBasis` 這個 module 層的常數，以及 `buildEngageBasis` / `createEngageBasis` / `sweetYield` 這三個 import**
+
+【為什麼 `probeBasis` 也要刪】`tsconfig.json` 開了 **`noUnusedLocals`** 與
+`noUnusedParameters`。留著沒有人用的常數與 import 會讓 `tsc` 直接失敗 ——
+下一個 Task 的 `trackRatio` 由 `Situation` 直接讀，不需要自己重建交戰基底。
+
+順手把 `TP` 覆寫那一段註解裡已經失效的範例換掉：
+
+```ts
+ *   TP='{"trackEnter":0}'      —— 整個機制關掉，等於改動前
+ *   TP='{"trackHold":5}'       —— 掃描單一參數
+```
 
 - [ ] **Step 3: 型別檢查與單元測試**
 
@@ -179,6 +192,21 @@ describe('trackRatio —— 視線角速度 ÷ 瞬時轉彎率上限', () => {
     expect(Number.isFinite(sit.trackRatio)).toBe(true)
   })
 
+  /**
+   * 【非有限的速度會讓 `losRate` 變 NaN】而 `Math.min(NaN, cap)` 還是 NaN，
+   * 一路乘進瞄準點。值域宣稱是 `[0, TRACK_CAP]`，就得真的守住。
+   */
+  it('非有限的相對速度不產生 NaN', () => {
+    const self = flyer(4000, 200)
+    const target = flyer(4000, 200)
+    target.state.position.set(0, 4000, -800)
+    target.state.velocity.set(NaN, 0, 0)
+    evaluateGeometry(self, target, sit)
+    expect(Number.isNaN(sit.trackRatio)).toBe(false)
+    expect(sit.trackRatio).toBeGreaterThanOrEqual(0)
+    expect(sit.trackRatio).toBeLessThanOrEqual(4)
+  })
+
   it('createSituation 的預設值是 0', () => {
     expect(createSituation().trackRatio).toBe(0)
   })
@@ -192,15 +220,8 @@ Expected: FAIL —— `expect(undefined).toBe(0)` 之類（欄位還不存在）
 
 - [ ] **Step 3: 加欄位與計算**
 
-`src/ai/assess.ts` 第 5 行附近的 import 加上 `instantaneousTurnRate`：
-
-```ts
-import {
-  specificExcessPower, stallSpeed, sustainedTurnRate, instantaneousTurnRate,
-} from '../analysis/envelope'
-```
-
-（原本那一行是 `specificExcessPower, stallSpeed, sustainedTurnRate,` —— 保持同一個 import 區塊，不新增一條相依。）
+**`instantaneousTurnRate` 已經 import 了**（`src/ai/assess.ts:4`，與
+`bestSustainedTurnRateCached` 同一行）—— 不要再加。
 
 在 `losRate: number` 那個欄位**之後**插入：
 
@@ -231,15 +252,25 @@ import {
     aspectAngle: 0, angleOffTail: 0, losRate: 0, trackRatio: 0,
 ```
 
-在 `evaluateGeometry` 裡計算 —— 放在 `out.pullCeiling = ...` 那一行**之前**（`selfAlt` 與 `selfTas` 在那裡已經算好了）：
+在 **`evaluateGeometry`**（240 Hz，`src/ai/assess.ts:217`）裡計算，緊接在
+`out.losRate = ...` 那一行**之後**：
 
 ```ts
   // ── 追不追得上：視線角速度相對於我的機頭能力 ────────────────
-  const itr = instantaneousTurnRate(self.spec, selfAlt, selfTas)
-  out.trackRatio = itr > 0
+  //
+  // 【為什麼在這裡而不是 `evaluateEnergy`】訊號本身只有 1.7 秒（實測最長
+  // 一段），10 Hz 取樣有可能整段錯過。`instantaneousTurnRate` 只是一次
+  // `maxLoadFactorAero` 加一個開方，比這個函式裡既有的向量運算便宜。
+  //
+  // 【非有限的 `losRate` 要先擋掉】`Math.min(NaN, cap)` 仍然是 `NaN`，
+  // 而它會乘進瞄準點汙染整條鏈。
+  const itr = instantaneousTurnRate(self.spec, self.state.position.y, self.diag.aero.tas)
+  out.trackRatio = Number.isFinite(out.losRate) && itr > 0
     ? Math.min(out.losRate / itr, TRACK_CAP)
-    // 【拉不出任何過載】那就是完全追不上；沒有橫向運動時仍然是 0
-    : (out.losRate > 0 ? TRACK_CAP : 0)
+    // 【拉不出任何過載時回 0，不是回上限】那個狀態該做的是換速度，而
+    // `geometryGate` 的 `speedRecover` 已經在管它，而且 mode 壓過意圖。
+    // 回上限會讓佈局在一個它幫不上忙的狀態下閂上。
+    : 0
 ```
 
 在檔案的常數區（`MIN_RANGE` 附近）加：
@@ -257,7 +288,7 @@ const TRACK_CAP = 4
 - [ ] **Step 4: 跑測試確認它綠**
 
 Run: `npx vitest run test/unit/ai-assess.test.ts -t trackRatio`
-Expected: PASS（5 條）。
+Expected: PASS（6 條）。
 
 - [ ] **Step 5: 型別檢查**
 
@@ -284,8 +315,8 @@ git commit -m "feat(ai): Situation.trackRatio —— 機頭追不追得上預瞄
 - Produces:
   - `interface TrackState { latched: boolean, quiet: number }`
   - `createTrackState(): TrackState`
-  - `stepTrack(state: TrackState, ratio: number, active: boolean, dt: number, cfg?: SteerConfig): void`
-  - `SteerConfig` 新欄位：`trackEnter`、`trackExit`、`trackHold`、`zoomEnter`、`zoomFull`
+  - `stepTrack(state: TrackState, ratio: number, losRate: number, active: boolean, dt: number, cfg?: SteerConfig): void`
+  - `SteerConfig` 新欄位：`trackEnter`、`trackExit`、`trackHold`、`trackLosFloor`、`zoomEnter`、`zoomFull`
 
 - [ ] **Step 1: 寫失敗的測試**
 
@@ -302,10 +333,16 @@ describe('stepTrack —— 追不上的閂鎖', () => {
   const cfg = DEFAULT_STEER
   const DT = 1 / 240
 
+  /**
+   * 視線角速度的餵法：`HOT` 遠高於 `trackLosFloor`，所以下面每一條都在
+   * 「本來就開不了火」的區域，量的是閂鎖本身。地板那一條另外測。
+   */
+  const HOT = 1.0
+
   /** 餵 `seconds` 秒的 `ratio`，回傳結束時的狀態 */
   function feed(state: TrackState, ratio: number, seconds: number): TrackState {
     const steps = Math.round(seconds / DT)
-    for (let i = 0; i < steps; i++) stepTrack(state, ratio, true, DT, cfg)
+    for (let i = 0; i < steps; i++) stepTrack(state, ratio, HOT, true, DT, cfg)
     return state
   }
 
@@ -315,13 +352,13 @@ describe('stepTrack —— 追不上的閂鎖', () => {
 
   it('超過 trackEnter 立刻閂上', () => {
     const s = createTrackState()
-    stepTrack(s, cfg.trackEnter + 0.01, true, DT, cfg)
+    stepTrack(s, cfg.trackEnter + 0.01, HOT, true, DT, cfg)
     expect(s.latched).toBe(true)
   })
 
   it('恰好等於 trackEnter 不閂 —— 嚴格大於', () => {
     const s = createTrackState()
-    stepTrack(s, cfg.trackEnter, true, DT, cfg)
+    stepTrack(s, cfg.trackEnter, HOT, true, DT, cfg)
     expect(s.latched).toBe(false)
   })
 
@@ -366,14 +403,14 @@ describe('stepTrack —— 追不上的閂鎖', () => {
   it('沒有目標時立刻釋放', () => {
     const s = createTrackState()
     feed(s, 2.5, 0.5)
-    stepTrack(s, 0, false, DT, cfg)
+    stepTrack(s, 0, 0, false, DT, cfg)
     expect(s.latched).toBe(false)
   })
 
   /** 非有限值不得讓狀態卡死或閂上。 */
   it('NaN 不閂上', () => {
     const s = createTrackState()
-    stepTrack(s, NaN, true, DT, cfg)
+    stepTrack(s, NaN, HOT, true, DT, cfg)
     expect(s.latched).toBe(false)
   })
 
@@ -381,7 +418,23 @@ describe('stepTrack —— 追不上的閂鎖', () => {
   it('trackEnter <= 0 永遠不閂', () => {
     const s = createTrackState()
     const off = { ...cfg, trackEnter: 0 }
-    for (let i = 0; i < 2400; i++) stepTrack(s, 99, true, DT, off)
+    for (let i = 0; i < 2400; i++) stepTrack(s, 99, HOT, true, DT, off)
+    expect(s.latched).toBe(false)
+  })
+
+  /**
+   * 【打得到就別佈局，扳機優先】比值大不代表開不了火 —— 一台轉彎率很低的
+   * 飛機在很慢的視線角速度下也會讓比值超過門檻，而那個角速度低到
+   * `shouldFire` 根本沒擋。那一格要讓給扳機。
+   *
+   * 【為什麼不是靠推論】原本的計畫寫「比值大蘊含開不了火」，Codex 指出
+   * 那在 `instantaneousTurnRate` 很小時不成立。改成明寫一道地板。
+   */
+  it('視線角速度低於 trackLosFloor 時不閂', () => {
+    const s = createTrackState()
+    for (let i = 0; i < 2400; i++) {
+      stepTrack(s, 99, cfg.trackLosFloor, true, DT, cfg)
+    }
     expect(s.latched).toBe(false)
   })
 })
@@ -428,6 +481,19 @@ Expected: FAIL —— `createTrackState is not a function`。
    */
   trackHold: number
   /**
+   * 閂上還要求的最低視線角速度，rad/s。低於它就不閂 —— **扳機優先**。
+   *
+   * 【為什麼不能只靠比值】比值大只表示「相對於我的能力追不上」。一台轉彎率
+   * 很低的飛機在很慢的視線角速度下也會超過門檻，而那個角速度低到
+   * `DEFAULT_FIRE.maxLosRate` 根本沒擋 —— 那一格是打得到的，該讓給扳機。
+   *
+   * 【為什麼與 `DEFAULT_FIRE.maxLosRate` 同值卻不共用常數】兩者是同一件事的
+   * 兩面（「準星穩不穩得住」），但分屬操縱層與開火紀律。跨模組耦合換不到
+   * 等值的好處 —— 與 `extendTurnFade` 對 `DEFAULT_RULES.extendRange` 同一個
+   * 判斷。**調其中一個時要想到另一個。**
+   */
+  trackLosFloor: number
+  /**
    * 開始往上佈局的 `cornerRatio`。低於它只做水平轉向。
    *
    * 【為什麼用 `cornerRatio` 而不是比能量】它問的是「**現在**拉得動嗎」，
@@ -444,6 +510,7 @@ Expected: FAIL —— `createTrackState is not a function`。
   trackEnter: 1.4,
   trackExit: 1.0,
   trackHold: 3.0,
+  trackLosFloor: 0.35,
   zoomEnter: 1.00,
   zoomFull: 1.30,
 ```
@@ -479,12 +546,14 @@ export function createTrackState(): TrackState {
  *   閂上 → 釋放：  trackRatio < trackExit 連續維持 trackHold 秒
  * ```
  *
- * @param ratio  `Situation.trackRatio`
- * @param active 有沒有攻擊目標。沒有目標時立刻釋放
+ * @param ratio   `Situation.trackRatio`
+ * @param losRate `Situation.losRate`，rad/s。低於 `trackLosFloor` 不閂（扳機優先）
+ * @param active  有沒有攻擊目標。沒有目標時立刻釋放
  */
 export function stepTrack(
   state: TrackState,
   ratio: number,
+  losRate: number,
   active: boolean,
   dt: number,
   cfg: SteerConfig = DEFAULT_STEER,
@@ -496,7 +565,8 @@ export function stepTrack(
     return
   }
   if (!state.latched) {
-    if (ratio > cfg.trackEnter) {
+    // 【扳機優先】見 `SteerConfig.trackLosFloor`
+    if (ratio > cfg.trackEnter && losRate > cfg.trackLosFloor) {
       state.latched = true
       state.quiet = 0
     }
@@ -518,7 +588,7 @@ export function stepTrack(
 - [ ] **Step 5: 跑測試確認它綠**
 
 Run: `npx vitest run test/unit/ai-steer.test.ts -t stepTrack`
-Expected: PASS（10 條）。
+Expected: PASS（11 條）。
 
 - [ ] **Step 6: 型別檢查與整個測試檔**
 
@@ -705,26 +775,35 @@ describe('steerCommand：追不上就改為佈局', () => {
     engageKnobs(sit, k)
   }
 
-  const run = (intent: Intent, repositioning: boolean) => {
+  /**
+   * 【要比整個 `Command`，不只 `aimWorld`】`steerCommand` 同時負責
+   * `throttle` 與 `brake`。「逐位元不變」的主張要是只驗瞄準點，就漏了
+   * 三分之二。
+   */
+  interface Shot { aim: Vector3, throttle: number, brake: number }
+
+  const run = (intent: Intent, repositioning: boolean): Shot => {
     steerCommand(
       intent, 'normal', sit, basis, self, 0, k, createDefendState(), null,
       cmd, DEFAULT_STEER, repositioning,
     )
-    return cmd.aimWorld.clone()
+    return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
   }
 
-  const same = (a: Vector3, b: Vector3) => {
-    expect(a.x).toBe(b.x)
-    expect(a.y).toBe(b.y)
-    expect(a.z).toBe(b.z)
+  const same = (a: Shot, b: Shot) => {
+    expect(a.aim.x).toBe(b.aim.x)
+    expect(a.aim.y).toBe(b.aim.y)
+    expect(a.aim.z).toBe(b.aim.z)
+    expect(a.throttle).toBe(b.throttle)
+    expect(a.brake).toBe(b.brake)
   }
 
   it('engage 閂上時瞄準點改變', () => {
     crossing()
     const off = run('engage', false)
     const on = run('engage', true)
-    expect(on.distanceTo(off)).toBeGreaterThan(0.01)
-    expect(on.length()).toBeCloseTo(1, 9)
+    expect(on.aim.distanceTo(off.aim)).toBeGreaterThan(0.01)
+    expect(on.aim.length()).toBeCloseTo(1, 9)
   })
 
   /** 【問題窗的 53.2%】`approach` 原本是純預瞄追擊、零旋鈕。 */
@@ -732,8 +811,8 @@ describe('steerCommand：追不上就改為佈局', () => {
     crossing()
     const off = run('approach', false)
     const on = run('approach', true)
-    expect(on.distanceTo(off)).toBeGreaterThan(0.01)
-    expect(on.length()).toBeCloseTo(1, 9)
+    expect(on.aim.distanceTo(off.aim)).toBeGreaterThan(0.01)
+    expect(on.aim.length()).toBeCloseTo(1, 9)
   })
 
   /**
@@ -759,16 +838,14 @@ describe('steerCommand：追不上就改為佈局', () => {
 
   it('rally 逐位元不變', () => {
     crossing()
-    steerCommand(
-      'rally', 'normal', sit, basis, self, 0, k, createDefendState(),
-      new Vector3(3000, 4000, -3000), cmd, DEFAULT_STEER, true,
-    )
-    const on = cmd.aimWorld.clone()
-    steerCommand(
-      'rally', 'normal', sit, basis, self, 0, k, createDefendState(),
-      new Vector3(3000, 4000, -3000), cmd, DEFAULT_STEER, false,
-    )
-    same(on, cmd.aimWorld)
+    const shoot = (repositioning: boolean): Shot => {
+      steerCommand(
+        'rally', 'normal', sit, basis, self, 0, k, createDefendState(),
+        new Vector3(3000, 4000, -3000), cmd, DEFAULT_STEER, repositioning,
+      )
+      return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
+    }
+    same(shoot(true), shoot(false))
   })
 
   /**
@@ -777,38 +854,37 @@ describe('steerCommand：追不上就改為佈局', () => {
    */
   it('overshoot 這個 mode 壓過佈局', () => {
     crossing()
-    steerCommand(
-      'engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null,
-      cmd, DEFAULT_STEER, true,
-    )
-    const on = cmd.aimWorld.clone()
-    steerCommand(
-      'engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null,
-      cmd, DEFAULT_STEER, false,
-    )
-    same(on, cmd.aimWorld)
+    const shoot = (repositioning: boolean): Shot => {
+      steerCommand(
+        'engage', 'overshoot', sit, basis, self, 0, k, createDefendState(), null,
+        cmd, DEFAULT_STEER, repositioning,
+      )
+      return { aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake }
+    }
+    same(shoot(true), shoot(false))
   })
 
   /** 【預設值】既有的 59 個呼叫點不帶這個參數，行為必須逐位元不變。 */
   it('不傳參數等同於沒閂上', () => {
     crossing()
     steerCommand('engage', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
-    const bare = cmd.aimWorld.clone()
+    const bare: Shot = {
+      aim: cmd.aimWorld.clone(), throttle: cmd.throttle, brake: cmd.brake,
+    }
     same(bare, run('engage', false))
   })
 
   /**
-   * 【射擊解是自動豁免的】`maxLosRate = 0.35 rad/s`，而實測的瞬時轉彎率是
-   * 22~25°/s（0.38~0.44 rad/s）。所以 `trackRatio > trackEnter` 蘊含
-   * `losRate > maxLosRate`，`shouldFire` 早就是 false —— 不需要另寫讓位層。
+   * 【扳機優先是明寫的，不是推論出來的】原本的計畫主張「比值大蘊含開不了
+   * 火」，Codex 指出那在 `instantaneousTurnRate` 很小時不成立 —— 一台轉彎率
+   * 很低的飛機在慢速視線下也會超過門檻，而那個角速度低到 `shouldFire`
+   * 根本沒擋。所以改成 `stepTrack` 明寫一道 `trackLosFloor`。
    *
-   * **這一條依賴兩個常數的相對大小。** 哪天有人調 `maxLosRate`、或加一台
-   * 轉彎率很低的飛機，它就不再成立，而那時這份設計要重新想豁免。
+   * 這一條釘住那道地板與開火紀律的關係：**只要地板不低於 `maxLosRate`，
+   * 閂上時就一定開不了火。**
    */
-  it('閂上的門檻蘊含「開不了火」', () => {
-    // 閂上時 losRate 至少是 trackEnter × 最小的瞬時轉彎率
-    const minItr = 0.38   // rad/s，實測 22°/s
-    expect(DEFAULT_STEER.trackEnter * minItr).toBeGreaterThan(DEFAULT_FIRE.maxLosRate)
+  it('trackLosFloor 不低於開火的視線角速度上限', () => {
+    expect(DEFAULT_STEER.trackLosFloor).toBeGreaterThanOrEqual(DEFAULT_FIRE.maxLosRate)
   })
 })
 ```
@@ -817,8 +893,15 @@ describe('steerCommand：追不上就改為佈局', () => {
 
 - [ ] **Step 2: 跑測試確認它紅**
 
+Run: `npx tsc --noEmit`
+Expected: FAIL —— `steerCommand` 只吃 11 個參數。
+
+（**`vitest` 不做型別檢查** —— `vite.config.ts` 沒有開 typecheck，`npm test`
+就是單純的 `vitest run`。所以型別的紅要另外跑 `tsc`。）
+
 Run: `npx vitest run test/unit/ai-steer.test.ts -t "追不上就改為佈局"`
-Expected: FAIL —— `steerCommand` 還不吃第 12 個參數（TypeScript 會直接報錯）。
+Expected: FAIL —— 多傳的參數在執行期被忽略，所以是**行為斷言**失敗
+（`engage 閂上時瞄準點改變` 那兩條會說兩次輸出一模一樣）。
 
 - [ ] **Step 3: 改 `steerCommand` 的簽名與分支**
 
@@ -905,8 +988,23 @@ Expected: PASS（9 條）。
 ```ts
     // 【與 stepDefend 同一個位階】追不追得上是跨格的閂鎖，必須由持有者每步
     // 維護。訊號本身只有 1.7 秒，讀瞬時值會讓機首每兩秒抖一次。
-    stepTrack(this.track, this.sit.trackRatio, target !== null, dt)
+    stepTrack(this.track, this.sit.trackRatio, this.sit.losRate, true, dt)
 ```
+
+**還要在「沒有目標」那條早退路徑上釋放閂鎖。** `src/ai/AiController.ts` 的
+`const target = this.target; if (!target) {` 那個分支**開頭**加：
+
+```ts
+      // 【目標消失就放掉】那條路徑下面有三個 `return`（飛站位、飛集合點、
+      // 平飛），走不到下面的 `stepTrack`。少了這一行，閂鎖會帶著上一個目標
+      // 的狀態一路殘留到下一次接敵。與同一個分支裡「戰術層在這裡歸零」
+      // 同一個理由。
+      stepTrack(this.track, 0, 0, false, dt)
+```
+
+【為什麼傳 `true` 而不是 `target !== null`】走到下面那一行時 `target` 已經被
+TypeScript 收窄為非 null，`target !== null` 恆為 true —— 那個寫法看起來有在
+防守，實際上是死碼。守衛在上面那個分支。
 
 把 `steerCommand` 的呼叫改成（在 `raw` 之後補兩個參數）：
 
@@ -985,6 +1083,22 @@ git commit -m "feat(ai): 追不上時 engage 與 approach 改為佈局下一次�
 `tr2: +blueAi.sit.trackRatio.toFixed(3), lat: blueAi.track.latched ? 1 : 0,`，
 在摘要加一行 `閂鎖佔時 X%`。
 
+**這一支還沒有 `TP` 覆寫** —— 它目前只讀 `CARD`。掃描 `trackHold` 時如果不補，
+每一組都會跑到預設的 3 秒而看不出差別。把 escort 探針那一段照抄過來，接在
+`const CARD = process.env.CARD ?? 'high'` 之後：
+
+```ts
+const override = process.env.TP
+if (override !== undefined && override !== '') {
+  Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
+  console.error('TP override: ' + override)
+}
+```
+
+`DEFAULT_STEER` 要加進這支探針的 steer import（目前只有 `engageKnobs` 與
+`type Knobs`）。`process` 的宣告已經有了（`declare const process` 在 `CARD`
+上方）。
+
 - [ ] **Step 2: 量主判準的 A/B**
 
 ```bash
@@ -1013,7 +1127,23 @@ for c in high co low; do CARD=$c npx vite-node test/tools/slash-track.probe.ts >
 
 Expected：三張卡的閂鎖佔時都應該**接近 0**（靜態量測在 1.4 門檻下是 0.0% / 0.0% / 0.0%）。
 
-**若共速共高那一場不是 0，當場停手重量** —— 那表示動態中的幾何與靜態量測不同（AI 的飛法變了會繞出新幾何，spec §10 風險二）。此時要先弄清楚新幾何長什麼樣，再決定是調門檻還是改設計，**不要直接把門檻往上推到綠為止**。
+**若共速共高那一場不是 0，當場停手重量** —— 那表示動態中的幾何與靜態量測不同（AI 的飛法變了會繞出新幾何，spec §10 風險二）。
+
+**停手之後要先產出這份診斷，拿到之前不准動門檻：**
+
+1. 找出**第一次閂上**的取樣索引，印出它前後各 5 秒的逐秒表，欄位是
+   `t / range / trackRatio / losRate / intent / mode / cornerRatio / bank`
+2. 同一個場景用 `CARD=co TP='{"trackEnter":0}'` 再跑一次，印出**同一個時間窗**
+   的同樣欄位
+3. 兩張表並排看：閂上那一刻的 `range` 與 `losRate`，跟消融版本在同一時刻的值
+   差多少
+
+那份差就是「新幾何」的內容。**若消融版本在同一時刻的比值也超過 1.4**，
+表示靜態量測本來就漏了這一段（樣本只有 517 個、只打 26 秒），該做的是補雜訊帶
+重新定門檻；**若只有開啟版本超過**，表示是本機制自己繞出來的正回饋，
+那要改的是設計不是門檻。
+
+**兩種情況都不是「把門檻往上推到綠為止」。**
 
 - [ ] **Step 4: 硬否決回歸**
 
@@ -1034,7 +1164,13 @@ for v in 1.5 3 5;        do TP="{\"trackHold\":$v}"  npx vite-node test/tools/es
 for v in 0.9 1.0 1.2;    do TP="{\"trackExit\":$v}"  npx vite-node test/tools/escort-trace.probe.ts > /dev/null; done
 ```
 
-每一組記三個主判準 + 閂鎖佔時。`trackHold` 那一組還要跑一次 `CARD=co` 的掠襲探針 —— 它直接對應 spec §10 風險一（閂太久 = 丟掉射擊機會）。
+每一組記三個主判準 + 閂鎖佔時。`trackHold` 那一組還要跑一次共速共高：
+
+```bash
+for v in 1.5 3 5; do CARD=co TP="{\"trackHold\":$v}" npx vite-node test/tools/slash-track.probe.ts > /dev/null; done
+```
+
+它直接對應 spec §10 風險一（閂太久 = 丟掉射擊機會）。
 
 **判準只有一條：行為的絕對量測（spec §8.2）＋ 硬否決不破線。** 不得拿 `redDamage` 的**大小**當取捨依據。若沒有明顯的最佳點（很可能），**取起始值** 1.4 / 1.0 / 3.0 並把掃描表寫進 `SteerConfig` 對應欄位的註解，標明「待人工試飛定案」。
 
@@ -1069,6 +1205,22 @@ git commit -m "docs: 追不上就別追的掃描結果與主判準實測回填"
 1. **這一版只修「別再進那個大坡度」**，沒修「進了也撐得住」（spec §9.3 的指揮儀轉彎補償仍然擱置）。AI 若仍拉大坡度，高度照樣會掉
 2. **`approach` 是全域行為改動**，不只護送關。三張對戰卡與 20v20 的表現要一起看
 3. **20v20 與雜訊帶這一輪沒量**（spec §9.4），門檻 1.4 的信心來自四個單一 seed 的場景
+
+- [ ] **Step 10: 試飛通過之後才更新 golden**
+
+全套測試裡有幾條是**校驗和 golden**（`編組表重構：行為逐位元不變`、
+`戰術層關掉時等於它上線之前`）。它們比對寫死的雜湊，**任何 AI 行為改動都會讓
+它們紅** —— 這一輪的紅是預期的，不是缺陷。
+
+**但它們不能一直紅著。** 收尾：
+
+- **試飛通過** → 重跑那幾條，把新的雜湊寫回 `test/fixtures/`（或測試檔裡的
+  `BASE` 常數，看它存在哪），commit 訊息要寫明「基準隨『追不上就別追』上線
+  刷新」。然後 `npx vitest run` 必須**全綠**
+- **試飛否決** → 一個字都不要改。整批 revert，golden 自然回到綠
+
+【為什麼不在 Step 7 就更新】那等於在人工驗收之前就把「行為變了」這件事蓋掉。
+golden 紅著是一個提醒：**這一輪確實改了全域行為，而它還沒被接受。**
 
 ---
 
