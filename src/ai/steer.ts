@@ -1355,6 +1355,29 @@ export function engageKnobs(sit: Situation, out: Knobs, _cfg: SteerConfig = DEFA
   out.vertical = clamp1(Math.max(0, excess) - Math.max(0, deficit))
 }
 
+/**
+ * 佈局下一次射擊機會的旋鈕：**後置追擊 + 依能量往上**。就地寫入 `out`。
+ *
+ * 【它不是脫離】專案負責人的原話：「之所以轉向的原因是**我要創造下一次
+ * 瞄準敵人的機會**」。後置追擊把需要的角速度降下來、保住能量，高 yo-yo 用
+ * 高度換取下一次進場的位置 —— 兩者都是為了繼續打，不是為了離開。
+ *
+ * 【與 `engageKnobs` 的分工】那一個由**接近率**決定（太快就後置、追不上就
+ * 切內線），問的是速度；這一個在**機頭追不上預瞄點**時取代它，問的是角速度。
+ * 兩者不會同時生效 —— 呼叫端二選一。
+ */
+export function repositionKnobs(
+  sit: Situation,
+  out: Knobs,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  out.leadLag = -1
+  // 【非有限值退化成不往上】水平轉向在任何狀態下都是安全的
+  out.vertical = Number.isFinite(sit.cornerRatio)
+    ? smoothstep(cfg.zoomEnter, cfg.zoomFull, sit.cornerRatio)
+    : 0
+}
+
 const A = makeScratch(2)
 
 /**
