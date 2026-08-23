@@ -1255,7 +1255,11 @@ export const DEFAULT_STEER: SteerConfig = {
   reversalAspect: 90 * (Math.PI / 180),
   reversalHold: 2,
   sweetYieldTime: PROJECTILE_LIFETIME,
-  trackEnter: 1.4,
+  // 【出貨值 0 = 這一層關著】2026-08-23 實測：開著時護送關的谷底由 −368 m
+  // 惡化到 −921 m、峰值到谷底由 792 m 惡化到 1353 m。它只用角速度、把角度
+  // 丟掉了 —— 敵人在機體仰角 +86 度而它說「追得上」。取代它的是打法層的
+  // `turnPlanePitch`（見 `doctrine.ts`）。整批移除待專案負責人裁定。
+  trackEnter: 0,
   trackExit: 1.0,
   trackHold: 3.0,
   trackLosFloor: 0.35,
@@ -1987,7 +1991,14 @@ export function steerCommand(
   // `EngageBasis`，那要動 `AiController`，列為未解（spec §7.3）。
   if (intent !== 'rally') {
     const yieldFactor = intent === 'defend' ? 1 : sweetYield(basis.interceptTime, cfg)
-    applyPitchBias(sit.sweetPitch * yieldFactor, out.aimWorld)
+    // 【兩個偏置共用同一個讓位係數】它們是同一個位階的東西（都在改瞄準點的
+    // 俯仰、都不看有沒有射擊解），所以有射擊解時要一起收手 —— 否則機首會
+    // 穩定停在目標線上方，結構上開不了火（人工回報，2026-08-16）。
+    //
+    // 【為什麼相加而不是二選一】`sweetPitch` 問「我的速度離最佳點多遠」、
+    // `turnPitch` 問「這個彎往哪邊轉划算」。兩者可以同時成立，也可以互相
+    // 抵銷。出貨值目前 `sweetSpotMaxPitch = 0`，所以實際上只有後者在作用。
+    applyPitchBias((sit.sweetPitch + sit.turnPitch) * yieldFactor, out.aimWorld)
   }
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────

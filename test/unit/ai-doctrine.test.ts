@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   energyPull, sweetSpotAdvantage, sweetSpotPitch, DEFAULT_DOCTRINE,
+  turnPlaneCost, turnPlanePitch,
 } from '../../src/ai/doctrine'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import { P51D } from '../../src/specs/p51d'
@@ -96,5 +97,101 @@ describe('sweetSpotPitch：往優勢上升的方向偏俯仰', () => {
         expect(p).toBeLessThanOrEqual(ON.sweetSpotMaxPitch + 1e-12)
       }
     }
+  })
+})
+
+/**
+ * 三個迴轉候選挑一個。spec：專案負責人 2026-08-23 的原話 ——
+ * 「敵人如果在我的夾角超過 90 度⋯⋯轉向這件事情可能沒幫助，因為如果我迴旋後
+ * 高度還比別人低，那我等於讓自己陷入 extend 地獄；除非敵人真的非常低（我付出
+ * 代價也值得）才會用俯衝迴旋。」
+ */
+describe('turnPlanePitch：俯衝／水平／拉高，挑一個', () => {
+  const DEG2 = Math.PI / 180
+  const ALT = 3400
+  const TAS = 188
+  const LOS = 10 * DEG2
+
+  /** 敵人在我下方 `below` 公尺、同速；回傳偏置（度，正 = 抬頭） */
+  const bias = (swingDeg: number, below: number, cfg = DEFAULT_DOCTRINE) =>
+    turnPlanePitch(B, ALT, TAS, swingDeg * DEG2, LOS, ALT - below, TAS, cfg) * (180 / Math.PI)
+
+  /**
+   * 【小角度自己就安靜 —— 這是「不需要角度門檻」的根據】三個候選在小夾角下
+   * 幾乎同分，強度（最好 − 次好）於是趨近 0。實測夾角 15° 以內三者的能量差
+   * 中位數是 0 公尺。
+   */
+  it('夾角很小時偏置趨近 0', () => {
+    expect(Math.abs(bias(5, 0))).toBeLessThan(0.1)
+    expect(Math.abs(bias(2, 0))).toBeLessThan(0.1)
+  })
+
+  it('夾角越大偏置越強', () => {
+    const seq = [15, 30, 45, 60, 90].map((d) => Math.abs(bias(d, 0)))
+    for (let i = 1; i < seq.length; i++) expect(seq[i]!).toBeGreaterThanOrEqual(seq[i - 1]!)
+  })
+
+  /** 【預設是拉高】敵人在同高度附近時，保住能量位置比較重要。 */
+  it('敵人同高時大夾角給抬頭（拉高迴旋）', () => {
+    expect(bias(90, 0)).toBeGreaterThan(1)
+    expect(bias(120, 0)).toBeGreaterThan(1)
+  })
+
+  /**
+   * 【俯衝是例外，要敵人夠低才划算】這一條就是原話的後半句。門檻沒有寫死在
+   * 程式裡 —— 它是「轉完之後離想要的位置多遠」自己長出來的。
+   */
+  it('敵人低很多時大夾角翻成低頭（俯衝迴旋）', () => {
+    expect(bias(90, 2000)).toBeLessThan(-1)
+    expect(bias(120, 2000)).toBeLessThan(-1)
+  })
+
+  it('由拉高翻成俯衝是隨敵人的高度單調的', () => {
+    const seq = [0, 500, 1000, 1500, 2000, 3000].map((d) => bias(90, d))
+    for (let i = 1; i < seq.length; i++) expect(seq[i]!).toBeLessThanOrEqual(seq[i - 1]! + 1e-9)
+  })
+
+  it('偏置不得超過上界', () => {
+    for (const sw of [10, 45, 90, 150]) {
+      for (const below of [-2000, 0, 1000, 4000]) {
+        expect(Math.abs(bias(sw, below)))
+          .toBeLessThanOrEqual(DEFAULT_DOCTRINE.turnPlaneMaxPitch * (180 / Math.PI) + 1e-9)
+      }
+    }
+  })
+
+  /** 【消融開關】上界 0 = 整層關掉。 */
+  it('turnPlaneMaxPitch = 0 時恆為 0', () => {
+    const off = { ...DEFAULT_DOCTRINE, turnPlaneMaxPitch: 0 }
+    for (const sw of [5, 45, 90, 150]) expect(bias(sw, 1500, off)).toBe(0)
+  })
+
+  /** 非有限輸入不得產生 NaN —— 它會一路乘進瞄準點。 */
+  it('非有限輸入回 0', () => {
+    expect(turnPlanePitch(B, ALT, TAS, NaN, LOS, ALT, TAS, DEFAULT_DOCTRINE)).toBe(0)
+    expect(turnPlanePitch(B, ALT, TAS, 1, NaN, ALT, TAS, DEFAULT_DOCTRINE)).toBe(0)
+    expect(turnPlanePitch(B, ALT, 0, 1, LOS, ALT, TAS, DEFAULT_DOCTRINE)).toBe(0)
+    expect(Number.isNaN(turnPlanePitch(B, ALT, TAS, 1, LOS, NaN, TAS, DEFAULT_DOCTRINE))).toBe(false)
+  })
+
+  /**
+   * 【視線角速度超過轉彎率就收斂不了】這正是舊判準 `trackRatio > 1` 在問的
+   * 事，在這個模型裡它是一個特例：三個候選全部回 `Infinity`。
+   */
+  it('轉不贏視線角速度時所有候選都做不到', () => {
+    const fast = 90 * DEG2   // 90°/s，遠超過任何瞬時轉彎率
+    for (const g of [-0.5, 0, 0.5]) {
+      expect(Number.isFinite(turnPlaneCost(B, ALT, TAS, 1, fast, g).seconds)).toBe(false)
+    }
+    expect(turnPlanePitch(B, ALT, TAS, 1, fast, ALT, TAS, DEFAULT_DOCTRINE)).toBe(0)
+  })
+
+  /** 拉高迴旋會把速度往迴旋速度帶，所以它轉得比俯衝快 —— 那是它常勝的原因。 */
+  it('高速時拉高迴旋比俯衝迴旋轉得快', () => {
+    const g = DEFAULT_DOCTRINE.turnPlaneGamma
+    const up = turnPlaneCost(B, ALT, TAS, 90 * DEG2, LOS, g)
+    const down = turnPlaneCost(B, ALT, TAS, 90 * DEG2, LOS, -g)
+    expect(up.seconds).toBeLessThan(down.seconds)
+    expect(up.endEnergyAlt).toBeGreaterThan(down.endEnergyAlt)
   })
 })

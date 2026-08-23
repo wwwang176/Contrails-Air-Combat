@@ -33,6 +33,7 @@ import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_STEER } from '../../src/ai/steer'
+import { DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -284,8 +285,12 @@ function main(): void {
 /**
  * 【設定覆寫】`TP` 是一段 JSON，逐欄蓋掉 `DEFAULT_STEER`。A/B 與掃描都用它：
  *
- *   TP='{"trackEnter":0}'      —— 整個機制關掉，等於改動前
- *   TP='{"trackHold":5}'       —— 掃描單一參數
+ *   TP='{"trackEnter":0}'          —— 追不上的閂鎖關掉
+ *   DP='{"turnPlaneMaxPitch":0}'   —— 迴轉平面的選擇關掉
+ *   DP='{"turnPlaneMargin":800}'   —— 掃描單一參數
+ *
+ * `TP` 蓋 `DEFAULT_STEER`（操縱層）、`DP` 蓋 `DEFAULT_DOCTRINE`（打法層）。
+ * 兩個是不同的物件，蓋錯了會沉默地跑成沒有覆寫 —— 實測踩過一次。
  *
  * 【為什麼直接改 `DEFAULT_STEER`】`AiController` 不帶自己的 `SteerConfig`，
  * 走的就是這個預設物件。探針是一次性的行程，就地改比穿一整條參數鏈誠實。
@@ -301,6 +306,14 @@ const override = process.env.TP
 if (override !== undefined && override !== '') {
   Object.assign(DEFAULT_STEER, JSON.parse(override) as Partial<typeof DEFAULT_STEER>)
   console.error('TP override: ' + override)
+}
+
+const doctrineOverride = process.env.DP
+if (doctrineOverride !== undefined && doctrineOverride !== '') {
+  Object.assign(
+    DEFAULT_DOCTRINE, JSON.parse(doctrineOverride) as Partial<typeof DEFAULT_DOCTRINE>,
+  )
+  console.error('DP override: ' + doctrineOverride)
 }
 
 main()
