@@ -31,8 +31,10 @@ import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
+import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import {
-  DEFAULT_STEER, buildEngageBasis, createEngageBasis, turnPlaneAngle, turnPlaneWeight,
+  DEFAULT_STEER, buildEngageBasis, createEngageBasis, sweetYield,
+  turnPlaneAngle, turnPlaneWeight,
 } from '../../src/ai/steer'
 
 /** 探針自己的交戰基底 —— AiController 那一份是 private */
@@ -92,8 +94,19 @@ interface Sample {
   tm: number, asp: number
   /** 預瞄點相對機鼻的 3D 夾角，度 —— 迴轉平面紀律的方位維度 */
   tp: number
-  /** 上面那個角換算出來的方位係數，0..1 */
+  /** 上面那個角換算出來的方位係數，0..1（**只有方位那一半**） */
   tw: number
+  /**
+   * 迴轉平面紀律**真正生效**的係數，0..1 —— 方位係數再乘上射擊解讓位，
+   * 並套用意圖豁免。`tw` 與它的差就是「被豁免掉了多少」。
+   */
+  te: number
+  /** 接近率，m/s。正 = 正在拉近 */
+  clo: number
+  /** 視線角速度，°/s —— 「機頭跟不跟得上預瞄點」的直接量度 */
+  lr: number
+  /** 我在當下高度與空速的**瞬時**轉彎率上限，°/s —— 拿來跟 lr 比 */
+  str: number
   /**
    * 四個閂鎖的位元遮罩：1 = 能量、2 = 迴旋、4 = 見底、8 = 破防。
    * 「該擋的閘門有沒有響」直接看這一欄。
@@ -167,9 +180,17 @@ function main(): void {
     // 【迴轉平面紀律的方位維度】`AiController.basis` 是 private，所以自己
     // 重建一份 —— 同一支 `buildEngageBasis`、同一組輸入，是精確值不是代理量
     let tpAngle = 0
+    let tpEffective = 0
     if (tgt !== null) {
       buildEngageBasis(a, tgt, probeBasis)
       tpAngle = turnPlaneAngle(a, probeBasis.leadPoint)
+      // `applyTurnPlane` 的完整閘門，逐字照抄：消融開關、兩個意圖豁免、
+      // 射擊解讓位。只看方位那一半會嚴重高估這一層的作用。
+      const it = ai.intent
+      if (DEFAULT_STEER.climbMax > 0 && it !== 'extend' && it !== 'rally') {
+        const y = it === 'defend' ? 1 : sweetYield(probeBasis.interceptTime)
+        tpEffective = turnPlaneWeight(tpAngle) * y
+      }
     }
 
     out.push({
@@ -193,6 +214,10 @@ function main(): void {
       asp: +(ai.sit.aspectAngle * DEG).toFixed(1),
       tp: +(tpAngle * DEG).toFixed(1),
       tw: +turnPlaneWeight(tpAngle).toFixed(3),
+      te: +tpEffective.toFixed(3),
+      clo: +ai.sit.closureRate.toFixed(1),
+      lr: +(ai.sit.losRate * DEG).toFixed(1),
+      str: +(instantaneousTurnRate(a.spec, a.state.position.y, speed) * DEG).toFixed(1),
       L: (r.extendEnergyLatch ? 1 : 0) | (r.extendTurnLatch ? 2 : 0)
         | (r.extendFloorLatch ? 4 : 0) | (r.defendLatch ? 8 : 0),
     })
