@@ -83,6 +83,14 @@ interface Cost {
   endTas: number
   /** 結束時的 cornerRatio */
   endCorner: number
+  /**
+   * 轉完之後的**能量高度變化**，m。`Es = 高度 + 速度²/2g`。
+   *
+   * 【為什麼這一個數字就夠】三個候選的終點是同一件事（機鼻對上目標），
+   * 差別只在路上付了多少。轉得久 = 誘導阻力吃得久 = 這個數字低，所以
+   * **時間已經算在裡面了**，不必再給時間一個權重。
+   */
+  deltaEs: number
   /** 為什麼失敗：'' = 成功、'stall' = 掉到失速速度、'slow' = 轉不贏視線 */
   fail: string
 }
@@ -111,10 +119,16 @@ function evaluate(
     // 【轉不贏視線就永遠收斂不了】這正是 trackRatio 在問的那件事，
     // 所以舊判準是這個模型的一個特例。
     if (!(omega > losRate)) {
-      return { seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0, fail: 'slow' }
+      return {
+        seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0,
+        deltaEs: -Infinity, fail: 'slow',
+      }
     }
     if (v <= stallSpeed(spec, h, n)) {
-      return { seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0, fail: 'stall' }
+      return {
+        seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0,
+        deltaEs: -Infinity, fail: 'stall',
+      }
     }
 
     const ps = specificExcessPower(spec, h, v, n, 1)
@@ -130,11 +144,16 @@ function evaluate(
       const vc = manoeuvreSpeed(spec, h)
       return {
         seconds: t, deltaAlt: h - alt0, endTas: v,
-        endCorner: vc > 0 ? v / vc : 0, fail: '',
+        endCorner: vc > 0 ? v / vc : 0,
+        deltaEs: (h + (v * v) / (2 * G0)) - (alt0 + (tas0 * tas0) / (2 * G0)),
+        fail: '',
       }
     }
   }
-  return { seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0, fail: 'slow' }
+  return {
+    seconds: Infinity, deltaAlt: h - alt0, endTas: v, endCorner: 0,
+    deltaEs: -Infinity, fail: 'slow',
+  }
 }
 
 interface Sample {
@@ -155,7 +174,9 @@ interface Sample {
   dh: [number, number, number]
   /** 三個候選結束時的 cornerRatio */
   ec: [number, number, number]
-  /** 依「付最少高度」會選第幾個（0/1/2），全部不可行回 −1 */
+  /** 三個候選的能量高度變化，m。不可行回 −99999 */
+  es: [number, number, number]
+  /** 依「結束時能量高度最高」會選第幾個（0/1/2），全部不可行回 −1 */
   pick: number
   /** 距離 */
   r: number
@@ -204,13 +225,13 @@ function main(): void {
     const lr = ai.sit.losRate
     const cs: Cost[] = CANDIDATES.map((c) => evaluate(a.spec, alt, tas, swing, lr, c.gamma))
 
-    // 【只用「付最少高度」當挑法】這一輪不談收益，先看代價分不分得開。
-    // 收益（轉完在不在能開火的位置）是下一步的事。
+    // 【挑法：結束時能量高度最高】三個候選的終點相同（機鼻對上目標），
+    // 所以不需要收益項，也不需要權重 —— 比一個數字就好。
     let pick = -1
     let best = -Infinity
     for (let i = 0; i < cs.length; i++) {
       if (!Number.isFinite(cs[i]!.seconds)) continue
-      if (cs[i]!.deltaAlt > best) { best = cs[i]!.deltaAlt; pick = i }
+      if (cs[i]!.deltaEs > best) { best = cs[i]!.deltaEs; pick = i }
     }
 
     const vc = manoeuvreSpeed(a.spec, alt)
@@ -226,6 +247,7 @@ function main(): void {
       sec: cs.map((c) => +(Number.isFinite(c.seconds) ? c.seconds : -1).toFixed(1)) as [number, number, number],
       dh: cs.map((c) => Math.round(c.deltaAlt)) as [number, number, number],
       ec: cs.map((c) => +c.endCorner.toFixed(2)) as [number, number, number],
+      es: cs.map((c) => Number.isFinite(c.deltaEs) ? Math.round(c.deltaEs) : -99999) as [number, number, number],
       pick,
       r: Math.round(range),
     })
@@ -234,14 +256,13 @@ function main(): void {
   // ── 逐秒表：交會前後 ────────────────────────────────────
   const rows: string[] = []
   rows.push('')
-  rows.push('   t  | 機鼻夾角 視線速 舊判準 |    俯衝迴旋    |    水平迴旋    |    拉高迴旋    | 選 | 意圖')
-  rows.push('      |   度     度/s        |  秒   Δ高度 cr |  秒   Δ高度 cr |  秒   Δ高度 cr |    |')
+  rows.push('   t  | 機鼻夾角 視線速 舊判準 |   俯衝迴旋   |   水平迴旋   |   拉高迴旋   | 選 | 意圖')
+  rows.push('      |   度     度/s        |  秒  Δ能量高度 |  秒  Δ能量高度 |  秒  Δ能量高度 |    |')
   for (const s of out) {
     if (s.t < 24 || s.t > 48) continue
-    const cell = (i: number) => (s.sec[i]! < 0 ? '  ×      ×    × ' : ''
-      + String(s.sec[i]!.toFixed(1)).padStart(4) + ' '
-      + String(s.dh[i]! > 0 ? '+' + s.dh[i]! : s.dh[i]!).padStart(6) + ' '
-      + s.ec[i]!.toFixed(2))
+    const cell = (i: number) => (s.sec[i]! < 0 ? '  ×       ×   ' : ''
+      + String(s.sec[i]!.toFixed(1)).padStart(4) + '  '
+      + String(s.es[i]! > 0 ? '+' + s.es[i]! : s.es[i]!).padStart(7) + ' ')
     rows.push('%s | %s %s %s | %s | %s | %s | %s | %s'
       .replace('%s', s.t.toFixed(1).padStart(5))
       .replace('%s', s.swing.toFixed(0).padStart(6))
@@ -263,11 +284,19 @@ function main(): void {
       + String(votes[i]).padStart(4) + ' 次 = '
       + (100 * votes[i]! / Math.max(1, usable.length)).toFixed(1) + '%')
   }
-  // 三者的高度代價差多少 —— 差很小就等於「選誰都一樣」
-  const spread = usable.map((s) => Math.max(...s.dh) - Math.min(...s.dh)).sort((a, c) => a - c)
+  // 最好與最差差多少能量高度 —— 差很小就等於「選誰都一樣」
+  const spread = usable
+    .map((s) => {
+      const ok = s.es.filter((e) => e > -99999)
+      return ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0
+    })
+    .sort((a, c) => a - c)
   const q = (f: number) => spread[Math.min(spread.length - 1, Math.floor(f * spread.length))] ?? 0
-  rows.push('   最好與最差的高度差：中位數 ' + q(0.5) + ' m'
+  rows.push('   最好與最差的能量高度差：中位數 ' + q(0.5) + ' m'
     + '  p90 ' + q(0.9) + ' m  最大 ' + q(1) + ' m')
+  const only = usable.filter((s) => s.es.filter((e) => e > -99999).length === 1).length
+  rows.push('   其中只有一個候選可行（沒得選）的：' + only
+    + ' 個 = ' + (100 * only / Math.max(1, usable.length)).toFixed(1) + '%')
 
   console.error(rows.join('\n'))
   console.log(JSON.stringify({ card: 'axis-escort', seed: SEED, step: STEP, samples: out }))
