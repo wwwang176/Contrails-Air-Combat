@@ -55,6 +55,13 @@ export class CommandDelay {
    * 走零延遲捷徑時清掉它，所以中途開關延遲也不會吐出陳舊指令。
    */
   private primed = false
+  /**
+   * 穩態補償器的狀態：aim 通道「新鮮 − 延遲」差值的低通，世界座標。
+   * `trimTau <= 0` 時恆為零且整段不跑 —— 預設路徑位元等價於純延遲。
+   */
+  private tx = 0
+  private ty = 0
+  private tz = 0
 
   /**
    * @param input        這一步 AI 算出來的指令
@@ -63,8 +70,9 @@ export class CommandDelay {
    *                     所以用它換算步數比存時戳簡單，而且改步長時下一步就
    *                     會換算出新的步數，不需要額外狀態
    * @param out          寫入目標。可以與 `input` 是不同的物件
+   * @param trimTau      穩態補償器的時間常數，s；`<= 0` 關閉（實驗中）
    */
-  push(input: Command, delaySeconds: number, dt: number, out: Command): void {
+  push(input: Command, delaySeconds: number, dt: number, out: Command, trimTau = 0): void {
     const raw = delaySeconds > 0 && dt > 0 ? Math.round(delaySeconds / dt) : 0
     const steps = Math.min(raw, Math.min(SLOTS - 1, Math.round(MAX_REACTION_DELAY / dt)))
     if (steps <= 0) {
@@ -73,6 +81,7 @@ export class CommandDelay {
       out.brake = input.brake
       out.firing = input.firing
       this.primed = false
+      this.tx = this.ty = this.tz = 0
       return
     }
 
@@ -104,6 +113,24 @@ export class CommandDelay {
     out.throttle = this.throttle[r]!
     out.brake = this.brake[r]!
     out.firing = this.firing[r] === 1
+
+    // 【穩態補償器】同一幀取緩衝區兩端的差 d = 新鮮 − 延遲，低通後補回輸出。
+    // 目標做等速動作時 d 是常數（預瞄點每 delaySeconds 沿軌跡走掉固定一段），
+    // trim 在 2~3τ 內收斂到它、穩態誤差歸零 —— 純延遲對可預測運動的永久
+    // 穩態誤差是模型缺陷，真人會靠預測補掉。突變（假動作）時 d 瞬間跳走而
+    // trim 揹著舊值有 τ 的慣性，反應延遲的欺敵窗口不動。τ→0 是 ACE、
+    // τ→∞ 是純延遲。只補 aim 通道；油門、減速板、開火照舊延遲。
+    if (trimTau > 0) {
+      const k = Math.min(1, dt / trimTau)
+      this.tx += k * (input.aimWorld.x - out.aimWorld.x - this.tx)
+      this.ty += k * (input.aimWorld.y - out.aimWorld.y - this.ty)
+      this.tz += k * (input.aimWorld.z - out.aimWorld.z - this.tz)
+      out.aimWorld.x += this.tx
+      out.aimWorld.y += this.ty
+      out.aimWorld.z += this.tz
+    } else if (this.tx !== 0 || this.ty !== 0 || this.tz !== 0) {
+      this.tx = this.ty = this.tz = 0
+    }
 
     this.write = (w + 1) % SLOTS
   }
