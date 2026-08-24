@@ -139,6 +139,30 @@ const OPENINGS: Record<string, Opening> = {
     offset: new Vector3(0, 0, -500),
     course: new Vector3(0, 0, -1),
   },
+  /**
+   * 【2026-08-25 專案負責人的實戰回報】「我開 P-51 在 4800 m，敵方 Bf 109
+   * 在我下方**射程內**，卻死不低頭攻擊，最後觸發 extend(迴旋) 平飛離開。」
+   * 敵人在下方 400 m、斜距 530 m —— 肉眼「就在射程內」。推測的死結：
+   * 夾角項飽和（敵在下方 ≈ 高夾角）鎖住俯仰 → 機頭壓不向他 → 攔截時間
+   * 不收斂 → 讓位閘（射程項 < 0.3 才淡出）永遠不開 → 平飛繞圈到迴轉
+   * 閂鎖到期。判據：力道欄若恆為 1，即「閘沒開」得證。
+   */
+  below: {
+    label: '敵人在下方 400 m（斜距 530 m 射程級）',
+    offset: new Vector3(0, -400, -350),
+    course: new Vector3(1, 0, 0),
+  },
+  /**
+   * 【死結的完整重現】直飛與橫越的下方靶機都攔得到（幾何一下就收斂）；
+   * 實戰那幕的關鍵是 109 在下面**繞著轟炸機轉** —— 幾何持續旋轉、攔截
+   * 時間永不收斂。靶機繞著「開局位置正前方 600 m、下方 400 m」的固定
+   * 圓心，半徑 400 m、150 m/s（21°/s，一台在低處纏鬥的 109）。
+   */
+  belowOrbit: {
+    label: '敵人在下方 400 m 繞固定圓心（半徑 400、150 m/s）',
+    offset: new Vector3(0, -400, -600),
+    course: new Vector3(1, 0, 0),
+  },
   rearHigh: {
     label: '敵人在右後上方（右 600、後 900、上 400）',
     offset: new Vector3(600, 400, 900),
@@ -239,6 +263,13 @@ function run(key: string): void {
   let orbitAngle = -Math.PI / 2
   const ORBIT_R = 700
   const ORBIT_V = 180
+  // belowOrbit 開局：固定圓心（開局時定死，不跟著我機）與相位
+  const BO_R = 400
+  const BO_V = 150
+  let boAngle = 0
+  const boCx = dronePos.x
+  const boCz = dronePos.z
+  const BO_ALT = ALT - 400
   // weave 開局：航向 psi = A sin(w t)，位置逐步積分（決定性）
   const WEAVE_V = 170
   const WEAVE_A = 0.35
@@ -275,6 +306,20 @@ function run(key: string): void {
       )
       drone.state.velocity.set(
         -Math.sin(orbitAngle) * ORBIT_V, 0, Math.cos(orbitAngle) * ORBIT_V,
+      )
+      drone.state.orientation.setFromUnitVectors(
+        FWD, drone.state.velocity.clone().normalize(),
+      )
+    } else if (key === 'belowOrbit') {
+      // 【繞固定圓心】與 orbit 的差別：圓心不跟著我機 —— 它在打別人，
+      // 不是在量我。半徑 400 起繞，圓心 = 開局位置。
+      boAngle += (BO_V / BO_R) * DT
+      drone.state.position.set(
+        boCx + BO_R * Math.cos(boAngle), BO_ALT,
+        boCz + BO_R * Math.sin(boAngle),
+      )
+      drone.state.velocity.set(
+        -Math.sin(boAngle) * BO_V, 0, Math.cos(boAngle) * BO_V,
       )
       drone.state.orientation.setFromUnitVectors(
         FWD, drone.state.velocity.clone().normalize(),
@@ -348,6 +393,8 @@ function run(key: string): void {
       lx: +(mine.state.position.x + lead.x).toFixed(1),
       ly: +(mine.state.position.y + lead.y).toFixed(1),
       lz: +(mine.state.position.z + lead.z).toFixed(1),
+      cr: +ai.sit.cornerRatio.toFixed(3),
+      es: ai.defend.extendSide,
       y: mine.state.position.y,
       ga: Math.atan2(v.y, horiz) / RAD,
       bk: -Math.atan2(right.y, up.y) / RAD,
