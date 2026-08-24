@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import {
+  commandExemptFlight, createBattle, stepBattle, type Battle,
+} from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import {
   createGodCameraState, stepGodCamera, type GodCameraInput,
@@ -52,10 +54,27 @@ describe('指揮權跟著代飛走（20v20、120 秒）', () => {
    * 每一條會改變狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失
    * 的幽靈狀態（`setup.ts` 的既有註解）。
    */
-  it('玩家座位坐 AiController → 玩家那一支分隊拿得到命令', () => {
-    const n = orderedSteps(new AiController())
-    console.log(JSON.stringify({ orderedSteps: n }))
-    expect(n).toBeGreaterThan(0)
+  /**
+   * 【斷言打在規則上，不打在排程結果上】原版斷言「120 秒內玩家分隊拿到
+   * 過命令」—— 那是混沌量：空層鎖上線後這一場裡玩家那支整場接戰、指揮官
+   * 從來沒有理由輪到它（`god-order.probe.ts`：其他分隊拿到三萬步的命令，
+   * 玩家那支 0，接線完好）。規則「座位是 AiController → 不豁免」是確定
+   * 的，直接驗 `commandExemptFlight`；「指揮迴路活著」則由「有任何分隊
+   * 拿到命令」守住。
+   */
+  it('玩家座位坐 AiController → 玩家分隊不在豁免名單，命令照發', () => {
+    const b = createBattle(new AiController())
+    let anyOrdered = 0
+    for (let s = 0; s < SECONDS * 240; s++) {
+      stepBattle(b, DT)
+      if (s % 240 === 0) expect(commandExemptFlight(b)).toBe(-1)
+      if (anyOrdered === 0
+        && b.blueCommand.orders.some((o) => o !== null && o !== undefined)) {
+        anyOrdered = s
+      }
+    }
+    console.log(JSON.stringify({ anyOrderedAt: anyOrdered / 240 }))
+    expect(anyOrdered).toBeGreaterThan(0)
   }, 10 * 60 * 1000)
 
   /**

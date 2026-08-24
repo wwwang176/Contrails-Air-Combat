@@ -732,6 +732,33 @@ function stepPressure(b: Battle, dt: number): void {
  * 操縱。座位上坐的是 `AiController` 時（`I` 代飛、上帝視角）那個理由就
  * 不成立了 —— 見下方 `playerFlight` 的推導。
  */
+/**
+ * 指揮官要豁免的分隊索引；沒有要豁免的回 −1。
+ *
+ * 【跳過的是「有人類在操縱的那一支」，不是「玩家的座位」】第一份 spec
+ * §2.1 裁定指揮 AI 不對玩家的小隊下令，理由是不跟人類搶操縱 —— 座位上
+ * 坐的是 AiController 時（`I` 代飛、上帝視角）那個理由就不成立了。
+ *
+ * 【為什麼用推導而不是加一個旗標】推導比鏡射安全：鏡射要求每一條會改變
+ * 狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失的幽靈狀態。
+ * 這與 `wireStations` 靠 `instanceof AiController` 自動跟上、編制每步
+ * 重算而不是增量維護，是同一條紀律。
+ *
+ * 【`pinned < 0` 時】`combatants[-1]` 是 undefined → `human` 為 false
+ * → 回 −1。
+ *
+ * 【為什麼 export】這條規則的整合測試（`god-view.test.ts`）打在這個縫上。
+ * 「玩家分隊終究會拿到命令」是混沌量 —— AI 行為一改，一場 120 秒的對戰
+ * 裡那一支可能整場都在接戰、從來輪不到（實測 `god-order.probe.ts`：
+ * 指揮層對其他分隊發了三萬步的命令，玩家那支 0）。規則本身是確定的，
+ * 就直接驗規則。
+ */
+export function commandExemptFlight(b: Battle): number {
+  const seat = b.world.combatants[b.flights.pinned]
+  const human = seat !== undefined && !(seat.controller instanceof AiController)
+  return human ? b.flights.flightOf[b.flights.pinned]! : -1
+}
+
 function stepCommandLayer(b: Battle, dt: number): void {
   const cs = b.world.combatants
 
@@ -780,20 +807,7 @@ function stepCommandLayer(b: Battle, dt: number): void {
     u.shotInstant = ctl instanceof AiController ? ctl.shotInstant : 0
   }
 
-  // 【跳過的是「有人類在操縱的那一支」，不是「玩家的座位」】第一份 spec
-  // §2.1 裁定指揮 AI 不對玩家的小隊下令，理由是不跟人類搶操縱 —— 座位上
-  // 坐的是 AiController 時（`I` 代飛、上帝視角）那個理由就不成立了。
-  //
-  // 【為什麼用推導而不是加一個旗標】推導比鏡射安全：鏡射要求每一條會改變
-  // 狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失的幽靈狀態。
-  // 這與 `wireStations` 靠 `instanceof AiController` 自動跟上、編制每步
-  // 重算而不是增量維護，是同一條紀律。
-  //
-  // 【`pinned < 0` 時】`combatants[-1]` 是 undefined → `human` 為 false
-  // → 回 −1，與改之前逐字相同。
-  const seat = b.world.combatants[b.flights.pinned]
-  const human = seat !== undefined && !(seat.controller instanceof AiController)
-  const playerFlight = human ? b.flights.flightOf[b.flights.pinned]! : -1
+  const playerFlight = commandExemptFlight(b)
   // 【下令端與被看見端是兩份清單】`own` 拿掉被護送的小隊、`foe` 不拿掉 ——
   // 攔截時對面的指揮官必須看得到那幾架才切得到它們的側翼。見
   // `Battle.blueOrderFlights`

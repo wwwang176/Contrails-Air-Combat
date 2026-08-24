@@ -91,7 +91,15 @@ function scenario(behind: Vector3): Outcome {
   let defend = 0
   let hunted = 0
   let stable = 0
-  let huntedFirstAt = Infinity
+  // 【上升緣，不是第一次】紅 B 開場擺位時機頭朝著藍方，t = 0 就會閃一下
+  // 射擊解；動態高度鎖上線後它接著**先脫離爬升**還清 −50 m 的高度債
+  // （floorGap 進場 < 0、出場 150），約 7.5 s 才真正回來咬。實測時間線
+  // （`defence-below.probe.ts`）：閃光 @0 → 爬升 0~4.5 → 再咬 @7.5 →
+  // 藍方 defend @8.5。從第一次閃光起算會把攻擊者的繞路算在防禦者頭上
+  // （8.5 s）；從 defend 前最後一次上升緣起算才是反應時間（1.0 s）。
+  // 其他三個幾何的威脅從頭連續，兩種算法相同。
+  let huntedOnsetAt = Infinity
+  let prevOnMe = false
   let defendFirstAt = Infinity
 
   const steps = Math.round(SECONDS / DT)
@@ -100,7 +108,8 @@ function scenario(behind: Vector3): Outcome {
     if (!bc.alive || !rbc.alive) break
     const t = s * DT
     const onMe = threatFactor(redB, blue) > 0
-    if (onMe && huntedFirstAt === Infinity) huntedFirstAt = t
+    if (onMe && !prevOnMe && defendFirstAt === Infinity) huntedOnsetAt = t
+    prevOnMe = onMe
     if (blueAi.intent === 'defend' && defendFirstAt === Infinity) defendFirstAt = t
     if (s % EVERY !== 0) continue
     samples++
@@ -111,7 +120,7 @@ function scenario(behind: Vector3): Outcome {
 
   return {
     defendShare: defend / samples,
-    reactionSeconds: defendFirstAt === Infinity ? Infinity : defendFirstAt - huntedFirstAt,
+    reactionSeconds: defendFirstAt === Infinity ? Infinity : defendFirstAt - huntedOnsetAt,
     huntedShare: hunted / samples,
     targetStable: stable / samples,
     blueDamage: blueHp0 - bc.hp,

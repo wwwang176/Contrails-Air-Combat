@@ -619,31 +619,27 @@ describe('steerCommand', () => {
   })
 
   /**
-   * 【俯仰跟的是兩個速度赤字的較大值，不是相對能量差的符號】用
-   * `−sign(energyAdvantage)` 決定爬或衝會在零點瞬間翻號，加上俯仰慣性就是
-   * 極限環。現在問的是兩個連續量：「我自己還轉得動嗎」（`cornerRatio`）
-   * 與「我追不追得上」（`speedAdvantage`），取赤字較大的那一個。
-   *
-   * 所以「速度過剩」的場景要**兩個維度都指定** —— 只給 `cornerRatio` 的話
-   * 另一半會留在預設的 0 並反過來主導。
+   * 【爬升的唯一戰術理由是敵人在上方】速度過剩不再存成高度（見
+   * `extend-direction.test.ts` 的契約），所以場景要給 `altitudeAdvantage`
+   * —— 只給 `cornerRatio` 的話高度項留在預設的 0，輸出是平飛。
    */
-  it('extend 在速度過剩時帶爬升分量（把速度存成高度）', () => {
+  it('extend 在敵人位於上方且速度充足時帶爬升分量', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1.4
-    sit.speedAdvantage = 0.4
+    sit.altitudeAdvantage = -800
     steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeGreaterThan(velDir.y)
   })
 
   /**
-   * 【新增：相對赤字會壓過自我盈餘】這就是護航 Bf 109 的局面 —— 相對自己
-   * 速度過剩（1.4），但比敵人慢。舊版在這裡爬升，把追不上變成更追不上。
+   * 【速度先於高度】敵人在上方但自己缺速度 —— 往他的高度爬等於用僅剩的
+   * 動能換一個守不住的位置，正確動作是先俯衝補速度。
    */
-  it('extend 在相對敵人落後時帶俯衝分量，即使自己速度過剩', () => {
+  it('extend 在缺速度時帶俯衝分量，即使敵人在上方', () => {
     scene([0, 4000, -600], [0, 0, -180])
-    sit.cornerRatio = 1.4
-    sit.speedAdvantage = -0.2
+    sit.cornerRatio = 0.7
+    sit.altitudeAdvantage = -800
     steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
@@ -894,11 +890,9 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
     evaluateGeometry(self, target, sit)
     buildEngageBasis(self, target, basis)
     sit.cornerRatio = cornerRatio
-    // 【場景要兩個維度都指定】速度赤字取「相對自己」與「相對敵人」的較大
-    // 值，所以「速度過剩」不再只是 `cornerRatio > 1`——那樣只說了一半，
-    // 而另一半（相對敵人）留在預設的 0 會反過來主導。這裡讓兩者同號：
-    // `cornerRatio` 1.4 ⇒ 也比敵人快 0.4 個角落速度。
-    sit.speedAdvantage = cornerRatio - 1
+    // 【爬升要有戰術理由】速度過剩本身不爬（見 extend-direction.test.ts），
+    // 過剩的場景放一個上方的敵人，才有固定的爬升角可以驗證不滾雪球。
+    sit.altitudeAdvantage = cornerRatio > 1 ? -800 : 0
     sit.speedMargin = 2
     sit.stallMargin = 2
 
@@ -913,13 +907,13 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
   }
 
   it('速度過剩時：每一輪都是同一個爬升角，不會愈爬愈陡', () => {
-    const expected = extendPitchAngle(1.4, 1.4 - 1, 4000)
+    const expected = extendPitchAngle(1.4, -800, 4000)
     expect(expected).toBeGreaterThan(0)
     for (const a of followLoop(1.4)) expect(a).toBeCloseTo(expected, 9)
   })
 
   it('速度不足時：每一輪都是同一個俯衝角，不會愈俯愈陡', () => {
-    const expected = extendPitchAngle(0.6, 0.6 - 1, 4000)
+    const expected = extendPitchAngle(0.6, 0, 4000)
     expect(expected).toBeLessThan(0)
     for (const a of followLoop(0.6)) expect(a).toBeCloseTo(expected, 9)
   })
@@ -975,14 +969,15 @@ describe('超前的判斷要用幾何門住', () => {
     expect(k.leadLag).toBeLessThan(0)          // 確實是後置
   })
 
-  it('正側方是中間值', () => {
+  it('正側方屬於橫越幾何：門不開，維持乾淨前置', () => {
+    // 尾追門是 max(0, cos(angleOffTail))：90° 橫越的高接近率是幾何給定
+    // 的，不是衝過頭。舊式 (1+cos)/2 在這裡留一半權重，實測造成橫越時
+    // 後置＋高 yo-yo、瞄在預瞄點與機身中間。
     sit.closureRate = 282
     sit.angleOffTail = Math.PI / 2
     engageKnobs(sit, k)
-    expect(k.leadLag).toBeGreaterThan(-1)
-    expect(k.leadLag).toBeLessThan(0.9)
-    expect(k.vertical).toBeGreaterThan(0)
-    expect(k.vertical).toBeLessThan(1)
+    expect(k.leadLag).toBeGreaterThan(0.9)
+    expect(Math.abs(k.vertical)).toBeLessThan(0.1)
   })
 
   /** 「追不上」與方位無關——他跑掉了就是要切內線，不該被門住。 */
@@ -1005,8 +1000,9 @@ describe('extend 的俯仰是連續量', () => {
     expect(extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000)).toBeLessThan(0)
   })
 
-  it('高空速度充足 → 爬升把速度存成高度', () => {
-    expect(extendPitchAngle(1.3, NO_FOE_DEFICIT, 4000)).toBeGreaterThan(0)
+  it('高空速度充足 → 平飛；爬升要有上方的敵人', () => {
+    expect(extendPitchAngle(1.3, NO_FOE_DEFICIT, 4000)).toBeCloseTo(0, 9)
+    expect(extendPitchAngle(1.3, -800, 4000)).toBeGreaterThan(0)
   })
 
   /**
@@ -1030,8 +1026,8 @@ describe('extend 的俯仰是連續量', () => {
   it('夾在 ±extendPitch 之間', () => {
     // cornerRatio 極低 = 嚴重缺速度 → 俯衝到底（負）
     expect(extendPitchAngle(-5, NO_FOE_DEFICIT, 4000)).toBeCloseTo(-DEFAULT_STEER.extendPitch, 9)
-    // cornerRatio 極高 = 速度過剩 → 爬升到底，把速度存成高度（正）
-    expect(extendPitchAngle(5, NO_FOE_DEFICIT, 4000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
+    // 速度充足 + 敵人高懸頭頂 → 爬升到底（正）
+    expect(extendPitchAngle(5, -1e6, 4000)).toBeCloseTo(DEFAULT_STEER.extendPitch, 9)
   })
 
   /**
