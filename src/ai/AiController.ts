@@ -43,6 +43,18 @@ import { CommandDelay } from './delay'
  * 兩個一起調才有意義；要掃描時再升格。
  */
 const FLOOR_BUFFER = 100
+/**
+ * 追擊時允許沉到敵人下方多深，m。
+ *
+ * 【為什麼與 `FLOOR_BUFFER` 分家 —— 2026-08-25 實戰回報】兩條線守的東西
+ * 不同：沉到**被護送者**下面是失職（緊，100）；沉到**敵人**下面 150~300 m
+ * 是低位 yo-yo —— 教科書的纏鬥動作，切進圈內側換速度抄近路。共用 100 的
+ * 帶寬時，跟著敵人迴旋的每一次 yo-yo 都觸發 extend(高度) 拉高 1~3 秒，
+ * 咬住的尾就丟了（專案負責人的原話：「這時候觸發拉高敵人就飛走了」）。
+ * 這條護欄要擋的是持續深潛（曾實測鑽到編隊下 280 m 不回頭），不是三秒的
+ * 戰術下沉。
+ */
+const CHASE_FLOOR_BUFFER = 300
 import type { Aircraft } from '../aircraft/Aircraft'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 
@@ -558,7 +570,13 @@ export class AiController implements Controller {
       // 【為什麼在這裡算而不是 assess.ts】被護送單位要掃 `board` 的
       // `protectedMask`，態勢層看不到指派板 —— 與 rallyPoint 走參數是
       // 同一個分界。掃一圈 40 格、10 Hz，成本可忽略。
-      let floorAlt = target.state.position.y - FLOOR_BUFFER
+      const targetAlt = target.state.position.y
+      let floorAlt = targetAlt - CHASE_FLOOR_BUFFER
+      // 追擊空層（band 基準）：敵人那層，護送中不低於最低的被護送者。
+      // 【與 floorAlt 各算各的】兩條地板線分家之後（敵人 −300、轟炸機
+      // −100），「floorAlt + 緩衝」不再等於這個量 —— 空層要貼的是敵人
+      // **本人**的高度，不是地板線。
+      let chase = targetAlt
       if (this.board !== null && this.selfIndex >= 0) {
         const myTeam = this.board.candidates[this.selfIndex]?.team
         let low = Infinity
@@ -568,11 +586,13 @@ export class AiController implements Controller {
           const y = c.aircraft.state.position.y
           if (y < low) low = y
         }
-        if (low !== Infinity && low - FLOOR_BUFFER > floorAlt) {
-          floorAlt = low - FLOOR_BUFFER
+        if (low !== Infinity) {
+          if (low - FLOOR_BUFFER > floorAlt) floorAlt = low - FLOOR_BUFFER
+          if (low > chase) chase = low
         }
       }
       this.sit.floorGap = self.state.position.y - floorAlt
+      this.sit.chaseAlt = chase
       // 【extend 的爬升參考也認地板】跌破時爬的對象是「地板上方兩個出場
       // 遲滯」——正好穿過閂鎖的出場線（+150）而不是漸近地貼著它。追高處
       // 的敵人時 min() 不起作用，行為一個字不變。

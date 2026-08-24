@@ -2151,7 +2151,9 @@ describe('extend 的回場方向', () => {
 
     it('上限設 0 = 這一層關閉', () => {
       const off: SteerConfig = { ...DEFAULT_STEER, extendTurnCap: 0 }
-      for (const e of [0, 0.5, Math.PI]) expect(extendHeadingBias(1, e, FAR, off)).toBe(0)
+      for (const e of [0, 0.5, Math.PI]) {
+        expect(extendHeadingBias(1, e, FAR, Infinity, off)).toBe(0)
+      }
     })
 
     /** 【NaN 會汙染整個 aimWorld】與 sweetYield 同一個理由。 */
@@ -2160,8 +2162,29 @@ describe('extend 的回場方向', () => {
       expect(extendHeadingBias(1, Infinity, FAR)).toBe(0)
       for (const c of [Number.NaN, -1]) {
         const bad: SteerConfig = { ...DEFAULT_STEER, extendTurnCap: c }
-        expect(extendHeadingBias(1, 1, FAR, bad)).toBe(0)
+        expect(extendHeadingBias(1, 1, FAR, Infinity, bad)).toBe(0)
       }
+    })
+
+    /**
+     * 【速度先於轉向】偏置限的是瞄準點的角度，不是 G —— 對著持續旋轉的
+     * 方位，滿偏就是持續 4 G 的彎，阻力讓速度永遠回不來（belowOrbit 的
+     * 死亡螺旋）。乘上速度餘裕：缺速度翼平直飛，速度回來線性開回。
+     */
+    it('深失血時不偏（先撿速度再轉頭）—— 角落速度本身可以轉', () => {
+      expect(extendHeadingBias(1, Math.PI, FAR, 0.8)).toBe(0)
+      expect(extendHeadingBias(1, Math.PI, FAR, DEFAULT_STEER.extendVigorEnter)).toBe(0)
+      // cr = 1 是最會轉的速度 —— 偏置已經開了一截，不是零
+      expect(extendHeadingBias(1, Math.PI, FAR, 1.0)).toBeGreaterThan(0)
+    })
+
+    it('速度餘裕在 Enter → Full 之間開回偏置', () => {
+      const m = DEFAULT_STEER.extendVigorFull
+      const mid = extendHeadingBias(1, Math.PI, FAR, (DEFAULT_STEER.extendVigorEnter + m) / 2)
+      expect(mid).toBeGreaterThan(0)
+      expect(mid).toBeLessThan(cap)
+      expect(extendHeadingBias(1, Math.PI, FAR, m)).toBeCloseTo(cap, 12)
+      expect(extendHeadingBias(1, Math.PI, FAR, 3)).toBeCloseTo(cap, 12)
     })
   })
 
@@ -2218,6 +2241,7 @@ describe('extend 的回場方向', () => {
 
     const run = (
       targetPos: [number, number, number], side: number, cfg: SteerConfig,
+      cornerRatio = 0.8,
     ): Vector3 => {
       const basis = createEngageBasis()
       const sit = createSituation()
@@ -2229,8 +2253,9 @@ describe('extend 的回場方向', () => {
       buildEngageBasis(self, target, basis)
       sit.stallMargin = 5
       // 【速度赤字要非零】否則 extendPitchAngle 回 0，「旋轉不動航跡角」
-      // 那一條就退化成 0 對 0，什麼都沒守到
-      sit.cornerRatio = 0.8
+      // 那一條就退化成 0 對 0，什麼都沒守到。轉向測試則要 >= extendVigorFull
+      // 的餘裕（速度先於轉向 —— 缺速度時偏置整層退位，見 extendHeadingBias）
+      sit.cornerRatio = cornerRatio
       sit.pullCeiling = 1
       sit.sweetPitch = 0
       engageKnobs(sit, k)
@@ -2253,8 +2278,8 @@ describe('extend 的回場方向', () => {
     })
 
     it('瞄準點轉向錨點那一側，剛好轉滿上限', () => {
-      const off = run(LEFT_REAR, 1, OFF_TURN)
-      const on = run(LEFT_REAR, 1, DEFAULT_STEER)
+      const off = run(LEFT_REAR, 1, OFF_TURN, 1.2)
+      const on = run(LEFT_REAR, 1, DEFAULT_STEER, 1.2)
       const turn = Math.atan2(
         off.z * on.x - off.x * on.z, off.x * on.x + off.z * on.z,
       )
@@ -2262,12 +2287,20 @@ describe('extend 的回場方向', () => {
     })
 
     it('側別 −1 轉向另一邊', () => {
-      const off = run(LEFT_REAR, 1, OFF_TURN)
-      const on = run(LEFT_REAR, -1, DEFAULT_STEER)
+      const off = run(LEFT_REAR, 1, OFF_TURN, 1.2)
+      const on = run(LEFT_REAR, -1, DEFAULT_STEER, 1.2)
       const turn = Math.atan2(
         off.z * on.x - off.x * on.z, off.x * on.x + off.z * on.z,
       )
       expect(turn).toBeCloseTo(-DEFAULT_STEER.extendTurnCap, 9)
+    })
+
+    /** 【速度先於轉向】缺速度（0.8 < extendVigorEnter 0.85）時偏置整層退位。 */
+    it('缺速度時不偏 —— 先撿速度再轉頭', () => {
+      const off = run(LEFT_REAR, 1, OFF_TURN)
+      const on = run(LEFT_REAR, 1, DEFAULT_STEER)
+      expect(on.x).toBeCloseTo(off.x, 12)
+      expect(on.z).toBeCloseTo(off.z, 12)
     })
 
     /** 【消融】上限 0 與側別 0 都該逐位元退回原本的卸載。 */
