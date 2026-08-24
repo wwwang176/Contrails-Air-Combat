@@ -18,7 +18,7 @@
  *
  * 【量三個角度，全部是相對地平線的航跡角】
  *
- *   命令      `extendPitchAngle(cornerRatio, speedAdvantage, clearance, cfg)`
+ *   命令      `extendPitchAngle(cornerRatio, altitudeAdvantage, clearance, cfg)`
  *   進入當下  進入 `extend` 那一格的實際航跡角
  *   當下      每個物理步的實際航跡角
  *
@@ -91,7 +91,7 @@ for (let s = 0; s < Math.round(SECONDS / DT); s++) {
       // 【每 24 步取樣一次就夠】這幾個是分佈，不是事件
       if (s % 24 === 0) {
         const clearance = c.aircraft.state.position.y - ai.seaHeight
-        commanded.push(extendPitchAngle(ai.sit.cornerRatio, ai.sit.speedAdvantage, clearance, DEFAULT_STEER) * RAD)
+        commanded.push(extendPitchAngle(ai.sit.cornerRatio, ai.sit.altitudeAdvantage, clearance, DEFAULT_STEER) * RAD)
         actual.push(gammaOf(c))
       }
     } else if (wasExtend[i] === 1 && c.alive) {

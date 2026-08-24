@@ -98,6 +98,10 @@ interface Sample {
   v: number
   intent: string
   mode: string
+  /** 空層鎖：off / level / zoom / dive */
+  bk2: string
+  /** 空層鎖的力道 0..1。0 = 完全沒鎖 */
+  bh: number
   /** TAS ÷ 角落速度 */
   cr: number
   /** 比能量差（對當前目標），m */
@@ -222,6 +226,7 @@ function main(): void {
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
       ga: +ga.toFixed(2), bk: +bk.toFixed(2), v: +speed.toFixed(1),
       intent: ai.intent, mode: ai.mode,
+      bk2: ai.band.kind, bh: +ai.band.hold.toFixed(2),
       cr: +ai.sit.cornerRatio.toFixed(3),
       ea: Math.round(ai.sit.energyAdvantage),
       cmd: +cmd.toFixed(2),
