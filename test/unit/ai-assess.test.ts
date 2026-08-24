@@ -9,7 +9,7 @@ import {
 import { P51D } from '../../src/specs/p51d'
 import { BF109G6 } from '../../src/specs/bf109g6'
 import { DEG, G0, RAD } from '../../src/core/math'
-import { manoeuvreSpeed } from '../../src/ai/doctrine'
+import { DEFAULT_DOCTRINE, manoeuvreSpeed } from '../../src/ai/doctrine'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 
 /**
@@ -183,12 +183,17 @@ describe('evaluateEnergy', () => {
     expect(sit.energyAdvantage).toBeCloseTo(1000, 0)
   })
 
-  it('energyAdvantage：速度優勢為正', () => {
+  it('energyAdvantage：速度優勢為正，但只計 kineticWeight 的折扣', () => {
+    // 【面額帳 → 折現帳】速度的帳面高度（v²/2g）在可持續極速以上每秒蒸發
+    // 10~46 m（speed-decay 量測），拿面額跟高度相加會把「俯衝借來的速度」
+    // 當成「爬上去的高度」等值看待 —— P-51 俯衝時曾因此抵掉 109 整整
+    // 1 km 的高度優勢。現值折扣定值見 `DoctrineConfig.kineticWeight`。
     const self = at(P51D, 4000, 250)
     const target = at(P51D, 4000, 150)
     evaluateEnergy(self, target, sit)
-    // ΔEs = (250² − 150²) / (2g) ≈ 2039 m
-    expect(sit.energyAdvantage).toBeCloseTo((250 * 250 - 150 * 150) / (2 * 9.80665), 0)
+    const kinetic = (250 * 250 - 150 * 150) / (2 * 9.80665)   // 面額 ≈ 2039 m
+    expect(sit.energyAdvantage).toBeCloseTo(DEFAULT_DOCTRINE.kineticWeight * kinetic, 0)
+    expect(sit.energyAdvantage).toBeGreaterThan(0)
   })
 
   /**

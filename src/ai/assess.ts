@@ -120,6 +120,28 @@ export interface Situation {
    */
   speedAdvantage: number
   /**
+   * 我比目標高幾公尺（自己的高度 − 目標的高度）。負 = 我在下面。
+   *
+   * 【為什麼與 `energyAdvantage` 並存】那一個是總能量，位能與動能已經加在
+   * 一起，換算不會改變它 —— 所以它回答「該不該脫離」，回答不了「脫離時該
+   * 往上還是往下」。這一個只問位能，而位能正是 `extend` 唯一能重新分配的
+   * 東西（推力補得極慢）。見 `steer.ts` 的 `extendPitchAngle`。
+   */
+  altitudeAdvantage: number
+  /**
+   * 我離**高度鎖**多少公尺（自己的高度 − 鎖）。負 = 已經跌破。
+   *
+   * 【高度鎖是什麼】一條每個決策拍重畫的地板線：護送任務 = 存活被護送單位
+   * 的最低高度 − 100；一般追擊 = 目標高度 − 100；兩者都有取較高者。俯衝
+   * 攻擊可以壓到目標的高度，但不准鑽到他（或轟炸機編隊）下面去 —— 鑽下去
+   * 是把高度優勢倒貼給對方（專案負責人 2026-08-24 的設計）。
+   *
+   * 【為什麼由 `AiController` 填而不是這裡算】被護送單位要掃 `board` 的
+   * `protectedMask`，而態勢層看不到（也不該看到）指派板。沒有任何參考時
+   * 是 `Infinity` —— 永遠不會觸發。
+   */
+  floorGap: number
+  /**
    * `energyAdvantage` ÷ 我的角落速度**動能高度**（vc² / 2g）。正 = 我能量多。
    *
    * 【尺標為什麼是 vc² / 2g】它是「把角落速度的動能全部換成高度會有多高」，
@@ -231,7 +253,8 @@ export function createSituation(): Situation {
     aspectAngle: 0, angleOffTail: 0, losRate: 0, trackRatio: 0,
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
-    cornerRatio: 1, speedAdvantage: 0, energyRatio: 0, stallMargin: 1, speedMargin: 1,
+    cornerRatio: 1, speedAdvantage: 0, altitudeAdvantage: 0, floorGap: Infinity,
+    energyRatio: 0, stallMargin: 1, speedMargin: 1,
     pullCeiling: 1, sweetPitch: 0, turnPitch: 0,
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
@@ -328,12 +351,16 @@ function clampUnit(x: number): number {
  * 不修改 self 與 target。
  */
 export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation): void {
-  out.energyAdvantage = self.specificEnergy - target.specificEnergy
-
   const selfAlt = self.state.position.y
   const targetAlt = target.state.position.y
   const selfTas = self.diag.aero.tas
   const targetTas = target.diag.aero.tas
+
+  // 【動能打權重，高度全額】理由與實測案例見 `DoctrineConfig.kineticWeight`。
+  // 權重 1 時與 `specificEnergy` 的差逐位元相同（同一個 G0、同一條式子）。
+  const kw = DEFAULT_DOCTRINE.kineticWeight
+  out.energyAdvantage = (selfAlt - targetAlt)
+    + kw * ((selfTas * selfTas - targetTas * targetTas) / (2 * G0))
 
   out.psSelf = specificExcessPower(
     self.spec, selfAlt, selfTas, self.diag.loadFactor, self.controls.throttle,
@@ -356,6 +383,7 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   const vc = manoeuvreSpeed(self.spec, selfAlt)
   out.cornerRatio = selfTas / vc
   out.speedAdvantage = (selfTas - targetTas) / vc
+  out.altitudeAdvantage = selfAlt - targetAlt
   // 【尺標是角落速度的動能高度】恆為正，不必防除以 0。分子的
   // `energyAdvantage` 是兩個 `specificEnergy` 的差，而那個 getter 用的
   // 也是 `G0` —— 兩邊必須是同一個常數，否則這個比值會有一個看不出來的

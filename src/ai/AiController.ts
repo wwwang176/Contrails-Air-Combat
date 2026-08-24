@@ -7,7 +7,8 @@ import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
 import {
-  buildEngageBasis, createDefendState, createEngageBasis, createTrackState, engageKnobs,
+  buildEngageBasis, createBandState, createDefendState, createEngageBasis, createTrackState,
+  engageKnobs, stepBand,
   geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
@@ -35,6 +36,13 @@ import { rallyCommand } from './rally'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
 import { CommandDelay } from './delay'
+
+/**
+ * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
+ * 【為什麼不是旋鈕】它與 `floorAltExit`（出場遲滯）共同定義這條帶的形狀，
+ * 兩個一起調才有意義；要掃描時再升格。
+ */
+const FLOOR_BUFFER = 100
 import type { Aircraft } from '../aircraft/Aircraft'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 
@@ -238,6 +246,11 @@ export class AiController implements Controller {
    * 探針與測試靠它讀閂鎖佔時。
    */
   readonly track = createTrackState()
+  /**
+   * 空層鎖的跨格狀態。與 `defend`、`track` 同一個位階 —— `steer.ts` 是純函式，
+   * 「進入那一刻的高度」必須由持有狀態的這一層記。
+   */
+  readonly band = createBandState()
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
@@ -419,6 +432,10 @@ export class AiController implements Controller {
       // 的狀態一路殘留到下一次接敵。與同一個分支裡「戰術層在這裡歸零」
       // 同一個理由。
       stepTrack(this.track, 0, 0, false, dt)
+      // 【目標消失就放掉】與上一行同一個理由：下面三條 `return` 走不到維護點，
+      // 鎖會帶著上一個目標的高度一路殘留到下一次接敵。
+      this.band.kind = 'off'
+      this.band.hold = 0
 
       // 【戰術層在這裡歸零】下面有三條 `return`（飛站位、飛集合點、平飛）。
       // 少了這一格，「目標消失 → off」永遠不會執行，下一個目標會繼承上一個
@@ -532,6 +549,37 @@ export class AiController implements Controller {
     // ── 10 Hz：昂貴的包絡查詢與意圖仲裁 ────────────────────
     if (decide) {
       evaluateEnergy(self, target, this.sit)
+      // ── 高度鎖（10 Hz 重算）───────────────────────────
+      //
+      // 【地板是什麼】護送 = 存活被護送單位的最低高度 − 100；一般追擊 =
+      // 目標高度 − 100；兩者都有取較高者。俯衝攻擊可以壓到目標的高度，
+      // 但不准鑽到他（或轟炸機編隊）下面 —— 專案負責人 2026-08-24 的設計。
+      //
+      // 【為什麼在這裡算而不是 assess.ts】被護送單位要掃 `board` 的
+      // `protectedMask`，態勢層看不到指派板 —— 與 rallyPoint 走參數是
+      // 同一個分界。掃一圈 40 格、10 Hz，成本可忽略。
+      let floorAlt = target.state.position.y - FLOOR_BUFFER
+      if (this.board !== null && this.selfIndex >= 0) {
+        const myTeam = this.board.candidates[this.selfIndex]?.team
+        let low = Infinity
+        for (const c of this.board.candidates) {
+          if (!c.alive || c.team !== myTeam) continue
+          if (this.board.protectedMask[c.index] === 0) continue
+          const y = c.aircraft.state.position.y
+          if (y < low) low = y
+        }
+        if (low !== Infinity && low - FLOOR_BUFFER > floorAlt) {
+          floorAlt = low - FLOOR_BUFFER
+        }
+      }
+      this.sit.floorGap = self.state.position.y - floorAlt
+      // 【extend 的爬升參考也認地板】跌破時爬的對象是「地板上方兩個出場
+      // 遲滯」——正好穿過閂鎖的出場線（+150）而不是漸近地貼著它。追高處
+      // 的敵人時 min() 不起作用，行為一個字不變。
+      this.sit.altitudeAdvantage = Math.min(
+        this.sit.altitudeAdvantage,
+        this.sit.floorGap - 2 * this.rulesConfig.floorAltExit,
+      )
       this.intent = stepRules(this.rules, this.sit, danger, period, this.rulesConfig)
       // 【命令是外部覆寫，不是 arbitrate 的一列】那個函式的優先序關係是
       // 實測逐條談定的（相對理由 vs 絕對理由、defend 的絕對優先權，見
@@ -614,6 +662,13 @@ export class AiController implements Controller {
     // 【與 stepDefend 同一個位階】追不追得上是跨格的閂鎖，必須由持有者每步
     // 維護。訊號本身只有 1.7 秒，讀瞬時值會讓機首每兩秒抖一次。
     stepTrack(this.track, this.sit.trackRatio, this.sit.losRate, true, dt)
+    // 【與 stepDefend 同一個位階】鎖住的高度是跨格記憶。`active` 只在攻擊意圖下
+    // 成立 —— 見 `stepBand` 的 `@param active`。
+    stepBand(
+      this.band,
+      this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge',
+      this.sit, this.basis, self,
+    )
     // 【三個相位是主要的瞄準解，不是 `steerCommand` 尾端的偏置】那個位階已經
     // 有一個 `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在
     // 破防軸上。再加一個同位階的後處理器會讓那個問題更嚴重。
@@ -637,7 +692,7 @@ export class AiController implements Controller {
         // 'rally' 所以那個分支不會跑，但傳一個假的點進去是在賭別人不會改
         // 那個分支
         this.order === null || this.order.kind === 'focus' ? null : this.order.point,
-        raw, DEFAULT_STEER, this.track.latched,
+        raw, DEFAULT_STEER, this.track.latched, this.band,
       )
     }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
@@ -696,7 +751,7 @@ export class AiController implements Controller {
    * 基準，另案處理。
    */
   private emit(self: Aircraft, dt: number, out: Command): void {
-    this.delay.push(this.raw, this.profile.reactionDelay, dt, out)
+    this.delay.push(this.raw, this.profile.reactionDelay, dt, out, this.profile.trimTau ?? 0)
     this.safetyAction = applySafety(self, this.seaHeight, out)
     this.safetyActive = this.safetyAction !== 'none'
   }

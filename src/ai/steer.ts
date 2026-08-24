@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
-import { smoothstep } from '../core/math'
+import { G0, smoothstep } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { WEP_THROTTLE } from '../physics/propulsion'
@@ -14,6 +14,8 @@ const FWD = new Vector3(0, 0, -1)
 const UP = new Vector3(0, 1, 0)
 /** extend 的爬升／俯衝角上限，rad。兩個增益都以它為基準 */
 const EXTEND_PITCH = 25 * (Math.PI / 180)
+/** 見 `SteerConfig.altitudeGapScale`。掃描結果見該欄位。 */
+const ALTITUDE_GAP_SCALE = 600
 const S = makeScratch(6)
 
 /**
@@ -635,6 +637,13 @@ export interface SteerConfig {
   /** 高度赤字的特徵離地高度，m。約為安全層 clearance（120 m）的四倍 */
   clearanceScale: number
   /**
+   * 比敵人低多少公尺算「滿偏爬升」。`extendPitchAngle` 的高度項尺標。
+   *
+   * 【0 = 關掉高度項】那時 `extend` 只剩「速度不足就低頭」與離地保護，
+   * 也就是**完全不管敵人在上面還是下面**。
+   */
+  altitudeGapScale: number
+  /**
    * 離地底限的最大抬角，rad。餘裕歸零時要求的航跡角。
    *
    * 【為什麼需要這一層】`extend` 有 `extendPitchAngle` 會隨離地餘裕抬頭，
@@ -829,6 +838,74 @@ export interface SteerConfig {
   zoomEnter: number
   /** 往上佈局到滿的 `cornerRatio`。中間連續，不會跳。 */
   zoomFull: number
+
+  /**
+   * 空層鎖的俯仰上界，rad。**`0` 關掉整層。**
+   *
+   * 【它與 `sweetSpotMaxPitch`／`turnPlaneMaxPitch` 的差別】那兩個是**偏置**
+   * —— 在追擊給的航跡角上再加幾度，所以追擊要往下拽它們攔不住。這一層是
+   * **約束**：鎖定時直接把航跡角拉向一個高度保持解，方位仍然完全交給追擊。
+   *
+   * 專案負責人的原話：「我在 5000 m 跟敵人面對面，敵人從我面前穿越後，我會
+   * 啟動平飛迴轉（保持 5000 m 左右）的方式迴旋找敵人 —— 如果這時候我用俯衝
+   * 迴轉高度掉了之後很難爬上來，而且會被別人俯衝攻擊。」
+   */
+  bandMaxPitch: number
+  /** 高度誤差多少公尺就給滿 `bandMaxPitch`。中間線性。 */
+  /**
+   * 開始鎖空層的機首夾角，rad。`aspectAngle` 超過它就不再是「對著他」。
+   *
+   * 【為什麼是 45°】專案負責人指定：「超過 45 度就考慮平飛迴轉、俯衝迴轉、
+   * 拉高迴轉」「如果敵人在我的 45 度內，鎖空層就不需要了」。後半句由
+   * `bandHold` 的讓位閘實現 —— 見該函式。
+   */
+  bandAspectEnter: number
+  /** 鎖到滿的機首夾角，rad。`Enter`..`Full` 之間 smoothstep，沒有翻轉點。 */
+  bandAspectFull: number
+  /**
+   * 帶半寬，m。鎖 5000 m 搭 100 就是 4900~5100，**帶內本層完全不介入**。
+   *
+   * 【它不是死區，是自由區】差別在於出帶之後介入力道是從 0 長上來的，所以
+   * 帶緣上沒有跳變。見 `bandError`。
+   */
+  bandTolerance: number
+  /** 出帶後再差多少公尺就給滿 `bandMaxPitch`。中間線性。 */
+  bandPitchScale: number
+  /**
+   * 鎖住時，瞄準方向最多能離開當前航向幾度（水平面內），rad。
+   *
+   * 【只鎖俯仰擋不住俯衝 —— 這是實測出來的】面對面交會後目標在機尾 163°，
+   * 瞄準點於是要求一個近乎 180° 的反轉。指揮儀是 bank-to-turn，最短的做法
+   * 就是**滾成倒飛再拉過去**：實測坡度 95° → 153°，而俯仰指令一直老實地是
+   * 0°~+5°。倒過來的飛機拉桿是往地面拉，60 秒掉 1003 m。
+   *
+   * 把「一次要求轉多少」壓下來之後，同一個指揮儀就會選擇**滾到 70 度左右、
+   * 拉、讓機首慢慢繞過來** —— 那正是水平迴旋。目標繞到界線內時誤差自然縮小，
+   * 這一層自己就退場，不需要任何額外的狀態。
+   *
+   * 【它不改方向只改幅度】轉左還是轉右仍然完全由追擊決定。
+   */
+  bandTurnCap: number
+  /**
+   * 拉高迴轉爬完之後，速度**至少**要剩下幾倍角落速度。
+   *
+   * 【它不是「現在要多快」】判準是 `zoomAffordable`：把 `bandZoomGain` 的高度
+   * 從動能裡扣掉之後還剩不剩得下這個比值。裸比值的版本實測會讓 109 爬完剛好
+   * 掉到角落速度上，之後追不上任何人 —— 見該函式的註解。
+   */
+  bandZoomRatio: number
+  /** 拉高迴轉往上抓幾公尺。到頂就停 —— 鎖的是**帶**不是爬升率。 */
+  bandZoomGain: number
+  /**
+   * 俯衝迴轉的門檻：我要比敵人高幾公尺才准往下轉。
+   *
+   * 【為什麼門檻這麼高】專案負責人：「俯衝迴轉**只有在我高度非常高的時候
+   * 才用**」。高度掉了很難爬回來，而且會被別人俯衝攻擊 —— 那是這一整層
+   * 存在的理由，不能被自己的一個分支破壞。
+   */
+  bandDiveGap: number
+  /** 俯衝迴轉往下放幾公尺。不會低於敵人所在的高度。 */
+  bandDiveDrop: number
 }
 
 /**
@@ -1218,11 +1295,31 @@ export const DEFAULT_STEER: SteerConfig = {
   maxOffsetAngle: 20 * (Math.PI / 180),
   brakeCornerRatio: 1.8,
   extendPitch: EXTEND_PITCH,
-  extendTurnCap: 10 * (Math.PI / 180),
+  // 【2026-08-24 由 10° 調到 20° —— 人工試飛回報 + 重掃】專案負責人在
+  // __drill 實測：「交會後觸發 extend（能量+高度），敵人在右後方，為什麼
+  // 沒有慢慢地朝他轉向？」量測：10° 的偏置換算約 1°/s 的轉率，從右後方
+  // 回場要 33 秒 —— 肉眼就是直飛。20° 約 10°/s，回場 15 秒。
+  //
+  // 【舊表反對大角度的理由已經失效】上面的掃描記載「轉彎消耗能量 → 見底
+  // 型出不了場」，但能量帳現在高度佔九成（`kineticWeight`）、高度鎖的
+  // 出場只看高度 —— 轉彎掉的速度幾乎不動這兩本帳。rearHigh 開局重掃：
+  //
+  // ```
+  //   cap    重新對上    護送主判準（谷底對轟炸機）
+  //   10°      33 s        −131
+  //   20°      15 s        −137   ← 取這個
+  //   30°      11 s        —      （最低點 −543，弧內掉太多）
+  // ```
+  //
+  // 順帶把 frontAbove（敵人在上方）從「60 秒內對不上」修成 12 秒。
+  // 已知代價：倒飛開局的最低點 −308 → −685（回正 + 轉向疊在一起時弧內
+  // 下沉變深），人工試飛若在意再回頭。
+  extendTurnCap: 20 * (Math.PI / 180),
   extendTurnFade: 750,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
+  altitudeGapScale: ALTITUDE_GAP_SCALE,
   floorPitch: 20 * (Math.PI / 180),
   defendOffset: 75 * (Math.PI / 180),
   defendTilt: 20 * (Math.PI / 180),
@@ -1265,6 +1362,20 @@ export const DEFAULT_STEER: SteerConfig = {
   trackLosFloor: 0.35,
   zoomEnter: 1.00,
   zoomFull: 1.30,
+  // ## 空層鎖（2026-08-24）
+  //
+  // 起始值。兩個角度門檻是專案負責人指定的 45° 及其平滑到頂的位置；
+  // 其餘六個待 `band-drill.probe.ts` 掃描回填。
+  bandMaxPitch: 20 * (Math.PI / 180),
+  bandAspectEnter: 45 * (Math.PI / 180),
+  bandAspectFull: 60 * (Math.PI / 180),
+  bandTolerance: 100,
+  bandPitchScale: 200,
+  bandTurnCap: 75 * (Math.PI / 180),
+  bandZoomRatio: 1.15,
+  bandZoomGain: 400,
+  bandDiveGap: 1200,
+  bandDiveDrop: 400,
 }
 
 /**
@@ -1341,7 +1452,12 @@ export function engageKnobs(sit: Situation, out: Knobs, _cfg: SteerConfig = DEFA
    * 高 yo-yo 只是把機首甩開。真正該做的是乾淨的預瞄追擊，拿一次正面快照
    * ——那正是 `merge` 意圖在做的事，只是它的時間窗（2.5 s）只涵蓋最後 750 m。
    */
-  const pursuit = 0.5 * (1 + Math.cos(sit.angleOffTail))
+  // 【2026-08-24：由 (1+cos)/2 收緊成 max(0, cos)】舊門在正側面（90°）還留
+  // 一半權重。人工回報：敵機在前方 600 m 從左舷橫越到右舷，瞄準點停在
+  // 「飛機與預瞄點中間」—— 那正是後置量。橫越的接近率與對頭一樣是幾何
+  // 給定的，後置減不掉它，只會讓 3° 開火錐永遠對不上偏射的預瞄點。
+  // 收緊之後：尾追（< 90°）才漸進觸發，側面與前半球完全不後置。
+  const pursuit = Math.max(0, Math.cos(sit.angleOffTail))
 
   // 接近率相對舒適區間的偏離，正 = 太快、負 = 追不上
   const excess = pursuit * (sit.closureRate - CLOSURE_HIGH) / CLOSURE_HIGH
@@ -1380,6 +1496,180 @@ export function repositionKnobs(
   out.vertical = Number.isFinite(sit.cornerRatio)
     ? smoothstep(cfg.zoomEnter, cfg.zoomFull, sit.cornerRatio)
     : 0
+}
+
+/**
+ * 空層鎖選中的走法。`off` = 沒鎖，完全交給追擊。
+ */
+export type BandKind = 'off' | 'level' | 'zoom' | 'dive'
+
+/**
+ * 空層鎖自己的跨格狀態。與 `DefendState` 同一個位階 —— 由呼叫端持有、
+ * 以參數傳入，`steer.ts` 本身仍然沒有可變的全域狀態（spec §4.3）。
+ *
+ * 【為什麼需要跨格】鎖的是**進入那一刻的高度**。每格重算的話它永遠等於
+ * 「現在的高度」，誤差恒為 0，一層什麼都不做的恆等式。同理，三種走法也只
+ * 在進入時挑一次 —— 轉到一半改主意是兩邊都不到位。
+ */
+export interface BandState {
+  kind: BandKind
+  /** 鎖住的高度，m。`kind === 'off'` 時無意義 */
+  altitude: number
+  /** 鎖的力道，0..1。0 = 完全不介入、1 = 航跡角完全由高度帶決定 */
+  hold: number
+  /**
+   * 轉向側，+1 = 左（與 `headingErrorTo` 同號）。
+   *
+   * 【沒有它會在正後方直飛 —— 實測 18 秒】面對面完美對穿之後目標停在正後方
+   * 180°，`headingErrorTo` 的符號由浮點雜訊決定、逐格翻面，被上限夾出來的
+   * 瞄準點於是左右輪流跳，指揮儀平均下來就是**直飛**（機首夾角 176°~180°、
+   * 坡度 0°、距離 581 → 6,958 m）。與 `stepExtendSide` 管的是同一個死區，
+   * 分開存是因為兩者的生命週期不同（那個跟著 extend 的進出走）。
+   */
+  side: number
+}
+
+export function createBandState(): BandState {
+  return { kind: 'off', altitude: 0, hold: 0, side: 1 }
+}
+
+/**
+ * 鎖空層的力道，0..1。`max(夾角項, 射程項) × 讓位閘`。
+ *
+ * ```
+ *   夾角項   smoothstep(45°..60°)      對不上他 —— 這是一個彎，不是一次修正
+ *   射程項   sweetYield（攔截時間）    還不到拚的時候，先把高度守住
+ *   讓位閘   射程項 < 0.3 時整層淡出   真的打得到就全力咬預瞄點
+ * ```
+ *
+ * 前兩項是專案負責人指定的兩個觸發（「超過 45 度就考慮平飛迴轉」「在射程
+ * 範圍外也是鎖空層」）；讓位閘是「進入射程則解除」—— 用的尺與開火紀律、
+ * 玩家預瞄環同一把（`PROJECTILE_LIFETIME`）。
+ *
+ * 【為什麼讓位是乘上去的閘，不是把夾角項刪掉 —— 兩個方向各被咬過一次】
+ *
+ *   只留 max：射程內的轉圈戰裡目標隨時甩出 45° 外，夾角項把俯仰鎖回平飛、
+ *   轉向夾在 75°，預瞄點在垂直方向上不准追 —— 人工回報「追不到預瞄點，
+ *   轉彎的 AoA 沒辦法到極限」。而實測鎖住的迴轉段 G 5.5~6.9、失速餘裕
+ *   1.05~1.13，拉桿從來不是問題，是鎖錯了時機。
+ *
+ *   只留射程項：對穿瞬間 `solveLead` 對後方目標常常仍有解，射程項從斜坡
+ *   中段（0.37）慢慢爬，力道不足再加上閃爍重鎖，迴轉段漏掉 250 m ——
+ *   護送關主判準從 +723 退到 −87。夾角項在那一刻是 1，正好補上。
+ *
+ * 【讓位閘的 0.3】射程項本身是攔截時間 1.2→2.4 s 的線性斜坡，0.3 對應
+ * 「再 0.4 秒的彈道時間就進射程」。閘在 0..0.3 之間線性，沒有翻轉點。
+ */
+export function bandHold(
+  sit: Situation,
+  basis: EngageBasis,
+  cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  if (!(cfg.bandMaxPitch > 0)) return 0
+  const wide = smoothstep(cfg.bandAspectEnter, cfg.bandAspectFull, sit.aspectAngle)
+  const far = sweetYield(basis.interceptTime, cfg)
+  const hold = wide > far ? wide : far
+  const gate = far >= 0.3 ? 1 : far / 0.3
+  return hold * gate
+}
+
+/**
+/**
+ * 爬 `bandZoomGain` 這麼高之後，速度還在 `bandZoomRatio` 倍角落速度以上嗎？
+ *
+ * 【為什麼不是「現在夠不夠快」】第一版寫成 `cornerRatio > 1.15` 就拉高。實測
+ * 面對面交會後 109 以 174 m/s（`cornerRatio` 1.16）判定「速度夠」，爬完 400 m
+ * 掉到 132 m/s —— **正好落在角落速度上**，之後 40 秒都在慢慢爬、追不上直飛的
+ * 靶機，距離由 2.3 km 拉到 4.8 km。裸比值回答的是「我現在快不快」，而該問的是
+ * **「這筆交易付得起嗎」**。
+ *
+ * ```
+ *   可動用的高度 = (V² − (k·Vc)²) / 2g        k = bandZoomRatio
+ *   付得起       = 可動用的高度 > bandZoomGain
+ * ```
+ *
+ * 【它自動跟著 `bandZoomGain` 走】想爬得更高，門檻自己就變嚴 —— 不必再掃一次
+ * 比值。這是把兩個本來會分岔的旋鈕收成一個的作法。
+ *
+ * 【`cornerRatio` 非有限值退化成不准】沒有角落速度就沒有這筆帳可算，而水平
+ * 迴轉在任何狀態下都是安全的（與 `repositionKnobs` 同一條退化原則）。
+ */
+function zoomAffordable(sit: Situation, self: Aircraft, cfg: SteerConfig): boolean {
+  if (!Number.isFinite(sit.cornerRatio) || sit.cornerRatio <= 0) return false
+  const tas = self.state.velocity.length()
+  const floor = (tas / sit.cornerRatio) * cfg.bandZoomRatio
+  return (tas * tas - floor * floor) / (2 * G0) > cfg.bandZoomGain
+}
+
+/**
+ * 維護空層鎖。每個物理步呼叫一次，就地改 `state`。
+ *
+ * @param active 現在是不是**攻擊階段**。`extend` 與 `defend` 有自己的高度邏輯，
+ *               鎖要在那兩個意圖下退出 —— 不然脫離完回來會拿到一個幾十秒前的高度。
+ */
+export function stepBand(
+  state: BandState,
+  active: boolean,
+  sit: Situation,
+  basis: EngageBasis,
+  self: Aircraft,
+  cfg: SteerConfig = DEFAULT_STEER,
+): void {
+  const hold = active ? bandHold(sit, basis, cfg) : 0
+  state.hold = hold
+  if (hold <= 0) {
+    state.kind = 'off'
+    return
+  }
+  // 【側別只在方向明確時更新】正後方 ±20°（與 `EXTEND_SIDE_HOLD` 同值）是
+  // 死區，沿用上一格 —— 理由見 `BandState.side`。
+  const err = headingErrorTo(self, basis.losAxis)
+  if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
+  // 【已經鎖住就不重挑】見 `BandState` 的註解
+  if (state.kind !== 'off') return
+
+  const alt = self.state.position.y
+  if (sit.altitudeAdvantage > cfg.bandDiveGap) {
+    state.kind = 'dive'
+    // 【不會低於敵人】俯衝迴轉是把**多餘的**高度換成速度，不是把優勢丟掉。
+    // 兩項設定目前不可能讓這一行生效（Drop 400 < Gap 1200），但它是這個
+    // 分支的**定義**而不是設定值的副作用。
+    const floor = alt - sit.altitudeAdvantage
+    const wanted = alt - cfg.bandDiveDrop
+    state.altitude = wanted > floor ? wanted : floor
+  } else if (zoomAffordable(sit, self, cfg)) {
+    state.kind = 'zoom'
+    state.altitude = alt + cfg.bandZoomGain
+  } else {
+    state.kind = 'level'
+    state.altitude = alt
+  }
+}
+
+/**
+ * 超出高度帶多遠，−1..1。**0 = 在帶內，本層完全不介入**。正 = 帶在上面、該爬。
+ *
+ * 【為什麼鎖的是一個帶而不是一條線】專案負責人：「鎖 5000 M 等於 5100~4900
+ * 之類的。」鎖一條線的話，20 m 的誤差也會下指令 —— 而高度本來就會被拉桿、
+ * 推力、坡度不斷推開，結果是整個轉彎過程中俯仰指令一直在抗。帶內交給追擊，
+ * 追擊才有空間把機首帶到該去的地方。
+ *
+ * 【為什麼出帶之後是斜坡而不是閥】帶緣上的閥就是一個裸門檻：跨線瞬間下滿舵、
+ * 飛機有俯仰慣性、衝過頭、再跨回來 —— spec §3.5 量到的那個振盪 40 秒的極限環。
+ * 回傳值同時驅動**指令角度**與**介入力道**（見呼叫端），所以帶緣上這一層是
+ * 逐位元的恆等式，沒有任何不連續。
+ */
+export function bandError(deltaAltitude: number, cfg: SteerConfig = DEFAULT_STEER): number {
+  if (!(cfg.bandPitchScale > 0)) return 0
+  const tol = cfg.bandTolerance
+  let excess = deltaAltitude > tol
+    ? deltaAltitude - tol
+    : deltaAltitude < -tol ? deltaAltitude + tol : 0
+  if (excess === 0) return 0
+  excess /= cfg.bandPitchScale
+  if (excess < -1) return -1
+  if (excess > 1) return 1
+  return excess
 }
 
 const A = makeScratch(2)
@@ -1424,57 +1714,75 @@ const C = makeScratch(2)
 /**
  * `extend` 的俯仰角，rad。正 = 爬升。
  *
- * 【為什麼是兩個分量相加而不是 if-else】舊版用兩個裸門檻
- * （`energyReserve < 0`、`y < 1000`）決定爬或衝，跨線時指令瞬間翻號。
- * 飛機有俯仰慣性，跨線後要幾秒才轉得過來，於是衝過頭、翻號、再衝過頭
- * —— 極限環，振幅由飛機的俯仰響應決定，不由任何設計參數決定。實測在
- * 1000 m 線上持續震盪 40 秒（spec §3.5）。連續函數沒有翻轉點。
+ * 【`extend` 只能搬能量，補不了能量】總能量由推力決定，而推力就那麼多。
+ * 這一層唯一能決定的是**能量放在高度還是速度裡**。所以問題不是「我能量夠
+ * 不夠」（那是 `rules.ts` 的閂鎖在管），而是「這些能量該擺哪」。
  *
- * 【高度分量的來源是離地餘裕，不是能量判準】「我還打得動嗎」只問速度
- * （spec §4.1）；高度出現在這裡是因為**低空不能用高度換速度**，那是
- * 安全關切，與能量判斷在不同的軸上。三種情況自然長出來：
- *
- *   高空缺速度 → 高度赤字 0，純俯衝換速度
- *   低空缺速度 → 兩項抵消，平飛加速
- *   極低空     → 高度項主導，爬升
- *
- * 【速度赤字取兩者的較大值】「相對自己」（`1 − cornerRatio`）回答「我轉不
- * 轉得動」，「相對敵人」（`−speedAdvantage`）回答「我追不追得上」。兩者的
- * 答案可以相反：遠距離時沒有人在拉桿，TAS 貼近極速，於是每一架都判定
- * 「我速度過剩」—— 包括那架其實比對手慢 28 m/s 的護航機。實測它因此滿舵
- * 爬升 25°（增益是 4 倍，`cornerRatio` 超過 1.25 就飽和），累積 445 m 高度
- * 卻永遠花不掉。
- *
- * 等價的說法：**只有我的 TAS 同時高過自己的角落速度與敵人的 TAS 才爬升**。
+ * 【三個分量，每一個都單向】疊加而不是 if-else：裸門檻跨線時指令瞬間翻號，
+ * 而飛機有俯仰慣性，跨線後要幾秒才轉得過來 —— 衝過頭、翻號、再衝過頭。
+ * 實測在 1000 m 線上持續震盪 40 秒（spec §3.5）。連續函數沒有翻轉點。
  *
  * ```
- *   max(1 − Vs/Vc, (Vt − Vs)/Vc) = (max(Vc, Vt) − Vs) / Vc
+ *   速度不足 → 低頭     只在 cornerRatio < 1 時作用
+ *   比敵人低 → 抬頭     altitudeGapScale 是尺標，**而且要先有機動速度**
+ *   離地太近 → 抬頭     clearanceScale 是尺標，安全項
  * ```
  *
- * 【`max` 只保證交界處不跳變，保證不了不振盪】兩個分支在交界處數值相等，
- * 所以不會像上面說的裸門檻那樣瞬間翻號。但輸出仍會在 `Vs = max(Vc, Vt)`
- * 穿過零，而迴路含 10 Hz 取樣、飽和與俯仰慣性。
+ * 【第二項的前提是第一項已經滿足】爬升花能量，而這個意圖存在的理由是補能量。
+ * 沒速度就往上爬會走進一個死角，見下面 `gapDeficit` 那一段的實測。第三項
+ * **沒有**這個前提 —— 它是安全項，撞地比沒速度嚴重。
+ *
+ * 兩個抬頭的理由**取較急的那個**而不是相加 —— 它們是同一件事的兩個來源
+ * （「該往上」），相加只會讓兩者同時成立時多爬一倍。
+ *
+ * 【為什麼速度項只剩下半邊】「速度過剩就爬升」是把動能換成位能，而實測
+ * 那筆交易在高空幾乎沒有收益：全場高度 +2,346 m、空速只 +2 m/s，總能量
+ * 原地打轉，`extend` 因此佔掉 56% 的時間、能量閂鎖最長一段 197 秒。
+ * 該不該往上由**敵人在哪**回答，不由「我此刻速度多少」回答。
+ *
+ * 【為什麼不是比總能量】`energyAdvantage` 已經把位能與動能加在一起，而
+ * 搬運不會改變它 —— 拿它當這裡的判準，等於問一個對三個選項都相同的數字。
+ * 見 `Situation.altitudeAdvantage`。
  *
  * @param cornerRatio TAS ÷ 自己的角落速度
- * @param speedAdvantage （我的 TAS − 他的）÷ 我的角落速度。
- *                       `Infinity` = 相對敵人完全沒有赤字
+ * @param altitudeAdvantage 我比目標高幾公尺。負 = 我在下面
  * @param groundClearance 離地（海面）高度，m
  */
 export function extendPitchAngle(
   cornerRatio: number,
-  speedAdvantage: number,
+  altitudeAdvantage: number,
   groundClearance: number,
   cfg: SteerConfig = DEFAULT_STEER,
 ): number {
-  const selfDeficit = 1 - cornerRatio
-  const foeDeficit = -speedAdvantage
-  const speedDeficit = selfDeficit > foeDeficit ? selfDeficit : foeDeficit
+  // 【只有下半邊】速度過剩不構成爬升的理由，見上面
+  let speedDeficit = 1 - cornerRatio
+  if (speedDeficit < 0) speedDeficit = 0
 
-  let altitudeDeficit = 1 - groundClearance / cfg.clearanceScale
-  if (altitudeDeficit < 0) altitudeDeficit = 0
-  else if (altitudeDeficit > 1) altitudeDeficit = 1
+  let floorDeficit = 1 - groundClearance / cfg.clearanceScale
+  if (floorDeficit < 0) floorDeficit = 0
+  else if (floorDeficit > 1) floorDeficit = 1
 
-  const raw = -cfg.pitchSpeedGain * speedDeficit + cfg.pitchAltitudeGain * altitudeDeficit
+  // 【沒有目標時不表示意見】altitudeAdvantage 非有限值 = 沒得比
+  let gapDeficit = 0
+  if (cfg.altitudeGapScale > 0 && Number.isFinite(altitudeAdvantage)) {
+    gapDeficit = -altitudeAdvantage / cfg.altitudeGapScale
+    if (gapDeficit < 0) gapDeficit = 0
+    else if (gapDeficit > 1) gapDeficit = 1
+    // 【速度先於高度】爬升是**花**能量，而 `extend` 存在的理由是**補**能量。
+    // 沒有機動速度就往敵人的高度爬，等於用僅剩的動能去換一個自己守不住的位置。
+    //
+    // 實測（`band-drill.probe.ts`，敵人在前上方 1000 m）：少了這道閘，109 在
+    // 5750 m／137 m/s 進入一個死角 —— 高度項要它維持 +4°，速度項只給 −9° 的
+    // 一小截，兩者抵成幾乎平飛。它於是既不俯衝換速度也追不上，一路直飛到
+    // **10 km 外**，`extendEnergyLatch` 因為能量差 −945 m 永遠不解除。
+    //
+    // 【為什麼是斜坡不是 `if`】與這個函式的其他每一項同一條理由：裸門檻在
+    // 線上會翻號，而飛機有俯仰慣性。
+    gapDeficit *= smoothstep(1, cfg.unloadMargin, cornerRatio)
+  }
+
+  const climb = floorDeficit > gapDeficit ? floorDeficit : gapDeficit
+  const raw = -cfg.pitchSpeedGain * speedDeficit + cfg.pitchAltitudeGain * climb
   if (raw < -cfg.extendPitch) return -cfg.extendPitch
   if (raw > cfg.extendPitch) return cfg.extendPitch
   return raw
@@ -1777,6 +2085,33 @@ export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
 }
 
 /**
+ * 把 `aim` 的**航跡角**往 `pitch` 拉 `weight` 那麼多，水平方位不變。就地修改。
+ *
+ * 【它與 `applyPitchBias` 的差別是「偏置」對「約束」】那一支是相對量（加幾
+ * 度），所以追擊要往下拽它攝不住；這一支是絕對量，`weight = 1` 時航跡角
+ * **完全由 `pitch` 決定**。空層鎖需要的正是後者 —— 「保持 5000 m」不是「比
+ * 追擊想飛的高一點」。
+ *
+ * 【為什麼方位不能動】與 `applyFloor`、`applyPitchBias`、`shrinkTowardNose`
+ * 同一個理由：動了會被指揮儀讀成滾轉需求，副翼打到滿舵。
+ *
+ * `weight <= 0` 時逐位元不動。假設 `aim` 是單位向量。
+ */
+export function applyPitchToward(pitch: number, weight: number, aim: Vector3): void {
+  if (!(weight > 0)) return
+  const horiz = Math.hypot(aim.x, aim.z)
+  // 【已經鉛直：方位沒有定義】與 `applyPitchBias` 走同一條退化路徑
+  if (horiz < 1e-9) return
+  const w = weight > 1 ? 1 : weight
+  let next = Math.atan2(aim.y, horiz)
+  next += w * (pitch - next)
+  if (next > PITCH_BIAS_LIMIT) next = PITCH_BIAS_LIMIT
+  else if (next < -PITCH_BIAS_LIMIT) next = -PITCH_BIAS_LIMIT
+  const scale = Math.cos(next) / horiz
+  aim.set(aim.x * scale, Math.sin(next), aim.z * scale)
+}
+
+/**
  * 甜蜜區偏置的讓位係數，0..1。1 = 照原樣偏、0 = 完全不偏。
  *
  * 【與 `unloadPull` / `energyPull` 同一族】三者都回傳係數、都由呼叫端乘上去、
@@ -1858,6 +2193,14 @@ export function steerCommand(
    * 而那些呼叫點與本機制無關。預設 `false` = 既有行為逐位元不變。
    */
   repositioning = false,
+  /**
+   * 空層鎖。`null` = 沒有這一層（既有行為逐位元不變）。
+   *
+   * 【為什麼傳狀態物件而不是兩個數字】`kind` 只為量測與 HUD 存在，但它
+   * 與 `altitude`、`hold` 是同一次決定的三個面向；拆開傳等於讓呼叫端有機會
+   * 把三者配成不一致的組合。
+   */
+  band: BandState | null = null,
 ): void {
   // ── 瞄準點 ──────────────────────────────────────────────
   // 幾何模式壓過意圖：閘門存在的意義就是「這個幾何下一般解法會出錯」
@@ -1891,7 +2234,7 @@ export function steerCommand(
         const clearance = self.state.position.y - seaHeight
         unloadAim(
           self,
-          extendPitchAngle(sit.cornerRatio, sit.speedAdvantage, clearance, cfg),
+          extendPitchAngle(sit.cornerRatio, sit.altitudeAdvantage, clearance, cfg),
           out.aimWorld,
         )
         // 【回場方向】卸載保住了「不轉向」，代價是脫離時機頭朝哪就一路朝哪
@@ -1947,6 +2290,43 @@ export function steerCommand(
     }
   }
 
+  // ── 空層鎖（上半）：方位的夾持 ──────────────────────────
+  //
+  // 【為什麼只有攻擊意圖】`extend` 的俰仰已經由 `extendPitchAngle` 完整回答
+  // （速度不足就低頭、比敵人低就抬頭），`defend` 的由破防軋決定，
+  // `rally` 是指揮層的命令。鎖上去只會跟這三層打架。
+  //
+  // 【為什麼 `speedRecover` 要例外】那個模式正在**主動壓機頭 20° 換速度**，
+  // 而一個鎖在平飛的航跡角正好把它抵消到一格不剩 —— 沒空速比掉高度嚴重。
+  // 這與它在 `geometryGate` 裡壓過 `unload` 是同一條優先序。
+  if (
+    band !== null && band.kind !== 'off' && mode !== 'speedRecover'
+    && (intent === 'engage' || intent === 'approach' || intent === 'merge')
+  ) {
+    // 【上限隨 `hold` 從 π 收下來】`hold = 0` 時上限是 π，也就是完全沒有這一層。
+    // 中間連續 —— 與這個檔案裡其他每一層同一條原則：不要有翻轉點。
+    //
+    // 【保持不了高度就收坡度】只壓瞄準點的俯仰擋不住下沉：指揮儀是
+    // bank-to-turn，75° 的轉向誤差會讓它掛在 85° 坡度硬轉，升力全在水平面
+    // 上，實測整段以 −18° 航跡角下沉、掉 270 m 才穩住。飛行員的做法是**收
+    // 坡度換升力** —— 掉出帶越多，轉向上限收得越小（滿偏時砍半），指揮儀
+    // 自然放平一點、把高度接回來；回到帶內上限自動放回去。
+    const e = bandError(band.altitude - self.state.position.y, cfg)
+    const capBase = cfg.bandTurnCap * (1 - 0.5 * Math.abs(e))
+    const cap = capBase + (Math.PI - capBase) * (1 - band.hold)
+    const err = headingErrorTo(self, out.aimWorld)
+    // 【正後方走記住的側】死區裡 `err` 的符號是浮點雜訊，見 `BandState.side`
+    if (Math.abs(err) > Math.PI - EXTEND_SIDE_HOLD) {
+      rotateHeading(out.aimWorld, band.side * cap - err)
+    } else if (err > cap) rotateHeading(out.aimWorld, cap - err)
+    else if (err < -cap) rotateHeading(out.aimWorld, -cap - err)
+  }
+
+
+  // 【它必須排在卸載之前】這一層在**塑形瞄準點**（方位夾到上限、俯仰鎖到
+  // 帶上），卸載與拉桿紀律在決定**對這個瞄準點拉多少**。反過來的話，紀律層
+  // 先把 176° 的誤差縮到機首旁邊，這一層就看不到任何水平誤差可夾 —— 實測
+  // 正是那個順序讓面對面交會後直飛了 18 秒。
   // ── 卸載：拉太猛時把誤差角收小，方位不動 ────────────────
   // 【為什麼是後處理而不是 if-else 的一支】卸載不是「改去指別的地方」，
   // 是「照原來的方位，但少拉一點」。寫成獨立的一支就得自己決定要指哪裡，
@@ -1966,6 +2346,12 @@ export function steerCommand(
   // 【`overshoot` 與 `speedRecover` 仍然不套失速那一層】它們的優先序高於
   // `unload`（見 `geometryGate`），拿到那兩個 mode 時 `mode !== 'unload'`。
   // 但**能量那一層照套** —— 它們同樣會把速度拉光。
+  // 【這裡沒有「先滾轉再拉」層 —— 試過，量測否決（2026-08-24）】它在「升力與
+  // 修正方向相反」時把拉桿收到 0.25，但 `shrinkTowardNose` 縮的是誤差角，而
+  // 滾轉率上限正比於誤差角（`rollRateErrorSlope`）—— 換邊的滾轉被一起掐慢，
+  // 人工回報「敵機飛到右舷很久才開始右轉」。而它要防的倒飛拉升，空層鎖的
+  // 俯仰段（排在偏置之後、滿權威）已經接住：倒飛開局關掉它反而更好
+  // （最低 −239 對 −277 m、重新對上 12 對 21 s）。
   const stallPull = mode === 'unload' ? unloadPull(sit.stallMargin, cfg) : 1
   const pull = stallPull < sit.pullCeiling ? stallPull : sit.pullCeiling
   shrinkTowardNose(self, pull, out.aimWorld)
@@ -1999,6 +2385,26 @@ export function steerCommand(
     // `turnPitch` 問「這個彎往哪邊轉划算」。兩者可以同時成立，也可以互相
     // 抵銷。出貨值目前 `sweetSpotMaxPitch = 0`，所以實際上只有後者在作用。
     applyPitchBias((sit.sweetPitch + sit.turnPitch) * yieldFactor, out.aimWorld)
+  }
+
+  // ── 空層鎖（下半）：俯仰的定案 ──────────────────────────
+  //
+  // 【為什麼與方位夾持分開、而且排在甜蜜區之後】「鎖上時航跡角它說了算」
+  // 必須落在字面上。第一版把俯仰鎖跟方位一起放在卸載之前，實測倒飛開局
+  // t=2 的指令是 −19°：band 命令平飛之後，`shrinkTowardNose` 把瞄準點往
+  // （正在下沉的）機首拖、`turnPitch` 再疊 −10° —— 鎖形同虛設。放在這裡，
+  // 甜蜜區與迴轉平面的偏置在鎖定期間自然被蓋掉，這正是專案負責人點名的
+  // 「剛好也可以補足甜蜜點偏移」；`hold` 淡出時它們平滑回來。
+  //
+  // 【離地底限仍然排在它後面】優先序不變：快撞海了贏過任何空層。
+  if (
+    band !== null && band.kind !== 'off' && mode !== 'speedRecover'
+    && (intent === 'engage' || intent === 'approach' || intent === 'merge')
+  ) {
+    applyPitchToward(
+      bandError(band.altitude - self.state.position.y, cfg) * cfg.bandMaxPitch,
+      band.hold, out.aimWorld,
+    )
   }
 
   // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────

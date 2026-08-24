@@ -303,6 +303,18 @@ export interface RuleConfig {
   floorExempt: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
+  /**
+   * 高度鎖的**出場**遲滯，m：跌破鎖（`floorGap < 0`）閂上，爬回到鎖上方
+   * 這麼多公尺才解。**0 = 關掉整個機制**（連進入判定一起）。
+   *
+   * 【為什麼進場線寫死在 0】鎖本身已經帶著 −100 的緩衝（見
+   * `Situation.floorGap`），進場線就是「真的跌破了」，沒有第二個旋鈕的
+   * 空間；要調鬆緊調的是緩衝與這條出場線。
+   *
+   * 【出場不認距離】其他脫離理由跑滿 `extendRange` 就算完成，這一個不行
+   * —— 太低這件事換個地方解決不了，與見底（`cornerExit`）同型。
+   */
+  floorAltExit: number
   /** engage：timeToMerge 的進入／離開門檻，s */
   engageTimeEnter: number
   engageTimeExit: number
@@ -334,6 +346,7 @@ export const DEFAULT_RULES: RuleConfig = {
   recoverExit: 0.85,
   recoveredExit: false,
   floorExempt: 2000,
+  floorAltExit: 150,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -362,6 +375,8 @@ export interface RuleState {
   /** 上面兩者的或。**由 `stepRules` 寫入，不要回寫** */
   extendLatch: boolean
   engageLatch: boolean
+  /** 高度鎖：跌破地板，爬回來之前用 extend 補高度。見 `floorAltExit` */
+  altFloorLatch: boolean
 }
 
 export function createRuleState(): RuleState {
@@ -378,6 +393,7 @@ export function createRuleState(): RuleState {
     extendRecoveredLatch: false,
     extendLatch: false,
     engageLatch: false,
+    altFloorLatch: false,
   }
 }
 
@@ -449,6 +465,11 @@ export function stepRules(
   s.engageLatch = latch(
     s.engageLatch, sit.timeToMerge, cfg.engageTimeEnter, cfg.engageTimeExit,
   )
+  // 【高度鎖】跌破鎖（floorGap < 0）進、爬回鎖上方 floorAltExit 才出。
+  // latch() 的低側分支（enter < exit）就是這個形狀，直接餵 floorGap。
+  s.altFloorLatch = cfg.floorAltExit > 0 && latch(
+    s.altFloorLatch, sit.floorGap, 0, cfg.floorAltExit,
+  )
 
   const next = arbitrate(s, sit, cfg)
 
@@ -498,6 +519,13 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 【絕對理由的豁免】見 `RuleConfig.floorExempt`：佔著明顯能量優勢時，
   // 「我飛不動了」不強制脫離 —— 缺的是此刻的速度，低頭換就有，不必跑掉。
   if (s.extendFloorLatch && sit.energyAdvantage < cfg.floorExempt) return 'extend'
+  // 【高度鎖：跌破地板就去補高度】它是**位置紀律**：護送 = 不鑽到轟炸機
+  // 編隊下面，追擊 = 不鑽到目標下面（把高度優勢倒貼給對方）。出場不認
+  // 距離（見 `floorAltExit`）。
+  //
+  // 【開火豁免比照相對理由】專案負責人 2026-08-24 裁定：正咬著人開火時
+  // 摸到地板，先把這一輪打完 —— 鎖的 −100 m 緩衝本來就是留給攻擊窗收尾的。
+  if (!shooting && s.altFloorLatch) return 'extend'
   // 【能量理由是合取，迴旋理由不是】「我比他弱」（相對）與「我還飛不動」
   // （絕對）是兩件事，兩件都成立才該脫離。速度補回來了就回去打 ——
   // 「比對手強」那個出場條件對劣勢方在整場戰鬥中都達不到，實測能量閂鎖
@@ -532,5 +560,6 @@ export function extendReason(s: RuleState): string {
   if (s.extendEnergyLatch) parts.push('能量')
   if (s.extendTurnLatch) parts.push('迴旋')
   if (s.extendFloorLatch) parts.push('見底')
+  if (s.altFloorLatch) parts.push('高度')
   return parts.length > 0 ? parts.join('+') : '無'
 }

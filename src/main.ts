@@ -46,6 +46,12 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import { VETERAN } from './ai/profile'
+import { HEAD_ON } from './battle/entry'
+import { NEUTRAL_TUNING } from './battle/mission'
+import { BF109G6 } from './specs/bf109g6'
+import { P51D } from './specs/p51d'
+import type { BattleConfig } from './battle/setup'
 import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
@@ -53,7 +59,7 @@ import {
   aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
-import { sideSummary } from './battle/order'
+import { lineAbreast, sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
   battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS,
@@ -459,9 +465,11 @@ function enterBattle(): void {
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
   //    任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個函數裡套
-  const cfg = mode === 'mission' && pendingMission !== null
-    ? missionConfigFrom(pendingMission, missionFaction)
-    : battleConfigFrom(setup)
+  const cfg = drillConfig !== null
+    ? drillConfig
+    : mode === 'mission' && pendingMission !== null
+      ? missionConfigFrom(pendingMission, missionFaction)
+      : battleConfigFrom(setup)
   battle = createBattle(playerController, cfg)
   world = battle.world
   /**
@@ -1217,6 +1225,14 @@ function drawMenuBackground(): void {
   ctx.renderer.render(ctx.scene, ctx.camera)
 }
 
+/**
+ * 演練場設定。**非 null 時 `enterBattle` 用它取代正常的關卡設定。**
+ * 只有 `__drill` 這個量測出口會寫它 —— 玩家沒有任何路徑碰得到。
+ */
+let drillConfig: BattleConfig | null = null
+/** 演練場的靶機。每幀把血量釘回去（「打不死」的全部意思） */
+let drillDrone: Combatant | null = null
+
 const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onEvent(event) {
     const from = screen
@@ -1276,6 +1292,11 @@ function frame(now: number) {
   bindings.tick(frameSeconds)
   hudCanvas.hidden = screen !== 'battle'
 
+  // 【演練場的靶機打不死】血量每幀釘回滿 —— 幀內的彈著扣不到 0，就永遠
+  // 不會走進擊墜路徑。轉向已由 `__drill` 換上直飛控制器，這裡只管活著。
+  if (drillDrone !== null && screen === 'battle') {
+    drillDrone.hp = drillDrone.aircraft.spec.hp * 1e6
+  }
   if (screen === 'battle') {
     // 【暫停時所有模擬時間都不前進】只停飛機的話，畫面上是一批定格的
     // 飛機浮在繼續起伏的海上 —— 那看起來像當掉（M10 spec §8.1）
@@ -1350,6 +1371,65 @@ requestAnimationFrame(frame)
 ) => {
   Object.assign(DEFAULT_DOCTRINE, patch)
   return { ...DEFAULT_DOCTRINE }
+}
+
+/**
+ * **1v1 演練場**，量測出口。專案負責人指定的驗收場景：「設定一台打不死的
+ * 靶機（永遠直飛）跟我機面對面 1v1」。
+ *
+ * 【它做三件事】換設定（109 對 P-51、5000 m 對頭 3 km）、開戰、把紅方那一架
+ * 換成直飛控制器。血量的釘回在主迴圈（見 `drillDrone`）。
+ *
+ * 【靶機的控制器不做任何機動】維持出生航向、機首水平、八成油門 —— 與
+ * `band-drill.probe.ts` 的 `Idle` 同一個角色：它是一把尺，不是對手。
+ * 離線探針逐步把狀態釘回直線，這裡放給物理自己飛 —— 有頭驗收看的是
+ * 「AI 繞著一個真實的目標怎麼轉」，尺直不直差幾公尺無所謂。
+ *
+ * 【代飛要另外按】與遊戲相同：`KeyI`。e2e 腳本在呼叫本函式的同一個 tick
+ * dispatch —— `leaveGodView` 會在開戰時把 `input.playerAi` 清掉，先按無效。
+ */
+;(window as unknown as Record<string, unknown>)['__drill'] = (altitude = 5000) => {
+  drillConfig = {
+    units: lineAbreast(HEAD_ON, BF109G6, 1, P51D, 1),
+    altitude,
+    tas: 180,
+    entryRange: 3000,
+    schwarmSpacing: 800,
+    lateralOffset: 0,
+    altitudeSpread: 0,
+    aiProfile: VETERAN,
+    rules: { kind: 'annihilate' },
+    tuning: NEUTRAL_TUNING,
+  }
+  try {
+    mode = 'skirmish'
+    pendingMission = null
+    screen = 'battle'
+    enterBattle()
+    paused = false
+    menu.show(screen)
+  } finally {
+    // 【一場一次】離開演練再開新戰鬥要拿到正常設定
+    drillConfig = null
+  }
+  const drone = world.combatants.find((c) => c.team === 'red') ?? null
+  drillDrone = drone
+  if (drone !== null) {
+    const level = new Vector3()
+    drone.controller = {
+      update(self, _dt, out2) {
+        const v = self.state.velocity
+        const h = Math.hypot(v.x, v.z)
+        if (h > 1e-3) level.set(v.x / h, 0, v.z / h)
+        else level.set(0, 0, -1).applyQuaternion(self.state.orientation)
+        out2.aimWorld.copy(level)
+        out2.throttle = 0.8
+        out2.brake = 0
+        out2.firing = false
+      },
+    }
+  }
+  return { seat: player.index, drone: drone?.index ?? -1 }
 }
 
 ;(window as unknown as Record<string, unknown>)['__probe'] = () => {
