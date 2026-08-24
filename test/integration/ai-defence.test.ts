@@ -153,7 +153,11 @@ const DAMAGE_BUDGET_SECONDS = 150 / 480
  * `budgetSeconds` 為 `undefined` 時用 `DAMAGE_BUDGET_SECONDS`。
  * **只有一個幾何需要覆寫**，理由見該筆的註解 —— 不要把它推廣成一律放寬。
  */
-const CASES: { name: string; behind: Vector3; budgetSeconds?: number }[] = [
+const CASES: {
+  name: string; behind: Vector3; budgetSeconds?: number
+  /** 持續追擊世界的已知失守格：停用射擊解佔比與掉血預算，見該格註解 */
+  pursuitOverwhelmed?: boolean
+}[] = [
   {
     name: '正後方 400 m',
     behind: new Vector3(0, 0, 400),
@@ -203,7 +207,18 @@ const CASES: { name: string; behind: Vector3; budgetSeconds?: number }[] = [
     budgetSeconds: 0.55,
   },
   { name: '正後方 250 m', behind: new Vector3(0, 0, 250) },
-  { name: '後上方 400 m', behind: new Vector3(0, 150, 380) },
+  /**
+   * 【2026-08-25 持續追擊世界的已知失守格 —— 專案負責人裁定 A 案】
+   * `CHASE_FLOOR_BUFFER` 由 100 放寬到 300（低位 yo-yo 不再誤觸高度閂鎖）
+   * 之後，上方的攻擊者**不再被自己的閂鎖從獵物尾巴上扯下來** —— 本格的
+   * 舊綠有一半是那個人工中斷撿來的，不是閃出來的。重跑實測：defend 佔時
+   * 42% → 92%（它一直在閃）、被掛著射擊解 56% → 94%、掉血 0 → 1000
+   * （陣亡）。1 打 2 且其中一個從上方佔位纏著打，防不住是誠實的結果；
+   * 「持續追擊世界裡的破防品質」是下一輪的主項（task #335），在那之前
+   * 本格停用射擊解佔比與掉血預算兩條斷言 —— 撐大門檻到「死了也算過」
+   * 比停用更糟。場景成立性（會察覺、會反應、不停止進攻）照常驗。
+   */
+  { name: '後上方 400 m', behind: new Vector3(0, 150, 380), pursuitOverwhelmed: true },
   { name: '後下方 400 m', behind: new Vector3(0, -150, 380) },
 ]
 
@@ -248,14 +263,16 @@ describe('被夾擊時的閃躲（1 藍 2 紅、30 秒）', () => {
       //
       // **維持 0.85 不動**，它從此只是一個防止「完全不閃」的鬆散護欄；
       // 破防的品質改看下面的 `blueDamage`。實測 81.0 / 55.8 / 56.0 / 38.0%。
-      expect(o.huntedShare).toBeLessThan(0.85)
+      if (!c.pursuitOverwhelmed) expect(o.huntedShare).toBeLessThan(0.85)
 
       // 【三：閃躲不該讓 AI 停止進攻】
       expect(o.dealtToA).toBeGreaterThan(0)
 
-      // 【四：真正的產出 —— 少挨打】
-      const budget = c.budgetSeconds ?? DAMAGE_BUDGET_SECONDS
-      expect(o.blueDamage).toBeLessThanOrEqual(budget * batteryDps(P51D_BATTERY))
+      // 【四：真正的產出 —— 少挨打】（已知失守格停用，見該格註解）
+      if (!c.pursuitOverwhelmed) {
+        const budget = c.budgetSeconds ?? DAMAGE_BUDGET_SECONDS
+        expect(o.blueDamage).toBeLessThanOrEqual(budget * batteryDps(P51D_BATTERY))
+      }
     })
   }
 })
