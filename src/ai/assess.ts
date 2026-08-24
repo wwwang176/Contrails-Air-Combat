@@ -142,6 +142,15 @@ export interface Situation {
    */
   floorGap: number
   /**
+   * 追擊空層，m：`max(目標高度, 存活被護送單位的最低高度)`。沒有目標時
+   * 為 Infinity（不構成任何夾制）。與 `floorGap` 同一段 10 Hz 計算
+   * （`AiController`，它要掃指派板）。
+   *
+   * 【用途】空層鎖的基準夾制（`stepBand`）：敵人在下方時空層跟著他那層
+   * 走、但在護送中不低於轟炸機 —— 專案負責人 2026-08-25 的設計。
+   */
+  chaseAlt: number
+  /**
    * `energyAdvantage` ÷ 我的角落速度**動能高度**（vc² / 2g）。正 = 我能量多。
    *
    * 【尺標為什麼是 vc² / 2g】它是「把角落速度的動能全部換成高度會有多高」，
@@ -254,6 +263,7 @@ export function createSituation(): Situation {
     energyAdvantage: 0, psSelf: 0, psTarget: 0,
     turnAdvantage: 0, airframeTurnAdvantage: 0,
     cornerRatio: 1, speedAdvantage: 0, altitudeAdvantage: 0, floorGap: Infinity,
+    chaseAlt: Infinity,
     energyRatio: 0, stallMargin: 1, speedMargin: 1,
     pullCeiling: 1, sweetPitch: 0, turnPitch: 0,
     climbAngle: 0,
@@ -372,9 +382,28 @@ export function evaluateEnergy(self: Aircraft, target: Aircraft, out: Situation)
   out.turnAdvantage = sustainedTurnRate(self.spec, selfAlt, selfTas)
     - sustainedTurnRate(target.spec, targetAlt, targetTas)
 
-  // 機體層級的比較：各自在自己最擅長的速度下。與當前速度無關，所以可以快取。
-  out.airframeTurnAdvantage = bestSustainedTurnRateCached(self.spec, selfAlt)
-    - bestSustainedTurnRateCached(target.spec, targetAlt)
+  // 機體層級的比較：各自在自己最擅長的速度下、**同一個高度**（兩機中點）。
+  //
+  // 【為什麼不是各自的高度 —— 2026-08-25 實戰回報追出的洩漏】低處空氣密度
+  // 高、持續轉彎率就高，各自高度的比較把**位置**優劣灌進「機體」判準。
+  // 實測（turn-latch-alt.probe.ts，P-51@4800 對 Bf 109）：
+  //
+  // ```
+  //   高度差     讀值        同機種對照（純高度貢獻）
+  //      0      −0.0091          0
+  //    200      −0.0127        −0.0030   ← 已低於出場門檻 −0.01
+  //    600      −0.0200        −0.0123   ← 正好踩上進場門檻
+  // ```
+  //
+  // 於是「敵人在下方 600 m」就觸發迴轉閂鎖，而出場要劣勢回到 −0.01 以上
+  // —— 得降到幾乎同高才行，但 extend 的俯仰讓它留在高空：閂鎖永不解、
+  // AI 在混戰上空無限繞圈（實戰回報的原話：「敵人跟隊友都在下方互打，
+  // 是我在上空 extend 迴旋沒有低頭」）。位置優劣是能量帳（`kineticWeight`
+  // 高度佔九成）的職責；這裡取中點高度，讓它回到純機體比較 —— 對 P-51
+  // vs Bf 109 恢復設計預期的休眠（同高讀值 −0.0091，在兩個門檻之外）。
+  const midAlt = (selfAlt + targetAlt) / 2
+  out.airframeTurnAdvantage = bestSustainedTurnRateCached(self.spec, midAlt)
+    - bestSustainedTurnRateCached(target.spec, midAlt)
 
   // 【分母是 `manoeuvreSpeed` 不是 `cornerSpeed`】兩者在
   // `manoeuvreGFraction = 1` 時完全相同；那個參數存在的意義是讓所有吃

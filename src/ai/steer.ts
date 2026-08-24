@@ -490,6 +490,23 @@ export interface SteerConfig {
    */
   extendTurnCap: number
   /**
+   * 轉向偏置開始開啟的 `cornerRatio`。低於它完全不偏（翼平直飛撿速度）。
+   *
+   * 【為什麼是 0.9 而不是 1】cornerRatio = 1 是**角落速度** —— 最會轉彎
+   * 的速度，不是懸崖；把底放在 1 等於「正好最會轉的時候不准轉」。實測
+   * belowOrbit：4,300 m 平飛可持續只有 1.02，任何 > 1 的斜坡都讓均衡點
+   * 貼死在 cr ≈ 1、偏置 ≈ 0 —— 斜坡頂掃 1.02／1.05／1.08 跑出**同一條
+   * 軌跡**（物理上限鎖死旋鈕）。與 `zoomEnter`/`zoomFull` 同一種一對式。
+   *
+   * 【底的掃描（belowOrbit，重新對上時間）】0.80 → 深失血回潮（最低
+   * −1124）且不回席；0.85 → **65 s 回席**；0.90 → 不回席（均衡偏置
+   * 太小，1.5°/s 的轉率追不完 5 km 的距離）。取 0.85 —— 高高度的平飛
+   * 幾乎沒有多餘功率，回場的彎注定要在角落速度下方一點點的地方飛。
+   */
+  extendVigorEnter: number
+  /** 轉向偏置全開的 `cornerRatio`。Enter..Full 之間 smoothstep。 */
+  extendVigorFull: number
+  /**
    * 回場偏置**淡到滿**的距離，m。由 0 漸進到這個值，之後全程滿偏。
    *
    * 【淡入區本身有害，要讓 AI 快速通過】它存在只是為了不抖 —— 距離在門檻
@@ -1315,6 +1332,8 @@ export const DEFAULT_STEER: SteerConfig = {
   // 已知代價：倒飛開局的最低點 −308 → −685（回正 + 轉向疊在一起時弧內
   // 下沉變深），人工試飛若在意再回頭。
   extendTurnCap: 20 * (Math.PI / 180),
+  extendVigorEnter: 0.85,
+  extendVigorFull: 1.05,
   extendTurnFade: 750,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
@@ -1513,8 +1532,19 @@ export type BandKind = 'off' | 'level' | 'zoom' | 'dive'
  */
 export interface BandState {
   kind: BandKind
-  /** 鎖住的高度，m。`kind === 'off'` 時無意義 */
+  /**
+   * 這一刻生效的空層，m。`kind === 'off'` 時無意義。
+   * 每步由 `min(anchor, sit.chaseAlt)` 重算 —— 見 `stepBand` 的夾制註解。
+   */
   altitude: number
+  /**
+   * 進場時選定的走法目標高度，m —— `altitude` 的上界。
+   *
+   * 【為什麼要跟 `altitude` 分開存】基準要能動態貼著下方的敵人走（他降
+   * 我跟著降、他爬回來我最多回到這裡），所以「進場時挑的那個數字」必須
+   * 另外留著，`altitude` 才有東西可以夾。
+   */
+  anchor: number
   /** 鎖的力道，0..1。0 = 完全不介入、1 = 航跡角完全由高度帶決定 */
   hold: number
   /**
@@ -1530,7 +1560,7 @@ export interface BandState {
 }
 
 export function createBandState(): BandState {
-  return { kind: 'off', altitude: 0, hold: 0, side: 1 }
+  return { kind: 'off', altitude: 0, anchor: 0, hold: 0, side: 1 }
 }
 
 /**
@@ -1625,25 +1655,41 @@ export function stepBand(
   // 死區，沿用上一格 —— 理由見 `BandState.side`。
   const err = headingErrorTo(self, basis.losAxis)
   if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
-  // 【已經鎖住就不重挑】見 `BandState` 的註解
-  if (state.kind !== 'off') return
-
-  const alt = self.state.position.y
-  if (sit.altitudeAdvantage > cfg.bandDiveGap) {
-    state.kind = 'dive'
-    // 【不會低於敵人】俯衝迴轉是把**多餘的**高度換成速度，不是把優勢丟掉。
-    // 兩項設定目前不可能讓這一行生效（Drop 400 < Gap 1200），但它是這個
-    // 分支的**定義**而不是設定值的副作用。
-    const floor = alt - sit.altitudeAdvantage
-    const wanted = alt - cfg.bandDiveDrop
-    state.altitude = wanted > floor ? wanted : floor
-  } else if (zoomAffordable(sit, self, cfg)) {
-    state.kind = 'zoom'
-    state.altitude = alt + cfg.bandZoomGain
-  } else {
-    state.kind = 'level'
-    state.altitude = alt
+  // 【已經鎖住就不重挑走法】見 `BandState` 的註解 —— 但基準夾制（下方）
+  // 每步都要重算，所以不能在這裡 return。
+  if (state.kind === 'off') {
+    const alt = self.state.position.y
+    if (sit.altitudeAdvantage > cfg.bandDiveGap) {
+      state.kind = 'dive'
+      // 【不會低於敵人】俯衝迴轉是把**多餘的**高度換成速度，不是把優勢
+      // 丟掉。兩項設定目前不可能讓這一行生效（Drop 400 < Gap 1200），但
+      // 它是這個分支的**定義**而不是設定值的副作用。
+      const floor = alt - sit.altitudeAdvantage
+      const wanted = alt - cfg.bandDiveDrop
+      state.anchor = wanted > floor ? wanted : floor
+    } else if (zoomAffordable(sit, self, cfg)) {
+      state.kind = 'zoom'
+      state.anchor = alt + cfg.bandZoomGain
+    } else {
+      state.kind = 'level'
+      state.anchor = alt
+    }
   }
+
+  // 【基準跟著下方的敵人走 —— 2026-08-25 專案負責人的設計】實戰回報：
+  // P-51 在 4800、敵機在下方射程內打轟炸機，夾角項鎖住俯仰 → 機頭壓不向
+  // 他 → 攔截時間不收斂 → 讓位閘永遠不開 —— 「近在眼前卻死不低頭」，
+  // 最後迴轉閂鎖把人帶走。鎖自己的層只在「敵人同層或在上」成立；敵人在
+  // 下方時空層要**貼著他那層**，下降的過程會讓機頭壓得向他、攔截收斂、
+  // 讓位閘照常打開。
+  //
+  //   `chaseAlt = max(目標高度, 被護送最低)` —— 護送中不低於轟炸機，
+  //   「不陪他鑽到編隊下面」自動成立；下限另有高度鎖（floor）接著。
+  //   取 min：敵人在上或同層時 chaseAlt ≥ anchor，行為一個字不變；
+  //   敵人在下方時動態貼著他（他降我降、他爬回來最多回到 anchor）。
+  //   俯衝走法的 anchor 在敵人低於它時同樣被貼下去 —— 與本設計一致，
+  //   「多留一段優勢」讓位給「下去接戰」。
+  state.altitude = state.anchor < sit.chaseAlt ? state.anchor : sit.chaseAlt
 }
 
 /**
@@ -1844,11 +1890,14 @@ export function headingErrorTo(self: Aircraft, toTarget: Vector3): number {
  *
  * @param side         `DefendState.extendSide`，+1 / −1。**0 = 不偏**
  * @param headingError `headingErrorTo` 的值
+ * @param cornerRatio  速度餘裕。非有限值退化成滿偏（沒有角落速度就沒有
+ *                     這本帳；收緊的退化會讓 extend 永遠直飛不回頭）
  */
 export function extendHeadingBias(
   side: number,
   headingError: number,
   range: number,
+  cornerRatio = Infinity,
   cfg: SteerConfig = DEFAULT_STEER,
 ): number {
   const cap = cfg.extendTurnCap
@@ -1862,8 +1911,22 @@ export function extendHeadingBias(
     ? smoothstep(0, cfg.extendTurnFade, range)
     : 1
   if (fade === 0) return 0
+  // 【速度先於轉向 —— 2026-08-25 專案負責人的設計】上限限的是「瞄準點偏
+  // 多遠」，不是「拉多少 G」：對著**持續旋轉**的方位（敵人在下方繞圈打
+  // 轟炸機），20° 的誤差永遠追不完，飛控就一直壓 60~75° 坡度拉 4 G ——
+  // 阻力吃掉俯衝的全部速度收益，空速釘死、「速度先於高度」閘門把爬升
+  // 掐死、跌破地板繼續跌（belowOrbit 實測：50 秒漏 1300 m 出不了場）。
+  //
+  // 乘上速度餘裕把正回饋剪成負回饋：缺速度 → 翼平直飛 → 阻力小 → 速度
+  // 真的回來 → 偏置線性開回來 → 轉太多掉速又自己收。斜坡是
+  // `extendVigorEnter`..`Full`（0.85 → 1.05）：底在角落速度**下方** ——
+  // cr = 1 是最會轉的速度，不是懸崖；定值依據見兩個欄位的註解。
+  const vigor = Number.isFinite(cornerRatio)
+    ? smoothstep(cfg.extendVigorEnter, cfg.extendVigorFull, cornerRatio)
+    : 1
+  if (vigor === 0) return 0
   const want = headingError < 0 ? -headingError : headingError
-  return side * (want < cap ? want : cap) * fade
+  return side * (want < cap ? want : cap) * fade * vigor
 }
 
 /**
@@ -2249,7 +2312,8 @@ export function steerCommand(
         rotateHeading(
           out.aimWorld,
           extendHeadingBias(
-            defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range, cfg,
+            defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range,
+            sit.cornerRatio, cfg,
           ),
         )
         break
