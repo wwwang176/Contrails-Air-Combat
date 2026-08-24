@@ -20,6 +20,13 @@ export interface DifficultyProfile {
   reactionDelay: number
   /** 瞄準誤差，rad。**目前沒有任何一處讀它** */
   aimError: number
+  /**
+   * 穩態補償器的時間常數，s；省略或 `<= 0` 關閉（實驗中，尚未定值）。
+   * 把「新鮮 − 延遲」指令差低通後補回輸出，讓純延遲對等速動作的永久
+   * 穩態誤差在 2~3τ 內收斂歸零，而突變仍吃滿 `reactionDelay` 的欺敵
+   * 窗口。詳見 `CommandDelay.push`。
+   */
+  trimTau?: number
 }
 
 /** 王牌：M4 的唯一設定，也是全部 AI 測試與 `bench/` 的基準。 */
@@ -58,4 +65,22 @@ export const ACE: DifficultyProfile = { reactionDelay: 0, aimError: 0 }
  * 【單調上升的只有戰鬥長度】65 s → 133 s。延遲讓 AI 咬得住但殺不掉，那是
  * 這個旋鈕最穩定的效果，也是 `ai-reaction-delay.test.ts` 拿來當門檻的量。
  */
-export const VETERAN: DifficultyProfile = { reactionDelay: 0.3, aimError: 0 }
+/*
+ * 【`trimTau: 1` 的定值依據（2026-08-24，專案負責人裁定）】純延遲對可預測
+ * 運動有永久穩態誤差：靶機 700 m 等距橫飛 15°/s 時恆差 8~9°，永遠進不了
+ * 3° 開火錐——真人追蹤規律動作會靠預測補掉，只有突變才吃反應延遲。
+ * 補償器（`CommandDelay.push` 的 trim）把「比 τ 慢的動作看穿、比 τ 快的
+ * 動作照騙」。band-drill 的 orbit／weave 兩局實測（機首離預瞄點）：
+ *
+ * ```
+ *          orbit 等速繞圈    weave S 繞 6 s 週期（峰值）
+ * 純延遲     6~9° 錐外        5~7°
+ * τ=1        1~3° ≈ACE       3~4°（慢 S 繞被學走一半）
+ * τ=2        2~4° 錐緣        4~6°
+ * ACE        1~5°             3~4°
+ * ```
+ *
+ * 取 1：繞圈追平 ACE 的咬環能力；代價是 6 s 級的慢 S 繞欺敵折半，更快的
+ * 假動作（2~3 s 換邊）衰減比例平方成長、照樣騙得到。
+ */
+export const VETERAN: DifficultyProfile = { reactionDelay: 0.3, aimError: 0, trimTau: 1 }
