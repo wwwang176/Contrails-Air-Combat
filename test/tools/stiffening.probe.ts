@@ -17,7 +17,7 @@
  */
 import { maxRollRate } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { applyFeel, feelFor } from '../../src/specs/feel'
@@ -46,7 +46,7 @@ const withK = (s: AircraftSpec, k: number): AircraftSpec =>
 console.log('\n══ 出貨滾轉率隨速度（°/s、3,000 m、超過 vne 的格子留空）══════')
 console.log('  設定                     250     300     350     400     450     500')
 curve(P51D, 'P-51D  k 0.35')
-curve(BF109G6, 'Bf 109 k 1.50')
+curve(BF109K4, 'Bf 109 k 1.50')
 console.log('  ── He 111（qRef 4250）────────────────────────────────────')
 for (const k of [1.8, 1.4, 1.0, 0.5]) curve(withK(HE111, k), `He 111 k ${k.toFixed(2)}`)
 console.log('  ── B-17G（qRef 4250）─────────────────────────────────────')
@@ -54,7 +54,7 @@ for (const k of [2.4, 1.6, 1.0, 0.5]) curve(withK(B17G, k), `B-17G  k ${k.toFixe
 
 console.log('\n══ 曲線指數：p ∝ V^e（由 300→450 km/h 兩點反解）════════════')
 console.log('  設定                 指數 e    理論對照')
-for (const [s, label] of [[P51D, 'P-51D  k 0.35'], [BF109G6, 'Bf 109 k 1.50'],
+for (const [s, label] of [[P51D, 'P-51D  k 0.35'], [BF109K4, 'Bf 109 k 1.50'],
   [HE111, 'He 111 k 1.80'], [B17G, 'B-17G  k 2.40']] as const) {
   const g = applyFeel(s, feelFor(s))
   const a = maxRollRate(g, 3000, 300 / KMH)

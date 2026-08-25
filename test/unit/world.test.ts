@@ -8,7 +8,7 @@ import { clearImpacts } from '../../src/world/events'
 import { boundingRadius } from '../../src/world/hit'
 import { CRASH_CLEARANCE } from '../../src/aircraft/crash'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const DT = 1 / 240
 
@@ -33,7 +33,7 @@ describe('World 的組裝', () => {
   it('add 回傳的 Combatant 帶滿血與遞增索引', () => {
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     expect(a.index).toBe(0)
     expect(b.index).toBe(1)
     expect(a.hp).toBe(1000)
@@ -56,9 +56,9 @@ describe('World 的組裝', () => {
     const c = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
     expect(c.cooldowns).toHaveLength(6)
 
-    w.setSpec(c, BF109G6)
-    expect(c.cooldowns).toHaveLength(BF109G6.battery.mounts.length)
-    expect(c.hp).toBe(BF109G6.hp)
+    w.setSpec(c, BF109K4)
+    expect(c.cooldowns).toHaveLength(BF109K4.battery.mounts.length)
+    expect(c.hp).toBe(BF109K4.hp)
 
     w.setSpec(c, P51D)
     expect(c.cooldowns).toHaveLength(6)
@@ -329,7 +329,7 @@ describe('退場', () => {
     t.respawnOnDestroy = false
     w.applyDamage(t, 99999, 'cockpit')
     // 已經是 0 血；再打一次不應該讓 hitsDealt 增加
-    const s = w.add(new Aircraft(BF109G6), new Fixed(), 'blue', new Vector3(0, 0, 100))
+    const s = w.add(new Aircraft(BF109K4), new Fixed(), 'blue', new Vector3(0, 0, 100))
     w.applyDamage(t, 10, 'fuselage', s)
     expect(s.hitsDealt).toBe(0)
   })
@@ -363,7 +363,7 @@ describe('同隊彈丸穿透（M5 spec §3.1 條件 8）', () => {
       shooterTeam, new Vector3(0, 0, 0),
     )
     const target = w.add(
-      new Aircraft(BF109G6), new Fixed(), targetTeam, new Vector3(0, 0, -300),
+      new Aircraft(BF109K4), new Fixed(), targetTeam, new Vector3(0, 0, -300),
     )
     target.respawnOnDestroy = false
     const before = target.hp
@@ -402,7 +402,7 @@ describe('撞地退場（M5 spec §7）', () => {
   it('撞地也適用於 AI 駕駛的飛機，不只玩家', () => {
     const w = new World()
     const a = w.add(new Aircraft(P51D, 4000, 200), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6, 4000, 200), new Fixed(), 'red', new Vector3())
+    const b = w.add(new Aircraft(BF109K4, 4000, 200), new Fixed(), 'red', new Vector3())
     a.respawnOnDestroy = false
     b.respawnOnDestroy = false
     a.aircraft.state.position.set(0, -1, 0)
@@ -497,8 +497,8 @@ describe('槍焰計時器（M7 spec §5.1）', () => {
     const { w, c, ctrl } = oneShooter()
     ctrl.firing = true
     w.step(DT)
-    w.setSpec(c, BF109G6)
-    expect(c.muzzleFlash.length).toBe(BF109G6.battery.mounts.length)
+    w.setSpec(c, BF109K4)
+    expect(c.muzzleFlash.length).toBe(BF109K4.battery.mounts.length)
     expect(Array.from(c.muzzleFlash).every((v) => v === 0)).toBe(true)
   })
 
@@ -678,7 +678,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
     // 存活 ⟹ 原點 > 浪谷 + CRASH_CLEARANCE。取保守的浪谷 −5 m、
     // CRASH_CLEARANCE = 2 → 原點 > −3。命中盒最遠伸到原點下方一個包圍半徑。
     const worstOrigin = -5 + CRASH_CLEARANCE
-    const maxR = Math.max(boundingRadius(P51D.hitBoxes), boundingRadius(BF109G6.hitBoxes))
+    const maxR = Math.max(boundingRadius(P51D.hitBoxes), boundingRadius(BF109K4.hitBoxes))
     expect(SEA_KILL_Y).toBeLessThanOrEqual(worstOrigin - maxR)
   })
 
@@ -692,7 +692,7 @@ describe('擊墜歸屬（M9 spec §4）', () => {
   it('被打爆時，事件帶著兇手的座位索引', () => {
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     w.applyDamage(b, 99999, 'fuselage', a)
     expect(w.killEvents.count).toBe(1)
     expect(w.killEvents.data[6]).toBe(b.index)
@@ -704,7 +704,7 @@ describe('擊墜歸屬（M9 spec §4）', () => {
     // 會把真正的兇手寫成 −1。要判斷的是「有沒有射手」，不是索引的真假值。
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     expect(a.index).toBe(0)
     w.applyDamage(b, 99999, 'fuselage', a)
     expect(w.killEvents.data[7]).toBe(0)
@@ -734,7 +734,7 @@ describe('世界時鐘與傷害時刻表（M9 spec §5.1）', () => {
     // 在 t=0 都打過每個人，於是第一次擊墜會發出滿場的助攻。
     const w = new World()
     w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     for (let i = 0; i < w.damageTime.length; i++) {
       expect(w.damageTime[i]).toBe(-Infinity)
     }
@@ -752,7 +752,7 @@ describe('世界時鐘與傷害時刻表（M9 spec §5.1）', () => {
   it('命中會記下當時的世界時間', () => {
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     w.time = 12.5
     w.applyDamage(b, 10, 'wingLeft', a)
     expect(w.damageTime[a.index * w.damageStride + b.index]).toBeCloseTo(12.5, 4)
@@ -774,7 +774,7 @@ describe('世界時鐘與傷害時刻表（M9 spec §5.1）', () => {
     // 【為什麼】不清的話，重生後的第一次擊墜會把上一條命的攻擊者算進助攻。
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     w.time = 5
     w.applyDamage(b, 10, 'fuselage', a)
     w.respawn(b)
@@ -784,7 +784,7 @@ describe('世界時鐘與傷害時刻表（M9 spec §5.1）', () => {
   it('clearDamageLog 把整張表清成 −Infinity', () => {
     const w = new World()
     const a = w.add(new Aircraft(P51D), new Fixed(), 'blue', new Vector3())
-    const b = w.add(new Aircraft(BF109G6), new Fixed(), 'red', new Vector3(0, 0, -800))
+    const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     w.time = 5
     w.applyDamage(b, 10, 'fuselage', a)
     w.clearDamageLog()

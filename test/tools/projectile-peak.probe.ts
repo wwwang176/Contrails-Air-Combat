@@ -18,7 +18,7 @@ import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -51,5 +51,5 @@ function measure(label: string, red: AircraftSpec): void {
 }
 
 console.log(`  20v20、300 秒、池容量 ${PROJECTILE_CAPACITY}`)
-measure('P-51D vs Bf 109 G-6', BF109G6)
+measure('P-51D vs Bf 109 G-6', BF109K4)
 measure('P-51D vs B-17G（砲塔）', B17G)

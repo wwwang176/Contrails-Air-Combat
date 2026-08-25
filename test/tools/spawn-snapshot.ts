@@ -22,7 +22,7 @@ import { DEFAULT_BATTLE, type Battle, type BattleConfig } from '../../src/battle
 import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
@@ -191,7 +191,7 @@ export async function replayDigest(b: Battle): Promise<string> {
  */
 export const SCENES = {
   HEADON_20V20: (): BattleConfig => ({
-    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
   }),
   PURSUIT_MIRROR_8V8: (): BattleConfig => ({
     ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 8, P51D, 8),

@@ -7,7 +7,7 @@ import { recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
 import { maxLoadFactorAero, stallSpeed } from '../../src/analysis/envelope'
 import { PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import { DEG } from '../../src/core/math'
 
@@ -103,7 +103,7 @@ function withinContract(
   return altitude > needed
 }
 
-const SPECS: readonly [string, AircraftSpec][] = [['P-51D', P51D], ['Bf 109', BF109G6]]
+const SPECS: readonly [string, AircraftSpec][] = [['P-51D', P51D], ['Bf 109', BF109K4]]
 const ALTITUDES = [300, 600, 1200, 2500] as const
 const SPEEDS = [120, 200, 300] as const
 const DIVES = [-20, -45, -70, -89] as const

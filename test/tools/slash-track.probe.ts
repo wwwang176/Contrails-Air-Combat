@@ -26,7 +26,7 @@ import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 // 【`RAD` 不是 `DEG`】專案的慣例是 `DEG = π/180`（度→弧度）、
 // `RAD = 180/π`（弧度→度）。這裡要的是後者。而 `escort-trace.probe.ts` 自己
 // 定義了一個叫 `DEG` 的 `180/π` —— 別跟著抄。
@@ -59,15 +59,15 @@ interface Side {
 const CARDS: Record<string, [Side, Side]> = {
   high: [
     { spec: P51D, altitude: 5500, tas: 250, offset: [0, 0, 800], headingDeg: 180 },
-    { spec: BF109G6, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
+    { spec: BF109K4, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
   ],
   co: [
     { spec: P51D, altitude: 4000, tas: 190, offset: [400, 0, 400], headingDeg: 135 },
-    { spec: BF109G6, altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 },
+    { spec: BF109K4, altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 },
   ],
   low: [
     { spec: P51D, altitude: 3000, tas: 150, offset: [0, -1000, 0], headingDeg: 0 },
-    { spec: BF109G6, altitude: 4000, tas: 250, offset: [0, 0, 600], headingDeg: 0 },
+    { spec: BF109K4, altitude: 4000, tas: 250, offset: [0, 0, 600], headingDeg: 0 },
   ],
 }
 

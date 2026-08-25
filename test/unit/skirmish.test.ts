@@ -10,7 +10,7 @@ import { sideCount, sideSummary } from '../../src/battle/order'
 
 describe('機種名單', () => {
   it('遭遇戰的名單四台一起列 —— 混搭之後陣營不再是一個選擇', () => {
-    expect(ALL_SPECS.map((s) => s.id)).toEqual(['p51d', 'bf109g6', 'b17g', 'he111'])
+    expect(ALL_SPECS.map((s) => s.id)).toEqual(['p51d', 'bf109k4', 'b17g', 'he111'])
   })
 
   it('任務模式仍然分陣營，而且兩邊沒有交集', () => {
@@ -30,27 +30,27 @@ const leadOf = (c: BattleConfig, team: 'blue' | 'red') =>
 
 describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', () => {
   it('兩隊各自的機種照抄', () => {
-    const c = battleConfigFrom(uniform('p51d', 20, 'bf109g6', 20))
+    const c = battleConfigFrom(uniform('p51d', 20, 'bf109k4', 20))
     expect(leadOf(c, 'blue').id).toBe('p51d')
-    expect(leadOf(c, 'red').id).toBe('bf109g6')
+    expect(leadOf(c, 'red').id).toBe('bf109k4')
   })
 
   it('藍隊可以開 Bf109 —— 換的是機種不是隊伍顏色', () => {
-    const c = battleConfigFrom(uniform('bf109g6', 4, 'p51d', 4))
-    expect(leadOf(c, 'blue').id).toBe('bf109g6')
+    const c = battleConfigFrom(uniform('bf109k4', 4, 'p51d', 4))
+    expect(leadOf(c, 'blue').id).toBe('bf109k4')
     expect(leadOf(c, 'red').id).toBe('p51d')
   })
 
   it('一隊裡可以混搭 —— P-51 與 Bf109 同一隊', () => {
     const c = battleConfigFrom({
-      blue: ['p51d', 'bf109g6', 'b17g'], red: ['he111', 'p51d'], playerAt: 0,
+      blue: ['p51d', 'bf109k4', 'b17g'], red: ['he111', 'p51d'], playerAt: 0,
     })
-    expect(sideSummary(c.units, 'blue')).toBe('1 × p51d + 1 × bf109g6 + 1 × b17g')
+    expect(sideSummary(c.units, 'blue')).toBe('1 × p51d + 1 × bf109k4 + 1 × b17g')
     expect(sideSummary(c.units, 'red')).toBe('1 × he111 + 1 × p51d')
   })
 
   it('架數就是名單長度', () => {
-    const c = battleConfigFrom(uniform('p51d', 3, 'bf109g6', 7))
+    const c = battleConfigFrom(uniform('p51d', 3, 'bf109k4', 7))
     expect(sideCount(c.units, 'blue')).toBe(3)
     expect(sideCount(c.units, 'red')).toBe(7)
   })
@@ -77,7 +77,7 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
 
   it('玩家選第幾架，那一架就是他開的', () => {
     const c = battleConfigFrom({
-      blue: ['p51d', 'b17g', 'bf109g6'], red: ['p51d'], playerAt: 1,
+      blue: ['p51d', 'b17g', 'bf109k4'], red: ['p51d'], playerAt: 1,
     })
     expect(leadOf(c, 'blue').id).toBe('b17g')
   })
@@ -102,7 +102,7 @@ describe('常數', () => {
     expect(d.blue.length).toBe(20)
     expect(d.red.length).toBe(20)
     expect(new Set(d.blue)).toEqual(new Set(['p51d']))
-    expect(new Set(d.red)).toEqual(new Set(['bf109g6']))
+    expect(new Set(d.red)).toEqual(new Set(['bf109k4']))
   })
 
   it('預設的玩家座位就是舊路徑的那一架 —— 出生基準沒有位移', () => {
@@ -120,7 +120,7 @@ describe('常數', () => {
  */
 describe('出戰名單的加與減', () => {
   const at = (blue: string[], playerAt: number): SkirmishSetup => (
-    { blue, red: ['bf109g6'], playerAt }
+    { blue, red: ['bf109k4'], playerAt }
   )
 
   it('加在末端', () => {
@@ -129,7 +129,7 @@ describe('出戰名單的加與減', () => {
   })
 
   it('滿編時原樣回傳', () => {
-    const full = uniform('p51d', MAX_SIDE, 'bf109g6', 1)
+    const full = uniform('p51d', MAX_SIDE, 'bf109k4', 1)
     expect(withAircraft(full, 'blue', 'b17g')).toBe(full)
   })
 

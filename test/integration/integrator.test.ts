@@ -10,7 +10,7 @@ import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { DEG, G0, clamp } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { AirData, Controls, FlightState } from '../../src/physics/types'
 
@@ -116,22 +116,22 @@ describe('積分器 vs 求解器：Ps 一致性', () => {
     { spec: P51D, altitude: 3000, tas: 180, n: 1 },
     { spec: P51D, altitude: 7600, tas: 190, n: 1 },
     { spec: P51D, altitude: 3000, tas: 180, n: 3 },
-    { spec: BF109G6, altitude: 0, tas: 140, n: 1 },
-    { spec: BF109G6, altitude: 6300, tas: 175, n: 1 },
-    { spec: BF109G6, altitude: 2000, tas: 160, n: 4 },
+    { spec: BF109K4, altitude: 0, tas: 140, n: 1 },
+    { spec: BF109K4, altitude: 6300, tas: 175, n: 1 },
+    { spec: BF109K4, altitude: 2000, tas: 160, n: 4 },
     // 爬升：機首大幅上仰（路徑角 +15°~+20°），姿態四元數非平凡
     { spec: P51D, altitude: 3000, tas: 170, n: 1, gamma: 20 * DEG, attitude: '爬升 20°' },
-    { spec: BF109G6, altitude: 2000, tas: 150, n: 1, gamma: 15 * DEG, attitude: '爬升 15°' },
+    { spec: BF109K4, altitude: 2000, tas: 150, n: 1, gamma: 15 * DEG, attitude: '爬升 15°' },
     // 俯衝：路徑角為負
     { spec: P51D, altitude: 3000, tas: 220, n: 1, gamma: -25 * DEG, attitude: '俯衝 25°' },
-    { spec: BF109G6, altitude: 2000, tas: 200, n: 1, gamma: -20 * DEG, attitude: '俯衝 20°' },
+    { spec: BF109K4, altitude: 2000, tas: 200, n: 1, gamma: -20 * DEG, attitude: '俯衝 20°' },
     // 傾斜快照：大幅滾轉 + 過載，姿態同時含俯仰與滾轉兩個旋轉軸。
     // 【命名澄清】未設定 angularVelocity，只是瞬時傾斜姿態的快照，不是真正
     // 持續的盤旋運動（世界路徑角實際只有 0.94°/2.83°，見 task-16-report.md）。
     // 即便如此仍有測試價值：counterfactual 1 下 bank50° 案例差異 692%，
     // 比它對應的平飛 n=3 案例（493%）更大，證明滾轉確實讓旋轉鏈跑得更完整。
     { spec: P51D, altitude: 3000, tas: 180, n: 3, bank: 50 * DEG, attitude: '傾斜快照 bank50° n=3' },
-    { spec: BF109G6, altitude: 2000, tas: 160, n: 4, bank: 60 * DEG, attitude: '傾斜快照 bank60° n=4' },
+    { spec: BF109K4, altitude: 2000, tas: 160, n: 4, bank: 60 * DEG, attitude: '傾斜快照 bank60° n=4' },
   ]
 
   for (const c of CASES) {
@@ -238,7 +238,7 @@ describe('積分器收斂至求解器的極速', () => {
   const CASES = [
     { spec: P51D, altitude: 3000 },
     { spec: P51D, altitude: 7600 },
-    { spec: BF109G6, altitude: 6300 },
+    { spec: BF109K4, altitude: 6300 },
   ]
 
   for (const c of CASES) {

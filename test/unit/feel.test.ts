@@ -6,7 +6,7 @@ import {
 } from '../../src/specs/feel'
 import { maxLevelSpeed, maxClimbRate } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
@@ -52,7 +52,7 @@ describe('手感係數層', () => {
     // 【同一性而不是相等】史實測試必須跑在**沒有被包裝過**的 spec 上，
     // 否則「這些數字對應真飛機」這個前提就不成立了。
     expect(applyFeel(P51D, HISTORICAL)).toBe(P51D)
-    expect(applyFeel(BF109G6, HISTORICAL)).toBe(BF109G6)
+    expect(applyFeel(BF109K4, HISTORICAL)).toBe(BF109K4)
   })
 
   it('滾轉倍率只動 clDa，其餘欄位逐一相同', () => {
@@ -102,9 +102,9 @@ describe('手感係數層', () => {
    * 只會逼下一個人去放寬它。直接把意圖寫成「相對變化 5% 以內」。
    */
   it('兩台一起套用時，機種之間的相對強弱維持在 5% 以內', () => {
-    const ratioBase = rollTravel(P51D, 1.5) / rollTravel(BF109G6, 1.5)
+    const ratioBase = rollTravel(P51D, 1.5) / rollTravel(BF109K4, 1.5)
     const ratioFeel = rollTravel(applyFeel(P51D, GAME_FEEL), 1.5)
-      / rollTravel(applyFeel(BF109G6, GAME_FEEL), 1.5)
+      / rollTravel(applyFeel(BF109K4, GAME_FEEL), 1.5)
     expect(Math.abs(ratioFeel / ratioBase - 1)).toBeLessThan(0.05)
   })
 })
@@ -117,7 +117,7 @@ describe('手感係數層', () => {
 describe('轟炸機另一組手感輪廓', () => {
   it('feelFor 依 role 分流，不靠機種 id 硬編清單', () => {
     expect(feelFor(P51D)).toBe(GAME_FEEL)
-    expect(feelFor(BF109G6)).toBe(GAME_FEEL)
+    expect(feelFor(BF109K4)).toBe(GAME_FEEL)
     expect(feelFor(HE111)).toBe(BOMBER_FEEL)
     expect(feelFor(B17G)).toBe(BOMBER_FEEL)
   })

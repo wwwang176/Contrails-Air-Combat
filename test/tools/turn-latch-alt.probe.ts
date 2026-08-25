@@ -7,13 +7,13 @@
  */
 import { bestSustainedTurnRateCached } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 console.log('P-51 在上（4800）、Bf 109 在下 —— airframeTurnAdvantage（rad/s）')
 console.log('高度差    P51@4800 − 109@下方    跨 enter −0.02?')
 for (const gap of [0, 200, 400, 600, 800, 1000]) {
   const mine = bestSustainedTurnRateCached(P51D, 4800)
-  const his = bestSustainedTurnRateCached(BF109G6, 4800 - gap)
+  const his = bestSustainedTurnRateCached(BF109K4, 4800 - gap)
   const adv = mine - his
   console.log(
     `  ${String(gap).padStart(4)}      ${adv.toFixed(4).padStart(8)}`

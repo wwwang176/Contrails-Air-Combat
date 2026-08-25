@@ -7,7 +7,7 @@
  * 平飛滿油門下，各速度的 Ps（正 = 還在加速、負 = 阻力正在吃掉速度），
  * 以及「俯衝換到的超額速度衰減回可持續速度要幾秒、來回一趟虧幾成」。
  */
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import { specificExcessPower, maxLevelSpeed, cornerSpeed } from '../../src/analysis/envelope'
@@ -16,7 +16,7 @@ import type { AircraftSpec } from '../../src/specs/types'
 
 const ALT = 4000
 
-for (const [name, base] of [['Bf 109 G-6', BF109G6], ['P-51D', P51D]] as const) {
+for (const [name, base] of [['Bf 109 G-6', BF109K4], ['P-51D', P51D]] as const) {
   const spec: AircraftSpec = applyFeel(base, GAME_FEEL)
   const vLevel = maxLevelSpeed(spec, ALT, 1)
   const vc = cornerSpeed(spec, ALT)

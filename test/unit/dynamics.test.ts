@@ -4,7 +4,7 @@ import {
   createDiagnostics, createFlightState, stepDynamics,
 } from '../../src/physics/dynamics'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { lowSpeedEffectiveness } from '../../src/physics/aero'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { DEG, G0, RAD } from '../../src/core/math'
@@ -157,7 +157,7 @@ describe('stepDynamics — 氣動響應', () => {
     const p = createFlightState(0, 100)
     const b = createFlightState(0, 100)
     run(P51D, p, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, DT)
-    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, DT)
+    run(BF109K4, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, DT)
     expect(Math.abs(b.angularVelocity.z)).toBeGreaterThan(Math.abs(p.angularVelocity.z))
   })
 
@@ -174,7 +174,7 @@ describe('stepDynamics — 氣動響應', () => {
     const p = createFlightState(0, tas)
     const b = createFlightState(0, tas)
     run(P51D, p, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 2)
-    run(BF109G6, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 2)
+    run(BF109K4, b, { ...IDLE, aileron: 1, throttle: 1, brake: 0 }, 2)
     expect(Math.abs(p.angularVelocity.z)).toBeGreaterThan(Math.abs(b.angularVelocity.z) * 2)
   })
 })
@@ -234,7 +234,7 @@ describe('stepDynamics — 診斷輸出', () => {
     const diag = createDiagnostics()
     let maxAlphaDeg = -Infinity
     for (let i = 0; i < TOTAL_STEPS; i++) {
-      stepDynamics(BF109G6, s, slatManeuverControls(i), DT, diag)
+      stepDynamics(BF109K4, s, slatManeuverControls(i), DT, diag)
       maxAlphaDeg = Math.max(maxAlphaDeg, diag.aero.alpha * RAD)
     }
     const alphaDeg = diag.aero.alpha * RAD
@@ -249,7 +249,7 @@ describe('stepDynamics — 診斷輸出', () => {
     let diag = createDiagnostics()
     for (let i = 0; i < TOTAL_STEPS; i++) {
       diag = createDiagnostics() // 刻意違反「沿用同一個 diag」的規定
-      stepDynamics(BF109G6, s, slatManeuverControls(i), DT, diag)
+      stepDynamics(BF109K4, s, slatManeuverControls(i), DT, diag)
     }
     // 迎角軌跡與上一個測試在此為止仍是同一個數值（見任務報告：兩者在此
     // 迎角範圍內 CL 走線性公式，slatsDeployed 差異不影響力，軌跡逐位元相同），

@@ -17,7 +17,7 @@
  */
 import { maxRollRate } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { applyFeel, feelFor } from '../../src/specs/feel'
@@ -28,7 +28,7 @@ const DEG = 180 / Math.PI
 const n = (v: number, w: number, d = 1): string => v.toFixed(d).padStart(w)
 
 const REQ: Record<string, number> = { fighter: 0.09, bomber: 0.07 }
-const SPECS = [P51D, BF109G6, HE111, B17G]
+const SPECS = [P51D, BF109K4, HE111, B17G]
 
 /** 滿舵螺旋角 pb/2V —— 與速度、翼展無關。 */
 const helix = (s: AircraftSpec): number => s.moments.clDa / -s.moments.clP

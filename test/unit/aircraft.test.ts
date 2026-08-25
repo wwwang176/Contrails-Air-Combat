@@ -9,7 +9,7 @@ import { createDiagnostics, createFlightState, stepDynamics } from '../../src/ph
 import { gerstnerHeight } from '../../src/render/ocean'
 import { DEG, RAD } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const DT = 1 / 240
 const FOV = 65 * DEG
@@ -112,8 +112,8 @@ describe('Aircraft', () => {
   it('setSpec 切換機種並重置控制器', () => {
     const ac = new Aircraft(P51D, 5000, 180)
     fly(ac, aimOffsetBy(6 * DEG, 4 * DEG), 1, 2)
-    ac.setSpec(BF109G6)
-    expect(ac.spec.id).toBe('bf109g6')
+    ac.setSpec(BF109K4)
+    expect(ac.spec.id).toBe('bf109k4')
     ac.update(onNose(), 1, DT)
     expect(Number.isFinite(ac.state.velocity.length())).toBe(true)
   })
@@ -139,7 +139,7 @@ describe('Aircraft', () => {
   })
 
   it('長時間連續機動不產生 NaN', () => {
-    const ac = new Aircraft(BF109G6, 5000, 200)
+    const ac = new Aircraft(BF109K4, 5000, 200)
     const aim = onNose()
     const frames = Math.round(60 * FRAME_HZ)
     for (let f = 0; f < frames; f++) {
@@ -411,9 +411,9 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
     const a = new Aircraft(P51D, 5000, 220)
     const aimA = onNose()
     fly(a, aimA, WEP_THROTTLE, 4, TURN_DX) // 持續轉彎把積分項灌滿
-    a.setSpec(BF109G6)
+    a.setSpec(BF109K4)
 
-    const b = new Aircraft(BF109G6, 5000, 220)
+    const b = new Aircraft(BF109K4, 5000, 220)
     b.state.position.copy(a.state.position)
     b.state.velocity.copy(a.state.velocity)
     b.state.orientation.copy(a.state.orientation)
@@ -437,7 +437,7 @@ describe('Aircraft：機種切換與重置不洩漏狀態', () => {
   })
 
   it('setSpec 清掉前緣縫翼的遲滯旗標', () => {
-    const ac = new Aircraft(BF109G6, 3000, 130)
+    const ac = new Aircraft(BF109K4, 3000, 130)
     // 低速持續拉升把縫翼逼出來
     fly(ac, onNose(), WEP_THROTTLE, 3, 0, TURN_DX)
     expect(ac.diag.slatsDeployed).toBe(true)

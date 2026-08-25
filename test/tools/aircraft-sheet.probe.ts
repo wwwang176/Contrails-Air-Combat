@@ -6,7 +6,7 @@
  * ——2026-08-11 拿掉飛行員硬夾之後，那就是真正夾住飛機的值。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, sustainedTurnRate, bestSustainedTurnRate,
@@ -40,7 +40,7 @@ function bestSust(s: AircraftSpec, alt: number): [number, number, number] {
 }
 
 const P = applyFeel(P51D, GAME_FEEL)
-const B = applyFeel(BF109G6, GAME_FEEL)
+const B = applyFeel(BF109K4, GAME_FEEL)
 
 const row = (label: string, f: (s: AircraftSpec) => string) => {
   console.log(`${label.padEnd(24)}${f(P).padStart(16)}${f(B).padStart(16)}`)

@@ -5,7 +5,7 @@ import {
   type BattleConfig,
 } from '../../src/battle/setup'
 import { HEAD_ON } from '../../src/battle/entry'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
 import { countLocks } from '../../src/ai/target'
@@ -467,7 +467,7 @@ describe('20v20 跑滿 150 秒', () => {
    *
    * 原本用 `observe()` 的預設場景，而那個場景有**兩個結構性偏差**：
    *
-   *   1. `DEFAULT_BATTLE` 是 `blueSpec: P51D` 對 `redSpec: BF109G6` ——
+   *   1. `DEFAULT_BATTLE` 是 `blueSpec: P51D` 對 `redSpec: BF109K4` ——
    *      兩隊飛不同的飛機。實測把機種對調，優勢跟著換邊：
    *
    *        P51 對 109   20v20 比 1.5 藍優　12v12 比 2.6 藍優　8v8 比 3.7 紅優
@@ -766,7 +766,7 @@ describe('接手鏈打到底（M9 spec §7.3、§8）', () => {
     // `DEFAULT_BATTLE.units` 的 20v20，而 tsc 一個字都不會說
     const BLUE = 8
     const cfg: BattleConfig = {
-      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, BLUE, BF109G6, 8),
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, BLUE, BF109K4, 8),
     }
     const b = createBattle(new Idle(), cfg, 1)
     const cs = b.world.combatants

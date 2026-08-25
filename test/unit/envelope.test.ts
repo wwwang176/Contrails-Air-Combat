@@ -7,7 +7,7 @@ import {
 } from '../../src/analysis/envelope'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const KMH = 1 / 3.6
 const RAD2DEG = 180 / Math.PI
@@ -60,8 +60,8 @@ describe('maxLevelSpeed 與 Ps 的一致性', () => {
   })
 
   it('推力在極速處等於阻力', () => {
-    const v = maxLevelSpeed(BF109G6, 6300)
-    expect(thrustAt(BF109G6, 6300, v)).toBeCloseTo(dragAt(BF109G6, 6300, v, 1), 0)
+    const v = maxLevelSpeed(BF109K4, 6300)
+    expect(thrustAt(BF109K4, 6300, v)).toBeCloseTo(dragAt(BF109K4, 6300, v, 1), 0)
   })
 
   // 直接釘住「動力曲線背面」修正：10,470 m 附近 T−D(v) 在失速上方先為負（誘導阻力過大，
@@ -152,7 +152,7 @@ describe('轉彎性能', () => {
   // （見 Task 13 報告的協調者裁決：獨立手算與本模型的 486.4 km/h 完全吻合）。
   it('角落速度落在 400–550 km/h 的合理區間', () => {
     const vcP51 = cornerSpeed(P51D, 0) / KMH
-    const vcBf = cornerSpeed(BF109G6, 0) / KMH
+    const vcBf = cornerSpeed(BF109K4, 0) / KMH
     expect(vcP51).toBeGreaterThan(400)
     expect(vcP51).toBeLessThan(550)
     expect(vcBf).toBeGreaterThan(400)
@@ -178,7 +178,7 @@ describe('轉彎性能', () => {
   // 不會被抽樣命中；容差收緊到約 2 倍格距（格距 = vc/N = 0.25%，2 倍 = 0.5%），
   // 使其成為真正的檢查而非同義重複。
   it('cornerSpeed 與 instantaneousTurnRate 的峰值交叉驗證', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       const vc = cornerSpeed(spec, 0)
       let bestV = 0
       let bestRate = -Infinity
@@ -196,7 +196,7 @@ describe('轉彎性能', () => {
   })
 
   it('低速持續轉彎率為正且落在合理範圍', () => {
-    const rate = sustainedTurnRate(BF109G6, 0, 300 * KMH) * RAD2DEG
+    const rate = sustainedTurnRate(BF109K4, 0, 300 * KMH) * RAD2DEG
     expect(rate).toBeGreaterThan(5)
     expect(rate).toBeLessThan(35)
   })
@@ -208,11 +208,11 @@ describe('maxRollRate', () => {
   })
 
   it('Bf 109 在 400 km/h 約 80 度/秒', () => {
-    expect(maxRollRate(BF109G6, 0, 400 * KMH) * RAD2DEG).toBeCloseTo(80, -1)
+    expect(maxRollRate(BF109K4, 0, 400 * KMH) * RAD2DEG).toBeCloseTo(80, -1)
   })
 
   it('Bf 109 在 650 km/h 因副翼變重而大幅衰減', () => {
-    const r = maxRollRate(BF109G6, 0, 650 * KMH) * RAD2DEG
+    const r = maxRollRate(BF109K4, 0, 650 * KMH) * RAD2DEG
     expect(r).toBeGreaterThan(20)
     expect(r).toBeLessThan(45)
   })
@@ -227,22 +227,40 @@ describe('bestSustainedTurnRate', () => {
    * 一開打，兩台的速度就會各自收斂到自己的最佳點，當下的速度差會被抹平。
    */
   it('等於全速度範圍的最大值（對照 0.25 m/s 步長的暴力掃描）', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       for (const alt of ALTS) {
         let brute = 0
         for (let v = 30; v <= 260; v += 0.25) {
           brute = Math.max(brute, sustainedTurnRate(spec, alt, v))
         }
-        // 本函數細化後可能略高於粗網格的暴力解，故只檢查不低於它且極接近
+        // 【2026-08-25：由單邊「不得低於暴力解」改成雙邊容差】
+        //
+        // 舊版寫 `fast >= brute - 1e-9`，也就是要求細化解**永遠**不低於
+        // 0.25 m/s 網格的暴力解。那不是 `searchBestTurn` 保證得了的性質：
+        // 它跑 12 次黃金分割，收斂殘差約 1e-5 rad/s（該函數的註解自己就
+        // 寫了這個數字），而暴力解本身也是從下方逼近的近似值。兩個近似
+        // 誤差誰大誰小是碰運氣。
+        //
+        // 舊版之所以一直綠，是因為 0.25 m/s 的網格夠粗、殘差剛好比較大。
+        // 把網格加密到 0.05 m/s 之後，**沒有動過的 P-51D** 在 8,000 m 也
+        // 同樣是 −4.6e-6（K-4 在海平面是 −9.1e-6）——這條斷言原本就在賭
+        // 運氣，不是這次換機種才壞的。
+        //
+        // 現在兩個方向各有各的容差，因為兩個誤差來源本來就不同量級：
+        //   上方 0.0005：0.25 m/s 粗網格自己的低估量（實測最大 1.3e-4），
+        //                這是舊版就有的上界，沒有動。
+        //   下方 1e-4  ：12 次黃金分割的收斂殘差（實測最大 9.1e-6）。
+        // 消費端的決策門檻是 `DEFAULT_RULES.turnEnter` = 0.02 rad/s，
+        // 兩邊都留了至少 40 倍餘裕。
         const fast = bestSustainedTurnRate(spec, alt)
-        expect(fast).toBeGreaterThanOrEqual(brute - 1e-9)
         expect(fast - brute).toBeLessThan(0.0005)   // < 0.03°/s
+        expect(brute - fast).toBeLessThan(1e-4)
       }
     }
   })
 
   it('隨高度單調下降', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       let prev = Infinity
       for (const alt of ALTS) {
         const r = bestSustainedTurnRate(spec, alt)
@@ -253,14 +271,36 @@ describe('bestSustainedTurnRate', () => {
   })
 
   /**
-   * 【這才是兩台真實的轉彎關係】只差 ±2%。所以「因為轉不贏而放棄纏鬥」
-   * 這個理由對目前這兩台不該成立——`DEFAULT_RULES.turnEnter` 的死區
-   * （0.02 rad/s）刻意高於這個範圍。
+   * 【這才是兩台真實的轉彎關係，而 2026-08-25 它翻面了】
+   *
+   * G-6 時代兩台只差 ±2%（−0.006 ~ +0.017 rad/s），一律低於
+   * `DEFAULT_RULES.turnEnter` 的死區 0.02 —— 那條規則對這兩台等於休眠。
+   * 換成 K-4 之後：
+   *
+   * ```
+   *   高度      Δ = P-51 − K-4          高度       Δ
+   *       0 m   −0.0379  ← 超過死區      4,000 m   −0.0294  ← 超過
+   *   1,000 m   −0.0258  ← 超過          6,000 m   −0.0271  ← 超過
+   *   2,000 m   −0.0117                  8,000 m   −0.0250  ← 超過
+   *                                     10,000 m   −0.0252  ← 超過
+   * ```
+   *
+   * **K-4 在七格裡有六格轉得比 P-51D 快，而且幅度超過死區。**
+   * `rules.ts` 的 `turnEnter` 註解寫「門檻是為了日後加的機種而存在」——
+   * 那一天到了：P-51D 現在真的會因為轉不贏而判定 extend。這是本輪
+   * 最大的一個 AI 行為位移，不是數字上的小變動。
+   *
+   * 2,000 m 那一格是唯一的例外，因為 P-51D 的二段增壓在 1,900 m 換檔，
+   * 剛好在那裡把它抬到死區以內。
+   *
+   * 【所以這條斷言改成什麼】守「K-4 全高度都不比 P-51D 差」與「優勢的
+   * 上界」。方向翻回去，或幅度再擴大，都會紅。
    */
-  it('P-51 與 Bf 109 的機體差距在 ±0.02 rad/s 之內', () => {
+  it('K-4 的最佳持續轉彎率全高度不低於 P-51，且優勢不超過 0.05 rad/s', () => {
     for (const alt of ALTS) {
-      const d = bestSustainedTurnRate(P51D, alt) - bestSustainedTurnRate(BF109G6, alt)
-      expect(Math.abs(d)).toBeLessThan(0.02)
+      const d = bestSustainedTurnRate(P51D, alt) - bestSustainedTurnRate(BF109K4, alt)
+      expect(d).toBeLessThanOrEqual(0)
+      expect(d).toBeGreaterThan(-0.05)
     }
   })
 })
@@ -277,7 +317,7 @@ describe('bestSustainedTurnRateCached', () => {
    * 低於它的十分之一。實測 0.0013 rad/s，是門檻的 6.5%。
    */
   it('交戰高度帶（0–11,000 m）的內插誤差低於決策門檻的十分之一', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       for (let alt = 0; alt <= 11000; alt += 137) {
         const err = Math.abs(
           bestSustainedTurnRateCached(spec, alt) - bestSustainedTurnRate(spec, alt),

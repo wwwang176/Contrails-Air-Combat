@@ -4,7 +4,7 @@ import {
 } from '../../src/physics/propulsion'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AirData } from '../../src/physics/types'
 
 const air = (h: number): AirData =>
@@ -78,8 +78,10 @@ describe('enginePower', () => {
     expect(peaks).toBeGreaterThanOrEqual(2)
   })
 
-  it('Bf 109 海平面 WEP 接近 1,475 PS', () => {
-    expect(enginePower(BF109G6, air(0), 0, WEP_THROTTLE)).toBeCloseTo(1475 * PS, -3)
+  it('Bf 109 K-4 海平面 WEP 接近 2,000 PS', () => {
+    // 【2026-08-25：1,475 → 2,000】機種由 G-6（DB 605A）換成 K-4
+    //（DB 605DC，1.98 ata、C3 + MW-50）。見 specs/bf109k4.ts 檔頭。
+    expect(enginePower(BF109K4, air(0), 0, WEP_THROTTLE)).toBeCloseTo(2000 * PS, -3)
   })
 
   it('臨界高度以上功率隨高度遞減', () => {
@@ -99,13 +101,29 @@ describe('enginePower', () => {
     expect(fast).toBeGreaterThan(1350 * HP)
   })
 
-  it('P-51 在 8,000 m 的引擎功率高於 Bf 109（雙級增壓器的高空優勢）', () => {
-    // 比較原始功率而非推重比。Bf 109 輕 1150 kg，推重比本來就佔優——
-    // 史實爬升率 1150 m/min vs P-51 的 1060 m/min 正是如此，
-    // 那屬於 Task 15 的平衡測試範圍，不是本模組要斷言的事。
-    const p51 = enginePower(P51D, air(8000), 0.6, WEP_THROTTLE)
-    const bf = enginePower(BF109G6, air(8000), 0.6, WEP_THROTTLE)
-    expect(p51).toBeGreaterThan(bf)
+  /**
+   * 【2026-08-25：這一條換了斷言的對象，守的性質沒變】
+   *
+   * 舊版寫「P-51 在 8,000 m 的**絕對功率**高於 Bf 109」。109 換成 K-4 之後
+   * 那不再成立——不是因為增壓器，是因為海平面就多了 32% 的功率：
+   *
+   * ```
+   *              海平面      8,000 m     保留率
+   *   P-51D      1111.1 kW   1013.9 kW   91.3%   ← 雙級二速
+   *   Bf 109 K-4 1471.0 kW   1215.4 kW   82.6%   ← 單級無段
+   * ```
+   *
+   * 雙級增壓器的高空優勢在**保留率**上，而那一項 P-51D 仍然贏，而且贏得
+   * 更明顯（91.3% 對 82.6%）。改斷言保留率也讓這一條對日後的動力調參
+   * 免疫——它問的本來就是「增壓器好不好」，不是「誰的引擎大」。
+   */
+  it('P-51 的高空功率保留率高於 Bf 109（雙級增壓器的高空優勢）', () => {
+    const retention = (spec: typeof P51D): number =>
+      enginePower(spec, air(8000), 0.6, WEP_THROTTLE)
+      / enginePower(spec, air(0), 0.6, WEP_THROTTLE)
+    expect(retention(P51D)).toBeGreaterThan(retention(BF109K4))
+    // 實測 0.913 對 0.826
+    expect(retention(P51D) - retention(BF109K4)).toBeGreaterThan(0.05)
   })
 })
 
@@ -134,7 +152,7 @@ describe('propThrust', () => {
   it('V = 0 時推力有限，且落在 15–30 kN 的合理區間（兩款機種）', () => {
     // 修正前 propThrust(v=0) 恆為 0（η(0)=0，V_FLOOR 引入前無下限保護），
     // 飛機永遠無法從靜止起動。這裡直接在 v=0 斷言，不像舊測試在 v=5 迴避問題。
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       const power = enginePower(spec, a0, 0, WEP_THROTTLE)
       const t0 = propThrust(spec, power, 0, a0)
       expect(Number.isFinite(t0)).toBe(true)
@@ -147,7 +165,7 @@ describe('propThrust', () => {
     // η(V) = etaMax·(1−e^(−V/vRef)) 在 V→0 時一階趨近 etaMax·V/vRef，
     // 故 η(V)·P/V 的極限是有限值 etaMax·P/vRef。這裡把機制本身釘住，
     // 而不只是檢查數字落在某個寬鬆區間內。
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       const power = enginePower(spec, a0, 0, WEP_THROTTLE)
       const t0 = propThrust(spec, power, 0, a0)
       const analyticLimit = (spec.prop.etaMax * power) / spec.prop.vRef
@@ -166,7 +184,7 @@ describe('propThrust', () => {
   // 若這條測試失敗：不要動 propThrust，去看 src/specs/*.ts 的
   // etaMax / vRef / figureOfMerit 最近改了什麼。
   it('動量理論靜推力夾制在兩款機種的出貨參數下皆不 binding（守住 V→0 解析極限測試的前提）', () => {
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       const power = enginePower(spec, a0, 0, WEP_THROTTLE)
       const radius = spec.prop.diameter / 2
       const ideal = Math.cbrt(2 * a0.density * Math.PI * radius * radius * power * power)
@@ -187,7 +205,7 @@ describe('propThrust', () => {
 
   it('動量理論靜推力上限公式正確（以巨大合成功率強制觸發，因為兩款機種在正常範圍內都不會自然觸發它）', () => {
     const hugePower = 1e9
-    for (const spec of [P51D, BF109G6]) {
+    for (const spec of [P51D, BF109K4]) {
       const radius = spec.prop.diameter / 2
       const diskArea = Math.PI * radius * radius
       const expectedStaticMax =

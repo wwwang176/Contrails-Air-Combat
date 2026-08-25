@@ -9,7 +9,7 @@ import { createCommand } from '../../src/control/Controller'
 import { AiController } from '../../src/ai/AiController'
 import { PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Controls, FlightState } from '../../src/physics/types'
 import { RAD } from '../../src/core/math'
@@ -124,7 +124,7 @@ const PITCH_RATE_FLOOR = 48
 const COLLAPSE_TIME = 8.1
 
 describe('L4-A 脫離必須發生', () => {
-  for (const spec of [P51D, BF109G6]) {
+  for (const spec of [P51D, BF109K4]) {
     it(`${spec.name}：垂直懸掛時滿舵換不到姿態控制`, () => {
       const samples = verticalHang(spec, 1000, ENTRY_TAS, HANG_SECONDS)
 
@@ -268,7 +268,7 @@ describe('L4-B AI 必須救得回來', () => {
     [1500, 80],
   ]
 
-  for (const spec of [P51D, BF109G6]) {
+  for (const spec of [P51D, BF109K4]) {
     for (const [altitude, tas] of CASES) {
       it(`${spec.name} / ${altitude} m / ${(tas * 3.6).toFixed(0)} km/h 垂直懸掛 → 救得回來`, () => {
         const r = aiRecovery(spec, altitude, tas)

@@ -10,7 +10,7 @@
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_TARGET } from '../../src/ai/target'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const ALT = 4000
 const TAS = 200
@@ -22,7 +22,7 @@ function discount(x: number, w: number): number {
   return Math.pow(1 / (1 + x), w)
 }
 
-for (const spec of [P51D, BF109G6]) {
+for (const spec of [P51D, BF109K4]) {
   const rate = instantaneousTurnRate(spec, ALT, TAS)
   console.log(`\n=== ${spec.id}　${ALT} m、TAS ${TAS} m/s　瞬時迴旋率 `
     + `${(rate * RAD).toFixed(1)}°/s ===`)

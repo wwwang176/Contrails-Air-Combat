@@ -4,7 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { THROTTLE_FLOOR } from '../../src/input/throttle'
 import { BRAKE_CD, dragCoefficient } from '../../src/physics/aero'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 
 /**
@@ -55,7 +55,7 @@ describe('BRAKE_CD 的手感校準', () => {
     // 兩台翼載幾乎相同（S/m 0.00508 vs 0.00510），所以同一個 CD 給出
     // 幾乎相同的減速度。這是用全域常數而非機種參數的理由。
     const p51 = brakeSeconds(P51D, 700 * KMH, 400 * KMH)
-    const bf109 = brakeSeconds(BF109G6, 700 * KMH, 400 * KMH)
+    const bf109 = brakeSeconds(BF109K4, 700 * KMH, 400 * KMH)
     expect(Math.abs(bf109 - p51)).toBeLessThan(1.0)
   })
 

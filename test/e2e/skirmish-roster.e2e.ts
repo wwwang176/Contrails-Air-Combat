@@ -99,7 +99,7 @@ async function main(): Promise<void> {
 
     const line = logs.find((t) => t.includes('×'))
     ok(line !== undefined, '主迴圈印出了這一場的編制', line ?? '(沒有)')
-    ok(line!.includes('bf109g6') && line!.includes('p51d') && line!.includes('b17g'),
+    ok(line!.includes('bf109k4') && line!.includes('p51d') && line!.includes('b17g'),
       '我方真的是混編的那三架')
     ok(line!.includes('he111'), '敵方真的有 He 111')
 

@@ -5,7 +5,7 @@ import {
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
 import { TAKEOVER_DELAY } from '../../src/battle/takeover'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
@@ -716,7 +716,7 @@ describe('R 重開的完整復原（M9 spec §8）', () => {
 
 describe('雙方架數與機種可設定（M10 spec §6）', () => {
   it('兩邊架數不同時各自正確', () => {
-    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 3, BF109G6, 7) }
+    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 3, BF109K4, 7) }
     const b = createBattle(new Idle(), cfg, 1)
     expect(b.blue).toHaveLength(3)
     expect(b.red).toHaveLength(7)
@@ -725,23 +725,23 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
   })
 
   it('機種依參數而不是寫死', () => {
-    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, BF109G6, 20, P51D, 20) }
+    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, BF109K4, 20, P51D, 20) }
     const b = createBattle(new Idle(), cfg, 1)
-    for (const c of b.blue) expect(c.aircraft.spec.id).toBe('bf109g6')
+    for (const c of b.blue) expect(c.aircraft.spec.id).toBe('bf109k4')
     for (const c of b.red) expect(c.aircraft.spec.id).toBe('p51d')
   })
 
   it('名冊跟著機種走 —— 藍隊飛 Bf109 就拿德文名', () => {
     // 【為什麼這條非有不可】M9 spec §7.1 裁決「換的是機種不是隊伍顏色」，
     // 而名冊靠的是 `factionOf(spec.id)`。這條測試守住那個裁決真的成立。
-    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, BF109G6, 20, P51D, 20) }
+    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, BF109K4, 20, P51D, 20) }
     const b = createBattle(new Idle(), cfg, 5)
     for (const c of b.blue) expect(AXIS_NAMES).toContain(b.roster.pilots[c.index]!.name)
     for (const c of b.red) expect(ALLIED_NAMES).toContain(b.roster.pilots[c.index]!.name)
   })
 
   it('藍隊只有一架時，那一架就是玩家', () => {
-    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 1, BF109G6, 4) }
+    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 1, BF109K4, 4) }
     const b = createBattle(new Idle(), cfg, 1)
     expect(b.blue).toHaveLength(1)
     expect(b.player).toBe(b.blue[0])
@@ -750,7 +750,7 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
   })
 
   it('1 vs 1 也跑得動', () => {
-    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 1, BF109G6, 1) }
+    const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 1, BF109K4, 1) }
     const b = createBattle(new Idle(), cfg, 1)
     for (let i = 0; i < 240; i++) stepBattle(b, DT)
     expect(b.outcome).toBe('fighting')
@@ -774,7 +774,7 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
    * `copy`（數值跟得上）。兩者任一被改回去，這裡就紅。
    */
   it('再打一場之後，指揮層的快照仍然跟著飛機走', () => {
-    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 8, BF109G6, 8) }, 7)
+    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 8, BF109K4, 8) }, 7)
     const before = b.world.combatants.map((c) => c.aircraft.state)
 
     for (let i = 0; i < 240; i++) stepBattle(b, DT)
@@ -800,7 +800,7 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
    * 永遠不會被換掉」變成一條沒人守的默契。
    */
   it('指揮層快照持有自己的向量，不是飛機那一份的別名', () => {
-    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, BF109G6, 4) }, 3)
+    const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, BF109K4, 4) }, 3)
     stepBattle(b, DT)
     for (let i = 0; i < b.world.combatants.length; i++) {
       const c = b.world.combatants[i]!

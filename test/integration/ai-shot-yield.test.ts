@@ -35,7 +35,7 @@ import { createTargetBoard } from '../../src/ai/target'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
 import { VETERAN } from '../../src/ai/profile'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -61,7 +61,7 @@ const TAIL_SECONDS = 1
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
 }
-const ME: AircraftSpec = applyFeel(BF109G6, GAME_FEEL)
+const ME: AircraftSpec = applyFeel(BF109K4, GAME_FEEL)
 const FOE: AircraftSpec = applyFeel(P51D, GAME_FEEL)
 const ME_BLUNT: AircraftSpec = { ...ME, battery: harmless(ME.battery) }
 const FOE_BLUNT: AircraftSpec = { ...FOE, battery: harmless(FOE.battery) }

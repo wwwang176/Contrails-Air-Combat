@@ -8,7 +8,7 @@
  * 算出來的就是玩家真正飛得到的。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, sustainedTurnRate, bestSustainedTurnRate,
@@ -80,7 +80,7 @@ const CASES: Case[] = [
   },
 ]
 
-for (const raw of [P51D, BF109G6]) {
+for (const raw of [P51D, BF109K4]) {
   console.log(`\n===== ${raw.name} =====`)
   console.log('配方                       CLmax  失速SL 失速4k 真角速4k 最小瞬時R4k 最佳持續R4k  爬升m/min SL極速 4k極速  升限')
   for (const c of CASES) {
@@ -107,7 +107,7 @@ for (const raw of [P51D, BF109G6]) {
 console.log('\n=== 兩機的相對關係（平衡有沒有被打破）===')
 for (const c of CASES) {
   const p = applyFeel(c.make(P51D), GAME_FEEL)
-  const b = applyFeel(c.make(BF109G6), GAME_FEEL)
+  const b = applyFeel(c.make(BF109K4), GAME_FEEL)
   const ps: AircraftSpec = { ...p, limits: { ...p.limits, gPositive: c.nEff < 0 ? structural(p) : c.nEff } }
   const bs: AircraftSpec = { ...b, limits: { ...b.limits, gPositive: c.nEff < 0 ? structural(b) : c.nEff } }
   console.log(`${c.name.padEnd(26)} 最小瞬時R 109÷P51 = `
@@ -119,7 +119,7 @@ for (const c of CASES) {
 console.log('\n=== 黑視：拉到極限時的過載會落在哪 ===')
 console.log('（gEffect.ts：6 G 起漸暗、8 G 全黑）')
 for (const c of CASES) {
-  for (const raw of [P51D, BF109G6]) {
+  for (const raw of [P51D, BF109K4]) {
     const n = c.nEff < 0 ? raw.limits.gPositive : c.nEff
     console.log(`${c.name.padEnd(22)} ${raw.id.padEnd(9)} 過載上限 ${n} G → `
       + `黑視強度 ${(Math.min(1, Math.max(0, (n - 6) / 2)) * 100).toFixed(0)}%`)

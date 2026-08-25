@@ -7,7 +7,7 @@ import {
   THREAT_RANGE, TRACK_SATURATION, turnTime,
 } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { DEG, G0, RAD } from '../../src/core/math'
 import { DEFAULT_DOCTRINE, manoeuvreSpeed } from '../../src/ai/doctrine'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
@@ -18,7 +18,7 @@ import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
  * 重填一張表（實測 30–40 ms）。出貨路徑（`createBattle`）也是每場只套一次。
  */
 const FEEL_P51D = applyFeel(P51D, GAME_FEEL)
-const FEEL_BF109 = applyFeel(BF109G6, GAME_FEEL)
+const FEEL_BF109 = applyFeel(BF109K4, GAME_FEEL)
 
 /**
  * 【為什麼用 Aircraft 而不是自訂的輕量結構】評估層要讀的東西
@@ -197,27 +197,44 @@ describe('evaluateEnergy', () => {
   })
 
   /**
-   * 【這一條是整個專案的核心命題在 AI 層的第一次兌現】
+   * 【這一條是整個專案的核心命題在 AI 層的第一次兌現，而它在 2026-08-25 翻面了】
    *
-   * M1 §13.3 量到兩台的海平面持續轉彎率交叉點落在 280–380 km/h。所以
-   * 低速時 109 轉得贏、高速時 P-51 轉得贏。AI 的 turnAdvantage 必須看得到
-   * 這件事——若它用機種常數而不是當前高度與速度去查，這個關係會被抹平，
-   * 「能量戰」就退化成「誰的參數表比較好」。
+   * 守的性質沒變：**turnAdvantage 必須隨速度換邊。** 若 AI 用機種常數而不是
+   * 當前高度與速度去查，這個關係會被抹平，「能量戰」就退化成「誰的參數表
+   * 比較好」。這條測試存在的理由是釘住「它有在查」。
+   *
+   * 換邊的**方向**則是機體資料的結果，不是設計目標：
+   *
+   * ```
+   *   G-6 時代    低速 109 佔優、高速 P-51 佔優
+   *   K-4（現在）  低速 P-51 佔優、高速 K-4 佔優，海平面分水嶺 328 km/h
+   * ```
+   *
+   * （328 是**套過 `applyFeel` 之後**量的，也就是這些測試實際餵進去的
+   * 那組 spec。裸 spec 是 270 km/h。）
+   *
+   * **為什麼反過來**：K-4 比 G-6 重 225 kg 而翼面積沒變，翼載從
+   * 196.3 爬到 210.3 kg/m²，**超過了 P-51D 的 197.0**。低速端的轉彎率是
+   * CL_max 限制的，比的就是翼載，所以 109 那個「慢下來就轉贏你」的傳統
+   * 身分在 K-4 身上沒有了——史實上晚期 109 的迴旋能力確實是這樣退化的。
+   * 高速端則是推力主導，K-4 多了 525 匹，於是換它贏。
    */
-  it('turnAdvantage 隨速度換邊：低速 109 佔優、高速 P-51 佔優', () => {
-    const slow109 = at(BF109G6, 0, 250 / 3.6)
+  it('turnAdvantage 隨速度換邊：低速 P-51 佔優、高速 K-4 佔優', () => {
+    // 250 km/h 在海平面分水嶺（328 km/h）以下 → P-51 佔優
     const slowP51 = at(P51D, 0, 250 / 3.6)
-    evaluateEnergy(slow109, slowP51, sit)
+    const slow109 = at(BF109K4, 0, 250 / 3.6)
+    evaluateEnergy(slowP51, slow109, sit)
     expect(sit.turnAdvantage).toBeGreaterThan(0)
 
-    const fast109 = at(BF109G6, 0, 500 / 3.6)
+    // 500 km/h 在分水嶺以上 → K-4 佔優
+    const fast109 = at(BF109K4, 0, 500 / 3.6)
     const fastP51 = at(P51D, 0, 500 / 3.6)
-    evaluateEnergy(fastP51, fast109, sit)
+    evaluateEnergy(fast109, fastP51, sit)
     expect(sit.turnAdvantage).toBeGreaterThan(0)
   })
 
   it('turnAdvantage 反號：交換雙方角色時符號必須相反', () => {
-    const a = at(BF109G6, 0, 250 / 3.6)
+    const a = at(BF109K4, 0, 250 / 3.6)
     const b = at(P51D, 0, 250 / 3.6)
     evaluateEnergy(a, b, sit)
     const forward = sit.turnAdvantage
@@ -273,7 +290,7 @@ describe('evaluateEnergy', () => {
   })
 
   it('全部欄位都是有限值', () => {
-    evaluateEnergy(at(P51D, 4000, 200), at(BF109G6, 6000, 120), sit)
+    evaluateEnergy(at(P51D, 4000, 200), at(BF109K4, 6000, 120), sit)
     for (const v of [sit.energyAdvantage, sit.psSelf, sit.psTarget,
       sit.turnAdvantage, sit.cornerRatio, sit.stallMargin]) {
       expect(Number.isFinite(v)).toBe(true)
@@ -286,7 +303,7 @@ describe('evaluateEnergy', () => {
    * 於是每一架都判定「我速度過剩」—— 包括那架其實比對手慢 28 m/s 的護航機。
    */
   it('speedAdvantage：雙方 TAS 差除以我的角落速度', () => {
-    const self = at(BF109G6, 5000, 200)
+    const self = at(BF109K4, 5000, 200)
     const target = at(P51D, 5000, 240)
     evaluateEnergy(self, target, sit)
 
@@ -301,7 +318,7 @@ describe('evaluateEnergy', () => {
     // 【為什麼要釘住這件事】兩個量若用不同的尺標，`extendPitchAngle` 裡取
     // 較大值的那一步就是在比兩個不同單位的數字。
     const self = at(P51D, 6000, 220)
-    const target = at(BF109G6, 6000, 180)
+    const target = at(BF109K4, 6000, 180)
     evaluateEnergy(self, target, sit)
 
     // cornerRatio = Vs / vc、speedAdvantage = (Vs − Vt) / vc
@@ -333,7 +350,7 @@ describe('evaluateEnergy', () => {
    * 機種都代表同一件事 —— 那是「一組參數對所有機型成立」的根據。
    */
   it('energyRatio：比能量差除以角落速度的動能高度', () => {
-    const self = at(BF109G6, 6000, 200)
+    const self = at(BF109K4, 6000, 200)
     const target = at(P51D, 5500, 200)
     evaluateEnergy(self, target, sit)
 

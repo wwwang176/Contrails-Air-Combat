@@ -17,7 +17,7 @@ import { AiController } from '../../src/ai/AiController'
 import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import type { AircraftSpec } from '../../src/specs/types'
 
@@ -155,37 +155,37 @@ function run(blue: AircraftSpec, red: AircraftSpec, vi: number): Result {
 }
 
 const ALL: Record<string, { name: string; blue: AircraftSpec; red: AircraftSpec }> = {
-  A: { name: 'A 現行', blue: P51D, red: BF109G6 },
-  B: { name: 'B CLmax ×1.33', blue: withLift(P51D, 1.33), red: withLift(BF109G6, 1.33) },
-  F: { name: 'F 結構 ×1.5（12 / 11.25）', blue: withG(P51D, 1.5), red: withG(BF109G6, 1.5) },
+  A: { name: 'A 現行', blue: P51D, red: BF109K4 },
+  B: { name: 'B CLmax ×1.33', blue: withLift(P51D, 1.33), red: withLift(BF109K4, 1.33) },
+  F: { name: 'F 結構 ×1.5（12 / 11.25）', blue: withG(P51D, 1.5), red: withG(BF109K4, 1.5) },
   G: {
     name: 'G CLmax ×1.33 + 結構 ×1.5',
     blue: withG(withLift(P51D, 1.33), 1.5),
-    red: withG(withLift(BF109G6, 1.33), 1.5),
+    red: withG(withLift(BF109K4, 1.33), 1.5),
   },
-  H: { name: 'H CLmax ×1.2 + 結構 ×1.5', blue: withG(withLift(P51D, 1.2), 1.5), red: withG(withLift(BF109G6, 1.2), 1.5) },
-  I: { name: 'I CLmax ×1.5 + 結構 ×1.5', blue: withG(withLift(P51D, 1.5), 1.5), red: withG(withLift(BF109G6, 1.5), 1.5) },
+  H: { name: 'H CLmax ×1.2 + 結構 ×1.5', blue: withG(withLift(P51D, 1.2), 1.5), red: withG(withLift(BF109K4, 1.2), 1.5) },
+  I: { name: 'I CLmax ×1.5 + 結構 ×1.5', blue: withG(withLift(P51D, 1.5), 1.5), red: withG(withLift(BF109K4, 1.5), 1.5) },
   K: {
     name: 'K 質量 ×0.8 + 結構 ×1.5',
     blue: withG({ ...P51D, mass: P51D.mass * 0.8 }, 1.5),
-    red: withG({ ...BF109G6, mass: BF109G6.mass * 0.8 }, 1.5),
+    red: withG({ ...BF109K4, mass: BF109K4.mass * 0.8 }, 1.5),
   },
   // M：專案負責人的提案 —— 軟夾到**史實結構極限**（gPositive 原封不動，
   // 由 PROBE_PILOT_G 放開飛行員夾）＋ 減重 10%
   M: {
     name: 'M 質量 ×0.9（結構極限原值）',
     blue: { ...P51D, mass: P51D.mass * 0.9 },
-    red: { ...BF109G6, mass: BF109G6.mass * 0.9 },
+    red: { ...BF109K4, mass: BF109K4.mass * 0.9 },
   },
   N: {
     name: 'N 質量 ×0.85（結構極限原值）',
     blue: { ...P51D, mass: P51D.mass * 0.85 },
-    red: { ...BF109G6, mass: BF109G6.mass * 0.85 },
+    red: { ...BF109K4, mass: BF109K4.mass * 0.85 },
   },
   O: {
     name: 'O 質量 ×0.8（結構極限原值）',
     blue: { ...P51D, mass: P51D.mass * 0.8 },
-    red: { ...BF109G6, mass: BF109G6.mass * 0.8 },
+    red: { ...BF109K4, mass: BF109K4.mass * 0.8 },
   },
   // ── 「−20% 要付多少」的刻度尺 ────────────────────────────────
   // 軟夾已經進 limiters.ts，GAME_FEEL.mass 已經是 0.9，所以這裡注入的是
@@ -195,30 +195,30 @@ const ALL: Record<string, { name: string; blue: AircraftSpec; red: AircraftSpec 
       .map(([eff, key]) => [key, {
         name: `有效質量 ${eff.toFixed(2)}`,
         blue: { ...P51D, mass: P51D.mass * (eff / 0.9) },
-        red: { ...BF109G6, mass: BF109G6.mass * (eff / 0.9) },
+        red: { ...BF109K4, mass: BF109K4.mass * (eff / 0.9) },
       }]),
   ),
   // ── 爬升中性的三個配方（推力倍率由 turn-climbneutral.probe.ts 解出）──
   N1: {
     name: '乙 質量0.80 + 推力×0.794',
     blue: withPowerCd0(relMass(P51D, 0.80), 0.794),
-    red: withPowerCd0(relMass(BF109G6, 0.80), 0.794),
+    red: withPowerCd0(relMass(BF109K4, 0.80), 0.794),
   },
   N2: {
     name: '甲 CLmax ×1.30（質量原值）',
     blue: withLift(relMass(P51D, 1), 1.30),
-    red: withLift(relMass(BF109G6, 1), 1.30),
+    red: withLift(relMass(BF109K4, 1), 1.30),
   },
   N3: {
     name: '丙 質量0.90 + CLmax×1.15 + 推力×0.897',
     blue: withPowerCd0(withLift(relMass(P51D, 0.90), 1.15), 0.897),
-    red: withPowerCd0(withLift(relMass(BF109G6, 0.90), 1.15), 0.897),
+    red: withPowerCd0(withLift(relMass(BF109K4, 0.90), 1.15), 0.897),
   },
   // 混血：減重少一點，用 CLmax 補剩下的
   MIX: {
     name: '有效質量 0.85 + CLmax ×1.15',
     blue: withLift({ ...P51D, mass: P51D.mass * (0.85 / 0.9) }, 1.15),
-    red: withLift({ ...BF109G6, mass: BF109G6.mass * (0.85 / 0.9) }, 1.15),
+    red: withLift({ ...BF109K4, mass: BF109K4.mass * (0.85 / 0.9) }, 1.15),
   },
 }
 const PICK = (env('PROBE_CASES') ?? 'A,B,F,G,H').split(',')

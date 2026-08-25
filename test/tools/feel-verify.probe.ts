@@ -11,7 +11,7 @@
  *   升限 15379 m、最小瞬時 R@4000 250 m、失速 SL 145 km/h。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, sustainedTurnRate, bestSustainedTurnRate,
@@ -45,7 +45,7 @@ console.log('出貨中的 GAME_FEEL：', JSON.stringify(GAME_FEEL))
 console.log('\n【改動前的 P-51D 基準】爬升 1999、SL極速 584、4k極速 700、升限 15379、'
   + '最小瞬時R@4k 250、失速SL 145\n')
 
-for (const raw of [P51D, BF109G6]) {
+for (const raw of [P51D, BF109K4]) {
   const s = applyFeel(raw, GAME_FEEL)
   console.log(`=== ${raw.name} ===`)
   console.log(`  CLmax            ${derivedClMax(s, false).toFixed(3)}`)
@@ -64,7 +64,7 @@ for (const raw of [P51D, BF109G6]) {
 const BEFORE = { roll: 1.2, oswald: 2, power: 1.98, lift: 1.3, cd0: 2.06, mass: 1 }
 
 console.log('=== 爬升率逐高度對照（改動前 vs 現在）===')
-for (const raw of [P51D, BF109G6]) {
+for (const raw of [P51D, BF109K4]) {
   console.log(`
 ${raw.name}`)
   console.log('  高度      改動前      現在      差')

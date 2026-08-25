@@ -5,7 +5,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { INTENTS, type Intent } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Battery } from '../../src/weapons/types'
 import { DEG } from '../../src/core/math'
@@ -160,13 +160,13 @@ function fractions(steps: Record<string, number>, total: number): Record<Intent,
 /** 高能量開局：藍方在上方 1500 m（5500 vs 4000）且快 80 m/s。 */
 const HIGH_ENERGY: [Side, Side] = [
   { spec: P51D, altitude: 5500, tas: 250, offset: [0, 0, 800], headingDeg: 180 },
-  { spec: BF109G6, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
+  { spec: BF109K4, altitude: 4000, tas: 170, offset: [0, 0, 0], headingDeg: 0 },
 ]
 
 /** 共速共高開局：純粹的纏鬥。 */
 const CO_ENERGY: [Side, Side] = [
   { spec: P51D, altitude: 4000, tas: 190, offset: [400, 0, 400], headingDeg: 135 },
-  { spec: BF109G6, altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 },
+  { spec: BF109K4, altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 },
 ]
 
 describe('L4-B 對戰矩陣 —— 打得起來、不會壞', () => {
@@ -175,11 +175,11 @@ describe('L4-B 對戰矩陣 —— 打得起來、不會壞', () => {
     ['共速共高', CO_ENERGY],
     ['對頭', [
       { spec: P51D, altitude: 4000, tas: 200, offset: [0, 0, 1500], headingDeg: 180 },
-      { spec: BF109G6, altitude: 4000, tas: 200, offset: [0, 0, 0], headingDeg: 0 },
+      { spec: BF109K4, altitude: 4000, tas: 200, offset: [0, 0, 0], headingDeg: 0 },
     ]],
     ['藍方被咬', [
       { spec: P51D, altitude: 4000, tas: 180, offset: [0, 0, 0], headingDeg: 0 },
-      { spec: BF109G6, altitude: 4000, tas: 200, offset: [0, 0, 500], headingDeg: 0 },
+      { spec: BF109K4, altitude: 4000, tas: 200, offset: [0, 0, 500], headingDeg: 0 },
     ]],
   ]
 
@@ -241,7 +241,7 @@ describe('L4-C 能量戰證據', () => {
     // 藍方在下方且慢 → 應該先脫離重整而不是硬纏
     const lowEnergy: [Side, Side] = [
       { spec: P51D, altitude: 3000, tas: 150, offset: [0, -1000, 0], headingDeg: 0 },
-      { spec: BF109G6, altitude: 4000, tas: 250, offset: [0, 0, 600], headingDeg: 0 },
+      { spec: BF109K4, altitude: 4000, tas: 250, offset: [0, 0, 600], headingDeg: 0 },
     ]
     const low = duel(...lowEnergy)
     const high = duel(...HIGH_ENERGY)
@@ -465,7 +465,7 @@ describe('L4-C 能量戰證據', () => {
     const [blue, red] = HIGH_ENERGY
     const normal = duel(blue, red)
     const swapped = duel(
-      { ...blue, battery: BF109G6.battery },
+      { ...blue, battery: BF109K4.battery },
       { ...red, battery: P51D.battery },
     )
     console.log('高能量開局 原始武裝：', normal.winner, `${normal.seconds.toFixed(1)}s`)

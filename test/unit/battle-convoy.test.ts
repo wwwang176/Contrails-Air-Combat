@@ -13,7 +13,7 @@ import { pickTakeover } from '../../src/battle/takeover'
 import { createFlights } from '../../src/battle/flights'
 import { HEAD_ON } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { B17G } from '../../src/specs/b17g'
 import { HE111 } from '../../src/specs/he111'
 import type { Team } from '../../src/world/World'
@@ -22,10 +22,10 @@ const DT = 1 / 240
 
 /** 四架 P-51 護送四架 B-17，對面十架 Bf109 —— 就是 `allies-escort` 那張卡 */
 const BLUE_ESCORT: SideOrder = { fighter: P51D, fighters: 4, bomber: B17G, bombers: 4 }
-const RED_PLAIN: SideOrder = { fighter: BF109G6, fighters: 10, bomber: null, bombers: 0 }
+const RED_PLAIN: SideOrder = { fighter: BF109K4, fighters: 10, bomber: null, bombers: 0 }
 /** 反過來：紅隊帶轟炸機，就是 `allies-intercept` */
 const BLUE_PLAIN: SideOrder = { fighter: P51D, fighters: 4, bomber: null, bombers: 0 }
-const RED_CONVOY: SideOrder = { fighter: BF109G6, fighters: 4, bomber: HE111, bombers: 4 }
+const RED_CONVOY: SideOrder = { fighter: BF109K4, fighters: 4, bomber: HE111, bombers: 4 }
 
 describe('convoyLine', () => {
   it('被護送的每一架自成一個小隊', () => {
