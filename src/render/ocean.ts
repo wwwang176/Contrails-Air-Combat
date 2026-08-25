@@ -1161,7 +1161,16 @@ export function createOcean(): Ocean {
 
   // 遠海。用 MeshPhysicalMaterial 而不是 Basic：要跟細浪面接得上就得受同一
   // 組燈光。roughness / metalness 全部沿用細浪面的值。
-  const farGeometry = new PlaneGeometry(FAR_SEA_SIZE, FAR_SEA_SIZE, 1, 1)
+  //
+  // 【為什麼要細分成 128×128，不是一個大四邊形】碎光的取樣座標是片段的
+  // vOceanWorld.xz，由頂點透視插值而來。整片 6000 km 若只有兩個三角形，
+  // 頂點相距數千公里，插值出的世界座標在 float32 下量化誤差約 0.36 m，
+  // 相機一移動就跳動 → 遠海白點 1 px 抖，且對角線兩側各自插值、各自抖
+  //（實測 2026-08-25）。細分到 128 段後單格約 47 km，插值誤差降到約 2.8 mm，
+  // 遠小於碎光 14 m 的格子，抖動消失。128² = 16,384 個頂點，farMesh 不做
+  // 頂點位移（displace=false），建立一次、之後只平移，成本可忽略。
+  const FAR_SEGMENTS = 128
+  const farGeometry = new PlaneGeometry(FAR_SEA_SIZE, FAR_SEA_SIZE, FAR_SEGMENTS, FAR_SEGMENTS)
   farGeometry.rotateX(-Math.PI / 2)
   const farMaterial = new MeshPhysicalMaterial({
     color: SEA_COLOR,
