@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest'
 import { createDiagnostics, createFlightState, stepDynamics } from '../src/physics/dynamics'
-import { BF109G6 } from '../src/specs/bf109g6'
+import { BF109K4 } from '../src/specs/bf109k4'
 import {
   createPhysicsLoadState, LOAD_ALTITUDE, LOAD_CONTROLS, LOAD_DT, LOAD_TAS,
   resetPhysicsLoadState, stepPhysicsLoad, type PhysicsLoadState,
@@ -44,7 +44,7 @@ describe('stepDynamics', () => {
   }
   let bfSteps = 0
   bench('Bf 109 G-6 單步（含縫翼判定）', () => {
-    stepDynamics(BF109G6, bfLoad.state, bfLoad.controls, bfLoad.dt, bfLoad.diag)
+    stepDynamics(BF109K4, bfLoad.state, bfLoad.controls, bfLoad.dt, bfLoad.diag)
     if (++bfSteps >= RESET_INTERVAL) {
       resetPhysicsLoadState(bfLoad)
       bfSteps = 0

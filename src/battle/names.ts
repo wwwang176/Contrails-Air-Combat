@@ -19,7 +19,7 @@ export type Faction = 'allies' | 'axis'
  * 新機種漏填會**立刻**被下面那條測試抓到。
  */
 export function factionOf(specId: string): Faction {
-  return specId === 'bf109g6' || specId === 'he111' ? 'axis' : 'allies'
+  return specId === 'bf109k4' || specId === 'he111' ? 'axis' : 'allies'
 }
 
 /**

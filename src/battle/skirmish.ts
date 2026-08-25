@@ -4,7 +4,7 @@ import { SCHWARM_SIZE } from './flights'
 import { HEAD_ON } from './entry'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
-import { BF109G6 } from '../specs/bf109g6'
+import { BF109K4 } from '../specs/bf109k4'
 import { B17G } from '../specs/b17g'
 import { HE111 } from '../specs/he111'
 import type { Faction } from './names'
@@ -59,7 +59,7 @@ export interface SkirmishSetup {
  * 【順序】戰鬥機在前、轟炸機在後。與 `SPECS` 每一列的順序一致，
  * `missions.ts` 依賴「`specsFor(f)[0]` 是戰鬥機、`[1]` 是轟炸機」。
  */
-export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109G6, B17G, HE111]
+export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, B17G, HE111]
 
 /**
  * 各陣營的機種。**任務模式專用** —— 遭遇戰請用 `ALL_SPECS`。
@@ -70,7 +70,7 @@ export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109G6, B17G, HE111]
  */
 const SPECS: Record<FactionChoice, readonly AircraftSpec[]> = {
   allies: [P51D, B17G],
-  axis: [BF109G6, HE111],
+  axis: [BF109K4, HE111],
 }
 
 export function specsFor(faction: FactionChoice): readonly AircraftSpec[] {
@@ -141,7 +141,7 @@ export function withoutAircraft(
   return { ...setup, blue: next, playerAt: Math.max(0, Math.min(at, next.length - 1)) }
 }
 
-export const DEFAULT_SKIRMISH: SkirmishSetup = uniform(P51D.id, MAX_SIDE, BF109G6.id, MAX_SIDE)
+export const DEFAULT_SKIRMISH: SkirmishSetup = uniform(P51D.id, MAX_SIDE, BF109K4.id, MAX_SIDE)
 
 /**
  * 夾進 [MIN_SIDE, MAX_SIDE]。非有限值落回 `MIN_SIDE`。
@@ -177,7 +177,7 @@ function roster(ids: readonly string[], fallback: AircraftSpec): AircraftSpec[] 
  */
 export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
   const blue = roster(setup.blue, P51D)
-  const red = roster(setup.red, BF109G6)
+  const red = roster(setup.red, BF109K4)
   // 【座位也要夾】名單縮短之後 `playerAt` 可能指到不存在的那一架，而
   // `mixedLine` 那時會找不到任何小隊標 `player` —— `assertOrderOfBattle`
   // 會拋「必須恰好有一筆 player」，也就是按下開始戰鬥直接白畫面

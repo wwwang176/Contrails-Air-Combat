@@ -3,7 +3,7 @@ import { World } from '../src/world/World'
 import { Aircraft } from '../src/aircraft/Aircraft'
 import { AiController } from '../src/ai/AiController'
 import { P51D } from '../src/specs/p51d'
-import { BF109G6 } from '../src/specs/bf109g6'
+import { BF109K4 } from '../src/specs/bf109k4'
 
 export const LOAD_DT = 1 / 240
 export const LOAD_ALTITUDE = 4000
@@ -22,7 +22,7 @@ export interface AiLoadState {
 export function createAiLoad(): AiLoadState {
   const world = new World()
   const blue = new Aircraft(P51D, LOAD_ALTITUDE, LOAD_TAS)
-  const red = new Aircraft(BF109G6, LOAD_ALTITUDE, LOAD_TAS)
+  const red = new Aircraft(BF109K4, LOAD_ALTITUDE, LOAD_TAS)
   red.state.position.set(0, LOAD_ALTITUDE, -500)
   red.prevPosition.copy(red.state.position)
 

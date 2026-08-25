@@ -49,7 +49,7 @@ import { AiController } from './ai/AiController'
 import { VETERAN } from './ai/profile'
 import { HEAD_ON } from './battle/entry'
 import { NEUTRAL_TUNING } from './battle/mission'
-import { BF109G6 } from './specs/bf109g6'
+import { BF109K4 } from './specs/bf109k4'
 import { P51D } from './specs/p51d'
 import type { BattleConfig } from './battle/setup'
 import { DEFAULT_DOCTRINE } from './ai/doctrine'
@@ -1390,7 +1390,7 @@ requestAnimationFrame(frame)
  */
 ;(window as unknown as Record<string, unknown>)['__drill'] = (altitude = 5000) => {
   drillConfig = {
-    units: lineAbreast(HEAD_ON, BF109G6, 1, P51D, 1),
+    units: lineAbreast(HEAD_ON, BF109K4, 1, P51D, 1),
     altitude,
     tas: 180,
     entryRange: 3000,

@@ -23,7 +23,7 @@ import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
 import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { applyFeel, feelFor } from '../specs/feel'
 import { P51D } from '../specs/p51d'
-import { BF109G6 } from '../specs/bf109g6'
+import { BF109K4 } from '../specs/bf109k4'
 // 【為什麼再匯出還要 import】`export type { X } from` 不會把 X 帶進本檔的
 // 區域範圍，而 `Battle.outcome` 的宣告用得到它。
 import { HEAD_ON } from './entry'
@@ -51,7 +51,7 @@ export interface BattleConfig {
    * 姿態、小隊等等，而不是加開欄位，不然未來越多類型會更新不完。」加第三種
    * 機體時前者只要多一列。見 `battle/order.ts`。
    *
-   * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20)` ——
+   * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20)` ——
    * 產出的座標與改動前逐位元相同。
    */
   units: OrderOfBattle
@@ -146,7 +146,7 @@ export interface BattleConfig {
 
 export const DEFAULT_BATTLE: BattleConfig = {
   // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
-  units: lineAbreast(HEAD_ON, P51D, 20, BF109G6, 20),
+  units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
   altitude: 4000,
   tas: 200,
   entryRange: 10000,

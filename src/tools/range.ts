@@ -20,7 +20,7 @@ import { clearImpacts } from '../world/events'
 import { clearKills } from '../world/kills'
 import { Aircraft } from '../aircraft/Aircraft'
 import { P51D } from '../specs/p51d'
-import { BF109G6 } from '../specs/bf109g6'
+import { BF109K4 } from '../specs/bf109k4'
 import type { AircraftSpec } from '../specs/types'
 import type { Command, Controller } from '../control/Controller'
 
@@ -39,7 +39,7 @@ import type { Command, Controller } from '../control/Controller'
  * 進入方式：`npm run dev` 之後開 /range.html。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109G6]
+const SPECS: AircraftSpec[] = [P51D, BF109K4]
 let specIndex = 0
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
