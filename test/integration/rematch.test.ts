@@ -26,12 +26,12 @@ describe('換一場（M10 spec §5.3）', () => {
 
     const second = createBattle(
       new Idle(),
-      battleConfigFrom(uniform('bf109g6', 2, 'p51d', 5)),
+      battleConfigFrom(uniform('bf109k4', 2, 'p51d', 5)),
       1,
     )
     expect(second.blue).toHaveLength(2)
     expect(second.red).toHaveLength(5)
-    expect(second.blue[0]!.aircraft.spec.id).toBe('bf109g6')
+    expect(second.blue[0]!.aircraft.spec.id).toBe('bf109k4')
     expect(second.red[0]!.aircraft.spec.id).toBe('p51d')
     // 名冊跟著機種走
     expect(AXIS_NAMES).toContain(second.roster.pilots[second.blue[0]!.index]!.name)
@@ -55,7 +55,7 @@ describe('換一場（M10 spec §5.3）', () => {
     const times: number[] = []
     for (let n = 0; n < 10; n++) {
       const b = createBattle(
-        new Idle(), battleConfigFrom(uniform('p51d', 4, 'bf109g6', 4)), n,
+        new Idle(), battleConfigFrom(uniform('p51d', 4, 'bf109k4', 4)), n,
       )
       const t0 = performance.now()
       for (let i = 0; i < 240; i++) {

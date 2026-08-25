@@ -12,7 +12,7 @@ import { createCommand } from '../../src/control/Controller'
 import { createSituation, evaluateGeometry, evaluateEnergy } from '../../src/ai/assess'
 import { buildEngageBasis, createEngageBasis } from '../../src/ai/steer'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 
 /**
@@ -628,7 +628,7 @@ function st(phase: TacticalPhase): TacticalState {
 
 /** 造一組「我在下面、他在前上方 3 km」的態勢 */
 function scene() {
-  const self = new Aircraft(BF109G6, 5000, 200)
+  const self = new Aircraft(BF109K4, 5000, 200)
   const target = new Aircraft(P51D, 5300, 240)
   target.state.position.set(0, 5300, -3000)
   self.update(new Vector3(0, 0, -1), 0.8, DT)

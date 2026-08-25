@@ -12,7 +12,7 @@
  * 只會把矛盾藏起來。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   sustainedTurnRate, maxRollRate, specificExcessPower, maxLoadFactorAero,
@@ -22,7 +22,7 @@ import type { AircraftSpec } from '../../src/specs/types'
 const KMH = 3.6
 const DEG = 180 / Math.PI
 const P = applyFeel(P51D, GAME_FEEL)
-const B = applyFeel(BF109G6, GAME_FEEL)
+const B = applyFeel(BF109K4, GAME_FEEL)
 
 const ALTS = [0, 2000, 4000, 6000, 8000, 10000]
 const SPEEDS = [300, 350, 400, 450, 500, 550, 600, 650]

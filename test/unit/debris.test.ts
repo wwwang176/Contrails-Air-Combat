@@ -12,7 +12,7 @@ import {
 import { createKills, pushKill } from '../../src/world/kills'
 import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const FLAT = (): number => 0
 const DEEP = (): number => -100000
@@ -31,7 +31,7 @@ function decompose(mesh: InstancedMesh, i: number) {
 describe('bodyColorOf', () => {
   it('兩個機種各有自己的塗裝，而且不相同', () => {
     expect(bodyColorOf(P51D)).toBe(0x9aa7b4)
-    expect(bodyColorOf(BF109G6)).toBe(0x7e8a73)
+    expect(bodyColorOf(BF109K4)).toBe(0x7e8a73)
   })
 })
 

@@ -24,7 +24,7 @@ import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup
 import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast } from '../../src/battle/order'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
 import {
   countLocks, targetScore, visionFactor, DEFAULT_TARGET, type TargetConfig,
@@ -163,7 +163,7 @@ function run(perSide: number, visionPower: number): Result {
     new AiController(),
     {
       ...DEFAULT_BATTLE,
-      units: lineAbreast(HEAD_ON, P51D, perSide, BF109G6, perSide),
+      units: lineAbreast(HEAD_ON, P51D, perSide, BF109K4, perSide),
     },
     SEED,
   )

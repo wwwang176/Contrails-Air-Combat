@@ -15,7 +15,7 @@
  * 這裡的倍率必須先除掉出貨值，否則每一列都比標示再輕 10%。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel, type FeelProfile } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, stallSpeed, maxClimbRate, maxLevelSpeed, serviceCeiling,
@@ -138,6 +138,6 @@ const CHECK: { name: string; f: Partial<FeelProfile> }[] = [
 ]
 for (const c of CHECK) {
   const p = specOf(P51D, c.f)
-  const b = specOf(BF109G6, c.f)
+  const b = specOf(BF109K4, c.f)
   console.log(`${c.name.padEnd(20)} ${(minInst(b, 4000) / minInst(p, 4000)).toFixed(3)}`)
 }

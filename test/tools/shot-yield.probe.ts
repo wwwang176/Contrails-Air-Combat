@@ -36,7 +36,7 @@ import { DEFAULT_DOCTRINE, sweetSpotPitch } from '../../src/ai/doctrine'
 import { VETERAN } from '../../src/ai/profile'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import { RAD } from '../../src/core/math'
@@ -52,7 +52,7 @@ const L = PROJECTILE_LIFETIME
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
 }
-const ME = applyFeel(BF109G6, GAME_FEEL)
+const ME = applyFeel(BF109K4, GAME_FEEL)
 const FOE = applyFeel(P51D, GAME_FEEL)
 const ME_BLUNT: AircraftSpec = { ...ME, battery: harmless(ME.battery) }
 const FOE_BLUNT: AircraftSpec = { ...FOE, battery: harmless(FOE.battery) }

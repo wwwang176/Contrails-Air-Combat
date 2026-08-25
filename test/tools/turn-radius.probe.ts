@@ -9,7 +9,7 @@
  * R = V / omega。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, HISTORICAL, applyFeel, type FeelProfile } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, sustainedTurnRate, bestSustainedTurnRate,
@@ -52,7 +52,7 @@ function minSustRadius(spec: AircraftSpec, alt: number): [number, number, number
 const ALTS = [0, 2000, 4000]
 
 console.log('====== 一、遊戲裡實際的迴轉半徑（GAME_FEEL 已套用）======')
-for (const raw of [P51D, BF109G6]) {
+for (const raw of [P51D, BF109K4]) {
   const game = applyFeel(raw, GAME_FEEL)
   const hist = applyFeel(raw, HISTORICAL)
   console.log(`\n=== ${raw.name} ===`)
@@ -207,7 +207,7 @@ for (const c of [{ name: '現行 GAME_FEEL', feel: GAME_FEEL }, ...CANDIDATES]) 
 console.log('\n--- Bf 109 套同一組倍率會怎樣（比值才是平衡）---')
 for (const c of [{ name: '現行 GAME_FEEL', feel: GAME_FEEL }, ...CANDIDATES]) {
   const p = applyFeel(P51D, c.feel)
-  const b = applyFeel(BF109G6, c.feel)
+  const b = applyFeel(BF109K4, c.feel)
   const [rp] = minSustRadius(p, 0)
   const [rb] = minSustRadius(b, 0)
   const [ip] = minInstRadius(p, 0)

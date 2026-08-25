@@ -9,7 +9,7 @@ import { stallSpeed } from '../../src/analysis/envelope'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { B17G } from '../../src/specs/b17g'
 import { DEG } from '../../src/core/math'
 import type { AeroState, AirData, ForceMoment } from '../../src/physics/types'
@@ -49,8 +49,8 @@ describe('liftCoefficient', () => {
   it('升力曲線在整個迎角範圍內連續（兩機種 × 縫翼開合，−180°~180°）', () => {
     const cases: Array<[AircraftSpec, boolean, string]> = [
       [P51D, false, 'P-51D'],
-      [BF109G6, false, 'Bf 109 淨形'],
-      [BF109G6, true, 'Bf 109 縫翼展開'],
+      [BF109K4, false, 'Bf 109 淨形'],
+      [BF109K4, true, 'Bf 109 縫翼展開'],
     ]
     const STEP = 0.001 // rad，約 0.057°
     for (const [spec, slats, name] of cases) {
@@ -83,8 +83,8 @@ describe('liftCoefficient', () => {
   it('深失速沿用平板模型：不發散、不超過 CL_max、正確變號、α→±90°/±180° 時歸零', () => {
     const cases: Array<[AircraftSpec, boolean, string]> = [
       [P51D, false, 'P-51D'],
-      [BF109G6, false, 'Bf 109 淨形'],
-      [BF109G6, true, 'Bf 109 縫翼展開'],
+      [BF109K4, false, 'Bf 109 淨形'],
+      [BF109K4, true, 'Bf 109 縫翼展開'],
     ]
     for (const [spec, slats, name] of cases) {
       const clMax = derivedClMax(spec, slats)
@@ -149,24 +149,24 @@ describe('liftCoefficient', () => {
   })
 
   it('Bf 109 縫翼展開後失速迎角與 CL_max 提高', () => {
-    const clean = liftCoefficient(BF109G6, BF109G6.lift.alphaCrit, false)
-    const slats = liftCoefficient(BF109G6, BF109G6.lift.alphaCrit + 2.5 * DEG, true)
+    const clean = liftCoefficient(BF109K4, BF109K4.lift.alphaCrit, false)
+    const slats = liftCoefficient(BF109K4, BF109K4.lift.alphaCrit + 2.5 * DEG, true)
     expect(slats).toBeGreaterThan(clean)
   })
 })
 
 describe('updateSlatState', () => {
   it('迎角超過展開閾值時展開', () => {
-    expect(updateSlatState(BF109G6, 9 * DEG, false)).toBe(true)
+    expect(updateSlatState(BF109K4, 9 * DEG, false)).toBe(true)
   })
 
   it('迎角低於收回閾值時收回', () => {
-    expect(updateSlatState(BF109G6, 5 * DEG, true)).toBe(false)
+    expect(updateSlatState(BF109K4, 5 * DEG, true)).toBe(false)
   })
 
   it('遲滯區間內維持原狀態', () => {
-    expect(updateSlatState(BF109G6, 7 * DEG, true)).toBe(true)
-    expect(updateSlatState(BF109G6, 7 * DEG, false)).toBe(false)
+    expect(updateSlatState(BF109K4, 7 * DEG, true)).toBe(true)
+    expect(updateSlatState(BF109K4, 7 * DEG, false)).toBe(false)
   })
 
   it('P-51 無縫翼，永不展開', () => {
@@ -206,7 +206,7 @@ describe('dragCoefficient', () => {
     // 0.68（Bf 109）< M < 0.72（P-51）：此區間只有 Bf 109 該吃到壓縮性阻力
     const M = 0.7
     const p51Rise = dragCoefficient(P51D, 0, 0, M) - dragCoefficient(P51D, 0, 0, 0)
-    const bfRise = dragCoefficient(BF109G6, 0, 0, M) - dragCoefficient(BF109G6, 0, 0, 0)
+    const bfRise = dragCoefficient(BF109K4, 0, 0, M) - dragCoefficient(BF109K4, 0, 0, 0)
     expect(p51Rise).toBe(0)
     expect(bfRise).toBeGreaterThan(0)
   })
@@ -215,7 +215,7 @@ describe('dragCoefficient', () => {
     // 只比較「相對於自身 cd0 的增幅」，不混入誘導阻力
     const M = 0.8
     const p51Rel = (dragCoefficient(P51D, 0, 0, M) - P51D.drag.cd0) / P51D.drag.cd0
-    const bfRel = (dragCoefficient(BF109G6, 0, 0, M) - BF109G6.drag.cd0) / BF109G6.drag.cd0
+    const bfRel = (dragCoefficient(BF109K4, 0, 0, M) - BF109K4.drag.cd0) / BF109K4.drag.cd0
     expect(p51Rel).toBeLessThan(bfRel)
   })
 
@@ -242,7 +242,7 @@ describe('controlEffectiveness', () => {
   it('Bf 109 在 650 km/h 的副翼權限遠低於 P-51', () => {
     const q650 = 0.5 * 1.225 * (650 / 3.6) ** 2
     const bf = controlEffectiveness(
-      BF109G6.controlStiffening.aileronK, BF109G6.controlStiffening.qRef, q650,
+      BF109K4.controlStiffening.aileronK, BF109K4.controlStiffening.qRef, q650,
     )
     const p51 = controlEffectiveness(
       P51D.controlStiffening.aileronK, P51D.controlStiffening.qRef, q650,
@@ -358,7 +358,7 @@ describe('stallDynamicPressure', () => {
    * 高度——9,000 m 要 268 km/h 才有同樣的動壓，這正是真實情況。
    */
   it('與高度無關：對照 stallSpeed() 在四個高度算出的 ½ρVs²', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const expected = stallDynamicPressure(spec)
       for (const alt of [0, 3000, 6000, 9000]) {
         const vs = stallSpeed(spec, alt, 1)
@@ -378,9 +378,12 @@ describe('stallDynamicPressure', () => {
       (P51D.mass * 9.80665) / (P51D.wing.area * derivedClMax(P51D, P51D.lift.slatAlphaBonus > 0)),
       9,
     )
-    // 實測值，供日後改參數時一眼看出量級是否跑掉
+    // 實測值，供日後改參數時一眼看出量級是否跑掉。
+    // 【2026-08-25：109 由 1239.0 變成 1327.6】機種換成 K-4，質量
+    // 3150 → 3375 kg，翼面積與 CL_max 未變，所以正好是 ×1.0714。
+    // K-4 的失速動壓因此**高於** P-51D——翼載 210.3 對 197.0 kg/m²。
     expect(stallDynamicPressure(P51D)).toBeCloseTo(1289.9, 0)
-    expect(stallDynamicPressure(BF109G6)).toBeCloseTo(1239.0, 0)
+    expect(stallDynamicPressure(BF109K4)).toBeCloseTo(1327.6, 0)
   })
 })
 
@@ -388,7 +391,7 @@ describe('lowSpeedEffectiveness', () => {
   const knee = (spec: AircraftSpec) => LOW_SPEED_KNEE * stallDynamicPressure(spec)
 
   it('拐點以上恆為 1', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const q = knee(spec)
       expect(lowSpeedEffectiveness(spec, q)).toBe(1)
       expect(lowSpeedEffectiveness(spec, q * 1.5)).toBe(1)
@@ -397,7 +400,7 @@ describe('lowSpeedEffectiveness', () => {
   })
 
   it('拐點以下等於 q / q_low', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const q = knee(spec)
       expect(lowSpeedEffectiveness(spec, q * 0.5)).toBeCloseTo(0.5, 12)
       expect(lowSpeedEffectiveness(spec, q * 0.25)).toBeCloseTo(0.25, 12)
@@ -405,7 +408,7 @@ describe('lowSpeedEffectiveness', () => {
   })
 
   it('在拐點連續（左右極限相等）', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const q = knee(spec)
       const below = lowSpeedEffectiveness(spec, q * (1 - 1e-9))
       expect(below).toBeCloseTo(1, 8)
@@ -416,7 +419,7 @@ describe('lowSpeedEffectiveness', () => {
   it('q = 0 時為 0，不是 NaN', () => {
     // 【為什麼不必設下限】力矩 = 動壓 × 面積 × 係數，動壓為 0 時力矩本來
     // 就是 0。乘數再小也不會除出無限大（spec §4.5）。
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       expect(lowSpeedEffectiveness(spec, 0)).toBe(0)
       expect(Number.isFinite(lowSpeedEffectiveness(spec, 0))).toBe(true)
     }
@@ -437,7 +440,7 @@ describe('lowSpeedEffectiveness', () => {
    * 1858 Pa、q_ref 是 10884 Pa，相隔 5.9 倍。兩個機制不會同時作用。
    */
   it('低速端與高速端的作用區間不重疊', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       expect(knee(spec)).toBeLessThan(spec.controlStiffening.qRef)
       // 在兩者中間取一點，兩個乘數都應該是 1
       const mid = Math.sqrt(knee(spec) * spec.controlStiffening.qRef)
@@ -472,14 +475,14 @@ describe('aeroForceMoment 的低速舵面衰減', () => {
   }
 
   it('拐點以上：升降舵力矩係數就是 cmDe，未被衰減', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const q = LOW_SPEED_KNEE * stallDynamicPressure(spec) * 1.5
       expect(elevatorCmDe(spec, q)).toBeCloseTo(spec.moments.cmDe, 9)
     }
   })
 
   it('拐點以下：力矩係數等於 cmDe × (q / q_low)', () => {
-    for (const spec of [P51D, BF109G6, B17G]) {
+    for (const spec of [P51D, BF109K4, B17G]) {
       const qLow = LOW_SPEED_KNEE * stallDynamicPressure(spec)
       for (const frac of [0.75, 0.5, 0.25]) {
         expect(elevatorCmDe(spec, qLow * frac))
@@ -536,9 +539,9 @@ describe('aeroForceMoment 的低速舵面衰減', () => {
    */
   it('同一個動壓下，兩機種的操縱權成 q_low 的反比', () => {
     const q = 800   // 遠低於兩台的 q_low（1858 / 1784）
-    const ratio = lowSpeedEffectiveness(P51D, q) / lowSpeedEffectiveness(BF109G6, q)
+    const ratio = lowSpeedEffectiveness(P51D, q) / lowSpeedEffectiveness(BF109K4, q)
     expect(ratio).toBeCloseTo(
-      stallDynamicPressure(BF109G6) / stallDynamicPressure(P51D), 9,
+      stallDynamicPressure(BF109K4) / stallDynamicPressure(P51D), 9,
     )
   })
 })

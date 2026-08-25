@@ -15,7 +15,7 @@ class Idle implements Controller {
 }
 
 const cfg = (): ReturnType<typeof battleConfigFrom> =>
-  battleConfigFrom(uniform('b17g', 2, 'bf109g6', 2))
+  battleConfigFrom(uniform('b17g', 2, 'bf109k4', 2))
 
 describe('砲塔狀態的生命週期', () => {
   it('建立時每架都配好，長度等於該機種的砲塔數', () => {

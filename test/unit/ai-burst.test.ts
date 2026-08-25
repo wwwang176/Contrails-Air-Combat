@@ -7,7 +7,7 @@ import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_AI_BURST as AI_BURST } from '../../src/ai/fire'
 import { createInputState } from '../../src/input/InputState'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const DT = 1 / 240
 
@@ -24,7 +24,7 @@ describe('AI 戰鬥機的點放', () => {
 
   /** 一架在平飛、沒有目標的 AI。點放與「有沒有目標」無關 —— 見第二條。 */
   function flying(selfIndex: number): { self: Aircraft, ai: AiController } {
-    const self = new Aircraft(BF109G6, 4000, 180)
+    const self = new Aircraft(BF109K4, 4000, 180)
     self.update(new Vector3(0, 0, -1), 0.7, DT)
     const ai = new AiController()
     ai.selfIndex = selfIndex

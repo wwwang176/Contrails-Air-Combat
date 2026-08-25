@@ -4,7 +4,7 @@ import {
   maxRollRate, specificExcessPower, serviceCeiling,
 } from '../../src/analysis/envelope'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const KMH = 1 / 3.6
 
@@ -40,21 +40,21 @@ function crossoverKmh(
 describe('L3 平衡關係', () => {
   describe('速度與高空', () => {
     it('P-51 臨界高度極速高於 Bf 109', () => {
-      expect(maxLevelSpeed(P51D, 7600)).toBeGreaterThan(maxLevelSpeed(BF109G6, 6300))
+      expect(maxLevelSpeed(P51D, 7600)).toBeGreaterThan(maxLevelSpeed(BF109K4, 6300))
     })
 
     it('P-51 在 7,600 m 的速度優勢超過 60 km/h', () => {
-      const diff = (maxLevelSpeed(P51D, 7600) - maxLevelSpeed(BF109G6, 7600)) / KMH
+      const diff = (maxLevelSpeed(P51D, 7600) - maxLevelSpeed(BF109K4, 7600)) / KMH
       expect(diff).toBeGreaterThan(60)
     })
 
     it('P-51 升限高於 Bf 109', () => {
-      expect(serviceCeiling(P51D)).toBeGreaterThan(serviceCeiling(BF109G6))
+      expect(serviceCeiling(P51D)).toBeGreaterThan(serviceCeiling(BF109K4))
     })
 
     it('高度愈高 P-51 的優勢愈大', () => {
-      const low = maxLevelSpeed(P51D, 0) - maxLevelSpeed(BF109G6, 0)
-      const high = maxLevelSpeed(P51D, 8000) - maxLevelSpeed(BF109G6, 8000)
+      const low = maxLevelSpeed(P51D, 0) - maxLevelSpeed(BF109K4, 0)
+      const high = maxLevelSpeed(P51D, 8000) - maxLevelSpeed(BF109K4, 8000)
       expect(high).toBeGreaterThan(low)
     })
   })
@@ -73,15 +73,15 @@ describe('L3 平衡關係', () => {
     it('Bf109 的海平面爬升優勢僅限特定高度區間，不是全程通吃（P-51 二級增壓器的反例）', () => {
       // 0 m：Bf109 領先（DB605A 單級增壓器在低空的優勢），實測 983.83 vs
       // 906.84 m/min，+8.49%。
-      expect(maxClimbRate(BF109G6, 0).rate).toBeGreaterThan(maxClimbRate(P51D, 0).rate)
+      expect(maxClimbRate(BF109K4, 0).rate).toBeGreaterThan(maxClimbRate(P51D, 0).rate)
       // 3,000 m：P-51 反超（二級增壓器切檔後），實測 1018.84 vs 947.33
       // m/min，P-51 領先 7.02%。
-      expect(maxClimbRate(P51D, 3000).rate).toBeGreaterThan(maxClimbRate(BF109G6, 3000).rate)
+      expect(maxClimbRate(P51D, 3000).rate).toBeGreaterThan(maxClimbRate(BF109K4, 3000).rate)
       // 6,000 m：Bf109 再度領先，實測 903.85 vs 797.57 m/min，+13.33%。
-      expect(maxClimbRate(BF109G6, 6000).rate).toBeGreaterThan(maxClimbRate(P51D, 6000).rate)
+      expect(maxClimbRate(BF109K4, 6000).rate).toBeGreaterThan(maxClimbRate(P51D, 6000).rate)
       // 9,000 m：P-51 再度反超，且優勢隨高度繼續擴大，實測 457.33 vs
       // 437.40 m/min，P-51 領先 4.36%。
-      expect(maxClimbRate(P51D, 9000).rate).toBeGreaterThan(maxClimbRate(BF109G6, 9000).rate)
+      expect(maxClimbRate(P51D, 9000).rate).toBeGreaterThan(maxClimbRate(BF109K4, 9000).rate)
     })
 
     // 原本這裡有一條「Bf109 在 300 km/h 的持續轉彎率優於 P-51」的斷言，
@@ -98,7 +98,7 @@ describe('L3 平衡關係', () => {
       // 在物理上量的是同一件事——不是重複造假的綠燈，是同一個機制的兩種
       // 呈現方式。反事實驗證：slatAlphaBonus 設為 0 時 Bf109 讀數從
       // 17.5096°/s 掉到 14.8117°/s（低於 P-51 的 16.6676°/s），斷言失敗。
-      expect(sustainedTurnRate(BF109G6, 0, 250 * KMH)).toBeGreaterThan(
+      expect(sustainedTurnRate(BF109K4, 0, 250 * KMH)).toBeGreaterThan(
         sustainedTurnRate(P51D, 0, 250 * KMH),
       )
     })
@@ -108,12 +108,12 @@ describe('L3 平衡關係', () => {
       // 而不是「Bf109 在中低速恆優」。實測 13.833 vs 13.104 °/s，
       // P-51 領先 5.56%。
       expect(sustainedTurnRate(P51D, 0, 400 * KMH)).toBeGreaterThan(
-        sustainedTurnRate(BF109G6, 0, 400 * KMH),
+        sustainedTurnRate(BF109K4, 0, 400 * KMH),
       )
     })
 
     it('Bf 109 低速瞬間轉彎率優於 P-51（縫翼效果）', () => {
-      expect(instantaneousTurnRate(BF109G6, 0, 250 * KMH)).toBeGreaterThan(
+      expect(instantaneousTurnRate(BF109K4, 0, 250 * KMH)).toBeGreaterThan(
         instantaneousTurnRate(P51D, 0, 250 * KMH),
       )
     })
@@ -122,7 +122,7 @@ describe('L3 平衡關係', () => {
   describe('滾轉', () => {
     it('P-51 在 600 km/h 的滾轉率超過 Bf 109 的 1.5 倍', () => {
       const p = maxRollRate(P51D, 0, 600 * KMH)
-      const b = maxRollRate(BF109G6, 0, 600 * KMH)
+      const b = maxRollRate(BF109K4, 0, 600 * KMH)
       expect(p).toBeGreaterThan(b * 1.5)
     })
 
@@ -131,7 +131,7 @@ describe('L3 平衡關係', () => {
       // 先劣化 38% 才會報警，等於沒有守住「109 的弱點只在高速」這句話。
       // 0.85 仍留 13% 餘裕，但能在劣化到接近 1 成時就示警。
       const p = maxRollRate(P51D, 0, 350 * KMH)
-      const b = maxRollRate(BF109G6, 0, 350 * KMH)
+      const b = maxRollRate(BF109K4, 0, 350 * KMH)
       expect(b).toBeGreaterThan(p * 0.85)
     })
   })
@@ -140,21 +140,21 @@ describe('L3 平衡關係', () => {
     it('P-51 高速平飛的 Ps 優於 Bf 109（層流翼低阻）', () => {
       const v = 550 * KMH
       expect(specificExcessPower(P51D, 5000, v, 1)).toBeGreaterThan(
-        specificExcessPower(BF109G6, 5000, v, 1),
+        specificExcessPower(BF109K4, 5000, v, 1),
       )
     })
 
     it('P-51 在大 G 高速時的能量流失小於 Bf 109', () => {
       const v = 500 * KMH
       expect(specificExcessPower(P51D, 3000, v, 4)).toBeGreaterThan(
-        specificExcessPower(BF109G6, 3000, v, 4),
+        specificExcessPower(BF109K4, 3000, v, 4),
       )
     })
 
     it('兩台飛機大 G 轉彎時 Ps 皆為顯著負值（能量戰成立）', () => {
       const v = 450 * KMH
       expect(specificExcessPower(P51D, 3000, v, 5)).toBeLessThan(-20)
-      expect(specificExcessPower(BF109G6, 3000, v, 5)).toBeLessThan(-20)
+      expect(specificExcessPower(BF109K4, 3000, v, 5)).toBeLessThan(-20)
     })
   })
 
@@ -162,7 +162,7 @@ describe('L3 平衡關係', () => {
     it('存在 Bf 109 佔優的速度區間', () => {
       let found = false
       for (let kmh = 250; kmh <= 400; kmh += 10) {
-        if (sustainedTurnRate(BF109G6, 0, kmh * KMH) > sustainedTurnRate(P51D, 0, kmh * KMH)) {
+        if (sustainedTurnRate(BF109K4, 0, kmh * KMH) > sustainedTurnRate(P51D, 0, kmh * KMH)) {
           found = true
           break
         }
@@ -174,7 +174,7 @@ describe('L3 平衡關係', () => {
       let found = false
       for (let kmh = 500; kmh <= 700; kmh += 20) {
         if (specificExcessPower(P51D, 3000, kmh * KMH, 1) >
-            specificExcessPower(BF109G6, 3000, kmh * KMH, 1)) {
+            specificExcessPower(BF109K4, 3000, kmh * KMH, 1)) {
           found = true
           break
         }
@@ -197,7 +197,7 @@ describe('L3 平衡關係', () => {
       // （誘導阻力下降，轉彎更省能量），交叉點從 319.44 km/h 推到
       // 411.54 km/h，超出上界，斷言失敗——證明頻寬不是永遠通過的地雷。
       const crossover = crossoverKmh(
-        (kmh) => sustainedTurnRate(BF109G6, 0, kmh * KMH) - sustainedTurnRate(P51D, 0, kmh * KMH),
+        (kmh) => sustainedTurnRate(BF109K4, 0, kmh * KMH) - sustainedTurnRate(P51D, 0, kmh * KMH),
         200, 500, 1,
       )
       expect(crossover).not.toBeNull()
@@ -211,7 +211,7 @@ describe('L3 平衡關係', () => {
       // 不再領先（差值全部轉負，200 km/h 處已是 −0.22°/s），此頻寬內
       // 找不到交叉點，斷言失敗——證明這條確實與縫翼機制掛鉤。
       const crossover = crossoverKmh(
-        (kmh) => instantaneousTurnRate(BF109G6, 0, kmh * KMH) -
+        (kmh) => instantaneousTurnRate(BF109K4, 0, kmh * KMH) -
           instantaneousTurnRate(P51D, 0, kmh * KMH),
         350, 600, 1,
       )

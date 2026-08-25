@@ -61,7 +61,7 @@ function pct(sorted: number[], p: number): number {
 const median = (xs: number[]) => pct([...xs].sort((a, b) => a - b), 0.5)
 
 function run(perSide: number): Span[] {
-  const cfg = battleConfigFrom(uniform('p51d', perSide, 'bf109g6', perSide))
+  const cfg = battleConfigFrom(uniform('p51d', perSide, 'bf109k4', perSide))
   const b = createBattle(new AiController(), cfg, 20260813)
   const cs: Combatant[] = b.world.combatants
   const spans: Span[] = []

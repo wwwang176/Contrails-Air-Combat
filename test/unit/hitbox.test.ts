@@ -4,7 +4,7 @@ import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { HIT_PARTS, segmentBox } from '../../src/world/hit'
 import { mountDirection } from '../../src/weapons/types'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 
 /**
@@ -26,7 +26,7 @@ import type { AircraftSpec } from '../../src/specs/types'
  * 包起來要一個 3.4 × 3.4 m 的盒子擋在機首前方——那不是命中面，是動畫。
  * 它們在 assembly.ts 標了 userData.spinning。
  */
-const CASES: readonly AircraftSpec[] = [P51D, BF109G6]
+const CASES: readonly AircraftSpec[] = [P51D, BF109K4]
 
 interface Sample {
   verts: Vector3[]
@@ -134,16 +134,21 @@ describe('AircraftSpec 的新欄位', () => {
     for (const spec of CASES) expect(spec.hp).toBe(1000)
   })
 
-  it('TTK 對得上 spec §6.3 的表（P-51 0.69 s、109 0.53 s）', () => {
+  it('TTK 的設計值（P-51 0.69 s、K-4 0.28 s）', () => {
     // HP / DPS，全中機身（倍率 1.0）。
     //
     // 【2026-08-09：三個單發傷害一律 ×3】專案負責人的調參決定，TTK 因此
     // 由 2.08 / 1.60 s 縮到約三分之一。**精度沒有放寬** —— 還是 2 位小數
     // （原本寫 1 位，那對 0.69 與 0.53 太鬆，兩者只差 0.16）。
+    //
+    // 【2026-08-25：109 由 0.53 s 縮到 0.28 s】機種換成 K-4，中軸砲由
+    // MG 151/20 換成 MK 108（負責人裁決「武器也要改一下攻擊力更高」）。
+    // 兩台的差距由 1.30 倍拉開到 **2.51 倍**——這是本輪最大的一個平衡
+    // 位移，代價與理由見 weapons/bf109k4.ts。
     const ttk = (s: AircraftSpec): number =>
       s.hp / s.battery.mounts.reduce(
         (a, m) => a + (m.weapon.roundsPerMinute / 60) * m.weapon.damage, 0)
     expect(ttk(P51D)).toBeCloseTo(0.694, 2)
-    expect(ttk(BF109G6)).toBeCloseTo(0.532, 2)
+    expect(ttk(BF109K4)).toBeCloseTo(0.277, 2)
   })
 })

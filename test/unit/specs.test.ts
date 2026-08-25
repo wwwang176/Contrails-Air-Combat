@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
-import { BF109G6, BF109G6_HISTORICAL } from '../../src/specs/bf109g6'
+import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { MAX_TURRETS } from '../../src/weapons/turret'
 
 const CASES = [
   { spec: P51D, hist: P51D_HISTORICAL },
-  { spec: BF109G6, hist: BF109G6_HISTORICAL },
+  { spec: BF109K4, hist: BF109K4_HISTORICAL },
 ]
 
 describe('機種資料', () => {
@@ -120,8 +120,8 @@ describe('機種資料', () => {
   })
 
   it('Bf 109 縫翼展開後 CL_max 顯著提高', () => {
-    const clean = derivedClMax(BF109G6, false)
-    const slats = derivedClMax(BF109G6, true)
+    const clean = derivedClMax(BF109K4, false)
+    const slats = derivedClMax(BF109K4, true)
     expect(slats).toBeGreaterThan(clean * 1.1)
     expect(slats).toBeCloseTo(1.55, 1) // 史實縫翼展開值
   })
@@ -131,11 +131,11 @@ describe('機種資料', () => {
   })
 
   it('P-51 的 cd0 明顯低於 Bf 109（層流翼）', () => {
-    expect(P51D.drag.cd0).toBeLessThan(BF109G6.drag.cd0 * 0.8)
+    expect(P51D.drag.cd0).toBeLessThan(BF109K4.drag.cd0 * 0.8)
   })
 
   it('Bf 109 的副翼高速衰減指數遠大於 P-51', () => {
-    expect(BF109G6.controlStiffening.aileronK).toBeGreaterThan(
+    expect(BF109K4.controlStiffening.aileronK).toBeGreaterThan(
       P51D.controlStiffening.aileronK * 3,
     )
   })
@@ -147,12 +147,12 @@ describe('機種資料', () => {
  * 末段）。這裡照既有做法，但 `turrets` 是**必填**欄位，所以漏掉的機種會先被
  * 型別擋下來，不會靜靜地沒有測試在跑。
  */
-const ALL = [P51D, BF109G6, HE111, B17G]
+const ALL = [P51D, BF109K4, HE111, B17G]
 
 describe('砲塔欄位', () => {
   it('戰鬥機沒有砲塔', () => {
     expect(P51D.turrets).toHaveLength(0)
-    expect(BF109G6.turrets).toHaveLength(0)
+    expect(BF109K4.turrets).toHaveLength(0)
   })
 
   /**

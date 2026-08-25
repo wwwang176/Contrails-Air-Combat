@@ -16,7 +16,7 @@ import {
   maxLevelSpeed, maxClimbRate, stallSpeed, serviceCeiling,
 } from '../../src/analysis/envelope'
 import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
-import { BF109G6, BF109G6_HISTORICAL } from '../../src/specs/bf109g6'
+import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
 import { applyFeel, feelFor } from '../../src/specs/feel'
@@ -27,7 +27,7 @@ const RAD = 180 / Math.PI
 
 const CASES: { spec: AircraftSpec; hist: HistoricalReference; inL2: boolean }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, inL2: true },
-  { spec: BF109G6, hist: BF109G6_HISTORICAL, inL2: true },
+  { spec: BF109K4, hist: BF109K4_HISTORICAL, inL2: true },
   { spec: HE111, hist: HE111_HISTORICAL, inL2: true },
   { spec: B17G, hist: B17G_HISTORICAL, inL2: true },
 ]

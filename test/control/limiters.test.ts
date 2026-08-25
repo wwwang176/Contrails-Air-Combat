@@ -9,7 +9,7 @@ import { computeAeroState, liftCoefficient } from '../../src/physics/aero'
 import { cornerSpeed, stallSpeed } from '../../src/analysis/envelope'
 import { G0 } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { Vector3 } from 'three'
 import type { AeroState, AirData } from '../../src/physics/types'
 
@@ -150,14 +150,14 @@ describe('pitchRateLimit', () => {
     // 增加 slatAlphaBonus，兩種狀態都仍在線性段內，故 nAero 之比應等於
     // CL 之比（CL 對迎角線性），與翼面積、動壓等因子無關。
     const { aero } = setup(0, 110)
-    const clean = pitchRateLimit(BF109G6, aero, false, LEVEL, createPitchLimit())
-    const slats = pitchRateLimit(BF109G6, aero, true, LEVEL, createPitchLimit())
+    const clean = pitchRateLimit(BF109K4, aero, false, LEVEL, createPitchLimit())
+    const slats = pitchRateLimit(BF109K4, aero, true, LEVEL, createPitchLimit())
     expect(clean.source).toBe('alpha')
     expect(slats.source).toBe('alpha')
-    const clClean = liftCoefficient(BF109G6, BF109G6.lift.alphaCrit * ALPHA_MARGIN, false)
+    const clClean = liftCoefficient(BF109K4, BF109K4.lift.alphaCrit * ALPHA_MARGIN, false)
     const clSlats = liftCoefficient(
-      BF109G6,
-      BF109G6.lift.alphaCrit * ALPHA_MARGIN + BF109G6.lift.slatAlphaBonus,
+      BF109K4,
+      BF109K4.lift.alphaCrit * ALPHA_MARGIN + BF109K4.lift.slatAlphaBonus,
       true,
     )
     expect(slats.nAero / clean.nAero).toBeCloseTo(clSlats / clClean, 6)

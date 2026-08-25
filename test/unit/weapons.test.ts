@@ -3,7 +3,11 @@ import { Vector3 } from 'three'
 import { batteryDps, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
 import { stepCadence } from '../../src/weapons/cadence'
 import { M2_BROWNING, P51D_BATTERY } from '../../src/weapons/p51d'
-import { BF109G6_BATTERY, MG131, MG151_20 } from '../../src/weapons/bf109g6'
+import { BF109K4_BATTERY, MG131, MK108 } from '../../src/weapons/bf109k4'
+// 跨模組：MK 108 的單發傷害是拿 hp 校準的，所以要讀機體資料。
+// 與 hitbox.test.ts 守「槍口在機翼命中盒內」是同一個模式。
+import { BF109K4 } from '../../src/specs/bf109k4'
+import { B17G } from '../../src/specs/b17g'
 
 /**
  * L2 史實值：資料表本身就是被測物，與 M1 的 specs.test.ts 同一個模式。
@@ -17,10 +21,10 @@ describe('L2 武器史實值', () => {
     expect(P51D_BATTERY.mounts.every((m) => m.weapon === M2_BROWNING)).toBe(true)
   })
 
-  it('MG 151/20：705 m/s、700 rpm、單挺穿槳轂', () => {
-    expect(MG151_20.muzzleVelocity).toBe(705)
-    expect(MG151_20.roundsPerMinute).toBe(700)
-    const axial = BF109G6_BATTERY.mounts.filter((m) => m.weapon === MG151_20)
+  it('MK 108：505 m/s、650 rpm、單門穿槳轂', () => {
+    expect(MK108.muzzleVelocity).toBe(505)
+    expect(MK108.roundsPerMinute).toBe(650)
+    const axial = BF109K4_BATTERY.mounts.filter((m) => m.weapon === MK108)
     expect(axial).toHaveLength(1)
     // 穿槳轂＝在中軸線上
     expect(axial[0]!.position.x).toBe(0)
@@ -29,7 +33,7 @@ describe('L2 武器史實值', () => {
   it('MG 131：750 m/s、900 rpm、機首左右各一', () => {
     expect(MG131.muzzleVelocity).toBe(750)
     expect(MG131.roundsPerMinute).toBe(900)
-    const cowl = BF109G6_BATTERY.mounts.filter((m) => m.weapon === MG131)
+    const cowl = BF109K4_BATTERY.mounts.filter((m) => m.weapon === MG131)
     expect(cowl).toHaveLength(2)
     expect(cowl[0]!.position.x).toBeCloseTo(-cowl[1]!.position.x, 9)
   })
@@ -46,20 +50,64 @@ describe('L2 武器史實值', () => {
  * L3 平衡：守的是**相對關係**，不是絕對值（spec §6.3 明示數值可調）。
  */
 describe('L3 火力平衡的相對關係', () => {
-  it('MG 151/20 的單發傷害顯著高於 .50 BMG', () => {
-    expect(MG151_20.damage).toBeGreaterThan(M2_BROWNING.damage * 3)
+  it('MK 108 的單發傷害顯著高於 .50 BMG', () => {
+    // 30 mm Minengeschoss 對 .50 BMG。上一版的 MG 151/20 是 ×4.7，
+    // 換上 MK 108 之後是 ×13.9——門檻仍寫 ×3，守的是「量級不同」這件事。
+    expect(MK108.damage).toBeGreaterThan(M2_BROWNING.damage * 3)
+  })
+
+  /**
+   * 【史實校準】MK 108 公認需要約 4 發解決單發戰鬥機、約 20 發解決
+   * 四發轟炸機。hp 見 specs/*.ts，部位倍率 1.0（機身）。
+   */
+  it('MK 108 打單發戰鬥機約 4 發、打 B-17G 約 20 發', () => {
+    expect(Math.ceil(BF109K4.hp / MK108.damage)).toBe(4)
+    expect(Math.ceil(B17G.hp / MK108.damage)).toBe(20)
+  })
+
+  /**
+   * 初速是 MK 108 在本模型裡**唯一**被模擬到的代價（彈藥量沒有模型，
+   * 見 weapons/bf109k4.ts 的說明）。它必須明顯慢，否則 K-4 的換槍
+   * 就是純粹的免費升級。
+   */
+  it('MK 108 的初速明顯低於三挺 .50 與 MG 131', () => {
+    expect(MK108.muzzleVelocity).toBeLessThan(M2_BROWNING.muzzleVelocity * 0.6)
+    expect(MK108.muzzleVelocity).toBeLessThan(MG131.muzzleVelocity * 0.7)
+  })
+
+  /**
+   * 預瞄環的基準槍取掛架中**初速最快**的那一挺（MG 131），不是傷害最高的
+   * MK 108。理由與取捨見 weapons/bf109k4.ts 的 `sight` 註解：環更貼目標、
+   * 好瞄，代價是慢速的主砲在中遠距離偏後。這裡釘住「選的是最快那挺」。
+   */
+  it('K-4 預瞄基準槍是掛架中初速最快的（MG 131）', () => {
+    const fastest = BF109K4_BATTERY.mounts.reduce((a, b) =>
+      b.weapon.muzzleVelocity > a.weapon.muzzleVelocity ? b : a).weapon
+    expect(BF109K4_BATTERY.sight).toBe(fastest)
+    expect(BF109K4_BATTERY.sight).toBe(MG131)
   })
 
   it('Bf 109 的總 DPS 高於 P-51', () => {
-    expect(batteryDps(BF109G6_BATTERY)).toBeGreaterThan(batteryDps(P51D_BATTERY))
+    expect(batteryDps(BF109K4_BATTERY)).toBeGreaterThan(batteryDps(P51D_BATTERY))
   })
 
-  it('DPS 對得上 spec §6.3 的表（P-51 1440、109 1880）', () => {
+  it('DPS 對得上設計值（P-51 1440、K-4 3608.33）', () => {
     // 【2026-08-09：三個單發傷害一律 ×3】專案負責人的調參決定，DPS 因此
     // 由 480 / 626.67 變成 1440 / 1880。**精度沒有放寬** —— 還是 0 位與
     // 1 位小數，只是被釘住的值換成了新的設計值。
+    //
+    // 【2026-08-25：109 由 G-6 換成 K-4】專案負責人裁決「武器也要改一下
+    // 攻擊力更高」。中軸砲 MG 151/20（700 rpm × 84）換成 MK 108
+    //（650 rpm × 250），DPS 由 1880 變成 3608.33：
+    //
+    //   MK 108     650/60 × 250 = 2708.33
+    //   MG 131 ×2  900/60 ×  30 ×2 = 900.00
+    //
+    // 對 P-51 的比值由 1.31 變成 **2.51**。這是知情的取捨，不是失手——
+    // 代價寫在 weapons/bf109k4.ts（初速 −245 m/s）與「沒有彈藥模型」
+    // 那一段。spec §6.3 的表已被這次裁決取代。
     expect(batteryDps(P51D_BATTERY)).toBeCloseTo(1440, 0)
-    expect(batteryDps(BF109G6_BATTERY)).toBeCloseTo(1880, 1)
+    expect(batteryDps(BF109K4_BATTERY)).toBeCloseTo(3608.33, 1)
   })
 })
 
@@ -130,10 +178,10 @@ describe('mountDirection（匯聚幾何）', () => {
     // 新設定下仍然成立、而且是同一件事的，是纏鬥距離：109 的槍在中軸線上，
     // 200~300 m 幾乎不散；P-51 在那裡正好離匯聚點最遠，是它最散的時候。
     for (const range of [200, 300]) {
-      expect(spreadAt(BF109G6_BATTERY, range))
+      expect(spreadAt(BF109K4_BATTERY, range))
         .toBeLessThan(spreadAt(P51D_BATTERY, range) / 5)
     }
-    expect(spreadAt(BF109G6_BATTERY, 300)).toBeLessThan(0.1)
+    expect(spreadAt(BF109K4_BATTERY, 300)).toBeLessThan(0.1)
   })
 
   it('1,000 m 附近 P-51 反而比 109 集中 —— 匯聚點外推換來的長處', () => {
@@ -141,7 +189,7 @@ describe('mountDirection（匯聚幾何）', () => {
     // 近戰換遠戰。沒有這一條，「換到了什麼」就沒有任何東西記著 ——
     // 哪天有人把匯聚點調回去，只會看到一條測試變綠、不會知道少了什麼。
     expect(spreadAt(P51D_BATTERY, P51D_BATTERY.convergence))
-      .toBeLessThan(spreadAt(BF109G6_BATTERY, P51D_BATTERY.convergence))
+      .toBeLessThan(spreadAt(BF109K4_BATTERY, P51D_BATTERY.convergence))
   })
 })
 
@@ -210,6 +258,6 @@ describe('MAX_MOUNTS —— 槍焰的容量上界（M7 spec §5.2）', () => {
     // 沒有警告，只是那一管永遠不閃。與 createFlights 檢查
     // 「index === 陣列位置」是同一類的守門。
     expect(P51D_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
-    expect(BF109G6_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
+    expect(BF109K4_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
   })
 })

@@ -15,7 +15,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { VETERAN } from '../../src/ai/profile'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -31,7 +31,7 @@ const SECONDS = 30
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
 }
-const MINE: AircraftSpec = { ...BF109G6, battery: harmless(BF109G6.battery) }
+const MINE: AircraftSpec = { ...BF109K4, battery: harmless(BF109K4.battery) }
 const DRONE: AircraftSpec = { ...P51D, battery: harmless(P51D.battery) }
 
 class Idle implements Controller {

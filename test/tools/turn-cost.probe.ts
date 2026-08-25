@@ -45,7 +45,7 @@ import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { manoeuvreSpeed, energyPull, DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
 import { shrinkTowardNose } from '../../src/ai/steer'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
@@ -76,7 +76,7 @@ const HEADINGS = [15, 30, 45, 60, 90, 135, 180]
 const RATIOS = [0.75, 1.0]
 
 const SPECS: [string, AircraftSpec][] = [
-  ['Bf 109 G-6', applyFeel(BF109G6, GAME_FEEL)],
+  ['Bf 109 G-6', applyFeel(BF109K4, GAME_FEEL)],
   ['P-51D', applyFeel(P51D, GAME_FEEL)],
 ]
 

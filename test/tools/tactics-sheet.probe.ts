@@ -7,7 +7,7 @@
  * 迴旋率、滾轉率、比余功率（能量增減）。
  */
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { GAME_FEEL, applyFeel } from '../../src/specs/feel'
 import {
   instantaneousTurnRate, sustainedTurnRate, maxRollRate, specificExcessPower,
@@ -17,7 +17,7 @@ import {
 const KMH = 3.6
 const DEG = 180 / Math.PI
 const P = applyFeel(P51D, GAME_FEEL)
-const B = applyFeel(BF109G6, GAME_FEEL)
+const B = applyFeel(BF109K4, GAME_FEEL)
 const ALT = 4000
 
 console.log(`高度 ${ALT} m，全油門 WEP\n`)

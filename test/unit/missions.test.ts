@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { MISSIONS, missionConfigFrom, missionRules } from '../../src/battle/missions'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
@@ -196,14 +196,14 @@ describe('missionConfigFrom', () => {
   it('同盟國：藍隊飛 P-51、紅隊飛 Bf 109，架數照卡片', () => {
     const cfg = missionConfigFrom(evacAllies, 'allies')
     expect(specOf(cfg, 'blue').id).toBe(P51D.id)
-    expect(specOf(cfg, 'red').id).toBe(BF109G6.id)
+    expect(specOf(cfg, 'red').id).toBe(BF109K4.id)
     expect(sideCount(cfg.units, 'blue')).toBe(evacAllies.blueCount)
     expect(sideCount(cfg.units, 'red')).toBe(evacAllies.redCount)
   })
 
   it('軸心國：藍隊飛 Bf 109 —— 玩家恆在藍隊，換的是機種不是顏色', () => {
     const cfg = missionConfigFrom(evacAxis, 'axis')
-    expect(specOf(cfg, 'blue').id).toBe(BF109G6.id)
+    expect(specOf(cfg, 'blue').id).toBe(BF109K4.id)
     expect(specOf(cfg, 'red').id).toBe(P51D.id)
   })
 

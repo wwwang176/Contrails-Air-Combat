@@ -5,10 +5,10 @@ import {
 } from '../../src/ai/doctrine'
 import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const P = applyFeel(P51D, GAME_FEEL)
-const B = applyFeel(BF109G6, GAME_FEEL)
+const B = applyFeel(BF109K4, GAME_FEEL)
 const KMH = 1 / 3.6
 
 describe('energyPull：能量見底時少拉一點', () => {
@@ -54,10 +54,27 @@ describe('sweetSpotAdvantage：在哪裡我贏得過他', () => {
     }
   })
 
-  it('低速時 109 佔優、高速時 P-51 佔優（4000 m）', () => {
-    // 實測分水嶺 366 km/h（advantage-map.probe.ts）
-    expect(sweetSpotAdvantage(P, B, 4000, 300 * KMH)).toBeLessThan(0)
-    expect(sweetSpotAdvantage(P, B, 4000, 500 * KMH)).toBeGreaterThan(0)
+  /**
+   * 【2026-08-25：換邊的方向翻了，而且 4,000 m 變成兩個分水嶺】
+   *
+   * G-6 時代是單一分水嶺 366 km/h，低速 109 佔優。K-4 的翼載
+   *（210.3 kg/m²）超過 P-51D（197.0），低速端於是換 P-51 贏；高速端
+   * 多出來的 525 匹又讓 K-4 贏回去；再往上到 573 km/h，P-51 的低阻力
+   * 機體第三次換邊。實測換號點（**套過 `applyFeel` 之後**，也就是本檔
+   * 的 `P` 與 `B`）：
+   *
+   * ```
+   *        0 m   328 km/h（→K-4），之後到兩台都轉不動為止都是 K-4
+   *    4,000 m   377 km/h（→K-4）、573 km/h（→P-51）   ← 中間這一段是 K-4 的
+   *    8,000 m   407 km/h（→K-4）、676 km/h（→P-51）
+   * ```
+   *
+   * 詳細推導見 test/unit/ai-assess.test.ts 的 turnAdvantage 那一條。
+   */
+  it('4000 m 有兩個分水嶺：低速 P-51、中速 K-4、高速 P-51', () => {
+    expect(sweetSpotAdvantage(P, B, 4000, 280 * KMH)).toBeGreaterThan(0)
+    expect(sweetSpotAdvantage(P, B, 4000, 450 * KMH)).toBeLessThan(0)
+    expect(sweetSpotAdvantage(P, B, 4000, 650 * KMH)).toBeGreaterThan(0)
   })
 
   it('反對稱：交換雙方等於變號', () => {
@@ -80,14 +97,19 @@ describe('sweetSpotPitch：往優勢上升的方向偏俯仰', () => {
     expect(sweetSpotPitch(P, P, 4000, 450 * KMH, ON)).toBeCloseTo(0, 12)
   })
 
+  // 【2026-08-25：兩條的取樣速度換了，斷言的方向沒換】換邊的位置隨機種
+  // 資料移動（見上方 sweetSpotAdvantage 那一條），所以取樣點要跟著移到
+  // 新的劣勢區裡。函式的行為本身沒有變。
   it('P-51 太慢時低頭換速度', () => {
-    // 300 km/h 在分水嶺以下，P-51 該加速 → 低頭 → 負
-    expect(sweetSpotPitch(P, B, 4000, 300 * KMH, ON)).toBeLessThan(0)
+    // 450 km/h 落在 K-4 的優勢帶（377~573）內，P-51 的出路是加速衝過
+    // 573 那個換號點 → 低頭 → 負
+    expect(sweetSpotPitch(P, B, 4000, 450 * KMH, ON)).toBeLessThan(0)
   })
 
-  it('109 太快時抬頭換高度（減速）', () => {
-    // 109 在 500 km/h 是劣勢，它的優勢在更慢處 → 該減速 → 抬頭 → 正
-    expect(sweetSpotPitch(B, P, 4000, 500 * KMH, ON)).toBeGreaterThan(0)
+  it('K-4 太快時抬頭換高度（減速）', () => {
+    // 650 km/h 已經越過 573 進到 P-51 的優勢區，K-4 的優勢在更慢處
+    // → 該減速 → 抬頭 → 正。實測 +8.20°
+    expect(sweetSpotPitch(B, P, 4000, 650 * KMH, ON)).toBeGreaterThan(0)
   })
 
   it('偏置不得超過上界', () => {
@@ -164,20 +186,26 @@ describe('turnPlanePitch：俯衝／水平／拉高，挑一個', () => {
    * 【只剩一條路就給滿】舊版寫「沒得選就不出手」，那是反的 —— 沒得選正是
    * 最該出手的時候。
    *
-   * 這一格是掃出來的實例：109 在 1000 m、110 m/s、夾角 60°、視線角速度
+   * 這一格是掃出來的實例：109 在 500 m、105 m/s、夾角 60°、視線角速度
    * 26°/s，只有俯衝轉得過去（低速時往下換速度會把轉彎率拉起來，水平與
    * 拉高都收斂不了）。舊版在這裡回 0 —— 明明只剩一條路卻不動。
+   *
+   * 【2026-08-25：換了一格】原本的實例是 1000 m、110 m/s，同樣的夾角與
+   * 視線角速度。K-4 多了 525 匹馬力，那一格的**三個候選全部變得可行**
+   *（實測 [true, true, true]），於是不再是「只剩一條路」。這是取樣點
+   * 失效，不是函式壞掉——重掃一次網格拿到上面那一格（高度與速度各降
+   * 一階，夾角與視線角速度原封不動），斷言的內容一字未改。
    *
    * 【為什麼這個缺陷在護送關看不出來】那一場「只剩一個候選」時贏的都是水平
    * 迴旋，而水平迴旋的偏置本來就是 0。它被自己蓋住了。
    */
   it('只有一個候選可行時給滿偏置，不是回 0', () => {
     const only = [-1, 0, 1].map((k) =>
-      Number.isFinite(turnPlaneCost(B, 1000, 110, 60 * DEG2, 26 * DEG2,
+      Number.isFinite(turnPlaneCost(B, 500, 105, 60 * DEG2, 26 * DEG2,
         k * DEFAULT_DOCTRINE.turnPlaneGamma).seconds))
     expect(only).toEqual([true, false, false])   // 只有俯衝可行
 
-    const b = turnPlanePitch(B, 1000, 110, 60 * DEG2, 26 * DEG2, 1000, 110, DEFAULT_DOCTRINE)
+    const b = turnPlanePitch(B, 500, 105, 60 * DEG2, 26 * DEG2, 500, 105, DEFAULT_DOCTRINE)
     expect(b).toBeCloseTo(-DEFAULT_DOCTRINE.turnPlaneMaxPitch, 12)
   })
 

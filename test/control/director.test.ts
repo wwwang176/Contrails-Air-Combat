@@ -11,7 +11,7 @@ import {
 } from '../../src/control/limiters'
 import { DEG, RAD, G0 } from '../../src/core/math'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { controlEffectiveness } from '../../src/physics/aero'
@@ -389,7 +389,7 @@ describe('指揮儀特例', () => {
     // 第一層照樣通過，只有第二層會擋下來。
     const noYaw = { yawAim: 0 }
     const pIso = fly(P51D, 600, noYaw)
-    const bIso = fly(BF109G6, 600, noYaw)
+    const bIso = fly(BF109K4, 600, noYaw)
     // 【門檻由 1.15 降到 1.10，並記下實測值】隔離層的時間比在本測試框架下
     // 實測為 1.137（0.6708 s 對 0.7625 s）。先前寫 1.15 是照另一個量測腳本
     // （直接驅動 Aircraft）的 1.179 訂的——兩個框架在同一組條件下差約 4%，
@@ -406,13 +406,13 @@ describe('指揮儀特例', () => {
     // 隔離層（上方，yawAim = 0）仍以 1.15 的時間比把氣動差異釘死，
     // 那裡的實測值是 1.179（600 km/h）與 1.589（700 km/h），餘裕充足。
     const pFast = fly(P51D, 600)
-    const bFast = fly(BF109G6, 600)
+    const bFast = fly(BF109K4, 600)
     expect(peakRollRate(bFast)).toBeLessThan(0.95 * peakRollRate(pFast))
 
     // 對照組 400 km/h：qbar = 4072 Pa，兩機都在各自的 qRef 以下，
     // 變重項不作用——差距必須消失，否則上面的差距不能歸因於副翼變重。
     const pSlow = fly(P51D, 400)
-    const bSlow = fly(BF109G6, 400)
+    const bSlow = fly(BF109K4, 400)
     // 實測 1.274 vs 1.255 rad/s，只差 1.6%
     expect(peakRollRate(bSlow)).toBeGreaterThan(0.95 * peakRollRate(pSlow))
     expect(timeToBank45(bSlow)).toBeLessThan(1.05 * timeToBank45(pSlow))
@@ -818,10 +818,10 @@ describe('指揮儀特例', () => {
       // 五個小角度案例一致改善 35~42%，取 0.8 倍門檻留餘裕。
       expect(settleTime(on, 0.1)).toBeLessThan(0.8 * settleTime(off, 0.1))
       // 穿越：Bf 109 右 5° 由 0 次變 3 次，是最乾淨的判別案例
-      const bfOn = runDirector(BF109G6, 0, aimAt(5, 90), 220, 15, {
+      const bfOn = runDirector(BF109K4, 0, aimAt(5, 90), 220, 15, {
         altitude: 4000, keepHistory: true,
       })
-      const bfOff = runDirector(BF109G6, 0, aimAt(5, 90), 220, 15, {
+      const bfOff = runDirector(BF109K4, 0, aimAt(5, 90), 220, 15, {
         altitude: 4000, keepHistory: true, gains: { yawAimI: 0 },
       })
       expect(crosses(bfOn)).toBeGreaterThan(crosses(bfOff))
@@ -1259,7 +1259,7 @@ describe('指揮儀的設計不變量', () => {
     expect(Math.abs(aMid.desiredQ - aMid.actualQ)).toBeLessThan(0.1)
 
     // B：高速大滾轉需求 → 問題出在「實際」端，desiredP 沒被夾但 actualP 追不上
-    const b = runDirector(BF109G6, 0, aimAt(60, 90), 600 * KMH, 1.0, { keepHistory: true })
+    const b = runDirector(BF109K4, 0, aimAt(60, 90), 600 * KMH, 1.0, { keepHistory: true })
     const bEarly = b.dbgHistory[Math.round(0.3 / DT)]!
     expect(Math.abs(bEarly.desiredP)).toBeLessThan(DEFAULT_DIRECTOR_GAINS.maxRollRateCommand)
     expect(Math.abs(bEarly.actualP)).toBeLessThan(Math.abs(bEarly.desiredP) * 0.6)

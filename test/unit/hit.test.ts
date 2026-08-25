@@ -6,7 +6,7 @@ import {
   type FaceNormal, type HitBox,
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { DEG } from '../../src/core/math'
 
 /** 給 boundingRadius 用的巢狀盒（與 hitAircraft 那一組同形，但需在外層可見）。 */
@@ -181,7 +181,7 @@ describe('boundingRadius（命中判定的粗篩）', () => {
     // 這是最佳化的正確性條件，不是效能指標。半徑若小於某個角落，
     // 那個方向來的彈丸會被粗篩直接跳過：玩家看到曳光彈穿過機翼卻不扣血，
     // 而且只在特定角度發生。
-    for (const boxes of [NESTED_FOR_RADIUS, P51D.hitBoxes, BF109G6.hitBoxes]) {
+    for (const boxes of [NESTED_FOR_RADIUS, P51D.hitBoxes, BF109K4.hitBoxes]) {
       const r = boundingRadius(boxes)
       for (const b of boxes) {
         for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {

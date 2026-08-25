@@ -7,7 +7,7 @@ import {
   createHitResult, hitAircraft, segmentPointDistanceSq, PART_MULTIPLIER, type HitPart,
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 /** 什麼都不做的控制器。等價測試只關心命中判定。 */
 class Idle implements Controller {
@@ -84,7 +84,7 @@ function scenario(seed: number, n: number, shots: number): World {
   const r = rng(seed)
   const w = new World()
   for (let i = 0; i < n; i++) {
-    const spec = i % 2 === 0 ? P51D : BF109G6
+    const spec = i % 2 === 0 ? P51D : BF109K4
     const ac = new Aircraft(spec, 4000, 200)
     ac.state.position.set((r() - 0.5) * 600, 4000 + (r() - 0.5) * 300, (r() - 0.5) * 600)
     // 【隨機姿態用四個分量正規化，不要用 Euler 角】Euler 角在極點附近分布

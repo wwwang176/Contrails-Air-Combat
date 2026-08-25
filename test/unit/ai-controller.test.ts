@@ -11,7 +11,7 @@ import { INTENTS } from '../../src/ai/rules'
 import { rallyAim } from '../../src/ai/rally'
 import type { FlightOrder } from '../../src/ai/command'
 import { P51D } from '../../src/specs/p51d'
-import { BF109G6 } from '../../src/specs/bf109g6'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 const DT = 1 / 240
 
@@ -43,7 +43,7 @@ describe('AiController', () => {
    * 瞄準點就不再跟著目標動。那是 fixture 不物理，不是被測行為出錯。
    */
   const pair = () => {
-    const self = new Aircraft(BF109G6, 4000, 180)
+    const self = new Aircraft(BF109K4, 4000, 180)
     const target = new Aircraft(P51D, 4000, 180)
     self.update(new Vector3(0, 0, -1), 0.7, DT)
     target.update(new Vector3(0, 0, -1), 0.7, DT)
@@ -56,7 +56,7 @@ describe('AiController', () => {
   }
 
   it('沒有目標時輸出安全的預設值（維持機首方向平飛）', () => {
-    const self = new Aircraft(BF109G6, 4000, 180)
+    const self = new Aircraft(BF109K4, 4000, 180)
     const ai = new AiController()
     ai.update(self, DT, cmd)
     expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
