@@ -4,7 +4,7 @@ import { Aircraft } from '../src/aircraft/Aircraft'
 import type { Command, Controller } from '../src/control/Controller'
 import { PROJECTILE_CAPACITY, PROJECTILE_LIFETIME } from '../src/world/Projectiles'
 import { P51D } from '../src/specs/p51d'
-import { BF109G6 } from '../src/specs/bf109g6'
+import { BF109K4 } from '../src/specs/bf109k4'
 
 export const LOAD_DT = 1 / 240
 export const LOAD_ALTITUDE = 4000
@@ -40,7 +40,7 @@ export function createProjectileLoad(): ProjectileLoadState {
   // 兩架都會重生：不然雙方在 2 秒內互相打爆，之後量到的是「沒有目標可判定」
   // 的空轉，而不是滿載的命中判定成本。
   for (const [spec, team, z] of
-    [[P51D, 'blue', 0], [BF109G6, 'red', -800]] as const) {
+    [[P51D, 'blue', 0], [BF109K4, 'red', -800]] as const) {
     const c = world.add(
       new Aircraft(spec, LOAD_ALTITUDE, LOAD_TAS), new Blazing(), team,
       new Vector3(0, LOAD_ALTITUDE, z), LOAD_ALTITUDE, LOAD_TAS,

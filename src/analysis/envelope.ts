@@ -233,7 +233,7 @@ export function sustainedTurnRate(
     // tas 參數槽位，導致 loadFactor 恆為 1、tas 被夾在 [1, nMax]（僅 1~數 m/s）。
     // 在此極低速下 qbar≈0 使 cl 遠超 CL_max，dragAt 恆回傳 Infinity，
     // Ps 恆為 −Infinity，於是 hi=mid 永遠成立、lo 永遠停在 1，
-    // sustainedTurnRate 因此恆回傳 0（已於 BF109G6 300 km/h 實測到）。
+    // sustainedTurnRate 因此恆回傳 0（已於 BF109K4 300 km/h 實測到）。
     // 正確作法：tas 固定為外層傳入值，二分的是 loadFactor（第四參數）。
     if (specificExcessPower(spec, altitude, tas, mid, throttle) >= 0) lo = mid
     else hi = mid

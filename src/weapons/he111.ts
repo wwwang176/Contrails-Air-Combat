@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import type { Battery, WeaponSpec } from './types'
 import type { Turret } from './turret'
 import { muzzleAt } from './turret'
-import { MG131 } from './bf109g6'
+import { MG131 } from './bf109k4'
 import { DEG } from '../core/math'
 
 /**

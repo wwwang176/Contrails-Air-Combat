@@ -24,7 +24,7 @@ export type { AircraftModel, HullMetrics } from './assembly'
  */
 const BUILDERS: Record<string, () => AircraftModel> = {
   p51d: buildP51D,
-  bf109g6: buildBf109E,
+  bf109k4: buildBf109E,
   he111: buildHe111,
   b17g: buildB17G,
 }
@@ -43,7 +43,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
  */
 const BODY_COLORS: Record<string, number> = {
   p51d: P51D_BODY_COLOR,
-  bf109g6: BF109_BODY_COLOR,
+  bf109k4: BF109_BODY_COLOR,
   he111: HE111_BODY_COLOR,
   b17g: B17G_BODY_COLOR,
 }
