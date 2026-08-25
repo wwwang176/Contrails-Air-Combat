@@ -1,4 +1,5 @@
 import {
+  Color,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
@@ -116,15 +117,14 @@ export const FAR_SEA_Y = -4.5
  * 海的基本色。細浪面與遠海**必須共用**這一個值 —— 兩份會漂開，而漂開的
  * 症狀是 5 km 處出現一條色帶。
  *
- * 【2026-08-10 壓深】專案負責人：「海再深色一點。」`0x1d3f5c`（L 0.060）→
- * `0x18344c`（L 0.041），色相與飽和不動，只降明度 32%。
- *
- * 同一次把天空的下半提亮（`sky.ts`），所以海天那一階由 0.371 變成 **0.454**
- * —— `fog.test.ts` 要求 > 0.25，更遠離門檻而不是更接近。
+ * 【2026-08-26 維持深色海 + 地平線淺色漸層】負責人試過亮海（0x3d7db0）後
+ * 決定：海本色**維持原本的深藍** 0x18344c（2026-08-10 壓深的值不動），只讓
+ * 最貼地平線的 0~5 度融向天空淺藍（見 SEA_AERIAL_HI、以及 SPARKLE_FRAGMENT
+ * 末的最終色 mix）。因為本色沒變、漸層只在極窄的地平線帶，fog.test 的海天差
+ * 幾乎不受影響。
  *
  * 【這是 base color，不是畫面上的像素】海面走 `MeshPhysicalMaterial`，實際
- * 亮度還要過一次 PBR 著色，比這個值亮。要再深就繼續降這裡，測試那一側只會
- * 更寬鬆。
+ * 亮度還要過一次 PBR 著色，比這個值亮。
  */
 export const SEA_COLOR = 0x18344c
 
@@ -647,6 +647,30 @@ export const SEA_DIM_FLOOR = 0.62
  */
 export const SEA_SHADE_GAIN = 0
 
+/**
+ * 海面大氣透視（aerial perspective）：遠處海色往**天空地平線色**靠攏，
+ * 近深遠淺、柔和融入天空。
+ *
+ * 【推翻了什麼】2026-08-09 的「海面 `fog: false`、海天靠硬色差」是刻意的
+ * low-poly 選擇；2026-08-25 負責人看了參考圖後裁定改走空氣感。這不是把
+ * fog 改回 false 的理由，要改先問。
+ *
+ * near 之內幾乎不動（保留近處深海）、far 之外融滿。strength < 1 讓遠海
+ * 接近但不完全等於天空色，留一點海的身分。三個值都靠試飛定。
+ */
+/**
+ * 【用仰角，不是距離】漸層只該出現在**接近海天交界**那一條 —— 也就是視線
+ * 掠射、幾乎貼著水面的地方。用距離做會把整片中遠海都糊成一層霧（實測
+ * 2026-08-25：負責人回報「像貼了一層霧氣」）。`oceanV.y` 是視線與水平面
+ * 夾角的 sin：HI 之上（較陡、往下看）完全不融，LO 之下（接近水平、掠向
+ * 仰角驅動，只在最貼地平線那一條。0.052 ≈ 俯角 3°、LO = 0（融滿在地平線）：
+ * 從地平線連續漸進到 3°。融向 uHorizonColor（#3d5975，接近海色的中深藍灰），
+ * STRENGTH 0.3 壓淡 —— 對比小、含蓄。（大範圍「近深遠淺」2026-08-26 試過否決。）
+ */
+export const SEA_AERIAL_HI = 0.052
+export const SEA_AERIAL_LO = 0.0
+export const SEA_AERIAL_STRENGTH = 0.3
+
 /** 頂點與片段共用的宣告。兩個材質都要。 */
 const SPARKLE_COMMON = /* glsl */ `
   uniform float uTime;
@@ -685,6 +709,10 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uFarDim;
   uniform float uFadeStart;
   uniform float uFadeEnd;
+  uniform float uAerialHi;
+  uniform float uAerialLo;
+  uniform float uAerialStrength;
+  uniform vec3 uHorizonColor;
   varying vec3 vOceanWorld;
 
   /**
@@ -876,11 +904,18 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
   // 那正是地平線附近需要的。下限 0.02 把放大倍率封在 50 倍。
   float oceanFoot = oceanDist * uPixelAngle / max(oceanV.y, 0.02);
 
+  // 大氣透視的量。**在塊外宣告**，因為碎光那段（SPARKLE_FRAGMENT）也要用它
+  // 把交界區的白點沖淡。**用仰角 oceanV.y 而不是距離**：只有視線掠向地平線
+  // （oceanV.y 小）才融入天空，中遠海保持本色，不會整片糊成霧。見 SEA_AERIAL_HI。
+  float oceanAerial = smoothstep(uAerialHi, uAerialLo, oceanV.y) * uAerialStrength;
+
   {
     // 平坦法線（+Y）下的半角對齊 —— dot(vec3(0, 1, 0), oceanH) 就是
     // oceanH.y。用波法線會讓整片海的顏色跟著浪呼吸，見 SEA_DIM_LO。
     float lit = smoothstep(uDimLo, uDimHi, oceanH.y);
     diffuseColor.rgb *= mix(uDimFloor, 1.0, lit);
+    // 【大氣透視不在這裡】它移到 SPARKLE_FRAGMENT 末的**最終色**去 mix ——
+    // 在 albedo 融會被 PBR 光照＋高粗糙度去飽和成灰。這裡只留方位漸層。
   }
 `
 
@@ -1014,9 +1049,15 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       float edgeLight = clamp(edgeWorld / cellW, 0.005, 0.4);
       float edgeDark = clamp(edgeWorld / (cellW * uDarkScale), 0.005, 0.4);
 
-      gl_FragColor.rgb *= 1.0 - sparkleDark(vorDark, edgeDark) * uDarkStrength * fade;
-      gl_FragColor.rgb += sparkleLight(vor, p, uTime * uTwinkle, edgeLight) * uSparkleStrength * atten * vec3(1.0, 0.98, 0.94);
+      // 【霧化區把黑白塊一起沖淡】遠海融進天空後不該再有清楚的碎光。
+      // oceanAerial 在 SEA_DIM_FRAGMENT 算好（排在本段之前）。
+      float sparkleKeep = 1.0 - oceanAerial;
+      gl_FragColor.rgb *= 1.0 - sparkleDark(vorDark, edgeDark) * uDarkStrength * fade * sparkleKeep;
+      gl_FragColor.rgb += sparkleLight(vor, p, uTime * uTwinkle, edgeLight) * uSparkleStrength * atten * sparkleKeep * vec3(1.0, 0.98, 0.94);
     }
+    // 【大氣透視在最終色，PBR 之後】所以淺色是純淺藍、不會被光照弄灰。
+    // 在 if(fade) 外 —— 大氣透視是所有海面像素都有，不受碎光範圍限制。
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, uHorizonColor, oceanAerial);
   }
 `
 
@@ -1094,6 +1135,13 @@ export function createOcean(): Ocean {
     uFarDim: { value: SPARKLE_FAR_DIM },
     uFadeStart: { value: SPARKLE_FADE_START },
     uFadeEnd: { value: SPARKLE_FADE_END },
+    uAerialHi: { value: SEA_AERIAL_HI },
+    uAerialLo: { value: SEA_AERIAL_LO },
+    uAerialStrength: { value: SEA_AERIAL_STRENGTH },
+    // 漸層融向的目標色 = 負責人 2026-08-26 指定的 #3d5975（rgb 61,89,117），
+    // 一個接近海色的中深藍灰 —— 比天空淺藍暗得多，所以漸層對比小、不刺眼。
+    // 在**最終色**（PBR 之後，見 SPARKLE_FRAGMENT 末）mix，不是 albedo。
+    uHorizonColor: { value: new Color(0x3d5975) },
   }
 
   /**
