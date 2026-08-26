@@ -592,6 +592,47 @@ export const SHADE_SLOPE_RMS = (11 * Math.PI) / 180
 export const PIXEL_ANGLE = ((65 * Math.PI) / 180) / 1080
 
 /**
+ * **微波專用的細座標扭曲**：兩層的振幅（m）與各自的兩道波長（m）。
+ *
+ * ── 【它在解什麼：少數幾道正弦永遠是準週期的】───────────────────────
+ *
+ * `WAVE_WARP_*` 已經把長浪的波峰弄彎了，但它的尺度是幾百到幾千公尺 ——
+ * 對 11 m 的微波來說那是一個幾乎均勻的平移，波峰照樣是筆直的長峰。於是
+ * 微波那一階不管切成幾道，疊出來的都是一個**規則的晶格**：一道時晶格退化
+ * 成條紋，四道時它是斑點。自相關一路到邊都不衰減，兩者都不像海。
+ *
+ * 【為什麼扭曲解得掉，而多切幾道解不掉】規律性的量度是**相關長度**，而它
+ * 由波數帶的寬度決定 —— 一階就是一個窄帶，塞再多方向都還是窄帶。座標扭曲
+ * 讓局部波長跟著扭曲的梯度伸縮，等於**把一階自己攤成寬頻**：
+ *
+ *     梯度 = 振幅 × 2π/波長 ≈ 0.4  →  局部波長在 λ/1.4 ~ λ/0.6 之間跑
+ *     相位擾動 = k·振幅 ≈ π        →  波峰會斷、會錯開，長度變成有限的
+ *
+ * 【為什麼只給微波、而且只在片段著色器裡】微波不進頂點位移、不進碰撞，
+ * 所以這一份沒有 CPU 的對應版本，也不必與 `waveWarp` 保持逐字相同。把它
+ * 加進 `oceanWarp` 的話 140 m 的長浪會跟著被 60 m 的尺度扭爛，而 `crash.ts`
+ * 讀的 `gerstnerHeight` 得跟著改 —— 那是完全不同量級的一件事。
+ *
+ * 【為什麼要兩層、而且四個波長互質】單層的話扭曲自己就是週期的，相關性會
+ * 在一個扭曲波長之後**整個復活** —— 等於把重複推到 60 m，比原本的條紋還糟。
+ * 兩層互質之後復活點被推到最小公倍數，遠在任何一個畫面之外。
+ *
+ * 【梯度不能到 1】到 1 座標映射就會摺疊，症狀是焦散般的硬亮線。兩層加起來
+ * 每個分量約 0.4，離摺疊有餘裕。
+ */
+export const RIPPLE_WARP_AMP = 6.0
+/** 見 `RIPPLE_WARP_AMP`。取質數。 */
+export const RIPPLE_WARP_LEN_A = 149
+/** 見 `RIPPLE_WARP_AMP`。 */
+export const RIPPLE_WARP_LEN_B = 103
+/** 見 `RIPPLE_WARP_AMP`。第二層：更短、更淺，負責把波峰真的切斷。 */
+export const RIPPLE_WARP2_AMP = 2.4
+/** 見 `RIPPLE_WARP_AMP`。取質數，與第一層互質。 */
+export const RIPPLE_WARP2_LEN_A = 61
+/** 見 `RIPPLE_WARP_AMP`。 */
+export const RIPPLE_WARP2_LEN_B = 43
+
+/**
  * `RIPPLE_WAVES` 的形狀。振幅與速度由 `SHADE_SLOPE_RMS` 與色散關係推導。
  *
  * 【階梯，不是清單】每個 `share` 加起來為 1 的群組是**一階**，一階分到一份
@@ -607,6 +648,17 @@ export const PIXEL_ANGLE = ((65 * Math.PI) / 180) / 1080
  * 「有沒有主方向」要看**倍角**的合成向量。四道間隔 45°，倍角就均勻分佈在
  * 整圈上、合成向量趨近 0 —— 沒有任何方向勝出。散佈不夠寬會留下殘餘的主
  * 方向：25° 間隔的三道實測方向性 0.357，只比單一道的 0.409 好一點點。
+ *
+ * 【四道與 `RIPPLE_WARP_*` 缺一不可 —— 兩者治的是不同的病】截圖量到的自相關
+ * 遠端次峰（±14–25 m，數字愈小愈不規則）：
+ *
+ *   一道、不扭曲   0.334   長峰正弦 → **條紋**
+ *   四道、不扭曲   0.274   四道交叉 → **規則的斑點晶格**（顆粒）
+ *   一道、扭曲     0.189   波峰被弄彎了，但沒斷 → 條紋照樣在，只是變彎
+ *   四道、扭曲     0.148   短峰、不規則 ← 現在的樣子
+ *
+ * 拆分處理「只有一個方向」，扭曲處理「波峰無限長」。少任何一邊都會留下一個
+ * 看得出來的規則圖樣。
  *
  * 【波長要靠得近】13.1 / 11.3 / 10.2 / 8.9 —— 四道的淡出窗因此幾乎重疊，
  * 方向散佈一路撐到整階淡光為止。拉開的話短的先死，遠處又剩單一方向，
@@ -1188,6 +1240,8 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uWarp;   // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform float uWarpSpd;
   uniform vec3 uWarp2;  // x: 振幅 m, y: 波數 A, z: 波數 B
+  uniform vec3 uRipWarp;   // 同上，微波專用。見 RIPPLE_WARP_AMP
+  uniform vec3 uRipWarp2;
   uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
   uniform float uEnvLo;
   uniform float uBaseCell;
@@ -1206,6 +1260,18 @@ const SPARKLE_COMMON = /* glsl */ `
         + sin(p.x * uWarp2.y - t * uWarp2.y + 1.7) * uWarp2.x,
       sin(p.x * uWarp.z - t * uWarp.z) * uWarp.x
         + sin(p.y * uWarp2.z + t * uWarp2.z + 4.1) * uWarp2.x
+    );
+  }
+
+  // 微波專用的細扭曲。**沒有 CPU 的對應版本** —— 微波不進頂點位移、不進
+  // 碰撞判定，所以這一份不必與 waveWarp 一致。設計理由見 RIPPLE_WARP_AMP。
+  vec2 oceanRippleWarp(vec2 p, float time) {
+    float t = time * uWarpSpd;
+    return vec2(
+      sin(p.y * uRipWarp.y + t * uRipWarp.y + 2.3) * uRipWarp.x
+        + sin(p.x * uRipWarp2.y - t * uRipWarp2.y + 0.9) * uRipWarp2.x,
+      sin(p.x * uRipWarp.z - t * uRipWarp.z + 5.1) * uRipWarp.x
+        + sin(p.y * uRipWarp2.z + t * uRipWarp2.z + 3.4) * uRipWarp2.x
     );
   }
 
@@ -1511,9 +1577,13 @@ const SPARKLE_FRAGMENT = /* glsl */ `
 
       // 只給法線的微波 —— 不進頂點位移、不進 drift、不進碰撞判定。
       // 見 RIPPLE_WAVES。**只有還畫得出形狀的那幾道**，見 RIPPLE_RESOLVED。
+      //
+      // 【多一層細扭曲】微波的尺度是 10 m 級，而 oceanWarp 的尺度是幾百到
+      // 幾千公尺 —— 對它們來說那只是平移，波峰照樣筆直。見 RIPPLE_WARP_AMP。
+      vec2 rwxz = pwxz + oceanRippleWarp(pwxz, uTime);
       for (int i = 0; i < ${RIPPLE_RESOLVED.length}; i++) {
         float k = 6.28318530718 / uRipLen[i];
-        float ph = k * dot(uRipDir[i], pwxz) - uRipSpd[i] * k * uTime;
+        float ph = k * dot(uRipDir[i], rwxz) - uRipSpd[i] * k * uTime;
         float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
         float ak = uRipAmp[i] * k;
         g += w * ak * cos(ph) * uRipDir[i];
@@ -1785,6 +1855,14 @@ export function createOcean(): Ocean {
     uWarp2: {
       value: new Vector3(
         WAVE_WARP2_AMP, (Math.PI * 2) / WAVE_WARP2_LEN_A, (Math.PI * 2) / WAVE_WARP2_LEN_B),
+    },
+    uRipWarp: {
+      value: new Vector3(
+        RIPPLE_WARP_AMP, (Math.PI * 2) / RIPPLE_WARP_LEN_A, (Math.PI * 2) / RIPPLE_WARP_LEN_B),
+    },
+    uRipWarp2: {
+      value: new Vector3(
+        RIPPLE_WARP2_AMP, (Math.PI * 2) / RIPPLE_WARP2_LEN_A, (Math.PI * 2) / RIPPLE_WARP2_LEN_B),
     },
     uEnv: {
       value: new Vector3(
