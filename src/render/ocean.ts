@@ -88,11 +88,98 @@ export const WAVES: readonly WaveSpec[] = [
  * 著色器的位移、片段著色器的坡度 —— 三份都要用同一個 warp。不一致的症狀是
  * 「飛機撞到看不見的浪」或「亮塊與浪的形狀分家」。
  */
-export const WAVE_WARP_AMP = 25
-/** 見 WAVE_WARP_AMP。兩道扭曲波的波長，m。刻意互質。 */
-export const WAVE_WARP_LEN_A = 900
-/** 見 WAVE_WARP_AMP。 */
-export const WAVE_WARP_LEN_B = 1100
+export const WAVE_WARP_AMP = 40
+/**
+ * 見 WAVE_WARP_AMP。第一層扭曲的兩道波長，m。
+ *
+ * ── 【2026-08-26 由 900 / 1100 拉長到 2113 / 3271】────────────────
+ *
+ * **人工回報：「從高空看很容易觀察到重覆」。** 成因是扭曲自己有週期：
+ * 900 與 1100 的最小公倍數是 9,900 m，而 6,000 m 高空正俯視時畫面涵蓋
+ * 約 7.6 km —— 那個圖樣在同一張畫面裡重複七、八次，比它要打散的波還好認。
+ *
+ * **打散圖樣的東西自己必須比畫面大。** 2113 與 3271 都是質數，最小公倍數
+ * 6.9 × 10⁶ m；在任何看得到的尺度上都不會重複，而單獨一道的週期（2～3 km）
+ * 也已經接近畫面的高度，讀起來是「這一片海跟那一片不一樣」而不是圖樣。
+ */
+export const WAVE_WARP_LEN_A = 2113
+/** 見 WAVE_WARP_LEN_A。 */
+export const WAVE_WARP_LEN_B = 3271
+
+/**
+ * 第二層扭曲的振幅（m）與兩道波長（m）。
+ *
+ * 【為什麼一層不夠】把第一層拉長到公里尺度之後，它只能讓「這一片海」與
+ * 「那一片海」不一樣 —— 在**局部**（幾百公尺的範圍內）波峰仍然是一組平行
+ * 直線交叉出來的規則格柵。第二層在 400～600 m 的尺度上再彎一次，那正好是
+ * 高空俯視時一眼能涵蓋的範圍。
+ *
+ * 【振幅要小】9 m 對 140 m 的長波是十五分之一個波長 —— 彎得出來但不會把
+ * 波形攪爛。第一層的 40 m 之所以可以大，是因為它慢：在 2 km 的尺度上變化
+ * 40 m，局部幾乎是純平移，波形完全不受影響。
+ *
+ * 【兩層的軸刻意交換】第一層用 p.y 驅動 x、p.x 驅動 y；第二層反過來。同向
+ * 疊加會讓兩層的效果沿同一個方向累積，看起來像一層比較強的扭曲。
+ */
+export const WAVE_WARP2_AMP = 9
+/** 見 WAVE_WARP2_AMP。同樣取質數。 */
+export const WAVE_WARP2_LEN_A = 419
+/** 見 WAVE_WARP2_AMP。 */
+export const WAVE_WARP2_LEN_B = 577
+
+/**
+ * 浪高包絡：每一道波的振幅隨位置起伏的下限。1 = 不起伏。
+ *
+ * ── 【為什麼真實的海是一組一組的】──────────────────────────────
+ *
+ * 純正弦波的振幅處處相同，所以整片海的浪高一模一樣 —— 那是這個海面看起來
+ * 「機器做的」的另一半原因（前一半是波峰太直，由 WAVE_WARP_* 處理）。
+ *
+ * 真實海面的浪是**成群**的：幾個大浪過去之後跟著一段平緩，行話叫 wave
+ * group。物理成因是頻率相近的波互相拍頻。眼睛非常認得這個特徵 —— 少了它，
+ * 再多的波疊加起來還是像一張規則的布。
+ *
+ * ── 【怎麼做】────────────────────────────────────────────────
+ *
+ * 一個低頻的準隨機場 g（兩道長波相乘，見 WAVE_ENV_LEN_A），每一道波取它的
+ * **不同相位切片**當作自己的振幅倍率：
+ *
+ *     env_i = mix(WAVE_ENV_LO, 1, 0.5 + 0.5 · sin(g · 展幅 + 該道波的相位))
+ *
+ * 取切片而不是各算一個場，是為了成本：場只算一次（兩次 sin），每道波再一次
+ * sin。**而且不同的相位讓各道波的「大浪帶」錯開** —— 全部對齊的話就變成
+ * 整片海一起漲落，那是潮汐不是浪。
+ *
+ * ── 【0.35 這個下限】──────────────────────────────────────────
+ *
+ * 振幅在 35% 到 100% 之間走。**刻意只往下調不往上調**：
+ *
+ *   一、test/unit/ocean.test.ts 守著「波高不超過所有波幅的總和」。往上調
+ *       會讓那條界線失效，而那是碰撞判定唯一的靜態保證。
+ *   二、往上調等於偷偷提高整體浪高，而浪高牽動 SHADE_SLOPE_RMS 的預算
+ *       （RIPPLE_WAVES 的振幅由它反推）—— 那是另一個決定。
+ *
+ * 代價是平均浪高降到約 67%。要補回來得動 WAVES 的振幅，而那要連
+ * RIPPLE_WAVES 一起重算。
+ */
+export const WAVE_ENV_LO = 0.35
+/**
+ * 見 WAVE_ENV_LO。包絡場的兩道波長，m。
+ *
+ * 【為什麼是 800～1300 m】真實的 wave group 大約是五到十個波長長。對這裡
+ * 最長的 140 m 波，那是 700～1400 m。同樣取質數避免與扭曲的尺度共振。
+ */
+export const WAVE_ENV_LEN_A = 887
+/** 見 WAVE_ENV_LEN_A。 */
+export const WAVE_ENV_LEN_B = 1289
+/**
+ * 見 WAVE_ENV_LO。切片的展幅 —— g 乘上它再取 sin。
+ *
+ * 【為什麼要 > 1】g 的值域是 [−1, 1]。展幅 1 時 sin 的引數只走 ±1 弧度，
+ * 各道波取到的值高度相關，等於整片一起漲落。3.1 讓引數走 ±3.1（接近整個
+ * 週期），相鄰兩道波的相位差就能給出幾乎無關的倍率。
+ */
+export const WAVE_ENV_SPREAD = 3.1
 /**
  * 見 WAVE_WARP_AMP。扭曲自己的移動速度，m/s。
  *
@@ -125,17 +212,44 @@ export const WAVE_FADE_LO = 0.15
 export const WAVE_FADE_HI = 0.4
 
 /**
- * 座標扭曲，**CPU 的那一份**。見 WAVE_WARP_AMP。
+ * 座標扭曲，**CPU 的那一份**。見 WAVE_WARP_AMP 與 WAVE_WARP2_AMP。
  *
  * 【與 shader 的 oceanWarp 必須逐字相同】那是這一段的 GLSL 版。
  */
 export function waveWarp(x: number, z: number, time: number): [number, number] {
   const ka = (Math.PI * 2) / WAVE_WARP_LEN_A
   const kb = (Math.PI * 2) / WAVE_WARP_LEN_B
+  const ka2 = (Math.PI * 2) / WAVE_WARP2_LEN_A
+  const kb2 = (Math.PI * 2) / WAVE_WARP2_LEN_B
+  const t = time * WAVE_WARP_SPEED
   return [
-    Math.sin(z * ka + time * WAVE_WARP_SPEED * ka) * WAVE_WARP_AMP,
-    Math.sin(x * kb - time * WAVE_WARP_SPEED * kb) * WAVE_WARP_AMP,
+    Math.sin(z * ka + t * ka) * WAVE_WARP_AMP
+      + Math.sin(x * ka2 - t * ka2 + 1.7) * WAVE_WARP2_AMP,
+    Math.sin(x * kb - t * kb) * WAVE_WARP_AMP
+      + Math.sin(z * kb2 + t * kb2 + 4.1) * WAVE_WARP2_AMP,
   ]
+}
+
+/**
+ * 浪高包絡的底層場，值域 [−1, 1]。**CPU 的那一份**。見 WAVE_ENV_LO。
+ *
+ * 【與 shader 的 oceanEnvField 必須逐字相同】
+ */
+export function waveEnvField(x: number, z: number, time: number): number {
+  const ka = (Math.PI * 2) / WAVE_ENV_LEN_A
+  const kb = (Math.PI * 2) / WAVE_ENV_LEN_B
+  const t = time * WAVE_WARP_SPEED
+  return Math.sin(x * ka + t * ka) * Math.sin(z * kb - t * kb * 0.7)
+}
+
+/**
+ * 第 `i` 道波在場值 `g` 之下的振幅倍率，落在 [WAVE_ENV_LO, 1]。
+ *
+ * 【與 shader 的 oceanEnv 必須逐字相同】
+ */
+export function waveEnv(g: number, i: number): number {
+  const u = 0.5 + 0.5 * Math.sin(g * WAVE_ENV_SPREAD + i * 2.399963)
+  return WAVE_ENV_LO + (1 - WAVE_ENV_LO) * u
 }
 
 /**
@@ -147,10 +261,15 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
   const [wx, wz] = waveWarp(x, z, time)
   const px = x + wx
   const pz = z + wz
+  // 【包絡吃的是**未扭曲**的座標】扭曲是為了打散波峰的方向性，而包絡管的是
+  // 「這一片海浪大不大」—— 那是位置的性質，不該跟著波一起被推歪
+  const g = waveEnvField(x, z, time)
   let h = 0
-  for (const w of WAVES) {
+  for (let i = 0; i < WAVES.length; i++) {
+    const w = WAVES[i]!
     const k = (Math.PI * 2) / w.wavelength
-    h += w.amplitude * Math.sin(k * (w.dirX * px + w.dirZ * pz) - w.speed * k * time)
+    h += w.amplitude * waveEnv(g, i)
+      * Math.sin(k * (w.dirX * px + w.dirZ * pz) - w.speed * k * time)
   }
   return h
 }
@@ -735,7 +854,7 @@ export const SEA_DIM_FLOOR = 0.62
  * 【量級】太陽仰角 53°、總坡度 RMS 11° 時 `dNL` 落在 −0.130～+0.100，1.5 的
  * 增益會給出 −20%～+15% 的明暗，整體平均暗 2.2%。
  */
-export const SEA_SHADE_GAIN = 0
+export const SEA_SHADE_GAIN = 1.5
 
 /**
  * 水面反射天空的 F0（垂直入射的反射率）。
@@ -822,16 +941,34 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uReflectStrength;
   uniform vec3 uWarp;   // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform float uWarpSpd;
+  uniform vec3 uWarp2;  // x: 振幅 m, y: 波數 A, z: 波數 B
+  uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
+  uniform float uEnvLo;
   uniform float uNyqLo;
   uniform float uNyqHi;
 
   // 座標扭曲。**與 ocean.ts 的 waveWarp 必須逐字相同** —— 那是 CPU 的
-  // 那一份，碰撞判定讀它。設計理由見 WAVE_WARP_AMP。
-  vec2 oceanWarp(vec2 p, float t) {
+  // 那一份，碰撞判定讀它。設計理由見 WAVE_WARP_AMP 與 WAVE_WARP2_AMP。
+  vec2 oceanWarp(vec2 p, float time) {
+    float t = time * uWarpSpd;
     return vec2(
-      sin(p.y * uWarp.y + t * uWarpSpd * uWarp.y),
-      sin(p.x * uWarp.z - t * uWarpSpd * uWarp.z)
-    ) * uWarp.x;
+      sin(p.y * uWarp.y + t * uWarp.y) * uWarp.x
+        + sin(p.x * uWarp2.y - t * uWarp2.y + 1.7) * uWarp2.x,
+      sin(p.x * uWarp.z - t * uWarp.z) * uWarp.x
+        + sin(p.y * uWarp2.z + t * uWarp2.z + 4.1) * uWarp2.x
+    );
+  }
+
+  // 浪高包絡的底層場，值域 [-1, 1]。**與 waveEnvField 必須逐字相同**
+  float oceanEnvField(vec2 p, float time) {
+    float t = time * uWarpSpd;
+    return sin(p.x * uEnv.y + t * uEnv.y) * sin(p.y * uEnv.z - t * uEnv.z * 0.7);
+  }
+
+  // 第 i 道波的振幅倍率。**與 waveEnv 必須逐字相同**
+  float oceanEnv(float g, float i) {
+    float u = 0.5 + 0.5 * sin(g * uEnv.x + i * 2.399963);
+    return uEnvLo + (1.0 - uEnvLo) * u;
   }
   uniform float uShadeGain;
   uniform float uAttenNear;
@@ -1093,6 +1230,8 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       // 【與頂點位移同一個扭曲】見 WAVE_WARP_AMP。碎光的取樣座標（swxz）
       // 刻意**不**扭曲 —— 那是塊的鋪法，與浪的形狀是兩件事。
       vec2 pwxz = wxz + oceanWarp(wxz, uTime);
+      // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
+      float envG = oceanEnvField(wxz, uTime);
 
       vec2 g = vec2(0.0);
       vec2 drift = vec2(0.0);
@@ -1108,8 +1247,13 @@ const SPARKLE_FRAGMENT = /* glsl */ `
         float ph = k * dot(uWaveDir[i], pwxz) - uWaveSpd[i] * k * uTime;
         float w = 1.0 - smoothstep(uWaveLen[i] * uNyqLo, uWaveLen[i] * uNyqHi, shadeScale);
         float ak = uWaveAmp[i] * k * length(uWaveDir[i]);
-        g += w * uWaveAmp[i] * k * cos(ph) * uWaveDir[i];
-        drift -= uWaveAmp[i] * sin(ph) * uWaveDir[i];
+        // 【包絡只進振幅，不進導數】包絡在 900 m 的尺度上變化而波長是
+        // 140 m —— dA/dx 那一項比 A·k 小一個量級。忽略它讓 CPU 與 GPU
+        // 三份公式維持逐字相同，代價是坡度在包絡邊界差幾個百分點
+        float env = oceanEnv(envG, float(i));
+        ak *= env;
+        g += w * uWaveAmp[i] * env * k * cos(ph) * uWaveDir[i];
+        drift -= uWaveAmp[i] * env * sin(ph) * uWaveDir[i];
         slopeVar += (1.0 - w * w) * ak * ak * 0.5;
       }
 
@@ -1322,6 +1466,15 @@ export function createOcean(): Ocean {
         WAVE_WARP_AMP, (Math.PI * 2) / WAVE_WARP_LEN_A, (Math.PI * 2) / WAVE_WARP_LEN_B),
     },
     uWarpSpd: { value: WAVE_WARP_SPEED },
+    uWarp2: {
+      value: new Vector3(
+        WAVE_WARP2_AMP, (Math.PI * 2) / WAVE_WARP2_LEN_A, (Math.PI * 2) / WAVE_WARP2_LEN_B),
+    },
+    uEnv: {
+      value: new Vector3(
+        WAVE_ENV_SPREAD, (Math.PI * 2) / WAVE_ENV_LEN_A, (Math.PI * 2) / WAVE_ENV_LEN_B),
+    },
+    uEnvLo: { value: WAVE_ENV_LO },
     uNyqLo: { value: WAVE_FADE_LO },
     uNyqHi: { value: WAVE_FADE_HI },
     uShadeGain: { value: SEA_SHADE_GAIN },
@@ -1364,14 +1517,17 @@ export function createOcean(): Ocean {
           '#include <begin_vertex>',
           `#include <begin_vertex>
            ${displace
-             ? `vec2 worldXZ = transformed.xz + uOrigin;
+             ? `vec2 rawXZ = transformed.xz + uOrigin;
                 // 【扭曲在算相位之前】見 WAVE_WARP_AMP。CPU 的 gerstnerHeight
                 // 也做同一件事，兩者不一致就是「撞到看不見的浪」
-                worldXZ += oceanWarp(worldXZ, uTime);
+                vec2 worldXZ = rawXZ + oceanWarp(rawXZ, uTime);
+                // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
+                float envG = oceanEnvField(rawXZ, uTime);
                 float waveH = 0.0;
                 for (int i = 0; i < ${WAVES.length}; i++) {
                   float k = 6.28318530718 / uWaveLen[i];
-                  waveH += uWaveAmp[i] * sin(k * dot(uWaveDir[i], worldXZ) - uWaveSpd[i] * k * uTime);
+                  waveH += uWaveAmp[i] * oceanEnv(envG, float(i))
+                    * sin(k * dot(uWaveDir[i], worldXZ) - uWaveSpd[i] * k * uTime);
                 }
                 transformed.y += waveH;`
              : ''}
