@@ -8,6 +8,7 @@ import {
   Vector3,
   type WebGLProgramParametersWithUniforms,
 } from 'three'
+import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
 
 export interface WaveSpec {
   dirX: number
@@ -53,14 +54,103 @@ export const WAVES: readonly WaveSpec[] = [
 ]
 
 /**
+ * 座標扭曲的振幅（m）與兩道扭曲波的波長（m）、速度（m/s）。
+ *
+ * ── 【為什麼需要它：正弦的和是格柵，不是海】────────────────────────
+ *
+ * WAVES 是幾道**長峰**正弦波的疊加。長峰的意思是同一道波的波峰是一條直線，
+ * 從畫面這頭拉到那頭。幾道直線波交叉，得到的是一個**規則的菱形格柵** ——
+ * 畫面上看起來像燈芯絨或魚鱗，不像海。
+ *
+ * 這正是 2026-08-25 把 SEA_SHADE_GAIN 關掉的原因（見該常數的註解：「明暗會
+ * 沿波形成規則的橫條紋」）。當時的處置是不要明暗；但天空反射一上來，同一個
+ * 格柵又會從反射裡浮出來，躲不掉。
+ *
+ * 真實海面是**短峰**的：波峰只有幾個波長長就斷掉、彎折、錯開。成因是方向
+ * 散佈與非線性交互作用。
+ *
+ * ── 【怎麼打散：座標扭曲（domain warping）】─────────────────────────
+ *
+ * 在算相位之前，先把取樣座標本身推歪一點：
+ *
+ *     phase = k · dot(dir, p + warp(p)) − ω t
+ *
+ * warp 是兩道**很長**的正弦（900 / 1100 m，互質），振幅 25 m。對 140 m 的
+ * 長波，25 m 是五分之一個波長 —— 波峰因此在公里尺度上彎來彎去；對 31 m 的
+ * 短波則接近一個波長，整個打散。**同一片海，不同尺度自動得到不同程度的
+ * 打散**，而代價只有兩次 sin，與波的數量無關。
+ *
+ * 【為什麼兩道扭曲波要互質】900 與 1100 的最小公倍數是 9900 m，所以格柵的
+ * 重複週期被推到將近 10 km 之外 —— 遠大於任何一個畫面看得到的範圍。取整數
+ * 倍（例如 900/1800）的話扭曲自己就變成一個規則圖樣，等於把問題換了個尺度。
+ *
+ * 【三個地方必須一致】CPU 的 gerstnerHeight（碰撞、水柱、殘骸入水）、頂點
+ * 著色器的位移、片段著色器的坡度 —— 三份都要用同一個 warp。不一致的症狀是
+ * 「飛機撞到看不見的浪」或「亮塊與浪的形狀分家」。
+ */
+export const WAVE_WARP_AMP = 25
+/** 見 WAVE_WARP_AMP。兩道扭曲波的波長，m。刻意互質。 */
+export const WAVE_WARP_LEN_A = 900
+/** 見 WAVE_WARP_AMP。 */
+export const WAVE_WARP_LEN_B = 1100
+/**
+ * 見 WAVE_WARP_AMP。扭曲自己的移動速度，m/s。
+ *
+ * 【為什麼要會動】不動的話扭曲就是一張固定的地圖釘在世界座標上 —— 浪從
+ * 底下穿過去，而彎折的位置永遠不變，看久了會認出那個圖樣。
+ *
+ * 【為什麼要比浪慢一個量級】浪是 5～9 m/s。扭曲若跟浪同速，等於整個圖樣
+ * 平移，打散的效果會被眼睛追著跑。0.6 m/s 讓它像是海流在慢慢改變。
+ */
+export const WAVE_WARP_SPEED = 0.6
+
+/**
+ * 每一道波「這個像素還分不分得出它」的淡出窗，單位是波長的倍數。
+ *
+ * 【為什麼不是剛好 0.5】0.5λ 是 Nyquist 的**極限**，不是可以用的工作點。
+ * 取樣剛好到極限時，重建出來的訊號會帶著與取樣格柵的差頻 —— 畫面上就是
+ * 一片規則的斜格子（摩爾紋）。而且 MSAA 幫不上忙：它做的是幾何覆蓋率的
+ * 反鋸齒，著色器內部算出來的高頻它看不到。
+ *
+ * 【2026-08-26 為什麼現在才要動它】天空反射之前，波法線對顏色的影響極小
+ * （只餵給碎光的對齊判定），混疊不明顯。菲涅耳在掠射角對法線**極度敏感**
+ * —— 88° 入射時法線差 1° 就能讓反射率差一截 —— 於是同一個混疊被放大成
+ * 看得見的格柵。
+ *
+ * 【代價是細節】提早淡出等於更早把波交給 σ 統計。近處不受影響（footprint
+ * 遠小於波長），中距離會少一點浪的形狀、多一點糊。
+ */
+export const WAVE_FADE_LO = 0.15
+/** 見 WAVE_FADE_LO。 */
+export const WAVE_FADE_HI = 0.4
+
+/**
+ * 座標扭曲，**CPU 的那一份**。見 WAVE_WARP_AMP。
+ *
+ * 【與 shader 的 oceanWarp 必須逐字相同】那是這一段的 GLSL 版。
+ */
+export function waveWarp(x: number, z: number, time: number): [number, number] {
+  const ka = (Math.PI * 2) / WAVE_WARP_LEN_A
+  const kb = (Math.PI * 2) / WAVE_WARP_LEN_B
+  return [
+    Math.sin(z * ka + time * WAVE_WARP_SPEED * ka) * WAVE_WARP_AMP,
+    Math.sin(x * kb - time * WAVE_WARP_SPEED * kb) * WAVE_WARP_AMP,
+  ]
+}
+
+/**
  * CPU 端波高。必須與 shader 的頂點位移公式完全一致，
  * 否則會出現視覺與碰撞判定不一致。
  */
 export function gerstnerHeight(x: number, z: number, time: number): number {
+  // 【扭曲在算相位之前】見 WAVE_WARP_AMP
+  const [wx, wz] = waveWarp(x, z, time)
+  const px = x + wx
+  const pz = z + wz
   let h = 0
   for (const w of WAVES) {
     const k = (Math.PI * 2) / w.wavelength
-    h += w.amplitude * Math.sin(k * (w.dirX * x + w.dirZ * z) - w.speed * k * time)
+    h += w.amplitude * Math.sin(k * (w.dirX * px + w.dirZ * pz) - w.speed * k * time)
   }
   return h
 }
@@ -648,6 +738,28 @@ export const SEA_DIM_FLOOR = 0.62
 export const SEA_SHADE_GAIN = 0
 
 /**
+ * 水面反射天空的 F0（垂直入射的反射率）。
+
+ * 【為什麼是 0.020】菲涅耳的正入射反射率 `F0 = ((n1 − n2) / (n1 + n2))²`，
+ * 空氣 1.000 對水 1.333 得 0.0204。**這是物理值，不是可調參數。**
+ *
+ * 【它與材質的 `specularIntensity = 0.5` 是兩件事】那一個管的是 three 的
+ * PBR 高光（太陽的 GGX 反光），負責人 2026-08-11 裁定「少一半」。這裡管的是
+ * **反射整片天空**，而那是海面在掠射角看起來的主要成分 —— 兩者疊在一起才是
+ * 完整的水面反射。
+ */
+export const SEA_REFLECT_F0 = 0.020
+
+/**
+ * 天空反射的總量倍率。1 = 完整的菲涅耳。
+ *
+ * 【為什麼需要這個旋鈕】完整的菲涅耳在掠射角會逼近 1，海面幾乎變成鏡子。
+ * 那在物理上正確，但這個專案的海是 low-poly 的深藍，整片翻成天空色會失去
+ * 身分。這個倍率讓「亮起來多少」變成美術決定。
+ */
+export const SEA_REFLECT_STRENGTH = 0.7
+
+/**
  * 海面大氣透視（aerial perspective）：遠處海色往**天空地平線色**靠攏，
  * 近深遠淺、柔和融入天空。
  *
@@ -669,7 +781,7 @@ export const SEA_SHADE_GAIN = 0
  */
 export const SEA_AERIAL_HI = 0.052
 export const SEA_AERIAL_LO = 0.0
-export const SEA_AERIAL_STRENGTH = 0.3
+export const SEA_AERIAL_STRENGTH = 0
 
 /** 頂點與片段共用的宣告。兩個材質都要。 */
 const SPARKLE_COMMON = /* glsl */ `
@@ -703,6 +815,24 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uTiltShare;
   uniform float uEnvelopePow;
   uniform float uPixelAngle;
+  uniform vec3 uSkyHorizon;
+  uniform vec3 uSkyZenith;
+  uniform float uSkyPower;
+  uniform float uReflectF0;
+  uniform float uReflectStrength;
+  uniform vec3 uWarp;   // x: 振幅 m, y: 波數 A, z: 波數 B
+  uniform float uWarpSpd;
+  uniform float uNyqLo;
+  uniform float uNyqHi;
+
+  // 座標扭曲。**與 ocean.ts 的 waveWarp 必須逐字相同** —— 那是 CPU 的
+  // 那一份，碰撞判定讀它。設計理由見 WAVE_WARP_AMP。
+  vec2 oceanWarp(vec2 p, float t) {
+    return vec2(
+      sin(p.y * uWarp.y + t * uWarpSpd * uWarp.y),
+      sin(p.x * uWarp.z - t * uWarpSpd * uWarp.z)
+    ) * uWarp.x;
+  }
   uniform float uShadeGain;
   uniform float uAttenNear;
   uniform float uAttenFar;
@@ -909,6 +1039,11 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
   // （oceanV.y 小）才融入天空，中遠海保持本色，不會整片糊成霧。見 SEA_AERIAL_HI。
   float oceanAerial = smoothstep(uAerialHi, uAerialLo, oceanV.y) * uAerialStrength;
 
+  // 水面法線。**在塊外宣告**，因為天空反射那一段排在碎光的 fade 守衛之外
+  // —— 地平線附近（距離 > uFadeEnd）正是反射最強的地方，不能跟著碎光一起
+  // 被 early-out 掉。預設是平坦的 +Y，碎光那一段解析得出波形時再覆蓋它。
+  vec3 oceanNormal = vec3(0.0, 1.0, 0.0);
+
   {
     // 平坦法線（+Y）下的半角對齊 —— dot(vec3(0, 1, 0), oceanH) 就是
     // oceanH.y。用波法線會讓整片海的顏色跟著浪呼吸，見 SEA_DIM_LO。
@@ -955,6 +1090,10 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       float cellNominal = uCell * exp2(max(0.0, log2(max(1.0, oceanDist / uCellRef))));
       float shadeScale = max(oceanFoot, cellNominal);
 
+      // 【與頂點位移同一個扭曲】見 WAVE_WARP_AMP。碎光的取樣座標（swxz）
+      // 刻意**不**扭曲 —— 那是塊的鋪法，與浪的形狀是兩件事。
+      vec2 pwxz = wxz + oceanWarp(wxz, uTime);
+
       vec2 g = vec2(0.0);
       vec2 drift = vec2(0.0);
       float slopeVar = 0.0;
@@ -966,8 +1105,8 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       // drift 不淡出：它只在顆粒還在的近處有意義，而那裡三道波都完全解析。
       for (int i = 0; i < ${WAVES.length}; i++) {
         float k = 6.28318530718 / uWaveLen[i];
-        float ph = k * dot(uWaveDir[i], wxz) - uWaveSpd[i] * k * uTime;
-        float w = 1.0 - smoothstep(uWaveLen[i] * 0.25, uWaveLen[i] * 0.5, shadeScale);
+        float ph = k * dot(uWaveDir[i], pwxz) - uWaveSpd[i] * k * uTime;
+        float w = 1.0 - smoothstep(uWaveLen[i] * uNyqLo, uWaveLen[i] * uNyqHi, shadeScale);
         float ak = uWaveAmp[i] * k * length(uWaveDir[i]);
         g += w * uWaveAmp[i] * k * cos(ph) * uWaveDir[i];
         drift -= uWaveAmp[i] * sin(ph) * uWaveDir[i];
@@ -978,8 +1117,8 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       // 見 RIPPLE_WAVES。
       for (int i = 0; i < ${RIPPLE_WAVES.length}; i++) {
         float k = 6.28318530718 / uRipLen[i];
-        float ph = k * dot(uRipDir[i], wxz) - uRipSpd[i] * k * uTime;
-        float w = 1.0 - smoothstep(uRipLen[i] * 0.25, uRipLen[i] * 0.5, shadeScale);
+        float ph = k * dot(uRipDir[i], pwxz) - uRipSpd[i] * k * uTime;
+        float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
         float ak = uRipAmp[i] * k;
         g += w * ak * cos(ph) * uRipDir[i];
         slopeVar += (1.0 - w * w) * ak * ak * 0.5;
@@ -1006,6 +1145,17 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       vec2 tr = 0.4 + 0.7 * oceanHash2(vorDark.xy + vec2(13.7, 83.1));
       vec2 tilt = sin(tp + uTime * uTwinkle * tr) * sqrt(tiltVar);
 
+      // 【碎光用帶塊傾斜的法線，天空反射用不帶的】兩者要的東西相反：
+      //
+      //   碎光   要的是「這一小塊有沒有正好對準太陽」—— 塊各自亂轉才會
+      //          一顆一顆閃，那正是 low-poly 碎光的樣子
+      //   反射   反的是**整片天空**。未解析的坡度在物理上該讓反射**變糊**
+      //          （往平均法線收斂），不是讓每塊各反一塊天
+      //
+      // 用同一條的話，地平線附近會整片高頻雜訊：那裡波全被 Nyquist 淡掉、
+      // slopeVar 最大、於是 tilt 也最大，而塊的螢幕張角被 LOD 鎖成常數 ——
+      // 亂數不隨距離收斂，畫面就永遠是一片跳動的花。
+      oceanNormal = normalize(vec3(-g.x, 1.0, -g.y));
       vec3 N = normalize(vec3(-g.x + tilt.x, 1.0, -g.y + tilt.y));
 
       // 【用 1 - cos 而不是 acos】acos 在接近 1 的地方數值極差，而鏡面附近
@@ -1055,6 +1205,36 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       gl_FragColor.rgb *= 1.0 - sparkleDark(vorDark, edgeDark) * uDarkStrength * fade * sparkleKeep;
       gl_FragColor.rgb += sparkleLight(vor, p, uTime * uTwinkle, edgeLight) * uSparkleStrength * atten * sparkleKeep * vec3(1.0, 0.98, 0.94);
     }
+    // ── 天空反射（菲涅耳）──────────────────────────────────────────
+    //
+    // 【為什麼這是海面最像水的那一項】從飛機上看海，掠射角佔了畫面絕大部分，
+    // 而水在掠射角的反射率逼近 1 —— 那時看到的**幾乎全是天空**，不是水體的
+    // 顏色。少了這一層，海就是一片死藍的板子，與天空硬碰硬（2026-08-26 的
+    // 五張姿態截圖就是這個症狀）。
+    //
+    // 【它與碎光是同一件事的兩端】碎光是「反射到太陽」的那一小塊，這裡是
+    // 「反射到整片天空」的其餘部分。兩者共用同一條 oceanNormal，所以波
+    // 的形狀會同時出現在反光與反射裡 —— 那正是水面深淺波紋的來源。
+    //
+    // 【Schlick 近似】F = F0 + (1 − F0)(1 − cosθ)⁵，θ 是視線與法線的夾角。
+    // 掠射（cosθ → 0）時 F → 1，垂直俯視時 F → F0 = 0.02，也就是幾乎看不到
+    // 反射、看到的是海自己的顏色。**那個由近到遠的明暗變化因此是算出來的，
+    // 不是調出來的。**
+    //
+    // 【天空色與 sky.ts 用同一條公式】t = dirY × 0.5 + 0.5 再取冪，見
+    // skyColorAt。差別只在方向：那邊是視線，這邊是**反射線**。
+    //
+    // 【排在大氣透視之前】大氣消光作用在「已經反射出來的光」上，順序反了
+    // 就會變成先把海洗淡、再疊上完整強度的天空。
+    {
+      float cosVN = clamp(dot(oceanNormal, oceanV), 0.0, 1.0);
+      float fres = uReflectF0 + (1.0 - uReflectF0) * pow(1.0 - cosVN, 5.0);
+      vec3 refl = reflect(-oceanV, oceanNormal);
+      float t = clamp(refl.y * 0.5 + 0.5, 0.0, 1.0);
+      vec3 skyCol = mix(uSkyHorizon, uSkyZenith, pow(t, uSkyPower));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, skyCol, fres * uReflectStrength);
+    }
+
     // 【大氣透視在最終色，PBR 之後】所以淺色是純淺藍、不會被光照弄灰。
     // 在 if(fade) 外 —— 大氣透視是所有海面像素都有，不受碎光範圍限制。
     gl_FragColor.rgb = mix(gl_FragColor.rgb, uHorizonColor, oceanAerial);
@@ -1129,6 +1309,21 @@ export function createOcean(): Ocean {
     uTiltShare: { value: SPARKLE_TILT_SHARE },
     uEnvelopePow: { value: SPARKLE_ENVELOPE_POW },
     uPixelAngle: { value: PIXEL_ANGLE },
+    // 【天空色直接取 sky.ts 的常數】海面反射的是那一片天，兩份會漂開。
+    // `new Color(hex)` 出來就在線性空間，而這一段也在線性空間（PBR 之後、
+    // colorspace_fragment 之前），所以不需要任何轉換
+    uSkyHorizon: { value: new Color(SKY_HORIZON) },
+    uSkyZenith: { value: new Color(SKY_ZENITH) },
+    uSkyPower: { value: SKY_GRADIENT_POWER },
+    uReflectF0: { value: SEA_REFLECT_F0 },
+    uReflectStrength: { value: SEA_REFLECT_STRENGTH },
+    uWarp: {
+      value: new Vector3(
+        WAVE_WARP_AMP, (Math.PI * 2) / WAVE_WARP_LEN_A, (Math.PI * 2) / WAVE_WARP_LEN_B),
+    },
+    uWarpSpd: { value: WAVE_WARP_SPEED },
+    uNyqLo: { value: WAVE_FADE_LO },
+    uNyqHi: { value: WAVE_FADE_HI },
     uShadeGain: { value: SEA_SHADE_GAIN },
     uAttenNear: { value: SPARKLE_ATTEN_NEAR },
     uAttenFar: { value: SPARKLE_ATTEN_FAR },
@@ -1170,6 +1365,9 @@ export function createOcean(): Ocean {
           `#include <begin_vertex>
            ${displace
              ? `vec2 worldXZ = transformed.xz + uOrigin;
+                // 【扭曲在算相位之前】見 WAVE_WARP_AMP。CPU 的 gerstnerHeight
+                // 也做同一件事，兩者不一致就是「撞到看不見的浪」
+                worldXZ += oceanWarp(worldXZ, uTime);
                 float waveH = 0.0;
                 for (int i = 0; i < ${WAVES.length}; i++) {
                   float k = 6.28318530718 / uWaveLen[i];
