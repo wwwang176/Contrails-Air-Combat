@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three'
+import { Euler, Quaternion, Vector3, type Object3D } from 'three'
 import { FixedStepAccumulator } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
@@ -25,6 +25,7 @@ import { clearImpacts } from './world/events'
 import { clearKills } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
+import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
@@ -1344,6 +1345,101 @@ function frame(now: number) {
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
+
+/**
+ * **凍結畫面的量測出口**：暫停、把鏡頭釘在指定的姿態、把世界時間釘死。
+ *
+ * 【為什麼需要它】「改完畫面不能有任何差異」這種要求，唯一的答案是**逐像素
+ * 比對**，而逐像素比對需要一個兩次執行會產生一模一樣像素的場景。實際戰鬥
+ * 不是 —— 飛機在哪、浪走到哪、參照物撒在哪，每一次都不同。
+ *
+ * 這個出口把三個變因全部釘死：
+ *
+ * ```
+ *   鏡頭   直接寫 position 與 quaternion。暫停時主迴圈只呼叫 render，
+ *          不會有人把它改回去（見 `frame` 裡 `paused` 那一支）
+ *   時間   `elapsed` 只在 `!paused` 時前進，所以設一次就凍住 —— 海浪的
+ *          相位、碎光的漂移全部固定
+ *   海面   `terrain.update` 在暫停時不跑，網格會停在暫停前的位置上。
+ *          這裡主動叫一次，讓它對齊新的鏡頭
+ * ```
+ *
+ * 飛機與參照物仍然是隨機的 —— 比對時用 `__gfx` 把它們關掉。
+ *
+ * 【不呼叫 `menu.setPaused`】那會把暫停選單疊上來蓋住畫面。這裡要的是
+ * 「模擬停下來」而不是「玩家按了暫停」。
+ */
+;(window as unknown as Record<string, unknown>)['__still'] = (
+  yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0,
+) => {
+  paused = true
+  elapsed = time
+  ctx.camera.position.set(0, altitude, 0)
+  // YXZ：先繞 Y 偏航、再繞 X 俯仰，與飛行姿態同一個慣例
+  ctx.camera.quaternion.setFromEuler(
+    new Euler((pitchDeg * Math.PI) / 180, (yawDeg * Math.PI) / 180, 0, 'YXZ'))
+  ctx.camera.updateMatrixWorld(true)
+  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  return { yawDeg, pitchDeg, altitude, time }
+}
+
+/**
+ * **圖形消融的量測出口**：逐繪製層開關可見性，把幀時間歸因到具體的子系統。
+ * 給 `test/e2e/frame-time.e2e.ts` 用。
+ *
+ * 【為什麼需要它】2026-08-26 量到這個場景是**填充率**吃緊而不是 CPU
+ *（像素數砍成 1/9，頓挫由每秒 5.6 次掉到 0.08 次）。但「填充率」不是一個
+ * 可以動手的對象 —— 要知道是哪一層在畫，而 WebGL 沒有逐物件的計時器。
+ * 唯一可靠的歸因手段就是關掉一層、重量一次、看差多少。
+ *
+ * 【為什麼用 layers 而不是 `visible`】模糊圓盤的 `visible` **每幀都被
+ * 重寫**（跟著轉速），設了下一幀就被蓋回去。`layers` 全專案沒有別人在用，
+ * 而 three 的 `projectObject` 對每個物件單獨測 `camera.layers`，所以把物件
+ * 移到相機沒有啟用的那一層就等於不畫它，且不與任何逐幀邏輯打架。
+ *
+ * 【第 31 層是「隱形層」】相機只啟用第 0 層（three 的預設），所以移到 31
+ * 就消失、移回 0 就回來。
+ *
+ * 【目標在呼叫的當下才解析】飛機與模糊圓盤是每一場動態生出來的，抓一次
+ * 存起來會在下一場指到上一場的屍體。
+ */
+const GFX_HIDDEN_LAYER = 31
+;(window as unknown as Record<string, unknown>)['__gfx'] = (
+  patch: Record<string, boolean>,
+) => {
+  const byRenderOrder = (order: number): Object3D[] => {
+    const out: Object3D[] = []
+    ctx.scene.traverse((o) => { if (o.renderOrder === order) out.push(o) })
+    return out
+  }
+  // 【terrain 用索引】那三個孩子的次序是 `render/terrain.ts` 明文寫下的
+  // 契約，單元測試也靠它（並自我驗證抓對了人）
+  const targets: Record<string, () => readonly Object3D[]> = {
+    farSea: () => [terrain.object.children[0]!],
+    nearSea: () => [terrain.object.children[1]!],
+    props: () => [terrain.object.children[2]!],
+    // 天空球目前是 renderOrder −1000（sky.ts）。改那個常數時這裡要跟著改 ——
+    // 抓不到就是「關天空」變成空操作，而空操作在消融表上長得像「天空不花錢」
+    sky: () => byRenderOrder(-1000),
+    propDisc: () => byRenderOrder(PROP_DISC_RENDER_ORDER),
+    // 五個粒子池一起 —— 它們是同一種成本（半透明、關深度寫入、疊在一起）
+    particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
+    tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
+    vortex: () => [vortex.object],
+    aircraft: () => [...visuals.values()].map((v) => v.model.group),
+  }
+  const applied: string[] = []
+  for (const [name, on] of Object.entries(patch)) {
+    const pick = targets[name]
+    if (pick === undefined) continue
+    // 【一定要 traverse 到葉子】three 的 `projectObject` 對每個物件**單獨**測
+    // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
+    // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
+    for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    applied.push(`${name}=${on ? 'on' : 'off'}`)
+  }
+  return { applied, known: Object.keys(targets) }
+}
 
 /**
  * **量測出口**：把當前戰鬥的玩家座位讀成一個純資料點，給 Playwright 用。
