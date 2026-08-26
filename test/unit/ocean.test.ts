@@ -1,8 +1,28 @@
 import { describe, it, expect } from 'vitest'
 import {
   createOcean, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight, OCEAN_BASE_CELL, OCEAN_LEVELS,
-  OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, WAVES,
+  OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, RIPPLE_RESOLVED, RIPPLE_STATIC_VAR,
+  RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS, SPARKLE_CELL, SPARKLE_CELL_REF,
+  WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
 } from '../../src/render/ocean'
+
+/** 一道波的坡度變異數。與 `SPARKLE_FRAGMENT` 的 `ak` 同一條式子 */
+const slopeVar = (w: typeof WAVES[number]): number => {
+  const ak = w.amplitude * ((Math.PI * 2) / w.wavelength) * Math.hypot(w.dirX, w.dirZ)
+  return (ak * ak) / 2
+}
+
+/** 波峰走向的方位角（度，0 為北、順時針為正）。北 = −Z，見 hud/attitude-math */
+const crestBearing = (w: typeof WAVES[number]): number => {
+  const bear = (Math.atan2(w.dirX, -w.dirZ) * 180) / Math.PI
+  return (((bear - 90) % 180) + 180) % 180
+}
+
+/** GLSL `smoothstep`（會夾住兩端） */
+const smoothstep = (a: number, b: number, x: number): number => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)))
+  return t * t * (3 - 2 * t)
+}
 
 describe('gerstnerHeight', () => {
   it('波高落在所有波幅總和的範圍內', () => {
@@ -25,6 +45,94 @@ describe('gerstnerHeight', () => {
   it('波參數非空且振幅為正', () => {
     expect(WAVES.length).toBeGreaterThan(0)
     for (const w of WAVES) expect(w.amplitude).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 【微波只進著色法線】它們不在 `gerstnerHeight` 裡，所以碰撞、水柱、殘骸
+ * 入水都碰不到。這一組守的是兩件事：坡度預算沒有被切壞，以及**畫面上最細
+ * 的那層結構不是單一方向的**。
+ */
+describe('微波（RIPPLE_WAVES）', () => {
+  it('總坡度 RMS 等於 SHADE_SLOPE_RMS —— 階內怎麼切都不該改變它', () => {
+    const total = [...WAVES, ...RIPPLE_WAVES].reduce((s, w) => s + slopeVar(w), 0)
+    expect(Math.sqrt(total)).toBeCloseTo(SHADE_SLOPE_RMS, 9)
+  })
+
+  /**
+   * 【GLSL 不接受長度 0 的陣列】把 `SPARKLE_CELL` 調大、或把每一階的波長都
+   * 縮短，`RIPPLE_RESOLVED` 就會空掉 —— 著色器直接編不過，而那個錯訊息離
+   * 成因非常遠。
+   */
+  it('至少還有一道進得了著色器迴圈', () => {
+    expect(RIPPLE_RESOLVED.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【折疊的前提】`RIPPLE_STATIC_VAR` 把「在任何距離都淡光」的那幾道折成
+   * 一個常數，而「任何距離」靠的是 `shadeScale` 有地板。這一條把
+   * `SPARKLE_FRAGMENT` 的 `cellNominal` 抄過來驗它。式子被改掉的話，被折掉
+   * 的波就會在某個距離活過來 —— 而它已經不在迴圈裡了，畫面會缺一塊坡度。
+   */
+  it('shadeScale 的地板真的是 SHADE_SCALE_FLOOR', () => {
+    const cellNominal = (dist: number): number =>
+      SPARKLE_CELL * 2 ** Math.max(0, Math.log2(Math.max(1, dist / SPARKLE_CELL_REF)))
+    expect(cellNominal(0)).toBe(SHADE_SCALE_FLOOR)
+    for (const d of [0, 1, 100, 570, 571, 1000, 10_000, 100_000])
+      expect(cellNominal(d)).toBeGreaterThanOrEqual(SHADE_SCALE_FLOOR)
+  })
+
+  /**
+   * 【折疊必須是等價的，不是近似的】被折掉的那幾道在地板上的淡出權重要
+   * **嚴格為 0**（GLSL 的 `smoothstep` 會夾住），而且折出來的常數要正好等於
+   * 它們自己的坡度變異數總和。任一條不成立，σ 就會偏 —— 症狀是遠處的碎光
+   * 密度不對，而那離成因很遠。
+   */
+  it('折進常數的那幾道在地板上就已經完全淡出，而且變異數對得起來', () => {
+    const folded = RIPPLE_WAVES.filter((w) => !RIPPLE_RESOLVED.includes(w))
+    expect(folded.length).toBe(RIPPLE_WAVES.length - RIPPLE_RESOLVED.length)
+    for (const w of folded) {
+      const fade = smoothstep(w.wavelength * WAVE_FADE_LO, w.wavelength * WAVE_FADE_HI,
+        SHADE_SCALE_FLOOR)
+      expect(fade).toBe(1)      // w = 1 − fade = 0，嚴格
+    }
+    expect(RIPPLE_STATIC_VAR).toBeCloseTo(folded.reduce((s, w) => s + slopeVar(w), 0), 12)
+  })
+
+  /**
+   * 【這一條守的就是「細紋」】畫面上最細的那層質地由**坡度的空間梯度**
+   * （`ak·k`）決定 —— 它最大的那道波說了算。那道波要是獨佔，它就是一道
+   * 長峰正弦，整片海會布滿同一個走向、間距等於它波長的細紋。
+   *
+   * 2026-08-26 的實測：11.3 m 那道獨佔 87% 時，200 m 正俯視量到走向 20.3°、
+   * 方向性 0.41 的連續斜紋；把它拆成三道方向散開的波之後獨佔降到 32%，
+   * 同一塊的方向性掉到 0.07。
+   *
+   * 有人把某一階併回單一道、或把某道的振幅拉高，這條就紅。
+   */
+  it('最細那層結構不由單一方向獨佔 —— 細紋就是這樣來的', () => {
+    // 在地板上（近處）每道波實際寫進 g 的坡度梯度
+    const energy = [...WAVES, ...RIPPLE_RESOLVED].map((w) => {
+      const k = (Math.PI * 2) / w.wavelength
+      const ak = w.amplitude * k * Math.hypot(w.dirX, w.dirZ)
+      const weight = 1 - smoothstep(w.wavelength * WAVE_FADE_LO, w.wavelength * WAVE_FADE_HI,
+        SHADE_SCALE_FLOOR)
+      return (weight * ak * k) ** 2
+    })
+    const total = energy.reduce((a, b) => a + b, 0)
+    expect(Math.max(...energy) / total).toBeLessThan(0.5)
+  })
+
+  /**
+   * 【散佈要真的散得開】上一條只管能量不集中；方向可以三道都幾乎同向而
+   * 照樣過。這一條要求進得了畫面的那幾道波峰**至少橫跨 30°**。
+   */
+  it('進得了畫面的微波波峰橫跨夠寬的角度', () => {
+    const bearings = RIPPLE_RESOLVED.map(crestBearing).sort((a, b) => a - b)
+    // 波峰是**軸向**的（20° 與 200° 是同一條線），所以最大間隙的補角才是跨幅
+    const gaps = bearings.map((b, i) =>
+      i === 0 ? b + 180 - bearings[bearings.length - 1]! : b - bearings[i - 1]!)
+    expect(180 - Math.max(...gaps)).toBeGreaterThanOrEqual(30)
   })
 })
 
