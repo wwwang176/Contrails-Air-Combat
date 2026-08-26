@@ -275,7 +275,7 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
 }
 
 export const OCEAN_SIZE = 10000
-export const OCEAN_SEGMENTS = 192
+export const OCEAN_SEGMENTS = 512
 
 /**
  * 遠海的邊長，m。**這是一片平的四邊形，不是網格。**
