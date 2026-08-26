@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   createOcean, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight, OCEAN_BASE_CELL, OCEAN_LEVELS,
   OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, RIPPLE_RESOLVED, RIPPLE_STATIC_VAR,
-  RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS, SPARKLE_CELL, SPARKLE_CELL_REF,
-  WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
+  RIPPLE_WARP2_AMP, RIPPLE_WARP2_LEN_A, RIPPLE_WARP2_LEN_B, RIPPLE_WARP_AMP,
+  RIPPLE_WARP_LEN_A, RIPPLE_WARP_LEN_B, RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS,
+  SPARKLE_CELL, SPARKLE_CELL_REF, WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
 } from '../../src/render/ocean'
 
 /** 一道波的坡度變異數。與 `SPARKLE_FRAGMENT` 的 `ak` 同一條式子 */
@@ -133,6 +134,64 @@ describe('微波（RIPPLE_WAVES）', () => {
     const gaps = bearings.map((b, i) =>
       i === 0 ? b + 180 - bearings[bearings.length - 1]! : b - bearings[i - 1]!)
     expect(180 - Math.max(...gaps)).toBeGreaterThanOrEqual(30)
+  })
+})
+
+/**
+ * 【方向散開還不夠 —— 波峰還得會斷】四道散開只解決「只有一個方向」；四道
+ * 都還是無限長的正弦，疊出來是個**規則的斑點晶格**。把波峰切斷是
+ * `RIPPLE_WARP_*` 的職責。這一組守它的三個設計條件 —— 三個都是純算術，
+ * 不需要跑著色器。
+ */
+describe('微波的細座標扭曲（RIPPLE_WARP_*）', () => {
+  const A = RIPPLE_WARP_AMP + RIPPLE_WARP2_AMP
+  /**
+   * `oceanRippleWarp` 的 Jacobian 四項的絕對值上界。位移場是
+   * `Wx = A₁sin(y·kₐ) + A₂sin(x·k₂ₐ)`、`Wz = A₁sin(x·k_b) + A₂sin(y·k₂b)`
+   * —— **對角與非對角都有**，所以摺疊不能只看單一分量。
+   */
+  const J = {
+    xx: RIPPLE_WARP2_AMP * ((Math.PI * 2) / RIPPLE_WARP2_LEN_A),
+    xy: RIPPLE_WARP_AMP * ((Math.PI * 2) / RIPPLE_WARP_LEN_A),
+    zx: RIPPLE_WARP_AMP * ((Math.PI * 2) / RIPPLE_WARP_LEN_B),
+    zy: RIPPLE_WARP2_AMP * ((Math.PI * 2) / RIPPLE_WARP2_LEN_B),
+  }
+
+  /**
+   * 【相位擾動要大於 π，波峰才會斷】小於 π 的話波峰只是被推歪，還是連續的
+   * —— 實測「一道、扭曲」那組正是如此：條紋原封不動地回來，只是變彎了。
+   * 綁的是**最長**那道微波（波數最小、最難擾動），所以其餘幾道自動滿足。
+   */
+  it('相位擾動大於 π —— 波峰要斷，不是只被推歪', () => {
+    const longest = RIPPLE_RESOLVED.reduce((a, b) => (b.wavelength > a.wavelength ? b : a))
+    expect(A * ((Math.PI * 2) / longest.wavelength)).toBeGreaterThan(Math.PI)
+  })
+
+  /**
+   * 【`det(I + J)` 到 0 就會摺疊】座標映射不再是單射，同一塊水面被取樣兩次，
+   * 症狀是焦散般的硬亮線。四項各自取到極值時的最壞情況仍要有明顯餘裕。
+   *
+   * 【不能只看單一分量】各分量的梯度最大到 0.37，看起來離 1 很遠；但真正
+   * 會歸零的是行列式，而它同時吃四項。反過來也成立：單一分量到 0.7 也不
+   * 一定摺疊。所以守的是行列式。
+   */
+  it('座標映射不會摺疊 —— det(I + J) 的下界有餘裕', () => {
+    const detMin = (1 - J.xx) * (1 - J.zy) - J.xy * J.zx
+    expect(detMin).toBeGreaterThan(0.25)
+  })
+
+  /**
+   * 【四個波長必須互質】扭曲自己是週期的：單層的話相關性會在一個扭曲波長
+   * 之後**整個復活**，等於把重複推到 60 m —— 比原本的條紋還糟。兩層互質
+   * 之後復活點被推到最小公倍數。取質數是最省事的保證。
+   */
+  it('四個扭曲波長兩兩互質，復活點推到畫面之外', () => {
+    const lens = [RIPPLE_WARP_LEN_A, RIPPLE_WARP_LEN_B, RIPPLE_WARP2_LEN_A, RIPPLE_WARP2_LEN_B]
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
+    for (const a of lens) for (const b of lens) if (a !== b) expect(gcd(a, b)).toBe(1)
+    // 同一個輸出分量疊的那兩層，最小公倍數要遠大於任何一個畫面看得到的範圍
+    expect(RIPPLE_WARP_LEN_A * RIPPLE_WARP2_LEN_A).toBeGreaterThan(5000)
+    expect(RIPPLE_WARP_LEN_B * RIPPLE_WARP2_LEN_B).toBeGreaterThan(3000)
   })
 })
 
