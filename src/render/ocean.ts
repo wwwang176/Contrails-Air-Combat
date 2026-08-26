@@ -1513,7 +1513,12 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
  * 【為什麼遠海也能用同一段】著色只吃世界座標，與幾何平不平無關 —— 遠海雖然
  * 只有兩個三角形，這裡照樣算得出真實的波法線與色塊。
  */
-const SPARKLE_FRAGMENT = /* glsl */ `
+/**
+ * 【`export` 是給測試的】`ocean.test.ts` 的「塊傾斜只餵給碎光」用字串比對
+ * 守住哪一條法線餵給誰 —— 改錯不會壞任何數字、不會拋錯，只會讓畫面悄悄
+ * 長回高爾夫球凹坑，沒有別的東西守得住。
+ */
+export const SPARKLE_FRAGMENT = /* glsl */ `
   {
     // 視線量在 SEA_DIM_FRAGMENT 就算好了 —— 那一段必須排在這之前。
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, oceanDist);
@@ -1611,12 +1616,14 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       vec2 tr = 0.4 + 0.7 * oceanHash2(vorDark.xy + vec2(13.7, 83.1));
       vec2 tilt = sin(tp + uTime * uTwinkle * tr) * sqrt(tiltVar);
 
-      // 【碎光用帶塊傾斜的法線，天空反射用不帶的】兩者要的東西相反：
+      // 【只有碎光吃帶塊傾斜的法線】三個消費者，一個用 N、兩個用 oceanNormal：
       //
-      //   碎光   要的是「這一小塊有沒有正好對準太陽」—— 塊各自亂轉才會
-      //          一顆一顆閃，那正是 low-poly 碎光的樣子
-      //   反射   反的是**整片天空**。未解析的坡度在物理上該讓反射**變糊**
-      //          （往平均法線收斂），不是讓每塊各反一塊天
+      //   碎光      要的是「這一小塊有沒有正好對準太陽」—— 塊各自亂轉才會
+      //             一顆一顆閃，那正是 low-poly 碎光的樣子。**用 N**
+      //   天空反射  反的是**整片天空**。未解析的坡度在物理上該讓反射**變糊**
+      //             （往平均法線收斂），不是讓每塊各反一塊天
+      //   漫射      同上 —— 給它 N 的話每塊會有自己的亮度，畫面變成高爾夫球
+      //             （見下面 uShadeGain 那一行）
       //
       // 用同一條的話，地平線附近會整片高頻雜訊：那裡波全被 Nyquist 淡掉、
       // slopeVar 最大、於是 tilt 也最大，而塊的螢幕張角被 LOD 鎖成常數 ——
@@ -1649,7 +1656,19 @@ const SPARKLE_FRAGMENT = /* glsl */ `
 
       // 【暗處】塊與波的法線從沒進過 three 的光照鏈，補一階 Lambert 差
       // —— 見 SEA_SHADE_GAIN。**必須排在加碎光之前**，否則亮塊也會被調暗。
-      gl_FragColor.rgb *= 1.0 + (dot(N, uSunDirection) - uSunDirection.y) * uShadeGain;
+      //
+      // 【用 oceanNormal 而不是 N —— 這一行決定海面有沒有高爾夫球凹坑】
+      // 塊傾斜代表的是「未解析的坡度」，它的用途是**選塊**（這一小塊有沒有
+      // 正好對準太陽），不是替水面打光。餵給 Lambert 的話每一塊會拿到自己
+      // 的亮度：一整片、每塊不同、每塊一樣大，而塊的螢幕張角又被 LOD 鎖成
+      // 常數（見 SPARKLE_CELL）—— 遠近都一樣大的均勻凹坑，那正是高爾夫球
+      // 的觀感來源。
+      //
+      // 天空反射早就是這樣寫的（見上面 oceanNormal 那一段：未解析的坡度該
+      // 讓反射**變糊**，不是讓每塊各反一塊天）。同一條理由對漫射一樣成立。
+      //
+      // **碎光完全不受影響** —— 選塊的 cosNH 吃的還是帶傾斜的 N。
+      gl_FragColor.rgb *= 1.0 + (dot(oceanNormal, uSunDirection) - uSunDirection.y) * uShadeGain;
 
       // 【遠處的反光要暗下來】海面不吃霧，所以碎光得自己補這段大氣消光 ——
       // 見 SPARKLE_ATTEN_NEAR。只乘在加法項上，海的基色不受影響。

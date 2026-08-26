@@ -4,7 +4,7 @@ import {
   OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, RIPPLE_RESOLVED, RIPPLE_STATIC_VAR,
   RIPPLE_WARP2_AMP, RIPPLE_WARP2_LEN_A, RIPPLE_WARP2_LEN_B, RIPPLE_WARP_AMP,
   RIPPLE_WARP_LEN_A, RIPPLE_WARP_LEN_B, RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS,
-  SPARKLE_CELL, SPARKLE_CELL_REF, WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
+  SPARKLE_CELL, SPARKLE_CELL_REF, SPARKLE_FRAGMENT, WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
 } from '../../src/render/ocean'
 
 /** 一道波的坡度變異數。與 `SPARKLE_FRAGMENT` 的 `ak` 同一條式子 */
@@ -134,6 +134,46 @@ describe('微波（RIPPLE_WAVES）', () => {
     const gaps = bearings.map((b, i) =>
       i === 0 ? b + 180 - bearings[bearings.length - 1]! : b - bearings[i - 1]!)
     expect(180 - Math.max(...gaps)).toBeGreaterThanOrEqual(30)
+  })
+})
+
+/**
+ * 【只有碎光吃帶塊傾斜的法線】塊傾斜（`SPARKLE_TILT_SHARE`）代表未解析的
+ * 坡度，用途是**選塊**。把它餵給漫射或天空反射的話，每一塊會拿到自己的
+ * 亮度 —— 一整片、每塊不同、每塊一樣大，而塊的螢幕張角被 LOD 鎖成常數
+ * （見 `SPARKLE_CELL`），於是遠近都一樣大。那就是高爾夫球的凹坑。
+ *
+ * 2026-08-27 是逐一把每個參數放大十倍找出來的：`SEA_SHADE_GAIN ×10` 把坑
+ * 變成黑白多邊形（顯示路徑）、`SPARKLE_CELL ×10` 把坑放大十倍（格子）、
+ * `WAVES_AMP ×10` 讓坑完全消失（浪吃光 `SHADE_SLOPE_RMS` 的預算 → 微波
+ * 振幅歸零 → `slopeVar` 0 → `tiltVar` 0）。
+ *
+ * 【為什麼要用字串比對著色器】這一行改回 `N` 不會壞任何數字、不會拋錯，
+ * 只會讓畫面悄悄長回凹坑 —— 沒有別的東西守得住。
+ */
+describe('塊傾斜只餵給碎光', () => {
+  /** 取出含某個 uniform 的那一行 */
+  const lineWith = (src: string, needle: string): string => {
+    const line = src.split('\n').find((l) => l.includes(needle) && !l.trimStart().startsWith('//'))
+    expect(line, `找不到含 ${needle} 的程式行`).toBeDefined()
+    return line!
+  }
+
+  it('漫射（uShadeGain）吃不帶傾斜的 oceanNormal', () => {
+    const line = lineWith(SPARKLE_FRAGMENT, 'uShadeGain')
+    expect(line).toContain('dot(oceanNormal, uSunDirection)')
+    expect(line).not.toMatch(/dot\(\s*N\s*,/)
+  })
+
+  it('碎光的選塊（cosNH）仍吃帶傾斜的 N —— 一顆一顆閃靠它', () => {
+    const line = lineWith(SPARKLE_FRAGMENT, 'float cosNH')
+    expect(line).toMatch(/dot\(\s*N\s*,\s*oceanH\s*\)/)
+  })
+
+  it('N 只被算一次、而且確實帶著 tilt', () => {
+    const line = lineWith(SPARKLE_FRAGMENT, 'vec3 N =')
+    expect(line).toContain('tilt.x')
+    expect(line).toContain('tilt.y')
   })
 })
 
