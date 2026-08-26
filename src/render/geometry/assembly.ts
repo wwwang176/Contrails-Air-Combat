@@ -211,7 +211,7 @@ export interface HullSpec {
  * 【為什麼是 10】任何正數都可以（全專案只有天空球設過 renderOrder，而它是
  * −1000）。取 10 是留位子給日後可能插進來的東西。
  */
-const PROP_DISC_RENDER_ORDER = 10
+export const PROP_DISC_RENDER_ORDER = 10
 
 /**
  * 建立一副空機體，回傳各種「把零件裝上去」的方法。
