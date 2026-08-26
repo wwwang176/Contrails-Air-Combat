@@ -591,12 +591,37 @@ export const SHADE_SLOPE_RMS = (11 * Math.PI) / 180
  */
 export const PIXEL_ANGLE = ((65 * Math.PI) / 180) / 1080
 
-/** `RIPPLE_WAVES` 的形狀。振幅與速度由 `SHADE_SLOPE_RMS` 與色散關係推導。 */
-const RIPPLE_SHAPE: readonly { dirX: number; dirZ: number; wavelength: number }[] = [
-  { dirX: 0.94, dirZ: 0.342, wavelength: 11.3 },
-  { dirX: 0.5, dirZ: 0.866, wavelength: 4.7 },
-  { dirX: -0.174, dirZ: 0.985, wavelength: 1.9 },
-  { dirX: -0.766, dirZ: 0.643, wavelength: 0.77 },
+/**
+ * `RIPPLE_WAVES` 的形狀。振幅與速度由 `SHADE_SLOPE_RMS` 與色散關係推導。
+ *
+ * 【階梯，不是清單】每個 `share` 加起來為 1 的群組是**一階**，一階分到一份
+ * 相等的坡度預算（Phillips 譜下坡度能量在每個 octave 大致相等）。所以在一階
+ * 裡多切幾道波不會讓那個尺度變粗糙 —— 只是把同樣的能量攤到更多方向。
+ *
+ * 【11 m 那一階為什麼是四道：它是唯一畫得出來的一階】比它短的三階被
+ * `shadeScale` 的地板整個砍掉（見 `RIPPLE_RESOLVED`），永遠只進 σ。於是
+ * 畫面上**最細的那層確定性結構只剩這一階** —— 單獨一道長峰正弦，症狀就是
+ * 整片海布滿同一個走向的細紋。
+ *
+ * 【間隔 45° 不是隨便取的】波峰是**軸向**的：20° 與 200° 是同一條線，所以
+ * 「有沒有主方向」要看**倍角**的合成向量。四道間隔 45°，倍角就均勻分佈在
+ * 整圈上、合成向量趨近 0 —— 沒有任何方向勝出。散佈不夠寬會留下殘餘的主
+ * 方向：25° 間隔的三道實測方向性 0.357，只比單一道的 0.409 好一點點。
+ *
+ * 【波長要靠得近】13.1 / 11.3 / 10.2 / 8.9 —— 四道的淡出窗因此幾乎重疊，
+ * 方向散佈一路撐到整階淡光為止。拉開的話短的先死，遠處又剩單一方向，
+ * 細紋回來。比值刻意不等，免得四道之間的拍頻自己變成一個規則圖樣。
+ */
+const RIPPLE_SHAPE: readonly {
+  dirX: number; dirZ: number; wavelength: number; share: number
+}[] = [
+  { dirX: 0.966, dirZ: 0.259, wavelength: 13.1, share: 1 / 4 },
+  { dirX: 0.5, dirZ: 0.866, wavelength: 11.3, share: 1 / 4 },
+  { dirX: -0.259, dirZ: 0.966, wavelength: 10.2, share: 1 / 4 },
+  { dirX: -0.866, dirZ: 0.5, wavelength: 8.9, share: 1 / 4 },
+  { dirX: 0.5, dirZ: 0.866, wavelength: 4.7, share: 1 },
+  { dirX: -0.174, dirZ: 0.985, wavelength: 1.9, share: 1 },
+  { dirX: -0.766, dirZ: 0.643, wavelength: 0.77, share: 1 },
 ]
 
 /**
@@ -607,15 +632,14 @@ const RIPPLE_SHAPE: readonly { dirX: number; dirZ: number; wavelength: number }[
  * 不出來，0.77 m 的更不可能。這是 spec §4.3 那個取捨的延伸：**遠處的小浪本
  * 來就是次像素的，你看不到它的起伏，只看得到它造成的反光變化。**
  *
- * 【波長為什麼是這幾個】11.3 / 4.7 / 1.9 / 0.77 —— 比值 2.40 / 2.47 / 2.47，
- * 刻意不成整數比。三道純正弦（140/78/31，比值 1.79/2.52）的疊加是準週期的，
- * 週期短到肉眼抓得到，症狀就是「太陽反光處的皺褶很重複」。加到七道、而且
- * 比值互質，準週期就長到看不出來。
+ * 【波長為什麼是這幾個】四階落在 11 / 4.7 / 1.9 / 0.77，比值約 2.4，刻意不成
+ * 整數比。純正弦的疊加是準週期的，比值成整數比時週期短到肉眼抓得到，症狀
+ * 就是「太陽反光處的皺褶很重複」。階數多、比值互質，準週期就長到看不出來。
  *
- * 【每道貢獻相等的坡度】Phillips 譜下坡度的能量在每個 octave 大致相等，所以
- * 四道等分 `SHADE_SLOPE_RMS` 扣掉 `WAVES` 之後的餘量。振幅因此是
- * `perWave / (k·|dir|)`，最短那道只有 12 mm —— 它對**高度**毫無貢獻，對
- * **坡度**卻和 11.3 m 那道一樣重。
+ * 【每一階貢獻相等的坡度】Phillips 譜下坡度的能量在每個 octave 大致相等，
+ * 所以四階等分 `SHADE_SLOPE_RMS` 扣掉 `WAVES` 之後的餘量，階內再按 `share`
+ * 分。振幅因此是 `ak / (k·|dir|)`，最短那階只有 12 mm —— 它對**高度**毫無
+ * 貢獻，對**坡度**卻和 11 m 那階一樣重。
  *
  * 【速度延續既有的色散關係】`WAVES` 的三道大致落在深水色散的 0.61～0.73 倍
  * （藝術選擇，不是物理）。這裡從最短的那一道往下用 `√λ` 外插，兩組之間就不
@@ -627,12 +651,17 @@ export const RIPPLE_WAVES: readonly WaveSpec[] = (() => {
     return (ak * ak) / 2
   }
   const need = Math.max(0, SHADE_SLOPE_RMS ** 2 - WAVES.reduce((s, w) => s + slopeVar(w), 0))
-  const perWave = Math.sqrt((2 * need) / RIPPLE_SHAPE.length)
+  // 一階的坡度變異數。階內每道拿 share 那一份，所以總和恆等於 need ——
+  // **在一階裡多切幾道波不會改變總坡度**，只會改變它散在幾個方向上。
+  const perLevel = need / RIPPLE_SHAPE.reduce((s, r) => s + r.share, 0)
   // 拿最短的那一道當色散的錨點，而不是「最後一個」—— 順序不該有語義。
   const ref = WAVES.reduce((a, b) => (b.wavelength < a.wavelength ? b : a))
   return RIPPLE_SHAPE.map((r) => ({
-    ...r,
-    amplitude: perWave / (((Math.PI * 2) / r.wavelength) * Math.hypot(r.dirX, r.dirZ)),
+    dirX: r.dirX,
+    dirZ: r.dirZ,
+    wavelength: r.wavelength,
+    amplitude: Math.sqrt(2 * r.share * perLevel)
+      / (((Math.PI * 2) / r.wavelength) * Math.hypot(r.dirX, r.dirZ)),
     speed: ref.speed * Math.sqrt(r.wavelength / ref.wavelength),
   }))
 })()
@@ -646,9 +675,13 @@ export const RIPPLE_WAVES: readonly WaveSpec[] = (() => {
  * 迴圈），淡出的部分不是消失，而是把它的坡度變異數加進 σ。這就是 spec §4.4
  * 說的「比 31 m 更細的浪不進法線，改成統計性的粗糙度」，只是做成了隨距離的。
  *
- * 於是同一套式子涵蓋兩端：近處波全部解析、σ = 1.5°，碎光銳利而且跟著細波的
- * 形狀；30 km 外四道微波全淡出、σ 到 8.1°，掠射角也中得了鏡面條件，連續場
- * 因此不會是死平的一塊。
+ * 於是同一套式子涵蓋兩端：近處只有 11 m 那一階解析得出來、σ = 7.5°，碎光跟著
+ * 細波的形狀；30 km 外連那一階也淡光、σ 到 11°（就是 `SHADE_SLOPE_RMS`），
+ * 掠射角也中得了鏡面條件，連續場因此不會是死平的一塊。
+ *
+ * 【近處的 σ 不是基底】比 `SHADE_SCALE_FLOOR` 還細的三階在任何距離都淡光，
+ * 常數 7.39° 是它們貢獻的 —— 見 `RIPPLE_STATIC_VAR`。基底本身只有 1.5°，
+ * 在平方和裡幾乎不佔份量；它守的是「三階全都被拿掉時 σ 不會歸零」。
  *
  * 【為什麼基底要這麼小】σ 為常數時的實測（2026-08-11）：
  *
@@ -782,6 +815,45 @@ export const SPARKLE_CELL = 2
  * 4 / 571 = 7.0 mrad 就是鎖定之後的角張度。只改一個，遠處的塊大小就變了。
  */
 export const SPARKLE_CELL_REF = 571
+
+/**
+ * `shadeScale` 的地板 —— 著色法線分辨得出來的最小世界尺度。
+ *
+ * 【它為什麼是 `SPARKLE_CELL`】Voronoi 的塊是**單色**的，比一塊還小的波在塊
+ * 內看不到形狀。真讓它進 `g` 的話 align 會在塊內劇烈變化，而亮塊的門檻是逐
+ * 像素的 `roll < p` —— 一塊會被撕成好幾片。所以片段著色器取
+ * `max(oceanFoot, cellNominal)`，而 `cellNominal` 在近處就是這個值。
+ */
+export const SHADE_SCALE_FLOOR = SPARKLE_CELL
+
+/**
+ * 微波裡**還畫得出形狀**的那幾道 —— 只有它們進片段著色器的迴圈。
+ *
+ * 【為什麼要分割】每道波按 `0.15λ → 0.4λ` 隨 `shadeScale` 淡出，而
+ * `shadeScale` 有 `SHADE_SCALE_FLOOR` 這個地板、且只隨距離變大。所以
+ * `0.4λ ≤ 地板` 的那幾道**在任何距離都是 w = 0**：對 `g` 一個字都不寫，
+ * 只把自己的坡度變異數倒進 σ —— 而那是個**常數**。
+ *
+ * 於是它們沒有理由留在逐像素的迴圈裡。常數在 `RIPPLE_STATIC_VAR` 先加好，
+ * 迴圈只跑剩下的。畫面逐位元相同（GLSL 的 `smoothstep` 會夾住，w 嚴格為 0），
+ * 迴圈短一圈。
+ *
+ * 【它跟著常數走，不是寫死的】把 `SPARKLE_CELL` 調小、或把某階的波長拉長，
+ * 該道就自動回到迴圈裡。`ocean.test.ts` 守著「至少還有一道」。
+ */
+export const RIPPLE_RESOLVED: readonly WaveSpec[]
+  = RIPPLE_WAVES.filter((w) => w.wavelength * WAVE_FADE_HI > SHADE_SCALE_FLOOR)
+
+/**
+ * 見 `RIPPLE_RESOLVED`。永遠解析不出來的那幾道的坡度變異數總和，直接當
+ * `slopeVar` 的初值餵進片段著色器。
+ */
+export const RIPPLE_STATIC_VAR: number = RIPPLE_WAVES
+  .filter((w) => w.wavelength * WAVE_FADE_HI <= SHADE_SCALE_FLOOR)
+  .reduce((sum, w) => {
+    const ak = w.amplitude * ((Math.PI * 2) / w.wavelength) * Math.hypot(w.dirX, w.dirZ)
+    return sum + (ak * ak) / 2
+  }, 0)
 /**
  * 碎光取樣座標的水平漂移倍率。1.0 = Gerstner 波的真實質點位移。
  *
@@ -1083,10 +1155,11 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uWaveLen[${WAVES.length}];
   uniform float uWaveSpd[${WAVES.length}];
   uniform vec3 uSunDirection;
-  uniform vec2 uRipDir[${RIPPLE_WAVES.length}];
-  uniform float uRipAmp[${RIPPLE_WAVES.length}];
-  uniform float uRipLen[${RIPPLE_WAVES.length}];
-  uniform float uRipSpd[${RIPPLE_WAVES.length}];
+  uniform vec2 uRipDir[${RIPPLE_RESOLVED.length}];
+  uniform float uRipAmp[${RIPPLE_RESOLVED.length}];
+  uniform float uRipLen[${RIPPLE_RESOLVED.length}];
+  uniform float uRipSpd[${RIPPLE_RESOLVED.length}];
+  uniform float uRipStaticVar;
   uniform float uSigmaBase;
   uniform float uDrift;
   uniform float uSigmaTail;
@@ -1412,7 +1485,9 @@ const SPARKLE_FRAGMENT = /* glsl */ `
 
       vec2 g = vec2(0.0);
       vec2 drift = vec2(0.0);
-      float slopeVar = 0.0;
+      // 【不是 0】比 shadeScale 的地板還細的那幾道微波在任何距離都淡光，
+      // 貢獻是個常數 —— 見 RIPPLE_RESOLVED。
+      float slopeVar = uRipStaticVar;
 
       // 解析波坡度與質點的水平位移。**與頂點位移用同一組波、同一個未正規化
       // 的 uWaveDir** —— 不一致的話亮塊就會與浪的形狀分家。兩者共用同一個
@@ -1435,8 +1510,8 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       }
 
       // 只給法線的微波 —— 不進頂點位移、不進 drift、不進碰撞判定。
-      // 見 RIPPLE_WAVES。
-      for (int i = 0; i < ${RIPPLE_WAVES.length}; i++) {
+      // 見 RIPPLE_WAVES。**只有還畫得出形狀的那幾道**，見 RIPPLE_RESOLVED。
+      for (int i = 0; i < ${RIPPLE_RESOLVED.length}; i++) {
         float k = 6.28318530718 / uRipLen[i];
         float ph = k * dot(uRipDir[i], pwxz) - uRipSpd[i] * k * uTime;
         float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
@@ -1489,9 +1564,9 @@ const SPARKLE_FRAGMENT = /* glsl */ `
       // 【雙核】窄核保住方向選擇性，寬核鋪出稀疏的尾巴，讓鏡面圈之外也有零星
       // 白點。用 mix 不用加法 —— 兩個高斯在鏡面點都是 exp(0) = 1，中心因此
       // 嚴格不變。見 SPARKLE_TAIL_WEIGHT。
-      // 【σ = 基底 + 沒解析到的波】見 SPARKLE_SIGMA_BASE。近處 slopeVar 幾乎
-      // 是 0、σ 就是基底，碎光銳利而且跟著細波的形狀；遠處四道微波全淡出，
-      // σ 長到 8° 以上，掠射角才中得了鏡面條件。
+      // 【σ = 基底 + 沒解析到的波】見 SPARKLE_SIGMA_BASE。近處 slopeVar 就是
+      // uRipStaticVar、σ 約 7.5°，碎光跟著 11 m 那一階的形狀；遠處連那一階
+      // 也淡出，σ 長到 11°，掠射角才中得了鏡面條件。
       // 塊傾斜拿走多少就從這裡扣多少，總能量守恆 —— 見 SPARKLE_TILT_SHARE。
       // max 只是浮點的保險：uSigmaBase 為正，理論上不會到 0。
       float sigma = sqrt(max(uSigmaBase * uSigmaBase + slopeVar - tiltVar, 1e-8));
@@ -1669,10 +1744,11 @@ export function createOcean(): Ocean {
     uWaveLen: { value: WAVES.map((w) => w.wavelength) },
     uWaveSpd: { value: WAVES.map((w) => w.speed) },
     uSunDirection: { value: new Vector3(SUN_DIR[0], SUN_DIR[1], SUN_DIR[2]) },
-    uRipDir: { value: RIPPLE_WAVES.map((w) => new Vector2(w.dirX, w.dirZ)) },
-    uRipAmp: { value: RIPPLE_WAVES.map((w) => w.amplitude) },
-    uRipLen: { value: RIPPLE_WAVES.map((w) => w.wavelength) },
-    uRipSpd: { value: RIPPLE_WAVES.map((w) => w.speed) },
+    uRipDir: { value: RIPPLE_RESOLVED.map((w) => new Vector2(w.dirX, w.dirZ)) },
+    uRipAmp: { value: RIPPLE_RESOLVED.map((w) => w.amplitude) },
+    uRipLen: { value: RIPPLE_RESOLVED.map((w) => w.wavelength) },
+    uRipSpd: { value: RIPPLE_RESOLVED.map((w) => w.speed) },
+    uRipStaticVar: { value: RIPPLE_STATIC_VAR },
     uSigmaBase: { value: SPARKLE_SIGMA_BASE },
     uDrift: { value: SPARKLE_DRIFT },
     uSigmaTail: { value: SPARKLE_SIGMA_TAIL },
