@@ -4,8 +4,18 @@ import {
   OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, RIPPLE_RESOLVED, RIPPLE_STATIC_VAR,
   RIPPLE_WARP2_AMP, RIPPLE_WARP2_LEN_A, RIPPLE_WARP2_LEN_B, RIPPLE_WARP_AMP,
   RIPPLE_WARP_LEN_A, RIPPLE_WARP_LEN_B, RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS,
-  SPARKLE_CELL, SPARKLE_CELL_REF, SPARKLE_FRAGMENT, WAVE_FADE_HI, WAVE_FADE_LO, WAVES,
+  SPARKLE_CELL, SPARKLE_CELL_REF, SPARKLE_FRAGMENT, WAVE_FADE_HI, WAVE_FADE_LO,
+  WAVE_WARP2_AMP, WAVE_WARP_AMP, WAVES,
 } from '../../src/render/ocean'
+
+/**
+ * 微波裡「11 m 那一階」—— 與最長那道差不到一個 octave 的幾道。它們共分一份
+ * 坡度預算（見 `RIPPLE_SHAPE` 的 `share`），比它短的幾階各自是獨立的一階。
+ */
+const rippleLevel = (): typeof RIPPLE_WAVES[number][] => {
+  const longest = Math.max(...RIPPLE_WAVES.map((w) => w.wavelength))
+  return RIPPLE_WAVES.filter((w) => w.wavelength > longest / 2)
+}
 
 /** 一道波的坡度變異數。與 `SPARKLE_FRAGMENT` 的 `ak` 同一條式子 */
 const slopeVar = (w: typeof WAVES[number]): number => {
@@ -24,6 +34,12 @@ const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
 }
+
+/** 在 `shadeScale` 的地板上（＝近處）還寫得進 `g` 的波 */
+const drawnAtFloor = (): typeof WAVES[number][] =>
+  [...WAVES, ...RIPPLE_RESOLVED].filter((w) =>
+    1 - smoothstep(w.wavelength * WAVE_FADE_LO, w.wavelength * WAVE_FADE_HI,
+      SHADE_SCALE_FLOOR) > 0.05)
 
 describe('gerstnerHeight', () => {
   it('波高落在所有波幅總和的範圍內', () => {
@@ -61,26 +77,50 @@ describe('微波（RIPPLE_WAVES）', () => {
   })
 
   /**
-   * 【GLSL 不接受長度 0 的陣列】把 `SPARKLE_CELL` 調大、或把每一階的波長都
-   * 縮短，`RIPPLE_RESOLVED` 就會空掉 —— 著色器直接編不過，而那個錯訊息離
-   * 成因非常遠。
+   * 【GLSL 不接受長度 0 的陣列】`uniform vec2 uRipDir[0]` 直接編不過，而那個
+   * 錯訊息離成因非常遠。所以空的時候整段**不產生** —— 見 `RIPPLE_GLSL`。
+   * 這一條守的是那個開關真的接對了：空⇒沒有，非空⇒有。
    */
-  it('至少還有一道進得了著色器迴圈', () => {
-    expect(RIPPLE_RESOLVED.length).toBeGreaterThan(0)
+  it('空的時候著色器不產生微波那一段，非空的時候一定產生', () => {
+    const has = RIPPLE_RESOLVED.length > 0
+    expect(SPARKLE_FRAGMENT.includes('uRipDir')).toBe(has)
+    expect(SPARKLE_FRAGMENT.includes('oceanRippleWarp(')).toBe(has)
   })
 
   /**
    * 【折疊的前提】`RIPPLE_STATIC_VAR` 把「在任何距離都淡光」的那幾道折成
-   * 一個常數，而「任何距離」靠的是 `shadeScale` 有地板。這一條把
-   * `SPARKLE_FRAGMENT` 的 `cellNominal` 抄過來驗它。式子被改掉的話，被折掉
-   * 的波就會在某個距離活過來 —— 而它已經不在迴圈裡了，畫面會缺一塊坡度。
+   * 一個常數，而「任何距離」靠的是 `shadeScale` 有地板。著色器取的是
+   * `max(oceanFoot, cellNominal, uShadeFloor)`，三者都非負且只隨距離變大，
+   * 所以地板成立的充要條件就是 `uShadeFloor` 本身。
+   *
+   * 【下界仍是一個 Voronoi 塊】塊是單色的，比一塊還小的波在塊內看不到形狀
+   * —— 那個理由沒有消失，只是不再是**唯一**的下限。見 `SHADE_SCALE_FLOOR`。
    */
-  it('shadeScale 的地板真的是 SHADE_SCALE_FLOOR', () => {
+  it('地板至少有一個 Voronoi 塊那麼大', () => {
+    expect(SHADE_SCALE_FLOOR).toBeGreaterThanOrEqual(SPARKLE_CELL)
+    // cellNominal 是另一個下限，它自己不得掉到一塊以下
     const cellNominal = (dist: number): number =>
       SPARKLE_CELL * 2 ** Math.max(0, Math.log2(Math.max(1, dist / SPARKLE_CELL_REF)))
-    expect(cellNominal(0)).toBe(SHADE_SCALE_FLOOR)
     for (const d of [0, 1, 100, 570, 571, 1000, 10_000, 100_000])
-      expect(cellNominal(d)).toBeGreaterThanOrEqual(SHADE_SCALE_FLOOR)
+      expect(cellNominal(d)).toBeGreaterThanOrEqual(SPARKLE_CELL)
+  })
+
+  /**
+   * 【這一條是「一個浪身上有幾組明暗」】Lambert 吃的是坡度，所以每一道還畫
+   * 得出來的波都會在畫面上鋪一組明暗，而**最細的那道說了算**。
+   *
+   * 規則：**著色不得有比承載它的幾何更細的結構**。畫面上的浪形由 `WAVES`
+   * 決定（31～140 m），著色若混進 8.9 m 的東西，一個 55 m 的浪身上就會出現
+   * 六組明暗 —— 像瓦楞紙，不像浪。2026-08-27 的實測：地板 2 m 時 6.2 組，
+   * 地板 6 m 時 1.8 組。
+   *
+   * 有人把 `SHADE_SCALE_FLOOR` 調低讓微波回到迴圈裡，這一條就紅。
+   */
+  it('著色沒有比幾何更細的結構 —— 一個浪一組明暗', () => {
+    const finestGeometry = Math.min(...WAVES.map((w) => w.wavelength))
+    const drawn = drawnAtFloor()
+    expect(drawn.length).toBeGreaterThan(0)
+    expect(Math.min(...drawn.map((w) => w.wavelength))).toBeGreaterThanOrEqual(finestGeometry)
   })
 
   /**
@@ -101,35 +141,43 @@ describe('微波（RIPPLE_WAVES）', () => {
   })
 
   /**
-   * 【這一條守的就是「細紋」】畫面上最細的那層質地由**坡度的空間梯度**
-   * （`ak·k`）決定 —— 它最大的那道波說了算。那道波要是獨佔，它就是一道
-   * 長峰正弦，整片海會布滿同一個走向、間距等於它波長的細紋。
+   * 【最細的那道波峰必須會斷】一道無限長的正弦就是一片平行細紋，不管它是
+   * 微波還是幾何波。判準是相位擾動大於 π —— 小於 π 波峰只是被推歪，還是
+   * 連續的（2026-08-26 實測：「一道、扭曲」那組條紋原封不動地回來，只是
+   * 變彎了）。
    *
-   * 2026-08-26 的實測：11.3 m 那道獨佔 87% 時，200 m 正俯視量到走向 20.3°、
-   * 方向性 0.41 的連續斜紋；把它拆成三道方向散開的波之後獨佔降到 32%，
-   * 同一塊的方向性掉到 0.07。
-   *
-   * 有人把某一階併回單一道、或把某道的振幅拉高，這條就紅。
+   * 【兩種配置都要成立】現在最細的是 31 m 的幾何波，它吃 `WAVE_WARP_*`；
+   * 微波要是回到迴圈裡，最細的變成 8.9 m，那它還會多吃一層 `RIPPLE_WARP_*`。
    */
-  it('最細那層結構不由單一方向獨佔 —— 細紋就是這樣來的', () => {
-    // 在地板上（近處）每道波實際寫進 g 的坡度梯度
-    const energy = [...WAVES, ...RIPPLE_RESOLVED].map((w) => {
+  it('最細那道畫得出來的波，波峰會斷', () => {
+    const finest = drawnAtFloor().reduce((a, b) => (b.wavelength < a.wavelength ? b : a))
+    const warpAmp = WAVE_WARP_AMP + WAVE_WARP2_AMP
+      + (RIPPLE_RESOLVED.includes(finest) ? RIPPLE_WARP_AMP + RIPPLE_WARP2_AMP : 0)
+    expect(warpAmp * ((Math.PI * 2) / finest.wavelength)).toBeGreaterThan(Math.PI)
+  })
+
+  /**
+   * 【下面兩條守的是設計，不是現況】微波現在整組退回 σ（見
+   * `SHADE_SCALE_FLOOR`），所以 `RIPPLE_RESOLVED` 是空的。但 `RIPPLE_SHAPE`
+   * 還在，地板一調低它們就回到畫面上 —— 那時這兩條的前提才會再度生效。
+   * 對 `RIPPLE_WAVES`（設計的全集）驗，而不是對 `RIPPLE_RESOLVED`（現在畫
+   * 得出來的），才不會在空的時候變成空轉的綠燈。
+   */
+  it('微波階內的坡度能量不由單一方向獨佔', () => {
+    const energy = rippleLevel().map((w) => {
       const k = (Math.PI * 2) / w.wavelength
-      const ak = w.amplitude * k * Math.hypot(w.dirX, w.dirZ)
-      const weight = 1 - smoothstep(w.wavelength * WAVE_FADE_LO, w.wavelength * WAVE_FADE_HI,
-        SHADE_SCALE_FLOOR)
-      return (weight * ak * k) ** 2
+      return (w.amplitude * k * Math.hypot(w.dirX, w.dirZ) * k) ** 2
     })
-    const total = energy.reduce((a, b) => a + b, 0)
-    expect(Math.max(...energy) / total).toBeLessThan(0.5)
+    expect(Math.max(...energy) / energy.reduce((a, b) => a + b, 0)).toBeLessThan(0.5)
   })
 
   /**
    * 【散佈要真的散得開】上一條只管能量不集中；方向可以三道都幾乎同向而
-   * 照樣過。這一條要求進得了畫面的那幾道波峰**至少橫跨 30°**。
+   * 照樣過。這一條要求那一階的波峰**至少橫跨 30°**。
    */
-  it('進得了畫面的微波波峰橫跨夠寬的角度', () => {
-    const bearings = RIPPLE_RESOLVED.map(crestBearing).sort((a, b) => a - b)
+  it('微波階內的波峰橫跨夠寬的角度', () => {
+    const bearings = rippleLevel().map(crestBearing).sort((a, b) => a - b)
+    expect(bearings.length).toBeGreaterThan(1)
     // 波峰是**軸向**的（20° 與 200° 是同一條線），所以最大間隙的補角才是跨幅
     const gaps = bearings.map((b, i) =>
       i === 0 ? b + 180 - bearings[bearings.length - 1]! : b - bearings[i - 1]!)
@@ -203,7 +251,9 @@ describe('微波的細座標扭曲（RIPPLE_WARP_*）', () => {
    * 綁的是**最長**那道微波（波數最小、最難擾動），所以其餘幾道自動滿足。
    */
   it('相位擾動大於 π —— 波峰要斷，不是只被推歪', () => {
-    const longest = RIPPLE_RESOLVED.reduce((a, b) => (b.wavelength > a.wavelength ? b : a))
+    // 【對設計的全集驗】微波現在整組退回 σ，`RIPPLE_RESOLVED` 是空的；地板
+    // 一調低它們就回到畫面上，那時這一條的前提才生效。見上一個 describe。
+    const longest = rippleLevel().reduce((a, b) => (b.wavelength > a.wavelength ? b : a))
     expect(A * ((Math.PI * 2) / longest.wavelength)).toBeGreaterThan(Math.PI)
   })
 

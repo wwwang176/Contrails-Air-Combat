@@ -869,14 +869,36 @@ export const SPARKLE_CELL = 2
 export const SPARKLE_CELL_REF = 571
 
 /**
- * `shadeScale` 的地板 —— 著色法線分辨得出來的最小世界尺度。
+ * `shadeScale` 的地板 —— 著色法線**畫得出形狀**的最小世界尺度。比它細的波
+ * 一律轉成統計性的粗糙度（σ），不進 `g`。
  *
- * 【它為什麼是 `SPARKLE_CELL`】Voronoi 的塊是**單色**的，比一塊還小的波在塊
- * 內看不到形狀。真讓它進 `g` 的話 align 會在塊內劇烈變化，而亮塊的門檻是逐
- * 像素的 `roll < p` —— 一塊會被撕成好幾片。所以片段著色器取
- * `max(oceanFoot, cellNominal)`，而 `cellNominal` 在近處就是這個值。
+ * ── 【下界是 `SPARKLE_CELL`，但值不該等於它】────────────────────────
+ *
+ * Voronoi 的塊是**單色**的，比一塊還小的波在塊內看不到形狀。真讓它進 `g`
+ * 的話 align 會在塊內劇烈變化，而亮塊的門檻是逐像素的 `roll < p` —— 一塊
+ * 會被撕成好幾片。所以地板**至少**要有一塊那麼大。
+ *
+ * ── 【為什麼是 6 而不是 2】──────────────────────────────────────
+ *
+ * 這是「一個浪身上該有幾組明暗」的旋鈕。Lambert 吃的是坡度，所以每一道還
+ * 畫得出來的波都會在畫面上鋪一組明暗 —— 而**最細的那道說了算**：
+ *
+ *   地板 2 m   最細畫得出 8.9 m   一個 55 m 的浪上 6.2 組明暗  ← 像瓦楞紙
+ *   地板 6 m   最細畫得出 31 m    一個 55 m 的浪上 1.8 組      ← 像浪
+ *
+ * `RIPPLE_WAVES` 那四道（8.9～13.1 m）的用途是把坡度 RMS 從幾何波的 6.94°
+ * 補到 Cox-Munk 的 11°（見 `SHADE_SLOPE_RMS`）。**補償本身是對的，用「畫
+ * 出來的波」去補是錯的** —— 需要粗糙度的是遠處（掠射角要中鏡面條件），而
+ * 畫出來的波偏偏只在近處現形。6 m 讓整組退回 σ：坡度預算一分不少（見
+ * `RIPPLE_STATIC_VAR`），但近處的浪回到一個週期一組明暗。
+ *
+ * 【它同時是一筆效能】整組退出之後 `RIPPLE_RESOLVED` 空了，片段著色器的微波
+ * 迴圈與 `oceanRippleWarp` 都不再產生 —— 見 `RIPPLE_RESOLVED`。
+ *
+ * 【往下調就會回來】降到 5.2 以下 13.1 m 那道先回到迴圈裡，`ocean.test.ts`
+ * 的「一個浪上的明暗組數」會跟著紅。
  */
-export const SHADE_SCALE_FLOOR = SPARKLE_CELL
+export const SHADE_SCALE_FLOOR = 6.0
 
 /**
  * 微波裡**還畫得出形狀**的那幾道 —— 只有它們進片段著色器的迴圈。
@@ -890,8 +912,13 @@ export const SHADE_SCALE_FLOOR = SPARKLE_CELL
  * 迴圈只跑剩下的。畫面逐位元相同（GLSL 的 `smoothstep` 會夾住，w 嚴格為 0），
  * 迴圈短一圈。
  *
- * 【它跟著常數走，不是寫死的】把 `SPARKLE_CELL` 調小、或把某階的波長拉長，
- * 該道就自動回到迴圈裡。`ocean.test.ts` 守著「至少還有一道」。
+ * 【現在它是空的】`SHADE_SCALE_FLOOR = 6` 之下四道全在地板以內 —— 整組微波
+ * 只進 σ，一個字都不畫。片段著色器因此**完全不產生**微波迴圈、那六個 uniform、
+ * 以及 `oceanRippleWarp`（見 `RIPPLE_GLSL`）。
+ *
+ * 【它跟著常數走，不是寫死的】把 `SHADE_SCALE_FLOOR` 調小、或把某階的波長
+ * 拉長，該道就自動回到迴圈裡，連 GLSL 都會跟著長回來。`ocean.test.ts` 守著
+ * 「空的時候不得產生迴圈」與「一個浪上的明暗組數」。
  */
 export const RIPPLE_RESOLVED: readonly WaveSpec[]
   = RIPPLE_WAVES.filter((w) => w.wavelength * WAVE_FADE_HI > SHADE_SCALE_FLOOR)
@@ -1199,6 +1226,54 @@ export const SEA_AERIAL_HI = 0.052
 export const SEA_AERIAL_LO = 0.0
 export const SEA_AERIAL_STRENGTH = 0
 
+/**
+ * 微波那一段的 GLSL —— **`RIPPLE_RESOLVED` 空的時候整段不產生**。
+ *
+ * 【為什麼要條件產生，而不是留著讓它跑零圈】兩個理由。一是 GLSL ES 不接受
+ * 長度 0 的陣列，`uniform vec2 uRipDir[0]` 直接編不過。二是留著等於留一段
+ * 讀不到 uniform 的死碼 —— 驅動會不會消掉它是實作決定，不該賭。
+ *
+ * 每個欄位是一段字串，插在 `SPARKLE_COMMON` / `SPARKLE_FRAGMENT` 的對應位置。
+ */
+const RIPPLE_GLSL = RIPPLE_RESOLVED.length > 0
+  ? {
+      uniforms: /* glsl */ `
+  uniform vec2 uRipDir[${RIPPLE_RESOLVED.length}];
+  uniform float uRipAmp[${RIPPLE_RESOLVED.length}];
+  uniform float uRipLen[${RIPPLE_RESOLVED.length}];
+  uniform float uRipSpd[${RIPPLE_RESOLVED.length}];
+  uniform vec3 uRipWarp;   // 微波專用的細扭曲。見 RIPPLE_WARP_AMP
+  uniform vec3 uRipWarp2;`,
+      warpFn: /* glsl */ `
+  // 微波專用的細扭曲。**沒有 CPU 的對應版本** —— 微波不進頂點位移、不進
+  // 碰撞判定，所以這一份不必與 waveWarp 一致。設計理由見 RIPPLE_WARP_AMP。
+  vec2 oceanRippleWarp(vec2 p, float time) {
+    float t = time * uWarpSpd;
+    return vec2(
+      sin(p.y * uRipWarp.y + t * uRipWarp.y + 2.3) * uRipWarp.x
+        + sin(p.x * uRipWarp2.y - t * uRipWarp2.y + 0.9) * uRipWarp2.x,
+      sin(p.x * uRipWarp.z - t * uRipWarp.z + 5.1) * uRipWarp.x
+        + sin(p.y * uRipWarp2.z + t * uRipWarp2.z + 3.4) * uRipWarp2.x
+    );
+  }`,
+      loop: /* glsl */ `
+      // 只給法線的微波 —— 不進頂點位移、不進 drift、不進碰撞判定。
+      // 見 RIPPLE_WAVES。**只有還畫得出形狀的那幾道**，見 RIPPLE_RESOLVED。
+      //
+      // 【多一層細扭曲】微波的尺度是 10 m 級，而 oceanWarp 的尺度是幾百到
+      // 幾千公尺 —— 對它們來說那只是平移，波峰照樣筆直。見 RIPPLE_WARP_AMP。
+      vec2 rwxz = pwxz + oceanRippleWarp(pwxz, uTime);
+      for (int i = 0; i < ${RIPPLE_RESOLVED.length}; i++) {
+        float k = 6.28318530718 / uRipLen[i];
+        float ph = k * dot(uRipDir[i], rwxz) - uRipSpd[i] * k * uTime;
+        float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
+        float ak = uRipAmp[i] * k;
+        g += w * ak * cos(ph) * uRipDir[i];
+        slopeVar += (1.0 - w * w) * ak * ak * 0.5;
+      }`,
+    }
+  : { uniforms: '', warpFn: '', loop: '' }
+
 /** 頂點與片段共用的宣告。兩個材質都要。 */
 const SPARKLE_COMMON = /* glsl */ `
   uniform float uTime;
@@ -1206,12 +1281,9 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uWaveAmp[${WAVES.length}];
   uniform float uWaveLen[${WAVES.length}];
   uniform float uWaveSpd[${WAVES.length}];
-  uniform vec3 uSunDirection;
-  uniform vec2 uRipDir[${RIPPLE_RESOLVED.length}];
-  uniform float uRipAmp[${RIPPLE_RESOLVED.length}];
-  uniform float uRipLen[${RIPPLE_RESOLVED.length}];
-  uniform float uRipSpd[${RIPPLE_RESOLVED.length}];
+  uniform vec3 uSunDirection;${RIPPLE_GLSL.uniforms}
   uniform float uRipStaticVar;
+  uniform float uShadeFloor;
   uniform float uSigmaBase;
   uniform float uDrift;
   uniform float uSigmaTail;
@@ -1240,8 +1312,6 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uWarp;   // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform float uWarpSpd;
   uniform vec3 uWarp2;  // x: 振幅 m, y: 波數 A, z: 波數 B
-  uniform vec3 uRipWarp;   // 同上，微波專用。見 RIPPLE_WARP_AMP
-  uniform vec3 uRipWarp2;
   uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
   uniform float uEnvLo;
   uniform float uBaseCell;
@@ -1263,17 +1333,7 @@ const SPARKLE_COMMON = /* glsl */ `
     );
   }
 
-  // 微波專用的細扭曲。**沒有 CPU 的對應版本** —— 微波不進頂點位移、不進
-  // 碰撞判定，所以這一份不必與 waveWarp 一致。設計理由見 RIPPLE_WARP_AMP。
-  vec2 oceanRippleWarp(vec2 p, float time) {
-    float t = time * uWarpSpd;
-    return vec2(
-      sin(p.y * uRipWarp.y + t * uRipWarp.y + 2.3) * uRipWarp.x
-        + sin(p.x * uRipWarp2.y - t * uRipWarp2.y + 0.9) * uRipWarp2.x,
-      sin(p.x * uRipWarp.z - t * uRipWarp.z + 5.1) * uRipWarp.x
-        + sin(p.y * uRipWarp2.z + t * uRipWarp2.z + 3.4) * uRipWarp2.x
-    );
-  }
+${RIPPLE_GLSL.warpFn}
 
   // 浪高包絡的底層場，值域 [-1, 1]。**與 waveEnvField 必須逐字相同**
   float oceanEnvField(vec2 p, float time) {
@@ -1546,7 +1606,9 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
       // 名目塊寬不含 LOD 的 pick（那需要 drift 後的座標，而 drift 正是這個
       // 迴圈算出來的）。差一階對「哪些波該轉成統計」沒有影響。
       float cellNominal = uCell * exp2(max(0.0, log2(max(1.0, oceanDist / uCellRef))));
-      float shadeScale = max(oceanFoot, cellNominal);
+      // 【三者取大】像素蓋住的、一個 Voronoi 塊蓋住的、以及「一個浪身上該有
+      // 幾組明暗」那個下限 —— 見 SHADE_SCALE_FLOOR。
+      float shadeScale = max(max(oceanFoot, cellNominal), uShadeFloor);
 
       // 【與頂點位移同一個扭曲】見 WAVE_WARP_AMP。碎光的取樣座標（swxz）
       // 刻意**不**扭曲 —— 那是塊的鋪法，與浪的形狀是兩件事。
@@ -1580,20 +1642,7 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
         slopeVar += (1.0 - w * w) * ak * ak * 0.5;
       }
 
-      // 只給法線的微波 —— 不進頂點位移、不進 drift、不進碰撞判定。
-      // 見 RIPPLE_WAVES。**只有還畫得出形狀的那幾道**，見 RIPPLE_RESOLVED。
-      //
-      // 【多一層細扭曲】微波的尺度是 10 m 級，而 oceanWarp 的尺度是幾百到
-      // 幾千公尺 —— 對它們來說那只是平移，波峰照樣筆直。見 RIPPLE_WARP_AMP。
-      vec2 rwxz = pwxz + oceanRippleWarp(pwxz, uTime);
-      for (int i = 0; i < ${RIPPLE_RESOLVED.length}; i++) {
-        float k = 6.28318530718 / uRipLen[i];
-        float ph = k * dot(uRipDir[i], rwxz) - uRipSpd[i] * k * uTime;
-        float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
-        float ak = uRipAmp[i] * k;
-        g += w * ak * cos(ph) * uRipDir[i];
-        slopeVar += (1.0 - w * w) * ak * ak * 0.5;
-      }
+${RIPPLE_GLSL.loop}
       // 【碎光的取樣座標跟著水面走】見 SPARKLE_DRIFT。Voronoi 與 LOD 的選階
       // 都用同一個座標 —— 分家的話同一塊會被撕成兩階。
       vec2 swxz = wxz + drift * uDrift;
@@ -1833,11 +1882,27 @@ export function createOcean(): Ocean {
     uWaveLen: { value: WAVES.map((w) => w.wavelength) },
     uWaveSpd: { value: WAVES.map((w) => w.speed) },
     uSunDirection: { value: new Vector3(SUN_DIR[0], SUN_DIR[1], SUN_DIR[2]) },
-    uRipDir: { value: RIPPLE_RESOLVED.map((w) => new Vector2(w.dirX, w.dirZ)) },
-    uRipAmp: { value: RIPPLE_RESOLVED.map((w) => w.amplitude) },
-    uRipLen: { value: RIPPLE_RESOLVED.map((w) => w.wavelength) },
-    uRipSpd: { value: RIPPLE_RESOLVED.map((w) => w.speed) },
+    // 【微波的那幾個只在著色器真的有那一段時才給】`RIPPLE_RESOLVED` 空的時候
+    // GLSL 裡不存在這些 uniform（見 `RIPPLE_GLSL`），而空陣列在 three 的
+    // uniform 上傳路徑上沒有型別可推，會在 WebGL 層丟警告。
+    ...(RIPPLE_RESOLVED.length > 0
+      ? {
+          uRipDir: { value: RIPPLE_RESOLVED.map((w) => new Vector2(w.dirX, w.dirZ)) },
+          uRipAmp: { value: RIPPLE_RESOLVED.map((w) => w.amplitude) },
+          uRipLen: { value: RIPPLE_RESOLVED.map((w) => w.wavelength) },
+          uRipSpd: { value: RIPPLE_RESOLVED.map((w) => w.speed) },
+          uRipWarp: {
+            value: new Vector3(RIPPLE_WARP_AMP,
+              (Math.PI * 2) / RIPPLE_WARP_LEN_A, (Math.PI * 2) / RIPPLE_WARP_LEN_B),
+          },
+          uRipWarp2: {
+            value: new Vector3(RIPPLE_WARP2_AMP,
+              (Math.PI * 2) / RIPPLE_WARP2_LEN_A, (Math.PI * 2) / RIPPLE_WARP2_LEN_B),
+          },
+        }
+      : {}),
     uRipStaticVar: { value: RIPPLE_STATIC_VAR },
+    uShadeFloor: { value: SHADE_SCALE_FLOOR },
     uSigmaBase: { value: SPARKLE_SIGMA_BASE },
     uDrift: { value: SPARKLE_DRIFT },
     uSigmaTail: { value: SPARKLE_SIGMA_TAIL },
@@ -1874,14 +1939,6 @@ export function createOcean(): Ocean {
     uWarp2: {
       value: new Vector3(
         WAVE_WARP2_AMP, (Math.PI * 2) / WAVE_WARP2_LEN_A, (Math.PI * 2) / WAVE_WARP2_LEN_B),
-    },
-    uRipWarp: {
-      value: new Vector3(
-        RIPPLE_WARP_AMP, (Math.PI * 2) / RIPPLE_WARP_LEN_A, (Math.PI * 2) / RIPPLE_WARP_LEN_B),
-    },
-    uRipWarp2: {
-      value: new Vector3(
-        RIPPLE_WARP2_AMP, (Math.PI * 2) / RIPPLE_WARP2_LEN_A, (Math.PI * 2) / RIPPLE_WARP2_LEN_B),
     },
     uEnv: {
       value: new Vector3(
