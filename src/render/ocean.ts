@@ -1,9 +1,13 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   Color,
+  Group,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Sphere,
   Vector2,
   Vector3,
   type WebGLProgramParametersWithUniforms,
@@ -304,8 +308,109 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
   return h
 }
 
-export const OCEAN_SIZE = 10000
-export const OCEAN_SEGMENTS = 512
+/**
+ * ── 【海面的 LOD：同心環 clipmap】────────────────────────────────
+ *
+ * 細浪面不是一張均勻的網格，而是一組以相機為中心的巢狀方環。每一層的格子
+ * 是內層的兩倍大、覆蓋範圍也是兩倍，所以**每一層在畫面上佔的角度大致相同**
+ * —— 三角形跟著像素走，不跟著公尺走。
+ *
+ * 【為什麼要換掉均勻網格】改動前是 ±5 km 鋪 512×512 格（一格 19.5 m、26 萬
+ * 個四邊形）。兩頭都不對：
+ *
+ *   近處太粗   31 m 的波只有 1.59 點／波長，低於 Nyquist，畫出來是混疊
+ *   遠處太細   1 km 之外浪本來就不到 4 px，六成的三角形是白畫的
+ *
+ * 現在（基礎格 2.5 m、每層 128×128、十層）：
+ *
+ *   層   格子       覆蓋半徑      四邊形
+ *   L0    2.5 m      160 m        16,384（實心）
+ *   L1    5 m        320 m        12,288（空心環）
+ *   L2    10 m       640 m        12,288
+ *   L3    20 m       1.28 km      12,288
+ *   L4    40 m       2.56 km      12,288
+ *   L5    80 m       5.12 km      12,288
+ *   L6   160 m      10.24 km      12,288
+ *   L7   320 m      20.48 km      12,288
+ *   L8   640 m      40.96 km      12,288
+ *   L9  1280 m      81.92 km      12,288
+ *                                ───────
+ *                                126,976（改動前 262,144）
+ *
+ * **三角形少一半，近處的格子細 7.8 倍，覆蓋範圍大 16 倍。** 31 m 的波在 L0
+ * 拿到 12.4 點／波長，終於畫得出來。
+ *
+ * 【接縫推到 82 km】遠海與細浪面的 5 m 落差，改動前在 5 km 處是 1.27 px；
+ * 現在在 81.92 km 處是 0.08 px，看不見了。
+ *
+ * ── 【三個關鍵設計】────────────────────────────────────────────
+ *
+ * 一、**不做格點對齊。** 改動前細浪面要對齊到格點，否則頂點在格點之間滑動
+ *     會讓波形抖動 —— 那是因為它沒有做頻帶限制，19.5 m 的格子在取樣 31 m
+ *     的波，滑動就是混疊。現在每個頂點按**它離相機多遠**把解析不出來的波
+ *     淡掉（見 OCEAN_VERT_FADE_LO），取樣就永遠在 Nyquist 之內，滑動只造成
+ *     內插誤差（振幅的 3% 量級），不會抖。
+ *
+ *     這也讓十層可以共用同一個中心 —— 全部直接設在相機的 XZ 上。
+ *
+ * 二、**淡出吃的是「離相機的距離」，不是「這一層的格子大小」。** 兩層的交界
+ *     上，兩邊算出來的淡出量因此**完全相同**，共用的頂點高度逐位元一致，
+ *     不會有高低差。（交界上細層多出來的中點仍然是 T 形接點，見下。）
+ *
+ * 三、**空洞的大小是推導出來的，不是調的。** 第 L 層的洞必須正好等於第
+ *     L−1 層的外緣：`(段數/2) × 格子(L−1) = (段數/4) × 格子(L)`，也就是
+ *     中央 (段數/2)² 個四邊形。段數必須是 4 的倍數。
+ */
+export const OCEAN_BASE_CELL = 2.5
+/**
+ * 見 OCEAN_BASE_CELL。每一層的邊各切幾格。**必須是 4 的倍數**（空洞是中央
+ * 的 (段數/2)²，而那要能整除）。
+ *
+ * 【128 怎麼來的】它同時決定兩件事：每層的四邊形數（128² − 64² = 12,288）
+ * 與每層覆蓋的半徑（64 × 格子）。128 讓十層剛好接到 82 km，而總量仍比改動
+ * 前的均勻網格少一半。
+ */
+export const OCEAN_RING_SEGMENTS = 128
+/**
+ * 見 OCEAN_BASE_CELL。層數。每多一層，覆蓋半徑加倍、四邊形加 12,288。
+ *
+ * 【為什麼是 10】最外層要遠到讓「遠海接縫」的 5 m 落差進次像素。81.92 km
+ * 處是 0.08 px；九層（41 km）是 0.16 px，也夠，但十層只多 1.4% 的三角形。
+ */
+export const OCEAN_LEVELS = 10
+
+/**
+ * 細浪面**整體**的邊長，m。由 clipmap 推導，不是可調參數。
+ *
+ * 【它現在只有一個用途】`ocean.test.ts` 拿它與 FAR_SEA_SIZE 比，確認遠海
+ * 真的遠大於細浪面。
+ */
+export const OCEAN_SIZE
+  = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1) * OCEAN_RING_SEGMENTS
+
+/**
+ * 頂點位移的頻帶限制窗，單位是波長的倍數。**與片段著色器的 WAVE_FADE_LO/HI
+ * 是兩回事**：那一個看的是像素的 footprint（畫面上分不分得出來），這一個看
+ * 的是**網格的格子**（幾何上表現不表現得出來）。
+ *
+ * 【為什麼幾何要比著色更保守】著色的取樣點是像素，密度由螢幕決定；幾何的
+ * 取樣點是頂點，密度由這一層的格子決定，而格子之間是**線性內插**。正弦波
+ * 用直線接起來，要五個點以上才看不出折角，兩個點（Nyquist 極限）看起來是
+ * 三角波。0.2 / 0.4 表示：格子小於 0.2λ（五點）完全保留，大於 0.4λ
+ * （2.5 點）完全拿掉。
+ *
+ * 【拿掉的波去哪了】**只從幾何拿掉，著色不受影響。** 片段著色器算的是解析
+ * 的波坡度，與網格細不細無關 —— 所以遠處的海仍然有完整的波紋光影，只是那
+ * 片水面在幾何上是平的。而那正是對的：1.45 m 的浪在 5 km 外只有 0.37 px。
+ *
+ * 【與碰撞判定的差異】`gerstnerHeight`（CPU）**不做**這個淡出，它永遠是完整
+ * 的五道波。相機附近（L0、L1）淡出量是 0，兩者逐位元相同；遠處才分家，而
+ * 那裡的差異最多 3.3 m，在 5 km 外是 0.8 px。撞海判定用的是飛機自己的位置，
+ * 而相機永遠跟著玩家 —— 玩家那一架永遠落在「完全相同」的那一區。
+ */
+export const OCEAN_VERT_FADE_LO = 0.2
+/** 見 OCEAN_VERT_FADE_LO。 */
+export const OCEAN_VERT_FADE_HI = 0.4
 
 /**
  * 遠海的邊長，m。**這是一片平的四邊形，不是網格。**
@@ -1012,6 +1117,10 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uWarp2;  // x: 振幅 m, y: 波數 A, z: 波數 B
   uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
   uniform float uEnvLo;
+  uniform float uBaseCell;
+  uniform float uInvHalfSeg;
+  uniform float uVertFadeLo;
+  uniform float uVertFadeHi;
   uniform float uNyqLo;
   uniform float uNyqHi;
 
@@ -1454,7 +1563,15 @@ const SPARKLE_FRAGMENT = /* glsl */ `
 `
 
 export interface Ocean {
-  mesh: Mesh
+  /**
+   * 細浪面。**一組以相機為中心的巢狀方環**（clipmap），不是單一網格。
+   * 設計與各層的尺寸見 `OCEAN_BASE_CELL`。
+   *
+   * 【為什麼回 Group 而不是回陣列】呼叫端（`render/terrain.ts`）只要把它
+   * 加進場景；層數是這個模組的內部決定，不該漏出去。`__gfx` 的消融也
+   * 靠 traverse 走到葉子，不需要知道有幾層。
+   */
+  mesh: Group
   /**
    * 遠海。**平的、單色、只有兩個三角形**，墊在細浪面底下把海接到地平線。
    *
@@ -1466,9 +1583,64 @@ export interface Ocean {
   dispose(): void
 }
 
+/**
+ * 建一層 clipmap 的幾何：`segments × segments` 格、每格 `cell` 公尺、以原點
+ * 為中心、躺在 XZ 平面上。`hollow` 為真時挖掉中央的 `(segments/2)²` 格 ——
+ * 那正好是內一層的覆蓋範圍（見 OCEAN_BASE_CELL 的推導）。
+ *
+ * 【為什麼自己建而不用 PlaneGeometry + 挖洞】挖洞要重寫索引，而 PlaneGeometry
+ * 的頂點順序與繞向是它的實作細節。自己建三十行，而且**洞裡的頂點刻意留在
+ * 緩衝區裡**：索引沒有引用它們，GPU 就不會取，等於免費 —— 換來的是所有層
+ * 共用同一套「i, j → 頂點編號」的算式，讀起來直接。
+ *
+ * 【繞向】由上往下看要是逆時針（three 的預設 FrontSide 是 CCW），法線才朝
+ * 上。x 往右、z 往前（螢幕的下方），所以 (i,j) → (i+1,j) → (i,j+1) 這個順序
+ * 在 XZ 上是順時針，要反過來寫。
+ */
+function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): BufferGeometry {
+  const n = segments + 1
+  const half = (segments / 2) * cell
+  const pos = new Float32Array(n * n * 3)
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const o = (j * n + i) * 3
+      pos[o] = i * cell - half
+      pos[o + 1] = 0
+      pos[o + 2] = j * cell - half
+    }
+  }
+  // 洞的範圍：中央 segments/2 格，也就是索引 [segments/4, 3·segments/4)
+  const holeLo = segments / 4
+  const holeHi = segments - segments / 4
+  const idx: number[] = []
+  for (let j = 0; j < segments; j++) {
+    for (let i = 0; i < segments; i++) {
+      if (hollow && i >= holeLo && i < holeHi && j >= holeLo && j < holeHi) continue
+      const a = j * n + i
+      const b = a + 1
+      const c = a + n
+      const d = c + 1
+      idx.push(a, c, b, b, c, d)
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new BufferAttribute(pos, 3))
+  // 【法線一律 +Y】材質是 flatShading，three 會用導數自己算面法線，這個
+  // attribute 只是為了讓 built-in 的 shader chunk 有東西可以綁
+  const nrm = new Float32Array(n * n * 3)
+  for (let k = 0; k < n * n; k++) nrm[k * 3 + 1] = 1
+  g.setAttribute('normal', new BufferAttribute(nrm, 3))
+  g.setIndex(idx)
+  // 【自己設包圍球】頂點會被波位移，而 computeBoundingSphere 只看原始座標。
+  // 反正這些網格 frustumCulled = false，這裡只是不讓 three 事後去算它。
+  g.boundingSphere = new Sphere(new Vector3(0, 0, 0), half * Math.SQRT2 + 8)
+  return g
+}
+
 export function createOcean(): Ocean {
-  const geometry = new PlaneGeometry(OCEAN_SIZE, OCEAN_SIZE, OCEAN_SEGMENTS, OCEAN_SEGMENTS)
-  geometry.rotateX(-Math.PI / 2)
+  // clipmap 的十層。L0 實心，其餘挖掉中央 —— 那一塊由內一層負責
+  const levelGeometries = Array.from({ length: OCEAN_LEVELS }, (_, i) =>
+    clipmapLevelGeometry(OCEAN_BASE_CELL * 2 ** i, OCEAN_RING_SEGMENTS, i > 0))
 
   const material = new MeshPhysicalMaterial({
     color: SEA_COLOR,
@@ -1543,6 +1715,10 @@ export function createOcean(): Ocean {
         WAVE_ENV_SPREAD, (Math.PI * 2) / WAVE_ENV_LEN_A, (Math.PI * 2) / WAVE_ENV_LEN_B),
     },
     uEnvLo: { value: WAVE_ENV_LO },
+    uBaseCell: { value: OCEAN_BASE_CELL },
+    uInvHalfSeg: { value: 2 / OCEAN_RING_SEGMENTS },
+    uVertFadeLo: { value: OCEAN_VERT_FADE_LO },
+    uVertFadeHi: { value: OCEAN_VERT_FADE_HI },
     uNyqLo: { value: WAVE_FADE_LO },
     uNyqHi: { value: WAVE_FADE_HI },
     uShadeGain: { value: SEA_SHADE_GAIN },
@@ -1591,10 +1767,25 @@ export function createOcean(): Ocean {
                 vec2 worldXZ = rawXZ + oceanWarp(rawXZ, uTime);
                 // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
                 float envG = oceanEnvField(rawXZ, uTime);
+
+                // 【這個頂點所在的層有多粗】十層都以相機為中心，而第 L 層
+                // 覆蓋到半徑 (段數/2)×格子(L) —— 所以「離中心多遠」直接
+                // 換算得到「這裡的格子多大」。用的是**局部座標**，也就是
+                // 離相機的水平距離，與世界座標無關。
+                //
+                // 【為什麼兩層交界不會有高低差】交界上的同一點，兩層算出
+                // 來的 vCell 完全相同（都只吃離中心的距離），淡出量因此
+                // 逐位元一致。
+                float vCell = max(uBaseCell, length(transformed.xz) * uInvHalfSeg);
+
                 float waveH = 0.0;
                 for (int i = 0; i < ${WAVES.length}; i++) {
                   float k = 6.28318530718 / uWaveLen[i];
-                  waveH += uWaveAmp[i] * oceanEnv(envG, float(i))
+                  // 【網格表現不出來的波，從幾何裡拿掉】見 OCEAN_VERT_FADE_LO。
+                  // 只影響幾何 —— 片段著色器的波坡度是解析的，不受影響
+                  float lod = 1.0 - smoothstep(
+                    uWaveLen[i] * uVertFadeLo, uWaveLen[i] * uVertFadeHi, vCell);
+                  waveH += uWaveAmp[i] * oceanEnv(envG, float(i)) * lod
                     * sin(k * dot(uWaveDir[i], worldXZ) - uWaveSpd[i] * k * uTime);
                 }
                 transformed.y += waveH;`
@@ -1626,8 +1817,14 @@ export function createOcean(): Ocean {
 
   applySparkle(material, true, 'ocean-near-waves')
 
-  const mesh = new Mesh(geometry, material)
-  mesh.frustumCulled = false // 隨玩家捲動，永遠可見
+  const mesh = new Group()
+  for (const g of levelGeometries) {
+    const m = new Mesh(g, material)
+    // 【一律不做視錐剔除】包圍球看不到頂點位移，而且十層全部以相機為
+    // 中心 —— 能被剔除的只有整層都在畫面外的情形，那極少發生
+    m.frustumCulled = false
+    mesh.add(m)
+  }
 
   // 遠海。用 MeshPhysicalMaterial 而不是 Basic：要跟細浪面接得上就得受同一
   // 組燈光。roughness / metalness 全部沿用細浪面的值。
@@ -1681,19 +1878,24 @@ export function createOcean(): Ocean {
     farMesh,
     update(time, centerX, centerZ) {
       uTime.value = time
-      // 以網格單元對齊捲動，避免頂點在格點間滑動造成抖動
-      const cell = OCEAN_SIZE / OCEAN_SEGMENTS
-      const sx = Math.round(centerX / cell) * cell
-      const sz = Math.round(centerZ / cell) * cell
-      mesh.position.set(sx, 0, sz)
-      uOrigin.value.set(sx, sz)
+      // 【十層共用同一個中心，而且不做格點對齊】對齊本來是為了避免頂點在
+      // 格點之間滑動造成波形抖動 —— 那是沒有頻帶限制時才會發生的混疊。
+      // 現在每個頂點按離相機的距離把解析不出來的波淡掉（見
+      // OCEAN_VERT_FADE_LO），取樣永遠在 Nyquist 之內，滑動只剩內插誤差。
+      //
+      // 不對齊還換來一件事：十層可以共用同一個 uOrigin。對齊的話每層要各自
+      // 對到自己的格子，中心就會分家，交界處也跟著錯開。
+      // 【設在群組上，不是每一層】十層共用同一個中心，那正是它們不裂開的
+      // 前提。設在群組上讓那件事是**結構保證**的，不是每幀記得同步的
+      mesh.position.set(centerX, 0, centerZ)
+      uOrigin.value.set(centerX, centerZ)
       // 【遠海不做格點對齊】對齊是為了避免頂點在格點之間滑動造成波形抖動，
       // 而遠海沒有波。精確跟著中心走，才不會在極端座標下累積偏差。
       farMesh.position.set(centerX, FAR_SEA_Y, centerZ)
     },
     heightAt: gerstnerHeight,
     dispose() {
-      geometry.dispose()
+      for (const g of levelGeometries) g.dispose()
       material.dispose()
       farGeometry.dispose()
       farMaterial.dispose()

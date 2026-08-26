@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createOcean, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight, OCEAN_SEGMENTS, OCEAN_SIZE, WAVES,
+  createOcean, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight, OCEAN_BASE_CELL, OCEAN_LEVELS,
+  OCEAN_RING_SEGMENTS, OCEAN_SIZE, WAVES,
 } from '../../src/render/ocean'
 
 describe('gerstnerHeight', () => {
@@ -59,19 +60,50 @@ describe('遠海', () => {
     o.dispose()
   })
 
-  it('細浪面仍然對齊到格點', () => {
+  /**
+   * 【2026-08-26：改成 clipmap 之後不再對齊格點】對齊本來是為了避免頂點在
+   * 格點之間滑動造成波形抖動 —— 那是沒有頻帶限制時才會有的混疊。現在每個
+   * 頂點按離相機的距離把解析不出來的波淡掉（`OCEAN_VERT_FADE_LO`），取樣
+   * 永遠在 Nyquist 之內，滑動只剩內插誤差。
+   *
+   * 不對齊還換來一件必要的事：**十層必須共用同一個中心**。各自對到自己的
+   * 格子的話中心就會分家，環與環的交界跟著錯開，那是裂縫。
+   */
+  it('十層共用同一個中心，而且精確落在中心', () => {
     const o = createOcean()
-    o.update(3, 1234.5, -6789.25)
-    const cell = OCEAN_SIZE / OCEAN_SEGMENTS
-    // 【不能用 `pos % cell`】cell = 52.083333333333336，而 24 × cell 的實數
-    // 值是 1250.000000000000006…，浮點乘積回捨成剛好 1250 —— 於是
-    // `1250 % cell` 得到的是 52.0833…（近乎一整格）而不是 0。實測 x 那一條
-    // 必紅、z 那一條碰巧綠。改成看「除以 cell 之後離最近整數多遠」。
-    const qx = o.mesh.position.x / cell
-    const qz = o.mesh.position.z / cell
-    expect(qx - Math.round(qx)).toBeCloseTo(0, 6)
-    expect(qz - Math.round(qz)).toBeCloseTo(0, 6)
+    const cx = 1234.5
+    const cz = -6789.25
+    o.update(3, cx, cz)
+    expect(o.mesh.children.length).toBe(OCEAN_LEVELS)
+    // 【中心設在群組上】共用同一個中心是它們不裂開的前提，設在群組上讓那件
+    // 事是結構保證的。各層自己不該再有偏移
+    expect(o.mesh.position.x).toBe(cx)
+    expect(o.mesh.position.y).toBe(0)
+    expect(o.mesh.position.z).toBe(cz)
+    for (const level of o.mesh.children) {
+      expect(level.position.lengthSq()).toBe(0)
+    }
     o.dispose()
+  })
+
+  /**
+   * 【空洞必須正好等於內一層的外緣】第 L 層挖掉中央 (段數/2)² 格，而那要
+   * 剛好是第 L−1 層覆蓋的範圍：`(段數/2)×格子(L−1) = (段數/4)×格子(L)`。
+   * 這條恆等式成立的前提是**格子逐層加倍**與**段數是 4 的倍數** —— 兩者
+   * 任一被改掉，環與環之間就會出現空隙或重疊，而重疊是雙倍的填充成本。
+   */
+  it('層與層的尺寸恆等式成立', () => {
+    expect(OCEAN_RING_SEGMENTS % 4).toBe(0)
+    for (let i = 1; i < OCEAN_LEVELS; i++) {
+      const cellIn = OCEAN_BASE_CELL * 2 ** (i - 1)
+      const cellOut = OCEAN_BASE_CELL * 2 ** i
+      const innerReach = (OCEAN_RING_SEGMENTS / 2) * cellIn
+      const holeReach = (OCEAN_RING_SEGMENTS / 4) * cellOut
+      expect(holeReach).toBeCloseTo(innerReach, 9)
+    }
+    // 最外層的覆蓋半徑就是 OCEAN_SIZE 的一半
+    const outer = (OCEAN_RING_SEGMENTS / 2) * OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+    expect(outer * 2).toBeCloseTo(OCEAN_SIZE, 9)
   })
 
   /**

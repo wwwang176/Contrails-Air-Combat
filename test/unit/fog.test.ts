@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Color, type MeshStandardMaterial, type ShaderMaterial } from 'three'
+import { Color, type Mesh, type MeshStandardMaterial, type ShaderMaterial } from 'three'
 import { createFog, fogFactor, FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
 import {
   createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
@@ -101,7 +101,13 @@ describe('地平線要看得出來', () => {
   it('細浪面不吃霧', () => {
     const ocean = createOcean()
     try {
-      expect((ocean.mesh.material as MeshStandardMaterial).fog).toBe(false)
+      // 【細浪面是一組 clipmap 的層】十層共用同一份材質（見 OCEAN_BASE_CELL），
+      // 所以取任何一層都是同一顆。逐層檢查是為了擋住「日後有人給某一層換了
+      // 材質」—— 那正是「5 km 處出現一條色帶」那一類 bug 的形狀
+      expect(ocean.mesh.children.length).toBeGreaterThan(0)
+      for (const level of ocean.mesh.children) {
+        expect(((level as Mesh).material as MeshStandardMaterial).fog).toBe(false)
+      }
     } finally {
       ocean.dispose()
     }

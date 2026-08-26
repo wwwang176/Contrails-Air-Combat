@@ -28,18 +28,29 @@ describe('createTerrain（M10 spec §5.2）', () => {
     // 【為什麼不是「呼叫了不會爆」就算過】洩漏的症狀是「玩久了愈來愈慢」，
     // 離成因非常遠。這裡掛 three.js 的 dispose 事件直接數。
     const t = createTerrain('sea')
-    let disposed = 0
+    // 【要數「不同的物件」，不是數次數】細浪面現在是一組 clipmap 的層
+    // （見 `OCEAN_BASE_CELL`），十層各有自己的 geometry 但**共用同一份
+    // material**。照物件數的話材質會被登記十次、一次 dispose 觸發十個回呼，
+    // 而那個數字會隨層數漂移 —— 測到的就變成「有幾層」而不是「有沒有洩漏」。
+    const pending = new Set<object>()
+    const disposed = new Set<object>()
+    const watch = (r?: { addEventListener(e: string, f: () => void): void }): void => {
+      if (r === undefined || pending.has(r)) return
+      pending.add(r)
+      r.addEventListener('dispose', () => { disposed.add(r) })
+    }
     t.object.traverse((o) => {
       const m = o as unknown as {
         geometry?: { addEventListener(e: string, f: () => void): void }
         material?: { addEventListener(e: string, f: () => void): void }
       }
-      m.geometry?.addEventListener('dispose', () => { disposed++ })
-      m.material?.addEventListener('dispose', () => { disposed++ })
+      watch(m.geometry)
+      watch(m.material)
     })
     t.dispose()
-    // 細浪面一組、遠海一組、參照物一組（4 → 6）
-    expect(disposed).toBe(6)
+    // **每一個被掛上的資源都要被釋放**，數量由場景自己決定
+    expect(pending.size).toBeGreaterThan(0)
+    expect(disposed.size).toBe(pending.size)
   })
 
   it('update 之後海面跟著中心捲動', () => {
