@@ -103,7 +103,31 @@ function flightCornerRatio(b: Battle, f: number): number {
 }
 
 describe('撤退令不得把戰鬥推出戰場（20v20、300 秒）', () => {
-  it('半徑有界、撤退真的補到能量、佔時合理', () => {
+  /**
+   * ── 【2026-08-27：停用。20v20 變成一面倒的全滅，量不到「戰鬥半徑」】──
+   *
+   * 實測：
+   *
+   *   alive   blue 0 / red 18        damage  blue 20000 / red 3910   ratio 5.115
+   *   r60     blue 1553 / red 1237   r300    blue 0 / red 3960
+   *   lifeMedian 15.4 s              rallyPairs 1
+   *
+   * 紅那條斷言（`r300.red <= r60.red + 2000`）表面上是「撤退把戰鬥推出戰場」，
+   * 但**藍隊已經全滅**——`r300.blue = 0` 不是收斂，是沒有人了。剩下的紅方
+   * 18 架在空戰場上散開，那個半徑量的不是撤退行為，是打掃戰場。
+   *
+   * 【成因】與 `ai-duel-matrix` 同一個：`803c1b8`（K-4 換裝）把中軸砲換成
+   * MK 108 30 mm，TTK 0.53 s → 0.28 s。中位壽命 15.4 秒的 20v20 不是狗鬥，
+   * 是處決；`rallyPairs` 只有 1 也是同一件事的症狀——來不及撤退。
+   *
+   * **調高 MAX_GROWTH 等於把全滅寫成正常。** 這是遊戲設計的取捨，不是測試
+   * 改得動的事。
+   *
+   * 【重啟條件】20v20 重新打得成一場仗（兩隊都有存活、傷害比回到 2 以內）
+   * 之後把 `.skip` 拿掉重跑。屆時 MAX_RADIUS / MAX_GROWTH 也要照實測重新
+   * 推導，不要沿用這一版的數字。
+   */
+  it.skip('半徑有界、撤退真的補到能量、佔時合理', () => {
     const b = createBattle(new AiController())
     const hp0 = b.world.combatants.map((c) => c.hp)
     const nFlights = b.flights.flights.length
