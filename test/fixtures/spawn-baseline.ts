@@ -12,6 +12,15 @@
  * 然後把這一段檔頭貼回去。**只有在生成幾何被「有意識地」改了之後才重跑** ——
  * 重構期間跑它等於把護欄的答案抄給自己。
  *
+ * 【2026-08-27：出生表與 `_REPLAY` 已經不同命】出生表仍然釘在編組表重構那
+ * 一輪、一個位元都沒動過——那是這份基準的本體，也是 spec 2026-08-21 的驗收
+ * 依據。但 `_REPLAY` 是**整場模擬的積分**，任何一次 AI 或規格改動都會連坐；
+ * 它在 2026-08-27 隨 K-4 換裝與二十個 AI commit 重錄了一次。
+ *
+ * 所以 `_REPLAY` 現在守的是**漂移絆線**（行為不得在無人察覺下改變），不再是
+ * 「編組表重構前後逐位元相同」——那個比較在重構完成的那一刻就已經用掉了。
+ * 出生表那一半不受影響，仍然是原本的意思。
+ *
  * 【不要手改這裡的數字】出生表的每一個數字都是 `String(number)` 的最短可逆
  * 表示（負零由 `num()` 特判成 `'-0'`），逐位元等價。手改一個位數就等於悄悄
  * 放寬了一條護欄。
@@ -86,7 +95,7 @@ export const HEADON_20V20: readonly string[] = [
   '小隊 red 36,37,38,39',
   '玩家座位 8',
 ]
-export const HEADON_20V20_REPLAY = '51409:d7816de16d8762992b4300b72516bc5b6fbb4c213ed4b2621442383f47282e7d'
+export const HEADON_20V20_REPLAY = '51409:611b5346b73554d7235556a784bf736c824a854f3add96ae0b45fd051ef8a0ae'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',
@@ -111,5 +120,5 @@ export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '小隊 red 12,13,14,15',
   '玩家座位 4',
 ]
-export const PURSUIT_MIRROR_8V8_REPLAY = '49033:48dc59277fac0e837d9a11ea1bf7bf901079f7ce76fb032f9453eaf395313dc6'
+export const PURSUIT_MIRROR_8V8_REPLAY = '49033:a8b8873f609491f50845b8fc765a6777c7f6951de51adac747748c5b84f89425'
 
