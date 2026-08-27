@@ -519,6 +519,9 @@ function enterBattle(): void {
    * 浪頭就是撞得到的浪頭。
    */
   world.crashPolicy = (c) => isCrashed(c.aircraft.state.position, terrain.heightAt, elapsed)
+  // 【彈丸的陸地】撞到山就爆火花並回收。玩家、AI 與砲塔的槍全部走同一個
+  // 彈丸池，所以這一行就涵蓋三者
+  world.land = terrain.land
   player = battle.player
   rebuildVisuals()
 

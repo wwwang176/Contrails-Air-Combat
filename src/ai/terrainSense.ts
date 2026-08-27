@@ -3,6 +3,7 @@ import { maxLoadFactorAero } from '../analysis/envelope'
 import { G0 } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { IslandDesc } from '../world/archipelago'
+import type { LandField } from '../world/occlusion'
 
 /**
  * AI 的地形感知。
@@ -73,9 +74,18 @@ const CLEAR_SAMPLES = 3
 /** 半徑大於這個值就當直線算，避免 R → ∞ 時的數值問題 */
 const STRAIGHT_R = 1e6
 
-/** AI 需要的地形資訊。**只有島，沒有高度場** */
+/**
+ * AI 需要的地形資訊。
+ *
+ * 【`islands` 與 `land` 是兩件事，不是同一件的兩種寫法】避障讀 `islands`：
+ * 用解析的圓盤，因為那一層漏判的代價是**撞山**。遮蔽讀 `land`：它要的正是
+ * 「畫面上那個面」，而且漏判的代價只是**多開一輪空槍**。
+ *
+ * 【`land` 是可選的】既有的考題全部是 `{ islands }`，一個字都不用改。
+ */
 export interface TerrainSource {
   readonly islands: readonly IslandDesc[]
+  readonly land?: LandField | null
 }
 
 /** 可變，由 `senseTerrain` 就地填寫 —— 熱路徑不得配置 */

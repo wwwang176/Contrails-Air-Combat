@@ -5,6 +5,7 @@ import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Situation } from './assess'
 import type { EngageBasis } from './steer'
+import { losBlocked, type LandField } from '../world/occlusion'
 
 const FWD = new Vector3(0, 0, -1)
 const S = makeScratch(2)
@@ -113,6 +114,7 @@ export function shouldFire(
   basis: EngageBasis,
   self: Aircraft,
   cfg: FireConfig = DEFAULT_FIRE,
+  land: LandField | null = null,
 ): boolean {
   // 一：有攔截解，且彈丸活得夠久飛到攔截點。
   // 【與玩家的預瞄環是同一個條件】M2 spec §5.1.1：回收條件與顯示條件用
@@ -134,5 +136,17 @@ export function shouldFire(
 
   // 用第二格 scratch 而不是 FWD.clone()——這是每個物理步都跑的路徑
   const nose = S.v[1]!.copy(FWD).applyQuaternion(self.state.orientation)
-  return nose.angleTo(lead) <= cfg.trackingCone
+  if (nose.angleTo(lead) > cfg.trackingCone) return false
+
+  // 五：中間沒有山。
+  //
+  // 【排在最後】前四個是幾個乘法與一次 acos，這一個要沿線段查高度場。
+  //
+  // 【查的是預瞄射線，不是目標現在的位置】子彈飛的是那條線。橫向相對
+  // 速度 200 m/s、攔截時間 1 秒就是 200 m 的差 —— 足以讓「目標看得見但
+  // 預瞄射線撞山」與「目標被擋但預瞄射線繞過去」兩種都發生。
+  if (land === null) return true
+  const p = self.state.position
+  const q = basis.leadPoint
+  return !losBlocked(p.x, p.y, p.z, p.x + q.x, p.y + q.y, p.z + q.z, land)
 }

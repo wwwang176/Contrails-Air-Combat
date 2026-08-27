@@ -1,7 +1,8 @@
 import { Group, type Object3D } from 'three'
 import { createOcean } from './ocean'
 import { createIslands } from './island'
-import { createArchipelago, type IslandDesc } from '../world/archipelago'
+import { createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
+import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
 // 【聯集本身住在 world/】見 `world/terrainKind.ts`。這裡再匯出，
@@ -27,6 +28,20 @@ export interface Terrain {
    * 而且知道自己在繞哪一座。`'sea'` 時是空陣列。
    */
   readonly islands: readonly IslandDesc[]
+  /**
+   * 這一場的陸地。**`null` = 沒有陸地**（`'sea'`）。
+   *
+   * 【誰讀它】`World.land`（彈丸撞到山就爆火花並回收）與 AI 的遮蔽判斷
+   * （不對山後面的敵人開火、不對山後面的瞄準閃躲）。
+   *
+   * 【它與 `islands` 是兩件事】避障讀 `islands` 的解析圓盤，遮蔽讀這一份
+   * 高度場 —— 因為遮蔽要的正是「畫面上那個面」。見 `world/occlusion.ts`。
+   *
+   * 【為什麼 `'sea'` 不給一個假的平原】造一個 `ceiling = SEA_FLOOR` 的物件
+   * 會讓每一發入海的彈丸都去查高度場，而且「陸地要高於海平面」會變成唯一
+   * 擋住海面回歸的東西。`null` 加上那道判準是兩道保險。
+   */
+  readonly land: LandField | null
   /** 每幀更新。海浪要動；陸地是靜態的 */
   update(time: number, centerX: number, centerZ: number): void
   dispose(): void
@@ -50,6 +65,7 @@ export function createTerrain(kind: TerrainKind): Terrain {
       object: group,
       heightAt: ocean.heightAt,
       islands: [],
+      land: null,
       update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
       dispose() { ocean.dispose() },
     }
@@ -69,6 +85,10 @@ export function createTerrain(kind: TerrainKind): Terrain {
       return h > sea ? h : sea
     },
     islands,
+    // 【`ceiling` 用 PEAK_MAX 而不是實測的最高點】它是一個上界就夠了 ——
+    // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
+    // 「動了地形就要重算」多一條沒有人記得的規則
+    land: { field, ceiling: PEAK_MAX },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     dispose() {
       ocean.dispose()

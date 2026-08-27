@@ -96,3 +96,71 @@ export function createHeightField(size: number, cell: number): HeightFieldData {
     },
   }
 }
+
+/** `normalAt` 的輸出。就地填寫 —— 熱路徑不得配置 */
+export interface SurfaceNormal {
+  nx: number
+  ny: number
+  nz: number
+}
+
+/**
+ * 世界座標 (x, z) 那個面的單位法線。就地寫進 `out`。
+ *
+ * 【為什麼不是中央差分】差分算的是跨好幾格的平滑近似 —— 那是憑空多出來的
+ * 第三份幾何。畫面上那一格是**兩個平面三角形**（見 `sample`），而平面的
+ * 法線是閉式的。這裡與 `sample` 共用同一段對角線判斷，所以不會有第二個
+ * 真相。動了 `sample` 的對角線方向就要動這裡。
+ *
+ * ```
+ *   三角形 a–c–b   dh/dx = (h10 − h00)/cell   dh/dz = (h01 − h00)/cell
+ *   三角形 b–c–d   dh/dx = (h11 − h01)/cell   dh/dz = (h11 − h10)/cell
+ *   n = normalize(−dh/dx, 1, −dh/dz)
+ * ```
+ *
+ * 【場外回正上方】與 `sample` 回 −Infinity 是同一個分工：那裡回一個
+ * 「比什麼都低」的哨兵，這裡回一個不會製造 NaN 的方向。
+ */
+export function normalAt(
+  f: HeightFieldData, x: number, z: number, out: SurfaceNormal,
+): void {
+  const { size, cell, data } = f
+  const half = (size - 1) / 2
+  const last = size - 1
+  const fx = x / cell + half
+  const fz = z / cell + half
+  if (!(fx >= 0) || fx > last || !(fz >= 0) || fz > last) {
+    out.nx = 0
+    out.ny = 1
+    out.nz = 0
+    return
+  }
+
+  const c0 = Math.floor(fx)
+  const r0 = Math.floor(fz)
+  const c1 = c0 < last ? c0 + 1 : last
+  const r1 = r0 < last ? r0 + 1 : last
+  const tx = fx - c0
+  const tz = fz - r0
+
+  const i0 = r0 * size
+  const i1 = r1 * size
+  const h00 = data[i0 + c0]!
+  const h10 = data[i0 + c1]!
+  const h01 = data[i1 + c0]!
+  const h11 = data[i1 + c1]!
+
+  let dhdx: number
+  let dhdz: number
+  if (tx + tz <= 1) {
+    dhdx = (h10 - h00) / cell
+    dhdz = (h01 - h00) / cell
+  } else {
+    dhdx = (h11 - h01) / cell
+    dhdz = (h11 - h10) / cell
+  }
+  const len = Math.sqrt(dhdx * dhdx + 1 + dhdz * dhdz)
+  out.nx = -dhdx / len
+  out.ny = 1 / len
+  out.nz = -dhdz / len
+}
