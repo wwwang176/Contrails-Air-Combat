@@ -191,18 +191,21 @@ describe('stepDynamics — 診斷輸出', () => {
   })
 
   it('平飛配平點的 loadFactor 應接近 1（而非只檢查有限值）', () => {
-    // 手解平飛配平點（P-51D、3000m、120 m/s）：α=1.343°、CL=0.2951 時
-    // 升力剛好平衡重量，n = L/(mg) ≈ 1.00152。這裡不跑配平求解器（那是
-    // Task 13/17 的範圍），而是直接把姿態設成「機首比世界水平面上仰 1.343°、
-    // 速度維持世界水平」——這正是「平飛時攻角非零」的正確幾何構造：飛行路徑
-    // 水平（速度無垂直分量），機身因需要這個攻角而略為上仰。throttle=0，
-    // 因為推力沿機體 −Z，不貢獻 loadFactor 使用的機體 Y 分量，兩者互不影響。
-    // 實測 loadFactor = 1.0015750555814118，與手解 n=1.00152 一致（見任務報告）。
+    // 平飛配平點（P-51D、3000m、120 m/s）：α=0.980° 時升力剛好平衡重量。
+    // 這裡不跑配平求解器（那是 Task 13/17 的範圍），而是直接把姿態設成
+    //「機首比世界水平面上仰 0.980°、速度維持世界水平」——這正是「平飛時攻角
+    // 非零」的正確幾何構造：飛行路徑水平（速度無垂直分量），機身因需要這個
+    // 攻角而略為上仰。throttle=0，因為推力沿機體 −Z，不貢獻 loadFactor 使用的
+    // 機體 Y 分量，兩者互不影響。實測 loadFactor = 0.999659。
+    //
+    // 【這個角度隨質量走】n = qS·clAlpha·(α − α₀) / (mg)，所以配平攻角與
+    // 質量成正比地移動。質量若再變，這裡要重解，不是放寬容差：
+    //   α = α₀ + mg / (qS·clAlpha)
     const s = createFlightState(3000, 120)
-    s.orientation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), 1.343 * DEG)
+    s.orientation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), 0.980 * DEG)
     const diag = createDiagnostics()
     stepDynamics(P51D, s, IDLE, DT, diag)
-    expect(diag.aero.alpha * RAD).toBeCloseTo(1.343, 3)
+    expect(diag.aero.alpha * RAD).toBeCloseTo(0.980, 3)
     expect(diag.loadFactor).toBeCloseTo(1, 2)
   })
 

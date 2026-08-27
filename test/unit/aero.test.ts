@@ -379,10 +379,10 @@ describe('stallDynamicPressure', () => {
       9,
     )
     // 實測值，供日後改參數時一眼看出量級是否跑掉。
-    // 【2026-08-25：109 由 1239.0 變成 1327.6】機種換成 K-4，質量
-    // 3150 → 3375 kg，翼面積與 CL_max 未變，所以正好是 ×1.0714。
-    // K-4 的失速動壓因此**高於** P-51D——翼載 210.3 對 197.0 kg/m²。
-    expect(stallDynamicPressure(P51D)).toBeCloseTo(1289.9, 0)
+    // K-4 的失速動壓**高於** P-51D——翼載 210.3 對 178.7 kg/m²。兩者的差距
+    // 沒有翼載差距那麼大（+4.7% 對 +17.7%），因為 K-4 有縫翼：它的 CL_max
+    // 1.5533（含縫翼加成）高於 P-51D 的 1.3823，把翼載的劣勢吃掉一大半。
+    expect(stallDynamicPressure(P51D)).toBeCloseTo(1267.4, 0)
     expect(stallDynamicPressure(BF109K4)).toBeCloseTo(1327.6, 0)
   })
 })
