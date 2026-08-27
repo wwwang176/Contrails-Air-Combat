@@ -93,6 +93,31 @@ let terrain = createTerrain('archipelago')
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
 
+/**
+ * 把地形接給每一架 AI，並清掉上一場的鎖存。
+ *
+ * 【為什麼是每幀掃一次，而不是在建立控制器的地方各接一次】接的地方不只
+ * enterBattle：playerAi 跨場重用、resetBattle 在玩家接手過座位之後會建新的
+ * AiController、重生也會。一一去接的話，漏掉哪一條路徑的症狀是「有一架
+ * AI 看不見地形」—— 那要等到它撞山才會發現，而且看起來像 AI 有 bug。
+ *
+ * 【成本】40 次參考比較。只有在**不相等**時才寫入並清鎖存，所以換地形、
+ * 新控制器、重生都會被接住，而穩定狀態下什麼都不做。
+ */
+function wireTerrain(): void {
+  for (const c of world.combatants) {
+    const ctl = c.controller
+    if (!(ctl instanceof AiController)) continue
+    if (ctl.terrain === terrain) continue
+    ctl.terrain = terrain
+    ctl.clearTerrainState()
+  }
+  if (playerAi.terrain !== terrain) {
+    playerAi.terrain = terrain
+    playerAi.clearTerrainState()
+  }
+}
+
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
 
@@ -904,6 +929,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
+  wireTerrain()
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
