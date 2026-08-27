@@ -25,6 +25,10 @@ import {
 } from './tactics'
 import { applySafety, type SafetyAction } from './safety'
 import {
+  createSense, resetSense, senseTerrain, SENSE_INTERVAL,
+  type TerrainSense, type TerrainSource,
+} from './terrainSense'
+import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
   type StationConfig, type StationOffset,
 } from './station'
@@ -69,14 +73,55 @@ const FWD = new Vector3(0, 0, -1)
  * 【全部的狀態都住在這裡】`assess` / `rules` / `steer` / `fire` / `safety`
  * 都是純函數（spec §4.3）——這是 L4 的對戰矩陣能在 node 裡跑幾百場的前提。
  */
+/**
+ * 感知相位的分配器。**建立順序是決定性的**（每一場的生成順序固定），
+ * 所以由它派出去的相位也是決定性的 —— 不會破壞 replayDigest。
+ */
+let nextSensePhase = 0
+
 export class AiController implements Controller {
   /**
    * 交戰對象。`board` 為 null 時由 `main.ts` 或測試設定；否則由
    * `selectTarget` 在每個決策節拍改寫。
    */
   target: Aircraft | null = null
-  /** 該點的海面（未來為地表）高度，m */
+  /**
+   * 該點的海面高度，m。**不含地形。**
+   *
+   * 【為什麼地形不寫進這裡】它還被 stationPoint、stationCommand、
+   * tacticalCommand、steerCommand 讀。把「前方山高」寫進來，整套站位與
+   * 戰術層會以為地板抬高了，僚機會莫名其妙爬升。地形只在 emit 裡合成一個
+   * 局部值餵給安全層。
+   */
   seaHeight = 0
+
+  /**
+   * AI 的地形來源。null = 平海面，**走的是與地形進來之前逐位元相同的路徑**。
+   *
+   * headless 的對戰矩陣、AI 護欄與 replayDigest 都不設定它 —— 那是既有基準
+   * 不必重錄的原因。由 main.ts 的 wireTerrain 注入。
+   */
+  terrain: TerrainSource | null = null
+
+  /**
+   * 清掉地形的鎖存。**換場、換座位、重生之後都要呼叫。**
+   *
+   * playerAi 跨場重用，resetBattle 在玩家接手過座位之後也會建新的控制器 ——
+   * 上一場「我正在繞第 17 座島」的承諾不得帶進新的一場。
+   */
+  clearTerrainState(): void { resetSense(this.sense) }
+
+  /** 地形感知的結果與鎖存狀態 */
+  private readonly sense: TerrainSense = createSense()
+  /** 物理步的計數，用來每 SENSE_INTERVAL 步重算一次 */
+  private senseTick = 0
+  /**
+   * 這一架的感知相位。**建立順序是決定性的，所以這個值也是。**
+   *
+   * 沒有它的話 40 架會在同一個物理步一起算，做出週期性的尖峰 —— 那會直接
+   * 打在 frame-time 量的 1% low 上。
+   */
+  private readonly sensePhase = nextSensePhase++ % SENSE_INTERVAL
   profile: DifficultyProfile = ACE
 
   /**
@@ -772,7 +817,17 @@ export class AiController implements Controller {
    */
   private emit(self: Aircraft, dt: number, out: Command): void {
     this.delay.push(this.raw, this.profile.reactionDelay, dt, out, this.profile.trimTau ?? 0)
-    this.safetyAction = applySafety(self, this.seaHeight, out)
+    // 【地板是局部值，不寫回 this.seaHeight】見那個欄位的說明
+    let floor = this.seaHeight
+    let sense: TerrainSense | undefined
+    if (this.terrain !== null) {
+      if ((this.senseTick++ + this.sensePhase) % SENSE_INTERVAL === 0) {
+        senseTerrain(self, this.terrain, this.sense)
+      }
+      if (this.sense.floor > floor) floor = this.sense.floor
+      sense = this.sense
+    }
+    this.safetyAction = applySafety(self, floor, out, undefined, sense)
     this.safetyActive = this.safetyAction !== 'none'
   }
 

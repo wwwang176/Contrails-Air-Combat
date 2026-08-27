@@ -39,6 +39,17 @@ import type { IslandDesc } from '../world/archipelago'
  */
 export const SENSE_RANGE = 1200
 
+/**
+ * 每幾個物理步重算一次。240 Hz ÷ 12 = 20 Hz。
+ *
+ * 【為什麼 20 Hz 綽綽有餘】地形是靜態的。800 km/h 下飛機每個物理步只走
+ * 0.926 m，12 步之間走 11.11 m —— 遠小於島的膨脹半徑，也遠小於格距 40 m。
+ *
+ * 【呼叫端必須按機號錯開相位】40 架同一步全算會做出週期性的尖峰，
+ * 而那會直接打在 `frame-time.e2e.ts` 量的 1% low 上。
+ */
+export const SENSE_INTERVAL = 12
+
 /** 沿航跡檢查剖面的點數 */
 const PROFILE_STEPS = 8
 
