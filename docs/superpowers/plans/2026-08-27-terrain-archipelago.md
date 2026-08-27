@@ -273,8 +273,8 @@ respawn 之後統一呼叫，**並清掉鎖存**（`playerAi` 跨場重用，
 
 ## Task 7：收尾
 
-- [ ] 全套測試（`perf-gate` / `rematch` 單獨跑）
-- [ ] `tsc --noEmit`
-- [ ] `frame-time.e2e.ts` 比對 1% low（相位錯開沒做對會在這裡現形）
-- [ ] `pixel-identical.e2e.ts` —— **讓 islands 顯示並重錄**（spec §6.4）
-- [ ] `docs/backlog.md` 加一條：地形選單、海岸線／內陸、AI 地形戰術、島的 LOD
+- [x] 全套測試（`perf-gate` / `rematch` 單獨跑）
+- [x] `tsc --noEmit`
+- [x] `frame-time.e2e.ts` 比對 1% low（相位錯開沒做對會在這裡現形）
+- [x] `pixel-identical.e2e.ts` —— **讓 islands 顯示並重錄**（spec §6.4）
+- [x] `docs/backlog.md` 加一條：地形選單、海岸線／內陸、AI 地形戰術、島的 LOD
