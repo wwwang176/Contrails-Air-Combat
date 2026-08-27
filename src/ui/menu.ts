@@ -1,8 +1,9 @@
 import { MISSIONS, type MissionCard } from '../battle/missions'
 import {
   ALL_SPECS, specOf, withAircraft, withoutAircraft,
-  MAX_SIDE, type FactionChoice, type SkirmishSetup,
+  ALTITUDES, MAX_SIDE, type FactionChoice, type SkirmishSetup,
 } from '../battle/skirmish'
+import type { TerrainKind } from '../world/terrainKind'
 import type { Screen, ScreenEvent } from './screens'
 
 export interface MenuHooks {
@@ -60,6 +61,17 @@ const SHORT_NAME: Record<string, string> = {
 
 const shortName = (id: string): string => SHORT_NAME[id] ?? specOf(id).name
 
+/**
+ * 場地的選項。**順序即按鈕順序。**
+ *
+ * 【為什麼群島在前】它是預設，也是有東西可看的那一個。純海面留著是因為
+ * `createTerrain` 的兩個分支都要有人走 —— 不然那條路徑會變成死碼。
+ */
+const TERRAINS: readonly { label: string; value: TerrainKind }[] = [
+  { label: '群　島', value: 'archipelago' },
+  { label: '純海面', value: 'sea' },
+]
+
 /** 難度星等。實心到 difficulty，其餘空心 */
 function stars(n: number): string {
   return '★'.repeat(n) + '☆'.repeat(5 - n)
@@ -107,6 +119,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 起來，而且憑空多一架沒人點過的飛機」—— 兩個不一致的真相。
    */
   const fightButton = root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement
+  const picks = {
+    terrain: root.querySelector('#terrain-pick') as HTMLElement,
+    altitude: root.querySelector('#altitude-pick') as HTMLElement,
+  }
 
   /** 任務模式自己的陣營選擇 —— 與遭遇戰的那一個互不相干 */
   let missionFaction: FactionChoice = 'allies'
@@ -127,6 +143,26 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'restart') { hooks.onRestart(); return }
     hooks.onEvent(act as ScreenEvent)
   })
+
+  /**
+   * 一列單選按鈕。**場地與開場高度共用這一支。**
+   *
+   * 【為什麼不是下拉】同一頁的其他控制項全是按鈕列。下拉在這個尺寸下要
+   * 另外寫一整套樣式，而且少一次點擊換不到什麼。
+   */
+  function pickRow<T>(
+    host: HTMLElement, options: readonly { label: string; value: T }[],
+    current: T, onPick: (v: T) => void,
+  ): void {
+    host.innerHTML = ''
+    for (const o of options) {
+      const b = document.createElement('button')
+      b.textContent = o.label
+      if (o.value === current) b.classList.add('sel')
+      b.addEventListener('click', () => onPick(o.value))
+      host.appendChild(b)
+    }
+  }
 
   function factionRow(
     host: HTMLElement, current: FactionChoice, onPick: (f: FactionChoice) => void,
@@ -240,6 +276,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function renderSetup(setup: SkirmishSetup): void {
     renderSide('blue', setup)
     renderSide('red', setup)
+    pickRow(picks.terrain, TERRAINS, setup.terrain,
+      (v) => hooks.onSetup({ ...setup, terrain: v }))
+    pickRow(picks.altitude, ALTITUDES, setup.altitude,
+      (v) => hooks.onSetup({ ...setup, altitude: v }))
     fightButton.disabled = setup.blue.length === 0 || setup.red.length === 0
   }
 
