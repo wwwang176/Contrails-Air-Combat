@@ -1,7 +1,8 @@
 # 群島地形 設計
 
 **日期**：2026-08-27
-**相關**：`2026-08-06-safety-lookahead-design.md`（安全層的**時間**前瞻，本份加的是**空間**前瞻）
+**相關**：`2026-08-06-safety-lookahead-design.md`（安全層的**時間**前瞻。本份加的是
+**空間**前瞻，而且刻意不動那一份的任何推導）
 
 ## 1. 目標
 
@@ -23,11 +24,10 @@
 | `Terrain.heightAt(x, z, time)` | 撞地、水柱、殘骸、零件入水全部走它 | `main.ts` 七處 |
 | `AiController.seaHeight` | 宣告成 `= 0`，**從來沒有被寫過** | `AiController.ts:79` |
 
-`applySafety`、`stationPoint`、`command.ts` 的高度下界都已經讀 `seaHeight`。
-**介面是現成的，本份不重新設計它們。**
-
 `safety.ts:285` 的 JSDoc 已經寫著「該點的海面（**未來為地表**）高度」——
 這一份就是那個未來。
+
+**但 `seaHeight` 不能直接改寫成「前方山高」**，見 §4.6。
 
 ## 3. 設計：單一高度場，兩種消費者
 
@@ -37,23 +37,25 @@
 
 因此 **heightmap 是唯一真相**：CPU 端 `heightAt` 對它插值，渲染端從**同一份**
 資料生成 mesh。不採用「CPU 一份解析函數、GLSL 一份解析函數」的做法——海面
-現在能兩份並存是因為波是五道正弦、逐位元對得上，地形 noise 兩份實作漂開的
-機率高得多，而症狀正是那條鐵律警告的東西。
+現在能兩份並存是因為波是五道正弦、逐位元對得上，地形兩份實作漂開的機率
+高得多，而症狀正是那條鐵律警告的東西。
 
 ### 3.1 高度場規格
 
-**1024² @ 40 m/texel = 40.96 km 見方，`Float32Array` 4.2 MB。** 出界回海面。
+**1024² @ 40 m/格 = 40.92 km 見方，`Float32Array` 4.2 MB。** 出界回海面。
 
-40 m 是由三角形數推導的，不是調的。以陸地占 6%（8 座大島 + 40 座小島）估：
+40 m 是由三角形數推導的，不是調的。以陸地占 6% 估：
 
 ```
-  格子    陸地三角形    對照：海面現在是 245,760    一座 3 km 大島   一座 300 m 小島
-  20 m     505,000      2 倍 ← 太貴                150×150 格       15 格
-  40 m     126,000      51%                        75×75 格         7.5 格
-  80 m      31,600      13%                        38×38 格         3.75 格 ← 塌了
+  格子    陸地三角形    對照：海面 286,720    一座 3 km 大島   一座 300 m 小島
+  20 m     505,000      176% ← 太貴          150×150 格       15 格
+  40 m     126,000       44%                  75×75 格         7.5 格
+  80 m      31,600       11%                  38×38 格         3.75 格 ← 塌了
 ```
 
-40 m 讓地形成本約是海面的一半，而海面已經是這個場景最貴的東西。
+【海面的 286,720 怎麼來的】近海 clipmap 的 L0 是 `128²`、其餘九層各是
+`128² − 64²`，合計 253,952 個三角形；遠海是一片四邊形 32,768。
+（初稿寫 245,760，把 L0 也當成中空的，錯了。）
 
 【為什麼粗格在這裡是對的，不是妥協】flatShading 的三角面本來就要看得見。
 更重要的是它守住鐵律：畫面上那個山壁是 40 m 一段的斜面，而 `heightAt`
@@ -62,290 +64,395 @@
 【格子大小不影響 `heightAt` 的成本】雙線性插值是 O(1)，40 m 與 2 m 一樣快。
 粗格省的是三角形，不是查詢。
 
+【`size` 是頂點數】`1024²` 個頂點、`1023` 個格距，跨度 `1023 × 40 = 40.92 km`。
+單元測試要釘住正負邊界的精確值。
+
 ### 3.2 小島的尺度下限：300 m
 
 40 m 格子下，一座 100 m 的島只有 2.5 格——長不出形狀。下限訂在 **300 m**
 （7–8 格），那會長成一塊有三四個面的礁石，而在 low-poly 下那正是它該有的
 樣子。低於下限的島生成器不放。
 
-**這是一條可測試的約束，不是風格建議。**
+### 3.3 島形與 `outerRadius`——那條鐵律的一個缺口
 
-### 3.3 島清單來自生成器，不是從 heightmap 反推
+島形完全解析，不用 noise 函式庫：
 
 ```
-generateArchipelago(seed) ──→ { field, islands[] }
-                                 │        │
-                    ┌────────────┘        └──────────┐
-                    ▼                                ▼
-        heightAt(x,z,t) = max(field.sample, 海面)   逐島切 mesh
+  r      = hypot(x − cx, z − cz) / radius
+  wobble = 1 + 0.18·sin(3θ + φ₁) + 0.11·sin(5θ + φ₂)
+  h      = peak · smoothstep(1, 0, r / wobble)
 ```
 
-生成時就知道每座島的中心與半徑，省掉連通區域分析，也天然給了視錐剔除的
-包圍球。
+**`wobble` 最大是 1 + 0.18 + 0.11 = 1.29**，所以地形實際延伸到 `1.29 × radius`。
+
+初稿讓 mesh 只切 `±radius`——那會讓高度場在 `1.29r` 處還有陸地、畫面上卻
+沒有，**直接違反鐵律**。因此 `IslandDesc` 帶一個推導出來的
+
+```
+  outerRadius = radius × WOBBLE_MAX        // WOBBLE_MAX = 1.29
+```
+
+**mesh 切它、視錐包圍球用它、AI 的圓盤也用它。** 三個消費者共用同一個數字，
+就不會有人切得比別人小。
 
 ### 3.4 綠色方塊移除
 
 專案負責人裁定：`render/props.ts` 的浮動參照物**不再需要**。它只有一個
-消費者（`terrain.ts`），整個模組刪除。
+消費者，整個模組刪除。
 
 **誤刪陷阱**：`props` 在這個 repo 裡有兩個意思——`render/props.ts` 是海面
 參照物（刪），`assembly.ts` 的 `props` 與 `PROP_DISC_RENDER_ORDER` 是
 **螺旋槳**（不能碰）。
 
-連帶要動：
-
-```
-  render/terrain.ts        children 由 farSea/nearSea/props → farSea/nearSea/islands
-  main.ts:1420             __gfx 消融表的 'props' 圖層 → 'islands'
-  e2e/frame-time.e2e.ts    圖層清單同上
-  e2e/pixel-identical.e2e.ts   同上
-  （另有一條單元測試靠 children 次序，並自我驗證抓對了人）
-```
+連帶要動：`render/terrain.ts` 的 children 契約、`main.ts:1420` 的 `__gfx`
+圖層鍵、`test/unit/terrain.test.ts`、兩支 e2e 的圖層清單。
 
 ## 4. 設計：AI 的地形感知
 
-### 4.1 `applySafety` 的數學一行都不動
+### 4.1 表示法：圓弧 × 圓盤，不是射線取樣
 
-把餵給它的 `seaHeight` 從 0 換成「沿航跡前方地形的最高點」，
-`margin = position.y − seaHeight` 就自動變成「對最壞情況的餘裕」。
-`recoveryAltitude` 的兩段式閉式解、`n*² = 1 + (2c)^(2/3)`、288 格安全矩陣的
-迴歸證據**全部原封不動繼續成立**。
+初稿是「沿航跡射七條線、每 100 m 取樣高度」。**那個做法被三個問題否決：**
 
-**改的是餵它的數字，不是它的推導。**
+**一、取樣會漏。** 步長 100 m 而格子 40 m，射線可以直接跨過一座 40–80 m 的
+窄峰，或只擦過 300 m 小島不到一格。
 
-### 4.2 前視距離 1.2 km 是量出來的
+**二、射線是直線，飛機走弧線。** 射線說「右 45° 是空的」，但飛機轉到 45°
+需要 498 m 弧長；若障礙在 300 m 處，那時橫向只偏了 69 m，照撞。
 
-用專案自己的閉式解掃描（`recoveryAltitude` × `factor 1.5` + `clearance 120`）：
+**三、它不知道自己在繞什麼。** 射線是相對於**當下航向**的，飛機一轉，同一條
+射線掃的就是另一塊區域——「該側仍然通」因此不等於「原本那條走廊仍然通」，
+鎖存的解除條件寫不出來。
 
-```
-  情境                        需要的前視距離     最壞值出現在
-  俯衝撞地（緩坡）            219 – 577 m        800 km/h、−15° 淺俯衝
-  水平閃一堵牆                337 – 1,016 m      800 km/h、滿載過載
-  爬升翻過 1,000 m 的山       2,747 m            20° recoveryPitch
-```
-
-**AI 不需要翻山，只需要繞開**——繞開最貴 1,016 m，翻越要 2,747 m，差 2.7 倍。
-而繞開本來就是空戰在做的事。取 **1.2 km**，餘裕 18%。
-
-（水平閃牆的最壞值 P-51D 是 634 m、K-4 是 677 m，K-4 大 7%，因為 `gPositive`
-是 7.5 對 8.0。1.2 km 對兩台都夠。）
-
-### 4.3 三射線，先試拉起、拉不過就轉
-
-安全層現在只會**拉起**（20° `recoveryPitch`）。從地板高度 120 m 起，1.2 km
-內只爬得到 **437 m**——而主島是 1,000 m 級的，過不去。
-
-因此取三條射線，各 1.2 km、每 100 m 一點（12 點／射線）：
+改用**解析**的表示法。島本來就是圓，飛機的轉彎軌跡也是圓：
 
 ```
-        左 30°  ╲
-                 ╲
-   正前 ──────────→  1.2 km
-                 ╱
-        右 30°  ╱
+  飛機軌跡   圓，半徑 R = V²/(g·√(n²−1))，圓心在側方 R 處
+  島         圓，中心 (cx, cz)，半徑 outerRadius + 機體膨脹
+  會不會撞   兩圓相不相交 —— 閉式解，一次 hypot、兩次比較
 ```
 
-- `ahead` = 正前射線的最高點 → 餵給 `applySafety` 當 `seaHeight`
-- 既有的觸發判斷**完全照跑**：`margin ≤ needed` 才介入，不改
-- 介入時再問一次「拉得過嗎」（`position.y + 437 ≥ ahead + clearance`）：
-  拉得過 → 走既有的 `'ground'` 分支（拉起）；
-  拉不過 → 升級成**新的** `'terrain'` 分支，往左右較低的那一側轉，同時爬升
+**沒有取樣就沒有 alias**，成本是 O(島數) 的加減乘，而且**知道自己在繞哪座島**
+（島的索引），解除條件因此明確。
 
-**`'terrain'` 是 `'ground'` 的升級，不是它的替代。** 沒有任何情況下
-`'terrain'` 會在 `'ground'` 不觸發時觸發——這讓「介入頻率」這件事完全
-由既有的 `safetyShare ≤ 5%` 守住，不必新增一條門檻。
+### 4.2 這個圓正不正確：重力與失速都在裡面，滾轉建立不在
 
-【為什麼是新分支而不是改既有分支】「拉得動的那一側逐位元不變」是
-`applySafety` 最強的迴歸證據（見 `recoveryAltitude` 的註解）。加分支保得住
-它，改分支保不住。
+`R = V²/(g·√(n²−1))` 的 **−1 就是重力**——它扣掉的正是撐住機重所需的那部分
+升力。**失速**則由 `maxLoadFactorAero(spec, alt, tas)` 進到 `n` 裡；實測
+P-51D 在 600／800 km/h 拿得到 8.00 G（結構極限），400 km/h 只有 **5.41**，
+那就是失速限制在作用。
 
-【爬升能力先用固定的 `recoveryPitch` 估】不解實際的爬升角。專案負責人裁定
-「先做一版簡單的，之後再調整」。真值會比 437 m 低（拉起要時間、俯衝中還要
-先改平），所以這個估**偏樂觀**——由 §6.1 的掃描護欄兜底，掃不過就把
-`recoveryPitch` 那一項打折後重掃。
-
-### 4.4 每 12 tick 重算，按機號錯開相位
-
-地形是靜態的，不需要 240 Hz 重算。
+真正的誤差是**滾轉建立**——飛機得先滾到坡度才有向心力，那段時間軌跡近乎
+直線。實測「橫向讓開 W 公尺所需的前進距離 ÷ 圓模型的答案」：
 
 ```
-  240 Hz 下飛機每 tick 走          0.81 m
-  每 12 tick（20 Hz）兩次之間走     9.7 m   ← 遠小於取樣間隔 100 m、格子 40 m
-  同時 8G 轉彎（23°/s）50 ms 轉    1.15°   ← 1.2 km 外橫向偏移 24 m，仍在一格內
+  機型      速度   R(m)  nMax │ W=100  W=200  W=400
+  p51d       800    634  8.00 │  1.12   1.06   1.02   ← R 大，滾轉期佔比小
+  p51d       600    357  8.00 │  1.26   1.19   1.16
+  p51d       400    237  5.41 │  1.41   1.38   1.95
+  bf109k4    600    381  7.50 │  1.37   1.27   1.23
+  he111      400    375  3.50 │  1.52   1.42   1.39
+  b17g       400    445  3.00 │  1.60   1.47   1.41   ← 低速重機，差最多
 ```
 
-成本因此是 1/12。
+**不加修正係數。** 專案負責人裁定：「幾乎無時無刻都在檢查撞牆，這種誤差可以
+接受。」依據有三：
 
-**必須按機號錯開相位**（`index % 12`）：40 架同一 tick 全算會做出週期性尖峰，
+1. 上表用的指令是瞄準正橫 90°，那是最極端的滾轉需求；實際避障只偏 15–30°，
+   偏差會比表上小。
+2. 每 12 tick 重檢一次，候選會**自動升級**——15° 不夠時下一次選 30°、
+   再不夠拉起。
+3. **§6.1 的掃描護欄直接驗證這件事。** 掃過了就證明不需要修正；沒過，
+   會有「哪一格、差多少」的數據再定。
+
+【這個裁定的已知風險，寫下來讓下一位知道】閉迴路吸收得了**隨機**誤差，
+吸收不了**系統性偏差**。模型若一路樂觀，每次重檢都會得到同樣樂觀的答案，
+不是「發現偏差」而是「一路 OK 到撞上」。上面第 2 點是它唯一的自救機制。
+若 §6.1 掃出撞山，**第一個要試的就是把 `R` 乘 1.5**，而不是去調地形。
+
+### 4.3 三種膨脹是三件不同的事
+
+```
+  機體膨脹      spec.wing.span / 2 + 餘裕     幾十公尺   飛機不是質點
+  島形膨脹      radius × 1.29 = outerRadius   見 §3.3    地形超出標稱半徑
+  半徑修正      不做（見 §4.2）                 —         滾轉建立
+```
+
+機體那一項相對於島半徑 1,500 m 是 1% 以下，幾乎不影響結果；真正決定成敗的
+是後兩項。**由 `spec.wing.span` 推導而不是新增機型常數**——既有資料已經有了。
+
+### 4.4 判斷的次序
+
+每 `SENSE_INTERVAL` tick 跑一次：
+
+```
+  1  broad phase：水平航跡線段（長 SENSE_RANGE）對每座島的膨脹圓做
+                 線段-圓相交。取最近的命中。
+  2  沒有命中                    → floor = 海面、turn = 0、island = −1
+  3  有命中，且爬得過
+     （y + d·tan(recoveryPitch) ≥ peak + clearance）
+                                 → floor = peak、turn = 0
+                                    交給既有的 'ground' 分支
+  4  爬不過                      → 決定繞的方向：島心在航跡的哪一側，
+                                    就往反側繞
+  5  驗算那個方向                 → 新航向的線段若進入**別座**島的圓，
+                                    改試另一側；兩側都不行 → turn = 0，
+                                    全力拉起（安全網）
+```
+
+**第 2 步就是「通道」情境的答案。** 左右各一座島、飛機從中間直穿——航跡線段
+不進入任何圓盤，**不介入，直接飛過去**。這不是調參數調出來的，是這個表示法
+天然給的。（射線法在這裡會反覆誤觸發，因為它問的是「正前方有多高」而不是
+「我的軌跡會不會撞到誰」。）
+
+### 4.5 鎖存：綁在**島的索引**上，不是綁在方向上
+
+```ts
+island: number        // 正在繞哪一座；−1 = 沒有
+turn: number          // 承諾的航向偏移，rad
+clearSamples: number
+```
+
+解除條件（全部要成立）：
+
+```
+  飛機已通過島心所在的橫斷面（(pos − centre) · 航向 > 0）
+  且離開膨脹圓
+  且連續 3 次感知都判定無威脅
+```
+
+【為什麼綁島而不是綁方向】方向是相對於當下航向的，飛機一轉那個方向就變了；
+島的索引不會變。這是 §4.1 第三個問題的直接解法。
+
+【承諾側暫時受阻不得立刻反轉】單次讀值只能升級成拉起，**不能反向**——
+否則就是換一個觸發條件的乒乓。反轉需要連續多個感知週期都受阻。
+
+【最短鎖存 0.5 秒】避免「才轉 15°、山還在翼尖前方」就交還戰術層。
+
+### 4.6 `seaHeight` 不能直接改寫——它有四個其他讀者
+
+`AiController.seaHeight` 還被 `stationPoint`、`stationCommand`、
+`tacticalCommand`、`steerCommand` 讀。把「前方山高」寫進去，會讓整套站位與
+戰術層以為地板抬高了，僚機會莫名其妙爬升。
+
+**只在 `emit` 裡建一個局部值**餵給 `applySafety`：
+
+```ts
+const floor = this.terrain === null ? this.seaHeight : this.sense.floor
+this.safetyAction = applySafety(self, floor, out, undefined, this.sense)
+```
+
+### 4.7 `time` 的來源
+
+`AiController.update(self, dt, out)` **沒有世界絕對時間**，而 Gerstner 波要它。
+
+**第一版 AI 只看靜態陸地，海面一律以 0 計。** 波高 ±4.7 m 相對於
+`clearance` 120 m 是 4%，而安全層的餘裕本來就是為了蓋這種量級。
+不為了 4% 去替每架 AI 接一條時間線。
+
+（真要精確，做法是 `main.ts` 注入一個捕捉當前 `elapsed` 的共享 closure——
+**不能**讓每架 AI 自己累加時間，那會漂。）
+
+### 4.8 每 12 tick 重算，按機號錯開相位
+
+```
+  240 Hz、800 km/h 下每 tick 走      0.926 m
+  每 12 tick（20 Hz）兩次之間走      11.11 m   ← 遠小於格距 40 m
+  角落速度的最大轉率 44.2°/s，
+  50 ms 轉 2.21°，1.2 km 外橫向      46 m      ← 超過一格，見下
+```
+
+【初稿的兩個數字都錯】初稿寫「走 9.7 m」（用了 700 km/h 而非 800）與
+「轉 1.15°」（用 8G 巡航轉率 23°/s，而真正的最大轉率在**角落速度**是
+44.2°/s）。修正後 46 m **超過一格 40 m**，所以「仍在一格內」不成立。
+
+**但這對圓盤法無害**——它不查格點，查的是島心距離；50 ms 內島心距離的變化
+遠小於 `outerRadius`。這個缺陷是射線取樣法才有的，換表示法之後自然消失。
+
+**仍然要按機號錯開相位**：40 架同一 tick 全算會做出週期性尖峰，
 而那會直接打在 `frame-time.e2e.ts` 量的 1% low 上。
 
-### 4.5 注入方式：public 欄位，與 `target` 同一個模式
+### 4.9 注入：public 欄位，與 `target` 同一個模式
 
 ```ts
 class AiController {
-  target: Aircraft | null = null
-  seaHeight = 0
-  terrainField: HeightField | null = null   // 新增
+  terrain: TerrainSource | null = null   // 新增，null = 平海面
 }
 ```
 
-`main.ts` 設定，headless 測試不設定。
+**`terrain` 為 null 時，輸出的浮點與既有狀態逐位元相同**，所以既有的對戰
+矩陣、AI 護欄、`replayDigest` 全部不受影響、不必重錄。
 
-**這是本份風險最低的一個決定**：`terrainField` 為 null 時走的是與現在
-**完全相同**的路徑，所以既有的對戰矩陣、AI 護欄、`replayDigest` 全部
-不受影響、不必重錄。地形迴避的行為改用**新的**帶地形場景來守（§6.1）。
+（初稿寫「程式碼路徑完全相同」，字面上不成立——會多一次 null 判斷、多一個
+sense 物件。能成立的主張是逐位元相同的**輸出**。）
+
+**注入點不只一處。** `playerAi` 跨場重用，而 `resetBattle` 在玩家接手過座位
+後會建立新的 `AiController`（`setup.ts:1066`）。因此 `main.ts` 要有一個
+`wireTerrain()`，在 `enterBattle`、`restartBattle`、換座位、respawn 之後統一
+呼叫，並且**同時清掉鎖存狀態**。初稿估的「+6 行」太樂觀。
 
 ## 5. 介面
 
-**`src/world/heightfield.ts`**（新，不 import three）
-
 ```ts
+// src/world/heightfield.ts   —— 不 import three
 export interface HeightFieldData {
-  readonly size: number        // 邊長格數（1024）
-  readonly cell: number        // 格子邊長，m（40）
+  readonly size: number      // 頂點數（1024）
+  readonly cell: number      // 格距，m（40）
   readonly data: Float32Array
-  sample(x: number, z: number): number   // 雙線性；出界回 -Infinity
+  sample(x: number, z: number): number     // 雙線性；出界回 -Infinity
 }
-```
 
-**`src/world/archipelago.ts`**（新）
-
-```ts
-export interface IslandDesc { cx: number; cz: number; radius: number; peak: number }
-export function generateArchipelago(seed: number): {
+// src/world/archipelago.ts
+export interface IslandDesc {
+  readonly cx: number; readonly cz: number
+  readonly radius: number        // 標稱
+  readonly outerRadius: number   // radius × 1.29 —— mesh、包圍球、AI 圓盤共用
+  readonly peak: number
+}
+export function createArchipelago(): {
   field: HeightFieldData
   islands: readonly IslandDesc[]
 }
-```
 
-**`src/render/island.ts`**（新）
-
-```ts
+// src/render/island.ts
 export function createIslands(
   field: HeightFieldData, islands: readonly IslandDesc[],
 ): { object: Object3D; dispose(): void }
-```
 
-**`src/render/terrain.ts`**（改）
-
-```ts
+// src/render/terrain.ts
 export type TerrainKind = 'sea' | 'archipelago'
-```
 
-**`src/ai/terrainSense.ts`**（新）
-
-```ts
-/** 可變，由 `senseTerrain` 就地填寫——240 Hz 熱路徑不得配置 */
+// src/ai/terrainSense.ts
+export interface TerrainSource { readonly islands: readonly IslandDesc[] }
 export interface TerrainSense {
-  ahead: number            // 正前 1.2 km 內「地形與海面」的最高點，m
-  turn: -1 | 0 | 1         // 建議規避方向；0 = 不需要
+  floor: number         // 餵給 applySafety 的地板高度
+  turn: number          // 承諾的航向偏移，rad；0 = 不需要
+  island: number        // 正在繞哪一座；−1 = 沒有（鎖存）
+  clearSamples: number
+  heldTicks: number
 }
+export function createSense(): TerrainSense
+export function resetSense(s: TerrainSense): void
 export function senseTerrain(
-  self: Aircraft, field: HeightField, time: number, out: TerrainSense,
+  self: Aircraft, src: TerrainSource, out: TerrainSense, cfg?: SafetyConfig,
 ): void
-```
 
-【為什麼吃 `HeightField`（含 `time`）而不是 `HeightFieldData`】海面也是地板。
-AI 前視要的是「前方那個點的地板在哪」，那是地形與海面取大——正是
-`Terrain.heightAt` 的語義。取樣點在島外時它退回純 Gerstner，與現況相同。
-
-**`src/ai/safety.ts`**（改）
-
-```ts
-export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'   // 加一個
+// src/ai/safety.ts
+export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'
 export function applySafety(
   self: Aircraft, seaHeight: number, out: Command,
-  cfg?: SafetyConfig, sense?: TerrainSense,                          // 新增可選參數
+  cfg?: SafetyConfig, sense?: TerrainSense,      // 新增，可選
 ): SafetyAction
 ```
 
 `sense` 不傳時**完全走原路徑**——既有單元測試一個字都不用改。
 
+【`senseTerrain` 只吃 `islands`，不吃 `HeightFieldData`】圓盤法不查高度場。
+這讓 AI 完全不依賴格點解析度，也讓它可以在沒有渲染的 headless 測試裡跑。
+**碰撞與渲染仍然以 heightmap 為唯一真相**；圓盤只是 AI 的保守 broad phase，
+不構成第二份可碰撞地形。
+
 ## 6. 量測與驗收
 
-### 6.1 主要護欄：掃描式「任何進入角度都閃得掉」
+### 6.1 主要護欄：飛行掃描
 
-> 群島裡任何一座島，從**任何方位、任何合法速度、任何俯衝角**進入，
-> 三射線前視 + 拉起／轉向都不得撞上。
+> 從各方位、各機型的合法速度區間進入代表性障礙，**不得撞上**，
+> **而且要在期限內通過**。
 
-掃描維度：方位 16 × 速度 {400, 600, 800} km/h × 俯衝角 {0, −15, −30} × 島。
+- 障礙取三個代表：最寬、最高、最小
+- 機型取四種，**各用自己的合法速度區間**（800 km/h 對 K-4／B-17／He 111
+  不是合法速度，初稿的「任何合法速度 {400,600,800}」是錯誤描述）
+- 方位 8 向
 
-**這是本份唯一真正承重的測試。** 它的價值在於把「地形生成」與「AI 能力」
-綁成一個閉環——生成器不能長出 AI 閃不掉的山，而不是靠人眼檢查。
+**只斷言「不撞」不夠**——原地繞圈、或永遠維持 terrain 接管也能通過。
+因此同時斷言：
+
+```
+  不得撞上
+  在期限內通過障礙（離島距離重新增加）
+  鎖存最終解除（island 回到 −1）
+  最大連續接管時間有上界
+```
+
+【為什麼過度介入不能靠 `safetyShare ≤ 5%` 守】那條在 headless 平海面跑，
+`terrain` 是 null，新分支根本不會執行。**地形場景要自己量。**
 
 ### 6.2 其餘新測試（每一條先驗紅）
 
 ```
-  heightfield.test.ts    格點上取樣 = 格點值（恆等式）、出界回海面、插值單調
-  archipelago.test.ts    同種子逐位元相同、小島下限 300 m、島不重疊
-  terrain.test.ts        kind 切換、children 次序契約、dispose 不漏
-  terrainSense.test.ts   三射線幾何、相位錯開的覆蓋率
+  heightfield.test.ts    格點取樣 = 格點值、線性內插、正負邊界的精確跨度
+  archipelago.test.ts    固定地形逐位元決定性、小島下限、峰高上限、
+                         **島間距足夠讓通道穿過**
+  terrain.test.ts        kind 切換、dispose 不漏
+  terrain-sense.test.ts  通道直穿不介入、爬得過走 ground、爬不過走 terrain、
+                         **鎖存不反轉**、通過後解除、reset 清空
+  render/collision 一致  mesh 的頂點高度 = field.sample（鐵律的護欄）
 ```
 
-`archipelago` 的決定性是硬要求——模擬是全決定性的，地形不得破壞這一點。
+【砍掉的測試】Codex 指出下列偏向「為測而測」，全部不寫：不同 seed 產生
+不同地形（產品不需要多 seed）、島心恰好等於 peak（島心不落在格點上，
+雙線性後不保證）、距離 2r 為零（重述解析公式）、全零場處處為零（實作細節）、
+自建一份 288 格「不傳 sense 等同修改前」（沒有舊實作 oracle，只會複製一份
+舊邏輯——既有安全單元測試加 `replayDigest` 已經足夠）。
+
+`children` 固定索引契約也不新增——那是 `__gfx` 工具造成的耦合，不是地形的
+產品契約；改既有那條測試即可。
 
 ### 6.3 不得退步的既有護欄
 
-- `test/unit/perf-gate.test.ts` 的三個 900 µs
-- `test/integration/ai-manoeuvre.test.ts`，特別是 **`safetyShare ≤ 5%`**
-  （抓過度介入；新的 `'terrain'` 分支同樣受它管）
-- `test/integration/ai-duel-matrix.test.ts`、`ai-defence.test.ts`
-- `replayDigest`（`terrainField` 為 null，**預期逐位元不變**——若變了就是
-  有東西漏進了 headless 路徑，那是 bug 不是重錄理由）
+`perf-gate` 三個 900 µs、`ai-manoeuvre`、`ai-duel-matrix`、`ai-defence`、
+`replayDigest`。**基準是全綠的**（2026-08-27 實測 126 檔 2,964 條，零紅），
+所以任何一條紅都是本份造成的。
 
-### 6.4 要重錄的
+### 6.4 `pixel-identical` 二選一
 
-只有 `pixel-identical.e2e.ts`（畫面變了）。
+初稿自相矛盾：一邊把圖層鍵從 `props` 改成 `islands` 並隱藏，一邊又說要
+「重錄群島畫面」。**選後者**：讓 islands 顯示並重錄——這一輪的重點就是
+畫面上要有島，把它藏起來驗海面沒有意義。
 
-### 6.5 效能量測
+### 6.5 效能
 
-`senseTerrain` 是 20 Hz × 40 架 × 36 點。實作前先寫探針量真值，**不得用估算
-下結論**。若超出 250 µs AI 預算，退路依序是：降到 10 Hz、減少射線取樣點、
-加一層低解析「這附近有沒有陸地」的 bitmask 剔除。
+**不新增 probe 檔案。** 用既有的 `perf-gate`（AI 預算 250 µs）與
+`frame-time.e2e.ts`（1% low）。需要細節時做一次性量測，不留檔。
+
+圓盤法是 O(島數) 的加減乘，沒有高度查詢——若這樣還超預算，退路是降到
+10 Hz，或先用島的粗網格做空間剔除。
 
 ## 7. 事前約定的否決條件
 
-1. §6.1 的掃描若有任何一格撞上，**先調地形生成的約束**（降峰高、拉開間距），
-   不調 AI 參數——AI 的能力是物理，地形是設計。
-2. 若把地形約束調到「島矮到看不出是山」才過得了掃描，**整個 §4.3 的丙方案
-   撤回**，改記為「安全層需要真正的橫向規避，另案處理」，並把掃描表寫進
-   `applySafety` 的註解。
-3. `replayDigest` 若在 `terrainField = null` 下改變，**停下來查根因**，
-   不得重錄。
+1. §6.1 掃出撞山 → **先把 `R` 乘 1.5**（§4.2 的已知風險），再考慮調地形。
+2. 若必須把地形調到「島矮到看不出是山」才過得了，**`'terrain'` 分支撤回**，
+   掃描表寫進 `applySafety` 的註解，改記為「安全層需要真正的橫向規避，
+   另案處理」。
+3. `replayDigest` 若在 `terrain = null` 下改變 → **停下來查根因**，不得重錄。
 
 ## 8. 風險
 
-1. **`'terrain'` 分支過度介入。** 由 `safetyShare ≤ 5%` 守。三射線的左右
-   射線可能在正常低空機動時誤報。
-2. **§4.3 的爬升能力估算偏樂觀**（用固定 `recoveryPitch`，不計拉起耗時）。
-   由 §6.1 掃描兜底。
-3. **島的 LOD 這一輪不做。** 一座島在 40 km 外仍然畫 5,625 quad。靜態島
-   預生成 2–3 級 LOD 很便宜，但先量了再決定。
-4. **`heightAt` 在 240 Hz 熱路徑上變貴。** 現在是純 Gerstner，之後多一次
-   插值。撞地判定是 40 架 × 240 Hz = 9,600 次／秒，應可忽略，但要量。
+1. **`'terrain'` 過度介入**，由 §6.1 的接管時間上界守。
+2. **滾轉建立的系統性偏差**（§4.2），由 §6.1 守，退路是乘 1.5。
+3. **島的 LOD 這一輪不做**——一座島在 40 km 外仍然畫滿。先量再決定。
+4. **`heightAt` 變貴**：撞地判定 40 架 × 240 Hz，多一次插值。應可忽略，要量。
 
 ## 9. 明確不做
 
-- **不做**遭遇戰選單的地形選項（`kind` 在 `main.ts` 寫死 `'archipelago'`）。
-- **不做**海岸線與內陸地形（資料結構要能長到，但這一輪不生成）。
-- **不做** AI 的地形**戰術**層（不追進峽谷、把敵人往山逼）——那要動
-  `steer.ts` / `tactics.ts` / `command.ts`，是另一輪。
+- **不做**遭遇戰選單的地形選項（`main.ts` 寫死 `'archipelago'`）。
+- **不做**海岸線與內陸地形。
+- **不做** AI 的地形**戰術**層（不追進峽谷、把敵人往山逼）。
 - **不做**島的 LOD、陰影、植被、地形貼圖。
-- **不做**地面單位、防空砲、機場（`prompt.md` 的「未來」另一項）。
-- **不改** `factor`、`clearance`、`recoveryPitch`、`lookahead`、
-  `stallMargin` 的任何既有值。
+- **不做**多候選軌跡採樣——圓盤的 broad phase 加兩側驗算已經夠。
+- **不加**轉彎半徑修正係數（§4.2 的裁定）。
+- **不改** `factor`、`clearance`、`recoveryPitch`、`lookahead`、`stallMargin`。
 - **不改** `recoveryAltitude` 的簽章與語義。
-- **不改** `DEFAULT_STEER` 的任何參數。
 - **不動** `assembly.ts` 的螺旋槳（名字撞了，見 §3.4）。
 
 ## 10. 全域限制
 
-- 不得引入 `@types/node`。
-- `noUncheckedIndexedAccess` 開啟。
-- `src/ai/` 的 240 Hz 熱路徑不得配置記憶體。
-- 每一條新測試先驗紅。
-- **不得為了讓測試通過而放寬門檻**——護欄重新定值是專案負責人的決定。
+- 註解與 commit message 用繁體中文；註解寫現狀，不寫沿革。
+- 不得引入 `@types/node`。`noUncheckedIndexedAccess` 開啟。
+- `src/ai/` 的 240 Hz 熱路徑不得配置記憶體；不得 `Math.random`。
+- 每一條新測試先驗紅。**不得為了讓測試通過而放寬門檻。**
 - commit 指定明確路徑，不得 `git add -A`。
-- 型別檢查是 `npx tsc --noEmit`。
+- 這台機器的指令：`node node_modules/vitest/vitest.mjs run`、
+  `node node_modules/typescript/bin/tsc --noEmit`
+  （`npx tsc` 會抓到系統上另一支同名程式）。
 - `perf-gate.test.ts` 與 `rematch.test.ts` 必須單獨跑。
 - 不寫飛機外形的測試。
