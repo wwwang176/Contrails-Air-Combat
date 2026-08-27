@@ -1629,7 +1629,7 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
 
     // 【先算淡出、能收就收 —— Codex 2026-08-11 審查的 Important】
     // 遠海排在細浪面之後畫，所以被細浪面蓋住的那一塊由 early-Z 收掉（見
-    // `FAR_SEA_Y` 附近的 renderOrder）。但細浪面只鋪到 ±82 km，**地平線到
+    // FAR_SEA_Y 附近的 renderOrder）。但細浪面只鋪到 ±82 km，**地平線到
     // 82 km 之間整片都是遠海**，而那正好是 uFadeEnd（250 km）之外的區域。
     // 在這裡收掉就跳過九次 cos、五次 sin、兩次 exp、六次 hash，以及二十次
     // hash22（兩套 Voronoi 各九次、塊傾斜兩次）。
