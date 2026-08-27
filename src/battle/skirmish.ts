@@ -9,6 +9,7 @@ import { B17G } from '../specs/b17g'
 import { HE111 } from '../specs/he111'
 import type { Faction } from './names'
 import type { AircraftSpec } from '../specs/types'
+import type { TerrainKind } from '../world/terrainKind'
 
 /** 遭遇戰的陣營選擇。與 `battle/names.ts` 的 `Faction` 是同一組值 */
 export type FactionChoice = Faction
@@ -47,7 +48,43 @@ export interface SkirmishSetup {
    * 因為 `player` 旗標的語意是「玩家開這一小隊的 `members[0]`」。
    */
   readonly playerAt: number
+  /** 這一場打在什麼地方。**任務模式不吃它** —— 那邊的地形是關卡設計的一部分 */
+  readonly terrain: TerrainKind
+  /**
+   * 開場高度，m。必須是 `ALTITUDES` 裡的值。
+   *
+   * 【為什麼它是一個設定】上一輪把群島放進了畫面，但地形感知在真實的仗裡
+   * 一次都沒跑到 —— 開場恆為 4,000 m 而島最高 1,000 m。高度可選是
+   * 「地形進得了場」的另一半。
+   */
+  readonly altitude: number
 }
+
+/**
+ * 開場高度的三個選項。**順序即按鈕順序。**
+ *
+ * ```
+ *   甲板     600 m   地形是主角。實測繞島佔時 4~7%
+ *   低空   1,500 m   島在腳下，但擋不住路（實測繞島 0%）
+ *   中空   4,000 m   預設
+ * ```
+ *
+ * 【為什麼上面不再加】He 111 的實用升限是 6,300 m，而 `altitudeSpread`
+ * 還會再加 ±300。開場給到 6,000 的話，混編裡的 He 111 一出生就在升限上、
+ * 會一路往下沉。4,000 已經是地形完全不相干的高度。
+ *
+ * 【為什麼甲板是 600 而不是 400】400 m 會把飛機壓在海面上，20v20 的繞島
+ * 佔時反而掉到 0。600 m 在 8v8 與 20v20 兩種規模都落在 4~7%，兩邊都不是
+ * 邊界。
+ *
+ * 【為什麼中間那一格留著】1,500 m 的繞島佔時確實是 0 —— 島在那裡是景，
+ * 不是障礙。那仍然是一種玩法，只是不要假裝它有戰術意義。
+ */
+export const ALTITUDES: readonly { readonly label: string; readonly value: number }[] = [
+  { label: '甲板', value: 600 },
+  { label: '低空', value: 1500 },
+  { label: '中空', value: 4000 },
+]
 
 /**
  * **遭遇戰可以編進名單的全部機種。順序即卡片順序。**
@@ -103,6 +140,8 @@ export function uniform(
     blue: Array.from({ length: n }, () => blueId),
     red: Array.from({ length: clampSide(redCount) }, () => redId),
     playerAt: Math.floor(Math.ceil(n / SCHWARM_SIZE) / 2) * SCHWARM_SIZE,
+    terrain: 'archipelago',
+    altitude: DEFAULT_BATTLE.altitude,
   }
 }
 
@@ -156,6 +195,22 @@ function clampSide(n: number): number {
 }
 
 /**
+ * 開場高度落回白名單。不在表上的一律退回 `DEFAULT_BATTLE.altitude`。
+ *
+ * 【為什麼是白名單而不是區間夾】選單只給三個值，而那三個值各自有實測
+ * （見 `ALTITUDES`）。區間夾會讓一個沒有人試飛過的高度靜靜地成立。
+ *
+ * 【這是一個 API 陷阱，要知道】未來的探針若寫
+ * `battleConfigFrom({ ...setup, altitude: 800 })`，會**靜靜地**退回 4,000。
+ * 既有探針全部是「先 `battleConfigFrom`、再覆寫回傳值的 `altitude`」，
+ * 所以不受影響 —— 但下一個人不會知道。
+ */
+function pickAltitude(v: number): number {
+  for (const a of ALTITUDES) if (a.value === v) return a.value
+  return DEFAULT_BATTLE.altitude
+}
+
+/**
  * 名單 → 機種陣列。空名單補一架預設機，超編砍到 `MAX_SIDE`。
  *
  * 【為什麼空名單不是錯誤】設定頁上「把我方清空」是一個正常的中間狀態
@@ -187,6 +242,11 @@ export function battleConfigFrom(setup: SkirmishSetup): BattleConfig {
   return {
     ...DEFAULT_BATTLE,
     units: mixedLine(HEAD_ON, blue, red, at),
+    // 【地形不在這裡】`BattleConfig` 不認識地形 —— 畫面那一份與碰撞那一份
+    // 必須是同一份高度場，而生成它的是 `render/terrain.ts`。`main.ts` 拿
+    // `setup.terrain` 去 `createTerrain`，再把同一個參考接給 AI 與
+    // `crashPolicy`（見 `main.ts` 的 `wireTerrain`）
+    altitude: pickAltitude(setup.altitude),
     // 【難度只在這條路上生效】`DEFAULT_BATTLE` 留 `ACE`，因為那是全部 AI
     // 測試量天花板用的基準。這裡是「史實的 AI」變成「打得動的 AI」的唯一
     // 入口，與 `specs/feel.ts` 在 `setup.ts` 的位置對稱。

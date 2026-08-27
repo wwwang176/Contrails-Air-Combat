@@ -488,9 +488,14 @@ function enterBattle(): void {
 
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
+  //
+  //    【任務不吃遭遇戰的場地設定】任務的地形是關卡設計的一部分，固定群島。
+  //    共用一個「上一次選了什麼」的話，打完一場純海面遭遇戰再點任務卡，
+  //    任務會靜靜地變成海面。
+  const kind = mode === 'mission' && pendingMission !== null ? 'archipelago' : setup.terrain
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain('archipelago')
+  terrain = createTerrain(kind)
   ctx.scene.add(terrain.object)
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
@@ -559,7 +564,10 @@ function enterBattle(): void {
     `[戰鬥] 種子 ${battle.seed}　${mode === 'mission' ? pendingMission?.id ?? '?' : '遭遇戰'}`
     + `　藍 ${sideSummary(battle.cfg.units, 'blue')}`
     + `　紅 ${sideSummary(battle.cfg.units, 'red')}`
-    + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`,
+    + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`
+    // 【場地與開場高度也是鑰匙的一部分】兩者都是設定，而且都會改變這一場
+    // 長什麼樣 —— 少了它們，「同一場逐位元重跑」就不成立
+    + `　場地 ${kind}　開場 ${battle.cfg.altitude} m`,
   )
   telemetryAt = 0
   // 【命令的計數也要歸零】不歸零的話「第 87 張」會跨場累積，那個數字

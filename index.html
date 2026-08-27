@@ -90,6 +90,11 @@
       }
       #ui .row { display: flex; gap: 12px; flex-wrap: wrap; }
       #ui .row button.sel { border-color: #5a96d2; color: #eaf4ff; }
+      /* 場地設定那一列：兩組單選按鈕各配一個標籤，置中對齊 */
+      #ui .picks { align-items: center; justify-content: center; gap: 10px; }
+      #ui .picks .pick-label { font-size: 12px; color: #6f8ba5; letter-spacing: .1em; }
+      #ui .picks .pick { display: inline-flex; gap: 6px; margin-right: 18px; }
+      #ui .picks .pick button { padding: 5px 12px; font-size: 12px; letter-spacing: .08em; }
       /* 【要 justify-content 與固定寬度】自訂編組那一頁的兩欄裡各有一排
          機種按鈕與一片名單，內容寬度隨機種名字長短而變 —— 只給 min-width
          的話兩欄會各自長成不同寬度，而且會從畫面左緣溢出去 */
@@ -187,6 +192,12 @@
             <h3 id="red-head">敵方出戰</h3>
             <div class="roster" id="red-roster"></div>
           </div>
+        </div>
+        <!-- 【場地與高度為什麼在這裡】開場高度決定地形進不進得了場：
+             島最高 1,000 m，而 4,000 m 的仗打下來最低只到 2,292 m -->
+        <div class="row picks">
+          <span class="pick-label">場　地</span><span class="pick" id="terrain-pick"></span>
+          <span class="pick-label">開場高度</span><span class="pick" id="altitude-pick"></span>
         </div>
         <div class="row">
           <button class="primary" data-act="fight">開始戰鬥</button>

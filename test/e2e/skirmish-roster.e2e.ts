@@ -93,6 +93,20 @@ async function main(): Promise<void> {
     await redAdd.nth(redNames.findIndex((n) => n.includes('P-51'))).click()
     ok(await redChips.count() === 2, '敵方編了兩架')
 
+    // ── 場地與開場高度 ──────────────────────────────────
+    //
+    // 【為什麼在這裡驗】那兩個是「地形進不進得了場」的開關（島最高
+    // 1,000 m，而 4,000 m 的仗打下來最低只到 2,292 m）。純函數那一側由
+    // `test/unit/skirmish.test.ts` 釘住，這裡只驗按鈕真的接上去了。
+    const terrainPick = page.locator('#terrain-pick button')
+    const altitudePick = page.locator('#altitude-pick button')
+    ok(await terrainPick.count() === 2, '場地兩個選項')
+    ok(await altitudePick.count() === 3, '開場高度三個選項')
+    ok(await terrainPick.nth(0).getAttribute('class') === 'sel', '場地預設是群島')
+    ok(await altitudePick.nth(2).getAttribute('class') === 'sel', '高度預設是中空')
+    await altitudePick.nth(0).click()
+    ok(await altitudePick.nth(0).getAttribute('class') === 'sel', '點甲板之後換它高亮')
+
     // ── 打起來 ──────────────────────────────────────────
     await fight.click()
     await page.waitForTimeout(2500)
@@ -102,6 +116,8 @@ async function main(): Promise<void> {
     ok(line!.includes('bf109k4') && line!.includes('p51d') && line!.includes('b17g'),
       '我方真的是混編的那三架')
     ok(line!.includes('he111'), '敵方真的有 He 111')
+    ok(line!.includes('開場 600 m'), '甲板那一格真的接到了開場高度', line ?? '')
+    ok(line!.includes('場地 archipelago'), '場地也接上了')
 
     const spawned = await page.evaluate(() => document.querySelectorAll('canvas').length)
     ok(spawned > 0, '畫面還在')

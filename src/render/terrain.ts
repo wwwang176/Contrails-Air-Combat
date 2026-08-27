@@ -2,17 +2,11 @@ import { Group, type Object3D } from 'three'
 import { createOcean } from './ocean'
 import { createIslands } from './island'
 import { createArchipelago, type IslandDesc } from '../world/archipelago'
+import type { TerrainKind } from '../world/terrainKind'
 
-/**
- * 地形的種類。
- *
- * 【加一種要動的地方】這個聯集、`createTerrain` 的分支，以及生成器。
- * 拆除與重建的路徑每一場都在走，不是一條等著被第一次使用的死碼。
- *
- * 【還沒做的兩種】大島海岸線與內陸（沒有海）。資料結構長得到 —— 它們只是
- * 不同的 heightmap —— 但這一輪不生成。
- */
-export type TerrainKind = 'sea' | 'archipelago'
+// 【聯集本身住在 world/】見 `world/terrainKind.ts`。這裡再匯出，
+// 既有的 import 站點不用動
+export type { TerrainKind }
 
 export interface Terrain {
   /** 加進場景的那個節點。換地形時整個移除 */
