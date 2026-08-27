@@ -82,7 +82,7 @@ const perf = createPerfOverlay(ctx.renderer)
  * 【為什麼不能把 heightAt 抓進閉包快取】換地形之後那一處就還在讀舊的
  * 高度場，而症狀（飛機撞到看不見的海面）離成因非常遠（M10 spec §5.2）。
  */
-let terrain = createTerrain('sea')
+let terrain = createTerrain('archipelago')
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
@@ -461,7 +461,7 @@ function enterBattle(): void {
   //    等著被第一次使用的死碼（M10 spec §5.3）
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain('sea')
+  terrain = createTerrain('archipelago')
   ctx.scene.add(terrain.object)
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
@@ -1417,7 +1417,7 @@ const GFX_HIDDEN_LAYER = 31
   const targets: Record<string, () => readonly Object3D[]> = {
     farSea: () => [terrain.object.children[0]!],
     nearSea: () => [terrain.object.children[1]!],
-    props: () => [terrain.object.children[2]!],
+    islands: () => [terrain.object.children[2]!],
     // 天空球目前是 renderOrder −1000（sky.ts）。改那個常數時這裡要跟著改 ——
     // 抓不到就是「關天空」變成空操作，而空操作在消融表上長得像「天空不花錢」
     sky: () => byRenderOrder(-1000),

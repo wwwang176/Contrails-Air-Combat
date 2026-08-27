@@ -244,7 +244,7 @@ async function pass(
 
 /** 消融要逐一關掉的繪製層。名字對應 `main.ts` 的 `__gfx` 出口 */
 const ABLATE = [
-  'farSea', 'nearSea', 'sky', 'props', 'propDisc', 'particles', 'tracers', 'vortex',
+  'farSea', 'nearSea', 'sky', 'islands', 'propDisc', 'particles', 'tracers', 'vortex',
 ] as const
 
 /**

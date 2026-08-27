@@ -82,10 +82,14 @@ async function main(): Promise<void> {
     await page.addStyleTag({ content: '#hud { display: none !important }' })
     await page.keyboard.press('F3')            // 收掉效能疊層
 
-    // 只留天空與海。飛機的出生位置、參照物的撒點、粒子的亂數都不可重現
+    // 只留天空、海與陸地。飛機的出生位置、粒子的亂數不可重現，所以關掉。
+    //
+    // 【島留著，而且是刻意的】它是固定種子的解析生成 —— 沒有 Math.random、
+    // 沒有時間相依，所以逐像素可重現。原本這裡關的是 props（那 600 個撒點
+    // 的參照物確實不可重現），真地形進來之後那個模組整個移除了。
     await page.evaluate((hideSky: boolean) =>
       (window as unknown as Record<string, (p: Record<string, boolean>) => unknown>)['__gfx']!({
-        aircraft: false, props: false, particles: false, tracers: false,
+        aircraft: false, particles: false, tracers: false,
         vortex: false, propDisc: false, ...(hideSky ? { sky: false } : {}),
       }), HIDE_SKY)
 
