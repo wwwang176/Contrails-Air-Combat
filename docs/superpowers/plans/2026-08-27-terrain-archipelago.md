@@ -41,8 +41,14 @@ node node_modules/vite-node/vite-node.mjs <path>    # 一次性量測
 
 ### 基準
 
-**2026-08-27 實測全綠**：126 檔、2,964 條、零紅（不含單獨跑的兩支）。
+**vitest 全綠**（2026-08-27 實測）：126 檔、2,964 條、零紅（不含單獨跑的兩支）。
 **沒有既有紅測試**，所以接下來任何一條紅都是這一份造成的。
+
+**tsc 有 21 個既有錯誤**，全部在 test/e2e/ 與 test/tools/：escort-live 8、
+band-drill.probe 6、band-drill.e2e 6、defence-below.probe 1。多數是
+Cannot find name process —— 那些檔案不由 vitest 執行，而專案規定不得引入
+@types/node。**這 21 個是基準，不是這一份造成的**（以 git stash 逐一驗過）。
+src/ 一個錯誤都沒有，任何新的 src/ 錯誤都是這一份的。
 
 ## 一條貫穿全篇的分工
 
