@@ -82,7 +82,7 @@ const perf = createPerfOverlay(ctx.renderer)
  * 【為什麼不能把 heightAt 抓進閉包快取】換地形之後那一處就還在讀舊的
  * 高度場，而症狀（飛機撞到看不見的海面）離成因非常遠（M10 spec §5.2）。
  */
-let terrain = createTerrain('sea')
+let terrain = createTerrain('archipelago')
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
@@ -92,6 +92,31 @@ let terrain = createTerrain('sea')
  */
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
+
+/**
+ * 把地形接給每一架 AI，並清掉上一場的鎖存。
+ *
+ * 【為什麼是每幀掃一次，而不是在建立控制器的地方各接一次】接的地方不只
+ * enterBattle：playerAi 跨場重用、resetBattle 在玩家接手過座位之後會建新的
+ * AiController、重生也會。一一去接的話，漏掉哪一條路徑的症狀是「有一架
+ * AI 看不見地形」—— 那要等到它撞山才會發現，而且看起來像 AI 有 bug。
+ *
+ * 【成本】40 次參考比較。只有在**不相等**時才寫入並清鎖存，所以換地形、
+ * 新控制器、重生都會被接住，而穩定狀態下什麼都不做。
+ */
+function wireTerrain(force = false): void {
+  for (const c of world.combatants) {
+    const ctl = c.controller
+    if (!(ctl instanceof AiController)) continue
+    if (!force && ctl.terrain === terrain) continue
+    ctl.terrain = terrain
+    ctl.clearTerrainState()
+  }
+  if (force || playerAi.terrain !== terrain) {
+    playerAi.terrain = terrain
+    playerAi.clearTerrainState()
+  }
+}
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
@@ -422,6 +447,10 @@ function restartBattle(): void {
   rebuildVisuals()
   leaveGodView()
   respawnPlayer()
+  // 【強制清，不能靠參考比對】重開一場不換 terrain，所以 wireTerrain 的
+  // ctl.terrain === terrain 會跳過 —— 上一場「我正在繞第 17 座島」的承諾
+  // 就這樣帶進了新的一場
+  wireTerrain(true)
 }
 
 /**
@@ -461,7 +490,7 @@ function enterBattle(): void {
   //    等著被第一次使用的死碼（M10 spec §5.3）
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain('sea')
+  terrain = createTerrain('archipelago')
   ctx.scene.add(terrain.object)
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
@@ -782,6 +811,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
   // 漏掉——連射時 X 標記會閃爍不定。
   let hitsThisFrame = 0
+  // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
+  // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
+  wireTerrain()
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
@@ -833,6 +865,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     player = battle.player
     playerAi.selfIndex = player.index
     playerAi.setDecisionPhase(player.index / world.combatants.length)
+    // 換了機體就換了位置，上一個座位的地形承諾不再適用
+    playerAi.clearTerrainState()
     // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
     rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
     fitCameraToPlayer()
@@ -1417,7 +1451,7 @@ const GFX_HIDDEN_LAYER = 31
   const targets: Record<string, () => readonly Object3D[]> = {
     farSea: () => [terrain.object.children[0]!],
     nearSea: () => [terrain.object.children[1]!],
-    props: () => [terrain.object.children[2]!],
+    islands: () => [terrain.object.children[2]!],
     // 天空球目前是 renderOrder −1000（sky.ts）。改那個常數時這裡要跟著改 ——
     // 抓不到就是「關天空」變成空操作，而空操作在消融表上長得像「天空不花錢」
     sky: () => byRenderOrder(-1000),
