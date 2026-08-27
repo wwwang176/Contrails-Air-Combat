@@ -65,6 +65,19 @@ export const CHANNEL_MIN = 1500
 /** 島心的散布半徑，m。場地半徑是 20.46 km，留邊避免島被切在邊界上 */
 const SPREAD = 15000
 
+/**
+ * 沒有島的地方，地形的高度，m。**負的，而且要低於最深的波谷。**
+ *
+ * 【為什麼不是 0】`smoothstep` 在兩端的導數都是 0，所以島緣是一片**水平**
+ * 的面。停在 y = 0 的話它與海面共面，症狀是整圈海岸線閃爍（z-fighting）。
+ * 讓它沉到水下之後，海岸線變成「地形與海面的交線」—— 不共面，而且那正是
+ * 真實海岸線的成因。
+ *
+ * 【−8 怎麼來的】五道波的振幅和是 4.673 m，最低的波谷是 −4.673。−8 保證
+ * 島緣**永遠**在水下，餘裕 3.3 m。**動 WAVES 的振幅就要回來重算。**
+ */
+export const SEA_FLOOR = -8
+
 /** 亂數的種子。私有 —— 見檔頭 */
 const SEED = 20260827
 
@@ -159,6 +172,8 @@ function bake(
   const { size, cell, data } = field
   const half = (size - 1) / 2
   const last = size - 1
+  // 海床先鋪滿。島是從這個高度長上來的，島緣也回到它 —— 見 SEA_FLOOR
+  data.fill(SEA_FLOOR)
 
   for (let k = 0; k < islands.length; k++) {
     const isl = islands[k]!
@@ -181,7 +196,9 @@ function bake(
         const wobble = 1
           + WOBBLE_A * Math.sin(3 * theta + ph.a)
           + WOBBLE_B * Math.sin(5 * theta + ph.b)
-        const h = isl.peak * smoothstep(1, 0, d / isl.radius / wobble)
+        // s = 1 在島心、0 在島緣。島緣落回海床而不是 0，見 SEA_FLOOR
+        const s = smoothstep(1, 0, d / isl.radius / wobble)
+        const h = isl.peak * s + SEA_FLOOR * (1 - s)
 
         const i = row * size + col
         // 取 max：島若重疊，高的那一座說了算。間距約束讓這件事不該發生，

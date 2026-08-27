@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { createTerrain } from '../../src/render/terrain'
 import { FAR_SEA_Y, gerstnerHeight } from '../../src/render/ocean'
+import { createIslands } from '../../src/render/island'
+import { createArchipelago } from '../../src/world/archipelago'
 
 describe('createTerrain（M10 spec §5.2）', () => {
   it('高度場與 gerstnerHeight 逐點一致', () => {
@@ -15,8 +17,12 @@ describe('createTerrain（M10 spec §5.2）', () => {
     t.dispose()
   })
 
-  it('object 底下有遠海、細浪面與參照物', () => {
+  it('object 底下有遠海、細浪面與陸地', () => {
     const t = createTerrain('sea')
+    // 【第三個位置從「參照物」變成「陸地」】原本那 600 個實例裡 8% 是假島
+    // （綠方塊、無碰撞、飛得過去）。真地形進來之後專案負責人裁定移除它們。
+    // `'sea'` 沒有陸地，所以第三個是**空 Group** —— 索引契約留著，
+    // `src/tools/` 的兩支工具才不用跟著改。
     // 【2 → 3】海從此是兩層：以鏡頭為中心 10 km 的細浪面，加上墊在底下、
     // 跟著鏡頭走的 500 km 平海（`ocean.farMesh`）—— 沒有它的話上帝視角
     // 爬高就會看到海是一塊浮在天上的板子。
@@ -55,7 +61,7 @@ describe('createTerrain（M10 spec §5.2）', () => {
 
   it('update 之後海面跟著中心捲動', () => {
     const t = createTerrain('sea')
-    // 【索引要自我驗證】group 裡現在有三個東西，順序是遠海、細浪面、參照物。
+    // 【索引要自我驗證】group 裡現在有三個東西，順序是遠海、細浪面、陸地。
     // 原本寫死 children[0] 當「海面」—— 遠海插進來之後那一條會靜靜地改測
     // 遠海，而且**照樣綠**（遠海也跟著中心走）。先用高度確認抓對了人：
     // 遠海在 FAR_SEA_Y，細浪面在 0。
@@ -72,5 +78,78 @@ describe('createTerrain（M10 spec §5.2）', () => {
 
   it('建立與釋放十次不會拋錯 —— 每場重建要能一直做下去', () => {
     for (let i = 0; i < 10; i++) createTerrain('sea').dispose()
+  })
+})
+
+describe('createTerrain（archipelago）', () => {
+  it('object 底下仍是三個 —— 索引契約不因地形種類而變', () => {
+    const t = createTerrain('archipelago')
+    expect(t.object.children.length).toBe(3)
+    t.dispose()
+  })
+
+  it('島上的高度是陸地，離島夠遠退回純海面', () => {
+    const { islands } = createArchipelago()
+    const t = createTerrain('archipelago')
+    const isl = islands[0]!
+    // 島心：地形遠高於海面
+    expect(t.heightAt(isl.cx, isl.cz, 0)).toBeGreaterThan(isl.peak * 0.9)
+    // 膨脹圓外：地形是海床（負的），所以取 max 之後就是那一刻的浪
+    const far = isl.outerRadius * 2
+    expect(t.heightAt(isl.cx + far, isl.cz, 7.5)).toBe(gerstnerHeight(isl.cx + far, isl.cz, 7.5))
+    t.dispose()
+  })
+
+  /**
+   * 【鐵律的護欄】`render/terrain.ts` 的檔頭寫著：兩份分家的話，飛機會撞到
+   * 一片看不見的海。地形這一側的防線就是這一條 —— **畫出來的那個頂點，
+   * 高度必須等於碰撞查得到的那個值**。
+   *
+   * 逐頂點比對整座島，不抽樣：切錯 bounding box、行列顛倒、差半格，
+   * 這些錯都只會讓一部分頂點對不上。
+   */
+  it('mesh 的每一個頂點高度都等於 field.sample —— 看見什麼就撞到什麼', () => {
+    const { field, islands } = createArchipelago()
+    const built = createIslands(field, islands)
+    let checked = 0
+    let worst = 0
+    built.object.traverse((o) => {
+      const g = (o as unknown as { geometry?: { attributes?: { position?: {
+        count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number
+      } } } }).geometry
+      const p = g?.attributes?.position
+      if (p === undefined) return
+      for (let i = 0; i < p.count; i++) {
+        const d = Math.abs(p.getY(i) - field.sample(p.getX(i), p.getZ(i)))
+        if (d > worst) worst = d
+        checked++
+      }
+    })
+    console.log(JSON.stringify({ vertices: checked, worstDelta: worst }))
+    expect(checked).toBeGreaterThan(1000)
+    expect(worst).toBeLessThan(1e-3)
+    built.dispose()
+  })
+
+  it('dispose 真的釋放 —— 每場重建，漏了就是玩久了愈來愈慢', () => {
+    const t = createTerrain('archipelago')
+    const pending = new Set<object>()
+    const disposed = new Set<object>()
+    const watch = (r?: { addEventListener(e: string, f: () => void): void }): void => {
+      if (r === undefined || pending.has(r)) return
+      pending.add(r)
+      r.addEventListener('dispose', () => { disposed.add(r) })
+    }
+    t.object.traverse((o) => {
+      const m = o as unknown as {
+        geometry?: { addEventListener(e: string, f: () => void): void }
+        material?: { addEventListener(e: string, f: () => void): void }
+      }
+      watch(m.geometry)
+      watch(m.material)
+    })
+    t.dispose()
+    expect(pending.size).toBeGreaterThan(0)
+    expect(disposed.size).toBe(pending.size)
   })
 })
