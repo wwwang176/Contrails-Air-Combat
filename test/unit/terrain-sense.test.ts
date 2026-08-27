@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { createCommand } from '../../src/control/Controller'
+import { applySafety } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
@@ -95,14 +98,71 @@ describe('senseTerrain', () => {
    * 【鎖存不反轉】承諾了一個方向就繞完它。單次讀值只能升級成拉起，
    * 不能反向 —— 否則就是換一個觸發條件的乒乓。
    */
-  it('鎖存不反轉 —— 承諾之後連續二十次感知都同號', () => {
+  /**
+   * 【飛機必須真的在動】先前這條對一架**靜止**的飛機重複呼叫二十次 ——
+   * 每次的輸入完全相同，所以它抓不到「turn 變 0 之後承諾符號遺失」那種
+   * 失效。現在每一步都推進位置並照 turn 轉動航向。
+   */
+  it('鎖存不反轉 —— 一邊飛一邊繞，承諾側全程同號', () => {
+    const out = createSense()
+    const self = flyer(150, 600)
+    /**
+     * 【fixture 的三個條件缺一不可】島要**進得了感知距離**（島心 1,077 m，
+     * 而感知是 1,200）、要**爬不過**（進場 150 m，20° 爬升在最近點只到
+     * 477 m 而地形 420 m 加餘裕 120）、而且要**繞得開**（需要橫移 400 m，
+     * 1.2 km 內轉 30° 給得出 555 m）。
+     *
+     * 少了任何一個，senseTerrain 都會正確地回 turn = 0，於是這條測到的就
+     * 不是鎖存了 —— 前兩版 fixture 各踩了一個。
+     */
+    const s = src(island(-400, -1000, 600, 900))
+    const speed = 600 / 3.6
+    const sides: number[] = []
+    for (let i = 0; i < 40; i++) {
+      senseTerrain(self, s, out)
+      if (out.side !== 0) sides.push(out.side)
+      // 照這一步的 turn 轉一點，再往前飛一個感知週期
+      const step = out.turn * 0.25
+      const c = Math.cos(step)
+      const sn = Math.sin(step)
+      const v = self.state.velocity
+      const vx = v.x * c - v.z * sn
+      const vz = v.x * sn + v.z * c
+      v.set(vx, 0, vz).normalize().multiplyScalar(speed)
+      const dt = (12 / 240)
+      self.state.position.x += v.x * dt
+      self.state.position.z += v.z * dt
+    }
+    // 實測鎖存三個感知週期就解除 —— 轉開之後就不再有交會，那是對的。
+    // 兩次就足以抓到反轉，三次留一點餘裕
+    expect(sides.length).toBeGreaterThanOrEqual(3)
+    const first = sides[0]!
+    for (const x of sides) expect(x).toBe(first)
+  })
+
+  /**
+   * 【把兩層串起來】只驗「左右兩案符號相反」的話，terrainSense 與
+   * applySafety **同時**整體反號時仍然會綠 —— 而那個 bug 會讓 AI 往島的
+   * 方向轉。這一條問的是最終結果：安全層輸出的航向，與島心的夾角有沒有
+   * 變大。
+   */
+  it('安全層輸出的航向確實背離島心 —— 不只是符號相反', () => {
     const out = createSense()
     const self = flyer(200, 600)
-    const s = src(island(-200, -900, 1200, 900))
-    const turns = run(self, s, out, 20).filter((t) => t !== 0)
-    expect(turns.length).toBeGreaterThan(0)
-    const sign = Math.sign(turns[0]!)
-    for (const t of turns) expect(Math.sign(t)).toBe(sign)
+    const isl = island(-300, -1600, 900, 900)
+    senseTerrain(self, src(isl), out)
+    expect(out.turn).not.toBe(0)
+
+    const cmd = createCommand()
+    cmd.aimWorld.set(0, 0, -1)
+    const act = applySafety(self, out.floor, cmd, undefined, out)
+    expect(act).toBe('terrain')
+
+    const toIsl = new Vector3(isl.cx, 0, isl.cz).sub(self.state.position).setY(0).normalize()
+    const before = new Vector3(0, 0, -1)
+    const after = new Vector3(cmd.aimWorld.x, 0, cmd.aimWorld.z).normalize()
+    // 夾角變大 = 內積變小
+    expect(after.dot(toIsl)).toBeLessThan(before.dot(toIsl))
   })
 
   it('飛過去之後解除鎖存', () => {

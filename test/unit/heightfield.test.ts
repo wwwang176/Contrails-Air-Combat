@@ -34,13 +34,28 @@ describe('HeightFieldData', () => {
     expect(f.sample((at(5) + at(6)) / 2, at(3))).toBeCloseTo(150, 6)
   })
 
-  it('雙線性：四個角的中央等於四者平均', () => {
+  /**
+   * 【內插必須跟著 mesh 的三角形，不是雙線性】畫面上那一格是**兩個平面
+   * 三角形**。四個角不共平面時，雙線性曲面與三角形在格子內部不相等 ——
+   * 這組 0/100/200/400 的中心，雙線性是 175，三角形是 150。
+   *
+   * 差 25 m 的「看不見的地形」正是那條鐵律要防的東西。
+   */
+  it('格子內部走的是三角形平面，不是雙線性曲面', () => {
     const f = createHeightField(SIZE, CELL)
-    f.data[3 * SIZE + 5] = 0
-    f.data[3 * SIZE + 6] = 100
-    f.data[4 * SIZE + 5] = 200
-    f.data[4 * SIZE + 6] = 400
-    expect(f.sample((at(5) + at(6)) / 2, (at(3) + at(4)) / 2)).toBeCloseTo(175, 6)
+    f.data[3 * SIZE + 5] = 0      // a 左上
+    f.data[3 * SIZE + 6] = 100    // b 右上
+    f.data[4 * SIZE + 5] = 200    // c 左下
+    f.data[4 * SIZE + 6] = 400    // d 右下
+    const x0 = at(5), x1 = at(6), z0 = at(3), z1 = at(4)
+    const lerp = (u: number, v: number, t: number) => u + (v - u) * t
+
+    // 對角線上（tx + tz = 1）：a–c–b 那一面
+    expect(f.sample((x0 + x1) / 2, (z0 + z1) / 2)).toBeCloseTo(150, 6)
+    // 三角形 a–c–b 內部
+    expect(f.sample(lerp(x0, x1, 0.25), lerp(z0, z1, 0.25))).toBeCloseTo(75, 6)
+    // 三角形 b–c–d 內部
+    expect(f.sample(lerp(x0, x1, 0.75), lerp(z0, z1, 0.75))).toBeCloseTo(275, 6)
   })
 
   /**
@@ -67,10 +82,13 @@ describe('HeightFieldData', () => {
     }
   })
 
-  it('sample 不配置 —— 熱路徑上每秒十幾萬次', () => {
+  /**
+   * 【這一條只驗回傳形狀，不驗零配置】它擋的是「不小心回了一個
+   * {height, normal}」那種改動。真正的零配置由 code review 與 perf-gate 守
+   * —— 就算 sample 每次先配置十個物件再回一個 number，這一條照樣綠。
+   */
+  it('sample 回的是純數值', () => {
     const f = createHeightField(SIZE, CELL)
-    // 只驗回傳的是 number 而不是物件；真正的零配置由 code review 與
-    // perf-gate 守，這裡擋的是「不小心回了一個 {height, normal}」那種改動
     expect(typeof f.sample(0, 0)).toBe('number')
   })
 })

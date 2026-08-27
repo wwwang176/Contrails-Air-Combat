@@ -6,6 +6,7 @@ import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '.
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { DEG, G0 } from '../../src/core/math'
+import type { TerrainSense } from '../../src/ai/terrainSense'
 
 /** 讓飛機以 tas 沿 dir 飛，位於 altitude。 */
 function diving(altitude: number, tas: number, gammaDeg: number): Aircraft {
@@ -519,7 +520,8 @@ describe('失速硬介入', () => {
 
 describe('applySafety —— 地形的橫向規避', () => {
   const cmd = createCommand()
-  const sense = (turn: number) => ({ floor: 0, turn, island: 0, clearSamples: 0, heldTicks: 0 })
+  const sense = (turn: number): TerrainSense =>
+    ({ floor: 0, turn, side: turn >= 0 ? 1 : -1, island: 0, clearSamples: 0 })
 
   /**
    * 【terrain 是 ground 的升級，不是它的替代】新分支寫在 ground 的

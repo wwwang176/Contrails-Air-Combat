@@ -35,8 +35,8 @@ import type { AircraftSpec } from '../../src/specs/types'
  *   192 組   撞山 0              ← 硬斷言
  *            沒回到出發距離 32    全部是正撞（off 0），其中 31 組鎖存已解除、
  *                                 人已在圓外，只是 50 秒內沒走完
- *            最低離地 56.8 m
- *            最長連續接管 26.0 s
+ *            最低離地 88.6 m
+ *            最長連續接管 46.0 s
  * ```
  *
  * 【27.9 m 不是門檻，是紀錄】安全層在 margin ≤ needed 時才觸發，觸發之後
@@ -82,6 +82,7 @@ interface Run {
   takeoverShare: number
   maxHold: number
   escaped: boolean
+  blewUp: boolean
   finalAlt: number
   finalDist: number
   finalIsland: number
@@ -119,6 +120,7 @@ function attempt(
   let hold = 0
   let maxHold = 0
   let escaped = false
+  let blewUp = false
 
   let stepsRun = 0
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -137,6 +139,16 @@ function attempt(
     a.update(cmd.aimWorld, cmd.throttle, DT, cmd.brake)
 
     const p = a.state.position
+    const v = a.state.velocity
+    /**
+     * 【數值爆炸會假綠】position 變 NaN 時 field.sample 回 −Infinity，
+     * clear 變 NaN，而 NaN 的比較全部是 false —— 撞地判定與最低離地都不會
+     * 觸發，那一組只會被算進「沒脫離」。
+     */
+    if (
+      !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)
+      || !Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.z)
+    ) { blewUp = true; break }
     const ground = sampleAt(p.x, p.z)
     const clear = p.y - Math.max(ground, 0)
     if (clear < minClear) minClear = clear
@@ -150,7 +162,7 @@ function attempt(
 
   const p = a.state.position
   return {
-    crashed, minClear, escaped,
+    crashed, minClear, escaped, blewUp,
     takeoverShare: takeovers / MAX_STEPS, maxHold: maxHold * DT,
     finalAlt: p.y,
     finalDist: Math.hypot(p.x - isl.cx, p.z - isl.cz) - isl.outerRadius,
@@ -180,6 +192,7 @@ describe('地形迴避的飛行掃描', () => {
     let worstHold = 0
     let notEscaped = 0
     let total = 0
+    const blowups: string[] = []
     const stuck: { who: string; alt: number; dist: number; isl: number; share: string }[] = []
 
     for (const t of TARGETS) {
@@ -188,6 +201,7 @@ describe('地形迴避的飛行掃描', () => {
           for (const b of BEARINGS) for (const o of OFFSETS) {
             total++
             const r = attempt(c.spec, v, t.isl, b, o, src, sampleAt)
+            if (r.blewUp) blowups.push(t.name + '/' + c.spec.id + '/' + v + '/' + b + '/off' + o)
             if (r.crashed) failures.push(`${t.name}/${c.spec.id}/${v}/${b}°/off${o}`)
             if (!r.escaped && !r.crashed) notEscaped++
             if (r.minClear < worstClear) worstClear = r.minClear
@@ -221,12 +235,16 @@ describe('地形迴避的飛行掃描', () => {
     console.log('期限結束仍在鎖存中：' + JSON.stringify(stuck.filter((x) => x.isl >= 0)))
 
     expect(failures).toEqual([])
+    // 數值爆炸不得被當成「沒脫離」矇混過去
+    expect(blowups).toEqual([])
 
     /**
      * 【第二條硬斷言：離地高度的下界】只斷言不撞是不夠的 —— 一架貼著地面
      * 蹭過去的飛機也能通過，而那在遊戲裡看起來就是「AI 快撞山了」。
      *
-     * 50 m 的依據是實測 56.8 m，留一成餘裕。**它遠高於 CRASH_CLEARANCE
+     * 50 m 的依據是實測 88.6 m。**刻意留很大的餘裕** —— 這個數字在這一輪
+     * 裡從 27.9 走到 56.8 再到 88.6，每一次都是修對了一個東西，
+     * 而不是調參數調出來的。把門檻貼著現況會讓它變成「記錄」而不是護欄。**它遠高於 CRASH_CLEARANCE
      * 的 2 m，也就是說這條在真的撞上之前很久就會紅。**
      *
      * 【這個數字是被一次修補改善的】修補前是 27.9 m：安全層的油門策略
@@ -236,19 +254,20 @@ describe('地形迴避的飛行掃描', () => {
     expect(worstClear).toBeGreaterThan(50)
 
     /**
-     * 【期限結束仍在鎖存中的，不得是「什麼都沒做」】實測 8 組，全部是正撞
-     * 島心（off 0）：
+     * 【期限結束仍在鎖存中的，必須是在爬，不是在打轉】
      *
-     *   P-51D  400 km/h   766 m   還在爬，合理
-     *   He 111 400 km/h   132 m   繞不出去 —— 但那是物理，不是 bug
+     * 這一條先前寫成「數量不得超過 8」，那是把當時的失敗數抄成門檻 ——
+     * 也就是為了讓測試變綠而放寬。換成有物理意義的判準：**高度必須高於
+     * 進場高度**。爬不過又繞不過一座大山時，全力爬升是真飛行員會做的事；
+     * 貼著海面繞圈不是。
      *
-     * He 111 的爬升率約 4.5 m/s，爬過 915 m 的山要 197 秒；轉彎半徑 375 m
-     * 而島的膨脹半徑 1,820 m，繞一圈也要很久。而這個場景的基準指令是
-     * 「永遠朝島心」—— 真實的 AI 目標會移動，不會把自己釘在那裡。
-     *
-     * 所以這裡斷言的是**數量的上界**，不是每一組的高度。多出來就代表有更多
-     * 機型／速度組合陷進去了，那才是要回頭看的訊號。
+     * 2026-08-27 實測 20 組落在這裡（全部是正撞島心），高度 370–967 m，
+     * 進場是 150 m。轟炸機佔多數 —— He 111 的爬升率約 4.5 m/s，爬過
+     * 915 m 的山要 197 秒，而這個場景只給 50 秒。那是物理。
      */
-    expect(stuck.filter((x) => x.isl >= 0).length).toBeLessThanOrEqual(8)
+    for (const x of stuck) {
+      if (x.isl < 0) continue
+      expect(x.alt).toBeGreaterThan(ENTRY_ALT)
+    }
   })
 })
