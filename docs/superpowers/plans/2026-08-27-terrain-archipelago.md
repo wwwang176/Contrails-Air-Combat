@@ -100,11 +100,11 @@ export function createHeightField(size: number, cell: number): HeightFieldData
 
 **不 import three。**
 
-- [ ] **Step 1：寫失敗的測試** —— 格點取樣 = 格點值、中點 = 兩端平均、
+- [x] **Step 1：寫失敗的測試** —— 格點取樣 = 格點值、中點 = 兩端平均、
       正負邊界的精確跨度（`(size−1)·cell`）、出界四個方向
-- [ ] **Step 2：驗紅**
-- [ ] **Step 3：實作** —— 雙線性。**`sample` 在熱路徑上，不得配置**
-- [ ] **Step 4：綠 + tsc**
+- [x] **Step 2：驗紅**
+- [x] **Step 3：實作** —— 雙線性。**`sample` 在熱路徑上，不得配置**
+- [x] **Step 4：綠 + tsc**
 
 ---
 
@@ -140,16 +140,16 @@ export function createArchipelago(): {
   WOBBLE_MAX  = 1.29          = 1 + 0.18 + 0.11
 ```
 
-- [ ] **Step 1：寫失敗的測試**
+- [x] **Step 1：寫失敗的測試**
   - 固定地形**逐位元**決定性（`Object.is`，不是 `toBeCloseTo`）
   - 每座島直徑 ≥ 300 m、峰高 ≤ 1000 m
   - `outerRadius === radius * 1.29`
   - **島間距足夠讓通道穿過** —— 任兩座島的 `outerRadius` 圓不重疊，
     且間隙寬於一個保守的通道寬度
   - `field.sample` 在 `outerRadius` 之外回海平面以下
-- [ ] **Step 2：驗紅**
-- [ ] **Step 3：實作** —— **不得 `Math.random`**，用 LCG
-- [ ] **Step 4：綠 + tsc**
+- [x] **Step 2：驗紅**
+- [x] **Step 3：實作** —— **不得 `Math.random`**，用 LCG
+- [x] **Step 4：綠 + tsc**
 
 【不寫的測試】不同 seed 產生不同地形、島心恰好等於 peak、距離 2r 為零。
 理由見 spec §6.2。
@@ -172,15 +172,15 @@ Modify `test/unit/terrain.test.ts`, Modify 兩支 e2e
 `kind === 'sea'` 時第三個 child 是**空 Group**（保住索引契約，
 `src/tools/propdisc.ts` 與 `damageedge.ts` 才不用改）。
 
-- [ ] **Step 1：先讀 `test/unit/terrain.test.ts:18`**，看它怎麼驗證 children
+- [x] **Step 1：先讀 `test/unit/terrain.test.ts:18`**，看它怎麼驗證 children
       次序並「自我驗證抓對了人」，改動要保住那個性質
-- [ ] **Step 2：寫失敗的測試** —— `kind` 切換、dispose 不漏、
+- [x] **Step 2：寫失敗的測試** —— `kind` 切換、dispose 不漏、
       **mesh 頂點高度 = `field.sample`**（鐵律的護欄）
-- [ ] **Step 3：驗紅**
-- [ ] **Step 4：實作 `island.ts`**
-- [ ] **Step 5：接 `terrain.ts`，刪 `props.ts`，改圖層名四處**
-- [ ] **Step 6：綠 + tsc**
-- [ ] **Step 7：`npm run dev` 目視** —— 島在不在、形狀像不像、
+- [x] **Step 3：驗紅**
+- [x] **Step 4：實作 `island.ts`**
+- [x] **Step 5：接 `terrain.ts`，刪 `props.ts`，改圖層名四處**
+- [x] **Step 6：綠 + tsc**
+- [x] **Step 7：`npm run dev` 目視** —— 島在不在、形狀像不像、
       有沒有 z-fighting、水線接不接得上
 
 ---
@@ -205,7 +205,7 @@ Modify `test/unit/terrain.test.ts`, Modify 兩支 e2e
 **這個 Task 完全不查高度場** —— 只吃 `islands`。這是它能在 headless
 測試裡跑、也不受格點解析度影響的原因。
 
-- [ ] **Step 1：寫失敗的測試**（合成的 `islands` 當 fixture）
+- [x] **Step 1：寫失敗的測試**（合成的 `islands` 當 fixture）
   - **通道直穿不介入** —— 左右各一座島、航跡從中間過，`turn === 0`、
     `island === −1`（這是專案負責人指定的情境）
   - 爬得過 → `turn === 0`、`floor === peak`
@@ -214,9 +214,9 @@ Modify `test/unit/terrain.test.ts`, Modify 兩支 e2e
   - 通過島心橫斷面且離開圓盤且連續三次無威脅 → `island` 回到 −1
   - `resetSense` 清空
   - 速度為零不 NaN
-- [ ] **Step 2：驗紅**
-- [ ] **Step 3：實作** —— 零配置，scratch 向量用 `core/pool.ts` 的 `makeScratch`
-- [ ] **Step 4：綠 + tsc**
+- [x] **Step 2：驗紅**
+- [x] **Step 3：實作** —— 零配置，scratch 向量用 `core/pool.ts` 的 `makeScratch`
+- [x] **Step 4：綠 + tsc**
 
 ---
 
@@ -237,19 +237,19 @@ export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'
 respawn 之後統一呼叫，**並清掉鎖存**（`playerAi` 跨場重用，
 `resetBattle` 會建新的 `AiController`，`setup.ts:1066`）。
 
-- [ ] **Step 1：寫失敗的測試**（`test/unit/ai-safety.test.ts` 加一個 describe）
+- [x] **Step 1：寫失敗的測試**（`test/unit/ai-safety.test.ts` 加一個 describe）
   - 拉得過時仍然回 `'ground'`，不升級
   - 爬不過且 `turn ≠ 0` 時回 `'terrain'`
   - `'terrain'` 不會在 `'ground'` 不觸發時觸發
-- [ ] **Step 2：驗紅**
-- [ ] **Step 3：實作**
-- [ ] **Step 4：綠 + tsc**
-- [ ] **Step 5：跑 `ai-manoeuvre` / `ai-duel-matrix` / `ai-defence`**
+- [x] **Step 2：驗紅**
+- [x] **Step 3：實作**
+- [x] **Step 4：綠 + tsc**
+- [x] **Step 5：跑 `ai-manoeuvre` / `ai-duel-matrix` / `ai-defence`**
 
 預期**全綠且數字不動**（headless 不注入地形）。**任何一條變號就停下來查
 根因** —— 那代表有東西漏進了 headless 路徑，是 bug 不是重錄理由。
 
-- [ ] **Step 6：單獨跑 `rematch.test.ts`**，確認 `replayDigest` 不變
+- [x] **Step 6：單獨跑 `rematch.test.ts`**，確認 `replayDigest` 不變
 
 ---
 
@@ -263,8 +263,8 @@ respawn 之後統一呼叫，**並清掉鎖存**（`playerAi` 跨場重用，
 四條斷言（spec §6.1）：不得撞上、期限內通過、鎖存最終解除、
 最大連續接管時間有上界。
 
-- [ ] **Step 1：寫測試**，維度診斷全部 `console.log`
-- [ ] **Step 2：跑**
+- [x] **Step 1：寫測試**，維度診斷全部 `console.log`
+- [x] **Step 2：跑**
 
 **若掃出撞山**，依 spec §7 的事前約定：**第一個要試的是把 `R` 乘 1.5**
 （滾轉建立的系統性偏差），**不是**先去調地形。
