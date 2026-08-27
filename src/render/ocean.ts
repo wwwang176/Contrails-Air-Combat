@@ -1628,10 +1628,11 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, oceanDist);
 
     // 【先算淡出、能收就收 —— Codex 2026-08-11 審查的 Important】
-    // 遠海 renderOrder = -1（先畫），所以近海覆蓋掉的區域**無法**靠 early-Z
-    // 省掉遠海的 fragment，而遠海是全螢幕的。uFadeEnd（250 km）之外佔了遠海
-    // 絕大部分的面積，在這裡收掉就跳過九次 cos、五次 sin、兩次 exp、六次
-    // hash，以及二十次 hash22（兩套 Voronoi 各九次、塊傾斜兩次）。
+    // 遠海排在細浪面之後畫，所以被細浪面蓋住的那一塊由 early-Z 收掉（見
+    // `FAR_SEA_Y` 附近的 renderOrder）。但細浪面只鋪到 ±82 km，**地平線到
+    // 82 km 之間整片都是遠海**，而那正好是 uFadeEnd（250 km）之外的區域。
+    // 在這裡收掉就跳過九次 cos、五次 sin、兩次 exp、六次 hash，以及二十次
+    // hash22（兩套 Voronoi 各九次、塊傾斜兩次）。
     if (fade > 0.0) {
       vec2 wxz = vOceanWorld.xz;
 
