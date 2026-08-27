@@ -333,7 +333,32 @@ describe('指令通道（20v20、300 秒）', () => {
    * 負控制（關掉僚機的停止出擊）下 7 張只到 2 張，而那 2 張全部收攏 ——
    * 這一條照樣綠。守著那個壞法的是上面的「多數命令會因為到達而解除」。
    */
-  it('命令期間編隊收攏', () => {
+  /**
+   * ── 【2026-08-27：停用，因為它在結構上量不到東西】───────────────────
+   *
+   * 這一條與下面「命令佔時比例」都是為**離場類**命令（`rally` / `flank`）
+   * 設計的。實測 20v20 三百秒：
+   *
+   *   issued 12  →  focus 12 / rally 0 / flank 0
+   *   leavingShare 0.00%   leavingErr "0 → 0 m"   n = 0
+   *
+   * `flank` 是被明確關掉的（`command.ts` 的 `FLANK_ENABLED = false`，那裡
+   * 有完整的理由與重啟條件）。`rally` 則是一張都沒觸發：它的閘門是
+   * `gap >= withdrawRange − arriveRadius × MIN_TRIP_RATIO` 才不發，而
+   * `1193958`（energyExit +100 → −100）與 `d68deaa`（recoveredExit 預設
+   * 關閉）之後，撤退在這個場景已經不再發生。
+   *
+   * **所以樣本數是 0，不是門檻太嚴。** 把門檻降到 0 以下會讓它變成一條
+   * 永遠通過的空斷言 —— 那正是這個檔案自己警告的「看起來像功能沒用，
+   * 其實是功能沒裝」。停用並把證據留在原地，比假綠誠實。
+   *
+   * 【重啟條件】`rally` 在這個場景恢復觸發（`byKind.rally.issued > 0`），
+   * 或 `FLANK_ENABLED` 打開。任一成立就把 `.skip` 拿掉、重跑、照實測重定值。
+   *
+   * 【它不在的期間誰在守】上面「多數命令會因為到達而解除」（`arrived`
+   * 9/12）與「命令期間不動用安全層的撞地接管」仍然對 `focus` 生效。
+   */
+  it.skip('命令期間編隊收攏', () => {
     console.log(JSON.stringify({
       issued: o.issued, arrived: o.arrived,
       share: (o.orderedSamples / Math.max(o.aliveSamples, 1) * 100).toFixed(2) + '%',
@@ -436,7 +461,14 @@ describe('指揮層的效果（20v20 開／關對照、300 秒）', () => {
     expect(off.orderedSamples).toBe(0)
   }, 10 * 60 * 1000)
 
-  it('命令佔時比例落在掃描定出的區間', () => {
+  /**
+   * 【2026-08-27：停用】與上面「命令期間編隊收攏」同一個成因 ——
+   * `leavingShare` 量的是**離場類**命令的佔時，而 `rally` 與 `flank` 都不再
+   * 發生（focus 12 / rally 0 / flank 0），所以它恆為 0。上界（< 0.25）在
+   * share = 0 時是空洞地成立，下界（> 0.05）則量不到東西。詳見上面那一條的
+   * 註解，包含證據與重啟條件。
+   */
+  it.skip('命令佔時比例落在掃描定出的區間', () => {
     // 【量的是「離場佔時」而不是「受命佔時」】見 `LEAVING` 的註解。
     // 專案負責人 2026-08-07 裁定：上界的語意本來就是離場，`focus` 不算。
     const share = leavingSamples(on) / Math.max(on.aliveSamples, 1)
