@@ -99,9 +99,54 @@ export interface IslandDesc {
  * 多數小島當景。
  */
 const TIERS = [
-  { count: 2, radius: [1300, 1600], peak: [800, PEAK_MAX] },
+  { count: 0, radius: [1300, 1600], peak: [800, PEAK_MAX] },
   { count: 6, radius: [500, 800], peak: [300, 500] },
   { count: 40, radius: [ISLAND_MIN_DIAMETER / 2, 260], peak: [60, 160] },
+] as const
+
+/**
+ * 錨島：兩座**位置與尺寸都寫死**的山，夾在交會區兩側。
+ *
+ * ```
+ *        z
+ *        ↑        ● (−2400, 900)      島緣離原點 757 m
+ *   ─────┼─────   通道 1,514 m         兩隊在這裡交會
+ *        │   ● (2400, −900)
+ * ```
+ *
+ * 【為什麼需要它們】戰場在原點附近，而隨機擺出來的地圖中心 4.7 km 內最高
+ * 只有 362 m —— 那對 600 m 的飛機不構成障礙，AI 正確地直接飛過去。實測
+ * 結果是地形感知在真實的仗裡**一次都沒跑到**。地形要進得了場，交會區就得
+ * 有真正的山。
+ *
+ * 【為什麼是兩座而不是一座】一座山對一團會漂的纏鬥是開關式的結果：實測
+ * 單座在 4v4~20v20 五種規模裡只有兩種會用到，而且其中一種繞的還是別的島。
+ * 兩座之後四種會用到，**而且每一次繞的都是錨島**。
+ *
+ * 【兩座尺寸不同】相同的話「最高」與「最寬」會是同一座，而
+ * `terrain-avoidance` 的飛行掃描以那兩者當代表 —— 192 組裡有 64 組會靜靜
+ * 地變成重複。相位也不同，不然畫面上是兩座一模一樣的山。
+ *
+ * 【通道 1,608 m】在 `CHANNEL_MIN` 之上 —— 這正是那個常數當初設計的
+ * 情境：「左右有島、中間通得過」。兩隊由 z = ±5,000 對頭進場，從中間穿過去，
+ * 然後纏鬥在兩座山之間展開。
+ *
+ * 【為什麼不調 SEED 調到有兩座落在那裡】種子釣魚的結果沒有人看得懂，
+ * 而且下一個動生成器的人會把它釣掉。
+ *
+ * 【它們取代 TIERS[0] 的兩席，不是追加】島數決定三角形數與 draw call。
+ * `radius` 與 `peak` 都落在 tier-0 的區間內 —— 尺度上它們就是那兩座被換掉
+ * 的島，所以 `TIERS[0].count` 是 0。
+ *
+ * 【peak 不貼 PEAK_MAX】上限是給隨機那一批的餘裕；寫死的這兩座貼著上限
+ * 只是在跟自己的護欄擦邊。
+ *
+ * 【動了位置就要重量】高度、規模、繞島佔時三者互相牽動，見
+ * `test/integration/terrain-in-play.test.ts`。
+ */
+const ANCHORS = [
+  { cx: 2500, cz: -950, radius: 1400, peak: 900, pa: 0, pb: 0 },
+  { cx: -2500, cz: 950, radius: 1500, peak: 850, pa: 2.1, pb: 4.3 },
 ] as const
 
 /** 每座島最多試幾個位置。試不下就少放一座 —— 間距是硬約束，數量不是 */
@@ -129,6 +174,16 @@ export function createArchipelago(): {
   const islands: IslandDesc[] = []
   // wobble 的兩個相位，逐島。與 islands 同索引
   const phase: { a: number; b: number }[] = []
+
+  // 【錨島先進去，而且不呼叫 rand()】位置與相位都是常數。後面的島照舊
+  // rejection sampling，並且要避開它
+  for (const a of ANCHORS) {
+    islands.push({
+      cx: a.cx, cz: a.cz, radius: a.radius,
+      outerRadius: a.radius * WOBBLE_MAX, peak: a.peak,
+    })
+    phase.push({ a: a.pa, b: a.pb })
+  }
 
   for (const tier of TIERS) {
     for (let n = 0; n < tier.count; n++) {
