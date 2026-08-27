@@ -1,0 +1,259 @@
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { World } from '../../src/world/World'
+import { Aircraft } from '../../src/aircraft/Aircraft'
+import { AiController } from '../../src/ai/AiController'
+import { createTargetBoard } from '../../src/ai/target'
+import { shouldFire } from '../../src/ai/fire'
+import { buildEngageBasis, createEngageBasis } from '../../src/ai/steer'
+import { createSituation, evaluateGeometry, evaluateThreat } from '../../src/ai/assess'
+import { createArchipelago, PEAK_MAX } from '../../src/world/archipelago'
+import { clearImpacts } from '../../src/world/events'
+import type { LandField } from '../../src/world/occlusion'
+import { P51D } from '../../src/specs/p51d'
+import { BF109K4 } from '../../src/specs/bf109k4'
+import { B17G } from '../../src/specs/b17g'
+
+/**
+ * 山要擋得住子彈與視線。
+ *
+ * ── 考題怎麼來的 ────────────────────────────────────────
+ *
+ * `test/tools/occlusion-case.probe.ts` 掃過「離島心多遠 × 多高」的網格，
+ * 在「兩架離地都 ≥ 120 m（安全層的 clearance）」的條件下取視線沉得最深的
+ * 一組：**兩架同高 850 m，各在錨島島心兩側 500 m，相距 1 km，山頂比兩者的
+ * 連線高 49.6 m。**
+ *
+ * 座標由島心導出而不是抄下來 —— 錨島若被移動，下面「考題本身要成立」那
+ * 三條會直接紅，而不是靜靜地變成一個不再遮蔽的場景。
+ *
+ * ── 每一條都有對照組 ──────────────────────────────────
+ *
+ * 沒有對照組的話，「命中 0」也可能只是因為兩架根本打不到對方 —— 初稿的
+ * 探針就犯過這個錯（把兩架擺在 1,800 m 外，量到的是射程不是遮蔽）。
+ *
+ * ── 為什麼不去仗裡量發生率 ────────────────────────────
+ *
+ * 在一場仗裡數「有幾發穿山」會數到 0，而那個 0 只代表這一場沒撞上。
+ * 遮蔽是一個確定的幾何事實，直接把情境造出來就好（專案負責人 2026-08-28）。
+ */
+
+const DT = 1 / 240
+const FWD = new Vector3(0, 0, -1)
+const TAS = 200
+
+const arch = createArchipelago()
+/** 錨島。`islands[0]` 是寫死的那一座，見 `archipelago.ts` 的 ANCHORS */
+const isl = arch.islands[0]!
+const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX }
+
+const D = 500
+const Y = 850
+const line = Math.hypot(isl.cx, isl.cz)
+const A = new Vector3(isl.cx - (isl.cx / line) * D, Y, isl.cz - (isl.cz / line) * D)
+const B = new Vector3(isl.cx + (isl.cx / line) * D, Y, isl.cz + (isl.cz / line) * D)
+
+/** 擺一架在 `pos`、機首指向 `look`、以 TAS 沿機首飛 */
+function place(a: Aircraft, pos: Vector3, look: Vector3): void {
+  const dir = look.clone().sub(pos).normalize()
+  a.state.position.copy(pos)
+  a.state.velocity.copy(dir).multiplyScalar(TAS)
+  a.state.orientation.setFromUnitVectors(FWD, dir)
+  a.prevPosition.copy(a.state.position)
+  a.prevOrientation.copy(a.state.orientation)
+}
+
+describe('考題本身要成立', () => {
+  it('兩架都在飛 —— 離地高於安全層的 clearance', () => {
+    expect(A.y - arch.field.sample(A.x, A.z)).toBeGreaterThan(120)
+    expect(B.y - arch.field.sample(B.x, B.z)).toBeGreaterThan(120)
+  })
+
+  it('在有效射程之內', () => {
+    expect(A.distanceTo(B)).toBeCloseTo(2 * D, 6)
+  })
+
+  it('山頂比兩者的連線高', () => {
+    expect(arch.field.sample(isl.cx, isl.cz)).toBeGreaterThan(Y)
+  })
+})
+
+// ── 彈丸 ──────────────────────────────────────────────────
+
+/**
+ * 從 A 往 B 射一發，回報它有沒有到得了 B、以及一路上有幾朵火花。
+ *
+ * 【為什麼不擺一架飛機當靶、不走飛行模型】那樣量到的會是「機首追不追得上
+ * 預瞄點」——1 km 外 3° 的機首誤差就是 52 m，對照組會因為打不準而紅，
+ * 與遮蔽無關。這一段要問的是**子彈到不到得了**，所以直接生彈丸。
+ */
+function shot(land: LandField | null) {
+  const w = new World()
+  w.land = land
+  const dir = B.clone().sub(A).normalize()
+  const speed = 887
+  // owner 0：這一支沒有 combatants，射手是 undefined、陣營 −1，等於不做
+  // 同隊過濾。**不能給 −1**，那是彈丸池的空槽哨兵
+  w.projectiles.spawn(A.x, A.y, A.z, dir.x * speed, dir.y * speed, dir.z * speed, 10, 0)
+
+  let sparks = 0
+  let closest = Infinity
+  for (let i = 0; i < Math.round(2 / DT); i++) {
+    w.step(DT)
+    sparks += w.hitEvents.count
+    clearImpacts(w.hitEvents)
+    clearImpacts(w.splashEvents)
+    if (w.projectiles.live > 0) {
+      // 池子裡只有這一發
+      const d = Math.hypot(
+        w.projectiles.x[0]! - B.x, w.projectiles.y[0]! - B.y, w.projectiles.z[0]! - B.z)
+      if (d < closest) closest = d
+    }
+  }
+  return { closest, sparks, dropped: w.hitEvents.dropped }
+}
+
+describe('彈丸：山擋得住子彈', () => {
+  const withLand = shot(LAND)
+  const without = shot(null)
+
+  it('有山：到不了對面，而且山壁上有火花', () => {
+    console.log(JSON.stringify({
+      closest: withLand.closest.toFixed(0), sparks: withLand.sparks,
+    }))
+    // 兩架相距 1 km —— 到不了「對面 100 m 之內」就是被擋住了
+    expect(withLand.closest).toBeGreaterThan(100)
+    expect(withLand.sparks).toBeGreaterThan(0)
+  })
+
+  it('沒山：飛得到 —— 對照組，證明這一發本來就到得了', () => {
+    console.log(JSON.stringify({ closest: without.closest.toFixed(1) }))
+    // 【為什麼是 5 m 而不是 0】240 Hz、887 m/s 下一步走 3.7 m，取樣只落在
+    // 步的邊界上 —— 最近的那一步不會剛好是 0
+    expect(without.closest).toBeLessThan(5)
+    expect(without.sparks).toBe(0)
+  })
+
+  it('火花的緩衝沒有溢位', () => {
+    expect(withLand.dropped).toBe(0)
+  })
+})
+
+// ── 戰鬥機 AI ─────────────────────────────────────────────
+
+function fireDecision(land: LandField | null): boolean {
+  const shooter = new Aircraft(P51D)
+  const target = new Aircraft(BF109K4)
+  place(shooter, A, B)
+  place(target, B, A)
+  target.state.velocity.set(0, 0, 0)
+  const sit = createSituation()
+  const basis = createEngageBasis()
+  // 【geometry 要先跑】range 與 losRate 是它填的，而 shouldFire 讀那兩個。
+  // 只跑 evaluateThreat 的話 range 是 0，第二個條件就直接擋掉了
+  evaluateGeometry(shooter, target, sit)
+  evaluateThreat(shooter, target, sit)
+  buildEngageBasis(shooter, target, basis)
+  return shouldFire(sit, basis, shooter, undefined, land)
+}
+
+describe('戰鬥機 AI：不對山後面的敵人開火', () => {
+  it('有山：不開火', () => {
+    expect(fireDecision(LAND)).toBe(false)
+  })
+
+  it('沒山：開火 —— 對照組', () => {
+    expect(fireDecision(null)).toBe(true)
+  })
+})
+
+/**
+ * 【這一條要跑控制器，不能只測純函式】只測 `shouldFire` 抓不到「遮蔽的
+ * mask 沒接上 `danger`」——而那正是最容易漏的地方（可選參數漏接哪一條
+ * 都不會有型別錯誤）。
+ *
+ * 要跑滿反應延遲與 `alarmRamp` 的飽和時間，所以 8 秒。
+ */
+function defendShare(land: LandField | null): number {
+  const w = new World()
+  const victim = new Aircraft(P51D)
+  const hunter = new Aircraft(BF109K4)
+  place(victim, A, B)
+  place(hunter, B, A)
+  const vc = w.add(victim, new AiController(), 'blue', A.clone(), Y, TAS)
+  const hc = w.add(hunter, new AiController(), 'red', B.clone(), Y, TAS)
+  const board = createTargetBoard(w.combatants)
+  for (const c of w.combatants) {
+    const ai = c.controller as AiController
+    ai.board = board
+    ai.selfIndex = c.index
+    if (land !== null) ai.terrain = { islands: arch.islands, land }
+  }
+  void vc
+  void hc
+
+  let samples = 0
+  let defending = 0
+  for (let i = 0; i < Math.round(8 / DT); i++) {
+    w.step(DT)
+    if (i % 12 !== 0) continue
+    samples++
+    if ((w.combatants[0]!.controller as AiController).intent === 'defend') defending++
+  }
+  return defending / Math.max(1, samples)
+}
+
+describe('戰鬥機 AI：不對山後面的瞄準做防禦機動', () => {
+  it('沒山：會進 defend —— 對照組', () => {
+    const share = defendShare(null)
+    console.log(JSON.stringify({ noLand: share.toFixed(3) }))
+    expect(share).toBeGreaterThan(0)
+  })
+
+  it('有山：不進 defend', () => {
+    const share = defendShare(LAND)
+    console.log(JSON.stringify({ withLand: share.toFixed(3) }))
+    expect(share).toBe(0)
+  })
+})
+
+// ── 砲塔 AI ───────────────────────────────────────────────
+
+/**
+ * 【專案負責人 2026-08-28】「轟炸機身上的自動機槍理論上不應該把山後的敵人
+ * 列入考慮。」
+ *
+ * 【只擋選目標，不擋扳機】搜尋每 `SEARCH_INTERVAL`（1 秒）一次，所以這裡
+ * 跑 1.5 秒 —— 保證至少搜尋過一次。
+ */
+function turretLocked(land: LandField | null): number {
+  const w = new World()
+  w.land = land
+  const bomber = new Aircraft(B17G)
+  const enemy = new Aircraft(BF109K4)
+  place(bomber, A, B)
+  place(enemy, B, A)
+  const bc = w.add(bomber, { update: () => {} } as never, 'blue', A.clone(), Y, TAS)
+  const ec = w.add(enemy, { update: () => {} } as never, 'red', B.clone(), Y, TAS)
+  void ec
+  for (let i = 0; i < Math.round(1.5 / DT); i++) {
+    bc.command.aimWorld.copy(bomber.state.velocity).normalize()
+    bc.command.throttle = 0.7
+    w.step(DT)
+  }
+  return bc.turretStates.filter((t) => t.targetIndex >= 0).length
+}
+
+describe('砲塔 AI：不把山後的敵人列入考慮', () => {
+  it('沒山：有砲塔咬上 —— 對照組', () => {
+    const n = turretLocked(null)
+    console.log(JSON.stringify({ noLand: n }))
+    expect(n).toBeGreaterThan(0)
+  })
+
+  it('有山：一座都不咬', () => {
+    const n = turretLocked(LAND)
+    console.log(JSON.stringify({ withLand: n }))
+    expect(n).toBe(0)
+  })
+})

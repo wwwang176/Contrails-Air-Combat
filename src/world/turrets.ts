@@ -9,6 +9,7 @@ import {
 import type { BurstCycle } from '../weapons/burst'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
+import { losBlocked, type LandField } from './occlusion'
 import type { Projectiles } from './Projectiles'
 import type { Turret } from '../weapons/turret'
 import type { AircraftSpec } from '../specs/types'
@@ -200,6 +201,7 @@ export function stepTurrets(
   projectiles: Projectiles,
   time: number,
   dt: number,
+  land: LandField | null = null,
 ): void {
   const turrets = c.aircraft.spec.turrets
   if (turrets.length === 0 || !c.alive || c.hp <= 0) return
@@ -225,7 +227,7 @@ export function stepTurrets(
     // 選目標。搜尋一律受冷卻節流，**與現在有沒有目標無關**
     s.searchCooldown -= dt
     if (s.searchCooldown <= 0) {
-      s.targetIndex = pickTarget(c, all, t, vel)
+      s.targetIndex = pickTarget(c, all, t, vel, land)
       s.searchCooldown += SEARCH_INTERVAL
     } else if (s.targetIndex >= 0) {
       const o = all[s.targetIndex]
@@ -331,6 +333,7 @@ const MAX_REACH_SQ = ((887 + MAX_CLOSING_SPEED) * PROJECTILE_LIFETIME) ** 2
  */
 function pickTarget(
   c: TurretCombatant, all: readonly TurretCombatant[], t: Turret, vel: Vector3,
+  land: LandField | null,
 ): number {
   let best = -1
   let bestDist = Infinity
@@ -340,6 +343,17 @@ function pickTarget(
     const d = o.aircraft.state.position.distanceToSquared(MUZZLE)
     if (d > MAX_REACH_SQ || d >= bestDist) continue
     if (!leadInBody(o, t, vel, BEST_WANT)) continue
+    // 【遮蔽排在最後】`leadInBody` 已經是這個迴圈裡最貴的一項，而沿線段查
+    // 高度場比它更貴。放在後面等於只對「已經是目前最佳」的那一架查。
+    //
+    // 【只擋選目標，不擋扳機】搜尋每 SEARCH_INTERVAL（1 秒）一次，扳機是
+    // 每步的 —— 160 座砲塔 × 240 Hz 的遮蔽查詢付不起。代價是目標剛轉到山
+    // 後的那最多一秒裡砲塔還在打，而那些子彈會撞在山壁上爆火花
+    // （`World.resolveHits`）。**這是取捨，不是漏掉。**
+    if (land !== null) {
+      const p = o.aircraft.state.position
+      if (losBlocked(MUZZLE.x, MUZZLE.y, MUZZLE.z, p.x, p.y, p.z, land)) continue
+    }
     bestDist = d
     best = o.index
   }

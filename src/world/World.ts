@@ -11,6 +11,8 @@ import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
+import { landHitT, type LandField } from './occlusion'
+import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import type { TurretState } from './turrets'
 import { createCommand, type Command, type Controller } from '../control/Controller'
@@ -96,6 +98,9 @@ const SEA_LEVEL: CrashPolicy = (c) => c.aircraft.state.position.y <= 0
 // v[0..2]，兩者不同時執行。v[3] 是 M7 新增的法線暫存。
 const S = makeScratch(4)
 
+/** 撞到陸地時的法線。模組級 —— 熱路徑不得配置 */
+const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
+
 /**
  * 槍焰的顯示時長，s。
  *
@@ -161,6 +166,18 @@ export class World {
   crashPolicy: CrashPolicy = SEA_LEVEL
 
   /**
+   * 這一場的陸地。彈丸撞到它就爆火花並回收。**`null` = 沒有陸地。**
+   *
+   * 【為什麼不是一個假的平原】造一個 `ceiling = SEA_FLOOR` 的物件會讓每
+   * 一發入海的彈丸都去查高度場，而且「陸地要高於海平面」會變成唯一擋住
+   * 海面回歸的東西。`null` 加上那道判準是兩道保險。
+   *
+   * 【海面那一條完全不走這裡】水柱仍在 `SEA_SURFACE_Y`、回收仍在
+   * `SEA_KILL_Y`。見 `occlusion.ts` 的 `SEA`。
+   */
+  land: LandField | null = null
+
+  /**
    * 這一個物理步之內的命中事件。**呼叫端負責排空**（M7 spec §2.2）。
    *
    * 【為什麼是呼叫端排空而不是 World 自己在 step 開頭清】一幀可能跑好幾
@@ -169,6 +186,11 @@ export class World {
    *
    * headless 測試不排空，於是它會填滿並開始丟棄。那沒有問題：`dropped`
    * 是給**有排空**的整合測試斷言用的（見 `multi-battle.test.ts`）。
+   *
+   * 【它的語意是「彈丸撞到東西」，不是「彈丸打中飛機」】`land` 接上之後，
+   * 撞在山壁上的那一發也推一筆（火花與打到飛機同一組）。`multi-battle`
+   * 拿它的 `count` 當命中數 —— 那一支不注入地形，所以仍然成立，但下一個
+   * 想這樣用的人要知道。傷害仍然只走 `damageEvents`。
    */
   readonly hitEvents: ImpactEvents = createImpacts()
 
@@ -337,7 +359,7 @@ export class World {
     // 迴圈裡做過了。
     for (const c of this.combatants) {
       if (!c.alive) continue
-      stepTurrets(c, this.combatants, this.projectiles, this.time, dt)
+      stepTurrets(c, this.combatants, this.projectiles, this.time, dt, this.land)
     }
 
     // 3. 彈丸推進
@@ -461,6 +483,8 @@ export class World {
     const rMax = cull.rMax
     const s0 = S.v[0]!
     const s1 = S.v[1]!
+    // 【在迴圈外取出】4,000 發的迴圈裡每一發讀一次屬性是白付的
+    const land = this.land
 
     for (let i = 0; i < p.capacity; i++) {
       const owner = p.owner[i]!
@@ -513,6 +537,30 @@ export class World {
         bestNy = this.hit.ny
         bestNz = this.hit.nz
       }
+      // ── 陸地 ────────────────────────────────────────────
+      //
+      // 【為什麼排在飛機之後而不是迴圈開頭】同一個物理步之內「先打中飛機、
+      // 後進入地面」是合法命中。飛機真的會貼著坡面飛（甲板實測量到過離地
+      // 6 m），而彈丸一步走 3.7~4.5 m —— 在迴圈開頭無條件 `continue` 會把
+      // 那個命中吃掉。所以要算出交點參數再跟 `bestT` 比先後。
+      //
+      // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`，
+      // 傷害走的是 `damageEvents` —— 所以推一筆進去就是「跟打到飛機一樣的
+      // 火花」，渲染層一行都不用改。**不推 `damageEvents`**：那一條要一個
+      // `victim.index`，山不是一架飛機。
+      if (land !== null) {
+        const landT = landHitT(ax, ay, az, bx, by, bz, land)
+        if (landT < bestT) {
+          const hx = ax + (bx - ax) * landT
+          const hy = ay + (by - ay) * landT
+          const hz = az + (bz - az) * landT
+          normalAt(land.field, hx, hz, LAND_N)
+          pushImpact(this.hitEvents, hx, hy, hz, LAND_N.nx, LAND_N.ny, LAND_N.nz)
+          p.kill(i)
+          continue
+        }
+      }
+
       if (!victim) {
         // 【水柱只在跨過水面的那一步推】寫成「y <= 水面」的話，彈丸在
         // 水面下的每一步都會再推一筆，一發變成一串。
