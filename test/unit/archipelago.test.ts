@@ -3,6 +3,11 @@ import {
   createArchipelago, CHANNEL_MIN, ISLAND_MIN_DIAMETER, PEAK_MAX, WOBBLE_MAX,
 } from '../../src/world/archipelago'
 
+/** 錨島要落在離原點這麼近的地方，m */
+const ANCHOR_MAX_DISTANCE = 3500
+/** 而且要這麼高，m */
+const ANCHOR_MIN_PEAK = 800
+
 /**
  * 群島生成器。
  *
@@ -37,6 +42,44 @@ describe('createArchipelago', () => {
     }
     expect(diff).toBe(-1)
     expect(b.islands.length).toBe(a.islands.length)
+  })
+
+  /**
+   * 【為什麼地圖上要有寫死的山】戰場在原點附近，而隨機擺出來的地圖中心
+   * 4.7 km 內最高只有 362 m —— 那對 600 m 的飛機不構成障礙，AI 正確地
+   * 直接飛過去。實測結果是地形感知在真實的仗裡**一次都沒跑到**（spec §1）。
+   * 錨島是「地形進得了場」的那個前提。
+   *
+   * 【為什麼要兩座】一座山對一團會漂的纏鬥是開關式的結果 —— 五種規模只有
+   * 兩種會用到。兩座之後四種會用到，而且每一次繞的都是錨島。
+   */
+  it('交會區兩側各有一座真正的山', () => {
+    const tall = a.islands.filter(
+      (i) => Math.hypot(i.cx, i.cz) <= ANCHOR_MAX_DISTANCE && i.peak >= ANCHOR_MIN_PEAK)
+    console.log(JSON.stringify(
+      tall.map((i) => ({ d: Math.hypot(i.cx, i.cz).toFixed(0), peak: i.peak.toFixed(0) }))))
+    expect(tall.length).toBe(2)
+    // 【要真的分在兩側】兩座疊在同一邊的話，仗往另一邊漂就完全碰不到
+    const [p, q] = tall as [typeof tall[0], typeof tall[0]]
+    expect(p!.cx * q!.cx + p!.cz * q!.cz).toBeLessThan(0)
+  })
+
+  /**
+   * 【為什麼要留得下一條通道】兩隊由 z = ±5,000 對頭進場，從兩座山中間
+   * 穿過去。通道小於 `CHANNEL_MIN` 的話 AI 的圓盤判斷會認為沒有出路，
+   * 開局變成全體繞遠路 —— 而玩家看到的是一條明明飛得過去的水道。
+   */
+  it('兩座錨島之間留得下一條通道', () => {
+    const tall = a.islands.filter(
+      (i) => Math.hypot(i.cx, i.cz) <= ANCHOR_MAX_DISTANCE && i.peak >= ANCHOR_MIN_PEAK)
+    const [p, q] = tall as [typeof tall[0], typeof tall[0]]
+    const gap = Math.hypot(p!.cx - q!.cx, p!.cz - q!.cz) - p!.outerRadius - q!.outerRadius
+    console.log(JSON.stringify({ anchorGap: gap.toFixed(0) }))
+    expect(gap).toBeGreaterThanOrEqual(CHANNEL_MIN)
+  })
+
+  it('島數是 48 —— 錨島取代兩座大島，不是追加', () => {
+    expect(a.islands.length).toBe(48)
   })
 
   it('島清單非空，而且大小混合 —— 少數大島加多數小島', () => {

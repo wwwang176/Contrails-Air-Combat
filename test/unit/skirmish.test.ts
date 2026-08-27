@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ALL_SPECS, battleConfigFrom, specOf as specById, specsFor, uniform,
   withAircraft, withoutAircraft,
-  DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE,
+  ALTITUDES, DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE,
   type SkirmishSetup,
 } from '../../src/battle/skirmish'
 import type { BattleConfig } from '../../src/battle/setup'
@@ -24,6 +24,12 @@ describe('機種名單', () => {
   })
 })
 
+/**
+ * 字面物件補上場地與開場高度。**兩者都與這幾條測的東西無關** ——
+ * 補在這裡而不是每個字面物件裡各寫一次，下一個加欄位的人只要改這一行。
+ */
+const FIELD = { terrain: 'archipelago', altitude: 4000 } as const
+
 /** 某一隊出場的第一架。改動前讀 `cfg.blueSpec`，現在從編組表算出同一件事。 */
 const leadOf = (c: BattleConfig, team: 'blue' | 'red') =>
   c.units.find((u) => u.team === team)!.members[0]!
@@ -43,7 +49,7 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
 
   it('一隊裡可以混搭 —— P-51 與 Bf109 同一隊', () => {
     const c = battleConfigFrom({
-      blue: ['p51d', 'bf109k4', 'b17g'], red: ['he111', 'p51d'], playerAt: 0,
+      ...FIELD, blue: ['p51d', 'bf109k4', 'b17g'], red: ['he111', 'p51d'], playerAt: 0,
     })
     expect(sideSummary(c.units, 'blue')).toBe('1 × p51d + 1 × bf109k4 + 1 × b17g')
     expect(sideSummary(c.units, 'red')).toBe('1 × he111 + 1 × p51d')
@@ -60,7 +66,7 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
     // 被建立），過長會炸掉特效池的容量假設（`MAX_COMBATANTS`）。
     const over = battleConfigFrom({
       blue: Array.from({ length: 99 }, () => 'p51d'),
-      red: [], playerAt: 0,
+      ...FIELD, red: [], playerAt: 0,
     })
     expect(sideCount(over.units, 'blue')).toBe(MAX_SIDE)
     expect(sideCount(over.units, 'red')).toBe(MIN_SIDE)
@@ -70,14 +76,14 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
     // 【症狀】`assertOrderOfBattle` 拋「必須恰好有一筆 player」，也就是
     // 按下開始戰鬥直接白畫面。名單縮短之後很容易踩到
     for (const at of [99, -3, NaN]) {
-      const c = battleConfigFrom({ blue: ['p51d', 'b17g'], red: ['p51d'], playerAt: at })
+      const c = battleConfigFrom({ ...FIELD, blue: ['p51d', 'b17g'], red: ['p51d'], playerAt: at })
       expect(c.units.filter((u) => u.player === true).length).toBe(1)
     }
   })
 
   it('玩家選第幾架，那一架就是他開的', () => {
     const c = battleConfigFrom({
-      blue: ['p51d', 'b17g', 'bf109k4'], red: ['p51d'], playerAt: 1,
+      ...FIELD, blue: ['p51d', 'b17g', 'bf109k4'], red: ['p51d'], playerAt: 1,
     })
     expect(leadOf(c, 'blue').id).toBe('b17g')
   })
@@ -120,7 +126,7 @@ describe('常數', () => {
  */
 describe('出戰名單的加與減', () => {
   const at = (blue: string[], playerAt: number): SkirmishSetup => (
-    { blue, red: ['bf109k4'], playerAt }
+    { ...FIELD, blue, red: ['bf109k4'], playerAt }
   )
 
   it('加在末端', () => {
@@ -164,9 +170,54 @@ describe('出戰名單的加與減', () => {
   })
 
   it('動紅隊不會碰到玩家的座位', () => {
-    const s = withoutAircraft({ blue: ['p51d', 'b17g'], red: ['p51d', 'he111'], playerAt: 1 }, 'red', 0)
+    const s = withoutAircraft({ ...FIELD, blue: ['p51d', 'b17g'], red: ['p51d', 'he111'], playerAt: 1 }, 'red', 0)
     expect(s.red).toEqual(['he111'])
     expect(s.playerAt).toBe(1)
     expect(s.blue).toEqual(['p51d', 'b17g'])
+  })
+})
+
+/**
+ * 【為什麼開場高度是一個設定，不是一個常數】上一輪把群島放進了畫面，但
+ * 實測顯示地形感知在真實的仗裡**一次都沒跑到** —— 開場恆為 4,000 m，而島
+ * 最高 1,000 m。高度可選是「地形進得了場」的另一半（spec §5.2）。
+ *
+ * 【為什麼是白名單而不是區間夾】選單只給三個值。區間夾會讓一個沒有人試飛
+ * 過的高度靜靜地成立；白名單讓它退回一個確定的值。
+ */
+describe('遭遇戰的地形與開場高度', () => {
+  it('預設等於現況 —— 不動設定的人玩到的規則一個字都沒變', () => {
+    expect(DEFAULT_SKIRMISH.terrain).toBe('archipelago')
+    expect(DEFAULT_SKIRMISH.altitude).toBe(4000)
+    expect(battleConfigFrom(DEFAULT_SKIRMISH).altitude).toBe(4000)
+  })
+
+  it('三個高度都接得到 BattleConfig', () => {
+    for (const a of ALTITUDES) {
+      expect(battleConfigFrom({ ...DEFAULT_SKIRMISH, altitude: a.value }).altitude).toBe(a.value)
+    }
+  })
+
+  it('甲板那一格低於島頂 —— 山才擋得住路', () => {
+    expect(ALTITUDES[0]!.value).toBeLessThan(900)
+  })
+
+  it('不在白名單上的高度退回預設，不是 NaN', () => {
+    for (const bad of [Number.NaN, -1, 0, 800, 99999]) {
+      const c = battleConfigFrom({ ...DEFAULT_SKIRMISH, altitude: bad })
+      expect(c.altitude).toBe(4000)
+      expect(Number.isFinite(c.altitude)).toBe(true)
+    }
+  })
+
+  it('地形不進 BattleConfig —— 它由 main.ts 交給 createTerrain', () => {
+    const c = battleConfigFrom({ ...DEFAULT_SKIRMISH, terrain: 'sea' })
+    expect('terrain' in c).toBe(false)
+  })
+
+  it('加減飛機不會弄丟地形與高度', () => {
+    const s = withAircraft({ ...DEFAULT_SKIRMISH, terrain: 'sea', altitude: 600 }, 'blue', 'he111')
+    expect(s.terrain).toBe('sea')
+    expect(s.altitude).toBe(600)
   })
 })
