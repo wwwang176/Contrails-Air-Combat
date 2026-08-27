@@ -26,8 +26,12 @@
  * 【怎麼重新產生】與 `spawn-baseline.ts` 同一支探針的邏輯，差別只在跑之前
  * 把每個 `AiController` 的 `tacticalConfig.quota` 設成 0。重錄前**務必先
  * 雙跑確認一致**——重錄一個不穩定的值毫無意義。
+ *
+ * 【最近一次重錄】2026-08-27 的 P-51D 質量校準（4,300 → 3,900 kg，見
+ * `specs/p51d.ts`）。已雙跑確認逐字相同，且與 `spawn-baseline.ts` 的
+ * `_REPLAY` 仍然相同——上一段講的「同一場」還成立。
  */
 export const HEADON_20V20_BEFORE_TACTICS
-  = '51409:611b5346b73554d7235556a784bf736c824a854f3add96ae0b45fd051ef8a0ae'
+  = '51409:b28ae41e90efec7ba66ddfae17553cf0a553842dfcc0d349270a0f7ee46e6bb8'
 export const PURSUIT_MIRROR_8V8_BEFORE_TACTICS
-  = '49033:a8b8873f609491f50845b8fc765a6777c7f6951de51adac747748c5b84f89425'
+  = '49033:f457f1951dddf076ae42fffb307c845da67f06eb0989dbe4eb83db8f66c26d1e'

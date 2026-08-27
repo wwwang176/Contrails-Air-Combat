@@ -12,72 +12,33 @@ const TOLERANCE = 0.05
 const KMH = 3.6
 
 /**
- * 海平面爬升率為什麼**兩台用不同的判準**。
+ * 兩台戰鬥機的海平面爬升率**用同一個判準**：史實 ±5%。
  *
  * ```
- *   Bf 109 K-4   史實 ±5%              實測 1,452.9 m/min（−1.16%）
- *   P-51D        有號區間 [−15%, −12%]  實測   907.0 m/min（−14.45%）
+ *   Bf 109 K-4   1,452.9 m/min（−1.16%）
+ *   P-51D        1,023.1 m/min（−3.48%）
  * ```
  *
- * 【P-51D 為什麼不能守 ±5%】它的史實 1,060 m/min 在本模型的螺旋槳模型下
- * **物理上達不到**。η(V) = etaMax·(1 − e^(−V/vRef)) 之下，命中 1,060 需要
- * vRef ≈ 26，此時 T = η(V)·P/V 在 V→0 的極限是 38.5 kN，而 3.4 m 槳盤在
- * 海平面吃下 1,490 hp 的動量理論理想靜推力只有 30.2 kN——即該螺旋槳必須
- * 產生理想值的 **1.27 倍**推力（等於機重的 0.91 倍），違反致動盤的動量
- * 守恆。把所有允許旋鈕推到物理極限（cd0 = 0.014 下限、oswald = 1.0、
- * figureOfMerit = 1.0）也只能到 1,029 m/min，且會讓 7,600 m 極速超標 10%。
- * 詳細數據見 task-14-report.md §4。這一項到今天為止沒有變。
+ * 【這裡曾經有一個 P-51D 專用的例外，2026-08-27 移除】那個例外是有號區間
+ * [−15%, −12%]，理由寫的是「1,060 m/min 在本模型的螺旋槳模型下物理上
+ * 達不到」——推導是：命中 1,060 需要 vRef ≈ 26，而那會讓 V→0 的靜推力
+ * 達到動量理論理想值的 1.27 倍，違反致動盤的動量守恆。
  *
- * 【109 為什麼從區間搬到 ±5%——這是護欄重新定值】
+ * **那個推導本身沒錯，錯的是它假設了質量是對的。** 真正的成因是 P-51D 的
+ * 質量比它的史實表所描述的載重狀態重約 10%：只動質量去反解，爬升／升限／
+ * 失速三項各自要求 3,804／3,841／3,906 kg，聚在 2.7% 之內；同樣的反解在
+ * K-4 身上散開 10% 且跨在出貨值兩側。失速那一項完全不吃出力，卻和另外
+ * 兩項指到同一個地方——這排除了「模型出力不足」的解釋。完整推論寫在
+ * `specs/p51d.ts` 的 `mass` 說明裡。
  *
- * 2026-08-07 到 2026-08-24 之間，109（當時是 G-6）**也**待在這個區間裡，
- * 而且是刻意的：既然 P-51D 只能到 −14.5%，就把 109 同步降 14.5%，換取
- * 正確的**相對關係**。當時的理由寫得很直白——「絕對爬升率兩機同時低
- * 14.5% 玩家感覺不出來，但『109 比 P-51 爬得快多少』決定了每一場交戰」。
+ * 質量由 4,300 改為 3,900 kg 之後，六項驗收全部進 ±5%，而且 `ram`、
+ * `oswald`、`alphaCrit` 三項當初為了硬撐升限與失速而推過頭的值都退了回來。
  *
- * 2026-08-25，專案負責人在把 109 換成 K-4 的同一輪裁決：**「海平面爬升要
- * 跟上史實」**。這推翻了上面那個取捨。K-4 於是改守自己的絕對值，P-51D
- * 留在原地，相對關係因此跑掉：
- *
- * ```
- *                        模型      史實      偏差
- *   K-4 ÷ P-51D 爬升比   1.6022   1.3868   +15.5%
- * ```
- *
- * **遊戲裡的 K-4 對 P-51D 的爬升優勢比史實再多 15.5%。** 這不是調參失手，
- * 是負責人在知道代價的情況下選的。下方的比值斷言因此從「必須等於史實
- * 比值」改成「必須大於史實比值，且不准再往上飄」——它守的性質變了，
- * 但沒有被刪掉。
- *
- * 【如果哪天要復原】把 specs/bf109k4.ts 的 vRef 由 50 調回 55.7，K-4 的
- * 爬升會回到 1,371 m/min（−6.70%，這條 ±5% 會紅），比值回到 1.512。
- * 注意 G-6 時代的 1.085 已經對不回來了——K-4 的發動機本來就多 525 匹。
+ * 【教訓，留給下一位】「模型物理上做不到」這個結論下得太早。當時所有旋鈕
+ * 都在螺旋槳上掃，因為紅的是爬升率；沒有人回頭問「這三項紅的東西是不是
+ * 同一個成因」。**多項驗收同時偏向同一邊時，先反解它們指不指向同一個
+ * 參數，再去推單一旋鈕的物理極限。**
  */
-
-/**
- * **P-51D 專用**的海平面爬升率允許區間 [−15%, −12%]。
- *
- * 刻意做成**單邊有號**而非 ±15%：實測誤差是 −14.449%，偏低的方向是那次
- * 裁決的內容本身。若寫成雙邊 ±15%，一次把爬升率調到 **+14%**（高於史實）
- * 的迴歸也會通過——那顯然不是我們想允許的。
- *
- * 【2026-08-25 起只剩 P-51D 用它】109 已改為守 ±5%，見上方說明。
- */
-const CLIMB_BAND = { min: -0.15, max: -0.12 }
-
-function expectClimbInBand(actual: number, expected: number, label: string) {
-  const err = (actual - expected) / expected
-  if (err < CLIMB_BAND.min || err > CLIMB_BAND.max) {
-    throw new Error(
-      `${label}：實測 ${(actual * 60).toFixed(2)} m/min，史實 ${(expected * 60).toFixed(2)} m/min，` +
-      `相對誤差 ${(err * 100).toFixed(2)}% 落在允許區間 ` +
-      `[${CLIMB_BAND.min * 100}%, ${CLIMB_BAND.max * 100}%] 之外。` +
-      `P-51D 的史實爬升率在本模型下物理上達不到，理由見本檔案上方說明。`,
-    )
-  }
-  expect(err).toBeGreaterThanOrEqual(CLIMB_BAND.min)
-  expect(err).toBeLessThanOrEqual(CLIMB_BAND.max)
-}
 
 function expectWithin(actual: number, expected: number, label: string, tol = TOLERANCE) {
   const err = Math.abs(actual - expected) / expected
@@ -144,21 +105,12 @@ const ALL: readonly Check[] = [
  */
 const PENDING = ['He111 升限', 'He111 失速', 'B17G 失速', 'B17G 升限'] as const
 
-/**
- * 爬升率的判準。`'band'` = P-51D 的有號區間，`'strict'` = 一般的 ±5%。
- *
- * 【為什麼做成欄位而不是「109 特判」】兩台的判準不同是一個**會再變**的
- * 裁決（2026-08-25 剛翻過一次）。寫成欄位的話下一次改判只要動一個字，
- * 而且新機種加進來時看得到這個選擇存在。
- */
-type ClimbMode = 'band' | 'strict'
-
 const CASES: {
   spec: AircraftSpec; hist: HistoricalReference
-  checks: readonly Check[]; climbMode?: ClimbMode
+  checks: readonly Check[]
 }[] = [
-  { spec: P51D, hist: P51D_HISTORICAL, checks: ALL, climbMode: 'band' },
-  { spec: BF109K4, hist: BF109K4_HISTORICAL, checks: ALL, climbMode: 'strict' },
+  { spec: P51D, hist: P51D_HISTORICAL, checks: ALL },
+  { spec: BF109K4, hist: BF109K4_HISTORICAL, checks: ALL },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: HE111, hist: HE111_HISTORICAL,
     checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
@@ -166,8 +118,8 @@ const CASES: {
   { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
 ]
 
-describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, −12%] 並另有比值斷言）', () => {
-  for (const { spec, hist, checks, climbMode } of CASES) {
+describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另有比值斷言）', () => {
+  for (const { spec, hist, checks } of CASES) {
     const has = (c: Check): boolean => checks.includes(c)
     describe(spec.name, () => {
       it.runIf(has('vmaxCritical'))(`臨界高度 ${hist.vmaxAtCritical.altitude} m 極速`, () => {
@@ -179,20 +131,10 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, �
         expectWithin(maxLevelSpeed(spec, 0) * KMH, hist.vmaxSeaLevel * KMH, '海平面極速 (km/h)')
       })
 
-      // 兩台判準不同，理由見檔案上方的說明。
-      it.runIf(has('climb'))(
-        climbMode === 'band'
-          ? '海平面爬升率落在 [−15%, −12%]（史實值在本模型下物理上達不到）'
-          : '海平面爬升率（史實 ±5%）',
-        () => {
-          const rate = maxClimbRate(spec, 0).rate
-          if (climbMode === 'band') {
-            expectClimbInBand(rate, hist.climbRateSeaLevel, '海平面爬升率')
-          } else {
-            expectWithin(rate * 60, hist.climbRateSeaLevel * 60, '海平面爬升率 (m/min)')
-          }
-        },
-      )
+      it.runIf(has('climb'))('海平面爬升率（史實 ±5%）', () => {
+        expectWithin(
+          maxClimbRate(spec, 0).rate * 60, hist.climbRateSeaLevel * 60, '海平面爬升率 (m/min)')
+      })
 
       it.runIf(has('stall'))('海平面失速速度', () => {
         expectWithin(stallSpeed(spec, 0, 1) * KMH, hist.stallSpeed * KMH, '失速速度 (km/h)')
@@ -224,27 +166,23 @@ describe('L2 史實性能（極速／失速／升限 ±5%，爬升率 [−15%, �
   })
 
   /**
-   * 【這條斷言在 2026-08-25 換了守護對象，沒有被刪掉】
+   * 「109 比 P-51 爬得快多少」決定了每一場交戰，所以它自己是一條護欄，
+   * 不只是上面兩條絕對值斷言的副產品。
    *
-   * 從 2026-08-07 到 2026-08-24，它守的是「模型比值 = 史實比值」
-   *（實測 1.084901 對 1.084906，餘裕約 1,000 倍）。負責人裁決 K-4 的
-   * 爬升率改守史實絕對值之後，那個等式在物理上不可能同時成立——因為
-   * P-51D 上不去（見檔案上方）。
+   * 【為什麼是雙邊 ±5%】兩台的絕對值各自守 ±5%，最壞情況下比值可以差
+   * 到約 ±10% 而兩條絕對值斷言都還是綠的。這條把它收回 ±5%，也就是說
+   * **兩台的誤差不准往相反方向跑**。實測 +2.40%，餘裕 2.6 點。
    *
-   * 現在守的是兩件仍然有意義的事：
-   *   1. **方向**：K-4 必須爬得比 P-51D 快。這條翻掉就是空戰平衡壞了。
-   *   2. **上界**：超出史實比值的幅度不准再往上飄。
-   *
-   * 目前的偏離幅度是 +15.5%，上界訂在 +20%（餘裕 3.9%）。這個 20% 不是
-   * 物理界限，是**行政界限**——它的作用是：下一次有人動 vRef 或動力而
-   * 把 K-4 的優勢再推高時，這裡會紅，逼他回來看這段說明、確認那也是一個
-   * 裁決而不是順手調的。
+   * 【它曾經是單邊的】有一段時間這條寫的是「模型比值必須**大於**史實
+   * 比值，且超出不到 +20%」——因為當時 P-51D 的爬升差史實 14.45%，比值
+   * 被推到 +15.5%，等式不可能成立。那個成因（質量）已於 2026-08-27 修掉，
+   * 所以這條回到它原本該守的形狀。若哪天又要放寬成單邊，請先確認那是
+   * 一個裁決，而不是又有一個成因沒查出來。
    */
-  it('K-4 的爬升優勢大於史實比值，且偏離幅度不超過 +20%', () => {
+  it('K-4 對 P-51D 的爬升優勢比值落在史實 ±5%', () => {
     const histRatio = BF109K4_HISTORICAL.climbRateSeaLevel / P51D_HISTORICAL.climbRateSeaLevel
     const modelRatio = maxClimbRate(BF109K4, 0).rate / maxClimbRate(P51D, 0).rate
-    // 實測：模型 1.6022、史實 1.3868、超出 +15.53%
-    expect(modelRatio).toBeGreaterThan(histRatio)
-    expect(modelRatio).toBeLessThan(histRatio * 1.2)
+    // 實測：模型 1.4201、史實 1.3868、+2.40%
+    expectWithin(modelRatio, histRatio, 'K-4 ÷ P-51D 海平面爬升比')
   })
 })
