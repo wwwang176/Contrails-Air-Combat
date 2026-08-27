@@ -4,7 +4,8 @@ import {
   OCEAN_RING_SEGMENTS, OCEAN_SIZE, OCEAN_VERT_FADE_HI, RIPPLE_RESOLVED, RIPPLE_STATIC_VAR,
   RIPPLE_WARP2_AMP, RIPPLE_WARP2_LEN_A, RIPPLE_WARP2_LEN_B, RIPPLE_WARP_AMP,
   RIPPLE_WARP_LEN_A, RIPPLE_WARP_LEN_B, RIPPLE_WAVES, SHADE_SCALE_FLOOR, SHADE_SLOPE_RMS,
-  SPARKLE_CELL, SPARKLE_CELL_REF, SPARKLE_FRAGMENT, WAVE_FADE_HI, WAVE_FADE_LO,
+  SPARKLE_CELL, SPARKLE_CELL_REF, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_FRAGMENT,
+  WAVE_FADE_HI, WAVE_FADE_LO,
   WAVE_WARP2_AMP, WAVE_WARP_AMP, WAVES,
 } from '../../src/render/ocean'
 
@@ -182,6 +183,68 @@ describe('微波（RIPPLE_WAVES）', () => {
     const gaps = bearings.map((b, i) =>
       i === 0 ? b + 180 - bearings[bearings.length - 1]! : b - bearings[i - 1]!)
     expect(180 - Math.max(...gaps)).toBeGreaterThanOrEqual(30)
+  })
+})
+
+/**
+ * 【浪峰偏置】鏡面條件只看坡度，所以白點原本落在浪的側面，峰與谷機會相同。
+ * 真實海面的短波被長浪調變 —— 峰上密、谷裡稀。見 `SPARKLE_CREST_BIAS`。
+ */
+describe('碎光的浪峰偏置', () => {
+  /** 著色器裡那一行：`p *= 1 + bias × clamp(h / ref, −1, 1)` */
+  const factor = (h: number): number =>
+    1 + SPARKLE_CREST_BIAS * Math.max(-1, Math.min(1, h / SPARKLE_CREST_REF))
+
+  /**
+   * 【機率不得為負】`bias > 1` 時浪谷的因子會變負數。著色器裡有 `max(…, 0)`
+   * 擋著，但那是保險不是設計 —— 真的踩到的話浪谷會變成一片死區，而 `roll < p`
+   * 在 p = 0 時**恆為 false**（見 `sparkleLight` 的註解），症狀是整條浪谷完全
+   * 沒有白點，離「偏置調過頭」這個成因很遠。
+   */
+  it('偏置在 [0, 1]，浪谷的機率不會歸零或變負', () => {
+    expect(SPARKLE_CREST_BIAS).toBeGreaterThanOrEqual(0)
+    expect(SPARKLE_CREST_BIAS).toBeLessThan(1)
+    expect(factor(-Infinity)).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【總量必須守恆】高度的均值是 0，而偏置對高度是**奇函數**，所以整片海的
+   * 白點總數不變 —— 只是從浪谷搬到浪峰。這一條防的是有人把 `clamp` 換成
+   * 非對稱的整形函數（例如 `smoothstep(0, ref, h)`），那會連帶平移
+   * `SPARKLE_DENSITY` 的觀感，而那個副作用很難歸因。
+   */
+  it('對高度是奇函數 —— 白點總數不變，只是搬家', () => {
+    for (const h of [0.1, 0.5, 1.2, 2.0, 5.0, 50]) {
+      expect(factor(h) + factor(-h)).toBeCloseTo(2, 12)
+    }
+    expect(factor(0)).toBe(1)
+  })
+
+  /**
+   * 【過渡半寬要跟著浪走】`SPARKLE_CREST_REF` 由 `WAVES` 的波幅推導（高度
+   * RMS 的一半），浪一改大半寬跟著改大，偏置的**相對強度**才不會漂。寫死的
+   * 話加大浪會讓 clamp 整片飽和到只剩全峰／全谷兩個值。
+   *
+   * 【它該落在 (0, RMS) 之間】太大偏置只是個很淺的漸層（實測白點平均高度只
+   * 搬 0.09 m）；太小就退化成純粹的正負號，浪身上會出現一條硬邊。RMS 的一半
+   * 讓典型高度剛好跨過飽和點，量到搬 0.24 m —— 接近這個機制的上限 0.30 m。
+   */
+  it('過渡半寬是 WAVES 高度 RMS 的一半', () => {
+    const rms = Math.sqrt(WAVES.reduce((s, w) => s + (w.amplitude * w.amplitude) / 2, 0))
+    expect(SPARKLE_CREST_REF).toBeCloseTo(rms / 2, 12)
+    expect(SPARKLE_CREST_REF).toBeGreaterThan(0)
+    expect(SPARKLE_CREST_REF).toBeLessThan(rms)
+  })
+
+  /**
+   * 【高度必須跟著 Nyquist 淡出】遠處一個 Voronoi 塊可能橫跨好幾個浪，而
+   * 亮塊的門檻是逐像素的 `roll < p` —— p 在塊內劇烈變化就會把塊撕成好幾片。
+   * 高度用的權重 `w` 與坡度是同一個，所以偏置在「塊比浪還大」之前先歸零。
+   */
+  it('高度吃的是與坡度同一個淡出權重', () => {
+    const line = SPARKLE_FRAGMENT.split('\n').find((l) => l.includes('height +='))
+    expect(line, '找不到累加 height 的那一行').toBeDefined()
+    expect(line).toMatch(/height \+= w \*/)
   })
 })
 

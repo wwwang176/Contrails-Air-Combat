@@ -787,6 +787,48 @@ export const SPARKLE_SIGMA_TAIL = (25 * Math.PI) / 180
 export const SPARKLE_TAIL_WEIGHT = 0.03
 /** 完全對齊時有多少比例的格子會亮。 */
 export const SPARKLE_DENSITY = 0.4
+
+/**
+ * **浪峰偏置**：白點在浪峰出現的機會比浪谷高多少。
+ *
+ * ```
+ *   p *= 1 + SPARKLE_CREST_BIAS × clamp(高度 / SPARKLE_CREST_REF, −1, 1)
+ * ```
+ *
+ * 0 = 關掉；0.8 = 浪峰 1.8 倍、浪谷 0.2 倍，比值 9:1。**上限是 1**（到 1
+ * 浪谷歸零）。
+ *
+ * 【為什麼不是純美術】鏡面條件只看**坡度**，所以碎光原本落在浪的**側面**，
+ * 峰與谷（坡度 0）機會相同。真實海面不是這樣：長浪會調變短波的能量，短波
+ * 在浪峰與迎風面變密變陡、在浪谷被壓抑 —— 這叫流體動力調變，雷達拍得到海浪
+ * 就是靠它。所以偏置補的是「模型裡沒有的那一層物理」，不是硬加的效果。
+ *
+ * 【總量不變】高度的均值是 0，而偏置對高度是**奇函數**，所以整片海的白點
+ * 總數不變 —— 只是從浪谷搬到浪峰。`SPARKLE_DENSITY` 的觀感不受影響。
+ *
+ * 【幾乎不用錢】高度用的 `sin(ph)` 是 drift 那一行已經算過的，只多一次乘加。
+ */
+export const SPARKLE_CREST_BIAS = 0.8
+
+/**
+ * 見 `SPARKLE_CREST_BIAS`。偏置從浪谷過渡到浪峰的**半寬**，m。高度超過它
+ * 就飽和成全峰或全谷。
+ *
+ * 【由波幅推導，不是定值】取 `WAVES` 高度 RMS（`√Σ(A²/2)` = 1.58 m）的一半
+ * —— 浪一改大，過渡半寬跟著改大，偏置的**相對強度**才不會漂。
+ *
+ * 【為什麼要讓它飽和】實際高度典型 RMS 約 1.1 m（另外還吃浪群包絡
+ * `WAVE_ENV_LO`），所以 ±0.79 m 之外會踩到 clamp —— 那是刻意的：不飽和的話
+ * 偏置只是個很淺的漸層，量到的白點平均高度只搬 0.09 m；飽和之後搬 0.28 m，
+ * 接近這個機制的上限。
+ *
+ * 【上限來自鏡面條件本身】再往下調參考也只到 0.30 m 就不動了。鏡面條件把
+ * 機率壓在坡度大的**側面**，而側面的高度≈0、乘上偏置還是 1 —— 偏置只能在
+ * 上側面與下側面之間搬，搬不到浪峰正上方。要再強就得動鏡面條件，那是另一
+ * 件事。
+ */
+export const SPARKLE_CREST_REF
+  = Math.sqrt(WAVES.reduce((s, w) => s + (w.amplitude * w.amplitude) / 2, 0)) / 2
 /**
  * 參考距離內的格子邊長，m —— 這決定色塊的大小。
  *
@@ -1284,6 +1326,8 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uSunDirection;${RIPPLE_GLSL.uniforms}
   uniform float uRipStaticVar;
   uniform float uShadeFloor;
+  uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
+  uniform float uCrestRef;
   uniform float uSigmaBase;
   uniform float uDrift;
   uniform float uSigmaTail;
@@ -1618,6 +1662,8 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
 
       vec2 g = vec2(0.0);
       vec2 drift = vec2(0.0);
+      // 水面高度，只給碎光的浪峰偏置用 —— 見 SPARKLE_CREST_BIAS。
+      float height = 0.0;
       // 【不是 0】比 shadeScale 的地板還細的那幾道微波在任何距離都淡光，
       // 貢獻是個常數 —— 見 RIPPLE_RESOLVED。
       float slopeVar = uRipStaticVar;
@@ -1639,6 +1685,11 @@ export const SPARKLE_FRAGMENT = /* glsl */ `
         ak *= env;
         g += w * uWaveAmp[i] * env * k * cos(ph) * uWaveDir[i];
         drift -= uWaveAmp[i] * env * sin(ph) * uWaveDir[i];
+        // 【高度與 drift 共用同一個 sin】所以這一行只多一次乘加。
+        // 【要吃 w】不淡出的話遠處會出事：那裡一個 Voronoi 塊可能橫跨好幾個
+        // 浪，而亮塊的門檻是逐像素的 roll < p —— 一塊會被撕成好幾片。跟著
+        // 淡出，偏置就在「塊比浪還大」之前先歸零。
+        height += w * uWaveAmp[i] * env * sin(ph);
         slopeVar += (1.0 - w * w) * ak * ak * 0.5;
       }
 
@@ -1700,7 +1751,12 @@ ${RIPPLE_GLSL.loop}
       float narrow = exp(-(1.0 - cosNH) / (sigma * sigma));
       float tail = exp(-(1.0 - cosNH) / (uSigmaTail * uSigmaTail));
       float align = mix(narrow, tail, uTailWeight);
-      float p = align * uDensity * fade;
+      // 【浪峰偏置】鏡面條件只看坡度，所以白點原本落在浪的**側面**，峰與谷
+      // 機會相同。真實海面的短波被長浪調變 —— 峰上密、谷裡稀。見
+      // SPARKLE_CREST_BIAS。高度均值為 0 而偏置是奇函數，所以白點總數不變。
+      // max 擋住 uCrestBias > 1 時浪谷變成負機率。
+      float crest = clamp(height / uCrestRef, -1.0, 1.0);
+      float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
 
 
       // 【暗處】塊與波的法線從沒進過 three 的光照鏈，補一階 Lambert 差
@@ -1903,6 +1959,8 @@ export function createOcean(): Ocean {
       : {}),
     uRipStaticVar: { value: RIPPLE_STATIC_VAR },
     uShadeFloor: { value: SHADE_SCALE_FLOOR },
+    uCrestBias: { value: SPARKLE_CREST_BIAS },
+    uCrestRef: { value: SPARKLE_CREST_REF },
     uSigmaBase: { value: SPARKLE_SIGMA_BASE },
     uDrift: { value: SPARKLE_DRIFT },
     uSigmaTail: { value: SPARKLE_SIGMA_TAIL },
