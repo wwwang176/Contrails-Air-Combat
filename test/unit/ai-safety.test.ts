@@ -6,6 +6,7 @@ import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '.
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { DEG, G0 } from '../../src/core/math'
+import type { TerrainSense } from '../../src/ai/terrainSense'
 
 /** 讓飛機以 tas 沿 dir 飛，位於 altitude。 */
 function diving(altitude: number, tas: number, gammaDeg: number): Aircraft {
@@ -514,5 +515,69 @@ describe('失速硬介入', () => {
    */
   it('門檻低於瞄準點層的 speedRecoverMargin', () => {
     expect(DEFAULT_SAFETY.stallMargin).toBeLessThan(DEFAULT_STEER.speedRecoverMargin)
+  })
+})
+
+describe('applySafety —— 地形的橫向規避', () => {
+  const cmd = createCommand()
+  const sense = (turn: number): TerrainSense =>
+    ({ floor: 0, turn, side: turn >= 0 ? 1 : -1, island: 0, clearSamples: 0 })
+
+  /**
+   * 【terrain 是 ground 的升級，不是它的替代】新分支寫在 ground 的
+   * if 裡面，所以「不會在 ground 不觸發時觸發」是結構保證的。
+   * 這一條把那個結構釘住 —— 有人把它搬出去就會紅。
+   */
+  it('高度夠、根本不需要拉起時，給了 turn 也不介入', () => {
+    const a = diving(4000, 250, -10)
+    cmd.aimWorld.set(0, -0.2, -0.98).normalize()
+    expect(applySafety(a, 0, cmd, undefined, sense(0.5))).toBe('none')
+  })
+
+  it('要拉起但 turn 為 0 → 仍然是 ground，航向不變', () => {
+    const a = diving(120, 250, -40)
+    cmd.aimWorld.set(0, -0.7, -0.7).normalize()
+    const act = applySafety(a, 0, cmd, undefined, sense(0))
+    expect(act).toBe('ground')
+    // 正前方拉起：水平分量仍朝 −Z，沒有側向
+    expect(Math.abs(cmd.aimWorld.x)).toBeLessThan(1e-6)
+  })
+
+  it('要拉起而且 turn 不為 0 → terrain，航向轉開而且仍在爬', () => {
+    const a = diving(120, 250, -40)
+    cmd.aimWorld.set(0, -0.7, -0.7).normalize()
+    const act = applySafety(a, 0, cmd, undefined, sense(0.5))
+    expect(act).toBe('terrain')
+    // 轉向 +x 側（turn > 0），而且爬升角與 ground 分支相同
+    expect(cmd.aimWorld.x).toBeGreaterThan(0)
+    expect(cmd.aimWorld.y).toBeCloseTo(Math.sin(DEFAULT_SAFETY.recoveryPitch), 6)
+  })
+
+  it('turn 反號 → 轉向另一側', () => {
+    const a = diving(120, 250, -40)
+    cmd.aimWorld.set(0, -0.7, -0.7).normalize()
+    applySafety(a, 0, cmd, undefined, sense(-0.5))
+    expect(cmd.aimWorld.x).toBeLessThan(0)
+  })
+
+  /**
+   * 【不傳 sense 就是修改前的行為】既有的對戰矩陣、AI 護欄與 replayDigest
+   * 全部走這一條路徑。這一條比對「傳 undefined」與「傳 turn 為 0 的 sense」
+   * 逐位元相同 —— 兩者都不該動到航向。
+   */
+  it('不傳 sense 與傳 turn 為 0 的 sense，輸出逐位元相同', () => {
+    const a = diving(120, 250, -40)
+    cmd.aimWorld.set(0, -0.7, -0.7).normalize()
+    const act1 = applySafety(a, 0, cmd)
+    const x1 = cmd.aimWorld.x, y1 = cmd.aimWorld.y, z1 = cmd.aimWorld.z
+    const t1 = cmd.throttle, b1 = cmd.brake
+    cmd.aimWorld.set(0, -0.7, -0.7).normalize()
+    const act2 = applySafety(a, 0, cmd, undefined, sense(0))
+    expect(act2).toBe(act1)
+    expect(Object.is(cmd.aimWorld.x, x1)).toBe(true)
+    expect(Object.is(cmd.aimWorld.y, y1)).toBe(true)
+    expect(Object.is(cmd.aimWorld.z, z1)).toBe(true)
+    expect(Object.is(cmd.throttle, t1)).toBe(true)
+    expect(Object.is(cmd.brake, b1)).toBe(true)
   })
 })

@@ -6,6 +6,7 @@ import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
+import type { TerrainSense } from './terrainSense'
 
 const FWD = new Vector3(0, 0, -1)
 const UP = new Vector3(0, 1, 0)
@@ -271,7 +272,8 @@ function horizontalHeading(self: Aircraft, out: Vector3): void {
  * 量到 2.23% / 3.67% 的介入率，那個高度不可能是撞地，是失速接管 —— 而那條
  * 護欄要守的是「不墜海」。
  */
-export type SafetyAction = 'none' | 'ground' | 'stall'
+export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'
+
 
 /**
  * 安全層。**可覆寫整個 `Command`**，回傳它介入了哪一種（`'none'` = 沒介入）。
@@ -289,6 +291,7 @@ export function applySafety(
   seaHeight: number,
   out: Command,
   cfg: SafetyConfig = DEFAULT_SAFETY,
+  sense?: TerrainSense,
 ): SafetyAction {
   const vel = self.state.velocity
   const tas = vel.length()
@@ -325,13 +328,48 @@ export function applySafety(
   if (margin <= needed) {
     const horiz = S.v[0]!
     horizontalHeading(self, horiz)
+
+    // 【地形的橫向規避】拉起爬不過前方那座島時，把航向轉開再爬。
+    //
+    // 這一段**寫在 ground 分支裡面**，所以「terrain 不會在 ground 不觸發時
+    // 觸發」是結構保證的，不是一個要靠人維護的約定 —— 介入的頻率因此仍然
+    // 完全由既有的 safetyShare 門檻管。
+    //
+    // 【不傳 sense 時這裡整段不存在】既有的對戰矩陣、AI 護欄與 replayDigest
+    // 都走那一條路徑，輸出逐位元不變。
+    let action: SafetyAction = 'ground'
+    if (sense !== undefined && sense.turn !== 0) {
+      const c = Math.cos(sense.turn)
+      const sn = Math.sin(sense.turn)
+      const hx = horiz.x
+      const hz = horiz.z
+      // 繞 y 軸旋轉。與 terrainSense 內部的旋轉用同一個式子 —— 兩邊的
+      // 符號約定必須一致，否則 AI 會往島的方向轉
+      horiz.x = hx * c - hz * sn
+      horiz.z = hx * sn + hz * c
+      action = 'terrain'
+    }
+
     out.aimWorld.copy(horiz).multiplyScalar(Math.cos(cfg.recoveryPitch))
     out.aimWorld.y = Math.sin(cfg.recoveryPitch)
     out.aimWorld.normalize()
 
     // 【油門不是固定滿檔】拉起半徑 ∝ V²，高速時減速才拉得起來；但低速時
     // 收油門會失速。判準用角落速度：高於它代表速度多到轉不動。
-    if (tas > cornerSpeed(self.spec, self.state.position.y)) {
+    //
+    // 【地形分支例外，而且是實測逼出來的】上面那套是為**俯衝改出**設計的
+    // —— 目標是把速度換成更小的拉起半徑。地形分支要做的是相反的事：
+    // 繞過去或爬過去，兩者都要能量。
+    //
+    // 掃描實測：He 111 在 400 km/h 正撞一座 915 m 的島時，被收油門加煞車，
+    // 於是一邊轉一邊掉高度 —— 50 秒後從進場的 150 m 掉到 93 m，還在膨脹圓
+    // 內繞。給它全馬力之後才爬得起來。
+    //
+    // **這不動 ground 分支的行為**：那一條的輸出逐位元不變。
+    if (action === 'terrain') {
+      out.throttle = WEP_THROTTLE
+      out.brake = 0
+    } else if (tas > cornerSpeed(self.spec, self.state.position.y)) {
       out.throttle = THROTTLE_FLOOR
       out.brake = 1
     } else {
@@ -340,7 +378,7 @@ export function applySafety(
     }
 
     out.firing = false
-    return 'ground'
+    return action
   }
 
   // ── 失速硬接管（撞地之後才判，spec §4.5）─────────────────
