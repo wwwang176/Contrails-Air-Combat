@@ -39,6 +39,7 @@ import {
 import { rallyCommand } from './rally'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
+import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
 
 /**
@@ -605,7 +606,24 @@ export class AiController implements Controller {
     // 解，只是少乘一個 ≤1 的距離因子，有單元測試釘住）。所以 `max` 等於
     // 「以警戒為準，但保證絕不比原本遲鈍」—— 新機制只能讓閃躲**更早**觸發，
     // 不可能讓任何既有的觸發消失。
-    const danger = threat > alarm ? threat : alarm
+    //
+    // ── 地形遮蔽 ──────────────────────────────────────────
+    //
+    // 【為什麼 mask 套在這裡，不是套進 assess.ts】`threatFactor` 與
+    // `alarmFactor` 的呼叫端有四處（`evaluateThreat` 兩次、
+    // `considerThreatFrom`、`targetScore` 兩次）。把地形做成可選參數穿過去，
+    // 漏接哪一條都**不會有型別錯誤** —— 而症狀是「測試全綠但飛機照樣閃山
+    // 後面的瞄準」。這裡是一個地方、一條路。
+    //
+    // 【threat 與 alarm 一定要一起歸零】上面那個不變量是 `max` 的前提。
+    // 只擋一邊等於沒擋。
+    const land = this.terrain?.land
+    let danger = threat > alarm ? threat : alarm
+    if (danger > 0 && land !== undefined && land !== null) {
+      const p = self.state.position
+      const q = attacker.state.position
+      if (losBlocked(p.x, p.y, p.z, q.x, q.y, q.z, land)) danger = 0
+    }
 
     // ── 10 Hz：昂貴的包絡查詢與意圖仲裁 ────────────────────
     if (decide) {
@@ -781,7 +799,9 @@ export class AiController implements Controller {
     // 一個打不到的方向上。`tacticalCommand` 自己也寫了 `firing = false`，這裡
     // 再擋一次是因為這一行在它之後。
     raw.firing = !tactical && burstOpen
-      && (this.intent === 'rally' ? false : shouldFire(this.sit, this.basis, self))
+      && (this.intent === 'rally'
+        ? false
+        : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null))
 
     this.emit(self, dt, out)
   }
