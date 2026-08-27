@@ -73,12 +73,6 @@ const FWD = new Vector3(0, 0, -1)
  * 【全部的狀態都住在這裡】`assess` / `rules` / `steer` / `fire` / `safety`
  * 都是純函數（spec §4.3）——這是 L4 的對戰矩陣能在 node 裡跑幾百場的前提。
  */
-/**
- * 感知相位的分配器。**建立順序是決定性的**（每一場的生成順序固定），
- * 所以由它派出去的相位也是決定性的 —— 不會破壞 replayDigest。
- */
-let nextSensePhase = 0
-
 export class AiController implements Controller {
   /**
    * 交戰對象。`board` 為 null 時由 `main.ts` 或測試設定；否則由
@@ -109,19 +103,29 @@ export class AiController implements Controller {
    * playerAi 跨場重用，resetBattle 在玩家接手過座位之後也會建新的控制器 ——
    * 上一場「我正在繞第 17 座島」的承諾不得帶進新的一場。
    */
-  clearTerrainState(): void { resetSense(this.sense) }
+  clearTerrainState(): void {
+    resetSense(this.sense)
+    // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
+    // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
+    // (senseTick + sensePhase) 在下一次 emit 就命中 0
+    this.senseTick = -this.sensePhase
+  }
 
   /** 地形感知的結果與鎖存狀態 */
   private readonly sense: TerrainSense = createSense()
   /** 物理步的計數，用來每 SENSE_INTERVAL 步重算一次 */
   private senseTick = 0
   /**
-   * 這一架的感知相位。**建立順序是決定性的，所以這個值也是。**
+   * 這一架的感知相位 —— **由座位決定，不是由建立順序**。
    *
-   * 沒有它的話 40 架會在同一個物理步一起算，做出週期性的尖峰 —— 那會直接
+   * 沒有錯開的話 40 架會在同一個物理步一起算，做出週期性的尖峰，而那會直接
    * 打在 frame-time 量的 1% low 上。
+   *
+   * 【為什麼不是一個全域遞增的計數器】那樣相位會取決於這個 process 先前
+   * 建過幾架 AI —— 重開、接手次數不同就會改變之後每一架的相位。仍然是
+   * 決定性的，但同一個座位在不同場次會拿到不同的相位，難以重現。
    */
-  private readonly sensePhase = nextSensePhase++ % SENSE_INTERVAL
+  private get sensePhase(): number { return this.selfIndex % SENSE_INTERVAL }
   profile: DifficultyProfile = ACE
 
   /**

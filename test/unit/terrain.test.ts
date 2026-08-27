@@ -101,31 +101,44 @@ describe('createTerrain（archipelago）', () => {
   })
 
   /**
-   * 【鐵律的護欄】`render/terrain.ts` 的檔頭寫著：兩份分家的話，飛機會撞到
-   * 一片看不見的海。地形這一側的防線就是這一條 —— **畫出來的那個頂點，
-   * 高度必須等於碰撞查得到的那個值**。
+   * 【鐵律的護欄】render/terrain.ts 的檔頭寫著：兩份分家的話，飛機會撞到
+   * 一片看不見的海。地形這一側的防線就是這一條。
    *
-   * 逐頂點比對整座島，不抽樣：切錯 bounding box、行列顛倒、差半格，
-   * 這些錯都只會讓一部分頂點對不上。
+   * 【逐三角形的重心，不是逐頂點】頂點上兩種內插本來就相同 —— 只比頂點的
+   * 版本抓不到任何東西。真正會分家的是**格子內部**：mesh 是兩個平面三角形，
+   * 而 sample 若用雙線性，同一格中央可以差到二十幾公尺。
+   *
+   * 重心在三角形平面上，所以它的高度就是三頂點的平均。拿它跟 sample 比，
+   * 等於直接問「畫出來的那個面，跟撞得到的那個面，是不是同一個」。
    */
-  it('mesh 的每一個頂點高度都等於 field.sample —— 看見什麼就撞到什麼', () => {
+  it('mesh 每個三角形的重心高度都等於 field.sample —— 看見什麼就撞到什麼', () => {
     const { field, islands } = createArchipelago()
     const built = createIslands(field, islands)
     let checked = 0
     let worst = 0
     built.object.traverse((o) => {
-      const g = (o as unknown as { geometry?: { attributes?: { position?: {
-        count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number
-      } } } }).geometry
+      const g = (o as unknown as { geometry?: {
+        index?: { count: number; getX(i: number): number } | null
+        attributes?: { position?: {
+          count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number
+        } }
+      } }).geometry
       const p = g?.attributes?.position
-      if (p === undefined) return
-      for (let i = 0; i < p.count; i++) {
-        const d = Math.abs(p.getY(i) - field.sample(p.getX(i), p.getZ(i)))
+      const idx = g?.index
+      if (p === undefined || idx === null || idx === undefined) return
+      for (let t = 0; t + 2 < idx.count; t += 3) {
+        const i0 = idx.getX(t)
+        const i1 = idx.getX(t + 1)
+        const i2 = idx.getX(t + 2)
+        const cx = (p.getX(i0) + p.getX(i1) + p.getX(i2)) / 3
+        const cy = (p.getY(i0) + p.getY(i1) + p.getY(i2)) / 3
+        const cz = (p.getZ(i0) + p.getZ(i1) + p.getZ(i2)) / 3
+        const d = Math.abs(cy - field.sample(cx, cz))
         if (d > worst) worst = d
         checked++
       }
     })
-    console.log(JSON.stringify({ vertices: checked, worstDelta: worst }))
+    console.log(JSON.stringify({ triangles: checked, worstDelta: worst }))
     expect(checked).toBeGreaterThan(1000)
     expect(worst).toBeLessThan(1e-3)
     built.dispose()

@@ -26,7 +26,10 @@ export interface HeightFieldData {
   /** `size²` 個高度，列優先（`row * size + col`）。就地寫入 */
   readonly data: Float32Array
   /**
-   * 世界座標 (x, z) 的高度，m。雙線性內插。
+   * 世界座標 (x, z) 的高度，m。
+   *
+   * **內插方式必須與 `render/island.ts` 切三角形的方式相同。** 見下面實作
+   * 裡的說明 —— 這是那條鐵律唯一真正的落點。
    *
    * 出界回 `-Infinity` —— 呼叫端一律與海面取 max，所以出界會自然退回
    * 純海面，不必在每個呼叫點寫邊界判斷。
@@ -72,9 +75,24 @@ export function createHeightField(size: number, cell: number): HeightFieldData {
       const h01 = data[i1 + c0]!
       const h11 = data[i1 + c1]!
 
-      const top = h00 + (h10 - h00) * tx
-      const bot = h01 + (h11 - h01) * tx
-      return top + (bot - top) * tz
+      /**
+       * 【為什麼不是雙線性】畫面上那一格是**兩個平面三角形**，不是雙線性
+       * 曲面。四個角不共平面時兩者在格子內部不相等 —— 用單元測試那組
+       * 0/100/200/400 來說，中心的雙線性是 175，而三角形上是 150。
+       *
+       * 差 25 m 的「看不見的地形」正是 `render/terrain.ts` 那條鐵律要防的
+       * 東西，而只比對頂點的護欄抓不到它（頂點上兩種內插本來就相同）。
+       *
+       * 【對角線的方向必須跟著 island.ts】那邊的索引是
+       * `a,c,b` 與 `b,c,d`，其中 a 左上、b 右上、c 左下、d 右下 ——
+       * 對角線是 b–c，也就是 `tx + tz = 1` 這條線。**動了那邊就要動這裡。**
+       */
+      if (tx + tz <= 1) {
+        // 三角形 a–c–b
+        return h00 + (h10 - h00) * tx + (h01 - h00) * tz
+      }
+      // 三角形 b–c–d，以 d 為基準
+      return h11 + (h01 - h11) * (1 - tx) + (h10 - h11) * (1 - tz)
     },
   }
 }

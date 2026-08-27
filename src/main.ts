@@ -104,15 +104,15 @@ ctx.scene.add(terrain.object)
  * 【成本】40 次參考比較。只有在**不相等**時才寫入並清鎖存，所以換地形、
  * 新控制器、重生都會被接住，而穩定狀態下什麼都不做。
  */
-function wireTerrain(): void {
+function wireTerrain(force = false): void {
   for (const c of world.combatants) {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
-    if (ctl.terrain === terrain) continue
+    if (!force && ctl.terrain === terrain) continue
     ctl.terrain = terrain
     ctl.clearTerrainState()
   }
-  if (playerAi.terrain !== terrain) {
+  if (force || playerAi.terrain !== terrain) {
     playerAi.terrain = terrain
     playerAi.clearTerrainState()
   }
@@ -447,6 +447,10 @@ function restartBattle(): void {
   rebuildVisuals()
   leaveGodView()
   respawnPlayer()
+  // 【強制清，不能靠參考比對】重開一場不換 terrain，所以 wireTerrain 的
+  // ctl.terrain === terrain 會跳過 —— 上一場「我正在繞第 17 座島」的承諾
+  // 就這樣帶進了新的一場
+  wireTerrain(true)
 }
 
 /**
@@ -807,6 +811,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
   // 漏掉——連射時 X 標記會閃爍不定。
   let hitsThisFrame = 0
+  // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
+  // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
+  wireTerrain()
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
@@ -858,6 +865,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     player = battle.player
     playerAi.selfIndex = player.index
     playerAi.setDecisionPhase(player.index / world.combatants.length)
+    // 換了機體就換了位置，上一個座位的地形承諾不再適用
+    playerAi.clearTerrainState()
     // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
     rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
     fitCameraToPlayer()
@@ -929,7 +938,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
-  wireTerrain()
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
