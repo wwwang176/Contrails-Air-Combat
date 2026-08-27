@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createHeightField } from '../../src/world/heightfield'
 import { createPhysicsLoadState, resetPhysicsLoadState, stepPhysicsLoad } from '../../bench/physics-load'
 import {
   createProjectileLoad, resetProjectileLoad, stepProjectileLoad,
@@ -84,6 +85,16 @@ describe('physics step perf gate', () => {
 const PROJECTILE_BUDGET_US = 400
 const PROJECTILE_GATE_US = 900
 
+/**
+ * 全部彈丸都在陸地上空時的門檻，µs。
+ *
+ * 【為什麼比純海面寬】每一發都要沿這一步的線段以 `cell / 4`（10 m）取樣
+ * 查高度場。一步只有 3.7~4.5 m，所以實際上是一兩個取樣點 —— 但那是 4,000
+ * 發都要付的。**門檻仍然是數量級的護欄，不是預算。**
+ */
+const LAND_BUDGET_US = 700
+const LAND_GATE_US = 1600
+
 describe('projectile step perf gate', () => {
   it('滿載 4,000 發的 World.step 沒有數量級的迴歸', () => {
     const state = createProjectileLoad()
@@ -122,6 +133,48 @@ describe('projectile step perf gate', () => {
       console.warn(
         `彈丸步 ${best.toFixed(0)} µs 超過 ${PROJECTILE_BUDGET_US} µs 的設計預算；`
         + '若非並行雜訊所致，請以 npm run bench 獨立複測。',
+      )
+    }
+  })
+
+  /**
+   * 【為什麼要另外一條】上面那一條建的 `World` 沒有陸地，所以地形遮蔽那條
+   * 路徑**一次都沒走到**。而且它的彈丸在 4,000 m —— 就算接上陸地，
+   * `ceiling` 早退也會把每一發都擋在門外。
+   *
+   * 這一條把整個負載壓到 `ceiling` 以下：每一發都要真的沿線段查高度場。
+   * **那才是甲板關卡的成本。**
+   *
+   * 【怎麼保證真的走到】`ceiling` 給一個大到早退永遠不成立的值，高度場
+   * 則填海床（−8）—— 於是每一發都會完整地沿線段取樣，而且一發都不會被
+   * 收掉。**那是最壞情況**：查了、但什麼都沒擋到。
+   *
+   * 【為什麼不是把彈丸壓低】`stepProjectileLoad` 每步會補彈丸，而補出來的
+   * 生在飛機那裡（4,000 m）—— 壓低只有第一步有效，之後又全部回到早退。
+   *
+   * 【地形用一片平的，不是真群島】要量的是「查高度場要多久」，而 `sample`
+   * 的成本與地形長什麼樣無關。用真群島只會讓這一條依賴錨島的位置。
+   */
+  it('滿載 4,000 發、遮蔽的早退全部失效時沒有數量級的迴歸', () => {
+    const state = createProjectileLoad()
+    const f = createHeightField(64, 40)
+    f.data.fill(-8)
+    state.world.land = { field: f, ceiling: 1e9 }
+
+    const BATCHES = 40
+    const N = 50
+    let best = Infinity
+    for (let b = 0; b < BATCHES; b++) {
+      const t0 = performance.now()
+      for (let i = 0; i < N; i++) stepProjectileLoad(state)
+      best = Math.min(best, ((performance.now() - t0) * 1000) / N)
+    }
+
+    console.log(JSON.stringify({ landProjectileUs: best.toFixed(0) }))
+    expect(best).toBeLessThan(LAND_GATE_US)
+    if (best >= LAND_BUDGET_US) {
+      console.warn(
+        `陸地上空的彈丸步 ${best.toFixed(0)} µs 超過 ${LAND_BUDGET_US} µs 的設計預算。`,
       )
     }
   })
