@@ -219,28 +219,110 @@ const LOBE_MIN_RADIUS = 60
  * 0.45 讓可行區間寬到 0.43～0.90（見 `LOBE_SLOPE`）。
  */
 const LOBE_RADIUS = [0.28, 0.45] as const
-/** 瓣心的偏移佔「露得出來到放得下」那一段的比例。下界不為 0 —— 恰好露出來等於沒露 */
-const LOBE_OFFSET = [0.35, 1.0] as const
-/** 瓣高在（剛好露得出來，坡度上限）之間的位置。下界同理 */
-const LOBE_PEAK_LO = 0.25
 /**
- * 一瓣的最陡坡度是主瓣的幾倍。**沒有這一條，瓣可以又小又尖。**
+ * 一瓣至少要比主瓣高出島峰的幾成。
  *
- * 【它守的是 `world/occlusion.ts` 的取樣步長】那一層的漏判是
- * `坡度 × 步長 / 2`。不封的話一顆半徑 0.28R、高 0.95P 的瓣坡度是今天最壞的
- * 三倍以上。封在 2.0 之後最壞是 4.79（今天是 2.37）—— 見那個檔案裡重寫過的
- * 說明，以及 `docs/backlog.md`。
+ * 【為什麼需要下限】「比主瓣高」不夠 —— 高出 1 m 的瓣在 40 m 的格子下看不
+ * 出來。實測沒有這一條時露出量的中位數只有 6.7 m，最小 1.0 m，而最小的那
+ * 兩座島在畫面上完全是圓錐。
  *
- * 【它與「瓣一定露得出來」不衝突】峰高的下界是主瓣在**最遠可放處**的高度
- * `rf²(3 − 2rf)`，上界是 `LOBE_SLOPE × rf`。rf ∈ [0.28, 0.45] 上兩者是
- * 0.19～0.43 對 0.56～0.90，差得很開。上界又恆 ≤ 0.90 < 1，所以 `peak`
- * 仍然是實際的最高點。
+ * 【0.08 有多少】最小的島（峰 160 m）是 13 m，剛好是一格看得出來的高差；
+ * 錨島（900 m）是 72 m，而上限 `LOBE_LIFT_MAX` 是 100 m —— 兩者之間就是
+ * 大島那批瓣的變化範圍。小島那批由 `LOBE_PEAK_MAX` 收尾。
  */
-const LOBE_SLOPE = 2.0
+const LOBE_LIFT = 0.08
+/**
+ * 瓣心的位置，佔「剛好露得出來」到「放得下的最遠處」那一段的比例。
+ *
+ * ── 【次峰墊高的是哪一環，決定它擋不擋路】────────────────────────
+ *
+ * 一顆次峰把島的某一環整個墊高。實測錨島（半徑 1,400、峰 900）：
+ *
+ * ```
+ *   離島心   只有主瓣   次峰全部擺到最遠處
+ *    1,100 m   300 m        396 (+96)
+ *    1,300     166          309 (+143)
+ *    1,500      61          161 (+100)
+ * ```
+ *
+ * **那一環就是飛機實際飛過去的地方** —— 轉開主峰之後沿著島邊繞出去的路徑
+ * 在那裡，甲板高度的纏鬥也在那裡。同一件事因此有兩個相反的後果：
+ *
+ * ```
+ *   擦過時離地變低      terrain-avoidance 的「最低離地 > 50 m」
+ *   掠過的剖面變高      爬不過去所以要轉 → terrain-in-play 的「山擋得住路」
+ * ```
+ *
+ * 【不是「太晚看到」】正撞島心時 AI 讀到的剖面內外圈**逐位元相同** ——
+ * 那條航跡上主峰蓋過一切。次峰只在**掠過**的航跡上才進得了剖面。
+ *
+ * ── 【所以要散開，而且起點要是「剛好露得出來」】──────────────────
+ *
+ * ```
+ *                            撞山   最低離地(>50)   繞島(>0)
+ *   一律貼膨脹圓的邊           0      24.5 m ❌       10/40 ✅
+ *   一律收到 0.65 倍           0      92.7   ✅        0/40 ❌
+ *   固定比例的外圈區間         3 ❌    1.9    ❌        0/40 ❌
+ *   「露得出來」到「最遠處」    0      58.2   ✅        5/40 ✅
+ * ```
+ *
+ * 起點隨這一瓣的峰高變動（`invSmoothstep(pf)`），所以散得比任何固定比例都
+ * 開 —— 那正是「固定比例的外圈區間」拿到兩邊缺點的原因。下界 0.35 不為 0：
+ * 恰好露得出來等於沒露。
+ */
+const LOBE_OFFSET = [0.35, 1.0] as const
+/**
+ * 一瓣最多比主瓣**高出**多少公尺。
+ *
+ * ── 【這一條是飛行掃描逼出來的】───────────────────────────────
+ *
+ * 撞山的成因量出來了，**不是坡度，是側翼被墊高**：
+ *
+ * ```
+ *   離錨島心   圓錐    不封抬升
+ *    1,000 m   378 m   523 (+146)
+ *    1,200 m   236     443 (+207)
+ * ```
+ *
+ * 那一圈正是繞島的飛機所在的地方。圓錐在那裡已經塌到 236 m，不封的話卻
+ * 杵著一座 443 m 的次峰 —— 飛機閃掉主峰之後撞上次峰。撞的全是轟炸機：
+ * He 111 與 B-17 進場 150 m、爬升率差、轉彎半徑大，在那一圈待得最久。
+ *
+ * ── 【為什麼是絕對值而不是比例】───────────────────────────────
+ *
+ * 用比例會**連坐小島**：一座 160 m 的礁石根本殺不死 150 m 進場的轟炸機，
+ * 卻跟著被壓成圓錐。封絕對值之後大島被咬住、小島不受影響（自己整座才
+ * 160 m），約束落在它真正成立的地方。
+ */
+const LOBE_LIFT_MAX = 100
+/**
+ * 瓣高佔島峰的硬上限。**恆小於 1，所以 `peak` 仍然是實際的最高點** ——
+ * `PEAK_MAX` 那條護欄因此不必重新定值。
+ *
+ * 【誰會咬到它】小島。`LOBE_LIFT_MAX` 是絕對值，對一座 160 m 的礁石等於
+ * 沒有上限，所以要有這一條收尾。
+ */
+const LOBE_PEAK_MAX = 0.9
 
 function smoothstep(e0: number, e1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
   return t * t * (3 - 2 * t)
+}
+
+/**
+ * `smoothstep(1, 0, x) = s` 的反解，s ∈ [0, 1]。
+ *
+ * 【為什麼需要它】一瓣要露得出來，就得放在**主瓣已經降到這一瓣峰高以下**的
+ * 半徑上。那就是在解剖面的反函數。三次式 `t²(3 − 2t) = s` 的實根有閉式解
+ * `t = 0.5 − sin(asin(1 − 2s) / 3)`，而 `smoothstep(1, 0, x)` 的 `t` 是
+ * `1 − x`，所以 `x = 0.5 + sin(asin(1 − 2s) / 3)`。
+ *
+ * 【為什麼不用二分法】閉式解沒有迭代次數這個可調參數，也就沒有「調到看起來
+ * 對為止」的空間。
+ */
+function invSmoothstep(s: number): number {
+  const c = Math.min(1, Math.max(0, s))
+  return 0.5 + Math.sin(Math.asin(1 - 2 * c) / 3)
 }
 
 /** 一瓣的原始參數。**在挑位置之前抽好** —— 見 `createArchipelago` 的說明 */
@@ -248,9 +330,9 @@ interface LobeDraw {
   dir: number
   /** 半徑佔島半徑的比例，已經夾過 `LOBE_MIN_RADIUS` 之後才用得到島半徑 */
   rf: number
-  /** 偏移佔「還放得下的最大偏移」的比例 */
+  /** 瓣心的位置，在 LOBE_OFFSET 的區間內 */
   uOff: number
-  /** 瓣高在（露得出來，坡度上限）之間的位置 */
+  /** 瓣高在（剛好夠露出來，上限）之間的位置 */
   uPeak: number
   pa: number
   pb: number
@@ -271,8 +353,8 @@ function drawLobes(rand: () => number): LobeDraw[] {
     out.push({
       dir: rand() * Math.PI * 2,
       rf: LOBE_RADIUS[0] + rand() * (LOBE_RADIUS[1] - LOBE_RADIUS[0]),
-      uOff: LOBE_OFFSET[0] + rand() * (LOBE_OFFSET[1] - LOBE_OFFSET[0]),
-      uPeak: LOBE_PEAK_LO + rand() * (1 - LOBE_PEAK_LO),
+      uOff: rand(),
+      uPeak: rand(),
       pa: rand() * Math.PI * 2,
       pb: rand() * Math.PI * 2,
     })
@@ -281,26 +363,10 @@ function drawLobes(rand: () => number): LobeDraw[] {
 }
 
 /**
- * `smoothstep(1, 0, x) = s` 的反解，s ∈ [0, 1]。
- *
- * 【為什麼需要它】一瓣要露得出來，就得放在**主瓣已經降到這一瓣峰高以下**的
- * 半徑上。那就是在解剖面的反函數。三次式 `t²(3 − 2t) = s` 的實根有閉式解
- * `t = 0.5 − sin(asin(1 − 2s) / 3)`，而 `smoothstep(1, 0, x)` 的 `t` 是
- * `1 − x`，所以 `x = 1 − t`。
- *
- * 【為什麼不用二分法】閉式解沒有迭代次數這個可調參數，也就沒有「調到看起來
- * 對為止」的空間。
- */
-function invSmoothstep(s: number): number {
-  const c = Math.min(1, Math.max(0, s))
-  return 0.5 + Math.sin(Math.asin(1 - 2 * c) / 3)
-}
-
-/**
  * 把原始參數換成落在世界裡的瓣。主瓣排第一。
  *
- * 【偏移由「還放得下多少」反推】`off = uOff × (outerRadius − r × WOBBLE_MAX)`，
- * 所以
+ * 【偏移由「還放得下多少」定死】`off = outerRadius × (1 − r / radius)`，也就是
+ * `off + r × WOBBLE_MAX = outerRadius`。所以
  *
  * ```
  *   離島心的距離 ≤ off + 離瓣心的距離 ≤ off + r × wobble(θ) ≤ off + r × WOBBLE_MAX
@@ -321,18 +387,44 @@ function makeLobes(
     // 【夾在 LOBE_MIN_RADIUS 之上，不是丟掉】見 LOBE_COUNT
     const r = Math.max(LOBE_MIN_RADIUS, d.rf * radius)
     const rf = r / radius
-    // 放得下的最遠處：off + r × WOBBLE_MAX = outerRadius，換成比例就是 1 − rf
+    /**
+     * 【一律放到還放得下的最遠處】`off + r × WOBBLE_MAX = outerRadius`，
+     * 換成比例就是 `1 − rf`。三個理由：
+     *
+     * ```
+     *   露得最多   主瓣在那裡最低，所以同樣的峰高露出得最多
+     *   海岸線     瓣貼著膨脹圓，扇貝狀的灣與岬就是這樣來的
+     *   少一個旋鈕 位置不再是抽的，所以「這一瓣露不露得出來」是一句算式，
+     *              不是一個要驗的機率
+     * ```
+     *
+     * 半徑不同的瓣落在不同的半徑上（rf ∈ [0.28, 0.45] → 0.55～0.72 倍的
+     * 膨脹圓），所以不會排成一圈。
+     */
+    // 放得下的最遠處：off + r × WOBBLE_MAX = outerRadius，換成比例是 1 − rf
     const xMax = 1 - rf
-    // 【峰高先定，位置後定】下界是主瓣在**最遠可放處**的高度 —— 低於它的話
-    // 這一瓣不論放哪裡都埋在主瓣底下，等於白抽。上界是坡度上限。
-    // 兩者差得很開，見 LOBE_SLOPE
+    /**
+     * 【峰高先定，位置後定】下界是主瓣在**最遠可放處**的高度加上
+     * `LOBE_LIFT` —— 低於它的話這一瓣不論放哪裡都埋在主瓣底下。上界是
+     * 「高出主瓣不超過 `LOBE_LIFT_MAX` 公尺」與「不超過島峰的
+     * `LOBE_PEAK_MAX`」取小的那一個。
+     */
     const pfFloor = smoothstep(1, 0, xMax)
-    const pf = pfFloor + d.uPeak * (LOBE_SLOPE * rf - pfFloor)
-    // 主瓣降到 pf 的那個半徑 —— 再往外這一瓣就露出來了。
-    // 【用 outerRadius 當尺】而不是這個方位真正的 radius × wobble：那樣會
-    // 高估主瓣，所以「露得出來」只會更確定
+    const pfCeil = Math.max(
+      pfFloor + LOBE_LIFT,
+      Math.min(LOBE_PEAK_MAX, pfFloor + LOBE_LIFT_MAX / peak))
+    const pf = pfFloor + LOBE_LIFT + d.uPeak * (pfCeil - pfFloor - LOBE_LIFT)
+    /**
+     * 【位置由峰高反推】主瓣降到 `pf` 的那個半徑就是「再往外這一瓣就露出來」
+     * 的地方。`pf > pfFloor = smoothstep(1, 0, xMax)` 而 smoothstep 遞減，
+     * 所以 `xNeed < xMax` 恆成立 —— 區間永遠非空。
+     *
+     * 【用 outerRadius 當尺】而不是這個方位真正的 `radius × wobble`：那樣
+     * 會高估主瓣，所以「露得出來」只會更確定。
+     */
     const xNeed = invSmoothstep(pf)
-    const off = outerRadius * (xNeed + d.uOff * (xMax - xNeed))
+    const uo = LOBE_OFFSET[0] + d.uOff * (LOBE_OFFSET[1] - LOBE_OFFSET[0])
+    const off = outerRadius * (xNeed + uo * (xMax - xNeed))
     lobes.push({
       cx: cx + Math.cos(d.dir) * off,
       cz: cz + Math.sin(d.dir) * off,
