@@ -1,3 +1,6 @@
+import { isGrass } from './island'
+import type { HeightFieldData } from '../world/heightfield'
+import type { IslandDesc } from '../world/archipelago'
 import {
   edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
   HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
@@ -557,6 +560,83 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
         if (x < x0 || x >= x1 || z < z0 || z >= z1) break
         pushFlora(out, x, heightAt(x, z), z, Math.atan2(tx, tz), 1, 0.5, FloraKind.Church)
         break
+      }
+    }
+  }
+}
+
+/**
+ * 島上的網格間距，m。400 棵/km² 的上限 —— 坡度會再往下壓。
+ */
+export const ISLAND_GRID = 50
+
+/** tile 中心離島多遠就整格跳過，m */
+const ISLAND_MARGIN = 200
+
+/**
+ * 群島的樹。
+ *
+ * 【判準是高度帶，不是坡度】實測群島的島很陡：草帶 16.24 km² 裡坡度 20°
+ * 以內只有 0.60（3.7%），最大兩座島的平均坡是 29.5° 與 32.7°。用坡度篩會
+ * 砍掉 95% 的地。坡度改成只壓密度 —— 接受機率乘 `cos(slope)`。
+ *
+ * 【只 import `isGrass`，不 import 任何高度常數】`world/archipelago.ts` 也有
+ * 一個 `SHORE_BAND`，值是 200（烘岸距離），而顏色分帶那個是 12。看不到常數
+ * 就沒有拿錯的機會 —— 見 `render/island.ts` 的 `GRASS_MIN_HEIGHT`。
+ */
+export function createIslandFlora(
+  field: HeightFieldData, islands: readonly IslandDesc[],
+): FloraSource {
+  const cell = field.cell
+  return (x0, z0, x1, z1, heightAt, out) => {
+    // 【先整格早退】離任何一座島都遠的話，下面的網格一格都不必走
+    const mx = (x0 + x1) / 2
+    const mz = (z0 + z1) / 2
+    const reach = Math.hypot(x1 - x0, z1 - z0) / 2 + ISLAND_MARGIN
+    let near: IslandDesc | null = null
+    let nearD = Infinity
+    for (const isl of islands) {
+      const d = Math.hypot(isl.cx - mx, isl.cz - mz)
+      if (d - isl.outerRadius > reach) continue
+      if (d < nearD) { nearD = d; near = isl }
+    }
+    if (near === null) return
+
+    const g0 = Math.floor(x0 / ISLAND_GRID)
+    const g1 = Math.floor(x1 / ISLAND_GRID)
+    const h0 = Math.floor(z0 / ISLAND_GRID)
+    const h1 = Math.floor(z1 / ISLAND_GRID)
+    for (let gz = h0; gz <= h1; gz++) {
+      for (let gx = g0; gx <= g1; gx++) {
+        // 【位置只由全域索引決定】見檔頭的鐵律
+        const hh = hash2(gx, gz ^ 0x1d7b)
+        const x = (gx + 0.12 + (hh / 4294967296) * 0.76) * ISLAND_GRID
+        const g = hash1(hh)
+        const z = (gz + 0.12 + (g / 4294967296) * 0.76) * ISLAND_GRID
+        if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
+
+        // 這一點最近的島 —— 峰高要拿它的
+        let isl = near
+        let bd = Infinity
+        for (const o of islands) {
+          const d = Math.hypot(o.cx - x, o.cz - z)
+          if (d < bd) { bd = d; isl = o }
+        }
+        const h = field.sample(x, z)
+        if (!isGrass(h, isl.peak)) continue
+
+        // 【坡度只壓密度】陡的地方稀疏，但不是砍光
+        const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
+        const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
+        const g2 = hash1(g)
+        if (g2 / 4294967296 > 1 / Math.hypot(1, Math.hypot(dx, dz))) continue
+
+        const g3 = hash1(g2)
+        pushFlora(
+          out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+          TREE_SCALE[0] + (hash1(g3) / 4294967296) * (TREE_SCALE[1] - TREE_SCALE[0]),
+          (hash1(g3 ^ 0x3c1f) & 0xff) / 255, FloraKind.ConeTree,
+        )
       }
     }
   }
