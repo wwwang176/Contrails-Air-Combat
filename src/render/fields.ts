@@ -30,14 +30,25 @@ import { Color } from 'three'
  * 由 `fields.test.ts` 的金本位釘住，語法由 e2e 在真的 WebGL2 裡編譯來守。
  */
 
-/** 田的短邊，m。Bocage 的田不大 —— 一兩百公尺是典型 */
-export const FIELD_SPACING = 170
+/**
+ * 田的短邊，m。
+ *
+ * 【比史實大，這是刻意的】實測 170 那一版的田是 p50 2.36 ha（等效邊長
+ * 154 m）、p90 8.07 ha —— 中位數正好落在真實 Bocage 的 0.5～3 ha 中間，
+ * 而 p90 已經比真實的大。但玩家是用 200 m/s 在 600 m 高度看它，那個尺度下
+ * 150 m 的田是細節不是地貌。專案負責人 2026-08-29 裁定放大。
+ */
+export const FIELD_SPACING = 230
 
 /** 田的長寬比。Bocage 的田是不規則四邊形，不是長條，所以不大 */
 export const FIELD_ANISO = 1.55
 
-/** 每一區把田的尺寸乘上這個區間裡的一個數。大小因此成片地變 */
-export const FIELD_SPACING_VAR = [0.8, 1.6] as const
+/**
+ * 每一區把田的尺寸乘上這個區間裡的一個數。大小因此成片地變。
+ *
+ * 【區間收窄過】原本是 [0.8, 1.6]，兩倍的跨距讓最小的那一撮太碎。
+ */
+export const FIELD_SPACING_VAR = [0.85, 1.35] as const
 
 /**
  * 格線推移的幅度，格的比例。
@@ -45,7 +56,7 @@ export const FIELD_SPACING_VAR = [0.8, 1.6] as const
  * **必須 < 0.5** —— 大於一半的話相鄰兩條界線會交換次序，田會翻面。
  * 這一條由 `fields.test.ts` 的「格線恆遞增」守著。
  */
-export const EDGE_JITTER = 0.32
+export const EDGE_JITTER = 0.26
 
 /** 一塊田再對切一次的機率。田的大小因此有兩倍的變化 */
 export const SPLIT_CHANCE = 0.35
@@ -75,18 +86,18 @@ const PLOUGH_CHANCE = 0.12
  * 「區塊的基調 ± 1」裡挑的 —— 索引相鄰就必須顏色相近，不然又變回雜訊。
  */
 const PALETTE = [
-  0x415430, 0x4d6238, 0x5a7040, 0x6a7d48,
-  0x7c8a50, 0x8f9457, 0xa09b5c, 0xb0a262,
+  0x414f35, 0x4d5d3d, 0x5a6a46, 0x68764f,
+  0x788357, 0x898c5f, 0x989465, 0xa69c6c,
 ] as const
 
 /** 犁過的田。不在漸層上 —— 它是另一種地，不是另一個色調 */
-const PLOUGHED = 0x6b5238
+const PLOUGHED = 0x65523e
 
 /** 樹籬。比任何一塊田都暗 —— 灌木加喬木的樹冠，而且自己有陰影 */
-const HEDGE = 0x28351f
+const HEDGE = 0x293222
 
 /** 凹路。乾土色 */
-const TRACK = 0x9c8f6e
+const TRACK = 0x968c74
 
 export interface RegionSample {
   /** 到最近與次近的區塊種子的距離，m */
