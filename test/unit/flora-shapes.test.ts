@@ -3,6 +3,7 @@ import { Box3, type BufferGeometry } from 'three'
 import {
   createFloraGeometries, disposeFloraGeometries, TREE_HEIGHT, type PoolName,
 } from '../../src/render/floraShapes'
+import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 
 const geo = createFloraGeometries()
 const names = Object.keys(geo) as PoolName[]
@@ -84,9 +85,15 @@ describe('植被與建築的幾何', () => {
     expect((c.max.x - c.min.x) / c.max.y).toBeLessThan(0.6)
   })
 
-  it('灌木比喬木矮一個量級', () => {
-    expect(bounds(geo.bush).max.y).toBeLessThan(4)
-    expect(bounds(geo.bush).max.y).toBeGreaterThan(2)
+  /**
+   * 【灌木要比間距寬】相鄰兩叢交疊才成一條連續的堤，而那條堤就是 bocage 的
+   * 本體 —— 喬木只是每隔十幾公尺插上去的一根。
+   */
+  it('灌木比喬木矮一截，但比它的間距寬', () => {
+    const b = bounds(geo.bush)
+    expect(b.max.y).toBeLessThan(TREE_HEIGHT / 3)
+    expect(b.max.y).toBeGreaterThan(2)
+    expect(b.max.x - b.min.x).toBeGreaterThan(HEDGE_BUSH_SPACING)
   })
 
   it('教堂的尖塔比任何一棟房子都高', () => {

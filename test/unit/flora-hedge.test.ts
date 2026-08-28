@@ -267,35 +267,35 @@ describe('樹籬的走線', () => {
   })
 
   /**
-   * 【為什麼是 594 而不是 473】473 是由「樹籬帶佔地 12.8% ÷ 寬 18 m ÷ 間距
-   * 15 m」推的，而那個推法系統性偏低：兩條樹籬交會的角落，兩條帶重疊，
-   * 面積只算一次而線長算兩次。實際走出來的線長比面積法推的多兩成半。
+   * 【為什麼比面積法推的高】由「樹籬帶佔地 12.8% ÷ 寬 18 m ÷ 間距」推出來的
+   * 數字系統性偏低：兩條樹籬交會的角落，兩條帶重疊，面積只算一次而線長算
+   * 兩次。實際走出來的線長比面積法推的多兩成半。
    *
    * 【區間為什麼收到 ±10%】±25% 的話少走一種線（對切線佔 11.8%）照樣綠。
    */
-  it('喬木的密度是 594 棵/km² 上下', () => {
+  it('喬木的密度是 743 棵/km² 上下', () => {
     const rows = collect(-1000, -1000, 1000, 1000)
     const trees = rows.filter((r) => TREES.has(r.kind)).length
     const perKm2 = trees / 4
     console.log(JSON.stringify({ 喬木: trees, 每平方公里: perKm2.toFixed(0) }))
     expect(trees).toBeGreaterThan(1200)
-    expect(perKm2).toBeGreaterThan(594 * 0.9)
-    expect(perKm2).toBeLessThan(594 * 1.1)
+    expect(perKm2).toBeGreaterThan(743 * 0.9)
+    expect(perKm2).toBeLessThan(743 * 1.1)
   })
 
-  it('灌木的密度是 1,484 叢/km² 上下', () => {
+  it('灌木的密度是 1,779 叢/km² 上下', () => {
     const rows = collect(-1000, -1000, 1000, 1000)
     const bushes = rows.filter((r) => r.kind === FloraKind.Bush).length
     const perKm2 = bushes / 4
     console.log(JSON.stringify({ 灌木: bushes, 每平方公里: perKm2.toFixed(0) }))
     expect(bushes).toBeGreaterThan(3000)
-    expect(perKm2).toBeGreaterThan(1484 * 0.9)
-    expect(perKm2).toBeLessThan(1484 * 1.1)
+    expect(perKm2).toBeGreaterThan(1779 * 0.9)
+    expect(perKm2).toBeLessThan(1779 * 1.1)
   })
 
   it('喬木與灌木的間距常數就是走線用的那兩個', () => {
-    expect(HEDGE_TREE_SPACING).toBe(15)
-    expect(HEDGE_BUSH_SPACING).toBe(6)
+    expect(HEDGE_TREE_SPACING).toBe(12)
+    expect(HEDGE_BUSH_SPACING).toBe(5)
   })
 })
 

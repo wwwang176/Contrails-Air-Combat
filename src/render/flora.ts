@@ -95,11 +95,21 @@ export type FloraSource = (
   out: FloraBuffer,
 ) => void
 
-/** 樹籬上兩棵喬木的間距，m */
-export const HEDGE_TREE_SPACING = 15
+/**
+ * 樹籬上兩棵喬木的間距，m。
+ *
+ * 【收緊過】15 m 時樹冠之間留六公尺的縫，一排樹讀起來是分開的點。
+ */
+export const HEDGE_TREE_SPACING = 12
 
-/** 樹籬上兩叢灌木的間距，m。連成一條帶，喬木才有底 */
-export const HEDGE_BUSH_SPACING = 6
+/**
+ * 樹籬上兩叢灌木的間距，m。
+ *
+ * **必須小於灌木的寬度**，相鄰兩叢才交疊成一條連續的帶 —— 而那條帶就是
+ * bocage 的本體，喬木只是每隔十幾公尺插上去的一根。6 m 對 3.2 m 寬的灌木
+ * 會留下三公尺的縫，整條樹籬因此讀起來是稀疏的一排小樹。
+ */
+export const HEDGE_BUSH_SPACING = 5
 
 /**
  * 樹林裡的網格間距，m。3,906 棵/km²。

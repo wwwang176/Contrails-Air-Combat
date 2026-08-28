@@ -176,7 +176,8 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
     // 所以遠處的輪廓要圓。
     treeMid: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
     treeFar: build((s) => { cone(s, BROAD_LEAF, 4, 5.5, 0, TREE_HEIGHT * 0.85) }),
-    bush: build((s) => { octa(s, BUSH_LEAF, 1.6, 1.5, 1.5) }),
+    // 【要比間距寬】相鄰兩叢交疊才成一條連續的堤 —— 見 HEDGE_BUSH_SPACING
+    bush: build((s) => { octa(s, BUSH_LEAF, 3, 2, 2) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂

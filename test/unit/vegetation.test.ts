@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, MeshStandardMaterial } from 'three'
 import {
   createVegetation, lodFor, BUSH_RANGE, FLORA_RADIUS, LOD_FAR, LOD_HYSTERESIS,
-  LOD_MID, LOD_NEAR, TILES_PER_FRAME, TILE_SIZE, type PoolName,
+  LOD_MID, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME, TILE_SIZE,
+  type PoolName,
 } from '../../src/render/vegetation'
 import {
   createFloraBuffer, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
@@ -231,6 +232,27 @@ describe('植被引擎', () => {
     const b = v.counts.broadL0
     console.log(JSON.stringify({ 原地: a, 移動600m後: b }))
     expect(b).not.toBe(a)
+    v.dispose()
+  })
+
+  /**
+   * 【重建要節流】級數是逐 tile 決定的，而三條 LOD 環上約有 88 格 —— 鏡頭
+   * 每移動 250 m 那 88 格就各換級一次，換算下來幾乎每一幀都有一格換級。
+   * 「有變就重建」等於每幀重寫一萬八千筆實例再上傳 1.4 MB，而實測那正是
+   * 1% low 由 55 ms 掉到 95 ms 的原因。
+   */
+  it('連續移動時重建有節流，不是每幀一次', () => {
+    const v = createVegetation([SIX], FLAT)
+    v.settle()
+    const before = v.stats.rebuilds
+    const N = 120
+    for (let k = 0; k < N; k++) v.update(k * 3, 0)
+    const times = v.stats.rebuilds - before
+    console.log(JSON.stringify({ 幀數: N, 移動: N * 3 + ' m', 重建次數: times }))
+    expect(times).toBeGreaterThan(0)
+    // 【閘是距離不是幀數】移動 360 m、每 REBUILD_MOVE 公尺一次
+    expect(times).toBeLessThanOrEqual(Math.ceil((N * 3) / REBUILD_MOVE) + 1)
+    expect(times).toBeLessThanOrEqual(Math.ceil(N / REBUILD_EVERY))
     v.dispose()
   })
 
