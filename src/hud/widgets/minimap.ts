@@ -1,4 +1,5 @@
 import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import { ARENA_RADIUS } from '../../world/arena'
 
 /** 地圖半徑，公尺。 */
 const RANGE = 4000
@@ -84,6 +85,20 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.moveTo(-reach, gz); ctx.lineTo(reach, gz)
   }
   ctx.stroke()
+
+  // 【戰場邊界】小地圖半徑 4 km、界 12 km，所以只有靠近時才進得了畫面 ——
+  // 那正是它該出現的時機。
+  //
+  // 【圓心是世界原點相對於玩家】這一段仍在 translate 到玩家、rotate 了
+  // −heading 的座標系裡，所以原點落在 (−worldX·px, −worldZ·px)。
+  // 畫在 `ctx.restore()` 之後的話這個算式就不成立了
+  if (f.arenaShow) {
+    ctx.strokeStyle = HUD_COLORS.warn
+    ctx.lineWidth = 1.5 * L.scale
+    ctx.beginPath()
+    ctx.arc(-f.worldX * px, -f.worldZ * px, ARENA_RADIUS * px, 0, Math.PI * 2)
+    ctx.stroke()
+  }
 
   // 敵我符號：高於我 = 三角、同層 = 方、低於我 = 倒三角（spec §8）。
   // 【畫在旋轉座標系裡但符號本身不轉】位置要跟著地圖轉（機首朝上），
