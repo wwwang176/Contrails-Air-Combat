@@ -5,10 +5,10 @@ import { applySafety } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
-  createSense, resetSense, senseTerrain, SENSE_RANGE,
+  createSense, profileHeight, resetSense, senseTerrain, SENSE_RANGE,
   type TerrainSense, type TerrainSource,
 } from '../../src/ai/terrainSense'
-import type { IslandDesc } from '../../src/world/archipelago'
+import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 
 /**
  * 地形感知。**這裡斷言的是控制律，不是地形內容** —— 所以 fixture 是手寫的
@@ -24,8 +24,18 @@ import type { IslandDesc } from '../../src/world/archipelago'
 
 const WOBBLE = 1.29
 
+/**
+ * 一座**只有主瓣**的島 —— 也就是這一檔原本的那顆圓錐。
+ *
+ * 【為什麼這裡不放次峰】這一檔測的是圓盤法（進入點、鎖存、解除），而那一層
+ * 只讀 `outerRadius`。次峰對它完全不相干，放進來只會讓每一條斷言多背一個
+ * 與它無關的變因。偏心的次峰由下面「爬升判斷看得見偏心的次峰」單獨守。
+ */
 function island(cx: number, cz: number, radius: number, peak: number): IslandDesc {
-  return { cx, cz, radius, outerRadius: radius * WOBBLE, peak }
+  return {
+    cx, cz, radius, outerRadius: radius * WOBBLE, peak,
+    lobes: [{ cx, cz, offset: 0, radius, peak, pa: 0, pb: 0 }],
+  }
 }
 
 /** 飛機放在原點，朝 −Z 飛（three 的預設前方），高度與速度可指定 */
@@ -202,5 +212,104 @@ describe('senseTerrain', () => {
     const far = island(0, -(SENSE_RANGE * 3), 1200, 900)
     senseTerrain(flyer(200, 600), src(far), out)
     expect(out.island).toBe(-1)
+  })
+})
+
+/**
+ * 偏心的次峰。**這一組是 2026-08-28 群島換成多瓣之後最容易靜默失效的地方。**
+ *
+ * 改動前 `profileHeight` 只吃「離島心多遠」，那在圓對稱的島上是對的。多瓣之後
+ * 次峰是偏心的：航跡從側面掠過去時，離島心最近的那一點是主瓣的山腰，而真正
+ * 擋路的次峰在旁邊。低估的方向是「我爬得過去」—— 而症狀是撞上去。
+ */
+describe('爬升判斷看得見偏心的次峰', () => {
+  /** 主瓣 + 一顆放在 (offset, 0) 的次峰 */
+  const lobed = (
+    cx: number, cz: number, radius: number, peak: number,
+    offset: number, lobeR: number, lobePeak: number,
+  ): IslandDesc => ({
+    cx, cz, radius, outerRadius: radius * WOBBLE, peak,
+    lobes: [
+      { cx, cz, offset: 0, radius, peak, pa: 0, pb: 0 },
+      { cx: cx + offset, cz, offset, radius: lobeR, peak: lobePeak, pa: 0, pb: 0 },
+    ],
+  })
+
+  /**
+   * 【對照組是同一座島拿掉次峰】兩者的主瓣、位置、航跡完全相同，所以兩邊
+   * 回報的地板只差在「次峰算不算數」。少了對照組的話，一個偏高的地板可能
+   * 只是主瓣本來就那麼高。
+   *
+   * 【這一條守的是 `checkClimb` 的取樣點】估計式本身由下一條守。改動前
+   * 那裡只補「離島心最近的那一點」，也就是主瓣的極大值 —— 偏心的次峰在
+   * 它旁邊，八個等距點抓不抓得到是運氣。
+   */
+  it('側面掠過時，地板恰好抬到次峰的峰頂 —— 而只有主瓣的同一座島不會', () => {
+    const R = 1400
+    const P = 900
+    // 次峰：偏移 1,200、半徑 450、高 550。三個數字都在生成器的合法範圍內
+    //（1200 + 450 × 1.29 = 1780 ≤ outerRadius 1806；550 / 900 ≤ 2 × 450 / 1400）
+    const OFF = 1200
+    const LP = 550
+    /**
+     * 【垂距刻意不等於偏移】等於的話次峰的極大值恰好落在「離島心最近的
+     * 那一點」上，而那一點本來就有取樣 —— 測不到補進來的那幾個點。
+     *
+     * 這裡 perp = 1,100、along = 900，所以極大值在 s = 900 ± 480，也就是
+     * 420 與 1,380。八個等距點是 150、300、…、1,200 —— **兩個都不在上面**。
+     */
+    const PERP = 1100
+    const fly = (): Aircraft => {
+      const ac = flyer(3000, 600)
+      ac.state.position.set(PERP, 3000, 0)
+      return ac
+    }
+    const a = createSense()
+    const b = createSense()
+    senseTerrain(fly(), src(island(0, -900, R, P)), a)
+    senseTerrain(fly(), src(lobed(0, -900, R, P, OFF, 450, LP)), b)
+    console.log(JSON.stringify({ 只有主瓣: a.floor.toFixed(2), 有次峰: b.floor.toFixed(2) }))
+    // 對照組：這條航跡上主瓣自己遠低於次峰
+    expect(a.floor).toBeLessThan(LP * 0.6)
+    // 【要求「恰好等於峰頂」而不是「夠高」】等距的八點會取到 549.3，
+    // 差 0.7 m —— 用不等式的話拿掉補點也照樣綠
+    expect(b.floor).toBeCloseTo(LP, 6)
+  })
+
+  /**
+   * 【估計必須恆 ≥ 實際地形】那是圓盤法保守性的全部內容 —— 低估的方向是
+   * 「我爬得過去」，而症狀是撞上去。
+   *
+   * 【比的是高度場的格點，不是 `sample`】格點是 `bake` 直接算出來的，沒有
+   * 內插，所以這一條是精確的。內插在山腳那種凸的地方會略高於解析值，那會
+   * 讓這條測試變成在量內插誤差。
+   *
+   * 【為什麼掃真的群島】`profileHeight` 與 `bake` 是兩份獨立的實作 ——
+   * 這一條驗的正是兩份對得上。手寫的島驗不到那件事。
+   */
+  it('剖面的估計恆不低於真實的地形', () => {
+    const { field, islands } = createArchipelago()
+    const { size, cell, data } = field
+    const half = (size - 1) / 2
+    let worst = Infinity
+    let where = ''
+    for (const isl of islands) {
+      const c0 = Math.max(0, Math.floor((isl.cx - isl.outerRadius) / cell + half))
+      const c1 = Math.min(size - 1, Math.ceil((isl.cx + isl.outerRadius) / cell + half))
+      const r0 = Math.max(0, Math.floor((isl.cz - isl.outerRadius) / cell + half))
+      const r1 = Math.min(size - 1, Math.ceil((isl.cz + isl.outerRadius) / cell + half))
+      for (let row = r0; row <= r1; row++) {
+        for (let col = c0; col <= c1; col++) {
+          const x = (col - half) * cell
+          const z = (row - half) * cell
+          const d = Math.hypot(x - isl.cx, z - isl.cz)
+          if (d > isl.outerRadius) continue
+          const slack = profileHeight(isl, d) - data[row * size + col]!
+          if (slack < worst) { worst = slack; where = `${x.toFixed(0)},${z.toFixed(0)}` }
+        }
+      }
+    }
+    console.log(JSON.stringify({ 最小餘裕: worst.toFixed(1), where }))
+    expect(worst).toBeGreaterThanOrEqual(0)
   })
 })

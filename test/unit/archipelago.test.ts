@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createArchipelago, CHANNEL_MIN, ISLAND_MIN_DIAMETER, PEAK_MAX, WOBBLE_MAX,
+  bakeShore, createArchipelago, CHANNEL_MIN, FIELD_CELL, ISLAND_MIN_DIAMETER,
+  PEAK_MAX, SEA_FLOOR, SHORE_BAND, WOBBLE_MAX,
 } from '../../src/world/archipelago'
 
 /** 錨島要落在離原點這麼近的地方，m */
@@ -121,17 +122,223 @@ describe('createArchipelago', () => {
     expect(worst).toBeGreaterThanOrEqual(CHANNEL_MIN)
   })
 
-  it('島的膨脹圓之外是海平面以下 —— 圓盤法的保守性靠這一條', () => {
+  /**
+   * 【為什麼掃 64 個方位而不是四個】島不再是圓對稱的：次峰是偏心的，而
+   * 「每一瓣都放得下」是靠 `makeLobes` 那條恆等式撐住的。四個方位量不到一顆
+   * 剛好落在對角線上的瓣。
+   *
+   * 【為什麼是「恰好等於海床」而不是「≤ 0」】溢出一點點的話高度仍然是負的
+   * —— 那條斷言看不出來。而恰好等於 `SEA_FLOOR` 意味著**沒有任何一瓣碰到
+   * 這裡**，那才是圓盤法要的。
+   *
+   * 【為什麼取樣點退到兩格外】`sample` 在格內是內插的，膨脹圓正上方那一格的
+   * 內側頂點可能還在島上。兩格保證內插用的四個頂點都在圓外。島間距 1,500 m
+   * 遠大於兩格，所以不會取到別座島。
+   */
+  it('膨脹圓之外恰好是海床 —— 圓盤法的保守性靠這一條', () => {
+    const d = FIELD_CELL * 2
     for (const i of a.islands) {
-      // 沿四個方向各走出膨脹圓一格
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const d = i.outerRadius + a.field.cell
-        expect(a.field.sample(i.cx + dx * d, i.cz + dz * d)).toBeLessThanOrEqual(0)
+      for (let k = 0; k < 64; k++) {
+        const th = (k / 64) * Math.PI * 2
+        const r = i.outerRadius + d
+        expect(a.field.sample(i.cx + Math.cos(th) * r, i.cz + Math.sin(th) * r))
+          .toBe(SEA_FLOOR)
       }
     }
   })
 
   it('島心附近確實有陸地', () => {
     for (const i of a.islands) expect(a.field.sample(i.cx, i.cz)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * 多瓣的島。**一座島 = 主瓣加四顆偏心的次峰取 max**，兩瓣相交處的摺線就是
+ * 稜線。這一組守的是「換了形狀，三個既有契約仍然成立」，以及「起伏真的存在
+ * 而不是換了個寫法的同一顆圓錐」。
+ */
+describe('多瓣的島', () => {
+  const a = createArchipelago()
+
+  /**
+   * 【這是 outerRadius 不必重新定值的全部理由】`off + r × WOBBLE_MAX ≤
+   * outerRadius` 成立的話，三角不等式就保證整座島仍在膨脹圓之內。
+   * 上面那條掃高度場的是同一件事的另一端 —— 這一條直接驗參數，紅起來會指向
+   * `makeLobes`，那一條會指向 `bake`。
+   */
+  it('每一瓣都放得下', () => {
+    let worst = -Infinity
+    for (const i of a.islands) {
+      for (const lo of i.lobes) {
+        worst = Math.max(worst, lo.offset + lo.radius * WOBBLE_MAX - i.outerRadius)
+      }
+    }
+    console.log(JSON.stringify({ 最大溢出: worst.toFixed(9) }))
+    expect(worst).toBeLessThanOrEqual(0)
+  })
+
+  /**
+   * 【`peak` 必須仍然是實際的最高點】不然 `PEAK_MAX` 這個護欄就失效了 ——
+   * 而它是「AI 閃得掉」的第一道防線。
+   *
+   * 【驗的是高度場的格點，不是解析值】格點是烘出來的、沒有內插，所以這一條
+   * 是精確的。島心不落在格點上，所以**不能**反過來要求島心恰好等於 `peak`。
+   */
+  it('膨脹圓之內沒有一格高過那座島的 peak', () => {
+    const { size, cell, data } = a.field
+    const half = (size - 1) / 2
+    let worst = -Infinity
+    for (const i of a.islands) {
+      const c0 = Math.max(0, Math.floor((i.cx - i.outerRadius) / cell + half))
+      const c1 = Math.min(size - 1, Math.ceil((i.cx + i.outerRadius) / cell + half))
+      const r0 = Math.max(0, Math.floor((i.cz - i.outerRadius) / cell + half))
+      const r1 = Math.min(size - 1, Math.ceil((i.cz + i.outerRadius) / cell + half))
+      for (let row = r0; row <= r1; row++) {
+        for (let col = c0; col <= c1; col++) {
+          const x = (col - half) * cell
+          const z = (row - half) * cell
+          if (Math.hypot(x - i.cx, z - i.cz) > i.outerRadius) continue
+          worst = Math.max(worst, data[row * size + col]! - i.peak)
+        }
+      }
+    }
+    console.log(JSON.stringify({ 最高的一格超出peak: worst.toFixed(6) }))
+    expect(worst).toBeLessThanOrEqual(0)
+    expect(worst).toBeGreaterThan(-30)   // 而且真的接近 —— 主瓣沒有被誰壓掉
+  })
+
+  /**
+   * 【起伏真的存在】改動前，沿任何一條半徑走出去高度是**嚴格遞減**的 ——
+   * 那正是「48 座島是同一顆饅頭」的數學說法。有了偏心的次峰，穿過次峰的那條
+   * 半徑一定會先降再升。
+   *
+   * 這一條是這一輪唯一直接量到「外型變了」的斷言。把 `makeLobes` 改回單瓣、
+   * 或把 `LOBE_SLOPE` 調到讓次峰埋進主瓣底下，它就紅。
+   */
+  it('每一座島都有一條半徑不是單調遞減的', () => {
+    const flat: string[] = []
+    for (const i of a.islands) {
+      let bumpy = false
+      for (const lo of i.lobes) {
+        if (lo.offset === 0) continue
+        const dir = Math.atan2(lo.cz - i.cz, lo.cx - i.cx)
+        let prev = Infinity
+        for (let d = 0; d <= i.outerRadius; d += 5) {
+          const h = a.field.sample(i.cx + Math.cos(dir) * d, i.cz + Math.sin(dir) * d)
+          // 0.5 m 的門檻：內插的數值抖動不算「升起來」
+          if (h > prev + 0.5) { bumpy = true; break }
+          prev = h
+        }
+        if (bumpy) break
+      }
+      if (!bumpy) flat.push(`(${i.cx.toFixed(0)}, ${i.cz.toFixed(0)})`)
+    }
+    console.log(JSON.stringify({ 沒有起伏的島: flat }))
+    expect(flat).toEqual([])
+  })
+
+  /**
+   * 【錨島的形狀是常數】它們的瓣由**自己的**亂數序列抽，不碰主序列 ——
+   * 所以後面加減幾次 `rand()` 都動不到它們。
+   *
+   * 【為什麼不能靠既有的決定性測試守】那一條只是同一個生成器跑兩次比對，
+   * 錨島改成消耗主序列之後它照樣全綠。只有寫死的期望值抓得到。
+   *
+   * 【動了 ANCHORS 或抽瓣的順序，這一條會紅】那時要回來重錄，而且**要順便
+   * 重量 `terrain-in-play`** —— 交會區的兩座山是那一組測試的主角。
+   */
+  it('錨島的瓣是常數', () => {
+    const shape = (k: number): string => JSON.stringify(
+      a.islands[k]!.lobes.map((l) => [
+        +l.offset.toFixed(2), +l.radius.toFixed(2), +l.peak.toFixed(2)]))
+    expect(shape(0)).toBe(JSON.stringify([
+      [0, 1400, 900], [1148.16, 457.76, 336.86], [949.35, 562.82, 485.26],
+      [1074.56, 476.52, 513.04], [944.54, 487.03, 550.99]]))
+    expect(shape(1)).toBe(JSON.stringify([
+      [0, 1500, 850], [987.8, 651.79, 661.74], [1210.33, 473.16, 346.77],
+      [1194.87, 544.4, 353.77], [1136.09, 512.14, 544.57]]))
+  })
+})
+
+/**
+ * 離岸的膨脹圖 —— 海面的浪花吃它。
+ *
+ * 【它為什麼由高度場推】海岸線是好幾瓣聯集出來的，沒有閉式解；而且島形以後
+ * 怎麼改，這張圖自動跟著走。由島的參數另外算一份就會漂。
+ */
+describe('離岸的膨脹圖', () => {
+  const a = createArchipelago()
+  const shore = bakeShore(a.field)
+  const at = (x: number, z: number): number => {
+    const half = (shore.size - 1) / 2
+    const col = Math.round(x / shore.cell + half)
+    const row = Math.round(z / shore.cell + half)
+    return shore.data[row * shore.size + col]!
+  }
+
+  it('索引與高度場完全相同', () => {
+    expect(shore.size).toBe(a.field.size)
+    expect(shore.cell).toBe(a.field.cell)
+    expect(shore.data.length).toBe(a.field.data.length)
+  })
+
+  it('陸地上是滿值', () => {
+    for (const i of a.islands) expect(at(i.cx, i.cz)).toBe(255)
+  })
+
+  /**
+   * 【帶外必須歸零】不然整片海都會有浪花 —— 而那不是「靠岸比較容易」，
+   * 是「到處都白」。取樣點退兩格是為了避開 chamfer 的 4% 近似誤差。
+   */
+  it('離岸超過帶寬之後是 0', () => {
+    const d = SHORE_BAND + FIELD_CELL * 2
+    for (const i of a.islands) {
+      for (let k = 0; k < 32; k++) {
+        const th = (k / 32) * Math.PI * 2
+        const r = i.outerRadius + d
+        expect(at(i.cx + Math.cos(th) * r, i.cz + Math.sin(th) * r)).toBe(0)
+      }
+    }
+  })
+
+  /**
+   * 【每一個方位都要有一段漸層，而且一路遞減】
+   *
+   * 只驗遞減是不夠的 —— **實測過**：把反向那一趟拿掉之後（距離只從左上方
+   * 傳播），島的左上側是「陸地 255 直接掉到 0」，中間一階都沒有，而遞減這條
+   * 斷言照樣全綠。少了的那半張圖就這樣溜過去。
+   *
+   * 所以這一條要求每個方位都看得到一個嚴格落在 (0, 255) 之間的值 —— 那正是
+   * 「這裡有一條浪花帶」的定義。
+   */
+  it('每個方位都有一段漸層，而且離岸越遠越淡', () => {
+    const bad: string[] = []
+    const rising: string[] = []
+    for (const i of a.islands) {
+      for (let k = 0; k < 8; k++) {
+        const th = (k / 8) * Math.PI * 2
+        const seq: number[] = []
+        for (let d = 0; d <= i.outerRadius + SHORE_BAND + FIELD_CELL * 2; d += 20) {
+          seq.push(at(i.cx + Math.cos(th) * d, i.cz + Math.sin(th) * d))
+        }
+        // 【由**最外側**那一塊陸地起算】從島心走出去會穿過灣（兩瓣之間的
+        // 水道），那裡是 255 → 掉下去 → 又回到 255。那是對的，不是缺陷 ——
+        // 遞減只在最後一次上岸之後才成立
+        let last = -1
+        for (let n = 0; n < seq.length; n++) if (seq[n] === 255) last = n
+        const where = `(${i.cx.toFixed(0)}, ${i.cz.toFixed(0)}) ${k * 45}°`
+        let graded = false
+        for (let n = last + 1; n < seq.length; n++) {
+          if (seq[n]! > seq[n - 1]!) rising.push(where)
+          if (seq[n]! > 0 && seq[n]! < 255) graded = true
+        }
+        if (!graded) bad.push(where)
+      }
+    }
+    console.log(JSON.stringify({
+      沒有漸層: bad.slice(0, 6), 共: bad.length, 反升: rising.slice(0, 6),
+    }))
+    expect(rising).toEqual([])
+    expect(bad).toEqual([])
   })
 })

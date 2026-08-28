@@ -1,7 +1,7 @@
 import { Group, type Object3D } from 'three'
 import { createOcean } from './ocean'
 import { createIslands } from './island'
-import { createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
+import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -58,7 +58,13 @@ export interface Terrain {
 }
 
 export function createTerrain(kind: TerrainKind): Terrain {
-  const ocean = createOcean()
+  // 【陸地要先生出來，海面才接得上】浪花吃的是由高度場推出來的膨脹圖 ——
+  // 見 `world/archipelago.ts` 的 `bakeShore`。純海面那一支傳 null。
+  //
+  // 【只烘一次】`createArchipelago` 不回傳膨脹圖：headless 的測試與 AI 那一
+  // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
+  const land = kind === 'sea' ? null : createArchipelago()
+  const ocean = createOcean(land ? bakeShore(land.field) : null)
   const group = new Group()
   // 【順序：遠海先進去】繪製順序其實由 `farMesh.renderOrder` 決定（見
   // `ocean.ts`），這裡的次序只影響 `children` 的索引 —— 但讀起來由遠到近，
@@ -66,7 +72,7 @@ export function createTerrain(kind: TerrainKind): Terrain {
   group.add(ocean.farMesh)
   group.add(ocean.mesh)
 
-  if (kind === 'sea') {
+  if (land === null) {
     // 【第三個位置仍然佔著】索引契約由 `main.ts` 的 `__gfx` 消融表與
     // `src/tools/` 的兩支工具共用。沒有陸地就掛一個空 Group，
     // 那兩邊才不必為了「這一場有沒有島」寫分支。
@@ -82,9 +88,9 @@ export function createTerrain(kind: TerrainKind): Terrain {
     }
   }
 
-  const { field, islands } = createArchipelago()
-  const land = createIslands(field, islands)
-  group.add(land.object)
+  const { field, islands } = land
+  const meshes = createIslands(field, islands)
+  group.add(meshes.object)
 
   return {
     object: group,
@@ -109,7 +115,7 @@ export function createTerrain(kind: TerrainKind): Terrain {
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     dispose() {
       ocean.dispose()
-      land.dispose()
+      meshes.dispose()
     },
   }
 }

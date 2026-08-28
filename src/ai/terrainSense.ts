@@ -2,7 +2,7 @@ import { DEFAULT_SAFETY, type SafetyConfig } from './safety'
 import { maxLoadFactorAero } from '../analysis/envelope'
 import { G0 } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { IslandDesc } from '../world/archipelago'
+import { WOBBLE_MAX, type IslandDesc } from '../world/archipelago'
 import type { LandField } from '../world/occlusion'
 
 /**
@@ -130,15 +130,46 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /**
- * 島在距島心 `dist` 處的地形高度，m。
+ * 島在距島心 `dist` 那一整圈上，地形可能達到的**最高**高度，m。
  *
- * 用 `outerRadius` 當尺度而不是 `radius`：真正的剖面以 `radius` 為尺、再乘上
- * 隨方位變化的 wobble。取最大的那一個等於假設每個方位都是最胖的
- * —— **高估地形，偏保守**。
+ * ── 【為什麼是逐瓣取 max，不是一條 smoothstep】────────────────────
+ *
+ * 島是好幾瓣取聯集（見 `world/archipelago.ts` 的 `LobeDesc`），次峰是偏心的。
+ * 只用「離島心多遠」的單錐模型會**低估**偏心的次峰 —— 實測一顆合法的瓣在
+ * 瓣心處實際 828 m 而單錐模型算出 609 m，極端組合下差到 700 m。低估的方向
+ * 是「我爬得過去」，而症狀是撞上去。
+ *
+ * ── 【為什麼仍然是保守的】─────────────────────────────────────
+ *
+ * 兩處都往高估的方向放：
+ *
+ * ```
+ *   距離   這一圈上離第 i 瓣最近的點距瓣心 |dist − offset_i|，取它
+ *   尺度   用 radius × WOBBLE_MAX 而不是這個方位真正的 radius × wobble
+ * ```
+ *
+ * 兩者都讓 smoothstep 的引數變小、算出來的高度變大。海床那一項
+ * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉，所以估計恆 ≥ 實際地形。
+ *
+ * 【主瓣就是舊的那一條】主瓣 `offset = 0`、`radius × WOBBLE_MAX =
+ * outerRadius`，代進去逐字等於改動前的式子。這一支是**純追加**。
+ *
+ * 【`export` 是給測試的】「估計恆不低於真實地形」是圓盤法保守性的全部
+ * 內容，而它沒有別的觀測點：`checkClimb` 只在**取樣到的**點上用它，所以
+ * 走 `senseTerrain` 量到的是取樣夠不夠密，不是估計準不準。兩件事要分開。
  */
-function profileHeight(isl: IslandDesc, dist: number): number {
-  const t = dist / isl.outerRadius
-  return t >= 1 ? 0 : isl.peak * smoothstep(1, 0, t)
+export function profileHeight(isl: IslandDesc, dist: number): number {
+  let best = 0
+  const lobes = isl.lobes
+  for (let i = 0; i < lobes.length; i++) {
+    const lo = lobes[i]!
+    const d = dist - lo.offset
+    const t = (d < 0 ? -d : d) / (lo.radius * WOBBLE_MAX)
+    if (t >= 1) continue
+    const h = lo.peak * smoothstep(1, 0, t)
+    if (h > best) best = h
+  }
+  return best
 }
 
 /** 這一架現在的轉彎半徑，m。`nMax` 已經含重力與失速限制 */
@@ -248,8 +279,15 @@ function findThreat(
  *
  * 【八個點是對解析剖面取值，但它仍然是取樣】剖面平滑不等於有限點抓得到
  * 極值 —— 一座 400 m 直徑的小島，峰頂可能落在兩點之間。所以除了等距的
- * 八點，**額外把最近點（剖面的極大值所在）補進來**，那一點才是真正決定
- * 爬不爬得過的地方。
+ * 八點，**額外把每一個極大值所在補進來**。
+ *
+ * 【極大值不只一個】剖面是逐瓣取 max（見 `profileHeight`），第 i 瓣的極大值
+ * 落在 `dist = offset_i` 那一圈上。航跡上 `dist(s) = hypot(perp, s − along)`，
+ * 所以那一圈與航跡的交點是 `s = along ± √(offset_i² − perp²)`；`perp` 大過
+ * `offset_i` 時無解，那一瓣的極大值航跡碰不到。
+ *
+ * **只補最近點是不夠的** —— 那是主瓣的極大值。偏心的次峰在它旁邊，而漏掉
+ * 一座次峰的症狀是「AI 說爬得過去，然後撞上去」。
  */
 const climb = { ok: true, floor: 0 }
 function checkClimb(
@@ -266,8 +304,17 @@ function checkClimb(
     if (y0 + s * tanP < h + cfg.clearance) climb.ok = false
   }
   for (let i = 1; i <= PROFILE_STEPS; i++) test((SENSE_RANGE * i) / PROFILE_STEPS)
-  // 最近點：剖面在這裡最高
+  // 最近點：主瓣在這裡最高
   test(along)
+  // 每一顆次峰的極大值所在
+  const lobes = isl.lobes
+  for (let i = 0; i < lobes.length; i++) {
+    const q = lobes[i]!.offset ** 2 - perp * perp
+    if (q <= 0) continue
+    const dq = Math.sqrt(q)
+    test(along - dq)
+    test(along + dq)
+  }
 }
 
 /**
