@@ -1198,8 +1198,10 @@ export const FACE_FRAGMENT = /* glsl */ `
 `
 
 /**
- * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**；
- * 逐面的部分由參數插進來，遠海拿到的是空字串（見 `FACE_FRAGMENT`）。
+ * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**，而且
+ * 逐面那一段兩邊也都插進去 —— 遠海的面是虛擬的，見 `FACE_FRAGMENT`。
+ *
+ * 【參數化留著】它讓「哪一段給誰」在呼叫點看得見，而不是藏在字串裡。
  */
 export const sparkleFragment = (face: string): string => /* glsl */ `
   {

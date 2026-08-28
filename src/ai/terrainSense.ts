@@ -130,6 +130,26 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /**
+ * 線性內插的餘裕，m。**加在解析上界之上。**
+ *
+ * 【為什麼非有不可】`terrainCeiling` 的推導對的是**解析**的地形，而撞地判定
+ * 與畫面讀的是 40 m 格的**線性內插**（見 `world/heightfield.ts`）。剖面在
+ * 山腳是**凸**的，而凸函數的弦在函數之上 —— 所以格與格之間內插出來的值可以
+ * 高過解析值。
+ *
+ * 【25 是量出來的】掃全圖 48 座島、5 m 步長（每格 8×8 個內部點），
+ * `field.sample − terrainCeiling` 的最大值是 **16.39 m**（第 25 座島，
+ * 半徑 166、峰 147）。25 留了五成餘裕。
+ *
+ * 【為什麼不改成取四個格點的 max】那是嚴格的界（內插是四個格點的線性組合），
+ * 但要讓 AI 認得高度場的格線 —— 而這一層刻意不查高度場（見檔頭）。
+ * 一個常數換掉那個相依。
+ *
+ * 【動了 FIELD_CELL 或島的剖面就要重量】`scratchpad/overshoot.ts` 那一支。
+ */
+const CEILING_MARGIN = 25
+
+/**
  * (x, z) 那一點上，地形高度的**上界**，m。
  *
  * ── 【為什麼逐瓣算真正的二維距離】───────────────────────────────
@@ -153,8 +173,11 @@ function smoothstep(e0: number, e1: number, x: number): number {
  *
  * 尺度用 `radius × WOBBLE_MAX` 而不是這個方位真正的 `radius × wobble`，
  * 所以 smoothstep 的引數偏小、算出來的高度偏大；海床那一項
- * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉。**估計恆 ≥ 實際地形**，而那是
- * 圓盤法保守性的全部內容。
+ * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉。**對解析的地形，估計恆 ≥ 實際。**
+ *
+ * 【但畫面上那一份不是解析的】撞地判定讀的是 40 m 格的線性內插，而它在
+ * 凸的地方會高過解析值 —— 實測最多 16.39 m。那一段由 `CEILING_MARGIN`
+ * 補上，所以對**內插後**的地形估計也恆 ≥ 實際。
  *
  * 【`export` 是給測試的】這件事沒有別的觀測點：`checkClimb` 只在**取樣到
  * 的**點上用它，所以走 `senseTerrain` 量到的是取樣夠不夠密，不是估計準不準。
@@ -169,7 +192,7 @@ export function terrainCeiling(isl: IslandDesc, x: number, z: number): number {
     const h = lo.peak * smoothstep(1, 0, t)
     if (h > best) best = h
   }
-  return best
+  return best > 0 ? best + CEILING_MARGIN : 0
 }
 
 /** 這一架現在的轉彎半徑，m。`nMax` 已經含重力與失速限制 */
@@ -302,6 +325,16 @@ function checkClimb(
     if (h > climb.floor) climb.floor = h
     if (y0 + s * tanP < h + cfg.clearance) climb.ok = false
   }
+  /**
+   * 【腳下那一點只進地板，不進「爬不爬得過」】等距取樣由 s = 150 起，所以
+   * **飛機正下方的地形從來沒有被看過** —— 而 `floor` 正是拉起判斷的輸入。
+   * 貼著一道稜線飛的時候，前方 150 m 可能已經降下去了。
+   *
+   * 【為什麼不讓它參與 climb.ok】那一項問的是「爬得過**前方**嗎」。把腳下
+   * 算進去等於「我離地不足 120 m 就要轉」—— 那是 ground 分支的職責，
+   * 而且甲板高度掠過小島時會一直觸發橫向規避。
+   */
+  climb.floor = terrainCeiling(isl, px, pz)
   for (let i = 1; i <= PROFILE_STEPS; i++) test((SENSE_RANGE * i) / PROFILE_STEPS)
   // 每一瓣自己的最近點：那一瓣沿航跡最高的地方
   const lobes = isl.lobes
