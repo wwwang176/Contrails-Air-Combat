@@ -35,7 +35,7 @@ describe('植被與建築的幾何', () => {
    */
   it('每個幾何的三角形數', () => {
     const want: Record<PoolName, number> = {
-      broadL0: 20, coneL0: 19, treeMid: 6, treeFar: 4,
+      broadL0: 20, coneL0: 19, treeMid: 8, treeFar: 4,
       bush: 8, house: 18, barn: 18, church: 34,
     }
     const got: Record<string, number> = {}
@@ -58,12 +58,30 @@ describe('植被與建築的幾何', () => {
     for (const n of names) expect(bounds(geo[n]).min.y).toBeCloseTo(0, 5)
   })
 
-  it('三種喬木的高度都是 TREE_HEIGHT', () => {
-    for (const n of ['coneL0', 'treeMid', 'treeFar'] as const) {
+  it('近中距離的喬木一樣高，最遠那一級刻意矮一點', () => {
+    for (const n of ['broadL0', 'coneL0', 'treeMid'] as const) {
       expect(bounds(geo[n]).max.y).toBeCloseTo(TREE_HEIGHT, 5)
     }
-    // 闊葉的樹冠是八面體，頂點就是最高處
-    expect(bounds(geo.broadL0).max.y).toBeCloseTo(TREE_HEIGHT, 5)
+    // 【treeFar 矮而寬】1 km 外一棵樹只有幾個像素，要的是團塊不是尖塔
+    const far = bounds(geo.treeFar)
+    expect(far.max.y).toBeLessThan(TREE_HEIGHT)
+    expect(far.max.y).toBeGreaterThan(TREE_HEIGHT * 0.7)
+    expect(far.max.x - far.min.x).toBeGreaterThan(bounds(geo.coneL0).max.x * 2)
+  })
+
+  /**
+   * 【遠中距離不得是尖錐】L1／L2 不分樹種，而 450 m 外的地佔了畫面九成 ——
+   * 兩級都用尖錐的話整片 bocage 讀起來像雲杉林。判準用「寬高比」：
+   * 闊葉的樹冠接近球，針葉的錐細長。
+   */
+  it('遠中距離的輪廓是圓的，不是尖的', () => {
+    for (const n of ['treeMid', 'treeFar'] as const) {
+      const b = bounds(geo[n])
+      expect((b.max.x - b.min.x) / b.max.y).toBeGreaterThan(0.6)
+    }
+    // 針葉的 L0 仍然細長 —— 那是防風林該有的樣子
+    const c = bounds(geo.coneL0)
+    expect((c.max.x - c.min.x) / c.max.y).toBeLessThan(0.6)
   })
 
   it('灌木比喬木矮一個量級', () => {

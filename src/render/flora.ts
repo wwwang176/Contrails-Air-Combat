@@ -252,9 +252,17 @@ function hedged(lineKey: number): boolean {
   return hash1(lineKey) / 4294967296 < HEDGE_CHANCE
 }
 
-/** 這條樹籬種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出防風林 */
+/**
+ * 這條樹籬種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出防風林。
+ *
+ * 【闊葉為主】Bocage 的樹籬是橡與櫸，針葉只出現在刻意種的防風林裡。
+ * 一半一半的話整片地讀起來像雲杉林。
+ */
+const CONIFER_SHARE = 0.25
+
 function speciesOf(lineKey: number): FloraKind {
-  return (hash1(lineKey ^ 0x5bd1) & 1) === 0 ? FloraKind.BroadTree : FloraKind.ConeTree
+  return hash1(lineKey ^ 0x5bd1) / 4294967296 < CONIFER_SHARE
+    ? FloraKind.ConeTree : FloraKind.BroadTree
 }
 
 /** 一條線上種喬木與灌木 */
@@ -395,11 +403,16 @@ export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   }
 }
 
-/** 村落的建築離站址最遠多少，m */
-export const VILLAGE_REACH = 140
+/**
+ * 村落的建築離站址最遠多少，m。
+ *
+ * 【收緊過】原本 140 m 讓十來棟房子沿路拉開近三百公尺，從空中看是散落的
+ * 點而不是一個聚落。
+ */
+export const VILLAGE_REACH = 95
 
 /** 建築沿路排開的最近距離，m */
-const VILLAGE_INNER = 18
+const VILLAGE_INNER = 14
 
 /** 建築離路心的垂距，m */
 const LANE_OFFSET = [11, 34] as const
