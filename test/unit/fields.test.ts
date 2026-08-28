@@ -13,9 +13,9 @@ const reg: RegionSample = {
 const s: FieldSample = { id: 0, edge: 0, hedged: false }
 const col = new Color()
 
-const HEDGE = '293222'
-const TRACK = '968c74'
-const PLOUGHED = '65523e'
+const HEDGE = '293123'
+const TRACK = '938b77'
+const PLOUGHED = '615242'
 
 /** 這一點的地面色，十六進位字串 */
 function at(x: number, z: number): string {
