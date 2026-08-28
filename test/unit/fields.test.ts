@@ -264,7 +264,7 @@ describe('Bocage 的田區', () => {
       'uint cellHash = fieldHash2(c ^ int(rid), r);',
       'float f = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;',
       'if (float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE',
-      'uint fh = fieldHash1(cellHash ^ (half * 0x7f4au));',
+      'uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));',
       'int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, 7);',
     ]
     for (const line of want) expect(FIELD_GLSL).toContain(line)

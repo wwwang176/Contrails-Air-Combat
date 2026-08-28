@@ -234,23 +234,25 @@ export function fieldAt(
 
   // 【對切】沿長邊切一刀，切出來的兩半是兩塊田
   const cellHash = hash2(c ^ reg.id, r)
-  let half = 0
+  // 【不能叫 half】`half` 是 GLSL 的保留字，GLSL 那一份編不過。兩邊維持
+  // 同一個名字，金本位測試才比得下去
+  let part = 0
   if ((cellHash & 0xff) / 256 < SPLIT_CHANCE) {
     const f = 0.34 + (((cellHash >>> 8) & 0xff) / 255) * 0.32
     if (right - left >= top - bottom) {
       const cut = left + (right - left) * f
       const d = Math.abs(qx - cut)
       if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
-      half = qx < cut ? 0 : 1
+      part = qx < cut ? 0 : 1
     } else {
       const cut = bottom + (top - bottom) * f
       const d = Math.abs(qz - cut)
       if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
-      half = qz < cut ? 0 : 1
+      part = qz < cut ? 0 : 1
     }
   }
 
-  out.id = hash1(cellHash ^ (half * 0x7f4a))
+  out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
   out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
 }
@@ -398,24 +400,24 @@ vec3 fieldColorAt(vec2 world) {
   if (top - q.y < best) { best = top - q.y; edgeKey = fieldHash2(r + 1, 0x9e37); }
 
   uint cellHash = fieldHash2(c ^ int(rid), r);
-  uint half = 0u;
+  uint part = 0u;
   if (float(cellHash & 0xffu) / 256.0 < SPLIT_CHANCE) {
     float f = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;
     if (right - left >= top - bottom) {
       float cut = left + (right - left) * f;
       if (abs(q.x - cut) < best) { best = abs(q.x - cut); edgeKey = cellHash ^ 0x1234u; }
-      half = q.x < cut ? 0u : 1u;
+      part = q.x < cut ? 0u : 1u;
     } else {
       float cut = bottom + (top - bottom) * f;
       if (abs(q.y - cut) < best) { best = abs(q.y - cut); edgeKey = cellHash ^ 0x1234u; }
-      half = q.y < cut ? 0u : 1u;
+      part = q.y < cut ? 0u : 1u;
     }
   }
 
   if (float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE
     && best < HEDGE_WIDTH * 0.5) return HEDGE_COLOR;
 
-  uint fh = fieldHash1(cellHash ^ (half * 0x7f4au));
+  uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));
   if (float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE) return PLOUGHED_COLOR;
 
   int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
