@@ -4,8 +4,8 @@ import { createHeightField, type HeightFieldData } from './heightfield'
  * 群島地形的生成器。
  *
  * 【為什麼島形是解析的，不用 noise 函式庫】決定性天然成立（沒有可變狀態）、
- * 沒有第三方相依，而且**輪廓的變化由兩道正弦給就夠了** —— 在 40 m 的格子
- * 下已經看不出它是正弦。專案負責人的裁定是「先做一版簡單的」。
+ * 沒有第三方相依。**起伏由好幾瓣同一條剖面取聯集做出來**，不是由噪聲場 ——
+ * 兩瓣相交處 `max` 留下的摺線就是稜線，而那正是平面著色最吃得到的訊號。
  *
  * 【為什麼沒有 seed 參數】這一輪 `main.ts` 只有一種群島。公開一個沒有需求的
  * 擴充點，代價是它會長出「不同 seed 要不要不同」這種沒人回答得了的測試。
@@ -81,6 +81,47 @@ export const SEA_FLOOR = -8
 /** 亂數的種子。私有 —— 見檔頭 */
 const SEED = 20260827
 
+/**
+ * 浪花帶的寬度，m。5 格 —— 膨脹圖一個 texel 就是一格，再窄就沒有漸層可言。
+ *
+ * 【它不是水深，是離岸的距離】水線到 −5 m 這一段在錨島上只有 30 m 寬、
+ * 小島上只有 13 m —— 比一個格子還窄，而且大島小島差兩倍多。拿水深當浪花的
+ * 驅動會得到一條寬度隨島而異的髮絲。
+ */
+export const SHORE_BAND = 200
+
+/**
+ * 離岸的膨脹圖。**索引與 `HeightFieldData` 完全相同**（列優先、同一個
+ * `size` 與 `cell`），所以世界座標換 texel 的算式只有一條。
+ */
+export interface ShoreFieldData {
+  readonly size: number
+  readonly cell: number
+  /** `size²` 個 0–255。255 = 岸上或水線，0 = 帶外的深水 */
+  readonly data: Uint8Array
+}
+
+/**
+ * 一座島的一瓣。**島的高度是所有瓣取 max。**
+ *
+ * 【為什麼要公開】`ai/terrainSense.ts` 的爬升判斷要拿它算剖面。少了它那一層
+ * 只知道「離島心多遠」，而偏心的次峰在那個模型裡是看不見的 —— 實測最多低估
+ * 700 m，而症狀是 AI 認為爬得過去、然後撞上去。
+ */
+export interface LobeDesc {
+  /** 瓣心的世界座標 */
+  readonly cx: number
+  readonly cz: number
+  /** 瓣心離**島心**的距離，m。預算好的 —— AI 的剖面在熱路徑上讀它 */
+  readonly offset: number
+  /** 標稱半徑，m。地形延伸到 `radius × WOBBLE_MAX` */
+  readonly radius: number
+  readonly peak: number
+  /** 這一瓣自己的 wobble 相位 */
+  readonly pa: number
+  readonly pb: number
+}
+
 export interface IslandDesc {
   readonly cx: number
   readonly cz: number
@@ -91,7 +132,14 @@ export interface IslandDesc {
    * 三個消費者共用同一個數字，就不會有人切得比別人小。
    */
   readonly outerRadius: number
+  /**
+   * **實際的最高點**，m，落在島心（主瓣的瓣心）。
+   *
+   * 其餘的瓣恆低於它（見 `LOBE_SLOPE`），所以多瓣不會讓島長過 `PEAK_MAX`。
+   */
   readonly peak: number
+  /** 主瓣排第一（`offset` 為 0），其餘是偏心的次峰 */
+  readonly lobes: readonly LobeDesc[]
 }
 
 /**
@@ -145,44 +193,269 @@ const TIERS = [
  * `test/integration/terrain-in-play.test.ts`。
  */
 const ANCHORS = [
-  { cx: 2500, cz: -950, radius: 1400, peak: 900, pa: 0, pb: 0 },
-  { cx: -2500, cz: 950, radius: 1500, peak: 850, pa: 2.1, pb: 4.3 },
+  { cx: 2500, cz: -950, radius: 1400, peak: 900, pa: 0, pb: 0, seed: 11 },
+  { cx: -2500, cz: 950, radius: 1500, peak: 850, pa: 2.1, pb: 4.3, seed: 29 },
 ] as const
 
 /** 每座島最多試幾個位置。試不下就少放一座 —— 間距是硬約束，數量不是 */
 const PLACE_TRIES = 300
+
+/**
+ * 主瓣之外每座島有幾瓣。**每座島都是這麼多瓣，沒有「抽到太小就丟掉」** ——
+ * 半徑改成夾在 `LOBE_MIN_RADIUS` 之上，所以瓣數不是隨機的。
+ *
+ * 【為什麼不丟】最小的島（半徑 150 m）要留下一瓣得抽到 `rf ≥ 0.4`，機率
+ * 只有 (0.45 − 0.4) / (0.45 − 0.28) = 29.4%。四次抽下來有 **66.2%** 只剩
+ * 一瓣以下、**24.8%** 一瓣都不剩 —— 「這座島有沒有起伏」會變成一件測不準
+ * 的事。夾住半徑就沒有這個問題。
+ */
+const LOBE_COUNT = 4
+/** 一瓣至少要有這麼大才畫得出形狀，m。1.5 格 —— 再小只是一個尖角 */
+const LOBE_MIN_RADIUS = 60
+/**
+ * 瓣半徑佔島半徑的比例。
+ *
+ * 【上界為什麼不能再大】瓣要露得出來就得離島心夠遠，而放得下的最遠處是
+ * `(1 − 半徑比) × outerRadius`。半徑比越大，能站的位置越靠內，而那裡的主瓣
+ * 越高：0.45 時主瓣已經在島峰的 42.5%，0.62 時是 67.7%。再大下去可行的
+ * 峰高區間就窄到只剩雜訊。
+ */
+const LOBE_RADIUS = [0.28, 0.45] as const
+/**
+ * 一瓣至少要比主瓣高出島峰的幾成。
+ *
+ * 【為什麼需要下限】「比主瓣高」不夠 —— 高出 1 m 的瓣在 40 m 的格子下看不
+ * 出來。實測沒有這一條時露出量的中位數只有 6.7 m，最小 1.0 m，而最小的那
+ * 兩座島在畫面上完全是圓錐。
+ *
+ * 【0.08 有多少】tier-2 的高度是 60～160 m，所以是 4.8～12.8 m；錨島
+ * （900 m）是 72 m，而上限 `LOBE_LIFT_MAX` 是 100 m —— 兩者之間就是大島
+ * 那批瓣的變化範圍。小島那批由 `LOBE_PEAK_MAX` 收尾。
+ *
+ * 【實測的露出量】中位數 24.4 m、最小 5.9 m（就是這條下界咬住的那一顆）、
+ * 最大 94.5 m。沒有這條下界時中位數只有 6.7 m，最小 1.0 m —— 而那兩座島
+ * 在畫面上仍然是圓錐。
+ */
+const LOBE_LIFT = 0.08
+/**
+ * 瓣心的位置，佔「剛好露得出來」到「放得下的最遠處」那一段的比例。
+ *
+ * ── 【次峰墊高的是哪一環，決定它擋不擋路】────────────────────────
+ *
+ * 一顆次峰把島的某一環整個墊高。實測錨島（半徑 1,400、峰 900）：
+ *
+ * ```
+ *   離島心   只有主瓣   次峰全部擺到最遠處
+ *    1,100 m   300 m        396 (+96)
+ *    1,300     166          309 (+143)
+ *    1,500      61          161 (+100)
+ * ```
+ *
+ * **那一環就是飛機實際飛過去的地方** —— 轉開主峰之後沿著島邊繞出去的路徑
+ * 在那裡，甲板高度的纏鬥也在那裡。同一件事因此有兩個相反的後果：
+ *
+ * ```
+ *   擦過時離地變低      terrain-avoidance 的「最低離地 > 50 m」
+ *   掠過的剖面變高      爬不過去所以要轉 → terrain-in-play 的「山擋得住路」
+ * ```
+ *
+ * 【這是量到的相關，不是驗過的因果】上面那張高度表與下面那張護欄表都是
+ * 量出來的；「所以 AI 才會這樣」那一步沒有獨立驗證過。**不要把它當定律**，
+ * 動了任何一個常數都要重量。
+ *
+ * ── 【所以要散開，而且起點要是「剛好露得出來」】──────────────────
+ *
+ * ```
+ *                            撞山   最低離地(>50)   繞島(>0)
+ *   一律貼膨脹圓的邊           0      24.5 m ❌       10/40 ✅
+ *   一律收到 0.65 倍           0      92.7   ✅        0/40 ❌
+ *   固定比例的外圈區間         3 ❌    1.9    ❌        0/40 ❌
+ *   「露得出來」到「最遠處」    0      58.2   ✅        5/40 ✅
+ * ```
+ *
+ * 起點隨這一瓣的峰高變動（`invSmoothstep(pf)`），所以散得比任何固定比例都
+ * 開 —— 那正是「固定比例的外圈區間」拿到兩邊缺點的原因。下界 0.35 不為 0：
+ * 恰好露得出來等於沒露。
+ */
+const LOBE_OFFSET = [0.35, 1.0] as const
+/**
+ * 一瓣最多比主瓣**高出**多少公尺。
+ *
+ * ── 【這一條是飛行掃描逼出來的】───────────────────────────────
+ *
+ * 撞山的成因量出來了，**不是坡度，是側翼被墊高**：
+ *
+ * ```
+ *   離錨島心   圓錐    不封抬升
+ *    1,000 m   378 m   523 (+146)
+ *    1,200 m   236     443 (+207)
+ * ```
+ *
+ * 那一圈正是繞島的飛機所在的地方。圓錐在那裡已經塌到 236 m，不封的話卻
+ * 杵著一座 443 m 的次峰 —— 飛機閃掉主峰之後撞上次峰。撞的全是轟炸機：
+ * He 111 與 B-17 進場 150 m、爬升率差、轉彎半徑大，在那一圈待得最久。
+ *
+ * ── 【為什麼是絕對值而不是比例】───────────────────────────────
+ *
+ * 用比例會**連坐小島**：一座 160 m 的礁石根本殺不死 150 m 進場的轟炸機，
+ * 卻跟著被壓成圓錐。封絕對值之後大島被咬住、小島不受影響（自己整座才
+ * 160 m），約束落在它真正成立的地方。
+ */
+const LOBE_LIFT_MAX = 100
+/**
+ * 瓣高佔島峰的硬上限。**恆小於 1，所以 `peak` 仍然是實際的最高點** ——
+ * `PEAK_MAX` 那條護欄因此不必重新定值。
+ *
+ * 【誰會咬到它】小島。`LOBE_LIFT_MAX` 是絕對值，對一座 160 m 的礁石等於
+ * 沒有上限，所以要有這一條收尾。
+ */
+const LOBE_PEAK_MAX = 0.9
 
 function smoothstep(e0: number, e1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
   return t * t * (3 - 2 * t)
 }
 
+/**
+ * `smoothstep(1, 0, x) = s` 的反解，s ∈ [0, 1]。
+ *
+ * 【為什麼需要它】一瓣要露得出來，就得放在**主瓣已經降到這一瓣峰高以下**的
+ * 半徑上。那就是在解剖面的反函數。三次式 `t²(3 − 2t) = s` 的實根有閉式解
+ * `t = 0.5 − sin(asin(1 − 2s) / 3)`，而 `smoothstep(1, 0, x)` 的 `t` 是
+ * `1 − x`，所以 `x = 0.5 + sin(asin(1 − 2s) / 3)`。
+ *
+ * 【為什麼不用二分法】閉式解沒有迭代次數這個可調參數，也就沒有「調到看起來
+ * 對為止」的空間。
+ */
+function invSmoothstep(s: number): number {
+  const c = Math.min(1, Math.max(0, s))
+  return 0.5 + Math.sin(Math.asin(1 - 2 * c) / 3)
+}
+
+/** 一瓣的原始參數。**在挑位置之前抽好** —— 見 `createArchipelago` 的說明 */
+export interface LobeDraw {
+  dir: number
+  /** 半徑佔島半徑的比例，已經夾過 `LOBE_MIN_RADIUS` 之後才用得到島半徑 */
+  rf: number
+  /** 瓣心的位置，在 LOBE_OFFSET 的區間內 */
+  uOff: number
+  /** 瓣高在（剛好夠露出來，上限）之間的位置 */
+  uPeak: number
+  pa: number
+  pb: number
+}
+
+/** 種子進、序列出。**不得 Math.random** —— 決定性是 replayDigest 的前提 */
+function makeRand(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 4294967296
+  }
+}
+
+function drawLobes(rand: () => number): LobeDraw[] {
+  const out: LobeDraw[] = []
+  for (let i = 0; i < LOBE_COUNT; i++) {
+    out.push({
+      dir: rand() * Math.PI * 2,
+      rf: LOBE_RADIUS[0] + rand() * (LOBE_RADIUS[1] - LOBE_RADIUS[0]),
+      uOff: rand(),
+      uPeak: rand(),
+      pa: rand() * Math.PI * 2,
+      pb: rand() * Math.PI * 2,
+    })
+  }
+  return out
+}
+
+/**
+ * 把原始參數換成落在世界裡的瓣。主瓣排第一。
+ *
+ * 【偏移的上界由「還放得下多少」定】最遠是 `off = outerRadius × (1 − r / radius)`，
+ * 也就是 `off + r × WOBBLE_MAX = outerRadius`；實際位置在那與「剛好露得出來」
+ * 之間（見 `LOBE_OFFSET`）。所以
+ *
+ * ```
+ *   離島心的距離 ≤ off + 離瓣心的距離 ≤ off + r × wobble(θ) ≤ off + r × WOBBLE_MAX
+ *                ≤ outerRadius
+ * ```
+ *
+ * 是一條**恆等式**，不是一個要驗的條件。θ 由瓣心量起不影響這個推導。
+ * `outerRadius` 因此不動 —— AI 的圓盤、mesh 的裁切、視錐包圍球全部照舊。
+ *
+ * 【`export` 是給測試的】不變式要驗的是**整個參數空間**，不是這一顆種子
+ * 抽出來的那 48 座島。只看成品的話，`rf` 的下界、`LOBE_MIN_RADIUS` 的夾住
+ * 路徑、最小的島這幾個角落全部沒有人走過。
+ */
+export function makeLobes(
+  cx: number, cz: number, radius: number, outerRadius: number, peak: number,
+  pa: number, pb: number, draws: readonly LobeDraw[],
+): LobeDesc[] {
+  const lobes: LobeDesc[] = [
+    { cx, cz, offset: 0, radius, peak, pa, pb },
+  ]
+  for (const d of draws) {
+    // 【夾在 LOBE_MIN_RADIUS 之上，不是丟掉】見 LOBE_COUNT
+    const r = Math.max(LOBE_MIN_RADIUS, d.rf * radius)
+    const rf = r / radius
+    // 放得下的最遠處：off + r × WOBBLE_MAX = outerRadius，換成比例是 1 − rf
+    const xMax = 1 - rf
+    /**
+     * 【峰高先定，位置後定】下界是主瓣在**最遠可放處**的高度加上
+     * `LOBE_LIFT` —— 低於它的話這一瓣不論放哪裡都埋在主瓣底下。上界是
+     * 「高出主瓣不超過 `LOBE_LIFT_MAX` 公尺」與「不超過島峰的
+     * `LOBE_PEAK_MAX`」取小的那一個。
+     */
+    const pfFloor = smoothstep(1, 0, xMax)
+    const pfCeil = Math.max(
+      pfFloor + LOBE_LIFT,
+      Math.min(LOBE_PEAK_MAX, pfFloor + LOBE_LIFT_MAX / peak))
+    const pf = pfFloor + LOBE_LIFT + d.uPeak * (pfCeil - pfFloor - LOBE_LIFT)
+    /**
+     * 【位置由峰高反推】主瓣降到 `pf` 的那個半徑就是「再往外這一瓣就露出來」
+     * 的地方。`pf > pfFloor = smoothstep(1, 0, xMax)` 而 smoothstep 遞減，
+     * 所以 `xNeed < xMax` 恆成立 —— 區間永遠非空。
+     *
+     * 【用 outerRadius 當尺】而不是這個方位真正的 `radius × wobble`：那樣
+     * 會高估主瓣，所以「露得出來」只會更確定。
+     */
+    const xNeed = invSmoothstep(pf)
+    const uo = LOBE_OFFSET[0] + d.uOff * (LOBE_OFFSET[1] - LOBE_OFFSET[0])
+    const off = outerRadius * (xNeed + uo * (xMax - xNeed))
+    lobes.push({
+      cx: cx + Math.cos(d.dir) * off,
+      cz: cz + Math.sin(d.dir) * off,
+      offset: off,
+      radius: r,
+      peak: pf * peak,
+      pa: d.pa,
+      pb: d.pb,
+    })
+  }
+  return lobes
+}
+
 export function createArchipelago(): {
   field: HeightFieldData
   islands: readonly IslandDesc[]
 } {
-  // 【不得 Math.random】LCG，種子進、序列出。決定性是這整套 replayDigest
-  // 校驗和的前提
-  let s = SEED
-  const rand = (): number => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
-    return s / 4294967296
-  }
+  const rand = makeRand(SEED)
   const between = (lo: number, hi: number): number => lo + rand() * (hi - lo)
 
   const field = createHeightField(FIELD_SIZE, FIELD_CELL)
   const islands: IslandDesc[] = []
-  // wobble 的兩個相位，逐島。與 islands 同索引
-  const phase: { a: number; b: number }[] = []
 
-  // 【錨島先進去，而且不呼叫 rand()】位置與相位都是常數。後面的島照舊
-  // rejection sampling，並且要避開它
+  // 【錨島先進去，而且不碰主序列】位置、相位、瓣全部是常數 —— 瓣由**它們
+  // 自己的**亂數序列抽（`seed`），所以後面加減幾次 rand() 都動不到它們。
+  // 後面的島照舊 rejection sampling，並且要避開它
   for (const a of ANCHORS) {
+    const outerRadius = a.radius * WOBBLE_MAX
     islands.push({
-      cx: a.cx, cz: a.cz, radius: a.radius,
-      outerRadius: a.radius * WOBBLE_MAX, peak: a.peak,
+      cx: a.cx, cz: a.cz, radius: a.radius, outerRadius, peak: a.peak,
+      lobes: makeLobes(a.cx, a.cz, a.radius, outerRadius, a.peak, a.pa, a.pb,
+        drawLobes(makeRand(a.seed))),
     })
-    phase.push({ a: a.pa, b: a.pb })
   }
 
   for (const tier of TIERS) {
@@ -190,9 +463,12 @@ export function createArchipelago(): {
       const radius = between(tier.radius[0], tier.radius[1])
       const peak = between(tier.peak[0], tier.peak[1])
       const outerRadius = radius * WOBBLE_MAX
-      // 相位先抽 —— 抽不抽得到位置都要抽，序列才不會因為 rejection 而漂
+      // 【形狀先抽完，位置後挑】抽不抽得到位置都要抽，序列才不會因為
+      // rejection 而漂。**瓣也是** —— 移到挑位置的迴圈裡的話，一座島試了
+      // 幾次會決定下一座島長什麼樣，而那不會讓任何測試變紅
       const pa = rand() * Math.PI * 2
       const pb = rand() * Math.PI * 2
+      const draws = drawLobes(rand)
 
       for (let t = 0; t < PLACE_TRIES; t++) {
         const cx = (rand() - 0.5) * 2 * SPREAD
@@ -203,14 +479,16 @@ export function createArchipelago(): {
           if (gap < CHANNEL_MIN) { ok = false; break }
         }
         if (!ok) continue
-        islands.push({ cx, cz, radius, outerRadius, peak })
-        phase.push({ a: pa, b: pb })
+        islands.push({
+          cx, cz, radius, outerRadius, peak,
+          lobes: makeLobes(cx, cz, radius, outerRadius, peak, pa, pb, draws),
+        })
         break
       }
     }
   }
 
-  bake(field, islands, phase)
+  bake(field, islands)
   return { field, islands }
 }
 
@@ -220,10 +498,7 @@ export function createArchipelago(): {
  * 【只掃每座島的 bounding box】全圖是 1,048,576 個頂點，逐點對 48 座島算
  * 距離是五千萬次運算。逐島只掃自己的方框之後總量降到約五萬格。
  */
-function bake(
-  field: HeightFieldData, islands: readonly IslandDesc[],
-  phase: readonly { a: number; b: number }[],
-): void {
+function bake(field: HeightFieldData, islands: readonly IslandDesc[]): void {
   const { size, cell, data } = field
   const half = (size - 1) / 2
   const last = size - 1
@@ -232,7 +507,6 @@ function bake(
 
   for (let k = 0; k < islands.length; k++) {
     const isl = islands[k]!
-    const ph = phase[k]!
     const c0 = Math.max(0, Math.floor((isl.cx - isl.outerRadius) / cell + half))
     const c1 = Math.min(last, Math.ceil((isl.cx + isl.outerRadius) / cell + half))
     const r0 = Math.max(0, Math.floor((isl.cz - isl.outerRadius) / cell + half))
@@ -244,16 +518,27 @@ function bake(
       for (let col = c0; col <= c1; col++) {
         const x = (col - half) * cell
         const dx = x - isl.cx
-        const d = Math.hypot(dx, dz)
-        if (d > isl.outerRadius) continue
+        // 【島層級的早退仍然對】所有瓣都在膨脹圓之內 —— 見 makeLobes 的
+        // 那條恆等式
+        if (Math.hypot(dx, dz) > isl.outerRadius) continue
 
-        const theta = Math.atan2(dz, dx)
-        const wobble = 1
-          + WOBBLE_A * Math.sin(3 * theta + ph.a)
-          + WOBBLE_B * Math.sin(5 * theta + ph.b)
-        // s = 1 在島心、0 在島緣。島緣落回海床而不是 0，見 SEA_FLOOR
-        const s = smoothstep(1, 0, d / isl.radius / wobble)
-        const h = isl.peak * s + SEA_FLOOR * (1 - s)
+        // 【一座島 = 好幾瓣取 max】兩瓣相交處留下的摺線就是稜線。
+        // 起點是海床，所以沒有任何瓣蓋到的格子仍然是 SEA_FLOOR
+        let h = SEA_FLOOR
+        for (const lo of isl.lobes) {
+          const lx = x - lo.cx
+          const lz = z - lo.cz
+          const d = Math.hypot(lx, lz)
+          if (d > lo.radius * WOBBLE_MAX) continue
+          const theta = Math.atan2(lz, lx)
+          const wobble = 1
+            + WOBBLE_A * Math.sin(3 * theta + lo.pa)
+            + WOBBLE_B * Math.sin(5 * theta + lo.pb)
+          // s = 1 在瓣心、0 在瓣緣。瓣緣落回海床而不是 0，見 SEA_FLOOR
+          const s = smoothstep(1, 0, d / lo.radius / wobble)
+          const hl = lo.peak * s + SEA_FLOOR * (1 - s)
+          if (hl > h) h = hl
+        }
 
         const i = row * size + col
         // 取 max：島若重疊，高的那一座說了算。間距約束讓這件事不該發生，
@@ -262,4 +547,74 @@ function bake(
       }
     }
   }
+}
+
+/**
+ * 離岸的**膨脹圖**：陸地是 255，往海裡 `SHORE_BAND` 公尺之內由 255 平滑降到 0。
+ *
+ * 【為什麼由高度場推，不由島的參數另外算】海岸線是好幾瓣聯集出來的，形狀
+ * 沒有閉式解；而且島形以後怎麼改，這張圖自動跟著走。**兩份不可能漂。**
+ *
+ * 【兩趟 chamfer】正交 1、對角 √2，單位是格。{1, √2} 的八鄰接 chamfer 最大
+ * **高估** 8.24%（在與軸夾 22.5° 的方向上），而這張圖的用途是「白點在這裡
+ * 比較容易出現」—— 5 格寬的帶上 8% 是 0.4 格。精確的歐氏距離要多兩趟，
+ * 換不到任何看得見的東西。
+ *
+ * 【值域用 8 位元】1024² 是 1 MiB。用 Float32 是 4 MiB，而 256 階在一條
+ * 5 格寬的漸層上遠遠夠用。
+ */
+export function bakeShore(field: HeightFieldData): ShoreFieldData {
+  const { size, cell, data } = field
+  const n = size * size
+  const last = size - 1
+  const dist = new Float32Array(n)
+  // 陸地是 0，其餘是「還沒算過」。1e9 比任何真實距離都大（全圖對角線是
+  // 1,448 格），而且加起來不會失去精度。
+  //
+  // 【Infinity 其實也可以】一旦鄰居是有限值，`有限 + 權重 < Infinity` 照樣
+  // 傳得下去。用 1e9 只是為了讓中間值一直是有限的，除錯時看得懂。
+  const FAR = 1e9
+  for (let i = 0; i < n; i++) dist[i] = data[i]! >= 0 ? 0 : FAR
+  const DIAG = Math.SQRT2
+
+  // 正向：左上到右下。看得到的鄰居是上一列的三個與同列的左邊一個
+  for (let row = 0; row <= last; row++) {
+    for (let col = 0; col <= last; col++) {
+      const i = row * size + col
+      let v = dist[i]!
+      if (v === 0) continue
+      if (row > 0) {
+        const up = i - size
+        if (dist[up]! + 1 < v) v = dist[up]! + 1
+        if (col > 0 && dist[up - 1]! + DIAG < v) v = dist[up - 1]! + DIAG
+        if (col < last && dist[up + 1]! + DIAG < v) v = dist[up + 1]! + DIAG
+      }
+      if (col > 0 && dist[i - 1]! + 1 < v) v = dist[i - 1]! + 1
+      dist[i] = v
+    }
+  }
+  // 反向：右下到左上。少了這一趟，島的左上方沒有浪花
+  for (let row = last; row >= 0; row--) {
+    for (let col = last; col >= 0; col--) {
+      const i = row * size + col
+      let v = dist[i]!
+      if (v === 0) continue
+      if (row < last) {
+        const dn = i + size
+        if (dist[dn]! + 1 < v) v = dist[dn]! + 1
+        if (col > 0 && dist[dn - 1]! + DIAG < v) v = dist[dn - 1]! + DIAG
+        if (col < last && dist[dn + 1]! + DIAG < v) v = dist[dn + 1]! + DIAG
+      }
+      if (col < last && dist[i + 1]! + 1 < v) v = dist[i + 1]! + 1
+      dist[i] = v
+    }
+  }
+
+  const band = SHORE_BAND / cell
+  const out = new Uint8Array(n)
+  for (let i = 0; i < n; i++) {
+    const t = Math.min(1, dist[i]! / band)
+    out[i] = Math.round((1 - t * t * (3 - 2 * t)) * 255)
+  }
+  return { size, cell, data: out }
 }

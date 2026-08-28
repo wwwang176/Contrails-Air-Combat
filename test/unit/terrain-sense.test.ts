@@ -5,10 +5,10 @@ import { applySafety } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
-  createSense, resetSense, senseTerrain, SENSE_RANGE,
+  createSense, resetSense, senseTerrain, SENSE_RANGE, terrainCeiling,
   type TerrainSense, type TerrainSource,
 } from '../../src/ai/terrainSense'
-import type { IslandDesc } from '../../src/world/archipelago'
+import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 
 /**
  * 地形感知。**這裡斷言的是控制律，不是地形內容** —— 所以 fixture 是手寫的
@@ -24,8 +24,18 @@ import type { IslandDesc } from '../../src/world/archipelago'
 
 const WOBBLE = 1.29
 
+/**
+ * 一座**只有主瓣**的島 —— 也就是這一檔原本的那顆圓錐。
+ *
+ * 【為什麼這裡不放次峰】這一檔測的是圓盤法（進入點、鎖存、解除），而那一層
+ * 只讀 `outerRadius`。次峰對它完全不相干，放進來只會讓每一條斷言多背一個
+ * 與它無關的變因。偏心的次峰由下面「爬升判斷看得見偏心的次峰」單獨守。
+ */
 function island(cx: number, cz: number, radius: number, peak: number): IslandDesc {
-  return { cx, cz, radius, outerRadius: radius * WOBBLE, peak }
+  return {
+    cx, cz, radius, outerRadius: radius * WOBBLE, peak,
+    lobes: [{ cx, cz, offset: 0, radius, peak, pa: 0, pb: 0 }],
+  }
 }
 
 /** 飛機放在原點，朝 −Z 飛（three 的預設前方），高度與速度可指定 */
@@ -202,5 +212,119 @@ describe('senseTerrain', () => {
     const far = island(0, -(SENSE_RANGE * 3), 1200, 900)
     senseTerrain(flyer(200, 600), src(far), out)
     expect(out.island).toBe(-1)
+  })
+})
+
+/**
+ * 偏心的次峰。**這一組是 2026-08-28 群島換成多瓣之後最容易靜默失效的地方。**
+ *
+ * 改動前 `profileHeight` 只吃「離島心多遠」，那在圓對稱的島上是對的。多瓣之後
+ * 次峰是偏心的：航跡從側面掠過去時，離島心最近的那一點是主瓣的山腰，而真正
+ * 擋路的次峰在旁邊。低估的方向是「我爬得過去」—— 而症狀是撞上去。
+ */
+describe('爬升判斷看得見偏心的次峰', () => {
+  /** 主瓣 + 一顆放在方位 `dir`、距島心 `offset` 的次峰 */
+  const lobed = (
+    cx: number, cz: number, radius: number, peak: number,
+    offset: number, dir: number, lobeR: number, lobePeak: number,
+  ): IslandDesc => ({
+    cx, cz, radius, outerRadius: radius * WOBBLE, peak,
+    lobes: [
+      { cx, cz, offset: 0, radius, peak, pa: 0, pb: 0 },
+      {
+        cx: cx + Math.cos(dir) * offset, cz: cz + Math.sin(dir) * offset,
+        offset, radius: lobeR, peak: lobePeak, pa: 0, pb: 0,
+      },
+    ],
+  })
+
+  /**
+   * 【對照組是同一座島拿掉次峰】兩者的主瓣、位置、航跡完全相同，所以兩邊
+   * 回報的地板只差在「次峰算不算數」。少了對照組的話，一個偏高的地板可能
+   * 只是主瓣本來就那麼高。
+   *
+   * 【這一條守的是 `checkClimb` 的取樣點】估計式本身由下一條守。改動前
+   * 那裡只補「離島心最近的那一點」，也就是主瓣的極大值 —— 偏心的次峰在
+   * 它旁邊，八個等距點抓不抓得到是運氣。
+   */
+  it('側面掠過時，地板恰好抬到次峰在航跡上的最高點', () => {
+    const R = 1400
+    const P = 900
+    /**
+     * 【次峰刻意誇大】550 m 比生成器真的會抽出來的高（`LOBE_SLOPE` 把它
+     * 壓在 0.386 × 900 = 347 以下）。這裡要的是把「看得見／看不見」的差距
+     * 放大到讀得出來 —— 用合法的極值只差幾十公尺，斷言會被幾何細節綁住。
+     *
+     * **它仍然守住兩個不變式**：放得下（1200 + 450 × 1.29 = 1780 ≤
+     * outerRadius 1806），而且低於島的 peak。生成器的合法範圍另外由
+     * `archipelago.test.ts` 的「每一瓣都放得下」守。
+     */
+    const OFF = 1200
+    const LP = 550
+    const CZ = -950
+    /**
+     * 【次峰要偏開島心的正側方】航跡是 x = 1,100 那條線、朝 −z 飛，所以
+     * 「離某一點最近的 s」就是那一點的 −z。次峰與島心同一條 z 的話兩者的
+     * 最近點是**同一個 s**，補不補都一樣 —— 測不到那幾個點。
+     *
+     * 偏 45° 之後島心的最近點在 s = 950、次峰的在 s = 102，而八個等距點是
+     * 150、300、…、1,200。
+     */
+    const PERP = 1100
+    const fly = (): Aircraft => {
+      const ac = flyer(3000, 600)
+      ac.state.position.set(PERP, 3000, 0)
+      return ac
+    }
+    const withLobe = lobed(0, CZ, R, P, OFF, Math.PI / 4, 450, LP)
+    const a = createSense()
+    const b = createSense()
+    senseTerrain(fly(), src(island(0, CZ, R, P)), a)
+    senseTerrain(fly(), src(withLobe), b)
+    // 航跡最靠近次峰心的那一點上，地形上界是多少
+    const atClosest = terrainCeiling(withLobe, PERP, withLobe.lobes[1]!.cz)
+    console.log(JSON.stringify({
+      只有主瓣: a.floor.toFixed(2), 有次峰: b.floor.toFixed(2),
+      最近點: atClosest.toFixed(2),
+    }))
+    // 對照組：只有主瓣的同一座島讀不到這個高度
+    expect(a.floor).toBeLessThan(atClosest)
+    /**
+     * 【要求「恰好等於最近點的值」而不是「夠高」】等距的八點只差幾公尺 ——
+     * 用不等式的話拿掉補點也照樣綠。實測過。
+     */
+    expect(b.floor).toBeCloseTo(atClosest, 6)
+  })
+
+  /**
+   * 【估計必須恆 ≥ 實際地形】那是圓盤法保守性的全部內容 —— 低估的方向是
+   * 「我爬得過去」，而症狀是撞上去。
+   *
+   * 【逐點比，不是逐圈比】上界是逐瓣量真正的二維距離算的，所以它與高度場
+   * 是同一個座標系的兩份獨立實作 —— 這一條驗的正是兩份對得上。
+   *
+   * 【比的是高度場的格點，不是 `sample`】格點是 `bake` 直接算出來的，沒有
+   * 內插，所以這一條是精確的。內插在山腳那種凸的地方會略高於解析值，那會
+   * 讓這條測試變成在量內插誤差。
+   *
+   * 【為什麼掃真的群島】手寫的島驗不到「生成器造出來的每一種組合」。
+   */
+  it('地形高度的上界恆不低於真實的地形', () => {
+    const { field, islands } = createArchipelago()
+    let worst = Infinity
+    let where = ''
+    // 【5 m 步長，不是逐格點】格是 40 m，所以每一格取到 8×8 個**內部**點 ——
+    // 那正是內插會高過解析值的地方。只比格點的話這條測試會漏掉 16 m 的低估
+    for (const isl of islands) {
+      for (let z = isl.cz - isl.outerRadius; z <= isl.cz + isl.outerRadius; z += 5) {
+        for (let x = isl.cx - isl.outerRadius; x <= isl.cx + isl.outerRadius; x += 5) {
+          if (Math.hypot(x - isl.cx, z - isl.cz) > isl.outerRadius) continue
+          const slack = terrainCeiling(isl, x, z) - field.sample(x, z)
+          if (slack < worst) { worst = slack; where = `${x.toFixed(0)},${z.toFixed(0)}` }
+        }
+      }
+    }
+    console.log(JSON.stringify({ 最小餘裕: worst.toFixed(2) + ' m', where }))
+    expect(worst).toBeGreaterThan(0)
   })
 })

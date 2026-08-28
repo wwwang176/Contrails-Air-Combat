@@ -2,7 +2,7 @@ import { DEFAULT_SAFETY, type SafetyConfig } from './safety'
 import { maxLoadFactorAero } from '../analysis/envelope'
 import { G0 } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { IslandDesc } from '../world/archipelago'
+import { WOBBLE_MAX, type IslandDesc } from '../world/archipelago'
 import type { LandField } from '../world/occlusion'
 
 /**
@@ -130,15 +130,69 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /**
- * 島在距島心 `dist` 處的地形高度，m。
+ * 線性內插的餘裕，m。**加在解析上界之上。**
  *
- * 用 `outerRadius` 當尺度而不是 `radius`：真正的剖面以 `radius` 為尺、再乘上
- * 隨方位變化的 wobble。取最大的那一個等於假設每個方位都是最胖的
- * —— **高估地形，偏保守**。
+ * 【為什麼非有不可】`terrainCeiling` 的推導對的是**解析**的地形，而撞地判定
+ * 與畫面讀的是 40 m 格的**線性內插**（見 `world/heightfield.ts`）。剖面在
+ * 山腳是**凸**的，而凸函數的弦在函數之上 —— 所以格與格之間內插出來的值可以
+ * 高過解析值。
+ *
+ * 【25 是量出來的】掃全圖 48 座島、5 m 步長（每格 8×8 個內部點），
+ * `field.sample − terrainCeiling` 的最大值是 **16.39 m**（第 25 座島，
+ * 半徑 166、峰 147）。25 留了五成餘裕。
+ *
+ * 【為什麼不改成取四個格點的 max】那是嚴格的界（內插是四個格點的線性組合），
+ * 但要讓 AI 認得高度場的格線 —— 而這一層刻意不查高度場（見檔頭）。
+ * 一個常數換掉那個相依。
+ *
+ * 【動了 FIELD_CELL 或島的剖面就要重量】`scratchpad/overshoot.ts` 那一支。
  */
-function profileHeight(isl: IslandDesc, dist: number): number {
-  const t = dist / isl.outerRadius
-  return t >= 1 ? 0 : isl.peak * smoothstep(1, 0, t)
+const CEILING_MARGIN = 25
+
+/**
+ * (x, z) 那一點上，地形高度的**上界**，m。
+ *
+ * ── 【為什麼逐瓣算真正的二維距離】───────────────────────────────
+ *
+ * 島是好幾瓣取聯集（見 `world/archipelago.ts` 的 `LobeDesc`）。改動前這裡是
+ * 一條只吃「離島心多遠」的剖面，那在圓對稱的島上是對的，多瓣之後有兩個
+ * 相反的毛病：
+ *
+ * ```
+ *   低估   偏心的次峰在單錐模型裡看不見 —— 實測在真的群島上差 284 m，
+ *          而低估的方向是「我爬得過去」
+ *   高估   改成「這一圈上最高的那一瓣」之後方向對了，但那一圈繞島一整周
+ *          —— 航跡從東邊掠過時會被島**西邊**的次峰嚇到。實測 20v20 甲板
+ *          高度下橫向規避因此一次都不再觸發（5/40 → 0/40）
+ * ```
+ *
+ * 逐瓣量真正的二維距離把兩個毛病一起解掉：偏心的次峰看得見，而看不見的
+ * 那幾顆不會算進來。
+ *
+ * ── 【為什麼仍然是上界】──────────────────────────────────────
+ *
+ * 尺度用 `radius × WOBBLE_MAX` 而不是這個方位真正的 `radius × wobble`，
+ * 所以 smoothstep 的引數偏小、算出來的高度偏大；海床那一項
+ * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉。**對解析的地形，估計恆 ≥ 實際。**
+ *
+ * 【但畫面上那一份不是解析的】撞地判定讀的是 40 m 格的線性內插，而它在
+ * 凸的地方會高過解析值 —— 實測最多 16.39 m。那一段由 `CEILING_MARGIN`
+ * 補上，所以對**內插後**的地形估計也恆 ≥ 實際。
+ *
+ * 【`export` 是給測試的】這件事沒有別的觀測點：`checkClimb` 只在**取樣到
+ * 的**點上用它，所以走 `senseTerrain` 量到的是取樣夠不夠密，不是估計準不準。
+ */
+export function terrainCeiling(isl: IslandDesc, x: number, z: number): number {
+  let best = 0
+  const lobes = isl.lobes
+  for (let i = 0; i < lobes.length; i++) {
+    const lo = lobes[i]!
+    const t = Math.hypot(x - lo.cx, z - lo.cz) / (lo.radius * WOBBLE_MAX)
+    if (t >= 1) continue
+    const h = lo.peak * smoothstep(1, 0, t)
+    if (h > best) best = h
+  }
+  return best > 0 ? best + CEILING_MARGIN : 0
 }
 
 /** 這一架現在的轉彎半徑，m。`nMax` 已經含重力與失速限制 */
@@ -246,28 +300,48 @@ function findThreat(
 /**
  * 沿航跡爬得過這座島嗎？順便回報沿途最高的地形。
  *
- * 【八個點是對解析剖面取值，但它仍然是取樣】剖面平滑不等於有限點抓得到
- * 極值 —— 一座 400 m 直徑的小島，峰頂可能落在兩點之間。所以除了等距的
- * 八點，**額外把最近點（剖面的極大值所在）補進來**，那一點才是真正決定
- * 爬不爬得過的地方。
+ * 【八個等距點是取樣，抓不到極值】剖面平滑不等於有限點抓得到峰頂 ——
+ * 一座 400 m 直徑的小島，峰頂可能落在兩點之間。
+ *
+ * 【所以把每一瓣自己的最近點補進來】`terrainCeiling` 是逐瓣取 max，而第 i 瓣
+ * 沿航跡的極大值就落在「航跡離那一顆瓣心最近」的地方，也就是
+ * `s = (c_i − p) · d`。主瓣那一顆就是改動前的「離島心最近的那一點」，
+ * 所以這是**純追加**。
+ *
+ * 少了它的症狀是漏掉一整座次峰 —— 實測一顆合法的次峰因此由 550 m 讀成
+ * 549.36 m（等距點剛好擦過峰肩），而窄的那一批漏得更多。
  */
 const climb = { ok: true, floor: 0 }
 function checkClimb(
-  y0: number, isl: IslandDesc, along: number, perp: number, cfg: SafetyConfig,
+  y0: number, isl: IslandDesc,
+  px: number, pz: number, dx: number, dz: number, cfg: SafetyConfig,
 ): void {
   const tanP = Math.tan(cfg.recoveryPitch)
   climb.ok = true
   climb.floor = 0
   const test = (s: number): void => {
     if (s < 0 || s > SENSE_RANGE) return
-    const d = Math.hypot(perp, s - along)
-    const h = profileHeight(isl, d)
+    const h = terrainCeiling(isl, px + dx * s, pz + dz * s)
     if (h > climb.floor) climb.floor = h
     if (y0 + s * tanP < h + cfg.clearance) climb.ok = false
   }
+  /**
+   * 【腳下那一點只進地板，不進「爬不爬得過」】等距取樣由 s = 150 起，所以
+   * **飛機正下方的地形從來沒有被看過** —— 而 `floor` 正是拉起判斷的輸入。
+   * 貼著一道稜線飛的時候，前方 150 m 可能已經降下去了。
+   *
+   * 【為什麼不讓它參與 climb.ok】那一項問的是「爬得過**前方**嗎」。把腳下
+   * 算進去等於「我離地不足 120 m 就要轉」—— 那是 ground 分支的職責，
+   * 而且甲板高度掠過小島時會一直觸發橫向規避。
+   */
+  climb.floor = terrainCeiling(isl, px, pz)
   for (let i = 1; i <= PROFILE_STEPS; i++) test((SENSE_RANGE * i) / PROFILE_STEPS)
-  // 最近點：剖面在這裡最高
-  test(along)
+  // 每一瓣自己的最近點：那一瓣沿航跡最高的地方
+  const lobes = isl.lobes
+  for (let i = 0; i < lobes.length; i++) {
+    const lo = lobes[i]!
+    test((lo.cx - px) * dx + (lo.cz - pz) * dz)
+  }
 }
 
 /**
@@ -391,11 +465,10 @@ export function senseTerrain(
     const r = isl.outerRadius + margin
     const ox = isl.cx - pos.x
     const oz = isl.cz - pos.z
-    const along = ox * dx + oz * dz
     const perp = dx * oz - dz * ox
     const centre = Math.hypot(ox, oz)
 
-    checkClimb(pos.y, isl, along, perp, cfg)
+    checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
     out.floor = climb.floor
 
     /**
@@ -439,10 +512,9 @@ export function senseTerrain(
 
   const idx = hit.index
   const isl = islands[idx]!
-  const along = hit.along
   const perp = hit.perp
   const centre = hit.centre
-  checkClimb(pos.y, isl, along, perp, cfg)
+  checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
   out.floor = climb.floor
 
   if (climb.ok) {
