@@ -869,6 +869,7 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uEnvLo;
   uniform float uBaseCell;
   uniform float uHalfSeg;
+  uniform float uMaxLevel;
   uniform float uInvHalfSeg;
   uniform float uVertFadeLo;
   uniform float uVertFadeHi;
@@ -1015,7 +1016,11 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
  *
  * 【接縫是連續的，不必另外處理】`faceCell` 由**離中心的距離**推得，不是查
  * 這個片段屬於哪一層。在近海的外緣（30,720 m）它算出 480 m —— 正好是 L3 的
- * 格距；再往外每個 octave 加倍。虛擬的面因此接著真實的面長下去，同一條式子。
+ * 格距。虛擬的面因此接著真實的面長下去，同一條式子。
+ *
+ * 【遠海的格距封頂在最外層，不再加倍】加倍會讓遠處的面維持固定的角張角，
+ * 看起來比近處的面還大。封住之後它是固定的世界尺寸，離得越遠在畫面上越小 ——
+ * 專案負責人 2026-08-28：「遠海看起來是個白點就好」。
  *
  * 【所以「遠海長出 60 m 假色塊」那個顧慮不成立】那要在格距寫死成 uBaseCell
  * 的前提下才會發生。這裡是距離推的。
@@ -1029,16 +1034,24 @@ export const FACE_FRAGMENT = /* glsl */ `
     // ── 這個像素落在哪一個三角面 ────────────────────────────────
     //
     // 【格距要按距離算，不是一律 uBaseCell】四層共用同一顆材質，格距是
-    // 60/120/240/480，遠海再往外加倍。一律除以 uBaseCell 的話，L1/L2/L3 的
+    // 60/120/240/480，而遠海沿用最外層那一個。一律除以 uBaseCell 的話，L1/L2/L3 的
     // 每一個真實三角形會被切成 4/16/64 個假色塊 —— 而那不會讓任何測試變紅。
     //
     // 【環是方的，所以用 Chebyshev 半徑】第 L 層是半寬 32c 到 64c 的方環
     // （c = uBaseCell × 2^L），所以 r / (uBaseCell × uHalfSeg) 取 log2 再
     // ceil 正好是層號。length() 是圓的，會在方環的角落選錯層。
+    //
+    // 【min 把遠海的格距封在最外層】不封的話格距會一路加倍，遠處的面因此
+    // 維持**固定的角張角**（約 0.9°）—— 永遠是那麼大一塊，看起來比近處的面
+    // 還大。封住之後它是固定的世界尺寸，離得越遠在畫面上越小，自然變成一個
+    // 白點：30 km 是 0.9°、100 km 0.27°、250 km 0.11°。
+    //
+    // 【不會有次像素閃爍】480 m 要掉到 2 px 得到 228 km，而碎光在
+    // SPARKLE_FADE_END（250 km）就淡完了 —— 所以不需要像素地板。
     vec2 faceLocal = vOceanWorld.xz - uOrigin;
     float faceR = max(abs(faceLocal.x), abs(faceLocal.y));
     float faceCell = uBaseCell
-      * exp2(ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg)))));
+      * exp2(min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg))))));
 
     vec2 faceQ = vOceanWorld.xz / faceCell;
     vec2 faceCel = floor(faceQ);
@@ -1316,6 +1329,7 @@ export function createOcean(): Ocean {
     uFaceTint: { value: FACE_TINT },
     uFaceLift: { value: FACE_CREST_LIFT },
     uHalfSeg: { value: OCEAN_RING_SEGMENTS / 2 },
+    uMaxLevel: { value: OCEAN_LEVELS - 1 },
     // 【天空色直接取 sky.ts 的常數】海面反射的是那一片天，兩份會漂開。
     // `new Color(hex)` 出來就在線性空間，而這一段也在線性空間（PBR 之後、
     // colorspace_fragment 之前），所以不需要任何轉換
