@@ -883,11 +883,28 @@ describe('農地的切塊 mesh', () => {
     expect(shader.vertexShader).toContain('vFarmWorld')
   })
 
-  it('dispose 收掉每一塊的 geometry', () => {
+  /**
+   * 【為什麼掛事件而不是看屬性】`BufferGeometry.dispose()` 只發一個事件，
+   * 屬性仍然留在物件上 —— 用 `attributes.position` 判斷會恆為綠。
+   * 與 `terrain.test.ts` 的那一條同一個手法。
+   */
+  it('dispose 真的釋放每一塊的 geometry 與那份共用的材質', () => {
     const g = createFarmGround(farm.field)
-    const gs = g.object.children.filter((c): c is Mesh => c instanceof Mesh).map((m) => m.geometry)
+    const pending = new Set<object>()
+    for (const c of g.object.children) {
+      if (!(c instanceof Mesh)) continue
+      pending.add(c.geometry)
+      c.geometry.addEventListener('dispose', () => { pending.delete(c.geometry) })
+      const mat = Array.isArray(c.material) ? c.material[0]! : c.material
+      if (!pending.has(mat)) {
+        pending.add(mat)
+        mat.addEventListener('dispose', () => { pending.delete(mat) })
+      }
+    }
+    // 25 塊 geometry + 1 份共用材質
+    expect(pending.size).toBe(FARM_CHUNKS * FARM_CHUNKS + 1)
     g.dispose()
-    for (const geo of gs) expect(geo.attributes.position).toBeUndefined()
+    expect(pending.size).toBe(0)
   })
 })
 ```
@@ -1116,11 +1133,14 @@ describe('遠景平地', () => {
     expect(shader.fragmentShader).toContain('fieldColorAt')
   })
 
-  it('dispose 收掉 geometry 與材質', () => {
+  it('dispose 真的釋放 geometry 與材質', () => {
     const g = createFarHorizon()
-    const geo = g.mesh.geometry
+    const pending = new Set<object>([g.mesh.geometry, g.mesh.material as object])
+    g.mesh.geometry.addEventListener('dispose', () => { pending.delete(g.mesh.geometry) })
+    ;(g.mesh.material as { addEventListener(t: string, f: () => void): void })
+      .addEventListener('dispose', () => { pending.delete(g.mesh.material as object) })
     g.dispose()
-    expect(geo.attributes.position).toBeUndefined()
+    expect(pending.size).toBe(0)
   })
 })
 ```
