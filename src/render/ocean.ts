@@ -4,6 +4,7 @@ import {
   Color,
   Group,
   Mesh,
+  LessDepth,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
@@ -27,64 +28,45 @@ export interface WaveSpec {
 /**
  * 波參數的唯一權威來源：同時餵給 shader uniform 與 CPU 的 gerstnerHeight。
  *
- * 【方向要對 180° 取模來看】正弦波的 `+k` 與 `−k` 只差一個相位，所以
- * `(1.0, 0.15)` 與 `(−1.0, −0.15)` 是同一道波。判斷方向分不分散，要看的是
- * 模 180° 之後的分佈。
+ * ── 【三道，而且都在 120 m 之上 —— 那是格子決定的】─────────────
  *
- * 【五道波、方向間隔 40°】前一組是 8.5° / 123° / 107°，模 180 之後擠成兩群、
- * 45°～105° 一片空白，而振幅最大的那道在 8.5° —— 高空看不見短波（全被
- * Nyquist 淡掉），畫面就被那一道主導，浪紋全部朝同一個方向。
+ * 網格是 60 m 的低多邊形面（見 `OCEAN_BASE_CELL`），Nyquist 因此把波長的
+ * 下限釘在 **120 m**。更短的波在幾何上只會變成混疊，而 `OCEAN_VERT_FADE_HI
+ * = 0.5` 正好會把它整個淡掉 —— 那道波**完全不存在**卻還在 uniform 裡佔一個
+ * 位置、在片段裡照跑一次 sin。`ocean.test.ts` 有一條守著。
  *
- * 現在五道均勻鋪在 0° / 40° / 80° / 120° / 160°，而 `RIPPLE_WAVES` 的四道
- * 交錯插在 20° / 60° / 100° / 140° —— 九道波每 20° 一道，沒有留白也沒有兩道
- * 擠在一起。
+ * ── 【方向要對 180° 取模來看】─────────────────────────────────
  *
- * 【振幅比也放平了】舊的 1.65 : 1.05 : 0.525 是 3.1 : 2 : 1，最長那道太
- * 主導。現在 1.0 : 0.8 : 0.65 : 0.45 : 0.325 的比例（實際值是它的 1.45 倍，
- * 見下）。
+ * 正弦波的 `+k` 與 `−k` 只差一個相位，所以 `(1.0, 0.15)` 與 `(−1.0, −0.15)`
+ * 是同一道波。判斷方向分不分散，要看的是模 180° 之後的分佈。三道均勻鋪在
+ * **0° / 55° / 115°**，沒有兩道擠在一起。
  *
- * ── 【2026-08-26 振幅 ×1.45、速度改用真色散】────────────────────
- *
- * **人工指定：「起伏大一點（+1 m ~ −1 m）」「浪走快一點」。**
- *
- * 振幅：原本量到的高度範圍是 −2.24 … +2.29 m，×1.45 之後是 −3.2 … +3.3 m
- * —— 正好是要求的兩側各加一公尺。比例一個字沒動，所以方向分佈與各道波的
- * 相對主導關係完全不變。
- *
- * 速度：原本是 `√λ` 上的線性內插，係數落在真實深水色散的 0.61～0.73 倍
- * —— 也就是說浪一直走得比它們該有的慢。現在直接用色散關係本身：
+ * ── 【速度用深水色散關係】────────────────────────────────────
  *
  *     c = √(gλ / 2π)      g = 9.81 m/s²
  *
- *   波長 140 m → 14.78 m/s      舊值 9.00（0.61 倍）
- *        105 m → 12.80          舊值 8.05（0.63）
- *         78 m → 11.03          舊值 7.20（0.65）
- *         55 m →  9.27          舊值 6.29（0.68）
- *         31 m →  6.96          舊值 5.10（0.73）
+ *   波長 380 m → 24.35 m/s
+ *        250 m → 19.75
+ *        165 m → 16.05
  *
- * 快了約 1.5 倍，而且**長波比短波快**這個關係更明顯了 —— 那是海面看起來
- * 有「湧」的原因：長浪從短浪底下穿過去。
+ * **長波比短波快**，那是海面看起來有「湧」的原因：長浪從短浪底下穿過去。
  *
- * `RIPPLE_WAVES` 的速度由最短那道乘 `√(λ/λ_ref)` 推導，同一條色散關係，
- * 所以它們自動跟著加快，不必另外改。
+ * ── 【振幅和 4.5 m，兩端各有一條線夾著】───────────────────────
  *
- * 【連帶必須動的】振幅和由 3.225 m 變成 4.673 m，所以 `FAR_SEA_Y` 要跟著
- * 下降（見該常數）。`SHADE_SLOPE_RMS` 的預算也被吃掉更多，`RIPPLE_WAVES`
- * 的振幅因此自動縮到 0.86 倍 —— 那是設計好的：總坡度守恆，浪變陡就該讓
- * 微波退讓。
+ * 上界是 `island.ts` 的 `DRAW_FLOOR`（−5.5）：波谷比它更深的話，會露出
+ * 為了避免 z-fighting 而沒有畫的海床格，島的四周破洞。
  *
- * 【速度沿用既有的色散關係】舊的三道在 `√λ` 上大致成線性，新增的兩道就在
- * 那條線上內插 —— 兩組之間不會有一道波跑得明顯不對。
+ * 下界是「看得出是多邊形」：相鄰面的高差最大約 6.6 m / 60 m，法線差約 12°。
+ * 比島（相鄰面差幾十度）柔得多 —— 所以低多邊形的主要訊號是**逐面色調**
+ * （見 `FACE_TINT`），法線只是配角。
  *
- * 【加道數的代價】`crash.ts` 的入水判定、`splash`、`wrecks` 全部走
- * `heightAt`，這裡每多一道就是每次呼叫多一次 `sin`。五道仍在可忽略的量級。
+ * 【加道數的代價】`splash`、`wrecks`、`debris` 入水全部走 `heightAt`，
+ * 這裡每多一道就是每次呼叫多一次 `sin`。三道在可忽略的量級。
  */
 export const WAVES: readonly WaveSpec[] = [
-  { dirX: 1.0, dirZ: 0.0, amplitude: 1.45, wavelength: 140, speed: 14.78 },
-  { dirX: 0.766, dirZ: 0.643, amplitude: 1.16, wavelength: 105, speed: 12.80 },
-  { dirX: 0.174, dirZ: 0.985, amplitude: 0.943, wavelength: 78, speed: 11.03 },
-  { dirX: -0.5, dirZ: 0.866, amplitude: 0.653, wavelength: 55, speed: 9.27 },
-  { dirX: -0.94, dirZ: 0.342, amplitude: 0.467, wavelength: 31, speed: 6.96 },
+  { dirX: 1.0, dirZ: 0.0, amplitude: 2.0, wavelength: 380, speed: 24.35 },
+  { dirX: 0.574, dirZ: 0.819, amplitude: 1.5, wavelength: 250, speed: 19.75 },
+  { dirX: -0.423, dirZ: 0.906, amplitude: 1.0, wavelength: 165, speed: 16.05 },
 ]
 
 /**
@@ -122,7 +104,7 @@ export const WAVES: readonly WaveSpec[] = [
  * 著色器的位移、片段著色器的坡度 —— 三份都要用同一個 warp。不一致的症狀是
  * 「飛機撞到看不見的浪」或「亮塊與浪的形狀分家」。
  */
-export const WAVE_WARP_AMP = 40
+export const WAVE_WARP_AMP = 110
 /**
  * 見 WAVE_WARP_AMP。第一層扭曲的兩道波長，m。
  *
@@ -155,7 +137,7 @@ export const WAVE_WARP_LEN_B = 3271
  * 【兩層的軸刻意交換】第一層用 p.y 驅動 x、p.x 驅動 y；第二層反過來。同向
  * 疊加會讓兩層的效果沿同一個方向累積，看起來像一層比較強的扭曲。
  */
-export const WAVE_WARP2_AMP = 9
+export const WAVE_WARP2_AMP = 25
 /** 見 WAVE_WARP2_AMP。同樣取質數。 */
 export const WAVE_WARP2_LEN_A = 419
 /** 見 WAVE_WARP2_AMP。 */
@@ -190,11 +172,11 @@ export const WAVE_WARP2_LEN_B = 577
  *
  *   一、test/unit/ocean.test.ts 守著「波高不超過所有波幅的總和」。往上調
  *       會讓那條界線失效，而那是碰撞判定唯一的靜態保證。
- *   二、往上調等於偷偷提高整體浪高，而浪高牽動 SHADE_SLOPE_RMS 的預算
- *       （RIPPLE_WAVES 的振幅由它反推）—— 那是另一個決定。
+ *   二、往上調等於偷偷提高整體浪高，而浪谷不得深過 `island.ts` 的
+ *       `DRAW_FLOOR`（−5.5）—— 越過就會露出沒有畫的海床，島的四周破洞。
  *
- * 代價是平均浪高降到約 67%。要補回來得動 WAVES 的振幅，而那要連
- * RIPPLE_WAVES 一起重算。
+ * 代價是平均浪高降到約 67%。要補回來就動 `WAVES` 的振幅，而那要回頭看上面
+ * 那兩條界線。
  */
 export const WAVE_ENV_LO = 0.35
 /**
@@ -309,75 +291,35 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
 }
 
 /**
- * ── 【海面的 LOD：同心環 clipmap】────────────────────────────────
+ * clipmap 最內層的格子邊長，m —— **也就是低多邊形那個「面」有多大**。
  *
- * 細浪面不是一張均勻的網格，而是一組以相機為中心的巢狀方環。每一層的格子
- * 是內層的兩倍大、覆蓋範圍也是兩倍，所以**每一層在畫面上佔的角度大致相同**
- * —— 三角形跟著像素走，不跟著公尺走。
+ * 【60 怎麼來的】專案負責人指定「海的邊長比山大 1.5」，而山是
+ * `archipelago.ts` 的 `FIELD_CELL = 40`。`ocean.test.ts` 守的是那個**關係**
+ * 不是數字：山變了海要跟著變。
  *
- * 【為什麼要換掉均勻網格】改動前是 ±5 km 鋪 512×512 格（一格 19.5 m、26 萬
- * 個四邊形）。兩頭都不對：
- *
- *   近處太粗   31 m 的波只有 1.59 點／波長，低於 Nyquist，畫出來是混疊
- *   遠處太細   1 km 之外浪本來就不到 4 px，六成的三角形是白畫的
- *
- * 現在（基礎格 2.5 m、每層 128×128、十層）：
- *
- *   層   格子       覆蓋半徑      四邊形
- *   L0    2.5 m      160 m        16,384（實心）
- *   L1    5 m        320 m        12,288（空心環）
- *   L2    10 m       640 m        12,288
- *   L3    20 m       1.28 km      12,288
- *   L4    40 m       2.56 km      12,288
- *   L5    80 m       5.12 km      12,288
- *   L6   160 m      10.24 km      12,288
- *   L7   320 m      20.48 km      12,288
- *   L8   640 m      40.96 km      12,288
- *   L9  1280 m      81.92 km      12,288
- *                                ───────
- *                                126,976（改動前 262,144）
- *
- * **三角形少一半，近處的格子細 7.8 倍，覆蓋範圍大 16 倍。** 31 m 的波在 L0
- * 拿到 12.4 點／波長，終於畫得出來。
- *
- * 【接縫推到 82 km】遠海與細浪面的 5 m 落差，改動前在 5 km 處是 1.27 px；
- * 現在在 81.92 km 處是 0.08 px，看不見了。
- *
- * ── 【三個關鍵設計】────────────────────────────────────────────
- *
- * 一、**不做格點對齊。** 改動前細浪面要對齊到格點，否則頂點在格點之間滑動
- *     會讓波形抖動 —— 那是因為它沒有做頻帶限制，19.5 m 的格子在取樣 31 m
- *     的波，滑動就是混疊。現在每個頂點按**它離相機多遠**把解析不出來的波
- *     淡掉（見 OCEAN_VERT_FADE_LO），取樣就永遠在 Nyquist 之內，滑動只造成
- *     內插誤差（振幅的 3% 量級），不會抖。
- *
- *     這也讓十層可以共用同一個中心 —— 全部直接設在相機的 XZ 上。
- *
- * 二、**淡出吃的是「離相機的距離」，不是「這一層的格子大小」。** 兩層的交界
- *     上，兩邊算出來的淡出量因此**完全相同**，共用的頂點高度逐位元一致，
- *     不會有高低差。（交界上細層多出來的中點仍然是 T 形接點，見下。）
- *
- * 三、**空洞的大小是推導出來的，不是調的。** 第 L 層的洞必須正好等於第
- *     L−1 層的外緣：`(段數/2) × 格子(L−1) = (段數/4) × 格子(L)`，也就是
- *     中央 (段數/2)² 個四邊形。段數必須是 4 的倍數。
+ * 【它同時是波長的下限】Nyquist 讓 60 m 的格子畫不出短於 120 m 的波，
+ * 見 `WAVES`。
  */
-export const OCEAN_BASE_CELL = 2.5
+export const OCEAN_BASE_CELL = 60
 /**
  * 見 OCEAN_BASE_CELL。每一層的邊各切幾格。**必須是 4 的倍數**（空洞是中央
  * 的 (段數/2)²，而那要能整除）。
  *
  * 【128 怎麼來的】它同時決定兩件事：每層的四邊形數（128² − 64² = 12,288）
- * 與每層覆蓋的半徑（64 × 格子）。128 讓十層剛好接到 82 km，而總量仍比改動
- * 前的均勻網格少一半。
+ * 與每層覆蓋的半徑（64 × 格子）。128 配上 60 m 的基礎格，讓 L0 的半寬是
+ * 3,840 m —— 浪最有起伏的那一圈。
  */
 export const OCEAN_RING_SEGMENTS = 128
 /**
- * 見 OCEAN_BASE_CELL。層數。每多一層，覆蓋半徑加倍、四邊形加 12,288。
+ * 見 `OCEAN_BASE_CELL`。層數。每多一層，覆蓋半徑加倍、四邊形加 12,288。
  *
- * 【為什麼是 10】最外層要遠到讓「遠海接縫」的 5 m 落差進次像素。81.92 km
- * 處是 0.08 px；九層（41 km）是 0.16 px，也夠，但十層只多 1.4% 的三角形。
+ * 【為什麼是 4】四層接到 ±30.7 km。再往外由平的遠海接手，而那個接縫的 5 m
+ * 落差在 30.7 km 處是 0.21 px —— 仍在一個像素以內。
+ *
+ * 【為什麼不是均勻鋪滿】60 m 均勻鋪到 30.7 km 是 2,097,152 個三角形；
+ * clipmap 是 106,496。均勻格的成本是半徑的平方，clipmap 是對數。
  */
-export const OCEAN_LEVELS = 10
+export const OCEAN_LEVELS = 4
 
 /**
  * 細浪面**整體**的邊長，m。由 clipmap 推導，不是可調參數。
@@ -389,28 +331,40 @@ export const OCEAN_SIZE
   = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1) * OCEAN_RING_SEGMENTS
 
 /**
- * 頂點位移的頻帶限制窗，單位是波長的倍數。**與片段著色器的 WAVE_FADE_LO/HI
- * 是兩回事**：那一個看的是像素的 footprint（畫面上分不分得出來），這一個看
- * 的是**網格的格子**（幾何上表現不表現得出來）。
+ * 網格中心吸附的間距，m。**由 clipmap 推導，不是可調參數。**
  *
- * 【為什麼幾何要比著色更保守】著色的取樣點是像素，密度由螢幕決定；幾何的
- * 取樣點是頂點，密度由這一層的格子決定，而格子之間是**線性內插**。正弦波
- * 用直線接起來，要五個點以上才看不出折角，兩個點（Nyquist 極限）看起來是
- * 三角波。0.2 / 0.4 表示：格子小於 0.2λ（五點）完全保留，大於 0.4λ
- * （2.5 點）完全拿掉。
- *
- * 【拿掉的波去哪了】**只從幾何拿掉，著色不受影響。** 片段著色器算的是解析
- * 的波坡度，與網格細不細無關 —— 所以遠處的海仍然有完整的波紋光影，只是那
- * 片水面在幾何上是平的。而那正是對的：1.45 m 的浪在 5 km 外只有 0.37 px。
- *
- * 【與碰撞判定的差異】`gerstnerHeight`（CPU）**不做**這個淡出，它永遠是完整
- * 的五道波。相機附近（L0、L1）淡出量是 0，兩者逐位元相同；遠處才分家，而
- * 那裡的差異最多 3.3 m，在 5 km 外是 0.8 px。撞海判定用的是飛機自己的位置，
- * 而相機永遠跟著玩家 —— 玩家那一架永遠落在「完全相同」的那一區。
+ * 【為什麼是最外層的格距】它被每一層的格距整除（各層逐層加倍），所以一次
+ * 吸附就讓四層同時落在自己的格點上 —— 見 `update`。
  */
-export const OCEAN_VERT_FADE_LO = 0.2
+export const OCEAN_SNAP = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+
+/**
+ * 頂點位移的頻帶限制窗，單位是波長的倍數。**格子小於 `LO × λ` 完全保留，
+ * 大於 `HI × λ` 完全拿掉。**
+ *
+ * 【上界 0.5 是 Nyquist，不是美學選擇】格子等於半波長就是取樣的硬上限，
+ * 再粗只會得到混疊。
+ *
+ * 【為什麼下界放到 0.35 —— 這一輪要的正是折角】舊值 0.2 的立意是「正弦波
+ * 用直線接起來，要五個點以上才看不出折角」。低多邊形的海要的就是那個折角，
+ * 所以窗往上推，讓 60 m 的格子留得住 165 m 的波（0.36λ）。
+ *
+ * 【它是徑向連續的，不是逐層常數】頂點著色器算的是
+ * `vCell = max(baseCell, 離中心的距離 / 64)` —— 兩層交界上同一點兩層算出
+ * 同一個值，淡出量因此逐位元一致，交界不會有高低差。
+ *
+ * 於是每一道波有一個「消失半徑」`HI × λ × 64`：380 m 那道撐到 12,160 m，
+ * 165 m 那道到 5,280 m。**格子變粗與浪變平是同一件事的兩面** —— 遠處是大
+ * 而平的面，近處是小而有起伏的面。接到平的遠海不必新增邊界處理。
+ *
+ * 【與 `gerstnerHeight` 的差異】CPU 那一份**不做**這個淡出，它永遠是完整的
+ * 三道波。相機附近淡出量是 0，兩者逐位元相同；遠處才分家。而讀它的是水柱、
+ * 殘骸、碎片入水 —— 那些都發生在相機附近。**碰撞不讀它**（海面是平的，
+ * 見 `world/seaCrash.ts`）。
+ */
+export const OCEAN_VERT_FADE_LO = 0.35
 /** 見 OCEAN_VERT_FADE_LO。 */
-export const OCEAN_VERT_FADE_HI = 0.4
+export const OCEAN_VERT_FADE_HI = 0.5
 
 /**
  * 遠海的邊長，m。**這是一片平的四邊形，不是網格。**
@@ -553,200 +507,23 @@ const SUN_DIR: readonly [number, number, number] = (() => {
  * 「哪一顆」交給噪聲。
  */
 /**
- * 著色法線的目標坡度 RMS（弧度）。`RIPPLE_WAVES` 的振幅由它反推。
+ * 碎光的角度容差（弧度）—— 面法線與半角向量差多少之內還算「對準太陽」。
  *
- * 【為什麼要拉高】`WAVES` 三道波的坡度 RMS 只有 0.0731（4.19°），而真實海面
- * 在 7 m/s 風速下是 11°（Cox-Munk）。差這麼多的後果是**遠處根本達不到鏡面
- * 條件**：相機 1 km 高看 30 km 外的海，視線仰角只有 1.9°，半角向量偏離 +Y
- * 25.5° —— 波法線最多斜 8.4°，差 17° 以上，align 掉到 0.018。有顆粒時離散性
- * 還能撐住（1.6% 的格子亮到 0.6，看得見），一旦收斂成連續場就攤平成 0.0015，
- * 整片海變成死平的一塊。
+ * 【為什麼是常數】面法線就是**真實的幾何法線**，沒有「解析不出來的坡度」
+ * 要折進 σ。那個補償是逐像素解析波形時才需要的：那時法線只到某個尺度，
+ * 更細的起伏得用一個統計量代表。低多邊形沒有那個問題 —— 面就是面。
  *
- * 11° 就是 Cox-Munk 在 7 m/s 下的值。`WAVES` 的振幅提高之後它自己貢獻了
- * 6.28°，剩下的餘量仍夠 `RIPPLE_WAVES` 分四道 —— 但這兩個常數是連動的：
- * `WAVES` 再往上加，微波的振幅就會被擠掉。
- */
-export const SHADE_SLOPE_RMS = (11 * Math.PI) / 180
-
-/**
- * 一個像素的張角，弧度。決定哪些波還解析得出來（見 `SPARKLE_FRAGMENT` 的波
- * 迴圈）。
- *
- * 【這是複本，不是權威 —— 同 `SUN_DIR` 的處境】權威是 `scene.ts:46` 的
- * `CAMERA_FOV_DEG`（65，垂直）與實際的畫布高度。這裡按 1080 定值：
- * `65° / 1080 = 0.0602°`。視窗高度不同時 footprint 會偏，症狀是波的淡出距離
- * 跟著偏 —— 那是漸進的，不會有硬邊。真要精確就得每 frame 從相機餵進來，而
- * `update()` 的簽名為此改動不值得。
- *
- * 【為什麼不用 dFdx —— 2026-08-25 量測】硬體導數看似更對（自動涵蓋解析度、
- * FOV 與掠射角），但它是在 **2x2 的 quad** 上算的：footprint 在一個 quad 內
- * 是常數，quad 與 quad 之間跳變，所以自帶 2 px 的階梯。那個階梯經由
- * 「淡出權重 w → 波梯度 g → 法線 N → 明暗」一路傳到畫面上。對實機截圖的
- * 海面做 FFT，主頻是**週期 2.25 px、方向 88.3° 的水平條紋，強度佔絕對主導**
- * —— 2 px 正是 Nyquist 極限，那是混疊的指紋，不可能是任何真實的波。
- *
- * 解析式沒有這個問題：`oceanDist` 與 `oceanV` 都由插值的 varying 算出，逐
- * 像素連續。掠射角那一半由 `1 / oceanV.y` 補回來（`oceanV.y` 就是視線與海面
- * 夾角的 sin）。
- */
-export const PIXEL_ANGLE = ((65 * Math.PI) / 180) / 1080
-
-/**
- * **微波專用的細座標扭曲**：兩層的振幅（m）與各自的兩道波長（m）。
- *
- * ── 【它在解什麼：少數幾道正弦永遠是準週期的】───────────────────────
- *
- * `WAVE_WARP_*` 已經把長浪的波峰弄彎了，但它的尺度是幾百到幾千公尺 ——
- * 對 11 m 的微波來說那是一個幾乎均勻的平移，波峰照樣是筆直的長峰。於是
- * 微波那一階不管切成幾道，疊出來的都是一個**規則的晶格**：一道時晶格退化
- * 成條紋，四道時它是斑點。自相關一路到邊都不衰減，兩者都不像海。
- *
- * 【為什麼扭曲解得掉，而多切幾道解不掉】規律性的量度是**相關長度**，而它
- * 由波數帶的寬度決定 —— 一階就是一個窄帶，塞再多方向都還是窄帶。座標扭曲
- * 讓局部波長跟著扭曲的梯度伸縮，等於**把一階自己攤成寬頻**：
- *
- *     梯度 = 振幅 × 2π/波長 ≈ 0.4  →  局部波長在 λ/1.4 ~ λ/0.6 之間跑
- *     相位擾動 = k·振幅 ≈ π        →  波峰會斷、會錯開，長度變成有限的
- *
- * 【為什麼只給微波、而且只在片段著色器裡】微波不進頂點位移、不進碰撞，
- * 所以這一份沒有 CPU 的對應版本，也不必與 `waveWarp` 保持逐字相同。把它
- * 加進 `oceanWarp` 的話 140 m 的長浪會跟著被 60 m 的尺度扭爛，而 `crash.ts`
- * 讀的 `gerstnerHeight` 得跟著改 —— 那是完全不同量級的一件事。
- *
- * 【為什麼要兩層、而且四個波長互質】單層的話扭曲自己就是週期的，相關性會
- * 在一個扭曲波長之後**整個復活** —— 等於把重複推到 60 m，比原本的條紋還糟。
- * 兩層互質之後復活點被推到最小公倍數，遠在任何一個畫面之外。
- *
- * 【梯度不能到 1】到 1 座標映射就會摺疊，症狀是焦散般的硬亮線。兩層加起來
- * 每個分量約 0.4，離摺疊有餘裕。
- */
-export const RIPPLE_WARP_AMP = 6.0
-/** 見 `RIPPLE_WARP_AMP`。取質數。 */
-export const RIPPLE_WARP_LEN_A = 149
-/** 見 `RIPPLE_WARP_AMP`。 */
-export const RIPPLE_WARP_LEN_B = 103
-/** 見 `RIPPLE_WARP_AMP`。第二層：更短、更淺，負責把波峰真的切斷。 */
-export const RIPPLE_WARP2_AMP = 2.4
-/** 見 `RIPPLE_WARP_AMP`。取質數，與第一層互質。 */
-export const RIPPLE_WARP2_LEN_A = 61
-/** 見 `RIPPLE_WARP_AMP`。 */
-export const RIPPLE_WARP2_LEN_B = 43
-
-/**
- * `RIPPLE_WAVES` 的形狀。振幅與速度由 `SHADE_SLOPE_RMS` 與色散關係推導。
- *
- * 【階梯，不是清單】每個 `share` 加起來為 1 的群組是**一階**，一階分到一份
- * 相等的坡度預算（Phillips 譜下坡度能量在每個 octave 大致相等）。所以在一階
- * 裡多切幾道波不會讓那個尺度變粗糙 —— 只是把同樣的能量攤到更多方向。
- *
- * 【11 m 那一階為什麼是四道：它是唯一畫得出來的一階】比它短的三階被
- * `shadeScale` 的地板整個砍掉（見 `RIPPLE_RESOLVED`），永遠只進 σ。於是
- * 畫面上**最細的那層確定性結構只剩這一階** —— 單獨一道長峰正弦，症狀就是
- * 整片海布滿同一個走向的細紋。
- *
- * 【間隔 45° 不是隨便取的】波峰是**軸向**的：20° 與 200° 是同一條線，所以
- * 「有沒有主方向」要看**倍角**的合成向量。四道間隔 45°，倍角就均勻分佈在
- * 整圈上、合成向量趨近 0 —— 沒有任何方向勝出。散佈不夠寬會留下殘餘的主
- * 方向：25° 間隔的三道實測方向性 0.357，只比單一道的 0.409 好一點點。
- *
- * 【四道與 `RIPPLE_WARP_*` 缺一不可 —— 兩者治的是不同的病】截圖量到的自相關
- * 遠端次峰（±14–25 m，數字愈小愈不規則）：
- *
- *   一道、不扭曲   0.334   長峰正弦 → **條紋**
- *   四道、不扭曲   0.274   四道交叉 → **規則的斑點晶格**（顆粒）
- *   一道、扭曲     0.189   波峰被弄彎了，但沒斷 → 條紋照樣在，只是變彎
- *   四道、扭曲     0.148   短峰、不規則 ← 現在的樣子
- *
- * 拆分處理「只有一個方向」，扭曲處理「波峰無限長」。少任何一邊都會留下一個
- * 看得出來的規則圖樣。
- *
- * 【波長要靠得近】13.1 / 11.3 / 10.2 / 8.9 —— 四道的淡出窗因此幾乎重疊，
- * 方向散佈一路撐到整階淡光為止。拉開的話短的先死，遠處又剩單一方向，
- * 細紋回來。比值刻意不等，免得四道之間的拍頻自己變成一個規則圖樣。
- */
-const RIPPLE_SHAPE: readonly {
-  dirX: number; dirZ: number; wavelength: number; share: number
-}[] = [
-  { dirX: 0.966, dirZ: 0.259, wavelength: 13.1, share: 1 / 4 },
-  { dirX: 0.5, dirZ: 0.866, wavelength: 11.3, share: 1 / 4 },
-  { dirX: -0.259, dirZ: 0.966, wavelength: 10.2, share: 1 / 4 },
-  { dirX: -0.866, dirZ: 0.5, wavelength: 8.9, share: 1 / 4 },
-  { dirX: 0.5, dirZ: 0.866, wavelength: 4.7, share: 1 },
-  { dirX: -0.174, dirZ: 0.985, wavelength: 1.9, share: 1 },
-  { dirX: -0.766, dirZ: 0.643, wavelength: 0.77, share: 1 },
-]
-
-/**
- * **只給著色法線用的微波。幾何與碰撞一個字都不碰。**
- *
- * 【為什麼不能加進 WAVES】`crash.ts` 的入水判定、`splash`、`wrecks` 全部走
- * `heightAt`（= `gerstnerHeight`），而網格是 52 m 的面 —— 連 31 m 的波都畫
- * 不出來，0.77 m 的更不可能。這是 spec §4.3 那個取捨的延伸：**遠處的小浪本
- * 來就是次像素的，你看不到它的起伏，只看得到它造成的反光變化。**
- *
- * 【波長為什麼是這幾個】四階落在 11 / 4.7 / 1.9 / 0.77，比值約 2.4，刻意不成
- * 整數比。純正弦的疊加是準週期的，比值成整數比時週期短到肉眼抓得到，症狀
- * 就是「太陽反光處的皺褶很重複」。階數多、比值互質，準週期就長到看不出來。
- *
- * 【每一階貢獻相等的坡度】Phillips 譜下坡度的能量在每個 octave 大致相等，
- * 所以四階等分 `SHADE_SLOPE_RMS` 扣掉 `WAVES` 之後的餘量，階內再按 `share`
- * 分。振幅因此是 `ak / (k·|dir|)`，最短那階只有 12 mm —— 它對**高度**毫無
- * 貢獻，對**坡度**卻和 11 m 那階一樣重。
- *
- * 【速度延續既有的色散關係】`WAVES` 的三道大致落在深水色散的 0.61～0.73 倍
- * （藝術選擇，不是物理）。這裡從最短的那一道往下用 `√λ` 外插，兩組之間就不
- * 會有一道波跑得明顯不對。
- */
-export const RIPPLE_WAVES: readonly WaveSpec[] = (() => {
-  const slopeVar = (w: WaveSpec): number => {
-    const ak = w.amplitude * ((Math.PI * 2) / w.wavelength) * Math.hypot(w.dirX, w.dirZ)
-    return (ak * ak) / 2
-  }
-  const need = Math.max(0, SHADE_SLOPE_RMS ** 2 - WAVES.reduce((s, w) => s + slopeVar(w), 0))
-  // 一階的坡度變異數。階內每道拿 share 那一份，所以總和恆等於 need ——
-  // **在一階裡多切幾道波不會改變總坡度**，只會改變它散在幾個方向上。
-  const perLevel = need / RIPPLE_SHAPE.reduce((s, r) => s + r.share, 0)
-  // 拿最短的那一道當色散的錨點，而不是「最後一個」—— 順序不該有語義。
-  const ref = WAVES.reduce((a, b) => (b.wavelength < a.wavelength ? b : a))
-  return RIPPLE_SHAPE.map((r) => ({
-    dirX: r.dirX,
-    dirZ: r.dirZ,
-    wavelength: r.wavelength,
-    amplitude: Math.sqrt(2 * r.share * perLevel)
-      / (((Math.PI * 2) / r.wavelength) * Math.hypot(r.dirX, r.dirZ)),
-    speed: ref.speed * Math.sqrt(r.wavelength / ref.wavelength),
-  }))
-})()
-
-/**
- * 微觀粗糙度的基底（弧度）—— **比最短那道微波（0.77 m）還細的所有東西**。
- * 毛細波、風紋、破碎的浪頭，那些永遠不會進法線。
- *
- * 【σ 現在是動態的】實際用的是 `sqrt(uSigmaBase² + 未解析的坡度變異數)`。
- * 每一道波按「這個像素還分不分得出它」淡出（見 `SPARKLE_FRAGMENT` 的波
- * 迴圈），淡出的部分不是消失，而是把它的坡度變異數加進 σ。這就是 spec §4.4
- * 說的「比 31 m 更細的浪不進法線，改成統計性的粗糙度」，只是做成了隨距離的。
- *
- * 於是同一套式子涵蓋兩端：近處只有 11 m 那一階解析得出來、σ = 7.5°，碎光跟著
- * 細波的形狀；30 km 外連那一階也淡光、σ 到 11°（就是 `SHADE_SLOPE_RMS`），
- * 掠射角也中得了鏡面條件，連續場因此不會是死平的一塊。
- *
- * 【近處的 σ 不是基底】比 `SHADE_SCALE_FLOOR` 還細的三階在任何距離都淡光，
- * 常數 7.39° 是它們貢獻的 —— 見 `RIPPLE_STATIC_VAR`。基底本身只有 1.5°，
- * 在平方和裡幾乎不佔份量；它守的是「三階全都被拿掉時 σ 不會歸零」。
- *
- * 【為什麼基底要這麼小】σ 為常數時的實測（2026-08-11）：
+ * 【它決定亮區的大小與選擇性】σ 越大，能亮起來的面越多、範圍越寬，但方向
+ * 選擇性越差，最後會變成「相機正下方一圈都在亮」而不是一條太陽的反光帶。
+ * 實測（2026-08-11，σ 為常數時的正下方／鏡面點對比）：
  *
  *   σ      正下方   鏡面點   對比
  *   12°    0.703    1.000    1.4×   ← 選擇性沒了，亮區變成相機正下方的圓
  *    8°    0.453    1.000    2.2×
- *    5°    0.132    1.000    7.6×
- *    4°    0.042    1.000    23.8×
+ *    4°    0.105    1.000    9.5×
  *
- * 對一台朝下的相機，正下方大片區域的 V 都近乎垂直，H 固定偏離 +Y 18.5°。σ
- * 一旦大到讓那個角度也算「對齊」，最亮的地方就變成「視線最垂直的位置」而不
- * 是鏡面點。近處必須維持選擇性，所以基底要小；遠處的 σ 之所以能大，是因為
- * 那裡的方向性本來就該由統計接手。
+ * 【寬核另外給】鏡面圈之外的零星白點由 `SPARKLE_SIGMA_TAIL` 那個寬核負責，
+ * 兩者用 `mix` 疊起來 —— 見 `SPARKLE_TAIL_WEIGHT`。
  */
 export const SPARKLE_SIGMA_BASE = (1.5 * Math.PI) / 180
 /**
@@ -830,273 +607,48 @@ export const SPARKLE_CREST_BIAS = 0.8
 export const SPARKLE_CREST_REF
   = Math.sqrt(WAVES.reduce((s, w) => s + (w.amplitude * w.amplitude) / 2, 0)) / 2
 /**
- * 參考距離內的格子邊長，m —— 這決定色塊的大小。
- *
- * 【改這個不會改總覆蓋率，只會改塊的數量】覆蓋率 = 每單位面積的塊數 x 每塊
- * 面積 = (p / cellW²) x (cellW² · E[形狀]) = p · E[形狀] —— cellW 消掉了。
- * 所以縮小格子只是把同樣多的白分成更多更小的塊：**邊長減半，螢幕上的亮塊
- * 數量就是四倍，而總亮度一個字都不變。**
- *
- * 【14 m 是真實浪的尺度，而且它是世界尺寸不是螢幕尺寸】`SPARKLE_CELL_REF`
- * 之內格子邊長就是這個值，不隨距離變 —— 所以塊在畫面上**近大遠小**：
- *
- *   距離        14 m/2 km     4 m/571 m     2 m/571 m（現值）
- *   120 m        111 px         31.7 px        15.9 px
- *   300 m         44 px         12.7 px         6.3 px
- *   571 m         23 px          6.67 px ←鎖    3.33 px ←鎖
- *     2 km       6.67 px ←鎖     6.67 px         3.33 px
- *     5 km       6.67 px         6.67 px         3.33 px
- *
- * ── 【2026-08-26 由 14 m / 2 km 縮到 2 m / 571 m】────────────────
- *
- * **人工回報：「白點近距離確實像漂浮的紙片」。** 14 m 的塊在 120 m 高度
- * 貼海飛時佔 111 px —— 那個尺寸的白色多邊形讀起來就是水面上的紙片，而不是
- * 反光。
- *
- * 【兩個常數各管一件事】遠處的螢幕大小 = SPARKLE_CELL ÷ SPARKLE_CELL_REF；
- * 近處的世界尺寸 = SPARKLE_CELL。所以：
- *
- *   兩個一起等比縮   近處變小，遠處**一個字都不變**
- *   只縮 SPARKLE_CELL 遠近**一起**變小
- *
- * 先做了第一件（14/2000 → 4/571，遠處鎖定仍是 6.67 px），人工試看之後指定
- * 「不管遠近尺寸都砍半」，於是再做第二件（4 → 2，鎖定變成 3.33 px）。
- *
- * 【反鋸齒的餘裕還剩多少】邊緣寬度是 SPARKLE_EDGE 個像素換算回格子單位，
- * 也就是 uEdge × 像素張角 × (CELL_REF / CELL)。塊縮小，這個比例就變大：
- * 4 m 時是 0.225，2 m 時是 0.360，而程式裡的上限是 0.40。**再砍一半就會
- * 撞到那個 clamp**，屆時塊會開始糊成連續的雜訊而不是一顆一顆。
- *
- * 【代價是透視的區間變短】原本 2 km 之內都有近大遠小，現在只到 571 m。
- * 571 m 到 2 km 那一段由「會縮」變成「鎖定 6.67 px」，所以那個距離帶的塊
- * 比改動前小 —— 實測（.shots/sea/quar-dive.png 對 big-dive.png）在 3 km 的
- * 俯衝視角上看不出來，因為那裡絕大部分的海本來就在鎖定區之外。
- *
- * 【為什麼不能讓螢幕大小恆定】那正是「近看像髒污」的成因。塊在所有距離都是
- * 同樣的像素數時，它不隨距離縮、不隨飛行掠過，大腦讀不出它在水面上，就讀成
- * 貼在鏡頭玻璃上的東西。透視縮放是「這東西在遠方的水面上」唯一的線索。
- * **所以這次是把整條律等比縮小，不是把它拉平** —— 近處仍然有透視，只是
- * 塊本身小了三倍半。
- *
- * 【為什麼是塊不是點 —— low-poly】這個遊戲的幾何是 low-poly：海面
- * `flatShading: true`，52 m 的面在 5 km 處螢幕上有 10 px 寬。次像素的碎光點
- * 與那個風格是打架的，而且稀疏的次像素噪聲讀起來就是粒子（星空），不是水。
- * 放大到面的量級之後，碎光讀作「一片片亮起來的水面」而不是「散落的白點」。
- *
- * 【絕對座標的上限 —— Codex 2026-08-11 審查的 Minor】上面那個「LOD 讓相對
- * 精度不變」的論證只在**絕對世界座標與視距同量級**時成立。vOceanWorld 是
- * 絕對座標，而 LOD 只看距離 —— 玩家若朝單一方向一路飛遠，世界座標會遠大於
- * 眼前的視距，LOD 不會放大近處的格子來補償。
- *
- * 絕對座標約 117,440 km 時 float32 的 ULP 才追上 14 m 的格子（Hoskins hash
- * 本身也在格號 10^7 左右開始退化）。症狀是近處碎光鎖成條帶或隨鏡頭抖動。
- *
- * 【為什麼不處理】那大約是 700 km/h 直線飛 6 小時。而這個遊戲的戰場是有界的
- * （參照物散佈半徑 9 km，撤退令本身就有把戰鬥拉回戰場的護欄），實際座標不會
- * 到那個量級。真要處理得改用「相對於某個週期性對齊原點」的座標，而那會在
- * 原點跳動時讓整片碎光圖案跳一次 —— 代價比問題大。記錄下來就好。
- */
-export const SPARKLE_CELL = 2
-/**
- * 透視縮放的終點，m。**之內塊是固定的世界尺寸、會隨距離縮；之外 LOD 接手，
- * 螢幕張角鎖定。**
- *
- * 【為什麼是 571 m】塊在這裡剛好縮到 6.7 px —— 與改動前的 2 km 完全相同，
- * 因為兩個常數是一起等比縮的（見 SPARKLE_CELL）。再遠就要進次像素、混疊會
- * 回來，所以在這裡把它鎖住。
- *
- * 【這個數字不能單獨動】它與 SPARKLE_CELL 的**比值**才是有意義的量：
- * 4 / 571 = 7.0 mrad 就是鎖定之後的角張度。只改一個，遠處的塊大小就變了。
- */
-export const SPARKLE_CELL_REF = 571
-
-/**
- * `shadeScale` 的地板 —— 著色法線**畫得出形狀**的最小世界尺度。比它細的波
- * 一律轉成統計性的粗糙度（σ），不進 `g`。
- *
- * ── 【下界是 `SPARKLE_CELL`，但值不該等於它】────────────────────────
- *
- * Voronoi 的塊是**單色**的，比一塊還小的波在塊內看不到形狀。真讓它進 `g`
- * 的話 align 會在塊內劇烈變化，而亮塊的門檻是逐像素的 `roll < p` —— 一塊
- * 會被撕成好幾片。所以地板**至少**要有一塊那麼大。
- *
- * ── 【為什麼是 6 而不是 2】──────────────────────────────────────
- *
- * 這是「一個浪身上該有幾組明暗」的旋鈕。Lambert 吃的是坡度，所以每一道還
- * 畫得出來的波都會在畫面上鋪一組明暗 —— 而**最細的那道說了算**：
- *
- *   地板 2 m   最細畫得出 8.9 m   一個 55 m 的浪上 6.2 組明暗  ← 像瓦楞紙
- *   地板 6 m   最細畫得出 31 m    一個 55 m 的浪上 1.8 組      ← 像浪
- *
- * `RIPPLE_WAVES` 那四道（8.9～13.1 m）的用途是把坡度 RMS 從幾何波的 6.94°
- * 補到 Cox-Munk 的 11°（見 `SHADE_SLOPE_RMS`）。**補償本身是對的，用「畫
- * 出來的波」去補是錯的** —— 需要粗糙度的是遠處（掠射角要中鏡面條件），而
- * 畫出來的波偏偏只在近處現形。6 m 讓整組退回 σ：坡度預算一分不少（見
- * `RIPPLE_STATIC_VAR`），但近處的浪回到一個週期一組明暗。
- *
- * 【它同時是一筆效能】整組退出之後 `RIPPLE_RESOLVED` 空了，片段著色器的微波
- * 迴圈與 `oceanRippleWarp` 都不再產生 —— 見 `RIPPLE_RESOLVED`。
- *
- * 【往下調就會回來】降到 5.2 以下 13.1 m 那道先回到迴圈裡，`ocean.test.ts`
- * 的「一個浪上的明暗組數」會跟著紅。
- */
-export const SHADE_SCALE_FLOOR = 6.0
-
-/**
- * 微波裡**還畫得出形狀**的那幾道 —— 只有它們進片段著色器的迴圈。
- *
- * 【為什麼要分割】每道波按 `0.15λ → 0.4λ` 隨 `shadeScale` 淡出，而
- * `shadeScale` 有 `SHADE_SCALE_FLOOR` 這個地板、且只隨距離變大。所以
- * `0.4λ ≤ 地板` 的那幾道**在任何距離都是 w = 0**：對 `g` 一個字都不寫，
- * 只把自己的坡度變異數倒進 σ —— 而那是個**常數**。
- *
- * 於是它們沒有理由留在逐像素的迴圈裡。常數在 `RIPPLE_STATIC_VAR` 先加好，
- * 迴圈只跑剩下的。畫面逐位元相同（GLSL 的 `smoothstep` 會夾住，w 嚴格為 0），
- * 迴圈短一圈。
- *
- * 【現在它是空的】`SHADE_SCALE_FLOOR = 6` 之下四道全在地板以內 —— 整組微波
- * 只進 σ，一個字都不畫。片段著色器因此**完全不產生**微波迴圈、那六個 uniform、
- * 以及 `oceanRippleWarp`（見 `RIPPLE_GLSL`）。
- *
- * 【它跟著常數走，不是寫死的】把 `SHADE_SCALE_FLOOR` 調小、或把某階的波長
- * 拉長，該道就自動回到迴圈裡，連 GLSL 都會跟著長回來。`ocean.test.ts` 守著
- * 「空的時候不得產生迴圈」與「一個浪上的明暗組數」。
- */
-export const RIPPLE_RESOLVED: readonly WaveSpec[]
-  = RIPPLE_WAVES.filter((w) => w.wavelength * WAVE_FADE_HI > SHADE_SCALE_FLOOR)
-
-/**
- * 見 `RIPPLE_RESOLVED`。永遠解析不出來的那幾道的坡度變異數總和，直接當
- * `slopeVar` 的初值餵進片段著色器。
- */
-export const RIPPLE_STATIC_VAR: number = RIPPLE_WAVES
-  .filter((w) => w.wavelength * WAVE_FADE_HI <= SHADE_SCALE_FLOOR)
-  .reduce((sum, w) => {
-    const ak = w.amplitude * ((Math.PI * 2) / w.wavelength) * Math.hypot(w.dirX, w.dirZ)
-    return sum + (ak * ak) / 2
-  }, 0)
-/**
- * 碎光取樣座標的水平漂移倍率。1.0 = Gerstner 波的真實質點位移。
- *
- * 【為什麼需要】幾何只做垂直位移，所以水面上的「質點」在世界座標上是不動的
- * —— 而 Voronoi 的格柵釘在世界座標上，塊因此只會原地明滅。真實海面的閃光是
- * 隨波傳播的，原地明滅的隨機塊看起來像雜訊。把取樣座標加上 Gerstner 的水平
- * 項，塊就附著在水面上而不是釘在世界上。
- *
- * 位移量是振幅級（五道波合計最大 3.225 m），而格子是 14 m —— 塊只漂 0.23 格。
- * **塊放大到浪的尺度之後，這一層幾乎看不出來了**：水面的動感改由塊自己的
- * 法線傾斜（`SPARKLE_TILT_SHARE`，平滑轉動）與亮塊的閃爍撐著。留著是因為
- * 它是免費的（相位與波梯度共用同一個迴圈），而且塊一旦調小就會重新生效。
- *
- * 【與頂點位移不一致是刻意的】頂點只做垂直位移，而 `WAVES` 一個字都不能動
- * （`crash.ts` 的入水判定、`splash`、`wrecks` 全部走 `heightAt`）。碎光走水平
- * 位移，視覺上是碎光在水面上滑動。
- */
-export const SPARKLE_DRIFT = 1.0
-/**
  * 重擲頻率，Hz。真實波的週期是 6～16 s，靠波自己動不會「閃」。
  *
  * 【它同時決定單次閃爍的長度】一輪就是一次完整的淡入淡出，長度是
- * `1 / (rate · twinkle)`，而 `rate` 每格落在 0.6～1.4 —— 0.68 對應
- * **1.05～2.45 s**。這個範圍不分密度高低都一樣，見 `sparkleLight`。
+ * `1 / (rate · twinkle)`，而 `rate` 每個面落在 0.6～1.4 —— 0.68 對應
+ * **1.05～2.45 s**。這個範圍不分密度高低都一樣。
  */
 export const SPARKLE_TWINKLE = 0.68
-/** 亮塊的亮度。> 1 會被截成純白 —— 那正是要的。 */
+/** 亮面的亮度。> 1 會被截成純白 —— 那正是要的。 */
 export const SPARKLE_STRENGTH = 0.6
-/**
- * 有可見暗度的塊佔多少比例。
- *
- * 【暗塊不吃 align，亮塊吃】這是兩者最重要的差別。亮塊是 sun glitter，只在
- * 鏡面條件附近成立，所以密度 `p = align · density · fade`。暗塊是**波的背光
- * 面**，整片海都有 —— 乘上 align 的話，遠離太陽那半邊就又回到死平的一塊。
- *
- * 【暗塊不閃】反光會閃是因為波面瞬間對準太陽；背光面是水面的形狀，它隨波
- * 移動但不會明滅。所以這裡用每塊一個固定的 hash 值，靠 `SPARKLE_DRIFT` 帶著
- * 它漂 —— 省掉第二輪擲骰與包絡，只多一次 hash。
- *
- * 【為什麼是 smoothstep 而不是 step】硬門檻會讓塊非黑即白。
- * `smoothstep(1 − q, 1, h)` 在 h 均勻時，超過門檻的比例恰好是 q，而且值從 0
- * 連續漲到 1 —— 有些塊只是微暗，少數才是全黑。
- */
-export const SPARKLE_DARK_DENSITY = 0.35
-/**
- * 全黑的那些塊剩多少亮度：`1 − 這個值`。0.15 表示最暗掉到 85%。
- *
- * 【為什麼壓得這麼低】暗塊的對比一高就讀作「污漬」而不是「背光的水面」——
- * 白塊有反光這個現成的解釋，暗塊沒有，全靠形狀與強度去暗示。
- */
-export const SPARKLE_DARK_STRENGTH = 0.15
-/**
- * 暗塊格子的邊長，相對於亮塊的倍率。**暗塊走自己的 Voronoi。**
- *
- * 【兩種尺度是刻意的】暗塊是水面的形狀（波的背光面），亮塊是打在它上面的
- * 反光點 —— 尺度本來就不同。√2 讓暗塊的面積正好是亮塊的兩倍，而每單位面積
- * 的塊數是一半（塊數 ∝ 邊長⁻²），所以**總覆蓋率一個字都不變**，只是同樣多
- * 的暗分成更少、更大的塊。
- *
- * 【代價是多一次 Voronoi】9 次 hash22 加上鄰域搜尋，而且遠海是全螢幕
- * overdraw。這是這個著色器裡最貴的一筆。
- *
- * 【塊的法線傾斜跟著暗塊走】`tilt` 用的是暗塊的格號 —— 大面決定朝向，小的
- * 反光點分佈在上面。於是亮塊會沿著朝光的大面聚集，而不是與明暗各走各的。
- */
-export const SPARKLE_DARK_SCALE = Math.SQRT2
-/**
- * 塊邊緣的漸層寬度，**單位是像素**。這是抗鋸齒的寬度，不是柔化。
- *
- * low-poly 要的是硬邊：1.2 px 剛好夠讓邊緣不鋸齒，又不會糊成一團光暈。
- *
- * 【為什麼是像素而不是格子比例】塊的螢幕大小現在**隨距離變**（見
- * `SPARKLE_CELL`）—— 500 m 處 38 px、2 km 處 9.5 px。固定的格子比例會讓近處
- * 的邊糊成 4～5 px、遠處只剩半個像素。片段裡用 `oceanDist · uPixelAngle /
- * cellW` 換算回格子單位，任何距離都是同樣的像素數。
- */
-export const SPARKLE_EDGE = 1.2
-/**
- * Voronoi 特徵點在格內的隨機幅度。0 = 特徵點釘在格心（規則的方形鑲嵌），
- * 1 = 格內完全隨機。
- *
- * 【為什麼要 Voronoi 而不是格內畫一個圓】圓點不管放多大都還是「散落的點」。
- * 而且圓心要 jitter 就得把半徑壓在 0.5 以下（否則圓會被格線切半），半徑一到
- * 上限、夾持區間 [r, 1−r] 就塌成一個點 —— 圓心全部釘在格心，色塊排成規則的
- * 方形網點，讀起來像壁紙。Voronoi 把整個平面**鑲嵌**成不規則多邊形：塊與塊
- * 之間沒有空隙、形狀各不相同、大小也不一樣。那才是 low-poly 水面的樣子。
- *
- * 【1.0 的代價】3×3 鄰域搜尋在 jitter 接近 1 時偶爾會漏掉真正最近的特徵點
- * （它可能落在兩格之外）。標準做法是壓到 0.5 以保證正確，但那也讓塊的形狀
- * 規則得多。這裡選 1.0：漏掉的機率低，而且症狀只是某一塊的邊界稍微歪掉 ——
- * 在一個刻意要不規則的圖樣上，那看不出來。
- */
-export const SPARKLE_JITTER = 1.0
-/**
- * 未解析的坡度變異數裡，交給**塊的法線傾斜**的比例；剩下的留給 σ。
- *
- * 【這是「浪也要不規則」那一半】σ 是統計的 —— 它讓碎光散開，但不會讓任何一
- * 塊水面真的朝向別的方向。把一部分變異數變成每塊一個顯式的法線傾斜之後，
- * 塊就真的是「一片片朝向不同方向的水面」，亮不亮由它自己的法線決定，而不是
- * 純靠擲骰。那是 low-poly 水面的核心。
- *
- * 【能量不會重複計算】拿走多少就從 σ 扣多少 —— `sigma² = base² + slopeVar
- * − tiltVar`。0 就完全退回上一版的純統計模型。
- *
- * 【它一路延伸到地平線】塊的螢幕張角由 LOD 鎖成常數（見 `SPARKLE_CELL`），
- * 所以遠處的塊不會縮成次像素 —— 沒有「必須收斂成連續場」的距離。遠處反而是
- * 這一層最有用的地方：那裡所有的波都因 Nyquist 淡出、`g` 趨近 0，若沒有塊
- * 傾斜，整片海就會是死平的一塊同色。
- */
-export const SPARKLE_TILT_SHARE = 0.6
 /**
  * 淡入淡出包絡 `sin(u·π)` 的指數。1 就是純正弦；小於 1 更方（亮得久、進出
  * 較急），大於 1 更尖（只有中段看得見）。**值越大越不柔**，所以它叫指數而
  * 不叫柔化。
  *
- * 【它會平移 SPARKLE_DENSITY 與 SPARKLE_STRENGTH 的觀感】同時亮著的格子比例
- * 恆等於 `1 - thr`（見 `sparkleLight`），但每顆點的**平均亮度**由包絡決定：
+ * 【它會平移 SPARKLE_DENSITY 與 SPARKLE_STRENGTH 的觀感】同時亮著的面的
+ * 比例由機率 `p` 決定，但每個亮面的**平均亮度**由包絡決定：
  * `∫₀¹ sin(πu)^0.9 du = 0.657`。所以同一個 `SPARKLE_DENSITY` 在這個包絡下的
  * 總能量，比亮度均勻分佈（平均 0.5）的情形高 31%。三個常數都是待人工驗收的
  * 暫定值，驗收時要一起看。
  */
 export const SPARKLE_ENVELOPE_POW = 0.9
+
+/**
+ * 逐面色調的擾動幅度。每個三角面依自己的 id 在 `1 ± FACE_TINT` 之間取一個
+ * 亮度倍率。
+ *
+ * 【這是低多邊形的主要訊號，不是法線】相鄰面的法線只差約 12°（島是幾十度），
+ * 海太平了 —— 光靠 flatShading 做不出稜角感，色調才做得出來。
+ *
+ * 【上界由「看得出是面」與「看起來像雜訊」夾出來】太小則面之間分不開、
+ * 整片仍是一塊；太大則海變成馬賽克。0.06 是起始值，由截圖裁定。
+ */
+export const FACE_TINT = 0.09
+
+/**
+ * 浪峰提亮：面的重心高度換算成 `±FACE_CREST_LIFT` 的亮度偏置。
+ *
+ * 【與碎光的浪峰偏置是兩件事】那一個決定白點**出不出現**（機率），
+ * 這一個是每個面都有的連續明暗，讓浪的形狀在沒有白點的地方也看得出來。
+ * 兩者共用同一個 `SPARKLE_CREST_REF` 當尺度。
+ */
+export const FACE_CREST_LIFT = 0.10
 
 /**
  * 碎光的淡出區間，m。
@@ -1269,85 +821,34 @@ export const SEA_AERIAL_LO = 0.0
 export const SEA_AERIAL_STRENGTH = 0
 
 /**
- * 微波那一段的 GLSL —— **`RIPPLE_RESOLVED` 空的時候整段不產生**。
+ * 頂點與片段共用的宣告。兩個材質都要。
  *
- * 【為什麼要條件產生，而不是留著讓它跑零圈】兩個理由。一是 GLSL ES 不接受
- * 長度 0 的陣列，`uniform vec2 uRipDir[0]` 直接編不過。二是留著等於留一段
- * 讀不到 uniform 的死碼 —— 驅動會不會消掉它是實作決定，不該賭。
- *
- * 每個欄位是一段字串，插在 `SPARKLE_COMMON` / `SPARKLE_FRAGMENT` 的對應位置。
+ * 【為什麼波高是一支函數而不是兩段抄寫】頂點著色器要它算位移、片段著色器要它
+ * 算面重心的高度（白點的浪峰偏置吃那一個）。兩份會漂開，而漂開的症狀是
+ * 「白點跑到浪谷去」—— 沒有任何測試守得住。
  */
-const RIPPLE_GLSL = RIPPLE_RESOLVED.length > 0
-  ? {
-      uniforms: /* glsl */ `
-  uniform vec2 uRipDir[${RIPPLE_RESOLVED.length}];
-  uniform float uRipAmp[${RIPPLE_RESOLVED.length}];
-  uniform float uRipLen[${RIPPLE_RESOLVED.length}];
-  uniform float uRipSpd[${RIPPLE_RESOLVED.length}];
-  uniform vec3 uRipWarp;   // 微波專用的細扭曲。見 RIPPLE_WARP_AMP
-  uniform vec3 uRipWarp2;`,
-      warpFn: /* glsl */ `
-  // 微波專用的細扭曲。**沒有 CPU 的對應版本** —— 微波不進頂點位移、不進
-  // 碰撞判定，所以這一份不必與 waveWarp 一致。設計理由見 RIPPLE_WARP_AMP。
-  vec2 oceanRippleWarp(vec2 p, float time) {
-    float t = time * uWarpSpd;
-    return vec2(
-      sin(p.y * uRipWarp.y + t * uRipWarp.y + 2.3) * uRipWarp.x
-        + sin(p.x * uRipWarp2.y - t * uRipWarp2.y + 0.9) * uRipWarp2.x,
-      sin(p.x * uRipWarp.z - t * uRipWarp.z + 5.1) * uRipWarp.x
-        + sin(p.y * uRipWarp2.z + t * uRipWarp2.z + 3.4) * uRipWarp2.x
-    );
-  }`,
-      loop: /* glsl */ `
-      // 只給法線的微波 —— 不進頂點位移、不進 drift、不進碰撞判定。
-      // 見 RIPPLE_WAVES。**只有還畫得出形狀的那幾道**，見 RIPPLE_RESOLVED。
-      //
-      // 【多一層細扭曲】微波的尺度是 10 m 級，而 oceanWarp 的尺度是幾百到
-      // 幾千公尺 —— 對它們來說那只是平移，波峰照樣筆直。見 RIPPLE_WARP_AMP。
-      vec2 rwxz = pwxz + oceanRippleWarp(pwxz, uTime);
-      for (int i = 0; i < ${RIPPLE_RESOLVED.length}; i++) {
-        float k = 6.28318530718 / uRipLen[i];
-        float ph = k * dot(uRipDir[i], rwxz) - uRipSpd[i] * k * uTime;
-        float w = 1.0 - smoothstep(uRipLen[i] * uNyqLo, uRipLen[i] * uNyqHi, shadeScale);
-        float ak = uRipAmp[i] * k;
-        g += w * ak * cos(ph) * uRipDir[i];
-        slopeVar += (1.0 - w * w) * ak * ak * 0.5;
-      }`,
-    }
-  : { uniforms: '', warpFn: '', loop: '' }
-
-/** 頂點與片段共用的宣告。兩個材質都要。 */
 const SPARKLE_COMMON = /* glsl */ `
   uniform float uTime;
+  uniform vec2 uOrigin;
   uniform vec2 uWaveDir[${WAVES.length}];
   uniform float uWaveAmp[${WAVES.length}];
   uniform float uWaveLen[${WAVES.length}];
   uniform float uWaveSpd[${WAVES.length}];
-  uniform vec3 uSunDirection;${RIPPLE_GLSL.uniforms}
-  uniform float uRipStaticVar;
-  uniform float uShadeFloor;
+  uniform vec3 uSunDirection;
   uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
   uniform float uCrestRef;
   uniform float uSigmaBase;
-  uniform float uDrift;
   uniform float uSigmaTail;
   uniform float uTailWeight;
   uniform float uDimLo;
   uniform float uDimHi;
   uniform float uDimFloor;
   uniform float uDensity;
-  uniform float uCell;
-  uniform float uCellRef;
   uniform float uTwinkle;
   uniform float uSparkleStrength;
-  uniform float uEdge;
-  uniform float uDarkDensity;
-  uniform float uDarkStrength;
-  uniform float uDarkScale;
-  uniform float uJitter;
-  uniform float uTiltShare;
   uniform float uEnvelopePow;
-  uniform float uPixelAngle;
+  uniform float uFaceTint;
+  uniform float uFaceLift;
   uniform vec3 uSkyHorizon;
   uniform vec3 uSkyZenith;
   uniform float uSkyPower;
@@ -1359,37 +860,10 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uEnv;    // x: 展幅, y: 波數 A, z: 波數 B
   uniform float uEnvLo;
   uniform float uBaseCell;
+  uniform float uHalfSeg;
   uniform float uInvHalfSeg;
   uniform float uVertFadeLo;
   uniform float uVertFadeHi;
-  uniform float uNyqLo;
-  uniform float uNyqHi;
-
-  // 座標扭曲。**與 ocean.ts 的 waveWarp 必須逐字相同** —— 那是 CPU 的
-  // 那一份，碰撞判定讀它。設計理由見 WAVE_WARP_AMP 與 WAVE_WARP2_AMP。
-  vec2 oceanWarp(vec2 p, float time) {
-    float t = time * uWarpSpd;
-    return vec2(
-      sin(p.y * uWarp.y + t * uWarp.y) * uWarp.x
-        + sin(p.x * uWarp2.y - t * uWarp2.y + 1.7) * uWarp2.x,
-      sin(p.x * uWarp.z - t * uWarp.z) * uWarp.x
-        + sin(p.y * uWarp2.z + t * uWarp2.z + 4.1) * uWarp2.x
-    );
-  }
-
-${RIPPLE_GLSL.warpFn}
-
-  // 浪高包絡的底層場，值域 [-1, 1]。**與 waveEnvField 必須逐字相同**
-  float oceanEnvField(vec2 p, float time) {
-    float t = time * uWarpSpd;
-    return sin(p.x * uEnv.y + t * uEnv.y) * sin(p.y * uEnv.z - t * uEnv.z * 0.7);
-  }
-
-  // 第 i 道波的振幅倍率。**與 waveEnv 必須逐字相同**
-  float oceanEnv(float g, float i) {
-    float u = 0.5 + 0.5 * sin(g * uEnv.x + i * 2.399963);
-    return uEnvLo + (1.0 - uEnvLo) * u;
-  }
   uniform float uShadeGain;
   uniform float uAttenNear;
   uniform float uAttenFar;
@@ -1402,6 +876,58 @@ ${RIPPLE_GLSL.warpFn}
   uniform vec3 uHorizonColor;
   varying vec3 vOceanWorld;
 
+  // 座標扭曲。**與 ocean.ts 的 waveWarp 必須逐字相同** —— 那是 CPU 的
+  // 那一份，水柱與殘骸入水讀它。設計理由見 WAVE_WARP_AMP 與 WAVE_WARP2_AMP。
+  vec2 oceanWarp(vec2 p, float time) {
+    float t = time * uWarpSpd;
+    return vec2(
+      sin(p.y * uWarp.y + t * uWarp.y) * uWarp.x
+        + sin(p.x * uWarp2.y - t * uWarp2.y + 1.7) * uWarp2.x,
+      sin(p.x * uWarp.z - t * uWarp.z) * uWarp.x
+        + sin(p.y * uWarp2.z + t * uWarp2.z + 4.1) * uWarp2.x
+    );
+  }
+
+  // 浪高包絡的底層場，值域 [-1, 1]。**與 waveEnvField 必須逐字相同**
+  float oceanEnvField(vec2 p, float time) {
+    float t = time * uWarpSpd;
+    return sin(p.x * uEnv.y + t * uEnv.y) * sin(p.y * uEnv.z - t * uEnv.z * 0.7);
+  }
+
+  // 第 i 道波的振幅倍率。**與 waveEnv 必須逐字相同**
+  float oceanEnv(float g, float i) {
+    float u = 0.5 + 0.5 * sin(g * uEnv.x + i * 2.399963);
+    return uEnvLo + (1.0 - uEnvLo) * u;
+  }
+
+  /**
+   * 這裡的格子多大。**由離中心的距離推得，不是查這個頂點屬於第幾層** ——
+   * 兩層交界上同一點兩層算出同一個值，淡出量因此逐位元一致，交界不會有高低差。
+   */
+  float oceanVCell(vec2 local) {
+    return max(uBaseCell, length(local) * uInvHalfSeg);
+  }
+
+  /**
+   * 未位移座標 rawXZ 處的浪高。vCell 決定哪幾道波在這裡還表現得出來。
+   *
+   * 【網格表現不出來的波，從幾何裡拿掉】見 OCEAN_VERT_FADE_LO。上界 0.5 是
+   * Nyquist（格子＝半波長），是硬上限不是美學選擇。
+   */
+  float oceanWaveHeight(vec2 rawXZ, float vCell) {
+    vec2 p = rawXZ + oceanWarp(rawXZ, uTime);
+    float envG = oceanEnvField(rawXZ, uTime);
+    float h = 0.0;
+    for (int i = 0; i < ${WAVES.length}; i++) {
+      float k = 6.28318530718 / uWaveLen[i];
+      float lod = 1.0 - smoothstep(
+        uWaveLen[i] * uVertFadeLo, uWaveLen[i] * uVertFadeHi, vCell);
+      h += uWaveAmp[i] * oceanEnv(envG, float(i)) * lod
+        * sin(k * dot(uWaveDir[i], p) - uWaveSpd[i] * k * uTime);
+    }
+    return h;
+  }
+
   /**
    * 【不用 sin 型的 hash】fract(sin(dot(p, k)) * 43758.5) 在大座標下會壞：
    * 格號到 10⁴ 時 sin 的引數約 4×10⁶，而 float32 在那裡的 ulp 是 0.25 ——
@@ -1413,150 +939,6 @@ ${RIPPLE_GLSL.warpFn}
     q += dot(q, q.yzx + 33.33);
     return fract((q.x + q.y) * q.z);
   }
-
-  /** 同一族的 hash22 —— 一次取兩個值，Voronoi 每格只付一次 hash 的成本。 */
-  vec2 oceanHash2(vec2 p) {
-    vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-    q += dot(q, q.yzx + 33.33);
-    return fract((q.xx + q.yz) * q.zy);
-  }
-
-  /**
-   * 3x3 鄰域的 Voronoi。回傳 (最近特徵點的格號, F1, F2)。
-   *
-   * 【F2 - F1 是到塊邊界的距離】兩個特徵點的中垂線上 F1 == F2，往塊心走差值
-   * 線性增加。拿它做 smoothstep 就是一條寬度固定的抗鋸齒邊，而且**塊與塊之間
-   * 沒有空隙** —— 這是它和「格內畫一個圓」最本質的差別。
-   *
-   * 【為什麼不用 F1 當形狀】F1 是到特徵點的距離，等值線是圓 —— 用它畫出來的
-   * 還是圓點，只是圓心被 jitter 推開了。整個 Voronoi 的意義就在鑲嵌。
-   */
-  vec4 oceanVoronoi(vec2 uv) {
-    vec2 base = floor(uv);
-    vec2 f = fract(uv);
-    vec2 best = base;
-    float f1 = 8.0;
-    float f2 = 8.0;
-    for (int j = -1; j <= 1; j++) {
-      for (int i = -1; i <= 1; i++) {
-        vec2 nb = vec2(float(i), float(j));
-        vec2 cell = base + nb;
-        vec2 pt = nb + mix(vec2(0.5), oceanHash2(cell), uJitter);
-        float d = length(pt - f);
-        if (d < f1) {
-          f2 = f1;
-          f1 = d;
-          best = cell;
-        } else if (d < f2) {
-          f2 = d;
-        }
-      }
-    }
-    return vec4(best, f1, f2);
-  }
-
-  /**
-   * 亮塊：這個像素的反光強度 0..1。擲骰決定亮不亮、包絡決定亮多久。
-   *
-   * 抽成函數是為了讓呼叫端能同時算相鄰兩階再交叉淡入 —— 見 SPARKLE_FRAGMENT
-   * 裡那段關於 LOD 環的說明。
-   *
-   * 【時間模型：每輪擲一次骰，亮就走完一整個包絡】每格有自己的相位與速率，
-   * 把時間切成一輪一輪。每輪開頭擲一次骰決定這格這一輪亮不亮，機率恰好是傳
-   * 進來的 p；亮的話就走完一個 sin(u·π) 的包絡 —— 對稱的淡入淡出，長度是一
-   * 整輪。任一時刻「亮著的格子」的比例仍然是 p，所以密度的定義完全沒變。
-   * （每顆點的**平均亮度**倒是被包絡改寫了，見 SPARKLE_ENVELOPE_POW。）
-   *
-   * 【為什麼不是「鋸齒相位超過門檻就亮」】那個寫法把空間密度與單次閃爍的
-   * 長度綁死了 —— 一格亮的時間比例恆等於 p，密度一低每次閃爍就短。尾巴區的
-   * p 只有 0.015，單次只剩 0.056 s（三個 frame），而且鋸齒在頂端 fract 回 0
-   * 是**瞬滅**。看起來就是電視雜訊。擲骰把兩件事拆開：密度仍由 p 決定，長度
-   * 由包絡決定，互不影響。
-   *
-   * 【骰子的 key 不可以是 cell + k】那等於每一輪把整張圖沿對角線平移一格，
-   * 是「爬行」不是「重擲」。這裡先用 cell 取一個固定種子，再拿種子與輪號去
-   * hash —— 兩個分量對 k 的係數不成比例，圖案不會平移。
-   *
-   * 【也不可以 mix 兩個隨機值】曾經寫成
-   *   n = mix(hash(cell + floor(t)), hash(cell + floor(t) + 1.0), fract(t))
-   * 兩個均勻分佈 mix 出來的分佈在 s = 0.5 時是三角形而不是均勻 —— 超過門檻
-   * 0.75 的比例從 25% 掉到 12.5%。於是整片海的白點密度以 twinkle 的頻率一起
-   * 脹縮，在密度最高的鏡面中心看起來就是「白點以固定頻率放大縮小」。
-   */
-  /**
-   * 這個距離下的格子邊長。
-   *
-   * 【LOD：隨機挑一階，不要混兩階 —— Codex 2026-08-11 審查的 Important】
-   *
-   * 塊逼近次像素時格子邊長要隨距離放大。用 2 的冪整數階可以避免格線隨鏡頭
-   * 爬動，但代價是跳階：邊長在 dist = 150 / 300 / 600 / 1200 m … 瞬間變兩倍，
-   * 而等距離面在海上是一圈圈的圓 —— 相機降高度時 sqrt(h*h + rho*rho) = 150
-   * 的 rho 變大，就看到一圈內圈往外擴。
-   *
-   * 前一版仿 trilinear mipmap 同時算兩階再 mix。那**修掉了環，卻換來另一個
-   * 問題**：mix 兩個近似獨立的 0/1 分佈，平均值不變（所以不是先前那個密度
-   * 脹縮的 bug），但變異數掉一半 —— 「拿到完整強度」的機率從 p 掉到 p²
-   * （中心 0.4 → 0.16）。症狀是每個 LOD 中點附近亮塊變少、碎光發灰，形成按
-   * 二倍距離重複的低對比同心帶。
-   *
-   * 改成**以粗階格號為單位隨機挑一階**：每個像素拿到的都是完整強度的一層，
-   * 分佈完全不變；階與階的過渡用空間抖動化開。而且只算一層，成本減半。用
-   * 粗階格號當 key 是為了讓同一格內的像素挑到同一階（不然一塊會被撕成兩半），
-   * 而且與時間無關 —— 不會閃。
-   */
-  float oceanCellWidth(vec2 swxz, float dist) {
-    float f = max(0.0, log2(max(1.0, dist / uCellRef)));
-    float lo = floor(f);
-    float coarse = uCell * exp2(lo + 1.0);
-    float pick = step(oceanHash(floor(swxz / coarse) + vec2(7.7, 3.3)), f - lo);
-    return uCell * exp2(lo + pick);
-  }
-
-  float sparkleLight(vec4 vor, float p, float t, float edge) {
-    vec2 cell = vor.xy;
-
-    float phase = oceanHash(cell);
-    float rate = 0.6 + 0.8 * oceanHash(cell + vec2(37.0, 91.0));
-    float cycle = phase + t * rate;
-    float k = floor(cycle);
-    float u = fract(cycle);
-
-    // 【傳 p 而不是傳 1 - p】p 在尾巴區小到 1e-3 以下，而 float32 在 1.0
-    // 附近的 ulp 是 6e-8 —— 用「1 減去它」的形式來回一趟，小 p 的相對精度
-    // 就沒了。呼叫端也是直接算出 p 的。
-    //
-    // 【用 roll < p 而不是 step(roll, p)】p 會**恰好等於 0**：dist >=
-    // uFadeEnd 時 fade 明確是 0，align 在大角度下也會 underflow 成 0。
-    // step(roll, 0.0) 在 roll 剛好是 0 的那些格子會回 1 —— 250 km 外那片
-    // 早該全黑的海上會殘留零星亮塊。roll < 0.0 恆為 false。
-    float seed = oceanHash(cell + vec2(5.9, 11.3));
-    float roll = oceanHash(vec2(seed * 512.0 + k, seed * 731.0 - k * 1.3));
-    float on = roll < p ? 1.0 : 0.0;
-
-    // 對稱的淡入淡出。
-    //
-    // 【max 那一層是 NaN 的保險】GLSL ES 明定 pow(x, y) 在 x == 0 且 y <= 0
-    // 時未定義；這裡 y = 0.9 > 0，所以 pow(0.0, 0.9) 有定義、等於 0。但
-    // on * pow(...) **擋不住** NaN —— 0.0 * NaN 還是 NaN，而 NaN 一旦進了
-    // gl_FragColor，那一整片海會出現黑塊，而且是平台相依的。夾一個下限就
-    // 不必賭驅動的實作。
-    float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);
-
-    // 【整塊填滿，只在邊界留一個像素的抗鋸齒】low-poly 要的是硬邊，而 Voronoi
-    // 塊本來就無縫鑲嵌 —— 亮起來就是整塊亮。F2 - F1 在塊的邊界上是 0。
-    return lit * smoothstep(0.0, edge, vor.w - vor.z);
-  }
-
-  /**
-   * 暗塊：每塊一個固定的暗度，**不擲骰、不吃 p、也不閃**。
-   *
-   * 它是水面的形狀不是反光 —— 見 SPARKLE_DARK_DENSITY。塊隨 drift 漂，所以
-   * 靜態的值看起來照樣在動。走的是自己那套較粗的格柵，見 SPARKLE_DARK_SCALE。
-   */
-  float sparkleDark(vec4 vor, float edge) {
-    float dark = smoothstep(1.0 - uDarkDensity, 1.0, oceanHash(vor.xy + vec2(71.3, 19.7)));
-    return dark * smoothstep(0.0, edge, vor.w - vor.z);
-  }
 `
 
 /**
@@ -1566,9 +948,6 @@ ${RIPPLE_GLSL.warpFn}
  * `main()` 裡，宣告在這裡後面就看得到 —— 省一次 length、一次除法、一次
  * normalize。半角向量兩邊**完全相同**：基色拿它對平坦法線（`oceanH.y`），
  * 碎光拿它對波法線（`dot(N, oceanH)`），差別只在跟誰內積。
- *
- * 【`oceanFoot` 也在這裡算】它只吃 `oceanDist` 與 `oceanV`，兩個都在這一段
- * 就有了 —— 順手算完，碎光那一段直接用。
  *
  * 【順帶擋掉一個靜默失效】若 three 日後把 `color_fragment` 改名，這裡的
  * `.replace()` 會 no-op，四個變數從未宣告，而 `SPARKLE_FRAGMENT` 引用它們
@@ -1584,22 +963,10 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
   vec3 oceanV = oceanToEye / max(oceanDist, 1e-4);
   vec3 oceanH = normalize(oceanV + uSunDirection);
 
-  // 這個像素在世界上的 footprint。**解析式，不用 dFdx** —— 硬體導數在 2x2
-  // quad 內是常數，那 2 px 的階梯會一路傳成畫面上的混疊條紋。見 PIXEL_ANGLE。
-  //
-  // oceanV.y 是視線與海面夾角的 sin：掠射時趨近 0，footprint 沿視線被放大，
-  // 那正是地平線附近需要的。下限 0.02 把放大倍率封在 50 倍。
-  float oceanFoot = oceanDist * uPixelAngle / max(oceanV.y, 0.02);
-
   // 大氣透視的量。**在塊外宣告**，因為碎光那段（SPARKLE_FRAGMENT）也要用它
   // 把交界區的白點沖淡。**用仰角 oceanV.y 而不是距離**：只有視線掠向地平線
   // （oceanV.y 小）才融入天空，中遠海保持本色，不會整片糊成霧。見 SEA_AERIAL_HI。
   float oceanAerial = smoothstep(uAerialHi, uAerialLo, oceanV.y) * uAerialStrength;
-
-  // 水面法線。**在塊外宣告**，因為天空反射那一段排在碎光的 fade 守衛之外
-  // —— 地平線附近（距離 > uFadeEnd）正是反射最強的地方，不能跟著碎光一起
-  // 被 early-out 掉。預設是平坦的 +Y，碎光那一段解析得出波形時再覆蓋它。
-  vec3 oceanNormal = vec3(0.0, 1.0, 0.0);
 
   {
     // 平坦法線（+Y）下的半角對齊 —— dot(vec3(0, 1, 0), oceanH) 就是
@@ -1622,195 +989,154 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
  * 守住哪一條法線餵給誰 —— 改錯不會壞任何數字、不會拋錯，只會讓畫面悄悄
  * 長回高爾夫球凹坑，沒有別的東西守得住。
  */
-export const SPARKLE_FRAGMENT = /* glsl */ `
-  {
-    // 視線量在 SEA_DIM_FRAGMENT 就算好了 —— 那一段必須排在這之前。
-    float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, oceanDist);
+/**
+ * **只有近海有的那一段**：逐面底色與逐面白點。
+ *
+ * 【為什麼遠海不能套】遠海是 128×128 的 PlaneGeometry，一格約 46.9 km。
+ * 套 60 m 的格座標會讓它長出一整片**假的**色塊；按它自己的真實面上色則是
+ * 一個面幾十公里。所以它掛在 `applySparkle` 的 `displace` 旗標下。
+ *
+ * 【`export` 是給測試的】沒有別的東西守得住「遠海有沒有被套上假色塊」。
+ */
+export const FACE_FRAGMENT = /* glsl */ `
+    // ── 這個像素落在哪一個三角面 ────────────────────────────────
+    //
+    // 【格距要按層算，不是一律 uBaseCell】四層共用同一顆材質，格距是
+    // 60/120/240/480。一律除以 60 的話，L1/L2/L3 的每一個真實三角形會被
+    // 切成 4/16/64 個假色塊 —— 而那不會讓任何測試變紅。
+    //
+    // 【環是方的，所以用 Chebyshev 半徑】第 L 層是半寬 32c 到 64c 的方環
+    // （c = uBaseCell × 2^L），所以 r / (uBaseCell × uHalfSeg) 取 log2 再
+    // ceil 正好是層號。length() 是圓的，會在方環的角落選錯層。
+    vec2 faceLocal = vOceanWorld.xz - uOrigin;
+    float faceR = max(abs(faceLocal.x), abs(faceLocal.y));
+    float faceCell = uBaseCell
+      * exp2(ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg)))));
 
-    // 【先算淡出、能收就收 —— Codex 2026-08-11 審查的 Important】
-    // 遠海排在細浪面之後畫，所以被細浪面蓋住的那一塊由 early-Z 收掉（見
-    // FAR_SEA_Y 附近的 renderOrder）。但細浪面只鋪到 ±82 km，**地平線到
-    // 82 km 之間整片都是遠海**，而那正好是 uFadeEnd（250 km）之外的區域。
-    // 在這裡收掉就跳過九次 cos、五次 sin、兩次 exp、六次 hash，以及二十次
-    // hash22（兩套 Voronoi 各九次、塊傾斜兩次）。
+    vec2 faceQ = vOceanWorld.xz / faceCell;
+    vec2 faceCel = floor(faceQ);
+    vec2 faceT = faceQ - faceCel;
+    // 【對角線】clipmapLevelGeometry 的索引是 a,c,b 與 b,c,d，切線落在
+    // tx + tz = 1。寫反的話色塊會與稜線錯開半格，看起來像兩層網格在打架，
+    // 而那**不會讓任何測試變紅** —— 唯一守得住它的是截圖。
+    float faceTri = step(1.0, faceT.x + faceT.y);
+    float faceId = oceanHash(faceCel + faceTri * 0.5);
+
+    // 【機率要用面的重心算，不能用內插的片段高度】vOceanWorld.y 在面內是
+    // 內插的，所以機率會在面內變動，roll < p 就把一個三角形切成半白半不白
+    // —— 那不是「整面變白」。重心在格內的局部座標是固定的。
+    vec2 faceCen = (faceCel + mix(vec2(0.3333333), vec2(0.6666667), faceTri))
+      * faceCell;
+    float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));
+
+    // ── 逐面底色 ──────────────────────────────────────────────
+    //
+    // 【這是低多邊形的主角，不是法線】相鄰面的法線只差約 12°（島是幾十度），
+    // 海太平了 —— 光靠法線做不出稜角感。訊號由每個面自己的色調帶。
+    gl_FragColor.rgb *= 1.0
+      + (faceId - 0.5) * 2.0 * uFaceTint
+      + clamp(faceH / uCrestRef, -1.0, 1.0) * uFaceLift;
+
     if (fade > 0.0) {
-      vec2 wxz = vOceanWorld.xz;
-
-      // 【每一道波按「這個像素還分不分得出它」淡出】分不出來的波不是丟掉，
-      // 是把它的坡度變異數交給 σ —— 見 SPARKLE_SIGMA_BASE。w 用平方進 slopeVar
-      // 是因為變異數是二次量：解析到 w 的振幅，剩下的能量就是 1 - w²。
+      // ── 碎光：一個面亮或不亮 ────────────────────────────────
       //
-      // 【門檻是 Nyquist，不是波長本身】取樣間隔要小於 λ/2 才不混疊，所以
-      // foot 到 λ/2 就必須完全淡出，λ/4 開始收。用 λ→2λ 會讓每一道波在
-      // [λ/2, 2λ] 那整段都還在貢獻 —— 規則的波配上接近其頻率的像素格柵，
-      // 症狀就是太陽反射區的摩爾紋。
-      // 【解析的尺度下限是「像素」與「塊」的較大者】比一個塊還小的波，在塊內
-      // 看不到形狀 —— 塊是單色的。讓它們也轉成 σ，否則 align 在塊內劇烈變化，
-      // 而亮塊的門檻是逐像素的 roll < p，一塊就會被撕成好幾片。
+      // 【雙核】窄核保住方向選擇性，寬核鋪出稀疏的尾巴，讓鏡面圈之外也有
+      // 零星白點。用 mix 不用加法 —— 兩個高斯在鏡面點都是 exp(0) = 1，
+      // 中心因此嚴格不變。見 SPARKLE_TAIL_WEIGHT。
       //
-      // 名目塊寬不含 LOD 的 pick（那需要 drift 後的座標，而 drift 正是這個
-      // 迴圈算出來的）。差一階對「哪些波該轉成統計」沒有影響。
-      float cellNominal = uCell * exp2(max(0.0, log2(max(1.0, oceanDist / uCellRef))));
-      // 【三者取大】像素蓋住的、一個 Voronoi 塊蓋住的、以及「一個浪身上該有
-      // 幾組明暗」那個下限 —— 見 SHADE_SCALE_FLOOR。
-      float shadeScale = max(max(oceanFoot, cellNominal), uShadeFloor);
-
-      // 【與頂點位移同一個扭曲】見 WAVE_WARP_AMP。碎光的取樣座標（swxz）
-      // 刻意**不**扭曲 —— 那是塊的鋪法，與浪的形狀是兩件事。
-      vec2 pwxz = wxz + oceanWarp(wxz, uTime);
-      // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
-      float envG = oceanEnvField(wxz, uTime);
-
-      vec2 g = vec2(0.0);
-      vec2 drift = vec2(0.0);
-      // 水面高度，只給碎光的浪峰偏置用 —— 見 SPARKLE_CREST_BIAS。
-      float height = 0.0;
-      // 【不是 0】比 shadeScale 的地板還細的那幾道微波在任何距離都淡光，
-      // 貢獻是個常數 —— 見 RIPPLE_RESOLVED。
-      float slopeVar = uRipStaticVar;
-
-      // 解析波坡度與質點的水平位移。**與頂點位移用同一組波、同一個未正規化
-      // 的 uWaveDir** —— 不一致的話亮塊就會與浪的形狀分家。兩者共用同一個
-      // 相位，所以合在一個迴圈裡算。
-      //
-      // drift 不淡出：它只在顆粒還在的近處有意義，而那裡三道波都完全解析。
-      for (int i = 0; i < ${WAVES.length}; i++) {
-        float k = 6.28318530718 / uWaveLen[i];
-        float ph = k * dot(uWaveDir[i], pwxz) - uWaveSpd[i] * k * uTime;
-        float w = 1.0 - smoothstep(uWaveLen[i] * uNyqLo, uWaveLen[i] * uNyqHi, shadeScale);
-        float ak = uWaveAmp[i] * k * length(uWaveDir[i]);
-        // 【包絡只進振幅，不進導數】包絡在 900 m 的尺度上變化而波長是
-        // 140 m —— dA/dx 那一項比 A·k 小一個量級。忽略它讓 CPU 與 GPU
-        // 三份公式維持逐字相同，代價是坡度在包絡邊界差幾個百分點
-        float env = oceanEnv(envG, float(i));
-        ak *= env;
-        g += w * uWaveAmp[i] * env * k * cos(ph) * uWaveDir[i];
-        drift -= uWaveAmp[i] * env * sin(ph) * uWaveDir[i];
-        // 【高度與 drift 共用同一個 sin】所以這一行只多一次乘加。
-        // 【要吃 w】不淡出的話遠處會出事：那裡一個 Voronoi 塊可能橫跨好幾個
-        // 浪，而亮塊的門檻是逐像素的 roll < p —— 一塊會被撕成好幾片。跟著
-        // 淡出，偏置就在「塊比浪還大」之前先歸零。
-        height += w * uWaveAmp[i] * env * sin(ph);
-        slopeVar += (1.0 - w * w) * ak * ak * 0.5;
-      }
-
-${RIPPLE_GLSL.loop}
-      // 【碎光的取樣座標跟著水面走】見 SPARKLE_DRIFT。Voronoi 與 LOD 的選階
-      // 都用同一個座標 —— 分家的話同一塊會被撕成兩階。
-      vec2 swxz = wxz + drift * uDrift;
-
-      // Voronoi 塊、以及每塊自己的法線傾斜。**一路到地平線都有塊** —— LOD
-      // 把塊的螢幕張角鎖成常數（見 SPARKLE_CELL），所以遠處的塊不會縮成次
-      // 像素，沒有「必須收斂成連續場」的距離。
-      float cellW = oceanCellWidth(swxz, oceanDist);
-      vec4 vor = oceanVoronoi(swxz / cellW);
-      vec4 vorDark = oceanVoronoi(swxz / (cellW * uDarkScale));
-
-      // 【每塊自己的法線傾斜 —— low-poly 的「面」】幅度取自未解析的坡度
-      // 變異數，見 SPARKLE_TILT_SHARE。每塊一組獨立的相位與速率，所以整片
-      // 不會同步呼吸；用 sin 而不是重擲，塊才會平滑地轉向而不是跳。
-      //
-      // 兩個分量各給變異數 tiltVar/2，合起來 E[|tilt|²] = tiltVar —— 與
-      // slopeVar 同一個慣例（那也是總坡度的變異數，不分軸）。
-      float tiltVar = slopeVar * uTiltShare;
-      vec2 tp = oceanHash2(vorDark.xy + vec2(61.3, 7.9)) * 6.28318530718;
-      vec2 tr = 0.4 + 0.7 * oceanHash2(vorDark.xy + vec2(13.7, 83.1));
-      vec2 tilt = sin(tp + uTime * uTwinkle * tr) * sqrt(tiltVar);
-
-      // 【只有碎光吃帶塊傾斜的法線】三個消費者，一個用 N、兩個用 oceanNormal：
-      //
-      //   碎光      要的是「這一小塊有沒有正好對準太陽」—— 塊各自亂轉才會
-      //             一顆一顆閃，那正是 low-poly 碎光的樣子。**用 N**
-      //   天空反射  反的是**整片天空**。未解析的坡度在物理上該讓反射**變糊**
-      //             （往平均法線收斂），不是讓每塊各反一塊天
-      //   漫射      同上 —— 給它 N 的話每塊會有自己的亮度，畫面變成高爾夫球
-      //             （見下面 uShadeGain 那一行）
-      //
-      // 用同一條的話，地平線附近會整片高頻雜訊：那裡波全被 Nyquist 淡掉、
-      // slopeVar 最大、於是 tilt 也最大，而塊的螢幕張角被 LOD 鎖成常數 ——
-      // 亂數不隨距離收斂，畫面就永遠是一片跳動的花。
-      oceanNormal = normalize(vec3(-g.x, 1.0, -g.y));
-      vec3 N = normalize(vec3(-g.x + tilt.x, 1.0, -g.y + tilt.y));
-
-      // 【用 1 - cos 而不是 acos】acos 在接近 1 的地方數值極差，而鏡面附近
-      // 正好全都在那裡。theta^2 約等於 2(1 - cos theta)，所以高斯可以直接用
-      // 1 - cos 寫。sigma 4 度時相對誤差 0.02%，8 度 0.33%，12 度 1.7%
-      //
-      // oceanH 在 SEA_DIM_FRAGMENT 就算好了 —— 與基色用的是同一個向量。
-      float cosNH = clamp(dot(N, oceanH), 0.0, 1.0);
-
-      // 【雙核】窄核保住方向選擇性，寬核鋪出稀疏的尾巴，讓鏡面圈之外也有零星
-      // 白點。用 mix 不用加法 —— 兩個高斯在鏡面點都是 exp(0) = 1，中心因此
-      // 嚴格不變。見 SPARKLE_TAIL_WEIGHT。
-      // 【σ = 基底 + 沒解析到的波】見 SPARKLE_SIGMA_BASE。近處 slopeVar 就是
-      // uRipStaticVar、σ 約 7.5°，碎光跟著 11 m 那一階的形狀；遠處連那一階
-      // 也淡出，σ 長到 11°，掠射角才中得了鏡面條件。
-      // 塊傾斜拿走多少就從這裡扣多少，總能量守恆 —— 見 SPARKLE_TILT_SHARE。
-      // max 只是浮點的保險：uSigmaBase 為正，理論上不會到 0。
-      float sigma = sqrt(max(uSigmaBase * uSigmaBase + slopeVar - tiltVar, 1e-8));
-
-      float narrow = exp(-(1.0 - cosNH) / (sigma * sigma));
+      // 【σ 是常數】面法線就是真實的幾何法線，沒有「解析不出來的坡度」要
+      // 折進 σ —— 那是逐像素解析波形時才需要的補償。
+      float cosNH = clamp(dot(oceanNormal, oceanH), 0.0, 1.0);
+      float narrow = exp(-(1.0 - cosNH) / (uSigmaBase * uSigmaBase));
       float tail = exp(-(1.0 - cosNH) / (uSigmaTail * uSigmaTail));
       float align = mix(narrow, tail, uTailWeight);
+
       // 【浪峰偏置】鏡面條件只看坡度，所以白點原本落在浪的**側面**，峰與谷
       // 機會相同。真實海面的短波被長浪調變 —— 峰上密、谷裡稀。見
       // SPARKLE_CREST_BIAS。高度均值為 0 而偏置是奇函數，所以白點總數不變。
       // max 擋住 uCrestBias > 1 時浪谷變成負機率。
-      float crest = clamp(height / uCrestRef, -1.0, 1.0);
+      float crest = clamp(faceH / uCrestRef, -1.0, 1.0);
       float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
 
+      // 【閃爍】每個面自己一段相位與速率，所以整片不會同步呼吸。
+      //
+      // 【傳 p 而不是傳 1 - p】p 在尾巴區小到 1e-3 以下，而 float32 在 1.0
+      // 附近的 ulp 是 6e-8 —— 用「1 減去它」的形式來回一趟，小 p 的相對
+      // 精度就沒了。
+      //
+      // 【用 roll < p 而不是 step(roll, p)】p 會**恰好等於 0**：
+      // dist >= uFadeEnd 時 fade 明確是 0，align 在大角度下也會 underflow
+      // 成 0。step(roll, 0.0) 在 roll 剛好是 0 的那些面會回 1 —— 250 km 外
+      // 那片早該全黑的海上會殘留零星亮面。roll < 0.0 恆為 false。
+      float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
+      float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
+      float cycle = twPhase + uTime * uTwinkle * twRate;
+      float k = floor(cycle);
+      float u = fract(cycle);
+      float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));
+      float on = roll < p ? 1.0 : 0.0;
 
-      // 【暗處】塊與波的法線從沒進過 three 的光照鏈，補一階 Lambert 差
-      // —— 見 SEA_SHADE_GAIN。**必須排在加碎光之前**，否則亮塊也會被調暗。
-      //
-      // 【用 oceanNormal 而不是 N —— 這一行決定海面有沒有高爾夫球凹坑】
-      // 塊傾斜代表的是「未解析的坡度」，它的用途是**選塊**（這一小塊有沒有
-      // 正好對準太陽），不是替水面打光。餵給 Lambert 的話每一塊會拿到自己
-      // 的亮度：一整片、每塊不同、每塊一樣大，而塊的螢幕張角又被 LOD 鎖成
-      // 常數（見 SPARKLE_CELL）—— 遠近都一樣大的均勻凹坑，那正是高爾夫球
-      // 的觀感來源。
-      //
-      // 天空反射早就是這樣寫的（見上面 oceanNormal 那一段：未解析的坡度該
-      // 讓反射**變糊**，不是讓每塊各反一塊天）。同一條理由對漫射一樣成立。
-      //
-      // **碎光完全不受影響** —— 選塊的 cosNH 吃的還是帶傾斜的 N。
-      gl_FragColor.rgb *= 1.0 + (dot(oceanNormal, uSunDirection) - uSunDirection.y) * uShadeGain;
+      // 【max 那一層是 NaN 的保險】GLSL ES 明定 pow(x, y) 在 x == 0 且
+      // y <= 0 時未定義；這裡 y = 0.9 > 0，所以 pow(0.0, 0.9) 有定義。但
+      // on * pow(...) **擋不住** NaN —— 0.0 * NaN 還是 NaN，而 NaN 一旦進了
+      // gl_FragColor，那一整片海會出現黑塊，而且是平台相依的。
+      float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);
 
       // 【遠處的反光要暗下來】海面不吃霧，所以碎光得自己補這段大氣消光 ——
       // 見 SPARKLE_ATTEN_NEAR。只乘在加法項上，海的基色不受影響。
       float atten = mix(1.0, uFarDim, smoothstep(uAttenNear, uAttenFar, oceanDist));
-
-      // 【黑先畫、白疊上】白是加法項而且排在後面，所以同一塊同時中了暗與亮
-      // 時，白蓋過黑 —— 不會出現「暗塊上有半截白斑」。
-      // 【邊緣寬度從像素換算回格子單位】uEdge 的單位是像素，而塊的螢幕大小
-      // 隨距離變 —— 見 SPARKLE_EDGE。這裡用**不含掠射放大**的 footprint
-      // （oceanDist · uPixelAngle），因為抗鋸齒要的是螢幕上的寬度，不是沿
-      // 視線的世界距離。clamp 的上界擋住掠射時邊緣糊掉整塊。
-      float edgeWorld = uEdge * oceanDist * uPixelAngle;
-      float edgeLight = clamp(edgeWorld / cellW, 0.005, 0.4);
-      float edgeDark = clamp(edgeWorld / (cellW * uDarkScale), 0.005, 0.4);
-
-      // 【霧化區把黑白塊一起沖淡】遠海融進天空後不該再有清楚的碎光。
+      // 【霧化區把白面沖淡】遠海融進天空後不該再有清楚的碎光。
       // oceanAerial 在 SEA_DIM_FRAGMENT 算好（排在本段之前）。
-      float sparkleKeep = 1.0 - oceanAerial;
-      gl_FragColor.rgb *= 1.0 - sparkleDark(vorDark, edgeDark) * uDarkStrength * fade * sparkleKeep;
-      gl_FragColor.rgb += sparkleLight(vor, p, uTime * uTwinkle, edgeLight) * uSparkleStrength * atten * sparkleKeep * vec3(1.0, 0.98, 0.94);
+      gl_FragColor.rgb += lit * uSparkleStrength * atten * (1.0 - oceanAerial)
+        * vec3(1.0, 0.98, 0.94);
     }
+`
+
+/**
+ * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**；
+ * 逐面的部分由參數插進來，遠海拿到的是空字串（見 `FACE_FRAGMENT`）。
+ */
+export const sparkleFragment = (face: string): string => /* glsl */ `
+  {
+    // 視線量在 SEA_DIM_FRAGMENT 就算好了 —— 那一段必須排在這之前。
+    float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, oceanDist);
+
+    // 水面法線 = **這個三角面自己的法線**。材質是 flatShading，所以 three
+    // 給的 normal 已經是面法線，不是內插的頂點法線。
+    //
+    // 【一定要轉回世界空間】three 的 normal 是 **view space**，而
+    // uSunDirection、oceanV、天空反射全部是世界空間。直接用的話漫射與反射
+    // 會隨鏡頭旋轉 —— 而且只在某些視角才看得出來。
+    //
+    // 【為什麼在這裡算而不是在 SEA_DIM_FRAGMENT】那一段接在 color_fragment
+    // 之後，而 three 的 normal 要到 normal_fragment_begin 才存在 —— 在那裡
+    // 引用它是「undeclared identifier」，整片海不編譯。
+    vec3 oceanNormal = normalize(inverseTransformDirection(normal, viewMatrix));
+
+    // 【暗處】面法線從沒進過 three 的光照鏈，補一階 Lambert 差 ——
+    // 見 SEA_SHADE_GAIN。**必須排在加碎光之前**，否則亮面也會被調暗。
+    gl_FragColor.rgb *= 1.0
+      + (dot(oceanNormal, uSunDirection) - uSunDirection.y) * uShadeGain;
+
+${face}
     // ── 天空反射（菲涅耳）──────────────────────────────────────────
     //
     // 【為什麼這是海面最像水的那一項】從飛機上看海，掠射角佔了畫面絕大部分，
     // 而水在掠射角的反射率逼近 1 —— 那時看到的**幾乎全是天空**，不是水體的
-    // 顏色。少了這一層，海就是一片死藍的板子，與天空硬碰硬（2026-08-26 的
-    // 五張姿態截圖就是這個症狀）。
+    // 顏色。少了這一層，海就是一片死藍的板子，與天空硬碰硬。
+    //
+    // 【「近深遠淺」是這一段給的，不是大氣透視】SEA_AERIAL_STRENGTH 是 0。
+    // 掠射（遠）反射率趨近 1、看到的是天空；俯視（近）F0 = 0.02、看到的是海
+    // 自己的深色。**改壞這一段就是把近深遠淺弄掉**，而沒有測試守得住。
     //
     // 【它與碎光是同一件事的兩端】碎光是「反射到太陽」的那一小塊，這裡是
-    // 「反射到整片天空」的其餘部分。兩者共用同一條 oceanNormal，所以波
-    // 的形狀會同時出現在反光與反射裡 —— 那正是水面深淺波紋的來源。
+    // 「反射到整片天空」的其餘部分。兩者共用同一條面法線，所以浪的形狀會
+    // 同時出現在反光與反射裡。
     //
     // 【Schlick 近似】F = F0 + (1 − F0)(1 − cosθ)⁵，θ 是視線與法線的夾角。
-    // 掠射（cosθ → 0）時 F → 1，垂直俯視時 F → F0 = 0.02，也就是幾乎看不到
-    // 反射、看到的是海自己的顏色。**那個由近到遠的明暗變化因此是算出來的，
-    // 不是調出來的。**
+    // 掠射（cosθ → 0）時 F → 1，垂直俯視時 F → F0，也就是幾乎看不到反射、
+    // 看到的是海自己的顏色。**那個由近到遠的明暗變化因此是算出來的，不是
+    // 調出來的。**
     //
     // 【天空色與 sky.ts 用同一條公式】t = dirY × 0.5 + 0.5 再取冪，見
     // skyColorAt。差別只在方向：那邊是視線，這邊是**反射線**。
@@ -1827,7 +1153,7 @@ ${RIPPLE_GLSL.loop}
     }
 
     // 【大氣透視在最終色，PBR 之後】所以淺色是純淺藍、不會被光照弄灰。
-    // 在 if(fade) 外 —— 大氣透視是所有海面像素都有，不受碎光範圍限制。
+    // 在逐面那一段之外 —— 大氣透視是所有海面像素都有，遠海也要。
     gl_FragColor.rgb = mix(gl_FragColor.rgb, uHorizonColor, oceanAerial);
   }
 `
@@ -1848,6 +1174,15 @@ export interface Ocean {
    * 見 `FAR_SEA_SIZE` / `FAR_SEA_Y` 與下方 `renderOrder` 的註解。
    */
   farMesh: Mesh
+  /**
+   * 波相位的原點（著色器的 `uOrigin`），已經吸附到格點。**與
+   * `mesh.position.xz` 恆相等** —— 只吸附其中一份的話浪會相對網格滑動，
+   * 症狀與完全不吸附一樣。
+   *
+   * 【為什麼要出現在介面上】`onBeforeCompile` 在 headless 測試裡不會被呼叫，
+   * 從材質上讀不到 uniform。公開它是為了讓那一條守得住，沒有別的用途。
+   */
+  readonly origin: Vector2
   update(time: number, centerX: number, centerZ: number): void
   heightAt(x: number, z: number, time: number): number
   dispose(): void
@@ -1908,7 +1243,7 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
 }
 
 export function createOcean(): Ocean {
-  // clipmap 的十層。L0 實心，其餘挖掉中央 —— 那一塊由內一層負責
+  // clipmap 的四層。L0 實心，其餘挖掉中央 —— 那一塊由內一層負責
   const levelGeometries = Array.from({ length: OCEAN_LEVELS }, (_, i) =>
     clipmapLevelGeometry(OCEAN_BASE_CELL * 2 ** i, OCEAN_RING_SEGMENTS, i > 0))
 
@@ -1931,7 +1266,7 @@ export function createOcean(): Ocean {
 
   /**
    * 碎光的 uniform。**細浪面與遠海共用同一組物件** —— 同 `SEA_COLOR` 的理由，
-   * 兩份會漂開，症狀是 5 km 接縫兩側的白點密度不一樣。
+   * 兩份會漂開，症狀是近海與遠海的接縫兩側顏色不一樣。
    */
   const sparkle = {
     uWaveDir: { value: WAVES.map((w) => new Vector2(w.dirX, w.dirZ)) },
@@ -1939,49 +1274,21 @@ export function createOcean(): Ocean {
     uWaveLen: { value: WAVES.map((w) => w.wavelength) },
     uWaveSpd: { value: WAVES.map((w) => w.speed) },
     uSunDirection: { value: new Vector3(SUN_DIR[0], SUN_DIR[1], SUN_DIR[2]) },
-    // 【微波的那幾個只在著色器真的有那一段時才給】`RIPPLE_RESOLVED` 空的時候
-    // GLSL 裡不存在這些 uniform（見 `RIPPLE_GLSL`），而空陣列在 three 的
-    // uniform 上傳路徑上沒有型別可推，會在 WebGL 層丟警告。
-    ...(RIPPLE_RESOLVED.length > 0
-      ? {
-          uRipDir: { value: RIPPLE_RESOLVED.map((w) => new Vector2(w.dirX, w.dirZ)) },
-          uRipAmp: { value: RIPPLE_RESOLVED.map((w) => w.amplitude) },
-          uRipLen: { value: RIPPLE_RESOLVED.map((w) => w.wavelength) },
-          uRipSpd: { value: RIPPLE_RESOLVED.map((w) => w.speed) },
-          uRipWarp: {
-            value: new Vector3(RIPPLE_WARP_AMP,
-              (Math.PI * 2) / RIPPLE_WARP_LEN_A, (Math.PI * 2) / RIPPLE_WARP_LEN_B),
-          },
-          uRipWarp2: {
-            value: new Vector3(RIPPLE_WARP2_AMP,
-              (Math.PI * 2) / RIPPLE_WARP2_LEN_A, (Math.PI * 2) / RIPPLE_WARP2_LEN_B),
-          },
-        }
-      : {}),
-    uRipStaticVar: { value: RIPPLE_STATIC_VAR },
-    uShadeFloor: { value: SHADE_SCALE_FLOOR },
     uCrestBias: { value: SPARKLE_CREST_BIAS },
     uCrestRef: { value: SPARKLE_CREST_REF },
     uSigmaBase: { value: SPARKLE_SIGMA_BASE },
-    uDrift: { value: SPARKLE_DRIFT },
     uSigmaTail: { value: SPARKLE_SIGMA_TAIL },
     uTailWeight: { value: SPARKLE_TAIL_WEIGHT },
     uDimLo: { value: SEA_DIM_LO },
     uDimHi: { value: SEA_DIM_HI },
     uDimFloor: { value: SEA_DIM_FLOOR },
     uDensity: { value: SPARKLE_DENSITY },
-    uCell: { value: SPARKLE_CELL },
-    uCellRef: { value: SPARKLE_CELL_REF },
     uTwinkle: { value: SPARKLE_TWINKLE },
     uSparkleStrength: { value: SPARKLE_STRENGTH },
-    uEdge: { value: SPARKLE_EDGE },
-    uDarkDensity: { value: SPARKLE_DARK_DENSITY },
-    uDarkStrength: { value: SPARKLE_DARK_STRENGTH },
-    uDarkScale: { value: SPARKLE_DARK_SCALE },
-    uJitter: { value: SPARKLE_JITTER },
-    uTiltShare: { value: SPARKLE_TILT_SHARE },
     uEnvelopePow: { value: SPARKLE_ENVELOPE_POW },
-    uPixelAngle: { value: PIXEL_ANGLE },
+    uFaceTint: { value: FACE_TINT },
+    uFaceLift: { value: FACE_CREST_LIFT },
+    uHalfSeg: { value: OCEAN_RING_SEGMENTS / 2 },
     // 【天空色直接取 sky.ts 的常數】海面反射的是那一片天，兩份會漂開。
     // `new Color(hex)` 出來就在線性空間，而這一段也在線性空間（PBR 之後、
     // colorspace_fragment 之前），所以不需要任何轉換
@@ -2043,8 +1350,7 @@ export function createOcean(): Ocean {
         .replace(
           '#include <common>',
           `#include <common>
-           uniform vec2 uOrigin;
-           ${SPARKLE_COMMON}`,
+${SPARKLE_COMMON}`,
         )
         .replace(
           '#include <begin_vertex>',
@@ -2057,7 +1363,7 @@ export function createOcean(): Ocean {
                 // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
                 float envG = oceanEnvField(rawXZ, uTime);
 
-                // 【這個頂點所在的層有多粗】十層都以相機為中心，而第 L 層
+                // 【這個頂點所在的層有多粗】四層都以相機為中心，而第 L 層
                 // 覆蓋到半徑 (段數/2)×格子(L) —— 所以「離中心多遠」直接
                 // 換算得到「這裡的格子多大」。用的是**局部座標**，也就是
                 // 離相機的水平距離，與世界座標無關。
@@ -2090,9 +1396,11 @@ export function createOcean(): Ocean {
           '#include <color_fragment>',
           `#include <color_fragment>\n${SEA_DIM_FRAGMENT}`,
         )
+        // 【逐面那一段只給近海】遠海一格 46.9 km，套 60 m 的格座標會長出
+        // 一整片假的色塊。`displace` 同時是「這是 clipmap 嗎」的旗標。
         .replace(
           '#include <opaque_fragment>',
-          `#include <opaque_fragment>\n${SPARKLE_FRAGMENT}`,
+          `#include <opaque_fragment>\n${sparkleFragment(displace ? FACE_FRAGMENT : '')}`,
         )
     }
     /**
@@ -2109,7 +1417,7 @@ export function createOcean(): Ocean {
   const mesh = new Group()
   for (const g of levelGeometries) {
     const m = new Mesh(g, material)
-    // 【一律不做視錐剔除】包圍球看不到頂點位移，而且十層全部以相機為
+    // 【一律不做視錐剔除】包圍球看不到頂點位移，而且四層全部以相機為
     // 中心 —— 能被剔除的只有整層都在畫面外的情形，那極少發生
     m.frustumCulled = false
     mesh.add(m)
@@ -2133,6 +1441,20 @@ export function createOcean(): Ocean {
     roughness: SEA_ROUGHNESS,
     metalness: 0.05,
     specularIntensity: SEA_SPECULAR,
+    /**
+     * 【為什麼是 Less 而不是預設的 LessEqual】遠海排在近海之後畫，所以深度
+     * 平手時**後畫的勝出** —— 而深度量化 `Δz ≈ z²/2²⁴` 在浪還存在的距離上
+     * 已經是公尺級（最長波撐到 12,160 m，那裡是 8.8 m），遠比近海與遠海相距
+     * 的 5 m 大。平手會讓遠海蓋掉近海的逐面色。
+     *
+     * 遠海恆在近海之下，而且在 clipmap 的覆蓋範圍內恆在近海之後（同一條視線
+     * 上更遠），所以真實深度恆為 `far >= near`；量化是單調的，量化後仍然
+     * `far >= near`。**平手是唯一的失效模式**，`LessDepth` 拒絕相等就補完了。
+     *
+     * 這比「把遠海壓到量化階的三倍之下」更強：與距離、波長、振幅全都無關，
+     * 而且不會讓接縫的落差自己變成一條看得見的線。
+     */
+    depthFunc: LessDepth,
     // 【與細浪面同一個理由，見上面】兩個一起關，漏一個就是 5 km 處的色帶
     fog: false,
   })
@@ -2178,21 +1500,31 @@ export function createOcean(): Ocean {
   return {
     mesh,
     farMesh,
+    origin: uOrigin.value,
     update(time, centerX, centerZ) {
       uTime.value = time
-      // 【十層共用同一個中心，而且不做格點對齊】對齊本來是為了避免頂點在
-      // 格點之間滑動造成波形抖動 —— 那是沒有頻帶限制時才會發生的混疊。
-      // 現在每個頂點按離相機的距離把解析不出來的波淡掉（見
-      // OCEAN_VERT_FADE_LO），取樣永遠在 Nyquist 之內，滑動只剩內插誤差。
+
+      // 【中心必須吸附到格點】頂點在波場裡連續滑動的話，每一幀每個面的三個
+      // 角都落在波的不同相位上 —— 面的形狀逐幀改變，畫面上是整片海在蠕動、
+      // 稜線在爬。格子 2.5 m 時那個誤差遠小於一個像素，看不出來；60 m 時
+      // 它**就是**外觀。
       //
-      // 不對齊還換來一件事：十層可以共用同一個 uOrigin。對齊的話每層要各自
-      // 對到自己的格子，中心就會分家，交界處也跟著錯開。
-      // 【設在群組上，不是每一層】十層共用同一個中心，那正是它們不裂開的
-      // 前提。設在群組上讓那件事是**結構保證**的，不是每幀記得同步的
-      mesh.position.set(centerX, 0, centerZ)
-      uOrigin.value.set(centerX, centerZ)
-      // 【遠海不做格點對齊】對齊是為了避免頂點在格點之間滑動造成波形抖動，
-      // 而遠海沒有波。精確跟著中心走，才不會在極端座標下累積偏差。
+      // 【為什麼吸附到最外層的格距】OCEAN_SNAP 被四層的格距整除，所以一次
+      // 吸附讓四層同時落在各自的格點上 —— `uOrigin` 因此仍然只有一個，
+      // 各層不必分家。代價是中心最多偏離相機半格（L0 的半寬是 3,840 m）。
+      //
+      // 【設在群組上，不是每一層】四層共用同一個中心，那正是它們不裂開的
+      // 前提。設在群組上讓那件事是**結構保證**的，不是每幀記得同步的。
+      //
+      // 【uOrigin 必須吃同一個吸附後的值】它算的是波的相位，而 mesh.position
+      // 決定頂點在哪 —— 只吸附其中一份的話浪會相對網格滑動，症狀與完全不
+      // 吸附一樣，但只看 mesh.position 的測試抓不到。
+      const snapX = Math.round(centerX / OCEAN_SNAP) * OCEAN_SNAP
+      const snapZ = Math.round(centerZ / OCEAN_SNAP) * OCEAN_SNAP
+      mesh.position.set(snapX, 0, snapZ)
+      uOrigin.value.set(snapX, snapZ)
+      // 【遠海不吸附】吸附是為了避免頂點在格點之間滑動造成面的形狀逐幀改變，
+      // 而遠海是平的、沒有面可言。精確跟著相機走，才不會在極端座標下累積偏差。
       farMesh.position.set(centerX, FAR_SEA_Y, centerZ)
     },
     heightAt: gerstnerHeight,
