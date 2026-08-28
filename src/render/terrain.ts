@@ -1,7 +1,10 @@
 import { Group, type Object3D } from 'three'
 import { createOcean } from './ocean'
 import { createIslands } from './island'
+import { createFarmGround } from './farmGround'
+import { createFarHorizon } from './farHorizon'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
+import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -31,6 +34,22 @@ export interface Terrain {
    */
   collisionHeightAt(x: number, z: number): number
   /**
+   * **水面**的高度，m。**沒有水的地方回 `-Infinity`。**
+   *
+   * 【為什麼與 `heightAt` 分家】`heightAt` 回的是「陸地與海面取 max」，
+   * 而水柱、殘骸與碎片問的是另一件事：**這裡碰到的是水嗎**。用 `heightAt`
+   * 的話，摔在島上會噴水柱 —— 群島早就有這個缺陷，純內陸則是每一次墜毀
+   * 都會發生。
+   *
+   * 【誰讀它】`main.ts` 交給 `render/wrecks.ts`、`render/debris.ts` 與
+   * 水柱那一支。撞地判定不讀它（那一條走 `collisionHeightAt`）。
+   *
+   * 【不吃 `time`】呼叫端拿到的是這一格的平均水位。波的相位由
+   * `ocean.heightAt` 內部的時間決定，這裡傳 0 —— 水柱因此貼在平均水位上。
+   * 試飛看得出來的話再把 `time` 一路帶下去。
+   */
+  waterAt(x: number, z: number): number
+  /**
    * AI 的地形來源。**圓盤法只需要這個，不需要高度場。**
    *
    * 【為什麼不給 AI 高度場】沿航跡取樣高度會漏 —— 步長比格距大的話，
@@ -57,39 +76,53 @@ export interface Terrain {
   dispose(): void
 }
 
+/**
+ * 【三條互不相干的頂層分支】重整之前是「先建好群島與海面，再判斷是不是
+ * `'sea'`」—— 那樣加第三種地形會憑空多出兩個 child，而且洩漏 ocean 的資源。
+ */
 export function createTerrain(kind: TerrainKind): Terrain {
-  // 【陸地要先生出來，海面才接得上】浪花吃的是由高度場推出來的膨脹圖 ——
-  // 見 `world/archipelago.ts` 的 `bakeShore`。純海面那一支傳 null。
-  //
-  // 【只烘一次】`createArchipelago` 不回傳膨脹圖：headless 的測試與 AI 那一
-  // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
-  const land = kind === 'sea' ? null : createArchipelago()
-  const ocean = createOcean(land ? bakeShore(land.field) : null)
+  if (kind === 'farmland') return createFarmlandTerrain()
+  if (kind === 'sea') return createSeaTerrain()
+  return createArchipelagoTerrain()
+}
+
+function createSeaTerrain(): Terrain {
+  const ocean = createOcean(null)
   const group = new Group()
   // 【順序：遠海先進去】繪製順序其實由 `farMesh.renderOrder` 決定（見
   // `ocean.ts`），這裡的次序只影響 `children` 的索引 —— 但讀起來由遠到近，
   // 而測試也靠這個次序（並自我驗證抓對了人）。
   group.add(ocean.farMesh)
   group.add(ocean.mesh)
+  // 【第三個位置仍然佔著】索引契約由 `main.ts` 的 `__gfx` 消融表與
+  // `src/tools/` 的兩支工具共用。沒有陸地就掛一個空 Group，
+  // 那兩邊才不必為了「這一場有沒有島」寫分支。
+  group.add(new Group())
 
-  if (land === null) {
-    // 【第三個位置仍然佔著】索引契約由 `main.ts` 的 `__gfx` 消融表與
-    // `src/tools/` 的兩支工具共用。沒有陸地就掛一個空 Group，
-    // 那兩邊才不必為了「這一場有沒有島」寫分支。
-    group.add(new Group())
-    return {
-      object: group,
-      heightAt: ocean.heightAt,
-      collisionHeightAt: () => 0,
-      islands: [],
-      land: null,
-      update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
-      dispose() { ocean.dispose() },
-    }
+  return {
+    object: group,
+    heightAt: ocean.heightAt,
+    collisionHeightAt: () => 0,
+    waterAt: (x, z) => ocean.heightAt(x, z, 0),
+    islands: [],
+    land: null,
+    update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
+    dispose() { ocean.dispose() },
   }
+}
 
-  const { field, islands } = land
+function createArchipelagoTerrain(): Terrain {
+  // 【陸地要先生出來，海面才接得上】浪花吃的是由高度場推出來的膨脹圖 ——
+  // 見 `world/archipelago.ts` 的 `bakeShore`。
+  //
+  // 【只烘一次】`createArchipelago` 不回傳膨脹圖：headless 的測試與 AI 那一
+  // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
+  const { field, islands } = createArchipelago()
+  const ocean = createOcean(bakeShore(field))
   const meshes = createIslands(field, islands)
+  const group = new Group()
+  group.add(ocean.farMesh)
+  group.add(ocean.mesh)
   group.add(meshes.object)
 
   return {
@@ -107,6 +140,12 @@ export function createTerrain(kind: TerrainKind): Terrain {
       const h = field.sample(x, z)
       return h > 0 ? h : 0
     },
+    // 【陸地高過海面的地方沒有水】那正是「摔在島上不該噴水柱」
+    waterAt(x, z) {
+      const h = field.sample(x, z)
+      const sea = ocean.heightAt(x, z, 0)
+      return h > sea ? -Infinity : sea
+    },
     islands,
     // 【`ceiling` 用 PEAK_MAX 而不是實測的最高點】它是一個上界就夠了 ——
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
@@ -116,6 +155,38 @@ export function createTerrain(kind: TerrainKind): Terrain {
     dispose() {
       ocean.dispose()
       meshes.dispose()
+    },
+  }
+}
+
+function createFarmlandTerrain(): Terrain {
+  const farm = createFarmland()
+  const horizon = createFarHorizon()
+  const ground = createFarmGround(farm.field)
+  const group = new Group()
+  // 【三個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
+  // 1 = 空 Group（近海那一格）、2 = 陸地
+  group.add(horizon.mesh)
+  group.add(new Group())
+  group.add(ground.object)
+
+  // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層拿到的也是
+  // 這一份 —— 見 `outsideZero`
+  const solid = outsideZero(farm.field)
+
+  return {
+    object: group,
+    // 【不吃 time】內陸沒有波
+    heightAt: (x, z) => solid.sample(x, z),
+    collisionHeightAt: (x, z) => solid.sample(x, z),
+    waterAt: () => -Infinity,
+    islands: farm.hills,
+    land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
+    // 【遠景環是固定的】沒有東西要每幀更新
+    update() {},
+    dispose() {
+      horizon.dispose()
+      ground.dispose()
     },
   }
 }

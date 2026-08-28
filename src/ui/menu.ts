@@ -69,6 +69,7 @@ const shortName = (id: string): string => SHORT_NAME[id] ?? specOf(id).name
  */
 const TERRAINS: readonly { label: string; value: TerrainKind }[] = [
   { label: '群　島', value: 'archipelago' },
+  { label: '內　陸', value: 'farmland' },
   { label: '純海面', value: 'sea' },
 ]
 

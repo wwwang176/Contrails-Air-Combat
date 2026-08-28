@@ -9,7 +9,7 @@
  * 分支，以及生成器。拆除與重建的路徑每一場都在走，不是一條等著被第一次
  * 使用的死碼。
  *
- * 【還沒做的兩種】大島海岸線與內陸（沒有海）。資料結構長得到 —— 它們只是
- * 不同的 heightmap —— 但還沒生成。
+ * 【還沒做的一種】大島海岸線。資料結構長得到 —— 它只是另一張 heightmap ——
+ * 但還沒生成。
  */
-export type TerrainKind = 'sea' | 'archipelago'
+export type TerrainKind = 'sea' | 'archipelago' | 'farmland'

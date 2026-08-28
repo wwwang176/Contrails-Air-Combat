@@ -3,6 +3,8 @@ import { createTerrain } from '../../src/render/terrain'
 import { FAR_SEA_Y, gerstnerHeight } from '../../src/render/ocean'
 import { createIslands } from '../../src/render/island'
 import { createArchipelago } from '../../src/world/archipelago'
+import { createFarmland, HILL_PEAK_MAX } from '../../src/world/farmland'
+import { landHitT, losBlocked } from '../../src/world/occlusion'
 
 describe('createTerrain（M10 spec §5.2）', () => {
   it('高度場與 gerstnerHeight 逐點一致', () => {
@@ -164,5 +166,94 @@ describe('createTerrain（archipelago）', () => {
     t.dispose()
     expect(pending.size).toBeGreaterThan(0)
     expect(disposed.size).toBe(pending.size)
+  })
+})
+
+describe('內陸農地', () => {
+  const t = createTerrain('farmland')
+
+  it('三個位置的契約照舊', () => {
+    // 0 = 遠景環（遠海那一格）、1 = 空 Group（近海那一格）、2 = 陸地
+    expect(t.object.children.length).toBe(3)
+    expect(t.object.children[1]!.children.length).toBe(0)
+    expect(t.object.children[2]!.children.length).toBe(25)
+  })
+
+  /**
+   * 【為什麼場外一定要回 0】`field.sample` 出界回 −Infinity，群島靠海面
+   * 那一支接住（退回平海面）。純內陸沒有海可退。
+   */
+  it('細節區之外的地面是 0，不是 −Infinity', () => {
+    expect(t.collisionHeightAt(50_000, 50_000)).toBe(0)
+    expect(t.heightAt(50_000, 50_000, 0)).toBe(0)
+  })
+
+  /**
+   * 【這一條是 Codex 抓到的洞】`landAbove` 是 −Infinity，而出界的
+   * `field.sample` 也是 −Infinity —— 兩個一比是 false，30 km 之外的平地
+   * 會不擋視線也不吃子彈。`LandField` 拿到的必須是**出界回 0** 的那一份。
+   */
+  it('細節區之外一樣擋得住視線與子彈', () => {
+    const land = t.land!
+    expect(losBlocked(-50_500, -1, 50_000, -49_500, -1, 50_000, land)).toBe(true)
+    expect(Number.isFinite(landHitT(50_000, 40, 50_000, 50_000, -40, 50_000, land))).toBe(true)
+  })
+
+  it('丘陵上的高度與 field 那一份一致', () => {
+    const h = t.islands[0]!
+    // 【不能拿 peak 比】丘陵中心不落在 80 m 的格點上，正確的實作也會差
+    // 半公尺。判準是「這裡是附近的局部最高」而且不超過 peak
+    const at = t.collisionHeightAt(h.cx, h.cz)
+    expect(at).toBeGreaterThan(h.peak * 0.9)
+    expect(at).toBeLessThanOrEqual(h.peak)
+    for (const [dx, dz] of [[400, 0], [-400, 0], [0, 400], [0, -400]] as const) {
+      expect(t.collisionHeightAt(h.cx + dx, h.cz + dz)).toBeLessThan(at + 1e-6)
+    }
+  })
+
+  it('AI 拿得到丘陵，而且數量與生成器一致', () => {
+    expect(t.islands.length).toBe(createFarmland().hills.length)
+  })
+
+  it('陸地的判準是 landAbove = −Infinity', () => {
+    expect(t.land!.landAbove).toBe(-Infinity)
+    expect(t.land!.ceiling).toBe(HILL_PEAK_MAX)
+  })
+
+  /**
+   * 【水面要與地面分開】`heightAt` 回的是「陸地與海面取 max」，而
+   * `wrecks.ts` / `debris.ts` 碰到 surface 就噴水柱。純內陸每一次墜毀都會
+   * 噴水；群島則是「摔在島上會噴水」—— 那是既有的缺陷，一起修掉。
+   */
+  it('農地沒有水面', () => {
+    expect(t.waterAt(0, 0)).toBe(-Infinity)
+    expect(t.waterAt(50_000, 50_000)).toBe(-Infinity)
+  })
+
+  it('遠景環固定不動 —— update 不移動它', () => {
+    t.update(0, 7000, -3000)
+    expect(t.object.children[0]!.position.x).toBe(0)
+    expect(t.object.children[0]!.position.z).toBe(0)
+  })
+})
+
+describe('水面與地面分開', () => {
+  it('群島：海上回海面高度', () => {
+    const t = createTerrain('archipelago')
+    expect(t.waterAt(19_000, 19_000)).toBeCloseTo(t.heightAt(19_000, 19_000, 0), 6)
+    t.dispose()
+  })
+
+  it('群島：島上回 −Infinity —— 摔在島上不該噴水', () => {
+    const t = createTerrain('archipelago')
+    const isl = t.islands[0]!
+    expect(t.waterAt(isl.cx, isl.cz)).toBe(-Infinity)
+    t.dispose()
+  })
+
+  it('純海面：處處都是水', () => {
+    const t = createTerrain('sea')
+    expect(t.waterAt(0, 0)).toBeCloseTo(t.heightAt(0, 0, 0), 6)
+    t.dispose()
   })
 })

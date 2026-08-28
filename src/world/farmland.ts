@@ -142,3 +142,26 @@ export function createFarmland(): { field: HeightFieldData; hills: IslandDesc[] 
   bakeRelief(field, hills, 0)
   return { field, hills }
 }
+
+/**
+ * 把高度場包成「出界回 0」的一份。**讀的仍然是同一個 `data`。**
+ *
+ * 【為什麼需要它】`HeightFieldData.sample` 出界回 `-Infinity`，而農地的
+ * 遮蔽判準是 `h > landAbove` 而 `landAbove` 也是 `-Infinity` —— 兩個一比
+ * 是 false，30 km 之外的平地會不擋視線、也不吃子彈（子彈會掉進海面水柱
+ * 那條路徑）。
+ *
+ * 【為什麼不直接改 `createHeightField`】群島靠出界的 `-Infinity` 退回平
+ * 海面（`render/terrain.ts` 的 `heightAt` 取 max）。那一條是對的。
+ */
+export function outsideZero(f: HeightFieldData): HeightFieldData {
+  return {
+    size: f.size,
+    cell: f.cell,
+    data: f.data,
+    sample(x, z) {
+      const h = f.sample(x, z)
+      return h > 0 ? h : 0
+    },
+  }
+}
