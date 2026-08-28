@@ -173,8 +173,11 @@ describe('多瓣的島', () => {
         worst = Math.max(worst, lo.offset + lo.radius * WOBBLE_MAX - i.outerRadius)
       }
     }
-    console.log(JSON.stringify({ 最大溢出: worst.toFixed(9) }))
-    expect(worst).toBeLessThanOrEqual(0)
+    console.log(JSON.stringify({ 最大溢出: worst.toExponential(2) }))
+    // 【容差是 float 的 ulp，不是設計餘裕】`off = outerRadius × (1 − rf)`
+    // 讓 `off + r × WOBBLE_MAX = outerRadius` 在代數上是恆等式；浮點下差
+    // 一兩個 ulp（實測 2e-13，而 outerRadius 是 10³ 量級）
+    expect(worst).toBeLessThanOrEqual(1e-6)
   })
 
   /**
@@ -222,12 +225,14 @@ describe('多瓣的島', () => {
       for (const lo of i.lobes) {
         if (lo.offset === 0) continue
         const dir = Math.atan2(lo.cz - i.cz, lo.cx - i.cx)
-        let prev = Infinity
+        // 【比的是走過的最低點，不是上一步】次峰的隆起攤在幾十公尺上，
+        // 逐步的差可以小於 0.5 m 而總抬升有好幾公尺 —— 用 prev 的話會漏掉
+        let low = Infinity
         for (let d = 0; d <= i.outerRadius; d += 5) {
           const h = a.field.sample(i.cx + Math.cos(dir) * d, i.cz + Math.sin(dir) * d)
+          if (h < low) low = h
           // 0.5 m 的門檻：內插的數值抖動不算「升起來」
-          if (h > prev + 0.5) { bumpy = true; break }
-          prev = h
+          if (h > low + 0.5) { bumpy = true; break }
         }
         if (bumpy) break
       }
@@ -252,11 +257,11 @@ describe('多瓣的島', () => {
       a.islands[k]!.lobes.map((l) => [
         +l.offset.toFixed(2), +l.radius.toFixed(2), +l.peak.toFixed(2)]))
     expect(shape(0)).toBe(JSON.stringify([
-      [0, 1400, 900], [1148.16, 457.76, 336.86], [949.35, 562.82, 485.26],
-      [1074.56, 476.52, 513.04], [944.54, 487.03, 550.99]]))
+      [0, 1400, 900], [1169.9, 457.76, 299.84], [1017.95, 562.82, 397.39],
+      [1151.07, 476.52, 331.79], [1103.37, 487.03, 343.49]]))
     expect(shape(1)).toBe(JSON.stringify([
-      [0, 1500, 850], [987.8, 651.79, 661.74], [1210.33, 473.16, 346.77],
-      [1194.87, 544.4, 353.77], [1136.09, 512.14, 544.57]]))
+      [0, 1500, 850], [1064.73, 651.79, 433.72], [1263.52, 473.16, 276.3],
+      [1206.14, 544.4, 323.62], [1230.89, 512.14, 325.23]]))
   })
 })
 
@@ -311,9 +316,8 @@ describe('離岸的膨脹圖', () => {
    * 所以這一條要求每個方位都看得到一個嚴格落在 (0, 255) 之間的值 —— 那正是
    * 「這裡有一條浪花帶」的定義。
    */
-  it('每個方位都有一段漸層，而且離岸越遠越淡', () => {
+  it('每個方位都有一段漸層', () => {
     const bad: string[] = []
-    const rising: string[] = []
     for (const i of a.islands) {
       for (let k = 0; k < 8; k++) {
         const th = (k / 8) * Math.PI * 2
@@ -322,23 +326,22 @@ describe('離岸的膨脹圖', () => {
           seq.push(at(i.cx + Math.cos(th) * d, i.cz + Math.sin(th) * d))
         }
         // 【由**最外側**那一塊陸地起算】從島心走出去會穿過灣（兩瓣之間的
-        // 水道），那裡是 255 → 掉下去 → 又回到 255。那是對的，不是缺陷 ——
-        // 遞減只在最後一次上岸之後才成立
+        // 水道），那裡是 255 → 掉下去 → 又回到 255。那是對的，不是缺陷。
+        //
+        // 【刻意不驗「之後一路遞減」】海岸線是扇貝狀的，射線掠過一個岬角
+        // 時值會回升一段 —— 那同樣是對的。反向那一趟漏掉的失效由「每個方位
+        // 都要有漸層」抓（實測會讓 74 個方位變紅）
         let last = -1
         for (let n = 0; n < seq.length; n++) if (seq[n] === 255) last = n
         const where = `(${i.cx.toFixed(0)}, ${i.cz.toFixed(0)}) ${k * 45}°`
         let graded = false
         for (let n = last + 1; n < seq.length; n++) {
-          if (seq[n]! > seq[n - 1]!) rising.push(where)
           if (seq[n]! > 0 && seq[n]! < 255) graded = true
         }
         if (!graded) bad.push(where)
       }
     }
-    console.log(JSON.stringify({
-      沒有漸層: bad.slice(0, 6), 共: bad.length, 反升: rising.slice(0, 6),
-    }))
-    expect(rising).toEqual([])
+    console.log(JSON.stringify({ 沒有漸層: bad.slice(0, 6), 共: bad.length }))
     expect(bad).toEqual([])
   })
 })

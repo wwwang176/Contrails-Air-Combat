@@ -6,26 +6,16 @@ SPEC：`docs/superpowers/specs/2026-08-28-island-relief-shore-foam-design.md`
 
 ### 1.1 常數
 
+**以下是計畫階段寫的形狀；實際落地的常數見 `src/world/archipelago.ts`，
+差異記在附錄二。**
+
 ```ts
-/**
- * 每座島額外抽幾瓣。**不論用不用得上都抽這麼多組** —— 抽的次數固定，
- * LCG 的序列才不會因為「這座島留了幾瓣」而漂。
- */
-const LOBE_DRAWS = 4
-/** 一瓣至少要有這麼大才畫得出形狀，m。1.5 格 —— 再小只是一個尖角 */
-const LOBE_MIN_RADIUS = 60
-/** 瓣半徑佔島半徑的比例 */
-const LOBE_RADIUS = [0.30, 0.62] as const
-/**
- * 瓣高佔島峰高的比例。上界貼近 1 才有雙峰與鞍部；**恆小於 1**，
- * 所以 `peak` 仍然是實際的最高點（`PEAK_MAX` 因此不必重新定值）。
- */
-const LOBE_PEAK = [0.35, 0.92] as const
-/**
- * 瓣心離島心的距離，佔**還放得下的最大偏移**的比例。下界不為 0 ——
- * 同心的瓣被主瓣蓋掉，等於白抽。
- */
-const LOBE_OFFSET = [0.45, 1.0] as const
+const LOBE_COUNT = 4          // 主瓣之外每座島幾瓣
+const LOBE_MIN_RADIUS = 60    // 一瓣至少 1.5 格才畫得出形狀
+const LOBE_RADIUS = [0.28, 0.45] as const   // 瓣半徑佔島半徑
+const LOBE_LIFT = 0.08        // 至少比主瓣高出島峰的幾成
+const LOBE_SLOPE = 2.0        // 瓣最陡是主瓣的幾倍（守 occlusion 的步長）
+const LOBE_LIFT_MAX = 100     // 最多比主瓣高出幾公尺（守飛行掃描）
 ```
 
 ### 1.2 資料形狀
@@ -56,11 +46,10 @@ interface Lobe {
 ### 1.3 偏移的不變式
 
 ```ts
-const r = isl.radius * between(LOBE_RADIUS[0], LOBE_RADIUS[1])
-// 【偏移由「還放得下多少」反推】不變式因此是恆等式，不是要驗的條件
-const room = isl.outerRadius - r * WOBBLE_MAX
-const off = room * between(LOBE_OFFSET[0], LOBE_OFFSET[1])
-const dir = rand() * Math.PI * 2
+const r = Math.max(LOBE_MIN_RADIUS, d.rf * radius)
+// 【一律放到還放得下的最遠處】off + r × WOBBLE_MAX = outerRadius 因此是
+// 恆等式，不是要驗的條件。那裡主瓣最低，所以同樣的峰高露出得最多
+const off = outerRadius * (1 - r / radius)
 ```
 
 ### 1.4 `bake`
@@ -147,12 +136,13 @@ float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
 換成
 
 ```glsl
-float crestGain = max(1.0 + uCrestBias * crest, 0.0);
-float p = (align * uDensity + shore * uShoreDensity) * fade * crestGain;
+p += max(shore * uShoreDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+p = min(p, uPMax);
 ```
 
-**`shore = 0` 時兩式逐字等價** —— `max` 那一層原本擋的就是 `crestGain < 0`，
-現在提前擋在 `crestGain` 上。
+**原式一個字都不動** —— 改寫成 `(align × uDensity + shore × uShoreDensity)
+× …` 讀起來漂亮，但那樣 `shore = 0` 時就不再逐位元等於改動前（運算圖變了，
+而 GLSL 不保證不同算式數值一致）。這是 Codex 的 SHOULD-FIX 之一。
 
 新常數：`SHORE_DENSITY = 0.45`（起手值，看截圖調）。
 
@@ -187,6 +177,40 @@ const ocean = createOcean(bakeShore(field))
 
 `island-shot.e2e.ts`（已寫好）before / after 五個姿態對比。
 
-## 附錄：Codex 審查抓到的 BLOCKER
+## 附錄一：Codex 審 PLAN 抓到的兩個 BLOCKER
 
-（待填）
+1. **`terrainSense` 會低估偏心的次峰。** `profileHeight` 假設高度是離島心
+   距離的單調函數，`checkClimb` 又假設沿航跡的最大值落在離島心最近的那一點
+   —— 多瓣之後兩者都不成立。Codex 的反例用的全是合法參數，低估 704 m；
+   我自己在真的群島上量到 284 m。**低估的方向是「我爬得過去」。**
+   → 改成 `terrainCeiling(isl, x, z)`：逐瓣量真正的二維距離取 max，
+   並在 `checkClimb` 補上每一瓣自己的最近點。
+
+2. **計畫裡的整合測試擋不住那件事。** `terrain-in-play` 不要求撞山為零；
+   `terrain-avoidance` 的註解明寫「島圓對稱，換方位不增加覆蓋」而只取兩個
+   方位 —— 那句話對多瓣的島不成立。
+   → 方位改回八個（192 → 768 組，3.6 → 9.3 s）。
+
+十個 SHOULD-FIX 裡照做的：貼圖要 `dispose`（`material.dispose()` 不收
+uniform 裡的貼圖）；著色器測試要真的呼叫 `onBeforeCompile` 檢查 uniform
+有沒有綁上去（宣告了 sampler 卻沒綁也會編譯過、字串斷言全綠）；遠海一個面
+480 m 比浪花帶 200 m 還寬，逐點取樣會整條帶漏掉 → 取 mip；機率會超過 1 →
+封頂；膨脹圖只在 `createTerrain` 烘一次（`createArchipelago` 不回傳它）；
+「島心恰好等於 peak」不是合法的高度場斷言（島心不落在格點上）→ 改成掃格點。
+
+三個 NIT 是複驗通過的確認：`outerRadius` 的三角不等式（θ 由瓣心量起不影響）、
+uv 的半個 texel 推導、`DataTexture` 在 three 0.180 的預設（`unpackAlignment`
+本來就是 1，`ClampToEdge` 也是預設，計畫裡那兩行是多餘的）。
+
+## 附錄二：實作時才發現的兩件事
+
+1. **AI 的模型太保守會讓另一條護欄變紅。** 第一版 `terrainCeiling` 取的是
+   「離島心 dist 那一整圈上最高的瓣」—— 是合法的上界，但航跡從東邊掠過時會
+   被島**西邊**的次峰嚇到。結果是 AI 提早爬升、從不橫向規避，
+   `terrain-in-play` 的「山真的擋得住路」由 5/40 掉到 0/40。改成逐瓣量二維
+   距離之後兩件事一起解決。
+
+2. **撞山的成因不是坡度，是側翼被墊高。** 離錨島心 1,200 m 那一圈，圓錐是
+   236 m 而不封抬升的多瓣是 443 m —— 那一圈正是「已經轉開主峰、沿著島邊繞
+   出去」的飛機所在的地方。所以上限要封**絕對抬升**（`LOBE_LIFT_MAX`）而不是
+   比例：比例會連坐小島，而一座 160 m 的礁石殺不死轟炸機。

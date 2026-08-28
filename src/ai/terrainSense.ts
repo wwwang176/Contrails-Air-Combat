@@ -130,41 +130,41 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /**
- * 島在距島心 `dist` 那一整圈上，地形可能達到的**最高**高度，m。
+ * (x, z) 那一點上，地形高度的**上界**，m。
  *
- * ── 【為什麼是逐瓣取 max，不是一條 smoothstep】────────────────────
+ * ── 【為什麼逐瓣算真正的二維距離】───────────────────────────────
  *
- * 島是好幾瓣取聯集（見 `world/archipelago.ts` 的 `LobeDesc`），次峰是偏心的。
- * 只用「離島心多遠」的單錐模型會**低估**偏心的次峰 —— 實測一顆合法的瓣在
- * 瓣心處實際 828 m 而單錐模型算出 609 m，極端組合下差到 700 m。低估的方向
- * 是「我爬得過去」，而症狀是撞上去。
- *
- * ── 【為什麼仍然是保守的】─────────────────────────────────────
- *
- * 兩處都往高估的方向放：
+ * 島是好幾瓣取聯集（見 `world/archipelago.ts` 的 `LobeDesc`）。改動前這裡是
+ * 一條只吃「離島心多遠」的剖面，那在圓對稱的島上是對的，多瓣之後有兩個
+ * 相反的毛病：
  *
  * ```
- *   距離   這一圈上離第 i 瓣最近的點距瓣心 |dist − offset_i|，取它
- *   尺度   用 radius × WOBBLE_MAX 而不是這個方位真正的 radius × wobble
+ *   低估   偏心的次峰在單錐模型裡看不見 —— 實測在真的群島上差 284 m，
+ *          而低估的方向是「我爬得過去」
+ *   高估   改成「這一圈上最高的那一瓣」之後方向對了，但那一圈繞島一整周
+ *          —— 航跡從東邊掠過時會被島**西邊**的次峰嚇到。實測 20v20 甲板
+ *          高度下橫向規避因此一次都不再觸發（5/40 → 0/40）
  * ```
  *
- * 兩者都讓 smoothstep 的引數變小、算出來的高度變大。海床那一項
- * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉，所以估計恆 ≥ 實際地形。
+ * 逐瓣量真正的二維距離把兩個毛病一起解掉：偏心的次峰看得見，而看不見的
+ * 那幾顆不會算進來。
  *
- * 【主瓣就是舊的那一條】主瓣 `offset = 0`、`radius × WOBBLE_MAX =
- * outerRadius`，代進去逐字等於改動前的式子。這一支是**純追加**。
+ * ── 【為什麼仍然是上界】──────────────────────────────────────
  *
- * 【`export` 是給測試的】「估計恆不低於真實地形」是圓盤法保守性的全部
- * 內容，而它沒有別的觀測點：`checkClimb` 只在**取樣到的**點上用它，所以
- * 走 `senseTerrain` 量到的是取樣夠不夠密，不是估計準不準。兩件事要分開。
+ * 尺度用 `radius × WOBBLE_MAX` 而不是這個方位真正的 `radius × wobble`，
+ * 所以 smoothstep 的引數偏小、算出來的高度偏大；海床那一項
+ * （`+ SEA_FLOOR × (1 − s)`）也刻意漏掉。**估計恆 ≥ 實際地形**，而那是
+ * 圓盤法保守性的全部內容。
+ *
+ * 【`export` 是給測試的】這件事沒有別的觀測點：`checkClimb` 只在**取樣到
+ * 的**點上用它，所以走 `senseTerrain` 量到的是取樣夠不夠密，不是估計準不準。
  */
-export function profileHeight(isl: IslandDesc, dist: number): number {
+export function terrainCeiling(isl: IslandDesc, x: number, z: number): number {
   let best = 0
   const lobes = isl.lobes
   for (let i = 0; i < lobes.length; i++) {
     const lo = lobes[i]!
-    const d = dist - lo.offset
-    const t = (d < 0 ? -d : d) / (lo.radius * WOBBLE_MAX)
+    const t = Math.hypot(x - lo.cx, z - lo.cz) / (lo.radius * WOBBLE_MAX)
     if (t >= 1) continue
     const h = lo.peak * smoothstep(1, 0, t)
     if (h > best) best = h
@@ -277,43 +277,37 @@ function findThreat(
 /**
  * 沿航跡爬得過這座島嗎？順便回報沿途最高的地形。
  *
- * 【八個點是對解析剖面取值，但它仍然是取樣】剖面平滑不等於有限點抓得到
- * 極值 —— 一座 400 m 直徑的小島，峰頂可能落在兩點之間。所以除了等距的
- * 八點，**額外把每一個極大值所在補進來**。
+ * 【八個等距點是取樣，抓不到極值】剖面平滑不等於有限點抓得到峰頂 ——
+ * 一座 400 m 直徑的小島，峰頂可能落在兩點之間。
  *
- * 【極大值不只一個】剖面是逐瓣取 max（見 `profileHeight`），第 i 瓣的極大值
- * 落在 `dist = offset_i` 那一圈上。航跡上 `dist(s) = hypot(perp, s − along)`，
- * 所以那一圈與航跡的交點是 `s = along ± √(offset_i² − perp²)`；`perp` 大過
- * `offset_i` 時無解，那一瓣的極大值航跡碰不到。
+ * 【所以把每一瓣自己的最近點補進來】`terrainCeiling` 是逐瓣取 max，而第 i 瓣
+ * 沿航跡的極大值就落在「航跡離那一顆瓣心最近」的地方，也就是
+ * `s = (c_i − p) · d`。主瓣那一顆就是改動前的「離島心最近的那一點」，
+ * 所以這是**純追加**。
  *
- * **只補最近點是不夠的** —— 那是主瓣的極大值。偏心的次峰在它旁邊，而漏掉
- * 一座次峰的症狀是「AI 說爬得過去，然後撞上去」。
+ * 少了它的症狀是漏掉一整座次峰 —— 實測一顆合法的次峰因此由 550 m 讀成
+ * 549.36 m（等距點剛好擦過峰肩），而窄的那一批漏得更多。
  */
 const climb = { ok: true, floor: 0 }
 function checkClimb(
-  y0: number, isl: IslandDesc, along: number, perp: number, cfg: SafetyConfig,
+  y0: number, isl: IslandDesc,
+  px: number, pz: number, dx: number, dz: number, cfg: SafetyConfig,
 ): void {
   const tanP = Math.tan(cfg.recoveryPitch)
   climb.ok = true
   climb.floor = 0
   const test = (s: number): void => {
     if (s < 0 || s > SENSE_RANGE) return
-    const d = Math.hypot(perp, s - along)
-    const h = profileHeight(isl, d)
+    const h = terrainCeiling(isl, px + dx * s, pz + dz * s)
     if (h > climb.floor) climb.floor = h
     if (y0 + s * tanP < h + cfg.clearance) climb.ok = false
   }
   for (let i = 1; i <= PROFILE_STEPS; i++) test((SENSE_RANGE * i) / PROFILE_STEPS)
-  // 最近點：主瓣在這裡最高
-  test(along)
-  // 每一顆次峰的極大值所在
+  // 每一瓣自己的最近點：那一瓣沿航跡最高的地方
   const lobes = isl.lobes
   for (let i = 0; i < lobes.length; i++) {
-    const q = lobes[i]!.offset ** 2 - perp * perp
-    if (q <= 0) continue
-    const dq = Math.sqrt(q)
-    test(along - dq)
-    test(along + dq)
+    const lo = lobes[i]!
+    test((lo.cx - px) * dx + (lo.cz - pz) * dz)
   }
 }
 
@@ -438,11 +432,10 @@ export function senseTerrain(
     const r = isl.outerRadius + margin
     const ox = isl.cx - pos.x
     const oz = isl.cz - pos.z
-    const along = ox * dx + oz * dz
     const perp = dx * oz - dz * ox
     const centre = Math.hypot(ox, oz)
 
-    checkClimb(pos.y, isl, along, perp, cfg)
+    checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
     out.floor = climb.floor
 
     /**
@@ -486,10 +479,9 @@ export function senseTerrain(
 
   const idx = hit.index
   const isl = islands[idx]!
-  const along = hit.along
   const perp = hit.perp
   const centre = hit.centre
-  checkClimb(pos.y, isl, along, perp, cfg)
+  checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
   out.floor = climb.floor
 
   if (climb.ok) {
