@@ -28,6 +28,11 @@ import { Color } from 'three'
  *
  * 【GLSL 由這裡的常數產生，不是另抄一份】數字只有一個來源。演算法那幾行
  * 由 `fields.test.ts` 的金本位釘住，語法由 e2e 在真的 WebGL2 裡編譯來守。
+ *
+ * 【兩份唯一容許分家的地方：犁溝與作物條紋】它只在 GLSL 裡，因為抗鋸齒需要
+ * 片段的導數（`fwidth`），CPU 沒有對應物。少了抗鋸齒，1 km 外整片田會出現
+ * 摩爾紋 —— 比沒有條紋更糟。這個例外由 `fields.test.ts` 的「犁溝與作物條紋」
+ * 那一組守著：條紋確實被呼叫，而 CPU 那一份確實沒有。
  */
 
 /**
@@ -113,6 +118,12 @@ const TRACK = 0x938b77
 
 /** 樹林。比色盤最深的一階再暗，而且不在漸層上 —— 它是另一種地 */
 const WOOD = 0x2f3a28
+
+/** 犁溝與作物行的間距，m */
+const STRIPE_PERIOD = 7
+
+/** 條紋的明度幅度。犁田用兩倍 —— 那是溝，不是行 */
+const STRIPE_AMP = 0.04
 
 /** 世界座標的一個點。`regionSeed` 就地寫進它 */
 export interface Vec2 {
@@ -419,6 +430,8 @@ const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
 const float PLOUGH_CHANCE = ${PLOUGH_CHANCE.toFixed(3)};
 const float WOOD_CHANCE = ${WOOD_CHANCE.toFixed(3)};
+const float STRIPE_PERIOD = ${STRIPE_PERIOD.toFixed(1)};
+const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(HEDGE)};
@@ -445,6 +458,14 @@ uint fieldHash1(uint h) {
 
 bool isWoodField(uint id) {
   return float((id >> 24u) & 0xffu) / 256.0 < WOOD_CHANCE;
+}
+
+// 【條紋只在 GPU 上做】見檔頭。取樣不足時自動淡掉 —— 判準是片段的導數
+// 而不是相機距離，因為遠景環與細節地形是兩個不同的物件，用距離兩邊會不一致
+float stripe(vec2 q, float period, float amp) {
+  float u = q.x / period;
+  float fade = 1.0 - smoothstep(0.15, 0.5, fwidth(u));
+  return 1.0 + amp * fade * (fract(u) < 0.5 ? 1.0 : -1.0);
 }
 
 float fieldEdgeAt(int k, float cell, int salt) {
@@ -529,10 +550,17 @@ vec3 fieldColorAt(vec2 world) {
 
   uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));
   if (isWoodField(fh)) return WOOD_COLOR;
-  if (float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE) return PLOUGHED_COLOR;
 
-  int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
-  float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
-  return FIELD_PALETTE[t] * k;
+  bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
+  vec3 col = PLOUGHED_COLOR;
+  if (!ploughed) {
+    int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
+    float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
+    col = FIELD_PALETTE[t] * k;
+  }
+  // 【犁田加倍】溝比行深。條紋沿田的長軸走，所以重複發生在 q.x 上
+  float amp = ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP;
+  col *= stripe(q, STRIPE_PERIOD, amp);
+  return col;
 }
 `
