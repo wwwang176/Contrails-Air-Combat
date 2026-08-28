@@ -1,36 +1,54 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import {
-  fieldAt, fieldColor, FIELD_GLSL, FIELD_JITTER, FIELD_SPACING, HEDGE_WIDTH,
-  type FieldSample,
+  fieldAt, fieldSurfaceColor, regionAt, FIELD_ANISO, FIELD_GLSL, FIELD_JITTER,
+  FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
+  TRACK_WIDTH, type FieldSample, type RegionSample,
 } from '../../src/render/fields'
 
-const s: FieldSample = { f1: 0, f2: 0, id: 0 }
+const reg: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, tone: 0 }
+const s: FieldSample = { f1: 0, f2: 0, id: 0, id2: 0, hedgeThreshold: 0 }
+const col = new Color()
 
-describe('田區的抖動網格 Voronoi', () => {
-  it('同一個世界座標恆得到同一塊田', () => {
-    fieldAt(1234.5, -8765.25, s)
-    const first = s.id
-    fieldAt(1234.5, -8765.25, s)
-    expect(s.id).toBe(first)
+/** 這一點的地面色，十六進位字串 */
+function at(x: number, z: number): string {
+  return fieldSurfaceColor(x, z, col).getHexString()
+}
+
+describe('兩層的田區', () => {
+  it('同一個世界座標恆得到同一個顏色', () => {
+    const first = at(1234.5, -8765.25)
+    expect(at(1234.5, -8765.25)).toBe(first)
   })
 
   /**
    * 【為什麼要與 7×7 對答案】3×3 的鄰域搜尋只在抖動 ≤ 0.5 格時保證找得到
    * 最近的種子，而**次近**的那一顆條件更嚴。這一條直接暴力比對，把
    * 「搜尋範圍不夠」這個失效變成測得到的。
+   *
+   * 【兩層都要驗】區塊那一層是各向同性的，田那一層在拉長的網格上 ——
+   * 拉長之後 3×3 仍然夠，是因為抖動是**格的比例**，不是絕對距離。
    */
-  it('3×3 的搜尋與 7×7 的暴力解一致', () => {
-    let worst = 0
-    for (let z = -900; z <= 900; z += 7) {
-      for (let x = -900; x <= 900; x += 7) {
-        fieldAt(x, z, s)
-        const [b1, b2] = bruteForce(x, z)
-        worst = Math.max(worst, Math.abs(s.f1 - b1), Math.abs(s.f2 - b2))
+  it('3×3 的搜尋與 7×7 的暴力解一致（兩層都是）', () => {
+    let worstRegion = 0
+    let worstField = 0
+    for (let z = -4000; z <= 4000; z += 37) {
+      for (let x = -4000; x <= 4000; x += 37) {
+        regionAt(x, z, reg)
+        const [br1, br2] = brute(x, z, 0, REGION_SPACING, 1, 0)
+        worstRegion = Math.max(worstRegion, Math.abs(reg.r1 - br1), Math.abs(reg.r2 - br2))
+
+        fieldAt(x, z, reg, s)
+        const [bf1, bf2] = brute(x, z, reg.angle, reg.cellW, FIELD_ANISO, reg.id)
+        worstField = Math.max(worstField, Math.abs(s.f1 - bf1), Math.abs(s.f2 - bf2))
       }
     }
-    console.log(JSON.stringify({ 最大誤差: worst.toExponential(2) }))
-    expect(worst).toBeLessThan(1e-9)
+    console.log(JSON.stringify({
+      區塊最大誤差: worstRegion.toExponential(2),
+      田最大誤差: worstField.toExponential(2),
+    }))
+    expect(worstRegion).toBeLessThan(1e-9)
+    expect(worstField).toBeLessThan(1e-9)
   })
 
   it('抖動小於半格 —— 3×3 的前提', () => {
@@ -38,83 +56,144 @@ describe('田區的抖動網格 Voronoi', () => {
   })
 
   /**
-   * 【為什麼量面積佔比，不量「沿掃描線的長度」】掃描線若剛好平行於一條
-   * 分界線，會一路貼著它走 —— 初稿那樣量到的最長是 602 m，而帶寬只有 26 m。
-   * 那個數字量的是掃描線的走向，不是帶寬。
-   *
-   * 【佔比是推導的】垂直平分線附近 `f2 − f1 ≈ 2 ×（到平分線的帶號距離）`，
-   * 所以 `f2 − f1 < W` 的區域寬度恰好是 `W`。抖動網格每一格約四個鄰居、
-   * 每條邊由兩格共用，所以單位面積的分界線長度約 `2 / spacing`，
-   * 佔比因此約 `2W / spacing = 2 × 26 / 340 = 15.3%`。
+   * 【這一條是這次改版的重點】各向同性的 Voronoi 長出來的是圓潤的六邊形，
+   * 讀起來是碎石地坪。量法：把同一塊田的點投影到區塊的座標軸上，
+   * 長軸與短軸的跨距比應該落在 `FIELD_ANISO` 附近。
    */
-  it('防風林的面積佔比與帶寬對得上', () => {
-    const fraction = (w: number): number => {
-      let hit = 0
+  it('田是長條的，而且長軸就是區塊的走向', () => {
+    const ratios: number[] = []
+    for (const [cx, cz] of [[0, 0], [5000, 3000], [-7000, 2000], [3000, -9000]]) {
+      regionAt(cx!, cz!, reg)
+      fieldAt(cx!, cz!, reg, s)
+      const want = s.id
+      const cos = Math.cos(-reg.angle)
+      const sin = Math.sin(-reg.angle)
+      let loU = Infinity; let hiU = -Infinity
+      let loV = Infinity; let hiV = -Infinity
       let n = 0
-      for (let z = -1700; z <= 1700; z += 3.1) {
-        for (let x = -1700; x <= 1700; x += 3.1) {
-          fieldAt(x, z, s)
-          if (s.f2 - s.f1 < w) hit++
+      for (let dz = -900; dz <= 900; dz += 4) {
+        for (let dx = -900; dx <= 900; dx += 4) {
+          const x = cx! + dx
+          const z = cz! + dz
+          regionAt(x, z, reg)
+          fieldAt(x, z, reg, s)
+          if (s.id !== want) continue
           n++
+          const u = x * cos - z * sin
+          const v = x * sin + z * cos
+          loU = Math.min(loU, u); hiU = Math.max(hiU, u)
+          loV = Math.min(loV, v); hiV = Math.max(hiV, v)
         }
       }
-      return hit / n
+      expect(n).toBeGreaterThan(100)
+      ratios.push((hiV - loV) / (hiU - loU))
     }
-    const full = fraction(HEDGE_WIDTH)
-    const half = fraction(HEDGE_WIDTH / 2)
-    const predicted = (2 * HEDGE_WIDTH) / FIELD_SPACING
-    console.log(JSON.stringify({
-      佔比: (full * 100).toFixed(1) + '%',
-      推導: (predicted * 100).toFixed(1) + '%',
-      半寬的佔比: (half * 100).toFixed(1) + '%',
-    }))
-    // 【區間寬是因為「每格四個鄰居」只是量級】真實的抖動網格有五邊、六邊的格
-    expect(full).toBeGreaterThan(predicted * 0.6)
-    expect(full).toBeLessThan(predicted * 1.4)
-    // 【線性才證明它真的是一條等寬的帶】門檻減半，佔比也要跟著減半
-    expect(half / full).toBeGreaterThan(0.42)
-    expect(half / full).toBeLessThan(0.58)
+    console.log(JSON.stringify({ 長寬比: ratios.map((r) => r.toFixed(2)) }))
+    // 【區間寬是因為單一格子的形狀還受鄰居擠壓】比值是量級，不是等式
+    for (const r of ratios) {
+      expect(r).toBeGreaterThan(FIELD_ANISO * 0.5)
+      expect(r).toBeLessThan(FIELD_ANISO * 1.8)
+    }
   })
 
   /**
-   * 【上界是推導的，不是量出來的】一個點自己那一格的種子，兩軸各最多偏
-   * `0.5 + FIELD_JITTER` 格 —— 所以離它不會超過
-   * `√2 × (0.5 + 0.38) = 1.244` 倍間距。抓到比這個大的值，代表 `fieldAt`
-   * 挑錯了種子（例如網格對齊差半格）。
+   * 【為什麼不畫滿】每一條邊都畫的話，深綠線會佔掉 17% 的地面 —— 太多。
+   * 這一條量的是「有樹籬的田界佔全部田界的比例」，判準就是 `HEDGE_CHANCE`。
    */
-  it('田的尺度與間距同量級', () => {
-    const bound = FIELD_SPACING * Math.SQRT2 * (0.5 + FIELD_JITTER)
-    let maxF1 = 0
-    let sum = 0
+  it('大約 HEDGE_CHANCE 的田界長樹籬', () => {
+    let boundary = 0
+    let hedged = 0
+    for (let z = -3000; z <= 3000; z += 5.3) {
+      for (let x = -3000; x <= 3000; x += 5.3) {
+        regionAt(x, z, reg)
+        if (reg.r2 - reg.r1 < TRACK_WIDTH) continue
+        fieldAt(x, z, reg, s)
+        if (s.f2 - s.f1 >= s.hedgeThreshold) continue
+        boundary++
+        if (at(x, z) === '2c3a24') hedged++
+      }
+    }
+    const share = hedged / boundary
+    console.log(JSON.stringify({
+      田界取樣: boundary,
+      有樹籬: (share * 100).toFixed(1) + '%',
+      HEDGE_CHANCE,
+    }))
+    expect(share).toBeGreaterThan(HEDGE_CHANCE - 0.12)
+    expect(share).toBeLessThan(HEDGE_CHANCE + 0.12)
+  })
+
+  /**
+   * 【深色線不能佔太多地】改版前是 17%，畫出來像迷彩網。樹籬 16 m 寬、
+   * 只長一半，加上農路，總量應該落在一成以內。
+   */
+  it('樹籬與農路加起來不超過一成', () => {
+    let dark = 0
     let n = 0
-    for (let z = -3000; z <= 3000; z += 31) {
-      for (let x = -3000; x <= 3000; x += 31) {
-        fieldAt(x, z, s)
-        maxF1 = Math.max(maxF1, s.f1)
-        sum += s.f1
+    for (let z = -4000; z <= 4000; z += 7.1) {
+      for (let x = -4000; x <= 4000; x += 7.1) {
+        const c = at(x, z)
+        if (c === '2c3a24' || c === '9c8f6e') dark++
         n++
       }
     }
-    console.log(JSON.stringify({
-      離種子最遠: maxF1.toFixed(1) + ' m',
-      平均: (sum / n).toFixed(1) + ' m',
-      上界: bound.toFixed(1) + ' m',
-      FIELD_SPACING,
-    }))
-    expect(maxF1).toBeLessThan(bound)
-    // 【平均要落在間距的一半上下】全部擠在一角的話上面那條照樣會過
-    expect(sum / n).toBeGreaterThan(FIELD_SPACING * 0.3)
-    expect(sum / n).toBeLessThan(FIELD_SPACING * 0.7)
+    const share = (100 * dark) / n
+    console.log(JSON.stringify({ 樹籬加農路: share.toFixed(1) + '%' }))
+    expect(share).toBeGreaterThan(2)
+    expect(share).toBeLessThan(10)
   })
 
-  it('顏色由 id 決定，而且不是全部同一色', () => {
-    const seen = new Set<string>()
-    const c = new Color()
-    for (let i = 0; i < 400; i++) {
-      fieldAt(i * 411.7, i * -233.3, s)
-      seen.add(fieldColor(s.id, c).getHexString())
+  /**
+   * 【配色要成片，不能雜訊】同一區裡的田只在基調 ±1 挑，所以相鄰兩塊的
+   * 亮度差有上限。量法：沿一條線走，記錄跨過田界時亮度的跳幅。
+   */
+  it('同一區裡相鄰兩塊田的色差有限', () => {
+    let worst = 0
+    const a = new Color()
+    const b = new Color()
+    for (let z = -2000; z <= 2000; z += 91) {
+      for (let x = -2000; x < 2000; x += 3) {
+        regionAt(x, z, reg)
+        if (reg.r2 - reg.r1 < TRACK_WIDTH + 40) continue
+        fieldAt(x, z, reg, s)
+        // 只看真的跨過一條田界的取樣
+        if (s.f2 - s.f1 > s.hedgeThreshold * 3) continue
+        fieldSurfaceColor(x - 40, z, a)
+        fieldSurfaceColor(x + 40, z, b)
+        // 【農路也要排除】它是乾土色，比任何一塊田都亮 —— 初稿漏掉它，
+        // 量到 0.615 而以為是配色沒有相關
+        const skip = ['2c3a24', '6b5238', '9c8f6e']
+        if (skip.includes(a.getHexString()) || skip.includes(b.getHexString())) continue
+        worst = Math.max(worst, Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b))
+      }
     }
-    expect(seen.size).toBeGreaterThan(3)
+    console.log(JSON.stringify({ 最大色差: worst.toFixed(3) }))
+    // 基調 ±1 加上亮度抖動的上限。改成隨機挑色盤的話這個數字會翻倍
+    expect(worst).toBeLessThan(0.30)
+  })
+
+  it('田的尺度落在間距的區間裡', () => {
+    let minCell = Infinity
+    let maxCell = 0
+    for (let z = -8000; z <= 8000; z += 211) {
+      for (let x = -8000; x <= 8000; x += 211) {
+        regionAt(x, z, reg)
+        minCell = Math.min(minCell, reg.cellW)
+        maxCell = Math.max(maxCell, reg.cellW)
+      }
+    }
+    console.log(JSON.stringify({
+      最小短軸: minCell.toFixed(0) + ' m',
+      最大短軸: maxCell.toFixed(0) + ' m',
+    }))
+    expect(minCell).toBeGreaterThanOrEqual(FIELD_SPACING * FIELD_SPACING_VAR[0] - 1)
+    expect(maxCell).toBeLessThanOrEqual(FIELD_SPACING * FIELD_SPACING_VAR[1] + 1)
+  })
+
+  it('顏色不是全部同一色', () => {
+    const seen = new Set<string>()
+    for (let i = 0; i < 600; i++) seen.add(at(i * 411.7, i * -233.3))
+    expect(seen.size).toBeGreaterThan(8)
   })
 
   /**
@@ -123,9 +202,11 @@ describe('田區的抖動網格 Voronoi', () => {
    * 而**演算法**由下面那條金本位守。三條合起來才夠。
    */
   it('GLSL 的常數由 TS 那一份產生', () => {
-    expect(FIELD_GLSL).toContain(FIELD_SPACING.toFixed(1))
-    expect(FIELD_GLSL).toContain(HEDGE_WIDTH.toFixed(1))
-    expect(FIELD_GLSL).toContain(FIELD_JITTER.toFixed(3))
+    for (const v of [
+      FIELD_SPACING.toFixed(1), FIELD_ANISO.toFixed(3), FIELD_JITTER.toFixed(3),
+      REGION_SPACING.toFixed(1), HEDGE_WIDTH.toFixed(1), HEDGE_CHANCE.toFixed(3),
+      TRACK_WIDTH.toFixed(1),
+    ]) expect(FIELD_GLSL).toContain(v)
     expect(FIELD_GLSL).toContain('vec3 fieldColorAt(')
   })
 
@@ -139,44 +220,54 @@ describe('田區的抖動網格 Voronoi', () => {
     const want = [
       'uint h = uint(i) * 0x27d4eb2du ^ uint(j) * 0x85ebca6bu;',
       'h = (h ^ (h >> 15u)) * 0x2545f491u;',
-      'return h ^ (h >> 13u);',
+      'h = (h ^ (h >> 16u)) * 0x7feb352du;',
+      'h = (h ^ (h >> 15u)) * 0x846ca68bu;',
       'float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;',
-      'float oz = (float(h >> 16u) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;',
-      'if (d < f1) { f2 = f1; f1 = d; id = h; }',
-      'if (f2 - f1 < HEDGE_WIDTH) return HEDGE_COLOR;',
+      'uint h = fieldHash2(i ^ int(rid), j);',
+      'vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * cellW;',
+      'if (d < f1) { f2 = f1; id2 = id; s2 = s1; f1 = d; id = h; s1 = seed; }',
+      'float hedge = HEDGE_WIDTH * length(vec2(e.x, e.y / FIELD_ANISO));',
+      'if (r2 - r1 < TRACK_WIDTH) return TRACK_COLOR;',
+      'float(fieldHash1(id ^ id2)) / 4294967296.0 < HEDGE_CHANCE',
+      '(world.x * sn + world.y * cs) / FIELD_ANISO);',
+      'int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, 7);',
     ]
     for (const line of want) expect(FIELD_GLSL).toContain(line)
   })
 })
 
-/** 7×7 的暴力解，回傳最近與次近 */
-function bruteForce(x: number, z: number): [number, number] {
-  const gx = Math.floor(x / FIELD_SPACING)
-  const gz = Math.floor(z / FIELD_SPACING)
+/**
+ * 7×7 的暴力解，回傳最近與次近。
+ *
+ * 【為什麼測試自己抄一份種子的算式】上面那條測試要問的是「3×3 夠不夠」，
+ * 而不是「雜湊是什麼」。共用同一支的話，雜湊本身錯了兩邊會一起錯。
+ */
+function brute(
+  x: number, z: number, angle: number, cell: number, aniso: number, mix: number,
+): [number, number] {
+  const cos = Math.cos(-angle)
+  const sin = Math.sin(-angle)
+  const qx = x * cos - z * sin
+  const qz = (x * sin + z * cos) / aniso
+  const gx = Math.floor(qx / cell)
+  const gz = Math.floor(qz / cell)
   let f1 = Infinity
   let f2 = Infinity
   for (let dj = -3; dj <= 3; dj++) {
     for (let di = -3; di <= 3; di++) {
-      const i = gx + di
-      const j = gz + dj
-      const h = hash2(i, j)
+      const h = hash2((gx + di) ^ mix, gz + dj)
       const ox = ((h & 0xffff) / 65536 - 0.5) * 2 * FIELD_JITTER
       const oz = ((h >>> 16) / 65536 - 0.5) * 2 * FIELD_JITTER
-      const sx = (i + 0.5 + ox) * FIELD_SPACING
-      const sz = (j + 0.5 + oz) * FIELD_SPACING
-      const d = Math.hypot(x - sx, z - sz)
+      const sx = (gx + di + 0.5 + ox) * cell
+      const sz = (gz + dj + 0.5 + oz) * cell
+      const d = Math.hypot(qx - sx, qz - sz)
       if (d < f1) { f2 = f1; f1 = d } else if (d < f2) f2 = d
     }
   }
   return [f1, f2]
 }
 
-/**
- * 與 `fields.ts` 裡那一支必須相同。
- *
- * 【為什麼測試自己抄一份】上面那條測試要問的是「3×3 夠不夠」，而不是
- * 「雜湊是什麼」。共用同一支的話，雜湊本身錯了兩邊會一起錯。
- */
+/** 與 `fields.ts` 裡那一支必須相同 */
 function hash2(i: number, j: number): number {
   let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
   h = Math.imul(h ^ (h >>> 15), 0x2545f491)
