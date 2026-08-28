@@ -82,6 +82,15 @@ export const TRACK_WIDTH = 20
 const PLOUGH_CHANCE = 0.12
 
 /**
+ * 一塊田整片變成樹林（copse）的機率。
+ *
+ * 【放置與地色共用 `isWoodField`】`render/flora.ts` 用它決定要不要在這塊田裡
+ * 填樹，`fieldSurfaceColor` 用它決定地色。兩邊分家的話，會出現「深綠的地上
+ * 沒有樹」或「樹長在麥田裡」。
+ */
+export const WOOD_CHANCE = 0.05
+
+/**
  * 作物色。**順序是一條漸層**（深綠 → 淺綠 → 麥金），因為每塊田是在
  * 「區塊的基調 ± 1」裡挑的 —— 索引相鄰就必須顏色相近，不然又變回雜訊。
  *
@@ -101,6 +110,29 @@ const HEDGE = 0x293123
 
 /** 凹路。乾土色 */
 const TRACK = 0x938b77
+
+/** 樹林。比色盤最深的一階再暗，而且不在漸層上 —— 它是另一種地 */
+const WOOD = 0x2f3a28
+
+/** 世界座標的一個點。`regionSeed` 就地寫進它 */
+export interface Vec2 {
+  x: number
+  z: number
+}
+
+/**
+ * 一塊田被對切出來的那一刀。**它也是一條樹籬** —— 佔全部樹籬帶的 11.8%
+ * （2026-08-29 實測），而它不在任何一條格線上。
+ */
+export interface SplitCut {
+  /** 0 = 線上的 qx 固定（沿 qz 走）；1 = qz 固定（沿 qx 走） */
+  axis: number
+  /** 固定的那個座標 */
+  at: number
+  /** 線的兩端，在它延伸的那個軸上 */
+  lo: number
+  hi: number
+}
 
 export interface RegionSample {
   /** 到最近與次近的區塊種子的距離，m */
@@ -158,6 +190,42 @@ export function edgeAt(k: number, cell: number, salt: number): number {
 }
 
 /**
+ * 第 `(i, j)` 格區塊的種子座標，寫進 `out`；回傳那一格的雜湊。
+ *
+ * 【為什麼要匯出】村落的站址是兩顆種子的中點（`render/flora.ts`）。在那邊
+ * 重抄一次公式就是兩個真相 —— 一邊改了，村子會離開路面而且不會有人發現。
+ */
+export function regionSeed(i: number, j: number, out: Vec2): number {
+  const h = hash2(i, j)
+  out.x = (i + 0.5 + ((h & 0xffff) / 65536 - 0.5) * 0.76) * REGION_SPACING
+  out.z = (j + 0.5 + ((h >>> 16) / 65536 - 0.5) * 0.76) * REGION_SPACING
+  return h
+}
+
+/**
+ * 由區塊的雜湊算出這一帶田的走向、格距與色調。**不碰 `r1` / `r2`。**
+ *
+ * 【為什麼要匯出】一格 tile 可能同時屬於好幾個區塊，走第二個區塊的格線時
+ * 手上只有它的 `id`，沒有一個落在它裡面的座標可以拿去問 `regionAt`。
+ */
+export function regionParams(id: number, out: RegionSample): void {
+  const rh = hash1(id)
+  out.id = id
+  out.angle = ((rh & 0xffff) / 65536) * Math.PI
+  const scale = FIELD_SPACING_VAR[0]
+    + ((rh >>> 16) / 65536) * (FIELD_SPACING_VAR[1] - FIELD_SPACING_VAR[0])
+  out.cellW = FIELD_SPACING * scale
+  out.cellH = FIELD_SPACING * scale * FIELD_ANISO
+  // 【三角分佈，不是均勻】均勻抽的話四分之一的地是最深的綠、四分之一是
+  // 最淡的金 —— 30 km 看下去區塊那一層自己會變成新的迷彩
+  const th = hash1(rh)
+  out.tone = (((th & 0xffff) % PALETTE.length) + ((th >>> 16) % PALETTE.length)) >> 1
+}
+
+/** `regionAt` 找種子用的暫存。熱路徑之外，但仍然不配置 */
+const SEED: Vec2 = { x: 0, z: 0 }
+
+/**
  * 世界座標落在哪一區，以及那一區的參數。就地寫進 `out`。
  *
  * 區塊本身是各向同性的 Voronoi —— 走向是它**給出來**的東西，不是它自己吃的。
@@ -170,30 +238,56 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   let id = 0
   for (let dj = -1; dj <= 1; dj++) {
     for (let di = -1; di <= 1; di++) {
-      const i = gx + di
-      const j = gz + dj
-      const h = hash2(i, j)
-      const ox = ((h & 0xffff) / 65536 - 0.5) * 0.76
-      const oz = ((h >>> 16) / 65536 - 0.5) * 0.76
-      const sx = (i + 0.5 + ox) * REGION_SPACING
-      const sz = (j + 0.5 + oz) * REGION_SPACING
-      const d = Math.hypot(x - sx, z - sz)
+      const h = regionSeed(gx + di, gz + dj, SEED)
+      const d = Math.hypot(x - SEED.x, z - SEED.z)
       if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
     }
   }
-  const rh = hash1(id)
+  regionParams(id, out)
   out.r1 = r1
   out.r2 = r2
-  out.id = id
-  out.angle = ((rh & 0xffff) / 65536) * Math.PI
-  const scale = FIELD_SPACING_VAR[0]
-    + ((rh >>> 16) / 65536) * (FIELD_SPACING_VAR[1] - FIELD_SPACING_VAR[0])
-  out.cellW = FIELD_SPACING * scale
-  out.cellH = FIELD_SPACING * scale * FIELD_ANISO
-  // 【三角分佈，不是均勻】均勻抽的話四分之一的地是最深的綠、四分之一是
-  // 最淡的金 —— 30 km 看下去區塊那一層自己會變成新的迷彩
-  const th = hash1(rh)
-  out.tone = (((th & 0xffff) % PALETTE.length) + ((th >>> 16) % PALETTE.length)) >> 1
+}
+
+/**
+ * 第 `(c, r)` 格有沒有被對切；有的話把那條線寫進 `out`。
+ *
+ * **`fieldAt` 自己也呼叫它** —— 對切的公式只有這一份。走線的那一側
+ * （`render/flora.ts`）要沿著這條線種樹，兩份公式一漂，樹就會離開樹籬。
+ */
+export function splitCut(
+  c: number, r: number, reg: RegionSample, out: SplitCut,
+): boolean {
+  const cellHash = hash2(c ^ reg.id, r)
+  if ((cellHash & 0xff) / 256 >= SPLIT_CHANCE) return false
+  const colSalt = (r * 2 + 1) | 0
+  const left = edgeAt(c, reg.cellW, colSalt)
+  const right = edgeAt(c + 1, reg.cellW, colSalt)
+  const bottom = edgeAt(r, reg.cellH, 1)
+  const top = edgeAt(r + 1, reg.cellH, 1)
+  const f = 0.34 + (((cellHash >>> 8) & 0xff) / 255) * 0.32
+  // 【沿長邊切】切出來的兩半仍然接近方形，不是兩條長帶
+  if (right - left >= top - bottom) {
+    out.axis = 0
+    out.at = left + (right - left) * f
+    out.lo = bottom
+    out.hi = top
+  } else {
+    out.axis = 1
+    out.at = bottom + (top - bottom) * f
+    out.lo = left
+    out.hi = right
+  }
+  return true
+}
+
+/**
+ * 這塊田是不是樹林。**放置與地色共用這一支** —— 見 `WOOD_CHANCE`。
+ *
+ * 【位元的挑選】`id` 的低 8 位被犁田用掉、8–15 位被色調用掉、16–23 位被
+ * 明度抖動用掉。樹林用 24–31 位，四者互不相關。
+ */
+export function isWoodField(id: number): boolean {
+  return ((id >>> 24) & 0xff) / 256 < WOOD_CHANCE
 }
 
 /**
@@ -246,30 +340,25 @@ export function fieldAt(
   const dt = top - qz
   if (dt < best) { best = dt; edgeKey = hash2(r + 1, 0x9e37) }
 
-  // 【對切】沿長邊切一刀，切出來的兩半是兩塊田
+  // 【對切】沿長邊切一刀，切出來的兩半是兩塊田。公式在 `splitCut`
   const cellHash = hash2(c ^ reg.id, r)
   // 【不能叫 half】`half` 是 GLSL 的保留字，GLSL 那一份編不過。兩邊維持
   // 同一個名字，金本位測試才比得下去
   let part = 0
-  if ((cellHash & 0xff) / 256 < SPLIT_CHANCE) {
-    const f = 0.34 + (((cellHash >>> 8) & 0xff) / 255) * 0.32
-    if (right - left >= top - bottom) {
-      const cut = left + (right - left) * f
-      const d = Math.abs(qx - cut)
-      if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
-      part = qx < cut ? 0 : 1
-    } else {
-      const cut = bottom + (top - bottom) * f
-      const d = Math.abs(qz - cut)
-      if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
-      part = qz < cut ? 0 : 1
-    }
+  if (splitCut(c, r, reg, CUT)) {
+    const along = CUT.axis === 0 ? qx : qz
+    const d = Math.abs(along - CUT.at)
+    if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
+    part = along < CUT.at ? 0 : 1
   }
 
   out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
   out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
 }
+
+/** `fieldAt` 問對切線用的暫存。呼叫端自己帶 `out`，所以不會互相踩 */
+const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 
 const REG: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
@@ -289,6 +378,7 @@ export function fieldSurfaceColor(x: number, z: number, out: Color): Color {
   if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(HEDGE)
 
   const fh = FLD.id
+  if (isWoodField(fh)) return out.setHex(WOOD)
   if ((fh & 0xff) / 256 < PLOUGH_CHANCE) return out.setHex(PLOUGHED)
 
   // 【在區塊的基調 ±1 裡挑】色盤是一條漸層，所以相鄰的索引顏色相近
@@ -328,11 +418,13 @@ const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
 const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
 const float PLOUGH_CHANCE = ${PLOUGH_CHANCE.toFixed(3)};
+const float WOOD_CHANCE = ${WOOD_CHANCE.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(HEDGE)};
 const vec3 TRACK_COLOR = ${rgb(TRACK)};
 const vec3 PLOUGHED_COLOR = ${rgb(PLOUGHED)};
+const vec3 WOOD_COLOR = ${rgb(WOOD)};
 const vec3 FIELD_PALETTE[${PALETTE.length}] = vec3[${PALETTE.length}](
 ${glslPalette}
 );
@@ -349,6 +441,10 @@ uint fieldHash1(uint h) {
   h = (h ^ (h >> 16u)) * 0x7feb352du;
   h = (h ^ (h >> 15u)) * 0x846ca68bu;
   return h ^ (h >> 16u);
+}
+
+bool isWoodField(uint id) {
+  return float((id >> 24u) & 0xffu) / 256.0 < WOOD_CHANCE;
 }
 
 float fieldEdgeAt(int k, float cell, int salt) {
@@ -432,6 +528,7 @@ vec3 fieldColorAt(vec2 world) {
     && best < HEDGE_WIDTH * 0.5) return HEDGE_COLOR;
 
   uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));
+  if (isWoodField(fh)) return WOOD_COLOR;
   if (float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE) return PLOUGHED_COLOR;
 
   int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
