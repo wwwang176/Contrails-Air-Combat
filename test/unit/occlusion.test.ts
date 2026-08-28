@@ -35,7 +35,7 @@ function counted(f: HeightFieldData): { field: HeightFieldData; calls: () => num
 const arch = createArchipelago()
 /** 錨島。`islands[0]` 是寫死的那一座，見 `archipelago.ts` 的 ANCHORS */
 const isl = arch.islands[0]!
-const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX }
+const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX, landAbove: 0 }
 
 /**
  * spec §1.2 的考題：兩架同高，各在錨島島心兩側 500 m、相距 1 km。
@@ -72,7 +72,7 @@ describe('考題本身要成立', () => {
 describe('losBlocked', () => {
   it('兩端都高於 ceiling → 不擋，而且一次高度場都沒查', () => {
     const c = counted(arch.field)
-    const land: LandField = { field: c.field, ceiling: PEAK_MAX }
+    const land: LandField = { field: c.field, ceiling: PEAK_MAX, landAbove: 0 }
     expect(losBlocked(AX, 4000, AZ, BX, 4000, BZ, land)).toBe(false)
     expect(c.calls()).toBe(0)
   })
@@ -119,8 +119,43 @@ describe('landHitT', () => {
   it('平地（全場沒有陸地）恆不撞', () => {
     const flat = createHeightField(8, 40)
     flat.data.fill(-8)
-    const land: LandField = { field: flat, ceiling: -8 }
+    const land: LandField = { field: flat, ceiling: -8, landAbove: 0 }
     expect(landHitT(0, 5, 0, 0, -7, 0, land)).toBe(Infinity)
     expect(losBlocked(0, 5, 0, 100, 5, 0, land)).toBe(false)
+  })
+})
+
+/**
+ * 地面的判準由 `landAbove` 決定。
+ *
+ * 【為什麼需要它】群島的判準是「高過海平面」，而內陸農地的基準平原**正好
+ * 等於 0** —— `h > 0` 對它恆為假，平地上的視線與彈丸會完全不被擋。症狀是
+ * 子彈鑽進田裡不噴土、飛到 `SEA_KILL_Y = −20` 才靜靜消失。
+ */
+describe('地面的判準由 landAbove 決定', () => {
+  /** 全零的高度場 —— 那就是內陸的基準平原 */
+  const flat = createHeightField(9, 100)
+
+  it('農地：貼著地面的視線被平地擋住', () => {
+    const land: LandField = { field: flat, ceiling: 120, landAbove: -Infinity }
+    expect(losBlocked(-300, -1, 0, 300, -1, 0, land)).toBe(true)
+  })
+
+  it('群島：同一條視線不被海面擋住', () => {
+    const land: LandField = { field: flat, ceiling: 120, landAbove: 0 }
+    expect(losBlocked(-300, -1, 0, 300, -1, 0, land)).toBe(false)
+  })
+
+  it('農地：彈丸打進平地會回一個有限的 t', () => {
+    const land: LandField = { field: flat, ceiling: 120, landAbove: -Infinity }
+    const t = landHitT(0, 50, 0, 0, -50, 300, land)
+    expect(Number.isFinite(t)).toBe(true)
+    expect(t).toBeGreaterThan(0)
+    expect(t).toBeLessThanOrEqual(1)
+  })
+
+  it('群島：同一發子彈穿過海面不算撞地', () => {
+    const land: LandField = { field: flat, ceiling: 120, landAbove: 0 }
+    expect(landHitT(0, 50, 0, 0, -50, 300, land)).toBe(Infinity)
   })
 })

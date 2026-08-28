@@ -111,7 +111,7 @@ export function createTerrain(kind: TerrainKind): Terrain {
     // 【`ceiling` 用 PEAK_MAX 而不是實測的最高點】它是一個上界就夠了 ——
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
     // 「動了地形就要重算」多一條沒有人記得的規則
-    land: { field, ceiling: PEAK_MAX },
+    land: { field, ceiling: PEAK_MAX, landAbove: 0 },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     dispose() {
       ocean.dispose()
