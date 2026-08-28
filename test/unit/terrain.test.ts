@@ -84,9 +84,9 @@ describe('createTerrain（M10 spec §5.2）', () => {
 })
 
 describe('createTerrain（archipelago）', () => {
-  it('object 底下仍是三個 —— 索引契約不因地形種類而變', () => {
+  it('前三個索引不因地形種類而變 —— 植被 append 在第四個', () => {
     const t = createTerrain('archipelago')
-    expect(t.object.children.length).toBe(3)
+    expect(t.object.children.length).toBe(4)
     t.dispose()
   })
 
@@ -172,9 +172,10 @@ describe('createTerrain（archipelago）', () => {
 describe('內陸農地', () => {
   const t = createTerrain('farmland')
 
-  it('三個位置的契約照舊', () => {
-    // 0 = 遠景環（遠海那一格）、1 = 空 Group（近海那一格）、2 = 陸地
-    expect(t.object.children.length).toBe(3)
+  it('前三個位置的契約照舊', () => {
+    // 0 = 遠景環（遠海那一格）、1 = 空 Group（近海那一格）、2 = 陸地、
+    // 3 = 植被（append 上去的，前三個不動）
+    expect(t.object.children.length).toBe(4)
     expect(t.object.children[1]!.children.length).toBe(0)
     expect(t.object.children[2]!.children.length).toBe(25)
   })
@@ -255,5 +256,81 @@ describe('水面與地面分開', () => {
     const t = createTerrain('sea')
     expect(t.waterAt(0, 0)).toBeCloseTo(t.heightAt(0, 0, 0), 6)
     t.dispose()
+  })
+})
+
+/**
+ * 植被的接線。**索引 3** —— 既有的 0/1/2（遠海／近海／陸地）是明文契約，
+ * `main.ts` 的 `__gfx` 與 `src/tools/` 兩支工具共用它，所以植被只能 append。
+ */
+describe('植被接線', () => {
+  it('農地的第四個子節點是植被的八個池', () => {
+    const t = createTerrain('farmland')
+    expect(t.object.children[3]!.children.length).toBe(8)
+    t.dispose()
+  })
+
+  it('群島也有，而且陸地仍然在索引 2', () => {
+    const t = createTerrain('archipelago')
+    expect(t.object.children[3]!.children.length).toBe(8)
+    expect(t.object.children[2]!.children.length).toBeGreaterThan(10)
+    t.dispose()
+  })
+
+  it('純海面沒有第四個子節點', () => {
+    const t = createTerrain('sea')
+    expect(t.object.children.length).toBe(3)
+    // 【`__gfx` 的 flora 要用 slice(3)】固定回 children[3]! 的話，切到純海
+    // 之後消融 flora 會對 undefined 呼叫 traverse，當場崩
+    expect(t.object.children.slice(3)).toEqual([])
+    t.dispose()
+  })
+
+  function instancesOf(t: { object: { children: unknown[] } }): number {
+    let n = 0
+    const pools = (t.object.children[3] as { children: { count?: number }[] }).children
+    for (const p of pools) n += p.count ?? 0
+    return n
+  }
+
+  it('settle 之後農地的樹是有的', () => {
+    const t = createTerrain('farmland')
+    t.settle?.()
+    expect(instancesOf(t)).toBeGreaterThan(2000)
+    t.dispose()
+  })
+
+  it('settle 之後群島的樹是有的', () => {
+    const t = createTerrain('archipelago')
+    let best = 0
+    for (const [x, z] of [[0, 0], [4000, 4000], [-6000, 2000], [8000, -8000]] as const) {
+      t.update(0, x, z)
+      t.settle?.()
+      best = Math.max(best, instancesOf(t))
+    }
+    expect(best).toBeGreaterThan(100)
+    t.dispose()
+  })
+
+  it('update 把鏡頭位置傳給植被 —— 樹跟著鏡頭走', () => {
+    const t = createTerrain('farmland')
+    t.update(0, 0, 0)
+    t.settle?.()
+    const a = instancesOf(t)
+    t.update(0, 9000, 9000)
+    t.settle?.()
+    expect(instancesOf(t)).not.toBe(a)
+    t.dispose()
+  })
+
+  it('dispose 把植被的幾何也釋放掉', () => {
+    const t = createTerrain('farmland')
+    let disposed = 0
+    const pools = t.object.children[3]!.children as unknown as {
+      geometry: { addEventListener(e: string, f: () => void): void }
+    }[]
+    for (const p of pools) p.geometry.addEventListener('dispose', () => disposed++)
+    t.dispose()
+    expect(disposed).toBe(8)
   })
 })
