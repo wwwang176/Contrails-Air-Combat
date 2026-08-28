@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  bakeShore, createArchipelago, CHANNEL_MIN, FIELD_CELL, ISLAND_MIN_DIAMETER,
-  PEAK_MAX, SEA_FLOOR, SHORE_BAND, WOBBLE_MAX,
+  bakeShore, createArchipelago, makeLobes, CHANNEL_MIN, FIELD_CELL,
+  ISLAND_MIN_DIAMETER, PEAK_MAX, SEA_FLOOR, SHORE_BAND, WOBBLE_MAX,
+  type LobeDraw,
 } from '../../src/world/archipelago'
 
 /** 錨島要落在離原點這麼近的地方，m */
@@ -174,10 +175,57 @@ describe('多瓣的島', () => {
       }
     }
     console.log(JSON.stringify({ 最大溢出: worst.toExponential(2) }))
-    // 【容差是 float 的 ulp，不是設計餘裕】`off = outerRadius × (1 − rf)`
-    // 讓 `off + r × WOBBLE_MAX = outerRadius` 在代數上是恆等式；浮點下差
-    // 一兩個 ulp（實測 2e-13，而 outerRadius 是 10³ 量級）
+    // 【容差是 float 的 ulp，不是設計餘裕】`off + r × WOBBLE_MAX ≤ outerRadius`
+    // 在代數上是恆等式；浮點下差一兩個 ulp（實測 2e-13，而 outerRadius 是
+    // 10³ 量級）
     expect(worst).toBeLessThanOrEqual(1e-6)
+  })
+
+  /**
+   * 【上一條只驗了這一顆種子抽出來的那 48 座島】而不變式要成立的是**整個
+   * 參數空間**：`rf` 的兩端、`LOBE_MIN_RADIUS` 夾住半徑的那條路徑（只有
+   * 最小的島會走到）、`uPeak` 與 `uOff` 的兩端。這一條直接掃那個角落集合。
+   *
+   * 【順便驗兩件同樣是算式的事】瓣高恆低於島峰（`PEAK_MAX` 因此仍然是實際
+   * 的上限），以及每一瓣都露得出主瓣（不然它在畫面上不存在）。
+   */
+  it('參數空間的四個角落，三條不變式都成立', () => {
+    // TIERS 的兩端加上錨島的尺寸
+    const SIZES = [[150, 60], [150, 160], [260, 160], [500, 300], [800, 500],
+      [1400, 900], [1500, 850]] as const
+    const ENDS = [0, 0.5, 1]
+    let worstFit = -Infinity
+    let worstPeak = -Infinity
+    let worstLift = Infinity
+    const smoothstep = (e0: number, e1: number, x: number): number => {
+      const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+      return t * t * (3 - 2 * t)
+    }
+    for (const [radius, peak] of SIZES) {
+      const outerRadius = radius * WOBBLE_MAX
+      for (const rf of [0.28, 0.35, 0.45]) {
+        for (const uPeak of ENDS) {
+          for (const uOff of ENDS) {
+            const draw: LobeDraw = { dir: 0.7, rf, uPeak, uOff, pa: 1.1, pb: 2.3 }
+            const lobes = makeLobes(0, 0, radius, outerRadius, peak, 0, 0, [draw])
+            const lo = lobes[1]!
+            worstFit = Math.max(worstFit, lo.offset + lo.radius * WOBBLE_MAX - outerRadius)
+            worstPeak = Math.max(worstPeak, lo.peak - peak)
+            // 露出量：這一瓣的峰高減掉主瓣在同一個半徑上的高度
+            const cone = peak * smoothstep(1, 0, lo.offset / outerRadius)
+            worstLift = Math.min(worstLift, lo.peak - cone)
+          }
+        }
+      }
+    }
+    console.log(JSON.stringify({
+      最大溢出: worstFit.toExponential(2),
+      最高的瓣超出島峰: worstPeak.toFixed(1),
+      最小露出量: worstLift.toFixed(2) + ' m',
+    }))
+    expect(worstFit).toBeLessThanOrEqual(1e-6)   // 放得下
+    expect(worstPeak).toBeLessThan(0)            // peak 仍是實際最高點
+    expect(worstLift).toBeGreaterThan(0)         // 每一瓣都露得出來
   })
 
   /**

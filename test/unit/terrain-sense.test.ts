@@ -311,26 +311,20 @@ describe('爬升判斷看得見偏心的次峰', () => {
    */
   it('地形高度的上界恆不低於真實的地形', () => {
     const { field, islands } = createArchipelago()
-    const { size, cell, data } = field
-    const half = (size - 1) / 2
     let worst = Infinity
     let where = ''
+    // 【5 m 步長，不是逐格點】格是 40 m，所以每一格取到 8×8 個**內部**點 ——
+    // 那正是內插會高過解析值的地方。只比格點的話這條測試會漏掉 16 m 的低估
     for (const isl of islands) {
-      const c0 = Math.max(0, Math.floor((isl.cx - isl.outerRadius) / cell + half))
-      const c1 = Math.min(size - 1, Math.ceil((isl.cx + isl.outerRadius) / cell + half))
-      const r0 = Math.max(0, Math.floor((isl.cz - isl.outerRadius) / cell + half))
-      const r1 = Math.min(size - 1, Math.ceil((isl.cz + isl.outerRadius) / cell + half))
-      for (let row = r0; row <= r1; row++) {
-        for (let col = c0; col <= c1; col++) {
-          const x = (col - half) * cell
-          const z = (row - half) * cell
+      for (let z = isl.cz - isl.outerRadius; z <= isl.cz + isl.outerRadius; z += 5) {
+        for (let x = isl.cx - isl.outerRadius; x <= isl.cx + isl.outerRadius; x += 5) {
           if (Math.hypot(x - isl.cx, z - isl.cz) > isl.outerRadius) continue
-          const slack = terrainCeiling(isl, x, z) - data[row * size + col]!
+          const slack = terrainCeiling(isl, x, z) - field.sample(x, z)
           if (slack < worst) { worst = slack; where = `${x.toFixed(0)},${z.toFixed(0)}` }
         }
       }
     }
-    console.log(JSON.stringify({ 最小餘裕: worst.toFixed(1), where }))
-    expect(worst).toBeGreaterThanOrEqual(0)
+    console.log(JSON.stringify({ 最小餘裕: worst.toFixed(2) + ' m', where }))
+    expect(worst).toBeGreaterThan(0)
   })
 })

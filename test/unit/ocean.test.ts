@@ -507,7 +507,9 @@ describe('靠岸的浪花', () => {
    * 是內插的，逐片段取樣會把一個三角形切成半白半不白 —— 那不是「整面變白」。
    */
   it('在面的重心取樣，不是在片段', () => {
-    const src = compile(near(createOcean(shore))).fragmentShader
+    const o = createOcean(shore)
+    const src = compile(near(o)).fragmentShader
+    o.dispose()
     const line = src.split(/\r?\n/).filter((l) => l.includes('uShoreMap,')).join('')
     expect(line).toContain('faceCen')
     expect(line).not.toContain('vOceanWorld')
@@ -548,8 +550,10 @@ describe('靠岸的浪花', () => {
    * 不同的算式在數值上完全一致。
    */
   it('shore = 0 時碎光的機率式逐字未動', () => {
-    expect(compile(near(createOcean(shore))).fragmentShader).toContain(
+    const o = createOcean(shore)
+    expect(compile(near(o)).fragmentShader).toContain(
       'float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);')
+    o.dispose()
   })
 
   /**
@@ -564,6 +568,8 @@ describe('靠岸的浪花', () => {
     const crestMax = 1 + SPARKLE_CREST_BIAS
     expect(SPARKLE_DENSITY * crestMax).toBeLessThan(SPARKLE_P_MAX)
     expect((SPARKLE_DENSITY + SHORE_DENSITY) * crestMax).toBeGreaterThan(1)
-    expect(compile(near(createOcean(shore))).fragmentShader).toContain('min(p, uPMax)')
+    const o = createOcean(shore)
+    expect(compile(near(o)).fragmentShader).toContain('min(p, uPMax)')
+    o.dispose()
   })
 })

@@ -204,8 +204,10 @@ const PLACE_TRIES = 300
  * 主瓣之外每座島有幾瓣。**每座島都是這麼多瓣，沒有「抽到太小就丟掉」** ——
  * 半徑改成夾在 `LOBE_MIN_RADIUS` 之上，所以瓣數不是隨機的。
  *
- * 【為什麼不丟】丟的話最小的島（半徑 150 m）有約 9% 的機率只剩一瓣以下、
- * 1% 一瓣都不剩，而「這座島有沒有起伏」就變成一件測不準的事。
+ * 【為什麼不丟】最小的島（半徑 150 m）要留下一瓣得抽到 `rf ≥ 0.4`，機率
+ * 只有 (0.45 − 0.4) / (0.45 − 0.28) = 29.4%。四次抽下來有 **66.2%** 只剩
+ * 一瓣以下、**24.8%** 一瓣都不剩 —— 「這座島有沒有起伏」會變成一件測不準
+ * 的事。夾住半徑就沒有這個問題。
  */
 const LOBE_COUNT = 4
 /** 一瓣至少要有這麼大才畫得出形狀，m。1.5 格 —— 再小只是一個尖角 */
@@ -215,8 +217,8 @@ const LOBE_MIN_RADIUS = 60
  *
  * 【上界為什麼不能再大】瓣要露得出來就得離島心夠遠，而放得下的最遠處是
  * `(1 − 半徑比) × outerRadius`。半徑比越大，能站的位置越靠內，而那裡的主瓣
- * 越高。0.62 的時候兩者剛好對撞：需要的峰高 0.92，而坡度上限只給到 0.93。
- * 0.45 讓可行區間寬到 0.43～0.90（見 `LOBE_SLOPE`）。
+ * 越高：0.45 時主瓣已經在島峰的 42.5%，0.62 時是 67.7%。再大下去可行的
+ * 峰高區間就窄到只剩雜訊。
  */
 const LOBE_RADIUS = [0.28, 0.45] as const
 /**
@@ -226,9 +228,13 @@ const LOBE_RADIUS = [0.28, 0.45] as const
  * 出來。實測沒有這一條時露出量的中位數只有 6.7 m，最小 1.0 m，而最小的那
  * 兩座島在畫面上完全是圓錐。
  *
- * 【0.08 有多少】最小的島（峰 160 m）是 13 m，剛好是一格看得出來的高差；
- * 錨島（900 m）是 72 m，而上限 `LOBE_LIFT_MAX` 是 100 m —— 兩者之間就是
- * 大島那批瓣的變化範圍。小島那批由 `LOBE_PEAK_MAX` 收尾。
+ * 【0.08 有多少】tier-2 的高度是 60～160 m，所以是 4.8～12.8 m；錨島
+ * （900 m）是 72 m，而上限 `LOBE_LIFT_MAX` 是 100 m —— 兩者之間就是大島
+ * 那批瓣的變化範圍。小島那批由 `LOBE_PEAK_MAX` 收尾。
+ *
+ * 【實測的露出量】中位數 24.4 m、最小 5.9 m（就是這條下界咬住的那一顆）、
+ * 最大 94.5 m。沒有這條下界時中位數只有 6.7 m，最小 1.0 m —— 而那兩座島
+ * 在畫面上仍然是圓錐。
  */
 const LOBE_LIFT = 0.08
 /**
@@ -253,8 +259,9 @@ const LOBE_LIFT = 0.08
  *   掠過的剖面變高      爬不過去所以要轉 → terrain-in-play 的「山擋得住路」
  * ```
  *
- * 【不是「太晚看到」】正撞島心時 AI 讀到的剖面內外圈**逐位元相同** ——
- * 那條航跡上主峰蓋過一切。次峰只在**掠過**的航跡上才進得了剖面。
+ * 【這是量到的相關，不是驗過的因果】上面那張高度表與下面那張護欄表都是
+ * 量出來的；「所以 AI 才會這樣」那一步沒有獨立驗證過。**不要把它當定律**，
+ * 動了任何一個常數都要重量。
  *
  * ── 【所以要散開，而且起點要是「剛好露得出來」】──────────────────
  *
@@ -326,7 +333,7 @@ function invSmoothstep(s: number): number {
 }
 
 /** 一瓣的原始參數。**在挑位置之前抽好** —— 見 `createArchipelago` 的說明 */
-interface LobeDraw {
+export interface LobeDraw {
   dir: number
   /** 半徑佔島半徑的比例，已經夾過 `LOBE_MIN_RADIUS` 之後才用得到島半徑 */
   rf: number
@@ -365,8 +372,9 @@ function drawLobes(rand: () => number): LobeDraw[] {
 /**
  * 把原始參數換成落在世界裡的瓣。主瓣排第一。
  *
- * 【偏移由「還放得下多少」定死】`off = outerRadius × (1 − r / radius)`，也就是
- * `off + r × WOBBLE_MAX = outerRadius`。所以
+ * 【偏移的上界由「還放得下多少」定】最遠是 `off = outerRadius × (1 − r / radius)`，
+ * 也就是 `off + r × WOBBLE_MAX = outerRadius`；實際位置在那與「剛好露得出來」
+ * 之間（見 `LOBE_OFFSET`）。所以
  *
  * ```
  *   離島心的距離 ≤ off + 離瓣心的距離 ≤ off + r × wobble(θ) ≤ off + r × WOBBLE_MAX
@@ -375,8 +383,12 @@ function drawLobes(rand: () => number): LobeDraw[] {
  *
  * 是一條**恆等式**，不是一個要驗的條件。θ 由瓣心量起不影響這個推導。
  * `outerRadius` 因此不動 —— AI 的圓盤、mesh 的裁切、視錐包圍球全部照舊。
+ *
+ * 【`export` 是給測試的】不變式要驗的是**整個參數空間**，不是這一顆種子
+ * 抽出來的那 48 座島。只看成品的話，`rf` 的下界、`LOBE_MIN_RADIUS` 的夾住
+ * 路徑、最小的島這幾個角落全部沒有人走過。
  */
-function makeLobes(
+export function makeLobes(
   cx: number, cz: number, radius: number, outerRadius: number, peak: number,
   pa: number, pb: number, draws: readonly LobeDraw[],
 ): LobeDesc[] {
@@ -387,20 +399,6 @@ function makeLobes(
     // 【夾在 LOBE_MIN_RADIUS 之上，不是丟掉】見 LOBE_COUNT
     const r = Math.max(LOBE_MIN_RADIUS, d.rf * radius)
     const rf = r / radius
-    /**
-     * 【一律放到還放得下的最遠處】`off + r × WOBBLE_MAX = outerRadius`，
-     * 換成比例就是 `1 − rf`。三個理由：
-     *
-     * ```
-     *   露得最多   主瓣在那裡最低，所以同樣的峰高露出得最多
-     *   海岸線     瓣貼著膨脹圓，扇貝狀的灣與岬就是這樣來的
-     *   少一個旋鈕 位置不再是抽的，所以「這一瓣露不露得出來」是一句算式，
-     *              不是一個要驗的機率
-     * ```
-     *
-     * 半徑不同的瓣落在不同的半徑上（rf ∈ [0.28, 0.45] → 0.55～0.72 倍的
-     * 膨脹圓），所以不會排成一圈。
-     */
     // 放得下的最遠處：off + r × WOBBLE_MAX = outerRadius，換成比例是 1 − rf
     const xMax = 1 - rf
     /**
@@ -557,9 +555,10 @@ function bake(field: HeightFieldData, islands: readonly IslandDesc[]): void {
  * 【為什麼由高度場推，不由島的參數另外算】海岸線是好幾瓣聯集出來的，形狀
  * 沒有閉式解；而且島形以後怎麼改，這張圖自動跟著走。**兩份不可能漂。**
  *
- * 【兩趟 chamfer】正交 1、對角 √2，單位是格。近似誤差在 √2 那一支上約 4%，
- * 而這張圖的用途是「白點在這裡比較容易出現」—— 4% 落在一個 texel 之內。
- * 精確的歐氏距離要多兩趟，換不到任何看得見的東西。
+ * 【兩趟 chamfer】正交 1、對角 √2，單位是格。{1, √2} 的八鄰接 chamfer 最大
+ * **高估** 8.24%（在與軸夾 22.5° 的方向上），而這張圖的用途是「白點在這裡
+ * 比較容易出現」—— 5 格寬的帶上 8% 是 0.4 格。精確的歐氏距離要多兩趟，
+ * 換不到任何看得見的東西。
  *
  * 【值域用 8 位元】1024² 是 1 MiB。用 Float32 是 4 MiB，而 256 階在一條
  * 5 格寬的漸層上遠遠夠用。
@@ -569,8 +568,11 @@ export function bakeShore(field: HeightFieldData): ShoreFieldData {
   const n = size * size
   const last = size - 1
   const dist = new Float32Array(n)
-  // 陸地是 0，其餘是「還沒算過」。1e9 比任何真實距離都大，而且加得動
-  // （Infinity + 1 還是 Infinity，比較時分不出誰先傳到）
+  // 陸地是 0，其餘是「還沒算過」。1e9 比任何真實距離都大（全圖對角線是
+  // 1,448 格），而且加起來不會失去精度。
+  //
+  // 【Infinity 其實也可以】一旦鄰居是有限值，`有限 + 權重 < Infinity` 照樣
+  // 傳得下去。用 1e9 只是為了讓中間值一直是有限的，除錯時看得懂。
   const FAR = 1e9
   for (let i = 0; i < n; i++) dist[i] = data[i]! >= 0 ? 0 : FAR
   const DIAG = Math.SQRT2
