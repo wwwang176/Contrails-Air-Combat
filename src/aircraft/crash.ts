@@ -12,11 +12,15 @@ export type HeightField = (x: number, z: number, time: number) => number
 /**
  * 是否撞海。
  *
- * 【為什麼吃一個 HeightField 而不是寫死 y ≤ 0】海面是 Gerstner 波，
- * 振幅合計約 ±2.15 m，而且 CPU 的 gerstnerHeight 與 GPU 頂點著色器共用
- * 同一份 WAVES 常數（見 render/ocean.ts）。判定必須走同一個函式，
- * 玩家看到的浪頭才會就是撞得到的浪頭；用平面 y=0 判定會出現
- * 「明明穿過浪峰卻沒事」與「離水面還有一段就爆」兩種相反的錯覺。
+ * 【為什麼吃一個 HeightField 而不是寫死 y ≤ 0】高度場裡有**山**。
+ *
+ * 【海面那一項是平的】專案負責人 2026-08-28 裁定「海面碰撞體就平面就好，
+ * 海浪只是視覺高低而已」。浪的振幅和是 4.5 m，而下面那個 CRASH_CLEARANCE
+ * 是 2 m 的**估計值** —— 用波高判定等於在一個猜出來的餘裕上疊精確度。
+ * 遊戲那一條線走 world/seaCrash.ts 的 flatSeaCrashPolicy，海面恆為 0。
+ *
+ * 這支函式本身不知道那件事：它吃什麼高度場就判什麼，所以拿真正的浪高餵它
+ * 仍然成立（`aircraft.test.ts` 就是那樣測的）。
  *
  * 【為什麼獨立成一個函式】main.ts 是 DOM 進入點，測試碰不到；
  * 判定邏輯留在裡面就等於沒有測試覆蓋。抽出後 main.ts 與測試呼叫的
