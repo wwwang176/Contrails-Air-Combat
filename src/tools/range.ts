@@ -44,7 +44,7 @@ let specIndex = 0
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
-const ocean = createOcean()
+const ocean = createOcean(null)
 ctx.scene.add(ocean.mesh)
 
 const controls = new OrbitControls(ctx.camera, ctx.renderer.domElement)

@@ -99,7 +99,7 @@ describe('地平線要看得出來', () => {
    * `ocean.ts` 自己註解裡警告的「5 km 處出現一條色帶」—— 就沒有被守住。
    */
   it('細浪面不吃霧', () => {
-    const ocean = createOcean()
+    const ocean = createOcean(null)
     try {
       // 【細浪面是一組 clipmap 的層】十層共用同一份材質（見 OCEAN_BASE_CELL），
       // 所以取任何一層都是同一顆。逐層檢查是為了擋住「日後有人給某一層換了
@@ -114,7 +114,7 @@ describe('地平線要看得出來', () => {
   })
 
   it('遠海不吃霧', () => {
-    const ocean = createOcean()
+    const ocean = createOcean(null)
     try {
       expect((ocean.farMesh.material as MeshStandardMaterial).fog).toBe(false)
     } finally {

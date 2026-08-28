@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { LessDepth } from 'three'
+import { LessDepth, type DataTexture, type Mesh, type MeshStandardMaterial } from 'three'
 import {
   createOcean, FACE_FRAGMENT, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
   OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
   OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
-  SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_FADE_END, SPARKLE_FADE_START,
+  SHORE_DENSITY, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_DENSITY,
+  SPARKLE_FADE_END, SPARKLE_FADE_START, SPARKLE_P_MAX,
   sparkleFragment,
-  WAVES,
+  WAVES, type Ocean,
 } from '../../src/render/ocean'
-import { FIELD_CELL } from '../../src/world/archipelago'
+import {
+  bakeShore, createArchipelago, FIELD_CELL, SHORE_BAND,
+} from '../../src/world/archipelago'
 import { DRAW_FLOOR } from '../../src/render/island'
 
 /** GLSL `smoothstep`（會夾住兩端） */
@@ -288,7 +291,7 @@ describe('遠海', () => {
   })
 
   it('update 讓遠海精確落在中心', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     // 【刻意選一個小數的中心】兩者都該精確落在它上面。這一條在 clipmap 上線
     // 之前守的是「遠海不像細浪面那樣被對齊到格點」；對齊拿掉之後它守的是
     // 「跟隨沒有被誰加回某種量化」
@@ -311,7 +314,7 @@ describe('遠海', () => {
    * 就夠。
    */
   it('四層共用同一個中心，而且中心吸附到格點', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     const cx = 1234.5
     const cz = -6789.25
     o.update(3, cx, cz)
@@ -352,7 +355,7 @@ describe('遠海', () => {
    * 把它公開是為了讓這一條守得住 —— 這是它唯一的用途。
    */
   it('波的相位與網格吃同一個吸附後的中心', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     for (const [cx, cz] of [[0, 0], [1234.5, -6789.25], [-70000.1, 33333.3]]) {
       o.update(1.5, cx!, cz!)
       expect(o.origin.x).toBe(o.mesh.position.x)
@@ -388,7 +391,7 @@ describe('遠海', () => {
    * 所以深度必須分得開 —— 見下。
    */
   it('遠海排在細浪面之後畫 —— early-Z 才省得掉', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     expect(o.farMesh.renderOrder).toBeGreaterThan(o.mesh.renderOrder)
     o.dispose()
   })
@@ -412,14 +415,14 @@ describe('遠海', () => {
    * 有人把它改回 `LessEqualDepth`（或不小心用了預設），這一條就紅。
    */
   it('遠海用 LessDepth —— 深度平手時近海勝出', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     const m = o.farMesh.material as unknown as { depthFunc: number }
     expect(m.depthFunc).toBe(LessDepth)
     o.dispose()
   })
 
   it('dispose 釋放遠海的幾何與材質', () => {
-    const o = createOcean()
+    const o = createOcean(null)
     let disposed = 0
     o.farMesh.geometry.addEventListener('dispose', () => { disposed++ })
     // 【`as unknown as`】`Mesh.material` 的型別是 `Material | Material[]`，
@@ -430,5 +433,137 @@ describe('遠海', () => {
     }).addEventListener('dispose', () => { disposed++ })
     o.dispose()
     expect(disposed).toBe(2)
+  })
+})
+
+/**
+ * 靠岸的浪花。
+ *
+ * ── 【為什麼這一組要真的呼叫 `onBeforeCompile`】──────────────────
+ *
+ * 其餘的海面測試比對的是匯出的 GLSL 常數字串。那擋不住這一輪最像的失效：
+ * 著色器裡宣告了 `uniform sampler2D uShoreMap` 卻**沒有人把貼圖綁上去** ——
+ * 那樣照樣編譯得過、照樣取樣（取到 0 號紋理單元的預設值），而每一條字串
+ * 斷言都是綠的。
+ *
+ * 所以這裡把 `onBeforeCompile` 自己叫一次，看的是「真的會送上 GPU 的那一份」。
+ */
+describe('靠岸的浪花', () => {
+  interface FakeShader {
+    uniforms: Record<string, { value: unknown }>
+    vertexShader: string
+    fragmentShader: string
+  }
+  /** three 在 headless 下不會編譯著色器，所以手動走一次注入 */
+  const compile = (m: MeshStandardMaterial): FakeShader => {
+    const shader: FakeShader = {
+      uniforms: {},
+      vertexShader: '#include <common>\n#include <begin_vertex>\n',
+      fragmentShader:
+        '#include <common>\n#include <color_fragment>\n#include <opaque_fragment>\n',
+    }
+    ;(m.onBeforeCompile as (s: FakeShader, r: unknown) => void)(shader, null)
+    return shader
+  }
+  const near = (o: Ocean): MeshStandardMaterial =>
+    (o.mesh.children[0] as Mesh).material as MeshStandardMaterial
+  const far = (o: Ocean): MeshStandardMaterial => o.farMesh.material as MeshStandardMaterial
+
+  const arch = createArchipelago()
+  const shore = bakeShore(arch.field)
+
+  it('近海與遠海都取樣同一張膨脹圖', () => {
+    const o = createOcean(shore)
+    for (const m of [near(o), far(o)]) {
+      const sh = compile(m)
+      expect(sh.fragmentShader).toContain('uShoreMap')
+      const tex = sh.uniforms['uShoreMap']!.value as DataTexture
+      // 【非驗不可】少了這一步，宣告了 sampler 卻沒綁貼圖也會全綠
+      expect(tex.image.width).toBe(shore.size)
+      expect(tex.image.data).toBe(shore.data)
+    }
+    // 兩個材質共用同一個 uniform 物件 —— 兩份會漂，症狀是接縫兩側的浪花不同
+    expect(compile(near(o)).uniforms['uShoreMap']).toBe(
+      compile(far(o)).uniforms['uShoreMap'])
+    o.dispose()
+  })
+
+  /**
+   * 【尺是 size × cell】GL 第 col 個 texel 的中心在 (col + 0.5) / size，而
+   * 高度場的 col = x / cell + (size − 1) / 2 —— 代進去化簡成
+   * x / (size × cell) + 0.5。用 (size − 1) × cell 會整張差半個 texel（20 m），
+   * 而那不會讓任何畫面明顯不對，只會讓浪花整體偏一格。
+   */
+  it('uv 的尺是 size × cell', () => {
+    const o = createOcean(shore)
+    expect(compile(near(o)).uniforms['uShoreExtent']!.value)
+      .toBe(shore.size * shore.cell)
+    expect(compile(near(o)).fragmentShader).toContain('/ uShoreExtent + 0.5')
+    o.dispose()
+  })
+
+  /**
+   * 【機率吃的是面的重心】與 `faceH` 完全同一個理由：`vOceanWorld.xz` 在面內
+   * 是內插的，逐片段取樣會把一個三角形切成半白半不白 —— 那不是「整面變白」。
+   */
+  it('在面的重心取樣，不是在片段', () => {
+    const src = compile(near(createOcean(shore))).fragmentShader
+    const line = src.split(/\r?\n/).filter((l) => l.includes('uShoreMap,')).join('')
+    expect(line).toContain('faceCen')
+    expect(line).not.toContain('vOceanWorld')
+  })
+
+  /**
+   * 【遠海一個面比浪花帶還寬】所以逐點取樣時整條帶可能落在相鄰兩個重心之間 ——
+   * 遠處的海岸會**完全沒有浪花**，而且是隨方位與相位開關的。取 mip 讓那個面
+   * 拿到的是「我涵蓋的範圍裡有多少比例是浪花帶」。
+   */
+  it('遠海的面比浪花帶寬，所以取樣要帶 LOD 而且貼圖要有 mip', () => {
+    const outerCell = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+    expect(outerCell).toBeGreaterThan(SHORE_BAND)
+    const o = createOcean(shore)
+    const sh = compile(far(o))
+    expect(sh.fragmentShader).toContain('textureLod(')
+    expect((sh.uniforms['uShoreMap']!.value as DataTexture).generateMipmaps).toBe(true)
+    o.dispose()
+  })
+
+  /**
+   * 【純海面那條路一個字都不變】沒有陸地就沒有浪花。密度歸零之外還掛一張
+   * 1×1 的零貼圖 —— 兩道保險，因為 `uShoreExtent` 在那裡是 1，取樣座標會
+   * 跑到很遠的地方去。
+   */
+  it('純海面：密度是 0，貼圖是 1×1', () => {
+    const o = createOcean(null)
+    const sh = compile(near(o))
+    expect(sh.uniforms['uShoreDensity']!.value).toBe(0)
+    expect((sh.uniforms['uShoreMap']!.value as DataTexture).image.width).toBe(1)
+    o.dispose()
+  })
+
+  /**
+   * 【碎光那一式一個字都不動】浪花是**加上去的一項**。改寫成
+   * `(align × uDensity + shore × uShoreDensity) × …` 讀起來更漂亮，但那樣
+   * `shore = 0` 時就不再逐位元等於改動前 —— 運算圖變了，而 GLSL 不保證
+   * 不同的算式在數值上完全一致。
+   */
+  it('shore = 0 時碎光的機率式逐字未動', () => {
+    expect(compile(near(createOcean(shore))).fragmentShader).toContain(
+      'float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);')
+  })
+
+  /**
+   * 【封頂對既有行為不作用，對浪花非有不可】碎光單獨的最大值是
+   * `1 × uDensity × 1 × (1 + uCrestBias)`；加上浪花之後超過 1，而
+   * ${BT}roll < p${BT} 恆真就是整條海岸線一片死白 —— 閃爍與稀疏感全部消失。
+   *
+   * 動 `SPARKLE_DENSITY` 或 `SPARKLE_CREST_BIAS` 到讓封頂咬到既有行為的話，
+   * 這一條會紅，而那時要回來重算。
+   */
+  it('機率的封頂夾得到浪花，夾不到碎光', () => {
+    const crestMax = 1 + SPARKLE_CREST_BIAS
+    expect(SPARKLE_DENSITY * crestMax).toBeLessThan(SPARKLE_P_MAX)
+    expect((SPARKLE_DENSITY + SHORE_DENSITY) * crestMax).toBeGreaterThan(1)
+    expect(compile(near(createOcean(shore))).fragmentShader).toContain('min(p, uPMax)')
   })
 })
