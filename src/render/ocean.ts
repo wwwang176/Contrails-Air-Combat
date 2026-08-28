@@ -513,8 +513,9 @@ const SUN_DIR: readonly [number, number, number] = (() => {
  * 要折進 σ。那個補償是逐像素解析波形時才需要的：那時法線只到某個尺度，
  * 更細的起伏得用一個統計量代表。低多邊形沒有那個問題 —— 面就是面。
  *
- * 【它決定亮區的大小與選擇性】σ 越大，能亮起來的面越多、範圍越寬，但方向
- * 選擇性越差，最後會變成「相機正下方一圈都在亮」而不是一條太陽的反光帶。
+ * 【它決定亮區的大小與選擇性】亮區的角半徑正比於 σ（高斯的引數是 θ²/2σ²），
+ * 所以要把太陽反光的範圍擴散幾倍，就把它乘幾倍。代價是方向選擇性 —— σ 太大
+ * 會變成「相機正下方一圈都在亮」而不是一條太陽的反光帶。
  * 實測（2026-08-11，σ 為常數時的正下方／鏡面點對比）：
  *
  *   σ      正下方   鏡面點   對比
@@ -522,10 +523,14 @@ const SUN_DIR: readonly [number, number, number] = (() => {
  *    8°    0.453    1.000    2.2×
  *    4°    0.105    1.000    9.5×
  *
+ * 【4.5° 是專案負責人指定「往外擴散三倍」】從 1.5° 乘三。它落在上表 4° 那
+ * 一列旁邊，對比仍有 9 倍上下 —— 亮區明顯變大而反光帶還認得出是一條帶。
+ * 再往上就開始往 8°（2.2×）掉，那時亮區會變成正下方的一個圓。
+ *
  * 【寬核另外給】鏡面圈之外的零星白點由 `SPARKLE_SIGMA_TAIL` 那個寬核負責，
  * 兩者用 `mix` 疊起來 —— 見 `SPARKLE_TAIL_WEIGHT`。
  */
-export const SPARKLE_SIGMA_BASE = (1.5 * Math.PI) / 180
+export const SPARKLE_SIGMA_BASE = (4.5 * Math.PI) / 180
 /**
  * 尾巴核的角度容差（弧度）。與 `SPARKLE_SIGMA_BASE` 那個核疊成雙核。
  * **它是固定的** —— 尾巴代表 Cox-Munk 的厚尾，那是超出高斯模型的部分，與
@@ -820,6 +825,9 @@ export const SEA_AERIAL_HI = 0.052
 export const SEA_AERIAL_LO = 0.0
 export const SEA_AERIAL_STRENGTH = 0
 
+/** 最長那道波的波長，m。著色器的早退用 —— 見 `oceanWaveHeight`。 */
+const LONGEST_WAVE = WAVES.reduce((a, w) => (w.wavelength > a ? w.wavelength : a), 0)
+
 /**
  * 頂點與片段共用的宣告。兩個材質都要。
  *
@@ -915,6 +923,10 @@ const SPARKLE_COMMON = /* glsl */ `
    * Nyquist（格子＝半波長），是硬上限不是美學選擇。
    */
   float oceanWaveHeight(vec2 rawXZ, float vCell) {
+    // 【格子粗過最長那道波就一定是平的，先收】遠海的每一個片段都會走這裡
+    // （逐面的重心高度），而淺俯角時遠海是大半個畫面。收掉之後那裡只剩
+    // floor/fract 與兩次 hash，九次 sin 一次都不跑。
+    if (vCell >= ${LONGEST_WAVE.toFixed(1)} * uVertFadeHi) return 0.0;
     vec2 p = rawXZ + oceanWarp(rawXZ, uTime);
     float envG = oceanEnvField(rawXZ, uTime);
     float h = 0.0;
@@ -990,20 +1002,35 @@ const SEA_DIM_FRAGMENT = /* glsl */ `
  * 長回高爾夫球凹坑，沒有別的東西守得住。
  */
 /**
- * **只有近海有的那一段**：逐面底色與逐面白點。
+ * 逐面底色與逐面白點。**兩個材質都用它。**
  *
- * 【為什麼遠海不能套】遠海是 128×128 的 PlaneGeometry，一格約 46.9 km。
- * 套 60 m 的格座標會讓它長出一整片**假的**色塊；按它自己的真實面上色則是
- * 一個面幾十公里。所以它掛在 `applySparkle` 的 `displace` 旗標下。
+ * ── 【近海的面是真的，遠海的面是虛擬的 —— 而那正是對的】────────────
  *
- * 【`export` 是給測試的】沒有別的東西守得住「遠海有沒有被套上假色塊」。
+ * 近海這一段算出來的格子與 clipmap 實際切出來的三角形**逐一對應**，所以
+ * 色塊落在真正的稜線上。
+ *
+ * 遠海是 128×128 的 PlaneGeometry，一格約 46.9 km —— 它自己的面大到沒有意義。
+ * 但那裡本來就看不出高低起伏（浪早就淡光了，見 `OCEAN_VERT_FADE_LO`），
+ * 所以**畫一片虛擬的面上去就夠了**：專案負責人 2026-08-28 的裁定。
+ *
+ * 【接縫是連續的，不必另外處理】`faceCell` 由**離中心的距離**推得，不是查
+ * 這個片段屬於哪一層。在近海的外緣（30,720 m）它算出 480 m —— 正好是 L3 的
+ * 格距；再往外每個 octave 加倍。虛擬的面因此接著真實的面長下去，同一條式子。
+ *
+ * 【所以「遠海長出 60 m 假色塊」那個顧慮不成立】那要在格距寫死成 uBaseCell
+ * 的前提下才會發生。這裡是距離推的。
+ *
+ * ── 【`export` 是給測試的】────────────────────────────────────
+ *
+ * 兩件事沒有別的東西守得住：機率吃的是面的**重心**（用內插高度會把三角形切成
+ * 半白半不白），以及對角線與幾何的切法一致。
  */
 export const FACE_FRAGMENT = /* glsl */ `
     // ── 這個像素落在哪一個三角面 ────────────────────────────────
     //
-    // 【格距要按層算，不是一律 uBaseCell】四層共用同一顆材質，格距是
-    // 60/120/240/480。一律除以 60 的話，L1/L2/L3 的每一個真實三角形會被
-    // 切成 4/16/64 個假色塊 —— 而那不會讓任何測試變紅。
+    // 【格距要按距離算，不是一律 uBaseCell】四層共用同一顆材質，格距是
+    // 60/120/240/480，遠海再往外加倍。一律除以 uBaseCell 的話，L1/L2/L3 的
+    // 每一個真實三角形會被切成 4/16/64 個假色塊 —— 而那不會讓任何測試變紅。
     //
     // 【環是方的，所以用 Chebyshev 半徑】第 L 層是半寬 32c 到 64c 的方環
     // （c = uBaseCell × 2^L），所以 r / (uBaseCell × uHalfSeg) 取 log2 再
@@ -1396,11 +1423,10 @@ ${SPARKLE_COMMON}`,
           '#include <color_fragment>',
           `#include <color_fragment>\n${SEA_DIM_FRAGMENT}`,
         )
-        // 【逐面那一段只給近海】遠海一格 46.9 km，套 60 m 的格座標會長出
-        // 一整片假的色塊。`displace` 同時是「這是 clipmap 嗎」的旗標。
+        // 【兩個材質都套逐面那一段】見 FACE_FRAGMENT 的「遠海的面是虛擬的」。
         .replace(
           '#include <opaque_fragment>',
-          `#include <opaque_fragment>\n${sparkleFragment(displace ? FACE_FRAGMENT : '')}`,
+          `#include <opaque_fragment>\n${sparkleFragment(FACE_FRAGMENT)}`,
         )
     }
     /**

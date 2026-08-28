@@ -27,6 +27,9 @@ const VIEWS = [
   { name: 'sea-cruise', yaw: 25, pitch: -12, alt: 4000, desc: '座艙 4,000 m，俯 12°' },
   { name: 'sea-high', yaw: 0, pitch: -55, alt: 12000, desc: '高空 12,000 m，俯 55°' },
   { name: 'sea-sun', yaw: 200, pitch: -6, alt: 600, desc: '朝太陽側 600 m —— 看白點' },
+  // 【看遠海】12,000 m 的地平線在 390 km 外，而近海只鋪到 30.7 km ——
+  // 淺俯角時畫面上絕大部分是遠海。近海那一圈在畫面下緣。
+  { name: 'sea-far', yaw: 0, pitch: -8, alt: 12000, desc: '高空淺俯 —— 看遠海的虛擬面' },
 ] as const
 
 async function main(): Promise<void> {
