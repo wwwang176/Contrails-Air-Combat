@@ -488,22 +488,28 @@ export function createArchipelago(): {
     }
   }
 
-  bake(field, islands)
+  bakeRelief(field, islands, SEA_FLOOR)
   return { field, islands }
 }
 
 /**
- * 把島烘進高度場。
+ * 把島（或丘陵）烘進高度場。**`floor` 是沒有任何瓣蓋到的地方的高度。**
  *
  * 【只掃每座島的 bounding box】全圖是 1,048,576 個頂點，逐點對 48 座島算
  * 距離是五千萬次運算。逐島只掃自己的方框之後總量降到約五萬格。
+ *
+ * 【為什麼 `floor` 是參數】群島的島緣必須沉到水下（見 `SEA_FLOOR`），而
+ * 內陸農地的基準平原就是 `0`（`world/farmland.ts`）。兩者只差這一個數字，
+ * 其餘逐字相同 —— 複製一份的代價是「多瓣怎麼取 max」以後只會有一邊被修好。
  */
-function bake(field: HeightFieldData, islands: readonly IslandDesc[]): void {
+export function bakeRelief(
+  field: HeightFieldData, islands: readonly IslandDesc[], floor: number,
+): void {
   const { size, cell, data } = field
   const half = (size - 1) / 2
   const last = size - 1
-  // 海床先鋪滿。島是從這個高度長上來的，島緣也回到它 —— 見 SEA_FLOOR
-  data.fill(SEA_FLOOR)
+  // 底面先鋪滿。島是從這個高度長上來的，島緣也回到它 —— 見 SEA_FLOOR
+  data.fill(floor)
 
   for (let k = 0; k < islands.length; k++) {
     const isl = islands[k]!
@@ -523,8 +529,8 @@ function bake(field: HeightFieldData, islands: readonly IslandDesc[]): void {
         if (Math.hypot(dx, dz) > isl.outerRadius) continue
 
         // 【一座島 = 好幾瓣取 max】兩瓣相交處留下的摺線就是稜線。
-        // 起點是海床，所以沒有任何瓣蓋到的格子仍然是 SEA_FLOOR
-        let h = SEA_FLOOR
+        // 起點是底面，所以沒有任何瓣蓋到的格子仍然是 floor
+        let h = floor
         for (const lo of isl.lobes) {
           const lx = x - lo.cx
           const lz = z - lo.cz
@@ -534,9 +540,9 @@ function bake(field: HeightFieldData, islands: readonly IslandDesc[]): void {
           const wobble = 1
             + WOBBLE_A * Math.sin(3 * theta + lo.pa)
             + WOBBLE_B * Math.sin(5 * theta + lo.pb)
-          // s = 1 在瓣心、0 在瓣緣。瓣緣落回海床而不是 0，見 SEA_FLOOR
+          // s = 1 在瓣心、0 在瓣緣。瓣緣落回 floor，見 SEA_FLOOR
           const s = smoothstep(1, 0, d / lo.radius / wobble)
-          const hl = lo.peak * s + SEA_FLOOR * (1 - s)
+          const hl = lo.peak * s + floor * (1 - s)
           if (hl > h) h = hl
         }
 
