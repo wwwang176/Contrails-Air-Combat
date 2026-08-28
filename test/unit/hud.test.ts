@@ -402,15 +402,18 @@ describe('上帝視角的 HUD', () => {
    * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
    * 壓在接觸點之上）不會被這次改動悄悄弄丟。
    */
-  it('上帝視角畫分隊標示、小地圖、名冊、提示、任務目標', () => {
+  it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標', () => {
     expect(hudWidgets(true)).toEqual(
-      ['godMarkers', 'minimap', 'roster', 'hints', 'objective'],
+      ['godMarkers', 'minimap', 'roster', 'hints', 'arena', 'objective'],
     )
   })
 
   /**
    * 【`objective` 不是座艙儀表】它是**這一場的規則** —— 還剩幾架、倒數剩
-   * 幾秒，與鏡頭在哪裡無關。所以它是唯一同時出現在兩張清單裡的新成員。
+   * 幾秒，與鏡頭在哪裡無關。
+   *
+   * 【`arena` 同理】戰場邊界不看視角：`main.ts` 的 `crashPolicy` 對座艙與
+   * 上帝視角一視同仁，所以警告少了它，上帝視角裡飛機會無預警爆炸。
    */
   it('任務目標兩種視角都畫，而且壓在最上層', () => {
     for (const godView of [false, true]) {

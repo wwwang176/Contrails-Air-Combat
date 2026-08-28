@@ -1,4 +1,5 @@
 import { createDamageMarks, type DamageMark } from './damageMarks'
+import { ARENA_COUNTDOWN } from '../world/arena'
 
 /**
  * 一個接觸點（畫面上的一架他機）。
@@ -131,6 +132,16 @@ export interface HudFrame {
   noseX: number
   noseY: number
   noseVisible: boolean
+  /**
+   * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
+   * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
+   * 一路閃警告。
+   */
+  arenaShow: boolean
+  /** 這一刻在界外嗎 */
+  arenaOutside: boolean
+  /** 還剩幾秒 */
+  arenaRemaining: number
   /** 世界平面座標，供小地圖使用 */
   worldX: number
   worldZ: number
@@ -262,6 +273,9 @@ export function createHudFrame(): HudFrame {
     aiPhase: '',
     aiExtendWhy: '',
     godView: false,
+    arenaShow: false,
+    arenaOutside: false,
+    arenaRemaining: ARENA_COUNTDOWN,
     controlAuthority: 1,
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
     objectiveActive: false,

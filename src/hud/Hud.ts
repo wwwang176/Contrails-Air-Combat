@@ -1,3 +1,4 @@
+import { drawArena } from './widgets/arena'
 import { drawContacts } from './widgets/contacts'
 import { drawDamageEdge } from './widgets/damageEdge'
 import { drawDials } from './widgets/dials'
@@ -16,7 +17,7 @@ import type { HudFrame, HudLayout } from './types'
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
-  | 'godMarkers' | 'objective'
+  | 'godMarkers' | 'objective' | 'arena'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -26,6 +27,9 @@ export type HudWidget =
 const FULL: readonly HudWidget[] = [
   'gEffect', 'damageEdge', 'contacts', 'reticle', 'tape',
   'dials', 'minimap', 'health', 'energy', 'roster', 'hints',
+  // 【界的警告排在 objective 之前】兩者都是「這一場的規則」而不是儀表，
+  // 但目標壓最上層
+  'arena',
   // 【排最後】它壓在最上層 —— 這一場的目標不該被任何面板蓋住
   'objective',
 ]
@@ -48,7 +52,11 @@ const FULL: readonly HudWidget[] = [
  * 【`objective` 也在這裡】它不是座艙儀表，是**這一場的規則**。上帝視角下
  * 玩家仍然需要知道還剩幾架、倒數剩幾秒 —— 那與鏡頭在哪裡無關。
  */
-const GOD: readonly HudWidget[] = ['godMarkers', 'minimap', 'roster', 'hints', 'objective']
+// 【`arena` 也在這裡】界不看視角 —— `main.ts` 的 crashPolicy 不分座艙與
+// 上帝視角。少了它，上帝視角裡飛機會無預警爆炸
+const GOD: readonly HudWidget[] = [
+  'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'objective',
+]
 
 /**
  * 這一幀要畫哪些 widget，依序。
@@ -90,6 +98,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   energy: (ctx, L, f) => drawEnergy(ctx, L, f),
   roster: (ctx, L, f) => drawRoster(ctx, L, f),
   hints: (ctx, L, f) => drawHints(ctx, L, f),
+  arena: (ctx, L, f) => drawArena(ctx, L, f),
   objective: (ctx, L, f) => drawObjective(ctx, L, f),
 }
 
