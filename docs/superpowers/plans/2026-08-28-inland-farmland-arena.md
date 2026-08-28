@@ -130,15 +130,35 @@ describe('田區的抖動網格 Voronoi', () => {
   })
 
   /**
-   * 【為什麼驗字串】GLSL 跑不進 headless。但這裡的 GLSL 是**由 TS 的常數
-   * 產生的**，所以只要那幾個數字有出現在字串裡，兩份就不可能漂 —— 這比
-   * `fogFactor` 那種「兩邊各寫一次公式」更強。
+   * 【這一條只證明常數沒有漂，不證明演算法是對的】GLSL 跑不進 headless，
+   * 所以**語法**由 `farmland-shot.e2e.ts` 在真的 WebGL2 context 裡編譯來守，
+   * 而**演算法**由下面那條金本位守。三條合起來才夠。
    */
   it('GLSL 的常數由 TS 那一份產生', () => {
     expect(FIELD_GLSL).toContain(FIELD_SPACING.toFixed(1))
     expect(FIELD_GLSL).toContain(HEDGE_WIDTH.toFixed(1))
     expect(FIELD_GLSL).toContain(FIELD_JITTER.toFixed(3))
     expect(FIELD_GLSL).toContain('vec3 fieldColorAt(')
+  })
+
+  /**
+   * 【金本位】把 GLSL 裡演算法的那幾行釘死。改了 GLSL 而沒有同步改 CPU 那
+   * 一份（或反過來）時，這一條會紅，而 diff 直接指出改了哪一行。
+   *
+   * **它不是在驗正確性，是在強迫兩份一起改。** 沒有它的話，
+   * `fieldHash2` 的常數在其中一邊被動過，測試全綠而畫面與 CPU 分家。
+   */
+  it('GLSL 的演算法與 CPU 那一份逐行對得上', () => {
+    const want = [
+      'uint h = uint(i) * 0x27d4eb2du ^ uint(j) * 0x85ebca6bu;',
+      'h = (h ^ (h >> 15u)) * 0x2545f491u;',
+      'return h ^ (h >> 13u);',
+      'float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;',
+      'float oz = (float(h >> 16u) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;',
+      'if (d < f1) { f2 = f1; f1 = d; id = h; }',
+      'if (f2 - f1 < HEDGE_WIDTH) return HEDGE_COLOR;',
+    ]
+    for (const line of want) expect(FIELD_GLSL).toContain(line)
   })
 })
 
@@ -343,7 +363,7 @@ vec3 fieldColorAt(vec2 world) {
 - [ ] **Step 4: 跑測試確認它綠**
 
 Run: `npx vitest run test/unit/fields.test.ts`
-Expected: PASS，7 條
+Expected: PASS，8 條
 
 - [ ] **Step 5: 變異驗證這批測試承重**
 
@@ -457,6 +477,7 @@ git commit -F <訊息檔>
 - Produces:
   - `FARM_SIZE = 376`、`FARM_CELL = 80`、`FARM_EXTENT = 30000`、`HILL_PEAK_MAX = 120`、`HILL_LIMIT = 14000`
   - `createFarmland(): { field: HeightFieldData; hills: IslandDesc[] }`
+  - `outsideZero(f: HeightFieldData): HeightFieldData` —— 出界回 0 的包裝（Task 7 用）
 
 - [ ] **Step 1: 先寫失敗的測試**
 
@@ -467,7 +488,8 @@ import { describe, it, expect } from 'vitest'
 import {
   createFarmland, FARM_CELL, FARM_EXTENT, FARM_SIZE, HILL_LIMIT, HILL_PEAK_MAX,
 } from '../../src/world/farmland'
-import { WOBBLE_MAX } from '../../src/world/archipelago'
+import { bakeRelief, WOBBLE_MAX } from '../../src/world/archipelago'
+import { createHeightField } from '../../src/world/heightfield'
 
 const farm = createFarmland()
 
@@ -497,7 +519,39 @@ describe('內陸農地的高度場', () => {
     for (const h of farm.field.data) if (h > max) max = h
     console.log(JSON.stringify({ 最高: max.toFixed(1) + ' m', 丘陵數: farm.hills.length }))
     expect(max).toBeLessThanOrEqual(HILL_PEAK_MAX)
-    expect(max).toBeGreaterThan(HILL_PEAK_MAX * 0.6)
+    expect(max).toBeGreaterThan(30)
+  })
+
+  /**
+   * 【坡度的上限是常數，因為峰高由半徑推得】獨立抽會抽出又小又高的尖丘。
+   * 這一條直接驗那件事成立，而不是驗某一顆丘陵的數字。
+   */
+  it('沒有一顆丘陵陡過 HILL_SLOPE 的上限', () => {
+    let steepest = 0
+    for (const h of farm.hills) steepest = Math.max(steepest, h.peak / h.radius)
+    console.log(JSON.stringify({
+      最陡: (Math.atan(1.5 * steepest) * 180 / Math.PI).toFixed(1) + '°',
+    }))
+    expect(steepest).toBeLessThanOrEqual(0.10 + 1e-9)
+  })
+
+  /**
+   * 【AI 的硬約束】`findThreat` 只保留航跡上最早撞到的那一座，`senseTerrain`
+   * 也只對它做爬升判斷 —— 圓盤重疊的話，前面一顆矮丘會把後面一顆高丘整個
+   * 遮掉。這一條就是那個假設。
+   */
+  it('沒有任何兩顆丘陵的膨脹圓重疊', () => {
+    let closest = Infinity
+    for (let i = 0; i < farm.hills.length; i++) {
+      for (let j = i + 1; j < farm.hills.length; j++) {
+        const a = farm.hills[i]!
+        const b = farm.hills[j]!
+        closest = Math.min(closest, Math.hypot(a.cx - b.cx, a.cz - b.cz)
+          - a.outerRadius - b.outerRadius)
+      }
+    }
+    console.log(JSON.stringify({ 最小間隙: closest.toFixed(1) + ' m' }))
+    expect(closest).toBeGreaterThan(0)
   })
 
   /**
@@ -527,14 +581,25 @@ describe('內陸農地的高度場', () => {
    * 【起伏真的存在】與上一輪的島同一條代理判準：沿一條線走出去不是單調的。
    * 單瓣的錐子保證單調，多瓣才有鞍部。
    */
-  it('每一顆丘陵都有一條半徑不是單調遞減的', () => {
+  /**
+   * 【為什麼要烘到一張隔離的場，不是量成品】成品是所有丘陵取 max 之後的
+   * 結果，鄰居會替一顆沒有副瓣的丘陵製造出二次上升 —— 實測把 `HILL_LOBES`
+   * 改成 0 之後這條測試**仍然全綠**。隔離之後「這一顆有沒有起伏」才問得清楚。
+   *
+   * 【用細格】丘陵半徑 700～1,300 m，80 m 的格只有十幾格，鞍部會被格距吃掉。
+   */
+  it('每一顆丘陵單獨烘出來都有一條半徑不是單調遞減的', () => {
     let flat = 0
     for (const h of farm.hills) {
+      const n = 129
+      const solo = createHeightField(n, (h.outerRadius * 2) / (n - 1))
+      bakeRelief(solo, [{ ...h, cx: 0, cz: 0, lobes: h.lobes.map(
+        (lo) => ({ ...lo, cx: lo.cx - h.cx, cz: lo.cz - h.cz })) }], 0)
       let rose = false
-      for (let a = 0; a < Math.PI * 2 && !rose; a += Math.PI / 12) {
+      for (let a = 0; a < Math.PI * 2 && !rose; a += Math.PI / 24) {
         let min = Infinity
         for (let r = 0; r <= h.outerRadius; r += 5) {
-          const v = farm.field.sample(h.cx + Math.cos(a) * r, h.cz + Math.sin(a) * r)
+          const v = solo.sample(Math.cos(a) * r, Math.sin(a) * r)
           if (v > min + 0.5) { rose = true; break }
           if (v < min) min = v
         }
@@ -543,6 +608,22 @@ describe('內陸農地的高度場', () => {
     }
     console.log(JSON.stringify({ 沒有起伏的丘陵: flat, 總數: farm.hills.length }))
     expect(flat).toBe(0)
+  })
+
+  it('每一顆丘陵都有主瓣加 HILL_LOBES 個副瓣', () => {
+    for (const h of farm.hills) expect(h.lobes.length).toBe(5)
+  })
+
+  /**
+   * 【第一次跑把數字填進來】候選是 9 × 9 = 81 個，扣掉超出 `HILL_LIMIT` 的
+   * 與膨脹圓相撞的之後剩多少，是這組常數的結果，不是設計的輸入。
+   *
+   * **釘住它是為了讓「以後有人動了間距」變成一件看得見的事** —— 只寫
+   * `> 30` 的話，31 座也會過，而那時地圖已經空掉了。
+   */
+  it('丘陵數就是這組常數算出來的那個數', () => {
+    // TODO(實作時)：把 console.log 印出的數字填進來，改成 toBe
+    expect(farm.hills.length).toBeGreaterThan(30)
   })
 
   it('決定性 —— 兩次生成逐位元相同', () => {
@@ -612,12 +693,35 @@ export const HILL_PEAK_MAX = 120
  */
 export const HILL_LIMIT = 14000
 
-/** 丘陵中心的候選網格。11 × 11 = 121 個候選，落在 HILL_LIMIT 外的丟掉 */
-const HILL_GRID = 11
-const HILL_STEP = 2400
-const HILL_JITTER = 800
-const HILL_RADIUS = [1000, 1800] as const
-const HILL_PEAK = [40, HILL_PEAK_MAX] as const
+/** 丘陵中心的候選網格。9 × 9 = 81 個候選，放不下的丟掉 */
+const HILL_GRID = 9
+const HILL_STEP = 3000
+const HILL_JITTER = 700
+const HILL_RADIUS = [700, 1300] as const
+
+/**
+ * 峰高佔半徑的比例。**峰高由半徑推得，不是獨立抽的。**
+ *
+ * 【為什麼】坡度是 `1.5 × peak / radius`。獨立抽會抽出「又小又高」的尖丘，
+ * 而綁在一起之後坡度的上限就是 `1.5 × 0.10 = 0.15`（8.5°）—— 一個常數，
+ * 不必事後檢查。
+ */
+const HILL_SLOPE = [0.06, 0.10] as const
+
+/**
+ * 兩顆丘陵的膨脹圓之間至少要留的間隙，m。
+ *
+ * **這一條是 AI 的硬約束，不是美學選擇。** `ai/terrainSense.ts` 的
+ * `findThreat` 只保留航跡上最早撞到的那一座，`senseTerrain` 也只對它做爬升
+ * 判斷 —— 圓盤重疊時，前面一顆矮丘會把後面一顆高丘整個遮掉。重疊版的參數
+ * 實跑是 86 座丘陵、225 組重疊、最大重疊 2,923 m。
+ *
+ * 要讓丘陵連綿就得改 AI 讓它對路徑上所有重疊的丘陵取聯集，而 AI 那一側
+ * 這一輪不動。代價是地形變成平原上散布的緩丘 —— 起伏仍然在，來自每一顆
+ * 丘陵自己的多瓣。
+ */
+const HILL_GAP = 200
+
 /** 每顆丘陵除主瓣外的瓣數。與群島同一個理由：固定，不隨機 */
 const HILL_LOBES = 4
 const HILL_LOBE_RADIUS = [0.30, 0.48] as const
@@ -647,7 +751,7 @@ export function createFarmland(): { field: HeightFieldData; hills: IslandDesc[] 
       const cx = first + i * HILL_STEP + between(-HILL_JITTER, HILL_JITTER)
       const cz = first + j * HILL_STEP + between(-HILL_JITTER, HILL_JITTER)
       const radius = between(HILL_RADIUS[0], HILL_RADIUS[1])
-      const peak = between(HILL_PEAK[0], HILL_PEAK[1])
+      const peak = Math.min(HILL_PEAK_MAX, radius * between(HILL_SLOPE[0], HILL_SLOPE[1]))
       const pa = rand() * Math.PI * 2
       const pb = rand() * Math.PI * 2
       const draws: LobeDraw[] = []
@@ -663,7 +767,18 @@ export function createFarmland(): { field: HeightFieldData; hills: IslandDesc[] 
       }
 
       const outerRadius = radius * WOBBLE_MAX
+      // 【放不下就丟掉，但參數已經抽完了】與 `archipelago.ts` 的 rejection
+      // sampling 同一條規矩：條件式的抽樣會讓序列漂
       if (Math.hypot(cx, cz) + outerRadius > HILL_LIMIT) continue
+      // 【膨脹圓不得重疊】見 `HILL_GAP`
+      let clash = false
+      for (const o of hills) {
+        if (Math.hypot(cx - o.cx, cz - o.cz) < outerRadius + o.outerRadius + HILL_GAP) {
+          clash = true
+          break
+        }
+      }
+      if (clash) continue
 
       hills.push({
         cx, cz, radius, outerRadius, peak,
@@ -683,9 +798,16 @@ export function createFarmland(): { field: HeightFieldData; hills: IslandDesc[] 
 Run: `npx vitest run test/unit/farmland.test.ts`
 Expected: PASS，8 條。記下 log 印出的丘陵數與最高點。
 
-- [ ] **Step 5: 變異驗證**
+- [ ] **Step 5: 變異驗證（三條，逐一做）**
 
-把 `HILL_LOBES` 改成 0，重跑：「每一顆丘陵都有一條半徑不是單調遞減的」必須紅。改回來。
+1. `HILL_LOBES` 改成 0 → 「每一顆丘陵單獨烘出來都有一條半徑不是單調遞減的」
+   必須紅。**注意：在整張成品場上量的版本這個變異驗證是通不過的**（鄰居會
+   替它製造二次上升，實測 flat 仍為 0），這正是改成隔離場的理由。
+2. 拿掉膨脹圓的重疊檢查 → 「沒有任何兩顆丘陵的膨脹圓重疊」必須紅。
+3. `peak` 改回獨立抽 `between(40, HILL_PEAK_MAX)` → 「沒有一顆丘陵陡過
+   HILL_SLOPE 的上限」必須紅。
+
+三條都做完改回來。
 
 - [ ] **Step 6: Commit**
 
@@ -702,6 +824,13 @@ git commit -F <訊息檔>
 - Modify: `src/world/occlusion.ts:37`（`SEA`）、`:96`、`:129`、`LandField`
 - Modify: `src/render/terrain.ts`（群島那一支補 `landAbove: 0`）
 - Test: `test/unit/occlusion.test.ts`
+- **既有的 `LandField` fixture 一個都不能漏**（漏了 `tsc --noEmit` 會紅，
+  而且 `landAbove` 是 `undefined` 時 `h > undefined` 恆為 false —— perf-gate
+  的地形掃描會被靜靜關掉、跑得更快而且錯綠）：
+  - `test/unit/occlusion.test.ts:38, 75, 122`
+  - `test/unit/projectile-terrain.test.ts:31, 38`
+  - `test/integration/terrain-occlusion.test.ts:48`
+  - `test/unit/perf-gate.test.ts:162`
 
 **Interfaces:**
 - Produces: `LandField` 多一個欄位 `readonly landAbove: number`
@@ -788,20 +917,31 @@ if (h > land.landAbove && ay + dy * t <= h) return t
 land: { field, ceiling: PEAK_MAX, landAbove: 0 },
 ```
 
+- [ ] **Step 3.5: 補完所有 fixture，再用型別檢查證明沒有漏網**
+
+Run: `npx tsc --noEmit`
+Expected: 只剩既有的三條非 `process` 基準錯誤。`tsconfig.json` 涵蓋 `test/`，
+所以任何漏掉的 `LandField` 字面值都會在這裡現形。**這一步是 perf-gate 假性
+變快的唯一防線**，不要跳過。
+
 - [ ] **Step 4: 跑測試**
 
-Run: `npx vitest run test/unit/occlusion.test.ts test/unit/terrain.test.ts`
+Run: `npx vitest run test/unit/occlusion.test.ts test/unit/terrain.test.ts test/unit/projectile-terrain.test.ts`
 Expected: PASS。**既有的每一條都必須綠** —— `landAbove: 0` 讓群島逐位元不變。
 
-- [ ] **Step 5: 跑會用到遮蔽的整合測試**
+- [ ] **Step 5: 跑會用到遮蔽的整合測試，以及單獨跑 perf-gate**
 
 Run: `npx vitest run test/integration/terrain-occlusion.test.ts test/integration/turrets.test.ts`
-Expected: PASS
+Run: `npx vitest run test/**/perf-gate.test.ts`
+Expected: PASS。**perf-gate 的數字要與改動前同量級** —— 明顯變快就是
+`landAbove` 把地形掃描關掉了。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/world/occlusion.ts src/render/terrain.ts test/unit/occlusion.test.ts
+git add src/world/occlusion.ts src/render/terrain.ts test/unit/occlusion.test.ts \
+  test/unit/projectile-terrain.test.ts test/integration/terrain-occlusion.test.ts \
+  test/unit/perf-gate.test.ts
 git commit -F <訊息檔>
 ```
 
@@ -825,7 +965,7 @@ git commit -F <訊息檔>
 import { describe, it, expect } from 'vitest'
 import { Mesh, type BufferAttribute } from 'three'
 import { createFarmGround, FARM_CHUNKS } from '../../src/render/farmGround'
-import { createFarmland } from '../../src/world/farmland'
+import { createFarmland, FARM_CELL, FARM_EXTENT } from '../../src/world/farmland'
 
 const farm = createFarmland()
 const ground = createFarmGround(farm.field)
@@ -838,8 +978,7 @@ describe('農地的切塊 mesh', () => {
 
   /**
    * 【這是 `render/terrain.ts` 那條鐵律】畫出來的頂點與撞地判定查到的
-   * 必須是同一個數字。只要 mesh 改成自己再算一次高度，兩份就開始漂，
-   * 而症狀是飛機撞到一片看不見的陸地。
+   * 必須是同一個數字。
    */
   it('每一個頂點的高度就是 field.data 裡的那一個', () => {
     let worst = 0
@@ -853,6 +992,58 @@ describe('農地的切塊 mesh', () => {
       }
     }
     expect(worst).toBe(0)
+  })
+
+  /**
+   * 【只比頂點守不住鐵律】對角線畫反、甚至格內改用雙線性內插，**頂點都完全
+   * 相同**，上一條照樣全綠 —— 那正是上一輪漏掉 16 m 低估的那個型態。
+   *
+   * 真正的判準是：`field.sample` 在格子內部走的是哪一個三角形，畫面上那一格
+   * 就得是同一個。所以要在**三角形內部**取樣，拿三角形所在平面的高度與
+   * `field.sample` 比。
+   *
+   * 【要挑不共面的格】四個角共面時兩種對角線給出同一個平面，測不出差別。
+   */
+  it('格子內部：三角形所在的平面與 field.sample 逐點相等', () => {
+    const { size, cell, data } = farm.field
+    const half = (size - 1) / 2
+    let best = 0
+    let bc = 0
+    let br = 0
+    for (let r = 0; r < size - 1; r++) {
+      for (let c = 0; c < size - 1; c++) {
+        const h00 = data[r * size + c]!
+        const h10 = data[r * size + c + 1]!
+        const h01 = data[(r + 1) * size + c]!
+        const h11 = data[(r + 1) * size + c + 1]!
+        const skew = Math.abs(h00 + h11 - h10 - h01)
+        if (skew > best) { best = skew; bc = c; br = r }
+      }
+    }
+    console.log(JSON.stringify({ 落差: best.toFixed(2) + ' m', col: bc, row: br }))
+    expect(best).toBeGreaterThan(1)   // 真的有一格測得出差別
+
+    const x0 = (bc - half) * cell
+    const z0 = (br - half) * cell
+    let worst = 0
+    for (let tz = 0.05; tz < 1; tz += 0.05) {
+      for (let tx = 0.05; tx < 1; tx += 0.05) {
+        const x = x0 + tx * cell
+        const z = z0 + tz * cell
+        worst = Math.max(worst, Math.abs(meshHeightAt(meshes, x, z) - farm.field.sample(x, z)))
+      }
+    }
+    console.log(JSON.stringify({ 格內最大差: worst.toExponential(2) }))
+    expect(worst).toBeLessThan(1e-4)
+  })
+
+  it('塊與塊的接縫上也相等', () => {
+    const seam = ((farm.field.size - 1) / FARM_CHUNKS) * FARM_CELL - FARM_EXTENT / 2
+    let worst = 0
+    for (let z = -14000; z <= 14000; z += 37) {
+      worst = Math.max(worst, Math.abs(meshHeightAt(meshes, seam, z) - farm.field.sample(seam, z)))
+    }
+    expect(worst).toBeLessThan(1e-4)
   })
 
   it('不帶頂點色 —— 顏色全部由片段著色器算', () => {
@@ -907,6 +1098,35 @@ describe('農地的切塊 mesh', () => {
     expect(pending.size).toBe(0)
   })
 })
+
+/**
+ * 在 mesh 上找 (x, z) 落在哪一個三角形，回傳那個平面的高度。
+ *
+ * 【為什麼要自己走三角形】這正是那兩條測試的重點：不能用 `field.sample`
+ * 算「畫面上是多少」，那樣兩邊會是同一份程式碼，測不到任何東西。
+ */
+function meshHeightAt(meshes: readonly Mesh[], x: number, z: number): number {
+  for (const m of meshes) {
+    const pos = m.geometry.getAttribute('position') as BufferAttribute
+    const idx = m.geometry.getIndex()!
+    for (let t = 0; t < idx.count; t += 3) {
+      const a = idx.getX(t)
+      const b = idx.getX(t + 1)
+      const c = idx.getX(t + 2)
+      const ax = pos.getX(a); const az = pos.getZ(a)
+      const bx = pos.getX(b); const bz = pos.getZ(b)
+      const cx = pos.getX(c); const cz = pos.getZ(c)
+      const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+      if (Math.abs(d) < 1e-9) continue
+      const u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d
+      const v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d
+      const w = 1 - u - v
+      if (u < -1e-9 || v < -1e-9 || w < -1e-9) continue
+      return u * pos.getY(a) + v * pos.getY(b) + w * pos.getY(c)
+    }
+  }
+  throw new Error('mesh 上找不到那一點')
+}
 ```
 
 - [ ] **Step 2: 跑測試確認它紅**
@@ -1054,9 +1274,15 @@ export function createFarmGround(
 Run: `npx vitest run test/unit/farm-ground.test.ts`
 Expected: PASS，7 條
 
-- [ ] **Step 5: 變異驗證**
+- [ ] **Step 5: 變異驗證（兩條）**
 
-把 `buildChunk` 的 `positions[v + 1]` 改成 `0`，重跑：「每一個頂點的高度就是 `field.data` 裡的那一個」必須紅。改回來。
+1. `buildChunk` 的 `positions[v + 1]` 改成 `0` → 「每一個頂點的高度就是
+   `field.data` 裡的那一個」必須紅。
+2. **把對角線改成另一條**（索引改成 `a,c,d` 與 `a,d,b`）→ 頂點那一條仍然綠，
+   但「格子內部：三角形所在的平面與 `field.sample` 逐點相等」必須紅。
+   這一條就是上一輪漏掉 16 m 的那個型態。
+
+兩條都做完改回來。
 
 - [ ] **Step 6: Commit**
 
@@ -1067,15 +1293,15 @@ git commit -F <訊息檔>
 
 ---
 
-### Task 6: `render/farHorizon.ts` —— 跟著鏡頭的遠景平地
+### Task 6: `render/farHorizon.ts` —— 固定不動的遠景環
 
 **Files:**
 - Create: `src/render/farHorizon.ts`
 - Test: `test/unit/far-horizon.test.ts`
 
 **Interfaces:**
-- Consumes: `applyFields`（Task 5）
-- Produces: `createFarHorizon(): { mesh: Mesh; update(centerX: number, centerZ: number): void; dispose(): void }`、`FAR_GROUND_SIZE`
+- Consumes: `applyFields`（Task 5）、`FARM_EXTENT`（Task 3）
+- Produces: `createFarHorizon(): { mesh: Mesh; dispose(): void }`、`FAR_GROUND_REACH`
 
 - [ ] **Step 1: 先寫失敗的測試**
 
@@ -1083,43 +1309,72 @@ git commit -F <訊息檔>
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { MeshStandardMaterial } from 'three'
-import { createFarHorizon, FAR_GROUND_SIZE } from '../../src/render/farHorizon'
+import { MeshStandardMaterial, type BufferAttribute } from 'three'
+import { createFarHorizon, FAR_GROUND_REACH } from '../../src/render/farHorizon'
+import { FARM_EXTENT } from '../../src/world/farmland'
 
-describe('遠景平地', () => {
+describe('遠景環', () => {
   const h = createFarHorizon()
+  const pos = h.mesh.geometry.getAttribute('position') as BufferAttribute
 
-  it('跟著鏡頭走，而且不吸附', () => {
-    h.update(1234.5, -6789.25)
-    expect(h.mesh.position.x).toBe(1234.5)
-    expect(h.mesh.position.z).toBe(-6789.25)
+  it('固定不動 —— 沒有 update 這回事', () => {
+    expect(h.mesh.position.x).toBe(0)
+    expect(h.mesh.position.y).toBe(0)
+    expect(h.mesh.position.z).toBe(0)
+    expect('update' in h).toBe(false)
   })
 
   /**
-   * 【為什麼 y 是 0 而不是沉下去】群島靠 SEA_FLOOR = −8 把島緣沉到水下、
-   * 讓海面蓋在上面。內陸兩者都是地面，那招搬不過來 —— 相機遠平面 5,000 km，
-   * 深度緩衝在幾十公里外分不出幾公尺。改用畫家順序：不寫深度、先畫。
+   * 【為什麼一定要挖洞】環與細節地形都是地面，兩者若重疊就會 z-fighting ——
+   * 而相機遠平面 5,000 km，深度量化在細節地形的角落（離中心 21 km）已經是
+   * 26 m。挖洞之後兩者只共用一條邊，沒有重疊面積。
    */
-  it('與基準平原共面，靠不寫深度避開 z-fighting', () => {
-    expect(h.mesh.position.y).toBe(0)
+  it('中央 30 km 見方是空的', () => {
+    const half = FARM_EXTENT / 2
+    const idx = h.mesh.geometry.getIndex()!
+    let inside = 0
+    for (let t = 0; t < idx.count; t += 3) {
+      let allIn = true
+      for (let k = 0; k < 3; k++) {
+        const v = idx.getX(t + k)
+        if (Math.abs(pos.getX(v)) > half + 1 || Math.abs(pos.getZ(v)) > half + 1) {
+          allIn = false
+          break
+        }
+      }
+      if (allIn) inside++
+    }
+    expect(inside).toBe(0)
+  })
+
+  it('內緣恰好貼著細節地形的外緣', () => {
+    const half = FARM_EXTENT / 2
+    let minAbsX = Infinity
+    for (let i = 0; i < pos.count; i++) minAbsX = Math.min(minAbsX, Math.abs(pos.getX(i)))
+    expect(minAbsX).toBe(half)
+  })
+
+  /**
+   * 【為什麼不能用「不寫深度、先畫」】那樣它不遮任何東西：殘骸落到地表下
+   * 25 m 才回收（`wrecks.ts`）、火花吃重力且沒有地面碰撞（`sparks.ts`）、
+   * 上帝視角飛得出細節區。全部會穿幫。
+   */
+  it('正常寫深度', () => {
     const mat = h.mesh.material as MeshStandardMaterial
-    expect(mat.depthWrite).toBe(false)
-    expect(h.mesh.renderOrder).toBe(-900)
+    expect(mat.depthWrite).toBe(true)
+    expect(h.mesh.renderOrder).toBe(0)
   })
 
-  it('先於一切地面畫，但在天空之後', () => {
-    // sky.ts 是 −1000
-    expect(h.mesh.renderOrder).toBeGreaterThan(-1000)
-    expect(h.mesh.renderOrder).toBeLessThan(0)
+  it('與基準平原共面', () => {
+    for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBe(0)
   })
 
-  it('不做視錐剔除 —— 它永遠可見', () => {
+  it('鋪得夠遠 —— 霧在 100 km 吃掉 86%', () => {
+    expect(FAR_GROUND_REACH).toBeGreaterThanOrEqual(1_000_000)
+  })
+
+  it('不做視錐剔除 —— 它永遠有一部分在畫面上', () => {
     expect(h.mesh.frustumCulled).toBe(false)
-  })
-
-  it('夠大到看不見邊', () => {
-    // 霧在 100 km 吃掉 86%，2,000 km 綽綽有餘
-    expect(FAR_GROUND_SIZE).toBeGreaterThanOrEqual(2_000_000)
   })
 
   it('與細節地形用同一支田的著色器', () => {
@@ -1129,7 +1384,7 @@ describe('遠景平地', () => {
       fragmentShader: '#include <common>\n#include <color_fragment>',
       uniforms: {},
     }
-    ;(mat as unknown as { onBeforeCompile: (s: typeof shader) => void }).onBeforeCompile(shader)
+    ;(mat as unknown as { onBeforeCompile: (x: typeof shader) => void }).onBeforeCompile(shader)
     expect(shader.fragmentShader).toContain('fieldColorAt')
   })
 
@@ -1155,71 +1410,118 @@ Expected: FAIL —— 找不到 `src/render/farHorizon`
 `src/render/farHorizon.ts`：
 
 ```ts
-import { Mesh, MeshStandardMaterial, PlaneGeometry } from 'three'
+import {
+  BufferAttribute, BufferGeometry, Mesh, MeshStandardMaterial,
+} from 'three'
 import { applyFields } from './farmGround'
+import { FARM_EXTENT } from '../world/farmland'
 
 /**
- * 遠景平地 —— 細節地形之外的那一片。
+ * 遠景環 —— 細節地形之外的那一片平地。**中央 30 km 見方是空的**，正好由
+ * 細節地形填。
  *
- * 【照抄 `ocean.ts` 的遠海】一片跟著相機的大平面。差別在遠海是純色，
- * 這裡有田：`applyFields` 吃的是**世界座標**，所以網格往前移一公里、
- * 取樣點跟著移一公里，畫出來的田原地不動。
+ * 【為什麼是環而不是一整片】兩者都是地面，重疊就會 z-fighting。相機遠平面
+ * 5,000 km，深度量化 `Δz ≈ z²/2²⁴` 在細節地形的角落（離中心 21 km）已經是
+ * 26 m —— 要靠沉下去避開就得沉 26 m 以上，而那在交界處是一道看得見的坎。
+ * 挖洞之後兩者只共用一條邊，問題不存在。
  *
- * 【跟著鏡頭但不吸附】與遠海同一個理由：它是平的、沒有面可言，精確跟才
- * 不會在極端座標下累積偏差。近海要吸附是因為頂點在格點之間滑動會讓面的
- * 形狀逐幀改變 —— 這裡沒有那個問題。
+ * 【為什麼不跟著鏡頭走】1,000 km 從 12 km 的界內永遠看不到邊，跟著走換不到
+ * 任何東西。而**不跟著走**換到的是「與細節地形沒有任何重疊面積」。
  *
- * 【深度用畫家順序解，不用 y 位移】它與細節地形都是地面，群島那招
- * （沉到水下、讓海面蓋在上面）搬不過來：相機遠平面 5,000 km，深度緩衝在
- * 幾十公里外分不出幾公尺，而細節地形的角落離中心 21 km。改用天空球那一招
- * —— **不寫深度、先畫**，細節地形之後畫上去一定蓋得過。世界上沒有東西該
- * 被它擋住（它是最低的一層），所以不寫深度沒有代價。
+ * 【為什麼不能不寫深度】初稿想用天空球那一招（`depthWrite: false` 加
+ * 負的 `renderOrder`）。那是錯的 —— 不寫深度等於它不遮任何東西：
+ *
+ * ```
+ *   render/wrecks.ts    殘骸落到地表下 25 m 才回收 → 看得到它沉在地裡
+ *   render/sparks.ts    火花本身 depthWrite:false、吃重力、沒有地面碰撞
+ *   上帝視角             相機飛得出細節區
+ * ```
+ *
+ * 【接縫為什麼不會裂】兩邊的邊都是 `y = 0` 上的直線，而且 x（或 z）都恰好
+ * 是 `±FARM_EXTENT / 2` —— 共用一條邊，細分數不必相同。
  */
 
-/** 邊長，m。霧在 100 km 吃掉 86%，2,000 km 遠遠看不到邊 */
-export const FAR_GROUND_SIZE = 2_000_000
+/** 環往外鋪到哪裡，m。霧在 100 km 已經吃掉 86% */
+export const FAR_GROUND_REACH = 1_000_000
 
 /**
- * 細分數。
+ * 外圈每一邊切幾段。
  *
- * 【為什麼不是一個大四邊形】田的取樣座標由頂點的世界座標透視插值而來。
- * 整片 2,000 km 只有兩個三角形的話，float32 的量化誤差會讓 26 m 的防風林
- * 在遠處抖 —— 與遠海碎光那次是同一個病（`ocean.ts` 的 `FAR_SEGMENTS`）。
- * 32 段下單格 62.5 km，誤差遠小於一塊田。
+ * 【為什麼不是一整塊】田的取樣座標由頂點的世界座標透視插值而來，而
+ * float32 在 10⁶ 量級的解析度是 0.06 m。單格 98.5 km 下誤差遠小於一條
+ * 26 m 的防風林 —— 與遠海碎光那次（`ocean.ts` 的 `FAR_SEGMENTS`）同一個帳。
  */
-const FAR_SEGMENTS = 32
+const RINGS = 10
 
 const ROUGHNESS = 0.95
 
+/**
+ * 座標軸上的格線：`−REACH … −half`，然後 `+half … +REACH`。
+ * **`±half` 之間沒有格線** —— 那一格就是要挖掉的洞。
+ */
+function axis(half: number): number[] {
+  const step = (FAR_GROUND_REACH - half) / RINGS
+  const out: number[] = []
+  for (let i = RINGS; i >= 0; i--) out.push(-(half + i * step))
+  for (let i = 0; i <= RINGS; i++) out.push(half + i * step)
+  return out
+}
+
 export interface FarHorizon {
   readonly mesh: Mesh
-  update(centerX: number, centerZ: number): void
   dispose(): void
 }
 
 export function createFarHorizon(): FarHorizon {
-  const geometry = new PlaneGeometry(
-    FAR_GROUND_SIZE, FAR_GROUND_SIZE, FAR_SEGMENTS, FAR_SEGMENTS)
-  geometry.rotateX(-Math.PI / 2)
+  const half = FARM_EXTENT / 2
+  const xs = axis(half)
+  const n = xs.length
 
-  const material = new MeshStandardMaterial({
-    flatShading: false,
-    roughness: ROUGHNESS,
-    depthWrite: false,
-  })
+  const positions = new Float32Array(n * n * 3)
+  const normals = new Float32Array(n * n * 3)
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const v = (j * n + i) * 3
+      positions[v] = xs[i]!
+      positions[v + 1] = 0
+      positions[v + 2] = xs[j]!
+      normals[v] = 0
+      normals[v + 1] = 1
+      normals[v + 2] = 0
+    }
+  }
+
+  // 【挖掉中央那一格】`axis` 讓 −half 與 +half 相鄰，所以洞恰好是一格。
+  // 由上往下看要逆時針（three 的 FrontSide 是 CCW），法線才朝上
+  const mid = RINGS   // xs[mid] === −half、xs[mid + 1] === +half
+  const indices: number[] = []
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      if (i === mid && j === mid) continue
+      const a = j * n + i
+      const b = a + 1
+      const c = a + n
+      const d = c + 1
+      indices.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3))
+  geometry.setIndex(indices)
+  geometry.computeBoundingSphere()
+
+  // 【平的東西不必 flatShading】法線全部是 +Y，兩種著色結果相同，
+  // 而關掉少一個 shader 變體
+  const material = new MeshStandardMaterial({ flatShading: false, roughness: ROUGHNESS })
   applyFields(material)
 
   const mesh = new Mesh(geometry, material)
   mesh.frustumCulled = false
-  mesh.renderOrder = -900
-  // 建立時就擺好，讓「還沒 update 過」的狀態也是一致的（與 sky.ts 同一招）
-  mesh.position.y = 0
 
   return {
     mesh,
-    update(centerX, centerZ) {
-      mesh.position.set(centerX, 0, centerZ)
-    },
     dispose() {
       geometry.dispose()
       material.dispose()
@@ -1231,9 +1533,14 @@ export function createFarHorizon(): FarHorizon {
 - [ ] **Step 4: 跑測試**
 
 Run: `npx vitest run test/unit/far-horizon.test.ts`
-Expected: PASS，7 條
+Expected: PASS，9 條
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 變異驗證**
+
+拿掉 `if (i === mid && j === mid) continue`，重跑：「中央 30 km 見方是空的」
+必須紅。改回來。
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/render/farHorizon.ts test/unit/far-horizon.test.ts
@@ -1242,17 +1549,18 @@ git commit -F <訊息檔>
 
 ---
 
-### Task 7: `createTerrain` 的第三條分支
+### Task 7: `createTerrain` 重整成三條分支，加上水面的分離
 
 **Files:**
 - Modify: `src/world/terrainKind.ts`
-- Modify: `src/render/terrain.ts`
+- Modify: `src/render/terrain.ts`（**先重整，再加分支**）
+- Modify: `src/world/farmland.ts`（加 `outsideZero`）
 - Modify: `src/ui/menu.ts:70-73`
 - Test: `test/unit/terrain.test.ts`
 
 **Interfaces:**
-- Consumes: `createFarmland`（Task 3）、`createFarmGround`（Task 5）、`createFarHorizon`（Task 6）
-- Produces: `TerrainKind` 多一個值 `'farmland'`
+- Consumes: `createFarmland` / `outsideZero`（Task 3）、`createFarmGround`（Task 5）、`createFarHorizon`（Task 6）
+- Produces: `TerrainKind` 多 `'farmland'`；`Terrain` 多 `waterAt(x, z): number`
 
 - [ ] **Step 1: 先寫失敗的測試**
 
@@ -1263,7 +1571,7 @@ describe('內陸農地', () => {
   const t = createTerrain('farmland')
 
   it('三個位置的契約照舊', () => {
-    // 0 = 遠景平地（遠海那一格）、1 = 空 Group（近海那一格）、2 = 陸地
+    // 0 = 遠景環（遠海那一格）、1 = 空 Group（近海那一格）、2 = 陸地
     expect(t.object.children.length).toBe(3)
     expect(t.object.children[1]!.children.length).toBe(0)
     expect(t.object.children[2]!.children.length).toBe(25)
@@ -1278,13 +1586,31 @@ describe('內陸農地', () => {
     expect(t.heightAt(50_000, 50_000, 0)).toBe(0)
   })
 
-  it('丘陵上的高度就是高度場那一份', () => {
-    const h = t.islands[0]!
-    expect(t.collisionHeightAt(h.cx, h.cz)).toBeCloseTo(h.peak, 3)
+  /**
+   * 【這一條是 Codex 抓到的洞】`landAbove` 是 −Infinity，而出界的
+   * `field.sample` 也是 −Infinity —— 兩個一比是 false，30 km 之外的平地
+   * 會不擋視線也不吃子彈。`LandField` 拿到的必須是**出界回 0** 的那一份。
+   */
+  it('細節區之外一樣擋得住視線與子彈', () => {
+    const land = t.land!
+    expect(losBlocked(-50_500, -1, 50_000, -49_500, -1, 50_000, land)).toBe(true)
+    expect(Number.isFinite(landHitT(50_000, 40, 50_000, 50_000, -40, 50_000, land))).toBe(true)
   })
 
-  it('AI 拿得到丘陵', () => {
-    expect(t.islands.length).toBeGreaterThan(30)
+  it('丘陵上的高度與 field 那一份一致', () => {
+    const h = t.islands[0]!
+    // 【不能拿 peak 比】丘陵中心不落在 80 m 的格點上，正確的實作也會差
+    // 半公尺。判準是「這裡是附近的局部最高」而且與 field 讀到的相同
+    const at = t.collisionHeightAt(h.cx, h.cz)
+    expect(at).toBeGreaterThan(h.peak * 0.9)
+    expect(at).toBeLessThanOrEqual(h.peak)
+    for (const [dx, dz] of [[400, 0], [-400, 0], [0, 400], [0, -400]]) {
+      expect(t.collisionHeightAt(h.cx + dx!, h.cz + dz!)).toBeLessThan(at + 1e-6)
+    }
+  })
+
+  it('AI 拿得到丘陵，而且數量與生成器一致', () => {
+    expect(t.islands.length).toBe(createFarmland().hills.length)
   })
 
   it('陸地的判準是 landAbove = −Infinity', () => {
@@ -1292,10 +1618,41 @@ describe('內陸農地', () => {
     expect(t.land!.ceiling).toBe(HILL_PEAK_MAX)
   })
 
-  it('update 把遠景平地移到鏡頭下', () => {
+  /**
+   * 【水面要與地面分開】`heightAt` 回的是「陸地與海面取 max」，而
+   * `wrecks.ts` / `debris.ts` 碰到 surface 就噴水柱。純內陸每一次墜毀都會
+   * 噴水；群島則是「摔在島上會噴水」—— 那是既有的缺陷，一起修掉。
+   */
+  it('農地沒有水面', () => {
+    expect(t.waterAt(0, 0)).toBe(-Infinity)
+    expect(t.waterAt(50_000, 50_000)).toBe(-Infinity)
+  })
+
+  it('遠景環固定不動 —— update 不移動它', () => {
     t.update(0, 7000, -3000)
-    expect(t.object.children[0]!.position.x).toBe(7000)
-    expect(t.object.children[0]!.position.z).toBe(-3000)
+    expect(t.object.children[0]!.position.x).toBe(0)
+    expect(t.object.children[0]!.position.z).toBe(0)
+  })
+})
+
+describe('水面與地面分開（群島）', () => {
+  const t = createTerrain('archipelago')
+
+  it('海上回海面高度', () => {
+    // 遠離每一座島的一點
+    expect(t.waterAt(19_000, 19_000)).toBeCloseTo(t.heightAt(19_000, 19_000, 0), 6)
+  })
+
+  it('島上回 −Infinity —— 摔在島上不該噴水', () => {
+    const isl = t.islands[0]!
+    expect(t.waterAt(isl.cx, isl.cz)).toBe(-Infinity)
+  })
+})
+
+describe('水面與地面分開（純海面）', () => {
+  it('處處都是水', () => {
+    const t = createTerrain('sea')
+    expect(t.waterAt(0, 0)).toBeCloseTo(t.heightAt(0, 0, 0), 6)
   })
 })
 ```
@@ -1303,9 +1660,132 @@ describe('內陸農地', () => {
 - [ ] **Step 2: 跑測試確認它紅**
 
 Run: `npx vitest run test/unit/terrain.test.ts`
-Expected: FAIL —— `'farmland'` 不在 `TerrainKind` 上
+Expected: FAIL —— `'farmland'` 不在 `TerrainKind` 上、`waterAt` 不存在
 
-- [ ] **Step 3: 改實作**
+- [ ] **Step 3: 先重整 `createTerrain`，不改行為**
+
+現在的寫法在判斷 `'sea'` **之前**就建好 archipelago 與 ocean、並塞了兩個
+child（`src/render/terrain.ts:66-73`）。直接把農地插在 sea 那一段之後，
+農地會有五個 child、而且洩漏 ocean 的資源。
+
+先重整成三條互不相干的頂層分支：
+
+```ts
+export function createTerrain(kind: TerrainKind): Terrain {
+  if (kind === 'farmland') return createFarmlandTerrain()
+  if (kind === 'sea') return createSeaTerrain()
+  return createArchipelagoTerrain()
+}
+```
+
+把現有的兩支各自搬進 `createSeaTerrain()` 與 `createArchipelagoTerrain()`，
+**一行邏輯都不改**。跑一次確認既有測試全綠，再往下走。
+
+Run: `npx vitest run test/unit/terrain.test.ts`
+Expected: 既有的每一條都綠（新加的那幾條仍紅）
+
+- [ ] **Step 4: `Terrain` 加 `waterAt`**
+
+`src/render/terrain.ts` 的介面：
+
+```ts
+  /**
+   * **水面**的高度，m。**沒有水的地方回 `-Infinity`。**
+   *
+   * 【為什麼與 `heightAt` 分家】`heightAt` 回的是「陸地與海面取 max」，
+   * 而水柱、殘骸與碎片問的是另一件事：**這裡碰到的是水嗎**。用 `heightAt`
+   * 的話，摔在島上會噴水柱 —— 群島早就有這個缺陷，純內陸則是每一次墜毀
+   * 都會發生。
+   *
+   * 【誰讀它】`main.ts` 交給 `render/wrecks.ts`、`render/debris.ts` 與
+   * 水柱那一支。撞地判定不讀它（那一條走 `collisionHeightAt`）。
+   */
+  waterAt(x: number, z: number): number
+```
+
+三支的實作：
+
+```ts
+// 純海面
+waterAt: (x, z) => ocean.heightAt(x, z, 0),
+
+// 群島：陸地高過海面的地方沒有水
+waterAt(x, z) {
+  const h = field.sample(x, z)
+  const sea = ocean.heightAt(x, z, 0)
+  return h > sea ? -Infinity : sea
+},
+
+// 農地：沒有水
+waterAt: () => -Infinity,
+```
+
+【`waterAt` 不吃 `time`】呼叫端每幀拿到的是當下那一格的水面，而波的相位由
+`ocean.heightAt` 內部的時間決定 —— 這裡傳 0 會讓水柱貼在平均水位上。
+**若試飛看得出來，改成把 `time` 一路帶下去**；先做簡單的那一版並記在
+backlog。
+
+- [ ] **Step 5: 農地那一支**
+
+`src/world/farmland.ts` 加：
+
+```ts
+/**
+ * 把高度場包成「出界回 0」的一份。**讀的仍然是同一個 `data`。**
+ *
+ * 【為什麼需要它】`HeightFieldData.sample` 出界回 `-Infinity`，而農地的
+ * 遮蔽判準是 `h > landAbove` 而 `landAbove` 也是 `-Infinity` —— 兩個一比
+ * 是 false，30 km 之外的平地會不擋視線、也不吃子彈（子彈會掉進海面水柱
+ * 那條路徑）。
+ *
+ * 【為什麼不直接改 `createHeightField`】群島靠出界的 `-Infinity` 退回平海面
+ * （`render/terrain.ts` 的 `heightAt` 取 max）。那一條是對的。
+ */
+export function outsideZero(f: HeightFieldData): HeightFieldData {
+  return {
+    size: f.size,
+    cell: f.cell,
+    data: f.data,
+    sample(x, z) {
+      const h = f.sample(x, z)
+      return h > 0 ? h : 0
+    },
+  }
+}
+```
+
+`src/render/terrain.ts`：
+
+```ts
+function createFarmlandTerrain(): Terrain {
+  const farm = createFarmland()
+  const horizon = createFarHorizon()
+  const ground = createFarmGround(farm.field)
+  const group = new Group()
+  // 【三個位置的次序與另外兩種相同】索引契約由 `main.ts` 的 `__gfx` 消融表
+  // 與 `src/tools/` 的兩支工具共用
+  group.add(horizon.mesh)
+  group.add(new Group())
+  group.add(ground.object)
+
+  // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去
+  const solid = outsideZero(farm.field)
+
+  return {
+    object: group,
+    // 【不吃 time】內陸沒有波
+    heightAt: (x, z) => solid.sample(x, z),
+    collisionHeightAt: (x, z) => solid.sample(x, z),
+    waterAt: () => -Infinity,
+    islands: farm.hills,
+    // 【`field` 給的是包裝過的那一份】見 `outsideZero`
+    land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
+    // 【遠景環是固定的】沒有東西要每幀更新
+    update() {},
+    dispose() { horizon.dispose(); ground.dispose() },
+  }
+}
+```
 
 `src/world/terrainKind.ts`：
 
@@ -1313,41 +1793,7 @@ Expected: FAIL —— `'farmland'` 不在 `TerrainKind` 上
 export type TerrainKind = 'sea' | 'archipelago' | 'farmland'
 ```
 
-把檔頭「還沒做的兩種」那段改成現狀：內陸已經做了，剩「大島海岸線」。
-
-`src/render/terrain.ts` 加分支（放在 `'sea'` 那一段之後、群島之前）：
-
-```ts
-if (kind === 'farmland') {
-  const farm = createFarmland()
-  const horizon = createFarHorizon()
-  const ground = createFarmGround(farm.field)
-  // 【三個位置的次序與群島相同】索引契約由 `main.ts` 的 `__gfx` 消融表與
-  // `src/tools/` 的兩支工具共用
-  group.add(horizon.mesh)
-  group.add(new Group())
-  group.add(ground.object)
-
-  // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去
-  const groundAt = (x: number, z: number): number => {
-    const h = farm.field.sample(x, z)
-    return h > 0 ? h : 0
-  }
-
-  return {
-    object: group,
-    // 【不吃 time】內陸沒有波
-    heightAt: (x, z) => groundAt(x, z),
-    collisionHeightAt: groundAt,
-    islands: farm.hills,
-    land: { field: farm.field, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
-    update(_time, centerX, centerZ) { horizon.update(centerX, centerZ) },
-    dispose() { horizon.dispose(); ground.dispose() },
-  }
-}
-```
-
-注意 `heightAt` 的簽章是 `(x, z, time)`，這裡忽略 `time`。
+檔頭「還沒做的兩種」那一段改成現狀：內陸已經做了，剩「大島海岸線」。
 
 `src/ui/menu.ts`：
 
@@ -1359,20 +1805,27 @@ const TERRAINS: readonly { label: string; value: TerrainKind }[] = [
 ]
 ```
 
-- [ ] **Step 4: 跑測試**
+- [ ] **Step 6: 跑測試**
 
 Run: `npx vitest run test/unit/terrain.test.ts test/unit/menu.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 型別檢查**
+- [ ] **Step 7: 型別檢查**
 
 Run: `npx tsc --noEmit`
-Expected: 只剩既有的三條非 `process` 基準錯誤。**新的 `TerrainKind` 若讓某個 switch 少一支，這裡會抓到。**
+Expected: 只剩既有的三條非 `process` 基準錯誤。**新的 `TerrainKind` 若讓某個
+switch 少一支、或 `waterAt` 有實作沒補到，這裡會抓到。**
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: 變異驗證**
+
+把 `land` 的 `field` 改回 `farm.field`（沒有包裝的那一份），重跑：
+「細節區之外一樣擋得住視線與子彈」必須紅。改回來。
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/world/terrainKind.ts src/render/terrain.ts src/ui/menu.ts test/unit/terrain.test.ts
+git add src/world/terrainKind.ts src/render/terrain.ts src/world/farmland.ts \
+  src/ui/menu.ts test/unit/terrain.test.ts
 git commit -F <訊息檔>
 ```
 
@@ -1545,15 +1998,20 @@ git commit -F <訊息檔>
 **Files:**
 - Create: `src/hud/widgets/arena.ts`
 - Modify: `src/hud/types.ts`（`HudFrame` 加三個欄位、`createHudFrame` 的初值）
-- Modify: `src/hud/Hud.ts`（註冊 widget）
-- Modify: `src/hud/widgets/minimap.ts`（畫界的弧）
-- Test: `test/unit/hud-arena.test.ts`
+- Modify: `src/hud/Hud.ts`（`HudWidget` 聯集、`FULL`、`GOD`、`WIDGET_DRAW`）
+- Modify: `src/hud/widgets/minimap.ts`（畫界的圓）
+- Test: `test/unit/hud-arena.test.ts`、既有的 `hudWidgets` 測試
 
 **Interfaces:**
-- Consumes: `ARENA_COUNTDOWN`（Task 8）
-- Produces: `drawArena(ctx, L, f)`；`HudFrame` 多 `arenaOutside: boolean`、`arenaRemaining: number`、`arenaShow: boolean`
+- Consumes: `ARENA_COUNTDOWN` / `ARENA_RADIUS`（Task 8）
+- Produces: `drawArena(ctx, L, f)`；`HudFrame` 多 `arenaShow` / `arenaOutside` / `arenaRemaining`
 
-- [ ] **Step 1: 先寫失敗的測試**
+- [ ] **Step 1: 先讀既有的 HUD 測試**
+
+`test/unit/` 底下已經有 HUD 元件的測試 —— 照抄它們造假 `ctx` 的方式，
+不要自己發明一套。
+
+- [ ] **Step 2: 先寫失敗的測試**
 
 `test/unit/hud-arena.test.ts`：
 
@@ -1561,16 +2019,16 @@ git commit -F <訊息檔>
 import { describe, it, expect } from 'vitest'
 import { drawArena } from '../../src/hud/widgets/arena'
 import { createHudFrame } from '../../src/hud/types'
-import { makeCtx, makeLayout } from './helpers/hud'   // 沿用該目錄既有的假 ctx
+import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
 
 describe('返回戰場的警告', () => {
   it('界內不畫任何東西', () => {
     const f = createHudFrame()
     f.arenaShow = true
     f.arenaOutside = false
-    const ctx = makeCtx()
-    drawArena(ctx.ctx, makeLayout(), f)
-    expect(ctx.calls.filter((c) => c.startsWith('fillText'))).toHaveLength(0)
+    const c = fakeCtx()
+    drawArena(c.ctx, layout(), f)
+    expect(c.texts()).toHaveLength(0)
   })
 
   it('界外畫警告與秒數', () => {
@@ -1578,11 +2036,12 @@ describe('返回戰場的警告', () => {
     f.arenaShow = true
     f.arenaOutside = true
     f.arenaRemaining = 8.4
-    const ctx = makeCtx()
-    drawArena(ctx.ctx, makeLayout(), f)
-    const texts = ctx.calls.filter((c) => c.startsWith('fillText')).join('|')
-    expect(texts).toContain('返回戰場')
-    expect(texts).toContain('9')   // Math.ceil(8.4)
+    const c = fakeCtx()
+    drawArena(c.ctx, layout(), f)
+    const t = c.texts().join('|')
+    expect(t).toContain('返回戰場')
+    // 【進位】剩 0.2 秒顯示 0 會讓玩家以為已經沒救了
+    expect(t).toContain('9')
   })
 
   it('這一場沒有界就完全不畫', () => {
@@ -1590,27 +2049,90 @@ describe('返回戰場的警告', () => {
     f.arenaShow = false
     f.arenaOutside = true
     f.arenaRemaining = 3
-    const ctx = makeCtx()
-    drawArena(ctx.ctx, makeLayout(), f)
-    expect(ctx.calls.filter((c) => c.startsWith('fillText'))).toHaveLength(0)
+    const c = fakeCtx()
+    drawArena(c.ctx, layout(), f)
+    expect(c.texts()).toHaveLength(0)
   })
 
-  it('createHudFrame 的初值是界內', () => {
+  it('createHudFrame 的初值是界內、而且沒有界', () => {
     const f = createHudFrame()
     expect(f.arenaOutside).toBe(false)
     expect(f.arenaShow).toBe(false)
   })
 })
+
+/**
+ * 【這一組才是承重的】只呼叫 `drawArena` 的話，**widget 根本沒註冊也會
+ * 全綠** —— 畫面上什麼都不會出現而測試不知道。
+ */
+describe('警告真的被排進繪製清單', () => {
+  it('座艙視角畫得到', () => {
+    expect(hudWidgets(false)).toContain('arena')
+  })
+
+  /**
+   * 【上帝視角也要有】界在上帝視角下照樣會殺玩家（`main.ts` 的 crashPolicy
+   * 不看視角）。只加進 FULL 的話，上帝視角裡飛機會無預警爆炸。
+   */
+  it('上帝視角也畫得到', () => {
+    expect(hudWidgets(true)).toContain('arena')
+  })
+
+  it('WIDGET_DRAW 有這一格', () => {
+    expect(typeof WIDGET_DRAW.arena).toBe('function')
+  })
+
+  /**
+   * 【排在 objective 之前】objective 是「這一場的規則」，壓最上層。
+   * 警告排它之前，兩者不會互相蓋。
+   */
+  it('排在 objective 之前', () => {
+    const full = hudWidgets(false)
+    expect(full.indexOf('arena')).toBeLessThan(full.indexOf('objective'))
+  })
+})
 ```
 
-**先讀 `test/unit/` 底下既有的 HUD 測試**，照抄它們造假 `ctx` 的方式；上面的 `makeCtx` / `makeLayout` 若不存在就照既有寫法就地造一個。
+小地圖那一條放進既有的 minimap 測試檔：
 
-- [ ] **Step 2: 跑測試確認它紅**
+```ts
+it('有界的時候畫出界的圓，圓心在世界原點', () => {
+  const f = createHudFrame()
+  f.arenaShow = true
+  f.worldX = 3000
+  f.worldZ = -1000
+  const c = fakeCtx()
+  drawMinimap(c.ctx, layout(), f)
+  // 【圓心是「世界原點相對於玩家」】小地圖的座標系已經 translate 到玩家、
+  // rotate 了 −heading，所以原點落在 (−worldX·px, −worldZ·px)
+  const size = Math.min(layout().width, layout().height) * 0.19
+  const px = size / (2 * 4000)
+  expect(c.arcs()).toContainEqual(expect.objectContaining({
+    x: expect.closeTo(-3000 * px, 3),
+    y: expect.closeTo(1000 * px, 3),
+    r: expect.closeTo(ARENA_RADIUS * px, 3),
+  }))
+})
 
-Run: `npx vitest run test/unit/hud-arena.test.ts`
+it('沒有界就不畫那個圓', () => {
+  const f = createHudFrame()
+  f.arenaShow = false
+  const c = fakeCtx()
+  drawMinimap(c.ctx, layout(), f)
+  const size = Math.min(layout().width, layout().height) * 0.19
+  const px = size / (2 * 4000)
+  for (const a of c.arcs()) expect(a.r).not.toBeCloseTo(ARENA_RADIUS * px, 3)
+})
+```
+
+（假 `ctx` 要記錄 `arc()` 的參數；既有的假 `ctx` 若沒有就補上。）
+
+- [ ] **Step 3: 跑測試確認它紅**
+
+Run: `npx vitest run test/unit/hud-arena.test.ts test/unit/hud-minimap.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: 寫實作**
+- [ ] **Step 4: 寫實作**
 
 `src/hud/widgets/arena.ts`：
 
@@ -1623,8 +2145,9 @@ import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
  * 【為什麼秒數用 ceil】剩 0.2 秒時顯示 0 會讓玩家以為已經沒救了。
  * 進位之後「畫面上的 1」與「還有時間」是同一件事。
  *
- * 【為什麼要 `arenaShow`】界只掛在遭遇戰上（任務卡的撤離點在 −20 km）。
- * 沒有這一格的話，任務裡飛去撤離點會一路閃警告。
+ * 【為什麼要 `arenaShow`】界只掛在遭遇戰上 —— 任務卡的撤離點在 −20 km、
+ * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
+ * 一路閃警告。
  */
 export function drawArena(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
@@ -1639,15 +2162,16 @@ export function drawArena(
   ctx.fillText('返回戰場', L.width / 2, L.height * 0.24)
 
   ctx.font = hudFont(46 * L.scale, true)
-  ctx.fillText(String(Math.ceil(f.arenaRemaining)), L.width / 2, L.height * 0.24 + 46 * L.scale)
+  ctx.fillText(
+    String(Math.ceil(f.arenaRemaining)), L.width / 2, L.height * 0.24 + 46 * L.scale)
 }
 ```
 
-`src/hud/types.ts`：在 `HudFrame` 上加
+`src/hud/types.ts` 的 `HudFrame`：
 
 ```ts
   /**
-   * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km，
+   * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
    * 護航的集合點 12 km，兩者都在界外。
    */
   arenaShow: boolean
@@ -1657,62 +2181,134 @@ export function drawArena(
   arenaRemaining: number
 ```
 
-`createHudFrame()` 的初值：`arenaShow: false, arenaOutside: false, arenaRemaining: ARENA_COUNTDOWN`。
+`createHudFrame()` 的初值：`arenaShow: false, arenaOutside: false,
+arenaRemaining: ARENA_COUNTDOWN`。
 
-`src/hud/Hud.ts`：import 並在 widget 表加 `arena: (ctx, L, f) => drawArena(ctx, L, f)`，位置排在 `damageEdge` 之後、`contacts` 之前（警告要壓在接觸點之下、受擊痕跡之上）。
+`src/hud/Hud.ts`：**三個地方都要改，少一個是編譯錯誤**（`WIDGET_DRAW` 是
+`Record<HudWidget, …>`）。
 
-`src/hud/widgets/minimap.ts`：在畫完地圖框之後、畫符號之前，加界的弧：
+```ts
+export type HudWidget =
+  | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
+  | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
+  | 'godMarkers' | 'objective' | 'arena'
+```
+
+`FULL` 與 `GOD` 都在 `'objective'` **之前**插 `'arena'`。`GOD` 也要有 ——
+界在上帝視角下照樣會殺玩家，警告消失的話飛機會無預警爆炸。
+
+`WIDGET_DRAW` 加 `arena: (ctx, L, f) => drawArena(ctx, L, f),`。
+
+`src/hud/widgets/minimap.ts`：**放在 `ctx.rotate(-f.heading)` 之後、
+畫網格那一段之後、`ctx.restore()`（現行第 169 行）之前** —— 那個區段裡
+座標系是「以玩家為原點、機首朝上」，計畫裡的算式只有在那裡成立。
 
 ```ts
   // 【戰場邊界】小地圖半徑 4 km、界 12 km，所以只有靠近時才進得了畫面。
-  // 那正是它該出現的時機
+  // 那正是它該出現的時機。圓心是**世界原點相對於玩家**
   if (f.arenaShow) {
-    const cx = -f.worldX * px
-    const cz = -f.worldZ * px
-    const r = ARENA_RADIUS * px
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(-size / 2, -size / 2, size, size)
-    ctx.clip()
     ctx.strokeStyle = HUD_COLORS.warn
     ctx.lineWidth = 1.5 * L.scale
     ctx.beginPath()
-    ctx.arc(cx, cz, r, 0, Math.PI * 2)
+    ctx.arc(-f.worldX * px, -f.worldZ * px, ARENA_RADIUS * px, 0, Math.PI * 2)
     ctx.stroke()
-    ctx.restore()
   }
 ```
 
-（`px`、`size` 與座標原點沿用該檔既有的變數；先讀那一段再落筆。）
+- [ ] **Step 5: 跑測試**
 
-- [ ] **Step 4: 跑測試**
-
-Run: `npx vitest run test/unit/hud-arena.test.ts test/unit/hud*.test.ts`
+Run: `npx vitest run test/unit/hud-arena.test.ts && npx vitest run test/unit/`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: 變異驗證**
+
+把 `'arena'` 從 `GOD` 拿掉，重跑：「上帝視角也畫得到」必須紅。改回來。
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/hud/widgets/arena.ts src/hud/types.ts src/hud/Hud.ts src/hud/widgets/minimap.ts test/unit/hud-arena.test.ts
+git add src/hud/widgets/arena.ts src/hud/types.ts src/hud/Hud.ts \
+  src/hud/widgets/minimap.ts test/unit/hud-arena.test.ts test/unit/hud-minimap.test.ts
 git commit -F <訊息檔>
 ```
 
 ---
 
-### Task 10: `main.ts` 接線
+### Task 10: `main.ts` 接線 —— 邊界與水面
 
 **Files:**
 - Modify: `src/main.ts`
+- Test: `test/unit/arena-wiring.test.ts`（純函數那一半）
 
 **Interfaces:**
-- Consumes: Task 8 的 `createArenaState` / `stepArena`、Task 9 的 HudFrame 欄位
+- Consumes: Task 7 的 `terrain.waterAt`、Task 8 的 `createArenaState` / `stepArena`、Task 9 的 HudFrame 欄位
 
-- [ ] **Step 1: 接線**
+- [ ] **Step 1: 先寫失敗的測試 —— 判準抽成純函數**
 
-在 `main.ts`：
+`main.ts` 本身測不到（它一載入就開瀏覽器）。所以把兩個判準抽成
+`world/arena.ts` 的純函數，測那兩支：
 
 ```ts
-import { createArenaState, stepArena } from './world/arena'
+// test/unit/arena-wiring.test.ts
+import { describe, it, expect } from 'vitest'
+import {
+  arenaKills, createArenaState, stepArena, ARENA_COUNTDOWN, ARENA_RADIUS,
+} from '../../src/world/arena'
+
+describe('界殺誰', () => {
+  const expired = createArenaState()
+  for (let i = 0; i < ARENA_COUNTDOWN + 1; i++) {
+    stepArena(expired, ARENA_RADIUS + 100, 4000, 0, 1)
+  }
+
+  it('倒數歸零就殺玩家', () => {
+    expect(arenaKills(expired, true)).toBe(true)
+  })
+
+  /**
+   * 【為什麼要有這一條】AI 這一輪沒有牽引，實測會漂到幾十公里外。
+   * 界若對 AI 生效，整隊會在開打前先自爆。
+   */
+  it('不殺 AI', () => {
+    expect(arenaKills(expired, false)).toBe(false)
+  })
+
+  it('還沒歸零不殺任何人', () => {
+    const s = createArenaState()
+    stepArena(s, ARENA_RADIUS + 100, 4000, 0, 1)
+    expect(arenaKills(s, true)).toBe(false)
+  })
+})
+```
+
+`src/world/arena.ts` 加：
+
+```ts
+/**
+ * 這一格要不要殺。**只殺玩家。**
+ *
+ * 【為什麼不是在 `main.ts` 裡寫一行判斷】那一行測不到，而它正好是
+ * 「AI 全隊在開打前自爆」與「玩家出界不會死」兩種相反災難的分界。
+ */
+export function arenaKills(s: ArenaState, isPlayer: boolean): boolean {
+  return isPlayer && s.expired
+}
+```
+
+- [ ] **Step 2: 跑測試確認它紅**
+
+Run: `npx vitest run test/unit/arena-wiring.test.ts`
+Expected: FAIL —— `arenaKills` 不存在
+
+- [ ] **Step 3: 寫 `arenaKills`，跑綠**
+
+Run: `npx vitest run test/unit/arena-wiring.test.ts test/unit/arena.test.ts`
+Expected: PASS
+
+- [ ] **Step 4: 接線**
+
+```ts
+import { arenaKills, createArenaState, stepArena } from './world/arena'
 ```
 
 模組層：
@@ -1724,57 +2320,67 @@ import { createArenaState, stepArena } from './world/arena'
 const arena = createArenaState()
 ```
 
-開新的一場時（`wireTerrain(true)` 附近，也就是重置那一段）：
+**重置要放在兩個地方**：`restartBattle()`（`main.ts:439`）與 `enterBattle()`
+（`main.ts:482`）。**只放前者是錯的** —— 由選單新開一場走的是後者，
+會沿用上一場已經 `expired` 的狀態，玩家一進場就爆炸。兩處各加：
 
 ```ts
-Object.assign(arena, createArenaState())
-hudFrame.arenaShow = from === 'skirmish'
+  Object.assign(arena, createArenaState())
+  // 【只有遭遇戰有界】任務卡的撤離點在 −20 km。`mode` 是既有的狀態變數
+  hudFrame.arenaShow = mode === 'skirmish'
 ```
 
-（`from` 是既有的「這一場從哪裡進來」那個變數；讀該處實際的名字。）
-
-在物理步進之後、`crashPolicy` 讀得到的地方推進狀態。`crashPolicy` 是
-**predicate，不放副作用** —— 所以在主迴圈推進：
+主迴圈裡，物理步進之後：
 
 ```ts
-  const p = player.aircraft.state.position
-  stepArena(arena, p.x, p.y, p.z, dt)
+  const pp = player.aircraft.state.position
+  stepArena(arena, pp.x, pp.y, pp.z, dt)
   hudFrame.arenaOutside = arena.outside
   hudFrame.arenaRemaining = arena.remaining
 ```
 
-`crashPolicy` 那一行改成：
+撞地政策（`main.ts:521`）：
 
 ```ts
   const seaCrash = flatSeaCrashPolicy(terrain.collisionHeightAt)
   world.crashPolicy = (c) => {
-    // 【界只對玩家】見 `world/arena.ts`
-    if (c.controller === playerController && arena.expired) return true
+    // 【比 combatant，不是比 controller】玩家按 I 交給 AI、或進上帝視角時，
+    // 這一架的 `controller` 會被換成 `playerAi`（`main.ts:811-816`）——
+    // 比 controller 的話那時候倒數歸零殺不掉人
+    if (arenaKills(arena, c === player)) return true
     return seaCrash(c)
   }
 ```
 
-（`playerController` 的實際比對方式讀 `main.ts` 現況；若玩家是
-`combatants[0]` 就比索引。）
+**水面那一項**：`main.ts:841` 與 `:994-995` 現在把 `terrain.heightAt` 交給
+水柱、殘骸與碎片。改成 `terrain.waterAt`。
 
-- [ ] **Step 2: 型別檢查**
+```
+  【這順帶修掉群島的一個既有缺陷】heightAt 回的是「陸地與海面取 max」，
+  所以殘骸摔在島上會噴水柱。改成 waterAt 之後兩種地形都對。
+```
+
+- [ ] **Step 5: 型別檢查**
 
 Run: `npx tsc --noEmit`
 Expected: 只剩既有的基準錯誤
 
-- [ ] **Step 3: 手動驗一次**
+- [ ] **Step 6: 手動驗四種情形**
 
 ```
 node node_modules/vite/bin/vite.js --port 5178
 ```
 
-開遭遇戰 → 選「內　陸」→ 起飛 → 直飛出 12 km。預期：HUD 出現「返回戰場」與
-倒數、小地圖出現界的弧、15 秒後爆炸。**回頭飛進界內倒數要歸零。**
+1. 遭遇戰 → 「內　陸」→ 直飛出 12 km：警告、倒數、小地圖的圓、15 秒後爆炸
+2. 倒數中回頭飛進界內：倒數歸零重置、警告消失
+3. **按 I 交給 AI，再飛出去**：照樣會爆（這是 controller 比對的那個坑）
+4. **爆炸後回選單、重新開一場**：不能一進場就爆
+5. 任務卡（會強制群島）：飛到 20 km 的撤離點**不該**有警告
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/main.ts
+git add src/main.ts src/world/arena.ts test/unit/arena-wiring.test.ts
 git commit -F <訊息檔>
 ```
 
@@ -1783,7 +2389,8 @@ git commit -F <訊息檔>
 ### Task 11: 整合、效能、截圖
 
 **Files:**
-- Modify: `test/integration/terrain-in-play.test.ts`（加農地的一組）
+- Modify: `src/main.ts`（`__still` 加 x/z）
+- Modify: `test/integration/terrain-in-play.test.ts`
 - Create: `test/e2e/farmland-shot.e2e.ts`
 
 - [ ] **Step 1: 跑全套件（`perf-gate` 與 `rematch` 除外）**
@@ -1797,38 +2404,85 @@ Run: `npx vitest run test/integration/rematch.test.ts`
 Run: `npx vitest run test/**/perf-gate.test.ts`
 Expected: PASS。`perf-gate` 抖動的話單獨重跑三次記錄。
 
-- [ ] **Step 3: 量丘陵數對 AI 迴圈的影響**
+- [ ] **Step 3: 量丘陵對 AI 迴圈的影響**
 
 在 `terrain-in-play.test.ts` 加一組吃 `createFarmland().hills` 的掃描，記錄
-撞山數、最低離地、繞島佔時。**這是新的基準線，不是護欄** —— 第一次跑就是
-把數字記下來。
+撞山數、最低離地、繞島佔時、以及丘陵數。**這是新的基準線，不是護欄** ——
+第一次跑就是把數字記下來。
 
-- [ ] **Step 4: 截圖**
+- [ ] **Step 4: `__still` 要能把相機移出原點**
 
-`test/e2e/farmland-shot.e2e.ts`，照 `island-shot.e2e.ts` 的骨架，五個凍結姿態：
+現在的簽章是 `(yawDeg, pitchDeg, altitude, time)`，而且寫死
+`ctx.camera.position.set(0, altitude, 0)`（`main.ts:1417-1422`）。
+**不改的話「站在細節區邊緣朝外拍」根本拍不到邊界** —— 那兩張只是從中心
+朝相反方向看。
+
+加兩個有預設值的參數：
 
 ```ts
+;(window as unknown as Record<string, unknown>)['__still'] = (
+  yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0, x = 0, z = 0,
+) => {
+  ...
+  ctx.camera.position.set(x, altitude, z)
+```
+
+既有的 `island-shot.e2e.ts` 傳四個參數，預設值讓它一個字都不用改 ——
+但**要重跑一次確認截圖沒變**。
+
+- [ ] **Step 5: 截圖**
+
+`test/e2e/farmland-shot.e2e.ts`，照 `island-shot.e2e.ts` 的骨架：
+
+```ts
+/** 姿態。偏航、俯仰（度）、高度（m）、以及相機的世界位置 */
 const VIEWS = [
-  { name: 'high',    yaw: 0,  pitch: -38, alt: 3000, desc: '3 km 俯瞰 —— 田的圖樣' },
-  { name: 'cruise',  yaw: 30, pitch: -12, alt: 600,  desc: '600 m 巡航 —— 田與防風林的尺度' },
-  { name: 'deck',    yaw: 30, pitch: -4,  alt: 150,  desc: '150 m 貼地 —— 田會不會太碎' },
-  { name: 'edge-out', yaw: 0, pitch: -8,  alt: 1200, desc: '界上朝外 —— 起伏斷不斷得出來' },
-  { name: 'edge-in', yaw: 180, pitch: -8, alt: 1200, desc: '界上朝內' },
+  { name: 'high',   yaw: 0,   pitch: -38, alt: 3000, x: 0,      z: 0, desc: '3 km 俯瞰 —— 田的圖樣' },
+  { name: 'cruise', yaw: 30,  pitch: -12, alt: 600,  x: 0,      z: 0, desc: '600 m 巡航 —— 田與防風林的尺度' },
+  { name: 'deck',   yaw: 30,  pitch: -4,  alt: 150,  x: 0,      z: 0, desc: '150 m 貼地 —— 田會不會太碎' },
+  { name: 'edge-out', yaw: 0, pitch: -8,  alt: 1200, x: 0, z: -12000, desc: '界上朝外 —— 起伏斷不斷得出來' },
+  { name: 'edge-in',  yaw: 180, pitch: -8, alt: 1200, x: 0, z: -12000, desc: '界上朝內' },
 ] as const
 ```
 
-**驗收的問題是 §五.9 那一條**：`edge-out` 那一張看不看得出細節地形的邊。
+呼叫改成 `[v.yaw, v.pitch, v.alt, 12, v.x, v.z]`。
+
+**驗收的問題是 SPEC §五.9**：`edge-out` 那一張看不看得出細節地形的邊。
 看得出來就回報，處置是讓丘陵密度往外遞減。
 
-- [ ] **Step 5: 更新 backlog**
+- [ ] **Step 6: 在真的 WebGL2 裡編譯那段 GLSL**
 
-`docs/backlog.md` 加第十一節，記錄這一輪做了什麼、量到什麼、以及沒做的
-（AI 牽引、樹與房屋、大島海岸線）。
+headless 的單元測試碰不到 GPU，所以 Task 1 的「常數有出現在字串裡」證明不了
+語法沒打錯。在同一支 e2e 裡加一步：
 
-- [ ] **Step 6: Commit**
+```ts
+const glslError = await page.evaluate(() => {
+  const w = window as unknown as Record<string, string>
+  const src = w['__fieldGlsl']!      // main.ts 在 dev 下掛上去
+  const gl = document.createElement('canvas').getContext('webgl2')!
+  const sh = gl.createShader(gl.FRAGMENT_SHADER)!
+  gl.shaderSource(sh, '#version 300 es\nprecision highp float;\n' + src
+    + '\nout vec4 o;\nvoid main(){ o = vec4(fieldColorAt(gl_FragCoord.xy), 1.0); }')
+  gl.compileShader(sh)
+  return gl.getShaderInfoLog(sh) ?? ''
+})
+console.log('  GLSL 編譯訊息：' + (glslError.trim() || '（無）'))
+if (glslError.trim() !== '') throw new Error('GLSL 編譯失敗')
+```
+
+`main.ts` 掛上去那一行與 `__gfx` / `__still` 同一段。
+
+- [ ] **Step 7: 更新 backlog**
+
+`docs/backlog.md` 加第十一節，記錄這一輪做了什麼、量到什麼，以及**沒做的**：
+AI 的絕對牽引（§10.2）、樹與房屋、大島海岸線、丘陵不能連綿的原因、
+`waterAt` 不吃 `time`。
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add test/integration/terrain-in-play.test.ts test/e2e/farmland-shot.e2e.ts docs/backlog.md
+git add src/main.ts test/integration/terrain-in-play.test.ts \
+  test/e2e/farmland-shot.e2e.ts docs/backlog.md
 git commit -F <訊息檔>
 ```
 
@@ -1841,19 +2495,40 @@ git commit -F <訊息檔>
 | SPEC | 任務 |
 |---|---|
 | 2.1 第三種地形 | 7 |
-| 2.2 丘陵沿用多瓣 | 2、3 |
+| 2.2 丘陵沿用多瓣、膨脹圓不重疊 | 2、3 |
 | 2.3 田與防風林在著色器 | 1、5 |
-| 2.4 遠景平地 | 6 |
+| 2.4 遠景環（固定、挖洞） | 6 |
 | 2.5 場外地面與遮蔽判準 | 4、7 |
+| 2.5 之二 水面與地面分開 | 7、10 |
 | 2.6 戰場邊界 | 8、9、10 |
 | 五、驗收 1–6 | 各任務的單元測試 |
-| 五、驗收 7–9 | 11 |
+| 五、驗收 7–10 | 11 |
 
-**型別一致性：** `LandField.landAbove`（Task 4 定義）在 Task 7 的農地分支用
-`-Infinity`、群島用 `0`。`applyFields`（Task 5 匯出）在 Task 6 被 import。
-`HILL_PEAK_MAX`（Task 3）在 Task 7 當 `ceiling`。`ARENA_COUNTDOWN`（Task 8）
-在 Task 9 當 HudFrame 的初值。
+**型別一致性：** `LandField.landAbove`（Task 4）在 Task 7 農地用 `-Infinity`、
+群島用 `0`。`applyFields`（Task 5）在 Task 6 被 import。`outsideZero`（Task 3）
+在 Task 7 被 import。`HILL_PEAK_MAX`（Task 3）在 Task 7 當 `ceiling`。
+`FARM_EXTENT`（Task 3）在 Task 6 決定洞的大小。`ARENA_COUNTDOWN`（Task 8）
+在 Task 9 當 HudFrame 的初值。`arenaKills`（Task 10 加進 `world/arena.ts`）
+只被 `main.ts` 讀。
 
-**已知會在實作時才確定的兩件事**（都不是佔位符，是要讀現況的接點）：
-Task 9 的假 `ctx` 造法要照抄 `test/unit/` 既有的 HUD 測試；Task 10 的
-「玩家是哪一架」要讀 `main.ts` 現況的比對方式。
+## Codex 審查（2026-08-28）改掉的十件事
+
+這一份的第一版有十個 BLOCKER，全部進了上面的任務。留在這裡是因為其中五個
+是**測試會錯綠**的型態，值得記著。
+
+| # | 問題 | 處置 |
+|---|---|---|
+| 1 | 遠景平地用 `depthWrite:false` → 不遮任何東西，殘骸沉在地裡、火花穿地、上帝視角飛得出去 | 改成**固定的環**，中央挖洞，正常寫深度（Task 6） |
+| 2 | `landAbove: -Infinity` 對出界的 `sample()` 也是 `-Infinity` → 30 km 外不擋視線也不吃子彈 | `outsideZero` 包裝（Task 3、7） |
+| 3 | 重疊的 `IslandDesc`：`findThreat` 只留最早那一座，矮丘遮掉高丘。實跑 86 座、225 組重疊、最大 2,923 m | 膨脹圓不得重疊（Task 3 的 `HILL_GAP`） |
+| 4 | 農地墜毀會噴水柱；群島「摔在島上噴水」是既有缺陷 | `Terrain.waterAt`（Task 7、10） |
+| 5 | 用 `controller === playerController` 認玩家 → AI 接管時殺不掉；重置只放 `restartBattle` → 新開一場沿用 expired | 比 combatant、兩處都重置（Task 10） |
+| 6 | mesh 只比頂點 → 對角線畫反照樣全綠 | 三角形內部取樣（Task 5） |
+| 7 | 起伏測試在成品場上量 → `HILL_LOBES = 0` 仍 PASS；峰高那條則會誤紅 | 隔離場 + 局部最高值（Task 3、7） |
+| 8 | shader 測試只搜字串 | 金本位 + 真 WebGL2 編譯（Task 1、11） |
+| 9 | 五個 `LandField` fixture 沒補 → `tsc` 紅，而且 perf-gate 的地形掃描被關掉會**假性變快** | 明列位置 + 先跑 `tsc`（Task 4） |
+| 10 | HUD 沒驗註冊 → widget 沒接照樣全綠；上帝視角用另一份清單 | `hudWidgets` / `WIDGET_DRAW` 的測試（Task 9） |
+
+還有三條 SHOULD-FIX：`createTerrain` 要先重整成三條頂層分支（否則農地會有
+五個 child 並洩漏 ocean）、`__still` 釘在原點所以邊界那兩張截圖拍不到、
+丘陵數的宣稱與測試界限不一致。三條都進了任務。
