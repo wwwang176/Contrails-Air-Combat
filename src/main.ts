@@ -3,6 +3,7 @@ import { FixedStepAccumulator } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
+import { flatSeaCrashPolicy } from './world/seaCrash'
 import { createTerrain } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
@@ -38,7 +39,6 @@ import {
   type GodCameraInput,
 } from './camera/godCamera'
 import { deathCamAim } from './camera/deathCam'
-import { isCrashed } from './aircraft/crash'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
@@ -518,7 +518,7 @@ function enterBattle(): void {
    * 更新、與 `terrain.update` 餵給 shader 的是同一個時間 —— 玩家看到的
    * 浪頭就是撞得到的浪頭。
    */
-  world.crashPolicy = (c) => isCrashed(c.aircraft.state.position, terrain.heightAt, elapsed)
+  world.crashPolicy = flatSeaCrashPolicy(terrain.collisionHeightAt)
   // 【彈丸的陸地】撞到山就爆火花並回收。玩家、AI 與砲塔的槍全部走同一個
   // 彈丸池，所以這一行就涵蓋三者
   world.land = terrain.land
