@@ -3,6 +3,10 @@ import { createOcean } from './ocean'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
+import { createVegetation } from './vegetation'
+import {
+  createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
+} from './flora'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import type { LandField } from '../world/occlusion'
@@ -71,8 +75,15 @@ export interface Terrain {
    * 擋住海面回歸的東西。`null` 加上那道判準是兩道保險。
    */
   readonly land: LandField | null
-  /** 每幀更新。海浪要動；陸地是靜態的 */
+  /** 每幀更新。海浪要動；陸地是靜態的；植被跟著鏡頭補格 */
   update(time: number, centerX: number, centerZ: number): void
+  /**
+   * 把植被的生成佇列一次排乾。**沒有植被的地形不提供這一支。**
+   *
+   * 【誰要它】`main.ts` 的 `__still`：定格截圖與逐像素比對前必須讓植被長齊，
+   * 否則拍到的是一片還沒補完的地。引擎每幀只生四格，光靠 `update` 要五十幀。
+   */
+  settle?(): void
   dispose(): void
 }
 
@@ -120,10 +131,15 @@ function createArchipelagoTerrain(): Terrain {
   const { field, islands } = createArchipelago()
   const ocean = createOcean(bakeShore(field))
   const meshes = createIslands(field, islands)
+  // 【植被 append 在索引 3】前三個是明文契約，見 `main.ts` 的 `__gfx`
+  const flora = createVegetation(
+    [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
+  )
   const group = new Group()
   group.add(ocean.farMesh)
   group.add(ocean.mesh)
   group.add(meshes.object)
+  group.add(flora.object)
 
   return {
     object: group,
@@ -151,10 +167,15 @@ function createArchipelagoTerrain(): Terrain {
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
     // 「動了地形就要重算」多一條沒有人記得的規則
     land: { field, ceiling: PEAK_MAX, landAbove: 0 },
-    update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
+    update(time, centerX, centerZ) {
+      ocean.update(time, centerX, centerZ)
+      flora.update(centerX, centerZ)
+    },
+    settle() { flora.settle() },
     dispose() {
       ocean.dispose()
       meshes.dispose()
+      flora.dispose()
     },
   }
 }
@@ -164,15 +185,18 @@ function createFarmlandTerrain(): Terrain {
   const horizon = createFarHorizon()
   const ground = createFarmGround(farm.field)
   const group = new Group()
-  // 【三個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
-  // 1 = 空 Group（近海那一格）、2 = 陸地
+  // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
+  // 也是這一份 —— 見 `outsideZero`
+  const solid = outsideZero(farm.field)
+  const flora = createVegetation(
+    [farmHedgeFlora, farmWoodFlora, farmVillageFlora], (x, z) => solid.sample(x, z),
+  )
+  // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
+  // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被
   group.add(horizon.mesh)
   group.add(new Group())
   group.add(ground.object)
-
-  // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層拿到的也是
-  // 這一份 —— 見 `outsideZero`
-  const solid = outsideZero(farm.field)
+  group.add(flora.object)
 
   return {
     object: group,
@@ -182,11 +206,13 @@ function createFarmlandTerrain(): Terrain {
     waterAt: () => -Infinity,
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
-    // 【遠景環是固定的】沒有東西要每幀更新
-    update() {},
+    // 【遠景環與地面是固定的】只有植被要跟著鏡頭補格
+    update(_time, centerX, centerZ) { flora.update(centerX, centerZ) },
+    settle() { flora.settle() },
     dispose() {
       horizon.dispose()
       ground.dispose()
+      flora.dispose()
     },
   }
 }

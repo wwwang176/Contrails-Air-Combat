@@ -1502,6 +1502,9 @@ const GFX_HIDDEN_LAYER = 31
     farSea: () => [terrain.object.children[0]!],
     nearSea: () => [terrain.object.children[1]!],
     islands: () => [terrain.object.children[2]!],
+    // 【用 slice 不是 children[3]!】純海面沒有第四個孩子，固定取索引的話
+    // 切到純海之後消融 flora 會對 undefined 呼叫 traverse，當場崩
+    flora: () => terrain.object.children.slice(3),
     // 天空球目前是 renderOrder −1000（sky.ts）。改那個常數時這裡要跟著改 ——
     // 抓不到就是「關天空」變成空操作，而空操作在消融表上長得像「天空不花錢」
     sky: () => byRenderOrder(-1000),
