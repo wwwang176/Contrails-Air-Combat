@@ -30,9 +30,9 @@ const BROAD_LEAF = 0x3f5233
 const CONIFER = 0x2f4530
 const BUSH_LEAF = 0x33452c
 const WALL = 0xbfb49b
-const ROOF = 0x7d3d2f
+const ROOF = 0xa8503a
 const BARN_WALL = 0x8b6b4a
-const BARN_ROOF = 0x5f4d3c
+const BARN_ROOF = 0x8a6a4e
 const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
@@ -169,18 +169,24 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
       cylinder(s, TRUNK, 6, 0.45, 0, 4)
       cone(s, CONIFER, 7, 3.5, 4, TREE_HEIGHT)
     }),
-    // 【中距離沒有樹幹】800 m 外樹幹不足 1 px。錐底落在地面，不是浮在半空
-    treeMid: build((s) => { cone(s, CONIFER, 6, 4, 0, TREE_HEIGHT) }),
-    treeFar: build((s) => { cone(s, CONIFER, 4, 4, 0, TREE_HEIGHT) }),
+    // 【中距離沒有樹幹】800 m 外樹幹不足 1 px。底落在地面，不是浮在半空。
+    //
+    // 【形狀是圓的不是尖的】L1／L2 不分樹種，而 450 m 外的地佔了畫面九成 ——
+    // 兩級都用尖錐的話，整片 bocage 讀起來像雲杉林。Bocage 是闊葉為主，
+    // 所以遠處的輪廓要圓。
+    treeMid: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
+    treeFar: build((s) => { cone(s, BROAD_LEAF, 4, 5.5, 0, TREE_HEIGHT * 0.85) }),
     bush: build((s) => { octa(s, BUSH_LEAF, 1.6, 1.5, 1.5) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
+    // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
+    // 出來。放大到 11 m 之後從空中看得到那一叢屋頂
     house: build((s) => {
-      box(s, WALL, 8, 6, 0, 4.5)
-      gable(s, ROOF, 9, 7, 4.5, 7.5)
+      box(s, WALL, 11, 8, 0, 5)
+      gable(s, ROOF, 12, 9, 5, 9)
     }),
     barn: build((s) => {
-      box(s, BARN_WALL, 14, 8, 0, 6)
-      gable(s, BARN_ROOF, 15, 9, 6, 10)
+      box(s, BARN_WALL, 18, 10, 0, 6.5)
+      gable(s, BARN_ROOF, 19, 11, 6.5, 11.5)
     }),
     // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34
     church: build((s) => {
