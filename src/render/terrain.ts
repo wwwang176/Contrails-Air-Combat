@@ -21,6 +21,16 @@ export interface Terrain {
    */
   heightAt(x: number, z: number, time: number): number
   /**
+   * **判定用**的高度，m。海面是平的（回 0），陸地讀高度場。**不吃時間。**
+   *
+   * 【為什麼與 `heightAt` 分家】專案負責人 2026-08-28 裁定海面碰撞體是平面，
+   * 浪只是視覺高低。但水柱、殘骸、碎片入水仍然要貼著看得見的水面 —— 那一條
+   * 走 `heightAt`。兩個問題，兩支函式。
+   *
+   * 【誰讀它】`main.ts` 的 `world.crashPolicy`（經 `flatSeaCrashPolicy`）。
+   */
+  collisionHeightAt(x: number, z: number): number
+  /**
    * AI 的地形來源。**圓盤法只需要這個，不需要高度場。**
    *
    * 【為什麼不給 AI 高度場】沿航跡取樣高度會漏 —— 步長比格距大的話，
@@ -64,6 +74,7 @@ export function createTerrain(kind: TerrainKind): Terrain {
     return {
       object: group,
       heightAt: ocean.heightAt,
+      collisionHeightAt: () => 0,
       islands: [],
       land: null,
       update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
@@ -83,6 +94,12 @@ export function createTerrain(kind: TerrainKind): Terrain {
       const h = field.sample(x, z)
       const sea = ocean.heightAt(x, z, time)
       return h > sea ? h : sea
+    },
+    // 【海面那一項是 0，不是 ocean.heightAt】見介面上的說明。出界回
+    // −Infinity，所以場地之外自然退回平海面
+    collisionHeightAt(x, z) {
+      const h = field.sample(x, z)
+      return h > 0 ? h : 0
     },
     islands,
     // 【`ceiling` 用 PEAK_MAX 而不是實測的最高點】它是一個上界就夠了 ——
