@@ -237,7 +237,7 @@ describe('Bocage 的田區', () => {
 
   /**
    * 【這一條只證明常數沒有漂，不證明演算法是對的】GLSL 跑不進 headless，
-   * 所以**語法**由 `farmland-shot.e2e.ts` 在真的 WebGL2 context 裡編譯來守，
+   * 所以**語法**由 `glsl-compile.e2e.ts` 在真的 WebGL2 context 裡編譯來守，
    * 而**演算法**由下面那條金本位守。
    */
   it('GLSL 的常數由 TS 那一份產生', () => {
@@ -489,5 +489,60 @@ describe('樹林', () => {
     expect(FIELD_GLSL).toContain('bool isWoodField(uint id)')
     expect(FIELD_GLSL).toContain('WOOD_COLOR')
     expect(FIELD_GLSL).toContain(WOOD_CHANCE.toFixed(3))
+  })
+})
+
+/**
+ * 犁溝與作物條紋。**只在 GPU 上做** —— 抗鋸齒需要片段的導數（`fwidth`），
+ * CPU 沒有對應物。沒有抗鋸齒的話 1 km 外整片田會出現摩爾紋，比沒有條紋更糟。
+ *
+ * 這是 CPU 與 GLSL 兩份唯一容許分家的地方，所以這一組測試同時守兩件事：
+ * 條紋**確實被呼叫**（不是宣告了放著），以及 CPU 那一份確實沒有條紋。
+ */
+describe('犁溝與作物條紋', () => {
+  it('條紋確實被 fieldColorAt 呼叫，不是宣告了放著', () => {
+    // 【承重】只檢查 'fwidth' 與 'stripe' 存在的話，把 helper 放著不用也會綠
+    expect(FIELD_GLSL).toContain('col *= stripe(q, STRIPE_PERIOD, amp);')
+  })
+
+  it('犁田的條紋幅度是作物的兩倍', () => {
+    expect(FIELD_GLSL).toContain('float amp = ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP;')
+  })
+
+  it('條紋順著田的長軸，所以是沿短軸重複', () => {
+    // 長邊是 cellH（q 的第二軸），所以行沿它走 —— 重複發生在 q.x 上
+    expect(FIELD_GLSL).toContain('float u = q.x / period;')
+  })
+
+  it('取樣不足時淡出，用的是導數不是距離', () => {
+    expect(FIELD_GLSL).toContain('fwidth(u)')
+    // 【不得改用相機距離】那要多傳一個 uniform，而遠景環與細節地形是
+    // 兩個不同的物件，兩邊會不一致
+    expect(FIELD_GLSL).not.toContain('cameraPosition')
+  })
+
+  it('CPU 那一份沒有條紋 —— 同一塊田裡半個週期外仍然同色', () => {
+    let checked = 0
+    for (let k = 0; k < 4000; k++) {
+      const x = k * 17.3 - 30000
+      const z = k * 11.9 - 20000
+      regionAt(x, z, reg)
+      if (reg.r2 - reg.r1 < TRACK_WIDTH + 40) continue
+      fieldAt(x, z, reg, s)
+      // 離田界遠一點，免得位移之後跨過樹籬
+      if (s.edge < 30) continue
+      const id = s.id
+      const cs = Math.cos(reg.angle)
+      const sn = Math.sin(reg.angle)
+      // 沿 q.x 位移半個週期（3.5 m）—— 有條紋的話這裡顏色就會變
+      const nx = x + 3.5 * cs
+      const nz = z + 3.5 * sn
+      regionAt(nx, nz, reg)
+      fieldAt(nx, nz, reg, s)
+      if (s.id !== id) continue
+      expect(at(nx, nz)).toBe(at(x, z))
+      checked++
+    }
+    expect(checked).toBeGreaterThan(500)
   })
 })
