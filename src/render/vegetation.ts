@@ -45,11 +45,83 @@ export const LOD_FAR = 2000
 /** 換級的緩衝，m。只擋來回抖動 */
 export const LOD_HYSTERESIS = 40
 
-/** 灌木畫到多遠，m */
-export const BUSH_RANGE = 500
+/**
+ * 灌木畫到多遠，m。
+ *
+ * 【放遠過】500 m 時，再遠的樹籬只剩 12 m 一棵的喬木 —— 巡航高度看下去
+ * 整片地的樹籬因此是稀疏的點列。灌木是 8 個三角形，比喬木便宜，放遠是
+ * 划算的那一邊。
+ */
+export const BUSH_RANGE = 900
 
 /** 每幀最多生幾格。200 m/s 越過一格是 1.25 s，補一欄約 16 格 */
 export const TILES_PER_FRAME = 4
+
+/**
+ * 兩次重建之間至少隔幾幀。
+ *
+ * 【為什麼一定要節流】級數是逐 tile 決定的，而三條 LOD 環上大約有 88 格；
+ * 鏡頭每移動 250 m，那 88 格就各換級一次 —— 換算下來**幾乎每一幀都有一格
+ * 換級**，於是「有變就重建」等於每幀重建一萬八千筆實例再上傳 1.4 MB。
+ *
+ * 2026-08-29 實測（農地・甲板・代飛・1707×960 @ DPR 1.5・解鎖 vsync）：
+ *
+ * ```
+ *            p50        1% low     頓挫
+ *   有植被   29.7 ms    94.8 ms    2.72 /s
+ *   關植被   26.3 ms    55.4 ms    0.36 /s
+ * ```
+ *
+ * 中位數只差 3.4 ms 而尾巴翻倍 —— 那個形狀就是「每幀都在重傳一大塊還在用的
+ * 緩衝」。
+ *
+ * 【成本確定在上傳，不在重建本身】三次對照量測：
+ *
+ * ```
+ *                          p50（有／關）    1% low（有／關）  頓挫/s（有／關）
+ *   每 6 幀重建            7.9 / 20.5       166 / 57         12.7 / 0.8
+ *   重建凍住              18.3 / 19.6        50 / 45          1.4 / 0.4
+ *   照樣重建但不上傳       19.8 / 19.9        50 / 40          0.5 / 0.1
+ * ```
+ *
+ * 第三列是決定性的：重建的 CPU 迴圈照跑（實測 0.16 ms）而成本消失 ——
+ * 貴的是每秒二十四次、每次一點一 MB 打在正在被 GPU 讀的緩衝上。
+ */
+export const REBUILD_EVERY = 6
+
+/**
+ * 兩次重建之間鏡頭至少要移動多少，m。**這是整個植被最敏感的一個數字。**
+ *
+ * 【為什麼用距離不是幀數】級數的顆粒是 250 m 的一格，所以移動兩百公尺才
+ * 重算一次綽綽有餘。甲板速度 150 m/s 下這是每秒 0.75 次。
+ *
+ * 【停頓不隨上傳量走，隨次數走】把維持半徑由 2,000 砍到 1,100（最大的那條
+ * treeFar 緩衝整個消失）**一點改善都沒有**；而把重建的次數壓下來立刻有效。
+ * 貴的是「對正在被 GPU 讀的緩衝呼叫 bufferSubData」這個動作本身。
+ *
+ * 2026-08-29 實測（農地・甲板・代飛・1707×960 @ DPR 1.5・飛機粒子全關）：
+ *
+ * ```
+ *                        頓挫/s（有植被／關植被）   1% low（有／關）
+ *   每幀可重建就重建            12.7 / 0.8          166 / 57 ms
+ *   幀數節流（6 幀）            12.7 / 0.8          沒有改善
+ *   距離閘 50 m                 2.34 / 0.10         162 / 41 ms
+ *   距離閘 200 m                0.90 / 0.40         130 / 41 ms
+ *   （對照）完全不上傳          0.50 / 0.10          50 / 40 ms
+ * ```
+ *
+ * 最後一列是地板。200 m 已經吃到八成的可得改善，再往上拉會讓 LOD 換級
+ * 明顯遲到。
+ */
+export const REBUILD_MOVE = 200
+
+/**
+ * 鏡頭不動時，隔這麼多幀仍然重建一次。
+ *
+ * 【為什麼要有】剛補完最後幾格、而鏡頭正好停著的那一刻，沒有這一條的話
+ * 那幾格永遠不會被畫出來。
+ */
+const REBUILD_IDLE = 120
 
 /**
  * 單一 tile 最多幾株。
@@ -94,12 +166,12 @@ export function lodFor(dist: number, prev: number): number {
  * 溢位時丟掉並記一次告警，不靜默截斷。
  */
 const CAPACITY: Record<PoolName, number> = {
-  broadL0: 800,     // 掃描最大 548
-  coneL0: 500,      // 322
-  treeMid: 4300,    // 3,084
-  treeFar: 10400,   // 7,560
-  bush: 2000,       // 1,399
-  house: 100,       // 18
+  broadL0: 1200,    // 掃描最大 843
+  coneL0: 500,      // 295
+  treeMid: 4800,    // 3,496
+  treeFar: 11500,   // 8,457
+  bush: 7000,       // 5,140
+  house: 100,       // 14
   barn: 60,         // 4
   church: 20,       // 1
 }
@@ -122,6 +194,8 @@ export interface Vegetation {
     dropped: number
     /** 池溢位幾筆 */
     overflow: number
+    /** 重建過幾次。節流有沒有生效看它 */
+    rebuilds: number
     /** 預配的緩衝身分，給「不配置」那條測試比對 */
     buffers: readonly Float32Array[]
     keyType: string
@@ -195,7 +269,7 @@ export function createVegetation(
   const counts: Record<PoolName, number> =
     { broadL0: 0, coneL0: 0, treeMid: 0, treeFar: 0, bush: 0, house: 0, barn: 0, church: 0 }
   const stats = {
-    tiles: 0, dropped: 0, overflow: 0,
+    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
   }
 
@@ -204,6 +278,31 @@ export function createVegetation(
   let started = false
   let dirty = true
   let warned = false
+  let sinceRebuild = 0
+  let lastBuildX = Infinity
+  let lastBuildZ = Infinity
+
+  /**
+   * 哪些池的內容真的變了。
+   *
+   * 【為什麼要逐池記】池是打包的陣列：某一格的貢獻變了，**只有那一個池**
+   * 後面的項目會位移，別的池一個位元組都沒動。一格由 L0 換到 L1 只動到
+   * broadL0／coneL0／treeMid —— 最大的那條 treeFar（8,500 筆、544 KB）
+   * 完全沒變，卻照樣被重傳。
+   */
+  const poolDirty: Record<PoolName, boolean> = {
+    broadL0: true, coneL0: true, treeMid: true, treeFar: true,
+    bush: true, house: true, barn: true, church: true,
+  }
+  function markAll(): void {
+    for (const name of POOL_NAMES) poolDirty[name] = true
+  }
+  /** 某一格由 `a` 級換到 `b` 級，會動到哪些池 */
+  function markLevel(lod: number): void {
+    if (lod === 0) { poolDirty.broadL0 = true; poolDirty.coneL0 = true }
+    else if (lod === 1) poolDirty.treeMid = true
+    else if (lod === 2) poolDirty.treeFar = true
+  }
 
   const keyOf = (i: number, j: number): number => i * 65536 + j
 
@@ -241,7 +340,9 @@ export function createVegetation(
     slotUsed[slot] = 1
     slotLod[slot] = -1
     bySlot.set(keyOf(i, j), slot)
+    // 【加一格會讓每個池的打包位移】所以全部要重傳
     dirty = true
+    markAll()
     return true
   }
 
@@ -265,6 +366,7 @@ export function createVegetation(
       if (inRange(slotI[s]!, slotJ[s]!)) continue
       freeSlot(s)
       dirty = true
+      markAll()
     }
   }
 
@@ -312,7 +414,12 @@ export function createVegetation(
       const d = Math.hypot(cx - centerX, cz - centerZ)
       const lod = lodFor(d, slotLod[s]!)
       const bush = d <= BUSH_RANGE + (slotBush[s] === 1 ? LOD_HYSTERESIS : 0) ? 1 : 0
-      if (lod !== slotLod[s] || bush !== slotBush[s]) dirty = true
+      if (lod !== slotLod[s]) {
+        dirty = true
+        markLevel(slotLod[s]!)
+        markLevel(lod)
+      }
+      if (bush !== slotBush[s]) { dirty = true; poolDirty.bush = true }
       slotLod[s] = lod
       slotBush[s] = bush
     }
@@ -359,11 +466,26 @@ export function createVegetation(
     }
     for (const name of POOL_NAMES) {
       const mesh = pools[name]
-      mesh.count = counts[name]
+      const used = counts[name]
+      mesh.count = used
+      // 【只上傳真的變了的池】沒變的池，重寫進去的位元組與 GPU 上那一份
+      // 逐位元相同 —— 傳它是純粹的浪費，而那個浪費會撞到驅動的緩衝重配置
+      if (!poolDirty[name]) continue
+      poolDirty[name] = false
+      // 【只上傳用到的那一段】容量是實測最大值的 1.35 倍，整條傳等於白傳
+      // 三成五。treeFar 一條就是 736 KB
+      mesh.instanceMatrix.addUpdateRange(0, used * 16)
       mesh.instanceMatrix.needsUpdate = true
-      if (mesh.instanceColor !== null) mesh.instanceColor.needsUpdate = true
+      if (mesh.instanceColor !== null) {
+        mesh.instanceColor.addUpdateRange(0, used * 3)
+        mesh.instanceColor.needsUpdate = true
+      }
     }
     dirty = false
+    sinceRebuild = 0
+    lastBuildX = centerX
+    lastBuildZ = centerZ
+    stats.rebuilds++
   }
 
   function update(cx: number, cz: number): void {
@@ -375,8 +497,13 @@ export function createVegetation(
     evict()
     const made = fill(TILES_PER_FRAME)
     relevel()
-    // 【只在排乾的那一幀重建】還在補格的期間不重建，省下每幀的緩衝上傳
-    if (dirty && made === 0) rebuild()
+    sinceRebuild++
+    // 【三道閘】還在補格的期間不重建；兩次重建至少隔 REBUILD_EVERY 幀；
+    // 而且鏡頭要移動 REBUILD_MOVE 公尺（或停著超過 REBUILD_IDLE 幀）。
+    // 第三道才是關鍵 —— 見那兩個常數的說明
+    const moved = Math.hypot(centerX - lastBuildX, centerZ - lastBuildZ)
+    if (dirty && made === 0 && sinceRebuild >= REBUILD_EVERY
+      && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) rebuild()
   }
 
   function settle(): void {
@@ -385,6 +512,7 @@ export function createVegetation(
     for (let n = 0; n < TILE_CACHE * 2; n++) if (fill(1) === 0) break
     evict()
     relevel()
+    // 【settle 不受節流】定格截圖要的是「現在就對」
     if (dirty) rebuild()
   }
 
