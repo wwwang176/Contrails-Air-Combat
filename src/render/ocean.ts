@@ -1,19 +1,26 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  ClampToEdgeWrapping,
   Color,
+  DataTexture,
   Group,
   Mesh,
   LessDepth,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  RedFormat,
   Sphere,
+  UnsignedByteType,
   Vector2,
   Vector3,
   type WebGLProgramParametersWithUniforms,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
+import type { ShoreFieldData } from '../world/archipelago'
 
 export interface WaveSpec {
   dirX: number
@@ -569,6 +576,33 @@ export const SPARKLE_SIGMA_TAIL = (25 * Math.PI) / 180
 export const SPARKLE_TAIL_WEIGHT = 0.03
 /** 完全對齊時有多少比例的格子會亮。 */
 export const SPARKLE_DENSITY = 0.4
+/**
+ * 靠岸的白面機率。**這一項不看太陽方向。**
+ *
+ * ── 【浪花就是不挑角度的碎光】──────────────────────────────────
+ *
+ * 碎光是「這個面剛好把太陽反射進眼睛」，所以它挑角度。碎浪不是反射，是
+ * **白水** —— 從哪個方向看都是白的。所以它與碎光共用同一批面、同一套閃爍、
+ * 同一套浪峰偏置（浪在峰上碎，正好就是那條規則），差別只在少乘一個
+ * `align`。
+ *
+ * **沒有第二個「白色從哪裡來」的真相**，也沒有粒子。
+ *
+ * 【機率的驅動是離岸的距離，不是水深】見 `world/archipelago.ts` 的
+ * `SHORE_BAND`：水線到 −5 m 那一段比一個格子還窄。
+ */
+export const SHORE_DENSITY = 0.45
+/**
+ * 一個面亮起來的機率上限。
+ *
+ * 【為什麼需要它】碎光單獨最大是 `1 × 0.4 × 1 × 1.8 = 0.72`，加上浪花的
+ * `0.45 × 1 × 1.8 = 0.81` 之後是 1.53 —— `roll < p` 恆為真，整條海岸線變成
+ * 一片死白，閃爍與稀疏感全部消失。
+ *
+ * 【它對既有行為完全不作用】0.72 < 0.85。動 `SPARKLE_DENSITY` 或
+ * `SPARKLE_CREST_BIAS` 到讓 0.85 咬到的話，那是另一件事，要回來重算。
+ */
+export const SPARKLE_P_MAX = 0.85
 
 /**
  * **浪峰偏置**：白點在浪峰出現的機會比浪谷高多少。
@@ -857,6 +891,11 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uEnvelopePow;
   uniform float uFaceTint;
   uniform float uFaceLift;
+  uniform sampler2D uShoreMap;
+  uniform float uShoreExtent;   // size × cell，見 FACE_FRAGMENT 的 uv 推導
+  uniform float uShoreCell;
+  uniform float uShoreDensity;
+  uniform float uPMax;
   uniform vec3 uSkyHorizon;
   uniform vec3 uSkyZenith;
   uniform float uSkyPower;
@@ -1069,6 +1108,26 @@ export const FACE_FRAGMENT = /* glsl */ `
       * faceCell;
     float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));
 
+    // ── 這個面離岸多近 ──────────────────────────────────────────
+    //
+    // 【在面的重心取樣，不是在片段】與 faceH 完全同一個理由：vOceanWorld.xz
+    // 在面內是內插的，逐片段取樣會把一個三角形切成半白半不白。
+    //
+    // 【uv 的偏移恰好是 0.5，不必另外傳】高度場的 col = x / cell +
+    // (size − 1) / 2，而 GL 第 col 個 texel 的中心在 (col + 0.5) / size ——
+    // 代進去化簡成 x / (size × cell) + 0.5。用 (size − 1) × cell 當尺會整張
+    // 差半個 texel（20 m）。
+    //
+    // 【場外不必判斷邊界】島散布在 ±16.9 km 之內、場地半寬 20.48 km，所以
+    // 邊緣的 texel 恆為 0，而 ClampToEdge 讓場外自然取到 0。
+    //
+    // 【一定要指定 LOD】遠海一個面 480 m 而浪花帶只有 200 m —— 逐點取樣時
+    // 整條帶可能落在相鄰兩個重心之間，遠處的海岸會**完全沒有浪花**。取 mip
+    // 讓這個面拿到的是「我涵蓋的範圍裡有多少比例是浪花帶」。
+    float shoreLod = max(0.0, log2(faceCell / uShoreCell));
+    float shore = textureLod(
+      uShoreMap, faceCen / uShoreExtent + 0.5, shoreLod).r;
+
     // ── 逐面底色 ──────────────────────────────────────────────
     //
     // 【這是低多邊形的主角，不是法線】相鄰面的法線只差約 12°（島是幾十度），
@@ -1097,6 +1156,12 @@ export const FACE_FRAGMENT = /* glsl */ `
       // max 擋住 uCrestBias > 1 時浪谷變成負機率。
       float crest = clamp(faceH / uCrestRef, -1.0, 1.0);
       float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+
+      // 【浪花是**加上去的一項**，不是把上面那一式改寫】原式一個字都不動，
+      // 所以 shore = 0 時逐位元是改動前的行為 —— 純海面那條路完全不變。
+      // 同樣吃 crest：浪在峰上碎。
+      p += max(shore * uShoreDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+      p = min(p, uPMax);   // 見 SPARKLE_P_MAX
 
       // 【閃爍】每個面自己一段相位與速率，所以整片不會同步呼吸。
       //
@@ -1133,8 +1198,10 @@ export const FACE_FRAGMENT = /* glsl */ `
 `
 
 /**
- * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**；
- * 逐面的部分由參數插進來，遠海拿到的是空字串（見 `FACE_FRAGMENT`）。
+ * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**，而且
+ * 逐面那一段兩邊也都插進去 —— 遠海的面是虛擬的，見 `FACE_FRAGMENT`。
+ *
+ * 【參數化留著】它讓「哪一段給誰」在呼叫點看得見，而不是藏在字串裡。
  */
 export const sparkleFragment = (face: string): string => /* glsl */ `
   {
@@ -1282,7 +1349,11 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
   return g
 }
 
-export function createOcean(): Ocean {
+/**
+ * @param shore 離岸的膨脹圖，浪花吃它。**`null` = 這一場沒有陸地**
+ *   （`'sea'`）—— 掛一張 1×1 的零貼圖，取樣恆為 0。
+ */
+export function createOcean(shore: ShoreFieldData | null): Ocean {
   // clipmap 的四層。L0 實心，其餘挖掉中央 —— 那一塊由內一層負責
   const levelGeometries = Array.from({ length: OCEAN_LEVELS }, (_, i) =>
     clipmapLevelGeometry(OCEAN_BASE_CELL * 2 ** i, OCEAN_RING_SEGMENTS, i > 0))
@@ -1303,6 +1374,30 @@ export function createOcean(): Ocean {
 
   const uTime = { value: 0 }
   const uOrigin = { value: new Vector2(0, 0) }
+
+  /**
+   * 離岸的膨脹圖。單通道 8 位元，1024² 是 1 MiB。
+   *
+   * 【為什麼要 mipmap】見 FACE_FRAGMENT 裡 `shoreLod` 的說明 —— 遠海一個面
+   * 比浪花帶還寬，逐點取樣會整條帶漏掉。1024 是 2 的冪，所以 mip 生得出來。
+   *
+   * 【`DataTexture` 的預設已經對】`flipY = false`（所以第 0 列對到最小的
+   * v，也就是最負的 z）、`NoColorSpace`（這張圖是遮罩不是顏色）、
+   * `unpackAlignment = 1`、`ClampToEdgeWrapping`。這裡只改濾波與 mipmap。
+   */
+  const shoreTexture = new DataTexture(
+    shore ? shore.data : new Uint8Array(1),
+    shore ? shore.size : 1,
+    shore ? shore.size : 1,
+    RedFormat,
+    UnsignedByteType,
+  )
+  shoreTexture.wrapS = ClampToEdgeWrapping
+  shoreTexture.wrapT = ClampToEdgeWrapping
+  shoreTexture.magFilter = LinearFilter
+  shoreTexture.generateMipmaps = shore !== null
+  shoreTexture.minFilter = shore ? LinearMipmapLinearFilter : LinearFilter
+  shoreTexture.needsUpdate = true
 
   /**
    * 碎光的 uniform。**細浪面與遠海共用同一組物件** —— 同 `SEA_COLOR` 的理由，
@@ -1328,6 +1423,13 @@ export function createOcean(): Ocean {
     uEnvelopePow: { value: SPARKLE_ENVELOPE_POW },
     uFaceTint: { value: FACE_TINT },
     uFaceLift: { value: FACE_CREST_LIFT },
+    uShoreMap: { value: shoreTexture },
+    // 【尺是 size × cell 而不是 (size − 1) × cell】見 FACE_FRAGMENT 的推導。
+    // 沒有陸地時給 1，只是為了不要除以 0 —— 那張貼圖處處是 0
+    uShoreExtent: { value: shore ? shore.size * shore.cell : 1 },
+    uShoreCell: { value: shore ? shore.cell : 1 },
+    uShoreDensity: { value: shore ? SHORE_DENSITY : 0 },
+    uPMax: { value: SPARKLE_P_MAX },
     uHalfSeg: { value: OCEAN_RING_SEGMENTS / 2 },
     uMaxLevel: { value: OCEAN_LEVELS - 1 },
     // 【天空色直接取 sky.ts 的常數】海面反射的是那一片天，兩份會漂開。
@@ -1573,6 +1675,8 @@ ${SPARKLE_COMMON}`,
       material.dispose()
       farGeometry.dispose()
       farMaterial.dispose()
+      // 【貼圖要自己收】material.dispose() 不會去收 uniform 裡的貼圖
+      shoreTexture.dispose()
     },
   }
 }
