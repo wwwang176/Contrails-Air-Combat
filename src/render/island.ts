@@ -28,8 +28,14 @@ const ROUGHNESS = 0.95
 const SAND = new Color(0xc2b280)
 const GRASS = new Color(0x4a5f42)
 const ROCK = new Color(0x8a8578)
-/** 水線以上這個高度之內算沙灘，m */
-const SHORE_BAND = 12
+/**
+ * 水線以上這個高度之內算沙灘，m。**草帶的下界就是它。**
+ *
+ * 【為什麼不叫 SHORE_BAND】`world/archipelago.ts` 有一個同名的常數，值是
+ * **200** —— 那是烘岸用的距離，量綱都不一樣。同名不同義拿錯完全不報錯，
+ * 而症狀是植被的下界變成 200，12～200 m 的大片綠帶光禿。
+ */
+export const GRASS_MIN_HEIGHT = 12
 /**
  * 低於這個高度的格子整格不畫，m。
  *
@@ -41,12 +47,29 @@ const SHORE_BAND = 12
  */
 export const DRAW_FLOOR = -5.5
 /** 峰高的這個比例以上算裸岩 */
-const ROCK_FRACTION = 0.5
+export const ROCK_FRACTION = 0.5
 
-function shade(h: number, peak: number, out: Color): Color {
-  if (h < SHORE_BAND) return out.copy(SAND)
+/**
+ * 這個高度該是什麼顏色。**匯出是給植被用的** —— 見 `isGrass`。
+ */
+export function shade(h: number, peak: number, out: Color): Color {
+  if (h < GRASS_MIN_HEIGHT) return out.copy(SAND)
   if (h < peak * ROCK_FRACTION) return out.copy(GRASS)
   return out.copy(ROCK)
+}
+
+/**
+ * 這裡看起來是草嗎。**島上的樹只長在回真的地方。**
+ *
+ * 【為什麼是謂語而不是兩個常數】判準與地的顏色必須是同一條式子，不然會出現
+ * 樹長在沙灘上或裸岩上。給一支謂語，放置那一側根本不必看到常數，也就沒有
+ * 拿錯 `SHORE_BAND` 的機會。`island-shade.test.ts` 逐高度比對它與 `shade`。
+ *
+ * 【不吃坡度】實測群島的島很陡：草帶 16.24 km² 裡坡度 20° 以內只有 3.7%。
+ * 用坡度當判準會砍掉 95% 的地 —— 坡度只用來壓密度。
+ */
+export function isGrass(h: number, peak: number): boolean {
+  return h >= GRASS_MIN_HEIGHT && h < peak * ROCK_FRACTION
 }
 
 /**
