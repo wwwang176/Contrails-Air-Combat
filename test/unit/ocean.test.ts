@@ -210,17 +210,33 @@ describe('低多邊形的格子', () => {
   })
 })
 
-describe('逐面色只給近海', () => {
+describe('逐面色', () => {
   /**
-   * 【遠海一格 46.9 km】套 60 m 的格座標會讓它長出一整片**假的**色塊；
-   * 按它自己的真實面上色則是一個面幾十公里。兩種都不對，所以它整段不套。
-   *
-   * 【為什麼是字串比對】遠海長出假色塊不會壞任何數字 —— 而且它在畫面的
-   * 最遠處，肉眼未必第一時間看得出來。
+   * 【兩個材質都要有】遠海那裡看不出高低起伏，所以畫一片**虛擬的**面上去 ——
+   * 專案負責人 2026-08-28 的裁定。少了它遠海會是一塊死板的平面，而近海與遠海
+   * 的接縫會變成「有面」與「沒有面」的硬界線。
    */
-  it('近海的著色器有逐面那一段，遠海沒有', () => {
+  it('近海與遠海的著色器都有逐面那一段', () => {
     expect(sparkleFragment(FACE_FRAGMENT)).toContain('faceCell')
-    expect(sparkleFragment('')).not.toContain('faceCell')
+  })
+
+  /**
+   * 【接縫必須連續】`faceCell` 由離中心的距離推得，所以在近海的外緣它要算出
+   * **正好等於 L3 的格距**，虛擬的面才接得上真實的面。往外每個 octave 加倍。
+   *
+   * 這一條與「逐面選層算出來的格距」是同一支 `levelCellAt`，差別是它問的是
+   * clipmap **之外**還對不對。
+   */
+  it('遠海的虛擬格距接得上近海的最外層，而且往外加倍', () => {
+    const outerCell = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+    const outer = (OCEAN_RING_SEGMENTS / 2) * outerCell
+    // 近海外緣：正好是最外層的格距
+    expect(levelCellAt(outer)).toBe(outerCell)
+    // 再往外一個 octave：加倍
+    expect(levelCellAt(outer * 2)).toBe(outerCell * 2)
+    expect(levelCellAt(outer * 4)).toBe(outerCell * 4)
+    // 【不得回到 uBaseCell】那正是「遠海長出 60 m 假色塊」的失效模式
+    expect(levelCellAt(outer * 8)).toBeGreaterThan(OCEAN_BASE_CELL)
   })
 
   /**
@@ -228,12 +244,11 @@ describe('逐面色只給近海', () => {
    * （`SEA_AERIAL_STRENGTH` 是 0）。遠海少了它就會變成一片死藍的板子，
    * 與天空硬碰硬 —— 而那是 5 km 之外整個畫面。
    */
-  it('天空反射與大氣透視兩邊都保留', () => {
-    for (const src of [sparkleFragment(FACE_FRAGMENT), sparkleFragment('')]) {
-      expect(src).toContain('uReflectF0')
-      expect(src).toContain('uHorizonColor')
-      expect(src).toContain('uShadeGain')
-    }
+  it('天空反射與大氣透視都保留', () => {
+    const src = sparkleFragment(FACE_FRAGMENT)
+    expect(src).toContain('uReflectF0')
+    expect(src).toContain('uHorizonColor')
+    expect(src).toContain('uShadeGain')
   })
 })
 
