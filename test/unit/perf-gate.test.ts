@@ -159,7 +159,7 @@ describe('projectile step perf gate', () => {
     const state = createProjectileLoad()
     const f = createHeightField(64, 40)
     f.data.fill(-8)
-    state.world.land = { field: f, ceiling: 1e9 }
+    state.world.land = { field: f, ceiling: 1e9, landAbove: 0 }
 
     const BATCHES = 40
     const N = 50

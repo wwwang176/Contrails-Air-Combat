@@ -45,7 +45,7 @@ const TAS = 200
 const arch = createArchipelago()
 /** 錨島。`islands[0]` 是寫死的那一座，見 `archipelago.ts` 的 ANCHORS */
 const isl = arch.islands[0]!
-const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX }
+const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX, landAbove: 0 }
 
 const D = 500
 const Y = 850

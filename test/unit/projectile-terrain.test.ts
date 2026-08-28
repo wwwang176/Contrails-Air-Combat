@@ -28,14 +28,14 @@ import type { Command, Controller } from '../../src/control/Controller'
 function plateau(height: number): LandField {
   const f = createHeightField(16, 40)
   f.data.fill(height)
-  return { field: f, ceiling: height }
+  return { field: f, ceiling: height, landAbove: 0 }
 }
 
 /** 開闊海面：高度場是海床，不是陸地 */
 function openSea(): LandField {
   const f = createHeightField(16, 40)
   f.data.fill(-8)
-  return { field: f, ceiling: -8 }
+  return { field: f, ceiling: -8, landAbove: 0 }
 }
 
 class Silent implements Controller {

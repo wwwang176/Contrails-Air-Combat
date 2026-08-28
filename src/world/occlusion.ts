@@ -24,17 +24,20 @@ export interface LandField {
   readonly field: HeightFieldData
   /** 全場陸地的最高點，m。兩端都高於它就不必查 */
   readonly ceiling: number
+  /**
+   * **高過這個值才算陸地**，m。群島是 `0`（海平面），內陸是 `-Infinity`。
+   *
+   * 【為什麼群島那一條不能一起改成 −Infinity】高度場沒有島的地方是
+   * `SEA_FLOOR = −8`（`archipelago.ts`）—— 一發入海的子彈會在水下 8 m 被
+   * 當成撞地、爆一朵火花並提早消失。而現行行為是在 y = 0 推水柱、到
+   * `SEA_KILL_Y = −20` 才回收。海面那一條一個字都不該動。
+   *
+   * 【為什麼內陸非改不可】內陸的基準平原正好是 `0`，而 `h > 0` 對它恆為假
+   * —— 平地上的視線與彈丸會完全不被擋。
+   */
+  readonly landAbove: number
 }
 
-/**
- * 海平面。**陸地的判準是「高於它」，不是「高於高度場的值」。**
- *
- * 【少了這一半會怎樣】高度場沒有島的地方是 `SEA_FLOOR = −8`
- * （`archipelago.ts`）—— 一發入海的子彈會在水下 8 m 被當成撞地、爆一朵
- * 火花並提早消失。而現行行為是在 y = 0 推水柱、到 `SEA_KILL_Y = −20`
- * 才回收。海面那一條一個字都不該動。
- */
-const SEA = 0
 
 /** `losBlocked` 的取樣步長是格距的幾分之一 */
 const LOS_DIVISOR = 2
@@ -93,7 +96,7 @@ export function losBlocked(
   for (let i = 0; i <= n; i++) {
     const t = i / n
     const h = f.sample(ax + dx * t, az + dz * t)
-    if (h > SEA && ay + (by - ay) * t < h) return true
+    if (h > land.landAbove && ay + (by - ay) * t < h) return true
   }
   return false
 }
@@ -126,7 +129,7 @@ export function landHitT(
   for (let i = 0; i <= n; i++) {
     const t = i / n
     const h = f.sample(ax + dx * t, az + dz * t)
-    if (h > SEA && ay + dy * t <= h) return t
+    if (h > land.landAbove && ay + dy * t <= h) return t
   }
   return Infinity
 }
