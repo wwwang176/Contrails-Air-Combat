@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { createArchipelago } from '../../src/world/archipelago'
+import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
+import { createFarmland, outsideZero } from '../../src/world/farmland'
 import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
 import { AiController } from '../../src/ai/AiController'
@@ -93,10 +94,33 @@ const HIGH = ALTITUDES[ALTITUDES.length - 1]!.value
 
 const arch = createArchipelago()
 
-/** 地表高度，m。海面在別處，這裡只要陸地 —— 場外回 0 */
-function ground(x: number, z: number): number {
-  const h = arch.field.sample(x, z)
-  return Number.isFinite(h) && h > 0 ? h : 0
+/**
+ * 一張圖給 AI 的兩樣東西：避障用的圓盤，與地表高度。
+ *
+ * 【為什麼要參數化】內陸農地是第二張有陸地的圖，而它的丘陵只有 120 m 高 ——
+ * 那件事會不會讓地形感知在那張圖上完全跑不到，是量出來的，不是猜的。
+ */
+interface Land {
+  readonly islands: readonly IslandDesc[]
+  ground(x: number, z: number): number
+}
+
+/** 群島。海面在別處，這裡只要陸地 —— 場外回 0 */
+const SEA_LAND: Land = {
+  islands: arch.islands,
+  ground(x, z) {
+    const h = arch.field.sample(x, z)
+    return Number.isFinite(h) && h > 0 ? h : 0
+  },
+}
+
+const farm = createFarmland()
+const farmField = outsideZero(farm.field)
+
+/** 內陸農地。丘陵當「島」用 —— 見 `world/farmland.ts` 的檔頭 */
+const FARM_LAND: Land = {
+  islands: farm.hills,
+  ground(x, z) { return farmField.sample(x, z) },
 }
 
 interface Run {
@@ -116,7 +140,8 @@ interface Run {
   minMargin: number
 }
 
-function fly(altitude: number): Run {
+function fly(altitude: number, land: Land = SEA_LAND): Run {
+  const ground = (x: number, z: number): number => land.ground(x, z)
   const b = createBattle(new Idle(), {
     ...DEFAULT_BATTLE, altitude, units: lineAbreast(HEAD_ON, P51D, SIDE, BF109K4, SIDE),
   }, SEED)
@@ -154,7 +179,7 @@ function fly(altitude: number): Run {
   }
   for (const c of b.world.combatants) {
     const ctl = c.controller
-    if (ctl instanceof AiController) { ctl.terrain = { islands: arch.islands }; ctl.clearTerrainState() }
+    if (ctl instanceof AiController) { ctl.terrain = { islands: land.islands }; ctl.clearTerrainState() }
   }
 
   // 出生點的離地餘裕。**在第一步之前量** —— 之後就分不出「生在山裡」與
@@ -272,5 +297,47 @@ describe('地形進得了場', () => {
   it('甲板高度：沒有人生在山裡', () => {
     console.log(JSON.stringify({ spawnClear: deck.spawnClear.toFixed(0) }))
     expect(deck.spawnClear).toBeGreaterThan(DEFAULT_SAFETY.clearance)
+  })
+})
+
+/**
+ * **內陸農地的基準。** 這一組不是護欄，是**紀錄**：植被那一輪之後，
+ * 這張圖在真實的仗裡長什麼樣子。
+ *
+ * 【為什麼與群島分開】丘陵的峰高上限是 120 m，而群島的錨島是 900 m ——
+ * 兩張圖的「地形擋不擋得住路」根本不是同一個問題。把農地塞進上面那組
+ * 護欄會逼著它去滿足一個對它沒有意義的門檻。
+ */
+describe('內陸農地的基準（紀錄，不是護欄）', () => {
+  const deck = fly(DECK, FARM_LAND)
+
+  it('印出這張圖的基準', () => {
+    console.log(JSON.stringify({
+      丘陵數: FARM_LAND.islands.length,
+      峰高最大: Math.max(...FARM_LAND.islands.map((i) => i.peak)).toFixed(0) + ' m',
+      出生離地最小: deck.spawnClear.toFixed(0) + ' m',
+      全場離地最小: deck.minMargin.toFixed(0) + ' m',
+      撞山: deck.hitLand,
+      被打下來落在陸上: deck.fellOnLand,
+      地形接管佔時: (deck.share * 100).toFixed(2) + '%',
+      被接管過幾架: deck.touched + ' / ' + (SIDE * 2),
+    }, null, 1))
+    expect(FARM_LAND.islands.length).toBeGreaterThan(20)
+  })
+
+  /**
+   * 【沒有人生在山裡】丘陵最高 120 m 而甲板開場高度遠高於它，所以這一條
+   * 應該是穩穩的。它守的是「生成器改了之後有沒有人被塞進山裡」。
+   */
+  it('沒有人生在山裡', () => {
+    expect(deck.spawnClear).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【撞山不該多】丘陵矮而緩（最陡 8.5°），撞上去只可能是纏鬥時貼地貼過頭。
+   */
+  it('撞山的架數是個位數', () => {
+    console.log(JSON.stringify({ 撞山: deck.hitLand, 接近率: deck.closures.map((c) => c.toFixed(0)) }))
+    expect(deck.hitLand).toBeLessThan(10)
   })
 })
