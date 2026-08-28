@@ -4,7 +4,8 @@ import {
   createOcean, FACE_FRAGMENT, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
   OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
   OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
-  SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, sparkleFragment,
+  SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_FADE_END, SPARKLE_FADE_START,
+  sparkleFragment,
   WAVES,
 } from '../../src/render/ocean'
 import { FIELD_CELL } from '../../src/world/archipelago'
@@ -34,7 +35,8 @@ const lodAt = (wavelength: number, vCell: number): number =>
  */
 const levelCellAt = (r: number): number =>
   OCEAN_BASE_CELL
-  * 2 ** Math.ceil(Math.log2(Math.max(1, r / (OCEAN_BASE_CELL * (OCEAN_RING_SEGMENTS / 2)))))
+  * 2 ** Math.min(OCEAN_LEVELS - 1,
+    Math.ceil(Math.log2(Math.max(1, r / (OCEAN_BASE_CELL * (OCEAN_RING_SEGMENTS / 2))))))
 
 describe('gerstnerHeight', () => {
   it('波高落在所有波幅總和的範圍內', () => {
@@ -227,16 +229,34 @@ describe('逐面色', () => {
    * 這一條與「逐面選層算出來的格距」是同一支 `levelCellAt`，差別是它問的是
    * clipmap **之外**還對不對。
    */
-  it('遠海的虛擬格距接得上近海的最外層，而且往外加倍', () => {
+  it('遠海的虛擬格距接得上近海的最外層，而且不再加倍', () => {
     const outerCell = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
     const outer = (OCEAN_RING_SEGMENTS / 2) * outerCell
-    // 近海外緣：正好是最外層的格距
+    // 近海外緣：正好是最外層的格距，虛擬的面接得上真實的面
     expect(levelCellAt(outer)).toBe(outerCell)
-    // 再往外一個 octave：加倍
-    expect(levelCellAt(outer * 2)).toBe(outerCell * 2)
-    expect(levelCellAt(outer * 4)).toBe(outerCell * 4)
-    // 【不得回到 uBaseCell】那正是「遠海長出 60 m 假色塊」的失效模式
-    expect(levelCellAt(outer * 8)).toBeGreaterThan(OCEAN_BASE_CELL)
+    // 【再往外不得變大】加倍的話遠處的面會維持固定的角張角 —— 看起來比近處
+    // 的面還大。封頂之後它是固定的世界尺寸，離得越遠在畫面上越小
+    for (const k of [2, 4, 16, 100]) {
+      expect(levelCellAt(outer * k)).toBe(outerCell)
+    }
+  })
+
+  /**
+   * 【固定世界尺寸不會在還看得見的地方縮成次像素】那是當初要 LOD 的理由：
+   * 隨機開關的格子小於一個像素就會變成閃爍的雜訊。
+   *
+   * 【判準取在淡出的中點，不是終點】終點（`SPARKLE_FADE_END`）那裡 `fade`
+   * 已經是 0，格子多小都不會亮 —— 在那裡設門檻是在守一個不存在的問題。
+   * 中點是白點還有一半亮度、最需要它不閃的地方。實測那裡是 6.4 px。
+   *
+   * 有人把最外層的格距調小、或把淡出的起點推遠，這一條就紅。
+   */
+  it('碎光還有一半亮度的距離上，格子仍大於兩個像素', () => {
+    const outerCell = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+    const half = (SPARKLE_FADE_START + SPARKLE_FADE_END) / 2
+    // 65° 垂直視野 / 1080 列
+    const pixelAngle = ((65 * Math.PI) / 180) / 1080
+    expect(outerCell / half / pixelAngle).toBeGreaterThan(2)
   })
 
   /**
