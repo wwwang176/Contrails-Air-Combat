@@ -1,6 +1,6 @@
 import {
-  edgeAt, fieldAt, regionAt, regionParams, regionSeed, splitCut,
-  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
+  edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
+  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
@@ -97,6 +97,14 @@ export const HEDGE_TREE_SPACING = 15
 
 /** 樹籬上兩叢灌木的間距，m。連成一條帶，喬木才有底 */
 export const HEDGE_BUSH_SPACING = 6
+
+/**
+ * 樹林裡的網格間距，m。3,906 棵/km²。
+ *
+ * 【為什麼是網格不是走線】樹林填的是**面**不是線，而 16 m 的網格在 250 m 的
+ * tile 上是 244 次 `fieldAt` ≈ 0.09 ms —— 只在生成時付一次。
+ */
+export const WOOD_GRID = 16
 
 /** 沿線抖動的幅度，佔間距的比例。必須 < 0.5，否則相鄰兩株會交換次序 */
 const ALONG_JITTER = 0.3
@@ -339,6 +347,47 @@ export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
             hash2(c ^ rid, r) ^ 0x1234)
         }
       }
+    }
+  }
+}
+
+/**
+ * 樹林（copse）—— **一整塊田變成樹林**，由田的雜湊決定（`isWoodField`）。
+ *
+ * 【放置與地色共用同一個判準】`fieldSurfaceColor` 對同一塊田回最深的那一階，
+ * 所以不會出現「深綠的地上沒有樹」或「樹長在麥田裡」。
+ *
+ * 【不疊在樹籬帶上】樹林田的邊界仍然是樹籬，那一圈由 `farmHedgeFlora` 種。
+ *
+ * 【樹種逐田決定】混種的樹林從空中看是雜訊。
+ */
+export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  const g0 = Math.floor(x0 / WOOD_GRID)
+  const g1 = Math.floor(x1 / WOOD_GRID)
+  const h0 = Math.floor(z0 / WOOD_GRID)
+  const h1 = Math.floor(z1 / WOOD_GRID)
+  for (let gz = h0; gz <= h1; gz++) {
+    for (let gx = g0; gx <= g1; gx++) {
+      // 【位置只由全域索引決定】見檔頭的鐵律
+      const h = hash2(gx, gz)
+      const x = (gx + 0.15 + (h / 4294967296) * 0.7) * WOOD_GRID
+      const g = hash1(h)
+      const z = (gz + 0.15 + (g / 4294967296) * 0.7) * WOOD_GRID
+      if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
+      regionAt(x, z, AT)
+      if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
+      fieldAt(x, z, AT, FLD)
+      if (!isWoodField(FLD.id)) continue
+      // 【樹籬那一圈留給 farmHedgeFlora】不疊兩層樹
+      if (FLD.edge < HEDGE_WIDTH / 2) continue
+      const g2 = hash1(g)
+      const u = hash1(g2) / 4294967296
+      pushFlora(
+        out, x, heightAt(x, z), z, (g2 / 4294967296) * Math.PI * 2,
+        TREE_SCALE[0] + u * (TREE_SCALE[1] - TREE_SCALE[0]),
+        (hash1(FLD.id ^ 0x2ea3) & 0xff) / 255,
+        speciesOf(FLD.id ^ 0x77aa),
+      )
     }
   }
 }
