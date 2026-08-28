@@ -28,6 +28,11 @@
 
 ### Task 1: 田區的 Voronoi —— 單一真相，CPU 與 GLSL 共用同一組常數
 
+> **落地的版本與下面的程式碼不同。** 第一版畫出來像迷彩（每塊田大小一樣、
+> 都是凸的、相鄰兩塊顏色不相關），試看之後改成**兩層**：粗的一層決定走向、
+> 田的尺寸與色調基調，細的一層在壓扁過的座標系裡切出長條田。以
+> `src/render/fields.ts` 為準；下面留著是為了看得到當初的推導。
+
 **Files:**
 - Create: `src/render/fields.ts`
 - Test: `test/unit/fields.test.ts`
