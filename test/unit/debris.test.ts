@@ -14,6 +14,15 @@ import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 
+/**
+ * 「這裡處處都是水」。**既有的每一條都建立在那個前提上**
+ * —— 落水才噴濺，而這些測試量的正是噴濺。
+ */
+const WET = (): number => 0
+
+/** 「這裡沒有水」—— 內陸的地面 */
+const DRY = (): number => -Infinity
+
 const FLAT = (): number => 0
 const DEEP = (): number => -100000
 const WHITE = () => 0xffffff
@@ -59,7 +68,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, -150, 0)
     d.emit(e, WHITE)
-    d.step(0.01, DEEP, 0)
+    d.step(0.01, DEEP, WET, 0)
     expect(d.live).toBe(DEBRIS_COUNT)
     d.dispose()
   })
@@ -69,7 +78,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, -150, 0)
     d.emit(e, WHITE)
-    d.step(0.1, DEEP, 0)
+    d.step(0.1, DEEP, WET, 0)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       // 母機朝 −Z 飛，所以零件的 z 一定變小
       expect(decompose(d.object, i).position.z).toBeLessThan(-5)
@@ -88,7 +97,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const parent = new Vector3(0, 0, -1)
     pushKill(e, origin.x, origin.y, origin.z, parent.x, parent.y, parent.z, 0)
     d.emit(e, WHITE)
-    d.step(dt, DEEP, 0)
+    d.step(dt, DEEP, WET, 0)
     const flight = parent.clone().normalize()
     let minDot = 1
     let maxDot = -1
@@ -115,7 +124,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const speed = 140
     pushKill(e, 0, 1000, 0, 0, 0, -speed, 0)
     d.emit(e, WHITE)
-    d.step(0.1, DEEP, 0)
+    d.step(0.1, DEEP, WET, 0)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       // 每一片都必須在母機前方（z 變小）
       expect(decompose(d.object, i).position.z).toBeLessThan(0)
@@ -129,7 +138,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, -150, 0)
     d.emit(e, WHITE)
-    d.step(0.5, DEEP, 0)
+    d.step(0.5, DEEP, WET, 0)
     let maxR = 0
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const p = decompose(d.object, i).position
@@ -144,7 +153,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.01, DEEP, 0)
+    d.step(0.01, DEEP, WET, 0)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const s = decompose(d.object, i).scale.x
       expect(s).toBeGreaterThanOrEqual(DEBRIS_SIZE_MIN - 1e-6)
@@ -160,7 +169,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    d.step(DEBRIS_SMOKE_INTERVAL, DEEP, 0)
+    d.step(DEBRIS_SMOKE_INTERVAL, DEEP, WET, 0)
     expect(d.smokeEvents.count).toBe(DEBRIS_SMOKE_COUNT)
     d.dispose()
   })
@@ -177,7 +186,7 @@ describe('零件的發射（M8 spec §7）', () => {
     const steps = Math.ceil((DEBRIS_SMOKE_SECONDS_MAX + DEBRIS_SMOKE_INTERVAL)
       / DEBRIS_SMOKE_INTERVAL)
     for (let i = 0; i < steps; i++) {
-      d.step(DEBRIS_SMOKE_INTERVAL, DEEP, 0)
+      d.step(DEBRIS_SMOKE_INTERVAL, DEEP, WET, 0)
       counts.push(d.smokeEvents.count)
     }
     expect(counts[0]).toBe(DEBRIS_SMOKE_COUNT)
@@ -201,7 +210,7 @@ describe('零件的發射（M8 spec §7）', () => {
     pushKill(e, 0, 100000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
     // 走到壽命範圍的中間：短命的已經走了，長命的還在
-    d.step((DEBRIS_LIFE_MIN + DEBRIS_LIFE_MAX) / 2, DEEP, 0)
+    d.step((DEBRIS_LIFE_MIN + DEBRIS_LIFE_MAX) / 2, DEEP, WET, 0)
     expect(d.live).toBeGreaterThan(0)
     expect(d.live).toBeLessThan(DEBRIS_COUNT)
     d.dispose()
@@ -212,9 +221,9 @@ describe('零件的發射（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.01, DEEP, 0)
+    d.step(0.01, DEEP, WET, 0)
     const a = decompose(d.object, 0).quaternion.clone()
-    d.step(0.3, DEEP, 0)
+    d.step(0.3, DEEP, WET, 0)
     const b = decompose(d.object, 0).quaternion
     expect(a.angleTo(b)).toBeGreaterThan(0.1)
     d.dispose()
@@ -227,7 +236,7 @@ describe('零件的發射（M8 spec §7）', () => {
     d.emit(e, WHITE)
     // 【要停在最短的壽命之內】死掉的格子矩陣是全零、位置讀成 (0,0,0)，
     // 那也小於 1000 —— 跑過頭的話這條會空轉著通過
-    d.step(DEBRIS_LIFE_MIN * 0.9, DEEP, 0)
+    d.step(DEBRIS_LIFE_MIN * 0.9, DEEP, WET, 0)
     expect(d.live).toBe(DEBRIS_COUNT)
     let below = 0
     for (let i = 0; i < DEBRIS_COUNT; i++) {
@@ -246,8 +255,19 @@ describe('零件入水（M8 spec §7）', () => {
     // 50 m/s 的話那幾片在這一步還落不了水，事件數會少個兩三筆。
     pushKill(e, 0, 3, 0, 0, -200, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.2, FLAT, 0)
+    d.step(0.2, FLAT, WET, 0)
     expect(d.sprayEvents.count).toBe(DEBRIS_COUNT)
+    expect(d.live).toBe(0)
+    d.dispose()
+  })
+
+  it('落在陸地上不噴濺，但照樣收得掉', () => {
+    const d = createDebris(64)
+    const e = createKills(4)
+    pushKill(e, 0, 3, 0, 0, -200, 0, 0)
+    d.emit(e, WHITE)
+    d.step(0.2, FLAT, DRY, 0)
+    expect(d.sprayEvents.count).toBe(0)
     expect(d.live).toBe(0)
     d.dispose()
   })
@@ -257,7 +277,7 @@ describe('零件入水（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 100, 3, -200, 0, -200, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.2, () => 1.75, 0)
+    d.step(0.2, () => 1.75, WET, 0)
     expect(d.sprayEvents.count).toBeGreaterThan(0)
     expect(d.sprayEvents.data[1]).toBeCloseTo(1.75, 4)
     d.dispose()
@@ -268,9 +288,9 @@ describe('零件入水（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 3, 0, 0, -200, 0, 0)
     d.emit(e, WHITE)
-    d.step(0.2, FLAT, 0)
+    d.step(0.2, FLAT, WET, 0)
     expect(d.sprayEvents.count).toBeGreaterThan(0)
-    d.step(0.2, FLAT, 0)
+    d.step(0.2, FLAT, WET, 0)
     expect(d.sprayEvents.count).toBe(0)
     d.dispose()
   })
@@ -283,8 +303,8 @@ describe('零件入水（M8 spec §7）', () => {
     const e = createKills(4)
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     d.emit(e, WHITE)
-    for (let i = 0; i < 100; i++) d.step(DEBRIS_LIFE_MAX / 100, DEEP, 0)
-    d.step(0.1, DEEP, 0)
+    for (let i = 0; i < 100; i++) d.step(DEBRIS_LIFE_MAX / 100, DEEP, WET, 0)
+    d.step(0.1, DEEP, WET, 0)
     expect(d.live).toBe(0)
     d.dispose()
   })
@@ -298,7 +318,7 @@ describe('零件入水（M8 spec §7）', () => {
     pushKill(e, 0, 1000, 0, 30, 10, -150, 0)
     d.emit(e, WHITE)
     const frames = Math.floor(DEBRIS_LIFE_MIN * 0.9 * 60)
-    for (let i = 0; i < frames; i++) d.step(1 / 60, DEEP, 0)
+    for (let i = 0; i < frames; i++) d.step(1 / 60, DEEP, WET, 0)
     expect(d.live).toBe(DEBRIS_COUNT)
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const inst = decompose(d.object, i)
@@ -315,7 +335,7 @@ describe('零件入水（M8 spec §7）', () => {
     pushKill(e, 0, 1000, 0, 0, 0, 0, 0)
     pushKill(e, 500, 1000, 0, 0, 0, 0, 1)
     d.emit(e, WHITE)
-    d.step(0.01, DEEP, 0)
+    d.step(0.01, DEEP, WET, 0)
     expect(d.live).toBe(DEBRIS_COUNT)
     d.dispose()
   })

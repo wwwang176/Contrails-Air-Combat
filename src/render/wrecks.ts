@@ -6,6 +6,15 @@ import { lowestPoint } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HitBox } from '../world/hit'
 import type { HeightField } from '../aircraft/crash'
+
+/**
+ * 水面的高度，m。**沒有水的地方回 `-Infinity`。**
+ *
+ * 【為什麼與 `HeightField` 分家】那一支回的是「陸地與海面取 max」——
+ * 拿它當「這裡是水嗎」的判準，殘骸摔在島上會噴水柱。見
+ * `render/terrain.ts` 的 `waterAt`。
+ */
+export type WaterField = (x: number, z: number) => number
 import type { AircraftModel } from './geometry/buildAircraft'
 
 /** 重力，m/s²。與 `physics/` 用的是同一個值。 */
@@ -43,6 +52,15 @@ export const WRECK_MAX_LIFE = 120
  */
 export const WRECK_SINK_DEPTH = 25
 
+/**
+ * 撞地之後沉多深才收掉，m。
+ *
+ * 【為什麼比入水淺得多】陸地上沒有殘骸的視覺，所以它只需要在撞擊的煙裡
+ * 消失。25 m 會讓它在地面下滑行一段可見的時間。**真正的地面殘骸是另一份
+ * 工作。**
+ */
+export const WRECK_GROUND_DEPTH = 3
+
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
 
@@ -72,7 +90,11 @@ export interface Wrecks {
     vx: number, vy: number, vz: number, seed: number,
   ): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
-  step(dt: number, heightAt: HeightField, time: number): void
+  /**
+   * @param waterAt 水面高度，**沒有水的地方回 `-Infinity`**。落地與落水
+   * 都會收掉殘骸，但只有落水才推水柱與噴濺。
+   */
+  step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void
   /**
    * 全部歸零，**每一具模型都還給建構時傳入的回收回呼**。換一場戰鬥時呼叫。
    *
@@ -172,7 +194,7 @@ export function createWrecks(
       model.setPropSpin(0, false)
     },
 
-    step(dt: number, heightAt: HeightField, time: number): void {
+    step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void {
       clearImpacts(smokeEvents)
       clearImpacts(sprayEvents)
       clearImpacts(splashEvents)
@@ -240,7 +262,12 @@ export function createWrecks(
         if (lowY > surface) continue
 
         s.sunk = true
-        s.hideY = surface - WRECK_SINK_DEPTH
+        // 【落地與落水收得一樣快，但只有落水噴水】陸地上沒有殘骸的視覺，
+        // 所以照樣往下沉、只是沉得淺 —— 讀起來是「撞地之後在煙裡不見了」。
+        // 真正的地面殘骸是另一份工作
+        const onWater = Number.isFinite(waterAt(BEST.x, BEST.z))
+        s.hideY = surface - (onWater ? WRECK_SINK_DEPTH : WRECK_GROUND_DEPTH)
+        if (!onWater) continue
         pushImpact(sprayEvents, BEST.x, surface, BEST.z, 0, 1, 0)
         for (let k = 0; k < WRECK_SPLASH_COLUMNS; k++) {
           const a = hash01(i * 64 + k * 2) * Math.PI * 2

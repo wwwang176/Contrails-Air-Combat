@@ -4,6 +4,7 @@ import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { flatSeaCrashPolicy } from './world/seaCrash'
+import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
@@ -178,6 +179,27 @@ let player!: Combatant
  * 兩架會互相踩掉對方的決策狀態，看到的行為不是任何一架真正的行為。
  */
 const playerAi = new AiController()
+
+/**
+ * 玩家的戰場邊界。**只有玩家有** —— AI 沒有絕對的牽引，界若對它生效，
+ * 整隊會在開打前先自爆。見 `world/arena.ts` 與 `docs/backlog.md` §10.2。
+ */
+const arena = createArenaState()
+
+/**
+ * 開一場新的（或重開一場）時把界歸零。
+ *
+ * 【兩個進場點都要呼叫】`restartBattle` 是「再打一場」，`enterBattle` 是
+ * 由選單進來 —— 只接前者的話，爆炸之後回選單再開一場會沿用已經 expired
+ * 的狀態，玩家一進場就爆。
+ *
+ * 【只有遭遇戰有界】任務卡的撤離點在 −20,000 m、護航的集合點 12,000 m，
+ * 兩者都在界外。
+ */
+function resetArena(): void {
+  Object.assign(arena, createArenaState())
+  hudFrame.arenaShow = mode === 'skirmish'
+}
 
 /** 【選單期間要藏起來】`stepAndDrawBattle` 不跑，HUD 畫布會停在最後一幀 */
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement
@@ -451,6 +473,7 @@ function restartBattle(): void {
   // ctl.terrain === terrain 會跳過 —— 上一場「我正在繞第 17 座島」的承諾
   // 就這樣帶進了新的一場
   wireTerrain(true)
+  resetArena()
 }
 
 /**
@@ -497,6 +520,7 @@ function enterBattle(): void {
   terrain.dispose()
   terrain = createTerrain(kind)
   ctx.scene.add(terrain.object)
+  resetArena()
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
   //    任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個函數裡套
@@ -518,7 +542,14 @@ function enterBattle(): void {
    * 更新、與 `terrain.update` 餵給 shader 的是同一個時間 —— 玩家看到的
    * 浪頭就是撞得到的浪頭。
    */
-  world.crashPolicy = flatSeaCrashPolicy(terrain.collisionHeightAt)
+  const seaCrash = flatSeaCrashPolicy(terrain.collisionHeightAt)
+  world.crashPolicy = (c) => {
+    // 【比 combatant，不是比 controller】玩家按 I 交給 AI、或進上帝視角時，
+    // 這一架的 `controller` 會被換成 `playerAi` —— 比 controller 的話那時候
+    // 倒數歸零殺不掉人
+    if (arenaKills(arena, c === player)) return true
+    return seaCrash(c)
+  }
   // 【彈丸的陸地】撞到山就爆火花並回收。玩家、AI 與砲塔的槍全部走同一個
   // 彈丸池，所以這一行就涵蓋三者
   world.land = terrain.land
@@ -828,6 +859,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
+    // 【在物理步裡推，不在幀尾】一幀可能跑好幾個物理步，而倒數吃的是
+    // 物理時間 —— 在幀尾推的話界外的秒數會隨幀率漂
+    const pp = player.aircraft.state.position
+    stepArena(arena, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
     // 【事件必須在回呼裡排空】與上面 hitsDealt 同一個理由：World 在每個
     // 物理步產生事件，而一幀可能跑好幾步。在幀尾才讀的話，最後一步以外
@@ -991,8 +1026,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   sparks.step(frameSeconds)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
   // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
-  wrecks.step(frameSeconds, terrain.heightAt, elapsed)
-  debris.step(frameSeconds, terrain.heightAt, elapsed)
+  // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
+  // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
+  wrecks.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
+  debris.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
@@ -1073,6 +1110,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.powerW = aircraft.diag.powerW
   // 【上帝視角下小地圖以鏡頭為中心】小地圖吃的就是這三個欄位，所以
   // widget 一行都不用改
+  hudFrame.arenaOutside = arena.outside
+  hudFrame.arenaRemaining = arena.remaining
   hudFrame.worldX = input.godView ? godCam.position.x : renderPos.x
   hudFrame.worldZ = input.godView ? godCam.position.z : renderPos.z
   hudFrame.aircraftName = aircraft.spec.name

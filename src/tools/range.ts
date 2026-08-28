@@ -116,7 +116,7 @@ function reset(): void {
   fireball.step(999)
   smoke.step(999)
   spray.step(999)
-  debris.step(999, () => -1e9, 0)
+  debris.step(999, () => -1e9, () => -1e9, 0)
   splashes.step(999)
 
   const spec = SPECS[specIndex]!
@@ -232,8 +232,9 @@ function frame(now: number): void {
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
   tracers.update(world.projectiles)
   sparks.step(dt)
-  wrecks.step(dt, ocean.heightAt, elapsed)
-  debris.step(dt, ocean.heightAt, elapsed)
+  // 【靶場一律是海】所以水面就是海面
+  wrecks.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
+  debris.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
