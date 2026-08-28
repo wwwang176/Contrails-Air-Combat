@@ -9,6 +9,15 @@ import type { AircraftModel } from '../../src/render/geometry/buildAircraft'
 import { WRECK_SMOKE_SECONDS } from '../../src/render/smoke'
 import { P51D } from '../../src/specs/p51d'
 
+/**
+ * 「這裡處處都是水」。**既有的每一條都建立在那個前提上**
+ * —— 落水才噴濺，而這些測試量的正是噴濺。
+ */
+const WET = (): number => 0
+
+/** 「這裡沒有水」—— 內陸的地面 */
+const DRY = (): number => -Infinity
+
 const FLAT = (): number => 0
 const DEEP = (): number => -100000
 
@@ -37,7 +46,7 @@ describe('殘骸的接管（M8 spec §8.1）', () => {
     f.model.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 1.1)
     const before = f.model.group.quaternion.clone()
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
-    w.step(0.0001, DEEP, 0)
+    w.step(0.0001, DEEP, WET, 0)
     expect(f.model.group.position.distanceTo(new Vector3(123, 4000, -456))).toBeLessThan(0.01)
     expect(f.model.group.quaternion.angleTo(before)).toBeLessThan(0.01)
   })
@@ -50,8 +59,8 @@ describe('殘骸的接管（M8 spec §8.1）', () => {
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
     expect(f.spins.length).toBe(1)
     expect(f.spins[0]!.blurred).toBe(false)
-    w.step(0.1, DEEP, 0)
-    w.step(0.1, DEEP, 0)
+    w.step(0.1, DEEP, WET, 0)
+    w.step(0.1, DEEP, WET, 0)
     // step 不再動它 —— 停了就是停了
     expect(f.spins.length).toBe(1)
   })
@@ -76,9 +85,9 @@ describe('殘骸的運動（M8 spec §8.2）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 100000, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
-    for (let i = 0; i < 4000; i++) w.step(0.02, DEEP, 0)
+    for (let i = 0; i < 4000; i++) w.step(0.02, DEEP, WET, 0)
     const before = f.model.group.position.y
-    w.step(0.02, DEEP, 0)
+    w.step(0.02, DEEP, WET, 0)
     const after = f.model.group.position.y
     expect((before - after) / 0.02).toBeCloseTo(WRECK_TERMINAL, 0)
   })
@@ -88,7 +97,7 @@ describe('殘骸的運動（M8 spec §8.2）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 4000, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, -150, 0)
-    w.step(0.1, DEEP, 0)
+    w.step(0.1, DEEP, WET, 0)
     expect(f.model.group.position.z).toBeLessThan(-10)
   })
 
@@ -100,7 +109,7 @@ describe('殘骸的運動（M8 spec §8.2）', () => {
     b.model.group.position.set(0, 4000, 0)
     w.adopt(a.model, P51D.hitBoxes, 0, 0, 0, 0)
     w.adopt(b.model, P51D.hitBoxes, 0, 0, 0, 1)
-    w.step(0.5, DEEP, 0)
+    w.step(0.5, DEEP, WET, 0)
     expect(a.model.group.quaternion.angleTo(new Quaternion())).toBeGreaterThan(0.1)
     expect(a.model.group.quaternion.angleTo(b.model.group.quaternion)).toBeGreaterThan(0.1)
   })
@@ -110,7 +119,7 @@ describe('殘骸的運動（M8 spec §8.2）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 4000, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
-    w.step(0.5, DEEP, 0)
+    w.step(0.5, DEEP, WET, 0)
     expect(w.smokeEvents.count).toBeGreaterThan(3)
   })
 })
@@ -129,7 +138,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     f.model.group.quaternion.setFromAxisAngle(new Vector3(0, 0, 1), -Math.PI / 2)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
     // 極小的 dt 讓角速度還來不及把姿態轉走
-    w.step(0.0001, FLAT, 0)
+    w.step(0.0001, FLAT, WET, 0)
     expect(w.sprayEvents.count).toBe(1)
   })
 
@@ -140,7 +149,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 4, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
-    w.step(0.0001, FLAT, 0)
+    w.step(0.0001, FLAT, WET, 0)
     expect(w.sprayEvents.count).toBe(0)
   })
 
@@ -149,9 +158,27 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 0.5, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
-    w.step(0.05, FLAT, 0)
+    w.step(0.05, FLAT, WET, 0)
     expect(w.sprayEvents.count).toBe(1)
     expect(w.splashEvents.count).toBe(WRECK_SPLASH_COLUMNS)
+  })
+
+  /**
+   * 【落地與落水收得一樣快，但只有落水噴水】`heightAt` 決定「碰到地面了
+   * 沒」，`waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱 ——
+   * 群島早就有這個缺陷，純內陸則是每一次墜毀都會發生。
+   */
+  it('落在陸地上不噴濺、不生水柱，但照樣收得掉', () => {
+    const w = createWrecks(4, () => {})
+    const f = fakeModel()
+    f.model.group.position.set(0, 0.5, 0)
+    w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
+    w.step(0.05, FLAT, DRY, 0)
+    expect(w.sprayEvents.count).toBe(0)
+    expect(w.splashEvents.count).toBe(0)
+    // 【沉得淺，所以幾步之內就收掉】陸地上沒有殘骸的視覺
+    for (let i = 0; i < 40; i++) w.step(0.05, FLAT, DRY, 0)
+    expect(w.live).toBe(0)
   })
 
   it('水柱散佈在接觸點周圍，不是疊在同一點', () => {
@@ -159,7 +186,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(100, 0.5, -200)
     w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
-    w.step(0.05, FLAT, 0)
+    w.step(0.05, FLAT, WET, 0)
     const d = w.splashEvents.data
     let maxR = 0
     const seen = new Set<string>()
@@ -180,9 +207,9 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 0.5, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
-    w.step(0.05, FLAT, 0)
+    w.step(0.05, FLAT, WET, 0)
     expect(w.sprayEvents.count).toBe(1)
-    w.step(0.05, FLAT, 0)
+    w.step(0.05, FLAT, WET, 0)
     expect(w.sprayEvents.count).toBe(0)
   })
 
@@ -191,10 +218,10 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 0.5, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
-    w.step(0.5, FLAT, 0)
+    w.step(0.5, FLAT, WET, 0)
     // 接觸的那一幀仍然冒了煙（冒煙排在接觸判定之前），下一幀起就停
     expect(w.smokeEvents.count).toBeGreaterThan(0)
-    w.step(0.5, FLAT, 0)
+    w.step(0.5, FLAT, WET, 0)
     expect(w.smokeEvents.count).toBe(0)
   })
 
@@ -206,7 +233,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 0.5, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, -50, 0, 0)
-    for (let i = 0; i < 200; i++) w.step(0.05, FLAT, 0)
+    for (let i = 0; i < 200; i++) w.step(0.05, FLAT, WET, 0)
     expect(f.model.group.position.y).toBeLessThan(-WRECK_SINK_DEPTH + 1)
     expect(released.length).toBe(1)
     expect(released[0]).toBe(f.model)
@@ -219,7 +246,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 4000, 0)
     w.adopt(f.model, P51D.hitBoxes, 0, 0, 0, 0)
-    for (let i = 0; i < 200; i++) w.step(WRECK_MAX_LIFE / 100, DEEP, 0)
+    for (let i = 0; i < 200; i++) w.step(WRECK_MAX_LIFE / 100, DEEP, WET, 0)
     expect(released.length).toBe(1)
     expect(w.live).toBe(0)
   })
@@ -230,11 +257,11 @@ describe('殘骸入水（M8 spec §9）', () => {
     const b = fakeModel()
     a.model.group.position.set(0, 0.5, 0)
     w.adopt(a.model, P51D.hitBoxes, 0, -50, 0, 0)
-    for (let i = 0; i < 200; i++) w.step(0.05, FLAT, 0)
+    for (let i = 0; i < 200; i++) w.step(0.05, FLAT, WET, 0)
     expect(w.live).toBe(0)
     b.model.group.position.set(0, 4000, 0)
     w.adopt(b.model, P51D.hitBoxes, 0, 0, 0, 1)
-    w.step(0.05, DEEP, 0)
+    w.step(0.05, DEEP, WET, 0)
     expect(w.live).toBe(1)
   })
 
@@ -243,7 +270,7 @@ describe('殘骸入水（M8 spec §9）', () => {
     const f = fakeModel()
     f.model.group.position.set(0, 4000, 0)
     w.adopt(f.model, P51D.hitBoxes, 30, 5, -150, 0)
-    for (let i = 0; i < 7200; i++) w.step(1 / 60, DEEP, 0)
+    for (let i = 0; i < 7200; i++) w.step(1 / 60, DEEP, WET, 0)
     expect(Number.isFinite(f.model.group.position.length())).toBe(true)
     expect(Number.isFinite(f.model.group.quaternion.length())).toBe(true)
   })
@@ -263,16 +290,16 @@ describe('冒煙的時間上限（人工驗收裁決）', () => {
     // DEEP 讓它永遠碰不到水 —— 這一條要驗的是時間上限，不是入水
     let emitted = 0
     for (let t = 0; t < WRECK_SMOKE_SECONDS - 0.5; t += 0.5) {
-      w.step(0.5, DEEP, 0)
+      w.step(0.5, DEEP, WET, 0)
       emitted += w.smokeEvents.count
     }
     expect(emitted).toBeGreaterThan(0)
 
     // 跨過上限之後
-    w.step(1, DEEP, 0)
-    w.step(0.5, DEEP, 0)
+    w.step(1, DEEP, WET, 0)
+    w.step(0.5, DEEP, WET, 0)
     expect(w.smokeEvents.count).toBe(0)
-    w.step(5, DEEP, 0)
+    w.step(5, DEEP, WET, 0)
     expect(w.smokeEvents.count).toBe(0)
   })
 

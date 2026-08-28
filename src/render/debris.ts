@@ -12,6 +12,7 @@ import {
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HeightField } from '../aircraft/crash'
+import type { WaterField } from './wrecks'
 
 /**
  * 一次擊墜噴幾片。
@@ -120,7 +121,12 @@ export interface Debris {
    */
   emit(events: KillEvents, colorOf: (index: number) => number): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
-  step(dt: number, heightAt: HeightField, time: number): void
+  /**
+   * @param waterAt 水面高度，**沒有水的地方回 `-Infinity`**。落地與落水
+   * 都會收掉零件，但只有落水才推噴濺 —— 內陸每一次墜毀都噴水是這一個
+   * 參數存在的全部理由。
+   */
+  step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void
   /** 全部歸零。換一場戰鬥時呼叫 —— 上一場的零件不該留在新的一場裡 */
   reset(): void
   dispose(): void
@@ -266,7 +272,7 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
       if (object.instanceColor) object.instanceColor.needsUpdate = true
     },
 
-    step(dt: number, heightAt: HeightField, time: number): void {
+    step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void {
       // 【每次 step 開頭排空】呼叫端在 step 之後讀就好，不必記得清
       clearImpacts(smokeEvents)
       clearImpacts(sprayEvents)
@@ -300,7 +306,11 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         // 而存在的（M8 spec §7）
         const surface = heightAt(nx, nz, time)
         if (ny <= surface) {
-          pushImpact(sprayEvents, nx, surface, nz, 0, 1, 0)
+          // 【只有落水才噴濺】陸地上噴水柱是純內陸每一次墜毀都會發生的
+          // 缺陷，群島上則是「摔在島上噴水」
+          if (Number.isFinite(waterAt(nx, nz))) {
+            pushImpact(sprayEvents, nx, surface, nz, 0, 1, 0)
+          }
           kill(i)
           continue
         }

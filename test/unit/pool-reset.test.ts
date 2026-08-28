@@ -12,6 +12,12 @@ import { createKills, pushKill } from '../../src/world/kills'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 
+/**
+ * 「這裡處處都是水」。**既有的每一條都建立在那個前提上**
+ * —— 落水才噴濺，而這些測試量的正是噴濺。
+ */
+const WET = (): number => 0
+
 describe('粒子池的歸零（M10 spec §5.5）', () => {
   // 【為什麼一次測三個】火球、煙、噴濺都是 createParticles 包出來的，
   // 一個 reset() 同時解決三個。分開測才看得出來三個都真的拿到了。
@@ -94,7 +100,7 @@ describe('零件池的歸零', () => {
     expect(d.live).toBeGreaterThan(0)
     d.reset()
     expect(d.live).toBe(0)
-    d.step(1 / 60, FLAT, 0)
+    d.step(1 / 60, FLAT, WET, 0)
     expect(d.live).toBe(0)
     d.dispose()
   })
@@ -113,7 +119,7 @@ describe('殘骸池的歸零', () => {
     expect(w.live).toBe(0) // live 由 step 更新，adopt 之後還沒算
     w.reset()
     expect(released).toHaveLength(2)
-    w.step(1 / 60, FLAT, 0)
+    w.step(1 / 60, FLAT, WET, 0)
     expect(w.live).toBe(0)
   })
 
@@ -123,7 +129,7 @@ describe('殘骸池的歸零', () => {
     w.adopt(buildAircraft(P51D), P51D.hitBoxes, 0, 0, 0, 0)
     w.reset()
     w.adopt(buildAircraft(P51D), P51D.hitBoxes, 0, 0, 0, 0)
-    w.step(1 / 60, FLAT, 0)
+    w.step(1 / 60, FLAT, WET, 0)
     expect(w.live).toBe(1)
   })
 })
