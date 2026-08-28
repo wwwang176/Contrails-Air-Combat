@@ -1,33 +1,25 @@
 import { Color } from 'three'
 
 /**
- * 田區、防風林與農路。**兩層抖動網格的 Voronoi。**
+ * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
  *
  * ```
- *   粗的一層（區塊）   決定這一帶的走向、田的尺寸、以及配色的基調
- *                     兩區的交界畫成一條農路
- *   細的一層（田）     在區塊的座標系裡切，所以整片田有共同的走向
- *                     兩塊田的交界有一半機率長樹籬
+ *   粗的一層（區塊）   這一帶田的走向、尺寸、以及配色的基調
+ *                     兩區的交界是一條凹路（sunken lane）
+ *   細的一層（田）     區塊座標系裡的抖動矩形格。縱橫界線各自被推移，
+ *                     所以田是不規則的四邊形，不是等大的方格
  * ```
  *
- * 【為什麼要兩層】只有一層的話每塊田大小一樣、都是凸的、而且相鄰兩塊的
- * 顏色完全不相關 —— 畫出來是迷彩，不是農地。真實的歐洲農地是**成片**的：
- * 同一帶的田有共同的走向與相近的色調，換一帶才換調子。
+ * 【為什麼不是 Voronoi】Voronoi 長出來的是凸多邊形 —— 從空中看是碎石地坪
+ * 或迷彩，不是農地。Bocage 的田是**接近矩形**的，而抖動的矩形格直接就是
+ * 那個形狀。順帶它便宜得多：不必 3×3 鄰域搜尋，而且格線在區塊座標系裡
+ * 軸對齊，所以「離田界多遠」本來就是世界公尺，不必修正方位。
  *
- * 【各向異性做在度量上，網格維持正方形】田要長條，做法是把長軸方向的座標
- * 除以 `FIELD_ANISO` 之後再切 Voronoi。
+ * 【樹籬是主角，不是點綴】Bocage 的定義就是每塊田被土堤＋灌木＋喬木圍住。
+ * 初稿把樹籬砍到只長一半、佔地 6.6%，那是開放田制（open-field）的樣子 ——
+ * 帶狀田、樹籬稀疏。Bocage 的樹籬該佔到一成七，讀起來像一張綠色的網。
  *
- * **不能改成「網格拉長、距離照舊」** —— 那樣 3×3 的鄰域搜尋會不夠。格子
- * 260 × 624 時，同一欄裡最近的種子可能遠到 595 m，而隔三欄的種子最近只有
- * 551 m；要保證正確得搜到 ±4 欄，也就是每個片段 27 顆種子而不是 9 顆。
- * 實測那個版本與 7×7 的暴力解差 **190 m**。
- *
- * 【代價：樹籬的門檻要隨方位修正】壓扁過的空間裡，`f2 − f1` 不是世界公尺。
- * 一條法線沿短軸的界，門檻就是 `HEDGE_WIDTH`；沿長軸的那些要除以
- * `FIELD_ANISO`。修正項是 `|(e.x, e.y / ANISO)|`，其中 `e` 是兩顆種子連線的
- * 單位向量 —— 見 `hedgeThreshold`。
- *
- * 【為什麼不烘貼圖】要讓 16 m 的樹籬不鋸齒，30 km 見方需要 4096² 的貼圖
+ * 【為什麼不烘貼圖】要讓 18 m 的樹籬不鋸齒，30 km 見方需要 4096² 的貼圖
  * （7.3 m/texel），RGB 是 50 MB。在著色器裡算是解析的、與解析度無關，
  * **而且延伸到無限遠** —— 遠景環用同一支函式，圖案自動接得上。
  *
@@ -38,49 +30,42 @@ import { Color } from 'three'
  * 由 `fields.test.ts` 的金本位釘住，語法由 e2e 在真的 WebGL2 裡編譯來守。
  */
 
-/** 田的短軸間距，m。長軸是它乘上 `FIELD_ANISO` */
-export const FIELD_SPACING = 260
+/** 田的短邊，m。Bocage 的田不大 —— 一兩百公尺是典型 */
+export const FIELD_SPACING = 170
+
+/** 田的長寬比。Bocage 的田是不規則四邊形，不是長條，所以不大 */
+export const FIELD_ANISO = 1.55
+
+/** 每一區把田的尺寸乘上這個區間裡的一個數。大小因此成片地變 */
+export const FIELD_SPACING_VAR = [0.8, 1.6] as const
 
 /**
- * 田的長寬比。
+ * 格線推移的幅度，格的比例。
  *
- * 【為什麼一定要有】各向同性的 Voronoi 長出來的是圓潤的六邊形，讀起來是
- * 碎石地坪。真實的耕地是長條的 —— 那是犁溝的方向決定的。
+ * **必須 < 0.5** —— 大於一半的話相鄰兩條界線會交換次序，田會翻面。
+ * 這一條由 `fields.test.ts` 的「格線恆遞增」守著。
  */
-export const FIELD_ANISO = 2.4
+export const EDGE_JITTER = 0.32
 
-/** 每一區把 `FIELD_SPACING` 乘上這個區間裡的一個數。田的大小因此成片地變 */
-export const FIELD_SPACING_VAR = [0.75, 1.5] as const
-
-/**
- * 種子在自己那一格內的抖動，格的比例。
- *
- * **必須 < 0.5** —— 3×3 的鄰域搜尋要找得到最近與次近的種子，前提是任何
- * 種子都不會跑出自己那一格。`fields.test.ts` 拿 7×7 的暴力解對答案。
- */
-export const FIELD_JITTER = 0.38
+/** 一塊田再對切一次的機率。田的大小因此有兩倍的變化 */
+export const SPLIT_CHANCE = 0.35
 
 /** 區塊的間距，m。一帶田共用走向與色調的範圍 */
-export const REGION_SPACING = 3800
+export const REGION_SPACING = 3200
 
-/**
- * 樹籬的帶寬，m。
- *
- * 【它是 `f2 − f1` 的門檻，不是幾何寬度】在垂直平分線附近
- * `f2 − f1 ≈ 2 ×（到平分線的帶號距離）`，所以帶的總寬約等於這個數字。
- */
-export const HEDGE_WIDTH = 16
+/** 樹籬的總寬度，m。土堤加灌木加喬木，由空中看到的那一條帶 */
+export const HEDGE_WIDTH = 18
 
 /**
  * 有多少比例的田界長樹籬。
  *
- * 【為什麼不是全部】每一條邊都畫的話，17% 的地面是深綠線 —— 太多。真實的
- * 農地大概一半的邊界是樹籬，其餘只是作物換了，地上看不出線。
+ * 【為什麼接近 1】**Bocage 的定義就是每塊田被完整圍起來。** 留一點缺口是
+ * 給農路的出入口 —— 全滿反而假。
  */
-export const HEDGE_CHANCE = 0.55
+export const HEDGE_CHANCE = 0.92
 
-/** 農路的寬度，m。兩區交界的那一條 */
-export const TRACK_WIDTH = 22
+/** 凹路的寬度，m。兩區交界的那一條 */
+export const TRACK_WIDTH = 20
 
 /** 犁過的田的比例。與色調無關，散落在各處 */
 const PLOUGH_CHANCE = 0.12
@@ -97,10 +82,10 @@ const PALETTE = [
 /** 犁過的田。不在漸層上 —— 它是另一種地，不是另一個色調 */
 const PLOUGHED = 0x6b5238
 
-/** 樹籬。比任何一塊田都暗 —— 從空中看就是一條深線 */
-const HEDGE = 0x2c3a24
+/** 樹籬。比任何一塊田都暗 —— 灌木加喬木的樹冠，而且自己有陰影 */
+const HEDGE = 0x28351f
 
-/** 農路。乾土色 */
+/** 凹路。乾土色 */
 const TRACK = 0x9c8f6e
 
 export interface RegionSample {
@@ -109,32 +94,29 @@ export interface RegionSample {
   r2: number
   /** 這一區的雜湊 */
   id: number
-  /** 這一帶田的走向，rad。長軸就是這個方向 */
+  /** 這一帶田的走向，rad */
   angle: number
-  /** 這一帶田的短軸，m。長軸是它乘上 `FIELD_ANISO` */
+  /** 這一帶田的短邊與長邊，m */
   cellW: number
+  cellH: number
   /** 這一帶的基調在 `PALETTE` 上的位置 */
   tone: number
 }
 
 export interface FieldSample {
-  /** 到最近那顆種子的距離。**壓扁過的空間，不是世界公尺** */
-  f1: number
-  /** 到次近那顆種子的距離。同上 */
-  f2: number
-  /** 最近那一格的雜湊。田的身分 */
+  /** 這一塊田的雜湊。田的身分 */
   id: number
-  /** 次近那一格的雜湊。樹籬長不長要靠這一對決定 */
-  id2: number
-  /** `f2 − f1` 要與這個比，才等於世界座標的 `HEDGE_WIDTH`。見檔頭 */
-  hedgeThreshold: number
+  /** 到最近的一條田界有多遠，m */
+  edge: number
+  /** 最近那條田界長不長樹籬 */
+  hedged: boolean
 }
 
 /**
  * 32 位元的兩維整數雜湊。**不得 `Math.random`** —— 見檔頭。
  *
  * 【與 `scatter.ts` 的 `hash01` 為什麼不共用】那一支吃一個索引，這裡要
- * 兩個座標而且要拿到 32 位元全部（低 16 位與高 16 位各給一個方向的抖動）。
+ * 兩個座標而且要拿到 32 位元全部。
  */
 function hash2(i: number, j: number): number {
   let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
@@ -150,9 +132,21 @@ function hash1(h: number): number {
 }
 
 /**
+ * 第 `k` 條格線的位置，m。`salt` 分開縱線與橫線。
+ *
+ * **推移量必須小於半格**，否則相鄰兩條線會交換次序 —— 見 `EDGE_JITTER`。
+ *
+ * 【`export` 是給測試的】「格線恆遞增」是整個矩形格成立的前提，而由成品
+ * 反推很難證明它。直接驗這一支便宜得多。
+ */
+export function edgeAt(k: number, cell: number, salt: number): number {
+  return (k + (hash2(k, salt) / 4294967296 - 0.5) * 2 * EDGE_JITTER) * cell
+}
+
+/**
  * 世界座標落在哪一區，以及那一區的參數。就地寫進 `out`。
  *
- * 區塊本身是各向同性的 —— 走向是它**給出來**的東西，不是它自己吃的。
+ * 區塊本身是各向同性的 Voronoi —— 走向是它**給出來**的東西，不是它自己吃的。
  */
 export function regionAt(x: number, z: number, out: RegionSample): void {
   const gx = Math.floor(x / REGION_SPACING)
@@ -165,8 +159,8 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
       const i = gx + di
       const j = gz + dj
       const h = hash2(i, j)
-      const ox = ((h & 0xffff) / 65536 - 0.5) * 2 * FIELD_JITTER
-      const oz = ((h >>> 16) / 65536 - 0.5) * 2 * FIELD_JITTER
+      const ox = ((h & 0xffff) / 65536 - 0.5) * 0.76
+      const oz = ((h >>> 16) / 65536 - 0.5) * 0.76
       const sx = (i + 0.5 + ox) * REGION_SPACING
       const sz = (j + 0.5 + oz) * REGION_SPACING
       const d = Math.hypot(x - sx, z - sz)
@@ -181,22 +175,22 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   const scale = FIELD_SPACING_VAR[0]
     + ((rh >>> 16) / 65536) * (FIELD_SPACING_VAR[1] - FIELD_SPACING_VAR[0])
   out.cellW = FIELD_SPACING * scale
+  out.cellH = FIELD_SPACING * scale * FIELD_ANISO
   // 【三角分佈，不是均勻】均勻抽的話四分之一的地是最深的綠、四分之一是
-  // 最淡的金 —— 30 km 看下去是斑塊，區塊那一層自己變成新的迷彩。
-  // 兩個均勻取平均之後極端值罕見，而中段的綠佔多數
+  // 最淡的金 —— 30 km 看下去區塊那一層自己會變成新的迷彩
   const th = hash1(rh)
   out.tone = (((th & 0xffff) % PALETTE.length) + ((th >>> 16) % PALETTE.length)) >> 1
 }
 
 /**
- * 世界座標落在哪一塊田、離田界多遠。就地寫進 `out`。
+ * 世界座標落在哪一塊田、離田界多遠、那條界有沒有樹籬。就地寫進 `out`。
  *
- * 【壓扁之後再切】區塊的座標系裡把長軸除以 `FIELD_ANISO`，網格因此是
- * **正方形**的，3×3 的鄰域搜尋保證成立。映射回世界之後，田在長軸上被拉開
- * `FIELD_ANISO` 倍 —— 那正是要的長條。
+ * 【抖動的矩形格】區塊座標系裡，第 k 條縱線在
+ * `(k ± EDGE_JITTER) × cellW`，橫線同理。推移量小於半格，所以由
+ * `floor(q / cell)` 起算、左右各看一格就一定找得到自己那一格。
  *
- * 【`f1`／`f2` 不是世界公尺】它們在壓扁過的空間裡。樹籬要用
- * `out.hedgeThreshold` 比，那一項把方位修正回來了。
+ * 【再對切一次】`SPLIT_CHANCE` 的格子沿長邊再切一刀，田的大小因此有兩倍
+ * 的變化。切線也是一條田界，一樣長樹籬。
  *
  * 熱路徑之外（測試與工具用；畫面上跑的是 GLSL 那一份），但仍然不配置。
  */
@@ -205,75 +199,80 @@ export function fieldAt(
 ): void {
   const cos = Math.cos(-reg.angle)
   const sin = Math.sin(-reg.angle)
-  // 區塊的座標系，長軸壓扁 FIELD_ANISO 倍
+  // 【旋轉不改變距離】所以在這個座標系裡量到的就是世界的公尺
   const qx = x * cos - z * sin
-  const qz = (x * sin + z * cos) / FIELD_ANISO
-  const gx = Math.floor(qx / reg.cellW)
-  const gz = Math.floor(qz / reg.cellW)
-  let f1 = Infinity
-  let f2 = Infinity
-  let id = 0
-  let id2 = 0
-  let s1x = 0
-  let s1z = 0
-  let s2x = 0
-  let s2z = 0
-  for (let dj = -1; dj <= 1; dj++) {
-    for (let di = -1; di <= 1; di++) {
-      const i = gx + di
-      const j = gz + dj
-      // 【摻進區塊的雜湊】不然相鄰兩區在同一個格線上會抽到同一批種子，
-      // 交界兩側的田會對齊得很不自然
-      const h = hash2(i ^ reg.id, j)
-      const ox = ((h & 0xffff) / 65536 - 0.5) * 2 * FIELD_JITTER
-      const oz = ((h >>> 16) / 65536 - 0.5) * 2 * FIELD_JITTER
-      const sx = (i + 0.5 + ox) * reg.cellW
-      const sz = (j + 0.5 + oz) * reg.cellW
-      const d = Math.hypot(qx - sx, qz - sz)
-      if (d < f1) {
-        f2 = f1; id2 = id; s2x = s1x; s2z = s1z
-        f1 = d; id = h; s1x = sx; s1z = sz
-      } else if (d < f2) {
-        f2 = d; id2 = h; s2x = sx; s2z = sz
-      }
+  const qz = x * sin + z * cos
+
+  // 【先定列】縱界的推移量帶著列號 —— 每一列各自錯開，縱線因此在每一條
+  // 橫線上斷掉。不錯開的話縱橫線都貫穿整片，讀起來是方格土地測量，
+  // 不是諾曼第的 bocage
+  let r = Math.floor(qz / reg.cellH)
+  if (qz < edgeAt(r, reg.cellH, 1)) r--
+  else if (qz >= edgeAt(r + 1, reg.cellH, 1)) r++
+  const colSalt = (r * 2 + 1) | 0
+
+  // 自己那一欄。推移量 < 0.5 格，所以最多差一格
+  let c = Math.floor(qx / reg.cellW)
+  if (qx < edgeAt(c, reg.cellW, colSalt)) c--
+  else if (qx >= edgeAt(c + 1, reg.cellW, colSalt)) c++
+
+  const left = edgeAt(c, reg.cellW, colSalt)
+  const right = edgeAt(c + 1, reg.cellW, colSalt)
+  const bottom = edgeAt(r, reg.cellH, 1)
+  const top = edgeAt(r + 1, reg.cellH, 1)
+
+  // 四條邊各自的距離。`edgeKey` 記住最近的是哪一條 —— 樹籬長不長是
+  // **那條邊**的性質，不是這塊田的
+  let best = qx - left
+  let edgeKey = hash2(c ^ colSalt, 0x51ed)
+  const dr = right - qx
+  if (dr < best) { best = dr; edgeKey = hash2((c + 1) ^ colSalt, 0x51ed) }
+  const db = qz - bottom
+  if (db < best) { best = db; edgeKey = hash2(r, 0x9e37) }
+  const dt = top - qz
+  if (dt < best) { best = dt; edgeKey = hash2(r + 1, 0x9e37) }
+
+  // 【對切】沿長邊切一刀，切出來的兩半是兩塊田
+  const cellHash = hash2(c ^ reg.id, r)
+  let half = 0
+  if ((cellHash & 0xff) / 256 < SPLIT_CHANCE) {
+    const f = 0.34 + (((cellHash >>> 8) & 0xff) / 255) * 0.32
+    if (right - left >= top - bottom) {
+      const cut = left + (right - left) * f
+      const d = Math.abs(qx - cut)
+      if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
+      half = qx < cut ? 0 : 1
+    } else {
+      const cut = bottom + (top - bottom) * f
+      const d = Math.abs(qz - cut)
+      if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
+      half = qz < cut ? 0 : 1
     }
   }
-  out.f1 = f1
-  out.f2 = f2
-  out.id = id
-  out.id2 = id2
 
-  // 【把門檻換算回世界公尺】兩顆種子連線的單位向量 e（壓扁空間），世界位移
-  // w 造成 f2 − f1 變化 2⟨w, (e.x, e.y / ANISO)⟩ —— 所以帶的世界寬度是
-  // 門檻除以那個向量的長度。要讓它恆等於 HEDGE_WIDTH，門檻就乘上它
-  const ex = s2x - s1x
-  const ez = s2z - s1z
-  const el = Math.hypot(ex, ez) || 1
-  out.hedgeThreshold = HEDGE_WIDTH
-    * Math.hypot(ex / el, ez / el / FIELD_ANISO)
+  out.id = hash1(cellHash ^ (half * 0x7f4a))
+  out.edge = best
+  out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
 }
 
-const REG: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, tone: 0 }
-const FLD: FieldSample = { f1: 0, f2: 0, id: 0, id2: 0, hedgeThreshold: 0 }
+const REG: RegionSample = {
+  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+}
+const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
 
 /**
  * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版。**
  *
- * 順序就是優先權：農路壓過樹籬，樹籬壓過作物。
+ * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。
  */
 export function fieldSurfaceColor(x: number, z: number, out: Color): Color {
   regionAt(x, z, REG)
   if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(TRACK)
 
   fieldAt(x, z, REG, FLD)
-  const fh = hash1(FLD.id)
-  // 【樹籬的機率吃「這一對」的雜湊】用 XOR 是因為它對稱 —— 從田的兩側
-  // 問同一條邊，必須得到同一個答案
-  if (FLD.f2 - FLD.f1 < FLD.hedgeThreshold
-    && hash1(FLD.id ^ FLD.id2) / 4294967296 < HEDGE_CHANCE) {
-    return out.setHex(HEDGE)
-  }
+  if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(HEDGE)
 
+  const fh = FLD.id
   if ((fh & 0xff) / 256 < PLOUGH_CHANCE) return out.setHex(PLOUGHED)
 
   // 【在區塊的基調 ±1 裡挑】色盤是一條漸層，所以相鄰的索引顏色相近
@@ -306,7 +305,8 @@ const glslPalette = PALETTE.map((c) => '  ' + rgb(c)).join(',\n')
 export const FIELD_GLSL = `
 const float FIELD_SPACING = ${FIELD_SPACING.toFixed(1)};
 const float FIELD_ANISO = ${FIELD_ANISO.toFixed(3)};
-const float FIELD_JITTER = ${FIELD_JITTER.toFixed(3)};
+const float EDGE_JITTER = ${EDGE_JITTER.toFixed(3)};
+const float SPLIT_CHANCE = ${SPLIT_CHANCE.toFixed(3)};
 const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};
 const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
 const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
@@ -335,6 +335,11 @@ uint fieldHash1(uint h) {
   return h ^ (h >> 16u);
 }
 
+float fieldEdgeAt(int k, float cell, int salt) {
+  return (float(k) + (float(fieldHash2(k, salt)) / 4294967296.0 - 0.5)
+    * 2.0 * EDGE_JITTER) * cell;
+}
+
 vec3 fieldColorAt(vec2 world) {
   // ── 粗的一層：區塊 ──────────────────────────────
   float rgx = floor(world.x / REGION_SPACING);
@@ -347,8 +352,8 @@ vec3 fieldColorAt(vec2 world) {
       int i = int(rgx) + di;
       int j = int(rgz) + dj;
       uint h = fieldHash2(i, j);
-      float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;
-      float oz = (float(h >> 16u) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;
+      float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 0.76;
+      float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
       vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
       float d = distance(world, seed);
       if (d < r1) { r2 = r1; r1 = d; rid = h; }
@@ -364,45 +369,53 @@ vec3 fieldColorAt(vec2 world) {
   float cellW = FIELD_SPACING * scale;
   float cellH = FIELD_SPACING * scale * FIELD_ANISO;
   uint th = fieldHash1(rh);
-  int tone = int(((th & 0xffffu) % ${PALETTE.length}u + (th >> 16u) % ${PALETTE.length}u) >> 1u);
+  int tone = int(((th & 0xffffu) % ${PALETTE.length}u
+    + (th >> 16u) % ${PALETTE.length}u) >> 1u);
 
-  // ── 細的一層：田。長軸壓扁，網格因此是正方形 ──────
+  // ── 細的一層：抖動的矩形格 ──────────────────────
   float cs = cos(-angle);
   float sn = sin(-angle);
-  vec2 q = vec2(
-    world.x * cs - world.y * sn,
-    (world.x * sn + world.y * cs) / FIELD_ANISO);
-  float gx = floor(q.x / cellW);
-  float gz = floor(q.y / cellW);
-  float f1 = 1e20;
-  float f2 = 1e20;
-  uint id = 0u;
-  uint id2 = 0u;
-  vec2 s1 = vec2(0.0);
-  vec2 s2 = vec2(0.0);
-  for (int dj = -1; dj <= 1; dj++) {
-    for (int di = -1; di <= 1; di++) {
-      int i = int(gx) + di;
-      int j = int(gz) + dj;
-      uint h = fieldHash2(i ^ int(rid), j);
-      float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;
-      float oz = (float(h >> 16u) / 65536.0 - 0.5) * 2.0 * FIELD_JITTER;
-      vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * cellW;
-      float d = distance(q, seed);
-      if (d < f1) { f2 = f1; id2 = id; s2 = s1; f1 = d; id = h; s1 = seed; }
-      else if (d < f2) { f2 = d; id2 = h; s2 = seed; }
+  vec2 q = vec2(world.x * cs - world.y * sn, world.x * sn + world.y * cs);
+
+  int r = int(floor(q.y / cellH));
+  if (q.y < fieldEdgeAt(r, cellH, 1)) r -= 1;
+  else if (q.y >= fieldEdgeAt(r + 1, cellH, 1)) r += 1;
+  int colSalt = r * 2 + 1;
+
+  int c = int(floor(q.x / cellW));
+  if (q.x < fieldEdgeAt(c, cellW, colSalt)) c -= 1;
+  else if (q.x >= fieldEdgeAt(c + 1, cellW, colSalt)) c += 1;
+
+  float left = fieldEdgeAt(c, cellW, colSalt);
+  float right = fieldEdgeAt(c + 1, cellW, colSalt);
+  float bottom = fieldEdgeAt(r, cellH, 1);
+  float top = fieldEdgeAt(r + 1, cellH, 1);
+
+  float best = q.x - left;
+  uint edgeKey = fieldHash2(c ^ colSalt, 0x51ed);
+  if (right - q.x < best) { best = right - q.x; edgeKey = fieldHash2((c + 1) ^ colSalt, 0x51ed); }
+  if (q.y - bottom < best) { best = q.y - bottom; edgeKey = fieldHash2(r, 0x9e37); }
+  if (top - q.y < best) { best = top - q.y; edgeKey = fieldHash2(r + 1, 0x9e37); }
+
+  uint cellHash = fieldHash2(c ^ int(rid), r);
+  uint half = 0u;
+  if (float(cellHash & 0xffu) / 256.0 < SPLIT_CHANCE) {
+    float f = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;
+    if (right - left >= top - bottom) {
+      float cut = left + (right - left) * f;
+      if (abs(q.x - cut) < best) { best = abs(q.x - cut); edgeKey = cellHash ^ 0x1234u; }
+      half = q.x < cut ? 0u : 1u;
+    } else {
+      float cut = bottom + (top - bottom) * f;
+      if (abs(q.y - cut) < best) { best = abs(q.y - cut); edgeKey = cellHash ^ 0x1234u; }
+      half = q.y < cut ? 0u : 1u;
     }
   }
 
-  // 【把門檻換算回世界公尺】見 fields.ts 檔頭的推導
-  vec2 e = normalize(s2 - s1 + vec2(1e-9, 0.0));
-  float hedge = HEDGE_WIDTH * length(vec2(e.x, e.y / FIELD_ANISO));
+  if (float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE
+    && best < HEDGE_WIDTH * 0.5) return HEDGE_COLOR;
 
-  uint fh = fieldHash1(id);
-  if (f2 - f1 < hedge
-    && float(fieldHash1(id ^ id2)) / 4294967296.0 < HEDGE_CHANCE) {
-    return HEDGE_COLOR;
-  }
+  uint fh = fieldHash1(cellHash ^ (half * 0x7f4au));
   if (float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE) return PLOUGHED_COLOR;
 
   int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
