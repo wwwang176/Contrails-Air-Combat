@@ -1446,6 +1446,8 @@ requestAnimationFrame(frame)
  *          相位、碎光的漂移全部固定
  *   海面   `terrain.update` 在暫停時不跑，網格會停在暫停前的位置上。
  *          這裡主動叫一次，讓它對齊新的鏡頭
+ *   植被   引擎每幀只生四格，光靠一次 `update` 會拍到一片還沒補完的地。
+ *          `terrain.settle()` 一次排乾
  * ```
  *
  * 飛機與參照物仍然是隨機的 —— 比對時用 `__gfx` 把它們關掉。
@@ -1454,17 +1456,20 @@ requestAnimationFrame(frame)
  * 「模擬停下來」而不是「玩家按了暫停」。
  */
 ;(window as unknown as Record<string, unknown>)['__still'] = (
-  yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0,
+  yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0, x = 0, z = 0,
 ) => {
   paused = true
   elapsed = time
-  ctx.camera.position.set(0, altitude, 0)
+  ctx.camera.position.set(x, altitude, z)
   // YXZ：先繞 Y 偏航、再繞 X 俯仰，與飛行姿態同一個慣例
   ctx.camera.quaternion.setFromEuler(
     new Euler((pitchDeg * Math.PI) / 180, (yawDeg * Math.PI) / 180, 0, 'YXZ'))
   ctx.camera.updateMatrixWorld(true)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
-  return { yawDeg, pitchDeg, altitude, time }
+  // 【一定要排乾】少了它，定格拍到的是還在補格的植被 —— 而且每次拍到的
+  // 進度都不一樣，`pixel-identical` 會變成隨機紅
+  terrain.settle?.()
+  return { yawDeg, pitchDeg, altitude, time, x, z }
 }
 
 /**
