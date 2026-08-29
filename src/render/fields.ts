@@ -468,12 +468,34 @@ float stripe(vec2 q, float period, float amp) {
   return 1.0 + amp * fade * (fract(u) < 0.5 ? 1.0 : -1.0);
 }
 
+// 【帶的邊緣走解析盒濾波】一個像素蓋到的地一超過帶寬，「在不在帶上」的
+// 二選一就隨鏡頭微動翻面 —— 那是遠方線條爬行的原因。MSAA 幫不上忙：
+// 它只解析幾何邊緣，而片段著色器一個像素只跑一次。
+//
+// d 是到帶中心線的距離（非負），halfW 是半寬，w 是像素在地面上的半足跡。
+// 回傳的是那條帶在 [d - w, d + w] 這一段裡佔的比例。
+//
+// 【極限行為】w → 無限大時趨近 halfW / w，也就是那條帶在像素裡的真實面積
+// 比：細線變淡，不是變寬。smoothstep 沒有這個
+// 性質，它會把影響範圍撐到 halfW + w，遠處是一片過暗的灰霧。
+//
+// 【參數不能叫 half】那是 GLSL 的保留字。
+float bandCoverage(float d, float halfW, float w) {
+  return clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0);
+}
+
 float fieldEdgeAt(int k, float cell, int salt) {
   return (float(k) + (float(fieldHash2(k, salt)) / 4294967296.0 - 0.5)
     * 2.0 * EDGE_JITTER) * cell;
 }
 
 vec3 fieldColorAt(vec2 world) {
+  // 【像素足跡，無條件、吃世界座標】導數指令在 fragment quad 內分歧時結果
+  // 不可靠，所以不能放進任何分支；而 world 是內插的 varying，處處平滑。
+  // **不得改用 best 自己的導數** —— best 是四條外框加一條切線取 min，在最近
+  // 邊換手的角平分線上不可微，田角會長出楔形接縫
+  float px = 0.5 * length(vec2(fwidth(world.x), fwidth(world.y)));
+
   // ── 粗的一層：區塊 ──────────────────────────────
   float rgx = floor(world.x / REGION_SPACING);
   float rgz = floor(world.y / REGION_SPACING);
@@ -493,8 +515,6 @@ vec3 fieldColorAt(vec2 world) {
       else if (d < r2) { r2 = d; }
     }
   }
-  if (r2 - r1 < TRACK_WIDTH) return TRACK_COLOR;
-
   uint rh = fieldHash1(rid);
   float angle = (float(rh & 0xffffu) / 65536.0) * 3.14159265;
   float scale = SPACING_VAR_LO
@@ -545,22 +565,27 @@ vec3 fieldColorAt(vec2 world) {
     }
   }
 
-  if (float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE
-    && best < HEDGE_WIDTH * 0.5) return HEDGE_COLOR;
+  bool isHedge = float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE;
 
   uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));
-  if (isWoodField(fh)) return WOOD_COLOR;
+  bool wood = isWoodField(fh);
 
   bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
-  vec3 col = PLOUGHED_COLOR;
-  if (!ploughed) {
+  vec3 col = wood ? WOOD_COLOR : PLOUGHED_COLOR;
+  if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
     col = FIELD_PALETTE[t] * k;
   }
-  // 【犁田加倍】溝比行深。條紋沿田的長軸走，所以重複發生在 q.x 上
-  float amp = ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP;
+  // 【犁田加倍、樹林沒有】溝比行深；樹林是林冠不是作物。條紋沿田的長軸走，
+  // 所以重複發生在 q.x 上
+  float amp = wood ? 0.0 : (ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP);
   col *= stripe(q, STRIPE_PERIOD, amp);
+  // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
+  // 兩條帶的半寬不一樣：凹路的判準是 r2 - r1 < TRACK_WIDTH，樹籬的是
+  // best < HEDGE_WIDTH * 0.5
+  col = mix(col, HEDGE_COLOR, isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5, px) : 0.0);
+  col = mix(col, TRACK_COLOR, bandCoverage(r2 - r1, TRACK_WIDTH, px));
   return col;
 }
 `
