@@ -6,7 +6,7 @@
  */
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFloraBuffer, createIslandFlora } from '../../src/render/flora'
-import { TILE_SIZE, CARD_NEAR, LOD_NEAR } from '../../src/render/vegetation'
+import { TILE_SIZE, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetation'
 
 const RADII = [6000, 9000, 12000, 16000]
 const arch = createArchipelago()
@@ -55,7 +55,7 @@ for (const R of RADII) {
         const n = tileCount(i, j)
         if (n === 0) continue
         if (d < LOD_NEAR) near += n
-        else if (d < CARD_NEAR) mid += n
+        else if (d < POINT_NEAR) mid += n
         else card += n
       }
     }

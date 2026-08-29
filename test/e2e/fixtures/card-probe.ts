@@ -4,7 +4,7 @@ import { createVegetation } from '../../../src/render/vegetation'
 import { pushFlora, FloraKind, type FloraSource } from '../../../src/render/flora'
 
 /**
- * **公告板朝向的量測台**。由 `test/e2e/flora-card.e2e.ts` 在瀏覽器裡載入。
+ * **遠處那三個點池的量測台**。由 `test/e2e/flora-card.e2e.ts` 在瀏覽器裡載入。
  *
  * 【為什麼要走真的引擎】朝向是頂點著色器算的，headless 的單元測試碰不到
  * GPU；而 `glsl-compile.e2e.ts` 只編譯不執行 —— world/local 座標空間混用、
@@ -47,7 +47,7 @@ export const PROBE_FOV_DEG = 10
  * 由 `azimuthDeg` 方位、`pitchDeg` 俯角、`dist` 距離看那一棵樹，回報它在
  * 畫面上佔的像素與平均顏色。
  *
- * 【距離可以跨門檻】`CARD_NEAR` 之內量到的是中級樹冠（被照亮的網格），
+ * 【距離可以跨門檻】`POINT_NEAR` 之內量到的是中級樹冠（被照亮的網格），
  * 之外量到的是點。兩者的平均亮度必須接得上 —— 那是 `POINT_LIGHT` 的來源。
  */
 export function cardShot(

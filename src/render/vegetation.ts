@@ -7,8 +7,8 @@ import {
   createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
-  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, CARD_POINT_COLOR,
-  CARD_POINT_SIZE, CARD_POINT_Y, type CardPool, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, POINT_POOLS, POINT_COLOR,
+  POINT_SIZE, POINT_Y, type MeshPool, type PointPool, type PoolName,
 } from './floraShapes'
 
 export type { PoolName }
@@ -19,18 +19,18 @@ export type { PoolName }
  * ```
  *   近   0 – 900 m        樹幹 ＋ 樹冠
  *   中   900 – 3,000      只有樹冠 —— 900 m 外樹幹不足 1 px
- *   卡片 3,000 – 6,000    公告板，1～2 tri
- *   外   > 6,000 m        不畫。著色器那條 18 m 的暗帶自己接手
- *   灌木 0 – 1,200 八面體、1,200 – 6,000 公告板
+ *   點   3,000 – 半徑     `gl.POINTS`，一株一個頂點
+ *   外   > 半徑            不畫。農地那邊由著色器的 18 m 暗帶接手
+ *   灌木 0 – 1,200 八面體、1,200 – 半徑 點
  *   建築 圈內都畫         一座 18 tri、圈內約 50 座，分級沒有意義
  * ```
  *
- * 【每一級都分樹種】闊葉三級都是圓的，針葉三級都是尖的 —— 換級只讓樹變
- * 簡單，不換剪影也不換顏色。公告板的形狀也對得上：菱形對八面體、
- * 三角形對錐。
+ * 【每一級都分樹種】闊葉兩級都是圓的，針葉兩級都是尖的 —— 換級只讓樹變
+ * 簡單，不換剪影也不換顏色。點的邊長解的是「與它取代的那一級側影**同面積**」，
+ * 所以過門檻時被遮住的地是連續的。
  *
- * 【公告板是為了灌木】灌木密度是喬木的 2.4 倍，6 km 圈內有十五萬叢。
- * 八面體是 125 萬個三角形，公告板是 30 萬。
+ * 【遠處為什麼是點】6 km 的樹只有 2.1 px 寬 —— 那個尺度上形狀是看不出來的，
+ * 而點一株只要一個頂點與 56 byte，一片轉向鏡頭的網格要三到六個頂點與 152。
  *
  * 【LOD 是逐 tile 決定的，不是逐棵】逐棵切要每幀重建整個池。代價是 250 m
  * 的一格同時換級，在門檻上可能看得出來跳一下 —— 遲滯只擋來回抖動，擋不了
@@ -49,12 +49,12 @@ export const TILE_SIZE = 250
 export const FLORA_RADIUS = 6000
 
 /**
- * 喬木由樹冠換到公告板的距離，m。
+ * 喬木由樹冠換到點的距離，m。
  *
- * 15 m 的樹在 3 km 是 4.6 px —— 還看得出剪影，所以公告板的形狀必須對得上
- * 它取代的那一級（菱形對八面體、三角形對錐），否則門檻上會跳。
+ * 30 m 的樹在 3 km 是 9.2 px —— 還看得出一點形狀，所以點的**面積**必須對得上
+ * 它取代的那一級的側影，否則門檻上林相會突然變厚或變薄。
  */
-export const CARD_NEAR = 3000
+export const POINT_NEAR = 3000
 
 /**
  * 樹幹畫到多遠，m。**唯一的換級門檻。**
@@ -208,7 +208,7 @@ export const ISLAND_TILES_PER_FRAME = 61
  */
 export const TILE_CACHE = 2100
 
-const LOD_STEP = [LOD_NEAR, CARD_NEAR, FLORA_RADIUS] as const
+const LOD_STEP = [LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
 
 /**
  * 這個距離該用哪一級。`prev` 是目前的級數，`-1` 表示沒有前一級。
@@ -264,10 +264,10 @@ const CAPACITY: Record<PoolName, number> = {
   coneNear: 1300,      // 913
   broadMid: 24100,     // 17,786
   coneMid: 9700,       // 7,158
-  broadCard: 69000,    // 51,020
-  coneCard: 22700,     // 16,805
+  broadPoint: 69000,    // 51,020
+  conePoint: 22700,     // 16,805
   bushNear: 11900,     // 8,750
-  bushCard: 207500,    // 153,558   ← 全部實例的六成
+  bushPoint: 207500,    // 153,558   ← 全部實例的六成
   house: 80,           // 58
   barn: 40,            // 21
   church: 20,          // 3
@@ -278,7 +278,7 @@ const CAPACITY: Record<PoolName, number> = {
  * 各留一格防呆就好。
  *
  * 【為什麼要逐圖】兩張圖不會同時存在，而它們的需求差一個量級：農地的
- * `coneCard` 峰值是 16,805，群島是 22,252。取聯集的話兩張圖都要付對方的帳。
+ * `conePoint` 峰值是 16,805，群島是 22,252。取聯集的話兩張圖都要付對方的帳。
  *
  * 【餘裕是兩倍不是 1.35 倍】專案負責人裁定。上一版近級寫 1,300 而實際要
  * 4,694 —— 超出的部分是 `stats.overflow` 靜靜丟掉的，症狀是飛過島心時近處
@@ -286,24 +286,24 @@ const CAPACITY: Record<PoolName, number> = {
  * 17.2 MB。
  */
 export const ISLAND_CAPACITY: Record<PoolName, number> = {
-  broadNear: 16, broadMid: 16, broadCard: 16,
+  broadNear: 16, broadMid: 16, broadPoint: 16,
   coneNear: 9700,      // 掃描最大 4,694
   coneMid: 17300,      // 8,619
-  coneCard: 44500,     // 22,252
+  conePoint: 44500,     // 22,252
   bushNear: 10300,     // 5,149
-  bushCard: 32100,     // 16,035
+  bushPoint: 32100,     // 16,035
   house: 16, barn: 16, church: 16,
 }
 
 const POOL_NAMES: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
-  'broadCard', 'coneCard', 'bushNear', 'bushCard',
+  'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
   'house', 'barn', 'church',
 ]
 
-/** 哪些池走公告板材質。查表比字串比對便宜，而 `rebuild` 每筆都要問一次 */
-const IS_CARD: Record<PoolName, boolean> =
-  Object.fromEntries(POOL_NAMES.map((n) => [n, CARD_POOLS.includes(n)])) as Record<PoolName, boolean>
+/** 哪些池走點材質。查表比字串比對便宜，而 `rebuild` 每筆都要問一次 */
+const IS_POINT: Record<PoolName, boolean> =
+  Object.fromEntries(POOL_NAMES.map((n) => [n, POINT_POOLS.includes(n)])) as Record<PoolName, boolean>
 
 export interface Vegetation {
   readonly object: Object3D
@@ -356,14 +356,15 @@ const M = new Matrix4()
 const TINT = new Color()
 
 /**
- * 遠處那三個池的材質。**`gl.POINTS`，不是公告板。**
+ * 遠處那三個池的材質。**`gl.POINTS`。**
  *
  * 【為什麼是點】6 km 的樹只有 2.1 px 寬 —— 圓的方的三角的在那個尺度上是
  * 同一團色塊。點一株只要一個頂點與 56 byte（位置 3 ＋ 顏色 3 ＋ 大小 1，
- * 雙緩衝），公告板要三到六個頂點與 152 byte（矩陣 16 ＋ 顏色 3，雙緩衝）。
+ * 雙緩衝），而一片轉向鏡頭的網格要三到六個頂點與 152 byte（矩陣 16 ＋
+ * 顏色 3，雙緩衝）。
  * 而幀時間的大頭是 `bufferSubData`。
  *
- * 【側面的好處】公告板只繞 Y 轉，由正上方俯視時是側面朝上、幾乎看不見 ——
+ * 【側面的好處】一片只繞 Y 轉的網格由正上方俯視時是側面朝上、幾乎看不見 ——
  * 而那是空戰最常見的視角。點是螢幕對齊的，俯視時照樣是方塊。
  *
  * 【`size` 一定要留著且設成 1】DPR 藏在它裡面：`WebGLMaterials` 寫的是
@@ -401,7 +402,7 @@ function createPointMaterial(): PointsMaterial {
  * 中級樹冠走 `MeshStandardMaterial`，是被照亮的。不補的話過 3 km 門檻時
  * 整片林相會暗一階。
  *
- * 【值是量出來的】`flora-card.e2e.ts` 在 `CARD_NEAR` 兩側各量一次平均 RGB
+ * 【值是量出來的】`flora-card.e2e.ts` 在 `POINT_NEAR` 兩側各量一次平均 RGB
  * （2,500 m 的中級樹冠對 3,600 m 的點），要求亮度差在 8% 以內。實測 −2.5%。
  *
  * 【小於 1 是對的】輸出是 sRGB 編碼的，而樹冠色本身就是那個亮度 —— 補的是
@@ -422,11 +423,11 @@ export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName |
   if (lod >= 3) return null
   switch (kind) {
     case FloraKind.BroadTree:
-      return lod === 0 ? 'broadNear' : lod === 1 ? 'broadMid' : 'broadCard'
+      return lod === 0 ? 'broadNear' : lod === 1 ? 'broadMid' : 'broadPoint'
     case FloraKind.ConeTree:
-      return lod === 0 ? 'coneNear' : lod === 1 ? 'coneMid' : 'coneCard'
+      return lod === 0 ? 'coneNear' : lod === 1 ? 'coneMid' : 'conePoint'
     case FloraKind.Bush:
-      return bushNear ? 'bushNear' : 'bushCard'
+      return bushNear ? 'bushNear' : 'bushPoint'
     case FloraKind.House:
       return 'house'
     case FloraKind.Barn:
@@ -505,7 +506,7 @@ export function createVegetation(
     {} as Record<PoolName, InstancedBufferAttribute[]>
   const side: Record<PoolName, number> = {} as Record<PoolName, number>
   for (const name of POOL_NAMES) {
-    if (IS_CARD[name]) {
+    if (IS_POINT[name]) {
       const n = cap[name]
       const mk = (): BufferAttribute[] => {
         const a = [
@@ -531,14 +532,11 @@ export function createVegetation(
       pts.frustumCulled = false
       pools[name] = pts
       group.add(pts)
-      pointBase[name] = new Color(CARD_POINT_COLOR[name as CardPool]).multiply(POINT_LIGHT)
+      pointBase[name] = new Color(POINT_COLOR[name as PointPool]).multiply(POINT_LIGHT)
       continue
     }
-    const mesh = new InstancedMesh(
-      geometries[name] as BufferGeometry,
-      material,
-      cap[name],
-    )
+    // 【型別】上面那個 `continue` 已經把點池濾掉了，但 TS 收窄不到
+    const mesh = new InstancedMesh(geometries[name as MeshPool], material, cap[name])
     // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
     // 而那是一次配置 —— 開場配掉，之後重建就不再配
     mesh.setColorAt(0, TINT.setRGB(1, 1, 1))
@@ -637,7 +635,7 @@ export function createVegetation(
   function markLevel(lod: number): void {
     if (lod === 0) { poolDirty.broadNear = true; poolDirty.coneNear = true }
     else if (lod === 1) { poolDirty.broadMid = true; poolDirty.coneMid = true }
-    else if (lod === 2) { poolDirty.broadCard = true; poolDirty.coneCard = true }
+    else if (lod === 2) { poolDirty.broadPoint = true; poolDirty.conePoint = true }
   }
   /**
    * 建築那三個池。**每一格都可能有建築**，所以加減格一定要標它們。
@@ -669,7 +667,7 @@ export function createVegetation(
     freeSlots.push(slot)
     markLevel(slotLod[slot]!)
     poolDirty.bushNear = true
-    poolDirty.bushCard = true
+    poolDirty.bushPoint = true
     markBuildings()
   }
 
@@ -827,7 +825,7 @@ export function createVegetation(
       if (bush !== slotBush[s]) {
         dirty = true
         poolDirty.bushNear = true
-        poolDirty.bushCard = true
+        poolDirty.bushPoint = true
       }
       slotLod[s] = lod
       slotBush[s] = bush
@@ -847,7 +845,7 @@ export function createVegetation(
       counts[name] = 0
       // 【換到另一份再寫】寫的永遠是上一幀沒在畫的那一份
       side[name] ^= 1
-      if (IS_CARD[name]) {
+      if (IS_POINT[name]) {
         // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
         const a = altPt[name]![side[name]!]!
         const geo = (pools[name] as Points).geometry
@@ -879,19 +877,19 @@ export function createVegetation(
         const scale = buf.data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
         const t = 0.86 + buf.data[o + 5]! * 0.28
-        if (IS_CARD[name]) {
+        if (IS_POINT[name]) {
           const a = altPt[name]![side[name]!]!
           const pos = a[0]!.array as Float32Array
           const col = a[1]!.array as Float32Array
           pos[at * 3] = buf.data[o]!
-          // 【點的中心放樹冠的垂直中心】見 `CARD_POINT_Y`
-          pos[at * 3 + 1] = buf.data[o + 1]! + CARD_POINT_Y[name as CardPool] * scale
+          // 【點的中心放樹冠的垂直中心】見 `POINT_Y`
+          pos[at * 3 + 1] = buf.data[o + 1]! + POINT_Y[name as PointPool] * scale
           pos[at * 3 + 2] = buf.data[o + 2]!
           const base = pointBase[name]!
           col[at * 3] = base.r * t
           col[at * 3 + 1] = base.g * t
           col[at * 3 + 2] = base.b * t
-          ;(a[2]!.array as Float32Array)[at] = CARD_POINT_SIZE[name as CardPool] * scale
+          ;(a[2]!.array as Float32Array)[at] = POINT_SIZE[name as PointPool] * scale
           counts[name] = at + 1
           continue
         }
@@ -916,7 +914,7 @@ export function createVegetation(
       if (!poolDirty[name]) continue
       poolDirty[name] = false
       const used = counts[name]
-      if (IS_CARD[name]) {
+      if (IS_POINT[name]) {
         const a = altPt[name]![side[name]!]!
         for (const [attr, size] of [[a[0]!, 3], [a[1]!, 3], [a[2]!, 1]] as const) {
           attr.addUpdateRange(0, used * size)

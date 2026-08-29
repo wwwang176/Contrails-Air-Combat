@@ -21,7 +21,7 @@ import {
 
 const POOLS: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
-  'broadCard', 'coneCard', 'bushNear', 'bushCard', 'house', 'barn', 'church',
+  'broadPoint', 'conePoint', 'bushNear', 'bushPoint', 'house', 'barn', 'church',
 ]
 const SENTINEL = Object.fromEntries(POOLS.map((n) => [n, 400000])) as Record<PoolName, number>
 

@@ -1,6 +1,11 @@
 /**
  * 把植被的維持半徑放大要付多少。不是測試。
  *
+ * 【三角形那一欄已經不是現況】遠處那三級現在走 `gl.POINTS`，一株一個頂點、
+ * 零個三角形。這一支算的是格數與株數，那兩欄仍然準；三角形的欄位當成
+ * 「若遠處仍用網格會是多少」讀。半徑的成本現在看
+ * `test/tools/radius-scan.probe.ts`。
+ *
  * 生成只做一次（用最大的那個半徑，逐格快取），統計是純算術 —— 所以各半徑
  * 之間比得準。門檻按半徑等比縮放，不然放大半徑等於只是把最遠那一級拉長。
  *
@@ -227,7 +232,7 @@ console.log('')
 // 灌木同理：近的用八面體 8 tri，遠的用公告板。
 const TRI3 = {
   broadNear: 20, coneNear: 19, broadMid: 8, coneMid: 6, treeCard: 2,
-  bushNear: 8, bushCard: 2, build: 18,
+  bushNear: 8, bushPoint: 2, build: 18,
 }
 
 interface Acc3 {
@@ -237,7 +242,7 @@ interface Acc3 {
   coneMid: number
   treeCard: number
   bushNear: number
-  bushCard: number
+  bushPoint: number
   build: number
   tiles: number
   tris: number
@@ -246,7 +251,7 @@ interface Acc3 {
 function zero3(): Acc3 {
   return {
     broadNear: 0, coneNear: 0, broadMid: 0, coneMid: 0, treeCard: 0,
-    bushNear: 0, bushCard: 0, build: 0, tiles: 0, tris: 0,
+    bushNear: 0, bushPoint: 0, build: 0, tiles: 0, tris: 0,
   }
 }
 
@@ -271,7 +276,7 @@ function scan3(radius: number, nearAt: number, midAt: number, bushNearAt: number
         else if (d <= midAt) { a.broadMid += t.broad; a.coneMid += t.cone }
         else a.treeCard += t.broad + t.cone
         if (d <= bushNearAt) a.bushNear += t.bush
-        else a.bushCard += t.bush
+        else a.bushPoint += t.bush
         a.build += t.build
       }
     }
@@ -292,7 +297,7 @@ for (const R of [3000, 4000, 5000, 6000]) {
     + `  ${String(a.broadMid + a.coneMid).padStart(6)}`
     + `  ${String(a.treeCard).padStart(9)}`
     + `  ${String(a.bushNear).padStart(9)}`
-    + `  ${String(a.bushCard).padStart(9)}`
+    + `  ${String(a.bushPoint).padStart(9)}`
     + `   ${(a.tris / 1000).toFixed(0).padStart(5)}k`)
 }
 

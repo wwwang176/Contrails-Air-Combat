@@ -23,7 +23,7 @@ const URL = 'http://localhost:5190/'
 /** 與 fixture 的 `PROBE_FOV_DEG` 一致 */
 const FOV_DEG = 10
 const CANVAS = 512
-/** `broadCard` 的點邊長，m —— `floraShapes.ts` 的 `CARD_POINT_SIZE` */
+/** `broadPoint` 的點邊長，m —— `floraShapes.ts` 的 `POINT_SIZE` */
 const BROAD_POINT_M = Math.sqrt(10 * (30 - 10))
 
 interface Shot {
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
       `${two.width} 對 ${one.width * 2}`) && allPass
 
     // ── 俯視 ──────────────────────────────────────────
-    // 【公告板在這個角度會消失】它只繞 Y 轉，俯角 −85° 時是側面朝上
+    // 【一片只繞 Y 轉的網格在這個角度會消失】俯角 −85° 時它是側面朝上
     const level = await shot(45, 0, 5000)
     const down = await shot(45, -85, 5000)
     console.log(`    平視 ${level.pixels} 個像素　俯角 −85° ${down.pixels} 個像素`)
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       `${down.pixels} 對 ${level.pixels}`) && allPass
 
     // ── 跨門檻的亮度 ──────────────────────────────────
-    // 【CARD_NEAR = 3000，但 LOD 是按格心算的】格心離樹最遠 177 m，所以
+    // 【POINT_NEAR = 3000，但 LOD 是按格心算的】格心離樹最遠 177 m，所以
     // 3,100 m 那一發其實還在中級 —— 兩邊都取樹冠的話這一條是空操作
     const mid = await shot(30, -10, 2500)
     const pt = await shot(30, -10, 3600)
