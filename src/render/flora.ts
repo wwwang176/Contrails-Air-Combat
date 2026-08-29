@@ -134,7 +134,7 @@ const SIDE_JITTER = 3
 const TREE_SCALE = [0.5, 1.0] as const
 const BUSH_SCALE = [0.5, 1.0] as const
 
-function hash2(i: number, j: number): number {
+export function hash2(i: number, j: number): number {
   let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
   h = Math.imul(h ^ (h >>> 15), 0x2545f491)
   return (h ^ (h >>> 13)) >>> 0
