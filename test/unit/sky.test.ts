@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
-import { createSky, SKY_RADIUS } from '../../src/render/sky'
+import { PerspectiveCamera, Scene, ShaderMaterial, Vector3, WebGLRenderer } from 'three'
+import { createSky, SKY_RADIUS, SKY_RENDER_ORDER } from '../../src/render/sky'
 import { CAMERA_FAR, CAMERA_NEAR } from '../../src/render/scene'
+import { FAR_SEA_RENDER_ORDER } from '../../src/render/ocean'
+import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
 
 /**
  * 天空球必須跟著相機走。
@@ -59,5 +61,44 @@ describe('天空球跟隨相機', () => {
     expect(sky.scale.x).toBe(SKY_RADIUS)
     const scale = new Vector3().setFromMatrixScale(sky.matrixWorld)
     expect(scale.x).toBeCloseTo(SKY_RADIUS, 3)
+  })
+})
+
+/**
+ * 天空**最後畫**。
+ *
+ * 【它在買什麼】先畫的話整個螢幕被天空著色一次，再被地面與海整片蓋掉。
+ * 最後畫只有真正看得到的天空像素才付錢。
+ *
+ * 【為什麼要動深度輸出】球半徑只有 40 km，而遠海半邊 3,000 km。最後畫又
+ * 開著深度測試的話，天空的深度（約 0.99998）比遠海小 —— 它會反過來把遠海
+ * 蓋掉。頂點著色器把 z 推到 w，深度就是最遠的 1.0，任何真實幾何都贏得過它。
+ */
+describe('天空最後畫', () => {
+  it('排在所有不透明物之後', () => {
+    const sky = createSky()
+    expect(sky.renderOrder).toBe(SKY_RENDER_ORDER)
+    expect(SKY_RENDER_ORDER).toBeGreaterThan(PROP_DISC_RENDER_ORDER)
+    expect(SKY_RENDER_ORDER).toBeGreaterThan(FAR_SEA_RENDER_ORDER)
+  })
+
+  it('材質不是 transparent —— 它要留在不透明那一批', () => {
+    // three 先畫 opaque 再畫 transparent，`renderOrder` 只在批內排序。天空
+    // 若進了 transparent 批，粒子、曳光彈、螺旋槳圓盤就會被它蓋掉。
+    expect((createSky().material as ShaderMaterial).transparent).toBe(false)
+  })
+
+  it('深度輸出在遠平面上，不是球面的 40 km', () => {
+    const src = (createSky().material as ShaderMaterial).vertexShader
+    expect(src).toContain('gl_Position.z = gl_Position.w')
+  })
+
+  it('不寫深度', () => {
+    // 寫的話它會擋住之後畫的半透明層（粒子、曳光彈、渦流）
+    expect((createSky().material as ShaderMaterial).depthWrite).toBe(false)
+  })
+
+  it('開著深度測試 —— 被擋住的天空像素不該付錢', () => {
+    expect((createSky().material as ShaderMaterial).depthTest).toBe(true)
   })
 })

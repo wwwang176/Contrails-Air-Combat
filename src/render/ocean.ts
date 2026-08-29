@@ -406,6 +406,14 @@ export const OCEAN_VERT_FADE_HI = 0.5
 export const FAR_SEA_SIZE = 6_000_000
 
 /**
+ * 遠海的繪製次序。**比細浪面晚畫。**
+ *
+ * 理由與量測見 `farMesh.renderOrder` 那一行上方的長註解。匯出是因為
+ * `sky.ts` 的 `SKY_RENDER_ORDER` 必須比它大，而測試要對得上來源。
+ */
+export const FAR_SEA_RENDER_ORDER = 1
+
+/**
  * 遠海的高度，m。
  *
  * 【為什麼是負的】五道波的振幅和是 4.673 m，細浪面的最低點因此是 −4.673。
@@ -1637,7 +1645,7 @@ ${SPARKLE_COMMON}`,
    *
    * **這一項的收益比 clipmap 本身還大。**
    */
-  farMesh.renderOrder = 1
+  farMesh.renderOrder = FAR_SEA_RENDER_ORDER
 
   return {
     mesh,

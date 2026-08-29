@@ -6,11 +6,29 @@ import { BackSide, Mesh, ShaderMaterial, SphereGeometry, Color, Vector3 } from '
  * 【與相機遠平面的關係】遠平面是 `CAMERA_FAR`（`render/scene.ts`）。天空球
  * 跟著相機走，所以它永遠在視野正中央，只要半徑落在近平面與遠平面之間即可。
  *
- * 【為什麼遠海比它還大卻沒問題】遠海半邊 3,000 km，遠大於這顆球。但天空球
- * `depthWrite: false` 而且 `renderOrder = −1000` —— 先畫、不寫深度，所以
- * 任何東西都蓋得過它。它是背景不是物件。
+ * 【為什麼遠海比它還大卻沒問題】遠海半邊 3,000 km，遠大於這顆球。但天空的
+ * 頂點著色器把深度推到遠平面（`gl_Position.z = gl_Position.w`）而且
+ * `depthWrite: false` —— 深度是最遠的 1.0、又不寫回去，所以任何真實幾何都
+ * 蓋得過它。它是背景不是物件。
  */
 export const SKY_RADIUS = 40000
+
+/**
+ * 天空的繪製次序。**比場上任何不透明物都大。**
+ *
+ * 【為什麼是最後而不是最先】先畫的話整個螢幕被天空著色一次，再被地面與海
+ * 整片蓋掉 —— 那一整份全螢幕的片段著色器是白花的。最後畫，只有真正看得到
+ * 的天空像素才付錢。
+ *
+ * 【它仍然在不透明那一批】three 先畫 opaque 再畫 transparent，`renderOrder`
+ * 只在批內排序。天空的材質不是 `transparent`，所以一個大的 renderOrder 把
+ * 它排到不透明的最後、粒子與曳光彈之前 —— 那正是要的位置。
+ *
+ * 場上其他用到 renderOrder 的：遠海 `FAR_SEA_RENDER_ORDER`（1）、螺旋槳
+ * 圓盤 `PROP_DISC_RENDER_ORDER`（10）。`main.ts` 的 `__gfx` 靠這個常數找
+ * 天空，所以它匯出。
+ */
+export const SKY_RENDER_ORDER = 1000
 
 /**
  * 天空球的地平色與天頂色。
@@ -110,6 +128,12 @@ const VERT = /* glsl */ `
   void main() {
     vDir = normalize(position);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    // 【深度推到最遠】球半徑只有 40 km 而遠海半邊 3,000 km。天空最後畫又
+    // 開著深度測試的話，球面的深度（近平面 1 m 下約 0.99998）比遠海小，
+    // 它會反過來把遠海蓋掉。z = w 之後深度恰好是 1.0 —— 深度緩衝的清除值
+    // 也是 1.0，而預設的 LessEqual 讓平手通過，所以「什麼都沒畫的地方」
+    // 仍然畫得到天空，畫過東西的地方一律輸。
+    gl_Position.z = gl_Position.w;
   }
 `
 
@@ -159,7 +183,7 @@ const FRAG = /* glsl */ `
 `
 
 /**
- * 漸層天空球。關閉深度寫入並設定 renderOrder，永遠在最遠處。
+ * 漸層天空球。深度推到遠平面、不寫深度、最後畫。
  *
  * 【天空球必須跟著相機走】它半徑 40 km 而相機遠平面是 60 km。固定在原點的
  * 話，飛出 40 km 就會**從殼外面看它**，而場景沒有設定 clear color ——
@@ -187,7 +211,7 @@ export function createSky(): Mesh {
   })
   const mesh = new Mesh(new SphereGeometry(1, 24, 16), material)
   mesh.frustumCulled = false
-  mesh.renderOrder = -1000
+  mesh.renderOrder = SKY_RENDER_ORDER
   mesh.scale.setScalar(SKY_RADIUS)
   mesh.matrixAutoUpdate = false
   mesh.onBeforeRender = (_renderer, _scene, camera) => {
