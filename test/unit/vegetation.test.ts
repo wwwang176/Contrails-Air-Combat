@@ -92,6 +92,11 @@ describe('poolOf', () => {
   })
 })
 
+/** 池的名字，與 `object.children` 同序。標髒那一條用它報名字 */
+const POOLS: readonly PoolName[] = [
+  'broadNear', 'coneNear', 'broadFar', 'coneFar', 'bush', 'house', 'barn', 'church',
+]
+
 /** 大到不可能截斷的容量。掃描與變異驗證用 */
 const SENTINEL: Record<PoolName, number> = {
   broadNear: 100000, coneNear: 100000, broadFar: 100000, coneFar: 100000,
@@ -327,13 +332,22 @@ describe('植被引擎', () => {
   it('暖機後 update 不再配置', () => {
     const v = createVegetation([SIX], FLAT)
     v.settle()
-    const before = meshes(v).map((m) => [m.instanceMatrix.array, m.instanceColor?.array])
+    const ms = meshes(v)
     const bufs = v.stats.buffers.slice()
-    for (let i = 0; i < 600; i++) v.update(i * 3, i * 2)
-    const after = meshes(v).map((m) => [m.instanceMatrix.array, m.instanceColor?.array])
-    for (let i = 0; i < before.length; i++) {
-      expect(after[i]![0]).toBe(before[i]![0])
-      expect(after[i]![1]).toBe(before[i]![1])
+    // 【實例屬性是輪流換的，所以比的是「只有那兩份」】比身分相等會在偶數次
+    // 交換之後偶然通過 —— 每一幀新配一份的話這裡會長到幾百
+    const seenMat = ms.map(() => new Set<object>())
+    const seenCol = ms.map(() => new Set<object>())
+    for (let i = 0; i < 600; i++) {
+      v.update(i * 3, i * 2)
+      for (let k = 0; k < ms.length; k++) {
+        seenMat[k]!.add(ms[k]!.instanceMatrix.array)
+        seenCol[k]!.add(ms[k]!.instanceColor!.array)
+      }
+    }
+    for (let k = 0; k < ms.length; k++) {
+      expect([POOLS[k], seenMat[k]!.size]).toEqual([POOLS[k], 2])
+      expect([POOLS[k], seenCol[k]!.size]).toEqual([POOLS[k], 2])
     }
     // tile 的資料緩衝也是同一批
     expect(v.stats.buffers).toEqual(bufs)
@@ -341,6 +355,38 @@ describe('植被引擎', () => {
     expect(v.stats.keyType).toBe('number')
     v.dispose()
   })
+
+  /**
+   * 【逐池標髒的正確性】重建只碰標了髒的池 —— 沒標到的池連寫都不寫，
+   * 掛著的還是上一份屬性。所以標漏了的症狀是**畫面上留著舊的那一份**。
+   *
+   * 【標準答案是「同一份引擎強制全部重建」，不是「就地重生一份」】級數有
+   * 遲滯，所以逐格的級數是路徑相依的 —— 在終點直接長出來的那一份與飛過去的
+   * 那一份本來就不一樣（實測 broadNear 44 對 36），拿它當標準答案會冤枉人。
+   *
+   * 這一條對「relevel 不標灌木」會紅。
+   */
+  it('飛過一段之後，每一個池的內容都已經是最新的', () => {
+    const v = createVegetation([SIX], FLAT)
+    v.settle()
+    for (let k = 1; k <= 600; k++) v.update((k / 600) * 3000, 0)
+    v.settle()
+    const ms = meshes(v)
+    const snap = ms.map((m) => ({
+      count: m.count,
+      buf: (m.instanceMatrix.array as Float32Array).slice(0, m.count * 16),
+    }))
+    // 【強制全部重建】標漏了的池，這一下之後內容會變
+    v.settle(true)
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i]!
+      const s0 = snap[i]!
+      const now = (m.instanceMatrix.array as Float32Array).slice(0, m.count * 16)
+      expect([POOLS[i], m.count]).toEqual([POOLS[i], s0.count])
+      expect([POOLS[i], [...now]]).toEqual([POOLS[i], [...s0.buf]])
+    }
+    v.dispose()
+  }, 120000)
 
   it('空的來源不會產生任何實例，也不會崩', () => {
     const v = createVegetation([EMPTY], FLAT)
