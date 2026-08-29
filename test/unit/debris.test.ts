@@ -339,4 +339,39 @@ describe('零件入水（M8 spec §7）', () => {
     expect(d.live).toBe(DEBRIS_COUNT)
     d.dispose()
   })
+
+  /**
+   * 【沒有碎片就不要上傳】`needsUpdate` 一設，three 就整條 92 KB 重傳
+   * （`updateRanges` 是空的，走全緩衝那個分支）。一場沒有人被打下來的仗裡
+   * 這個池是空的 —— 每幀白傳 92 KB，實測那一下 3.92 ms。
+   *
+   * 【比 version 不是比 needsUpdate】`needsUpdate` 在 three 只有 setter。
+   */
+  it('池是空的時候，step 不會標 instanceMatrix 要上傳', () => {
+    const d = createDebris()
+    const m = d.object as InstancedMesh
+    // 開場那一次是必要的（整條要先有值）
+    const before = m.instanceMatrix.version
+    for (let k = 0; k < 30; k++) d.step(1 / 60, DEEP, WET, k / 60)
+    expect(m.instanceMatrix.version).toBe(before)
+    d.dispose()
+  })
+
+  it('有碎片時照樣上傳，而且碎片收乾淨之後就停下來', () => {
+    const d = createDebris()
+    const m = d.object as InstancedMesh
+    const e = createKills(4)
+    pushKill(e, 0, 800, 0, 0, 0, -150, 0)
+    d.emit(e, WHITE)
+    const before = m.instanceMatrix.version
+    d.step(1 / 60, DEEP, WET, 0)
+    expect(m.instanceMatrix.version).toBeGreaterThan(before)
+    // 【跑到全部過壽】之後就不該再有任何上傳
+    for (let k = 0; k < 60 * 30; k++) d.step(1 / 60, DEEP, WET, k / 60)
+    expect(d.live).toBe(0)
+    const idle = m.instanceMatrix.version
+    for (let k = 0; k < 30; k++) d.step(1 / 60, DEEP, WET, k / 60)
+    expect(m.instanceMatrix.version).toBe(idle)
+    d.dispose()
+  })
 })

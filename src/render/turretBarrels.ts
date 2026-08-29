@@ -122,9 +122,29 @@ export function createTurretBarrels(aircraftCapacity: number): TurretBarrels {
   for (let i = 0; i < capacity; i++) object.setMatrixAt(i, M)
   object.instanceMatrix.needsUpdate = true
 
+  /**
+   * 哪些格已經是零了。
+   *
+   * 【為什麼要記】舊的寫法每幀把用不到的格重寫成零，再無條件 `needsUpdate`
+   * —— three 於是整條 40 KB 重傳（`updateRanges` 是空的，走全緩衝那個分支）。
+   * 而戰鬥機對戰鬥機的一場仗裡**一格都用不到**：640 格每幀重寫成零再重傳。
+   *
+   * **不能只看「用到第幾格」** —— 沒有砲塔的機體照樣要走完它那 16 格，所以
+   * 那個水位恆等於容量。判準必須是「這一格的值真的變了嗎」。
+   */
+  // 【開場全是零】上面那個迴圈已經把每一格寫成零並上傳過了
+  const hidden = new Uint8Array(capacity).fill(1)
+  /** 這一輪有沒有真的動到矩陣，以及動到的範圍 */
+  let touched = false
+  let hi = 0
+
   const hide = (slot: number): void => {
+    if (hidden[slot] === 1) return
     M.compose(ZERO, ROT.identity(), ZERO)
     object.setMatrixAt(slot, M)
+    hidden[slot] = 1
+    touched = true
+    if (slot + 1 > hi) hi = slot + 1
   }
 
   return {
@@ -166,12 +186,22 @@ export function createTurretBarrels(aircraftCapacity: number): TurretBarrels {
             ROT.setFromUnitVectors(UNIT_Z, DIR)
             M.compose(POS, ROT, ONE)
             object.setMatrixAt(slot, M)
+            hidden[slot] = 0
+            touched = true
+            if (slot + 1 > hi) hi = slot + 1
             slot++
           }
         }
       }
       for (; slot < capacity; slot++) hide(slot)
-      object.instanceMatrix.needsUpdate = true
+      // 【沒動過就不傳】見 `hidden`
+      if (touched) {
+        // 【只傳動到的那一段】容量是 40 架 × 8 座 × 2 管
+        object.instanceMatrix.addUpdateRange(0, hi * 16)
+        object.instanceMatrix.needsUpdate = true
+        touched = false
+        hi = 0
+      }
     },
 
     dispose(): void {
