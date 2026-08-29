@@ -2,7 +2,7 @@
  * **島嶼外觀與海岸浪花的截圖**。凍結姿態，所以改動前後的像素可比。
  *
  * ```
- * node node_modules/vite/bin/vite.js --port 5178                            # 終端機一
+ * node node_modules/vite/bin/vite.js --port 5190                            # 終端機一
  * node node_modules/vite-node/vite-node.mjs test/e2e/island-shot.e2e.ts     # 終端機二
  * ```
  *
@@ -18,7 +18,7 @@
  */
 import { chromium, type Page } from 'playwright'
 
-const URL = 'http://localhost:5178/'
+const URL = 'http://localhost:5190/'
 const ROOT = 'C:/Users/weiwe/AppData/Local/Temp/claude/C--projects-grok-aircraft2/'
   + 'a396768a-75a8-4daf-b583-9ba32d4ff88e/scratchpad'
 const TAG = process.argv[2] ?? 'now'

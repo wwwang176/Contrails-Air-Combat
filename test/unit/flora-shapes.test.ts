@@ -34,6 +34,31 @@ function colours(g: BufferGeometry): Set<string> {
   return out
 }
 
+/**
+ * 樹冠的上下界與外接半徑。近級要把樹幹的頂點排除掉，所以用顏色篩。
+ *
+ * 【半徑不能用包圍盒的寬】七邊錐與六邊錐的外接半徑一樣，但頂點落在不同
+ * 的角度上，包圍盒因此不同（13.31 對 14）—— 那是取樣的差別，不是樹冠
+ * 大小的差別。
+ */
+function crownSpan(g: BufferGeometry): { y0: number; y1: number; r: number } {
+  const p = g.getAttribute('position')
+  const c = g.getAttribute('color')
+  const want = crownColour(g)
+  let y0 = Infinity
+  let y1 = -Infinity
+  let r = 0
+  for (let i = 0; i < p.count; i++) {
+    const hit = [c.getX(i), c.getY(i), c.getZ(i)].map((n) => n.toFixed(4)).join(',')
+    if (hit !== want) continue
+    const y = p.getY(i)
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+    r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i)))
+  }
+  return { y0, y1, r }
+}
+
 /** 樹冠色。樹幹先建，所以最後一個頂點一定是樹冠 */
 function crownColour(g: BufferGeometry): string {
   const a = g.getAttribute('color')
@@ -68,11 +93,38 @@ describe('植被與建築的幾何', () => {
   })
 
   /**
-   * 【底面必須在 y = 0】實例的 `y` 直接放地面高度 —— 底面不在 0 的話整批
-   * 浮空或陷地。
+   * 【落地的那些，底面必須在 y = 0】實例的 `y` 直接放地面高度。
+   *
+   * 【喬木的中級與公告板不落地，那是故意的】它們只有樹冠，而樹冠本來就
+   * 長在樹幹頂上 —— 見「換級不換樹冠位置」。
    */
-  it('每個幾何的底面都在 y = 0', () => {
-    for (const n of names) expect(bounds(geo[n]).min.y).toBeCloseTo(0, 5)
+  it('會落地的幾何底面都在 y = 0', () => {
+    for (const n of names) {
+      if (n === 'broadMid' || n === 'broadCard' || n === 'coneMid' || n === 'coneCard') continue
+      expect([n, bounds(geo[n]).min.y]).toEqual([n, 0])
+    }
+  })
+
+  /**
+   * 【換級不換樹冠位置】這是專案負責人試飛回報的缺陷：中級把樹冠拉到地面
+   * （`octa(…, H/2, H/2)`），所以過 900 m 的門檻時樹冠往下掉一截又變胖 ——
+   * 比少一根樹幹明顯得多。
+   *
+   * 【判準是樹冠自己的包圍盒】近級的整體底面在 0（那是樹幹），所以不能比
+   * 整個幾何 —— 要把樹冠色的頂點挑出來單獨量。
+   */
+  it('換級不換樹冠位置：三級的樹冠包圍盒逐項相同', () => {
+    for (const sp of [
+      ['broadNear', 'broadMid', 'broadCard'],
+      ['coneNear', 'coneMid', 'coneCard'],
+    ] as const) {
+      const want = crownSpan(geo[sp[0]])
+      for (const n of sp) {
+        const got = crownSpan(geo[n])
+        expect([n, got.y0, got.y1]).toEqual([n, want.y0, want.y1])
+        expect([n, Math.abs(got.r - want.r) < 1e-4]).toEqual([n, true])
+      }
+    }
   })
 
   /** 【每一級都一樣高】換級不得讓樹忽然長高或縮矮 */
@@ -192,9 +244,14 @@ describe('植被與建築的幾何', () => {
    * 所以 `面法線 · (面心 − 該點) > 0` 就是朝外。**包圍盒中心不行** ——
    * 教堂是本堂加高塔，非凸，中心會落在塔身外面而誤判本堂的屋頂。
    */
+  /**
+   * 【要挑在形狀**內部**，不能挑在頂點上】舊的 `broadNear: 5` 正好是樹冠
+   * 八面體的下頂點，那四個下半面的內積因此是 0 —— 它一直是靠浮點誤差
+   * 擦邊過的。挑在樹冠裡面就有餘裕。
+   */
   const STAR_Y: Record<string, number> = {
-    broadNear: 5, broadMid: 7.5, coneNear: 4, coneMid: 1,
-    bushNear: 2, house: 2.5, barn: 3, church: 3,
+    broadNear: 20, broadMid: 20, coneNear: 12, coneMid: 12,
+    bushNear: 4, house: 2.5, barn: 3, church: 3,
   }
 
   it('每一個面的法線都朝外', () => {

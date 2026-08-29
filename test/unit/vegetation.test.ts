@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, MeshStandardMaterial } from 'three'
 import {
   createVegetation, lodFor, poolOf, BUSH_RANGE, CARD_NEAR, FLORA_RADIUS,
-  LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME,
-  TILE_SIZE, type PoolName,
+  ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
+  TILES_PER_FRAME, TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
 import {
-  createFloraBuffer, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  pushFlora, FloraKind, type FloraSource,
+  createFloraBuffer, createIslandFlora, farmHedgeFlora, farmVillageFlora,
+  farmWoodFlora, pushFlora, FloraKind, type FloraSource,
 } from '../../src/render/flora'
+import { createArchipelago } from '../../src/world/archipelago'
 
 const FLAT = (): number => 0
 
@@ -109,8 +110,9 @@ const SENTINEL = Object.fromEntries(
   POOLS.map((n) => [n, 400000]),
 ) as Record<PoolName, number>
 
-/** 上面那條掃描量到的最大值，給變異驗證那一條用 */
+/** 兩張圖各自掃到的最大值，給容量那兩條用 */
 let SCANNED: Record<string, number> = {}
+let ISLAND_SCANNED: Record<string, number> = {}
 
 describe('植被引擎', () => {
   it('十一個池，十一個 draw call', () => {
@@ -525,20 +527,55 @@ describe('植被引擎', () => {
    * 溢位不了就表示那一池的容量與實際需求根本沒有關係。
    */
   /**
+   * 【群島也要掃】池是兩張圖共用的，而島上的針葉林比農地密一個量級。
+   * 只掃農地的話，容量對群島是不夠的 —— 而那個症狀是實飛時整片島禿掉。
+   */
+  it('群島的航線也掃一次，池與 tile 都不溢位', () => {
+    const { field, islands } = createArchipelago()
+    const v = createVegetation(
+      [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
+      SENTINEL, ISLAND_MAX_PER_TILE,
+    )
+    const max: Record<string, number> = {}
+    const N = 24
+    for (let k = 0; k < N; k++) {
+      const t = k / (N - 1)
+      v.update(-10000 + t * 20000, -9000 + t * 18000)
+      v.settle()
+      for (const [name, n] of Object.entries(v.counts)) {
+        max[name] = Math.max(max[name] ?? 0, n)
+      }
+      expect(v.stats.dropped).toBe(0)
+      expect(v.stats.overflow).toBe(0)
+    }
+    console.log(JSON.stringify({ 群島各池的最大同時實例數: max }))
+    ISLAND_SCANNED = max
+    expect(max['coneCard']!).toBeGreaterThan(10000)
+    v.dispose()
+  }, 300000)
+
+  /**
    * 【正面斷言容量夠】只有「哨兵掃峰值」加「壓到峰值以下必溢位」的話，
    * 把正式容量寫成 1 仍然全綠 —— 前者不看正式容量，後者要的正是溢位。
    */
-  it('正式容量逐池都在實測峰值的 1.35 倍以上', () => {
+  it('正式容量逐池都在實測峰值的 1.35 倍以上（兩張圖各自比）', () => {
     expect(Object.keys(SCANNED).length).toBe(POOLS.length)
-    const v = createVegetation([EMPTY], FLAT)
-    const ms = meshes(v)
-    for (let i = 0; i < ms.length; i++) {
-      const name = POOLS[i]!
-      const want = Math.ceil(SCANNED[name]! * 1.35)
-      // `instanceMatrix.count` 就是配置時給的容量
-      expect([name, ms[i]!.instanceMatrix.count >= want]).toEqual([name, true])
+    expect(Object.keys(ISLAND_SCANNED).length).toBe(POOLS.length)
+    for (const [label, peaks, cap] of [
+      ['農地', SCANNED, undefined],
+      ['群島', ISLAND_SCANNED, ISLAND_CAPACITY],
+    ] as const) {
+      const v = createVegetation([EMPTY], FLAT, cap)
+      const ms = meshes(v)
+      for (let i = 0; i < ms.length; i++) {
+        const name = POOLS[i]!
+        const want = Math.ceil(peaks[name]! * 1.35)
+        // `instanceMatrix.count` 就是配置時給的容量
+        expect([label, name, ms[i]!.instanceMatrix.count >= want])
+          .toEqual([label, name, true])
+      }
+      v.dispose()
     }
-    v.dispose()
   })
 
   it('每一池的容量都真的頂著需求：壓到實測最大之下必定溢位', () => {

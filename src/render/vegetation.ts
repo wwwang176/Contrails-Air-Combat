@@ -57,12 +57,12 @@ export const CARD_NEAR = 3000
 /**
  * 樹幹畫到多遠，m。**唯一的換級門檻。**
  *
- * 樹幹直徑 1 m。960 px 高、60° 垂直視角下，1 m 在 d 公尺外約占 917 / d 個
- * 像素 —— 900 m 正好是 1 px，再往外就是在畫看不見的東西。
+ * 樹幹直徑在縮放 1.0 時是 2 m，最小的那一株（縮放 0.5）是 1 m。960 px 高、
+ * 60° 垂直視角下，1 m 在 d 公尺外約占 917 / d 個像素 —— 900 m 對最小的那一株
+ * 正好是 1 px。
  *
- * 【放遠的代價很小】一棵樹由遠級升到近級只多 12 個三角形（20 對 8、19 對 6），
- * 所以 450 → 900 整段只漲 25k。換到的是「看得到樹幹」的時間由 3 秒變 6 秒
- * （甲板速度 150 m/s）。
+ * 【放遠的代價很小】一棵樹由中級升到近級只多 12 個三角形（20 對 8、19 對 6）。
+ * 換到的是「看得到樹幹」的時間 6 秒（甲板速度 150 m/s）。
  */
 export const LOD_NEAR = 900
 
@@ -156,13 +156,23 @@ export const REBUILD_MOVE = 200
 const REBUILD_IDLE = 120
 
 /**
- * 單一 tile 最多幾株。
+ * 單一 tile 最多幾株。**預設值，逐圖可以覆寫。**
  *
- * 實測（`vegetation.test.ts` 的掃描）最密的一格是 351 株 —— 整格都是樹林
- * 的那種。384 留了一成的餘裕。**這個數字乘上 `TILE_CACHE` 就是 20 MB**，
- * 所以餘裕不能隨手放大。
+ * 農地實測最密的一格是 351 株（整格都是樹林的那種），384 留了一成的餘裕。
+ * **這個數字乘上 `TILE_CACHE` 就是 20 MB**，所以餘裕不能隨手放大。
+ *
+ * 【為什麼要逐圖】群島的島上是高密度的針葉林，一格最多 899 株 —— 而農地
+ * 永遠用不到那個空間。兩張圖不會同時存在，所以各給各的最省。
  */
 export const MAX_PER_TILE = 384
+
+/**
+ * 群島用的。島上的密度見 `render/flora.ts` 的 `ISLAND_GRID`。
+ *
+ * 實測最密的一格是 458 株。512 留了一成二的餘裕，而 `TILE_CACHE` 乘上去
+ * 是 26.9 MB。
+ */
+export const ISLAND_MAX_PER_TILE = 512
 
 /**
  * 快取幾格。圈內約 1,812 格，多留的是移動時的暫時重疊。
@@ -217,6 +227,21 @@ const CAPACITY: Record<PoolName, number> = {
   house: 80,           // 58
   barn: 40,            // 21
   church: 20,          // 3
+}
+
+/**
+ * 群島的容量。**島上只有針葉樹** —— 沒有闊葉、沒有灌木、沒有建築，
+ * 所以那八個池各留一格防呆就好。
+ *
+ * 【為什麼要逐圖】兩張圖不會同時存在，而它們的需求差一個量級：農地的
+ * `coneCard` 峰值是 16,805，群島是 84,434。取聯集的話兩張圖都要付對方的帳。
+ */
+export const ISLAND_CAPACITY: Record<PoolName, number> = {
+  broadNear: 16, broadMid: 16, broadCard: 16,
+  coneNear: 1300,      // 掃描最大 220（農地 913）
+  coneMid: 43000,      // 31,684
+  coneCard: 57500,     // 42,337
+  bushNear: 16, bushCard: 16, house: 16, barn: 16, church: 16,
 }
 
 const POOL_NAMES: readonly PoolName[] = [
@@ -334,8 +359,13 @@ export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName |
 export function createVegetation(
   sources: readonly FloraSource[],
   heightAt: (x: number, z: number) => number,
-  /** 覆寫池的容量。**只給掃描與變異驗證用** —— 見 `CAPACITY` */
+  /**
+   * 覆寫池的容量。群島傳 `ISLAND_CAPACITY`；掃描與變異驗證傳哨兵值。
+   * 不傳就是農地那一組 —— 見 `CAPACITY`
+   */
   capacity?: Partial<Record<PoolName, number>>,
+  /** 單格的上限。預設 `MAX_PER_TILE` —— 見那裡的說明 */
+  maxPerTile: number = MAX_PER_TILE,
 ): Vegetation {
   const cap: Record<PoolName, number> = { ...CAPACITY, ...capacity }
   const geometries = createFloraGeometries()
@@ -392,7 +422,7 @@ export function createVegetation(
   const slotBuf: FloraBuffer[] = []
   const bufIdentity: Float32Array[] = []
   for (let i = 0; i < TILE_CACHE; i++) {
-    const b = createFloraBuffer(MAX_PER_TILE)
+    const b = createFloraBuffer(maxPerTile)
     slotBuf.push(b)
     bufIdentity.push(b.data)
   }
@@ -488,7 +518,7 @@ export function createVegetation(
       stats.dropped += buf.dropped
       if (!warned) {
         warned = true
-        console.warn(`植被：單格超過 MAX_PER_TILE=${MAX_PER_TILE}，丟了 ${buf.dropped} 株`)
+        console.warn(`植被：單格超過上限 ${maxPerTile}，丟了 ${buf.dropped} 株`)
       }
     }
     slotI[slot] = i
