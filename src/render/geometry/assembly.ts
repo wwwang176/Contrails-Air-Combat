@@ -1,7 +1,8 @@
 import {
   BoxGeometry, BufferGeometry, CircleGeometry, ConeGeometry, DoubleSide, Float32BufferAttribute,
-  Group, Mesh, MeshStandardMaterial, SphereGeometry, Vector3,
+  Group, Material, Matrix4, Mesh, MeshStandardMaterial, Object3D, SphereGeometry, Vector3,
 } from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { DEG } from '../../core/math'
 import { buildFuselage, type FuselageSection } from './fuselage'
 import {
@@ -285,6 +286,22 @@ export function createHull(spec: HullSpec) {
   }
 
   /**
+   * 翼板的合併分組編號 —— **每一次 `wingPair` 呼叫各自一組**。
+   *
+   * 【為什麼不能全部併成一組】一架有好幾對翼板（主翼、翼根整流、平尾），
+   * 併成一塊之後「哪一個 mesh 是主翼」就認不出來了，而
+   * `geometry.test.ts` 的「四分之一弦線壓在重心上」正是靠主翼的翼根弦量的。
+   * 逐呼叫分組讓每一對仍然是一個 mesh，那條不變量量得到的東西與合併前一樣。
+   */
+  let wingGroup = 0
+
+  /** 標記一對翼板屬於哪一次 `wingPair`。見 `mergeStatic`。 */
+  const wingPanel = (mesh: Mesh, group: number): Mesh => {
+    mesh.userData['part'] = `wing${group}`
+    return mesh
+  }
+
+  /**
    * 全部的螺旋槳組。**是一個陣列而不是一個**，因為 He 111 是雙發。
    *
    * 【原本是一個被覆寫的閉包】`propeller()` 每次呼叫都把 `setPropSpin`
@@ -309,6 +326,67 @@ export function createHull(spec: HullSpec) {
     color: 0x191d1a, roughness: 0.95, side: DoubleSide,
   })
   disposables.push(darkBothSides)
+
+  /**
+   * **把不會動的靜態零件按材質併成一個 `Mesh`。**
+   *
+   * 【它在買什麼】一架是三十幾個 `Mesh`，20v20 就是 1,220 次 draw call。
+   * 併完 40 架省下約兩百次。
+   *
+   * 【為什麼只併「局部矩陣是單位矩陣」的】要併不同座標系的零件就得把變換烘進
+   * 頂點（`clone().applyMatrix4(matrixWorld)`）。那一步一定改像素：CPU 用
+   * float64 算完存成 float32，GPU 是 float32 矩陣乘 float32 頂點，最低位不同，
+   * 三角形邊緣的像素必然翻動（Codex 2026-08-30 實跑 96 組有 82 組有 byte 差）。
+   *
+   * 單位矩陣的零件不必烘：併出來的 mesh 仍然掛在 `hull` 底下，世界矩陣一模
+   * 一樣，頂點資料一個 bit 都沒動。代價是整流罩、凸出物那一批（`scale` ＋
+   * `position` 的 `BoxGeometry`）併不進來。
+   *
+   * 【半透明不併】它們要逐物件排序，併起來就失去排序。
+   *
+   * 【分組鑰匙要帶屬性簽名】`mergeGeometries` 對混用 indexed／non-indexed 會
+   * 直接回 `null`。目前四個機種全部是 `normal,position` 的 non-indexed，但加
+   * 一個帶 uv 的零件就會踩到。
+   *
+   * 【視錐剔除由逐 mesh 變成逐合併塊】半出畫面的飛機會整塊畫 —— 那是**多畫**
+   * 不是少畫，畫面不變；而一架戰鬥機也才 2,700 個三角形。
+   */
+  const mergeStatic = (): void => {
+    const moving = new Set<Object3D>()
+    for (const p of props) p.hub.traverse((o) => moving.add(o))
+    const I = new Matrix4()
+    const groups = new Map<string, Mesh[]>()
+    for (const child of hull.children) {
+      const mesh = child as Mesh
+      if (!mesh.isMesh || moving.has(mesh)) continue
+      if ((mesh.material as Material).transparent) continue
+      if (!mesh.matrix.equals(I)) continue
+      const attrs = Object.keys(mesh.geometry.attributes).sort().join(',')
+      const part = mesh.userData['part'] ?? ''
+      const key = `${(mesh.material as Material).uuid}|${attrs}`
+        + `|${mesh.geometry.index ? 'i' : 'n'}|${String(part)}`
+      const list = groups.get(key)
+      if (list) list.push(mesh)
+      else groups.set(key, [mesh])
+    }
+    for (const list of groups.values()) {
+      if (list.length < 2) continue
+      const merged = mergeGeometries(list.map((m) => m.geometry), false)
+      if (merged === null) throw new Error('mergeGeometries 回 null：屬性集合不一致')
+      for (const m of list) {
+        hull.remove(m)
+        const at = disposables.indexOf(m.geometry)
+        if (at >= 0) disposables.splice(at, 1)
+        m.geometry.dispose()
+      }
+      const mesh = new Mesh(merged, list[0]!.material)
+      mesh.userData['merged'] = true
+      const part = list[0]!.userData['part']
+      if (part !== undefined) mesh.userData['part'] = part
+      disposables.push(merged)
+      hull.add(mesh)
+    }
+  }
 
   const api = {
     body, accent, glass, add,
@@ -534,8 +612,10 @@ export function createHull(spec: HullSpec) {
 
     /** 左右成對的翼面（主翼、水平尾翼）。 */
     wingPair(p: WingParams): void {
-      add(new Mesh(buildWingPanel(p, false), body))
-      add(new Mesh(buildWingPanel(p, true), body))
+      // 【逐呼叫各自一組】見 `wingGroup`。
+      const g = wingGroup++
+      add(wingPanel(new Mesh(buildWingPanel(p, false), body), g))
+      add(wingPanel(new Mesh(buildWingPanel(p, true), body), g))
     },
 
     /**
@@ -634,6 +714,7 @@ export function createHull(spec: HullSpec) {
     /** 收尾：量出 HullMetrics 並組成 AircraftModel。 */
     finish(): AircraftModel {
       group.updateMatrixWorld(true)
+      mergeStatic()
       const v = new Vector3()
       let noseZ = Infinity
       let maxAbsX = 0
