@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { Box3, Vector3, type BufferGeometry } from 'three'
 import {
-  createFloraGeometries, disposeFloraGeometries, TREE_HEIGHT, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, TREE_HEIGHT,
+  type PoolName,
 } from '../../src/render/floraShapes'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 
 const geo = createFloraGeometries()
 const names = Object.keys(geo) as PoolName[]
+
+/** 六個喬木幾何 —— 兩個樹種各三級 */
+const TREES = [
+  'broadNear', 'broadMid', 'broadCard', 'coneNear', 'coneMid', 'coneCard',
+] as const
 
 function tris(g: BufferGeometry): number {
   return g.getAttribute('position').count / 3
@@ -43,8 +49,10 @@ describe('植被與建築的幾何', () => {
    */
   it('每個幾何的三角形數', () => {
     const want: Record<PoolName, number> = {
-      broadNear: 20, broadFar: 8, coneNear: 19, coneFar: 6,
-      bush: 8, house: 18, barn: 18, church: 34,
+      broadNear: 20, broadMid: 8, broadCard: 2,
+      coneNear: 19, coneMid: 6, coneCard: 1,
+      bushNear: 8, bushCard: 2,
+      house: 18, barn: 18, church: 34,
     }
     const got: Record<string, number> = {}
     for (const n of names) got[n] = tris(geo[n])
@@ -52,9 +60,10 @@ describe('植被與建築的幾何', () => {
     for (const n of names) expect(tris(geo[n])).toBe(want[n])
   })
 
-  it('八個幾何，名字與池一一對應', () => {
-    expect(names.sort()).toEqual([
-      'barn', 'broadFar', 'broadNear', 'bush', 'church', 'coneFar', 'coneNear', 'house',
+  it('十一個幾何，名字與池一一對應', () => {
+    expect(names.slice().sort()).toEqual([
+      'barn', 'broadCard', 'broadMid', 'broadNear', 'bushCard', 'bushNear',
+      'church', 'coneCard', 'coneMid', 'coneNear', 'house',
     ])
   })
 
@@ -66,10 +75,10 @@ describe('植被與建築的幾何', () => {
     for (const n of names) expect(bounds(geo[n]).min.y).toBeCloseTo(0, 5)
   })
 
-  /** 【四級喬木一樣高】換級不得讓樹忽然長高或縮矮 */
-  it('四個喬木幾何一樣高', () => {
-    for (const n of ['broadNear', 'broadFar', 'coneNear', 'coneFar'] as const) {
-      expect(bounds(geo[n]).max.y).toBeCloseTo(TREE_HEIGHT, 5)
+  /** 【每一級都一樣高】換級不得讓樹忽然長高或縮矮 */
+  it('六個喬木幾何一樣高', () => {
+    for (const n of TREES) {
+      expect([n, bounds(geo[n]).max.y]).toEqual([n, TREE_HEIGHT])
     }
   })
 
@@ -80,15 +89,17 @@ describe('植被與建築的幾何', () => {
    * 這一條正面擋住「L1 之後不分樹種」那個缺陷：把 `coneFar` 換成八面體
    * 就會紅。
    */
-  it('換級不換剪影：闊葉遠近都圓，針葉遠近都尖', () => {
+  it('換級不換剪影：闊葉三級都圓，針葉三級都尖', () => {
     const ratio = (n: PoolName): number => {
       const b = bounds(geo[n])
       return (b.max.x - b.min.x) / b.max.y
     }
-    expect(ratio('broadNear')).toBeGreaterThan(0.6)
-    expect(ratio('broadFar')).toBeGreaterThan(0.6)
-    expect(ratio('coneNear')).toBeLessThan(0.6)
-    expect(ratio('coneFar')).toBeLessThan(0.6)
+    for (const n of ['broadNear', 'broadMid', 'broadCard'] as const) {
+      expect([n, ratio(n) > 0.6]).toEqual([n, true])
+    }
+    for (const n of ['coneNear', 'coneMid', 'coneCard'] as const) {
+      expect([n, ratio(n) < 0.6]).toEqual([n, true])
+    }
   })
 
   /**
@@ -96,10 +107,14 @@ describe('植被與建築的幾何', () => {
    * 顏色與剪影是兩件事，兩條都要有 —— 同色但形狀變了、或形狀對了但
    * 顏色跳掉，看起來都是「那棵樹換了種」。
    */
-  it('換級不換樹種：兩級同色，兩樹種不同色', () => {
-    expect(crownColour(geo.broadFar)).toBe(crownColour(geo.broadNear))
-    expect(crownColour(geo.coneFar)).toBe(crownColour(geo.coneNear))
-    expect(crownColour(geo.broadFar)).not.toBe(crownColour(geo.coneFar))
+  it('換級不換樹種：三級同色，兩樹種不同色', () => {
+    for (const n of ['broadMid', 'broadCard'] as const) {
+      expect([n, crownColour(geo[n])]).toEqual([n, crownColour(geo.broadNear)])
+    }
+    for (const n of ['coneMid', 'coneCard'] as const) {
+      expect([n, crownColour(geo[n])]).toEqual([n, crownColour(geo.coneNear)])
+    }
+    expect(crownColour(geo.broadCard)).not.toBe(crownColour(geo.coneCard))
   })
 
   /**
@@ -107,7 +122,7 @@ describe('植被與建築的幾何', () => {
    * 本體 —— 喬木只是每隔十幾公尺插上去的一根。
    */
   it('灌木比喬木矮一截，但比它的間距寬', () => {
-    const b = bounds(geo.bush)
+    const b = bounds(geo.bushNear)
     expect(b.max.y).toBeLessThan(TREE_HEIGHT / 3)
     expect(b.max.y).toBeGreaterThan(2)
     expect(b.max.x - b.min.x).toBeGreaterThan(HEDGE_BUSH_SPACING)
@@ -130,9 +145,10 @@ describe('植被與建築的幾何', () => {
     for (const n of ['broadNear', 'coneNear'] as const) {
       expect(colours(geo[n]).size).toBe(2)
     }
-    // 遠級沒有樹幹，只有一個顏色
-    expect(colours(geo.broadFar).size).toBe(1)
-    expect(colours(geo.coneFar).size).toBe(1)
+    // 中級與公告板沒有樹幹，只有一個顏色
+    for (const n of ['broadMid', 'broadCard', 'coneMid', 'coneCard', 'bushCard'] as const) {
+      expect([n, colours(geo[n]).size]).toEqual([n, 1])
+    }
   })
 
   it('房子的牆與屋頂是兩個顏色，教堂三個', () => {
@@ -176,9 +192,9 @@ describe('植被與建築的幾何', () => {
    * 所以 `面法線 · (面心 − 該點) > 0` 就是朝外。**包圍盒中心不行** ——
    * 教堂是本堂加高塔，非凸，中心會落在塔身外面而誤判本堂的屋頂。
    */
-  const STAR_Y: Record<PoolName, number> = {
-    broadNear: 5, broadFar: 7.5, coneNear: 4, coneFar: 1,
-    bush: 2, house: 2.5, barn: 3, church: 3,
+  const STAR_Y: Record<string, number> = {
+    broadNear: 5, broadMid: 7.5, coneNear: 4, coneMid: 1,
+    bushNear: 2, house: 2.5, barn: 3, church: 3,
   }
 
   it('每一個面的法線都朝外', () => {
@@ -191,8 +207,11 @@ describe('植被與建築的幾何', () => {
     const mid = new Vector3()
     const p = new Vector3()
     for (const name of names) {
+      // 【公告板不適用】它是單面的平片，朝向由頂點著色器決定 ——
+      // 守它的是下面那條繞序，以及 `test/e2e/flora-card.e2e.ts`
+      if (CARD_POOLS.includes(name)) continue
       const pos = geo[name].getAttribute('position')
-      p.set(0, STAR_Y[name], 0)
+      p.set(0, STAR_Y[name]!, 0)
       const inward: number[] = []
       for (let f = 0; f < pos.count / 3; f++) {
         a.fromBufferAttribute(pos, f * 3)
@@ -204,6 +223,41 @@ describe('植被與建築的幾何', () => {
         if (n.dot(mid) <= 0) inward.push(f)
       }
       expect([name, inward]).toEqual([name, []])
+    }
+  })
+
+  /**
+   * 【公告板要在 xy 平面上逆時針繞】頂點著色器把 x 映到「水平上垂直於視線
+   * 的方向」、y 維持向上，於是 `right × up` 指向鏡頭 —— 繞序在螢幕上就永遠
+   * 是正面。順時針的話鏡頭繞到另一邊，整批會被背面剔除掉。
+   */
+  it('公告板的繞序讓它永遠是正面', () => {
+    const a = new Vector3()
+    const b = new Vector3()
+    const c = new Vector3()
+    for (const name of CARD_POOLS) {
+      const pos = geo[name].getAttribute('position')
+      const zs: number[] = []
+      for (let f = 0; f < pos.count / 3; f++) {
+        a.fromBufferAttribute(pos, f * 3)
+        b.fromBufferAttribute(pos, f * 3 + 1)
+        c.fromBufferAttribute(pos, f * 3 + 2)
+        // (C − B) × (A − B) 的 z 分量
+        zs.push((c.x - b.x) * (a.y - b.y) - (c.y - b.y) * (a.x - b.x))
+      }
+      expect([name, zs.every((z) => z > 0)]).toEqual([name, true])
+    }
+  })
+
+  /** 【公告板的法線固定向上】面法線會讓亮度隨鏡頭方位變 —— 見 floraShapes.ts */
+  it('公告板的頂點法線全部是 (0, 1, 0)', () => {
+    for (const name of CARD_POOLS) {
+      const n = geo[name].getAttribute('normal')
+      const bad: number[] = []
+      for (let i = 0; i < n.count; i++) {
+        if (n.getX(i) !== 0 || n.getY(i) !== 1 || n.getZ(i) !== 0) bad.push(i)
+      }
+      expect([name, bad]).toEqual([name, []])
     }
   })
 

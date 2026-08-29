@@ -6,7 +6,7 @@ import {
   createFloraBuffer, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
-  createFloraGeometries, disposeFloraGeometries, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, type PoolName,
 } from './floraShapes'
 
 export type { PoolName }
@@ -15,17 +15,20 @@ export type { PoolName }
  * 植被的引擎：**跟著鏡頭的 tile 快取 ＋ 分級的 InstancedMesh 池。**
  *
  * ```
- *   近   0 – 900 m      樹幹 ＋ 樹冠
- *   遠   900 – 3,000    只有樹冠 —— 900 m 外樹幹不足 1 px
- *   外   > 3,000 m      不畫。著色器那條 18 m 的暗帶自己接手
- *   灌木 0 – 1,200 m
- *   建築 圈內都畫       一座 18 tri、圈內約 50 座，分級沒有意義
+ *   近   0 – 900 m        樹幹 ＋ 樹冠
+ *   中   900 – 3,000      只有樹冠 —— 900 m 外樹幹不足 1 px
+ *   卡片 3,000 – 6,000    公告板，1～2 tri
+ *   外   > 6,000 m        不畫。著色器那條 18 m 的暗帶自己接手
+ *   灌木 0 – 1,200 八面體、1,200 – 6,000 公告板
+ *   建築 圈內都畫         一座 18 tri、圈內約 50 座，分級沒有意義
  * ```
  *
- * 【兩級，而且分樹種】闊葉近遠都是圓的八面體，針葉近遠都是尖錐 ——
- * 換級只掉樹幹，不換剪影也不換顏色。**第三級買不到效能**：一個從各角度都
- * 讀得出「圓」的形狀最少就是 8 個三角形，實測三級與兩級的三角形總數是
- * 184k 對 187k，多的只是一個會跳的門檻。
+ * 【每一級都分樹種】闊葉三級都是圓的，針葉三級都是尖的 —— 換級只讓樹變
+ * 簡單，不換剪影也不換顏色。公告板的形狀也對得上：菱形對八面體、
+ * 三角形對錐。
+ *
+ * 【公告板是為了灌木】灌木密度是喬木的 2.4 倍，6 km 圈內有十五萬叢。
+ * 八面體是 125 萬個三角形，公告板是 30 萬。
  *
  * 【LOD 是逐 tile 決定的，不是逐棵】逐棵切要每幀重建整個池。代價是 250 m
  * 的一格同時換級，在門檻上可能看得出來跳一下 —— 遲滯只擋來回抖動，擋不了
@@ -41,7 +44,15 @@ export type { PoolName }
  */
 
 export const TILE_SIZE = 250
-export const FLORA_RADIUS = 3000
+export const FLORA_RADIUS = 6000
+
+/**
+ * 喬木由樹冠換到公告板的距離，m。
+ *
+ * 15 m 的樹在 3 km 是 4.6 px —— 還看得出剪影，所以公告板的形狀必須對得上
+ * 它取代的那一級（菱形對八面體、三角形對錐），否則門檻上會跳。
+ */
+export const CARD_NEAR = 3000
 
 /**
  * 樹幹畫到多遠，m。**唯一的換級門檻。**
@@ -67,8 +78,14 @@ export const LOD_HYSTERESIS = 40
  */
 export const BUSH_RANGE = 1200
 
-/** 每幀最多生幾格。200 m/s 越過一格是 1.25 s，補一欄約 16 格 */
-export const TILES_PER_FRAME = 4
+/**
+ * 每幀最多生幾格。
+ *
+ * 【為什麼要 16】6 km 圈有 1,812 格。每幀四格的話冷啟動要 453 幀 ——
+ * 60 fps 下是 7.6 秒的空白。生成實測 0.205 ms/格，所以滿載是 3.3 ms/幀，
+ * 而且只發生在補格期間。
+ */
+export const TILES_PER_FRAME = 16
 
 /**
  * 兩次重建之間至少隔幾幀。
@@ -142,19 +159,20 @@ const REBUILD_IDLE = 120
  * 單一 tile 最多幾株。
  *
  * 實測（`vegetation.test.ts` 的掃描）最密的一格是 351 株 —— 整格都是樹林
- * 的那種。512 留了四成六的餘裕。
+ * 的那種。384 留了一成的餘裕。**這個數字乘上 `TILE_CACHE` 就是 20 MB**，
+ * 所以餘裕不能隨手放大。
  */
-export const MAX_PER_TILE = 512
+export const MAX_PER_TILE = 384
 
 /**
- * 快取幾格。圈內約 455 格，多留的是移動時的暫時重疊。
+ * 快取幾格。圈內約 1,812 格，多留的是移動時的暫時重疊。
  *
  * 每槽 `MAX_PER_TILE × FLORA_STRIDE × 4` bytes 的資料加 `MAX_PER_TILE` bytes
- * 的種類，560 槽約 7.2 MB。全部開場配掉，之後不再配置。
+ * 的種類，2,100 槽約 20.2 MB。全部開場配掉，之後不再配置。
  */
-export const TILE_CACHE = 560
+export const TILE_CACHE = 2100
 
-const LOD_STEP = [LOD_NEAR, FLORA_RADIUS] as const
+const LOD_STEP = [LOD_NEAR, CARD_NEAR, FLORA_RADIUS] as const
 
 /**
  * 這個距離該用哪一級。`prev` 是目前的級數，`-1` 表示沒有前一級。
@@ -165,11 +183,11 @@ const LOD_STEP = [LOD_NEAR, FLORA_RADIUS] as const
 export function lodFor(dist: number, prev: number): number {
   if (prev < 0) {
     let lod = 0
-    while (lod < 2 && dist > LOD_STEP[lod]!) lod++
+    while (lod < 3 && dist > LOD_STEP[lod]!) lod++
     return lod
   }
   let lod = prev
-  while (lod < 2 && dist > LOD_STEP[lod]! + LOD_HYSTERESIS) lod++
+  while (lod < 3 && dist > LOD_STEP[lod]! + LOD_HYSTERESIS) lod++
   while (lod > 0 && dist < LOD_STEP[lod - 1]! - LOD_HYSTERESIS) lod--
   return lod
 }
@@ -188,19 +206,28 @@ export function lodFor(dist: number, prev: number): number {
  * 溢位時丟掉並記一次告警，不靜默截斷。
  */
 const CAPACITY: Record<PoolName, number> = {
-  broadNear: 2800,   // 掃描最大 2,056
-  coneNear: 1300,    // 913
-  broadFar: 24000,   // 17,728
-  coneFar: 9700,     // 7,146
-  bush: 12000,       // 8,750
-  house: 100,        // 25
-  barn: 60,          // 11
-  church: 20,        // 2
+  broadNear: 2800,     // 掃描最大 2,056
+  coneNear: 1300,      // 913
+  broadMid: 24100,     // 17,786
+  coneMid: 9700,       // 7,158
+  broadCard: 69000,    // 51,020
+  coneCard: 22700,     // 16,805
+  bushNear: 11900,     // 8,750
+  bushCard: 207500,    // 153,558   ← 全部實例的六成
+  house: 80,           // 58
+  barn: 40,            // 21
+  church: 20,          // 3
 }
 
 const POOL_NAMES: readonly PoolName[] = [
-  'broadNear', 'coneNear', 'broadFar', 'coneFar', 'bush', 'house', 'barn', 'church',
+  'broadNear', 'coneNear', 'broadMid', 'coneMid',
+  'broadCard', 'coneCard', 'bushNear', 'bushCard',
+  'house', 'barn', 'church',
 ]
+
+/** 哪些池走公告板材質。查表比字串比對便宜，而 `rebuild` 每筆都要問一次 */
+const IS_CARD: Record<PoolName, boolean> =
+  Object.fromEntries(POOL_NAMES.map((n) => [n, CARD_POOLS.includes(n)])) as Record<PoolName, boolean>
 
 export interface Vegetation {
   readonly object: Object3D
@@ -233,20 +260,68 @@ const M = new Matrix4()
 const TINT = new Color()
 
 /**
+ * 公告板的頂點位移。**取代 `begin_vertex`。**
+ *
+ * 【`transformed` 必須留在物件空間】`project_vertex` 在這之後還會做
+ * `instanceMatrix * mvPosition` 再 `modelViewMatrix * mvPosition` ——
+ * 這裡若組出世界座標，會被實例矩陣再乘一次。
+ *
+ * 【卡片的實例矩陣不帶旋轉】`rebuild` 對公告板那三個池不寫 Y 旋轉，所以
+ * 「世界方向」與「物件方向」只差一個等比縮放，basis 可以直接用。
+ *
+ * 【只繞 Y 轉，不是完全面向鏡頭】樹是站著的。完全面向鏡頭的話，俯衝時
+ * 整片樹林會躺平成一地色塊。
+ *
+ * 【繞序】幾何在 xy 平面上逆時針繞，而 x 映到 `right`、y 維持向上，於是
+ * `right × up` 指向鏡頭 —— 螢幕上永遠是正面，不會被背面剔除掉。
+ */
+const CARD_VERTEX = `
+vec3 cardOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+vec3 cardToEye = cameraPosition - cardOrigin;
+vec2 cardH = vec2(cardToEye.z, -cardToEye.x);
+float cardL = length(cardH);
+// 【零向量要有退路】鏡頭正上方俯視時水平分量是零，normalize 會是 NaN
+vec3 cardRight = cardL > 1e-4 ? vec3(cardH.x, 0.0, cardH.y) / cardL : vec3(1.0, 0.0, 0.0);
+vec3 transformed = cardRight * position.x + vec3(0.0, position.y, 0.0);
+`
+
+/**
+ * 公告板的材質。**與其他八池那顆分開，而且不能開 `flatShading`。**
+ *
+ * 【為什麼不能 flatShading】那會定義 `FLAT_SHADED`，而 fragment shader 在
+ * 那個分支直接由 `dFdx/dFdy(vViewPosition)` 算面法線 —— 幾何裡設的
+ * `(0, 1, 0)` 完全被忽略。卡片的面永遠朝著鏡頭，於是亮度隨鏡頭方位變，
+ * 整片遠方樹林轉個向就明暗跳動，門檻上還會出現光照環。
+ *
+ * 【為什麼不能掛在共用材質上】那會讓近樹、樹冠、灌木、建築全部變成公告板，
+ * 而幾何、池對應、容量、GLSL 編譯測試仍然可以全綠。
+ */
+function createCardMaterial(): MeshStandardMaterial {
+  const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.9 })
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <begin_vertex>', CARD_VERTEX)
+  }
+  // 【換了著色器就要換 key】three 用它決定程式能不能重用
+  m.customProgramCacheKey = () => 'flora-card'
+  return m
+}
+
+/**
  * 這一株該進哪一個池。`null` = 這一級不畫它。
  *
  * 【樹種不隨級數變】兩級各有自己的闊葉與針葉。上一版把兩種樹在遠級併成
  * 同一個池，於是針葉樹過門檻時形狀與顏色一起換 —— 看起來像那棵樹換了種。
  */
-export function poolOf(kind: number, lod: number, bush: boolean): PoolName | null {
-  if (lod >= 2) return null
+export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName | null {
+  if (lod >= 3) return null
   switch (kind) {
     case FloraKind.BroadTree:
-      return lod === 0 ? 'broadNear' : 'broadFar'
+      return lod === 0 ? 'broadNear' : lod === 1 ? 'broadMid' : 'broadCard'
     case FloraKind.ConeTree:
-      return lod === 0 ? 'coneNear' : 'coneFar'
+      return lod === 0 ? 'coneNear' : lod === 1 ? 'coneMid' : 'coneCard'
     case FloraKind.Bush:
-      return bush ? 'bush' : null
+      return bushNear ? 'bushNear' : 'bushCard'
     case FloraKind.House:
       return 'house'
     case FloraKind.Barn:
@@ -267,6 +342,7 @@ export function createVegetation(
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
   })
+  const cardMaterial = createCardMaterial()
   const group = new Group()
   const pools: Record<PoolName, InstancedMesh> = {} as Record<PoolName, InstancedMesh>
   /**
@@ -289,7 +365,9 @@ export function createVegetation(
   const side: Record<PoolName, number> = {} as Record<PoolName, number>
   for (const name of POOL_NAMES) {
     const mesh = new InstancedMesh(
-      geometries[name] as BufferGeometry, material, cap[name],
+      geometries[name] as BufferGeometry,
+      IS_CARD[name] ? cardMaterial : material,
+      cap[name],
     )
     // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
     // 而那是一次配置 —— 開場配掉，之後重建就不再配
@@ -327,7 +405,7 @@ export function createVegetation(
   const bySlot = new Map<number, number>()
 
   const counts: Record<PoolName, number> =
-    { broadNear: 0, coneNear: 0, broadFar: 0, coneFar: 0, bush: 0, house: 0, barn: 0, church: 0 }
+    Object.fromEntries(POOL_NAMES.map((n) => [n, 0])) as Record<PoolName, number>
   const stats = {
     tiles: 0, dropped: 0, overflow: 0, rebuilds: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
@@ -349,14 +427,13 @@ export function createVegetation(
    * 後面的項目會位移，別的池一個位元組都沒動。一格換級只動到近遠那四個池
    * 裡的兩個 —— 灌木那條（8,500 筆、544 KB）完全沒變，卻照樣被重傳。
    */
-  const poolDirty: Record<PoolName, boolean> = {
-    broadNear: true, coneNear: true, broadFar: true, coneFar: true,
-    bush: true, house: true, barn: true, church: true,
-  }
+  const poolDirty: Record<PoolName, boolean> =
+    Object.fromEntries(POOL_NAMES.map((n) => [n, true])) as Record<PoolName, boolean>
   /** 某一格由 `a` 級換到 `b` 級，會動到哪些池 */
   function markLevel(lod: number): void {
     if (lod === 0) { poolDirty.broadNear = true; poolDirty.coneNear = true }
-    else if (lod === 1) { poolDirty.broadFar = true; poolDirty.coneFar = true }
+    else if (lod === 1) { poolDirty.broadMid = true; poolDirty.coneMid = true }
+    else if (lod === 2) { poolDirty.broadCard = true; poolDirty.coneCard = true }
   }
   /**
    * 建築那三個池。**每一格都可能有建築**，所以加減格一定要標它們。
@@ -385,7 +462,8 @@ export function createVegetation(
     bySlot.delete(keyOf(slotI[slot]!, slotJ[slot]!))
     slotUsed[slot] = 0
     markLevel(slotLod[slot]!)
-    if (slotBush[slot] === 1) poolDirty.bush = true
+    poolDirty.bushNear = true
+    poolDirty.bushCard = true
     markBuildings()
   }
 
@@ -500,7 +578,11 @@ export function createVegetation(
         markLevel(slotLod[s]!)
         markLevel(lod)
       }
-      if (bush !== slotBush[s]) { dirty = true; poolDirty.bush = true }
+      if (bush !== slotBush[s]) {
+        dirty = true
+        poolDirty.bushNear = true
+        poolDirty.bushCard = true
+      }
       slotLod[s] = lod
       slotBush[s] = bush
     }
@@ -541,9 +623,13 @@ export function createVegetation(
         const scale = buf.data[o + 4]!
         const rot = buf.data[o + 3]!
         // 【就地寫矩陣，不用 compose】只有繞 Y 的旋轉與等比縮放，
-        // 四元數那一趟省下來
-        const c = Math.cos(rot) * scale
-        const sn = Math.sin(rot) * scale
+        // 四元數那一趟省下來。
+        //
+        // 【公告板不帶旋轉】朝向是頂點著色器算的，而它假設實例矩陣只有
+        // 平移與等比縮放 —— 見 `CARD_VERTEX`
+        const card = IS_CARD[name]
+        const c = card ? scale : Math.cos(rot) * scale
+        const sn = card ? 0 : Math.sin(rot) * scale
         M.set(
           c, 0, sn, buf.data[o]!,
           0, scale, 0, buf.data[o + 1]!,
@@ -565,7 +651,7 @@ export function createVegetation(
       const used = counts[name]
       mesh.count = used
       // 【只上傳用到的那一段】容量是實測最大值的 1.35 倍，整條傳等於白傳
-      // 三成五。broadFar 一條就是 1.3 MB
+      // 三成五。bushCard 一條就是 12 MB
       mesh.instanceMatrix.addUpdateRange(0, used * 16)
       mesh.instanceMatrix.needsUpdate = true
       mesh.instanceColor!.addUpdateRange(0, used * 3)
@@ -585,14 +671,17 @@ export function createVegetation(
     centerZ = cz
     started = true
     evict()
-    const made = fill(TILES_PER_FRAME)
+    fill(TILES_PER_FRAME)
     relevel()
     sinceRebuild++
     // 【三道閘】還在補格的期間不重建；兩次重建至少隔 REBUILD_EVERY 幀；
     // 而且鏡頭要移動 REBUILD_MOVE 公尺（或停著超過 REBUILD_IDLE 幀）。
     // 第三道才是關鍵 —— 見那兩個常數的說明
     const moved = Math.hypot(centerX - lastBuildX, centerZ - lastBuildZ)
-    if (dirty && made === 0 && sinceRebuild >= REBUILD_EVERY
+    // 【補格期間照樣重建】舊版在 `made !== 0` 時禁止重建 —— 6 km 圈有 1,812
+    // 格，冷啟動與傳送之後那是好幾秒的空白。當初加那條的理由（上傳很貴）
+    // 已經不成立：真正的同步點是別處每幀的空傳，見 `render/debris.ts`
+    if (dirty && sinceRebuild >= REBUILD_EVERY
       && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) rebuild()
   }
 
@@ -619,6 +708,7 @@ export function createVegetation(
     dispose() {
       disposeFloraGeometries(geometries)
       material.dispose()
+      cardMaterial.dispose()
       for (const name of POOL_NAMES) pools[name].dispose()
     },
   }

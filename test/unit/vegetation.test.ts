@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { InstancedMesh, MeshStandardMaterial } from 'three'
 import {
-  createVegetation, lodFor, poolOf, BUSH_RANGE, FLORA_RADIUS, LOD_HYSTERESIS,
-  LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME, TILE_SIZE,
-  type PoolName,
+  createVegetation, lodFor, poolOf, BUSH_RANGE, CARD_NEAR, FLORA_RADIUS,
+  LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE, TILES_PER_FRAME,
+  TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
 import {
   createFloraBuffer, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
@@ -37,14 +37,15 @@ function meshes(v: { object: { children: unknown[] } }): InstancedMesh[] {
 describe('lodFor', () => {
   it('沒有前一級時，級數隨距離單調不減', () => {
     let prev = -1
-    for (let d = 0; d < 4000; d += 5) {
+    for (let d = 0; d < 8000; d += 5) {
       const lod = lodFor(d, -1)
       expect(lod).toBeGreaterThanOrEqual(prev)
       prev = lod
     }
     expect(lodFor(0, -1)).toBe(0)
     expect(lodFor(LOD_NEAR + 1, -1)).toBe(1)
-    expect(lodFor(FLORA_RADIUS + 1, -1)).toBe(2)
+    expect(lodFor(CARD_NEAR + 1, -1)).toBe(2)
+    expect(lodFor(FLORA_RADIUS + 1, -1)).toBe(3)
   })
 
   /** 【遲滯】沒有它的話，鏡頭停在門檻上時整格 tile 每幀換級 */
@@ -56,8 +57,8 @@ describe('lodFor', () => {
   })
 
   it('跨好幾級的跳躍一次到位', () => {
-    expect(lodFor(FLORA_RADIUS * 2, 0)).toBe(2)
-    expect(lodFor(10, 2)).toBe(0)
+    expect(lodFor(FLORA_RADIUS * 2, 0)).toBe(3)
+    expect(lodFor(10, 3)).toBe(0)
   })
 })
 
@@ -70,22 +71,26 @@ describe('poolOf', () => {
    * 這一條是「換級不換樹種」在引擎這一側的守門員；幾何那一側由
    * flora-shapes.test.ts 的同名兩條守。
    */
-  it('換級不換樹種，而且近遠沒有對調', () => {
+  it('換級不換樹種，六個映射逐一對得上', () => {
     expect(poolOf(FloraKind.BroadTree, 0, false)).toBe('broadNear')
-    expect(poolOf(FloraKind.BroadTree, 1, false)).toBe('broadFar')
+    expect(poolOf(FloraKind.BroadTree, 1, false)).toBe('broadMid')
+    expect(poolOf(FloraKind.BroadTree, 2, false)).toBe('broadCard')
     expect(poolOf(FloraKind.ConeTree, 0, false)).toBe('coneNear')
-    expect(poolOf(FloraKind.ConeTree, 1, false)).toBe('coneFar')
+    expect(poolOf(FloraKind.ConeTree, 1, false)).toBe('coneMid')
+    expect(poolOf(FloraKind.ConeTree, 2, false)).toBe('coneCard')
   })
 
   it('圈外那一級什麼都不畫', () => {
     for (const k of [FloraKind.BroadTree, FloraKind.ConeTree, FloraKind.Bush]) {
-      expect(poolOf(k, 2, true)).toBeNull()
+      expect(poolOf(k, 3, true)).toBeNull()
     }
   })
 
-  it('灌木只由 bush 旗標決定，建築三種各自成池', () => {
-    expect(poolOf(FloraKind.Bush, 0, true)).toBe('bush')
-    expect(poolOf(FloraKind.Bush, 0, false)).toBeNull()
+  /** 【灌木的旗標現在選的是「哪一級」，不是「畫不畫」】圈內每一格都有灌木 */
+  it('灌木由旗標選級，建築三種各自成池', () => {
+    expect(poolOf(FloraKind.Bush, 0, true)).toBe('bushNear')
+    expect(poolOf(FloraKind.Bush, 0, false)).toBe('bushCard')
+    expect(poolOf(FloraKind.Bush, 2, false)).toBe('bushCard')
     expect(poolOf(FloraKind.House, 1, false)).toBe('house')
     expect(poolOf(FloraKind.Barn, 1, false)).toBe('barn')
     expect(poolOf(FloraKind.Church, 1, false)).toBe('church')
@@ -94,23 +99,51 @@ describe('poolOf', () => {
 
 /** 池的名字，與 `object.children` 同序。標髒那一條用它報名字 */
 const POOLS: readonly PoolName[] = [
-  'broadNear', 'coneNear', 'broadFar', 'coneFar', 'bush', 'house', 'barn', 'church',
+  'broadNear', 'coneNear', 'broadMid', 'coneMid',
+  'broadCard', 'coneCard', 'bushNear', 'bushCard',
+  'house', 'barn', 'church',
 ]
 
 /** 大到不可能截斷的容量。掃描與變異驗證用 */
-const SENTINEL: Record<PoolName, number> = {
-  broadNear: 100000, coneNear: 100000, broadFar: 100000, coneFar: 100000,
-  bush: 100000, house: 100000, barn: 100000, church: 100000,
-}
+const SENTINEL = Object.fromEntries(
+  POOLS.map((n) => [n, 400000]),
+) as Record<PoolName, number>
 
 /** 上面那條掃描量到的最大值，給變異驗證那一條用 */
 let SCANNED: Record<string, number> = {}
 
 describe('植被引擎', () => {
-  it('八個池，八個 draw call', () => {
+  it('十一個池，十一個 draw call', () => {
     const v = createVegetation([EMPTY], FLAT)
-    expect(v.object.children.length).toBe(8)
+    expect(v.object.children.length).toBe(POOLS.length)
     for (const m of meshes(v)) expect(m).toBeInstanceOf(InstancedMesh)
+    v.dispose()
+  })
+
+  /**
+   * 【公告板必須是另一顆材質】把 billboard 的 `onBeforeCompile` 掛在共用
+   * 材質上，近樹、樹冠、灌木、建築會**全部**變成公告板 —— 而幾何、池對應、
+   * 容量、GLSL 編譯測試仍然可以全綠。
+   *
+   * 【而且不能開 flatShading】那會讓 fragment shader 由螢幕導數自己算面法線，
+   * 幾何裡設的 (0, 1, 0) 完全被忽略，亮度就會隨鏡頭方位變。
+   */
+  it('公告板走另一顆材質，而且沒開 flatShading', () => {
+    const v = createVegetation([EMPTY], FLAT)
+    const ms = meshes(v)
+    const mats = new Map<PoolName, MeshStandardMaterial>()
+    for (let i = 0; i < ms.length; i++) {
+      mats.set(POOLS[i]!, ms[i]!.material as MeshStandardMaterial)
+    }
+    const card = mats.get('broadCard')!
+    expect(mats.get('coneCard')).toBe(card)
+    expect(mats.get('bushCard')).toBe(card)
+    expect(card.flatShading).toBe(false)
+    for (const n of POOLS) {
+      if (n === 'broadCard' || n === 'coneCard' || n === 'bushCard') continue
+      expect([n, mats.get(n) === card]).toEqual([n, false])
+      expect([n, mats.get(n)!.flatShading]).toEqual([n, true])
+    }
     v.dispose()
   })
 
@@ -174,7 +207,8 @@ describe('植被引擎', () => {
     v.update(0, TILE_SIZE * 0.4)
     v.settle()
     console.log(JSON.stringify({ 一開始: after, 兩次小移動之後多生: calls - after }))
-    expect(calls - after).toBeLessThan(40)
+    // 【判準跟著圈的周長走】6 km 圈的周長是 3 km 圈的兩倍
+    expect(calls - after).toBeLessThan(v.stats.tiles * 0.05)
     v.dispose()
   })
 
@@ -207,23 +241,28 @@ describe('植被引擎', () => {
     const far = { ...v.counts }
     console.log(JSON.stringify({ near, far }))
     expect(near.broadNear).toBeGreaterThan(0)
-    expect(near.bush).toBeGreaterThan(0)
-    expect(near.broadFar).toBeGreaterThan(near.broadNear)
-    // 每一格都生六筆，所以兩級的總數守恆
+    expect(near.bushNear).toBeGreaterThan(0)
+    expect(near.broadCard).toBeGreaterThan(near.broadNear)
+    // 每一格都生六筆，所以三級的總數守恆
     const sum = (c: Record<PoolName, number>): number =>
-      c.broadNear + c.coneNear + c.broadFar + c.coneFar
+      c.broadNear + c.coneNear + c.broadMid + c.coneMid + c.broadCard + c.coneCard
     expect(sum(far)).toBeGreaterThan(sum(near) * 0.95)
     expect(sum(far)).toBeLessThan(sum(near) * 1.05)
     v.dispose()
   })
 
-  it('灌木只出現在 BUSH_RANGE 之內', () => {
+  /**
+   * 【`BUSH_RANGE` 現在是「近級」的門檻，不是視距】圈內每一格都有灌木，
+   * 只是 1.2 km 之外換成公告板。
+   */
+  it('灌木在 BUSH_RANGE 之內是八面體，之外是公告板', () => {
     const v = createVegetation([SIX], FLAT)
     v.settle()
-    // 每格一叢，圈內半徑 BUSH_RANGE 的格數約 π r² / T²
-    const want = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
-    expect(v.counts.bush).toBeGreaterThan(want * 0.6)
-    expect(v.counts.bush).toBeLessThan(want * 1.6)
+    const near = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
+    expect(v.counts.bushNear).toBeGreaterThan(near * 0.6)
+    expect(v.counts.bushNear).toBeLessThan(near * 1.6)
+    // 【圈內一叢都不能漏】每格一叢，所以兩級加起來就是活著的格數
+    expect(v.counts.bushNear + v.counts.bushCard).toBe(v.stats.tiles)
     v.dispose()
   })
 
@@ -234,17 +273,44 @@ describe('植被引擎', () => {
   it('建築不分級，而樹會；出了圈兩者都不畫', () => {
     const v = createVegetation([ONE], FLAT)
     for (const [dist, house, broad] of [
-      [100, 1, 1], [800, 1, 1], [1500, 1, 0], [3500, 0, 0],
+      [100, 1, 1], [800, 1, 1], [1500, 1, 0], [7000, 0, 0],
     ] as const) {
       v.update(dist, 0)
       v.settle()
       expect([dist, v.counts.house]).toEqual([dist, house])
       expect([dist, v.counts.broadNear]).toEqual([dist, broad])
     }
-    // 1,500 m 的那棵樹沒有消失，只是換了級
+    // 【三級各換一次】1,500 m 是樹冠，4,000 m 是公告板
     v.update(1500, 0)
     v.settle()
-    expect(v.counts.broadFar).toBe(1)
+    expect([v.counts.broadMid, v.counts.broadCard]).toEqual([1, 0])
+    v.update(4000, 0)
+    v.settle()
+    expect([v.counts.broadMid, v.counts.broadCard]).toEqual([0, 1])
+    v.dispose()
+  })
+
+  /**
+   * 【冷啟動不得空白】6 km 圈有 1,812 格。舊版在「這一幀有生新格」時禁止
+   * 重建 —— 於是開場與傳送之後，植被要等整圈補完才會出現，60 fps 下是
+   * 好幾秒的空白。
+   *
+   * 【一定要不呼叫 settle】`settle` 會一次排乾再強制重建，把這個缺陷整個
+   * 藏起來 —— 而其他測試幾乎都呼叫它。
+   */
+  it('冷啟動：整圈還沒補完就已經在畫', () => {
+    const v = createVegetation([SIX], FLAT)
+    let first = -1
+    for (let k = 0; k < 40; k++) {
+      v.update(0, 0)
+      if (first < 0 && v.counts.bushNear > 0) first = k + 1
+    }
+    console.log(JSON.stringify({ 第幾幀開始有東西: first, 那時的格數: v.stats.tiles }))
+    expect(first).toBeGreaterThan(0)
+    expect(first).toBeLessThan(REBUILD_EVERY * 3)
+    // 【而且那時整圈還沒補完】不然這一條只是在測 settle
+    const full = (Math.PI * FLORA_RADIUS * FLORA_RADIUS) / (TILE_SIZE * TILE_SIZE)
+    expect(v.stats.tiles).toBeLessThan(full * 0.6)
     v.dispose()
   })
 
@@ -267,12 +333,12 @@ describe('植被引擎', () => {
   it('只靠 update（不 settle）也會把級數的變化畫出來', () => {
     const v = createVegetation([ONE], FLAT)
     v.settle()
-    expect([v.counts.broadNear, v.counts.broadFar]).toEqual([1, 0])
+    expect([v.counts.broadNear, v.counts.broadMid]).toEqual([1, 0])
     // 【級數看的是格心不是那棵樹】樹在 (5, 5)，它那一格的格心在 (125, 125)。
     // 鏡頭放 1,200 時格心距離 1,082 m，過了 LOD_NEAR + 遲滯。
     // 每幀四格，補完新的一圈再重建要一百幀有餘
-    for (let k = 0; k < 160; k++) v.update(1200, 0)
-    expect([v.counts.broadNear, v.counts.broadFar]).toEqual([0, 1])
+    for (let k = 0; k < 400; k++) v.update(1200, 0)
+    expect([v.counts.broadNear, v.counts.broadMid]).toEqual([0, 1])
     v.dispose()
   })
 
@@ -306,8 +372,11 @@ describe('植被引擎', () => {
     v.update(FLORA_RADIUS * 4, FLORA_RADIUS * 4)
     v.settle()
     expect(calls).toBeGreaterThan(before)
-    // 舊的一圈全部放掉了 —— 圈的大小仍然只有一圈
-    expect(v.stats.tiles).toBeLessThan(600)
+    // 【圈的大小必須對得上 FLORA_RADIUS】π R² / T² = 1,810。
+    // `TILE_CACHE` 忘了跟著放大的話會卡在快取大小，這一條就紅
+    const want = (Math.PI * FLORA_RADIUS * FLORA_RADIUS) / (TILE_SIZE * TILE_SIZE)
+    expect(v.stats.tiles).toBeGreaterThan(want * 0.98)
+    expect(v.stats.tiles).toBeLessThan(want * 1.02)
     v.dispose()
   })
 
@@ -396,17 +465,23 @@ describe('植被引擎', () => {
     v.dispose()
   })
 
-  it('dispose 之後幾何與材質都被釋放，材質只釋放一次', () => {
+  it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {
     const v = createVegetation([SIX], FLAT)
     let geos = 0
-    let mats = 0
-    for (const m of meshes(v)) m.geometry.addEventListener('dispose', () => geos++)
-    // 【材質只掛一次監聽】八個池共用同一顆，掛八次的話一次 dispose 會數到八
-    ;(meshes(v)[0]!.material as MeshStandardMaterial)
-      .addEventListener('dispose', () => mats++)
+    const mats = new Map<MeshStandardMaterial, number>()
+    for (const m of meshes(v)) {
+      m.geometry.addEventListener('dispose', () => geos++)
+      const mat = m.material as MeshStandardMaterial
+      // 【每顆材質只掛一次監聽】共用的那顆掛八次的話一次 dispose 會數到八
+      if (!mats.has(mat)) {
+        mats.set(mat, 0)
+        mat.addEventListener('dispose', () => mats.set(mat, mats.get(mat)! + 1))
+      }
+    }
+    expect(mats.size).toBe(2)
     v.dispose()
-    expect(geos).toBe(8)
-    expect(mats).toBe(1)
+    expect(geos).toBe(POOLS.length)
+    expect([...mats.values()]).toEqual([1, 1])
   })
 
   /**
@@ -435,8 +510,9 @@ describe('植被引擎', () => {
     console.log(JSON.stringify({ 各池的最大同時實例數: max }))
     SCANNED = max
     // 【掃描本身不得是空操作】
-    expect(max['broadFar']!).toBeGreaterThan(2000)
-    expect(max['bush']!).toBeGreaterThan(500)
+    expect(max['broadCard']!).toBeGreaterThan(2000)
+    expect(max['bushCard']!).toBeGreaterThan(2000)
+    expect(max['bushNear']!).toBeGreaterThan(500)
     expect(max['house']!).toBeGreaterThan(5)
     v.dispose()
   }, 120000)
@@ -448,8 +524,25 @@ describe('植被引擎', () => {
    * 這一條把每一池的容量壓到實測最大之下，跑同一條航線，要求它**必須**溢位。
    * 溢位不了就表示那一池的容量與實際需求根本沒有關係。
    */
+  /**
+   * 【正面斷言容量夠】只有「哨兵掃峰值」加「壓到峰值以下必溢位」的話，
+   * 把正式容量寫成 1 仍然全綠 —— 前者不看正式容量，後者要的正是溢位。
+   */
+  it('正式容量逐池都在實測峰值的 1.35 倍以上', () => {
+    expect(Object.keys(SCANNED).length).toBe(POOLS.length)
+    const v = createVegetation([EMPTY], FLAT)
+    const ms = meshes(v)
+    for (let i = 0; i < ms.length; i++) {
+      const name = POOLS[i]!
+      const want = Math.ceil(SCANNED[name]! * 1.35)
+      // `instanceMatrix.count` 就是配置時給的容量
+      expect([name, ms[i]!.instanceMatrix.count >= want]).toEqual([name, true])
+    }
+    v.dispose()
+  })
+
   it('每一池的容量都真的頂著需求：壓到實測最大之下必定溢位', () => {
-    expect(Object.keys(SCANNED).length).toBe(8)
+    expect(Object.keys(SCANNED).length).toBe(POOLS.length)
     for (const [name, peak] of Object.entries(SCANNED)) {
       // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的
       const v = createVegetation(

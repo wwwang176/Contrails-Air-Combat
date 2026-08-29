@@ -81,6 +81,20 @@ const VIEWS: readonly View[] = [
     desc: '1,500 m 平視地平線 —— 田的網一路接到遠景環',
   },
   {
+    // 【看公告板接不接得上】3 km 的門檻在畫面中段
+    name: 'card-edge', yaw: 40, pitch: -4, alt: 400, x: 0, z: 0,
+    desc: '400 m 平視 —— 3 km 的樹冠／公告板門檻就在畫面中段',
+  },
+  {
+    // 【看公告板有沒有躺平】俯角 60°
+    name: 'dive', yaw: 40, pitch: -60, alt: 2500, x: 0, z: 0,
+    desc: '俯角 60° —— 公告板必須仍然站著，不能變成一地色塊',
+  },
+  {
+    name: 'bush-edge', yaw: 40, pitch: -10, alt: 250, x: 0, z: 0,
+    desc: '250 m 低空 —— 1.2 km 的灌木門檻',
+  },
+  {
     // 站到村的南邊 600 m、往北看
     name: 'village', yaw: 0, pitch: -22, alt: 350,
     x: VILLAGE.x, z: VILLAGE.z + 600,
