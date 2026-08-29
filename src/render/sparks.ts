@@ -138,6 +138,16 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
   }
   object.instanceMatrix.needsUpdate = true
   if (object.instanceColor) object.instanceColor.needsUpdate = true
+  // 一顆火花都還沒生就不必畫。InstancedMesh 建立時 count 等於容量
+  object.count = 0
+
+  /**
+   * 上一幀這一格在 GPU 上是不是有東西。
+   *
+   * 【它在擋什麼】死格的矩陣本來就是零，每幀再寫一次零是白工 —— 而對正在被
+   * GPU 讀的緩衝呼叫 `bufferSubData` 會強迫管線同步。
+   */
+  const wasLive = new Uint8Array(capacity)
 
   return {
     object,
@@ -178,11 +188,21 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
     step(dt: number): void {
       const damp = Math.exp(-SPARK_DRAG * dt)
       live = 0
+      let touched = false
+      let lo = capacity
+      let up = -1
+      let hiLive = -1
       for (let i = 0; i < capacity; i++) {
         const a = age[i]!
         if (a >= SPARK_LIFE) {
+          if (wasLive[i] === 0) continue
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
+          object.setColorAt(i, TINT.setRGB(0, 0, 0))
+          wasLive[i] = 0
+          touched = true
+          if (i < lo) lo = i
+          if (i > up) up = i
           continue
         }
         const na = a + dt
@@ -191,6 +211,10 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
           M.compose(ZERO, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
           object.setColorAt(i, TINT.setRGB(0, 0, 0))
+          wasLive[i] = 0
+          touched = true
+          if (i < lo) lo = i
+          if (i > up) up = i
           continue
         }
         live++
@@ -224,18 +248,41 @@ export function createSparks(capacity: number = SPARK_CAPACITY): Sparks {
         const f = 1 - na / SPARK_LIFE
         TINT.setRGB(f, f * 0.75, f * 0.35)
         object.setColorAt(i, TINT)
+        wasLive[i] = 1
+        hiLive = i
+        touched = true
+        if (i < lo) lo = i
+        if (i > up) up = i
       }
-      object.instanceMatrix.needsUpdate = true
-      if (object.instanceColor) object.instanceColor.needsUpdate = true
+      // 【尾巴上的死格連歸零都不必】它們在 count 之外，頂點著色器不會碰到
+      object.count = hiLive + 1
+      if (touched) {
+        // 單位是型別化陣列的元素，不是 byte。矩陣 stride 16、顏色 stride 3
+        object.instanceMatrix.addUpdateRange(lo * 16, (up - lo + 1) * 16)
+        object.instanceMatrix.needsUpdate = true
+        if (object.instanceColor) {
+          object.instanceColor.addUpdateRange(lo * 3, (up - lo + 1) * 3)
+          object.instanceColor.needsUpdate = true
+        }
+      }
     },
 
     reset(): void {
       age.fill(Infinity)
       live = 0
       next = 0
+      wasLive.fill(0)
       M.compose(ZERO, ROT.identity(), ZERO)
       for (let i = 0; i < capacity; i++) object.setMatrixAt(i, M)
+      object.count = 0
+      // 【要先清區間】上一幀累積的區間若還沒被 render 消費掉，這裡整條重寫
+      // 卻只傳那一段，畫面會留著上一場的東西。清掉之後沒有區間，three 整條傳
+      object.instanceMatrix.clearUpdateRanges()
       object.instanceMatrix.needsUpdate = true
+      if (object.instanceColor) {
+        object.instanceColor.clearUpdateRanges()
+        object.instanceColor.needsUpdate = true
+      }
     },
 
     dispose(): void {
