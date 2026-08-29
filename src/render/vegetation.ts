@@ -1,12 +1,14 @@
 import {
-  Color, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4,
-  MeshStandardMaterial, type BufferGeometry, type Object3D,
+  BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Group,
+  InstancedBufferAttribute, InstancedMesh, Matrix4, MeshStandardMaterial, Points,
+  PointsMaterial, Sphere, Vector3, type Object3D,
 } from 'three'
 import {
   createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
-  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, CARD_POINT_COLOR,
+  CARD_POINT_SIZE, CARD_POINT_Y, type CardPool, type PoolName,
 } from './floraShapes'
 
 export type { PoolName }
@@ -354,52 +356,61 @@ const M = new Matrix4()
 const TINT = new Color()
 
 /**
- * 公告板的頂點位移。**取代 `begin_vertex`。**
+ * 遠處那三個池的材質。**`gl.POINTS`，不是公告板。**
  *
- * 【`transformed` 必須留在物件空間】`project_vertex` 在這之後還會做
- * `instanceMatrix * mvPosition` 再 `modelViewMatrix * mvPosition` ——
- * 這裡若組出世界座標，會被實例矩陣再乘一次。
+ * 【為什麼是點】6 km 的樹只有 2.1 px 寬 —— 圓的方的三角的在那個尺度上是
+ * 同一團色塊。點一株只要一個頂點與 56 byte（位置 3 ＋ 顏色 3 ＋ 大小 1，
+ * 雙緩衝），公告板要三到六個頂點與 152 byte（矩陣 16 ＋ 顏色 3，雙緩衝）。
+ * 而幀時間的大頭是 `bufferSubData`。
  *
- * 【卡片的實例矩陣不帶旋轉】`rebuild` 對公告板那三個池不寫 Y 旋轉，所以
- * 「世界方向」與「物件方向」只差一個等比縮放，basis 可以直接用。
+ * 【側面的好處】公告板只繞 Y 轉，由正上方俯視時是側面朝上、幾乎看不見 ——
+ * 而那是空戰最常見的視角。點是螢幕對齊的，俯視時照樣是方塊。
  *
- * 【只繞 Y 轉，不是完全面向鏡頭】樹是站著的。完全面向鏡頭的話，俯衝時
- * 整片樹林會躺平成一地色塊。
+ * 【`size` 一定要留著且設成 1】DPR 藏在它裡面：`WebGLMaterials` 寫的是
+ * `uniforms.size.value = material.size * pixelRatio`，而
+ * `uniforms.scale.value = height * 0.5` 用的是 **CSS 高**。把 `size` 整個
+ * 換掉的話，DPR = 2 的螢幕上點只有一半大 —— 而在 DPR = 1 的機器上完全正常。
  *
- * 【繞序】幾何在 xy 平面上逆時針繞，而 x 映到 `right`、y 維持向上，於是
- * `right × up` 指向鏡頭 —— 螢幕上永遠是正面，不會被背面剔除掉。
+ * 四個因子相乘就是「世界長度 `aSize` 的緩衝區像素數」：
+ *
+ * ```
+ *   aSize                     世界長度，m（逐株屬性）
+ *   projectionMatrix[1][1]    1 / tan(fovY/2)
+ *   size                      1 × devicePixelRatio      ← three 乘上去的
+ *   scale / -mvPosition.z     (CSS 高 / 2) / 距離        ← sizeAttenuation
+ * ```
+ *
+ * 【點吃不到光照】`PointsMaterial` 是 basic 的。開局後光照固定，所以亮度
+ * 由 `POINT_LIGHT` 烘進逐株的顏色 —— 見那個常數。
  */
-const CARD_VERTEX = `
-vec3 cardOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-vec3 cardToEye = cameraPosition - cardOrigin;
-vec2 cardH = vec2(cardToEye.z, -cardToEye.x);
-float cardL = length(cardH);
-// 【零向量要有退路】鏡頭正上方俯視時水平分量是零，normalize 會是 NaN
-vec3 cardRight = cardL > 1e-4 ? vec3(cardH.x, 0.0, cardH.y) / cardL : vec3(1.0, 0.0, 0.0);
-vec3 transformed = cardRight * position.x + vec3(0.0, position.y, 0.0);
-`
-
-/**
- * 公告板的材質。**與其他八池那顆分開，而且不能開 `flatShading`。**
- *
- * 【為什麼不能 flatShading】那會定義 `FLAT_SHADED`，而 fragment shader 在
- * 那個分支直接由 `dFdx/dFdy(vViewPosition)` 算面法線 —— 幾何裡設的
- * `(0, 1, 0)` 完全被忽略。卡片的面永遠朝著鏡頭，於是亮度隨鏡頭方位變，
- * 整片遠方樹林轉個向就明暗跳動，門檻上還會出現光照環。
- *
- * 【為什麼不能掛在共用材質上】那會讓近樹、樹冠、灌木、建築全部變成公告板，
- * 而幾何、池對應、容量、GLSL 編譯測試仍然可以全綠。
- */
-function createCardMaterial(): MeshStandardMaterial {
-  const m = new MeshStandardMaterial({ vertexColors: true, roughness: 0.9 })
+function createPointMaterial(): PointsMaterial {
+  const m = new PointsMaterial({ vertexColors: true, sizeAttenuation: true, size: 1 })
   m.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <begin_vertex>', CARD_VERTEX)
+    shader.vertexShader = 'attribute float aSize;\n' + shader.vertexShader
+      .replace('gl_PointSize = size;', 'gl_PointSize = aSize * projectionMatrix[1][1] * size;')
   }
   // 【換了著色器就要換 key】three 用它決定程式能不能重用
-  m.customProgramCacheKey = () => 'flora-card'
+  m.customProgramCacheKey = () => 'flora-point'
   return m
 }
+
+/**
+ * 點池的亮度補償。**逐通道乘在樹冠色上。**
+ *
+ * 【為什麼要有它】點走 `PointsMaterial`，吃不到場上那三盞燈；而它取代的
+ * 中級樹冠走 `MeshStandardMaterial`，是被照亮的。不補的話過 3 km 門檻時
+ * 整片林相會暗一階。
+ *
+ * 【值是量出來的】`flora-card.e2e.ts` 在 `CARD_NEAR` 兩側各量一次平均 RGB
+ * （2,500 m 的中級樹冠對 3,600 m 的點），要求亮度差在 8% 以內。實測 −2.5%。
+ *
+ * 【小於 1 是對的】輸出是 sRGB 編碼的，而樹冠色本身就是那個亮度 —— 補的是
+ * 「標準材質在這組燈下比純色暗一點」那一段，不是「把暗的補亮」。
+ *
+ * 【烘一次成立是因為開局後光照固定】燈的定義在 `render/lighting.ts`，量測
+ * 用的 fixture 與正式場景共用同一份 —— 各配一組的話係數會是錯的。
+ */
+export const POINT_LIGHT = new Color(0.36, 0.36, 0.36)
 
 /**
  * 這一株該進哪一個池。`null` = 這一級不畫它。
@@ -463,9 +474,18 @@ export function createVegetation(
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
   })
-  const cardMaterial = createCardMaterial()
+  const pointMaterial = createPointMaterial()
   const group = new Group()
-  const pools: Record<PoolName, InstancedMesh> = {} as Record<PoolName, InstancedMesh>
+  /**
+   * 十一個池。**遠處那三個是 `Points`，其餘八個是 `InstancedMesh`。**
+   * 寫入路徑因此要分岔 —— 見 `rebuild`。
+   */
+  const pools: Record<PoolName, InstancedMesh | Points> =
+    {} as Record<PoolName, InstancedMesh | Points>
+  /** 點池的三條屬性，各兩份輪流換。索引順序：位置、顏色、大小 */
+  const altPt: Partial<Record<PoolName, BufferAttribute[][]>> = {}
+  /** 點池的樹冠色 × `POINT_LIGHT`，開場算一次 */
+  const pointBase: Partial<Record<PoolName, Color>> = {}
   /**
    * 每個池兩份實例屬性，重建時輪流換。**這是 1% low 的關鍵。**
    *
@@ -485,9 +505,38 @@ export function createVegetation(
     {} as Record<PoolName, InstancedBufferAttribute[]>
   const side: Record<PoolName, number> = {} as Record<PoolName, number>
   for (const name of POOL_NAMES) {
+    if (IS_CARD[name]) {
+      const n = cap[name]
+      const mk = (): BufferAttribute[] => {
+        const a = [
+          new BufferAttribute(new Float32Array(n * 3), 3),
+          new BufferAttribute(new Float32Array(n * 3), 3),
+          new BufferAttribute(new Float32Array(n), 1),
+        ]
+        for (const at of a) at.setUsage(DynamicDrawUsage)
+        return a
+      }
+      const two = [mk(), mk()]
+      altPt[name] = two
+      side[name] = 0
+      const geo = new BufferGeometry()
+      geo.setAttribute('position', two[0]![0]!)
+      geo.setAttribute('color', two[0]![1]!)
+      geo.setAttribute('aSize', two[0]![2]!)
+      geo.setDrawRange(0, 0)
+      // 【包圍球自己給無限大】內容每次重建都換，three 算出來的球會過期；
+      // 而剔除本來就關掉了 —— 見檔頭
+      geo.boundingSphere = new Sphere(new Vector3(), Infinity)
+      const pts = new Points(geo, pointMaterial)
+      pts.frustumCulled = false
+      pools[name] = pts
+      group.add(pts)
+      pointBase[name] = new Color(CARD_POINT_COLOR[name as CardPool]).multiply(POINT_LIGHT)
+      continue
+    }
     const mesh = new InstancedMesh(
       geometries[name] as BufferGeometry,
-      IS_CARD[name] ? cardMaterial : material,
+      material,
       cap[name],
     )
     // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
@@ -798,7 +847,16 @@ export function createVegetation(
       counts[name] = 0
       // 【換到另一份再寫】寫的永遠是上一幀沒在畫的那一份
       side[name] ^= 1
-      const mesh = pools[name]
+      if (IS_CARD[name]) {
+        // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
+        const a = altPt[name]![side[name]!]!
+        const geo = (pools[name] as Points).geometry
+        geo.setAttribute('position', a[0]!)
+        geo.setAttribute('color', a[1]!)
+        geo.setAttribute('aSize', a[2]!)
+        continue
+      }
+      const mesh = pools[name] as InstancedMesh
       mesh.instanceMatrix = altMat[name]![side[name]!]!
       mesh.instanceColor = altCol[name]![side[name]!]!
     }
@@ -819,25 +877,37 @@ export function createVegetation(
         }
         const o = k * FLORA_STRIDE
         const scale = buf.data[o + 4]!
+        // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
+        const t = 0.86 + buf.data[o + 5]! * 0.28
+        if (IS_CARD[name]) {
+          const a = altPt[name]![side[name]!]!
+          const pos = a[0]!.array as Float32Array
+          const col = a[1]!.array as Float32Array
+          pos[at * 3] = buf.data[o]!
+          // 【點的中心放樹冠的垂直中心】見 `CARD_POINT_Y`
+          pos[at * 3 + 1] = buf.data[o + 1]! + CARD_POINT_Y[name as CardPool] * scale
+          pos[at * 3 + 2] = buf.data[o + 2]!
+          const base = pointBase[name]!
+          col[at * 3] = base.r * t
+          col[at * 3 + 1] = base.g * t
+          col[at * 3 + 2] = base.b * t
+          ;(a[2]!.array as Float32Array)[at] = CARD_POINT_SIZE[name as CardPool] * scale
+          counts[name] = at + 1
+          continue
+        }
         const rot = buf.data[o + 3]!
         // 【就地寫矩陣，不用 compose】只有繞 Y 的旋轉與等比縮放，
-        // 四元數那一趟省下來。
-        //
-        // 【公告板不帶旋轉】朝向是頂點著色器算的，而它假設實例矩陣只有
-        // 平移與等比縮放 —— 見 `CARD_VERTEX`
-        const card = IS_CARD[name]
-        const c = card ? scale : Math.cos(rot) * scale
-        const sn = card ? 0 : Math.sin(rot) * scale
+        // 四元數那一趟省下來
+        const c = Math.cos(rot) * scale
+        const sn = Math.sin(rot) * scale
         M.set(
           c, 0, sn, buf.data[o]!,
           0, scale, 0, buf.data[o + 1]!,
           -sn, 0, c, buf.data[o + 2]!,
           0, 0, 0, 1,
         )
-        const mesh = pools[name]
+        const mesh = pools[name] as InstancedMesh
         mesh.setMatrixAt(at, M)
-        // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
-        const t = 0.86 + buf.data[o + 5]! * 0.28
         mesh.setColorAt(at, TINT.setRGB(t, t, t))
         counts[name] = at + 1
       }
@@ -845,11 +915,19 @@ export function createVegetation(
     for (const name of POOL_NAMES) {
       if (!poolDirty[name]) continue
       poolDirty[name] = false
-      const mesh = pools[name]
       const used = counts[name]
+      if (IS_CARD[name]) {
+        const a = altPt[name]![side[name]!]!
+        for (const [attr, size] of [[a[0]!, 3], [a[1]!, 3], [a[2]!, 1]] as const) {
+          attr.addUpdateRange(0, used * size)
+          attr.needsUpdate = true
+        }
+        ;(pools[name] as Points).geometry.setDrawRange(0, used)
+        continue
+      }
+      const mesh = pools[name] as InstancedMesh
       mesh.count = used
-      // 【只上傳用到的那一段】容量是實測最大值的 1.35 倍，整條傳等於白傳
-      // 三成五。bushCard 一條就是 12 MB
+      // 【只上傳用到的那一段】容量是實測最大值的兩倍，整條傳等於白傳一倍
       mesh.instanceMatrix.addUpdateRange(0, used * 16)
       mesh.instanceMatrix.needsUpdate = true
       mesh.instanceColor!.addUpdateRange(0, used * 3)
@@ -915,8 +993,12 @@ export function createVegetation(
     dispose() {
       disposeFloraGeometries(geometries)
       material.dispose()
-      cardMaterial.dispose()
-      for (const name of POOL_NAMES) pools[name].dispose()
+      pointMaterial.dispose()
+      for (const name of POOL_NAMES) {
+        const p = pools[name]
+        if (p instanceof InstancedMesh) p.dispose()
+        else p.geometry.dispose()
+      }
     },
   }
 }

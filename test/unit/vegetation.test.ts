@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { InstancedMesh, MeshStandardMaterial } from 'three'
+import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Points } from 'three'
+import { CARD_POOLS } from '../../src/render/floraShapes'
 import {
   createVegetation, lodFor, poolOf, BUSH_RANGE, CARD_NEAR, FLORA_RADIUS,
   ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
@@ -32,8 +33,41 @@ const ONE: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   pushFlora(out, 6, heightAt(6, 5), 5, 0, 1, 0.5, FloraKind.BroadTree)
 }
 
-function meshes(v: { object: { children: unknown[] } }): InstancedMesh[] {
-  return v.object.children as InstancedMesh[]
+type Pool = InstancedMesh | Points
+
+function meshes(v: { object: { children: unknown[] } }): Pool[] {
+  return v.object.children as Pool[]
+}
+
+/**
+ * 池的檢查一律走這三支。**遠處那三個池是 `Points`，其餘八個是
+ * `InstancedMesh`** —— 兩者的實例數、容量、屬性都放在不同的地方。
+ */
+function poolCount(p: Pool): number {
+  return p instanceof InstancedMesh ? p.count : p.geometry.drawRange.count
+}
+
+/** 配置時給的容量 */
+function poolCapacity(p: Pool): number {
+  return p instanceof InstancedMesh
+    ? p.instanceMatrix.count
+    : p.geometry.getAttribute('position').count
+}
+
+/** 這一池的兩條逐實例屬性：實例池是矩陣與顏色，點池是位置與顏色 */
+function poolAttrs(p: Pool): BufferAttribute[] {
+  if (p instanceof InstancedMesh) {
+    return [p.instanceMatrix as BufferAttribute, p.instanceColor as BufferAttribute]
+  }
+  return [
+    p.geometry.getAttribute('position') as BufferAttribute,
+    p.geometry.getAttribute('color') as BufferAttribute,
+  ]
+}
+
+/** 一筆實例佔第一條屬性的幾個 float */
+function poolStride(p: Pool): number {
+  return p instanceof InstancedMesh ? 16 : 3
 }
 
 describe('lodFor', () => {
@@ -116,10 +150,11 @@ let SCANNED: Record<string, number> = {}
 let ISLAND_SCANNED: Record<string, number> = {}
 
 describe('植被引擎', () => {
-  it('十一個池，十一個 draw call', () => {
+  it('十一個池，十一個 draw call；遠處那三個是點', () => {
     const v = createVegetation([EMPTY], FLAT)
     expect(v.object.children.length).toBe(POOLS.length)
-    for (const m of meshes(v)) expect(m).toBeInstanceOf(InstancedMesh)
+    const kinds = meshes(v).map((m, i) => [POOLS[i], m instanceof Points])
+    expect(kinds).toEqual(POOLS.map((n) => [n, CARD_POOLS.includes(n)]))
     v.dispose()
   })
 
@@ -131,20 +166,21 @@ describe('植被引擎', () => {
    * 【而且不能開 flatShading】那會讓 fragment shader 由螢幕導數自己算面法線，
    * 幾何裡設的 (0, 1, 0) 完全被忽略，亮度就會隨鏡頭方位變。
    */
-  it('公告板走另一顆材質，而且沒開 flatShading', () => {
+  it('點池走另一顆材質，而且三個池共用它', () => {
     const v = createVegetation([EMPTY], FLAT)
     const ms = meshes(v)
     const mats = new Map<PoolName, MeshStandardMaterial>()
     for (let i = 0; i < ms.length; i++) {
       mats.set(POOLS[i]!, ms[i]!.material as MeshStandardMaterial)
     }
-    const card = mats.get('broadCard')!
-    expect(mats.get('coneCard')).toBe(card)
-    expect(mats.get('bushCard')).toBe(card)
-    expect(card.flatShading).toBe(false)
+    const point = mats.get('broadCard')!
+    expect(mats.get('coneCard')).toBe(point)
+    expect(mats.get('bushCard')).toBe(point)
     for (const n of POOLS) {
-      if (n === 'broadCard' || n === 'coneCard' || n === 'bushCard') continue
-      expect([n, mats.get(n) === card]).toEqual([n, false])
+      if (CARD_POOLS.includes(n)) continue
+      // 【掛錯材質會讓近樹全部變成點】而幾何、池對應、容量、GLSL 編譯
+      // 那幾條測試仍然可以全綠
+      expect([n, mats.get(n) === point]).toEqual([n, false])
       expect([n, mats.get(n)!.flatShading]).toEqual([n, true])
     }
     v.dispose()
@@ -391,12 +427,10 @@ describe('植被引擎', () => {
     const v = createVegetation([SIX], FLAT)
     v.settle()
     for (const m of meshes(v)) {
-      if (m.count === 0) continue
+      if (poolCount(m) === 0) continue
       // 【比 version 不是比 needsUpdate】`needsUpdate` 在 three 只有 setter
       // 沒有 getter，讀出來恆是 undefined。它做的事是把 version 加一
-      expect(m.instanceMatrix.version).toBeGreaterThan(0)
-      expect(m.instanceColor).not.toBeNull()
-      expect(m.instanceColor!.version).toBeGreaterThan(0)
+      for (const a of poolAttrs(m)) expect(a.version).toBeGreaterThan(0)
     }
     v.dispose()
   })
@@ -421,8 +455,9 @@ describe('植被引擎', () => {
     for (let i = 0; i < 600; i++) {
       v.update(i * 3, i * 2)
       for (let k = 0; k < ms.length; k++) {
-        seenMat[k]!.add(ms[k]!.instanceMatrix.array)
-        seenCol[k]!.add(ms[k]!.instanceColor!.array)
+        const a = poolAttrs(ms[k]!)
+        seenMat[k]!.add(a[0]!.array)
+        seenCol[k]!.add(a[1]!.array)
       }
     }
     for (let k = 0; k < ms.length; k++) {
@@ -456,16 +491,18 @@ describe('植被引擎', () => {
     v.settle()
     const ms = meshes(v)
     const snap = ms.map((m) => ({
-      count: m.count,
-      buf: (m.instanceMatrix.array as Float32Array).slice(0, m.count * 16),
+      count: poolCount(m),
+      buf: (poolAttrs(m)[0]!.array as Float32Array)
+        .slice(0, poolCount(m) * poolStride(m)),
     }))
     // 【強制全部重建】標漏了的池，這一下之後內容會變
     v.settle(true)
     for (let i = 0; i < ms.length; i++) {
       const m = ms[i]!
       const s0 = snap[i]!
-      const now = (m.instanceMatrix.array as Float32Array).slice(0, m.count * 16)
-      expect([POOLS[i], m.count]).toEqual([POOLS[i], s0.count])
+      const now = (poolAttrs(m)[0]!.array as Float32Array)
+        .slice(0, poolCount(m) * poolStride(m))
+      expect([POOLS[i], poolCount(m)]).toEqual([POOLS[i], s0.count])
       expect([POOLS[i], [...now]]).toEqual([POOLS[i], [...s0.buf]])
     }
     v.dispose()
@@ -474,7 +511,7 @@ describe('植被引擎', () => {
   it('空的來源不會產生任何實例，也不會崩', () => {
     const v = createVegetation([EMPTY], FLAT)
     v.settle()
-    for (const m of meshes(v)) expect(m.count).toBe(0)
+    for (const m of meshes(v)) expect(poolCount(m)).toBe(0)
     expect(v.stats.dropped).toBe(0)
     v.dispose()
   })
@@ -706,9 +743,7 @@ describe('植被引擎', () => {
       for (let i = 0; i < ms.length; i++) {
         const name = POOLS[i]!
         const want = Math.ceil(peaks[name]! * 1.35)
-        // `instanceMatrix.count` 就是配置時給的容量
-        expect([label, name, ms[i]!.instanceMatrix.count >= want])
-          .toEqual([label, name, true])
+        expect([label, name, poolCapacity(ms[i]!) >= want]).toEqual([label, name, true])
       }
       v.dispose()
     }
