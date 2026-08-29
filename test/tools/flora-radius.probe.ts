@@ -218,3 +218,88 @@ for (const N of [450, 700, 900, 1200]) {
     + `   ${(a.tris / 1000).toFixed(0).padStart(5)}k`)
 }
 console.log('')
+
+// ── 三級：近（帶樹幹）／中（樹冠）／遠（公告板） ─────────────
+// 公告板是一片朝著鏡頭的四邊形，2 個三角形。**沒有貼圖** —— 顏色走頂點色。
+// 15 m 的樹在 3 km 外約 4.6 px、6 km 外約 2.3 px，那個尺度下輪廓讀不出來，
+// 一片色塊就夠。
+//
+// 灌木同理：近的用八面體 8 tri，遠的用公告板。
+const TRI3 = {
+  broadNear: 20, coneNear: 19, broadMid: 8, coneMid: 6, treeCard: 2,
+  bushNear: 8, bushCard: 2, build: 18,
+}
+
+interface Acc3 {
+  broadNear: number
+  coneNear: number
+  broadMid: number
+  coneMid: number
+  treeCard: number
+  bushNear: number
+  bushCard: number
+  build: number
+  tiles: number
+  tris: number
+}
+
+function zero3(): Acc3 {
+  return {
+    broadNear: 0, coneNear: 0, broadMid: 0, coneMid: 0, treeCard: 0,
+    bushNear: 0, bushCard: 0, build: 0, tiles: 0, tris: 0,
+  }
+}
+
+/** `nearAt` 帶樹幹、`midAt` 帶樹冠、之外到 `radius` 是公告板 */
+function scan3(radius: number, nearAt: number, midAt: number, bushNearAt: number): Acc3 {
+  const max = zero3()
+  for (const [cx, cz] of POSITIONS) {
+    const a = zero3()
+    const i0 = Math.floor((cx - radius) / TILE_SIZE)
+    const i1 = Math.floor((cx + radius) / TILE_SIZE)
+    const j0 = Math.floor((cz - radius) / TILE_SIZE)
+    const j1 = Math.floor((cz + radius) / TILE_SIZE)
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const tx = i * TILE_SIZE + TILE_SIZE / 2
+        const tz = j * TILE_SIZE + TILE_SIZE / 2
+        const d = Math.hypot(tx - cx, tz - cz)
+        if (d > radius) continue
+        a.tiles++
+        const t = tileSum(i, j)
+        if (d <= nearAt) { a.broadNear += t.broad; a.coneNear += t.cone }
+        else if (d <= midAt) { a.broadMid += t.broad; a.coneMid += t.cone }
+        else a.treeCard += t.broad + t.cone
+        if (d <= bushNearAt) a.bushNear += t.bush
+        else a.bushCard += t.bush
+        a.build += t.build
+      }
+    }
+    a.tris = 0
+    for (const k of Object.keys(TRI3) as (keyof typeof TRI3)[]) a.tris += a[k] * TRI3[k]
+    for (const k of Object.keys(max) as (keyof typeof max)[]) if (a[k] > max[k]) max[k] = a[k]
+  }
+  return max
+}
+
+console.log('\n  三級（近 900 帶幹／中 3,000 樹冠／遠 公告板 2 tri），灌木同距離分兩級\n')
+console.log('      R    格數    近幹    中冠     公告板      灌木近     灌木板    三角形')
+for (const R of [3000, 4000, 5000, 6000]) {
+  const a = scan3(R, 900, 3000, 1200)
+  console.log(
+    `  ${String(R).padStart(5)}   ${String(a.tiles).padStart(5)}`
+    + `  ${String(a.broadNear + a.coneNear).padStart(6)}`
+    + `  ${String(a.broadMid + a.coneMid).padStart(6)}`
+    + `  ${String(a.treeCard).padStart(9)}`
+    + `  ${String(a.bushNear).padStart(9)}`
+    + `  ${String(a.bushCard).padStart(9)}`
+    + `   ${(a.tris / 1000).toFixed(0).padStart(5)}k`)
+}
+
+console.log('\n  對照：灌木也拉到跟樹一樣遠，但**不加公告板級**（維持 8 tri）\n')
+console.log('      R    灌木實例     灌木三角形')
+for (const R of [3000, 4000, 6000]) {
+  const a = scan3(R, 900, 3000, R)
+  console.log(`  ${String(R).padStart(5)}   ${String(a.bushNear).padStart(9)}   ${((a.bushNear * 8) / 1000).toFixed(0).padStart(8)}k`)
+}
+console.log('')
