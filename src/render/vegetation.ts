@@ -303,6 +303,12 @@ export interface Vegetation {
     overflow: number
     /** 重建過幾次。節流有沒有生效看它 */
     rebuilds: number
+    /**
+     * 呼叫過幾次 source。**空格有沒有被重複生成看它。**
+     *
+     * 空格不留緩衝但要留槽位；漏了槽位的話這個數字會每幀往上跳。
+     */
+    generated: number
     /** 預配的緩衝身分，給「不配置」那條測試比對 */
     buffers: readonly Float32Array[]
     keyType: string
@@ -453,14 +459,41 @@ export function createVegetation(
     group.add(mesh)
   }
 
-  // ── tile 快取。全部預配，之後不再配置 ──────────────────
-  const slotBuf: FloraBuffer[] = []
+  // ── tile 快取 ────────────────────────────────────────
+  /**
+   * 每一格的資料緩衝。**有東西才配。**
+   *
+   * 【為什麼不預配】群島 6 km 圈有 1,815 格，而只有 485 格真的長東西 ——
+   * 其餘全是海。每格一份 512 株的緩衝是 26.9 MB，其中八成是空水格佔的位子；
+   * 而半徑推遠時那個浪費是平方成長的。
+   *
+   * 【生 0 株就還回去】`makeTile` 先借一份、生完再看 —— 這樣不必為了「先知道
+   * 有沒有東西」多抄一次。
+   *
+   * 【空格仍然佔槽位】`slotUsed` 是 1、`bySlot` 也照設，只有緩衝是 null。
+   * 不佔的話每一幀都會重生一次那一格。
+   */
+  const slotBuf: (FloraBuffer | null)[] = new Array<FloraBuffer | null>(TILE_CACHE).fill(null)
+  /** 還回來的緩衝。池的大小會長到「同時非空的格數」的高水位 */
+  const freeBufs: FloraBuffer[] = []
+  /** 配過的緩衝身分，給「只重用不增長」那條測試比對 */
   const bufIdentity: Float32Array[] = []
-  for (let i = 0; i < TILE_CACHE; i++) {
-    const b = createFloraBuffer(maxPerTile)
-    slotBuf.push(b)
-    bufIdentity.push(b.data)
+
+  function takeBuf(): FloraBuffer {
+    const b = freeBufs.pop()
+    if (b !== undefined) return b
+    const fresh = createFloraBuffer(maxPerTile)
+    bufIdentity.push(fresh.data)
+    return fresh
   }
+
+  function giveBuf(slot: number): void {
+    const b = slotBuf[slot] ?? null
+    if (b === null) return
+    freeBufs.push(b)
+    slotBuf[slot] = null
+  }
+
   const slotI = new Int32Array(TILE_CACHE)
   const slotJ = new Int32Array(TILE_CACHE)
   const slotUsed = new Uint8Array(TILE_CACHE)
@@ -472,7 +505,7 @@ export function createVegetation(
   const counts: Record<PoolName, number> =
     Object.fromEntries(POOL_NAMES.map((n) => [n, 0])) as Record<PoolName, number>
   const stats = {
-    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0,
+    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0, generated: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
   }
 
@@ -525,30 +558,46 @@ export function createVegetation(
    */
   function freeSlot(slot: number): void {
     bySlot.delete(keyOf(slotI[slot]!, slotJ[slot]!))
+    giveBuf(slot)
     slotUsed[slot] = 0
+    freeSlots.push(slot)
     markLevel(slotLod[slot]!)
     poolDirty.bushNear = true
     poolDirty.bushCard = true
     markBuildings()
   }
 
+  /**
+   * 空著的槽位。**堆疊，不是線性掃描。**
+   *
+   * 【為什麼】12 km 的圈要 7,600 槽，而每幀補 61 格 —— 線性掃描是每幀
+   * 四十六萬次迴圈。
+   */
+  const freeSlots: number[] = []
+  for (let s = TILE_CACHE - 1; s >= 0; s--) freeSlots.push(s)
+
   function takeSlot(): number {
-    for (let s = 0; s < TILE_CACHE; s++) if (slotUsed[s] === 0) return s
-    // 【滿了就丟最舊的】圈內約 201 格而快取 288，正常不會走到這裡
+    const s = freeSlots.pop()
+    if (s !== undefined) return s
+    // 【滿了就丟最舊的】圈內的格數恆小於快取，正常不會走到這裡
     freeSlot(0)
-    return 0
+    return freeSlots.pop()!
   }
 
   /** 生一格。回 false 表示這一格已經在快取裡 */
   function makeTile(i: number, j: number): boolean {
     if (bySlot.has(keyOf(i, j))) return false
     const slot = takeSlot()
-    const buf = slotBuf[slot]!
+    const buf = takeBuf()
     buf.count = 0
     buf.dropped = 0
     const x0 = i * TILE_SIZE
     const z0 = j * TILE_SIZE
+    stats.generated++
     for (const src of sources) src(x0, z0, x0 + TILE_SIZE, z0 + TILE_SIZE, heightAt, buf)
+    // 【空格把緩衝還回去】槽位照佔 —— 不佔的話每一幀都會重生一次
+    if (buf.count === 0) freeBufs.push(buf)
+    else slotBuf[slot] = buf
     if (buf.dropped > 0) {
       stats.dropped += buf.dropped
       if (!warned) {
@@ -673,7 +722,8 @@ export function createVegetation(
     stats.overflow = 0
     for (let s = 0; s < TILE_CACHE; s++) {
       if (slotUsed[s] === 0) continue
-      const buf = slotBuf[s]!
+      const buf = slotBuf[s] ?? null
+      if (buf === null) continue
       const lod = slotLod[s]!
       const bush = slotBush[s] === 1
       for (let k = 0; k < buf.count; k++) {

@@ -407,6 +407,10 @@ describe('植被引擎', () => {
   it('暖機後 update 不再配置', () => {
     const v = createVegetation([SIX], FLAT)
     v.settle()
+    // 【先把緩衝池的峰值跑出來】懶配的池會長到「同時非空的格數」的高水位，
+    // 而那個數字在移動時會上下 —— 沒跑過峰值就 snapshot 的話，量到的是
+    // 「還在爬」而不是「在漏」
+    for (let i = 0; i < 60; i++) { v.update(i * 3, i * 2); v.settle() }
     const ms = meshes(v)
     const bufs = v.stats.buffers.slice()
     // 【實例屬性是輪流換的，所以比的是「只有那兩份」】比身分相等會在偶數次
@@ -424,8 +428,11 @@ describe('植被引擎', () => {
       expect([POOLS[k], seenMat[k]!.size]).toEqual([POOLS[k], 2])
       expect([POOLS[k], seenCol[k]!.size]).toEqual([POOLS[k], 2])
     }
-    // tile 的資料緩衝也是同一批
-    expect(v.stats.buffers).toEqual(bufs)
+    // 【tile 的緩衝只重用不增長】它是懶配的：一格生出 0 株就把緩衝還回池裡。
+    // 圈是圓的，移動時同時非空的格數會小幅上下 —— 所以先跑過峰值再比，
+    // 而且身分也要比：長度一樣但整批換掉的話，代表配了新的又丟了舊的
+    expect(v.stats.buffers.length).toBe(bufs.length)
+    expect(v.stats.buffers.slice(0, bufs.length)).toEqual(bufs)
     // 【tile 的鍵必須是數值】字串鍵每幀都在配置
     expect(v.stats.keyType).toBe('number')
     v.dispose()
@@ -501,6 +508,44 @@ describe('植被引擎', () => {
     expect(drawnMax - blankMin).toBeGreaterThan(FLORA_RADIUS * 0.1)
     // 而且不得抖到圈外
     expect(drawnMax).toBeLessThanOrEqual(FLORA_RADIUS)
+  })
+
+
+  /**
+   * 【為什麼要懶配】群島 6 km 圈有 1,815 格，而只有 485 格真的長東西 ——
+   * 其餘全是海。全部預配的話八成的記憶體是空水格佔的位子，而半徑推遠時
+   * 那個浪費是平方成長的。
+   */
+  it('空格不佔緩衝', () => {
+    const { field, islands } = createArchipelago()
+    const v = createVegetation(
+      [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
+      SENTINEL, ISLAND_MAX_PER_TILE,
+    )
+    v.update(0, 0)
+    v.settle(true)
+    console.log(JSON.stringify({
+      格數: v.stats.tiles, 配出去的緩衝: v.stats.buffers.length,
+    }))
+    expect(v.stats.tiles).toBeGreaterThan(1000)
+    expect(v.stats.buffers.length).toBeGreaterThan(0)
+    expect(v.stats.buffers.length).toBeLessThan(v.stats.tiles * 0.5)
+    v.dispose()
+  })
+
+  /**
+   * 【空格一定要繼續佔槽位】不佔的話每一幀都會重生一次那一格 —— 而群島的
+   * 圈裡九成是空格。
+   */
+  it('空格不會每幀重生', () => {
+    const v = createVegetation([ONE], FLAT)
+    v.update(0, 0)
+    v.settle(true)
+    const first = v.stats.generated
+    expect(first).toBeGreaterThan(1000)
+    for (let k = 0; k < 10; k++) v.update(0, 0)
+    expect(v.stats.generated).toBe(first)
+    v.dispose()
   })
 
   it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {
