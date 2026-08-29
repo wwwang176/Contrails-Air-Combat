@@ -67,7 +67,8 @@ describe('createSplashes', () => {
     let objects = 0
     s.object.traverse(() => objects++)
     expect(objects).toBe(1)
-    expect(s.object.count).toBe(16)
+    // 【看緩衝而不是 count】`count` 是「這一幀畫幾個」，空池時是 0
+    expect(s.object.instanceMatrix.count).toBe(16)
     s.dispose()
   })
 

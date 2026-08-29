@@ -90,12 +90,27 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
   M.compose(ZERO, ROT.identity(), ZERO)
   for (let i = 0; i < capacity; i++) object.setMatrixAt(i, M)
   object.instanceMatrix.needsUpdate = true
+  // 一發都還沒射就不必畫。InstancedMesh 建立時 count 等於容量，不明寫的話
+  // 頂點著色器一開場就跑滿四千個實例
+  object.count = 0
+
+  /**
+   * 上一幀這一格在 GPU 上是不是有東西。
+   *
+   * 【它在擋什麼】死格的矩陣本來就是零，每幀再寫一次零是白工。只有「上一幀
+   * 有、這一幀沒有」那一刻才要寫。
+   */
+  const wasLive = new Uint8Array(capacity)
 
   return {
     object,
 
     update(p: Projectiles): void {
       const n = Math.min(capacity, p.capacity)
+      let touched = false
+      let lo = capacity
+      let up = -1
+      let hiLive = -1
       for (let i = 0; i < n; i++) {
         const x = p.x[i]!
         const y = p.y[i]!
@@ -115,9 +130,14 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
 
         if (length <= 0) {
           // 空槽位與剛出膛的那一格：縮放到 0，畫不出東西
+          if (wasLive[i] === 0) continue
           POS.set(x, y, z)
           M.compose(POS, ROT.identity(), ZERO)
           object.setMatrixAt(i, M)
+          wasLive[i] = 0
+          touched = true
+          if (i < lo) lo = i
+          if (i > up) up = i
           continue
         }
 
@@ -130,8 +150,19 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
         SCALE.set(1, 1, length)
         M.compose(POS, ROT, SCALE)
         object.setMatrixAt(i, M)
+        wasLive[i] = 1
+        hiLive = i
+        touched = true
+        if (i < lo) lo = i
+        if (i > up) up = i
       }
-      object.instanceMatrix.needsUpdate = true
+      // 【尾巴上的死格連歸零都不必】它們在 count 之外，頂點著色器不會碰到
+      object.count = hiLive + 1
+      if (touched) {
+        // 單位是型別化陣列的元素，不是 byte。矩陣的 stride 是 16
+        object.instanceMatrix.addUpdateRange(lo * 16, (up - lo + 1) * 16)
+        object.instanceMatrix.needsUpdate = true
+      }
     },
 
     dispose(): void {

@@ -47,14 +47,14 @@ describe('createMuzzles', () => {
 
   it('容量是「架數 × MAX_MOUNTS」，建立時就配足', () => {
     const m = createMuzzles(4)
-    expect(m.object.count).toBe(4 * 8)
+    // 【看緩衝而不是 count】`count` 是「這一幀畫幾個」，沒人開火時是 0
     expect(m.object.instanceMatrix.count).toBe(4 * 8)
     m.dispose()
   })
 
   it('建立時全部收成 0，第一幀不會在原點出現一叢', () => {
     const m = createMuzzles(2)
-    for (let i = 0; i < m.object.count; i++) {
+    for (let i = 0; i < m.object.instanceMatrix.count; i++) {
       expect(instance(m.object, i).scale.x).toBe(0)
     }
     m.dispose()
@@ -157,7 +157,7 @@ describe('槍焰的位置與朝向', () => {
     const { w } = oneAircraft()
     const m = createMuzzles(4)
     m.update(w.combatants, [new Vector3()], [new Quaternion()])
-    for (let i = 8; i < m.object.count; i++) {
+    for (let i = 8; i < m.object.instanceMatrix.count; i++) {
       expect(instance(m.object, i).scale.x).toBe(0)
     }
     m.dispose()

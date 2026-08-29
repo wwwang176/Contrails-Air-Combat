@@ -33,7 +33,9 @@ describe('createTracers', () => {
     let objects = 0
     t.object.traverse(() => objects++)
     expect(objects).toBe(1)
-    expect(t.object.count).toBe(64)
+    // 【看緩衝而不是 count】`count` 是「這一幀畫幾個」，空池時是 0。
+    // 這一條問的是「整池是不是一個物件」，那對應的是緩衝的容量
+    expect(t.object.instanceMatrix.count).toBe(64)
     t.dispose()
   })
 

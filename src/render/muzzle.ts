@@ -136,6 +136,16 @@ export function createMuzzles(aircraftCapacity: number): Muzzles {
   }
   object.instanceMatrix.needsUpdate = true
   if (object.instanceColor) object.instanceColor.needsUpdate = true
+  // 一發都還沒開就不必畫。InstancedMesh 建立時 count 等於容量
+  object.count = 0
+
+  /**
+   * 上一幀這一格在 GPU 上是不是有東西。
+   *
+   * 【它在擋什麼】沒開火的槽位矩陣本來就是零，每幀再寫一次零是白工 —— 而對
+   * 正在被 GPU 讀的緩衝呼叫 `bufferSubData` 會強迫管線同步。
+   */
+  const wasLive = new Uint8Array(capacity)
 
   return {
     object,
@@ -146,6 +156,10 @@ export function createMuzzles(aircraftCapacity: number): Muzzles {
       quaternions: readonly Quaternion[],
     ): void {
       let slot = 0
+      let touched = false
+      let lo = capacity
+      let up = -1
+      let hiLive = -1
       for (let k = 0; k < combatants.length; k++) {
         const c = combatants[k]!
         const battery = c.aircraft.spec.battery
@@ -159,9 +173,15 @@ export function createMuzzles(aircraftCapacity: number): Muzzles {
             ? flash[i]! / FLASH_SECONDS
             : 0
           if (t <= 0 || p === undefined || q === undefined) {
-            M.compose(ZERO, ROT.identity(), ZERO)
-            object.setMatrixAt(slot, M)
-            object.setColorAt(slot, TINT.setRGB(0, 0, 0))
+            if (wasLive[slot] === 1) {
+              M.compose(ZERO, ROT.identity(), ZERO)
+              object.setMatrixAt(slot, M)
+              object.setColorAt(slot, TINT.setRGB(0, 0, 0))
+              wasLive[slot] = 0
+              touched = true
+              if (slot < lo) lo = slot
+              if (slot > up) up = slot
+            }
             slot++
             continue
           }
@@ -177,15 +197,34 @@ export function createMuzzles(aircraftCapacity: number): Muzzles {
           // 加法混合：顏色淡到黑就等於淡出，不必逐實例透明度
           TINT.setRGB(t, t * 0.8, t * 0.45)
           object.setColorAt(slot, TINT)
+          wasLive[slot] = 1
+          hiLive = slot
+          touched = true
+          if (slot < lo) lo = slot
+          if (slot > up) up = slot
           slot++
         }
       }
       for (; slot < capacity; slot++) {
+        if (wasLive[slot] === 0) continue
         M.compose(ZERO, ROT.identity(), ZERO)
         object.setMatrixAt(slot, M)
+        wasLive[slot] = 0
+        touched = true
+        if (slot < lo) lo = slot
+        if (slot > up) up = slot
       }
-      object.instanceMatrix.needsUpdate = true
-      if (object.instanceColor) object.instanceColor.needsUpdate = true
+      // 【尾巴上的空槽連歸零都不必】它們在 count 之外，頂點著色器不會碰到
+      object.count = hiLive + 1
+      if (touched) {
+        // 單位是型別化陣列的元素，不是 byte。矩陣 stride 16、顏色 stride 3
+        object.instanceMatrix.addUpdateRange(lo * 16, (up - lo + 1) * 16)
+        object.instanceMatrix.needsUpdate = true
+        if (object.instanceColor) {
+          object.instanceColor.addUpdateRange(lo * 3, (up - lo + 1) * 3)
+          object.instanceColor.needsUpdate = true
+        }
+      }
     },
 
     dispose(): void {
@@ -231,6 +270,16 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
   }
   object.instanceMatrix.needsUpdate = true
   if (object.instanceColor) object.instanceColor.needsUpdate = true
+  // 一發都還沒開就不必畫。InstancedMesh 建立時 count 等於容量
+  object.count = 0
+
+  /**
+   * 上一幀這一格在 GPU 上是不是有東西。
+   *
+   * 【它在擋什麼】沒開火的槽位矩陣本來就是零，每幀再寫一次零是白工 —— 而對
+   * 正在被 GPU 讀的緩衝呼叫 `bufferSubData` 會強迫管線同步。
+   */
+  const wasLive = new Uint8Array(capacity)
 
   return {
     object,
@@ -241,6 +290,10 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
       quaternions: readonly Quaternion[],
     ): void {
       let slot = 0
+      let touched = false
+      let lo = capacity
+      let up = -1
+      let hiLive = -1
       for (let k = 0; k < combatants.length; k++) {
         const c = combatants[k]!
         const turrets = c.aircraft.spec.turrets
@@ -257,9 +310,15 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
             : 0
           if (f <= 0 || t === undefined || st === undefined
             || p === undefined || q === undefined) {
-            M.compose(ZERO, ROT.identity(), ZERO)
-            object.setMatrixAt(slot, M)
-            object.setColorAt(slot, TINT.setRGB(0, 0, 0))
+            if (wasLive[slot] === 1) {
+              M.compose(ZERO, ROT.identity(), ZERO)
+              object.setMatrixAt(slot, M)
+              object.setColorAt(slot, TINT.setRGB(0, 0, 0))
+              wasLive[slot] = 0
+              touched = true
+              if (slot < lo) lo = slot
+              if (slot > up) up = slot
+            }
             slot++
             continue
           }
@@ -279,15 +338,34 @@ export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
           object.setMatrixAt(slot, M)
           TINT.setRGB(f, f * 0.8, f * 0.45)
           object.setColorAt(slot, TINT)
+          wasLive[slot] = 1
+          hiLive = slot
+          touched = true
+          if (slot < lo) lo = slot
+          if (slot > up) up = slot
           slot++
         }
       }
       for (; slot < capacity; slot++) {
+        if (wasLive[slot] === 0) continue
         M.compose(ZERO, ROT.identity(), ZERO)
         object.setMatrixAt(slot, M)
+        wasLive[slot] = 0
+        touched = true
+        if (slot < lo) lo = slot
+        if (slot > up) up = slot
       }
-      object.instanceMatrix.needsUpdate = true
-      if (object.instanceColor) object.instanceColor.needsUpdate = true
+      // 【尾巴上的空槽連歸零都不必】它們在 count 之外，頂點著色器不會碰到
+      object.count = hiLive + 1
+      if (touched) {
+        // 單位是型別化陣列的元素，不是 byte。矩陣 stride 16、顏色 stride 3
+        object.instanceMatrix.addUpdateRange(lo * 16, (up - lo + 1) * 16)
+        object.instanceMatrix.needsUpdate = true
+        if (object.instanceColor) {
+          object.instanceColor.addUpdateRange(lo * 3, (up - lo + 1) * 3)
+          object.instanceColor.needsUpdate = true
+        }
+      }
     },
 
     dispose(): void {

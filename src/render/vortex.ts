@@ -435,7 +435,20 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
    * （最新、alpha 最高）與環 `used` 之間會連出一條**從管頭回到管尾**的
    * 320 m 長錐，而且不會有任何測試紅。
    */
+  /**
+   * 這一幀被 `writeTrail` 碰過的頂點區間 `[vLo, vUp)`。
+   *
+   * 【為什麼在 `writeTrail` 當下累積，而不是事後掃 `dirty`】`step` 在
+   * 「本幀剛清空」那一支寫完零頂點之後**立刻**把 `dirty[t]` 清成 0。事後掃
+   * 會漏掉那一條，於是 GPU 只收到別條尾跡的區間，已死的尾跡殘留在畫面上。
+   */
+  let vLo = vertexCount
+  let vUp = 0
+
   const writeTrail = (trail: number): void => {
+    const v0 = trail * TRAIL_NODES * TRAIL_SIDES
+    if (v0 < vLo) vLo = v0
+    if (v0 + TRAIL_NODES * TRAIL_SIDES > vUp) vUp = v0 + TRAIL_NODES * TRAIL_SIDES
     const c = count[trail]!
     const used = c + (hasHead[trail] === 1 ? 1 : 0)
     const base = trail * TRAIL_NODES * TRAIL_SIDES * 3
@@ -560,9 +573,14 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
         touched = true
       }
       if (touched) {
+        // 單位是型別化陣列的元素：位置一個頂點三個 float，alpha 一個
+        position.addUpdateRange(vLo * 3, (vUp - vLo) * 3)
+        alpha.addUpdateRange(vLo, vUp - vLo)
         position.needsUpdate = true
         alpha.needsUpdate = true
       }
+      vLo = vertexCount
+      vUp = 0
     },
 
     reset(): void {
@@ -578,6 +596,12 @@ export function createVortex(seats: number = VORTEX_SEATS): Vortex {
       pos.fill(0)
       alp.fill(0)
       dirty.fill(0)
+      // 【要先清區間】上一幀累積的區間若還沒被 render 消費掉，這裡整條重寫
+      // 卻只傳那一段，畫面會留著上一場的管子
+      position.clearUpdateRanges()
+      alpha.clearUpdateRanges()
+      vLo = vertexCount
+      vUp = 0
       position.needsUpdate = true
       alpha.needsUpdate = true
     },
