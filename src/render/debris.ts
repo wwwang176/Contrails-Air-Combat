@@ -199,10 +199,21 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
   const sprayEvents = createImpacts(capacity)
 
   /** 讓某一格退場並縮成 0。 */
+  /**
+   * 這一輪有沒有真的動到矩陣。
+   *
+   * 【為什麼要記】`needsUpdate` 一設，three 就整條 92 KB 重傳（`updateRanges`
+   * 是空的，走的是全緩衝那個分支）。而一場沒有人被打下來的仗裡，這裡一片
+   * 碎片都沒有 —— 每幀白傳 92 KB。2026-08-29 實測那一下要 3.92 ms，
+   * 三十秒的量測裡佔掉 13.4 秒，將近一半的幀時間。
+   */
+  let touched = false
+
   function kill(i: number): void {
     age[i] = Infinity
     M.compose(ZERO, IDENTITY, ZERO)
     object.setMatrixAt(i, M)
+    touched = true
   }
 
   return {
@@ -330,8 +341,13 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         SCALE.set(s, s, s)
         M.compose(POS, ROT, SCALE)
         object.setMatrixAt(i, M)
+        touched = true
       }
-      object.instanceMatrix.needsUpdate = true
+      // 【沒動過就不傳】見 `touched`
+      if (touched) {
+        object.instanceMatrix.needsUpdate = true
+        touched = false
+      }
     },
 
     reset(): void {
