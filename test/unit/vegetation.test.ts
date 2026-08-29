@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, MeshStandardMaterial } from 'three'
 import {
   createVegetation, lodFor, poolOf, BUSH_RANGE, CARD_NEAR, FLORA_RADIUS,
-  ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
+  ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
+  LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
   TILES_PER_FRAME, TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
 import {
@@ -520,7 +521,10 @@ describe('植被引擎', () => {
     const { field, islands } = createArchipelago()
     const v = createVegetation(
       [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
-      SENTINEL, ISLAND_MAX_PER_TILE,
+      {
+        capacity: SENTINEL, maxPerTile: ISLAND_MAX_PER_TILE,
+        radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
+      },
     )
     v.update(0, 0)
     v.settle(true)
@@ -620,7 +624,7 @@ describe('植被引擎', () => {
   it('沿一條穿過全圖的航線掃描，池與 tile 都不溢位', () => {
     // 【哨兵容量】正式容量會截斷 counts，拿它去掃是循環量測
     const v = createVegetation(
-      [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT, SENTINEL,
+      [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT, { capacity: SENTINEL },
     )
     const max: Record<string, number> = {}
     const N = 40
@@ -663,7 +667,10 @@ describe('植被引擎', () => {
     const { field, islands } = createArchipelago()
     const v = createVegetation(
       [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
-      SENTINEL, ISLAND_MAX_PER_TILE,
+      {
+        capacity: SENTINEL, maxPerTile: ISLAND_MAX_PER_TILE,
+        radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
+      },
     )
     const max: Record<string, number> = {}
     for (const isl of islands) {
@@ -690,11 +697,11 @@ describe('植被引擎', () => {
   it('正式容量逐池都在實測峰值的 1.35 倍以上（兩張圖各自比）', () => {
     expect(Object.keys(SCANNED).length).toBe(POOLS.length)
     expect(Object.keys(ISLAND_SCANNED).length).toBe(POOLS.length)
-    for (const [label, peaks, cap] of [
-      ['農地', SCANNED, undefined],
-      ['群島', ISLAND_SCANNED, ISLAND_CAPACITY],
+    for (const [label, peaks, opts] of [
+      ['農地', SCANNED, {}],
+      ['群島', ISLAND_SCANNED, { capacity: ISLAND_CAPACITY }],
     ] as const) {
-      const v = createVegetation([EMPTY], FLAT, cap)
+      const v = createVegetation([EMPTY], FLAT, opts)
       const ms = meshes(v)
       for (let i = 0; i < ms.length; i++) {
         const name = POOLS[i]!
@@ -713,7 +720,7 @@ describe('植被引擎', () => {
       // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的
       const v = createVegetation(
         [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT,
-        { ...SENTINEL, [name]: Math.max(0, peak - 1) },
+        { capacity: { ...SENTINEL, [name]: Math.max(0, peak - 1) } },
       )
       let over = 0
       const N = 40

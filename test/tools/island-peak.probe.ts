@@ -15,7 +15,8 @@
 import { createArchipelago } from '../../src/world/archipelago'
 import { createIslandFlora } from '../../src/render/flora'
 import {
-  createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, type PoolName,
+  createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
+  ISLAND_TILES_PER_FRAME, type PoolName,
 } from '../../src/render/vegetation'
 
 const POOLS: readonly PoolName[] = [
@@ -27,7 +28,10 @@ const SENTINEL = Object.fromEntries(POOLS.map((n) => [n, 400000])) as Record<Poo
 const arch = createArchipelago()
 const v = createVegetation(
   [createIslandFlora(arch.field, arch.islands)], (x, z) => arch.field.sample(x, z),
-  SENTINEL, 4096,
+  {
+    capacity: SENTINEL, maxPerTile: 4096,
+    radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
+  },
 )
 
 const max: Record<string, number> = {}
