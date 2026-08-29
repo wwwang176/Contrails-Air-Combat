@@ -46,12 +46,30 @@ export const GRASS_MIN_HEIGHT = 12
  */
 export const DRAW_FLOOR = -5.5
 /**
- * 這個高度該是什麼顏色。**匯出是給植被用的** —— 見 `isGrass`。
+ * 樹冠的平均色。針葉與灌木按樹冠面積加權 —— `CONE_CROWN_R²` 對
+ * `ISLAND_BUSH_RATIO × BUSH_R²`，也就是 66% 對 34%。
+ *
+ * 【為什麼不 import `floraShapes` 的那三個顏色】`island.ts` 是被
+ * `flora.ts` import 的那一端，反過來會成環。這是一個常數，由那兩個顏色
+ * 算一次寫死；`island-shade.test.ts` 釘著它。
+ */
+export const CANOPY = new Color(0x30452e)
+
+/**
+ * 這個高度、被樹冠遮住這麼多時，地該是什麼顏色。
  *
  * 【只有兩段】水線上是沙、再上去全是草，一路到峰頂。島是綠的。
+ *
+ * 【草的那一段要先帶上林相】`FLORA_RADIUS` 外一棵樹都不畫，而地色比樹冠
+ * 亮很多 —— 飛進圈的瞬間整座島同時變暗變花。先按實際被遮住的面積比往樹冠
+ * 色混，樹進圈就只是加上質感。覆蓋率由 `flora.ts` 的 `islandCanopyCover`
+ * 算，與植被的放置同源。
+ *
+ * 【沙灘不吃覆蓋率】樹長不到那裡去。
  */
-export function shade(h: number, out: Color): Color {
-  return out.copy(h < GRASS_MIN_HEIGHT ? SAND : GRASS)
+export function shade(h: number, cover: number, out: Color): Color {
+  if (h < GRASS_MIN_HEIGHT) return out.copy(SAND)
+  return out.copy(GRASS).lerp(CANOPY, Math.min(1, Math.max(0, cover)))
 }
 
 /**
@@ -71,7 +89,9 @@ export function isGrass(h: number): boolean {
 /**
  * 一座島的 geometry。範圍取不到任何格點時回 null（島小到落在格線之間）。
  */
-function buildIsland(field: HeightFieldData, isl: IslandDesc): BufferGeometry | null {
+function buildIsland(
+  field: HeightFieldData, isl: IslandDesc, coverAt: (x: number, z: number) => number,
+): BufferGeometry | null {
   const { size, cell, data } = field
   const half = (size - 1) / 2
   const last = size - 1
@@ -99,7 +119,7 @@ function buildIsland(field: HeightFieldData, isl: IslandDesc): BufferGeometry | 
       positions[v] = x
       positions[v + 1] = h
       positions[v + 2] = z
-      const c = shade(h, scratch)
+      const c = shade(h, coverAt(x, z), scratch)
       colors[v] = c.r
       colors[v + 1] = c.g
       colors[v + 2] = c.b
@@ -145,6 +165,12 @@ function buildIsland(field: HeightFieldData, isl: IslandDesc): BufferGeometry | 
 
 export function createIslands(
   field: HeightFieldData, islands: readonly IslandDesc[],
+  /**
+   * 這一點的地被樹冠遮住多少，0～1。**注入而不是 import** ——
+   * `flora.ts` 已經 import 這個檔案的 `isGrass`，反過來會成環。組裝的人是
+   * `terrain.ts`。不傳就是不上林相色。
+   */
+  coverAt: (x: number, z: number) => number = () => 0,
 ): { object: Object3D; dispose(): void } {
   const group = new Group()
   const material = new MeshStandardMaterial({
@@ -153,7 +179,7 @@ export function createIslands(
   const geometries: BufferGeometry[] = []
 
   for (const isl of islands) {
-    const geo = buildIsland(field, isl)
+    const geo = buildIsland(field, isl, coverAt)
     if (geo === null) continue
     geometries.push(geo)
     group.add(new Mesh(geo, material))
