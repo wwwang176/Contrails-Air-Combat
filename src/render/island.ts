@@ -27,7 +27,6 @@ const ROUGHNESS = 0.95
 /** 高度分層的顏色。硬分界，不漸層 —— low-poly 的面就是要看得出來 */
 const SAND = new Color(0xc2b280)
 const GRASS = new Color(0x4a5f42)
-const ROCK = new Color(0x8a8578)
 /**
  * 水線以上這個高度之內算沙灘，m。**草帶的下界就是它。**
  *
@@ -46,30 +45,27 @@ export const GRASS_MIN_HEIGHT = 12
  * 島的四周破洞。`ocean.test.ts` 的「浪谷不會深過島的裁切界」守著。
  */
 export const DRAW_FLOOR = -5.5
-/** 峰高的這個比例以上算裸岩 */
-export const ROCK_FRACTION = 0.5
-
 /**
  * 這個高度該是什麼顏色。**匯出是給植被用的** —— 見 `isGrass`。
+ *
+ * 【只有兩段】水線上是沙、再上去全是草，一路到峰頂。島是綠的。
  */
-export function shade(h: number, peak: number, out: Color): Color {
-  if (h < GRASS_MIN_HEIGHT) return out.copy(SAND)
-  if (h < peak * ROCK_FRACTION) return out.copy(GRASS)
-  return out.copy(ROCK)
+export function shade(h: number, out: Color): Color {
+  return out.copy(h < GRASS_MIN_HEIGHT ? SAND : GRASS)
 }
 
 /**
  * 這裡看起來是草嗎。**島上的樹只長在回真的地方。**
  *
- * 【為什麼是謂語而不是兩個常數】判準與地的顏色必須是同一條式子，不然會出現
- * 樹長在沙灘上或裸岩上。給一支謂語，放置那一側根本不必看到常數，也就沒有
- * 拿錯 `SHORE_BAND` 的機會。`island-shade.test.ts` 逐高度比對它與 `shade`。
+ * 【為什麼是謂語而不是一個常數】判準與地的顏色必須是同一條式子，不然會出現
+ * 樹長在沙灘上。給一支謂語，放置那一側根本不必看到常數，也就沒有拿錯
+ * `SHORE_BAND` 的機會。`island-shade.test.ts` 逐高度比對它與 `shade`。
  *
  * 【不吃坡度】實測群島的島很陡：草帶 16.24 km² 裡坡度 20° 以內只有 3.7%。
  * 用坡度當判準會砍掉 95% 的地 —— 坡度只用來壓密度。
  */
-export function isGrass(h: number, peak: number): boolean {
-  return h >= GRASS_MIN_HEIGHT && h < peak * ROCK_FRACTION
+export function isGrass(h: number): boolean {
+  return h >= GRASS_MIN_HEIGHT
 }
 
 /**
@@ -103,7 +99,7 @@ function buildIsland(field: HeightFieldData, isl: IslandDesc): BufferGeometry | 
       positions[v] = x
       positions[v + 1] = h
       positions[v + 2] = z
-      const c = shade(h, isl.peak, scratch)
+      const c = shade(h, scratch)
       colors[v] = c.r
       colors[v + 1] = c.g
       colors[v + 2] = c.b

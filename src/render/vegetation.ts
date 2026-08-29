@@ -169,8 +169,11 @@ export const MAX_PER_TILE = 384
 /**
  * 群島用的。島上的密度見 `render/flora.ts` 的 `ISLAND_GRID`。
  *
- * 實測最密的一格是 458 株。512 留了一成二的餘裕，而 `TILE_CACHE` 乘上去
- * 是 26.9 MB。
+ * 實測最密的一格是 378 株（樹加灌木）。512 留了三成五的餘裕。
+ *
+ * 【這一個不跟著池的容量加倍】每一格都預配一份緩衝，`TILE_CACHE` 是 2,100
+ * 格 —— 512 是 26.9 MB，加倍就是 53.7 MB 的 CPU 記憶體。池那一側整組加倍
+ * 只要 7 MB，兩者的單價差一個量級。
  */
 export const ISLAND_MAX_PER_TILE = 512
 
@@ -230,18 +233,25 @@ const CAPACITY: Record<PoolName, number> = {
 }
 
 /**
- * 群島的容量。**島上只有針葉樹** —— 沒有闊葉、沒有灌木、沒有建築，
- * 所以那八個池各留一格防呆就好。
+ * 群島的容量。**島上只有針葉樹與灌木** —— 沒有闊葉、沒有建築，那六個池
+ * 各留一格防呆就好。
  *
  * 【為什麼要逐圖】兩張圖不會同時存在，而它們的需求差一個量級：農地的
- * `coneCard` 峰值是 16,805，群島是 84,434。取聯集的話兩張圖都要付對方的帳。
+ * `coneCard` 峰值是 16,805，群島是 16,633。取聯集的話兩張圖都要付對方的帳。
+ *
+ * 【餘裕是兩倍不是 1.35 倍】專案負責人裁定。上一版近級寫 1,300 而實際要
+ * 4,843 —— 超出的部分是 `stats.overflow` 靜靜丟掉的，症狀是飛過島心時近處
+ * 的針葉林整片消失。一格實例是 152 byte（兩份矩陣加兩份顏色），這一組總共
+ * 14.4 MB。
  */
 export const ISLAND_CAPACITY: Record<PoolName, number> = {
   broadNear: 16, broadMid: 16, broadCard: 16,
-  coneNear: 1300,      // 掃描最大 220（農地 913）
-  coneMid: 43000,      // 31,684
-  coneCard: 57500,     // 42,337
-  bushNear: 16, bushCard: 16, house: 16, barn: 16, church: 16,
+  coneNear: 9700,      // 掃描最大 4,843
+  coneMid: 17300,      // 8,619
+  coneCard: 33300,     // 16,633
+  bushNear: 10300,     // 5,149
+  bushCard: 24300,     // 12,136
+  house: 16, barn: 16, church: 16,
 }
 
 const POOL_NAMES: readonly PoolName[] = [
