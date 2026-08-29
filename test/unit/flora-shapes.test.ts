@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Box3, type BufferGeometry } from 'three'
+import { Box3, Vector3, type BufferGeometry } from 'three'
 import {
   createFloraGeometries, disposeFloraGeometries, TREE_HEIGHT, type PoolName,
 } from '../../src/render/floraShapes'
@@ -147,6 +147,46 @@ describe('植被與建築的幾何', () => {
     for (const n of names) {
       expect(geo[n].getAttribute('normal')).toBeDefined()
       expect(geo[n].boundingSphere).not.toBeNull()
+    }
+  })
+
+  /**
+   * 【每一面都要朝外】材質是 `FrontSide`，背面剔除開著。繞反的話近的那一面
+   * 被剔掉、留下遠側的內面，法線朝著鏡頭 —— 太陽打出來的體積感沒了，
+   * 深度也比實際位置遠一個樹冠。
+   *
+   * 【判準】這八個形狀都對軸上某一點是星形的（由該點看得到每一個面），
+   * 所以 `面法線 · (面心 − 該點) > 0` 就是朝外。**包圍盒中心不行** ——
+   * 教堂是本堂加高塔，非凸，中心會落在塔身外面而誤判本堂的屋頂。
+   */
+  const STAR_Y: Record<PoolName, number> = {
+    broadL0: 5, coneL0: 4, treeMid: 7.5, treeFar: 1,
+    bush: 2, house: 2.5, barn: 3, church: 3,
+  }
+
+  it('每一個面的法線都朝外', () => {
+    const a = new Vector3()
+    const b = new Vector3()
+    const c = new Vector3()
+    const n = new Vector3()
+    const cb = new Vector3()
+    const ab = new Vector3()
+    const mid = new Vector3()
+    const p = new Vector3()
+    for (const name of names) {
+      const pos = geo[name].getAttribute('position')
+      p.set(0, STAR_Y[name], 0)
+      const inward: number[] = []
+      for (let f = 0; f < pos.count / 3; f++) {
+        a.fromBufferAttribute(pos, f * 3)
+        b.fromBufferAttribute(pos, f * 3 + 1)
+        c.fromBufferAttribute(pos, f * 3 + 2)
+        // three 的 computeVertexNormals 用 (C − B) × (A − B)
+        n.crossVectors(cb.subVectors(c, b), ab.subVectors(a, b))
+        mid.addVectors(a, b).add(c).multiplyScalar(1 / 3).sub(p)
+        if (n.dot(mid) <= 0) inward.push(f)
+      }
+      expect([name, inward]).toEqual([name, []])
     }
   })
 

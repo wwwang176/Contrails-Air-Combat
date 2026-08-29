@@ -67,7 +67,13 @@ function quad(
   tri(s, hex, ax, ay, az, cx, cy, cz, dx, dy, dz)
 }
 
-/** 直立的柱面，無蓋。`sides × 2` 個三角形 */
+/**
+ * 直立的柱面，無蓋。`sides × 2` 個三角形。
+ *
+ * 【角度大的先擺】材質是 `FrontSide`，繞序決定面朝哪一邊。`(cos θ, sin θ)`
+ * 在 xz 平面上隨 θ 遞增，而 three 的面法線是 `(C − B) × (A − B)` ——
+ * 先擺 θ 小的那一邊會讓法線指向軸心。`flora-shapes.test.ts` 逐面守著。
+ */
 function cylinder(
   s: Soup, hex: number, sides: number, r: number, y0: number, y1: number,
 ): void {
@@ -78,11 +84,11 @@ function cylinder(
     const az = Math.sin(a) * r
     const bx = Math.cos(b) * r
     const bz = Math.sin(b) * r
-    quad(s, hex, ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az)
+    quad(s, hex, bx, y0, bz, ax, y0, az, ax, y1, az, bx, y1, bz)
   }
 }
 
-/** 直立的錐面，**無底**。`sides` 個三角形 */
+/** 直立的錐面，**無底**。`sides` 個三角形。繞序見 `cylinder` */
 function cone(
   s: Soup, hex: number, sides: number, r: number, y0: number, y1: number,
 ): void {
@@ -90,8 +96,8 @@ function cone(
     const a = (i / sides) * Math.PI * 2
     const b = ((i + 1) / sides) * Math.PI * 2
     tri(s, hex,
-      Math.cos(a) * r, y0, Math.sin(a) * r,
       Math.cos(b) * r, y0, Math.sin(b) * r,
+      Math.cos(a) * r, y0, Math.sin(a) * r,
       0, y1, 0)
   }
 }
@@ -107,8 +113,8 @@ function octa(s: Soup, hex: number, rx: number, ry: number, cy: number): void {
   for (let i = 0; i < 4; i++) {
     const a = p[i]!
     const b = p[(i + 1) % 4]!
-    tri(s, hex, a[0], cy, a[1], b[0], cy, b[1], 0, top, 0)
-    tri(s, hex, b[0], cy, b[1], a[0], cy, a[1], 0, bot, 0)
+    tri(s, hex, b[0], cy, b[1], a[0], cy, a[1], 0, top, 0)
+    tri(s, hex, a[0], cy, a[1], b[0], cy, b[1], 0, bot, 0)
   }
 }
 
