@@ -19,7 +19,12 @@
  *   __gfx({ ... : false })        飛機、參照物、粒子、曳光彈全部關掉
  * ```
  *
- * 剩下的就只有**天空與海** —— 而那兩者都是姿態與時間的純函數。
+ * 剩下的就只有**天空、海與陸地** —— 都是姿態與時間的純函數。
+ *
+ * 【`battleProps` 非關不可】砲塔管、編隊標記、碎片、目標環的位置取決於這一場
+ * 打成什麼樣。2026-08-30 量到：不關它們的話，同一份程式跑兩次仍有 0.2～0.9%
+ * 的像素在跳，最大差 171/255 —— 任何改動的差都埋在那個底噪裡。關掉之後同一份
+ * 程式跑兩次是**逐 byte 相同**。
  *
  * 【姿態的取法要涵蓋會出事的地方】天空／海的改動最可能在三個地方壞掉：
  * 地平線那一條（海天交界）、天頂（漸層的端點）、正下方（只有海）。所以
@@ -39,6 +44,14 @@ const SHOTS = '.shots/pixel/'
 
 /**
  * 這一批截圖的前綴。**改動前跑一次存 `before`，改動後改成 `after` 再跑一次。**
+ *
+ * 【一輪不同不算證據 —— 一定要有同版的對照組】2026-08-30 量到這支偶爾整輪
+ * 偏移一個色階：0.5% 的像素差 1/255（天空與海的漸層），高反差處差到 174/255。
+ * 那不是程式的差 —— 同一份程式的六輪裡，四輪彼此逐 byte 相同、兩輪一起偏
+ * 一階；而兩個**不同**的程式版本只要落在同一輪次群裡就逐 byte 相同。
+ *
+ * 所以流程是三輪：改動前一輪、改動後兩輪。改動後的兩輪要先彼此相同，
+ * 那一輪才有資格拿去跟改動前比。
  */
 const PREFIX = 'after'
 
@@ -56,6 +69,17 @@ const HIDE_SKY = false
 const PITCHES = [-90, -60, -30, -10, -3, 0, 3, 10, 30, 60, 89]
 /** 偏航角，度。太陽在 `scene.ts` 是固定方向，所以方位角要取得到不同的高光 */
 const YAWS = [0, 90, 180]
+
+/**
+ * 高空的地平線姿態。**與 3,000 m 那一組是不同的問題。**
+ *
+ * 【它在守什麼】遠海半邊 3,000 km，而深度緩衝是 24 bit、近平面 1 m ——
+ * 3,000 km 外的深度只離「最遠」四到六個最低位。任何「把某一層的深度推到
+ * 最遠」的手法（天空就是）在那裡都可能反過來把遠海蓋掉，而 3,000 m 的
+ * 姿態看不到那麼遠的海：爬到 20 km 才看得到接近遠海邊緣的那一圈。
+ */
+const HIGH_ALT = 20000
+const HIGH_PITCHES = [-6, -2, 0, 2, 6]
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({
@@ -82,29 +106,38 @@ async function main(): Promise<void> {
     await page.addStyleTag({ content: '#hud { display: none !important }' })
     await page.keyboard.press('F3')            // 收掉效能疊層
 
-    // 只留天空、海與陸地。飛機的出生位置、粒子的亂數不可重現，所以關掉。
+    // 只留天空、海與島。飛機的出生位置、粒子的亂數不可重現，所以關掉。
     //
     // 【島留著，而且是刻意的】它是固定種子的解析生成 —— 沒有 Math.random、
-    // 沒有時間相依，所以逐像素可重現。原本這裡關的是 props（那 600 個撒點
-    // 的參照物確實不可重現），真地形進來之後那個模組整個移除了。
+    // 沒有時間相依，所以逐像素可重現。
+    //
+    // 【植被關掉，而且不可能留】它的 tile 快取與 LOD **設計上就吃歷史**：
+    // `lodFor(dist, prev)` 有遲滯、快取的淘汰次序取決於鏡頭飛過哪裡。定格
+    // 之前那三秒的戰鬥每次都不同，所以同一份程式跑兩次會有 0.3% 的像素在跳
+    // （2026-08-30 實測，最大差 174/255，散成滿地的點 —— 那是遠處的植被點）。
+    // 留著就等於把任何改動的差都埋進那個底噪裡。
     await page.evaluate((hideSky: boolean) =>
       (window as unknown as Record<string, (p: Record<string, boolean>) => unknown>)['__gfx']!({
         aircraft: false, particles: false, tracers: false,
-        vortex: false, propDisc: false, ...(hideSky ? { sky: false } : {}),
+        vortex: false, propDisc: false, battleProps: false, flora: false,
+        ...(hideSky ? { sky: false } : {}),
       }), HIDE_SKY)
 
     let n = 0
+    const shoot = async (yaw: number, pitch: number, alt: number): Promise<void> => {
+      await page.evaluate(([y, p, a]) =>
+        (window as unknown as Record<string, (b: number, c: number, d: number, e: number) => unknown>)
+          ['__still']!(y!, p!, a!, 12.5),
+        [yaw, pitch, alt])
+      // 兩幀：一幀讓 `__still` 寫下的姿態進到畫面，一幀確定畫面已經穩定
+      await page.waitForTimeout(120)
+      const tag = alt === 3000 ? '' : `-a${alt}`
+      await page.screenshot({ path: `${SHOTS}${PREFIX}-y${yaw}-p${pitch}${tag}.png` })
+      n++
+    }
     for (const yaw of YAWS) {
-      for (const pitch of PITCHES) {
-        await page.evaluate(([y, p]) =>
-          (window as unknown as Record<string, (a: number, b: number, c: number, d: number) => unknown>)
-            ['__still']!(y!, p!, 3000, 12.5),
-          [yaw, pitch])
-        // 兩幀：一幀讓 `__still` 寫下的姿態進到畫面，一幀確定畫面已經穩定
-        await page.waitForTimeout(120)
-        await page.screenshot({ path: `${SHOTS}${PREFIX}-y${yaw}-p${pitch}.png` })
-        n++
-      }
+      for (const pitch of PITCHES) await shoot(yaw, pitch, 3000)
+      for (const pitch of HIGH_PITCHES) await shoot(yaw, pitch, HIGH_ALT)
     }
     console.log(`${n} 張截圖寫到 ${SHOTS}${PREFIX}-*.png`)
     console.log(`console 錯誤 ${errors.length} 則`)
