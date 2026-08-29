@@ -548,6 +548,50 @@ describe('植被引擎', () => {
     v.dispose()
   })
 
+
+  /**
+   * 【為什麼量掃描次數而不是時間】時間在 CI 上不穩，而「看了幾個候選格」是
+   * 決定性的 —— 直接數。
+   *
+   * 上一版的 `fill` 每生一格就重掃一次整個包圍方陣挑最近的空格：6 km 是
+   * 49² × 16 = 3.8 萬次，12 km、每幀 61 格會變成 57 萬次。
+   */
+  it('補格的候選掃描是每幀一趟，不是每格一趟', () => {
+    const v = createVegetation([SIX], FLAT)
+    v.update(0, 0)
+    const cold = v.stats.scanned
+    // 【穩態才是成本所在】冷啟動第一幀圈是空的，前幾個候選就都能用；
+    // 補滿之後要走過整條環才找得到缺口
+    v.settle(true)
+    const before = v.stats.scanned
+    v.update(TILE_SIZE * 2, 0)
+    const warm = v.stats.scanned - before
+    console.log(JSON.stringify({ 格數: v.stats.tiles, 冷啟動一幀: cold, 穩態一幀: warm }))
+    expect(v.stats.tiles).toBeGreaterThan(1000)
+    // 一趟的上限是環的長度；每格一趟的話是它的 TILES_PER_FRAME 倍
+    expect(cold).toBeLessThan(3000)
+    expect(warm).toBeLessThan(3000)
+    v.dispose()
+  })
+
+  /** 【換掉挑格的順序不得換掉挑出來的集合】圈仍然由 `inRange` 決定 */
+  it('補出來的格子全部在半徑之內', () => {
+    const v = createVegetation([SIX], FLAT)
+    v.update(0, 0)
+    v.settle(true)
+    let worst = 0
+    for (const t of v.debugTiles()) {
+      const cx = t.i * TILE_SIZE + TILE_SIZE / 2
+      const cz = t.j * TILE_SIZE + TILE_SIZE / 2
+      worst = Math.max(worst, Math.hypot(cx, cz))
+    }
+    expect(worst).toBeLessThanOrEqual(FLORA_RADIUS)
+    // 【不得漏格】圈內的格數與面積對得起來
+    const expected = (Math.PI * FLORA_RADIUS * FLORA_RADIUS) / (TILE_SIZE * TILE_SIZE)
+    expect(v.stats.tiles).toBeGreaterThan(expected * 0.95)
+    v.dispose()
+  })
+
   it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {
     const v = createVegetation([SIX], FLAT)
     let geos = 0
