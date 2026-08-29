@@ -264,15 +264,15 @@ describe('水面與地面分開', () => {
  * `main.ts` 的 `__gfx` 與 `src/tools/` 兩支工具共用它，所以植被只能 append。
  */
 describe('植被接線', () => {
-  it('農地的第四個子節點是植被的八個池', () => {
+  it('農地的第四個子節點是植被的十一個池', () => {
     const t = createTerrain('farmland')
-    expect(t.object.children[3]!.children.length).toBe(8)
+    expect(t.object.children[3]!.children.length).toBe(11)
     t.dispose()
   })
 
   it('群島也有，而且陸地仍然在索引 2', () => {
     const t = createTerrain('archipelago')
-    expect(t.object.children[3]!.children.length).toBe(8)
+    expect(t.object.children[3]!.children.length).toBe(11)
     expect(t.object.children[2]!.children.length).toBeGreaterThan(10)
     t.dispose()
   })
@@ -331,6 +331,6 @@ describe('植被接線', () => {
     }[]
     for (const p of pools) p.geometry.addEventListener('dispose', () => disposed++)
     t.dispose()
-    expect(disposed).toBe(8)
+    expect(disposed).toBe(11)
   })
 })

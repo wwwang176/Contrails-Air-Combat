@@ -22,8 +22,13 @@ import { BufferAttribute, BufferGeometry, Color } from 'three'
 export const TREE_HEIGHT = 15
 
 export type PoolName =
-  | 'broadNear' | 'broadFar' | 'coneNear' | 'coneFar'
-  | 'bush' | 'house' | 'barn' | 'church'
+  | 'broadNear' | 'broadMid' | 'broadCard'
+  | 'coneNear' | 'coneMid' | 'coneCard'
+  | 'bushNear' | 'bushCard'
+  | 'house' | 'barn' | 'church'
+
+/** 公告板那三個。它們走另一顆材質 —— 見 `render/vegetation.ts` */
+export const CARD_POOLS: readonly PoolName[] = ['broadCard', 'coneCard', 'bushCard']
 
 const TRUNK = 0x4a3b2a
 const BROAD_LEAF = 0x3f5233
@@ -144,6 +149,24 @@ function gable(
   tri(s, hex, x, y0, -z, -x, y0, -z, 0, y1, -z)
 }
 
+/**
+ * 公告板的一片。**在 xy 平面上逆時針繞** —— 頂點著色器把 x 映到「水平上
+ * 垂直於視線的方向」、y 維持向上，於是 `right × up` 指向鏡頭，繞序在螢幕上
+ * 就永遠是正面。順時針的話鏡頭一繞到另一邊整批會被背面剔除掉。
+ *
+ * 【菱形不是矩形】它取代的是八面體，而 15 m 的樹在 3 km 還有 4.6 px ——
+ * 那個尺度看得出剪影。矩形會在門檻上跳一下。
+ */
+function cardDiamond(s: Soup, hex: number, halfW: number, h: number): void {
+  tri(s, hex, 0, 0, 0, halfW, h / 2, 0, 0, h, 0)
+  tri(s, hex, 0, 0, 0, 0, h, 0, -halfW, h / 2, 0)
+}
+
+/** 針葉的公告板：一個等腰三角形，那正好是錐的側影。1 tri */
+function cardCone(s: Soup, hex: number, halfW: number, h: number): void {
+  tri(s, hex, -halfW, 0, 0, halfW, 0, 0, 0, h, 0)
+}
+
 function finish(s: Soup): BufferGeometry {
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
@@ -160,6 +183,29 @@ function build(fn: (s: Soup) => void): BufferGeometry {
 }
 
 /**
+ * 公告板的幾何。**法線固定向上，不用 `computeVertexNormals`。**
+ *
+ * 【為什麼是 (0, 1, 0)】卡片的面永遠朝著鏡頭，用面法線的話亮度會隨鏡頭
+ * 方位變，整片遠方樹林轉個向就明暗跳動，而且門檻上會出現光照環。
+ * 一片樹冠的平均法線接近向上 —— 這樣卡片與它取代的那一級亮度接得上。
+ *
+ * 【所以卡片的材質不能開 flatShading】那會讓 fragment shader 由螢幕導數
+ * 自己算面法線，這裡設的頂點法線完全被忽略。見 `render/vegetation.ts`。
+ */
+function buildCard(fn: (s: Soup) => void): BufferGeometry {
+  const s: Soup = { pos: [], col: [] }
+  fn(s)
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
+  geo.setAttribute('color', new BufferAttribute(new Float32Array(s.col), 3))
+  const n = new Float32Array(s.pos.length)
+  for (let i = 1; i < n.length; i += 3) n[i] = 1
+  geo.setAttribute('normal', new BufferAttribute(n, 3))
+  geo.computeBoundingSphere()
+  return geo
+}
+
+/**
  * 八個幾何。名字與 `render/vegetation.ts` 的池一一對應 —— 一個
  * `InstancedMesh` 只綁得住一個 geometry，所以八個形狀就是八個池。
  */
@@ -170,19 +216,24 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
       cylinder(s, TRUNK, 6, 0.5, 0, 5)
       octa(s, BROAD_LEAF, 5, 5, 10)
     }),
-    // 【遠級不是簡化版，是同一個剪影的便宜版】掉的只有樹幹；顏色、寬度、
+    // 【中級不是簡化版，是同一個剪影的便宜版】掉的只有樹幹；顏色、寬度、
     // 「圓」這件事都留著。換級只該讓樹變簡單，不該讓它變成另一種樹 ——
     // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
-    broadFar: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
+    broadMid: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
+    // 闊葉遠：菱形公告板，寬高與 broadMid 逐項對齊
+    broadCard: buildCard((s) => { cardDiamond(s, BROAD_LEAF, 5, TREE_HEIGHT) }),
     // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
     coneNear: build((s) => {
       cylinder(s, TRUNK, 6, 0.45, 0, 4)
       cone(s, CONIFER, 7, 3.5, 4, TREE_HEIGHT)
     }),
-    // 針葉遠：六邊錐，底落地。仍然是深綠的尖
-    coneFar: build((s) => { cone(s, CONIFER, 6, 3.2, 0, TREE_HEIGHT) }),
+    // 針葉中：六邊錐，底落地。仍然是深綠的尖
+    coneMid: build((s) => { cone(s, CONIFER, 6, 3.2, 0, TREE_HEIGHT) }),
+    // 針葉遠：一個等腰三角形 —— 錐的側影就是這個形狀
+    coneCard: buildCard((s) => { cardCone(s, CONIFER, 3.2, TREE_HEIGHT) }),
     // 【要比間距寬】相鄰兩叢交疊才成一條連續的堤 —— 見 HEDGE_BUSH_SPACING
-    bush: build((s) => { octa(s, BUSH_LEAF, 3, 2, 2) }),
+    bushNear: build((s) => { octa(s, BUSH_LEAF, 3, 2, 2) }),
+    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, 3, 4) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂
