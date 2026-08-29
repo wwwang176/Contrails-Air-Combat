@@ -44,7 +44,19 @@ const BROAD_CROWN_R = 10
 const BROAD_CROWN_RY = 10
 const BROAD_CROWN_CY = 20
 const CONE_CROWN_Y0 = 8
-const CONE_CROWN_R = 7
+/** 【匯出是給 `flora.ts` 算樹冠覆蓋率的】地色要按它上色 */
+export const CONE_CROWN_R = 7
+
+/**
+ * 灌木的半徑。**要比樹籬的間距寬** —— 相鄰兩叢交疊才成一條連續的堤，
+ * 見 `HEDGE_BUSH_SPACING`。
+ *
+ * 【匯出是給 `flora.ts` 算樹冠覆蓋率的】
+ */
+export const BUSH_R = 6
+const BUSH_RY = 4
+const BUSH_CY = 4
+const BUSH_CARD_TOP = 8
 
 const TRUNK = 0x4a3b2a
 const BROAD_LEAF = 0x3f5233
@@ -253,9 +265,8 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
     coneCard: buildCard((s) => {
       cardCone(s, CONIFER, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
     }),
-    // 【要比間距寬】相鄰兩叢交疊才成一條連續的堤 —— 見 HEDGE_BUSH_SPACING
-    bushNear: build((s) => { octa(s, BUSH_LEAF, 6, 4, 4) }),
-    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, 6, 0, 8) }),
+    bushNear: build((s) => { octa(s, BUSH_LEAF, BUSH_R, BUSH_RY, BUSH_CY) }),
+    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, BUSH_R, 0, BUSH_CARD_TOP) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂

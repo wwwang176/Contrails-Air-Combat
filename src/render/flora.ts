@@ -1,4 +1,5 @@
 import { isGrass } from './island'
+import { BUSH_R, CONE_CROWN_R } from './floraShapes'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import {
@@ -625,14 +626,75 @@ export const ISLAND_SHORE_DENSITY = 0.15
 export const ISLAND_BUSH_RATIO = 0.7
 
 /**
+ * 一個候選點的接受機率。**放置與地色共用這一支** —— 見
+ * `islandCanopyCover`。
+ *
+ * 【坡度只壓密度】陡的地方稀疏，但不是砍光 —— 乘 `cos(slope)`。實測群島的
+ * 島很陡：草帶 16.24 km² 裡坡度 20° 以內只有 3.7%，用坡度當門檻會砍掉
+ * 95% 的地。
+ *
+ * 【高度只壓密度】山頂 1.0，海邊 `ISLAND_SHORE_DENSITY`，尺是 `h / peak`。
+ *
+ * 【坡度要在植株自己的位置上取】格中心離它最遠 8 m，那個距離足以把坡度與
+ * 密度的相關性抹平 —— 實測抹平之後陡緩兩堆的密度比正好是 1.00。
+ */
+export function islandAccept(
+  field: HeightFieldData, peak: number, x: number, z: number, h: number,
+): number {
+  const cell = field.cell
+  const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
+  const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
+  return (ISLAND_SHORE_DENSITY + (1 - ISLAND_SHORE_DENSITY)
+    * Math.min(1, Math.max(0, h / peak))) / Math.hypot(1, Math.hypot(dx, dz))
+}
+
+/**
+ * 逐株縮放均勻分佈於 `[0.5, 1]`，所以 `E[s²] = 2∫s²ds = 7/12`。
+ * 面積吃的是半徑的平方，所以要的是這個而不是 `E[s]²`。
+ */
+const E_SCALE2 = 7 / 12
+/** 一格裡一株樹的期望樹冠面積，m² */
+const CONE_AREA = Math.PI * CONE_CROWN_R * CONE_CROWN_R * E_SCALE2
+/** 一格裡一叢灌木的期望樹冠面積，m²。乘上它自己的接受比 */
+const BUSH_AREA = Math.PI * BUSH_R * BUSH_R * E_SCALE2 * ISLAND_BUSH_RATIO
+
+/**
+ * 這一點的地被樹冠遮住多少，0～1。**島的地色按它上色。**
+ *
+ * 【為什麼地要先帶上林相】`FLORA_RADIUS` 外一棵都不畫，而地色比樹冠亮很多
+ * —— 飛進圈的瞬間整座島同時變暗變花。地先按實際被遮住的面積比調暗，樹進圈
+ * 就只是加上質感。
+ *
+ * 【與放置同源】機率讀的是 `islandAccept`，不是另外湊一條。兩份會漂，而症狀
+ * 是「地的顏色說有森林，實際卻是光禿的」。
+ *
+ * 【要的是聯集，不是面積和】樹冠會互相重疊。名目強度 λ 的實際遮蔽是
+ * `1 − e^(−λ)` —— λ = 0.35 時是 0.295，差五個半百分點。直接相加會讓遠處的
+ * 地色比實際的林相暗。
+ */
+export function islandCanopyCover(
+  field: HeightFieldData, islands: readonly IslandDesc[],
+): (x: number, z: number) => number {
+  return (x, z) => {
+    const h = field.sample(x, z)
+    if (!isGrass(h)) return 0
+    let peak = islands[0]!.peak
+    let bd = Infinity
+    for (const o of islands) {
+      const d = Math.hypot(o.cx - x, o.cz - z)
+      if (d < bd) { bd = d; peak = o.peak }
+    }
+    const lambda = (islandAccept(field, peak, x, z, h) * (CONE_AREA + BUSH_AREA))
+      / (ISLAND_GRID * ISLAND_GRID)
+    return 1 - Math.exp(-lambda)
+  }
+}
+
+/**
  * 群島的樹與灌木。
  *
- * 【判準是高度帶，不是坡度】實測群島的島很陡：草帶 16.24 km² 裡坡度 20°
- * 以內只有 0.60（3.7%），最大兩座島的平均坡是 29.5° 與 32.7°。用坡度篩會
- * 砍掉 95% 的地。坡度改成只壓密度 —— 接受機率乘 `cos(slope)`。
- *
- * 【密度隨高度】接受機率再乘一條由 `ISLAND_SHORE_DENSITY` 插到 1.0 的斜線，
- * 尺是 `h / isl.peak`。山頂不動，往海邊遞減。
+ * 【接受機率在 `islandAccept`】坡度與高度都只壓密度，不當門檻。地色那一側
+ * 也讀同一支 —— 兩份會漂，而症狀是「地的顏色說有森林，實際卻是光禿的」。
  *
  * 【樹與灌木共用一格】兩者在同一格裡各自抽一個位置、各自抽一次接受 ——
  * 所以灌木不是「沒長樹的地方」，兩者會混在一起。共用高度與坡度的那一趟
@@ -645,7 +707,6 @@ export const ISLAND_BUSH_RATIO = 0.7
 export function createIslandFlora(
   field: HeightFieldData, islands: readonly IslandDesc[],
 ): FloraSource {
-  const cell = field.cell
   return (x0, z0, x1, z1, heightAt, out) => {
     // 【先整格早退】離任何一座島都遠的話，下面的網格一格都不必走
     const mx = (x0 + x1) / 2
@@ -677,22 +738,6 @@ export function createIslandFlora(
           if (d < bd) { bd = d; isl = o }
         }
 
-        /**
-         * 這一點的接受機率。
-         *
-         * 【坡度只壓密度】陡的地方稀疏，但不是砍光 —— 乘 `cos(slope)`。
-         * 【高度只壓密度】山頂 1.0，海邊 `ISLAND_SHORE_DENSITY`。
-         *
-         * 【坡度要在植株自己的位置上取】格中心離它最遠 8 m，那個距離足以
-         * 把坡度與密度的相關性抹平。
-         */
-        const accept = (px: number, pz: number, h: number): number => {
-          const dx = (field.sample(px + cell, pz) - field.sample(px - cell, pz)) / (2 * cell)
-          const dz = (field.sample(px, pz + cell) - field.sample(px, pz - cell)) / (2 * cell)
-          return (ISLAND_SHORE_DENSITY + (1 - ISLAND_SHORE_DENSITY)
-            * Math.min(1, Math.max(0, h / isl.peak))) / Math.hypot(1, Math.hypot(dx, dz))
-        }
-
         // ── 樹 ──────────────────────────────────────────
         // 【位置只由全域索引決定】見檔頭的鐵律
         const hh = hash2(gx, gz ^ 0x1d7b)
@@ -704,7 +749,7 @@ export function createIslandFlora(
         // 灌木一起吃掉 —— 症狀是切法不同結果就不同
         if (x >= x0 && x < x1 && z >= z0 && z < z1) {
           const h = field.sample(x, z)
-          if (isGrass(h) && g2 / 4294967296 <= accept(x, z, h)) {
+          if (isGrass(h) && g2 / 4294967296 <= islandAccept(field, isl.peak, x, z, h)) {
             const g3 = hash1(g2)
             pushFlora(
               out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
@@ -726,7 +771,7 @@ export function createIslandFlora(
         const bhh = field.sample(bx, bz)
         if (!isGrass(bhh)) continue
         const b2 = hash1(bg)
-        if (b2 / 4294967296 > accept(bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
+        if (b2 / 4294967296 > islandAccept(field, isl.peak, bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
         const b3 = hash1(b2)
         pushFlora(
           out, bx, heightAt(bx, bz), bz, (b3 / 4294967296) * Math.PI * 2,

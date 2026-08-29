@@ -5,7 +5,7 @@ import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import { createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from './vegetation'
 import {
-  createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
+  createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora, islandCanopyCover,
 } from './flora'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
@@ -130,7 +130,9 @@ function createArchipelagoTerrain(): Terrain {
   // 側都用不到它，讓生成器一律烘等於每個呼叫端都付一次 1024² 的距離傳播。
   const { field, islands } = createArchipelago()
   const ocean = createOcean(bakeShore(field))
-  const meshes = createIslands(field, islands)
+  // 【地色先帶上林相】見 `island.ts` 的 `shade`：植被的圈外一棵樹都不畫，
+  // 地色若不先按覆蓋率調暗，飛進圈時整座島會同時變暗變花
+  const meshes = createIslands(field, islands, islandCanopyCover(field, islands))
   // 【植被 append 在索引 3】前三個是明文契約，見 `main.ts` 的 `__gfx`
   // 【容量與單格上限都是群島專用的】島上只有針葉樹，但密度比農地高一個
   // 量級 —— 見 `ISLAND_CAPACITY` 與 `ISLAND_MAX_PER_TILE`

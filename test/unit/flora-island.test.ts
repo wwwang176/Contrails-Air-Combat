@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import {
-  createFloraBuffer, createIslandFlora, FloraKind, FLORA_STRIDE, ISLAND_GRID,
+  createFloraBuffer, createIslandFlora, islandCanopyCover, FloraKind, FLORA_STRIDE,
+  ISLAND_GRID,
 } from '../../src/render/flora'
+import { BUSH_R, CONE_CROWN_R } from '../../src/render/floraShapes'
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 import { isGrass, shade } from '../../src/render/island'
 
@@ -15,7 +17,7 @@ const col = new Color()
 /** 標稱半徑最大的那一座 */
 const big: IslandDesc = [...arch.islands].sort((a, b) => b.radius - a.radius)[0]!
 
-interface Row { x: number; y: number; z: number; kind: number }
+interface Row { x: number; y: number; z: number; kind: number; scale: number }
 
 function collect(x0: number, z0: number, x1: number, z1: number): Row[] {
   BUF.count = 0
@@ -27,6 +29,7 @@ function collect(x0: number, z0: number, x1: number, z1: number): Row[] {
     const o = i * FLORA_STRIDE
     out.push({
       x: BUF.data[o]!, y: BUF.data[o + 1]!, z: BUF.data[o + 2]!, kind: BUF.kind[i]!,
+      scale: BUF.data[o + 4]!,
     })
   }
   return out
@@ -65,12 +68,12 @@ describe('群島的樹', () => {
   it('每一棵都長在綠色的地方', () => {
     const rows = onBig()
     expect(rows.length).toBeGreaterThan(300)
-    const grassHex = shade(20, col).getHex()
+    const grassHex = shade(20, 0, col).getHex()
     for (const r of rows) {
       const h = height(r.x, r.z)
       expect(isGrass(h)).toBe(true)
       // 判準與**畫面上那一支**對得起來，不只是與自己的常數對得起來
-      expect(shade(h, col).getHex()).toBe(grassHex)
+      expect(shade(h, 0, col).getHex()).toBe(grassHex)
     }
   })
 
@@ -148,6 +151,88 @@ describe('群島的樹', () => {
     expect(gentleArea).toBeGreaterThan(100)
     expect(steepArea).toBeGreaterThan(100)
     expect(sd).toBeLessThan(gd * 0.92)
+  })
+
+
+  /**
+   * 【分子與分母都要是「聯集」，不是「面積相加」】樹冠會互相重疊：名目強度
+   * 0.35 的實際遮蔽只有 `1 − e^(−0.35) ≈ 0.295`，少了五個半百分點。兩邊都用
+   * 相加的話會同時高估，這一條再寬也抓不到重疊 —— 而抓重疊正是它存在的理由。
+   *
+   * 所以實測走佔據柵格：把大島切成 2 m 的格，每一株把自己的圓蓋上去，重疊
+   * 只算一次。
+   */
+  it('覆蓋率與柵格量到的實際遮蔽對得起來', () => {
+    const coverAt = islandCanopyCover(arch.field, arch.islands)
+    const rows = onBig()
+    const CELL = 2
+    const r = big.outerRadius
+    const n = Math.ceil((2 * r) / CELL)
+    const hit = new Uint8Array(n * n)
+    for (const row of rows) {
+      const rad = (row.kind === FloraKind.Bush ? BUSH_R : CONE_CROWN_R) * row.scale
+      const gx = (row.x - (big.cx - r)) / CELL
+      const gz = (row.z - (big.cz - r)) / CELL
+      const gr = rad / CELL
+      const a0 = Math.max(0, Math.floor(gx - gr))
+      const a1 = Math.min(n - 1, Math.ceil(gx + gr))
+      const b0 = Math.max(0, Math.floor(gz - gr))
+      const b1 = Math.min(n - 1, Math.ceil(gz + gr))
+      for (let b = b0; b <= b1; b++) {
+        for (let a = a0; a <= a1; a++) {
+          const dx = a + 0.5 - gx
+          const dz = b + 0.5 - gz
+          if (dx * dx + dz * dz <= gr * gr) hit[b * n + a] = 1
+        }
+      }
+    }
+    // 【只在可以長樹的地上比】否則分母混進沙灘與海
+    //
+    // 【而且要分高度帶】全島平均只有 17% 的覆蓋率，那個密度下「聯集」與
+    // 「面積相加」只差 7.6% —— 一條全島的斷言分辨不出兩個模型，把 `1 − e^(−λ)`
+    // 改回 `min(1, λ)` 照樣全綠。山頂那一帶密得多，兩者才真的分岔。
+    const covered = [0, 0, 0]
+    const usable = [0, 0, 0]
+    const predicted = [0, 0, 0]
+    for (let b = 0; b < n; b++) {
+      for (let a = 0; a < n; a++) {
+        const x = big.cx - r + (a + 0.5) * CELL
+        const z = big.cz - r + (b + 0.5) * CELL
+        const h = height(x, z)
+        if (!isGrass(h)) continue
+        const t = h / nearest(x, z).peak
+        const band = t >= 0.6 ? 2 : t < 0.25 ? 0 : 1
+        usable[band]!++
+        covered[band]! += hit[b * n + a]!
+        predicted[band]! += coverAt(x, z)
+      }
+    }
+    const label = ['山腳', '中段', '山頂']
+    const model: number[] = []
+    const actual: number[] = []
+    for (let k = 0; k < 3; k++) {
+      model.push(predicted[k]! / usable[k]!)
+      actual.push(covered[k]! / usable[k]!)
+      console.log(JSON.stringify({
+        帶: label[k], 模型: model[k]!.toFixed(4), 柵格: actual[k]!.toFixed(4),
+        誤差: (((model[k]! - actual[k]!) / actual[k]!) * 100).toFixed(1) + '%',
+      }))
+    }
+    expect(usable[0]! + usable[1]! + usable[2]!).toBeGreaterThan(100000)
+    // 【山頂那一帶是這條測試的重點】相加的模型在這裡會高估一成以上
+    expect(actual[2]!).toBeGreaterThan(0.2)
+    expect(model[2]!).toBeGreaterThan(actual[2]! * 0.92)
+    expect(model[2]!).toBeLessThan(actual[2]! * 1.08)
+    // 其餘兩帶只要不離譜
+    for (const k of [0, 1]) {
+      expect(model[k]!).toBeGreaterThan(actual[k]! * 0.85)
+      expect(model[k]!).toBeLessThan(actual[k]! * 1.15)
+    }
+  })
+
+  it('沙灘與海上的覆蓋率是 0', () => {
+    const coverAt = islandCanopyCover(arch.field, arch.islands)
+    expect(coverAt(big.cx + big.outerRadius * 3, big.cz)).toBe(0)
   })
 
   it('全是海的那一格回 0 筆', () => {
