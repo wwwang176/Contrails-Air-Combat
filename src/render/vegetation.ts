@@ -1,6 +1,6 @@
 import {
-  Color, DynamicDrawUsage, Group, InstancedMesh, Matrix4, MeshStandardMaterial,
-  type BufferGeometry, type Object3D,
+  Color, DynamicDrawUsage, Group, InstancedBufferAttribute, InstancedMesh, Matrix4,
+  MeshStandardMaterial, type BufferGeometry, type Object3D,
 } from 'three'
 import {
   createFloraBuffer, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
@@ -205,8 +205,13 @@ const POOL_NAMES: readonly PoolName[] = [
 export interface Vegetation {
   readonly object: Object3D
   update(centerX: number, centerZ: number): void
-  /** 一次把生成佇列排乾。定格截圖與容量掃描要它 */
-  settle(): void
+  /**
+   * 一次把生成佇列排乾。定格截圖與容量掃描要它。
+   *
+   * `force` 會把每一個池標髒再重建。**它是逐池標髒那套機制的正確性閘**：
+   * 標漏了的池，`force` 前後的內容會不一樣。
+   */
+  settle(force?: boolean): void
   dispose(): void
   readonly counts: Record<PoolName, number>
   readonly stats: {
@@ -264,14 +269,41 @@ export function createVegetation(
   })
   const group = new Group()
   const pools: Record<PoolName, InstancedMesh> = {} as Record<PoolName, InstancedMesh>
+  /**
+   * 每個池兩份實例屬性，重建時輪流換。**這是 1% low 的關鍵。**
+   *
+   * 【為什麼】上一版每次重建都對**正在被 GPU 讀的**那條緩衝呼叫
+   * `bufferSubData`，驅動只能等 GPU 讀完或整條重配 —— 實測那一下是
+   * 190 ms。輪流換之後寫的永遠是上一幀沒在畫的那一份，寫完才掛上去。
+   *
+   * 【代價是記憶體加倍】兩份加起來 7.6 MB。全部開場配掉。
+   *
+   * 2026-08-29 對照（農地・甲板・代飛・飛機粒子全關）：把重建整個凍住時
+   * 1% low 是 37 ms、頓挫 0.70/s，而 p50 只比關植被多 1.8 ms —— 也就是說
+   * 253k 個三角形的**繪製**幾乎免費，代價全在那一下上傳。
+   */
+  const altMat: Record<PoolName, InstancedBufferAttribute[]> =
+    {} as Record<PoolName, InstancedBufferAttribute[]>
+  const altCol: Record<PoolName, InstancedBufferAttribute[]> =
+    {} as Record<PoolName, InstancedBufferAttribute[]>
+  const side: Record<PoolName, number> = {} as Record<PoolName, number>
   for (const name of POOL_NAMES) {
     const mesh = new InstancedMesh(
       geometries[name] as BufferGeometry, material, cap[name],
     )
-    mesh.instanceMatrix.setUsage(DynamicDrawUsage)
     // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
     // 而那是一次配置 —— 開場配掉，之後重建就不再配
     mesh.setColorAt(0, TINT.setRGB(1, 1, 1))
+    const mats = [mesh.instanceMatrix, new InstancedBufferAttribute(
+      new Float32Array(cap[name] * 16), 16)]
+    const cols = [mesh.instanceColor!, new InstancedBufferAttribute(
+      new Float32Array(cap[name] * 3), 3)]
+    // 【兩份都要標 DynamicDraw】`setColorAt` 建出來的那一份走預設的
+    // `StaticDrawUsage`，而驅動會把 STATIC_DRAW 當成不會再變的資料
+    for (const a of [...mats, ...cols]) a.setUsage(DynamicDrawUsage)
+    altMat[name] = mats
+    altCol[name] = cols
+    side[name] = 0
     mesh.count = 0
     mesh.frustumCulled = false
     pools[name] = mesh
@@ -321,20 +353,40 @@ export function createVegetation(
     broadNear: true, coneNear: true, broadFar: true, coneFar: true,
     bush: true, house: true, barn: true, church: true,
   }
-  function markAll(): void {
-    for (const name of POOL_NAMES) poolDirty[name] = true
-  }
   /** 某一格由 `a` 級換到 `b` 級，會動到哪些池 */
   function markLevel(lod: number): void {
     if (lod === 0) { poolDirty.broadNear = true; poolDirty.coneNear = true }
     else if (lod === 1) { poolDirty.broadFar = true; poolDirty.coneFar = true }
   }
+  /**
+   * 建築那三個池。**每一格都可能有建築**，所以加減格一定要標它們。
+   * 三個池加起來 180 筆、14 KB —— 標了也不痛。
+   */
+  function markBuildings(): void {
+    poolDirty.house = true
+    poolDirty.barn = true
+    poolDirty.church = true
+  }
 
   const keyOf = (i: number, j: number): number => i * 65536 + j
 
+  /**
+   * 放掉一格。**只標它真的有貢獻的那些池。**
+   *
+   * 【為什麼不是全部標髒】圈緣加減一格只動到遠級那兩個池與建築 —— 灌木
+   * （665 KB）與近級（226 KB）一個位元組都沒變。連續飛行時圈緣一直在換，
+   * 全部標髒等於每次重建都全量重傳 2.8 MB。
+   *
+   * 【這裡的兩個標記在目前可達的狀態下是冗餘的】放格與補格成對發生而且
+   * 級數相同，所以 `relevel` 會標到同一批池。留著是因為那個「成對」是巧合
+   * 不是不變量 —— 變異驗證確認得到的只有 `relevel` 那條灌木標記。
+   */
   function freeSlot(slot: number): void {
     bySlot.delete(keyOf(slotI[slot]!, slotJ[slot]!))
     slotUsed[slot] = 0
+    markLevel(slotLod[slot]!)
+    if (slotBush[slot] === 1) poolDirty.bush = true
+    markBuildings()
   }
 
   function takeSlot(): number {
@@ -364,11 +416,15 @@ export function createVegetation(
     slotI[slot] = i
     slotJ[slot] = j
     slotUsed[slot] = 1
+    // 【級數與灌木旗標歸零】新的一格由 `relevel` 定級，而它是「有變才標」——
+    // 沿用上一位住戶的值會讓「其實變了」被當成沒變
     slotLod[slot] = -1
+    slotBush[slot] = 0
     bySlot.set(keyOf(i, j), slot)
-    // 【加一格會讓每個池的打包位移】所以全部要重傳
+    // 【樹與灌木交給 relevel 標】它一定會看到 -1 → 新級數的變化。
+    // 這裡只要補上它不管的建築
     dirty = true
-    markAll()
+    markBuildings()
     return true
   }
 
@@ -392,7 +448,6 @@ export function createVegetation(
       if (inRange(slotI[s]!, slotJ[s]!)) continue
       freeSlot(s)
       dirty = true
-      markAll()
     }
   }
 
@@ -452,9 +507,22 @@ export function createVegetation(
     stats.tiles = live
   }
 
-  /** 把所有活著的 tile 寫進池 */
+  /**
+   * 把所有活著的 tile 寫進池。
+   *
+   * 【只碰髒的池】沒變的池連寫都不寫 —— 它掛著的那份屬性已經是對的，而
+   * 重寫一遍再上傳只是把 GPU 逼去等。`counts` 也因此只對髒的池歸零。
+   */
   function rebuild(): void {
-    for (const name of POOL_NAMES) counts[name] = 0
+    for (const name of POOL_NAMES) {
+      if (!poolDirty[name]) continue
+      counts[name] = 0
+      // 【換到另一份再寫】寫的永遠是上一幀沒在畫的那一份
+      side[name] ^= 1
+      const mesh = pools[name]
+      mesh.instanceMatrix = altMat[name]![side[name]!]!
+      mesh.instanceColor = altCol[name]![side[name]!]!
+    }
     stats.overflow = 0
     for (let s = 0; s < TILE_CACHE; s++) {
       if (slotUsed[s] === 0) continue
@@ -463,7 +531,7 @@ export function createVegetation(
       const bush = slotBush[s] === 1
       for (let k = 0; k < buf.count; k++) {
         const name = poolOf(buf.kind[k]!, lod, bush)
-        if (name === null) continue
+        if (name === null || !poolDirty[name]) continue
         const at = counts[name]
         if (at >= cap[name]) {
           stats.overflow++
@@ -491,21 +559,17 @@ export function createVegetation(
       }
     }
     for (const name of POOL_NAMES) {
+      if (!poolDirty[name]) continue
+      poolDirty[name] = false
       const mesh = pools[name]
       const used = counts[name]
       mesh.count = used
-      // 【只上傳真的變了的池】沒變的池，重寫進去的位元組與 GPU 上那一份
-      // 逐位元相同 —— 傳它是純粹的浪費，而那個浪費會撞到驅動的緩衝重配置
-      if (!poolDirty[name]) continue
-      poolDirty[name] = false
       // 【只上傳用到的那一段】容量是實測最大值的 1.35 倍，整條傳等於白傳
       // 三成五。broadFar 一條就是 1.3 MB
       mesh.instanceMatrix.addUpdateRange(0, used * 16)
       mesh.instanceMatrix.needsUpdate = true
-      if (mesh.instanceColor !== null) {
-        mesh.instanceColor.addUpdateRange(0, used * 3)
-        mesh.instanceColor.needsUpdate = true
-      }
+      mesh.instanceColor!.addUpdateRange(0, used * 3)
+      mesh.instanceColor!.needsUpdate = true
     }
     dirty = false
     sinceRebuild = 0
@@ -532,8 +596,12 @@ export function createVegetation(
       && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) rebuild()
   }
 
-  function settle(): void {
+  function settle(force?: boolean): void {
     if (!started) update(centerX, centerZ)
+    if (force === true) {
+      for (const name of POOL_NAMES) poolDirty[name] = true
+      dirty = true
+    }
     // 【上界是快取大小】圈內約 201 格，這個上界只是防呆
     for (let n = 0; n < TILE_CACHE * 2; n++) if (fill(1) === 0) break
     evict()
