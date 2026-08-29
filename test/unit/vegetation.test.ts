@@ -263,8 +263,12 @@ describe('植被引擎', () => {
     const near = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
     expect(v.counts.bushNear).toBeGreaterThan(near * 0.6)
     expect(v.counts.bushNear).toBeLessThan(near * 1.6)
-    // 【圈內一叢都不能漏】每格一叢，所以兩級加起來就是活著的格數
-    expect(v.counts.bushNear + v.counts.bushCard).toBe(v.stats.tiles)
+    // 【畫得到的格一叢都不能漏】每格一叢，所以兩級加起來就是 lod < 3 的格數。
+    // 分母不是 `stats.tiles`：外圈是抖開的，`outer` 到 `FLORA_RADIUS` 之間的
+    // 格子仍然在快取裡但整格不畫 —— 見 `OUTER_JITTER`
+    const drawn = v.debugTiles().filter((t) => t.lod < 3).length
+    expect(v.counts.bushNear + v.counts.bushCard).toBe(drawn)
+    expect(drawn).toBeLessThan(v.stats.tiles)
     v.dispose()
   })
 
@@ -465,6 +469,38 @@ describe('植被引擎', () => {
     for (const m of meshes(v)) expect(m.count).toBe(0)
     expect(v.stats.dropped).toBe(0)
     v.dispose()
+  })
+
+
+  /**
+   * 【為什麼要抖】`FLORA_RADIUS` 是一個精確的圓，掃過地面時整排樹一起出現
+   * —— 試飛回報的「突然長出來」有一半是它。逐格把有效半徑往內抖，那一環就
+   * 變成一條毛毛的帶。
+   *
+   * 【只往內不往外】往外會越過 tile 快取的維持半徑，那一格根本沒生成，
+   * 症狀是圈緣閃爍。
+   */
+  it('外圈是一條帶不是一個圓', () => {
+    const v = createVegetation([SIX], FLAT)
+    v.update(0, 0)
+    v.settle(true)
+    let drawnMax = 0
+    let blankMin = Infinity
+    for (const t of v.debugTiles()) {
+      const cx = t.i * TILE_SIZE + TILE_SIZE / 2
+      const cz = t.j * TILE_SIZE + TILE_SIZE / 2
+      const d = Math.hypot(cx, cz)
+      if (t.lod < 3) drawnMax = Math.max(drawnMax, d)
+      else blankMin = Math.min(blankMin, d)
+    }
+    console.log(JSON.stringify({
+      最遠還在畫: drawnMax.toFixed(0), 最近已經不畫: blankMin.toFixed(0),
+      帶寬: (drawnMax - blankMin).toFixed(0),
+    }))
+    // 沒有抖動的話這兩個數字會相鄰（差不到一格），帶寬是負的或接近 0
+    expect(drawnMax - blankMin).toBeGreaterThan(FLORA_RADIUS * 0.1)
+    // 而且不得抖到圈外
+    expect(drawnMax).toBeLessThanOrEqual(FLORA_RADIUS)
   })
 
   it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {

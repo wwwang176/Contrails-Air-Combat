@@ -3,7 +3,7 @@ import {
   MeshStandardMaterial, type BufferGeometry, type Object3D,
 } from 'three'
 import {
-  createFloraBuffer, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
+  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
   createFloraGeometries, disposeFloraGeometries, CARD_POOLS, type PoolName,
@@ -193,16 +193,34 @@ const LOD_STEP = [LOD_NEAR, CARD_NEAR, FLORA_RADIUS] as const
  * 【遲滯】往外要多走 `LOD_HYSTERESIS`，往內要少走同樣多。沒有它的話，
  * 鏡頭停在門檻上時整格 tile 每幀換級。
  */
-export function lodFor(dist: number, prev: number): number {
+export function lodFor(dist: number, prev: number, outer: number = FLORA_RADIUS): number {
+  const step = (k: number): number => (k === 2 ? outer : LOD_STEP[k]!)
   if (prev < 0) {
     let lod = 0
-    while (lod < 3 && dist > LOD_STEP[lod]!) lod++
+    while (lod < 3 && dist > step(lod)) lod++
     return lod
   }
   let lod = prev
-  while (lod < 3 && dist > LOD_STEP[lod]! + LOD_HYSTERESIS) lod++
-  while (lod > 0 && dist < LOD_STEP[lod - 1]! - LOD_HYSTERESIS) lod--
+  while (lod < 3 && dist > step(lod) + LOD_HYSTERESIS) lod++
+  while (lod > 0 && dist < step(lod - 1) - LOD_HYSTERESIS) lod--
   return lod
+}
+
+/**
+ * 外圈的抖動幅度。逐格把有效半徑乘 `1 − JITTER × hash`。
+ *
+ * 【為什麼要抖】`FLORA_RADIUS` 是一個精確的圓，掃過地面時整排樹一起出現。
+ * 抖開之後那一環變成一條毛毛的帶，樹是零星冒出來的。
+ *
+ * 【只往內不往外】往外會越過 tile 快取的維持半徑（`inRange` 用的仍是精確
+ * 的 `FLORA_RADIUS`）—— 那一格根本沒生成，症狀是圈緣閃爍。往內只是少畫，
+ * 恆安全。
+ */
+export const OUTER_JITTER = 0.2
+
+/** 這一格的有效外圈半徑，m */
+export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): number {
+  return radius * (1 - OUTER_JITTER * (hash2(i, j ^ 0x6b1f) / 4294967296))
 }
 
 /**
@@ -289,6 +307,13 @@ export interface Vegetation {
     buffers: readonly Float32Array[]
     keyType: string
   }
+  /**
+   * 快取裡每一格的索引與級數。**只給測試用。**
+   *
+   * 【回的是複本】內部是幾條平行的 TypedArray，直接交出去等於讓測試改得到
+   * 引擎的狀態。
+   */
+  debugTiles(): { i: number, j: number, lod: number }[]
 }
 
 const M = new Matrix4()
@@ -611,7 +636,7 @@ export function createVegetation(
       const cx = slotI[s]! * TILE_SIZE + TILE_SIZE / 2
       const cz = slotJ[s]! * TILE_SIZE + TILE_SIZE / 2
       const d = Math.hypot(cx - centerX, cz - centerZ)
-      const lod = lodFor(d, slotLod[s]!)
+      const lod = lodFor(d, slotLod[s]!, outerFor(slotI[s]!, slotJ[s]!))
       const bush = d <= BUSH_RANGE + (slotBush[s] === 1 ? LOD_HYSTERESIS : 0) ? 1 : 0
       if (lod !== slotLod[s]) {
         dirty = true
@@ -745,6 +770,14 @@ export function createVegetation(
     settle,
     counts,
     stats,
+    debugTiles() {
+      const out: { i: number, j: number, lod: number }[] = []
+      for (let s = 0; s < TILE_CACHE; s++) {
+        if (slotUsed[s] === 0) continue
+        out.push({ i: slotI[s]!, j: slotJ[s]!, lod: slotLod[s]! })
+      }
+      return out
+    },
     dispose() {
       disposeFloraGeometries(geometries)
       material.dispose()
