@@ -15,7 +15,7 @@
  */
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFloraBuffer, createIslandFlora, ISLAND_GRID } from '../../src/render/flora'
-import { FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE, lodFor, CARD_NEAR, LOD_NEAR } from '../../src/render/vegetation'
+import { FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE, lodFor, POINT_NEAR, LOD_NEAR } from '../../src/render/vegetation'
 
 const SCAN_HALF = 12000
 const BIG = 8192
@@ -115,7 +115,7 @@ console.log(
 )
 console.log(
   `            圈內最大同時：近（≤${LOD_NEAR}）${String(maxNear).padStart(6)}`
-  + `   中（≤${CARD_NEAR}）${String(maxMid).padStart(6)}`
+  + `   中（≤${POINT_NEAR}）${String(maxMid).padStart(6)}`
   + `   卡片 ${String(maxCard).padStart(6)}`
   + `   合計 ${String(maxNear + maxMid + maxCard).padStart(7)}`,
 )

@@ -27,13 +27,16 @@ import { BufferAttribute, BufferGeometry, Color } from 'three'
 export const TREE_HEIGHT = 30
 
 export type PoolName =
-  | 'broadNear' | 'broadMid' | 'broadCard'
-  | 'coneNear' | 'coneMid' | 'coneCard'
-  | 'bushNear' | 'bushCard'
+  | 'broadNear' | 'broadMid' | 'broadPoint'
+  | 'coneNear' | 'coneMid' | 'conePoint'
+  | 'bushNear' | 'bushPoint'
   | 'house' | 'barn' | 'church'
 
-/** 公告板那三個。它們走另一顆材質 —— 見 `render/vegetation.ts` */
-export const CARD_POOLS: readonly PoolName[] = ['broadCard', 'coneCard', 'bushCard']
+/**
+ * 遠處那三個池。**它們是 `gl.POINTS`，不是網格** —— 沒有幾何、走另一顆
+ * 材質、亮度烘在頂點色裡。見 `render/vegetation.ts` 的 `createPointMaterial`。
+ */
+export const POINT_POOLS: readonly PoolName[] = ['broadPoint', 'conePoint', 'bushPoint']
 
 /**
  * 樹冠的位置與大小。**三級共用同一組** —— 換級只掉樹幹與面數，樹冠一動
@@ -70,45 +73,45 @@ const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
 /**
- * 三個公告板池改用 `gl.POINTS` 之後，逐池的點邊長，m。
+ * 遠處那三個池的點邊長，m。
  *
- * 【取「面積相等」而不是「寬度相等」】點是螢幕對齊的實心方塊，公告板是菱形
- * （面積 `halfW × 高`）或三角形（`底 × 高 / 2`）。同寬的話方塊的面積是兩倍，
- * 3 km 那條門檻上林相會突然變厚 —— 而那正是這一版要消滅的感受。
+ * 【取「面積相等」而不是「寬度相等」】點是螢幕對齊的實心方塊，而它取代的
+ * 那一級是八面體或錐 —— 側影是菱形（面積 `R × 高`）或三角形（`底 × 高 / 2`）。
+ * 同寬的話方塊的面積是兩倍，3 km 那條門檻上林相會突然變厚。
  *
  * 【由樹冠常數算，不寫死】改樹冠尺寸時這裡自動跟上。
- * `flora-shapes.test.ts` 逐池比對它與幾何的實際面積。
+ * `flora-shapes.test.ts` 逐池比對它與**它取代的那一級**的側影面積。
  */
-export type CardPool = 'broadCard' | 'coneCard' | 'bushCard'
+export type PointPool = 'broadPoint' | 'conePoint' | 'bushPoint'
 
 /**
  * 點池的樹冠色。`gl.POINTS` 沒有幾何、也就沒有頂點色 —— 顏色要由 CPU 端寫進
  * 屬性，所以這裡要看得到。
  */
-export const CARD_POINT_COLOR: Record<CardPool, number> = {
-  broadCard: BROAD_LEAF,
-  coneCard: CONIFER,
-  bushCard: BUSH_LEAF,
+export const POINT_COLOR: Record<PointPool, number> = {
+  broadPoint: BROAD_LEAF,
+  conePoint: CONIFER,
+  bushPoint: BUSH_LEAF,
 }
 
 /**
  * 點的中心該放在株的座標上方多少，m。
  *
  * 【為什麼不是 0】株的座標在地面上，而點是以自己為中心畫的方塊 —— 直接放
- * 地面的話樹會有一半埋在土裡。這裡取它取代的那張公告板的**垂直中心**。
+ * 地面的話樹會有一半埋在土裡。這裡取它取代的那一級的樹冠**垂直中心**。
  */
-export const CARD_POINT_Y: Record<CardPool, number> = {
-  broadCard: (BROAD_CROWN_Y0 + TREE_HEIGHT) / 2,
-  coneCard: (CONE_CROWN_Y0 + TREE_HEIGHT) / 2,
-  bushCard: BUSH_CARD_TOP / 2,
+export const POINT_Y: Record<PointPool, number> = {
+  broadPoint: (BROAD_CROWN_Y0 + TREE_HEIGHT) / 2,
+  conePoint: (CONE_CROWN_Y0 + TREE_HEIGHT) / 2,
+  bushPoint: BUSH_CARD_TOP / 2,
 }
 
-export const CARD_POINT_SIZE: Record<CardPool, number> = {
+export const POINT_SIZE: Record<PointPool, number> = {
   // 菱形：對角線 2·R 與 (TREE_HEIGHT − Y0)，面積 = R × 高
-  broadCard: Math.sqrt(BROAD_CROWN_R * (TREE_HEIGHT - BROAD_CROWN_Y0)),
+  broadPoint: Math.sqrt(BROAD_CROWN_R * (TREE_HEIGHT - BROAD_CROWN_Y0)),
   // 三角形：底 2·R、高 (TREE_HEIGHT − Y0)
-  coneCard: Math.sqrt(CONE_CROWN_R * (TREE_HEIGHT - CONE_CROWN_Y0)),
-  bushCard: Math.sqrt(BUSH_R * BUSH_CARD_TOP),
+  conePoint: Math.sqrt(CONE_CROWN_R * (TREE_HEIGHT - CONE_CROWN_Y0)),
+  bushPoint: Math.sqrt(BUSH_R * BUSH_CARD_TOP),
 }
 
 /** 建構中的三角形湯 */
@@ -219,25 +222,6 @@ function gable(
   tri(s, hex, x, y0, -z, -x, y0, -z, 0, y1, -z)
 }
 
-/**
- * 公告板的一片。**在 xy 平面上逆時針繞** —— 頂點著色器把 x 映到「水平上
- * 垂直於視線的方向」、y 維持向上，於是 `right × up` 指向鏡頭，繞序在螢幕上
- * 就永遠是正面。順時針的話鏡頭一繞到另一邊整批會被背面剔除掉。
- *
- * 【菱形不是矩形】它取代的是八面體，而 15 m 的樹在 3 km 還有 4.6 px ——
- * 那個尺度看得出剪影。矩形會在門檻上跳一下。
- */
-function cardDiamond(s: Soup, hex: number, halfW: number, y0: number, y1: number): void {
-  const my = (y0 + y1) / 2
-  tri(s, hex, 0, y0, 0, halfW, my, 0, 0, y1, 0)
-  tri(s, hex, 0, y0, 0, 0, y1, 0, -halfW, my, 0)
-}
-
-/** 針葉的公告板：一個等腰三角形，那正好是錐的側影。1 tri */
-function cardCone(s: Soup, hex: number, halfW: number, y0: number, y1: number): void {
-  tri(s, hex, -halfW, y0, 0, halfW, y0, 0, 0, y1, 0)
-}
-
 function finish(s: Soup): BufferGeometry {
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
@@ -253,34 +237,17 @@ function build(fn: (s: Soup) => void): BufferGeometry {
   return finish(s)
 }
 
-/**
- * 公告板的幾何。**法線固定向上，不用 `computeVertexNormals`。**
- *
- * 【為什麼是 (0, 1, 0)】卡片的面永遠朝著鏡頭，用面法線的話亮度會隨鏡頭
- * 方位變，整片遠方樹林轉個向就明暗跳動，而且門檻上會出現光照環。
- * 一片樹冠的平均法線接近向上 —— 這樣卡片與它取代的那一級亮度接得上。
- *
- * 【所以卡片的材質不能開 flatShading】那會讓 fragment shader 由螢幕導數
- * 自己算面法線，這裡設的頂點法線完全被忽略。見 `render/vegetation.ts`。
- */
-function buildCard(fn: (s: Soup) => void): BufferGeometry {
-  const s: Soup = { pos: [], col: [] }
-  fn(s)
-  const geo = new BufferGeometry()
-  geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
-  geo.setAttribute('color', new BufferAttribute(new Float32Array(s.col), 3))
-  const n = new Float32Array(s.pos.length)
-  for (let i = 1; i < n.length; i += 3) n[i] = 1
-  geo.setAttribute('normal', new BufferAttribute(n, 3))
-  geo.computeBoundingSphere()
-  return geo
-}
+/** 有幾何的那八個池。遠處那三個走 `gl.POINTS`，沒有幾何 */
+export type MeshPool = Exclude<PoolName, PointPool>
 
 /**
  * 八個幾何。名字與 `render/vegetation.ts` 的池一一對應 —— 一個
  * `InstancedMesh` 只綁得住一個 geometry，所以八個形狀就是八個池。
+ *
+ * 【遠處那三個池不在這裡】它們是 `Points`，一株一個頂點、大小由
+ * `POINT_SIZE` 給 —— 沒有幾何可以綁。
  */
-export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
+export function createFloraGeometries(): Record<MeshPool, BufferGeometry> {
   return {
     // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
     broadNear: build((s) => {
@@ -292,10 +259,6 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
     // 的話，過門檻的瞬間樹冠會往下掉一截又變胖，那比少一根樹幹明顯得多。
     // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
     broadMid: build((s) => { octa(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
-    // 闊葉遠：菱形公告板，位置與寬高與 broadMid 逐項對齊
-    broadCard: buildCard((s) => {
-      cardDiamond(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_Y0, TREE_HEIGHT)
-    }),
     // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
     coneNear: build((s) => {
       cylinder(s, TRUNK, 6, 0.9, 0, CONE_CROWN_Y0)
@@ -303,12 +266,7 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
     }),
     // 針葉中：六邊錐，底仍然在 CONE_CROWN_Y0，不落地 —— 與闊葉同一個理由
     coneMid: build((s) => { cone(s, CONIFER, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
-    // 針葉遠：一個等腰三角形 —— 錐的側影就是這個形狀
-    coneCard: buildCard((s) => {
-      cardCone(s, CONIFER, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
-    }),
     bushNear: build((s) => { octa(s, BUSH_LEAF, BUSH_R, BUSH_RY, BUSH_CY) }),
-    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, BUSH_R, 0, BUSH_CARD_TOP) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂
@@ -330,6 +288,6 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
   }
 }
 
-export function disposeFloraGeometries(g: Record<PoolName, BufferGeometry>): void {
-  for (const k of Object.keys(g) as PoolName[]) g[k].dispose()
+export function disposeFloraGeometries(g: Record<MeshPool, BufferGeometry>): void {
+  for (const k of Object.keys(g) as MeshPool[]) g[k].dispose()
 }

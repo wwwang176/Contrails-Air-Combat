@@ -9,7 +9,7 @@
  */
 import { Vector3 } from 'three'
 import {
-  createFloraGeometries, disposeFloraGeometries, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, type MeshPool,
 } from '../../src/render/floraShapes'
 
 const geo = createFloraGeometries()
@@ -24,7 +24,7 @@ const mid = new Vector3()
 
 console.log('\n  面法線朝外／朝內（朝外 = 與離軸方向同向）\n')
 console.log('   幾何          面數   朝外   朝內   水平面（不算）')
-for (const name of Object.keys(geo) as PoolName[]) {
+for (const name of Object.keys(geo) as MeshPool[]) {
   const g = geo[name]
   g.computeBoundingBox()
   const centre = g.boundingBox!.getCenter(new Vector3())
@@ -62,7 +62,7 @@ const vc = new Vector3()
 const cr = new Vector3()
 console.log('  有號體積（朝外為正）\n')
 console.log('   幾何          體積 m³')
-for (const name of Object.keys(g2) as PoolName[]) {
+for (const name of Object.keys(g2) as MeshPool[]) {
   const pos = g2[name].getAttribute('position')
   let vol = 0
   for (let f = 0; f < pos.count / 3; f++) {

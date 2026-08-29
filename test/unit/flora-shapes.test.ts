@@ -1,18 +1,51 @@
 import { describe, it, expect } from 'vitest'
-import { Box3, Vector3, type BufferGeometry } from 'three'
+import { Box3, Color, Vector3, type BufferGeometry } from 'three'
 import {
-  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, CARD_POINT_SIZE,
-  TREE_HEIGHT, type CardPool, type PoolName,
+  createFloraGeometries, disposeFloraGeometries, POINT_COLOR, POINT_POOLS, POINT_SIZE,
+  POINT_Y, TREE_HEIGHT, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 
 const geo = createFloraGeometries()
-const names = Object.keys(geo) as PoolName[]
+const names = Object.keys(geo) as MeshPool[]
 
-/** 六個喬木幾何 —— 兩個樹種各三級 */
-const TREES = [
-  'broadNear', 'broadMid', 'broadCard', 'coneNear', 'coneMid', 'coneCard',
-] as const
+/** 四個喬木幾何 —— 兩個樹種各兩級。遠處那一級是點，沒有幾何 */
+const TREES = ['broadNear', 'broadMid', 'coneNear', 'coneMid'] as const
+
+/**
+ * 每一個點池取代的是哪一級。**點的大小、高度、顏色都拿它當參照** ——
+ * 過門檻時被遮住的地、樹冠的高度、顏色三件事都必須連續。
+ */
+const REPLACES: Record<PointPool, MeshPool> = {
+  broadPoint: 'broadMid', conePoint: 'coneMid', bushPoint: 'bushNear',
+}
+
+/**
+ * 一堆二維點的凸包面積。**側影要用它，不能用包圍盒** —— 八面體與錐的角落
+ * 是空的，包圍盒會高估。
+ */
+function hullArea(pts: readonly [number, number][]): number {
+  const p = [...pts].sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]))
+  const cross = (o: [number, number], a: [number, number], b: [number, number]): number =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const half = (src: readonly [number, number][]): [number, number][] => {
+    const out: [number, number][] = []
+    for (const q of src) {
+      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, q) <= 0) out.pop()
+      out.push(q)
+    }
+    out.pop()
+    return out
+  }
+  const hull = [...half(p), ...half([...p].reverse())]
+  let a = 0
+  for (let i = 0; i < hull.length; i++) {
+    const u = hull[i]!
+    const v = hull[(i + 1) % hull.length]!
+    a += u[0] * v[1] - v[0] * u[1]
+  }
+  return Math.abs(a) / 2
+}
 
 function tris(g: BufferGeometry): number {
   return g.getAttribute('position').count / 3
@@ -73,10 +106,10 @@ describe('植被與建築的幾何', () => {
    * 四倍的誤差要在幾何定稿的當下就抓到，不是在幀時間掉下來之後。
    */
   it('每個幾何的三角形數', () => {
-    const want: Record<PoolName, number> = {
-      broadNear: 20, broadMid: 8, broadCard: 2,
-      coneNear: 19, coneMid: 6, coneCard: 1,
-      bushNear: 8, bushCard: 2,
+    const want: Record<MeshPool, number> = {
+      broadNear: 20, broadMid: 8,
+      coneNear: 19, coneMid: 6,
+      bushNear: 8,
       house: 18, barn: 18, church: 34,
     }
     const got: Record<string, number> = {}
@@ -85,22 +118,24 @@ describe('植被與建築的幾何', () => {
     for (const n of names) expect(tris(geo[n])).toBe(want[n])
   })
 
-  it('十一個幾何，名字與池一一對應', () => {
+  /** 【遠處那三個池沒有幾何】它們是 `gl.POINTS`，一株一個頂點 */
+  it('八個幾何，名字與有網格的那八個池一一對應', () => {
     expect(names.slice().sort()).toEqual([
-      'barn', 'broadCard', 'broadMid', 'broadNear', 'bushCard', 'bushNear',
-      'church', 'coneCard', 'coneMid', 'coneNear', 'house',
+      'barn', 'broadMid', 'broadNear', 'bushNear',
+      'church', 'coneMid', 'coneNear', 'house',
     ])
+    expect(POINT_POOLS.every((n) => !names.includes(n as MeshPool))).toBe(true)
   })
 
   /**
    * 【落地的那些，底面必須在 y = 0】實例的 `y` 直接放地面高度。
    *
-   * 【喬木的中級與公告板不落地，那是故意的】它們只有樹冠，而樹冠本來就
-   * 長在樹幹頂上 —— 見「換級不換樹冠位置」。
+   * 【喬木的中級不落地，那是故意的】它只有樹冠，而樹冠本來就長在樹幹
+   * 頂上 —— 見「換級不換樹冠位置」。
    */
   it('會落地的幾何底面都在 y = 0', () => {
     for (const n of names) {
-      if (n === 'broadMid' || n === 'broadCard' || n === 'coneMid' || n === 'coneCard') continue
+      if (n === 'broadMid' || n === 'coneMid') continue
       expect([n, bounds(geo[n]).min.y]).toEqual([n, 0])
     }
   })
@@ -115,8 +150,8 @@ describe('植被與建築的幾何', () => {
    */
   it('換級不換樹冠位置：三級的樹冠包圍盒逐項相同', () => {
     for (const sp of [
-      ['broadNear', 'broadMid', 'broadCard'],
-      ['coneNear', 'coneMid', 'coneCard'],
+      ['broadNear', 'broadMid'],
+      ['coneNear', 'coneMid'],
     ] as const) {
       const want = crownSpan(geo[sp[0]])
       for (const n of sp) {
@@ -142,14 +177,14 @@ describe('植被與建築的幾何', () => {
    * 就會紅。
    */
   it('換級不換剪影：闊葉三級都圓，針葉三級都尖', () => {
-    const ratio = (n: PoolName): number => {
+    const ratio = (n: MeshPool): number => {
       const b = bounds(geo[n])
       return (b.max.x - b.min.x) / b.max.y
     }
-    for (const n of ['broadNear', 'broadMid', 'broadCard'] as const) {
+    for (const n of ['broadNear', 'broadMid'] as const) {
       expect([n, ratio(n) > 0.6]).toEqual([n, true])
     }
-    for (const n of ['coneNear', 'coneMid', 'coneCard'] as const) {
+    for (const n of ['coneNear', 'coneMid'] as const) {
       expect([n, ratio(n) < 0.6]).toEqual([n, true])
     }
   })
@@ -160,13 +195,9 @@ describe('植被與建築的幾何', () => {
    * 顏色跳掉，看起來都是「那棵樹換了種」。
    */
   it('換級不換樹種：三級同色，兩樹種不同色', () => {
-    for (const n of ['broadMid', 'broadCard'] as const) {
-      expect([n, crownColour(geo[n])]).toEqual([n, crownColour(geo.broadNear)])
-    }
-    for (const n of ['coneMid', 'coneCard'] as const) {
-      expect([n, crownColour(geo[n])]).toEqual([n, crownColour(geo.coneNear)])
-    }
-    expect(crownColour(geo.broadCard)).not.toBe(crownColour(geo.coneCard))
+    expect(crownColour(geo.broadMid)).toBe(crownColour(geo.broadNear))
+    expect(crownColour(geo.coneMid)).toBe(crownColour(geo.coneNear))
+    expect(crownColour(geo.broadMid)).not.toBe(crownColour(geo.coneMid))
   })
 
   /**
@@ -197,8 +228,8 @@ describe('植被與建築的幾何', () => {
     for (const n of ['broadNear', 'coneNear'] as const) {
       expect(colours(geo[n]).size).toBe(2)
     }
-    // 中級與公告板沒有樹幹，只有一個顏色
-    for (const n of ['broadMid', 'broadCard', 'coneMid', 'coneCard', 'bushCard'] as const) {
+    // 中級沒有樹幹，只有一個顏色
+    for (const n of ['broadMid', 'coneMid'] as const) {
       expect([n, colours(geo[n]).size]).toEqual([n, 1])
     }
   })
@@ -264,9 +295,6 @@ describe('植被與建築的幾何', () => {
     const mid = new Vector3()
     const p = new Vector3()
     for (const name of names) {
-      // 【公告板不適用】它是單面的平片，朝向由頂點著色器決定 ——
-      // 守它的是下面那條繞序，以及 `test/e2e/flora-card.e2e.ts`
-      if (CARD_POOLS.includes(name)) continue
       const pos = geo[name].getAttribute('position')
       p.set(0, STAR_Y[name]!, 0)
       const inward: number[] = []
@@ -283,41 +311,6 @@ describe('植被與建築的幾何', () => {
     }
   })
 
-  /**
-   * 【公告板要在 xy 平面上逆時針繞】頂點著色器把 x 映到「水平上垂直於視線
-   * 的方向」、y 維持向上，於是 `right × up` 指向鏡頭 —— 繞序在螢幕上就永遠
-   * 是正面。順時針的話鏡頭繞到另一邊，整批會被背面剔除掉。
-   */
-  it('公告板的繞序讓它永遠是正面', () => {
-    const a = new Vector3()
-    const b = new Vector3()
-    const c = new Vector3()
-    for (const name of CARD_POOLS) {
-      const pos = geo[name].getAttribute('position')
-      const zs: number[] = []
-      for (let f = 0; f < pos.count / 3; f++) {
-        a.fromBufferAttribute(pos, f * 3)
-        b.fromBufferAttribute(pos, f * 3 + 1)
-        c.fromBufferAttribute(pos, f * 3 + 2)
-        // (C − B) × (A − B) 的 z 分量
-        zs.push((c.x - b.x) * (a.y - b.y) - (c.y - b.y) * (a.x - b.x))
-      }
-      expect([name, zs.every((z) => z > 0)]).toEqual([name, true])
-    }
-  })
-
-  /** 【公告板的法線固定向上】面法線會讓亮度隨鏡頭方位變 —— 見 floraShapes.ts */
-  it('公告板的頂點法線全部是 (0, 1, 0)', () => {
-    for (const name of CARD_POOLS) {
-      const n = geo[name].getAttribute('normal')
-      const bad: number[] = []
-      for (let i = 0; i < n.count; i++) {
-        if (n.getX(i) !== 0 || n.getY(i) !== 1 || n.getZ(i) !== 0) bad.push(i)
-      }
-      expect([name, bad]).toEqual([name, []])
-    }
-  })
-
   it('沒有共用頂點 —— 面法線才是硬的', () => {
     for (const n of names) {
       expect(geo[n].getIndex()).toBeNull()
@@ -328,7 +321,7 @@ describe('植被與建築的幾何', () => {
   it('disposeFloraGeometries 把每一個都釋放掉', () => {
     const g = createFloraGeometries()
     const seen: string[] = []
-    for (const n of Object.keys(g) as PoolName[]) {
+    for (const n of Object.keys(g) as MeshPool[]) {
       g[n].addEventListener('dispose', () => seen.push(n))
     }
     disposeFloraGeometries(g)
@@ -336,31 +329,49 @@ describe('植被與建築的幾何', () => {
   })
 
   /**
-   * 【為什麼是面積不是寬度】點是螢幕對齊的實心方塊，公告板是菱形或三角形。
-   * 同寬的話方塊的面積是兩倍，3 km 那條門檻上林相會突然變厚 —— 而那正是
-   * 這一版要消滅的感受。解同一個面積，過門檻時被遮住的地才是連續的。
+   * 【為什麼是面積不是寬度】點是螢幕對齊的實心方塊，而它取代的那一級是
+   * 八面體或錐。同寬的話方塊的面積是兩倍，3 km 那條門檻上林相會突然變厚
+   * —— 而那正是這一版要消滅的感受。解同一個面積，過門檻時被遮住的地才是
+   * 連續的。
+   *
+   * 【側影用凸包算】八面體與錐都是凸的，所以把頂點投影到 xy 平面再取凸包
+   * 就是它的側影。用包圍盒會高估（角落是空的）。
    */
-  it('點的邊長解出來的面積等於它取代的公告板', () => {
-    for (const name of CARD_POOLS) {
-      const g = geo[name]!
+  it('點的面積等於它取代的那一級的側影', () => {
+    for (const name of POINT_POOLS) {
+      const g = geo[REPLACES[name as PointPool]]
       const pos = g.getAttribute('position')
-      let area = 0
-      for (let t = 0; t < pos.count; t += 3) {
-        // 公告板全部躺在 xy 平面上（z 恆為 0），所以叉積只剩 z 分量
-        const ax = pos.getX(t)
-        const ay = pos.getY(t)
-        const bx = pos.getX(t + 1) - ax
-        const by = pos.getY(t + 1) - ay
-        const cx = pos.getX(t + 2) - ax
-        const cy = pos.getY(t + 2) - ay
-        area += Math.abs(bx * cy - by * cx) / 2
-      }
-      const s = CARD_POINT_SIZE[name as CardPool]!
+      const pts: [number, number][] = []
+      for (let i = 0; i < pos.count; i++) pts.push([pos.getX(i), pos.getY(i)])
+      const area = hullArea(pts)
+      const s = POINT_SIZE[name as PointPool]!
       console.log(JSON.stringify({
-        池: name, 公告板面積: area.toFixed(2), 點邊長: s.toFixed(3),
-        點面積: (s * s).toFixed(2),
+        池: name, 取代: REPLACES[name as PointPool], 側影面積: area.toFixed(2),
+        點邊長: s.toFixed(3), 點面積: (s * s).toFixed(2),
       }))
       expect([name, Math.abs(s * s - area) < 0.05]).toEqual([name, true])
+    }
+  })
+
+  /**
+   * 【點的中心要對上樹冠的中心】株的座標在地面上，而點是以自己為中心畫的
+   * 方塊 —— 對不上的話過門檻時整片林相會上下跳一截。
+   */
+  it('點的高度等於它取代的那一級的樹冠中心', () => {
+    for (const name of POINT_POOLS) {
+      const sp = crownSpan(geo[REPLACES[name as PointPool]])
+      const want = (sp.y0 + sp.y1) / 2
+      expect([name, POINT_Y[name as PointPool]]).toEqual([name, want])
+    }
+  })
+
+  /** 【點的顏色要對上樹冠的顏色】換級不得換樹種 */
+  it('點的顏色等於它取代的那一級的樹冠色', () => {
+    for (const name of POINT_POOLS) {
+      const want = crownColour(geo[REPLACES[name as PointPool]])
+      const c = new Color(POINT_COLOR[name as PointPool])
+      const got = [c.r, c.g, c.b].map((v) => v.toFixed(4)).join(',')
+      expect([name, got]).toEqual([name, want])
     }
   })
 })

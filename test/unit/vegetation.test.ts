@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Points } from 'three'
-import { CARD_POOLS } from '../../src/render/floraShapes'
+import { POINT_POOLS } from '../../src/render/floraShapes'
 import {
-  createVegetation, lodFor, poolOf, BUSH_RANGE, CARD_NEAR, FLORA_RADIUS,
+  createVegetation, lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS,
   ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
   LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
   TILES_PER_FRAME, TILE_SIZE, type PoolName,
@@ -80,7 +80,7 @@ describe('lodFor', () => {
     }
     expect(lodFor(0, -1)).toBe(0)
     expect(lodFor(LOD_NEAR + 1, -1)).toBe(1)
-    expect(lodFor(CARD_NEAR + 1, -1)).toBe(2)
+    expect(lodFor(POINT_NEAR + 1, -1)).toBe(2)
     expect(lodFor(FLORA_RADIUS + 1, -1)).toBe(3)
   })
 
@@ -110,10 +110,10 @@ describe('poolOf', () => {
   it('換級不換樹種，六個映射逐一對得上', () => {
     expect(poolOf(FloraKind.BroadTree, 0, false)).toBe('broadNear')
     expect(poolOf(FloraKind.BroadTree, 1, false)).toBe('broadMid')
-    expect(poolOf(FloraKind.BroadTree, 2, false)).toBe('broadCard')
+    expect(poolOf(FloraKind.BroadTree, 2, false)).toBe('broadPoint')
     expect(poolOf(FloraKind.ConeTree, 0, false)).toBe('coneNear')
     expect(poolOf(FloraKind.ConeTree, 1, false)).toBe('coneMid')
-    expect(poolOf(FloraKind.ConeTree, 2, false)).toBe('coneCard')
+    expect(poolOf(FloraKind.ConeTree, 2, false)).toBe('conePoint')
   })
 
   it('圈外那一級什麼都不畫', () => {
@@ -125,8 +125,8 @@ describe('poolOf', () => {
   /** 【灌木的旗標現在選的是「哪一級」，不是「畫不畫」】圈內每一格都有灌木 */
   it('灌木由旗標選級，建築三種各自成池', () => {
     expect(poolOf(FloraKind.Bush, 0, true)).toBe('bushNear')
-    expect(poolOf(FloraKind.Bush, 0, false)).toBe('bushCard')
-    expect(poolOf(FloraKind.Bush, 2, false)).toBe('bushCard')
+    expect(poolOf(FloraKind.Bush, 0, false)).toBe('bushPoint')
+    expect(poolOf(FloraKind.Bush, 2, false)).toBe('bushPoint')
     expect(poolOf(FloraKind.House, 1, false)).toBe('house')
     expect(poolOf(FloraKind.Barn, 1, false)).toBe('barn')
     expect(poolOf(FloraKind.Church, 1, false)).toBe('church')
@@ -136,7 +136,7 @@ describe('poolOf', () => {
 /** 池的名字，與 `object.children` 同序。標髒那一條用它報名字 */
 const POOLS: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
-  'broadCard', 'coneCard', 'bushNear', 'bushCard',
+  'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
   'house', 'barn', 'church',
 ]
 
@@ -154,13 +154,13 @@ describe('植被引擎', () => {
     const v = createVegetation([EMPTY], FLAT)
     expect(v.object.children.length).toBe(POOLS.length)
     const kinds = meshes(v).map((m, i) => [POOLS[i], m instanceof Points])
-    expect(kinds).toEqual(POOLS.map((n) => [n, CARD_POOLS.includes(n)]))
+    expect(kinds).toEqual(POOLS.map((n) => [n, POINT_POOLS.includes(n)]))
     v.dispose()
   })
 
   /**
-   * 【公告板必須是另一顆材質】把 billboard 的 `onBeforeCompile` 掛在共用
-   * 材質上，近樹、樹冠、灌木、建築會**全部**變成公告板 —— 而幾何、池對應、
+   * 【點必須是另一顆材質】把 `onBeforeCompile` 掛在共用材質上，近樹、樹冠、
+   * 灌木、建築會**全部**變成點 —— 而幾何、池對應、
    * 容量、GLSL 編譯測試仍然可以全綠。
    *
    * 【而且不能開 flatShading】那會讓 fragment shader 由螢幕導數自己算面法線，
@@ -173,11 +173,11 @@ describe('植被引擎', () => {
     for (let i = 0; i < ms.length; i++) {
       mats.set(POOLS[i]!, ms[i]!.material as MeshStandardMaterial)
     }
-    const point = mats.get('broadCard')!
-    expect(mats.get('coneCard')).toBe(point)
-    expect(mats.get('bushCard')).toBe(point)
+    const point = mats.get('broadPoint')!
+    expect(mats.get('conePoint')).toBe(point)
+    expect(mats.get('bushPoint')).toBe(point)
     for (const n of POOLS) {
-      if (CARD_POOLS.includes(n)) continue
+      if (POINT_POOLS.includes(n)) continue
       // 【掛錯材質會讓近樹全部變成點】而幾何、池對應、容量、GLSL 編譯
       // 那幾條測試仍然可以全綠
       expect([n, mats.get(n) === point]).toEqual([n, false])
@@ -281,10 +281,10 @@ describe('植被引擎', () => {
     console.log(JSON.stringify({ near, far }))
     expect(near.broadNear).toBeGreaterThan(0)
     expect(near.bushNear).toBeGreaterThan(0)
-    expect(near.broadCard).toBeGreaterThan(near.broadNear)
+    expect(near.broadPoint).toBeGreaterThan(near.broadNear)
     // 每一格都生六筆，所以三級的總數守恆
     const sum = (c: Record<PoolName, number>): number =>
-      c.broadNear + c.coneNear + c.broadMid + c.coneMid + c.broadCard + c.coneCard
+      c.broadNear + c.coneNear + c.broadMid + c.coneMid + c.broadPoint + c.conePoint
     expect(sum(far)).toBeGreaterThan(sum(near) * 0.95)
     expect(sum(far)).toBeLessThan(sum(near) * 1.05)
     v.dispose()
@@ -292,9 +292,9 @@ describe('植被引擎', () => {
 
   /**
    * 【`BUSH_RANGE` 現在是「近級」的門檻，不是視距】圈內每一格都有灌木，
-   * 只是 1.2 km 之外換成公告板。
+   * 只是 1.2 km 之外換成點。
    */
-  it('灌木在 BUSH_RANGE 之內是八面體，之外是公告板', () => {
+  it('灌木在 BUSH_RANGE 之內是八面體，之外是點', () => {
     const v = createVegetation([SIX], FLAT)
     v.settle()
     const near = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
@@ -304,7 +304,7 @@ describe('植被引擎', () => {
     // 分母不是 `stats.tiles`：外圈是抖開的，`outer` 到 `FLORA_RADIUS` 之間的
     // 格子仍然在快取裡但整格不畫 —— 見 `OUTER_JITTER`
     const drawn = v.debugTiles().filter((t) => t.lod < 3).length
-    expect(v.counts.bushNear + v.counts.bushCard).toBe(drawn)
+    expect(v.counts.bushNear + v.counts.bushPoint).toBe(drawn)
     expect(drawn).toBeLessThan(v.stats.tiles)
     v.dispose()
   })
@@ -323,13 +323,13 @@ describe('植被引擎', () => {
       expect([dist, v.counts.house]).toEqual([dist, house])
       expect([dist, v.counts.broadNear]).toEqual([dist, broad])
     }
-    // 【三級各換一次】1,500 m 是樹冠，4,000 m 是公告板
+    // 【三級各換一次】1,500 m 是樹冠，4,000 m 是點
     v.update(1500, 0)
     v.settle()
-    expect([v.counts.broadMid, v.counts.broadCard]).toEqual([1, 0])
+    expect([v.counts.broadMid, v.counts.broadPoint]).toEqual([1, 0])
     v.update(4000, 0)
     v.settle()
-    expect([v.counts.broadMid, v.counts.broadCard]).toEqual([0, 1])
+    expect([v.counts.broadMid, v.counts.broadPoint]).toEqual([0, 1])
     v.dispose()
   })
 
@@ -678,8 +678,8 @@ describe('植被引擎', () => {
     console.log(JSON.stringify({ 各池的最大同時實例數: max }))
     SCANNED = max
     // 【掃描本身不得是空操作】
-    expect(max['broadCard']!).toBeGreaterThan(2000)
-    expect(max['bushCard']!).toBeGreaterThan(2000)
+    expect(max['broadPoint']!).toBeGreaterThan(2000)
+    expect(max['bushPoint']!).toBeGreaterThan(2000)
     expect(max['bushNear']!).toBeGreaterThan(500)
     expect(max['house']!).toBeGreaterThan(5)
     v.dispose()
@@ -721,7 +721,7 @@ describe('植被引擎', () => {
     }
     console.log(JSON.stringify({ 群島各池的最大同時實例數: max }))
     ISLAND_SCANNED = max
-    expect(max['coneCard']!).toBeGreaterThan(10000)
+    expect(max['conePoint']!).toBeGreaterThan(10000)
     // 【近級不得是零星幾棵】島心正下方是最密的地方
     expect(max['coneNear']!).toBeGreaterThan(3000)
     v.dispose()
