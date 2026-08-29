@@ -2,7 +2,7 @@
  * **內陸農地的試飛截圖**。凍結姿態，所以改動前後的像素可比。
  *
  * ```
- * node node_modules/vite/bin/vite.js --port 5184                              # 終端機一
+ * node node_modules/vite/bin/vite.js --port 5190                              # 終端機一
  * node node_modules/vite-node/vite-node.mjs test/e2e/farmland-shot.e2e.ts     # 終端機二
  * ```
  *
@@ -40,7 +40,7 @@ function nearestVillage(): { x: number; z: number } {
 const VILLAGE = nearestVillage()
 
 /** 【要與上面那一行的 --port 對上】vite 在指定埠被佔時會自己往上找 */
-const URL = 'http://localhost:5184/'
+const URL = 'http://localhost:5190/'
 const ROOT = 'C:/Users/weiwe/AppData/Local/Temp/claude/C--projects-grok-aircraft2/'
   + 'a396768a-75a8-4daf-b583-9ba32d4ff88e/scratchpad'
 
@@ -68,8 +68,17 @@ const VIEWS: readonly View[] = [
     desc: '150 m 貼地 —— 樹的量體與灌木叢',
   },
   {
-    name: 'lod-edge', yaw: 0, pitch: -8, alt: 450, x: 0, z: 0,
-    desc: '450 m 高、平視 —— L0 與 L1 的交界就在畫面中段',
+    name: 'lod-edge', yaw: 0, pitch: -8, alt: 900, x: 0, z: 0,
+    desc: '900 m 高、平視 —— 樹幹的門檻就在畫面中段',
+  },
+  {
+    // 【看鋸齒要看遠】一個像素蓋到的地越寬，帶邊的抗鋸齒越吃重
+    name: 'horizon', yaw: 40, pitch: -2, alt: 120, x: 0, z: 0,
+    desc: '120 m 貼地、幾乎平視 —— 遠方的樹籬線與凹路，看爬行鋸齒',
+  },
+  {
+    name: 'horizon-high', yaw: 40, pitch: -6, alt: 1500, x: 0, z: 0,
+    desc: '1,500 m 平視地平線 —— 田的網一路接到遠景環',
   },
   {
     // 站到村的南邊 600 m、往北看
