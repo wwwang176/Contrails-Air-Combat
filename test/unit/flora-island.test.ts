@@ -65,13 +65,12 @@ describe('群島的樹', () => {
   it('每一棵都長在綠色的地方', () => {
     const rows = onBig()
     expect(rows.length).toBeGreaterThan(300)
-    const grassHex = shade(20, 1000, col).getHex()
+    const grassHex = shade(20, col).getHex()
     for (const r of rows) {
       const h = height(r.x, r.z)
-      const isl = nearest(r.x, r.z)
-      expect(isGrass(h, isl.peak)).toBe(true)
+      expect(isGrass(h)).toBe(true)
       // 判準與**畫面上那一支**對得起來，不只是與自己的常數對得起來
-      expect(shade(h, isl.peak, col).getHex()).toBe(grassHex)
+      expect(shade(h, col).getHex()).toBe(grassHex)
     }
   })
 
@@ -102,7 +101,12 @@ describe('群島的樹', () => {
     for (const r of rows) expect(r.y).toBeCloseTo(height(r.x, r.z), 3)
   })
 
-  it('陡的地方比緩的地方稀疏', () => {
+  /**
+   * 【一定要控制高度】密度同時吃坡度與高度，而島上「陡」與「高」高度相關
+   * ——不控制的話兩項互相抵銷，實測比值正好是 1.00，坡度那一項整條拿掉也
+   * 看不出來。所以只在同一條高度帶（峰高的 25%～60%）裡比。
+   */
+  it('同一條高度帶裡，陡的地方比緩的地方稀疏', () => {
     const r = big.outerRadius
     const rows = onBig()
     expect(rows.length).toBeGreaterThan(300)
@@ -113,12 +117,18 @@ describe('群島的樹', () => {
       const dz = (height(x, z + cell) - height(x, z - cell)) / (2 * cell)
       return Math.atan(Math.hypot(dx, dz))
     }
+    const inBand = (x: number, z: number): boolean => {
+      const h = height(x, z)
+      if (!isGrass(h)) return false
+      const t = h / nearest(x, z).peak
+      return t >= 0.25 && t < 0.6
+    }
     let gentleArea = 0
     let steepArea = 0
     const STEP = 20
     for (let z = big.cz - r; z < big.cz + r; z += STEP) {
       for (let x = big.cx - r; x < big.cx + r; x += STEP) {
-        if (!isGrass(height(x, z), nearest(x, z).peak)) continue
+        if (!inBand(x, z)) continue
         if (slopeAt(x, z) < Math.PI / 6) gentleArea++
         else steepArea++
       }
@@ -126,6 +136,7 @@ describe('群島的樹', () => {
     let gentle = 0
     let steep = 0
     for (const row of rows) {
+      if (!inBand(row.x, row.z)) continue
       if (slopeAt(row.x, row.z) < Math.PI / 6) gentle++
       else steep++
     }
@@ -179,20 +190,77 @@ describe('群島的樹', () => {
     expect(n).toBeGreaterThan(300)
   })
 
-  it('島上一律針葉，不長灌木或房子', () => {
+  it('島上只有針葉樹與灌木，不長闊葉或房子', () => {
     const rows = onBig()
     expect(rows.length).toBeGreaterThan(300)
-    for (const r of rows) expect(r.kind).toBe(FloraKind.ConeTree)
+    for (const r of rows) {
+      expect(r.kind === FloraKind.ConeTree || r.kind === FloraKind.Bush).toBe(true)
+    }
   })
 
-  it('密度不超過網格上限', () => {
+  /** 【不得是空操作】灌木那一段整段拿掉的話，上面那一條照樣全綠 */
+  it('灌木夠多，但沒有多過樹', () => {
+    const rows = onBig()
+    const trees = rows.filter((r) => r.kind === FloraKind.ConeTree).length
+    const bushes = rows.filter((r) => r.kind === FloraKind.Bush).length
+    console.log(JSON.stringify({ 樹: trees, 灌木: bushes, 比: (bushes / trees).toFixed(2) }))
+    expect(bushes).toBeGreaterThan(trees * 0.4)
+    expect(bushes).toBeLessThan(trees)
+  })
+
+  /**
+   * 【山頂密、山腳疏】按高度分兩帶，各自量「單位可用面積上有幾株」。
+   *
+   * 分母一定要是**那一帶自己的可用面積** —— 直接比株數的話，量到的是兩帶
+   * 面積大小的差別，把密度那條斜線整條拿掉也會過。
+   *
+   * 【坡度是共變數】陡的地方本來就稀疏，而山頂通常比山腳陡 —— 也就是說
+   * 坡度那一項會把這個效果**抵銷**，不會假造它。實測仍有三倍以上。
+   */
+  it('山頂比山腳密', () => {
+    const r = big.outerRadius
+    const rows = onBig()
+    const band = (x: number, z: number): number => {
+      const t = height(x, z) / nearest(x, z).peak
+      return t >= 0.6 ? 1 : t < 0.25 ? 0 : -1
+    }
+    const area = [0, 0]
+    const STEP = 20
+    for (let z = big.cz - r; z < big.cz + r; z += STEP) {
+      for (let x = big.cx - r; x < big.cx + r; x += STEP) {
+        if (!isGrass(height(x, z))) continue
+        const b = band(x, z)
+        if (b >= 0) area[b]!++
+      }
+    }
+    const n = [0, 0]
+    for (const row of rows) {
+      const b = band(row.x, row.z)
+      if (b >= 0) n[b]!++
+    }
+    const low = n[0]! / area[0]!
+    const high = n[1]! / area[1]!
+    console.log(JSON.stringify({
+      山腳密度: low.toFixed(4), 山頂密度: high.toFixed(4), 比: (high / low).toFixed(2),
+    }))
+    expect(area[0]!).toBeGreaterThan(100)
+    expect(area[1]!).toBeGreaterThan(100)
+    expect(high).toBeGreaterThan(low * 2)
+  })
+
+  /** 一格最多一棵樹加一叢灌木，所以上限要各自比 */
+  it('樹與灌木各自的密度都不超過網格上限', () => {
     const rows = onBig()
     const area = (2 * big.outerRadius) ** 2
-    const perKm2 = (rows.length / area) * 1e6
     const grid = 1e6 / (ISLAND_GRID * ISLAND_GRID)
-    console.log(JSON.stringify({
-      每平方公里: perKm2.toFixed(0), 網格上限: grid.toFixed(0),
-    }))
-    expect(perKm2).toBeLessThan(grid)
+    for (const [label, kind] of [
+      ['樹', FloraKind.ConeTree], ['灌木', FloraKind.Bush],
+    ] as const) {
+      const perKm2 = (rows.filter((r) => r.kind === kind).length / area) * 1e6
+      console.log(JSON.stringify({
+        種類: label, 每平方公里: perKm2.toFixed(0), 網格上限: grid.toFixed(0),
+      }))
+      expect(perKm2).toBeLessThan(grid)
+    }
   })
 })

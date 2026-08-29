@@ -593,25 +593,50 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
 }
 
 /**
- * 島上的網格間距，m。
+ * 島上的網格間距，m。**一格最多一棵樹加一叢灌木。**
  *
- * 【上限與實得差很多】`1e6 / grid²` 是上限，但要通過高度帶（`isGrass`）與
- * 坡度那兩關。11.3 m 的上限是 7,832 棵/km²，實測落在三千上下 —— 島很陡。
+ * 【上限與實得差很多】`1e6 / grid²` 是上限，但要通過高度帶（`isGrass`）、
+ * 坡度與高度那幾關。16 m 的上限是 3,906，實測樹與灌木合計落在一千五上下。
+ *
+ * 【面積密度是它的平方反比】要砍半就乘 √2 —— 11.3 → 16.0 正是這樣來的。
  *
  * 【單格的上限跟著它走】群島那一支用 `ISLAND_MAX_PER_TILE` 而不是農地的
  * 384。掃描表在 `test/tools/island-density.probe.ts`。
  */
-export const ISLAND_GRID = 11.3
+export const ISLAND_GRID = 16.0
 
 /** tile 中心離島多遠就整格跳過，m */
 const ISLAND_MARGIN = 200
 
 /**
- * 群島的樹。
+ * 海邊的植被密度相對山頂。山頂是 1.0，密度沿高度線性插到這個值。
+ *
+ * 【為什麼要有落差】整座島同一個密度看起來像一塊綠地毯。山頂密、山腳疏，
+ * 高度差才讀得出來。**山頂維持原本的密度** —— 這一條只往下壓。
+ */
+export const ISLAND_SHORE_DENSITY = 0.15
+
+/**
+ * 灌木相對樹的接受機率。
+ *
+ * 【為什麼要有灌木】樹之間的地是空的，低空掠過時看得到一格一格的間隙。
+ * 灌木補在同一格的另一個抽樣點上，吃同一條高度與坡度的門檻。
+ */
+export const ISLAND_BUSH_RATIO = 0.7
+
+/**
+ * 群島的樹與灌木。
  *
  * 【判準是高度帶，不是坡度】實測群島的島很陡：草帶 16.24 km² 裡坡度 20°
  * 以內只有 0.60（3.7%），最大兩座島的平均坡是 29.5° 與 32.7°。用坡度篩會
  * 砍掉 95% 的地。坡度改成只壓密度 —— 接受機率乘 `cos(slope)`。
+ *
+ * 【密度隨高度】接受機率再乘一條由 `ISLAND_SHORE_DENSITY` 插到 1.0 的斜線，
+ * 尺是 `h / isl.peak`。山頂不動，往海邊遞減。
+ *
+ * 【樹與灌木共用一格】兩者在同一格裡各自抽一個位置、各自抽一次接受 ——
+ * 所以灌木不是「沒長樹的地方」，兩者會混在一起。共用高度與坡度的那一趟
+ * 取樣是為了成本：一格因此只多兩次 `field.sample`。
  *
  * 【只 import `isGrass`，不 import 任何高度常數】`world/archipelago.ts` 也有
  * 一個 `SHORE_BAND`，值是 200（烘岸距離），而顏色分帶那個是 12。看不到常數
@@ -641,34 +666,72 @@ export function createIslandFlora(
     const h1 = Math.floor(z1 / ISLAND_GRID)
     for (let gz = h0; gz <= h1; gz++) {
       for (let gx = g0; gx <= g1; gx++) {
+        // 【最近的島用格中心找】它只提供峰高（密度斜線的尺），而同一格的
+        // 兩個候選點最遠只差 8.6 m —— 找一次，兩者共用
+        const cx = (gx + 0.5) * ISLAND_GRID
+        const cz = (gz + 0.5) * ISLAND_GRID
+        let isl = near
+        let bd = Infinity
+        for (const o of islands) {
+          const d = Math.hypot(o.cx - cx, o.cz - cz)
+          if (d < bd) { bd = d; isl = o }
+        }
+
+        /**
+         * 這一點的接受機率。
+         *
+         * 【坡度只壓密度】陡的地方稀疏，但不是砍光 —— 乘 `cos(slope)`。
+         * 【高度只壓密度】山頂 1.0，海邊 `ISLAND_SHORE_DENSITY`。
+         *
+         * 【坡度要在植株自己的位置上取】格中心離它最遠 8 m，那個距離足以
+         * 把坡度與密度的相關性抹平。
+         */
+        const accept = (px: number, pz: number, h: number): number => {
+          const dx = (field.sample(px + cell, pz) - field.sample(px - cell, pz)) / (2 * cell)
+          const dz = (field.sample(px, pz + cell) - field.sample(px, pz - cell)) / (2 * cell)
+          return (ISLAND_SHORE_DENSITY + (1 - ISLAND_SHORE_DENSITY)
+            * Math.min(1, Math.max(0, h / isl.peak))) / Math.hypot(1, Math.hypot(dx, dz))
+        }
+
+        // ── 樹 ──────────────────────────────────────────
         // 【位置只由全域索引決定】見檔頭的鐵律
         const hh = hash2(gx, gz ^ 0x1d7b)
         const x = (gx + 0.12 + (hh / 4294967296) * 0.76) * ISLAND_GRID
         const g = hash1(hh)
         const z = (gz + 0.12 + (g / 4294967296) * 0.76) * ISLAND_GRID
-        if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
-
-        // 這一點最近的島 —— 峰高要拿它的
-        let isl = near
-        let bd = Infinity
-        for (const o of islands) {
-          const d = Math.hypot(o.cx - x, o.cz - z)
-          if (d < bd) { bd = d; isl = o }
-        }
-        const h = field.sample(x, z)
-        if (!isGrass(h, isl.peak)) continue
-
-        // 【坡度只壓密度】陡的地方稀疏，但不是砍光
-        const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
-        const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
         const g2 = hash1(g)
-        if (g2 / 4294967296 > 1 / Math.hypot(1, Math.hypot(dx, dz))) continue
+        // 【兩個候選各自過邊界】共用一個 `continue` 的話，樹落在格外時會把
+        // 灌木一起吃掉 —— 症狀是切法不同結果就不同
+        if (x >= x0 && x < x1 && z >= z0 && z < z1) {
+          const h = field.sample(x, z)
+          if (isGrass(h) && g2 / 4294967296 <= accept(x, z, h)) {
+            const g3 = hash1(g2)
+            pushFlora(
+              out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+              TREE_SCALE[0] + (hash1(g3) / 4294967296) * (TREE_SCALE[1] - TREE_SCALE[0]),
+              (hash1(g3 ^ 0x3c1f) & 0xff) / 255, FloraKind.ConeTree,
+            )
+          }
+        }
 
-        const g3 = hash1(g2)
+        // ── 同一格的灌木 ────────────────────────────────
+        // 【位置另外抽】與樹同一格但不同點，所以兩者會混在一起
+        const bh = hash2(gx ^ 0x5ac3, gz)
+        const bx = (gx + 0.12 + (bh / 4294967296) * 0.76) * ISLAND_GRID
+        const bg = hash1(bh)
+        const bz = (gz + 0.12 + (bg / 4294967296) * 0.76) * ISLAND_GRID
+        if (bx < x0 || bx >= x1 || bz < z0 || bz >= z1) continue
+        // 【高度要在灌木自己的位置上取】水線是硬分界，借樹的高度會讓灌木
+        // 長到沙灘上
+        const bhh = field.sample(bx, bz)
+        if (!isGrass(bhh)) continue
+        const b2 = hash1(bg)
+        if (b2 / 4294967296 > accept(bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
+        const b3 = hash1(b2)
         pushFlora(
-          out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
-          TREE_SCALE[0] + (hash1(g3) / 4294967296) * (TREE_SCALE[1] - TREE_SCALE[0]),
-          (hash1(g3 ^ 0x3c1f) & 0xff) / 255, FloraKind.ConeTree,
+          out, bx, heightAt(bx, bz), bz, (b3 / 4294967296) * Math.PI * 2,
+          BUSH_SCALE[0] + (hash1(b3) / 4294967296) * (BUSH_SCALE[1] - BUSH_SCALE[0]),
+          (hash1(b3 ^ 0x71a5) & 0xff) / 255, FloraKind.Bush,
         )
       }
     }
