@@ -178,6 +178,27 @@ export const MAX_PER_TILE = 384
 export const ISLAND_MAX_PER_TILE = 512
 
 /**
+ * 群島的植被半徑，m。**農地不跟。**
+ *
+ * 【為什麼群島推得動】推遠的成本九成是空水格佔的快取緩衝，而那一項已經改成
+ * 懶配 —— 12 km 的圈有 7,232 格，只有 289 格真的長東西。農地每一格都有東西，
+ * 推遠是實打實的四倍。
+ *
+ * 【為什麼要推】6 km 是「島還看得清楚」的距離，那一刀切在畫面正中間。12 km
+ * 外的島只剩幾十個像素高，那個距離上有沒有樹已經看不出來了。
+ */
+export const ISLAND_RADIUS = 12000
+
+/**
+ * 群島每幀最多生幾格。
+ *
+ * 【由冷啟動反推】12 km 的圈有 7,232 格，每幀 61 格是 120 幀 ≈ 2.0 秒，
+ * 補格期間 3.6 ms/幀、穩態 0.86 ms/幀。每幀 16 格要 7.5 秒 —— 那是上一版
+ * 修掉過的那個空白。`test/tools/island-coldstart.probe.ts` 有整張表。
+ */
+export const ISLAND_TILES_PER_FRAME = 61
+
+/**
  * 快取幾格。圈內約 1,812 格，多留的是移動時的暫時重疊。
  *
  * 每槽 `MAX_PER_TILE × FLORA_STRIDE × 4` bytes 的資料加 `MAX_PER_TILE` bytes
@@ -255,20 +276,20 @@ const CAPACITY: Record<PoolName, number> = {
  * 各留一格防呆就好。
  *
  * 【為什麼要逐圖】兩張圖不會同時存在，而它們的需求差一個量級：農地的
- * `coneCard` 峰值是 16,805，群島是 16,633。取聯集的話兩張圖都要付對方的帳。
+ * `coneCard` 峰值是 16,805，群島是 22,252。取聯集的話兩張圖都要付對方的帳。
  *
  * 【餘裕是兩倍不是 1.35 倍】專案負責人裁定。上一版近級寫 1,300 而實際要
- * 4,843 —— 超出的部分是 `stats.overflow` 靜靜丟掉的，症狀是飛過島心時近處
+ * 4,694 —— 超出的部分是 `stats.overflow` 靜靜丟掉的，症狀是飛過島心時近處
  * 的針葉林整片消失。一格實例是 152 byte（兩份矩陣加兩份顏色），這一組總共
- * 14.4 MB。
+ * 17.2 MB。
  */
 export const ISLAND_CAPACITY: Record<PoolName, number> = {
   broadNear: 16, broadMid: 16, broadCard: 16,
-  coneNear: 9700,      // 掃描最大 4,843
+  coneNear: 9700,      // 掃描最大 4,694
   coneMid: 17300,      // 8,619
-  coneCard: 33300,     // 16,633
+  coneCard: 44500,     // 22,252
   bushNear: 10300,     // 5,149
-  bushCard: 24300,     // 12,136
+  bushCard: 32100,     // 16,035
   house: 16, barn: 16, church: 16,
 }
 
@@ -404,18 +425,40 @@ export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName |
   }
 }
 
+/**
+ * 逐圖覆寫的參數。**兩張圖不會同時存在，所以各給各的最省。**
+ *
+ * 不傳就是農地那一組 —— 農地每一格都有東西，推遠與加大都很貴。
+ */
+export interface VegetationOptions {
+  /** 覆寫池的容量。群島傳 `ISLAND_CAPACITY`；掃描與變異驗證傳哨兵值 */
+  capacity?: Partial<Record<PoolName, number>>
+  /** 單格的上限，株 —— 見 `MAX_PER_TILE` */
+  maxPerTile?: number
+  /** 植被畫到多遠，m —— 見 `FLORA_RADIUS` */
+  radius?: number
+  /** 快取幾格。不傳就由 `radius` 算 */
+  tileCache?: number
+  /** 每幀最多生幾格 —— 見 `TILES_PER_FRAME` */
+  tilesPerFrame?: number
+}
+
 export function createVegetation(
   sources: readonly FloraSource[],
   heightAt: (x: number, z: number) => number,
-  /**
-   * 覆寫池的容量。群島傳 `ISLAND_CAPACITY`；掃描與變異驗證傳哨兵值。
-   * 不傳就是農地那一組 —— 見 `CAPACITY`
-   */
-  capacity?: Partial<Record<PoolName, number>>,
-  /** 單格的上限。預設 `MAX_PER_TILE` —— 見那裡的說明 */
-  maxPerTile: number = MAX_PER_TILE,
+  opts: VegetationOptions = {},
 ): Vegetation {
-  const cap: Record<PoolName, number> = { ...CAPACITY, ...capacity }
+  const cap: Record<PoolName, number> = { ...CAPACITY, ...opts.capacity }
+  const maxPerTile = opts.maxPerTile ?? MAX_PER_TILE
+  const radius = opts.radius ?? FLORA_RADIUS
+  /**
+   * 【快取要比圈大】移動時新舊圈會暫時重疊。圈內格數是
+   * `π r² / TILE_SIZE²`，多留一成六 —— 6 km 是 1,815 對 2,106。
+   */
+  const tileCache = opts.tileCache ?? Math.ceil(
+    ((Math.PI * radius * radius) / (TILE_SIZE * TILE_SIZE)) * 1.16,
+  )
+  const tilesPerFrame = opts.tilesPerFrame ?? TILES_PER_FRAME
   const geometries = createFloraGeometries()
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
@@ -480,7 +523,7 @@ export function createVegetation(
    * 【空格仍然佔槽位】`slotUsed` 是 1、`bySlot` 也照設，只有緩衝是 null。
    * 不佔的話每一幀都會重生一次那一格。
    */
-  const slotBuf: (FloraBuffer | null)[] = new Array<FloraBuffer | null>(TILE_CACHE).fill(null)
+  const slotBuf: (FloraBuffer | null)[] = new Array<FloraBuffer | null>(tileCache).fill(null)
   /** 還回來的緩衝。池的大小會長到「同時非空的格數」的高水位 */
   const freeBufs: FloraBuffer[] = []
   /** 配過的緩衝身分，給「只重用不增長」那條測試比對 */
@@ -501,11 +544,18 @@ export function createVegetation(
     slotBuf[slot] = null
   }
 
-  const slotI = new Int32Array(TILE_CACHE)
-  const slotJ = new Int32Array(TILE_CACHE)
-  const slotUsed = new Uint8Array(TILE_CACHE)
-  const slotLod = new Int8Array(TILE_CACHE)
-  const slotBush = new Uint8Array(TILE_CACHE)
+  const slotI = new Int32Array(tileCache)
+  const slotJ = new Int32Array(tileCache)
+  const slotUsed = new Uint8Array(tileCache)
+  const slotLod = new Int8Array(tileCache)
+  const slotBush = new Uint8Array(tileCache)
+  /**
+   * 逐格的外圈半徑，m。**建格時算一次。**
+   *
+   * 【為什麼不每幀算】`relevel` 每幀走過每一個活槽，而 `outerFor` 要做一次
+   * 雜湊 —— 12 km 是每幀七千次。它只跟格的索引有關，不會變。
+   */
+  const slotOuter = new Float32Array(tileCache)
   /** tile 的鍵 → 槽位。**鍵是數值** —— 字串鍵每幀都在配置 */
   const bySlot = new Map<number, number>()
 
@@ -581,7 +631,7 @@ export function createVegetation(
    * 四十六萬次迴圈。
    */
   const freeSlots: number[] = []
-  for (let s = TILE_CACHE - 1; s >= 0; s--) freeSlots.push(s)
+  for (let s = tileCache - 1; s >= 0; s--) freeSlots.push(s)
 
   function takeSlot(): number {
     const s = freeSlots.pop()
@@ -615,6 +665,7 @@ export function createVegetation(
     slotI[slot] = i
     slotJ[slot] = j
     slotUsed[slot] = 1
+    slotOuter[slot] = outerFor(i, j, radius)
     // 【級數與灌木旗標歸零】新的一格由 `relevel` 定級，而它是「有變才標」——
     // 沿用上一位住戶的值會讓「其實變了」被當成沒變
     slotLod[slot] = -1
@@ -630,19 +681,22 @@ export function createVegetation(
   /**
    * 格心在圈內嗎。
    *
-   * 【界線就是 `FLORA_RADIUS`，不多放】LOD 是**按格心**決定的，所以格心在
+   * 【界線就是 `radius`，不多放】LOD 是**按格心**決定的，所以格心在
    * 2 km 之外的那一格整格是第 3 級 —— 生了也不畫。多放一圈等於白生。
    * 這樣一來「活著的格數」與「建築的實例數」是同一個數字。
    */
+  const radius2 = radius * radius
+
   function inRange(i: number, j: number): boolean {
-    const cx = i * TILE_SIZE + TILE_SIZE / 2
-    const cz = j * TILE_SIZE + TILE_SIZE / 2
-    return Math.hypot(cx - centerX, cz - centerZ) <= FLORA_RADIUS
+    const cx = i * TILE_SIZE + TILE_SIZE / 2 - centerX
+    const cz = j * TILE_SIZE + TILE_SIZE / 2 - centerZ
+    // 【比平方，不開根號】`evict` 與 `fill` 每幀各走一次全部的格
+    return cx * cx + cz * cz <= radius2
   }
 
   /** 放掉圈外的格 */
   function evict(): void {
-    for (let s = 0; s < TILE_CACHE; s++) {
+    for (let s = 0; s < tileCache; s++) {
       if (slotUsed[s] === 0) continue
       if (inRange(slotI[s]!, slotJ[s]!)) continue
       freeSlot(s)
@@ -670,7 +724,7 @@ export function createVegetation(
    * 那只影響「先生哪一格」，不影響最後生了哪些格。
    */
   const ring = ((): { di: Int16Array, dj: Int16Array } => {
-    const reach = Math.ceil(FLORA_RADIUS / TILE_SIZE) + 1
+    const reach = Math.ceil(radius / TILE_SIZE) + 1
     const items: { di: number, dj: number, d2: number }[] = []
     for (let dj = -reach; dj <= reach; dj++) {
       for (let di = -reach; di <= reach; di++) {
@@ -708,13 +762,13 @@ export function createVegetation(
   /** 重新決定每一格的級數。有任何一格改變就標髒 */
   function relevel(): void {
     let live = 0
-    for (let s = 0; s < TILE_CACHE; s++) {
+    for (let s = 0; s < tileCache; s++) {
       if (slotUsed[s] === 0) continue
       live++
       const cx = slotI[s]! * TILE_SIZE + TILE_SIZE / 2
       const cz = slotJ[s]! * TILE_SIZE + TILE_SIZE / 2
       const d = Math.hypot(cx - centerX, cz - centerZ)
-      const lod = lodFor(d, slotLod[s]!, outerFor(slotI[s]!, slotJ[s]!))
+      const lod = lodFor(d, slotLod[s]!, slotOuter[s]!)
       const bush = d <= BUSH_RANGE + (slotBush[s] === 1 ? LOD_HYSTERESIS : 0) ? 1 : 0
       if (lod !== slotLod[s]) {
         dirty = true
@@ -749,7 +803,7 @@ export function createVegetation(
       mesh.instanceColor = altCol[name]![side[name]!]!
     }
     stats.overflow = 0
-    for (let s = 0; s < TILE_CACHE; s++) {
+    for (let s = 0; s < tileCache; s++) {
       if (slotUsed[s] === 0) continue
       const buf = slotBuf[s] ?? null
       if (buf === null) continue
@@ -815,7 +869,7 @@ export function createVegetation(
     centerZ = cz
     started = true
     evict()
-    fill(TILES_PER_FRAME)
+    fill(tilesPerFrame)
     relevel()
     sinceRebuild++
     // 【三道閘】還在補格的期間不重建；兩次重建至少隔 REBUILD_EVERY 幀；
@@ -835,8 +889,9 @@ export function createVegetation(
       for (const name of POOL_NAMES) poolDirty[name] = true
       dirty = true
     }
-    // 【上界是快取大小】圈內約 201 格，這個上界只是防呆
-    for (let n = 0; n < TILE_CACHE * 2; n++) if (fill(1) === 0) break
+    // 【一次補一整批，不是一格一格】`fill` 是走整條格環的，`fill(1)` 迴圈
+    // 會變成 O(格數 × 環長) —— 12 km 是兩千六百萬次
+    for (let n = 0; n < 4; n++) if (fill(tileCache) === 0) break
     evict()
     relevel()
     // 【settle 不受節流】定格截圖要的是「現在就對」
@@ -851,7 +906,7 @@ export function createVegetation(
     stats,
     debugTiles() {
       const out: { i: number, j: number, lod: number }[] = []
-      for (let s = 0; s < TILE_CACHE; s++) {
+      for (let s = 0; s < tileCache; s++) {
         if (slotUsed[s] === 0) continue
         out.push({ i: slotI[s]!, j: slotJ[s]!, lod: slotLod[s]! })
       }

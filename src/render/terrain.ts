@@ -3,7 +3,10 @@ import { createOcean } from './ocean'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
-import { createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from './vegetation'
+import {
+  createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
+  ISLAND_TILES_PER_FRAME,
+} from './vegetation'
 import {
   createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora, islandCanopyCover,
 } from './flora'
@@ -138,7 +141,10 @@ function createArchipelagoTerrain(): Terrain {
   // 量級 —— 見 `ISLAND_CAPACITY` 與 `ISLAND_MAX_PER_TILE`
   const flora = createVegetation(
     [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
-    ISLAND_CAPACITY, ISLAND_MAX_PER_TILE,
+    {
+      capacity: ISLAND_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE,
+      radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
+    },
   )
   const group = new Group()
   group.add(ocean.farMesh)
