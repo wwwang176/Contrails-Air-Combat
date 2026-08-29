@@ -267,7 +267,7 @@ describe('Bocage 的田區', () => {
       'uint edgeKey = fieldHash2(c ^ colSalt, 0x51ed);',
       'uint cellHash = fieldHash2(c ^ int(rid), r);',
       'float f = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;',
-      'if (float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE',
+      'bool isHedge = float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE;',
       'uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));',
       'int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, 7);',
     ]
@@ -493,6 +493,75 @@ describe('樹林', () => {
 })
 
 /**
+ * 帶的邊緣抗鋸齒。**只在 GPU 上做**，與條紋同一個理由 —— 這是 CPU 與 GLSL
+ * 容許分家的第二處，而且是唯一的一處新增。
+ *
+ * `fieldAt` 與 `fieldSurfaceColor` 維持二值，因為樹的位置靠它們；近距離
+ * 足跡趨近 0 時覆蓋率收斂回二值，所以樹的位置與看到的暗帶仍然對得上。
+ */
+describe('帶的邊緣抗鋸齒', () => {
+  const body = FIELD_GLSL.slice(FIELD_GLSL.indexOf('vec3 fieldColorAt'))
+
+  /**
+   * 【盒濾波，不是 smoothstep】`1 - smoothstep(halfW - w, halfW + w, d)` 在
+   * `w` 超過帶寬時會把影響範圍撐到 `halfW + w`，遠處變成一片過暗的灰霧。
+   * 盒濾波在 `w → ∞` 時趨近 `halfW / w`，也就是那條帶在像素裡的真實面積比
+   * —— 細線變淡，不是變寬。
+   */
+  it('覆蓋率是解析盒濾波', () => {
+    expect(FIELD_GLSL).toContain(
+      'clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0)')
+    expect(FIELD_GLSL).not.toContain('smoothstep(halfW')
+  })
+
+  /**
+   * 【足跡要無條件算，而且吃世界座標】`best` 是四條外框加一條切線取 min，
+   * 在最近邊換手的角平分線上不可微 —— 田角會長出楔形接縫。而導數指令在
+   * fragment quad 內分歧時結果本來就不可靠，所以不能放進任何分支。
+   */
+  it('像素足跡在最前面、無條件、吃世界座標', () => {
+    expect(body).toContain(
+      'float px = 0.5 * length(vec2(fwidth(world.x), fwidth(world.y)));')
+    expect(FIELD_GLSL).not.toContain('fwidth(best)')
+    // 足跡要在第一個 return 之前 —— 而且在區塊那個迴圈之前
+    expect(body.indexOf('float px =')).toBeLessThan(body.indexOf('for (int dj'))
+  })
+
+  /**
+   * 【硬判斷一個都不准留】留一個就是留一條會爬的線。改寫成三元式也不行 ——
+   * 所以這裡直接查那三個 return 不存在。
+   */
+  it('三個提早 return 都拿掉了', () => {
+    expect(FIELD_GLSL).not.toContain('return TRACK_COLOR;')
+    expect(FIELD_GLSL).not.toContain('return HEDGE_COLOR;')
+    expect(FIELD_GLSL).not.toContain('return WOOD_COLOR;')
+  })
+
+  /**
+   * 【疊色的順序就是優先權】凹路壓過樹籬、樹籬壓過田 —— 與
+   * `fieldSurfaceColor` 相同。順序反了的話村口的凹路會被樹籬蓋掉。
+   */
+  it('順序是 底色 → 條紋 → 樹籬 → 凹路', () => {
+    const at = (t: string): number => {
+      const i = body.indexOf(t)
+      expect([t, i >= 0]).toEqual([t, true])
+      return i
+    }
+    expect(at('col = mix(col, HEDGE_COLOR')).toBeGreaterThan(at('col *= stripe('))
+    expect(at('col = mix(col, TRACK_COLOR')).toBeGreaterThan(at('col = mix(col, HEDGE_COLOR'))
+  })
+
+  /**
+   * 【兩條帶的半寬不一樣，別統一】凹路現況的判準是 `r2 - r1 < TRACK_WIDTH`，
+   * 所以它的半寬就是 `TRACK_WIDTH`；樹籬是 `best < HEDGE_WIDTH * 0.5`。
+   */
+  it('兩條帶各自傳對的距離與半寬', () => {
+    expect(body).toContain('bandCoverage(best, HEDGE_WIDTH * 0.5, px)')
+    expect(body).toContain('bandCoverage(r2 - r1, TRACK_WIDTH, px)')
+  })
+})
+
+/**
  * 犁溝與作物條紋。**只在 GPU 上做** —— 抗鋸齒需要片段的導數（`fwidth`），
  * CPU 沒有對應物。沒有抗鋸齒的話 1 km 外整片田會出現摩爾紋，比沒有條紋更糟。
  *
@@ -505,8 +574,11 @@ describe('犁溝與作物條紋', () => {
     expect(FIELD_GLSL).toContain('col *= stripe(q, STRIPE_PERIOD, amp);')
   })
 
-  it('犁田的條紋幅度是作物的兩倍', () => {
-    expect(FIELD_GLSL).toContain('float amp = ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP;')
+  it('犁田的條紋幅度是作物的兩倍，而樹林一條都沒有', () => {
+    // 【樹林是林冠不是作物】CPU 的 fieldSurfaceColor 對樹林回純色，
+    // GPU 這邊套上條紋的話會多出一個沒核可的分歧
+    expect(FIELD_GLSL).toContain(
+      'float amp = wood ? 0.0 : (ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP);')
   })
 
   it('條紋順著田的長軸，所以是沿短軸重複', () => {
