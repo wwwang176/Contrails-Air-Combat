@@ -15,11 +15,16 @@ import { BufferAttribute, BufferGeometry, Color } from 'three'
  * 但材質的 `vertexColors` 必須是 `true`，否則 `USE_COLOR` 不定義，
  * 樹幹會跟樹冠同色。
  *
- * 【尺寸的基準】縮放 1.0 時喬木高 15 m。放置那一側在 0.8～1.2 之間抖。
+ * 【尺寸的基準】縮放 1.0 時喬木高 30 m、灌木高 8 m。放置那一側在
+ * 0.5～1.0 之間抖，所以場上是 15～30 m 的樹與 4～8 m 的灌木。
  */
 
-/** 縮放 1.0 的喬木高度，m */
-export const TREE_HEIGHT = 15
+/**
+ * 縮放 1.0 的喬木高度，m。
+ *
+ * 放置那一側在 0.5～1.0 之間抖（`TREE_SCALE`），所以場上的樹是 15～30 m。
+ */
+export const TREE_HEIGHT = 30
 
 export type PoolName =
   | 'broadNear' | 'broadMid' | 'broadCard'
@@ -29,6 +34,17 @@ export type PoolName =
 
 /** 公告板那三個。它們走另一顆材質 —— 見 `render/vegetation.ts` */
 export const CARD_POOLS: readonly PoolName[] = ['broadCard', 'coneCard', 'bushCard']
+
+/**
+ * 樹冠的位置與大小。**三級共用同一組** —— 換級只掉樹幹與面數，樹冠一動
+ * 都不動。分開寫死的話，改了一級忘了另一級，症狀就是過門檻時樹冠跳位置。
+ */
+const BROAD_CROWN_Y0 = 10
+const BROAD_CROWN_R = 10
+const BROAD_CROWN_RY = 10
+const BROAD_CROWN_CY = 20
+const CONE_CROWN_Y0 = 8
+const CONE_CROWN_R = 7
 
 const TRUNK = 0x4a3b2a
 const BROAD_LEAF = 0x3f5233
@@ -157,14 +173,15 @@ function gable(
  * 【菱形不是矩形】它取代的是八面體，而 15 m 的樹在 3 km 還有 4.6 px ——
  * 那個尺度看得出剪影。矩形會在門檻上跳一下。
  */
-function cardDiamond(s: Soup, hex: number, halfW: number, h: number): void {
-  tri(s, hex, 0, 0, 0, halfW, h / 2, 0, 0, h, 0)
-  tri(s, hex, 0, 0, 0, 0, h, 0, -halfW, h / 2, 0)
+function cardDiamond(s: Soup, hex: number, halfW: number, y0: number, y1: number): void {
+  const my = (y0 + y1) / 2
+  tri(s, hex, 0, y0, 0, halfW, my, 0, 0, y1, 0)
+  tri(s, hex, 0, y0, 0, 0, y1, 0, -halfW, my, 0)
 }
 
 /** 針葉的公告板：一個等腰三角形，那正好是錐的側影。1 tri */
-function cardCone(s: Soup, hex: number, halfW: number, h: number): void {
-  tri(s, hex, -halfW, 0, 0, halfW, 0, 0, 0, h, 0)
+function cardCone(s: Soup, hex: number, halfW: number, y0: number, y1: number): void {
+  tri(s, hex, -halfW, y0, 0, halfW, y0, 0, 0, y1, 0)
 }
 
 function finish(s: Soup): BufferGeometry {
@@ -213,27 +230,32 @@ export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
   return {
     // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
     broadNear: build((s) => {
-      cylinder(s, TRUNK, 6, 0.5, 0, 5)
-      octa(s, BROAD_LEAF, 5, 5, 10)
+      cylinder(s, TRUNK, 6, 1, 0, BROAD_CROWN_Y0)
+      octa(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY)
     }),
-    // 【中級不是簡化版，是同一個剪影的便宜版】掉的只有樹幹；顏色、寬度、
-    // 「圓」這件事都留著。換級只該讓樹變簡單，不該讓它變成另一種樹 ——
+    // 【中級掉的只有樹幹，樹冠一動都不動】樹冠仍然在 BROAD_CROWN_Y0 到
+    // TREE_HEIGHT 之間、寬度也一樣 —— 把它拉到地面（`octa(…, H/2, H/2)`）
+    // 的話，過門檻的瞬間樹冠會往下掉一截又變胖，那比少一根樹幹明顯得多。
     // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
-    broadMid: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
-    // 闊葉遠：菱形公告板，寬高與 broadMid 逐項對齊
-    broadCard: buildCard((s) => { cardDiamond(s, BROAD_LEAF, 5, TREE_HEIGHT) }),
+    broadMid: build((s) => { octa(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
+    // 闊葉遠：菱形公告板，位置與寬高與 broadMid 逐項對齊
+    broadCard: buildCard((s) => {
+      cardDiamond(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_Y0, TREE_HEIGHT)
+    }),
     // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
     coneNear: build((s) => {
-      cylinder(s, TRUNK, 6, 0.45, 0, 4)
-      cone(s, CONIFER, 7, 3.5, 4, TREE_HEIGHT)
+      cylinder(s, TRUNK, 6, 0.9, 0, CONE_CROWN_Y0)
+      cone(s, CONIFER, 7, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
     }),
-    // 針葉中：六邊錐，底落地。仍然是深綠的尖
-    coneMid: build((s) => { cone(s, CONIFER, 6, 3.2, 0, TREE_HEIGHT) }),
+    // 針葉中：六邊錐，底仍然在 CONE_CROWN_Y0，不落地 —— 與闊葉同一個理由
+    coneMid: build((s) => { cone(s, CONIFER, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
     // 針葉遠：一個等腰三角形 —— 錐的側影就是這個形狀
-    coneCard: buildCard((s) => { cardCone(s, CONIFER, 3.2, TREE_HEIGHT) }),
+    coneCard: buildCard((s) => {
+      cardCone(s, CONIFER, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
+    }),
     // 【要比間距寬】相鄰兩叢交疊才成一條連續的堤 —— 見 HEDGE_BUSH_SPACING
-    bushNear: build((s) => { octa(s, BUSH_LEAF, 3, 2, 2) }),
-    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, 3, 4) }),
+    bushNear: build((s) => { octa(s, BUSH_LEAF, 6, 4, 4) }),
+    bushCard: buildCard((s) => { cardDiamond(s, BUSH_LEAF, 6, 0, 8) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂

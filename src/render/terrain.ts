@@ -3,7 +3,7 @@ import { createOcean } from './ocean'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
-import { createVegetation } from './vegetation'
+import { createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE } from './vegetation'
 import {
   createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
 } from './flora'
@@ -132,8 +132,11 @@ function createArchipelagoTerrain(): Terrain {
   const ocean = createOcean(bakeShore(field))
   const meshes = createIslands(field, islands)
   // 【植被 append 在索引 3】前三個是明文契約，見 `main.ts` 的 `__gfx`
+  // 【容量與單格上限都是群島專用的】島上只有針葉樹，但密度比農地高一個
+  // 量級 —— 見 `ISLAND_CAPACITY` 與 `ISLAND_MAX_PER_TILE`
   const flora = createVegetation(
     [createIslandFlora(field, islands)], (x, z) => field.sample(x, z),
+    ISLAND_CAPACITY, ISLAND_MAX_PER_TILE,
   )
   const group = new Group()
   group.add(ocean.farMesh)

@@ -126,8 +126,12 @@ const ALONG_JITTER = 0.3
 const SIDE_JITTER = 3
 
 /** 喬木的縮放區間。幾何在 1.0 是 15 m 高 */
-const TREE_SCALE = [0.8, 1.2] as const
-const BUSH_SCALE = [0.8, 1.3] as const
+/**
+ * 逐株的縮放。**上界是 1.0** —— 幾何本身就是最大的那一棵（喬木 30 m、
+ * 灌木 8 m），抖動只往下走。
+ */
+const TREE_SCALE = [0.5, 1.0] as const
+const BUSH_SCALE = [0.5, 1.0] as const
 
 function hash2(i: number, j: number): number {
   let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
@@ -589,9 +593,15 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
 }
 
 /**
- * 島上的網格間距，m。400 棵/km² 的上限 —— 坡度會再往下壓。
+ * 島上的網格間距，m。
+ *
+ * 【上限與實得差很多】`1e6 / grid²` 是上限，但要通過高度帶（`isGrass`）與
+ * 坡度那兩關。11.3 m 的上限是 7,832 棵/km²，實測落在三千上下 —— 島很陡。
+ *
+ * 【單格的上限跟著它走】群島那一支用 `ISLAND_MAX_PER_TILE` 而不是農地的
+ * 384。掃描表在 `test/tools/island-density.probe.ts`。
  */
-export const ISLAND_GRID = 50
+export const ISLAND_GRID = 11.3
 
 /** tile 中心離島多遠就整格跳過，m */
 const ISLAND_MARGIN = 200
