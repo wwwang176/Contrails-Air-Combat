@@ -28,6 +28,13 @@ function colours(g: BufferGeometry): Set<string> {
   return out
 }
 
+/** 樹冠色。樹幹先建，所以最後一個頂點一定是樹冠 */
+function crownColour(g: BufferGeometry): string {
+  const a = g.getAttribute('color')
+  const i = a.count - 1
+  return [a.getX(i), a.getY(i), a.getZ(i)].map((v) => v.toFixed(4)).join(',')
+}
+
 describe('植被與建築的幾何', () => {
   /**
    * 【精確比對，不是上限】三角形數是效能預算的分母。
@@ -36,7 +43,7 @@ describe('植被與建築的幾何', () => {
    */
   it('每個幾何的三角形數', () => {
     const want: Record<PoolName, number> = {
-      broadL0: 20, coneL0: 19, treeMid: 8, treeFar: 4,
+      broadNear: 20, broadFar: 8, coneNear: 19, coneFar: 6,
       bush: 8, house: 18, barn: 18, church: 34,
     }
     const got: Record<string, number> = {}
@@ -47,7 +54,7 @@ describe('植被與建築的幾何', () => {
 
   it('八個幾何，名字與池一一對應', () => {
     expect(names.sort()).toEqual([
-      'barn', 'broadL0', 'bush', 'church', 'coneL0', 'house', 'treeFar', 'treeMid',
+      'barn', 'broadFar', 'broadNear', 'bush', 'church', 'coneFar', 'coneNear', 'house',
     ])
   })
 
@@ -59,30 +66,40 @@ describe('植被與建築的幾何', () => {
     for (const n of names) expect(bounds(geo[n]).min.y).toBeCloseTo(0, 5)
   })
 
-  it('近中距離的喬木一樣高，最遠那一級刻意矮一點', () => {
-    for (const n of ['broadL0', 'coneL0', 'treeMid'] as const) {
+  /** 【四級喬木一樣高】換級不得讓樹忽然長高或縮矮 */
+  it('四個喬木幾何一樣高', () => {
+    for (const n of ['broadNear', 'broadFar', 'coneNear', 'coneFar'] as const) {
       expect(bounds(geo[n]).max.y).toBeCloseTo(TREE_HEIGHT, 5)
     }
-    // 【treeFar 矮而寬】1 km 外一棵樹只有幾個像素，要的是團塊不是尖塔
-    const far = bounds(geo.treeFar)
-    expect(far.max.y).toBeLessThan(TREE_HEIGHT)
-    expect(far.max.y).toBeGreaterThan(TREE_HEIGHT * 0.7)
-    expect(far.max.x - far.min.x).toBeGreaterThan(bounds(geo.coneL0).max.x * 2)
   })
 
   /**
-   * 【遠中距離不得是尖錐】L1／L2 不分樹種，而 450 m 外的地佔了畫面九成 ——
-   * 兩級都用尖錐的話整片 bocage 讀起來像雲杉林。判準用「寬高比」：
-   * 闊葉的樹冠接近球，針葉的錐細長。
+   * 【換級不換剪影】900 m 的門檻上只該掉樹幹與幾個面。闊葉遠近都是圓的，
+   * 針葉遠近都是尖的 —— 判準是寬高比。
+   *
+   * 這一條正面擋住「L1 之後不分樹種」那個缺陷：把 `coneFar` 換成八面體
+   * 就會紅。
    */
-  it('遠中距離的輪廓是圓的，不是尖的', () => {
-    for (const n of ['treeMid', 'treeFar'] as const) {
+  it('換級不換剪影：闊葉遠近都圓，針葉遠近都尖', () => {
+    const ratio = (n: PoolName): number => {
       const b = bounds(geo[n])
-      expect((b.max.x - b.min.x) / b.max.y).toBeGreaterThan(0.6)
+      return (b.max.x - b.min.x) / b.max.y
     }
-    // 針葉的 L0 仍然細長 —— 那是防風林該有的樣子
-    const c = bounds(geo.coneL0)
-    expect((c.max.x - c.min.x) / c.max.y).toBeLessThan(0.6)
+    expect(ratio('broadNear')).toBeGreaterThan(0.6)
+    expect(ratio('broadFar')).toBeGreaterThan(0.6)
+    expect(ratio('coneNear')).toBeLessThan(0.6)
+    expect(ratio('coneFar')).toBeLessThan(0.6)
+  })
+
+  /**
+   * 【換級不換樹種】遠級與近級的樹冠必須同色，而兩個樹種必須不同色。
+   * 顏色與剪影是兩件事，兩條都要有 —— 同色但形狀變了、或形狀對了但
+   * 顏色跳掉，看起來都是「那棵樹換了種」。
+   */
+  it('換級不換樹種：兩級同色，兩樹種不同色', () => {
+    expect(crownColour(geo.broadFar)).toBe(crownColour(geo.broadNear))
+    expect(crownColour(geo.coneFar)).toBe(crownColour(geo.coneNear))
+    expect(crownColour(geo.broadFar)).not.toBe(crownColour(geo.coneFar))
   })
 
   /**
@@ -109,13 +126,13 @@ describe('植被與建築的幾何', () => {
   })
 
   /** 【樹幹與樹冠必須是兩個顏色】材質沒開 vertexColors 的話這一條仍然綠 */
-  it('L0 的兩種喬木都有樹幹色與樹冠色', () => {
-    for (const n of ['broadL0', 'coneL0'] as const) {
+  it('近級的兩種喬木都有樹幹色與樹冠色', () => {
+    for (const n of ['broadNear', 'coneNear'] as const) {
       expect(colours(geo[n]).size).toBe(2)
     }
-    // 沒有樹幹的那兩級只有一個顏色
-    expect(colours(geo.treeMid).size).toBe(1)
-    expect(colours(geo.treeFar).size).toBe(1)
+    // 遠級沒有樹幹，只有一個顏色
+    expect(colours(geo.broadFar).size).toBe(1)
+    expect(colours(geo.coneFar).size).toBe(1)
   })
 
   it('房子的牆與屋頂是兩個顏色，教堂三個', () => {
@@ -125,8 +142,8 @@ describe('植被與建築的幾何', () => {
     expect(colours(geo.church).size).toBe(3)
   })
 
-  it('L0 喬木最低的那些頂點是樹幹色', () => {
-    for (const n of ['broadL0', 'coneL0'] as const) {
+  it('近級喬木最低的那些頂點是樹幹色', () => {
+    for (const n of ['broadNear', 'coneNear'] as const) {
       const g = geo[n]
       const p = g.getAttribute('position')
       const c = g.getAttribute('color')
@@ -160,7 +177,7 @@ describe('植被與建築的幾何', () => {
    * 教堂是本堂加高塔，非凸，中心會落在塔身外面而誤判本堂的屋頂。
    */
   const STAR_Y: Record<PoolName, number> = {
-    broadL0: 5, coneL0: 4, treeMid: 7.5, treeFar: 1,
+    broadNear: 5, broadFar: 7.5, coneNear: 4, coneFar: 1,
     bush: 2, house: 2.5, barn: 3, church: 3,
   }
 

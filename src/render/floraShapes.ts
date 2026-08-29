@@ -22,7 +22,7 @@ import { BufferAttribute, BufferGeometry, Color } from 'three'
 export const TREE_HEIGHT = 15
 
 export type PoolName =
-  | 'broadL0' | 'coneL0' | 'treeMid' | 'treeFar'
+  | 'broadNear' | 'broadFar' | 'coneNear' | 'coneFar'
   | 'bush' | 'house' | 'barn' | 'church'
 
 const TRUNK = 0x4a3b2a
@@ -165,23 +165,22 @@ function build(fn: (s: Soup) => void): BufferGeometry {
  */
 export function createFloraGeometries(): Record<PoolName, BufferGeometry> {
   return {
-    // 闊葉：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
-    broadL0: build((s) => {
+    // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
+    broadNear: build((s) => {
       cylinder(s, TRUNK, 6, 0.5, 0, 5)
-      octa(s, BROAD_LEAF, 4.5, 5, 10)
+      octa(s, BROAD_LEAF, 5, 5, 10)
     }),
-    // 針葉：圓柱樹幹 12 ＋ 七邊錐 7 = 19
-    coneL0: build((s) => {
+    // 【遠級不是簡化版，是同一個剪影的便宜版】掉的只有樹幹；顏色、寬度、
+    // 「圓」這件事都留著。換級只該讓樹變簡單，不該讓它變成另一種樹 ——
+    // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
+    broadFar: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
+    // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
+    coneNear: build((s) => {
       cylinder(s, TRUNK, 6, 0.45, 0, 4)
       cone(s, CONIFER, 7, 3.5, 4, TREE_HEIGHT)
     }),
-    // 【中距離沒有樹幹】800 m 外樹幹不足 1 px。底落在地面，不是浮在半空。
-    //
-    // 【形狀是圓的不是尖的】L1／L2 不分樹種，而 450 m 外的地佔了畫面九成 ——
-    // 兩級都用尖錐的話，整片 bocage 讀起來像雲杉林。Bocage 是闊葉為主，
-    // 所以遠處的輪廓要圓。
-    treeMid: build((s) => { octa(s, BROAD_LEAF, 5, TREE_HEIGHT / 2, TREE_HEIGHT / 2) }),
-    treeFar: build((s) => { cone(s, BROAD_LEAF, 4, 5.5, 0, TREE_HEIGHT * 0.85) }),
+    // 針葉遠：六邊錐，底落地。仍然是深綠的尖
+    coneFar: build((s) => { cone(s, CONIFER, 6, 3.2, 0, TREE_HEIGHT) }),
     // 【要比間距寬】相鄰兩叢交疊才成一條連續的堤 —— 見 HEDGE_BUSH_SPACING
     bush: build((s) => { octa(s, BUSH_LEAF, 3, 2, 2) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18

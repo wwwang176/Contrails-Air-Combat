@@ -15,13 +15,17 @@ export type { PoolName }
  * 植被的引擎：**跟著鏡頭的 tile 快取 ＋ 分級的 InstancedMesh 池。**
  *
  * ```
- *   L0   0 – 450 m      樹幹 ＋ 樹冠
- *   L1   450 – 1,100    只有樹冠 —— 800 m 外樹幹不足 1 px
- *   L2   1,100 – 2,000  四邊錐
- *   外   > 2,000 m      不畫。著色器那條 18 m 的暗帶自己接手
- *   灌木 0 – 500 m
+ *   近   0 – 900 m      樹幹 ＋ 樹冠
+ *   遠   900 – 3,000    只有樹冠 —— 900 m 外樹幹不足 1 px
+ *   外   > 3,000 m      不畫。著色器那條 18 m 的暗帶自己接手
+ *   灌木 0 – 1,200 m
  *   建築 圈內都畫       一座 18 tri、圈內約 50 座，分級沒有意義
  * ```
+ *
+ * 【兩級，而且分樹種】闊葉近遠都是圓的八面體，針葉近遠都是尖錐 ——
+ * 換級只掉樹幹，不換剪影也不換顏色。**第三級買不到效能**：一個從各角度都
+ * 讀得出「圓」的形狀最少就是 8 個三角形，實測三級與兩級的三角形總數是
+ * 184k 對 187k，多的只是一個會跳的門檻。
  *
  * 【LOD 是逐 tile 決定的，不是逐棵】逐棵切要每幀重建整個池。代價是 250 m
  * 的一格同時換級，在門檻上可能看得出來跳一下 —— 遲滯只擋來回抖動，擋不了
@@ -37,10 +41,19 @@ export type { PoolName }
  */
 
 export const TILE_SIZE = 250
-export const FLORA_RADIUS = 2000
-export const LOD_NEAR = 450
-export const LOD_MID = 1100
-export const LOD_FAR = 2000
+export const FLORA_RADIUS = 3000
+
+/**
+ * 樹幹畫到多遠，m。**唯一的換級門檻。**
+ *
+ * 樹幹直徑 1 m。960 px 高、60° 垂直視角下，1 m 在 d 公尺外約占 917 / d 個
+ * 像素 —— 900 m 正好是 1 px，再往外就是在畫看不見的東西。
+ *
+ * 【放遠的代價很小】一棵樹由遠級升到近級只多 12 個三角形（20 對 8、19 對 6），
+ * 所以 450 → 900 整段只漲 25k。換到的是「看得到樹幹」的時間由 3 秒變 6 秒
+ * （甲板速度 150 m/s）。
+ */
+export const LOD_NEAR = 900
 
 /** 換級的緩衝，m。只擋來回抖動 */
 export const LOD_HYSTERESIS = 40
@@ -50,9 +63,9 @@ export const LOD_HYSTERESIS = 40
  *
  * 【放遠過】500 m 時，再遠的樹籬只剩 12 m 一棵的喬木 —— 巡航高度看下去
  * 整片地的樹籬因此是稀疏的點列。灌木是 8 個三角形，比喬木便宜，放遠是
- * 划算的那一邊。
+ * 划算的那一邊。1,200 m 是 8,314 叢，比 900 m 多 3,260 叢、26k 三角形。
  */
-export const BUSH_RANGE = 900
+export const BUSH_RANGE = 1200
 
 /** 每幀最多生幾格。200 m/s 越過一格是 1.25 s，補一欄約 16 格 */
 export const TILES_PER_FRAME = 4
@@ -60,9 +73,10 @@ export const TILES_PER_FRAME = 4
 /**
  * 兩次重建之間至少隔幾幀。
  *
- * 【為什麼一定要節流】級數是逐 tile 決定的，而三條 LOD 環上大約有 88 格；
- * 鏡頭每移動 250 m，那 88 格就各換級一次 —— 換算下來**幾乎每一幀都有一格
- * 換級**，於是「有變就重建」等於每幀重建一萬八千筆實例再上傳 1.4 MB。
+ * 【為什麼一定要節流】級數是逐 tile 決定的，而 900 m 與 3,000 m 兩條環上
+ * 大約有 90 格；鏡頭每移動 250 m 那些格就各換級一次 —— 換算下來**幾乎
+ * 每一幀都有一格換級**，於是「有變就重建」等於每幀重建三萬筆實例再上傳
+ * 2.3 MB。
  *
  * 2026-08-29 實測（農地・甲板・代飛・1707×960 @ DPR 1.5・解鎖 vsync）：
  *
@@ -95,9 +109,10 @@ export const REBUILD_EVERY = 6
  * 【為什麼用距離不是幀數】級數的顆粒是 250 m 的一格，所以移動兩百公尺才
  * 重算一次綽綽有餘。甲板速度 150 m/s 下這是每秒 0.75 次。
  *
- * 【停頓不隨上傳量走，隨次數走】把維持半徑由 2,000 砍到 1,100（最大的那條
- * treeFar 緩衝整個消失）**一點改善都沒有**；而把重建的次數壓下來立刻有效。
- * 貴的是「對正在被 GPU 讀的緩衝呼叫 bufferSubData」這個動作本身。
+ * 【停頓不隨上傳量走，隨次數走】把維持半徑砍掉一半（最大的那條緩衝整個
+ * 消失）**一點改善都沒有**；而把重建的次數壓下來立刻有效。貴的是「對正在
+ * 被 GPU 讀的緩衝呼叫 bufferSubData」這個動作本身。**維持半徑由 2,000 放到
+ * 3,000 不增加上傳次數，只增加每次的量** —— 這一條就是它安全的理由。
  *
  * 2026-08-29 實測（農地・甲板・代飛・1707×960 @ DPR 1.5・飛機粒子全關）：
  *
@@ -126,17 +141,20 @@ const REBUILD_IDLE = 120
 /**
  * 單一 tile 最多幾株。
  *
- * 實測（`vegetation.test.ts` 的掃描）最密的一格是 318 株 —— 整格都是樹林
- * 的那種。512 留了六成的餘裕。
+ * 實測（`vegetation.test.ts` 的掃描）最密的一格是 351 株 —— 整格都是樹林
+ * 的那種。512 留了四成六的餘裕。
  */
 export const MAX_PER_TILE = 512
 
 /**
- * 快取幾格。圈內約 201 格，多留的是移動時的暫時重疊。
+ * 快取幾格。圈內約 455 格，多留的是移動時的暫時重疊。
+ *
+ * 每槽 `MAX_PER_TILE × FLORA_STRIDE × 4` bytes 的資料加 `MAX_PER_TILE` bytes
+ * 的種類，560 槽約 7.2 MB。全部開場配掉，之後不再配置。
  */
-export const TILE_CACHE = 288
+export const TILE_CACHE = 560
 
-const LOD_STEP = [LOD_NEAR, LOD_MID, LOD_FAR] as const
+const LOD_STEP = [LOD_NEAR, FLORA_RADIUS] as const
 
 /**
  * 這個距離該用哪一級。`prev` 是目前的級數，`-1` 表示沒有前一級。
@@ -147,11 +165,11 @@ const LOD_STEP = [LOD_NEAR, LOD_MID, LOD_FAR] as const
 export function lodFor(dist: number, prev: number): number {
   if (prev < 0) {
     let lod = 0
-    while (lod < 3 && dist > LOD_STEP[lod]!) lod++
+    while (lod < 2 && dist > LOD_STEP[lod]!) lod++
     return lod
   }
   let lod = prev
-  while (lod < 3 && dist > LOD_STEP[lod]! + LOD_HYSTERESIS) lod++
+  while (lod < 2 && dist > LOD_STEP[lod]! + LOD_HYSTERESIS) lod++
   while (lod > 0 && dist < LOD_STEP[lod - 1]! - LOD_HYSTERESIS) lod--
   return lod
 }
@@ -160,24 +178,28 @@ export function lodFor(dist: number, prev: number): number {
  * 各池的容量。**由 `vegetation.test.ts` 的掃描定值** —— 沿一條穿過全圖的
  * 航線取 40 個位置，各池的最大同時實例數乘 1.35 進位。註解裡的是實測最大值。
  *
+ * 【掃描要帶哨兵容量】`rebuild()` 會先用這裡的數字截斷 `counts`，所以拿正式
+ * 容量去掃是循環量測：容量偏小時，印出來的「最大值」就是截斷值。掃描那一條
+ * 傳一個大得離譜的 `capacity` 進去，量到的才是真的需求。
+ *
  * 【建築那三個為什麼放得寬】圈內通常只有一到兩個村，實測最大只有 18 棟房子，
  * 但那個數字對「村剛好在圈心」很敏感。三個池加起來也才 180 個實例。
  *
  * 溢位時丟掉並記一次告警，不靜默截斷。
  */
 const CAPACITY: Record<PoolName, number> = {
-  broadL0: 1200,    // 掃描最大 843
-  coneL0: 500,      // 295
-  treeMid: 4800,    // 3,496
-  treeFar: 11500,   // 8,457
-  bush: 7000,       // 5,140
-  house: 100,       // 14
-  barn: 60,         // 4
-  church: 20,       // 1
+  broadNear: 2800,   // 掃描最大 2,056
+  coneNear: 1300,    // 913
+  broadFar: 24000,   // 17,728
+  coneFar: 9700,     // 7,146
+  bush: 12000,       // 8,750
+  house: 100,        // 25
+  barn: 60,          // 11
+  church: 20,        // 2
 }
 
 const POOL_NAMES: readonly PoolName[] = [
-  'broadL0', 'coneL0', 'treeMid', 'treeFar', 'bush', 'house', 'barn', 'church',
+  'broadNear', 'coneNear', 'broadFar', 'coneFar', 'bush', 'house', 'barn', 'church',
 ]
 
 export interface Vegetation {
@@ -207,14 +229,17 @@ const TINT = new Color()
 
 /**
  * 這一株該進哪一個池。`null` = 這一級不畫它。
+ *
+ * 【樹種不隨級數變】兩級各有自己的闊葉與針葉。上一版把兩種樹在遠級併成
+ * 同一個池，於是針葉樹過門檻時形狀與顏色一起換 —— 看起來像那棵樹換了種。
  */
-function poolOf(kind: number, lod: number, bush: boolean): PoolName | null {
-  if (lod >= 3) return null
+export function poolOf(kind: number, lod: number, bush: boolean): PoolName | null {
+  if (lod >= 2) return null
   switch (kind) {
     case FloraKind.BroadTree:
-      return lod === 0 ? 'broadL0' : lod === 1 ? 'treeMid' : 'treeFar'
+      return lod === 0 ? 'broadNear' : 'broadFar'
     case FloraKind.ConeTree:
-      return lod === 0 ? 'coneL0' : lod === 1 ? 'treeMid' : 'treeFar'
+      return lod === 0 ? 'coneNear' : 'coneFar'
     case FloraKind.Bush:
       return bush ? 'bush' : null
     case FloraKind.House:
@@ -229,7 +254,10 @@ function poolOf(kind: number, lod: number, bush: boolean): PoolName | null {
 export function createVegetation(
   sources: readonly FloraSource[],
   heightAt: (x: number, z: number) => number,
+  /** 覆寫池的容量。**只給掃描與變異驗證用** —— 見 `CAPACITY` */
+  capacity?: Partial<Record<PoolName, number>>,
 ): Vegetation {
+  const cap: Record<PoolName, number> = { ...CAPACITY, ...capacity }
   const geometries = createFloraGeometries()
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
@@ -238,7 +266,7 @@ export function createVegetation(
   const pools: Record<PoolName, InstancedMesh> = {} as Record<PoolName, InstancedMesh>
   for (const name of POOL_NAMES) {
     const mesh = new InstancedMesh(
-      geometries[name] as BufferGeometry, material, CAPACITY[name],
+      geometries[name] as BufferGeometry, material, cap[name],
     )
     mesh.instanceMatrix.setUsage(DynamicDrawUsage)
     // 【先摸一次 instanceColor】`setColorAt` 會在第一次呼叫時建出屬性，
@@ -267,7 +295,7 @@ export function createVegetation(
   const bySlot = new Map<number, number>()
 
   const counts: Record<PoolName, number> =
-    { broadL0: 0, coneL0: 0, treeMid: 0, treeFar: 0, bush: 0, house: 0, barn: 0, church: 0 }
+    { broadNear: 0, coneNear: 0, broadFar: 0, coneFar: 0, bush: 0, house: 0, barn: 0, church: 0 }
   const stats = {
     tiles: 0, dropped: 0, overflow: 0, rebuilds: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
@@ -286,12 +314,11 @@ export function createVegetation(
    * 哪些池的內容真的變了。
    *
    * 【為什麼要逐池記】池是打包的陣列：某一格的貢獻變了，**只有那一個池**
-   * 後面的項目會位移，別的池一個位元組都沒動。一格由 L0 換到 L1 只動到
-   * broadL0／coneL0／treeMid —— 最大的那條 treeFar（8,500 筆、544 KB）
-   * 完全沒變，卻照樣被重傳。
+   * 後面的項目會位移，別的池一個位元組都沒動。一格換級只動到近遠那四個池
+   * 裡的兩個 —— 灌木那條（8,500 筆、544 KB）完全沒變，卻照樣被重傳。
    */
   const poolDirty: Record<PoolName, boolean> = {
-    broadL0: true, coneL0: true, treeMid: true, treeFar: true,
+    broadNear: true, coneNear: true, broadFar: true, coneFar: true,
     bush: true, house: true, barn: true, church: true,
   }
   function markAll(): void {
@@ -299,9 +326,8 @@ export function createVegetation(
   }
   /** 某一格由 `a` 級換到 `b` 級，會動到哪些池 */
   function markLevel(lod: number): void {
-    if (lod === 0) { poolDirty.broadL0 = true; poolDirty.coneL0 = true }
-    else if (lod === 1) poolDirty.treeMid = true
-    else if (lod === 2) poolDirty.treeFar = true
+    if (lod === 0) { poolDirty.broadNear = true; poolDirty.coneNear = true }
+    else if (lod === 1) { poolDirty.broadFar = true; poolDirty.coneFar = true }
   }
 
   const keyOf = (i: number, j: number): number => i * 65536 + j
@@ -439,7 +465,7 @@ export function createVegetation(
         const name = poolOf(buf.kind[k]!, lod, bush)
         if (name === null) continue
         const at = counts[name]
-        if (at >= CAPACITY[name]) {
+        if (at >= cap[name]) {
           stats.overflow++
           continue
         }
@@ -473,7 +499,7 @@ export function createVegetation(
       if (!poolDirty[name]) continue
       poolDirty[name] = false
       // 【只上傳用到的那一段】容量是實測最大值的 1.35 倍，整條傳等於白傳
-      // 三成五。treeFar 一條就是 736 KB
+      // 三成五。broadFar 一條就是 1.3 MB
       mesh.instanceMatrix.addUpdateRange(0, used * 16)
       mesh.instanceMatrix.needsUpdate = true
       if (mesh.instanceColor !== null) {
