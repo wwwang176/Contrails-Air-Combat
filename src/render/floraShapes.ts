@@ -69,6 +69,48 @@ const BARN_ROOF = 0x8a6a4e
 const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
+/**
+ * 三個公告板池改用 `gl.POINTS` 之後，逐池的點邊長，m。
+ *
+ * 【取「面積相等」而不是「寬度相等」】點是螢幕對齊的實心方塊，公告板是菱形
+ * （面積 `halfW × 高`）或三角形（`底 × 高 / 2`）。同寬的話方塊的面積是兩倍，
+ * 3 km 那條門檻上林相會突然變厚 —— 而那正是這一版要消滅的感受。
+ *
+ * 【由樹冠常數算，不寫死】改樹冠尺寸時這裡自動跟上。
+ * `flora-shapes.test.ts` 逐池比對它與幾何的實際面積。
+ */
+export type CardPool = 'broadCard' | 'coneCard' | 'bushCard'
+
+/**
+ * 點池的樹冠色。`gl.POINTS` 沒有幾何、也就沒有頂點色 —— 顏色要由 CPU 端寫進
+ * 屬性，所以這裡要看得到。
+ */
+export const CARD_POINT_COLOR: Record<CardPool, number> = {
+  broadCard: BROAD_LEAF,
+  coneCard: CONIFER,
+  bushCard: BUSH_LEAF,
+}
+
+/**
+ * 點的中心該放在株的座標上方多少，m。
+ *
+ * 【為什麼不是 0】株的座標在地面上，而點是以自己為中心畫的方塊 —— 直接放
+ * 地面的話樹會有一半埋在土裡。這裡取它取代的那張公告板的**垂直中心**。
+ */
+export const CARD_POINT_Y: Record<CardPool, number> = {
+  broadCard: (BROAD_CROWN_Y0 + TREE_HEIGHT) / 2,
+  coneCard: (CONE_CROWN_Y0 + TREE_HEIGHT) / 2,
+  bushCard: BUSH_CARD_TOP / 2,
+}
+
+export const CARD_POINT_SIZE: Record<CardPool, number> = {
+  // 菱形：對角線 2·R 與 (TREE_HEIGHT − Y0)，面積 = R × 高
+  broadCard: Math.sqrt(BROAD_CROWN_R * (TREE_HEIGHT - BROAD_CROWN_Y0)),
+  // 三角形：底 2·R、高 (TREE_HEIGHT − Y0)
+  coneCard: Math.sqrt(CONE_CROWN_R * (TREE_HEIGHT - CONE_CROWN_Y0)),
+  bushCard: Math.sqrt(BUSH_R * BUSH_CARD_TOP),
+}
+
 /** 建構中的三角形湯 */
 interface Soup {
   pos: number[]

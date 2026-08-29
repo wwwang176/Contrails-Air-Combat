@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Box3, Vector3, type BufferGeometry } from 'three'
 import {
-  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, TREE_HEIGHT,
-  type PoolName,
+  createFloraGeometries, disposeFloraGeometries, CARD_POOLS, CARD_POINT_SIZE,
+  TREE_HEIGHT, type CardPool, type PoolName,
 } from '../../src/render/floraShapes'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
 
@@ -333,5 +333,34 @@ describe('植被與建築的幾何', () => {
     }
     disposeFloraGeometries(g)
     expect(seen.sort()).toEqual(names.slice().sort())
+  })
+
+  /**
+   * 【為什麼是面積不是寬度】點是螢幕對齊的實心方塊，公告板是菱形或三角形。
+   * 同寬的話方塊的面積是兩倍，3 km 那條門檻上林相會突然變厚 —— 而那正是
+   * 這一版要消滅的感受。解同一個面積，過門檻時被遮住的地才是連續的。
+   */
+  it('點的邊長解出來的面積等於它取代的公告板', () => {
+    for (const name of CARD_POOLS) {
+      const g = geo[name]!
+      const pos = g.getAttribute('position')
+      let area = 0
+      for (let t = 0; t < pos.count; t += 3) {
+        // 公告板全部躺在 xy 平面上（z 恆為 0），所以叉積只剩 z 分量
+        const ax = pos.getX(t)
+        const ay = pos.getY(t)
+        const bx = pos.getX(t + 1) - ax
+        const by = pos.getY(t + 1) - ay
+        const cx = pos.getX(t + 2) - ax
+        const cy = pos.getY(t + 2) - ay
+        area += Math.abs(bx * cy - by * cx) / 2
+      }
+      const s = CARD_POINT_SIZE[name as CardPool]!
+      console.log(JSON.stringify({
+        池: name, 公告板面積: area.toFixed(2), 點邊長: s.toFixed(3),
+        點面積: (s * s).toFixed(2),
+      }))
+      expect([name, Math.abs(s * s - area) < 0.05]).toEqual([name, true])
+    }
   })
 })

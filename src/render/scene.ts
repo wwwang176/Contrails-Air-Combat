@@ -1,11 +1,9 @@
 import {
-  AmbientLight,
-  DirectionalLight,
-  HemisphereLight,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
 } from 'three'
+import { createLights } from './lighting'
 import { createSky } from './sky'
 import { createFog } from './fog'
 
@@ -66,11 +64,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   // 遠海會往天空色靠、地平線糊掉。HUD 是另一張 2D canvas，與這裡無關。
   scene.fog = createFog()
 
-  const sun = new DirectionalLight(0xfff2e0, 2.2)
-  sun.position.set(-0.4, 0.8, 0.45).normalize()
-  scene.add(sun)
-  scene.add(new HemisphereLight(0xbfd8ee, 0x2a3a48, 0.9))
-  scene.add(new AmbientLight(0xffffff, 0.15))
+  // 【燈的定義在 `lighting.ts`】遠處的植被走 gl.POINTS，亮度是烘進頂點色的，
+  // 而那個係數要拿真正的光照去校 —— 兩處各配一組燈的話係數會是錯的
+  for (const l of createLights()) scene.add(l)
 
   const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR)
 
