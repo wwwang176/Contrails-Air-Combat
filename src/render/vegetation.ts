@@ -309,6 +309,13 @@ export interface Vegetation {
      * 空格不留緩衝但要留槽位；漏了槽位的話這個數字會每幀往上跳。
      */
     generated: number
+    /**
+     * `fill` 看過幾個候選格。**挑格的成本看它。**
+     *
+     * 每生一格就重掃一次包圍方陣的話，這個數字會是圈內格數的
+     * `TILES_PER_FRAME` 倍。
+     */
+    scanned: number
     /** 預配的緩衝身分，給「不配置」那條測試比對 */
     buffers: readonly Float32Array[]
     keyType: string
@@ -505,7 +512,7 @@ export function createVegetation(
   const counts: Record<PoolName, number> =
     Object.fromEntries(POOL_NAMES.map((n) => [n, 0])) as Record<PoolName, number>
   const stats = {
-    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0, generated: 0,
+    tiles: 0, dropped: 0, overflow: 0, rebuilds: 0, generated: 0, scanned: 0,
     buffers: bufIdentity as readonly Float32Array[], keyType: 'number',
   }
 
@@ -649,28 +656,50 @@ export function createVegetation(
    * 【為什麼不是佇列】掃一次格範圍是 256 次迴圈，比維護一條佇列還便宜，
    * 而且傳送時不必特別去清 —— 範圍一換，該生的自然就換了。
    */
-  function fill(budget: number): number {
-    const i0 = Math.floor((centerX - FLORA_RADIUS) / TILE_SIZE)
-    const i1 = Math.floor((centerX + FLORA_RADIUS) / TILE_SIZE)
-    const j0 = Math.floor((centerZ - FLORA_RADIUS) / TILE_SIZE)
-    const j1 = Math.floor((centerZ + FLORA_RADIUS) / TILE_SIZE)
-    let made = 0
-    for (let n = 0; n < budget; n++) {
-      let bi = 0
-      let bj = 0
-      let bd = Infinity
-      for (let j = j0; j <= j1; j++) {
-        for (let i = i0; i <= i1; i++) {
-          if (!inRange(i, j)) continue
-          if (bySlot.has(keyOf(i, j))) continue
-          const cx = i * TILE_SIZE + TILE_SIZE / 2
-          const cz = j * TILE_SIZE + TILE_SIZE / 2
-          const d = (cx - centerX) * (cx - centerX) + (cz - centerZ) * (cz - centerZ)
-          if (d < bd) { bd = d; bi = i; bj = j }
-        }
+  /**
+   * 由近到遠的格偏移。**建構時算一次。**
+   *
+   * 【為什麼要有它】上一版的 `fill` 每生一格就重掃整個包圍方陣挑最近的空格
+   * —— 6 km、每幀 16 格是 38,416 次；12 km、每幀 61 格會變成 57 萬次。照這
+   * 張表由近往外走，每幀只掃一趟。
+   *
+   * 【半徑多留一格】表只決定順序，真正的圈仍然由 `inRange` 決定。多留一格
+   * 讓鏡頭落在格內任何位置時都不會漏掉邊緣那一環。
+   *
+   * 【順序差半格沒關係】表是相對於格中心排的，而鏡頭可以落在格內任何位置。
+   * 那只影響「先生哪一格」，不影響最後生了哪些格。
+   */
+  const ring = ((): { di: Int16Array, dj: Int16Array } => {
+    const reach = Math.ceil(FLORA_RADIUS / TILE_SIZE) + 1
+    const items: { di: number, dj: number, d2: number }[] = []
+    for (let dj = -reach; dj <= reach; dj++) {
+      for (let di = -reach; di <= reach; di++) {
+        const d2 = di * di + dj * dj
+        if (d2 > reach * reach) continue
+        items.push({ di, dj, d2 })
       }
-      if (bd === Infinity) break
-      makeTile(bi, bj)
+    }
+    items.sort((a, b) => a.d2 - b.d2)
+    const di = new Int16Array(items.length)
+    const dj = new Int16Array(items.length)
+    for (let k = 0; k < items.length; k++) {
+      di[k] = items[k]!.di
+      dj[k] = items[k]!.dj
+    }
+    return { di, dj }
+  })()
+
+  function fill(budget: number): number {
+    const ci = Math.floor(centerX / TILE_SIZE)
+    const cj = Math.floor(centerZ / TILE_SIZE)
+    let made = 0
+    for (let k = 0; k < ring.di.length && made < budget; k++) {
+      stats.scanned++
+      const i = ci + ring.di[k]!
+      const j = cj + ring.dj[k]!
+      if (!inRange(i, j)) continue
+      if (bySlot.has(keyOf(i, j))) continue
+      makeTile(i, j)
       made++
     }
     return made
