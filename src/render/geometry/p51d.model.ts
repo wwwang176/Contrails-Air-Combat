@@ -2,15 +2,23 @@ import { Vector3 } from 'three'
 import type { GlbAircraft } from './glb'
 
 /**
- * P-51D Mustang 的 GLB 外型。
+ * P-51D Mustang 的 GLB 外型 —— 真機全長 9.83 m、翼展 11.286 m、螺旋槳直徑 3.40 m。
  *
- * **這一台是搬過來的，不是畫出來的。** `public/models/p51d.glb` 由
- * `test/tools/p51-export.ts` 從程式版 `buildP51D()` 用 `GLTFExporter` 吐出，
- * 逐頂點相同（`test/unit/p51d-glb.test.ts` 釘住）。程式版仍在 `p51d.ts` ——
- * 它是重匯 GLB 的來源，等 Blender 那邊的校正定案、GLB 成為唯一真相再退休。
+ * **來源是 `tools/blender/p51d.blend`，GLB 是它匯出的產物。** 這一台的底稿是
+ * 程式版（三軸切片量參考模型烘成錨點表再程式重建）用 `GLTFExporter` 吐出來
+ * 的，之後在 Blender 裡對著 `ref/p51d.glb` 修過五處，程式版隨即退休：
  *
- * 底下每一個數字都照抄 `p51d.ts` 的 `createHull` 參數與 `propeller` 呼叫，
- * 沒有重訂。
+ *   翼尖      圓化從 86% 展長開始收 → 照參考直線收到 5.46 m，最後 0.18 m 才圓
+ *   整流罩    直錐、長 0.44 → 鈍卵形、長 0.58，剖面逐站照參考（0.088…0.316）
+ *   槳盤      Z −3.10 → −2.82（參考量到的槳葉位置）
+ *   化油器進氣口  −2.8 起一路斜下 → 腹線收平，−2.57 垂直落 13 cm 成唇口
+ *   散熱器進氣唇  0.8→1.3 慢慢斜 → 0.99 站直接到參考腹線 −0.976
+ *   機尾      尾錐止於 6.24、舵下後角伸到 6.57 → 尾錐延到 6.46、後角 (6.465, 0.55)
+ *
+ * 驗收用 `test/tools/p51-ref.verify.ts`（機庫逐站對切）。留下的偏差：機身
+ * 腹線在座艙段深 2–3 cm、圓翼尖區最大 0.07 m（三個站位的極限）。
+ *
+ * 座標是機體座標：X 翼展、Y 上、Z 機尾，原點在主翼四分之一弦線。
  */
 export const P51D_MODEL: GlbAircraft = {
   url: '/models/p51d.glb',
@@ -20,13 +28,14 @@ export const P51D_MODEL: GlbAircraft = {
   // 頭部餘裕 0.23；z 0.70 落在風擋底框（0.085）後方 0.6 m
   eyePoint: new Vector3(0, 0.80, 0.70),
 
-  // 右翼尖弦的中點，推導見 `p51d.ts`
-  wingTip: new Vector3(5.640, -0.1441, 0.1636),
+  // 右翼尖弦的中點：翼尖站位 x 5.640，前緣 −0.115、後緣 0.400（Blender 裡
+  // 訂的），y 是上反角 5° 到翼尖的高度
+  wingTip: new Vector3(5.640, -0.1441, 0.1425),
 
   bodyColor: 0x9aa7b4,
   accentColor: 0x2f3a46,
 
-  /** GLB 材質名 → 遊戲材質。名字是匯出腳本依材質身分命的。 */
+  /** Blender 材質名 → 遊戲材質 */
   materials: {
     P51_Body: 'body',
     P51_Accent: 'accent',
@@ -35,8 +44,9 @@ export const P51D_MODEL: GlbAircraft = {
   },
 
   /**
-   * 螺旋槳。轉軸高度＝整流罩軸心 `spinnerY` 0.008，槳盤 Z＝`propZ` −3.10，
-   * 半徑 1.70（真機直徑 3.40 m）。
+   * 螺旋槳。轉軸高度＝整流罩軸心 0.008；槳盤 Z −2.82 是參考模型槳葉的位置
+   * （射線最大半徑在 −2.85…−2.75 衝到 0.45，其餘站位 ≤ 0.35）；半徑 1.70
+   * （真機直徑 3.40 m）。
    */
-  prop: { node: 'P51_Prop', hubY: 0.008, hubZ: -3.10, radius: 1.70 },
+  prop: { node: 'P51_Prop', hubY: 0.008, hubZ: -2.82, radius: 1.70 },
 }

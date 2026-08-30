@@ -33,9 +33,10 @@ const BUILDERS: Record<string, () => AircraftModel> = {
 /**
  * 由 GLB 載入的機種。**與 `BUILDERS` 並存，不是取代**。
  *
- * 【兩種來源】F6F-5 是在 Blender 裡畫的；P-51D 是用 `GLTFExporter` 把
- * `buildP51D()` 的 `Group` 直接吐成 GLB 搬過來的（`test/tools/p51-export.ts`），
- * 逐頂點一模一樣，不必在 Blender 重畫。剩下三台要搬也走同一條路。
+ * 【來源都在 Blender】F6F-5 是在 Blender 裡畫的；P-51D 的底稿是程式版用
+ * `GLTFExporter` 吐出來、再在 Blender 裡對著參考模型修過的（見
+ * `p51d.model.ts`），來源是 `tools/blender/p51d.blend`。剩下三台要搬也走
+ * 同一條路：匯出 → Blender 修 → 程式版退休。
  *
  * 【為什麼並存】GLB 那條路任何一步走錯都只會弄壞走它的機種；程式化那三台
  * 一行都沒動。

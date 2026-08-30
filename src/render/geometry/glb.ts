@@ -155,8 +155,12 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     const out = new Mesh(geo, mats[kind])
     // 內裝的法線朝內是刻意的；`geometry.test.ts` 的「法線朝外」靠這個旗標略過
     if (kind === 'cockpit') out.userData['inwardShell'] = true
+    // 翼板的 `part='wingN'` 標記（glTF extras）跟著走：`geometry.test.ts` 的
+    // 「四分之一弦線壓在重心上」靠它認主翼。沒標的機種（F6F-5）什麼都不變。
+    const part = mesh.userData['part']
+    if (typeof part === 'string') out.userData['part'] = part
     owned.push(geo)
-    // 節點名在 glTF 會被加尾碼（F6F_Prop.030），所以用 startsWith
+    // 節點名會被加尾碼（F6F_Prop.030 → 載入後 F6F_Prop030），見 isNamed
     if (isNamed(mesh, def.prop.node)) propMeshes.push(out)
     else statics.push(out)
   })
@@ -174,10 +178,13 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   // 都沒有。從程式版匯出的 P-51D 兩種都有（`BoxGeometry` 帶索引、lofting 的
   // 機身不帶），混在一起它回 null。分開併多一個 draw call，頂點一個都不動 ——
   // 把索引展開（`toNonIndexed`）才是會改頂點數的那條路。
+  //
+  // 【翼板逐 part 各自一組】與 `assembly.ts` 的 `mergeStatic` 同一個理由：併成
+  // 一塊之後「哪一個 mesh 是主翼」就認不出來。每架多兩三個 draw call。
   const byMat = new Map<string, { mat: MeshStandardMaterial; list: Mesh[] }>()
   for (const m of statics) {
     const mat = m.material as MeshStandardMaterial
-    const key = `${mat.uuid}/${m.geometry.index ? 'indexed' : 'flat'}`
+    const key = `${mat.uuid}/${m.geometry.index ? 'indexed' : 'flat'}/${m.userData['part'] ?? ''}`
     const bucket = byMat.get(key)
     if (bucket) bucket.list.push(m)
     else byMat.set(key, { mat, list: [m] })
@@ -195,6 +202,8 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     const mesh = new Mesh(merged, mat)
     mesh.userData['merged'] = true
     if (list.some((m) => m.userData['inwardShell'])) mesh.userData['inwardShell'] = true
+    const part = list[0]!.userData['part']
+    if (typeof part === 'string') mesh.userData['part'] = part
     hull.add(mesh)
   }
 
@@ -225,8 +234,13 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   }
 }
 
+/**
+ * 節點名是不是 `base` 或它的複本。Blender 給複本加的尾碼是 `.001`，但
+ * `GLTFLoader` 載入時會把名字裡的點拿掉（`PropertyBinding.sanitizeNodeName`），
+ * 看到的是 `P51_Prop001` —— 所以只認前綴，不認分隔符。
+ */
 function isNamed(o: Object3D, base: string): boolean {
-  return o.name === base || o.name.startsWith(`${base}.`) || o.name.startsWith(`${base}_`)
+  return o.name.startsWith(base)
 }
 
 /** 與 `assembly.ts` 的 `finish()` 同一套量法，好讓機庫的兩條路讀數可比。 */
