@@ -1,7 +1,7 @@
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain } from '../render/terrain'
-import { buildAircraft } from '../render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import { DEG } from '../core/math'
 import { P51D } from '../specs/p51d'
 import { createHudFrame, type HudLayout } from '../hud/types'
@@ -31,6 +31,7 @@ const ctx3d = createScene(canvas)
 const terrain = createTerrain('sea')
 terrain.object.position.y = -300
 ctx3d.scene.add(terrain.object)
+await preloadAircraftModels()
 const model = buildAircraft(P51D)
 ctx3d.scene.add(model.group)
 const controls = new OrbitControls(ctx3d.camera, ctx3d.renderer.domElement)

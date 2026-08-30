@@ -13,7 +13,7 @@
  * `tsc --noEmit` 掃得過。`src/` 底下不要學這一招 —— 那些程式碼跑在瀏覽器。
  */
 import { readFileSync } from 'node:fs'
-import { F6F5_MODEL } from '../../src/render/geometry/f6f5.model'
+import { GLB_MODELS } from '../../src/render/geometry/buildAircraft'
 import { parseGlbTemplate, registerGlbTemplate } from '../../src/render/geometry/glb'
 
 /** manifest 的 url 是**瀏覽器**路徑（`/models/…`），檔案在 `public/` 底下。 */
@@ -27,10 +27,12 @@ let loaded = false
  */
 export async function loadGlbTemplatesForNode(): Promise<void> {
   if (loaded) return
-  const buf = readFileSync(`${PUBLIC}${F6F5_MODEL.url}`)
-  // Buffer 的 ArrayBuffer 可能比它自己長（node 會共用底層記憶體池），
-  // 所以要切出這一段，不能直接丟 `buf.buffer`
-  const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
-  registerGlbTemplate('f6f5', await parseGlbTemplate(bytes, F6F5_MODEL))
+  for (const [id, def] of Object.entries(GLB_MODELS)) {
+    const buf = readFileSync(`${PUBLIC}${def.url}`)
+    // Buffer 的 ArrayBuffer 可能比它自己長（node 會共用底層記憶體池），
+    // 所以要切出這一段，不能直接丟 `buf.buffer`
+    const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+    registerGlbTemplate(id, await parseGlbTemplate(bytes, def))
+  }
   loaded = true
 }

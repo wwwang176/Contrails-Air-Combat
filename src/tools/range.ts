@@ -14,7 +14,7 @@ import {
 } from '../render/spray'
 import { createDebris } from '../render/debris'
 import { createWrecks } from '../render/wrecks'
-import { buildAircraft, bodyColorOf, type AircraftModel } from '../render/geometry/buildAircraft'
+import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
 import { clearImpacts } from '../world/events'
 import { clearKills } from '../world/kills'
@@ -44,6 +44,8 @@ let specIndex = 0
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
+// P-51D 與 F6F-5 走 GLB，樣板要先載好 `buildAircraft` 才是同步的
+await preloadAircraftModels()
 const ocean = createOcean(null)
 ctx.scene.add(ocean.mesh)
 
