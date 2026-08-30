@@ -4,10 +4,14 @@ import { batteryDps, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
 import { stepCadence } from '../../src/weapons/cadence'
 import { M2_BROWNING, P51D_BATTERY } from '../../src/weapons/p51d'
 import { BF109K4_BATTERY, MG131, MK108 } from '../../src/weapons/bf109k4'
+import { F6F5_BATTERY } from '../../src/weapons/f6f5'
 // 跨模組：MK 108 的單發傷害是拿 hp 校準的，所以要讀機體資料。
 // 與 hitbox.test.ts 守「槍口在機翼命中盒內」是同一個模式。
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { B17G } from '../../src/specs/b17g'
+import { P51D } from '../../src/specs/p51d'
+import { F6F5 } from '../../src/specs/f6f5'
+import { HE111 } from '../../src/specs/he111'
 
 /**
  * L2 史實值：資料表本身就是被測物，與 M1 的 specs.test.ts 同一個模式。
@@ -43,6 +47,38 @@ describe('L2 武器史實值', () => {
     for (let i = 0; i < 3; i++) expect(xs[i]).toBeCloseTo(-xs[5 - i]!, 9)
     // 離中軸線超過機身半寬（0.45），否則就不是翼槍了
     expect(Math.min(...xs.map(Math.abs))).toBeGreaterThan(0.5)
+  })
+
+  it('F6F-5 的六挺翼槍左右對稱，而且在摺翼線（x = 2.00）之外', () => {
+    const xs = F6F5_BATTERY.mounts.map((m) => m.position.x).sort((a, b) => a - b)
+    for (let i = 0; i < 3; i++) expect(xs[i]).toBeCloseTo(-xs[5 - i]!, 9)
+    // 【為什麼門檻是 2.00 而不是機身半寬】F6F 的外翼是 Sto-Wing 折疊段，
+    // 槍艙在摺線外側 —— 摺翼肋與鉸鏈佔滿內側，槍裝不進去。摺線位置由參考
+    // 模型的上反角折點量到 2.00 m，見 `weapons/f6f5.ts`。這一條守的是那個
+    // 結構事實，不是「離中軸線夠遠」這種泛泛的檢查。
+    expect(Math.min(...xs.map(Math.abs))).toBeGreaterThan(2.0)
+  })
+
+  /**
+   * 【為什麼要有這一條】兩台裝的是同一款 AN/M2，`weapons/f6f5.ts` 因此
+   * **指向** P-51D 那個 `M2_BROWNING` 物件而不是抄一份數字。抄一份的失敗
+   * 模式很安靜：日後調 M2 的傷害時只調到一半，兩台的 .50 從此不一樣重，
+   * 而沒有任何東西會紅。這一條把「指的是同一挺」釘死。
+   */
+  it('F6F-5 與 P-51D 用的是同一個 M2 物件，所以彈道與傷害必然相同', () => {
+    expect(F6F5_BATTERY.mounts.every((m) => m.weapon === M2_BROWNING)).toBe(true)
+    expect(F6F5_BATTERY.sight).toBe(M2_BROWNING)
+    expect(batteryDps(F6F5_BATTERY)).toBe(batteryDps(P51D_BATTERY))
+    expect(F6F5.hp / batteryDps(F6F5_BATTERY)).toBeCloseTo(0.694, 3)
+  })
+
+  /**
+   * 【翼槍機的匯聚距離必須一致】1,000 m 是專案負責人在 M10 對翼槍下的
+   * 裁決。兩台同樣是六挺 .50 的翼槍機，匯聚點不同就等於偷偷改了平衡 ——
+   * 而那個差別只會在遠距離的彈著散佈上看得出來，不會有任何測試紅。
+   */
+  it('兩台翼槍機的匯聚距離相同', () => {
+    expect(F6F5_BATTERY.convergence).toBe(P51D_BATTERY.convergence)
   })
 })
 
@@ -257,7 +293,12 @@ describe('MAX_MOUNTS —— 槍焰的容量上界（M7 spec §5.2）', () => {
     // 九挺槍的飛機，第九挺的槍焰會**靜靜地畫不出來** —— 沒有錯誤、
     // 沒有警告，只是那一管永遠不閃。與 createFlights 檢查
     // 「index === 陣列位置」是同一類的守門。
-    expect(P51D_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
-    expect(BF109K4_BATTERY.mounts.length).toBeLessThanOrEqual(MAX_MOUNTS)
+    //
+    // 【2026-08-30 由兩台改成掃全部】原本只點名 P-51D 與 K-4，而新機種
+    // 正是最可能踩到上界的那一種。改成走機體資料，加一台就自動納入。
+    for (const spec of [P51D, BF109K4, F6F5, HE111, B17G]) {
+      expect(spec.battery.mounts.length, `${spec.id} 超過 MAX_MOUNTS`)
+        .toBeLessThanOrEqual(MAX_MOUNTS)
+    }
   })
 })
