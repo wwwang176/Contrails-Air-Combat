@@ -15,9 +15,9 @@
  * 【出生表與 `_REPLAY` 不同命】出生表仍然釘在編組表重構那一輪、一個位元
  * 都沒動過——那是這份基準的本體，也是 spec 2026-08-21 的驗收依據。但
  * `_REPLAY` 是**整場模擬的積分**，任何一次 AI 或規格改動都會連坐，所以它
- * 被重錄過：先是 K-4 換裝與二十個 AI commit，最近一次是 2026-08-27 的
- * P-51D 質量校準（4,300 → 3,900 kg，見 `specs/p51d.ts`）。重錄前**雙跑
- * 確認過逐字相同**。
+ * 被重錄過：先是 K-4 換裝與二十個 AI commit，最近一次是 P-51D 改用試飛重量
+ * 4,427 kg 並修正 WEP 出力（見 `specs/p51d.ts` 的 `mass` 與 `engine.gears`）。
+ * 重錄前**雙跑確認過逐字相同**。
  *
  * 所以 `_REPLAY` 現在守的是**漂移絆線**（行為不得在無人察覺下改變），不再是
  * 「編組表重構前後逐位元相同」——那個比較在重構完成的那一刻就已經用掉了。
@@ -97,7 +97,7 @@ export const HEADON_20V20: readonly string[] = [
   '小隊 red 36,37,38,39',
   '玩家座位 8',
 ]
-export const HEADON_20V20_REPLAY = '51409:b28ae41e90efec7ba66ddfae17553cf0a553842dfcc0d349270a0f7ee46e6bb8'
+export const HEADON_20V20_REPLAY = '51409:5376e64e8edeb492b66ec4bd6819da53c1f7d413c400801b59672b1687563cc1'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',
@@ -122,5 +122,5 @@ export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '小隊 red 12,13,14,15',
   '玩家座位 4',
 ]
-export const PURSUIT_MIRROR_8V8_REPLAY = '49033:f457f1951dddf076ae42fffb307c845da67f06eb0989dbe4eb83db8f66c26d1e'
+export const PURSUIT_MIRROR_8V8_REPLAY = '49033:1f7c715884036fa4e5ecc5cf17768662549934c3f48ab83eccffca85c20d8d07'
 

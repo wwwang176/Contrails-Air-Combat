@@ -3,6 +3,8 @@ import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
 import { buildP51D, P51D_BODY_COLOR } from './p51d'
 import { buildHe111, HE111_BODY_COLOR } from './he111'
 import { buildB17G, B17G_BODY_COLOR } from './b17g'
+import { F6F5_MODEL } from './f6f5.model'
+import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
 export type { AircraftModel, HullMetrics } from './assembly'
@@ -29,7 +31,36 @@ const BUILDERS: Record<string, () => AircraftModel> = {
   b17g: buildB17G,
 }
 
+/**
+ * 由 GLB 載入的機種。**與 `BUILDERS` 並存，不是取代**。
+ *
+ * 【為什麼並存】GLB 是新的一條路（見 `glb.ts` 的說明），既有四台一行都沒動。
+ * 任何一步走錯都只會弄壞 F6F 一台。等這條路在遊戲裡穩了，既有四台可以用
+ * `GLTFExporter` 把 `buildP51D()` 的 `Group` 直接吐成 GLB 搬過來 —— 逐頂點
+ * 一模一樣，不必在 Blender 重畫。
+ */
+const GLB_MODELS: Record<string, GlbAircraft> = {
+  f6f5: F6F5_MODEL,
+}
+
+/**
+ * 預載所有 GLB 機種。**開場 await 一次**，之後 `buildAircraft` 仍然是同步的。
+ *
+ * 【為什麼不讓 buildAircraft 變非同步】它被 `main.ts`、四個工具頁、以及跑在
+ * node 環境的單元測試同步呼叫。把非同步關在這個函式裡，下游一行都不用改。
+ */
+export async function preloadAircraftModels(): Promise<void> {
+  await Promise.all(
+    Object.entries(GLB_MODELS).map(([id, def]) => loadGlbTemplate(id, def)),
+  )
+}
+
 export function buildAircraft(spec: AircraftSpec): AircraftModel {
+  if (GLB_MODELS[spec.id]) {
+    const t = glbTemplate(spec.id)
+    if (!t) throw new Error(`機種 ${spec.id} 的 GLB 還沒載入 —— 少了 preloadAircraftModels()`)
+    return buildFromTemplate(t)
+  }
   const build = BUILDERS[spec.id]
   if (!build) throw new Error(`未定義機種外型：${spec.id}`)
   return build()
@@ -46,6 +77,7 @@ const BODY_COLORS: Record<string, number> = {
   bf109k4: BF109_BODY_COLOR,
   he111: HE111_BODY_COLOR,
   b17g: B17G_BODY_COLOR,
+  f6f5: F6F5_MODEL.bodyColor,
 }
 
 /** 零件用它上色 —— 打爆的飛機掉下來的碎片必須跟機身同色。 */

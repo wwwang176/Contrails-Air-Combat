@@ -93,8 +93,11 @@ describe('pitchRateLimit', () => {
   })
 
   it('高速時限制來源是結構，且氣動可用過載遠超過結構極限', () => {
-    // 實測（P-51D 海平面 V=160 m/s）：nAero=11.6258，結構極限 8G，
-    // 比值 1.4532——機翼還能給更多，是機體先撐不住。
+    // 實測（P-51D 海平面 V=160 m/s）：nAero=10.4295，結構極限 8G，
+    // 比值 1.3037——機翼還能給更多，是機體先撐不住。
+    //
+    // 【比值隨質量走】nAero = qS·CL_max/(mg)，所以質量一動這個數字就動。
+    // 門檻取 1.25 而不是實測的 1.30，留 4% 餘裕。
     //
     // 【2026-08-11 之前這條測的是 'pilot'】當時 6.5 G 的飛行員硬夾比結構
     // 極限低，所以結構分支形同死碼。硬夾拿掉之後 source 換成 'structure'，
@@ -103,7 +106,7 @@ describe('pitchRateLimit', () => {
     const out = pitchRateLimit(P51D, aero, false, LEVEL, createPitchLimit())
     expect(out.source).toBe('structure')
     expect(out.nLimit).toBeCloseTo(P51D.limits.gPositive, 10)
-    expect(out.nAero).toBeGreaterThan(P51D.limits.gPositive * 1.4)
+    expect(out.nAero).toBeGreaterThan(P51D.limits.gPositive * 1.25)
   })
 
   it('qMax 峰值落在轉折速度附近，與 envelope.cornerSpeed 有可解釋的偏移', () => {

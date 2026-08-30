@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { Mesh, Vector3 } from 'three'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { HIT_PARTS, segmentBox } from '../../src/world/hit'
 import { mountDirection } from '../../src/weapons/types'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { F6F5 } from '../../src/specs/f6f5'
+import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import type { AircraftSpec } from '../../src/specs/types'
 
 /**
@@ -26,7 +28,19 @@ import type { AircraftSpec } from '../../src/specs/types'
  * 包起來要一個 3.4 × 3.4 m 的盒子擋在機首前方——那不是命中面，是動畫。
  * 它們在 assembly.ts 標了 userData.spinning。
  */
-const CASES: readonly AircraftSpec[] = [P51D, BF109K4]
+const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5]
+
+/**
+ * 【F6F-5 為什麼要多這一步】它的外型不是程式化建的，是 GLB。`buildAircraft`
+ * 對 GLB 機種要求樣板先載好，而正式路徑（`preloadAircraftModels`）走的是
+ * 瀏覽器的 `fetch`。node 這邊自己讀檔，見 `test/fixtures/glb.ts`。
+ *
+ * 【為什麼一定要把它納進這份掃描】上一版的 F6F-5 命中盒是照整機包圍盒目測
+ * 切的，沒有跑過覆蓋率 —— 尾段腹部有 256 個頂點落在六個盒之外（打不到），
+ * 六個槍口一個都不在機體上（子彈從機翼外面冒出來）。兩個缺陷都不會有任何
+ * 症狀，直到玩家抱怨「明明打中了卻沒扣血」。
+ */
+beforeAll(async () => { await loadGlbTemplatesForNode() })
 
 interface Sample {
   verts: Vector3[]

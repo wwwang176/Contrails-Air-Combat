@@ -4,11 +4,13 @@ import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
 import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
+import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
 import { MAX_TURRETS } from '../../src/weapons/turret'
 
 const CASES = [
   { spec: P51D, hist: P51D_HISTORICAL },
   { spec: BF109K4, hist: BF109K4_HISTORICAL },
+  { spec: F6F5, hist: F6F5_HISTORICAL },
 ]
 
 describe('機種資料', () => {
@@ -147,7 +149,7 @@ describe('機種資料', () => {
  * 末段）。這裡照既有做法，但 `turrets` 是**必填**欄位，所以漏掉的機種會先被
  * 型別擋下來，不會靜靜地沒有測試在跑。
  */
-const ALL = [P51D, BF109K4, HE111, B17G]
+const ALL = [P51D, BF109K4, F6F5, HE111, B17G]
 
 describe('砲塔欄位', () => {
   it('戰鬥機沒有砲塔', () => {

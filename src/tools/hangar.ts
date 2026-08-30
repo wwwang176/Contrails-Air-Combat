@@ -11,7 +11,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { DEG } from '../core/math'
 import { collectTriangles, extentSlices, radialSlices, type Axis } from './sliceRef'
-import { buildAircraft, type AircraftModel } from '../render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { barrelGeometry } from '../render/turretBarrels'
 import { BARREL_SPACING } from '../world/turrets'
 import { turretPivot, wobbleBasis } from '../weapons/turret'
@@ -19,6 +19,7 @@ import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import { HE111 } from '../specs/he111'
 import { B17G } from '../specs/b17g'
+import { F6F5 } from '../specs/f6f5'
 import type { AircraftSpec } from '../specs/types'
 
 /**
@@ -32,7 +33,7 @@ import type { AircraftSpec } from '../specs/types'
  * 進入方式：`npm run dev` 之後開 /hangar.html。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109K4, HE111, B17G]
+const SPECS: AircraftSpec[] = [P51D, BF109K4, F6F5, HE111, B17G]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 // preserveDrawingBuffer：外部工具要把畫面複製到 2D canvas 抽輪廓，
@@ -250,6 +251,14 @@ const REFS: Record<string, RefSpec> = {
    * （Z 15.0~16.0 那幾刀的 X 幅度只剩 0.29）——不是比例錯。
    */
   b17g: { url: '/ref/1943_boeing_b-17g-60-ve_flying_fortress.glb', yaw: 180, pitch: -1.03 },
+  /**
+   * F6F-5 Hellcat。**`ref/f6f.glb` 是已經整理過的那一份** —— 原始下載檔裡有
+   * 兩架（第二架是摺翼狀態，不是複製品）、一片跑道，而且整機偏航 15°。清乾淨
+   * 之後把 yaw +75.008°、pitch −12.542° 與 X 置中**烘進檔案**，所以這裡兩個
+   * 角度都是 0。驗收：推力線殘差 0.0000°、翼尖 ±0.6852（半翼展 6.530）、
+   * 全長 10.124 對真機 10.24（−1.1%）。
+   */
+  f6f5: { url: '/ref/f6f.glb', yaw: 0, pitch: 0 },
 }
 const refCache: Record<string, Object3D | null> = {}
 let refVisible = false
@@ -476,7 +485,7 @@ const specButtons = SPECS.map((s, i) => {
   // 【為什麼查表而不是三元式】原本是 `id === 'p51d' ? 'P-51D' : 'Bf 109'`
   // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
   // 任何東西提醒你。查表少一筆是一個 undefined，看得見
-  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
+  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
   b.dataset['id'] = s.id
   b.onclick = () => { specIndex = i; rebuild() }
   specRow.appendChild(b)
@@ -617,6 +626,10 @@ function resize(): void {
 }
 window.addEventListener('resize', resize)
 resize()
+
+// 【GLB 機種要先載完再 rebuild】`buildAircraft` 是同步的，遇到還沒載好的
+// 機種會直接拋。頂層 await 也順便擋住機種按鈕在載入完成前被按到。
+await preloadAircraftModels()
 rebuild()
 
 // 開發用：讓 Playwright 之類的外部工具設定正交視角截圖。

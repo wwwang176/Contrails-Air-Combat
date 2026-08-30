@@ -57,24 +57,31 @@ describe('sweetSpotAdvantage：在哪裡我贏得過他', () => {
   /**
    * 【2026-08-25：換邊的方向翻了，而且 4,000 m 變成兩個分水嶺】
    *
-   * G-6 時代是單一分水嶺 366 km/h，低速 109 佔優。K-4 的翼載
-   *（210.3 kg/m²）超過 P-51D（197.0），低速端於是換 P-51 贏；高速端
-   * 多出來的 525 匹又讓 K-4 贏回去；再往上到 573 km/h，P-51 的低阻力
-   * 機體第三次換邊。實測換號點（**套過 `applyFeel` 之後**，也就是本檔
-   * 的 `P` 與 `B`）：
+   * **每個高度只有一個分水嶺：低／中速 K-4，高速端 P-51。** 實測換號點
+   *（**套過 `applyFeel` 之後**，也就是本檔的 `P` 與 `B`）：
    *
    * ```
-   *        0 m   328 km/h（→K-4），之後到兩台都轉不動為止都是 K-4
-   *    4,000 m   377 km/h（→K-4）、573 km/h（→P-51）   ← 中間這一段是 K-4 的
-   *    8,000 m   407 km/h（→K-4）、676 km/h（→P-51）
+   *        0 m   560 km/h（→P-51），600 以上兩台都轉不動、優勢歸零
+   *    4,000 m   660 km/h（→P-51），670 以上歸零
+   *    8,000 m   675 km/h（→P-51）
    * ```
    *
-   * 詳細推導見 test/unit/ai-assess.test.ts 的 turnAdvantage 那一條。
+   * 【P-51 的窗口很窄，所以不要釘單點】4,000 m 只有 660–665 那一格是正的，
+   * 再高一點兩台都拉不出持續轉彎。斷言因此寫成「低中速為負」＋「高速帶內
+   * 存在一格為正」，而不是三個定點。
+   *
+   * 機制：縫翼讓 K-4 的 CL_max 高 12.4% 而翼載只高 3.7%，加上功率負荷
+   * 436 對 300 W/kg —— 低中速兩項都指向 K-4。高速端誘導阻力讓位給零升
+   * 阻力，P-51 的層流翼才翻回來。與史實敘事一致。
    */
-  it('4000 m 有兩個分水嶺：低速 P-51、中速 K-4、高速 P-51', () => {
-    expect(sweetSpotAdvantage(P, B, 4000, 280 * KMH)).toBeGreaterThan(0)
+  it('4000 m 只有一個分水嶺：低中速 K-4、高速端 P-51', () => {
+    expect(sweetSpotAdvantage(P, B, 4000, 280 * KMH)).toBeLessThan(0)
     expect(sweetSpotAdvantage(P, B, 4000, 450 * KMH)).toBeLessThan(0)
-    expect(sweetSpotAdvantage(P, B, 4000, 650 * KMH)).toBeGreaterThan(0)
+    let found = false
+    for (let v = 560; v <= 700; v += 5) {
+      if (sweetSpotAdvantage(P, B, 4000, v * KMH) > 0) { found = true; break }
+    }
+    expect(found, '高速帶內找不到 P-51 佔優的速度').toBe(true)
   })
 
   it('反對稱：交換雙方等於變號', () => {
@@ -101,15 +108,23 @@ describe('sweetSpotPitch：往優勢上升的方向偏俯仰', () => {
   // 資料移動（見上方 sweetSpotAdvantage 那一條），所以取樣點要跟著移到
   // 新的劣勢區裡。函式的行為本身沒有變。
   it('P-51 太慢時低頭換速度', () => {
-    // 450 km/h 落在 K-4 的優勢帶（377~573）內，P-51 的出路是加速衝過
-    // 573 那個換號點 → 低頭 → 負
+    // 450 km/h 落在 K-4 的優勢帶內，P-51 的出路是加速衝過 660 那個換號點
+    // → 低頭 → 負。實測滿上界 −10.00°
     expect(sweetSpotPitch(P, B, 4000, 450 * KMH, ON)).toBeLessThan(0)
   })
 
+  /**
+   * 【為什麼用掃的而不是釘一個速度】K-4 只在**自己劣勢**時才需要換速度，
+   * 而它的劣勢帶只有 660 km/h 以上那一小段（再高一點兩台都轉不動、偏置
+   * 歸零）。實測 4,000 m：650 km/h 給 0.00°（還在自己的優勢區，不必動）、
+   * 662 km/h 給 +9.83°。釘單點會變成調參地雷。
+   */
   it('K-4 太快時抬頭換高度（減速）', () => {
-    // 650 km/h 已經越過 573 進到 P-51 的優勢區，K-4 的優勢在更慢處
-    // → 該減速 → 抬頭 → 正。實測 +8.20°
-    expect(sweetSpotPitch(B, P, 4000, 650 * KMH, ON)).toBeGreaterThan(0)
+    let found = false
+    for (let v = 655; v <= 700; v += 1) {
+      if (sweetSpotPitch(B, P, 4000, v * KMH, ON) > 0) { found = true; break }
+    }
+    expect(found, '高速帶內找不到 K-4 該抬頭的速度').toBe(true)
   })
 
   it('偏置不得超過上界', () => {

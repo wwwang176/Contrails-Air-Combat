@@ -26,8 +26,9 @@ import { bodyColorOf } from './render/geometry/buildAircraft'
 import { clearImpacts } from './world/events'
 import { clearKills } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
-import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
+import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
@@ -1428,6 +1429,10 @@ function frame(now: number) {
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
 }
+
+// 【GLB 機種要在進迴圈前載完】`buildAircraft` 是同步的（`main.ts`、四個工具
+// 頁、node 單元測試都同步呼叫它），所以非同步只能關在這一行。
+await preloadAircraftModels()
 requestAnimationFrame(frame)
 
 /**
@@ -1510,15 +1515,18 @@ const GFX_HIDDEN_LAYER = 31
     // 【用 slice 不是 children[3]!】純海面沒有第四個孩子，固定取索引的話
     // 切到純海之後消融 flora 會對 undefined 呼叫 traverse，當場崩
     flora: () => terrain.object.children.slice(3),
-    // 天空球目前是 renderOrder −1000（sky.ts）。改那個常數時這裡要跟著改 ——
-    // 抓不到就是「關天空」變成空操作，而空操作在消融表上長得像「天空不花錢」
-    sky: () => byRenderOrder(-1000),
+    sky: () => byRenderOrder(SKY_RENDER_ORDER),
     propDisc: () => byRenderOrder(PROP_DISC_RENDER_ORDER),
     // 五個粒子池一起 —— 它們是同一種成本（半透明、關深度寫入、疊在一起）
     particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
     tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
     vortex: () => [vortex.object],
     aircraft: () => [...visuals.values()].map((v) => v.model.group),
+    // 【戰況相依的雜項】砲塔管、編隊標記、碎片、目標環。它們的位置取決於
+    // 這一場打成什麼樣，兩次執行不會一樣 —— 逐像素比對要把它們一起關掉，
+    // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
+    battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object,
+      objectiveRing.object],
   }
   const applied: string[] = []
   for (const [name, on] of Object.entries(patch)) {

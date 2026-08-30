@@ -367,18 +367,27 @@ describe('buildAircraft', () => {
       it('機翼四分之一弦線落在原點（＝重心）', () => {
         const m = buildAircraft(spec)
         m.group.updateMatrixWorld(true)
-        const half = spec.wing.span / 2
+        // 【判準是整個翼展，不是半翼展】合併之後左右兩片是同一個 mesh，跨度
+        // 由半翼展變成整個翼展 —— 沿用半翼展的門檻會讓平尾（B-17G 的平尾
+        // 13 m，主翼半翼展 15.8 m）也通過，量到的翼根弦於是混了兩片。
+        const span = spec.wing.span
         const v = new Vector3()
         let lead = Infinity, trail = -Infinity
         m.group.traverse((o) => {
           const p = (o as Mesh).geometry?.getAttribute?.('position')
           if (!p) return
+          // 【先用標記，再用形狀】靜態零件合併之後，機身與翼板可能落在同一個
+          // mesh 裡，「x 向跨度夠寬」就再也認不出主翼 —— 翼根站位會混進機身
+          // 的頭尾，量到的弦長是整條機身。翼板在 `assembly.ts` 標成
+          // part='wingN'（逐 `wingPair` 呼叫各自一組），下面的跨度判準就仍然
+          //分得出主翼與平尾。
+          if (!String(o.userData['part'] ?? '').startsWith('wing')) return
           let x0 = Infinity, x1 = -Infinity
           for (let i = 0; i < p.count; i++) {
             v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(o.matrixWorld)
             x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x)
           }
-          if (x1 - x0 < half * 0.8) return          // 不是主翼板
+          if (x1 - x0 < span * 0.8) return          // 不是主翼板
           for (let i = 0; i < p.count; i++) {
             v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(o.matrixWorld)
             if (Math.abs(v.x) > 0.02) continue      // 只取翼根站位
