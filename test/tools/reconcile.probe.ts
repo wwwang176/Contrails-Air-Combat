@@ -30,6 +30,7 @@ import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
 import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
+import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const KMH = 3.6
@@ -94,4 +95,5 @@ report(P51D, P51D_HISTORICAL, P51D.drag.cd0)
 report(BF109K4, BF109K4_HISTORICAL, BF109K4.drag.cd0)
 report(HE111, HE111_HISTORICAL, 0.022)
 report(B17G, B17G_HISTORICAL, 0.0215)
+report(F6F5, F6F5_HISTORICAL, F6F5.drag.cd0)
 console.log()

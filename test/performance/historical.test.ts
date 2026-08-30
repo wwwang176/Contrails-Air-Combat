@@ -6,6 +6,7 @@ import { P51D, P51D_HISTORICAL } from '../../src/specs/p51d'
 import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
+import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const TOLERANCE = 0.05
@@ -111,6 +112,13 @@ const CASES: {
 }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, checks: ALL },
   { spec: BF109K4, hist: BF109K4_HISTORICAL, checks: ALL },
+  /**
+   * 【五項全守，而且質量沒有校準過】四項驗收值出自同一份試飛報告（Patuxent
+   * River 1944-09-07、F6F-5 No. 58310、12,420 lb、軍用出力），所以「三項各自
+   * 反解要求多重」聚在 1.2% 之內、位置就是試飛重量本身。詳見 `specs/f6f5.ts`
+   * 的 `mass`。海平面極速是另一個來源，沒有參與校準，打出 +1.2%。
+   */
+  { spec: F6F5, hist: F6F5_HISTORICAL, checks: ALL },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: HE111, hist: HE111_HISTORICAL,
     checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
