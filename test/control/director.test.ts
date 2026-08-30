@@ -186,14 +186,20 @@ describe('L4 指揮儀矩陣（120 案例）', () => {
    * 6° 以內；8 s 的末段窗（6~8 s）整段都還在收斂過程中間。
    *
    * 逐一量測（6000 m，出貨增益）：
-   *   8 s → 32/120 失敗    10 s → 19/120    12 s → 9/120    14 s → 0/120
+   *   8 s → 32/120 失敗    10 s → 19/120    12 s → 9/120    14 s → 2/120
+   *   16 s → 0/120
+   *
+   * 【14 → 16 s：P-51D 的試飛重量修正】質量由 3,900 改為 4,427 kg 之後，
+   * 最慢的兩個案例（r135°／r180°、方位 0°、200 km/h）在 14 s 還差
+   * 1.51°／8.71°。它們正是上面描述的那個場景：起始速度低於該高度的失速
+   * 速度，必須先換能量。飛機重了 13.5%，換能量就慢了。
    * 全部失敗都是「末段誤差還沒降下來」，沒有任何一個是失速或超載。
    *
    * 拉長時間並沒有放寬任何斷言——容許值仍是 brief 的 6°、標準差仍是
    * brief 的 1.5°，而且不失速／不超載的檢查覆蓋的時間反而更長，
    * 是更嚴格而非更寬鬆。
    */
-  const SECONDS = 14
+  const SECONDS = 16
   const TOLERANCE_DEG = 6
 
   for (const roll of ROLLS) {
@@ -336,11 +342,16 @@ describe('指揮儀特例', () => {
     expect(slow.dbgHistory.every((d) => d.limiter.source === 'alpha')).toBe(true)
     expect(fast.dbgHistory.every((d) => d.limiter.source === 'alpha')).toBe(true)
     // (c) 差別純粹在 qMax 的量值：低速端整段被壓在 QMAX_FLOOR（即氣動可達
-    //     過載已低於當下的 gLoad，一點俯仰權限都不剩），高速端則有 20 倍以上。
+    //     過載已低於當下的 gLoad，一點俯仰權限都不剩），高速端則有 15 倍以上。
+    //     實測比值 19.05（QMAX_FLOOR 0.01 對 fastQMax 0.1905）。
+    //
+    //     【比值隨質量走】qMax ∝ (nLimit − gLoad)·g/V，而高速端的 nLimit 是
+    //     迎角限制 nAero = qS·CL_max/(mg)。P-51D 由 3,900 改為試飛重量
+    //     4,427 kg 之後比值由 20 出頭掉到 19.05，門檻因此由 20 收到 15。
     const slowQMax = Math.max(...slow.dbgHistory.map((d) => d.limiter.qMax))
     const fastQMax = Math.min(...fast.dbgHistory.map((d) => d.limiter.qMax))
     expect(slowQMax).toBe(QMAX_FLOOR)
-    expect(fastQMax).toBeGreaterThan(20 * slowQMax)
+    expect(fastQMax).toBeGreaterThan(15 * slowQMax)
   })
 
   /**
@@ -1074,9 +1085,13 @@ describe('增益不變量的護欄', () => {
         },
       }
     }
+    // 【0.2 → 0.02：基準值的量級隨機體資料走】這一行只是「基準不能是零」
+    // 的健全性檢查，真正在守的是下面兩條比較。P-51D 改用試飛重量之後，
+    // 1 秒視窗結束時滾轉已經收得更乾淨，殘留副翼由 0.2 以上降到 0.0448。
+    // 判別力沒有變差：內環壓死之後是 < 1e-3，仍差 45 倍。
     const base = mk()
     const baseAil = base.run()
-    expect(Math.abs(baseAil)).toBeGreaterThan(0.2)
+    expect(Math.abs(baseAil)).toBeGreaterThan(0.02)
 
     // 內環：把 rollInner 三項都壓到近乎零，副翼必須跟著塌下來
     const inner = mk()
@@ -1086,9 +1101,14 @@ describe('增益不變量的護欄', () => {
     expect(Math.abs(inner.run())).toBeLessThan(1e-3)
 
     // 外環：把 rollOuter 壓到零，同樣必須生效
+    //
+    // 【守「有變」而不是「變小」】外環歸零之後指令滾轉率恆為 0，1 秒視窗
+    // 結束時副翼落在哪一側取決於機動走到哪個相位 —— 實測基準 0.0448、
+    // 外環歸零 0.2298，是變大。原本寫「必須更小」是靠基準值恰好比較大，
+    // 那與「增益生效」無關。差距 0.185 遠大於門檻。
     const outer = mk()
     outer.d.gains.rollOuter = 0
-    expect(Math.abs(outer.run())).toBeLessThan(Math.abs(baseAil))
+    expect(Math.abs(Math.abs(outer.run()) - Math.abs(baseAil))).toBeGreaterThan(0.05)
   })
 })
 

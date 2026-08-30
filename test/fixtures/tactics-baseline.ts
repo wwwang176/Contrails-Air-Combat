@@ -27,11 +27,12 @@
  * 把每個 `AiController` 的 `tacticalConfig.quota` 設成 0。重錄前**務必先
  * 雙跑確認一致**——重錄一個不穩定的值毫無意義。
  *
- * 【最近一次重錄】2026-08-27 的 P-51D 質量校準（4,300 → 3,900 kg，見
+ * 【最近一次重錄】P-51D 改用試飛重量 4,427 kg、修正 WEP 出力，並把
+ * `steer.ts` 的 `defendTilt` 由 20° 調到 31°（見
  * `specs/p51d.ts`）。已雙跑確認逐字相同，且與 `spawn-baseline.ts` 的
  * `_REPLAY` 仍然相同——上一段講的「同一場」還成立。
  */
 export const HEADON_20V20_BEFORE_TACTICS
-  = '51409:b28ae41e90efec7ba66ddfae17553cf0a553842dfcc0d349270a0f7ee46e6bb8'
+  = '51409:5376e64e8edeb492b66ec4bd6819da53c1f7d413c400801b59672b1687563cc1'
 export const PURSUIT_MIRROR_8V8_BEFORE_TACTICS
-  = '49033:f457f1951dddf076ae42fffb307c845da67f06eb0989dbe4eb83db8f66c26d1e'
+  = '49033:1f7c715884036fa4e5ecc5cf17768662549934c3f48ab83eccffca85c20d8d07'

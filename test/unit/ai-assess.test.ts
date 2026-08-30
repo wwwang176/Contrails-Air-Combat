@@ -203,34 +203,35 @@ describe('evaluateEnergy', () => {
    * 當前高度與速度去查，這個關係會被抹平，「能量戰」就退化成「誰的參數表
    * 比較好」。這條測試存在的理由是釘住「它有在查」。
    *
-   * 換邊的**方向**則是機體資料的結果，不是設計目標：
+   * 【裸 spec 沒有換邊點，套過 `applyFeel` 才有】這條測試餵的是**裸 spec**
+   * （`at()` 直接用 `new Aircraft(spec, ...)`），而裸 spec 下 K-4 在整個可
+   * 持續轉彎的速度帶都領先，到 600 km/h 兩台都轉不動、優勢歸零：
    *
    * ```
-   *   G-6 時代    低速 109 佔優、高速 P-51 佔優
-   *   K-4（現在）  低速 P-51 佔優、高速 K-4 佔優，海平面分水嶺 328 km/h
+   *   200 −0.0285   250 −0.0275   300 −0.0406   400 −0.0319
+   *   500 −0.0184   550 −0.0060   600 0（兩台都轉不動）
    * ```
    *
-   * （328 是**套過 `applyFeel` 之後**量的，也就是這些測試實際餵進去的
-   * 那組 spec。裸 spec 是 270 km/h。）
+   * 換邊點在遊戲層才看得到（`applyFeel` 之後海平面 560 km/h、4,000 m
+   * 660 km/h），那一條由 `ai-doctrine.test.ts` 的 `sweetSpotAdvantage` 守。
    *
-   * **為什麼反過來**：K-4 比 G-6 重 225 kg 而翼面積沒變，翼載從
-   * 196.3 爬到 210.3 kg/m²，**超過了 P-51D 的 197.0**。低速端的轉彎率是
-   * CL_max 限制的，比的就是翼載，所以 109 那個「慢下來就轉贏你」的傳統
-   * 身分在 K-4 身上沒有了——史實上晚期 109 的迴旋能力確實是這樣退化的。
-   * 高速端則是推力主導，K-4 多了 525 匹，於是換它贏。
+   * **所以這裡改守「它有隨速度變」而不是「它有換邊」** —— 那本來就是這條
+   * 測試存在的理由。方向（K-4 領先）另外守，翻掉表示某一台的質量／出力／
+   * 縫翼被動過。
    */
-  it('turnAdvantage 隨速度換邊：低速 P-51 佔優、高速 K-4 佔優', () => {
-    // 250 km/h 在海平面分水嶺（328 km/h）以下 → P-51 佔優
-    const slowP51 = at(P51D, 0, 250 / 3.6)
-    const slow109 = at(BF109K4, 0, 250 / 3.6)
-    evaluateEnergy(slowP51, slow109, sit)
-    expect(sit.turnAdvantage).toBeGreaterThan(0)
-
-    // 500 km/h 在分水嶺以上 → K-4 佔優
-    const fast109 = at(BF109K4, 0, 500 / 3.6)
-    const fastP51 = at(P51D, 0, 500 / 3.6)
-    evaluateEnergy(fast109, fastP51, sit)
-    expect(sit.turnAdvantage).toBeGreaterThan(0)
+  it('turnAdvantage 隨速度變化，且裸 spec 下全速域由 K-4 領先', () => {
+    const adv = (kmh: number): number => {
+      evaluateEnergy(at(P51D, 0, kmh / 3.6), at(BF109K4, 0, kmh / 3.6), sit)
+      return sit.turnAdvantage
+    }
+    // 有在查速度：250 與 550 的值必須差得夠開
+    expect(Math.abs(adv(250) - adv(550))).toBeGreaterThan(0.01)
+    // 方向：可持續轉彎的速度帶內都是 K-4 領先
+    for (const v of [200, 250, 300, 400, 500]) {
+      expect(adv(v), `${v} km/h`).toBeLessThan(0)
+    }
+    // 高速端兩台都轉不動，優勢歸零（不是換邊）
+    expect(adv(650)).toBe(0)
   })
 
   it('turnAdvantage 反號：交換雙方角色時符號必須相反', () => {
