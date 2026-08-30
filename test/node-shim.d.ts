@@ -16,4 +16,6 @@
  */
 declare module 'node:fs' {
   export function readFileSync(path: string): Uint8Array
+  /** `test/e2e/escort-live.e2e.ts` 寫 JSON 用。同樣是最小多載：路徑與內容進、沒有回傳。 */
+  export function writeFileSync(path: string, data: string | Uint8Array): void
 }
