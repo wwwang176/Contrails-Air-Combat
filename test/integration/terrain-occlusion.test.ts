@@ -174,7 +174,7 @@ describe('戰鬥機 AI：不對山後面的敵人開火', () => {
  *
  * 要跑滿反應延遲與 `alarmRamp` 的飽和時間，所以 8 秒。
  */
-function defendShare(land: LandField | null): number {
+function defendShare(land: LandField | null): { all: number; early: number } {
   const w = new World()
   const victim = new Aircraft(P51D)
   const hunter = new Aircraft(BF109K4)
@@ -194,26 +194,56 @@ function defendShare(land: LandField | null): number {
 
   let samples = 0
   let defending = 0
+  let earlySamples = 0
+  let earlyDefending = 0
   for (let i = 0; i < Math.round(8 / DT); i++) {
     w.step(DT)
     if (i % 12 !== 0) continue
+    const isDefend = (w.combatants[0]!.controller as AiController).intent === 'defend'
     samples++
-    if ((w.combatants[0]!.controller as AiController).intent === 'defend') defending++
+    if (isDefend) defending++
+    if (i * DT < EARLY_SECONDS) {
+      earlySamples++
+      if (isDefend) earlyDefending++
+    }
   }
-  return defending / Math.max(1, samples)
+  return {
+    all: defending / Math.max(1, samples),
+    early: earlyDefending / Math.max(1, earlySamples),
+  }
 }
+
+/**
+ * 【為什麼要分「前 6 秒」與「整段 8 秒」】兩架都是 AI，8 秒之內會互相接近
+ * 與機動，**山到後段就不再擋在兩者之間了**。實測有山那一組的 defend 全部
+ * 出現在 7.40–7.95 s（前 7.4 秒一次都沒有），也就是遮蔽在它成立的期間確實
+ * 有效，只是場景跑到後面遮蔽自己失效了。
+ *
+ * 原本斷言整段 8 秒**恰好為 0**，那是靠幾何剛好沒漂到那一步；P-51D 改用
+ * 試飛重量之後兩機的相對位置變了，同一個窗口就會碰到解除遮蔽的那一刻。
+ * 8 秒不能縮 —— 檔頭寫著那是 `alarmRamp` 飽和所需。所以改成兩段各自判。
+ */
+const EARLY_SECONDS = 6
 
 describe('戰鬥機 AI：不對山後面的瞄準做防禦機動', () => {
   it('沒山：會進 defend —— 對照組', () => {
     const share = defendShare(null)
-    console.log(JSON.stringify({ noLand: share.toFixed(3) }))
-    expect(share).toBeGreaterThan(0)
+    console.log(JSON.stringify({ noLand: share.all.toFixed(3), early: share.early.toFixed(3) }))
+    expect(share.all).toBeGreaterThan(0)
+    expect(share.early, '對照組必須在前 6 秒內就進 defend').toBeGreaterThan(0)
   })
 
-  it('有山：不進 defend', () => {
-    const share = defendShare(LAND)
-    console.log(JSON.stringify({ withLand: share.toFixed(3) }))
-    expect(share).toBe(0)
+  it('有山：遮蔽成立的期間完全不進 defend', () => {
+    const withLand = defendShare(LAND)
+    const noLand = defendShare(null)
+    console.log(JSON.stringify({
+      withLand: withLand.all.toFixed(3), early: withLand.early.toFixed(3),
+      noLand: noLand.all.toFixed(3),
+    }))
+    // 前 6 秒山確實擋在中間 —— 一次都不准
+    expect(withLand.early).toBe(0)
+    // 整段仍必須遠低於對照組（實測 0.075 對 0.225）
+    expect(withLand.all).toBeLessThan(noLand.all * 0.5)
   })
 })
 

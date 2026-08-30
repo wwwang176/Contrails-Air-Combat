@@ -379,10 +379,12 @@ describe('stallDynamicPressure', () => {
       9,
     )
     // 實測值，供日後改參數時一眼看出量級是否跑掉。
-    // K-4 的失速動壓**高於** P-51D——翼載 210.3 對 178.7 kg/m²。兩者的差距
-    // 沒有翼載差距那麼大（+4.7% 對 +17.7%），因為 K-4 有縫翼：它的 CL_max
-    // 1.5533（含縫翼加成）高於 P-51D 的 1.3823，把翼載的劣勢吃掉一大半。
-    expect(stallDynamicPressure(P51D)).toBeCloseTo(1267.4, 0)
+    //
+    // 【方向是 K-4 **低於** P-51D，而且那是縫翼的功勞】翼載 K-4 210.3 對
+    // P-51D 202.8 kg/m²，K-4 只高 3.7%；但 K-4 的 CL_max 1.5533（含縫翼
+    // 加成）比 P-51D 的 1.3823 高 12.4%，把翼載的劣勢**吃過頭**，失速動壓
+    // 反而低 7.7%。也就是說 109 的失速速度比野馬慢。
+    expect(stallDynamicPressure(P51D)).toBeCloseTo(1438.7, 0)
     expect(stallDynamicPressure(BF109K4)).toBeCloseTo(1327.6, 0)
   })
 })

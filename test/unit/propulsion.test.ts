@@ -38,8 +38,10 @@ describe('ramFactor', () => {
 
 describe('enginePower', () => {
   it('海平面靜止 WEP 等於登錄的海平面功率', () => {
+    // 1,780 hp 是 AAF 44-15342 的 WEP 爬升在 0 ft 實測的 BHP，見
+    // `specs/p51d.ts` 的 `engine.gears`。曾經填 1,490（那是 61″Hg 的軍用值）。
     const p = enginePower(P51D, air(0), 0, WEP_THROTTLE)
-    expect(p).toBeCloseTo(1490 * HP, -2)
+    expect(p).toBeCloseTo(1780 * HP, -2)
   })
 
   it('油門 0 時功率為 0', () => {
@@ -57,25 +59,49 @@ describe('enginePower', () => {
     expect(enginePower(P51D, air(0), 0, 5)).toBeCloseTo(wep, 6)
   })
 
-  it('P-51 低檔臨界高度 1,900 m 靜止功率接近 1,720 hp', () => {
-    expect(enginePower(P51D, air(1900), 0, WEP_THROTTLE)).toBeCloseTo(1720 * HP, -3)
+  // 兩個臨界高度取的是**引擎的**額定點（5,750 ft / 19,300 ft），衝壓另外算
+  it('P-51 低檔臨界高度 1,753 m 靜止功率接近 1,700 hp', () => {
+    expect(enginePower(P51D, air(1753), 0, WEP_THROTTLE)).toBeCloseTo(1700 * HP, -3)
   })
 
-  it('P-51 高檔臨界高度 5,900 m 靜止功率接近 1,370 hp', () => {
-    expect(enginePower(P51D, air(5900), 0, WEP_THROTTLE)).toBeCloseTo(1370 * HP, -3)
+  it('P-51 高檔臨界高度 5,883 m 靜止功率接近 1,555 hp', () => {
+    expect(enginePower(P51D, air(5883), 0, WEP_THROTTLE)).toBeCloseTo(1555 * HP, -3)
   })
 
-  it('P-51 功率曲線呈雙峰（兩級增壓的特徵）', () => {
+  /**
+   * 【守的是「換檔的谷 + 高檔的峰」，不是「兩個峰」】舊版數峰的個數，那要求
+   * 低增壓檔的臨界功率**高於**它的海平面功率。67″Hg WEP 的真實額定不是這樣：
+   * 海平面 1,780、5,750 ft 1,700 —— 低檔在整個工作範圍都是節流維持 67″，
+   * BHP 隨高度略降，所以海平面就是它的最高點，數不出第二個峰。
+   *
+   * 二級二速增壓真正的特徵是**鋸齒**：一檔衰減到谷底，二檔接手再爬到它自己
+   * 的臨界高度。實測（靜止、hp）：
+   *
+   * ```
+   *   0m 1780  1000m 1733  2000m 1653  3000m 1488  ← 谷在 3,250 m
+   *   4000m 1513  5000m 1536  5750m 1541（峰）  7000m 1347  9000m 1023
+   * ```
+   */
+  it('P-51 功率曲線有換檔谷與高檔峰（二級二速增壓的鋸齒）', () => {
     const samples: number[] = []
     for (let h = 0; h <= 9000; h += 250) {
       samples.push(enginePower(P51D, air(h), 0, WEP_THROTTLE))
     }
-    // 尋找局部極大值個數
-    let peaks = 0
+    let trough = -1
     for (let i = 1; i < samples.length - 1; i++) {
-      if (samples[i]! > samples[i - 1]! && samples[i]! >= samples[i + 1]!) peaks++
+      if (samples[i]! < samples[i - 1]! && samples[i]! <= samples[i + 1]!) { trough = i; break }
     }
-    expect(peaks).toBeGreaterThanOrEqual(2)
+    expect(trough, '找不到換檔的谷底').toBeGreaterThan(0)
+    let peak = -1
+    for (let i = trough + 1; i < samples.length - 1; i++) {
+      if (samples[i]! > samples[i - 1]! && samples[i]! >= samples[i + 1]!) { peak = i; break }
+    }
+    expect(peak, '谷底之後找不到高檔的峰').toBeGreaterThan(trough)
+    // 谷在 3,250 m、峰在 5,750 m（＝高檔臨界高度）
+    expect(trough * 250).toBeGreaterThan(2000)
+    expect(trough * 250).toBeLessThan(4500)
+    expect(peak * 250).toBeGreaterThan(5000)
+    expect(peak * 250).toBeLessThan(7000)
   })
 
   it('Bf 109 K-4 海平面 WEP 接近 2,000 PS', () => {
@@ -109,9 +135,13 @@ describe('enginePower', () => {
    *
    * ```
    *              海平面      8,000 m     保留率
-   *   P-51D      1111.1 kW   1013.9 kW   91.3%   ← 雙級二速
+   *   P-51D      1327.3 kW   1134.1 kW   85.4%   ← 雙級二速
    *   Bf 109 K-4 1471.0 kW   1215.4 kW   82.6%   ← 單級無段
    * ```
+   *
+   * 【差距由 8.7 點縮到 2.8 點，而且新的比較才是對的】舊值的 91.3% 是被
+   * **低估的海平面功率**灌出來的（當時填 1,490 hp，那是 61″Hg 的軍用值）。
+   * 分母修正之後保留率降到 85.4%。方向仍然對，門檻因此由 0.05 收到 0.02。
    *
    * 雙級增壓器的高空優勢在**保留率**上，而那一項 P-51D 仍然贏，而且贏得
    * 更明顯（91.3% 對 82.6%）。改斷言保留率也讓這一條對日後的動力調參
@@ -122,8 +152,8 @@ describe('enginePower', () => {
       enginePower(spec, air(8000), 0.6, WEP_THROTTLE)
       / enginePower(spec, air(0), 0.6, WEP_THROTTLE)
     expect(retention(P51D)).toBeGreaterThan(retention(BF109K4))
-    // 實測 0.913 對 0.826
-    expect(retention(P51D) - retention(BF109K4)).toBeGreaterThan(0.05)
+    // 實測 0.854 對 0.826
+    expect(retention(P51D) - retention(BF109K4)).toBeGreaterThan(0.02)
   })
 })
 
@@ -174,7 +204,8 @@ describe('propThrust', () => {
     }
   })
 
-  // Task 14 調參把 P-51D 推到離這個夾制只剩 1.37% 的地方，因此必須有一個
+  // P-51D 的出貨參數離這個夾制只剩 **2.4%**（見 `specs/p51d.ts` 的 `prop`：
+  // vRef 45 就是被這條線逼出來的，42 會越界 −4.5%），因此必須有一個
   // 直接、訊息明確的守衛。若 etaMax 再往上、vRef 再往下、或 figureOfMerit
   // 再往下，dynamic 就會超過 staticMax，夾制開始生效——屆時上面那條
   // 「V→0 收斂到 etaMax·P/vRef」的測試會由 0.12% 誤差跳到約 1.4% 而轉紅，
