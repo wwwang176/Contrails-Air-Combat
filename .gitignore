@@ -14,3 +14,6 @@ ref/
 
 # 驗收截圖，不進版控
 .shots/
+
+# Claude Code worktrees
+.claude/worktrees/
