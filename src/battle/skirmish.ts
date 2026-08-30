@@ -4,6 +4,7 @@ import { SCHWARM_SIZE } from './flights'
 import { HEAD_ON } from './entry'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
+import { F6F5 } from '../specs/f6f5'
 import { BF109K4 } from '../specs/bf109k4'
 import { B17G } from '../specs/b17g'
 import { HE111 } from '../specs/he111'
@@ -96,7 +97,7 @@ export const ALTITUDES: readonly { readonly label: string; readonly value: numbe
  * 【順序】戰鬥機在前、轟炸機在後。與 `SPECS` 每一列的順序一致，
  * `missions.ts` 依賴「`specsFor(f)[0]` 是戰鬥機、`[1]` 是轟炸機」。
  */
-export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, B17G, HE111]
+export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, B17G, HE111]
 
 /**
  * 各陣營的機種。**任務模式專用** —— 遭遇戰請用 `ALL_SPECS`。

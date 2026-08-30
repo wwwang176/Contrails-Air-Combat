@@ -26,7 +26,7 @@ import { bodyColorOf } from './render/geometry/buildAircraft'
 import { clearImpacts } from './world/events'
 import { clearKills } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
-import { buildAircraft, type AircraftModel } from './render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
@@ -1429,6 +1429,10 @@ function frame(now: number) {
   perf.endFrame(loop.lastSubstepCount)
   requestAnimationFrame(frame)
 }
+
+// 【GLB 機種要在進迴圈前載完】`buildAircraft` 是同步的（`main.ts`、四個工具
+// 頁、node 單元測試都同步呼叫它），所以非同步只能關在這一行。
+await preloadAircraftModels()
 requestAnimationFrame(frame)
 
 /**

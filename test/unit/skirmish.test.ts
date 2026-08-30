@@ -9,8 +9,8 @@ import type { BattleConfig } from '../../src/battle/setup'
 import { sideCount, sideSummary } from '../../src/battle/order'
 
 describe('機種名單', () => {
-  it('遭遇戰的名單四台一起列 —— 混搭之後陣營不再是一個選擇', () => {
-    expect(ALL_SPECS.map((s) => s.id)).toEqual(['p51d', 'bf109k4', 'b17g', 'he111'])
+  it('遭遇戰的名單全部一起列 —— 混搭之後陣營不再是一個選擇', () => {
+    expect(ALL_SPECS.map((s) => s.id)).toEqual(['p51d', 'bf109k4', 'f6f5', 'b17g', 'he111'])
   })
 
   it('任務模式仍然分陣營，而且兩邊沒有交集', () => {

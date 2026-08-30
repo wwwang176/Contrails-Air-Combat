@@ -14,3 +14,6 @@ ref/
 
 # 驗收截圖，不進版控
 .shots/
+
+# git worktree 的工作目錄（`.claude/skills/` 是原始碼，這個不是）
+.claude/worktrees/
