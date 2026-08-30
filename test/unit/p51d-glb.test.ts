@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { BufferGeometry, Mesh, MeshStandardMaterial, Object3D } from 'three'
+import { BufferGeometry, Material, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { glbTemplate, parseGlbTemplate } from '../../src/render/geometry/glb'
 import { P51D_MODEL } from '../../src/render/geometry/p51d.model'
@@ -16,7 +16,8 @@ import { loadGlbTemplatesForNode } from '../fixtures/glb'
  *   - 翼板的 `part='wingN'` 標記從 Blender 的 extras 一路傳到合併後的 mesh
  *     （`geometry.test.ts` 的四分之一弦線守衛靠它）
  *   - 槳葉四片都認得出來、槳盤是載入時重做的
- *   - 樣板持有的每一份幾何 dispose 剛好一次（合併掉的來源在 parse 時就放）
+ *   - 樣板持有的每一份幾何與材質 dispose 剛好一次 —— **包括合併時就放掉的
+ *     來源**，那些在 parse 完之後已經摸不到，所以要在 parse 期間就攔截
  */
 beforeAll(async () => { await loadGlbTemplatesForNode() })
 
@@ -27,13 +28,19 @@ function meshes(root: Object3D): Mesh[] {
 }
 
 describe('P-51D 走 GLB', () => {
-  it('建出來的飛機與樣板共用幾何 —— 那是 GLB 路的特徵', () => {
+  it('建出來的飛機是樣板的複製：Object3D 各自一份、幾何共用', () => {
     const t = glbTemplate('p51d')
     expect(t).toBeDefined()
     const own = new Set(meshes(t!.group).map((m) => m.geometry))
-    const built = meshes(buildAircraft(P51D).group)
-    expect(built.length).toBeGreaterThan(0)
-    for (const m of built) expect(own.has(m.geometry)).toBe(true)
+    const a = buildAircraft(P51D), b = buildAircraft(P51D)
+    const ma = meshes(a.group), mb = meshes(b.group)
+    expect(ma.length).toBeGreaterThan(0)
+    expect(a.group).not.toBe(t!.group)
+    expect(a.group).not.toBe(b.group)
+    for (let i = 0; i < ma.length; i++) {
+      expect(ma[i]).not.toBe(mb[i])
+      expect(own.has(ma[i]!.geometry)).toBe(true)
+    }
   })
 
   it('四種材質都有頂點，座艙內裝標了 inwardShell', () => {
@@ -60,24 +67,65 @@ describe('P-51D 走 GLB', () => {
     expect(parts).toEqual(['wing0', 'wing1', 'wing2'])
   })
 
-  it('四片槳葉加一個載入時重做的槳盤', () => {
-    const spinning = meshes(buildAircraft(P51D).group).filter((m) => m.userData['spinning'])
+  it('四片槳葉加一個載入時重做的槳盤，掛在轉軸位置的 hub 底下', () => {
+    const model = buildAircraft(P51D)
+    model.group.updateMatrixWorld(true)
+    const spinning = meshes(model.group).filter((m) => m.userData['spinning'])
     const discs = spinning.filter((m) => m.geometry.type === 'CircleGeometry')
     expect(discs.length).toBe(1)
     expect(spinning.length - discs.length).toBe(4)
+    const hubs = new Set(spinning.map((m) => m.parent))
+    expect(hubs.size).toBe(1)
+    const p = [...hubs][0]!.getWorldPosition(new Vector3())
+    expect(p.toArray().map((v) => +v.toFixed(6))).toEqual([0, P51D_MODEL.prop.hubY, P51D_MODEL.prop.hubZ])
   })
 
-  it('樣板的每一份幾何 dispose 剛好一次', async () => {
+  /**
+   * 【為什麼要攔 clone】`parseGlbTemplate` 對每個來源 mesh 先 `geometry.clone()`
+   * 再烘變換；被併掉的那些 clone 在 parse 途中就 dispose 並從 owned 移除，
+   * parse 完之後從樣板摸不到它們。只監聽最後可達的幾何，會放過「合併來源
+   * 忘了 dispose」這個漏洞。所以在 parse 期間把每一個 clone 都記下來。
+   */
+  it('parse 期間 clone 出來的每一份幾何、以及五份材質，dispose 剛好一次', async () => {
     const buf = readFileSync(`public${P51D_MODEL.url}`)
     const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
-    const t = await parseGlbTemplate(bytes, P51D_MODEL)
-    const counts = new Map<BufferGeometry, number>()
-    for (const m of meshes(t.group)) {
-      counts.set(m.geometry, 0)
-      m.geometry.addEventListener('dispose', () => counts.set(m.geometry, counts.get(m.geometry)! + 1))
+    const geoCounts = new Map<BufferGeometry, number>()
+    const origClone = BufferGeometry.prototype.clone
+    const origDispose = BufferGeometry.prototype.dispose
+    BufferGeometry.prototype.clone = function (this: BufferGeometry) {
+      const g = origClone.call(this)
+      geoCounts.set(g, 0)
+      return g
     }
-    t.dispose()
-    expect(counts.size).toBeGreaterThan(0)
-    for (const n of counts.values()) expect(n).toBe(1)
+    BufferGeometry.prototype.dispose = function (this: BufferGeometry) {
+      if (geoCounts.has(this)) geoCounts.set(this, geoCounts.get(this)! + 1)
+      return origDispose.call(this)
+    }
+    let t: Awaited<ReturnType<typeof parseGlbTemplate>>
+    try {
+      t = await parseGlbTemplate(bytes, P51D_MODEL)
+    } finally {
+      BufferGeometry.prototype.clone = origClone
+    }
+    try {
+      // 最後可達的（併出來的、單株的、槳盤）也一併納入
+      const reach = meshes(t.group)
+      for (const m of reach) if (!geoCounts.has(m.geometry)) geoCounts.set(m.geometry, 0)
+      const matCounts = new Map<Material, number>()
+      for (const m of reach) {
+        const mat = m.material as Material
+        if (matCounts.has(mat)) continue
+        matCounts.set(mat, 0)
+        mat.addEventListener('dispose', () => matCounts.set(mat, matCounts.get(mat)! + 1))
+      }
+      expect(matCounts.size).toBe(5)   // body、accent、glass、cockpit、槳盤的 blur
+      const before = [...geoCounts.values()].filter((n) => n === 1).length
+      expect(before).toBeGreaterThan(0)   // 併掉的來源在 parse 時就放了
+      t.dispose()
+      for (const n of geoCounts.values()) expect(n).toBe(1)
+      for (const n of matCounts.values()) expect(n).toBe(1)
+    } finally {
+      BufferGeometry.prototype.dispose = origDispose
+    }
   })
 })

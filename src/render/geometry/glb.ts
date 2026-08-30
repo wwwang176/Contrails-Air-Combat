@@ -237,10 +237,13 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
 /**
  * 節點名是不是 `base` 或它的複本。Blender 給複本加的尾碼是 `.001`，但
  * `GLTFLoader` 載入時會把名字裡的點拿掉（`PropertyBinding.sanitizeNodeName`），
- * 看到的是 `P51_Prop001` —— 所以只認前綴，不認分隔符。
+ * 看到的是 `P51_Prop001` —— 所以尾碼只認「可有可無的分隔符＋數字」。
+ * 不認任意前綴：`F6F_PropHub` 這種名字不該被當成槳葉。
  */
 function isNamed(o: Object3D, base: string): boolean {
-  return o.name.startsWith(base)
+  if (!o.name.startsWith(base)) return false
+  const tail = o.name.slice(base.length)
+  return tail === '' || /^[._]?\d+$/.test(tail)
 }
 
 /** 與 `assembly.ts` 的 `finish()` 同一套量法，好讓機庫的兩條路讀數可比。 */

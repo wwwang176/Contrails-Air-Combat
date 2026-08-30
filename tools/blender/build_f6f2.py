@@ -931,4 +931,9 @@ def main():
     result['parts'] = per
 
 
+# 【`result` 是給 Blender MCP 的回傳值】這支原本是透過 MCP 的
+# `execute_blender_code` 逐段餵進 Blender 跑的，MCP 會把 `result` 這個 dict
+# 回給呼叫端。直接在 Blender 的 Text Editor 按 Run Script 也行 —— 這裡先
+# 給它一個空 dict，跑完到 Python console 印 `result` 看三角形數。
+result = globals().get('result') or {}
 main()
