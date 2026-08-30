@@ -4,7 +4,8 @@ import type { GlbAircraft } from './glb'
 /**
  * F6F-5 Hellcat 的外型 —— **這一台不是量出來的，是畫出來的。**
  *
- * 幾何全部在 Blender 裡建（腳本見 scratchpad 的 `build_f6f2.py`），直接匯出
+ * 幾何全部在 Blender 裡建（來源 `tools/blender/f6f5.blend`；建模腳本
+ * `tools/blender/build_f6f2.py` 是它的出處），直接匯出
  * `public/models/f6f5.glb`，2,992 個三角形（P-51D 是 2,703）。所以這裡沒有
  * `.hull.ts` 錨點表 —— GLB 就是那份資料。
  *
