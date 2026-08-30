@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { createFireball } from '../../src/render/fireball'
 import { createSmoke } from '../../src/render/smoke'
 import { createSpray, WATER_COLOR } from '../../src/render/spray'
@@ -10,6 +10,7 @@ import { createWrecks } from '../../src/render/wrecks'
 import { createImpacts, pushImpact } from '../../src/world/events'
 import { createKills, pushKill } from '../../src/world/kills'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
+import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { P51D } from '../../src/specs/p51d'
 
 /**
@@ -107,6 +108,9 @@ describe('零件池的歸零', () => {
 })
 
 describe('殘骸池的歸零', () => {
+  // P-51D 走 GLB，node 這邊要先載樣板
+  beforeAll(async () => { await loadGlbTemplatesForNode() })
+
   it('reset 把每一具模型都還給呼叫端', () => {
     // 【為什麼這條是整個 M10 最重要的一條】殘骸池**持有**上一場的模型，
     // 並在回收時透過回呼把它移出場景。不歸零就是每換一場洩漏一批，

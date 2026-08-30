@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { BufferGeometry, DoubleSide, Mesh, Vector3, type MeshStandardMaterial } from 'three'
 import { buildFuselage, type FuselageSection } from '../../src/render/geometry/fuselage'
 import { buildCanopy } from '../../src/render/geometry/canopy'
 import { buildHull, prepareRings, type HullRing } from '../../src/render/geometry/hull'
 import { buildWingPanel } from '../../src/render/geometry/wing'
-import { buildAircraft } from '../../src/render/geometry/buildAircraft'
+import { buildAircraft, GLB_MODELS } from '../../src/render/geometry/buildAircraft'
+import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { B17G } from '../../src/specs/b17g'
@@ -55,6 +56,9 @@ function signedVolume(geo: BufferGeometry): number {
   }
   return v / 6
 }
+
+// P-51D 走 GLB（見 `p51d.model.ts`），node 這邊要自己讀檔載樣板
+beforeAll(async () => { await loadGlbTemplatesForNode() })
 
 describe('buildFuselage', () => {
   it('產生非空、座標有限、含法線的幾何', () => {
@@ -364,7 +368,12 @@ describe('buildAircraft', () => {
        * 量的是**建好的幾何**而不是造型資料：主翼是那片跨越 ±80% 半翼展的
        * 網格，取它在 x≈0 的翼根弦長。
        */
-      it('機翼四分之一弦線落在原點（＝重心）', () => {
+      /**
+       * 【GLB 機種量不到】這一條靠 `assembly.ts` 標在翼板上的 `part='wingN'`
+       * 認主翼，GLB 載進來按材質合併後沒有這個標記。P-51D 的 GLB 是從
+       * `buildP51D()` 匯出的，原點約定寫在 `p51d.model.ts`；F6F-5 同樣。
+       */
+      it.skipIf(spec.id in GLB_MODELS)('機翼四分之一弦線落在原點（＝重心）', () => {
         const m = buildAircraft(spec)
         m.group.updateMatrixWorld(true)
         // 【判準是整個翼展，不是半翼展】合併之後左右兩片是同一個 mesh，跨度

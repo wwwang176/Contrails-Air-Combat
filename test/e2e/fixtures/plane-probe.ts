@@ -1,6 +1,6 @@
 import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { createLights } from '../../../src/render/lighting'
-import { buildAircraft } from '../../../src/render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels } from '../../../src/render/geometry/buildAircraft'
 import type { AircraftSpec } from '../../../src/specs/types'
 
 /**
@@ -123,4 +123,6 @@ export function planeShot(
   return { pixels, hash: hash >>> 0 }
 }
 
+// GLB 機種的樣板先載好，`__planeShot` 掛上去之後 `buildAircraft` 才是同步的
+await preloadAircraftModels()
 ;(window as unknown as Record<string, unknown>)['__planeShot'] = planeShot

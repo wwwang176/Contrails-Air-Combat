@@ -1,9 +1,9 @@
 import type { AircraftModel } from './assembly'
 import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
-import { buildP51D, P51D_BODY_COLOR } from './p51d'
 import { buildHe111, HE111_BODY_COLOR } from './he111'
 import { buildB17G, B17G_BODY_COLOR } from './b17g'
 import { F6F5_MODEL } from './f6f5.model'
+import { P51D_MODEL } from './p51d.model'
 import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
@@ -25,7 +25,6 @@ export type { AircraftModel, HullMetrics } from './assembly'
  * 機首整流罩與各機種的識別特徵。
  */
 const BUILDERS: Record<string, () => AircraftModel> = {
-  p51d: buildP51D,
   bf109k4: buildBf109E,
   he111: buildHe111,
   b17g: buildB17G,
@@ -34,12 +33,15 @@ const BUILDERS: Record<string, () => AircraftModel> = {
 /**
  * 由 GLB 載入的機種。**與 `BUILDERS` 並存，不是取代**。
  *
- * 【為什麼並存】GLB 是新的一條路（見 `glb.ts` 的說明），既有四台一行都沒動。
- * 任何一步走錯都只會弄壞 F6F 一台。等這條路在遊戲裡穩了，既有四台可以用
- * `GLTFExporter` 把 `buildP51D()` 的 `Group` 直接吐成 GLB 搬過來 —— 逐頂點
- * 一模一樣，不必在 Blender 重畫。
+ * 【兩種來源】F6F-5 是在 Blender 裡畫的；P-51D 是用 `GLTFExporter` 把
+ * `buildP51D()` 的 `Group` 直接吐成 GLB 搬過來的（`test/tools/p51-export.ts`），
+ * 逐頂點一模一樣，不必在 Blender 重畫。剩下三台要搬也走同一條路。
+ *
+ * 【為什麼並存】GLB 那條路任何一步走錯都只會弄壞走它的機種；程式化那三台
+ * 一行都沒動。
  */
-const GLB_MODELS: Record<string, GlbAircraft> = {
+export const GLB_MODELS: Record<string, GlbAircraft> = {
+  p51d: P51D_MODEL,
   f6f5: F6F5_MODEL,
 }
 
@@ -73,7 +75,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
  * 參數，塗裝是渲染層的事。這個檔案本來就是「機種 id → 外型」的查表處。
  */
 const BODY_COLORS: Record<string, number> = {
-  p51d: P51D_BODY_COLOR,
+  p51d: P51D_MODEL.bodyColor,
   bf109k4: BF109_BODY_COLOR,
   he111: HE111_BODY_COLOR,
   b17g: B17G_BODY_COLOR,

@@ -16,7 +16,7 @@ import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
  * mesh 仍然掛在 `hull` 底下，世界矩陣一模一樣，頂點資料一個 bit 都沒動。
  */
 
-const IDS = ['p51d', 'bf109k4', 'he111', 'b17g'] as const
+const IDS = ['bf109k4', 'he111', 'b17g'] as const
 
 /**
  * 合併後每一架剩幾個 `Mesh`。**這是量出來的，不是訂出來的**
@@ -24,7 +24,6 @@ const IDS = ['p51d', 'bf109k4', 'he111', 'b17g'] as const
  *
  * ```
  *    機種      合併前   合併後
- *    p51d          30      27
  *    bf109k4       31      29
  *    he111         46      36
  *    b17g          52      40
@@ -34,10 +33,10 @@ const IDS = ['p51d', 'bf109k4', 'he111', 'b17g'] as const
  * 不出來，而 `geometry.test.ts` 的「四分之一弦線壓在重心上」正是靠主翼的
  * 翼根弦量的。代價是每一架多兩三個 draw call。
  */
-const MESHES: Record<string, number> = { p51d: 27, bf109k4: 29, he111: 36, b17g: 40 }
+const MESHES: Record<string, number> = { bf109k4: 29, he111: 36, b17g: 40 }
 
 /** 合併出來的 mesh 有幾個（＝實際併起來的組數，只有一株的組不併）。 */
-const MERGED: Record<string, number> = { p51d: 3, bf109k4: 2, he111: 5, b17g: 5 }
+const MERGED: Record<string, number> = { bf109k4: 2, he111: 5, b17g: 5 }
 
 /**
  * 合併前量到的頂點數與世界座標＋法線的雜湊。
@@ -47,7 +46,6 @@ const MERGED: Record<string, number> = { p51d: 3, bf109k4: 2, he111: 5, b17g: 5 
  * 對照組：合併若掉了頂點、或動了任何一個座標的最低位，兩個都會變。
  */
 const BEFORE: Record<string, { vertices: number, hash: number }> = {
-  p51d: { vertices: 7874, hash: 0x94beb9c6 },
   bf109k4: { vertices: 6041, hash: 0x3d99c36d },
   he111: { vertices: 38272, hash: 0x1e182c4 },
   b17g: { vertices: 57854, hash: 0x4c0133f },
@@ -133,7 +131,7 @@ describe('飛機靜態零件合併', () => {
   })
 
   it('setPropSpin 仍然有效', () => {
-    const model = buildAircraft({ id: 'p51d' } as never)
+    const model = buildAircraft({ id: 'bf109k4' } as never)
     model.setPropSpin(1.5, true)
     let disc = 0
     let hub = 0
@@ -167,4 +165,4 @@ describe('飛機靜態零件合併', () => {
 })
 
 /** 每一架有幾個半透明 mesh（玻璃與座艙內裝）。合併前量的。 */
-const TRANSLUCENT: Record<string, number> = { p51d: 2, bf109k4: 2, he111: 6, b17g: 9 }
+const TRANSLUCENT: Record<string, number> = { bf109k4: 2, he111: 6, b17g: 9 }

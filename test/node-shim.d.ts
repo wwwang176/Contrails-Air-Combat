@@ -16,4 +16,6 @@
  */
 declare module 'node:fs' {
   export function readFileSync(path: string): Uint8Array
+  /** 只給 `test/tools/p51-export.ts` 寫 GLB 用；同樣是「路徑進、位元組出」的最小多載。 */
+  export function writeFileSync(path: string, data: Uint8Array): void
 }

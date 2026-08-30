@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain } from '../render/terrain'
 import { createTracers } from '../render/tracers'
-import { buildAircraft } from '../render/geometry/buildAircraft'
+import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import { Projectiles } from '../world/Projectiles'
 import { P51D } from '../specs/p51d'
 
@@ -38,6 +38,7 @@ const terrain = createTerrain('sea')
 terrain.object.position.y = -400
 ctx.scene.add(terrain.object)
 
+await preloadAircraftModels()
 const model = buildAircraft(P51D)
 ctx.scene.add(model.group)
 

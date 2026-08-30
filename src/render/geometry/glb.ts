@@ -10,7 +10,7 @@ import { PROP_DISC_RENDER_ORDER, type AircraftModel, type HullMetrics } from './
  *
  * ── 為什麼多這一條路 ────────────────────────────────────────────
  *
- * 既有四台走的是「GLB 參考 → 射線量測 → 烘成錨點表 → 程式重建」。中間那兩步
+ * 程式化那幾台走的是「GLB 參考 → 射線量測 → 烘成錨點表 → 程式重建」。中間那兩步
  * 是這個專案絕大多數外型缺陷的來源，而且**它們不會報錯**：尾輪艙讓 F6F 的
  * 腹線量高 0.22 m、混進垂尾的整流罩外推成 0.24 高 0.085 寬的刀刃、翼尖圓化
  * 從 90% 展長就開始收又收不完。三個都產生平滑、單調、逐站連續的曲線，通過
@@ -49,7 +49,7 @@ export interface GlbAircraft {
    * `depthWrite: false`）。照抄 glTF 的 PBR 參數會讓新機種在同一個場景裡
    * 亮度與高光跟其他三台對不起來 —— 那不是「更真實」，是不一致。
    */
-  materials: Readonly<Record<string, 'body' | 'accent' | 'glass'>>
+  materials: Readonly<Record<string, GlbMaterialKind>>
   prop: {
     /** GLB 裡槳葉那個物件的名字 */
     node: string
@@ -60,6 +60,13 @@ export interface GlbAircraft {
     radius: number
   }
 }
+
+/**
+ * 遊戲材質的種類。`cockpit` 是座艙內裝：暗色、**平滑**著色、刻意朝內的殼
+ * （與 `assembly.ts` 的 `cockpitMat` 相同）。P-51D 從程式版搬過來時帶著
+ * 它；沒有這一種，內裝要嘛被拒載、要嘛被貼成整流罩的暗色。
+ */
+export type GlbMaterialKind = 'body' | 'accent' | 'glass' | 'cockpit'
 
 /** 載好、貼好材質、併好的一份樣板。每個機種一份，全場共用。 */
 export interface GlbTemplate {
@@ -117,8 +124,9 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
     depthWrite: false, side: DoubleSide,
   })
-  const mats = { body, accent, glass }
-  const owned: { dispose(): void }[] = [body, accent, glass, blur]
+  const cockpit = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
+  const mats = { body, accent, glass, cockpit }
+  const owned: { dispose(): void }[] = [body, accent, glass, cockpit, blur]
 
   const group = new Group()
   const hull = new Group()
@@ -127,7 +135,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   // ── 走一遍場景，把每個 mesh 的頂點烘進機體座標、重貼材質 ──────────
   //
   // 【為什麼這裡可以烘變換】`assembly.ts` 的 `mergeStatic` 刻意不烘，因為那
-  // 會讓既有四台的像素改變（float64 vs float32 的最低位）。這一台是新的，
+  // 會讓程式化那幾台的像素改變（float64 vs float32 的最低位）。GLB 機種是新的，
   // 沒有「不能動的既有畫面」要守；而且 Blender 匯出時已經 apply 過，實測
   // 每個節點的矩陣都是單位矩陣，烘進去等於什麼都沒做。
   const propMeshes: Mesh[] = []
@@ -145,6 +153,8 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     geo.applyMatrix4(mesh.matrixWorld)
     geo.deleteAttribute('uv')
     const out = new Mesh(geo, mats[kind])
+    // 內裝的法線朝內是刻意的；`geometry.test.ts` 的「法線朝外」靠這個旗標略過
+    if (kind === 'cockpit') out.userData['inwardShell'] = true
     owned.push(geo)
     // 節點名在 glTF 會被加尾碼（F6F_Prop.030），所以用 startsWith
     if (isNamed(mesh, def.prop.node)) propMeshes.push(out)
@@ -159,13 +169,20 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   //
   // 【為什麼一定要做】這條分支就是在砍 draw call。GLB 一個物件一個 primitive，
   // 照收就是 8 次；併完剩 3 次（機身色、暗色、玻璃），跟程式化那四台同級。
-  const byMat = new Map<MeshStandardMaterial, Mesh[]>()
+  //
+  // 【有索引與沒索引的分開併】`mergeGeometries` 要求整批要嘛都有 index、要嘛
+  // 都沒有。從程式版匯出的 P-51D 兩種都有（`BoxGeometry` 帶索引、lofting 的
+  // 機身不帶），混在一起它回 null。分開併多一個 draw call，頂點一個都不動 ——
+  // 把索引展開（`toNonIndexed`）才是會改頂點數的那條路。
+  const byMat = new Map<string, { mat: MeshStandardMaterial; list: Mesh[] }>()
   for (const m of statics) {
-    const list = byMat.get(m.material as MeshStandardMaterial)
-    if (list) list.push(m)
-    else byMat.set(m.material as MeshStandardMaterial, [m])
+    const mat = m.material as MeshStandardMaterial
+    const key = `${mat.uuid}/${m.geometry.index ? 'indexed' : 'flat'}`
+    const bucket = byMat.get(key)
+    if (bucket) bucket.list.push(m)
+    else byMat.set(key, { mat, list: [m] })
   }
-  for (const [mat, list] of byMat) {
+  for (const { mat, list } of byMat.values()) {
     if (list.length === 1) { hull.add(list[0]!); continue }
     const merged = mergeGeometries(list.map((m) => m.geometry), false)
     if (merged === null) throw new Error('mergeGeometries 回 null：屬性集合不一致')
@@ -177,6 +194,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     owned.push(merged)
     const mesh = new Mesh(merged, mat)
     mesh.userData['merged'] = true
+    if (list.some((m) => m.userData['inwardShell'])) mesh.userData['inwardShell'] = true
     hull.add(mesh)
   }
 
