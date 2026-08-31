@@ -6,6 +6,8 @@ import { mountDirection } from '../../src/weapons/types'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { F6F5 } from '../../src/specs/f6f5'
+import { HE111 } from '../../src/specs/he111'
+import { B17G } from '../../src/specs/b17g'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import type { AircraftSpec } from '../../src/specs/types'
 
@@ -28,7 +30,16 @@ import type { AircraftSpec } from '../../src/specs/types'
  * 包起來要一個 3.4 × 3.4 m 的盒子擋在機首前方——那不是命中面，是動畫。
  * 它們在 assembly.ts 標了 userData.spinning。
  */
-const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5]
+/**
+ * 【2026-09-01：兩台轟炸機納進來】原本只掃三台戰鬥機，於是它們的命中盒
+ * **從來沒有被驗過覆蓋率** —— 實測 He 111 有 412 個頂點、B-17G 有 6,012 個
+ * 落在所有盒之外（最大的兩塊是尾砲塔 2,528 點與上部砲塔＋背脊 2,214 點）。
+ * 那些地方打得到但不扣血，而且不會有任何症狀。
+ *
+ * 【為什麼當初沒納】猜是因為轟炸機的盒是跟著砲塔一起長出來的，而這份掃描
+ * 寫在那之前。不管原因是什麼，「有些機種不掃」本身就是缺陷的溫床。
+ */
+const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, HE111, B17G]
 
 /**
  * 【F6F-5 為什麼要多這一步】它的外型不是程式化建的，是 GLB。`buildAircraft`
@@ -164,7 +175,12 @@ describe('命中盒與外型的一致性', () => {
 
 describe('AircraftSpec 的新欄位', () => {
   it('戰鬥機 HP 為 1000（spec §6.3）', () => {
-    for (const spec of CASES) expect(spec.hp).toBe(1000)
+    // 【只掃戰鬥機】`CASES` 2026-09-01 起含兩台轟炸機，而它們的 hp 是
+    // 3000 / 5000（見各自的 `hp` 註解）。這一條守的是 §6.3 的「戰鬥機
+    // 一律 1000」，不是「所有機種都 1000」。
+    for (const spec of CASES.filter((s) => s.role === 'fighter')) {
+      expect(spec.hp, spec.id).toBe(1000)
+    }
   })
 
   it('TTK 的設計值（P-51 0.69 s、K-4 0.28 s）', () => {

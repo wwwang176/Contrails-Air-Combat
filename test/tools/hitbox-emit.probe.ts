@@ -232,6 +232,64 @@ function splitTail(tris: readonly number[][], region: HitBox[], cut: number): Hi
   return [h, w].filter((b): b is HitBox => b !== null)
 }
 
+/**
+ * 把「落在所有盒之外」的表面補起來。
+ *
+ * 【為什麼會有漏的】這一支是拿**現行的盒**當要細分的區域，所以現行盒蓋不到
+ * 的地方，細分之後照樣蓋不到。兩台轟炸機的盒訂好之後才長出砲塔與發動機艙
+ * 前端，於是 B-17G 有 6,012 個頂點、He 111 有 412 個在所有盒之外 —— 那些
+ * 地方**打得到但不扣血**，而覆蓋率掃描只含三台戰鬥機，沒有人會發現。
+ *
+ * 【怎麼補】漏的點按 0.8 m 鏈結距離分群（破洞通常是一整個零件，不是散點），
+ * 每一群補一個緊盒，部位取**離它最近的那個盒**的部位 —— 尾砲塔補進 tail、
+ * 上部砲塔補進 fuselage、發動機艙前端補進 engine，都落在該落的地方。
+ *
+ * 【邊界為什麼要含整個三角形】只包漏掉的頂點的話，跨在邊界上的三角形會有一
+ * 段面落在兩個盒之間 —— 就是前面那個「頂點覆蓋率完美但面有洞」的坑。凡是
+ * 碰到這一群的三角形，三個頂點一起算進盒裡，接縫就一定是重疊。
+ */
+function patchHoles(boxes: readonly HitBox[], pts: readonly Vector3[], tris: readonly number[][]): HitBox[] {
+  const missed = pts.filter((p) => !boxes.some((b) => inBox(p, b)))
+  if (!missed.length) return [...boxes]
+  const rest = [...missed]
+  const groups: Vector3[][] = []
+  while (rest.length) {
+    const g = [rest.pop()!]
+    for (let i = 0; i < g.length; i++) {
+      for (let j = rest.length - 1; j >= 0; j--) {
+        if (g[i]!.distanceTo(rest[j]!) < 0.8) g.push(rest.splice(j, 1)[0]!)
+      }
+    }
+    groups.push(g)
+  }
+  const out = [...boxes]
+  const v = new Vector3()
+  for (const g of groups) {
+    const set = new Set(g.map((p) => `${p.x},${p.y},${p.z}`))
+    const all = [...g]
+    for (const t of tris) {
+      const vs = [0, 1, 2].map((i) => new Vector3(t[i * 3], t[i * 3 + 1], t[i * 3 + 2]))
+      if (vs.some((q) => set.has(`${q.x},${q.y},${q.z}`))) all.push(...vs)
+    }
+    const c = new Vector3()
+    for (const p of g) c.add(p)
+    c.divideScalar(g.length)
+    // 最近的盒 —— 點到 AABB 的距離，盒內為 0
+    let near = out[0]!
+    let bd = Infinity
+    for (const b of out) {
+      const d = v.set(
+        Math.max(0, Math.abs(c.x - b.center.x) - b.half.x),
+        Math.max(0, Math.abs(c.y - b.center.y) - b.half.y),
+        Math.max(0, Math.abs(c.z - b.center.z) - b.half.z),
+      ).length()
+      if (d < bd) { bd = d; near = b }
+    }
+    out.push(tight(near.part, all)!)
+  }
+  return out
+}
+
 const D = Math.PI / 180
 const dirOf = (az: number, el: number): Vector3 => new Vector3(
   Math.sin(az * D) * Math.cos(el * D), Math.sin(el * D), Math.cos(az * D) * Math.cos(el * D),
@@ -403,7 +461,8 @@ for (const spec of [P51D, F6F5, BF109K4, HE111, B17G]) {
       + `${f1(boxArea(cur('engine'), 0))} → ${f1(boxArea(engCl, 0))} m²`)
   }
 
-  const next = [...cur('cockpit'), ...engine, ...cur('fuselage'), ...tail, ...wings]
+  const next = patchHoles(
+    [...cur('cockpit'), ...engine, ...cur('fuselage'), ...tail, ...wings], pts, tris)
   console.log('  投影 m²      ' + ASPECTS.map((a) => a.name.padStart(10)).join(''))
   console.log('  真實外形    ' + axes.map(([ex, ey]) => f1(areaOf(tris, ex, ey)).padStart(10)).join(''))
   console.log('  現行        ' + ASPECTS.map((_, i) => f1(boxArea(spec.hitBoxes, i)).padStart(10)).join('')
@@ -445,8 +504,11 @@ for (const spec of [P51D, F6F5, BF109K4, HE111, B17G]) {
   engine.forEach((b, i) => console.log(line(b, engine.length > 1 ? `發動機艙 ${i + 1}` : '發動機')))
   for (const b of cur('fuselage')) console.log(line(b, '機身'))
   tail.forEach((b, i) => console.log(line(b, i === 0 ? '平尾' : '垂尾＋尾錐')))
+  const patched = next.filter((b) => ![...cur('cockpit'), ...engine, ...cur('fuselage'),
+    ...tail, ...wings].includes(b))
   for (const p of ['wingRight', 'wingLeft'] as const) {
     wings.filter((b) => b.part === p).sort((a, b) => Math.abs(a.center.x) - Math.abs(b.center.x))
       .forEach((b, i) => console.log(line(b, `${p === 'wingRight' ? '右' : '左'}翼第 ${i + 1} 段`)))
   }
+  patched.forEach((b, i) => console.log(line(b, `補漏 ${i + 1}（${b.part}）`)))
 }
