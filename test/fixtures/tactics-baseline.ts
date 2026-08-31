@@ -27,13 +27,13 @@
  * 把每個 `AiController` 的 `tacticalConfig.quota` 設成 0。重錄前**務必先
  * 雙跑確認一致**——重錄一個不穩定的值毫無意義。
  *
- * 【最近一次重錄】Bf 109 K-4 改走 GLB 之後，五台的命中盒照新網格重新產生了
- * 一次（`test/tools/hitbox-emit.probe.ts`）。只有 `HEADON_20V20` 變 ——
- * `PURSUIT_MIRROR_8V8` 的編成裡沒有 109，逐字相同。命中判定的幾何變了，
- * 這條路徑上的行為跟著變是**設計上的預期**。已雙跑確認一致
+ * 【最近一次重錄】Bf 109 K-4 的機翼在 Blender 裡補了展向環線（原本整片翼
+ * 只有一段，命中盒切不下去），GLB 重出、命中盒跟著重新產生。只有
+ * `HEADON_20V20` 變 —— `PURSUIT_MIRROR_8V8` 的編成裡沒有 109，逐字相同。
+ * 命中判定的幾何變了，這條路徑上的行為跟著變是**設計上的預期**。已雙跑確認
  *（`test/tools/rebaseline.probe.ts`），且 `quota = 0` 與預設仍然相同。
  */
 export const HEADON_20V20_BEFORE_TACTICS
-  = '51409:74c06de84cb4d28dfb0202f0ed7841dbe3780e8518ca7f11f38042dae17b7462'
+  = '51409:7cb1da323198aa7aaa14603b950d37306f6147274e3d6687f8ebda952b1dad4e'
 export const PURSUIT_MIRROR_8V8_BEFORE_TACTICS
   = '49033:a74eea128f86f174e3873b6951196703ad3fd11e73db2a07661574ed59a9afc8'
