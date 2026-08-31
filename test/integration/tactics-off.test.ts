@@ -53,24 +53,39 @@ describe('戰術層關掉時等於它上線之前', () => {
     }, 300_000)
   }
 
-  it('HEADON_20V20：quota = 0.5 的校驗和不同 —— 否則這一層沒接上', async () => {
-    // 【為什麼要這一條】一個「永遠沒接上」的機制會讓所有等價測試都綠，而
-    // 消融表會顯示「開關沒有差別」—— 那看起來像「這個功能沒用」，不是
-    // 「這個功能沒裝」。
-    expect((await run('HEADON_20V20', 0.5)).digest)
-      .not.toBe(BASE.HEADON_20V20_BEFORE_TACTICS)
-  }, 300_000)
-
-  it('PURSUIT_MIRROR_8V8：打不到 enterRange，所以開關沒有差別', async () => {
-    // 【這不是「沒接上」，是距離閘擋住了】那一場鏡像出生、8v8，全程量到的
-    // 最遠交戰距離是 2174 m，而 `enterRange` 是 2500 m —— `farLatch` 一次
-    // 都沒開，相位恆為 `off`。
-    //
-    // 【為什麼把它寫成測試而不是刪掉這一格】「開關沒差別」有兩個成因，一個
-    // 是缺陷、一個不是。把成因**也**釘住，日後 `enterRange` 一改動這條就會
-    // 紅，而紅的訊息會直接指向那個參數。
-    const on = await run('PURSUIT_MIRROR_8V8', 0.5)
-    expect(on.maxRange).toBeLessThan(DEFAULT_TACTICS.enterRange)
-    expect(on.digest).toBe(BASE.PURSUIT_MIRROR_8V8_BEFORE_TACTICS)
-  }, 300_000)
+  /**
+   * 【為什麼要這一條】一個「永遠沒接上」的機制會讓所有等價測試都綠，而消融
+   * 表會顯示「開關沒有差別」—— 那看起來像「這個功能沒用」，不是「這個功能
+   * 沒裝」。
+   *
+   * ── 2026-08-31：`PURSUIT_MIRROR_8V8` 由「沒差別」搬到這裡 ──────────
+   *
+   * 原本那一場單獨成一格，斷言的是**距離閘擋住了**：全程量到的最遠交戰距離
+   * 2174 m 低於 `enterRange` 2500 m，`farLatch` 一次都沒開，所以 quota 0.5
+   * 與 quota 0 的校驗和相同。那一格的註解寫著「日後 `enterRange` 一改動這條
+   * 就會紅，而紅的訊息會直接指向那個參數」—— 它確實紅了，只是動的不是
+   * `enterRange`，是命中盒。
+   *
+   * 命中盒改貼合外形之後彈道與傷害都變了，那一場的軌跡跟著變：
+   *
+   * ```
+   *   最遠交戰距離        2174 → 2742 m
+   *   超過閘門的取樣         0 → 13 次
+   *   quota 0 vs 0.5     相同 → **不同**
+   * ```
+   *
+   * 前提死了，而且結論跟著翻面：那一場現在**會**打開距離閘。所以它不再是
+   * 「開關沒差別」的例子，而是與 `HEADON_20V20` 同一類。量測腳本
+   * `test/tools/tactics-gate.probe.ts`。
+   */
+  for (const name of ['HEADON_20V20', 'PURSUIT_MIRROR_8V8'] as const) {
+    it(`${name}：quota = 0.5 的校驗和不同 —— 否則這一層沒接上`, async () => {
+      const on = await run(name, 0.5)
+      // 【連成因一起釘】兩場現在都打得到 enterRange。哪天有人把它調高到
+      // 擋住其中一場，這一行會先紅，訊息直接指向那個參數 —— 那正是上一版
+      // 那一格想留下的東西，只是換了個位置。
+      expect(on.maxRange).toBeGreaterThan(DEFAULT_TACTICS.enterRange)
+      expect(on.digest).not.toBe(BASE[`${name}_BEFORE_TACTICS`])
+    }, 300_000)
+  }
 })

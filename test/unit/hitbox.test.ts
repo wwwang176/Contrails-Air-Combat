@@ -76,9 +76,21 @@ const inside = (v: Vector3, b: { center: Vector3; half: Vector3 }): boolean =>
 describe('命中盒與外型的一致性', () => {
   for (const spec of CASES) {
     describe(spec.name, () => {
-      it('六個部位齊全且不重複', () => {
-        const parts = spec.hitBoxes.map((b) => b.part).sort()
-        expect(parts).toEqual([...HIT_PARTS].sort())
+      /**
+       * 【2026-08-31：由「集合相等」放寬成「每個部位至少一個盒」】
+       *
+       * 原本這一條要求六個盒一對一。尾翼因此只能是一個 AABB，而平尾＋垂尾
+       * 是一個**十字** —— 那個盒的正後方投影有八成是空氣（P-51D 9.12 m²，
+       * 真正的尾翼只有約 1.6）。倍率取「線段碰到的所有盒之中最高的那一個」，
+       * 於是那些空氣以 1.2 贏過機身盒的 1.0，實戰 47% 的命中被判成 tail。
+       *
+       * **放寬的是「一個部位只能有一個盒」，不是「六個部位都要在」。**
+       * 後者才是這一條真正在守的東西 —— 少一個部位就是一整塊打不到，
+       * 那仍然會紅。多一個盒只是把同一個部位描述得更貼合。
+       */
+      it('六個部位齊全（一個部位可以有多個盒）', () => {
+        const parts = new Set(spec.hitBoxes.map((b) => b.part))
+        expect([...parts].sort()).toEqual([...HIT_PARTS].sort())
       })
 
       it('每個頂點都落在至少一個命中盒內', () => {
@@ -96,7 +108,7 @@ describe('命中盒與外型的一致性', () => {
         }
       })
 
-      it('六個盒的體積總和小於整機包圍盒（不能用巨盒交差）', () => {
+      it('所有盒的體積總和小於整機包圍盒（不能用巨盒交差）', () => {
         const { bboxVolume } = sample(spec)
         const sum = spec.hitBoxes.reduce(
           (a, b) => a + 8 * b.half.x * b.half.y * b.half.z, 0)
@@ -104,12 +116,19 @@ describe('命中盒與外型的一致性', () => {
       })
 
       it('左右翼盒左右對稱', () => {
-        const l = spec.hitBoxes.find((b) => b.part === 'wingLeft')!
-        const r = spec.hitBoxes.find((b) => b.part === 'wingRight')!
-        expect(l.center.x).toBeCloseTo(-r.center.x, 9)
-        expect(l.center.y).toBeCloseTo(r.center.y, 9)
-        expect(l.center.z).toBeCloseTo(r.center.z, 9)
-        expect(l.half.toArray()).toEqual(r.half.toArray())
+        // 【為什麼逐一配對而不是取第一個】機翼日後也可能拆成多段（上反角
+        // 讓整片機翼的 AABB 比翼厚高兩倍以上）。照展向排序之後逐對比，
+        // 拆幾段都成立。
+        const key = (b: { center: { z: number } }): number => b.center.z
+        const l = spec.hitBoxes.filter((b) => b.part === 'wingLeft').sort((a, b) => key(a) - key(b))
+        const r = spec.hitBoxes.filter((b) => b.part === 'wingRight').sort((a, b) => key(a) - key(b))
+        expect(l).toHaveLength(r.length)
+        for (let i = 0; i < l.length; i++) {
+          expect(l[i]!.center.x).toBeCloseTo(-r[i]!.center.x, 9)
+          expect(l[i]!.center.y).toBeCloseTo(r[i]!.center.y, 9)
+          expect(l[i]!.center.z).toBeCloseTo(r[i]!.center.z, 9)
+          expect(l[i]!.half.toArray()).toEqual(r[i]!.half.toArray())
+        }
       })
 
       it('每個槍口都長在自己的機體上（落在至少一個命中盒內）', () => {
