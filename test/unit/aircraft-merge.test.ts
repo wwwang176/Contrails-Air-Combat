@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { BufferGeometry, Material, Matrix4, Mesh, Object3D, Vector3 } from 'three'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
+import { loadGlbTemplatesForNode } from '../fixtures/glb'
+
+// setPropSpin 那條用的是 bf109k4（單發，盤面恰為 1），它走 GLB 路，要先載樣板
+beforeAll(async () => { await loadGlbTemplatesForNode() })
 
 /**
  * **靜態零件按材質合併。**
@@ -16,7 +20,10 @@ import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
  * mesh 仍然掛在 `hull` 底下，世界矩陣一模一樣，頂點資料一個 bit 都沒動。
  */
 
-const IDS = ['bf109k4', 'he111', 'b17g'] as const
+// 【bf109k4 已退出這份清單】它改走 GLB 路（`GLB_MODELS`），不再經過
+// `finish()` 的程序化合併；GLB 那條路的合併守則在 `p51d-glb.test.ts`。
+// 下面的常數是程序化路徑上量的，對 GLB 機種本來就不成立（技能坑 35）。
+const IDS = ['he111', 'b17g'] as const
 
 /**
  * 合併後每一架剩幾個 `Mesh`。**這是量出來的，不是訂出來的**
@@ -130,6 +137,7 @@ describe('飛機靜態零件合併', () => {
     model.dispose()
   })
 
+  // 【單發機才是這條的原意】盤面數斷言是 1；bf109k4 走 GLB 路之後要先載樣板
   it('setPropSpin 仍然有效', () => {
     const model = buildAircraft({ id: 'bf109k4' } as never)
     model.setPropSpin(1.5, true)

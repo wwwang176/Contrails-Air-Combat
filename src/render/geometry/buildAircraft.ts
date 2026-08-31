@@ -4,6 +4,7 @@ import { buildHe111, HE111_BODY_COLOR } from './he111'
 import { buildB17G, B17G_BODY_COLOR } from './b17g'
 import { F6F5_MODEL } from './f6f5.model'
 import { P51D_MODEL } from './p51d.model'
+import { BF109K4_MODEL } from './bf109k4.model'
 import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
@@ -44,6 +45,7 @@ const BUILDERS: Record<string, () => AircraftModel> = {
 export const GLB_MODELS: Record<string, GlbAircraft> = {
   p51d: P51D_MODEL,
   f6f5: F6F5_MODEL,
+  bf109k4: BF109K4_MODEL,
 }
 
 /**
