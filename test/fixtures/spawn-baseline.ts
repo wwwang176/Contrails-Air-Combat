@@ -97,7 +97,7 @@ export const HEADON_20V20: readonly string[] = [
   '小隊 red 36,37,38,39',
   '玩家座位 8',
 ]
-export const HEADON_20V20_REPLAY = '51409:6ea3a009ab363ee9984e7dc46c122282a17d1d26d6d3815d3e5c100a14e08afe'
+export const HEADON_20V20_REPLAY = '51409:74c06de84cb4d28dfb0202f0ed7841dbe3780e8518ca7f11f38042dae17b7462'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',

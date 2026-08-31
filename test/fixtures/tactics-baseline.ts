@@ -27,13 +27,13 @@
  * 把每個 `AiController` 的 `tacticalConfig.quota` 設成 0。重錄前**務必先
  * 雙跑確認一致**——重錄一個不穩定的值毫無意義。
  *
- * 【最近一次重錄】五台的命中盒全部由當下的網格重新產生：尾段拆成「平尾板」
- * ＋「垂尾＋尾錐板」、機翼沿展向拆成 2～3 段、兩台轟炸機的發動機由一個橫跨
- * 全翼展的盒拆成逐具發動機艙（見 `specs/*.ts` 的 `hitBoxes`）。命中判定的
- * 幾何變了，這條路徑上的行為跟著變是**設計上的預期**。已雙跑確認逐字相同
+ * 【最近一次重錄】Bf 109 K-4 改走 GLB 之後，五台的命中盒照新網格重新產生了
+ * 一次（`test/tools/hitbox-emit.probe.ts`）。只有 `HEADON_20V20` 變 ——
+ * `PURSUIT_MIRROR_8V8` 的編成裡沒有 109，逐字相同。命中判定的幾何變了，
+ * 這條路徑上的行為跟著變是**設計上的預期**。已雙跑確認一致
  *（`test/tools/rebaseline.probe.ts`），且 `quota = 0` 與預設仍然相同。
  */
 export const HEADON_20V20_BEFORE_TACTICS
-  = '51409:6ea3a009ab363ee9984e7dc46c122282a17d1d26d6d3815d3e5c100a14e08afe'
+  = '51409:74c06de84cb4d28dfb0202f0ed7841dbe3780e8518ca7f11f38042dae17b7462'
 export const PURSUIT_MIRROR_8V8_BEFORE_TACTICS
   = '49033:a74eea128f86f174e3873b6951196703ad3fd11e73db2a07661574ed59a9afc8'
