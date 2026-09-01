@@ -223,6 +223,10 @@ export const P51D: AircraftSpec = {
   limits: { gPositive: 8, gNegative: -4, vne: 810 * KMH },
 
   hp: 1000,
+  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  protection: {
+    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+  },
 
   /**
    * 命中盒 —— **全部由當下的網格量出來**，產生腳本

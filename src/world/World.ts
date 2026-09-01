@@ -618,7 +618,11 @@ export class World {
     // 退場的飛機打不中——這一條也讓「死人身上還在扣血」不可能發生
     if (!victim.alive) return
 
-    victim.hp -= damage * PART_MULTIPLIER[part]
+    // 【除以防護力】1.0 是基準；IEEE754 下除以 1.0 是精確的，所以全填 1.0
+    // 時行為逐位元不變 —— 接線這一步就是這樣驗的
+    // 【`!` 是安全的】`protection` 的型別是 Record<HitPart, number>，六個
+    // 部位都必填；`noUncheckedIndexedAccess` 對 Record 一律加上 undefined
+    victim.hp -= damage * PART_MULTIPLIER[part] / victim.aircraft.spec.protection[part]!
     if (shooter) {
       shooter.hitsDealt++
       this.damageTime[shooter.index * this.damageStride + victim.index] = this.time
