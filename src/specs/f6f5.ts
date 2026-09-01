@@ -231,10 +231,27 @@ export const F6F5: AircraftSpec = {
 
   limits: { gPositive: 7.5, gNegative: -3.5, vne: 725 * KMH },
 
-  hp: 1000,
-  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  hp: 1270,
+  /**
+   * 各部位的防護力。1.0 = 基準，扣血 = 傷害 × 部位倍率 ÷ 這裡的值。
+   *
+   * ```
+   *   cockpit  1.25   96 kg（212 lb）裝甲，含駕駛員背部與頭部
+   *   engine   1.35   **氣冷 R-2800 Double Wasp** —— 沒有冷卻液可以流失。
+   *                   史實上被打掉整個汽缸還飛回航艦的紀錄不只一次；
+   *                   另外油冷器與滑油箱周圍也包了裝甲
+   *   tail     1.00   沒有特別之處
+   *   fuselage 1.15   艦載機的過度強化結構（要承受降落攔阻的衝擊）＋自封油箱
+   *   wing     1.00   沒有特別之處
+   * ```
+   *
+   * 【整體效果 −5.3%】五台裡最耐打的一張表，這與 Hellcat 的招牌一致。但注意
+   * 它的整體耐打主要來自 `hp` 1270（正比於質量），不是這張表 —— 這張表管的
+   * 是「打它的哪裡比較有效」。
+   */
   protection: {
-    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+    cockpit: 1.25, engine: 1.35, tail: 1.00,
+    fuselage: 1.15, wingLeft: 1.00, wingRight: 1.00,
   },
 
   /**

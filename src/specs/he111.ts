@@ -273,9 +273,20 @@ export const HE111: AircraftSpec = {
    * 由我定（護欄重新定值是專案負責人的決定）。
    */
   hp: 3000,
-  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  /**
+   * 各部位的防護力。1.0 = 基準，扣血 = 傷害 × 部位倍率 ÷ 這裡的值。
+   *
+   * ```
+   *   engine   0.85   兩具液冷 Jumo 211。與單發戰鬥機同一個係數 —— 停一具
+   *                   不致命，但兩具都在冷卻液流失的風險下
+   *   其餘     1.00   自封油箱與少量乘員裝甲是同期轟炸機的標配，不算優勢
+   * ```
+   *
+   * 【整體效果 +1.1%】
+   */
   protection: {
-    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+    cockpit: 1.00, engine: 0.85, tail: 1.00,
+    fuselage: 1.00, wingLeft: 1.00, wingRight: 1.00,
   },
 
   /**

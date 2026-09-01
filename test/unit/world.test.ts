@@ -36,8 +36,11 @@ describe('World 的組裝', () => {
     const b = w.add(new Aircraft(BF109K4), new Fixed(), 'red', new Vector3(0, 0, -800))
     expect(a.index).toBe(0)
     expect(b.index).toBe(1)
-    expect(a.hp).toBe(1000)
-    expect(b.hp).toBe(1000)
+    // 【對各自的 spec.hp，不要寫死 1000】2026-09-01 起血量正比於質量，
+    // 戰鬥機不再一律 1000（P-51D 1000、K-4 760、F6F-5 1270）。這一條守的是
+    // 「新加入的人是滿血」，不是那個數字本身。
+    expect(a.hp).toBe(P51D.hp)
+    expect(b.hp).toBe(BF109K4.hp)
     expect(w.combatants).toHaveLength(2)
   })
 
@@ -177,18 +180,31 @@ describe('命中與損傷', () => {
     expect(t.hp).toBeLessThan(1000)
   })
 
-  it('部位倍率生效：打座艙比打機翼痛', () => {
+  it('部位倍率與防護力都生效：打座艙比打機翼痛', () => {
     // 直接呼叫損傷入口，避免依賴彈道幾何
+    //
+    // 【2026-09-01 數字改了，因為多除了一個防護力】扣血公式現在是
+    // 傷害 × PART_MULTIPLIER ÷ protection。P-51D 的座艙防護力 1.15
+    //（座椅後 11 mm 裝甲板），機翼 1.00：
+    //
+    //   座艙  10 × 2.5 ÷ 1.15 = 21.739
+    //   機翼  10 × 0.7 ÷ 1.00 =  7.000
+    //
+    // 【為什麼不用 spec 的常數算期望值】那會變成用被測物驗被測物 —— 公式
+    // 打錯（例如乘成除）兩邊會一起錯，測試照樣綠。所以期望值是手算後寫死的。
     const w = new World()
     const t = w.add(new Aircraft(P51D), new Fixed(), 'red', new Vector3())
     t.respawnOnDestroy = false
+    const full = P51D.hp
     w.applyDamage(t, 10, 'cockpit')
-    const cockpit = 1000 - t.hp
-    t.hp = 1000
+    const cockpit = full - t.hp
+    t.hp = full
     w.applyDamage(t, 10, 'wingLeft')
-    const wing = 1000 - t.hp
-    expect(cockpit).toBeCloseTo(25, 6)
+    const wing = full - t.hp
+    expect(cockpit).toBeCloseTo(21.739, 3)
     expect(wing).toBeCloseTo(7, 6)
+    // 這一條與上面兩個數字無關，公式怎麼變都該成立
+    expect(cockpit).toBeGreaterThan(wing)
   })
 
   it('射手的 hitsDealt 在命中的那一步為正，下一步歸零', () => {

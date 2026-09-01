@@ -252,9 +252,22 @@ export const B17G: AircraftSpec = {
    * 由試飛裁定而不是由我定（護欄重新定值是專案負責人的決定）。
    */
   hp: 5000,
-  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  /**
+   * 各部位的防護力。1.0 = 基準，扣血 = 傷害 × 部位倍率 ÷ 這裡的值。
+   *
+   * ```
+   *   cockpit  1.10   駕駛席裝甲板
+   *   engine   1.30   四具氣冷 R-1820。沒有冷卻液，而且**停兩具還飛得回來**
+   *   tail     1.15   結構冗餘 —— 少半邊水平安定面飛回英國的紀錄不只一次
+   *   fuselage 1.15   同上，加自封油箱
+   *   wing     1.00   翼展大、油箱多，不算特別強
+   * ```
+   *
+   * 【整體效果 −8.5%】五台裡最大的一張，與「空中堡壘」這個綽號一致。
+   */
   protection: {
-    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+    cockpit: 1.10, engine: 1.30, tail: 1.15,
+    fuselage: 1.15, wingLeft: 1.00, wingRight: 1.00,
   },
 
   /**

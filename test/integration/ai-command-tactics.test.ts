@@ -456,16 +456,7 @@ const VICTIMS = victimFlights(createBattle(new Idle()))
 const CTRL: ControlIndex = new Map(
   VICTIMS.map((v) => [v, { sum: new Float64Array(SECONDS * 240), cnt: new Float64Array(SECONDS * 240) }]),
 )
-CONTROL_INDEX = CTRL
-const controlRun = observe(null, VICTIMS[0]!)
-CONTROL_INDEX = null
 
-const flankRuns = VICTIMS.map((v) => observe('flank', v, CTRL))
-
-/** 集火跑一場：它的判準是場內對照，不需要跨場合併 */
-const focusRun = observe('focus', VICTIMS[0]!)
-
-/** 把多場的計數加起來 */
 function merge(runs: readonly Observed[]): Observed {
   const out = { ...runs[0]! }
   for (const k of Object.keys(out) as (keyof Observed)[]) out[k] = 0
@@ -474,6 +465,32 @@ function merge(runs: readonly Observed[]): Observed {
   }
   return out
 }
+CONTROL_INDEX = CTRL
+const controlRun = observe(null, VICTIMS[0]!)
+CONTROL_INDEX = null
+
+const flankRuns = VICTIMS.map((v) => observe('flank', v, CTRL))
+
+/** 集火跑一場：它的判準是場內對照，不需要跨場合併 */
+/**
+ * 集火**每個受命分隊各跑一場**，合併起來當一個樣本 —— 與側翼同一個做法。
+ *
+ * 【2026-09-01 由單場改成合併】原本只跑 `VICTIMS[0]`。血量改成正比於質量
+ * 之後那一場翻了面：被指名的那一架在 80 秒的指名時間裡**一點血都沒掉**
+ *（其他敵機 0.945 hp/s），比值由 1.4 掉到 0。
+ *
+ * 指名機制本身沒壞（`injected > 0`、`focusedTime` 80 秒都正常），壞的是
+ * **樣本數**：模擬是全決定性的，單一場次只有一個樣本，而「同一架被多人咬」
+ * 這件事在 120 秒的 20v20 裡本來就稀疏。旁邊的側翼早就因為同一個理由改成
+ * 九場合併（見 `flankRuns`），集火沒跟上。
+ *
+ * **門檻 1.5 倍沒有動** —— 那是專案負責人 2026-08-07 在跑之前先定死的。
+ * 改的是取樣，不是判準。
+ */
+const focusRuns = VICTIMS.map((v) => observe('focus', v))
+const focusRun = merge(focusRuns)
+
+/** 把多場的計數加起來 */
 
 const flankRun = merge(flankRuns)
 

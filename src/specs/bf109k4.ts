@@ -146,10 +146,26 @@ export const BF109K4: AircraftSpec = {
   // Fahrt）在 K-4 的操作手冊裡仍是 750 km/h，機體強化沒有放寬這一項。
   limits: { gPositive: 7.5, gNegative: -3.5, vne: 750 * KMH },
 
-  hp: 1000,
-  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  hp: 760,
+  /**
+   * 各部位的防護力。1.0 = 基準，扣血 = 傷害 × 部位倍率 ÷ 這裡的值。
+   *
+   * ```
+   *   cockpit  1.15   頭部與背部裝甲板、防彈風擋（K-4 的 Erla Haube 含防彈玻璃）
+   *   engine   0.85   液冷 DB 605DC
+   *   tail     1.00   沒有特別之處
+   *   fuselage 1.00   沒有特別之處
+   *   wing     0.85   **散熱器裝在機翼下面** —— 這是它跟另外兩台最不一樣的
+   *                   地方。P-51D 的散熱器在機腹、F6F 根本沒有散熱器，
+   *                   只有 109 是「打機翼會漏冷卻液」
+   * ```
+   *
+   * 【整體效果 +5.0%】三台裡最脆的一張表，因為機翼吃掉 33% 的傷害而它正好
+   * 是這台的弱點所在。
+   */
   protection: {
-    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+    cockpit: 1.15, engine: 0.85, tail: 1.00,
+    fuselage: 1.00, wingLeft: 0.85, wingRight: 0.85,
   },
 
   /**

@@ -6,6 +6,7 @@ import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
 import { MAX_TURRETS } from '../../src/weapons/turret'
+import { HIT_PARTS } from '../../src/world/hit'
 
 const CASES = [
   { spec: P51D, hist: P51D_HISTORICAL },
@@ -165,6 +166,47 @@ describe('砲塔欄位', () => {
     for (const spec of ALL) {
       expect(spec.turrets.length, `${spec.id} 超過 MAX_TURRETS`)
         .toBeLessThanOrEqual(MAX_TURRETS)
+    }
+  })
+})
+
+describe('防護力', () => {
+  /**
+   * 【0.7～1.5 是專案負責人 2026-09-01 訂的區間】超出要他裁決，不是實作者
+   * 自己放寬。守的是「這個欄位不會變成一個沒人知道怎麼來的魔術數字」——
+   * 0.3 或 3.0 那種值會把某個部位變成一擊必殺或完全打不壞，而那不是防護力
+   * 該表達的東西（整體強弱由 `hp` 負責，見 `specs/types.ts`）。
+   */
+  it('每一格都在 0.7～1.5 之間', () => {
+    for (const spec of ALL) {
+      for (const part of HIT_PARTS) {
+        const v = spec.protection[part]
+        expect(v, `${spec.id} 的 ${part}`).toBeGreaterThanOrEqual(0.7)
+        expect(v, `${spec.id} 的 ${part}`).toBeLessThanOrEqual(1.5)
+      }
+    }
+  })
+
+  it('六個部位齊全，而且左右翼相同', () => {
+    for (const spec of ALL) {
+      for (const part of HIT_PARTS) expect(spec.protection[part], `${spec.id} 少了 ${part}`).toBeTypeOf('number')
+      // 【左右翼必須一樣】不一樣的話「從左邊打比較有效」，那是缺陷不是設計
+      expect(spec.protection.wingLeft, spec.id).toBe(spec.protection.wingRight)
+    }
+  })
+
+  /**
+   * 【血量正比於質量】2026-09-01 裁決，取代 spec §6.3 的「戰鬥機一律 1000」。
+   * 基準是 P-51D 的 4,427 kg → 1000。兩台轟炸機既有的 3000 / 5000 本來就
+   * 落在這條線上（質量比例給 3101 / 4970），這一條把它釘住。
+   *
+   * 【±5% 的容差】因為 hp 是取整的（760 而不是 762.4）。
+   */
+  it('血量正比於質量（以 P-51D 為基準，±5%）', () => {
+    const k = P51D.hp / P51D.mass
+    for (const spec of ALL) {
+      expect(spec.hp / (spec.mass * k), spec.id).toBeGreaterThan(0.95)
+      expect(spec.hp / (spec.mass * k), spec.id).toBeLessThan(1.05)
     }
   })
 })

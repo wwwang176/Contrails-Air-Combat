@@ -223,9 +223,26 @@ export const P51D: AircraftSpec = {
   limits: { gPositive: 8, gNegative: -4, vne: 810 * KMH },
 
   hp: 1000,
-  /** 【接線步驟：全部 1.0】真值在下一個 commit 填。 */
+  /**
+   * 各部位的防護力。1.0 = 基準，扣血 = 傷害 × 部位倍率 ÷ 這裡的值。
+   *
+   * ```
+   *   cockpit  1.15   座椅後 11 mm 裝甲板＋頭部裝甲、38 mm 防彈風擋
+   *   engine   0.85   液冷 Packard V-1650（Merlin），冷卻液流失就是停車
+   *   fuselage 0.80   **機腹散熱器與冷卻管路** —— Mustang 最有名的罩門。
+   *                   一發 .50 打中冷卻系統，引擎幾分鐘內咬死；對地攻擊
+   *                   時被輕型防空砲打下來的比例遠高於同期的氣冷機
+   *   tail     1.00   沒有特別之處
+   *   wing     1.00   自封油箱是標配，不算優勢
+   * ```
+   *
+   * 【整體效果 +1.0%】這張表幾乎不改變它的整體強弱（見 `types.ts` 的
+   * `protection`）—— 它改變的是**該往哪裡打**：打這台的機身一發 22.5 點，
+   * 打 F6F 的機身只有 15.7 點，差 43%。
+   */
   protection: {
-    cockpit: 1.0, engine: 1.0, tail: 1.0, fuselage: 1.0, wingLeft: 1.0, wingRight: 1.0,
+    cockpit: 1.15, engine: 0.85, tail: 1.00,
+    fuselage: 0.80, wingLeft: 1.00, wingRight: 1.00,
   },
 
   /**
