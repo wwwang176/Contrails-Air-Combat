@@ -74,7 +74,12 @@ function referenceDamage(w: World): Map<number, number> {
       part = hit.part
     }
     if (!victim) continue
-    out.set(victim.index, (out.get(victim.index) ?? 0) + PART_MULTIPLIER[part] * p.damage[i]!)
+    // 【要跟 World.applyDamage 同一條公式】2026-09-01 加了逐部位的防護力，
+    // 這個暴力對照組漏掉除法的話，兩邊會在有防護力的機種上差 1/0.85 —— 而
+    // 那個紅燈長得完全像「排序掃描漏了一架」，是最難查的一類假訊號。
+    const prot = victim.aircraft.spec.protection[part]!
+    out.set(victim.index,
+      (out.get(victim.index) ?? 0) + PART_MULTIPLIER[part] * p.damage[i]! / prot)
   }
   return out
 }

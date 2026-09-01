@@ -69,7 +69,11 @@ describe('L2 武器史實值', () => {
     expect(F6F5_BATTERY.mounts.every((m) => m.weapon === M2_BROWNING)).toBe(true)
     expect(F6F5_BATTERY.sight).toBe(M2_BROWNING)
     expect(batteryDps(F6F5_BATTERY)).toBe(batteryDps(P51D_BATTERY))
-    expect(F6F5.hp / batteryDps(F6F5_BATTERY)).toBeCloseTo(0.694, 3)
+    // 【TTK 不再相同，而那正是重點】火力逐項相同，但 2026-09-01 起血量
+    // 正比於質量 —— F6F-5 由 1000 升到 1270，所以打爆它要多花 27% 的時間。
+    // 這一條釘的是「差別**只**來自血量」：兩台的 DPS 必須逐位元相等。
+    expect(F6F5.hp / batteryDps(F6F5_BATTERY)).toBeCloseTo(0.882, 3)
+    expect(P51D.hp / batteryDps(P51D_BATTERY)).toBeCloseTo(0.694, 3)
   })
 
   /**
