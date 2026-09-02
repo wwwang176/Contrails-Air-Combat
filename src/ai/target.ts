@@ -735,11 +735,25 @@ export function teamSlot(team: Team): number {
  * @param flightOf 每一架的編隊索引（見 `TargetBoard.flightOf`）。**省略等於
  * 全部 −1**，也就是「沒有編制」—— `countLocks` 逐字回到分編隊之前的行為。
  * 單元測試多半不需要編制，所以預設就是那一個。
+ *
+ * @param capacity **最終**架數，含還沒進場的增援。省略時等於候選數。
+ *
+ * 【為什麼是建構期給而不是之後長大】`candidates` 收的是 `world.combatants`
+ * **那一個活陣列**，所以它自己會跟著長；另外三個 typed array 不會。
+ * 讓它們中途重配的話 `readonly` 這道護欄就沒了，而且持有舊參考的呼叫端會
+ * 靜靜地寫到一個沒有人在讀的陣列上。波次是有限的、寫在任務卡上，所以最終
+ * 架數在建構期就算得出來 —— 一次配到位，參考永遠不換。
+ *
+ * 【預留出來的格子是中性值】指派 −1、倍率 1、不是被保護單位，與「沒有這
+ * 幾架」完全相同。
  */
 export function createTargetBoard(
   candidates: readonly TargetCandidate[], flightOf?: Int32Array, priority?: Float64Array,
-  protectedMask?: Uint8Array,
+  protectedMask?: Uint8Array, capacity = candidates.length,
 ): TargetBoard {
+  if (capacity < candidates.length) {
+    throw new Error(`capacity ${capacity} 小於候選數 ${candidates.length}`)
+  }
   for (let i = 0; i < candidates.length; i++) {
     if (candidates[i]!.index !== i) {
       throw new Error(
@@ -747,30 +761,30 @@ export function createTargetBoard(
       )
     }
   }
-  if (flightOf !== undefined && flightOf.length !== candidates.length) {
+  if (flightOf !== undefined && flightOf.length !== capacity) {
     throw new Error(
-      `flightOf 長度必須等於候選數：${flightOf.length} vs ${candidates.length}`,
+      `flightOf 長度必須等於最終架數：${flightOf.length} vs ${capacity}`,
     )
   }
-  if (protectedMask !== undefined && protectedMask.length !== candidates.length) {
+  if (protectedMask !== undefined && protectedMask.length !== capacity) {
     throw new Error(
-      `protectedMask 長度必須等於候選數：${protectedMask.length} vs ${candidates.length}`,
+      `protectedMask 長度必須等於最終架數：${protectedMask.length} vs ${capacity}`,
     )
   }
-  if (priority !== undefined && priority.length !== candidates.length) {
+  if (priority !== undefined && priority.length !== capacity) {
     throw new Error(
-      `priority 長度必須等於候選數：${priority.length} vs ${candidates.length}`,
+      `priority 長度必須等於最終架數：${priority.length} vs ${capacity}`,
     )
   }
   return {
     candidates,
-    assignments: new Int32Array(candidates.length).fill(-1),
-    flightOf: flightOf ?? new Int32Array(candidates.length).fill(-1),
+    assignments: new Int32Array(capacity).fill(-1),
+    flightOf: flightOf ?? new Int32Array(capacity).fill(-1),
     // 【省略等於全 1】也就是「每一架都一樣值錢」—— 遭遇戰與殲滅任務逐字
     // 回到加這個欄位之前的行為
-    priority: priority ?? new Float64Array(candidates.length).fill(1),
+    priority: priority ?? new Float64Array(capacity).fill(1),
     // 【省略等於全 0】沒有任何一架是被保護單位，任務壓力恆為假
-    protectedMask: protectedMask ?? new Uint8Array(candidates.length),
+    protectedMask: protectedMask ?? new Uint8Array(capacity),
     // 【不收參數】它是每步重算的輸出，不是設定
     pressure: new Uint8Array(2),
   }
