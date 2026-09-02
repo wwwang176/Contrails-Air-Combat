@@ -84,13 +84,18 @@ const perf = createPerfOverlay(ctx.renderer)
  * 【為什麼不能把 heightAt 抓進閉包快取】換地形之後那一處就還在讀舊的
  * 高度場，而症狀（飛機撞到看不見的海面）離成因非常遠（M10 spec §5.2）。
  */
-let terrain = createTerrain('archipelago')
+/**
+ * 目前地形的種類。**只有開場那一行日誌讀它** —— 但那一行是「同一場逐位元
+ * 重跑」的鑰匙的一部分，而有波次的「重新開始」不重建地形卻要重印那一行。
+ */
+let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
+let terrain = createTerrain(terrainKind)
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
- * 【為什麼「重新開始」不重建】暫停選單的重開走 `resetBattle` 而不是
- * `enterBattle`（見 `restartBattle`）—— 那時 rules、撤離點、幾何與場景歸屬
- * 都沒有換，環必須留在場景裡而且下一幀照常更新。
+ * 【沒有波次的「重新開始」不重建】那條路走 `resetBattle` 而不是 `startWorld`
+ * （見 `restartBattle`）—— 那時 rules、撤離點、幾何與場景歸屬都沒有換，環
+ * 必須留在場景裡而且下一幀照常更新。有波次的那條走 `startWorld`，比照換場。
  */
 let objectiveRing = createObjectiveRing()
 ctx.scene.add(terrain.object)
@@ -486,6 +491,22 @@ function leaveBattle(): void {
  * 說不通的狀態。
  */
 function restartBattle(): void {
+  // 【有波次的一場整個重建】`resetBattle` 只把飛機放回出生點：已經進場的
+  // 增援會留在場上，而節拍狀態全部是 `done` —— 第二波不會再來，第二輪
+  // 因此是一場從頭就滿編、什麼都不會發生的仗。
+  // 專案負責人 2026-09-01 裁定：重建，不截斷。
+  //
+  // 【地形不重建】它是關卡設計的一部分，這一場並沒有換關卡。
+  if (battle.beatStates.length > 0) {
+    releaseVisuals()
+    resetPools()
+    resetArena()
+    startWorld(battle.cfg)
+    // 【強制清，理由與下面那條相同】`playerAi` 跨場重用，而地形沒換 ——
+    // 參考比對會跳過它
+    wireTerrain(true)
+    return
+  }
   resetBattle(battle)
   // 【池子也要清】少了這一行，上一場的煙（最多 3.1 s）、碎片（1.5–2 s）、
   // 水柱（~2.1 s）會飄在舊位置上等自己過期。殘骸不在其中 —— 下面的
@@ -542,20 +563,29 @@ function enterBattle(): void {
   //    【任務不吃遭遇戰的場地設定】任務的地形是關卡設計的一部分，固定群島。
   //    共用一個「上一次選了什麼」的話，打完一場純海面遭遇戰再點任務卡，
   //    任務會靜靜地變成海面。
-  const kind = mode === 'mission' && pendingMission !== null ? 'archipelago' : setup.terrain
+  terrainKind = mode === 'mission' && pendingMission !== null ? 'archipelago' : setup.terrain
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain(kind)
+  terrain = createTerrain(terrainKind)
   ctx.scene.add(terrain.object)
   resetArena()
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
   //    任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個函數裡套
-  const cfg = drillConfig !== null
+  startWorld(drillConfig !== null
     ? drillConfig
     : mode === 'mission' && pendingMission !== null
       ? missionConfigFrom(pendingMission, missionFaction)
-      : battleConfigFrom(setup)
+      : battleConfigFrom(setup))
+}
+
+/**
+ * 依一份設定建起新的世界，並接好所有跨場重用的東西。
+ *
+ * **`enterBattle` 與有波次的「重新開始」共用這一段。**地形與界不在裡面 ——
+ * 重開一場不換地形，而換場才需要重建它。
+ */
+function startWorld(cfg: BattleConfig): void {
   battle = createBattle(playerController, cfg)
   world = battle.world
   /**
@@ -628,7 +658,7 @@ function enterBattle(): void {
     + `　規則 ${battle.cfg.rules.kind}　玩家座位 #${player.index}`
     // 【場地與開場高度也是鑰匙的一部分】兩者都是設定，而且都會改變這一場
     // 長什麼樣 —— 少了它們，「同一場逐位元重跑」就不成立
-    + `　場地 ${kind}　開場 ${battle.cfg.altitude} m`,
+    + `　場地 ${terrainKind}　開場 ${battle.cfg.altitude} m`,
   )
   telemetryAt = 0
   // 【命令的計數也要歸零】不歸零的話「第 87 張」會跨場累積，那個數字
@@ -1093,6 +1123,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 相機**這一幀**的位置。排在渲染之後的話環會慢整整一幀（3D 在這裡畫、
   // HUD 到 `hud.render` 才畫），而且新建的第一幀會停在原點、半徑 1。
   if (battle.mission.hasTarget) {
+    // 【中途才出現的撤離點】場景歸屬在 `enterBattle` 決定過一次，而返航節拍
+    // 是在戰鬥進行中把任務換成撤離的 —— 不在這裡補的話，環每一幀照常更新
+    // 位置與半徑，卻永遠不在場景裡
+    if (objectiveRing.object.parent === null) ctx.scene.add(objectiveRing.object)
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
