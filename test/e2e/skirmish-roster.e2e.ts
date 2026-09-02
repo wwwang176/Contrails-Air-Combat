@@ -52,8 +52,9 @@ async function main(): Promise<void> {
     const redChips = page.locator('#red-roster .chip')
 
     const names = await blueAdd.allTextContents()
-    ok(names.length === 4, '兩排各有四台可以編', names.join(' / '))
-    ok(await redAdd.count() === 4, '敵方那一排也是四台')
+    // 【數字跟著 `ALL_SPECS` 走】F6F-5 進編之後是五台
+    ok(names.length === 5, '兩排各有五台可以編', names.join(' / '))
+    ok(await redAdd.count() === 5, '敵方那一排也是五台')
 
     ok(await blueChips.count() === 20, '預設是 20 對 20', `我方 ${await blueChips.count()}`)
 
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
     // `test/unit/skirmish.test.ts` 釘住，這裡只驗按鈕真的接上去了。
     const terrainPick = page.locator('#terrain-pick button')
     const altitudePick = page.locator('#altitude-pick button')
-    ok(await terrainPick.count() === 2, '場地兩個選項')
+    ok(await terrainPick.count() === 3, '場地三個選項')
     ok(await altitudePick.count() === 3, '開場高度三個選項')
     ok(await terrainPick.nth(0).getAttribute('class') === 'sel', '場地預設是群島')
     ok(await altitudePick.nth(2).getAttribute('class') === 'sel', '高度預設是中空')
