@@ -18,6 +18,9 @@ import {
 } from '../ai/command'
 import { maxLevelSpeed, serviceCeiling } from '../analysis/envelope'
 import { manoeuvreSpeed } from '../ai/doctrine'
+import {
+  conditionMet, createBeatStates, type Beat, type BeatState,
+} from './beats'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
 import { factionOf, pilotNames } from './names'
@@ -73,6 +76,15 @@ export interface BattleConfig {
    * 相等，整條路逐位元回到改動前。
    */
   readonly reserve?: readonly { readonly team: Team; readonly count: number }[]
+  /**
+   * 這一關中途會發生的事（見 `beats.ts`）。**省略 = 什麼都不會發生**，
+   * 而且 `stepBeats` 只付一次長度檢查就早退。
+   *
+   * 【容量由它推，不用另外寫】增援節拍自己帶著編組，所以
+   * `reserve` 可以從這裡算出來——兩個欄位手動同步是一個不必要的
+   * 坑。`reserve` 留給測試當低階的逃生口：兩者都給時以 `reserve` 為準。
+   */
+  readonly beats?: readonly Beat[]
   altitude: number
   tas: number
   /**
@@ -332,6 +344,17 @@ export interface Battle {
   /** 逐機種的實用升限，見 `makeCommandUnit` */
   readonly ceilings: Map<AircraftSpec, number>
   /**
+   * 這一場**實際**預留的分隊。`cfg.reserve` 或由 `cfg.beats` 推得，
+   * 兩者都給時以 `cfg.reserve` 為準。**`reinforce` 讀這一份，不讀 cfg**
+   */
+  readonly reserve: readonly { readonly team: Team; readonly count: number }[]
+  /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
+  readonly beatStates: BeatState[]
+  /** 畫面中心的訊息。空字串 = 沒有 */
+  message: string
+  /** 訊息顯示到哪一個世界時間 */
+  messageUntil: number
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -350,7 +373,7 @@ export interface Battle {
    * 物件會讓那些參考指向孤兒 —— 與 `Aircraft.reset` 改成就地寫回是同一條
    * 教訓（見下方 `stepCommandLayer` 的註解）。重設走 `resetMissionState`。
    */
-  readonly mission: MissionState
+  mission: MissionState
   /** 這一場的飛行員名冊，依座位索引 */
   readonly roster: Roster
   /** 名字用的隨機種子。記下來就能重現同一場的名單 */
@@ -647,7 +670,10 @@ export function createBattle(
   // 的三個條件都不成立，`createFlights` 與 `createTargetBoard` 走的是省略
   // 參數的那一條。整條路逐位元回到改動前。
   let capacity = world.combatants.length
-  for (const r of cfg.reserve ?? []) {
+  const reserve = cfg.reserve ?? (cfg.beats ?? [])
+    .filter((x): x is Extract<Beat, { kind: 'reinforce' }> => x.kind === 'reinforce')
+    .map((x) => ({ team: x.flight.team, count: x.flight.members.length }))
+  for (const r of reserve) {
     if (!Number.isInteger(r.count) || r.count < 1) {
       throw new Error(`預留的小隊架數必須是正整數，收到 ${r.count}`)
     }
@@ -804,6 +830,10 @@ export function createBattle(
     feeled,
     cruises,
     ceilings,
+    reserve,
+    beatStates: createBeatStates(cfg.beats ?? []),
+    message: '',
+    messageUntil: 0,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
@@ -840,6 +870,76 @@ function makeCommandUnit(c: Combatant, ceilings: Map<AircraftSpec, number>): Com
 }
 
 /**
+ * 推進節拍。**排在 `drainKills` 之後、`compactFlights` 之前**（見呼叫點）。
+ *
+ * 【先判斷後套效果】所有條件都對**同一份快照**判斷，才開始套效果。否則第一
+ * 個增援會改變存活數，讓同一步後面的條件依陣列順序產生隱性耦合 —— 而那種
+ * 耦合在測試裡看起來一切正常，直到有人調整了卡片上節拍的順序。
+ *
+ * 【為什麼用 `world.time` 而不是另開一個 tick 計數】它已經是一個單調的浮點
+ * 累加器，而且判定用的東西（助攻窗口、任務時限）本來就掛在它上面。同一組
+ * `dt` 序列累加出來的值逐位元相同，重播因此仍然是決定性的。
+ *
+ * 熱路徑：`beats` 為空時只有一次長度檢查。
+ */
+function stepBeats(b: Battle): void {
+  const beats = b.cfg.beats
+  if (beats === undefined || beats.length === 0) return
+  const now = b.world.time
+
+  // 【快照先數】alive 條件全部讀這一份
+  aliveCounts.blue = 0
+  aliveCounts.red = 0
+  aliveCounts.blueFighter = 0
+  aliveCounts.redFighter = 0
+  aliveCounts.blueBomber = 0
+  aliveCounts.redBomber = 0
+  for (const c of b.world.combatants) {
+    if (!c.alive) continue
+    const t = c.team
+    const key = c.aircraft.spec.role === 'bomber' ? `${t}Bomber` : `${t}Fighter`
+    aliveCounts[t] = (aliveCounts[t] ?? 0) + 1
+    aliveCounts[key] = (aliveCounts[key] ?? 0) + 1
+  }
+
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i]!
+    const st = b.beatStates[i]!
+    if (st.phase === 'done') continue
+    if (st.phase === 'waiting') {
+      if (!conditionMet(beat.when, now, aliveOf)) continue
+      st.phase = 'warned'
+      st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
+      b.message = beat.kind === 'reinforce' ? beat.warn : beat.message
+      b.messageUntil = st.dueAt + MESSAGE_SECONDS
+      continue
+    }
+    // 'warned'：等預警時間到
+    if (now < st.dueAt) continue
+    st.phase = 'done'
+    if (beat.kind === 'reinforce') reinforce(b, beat.flight)
+    else {
+      b.mission = createMissionState({
+        kind: 'evacuate', point: beat.point, radius: beat.radius, seconds: beat.seconds,
+      })
+    }
+  }
+}
+
+/** 畫面中心訊息從生效那一刻起再顯示幾秒 */
+const MESSAGE_SECONDS = 4
+
+/** `stepBeats` 的當步快照。模組級，不配置 */
+const aliveCounts: Record<string, number> = {
+  blue: 0, red: 0, blueFighter: 0, redFighter: 0, blueBomber: 0, redBomber: 0,
+}
+
+function aliveOf(team: Team, role?: AircraftSpec['role']): number {
+  if (role === undefined) return aliveCounts[team]!
+  return aliveCounts[role === 'bomber' ? `${team}Bomber` : `${team}Fighter`]!
+}
+
+/**
  * 讓一支預留的分隊進場，回傳新座位的索引。
  *
  * **容量是建構期配好的**（`BattleConfig.reserve`），所以這裡不重配任何東西
@@ -858,9 +958,9 @@ function makeCommandUnit(c: Combatant, ceilings: Map<AircraftSpec, number>): Com
  */
 export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   const slot = b.reserveUsed
-  const reserved = b.cfg.reserve?.[slot]
+  const reserved = b.reserve[slot]
   if (reserved === undefined) {
-    throw new Error(`沒有第 ${slot} 支預留的分隊 —— cfg.reserve 只有 ${b.cfg.reserve?.length ?? 0} 支`)
+    throw new Error(`沒有第 ${slot} 支預留的分隊 —— 這一場只預留了 ${b.reserve.length} 支`)
   }
   if (plan.team !== reserved.team) {
     throw new Error(`第 ${slot} 支預留的是 ${reserved.team} 隊，收到 ${plan.team}`)
@@ -1236,6 +1336,11 @@ export function stepBattle(b: Battle, dt: number): void {
     b.takeoverTimer -= dt
     if (b.takeoverTimer <= 0) completeTakeover(b)
   }
+
+  // 【節拍排在編制之前】最後一架第一波敵機被擊落的**同一步**就要能加第二波
+  // ——排在勝負判定之後就來不及，那一步已經判成「一方全滅」了。而排在
+  // `compactFlights` 之前，新分隊在下一次 `World.step` 之前就完成編制與接線
+  stepBeats(b)
 
   compactFlights(b.flights, cs)
   wireStations(b)
