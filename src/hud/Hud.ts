@@ -7,6 +7,7 @@ import { drawGEffect } from './widgets/gEffect'
 import { drawGodMarkers } from './widgets/godMarkers'
 import { drawHealth } from './widgets/health'
 import { drawHints } from './widgets/hints'
+import { drawMessage } from './widgets/message'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
 import { drawRoster } from './widgets/roster'
@@ -17,7 +18,7 @@ import type { HudFrame, HudLayout } from './types'
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
-  | 'godMarkers' | 'objective' | 'arena'
+  | 'godMarkers' | 'objective' | 'arena' | 'message'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -30,6 +31,9 @@ const FULL: readonly HudWidget[] = [
   // 【界的警告排在 objective 之前】兩者都是「這一場的規則」而不是儀表，
   // 但目標壓最上層
   'arena',
+  // 【比目標更上層】預警是「接下來三秒要發生的事」，目標是「這一場要做的
+  // 事」。兩者的位置不重疊，但真要疊到時該讓路的是後者
+  'message',
   // 【排最後】它壓在最上層 —— 這一場的目標不該被任何面板蓋住
   'objective',
 ]
@@ -54,8 +58,10 @@ const FULL: readonly HudWidget[] = [
  */
 // 【`arena` 也在這裡】界不看視角 —— `main.ts` 的 crashPolicy 不分座艙與
 // 上帝視角。少了它，上帝視角裡飛機會無預警爆炸
+// 【`message` 也在這裡】節拍的預警與鏡頭在哪裡無關 —— 上帝視角下看不到
+// 「敵方護航機！」的話，那一則預警在兩種視角裡的意義是不一樣的
 const GOD: readonly HudWidget[] = [
-  'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'objective',
+  'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective',
 ]
 
 /**
@@ -100,6 +106,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   hints: (ctx, L, f) => drawHints(ctx, L, f),
   arena: (ctx, L, f) => drawArena(ctx, L, f),
   objective: (ctx, L, f) => drawObjective(ctx, L, f),
+  message: (ctx, L, f) => drawMessage(ctx, L, f),
 }
 
 export class Hud {

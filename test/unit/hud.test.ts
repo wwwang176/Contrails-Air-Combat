@@ -402,10 +402,21 @@ describe('上帝視角的 HUD', () => {
    * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
    * 壓在接觸點之上）不會被這次改動悄悄弄丟。
    */
-  it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標', () => {
+  it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標、中央訊息', () => {
     expect(hudWidgets(true)).toEqual(
-      ['godMarkers', 'minimap', 'roster', 'hints', 'arena', 'objective'],
+      ['godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective'],
     )
+  })
+
+  /**
+   * 【為什麼中央訊息也要兩種視角都畫】節拍的預警講的是「接下來三秒會發生
+   * 什麼」，那與鏡頭在哪裡無關。上帝視角下看不到「敵方護航機！」的話，
+   * 同一則預警在兩種視角裡的意義就不一樣了。
+   */
+  it('中央訊息兩種視角都畫', () => {
+    for (const godView of [false, true]) {
+      expect(hudWidgets(godView), `godView=${godView}`).toContain('message')
+    }
   })
 
   /**

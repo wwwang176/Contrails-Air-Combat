@@ -350,10 +350,23 @@ export interface Battle {
   readonly reserve: readonly { readonly team: Team; readonly count: number }[]
   /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
   readonly beatStates: BeatState[]
-  /** 畫面中心的訊息。空字串 = 沒有 */
+  /**
+   * 畫面中心的訊息。空字串 = 沒有。
+   *
+   * 【過期由 `stepBeats` 清掉，不由畫面那一層判斷】它吃的是物理時間（與
+   * 倒數同一套）。放在畫面那一層的話，暫停時訊息會繼續倒數。
+   */
   message: string
   /** 訊息顯示到哪一個世界時間 */
   messageUntil: number
+  /**
+   * 撤離節拍改寫過的任務目標文字。空字串 = 沿用卡片上的。
+   *
+   * 【為什麼不是讓畫面那一層去推】`mission` 被換成 evacuate 之後，右上角
+   * 的計量自動變成距離，而目標文字仍然是卡片上那一句 —— 一句已經不成立的
+   * 目標，配著一個指向新終點的距離。
+   */
+  objectiveText: string
   /**
    * 這一場的結果。
    *
@@ -834,6 +847,7 @@ export function createBattle(
     beatStates: createBeatStates(cfg.beats ?? []),
     message: '',
     messageUntil: 0,
+    objectiveText: '',
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
@@ -886,6 +900,9 @@ function stepBeats(b: Battle): void {
   const beats = b.cfg.beats
   if (beats === undefined || beats.length === 0) return
   const now = b.world.time
+  // 【過期的訊息在這裡收掉】`message` 因此恆是「這一刻該顯示的那一則」，
+  // 畫面那一層照抄就好，不必自己持有一份計時
+  if (b.message !== '' && now >= b.messageUntil) b.message = ''
 
   // 【快照先數】alive 條件全部讀這一份
   aliveCounts.blue = 0
@@ -922,6 +939,9 @@ function stepBeats(b: Battle): void {
       b.mission = createMissionState({
         kind: 'evacuate', point: beat.point, radius: beat.radius, seconds: beat.seconds,
       })
+      // 【目標文字也要跟著換】計量已經變成到新終點的距離，文字卻還是卡片上
+      // 那一句 —— 兩者搭起來會指向一個不存在的任務
+      b.objectiveText = beat.message
     }
   }
 }

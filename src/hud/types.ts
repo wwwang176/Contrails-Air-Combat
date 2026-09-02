@@ -251,6 +251,16 @@ export interface HudFrame {
   objectiveHasTarget: boolean
   objectiveWorldX: number
   objectiveWorldZ: number
+  /**
+   * 畫面中心的訊息。空字串 = 不畫。
+   *
+   * 【單一訊息槽，不排隊】節拍的預警是「現在馬上要發生的事」。排隊的話，
+   * 第二則會等第一則播完才出現 —— 那時它講的事早就發生了。後來者覆蓋。
+   *
+   * 【逐幀由 `main.ts` 依 `Battle.messageUntil` 決定要不要給】過期與否是
+   * **物理時間**的問題（與倒數同一套），widget 不持有任何計時狀態。
+   */
+  message: string
 }
 
 export function createHudFrame(): HudFrame {
@@ -295,6 +305,7 @@ export function createHudFrame(): HudFrame {
     objectiveHasTarget: false,
     objectiveWorldX: 0,
     objectiveWorldZ: 0,
+    message: '',
   }
 }
 

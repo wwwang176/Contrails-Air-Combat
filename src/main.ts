@@ -423,6 +423,30 @@ function rebuildVisuals(): void {
 }
 
 /**
+ * 把還沒有模型的座位補上。**只建新的那幾具**，場上既有的一律不動。
+ *
+ * 【為什麼不能沿用 `rebuildVisuals`】那一支會先 `releaseVisuals()` ——
+ * 戰鬥進行到一半呼叫它，殘骸池持有的模型會被抽走（正在冒煙的殘骸憑空消失）、
+ * 全場的內插暫存換成新物件、玩家的相機重新對焦。增援只是多了幾個座位，
+ * 那三件事一件都不該發生。
+ *
+ * 【判準是長度差而不是 `reinforce` 的回傳值】增援只從尾端加座位，所以
+ * 「哪幾個座位還沒有模型」比兩個長度就答得出來。而 `reinforce` 是
+ * `stepBeats` 在 `stepBattle` 裡面呼叫的 —— 要把那組索引傳出來，得在
+ * 物理層開一條只為畫面存在的回呼。
+ *
+ * 【必須在下一個物理子步之前做完】幀尾的內插迴圈是 `visuals.get(c)!` ——
+ * 少一具模型不是畫面缺一架，是當場拋錯。
+ */
+function syncVisuals(): void {
+  for (let i = renderPositions.length; i < world.combatants.length; i++) {
+    const v = attachVisual(world.combatants[i]!)
+    renderPositions.push(v.position)
+    renderQuaternions.push(v.quaternion)
+  }
+}
+
+/**
  * 第三人稱的距離與高度跟著機種的翼展走（見 `thirdPersonFor`）。
  *
  * 【為什麼與眼點分開一個函式】眼點來自**幾何**（量出來的座艙位置），
@@ -862,6 +886,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
+    // 【緊接在物理步之後】增援是 `stepBattle` 裡的節拍加進去的，而幀尾的
+    // 內插迴圈假設每個座位都有模型。空手而回時這一行只是一次整數比較
+    syncVisuals()
     // 【在物理步裡推，不在幀尾】一幀可能跑好幾個物理步，而倒數吃的是
     // 物理時間 —— 在幀尾推的話界外的秒數會隨幀率漂
     const pp = player.aircraft.state.position
@@ -1248,7 +1275,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 敵機數 —— 與 `stepMission` 寫進 `metric` 的意思逐條對應。
   const m = battle.mission
   hudFrame.objectiveActive = mode === 'mission'
-  hudFrame.objectiveText = pendingMission?.objective ?? ''
+  // 【撤離節拍改寫過的優先】它把 `mission` 換掉了，卡片上那一句已經不成立
+  hudFrame.objectiveText = battle.objectiveText !== ''
+    ? battle.objectiveText
+    : pendingMission?.objective ?? ''
   hudFrame.objectiveMetric = m.metric
   hudFrame.objectiveMetricKind = m.hasTarget ? 'distance' : 'count'
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
@@ -1257,6 +1287,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.objectiveHasTarget = m.hasTarget
   hudFrame.objectiveWorldX = m.target.x
   hudFrame.objectiveWorldZ = m.target.z
+  // 【照抄，不在這裡判過期】`stepBeats` 已經依物理時間把過期的收掉了
+  hudFrame.message = battle.message
 
   hud.render(hudFrame, frameSeconds)
 
