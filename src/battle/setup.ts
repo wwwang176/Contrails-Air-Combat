@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { World, type Combatant } from '../world/World'
+import { World, type Combatant, type Team } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
 import { AI_DECISION_HZ, AiController } from '../ai/AiController'
 import { PRESSURE_RANGE, createTargetBoard, teamSlot, type TargetBoard } from '../ai/target'
@@ -14,7 +14,7 @@ import {
   createCommandState, stepCommand,
   type CommandState, type CommandUnit, type FlightOrder,
 } from '../ai/command'
-import { serviceCeiling } from '../analysis/envelope'
+import { maxLevelSpeed, serviceCeiling } from '../analysis/envelope'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
@@ -55,6 +55,22 @@ export interface BattleConfig {
    * 產出的座標與改動前逐位元相同。
    */
   units: OrderOfBattle
+  /**
+   * 預留給增援的小隊。每一筆是一支**還沒進場**的分隊。
+   *
+   * 【為什麼要在建構期就宣告】依架數的 typed array 中途重配不安全：
+   * `World.killEvents` 會被換成空的、`damageTime` 會被整張抹掉，而
+   * `TargetBoard` 的三個陣列一換參考，`readonly` 這道護欄就沒了。波次是
+   * 有限的、寫在任務卡上，所以最終架數在這裡就算得出來 —— 一次配到位，
+   * 中途加人於是不重配任何東西。
+   *
+   * 【為什麼帶 team】預留的小隊 roster 指向還不存在的座位，隊伍推不出來
+   * （見 `createFlights` 的 `teams`）。
+   *
+   * **省略（或空陣列）等於「這一場不會再有人加入」**，此時容量與開局架數
+   * 相等，整條路逐位元回到改動前。
+   */
+  readonly reserve?: readonly { readonly team: Team; readonly count: number }[]
   altitude: number
   tas: number
   /**
@@ -338,6 +354,56 @@ function altitudeOffset(flight: number, spread: number): number {
   return ((cycle / 4) * 2 - 1) * spread
 }
 
+/**
+ * 轟炸機的開局速度取自己最大平飛的這個比例。
+ *
+ * 【為什麼轟炸機不能用 `BattleConfig.tas`】那是**一個絕對速度套在每一架
+ * 上**，而 200 m/s（720 km/h）是照戰鬥機訂的：對三台戰鬥機是它們最大平飛
+ * 的 108–122%，也就是「一小筆開局能量存款，開頭三十秒花掉」。同一個絕對值
+ * 對轟炸機是 169%（He 111）與 162%（B-17G），而且**超過它們的結構限速**
+ * 20% 與 47%。
+ *
+ * 代價不在極速上，在滾轉：`controlStiffening.aileronK` 讓兩台轟炸機的滾轉率
+ * 過了峰值就往下掉（He 111 的峰值在 340 km/h），而 720 遠在下坡側。
+ * 四種開局定值下滾 90° 要幾秒，4,000 m：
+ *
+ * ```
+ *                全域 200 m/s   夾 vne   0.80×最大平飛
+ *   He 111 H-6      12.0 s       7.5 s       2.2 s
+ *   B-17G           37.7 s       8.7 s       3.0 s
+ *   三台戰鬥機    0.6–1.7 s     同左        0.7–1.0 s
+ * ```
+ *
+ * 【0.80 的來歷】戰時的巡航速度大致是最大平飛的七到八成，而開局在做的事
+ * 就是巡航接敵。它**不是**任何一種「最佳速度」—— 最大平飛的剩餘功率恰好
+ * 為零（開局只能減速）、角落速度是已經在纏鬥時的速度、最佳爬升只有
+ * 238–246 km/h（等於取消接近段）。0.80 落在 He 111 342 / B-17G 355 km/h。
+ *
+ * 【為什麼戰鬥機不套這條】套下去是 0.80 × 665 = 532 km/h，開局能量存款就
+ * 沒了，而 AI 的能量判準（`steer.ts` 的 `brakeCornerRatio` 那一組）是照
+ * 720 km/h 的開局調的。要改那一項得連同那一組門檻一起重掃。
+ */
+export const BOMBER_CRUISE = 0.80
+
+/**
+ * 一架飛機的開局／重生真空速，m/s。
+ *
+ * 兩條規則，第二條蓋過第一條：
+ *
+ * 1. **不得超過自己的 `vne`。** 這條套在每一架上，但只咬得到轟炸機 ——
+ *    三台戰鬥機的 vne 是 201–225 m/s，都在 `DEFAULT_BATTLE.tas` 的 200 之上。
+ * 2. **轟炸機用自己的巡航速度**（見 `BOMBER_CRUISE`），不是那個照戰鬥機
+ *    訂的絕對值。
+ *
+ * @param nominal `cfg.tas × entry.speed` —— 戰鬥機仍然拿這個值
+ * @param cruise  轟炸機的巡航速度，由呼叫端查表（`maxLevelSpeed` 是搜尋，
+ *                同機種只該算一次）
+ */
+function openingTas(spec: AircraftSpec, nominal: number, cruise: number): number {
+  const want = spec.role === 'bomber' ? cruise : nominal
+  return Math.min(want, spec.limits.vne)
+}
+
 /** 生成用的暫存。`createBattle` 不是熱路徑，但沒有理由每架配一個 */
 const SPAWN = new Vector3()
 
@@ -367,6 +433,8 @@ export function createBattle(
    * 分組只能有一份，不能讓它自己再猜一次（見 `flights.ts` 的 `sizes`）。
    */
   const sizes: number[] = []
+  /** 每個小隊的隊伍，依 `sizes` 的順序。預留的小隊推不出來，只能在這裡記 */
+  const flightTeams: Team[] = []
   /** `duty === 'transit'` 的座位索引與它們各自的出生 x（見 `ConvoyIndex`） */
   const convoySeats: number[] = []
   const convoyX: number[] = []
@@ -399,6 +467,16 @@ export function createBattle(
     blue: new Map<AircraftSpec, AircraftSpec>(),
     red: new Map<AircraftSpec, AircraftSpec>(),
   }
+  /**
+   * base spec → 巡航速度，m/s。只有轟炸機用得到（見 `openingTas`）。
+   *
+   * 【為什麼與 `feeled` 分開一張】`maxLevelSpeed` 是一次求根搜尋，而它要吃
+   * **套過手感的** spec。兩張表同一個查表時機、同一個生命週期，但鍵是
+   * base spec、值是一個數字 —— 混進 `feeled` 會讓那張表的型別變成聯合。
+   *
+   * 【為什麼不快取在模組層】它與 `cfg.altitude` 有關，而探針會換高度。
+   */
+  const cruises = new Map<AircraftSpec, number>()
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
   for (const unit of cfg.units) {
@@ -408,8 +486,10 @@ export function createBattle(
     // 那些覆寫靜靜失效
     const z = entry.along * cfg.entryRange + entry.gap
     const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
-    const velocity = FWD.clone().applyQuaternion(orientation)
-      .multiplyScalar(cfg.tas * entry.speed)
+    // 【方向逐小隊，速率逐架】速率由 `openingTas` 逐機種決定，而同一個
+    // 分隊可以是混編的
+    const heading = FWD.clone().applyQuaternion(orientation)
+    const nominalTas = cfg.tas * entry.speed
     // 【乘法的順序要與改動前逐字相同】改動前是
     // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
     // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
@@ -437,6 +517,16 @@ export function createBattle(
         cache.set(base, spec)
       }
 
+      // 【開局速度逐機種】見 `openingTas`。巡航只有轟炸機用得到，而
+      // `maxLevelSpeed` 是一次求根搜尋 —— 戰鬥機不必付這個錢。
+      // 它要吃**套過手感的** spec：「玩起來的飛機飛多快」才是它維持得住的
+      let cruise = 0
+      if (base.role === 'bomber') {
+        cruise = cruises.get(base) ?? maxLevelSpeed(spec, cfg.altitude) * BOMBER_CRUISE
+        cruises.set(base, cruise)
+      }
+      const tas = openingTas(base, nominalTas, cruise)
+
       // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
       // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
       // 走 `World.respawn` 是同一個理由。
@@ -447,10 +537,10 @@ export function createBattle(
       if (ref < 0) SPAWN.set(leadX, leadY, z)
       else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
 
-      const aircraft = new Aircraft(spec, SPAWN.y, cfg.tas)
+      const aircraft = new Aircraft(spec, SPAWN.y, tas)
       aircraft.state.position.copy(SPAWN)
       aircraft.state.orientation.copy(orientation)
-      aircraft.state.velocity.copy(velocity)
+      aircraft.state.velocity.copy(heading).multiplyScalar(tas)
       aircraft.prevPosition.copy(aircraft.state.position)
       aircraft.prevOrientation.copy(orientation)
       made.push(aircraft)
@@ -458,7 +548,7 @@ export function createBattle(
       const isPlayer = unit.player === true && k === 0
       const controller = isPlayer ? playerController : new AiController()
       const c = world.add(
-        aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, cfg.tas,
+        aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, tas,
       )
       // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
       c.respawnOnDestroy = false
@@ -474,13 +564,40 @@ export function createBattle(
       }
     }
     sizes.push(unit.members.length)
+    flightTeams.push(unit.team)
   }
 
   if (player === null) throw new Error('玩家沒有被建立——編組表必須有一筆 player')
 
+  // ── 預留給增援的容量 ──────────────────────────────────
+  //
+  // 【預留的分隊在這裡就建好，不是之後長出來】理由見 `BattleConfig.reserve`
+  // 與 `createFlights` 的 `capacity`。連帶好處是下面四份依**分隊**的東西
+  // （`blueCommand`／`redCommand`、兩隊的分隊索引清單、`convoyOrders`）
+  // 全部自動含到預留的那幾隊 —— 它們讀的都是 `flights.flights`。
+  //
+  // 【沒有 reserve 時這一段完全空轉】`capacity` 等於架數，`world.reserve`
+  // 的三個條件都不成立，`createFlights` 與 `createTargetBoard` 走的是省略
+  // 參數的那一條。整條路逐位元回到改動前。
+  let capacity = world.combatants.length
+  for (const r of cfg.reserve ?? []) {
+    if (!Number.isInteger(r.count) || r.count < 1) {
+      throw new Error(`預留的小隊架數必須是正整數，收到 ${r.count}`)
+    }
+    capacity += r.count
+    sizes.push(r.count)
+    flightTeams.push(r.team)
+  }
+  // 【上限由測試守，不在這裡拋】與現有的架數同一個做法 ——
+  // `missions.ts` 已經記著「大於 MAX_SIDE 不會拋，只會建一個超出特效
+  // 池容量的場」，而 `missions.test.ts` 逐張卡檢查。在這裡拋要把
+  // `MAX_COMBATANTS` 從 `skirmish.ts` import 進來，而那一支 import 的是
+  // 本檔 —— 會繞成循環
+  world.reserve(capacity)
+
   // 【編制必須在全部 add 完之後才建】玩家要釘在自己分隊的 members[0]
   // （M6 spec §5.3）
-  const flights = createFlights(world.combatants, player.index, sizes)
+  const flights = createFlights(world.combatants, player.index, sizes, capacity, flightTeams)
   // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
   //
   // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
@@ -493,14 +610,14 @@ export function createBattle(
   // 【被護送的那幾架在敵方眼中值幾倍】沒有它的話護航機會把攔截方的目標
   // 全部吸走 —— 實測轟炸機**一發都不會挨到**（`docs/backlog.md` §2.26）。
   // 中性值是 1，所以遭遇戰與殲滅任務這一整條逐字如舊。見 `MissionTuning`
-  const priority = new Float64Array(world.combatants.length).fill(1)
-  const protectedMask = new Uint8Array(world.combatants.length)
+  const priority = new Float64Array(capacity).fill(1)
+  const protectedMask = new Uint8Array(capacity)
   for (const seat of convoySeats) {
     priority[seat] = cfg.tuning.convoyPriority
     protectedMask[seat] = 1
   }
   const board = createTargetBoard(
-    world.combatants, flights.flightOf, priority, protectedMask,
+    world.combatants, flights.flightOf, priority, protectedMask, capacity,
   )
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由

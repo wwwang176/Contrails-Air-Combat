@@ -162,8 +162,13 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('護送 —— 轟炸機全部被擊落就輸', () => {
-    // 【敵機加到滿編】要走到的是另一條分支，所以刻意讓轟炸機活不了
-    const { b } = outcomeOf('allies', 'allies-escort', { redCount: 20 })
+    // 【敵機加到滿編、被護送的減到兩架】要走到的是另一條分支，所以刻意
+    // 讓轟炸機活不了。
+    //
+    // 【為什麼要減架數】20 架敵機在 12 km 的航程裡打不完四架 B-17 ——
+    // 打掉兩架、剩下兩架帶傷抵達，判成 `victory`。減的是**要被打光的那個
+    // 數量**，也就是這條測試自己的自變數；門檻（「全滅就輸」）沒有動。
+    const { b } = outcomeOf('allies', 'allies-escort', { redCount: 20, convoyCount: 2 })
     expect(b.outcome).toBe('defeat')
     expect(b.mission.remaining).toBe(0)
   }, 120_000)
@@ -182,9 +187,11 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('攔截 —— 敵轟炸機全部被擊落就贏（護航的戰鬥機忽略）', () => {
-    // 【我方加到滿編、對方不帶護航】火力足夠時打得完，而且**紅隊的護航機
-    // 還活著也照樣算贏** —— 那正是「護航的戰鬥機忽略」那句話
-    const { b } = outcomeOf('allies', 'allies-intercept', { blueCount: 20, redCount: 2 })
+    // 【我方加到滿編、對方不帶護航、被攔截的減到兩架】火力足夠時打得完，
+    // 而且**紅隊的護航機還活著也照樣算贏** —— 那正是「護航的戰鬥機忽略」
+    // 那句話。減架數的理由與上面那條護送相同
+    const { b } = outcomeOf(
+      'allies', 'allies-intercept', { blueCount: 20, redCount: 2, convoyCount: 2 })
     expect(b.outcome).toBe('victory')
     expect(b.mission.remaining).toBe(0)
     // 紅隊沒有全滅，贏的判準只看轟炸機
