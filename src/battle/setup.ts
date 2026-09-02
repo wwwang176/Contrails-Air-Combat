@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import { World, type Combatant } from '../world/World'
+import { World, type Combatant, type Team } from '../world/World'
 import { Aircraft } from '../aircraft/Aircraft'
 import { AI_DECISION_HZ, AiController } from '../ai/AiController'
 import { PRESSURE_RANGE, createTargetBoard, teamSlot, type TargetBoard } from '../ai/target'
@@ -55,6 +55,22 @@ export interface BattleConfig {
    * 產出的座標與改動前逐位元相同。
    */
   units: OrderOfBattle
+  /**
+   * 預留給增援的小隊。每一筆是一支**還沒進場**的分隊。
+   *
+   * 【為什麼要在建構期就宣告】依架數的 typed array 中途重配不安全：
+   * `World.killEvents` 會被換成空的、`damageTime` 會被整張抹掉，而
+   * `TargetBoard` 的三個陣列一換參考，`readonly` 這道護欄就沒了。波次是
+   * 有限的、寫在任務卡上，所以最終架數在這裡就算得出來 —— 一次配到位，
+   * 中途加人於是不重配任何東西。
+   *
+   * 【為什麼帶 team】預留的小隊 roster 指向還不存在的座位，隊伍推不出來
+   * （見 `createFlights` 的 `teams`）。
+   *
+   * **省略（或空陣列）等於「這一場不會再有人加入」**，此時容量與開局架數
+   * 相等，整條路逐位元回到改動前。
+   */
+  readonly reserve?: readonly { readonly team: Team; readonly count: number }[]
   altitude: number
   tas: number
   /**
@@ -417,6 +433,8 @@ export function createBattle(
    * 分組只能有一份，不能讓它自己再猜一次（見 `flights.ts` 的 `sizes`）。
    */
   const sizes: number[] = []
+  /** 每個小隊的隊伍，依 `sizes` 的順序。預留的小隊推不出來，只能在這裡記 */
+  const flightTeams: Team[] = []
   /** `duty === 'transit'` 的座位索引與它們各自的出生 x（見 `ConvoyIndex`） */
   const convoySeats: number[] = []
   const convoyX: number[] = []
@@ -546,13 +564,40 @@ export function createBattle(
       }
     }
     sizes.push(unit.members.length)
+    flightTeams.push(unit.team)
   }
 
   if (player === null) throw new Error('玩家沒有被建立——編組表必須有一筆 player')
 
+  // ── 預留給增援的容量 ──────────────────────────────────
+  //
+  // 【預留的分隊在這裡就建好，不是之後長出來】理由見 `BattleConfig.reserve`
+  // 與 `createFlights` 的 `capacity`。連帶好處是下面四份依**分隊**的東西
+  // （`blueCommand`／`redCommand`、兩隊的分隊索引清單、`convoyOrders`）
+  // 全部自動含到預留的那幾隊 —— 它們讀的都是 `flights.flights`。
+  //
+  // 【沒有 reserve 時這一段完全空轉】`capacity` 等於架數，`world.reserve`
+  // 的三個條件都不成立，`createFlights` 與 `createTargetBoard` 走的是省略
+  // 參數的那一條。整條路逐位元回到改動前。
+  let capacity = world.combatants.length
+  for (const r of cfg.reserve ?? []) {
+    if (!Number.isInteger(r.count) || r.count < 1) {
+      throw new Error(`預留的小隊架數必須是正整數，收到 ${r.count}`)
+    }
+    capacity += r.count
+    sizes.push(r.count)
+    flightTeams.push(r.team)
+  }
+  // 【上限由測試守，不在這裡拋】與現有的架數同一個做法 ——
+  // `missions.ts` 已經記著「大於 MAX_SIDE 不會拋，只會建一個超出特效
+  // 池容量的場」，而 `missions.test.ts` 逐張卡檢查。在這裡拋要把
+  // `MAX_COMBATANTS` 從 `skirmish.ts` import 進來，而那一支 import 的是
+  // 本檔 —— 會繞成循環
+  world.reserve(capacity)
+
   // 【編制必須在全部 add 完之後才建】玩家要釘在自己分隊的 members[0]
   // （M6 spec §5.3）
-  const flights = createFlights(world.combatants, player.index, sizes)
+  const flights = createFlights(world.combatants, player.index, sizes, capacity, flightTeams)
   // 【指派板同理】它會檢查 index 與陣列位置一致，而 index 是 add 依序給的。
   //
   // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
@@ -565,14 +610,14 @@ export function createBattle(
   // 【被護送的那幾架在敵方眼中值幾倍】沒有它的話護航機會把攔截方的目標
   // 全部吸走 —— 實測轟炸機**一發都不會挨到**（`docs/backlog.md` §2.26）。
   // 中性值是 1，所以遭遇戰與殲滅任務這一整條逐字如舊。見 `MissionTuning`
-  const priority = new Float64Array(world.combatants.length).fill(1)
-  const protectedMask = new Uint8Array(world.combatants.length)
+  const priority = new Float64Array(capacity).fill(1)
+  const protectedMask = new Uint8Array(capacity)
   for (const seat of convoySeats) {
     priority[seat] = cfg.tuning.convoyPriority
     protectedMask[seat] = 1
   }
   const board = createTargetBoard(
-    world.combatants, flights.flightOf, priority, protectedMask,
+    world.combatants, flights.flightOf, priority, protectedMask, capacity,
   )
   // 【升限每個機種算一次】`serviceCeiling` 不是 `AircraftSpec` 上的欄位
   // （`types.ts` 的那一個在 `HistoricalReference` 裡，是史實對照值），它由
