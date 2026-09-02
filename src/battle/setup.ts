@@ -351,6 +351,13 @@ export interface Battle {
   /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
   readonly beatStates: BeatState[]
   /**
+   * 還有幾個節拍沒走完。
+   *
+   * 【為什麼不現算】`stepBeats` 每個物理步都跑，而節拍是一場裡的幾個瞬間。
+   * 沒有它的話，全部走完之後仍然每步掃一次全場數存活數。
+   */
+  beatsLeft: number
+  /**
    * 畫面中心的訊息。空字串 = 沒有。
    *
    * 【過期由 `stepBeats` 清掉，不由畫面那一層判斷】它吃的是物理時間（與
@@ -367,6 +374,15 @@ export interface Battle {
    * 目標，配著一個指向新終點的距離。
    */
   objectiveText: string
+  /**
+   * **這一刻**的任務規則。開場等於 `cfg.rules`，返航節拍會換掉它。
+   *
+   * 【為什麼不能直接讀 `cfg.rules`】`cfg` 是不可變的設定，而 `stepMission`
+   * 是依規則分支的：只換 `mission` 的內容而規則還是 annihilate 的話，倒數
+   * 永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
+   * （Codex 審查 2026-09-02 P0）。
+   */
+  rules: MissionRules
   /**
    * 這一場的結果。
    *
@@ -845,9 +861,11 @@ export function createBattle(
     ceilings,
     reserve,
     beatStates: createBeatStates(cfg.beats ?? []),
+    beatsLeft: cfg.beats?.length ?? 0,
     message: '',
     messageUntil: 0,
     objectiveText: '',
+    rules: cfg.rules,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
@@ -903,6 +921,8 @@ function stepBeats(b: Battle): void {
   // 【過期的訊息在這裡收掉】`message` 因此恆是「這一刻該顯示的那一則」，
   // 畫面那一層照抄就好，不必自己持有一份計時
   if (b.message !== '' && now >= b.messageUntil) b.message = ''
+  // 【走完就不再掃全場】節拍是一場裡的幾個瞬間，而這個函數每個物理步都跑
+  if (b.beatsLeft === 0) return
 
   // 【快照先數】alive 條件全部讀這一份
   aliveCounts.blue = 0
@@ -911,12 +931,20 @@ function stepBeats(b: Battle): void {
   aliveCounts.redFighter = 0
   aliveCounts.blueBomber = 0
   aliveCounts.redBomber = 0
+  // 【六個分支寫死，不組字串當鍵】`${team}Bomber` 每一架都配置一個新字串 ——
+  // 20v20、240 Hz 是每秒 9,600 次，而這裡是熱路徑（Codex 審查 2026-09-02）
   for (const c of b.world.combatants) {
     if (!c.alive) continue
-    const t = c.team
-    const key = c.aircraft.spec.role === 'bomber' ? `${t}Bomber` : `${t}Fighter`
-    aliveCounts[t] = (aliveCounts[t] ?? 0) + 1
-    aliveCounts[key] = (aliveCounts[key] ?? 0) + 1
+    const bomber = c.aircraft.spec.role === 'bomber'
+    if (c.team === 'blue') {
+      aliveCounts.blue++
+      if (bomber) aliveCounts.blueBomber++
+      else aliveCounts.blueFighter++
+    } else {
+      aliveCounts.red++
+      if (bomber) aliveCounts.redBomber++
+      else aliveCounts.redFighter++
+    }
   }
 
   for (let i = 0; i < beats.length; i++) {
@@ -929,16 +957,23 @@ function stepBeats(b: Battle): void {
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       b.message = beat.kind === 'reinforce' ? beat.warn : beat.message
       b.messageUntil = st.dueAt + MESSAGE_SECONDS
-      continue
     }
-    // 'warned'：等預警時間到
+    // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
+    // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
+    // 多出一條沒有人會預期的語意
     if (now < st.dueAt) continue
     st.phase = 'done'
+    b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
     else {
-      b.mission = createMissionState({
+      // 【規則與狀態兩個都要換】`stepMission` 是依規則分支的：只換狀態的話
+      // 倒數永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
+      //
+      // 【就地寫回，不換 `MissionState` 物件】見 `Battle.mission` 的註解
+      b.rules = {
         kind: 'evacuate', point: beat.point, radius: beat.radius, seconds: beat.seconds,
-      })
+      }
+      resetMissionState(b.rules, b.mission)
       // 【目標文字也要跟著換】計量已經變成到新終點的距離，文字卻還是卡片上
       // 那一句 —— 兩者搭起來會指向一個不存在的任務
       b.objectiveText = beat.message
@@ -949,14 +984,23 @@ function stepBeats(b: Battle): void {
 /** 畫面中心訊息從生效那一刻起再顯示幾秒 */
 const MESSAGE_SECONDS = 4
 
-/** `stepBeats` 的當步快照。模組級，不配置 */
-const aliveCounts: Record<string, number> = {
+/**
+ * `stepBeats` 的當步快照。模組級，不配置。
+ *
+ * 【六個具名欄位而不是 `Record<string, number>`】組出來的鍵每一次都是一個
+ * 新字串，而這裡每個物理步跑一次全場掃描。
+ */
+const aliveCounts = {
   blue: 0, red: 0, blueFighter: 0, redFighter: 0, blueBomber: 0, redBomber: 0,
 }
 
 function aliveOf(team: Team, role?: AircraftSpec['role']): number {
-  if (role === undefined) return aliveCounts[team]!
-  return aliveCounts[role === 'bomber' ? `${team}Bomber` : `${team}Fighter`]!
+  if (team === 'blue') {
+    if (role === undefined) return aliveCounts.blue
+    return role === 'bomber' ? aliveCounts.blueBomber : aliveCounts.blueFighter
+  }
+  if (role === undefined) return aliveCounts.red
+  return role === 'bomber' ? aliveCounts.redBomber : aliveCounts.redFighter
 }
 
 /**
@@ -1400,7 +1444,8 @@ export function stepBattle(b: Battle, dt: number): void {
       if (d < inp.convoyLead) inp.convoyLead = d
     }
   }
-  stepMission(b.cfg.rules, inp, dt, b.mission)
+  // 【讀 `b.rules` 而不是 `b.cfg.rules`】返航節拍會換掉這一場的規則
+  stepMission(b.rules, inp, dt, b.mission)
   // 【誰是權威】`b.mission.outcome`。這一行是複本，見 `Battle.mission` 的註解。
   b.outcome = b.mission.outcome
 }
@@ -1492,7 +1537,9 @@ export function resetBattle(
   //
   // 【就地寫回而不是換一個 MissionState】`b.mission` 是 readonly 參考，
   // `main.ts` 與 HUD 每幀讀 `mission.target`。
-  resetMissionState(b.cfg.rules, b.mission)
+  // 【規則也要還原】返航節拍換過的話，重開一場要回到卡片上原本那一條
+  b.rules = b.cfg.rules
+  resetMissionState(b.rules, b.mission)
   b.outcome = 'fighting'
 }
 

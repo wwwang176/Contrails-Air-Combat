@@ -91,7 +91,10 @@ describe('節拍接進 stepBattle', () => {
     expect(b.beatStates[0]!.phase).toBe('done')
   })
 
-  it('返航節拍：任務目標換成撤離', () => {
+  it('返航節拍：整場的規則換成撤離，不只是換一份狀態', () => {
+    // 【`stepMission` 是依規則分支的】只換 `mission` 的內容而規則還是
+    // annihilate 的話，倒數永遠停在 300、計量顯示的是敵機數，飛進撤離圈
+    // 也不會判勝 —— 而那個狀態長得很像成功（Codex 審查 2026-09-02 P0）
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 2 },
@@ -101,9 +104,24 @@ describe('節拍接進 stepBattle', () => {
       seconds: 300,
     }])
     expect(b.cfg.rules.kind).toBe('annihilate')
+    // 換之前：計量是敵機數（4 架紅方），沒有終點也沒有倒數
+    expect(b.mission.hasTarget).toBe(false)
+    expect(b.mission.secondsLeft).toBe(Infinity)
+
     run(b, 2.1)
     expect(b.message).toBe('RETURN TO BASE')
-    expect(b.mission.secondsLeft).toBeGreaterThan(0)
+    expect(b.rules.kind).toBe('evacuate')
+    expect(b.mission.hasTarget).toBe(true)
+    expect(b.mission.target.z).toBe(9000)
+
+    // 【倒數真的在走】這是與「只換狀態」那個壞掉的版本唯一的分界 ——
+    // 那個版本的 secondsLeft 會永遠停在 300
+    const at = b.mission.secondsLeft
+    expect(at).toBeLessThanOrEqual(300)
+    run(b, 5)
+    expect(b.mission.secondsLeft).toBeLessThan(at - 2)
+    // 計量換成到終點的距離，不再是敵機數
+    expect(b.mission.metric).toBeGreaterThan(1000)
   })
 
   it('沒有節拍的場：狀態是空的，訊息永遠不出現', () => {

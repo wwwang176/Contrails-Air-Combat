@@ -13,6 +13,7 @@ import { createKills, pushKill } from '../../src/world/kills'
 import { bodyColorOf } from '../../src/render/geometry/buildAircraft'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { ALL_SPECS } from '../../src/battle/skirmish'
 
 /**
  * 「這裡處處都是水」。**既有的每一條都建立在那個前提上**
@@ -41,6 +42,21 @@ describe('bodyColorOf', () => {
   it('兩個機種各有自己的塗裝，而且不相同', () => {
     expect(bodyColorOf(P51D)).toBe(0x9aa7b4)
     expect(bodyColorOf(BF109K4)).toBe(0x7e8a73)
+  })
+
+  /**
+   * 【為什麼要掃全表】`BODY_COLORS` 與 `GLB_MODELS`／`BUILDERS` 是三張各自
+   * 維護的表，鑰匙都是 `spec.id`。少一格不會在建構期爆，會在**那一架第一次
+   * 出現在畫面上**時拋錯 —— 而增援是戰鬥進行中才生成的，那時世界已經被
+   * 改到一半，沒有人收拾得了（Codex 審查 2026-09-02 P1）。
+   *
+   * 這一條守在登記那一層而不是 `reinforce` 裡：`src/battle/` 不得 import
+   * `src/render/`，那條規矩比這個檢查更重要。
+   */
+  it('每一台在編的機種都登記了塗裝', () => {
+    for (const spec of ALL_SPECS) {
+      expect(() => bodyColorOf(spec), spec.id).not.toThrow()
+    }
   })
 })
 
