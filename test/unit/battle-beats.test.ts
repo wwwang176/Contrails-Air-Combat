@@ -136,6 +136,49 @@ describe('節拍接進 stepBattle', () => {
     expect(dump()).toEqual(dump())
   })
 
+  it('訊息會過期 —— 顯示幾秒之後自己收掉', () => {
+    // 【為什麼過期在這一層而不是畫面那一層】它吃的是物理時間。放在畫面
+    // 那一層的話，暫停時訊息會繼續倒數
+    const b = battle([
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: '敵機！', warnLead: 0, flight: WAVE },
+    ])
+    run(b, 1.1)
+    expect(b.message).toBe('敵機！')
+    run(b, 4.9)
+    expect(b.message).toBe('敵機！')
+    run(b, 5.2)
+    expect(b.message).toBe('')
+  })
+
+  it('後來者覆蓋 —— 單一訊息槽，不排隊', () => {
+    // 【為什麼不排隊】排隊的話第二則要等第一則播完才出現，而那時它講的事
+    // 早就發生了。這裡兩則的顯示窗口是重疊的
+    const b = battle([
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: '第一波', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 2 }, warn: '第二波', warnLead: 0, flight: WAVE },
+    ])
+    run(b, 1.1)
+    expect(b.message).toBe('第一波')
+    run(b, 2.1)
+    expect(b.message).toBe('第二波')
+  })
+
+  it('返航節拍也改寫任務目標的文字', () => {
+    // 【為什麼文字也要換】計量已經變成到新終點的距離，文字若還是卡片上
+    // 那一句，畫面上會是「擊落全部敵機　4.2 km」這種對不起來的一行
+    const b = battle([{
+      kind: 'withdraw',
+      when: { kind: 'clock', at: 1 },
+      message: 'RETURN TO BASE',
+      point: new Vector3(0, 4000, 9000),
+      radius: 1000,
+      seconds: 300,
+    }])
+    expect(b.objectiveText).toBe('')
+    run(b, 1.1)
+    expect(b.objectiveText).toBe('RETURN TO BASE')
+  })
+
   it('兩個節拍照卡片順序，各自獨立', () => {
     const b = battle([
       { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: 'a', warnLead: 0, flight: WAVE },
