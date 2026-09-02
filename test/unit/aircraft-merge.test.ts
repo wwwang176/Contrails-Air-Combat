@@ -1,11 +1,24 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { BufferGeometry, Material, Matrix4, Mesh, Object3D, Vector3 } from 'three'
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
-import { PROP_DISC_RENDER_ORDER } from '../../src/render/geometry/assembly'
+import { PROP_DISC_RENDER_ORDER, type AircraftModel } from '../../src/render/geometry/assembly'
+import { buildHe111 } from '../../src/render/geometry/he111'
+import { buildB17G } from '../../src/render/geometry/b17g'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 
 // setPropSpin 那條用的是 bf109k4（單發，盤面恰為 1），它走 GLB 路，要先載樣板
 beforeAll(async () => { await loadGlbTemplatesForNode() })
+
+/**
+ * 【直接呼叫 builder，不經 `buildAircraft`】五台現在都走 GLB 路，`buildAircraft`
+ * 對 he111／b17g 回的是樣板的複製，不再經過 `finish()` 的程序化合併。這裡
+ * 守的是合併本身，而程式版仍然是 `test/tools/procedural-export.ts` 的重匯
+ * 來源 —— 合併若動了頂點，匯出的 GLB 也跟著錯。
+ */
+const BUILD: Record<(typeof IDS)[number], () => AircraftModel> = {
+  he111: buildHe111,
+  b17g: buildB17G,
+}
 
 /**
  * **靜態零件按材質合併。**
@@ -93,13 +106,13 @@ function meshCount(root: Object3D): number {
 
 describe('飛機靜態零件合併', () => {
   it.each(IDS)('%s 的 mesh 數降到實測值', (id) => {
-    const model = buildAircraft({ id } as never)
+    const model = BUILD[id]()
     expect(meshCount(model.group)).toBe(MESHES[id]!)
     model.dispose()
   })
 
   it.each(IDS)('%s 的頂點一個 bit 都沒動', (id) => {
-    const model = buildAircraft({ id } as never)
+    const model = BUILD[id]()
     expect(fingerprint(model.group)).toEqual(BEFORE[id]!)
     model.dispose()
   })
@@ -107,7 +120,7 @@ describe('飛機靜態零件合併', () => {
   it.each(IDS)('%s 併出來的 mesh 掛在 hull 底下、局部矩陣是單位矩陣', (id) => {
     // 【這一條是「不必烘變換」的前提】併出來的 mesh 若帶了變換或換了父節點，
     // 它的頂點就不在原本的座標系上，畫面必然移位
-    const model = buildAircraft({ id } as never)
+    const model = BUILD[id]()
     model.group.updateMatrixWorld(true)
     const I = new Matrix4()
     const hull = model.group.children[0]!
@@ -127,7 +140,7 @@ describe('飛機靜態零件合併', () => {
   it.each(IDS)('%s 的半透明零件沒有被併掉', (id) => {
     // 半透明要逐物件排序，併起來就失去排序 —— 座艙罩會透出錯誤的層次
     const before = TRANSLUCENT[id]!
-    const model = buildAircraft({ id } as never)
+    const model = BUILD[id]()
     let n = 0
     model.group.traverse((o) => {
       const m = o as Mesh
@@ -159,7 +172,7 @@ describe('飛機靜態零件合併', () => {
   it.each(IDS)('%s 的每一份幾何 dispose 剛好一次', (id) => {
     // 【為什麼會漏】被併掉的原始幾何在合併當下就釋放了，若沒有從
     // `disposables` 移除，`model.dispose()` 會再放一次
-    const model = buildAircraft({ id } as never)
+    const model = BUILD[id]()
     const counts = new Map<BufferGeometry, number>()
     model.group.traverse((o) => {
       const g = (o as Mesh).geometry

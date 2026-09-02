@@ -66,5 +66,5 @@ export const F6F5_MODEL: GlbAircraft = {
    * −2.55…−2.49 那幾箱衝到 1.93）。半徑照史實：Hamilton Standard
    * 13 ft 1 in = 3.987 m。
    */
-  prop: { node: 'F6F_Prop', hubY: 0.038, hubZ: -2.52, radius: 1.995 },
+  props: [{ node: 'F6F_Prop', hubY: 0.038, hubZ: -2.52, radius: 1.995 }],
 }

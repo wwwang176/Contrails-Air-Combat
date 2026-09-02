@@ -96,5 +96,5 @@ export const BF109K4_MODEL: GlbAircraft = {
    * 槳盤 z 取參考模型槳葉的位置（−2.63…−2.41 的中點換算後為 −2.29）；
    * 半徑照史實 VDM 螺旋槳直徑 3.10 m（槳葉盒也縮到同一半徑）。
    */
-  prop: { node: 'BF109_Prop', hubY: 0.36, hubZ: -2.29, radius: 1.55 },
+  props: [{ node: 'BF109_Prop', hubY: 0.36, hubZ: -2.29, radius: 1.55 }],
 }
