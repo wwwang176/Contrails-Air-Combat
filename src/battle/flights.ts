@@ -84,10 +84,29 @@ export interface FlightIndex {
  *   編組表一旦允許「6 架轟炸機切成 4 + 2 但排在 4 架戰鬥機後面」或三機小隊，
  *   兩邊就會切出不同的分組 —— **症狀是編隊飛行的僚機認錯長機，而且不會有
  *   任何錯誤**。分組只能有一份。
+ *
+ * @param capacity **最終**架數，含還沒進場的增援。省略時等於 `all.length`，
+ *   也就是「這一場不會再有人加入」。
+ *
+ *   【為什麼編制不長大】`flights` 是唯讀陣列，而 `compactFlights` 對超出
+ *   長度的 typed array 索引寫入會**靜默失效** —— 新飛機於是永遠沒有
+ *   `flightOf` 與 `positionOf`，而且不會有任何錯誤。所以增援那幾隊在這裡
+ *   就建好，roster 指向還不存在的座位；那些座位空著時 `count` 是 0，
+ *   飛機加進來之後下一次 `compactFlights` 自動收編。
+ *
+ *   **前提是增援的座位索引是連續的尾段** —— `World.add` 依序給索引，
+ *   而預留的 roster 也是尾段。
+ *
+ * @param teams 每個小隊的隊伍。**只有預留的小隊需要**：在場的小隊由它
+ *   roster 第一格的成員推得，而預留的小隊那一格還不存在。
  */
 export function createFlights(
   all: readonly FlightMember[], pinned = -1, sizes?: readonly number[],
+  capacity = all.length, teams?: readonly Team[],
 ): FlightIndex {
+  if (capacity < all.length) {
+    throw new Error(`capacity ${capacity} 小於成員數 ${all.length}`)
+  }
   for (let i = 0; i < all.length; i++) {
     if (all[i]!.index !== i) {
       throw new Error(`FlightMember.index 必須等於陣列位置：第 ${i} 個是 ${all[i]!.index}`)
@@ -118,16 +137,26 @@ export function createFlights(
       }
       sum += n
     }
-    if (sum !== all.length) {
-      throw new Error(`小隊架數的總和 ${sum} 與成員數 ${all.length} 不符`)
+    // 【總和對的是 capacity 而不是成員數】預留的小隊也要算進去。省略
+    // `capacity` 時兩者相等，逐字回到改動前
+    if (sum !== capacity) {
+      throw new Error(`小隊架數的總和 ${sum} 與最終架數 ${capacity} 不符`)
     }
     let at = 0
-    for (const n of sizes) {
+    for (let f = 0; f < sizes.length; f++) {
+      const n = sizes[f]!
       const roster: number[] = []
       for (let k = 0; k < n; k++, at++) roster.push(at)
-      const team = all[roster[0]!]!.team
+      // 【在場的由成員推、預留的由 `teams` 給】預留小隊的 roster 第一格
+      // 還不存在，推不出隊伍
+      const first = all[roster[0]!]
+      const team = first === undefined ? teams?.[f] : first.team
+      if (team === undefined) {
+        throw new Error(`第 ${f} 個小隊是預留的（座位 ${roster[0]} 還不存在），必須由 teams 給隊伍`)
+      }
       for (const id of roster) {
-        if (all[id]!.team !== team) {
+        const m = all[id]
+        if (m !== undefined && m.team !== team) {
           throw new Error(`一個小隊必須同一隊：${roster.join(',')} 橫跨了藍紅`)
         }
       }
@@ -137,8 +166,8 @@ export function createFlights(
 
   const fi: FlightIndex = {
     flights,
-    flightOf: new Int32Array(all.length).fill(-1),
-    positionOf: new Int32Array(all.length).fill(-1),
+    flightOf: new Int32Array(capacity).fill(-1),
+    positionOf: new Int32Array(capacity).fill(-1),
     pinned,
   }
   compactFlights(fi, all)
@@ -189,7 +218,11 @@ export function compactFlights(fi: FlightIndex, all: readonly FlightMember[]): v
     for (let r = 0; r < roster.length; r++) {
       const i = roster[r]!
       if (i === pinned) continue
-      if (!all[i]!.alive) continue
+      // 【`undefined` 是「還沒進場」，不是錯誤】預留的小隊在增援加入之前
+      // roster 指向不存在的座位（見 `createFlights` 的 `capacity`）。與
+      // `countLocks` 的 `c === undefined` 是同一個形狀
+      const m = all[i]
+      if (m === undefined || !m.alive) continue
       flight.members[n++] = i
     }
 
