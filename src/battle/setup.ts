@@ -8,7 +8,9 @@ import {
   STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
   type Flight, type FlightIndex,
 } from './flights'
-import { assertOrderOfBattle, lineAbreast, type OrderOfBattle } from './order'
+import {
+  assertOrderOfBattle, lineAbreast, type FlightPlan, type OrderOfBattle,
+} from './order'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import {
   createCommandState, stepCommand,
@@ -404,6 +406,114 @@ function openingTas(spec: AircraftSpec, nominal: number, cruise: number): number
   return Math.min(want, spec.limits.vne)
 }
 
+/**
+ * 一個小隊的進場幾何。**逐小隊算一次**，同隊的每一架共用。
+ *
+ * 【為什麼要抽出來】`createBattle` 與 `reinforce` 都要算它，而它裡面有兩條
+ * 浮點順序被 `test/fixtures/spawn-baseline.ts` 釘住的式子。兩份長得很像的
+ * 幾何就是只有一份會被修好的那種危險。
+ */
+interface UnitFrame {
+  /** 沿 Z 的出生位置，m */
+  readonly z: number
+  readonly orientation: Quaternion
+  /** 機首方向的單位向量。速率逐架乘 */
+  readonly heading: Vector3
+  /** `cfg.tas × entry.speed` —— 戰鬥機的開局速度 */
+  readonly nominalTas: number
+  readonly leadX: number
+  readonly leadY: number
+}
+
+function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
+  const entry = unit.entry
+  // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
+  // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
+  // 那些覆寫靜靜失效
+  const z = entry.along * cfg.entryRange + entry.gap
+  const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
+  // 【方向逐小隊，速率逐架】速率由 `openingTas` 逐機種決定，而同一個
+  // 分隊可以是混編的
+  const heading = FWD.clone().applyQuaternion(orientation)
+  // 【乘法的順序要與改動前逐字相同】改動前是
+  // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
+  // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
+  const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+  const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
+  return { z, orientation, heading, nominalTas: cfg.tas * entry.speed, leadX, leadY }
+}
+
+/** `base spec → 套過手感的 spec`，每陣營一張。見 `createBattle` 的 `feeled` */
+type FeelCache = { readonly [T in Team]: Map<AircraftSpec, AircraftSpec> }
+
+/**
+ * 造一架、加進世界，回傳它的座位。
+ *
+ * **`createBattle` 與 `reinforce` 共用的唯一一條生成路徑。** 複製一份的話，
+ * 手感、開局速度、站位、朝向這四件事會有兩個實作，而只有一份會被修好。
+ *
+ * @param made 這個分隊**已經造好**的飛機，供 `stationPoint` 當參考機。
+ *   呼叫端每一隊給一個新的陣列，這裡會把新造的那一架推進去。
+ */
+function spawnMember(
+  world: World, cfg: BattleConfig, unit: FlightPlan, frame: UnitFrame, k: number,
+  made: Aircraft[], feeled: FeelCache, cruises: Map<AircraftSpec, number>,
+  controller: Controller,
+): Combatant {
+  const base = unit.members[k]!
+  // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
+  // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
+  // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一
+  // 入口，而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
+  //
+  // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
+  // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
+  // 戰鬥機放大，爬升率變成史實的三倍。
+  //
+  // 【查表在內層】混編小隊裡兩種機各查各的
+  const cache = feeled[unit.team]
+  let spec = cache.get(base)
+  if (spec === undefined) {
+    spec = applyFeel(base, feelFor(base))
+    cache.set(base, spec)
+  }
+
+  // 【開局速度逐機種】見 `openingTas`。巡航只有轟炸機用得到，而
+  // `maxLevelSpeed` 是一次求根搜尋 —— 戰鬥機不必付這個錢。
+  // 它要吃**套過手感的** spec：「玩起來的飛機飛多快」才是它維持得住的
+  let cruise = 0
+  if (base.role === 'bomber') {
+    cruise = cruises.get(base) ?? maxLevelSpeed(spec, cfg.altitude) * BOMBER_CRUISE
+    cruises.set(base, cruise)
+  }
+  const tas = openingTas(base, frame.nominalTas, cruise)
+
+  // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
+  // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
+  // 走 `World.respawn` 是同一個理由。
+  //
+  // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
+  // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
+  const ref = STATION_REFERENCE[k]!
+  if (ref < 0) SPAWN.set(frame.leadX, frame.leadY, frame.z)
+  else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+
+  const aircraft = new Aircraft(spec, SPAWN.y, tas)
+  aircraft.state.position.copy(SPAWN)
+  aircraft.state.orientation.copy(frame.orientation)
+  aircraft.state.velocity.copy(frame.heading).multiplyScalar(tas)
+  aircraft.prevPosition.copy(aircraft.state.position)
+  aircraft.prevOrientation.copy(frame.orientation)
+  made.push(aircraft)
+
+  const c = world.add(
+    aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, tas,
+  )
+  // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
+  c.respawnOnDestroy = false
+  return c
+}
+
 /** 生成用的暫存。`createBattle` 不是熱路徑，但沒有理由每架配一個 */
 const SPAWN = new Vector3()
 
@@ -480,78 +590,14 @@ export function createBattle(
 
   // 藍隊在 +Z、機首朝 −Z；紅隊在 −Z、機首朝 +Z（繞 Y 轉 π）
   for (const unit of cfg.units) {
-    const entry = unit.entry
-    // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
-    // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
-    // 那些覆寫靜靜失效
-    const z = entry.along * cfg.entryRange + entry.gap
-    const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
-    // 【方向逐小隊，速率逐架】速率由 `openingTas` 逐機種決定，而同一個
-    // 分隊可以是混編的
-    const heading = FWD.clone().applyQuaternion(orientation)
-    const nominalTas = cfg.tas * entry.speed
-    // 【乘法的順序要與改動前逐字相同】改動前是
-    // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
-    // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
-    const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
-    const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
-
+    const frame = unitFrame(cfg, unit)
     /** 這個分隊已經造好的飛機，供 stationPoint 當參考機 */
     const made: Aircraft[] = []
     for (let k = 0; k < unit.members.length; k++) {
-      const base = unit.members[k]!
-      // 【手感係數在這裡套，不在 spec 檔裡】史實值必須原封不動，否則
-      // `test/performance/historical.test.ts` 的整層斷言就失去意義（見
-      // `specs/feel.ts`）。這裡是「史實的飛機」變成「玩起來的飛機」的唯一
-      // 入口，而且**雙方一起套** —— 玩家與 AI 飛的是同一台。
-      //
-      // 【為什麼是 feelFor 而不是 GAME_FEEL】轟炸機另有一組（見
-      // `specs/feel.ts` 的 `BOMBER_FEEL`）。寫死 `GAME_FEEL` 會把轟炸機當
-      // 戰鬥機放大，爬升率變成史實的三倍。
-      //
-      // 【查表在內層】混編小隊裡兩種機各查各的
-      const cache = feeled[unit.team]
-      let spec = cache.get(base)
-      if (spec === undefined) {
-        spec = applyFeel(base, feelFor(base))
-        cache.set(base, spec)
-      }
-
-      // 【開局速度逐機種】見 `openingTas`。巡航只有轟炸機用得到，而
-      // `maxLevelSpeed` 是一次求根搜尋 —— 戰鬥機不必付這個錢。
-      // 它要吃**套過手感的** spec：「玩起來的飛機飛多快」才是它維持得住的
-      let cruise = 0
-      if (base.role === 'bomber') {
-        cruise = cruises.get(base) ?? maxLevelSpeed(spec, cfg.altitude) * BOMBER_CRUISE
-        cruises.set(base, cruise)
-      }
-      const tas = openingTas(base, nominalTas, cruise)
-
-      // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
-      // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
-      // 走 `World.respawn` 是同一個理由。
-      //
-      // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
-      // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
-      const ref = STATION_REFERENCE[k]!
-      if (ref < 0) SPAWN.set(leadX, leadY, z)
-      else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
-
-      const aircraft = new Aircraft(spec, SPAWN.y, tas)
-      aircraft.state.position.copy(SPAWN)
-      aircraft.state.orientation.copy(orientation)
-      aircraft.state.velocity.copy(heading).multiplyScalar(tas)
-      aircraft.prevPosition.copy(aircraft.state.position)
-      aircraft.prevOrientation.copy(orientation)
-      made.push(aircraft)
-
       const isPlayer = unit.player === true && k === 0
       const controller = isPlayer ? playerController : new AiController()
-      const c = world.add(
-        aircraft, controller, unit.team, aircraft.state.position.clone(), SPAWN.y, tas,
-      )
-      // 【一律不重生】一方全滅要能被偵測到，重生會讓那件事永遠不發生
-      c.respawnOnDestroy = false
+      const c = spawnMember(
+        world, cfg, unit, frame, k, made, feeled, cruises, controller)
       if (isPlayer) player = c
       ;(unit.team === 'blue' ? blue : red).push(c)
       if (unit.duty === 'transit') {
@@ -559,7 +605,7 @@ export function createBattle(
         // 【取出生 x 而不是重推 lane】重推要把 `lane × schwarmSpacing +
         // across × lateralOffset` 再算一次，而那條式子的浮點順序是被
         // `test/fixtures/spawn-baseline.ts` 釘住的。抄現成的值不可能算錯
-        convoyX.push(SPAWN.x)
+        convoyX.push(c.spawnPosition.x)
         convoyFlights.push(sizes.length)
       }
     }
