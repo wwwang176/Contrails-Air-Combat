@@ -101,23 +101,19 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 
 ### 1.1 中途加入戰場
 
-`world.add` 目前只在建構期被呼叫一次（`src/battle/setup.ts:532`）。
+**做法是預配到最終容量，不是中途成長。**`World.add` 的擴容路徑會把
+`killEvents` 換成空的、把 `damageTime` 整張抹掉（`World.ts:295` 的註解自己
+寫著前提：「add 只發生在場景組裝期，那時還沒有任何傷害」）。`FlightIndex`
+更是根本長不大。所以容量在建構期就配到最終架數，中途一個 ensure 都不觸發。
 
-`World` 那一層本來就支援成長，`cull.ts:48` 還明寫「沒有一個『最多幾架』的
-魔術上限等著某天被撞破」。要補的是上面兩層。
-
-- [ ] `TargetBoard` 正名成活的視圖，加 `ensure(n)`
-      —— `candidates` 已經是 `world.combatants` 那一個活陣列，但
-      `assignments` / `priority` / `protectedMask` 三個 typed array 依
-      `candidates.length` 固定（`src/ai/target.ts:767`），`createTargetBoard`
-      還會驗 `candidates[i].index === i`
-- [ ] `flightOf` 跟著編制長大（`FlightIndex`）
-- [ ] battle 層：`commandUnits`、`flights`、`blue`/`red`、`sizes`、`roster`（飛行員名字）
-- [ ] `main.ts` 的 `renderPositions` / `renderQuaternions` 重建
-      —— 那兩個是 `world.combatants.map()` 出來的固定陣列（`src/main.ts:418`）；
-      `attachVisual` 本身已經是「惰性 + Map」的形狀，不必動
-- [ ] 既有 10 張卡逐位元不變 —— **結構上成立**（不呼叫增援就走不到成長路徑），
-      但仍要用重播校驗和證實
+- [x] `TargetBoard` 收 `capacity` —— 三個 typed array 照最終架數配
+- [x] `FlightIndex` 收 `capacity` 與 `teams` —— 建構期就把增援的分隊建好，
+      roster 指向還不存在的座位，`compactFlights` 在它們出現時自己填上
+- [x] battle 層：`commandUnits`、`blue`/`red`、`spawnOrientations`、`roster`、
+      以及 `stepCommandLayer` 用的四份分隊索引清單
+- [x] `main.ts` **只附加**新的 visual（`syncVisuals`）。不能用
+      `rebuildVisuals` —— `attachVisual` 不冪等，而那一支會先把全場還回去
+- [x] 既有 10 張卡逐位元不變 —— 兩份重播校驗和證實
 
 > `setDecisionPhase` **不是**障礙。它只是一次性設定自己的 `decisionTimer`
 > 起點（`src/ai/AiController.ts:907`），中途加人不會擾動別人的相位。
@@ -127,10 +123,14 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 兩個軸要分開。德 M4 的節拍是「友軍剩不多 → 任務改成 RETURN TO BASE」——
 同一套條件判斷，接的卻不是增援。
 
+**沒有做成「條件 × 效果」的矩陣。**交叉出來的組合大半沒有合法語意
+（「時鐘到了把 convoy 規則換成任意其他規則」）。實際需求兩類，就寫兩個
+具名節拍：`ReinforceBeat` 與 `WithdrawBeat`（`src/battle/beats.ts`）。
+
 **條件（第一版做兩種）**
 
-- [ ] 時鐘 —— 第 N 秒
-- [ ] 存活數 + **選擇器** —— 「紅隊的**戰鬥機**剩 ≤ 2 架」
+- [x] 時鐘 —— 第 N 秒
+- [x] 存活數 + **選擇器** —— 「紅隊的**戰鬥機**剩 ≤ 2 架」
       選擇器一開始就要有：盟 M4 是「打退戰鬥機之後魚雷機才來」，
       不是「紅隊剩幾架」。之後補會很痛
 - [ ] ~~位置~~ —— 等里程碑 2，現在沒有東西可以指
@@ -138,15 +138,19 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 
 **效果（第一版做兩種）**
 
-- [ ] 增援登場
-- [ ] 任務目標變更（`annihilate` → `evacuate`）
-- [ ] 通報訊息 —— 見 5.1
+- [x] 增援登場 —— 先預警，過 `warnLead` 秒才真的進場
+- [x] 任務目標變更（`annihilate` → `evacuate`），目標文字一起換
+- [x] 通報訊息 —— 畫面中心單一訊息槽，後來者覆蓋（`hud/widgets/message.ts`）
 
 **其他**
 
-- [ ] 時鐘當兜底：每一個「存活數」觸發都要有一個時限，否則玩家太慢／太快
-      時第二波永遠不出現
+- [x] 時鐘當兜底：每一個「存活數」觸發都要有一個時限，否則玩家太慢／太快
+      時第二波永遠不出現（`byLatest`，**必填**）
+- [x] 有波次的關卡按「重新開始」→ 整個 `Battle` 重建，不截斷
+      （專案負責人 2026-09-01 裁定）
 - [ ] 任務卡上怎麼描述波次（`MissionCard` 的新欄位）
+      —— **里程碑 1 只剩這一項**。`BattleConfig.beats` 已經接好了，
+      但 `MissionCard` 還沒有這個欄位，所以遊戲裡目前走不到任何一個節拍
 
 ---
 
