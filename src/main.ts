@@ -365,8 +365,10 @@ let wasDying = false
  */
 function respawnPlayer() {
   const p = battle.player
-  // 【讀這一場的 cfg 而不是模組層的常數】M10 起每一場的設定可以不同
-  p.aircraft.respawn(input.aimWorld, battle.cfg.altitude, battle.cfg.tas)
+  // 【速度讀這一席的 `spawnTas`，高度讀 cfg】開局速度逐機種（見 `setup.ts`
+  // 的 `openingTas`），`cfg.tas` 只是戰鬥機的那一個值 —— 拿它重生轟炸機會
+  // 超過 vne。高度是全場一個值，沒有逐機種的版本
+  p.aircraft.respawn(input.aimWorld, battle.cfg.altitude, p.spawnTas)
   p.aircraft.state.position.copy(p.spawnPosition)
   p.aircraft.prevPosition.copy(p.spawnPosition)
   p.hp = p.aircraft.spec.hp
