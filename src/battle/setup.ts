@@ -311,6 +311,27 @@ export interface Battle {
    */
   readonly convoy: ConvoyIndex | null
   /**
+   * 已經用掉幾支預留的分隊。`reinforce` 依序填 `cfg.reserve`。
+   *
+   * 【為什麼是計數而不是「找一支空的」】依序填是決定性的；「找一支空的」
+   * 在增援全滅之後會把同一支再填一次。
+   */
+  reserveUsed: number
+  /**
+   * 三張建構期的記憶，`reinforce` 要用同一份。
+   *
+   * 【為什麼一定要同一份】`feeled` 是「base spec → 套過手感的 spec」，而
+   * 下游有三個**依物件識別**的快取（`envelope.ts` 的最佳迴轉表、
+   * `doctrine.ts` 的持續迴轉率表、這裡的 `ceilings`）。增援若各算一份新的
+   * spec 物件，數值完全相同但那三張表會全部落空 —— 症狀是進場那一瞬間的
+   * 卡頓，而且沒有任何錯誤。
+   */
+  readonly feeled: FeelCache
+  /** 轟炸機的巡航速度，見 `BOMBER_CRUISE` */
+  readonly cruises: Map<AircraftSpec, number>
+  /** 逐機種的實用升限，見 `makeCommandUnit` */
+  readonly ceilings: Map<AircraftSpec, number>
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -671,31 +692,8 @@ export function createBattle(
   // 飛機真正爬得到的高度。搜尋不便宜（50 次 `maxClimbRate`），所以依 spec
   // 物件記憶：一場 20v20 只有兩種機型，實際只算兩次。
   const ceilings = new Map<AircraftSpec, number>()
-  const commandUnits: CommandUnit[] = world.combatants.map((c) => {
-    const spec = c.aircraft.spec
-    let ceiling = ceilings.get(spec)
-    if (ceiling === undefined) {
-      ceiling = serviceCeiling(spec)
-      // 【NaN 代表搜尋失敗】`serviceCeiling` 在區間沒括住解時回 NaN。讓它流
-      // 進規劃會使「集合點不超過升限」那個夾擠變成 false，高度限制靜靜消失。
-      // 退成 Infinity：夾擠不生效，但下界（clearanceScale）仍然守著。
-      if (!Number.isFinite(ceiling)) ceiling = Infinity
-      ceilings.set(spec, ceiling)
-    }
-    return {
-      // 【自己的向量，不是飛機那一份的別名】`stepCommandLayer` 每步 copy 進來。
-      // 舊版抓的是別名，倚賴「`state.position` 這個物件永遠是同一個」——
-      // 而 `Aircraft.reset` 當時會換掉整個 `state`，於是「再打一場」之後
-      // 這 40 個別名全部指向孤兒向量。見 `Aircraft.reset` 的註解。
-      position: new Vector3(),
-      velocity: new Vector3(),
-      cornerRatio: 1,
-      hpFraction: 1,
-      shotInstant: 0,
-      serviceCeiling: ceiling,
-      alive: c.alive,
-    }
-  })
+  const commandUnits: CommandUnit[] = world.combatants.map(
+    (c) => makeCommandUnit(c, ceilings))
   const blueCommand = createCommandState(flights.flights.length)
   const redCommand = createCommandState(flights.flights.length)
   // ── 被護送的那幾架 ────────────────────────────────────
@@ -802,12 +800,103 @@ export function createBattle(
     blueOrderFlights,
     redOrderFlights,
     convoy,
+    reserveUsed: 0,
+    feeled,
+    cruises,
+    ceilings,
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
   }
   wireStations(battle)
   return battle
+}
+
+/** 一架的指揮層快照。**`createBattle` 與 `reinforce` 共用** */
+function makeCommandUnit(c: Combatant, ceilings: Map<AircraftSpec, number>): CommandUnit {
+  const spec = c.aircraft.spec
+  let ceiling = ceilings.get(spec)
+  if (ceiling === undefined) {
+    ceiling = serviceCeiling(spec)
+    // 【NaN 代表搜尋失敗】`serviceCeiling` 在區間沒括住解時回 NaN。讓它流
+    // 進規劃會使「集合點不超過升限」那個夾擠變成 false，高度限制靜靜消失。
+    // 退成 Infinity：夾擠不生效，但下界（clearanceScale）仍然守著。
+    if (!Number.isFinite(ceiling)) ceiling = Infinity
+    ceilings.set(spec, ceiling)
+  }
+  return {
+    // 【自己的向量，不是飛機那一份的別名】`stepCommandLayer` 每步 copy 進來。
+    // 舊版抓的是別名，倚賴「`state.position` 這個物件永遠是同一個」——
+    // 而 `Aircraft.reset` 當時會換掉整個 `state`，於是「再打一場」之後
+    // 這 40 個別名全部指向孤兒向量。見 `Aircraft.reset` 的註解。
+    position: new Vector3(),
+    velocity: new Vector3(),
+    cornerRatio: 1,
+    hpFraction: 1,
+    shotInstant: 0,
+    serviceCeiling: ceiling,
+    alive: c.alive,
+  }
+}
+
+/**
+ * 讓一支預留的分隊進場，回傳新座位的索引。
+ *
+ * **容量是建構期配好的**（`BattleConfig.reserve`），所以這裡不重配任何東西
+ * —— 那正是最要緊的一條：`World.add` 的擴容路徑會把 `killEvents` 換成空的、
+ * 把 `damageTime` 整張抹掉，而這一步是在戰鬥中做的。
+ *
+ * 【依序填，不找空的】增援全滅之後「找一支空的」會把同一支再填一次，而
+ * 依序填是決定性的。
+ *
+ * 【先驗完再動世界】隊伍、架數、容量任何一項不合法都在配置之前擋下來。
+ * 驗到一半才發現的話會只加入半個波次，而那個狀態沒有人能收拾。
+ *
+ * 【編制不在這裡接】`flightOf` 與 `positionOf` 由下一個物理步的
+ * `compactFlights` 填 —— 它是存活旗標的純函數，預留的分隊本來就在等這幾個
+ * 座位出現。
+ */
+export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
+  const slot = b.reserveUsed
+  const reserved = b.cfg.reserve?.[slot]
+  if (reserved === undefined) {
+    throw new Error(`沒有第 ${slot} 支預留的分隊 —— cfg.reserve 只有 ${b.cfg.reserve?.length ?? 0} 支`)
+  }
+  if (plan.team !== reserved.team) {
+    throw new Error(`第 ${slot} 支預留的是 ${reserved.team} 隊，收到 ${plan.team}`)
+  }
+  if (plan.members.length !== reserved.count) {
+    throw new Error(
+      `第 ${slot} 支預留的是 ${reserved.count} 架，收到 ${plan.members.length}`)
+  }
+  if (plan.player === true) throw new Error('增援不能是玩家的座位')
+
+  // 【驗完才開始動】以下不再有拋錯的路徑
+  const frame = unitFrame(b.cfg, plan)
+  const made: Aircraft[] = []
+  const seats: number[] = []
+  const names = pilotNames(
+    b.seed + slot + 1, factionOf(plan.members[0]!.id), plan.members.length)
+  for (let k = 0; k < plan.members.length; k++) {
+    const c = spawnMember(
+      b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
+    seats.push(c.index)
+    ;(plan.team === 'blue' ? b.blue : b.red).push(c)
+    b.spawnOrientations.push(c.aircraft.state.orientation.clone())
+    b.commandUnits.push(makeCommandUnit(c, b.ceilings))
+    b.roster.pilots.push({
+      name: names[k]!, kills: 0, deaths: 0, assists: 0, alive: true, isPlayer: false,
+    })
+    const ai = c.controller as AiController
+    ai.board = b.board
+    ai.selfIndex = c.index
+    ai.profile = b.cfg.aiProfile
+    // 【相位照最終容量攤平，不照當下架數】用當下架數的話同一波的值會全部
+    // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
+    ai.setDecisionPhase(c.index / b.board.assignments.length)
+  }
+  b.reserveUsed++
+  return seats
 }
 
 /**
