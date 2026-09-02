@@ -287,19 +287,45 @@ export class World {
       spawnTas,
     }
     this.combatants.push(c)
-    this.cull.ensure(this.combatants.length)
+    this.grow(this.combatants.length)
+    return c
+  }
+
+  /**
+   * 預留到 `n` 架的容量。**只長不縮。**
+   *
+   * 【它買到什麼】`add` 的擴容路徑只在場景組裝期是安全的 —— `killEvents`
+   * 會被換成一個空的、`damageTime` 會被整張填成 `-Infinity`。戰鬥進行中
+   * 呼叫 `add` 因此會丟掉這一步還沒被排空的擊墜事件（戰績記到了、爆炸不見
+   * 了），並抹掉全場的助攻窗口。
+   *
+   * 先 `reserve` 到最終架數，之後 `add` 的三個條件都不成立，中途加人於是
+   * **一次都不重配**。
+   *
+   * 【為什麼不縮】縮了會讓已經發生的傷害紀錄越界。`n` 小於現有容量時
+   * 這一呼叫什麼都不做。
+   */
+  reserve(n: number): void {
+    this.grow(n)
+  }
+
+  /**
+   * 把三個依架數的容器長到至少 `n`。
+   *
+   * 【重配就整張清掉】舊資料的索引在邊長變了之後全部失效 —— 搬移是一個
+   * 沒有人會需要的功能，因為呼叫端只有兩個：組裝期的 `add`，以及組裝期的
+   * `reserve`。**戰鬥中不得走到這裡**，那正是 `reserve` 存在的理由。
+   */
+  private grow(n: number): void {
+    this.cull.ensure(n)
     // 見 killEvents 的註解：容量跟著架數走，溢位於是在結構上不可能
-    if (this.killEvents.capacity < this.combatants.length) {
-      this.killEvents = createKills(this.combatants.length)
+    if (this.killEvents.capacity < n) {
+      this.killEvents = createKills(n)
     }
-    // 【重配就整張清掉】`add` 只發生在場景組裝期，那時還沒有任何傷害。
-    // 邊長一變，舊資料的索引全部失效 —— 搬移是一個沒有人會需要的功能。
-    if (this.damageStride < this.combatants.length) {
-      const n = this.combatants.length
+    if (this.damageStride < n) {
       this.damageStride = n
       this.damageTime = new Float32Array(n * n).fill(-Infinity)
     }
-    return c
   }
 
   /**
