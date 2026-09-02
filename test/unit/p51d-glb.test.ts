@@ -77,7 +77,7 @@ describe('P-51D 走 GLB', () => {
     const hubs = new Set(spinning.map((m) => m.parent))
     expect(hubs.size).toBe(1)
     const p = [...hubs][0]!.getWorldPosition(new Vector3())
-    expect(p.toArray().map((v) => +v.toFixed(6))).toEqual([0, P51D_MODEL.prop.hubY, P51D_MODEL.prop.hubZ])
+    expect(p.toArray().map((v) => +v.toFixed(6))).toEqual([0, P51D_MODEL.props[0]!.hubY, P51D_MODEL.props[0]!.hubZ])
   })
 
   /**

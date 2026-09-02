@@ -50,23 +50,43 @@ export interface GlbAircraft {
    * 亮度與高光跟其他三台對不起來 —— 那不是「更真實」，是不一致。
    */
   materials: Readonly<Record<string, GlbMaterialKind>>
-  prop: {
-    /** GLB 裡槳葉那個物件的名字 */
-    node: string
-    /** 轉軸位置（機體座標）。槳葉繞 +Z 轉，所以只需要 y、z */
-    hubY: number
-    hubZ: number
-    /** 模糊圓盤半徑，m */
-    radius: number
-  }
+  /**
+   * 每一具螺旋槳一筆。**是陣列而不是一筆**，因為 He 111 雙發、B-17G 四發
+   * —— 與 `assembly.ts` 的 `props` 同一個理由：單一閉包會讓第二具以後
+   * 永遠不轉。單發機就是一筆。
+   */
+  props: readonly GlbProp[]
+}
+
+export interface GlbProp {
+  /**
+   * GLB 裡這一具槳葉那個物件的名字。多發機每一具各取一個名字
+   * （`B17_Prop1`…），載入時靠名字把槳葉分到各自的轉軸底下。
+   */
+  node: string
+  /** 轉軸的橫向位置（機體座標）。省略即 0（單發機在機首）。 */
+  hubX?: number
+  /** 轉軸位置（機體座標）。槳葉繞 +Z 轉。 */
+  hubY: number
+  hubZ: number
+  /** 模糊圓盤半徑，m */
+  radius: number
 }
 
 /**
- * 遊戲材質的種類。`cockpit` 是座艙內裝：暗色、**平滑**著色、刻意朝內的殼
- * （與 `assembly.ts` 的 `cockpitMat` 相同）。P-51D 從程式版搬過來時帶著
- * 它；沒有這一種，內裝要嘛被拒載、要嘛被貼成整流罩的暗色。
+ * 遊戲材質的種類。
+ *
+ *   `cockpit`  座艙內裝：暗色、**平滑**著色、刻意朝內的殼（與 `assembly.ts`
+ *              的 `cockpitMat` 相同）。P-51D 從程式版搬過來時帶著它；沒有
+ *              這一種，內裝要嘛被拒載、要嘛被貼成整流罩的暗色。
+ *   `frame`    機身色但**兩面都畫**：玻璃的骨架是一條條窄帶，只有一個朝向，
+ *              而 He 111 的全玻璃機首讓你從機外看到對側骨架的背面
+ *              （`assembly.ts` 的 `bothSides`）。
+ *   `inner`    暗色、**兩面都畫**：碗狀凹槽（進氣口、玻璃後面的暗艙）的
+ *              內壁，從開口看進去看到的是背面（`assembly.ts` 的 `darkBothSides`）。
+ *              它朝外，所以**不掛** inwardShell。
  */
-export type GlbMaterialKind = 'body' | 'accent' | 'glass' | 'cockpit'
+export type GlbMaterialKind = 'body' | 'accent' | 'glass' | 'cockpit' | 'frame' | 'inner'
 
 /** 載好、貼好材質、併好的一份樣板。每個機種一份，全場共用。 */
 export interface GlbTemplate {
@@ -125,8 +145,13 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     depthWrite: false, side: DoubleSide,
   })
   const cockpit = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
-  const mats = { body, accent, glass, cockpit }
-  const owned: { dispose(): void }[] = [body, accent, glass, cockpit, blur]
+  // 與 assembly.ts 的 `bothSides`、`darkBothSides` 逐項相同，見 GlbMaterialKind
+  const frame = new MeshStandardMaterial({
+    color: def.bodyColor, flatShading: true, roughness: 0.75, side: DoubleSide,
+  })
+  const inner = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95, side: DoubleSide })
+  const mats = { body, accent, glass, cockpit, frame, inner }
+  const owned: { dispose(): void }[] = [body, accent, glass, cockpit, frame, inner, blur]
 
   const group = new Group()
   const hull = new Group()
@@ -138,7 +163,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   // 會讓程式化那幾台的像素改變（float64 vs float32 的最低位）。GLB 機種是新的，
   // 沒有「不能動的既有畫面」要守；而且 Blender 匯出時已經 apply 過，實測
   // 每個節點的矩陣都是單位矩陣，烘進去等於什麼都沒做。
-  const propMeshes: Mesh[] = []
+  const propMeshes: Mesh[][] = def.props.map(() => [])
   const statics: Mesh[] = []
   const seen = new Set<string>()
   scene.updateMatrixWorld(true)
@@ -161,13 +186,16 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     if (typeof part === 'string') out.userData['part'] = part
     owned.push(geo)
     // 節點名會被加尾碼（F6F_Prop.030 → 載入後 F6F_Prop030），見 isNamed
-    if (isNamed(mesh, def.prop.node)) propMeshes.push(out)
+    const at = def.props.findIndex((p) => isNamed(mesh, p.node))
+    if (at >= 0) propMeshes[at]!.push(out)
     else statics.push(out)
   })
   for (const name of Object.keys(def.materials)) {
     if (!seen.has(name)) throw new Error(`GLB 裡沒有材質 ${name} —— manifest 過期了`)
   }
-  if (propMeshes.length === 0) throw new Error(`GLB 裡找不到螺旋槳節點 ${def.prop.node}`)
+  def.props.forEach((p, i) => {
+    if (propMeshes[i]!.length === 0) throw new Error(`GLB 裡找不到螺旋槳節點 ${p.node}`)
+  })
 
   // ── 按材質合併靜態零件 ──────────────────────────────────────
   //
@@ -207,22 +235,27 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     hull.add(mesh)
   }
 
-  // ── 螺旋槳：搬到一個以轉軸為原點的 Group 底下 ────────────────────
-  const hub = new Group()
-  hub.position.set(0, def.prop.hubY, def.prop.hubZ)
-  for (const m of propMeshes) {
-    m.geometry.translate(0, -def.prop.hubY, -def.prop.hubZ)
-    // 命中盒覆蓋率測試靠這個旗標排除掃掠面（見 assembly.ts 的 propeller）
-    m.userData['spinning'] = true
-    hub.add(m)
-  }
-  const disc = new Mesh(new CircleGeometry(def.prop.radius, 16), blur)
-  disc.visible = false
-  disc.renderOrder = PROP_DISC_RENDER_ORDER
-  disc.userData['spinning'] = true
-  owned.push(disc.geometry)
-  hub.add(disc)
-  hull.add(hub)
+  // ── 螺旋槳：每一具搬到一個以自己轉軸為原點的 Group 底下 ─────────────
+  def.props.forEach((p, i) => {
+    const hx = p.hubX ?? 0
+    const hub = new Group()
+    hub.position.set(hx, p.hubY, p.hubZ)
+    // `buildFromTemplate` 靠這個旗標認轉軸；多發機有好幾個
+    hub.userData['propHub'] = true
+    for (const m of propMeshes[i]!) {
+      m.geometry.translate(-hx, -p.hubY, -p.hubZ)
+      // 命中盒覆蓋率測試靠這個旗標排除掃掠面（見 assembly.ts 的 propeller）
+      m.userData['spinning'] = true
+      hub.add(m)
+    }
+    const disc = new Mesh(new CircleGeometry(p.radius, 16), blur)
+    disc.visible = false
+    disc.renderOrder = PROP_DISC_RENDER_ORDER
+    disc.userData['spinning'] = true
+    owned.push(disc.geometry)
+    hub.add(disc)
+    hull.add(hub)
+  })
 
   group.updateMatrixWorld(true)
   return {
@@ -285,28 +318,33 @@ function measure(root: Object3D, realLength: number): HullMetrics {
  */
 export function buildFromTemplate(t: GlbTemplate): AircraftModel {
   const group = t.group.clone(true)
-  let hub: Object3D | null = null
-  let disc: Mesh | null = null
-  const blades: Mesh[] = []
+  // 每一具螺旋槳一組（多發機有好幾組），與 assembly.ts 的 `props` 同構
+  const props: { hub: Object3D; disc: Mesh; blades: Mesh[] }[] = []
   group.traverse((o) => {
-    if (!o.userData['spinning']) return
-    const mesh = o as Mesh
-    if ((mesh.geometry as { type?: string } | undefined)?.type === 'CircleGeometry') disc = mesh
-    else blades.push(mesh)
-    if (o.parent) hub = o.parent
+    if (!o.userData['propHub']) return
+    let disc: Mesh | null = null
+    const blades: Mesh[] = []
+    for (const c of o.children) {
+      const mesh = c as Mesh
+      if (!mesh.userData['spinning']) continue
+      if ((mesh.geometry as { type?: string } | undefined)?.type === 'CircleGeometry') disc = mesh
+      else blades.push(mesh)
+    }
+    if (disc === null) throw new Error('樣板的螺旋槳轉軸底下沒有槳盤')
+    props.push({ hub: o, disc, blades })
   })
-  if (hub === null || disc === null) throw new Error('樣板缺少螺旋槳節點')
-  const propHub = hub as Object3D
-  const propDisc = disc as Mesh
+  if (props.length === 0) throw new Error('樣板缺少螺旋槳節點')
   return {
     group,
     metrics: t.metrics,
     eyePoint: t.eyePoint.clone(),
     wingTip: t.wingTip.clone(),
     setPropSpin(r, b) {
-      propHub.rotation.z = r
-      propDisc.visible = b
-      for (const blade of blades) blade.visible = !b
+      for (const p of props) {
+        p.hub.rotation.z = r
+        p.disc.visible = b
+        for (const blade of p.blades) blade.visible = !b
+      }
     },
     dispose() { /* 幾何與材質由樣板持有，見上方說明 */ },
   }

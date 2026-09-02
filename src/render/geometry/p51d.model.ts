@@ -58,5 +58,5 @@ export const P51D_MODEL: GlbAircraft = {
    * （射線最大半徑在 −2.85…−2.75 衝到 0.45，其餘站位 ≤ 0.35）；半徑 1.70
    * （真機直徑 3.40 m）。
    */
-  prop: { node: 'P51_Prop', hubY: 0.008, hubZ: -2.82, radius: 1.70 },
+  props: [{ node: 'P51_Prop', hubY: 0.008, hubZ: -2.82, radius: 1.70 }],
 }

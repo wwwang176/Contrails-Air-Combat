@@ -1,10 +1,12 @@
 import type { AircraftModel } from './assembly'
 import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
-import { buildHe111, HE111_BODY_COLOR } from './he111'
-import { buildB17G, B17G_BODY_COLOR } from './b17g'
+import { buildHe111 } from './he111'
+import { buildB17G } from './b17g'
 import { F6F5_MODEL } from './f6f5.model'
 import { P51D_MODEL } from './p51d.model'
 import { BF109K4_MODEL } from './bf109k4.model'
+import { HE111_MODEL } from './he111.model'
+import { B17G_MODEL } from './b17g.model'
 import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
@@ -32,20 +34,22 @@ const BUILDERS: Record<string, () => AircraftModel> = {
 }
 
 /**
- * 由 GLB 載入的機種。**與 `BUILDERS` 並存，不是取代**。
+ * 由 GLB 載入的機種。**五台全部走這條**；`BUILDERS` 留著是重匯的來源。
  *
- * 【來源都在 Blender】F6F-5 是在 Blender 裡畫的；P-51D 的底稿是程式版用
- * `GLTFExporter` 吐出來、再在 Blender 裡對著參考模型修過的（見
- * `p51d.model.ts`），來源是 `tools/blender/p51d.blend`。剩下三台要搬也走
- * 同一條路：匯出 → Blender 修 → 程式版退休。
+ * 【來源都在 Blender】F6F-5 是在 Blender 裡畫的；P-51D 與 Bf 109 的底稿是
+ * 程式版用 `GLTFExporter` 吐出來、再在 Blender 裡對著參考模型修過的（見各自
+ * 的 `*.model.ts`）。He 111 與 B-17G 是同一支腳本吐出來、在 Blender 裡
+ * 焊過重複頂點（畫面逐 byte 不變）—— 之後要修外型就在 `tools/blender/*.blend` 裡修，再匯出。
  *
- * 【為什麼並存】GLB 那條路任何一步走錯都只會弄壞走它的機種；程式化那三台
- * 一行都沒動。
+ * 【`GLB_MODELS` 先於 `BUILDERS`】同一個 id 兩邊都有時走 GLB。程式版留著
+ * 只是為了 `test/tools/procedural-export.ts` 能重匯。
  */
 export const GLB_MODELS: Record<string, GlbAircraft> = {
   p51d: P51D_MODEL,
   f6f5: F6F5_MODEL,
   bf109k4: BF109K4_MODEL,
+  he111: HE111_MODEL,
+  b17g: B17G_MODEL,
 }
 
 /**
@@ -80,8 +84,8 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
 const BODY_COLORS: Record<string, number> = {
   p51d: P51D_MODEL.bodyColor,
   bf109k4: BF109_BODY_COLOR,
-  he111: HE111_BODY_COLOR,
-  b17g: B17G_BODY_COLOR,
+  he111: HE111_MODEL.bodyColor,
+  b17g: B17G_MODEL.bodyColor,
   f6f5: F6F5_MODEL.bodyColor,
 }
 
