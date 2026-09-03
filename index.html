@@ -51,6 +51,14 @@
         display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 20px;
         background: rgba(6, 10, 16, 0.55);
+        /* 【內容比視窗高就捲動】遭遇戰的設定頁在 1280×720 是 793 px：
+           八台機種讓「加一架」那一排多了一列，把「開始戰鬥」擠到 y=747。
+           `justify-content: center` 在溢出時會把兩端都切掉 —— 上緣的標題
+           看不見，下緣的按鈕**點不到**。`safe center` 讓它在溢出時退回
+           靠上對齊，捲動才到得了底部（2026-09-03，八台機種進編之後）。 */
+        overflow-y: auto;
+        justify-content: safe center;
+        padding: 24px 0;
       }
       #ui .screen[hidden] { display: none; }
       #ui h1.title {

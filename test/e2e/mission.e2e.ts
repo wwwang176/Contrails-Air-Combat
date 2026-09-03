@@ -22,8 +22,9 @@
  *
  * **給人看的**：截圖。
  *
- * 【圓環暫時無從驗起】撤離卡 2026-08-16 由專案負責人裁定關閉，而它是唯一
- * 會產生撤離點的卡 —— 下面第 3 段因此留空待命。判準的推導留在那裡沒刪。
+ * 【圓環暫時無從驗起】12 關裡沒有撤離卡；撤離點現在由**德 M4 的返航節拍**
+ * 中途產生，而那要打到我方剩不多才觸發 —— 這支腳本跑不到那裡。下面第 3 段
+ * 因此留空待命，判準的推導留在那裡沒刪。
  *
  * 【為什麼圓環驗得到而準星那一套驗不到】圓環畫在 **WebGL** 那一張畫布上，
  * `getImageData` 讀不回來（未設 `preserveDrawingBuffer`）。所以圓環走的是
@@ -58,7 +59,11 @@ async function main(): Promise<void> {
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const errors: string[] = []
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+    const logs: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+      else logs.push(m.text())
+    })
     page.on('pageerror', (e) => errors.push(String(e)))
 
     /**
@@ -96,12 +101,21 @@ async function main(): Promise<void> {
 
     await page.goto(URL)
 
-    // ── 1. 任務列表：同盟國五張，一張可點、四張未開放 ──────
+    // ── 1. 三條戰役，每一條四張卡 ──────────────────────────
     await page.click('[data-act="start"]')
     await page.click('[data-act="mission"]')
     await page.waitForTimeout(300)
 
-    const cards = await page.evaluate(() => {
+    const campaignButtons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('#mission-factions button'))
+        .map((b) => b.textContent ?? ''))
+    console.log(`[任務] 戰役：${campaignButtons.join('／')}`)
+    if (campaignButtons.length !== 3) {
+      fail(`戰役那一列應該有三顆按鈕，實得 ${campaignButtons.length}`)
+    }
+
+    /** 讀目前這一頁的卡片 */
+    const readCards = () => page.evaluate(() => {
       // 【`Array.from` 而不是展開】專案的 `tsconfig` 沒有開 `downlevelIteration`，
       // `NodeListOf` 在那個設定下不算 iterable
       const list = document.querySelectorAll<HTMLButtonElement>('#mission-list .card')
@@ -111,32 +125,54 @@ async function main(): Promise<void> {
         locked: b.querySelector('.locked') !== null,
       }))
     })
-    console.log('[任務] 同盟國卡片：')
-    for (const c of cards) {
-      console.log(`  ${c.disabled ? '✗' : '✓'} ${c.title}${c.locked ? '（未開放）' : ''}`)
+
+    /** 每一條線各四張，而且「未開放」的標記與 disabled 一致 */
+    const ready: { campaign: string; index: number; title: string }[] = []
+    for (let ci = 0; ci < campaignButtons.length; ci++) {
+      await page.click(`#mission-factions button:nth-child(${ci + 1})`)
+      await page.waitForTimeout(150)
+      const cards = await readCards()
+      console.log(`[任務] ${campaignButtons[ci]}：`)
+      for (const c of cards) {
+        console.log(`  ${c.disabled ? '✗' : '✓'} ${c.title}${c.locked ? '（未開放）' : ''}`)
+      }
+      if (cards.length !== 4) {
+        fail(`${campaignButtons[ci]} 應該有四張卡，實得 ${cards.length}`)
+      }
+      // 【未開放的卡必須看得出來】看起來可點卻沒反應才是真的壞掉
+      for (const [i, c] of cards.entries()) {
+        if (c.disabled !== c.locked) fail(`「${c.title}」的 disabled 與「未開放」標記不一致`)
+        if (!c.disabled) ready.push({ campaign: campaignButtons[ci]!, index: i, title: c.title })
+      }
     }
-    // 【為什麼不斷言可點的張數】那個數字是專案負責人裁定的（2026-08-16 關掉
-    // 撤離就是一次），每開關一張卡就要改一次腳本 —— 那是雜訊不是護欄。
-    // 「有沒有卡可點」與「可不可點標對了沒」才是這一段真正要問的
-    const playable = cards.filter((c) => !c.disabled)
-    if (playable.length === 0) fail('一張可點的卡都沒有，下面的驗收無從跑起')
-    // 【未開放的卡必須看得出來】看起來可點卻沒反應才是真的壞掉
-    for (const c of cards) {
-      if (c.disabled !== c.locked) fail(`「${c.title}」的 disabled 與「未開放」標記不一致`)
+    console.log(`[任務] 打得起來的：${ready.length} 關`)
+    // 【為什麼斷言張數】12 關固定，可玩的是哪幾張由 `battle !== null` 決定 ——
+    // 那不是一個會隨試飛調來調去的數字，而是「這一輪做完了幾關」
+    if (ready.length !== 5) fail(`應該有五關打得起來，實得 ${ready.length}`)
+
+    // ── 2. 每一關都真的進得了戰鬥，而且目標列出現 ──────────
+    for (const r of ready) {
+      await page.goto(URL)
+      await page.click('[data-act="start"]')
+      await page.click('[data-act="mission"]')
+      await page.waitForTimeout(200)
+      const ci = campaignButtons.indexOf(r.campaign) + 1
+      await page.click(`#mission-factions button:nth-child(${ci})`)
+      await page.waitForTimeout(150)
+      await page.click(`#mission-list .card:nth-child(${r.index + 1})`)
+      await page.waitForTimeout(2500)
+
+      const screens = await page.evaluate(() =>
+        document.querySelector<HTMLElement>('#ui')?.querySelectorAll('.screen:not([hidden])').length)
+      if (screens !== 0) fail(`「${r.title}」進入戰鬥後不該有 .screen 可見，實得 ${screens}`)
+
+      const ink = await hudGreen(OBJECTIVE_BOX)
+      const line = logs.find((t) => t.includes('×')) ?? '(沒有印出編制)'
+      console.log(`  ✓ ${r.title}　目標列 ${ink} px　${line.replace('[戰鬥] ', '')}`)
+      if (ink <= 0) fail(`「${r.title}」的目標列沒有畫出來`)
+      if (errors.length > 0) fail(`「${r.title}」有 console 錯誤：${errors.join(' / ')}`)
+      logs.length = 0
     }
-
-    // ── 2. 點殲滅卡進得了戰鬥，目標列出現 ──────────────────
-    await page.click('#mission-list .card:not([disabled])')
-    await page.waitForTimeout(3000)
-
-    const inBattle = await page.evaluate(
-      () => document.querySelector<HTMLElement>('#ui')?.querySelectorAll('.screen:not([hidden])').length,
-    )
-    if (inBattle !== 0) fail(`進入戰鬥後不該有任何 .screen 可見，實得 ${inBattle}`)
-
-    const objectiveInk = await hudGreen(OBJECTIVE_BOX)
-    console.log(`[任務] 殲滅：目標列區的綠色像素 ${objectiveInk}`)
-    if (objectiveInk <= 0) fail('殲滅任務的目標列沒有畫出來')
     await page.screenshot({ path: SHOTS + 'mission-1-kill.png' })
 
     // ── 3. 圓環：**撤離關掉之後這一段沒有東西可驗** ─────────
