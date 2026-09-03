@@ -153,7 +153,7 @@ def halfw(y, z):
     return max(w) if w else None
 
 
-def top_in(y0, y1, xr, cap, floor=2.0, stat='median'):
+def top_in(y0, y1, xr, cap, floor=2.0, stat='median', xc=0.0):
     """窗口內、`cap` 以下的頂面高度。
 
     `cap` 是必要的：由 z 45 往下打，中線在 y −13.5…−4（原始座標）打到的是天線
@@ -168,7 +168,7 @@ def top_in(y0, y1, xr, cap, floor=2.0, stat='median'):
     for i in range(n + 1):
         y = y0 + (y1 - y0) * i / n
         for f in (-0.75, -0.35, 0.0, 0.35, 0.75):
-            z = top_at(xr * f, y, cap)
+            z = top_at(xc + xr * f, y, cap)
             if z is not None and floor < z < cap:
                 zs.append(z)
     if not zs:
@@ -469,12 +469,12 @@ def block(name, y0, y1, hw, cap_z, base, shrink=1.0, dy=0.0, stat='median'):
 # 艦首段：前甲板室（Mount 52 坐在上面）
 Z_FWD_HOUSE = block('fwd_house', 27.0, 34.2, 3.57, 8.0, 'deck')
 # 艦橋前的寬平台（20/40 mm 砲位）
-Z_FWD_PLAT = block('fwd_platform', 23.4, 27.5, 4.69, 8.0, Z_FWD_HOUSE or 6.9)
+Z_FWD_PLAT = block('fwd_platform', 23.4, 27.5, 4.80, 8.0, Z_FWD_HOUSE or 6.9)
 # 艦橋本體 → 駕駛室 → 羅經艦橋
 Z_BRIDGE = block('bridge', 16.8, 25.0, 2.55, 12.6, 'deck')
 # 舷側翼台（薄板）。後緣要拉到 15.2：前桅就站在它的後半段上，只做到艦橋後壁
 # 會讓桅杆整支懸空 2 m。
-Z_WING = block('bridge_wing', 15.2, 24.0, 4.44, 9.9, Z_BRIDGE or 11.8)
+Z_WING = block('bridge_wing', 15.2, 24.0, 4.85, 9.9, Z_BRIDGE or 11.8)
 Z_PILOT = block('pilot_house', 18.1, 22.9, 2.55, 14.4, Z_BRIDGE or 11.8, stat='max')
 # 舯段甲板室（兩座煙囪與兩具魚雷發射管都坐在上面）。分前後兩段是因為它的頂
 # 逐站在降：前段量到 5.95、後段只剩 5.3。做成一整塊會讓後魚雷發射管墊高 0.6，
@@ -534,6 +534,24 @@ for nm, y0, y1, base in (('tt_fwd', 2.0, 7.3, Z_MID_HOUSE), ('tt_aft', -14.3, -7
         continue
     box(bmg, -1.68, 1.68, y0, y1, (base or 5.5) - 0.5, zt)
     GUNS.append((nm, round((y0 + y1) / 2, 1), round(zt, 2), None))
+
+# 六座 20 mm Oerlikon：艦橋前平台四座、舷側翼台兩座。位置是掃舷側縱線找「比
+# 前後高 0.8 以上的局部凸起」找出來的 —— 只做四聯裝 40 mm 那一座會漏掉整批，
+# 掃的高度帶要涵蓋平台頂而不只是甲板。
+# 同一輪掃到的 y 9.8、x ±4.4 那一對**不是砲是吊艇架**：腳印只有 0.4 m，而且
+# 比小艇頂高 1.3 m（砲座會有 1 m 以上的腳印）。量腳印才分得出來。
+# 砲心要收在平台半寬之內（含砲座自己的 0.34）：掛在邊緣外看起來就是浮在船外。
+AA20 = ((24.6, 3.90, 9.0, 'plat'), (26.0, 4.40, 9.0, 'plat'), (17.7, 4.45, 11.5, 'wing'))
+for _y, _x, _cap, _base in AA20:
+    _zt = top_in(_y - 0.5, _y + 0.5, 0.35, _cap, xc=_x, stat='max')
+    if _zt is None:
+        LOG.setdefault('missing', []).append('aa20_%.0f' % _y)
+        continue
+    _b = (Z_FWD_PLAT or 6.8) if _base == 'plat' else (Z_WING or 9.5)
+    for _s in (1, -1):
+        taper(bmg, _s * _x - 0.34, _s * _x + 0.34, _y - 0.34, _y + 0.34, _b - 0.4, _zt - 0.45, 0.85)
+        tri_barrel(bmg, _s * _x, _zt - 0.18, _y - 0.15, _y + 1.15, 0.12)
+    GUNS.append(('aa20_%.0f' % _y, _y, round(_zt, 2), None))
 
 # 四聯裝 40 mm（坐在艦尾砲位平台上）
 _z40 = top_in(-27.2, -24.9, 1.22, 11.8, stat='max')
