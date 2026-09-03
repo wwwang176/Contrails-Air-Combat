@@ -345,7 +345,7 @@ describe('指令通道（20v20、300 秒）', () => {
    * `flank` 是被明確關掉的（`command.ts` 的 `FLANK_ENABLED = false`，那裡
    * 有完整的理由與重啟條件）。`rally` 則是一張都沒觸發：它的閘門是
    * `gap >= withdrawRange − arriveRadius × MIN_TRIP_RATIO` 才不發，而
-   * `1193958`（energyExit +100 → −100）與 `d68deaa`（recoveredExit 預設
+   * `d9839e0`（energyExit +100 → −100）與 `d0d5d41`（recoveredExit 預設
    * 關閉）之後，撤退在這個場景已經不再發生。
    *
    * **所以樣本數是 0，不是門檻太嚴。** 把門檻降到 0 以下會讓它變成一條
