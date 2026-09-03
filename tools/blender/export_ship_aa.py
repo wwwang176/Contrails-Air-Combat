@@ -44,7 +44,27 @@ def side(x):
     return 'c' if abs(x) < 0.6 else ('s' if x > 0 else 'p')
 
 
-lines = []
+def zones_of(rows):
+    """把砲位併成「一層 × 一舷」一區，每區推一門**真實存在的**砲當代表。
+
+    代表取「離該區形心最近的那一門」，**不是形心本身** —— 形心會落在兩層甲板
+    之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m，形心根本不在
+    任何一層上）。取真實的一門，槍口就一定長在畫得出來的那根砲管上。
+    """
+    groups = {}
+    for gid, tier, cal, x, y, z, guns in rows:
+        groups.setdefault((tier, side(x)), []).append((gid, tier, cal, x, y, z, guns))
+    out = []
+    for (tier, sd), members in sorted(groups.items(), key=lambda kv: (TIER_ORDER[kv[0][0]], kv[0][1])):
+        cx = sum(m[3] for m in members) / len(members)
+        cy = sum(m[4] for m in members) / len(members)
+        cz = sum(m[5] for m in members) / len(members)
+        rep = min(members, key=lambda m: (m[3] - cx) ** 2 + (m[4] - cy) ** 2 + (m[5] - cz) ** 2)
+        out.append(("%s_%s" % (tier, sd), tier, rep[2], rep[3], rep[4], rep[5],
+                    rep[6], len(members), rep[0]))
+    return out
+
+
 data = {}
 for ship, const, title in SHIPS:
     empl = run(ship)
@@ -55,7 +75,7 @@ for ship, const, title in SHIPS:
         key = (tier, side(x))
         seen[key] = seen.get(key, 0) + 1
         rows.append((f"{tier}_{side(x)}{seen[key]}", tier, cal, x, y, z, guns))
-    data[ship] = (const, title, rows)
+    data[ship] = (const, title, rows, zones_of(rows))
 
 with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
     f.write('''import { Vector3 } from 'three'
@@ -91,12 +111,19 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  * 付過一整輪的代價（見 `.claude/skills/aircraft-from-reference` 坑 22）。
  * 從外型模型硬讀一個射界出來，正好是那條規則要擋的事 —— 那幾個值由試飛裁定。
  *
- * ## 接進遊戲之前要先解決的一件事
+ * ## 接進遊戲請用 `*_AA_ZONES`，不是這一份
  *
- * `weapons/turret.ts` 的 `MAX_TURRETS = 8`（一台飛機最多八座），而 Essex 這裡
- * 有 46 個砲位。**超出的那一座會靜靜地畫不出來。** 要嘛擴容，要嘛把同一段
- * 走廊的一整排併成一個「砲組」—— 併組在玩法上也更合理：打掉的是「左舷前段
- * 的 20 mm 砲廊」，不是第 37 號那一門。
+ * `weapons/turret.ts` 的 `MAX_TURRETS = 8`（一台單位最多八座），而 Essex 逐門
+ * 列出來有 46 個。超過的話**三件事會同時靜靜地壞掉**：
+ *
+ * 1. 第 9 座起畫不出砲管與槍焰（那兩個迴圈跑的是 `MAX_TURRETS` 次），但開火
+ *    邏輯跑的是「這艘有幾座」—— 子彈會從空氣裡冒出來
+ * 2. 抖動相位與點放節奏的種子是 `單位編號 × MAX_TURRETS + 砲塔編號`，編號一旦
+ *    超過 7 就與**下一個單位的第 0 座**撞號，好幾座砲完全同步地抖
+ * 3. 不報錯、測試也不紅
+ *
+ * 所以下面每艘再給一份 `*_AA_ZONES`：**一層 × 一舷併成一區，一區推一門真實
+ * 存在的砲當代表**（負責人 2026-09-04 裁決）。三艘都 ≤ 6 區，在上限之內。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
 
@@ -112,12 +139,30 @@ export interface ShipEmplacement {
   guns: number
 }
 
+/**
+ * 併區之後的砲位 —— **接進遊戲用這一份**。
+ *
+ * 一層（`tier`）× 一舷併成一區，一區推**一門真實存在的砲**當代表：位置就是
+ * 那一門量到的槍口，所以槍焰一定長在畫得出來的那根砲管上。取形心會落在兩層
+ * 甲板之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m）。
+ */
+export interface ShipAAZone extends ShipEmplacement {
+  /**
+   * 這一區實際上有幾門砲。**只是記錄，不是倍率** —— 負責人 2026-09-04 裁決：
+   * 一區一門代替就好、血量不加倍。要拿它去乘血量或傷害之前請先想清楚：
+   * 玩家看到的就是一門砲，打起來卻像 27 門，那是兩回事。
+   */
+  mountsInZone: number
+  /** 代表的是逐門清單裡的哪一門（對得回 `*_AA`）。 */
+  representative: string
+}
+
 ''')
-    for ship, (const, title, rows) in data.items():
+    for ship, (const, title, rows, zones) in data.items():
         n = {}
         for r in rows:
             n[r[1]] = n.get(r[1], 0) + 1
-        f.write("/** %s —— 兩用砲 %d、40 mm %d、20 mm %d。 */\n"
+        f.write("/** %s 逐門 —— 兩用砲 %d、40 mm %d、20 mm %d。**量測來源，不是遊戲用的那一份。** */\n"
                 % (title, n.get('flak', 0), n.get('autocannon', 0), n.get('mg', 0)))
         f.write("export const %s_AA: readonly ShipEmplacement[] = [\n" % const)
         for gid, tier, cal, x, y, z, guns in rows:
@@ -125,9 +170,23 @@ export interface ShipEmplacement {
                     "    position: new Vector3(%.2f, %.2f, %.2f) },\n"
                     % (gid, tier, cal, guns, x, z, -y))
         f.write("]\n\n")
+        f.write("/** %s 併區（%d 區）。 */\n" % (title, len(zones)))
+        f.write("export const %s_AA_ZONES: readonly ShipAAZone[] = [\n" % const)
+        for zid, tier, cal, x, y, z, guns, cnt, rep in zones:
+            f.write("  { id: '%s', tier: '%s', calibreMm: %d, guns: %d, mountsInZone: %d,\n"
+                    "    representative: '%s', position: new Vector3(%.2f, %.2f, %.2f) },\n"
+                    % (zid, tier, cal, guns, cnt, rep, x, z, -y))
+        f.write("]\n\n")
     f.write("export const SHIP_AA: Readonly<Record<string, readonly ShipEmplacement[]>> = {\n")
-    for ship, (const, _t, _r) in data.items():
+    for ship, (const, _t, _r, _z) in data.items():
         f.write("  %s: %s_AA,\n" % (ship, const))
+    f.write("}\n\n")
+    f.write("/** 接進遊戲用這一份。 */\n")
+    f.write("export const SHIP_AA_ZONES: Readonly<Record<string, readonly ShipAAZone[]>> = {\n")
+    for ship, (const, _t, _r, _z) in data.items():
+        f.write("  %s: %s_AA_ZONES,\n" % (ship, const))
     f.write("}\n")
 
-print("RESULT_AA_WRITTEN %s  %s" % (OUT, {s: len(d[2]) for s, d in data.items()}))
+print("RESULT_AA_WRITTEN %s  逐門 %s  併區 %s"
+      % (OUT, {s: len(d[2]) for s, d in data.items()},
+         {s: len(d[3]) for s, d in data.items()}))

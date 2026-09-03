@@ -31,12 +31,19 @@ import { Vector3 } from 'three'
  * 付過一整輪的代價（見 `.claude/skills/aircraft-from-reference` 坑 22）。
  * 從外型模型硬讀一個射界出來，正好是那條規則要擋的事 —— 那幾個值由試飛裁定。
  *
- * ## 接進遊戲之前要先解決的一件事
+ * ## 接進遊戲請用 `*_AA_ZONES`，不是這一份
  *
- * `weapons/turret.ts` 的 `MAX_TURRETS = 8`（一台飛機最多八座），而 Essex 這裡
- * 有 46 個砲位。**超出的那一座會靜靜地畫不出來。** 要嘛擴容，要嘛把同一段
- * 走廊的一整排併成一個「砲組」—— 併組在玩法上也更合理：打掉的是「左舷前段
- * 的 20 mm 砲廊」，不是第 37 號那一門。
+ * `weapons/turret.ts` 的 `MAX_TURRETS = 8`（一台單位最多八座），而 Essex 逐門
+ * 列出來有 46 個。超過的話**三件事會同時靜靜地壞掉**：
+ *
+ * 1. 第 9 座起畫不出砲管與槍焰（那兩個迴圈跑的是 `MAX_TURRETS` 次），但開火
+ *    邏輯跑的是「這艘有幾座」—— 子彈會從空氣裡冒出來
+ * 2. 抖動相位與點放節奏的種子是 `單位編號 × MAX_TURRETS + 砲塔編號`，編號一旦
+ *    超過 7 就與**下一個單位的第 0 座**撞號，好幾座砲完全同步地抖
+ * 3. 不報錯、測試也不紅
+ *
+ * 所以下面每艘再給一份 `*_AA_ZONES`：**一層 × 一舷併成一區，一區推一門真實
+ * 存在的砲當代表**（負責人 2026-09-04 裁決）。三艘都 ≤ 6 區，在上限之內。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
 
@@ -52,7 +59,25 @@ export interface ShipEmplacement {
   guns: number
 }
 
-/** USS Essex CV-9 —— 兩用砲 8、40 mm 11、20 mm 27。 */
+/**
+ * 併區之後的砲位 —— **接進遊戲用這一份**。
+ *
+ * 一層（`tier`）× 一舷併成一區，一區推**一門真實存在的砲**當代表：位置就是
+ * 那一門量到的槍口，所以槍焰一定長在畫得出來的那根砲管上。取形心會落在兩層
+ * 甲板之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m）。
+ */
+export interface ShipAAZone extends ShipEmplacement {
+  /**
+   * 這一區實際上有幾門砲。**只是記錄，不是倍率** —— 負責人 2026-09-04 裁決：
+   * 一區一門代替就好、血量不加倍。要拿它去乘血量或傷害之前請先想清楚：
+   * 玩家看到的就是一門砲，打起來卻像 27 門，那是兩回事。
+   */
+  mountsInZone: number
+  /** 代表的是逐門清單裡的哪一門（對得回 `*_AA`）。 */
+  representative: string
+}
+
+/** USS Essex CV-9 逐門 —— 兩用砲 8、40 mm 11、20 mm 27。**量測來源，不是遊戲用的那一份。** */
 export const ESSEX_AA: readonly ShipEmplacement[] = [
   { id: 'flak_p1', tier: 'flak', calibreMm: 127, guns: 1,
     position: new Vector3(-16.80, 15.37, -96.00) },
@@ -148,7 +173,23 @@ export const ESSEX_AA: readonly ShipEmplacement[] = [
     position: new Vector3(15.05, 18.09, 112.50) },
 ]
 
-/** USS Fletcher DD-445 —— 兩用砲 5、40 mm 1、20 mm 4。 */
+/** USS Essex CV-9 併區（6 區）。 */
+export const ESSEX_AA_ZONES: readonly ShipAAZone[] = [
+  { id: 'flak_p', tier: 'flak', calibreMm: 127, guns: 1, mountsInZone: 4,
+    representative: 'flak_p2', position: new Vector3(-16.80, 18.11, -60.00) },
+  { id: 'flak_s', tier: 'flak', calibreMm: 127, guns: 2, mountsInZone: 4,
+    representative: 'flak_s2', position: new Vector3(14.05, 20.05, -37.00) },
+  { id: 'autocannon_p', tier: 'autocannon', calibreMm: 40, guns: 4, mountsInZone: 9,
+    representative: 'autocannon_p6', position: new Vector3(-20.10, 17.49, 13.00) },
+  { id: 'autocannon_s', tier: 'autocannon', calibreMm: 40, guns: 4, mountsInZone: 2,
+    representative: 'autocannon_s1', position: new Vector3(15.10, 17.26, -118.00) },
+  { id: 'mg_p', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 10,
+    representative: 'mg_p6', position: new Vector3(-19.05, 18.09, -3.50) },
+  { id: 'mg_s', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 17,
+    representative: 'mg_s9', position: new Vector3(17.55, 15.95, -1.50) },
+]
+
+/** USS Fletcher DD-445 逐門 —— 兩用砲 5、40 mm 1、20 mm 4。**量測來源，不是遊戲用的那一份。** */
 export const FLETCHER_AA: readonly ShipEmplacement[] = [
   { id: 'flak_c1', tier: 'flak', calibreMm: 127, guns: 1,
     position: new Vector3(0.00, 7.53, -38.00) },
@@ -172,7 +213,19 @@ export const FLETCHER_AA: readonly ShipEmplacement[] = [
     position: new Vector3(3.95, 10.76, -18.60) },
 ]
 
-/** USS Wichita CA-45 —— 兩用砲 8、40 mm 2、20 mm 10。 */
+/** USS Fletcher DD-445 併區（4 區）。 */
+export const FLETCHER_AA_ZONES: readonly ShipAAZone[] = [
+  { id: 'flak_c', tier: 'flak', calibreMm: 127, guns: 1, mountsInZone: 5,
+    representative: 'flak_c3', position: new Vector3(0.00, 7.65, 20.05) },
+  { id: 'autocannon_c', tier: 'autocannon', calibreMm: 40, guns: 2, mountsInZone: 1,
+    representative: 'autocannon_c1', position: new Vector3(0.00, 10.66, 26.00) },
+  { id: 'mg_p', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 2,
+    representative: 'mg_p1', position: new Vector3(-3.52, 8.03, -25.40) },
+  { id: 'mg_s', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 2,
+    representative: 'mg_s1', position: new Vector3(3.52, 8.03, -25.40) },
+]
+
+/** USS Wichita CA-45 逐門 —— 兩用砲 8、40 mm 2、20 mm 10。**量測來源，不是遊戲用的那一份。** */
 export const WICHITA_AA: readonly ShipEmplacement[] = [
   { id: 'flak_p1', tier: 'flak', calibreMm: 127, guns: 1,
     position: new Vector3(-6.10, 7.30, -31.30) },
@@ -216,8 +269,31 @@ export const WICHITA_AA: readonly ShipEmplacement[] = [
     position: new Vector3(4.75, 8.66, 4.00) },
 ]
 
+/** USS Wichita CA-45 併區（6 區）。 */
+export const WICHITA_AA_ZONES: readonly ShipAAZone[] = [
+  { id: 'flak_p', tier: 'flak', calibreMm: 127, guns: 1, mountsInZone: 4,
+    representative: 'flak_p3', position: new Vector3(-5.30, 9.72, 31.20) },
+  { id: 'flak_s', tier: 'flak', calibreMm: 127, guns: 1, mountsInZone: 4,
+    representative: 'flak_s3', position: new Vector3(5.30, 9.72, 31.20) },
+  { id: 'autocannon_p', tier: 'autocannon', calibreMm: 40, guns: 4, mountsInZone: 1,
+    representative: 'autocannon_p1', position: new Vector3(-6.30, 11.68, -12.20) },
+  { id: 'autocannon_s', tier: 'autocannon', calibreMm: 40, guns: 4, mountsInZone: 1,
+    representative: 'autocannon_s1', position: new Vector3(6.30, 11.68, -12.20) },
+  { id: 'mg_p', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 5,
+    representative: 'mg_p2', position: new Vector3(-4.75, 8.79, -3.60) },
+  { id: 'mg_s', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 5,
+    representative: 'mg_s2', position: new Vector3(4.75, 8.79, -3.60) },
+]
+
 export const SHIP_AA: Readonly<Record<string, readonly ShipEmplacement[]>> = {
   essex: ESSEX_AA,
   fletcher: FLETCHER_AA,
   wichita: WICHITA_AA,
+}
+
+/** 接進遊戲用這一份。 */
+export const SHIP_AA_ZONES: Readonly<Record<string, readonly ShipAAZone[]>> = {
+  essex: ESSEX_AA_ZONES,
+  fletcher: FLETCHER_AA_ZONES,
+  wichita: WICHITA_AA_ZONES,
 }
