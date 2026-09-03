@@ -222,6 +222,74 @@ def box(bm, x0, x1, y0, y1, z0, z1):
             pass
 
 
+def hex_ring(bm, cx, cy, r, t, z0, z1):
+    """六邊形的環 = 開口的圓形砲座護牆（低多邊形下六邊就夠圓）。"""
+    ang = [math.pi / 6 + i * math.pi / 3 for i in range(6)]
+    out = [(cx + r * math.cos(a), cy + r * math.sin(a)) for a in ang]
+    inn = [(cx + (r - t) * math.cos(a), cy + (r - t) * math.sin(a)) for a in ang]
+    vo0 = [bm.verts.new((px, py, z0)) for px, py in out]
+    vo1 = [bm.verts.new((px, py, z1)) for px, py in out]
+    vi0 = [bm.verts.new((px, py, z0)) for px, py in inn]
+    vi1 = [bm.verts.new((px, py, z1)) for px, py in inn]
+    for i in range(6):
+        j = (i + 1) % 6
+        for f in ([vo0[i], vo0[j], vo1[j], vo1[i]], [vi0[j], vi0[i], vi1[i], vi1[j]],
+                  [vo1[i], vo1[j], vi1[j], vi1[i]], [vi0[i], vi0[j], vo0[j], vo0[i]]):
+            try:
+                bm.faces.new(f)
+            except ValueError:
+                pass
+
+
+def hex_prism(bm, cx, cy, r, z0, z1):
+    """六邊柱（圓形砲座的托座本體）。"""
+    ang = [math.pi / 6 + i * math.pi / 3 for i in range(6)]
+    p = [(cx + r * math.cos(a), cy + r * math.sin(a)) for a in ang]
+    v0 = [bm.verts.new((px, py, z0)) for px, py in p]
+    v1 = [bm.verts.new((px, py, z1)) for px, py in p]
+    for i in range(6):
+        j = (i + 1) % 6
+        try:
+            bm.faces.new([v0[i], v0[j], v1[j], v1[i]])
+        except ValueError:
+            pass
+    for f in (v0, list(reversed(v1))):
+        try:
+            bm.faces.new(list(f))
+        except ValueError:
+            pass
+
+
+def tri_rod(bm, p0, p1, r):
+    """任意方向的細長三角柱（斜著朝外上方的防空砲管）。
+
+    `tri_barrel` 只做沿 Y 的，防空砲管朝外斜上，要這一支。**兩端都要埋進砲身
+    裡** —— 軸心放在砲身頂之上就是一根浮在空中的棒子。
+    """
+    d = Vector(p1) - Vector(p0)
+    if d.length < 1e-6:
+        return
+    d.normalize()
+    up = Vector((0, 0, 1)) if abs(d.z) < 0.95 else Vector((0, 1, 0))
+    a1 = d.cross(up).normalized()
+    a2 = d.cross(a1).normalized()
+    off = [a1 * (r * math.cos(math.pi / 2 + k * 2 * math.pi / 3))
+           + a2 * (r * math.sin(math.pi / 2 + k * 2 * math.pi / 3)) for k in range(3)]
+    v0 = [bm.verts.new(Vector(p0) + o) for o in off]
+    v1 = [bm.verts.new(Vector(p1) + o) for o in off]
+    for i in range(3):
+        j = (i + 1) % 3
+        try:
+            bm.faces.new([v0[i], v0[j], v1[j], v1[i]])
+        except ValueError:
+            pass
+    for f in (v0, list(reversed(v1))):
+        try:
+            bm.faces.new(list(f))
+        except ValueError:
+            pass
+
+
 def taper(bm, x0, x1, y0, y1, z0, z1, shrink, dy=0.0):
     """上小下大的錐台（甲板室、煙囪、桅、砲塔）。`dy` 是頂面往 +Y 的偏移：
     往艦尾傾的煙囪與桅要給**負值**。"""
@@ -451,13 +519,25 @@ bms = bmesh.new()
 SUPER = []
 
 
-def block(name, y0, y1, hw, cap_z, base, shrink=1.0, dy=0.0, stat='median'):
-    """量出頂高、往下建到 base 之下 0.6（埋進支撐面，不留共面）。"""
+def block(name, y0, y1, hw, cap_z, base, shrink=1.0, dy=0.0, stat='median', plate=None):
+    """量出頂高、往下建到 base 之下 0.6（埋進支撐面，不留共面）。
+
+    `plate` 給厚度 = 懸出的薄板（艦橋舷側翼台那種底下沒有支撐的）。**底面基準
+    比量到的頂面還高就是傳錯了**：那樣建出來的盒子上下顛倒，會往上長成一塊厚
+    板，把坐在它上面的東西整個吞掉（實測翼台因此變成 1.5 m 厚，舷側那座 20 mm
+    整座埋進去）。這裡直接退回薄板模式並記在 LOG 裡。
+    """
     z1 = top_in(y0, y1, hw, cap_z, stat=stat)
     if z1 is None:
         LOG.setdefault('missing', []).append(name)
         return None
-    z0 = (deck_z((y0 + y1) / 2) if base == 'deck' else base) - 0.6
+    if plate is not None:
+        z0 = z1 - plate
+    else:
+        z0 = (deck_z((y0 + y1) / 2) if base == 'deck' else base) - 0.6
+        if z0 > z1 - 0.10:
+            LOG.setdefault('base_above_top', []).append(name)
+            z0 = z1 - 0.35
     if shrink >= 1.0:
         box(bms, -hw, hw, y0, y1, z0, z1)
     else:
@@ -474,7 +554,7 @@ Z_FWD_PLAT = block('fwd_platform', 23.4, 27.5, 4.80, 8.0, Z_FWD_HOUSE or 6.9)
 Z_BRIDGE = block('bridge', 16.8, 25.0, 2.55, 12.6, 'deck')
 # 舷側翼台（薄板）。後緣要拉到 15.2：前桅就站在它的後半段上，只做到艦橋後壁
 # 會讓桅杆整支懸空 2 m。
-Z_WING = block('bridge_wing', 15.2, 24.0, 4.85, 9.9, Z_BRIDGE or 11.8)
+Z_WING = block('bridge_wing', 15.2, 24.0, 4.85, 9.9, None, plate=0.35)
 Z_PILOT = block('pilot_house', 18.1, 22.9, 2.55, 14.4, Z_BRIDGE or 11.8, stat='max')
 # 舯段甲板室（兩座煙囪與兩具魚雷發射管都坐在上面）。分前後兩段是因為它的頂
 # 逐站在降：前段量到 5.95、後段只剩 5.3。做成一整塊會讓後魚雷發射管墊高 0.6，
@@ -484,8 +564,24 @@ Z_MID_AFT = block('mid_house_aft', -17.4, -8.0, 2.60, 5.9, 'deck')
 # 艦尾段
 Z_M53_HOUSE = block('aft_house_53', -22.3, -17.2, 2.65, 6.0, 'deck')
 Z_AFT_HOUSE = block('aft_house', -28.8, -22.0, 2.76, 7.9, 'deck')
-Z_AFT_TUB = block('aft_40mm_tub', -28.1, -23.0, 2.45, 10.0, Z_AFT_HOUSE or 7.2)
+# 防空砲座是**圓桶**，不是方塊：0.1 m 網格細掃看得到護牆的圓弧。桶心、半徑與
+# 護牆高度都是這樣量出來的。桶壁是船體凸出 → 船體色（只有砲本身是深色）。
+#   (桶心 y, 桶心 |x|, 半徑, 腳下平台, 量砲頂的上限)
+AA_TUBS = ((25.40, 3.52, 1.55, 'plat', 9.2),      # 艦橋前平台，一舷一座 20 mm
+           (18.60, 3.95, 0.85, 'wing', 11.9))     # 艦橋舷側翼台，一舷一座 20 mm
+# 艦尾 40 mm 的桶：桶心 y −26.1、半徑 2.45、護牆高出桶底 1.10。桶底高度要在
+# **沒有砲的那一段**量（y −28…−27），在砲底下量會量到砲架。
+Z_AFT_TUB = top_in(-28.0, -27.0, 1.80, 10.0)
+if Z_AFT_TUB:
+    hex_prism(bms, 0.0, -26.10, 2.45, (Z_AFT_HOUSE or 7.2) - 0.6, Z_AFT_TUB)
+    hex_ring(bms, 0.0, -26.10, 2.45, 0.18, Z_AFT_TUB - 0.25, Z_AFT_TUB + 1.10)
+    SUPER.append(('aft_40mm_tub', -28.6, -23.7, round(Z_AFT_TUB + 1.10, 2)))
 Z_M54_BASE = block('aft_house_54', -33.1, -28.9, 2.65, 6.0, 'deck')
+for _y, _x, _r, _base, _cap in AA_TUBS:
+    _b = (Z_FWD_PLAT or 6.8) if _base == 'plat' else (Z_WING or 9.5)
+    for _s in (1, -1):
+        hex_ring(bms, _s * _x, _y, _r, 0.16, _b - 0.25, _b + 1.05)
+    SUPER.append(('aa20_tub_%.0f' % _y, _y - _r, _y + _r, round(_b + 1.05, 2)))
 # 兩舷的小艇：吊在艇架上、懸在甲板外側，所以底下是空的 —— z 7 那一層在
 # y 10…16 之間伸到 |x| 5.44，而同一段 z 6 只有 1.4。艏視剪影上它們佔的面積不小
 # （兩舷合計約 4 m²），少了會看得出來。
@@ -535,28 +631,28 @@ for nm, y0, y1, base in (('tt_fwd', 2.0, 7.3, Z_MID_HOUSE), ('tt_aft', -14.3, -7
     box(bmg, -1.68, 1.68, y0, y1, (base or 5.5) - 0.5, zt)
     GUNS.append((nm, round((y0 + y1) / 2, 1), round(zt, 2), None))
 
-# 六座 20 mm Oerlikon：艦橋前平台四座、舷側翼台兩座。位置是掃舷側縱線找「比
-# 前後高 0.8 以上的局部凸起」找出來的 —— 只做四聯裝 40 mm 那一座會漏掉整批，
-# 掃的高度帶要涵蓋平台頂而不只是甲板。
-# 同一輪掃到的 y 9.8、x ±4.4 那一對**不是砲是吊艇架**：腳印只有 0.4 m，而且
-# 比小艇頂高 1.3 m（砲座會有 1 m 以上的腳印）。量腳印才分得出來。
-# 砲心要收在平台半寬之內（含砲座自己的 0.34）：掛在邊緣外看起來就是浮在船外。
-AA20 = ((24.6, 3.90, 9.0, 'plat'), (26.0, 4.40, 9.0, 'plat'), (17.7, 4.45, 11.5, 'wing'))
-for _y, _x, _cap, _base in AA20:
-    _zt = top_in(_y - 0.5, _y + 0.5, 0.35, _cap, xc=_x, stat='max')
-    if _zt is None:
-        LOG.setdefault('missing', []).append('aa20_%.0f' % _y)
-        continue
+# 20 mm Oerlikon：桶內一挺，砲身坐在桶底、砲管**尾端埋進砲身裡**朝外斜上。
+# 砲管軸心放在砲身頂之上就是一根浮在空中的棒子；20 mm 的管徑只有 3 cm，照
+# 5 吋砲的 r=0.26 抄下來從側面看是一片板。
+# 掃舷側縱線找到的 y 9.8、x ±4.4 那一對**不是砲是吊艇架**：腳印只有 0.4 m，
+# 而且比小艇頂高 1.3 m（砲座有 1 m 以上的腳印）。量腳印才分得出來。
+for _y, _x, _r, _base, _cap in AA_TUBS:
     _b = (Z_FWD_PLAT or 6.8) if _base == 'plat' else (Z_WING or 9.5)
+    _zt = top_in(_y - 0.6, _y + 0.6, 0.50, _cap, xc=_x, stat='max') or (_b + 1.65)
+    _pt = _zt - 0.30                     # 砲身頂
     for _s in (1, -1):
-        taper(bmg, _s * _x - 0.34, _s * _x + 0.34, _y - 0.34, _y + 0.34, _b - 0.4, _zt - 0.45, 0.85)
-        tri_barrel(bmg, _s * _x, _zt - 0.18, _y - 0.15, _y + 1.15, 0.12)
+        taper(bmg, _s * _x - 0.46, _s * _x + 0.46, _y - 0.46, _y + 0.46, _b - 0.25, _pt, 0.80)
+        tri_rod(bmg, (_s * (_x + 0.10), _y + 0.05, _pt - 0.13),
+                (_s * (_x + _r + 0.60), _y + 0.45, _pt + 0.34), 0.065)
     GUNS.append(('aa20_%.0f' % _y, _y, round(_zt, 2), None))
 
-# 四聯裝 40 mm（坐在艦尾砲位平台上）
-_z40 = top_in(-27.2, -24.9, 1.22, 11.8, stat='max')
+# 雙聯裝 40 mm：兩根砲管朝前略上（細掃在 y −22.6 那一列量到兩個尖峰在 x ±0.3），
+# 尾端埋進砲架裡。
+_z40 = top_in(-26.6, -25.2, 1.00, 11.9, stat='max')
 if _z40:
-    taper(bmg, -1.22, 1.22, -27.2, -24.9, (Z_AFT_TUB or 9.3) - 0.5, _z40, 0.8)
+    taper(bmg, -0.85, 0.85, -26.90, -25.10, (Z_AFT_TUB or 9.3) - 0.30, _z40 - 0.45, 0.82)
+    for _sx in (-0.30, 0.30):
+        tri_rod(bmg, (_sx, -25.60, _z40 - 0.62), (_sx, -22.50, _z40 - 0.20), 0.085)
     GUNS.append(('aa_40mm', -26.0, round(_z40, 2), None))
 
 # 深水炸彈軌：艦尾甲板上兩條
