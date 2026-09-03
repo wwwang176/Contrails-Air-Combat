@@ -6,14 +6,14 @@ describe('nextScreen（M10 spec §3、§4）', () => {
     expect(nextScreen('landing', 'start')).toBe('menu')
   })
 
-  it('主選單的兩張卡各自進去', () => {
-    expect(nextScreen('menu', 'mission')).toBe('mission')
+  it('主選單的兩張卡各自進去 —— 任務先到陣營頁', () => {
+    expect(nextScreen('menu', 'mission')).toBe('campaign')
     expect(nextScreen('menu', 'skirmish')).toBe('skirmish')
   })
 
-  it('兩個子畫面的返回都回主選單', () => {
-    expect(nextScreen('mission', 'back')).toBe('menu')
+  it('遭遇戰的返回回主選單；任務簡報的返回回陣營頁', () => {
     expect(nextScreen('skirmish', 'back')).toBe('menu')
+    expect(nextScreen('mission', 'back')).toBe('campaign')
   })
 
   it('設定頁開始戰鬥', () => {
@@ -36,9 +36,9 @@ describe('nextScreen（M10 spec §3、§4）', () => {
 
   it('不合法的組合維持原狀，不丟例外', () => {
     // 【為什麼不丟例外】選單上一個按不到的按鈕不該讓整個遊戲當掉。
-    const all: Screen[] = ['landing', 'menu', 'mission', 'skirmish', 'battle']
+    const all: Screen[] = ['landing', 'menu', 'campaign', 'mission', 'skirmish', 'battle']
     const events: ScreenEvent[] = [
-      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup',
+      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
     ]
     for (const s of all) {
       for (const e of events) {
@@ -51,9 +51,9 @@ describe('nextScreen（M10 spec §3、§4）', () => {
   })
 
   it('回不去 landing —— 那是一次性的開場', () => {
-    const all: Screen[] = ['menu', 'mission', 'skirmish', 'battle']
+    const all: Screen[] = ['menu', 'campaign', 'mission', 'skirmish', 'battle']
     const events: ScreenEvent[] = [
-      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup',
+      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
     ]
     for (const s of all) {
       for (const e of events) expect(nextScreen(s, e)).not.toBe('landing')
@@ -82,7 +82,33 @@ describe('任務模式的兩條轉移（任務框架 spec §7.8）', () => {
     expect(nextScreen('mission', 'toSetup')).toBe('mission')
   })
 
-  it('任務列表仍然回得了主選單', () => {
-    expect(nextScreen('mission', 'back')).toBe('menu')
+  it('任務簡報的返回是陣營頁，不是主選單', () => {
+    expect(nextScreen('mission', 'back')).toBe('campaign')
+  })
+})
+
+/**
+ * 陣營頁（2026-09-04 選單重做 spec §1）。
+ *
+ * 【為什麼多一頁而不是分頁】專案負責人裁定：「站哪一邊」用三張照片講；
+ * 簡報頁**沒有**陣營分頁，換陣營要退回來 —— 一個地方只做一件事。
+ */
+describe('陣營頁', () => {
+  it('點一張陣營卡進簡報', () => {
+    expect(nextScreen('campaign', 'mission')).toBe('mission')
+  })
+
+  it('返回回主選單', () => {
+    expect(nextScreen('campaign', 'back')).toBe('menu')
+  })
+
+  it('陣營頁不能直接開打，也不吃結算的兩個出口', () => {
+    expect(nextScreen('campaign', 'fight')).toBe('campaign')
+    expect(nextScreen('campaign', 'toSetup')).toBe('campaign')
+    expect(nextScreen('campaign', 'toMission')).toBe('campaign')
+  })
+
+  it('結算回任務列表是回簡報頁（同一條線），不是陣營頁', () => {
+    expect(nextScreen('battle', 'toMission')).toBe('mission')
   })
 })

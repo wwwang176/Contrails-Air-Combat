@@ -1,5 +1,9 @@
 /**
- * **在真的遊戲裡跑護送關，一進戰鬥就按代飛，量玩家座位的軌跡。**
+ * **在真的遊戲裡跑攔截關（germany-m1），一進戰鬥就按代飛，量玩家座位的軌跡。**
+ *
+ * 【2026-09-04 量的東西變了】舊版跑的是「護送 He 111」那張卡，12 關改版
+ * （2026-09-03）後那張卡沒了。現在指名 `germany-m1`：玩家在**攔截方**，
+ * 對面是 P-51 護航的 B-17 流 —— 下面的數字是攔截 AI 的實戰，不再是護航 AI 的。
  * 不由 vitest 執行（副檔名 `.e2e.ts`）。跑法（兩個終端機）：
  *
  * ```
@@ -110,16 +114,10 @@ async function main(): Promise<void> {
       )
     }
 
-    // ── 1. 進到護送 He 111 那張卡 ───────────────────────────
+    // ── 1. 進到德軍的攔截卡（germany-m1）──────────────────────
     await page.click('[data-act="start"]')
     await page.click('[data-act="mission"]')
     await page.waitForTimeout(300)
-
-    // 【陣營要先切】任務列表預設是同盟國，He 111 在軸心國那一欄
-    const factions = await page.$$('#mission-factions button')
-    if (factions.length < 2) fail(`陣營列只有 ${factions.length} 顆按鈕`)
-    await factions[1]!.click()
-    await page.waitForTimeout(200)
 
     /**
      * 點卡片，**同一個 tick 裡**就把代飛按下去。
@@ -134,19 +132,24 @@ async function main(): Promise<void> {
      * 軌跡完全不同。卡片的 `click` 是同步的，戰鬥在它回來時已經建好，
      * 下一行的 `dispatchEvent` 仍在第一幀之前。
      */
+    // 【2026-09-04 改用 id 選卡】舊版找標題含「He 111」的卡，那張卡在 12 關改版
+    // （2026-09-03）時就沒了 —— 這支從那天起就是壞的。改指名 `germany-m1`
+    // （攔截 B-17，德軍唯一還有 convoy 的卡）。**量的東西變了**：原本是護航 AI
+    // 的實戰，現在是攔截方 —— 檔頭的說明要跟著讀。路線圖的站帶
+    // `data-mission="<id>"`，標題會改、id 不會
+    await page.click('#campaign-cards button[data-campaign="germany"]')
+    await page.waitForTimeout(150)
     const picked = await page.evaluate(() => {
-      const list = document.querySelectorAll<HTMLButtonElement>('#mission-list .card')
-      for (const b of Array.from(list)) {
-        const title = b.querySelector('.card-title')?.textContent ?? ''
-        if (title.includes('He 111') && !b.disabled) {
-          b.click()
-          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }))
-          return title
-        }
-      }
-      return null
+      const stop = document.querySelector<HTMLButtonElement>('#route .stop[data-mission="germany-m1"]')
+      if (stop === null) return null
+      stop.click()
+      const go = document.querySelector<HTMLButtonElement>('#brief-go')
+      if (go === null) return null
+      go.click()
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }))
+      return stop.querySelector('.n')?.textContent ?? 'germany-m1'
     })
-    if (picked === null) fail('軸心國列表裡找不到可點的「護送 He 111」')
+    if (picked === null) fail('德軍那條線找不到可出擊的 germany-m1')
     console.log(`[實戰] 進入關卡：${picked}`)
 
     // ── 2. 確認一進戰鬥就是代飛 ─────────────────────────────

@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
   ALL_SPECS, battleConfigFrom, specOf as specById, uniform,
-  withAircraft, withoutAircraft,
-  ALTITUDES, DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE,
-  type SkirmishSetup,
+  addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
+  HISTORICAL, topSpeedKmh, PRESETS,
+  ALTITUDES, DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE, MAX_FLIGHTS,
+  type SkirmishSetup, type Flight,
 } from '../../src/battle/skirmish'
 import type { BattleConfig } from '../../src/battle/setup'
-import { sideCount, sideSummary } from '../../src/battle/order'
+import { mixedLine, sideCount, sideSummary, assertOrderOfBattle } from '../../src/battle/order'
+import { HEAD_ON } from '../../src/battle/entry'
+import { SCHWARM_SIZE } from '../../src/battle/flights'
+import { P51D } from '../../src/specs/p51d'
+import { BF109K4 } from '../../src/specs/bf109k4'
 
 describe('機種名單', () => {
   it('遭遇戰的名單全部一起列 —— 混搭之後陣營不再是一個選擇', () => {
@@ -15,10 +20,7 @@ describe('機種名單', () => {
   })
 
   it('戰鬥機在前、轟炸機在後', () => {
-    // 【順序不是裝飾】選單照它畫卡片，而「先戰鬥機再轟炸機」是玩家掃過
-    // 那一排時唯一的結構
     const roles = ALL_SPECS.map((s) => s.role)
-    expect(roles.indexOf('bomber')).toBeGreaterThan(roles.lastIndexOf('fighter') - 1)
     expect(roles.lastIndexOf('fighter')).toBeLessThan(roles.indexOf('bomber'))
   })
 
@@ -26,19 +28,56 @@ describe('機種名單', () => {
     expect(specById('不存在').id).toBe(ALL_SPECS[0]!.id)
     expect(specById('he111').id).toBe('he111')
   })
+
+  /**
+   * 【極速不在 `AircraftSpec` 上】它在各機種檔另外匯出的 `HistoricalReference`
+   * （Codex 審查 2026-09-04 抓到的）。少一格是測試紅，不是編組頁上少一個數字。
+   */
+  it('八台都有史實極速可以顯示', () => {
+    for (const s of ALL_SPECS) {
+      expect(HISTORICAL[s.id], s.id).toBeDefined()
+      expect(topSpeedKmh(s.id), s.id).toBeGreaterThan(300)
+    }
+    // 442 mph = 711 km/h（specs/p51d.ts 的 vmaxAtCritical）
+    expect(topSpeedKmh('p51d')).toBe(711)
+  })
 })
 
-/**
- * 字面物件補上場地與開場高度。**兩者都與這幾條測的東西無關** ——
- * 補在這裡而不是每個字面物件裡各寫一次，下一個加欄位的人只要改這一行。
- */
 const FIELD = { terrain: 'archipelago', altitude: 4000 } as const
+const F = (id: string, count: number): Flight => ({ id, count })
+const mk = (blue: Flight[], red: Flight[], lead = 0): SkirmishSetup =>
+  ({ ...FIELD, blue, red, lead })
 
-/** 某一隊出場的第一架。改動前讀 `cfg.blueSpec`，現在從編組表算出同一件事。 */
 const leadOf = (c: BattleConfig, team: 'blue' | 'red') =>
   c.units.find((u) => u.team === team)!.members[0]!
 
-describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', () => {
+/**
+ * 【第一條是全部的重點】`uniform(20, 20)` 換走 `flightLine` 之後，編組表必須
+ * 與舊路徑 `mixedLine(逐架名單, 8)` 逐項相同 —— 對照組留在這裡，不是靠記憶。
+ */
+describe('battleConfigFrom（2026-09-04 換成分隊清單）', () => {
+  it('預設 20v20 的編組表與舊路徑逐項相同', () => {
+    const want = mixedLine(
+      HEAD_ON,
+      Array.from({ length: 20 }, () => P51D),
+      Array.from({ length: 20 }, () => BF109K4),
+      8,
+    )
+    const got = battleConfigFrom(DEFAULT_SKIRMISH).units
+    expect(got.length).toBe(want.length)
+    for (let i = 0; i < want.length; i++) {
+      const g = got[i]!
+      const w = want[i]!
+      expect(g.team).toBe(w.team)
+      expect(g.lane).toBe(w.lane)
+      expect(g.tier).toBe(w.tier)
+      expect(g.duty).toBe(w.duty)
+      expect(g.entry).toBe(w.entry)
+      expect(g.player).toBe(w.player)
+      expect(g.members.map((m) => m.id)).toEqual(w.members.map((m) => m.id))
+    }
+  })
+
   it('兩隊各自的機種照抄', () => {
     const c = battleConfigFrom(uniform('p51d', 20, 'bf109k4', 20))
     expect(leadOf(c, 'blue').id).toBe('p51d')
@@ -51,45 +90,48 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
     expect(leadOf(c, 'red').id).toBe('p51d')
   })
 
-  it('一隊裡可以混搭 —— P-51 與 Bf109 同一隊', () => {
-    const c = battleConfigFrom({
-      ...FIELD, blue: ['p51d', 'bf109k4', 'b17g'], red: ['he111', 'p51d'], playerAt: 0,
-    })
-    expect(sideSummary(c.units, 'blue')).toBe('1 × p51d + 1 × bf109k4 + 1 × b17g')
-    expect(sideSummary(c.units, 'red')).toBe('1 × he111 + 1 × p51d')
+  it('分隊各自一種機種，3 架一隊不會跟下一隊混隊', () => {
+    const c = battleConfigFrom(mk([F('p51d', 4), F('b17g', 3)], [F('he111', 2)]))
+    expect(sideSummary(c.units, 'blue')).toBe('4 × p51d + 3 × b17g')
+    expect(sideSummary(c.units, 'red')).toBe('2 × he111')
+    expect(c.units.filter((u) => u.team === 'blue')[1]!.members.length).toBe(3)
   })
 
-  it('架數就是名單長度', () => {
+  it('架數就是分隊架數的和', () => {
     const c = battleConfigFrom(uniform('p51d', 3, 'bf109k4', 7))
     expect(sideCount(c.units, 'blue')).toBe(3)
     expect(sideCount(c.units, 'red')).toBe(7)
   })
 
-  it('超編砍到 20、空名單補一架', () => {
-    // 【為什麼要夾】名單從 DOM 來。空的會讓 createBattle 拋例外（玩家沒有
-    // 被建立），過長會炸掉特效池的容量假設（`MAX_COMBATANTS`）。
-    const over = battleConfigFrom({
-      blue: Array.from({ length: 99 }, () => 'p51d'),
-      ...FIELD, red: [], playerAt: 0,
-    })
-    expect(sideCount(over.units, 'blue')).toBe(MAX_SIDE)
-    expect(sideCount(over.units, 'red')).toBe(MIN_SIDE)
+  it('空名單補一架 —— 設定頁的中間狀態不該讓 createBattle 拋例外', () => {
+    const c = battleConfigFrom(mk([], []))
+    expect(sideCount(c.units, 'blue')).toBe(MIN_SIDE)
+    expect(sideCount(c.units, 'red')).toBe(MIN_SIDE)
+    expect(() => assertOrderOfBattle(c.units)).not.toThrow()
   })
 
-  it('玩家的座位被夾進名單裡 —— 否則編組表會沒有任何一筆 player', () => {
-    // 【症狀】`assertOrderOfBattle` 拋「必須恰好有一筆 player」，也就是
-    // 按下開始戰鬥直接白畫面。名單縮短之後很容易踩到
-    for (const at of [99, -3, NaN]) {
-      const c = battleConfigFrom({ ...FIELD, blue: ['p51d', 'b17g'], red: ['p51d'], playerAt: at })
+  it('超編砍到 20', () => {
+    const c = battleConfigFrom(mk(Array.from({ length: 9 }, () => F('p51d', 4)), [F('p51d', 1)]))
+    expect(sideCount(c.units, 'blue')).toBe(MAX_SIDE)
+  })
+
+  /**
+   * 【lead 的夾制不能消失】`flightLine` 對超界是丟錯的；這裡是 UI 語意的
+   * 邊界，要夾。症狀否則是 `assertOrderOfBattle`「必須恰好有一筆 player」
+   * —— 按下起飛直接白畫面（Codex 審查 2026-09-04）。
+   */
+  it('lead 超界仍恰好一筆 player', () => {
+    for (const lead of [99, -3, NaN, 4]) {
+      const c = battleConfigFrom(mk([F('p51d', 4)], [F('p51d', 1)], lead))
       expect(c.units.filter((u) => u.player === true).length).toBe(1)
+      expect(() => assertOrderOfBattle(c.units)).not.toThrow()
     }
   })
 
-  it('玩家選第幾架，那一架就是他開的', () => {
-    const c = battleConfigFrom({
-      ...FIELD, blue: ['p51d', 'b17g', 'bf109k4'], red: ['p51d'], playerAt: 1,
-    })
-    expect(leadOf(c, 'blue').id).toBe('b17g')
+  it('我帶哪一隊，那一隊的長機就是我開的', () => {
+    const c = battleConfigFrom(mk([F('p51d', 4), F('b17g', 4)], [F('p51d', 1)], 1))
+    const lead = c.units.find((u) => u.player === true)!
+    expect(lead.members[0]!.id).toBe('b17g')
   })
 
   it('其餘欄位沿用 DEFAULT_BATTLE 的幾何', () => {
@@ -101,129 +143,196 @@ describe('battleConfigFrom（M10 spec §7、2026-08-21 換成逐架名單）', (
 })
 
 describe('常數', () => {
-  it('上下限是 1 與 20，容量是兩倍', () => {
+  it('上下限是 1 與 20，容量是兩倍，隊數上限是 5', () => {
     expect(MIN_SIDE).toBe(1)
     expect(MAX_SIDE).toBe(20)
     expect(MAX_COMBATANTS).toBe(MAX_SIDE * 2)
+    expect(MAX_FLIGHTS).toBe(MAX_SIDE / SCHWARM_SIZE)
   })
 
-  it('預設是 20 架 P-51D 對 20 架 Bf109', () => {
-    const d: SkirmishSetup = DEFAULT_SKIRMISH
-    expect(d.blue.length).toBe(20)
-    expect(d.red.length).toBe(20)
-    expect(new Set(d.blue)).toEqual(new Set(['p51d']))
-    expect(new Set(d.red)).toEqual(new Set(['bf109k4']))
+  it('預設是五隊 P-51D 對五隊 Bf109，每隊四架', () => {
+    const d = DEFAULT_SKIRMISH
+    expect(d.blue).toEqual(Array.from({ length: 5 }, () => F('p51d', 4)))
+    expect(d.red).toEqual(Array.from({ length: 5 }, () => F('bf109k4', 4)))
+    expect(flightsTotal(d.blue)).toBe(20)
   })
 
-  it('預設的玩家座位就是舊路徑的那一架 —— 出生基準沒有位移', () => {
-    // 【為什麼釘住 8】`lineAbreast` 的 `playerFlight` 是
-    // `floor(ceil(20/4)/2)` = 2，長機座位 2 × 4 = 8。這個數字若變了，
-    // `test/fixtures/spawn-baseline.ts` 的「玩家是哪一架」就跟著變
-    expect(DEFAULT_SKIRMISH.playerAt).toBe(8)
+  it('預設我帶第 2 隊 —— 就是舊路徑 playerAt = 8 那一隊，出生基準沒有位移', () => {
+    expect(DEFAULT_SKIRMISH.lead).toBe(2)
+  })
+
+  it('uniform 的隊數與尾隊架數', () => {
+    expect(uniform('p51d', 7, 'bf109k4', 1).blue).toEqual([F('p51d', 4), F('p51d', 3)])
+    expect(uniform('p51d', 1, 'bf109k4', 1).blue).toEqual([F('p51d', 1)])
+    expect(uniform('p51d', 20, 'bf109k4', 1).blue.length).toBe(5)
   })
 })
 
 /**
- * 設定頁上那兩個動作。**它們住在資料層而不是 `ui/menu.ts`**，因為
- * 「玩家的座位有沒有跟著動」是最容易錯又最看不出來的一件事 ——
- * 症狀只是一張卡片消失，然後玩家默默換了一台飛機開。
+ * 編組頁上的動作。**它們住在資料層而不是 `ui/menu.ts`**：「我帶的那一隊
+ * 有沒有跟著動」是最容易錯又最看不出來的一件事 —— 症狀只是一列消失，
+ * 然後玩家默默換了一台飛機開。
  */
-describe('出戰名單的加與減', () => {
-  const at = (blue: string[], playerAt: number): SkirmishSetup => (
-    { ...FIELD, blue, red: ['bf109k4'], playerAt }
-  )
-
-  it('加在末端', () => {
-    const s = withAircraft(at(['p51d'], 0), 'blue', 'b17g')
-    expect(s.blue).toEqual(['p51d', 'b17g'])
+describe('分隊的加減與帶隊', () => {
+  it('加一隊在末端，預設四架', () => {
+    const s = addFlight(mk([F('p51d', 4)], [F('bf109k4', 4)]), 'blue', 'b17g')
+    expect(s.blue).toEqual([F('p51d', 4), F('b17g', 4)])
   })
 
-  it('滿編時原樣回傳', () => {
+  // 【沒有「剩不到四架」這條】隊數上限 5 × 每隊 4 = 架數上限 20：四隊以內
+  // 剩餘一定 ≥ 4，第五隊之後走「隊數滿」。那個分支在這組上限下踩不到。
+
+  it('滿 20 架時原樣回傳（同一個物件）', () => {
     const full = uniform('p51d', MAX_SIDE, 'bf109k4', 1)
-    expect(withAircraft(full, 'blue', 'b17g')).toBe(full)
+    expect(addFlight(full, 'blue', 'b17g')).toBe(full)
   })
 
-  it('一次加五台 —— 設定頁的 Shift ＋ 點', () => {
-    const s = withAircraft(at(['p51d'], 0), 'blue', 'b17g', 5)
-    expect(s.blue).toEqual(['p51d', 'b17g', 'b17g', 'b17g', 'b17g', 'b17g'])
+  it('滿 5 隊時原樣回傳，就算架數還沒滿', () => {
+    const five = mk(Array.from({ length: 5 }, () => F('p51d', 1)), [])
+    expect(addFlight(five, 'blue', 'b17g')).toBe(five)
+  })
+
+  it('敵方那一側同樣加隊，不碰我方', () => {
+    const s = addFlight(mk([F('p51d', 4)], [F('bf109k4', 4)], 0), 'red', 'f6f5')
+    expect(s.red).toEqual([F('bf109k4', 4), F('f6f5', 4)])
+    expect(s.blue).toEqual([F('p51d', 4)])
+    expect(s.lead).toBe(0)
+  })
+
+  it('setCount 夾在 1..4', () => {
+    const s = mk([F('p51d', 2)], [])
+    expect(setCount(s, 'blue', 0, 4).blue[0]!.count).toBe(4)
+    expect(setCount(s, 'blue', 0, 9).blue[0]!.count).toBe(4)
+  })
+
+  it('setCount 不讓總數超過 20', () => {
+    // 4×4 + 2 = 18；把那 2 架的隊加到 4 會變 20（剛好）；再加不動
+    const s = mk([F('p51d', 4), F('p51d', 4), F('p51d', 4), F('p51d', 4), F('b17g', 2)], [])
+    const t = setCount(s, 'blue', 4, 4)
+    expect(flightsTotal(t.blue)).toBe(20)
+    const u = mk([F('p51d', 4), F('p51d', 4), F('p51d', 4), F('p51d', 4), F('b17g', 3)], [])
+    // 剩 1 架，要 +2 → 只到 4
+    expect(setCount(u, 'blue', 4, 5).blue[4]!.count).toBe(4)
+  })
+
+  it('setCount 到 0 等於拿掉那一隊', () => {
+    const s = setCount(mk([F('p51d', 4), F('b17g', 1)], [], 0), 'blue', 1, 0)
+    expect(s.blue).toEqual([F('p51d', 4)])
+  })
+
+  it('拿掉我帶的隊前面那一隊，lead 跟著往前 —— 還是同一隊', () => {
+    const s = removeFlight(mk([F('p51d', 4), F('b17g', 4), F('he111', 4)], [], 2), 'blue', 0)
+    expect(s.blue).toEqual([F('b17g', 4), F('he111', 4)])
+    expect(s.blue[s.lead]!.id).toBe('he111')
+  })
+
+  it('拿掉我帶的隊後面那一隊，lead 不動', () => {
+    const s = removeFlight(mk([F('p51d', 4), F('b17g', 4), F('he111', 4)], [], 0), 'blue', 2)
+    expect(s.lead).toBe(0)
+    expect(s.blue[s.lead]!.id).toBe('p51d')
+  })
+
+  it('拿掉我帶的那一隊，lead 留在原地 —— 也就是接下來那一隊', () => {
+    const s = removeFlight(mk([F('p51d', 4), F('b17g', 4), F('he111', 4)], [], 1), 'blue', 1)
+    expect(s.blue[s.lead]!.id).toBe('he111')
+  })
+
+  it('拿掉最後一隊而我就帶那一隊，lead 退回清單之內', () => {
+    const s = removeFlight(mk([F('p51d', 4), F('b17g', 4)], [], 1), 'blue', 1)
+    expect(s.lead).toBe(0)
+  })
+
+  it('可以刪到空，lead 是 0', () => {
+    const s = removeFlight(mk([F('p51d', 4)], [], 0), 'blue', 0)
+    expect(s.blue).toEqual([])
+    expect(s.lead).toBe(0)
+  })
+
+  it('動紅隊不碰 lead', () => {
+    const s = removeFlight(mk([F('p51d', 4), F('b17g', 4)], [F('p51d', 4), F('he111', 4)], 1), 'red', 0)
+    expect(s.red).toEqual([F('he111', 4)])
+    expect(s.lead).toBe(1)
+  })
+
+  it('setLead', () => {
+    const s = setLead(mk([F('p51d', 4), F('b17g', 4)], []), 1)
+    expect(s.lead).toBe(1)
+  })
+
+  it('加減分隊不會弄丟地形與高度', () => {
+    const base = { ...DEFAULT_SKIRMISH, terrain: 'sea' as const, altitude: 600 }
+    const s = removeFlight(addFlight(base, 'blue', 'he111'), 'red', 0)
+    expect(s.terrain).toBe('sea')
+    expect(s.altitude).toBe(600)
+  })
+})
+
+/**
+ * 四個想定（spec §3.3 的表）。**編成是定案的資料，不是預設值** —— 改了要
+ * 改這裡的斷言，而不是靜靜地換一組。
+ */
+describe('想定', () => {
+  it('四個都在，鍵名固定', () => {
+    expect(Object.keys(PRESETS)).toEqual(['even', 'escort', 'few', 'hunt'])
+  })
+
+  it('勢均力敵：P-51D 4,4 對 Bf 109 4,4', () => {
+    const s = applyPreset(DEFAULT_SKIRMISH, 'even')
+    expect(s.blue).toEqual([F('p51d', 4), F('p51d', 4)])
+    expect(s.red).toEqual([F('bf109k4', 4), F('bf109k4', 4)])
+  })
+
+  it('護航突破：P-51D 4 + B-17G 4 對 Bf 109 4,4,2', () => {
+    const s = applyPreset(DEFAULT_SKIRMISH, 'escort')
+    expect(s.blue).toEqual([F('p51d', 4), F('b17g', 4)])
+    expect(s.red).toEqual([F('bf109k4', 4), F('bf109k4', 4), F('bf109k4', 2)])
+  })
+
+  it('以寡擊眾：Ki-84 3 對 F6F-5 4,4,2', () => {
+    const s = applyPreset(DEFAULT_SKIRMISH, 'few')
+    expect(s.blue).toEqual([F('ki84', 3)])
+    expect(s.red).toEqual([F('f6f5', 4), F('f6f5', 4), F('f6f5', 2)])
+  })
+
+  it('轟炸機獵殺：Bf 109 4,4 對 B-17G 4,4 + P-51D 2', () => {
+    const s = applyPreset(DEFAULT_SKIRMISH, 'hunt')
+    expect(s.blue).toEqual([F('bf109k4', 4), F('bf109k4', 4)])
+    expect(s.red).toEqual([F('b17g', 4), F('b17g', 4), F('p51d', 2)])
   })
 
   /**
-   * 【剩不到五格時填到滿，不是整批不加】玩家按下去的意思是「多來幾台」。
-   * 只剩兩格卻什麼都沒發生，看起來就是按鈕壞了 —— 而按鈕此時並沒有禁用
-   * （`ui/menu.ts` 只在**滿編**時禁用）。
+   * 【lead 重設為 0】從 lead = 4 套「以寡擊眾」（我方只有一隊）而保留 lead，
+   * `flightLine` 不會有任何 player —— Codex 審查 2026-09-04。
    */
-  it('只剩兩格時加兩台，填到滿', () => {
-    const list = new Array<string>(MAX_SIDE - 2).fill('p51d')
-    const s = withAircraft({ ...FIELD, blue: list, red: ['bf109k4'], playerAt: 0 },
-      'blue', 'b17g', 5)
-    expect(s.blue.length).toBe(MAX_SIDE)
-    expect(s.blue.slice(-2)).toEqual(['b17g', 'b17g'])
+  it('套想定後 lead 是 0，而且每個想定都建得出恰好一筆 player', () => {
+    const from = { ...DEFAULT_SKIRMISH, lead: 4 }
+    for (const k of Object.keys(PRESETS) as (keyof typeof PRESETS)[]) {
+      const s = applyPreset(from, k)
+      expect(s.lead).toBe(0)
+      const c = battleConfigFrom(s)
+      expect(c.units.filter((u) => u.player === true).length).toBe(1)
+      expect(() => assertOrderOfBattle(c.units)).not.toThrow()
+    }
   })
 
-  it('滿編時就算按 Shift 也是原樣回傳', () => {
-    const full = uniform('p51d', MAX_SIDE, 'bf109k4', 1)
-    expect(withAircraft(full, 'blue', 'b17g', 5)).toBe(full)
+  it('想定不動地形與高度', () => {
+    const s = applyPreset({ ...DEFAULT_SKIRMISH, terrain: 'sea', altitude: 600 }, 'hunt')
+    expect(s.terrain).toBe('sea')
+    expect(s.altitude).toBe(600)
   })
 
-  it('敵方那一側同樣加五台', () => {
-    const s = withAircraft(at(['p51d'], 0), 'red', 'f6f5', 5)
-    expect(s.red).toEqual(['bf109k4', 'f6f5', 'f6f5', 'f6f5', 'f6f5', 'f6f5'])
-    expect(s.blue).toEqual(['p51d'])
-  })
-
-  /** 【玩家的座位不動】加在末端，他前面一架都沒少 */
-  it('加五台不會動到玩家的座位', () => {
-    const s = withAircraft(at(['p51d', 'b17g', 'he111'], 2), 'blue', 'f6f5', 5)
-    expect(s.playerAt).toBe(2)
-  })
-
-  it('拿掉玩家前面那一架，他跟著往前一格 —— 還是同一台飛機', () => {
-    const s = withoutAircraft(at(['p51d', 'b17g', 'he111'], 2), 'blue', 0)
-    expect(s.blue).toEqual(['b17g', 'he111'])
-    expect(s.blue[s.playerAt]).toBe('he111')
-  })
-
-  it('拿掉玩家後面那一架，他不動', () => {
-    const s = withoutAircraft(at(['p51d', 'b17g', 'he111'], 0), 'blue', 2)
-    expect(s.playerAt).toBe(0)
-    expect(s.blue[s.playerAt]).toBe('p51d')
-  })
-
-  it('拿掉玩家本人，座位留在原地 —— 也就是接下來那一架', () => {
-    const s = withoutAircraft(at(['p51d', 'b17g', 'he111'], 1), 'blue', 1)
-    expect(s.blue).toEqual(['p51d', 'he111'])
-    expect(s.blue[s.playerAt]).toBe('he111')
-  })
-
-  it('拿掉最後一架而玩家就坐在那裡，座位退回名單之內', () => {
-    const s = withoutAircraft(at(['p51d', 'b17g'], 1), 'blue', 1)
-    expect(s.playerAt).toBe(0)
-    expect(s.blue[s.playerAt]).toBe('p51d')
-  })
-
-  it('可以刪到空，而且座位不會變成 −1', () => {
-    const s = withoutAircraft(at(['p51d'], 0), 'blue', 0)
-    expect(s.blue).toEqual([])
-    expect(s.playerAt).toBe(0)
-  })
-
-  it('動紅隊不會碰到玩家的座位', () => {
-    const s = withoutAircraft({ ...FIELD, blue: ['p51d', 'b17g'], red: ['p51d', 'he111'], playerAt: 1 }, 'red', 0)
-    expect(s.red).toEqual(['he111'])
-    expect(s.playerAt).toBe(1)
-    expect(s.blue).toEqual(['p51d', 'b17g'])
+  it('每個想定都在架數與隊數上限之內', () => {
+    for (const k of Object.keys(PRESETS) as (keyof typeof PRESETS)[]) {
+      const s = applyPreset(DEFAULT_SKIRMISH, k)
+      for (const side of [s.blue, s.red]) {
+        expect(flightsTotal(side)).toBeLessThanOrEqual(MAX_SIDE)
+        expect(side.length).toBeLessThanOrEqual(MAX_FLIGHTS)
+        for (const f of side) expect(f.count).toBeGreaterThanOrEqual(1)
+      }
+    }
   })
 })
 
-/**
- * 【為什麼開場高度是一個設定，不是一個常數】上一輪把群島放進了畫面，但
- * 實測顯示地形感知在真實的仗裡**一次都沒跑到** —— 開場恆為 4,000 m，而島
- * 最高 1,000 m。高度可選是「地形進得了場」的另一半（spec §5.2）。
- *
- * 【為什麼是白名單而不是區間夾】選單只給三個值。區間夾會讓一個沒有人試飛
- * 過的高度靜靜地成立；白名單讓它退回一個確定的值。
- */
 describe('遭遇戰的地形與開場高度', () => {
   it('預設等於現況 —— 不動設定的人玩到的規則一個字都沒變', () => {
     expect(DEFAULT_SKIRMISH.terrain).toBe('archipelago')
@@ -252,11 +361,5 @@ describe('遭遇戰的地形與開場高度', () => {
   it('地形不進 BattleConfig —— 它由 main.ts 交給 createTerrain', () => {
     const c = battleConfigFrom({ ...DEFAULT_SKIRMISH, terrain: 'sea' })
     expect('terrain' in c).toBe(false)
-  })
-
-  it('加減飛機不會弄丟地形與高度', () => {
-    const s = withAircraft({ ...DEFAULT_SKIRMISH, terrain: 'sea', altitude: 600 }, 'blue', 'he111')
-    expect(s.terrain).toBe('sea')
-    expect(s.altitude).toBe(600)
   })
 })

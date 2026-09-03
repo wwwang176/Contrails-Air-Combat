@@ -51,13 +51,74 @@ export function sortScoreRows(rows: ScoreRow[]): ScoreRow[] {
   return rows
 }
 
+/** 三行對比要的數字：`[我方, 敵方]`；存活是 `[活著, 總數]` */
+export interface Tally {
+  readonly kills: readonly [number, number]
+  readonly alive: readonly [readonly [number, number], readonly [number, number]]
+}
+
+export function tallyOf(blue: readonly ScoreRow[], red: readonly ScoreRow[]): Tally {
+  const sum = (rows: readonly ScoreRow[]) => {
+    let kills = 0
+    let alive = 0
+    for (const r of rows) {
+      kills += r.kills
+      if (r.alive) alive++
+    }
+    return { kills, alive }
+  }
+  const b = sum(blue)
+  const r = sum(red)
+  return { kills: [b.kills, r.kills], alive: [[b.alive, blue.length], [r.alive, red.length]] }
+}
+
+/** 玩家那一列；沒有回 null */
+export function playerOf(rows: readonly ScoreRow[]): ScoreRow | null {
+  return rows.find((r) => r.isPlayer) ?? null
+}
+
+/** 用時 → 「m 分 s 秒」 */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
+}
+
+/**
+ * 結算時除了兩張表之外的東西（2026-09-04 選單重做 spec §2.6）。`main.ts` 算好
+ * 傳進來 —— 這一層只畫。
+ *
+ * 【沒有命中率】`Pilot` 沒有發數與命中的紀錄。不做假數字。
+ */
+export interface AfterAction {
+  readonly mode: 'mission' | 'skirmish'
+  /** 卡名，或「遭遇戰」 */
+  readonly title: string
+  readonly objective: string
+  readonly seconds: number
+  /** 玩家的機種短名 */
+  readonly playerSpec: string
+  /** 我方第幾隊（1 起算） */
+  readonly playerFlight: number
+  /** 剩餘結構 0..1 */
+  readonly playerHp01: number
+  /** 護送卡才有：被護送的活了幾架 */
+  readonly convoy: { readonly alive: number; readonly total: number } | null
+}
+
 export interface Scoreboard {
-  /** 重畫。`banner` 為 null 時橫幅留白 */
-  render(blue: ScoreRow[], red: ScoreRow[], banner: 'victory' | 'defeat' | null): void
+  /**
+   * 重畫。`banner` 為 null 時橫幅留白（按住 TAB 的即時看板）；`extra` 為 null
+   * 時只畫兩張表，戰報的其餘區塊藏起來。
+   */
+  render(blue: ScoreRow[], red: ScoreRow[], banner: 'victory' | 'defeat' | null,
+    extra: AfterAction | null): void
   setVisible(v: boolean): void
 }
 
-const BANNER_TEXT = { victory: '勝　利', defeat: '落　敗' } as const
+const BANNER_TEXT = {
+  skirmish: { victory: '勝　利', defeat: '落　敗' },
+  mission: { victory: '任務達成', defeat: '任務失敗' },
+} as const
 
 /**
  * 記分板的 DOM 元件。
@@ -67,13 +128,17 @@ const BANNER_TEXT = { victory: '勝　利', defeat: '落　敗' } as const
  * 兩邊共用同一個渲染函式（M9 spec §9.1）。
  *
  * 【為什麼整表重建而不是逐格更新】只在按住 TAB 或分出勝負時才呼叫，
- * 40 列的 `innerHTML` 重建在那個頻率下量不出來。逐格更新要維護一份
- * DOM 節點的索引，那是為了看不見的效能付看得見的複雜度。
+ * 40 列的 `innerHTML` 重建在那個頻率下量不出來。
  *
- * @param root 容器。必須含有 `#banner` 與 `#tables` 兩個子節點
+ * @param root 容器。必須含有 `#banner`、`#aar-sub`、`#aar-me`、`#aar-tally`、
+ *             `#aar-details`、`#tables`
  */
 export function createScoreboard(root: HTMLElement): Scoreboard {
   const banner = root.querySelector('#banner') as HTMLElement
+  const sub = root.querySelector('#aar-sub') as HTMLElement
+  const me = root.querySelector('#aar-me') as HTMLElement
+  const tally = root.querySelector('#aar-tally') as HTMLElement
+  const details = root.querySelector('#aar-details') as HTMLElement
   const tables = root.querySelector('#tables') as HTMLElement
 
   function table(rows: ScoreRow[], team: 'blue' | 'red', title: string): string {
@@ -88,11 +153,44 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
       + `<tbody>${body}</tbody></table>`
   }
 
+  function playerCard(blue: ScoreRow[], x: AfterAction): string {
+    const p = playerOf(blue)
+    if (p === null) return ''
+    const stat = (v: string, k: string) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`
+    return `<div class="who"><div class="n">${escapeHtml(p.name)}　${escapeHtml(x.playerSpec)}</div>`
+      + `<div class="s">我方第 ${x.playerFlight} 分隊長機　·　${p.alive ? '全程存活' : '被擊落'}</div></div>`
+      + stat(String(p.kills), '擊落') + stat(String(p.deaths), '被擊落') + stat(String(p.assists), '助攻')
+      + stat(`${Math.round(x.playerHp01 * 100)}%`, '剩餘結構')
+  }
+
+  function tallyRows(blue: ScoreRow[], red: ScoreRow[], x: AfterAction): string {
+    const t = tallyOf(blue, red)
+    const line = (a: string, k: string, b: string) =>
+      `<div class="a">${a}</div><div class="k">${k}</div><div class="b">${b}</div>`
+    let html = line(String(t.kills[0]), '擊落', String(t.kills[1]))
+    if (x.convoy !== null) html += line(`${x.convoy.alive} / ${x.convoy.total}`, '轟炸機存活', '—')
+    html += line(`${t.alive[0][0]} / ${t.alive[0][1]}`, '存活', `${t.alive[1][0]} / ${t.alive[1][1]}`)
+    return html
+  }
+
   return {
-    render(blue, red, outcome) {
-      banner.textContent = outcome === null ? '' : BANNER_TEXT[outcome]
+    render(blue, red, outcome, extra) {
+      const mode = extra?.mode ?? 'skirmish'
+      banner.textContent = outcome === null ? '' : BANNER_TEXT[mode][outcome]
       banner.className = outcome ?? ''
       tables.innerHTML = table(blue, 'blue', '我方') + table(red, 'red', '敵方')
+      const full = extra !== null
+      sub.hidden = !full
+      me.hidden = !full
+      tally.hidden = !full
+      details.classList.toggle('bare', !full)
+      if (extra !== null) {
+        sub.textContent = `${extra.objective}　·　${extra.title}　·　${formatDuration(extra.seconds)}`
+        me.innerHTML = playerCard(blue, extra)
+        tally.innerHTML = tallyRows(blue, red, extra)
+        const summary = details.querySelector('summary')
+        if (summary) summary.textContent = `完整名單（${blue.length + red.length} 架）`
+      }
     },
     setVisible(v) {
       root.hidden = !v

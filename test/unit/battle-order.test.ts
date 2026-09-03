@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  lineAbreast, mixedLine, assertOrderOfBattle, sideSummary, type OrderOfBattle,
+  lineAbreast, mixedLine, flightLine, assertOrderOfBattle, sideSummary, type OrderOfBattle,
 } from '../../src/battle/order'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
@@ -209,5 +209,79 @@ describe('mixedLine', () => {
     expect(b[0]!.player).toBe(undefined)
     expect(b[1]!.player).toBe(true)
     expect(u.filter((f) => f.player === true).length).toBe(1)
+  })
+})
+
+
+/**
+ * `flightLine` —— 分隊清單的編組函數（2026-09-04 選單重做 spec §3.4）。
+ *
+ * 【與 `mixedLine` 的關係】`mixedLine` 把逐架名單每 4 架硬切一隊；這一支收
+ * 「每隊一個機種與架數」，所以 3 架一隊是合法的、不會跟下一隊混隊。
+ * 第一條守的是：每隊都滿 4 時，兩者**逐項相同** —— 所以 `DEFAULT_SKIRMISH`
+ * 的編組表換路徑之後一個座標都不動。
+ */
+describe('flightLine', () => {
+  const full = (spec: typeof P51D, n: number) =>
+    Array.from({ length: n }, () => ({ spec, count: SCHWARM_SIZE }))
+
+  it('每隊滿 4 時與 mixedLine 逐項相同 —— 這一條守著遭遇戰的出生順序', () => {
+    for (const [b, r, lead] of [[5, 5, 2], [4, 4, 2], [2, 2, 1], [1, 1, 0], [3, 1, 0]] as const) {
+      const want = mixedLine(
+        HEAD_ON,
+        Array.from({ length: b * SCHWARM_SIZE }, () => P51D),
+        Array.from({ length: r * SCHWARM_SIZE }, () => BF109K4),
+        lead * SCHWARM_SIZE,
+      )
+      const got = flightLine(HEAD_ON, full(P51D, b), full(BF109K4, r), lead)
+      expect(got.length).toBe(want.length)
+      for (let i = 0; i < want.length; i++) {
+        const g = got[i]!
+        const w = want[i]!
+        expect(g.team).toBe(w.team)
+        expect(g.lane).toBe(w.lane)
+        expect(g.tier).toBe(w.tier)
+        expect(g.duty).toBe(w.duty)
+        expect(g.entry).toBe(w.entry)
+        expect(g.player).toBe(w.player)
+        expect(g.members.map((m) => m.id)).toEqual(w.members.map((m) => m.id))
+      }
+    }
+  })
+
+  it('架數照 count 展開，3 架一隊不會跟下一隊混隊', () => {
+    const u = flightLine(HEAD_ON,
+      [{ spec: P51D, count: 4 }, { spec: B17G, count: 3 }],
+      [{ spec: BF109K4, count: 2 }], 0)
+    const b = blue(u)
+    expect(b.length).toBe(2)
+    expect(b[0]!.members.map((m) => m.id)).toEqual(['p51d', 'p51d', 'p51d', 'p51d'])
+    expect(b[1]!.members.map((m) => m.id)).toEqual(['b17g', 'b17g', 'b17g'])
+    expect(red(u)[0]!.members.length).toBe(2)
+    expect(() => assertOrderOfBattle(u)).not.toThrow()
+  })
+
+  it('player 落在 lead 那一隊，而且只有一筆', () => {
+    const u = flightLine(HEAD_ON, full(P51D, 3), full(BF109K4, 1), 1)
+    const b = blue(u)
+    expect(b[0]!.player).toBe(undefined)
+    expect(b[1]!.player).toBe(true)
+    expect(b[2]!.player).toBe(undefined)
+    expect(u.filter((f) => f.player === true).length).toBe(1)
+  })
+
+  /**
+   * 【超界要丟錯，不吞】夾制是 `battleConfigFrom` 的責任（它知道 UI 的
+   * 語意）。這裡吞掉的話，「編組表沒有 player」會在 `assertOrderOfBattle`
+   * 才爆，離真正錯的那一行很遠。
+   */
+  it('lead 超界丟錯', () => {
+    expect(() => flightLine(HEAD_ON, full(P51D, 2), full(BF109K4, 1), 2)).toThrow()
+    expect(() => flightLine(HEAD_ON, full(P51D, 2), full(BF109K4, 1), -1)).toThrow()
+  })
+
+  it('count 超出 1..SCHWARM_SIZE 丟錯', () => {
+    expect(() => flightLine(HEAD_ON, [{ spec: P51D, count: 5 }], full(BF109K4, 1), 0)).toThrow()
+    expect(() => flightLine(HEAD_ON, [{ spec: P51D, count: 0 }], full(BF109K4, 1), 0)).toThrow()
   })
 })

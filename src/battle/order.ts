@@ -179,6 +179,58 @@ export function mixedLine(
   return out
 }
 
+/** 一個分隊：一個機種、幾架。`count` 是 1 … `SCHWARM_SIZE`。 */
+export interface FlightSpec {
+  readonly spec: AircraftSpec
+  readonly count: number
+}
+
+/**
+ * 產出「兩隊各自一份**分隊清單**、橫隊排開」的編組表。遭遇戰的編組頁走這一支
+ * （2026-09-04 選單重做 spec §3.4）。
+ *
+ * 【與 `mixedLine` 的關係】那一支收逐架名單、每 4 架硬切一隊，所以「一隊 3 架」
+ * 會跟下一隊混在一起；這一支收「每隊一個機種與架數」，3 架就是 3 架。
+ * **每隊都滿 4 時兩者逐項相同**（有測試釘住）—— lane／tier 的算式逐字照抄，
+ * 所以 `DEFAULT_SKIRMISH` 換路徑之後一個座標都不動。
+ *
+ * 【`player` 直接掛在 lead 那一隊】長機就是 `members[0]`，不需要 `mixedLine`
+ * 那種對調 —— 分隊本來就是一種機種。
+ *
+ * 【超界丟錯，不吞】夾制是 `battleConfigFrom` 的責任（它知道 UI 的語意）。
+ * 這裡吞掉的話，「編組表沒有 player」要到 `assertOrderOfBattle` 才爆，離真正
+ * 錯的那一行很遠。
+ */
+export function flightLine(
+  plan: EntryPlan,
+  blue: readonly FlightSpec[],
+  red: readonly FlightSpec[],
+  leadFlight: number,
+): OrderOfBattle {
+  if (!Number.isInteger(leadFlight) || leadFlight < 0 || leadFlight >= blue.length) {
+    throw new Error(`lead 超界：${leadFlight}，藍隊只有 ${blue.length} 隊`)
+  }
+  const out: FlightPlan[] = []
+  for (const team of ['blue', 'red'] as const) {
+    const blueSide = team === 'blue'
+    const list = blueSide ? blue : red
+    const entry = blueSide ? plan.blue : plan.red
+    const flights = list.length
+    for (let f = 0; f < flights; f++) {
+      const { spec, count } = list[f]!
+      if (!Number.isInteger(count) || count < 1 || count > SCHWARM_SIZE) {
+        throw new Error(`分隊架數要在 1..${SCHWARM_SIZE}，收到 ${count}`)
+      }
+      const members: AircraftSpec[] = Array.from({ length: count }, () => spec)
+      const lane = f - (flights - 1) / 2
+      out.push(blueSide && f === leadFlight
+        ? { team, members, entry, duty: 'combat', lane, tier: f, player: true }
+        : { team, members, entry, duty: 'combat', lane, tier: f })
+    }
+  }
+  return out
+}
+
 /**
  * 被護送的那些飛機所在的高度層。`altitudeOffset(0, spread)` = **−spread**，
  * 也就是最低的一層。

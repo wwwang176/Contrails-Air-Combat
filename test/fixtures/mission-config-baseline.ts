@@ -174,7 +174,8 @@ export const MISSION_CONFIG_BASELINE = {
     "aiProfile": {
       "reactionDelay": 0.3,
       "aimError": 0,
-      "trimTau": 1
+      "trimTau": 1,
+      "fireDelay": 0.1
     },
     "rules": {
       "kind": "convoy",
@@ -356,7 +357,8 @@ export const MISSION_CONFIG_BASELINE = {
     "aiProfile": {
       "reactionDelay": 0.3,
       "aimError": 0,
-      "trimTau": 1
+      "trimTau": 1,
+      "fireDelay": 0.1
     },
     "rules": {
       "kind": "convoy",

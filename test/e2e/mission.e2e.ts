@@ -1,53 +1,41 @@
 /**
- * 任務框架的人工驗收。**不由 vitest 執行** —— 副檔名是 `.e2e.ts`。
+ * 任務線的人工驗收：主選單 → 陣營 → 簡報 → 出擊（2026-09-04 選單重做）。
+ * **不由 vitest 執行** —— 副檔名是 `.e2e.ts`。
  *
  * 跑法（兩個終端機）：
  *
  * ```
- * npm run dev                                  # 終端機一
- * npx vite-node test/e2e/mission.e2e.ts        # 終端機二
+ * npx vite --port 5178 --strictPort            # 終端機一
+ * npx tsx test/e2e/mission.e2e.ts              # 終端機二
  * ```
  *
- * 【`URL` 的埠要對】vite 在 5173 被佔用時會往上找（5174、5175…），
- * 開跑前先看終端機一印的那一行。
- *
- * 【為什麼要有它】這一份的接線有一半在 `main.ts` 與 DOM 裡：卡片可不可點、
- * 進不進得了戰鬥、目標列畫不畫、圓環出不出現、結算的出口回哪裡。單元與
- * 整合測試守得到判定，守不到「點下去有沒有反應」。
+ * 【為什麼要有它】這一份的接線有一半在 `main.ts` 與 DOM 裡：陣營卡點得動、
+ * 路線圖的站有沒有反應、簡報右欄有沒有畫出編制、出擊進不進得了戰鬥、
+ * 目標列畫不畫、圓環出不出現、結算的出口回哪裡。單元測試守得到
+ * `briefingOf` 與狀態機，守不到「點下去有沒有反應」。
  *
  * ── 哪些是斷言、哪些是給人看的 ──
  *
- * **是斷言**（會 throw）：卡片的可點狀態、畫面轉移、目標列的像素、結算
- * 兩顆按鈕的顯示、console 錯誤。
+ * **是斷言**（會 throw）：三張陣營卡、每條線四站、準備中的站沒有出擊鈕、
+ * 可玩的站右欄有目標與雙方編制、五關都進得了戰鬥、目標列的像素、圓環的
+ * 場景歸屬、結算兩顆出口的顯示、console 錯誤、遭遇戰的反證。
  *
  * **給人看的**：截圖。
  *
- * 【圓環驗得到了】三張護送／攔截卡（盟 M1、德 M1、日 M3）**開場就有終點**，
- * 所以 `hasTarget` 為真、圓環進場景。反證是殲滅卡（日 M1）必須沒有。
- * 德 M4 的返航節拍也會中途產生撤離點，但那要打到我方剩不多才觸發 ——
- * 這支腳本跑不到那裡。
- *
  * 【圓環問的是場景歸屬，不是像素】它畫在 WebGL 那一張畫布上，而
  * `preserveDrawingBuffer` 是關的，`getImageData` 讀不回來。`__probe().ring`
- * 回的是「環在不在場景裡」—— 那正是會靜靜發生的失敗：`hasTarget` 為真卻
- * 沒加進去時，環每一幀照常更新位置與半徑，就是不在畫面上。
+ * 回的是「環在不在場景裡」。
  *
- * 【目標列那一側才數像素】它畫在 2D 畫布上（`#hud`），`getImageData`
- * 讀得回來。取樣區是右上角 —— 左上角是效能面板（預設開著），這一版之前
- * 放那裡，Playwright 的截圖照出兩者疊在一起。
+ * 【目標列那一側才數像素】它畫在 2D 畫布上（`#hud`）。取樣區是右上角 ——
+ * 左上角是效能面板。
+ *
+ * 【用 id 選關，不用標題】標題會改（2026-09-03 就改過一輪），id 不會。
  */
 import { chromium } from 'playwright'
 
-const URL = 'http://localhost:5176/'
+const URL = 'http://localhost:5178/'
 const SHOTS = '.shots/'
 
-/**
- * 目標列的取樣區：**右上角**。`objective.ts` 靠右對齊在
- * `x = width − 30·scale`、`y = 18·scale`。
- *
- * 【為什麼不是左上角】那裡是效能面板（`core/perf.ts`，預設開著）。
- * 這一版之前放在左上，Playwright 的截圖照出兩者疊在一起。
- */
 const OBJECTIVE_BOX = { x: 0.62, y: 0.01, w: 0.37, h: 0.06 }
 
 function fail(msg: string): never {
@@ -57,7 +45,7 @@ function fail(msg: string): never {
 async function main(): Promise<void> {
   const browser = await chromium.launch()
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
     const errors: string[] = []
     const logs: string[] = []
     page.on('console', (m) => {
@@ -66,16 +54,6 @@ async function main(): Promise<void> {
     })
     page.on('pageerror', (e) => errors.push(String(e)))
 
-    /**
-     * HUD 畫布上某一塊矩形裡有多少個**綠色**像素。
-     *
-     * 【為什麼只數綠】HUD 的主色是 `HUD_COLORS.primary` #7dfba8，而目標列
-     * 用的就是它（倒數 < 30 s 時轉紅，那時這個判準會失效 —— 所以驗收要在
-     * 開局做，那時倒數還有兩分多鐘）。
-     *
-     * 【`a >= 128` 這道下限】理由與 `god-view.e2e.ts` 相同：`getImageData`
-     * 回的是未預乘 RGB，低 alpha 下捨入誤差會把色相整個換掉。
-     */
     const hudGreen = (r: typeof OBJECTIVE_BOX): Promise<number> =>
       page.evaluate((box) => {
         const c = document.querySelector<HTMLCanvasElement>('#hud')
@@ -99,73 +77,92 @@ async function main(): Promise<void> {
         return el === null ? null : el.hidden
       }, sel)
 
-    await page.goto(URL)
+    const visibleScreens = () => page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('#ui .screen'))
+        .filter((s) => !s.hidden).map((s) => s.id))
 
-    // ── 1. 三條戰役，每一條四張卡 ──────────────────────────
-    await page.click('[data-act="start"]')
-    await page.click('[data-act="mission"]')
-    await page.waitForTimeout(300)
-
-    const campaignButtons = await page.evaluate(() =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>('#mission-factions button'))
-        .map((b) => b.textContent ?? ''))
-    console.log(`[任務] 戰役：${campaignButtons.join('／')}`)
-    if (campaignButtons.length !== 3) {
-      fail(`戰役那一列應該有三顆按鈕，實得 ${campaignButtons.length}`)
-    }
-
-    /** 讀目前這一頁的卡片 */
-    const readCards = () => page.evaluate(() => {
-      // 【`Array.from` 而不是展開】專案的 `tsconfig` 沒有開 `downlevelIteration`，
-      // `NodeListOf` 在那個設定下不算 iterable
-      const list = document.querySelectorAll<HTMLButtonElement>('#mission-list .card')
-      return Array.from(list).map((b) => ({
-        title: b.querySelector('.card-title')?.textContent ?? '',
-        disabled: b.disabled,
-        locked: b.querySelector('.locked') !== null,
-      }))
-    })
-
-    /** 每一條線各四張，而且「未開放」的標記與 disabled 一致 */
-    const ready: { campaign: string; index: number; title: string }[] = []
-    for (let ci = 0; ci < campaignButtons.length; ci++) {
-      await page.click(`#mission-factions button:nth-child(${ci + 1})`)
-      await page.waitForTimeout(150)
-      const cards = await readCards()
-      console.log(`[任務] ${campaignButtons[ci]}：`)
-      for (const c of cards) {
-        console.log(`  ${c.disabled ? '✗' : '✓'} ${c.title}${c.locked ? '（未開放）' : ''}`)
-      }
-      if (cards.length !== 4) {
-        fail(`${campaignButtons[ci]} 應該有四張卡，實得 ${cards.length}`)
-      }
-      // 【未開放的卡必須看得出來】看起來可點卻沒反應才是真的壞掉
-      for (const [i, c] of cards.entries()) {
-        if (c.disabled !== c.locked) fail(`「${c.title}」的 disabled 與「未開放」標記不一致`)
-        if (!c.disabled) ready.push({ campaign: campaignButtons[ci]!, index: i, title: c.title })
-      }
-    }
-    console.log(`[任務] 打得起來的：${ready.length} 關`)
-    // 【為什麼斷言張數】12 關固定，可玩的是哪幾張由 `battle !== null` 決定 ——
-    // 那不是一個會隨試飛調來調去的數字，而是「這一輪做完了幾關」
-    if (ready.length !== 5) fail(`應該有五關打得起來，實得 ${ready.length}`)
-
-    // ── 2. 每一關都真的進得了戰鬥，而且目標列出現 ──────────
-    for (const r of ready) {
+    /** 從頭走到某一條線的簡報頁 */
+    const toCampaign = async (campaign: string) => {
       await page.goto(URL)
       await page.click('[data-act="start"]')
       await page.click('[data-act="mission"]')
       await page.waitForTimeout(200)
-      const ci = campaignButtons.indexOf(r.campaign) + 1
-      await page.click(`#mission-factions button:nth-child(${ci})`)
-      await page.waitForTimeout(150)
-      await page.click(`#mission-list .card:nth-child(${r.index + 1})`)
+      await page.click(`#campaign-cards button[data-campaign="${campaign}"]`)
+      await page.waitForTimeout(200)
+    }
+
+    // ── 1. 主選單 → 陣營頁：三張卡，各自寫著可出擊幾關 ──────
+    await page.goto(URL)
+    await page.click('[data-act="start"]')
+    let screens = await visibleScreens()
+    if (screens.join() !== 'menu') fail(`按開始之後應該只看到 menu，實得 ${screens.join('/')}`)
+    await page.click('[data-act="mission"]')
+    await page.waitForTimeout(200)
+    screens = await visibleScreens()
+    if (screens.join() !== 'campaign') fail(`任務模式應該先到陣營頁，實得 ${screens.join('/')}`)
+    const campaigns = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('#campaign-cards button'))
+        .map((b) => ({ id: b.dataset['campaign'] ?? '', meta: b.querySelector('.m')?.textContent ?? '' })))
+    console.log(`[任務] 陣營：${campaigns.map((c) => `${c.id}（${c.meta.replace(/\s+/g, ' ')}）`).join('／')}`)
+    if (campaigns.length !== 3) fail(`陣營頁應該有三張卡，實得 ${campaigns.length}`)
+    for (const c of campaigns) {
+      if (!/可出擊 \d+/.test(c.meta)) fail(`${c.id} 的卡上沒有「可出擊 n」`)
+    }
+    await page.screenshot({ path: SHOTS + 'mission-0-campaign.png' })
+
+    // ── 2. 每條線四站；準備中的站點得動但沒有出擊鈕 ────────
+    const ready: { campaign: string; id: string; title: string }[] = []
+    for (const c of campaigns) {
+      await toCampaign(c.id)
+      screens = await visibleScreens()
+      if (screens.join() !== 'mission') fail(`點陣營卡應該進簡報頁，實得 ${screens.join('/')}`)
+      const stops = await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>('#route .stop'))
+          .map((b) => ({
+            id: b.dataset['mission'] ?? '', title: b.querySelector('.n')?.textContent ?? '',
+            soon: b.classList.contains('soon'),
+          })))
+      console.log(`[任務] ${c.id}：`)
+      if (stops.length !== 4) fail(`${c.id} 應該有四站，實得 ${stops.length}`)
+      for (const s of stops) {
+        await page.click(`#route .stop[data-mission="${s.id}"]`)
+        await page.waitForTimeout(80)
+        const pane = await page.evaluate(() => ({
+          go: document.querySelector('#brief-go') !== null,
+          soon: document.querySelector('#brief .soonbox') !== null,
+          obj: document.querySelector('#brief .obj')?.textContent ?? '',
+          units: document.querySelectorAll('#brief .unit').length,
+          facts: document.querySelectorAll('#brief .fact').length,
+        }))
+        console.log(`  ${s.soon ? '✗' : '✓'} ${s.title}${s.soon ? '（準備中）' : `　${pane.obj}　編制 ${pane.units} 列`}`)
+        if (s.soon) {
+          if (pane.go) fail(`「${s.title}」準備中卻有出擊鈕`)
+          if (!pane.soon) fail(`「${s.title}」準備中卻沒有說明`)
+        } else {
+          if (!pane.go) fail(`「${s.title}」可玩卻沒有出擊鈕`)
+          if (pane.obj === '') fail(`「${s.title}」右欄沒有目標`)
+          if (pane.units < 2) fail(`「${s.title}」右欄的編制少於兩列（我方＋敵方）`)
+          if (pane.facts < 2) fail(`「${s.title}」右欄沒有戰場與時限`)
+          ready.push({ campaign: c.id, id: s.id, title: s.title })
+        }
+      }
+    }
+    console.log(`[任務] 打得起來的：${ready.length} 關`)
+    if (ready.length !== 5) fail(`應該有五關打得起來，實得 ${ready.length}`)
+    await page.screenshot({ path: SHOTS + 'mission-1-brief.png' })
+
+    // ── 3. 每一關都真的進得了戰鬥，而且目標列出現 ──────────
+    const launch = async (r: { campaign: string; id: string }) => {
+      await toCampaign(r.campaign)
+      await page.click(`#route .stop[data-mission="${r.id}"]`)
+      await page.waitForTimeout(100)
+      await page.click('#brief-go')
       await page.waitForTimeout(2500)
-
-      const screens = await page.evaluate(() =>
-        document.querySelector<HTMLElement>('#ui')?.querySelectorAll('.screen:not([hidden])').length)
-      if (screens !== 0) fail(`「${r.title}」進入戰鬥後不該有 .screen 可見，實得 ${screens}`)
-
+    }
+    for (const r of ready) {
+      await launch(r)
+      screens = await visibleScreens()
+      if (screens.length !== 0) fail(`「${r.title}」進入戰鬥後不該有 .screen 可見，實得 ${screens.join('/')}`)
       const ink = await hudGreen(OBJECTIVE_BOX)
       const line = logs.find((t) => t.includes('×')) ?? '(沒有印出編制)'
       console.log(`  ✓ ${r.title}　目標列 ${ink} px　${line.replace('[戰鬥] ', '')}`)
@@ -173,34 +170,18 @@ async function main(): Promise<void> {
       if (errors.length > 0) fail(`「${r.title}」有 console 錯誤：${errors.join(' / ')}`)
       logs.length = 0
     }
-    await page.screenshot({ path: SHOTS + 'mission-1-kill.png' })
+    await page.screenshot({ path: SHOTS + 'mission-2-battle.png' })
 
-    // ── 3. 圓環：護送卡有、殲滅卡沒有 ───────────────────────
-    //
-    // 【為什麼問場景歸屬而不是數像素】圓環畫在 WebGL 那一張畫布上，而
-    // `preserveDrawingBuffer` 是關的 —— `getImageData` 讀不回來。所以這裡
-    // 問 `__probe().ring`：**環有沒有被加進場景**。那正是會靜靜發生的失敗
-    // ——`hasTarget` 為真卻沒加進去時，環每一幀照常更新位置與半徑，就是
-    // 不在畫面上。
-    //
-    // 【對照組】殲滅卡同一格必須是 false。少了它，一個「永遠加進場景」的
-    // 環也會讓正例全綠。
-    const ringOf = async (campaign: string, index: number) => {
-      await page.goto(URL)
-      await page.click('[data-act="start"]')
-      await page.click('[data-act="mission"]')
-      await page.waitForTimeout(200)
-      await page.click(`#mission-factions button:nth-child(${campaignButtons.indexOf(campaign) + 1})`)
-      await page.waitForTimeout(150)
-      await page.click(`#mission-list .card:nth-child(${index + 1})`)
-      await page.waitForTimeout(2500)
+    // ── 4. 圓環：護送卡有、殲滅卡沒有（對照組） ─────────────
+    const ringOf = async (r: { campaign: string; id: string }) => {
+      await launch(r)
       return page.evaluate(() => {
         const p = (window as unknown as Record<string, () => unknown>)['__probe']!()
         return p as { ring: boolean; tgtOn: boolean } | null
       })
     }
-    const convoy = await ringOf('盟軍', 0)
-    const kill = await ringOf('日本', 0)
+    const convoy = await ringOf({ campaign: 'allies', id: 'allies-m1' })
+    const kill = await ringOf({ campaign: 'japan', id: 'japan-m1' })
     console.log(`[任務] 圓環：護送 ring=${convoy?.ring}/target=${convoy?.tgtOn}`
       + `、殲滅 ring=${kill?.ring}/target=${kill?.tgtOn}`)
     if (convoy === null || kill === null) fail('__probe 回了 null —— 不在戰鬥裡？')
@@ -208,15 +189,8 @@ async function main(): Promise<void> {
     if (!convoy.ring) fail('護送任務有終點，圓環卻不在場景裡')
     if (kill.tgtOn) fail('殲滅任務不該有終點')
     if (kill.ring) fail('殲滅任務不該把圓環加進場景')
-    await page.screenshot({ path: SHOTS + 'mission-3-ring.png' })
 
-    // ── 4. 結算的出口：任務模式顯示「回任務列表」 ──────────
-    //
-    // 【這一條驗的是「模式分流」，不是結算流程】戰鬥還沒結束，所以
-    // `#board-actions` 整塊是藏的 —— 下面兩條讀的是那兩顆子按鈕的 `hidden`，
-    // 而 `main.ts` 每一幀都會依 `mode` 重設它們，與結算板出不出來無關
-    // （Codex 審查 2026-08-16）。**結算流程本身沒有 e2e 覆蓋**，因為要把一場
-    // 4v16 打完；記在 `docs/backlog.md`。
+    // ── 5. 結算的出口：任務模式顯示「回任務列表」 ──────────
     const actionsHidden = await hidden('#board-actions')
     if (actionsHidden !== true) fail('戰鬥進行中 #board-actions 應該是藏的')
     const toSetupHidden = await hidden('[data-act="toSetup"]')
@@ -225,36 +199,32 @@ async function main(): Promise<void> {
     if (toSetupHidden !== true) fail('任務模式下「回設定頁」應該藏起來')
     if (toMissionHidden !== false) fail('任務模式下「回任務列表」應該顯示')
 
-    // ── 5. 反證：遭遇戰不顯示目標列，出口換回設定頁 ─────────
+    // ── 6. 返回鈕：簡報 → 陣營 → 主選單 ─────────────────────
+    await toCampaign('germany')
+    await page.click('#mission .back')
+    await page.waitForTimeout(100)
+    screens = await visibleScreens()
+    if (screens.join() !== 'campaign') fail(`簡報的返回應該回陣營頁，實得 ${screens.join('/')}`)
+    await page.click('#campaign .back')
+    await page.waitForTimeout(100)
+    screens = await visibleScreens()
+    if (screens.join() !== 'menu') fail(`陣營的返回應該回主選單，實得 ${screens.join('/')}`)
+
+    // ── 7. 反證：遭遇戰不顯示目標列，出口換回設定頁 ─────────
     // 【這一條讓「目標列真的分流」可證偽】少了它，一個恆真的目標列
-    // （例如 `objectiveActive` 寫死 true）也會讓第 2 條全綠
-    //
-    // 【為什麼重新載入而不是按 ESC 回主選單】暫停是由 `pointerLockLost`
-    // 觸發的（`main.ts` 的 `frame`），而這支腳本刻意不取得指標鎖定 ——
-    // 無頭 chromium 下鎖定生效那一刻會把瞄準方向甩到天上
-    // （`god-view.e2e.ts` 檔頭有完整推導）。所以 ESC 在這裡不會開暫停選單。
-    //
-    // 重新載入順帶多驗一件事：`mode` 的初值真的是遭遇戰。
-    await page.goto(URL)
-    await page.click('[data-act="start"]')
+    // （例如 `objectiveActive` 寫死 true）也會讓第 3 條全綠
     await page.click('[data-act="skirmish"]')
+    await page.waitForTimeout(150)
     await page.click('#skirmish [data-act="fight"]')
-    await page.waitForTimeout(3000)
+    await page.waitForTimeout(2500)
+    const inkSkirmish = await hudGreen(OBJECTIVE_BOX)
+    console.log(`[遭遇戰] 目標列 ${inkSkirmish} px、回設定頁 hidden=${await hidden('[data-act="toSetup"]')}`)
+    if (inkSkirmish > 0) fail('遭遇戰不該畫目標列')
+    if (await hidden('[data-act="toSetup"]') !== false) fail('遭遇戰下「回設定頁」應該顯示')
+    if (await hidden('[data-act="toMission"]') !== true) fail('遭遇戰下「回任務列表」應該藏起來')
+    if (errors.length > 0) fail(`遭遇戰有 console 錯誤：${errors.join(' / ')}`)
 
-    const skirmishInk = await hudGreen(OBJECTIVE_BOX)
-    console.log(`[任務] 遭遇戰：目標列區的綠色像素 ${skirmishInk}`)
-    if (skirmishInk !== 0) fail(`遭遇戰不該畫目標列，實得 ${skirmishInk} 個綠色像素`)
-    await page.screenshot({ path: SHOTS + 'mission-2-skirmish.png' })
-
-    const toSetup2 = await hidden('[data-act="toSetup"]')
-    const toMission2 = await hidden('[data-act="toMission"]')
-    if (toSetup2 !== false) fail('遭遇戰下「回設定頁」應該顯示')
-    if (toMission2 !== true) fail('遭遇戰下「回任務列表」應該藏起來')
-
-    // ── 6. 沒有 console 錯誤 ────────────────────────────────
-    if (errors.length > 0) fail(`console 有 ${errors.length} 筆錯誤：\n${errors.join('\n')}`)
-
-    console.log('\n[任務] 全部驗收通過')
+    console.log('\n任務線：全部通過')
   } finally {
     await browser.close()
   }
