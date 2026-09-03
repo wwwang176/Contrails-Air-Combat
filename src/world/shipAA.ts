@@ -77,6 +77,24 @@ export interface ShipAAZone extends ShipEmplacement {
   representative: string
 }
 
+/**
+ * 射界的**起始值**，一層一組 —— 與 `WOBBLE_AMPLITUDE` 同一個性質：
+ * **設計值，由試飛裁定**，不是從模型量出來的。
+ *
+ * `elevationDeg` 是錐軸抬離水平的角度；錐軸的水平分量一律朝**舷外**（中線上的
+ * 砲改成朝正上）。半角越大、涵蓋越廣但也越不像有死角。
+ *
+ * 起始值的想法：口徑越大打得越遠越高、指向越接近天頂；小口徑近迫防禦則壓低、
+ * 涵蓋窄一點，玩家貼海面進場時才有「先穿過黑霧、再進彈幕」的層次。
+ * 機庫（`hangar.html` 選船 → 射界）可以直接看這三層疊出來的樣子。
+ */
+export const SHIP_AA_ARC_DEFAULTS: Readonly<Record<ShipAATier,
+  { elevationDeg: number; halfAngleDeg: number }>> = {
+  flak: { elevationDeg: 55, halfAngleDeg: 75 },
+  autocannon: { elevationDeg: 45, halfAngleDeg: 65 },
+  mg: { elevationDeg: 40, halfAngleDeg: 55 },
+}
+
 /** USS Essex CV-9 逐門 —— 兩用砲 8、40 mm 11、20 mm 27。**量測來源，不是遊戲用的那一份。** */
 export const ESSEX_AA: readonly ShipEmplacement[] = [
   { id: 'flak_p1', tier: 'flak', calibreMm: 127, guns: 1,
