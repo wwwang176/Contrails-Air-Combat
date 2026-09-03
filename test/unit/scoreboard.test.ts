@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreRows, sortScoreRows, type ScoreRow } from '../../src/ui/scoreboard'
+import { scoreRows, sortScoreRows, tallyOf, playerOf, formatDuration, type ScoreRow } from '../../src/ui/scoreboard'
 import { createRoster } from '../../src/battle/pilots'
 import type { Team } from '../../src/world/World'
 
@@ -55,5 +55,46 @@ describe('sortScoreRows（M9 spec §9.3）', () => {
     const dead = { ...row('A', 5), alive: false }
     const rows = [row('B', 1), dead]
     expect(sortScoreRows(rows).map((x) => x.name)).toEqual(['A', 'B'])
+  })
+})
+
+/**
+ * 戰報的三行對比與玩家卡（2026-09-04 選單重做 spec §2.6）。
+ *
+ * 【為什麼要純函數】舊結算是兩張各 20 列的表，玩家最想知道的「我打得怎樣」
+ * 是被塗了底色的一列。新版把它抬成一張卡、把雙方壓成三行 —— 那幾個數字
+ * 從列算出來，算法要釘得住。
+ */
+describe('tallyOf', () => {
+  it('擊落總和與存活數', () => {
+    const blue = [row('A', 3), { ...row('B', 1), alive: false }, row('C', 0)]
+    const red = [{ ...row('X', 2), alive: false }, { ...row('Y', 0), alive: false }]
+    expect(tallyOf(blue, red)).toEqual({
+      kills: [4, 2],
+      alive: [[2, 3], [0, 2]],
+    })
+  })
+
+  it('空表不會 NaN', () => {
+    expect(tallyOf([], [])).toEqual({ kills: [0, 0], alive: [[0, 0], [0, 0]] })
+  })
+})
+
+describe('playerOf', () => {
+  it('找到玩家那一列', () => {
+    const me = { ...row('Me', 2), isPlayer: true }
+    expect(playerOf([row('A', 5), me, row('B', 1)])).toBe(me)
+  })
+
+  it('沒有玩家回 null —— 接手之後名冊上一定有人是玩家，但這裡不假設', () => {
+    expect(playerOf([row('A', 1)])).toBeNull()
+  })
+})
+
+describe('formatDuration', () => {
+  it('分與秒', () => {
+    expect(formatDuration(312)).toBe('5 分 12 秒')
+    expect(formatDuration(59.6)).toBe('0 分 59 秒')
+    expect(formatDuration(0)).toBe('0 分 0 秒')
   })
 })

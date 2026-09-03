@@ -1,9 +1,14 @@
-/** 五個畫面。`battle` 之上另有暫停與結算兩種 overlay，它們不是畫面 */
-export type Screen = 'landing' | 'menu' | 'mission' | 'skirmish' | 'battle'
+/**
+ * 六個畫面。`battle` 之上另有暫停與結算兩種 overlay，它們不是畫面。
+ *
+ * 【`campaign` 是一頁，不是分頁】專案負責人 2026-09-04 裁定：「站哪一邊」用
+ * 三張照片講；簡報頁**沒有**陣營分頁，換陣營要退回來 —— 一個地方只做一件事。
+ */
+export type Screen = 'landing' | 'menu' | 'campaign' | 'mission' | 'skirmish' | 'battle'
 
 export type ScreenEvent =
   | 'start'      // landing 的開始按鈕
-  | 'mission'    // 主選單：任務模式
+  | 'mission'    // 主選單：任務模式（先到陣營頁）；陣營頁：點一張卡進簡報
   | 'skirmish'   // 主選單：遭遇戰
   | 'back'       // 子畫面的返回
   | 'fight'      // 開始戰鬥／再打一場
@@ -22,17 +27,19 @@ export type ScreenEvent =
  */
 const TABLE: Record<Screen, Partial<Record<ScreenEvent, Screen>>> = {
   landing: { start: 'menu' },
-  menu: { mission: 'mission', skirmish: 'skirmish' },
+  menu: { mission: 'campaign', skirmish: 'skirmish' },
+  campaign: { mission: 'mission', back: 'menu' },
   // 【M10 時這裡只有 back】那時卡片全部 disabled，任務列表是一個看得到
   // 打不了的櫥窗。殲滅與撤離做出來之後它才是一個入口。
-  mission: { back: 'menu', fight: 'battle' },
+  // 【back 回陣營頁】陣營在那一頁選，簡報頁自己沒有分頁可以換
+  mission: { back: 'campaign', fight: 'battle' },
   skirmish: { back: 'menu', fight: 'battle' },
   // 【`fight` 從 battle 回到 battle】結算的「再打一場」。畫面沒變，
   // 但呼叫端會重建戰鬥 —— 那是兩件事（M10 spec §4）
   //
-  // 【兩個回頭的出口】遭遇戰回設定頁、任務回任務列表。**用兩個事件而不是
-  // 一個「回上一頁」**：狀態機不該記得歷史，那會讓同一個轉移在不同的來路
-  // 下有不同的結果 —— 也就不再是一張表。
+  // 【兩個回頭的出口】遭遇戰回設定頁、任務回簡報頁（同一條線，不回陣營頁
+  // —— 陣營沒變）。**用兩個事件而不是一個「回上一頁」**：狀態機不該記得
+  // 歷史，那會讓同一個轉移在不同的來路下有不同的結果 —— 也就不再是一張表。
   battle: { fight: 'battle', toMenu: 'menu', toSetup: 'skirmish', toMission: 'mission' },
 }
 

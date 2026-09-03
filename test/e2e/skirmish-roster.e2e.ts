@@ -1,21 +1,15 @@
 /**
- * 遭遇戰的自訂編組（2026-08-21）。**這一支問的是「點得動嗎」。**
+ * 遭遇戰的編組頁（2026-09-04 選單重做）。**這一支問的是「點得動嗎」。**
  *
- * 專案負責人的需求：「要可以設定我方機種、敵方機種，等於是左右兩排，
- * 點一台 P51 就增加一台 P51 到出戰卡牌中，點幾台出幾台（不是用數量增減），
- * 然後要可以讓我選我是當哪一台；陣營可以混搭，也就是 P51 可以跟 BF109
- * 同一隊。」
+ * 專案負責人：「單位從一架改成分隊；我帶哪一隊 5 選 1；機種卡片；兵力對比；
+ * 四個想定；戰場與高度有示意圖。」
  *
  * ── 這一支與 `test/unit/skirmish.test.ts` 的分工 ──────────
  *
- * 名單的加、減、玩家座位怎麼跟著動、混編會編出什麼樣的編組表 —— 全部是
- * 純函數，已經由那一支逐條釘住。**這裡只驗那些純函數真的接到按鈕上**：
- * 點了會不會加、✕ 會不會刪、選中的那一台會不會高亮、按下開始戰鬥之後
- * 場上真的是那一組編制。
- *
- * 【為什麼那樣分】DOM 測起來慢又脆，而「玩家的座位有沒有跟著動」那種
- * 邏輯錯誤在這一層只會表現成一張卡片的樣子不對 —— 分不出是接線錯了
- * 還是算錯了。
+ * 分隊的加、減、架數、我帶哪一隊、四個想定的編成、與模擬編組表的等價 ——
+ * 全部是純函數，已經由那一支逐條釘住。**這裡只驗那些純函數真的接到按鈕上**：
+ * 想定一鍵成局、加分隊會展開機種卡、− ＋ ✕ 動得了、帶隊圓點換得了、
+ * 對戰條的數字跟著變、按下起飛之後場上真的是那一組編制。
  *
  * 【不得使用 process / fs】專案沒有 `@types/node`。
  *
@@ -33,7 +27,7 @@ function ok(pass: boolean, label: string, detail = ''): void {
 async function main(): Promise<void> {
   const browser = await chromium.launch()
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     const errors: string[] = []
     const logs: string[] = []
     page.on('console', (m) => {
@@ -45,119 +39,109 @@ async function main(): Promise<void> {
     await page.goto(URL)
     await page.click('[data-act="start"]')
     await page.click('[data-act="skirmish"]')
+    await page.waitForTimeout(200)
 
-    const blueAdd = page.locator('#blue-add button:not(.ghost)')
-    const redAdd = page.locator('#red-add button:not(.ghost)')
-    const blueChips = page.locator('#blue-roster .chip')
-    const redChips = page.locator('#red-roster .chip')
-
-    const names = await blueAdd.allTextContents()
-    // 【數字跟著 `ALL_SPECS` 走】三台日本機進編之後是八台
-    ok(names.length === 8, '兩排各有八台可以編', names.join(' / '))
-    ok(await redAdd.count() === 8, '敵方那一排也是八台')
-
-    ok(await blueChips.count() === 20, '預設是 20 對 20', `我方 ${await blueChips.count()}`)
-
-    // ── 清空 → 逐架編 ───────────────────────────────────
-    await page.click('#blue-add button.ghost')
-    ok(await blueChips.count() === 0, '清空之後我方名單是空的')
+    const mine = page.locator('#sk-mine .flight')
+    const foe = page.locator('#sk-foe .flight')
+    const odds = page.locator('#sk-versus .odds')
     const fight = page.locator('#skirmish [data-act="fight"]')
-    ok(await fight.isDisabled(), '空名單時「開始戰鬥」是禁用的')
+    const countOf = (side: 'mine' | 'foe') => page.locator(`#sk-${side} .count b`).textContent()
+    const leadIndex = () => page.evaluate(() =>
+      Array.from(document.querySelectorAll('#sk-mine .flight')).findIndex((f) => f.classList.contains('lead')))
 
-    // ── Shift ＋ 點一次五台 ─────────────────────────────
-    //
-    // 【為什麼一定要在瀏覽器裡驗】`withAircraft(…, 5)` 已經由單元測試逐條
-    // 釘住，這裡問的是 `e.shiftKey` 有沒有真的接到那個參數上 —— 漏接的話
-    // 純函數全綠，畫面上卻仍然一次只加一台。
-    await blueAdd.nth(0).click({ modifiers: ['Shift'] })
-    ok(await blueChips.count() === 5, 'Shift ＋ 點一次加五台',
-      `實得 ${await blueChips.count()}`)
-    await blueAdd.nth(0).click()
-    ok(await blueChips.count() === 6, '不按 Shift 仍然是一台')
-    // 【填到滿而不是整批不加】6 → 11 → 16 → 21，最後那次只進得去四台
-    for (let i = 0; i < 3; i++) await blueAdd.nth(0).click({ modifiers: ['Shift'] })
-    ok(await blueChips.count() === 20, 'Shift 超過上限時填到滿編，不是整批不加',
-      `實得 ${await blueChips.count()}`)
-    await page.click('#blue-add button.ghost')
-    ok(await blueChips.count() === 0, '再清空，回到逐架編')
+    // ── 預設 20v20：五隊各四架，我帶第 3 隊（索引 2）───────
+    ok(await mine.count() === 5 && await foe.count() === 5, '預設兩邊各五隊')
+    ok(await countOf('mine') === '20' && await countOf('foe') === '20', '各 20 架')
+    ok(await leadIndex() === 2, '預設我帶第 3 隊 —— 就是舊路徑的 playerAt = 8')
+    ok(await page.locator('#sk-presets button').count() === 4, '四個想定')
 
-    const idx = (t: string) => names.findIndex((n) => n.includes(t))
-    // P-51 ×2、Bf109 ×1、B-17 ×1 —— 混搭
-    await blueAdd.nth(idx('P-51')).click()
-    await blueAdd.nth(idx('P-51')).click()
-    await blueAdd.nth(idx('Bf')).click()
-    await blueAdd.nth(idx('B-17')).click()
-    ok(await blueChips.count() === 4, '點幾台出幾台')
-    const labels = await blueChips.locator('button:not(.del)').allTextContents()
-    ok(labels[2]!.includes('Bf'), '同一隊裡混得進 Bf109', labels.join(' | '))
-    ok(!(await fight.isDisabled()), '兩邊都有人時「開始戰鬥」可以按')
+    // ── 想定一鍵成局 ────────────────────────────────────
+    await page.click('#sk-presets button:nth-child(2)')   // 護航突破
+    await page.waitForTimeout(100)
+    ok(await mine.count() === 2 && await foe.count() === 3, '護航突破：我方兩隊、敵方三隊')
+    ok((await odds.textContent())!.includes('8') && (await odds.textContent())!.includes('10'),
+      '對戰條 8 : 10', (await odds.textContent())!.replace(/\s+/g, ' '))
+    ok(await leadIndex() === 0, '套想定後我帶第 1 隊')
 
-    // ── 選我開哪一台 ────────────────────────────────────
-    ok(await blueChips.nth(0).locator('button.me').count() === 1, '預設是第一架')
-    await blueChips.nth(2).locator('button:not(.del)').click()
-    ok(await blueChips.nth(2).locator('button.me').count() === 1, '點第三架就換成第三架')
+    // ── 加一個分隊：展開機種卡 → 點 Ki-84 ────────────────
+    await page.click('#sk-mine .add')
+    await page.waitForTimeout(100)
+    const planes = page.locator('#sk-mine .plane')
+    ok(await planes.count() === 8, '機種卡八張')
+    const names = await planes.locator('.nm').allTextContents()
+    await planes.nth(names.findIndex((n) => n.includes('Ki-84'))).click()
+    await page.waitForTimeout(100)
+    ok(await mine.count() === 3, '加了第三隊')
+    ok(await page.locator('#sk-mine .palette:not([hidden])').count() === 0, '選完機種卡收起來')
+    ok((await mine.nth(2).locator('.nm').textContent())!.includes('Ki-84'), '第三隊是 Ki-84')
+    ok(await countOf('mine') === '12', '我方 12 架')
 
-    // ── ✕ 刪掉他前面那一架，玩家要跟著往前一格 ─────────
-    await blueChips.nth(0).locator('button.del').click()
-    ok(await blueChips.count() === 3, '✕ 刪掉一架')
-    const after = await blueChips.locator('button:not(.del)').allTextContents()
-    ok(await blueChips.nth(1).locator('button.me').count() === 1,
-      '玩家跟著往前一格 —— 還是同一台 Bf109', after.join(' | '))
+    // ── − ＋ ✕ ─────────────────────────────────────────
+    await mine.nth(2).locator('.minus').click()
+    await page.waitForTimeout(80)
+    ok((await mine.nth(2).locator('.qty .n').textContent()) === '3', '− 一次變 3 架')
+    ok(await mine.nth(2).locator('.dots i.on').count() === 3, '三個三角形亮著')
+    await foe.nth(2).locator('.rm').click()
+    await page.waitForTimeout(80)
+    ok(await foe.count() === 2, '✕ 拿掉敵方第三隊')
+    ok(await countOf('foe') === '8', '敵方 8 架')
 
-    // ── 敵方也編一組混搭 ────────────────────────────────
-    await page.click('#red-add button.ghost')
-    const redNames = await redAdd.allTextContents()
-    await redAdd.nth(redNames.findIndex((n) => n.includes('He'))).click()
-    await redAdd.nth(redNames.findIndex((n) => n.includes('P-51'))).click()
-    ok(await redChips.count() === 2, '敵方編了兩架')
+    // ── 我帶哪一隊 ──────────────────────────────────────
+    await mine.nth(1).locator('.pick').click()
+    await page.waitForTimeout(80)
+    ok(await leadIndex() === 1, '點第二隊的圓點就換成第二隊')
+    ok((await mine.nth(1).locator('.nm').textContent())!.includes('B-17G'), '那一隊是 B-17G')
 
-    // ── 三台日本機也要真的編進去、打起來 ────────────────
-    //
-    // 【為什麼不是只把上面那個數字改成八】那只證明得了 `ALL_SPECS` 生出八顆
-    // 按鈕，證明不了那三台的 GLB、spec、砲塔或生成路徑可用 —— 三台全部沒接
-    // `GLB_MODELS` 時按鈕數照樣是八（Codex 審查 2026-09-03 P0）。
-    await blueAdd.nth(idx('Ki-84')).click()
-    await blueAdd.nth(idx('A6M5')).click()
-    await redAdd.nth(redNames.findIndex((n) => n.includes('G4M'))).click()
-    ok(await blueChips.count() === 5, '我方加上疾風與零戰')
-    ok(await redChips.count() === 3, '敵方加上一式陸攻')
+    // ── 對戰條跟著變 ────────────────────────────────────
+    const text = (await odds.textContent())!.replace(/\s+/g, ' ')
+    ok(text.includes('11') && text.includes('8'), '對戰條 11 : 8', text)
+    ok(text.includes('轟炸機 4 : 0'), '轟炸機 4 : 0', text)
 
-    // ── 場地與開場高度 ──────────────────────────────────
-    //
-    // 【為什麼在這裡驗】那兩個是「地形進不進得了場」的開關（島最高
-    // 1,000 m，而 4,000 m 的仗打下來最低只到 2,292 m）。純函數那一側由
-    // `test/unit/skirmish.test.ts` 釘住，這裡只驗按鈕真的接上去了。
-    const terrainPick = page.locator('#terrain-pick button')
-    const altitudePick = page.locator('#altitude-pick button')
-    ok(await terrainPick.count() === 3, '場地三個選項')
-    ok(await altitudePick.count() === 3, '開場高度三個選項')
-    ok(await terrainPick.nth(0).getAttribute('class') === 'sel', '場地預設是群島')
-    ok(await altitudePick.nth(2).getAttribute('class') === 'sel', '高度預設是中空')
-    await altitudePick.nth(0).click()
-    ok(await altitudePick.nth(0).getAttribute('class') === 'sel', '點甲板之後換它高亮')
+    // ── 戰場與開場高度 ──────────────────────────────────
+    const terrain = page.locator('#sk-terrain button')
+    const alt = page.locator('#sk-alt button')
+    ok(await terrain.count() === 3 && await alt.count() === 3, '戰場與高度各三個選項')
+    ok((await terrain.nth(0).getAttribute('class')) === 'on', '戰場預設是群島')
+    ok((await alt.nth(2).getAttribute('class')) === 'on', '高度預設是中空')
+    await alt.nth(0).click()
+    await page.waitForTimeout(80)
+    ok((await alt.nth(0).getAttribute('class')) === 'on', '點甲板之後換它高亮')
 
-    // ── 打起來 ──────────────────────────────────────────
+    // ── 空名單擋住起飛 ──────────────────────────────────
+    await foe.nth(1).locator('.rm').click()
+    await foe.nth(0).locator('.rm').click()
+    await page.waitForTimeout(80)
+    ok(await foe.count() === 0, '敵方清空')
+    ok(await fight.isDisabled(), '敵方空著時「起飛」是禁用的')
+    ok((await page.locator('#sk-warn').textContent())!.length > 0, '而且有一行說為什麼')
+    await page.click('#sk-foe .add')
+    await page.waitForTimeout(80)
+    const foeNames = await page.locator('#sk-foe .plane .nm').allTextContents()
+    await page.locator('#sk-foe .plane').nth(foeNames.findIndex((n) => n.includes('G4M'))).click()
+    await page.waitForTimeout(80)
+    ok(await foe.count() === 1 && !(await fight.isDisabled()), '敵方加回一隊 G4M，起飛可以按')
+
+    // ── 打起來：場上真的是這一組編制 ─────────────────────
     await fight.click()
     await page.waitForTimeout(2500)
-
     const line = logs.find((t) => t.includes('×'))
     ok(line !== undefined, '主迴圈印出了這一場的編制', line ?? '(沒有)')
-    ok(line!.includes('bf109k4') && line!.includes('p51d') && line!.includes('b17g'),
-      '我方真的是混編的那三架')
-    ok(line!.includes('he111'), '敵方真的有 He 111')
-    ok(line!.includes('ki84') && line!.includes('a6m5') && line!.includes('g4m'),
-      '三台日本機真的生成了 —— GLB、spec 與砲塔都接上了', line ?? '')
-    ok(line!.includes('開場 600 m'), '甲板那一格真的接到了開場高度', line ?? '')
-    ok(line!.includes('場地 archipelago'), '場地也接上了')
+    ok(line!.includes('4 × p51d') && line!.includes('4 × b17g') && line!.includes('3 × ki84'),
+      '我方真的是 P-51D 4、B-17G 4、Ki-84 3')
+    ok(line!.includes('4 × g4m'), '敵方真的是 G4M 4')
+    // 【我帶第二隊 → 玩家座位是那一隊的長機 = 第 4 格】flightLine 把 player 掛在
+    // lead 隊，長機就是 members[0]；前一隊四架，所以是 #4
+    ok(line!.includes('玩家座位 #4'), '玩家座位在第二隊的長機', line)
+    ok(line!.includes('開場 600 m'), '甲板那一格真的接到了開場高度')
+    ok(line!.includes('archipelago'), '場地也接上了')
+    ok(await page.evaluate(() => document.querySelector<HTMLElement>('#ui .screen:not([hidden])') === null),
+      '進入戰鬥後選單全部藏起來')
+    ok(errors.length === 0, '沒有 console error', errors.join(' / '))
 
-    const spawned = await page.evaluate(() => document.querySelectorAll('canvas').length)
-    ok(spawned > 0, '畫面還在')
-    ok(errors.length === 0, '沒有 console error', errors.slice(0, 3).join(' / '))
-
-    console.log('\n遭遇戰自訂編組：全部通過')
+    console.log('\n遭遇戰編組：全部通過')
   } finally {
     await browser.close()
   }
 }
 
-await main()
+void main()

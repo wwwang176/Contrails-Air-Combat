@@ -32,7 +32,8 @@ import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
-import { createScoreboard, scoreRows, sortScoreRows } from './ui/scoreboard'
+import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
+import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
@@ -586,6 +587,7 @@ function enterBattle(): void {
  */
 function startWorld(cfg: BattleConfig): void {
   battle = createBattle(playerController, cfg)
+  battleStartedAt = elapsed
   world = battle.world
   /**
    * 撞地判定，套用於**所有**飛機。
@@ -760,6 +762,8 @@ function leaderLabel(point: Vector3): string {
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
+/** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
+let battleStartedAt = 0
 /**
  * 下一次印遙測的時間，s。
  *
@@ -1337,6 +1341,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
       sortScoreRows(scoreRows(battle.roster, world.combatants, 'blue')),
       sortScoreRows(scoreRows(battle.roster, world.combatants, 'red')),
       finished ? (battle.outcome === 'victory' ? 'victory' : 'defeat') : null,
+      finished ? afterAction() : null,
     )
   }
   scoreboard.setVisible(showBoard)
@@ -1436,6 +1441,36 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
 })
 menu.renderSetup(setup)
 menu.show(screen)
+
+/**
+ * 結算板除了兩張表之外的東西（2026-09-04 選單重做 spec §2.6）。只在分出勝負
+ * 的那一幀算一次。
+ *
+ * 【我方第幾隊】編組表裡 `player: true` 那一筆在藍隊裡排第幾 —— 遭遇戰與
+ * 任務都成立，不需要另一份索引。
+ * 【轟炸機存活】`convoy.seats` 是 `world.combatants` 的索引，逐一讀 hp。
+ */
+function afterAction(): AfterAction {
+  const blueUnits = battle.cfg.units.filter((u) => u.team === 'blue')
+  const flightAt = blueUnits.findIndex((u) => u.player === true)
+  const me = battle.player
+  const convoy = battle.convoy
+  return {
+    mode,
+    title: mode === 'mission' ? pendingMission?.title ?? '' : '遭遇戰',
+    objective: battle.objectiveText !== ''
+      ? battle.objectiveText
+      : pendingMission?.battle.objective ?? '擊落全部敵機',
+    seconds: elapsed - battleStartedAt,
+    playerSpec: shortName(me.aircraft.spec),
+    playerFlight: (flightAt < 0 ? 0 : flightAt) + 1,
+    playerHp01: Math.max(0, Math.min(1, me.hp / me.aircraft.spec.hp)),
+    convoy: convoy === null ? null : {
+      alive: convoy.seats.filter((i) => world.combatants[i]!.hp > 0).length,
+      total: convoy.seats.length,
+    },
+  }
+}
 
 function frame(now: number) {
   const frameSeconds = (now - lastTime) / 1000
