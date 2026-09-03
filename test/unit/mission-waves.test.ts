@@ -245,8 +245,56 @@ describe('返航的翻譯', () => {
   })
 })
 
+describe('攔截轟炸機群的第二批護航機', () => {
+  const m1 = readyCard('germany-m1')
+
+  it('這張卡真的掛了一個波次', () => {
+    // 【為什麼要這一條】設定基準（`mission-config-baseline.test.ts`）刻意把
+    // `beats` 排除在快照之外 —— 德 M1 多一個波次是這一輪刻意的新增，不該讓
+    // 基準紅。代價是**波次被刪掉那一份基準仍然全綠**（Codex 審查 P1）。
+    // 這一條補上那個缺口
+    expect(m1.battle.waves).toHaveLength(1)
+  })
+
+  it('來的是敵方的 P-51D 四架，用時鐘不是存活數', () => {
+    const w = m1.battle.waves![0]!
+    expect(w.side).toBe('theirs')
+    expect(w.spec).toBe(P51D)
+    expect(w.count).toBe(4)
+    // 【為什麼是時鐘】這一關的 convoyPriority 是 5，我方一心衝轟炸機 ——
+    // 實測一整場 145 s 護航機一架都沒掉，而勝負 145.5 s 就定了。
+    // 「敵方戰鬥機剩不多」那個條件的節奏在這裡不可靠
+    if (w.when.kind !== 'clock') throw new Error('應該用時鐘')
+    expect(w.when.at).toBeGreaterThan(0)
+    expect(w.warnLead).toBeGreaterThan(0)
+  })
+
+  it('波次來得及在勝負定下來之前發生', () => {
+    // 【擋的是「波次排在關卡結束之後」】轟炸機飛 12 km 大約 145 s；
+    // 波次若排在那之後，玩家永遠看不到它
+    const w = m1.battle.waves![0]!
+    if (w.when.kind !== 'clock') throw new Error('應該用時鐘')
+    expect(w.when.at + w.warnLead).toBeLessThan(120)
+  })
+})
+
 describe('帝國最後防線的兩批攔截機', () => {
   const m4 = readyCard('germany-m4')
+
+  it('返航的兜底時限早於第二批進場 —— 否則那一關的下半場會被跳過', () => {
+    // 【這是一個真的會發生的路徑】開場規則是 annihilate，紅隊歸零就**直接
+    // 判勝**，之後返航節拍再也沒有機會接管規則。實測：讓紅隊在 t=4.1 s 歸零
+    // 而藍隊還有 8 架，結果是 victory、withdraw 還停在 waiting
+    //（Codex 審查 2026-09-03 P0）
+    //
+    // 所以兜底時限要早於「打得完敵軍」的那一刻。這裡守的是可以量的那一半：
+    // 它早於第二批進場，第二批因此是擋在逃生路上，而不是還在纏鬥時多來四架
+    const w = m4.battle.withdraw!
+    if (w.when.kind !== 'alive') throw new Error('應該用存活數')
+    const second = m4.battle.waves![1]!
+    if (second.when.kind !== 'clock') throw new Error('第二批應該用時鐘')
+    expect(w.when.byLatest).toBeLessThan(second.when.at + second.warnLead)
+  })
 
   it('返航綁我方存活數，不是時鐘', () => {
     // 【為什麼非這樣不可】開場規則是 annihilate，紅隊歸零就直接判勝。

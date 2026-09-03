@@ -1746,5 +1746,16 @@ const GFX_HIDDEN_LAYER = 31
      * `ACE` 是 0、`VETERAN` 不是 —— 延遲不同，軌跡四十秒後就完全不一樣。
      */
     rd: playerAi.profile.reactionDelay,
+    /**
+     * 撤離圓環在不在場景裡。
+     *
+     * 【為什麼是這個而不是數像素】圓環畫在 WebGL 那一張畫布上，而
+     * `preserveDrawingBuffer` 是關的 —— `getImageData` 讀不回來。所以 e2e
+     * 問的是「它有沒有被加進場景」：`hasTarget` 為真卻沒加進去，正是那個
+     * 會靜靜發生的失敗（環每一幀照常更新位置與半徑，就是不在場景裡）。
+     */
+    ring: objectiveRing.object.parent !== null,
+    /** 這一場有沒有終點。`ring` 的對照 —— 兩者必須一致 */
+    tgtOn: battle.mission.hasTarget,
   }
 }

@@ -412,13 +412,27 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         entry: 'headOn',
         terrain: 'farmland',
         /**
-         * 【觸發綁我方存活數，不是時鐘】開場規則是 `annihilate`，紅隊歸零
-         * 就直接判勝。用時鐘的話玩家在那一秒之前清光敵軍，返航段永遠不會
-         * 發生。藍 8 打紅 10 再加兩批共 8 架，「藍隊剩 ≤4」一定比「紅隊
-         * 歸零」先到 —— 而那正是這一關的敘述：友軍逐漸減少 → 任務更新。
+         * 【`byLatest` 必須早於「打得完敵軍」的那一刻】開場規則是
+         * `annihilate`，紅隊歸零就**直接判勝**，之後返航節拍再也沒有機會
+         * 接管規則 —— 那一關設計好的下半場就整段跳過了。
+         *
+         * 【40 秒是怎麼來的】它要滿足兩件事：
+         *
+         * ```
+         *   早於第二批進場（49 s）  →  第二批因此變成「擋在逃生路上」，
+         *                              而不是「還在纏鬥時多來四架」
+         *   早到打不完 14 架        →  開場 10 架＋第一批 4 架。離線探針裡
+         *                              AI 400 秒才掉 2 架；人快得多，但
+         *                              40 秒清 14 架不是一個能穩定做到的事
+         * ```
+         *
+         * 【`atMost: 4` 仍然有用】玩家撐不住時它會**更早**觸發，那才是這一關
+         * 的敘述：友軍逐漸減少 → 任務更新。兩個是「誰先到算誰」。
+         *
+         * ⚑ 兩個數字都是起始值，待試飛。
          */
         withdraw: {
-          when: { kind: 'alive', side: 'mine', atMost: 4, byLatest: 90 },
+          when: { kind: 'alive', side: 'mine', atMost: 4, byLatest: 40 },
           message: 'RETURN TO BASE',
           distance: RETREAT_DISTANCE, radius: CONVOY_RADIUS,
           seconds: RETREAT_SECONDS,

@@ -22,19 +22,19 @@
  *
  * **給人看的**：截圖。
  *
- * 【圓環暫時無從驗起】12 關裡沒有撤離卡；撤離點現在由**德 M4 的返航節拍**
- * 中途產生，而那要打到我方剩不多才觸發 —— 這支腳本跑不到那裡。下面第 3 段
- * 因此留空待命，判準的推導留在那裡沒刪。
+ * 【圓環驗得到了】三張護送／攔截卡（盟 M1、德 M1、日 M3）**開場就有終點**，
+ * 所以 `hasTarget` 為真、圓環進場景。反證是殲滅卡（日 M1）必須沒有。
+ * 德 M4 的返航節拍也會中途產生撤離點，但那要打到我方剩不多才觸發 ——
+ * 這支腳本跑不到那裡。
  *
- * 【為什麼圓環驗得到而準星那一套驗不到】圓環畫在 **WebGL** 那一張畫布上，
- * `getImageData` 讀不回來（未設 `preserveDrawingBuffer`）。所以圓環走的是
- * **`page.screenshot()` 的 PNG**，由 playwright 自己合成 —— 那條路徑讀得到
- * WebGL。判準是「畫面上緣（天空區）有沒有出現圓環的綠」。
+ * 【圓環問的是場景歸屬，不是像素】它畫在 WebGL 那一張畫布上，而
+ * `preserveDrawingBuffer` 是關的，`getImageData` 讀不回來。`__probe().ring`
+ * 回的是「環在不在場景裡」—— 那正是會靜靜發生的失敗：`hasTarget` 為真卻
+ * 沒加進去時，環每一幀照常更新位置與半徑，就是不在畫面上。
  *
- * 【為什麼取上緣而不是中央】撤離點在正前方、與自機同高，所以它落在畫面
- * 垂直中央附近 —— 而那裡也是準星、目標框、敵機的所在。取一條**水平長條**
- * 但排除中央的正方形，綠色的來源就只剩圓環與遠處的 HUD 元件；再用
- * 「有沒有撤離點」做開關對照（殲滅任務同一區必須沒有），那條就可證偽。
+ * 【目標列那一側才數像素】它畫在 2D 畫布上（`#hud`），`getImageData`
+ * 讀得回來。取樣區是右上角 —— 左上角是效能面板（預設開著），這一版之前
+ * 放那裡，Playwright 的截圖照出兩者疊在一起。
  */
 import { chromium } from 'playwright'
 
@@ -175,14 +175,40 @@ async function main(): Promise<void> {
     }
     await page.screenshot({ path: SHOTS + 'mission-1-kill.png' })
 
-    // ── 3. 圓環：**撤離關掉之後這一段沒有東西可驗** ─────────
+    // ── 3. 圓環：護送卡有、殲滅卡沒有 ───────────────────────
     //
-    // 【為什麼是留空而不是刪掉】圓環的程式（`render/objectiveRing.ts`）與
-    // `main.ts` 的建置／釋放都還在，只是現在沒有任何一張可點的卡會讓
-    // `mission.hasTarget` 變 true。撤離翻回來的那一天，這一段要跟著回來：
-    // 判準是「畫面上緣（天空區）出現圓環的綠」，而反證是殲滅任務同一區必須
-    // 沒有 —— 檔頭第五段有完整推導。
-    console.log('[任務] 圓環：撤離關閉中，這一段暫時沒有東西可驗')
+    // 【為什麼問場景歸屬而不是數像素】圓環畫在 WebGL 那一張畫布上，而
+    // `preserveDrawingBuffer` 是關的 —— `getImageData` 讀不回來。所以這裡
+    // 問 `__probe().ring`：**環有沒有被加進場景**。那正是會靜靜發生的失敗
+    // ——`hasTarget` 為真卻沒加進去時，環每一幀照常更新位置與半徑，就是
+    // 不在畫面上。
+    //
+    // 【對照組】殲滅卡同一格必須是 false。少了它，一個「永遠加進場景」的
+    // 環也會讓正例全綠。
+    const ringOf = async (campaign: string, index: number) => {
+      await page.goto(URL)
+      await page.click('[data-act="start"]')
+      await page.click('[data-act="mission"]')
+      await page.waitForTimeout(200)
+      await page.click(`#mission-factions button:nth-child(${campaignButtons.indexOf(campaign) + 1})`)
+      await page.waitForTimeout(150)
+      await page.click(`#mission-list .card:nth-child(${index + 1})`)
+      await page.waitForTimeout(2500)
+      return page.evaluate(() => {
+        const p = (window as unknown as Record<string, () => unknown>)['__probe']!()
+        return p as { ring: boolean; tgtOn: boolean } | null
+      })
+    }
+    const convoy = await ringOf('盟軍', 0)
+    const kill = await ringOf('日本', 0)
+    console.log(`[任務] 圓環：護送 ring=${convoy?.ring}/target=${convoy?.tgtOn}`
+      + `、殲滅 ring=${kill?.ring}/target=${kill?.tgtOn}`)
+    if (convoy === null || kill === null) fail('__probe 回了 null —— 不在戰鬥裡？')
+    if (!convoy.tgtOn) fail('護送任務應該有終點')
+    if (!convoy.ring) fail('護送任務有終點，圓環卻不在場景裡')
+    if (kill.tgtOn) fail('殲滅任務不該有終點')
+    if (kill.ring) fail('殲滅任務不該把圓環加進場景')
+    await page.screenshot({ path: SHOTS + 'mission-3-ring.png' })
 
     // ── 4. 結算的出口：任務模式顯示「回任務列表」 ──────────
     //
