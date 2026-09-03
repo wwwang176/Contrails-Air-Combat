@@ -1,9 +1,10 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { Idle } from './spawn-snapshot'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * **玩家那一架按 `I` 代飛之後，每一次進入 `extend` 的完整前因。**不是測試。
@@ -31,8 +32,8 @@ const STEP = DT * STRIDE
 
 /** 專案負責人實際玩過的兩張卡 */
 const CARDS: [string, 'allies' | 'axis'][] = [
-  ['axis-escort', 'axis'],
-  ['allies-escort', 'allies'],
+  ['allies-m1', 'axis'],
+  ['allies-m1', 'allies'],
 ]
 
 const FWD = new Vector3(0, 0, -1)
@@ -62,10 +63,10 @@ function jitter(b: ReturnType<typeof createBattle>, salt: number): void {
 const SALTS = [0, 101, 202, 303, 404]
 const summary: string[] = []
 
-for (const [id, faction] of CARDS) {
+for (const [id] of CARDS) {
  for (const salt of SALTS) {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new Idle(), missionConfigFrom(card, faction), SEED)
+  const card = readyCard(id)
+  const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
   jitter(b, salt)
 
   // 【代飛】main.ts 的 I 鍵就是這三行

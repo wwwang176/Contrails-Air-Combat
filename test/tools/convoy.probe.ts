@@ -13,11 +13,11 @@
  * 跑法：`npx tsx test/tools/convoy.probe.ts`
  */
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
-import type { FactionChoice } from '../../src/battle/skirmish'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SEED = 20260821
@@ -70,11 +70,9 @@ interface Result {
  *                 一定要用它** —— 空控制器等於少一架，而那一架是主力。
  */
 function run(
-  label: string, faction: FactionChoice, cardId: string, aiPlayer = false, limit = 400,
+  label: string, cardId: string, aiPlayer = false, limit = 400,
 ): Result {
-  const card = MISSIONS[faction].find((m) => m.id === cardId)
-  if (card === undefined) throw new Error(`沒有這張卡：${cardId}`)
-  const cfg = missionConfigFrom(card, faction)
+  const cfg = missionConfigFrom(readyCard(cardId))
   const b = createBattle(aiPlayer ? new AiController() : new Idle(), cfg, SEED)
   const cv = b.convoy
   if (cv === null) throw new Error(`${label}：這一場沒有被護送者`)
@@ -123,18 +121,17 @@ function run(
   }
 }
 
-const CARDS: Array<[string, FactionChoice, string]> = [
-  ['同盟 護送 B-17', 'allies', 'allies-escort'],
-  ['同盟 攔截 He111', 'allies', 'allies-intercept'],
-  ['軸心 護送 He111', 'axis', 'axis-escort'],
-  ['軸心 攔截 B-17', 'axis', 'axis-intercept'],
+const CARDS: Array<[string, string]> = [
+  ['護送 B-17（盟 M1）', 'allies-m1'],
+  ['攔截 B-17（德 M1）', 'germany-m1'],
+  ['護送 G4M（日 M3）', 'japan-m3'],
 ]
 
 function table(title: string, aiPlayer: boolean): void {
   console.log(title)
   console.log('卡片                     結局      秒數   剩餘  橫向散布  滾轉前  滾轉後  平均')
-  for (const [label, faction, id] of CARDS) {
-    const r = run(label, faction, id, aiPlayer)
+  for (const [label, id] of CARDS) {
+    const r = run(label, id, aiPlayer)
     console.log(
       `${label.padEnd(20)} ${r.outcome.padEnd(9)} ${r.seconds.toFixed(1).padStart(6)}`
       + ` ${String(r.convoyLeft).padStart(5)} ${r.spread.toFixed(0).padStart(9)} m`
@@ -165,9 +162,9 @@ console.log('── 表三：攔截的消融（玩家由 AI 代飛）───�
 console.log('護航機  終點距離   結局      秒數   轟炸機剩  轟炸機血量（各架 %）')
 for (const escorts of [0, 2, 4]) {
   for (const dist of [12000, 20000]) {
-    const base = MISSIONS.allies.find((m) => m.id === 'allies-intercept')!
+    const base = readyCard('germany-m1')
     const card = { ...base, redCount: escorts, targetDistance: dist }
-    const cfg = missionConfigFrom(card, 'allies')
+    const cfg = missionConfigFrom(card)
     const b = createBattle(new AiController(), cfg, SEED)
     const cv = b.convoy!
     let t = 0
@@ -202,9 +199,9 @@ console.log('── 表四：火力夠不夠（0 護航機、12 km、AI 代飛�
 console.log('攔截機  轟炸機   結局      秒數   轟炸機剩   血量（各架 %）')
 for (const fighters of [4, 8, 12]) {
   for (const bombers of [1, 2, 4]) {
-    const base = MISSIONS.allies.find((m) => m.id === 'allies-intercept')!
+    const base = readyCard('germany-m1')
     const card = { ...base, blueCount: fighters, redCount: 0, convoyCount: bombers }
-    const cfg = missionConfigFrom(card, 'allies')
+    const cfg = missionConfigFrom(card)
     const b = createBattle(new AiController(), cfg, SEED)
     const cv = b.convoy!
     let t = 0
@@ -241,12 +238,13 @@ console.log('')
 console.log('── 表五：convoyPriority 掃描（AI 代飛）──────────')
 console.log('偏置   卡片              結局      秒數   轟炸機剩   血量（各架 %）')
 for (const bias of [1, 2, 3, 5]) {
-  for (const [label, faction, id] of [
-    ['同盟 攔截', 'allies', 'allies-intercept'],
-    ['同盟 護送', 'allies', 'allies-escort'],
+  for (const [label, id] of [
+    ['攔截', 'germany-m1'],
+    ['護送', 'allies-m1'],
   ] as const) {
-    const base = MISSIONS[faction].find((m) => m.id === id)!
-    const cfg = missionConfigFrom({ ...base, convoyPriority: bias }, faction)
+    const base = readyCard(id)
+    const cfg = missionConfigFrom(
+      { ...base, battle: { ...base.battle, convoyPriority: bias } })
     const b = createBattle(new AiController(), cfg, SEED)
     const cv = b.convoy!
     let t = 0
@@ -279,9 +277,9 @@ console.log('── 表二：沒有被護送者的場次 ───────�
     + `   下令端分隊 ${b.blueOrderFlights.length} + ${b.redOrderFlights.length}`
     + `   全部分隊 ${b.flights.flights.length}`)
 }
-for (const [faction, id] of [['allies', 'allies-sweep'], ['axis', 'axis-patrol']] as const) {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new Idle(), missionConfigFrom(card, faction), SEED)
+for (const id of ['japan-m1'] as const) {
+  const card = readyCard(id)
+  const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
   console.log(`${card.title.padEnd(12)} convoy = ${b.convoy === null ? 'null' : '不是 null（錯）'}`
     + `   規則 ${b.cfg.rules.kind}`)
 }
@@ -290,8 +288,8 @@ for (const [faction, id] of [['allies', 'allies-sweep'], ['axis', 'axis-patrol']
 console.log('')
 console.log('── 表三：護送 B-17 的編組表 ──────────────────')
 {
-  const card = MISSIONS.allies.find((m) => m.id === 'allies-escort')!
-  const cfg = missionConfigFrom(card, 'allies')
+  const card = readyCard('allies-m1')
+  const cfg = missionConfigFrom(card)
   console.log('隊伍  職責     架數  機種      lane    tier  玩家')
   for (const u of cfg.units) {
     console.log(

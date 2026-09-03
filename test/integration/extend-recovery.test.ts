@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * `extend` 的絕對出場條件：脫離的**總量**要下降，而且沒有人死得更快。
@@ -62,9 +63,9 @@ const STEP = DT * STRIDE
 /** 五次微擾。0 = 不擾動的那一次 */
 const SALTS = [0, 101, 202, 303, 404]
 
-const CARDS: [string, 'allies' | 'axis'][] = [
-  ['axis-escort', 'axis'],
-  ['allies-escort', 'allies'],
+const CARDS: [string][] = [
+  ['allies-m1'],
+  ['germany-m1'],
 ]
 
 /**
@@ -134,9 +135,9 @@ function median(xs: number[]): number {
 
 const range = (xs: number[]): number => Math.max(...xs) - Math.min(...xs)
 
-function run(id: string, faction: 'allies' | 'axis', salt: number, on: boolean): Result {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new AiController(), missionConfigFrom(card, faction), SEED)
+function run(id: string, salt: number, on: boolean): Result {
+  const card = readyCard(id)
+  const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
   jitter(b, salt)
 
   // 【設定點】`createBattle` 已經替每個座位建好 controller（`setup.ts:459`）
@@ -271,9 +272,9 @@ describe('extend 的絕對出場條件（消融對照）', () => {
     const pooledShare: number[] = []
     const perCard: { id: string, dShare: number }[] = []
 
-    for (const [id, faction] of CARDS) {
-      const on = SALTS.map((s) => run(id, faction, s, true))
-      const off = SALTS.map((s) => run(id, faction, s, false))
+    for (const [id] of CARDS) {
+      const on = SALTS.map((s) => run(id, s, true))
+      const off = SALTS.map((s) => run(id, s, false))
 
       /** 同一個 salt 配對，逐對相減 */
       const pairs = (f: (r: Result) => number): number[] =>

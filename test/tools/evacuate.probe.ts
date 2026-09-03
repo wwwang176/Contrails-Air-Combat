@@ -27,15 +27,29 @@ import { Vector3 } from 'three'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { ENTRY_PLANS } from '../../src/battle/entry'
 import { lineAbreast, sideSummary } from '../../src/battle/order'
-import { specsFor } from '../../src/battle/skirmish'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import { CAMERA_FOV_DEG } from '../../src/render/scene'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
+import { P51D } from '../../src/specs/p51d'
+import { BF109K4 } from '../../src/specs/bf109k4'
+import { DEFAULT_BATTLE, type BattleConfig } from '../../src/battle/setup'
+import { VETERAN } from '../../src/ai/profile'
 
 const DT = 1 / 240
-const CARD = MISSIONS.allies.find((c) => c.type === '撤離')!
+/**
+ * 這支探針自己建的撤離設定。
+ *
+ * 【為什麼不從 `MISSIONS` 找】12 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4
+ * 的返航節拍。但這支探針量的是**幾何**（距離 × 到達時間、抵達半徑），
+ * 那與有沒有一張卡在用它無關，而且量出來的數字正是德 M4 的時限所依據的。
+ */
+const CARD = {
+  blueCount: 4, redCount: 16, targetRadius: 1000,
+  entry: 'pursuit' as const,
+  blueSpec: P51D, redSpec: BF109K4,
+  targetDistance: 20000,
+}
 
 /** 一路朝撤離點飛，不開火、不迴避 */
 class Runner implements Controller {
@@ -75,7 +89,12 @@ interface Run {
 function runTimed(
   distance: number, radius: number, blue: number, red: number, tas: number,
 ): Run {
-  const base = missionConfigFrom(CARD, 'allies')
+  const base: BattleConfig = {
+    ...DEFAULT_BATTLE,
+    units: lineAbreast(ENTRY_PLANS[CARD.entry], CARD.blueSpec, CARD.blueCount,
+      CARD.redSpec, CARD.redCount),
+    aiProfile: VETERAN,
+  }
   const point = new Vector3(0, base.altitude, -distance)
   const ctl = new Runner()
   ctl.point.copy(point)
@@ -84,8 +103,7 @@ function runTimed(
     // 【架數要重新組一張表】改動前是覆寫 `blueCount` / `redCount` 兩個欄位。
     // 機種與擺法沿用那張卡的（`CARD.entry` 是 `ENTRY_PLANS` 的鍵）
     units: lineAbreast(
-      ENTRY_PLANS[CARD.entry], specsFor('allies')[0]!, blue,
-      specsFor('axis')[0]!, red),
+      ENTRY_PLANS[CARD.entry], CARD.blueSpec, blue, CARD.redSpec, red),
     tas,
     rules: { kind: 'evacuate', point, radius, seconds: Infinity },
   })
@@ -178,9 +196,17 @@ console.log(`
 ══ 四、陣營不對稱（直飛、距離 ${CARD.targetDistance / 1000} km、藍 4 紅 16）══
 
   陣營     我機      追兵      到達 s   我方剩   玩家活`)
-for (const faction of ['allies', 'axis'] as const) {
-  const card = MISSIONS[faction].find((c) => c.type === '撤離')!
-  const base = missionConfigFrom(card, faction)
+for (const [label, mineSpec, theirsSpec] of [
+  ['同盟國', P51D, BF109K4],
+  ['軸心國', BF109K4, P51D],
+] as const) {
+  const card = { ...CARD, blueSpec: mineSpec, redSpec: theirsSpec }
+  const base: BattleConfig = {
+    ...DEFAULT_BATTLE,
+    units: lineAbreast(ENTRY_PLANS[card.entry], card.blueSpec, card.blueCount,
+      card.redSpec, card.redCount),
+    aiProfile: VETERAN,
+  }
   const point = new Vector3(0, base.altitude, -card.targetDistance)
   const ctl = new Runner()
   ctl.point.copy(point)
@@ -197,7 +223,7 @@ for (const faction of ['allies', 'axis'] as const) {
   }
   const done = b.outcome === 'victory'
   console.log(
-    `${pad(faction === 'allies' ? '同盟國' : '軸心國', 7)}`
+    `${pad(label, 7)}`
     + `${pad(sideSummary(base.units, 'blue'), 9)}`
     + `${pad(sideSummary(base.units, 'red'), 10)}`
     + `${pad(done ? (steps * DT).toFixed(1) : '未到', 9)}`

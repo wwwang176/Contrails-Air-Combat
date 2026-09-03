@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
+import { readyCard, ESCORT_CARD, INTERCEPT_CARD } from '../fixtures/mission'
 import { MISSION_CONFIG_BASELINE } from '../fixtures/mission-config-baseline'
 import type { BattleConfig } from '../../src/battle/setup'
 
@@ -71,23 +72,14 @@ function snapshot(cfg: BattleConfig): unknown {
   }
 }
 
-/** 找一張卡。三條戰役上線之後 id 會換，這裡是唯一要改的地方 */
-function card(id: string) {
-  for (const list of Object.values(MISSIONS)) {
-    const m = list.find((x) => x.id === id)
-    if (m !== undefined) return m
-  }
-  throw new Error(`找不到任務卡 ${id}`)
-}
-
 describe('任務設定的基準', () => {
   it('護送卡（盟 M1）產出的設定與掃描定值時相同', () => {
-    expect(snapshot(missionConfigFrom(card('allies-escort'), 'allies')))
+    expect(snapshot(missionConfigFrom(readyCard(ESCORT_CARD))))
       .toEqual(MISSION_CONFIG_BASELINE['allies-escort'])
   })
 
   it('攔截卡（德 M1）產出的設定與掃描定值時相同', () => {
-    expect(snapshot(missionConfigFrom(card('axis-intercept'), 'axis')))
+    expect(snapshot(missionConfigFrom(readyCard(INTERCEPT_CARD))))
       .toEqual(MISSION_CONFIG_BASELINE['axis-intercept'])
   })
 

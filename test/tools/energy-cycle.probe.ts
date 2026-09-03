@@ -1,11 +1,12 @@
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_TACTICS, hasSlot, teamIndexOf } from '../../src/ai/tactics'
 import type { TacticalPhase } from '../../src/ai/tactics'
 import { manoeuvreSpeed } from '../../src/ai/doctrine'
 import { G0 } from '../../src/core/math'
 import { Idle } from './spawn-snapshot'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * 戰術循環跑不跑得完一輪，以及 `buildMax` 該訂多少。
@@ -76,9 +77,9 @@ interface Result {
   diveByPassing: number
 }
 
-function main(cardId: string, faction: 'allies' | 'axis'): Result {
-  const card = MISSIONS[faction].find((m) => m.id === cardId)!
-  const cfg = missionConfigFrom(card, faction)
+function main(cardId: string): Result {
+  const card = readyCard(cardId)
+  const cfg = missionConfigFrom(card)
   const b = createBattle(new Idle(), cfg, SEED)
 
   const tracks: Track[] = []
@@ -197,19 +198,19 @@ function main(cardId: string, faction: 'allies' | 'axis'): Result {
 }
 
 const CARDS: [string, 'allies' | 'axis'][] = [
-  ['allies-sweep', 'allies'],
-  ['allies-intercept', 'allies'],
-  ['allies-escort', 'allies'],
-  ['axis-intercept', 'axis'],
-  ['axis-escort', 'axis'],
+  ['japan-m1', 'allies'],
+  ['germany-m1', 'allies'],
+  ['allies-m1', 'allies'],
+  ['germany-m1', 'axis'],
+  ['allies-m1', 'axis'],
 ]
 
 const all: Result = {
   fullCycles: 0, cyclesWithShot: 0, buildRate: [], buildSeconds: [],
   diveByDeadline: 0, diveByPassing: 0,
 }
-for (const [id, faction] of CARDS) {
-  const r = main(id, faction)
+for (const [id] of CARDS) {
+  const r = main(id)
   all.fullCycles += r.fullCycles
   all.cyclesWithShot += r.cyclesWithShot
   all.buildRate.push(...r.buildRate)

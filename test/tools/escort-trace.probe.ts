@@ -27,7 +27,7 @@
  * 「掉到轟炸機下面」的那一段。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
@@ -37,6 +37,7 @@ import type { Aircraft } from '../../src/aircraft/Aircraft'
 import { instantaneousTurnRate } from '../../src/analysis/envelope'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -157,8 +158,8 @@ interface Sample {
 const DEG = 180 / Math.PI
 
 function main(): void {
-  const card = MISSIONS.axis.find((m) => m.id === 'axis-escort')!
-  const b = createBattle(new AiController(), missionConfigFrom(card, 'axis'), SEED)
+  const card = readyCard('allies-m1')
+  const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
 
   const me: Combatant = b.player
   const ai = me.controller
@@ -331,7 +332,7 @@ function main(): void {
   }
 
   console.log(JSON.stringify({
-    card: 'axis-escort', seed: SEED, step: STEP,
+    card: 'allies-m1', seed: SEED, step: STEP,
     spec: me.aircraft.spec.name ?? 'Bf 109',
     // 事件窗；loAt < 0 表示這一次沒有出現回報的那個形狀
     event: loAt >= 0 ? { hiAt, loAt, from, to } : null,

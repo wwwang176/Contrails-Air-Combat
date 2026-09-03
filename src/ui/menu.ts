@@ -1,7 +1,8 @@
-import { MISSIONS, type MissionCard } from '../battle/missions'
+import { CAMPAIGNS, MISSIONS } from '../battle/missions'
+import type { Campaign, ReadyMissionCard } from '../battle/missions'
 import {
   ALL_SPECS, specOf, withAircraft, withoutAircraft,
-  ALTITUDES, MAX_SIDE, type FactionChoice, type SkirmishSetup,
+  ALTITUDES, MAX_SIDE, type SkirmishSetup,
 } from '../battle/skirmish'
 import type { TerrainKind } from '../world/terrainKind'
 import type { Screen, ScreenEvent } from './screens'
@@ -28,7 +29,7 @@ export interface MenuHooks {
    *
    * 【先送這個，再送 `fight`】呼叫端要先知道打哪一關，才建得出戰鬥。
    */
-  onMission(card: MissionCard): void
+  onMission(card: ReadyMissionCard): void
 }
 
 export interface Menu {
@@ -40,9 +41,17 @@ export interface Menu {
   renderSetup(setup: SkirmishSetup): void
 }
 
-const FACTION_LABEL: Record<FactionChoice, string> = {
-  allies: '同盟國',
-  axis: '軸心國',
+/**
+ * 戰役那一列的標籤。
+ *
+ * 【為什麼是 `Record<Campaign, …>` 而不是三元式】少一格是編譯錯誤。
+ * 而那一列迭代的是 `CAMPAIGNS` 不是一個寫死的陣列 —— 加第四條線時，
+ * 只加型別與標籤而漏了迭代，按鈕會**永遠畫不出來而且照樣編譯**。
+ */
+const CAMPAIGN_LABEL: Record<Campaign, string> = {
+  allies: '盟軍',
+  germany: '德軍',
+  japan: '日本',
 }
 
 /**
@@ -94,7 +103,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     battle: null,
   }
   const pause = root.querySelector('#pause') as HTMLElement
-  const missionFactions = root.querySelector('#mission-factions') as HTMLElement
+  const missionCampaigns = root.querySelector('#mission-factions') as HTMLElement
   const missionList = root.querySelector('#mission-list') as HTMLElement
   const adders: Record<'blue' | 'red', HTMLElement> = {
     blue: root.querySelector('#blue-add') as HTMLElement,
@@ -122,7 +131,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   }
 
   /** 任務模式自己的陣營選擇 —— 與遭遇戰的那一個互不相干 */
-  let missionFaction: FactionChoice = 'allies'
+  let campaign: Campaign = 'allies'
 
   // 【事件委派】按鈕是動態產生的，一個一個掛監聽器會在重畫時漏掉舊的。
   //
@@ -161,41 +170,43 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     }
   }
 
-  function factionRow(
-    host: HTMLElement, current: FactionChoice, onPick: (f: FactionChoice) => void,
+  function campaignRow(
+    host: HTMLElement, current: Campaign, onPick: (c: Campaign) => void,
   ): void {
     host.innerHTML = ''
-    for (const f of ['allies', 'axis'] as const) {
+    for (const c of CAMPAIGNS) {
       const b = document.createElement('button')
-      b.textContent = FACTION_LABEL[f]
-      if (f === current) b.classList.add('sel')
-      b.addEventListener('click', () => onPick(f))
+      b.textContent = CAMPAIGN_LABEL[c]
+      if (c === current) b.classList.add('sel')
+      b.addEventListener('click', () => onPick(c))
       host.appendChild(b)
     }
   }
 
   function renderMissions(): void {
-    factionRow(missionFactions, missionFaction, (f) => {
-      missionFaction = f
+    campaignRow(missionCampaigns, campaign, (c) => {
+      campaign = c
       renderMissions()
     })
     missionList.innerHTML = ''
-    for (const m of MISSIONS[missionFaction]) {
+    for (const m of MISSIONS[campaign]) {
       const b = document.createElement('button')
       b.className = 'card'
-      // 【只有做好的卡可點】看起來可點卻沒反應才是真的壞掉。攔截與護航缺
-      // 第三種機體、打擊缺對地武器，那三張維持 M10 的樣子
-      b.disabled = !m.playable
+      // 【只有做好的卡可點】看起來可點卻沒反應才是真的壞掉。七張還沒做的
+      // 卡缺的是地面目標與投放武器（里程碑 2）
+      const ready = m.battle !== null
+      b.disabled = !ready
       b.innerHTML =
         `<span class="card-title">${escapeHtml(m.title)}</span>`
         + `<span class="card-desc">${escapeHtml(m.summary)}</span>`
         + `<span class="card-meta">${escapeHtml(m.type)}</span>`
-        + (m.playable ? '' : '<span class="locked">未開放</span>')
+        + (ready ? '' : '<span class="locked">未開放</span>')
       // 【為什麼卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個
       // 字串，而這裡要帶「哪一張卡」。`factionRow` 與 `stepper` 早就這樣做
-      if (m.playable) {
+      if (ready) {
+        const card = m as ReadyMissionCard
         b.addEventListener('click', () => {
-          hooks.onMission(m)
+          hooks.onMission(card)
           hooks.onEvent('fight')
         })
       }

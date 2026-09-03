@@ -1,4 +1,5 @@
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
+import { readyCard, ESCORT_CARD, INTERCEPT_CARD } from '../fixtures/mission'
 import type { BattleConfig } from '../../src/battle/setup'
 
 /**
@@ -14,7 +15,9 @@ import type { BattleConfig } from '../../src/battle/setup'
  * 它們改寫之後產出的設定必須與改動前一模一樣。
  *
  * **這支探針必須在動 `missions.ts` 之前跑過一次。** 事後再跑等於拿改動後的
- * 自己比自己。
+ * 自己比自己 —— 那一次已經跑過了（2026-09-03，三條戰役之前），產物就是那份
+ * fixture。這裡的程式碼後來跟著新 API 更新，所以它現在產的是**現況**的快照，
+ * 只在「刻意重新定值」時才該用。
  *
  * 【為什麼是正規化的純量快照而不是物件】`BattleConfig` 是一張物件圖，含新建
  * 的 `Vector3`、共用的 `AircraftSpec` 參考與 `Infinity`。兩次**正確**生成也
@@ -79,8 +82,8 @@ function rules(r: BattleConfig['rules']): unknown {
   }
 }
 
-const escort = MISSIONS.allies.find((m) => m.id === 'allies-escort')!
-const intercept = MISSIONS.axis.find((m) => m.id === 'axis-intercept')!
+const escort = readyCard(ESCORT_CARD)
+const intercept = readyCard(INTERCEPT_CARD)
 
 console.log(`/**
  * 「三條戰役」那一輪之前，兩張有實測基礎的卡產出的設定。
@@ -92,8 +95,8 @@ console.log(`/**
  * 編制是 2026-08-21 掃描定的）。改寫成新形狀之後產出的設定必須一模一樣。
  */
 export const MISSION_CONFIG_BASELINE = ${JSON.stringify(
-  { 'allies-escort': snapshot(missionConfigFrom(escort, 'allies')),
-    'axis-intercept': snapshot(missionConfigFrom(intercept, 'axis')) },
+  { 'allies-escort': snapshot(missionConfigFrom(escort)),
+    'axis-intercept': snapshot(missionConfigFrom(intercept)) },
   null, 2,
 )} as const
 `)

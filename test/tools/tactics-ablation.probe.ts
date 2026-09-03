@@ -1,10 +1,11 @@
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import type { BattleConfig } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_TACTICS } from '../../src/ai/tactics'
 import type { TacticalPhase } from '../../src/ai/tactics'
 import { Idle } from './spawn-snapshot'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * 戰術層的消融與通用性表。
@@ -29,16 +30,15 @@ const PHASES: TacticalPhase[] = ['off', 'build', 'perch', 'dive', 'zoom', 'coold
 
 const CARDS: [string, () => BattleConfig][] = [
   ['遭遇戰', () => DEFAULT_BATTLE],
-  ['allies-sweep', () => card('allies', 'allies-sweep')],
-  ['allies-intercept', () => card('allies', 'allies-intercept')],
-  ['allies-escort', () => card('allies', 'allies-escort')],
-  ['allies-evac', () => card('allies', 'allies-evac')],
-  ['axis-intercept', () => card('axis', 'axis-intercept')],
-  ['axis-escort', () => card('axis', 'axis-escort')],
+  ['日 M1 零戰', () => card('japan-m1')],
+  ['德 M1 攔截', () => card('germany-m1')],
+  ['德 M4 防線', () => card('germany-m4')],
+  ['盟 M1 護送', () => card('allies-m1')],
+  ['日 M3 護航', () => card('japan-m3')],
 ]
 
-function card(faction: 'allies' | 'axis', id: string): BattleConfig {
-  return missionConfigFrom(MISSIONS[faction].find((m) => m.id === id)!, faction)
+function card(id: string): BattleConfig {
+  return missionConfigFrom(readyCard(id))
 }
 
 function median(xs: number[]): number {

@@ -40,10 +40,11 @@
  * `extend-trigger.probe.ts` 的取捨相反，理由也相反。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -52,8 +53,8 @@ const STRIDE = 24
 const STEP = DT * STRIDE
 
 const CARDS: [string, 'allies' | 'axis'][] = [
-  ['axis-escort', 'axis'],
-  ['allies-escort', 'allies'],
+  ['allies-m1', 'axis'],
+  ['allies-m1', 'allies'],
 ]
 
 /** 五次微擾。0 = 不擾動的那一次 */
@@ -127,9 +128,9 @@ interface Run {
   fighterAlive: number
 }
 
-function run(id: string, faction: 'allies' | 'axis', salt: number, exit: number | null): Run {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new AiController(), missionConfigFrom(card, faction), SEED)
+function run(id: string, salt: number, exit: number | null): Run {
+  const card = readyCard(id)
+  const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
   jitter(b, salt)
 
   const cfg: RuleConfig = exit === null
@@ -251,7 +252,7 @@ function run(id: string, faction: 'allies' | 'axis', salt: number, exit: number 
   return { segs, protectedAlive, fighterAlive }
 }
 
-for (const [id, faction] of CARDS) {
+for (const [id] of CARDS) {
   console.log(`\n══════ ${id} ══════ ${SECONDS} s × ${SALTS.length} 次微擾 ══════`)
 
   for (const exit of EXITS) {
@@ -259,7 +260,7 @@ for (const [id, faction] of CARDS) {
     let protectedAlive = 0
     let fighterAlive = 0
     for (const salt of SALTS) {
-      const r = run(id, faction, salt, exit)
+      const r = run(id, salt, exit)
       segs.push(...r.segs)
       protectedAlive += r.protectedAlive
       fighterAlive += r.fighterAlive

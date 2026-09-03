@@ -32,7 +32,7 @@
  * 確認前三個問題之後再說。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { Vector3 } from 'three'
 import type { Combatant } from '../../src/world/World'
@@ -42,6 +42,7 @@ import {
 import { manoeuvreSpeed } from '../../src/ai/doctrine'
 import { G0 } from '../../src/core/math'
 import type { AircraftSpec } from '../../src/specs/types'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -188,8 +189,8 @@ function main(): void {
   if (which !== 'escort') {
     console.error('目前只支援 CARD=escort（護送關）。掠襲三張卡等這一輪的結論再接。')
   }
-  const card = MISSIONS.axis.find((m) => m.id === 'axis-escort')!
-  const b = createBattle(new AiController(), missionConfigFrom(card, 'axis'), SEED)
+  const card = readyCard('allies-m1')
+  const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
 
   const me: Combatant = b.player
   const ai = me.controller
@@ -299,7 +300,7 @@ function main(): void {
     + ' 個 = ' + (100 * only / Math.max(1, usable.length)).toFixed(1) + '%')
 
   console.error(rows.join('\n'))
-  console.log(JSON.stringify({ card: 'axis-escort', seed: SEED, step: STEP, samples: out }))
+  console.log(JSON.stringify({ card: 'allies-m1', seed: SEED, step: STEP, samples: out }))
 }
 
 main()

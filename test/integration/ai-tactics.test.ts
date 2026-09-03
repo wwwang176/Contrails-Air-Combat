@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, resetBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { PlayerController } from '../../src/control/PlayerController'
 import { createInputState } from '../../src/input/InputState'
 import { World } from '../../src/world/World'
@@ -16,6 +16,7 @@ import type { Command, Controller } from '../../src/control/Controller'
 import type { Battery } from '../../src/weapons/types'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { TacticalPhase } from '../../src/ai/tactics'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SEED = 20260805
@@ -175,9 +176,9 @@ describe('戰術層的接線（靶機、對頭、180 秒）', () => {
 
 describe('戰術層在整場對局裡的重置', () => {
   function battle(quota: number) {
-    const card = MISSIONS.allies.find((c) => c.id === 'allies-intercept')!
+    const card = readyCard('germany-m1')
     const b = createBattle(
-      new PlayerController(createInputState()), missionConfigFrom(card, 'allies'), SEED,
+      new PlayerController(createInputState()), missionConfigFrom(card), SEED,
     )
     for (const c of b.world.combatants) {
       if (c.controller instanceof AiController) {

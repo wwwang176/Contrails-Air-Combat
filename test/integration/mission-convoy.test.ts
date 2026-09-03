@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom, type MissionCard } from '../../src/battle/missions'
+import { missionConfigFrom, type MissionBattle } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
-import type { FactionChoice } from '../../src/battle/skirmish'
 import type { Battery } from '../../src/weapons/types'
 import type { Team } from '../../src/world/World'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * 讓一支槍不痛。
@@ -31,10 +31,8 @@ class Idle implements Controller {
   }
 }
 
-function battleFor(faction: FactionChoice, id: string) {
-  const card = MISSIONS[faction].find((m) => m.id === id)
-  if (card === undefined) throw new Error(`沒有這張卡：${id}`)
-  return createBattle(new Idle(), missionConfigFrom(card, faction), SEED)
+function battleFor(id: string) {
+  return createBattle(new Idle(), missionConfigFrom(readyCard(id)), SEED)
 }
 
 /** 由四元數求滾轉角，度。取機體右翼在世界座標的 y 分量 */
@@ -46,7 +44,7 @@ function rollDeg(a: Aircraft): number {
 
 describe('護送：被護送的那幾架平行飛向終點', () => {
   it('接觸之前滾轉恆為零 —— 一台一個小隊真的消掉了僚機走位', () => {
-    const b = battleFor('allies', 'allies-escort')
+    const b = battleFor('allies-m1')
     const cv = b.convoy
     expect(cv).not.toBeNull()
     let maxRoll = 0
@@ -64,7 +62,7 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('每一架各自沿一條平行線走 —— 橫向位置不變、縱向朝終點', () => {
-    const b = battleFor('allies', 'allies-escort')
+    const b = battleFor('allies-m1')
     const cv = b.convoy!
     const x0 = cv.seats.map((s) => b.world.combatants[s]!.aircraft.state.position.x)
     const z0 = cv.seats.map((s) => b.world.combatants[s]!.aircraft.state.position.z)
@@ -79,7 +77,7 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('整隊都落得進判定圈 —— 否則最外側那幾架永遠判不到', () => {
-    const b = battleFor('allies', 'allies-escort')
+    const b = battleFor('allies-m1')
     const cv = b.convoy!
     for (const p of cv.points) {
       expect(Math.abs(p.x - cv.goal.x)).toBeLessThan(b.mission.targetRadius)
@@ -87,7 +85,7 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('被護送的小隊不進指揮官的下令清單，但仍在對手的 foe 清單裡', () => {
-    const b = battleFor('allies', 'allies-escort')
+    const b = battleFor('allies-m1')
     // 藍隊 5 支小隊（1 支戰鬥機 + 4 支單機），下令端只剩 1 支
     expect(b.blueFlightIndices).toHaveLength(5)
     expect(b.blueOrderFlights).toHaveLength(1)
@@ -96,7 +94,7 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('被護送的那幾架拿到的是集合令，而且永遠不解除', () => {
-    const b = battleFor('allies', 'allies-escort')
+    const b = battleFor('allies-m1')
     const cv = b.convoy!
     for (let i = 0; i < Math.round(60 / DT); i++) stepBattle(b, DT)
     for (const seat of cv.seats) {
@@ -120,11 +118,11 @@ describe('護送與攔截：一條規則的兩側', () => {
    * 「護欄被改成配合實作」的起點。
    */
   function outcomeOf(
-    faction: FactionChoice, id: string,
-    over: Partial<MissionCard> = {}, disarm: Team | null = null,
+    id: string,
+    over: Partial<MissionBattle> = {}, disarm: Team | null = null,
   ) {
-    const card = MISSIONS[faction].find((m) => m.id === id)!
-    const cfg = missionConfigFrom({ ...card, ...over }, faction)
+    const card = readyCard(id)
+    const cfg = missionConfigFrom({ ...card, battle: { ...card.battle, ...over } })
     const b = createBattle(new Idle(), disarm === null ? cfg : {
       ...cfg,
       // 【逐架把槍拆掉】與 `mission-evacuate.test.ts` 同一手。混編也正確 ——
@@ -151,7 +149,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【為什麼不是「把敵機減到很少」】試過 `redCount: 1`：仍然打掉三架
     // B-17，剩下那一架只有 24% 血。「少到打不動」在這個局面下不存在，
     // 因為被護送的那幾架完全不迴避（`AiController.transit`）
-    const { b, t } = outcomeOf('allies', 'allies-escort', {}, 'red')
+    const { b, t } = outcomeOf('allies-m1', {}, 'red')
     expect(b.outcome).toBe('victory')
     // 判定的那一刻，至少一架在圈內
     expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
@@ -168,7 +166,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【為什麼要減架數】20 架敵機在 12 km 的航程裡打不完四架 B-17 ——
     // 打掉兩架、剩下兩架帶傷抵達，判成 `victory`。減的是**要被打光的那個
     // 數量**，也就是這條測試自己的自變數；門檻（「全滅就輸」）沒有動。
-    const { b } = outcomeOf('allies', 'allies-escort', { redCount: 20, convoyCount: 2 })
+    const { b } = outcomeOf('allies-m1', { redCount: 20, convoyCount: 2 })
     expect(b.outcome).toBe('defeat')
     expect(b.mission.remaining).toBe(0)
   }, 120_000)
@@ -181,7 +179,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 10 架之後這條就紅了 —— 轟炸機在抵達前先被打光，`victory` 而不是
     // `defeat`。那正是這個 describe 開頭警告過的事：「每一次調難度都會
     // 弄紅一條與難度無關的測試」。修的是測試的自變數，不是門檻
-    const { b } = outcomeOf('allies', 'allies-intercept', {}, 'blue')
+    const { b } = outcomeOf('germany-m1', {}, 'blue')
     expect(b.outcome).toBe('defeat')
     expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
   }, 120_000)
@@ -190,8 +188,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【我方加到滿編、對方不帶護航、被攔截的減到兩架】火力足夠時打得完，
     // 而且**紅隊的護航機還活著也照樣算贏** —— 那正是「護航的戰鬥機忽略」
     // 那句話。減架數的理由與上面那條護送相同
-    const { b } = outcomeOf(
-      'allies', 'allies-intercept', { blueCount: 20, redCount: 2, convoyCount: 2 })
+    const { b } = outcomeOf('germany-m1', { blueCount: 20, redCount: 2, convoyCount: 2 })
     expect(b.outcome).toBe('victory')
     expect(b.mission.remaining).toBe(0)
     // 紅隊沒有全滅，贏的判準只看轟炸機
@@ -199,10 +196,10 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('攔截的終點在 +Z —— 方向跟著轟炸機那一隊的機首走', () => {
-    const b = battleFor('allies', 'allies-intercept')
+    const b = battleFor('germany-m1')
     expect(b.cfg.rules.kind).toBe('convoy')
     expect(b.mission.target.z).toBeGreaterThan(0)
-    const e = battleFor('allies', 'allies-escort')
+    const e = battleFor('allies-m1')
     expect(e.mission.target.z).toBeLessThan(0)
   })
 })
@@ -217,8 +214,8 @@ describe('沒有被護送者的場次一個字都沒變', () => {
   })
 
   it('殲滅任務：規則仍然是 annihilate，沒有圓環', () => {
-    for (const [faction, id] of [['allies', 'allies-sweep'], ['axis', 'axis-patrol']] as const) {
-      const b = battleFor(faction, id)
+    for (const id of ['japan-m1', 'germany-m4'] as const) {
+      const b = battleFor(id)
       expect(b.convoy).toBeNull()
       expect(b.cfg.rules.kind).toBe('annihilate')
       expect(b.mission.hasTarget).toBe(false)

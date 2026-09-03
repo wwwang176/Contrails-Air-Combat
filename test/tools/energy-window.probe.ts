@@ -45,11 +45,12 @@
  * 擾動與現有探針同一套整數雜湊（**不得用 `Math.random`**，那會讓兩次跑不可比）。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES, type RuleConfig } from '../../src/ai/rules'
 import type { Combatant } from '../../src/world/World'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -58,8 +59,8 @@ const STRIDE = 24
 const STEP = DT * STRIDE
 
 const CARDS: [string, 'allies' | 'axis'][] = [
-  ['axis-escort', 'axis'],
-  ['allies-escort', 'allies'],
+  ['allies-m1', 'axis'],
+  ['allies-m1', 'allies'],
 ]
 
 /** 五次微擾。0 = 不擾動的那一次 */
@@ -149,9 +150,9 @@ function newLive(t: number, r: {
   }
 }
 
-function run(id: string, faction: 'allies' | 'axis', salt: number): Seg[] {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new AiController(), missionConfigFrom(card, faction), SEED)
+function run(id: string, salt: number): Seg[] {
+  const card = readyCard(id)
+  const b = createBattle(new AiController(), missionConfigFrom(card), SEED)
   jitter(b, salt)
 
   // 現況 —— 量的是反事實，不需要開新機制
@@ -245,9 +246,9 @@ function counterfactual(segs: Seg[], firstAt: (s: Seg) => number): string {
     + `　${n(100 * (1 - kept / Math.max(1e-9, total)), 6, 1)}%`
 }
 
-for (const [id, faction] of CARDS) {
+for (const [id] of CARDS) {
   const segs: Seg[] = []
-  for (const salt of SALTS) segs.push(...run(id, faction, salt))
+  for (const salt of SALTS) segs.push(...run(id, salt))
 
   const total = segs.reduce((a, s) => a + s.seconds, 0)
   console.log(`\n══════ ${id} ══════ ${SECONDS} s × ${SALTS.length} 次微擾 ══════`)
