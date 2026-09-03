@@ -962,6 +962,10 @@ function stepBeats(b: Battle): void {
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
     // 多出一條沒有人會預期的語意
     if (now < st.dueAt) continue
+    // 【預留是一個佇列】第二個波次的條件先成立時它要等 —— 座位是依序附加到
+    // 世界尾端的，而每一支預留的分隊在建構期就綁死了自己的座位與隊伍。硬插
+    // 隊的話那幾架會落進前一支預留的分隊，也就是**別隊**裡（見 `BeatState.slot`）
+    if (beat.kind === 'reinforce' && st.slot !== b.reserveUsed) continue
     st.phase = 'done'
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
