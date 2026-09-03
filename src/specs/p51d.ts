@@ -12,7 +12,7 @@ const FPM = 0.00508
 export const P51D: AircraftSpec = {
   id: 'p51d',
   name: 'P-51D Mustang',
-  faction: 'allied',
+  faction: 'allies',
   role: 'fighter',
 
   /**

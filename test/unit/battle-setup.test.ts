@@ -733,7 +733,7 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
 
   it('名冊跟著機種走 —— 藍隊飛 Bf109 就拿德文名', () => {
     // 【為什麼這條非有不可】M9 spec §7.1 裁決「換的是機種不是隊伍顏色」，
-    // 而名冊靠的是 `factionOf(spec.id)`。這條測試守住那個裁決真的成立。
+    // 而名冊靠的是那一隊第一架的 `spec.faction`。這條測試守住那個裁決真的成立。
     const cfg = { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, BF109K4, 20, P51D, 20) }
     const b = createBattle(new Idle(), cfg, 5)
     for (const c of b.blue) expect(AXIS_NAMES).toContain(b.roster.pilots[c.index]!.name)

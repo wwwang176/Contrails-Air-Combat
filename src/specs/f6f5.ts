@@ -50,7 +50,7 @@ const LB = 0.45359237
 export const F6F5: AircraftSpec = {
   id: 'f6f5',
   name: 'F6F-5 Hellcat',
-  faction: 'allied',
+  faction: 'allies',
   role: 'fighter',
 
   /**

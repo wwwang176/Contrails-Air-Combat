@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
-  ALLIED_NAMES, AXIS_NAMES, factionOf, mulberry32, pilotNames,
+  ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES, mulberry32, pilotNames,
 } from '../../src/battle/names'
+import { ALL_SPECS } from '../../src/battle/skirmish'
 
 describe('mulberry32', () => {
   it('同種子同序列', () => {
@@ -28,14 +29,35 @@ describe('mulberry32', () => {
   })
 })
 
-describe('factionOf', () => {
-  it('P-51 是同盟國、Bf109 是軸心國', () => {
-    expect(factionOf('p51d')).toBe('allies')
-    expect(factionOf('bf109k4')).toBe('axis')
-    // 【轟炸機兩台也要對】2026-08-21 之前 He 111 被判成同盟，一整隊
-    // 德國轟炸機的機組因此叫 Ray Bishop、Hal Carter
-    expect(factionOf('b17g')).toBe('allies')
-    expect(factionOf('he111')).toBe('axis')
+describe('機種的陣營（決定名冊）', () => {
+  it('每一台在編的機種都拿到對的那一本名冊', () => {
+    // 【這一條取代了舊的 `factionOf` id 白名單】2026-08-21 之前 He 111 被判
+    // 成同盟，一整隊德國轟炸機的機組因此叫 Ray Bishop、Hal Carter。陣營現在
+    // 是 `AircraftSpec` 的必填欄位，漏填是編譯錯誤 —— 這一條守的是「填對了」
+    const want: Record<string, string> = {
+      p51d: 'allies', b17g: 'allies', f6f5: 'allies',
+      bf109k4: 'axis', he111: 'axis',
+    }
+    for (const spec of ALL_SPECS) {
+      expect(spec.faction, spec.id).toBe(want[spec.id])
+      // 抽出來的名字真的來自那一本
+      const pool = spec.faction === 'axis' ? AXIS_NAMES
+        : spec.faction === 'japan' ? JAPAN_NAMES : ALLIED_NAMES
+      for (const n of pilotNames(7, spec.faction, 4)) expect(pool, spec.id).toContain(n)
+    }
+    // 【對照組】少了它，`want` 漏列一台時上面那一圈會拿 undefined 比 undefined
+    expect(Object.keys(want)).toHaveLength(ALL_SPECS.length)
+  })
+
+  it('三本名冊各 24 個，而且彼此不重疊', () => {
+    // 【為什麼要驗不重疊】同一場只用一本，但「Hans Richter 也在日本名冊裡」
+    // 這種事會讓上面那條的來源檢查失去意義
+    for (const pool of [ALLIED_NAMES, AXIS_NAMES, JAPAN_NAMES]) {
+      expect(pool).toHaveLength(24)
+      expect(new Set(pool).size).toBe(24)
+    }
+    const all = [...ALLIED_NAMES, ...AXIS_NAMES, ...JAPAN_NAMES]
+    expect(new Set(all).size).toBe(all.length)
   })
 })
 

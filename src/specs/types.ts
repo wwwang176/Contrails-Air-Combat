@@ -2,10 +2,33 @@ import type { HitBox, HitPart } from '../world/hit'
 import type { Battery } from '../weapons/types'
 import type { Turret } from '../weapons/turret'
 
+/**
+ * 陣營。**不是隊伍顏色** —— 隊伍顏色是敵我（藍＝友方），陣營是史實的那一邊。
+ *
+ * 【為什麼日本自成一格而不是掛在軸心底下】它只有一個用途：挑飛行員名冊。
+ * 掛在 `axis` 底下的話零戰的機組會叫 Hans Richter。史實上日本當然是軸心，
+ * 但這個型別問的不是「跟誰結盟」，是「這一架上面坐的是哪裡人」。
+ *
+ * 【為什麼住在 `specs/` 而不是 `battle/names.ts`】`AircraftSpec` 要用它，
+ * 而 `battle/` 大量 import `specs/` —— 反過來會繞成循環。
+ */
+export type Faction = 'allies' | 'axis' | 'japan'
+
 export interface AircraftSpec {
   id: string
   name: string
-  faction: 'allied' | 'axis'
+  /**
+   * 這一架上面坐的是哪裡人。**決定飛行員名冊**（`battle/names.ts`）。
+   *
+   * 【為什麼名冊綁機種而不是綁隊伍顏色】玩家選陣營之後，藍隊有可能飛
+   * Bf109。名字要跟著機種所屬的那一邊走（M9 spec §6.1）。
+   *
+   * 【為什麼是必填欄位而不是一份 id 白名單】以前是
+   * `id === 'bf109k4' || id === 'he111' ? 'axis' : 'allies'` —— 新機種漏掉
+   * 的症狀是拿到錯的那一本名冊，不是錯誤，是一排讀起來怪怪的名字。
+   * 2026-08-21 的 He 111 就是這樣漏的。必填欄位漏填是編譯錯誤。
+   */
+  faction: Faction
   /**
    * 機種定位。**只有 `specs/feel.ts` 讀它** —— 兩類飛機套不同的手感輪廓。
    *

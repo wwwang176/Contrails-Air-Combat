@@ -42,7 +42,7 @@ const KMH = 1 / 3.6
 export const B17G: AircraftSpec = {
   id: 'b17g',
   name: 'B-17G Flying Fortress',
-  faction: 'allied',
+  faction: 'allies',
   role: 'bomber',
 
   /**
