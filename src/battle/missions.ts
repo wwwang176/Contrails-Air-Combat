@@ -2,14 +2,76 @@ import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { specsFor, type FactionChoice } from './skirmish'
 import { VETERAN } from '../ai/profile'
-import { ENTRY_PLANS, type EntryPlanId } from './entry'
+import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast } from './order'
+import { SCHWARM_SIZE } from './flights'
+import type { BeatCondition, ReinforceBeat } from './beats'
 import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
+
+/**
+ * 卡片上的「哪一邊」。
+ *
+ * **卡片是陣營中立的**：同一張卡，玩家選盟軍或選軸心，敵我機種會對調。
+ * 所以卡片上只能說「我方／敵方」，實際機種由 `missionConfigFrom` 在知道
+ * 陣營之後才解析。玩家恆在藍隊，所以 `mine` 就是藍、`theirs` 就是紅。
+ */
+export type MissionSide = 'mine' | 'theirs'
+
+/**
+ * 卡片上的觸發條件。
+ *
+ * 【為什麼不直接用 `BeatCondition`】那一個講的是 `team: 'red'`。同一張卡上
+ * 「敵方」會有兩種寫法（波次寫 `side: 'theirs'`、條件寫 `team: 'red'`），
+ * 而兩者哪天不同步不會有人發現。卡片這一層只有一套說法。
+ */
+export type MissionTrigger =
+  /** 開場後第 `at` 秒 */
+  | { readonly kind: 'clock'; readonly at: number }
+  /**
+   * 某一邊（可再限定機種角色）的存活數降到 `atMost` 以下。
+   *
+   * `byLatest` 是**必填的兜底**：玩家太慢（打不完）或太快（繞過去）時條件
+   * 可能永遠不成立，那一關就卡死了。到了這個秒數無條件成立。
+   */
+  | {
+    readonly kind: 'alive'
+    readonly side: MissionSide
+    readonly role?: AircraftSpec['role']
+    readonly atMost: number
+    readonly byLatest: number
+  }
+
+/**
+ * 卡片上的一個波次。**一個波次就是一支小隊**（1 … `SCHWARM_SIZE` 架）。
+ *
+ * 【為什麼不讓它寫機種】見 `MissionSide`。`role` 選的是那個陣營的第幾台
+ * （`specsFor` 的第一台是戰鬥機、第二台是轟炸機），不是一個寫死的 id。
+ *
+ * 【為什麼沒有 `duty`】`transit` 的意思是「飛向自己正前方的終點，途中不
+ * 交戰」，只有在那一邊的任務**有終點**時才成立。殲滅任務裡放一支 transit
+ * 的波次，它會直直飛出地圖而且永遠不死 —— 那一關就再也打不完了。
+ * 波次一律 `combat`；哪一天真的需要 transit 的波次，那是一個要連著勝負
+ * 條件一起想的決定。
+ *
+ * 【為什麼沒有進場幾何】波次沿用**那一邊開局的擺法**，也就是它們原本來的
+ * 方向。觸發時場上的仗已經飄到中間了，所以波次自然出現在遠方。
+ */
+export interface MissionWave {
+  readonly when: MissionTrigger
+  /** 畫面中心的預警文字 */
+  readonly warn: string
+  /** 預警到進場之間的秒數 */
+  readonly warnLead: number
+  readonly side: MissionSide
+  readonly role: AircraftSpec['role']
+  /** 幾架。1 … `SCHWARM_SIZE` */
+  readonly count: number
+}
 
 /**
  * 一張任務卡。
@@ -97,6 +159,14 @@ export interface MissionCard {
    * 補上攔截時只要把那張卡的旗標翻成 true。
    */
   playable: boolean
+  /**
+   * 這一關的波次。**沒有波次的卡不寫這一格**（不是寫空陣列）。
+   *
+   * 【為什麼是選填而不是預設空陣列】既有 10 張卡一格都不能動 ——
+   * `missionConfigFrom` 對沒有這一格的卡完全不產生 `beats`，走的是與波次
+   * 上線之前逐位元相同的那條路。
+   */
+  waves?: readonly MissionWave[]
 }
 
 /** 沒有撤離點、沒有時限、還沒做的卡共用這一組 */
@@ -304,9 +374,26 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
   ],
   axis: [
     {
-      id: 'axis-patrol', title: '帝國防空巡邏', type: '殲滅', difficulty: 2,
-      summary: '驅離侵入本土空域的護航機。',
+      // 【第一張有波次的卡】為什麼是這一張：殲滅**非把敵人全打光不可**，
+      // 所以「敵方剩不多」這個條件一定會成立。攔截那一張不行 ——
+      // `convoyPriority: 5` 讓我方一心衝轟炸機，護航機幾乎不會死（實測
+      // 145 s 一架都沒掉），條件永遠只能靠兜底時限，那就等於一個時鐘。
+      //
+      // 難度 2 → 3：多了一支四架的敵方戰鬥機
+      id: 'axis-patrol', title: '帝國防空巡邏', type: '殲滅', difficulty: 3,
+      summary: '驅離侵入本土空域的護航機。第二批會從同一個方向進來。',
       blueCount: 8, redCount: 6, ...KILL,
+      waves: [{
+        // 【兩個數字都是起始值，待試飛】離線探針把 AI 放在玩家座位上跑，
+        // 400 s 只打掉 2 架紅機（雙方一路爬高的拉鋸），所以那條路上兜底
+        // 時限才是實際生效的那一個。人打起來快得多 —— 而這正是 `byLatest`
+        // 存在的理由：打得快的人早點遇到第二批，打得慢的人不會空等。
+        when: { kind: 'alive', side: 'theirs', role: 'fighter', atMost: 2, byLatest: 120 },
+        warn: '警告：第二批敵機進入空域',
+        // 【4 秒】夠玩家抬頭找、還來得及先脫離再迎擊
+        warnLead: 4,
+        side: 'theirs', role: 'fighter', count: 4,
+      }],
     },
     {
       id: 'axis-intercept', title: '攔截 B-17 轟炸群', type: '攔截', difficulty: 3,
@@ -421,6 +508,7 @@ export function missionConfigFrom(card: MissionCard, faction: FactionChoice): Ba
       bombers: card.convoyCount,
     })
     : lineAbreast(plan, mine[0]!, card.blueCount, theirs[0]!, card.redCount)
+  const beats = card.waves?.map((w, i) => waveBeat(w, i, plan, mine, theirs, bomber))
   return {
     ...DEFAULT_BATTLE,
     units,
@@ -429,5 +517,69 @@ export function missionConfigFrom(card: MissionCard, faction: FactionChoice): Ba
     // 【只有護送／攔截會偏離中性值】其餘卡片的 `convoyPriority` 是 1，
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
     tuning: { convoyPriority: card.convoyPriority },
+    // 【沒有波次的卡連這一格都不長出來】`beats` 是 undefined 時
+    // `createBattle` 不推導 `reserve`、`stepBeats` 第一行就早退 ——
+    // 既有 10 張卡走的是與波次上線之前逐位元相同的那條路
+    ...(beats === undefined ? {} : { beats }),
+  }
+}
+
+/**
+ * 一個波次 → 一個增援節拍。**卡片的相對描述在這裡解析成實際的隊伍與機種。**
+ *
+ * 【橫向槽位逐波次 +1，而且從 `WAVE_LANE` 起跳】出生點是
+ * `lane × schwarmSpacing + across × lateralOffset`（`unitFrame`），而高度那一軸
+ * 的鋸齒**週期只有 5**（`altitudeOffset`）—— 光靠 `tier` 的話第 1 與第 6 個
+ * 波次會生在完全相同的一點上。橫向槽位每支差 1，任何兩支就至少差一個
+ * `schwarmSpacing`（Codex 審查 2026-09-03 P1）。
+ */
+function waveBeat(
+  w: MissionWave, index: number, plan: EntryPlan,
+  mine: readonly AircraftSpec[], theirs: readonly AircraftSpec[],
+  bomber: (side: readonly AircraftSpec[]) => AircraftSpec,
+): ReinforceBeat {
+  if (!Number.isInteger(w.count) || w.count < 1 || w.count > SCHWARM_SIZE) {
+    throw new Error(`波次的架數要是 1…${SCHWARM_SIZE} 的整數，收到 ${w.count}`)
+  }
+  const ours = w.side === 'mine'
+  const side = ours ? mine : theirs
+  const spec = w.role === 'bomber' ? bomber(side) : side[0]!
+  return {
+    kind: 'reinforce',
+    when: triggerToCondition(w.when),
+    warn: w.warn,
+    warnLead: w.warnLead,
+    flight: {
+      team: ours ? 'blue' : 'red',
+      members: Array.from({ length: w.count }, () => spec),
+      // 【沿用那一邊開局的擺法】也就是它們原本來的方向。觸發時仗已經飄到
+      // 中間了，所以波次自然出現在遠方
+      entry: ours ? plan.blue : plan.red,
+      duty: 'combat',
+      lane: WAVE_LANE + index,
+      tier: index,
+    },
+  }
+}
+
+/**
+ * 波次的橫向槽位起點，單位是 `schwarmSpacing`。
+ *
+ * 【為什麼不是 0】開場的分隊佔的是 −2…+2（一隊最多 5 個小隊，
+ * `lane = f − (flights−1)/2`），而波次沿用**同一個 `entry`**。用 0 的話，
+ * 一個開場就成立的波次會生在開場某一隊身上 —— 那兩架會在同一點上重疊，
+ * 而且不會有任何錯誤。3 是比最寬的開場槽位再外一格。
+ */
+const WAVE_LANE = 3
+
+/** 卡片的說法 → 引擎的說法。`mine`／`theirs` 在這裡才變成藍／紅 */
+function triggerToCondition(t: MissionTrigger): BeatCondition {
+  if (t.kind === 'clock') return { kind: 'clock', at: t.at }
+  return {
+    kind: 'alive',
+    team: t.side === 'mine' ? 'blue' : 'red',
+    ...(t.role === undefined ? {} : { role: t.role }),
+    atMost: t.atMost,
+    byLatest: t.byLatest,
   }
 }
