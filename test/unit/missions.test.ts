@@ -15,16 +15,6 @@ describe('任務卡（M10 spec §10）', () => {
     expect(MISSIONS.axis).toHaveLength(5)
   })
 
-  it('難度落在 1~5', () => {
-    for (const list of [MISSIONS.allies, MISSIONS.axis]) {
-      for (const m of list) {
-        expect(m.difficulty).toBeGreaterThanOrEqual(1)
-        expect(m.difficulty).toBeLessThanOrEqual(5)
-        expect(Number.isInteger(m.difficulty)).toBe(true)
-      }
-    }
-  })
-
   it('全部標題不重複', () => {
     const all = [...MISSIONS.allies, ...MISSIONS.axis].map((m) => m.title)
     expect(new Set(all).size).toBe(all.length)

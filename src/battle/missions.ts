@@ -89,11 +89,6 @@ export interface MissionCard {
   id: string
   title: string
   type: MissionType
-  /**
-   * 1~5 星。**這一張卡的配置的標籤，不是玩家的選項** —— 難度由編制與幾何
-   * 給，`DifficultyProfile` 一貫不碰（見 `setup.ts` 的 `aiProfile` 註解）。
-   */
-  difficulty: number
   /** 卡片上的一行說明 */
   summary: string
   /**
@@ -345,29 +340,29 @@ const INTERCEPT = { ...CONVOY, objective: '在轟炸機抵達前擊落' } as con
 export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
   allies: [
     {
-      id: 'allies-sweep', title: '諾曼第上空掃蕩', type: '殲滅', difficulty: 2,
+      id: 'allies-sweep', title: '諾曼第上空掃蕩', type: '殲滅',
       summary: '清空灘頭上空的攔截機。',
       blueCount: 8, redCount: 6, ...KILL,
     },
     {
-      id: 'allies-intercept', title: '攔截 He 111 轟炸群', type: '攔截', difficulty: 3,
+      id: 'allies-intercept', title: '攔截 He 111 轟炸群', type: '攔截',
       summary: '在轟炸機投彈前擊落它們。',
       blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
-      id: 'allies-strike', title: '打擊魯爾鐵路', type: '打擊', difficulty: 3,
+      id: 'allies-strike', title: '打擊魯爾鐵路', type: '打擊',
       summary: '切斷補給線上的列車與調車場。',
       blueCount: 4, redCount: 6, ...LOCKED,
     },
     {
-      id: 'allies-escort', title: '護送 B-17 至集合點', type: '護航', difficulty: 4,
+      id: 'allies-escort', title: '護送 B-17 至集合點', type: '護航',
       // 【文案由「每一架」改成「轟炸機」】勝利條件是**任一架**抵達，不是
       // 全部。卡片上的字若與判定相反，玩家會照錯的目標去打
       summary: '把轟炸機帶到集合點。',
       blueCount: 4, redCount: 10, ...ESCORT,
     },
     {
-      id: 'allies-evac', title: '且戰且走', type: '撤離', difficulty: 5,
+      id: 'allies-evac', title: '且戰且走', type: '撤離',
       summary: '頂著數量劣勢活著退出戰區。',
       blueCount: 4, redCount: 16, ...EVAC, seconds: EVAC_SECONDS_ALLIES,
     },
@@ -378,9 +373,7 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
       // 所以「敵方剩不多」這個條件一定會成立。攔截那一張不行 ——
       // `convoyPriority: 5` 讓我方一心衝轟炸機，護航機幾乎不會死（實測
       // 145 s 一架都沒掉），條件永遠只能靠兜底時限，那就等於一個時鐘。
-      //
-      // 難度 2 → 3：多了一支四架的敵方戰鬥機
-      id: 'axis-patrol', title: '帝國防空巡邏', type: '殲滅', difficulty: 3,
+      id: 'axis-patrol', title: '帝國防空巡邏', type: '殲滅',
       summary: '驅離侵入本土空域的護航機。第二批會從同一個方向進來。',
       blueCount: 8, redCount: 6, ...KILL,
       waves: [{
@@ -396,12 +389,12 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
       }],
     },
     {
-      id: 'axis-intercept', title: '攔截 B-17 轟炸群', type: '攔截', difficulty: 3,
+      id: 'axis-intercept', title: '攔截 B-17 轟炸群', type: '攔截',
       summary: '突破護航網，打掉重轟炸機。',
       blueCount: 10, redCount: 4, ...INTERCEPT,
     },
     {
-      id: 'axis-strike', title: '打擊登陸艦隊', type: '打擊', difficulty: 4,
+      id: 'axis-strike', title: '打擊登陸艦隊', type: '打擊',
       summary: '在灘頭上空掩護，攻擊登陸艦艇。',
       blueCount: 4, redCount: 8, ...LOCKED,
     },
@@ -409,12 +402,12 @@ export const MISSIONS: Record<FactionChoice, readonly MissionCard[]> = {
       // 【標題由「護送運輸機」改成 He 111】專案沒有運輸機，被護送的實際上
       // 是 He 111（`specsFor('axis')[1]`）。標題與畫面上飛的東西不一致，
       // 是那種每個人都會看到、卻沒有任何測試會抓到的錯
-      id: 'axis-escort', title: '護送 He 111 編隊', type: '護航', difficulty: 3,
+      id: 'axis-escort', title: '護送 He 111 編隊', type: '護航',
       summary: '掩護轟炸機穿越敵方巡邏區。',
       blueCount: 4, redCount: 8, ...ESCORT,
     },
     {
-      id: 'axis-evac', title: '撤出包圍', type: '撤離', difficulty: 5,
+      id: 'axis-evac', title: '撤出包圍', type: '撤離',
       summary: '在補給斷絕的機場起飛並脫離。',
       blueCount: 4, redCount: 16, ...EVAC, seconds: EVAC_SECONDS_AXIS,
     },

@@ -73,11 +73,6 @@ const TERRAINS: readonly { label: string; value: TerrainKind }[] = [
   { label: '純海面', value: 'sea' },
 ]
 
-/** 難度星等。實心到 difficulty，其餘空心 */
-function stars(n: number): string {
-  return '★'.repeat(n) + '☆'.repeat(5 - n)
-}
-
 /**
  * 選單的 DOM 元件。
  *
@@ -193,7 +188,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.innerHTML =
         `<span class="card-title">${escapeHtml(m.title)}</span>`
         + `<span class="card-desc">${escapeHtml(m.summary)}</span>`
-        + `<span class="card-meta">${escapeHtml(m.type)}　${stars(m.difficulty)}</span>`
+        + `<span class="card-meta">${escapeHtml(m.type)}</span>`
         + (m.playable ? '' : '<span class="locked">未開放</span>')
       // 【為什麼卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個
       // 字串，而這裡要帶「哪一張卡」。`factionRow` 與 `stepper` 早就這樣做
