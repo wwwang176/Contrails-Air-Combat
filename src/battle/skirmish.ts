@@ -8,12 +8,22 @@ import { F6F5 } from '../specs/f6f5'
 import { BF109K4 } from '../specs/bf109k4'
 import { B17G } from '../specs/b17g'
 import { HE111 } from '../specs/he111'
-import type { Faction } from './names'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 
-/** 遭遇戰的陣營選擇。與 `battle/names.ts` 的 `Faction` 是同一組值 */
-export type FactionChoice = Faction
+/**
+ * **玩家選哪一邊。**遭遇戰的陣營選擇與任務卡的分組都用它。
+ *
+ * 【為什麼與 `AircraftSpec.faction` 不是同一個型別】那一個回答的是「這一架
+ * 上面坐的是哪裡人」，只有一個用途：挑飛行員名冊，而日本自成一本。這一個
+ * 回答的是「這一場分成哪兩邊」—— 選單上是兩顆按鈕、任務卡分成兩落、
+ * `SPECS` 一邊一組機種。兩者以前是同一個型別，於是日本名冊一加進來，
+ * 選單就多了一顆沒有東西可選的按鈕（2026-09-03）。
+ *
+ * 【日本戰役怎麼辦】它是**軸心**那一落裡的卡片，用日本機種。這個型別不必
+ * 因此長大 —— 長大的是「一張卡怎麼指定用哪一台」，見 `missions.ts`。
+ */
+export type FactionChoice = 'allies' | 'axis'
 
 /** 每隊最少架數。一架也要能打 —— 那時玩家沒有僚機可接，一死就落敗 */
 export const MIN_SIDE = 1

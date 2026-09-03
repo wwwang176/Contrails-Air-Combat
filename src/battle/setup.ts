@@ -23,7 +23,7 @@ import {
 } from './beats'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
-import { factionOf, pilotNames } from './names'
+import { pilotNames } from './names'
 import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
 import { pickTakeover, TAKEOVER_DELAY } from './takeover'
 import { applyFeel, feelFor } from '../specs/feel'
@@ -820,8 +820,8 @@ export function createBattle(
 
   // 【名字依陣營而不是隊伍顏色】M10 讓玩家選陣營之後藍隊可能飛 Bf109，
   // 那時德文名要跟著機種走（M9 spec §6.1）。這裡讀每一隊實際的機種。
-  const blueNames = pilotNames(seed, factionOf(blue[0]!.aircraft.spec.id), blue.length)
-  const redNames = pilotNames(seed, factionOf(red[0]!.aircraft.spec.id), red.length)
+  const blueNames = pilotNames(seed, blue[0]!.aircraft.spec.faction, blue.length)
+  const redNames = pilotNames(seed, red[0]!.aircraft.spec.faction, red.length)
   let bi = 0
   let ri = 0
   const roster = createRoster(
@@ -1044,7 +1044,7 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   const made: Aircraft[] = []
   const seats: number[] = []
   const names = pilotNames(
-    b.seed + slot + 1, factionOf(plan.members[0]!.id), plan.members.length)
+    b.seed + slot + 1, plan.members[0]!.faction, plan.members.length)
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
@@ -1511,8 +1511,8 @@ export function resetBattle(
 
   // 【名字重抽】專案負責人裁決「再打一場則重新隨機」
   b.seed = seed
-  const blueNames = pilotNames(seed, factionOf(b.blue[0]!.aircraft.spec.id), b.blue.length)
-  const redNames = pilotNames(seed, factionOf(b.red[0]!.aircraft.spec.id), b.red.length)
+  const blueNames = pilotNames(seed, b.blue[0]!.aircraft.spec.faction, b.blue.length)
+  const redNames = pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)
   let bi = 0
   let ri = 0
   for (let i = 0; i < combatants.length; i++) {

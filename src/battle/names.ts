@@ -1,26 +1,16 @@
 /**
- * 陣營。**不是隊伍顏色** —— 隊伍顏色是敵我（藍＝友方），陣營是史實的那一邊。
+ * 陣營。**定義在 `specs/types.ts`** —— `AircraftSpec` 要用它，而
+ * `battle/` 大量 import `specs/`，反過來會繞成循環。這裡轉出去只是為了
+ * 讓「陣營」與「名冊」在同一個檔案裡讀得到。
  *
- * 【為什麼名冊綁陣營】M10 讓玩家選陣營之後，藍隊有可能飛 Bf109。名字要
- * 跟著機種所屬的那一邊走，不是跟著 HUD 的顏色（M9 spec §6.1）。
+ * 【2026-09-03 起沒有 `factionOf` 了】它以前是一份寫死的 id 白名單
+ * （`id === 'bf109k4' || id === 'he111' ? 'axis' : 'allies'`）。漏一個機種的
+ * 症狀是拿到錯的那一本名冊 —— 不是錯誤，是一排讀起來怪怪的名字，而
+ * 2026-08-21 的 He 111 就是這樣漏的。現在陣營是 `AircraftSpec` 的必填欄位，
+ * 直接讀 `spec.faction`；漏填是編譯錯誤。
  */
-export type Faction = 'allies' | 'axis'
-
-/**
- * 機種代號 → 陣營。
- *
- * 【2026-08-21 補上 He 111】它上線時漏了，於是一整隊 He 111 的機組拿到的
- * 是 Ray Bishop、Hal Carter 這種名字。以前撞不到：遭遇戰的敵方一律取
- * `specsFor(對面)[0]`，也就是戰鬥機，而任務模式的紅隊第一架是護航的
- * Bf109。**逐架名單上線之後「紅隊第一架是 He 111」變成一次點擊的事。**
- *
- * 【為什麼是白名單而不是「不是同盟就是軸心」】名冊只有兩本，漏一個機種的
- * 症狀是拿到錯的那一本 —— 不是錯誤，是一排讀起來怪怪的名字。列舉的話
- * 新機種漏填會**立刻**被下面那條測試抓到。
- */
-export function factionOf(specId: string): Faction {
-  return specId === 'bf109k4' || specId === 'he111' ? 'axis' : 'allies'
-}
+export type { Faction } from '../specs/types'
+import type { Faction } from '../specs/types'
 
 /**
  * mulberry32 —— 32 位種子的小型 PRNG。
@@ -62,13 +52,45 @@ export const AXIS_NAMES: readonly string[] = [
 ]
 
 /**
+ * 日本飛行員名冊。24 個。
+ *
+ * 【羅馬字、名在前】與另外兩本的節奏一致 —— 記分板一列只有一個字串，而
+ * 三本名冊不會同時出現在同一列裡。日文的姓名順序是姓在前，這裡採的是
+ * 英文文獻的慣例。
+ *
+ * 【全部是虛構的】另外兩本也是。真實的王牌名字掛在一架被隨機分配的僚機上
+ * 讀起來像個玩笑。
+ */
+export const JAPAN_NAMES: readonly string[] = [
+  'Hiroshi Kaneko', 'Takeo Fujita', 'Kenji Okumura', 'Masaru Shimizu', 'Isamu Aoki',
+  'Tadashi Matsuda', 'Susumu Hoshino', 'Noboru Terada', 'Yutaka Yamashiro',
+  'Kiyoshi Sugimoto', 'Minoru Inoue', 'Shigeru Kawabe', 'Osamu Morita',
+  'Katsumi Tachibana', 'Toshio Nomura', 'Akira Ishida', 'Mitsuo Kubota',
+  'Haruo Sasaki', 'Sadao Maruyama', 'Yoshio Ueda', 'Tsutomu Hasegawa',
+  'Nobuo Namba', 'Kazuo Segawa', 'Ryoichi Amano',
+]
+
+/**
+ * 陣營 → 名冊。
+ *
+ * 【為什麼是 `Record` 而不是三元式】三元式少一個分支是**靜靜地拿到別人的
+ * 名冊**。`Record<Faction, …>` 少一格是編譯錯誤 —— 與 `hud/Hud.ts` 的
+ * `WIDGET_DRAW` 同一條理由。
+ */
+const NAMES: Record<Faction, readonly string[]> = {
+  allies: ALLIED_NAMES,
+  axis: AXIS_NAMES,
+  japan: JAPAN_NAMES,
+}
+
+/**
  * 抽 `count` 個名字。同種子同結果，而且**彼此不重複**。
  *
  * 【為什麼是洗牌而不是逐個抽】逐個抽會撞名，而同一場裡兩個「Hans Richter」
  * 在記分板上完全讀不出來誰是誰。洗牌保證不重複，代價只是複製一份名冊。
  */
 export function pilotNames(seed: number, faction: Faction, count: number): string[] {
-  const pool = (faction === 'axis' ? AXIS_NAMES : ALLIED_NAMES).slice()
+  const pool = NAMES[faction].slice()
   const rand = mulberry32(seed)
   // Fisher–Yates
   for (let i = pool.length - 1; i > 0; i--) {
