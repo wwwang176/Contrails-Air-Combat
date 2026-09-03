@@ -296,6 +296,13 @@ describe('帝國最後防線的兩批攔截機', () => {
     expect(w.when.byLatest).toBeLessThan(second.when.at + second.warnLead)
   })
 
+  it('撤離段不倒數', () => {
+    // 【專案負責人 2026-09-03 試飛裁定】這一關的壓力來源是擋在路上的兩批
+    // 攔截機，不是碼表。再壓一個倒數上去，玩家要同時應付「打穿出去」與
+    // 「來不來得及」，而後者他無從估計 —— 他不知道還有幾批
+    expect(m4.battle.withdraw!.seconds).toBe(Infinity)
+  })
+
   it('返航綁我方存活數，不是時鐘', () => {
     // 【為什麼非這樣不可】開場規則是 annihilate，紅隊歸零就直接判勝。
     // 用時鐘的話玩家提前清光敵軍，返航段永遠不會發生
