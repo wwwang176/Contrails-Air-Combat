@@ -66,7 +66,15 @@ export type MissionTrigger =
  */
 export interface MissionWave {
   readonly when: MissionTrigger
-  /** 畫面中心的預警文字 */
+  /**
+   * 畫面中心的預警文字。
+   *
+   * 【不要宣稱方位】「正前方」那種寫法是一個**會變成假的斷言** —— 預警在
+   * 戰鬥進行中顯示，而玩家那時可能朝任何方向（專案負責人 2026-09-03）。
+   * 寫「發生了什麼」，不要寫「在哪裡」。
+   *
+   * 唯一的例外是**開場那一刻**（`clock: 0`）：那時玩家一定還朝著機首方向。
+   */
   readonly warn: string
   /** 預警到進場之間的秒數 */
   readonly warnLead: number
@@ -448,13 +456,15 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         waves: [
           {
             when: { kind: 'clock', at: 0 },
+            // 【這一則說得出方位】它在開場那一刻顯示，那時玩家一定還朝著
+            // 機首方向 —— 而波次就生在那裡
             warn: '前方有攔截機',
             warnLead: 4,
             side: 'theirs', spec: P51D, count: 4,
           },
           {
             when: { kind: 'clock', at: 45 },
-            warn: '又一批，正前方',
+            warn: '警告：敵方第二批支援進場',
             warnLead: 4,
             side: 'theirs', spec: P51D, count: 4, along: -1.0,
           },
