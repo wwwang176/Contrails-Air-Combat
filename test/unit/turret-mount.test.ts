@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
+import { G4M } from '../../src/specs/g4m'
 import { segmentBox, NO_HIT } from '../../src/world/hit'
 import { TURRET_MOUNT_REACH } from '../../src/weapons/turret'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -11,7 +12,7 @@ import type { AircraftSpec } from '../../src/specs/types'
  * **外形**斷言（頂點數、命中盒幾何）就會開始跑兩台轟炸機，違反
  * 「不為飛機外形寫測試」的既有裁決。這裡只跑砲塔的跨模組一致性。
  */
-const TURRET_CASES: readonly AircraftSpec[] = [HE111, B17G]
+const TURRET_CASES: readonly AircraftSpec[] = [HE111, B17G, G4M]
 
 describe('砲塔的位置與射界', () => {
   for (const spec of TURRET_CASES) {
@@ -91,8 +92,9 @@ describe('兩台轟炸機沒有固定前射武器', () => {
    * 專案負責人裁定：可以轉向的都交給 AI，玩家不控火砲。
    */
   it('mounts 是空的', () => {
-    expect(HE111.battery.mounts).toHaveLength(0)
-    expect(B17G.battery.mounts).toHaveLength(0)
+    for (const s of TURRET_CASES) {
+      expect(s.battery.mounts, `${s.id} 的掛架該是空的`).toHaveLength(0)
+    }
   })
 
   it('sight 仍然保留 —— ai/assess.ts 與 ai/steer.ts 有四處在讀它', () => {
