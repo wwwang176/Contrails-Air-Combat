@@ -698,29 +698,54 @@ bmx = bmesh.new()
 GUNS = []
 
 # ── 8"/55 三聯裝 × 3（一、二號在艦首超射，三號在艦尾）
-# 三座砲塔一樣大：砲管軸心都在砲塔頂之下 1.32，砲管間距 1.5 m（量出來的）。
-# 二號砲塔的頂比一號高 2.64，而砲塔本身一樣高 ⇒ 中間那 2.64 是**砲座**，
-# 要單獨做一段六邊柱，不然砲塔會變成 6.5 m 高的怪東西。
+# 砲管軸心都在砲塔頂之下 1.32，砲管間距 1.5 m（量出來的）。
 Z_T1 = top_in(47.0, 52.0, 3.0, 10.6) or 9.35
 Z_T2 = top_in(35.0, 40.0, 3.0, 13.2) or 11.99
 Z_T3 = top_in(-51.5, -46.0, 3.0, 10.6) or 9.24
-T_H = Z_T1 - deck_z(49.5)                      # 砲塔本體高度（實測 3.9）
-LOG['turret'] = dict(t1=Z_T1, t2=Z_T2, t3=Z_T3, h=round(T_H, 2))
 
 
-def turret(name, y0, y1, hw, z_top, base_z, bar_y0, bar_y1):
-    """砲塔（略收頂的方塊）＋三根沿 Y 的細長三角柱砲管。"""
-    taper(bmg, -hw, hw, y0, y1, base_z, z_top, 0.88)
+def barbette(cy, cap):
+    """砲塔腳下那一圈**圓形砲座**：回傳 (頂高, 半徑)。
+
+    量法是由砲塔中心往外一圈一圈打（每 15° 一條取中位數），頂高一路平到某個
+    半徑才掉回甲板，那個半徑就是砲座的外緣。實測三座分別是 6.72/4.4、
+    9.36/4.65、6.61/4.4，而**砲塔頂減砲座頂三座都是 2.63** —— 這是「三座砲塔
+    一模一樣」最直接的證據，也說明中間那一段不是砲塔而是砲座。
+
+    第一版沒做砲座，把砲塔由甲板一路建到頂，艦尾那座看起來就是光溜溜的一塊
+    （負責人指出「船尾砲塔要有六邊形護欄」）。砲座是船體凸出 → 船體色。
+    """
+    def ring(r):
+        zs = [top_at(r * math.cos(k * math.pi / 12), cy + r * math.sin(k * math.pi / 12), cap)
+              for k in range(24)]
+        zs = [z for z in zs if z is not None and 2.0 < z < cap]
+        return statistics.median(zs) if zs else None
+
+    zt = ring(2.5)
+    if zt is None:
+        return None, None
+    r = 3.50
+    while r < 5.60 and ring(r + 0.15) is not None and abs(ring(r + 0.15) - zt) < 0.25:
+        r += 0.15
+    return round(zt, 2), round(r, 2)
+
+
+def turret(name, y0, y1, hw, z_top, cy, cap, bar_y0, bar_y1):
+    """圓形砲座（六邊柱、船體色）＋砲塔（略收頂的方塊）＋三根沿 Y 的砲管。"""
+    zb, rb = barbette(cy, cap)
+    if zb is None:
+        zb, rb = deck_z(cy) + 1.1, 4.40
+        LOG.setdefault('missing', []).append(name + '_barbette')
+    hex_prism(bmx, 0.0, cy, rb, deck_z(cy) - 0.5, zb)
+    taper(bmg, -hw, hw, y0, y1, zb - 0.30, z_top, 0.88)
     for bx in (-1.5, 0.0, 1.5):
         tri_barrel(bmg, bx, z_top - 1.32, min(bar_y0, bar_y1), max(bar_y0, bar_y1), 0.30)
-    GUNS.append((name, round((y0 + y1) / 2, 1), round(z_top, 2)))
+    GUNS.append((name, round(cy, 1), round(z_top, 2), round(zb, 2), rb))
 
 
-turret('turret_1', 45.4, 53.6, 3.55, Z_T1, deck_z(49.5) - 0.5, 53.6, 61.2)
-# 二號砲座：六邊柱，船體色 → 放在 Super 裡（砲座是船體凸出，只有砲塔深色）
-_t2base = Z_T2 - T_H
-turret('turret_2', 33.4, 41.8, 3.70, Z_T2, _t2base, 41.8, 49.2)
-turret('turret_3', -52.8, -44.8, 3.65, Z_T3, deck_z(-48.8) - 0.5, -52.8, -60.8)
+turret('turret_1', 45.4, 53.6, 3.55, Z_T1, 49.5, 9.0, 53.6, 61.2)
+turret('turret_2', 33.4, 41.8, 3.70, Z_T2, 37.6, 11.6, 41.8, 49.2)
+turret('turret_3', -52.8, -44.8, 3.65, Z_T3, -48.8, 8.9, -52.8, -60.8)
 
 # ── 5"/38 單裝 × 8（一舷四座）。砲管朝外斜前，尾端埋進砲身。
 #   (y, |x|, 量頂高的上限, 腳下平台)
@@ -757,12 +782,15 @@ for _y, _x, _cap in AA40:
                     (_s * _x + _sx, _y + 2.60, _zt - 0.10), 0.085)
     GUNS.append(('aa40_%.0f' % _y, _y, round(_zt, 2)))
 
-# ── 前桅：桅腳在艦橋頂，桅頂 38.2（Object_22）。桁在 30.5、伸到 |x| 4.4；
-#    SK 對空雷達是一片 5.1 × 5.8 的平板，掛在 y 11.7、z 30.6…36.3。
+# ── 前桅：桅腳在艦橋頂，桅頂 38.2（Object_22），往艦尾傾 2.2。兩根桁：
+#    下桁在 30.35 伸到 |x| 4.4、桅頂的十字桁在 35.5 伸到 |x| 2.2。
+#    參考模型在 z 30.6…36.3 掛著一片 5.1 × 5.8 的 SK 對空雷達，**不做**：
+#    低多邊形下那一片平板從側面看就是一塊浮在桅旁邊的矩形（負責人指出來的），
+#    桅頂做成十字就夠了。
 Z_FMAST = top_in(7.4, 8.4, 0.35, 39.0, stat='max') or 38.20
 taper(bmg, -0.75, 0.75, 10.4, 12.8, (Z_BR2 or 20.9) - 0.6, Z_FMAST, 0.35, dy=-2.2)
-box(bmg, -4.40, 4.40, 9.9, 10.7, 30.1, 30.6)
-box(bmg, -2.54, 2.54, 9.2, 10.2, 30.2, 36.3)      # 底面要伸進桁裡，不要剛好貼齊
+box(bmg, -4.40, 4.40, 9.90, 10.70, 30.10, 30.60)
+box(bmg, -2.20, 2.20, 9.35, 10.05, 35.25, 35.75)
 GUNS.append(('foremast', 11.0, round(Z_FMAST, 2)))
 # 射控台（Mk34 主砲射控）坐在艦橋頂
 Z_DIR = top_in(21.5, 23.0, 0.9, 17.6, stat='max') or 17.06
@@ -778,17 +806,24 @@ GUNS.append(('mainmast', -28.7, round(Z_MMAST, 2)))
 for _s in (1, -1):
     box(bmg, _s * 4.11, _s * 7.90, -83.3, -62.0, 6.52, 8.54)
 GUNS.append(('catapults', -72.6, 8.54))
-# 吊車：立柱在 y −80.5，臂朝艦尾斜下（參考模型的臂端在 y −91.5、z 8.5 上下）
-taper(bmg, -0.95, 0.95, -81.4, -79.6, 6.2, 15.40, 0.55)
-tri_rod(bmg, (0.0, -80.5, 14.30), (0.0, -91.2, 8.60), 0.32)
-GUNS.append(('crane', -80.5, 15.40))
+# 艦尾吊車：圓形基座在 y −87.2（近艦尾端），立柱到 14.4，**吊臂朝艦首**伸到
+# y −78.8，另有一根背拉桿由柱頂斜下到 y −91.6。
+# 第一版把臂做成朝艦尾（負責人指出「應該是一個向前延伸的機械臂」）：中線縱剖
+# 在 y −79…−91 是一條由 15.0 降到 9.8 的斜線，只看那條會以為柱在前、臂在後。
+# 真正的順序要看側視近照 —— 柱在**後**、臂朝前伸出去吊水上機，背拉桿才是往後
+# 那一根。這是 S13「近照確認是什麼」的又一例。
+hex_prism(bmx, 0.0, -87.20, 1.70, deck_z(-87.2) - 0.4, 7.30)
+taper(bmg, -0.55, 0.55, -88.2, -86.6, 7.00, 14.40, 0.55)
+tri_rod(bmg, (0.0, -87.40, 14.10), (0.0, -78.80, 14.85), 0.30)
+# 背拉桿的下端要**踩到甲板上**。照參考模型的 y −91.9 / z 8.4 放，末端會浮在
+# 空中 2.3 m —— 那裡參考模型有艦尾的護牆與雜項，我們沒做。
+tri_rod(bmg, (0.0, -87.40, 14.10), (0.0, -90.60, deck_z(-90.6) + 0.25), 0.26)
+GUNS.append(('crane', -87.2, 14.40))
 finish(bmg)
 GUNS_OBJ = new_object('WICHITA_Guns', bmg, [M_ACC])
 LOG['guns'] = GUNS
 
-# 二號砲塔的砲座是**船體凸出**（船體色），連同 40 mm 的護牆桶一起併回 Super。
-hex_prism(bmx, 0.0, 37.6, 4.35, deck_z(37.6) - 0.5, _t2base + 0.25)
-SUPER.append(('turret2_barbette', 33.4, 41.8, round(_t2base, 2)))
+# 三座砲塔的砲座與 40 mm 的護牆桶都是**船體凸出**（船體色），併回 Super。
 finish(bmx)
 _me = bpy.data.meshes.new('tmp_bmx')
 bmx.to_mesh(_me); bmx.free()
