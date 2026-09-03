@@ -95,8 +95,7 @@ describe('任務設定的基準', () => {
     // 【為什麼要這一條】上面兩條在 fixture 意外變成 `{}` 而 snapshot 也回
     // `{}` 時會一起綠。這裡釘住基準確實含編制與規則
     for (const key of ['allies-escort', 'axis-intercept'] as const) {
-      const b = MISSION_CONFIG_BASELINE[key] as { units: unknown[] }
-      expect(b.units.length, key).toBeGreaterThan(2)
+      expect(MISSION_CONFIG_BASELINE[key].units.length, key).toBeGreaterThan(2)
     }
   })
 })
