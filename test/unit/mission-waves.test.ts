@@ -214,7 +214,7 @@ describe('返航的翻譯', () => {
     // 【兩條路必須同一條】返航節拍與撤離卡指的是同一個圈
     const c = card({
       withdraw: {
-        when: { kind: 'clock', at: 10 }, message: 'RETURN TO BASE',
+        when: { kind: 'clock', at: 10 }, message: '返航',
         distance: 12000, radius: 1000, seconds: 158,
       },
     })
@@ -224,7 +224,7 @@ describe('返航的翻譯', () => {
     expect(w.point.z).toBe(-12000)
     expect(w.radius).toBe(1000)
     expect(w.seconds).toBe(158)
-    expect(w.message).toBe('RETURN TO BASE')
+    expect(w.message).toBe('返航')
   })
 
   it('波次與返航可以同時存在，波次排在前面', () => {
