@@ -696,6 +696,7 @@ LOG['super'] = SUPER
 bmg = bmesh.new()
 bmx = bmesh.new()
 GUNS = []
+EMPL = []      # 防空砲位清單 → export_ship_aa.py 產生遊戲用的座標表
 
 # ── 8"/55 三聯裝 × 3（一、二號在艦首超射，三號在艦尾）
 # 砲管軸心都在砲塔頂之下 1.32，砲管間距 1.5 m（量出來的）。
@@ -762,6 +763,7 @@ for _y, _x, _cap, _plat in SEC:
         taper(bmg, _s * _x - 1.50, _s * _x + 1.50, _y - 1.65, _y + 1.65, _b - 0.45, _zt, 0.82)
         tri_rod(bmg, (_s * (_x + 0.55), _y + 0.30, _zt - 1.05),
                 (_s * (_x + 3.00), _y + 2.35, _zt - 0.35), 0.13)
+        EMPL.append(('flak', 127, _s * _x, _y, _zt - 1.05, 1))
     GUNS.append(('sec5in_%.0f' % _y, _y, round(_zt, 2)))
 
 # ── 四聯裝 40 mm：艦橋兩舷的翼台上（腳下量到 10.29）。桶壁是船體凸出 → bmx。
@@ -780,6 +782,7 @@ for _y, _x, _cap in AA40:
         for _sx in (-0.35, 0.35):
             tri_rod(bmg, (_s * _x + _sx, _y - 0.30, _zt - 0.62),
                     (_s * _x + _sx, _y + 2.60, _zt - 0.10), 0.085)
+        EMPL.append(('autocannon', 40, _s * _x, _y, _zt - 0.62, 4))
     GUNS.append(('aa40_%.0f' % _y, _y, round(_zt, 2)))
 
 # ── 20 mm Oerlikon × 10：舯部小艇甲板一舷四門（兩座煙囪之間那一排）、艏樓兩門。
@@ -805,6 +808,7 @@ for _y, _x, _r, _plat, _cap in AA20:
         # 砲管尾端埋進砲身（軸心比砲身頂低 0.13）、朝外斜上，管徑照 20 mm
         tri_rod(bmg, (_s * (_x + 0.10), _y + 0.05, _pt - 0.13),
                 (_s * (_x + _r + 0.55), _y + 0.40, _pt + 0.32), 0.065)
+        EMPL.append(('mg', 20, _s * _x, _y, _pt - 0.13, 1))
     GUNS.append(('aa20_%.0f' % _y, _y, round(_zt, 2)))
 
 # ── 前桅：桅腳在艦橋頂，桅頂 38.2（Object_22），往艦尾傾 2.2。兩根桁：
@@ -942,4 +946,5 @@ LOG['size'] = tuple(round(v, 2) for v in (
     max(max(vv.co.y for vv in ob.data.vertices) for ob in PARTS)
     - min(min(vv.co.y for vv in ob.data.vertices) for ob in PARTS),
     max(max(vv.co.z for vv in ob.data.vertices) for ob in PARTS)))
+LOG['empl'] = [(t, c, round(x, 2), round(y, 2), round(z, 2), g) for t, c, x, y, z, g in EMPL]
 print('WICHITA LOG', LOG)

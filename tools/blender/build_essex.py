@@ -702,12 +702,16 @@ def seat_on(x0, x1, y0, y1, z_base):
     return z
 
 
+EMPL = []          # 防空砲位清單 → tools/blender/export_ship_aa.py 產生遊戲用的座標表
+
+
 def mount(x_c, y_c, base_z, twin):
     """砲塔 + 砲管。尺寸照 5"/38 的實物（砲座直徑 4.4 m、砲管伸出 4.4 m）。"""
     w = 2.2 if twin else 1.4
     h = 3.3 if twin else 2.6
     base_z = clear_base(seat_on(x_c - w, x_c + w, y_c - w, y_c + w, base_z) - SINK, h)
     box(bmg, x_c - w, x_c + w, y_c - w, y_c + w, base_z, base_z + h)
+    EMPL.append(('flak', 127, x_c, y_c, base_z + h - 1.2, 2 if twin else 1))
     for i in range(2 if twin else 1):
         dx = (i - (0.5 if twin else 0)) * 1.1
         tri_barrel(bmg, x_c + dx, base_z + h - 1.2, y_c + w - 0.3, y_c + w + 4.4, 0.32)
@@ -753,6 +757,7 @@ def aa_mount(y_c, sgn):
     z = clear_base(seat_on(x_c - 1.35, x_c + 1.35, y_c - 1.35, y_c + 1.35, z) - SINK, 1.35)
     box(bmg, x_c - 1.35, x_c + 1.35, y_c - 1.35, y_c + 1.35, z, z + 1.35)         # 砲座
     tri_barrel(bmg, x_c, z + 1.02, y_c - 0.5, y_c + 3.6, 0.42)                # 四聯裝的砲管（一束）
+    EMPL.append(('autocannon', 40, x_c, y_c, z + 1.02, 4))
 
 
 for y_c in AA_PORT:
@@ -797,6 +802,7 @@ for sgn in (1, -1):
             tri_rod(bmg, (x_c + sgn * 0.10, y_c + 0.05, z + AA20_H - 0.13),
                     (x_c + sgn * 1.55, y_c + 0.45, z + AA20_H + 0.34), 0.065)
             AA20.append((round(x_c, 2), round(y_c, 1), round(z + AA20_H, 2)))
+            EMPL.append(('mg', 20, x_c, y_c, z + AA20_H - 0.13, 1))
 LOG['aa20'] = len(AA20)
 
 # ── 舷側砲座 ──
@@ -941,4 +947,5 @@ LOG['bbox'] = tuple(round(v, 2) for v in (
     max(max(vv.co.x for vv in ob.data.vertices) for ob in PARTS),
     max(max(vv.co.y for vv in ob.data.vertices) for ob in PARTS),
     max(max(vv.co.z for vv in ob.data.vertices) for ob in PARTS)))
+LOG['empl'] = [(t, c, round(x, 2), round(y, 2), round(z, 2), g) for t, c, x, y, z, g in EMPL]
 print('ESSEX LOG', LOG)

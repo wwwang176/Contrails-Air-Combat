@@ -601,6 +601,7 @@ LOG['super'] = SUPER
 # 的裝備層讀出來，砲管方向照真船（51/52 朝前、53 朝前、54/55 朝後）。
 bmg = bmesh.new()
 GUNS = []
+EMPL = []      # 防空砲位清單 → export_ship_aa.py 產生遊戲用的座標表
 
 
 def mount(name, y0, y1, hw, cap_z, base, bar_y0, bar_y1, bar_z_cap):
@@ -614,6 +615,7 @@ def mount(name, y0, y1, hw, cap_z, base, bar_y0, bar_y1, bar_z_cap):
     taper(bmg, -hw, hw, y0, y1, z0, z1, 0.86)
     tri_barrel(bmg, 0.0, bz - 0.13, min(bar_y0, bar_y1), max(bar_y0, bar_y1), 0.26)
     GUNS.append((name, round((y0 + y1) / 2, 1), round(z1, 2), round(bz, 2)))
+    EMPL.append(('flak', 127, 0.0, (y0 + y1) / 2, bz - 0.13, 1))
 
 
 mount('mount_51', 36.2, 39.8, 1.53, 9.0, 'deck', 39.8, 43.4, 7.9)
@@ -644,6 +646,7 @@ for _y, _x, _r, _base, _cap in AA_TUBS:
         taper(bmg, _s * _x - 0.46, _s * _x + 0.46, _y - 0.46, _y + 0.46, _b - 0.25, _pt, 0.80)
         tri_rod(bmg, (_s * (_x + 0.10), _y + 0.05, _pt - 0.13),
                 (_s * (_x + _r + 0.60), _y + 0.45, _pt + 0.34), 0.065)
+        EMPL.append(('mg', 20, _s * _x, _y, _pt - 0.13, 1))
     GUNS.append(('aa20_%.0f' % _y, _y, round(_zt, 2), None))
 
 # 雙聯裝 40 mm：兩根砲管朝前略上（細掃在 y −22.6 那一列量到兩個尖峰在 x ±0.3），
@@ -654,6 +657,7 @@ if _z40:
     for _sx in (-0.30, 0.30):
         tri_rod(bmg, (_sx, -25.60, _z40 - 0.62), (_sx, -22.50, _z40 - 0.20), 0.085)
     GUNS.append(('aa_40mm', -26.0, round(_z40, 2), None))
+    EMPL.append(('autocannon', 40, 0.0, -26.0, _z40 - 0.62, 2))
 
 # 深水炸彈軌：艦尾甲板上兩條
 for sgn in (1, -1):
@@ -748,4 +752,5 @@ LOG['size'] = tuple(round(v, 2) for v in (
     max(max(vv.co.y for vv in ob.data.vertices) for ob in PARTS)
     - min(min(vv.co.y for vv in ob.data.vertices) for ob in PARTS),
     max(max(vv.co.z for vv in ob.data.vertices) for ob in PARTS)))
+LOG['empl'] = [(t, c, round(x, 2), round(y, 2), round(z, 2), g) for t, c, x, y, z, g in EMPL]
 print('FLETCHER LOG', LOG)
