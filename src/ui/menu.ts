@@ -56,7 +56,8 @@ const FACTION_LABEL: Record<FactionChoice, string> = {
  * 不會擋住任何人玩。
  */
 const SHORT_NAME: Record<string, string> = {
-  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', b17g: 'B-17G', he111: 'He 111',
+  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M',
+  b17g: 'B-17G', he111: 'He 111',
 }
 
 const shortName = (id: string): string => SHORT_NAME[id] ?? specOf(id).name

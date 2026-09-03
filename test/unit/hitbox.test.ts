@@ -8,6 +8,9 @@ import { BF109K4 } from '../../src/specs/bf109k4'
 import { F6F5 } from '../../src/specs/f6f5'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
+import { KI84 } from '../../src/specs/ki84'
+import { A6M5 } from '../../src/specs/a6m5'
+import { G4M } from '../../src/specs/g4m'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import type { AircraftSpec } from '../../src/specs/types'
 
@@ -39,7 +42,7 @@ import type { AircraftSpec } from '../../src/specs/types'
  * 【為什麼當初沒納】猜是因為轟炸機的盒是跟著砲塔一起長出來的，而這份掃描
  * 寫在那之前。不管原因是什麼，「有些機種不掃」本身就是缺陷的溫床。
  */
-const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, HE111, B17G]
+const CASES: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M]
 
 /**
  * 【F6F-5 為什麼要多這一步】它的外型不是程式化建的，是 GLB。`buildAircraft`

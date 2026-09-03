@@ -24,6 +24,9 @@ import { BF109K4 } from '../../src/specs/bf109k4'
 import { F6F5 } from '../../src/specs/f6f5'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
+import { KI84 } from '../../src/specs/ki84'
+import { A6M5 } from '../../src/specs/a6m5'
+import { G4M } from '../../src/specs/g4m'
 import type { AircraftSpec } from '../../src/specs/types'
 
 await loadGlbTemplatesForNode()
@@ -360,7 +363,7 @@ const line = (b: HitBox, tag: string): string => {
     + `[${f(hi.x)}, ${f(hi.y)}, ${f(hi.z)}]),`.padEnd(34) + `// ${tag}`
 }
 
-for (const spec of [P51D, F6F5, BF109K4, HE111, B17G]) {
+for (const spec of [P51D, F6F5, BF109K4, KI84, A6M5, HE111, B17G, G4M]) {
   const { pts, tris } = mesh(spec)
   const axes = ASPECTS.map((a) => {
     const dir = a.s.clone().multiplyScalar(-1)

@@ -5,6 +5,9 @@ import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111 } from '../../src/specs/he111'
 import { B17G } from '../../src/specs/b17g'
 import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
+import { KI84, KI84_HISTORICAL } from '../../src/specs/ki84'
+import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
+import { G4M } from '../../src/specs/g4m'
 import { MAX_TURRETS } from '../../src/weapons/turret'
 import { HIT_PARTS } from '../../src/world/hit'
 
@@ -12,6 +15,8 @@ const CASES = [
   { spec: P51D, hist: P51D_HISTORICAL },
   { spec: BF109K4, hist: BF109K4_HISTORICAL },
   { spec: F6F5, hist: F6F5_HISTORICAL },
+  { spec: KI84, hist: KI84_HISTORICAL },
+  { spec: A6M5, hist: A6M5_HISTORICAL },
 ]
 
 describe('機種資料', () => {
@@ -150,12 +155,17 @@ describe('機種資料', () => {
  * 末段）。這裡照既有做法，但 `turrets` 是**必填**欄位，所以漏掉的機種會先被
  * 型別擋下來，不會靜靜地沒有測試在跑。
  */
-const ALL = [P51D, BF109K4, F6F5, HE111, B17G]
+const ALL = [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M]
 
 describe('砲塔欄位', () => {
+  /**
+   * 【依 `role` 篩而不是點名】原本只點名 P-51D 與 Bf 109，連 F6F-5 都沒守到
+   * ——那正是硬編清單的老問題（Codex 審查 2026-09-03 P1）。
+   */
   it('戰鬥機沒有砲塔', () => {
-    expect(P51D.turrets).toHaveLength(0)
-    expect(BF109K4.turrets).toHaveLength(0)
+    const fighters = ALL.filter((s) => s.role === 'fighter')
+    expect(fighters.length).toBeGreaterThanOrEqual(4)
+    for (const s of fighters) expect(s.turrets, `${s.id} 不該有砲塔`).toHaveLength(0)
   })
 
   /**
@@ -172,16 +182,35 @@ describe('砲塔欄位', () => {
 
 describe('防護力', () => {
   /**
-   * 【0.7～1.5 是專案負責人 2026-09-01 訂的區間】超出要他裁決，不是實作者
-   * 自己放寬。守的是「這個欄位不會變成一個沒人知道怎麼來的魔術數字」——
-   * 0.3 或 3.0 那種值會把某個部位變成一擊必殺或完全打不壞，而那不是防護力
-   * 該表達的東西（整體強弱由 `hp` 負責，見 `specs/types.ts`）。
+   * 【0.60～1.5 是專案負責人訂的區間】超出要他裁決，不是實作者自己放寬。
+   * 守的是「這個欄位不會變成一個沒人知道怎麼來的魔術數字」—— 0.3 或 3.0
+   * 那種值會把某個部位變成一擊必殺或完全打不壞，而那不是防護力該表達的
+   * 東西（整體強弱由 `hp` 負責，見 `specs/types.ts`）。
+   *
+   * 【下限由 0.7 降到 0.60 —— 專案負責人 2026-09-03 裁決】
+   *
+   * 理由是 A6M5 五二型甲**史實上確實比 0.7 還脆**，而且有一手史料直接坐實：
+   *
+   * ```
+   *   TAIC Report No. 38, Inclosure 4（1945-04，Eglin Field 實測評估）
+   *   "The airplane has no protective armor plate, and no provision for
+   *    leak proofing of internal fuel tanks."
+   * ```
+   *
+   * TAIC 102D-3 的 VULNERABILITY 圖獨立佐證：翼內、胴體、可拋副油箱全部畫成
+   * 「Fuel tanks, unprotected」，整張圖沒有任何 armor plate 標註。而且驗過
+   * 對照組 —— 同一本手冊的三式戦那一頁明寫有裝甲與防漏箱，所以零戰那一頁
+   * 沒標是**實質判斷不是樣板漏印**。
+   *
+   * 【現有機種不受影響】改動前最低的是 P-51D 的 `fuselage` 0.80（機腹散熱器
+   * 一發就報銷），離舊下限還有 0.10 的餘裕。這一次放寬**只為了讓一台史實上
+   * 毫無防護的飛機能照實寫**，不是為了讓誰變綠。
    */
-  it('每一格都在 0.7～1.5 之間', () => {
+  it('每一格都在 0.60～1.5 之間', () => {
     for (const spec of ALL) {
       for (const part of HIT_PARTS) {
         const v = spec.protection[part]
-        expect(v, `${spec.id} 的 ${part}`).toBeGreaterThanOrEqual(0.7)
+        expect(v, `${spec.id} 的 ${part}`).toBeGreaterThanOrEqual(0.6)
         expect(v, `${spec.id} 的 ${part}`).toBeLessThanOrEqual(1.5)
       }
     }

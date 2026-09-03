@@ -7,6 +7,9 @@ import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
 import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
+import { KI84, KI84_HISTORICAL } from '../../src/specs/ki84'
+import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
+import { G4M, G4M_HISTORICAL } from '../../src/specs/g4m'
 import type { AircraftSpec, HistoricalReference } from '../../src/specs/types'
 
 const TOLERANCE = 0.05
@@ -111,7 +114,29 @@ const ALL: readonly Check[] = [
  * 一個是「到 20,000 ft 約 37 分 → 2.7，海平面較高，取 4.5」猜的，來源撐不起
  * 任何精度。實測 He 111 −13.0%、B-17G +12.4%（都是未套手感的值）。
  */
-const PENDING = ['He111 升限', 'He111 失速', 'B17G 失速', 'B17G 升限'] as const
+const PENDING: readonly { id: string; check: Check; reason: string }[] = [
+  { id: 'he111', check: 'ceiling', reason: '+8.9%。負責人取捨：高空性能優先於升限的絕對值' },
+  { id: 'he111', check: 'stall', reason: '+5.6%。derivedClMax 1.313 對史實 1.55 差 15%' },
+  { id: 'he111', check: 'climb', reason: '史實值是「到 2,000 m 約 8.5 分」的平均換算，撐不起精度' },
+  { id: 'b17g', check: 'ceiling', reason: '−9.5%。質量取 22,000（負責人的中間值）；19,017 時是 −0.1%' },
+  { id: 'b17g', check: 'stall', reason: '+7.3%。史實的 145 km/h 是**放襟翼**的值，淨形對不上是應該的' },
+  { id: 'b17g', check: 'climb', reason: '史實值是「到 20,000 ft 約 37 分」猜的，撐不起精度' },
+  {
+    id: 'g4m',
+    check: 'stall',
+    /**
+     * 【這一項的缺口不是資料，是模型】沒有任何來源直接給 G4M 的失速，但
+     * **著陸速度有**（モデルアート『日本航空機辞典』129.6 km/h @ 12,500 kg，
+     * 原始單位是 70 節），兩條互不相干的路反推得 150.5 km/h、差 0.21%。
+     * 詳見 `specs/g4m.ts` 的 `stallSpeed`。
+     *
+     * 不進斷言的理由是**本模型對轟炸機的失速有 5–7% 的系統性偏高**
+     *（He 111 +5.6%、B-17G +7.3%），而路徑 B 的錨點正是 He 111。
+     * **三台轟炸機同方向偏一樣的量，那本身是一條值得單獨查的線索。**
+     */
+    reason: '失速值是由著陸速度反推的；而且三台轟炸機的失速在本模型裡同方向偏高 5–7%',
+  },
+]
 
 const CASES: {
   spec: AircraftSpec; hist: HistoricalReference
@@ -126,11 +151,42 @@ const CASES: {
    * 的 `mass`。海平面極速是另一個來源，沒有參與校準，打出 +1.2%。
    */
   { spec: F6F5, hist: F6F5_HISTORICAL, checks: ALL },
+  /**
+   * 【主幹是日方三次試飛的平均，不是那個 687 km/h】那個數字從來沒有人量過
+   *（1946 年繳獲機報告的數據欄逐字照抄 1945 年的 TAIC 估算表，而同一份報告
+   * 第 11 頁寫著「Performance — None obtained」）。專案負責人 2026-09-03
+   * 裁決改用日方實測的平均，詳見 `specs/ki84.ts` 的檔頭。
+   *
+   * 換來源之後兩點反解把 cd0 夾在 0.0212–0.0240，出貨 0.023 落在中間 ——
+   * 與 He 111 對照組（0.0202／0.0222，出貨 0.0206）同一個形狀。
+   */
+  { spec: KI84, hist: KI84_HISTORICAL, checks: ALL },
+  /**
+   * 【主幹走日方栄二一型，不走 TAIC 102D】理由不是精度是引擎：TAIC 認定的
+   * Sakae 31A 二速全開高度是 6,584 m，栄二一型是 6,000 m，差 584 m —— 而
+   * `peak` 那一條守的正是峰值落在哪裡。詳見 `specs/a6m5.ts` 的檔頭。
+   *
+   * 三項跨源（海面極速、海面爬升、失速），逐條標在 `A6M5_HISTORICAL`。
+   */
+  { spec: A6M5, hist: A6M5_HISTORICAL, checks: ALL },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: HE111, hist: HE111_HISTORICAL,
     checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
   // 極速兩點守死；失速、升限與爬升見 PENDING
   { spec: B17G, hist: B17G_HISTORICAL, checks: ['vmaxCritical', 'vmaxSeaLevel', 'peak'] },
+  /**
+   * 【守五項，只有失速進 PENDING】它的來源品質比另外兩台轟炸機好得多 ——
+   * 空技廠那份文件給的是一條**從海平面到 8,000 m 的完整速度曲線**（11 個
+   * 高度），升限與極速同源同重量，所以 `ceiling` 也守死。
+   *
+   * 爬升由專案負責人 2026-09-03 裁決進斷言（史實值是「到 3,000 m 的平均」
+   * 反算的，見 `specs/g4m.ts`）。
+   */
+  {
+    spec: G4M,
+    hist: G4M_HISTORICAL,
+    checks: ['vmaxCritical', 'vmaxSeaLevel', 'climb', 'ceiling', 'peak'],
+  },
 ]
 
 describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另有比值斷言）', () => {
@@ -168,16 +224,21 @@ describe('L2 史實性能（極速／失速／升限／爬升率 ±5%，並另�
     })
   }
 
-  // PENDING 是文件，但讓它進斷言，才不會有人把它刪掉之後沒人發現。
-  it('還沒守住的四項有被逐條記錄', () => {
-    expect(PENDING).toHaveLength(4)
+  /**
+   * PENDING 是文件，但讓它進斷言，才不會有人把它刪掉之後沒人發現。
+   *
+   * 【由 `checks` 算出「誰沒守」，再要求 `PENDING` 逐項對得上】上一版是
+   * 兩份手維護的清單（一個字串陣列、一個寫死的預期值），加一台新機種時
+   * **兩邊都要記得改，漏一邊才會紅**。改成從 `CASES` 推導之後，漏填會直接
+   * 指出是哪一台的哪一項（Codex 審查 2026-09-03 P0）。
+   */
+  it('每一個沒守住的項目都有逐條記錄，而且沒有多記', () => {
     const covered = CASES.flatMap(({ spec, checks }) =>
       ALL.filter((c) => !checks.includes(c)).map((c) => `${spec.id}:${c}`))
-      // He111 少 climb/stall、B17G 少 climb/stall/ceiling
-    expect(covered.sort()).toEqual([
-      'b17g:ceiling', 'b17g:climb', 'b17g:stall',
-      'he111:ceiling', 'he111:climb', 'he111:stall',
-    ])
+    const recorded = PENDING.map((q) => `${q.id}:${q.check}`)
+    expect(recorded.slice().sort()).toEqual(covered.slice().sort())
+    // 每一條都要寫「量到多少、為什麼還沒對上」，不是只列個名字
+    for (const q of PENDING) expect(q.reason.length, `${q.id}:${q.check}`).toBeGreaterThan(15)
   })
 
   /**

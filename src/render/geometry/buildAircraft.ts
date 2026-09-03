@@ -7,6 +7,9 @@ import { P51D_MODEL } from './p51d.model'
 import { BF109K4_MODEL } from './bf109k4.model'
 import { HE111_MODEL } from './he111.model'
 import { B17G_MODEL } from './b17g.model'
+import { KI84_MODEL } from './ki84.model'
+import { A6M5_MODEL } from './a6m5.model'
+import { G4M_MODEL } from './g4m.model'
 import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
@@ -50,6 +53,9 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
   bf109k4: BF109K4_MODEL,
   he111: HE111_MODEL,
   b17g: B17G_MODEL,
+  ki84: KI84_MODEL,
+  a6m5: A6M5_MODEL,
+  g4m: G4M_MODEL,
 }
 
 /**
@@ -87,6 +93,9 @@ const BODY_COLORS: Record<string, number> = {
   he111: HE111_MODEL.bodyColor,
   b17g: B17G_MODEL.bodyColor,
   f6f5: F6F5_MODEL.bodyColor,
+  ki84: KI84_MODEL.bodyColor,
+  a6m5: A6M5_MODEL.bodyColor,
+  g4m: G4M_MODEL.bodyColor,
 }
 
 /** 零件用它上色 —— 打爆的飛機掉下來的碎片必須跟機身同色。 */
