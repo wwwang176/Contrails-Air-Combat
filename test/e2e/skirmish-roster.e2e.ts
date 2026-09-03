@@ -52,9 +52,9 @@ async function main(): Promise<void> {
     const redChips = page.locator('#red-roster .chip')
 
     const names = await blueAdd.allTextContents()
-    // 【數字跟著 `ALL_SPECS` 走】F6F-5 進編之後是五台
-    ok(names.length === 5, '兩排各有五台可以編', names.join(' / '))
-    ok(await redAdd.count() === 5, '敵方那一排也是五台')
+    // 【數字跟著 `ALL_SPECS` 走】三台日本機進編之後是八台
+    ok(names.length === 8, '兩排各有八台可以編', names.join(' / '))
+    ok(await redAdd.count() === 8, '敵方那一排也是八台')
 
     ok(await blueChips.count() === 20, '預設是 20 對 20', `我方 ${await blueChips.count()}`)
 
@@ -94,6 +94,17 @@ async function main(): Promise<void> {
     await redAdd.nth(redNames.findIndex((n) => n.includes('P-51'))).click()
     ok(await redChips.count() === 2, '敵方編了兩架')
 
+    // ── 三台日本機也要真的編進去、打起來 ────────────────
+    //
+    // 【為什麼不是只把上面那個數字改成八】那只證明得了 `ALL_SPECS` 生出八顆
+    // 按鈕，證明不了那三台的 GLB、spec、砲塔或生成路徑可用 —— 三台全部沒接
+    // `GLB_MODELS` 時按鈕數照樣是八（Codex 審查 2026-09-03 P0）。
+    await blueAdd.nth(idx('Ki-84')).click()
+    await blueAdd.nth(idx('A6M5')).click()
+    await redAdd.nth(redNames.findIndex((n) => n.includes('G4M'))).click()
+    ok(await blueChips.count() === 5, '我方加上疾風與零戰')
+    ok(await redChips.count() === 3, '敵方加上一式陸攻')
+
     // ── 場地與開場高度 ──────────────────────────────────
     //
     // 【為什麼在這裡驗】那兩個是「地形進不進得了場」的開關（島最高
@@ -117,6 +128,8 @@ async function main(): Promise<void> {
     ok(line!.includes('bf109k4') && line!.includes('p51d') && line!.includes('b17g'),
       '我方真的是混編的那三架')
     ok(line!.includes('he111'), '敵方真的有 He 111')
+    ok(line!.includes('ki84') && line!.includes('a6m5') && line!.includes('g4m'),
+      '三台日本機真的生成了 —— GLB、spec 與砲塔都接上了', line ?? '')
     ok(line!.includes('開場 600 m'), '甲板那一格真的接到了開場高度', line ?? '')
     ok(line!.includes('場地 archipelago'), '場地也接上了')
 

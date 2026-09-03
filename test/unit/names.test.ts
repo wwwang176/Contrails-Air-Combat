@@ -37,6 +37,7 @@ describe('機種的陣營（決定名冊）', () => {
     const want: Record<string, string> = {
       p51d: 'allies', b17g: 'allies', f6f5: 'allies',
       bf109k4: 'axis', he111: 'axis',
+      ki84: 'japan', a6m5: 'japan', g4m: 'japan',
     }
     for (const spec of ALL_SPECS) {
       expect(spec.faction, spec.id).toBe(want[spec.id])
