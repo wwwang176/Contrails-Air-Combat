@@ -86,14 +86,16 @@ describe('可玩卡的戰鬥設定', () => {
 })
 
 describe('目錄卡', () => {
-  it('七張都是 battle: null —— 沒有「半套」這個狀態', () => {
-    // 【型別保證，這一條是覆核】原本靠一條測試守「資料要嘛完整要嘛全空」，
-    // 因為欄位散在根層、可以只填一半。搬進 `battle` 之後拿得到它就一定
-    // 拿得到裡面每一格
-    for (const m of ALL) {
-      if (ready(m)) continue
-      expect(m.battle, m.id).toBeNull()
+  it('沒做的那七張仍然有完整的目錄資料', () => {
+    // 【原本這裡還斷言「battle 是 null」，那是恆真的】篩選用的 `ready` 的
+    // 定義就是 `battle !== null`（Codex 審查 P2）。真正有內容的是「哪五張
+    // 是 ready」那一條，以及這裡：**目錄那一半不准跟著空掉** ——
+    // 一張沒有標題的卡在選單上是一塊點不下去的空白
+    const locked = ALL.filter((m) => !ready(m))
+    expect(locked).toHaveLength(7)
+    for (const m of locked) {
       expect(m.title.length, m.id).toBeGreaterThan(0)
+      expect(m.summary.length, m.id).toBeGreaterThan(0)
     }
   })
 })
