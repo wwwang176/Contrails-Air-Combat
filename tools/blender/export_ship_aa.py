@@ -44,24 +44,63 @@ def side(x):
     return 'c' if abs(x) < 0.6 else ('s' if x > 0 else 'p')
 
 
-def zones_of(rows):
-    """把砲位併成「一層 × 一舷」一區，每區推一門**真實存在的**砲當代表。
+def split_fore_aft(members):
+    """在「**該舷砲位自己的 y 範圍**的中點」把一舷切成前後兩簇。
 
-    代表取「離該區形心最近的那一門」，**不是形心本身** —— 形心會落在兩層甲板
-    之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m，形心根本不在
-    任何一層上）。取真實的一門，槍口就一定長在畫得出來的那根砲管上。
+    兩條都試過，這一條才對得上目的（近迫火網要涵蓋得開）：
+
+      **艦體中點**     Fletcher 的四門 20 mm 全在艦橋附近（y 25.4 與 18.6），
+                       切下去後半段是空的，四區只生得出兩區
+      **最大的空隙**   找到的是真實的斷點沒錯，但 Essex 右舷 17 門切成 15/2 ——
+                       一個代表要涵蓋 15 門那一長串，等於沒拆
+      **自己的範圍中點** 兩個代表必定一前一後分開，而且每一半至少有一門
+                       （範圍的兩端本來就各在一半裡）
+
+    Wichita 左舷五門（85.2 / 3.6 / 1.25 / −1.1 / −4.0）中點 40.6，切出來剛好
+    就是「艏樓一門」與「小艇甲板四門」—— 與最大空隙給的答案相同。
+    """
+    if len(members) < 2:
+        return [members]
+    ms = sorted(members, key=lambda m: -m[4])
+    mid = (ms[0][4] + ms[-1][4]) / 2
+    fore = [m for m in ms if m[4] >= mid]
+    aft = [m for m in ms if m[4] < mid]
+    return [fore, aft] if fore and aft else [ms]
+
+
+def representative(members):
+    """離該區形心最近的**那一門真的砲**，不是形心本身 —— 形心會落在兩層甲板
+    之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m）。取真實的一門，
+    槍口就一定長在畫得出來的那根砲管上。"""
+    cx = sum(m[3] for m in members) / len(members)
+    cy = sum(m[4] for m in members) / len(members)
+    cz = sum(m[5] for m in members) / len(members)
+    return min(members, key=lambda m: (m[3] - cx) ** 2 + (m[4] - cy) ** 2 + (m[5] - cz) ** 2)
+
+
+def zones_of(rows):
+    """把砲位併成區，每區推一門真實存在的砲當代表。
+
+    分區方式一層不一樣（負責人 2026-09-04）：
+
+      兩用砲、40 mm   一層 × 一舷 = 一區
+      **20 mm**       一層 × 一舷 × **前後** = 一區 —— 一舷一個點涵蓋不了
+                      185 m 的近迫火網，機庫裡也只看得到兩個錐
+
+    切完三艘分別是 8 / 6 / 8 區，**Essex 與 Wichita 正好卡在 MAX_TURRETS = 8**。
+    再想細分任何一層之前要先擴容。
     """
     groups = {}
     for gid, tier, cal, x, y, z, guns in rows:
         groups.setdefault((tier, side(x)), []).append((gid, tier, cal, x, y, z, guns))
     out = []
     for (tier, sd), members in sorted(groups.items(), key=lambda kv: (TIER_ORDER[kv[0][0]], kv[0][1])):
-        cx = sum(m[3] for m in members) / len(members)
-        cy = sum(m[4] for m in members) / len(members)
-        cz = sum(m[5] for m in members) / len(members)
-        rep = min(members, key=lambda m: (m[3] - cx) ** 2 + (m[4] - cy) ** 2 + (m[5] - cz) ** 2)
-        out.append(("%s_%s" % (tier, sd), tier, rep[2], rep[3], rep[4], rep[5],
-                    rep[6], len(members), rep[0]))
+        parts = split_fore_aft(members) if tier == 'mg' else [members]
+        tags = ('f', 'a') if len(parts) > 1 else ('',)
+        for part, tag in zip(parts, tags):
+            rep = representative(part)
+            out.append(("%s_%s%s" % (tier, sd, tag), tier, rep[2], rep[3], rep[4], rep[5],
+                        rep[6], len(part), rep[0]))
     return out
 
 
@@ -122,8 +161,20 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  *    超過 7 就與**下一個單位的第 0 座**撞號，好幾座砲完全同步地抖
  * 3. 不報錯、測試也不紅
  *
- * 所以下面每艘再給一份 `*_AA_ZONES`：**一層 × 一舷併成一區，一區推一門真實
- * 存在的砲當代表**（負責人 2026-09-04 裁決）。三艘都 ≤ 6 區，在上限之內。
+ * 所以下面每艘再給一份 `*_AA_ZONES`：**一區推一門真實存在的砲當代表**
+ * （負責人 2026-09-04 裁決）。分區方式一層不一樣：
+ *
+ * | 層 | 分區 | 為什麼 |
+ * | --- | --- | --- |
+ * | `flak`、`autocannon` | 一舷一區 | 本來就只有幾座，位置也集中 |
+ * | `mg` | 一舷**前後各一區** | 一舷一個點涵蓋不了 185 m 的近迫火網 |
+ *
+ * 前後的分界是**該舷 20 mm 自己的 y 範圍的中點**，不是艦體中點（Fletcher 的四門
+ * 全在艦橋附近，用艦體中點切後半段是空的），也不是最大空隙（Essex 右舷 17 門會
+ * 被切成 15/2，一個代表涵蓋 15 門那一長串，等於沒拆）。
+ *
+ * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區 —— **兩艘正好卡在上限 8**。
+ * 再想細分任何一層之前要先擴容 `MAX_TURRETS`。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
 
@@ -142,9 +193,11 @@ export interface ShipEmplacement {
 /**
  * 併區之後的砲位 —— **接進遊戲用這一份**。
  *
- * 一層（`tier`）× 一舷併成一區，一區推**一門真實存在的砲**當代表：位置就是
- * 那一門量到的槍口，所以槍焰一定長在畫得出來的那根砲管上。取形心會落在兩層
- * 甲板之間的空中（Essex 左舷那排 20 mm 沿著彎曲的走廊跨了 250 m）。
+ * 一區推**一門真實存在的砲**當代表：位置就是那一門量到的槍口，所以槍焰一定長在
+ * 畫得出來的那根砲管上。取形心會落在兩層甲板之間的空中（Essex 左舷那排 20 mm
+ * 沿著彎曲的走廊跨了 250 m）。
+ *
+ * id 的尾巴 `f`／`a` 是前／後（只有 20 mm 有，其他層一舷就一區）。
  */
 export interface ShipAAZone extends ShipEmplacement {
   /**
