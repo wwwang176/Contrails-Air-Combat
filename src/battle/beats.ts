@@ -11,7 +11,7 @@ import type { FlightPlan } from './order'
  * ```
  *   德 M1  發現 B-17 編隊 → 「敵方護航機！」P-51 出現
  *   盟 M4  打退 A6M5 → 雷達發現低空目標 → 魚雷機正朝航母接近
- *   德 M4  友軍逐漸減少 → 任務更新：RETURN TO BASE
+ *   德 M4  友軍逐漸減少 → 任務更新：返航
  * ```
  *
  * 最後一條與前兩條不同：它不生增援，它**改任務目標**。同一套條件判斷接
@@ -56,7 +56,7 @@ export interface ReinforceBeat {
   readonly flight: FlightPlan
 }
 
-/** 任務目標改成「飛到某個點」。德 M4 的 RETURN TO BASE。 */
+/** 任務目標改成「飛到某個點」。德 M4 的 返航。 */
 export interface WithdrawBeat {
   readonly kind: 'withdraw'
   readonly when: BeatCondition

@@ -98,7 +98,7 @@ describe('節拍接進 stepBattle', () => {
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 2 },
-      message: 'RETURN TO BASE',
+      message: '返航',
       point: new Vector3(0, 4000, 9000),
       radius: 1000,
       seconds: 300,
@@ -109,7 +109,7 @@ describe('節拍接進 stepBattle', () => {
     expect(b.mission.secondsLeft).toBe(Infinity)
 
     run(b, 2.1)
-    expect(b.message).toBe('RETURN TO BASE')
+    expect(b.message).toBe('返航')
     expect(b.rules.kind).toBe('evacuate')
     expect(b.mission.hasTarget).toBe(true)
     expect(b.mission.target.z).toBe(9000)
@@ -187,14 +187,14 @@ describe('節拍接進 stepBattle', () => {
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 1 },
-      message: 'RETURN TO BASE',
+      message: '返航',
       point: new Vector3(0, 4000, 9000),
       radius: 1000,
       seconds: 300,
     }])
     expect(b.objectiveText).toBe('')
     run(b, 1.1)
-    expect(b.objectiveText).toBe('RETURN TO BASE')
+    expect(b.objectiveText).toBe('返航')
   })
 
   it('兩個節拍照卡片順序，各自獨立', () => {

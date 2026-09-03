@@ -388,7 +388,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     },
     {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
-      summary: '駕駛 Bf 109 K-4 攔截掃蕩德國本土的第八航空軍 P-51D，撐不住就把飛機帶回去。',
+      summary: '駕駛 Bf 109 K-4 從巴伐利亞的野戰機場升空，迎擊掃蕩德國本土的第八航空軍 P-51D。',
       battle: {
         objective: '擊落全部敵機',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
@@ -419,7 +419,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
          */
         withdraw: {
           when: { kind: 'alive', side: 'mine', atMost: 4, byLatest: 40 },
-          message: 'RETURN TO BASE',
+          message: '返航',
           distance: RETREAT_DISTANCE, radius: CONVOY_RADIUS,
           /**
            * **無時限**（專案負責人 2026-09-03 試飛裁定：「撤離不用倒數」）。
