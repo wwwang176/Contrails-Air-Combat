@@ -64,6 +64,23 @@ async function main(): Promise<void> {
     const fight = page.locator('#skirmish [data-act="fight"]')
     ok(await fight.isDisabled(), '空名單時「開始戰鬥」是禁用的')
 
+    // ── Shift ＋ 點一次五台 ─────────────────────────────
+    //
+    // 【為什麼一定要在瀏覽器裡驗】`withAircraft(…, 5)` 已經由單元測試逐條
+    // 釘住，這裡問的是 `e.shiftKey` 有沒有真的接到那個參數上 —— 漏接的話
+    // 純函數全綠，畫面上卻仍然一次只加一台。
+    await blueAdd.nth(0).click({ modifiers: ['Shift'] })
+    ok(await blueChips.count() === 5, 'Shift ＋ 點一次加五台',
+      `實得 ${await blueChips.count()}`)
+    await blueAdd.nth(0).click()
+    ok(await blueChips.count() === 6, '不按 Shift 仍然是一台')
+    // 【填到滿而不是整批不加】6 → 11 → 16 → 21，最後那次只進得去四台
+    for (let i = 0; i < 3; i++) await blueAdd.nth(0).click({ modifiers: ['Shift'] })
+    ok(await blueChips.count() === 20, 'Shift 超過上限時填到滿編，不是整批不加',
+      `實得 ${await blueChips.count()}`)
+    await page.click('#blue-add button.ghost')
+    ok(await blueChips.count() === 0, '再清空，回到逐架編')
+
     const idx = (t: string) => names.findIndex((n) => n.includes(t))
     // P-51 ×2、Bf109 ×1、B-17 ×1 —— 混搭
     await blueAdd.nth(idx('P-51')).click()

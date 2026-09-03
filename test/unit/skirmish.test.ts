@@ -143,6 +143,41 @@ describe('出戰名單的加與減', () => {
     expect(withAircraft(full, 'blue', 'b17g')).toBe(full)
   })
 
+  it('一次加五台 —— 設定頁的 Shift ＋ 點', () => {
+    const s = withAircraft(at(['p51d'], 0), 'blue', 'b17g', 5)
+    expect(s.blue).toEqual(['p51d', 'b17g', 'b17g', 'b17g', 'b17g', 'b17g'])
+  })
+
+  /**
+   * 【剩不到五格時填到滿，不是整批不加】玩家按下去的意思是「多來幾台」。
+   * 只剩兩格卻什麼都沒發生，看起來就是按鈕壞了 —— 而按鈕此時並沒有禁用
+   * （`ui/menu.ts` 只在**滿編**時禁用）。
+   */
+  it('只剩兩格時加兩台，填到滿', () => {
+    const list = new Array<string>(MAX_SIDE - 2).fill('p51d')
+    const s = withAircraft({ ...FIELD, blue: list, red: ['bf109k4'], playerAt: 0 },
+      'blue', 'b17g', 5)
+    expect(s.blue.length).toBe(MAX_SIDE)
+    expect(s.blue.slice(-2)).toEqual(['b17g', 'b17g'])
+  })
+
+  it('滿編時就算按 Shift 也是原樣回傳', () => {
+    const full = uniform('p51d', MAX_SIDE, 'bf109k4', 1)
+    expect(withAircraft(full, 'blue', 'b17g', 5)).toBe(full)
+  })
+
+  it('敵方那一側同樣加五台', () => {
+    const s = withAircraft(at(['p51d'], 0), 'red', 'f6f5', 5)
+    expect(s.red).toEqual(['bf109k4', 'f6f5', 'f6f5', 'f6f5', 'f6f5', 'f6f5'])
+    expect(s.blue).toEqual(['p51d'])
+  })
+
+  /** 【玩家的座位不動】加在末端，他前面一架都沒少 */
+  it('加五台不會動到玩家的座位', () => {
+    const s = withAircraft(at(['p51d', 'b17g', 'he111'], 2), 'blue', 'f6f5', 5)
+    expect(s.playerAt).toBe(2)
+  })
+
   it('拿掉玩家前面那一架，他跟著往前一格 —— 還是同一台飛機', () => {
     const s = withoutAircraft(at(['p51d', 'b17g', 'he111'], 2), 'blue', 0)
     expect(s.blue).toEqual(['b17g', 'he111'])

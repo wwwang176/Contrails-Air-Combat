@@ -7,6 +7,9 @@ import {
 import type { TerrainKind } from '../world/terrainKind'
 import type { Screen, ScreenEvent } from './screens'
 
+/** Shift ＋ 點一次加幾台。畫面上的提示文字寫在 `index.html` 的欄位標題。 */
+const SHIFT_ADD = 5
+
 export interface MenuHooks {
   /** 使用者送出一個畫面事件 */
   onEvent(event: ScreenEvent): void
@@ -262,7 +265,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.textContent = shortName(spec.id)
       // 【滿編時禁用而不是點了沒反應】看起來可點卻沒反應才是真的壞掉
       b.disabled = list.length >= MAX_SIDE
-      b.addEventListener('click', () => hooks.onSetup(withAircraft(setup, team, spec.id)))
+      // 【Shift 一次五台】預設是 20 對 20，重編一整組時一台一台按是四十下
+      b.addEventListener('click', (e) => hooks.onSetup(
+        withAircraft(setup, team, spec.id, e.shiftKey ? SHIFT_ADD : 1)))
       adders[team].appendChild(b)
     }
     // 【清空】預設是 20 對 20，要重編一整組時一架一架按 ✕ 是二十下

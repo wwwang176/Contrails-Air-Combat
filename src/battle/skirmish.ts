@@ -130,17 +130,23 @@ export function uniform(
 }
 
 /**
- * 名單末端加一架。**滿編時原樣回傳。**
+ * 名單末端加 `count` 架（預設一架）。**滿編時原樣回傳。**
  *
  * 【為什麼是純函數而不是留在 `ui/menu.ts`】那個檔案沒有測試（要 DOM），
  * 而「玩家的座位有沒有跟著動」正是最容易錯又最看不出來的一件事。
+ *
+ * 【剩不到 `count` 格時填到滿，不是整批不加】設定頁的 Shift ＋ 點是
+ * `count = 5`。玩家按下去的意思是「多來幾台」；只剩兩格卻什麼都沒發生，
+ * 看起來就是按鈕壞了 —— 而按鈕此時並沒有禁用（`ui/menu.ts` 只在**滿編**
+ * 時禁用）。
  */
 export function withAircraft(
-  setup: SkirmishSetup, team: 'blue' | 'red', id: string,
+  setup: SkirmishSetup, team: 'blue' | 'red', id: string, count = 1,
 ): SkirmishSetup {
   const list = team === 'blue' ? setup.blue : setup.red
-  if (list.length >= MAX_SIDE) return setup
-  const next = [...list, id]
+  const room = Math.min(count, MAX_SIDE - list.length)
+  if (room <= 0) return setup
+  const next = [...list, ...Array.from({ length: room }, () => id)]
   return team === 'blue' ? { ...setup, blue: next } : { ...setup, red: next }
 }
 
