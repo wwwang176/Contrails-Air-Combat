@@ -15,7 +15,8 @@
 export interface DifficultyProfile {
   /**
    * 反應延遲，秒。由 `AiController` 交給 `CommandDelay`，延後的是**輸出
-   * 指令**（一個 Vector3 加三個純量），不是態勢。安全層排在延遲之後。
+   * 指令**（瞄準、油門、減速板），不是態勢。**開火不在其列**——扣扳機讀
+   * 當下的幾何，理由見 `ai/delay.ts`。安全層也排在延遲之後。
    */
   reactionDelay: number
   /** 瞄準誤差，rad。**目前沒有任何一處讀它** */

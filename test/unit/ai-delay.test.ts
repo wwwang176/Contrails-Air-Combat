@@ -10,6 +10,9 @@ const DT = 1 / 240
  * 【為什麼用整數】緩衝區存的是 `Float32Array`，只有整數與 2 的冪次的分數
  * 才能位元等價地存回來。用 `k / 100` 這種值會在斷言裡多出捨入誤差，那是
  * 測試自己製造的問題，不是被測物的。
+ *
+ * 【`firing` 也蓋，但不參與 `step` 的反查】它不走緩衝區，所以它的值指的
+ * 永遠是**這一步**，不是被延遲的那一步。專屬的斷言在「開火不參與延遲」。
  */
 function mark(cmd: Command, k: number): void {
   cmd.aimWorld.set(k, k + 0.5, k + 0.25)
@@ -18,14 +21,13 @@ function mark(cmd: Command, k: number): void {
   cmd.firing = k % 2 === 0
 }
 
-/** 反查輸出來自第幾步。四個欄位必須指向同一步，否則回 NaN */
+/** 反查輸出來自第幾步。走緩衝區的三個欄位必須指向同一步，否則回 NaN */
 function step(cmd: Command): number {
   const k = cmd.aimWorld.x
   if (cmd.aimWorld.y !== k + 0.5) return NaN
   if (cmd.aimWorld.z !== k + 0.25) return NaN
   if (cmd.throttle !== k) return NaN
   if (cmd.brake !== k * 0.5) return NaN
-  if (cmd.firing !== (k % 2 === 0)) return NaN
   return k
 }
 
@@ -63,6 +65,44 @@ describe('CommandDelay', () => {
     }
     // 前 n 步還沒有那麼舊的輸入，讀到的是開場填進去的第 0 步
     expect(seen).toEqual([0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+  })
+
+  /**
+   * 【這一條是這個分支的全部】瞄準延遲 n 步，扳機讀當下。
+   *
+   * 反過來說：把 `out.firing = input.firing` 改回讀緩衝區，這一條會紅，
+   * 而上面那條「延遲 n 步」仍然全綠 —— 兩者守的不是同一件事。
+   */
+  it('開火不參與延遲 —— 瞄準是舊的，扳機是這一步的', () => {
+    const n = 5
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    const aimStep: number[] = []
+    const fired: boolean[] = []
+    for (let k = 0; k < 12; k++) {
+      mark(input, k)
+      d.push(input, n * DT, DT, out)
+      aimStep.push(step(out))
+      fired.push(out.firing)
+    }
+    // 瞄準：前 5 步讀到開場填的第 0 步，之後落後 5 步
+    expect(aimStep).toEqual([0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6])
+    // 扳機：每一步都是 `k % 2 === 0`，一步都沒落後
+    expect(fired).toEqual([true, false, true, false, true, false,
+      true, false, true, false, true, false])
+  })
+
+  it('開火不參與延遲 —— 有 trim 補償時也一樣', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    for (let k = 0; k < 8; k++) {
+      mark(input, k)
+      input.firing = k === 7
+      d.push(input, 0.3, DT, out, 1)
+      expect(out.firing, `第 ${k} 步`).toBe(k === 7)
+    }
   })
 
   it('開場先把緩衝區填滿，不會吐出零向量', () => {
