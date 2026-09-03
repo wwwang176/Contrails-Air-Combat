@@ -278,7 +278,7 @@ E3（WebGL 只保證 16-bit 深度緩衝，而所有精度計算都假設 24-bit
 做法：`battlefield-visuals.e2e.ts` 的 `vis-1-cockpit.png`（座艙、大致平飛），
 取 x = 250 / 300 / 1050 三條垂直線的**中位數**，跳過地平線下方 5 列的反鋸齒
 過渡。明度是**螢幕 sRGB** 的 HSL `l` —— 與 §2 那組工作色彩空間的數字不同尺度，
-**只能前後互比**。改動前的那一張是把 `8246908^` 的 `src/render/*` checkout
+**只能前後互比**。改動前的那一張是把 `b6d9e2d^` 的 `src/render/*` checkout
 回來、跑同一支 e2e 拍的。
 
 | 位置 | 改動前 | 改動後 |
@@ -370,7 +370,7 @@ E3（WebGL 只保證 16-bit 深度緩衝，而所有精度計算都假設 24-bit
 
 【那四則驅動效能提示是儀器的副作用】
 `GL Driver Message (OpenGL, Performance, ...): GPU stall due to ReadPixels`
-—— `page.screenshot()` 自己讀回 framebuffer 造成的。把 `8246908^` 的
+—— `page.screenshot()` 自己讀回 framebuffer 造成的。把 `b6d9e2d^` 的
 `src/render/*` checkout 回來跑同一支，四則一字不差地出現，證實與場景無關。
 只濾掉 `Performance` 這一類，`Error` / `Deprecated` / `Portability` 與
 three 自己的警告一律照樣失敗。

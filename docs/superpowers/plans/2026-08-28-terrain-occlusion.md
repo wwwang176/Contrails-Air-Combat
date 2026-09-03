@@ -61,7 +61,7 @@ node node_modules/vite/bin/vite.js --port 5178      # e2e 的 dev server
 
 ### 基準
 
-上一輪收尾（`430778c`）：**3,017 條綠**、14 skipped；`perf-gate` 單跑 6/6；
+上一輪收尾（`67b1fa9`）：**3,017 條綠**、14 skipped；`perf-gate` 單跑 6/6；
 `tsc` 22 個既有錯誤、`src/` 零錯誤。
 
 **三支 digest 護欄 2026-08-28 實跑 10/10 綠**：`replay-determinism`、

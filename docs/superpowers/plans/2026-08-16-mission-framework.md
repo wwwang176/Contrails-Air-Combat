@@ -16,7 +16,7 @@
   【Codex 審查 2026-08-16 的措辭修正】原本寫「逐字不變」是不準確的：新版多了
   狀態寫入、多了一次 `playerPos` 的 copy，而且紅隊全滅時也會多掃一次藍隊
   （`aliveCount(b.blue)` 從短路變成必算）。**行為**不變，**指令**不是逐字。
-- **回歸基準**（本分支 `7c20aae` 實測）：
+- **回歸基準**（本分支 `c135097` 實測）：
   ```
   Test Files   2 failed | 106 passed (108)
   Tests        3 failed | 2507 passed | 1 skipped (2511)
@@ -2036,7 +2036,7 @@ Run：`npx playwright test test/e2e/mission.spec.ts`
 
 Run：`npx vitest run 2>&1 | tail -60`
 
-逐條對照基準（`b4ddff8`：2506 綠 / 3 紅）。**綠數只能增加，紅數必須仍是那三條。**
+逐條對照基準（`70c8ff0`：2506 綠 / 3 紅）。**綠數只能增加，紅數必須仍是那三條。**
 任何組成變化都要在 spec §11 逐條解釋。
 
 - [ ] **Step 3：回填 spec §11**

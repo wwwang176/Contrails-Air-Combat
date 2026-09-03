@@ -570,7 +570,7 @@ annihilate: (out.metric === 0)     ⟺  (out.outcome === 'victory')
 **遭遇戰全套護欄的數字必須逐字不動。** §5 的代價由這一條守。
 
 作法：改動前跑全套並存下結果，改動後逐條比較。基準是本輪開始時的
-main（`b4ddff8`）：2506 綠 / 3 紅（`ai-command-channel` ×2、`ai-withdraw-anchor` ×1，
+main（`70c8ff0`）：2506 綠 / 3 紅（`ai-command-channel` ×2、`ai-withdraw-anchor` ×1，
 均為 `docs/backlog.md` §1 待裁定），外加 `perf-gate` 在平行負載下的偽紅。
 
 ### 9.5 畫面狀態機
@@ -605,7 +605,7 @@ main（`b4ddff8`）：2506 綠 / 3 紅（`ai-command-channel` ×2、`ai-withdraw
 
 ### 11.1 全套回歸
 
-基準是本分支起點 `7c20aae`（等於 `main` 的 `b4ddff8`）：
+基準是本分支起點 `c135097`（等於 `main` 的 `70c8ff0`）：
 
 | | 基準 | 交付 | Δ |
 |---|---|---|---|

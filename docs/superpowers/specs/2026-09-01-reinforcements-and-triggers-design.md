@@ -292,7 +292,7 @@ HUD 現在沒有事件訊息的位置（`objective.ts` 是目標距離、`hints.
 ### 8.4 不做「戰場上有沒有出現第二波」這種測試
 
 那是戰場的產物。`ai-tactics.test.ts` 才剛因為同樣的理由搬進靶機場景
-（commit `5dce114`）。
+（commit `daec7a0`）。
 
 ---
 

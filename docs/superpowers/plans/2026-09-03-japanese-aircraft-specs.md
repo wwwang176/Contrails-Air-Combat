@@ -64,7 +64,7 @@
 - **只有負責人說要 commit 才 commit。**
 - **`faction` 填 `'japan'`，而那要先合併主線。** 這條分支的
   `AircraftSpec.faction` 還是 `'allied' | 'axis'`（`src/specs/types.ts`），
-  聯集加寬在主線上（`main@431959e` 已把型別加為三值、移除 `factionOf`，並讓
+  聯集加寬在主線上（`main@4173944` 已把型別加為三值、移除 `factionOf`，並讓
   `battle/setup.ts` 直接讀 `spec.faction` 選日本名冊）。任務零就要把主線併
   進來，不然三支 spec 都不會過 `tsc`，而且併進來之後**不必再動 `names.ts`**。
   注意 `battle/names.ts` 的 `Faction`（`'allies' | 'axis'`）是**另一個型別**，

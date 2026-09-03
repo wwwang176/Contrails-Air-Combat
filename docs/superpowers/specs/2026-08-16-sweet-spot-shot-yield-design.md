@@ -428,7 +428,7 @@ P-51 對 109 在 250~350 km/h 是 **−3.1 ~ −4.1°**（低頭,去換速度）
 | 新增測試 | 單元 14 條、整合 5 條 |
 | 改動的既有測試 | 1 處（見 §8.4）|
 
-Commit：`a61948f`（Task 1）、`119bced`（Task 2）、`6c0391d`（Task 3）。
+Commit：`ee251a7`（Task 1）、`2aa13ac`（Task 2）、`d77a510`（Task 3）。
 
 ### 8.2 主判準
 
@@ -497,7 +497,7 @@ Commit：`a61948f`（Task 1）、`119bced`（Task 2）、`6c0391d`（Task 3）�
 ### 8.5 全套回歸 —— 逐條比較
 
 ```
-                改動前（123d2e0）          改動後（26a3067）
+                改動前（3a613ba）          改動後（576e57b）
 Test Files   3 failed | 104 passed      3 failed | 105 passed
      Tests   4 failed | 2486 passed     4 failed | 2506 passed
 ```

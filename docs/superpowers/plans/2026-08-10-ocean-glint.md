@@ -27,7 +27,7 @@
 >    marker 位置抓不到呼叫被刪、GGX 的 α 慣例、float32 的下溢與次正規區、
 >    `smoothstep(1,1,x)` 未定義）大多在實作時真的踩到了，值得保留當參考。
 >
-> 實際的實作在 `src/render/ocean.ts`，commit `da4bf2e` → `dcc057b` → `70a52bc`。
+> 實際的實作在 `src/render/ocean.ts`，commit `c0b0c1a` → `614b551` → `ac196bd`。
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -56,7 +56,7 @@
 - `perf-gate.test.ts` 與 `rematch.test.ts` 必須單獨跑。
 - 暫存檔放 `$CLAUDE_JOB_DIR/tmp`。
 - **不寫飛機外形的測試。**
-- 分支：`feat/ocean-glint`（已建立，spec 已 commit 於 `9568be1`）。
+- 分支：`feat/ocean-glint`（已建立，spec 已 commit 於 `3441eba`）。
 - **`WAVES`、`gerstnerHeight`、`FAR_SEA_Y`、`OCEAN_SIZE`、`OCEAN_SEGMENTS` 一個字都不准動** —— `crash.ts` / `splash` / `wrecks` 全走 `heightAt`，動它就動到物理。
 - **`fog.test.ts` 既有的任何門檻都不准改。**
 - §11 那**六組**參數（`GLITTER_ROUGHNESS_MIN`/`MAX`、**`GLINT_STRENGTH`**、`GLITTER_FADE_START`/`END`、`SUN_ANGULAR_RADIUS`、`SUN_HALO_POWER`/`STRENGTH`、法線量化階數）用本計畫給的暫定值實作，**最終值由專案負責人人工驗收回填，實作者不得代填**。

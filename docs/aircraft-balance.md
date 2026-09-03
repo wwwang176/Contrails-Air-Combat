@@ -46,7 +46,7 @@ node node_modules/vite-node/vite-node.mjs test/tools/aircraft-compare.probe.ts
 
 ## 快照
 
-**量測時間：2026-08-27　　commit：`62a3d73`（P-51D 質量校準）**
+**量測時間：2026-08-27　　commit：`c501b9e`（P-51D 質量校準）**
 
 ### 一、兩層要分開看
 

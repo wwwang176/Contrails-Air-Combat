@@ -531,7 +531,7 @@ if (this.focusTarget !== null && !reference) this.target = this.focusTarget
 
 ## 10. 實作後的實測回填（2026-08-07）
 
-八個任務全部實作完成，commit `367d8eb`..`ade4fd8`。這一節記載實測到的
+八個任務全部實作完成，commit `2020db0`..`01e8c2d`。這一節記載實測到的
 東西 —— 包含**三件推翻了本文設計的事**與**三條留紅的判準**。
 
 ### 10.1 先更正 spec 已知的三處

@@ -54,10 +54,10 @@
 - [ ] **Step 1: 用 revert 移除三個 commit**
 
 ```bash
-git revert --no-commit 816dbda f748bce 6129cc9
+git revert --no-commit ee729f9 a60728f 00e65fd
 ```
 
-（由新到舊：`816dbda` 接線、`f748bce` `applyTurnPlane`、`6129cc9` 三個純函數與五個欄位。）
+（由新到舊：`ee729f9` 接線、`a60728f` `applyTurnPlane`、`00e65fd` 三個純函數與五個欄位。）
 
 - [ ] **Step 2: 修好探針**
 

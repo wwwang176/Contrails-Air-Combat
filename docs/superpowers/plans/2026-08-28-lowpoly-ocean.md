@@ -1,7 +1,7 @@
 # 實作計畫：低多邊形的海
 
 spec：`docs/superpowers/specs/2026-08-28-lowpoly-ocean-design.md`
-分支：`feat/lowpoly-ocean`（由 `main` 的 `8c79439` 分出）
+分支：`feat/lowpoly-ocean`（由 `main` 的 `cb70b2a` 分出）
 
 **第二版** —— Codex 審出六個 BLOCKER，全部複驗成立，任務順序與測試設計整個重排。
 被推翻的幾件事記在「§附錄 審查修掉了什麼」，因為它們是很容易再犯一次的錯。

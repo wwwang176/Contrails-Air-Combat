@@ -1,7 +1,7 @@
 # 植被與地面聚落（樹、樹籬灌木、樹林、村落、犁溝）設計
 
 **日期** 2026-08-29
-**分支** `feat/inland-farmland-arena`（接在 `c33730d` 之後）
+**分支** `feat/inland-farmland-arena`（接在 `a71cb15` 之後）
 **前一份** `2026-08-28-inland-farmland-design.md`
 
 ---

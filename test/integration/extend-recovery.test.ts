@@ -258,9 +258,9 @@ describe('extend 的絕對出場條件（消融對照）', () => {
    *
    * 【成因是兩個刻意的決定】
    *
-   *   1193958  energyExit 由 +100 改為 −100 —— 出場條件從「比對方高
+   *   d9839e0  energyExit 由 +100 改為 −100 —— 出場條件從「比對方高
    *            100 m 就走」改成「低對方 100 m 才走」
-   *   d68deaa  recoveredExit 預設關閉 —— commit 訊息寫著「實測否決，
+   *   d0d5d41  recoveredExit 預設關閉 —— commit 訊息寫著「實測否決，
    *            **等專案負責人裁定**」
    *
    * 【重啟條件】`recoveredExit` 裁定之後、或 `energyExit` 回到正值，把

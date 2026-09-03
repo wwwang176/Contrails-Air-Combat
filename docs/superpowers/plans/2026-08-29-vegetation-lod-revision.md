@@ -9,7 +9,7 @@
 
 **Spec：** `docs/superpowers/specs/2026-08-29-vegetation-lod-revision-design.md`
 
-**已完成：** Task 0（幾何繞序，commit a5794e3）。
+**已完成：** Task 0（幾何繞序，commit 4200f86）。
 
 ## 全域約束
 

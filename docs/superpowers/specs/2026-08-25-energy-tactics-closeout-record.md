@@ -17,8 +17,8 @@
 | 迴轉閂鎖去高度污染（中點高度） | `assess.ts` airframeTurnAdvantage | `turn-latch-alt.probe.ts`（600 m = 正好踩觸發門檻） |
 | `extendTurnCap 20°`、`engageKnobs` 尾追門 | `steer.ts` | rearHigh 重掃、90° 橫越後置病 |
 
-主要 commit：`8ceb425`（補償器）→ `69c44e6`（行為重構）→ `8d3085c`（量測儀）
-→ `e06f164`（「敵人在下方」四連修）→ `5817072`（四連修量尺）。
+主要 commit：`9ff20b8`（補償器）→ `626eb4c`（行為重構）→ `4608751`（量測儀）
+→ `59294d8`（「敵人在下方」四連修）→ `8474eee`（四連修量尺）。
 
 ## 二、被否決或被取代的機制 —— **不要重做**
 

@@ -76,7 +76,7 @@ if (!shooting && (s.extendEnergyLatch || s.extendTurnLatch)
 ### 2.4 `ai-withdraw-anchor` 是紅的，但它量的不是這件事
 
 `test/integration/ai-withdraw-anchor.test.ts`「撤退令不得把戰鬥推出戰場」，
-在本分支的起點（`af8f976`）就已經是紅的。實跑 HEAD：
+在本分支的起點（`9a12386`）就已經是紅的。實跑 HEAD：
 
 ```
 maxRadius       11110.26   >  6500      ← 先炸在這裡
