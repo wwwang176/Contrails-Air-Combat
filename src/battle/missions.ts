@@ -306,28 +306,6 @@ const KILL = {
   entry: 'headOn',
 } as const
 
-/**
- * 撤離時限的餘裕倍率。**這是難度的旋鈕**，1.4 = 四成的機動預算。
- *
- * `evacuate.probe.ts` 表一給的是**直飛、不迴避**的路徑時間下限；乘上餘裕才是
- * 「一邊閃一邊走」的預算。1.2 緊到完全不能停下來打，1.6 寬到時限形同虛設。
- */
-const EVAC_MARGIN = 1.4
-
-/**
- * 德 M4 撤退段的時限，秒。**推導出來的，不是挑的。**
- *
- * ```
- *   表一   P-51D 直飛 12 km            84.0 s
- *   表四   Bf 109 ÷ P-51D（20 km）     168.2 / 125.5 = 1.34
- *   →     Bf 109 直飛 12 km           84.0 × 1.34 = 112.6 s
- *   →     × EVAC_MARGIN               158 s
- * ```
- *
- * 兩張表都在 `test/tools/evacuate.probe.ts` 的檔頭。
- */
-const RETREAT_SECONDS = Math.round(84.0 * (168.2 / 125.5) * EVAC_MARGIN)
-
 /** 德 M4 撤退段的終點在多遠，m */
 const RETREAT_DISTANCE = 12000
 
@@ -443,7 +421,18 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           when: { kind: 'alive', side: 'mine', atMost: 4, byLatest: 40 },
           message: 'RETURN TO BASE',
           distance: RETREAT_DISTANCE, radius: CONVOY_RADIUS,
-          seconds: RETREAT_SECONDS,
+          /**
+           * **無時限**（專案負責人 2026-09-03 試飛裁定：「撤離不用倒數」）。
+           *
+           * 【為什麼倒數是多的】這一關的壓力來源是**擋在路上的兩批攔截機**，
+           * 不是碼表。再壓一個倒數上去，玩家要同時應付「打穿出去」與「來不
+           * 來得及」兩件事，而後者他無從估計 —— 他不知道還有幾批。
+           *
+           * 【`Infinity` 不是特例】`stepMission` 的撤離分支本來就走得到它：
+           * `Infinity − dt` 仍是 `Infinity`、`Infinity <= 0` 是 false，
+           * HUD 的 `formatCountdown` 對非有限值回空字串。
+           */
+          seconds: Infinity,
         },
         /**
          * 【敵人從斜前方分批來，不是在後面追】專案負責人 2026-09-03。
