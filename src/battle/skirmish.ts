@@ -14,20 +14,6 @@ import { HE111 } from '../specs/he111'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 
-/**
- * **玩家選哪一邊。**遭遇戰的陣營選擇與任務卡的分組都用它。
- *
- * 【為什麼與 `AircraftSpec.faction` 不是同一個型別】那一個回答的是「這一架
- * 上面坐的是哪裡人」，只有一個用途：挑飛行員名冊，而日本自成一本。這一個
- * 回答的是「這一場分成哪兩邊」—— 選單上是兩顆按鈕、任務卡分成兩落、
- * `SPECS` 一邊一組機種。兩者以前是同一個型別，於是日本名冊一加進來，
- * 選單就多了一顆沒有東西可選的按鈕（2026-09-03）。
- *
- * 【日本戰役怎麼辦】它是**軸心**那一落裡的卡片，用日本機種。這個型別不必
- * 因此長大 —— 長大的是「一張卡怎麼指定用哪一台」，見 `missions.ts`。
- */
-export type FactionChoice = 'allies' | 'axis'
-
 /** 每隊最少架數。一架也要能打 —— 那時玩家沒有僚機可接，一死就落敗 */
 export const MIN_SIDE = 1
 /** 每隊最多架數。M5 以來的既有上限，效能閘門是照 40 架訂的 */
@@ -104,29 +90,13 @@ export const ALTITUDES: readonly { readonly label: string; readonly value: numbe
  * **遭遇戰可以編進名單的全部機種。順序即卡片順序。**
  *
  * 【為什麼不分陣營】混搭上線之後「陣營」不再是一個選擇 —— 兩隊各自的
- * 名單就是全部的設定。任務模式仍然分陣營（`specsFor`），那是另一回事：
- * 那裡的陣營決定的是**打哪一組關卡**。
+ * 名單就是全部的設定。任務模式也不分了：**每一張卡直接指名雙方飛什麼**
+ * （`missions.ts` 的 `MissionBattle`），所以「那個陣營的第幾台」這個概念
+ * 連同 `specsFor` 一起在 2026-09-03 消失了。
  *
- * 【順序】戰鬥機在前、轟炸機在後。與 `SPECS` 每一列的順序一致，
- * `missions.ts` 依賴「`specsFor(f)[0]` 是戰鬥機、`[1]` 是轟炸機」。
+ * 【順序】戰鬥機在前、轟炸機在後。選單照它畫卡片。
  */
 export const ALL_SPECS: readonly AircraftSpec[] = [P51D, BF109K4, F6F5, KI84, A6M5, B17G, HE111, G4M]
-
-/**
- * 各陣營的機種。**任務模式專用** —— 遭遇戰請用 `ALL_SPECS`。
- *
- * 【第一台是戰鬥機、第二台是轟炸機】`missions.ts` 的 `missionConfigFrom`
- * 直接吃這個順序（`[0]` 護航、`[1]` 被護送），改順序會靜靜地換掉四張卡的
- * 編成。
- */
-const SPECS: Record<FactionChoice, readonly AircraftSpec[]> = {
-  allies: [P51D, B17G],
-  axis: [BF109K4, HE111],
-}
-
-export function specsFor(faction: FactionChoice): readonly AircraftSpec[] {
-  return SPECS[faction]
-}
 
 /**
  * 機種代號 → 機種。**找不到落回第一台**（`ALL_SPECS[0]`）。

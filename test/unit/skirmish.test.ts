@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  ALL_SPECS, battleConfigFrom, specOf as specById, specsFor, uniform,
+  ALL_SPECS, battleConfigFrom, specOf as specById, uniform,
   withAircraft, withoutAircraft,
   ALTITUDES, DEFAULT_SKIRMISH, MAX_COMBATANTS, MAX_SIDE, MIN_SIDE,
   type SkirmishSetup,
@@ -14,9 +14,12 @@ describe('機種名單', () => {
       ['p51d', 'bf109k4', 'f6f5', 'ki84', 'a6m5', 'b17g', 'he111', 'g4m'])
   })
 
-  it('任務模式仍然分陣營，而且兩邊沒有交集', () => {
-    const allies = specsFor('allies').map((s) => s.id)
-    for (const s of specsFor('axis')) expect(allies).not.toContain(s.id)
+  it('戰鬥機在前、轟炸機在後', () => {
+    // 【順序不是裝飾】選單照它畫卡片，而「先戰鬥機再轟炸機」是玩家掃過
+    // 那一排時唯一的結構
+    const roles = ALL_SPECS.map((s) => s.role)
+    expect(roles.indexOf('bomber')).toBeGreaterThan(roles.lastIndexOf('fighter') - 1)
+    expect(roles.lastIndexOf('fighter')).toBeLessThan(roles.indexOf('bomber'))
   })
 
   it('未知的代號落回第一台 —— 名單是從 DOM 來的', () => {

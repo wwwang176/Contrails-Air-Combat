@@ -21,11 +21,10 @@ import type { TerrainKind } from '../world/terrainKind'
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
 
 /**
- * 卡片上的「哪一邊」。
+ * 卡片上的「哪一邊」。**玩家恆在藍隊**，所以 `mine` 就是藍、`theirs` 就是紅。
  *
- * **卡片是陣營中立的**：同一張卡，玩家選盟軍或選軸心，敵我機種會對調。
- * 所以卡片上只能說「我方／敵方」，實際機種由 `missionConfigFrom` 在知道
- * 陣營之後才解析。玩家恆在藍隊，所以 `mine` 就是藍、`theirs` 就是紅。
+ * 【它只決定隊伍，不決定機種】機種由卡片直接指名。一支友軍增援與一支敵方
+ * 增援可能是同一個機種 —— 那兩件事分開之後才寫得出來。
  */
 export type MissionSide = 'mine' | 'theirs'
 
@@ -55,9 +54,6 @@ export type MissionTrigger =
 
 /**
  * 卡片上的一個波次。**一個波次就是一支小隊**（1 … `SCHWARM_SIZE` 架）。
- *
- * 【為什麼不讓它寫機種】見 `MissionSide`。`role` 選的是那個陣營的第幾台
- * （`specsFor` 的第一台是戰鬥機、第二台是轟炸機），不是一個寫死的 id。
  *
  * 【為什麼沒有 `duty`】`transit` 的意思是「飛向自己正前方的終點，途中不
  * 交戰」，只有在那一邊的任務**有終點**時才成立。殲滅任務裡放一支 transit
