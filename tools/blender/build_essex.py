@@ -264,6 +264,34 @@ def tri_barrel(bm, x_c, z_c, y0, y1, r):
             pass
 
 
+def tri_rod(bm, p0, p1, r):
+    """任意方向的細長三角柱 —— 20 mm 的砲管朝**舷外斜上**，沿 Y 的 `tri_barrel`
+    做不到。**兩端都要埋進砲身裡**：軸心放在砲身頂之上就是一根浮在空中的棒子，
+    而且側視看不出來（見 ship-from-reference 第 6b 步）。"""
+    d = Vector(p1) - Vector(p0)
+    if d.length < 1e-6:
+        return
+    d.normalize()
+    up = Vector((0, 0, 1)) if abs(d.z) < 0.95 else Vector((0, 1, 0))
+    a1 = d.cross(up).normalized()
+    a2 = d.cross(a1).normalized()
+    off = [a1 * (r * math.cos(math.pi / 2 + k * 2 * math.pi / 3))
+           + a2 * (r * math.sin(math.pi / 2 + k * 2 * math.pi / 3)) for k in range(3)]
+    v0 = [bm.verts.new(Vector(p0) + o) for o in off]
+    v1 = [bm.verts.new(Vector(p1) + o) for o in off]
+    for i in range(3):
+        j = (i + 1) % 3
+        try:
+            bm.faces.new([v0[i], v0[j], v1[j], v1[i]])
+        except ValueError:
+            pass
+    for f in (v0, list(reversed(v1))):
+        try:
+            bm.faces.new(list(f))
+        except ValueError:
+            pass
+
+
 def taper(bm, x0, x1, y0, y1, z0, z1, shrink):
     """上小下大的錐台（桅、煙囪用）。shrink 是頂面相對底面的比例。"""
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
@@ -731,6 +759,45 @@ for y_c in AA_PORT:
     aa_mount(y_c, -1)
 for y_c in AA_STBD:
     aa_mount(y_c, 1)
+
+
+# ── 近距防空（20 mm Oerlikon）——沿著整條走廊的一長排 ──
+# 這一層第一版整層是空的。它**由上往下打找不到**：飛行甲板底面在 17.54，把整條
+# 走廊蓋住，射線全部停在甲板底（量到的「頂」整片都是 17.54）。要由**舷外水平
+# 往內打**找外緣，再從 17.45（甲板底之下）往下打，走道頂 15.4…15.6 與砲頂
+# 17.2…17.4 才分得開。
+#
+# **不做獨立的六邊形砲座桶。** Fletcher／Wichita 的 20 mm 是一門一個圓桶，
+# Essex 不是 —— 近照（舷外斜上看）看到的是一條連續的開放走道、共用一道護牆，
+# 砲一門一門排在裡面。護牆已經是走廊那幾塊方塊的一部分了。
+#
+# 間距取 7 m（實測那一排更密，約 3 m）。**這是刻意的簡化**：一舷 25 門與一舷
+# 12 門在幾公里外分不出來，而三角形差一倍。
+AA20_STEP = 7.0
+AA20_INSET = 1.45          # 由走廊外緣往內幾公尺
+AA20_H = 1.75              # 砲身高（走道頂到砲頂，實測 1.7…1.8）
+_busy = [(y, s) for s in (1, -1) for y in (AA_PORT if s < 0 else AA_STBD)]
+_busy += [(y, 1) for y in STBD_TWIN] + [(y, -1) for y in PORT_SINGLE]
+AA20 = []
+for sgn in (1, -1):
+    for y0, y1, qo, qt in GAL_RUNS[sgn]:
+        n = int((y0 - y1) // AA20_STEP)
+        for k in range(n):
+            y_c = y0 - AA20_STEP * (k + 0.5)
+            if any(abs(y_c - by) < 5.0 and bs == sgn for by, bs in _busy):
+                continue
+            seat = gal_seat(y_c, sgn)
+            if seat is None:
+                continue
+            g, z = seat
+            x_c = g - sgn * AA20_INSET
+            z = clear_base(seat_on(x_c - 0.5, x_c + 0.5, y_c - 0.5, y_c + 0.5, z) - SINK, AA20_H)
+            taper(bmg, x_c - 0.42, x_c + 0.42, y_c - 0.42, y_c + 0.42, z, z + AA20_H, 0.80)
+            # 砲管尾端埋進砲身、朝**舷外**斜上（軸心比砲身頂低 0.13、r 照 20 mm）
+            tri_rod(bmg, (x_c + sgn * 0.10, y_c + 0.05, z + AA20_H - 0.13),
+                    (x_c + sgn * 1.55, y_c + 0.45, z + AA20_H + 0.34), 0.065)
+            AA20.append((round(x_c, 2), round(y_c, 1), round(z + AA20_H, 2)))
+LOG['aa20'] = len(AA20)
 
 # ── 舷側砲座 ──
 # 掛在舷側、往外突出、砲坐在上面的那幾塊（負責人在參考模型上圈出來的）。它們在
