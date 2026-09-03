@@ -37,7 +37,8 @@ export interface DifficultyProfile {
    * 是「敵人反應慢」而是「敵人在亂射」。與安全層拆出去是同一個道理
    * （`safety.ts:380` 只把 `firing` 關掉，從不打開）。
    *
-   * ⚑ **0.1 是起始值，待試飛裁定。** 三案的離線量測（`fire-delay.probe.ts`，
+   * **0.1 定案**（2026-09-04 專案負責人試飛：「已試飛 OK」）。三案的離線
+   * 量測（`fire-delay.probe.ts`，
    * 12 開局 × 換邊 × 300 s、同機種 P-51D 1v1，VETERAN 對 ACE）：
    *
    * ```
@@ -48,7 +49,7 @@ export interface DifficultyProfile {
    *
    * 【這組數字證明不了什麼，要知道】AI 不會刻意做假動作，所以這支量尺踩不
    * 到扳機延遲真正的差別（玩家橫滾拉開的瞬間 AI 會不會跟著停火）。它只證明
-   * 了「改這個不會意外把 AI 的空戰能力弄壞」。判準是試飛。
+   * 了「改這個不會意外把 AI 的空戰能力弄壞」。**定值是試飛給的，不是它。**
    */
   fireDelay?: number
 }
