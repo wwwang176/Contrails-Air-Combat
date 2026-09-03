@@ -30,7 +30,7 @@ const PHASES: TacticalPhase[] = ['off', 'build', 'perch', 'dive', 'zoom', 'coold
 
 const CARDS: [string, () => BattleConfig][] = [
   ['遭遇戰', () => DEFAULT_BATTLE],
-  ['日 M1 零戰', () => card('japan-m1')],
+  ['日 M1 臺灣沖', () => card('japan-m1')],
   ['德 M1 攔截', () => card('germany-m1')],
   ['德 M4 防線', () => card('germany-m4')],
   ['盟 M1 護送', () => card('allies-m1')],

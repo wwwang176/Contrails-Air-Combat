@@ -341,25 +341,25 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'allies-m2', title: '深入敵境', type: '打擊',
-      summary: '駕駛 B-17 穿過整片防空網，把魯爾工業區的兵工廠炸掉。',
+      id: 'allies-m2', title: '魯爾的油廠', type: '打擊',
+      summary: '駕駛第八航空軍的 B-17G，轟炸蓋爾森基興的諾德斯特恩合成油廠。',
       battle: null,
     },
     {
-      id: 'allies-m3', title: '獵殺列車', type: '打擊',
-      summary: '諾曼第登陸前的鐵路封鎖。低空掃過法國的補給線，讓德軍的增援上不了前線。',
+      id: 'allies-m3', title: '諾曼第斷軌', type: '打擊',
+      summary: '掃射法國北部的機車與調車場，切斷德軍開往諾曼第的鐵路增援。',
       battle: null,
     },
     {
-      id: 'allies-m4', title: '艦隊上空', type: '殲滅',
-      summary: '守住所羅門海域的航艦。打退零戰之後，雷達又抓到低空進場的一式陸攻。',
+      id: 'allies-m4', title: '沖繩外海', type: '殲滅',
+      summary: '駕駛 F6F-5 守住沖繩外海的第 58 特遣艦隊，攔下零戰與低空進場的一式陸攻。',
       battle: null,
     },
   ],
   germany: [
     {
-      id: 'germany-m1', title: '攔截轟炸機群', type: '攔截',
-      summary: '帝國防空。在轟炸機群飛抵目標之前撕開護航網，投彈之後就來不及了。',
+      id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
+      summary: '駕駛 Bf 109 K-4 撕開 P-51 的護航網，攔下飛往梅澤堡洛伊納油廠的 B-17G。',
       battle: {
         ...CONVOY, objective: '在轟炸機抵達前擊落',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
@@ -377,18 +377,18 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'germany-m2', title: '東線鐵路樞紐', type: '打擊',
-      summary: '東線的補給全靠鐵路。駕駛 He 111 炸癱調車場，把紅軍的增援留在原地。',
+      id: 'germany-m2', title: '庫班的鐵路', type: '打擊',
+      summary: '駕駛第 55 轟炸航空團的 He 111，炸掉庫班橋頭堡後方的克羅波特金車站。',
       battle: null,
     },
     {
-      id: 'germany-m3', title: '最後的 Gustav', type: '打擊',
-      summary: '掛彈的獵手。低空撲向推進中的裝甲縱隊 —— 投完彈才變回戰鬥機。',
+      id: 'germany-m3', title: '奧博揚公路', type: '打擊',
+      summary: '駕駛掛彈的 Bf 109 G 參加堡壘行動，低空攻擊奧博揚公路上的蘇軍戰車。',
       battle: null,
     },
     {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
-      summary: '燃料與飛行員都見底了。守住本土上空，撐不住就把飛機帶回來 —— 飛機比戰果重要。',
+      summary: '駕駛 Bf 109 K-4 攔截掃蕩德國本土的第八航空軍 P-51D，撐不住就把飛機帶回去。',
       battle: {
         objective: '擊落全部敵機',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
@@ -463,8 +463,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
   ],
   japan: [
     {
-      id: 'japan-m1', title: '零戰', type: '殲滅',
-      summary: '在馬里亞納上空攔下美軍艦載機。零戰的迴轉仍是第一，但地獄貓已經不跟它纏鬥了。',
+      id: 'japan-m1', title: '臺灣沖航空戰', type: '殲滅',
+      summary: '駕駛 A6M5 從新竹起飛，迎戰空襲臺灣的第 38 特遣艦隊艦載機。',
       battle: {
         ...KILL,
         blueSpec: A6M5, redSpec: F6F5,
@@ -473,13 +473,13 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'japan-m2', title: '島嶼防衛', type: '殲滅',
-      summary: '灘頭已經看得見登陸艇。先攔下艦載機，再回頭掃射搶灘的部隊。',
+      id: 'japan-m2', title: '讀谷灘頭', type: '殲滅',
+      summary: '駕駛零戰攔下沖繩上空的艦載機，再回頭掃射讀谷灘頭的登陸艇。',
       battle: null,
     },
     {
-      id: 'japan-m3', title: '帶它們到投雷點', type: '護航',
-      summary: '一式陸攻要飛到投雷點才放得了魚雷，在那之前是活靶。駕駛疾風把它們帶過去。',
+      id: 'japan-m3', title: '雷伊泰的投雷點', type: '護航',
+      summary: '駕駛 Ki-84 參加捷一號作戰，護送一式陸攻穿過 F6F 的攔截抵達投雷點。',
       battle: {
         ...CONVOY, objective: '護送轟炸機抵達投雷點',
         blueSpec: KI84, redSpec: F6F5, convoySpec: G4M,
@@ -488,8 +488,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'japan-m4', title: '最後的攻擊', type: '打擊',
-      summary: '黃昏起飛，貼著海面接近美軍特遣艦隊。一式陸攻的油箱沒有防護 —— 挨一發就是一團火。',
+      id: 'japan-m4', title: '倫內爾島', type: '打擊',
+      summary: '駕駛第 705 海軍航空隊的一式陸攻，在黃昏低空雷擊倫內爾島外的第 18 特遣艦隊。',
       battle: null,
     },
   ],
