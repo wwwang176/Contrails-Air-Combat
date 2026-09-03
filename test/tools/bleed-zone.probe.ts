@@ -16,17 +16,18 @@
  * 記在「轉彎的代價」帳上比較公平。這支只回答「速度本身這個桶漏多兇」。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { maxLevelSpeed, specificExcessPower } from '../../src/analysis/envelope'
 import type { AircraftSpec } from '../../src/specs/types'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
 
-const card = MISSIONS.axis.find((m) => m.id === 'axis-escort')
+const card = readyCard('allies-m1')
 if (!card) throw new Error('找不到護送關')
-const battle = createBattle(new AiController(), missionConfigFrom(card, 'axis'), 20260805)
+const battle = createBattle(new AiController(), missionConfigFrom(card), 20260805)
 
 /** 可持續極速查表：50 m 一格。二分搜尋不便宜，72k 步 × 30 架不做快取跑不完 */
 const cache = new Map<AircraftSpec, Map<number, number>>()

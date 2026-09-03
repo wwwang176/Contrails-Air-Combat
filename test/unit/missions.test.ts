@@ -1,247 +1,163 @@
 import { describe, it, expect } from 'vitest'
-import { MISSIONS, missionConfigFrom, missionRules } from '../../src/battle/missions'
+import { CAMPAIGNS, MISSIONS, missionConfigFrom, missionRules } from '../../src/battle/missions'
 import { DEFAULT_BATTLE } from '../../src/battle/setup'
-import { P51D } from '../../src/specs/p51d'
-import { BF109K4 } from '../../src/specs/bf109k4'
 import { VETERAN } from '../../src/ai/profile'
 import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
-import type { BattleConfig } from '../../src/battle/setup'
-import { sideCount } from '../../src/battle/order'
+import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
+import type { ReadyMissionCard } from '../../src/battle/missions'
 
-describe('任務卡（M10 spec §10）', () => {
-  it('兩個陣營各五張', () => {
-    expect(MISSIONS.allies).toHaveLength(5)
-    expect(MISSIONS.axis).toHaveLength(5)
-  })
+/**
+ * # 卡片 → 規則／設定
+ *
+ * 卡片本身的形狀（三落各四關、哪幾張打得起來、機種是不是同一個物件）由
+ * `campaigns.test.ts` 守。這一份守的是**翻譯**：同一張卡產出的勝負條件與
+ * 戰鬥設定。
+ */
 
-  it('全部標題不重複', () => {
-    const all = [...MISSIONS.allies, ...MISSIONS.axis].map((m) => m.title)
-    expect(new Set(all).size).toBe(all.length)
-  })
+const ALL = CAMPAIGNS.flatMap((c) => MISSIONS[c])
+const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 
-  it('五種任務類型各出現一次', () => {
-    for (const list of [MISSIONS.allies, MISSIONS.axis]) {
-      expect(new Set(list.map((m) => m.type)).size).toBe(5)
-    }
-  })
+/**
+ * 一張撤離卡。**自己建，不從 `MISSIONS` 找。**
+ *
+ * 【為什麼】12 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4 的返航節拍。
+ * 但撤離的**判定**還在，而且正是德 M4 靠的那一條，所以它的幾何仍然要驗。
+ * 從卡表找的話，這一份會跟著關卡設計一起漂。
+ */
+function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionCard {
+  const kill = readyCard(KILL_CARD).battle
+  return {
+    id: 'test-evac', title: '測試用撤離', type: '撤離', summary: '',
+    battle: {
+      objective: '飛抵撤離點',
+      blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
+      blueCount: 4, redCount: 8, convoyCount: 0, convoyPriority: 1,
+      targetDistance: distance, targetRadius: radius, seconds,
+      entry: 'pursuit', terrain: 'archipelago',
+    },
+  }
+}
 
-  it('每一張都有一行說明', () => {
-    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      expect(m.summary.length).toBeGreaterThan(0)
-    }
-  })
-})
-
-describe('關卡資料（任務框架 spec §7.3）', () => {
-  /*
-   * 【這裡原本有一條「可打的只有殲滅與撤離」】拿掉了。專案負責人
-   * 2026-08-16：「幾張卡這個不用寫測試吧?」—— 對，那條在數卡片，而
-   * **哪幾張開著是負責人裁定的事**（關掉撤離就是一次）。每開關一張卡就要
-   * 改一次測試，那是雜訊不是護欄。
-   *
-   * 真正該由機器守的兩件事都還在，而且開關旗標時一個字都不用動：
-   *
-   *   可打的卡 ⇒ 有目標文字與編制        （下面「可打的卡都有目標文字與編制」）
-   *   沒有目標文字 ⇒ 資料全空且不可點    （下面「沒有目標文字的卡＝還沒做」）
-   */
-  it('每張卡的 id 全域唯一', () => {
-    const ids = [...MISSIONS.allies, ...MISSIONS.axis].map((m) => m.id)
-    expect(new Set(ids).size).toBe(ids.length)
-  })
-
-  /**
-   * 【為什麼要釘前綴】`main.ts` 的 `onMission` 由 `id.startsWith('axis')` 推
-   * 陣營。少了這一條，某天新增一張 id 沒照規矩取的卡，玩家會拿到錯的機種
-   * —— 而畫面上沒有任何東西會透露原因。
-   */
-  it('id 的前綴就是陣營', () => {
-    for (const m of MISSIONS.allies) expect(m.id.startsWith('allies-'), m.id).toBe(true)
-    for (const m of MISSIONS.axis) expect(m.id.startsWith('axis-'), m.id).toBe(true)
-  })
-
-  it('可打的卡都有目標文字與編制', () => {
-    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      if (!m.playable) continue
-      expect(m.objective.length, m.title).toBeGreaterThan(0)
-      expect(m.blueCount, m.title).toBeGreaterThanOrEqual(1)
-      expect(m.redCount, m.title).toBeGreaterThanOrEqual(1)
-    }
-  })
-
-  /**
-   * 【為什麼要守上界】`missionConfigFrom` 刻意不夾制（夾制會把寫錯的關卡
-   * 藏起來），而 `createBattle` 只有在 `blueCount === 0` 時才拋 ——
-   * **大於 MAX_SIDE 不會拋**，只會建一個超出特效池容量假設的超大戰場
-   * （Codex 審查 2026-08-16）。這一條就是那道保險。
-   */
-  it('每一張卡的架數都是 1~MAX_SIDE 的整數', () => {
-    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      for (const [name, n] of [['藍', m.blueCount], ['紅', m.redCount]] as const) {
-        expect(Number.isInteger(n), `${m.title} ${name}`).toBe(true)
-        expect(n, `${m.title} ${name}`).toBeGreaterThanOrEqual(MIN_SIDE)
-        expect(n, `${m.title} ${name}`).toBeLessThanOrEqual(MAX_SIDE)
+describe('關卡資料', () => {
+  it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數', () => {
+    // 【為什麼這條非有不可】`missionConfigFrom` 刻意不夾制架數（來源是本檔的
+    // 常數表，夾制只會把寫錯的關卡藏起來）。而大於 MAX_SIDE 不會拋 ——
+    // 只會建一個超出特效池容量假設的超大戰場
+    for (const m of playable) {
+      for (const [k, v] of [
+        ['blue', m.battle.blueCount], ['red', m.battle.redCount],
+      ] as const) {
+        expect(Number.isInteger(v), `${m.id} ${k}`).toBe(true)
+        expect(v, `${m.id} ${k}`).toBeGreaterThanOrEqual(MIN_SIDE)
+        expect(v, `${m.id} ${k}`).toBeLessThanOrEqual(MAX_SIDE)
       }
-    }
-  })
-
-  /**
-   * 【為什麼要逐值釘死時限】它們是算出來的（`實測直飛 × EVAC_MARGIN`），
-   * 而我在註解裡把 `168.2 × 1.4` 心算成 235.5 進位到 236 —— 實際是 235.48，
-   * `Math.round` 給 235。**程式一直是對的，錯的是註解**，而當時沒有任何
-   * 測試看得出這件事（Codex 審查 2026-08-16）。
-   */
-  it('兩張撤離卡的時限是實測算出來的那兩個值', () => {
-    const allies = MISSIONS.allies.find((m) => m.type === '撤離')!
-    const axis = MISSIONS.axis.find((m) => m.type === '撤離')!
-    expect(allies.seconds, '125.5 × 1.4 = 175.70').toBe(176)
-    expect(axis.seconds, '168.2 × 1.4 = 235.48').toBe(235)
-    // 【軸心國一定要比較久】它開 Bf109 逃、被更快的 P-51 追（spec §8.4）
-    expect(axis.seconds).toBeGreaterThan(allies.seconds)
-  })
-
-  /**
-   * 【判準為什麼從 `playable` 換成 `objective`】原本這一條讀的是「未開放的卡
-   * 一定全空」。撤離被關掉之後那句話不再成立 —— 它**做好了才被關掉**，資料
-   * 是實測推導出來的，清掉等於把 `evacuate.probe.ts` 量的東西丟了。
-   *
-   * 所以要守的不變量其實一直是：**卡片資料要嘛完整、要嘛全空，不能半套。**
-   * 而「做好了沒」的標記是 `objective`（HUD 目標列的文字）不是 `playable`
-   * （這一版要不要開放）。半套的話，哪天翻開旗標會冒出一個沒有目標列的任務。
-   */
-  it('沒有目標文字的卡＝還沒做，資料必須全空而且不可點', () => {
-    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      if (m.objective !== '') continue
-      expect(m.targetDistance, m.title).toBe(0)
-      expect(m.targetRadius, m.title).toBe(0)
-      expect(m.seconds, m.title).toBe(Infinity)
-      expect(m.playable, m.title).toBe(false)
-    }
-  })
-
-  /**
-   * 【為什麼要正面釘住這幾個數字】關掉一張卡最省事的做法是把它的資料一起
-   * 清空 —— 而那會靜靜地丟掉 `evacuate.probe.ts` 實測出來的
-   * 20 km／1,000 m／176 s／235 s。這一條讓「清掉」變成一次紅燈而不是一次
-   * 無聲的刪除。
-   *
-   * 【它不讀 `playable`】所以撤離翻回來的那一天，這一條也不用改；判定機制
-   * 本身則由 `mission.test.ts` 與 `mission-evacuate.test.ts` 繼續守著
-   * （那兩支同樣不讀 `playable`）。
-   */
-  it('撤離：實測推導出來的資料一個都沒掉', () => {
-    for (const list of [MISSIONS.allies, MISSIONS.axis]) {
-      const evac = list.find((m) => m.type === '撤離')!
-      expect(evac.objective.length, evac.title).toBeGreaterThan(0)
-      expect(evac.targetDistance, evac.title).toBe(20000)
-      expect(evac.targetRadius, evac.title).toBe(1000)
-      expect(Number.isFinite(evac.seconds), evac.title).toBe(true)
-    }
-  })
-})
-
-describe('missionRules', () => {
-  const kill = MISSIONS.allies.find((m) => m.type === '殲滅')!
-  const evac = MISSIONS.allies.find((m) => m.type === '撤離')!
-
-  it('殲滅卡給 annihilate', () => {
-    expect(missionRules(kill, 4000, 1500).kind).toBe('annihilate')
-  })
-
-  it('撤離卡給 evacuate，撤離點在 −Z、高度取自參數', () => {
-    const r = missionRules(evac, 4000, 1500)
-    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
-    expect(r.point.x).toBe(0)
-    expect(r.point.y).toBe(4000)
-    expect(r.point.z).toBe(-evac.targetDistance)
-    expect(r.radius).toBe(evac.targetRadius)
-    expect(r.seconds).toBe(evac.seconds)
-  })
-
-  /** 【高度是參數不是常數】否則某次調高度之後，圓環會浮在戰場上方 */
-  it('高度改了，撤離點跟著改', () => {
-    const r = missionRules(evac, 6000, 1500)
-    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
-    expect(r.point.y).toBe(6000)
-  })
-
-  it('撤離點真的在敵人那一側 —— 藍隊開局朝 −Z', () => {
-    const r = missionRules(evac, 4000, 1500)
-    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
-    expect(r.point.z).toBeLessThan(-DEFAULT_BATTLE.entryRange / 2)
-  })
-})
-
-describe('missionConfigFrom', () => {
-  const evacAllies = MISSIONS.allies.find((m) => m.type === '撤離')!
-  const evacAxis = MISSIONS.axis.find((m) => m.type === '撤離')!
-
-  /**
-   * 編組表版本的讀取器。**斷言的意思一個字沒變** —— 改動前讀
-   * `cfg.blueSpec`，現在取那一隊第一個小隊的長機。
-   */
-  const specOf = (c: BattleConfig, team: 'blue' | 'red') =>
-    c.units.find((u) => u.team === team)!.members[0]!
-
-  it('同盟國：藍隊飛 P-51、紅隊飛 Bf 109，架數照卡片', () => {
-    const cfg = missionConfigFrom(evacAllies, 'allies')
-    expect(specOf(cfg, 'blue').id).toBe(P51D.id)
-    expect(specOf(cfg, 'red').id).toBe(BF109K4.id)
-    expect(sideCount(cfg.units, 'blue')).toBe(evacAllies.blueCount)
-    expect(sideCount(cfg.units, 'red')).toBe(evacAllies.redCount)
-  })
-
-  it('軸心國：藍隊飛 Bf 109 —— 玩家恆在藍隊，換的是機種不是顏色', () => {
-    const cfg = missionConfigFrom(evacAxis, 'axis')
-    expect(specOf(cfg, 'blue').id).toBe(BF109K4.id)
-    expect(specOf(cfg, 'red').id).toBe(P51D.id)
-  })
-
-  it('難度套 VETERAN —— 與 battleConfigFrom 同一條理由', () => {
-    expect(missionConfigFrom(MISSIONS.allies[0]!, 'allies').aiProfile).toBe(VETERAN)
-  })
-
-  it('rules 由卡片產生，高度取自 DEFAULT_BATTLE', () => {
-    const cfg = missionConfigFrom(evacAllies, 'allies')
-    if (cfg.rules.kind !== 'evacuate') throw new Error('應為 evacuate')
-    expect(cfg.rules.point.y).toBe(DEFAULT_BATTLE.altitude)
-  })
-
-  /**
-   * 【擺法是每張卡自己的欄位】撤離用追擊（敵機在正後方 800 m、高 1,000 m），
-   * 其餘用對頭。這一條驗的是**卡片指的那份表真的被套上去**，不是它好不好玩
-   * —— 後者由試飛裁定（專案負責人 2026-08-16）。
-   */
-  it('撤離用追擊，其餘用對頭', () => {
-    for (const [faction, cards] of Object.entries(MISSIONS)) {
-      for (const m of cards) {
-        expect(m.entry, `${m.title}`).toBe(m.type === '撤離' ? 'pursuit' : 'headOn')
-        const cfg = missionConfigFrom(m, faction as 'allies' | 'axis')
-        // 【編組表版本】改動前 `cfg.entry` 是整份 `EntryPlan`；現在每個小隊
-        // 各帶自己那一側的 `SideEntry`，所以逐側比
-        expect(cfg.units.find((u) => u.team === 'blue')!.entry, m.title)
-          .toBe(ENTRY_PLANS[m.entry].blue)
-        expect(cfg.units.find((u) => u.team === 'red')!.entry, m.title)
-          .toBe(ENTRY_PLANS[m.entry].red)
-      }
+      const total = m.battle.blueCount + m.battle.redCount + m.battle.convoyCount
+      expect(total, m.id).toBeLessThanOrEqual(MAX_SIDE * 2)
     }
   })
 
   it('每張卡指的擺法都真的在表上', () => {
-    for (const m of [...MISSIONS.allies, ...MISSIONS.axis]) {
-      expect(ENTRY_PLANS[m.entry], m.title).toBeDefined()
-    }
+    for (const m of playable) expect(ENTRY_PLANS[m.battle.entry], m.id).toBeDefined()
   })
 
-  it('殲滅卡的 rules 是 annihilate', () => {
-    const kill = MISSIONS.axis.find((m) => m.type === '殲滅')!
-    expect(missionConfigFrom(kill, 'axis').rules.kind).toBe('annihilate')
+  it('可玩卡都有目標列的文字', () => {
+    for (const m of playable) expect(m.battle.objective.length, m.id).toBeGreaterThan(0)
+  })
+})
+
+describe('missionRules', () => {
+  const ALT = DEFAULT_BATTLE.altitude
+  const LAT = DEFAULT_BATTLE.lateralOffset
+
+  it('殲滅卡給 annihilate', () => {
+    expect(missionRules(readyCard(KILL_CARD), ALT, LAT).kind).toBe('annihilate')
+  })
+
+  it('撤離卡給 evacuate，撤離點在 −Z、高度取自參數', () => {
+    const r = missionRules(evacCard(), ALT, LAT)
+    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
+    expect(r.point.x).toBe(0)
+    expect(r.point.y).toBe(ALT)
+    expect(r.point.z).toBe(-20000)
+    expect(r.radius).toBe(1000)
+    expect(r.seconds).toBe(176)
+  })
+
+  it('高度改了，撤離點跟著改', () => {
+    // 【擋的是寫死 4000】兩者靜靜差開的症狀是「圓環浮在戰場上方，
+    // 飛過去卻沒判到」
+    const r = missionRules(evacCard(), 1234, LAT)
+    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
+    expect(r.point.y).toBe(1234)
+  })
+
+  it('撤離點真的在敵人那一側 —— 藍隊開局朝 −Z', () => {
+    const r = missionRules(evacCard(), ALT, LAT)
+    if (r.kind !== 'evacuate') throw new Error('應為 evacuate')
+    expect(r.point.z).toBeLessThan(0)
+  })
+
+  it('護送的終點在敵人後方、攔截的在我方後方', () => {
+    // 【這一行就是兩張卡的全部差別】判定那一側是同一條規則
+    const e = missionRules(readyCard(ESCORT_CARD), ALT, LAT)
+    const i = missionRules(readyCard(INTERCEPT_CARD), ALT, LAT)
+    if (e.kind !== 'convoy' || i.kind !== 'convoy') throw new Error('應為 convoy')
+    expect(e.owner).toBe('blue')
+    expect(i.owner).toBe('red')
+    expect(e.point.z).toBeLessThan(0)
+    expect(i.point.z).toBeGreaterThan(0)
+  })
+
+  it('判定圈放在那一隊自己的航道上，不是 x = 0', () => {
+    // 【擋的是「轟炸機從圈旁邊飛過去，任務永遠不結束」】兩隊對頭時各自橫向
+    // 偏 ∓750 m，圈釘在 0 的話最外側那一架到圈心 1,050 m，永遠判不到
+    const e = missionRules(readyCard(ESCORT_CARD), ALT, LAT)
+    if (e.kind !== 'convoy') throw new Error('應為 convoy')
+    expect(e.point.x).toBeCloseTo(ENTRY_PLANS.headOn.blue.across * LAT, 9)
+    expect(e.point.x).not.toBe(0)
+  })
+})
+
+describe('missionConfigFrom', () => {
+  it('雙方的機種照卡片', () => {
+    const m = readyCard(ESCORT_CARD)
+    const cfg = missionConfigFrom(m)
+    const first = (team: 'blue' | 'red') =>
+      cfg.units.find((u) => u.team === team && u.duty === 'combat')!.members[0]!
+    expect(first('blue')).toBe(m.battle.blueSpec)
+    expect(first('red')).toBe(m.battle.redSpec)
+  })
+
+  it('難度套 VETERAN —— 與 battleConfigFrom 同一條理由', () => {
+    expect(missionConfigFrom(readyCard(KILL_CARD)).aiProfile).toBe(VETERAN)
+  })
+
+  it('rules 由卡片產生，高度取自 DEFAULT_BATTLE', () => {
+    const cfg = missionConfigFrom(evacCard())
+    if (cfg.rules.kind !== 'evacuate') throw new Error('應為 evacuate')
+    expect(cfg.rules.point.y).toBe(DEFAULT_BATTLE.altitude)
   })
 
   it('其餘幾何沿用 DEFAULT_BATTLE', () => {
-    const cfg = missionConfigFrom(evacAllies, 'allies')
+    const cfg = missionConfigFrom(readyCard(KILL_CARD))
     expect(cfg.entryRange).toBe(DEFAULT_BATTLE.entryRange)
     expect(cfg.altitude).toBe(DEFAULT_BATTLE.altitude)
     expect(cfg.tas).toBe(DEFAULT_BATTLE.tas)
+  })
+
+  it('只有護送／攔截偏離中性的 convoyPriority', () => {
+    for (const m of playable) {
+      const wants = m.type === '護航' || m.type === '攔截'
+      expect(missionConfigFrom(m).tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(wants)
+    }
+  })
+
+  it('護送／攔截少填被護送的機種就拋錯', () => {
+    // 【為什麼要拋而不是落回一台】少填的症狀是那一隊沒有轟炸機，而勝負條件
+    // 是「轟炸機抵達／全滅」—— 一場永遠不會結束的仗，畫面上一切正常
+    const m = readyCard(ESCORT_CARD)
+    const broken: ReadyMissionCard = { ...m, battle: { ...m.battle, convoySpec: null } }
+    expect(() => missionConfigFrom(broken)).toThrow()
   })
 })

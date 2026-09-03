@@ -65,10 +65,9 @@ import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import { lineAbreast, sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
-  battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS,
-  type FactionChoice, type SkirmishSetup,
+  battleConfigFrom, DEFAULT_SKIRMISH, MAX_COMBATANTS, type SkirmishSetup,
 } from './battle/skirmish'
-import { missionConfigFrom, type MissionCard } from './battle/missions'
+import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
@@ -148,15 +147,13 @@ let setup: SkirmishSetup = { ...DEFAULT_SKIRMISH }
  * 目標列、結算的第二顆按鈕回哪裡。
  */
 let mode: 'skirmish' | 'mission' = 'skirmish'
-/** 玩家點的那一張卡。`mode === 'mission'` 時才有意義 */
-let pendingMission: MissionCard | null = null
 /**
- * 任務模式的陣營。與遭遇戰的那一個互不相干（`menu.ts` 的 `missionFaction`）。
+ * 玩家點的那一張卡。`mode === 'mission'` 時才有意義。
  *
- * 【為什麼從 id 的前綴推而不是多開一條 hook】`MISSIONS` 的鍵就是陣營，
- * 而 id 的前綴是照那個鍵取的 —— 由 `test/unit/missions.test.ts` 釘住。
+ * 【型別是 `ReadyMissionCard`】選單只把有戰鬥設定的那幾張接上點擊，所以到得了
+ * 這裡的卡一定打得起來 —— 下游因此不需要任何 null 檢查。
  */
-let missionFaction: FactionChoice = 'allies'
+let pendingMission: ReadyMissionCard | null = null
 
 /**
  * 目前這一場。**只有 `screen === 'battle'` 時才有值。**
@@ -560,10 +557,12 @@ function enterBattle(): void {
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
   //
-  //    【任務不吃遭遇戰的場地設定】任務的地形是關卡設計的一部分，固定群島。
-  //    共用一個「上一次選了什麼」的話，打完一場純海面遭遇戰再點任務卡，
-  //    任務會靜靜地變成海面。
-  terrainKind = mode === 'mission' && pendingMission !== null ? 'archipelago' : setup.terrain
+  //    【任務的地形是關卡設計的一部分】它寫在卡片上：太平洋那幾關要海面、
+  //    帝國本土那一關要內陸。共用遭遇戰那一個「上一次選了什麼」的話，打完
+  //    一場純海面遭遇戰再點任務卡，任務會靜靜地變成海面
+  terrainKind = mode === 'mission' && pendingMission !== null
+    ? pendingMission.battle.terrain
+    : setup.terrain
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(terrainKind)
@@ -575,7 +574,7 @@ function enterBattle(): void {
   startWorld(drillConfig !== null
     ? drillConfig
     : mode === 'mission' && pendingMission !== null
-      ? missionConfigFrom(pendingMission, missionFaction)
+      ? missionConfigFrom(pendingMission)
       : battleConfigFrom(setup))
 }
 
@@ -1312,7 +1311,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【撤離節拍改寫過的優先】它把 `mission` 換掉了，卡片上那一句已經不成立
   hudFrame.objectiveText = battle.objectiveText !== ''
     ? battle.objectiveText
-    : pendingMission?.objective ?? ''
+    : pendingMission?.battle.objective ?? ''
   hudFrame.objectiveMetric = m.metric
   hudFrame.objectiveMetricKind = m.hasTarget ? 'distance' : 'count'
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
@@ -1417,12 +1416,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   },
   /**
    * 【`menu.ts` 保證這個先於 `onEvent('fight')`】所以 `enterBattle` 讀得到
-   * 這一關。陣營由 id 的前綴推 —— 見 `missionFaction` 的註解。
+   * 這一關。雙方飛什麼、打在哪一種地形，卡片自己說。
    */
   onMission(card) {
     mode = 'mission'
     pendingMission = card
-    missionFaction = card.id.startsWith('axis') ? 'axis' : 'allies'
   },
   onResume() {
     paused = false

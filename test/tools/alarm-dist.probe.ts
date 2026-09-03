@@ -27,11 +27,12 @@
  * 全體的中位數通常是 0（大多數時候沒有人瞄我），那個數字不能拿來訂值。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import { alarmFactor, alarmRamp } from '../../src/ai/assess'
 import { Idle } from './spawn-snapshot'
 import type { Combatant } from '../../src/world/World'
+import { readyCard } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SECONDS = 300
@@ -39,9 +40,9 @@ const SEED = 20260805
 /** 10 Hz —— 與 AI_DECISION_HZ 一致 */
 const STRIDE = 24
 
-const CARDS: [string, 'allies' | 'axis'][] = [
-  ['axis-escort', 'axis'],
-  ['allies-escort', 'allies'],
+const CARDS: [string][] = [
+  ['allies-m1'],
+  ['germany-m1'],
 ]
 
 const n = (v: number, w: number, d = 3): string =>
@@ -53,9 +54,9 @@ function pct(sorted: number[], p: number): number {
   return sorted[i]!
 }
 
-for (const [id, faction] of CARDS) {
-  const card = MISSIONS[faction].find((m) => m.id === id)!
-  const b = createBattle(new Idle(), missionConfigFrom(card, faction), SEED)
+for (const [id] of CARDS) {
+  const card = readyCard(id)
+  const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
   const cs: Combatant[] = b.world.combatants
 
   // 只看戰鬥機 —— 轟炸機不走 extend

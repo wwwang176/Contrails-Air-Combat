@@ -1,9 +1,10 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import type { Combatant } from '../../src/world/World'
 import { Idle } from './spawn-snapshot'
+import { readyCard } from '../fixtures/mission'
 
 /**
  * 玩家那一架交給 AI 代飛之後的**逐秒軌跡**。不是測試。
@@ -28,11 +29,10 @@ const STRIDE = 24
  * 要量哪一張卡。**就地改這兩行** —— 專案不引入 `@types/node`，所以拿不到
  * `process.argv`。
  */
-const ID = 'axis-escort'
-const FACTION: 'allies' | 'axis' = 'axis'
+const ID = 'allies-m1'
 
-const card = MISSIONS[FACTION].find((m) => m.id === ID)!
-const b = createBattle(new Idle(), missionConfigFrom(card, FACTION), SEED)
+const card = readyCard(ID)
+const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
 
 // 【代飛】main.ts 的 I 鍵就是這三行
 const me = b.player

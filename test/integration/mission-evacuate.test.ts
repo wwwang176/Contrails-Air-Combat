@@ -13,11 +13,13 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, stepBattle } from '../../src/battle/setup'
-import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import { missionConfigFrom } from '../../src/battle/missions'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Battery } from '../../src/weapons/types'
+import { readyCard, KILL_CARD } from '../fixtures/mission'
+import type { ReadyMissionCard } from '../../src/battle/missions'
 
 const DT = 1 / 240
 
@@ -65,22 +67,41 @@ function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
 }
 
-const CARD = MISSIONS.allies.find((c) => c.type === '撤離')!
+/**
+ * 一張撤離卡。**自己建，不從 `MISSIONS` 找。**
+ *
+ * 【為什麼】12 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4 的返航節拍。
+ * 但撤離的判定還在，而且正是德 M4 靠的那一條，所以它仍然要驗。從卡表找的話
+ * 這一份會跟著關卡設計一起漂。數字沿用 `evacuate.probe.ts` 掃描出來的那一組。
+ */
+const CARD: ReadyMissionCard = (() => {
+  const kill = readyCard(KILL_CARD).battle
+  return {
+    id: 'test-evac', title: '測試用撤離', type: '撤離', summary: '',
+    battle: {
+      objective: '飛抵撤離點',
+      blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
+      blueCount: 4, redCount: 16, convoyCount: 0, convoyPriority: 1,
+      targetDistance: 20000, targetRadius: 1000, seconds: 176,
+      entry: 'pursuit', terrain: 'archipelago',
+    },
+  }
+})()
 
 function evacPoint(): Vector3 {
-  const rules = missionConfigFrom(CARD, 'allies').rules
+  const rules = missionConfigFrom(CARD).rules
   if (rules.kind !== 'evacuate') throw new Error('撤離卡的 rules 應為 evacuate')
   return rules.point
 }
 
 function targetRadius(): number {
-  const rules = missionConfigFrom(CARD, 'allies').rules
+  const rules = missionConfigFrom(CARD).rules
   if (rules.kind !== 'evacuate') throw new Error('撤離卡的 rules 應為 evacuate')
   return rules.radius
 }
 
 function run(controller: Controller, seconds: number, limit?: number) {
-  const base = missionConfigFrom(CARD, 'allies')
+  const base = missionConfigFrom(CARD)
   const rules = base.rules.kind === 'evacuate' && limit !== undefined
     ? { ...base.rules, seconds: limit }
     : base.rules
@@ -109,10 +130,10 @@ function aliveBlue(b: ReturnType<typeof run>): number {
 
 describe('撤離任務', () => {
   it('直飛撤離點 → victory，而且時限還有剩', () => {
-    const b = run(new Runner(evacPoint()), CARD.seconds)
+    const b = run(new Runner(evacPoint()), CARD.battle.seconds)
     console.log(
       `[撤離] 直飛：${b.outcome}　剩餘 ${b.mission.secondsLeft.toFixed(1)} s`
-      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}/${CARD.blueCount}`,
+      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}/${CARD.battle.blueCount}`,
     )
     expect(b.outcome).toBe('victory')
     expect(b.mission.secondsLeft).toBeGreaterThan(0)
@@ -123,10 +144,10 @@ describe('撤離任務', () => {
    * 這四條合起來說的是「**它是因為時限到了才輸的**」。
    */
   it('反方向飛 → 時限歸零 → defeat（而且不是被打死的）', () => {
-    const b = run(new Away(), CARD.seconds + 5)
+    const b = run(new Away(), CARD.battle.seconds + 5)
     console.log(
       `[撤離] 反向：${b.outcome}　剩餘 ${b.mission.secondsLeft.toFixed(1)} s`
-      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}/${CARD.blueCount}`,
+      + `　距離 ${b.mission.metric.toFixed(0)} m　我方剩 ${aliveBlue(b)}/${CARD.battle.blueCount}`,
     )
     expect(b.outcome).toBe('defeat')
     expect(b.mission.secondsLeft).toBeLessThanOrEqual(0)
@@ -141,10 +162,10 @@ describe('撤離任務', () => {
    * 也成立。槍已經不痛了，所以跑完同樣的時長之後唯一正確的結果就是還在打。
    */
   it('把時限設成 Infinity 之後，同樣的跑法仍然是 fighting', () => {
-    const b = run(new Away(), CARD.seconds + 5, Infinity)
+    const b = run(new Away(), CARD.battle.seconds + 5, Infinity)
     console.log(
       `[撤離] 消融：${b.outcome}　剩餘 ${b.mission.secondsLeft}`
-      + `　我方剩 ${aliveBlue(b)}/${CARD.blueCount}`,
+      + `　我方剩 ${aliveBlue(b)}/${CARD.battle.blueCount}`,
     )
     expect(b.mission.secondsLeft).toBe(Infinity)
     expect(b.outcome).toBe('fighting')
