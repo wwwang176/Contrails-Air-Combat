@@ -22,24 +22,24 @@ const SLOTS = 256
  * 【延遲的是輸出指令，不是態勢】一個 `Command` 只有一個 Vector3 加三個純量，
  * 語義乾淨：「這個飛行員現在做的，是他 n 毫秒前看到的畫面所導出的決定」。
  *
- * 【開火不參與延遲】瞄準、油門、減速板走緩衝區；`firing` 直通。扣扳機讀的
- * 是**當下**的幾何（`shouldFire` 每個物理步跑一次，看的是飛機此刻的姿態），
- * 與安全層同一個理由：目標已經滑出瞄準線卻還在扣，不是判讀慢，是朝著一個
- * 過期的答案開火。延遲它的效果是「你橫滾拉開之後它還會把 0.3 秒的子彈潑在
- * 你剛才的位置」—— 那不是難度，是浪費彈藥。
- *
- * 保留的是**機首**的延遲：槍口仍然停在延遲指令帶它去的地方，所以欺敵動作
- * 照樣有效 —— 它只是不再對著空氣開槍。
  * 延遲 `Situation` 則要複製十幾個欄位、還要處理 10 Hz 與 240 Hz 兩種節拍，
  * 而且 `basis`、`knobs`、`rules` 的閂鎖會跟著錯拍（spec §4.1）。
+ *
+ * 【扳機有自己的延遲】瞄準、油門、減速板讀 `delaySeconds` 那一格；`firing`
+ * 讀 `fireSeconds` 那一格，兩者互不相干。理由與**已經存在**的安全層同構
+ * （`safety.ts:380` 只把 `firing` 設成 false、從不設成 true）：目標已經滑
+ * 出瞄準線卻還在扣，不是判讀慢，是朝一個過期的答案開火。
+ *
+ * 機首的延遲不動 —— 槍口仍然停在延遲指令帶它去的地方，所以欺敵動作照樣
+ * 有效；扳機只是不再對著空氣開槍。
  *
  * 【為什麼不是降低決策頻率】把 10 Hz 調成 3 Hz 只會讓**意圖切換**變遲鈍，
  * 240 Hz 的轉向仍然是即時追蹤 —— 而追瞄能力正是要降的那一項。
  *
  * 【零延遲必須是位元等價的無作用】`ACE` 是全部 AI 測試與 `bench/ai-load.ts`
  * 的設定，也是 M4 交付的天花板。任何數值漂移都會讓既有的對戰矩陣變成「不
- * 知道是誰改的」。所以 `steps <= 0` 直接複製，**完全不碰緩衝區** —— 順帶
- * 保證預設設定下 240 Hz 熱路徑一步額外的運算都不多。
+ * 知道是誰改的」。所以**兩個延遲都為零**時直接複製，完全不碰緩衝區 ——
+ * 順帶保證預設設定下 240 Hz 熱路徑一步額外的運算都不多。
  *
  * 熱路徑（240 Hz），不配置記憶體。
  */
@@ -54,6 +54,7 @@ export class CommandDelay {
   private readonly aim = new Float32Array(3 * SLOTS)
   private readonly throttle = new Float32Array(SLOTS)
   private readonly brake = new Float32Array(SLOTS)
+  private readonly firing = new Uint8Array(SLOTS)
   private write = 0
   /**
    * 緩衝區裡有沒有可信的內容。
@@ -79,11 +80,17 @@ export class CommandDelay {
    *                     會換算出新的步數，不需要額外狀態
    * @param out          寫入目標。可以與 `input` 是不同的物件
    * @param trimTau      穩態補償器的時間常數，s；`<= 0` 關閉（實驗中）
+   * @param fireSeconds  扳機自己的延遲，s。省略時等於 `delaySeconds`，也就是
+   *                     四個欄位一起延遲的舊行為
    */
-  push(input: Command, delaySeconds: number, dt: number, out: Command, trimTau = 0): void {
+  push(input: Command, delaySeconds: number, dt: number, out: Command,
+    trimTau = 0, fireSeconds = delaySeconds): void {
+    const cap = Math.min(SLOTS - 1, Math.round(MAX_REACTION_DELAY / dt))
     const raw = delaySeconds > 0 && dt > 0 ? Math.round(delaySeconds / dt) : 0
-    const steps = Math.min(raw, Math.min(SLOTS - 1, Math.round(MAX_REACTION_DELAY / dt)))
-    if (steps <= 0) {
+    const steps = Math.min(raw, cap)
+    const rawFire = fireSeconds > 0 && dt > 0 ? Math.round(fireSeconds / dt) : 0
+    const fireSteps = Math.min(rawFire, cap)
+    if (steps <= 0 && fireSteps <= 0) {
       out.aimWorld.copy(input.aimWorld)
       out.throttle = input.throttle
       out.brake = input.brake
@@ -102,6 +109,7 @@ export class CommandDelay {
         this.aim[3 * i + 2] = input.aimWorld.z
         this.throttle[i] = input.throttle
         this.brake[i] = input.brake
+        this.firing[i] = input.firing ? 1 : 0
       }
     }
 
@@ -111,6 +119,7 @@ export class CommandDelay {
     this.aim[3 * w + 2] = input.aimWorld.z
     this.throttle[w] = input.throttle
     this.brake[w] = input.brake
+    this.firing[w] = input.firing ? 1 : 0
 
     // 先寫再讀：`steps === 0` 時 r === w，也就是讀回剛寫進去的那一格。
     // （那條路徑走上面的捷徑，這裡只是讓索引式子在邊界上仍然自洽。）
@@ -118,15 +127,17 @@ export class CommandDelay {
     out.aimWorld.set(this.aim[3 * r]!, this.aim[3 * r + 1]!, this.aim[3 * r + 2]!)
     out.throttle = this.throttle[r]!
     out.brake = this.brake[r]!
-    // 【直通】見類別說明的「開火不參與延遲」
-    out.firing = input.firing
+    // 【扳機讀自己那一格】`fireSteps === 0` 時 rf === w，也就是剛寫進去的
+    // 這一步 —— 直通，而且不必為它多開一條分支
+    const rf = (w - fireSteps + SLOTS) % SLOTS
+    out.firing = this.firing[rf] === 1
 
     // 【穩態補償器】同一幀取緩衝區兩端的差 d = 新鮮 − 延遲，低通後補回輸出。
     // 目標做等速動作時 d 是常數（預瞄點每 delaySeconds 沿軌跡走掉固定一段），
     // trim 在 2~3τ 內收斂到它、穩態誤差歸零 —— 純延遲對可預測運動的永久
     // 穩態誤差是模型缺陷，真人會靠預測補掉。突變（假動作）時 d 瞬間跳走而
     // trim 揹著舊值有 τ 的慣性，反應延遲的欺敵窗口不動。τ→0 是 ACE、
-    // τ→∞ 是純延遲。只補 aim 通道；油門與減速板照舊延遲（開火本來就直通）。
+    // τ→∞ 是純延遲。只補 aim 通道；油門、減速板與扳機都不補。
     if (trimTau > 0) {
       const k = Math.min(1, dt / trimTau)
       this.tx += k * (input.aimWorld.x - out.aimWorld.x - this.tx)

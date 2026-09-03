@@ -15,8 +15,8 @@
 export interface DifficultyProfile {
   /**
    * 反應延遲，秒。由 `AiController` 交給 `CommandDelay`，延後的是**輸出
-   * 指令**（瞄準、油門、減速板），不是態勢。**開火不在其列**——扣扳機讀
-   * 當下的幾何，理由見 `ai/delay.ts`。安全層也排在延遲之後。
+   * 指令**（瞄準、油門、減速板），不是態勢。**扳機走 `fireDelay`**，
+   * 理由見 `ai/delay.ts`。安全層也排在延遲之後。
    */
   reactionDelay: number
   /** 瞄準誤差，rad。**目前沒有任何一處讀它** */
@@ -28,6 +28,29 @@ export interface DifficultyProfile {
    * 窗口。詳見 `CommandDelay.push`。
    */
   trimTau?: number
+  /**
+   * 扳機自己的延遲，秒。**省略時等於 `reactionDelay`**，也就是四個欄位一起
+   * 延遲的舊行為。
+   *
+   * 【為什麼要跟瞄準拆開】延遲瞄準模擬的是「看到 → 修正機首」的耗時，那是
+   * 判讀；扣扳機接近反射 —— 目標明明已經滑出瞄準線卻還在射，玩家讀到的不
+   * 是「敵人反應慢」而是「敵人在亂射」。與安全層拆出去是同一個道理
+   * （`safety.ts:380` 只把 `firing` 關掉，從不打開）。
+   *
+   * ⚑ **0.1 是起始值，待試飛裁定。** 三案的離線量測（`fire-delay.probe.ts`，
+   * 12 開局 × 換邊 × 300 s、同機種 P-51D 1v1，VETERAN 對 ACE）：
+   *
+   * ```
+   *                    勝負(ACE:VET)  平手  平均長度   扣扳機   傷害  每秒
+   *   0.3（＝瞄準）        11 : 1      12    238.2 s    96.1 s   2497  26.0
+   *   0                    11 : 1      12    238.2 s    96.0 s   2766  28.8
+   * ```
+   *
+   * 【這組數字證明不了什麼，要知道】AI 不會刻意做假動作，所以這支量尺踩不
+   * 到扳機延遲真正的差別（玩家橫滾拉開的瞬間 AI 會不會跟著停火）。它只證明
+   * 了「改這個不會意外把 AI 的空戰能力弄壞」。判準是試飛。
+   */
+  fireDelay?: number
 }
 
 /** 王牌：M4 的唯一設定，也是全部 AI 測試與 `bench/` 的基準。 */
@@ -84,4 +107,6 @@ export const ACE: DifficultyProfile = { reactionDelay: 0, aimError: 0 }
  * 取 1：繞圈追平 ACE 的咬環能力；代價是 6 s 級的慢 S 繞欺敵折半，更快的
  * 假動作（2~3 s 換邊）衰減比例平方成長、照樣騙得到。
  */
-export const VETERAN: DifficultyProfile = { reactionDelay: 0.3, aimError: 0, trimTau: 1 }
+export const VETERAN: DifficultyProfile = {
+  reactionDelay: 0.3, aimError: 0, trimTau: 1, fireDelay: 0.1,
+}

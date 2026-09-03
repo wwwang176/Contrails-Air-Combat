@@ -68,13 +68,32 @@ describe('CommandDelay', () => {
   })
 
   /**
-   * 【這一條是這個分支的全部】瞄準延遲 n 步，扳機讀當下。
+   * 【省略第六個參數 = 舊行為】`fireSeconds` 預設等於 `delaySeconds`，
+   * 所以既有呼叫端（與這一支以外的全部測試）看到的仍然是四個欄位一起延遲。
+   */
+  it('省略扳機延遲時，開火跟著瞄準一起延遲', () => {
+    const n = 5
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    const fired: boolean[] = []
+    for (let k = 0; k < 12; k++) {
+      mark(input, k)
+      d.push(input, n * DT, DT, out)
+      fired.push(out.firing)
+    }
+    // 輸入是 `k % 2 === 0`；落後 5 步之後奇偶翻面，前 5 步讀開場填的第 0 步
+    expect(fired).toEqual([true, true, true, true, true, true,
+      false, true, false, true, false, true])
+  })
+
+  /**
+   * 【扳機走自己的那一格】瞄準落後 n 步、扳機落後 m 步，同一次呼叫。
    *
-   * 反過來說：把 `out.firing = input.firing` 改回讀緩衝區，這一條會紅，
+   * 反過來說：把 `out.firing` 改回讀 `r`（瞄準那一格），這一條會紅，
    * 而上面那條「延遲 n 步」仍然全綠 —— 兩者守的不是同一件事。
    */
-  it('開火不參與延遲 —— 瞄準是舊的，扳機是這一步的', () => {
-    const n = 5
+  it('扳機的延遲與瞄準各自獨立', () => {
     const d = new CommandDelay()
     const input = createCommand()
     const out = createCommand()
@@ -82,25 +101,38 @@ describe('CommandDelay', () => {
     const fired: boolean[] = []
     for (let k = 0; k < 12; k++) {
       mark(input, k)
-      d.push(input, n * DT, DT, out)
+      d.push(input, 5 * DT, DT, out, 0, 2 * DT)
       aimStep.push(step(out))
       fired.push(out.firing)
     }
-    // 瞄準：前 5 步讀到開場填的第 0 步，之後落後 5 步
+    // 瞄準落後 5 步
     expect(aimStep).toEqual([0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6])
-    // 扳機：每一步都是 `k % 2 === 0`，一步都沒落後
-    expect(fired).toEqual([true, false, true, false, true, false,
+    // 扳機只落後 2 步 —— 前兩步讀開場填的第 0 步（true），之後是 (k−2) 的奇偶
+    expect(fired).toEqual([true, true, true, false, true, false,
       true, false, true, false, true, false])
   })
 
-  it('開火不參與延遲 —— 有 trim 補償時也一樣', () => {
+  it('扳機延遲為 0 時是直通，瞄準照樣延遲', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    const fired: boolean[] = []
+    for (let k = 0; k < 8; k++) {
+      mark(input, k)
+      d.push(input, 5 * DT, DT, out, 0, 0)
+      fired.push(out.firing)
+    }
+    expect(fired).toEqual([true, false, true, false, true, false, true, false])
+  })
+
+  it('扳機延遲在 trim 補償開著的時候也照走自己那一格', () => {
     const d = new CommandDelay()
     const input = createCommand()
     const out = createCommand()
     for (let k = 0; k < 8; k++) {
       mark(input, k)
       input.firing = k === 7
-      d.push(input, 0.3, DT, out, 1)
+      d.push(input, 0.3, DT, out, 1, 0)
       expect(out.firing, `第 ${k} 步`).toBe(k === 7)
     }
   })

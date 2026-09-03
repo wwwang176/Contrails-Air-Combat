@@ -840,7 +840,8 @@ export class AiController implements Controller {
    * 基準，另案處理。
    */
   private emit(self: Aircraft, dt: number, out: Command): void {
-    this.delay.push(this.raw, this.profile.reactionDelay, dt, out, this.profile.trimTau ?? 0)
+    this.delay.push(this.raw, this.profile.reactionDelay, dt, out,
+      this.profile.trimTau ?? 0, this.profile.fireDelay ?? this.profile.reactionDelay)
     // 【地板是局部值，不寫回 this.seaHeight】見那個欄位的說明
     let floor = this.seaHeight
     let sense: TerrainSense | undefined
