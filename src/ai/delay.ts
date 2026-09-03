@@ -21,6 +21,15 @@ const SLOTS = 256
  *
  * 【延遲的是輸出指令，不是態勢】一個 `Command` 只有一個 Vector3 加三個純量，
  * 語義乾淨：「這個飛行員現在做的，是他 n 毫秒前看到的畫面所導出的決定」。
+ *
+ * 【開火不參與延遲】瞄準、油門、減速板走緩衝區；`firing` 直通。扣扳機讀的
+ * 是**當下**的幾何（`shouldFire` 每個物理步跑一次，看的是飛機此刻的姿態），
+ * 與安全層同一個理由：目標已經滑出瞄準線卻還在扣，不是判讀慢，是朝著一個
+ * 過期的答案開火。延遲它的效果是「你橫滾拉開之後它還會把 0.3 秒的子彈潑在
+ * 你剛才的位置」—— 那不是難度，是浪費彈藥。
+ *
+ * 保留的是**機首**的延遲：槍口仍然停在延遲指令帶它去的地方，所以欺敵動作
+ * 照樣有效 —— 它只是不再對著空氣開槍。
  * 延遲 `Situation` 則要複製十幾個欄位、還要處理 10 Hz 與 240 Hz 兩種節拍，
  * 而且 `basis`、`knobs`、`rules` 的閂鎖會跟著錯拍（spec §4.1）。
  *
@@ -45,7 +54,6 @@ export class CommandDelay {
   private readonly aim = new Float32Array(3 * SLOTS)
   private readonly throttle = new Float32Array(SLOTS)
   private readonly brake = new Float32Array(SLOTS)
-  private readonly firing = new Uint8Array(SLOTS)
   private write = 0
   /**
    * 緩衝區裡有沒有可信的內容。
@@ -94,7 +102,6 @@ export class CommandDelay {
         this.aim[3 * i + 2] = input.aimWorld.z
         this.throttle[i] = input.throttle
         this.brake[i] = input.brake
-        this.firing[i] = input.firing ? 1 : 0
       }
     }
 
@@ -104,7 +111,6 @@ export class CommandDelay {
     this.aim[3 * w + 2] = input.aimWorld.z
     this.throttle[w] = input.throttle
     this.brake[w] = input.brake
-    this.firing[w] = input.firing ? 1 : 0
 
     // 先寫再讀：`steps === 0` 時 r === w，也就是讀回剛寫進去的那一格。
     // （那條路徑走上面的捷徑，這裡只是讓索引式子在邊界上仍然自洽。）
@@ -112,14 +118,15 @@ export class CommandDelay {
     out.aimWorld.set(this.aim[3 * r]!, this.aim[3 * r + 1]!, this.aim[3 * r + 2]!)
     out.throttle = this.throttle[r]!
     out.brake = this.brake[r]!
-    out.firing = this.firing[r] === 1
+    // 【直通】見類別說明的「開火不參與延遲」
+    out.firing = input.firing
 
     // 【穩態補償器】同一幀取緩衝區兩端的差 d = 新鮮 − 延遲，低通後補回輸出。
     // 目標做等速動作時 d 是常數（預瞄點每 delaySeconds 沿軌跡走掉固定一段），
     // trim 在 2~3τ 內收斂到它、穩態誤差歸零 —— 純延遲對可預測運動的永久
     // 穩態誤差是模型缺陷，真人會靠預測補掉。突變（假動作）時 d 瞬間跳走而
     // trim 揹著舊值有 τ 的慣性，反應延遲的欺敵窗口不動。τ→0 是 ACE、
-    // τ→∞ 是純延遲。只補 aim 通道；油門、減速板、開火照舊延遲。
+    // τ→∞ 是純延遲。只補 aim 通道；油門與減速板照舊延遲（開火本來就直通）。
     if (trimTau > 0) {
       const k = Math.min(1, dt / trimTau)
       this.tx += k * (input.aimWorld.x - out.aimWorld.x - this.tx)
