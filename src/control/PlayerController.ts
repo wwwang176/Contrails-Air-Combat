@@ -19,6 +19,8 @@ export class PlayerController implements Controller {
     out.aimWorld.copy(this.input.aimWorld)
     out.throttle = this.input.throttle
     out.brake = this.input.braking ? 1 : 0
-    out.firing = this.input.firing
+    // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的
+    // 子彈玩家根本看不到，而彈藥是真的在消耗。投彈由 `main.ts` 自己接
+    out.firing = this.input.firing && this.input.viewMode !== 'bomb'
   }
 }
