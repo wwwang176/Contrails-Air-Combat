@@ -104,10 +104,19 @@ describe('stepShipGuns', () => {
     expect(run(shipWith('mg'), [target(0, 0, 3000, 0)], 3).live).toBe(0)
   })
 
-  /** 【40 mm 更遠】同一個 1,800 m 的目標，20 mm 打不到、40 mm 打得到。 */
-  it('40 mm 的射程比 20 mm 遠', () => {
+  /**
+   * 【三層要疊出層次】同一條進場線上，三層各自在不同距離接手：
+   * 20 mm 1,330 m、40 mm 2,990 m、5 吋 4,950 m。**每一層都要有一段
+   * 只有它打得到的距離**，否則彈幕讀起來是一堵牆而不是三層。
+   */
+  it('三層的射程互相分開', () => {
+    // 2,500 m：只有 40 mm（與 5 吋）打得到
+    expect(run(shipWith('mg'), [target(0, 0, 2500, 0)], 3).live).toBe(0)
+    expect(run(shipWith('autocannon'), [target(0, 0, 2500, 0)], 3).live).toBeGreaterThan(0)
+    // 1,800 m：20 mm 還是打不到
     expect(run(shipWith('mg'), [target(0, 0, 1800, 0)], 3).live).toBe(0)
-    expect(run(shipWith('autocannon'), [target(0, 0, 1800, 0)], 3).live).toBeGreaterThan(0)
+    // 3,500 m：連 40 mm 都打不到了
+    expect(run(shipWith('autocannon'), [target(0, 0, 3500, 0)], 3).live).toBe(0)
   })
 
   it('同隊的飛機不是目標', () => {
