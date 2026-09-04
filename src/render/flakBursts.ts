@@ -46,8 +46,9 @@ export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Partic
     life: 4,
     // 【壽命要抖】同一朵的九顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
     lifeJitter: 0.3,
-    sizeFrom: 6,
-    sizeTo: 14,
+    // 【×1.5，負責人試飛裁定】原本 6 → 14。
+    sizeFrom: 9,
+    sizeTo: 21,
     // 【幾乎不上升】終端速度 = gravity / drag = 0.1 m/s。高砲雲會掛在原地
     // 好幾秒，那正是它在照片裡的樣子。
     gravity: 0.2,
@@ -55,6 +56,24 @@ export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Partic
     alphaFrom: 0.8,
     color: (_t: number, out: Color) => { out.setHex(FLAK_COLOR) },
   })
+}
+
+/**
+ * 這一場已經開過幾朵雲。**種子用它，不用事件在這一幀的序號。**
+ *
+ * 【為什麼不能用序號】`emitFireball` 是那樣寫的（`e * COUNT + k`），但擊墜
+ * 很少見、火球又只活半秒，重複看不出來。高砲雲不一樣：每秒約四朵、每朵活
+ * 四秒，而**大部分幀只有一次引爆，序號恆為 0** —— 於是每一朵孤立的雲都用
+ * 同一組九個方向，長得一模一樣。
+ *
+ * 【為什麼不是亂數】與這個專案其他所有隨機一樣：確定性才測得起來、重播才
+ * 可重現。一個單調遞增的計數器就夠了。
+ */
+let burstSeed = 0
+
+/** 換一場時歸零 —— 不歸零不會壞，但同一場從同一朵開始比較好比對。 */
+export function resetFlakBurstSeed(): void {
+  burstSeed = 0
 }
 
 /**
@@ -68,9 +87,10 @@ export function emitFlakBursts(pool: Particles, events: BurstEvents): void {
     const x = events.x[e]!
     const y = events.y[e]!
     const z = events.z[e]!
+    const seed = burstSeed++ * FLAK_PUFFS
     for (let k = 0; k < FLAK_PUFFS; k++) {
       // 半角 π = 等向。軸取 +Y 只是給錐一個參考，等向下不影響結果
-      coneDirection(0, 1, 0, Math.PI, e * FLAK_PUFFS + k, DIR)
+      coneDirection(0, 1, 0, Math.PI, seed + k, DIR)
       pool.emit(
         x + DIR.x * FLAK_SPREAD,
         y + DIR.y * FLAK_SPREAD,

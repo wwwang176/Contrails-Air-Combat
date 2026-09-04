@@ -14,7 +14,7 @@ import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { createFireball, emitFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
-import { createFlakBursts, emitFlakBursts } from './render/flakBursts'
+import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createShipModels, preloadShipModels, type ShipModels } from './render/ships'
 import { clearBursts } from './world/flak'
 import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
@@ -333,6 +333,7 @@ const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex, flakBur
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
+  resetFlakBurstSeed()
 }
 
 ctx.scene.add(debris.object)
