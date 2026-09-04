@@ -10,8 +10,8 @@ const angleTo = (v: Vec3Like, ax: number, ay: number, az: number): number =>
   Math.acos(Math.max(-1, Math.min(1, v.x * ax + v.y * ay + v.z * az)))
 
 describe('coneClamp', () => {
-  it('圓錐半角是 70 度', () => {
-    expect(BOMB_CONE_HALF_ANGLE).toBeCloseTo((70 * Math.PI) / 180, 12)
+  it('圓錐半角是 45 度 —— 再開下去相機會掃到自己的機體', () => {
+    expect(BOMB_CONE_HALF_ANGLE).toBeCloseTo((45 * Math.PI) / 180, 12)
   })
 
   it('錐內不動', () => {
@@ -24,7 +24,7 @@ describe('coneClamp', () => {
     expect(o.y).toBeCloseTo(-Math.cos(a), 9)
   })
 
-  it('錐外落在錐面上，與軸恰好夾 70 度', () => {
+  it('錐外落在錐面上，與軸恰好夾 BOMB_CONE_HALF_ANGLE', () => {
     const o = out()
     // 水平方向 —— 離天底 90°
     const clamped = coneClamp(1, 0, 0, 0, -1, 0, COS, SIN, o)
@@ -35,7 +35,7 @@ describe('coneClamp', () => {
     expect(o.z).toBeCloseTo(0, 9)
   })
 
-  it('恆不在軸的 70 度之外 —— 抬頭是不可能的', () => {
+  it('恆不在軸的半角之外 —— 平飛時抬頭是不可能的', () => {
     const o = out()
     const cases: readonly (readonly [number, number, number])[] = [
       [0, 1, 0], [0, 0.9, 0.44], [-0.7, 0.7, 0], [0, 0.999, 0.045], [0.3, 0.95, -0.1],
@@ -67,26 +67,25 @@ describe('coneClamp', () => {
 
   it('輸出恆是單位向量', () => {
     const o = out()
-    for (const a of [0, 20, 45, 69, 70, 71, 90, 140, 179]) {
+    for (const a of [0, 20, 44, 45, 46, 70, 90, 140, 179]) {
       const r = (a * Math.PI) / 180
       coneClamp(Math.sin(r), -Math.cos(r), 0, 0, -1, 0, COS, SIN, o)
       expect(Math.hypot(o.x, o.y, o.z)).toBeCloseTo(1, 9)
     }
   })
 
-  it('圓錐軸是機體固定的 —— 側滾 60 度時錐跟著轉', () => {
+  it('圓錐軸是機體固定的 —— 側滾時錐跟著轉', () => {
     const o = out()
-    // 右滾 60°：機腹軸由 (0,−1,0) 轉到 (−sin60, −cos60, 0)
-    const ax = -Math.sin(Math.PI / 3)
-    const ay = -Math.cos(Math.PI / 3)
-    // 正下方離這根軸 60°，仍在錐內 → 不夾制。**陀螺穩定的話這裡會是 0°**
+    // 右滾 30°：機腹軸由 (0,−1,0) 轉到 (−sin30, −cos30, 0)
+    const ax = -Math.sin(Math.PI / 6)
+    const ay = -Math.cos(Math.PI / 6)
+    // 正下方離這根軸 30°，仍在錐內 → 不夾制。**陀螺穩定的話這裡會是 0°**
     expect(coneClamp(0, -1, 0, ax, ay, 0, COS, SIN, o)).toBe(false)
-    // 離軸 80° 的方向會被夾
-    const a = (80 * Math.PI) / 180
-    const dx = ax * Math.cos(a) - ay * Math.sin(a)
-    const dy = ay * Math.cos(a) + ax * Math.sin(a)
-    expect(coneClamp(dx, dy, 0, ax, ay, 0, COS, SIN, o)).toBe(true)
-    expect(angleTo(o, ax, ay, 0)).toBeCloseTo(BOMB_CONE_HALF_ANGLE, 9)
+    // 再滾到 60°：正下方離軸 60°，超出 45° 的錐 → 夾制
+    const bx = -Math.sin(Math.PI / 3)
+    const by = -Math.cos(Math.PI / 3)
+    expect(coneClamp(0, -1, 0, bx, by, 0, COS, SIN, o)).toBe(true)
+    expect(angleTo(o, bx, by, 0)).toBeCloseTo(BOMB_CONE_HALF_ANGLE, 9)
   })
 })
 
@@ -103,7 +102,7 @@ describe('sightUp：投彈視角的「螢幕上方」', () => {
     expect(o.z).toBeCloseTo(-1, 9)
   })
 
-  it('**這正是舊實作壞掉的地方**：機首轉 90° 時螢幕上方也要跟著轉', () => {
+  it('機首轉 90° 時螢幕上方跟著轉', () => {
     const o = out()
     // 機首朝 +X
     sightUp(0, -1, 0, 1, 0, 0, 0, 1, 0, o)

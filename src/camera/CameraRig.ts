@@ -356,6 +356,12 @@ export class CameraRig {
       this.viewBase.copy(look)
       camera.position.copy(eye)
       camera.quaternion.copy(look)
+      // 【FOV 固定在 fovBase】第三人稱的 FOV 隨速度在 65～73 之間漲，不設回去
+      // 的話瞄具的角度尺規會停在「按 B 那一刻多快」，而且之後不再更新
+      if (Math.abs(camera.fov - o.fovBase) > 0.01) {
+        camera.fov = o.fovBase
+        camera.updateProjectionMatrix()
+      }
       // 【切回第三人稱要重新吸附】與機首視角那一行同一個理由
       this.initialised = false
       // 【FOV 刻意不套速度增益】投彈時 FOV 一變，落點在畫面上就會跟著抖，

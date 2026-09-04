@@ -11,7 +11,7 @@ import {
  *
  * 【它在測什麼】`bomb.test.ts` 釘的是單點與不變式；這一支釘的是**整張表的
  * 形狀**——落點對高度與速度都要單調、真空極限要對得上解析解、含阻力永遠比
- * 真空短、而且「落點離天底的角度」決定了 70° 圓錐在哪一段開始作用。相機的
+ * 真空短、而且「落點離天底的角度」決定了圓錐在哪一段開始作用。相機的
  * 行為完全由那個角度決定，所以它是一條有實際後果的量。
  *
  * 【為什麼不寫死每一格的公尺數】那會變成把實作抄一份進測試。這裡斷言的是
@@ -157,12 +157,11 @@ describe('落點矩陣：圓錐在哪一段開始作用', () => {
     }
   })
 
-  it('B-17G 巡航（90 m/s）在 200 m 才剛好碰到 70 度，4,000 m 只有 29 度', () => {
-    const half = (BOMB_CONE_HALF_ANGLE * 180) / Math.PI
-    expect(at(200, 90).nadirDeg).toBeGreaterThan(half - 2)
-    expect(at(200, 90).nadirDeg).toBeLessThan(half + 2)
+  it('B-17G 巡航（90 m/s）的落點在 4,000 m 是 29 度、2,000 m 是 40 度', () => {
     expect(at(4000, 90).nadirDeg).toBeGreaterThan(28)
     expect(at(4000, 90).nadirDeg).toBeLessThan(31)
+    expect(at(2000, 90).nadirDeg).toBeGreaterThan(38)
+    expect(at(2000, 90).nadirDeg).toBeLessThan(42)
   })
 
   it('戰場預設高度（4,000 m）之下，全速度域都不會被夾', () => {
@@ -170,9 +169,10 @@ describe('落點矩陣：圓錐在哪一段開始作用', () => {
     for (const speed of SPEEDS) expect(at(4000, speed).nadirDeg).toBeLessThan(half)
   })
 
-  it('最快的那一台在最低的那一格會被夾 —— 圓錐真的有作用', () => {
+  it('低空會被夾 —— 圓錐真的有作用', () => {
     const half = (BOMB_CONE_HALF_ANGLE * 180) / Math.PI
-    expect(at(200, 130).nadirDeg).toBeGreaterThan(half)
+    expect(at(1000, 90).nadirDeg).toBeGreaterThan(half)
+    expect(at(2000, 130).nadirDeg).toBeGreaterThan(half)
   })
 })
 
