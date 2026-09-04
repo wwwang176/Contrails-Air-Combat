@@ -8,6 +8,7 @@ import {
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 /** 什麼都不做的控制器。等價測試只關心命中判定。 */
 class Idle implements Controller {
@@ -130,7 +131,7 @@ function scenario(seed: number, n: number, shots: number): World {
     const len = Math.hypot(ux, uy, uz) || 1
     const hx = (ux / len) * 1.85, hy = (uy / len) * 1.85, hz = (uz / len) * 1.85
 
-    const idx = w.projectiles.spawn(cx - hx, cy - hy, cz - hz, 0, 0, 0, 6, shooter)
+    const idx = w.projectiles.spawn(cx - hx, cy - hy, cz - hz, 0, 0, 0, 6, shooter, 0, PROJECTILE_LIFETIME)
     w.projectiles.sx[idx] = cx - hx
     w.projectiles.sy[idx] = cy - hy
     w.projectiles.sz[idx] = cz - hz
