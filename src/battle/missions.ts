@@ -10,6 +10,7 @@ import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast } from './order'
+import type { ShipClassId } from '../world/ships'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
@@ -246,6 +247,42 @@ export interface MissionBattle {
    * 存活數上才對 —— 那也正是這一關的敘述：「友軍逐漸減少 → 任務更新」。
    */
   readonly withdraw?: MissionWithdraw
+  /**
+   * 這一關的艦隊。**沒有這一格的卡完全不產生船**（與 `waves` 同一個約定）。
+   *
+   * 【它要一路透傳】`MissionBattle` → `BattleConfig` → `missionConfigFrom`
+   * → `createBattle`。少任何一處都是「型別過了但進戰鬥零艘船」，不報錯。
+   */
+  readonly fleet?: MissionFleet
+}
+
+/**
+ * 這一關的艦隊。
+ *
+ * 【為什麼是一個中心＋一個艏向＋相對偏移】改艏向時若每一艘各存世界座標，
+ * 全部都要重算，而重算的錯誤是「陣型悄悄歪掉」—— 沒有任何測試會紅。
+ */
+export interface MissionFleet {
+  /** 艦隊中心的世界座標。 */
+  readonly center: Vector3
+  /**
+   * 整隊的艏向，rad（繞 Y，0 = 朝 −Z）。**一個數字管全隊** ——
+   * 船不各自轉向，而「同一個艏向」正是「不閃避」在資料上的樣子。
+   */
+  readonly heading: number
+  /** 航速，m/s。整隊一樣。 */
+  readonly speed: number
+  readonly ships: readonly FleetEntry[]
+}
+
+export interface FleetEntry {
+  readonly cls: ShipClassId
+  readonly team: Team
+  /**
+   * 相對艦隊中心的**艦隊座標**（+X 右、−Z 前，與艦體座標同一套朝向）。
+   * 擺位時先轉 `heading` 再加 `center`。
+   */
+  readonly offset: Vector3
 }
 
 /** 打到一半把任務目標換成撤離。 */
@@ -313,6 +350,34 @@ const KILL = {
   targetDistance: 0, targetRadius: 0, seconds: Infinity,
   entry: 'headOn',
 } as const
+
+/**
+ * 倫內爾島的第 18 特遣艦隊 —— **一角，不是全部**。
+ *
+ * 【為什麼沒有航母】倫內爾島海戰（1943 年 1 月）的 TF 18 是**重巡編隊**，
+ * 而 `public/models/wichita.glb` 這艘本人就在那支艦隊裡；那一戰被一式陸攻
+ * 雷擊、隔天沉沒的是同隊的重巡 Chicago。編隊裡確實有兩艘護航航母，但落在
+ * 後方，不是黃昏雷擊的接觸對象。
+ *
+ * Essex 那時還沒到太平洋（1942 年 12 月服役、1943 年 5 月才進戰區），
+ * 放進來會差九個月 —— **它留給 `allies-m4` 沖繩**，1945 年 4 月的第 58
+ * 特遣艦隊，而那一關的敘述本來就是「守住艦隊」。
+ *
+ * 【陣型】兩艘重巡並列在中央（左右 800 m），兩艘驅逐在前方兩側外張。
+ * 航速 8 m/s ≈ 15.5 節，**起始值** —— 真艦的戰鬥航速更高，但這一關的重點
+ * 是彈幕不是追擊，船跑太快會讓低空進場的相對幾何每次都不一樣，調不準。
+ */
+const RENNELL_FLEET: MissionFleet = {
+  center: new Vector3(0, 0, 0),
+  heading: 0,
+  speed: 8,
+  ships: [
+    { cls: 'wichita', team: 'red', offset: new Vector3(-400, 0, 0) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(400, 0, 0) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(-1500, 0, -1200) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(1500, 0, -1200) },
+  ],
+}
 
 /** 德 M4 撤退段的終點在多遠，m */
 const RETREAT_DISTANCE = 12000
@@ -510,7 +575,16 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       id: 'japan-m4', title: '倫內爾島', type: '打擊',
       summary: '駕駛第 705 海軍航空隊的一式陸攻，在黃昏低空雷擊倫內爾島外的第 18 特遣艦隊。',
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
-      battle: null,
+      battle: {
+        ...KILL,
+        // 【目標暫時是殲滅空中敵機】玩家這一期沒有可控武器（G4M 的固定
+        // 掛架是空陣列，武器全做成 AI 砲塔），魚雷做好之後這一關只要換
+        // 目標與加一條擊沉判定，幾何一格都不用動。
+        blueSpec: G4M, redSpec: F6F5,
+        blueCount: 6, redCount: 6,
+        terrain: 'sea',
+        fleet: RENNELL_FLEET,
+      },
     },
   ],
 }
@@ -617,6 +691,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
+    ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
   }
 }
 

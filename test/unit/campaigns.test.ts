@@ -33,12 +33,12 @@ describe('三條戰役', () => {
     for (const m of ALL) expect(m.summary.length, m.id).toBeGreaterThan(0)
   })
 
-  it('五張打得起來，七張是目錄卡', () => {
+  it('六張打得起來，六張是目錄卡', () => {
     const playable = ALL.filter(ready)
     expect(playable.map((m) => m.id).sort()).toEqual([
-      'allies-m1', 'germany-m1', 'germany-m4', 'japan-m1', 'japan-m3',
+      'allies-m1', 'germany-m1', 'germany-m4', 'japan-m1', 'japan-m3', 'japan-m4',
     ])
-    expect(ALL.length - playable.length).toBe(7)
+    expect(ALL.length - playable.length).toBe(6)
   })
 })
 
@@ -86,13 +86,13 @@ describe('可玩卡的戰鬥設定', () => {
 })
 
 describe('目錄卡', () => {
-  it('沒做的那七張仍然有完整的目錄資料', () => {
+  it('沒做的那六張仍然有完整的目錄資料', () => {
     // 【原本這裡還斷言「battle 是 null」，那是恆真的】篩選用的 `ready` 的
-    // 定義就是 `battle !== null`（Codex 審查 P2）。真正有內容的是「哪五張
+    // 定義就是 `battle !== null`（Codex 審查 P2）。真正有內容的是「哪幾張
     // 是 ready」那一條，以及這裡：**目錄那一半不准跟著空掉** ——
     // 一張沒有標題的卡在選單上是一塊點不下去的空白
     const locked = ALL.filter((m) => !ready(m))
-    expect(locked).toHaveLength(7)
+    expect(locked).toHaveLength(6)
     for (const m of locked) {
       expect(m.title.length, m.id).toBeGreaterThan(0)
       expect(m.summary.length, m.id).toBeGreaterThan(0)

@@ -40,6 +40,10 @@ import {
 } from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
+import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
+import { createShipGuns, resetShipGuns } from '../world/shipGuns'
+import { clearBursts, clearFlak } from '../world/flak'
+import type { MissionFleet } from './missions'
 
 /**
  * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14、M6 spec §8）。
@@ -85,6 +89,15 @@ export interface BattleConfig {
    * 坑。`reserve` 留給測試當低階的逃生口：兩者都給時以 `reserve` 為準。
    */
   readonly beats?: readonly Beat[]
+  /**
+   * 這一場的艦隊。**省略 = 一艘船都不產生**，而 `World` 那三段推進都是
+   * 零長度早退，所以既有的空戰逐位元不變。
+   *
+   * 【它從卡片一路流過來】`MissionBattle.fleet` → 這裡 → `createBattle`。
+   * `missionConfigFrom` 明列回傳欄位、不透傳未知資料，所以中間少抄一次
+   * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
+   */
+  readonly fleet?: MissionFleet
   altitude: number
   tas: number
   /**
@@ -829,6 +842,7 @@ export function createBattle(
     player.index,
   )
 
+  placeFleet(world, cfg.fleet)
   const battle: Battle = {
     world,
     board,
@@ -872,6 +886,27 @@ export function createBattle(
   }
   wireStations(battle)
   return battle
+}
+
+/**
+ * 依 `cfg.fleet` 把船放進世界。**省略就一艘都不放。**
+ *
+ * 偏移是艦隊座標，所以先轉艏向再加中心 —— 改艏向時陣型跟著轉，不必重算
+ * 每一艘的世界座標。
+ */
+function placeFleet(world: World, fleet: MissionFleet | undefined): void {
+  if (fleet === undefined) return
+  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), fleet.heading)
+  const p = new Vector3()
+  for (const e of fleet.ships) {
+    p.copy(e.offset).applyQuaternion(q).add(fleet.center)
+    const cls = SHIP_CLASSES[e.cls]
+    const ship = createShip(world.ships.length, cls, e.team, p.x, p.z, fleet.heading, fleet.speed)
+    ship.guns = createShipGuns(cls)
+    ship.gunCooldowns = new Float32Array(cls.zones.length)
+    resetShipGuns(ship)
+    world.ships.push(ship)
+  }
 }
 
 /** 一架的指揮層快照。**`createBattle` 與 `reinforce` 共用** */
@@ -1467,6 +1502,16 @@ export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
 ): void {
   b.world.projectiles.clear()
+  // 【船與高砲也要重設】`japan-m4` 沒有波次，所以「再打一場」走的是就地
+  // resetBattle、**不重建 World**。少了這一段，第二局會是船停在上一局結束
+  // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——
+  // 全程不報錯。
+  clearFlak(b.world.flak)
+  clearBursts(b.world.burstEvents)
+  for (const s of b.world.ships) {
+    resetShip(s)
+    resetShipGuns(s)
+  }
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
   // 看起來像隨機的。
