@@ -118,10 +118,14 @@ function wireTerrain(force = false): void {
   for (const c of world.combatants) {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
+    // 【船跟著地形一起接】兩者的生命週期一模一樣：每一場重建、跨場重用的
+    // 控制器要換掉、重生也會建新的。分開兩個迴圈只會多一個會漏掉的地方。
+    ctl.ships = world.ships
     if (!force && ctl.terrain === terrain) continue
     ctl.terrain = terrain
     ctl.clearTerrainState()
   }
+  playerAi.ships = world.ships
   if (force || playerAi.terrain !== terrain) {
     playerAi.terrain = terrain
     playerAi.clearTerrainState()
