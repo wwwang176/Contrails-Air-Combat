@@ -1,14 +1,14 @@
 import { Matrix4, Quaternion, Vector3, type PerspectiveCamera } from 'three'
 import { clamp } from '../core/math'
 import { makeScratch } from '../core/pool'
-import { BOMB_CONE_HALF_ANGLE, coneClamp } from './bombsight'
+import { BOMB_CONE_HALF_ANGLE, coneClamp, sightUp } from './bombsight'
 
 /**
- * 【投彈分支只准用 v[9]…v[11]】`baseOrientation` 內部用的是 `S.v[5]` 與
- * `S.v[6]`，而投彈分支會呼叫它 —— 借那兩格的話「圓錐軸」會在算視角基準的
- * 途中被覆寫，症狀是視線偶爾抽一下，而且只在特定姿態下出現。
+ * 【投彈分支只准用 v[9] 以後】前九格是第三人稱／機首視角在用的，其中
+ * `S.v[5]` 與 `S.v[6]` 屬於 `baseOrientation` 內部。共用一格的症狀是
+ * 「視線偶爾抽一下、而且只在特定姿態下出現」—— 找不回源頭的那一種。
  */
-const S = makeScratch(12, 4)
+const S = makeScratch(15, 4)
 const BASIS = new Matrix4()
 const ORIGIN = new Vector3()
 const WORLD_UP = new Vector3(0, 1, 0)
@@ -347,7 +347,20 @@ export class CameraRig {
       // 一個 τ = 0.25 s 的追隨，看不出來
       this.bombDir.lerp(want, kb).normalize()
 
-      const look = this.baseOrientation(this.bombDir, dt, S.q[2]!)
+      // 【螢幕上方 = 機首的投影，不是世界上方】`baseOrientation` 算的是後者，
+      // 而且距垂直 8° 以內就凍結目標（那裡投影會退化）—— 投彈視角**永遠**在
+      // 那個區域裡，用它的話滾轉是切進來之前留下的殘值再慢慢漂，症狀是
+      // 「偶爾右邊朝向機首、偶爾左邊」。見 `sightUp`
+      const nose = S.v[12]!.set(0, 0, -1).applyQuaternion(orientation)
+      const bodyUp = S.v[13]!.set(0, 1, 0).applyQuaternion(orientation)
+      const up = S.v[14]!
+      sightUp(
+        this.bombDir.x, this.bombDir.y, this.bombDir.z,
+        nose.x, nose.y, nose.z, bodyUp.x, bodyUp.y, bodyUp.z, up,
+      )
+      // up 已與視線正交且為單位向量，lookAt 取出的 +Y 就是 up 本身
+      BASIS.lookAt(ORIGIN, this.bombDir, up)
+      const look = S.q[2]!.setFromRotationMatrix(BASIS)
       this.viewBase.copy(look)
       camera.position.copy(eye)
       camera.quaternion.copy(look)
@@ -355,6 +368,10 @@ export class CameraRig {
       this.initialised = false
       // 【FOV 刻意不套速度增益】投彈時 FOV 一變，落點在畫面上就會跟著抖，
       // 而那是一個與投彈無關的動作
+      //
+      // 【`this.up` 刻意不更新】投彈分支不經過 `baseOrientation`，所以那個
+      // 欄位停在切進來之前的值。切回第三人稱時 `initialised` 已經是 false，
+      // 相機重新吸附，第一幀就會把它正交化回去
       return
     }
     this.bombInit = false
