@@ -13,6 +13,7 @@ import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
+import { createBombs } from './render/bombs'
 import { createFireball, emitFireball } from './render/fireball'
 import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
@@ -37,6 +38,8 @@ import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
+import { solveImpact, type BombState, type Impact } from './world/bomb'
+import { bombLoadFor, BOMB_RELEASE_INTERVAL } from './weapons/bomb'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -274,6 +277,36 @@ const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
+const bombVisuals = createBombs()
+ctx.scene.add(bombVisuals.object)
+
+// 【每幀重用，不得配置】solveImpact 每幀跑一次，最壞 11,498 步
+const BOMB_IMPACT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+const BOMB_START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
+const BOMB_EYE = new Vector3()
+const BOMB_POINT = new Vector3()
+const BOMB_NDC = new Vector3()
+/** 剩餘彈數。換飛機／重生時由 `syncBombLoad` 重設 */
+let bombLoad = 0
+let bombCooldown = 0
+/** 上一幀左鍵按著沒有。投彈是**邊緣觸發** —— 不做的話一次點擊會投掉整艙 */
+let bombWasFiring = false
+
+/**
+ * 玩家換了一台飛機：重算掛彈量與瞄具眼點。
+ *
+ * 【換到不能投彈的飛機要強制退出】少了這一條，重生成戰鬥機之後相機會卡在
+ * 一個沒有 `bombPoint` 的模式裡。
+ */
+function syncBombLoad(): void {
+  const m = visuals.get(player)!.model
+  bombLoad = bombLoadFor(player.aircraft.spec.id)
+  input.bombCapable = m.bombPoint !== null && bombLoad > 0
+  if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
+  if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
+  bombCooldown = 0
+  bombWasFiring = false
+}
 
 // 【擊墜表現：+4 個 draw call】火球、黑煙、噴濺、零件。殘骸接管既有的
 // AircraftModel，所以它 +0；水柱沿用 M7 的池子，也是 +0（M8 spec §11）
@@ -422,6 +455,7 @@ function rebuildVisuals(): void {
   renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
   // 眼點是量出來的座艙位置，一機一個值
   rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+  syncBombLoad()
   fitCameraToPlayer()
 }
 
@@ -614,6 +648,11 @@ function startWorld(cfg: BattleConfig): void {
   // 【彈丸的陸地】撞到山就爆火花並回收。玩家、AI 與砲塔的槍全部走同一個
   // 彈丸池，所以這一行就涵蓋三者
   world.land = terrain.land
+  // 【炸彈的地面與水面】與 `crashPolicy` 同一個注入方式：規則的權威在
+  // `render/terrain.ts`，`World` 不抄第二份。放在這裡就自動涵蓋換地形 ——
+  // 這一段每一場都重跑
+  world.groundAt = terrain.collisionHeightAt
+  world.waterAt = terrain.waterAt
   player = battle.player
   rebuildVisuals()
 
@@ -903,6 +942,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
     input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
     // 左鍵失效：開火完全由 AI 的開火紀律決定
     input.firing = false
+  } else if (input.viewMode === 'bomb') {
+    // 【投彈模式凍結瞄準點】瞄準點就是飛行指令，而 `slewAimWorld` 的旋轉軸
+    // 取自相機 —— 相機一朝下，滑鼠的語意就變了。凍結它、指揮儀照舊追它，
+    // 等於「保持航向與姿態」。什麼都不做就是凍結。
+    //
+    // 下面照舊歸零 `aimDelta`：不歸零的話位移會累積到離開投彈模式的那一幀，
+    // 鏡頭一次噴過去
   } else {
     slewAimWorld(
       input.aimWorld, input.aimDeltaX, input.aimDeltaY,
@@ -999,6 +1045,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     playerAi.clearTerrainState()
     // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
     rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+    syncBombLoad()
     fitCameraToPlayer()
     // 【瞄準點要放回機首】不放的話它還指著舊機體墜落前指的地方（多半是
     // 海面），接手的第一瞬間新機就被硬扯下去 —— 與 `I` 交還操縱時把瞄準點
@@ -1074,6 +1121,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
+  let bombTarget: Vector3 | null = null
+  let bombState: 'off' | 'solved' | 'clamped' | 'none' = 'off'
   if (input.godView) {
     godInput.forward = input.godMove.forward
     godInput.back = input.godMove.back
@@ -1092,14 +1141,49 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera.updateProjectionMatrix()
     }
   } else {
+    // 【落點要在 rig.update 之前解】相機的視線就是指向它
+    if (input.viewMode === 'bomb') {
+      bombState = 'none'
+      const bp = visuals.get(player)!.model.bombPoint
+      if (bp !== null) {
+        BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+        BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
+        const v = player.aircraft.state.velocity
+        BOMB_START.vx = v.x; BOMB_START.vy = v.y; BOMB_START.vz = v.z
+        // 【dt 用 loop.stepSeconds 而不是 frameSeconds】預測必須與空中的
+        // 炸彈同一個步長，那條護欄的整個重點就在這裡
+        if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
+          BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
+          bombTarget = BOMB_POINT
+          bombState = 'solved'
+        }
+      }
+    }
     // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
     rig.update(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
-      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
+      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
+    if (bombState === 'solved' && rig.sightClamped) bombState = 'clamped'
+
+    // 【投彈排在 rig.update 之後】用的是同一幀算好的 BOMB_EYE
+    if (bombCooldown > 0) bombCooldown -= frameSeconds
+    if (input.viewMode === 'bomb') {
+      // 【邊緣觸發】`firing` 是持續按著的布林；不做邊緣的話一次點擊會投掉整艙
+      if (input.firing && !bombWasFiring && bombLoad > 0 && bombCooldown <= 0) {
+        const v = player.aircraft.state.velocity
+        world.dropBomb(BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z)
+        bombLoad--
+        bombCooldown = BOMB_RELEASE_INTERVAL
+      }
+      bombWasFiring = input.firing
+    } else {
+      bombWasFiring = false
+    }
   }
 
   tracers.update(world.projectiles)
+  bombVisuals.update(world.bombs)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -1163,6 +1247,22 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.noseX = probe.x
   hudFrame.noseY = probe.y
   hudFrame.noseVisible = probe.z < 1
+
+  // 投彈落點。**照 noseX/noseY 同一條路**：世界點 → NDC。
+  //
+  // 【為什麼要投影而不是寫死在畫面中央】相機自動盯落點，所以解穩定時圓圈
+  // 確實在中心；但視線的 LERP 會在機動時把它拖開，而那個分離量正是要看的
+  // 東西 —— 「投彈解還沒收斂」。
+  hudFrame.bombState = bombState
+  hudFrame.bombLoad = bombLoad
+  hudFrame.bombVisible = false
+  if (bombState === 'solved' || bombState === 'clamped') {
+    BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)
+    hudFrame.bombX = BOMB_NDC.x
+    hudFrame.bombY = BOMB_NDC.y
+    hudFrame.bombVisible = BOMB_NDC.z < 1 &&
+      Math.abs(BOMB_NDC.x) <= 1 && Math.abs(BOMB_NDC.y) <= 1
+  }
 
   // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
   // 才會換成「螢幕半高」。相機追著它，所以這一組值正常情況下都貼近 0。
