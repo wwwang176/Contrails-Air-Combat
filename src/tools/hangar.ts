@@ -15,6 +15,7 @@ import { buildAircraft, preloadAircraftModels, type AircraftModel } from '../ren
 import { barrelGeometry } from '../render/turretBarrels'
 import { BARREL_SPACING } from '../world/turrets'
 import { turretPivot, wobbleBasis } from '../weapons/turret'
+import { SHIP_AA_ARC_DEFAULTS, SHIP_AA_ZONES, type ShipAAZone } from '../world/shipAA'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import { HE111 } from '../specs/he111'
@@ -384,9 +385,9 @@ const ARC_SEGMENTS = 24
  * 只畫側面不封底：封了之後從錐內往外看是一片不透明的蓋子，而「站在砲塔的
  * 位置往外看射界」正是這個開關要回答的問題。
  */
-function arcGeometry(half: number): BufferGeometry {
-  const s = Math.sin(half) * ARC_LENGTH
-  const c = Math.cos(half) * ARC_LENGTH
+function arcGeometry(half: number, len = ARC_LENGTH): BufferGeometry {
+  const s = Math.sin(half) * len
+  const c = Math.cos(half) * len
   const v: number[] = []
   for (let k = 0; k < ARC_SEGMENTS; k++) {
     const a0 = (k / ARC_SEGMENTS) * Math.PI * 2
@@ -423,12 +424,123 @@ function buildArcs(spec: AircraftSpec): Group {
   return g
 }
 
+/**
+ * 軍艦 —— 機庫裡只是**看射界**用，不做飛行模型。
+ *
+ * 【為什麼直接載 GLB 而不是像飛機那樣程式生成】船的外型是量出來之後烘進 GLB
+ * 的（見 `.claude/skills/ship-from-reference`），這裡再生一份就會有兩份會漂開
+ * 的來源。射界錐的位置讀 `world/shipAA.ts`，那一份與 GLB 同一支腳本產生。
+ */
+const SHIPS: readonly { id: string; name: string; url: string; loa: number }[] = [
+  { id: 'essex', name: 'Essex CV-9', url: '/models/essex.glb', loa: 265.79 },
+  { id: 'fletcher', name: 'Fletcher DD-445', url: '/models/fletcher.glb', loa: 114.75 },
+  { id: 'wichita', name: 'Wichita CA-45', url: '/models/wichita.glb', loa: 185.42 },
+]
+/** 一層一個顏色：遠（黑霧）暖色、中距黃、近距青。 */
+const TIER_COLOR: Record<string, number> = {
+  flak: 0xff7043, autocannon: 0xffd54f, mg: 0x4fc3f7,
+}
+/** 射界錐的斜邊，m。船比飛機大一個量級，8 m 的錐在 265 m 的船上看不見。 */
+const SHIP_ARC_LENGTH = 42
+
+/**
+ * 一個砲位的射界錐軸：水平分量朝**舷外**，抬 `elevationDeg`。
+ * 中線上的砲（Fletcher 的 5 吋）沒有「舷外」可言，改成朝正上。
+ */
+function shipArcAxis(z: ShipAAZone): Vector3 {
+  const e = SHIP_AA_ARC_DEFAULTS[z.tier].elevationDeg * DEG
+  const out = Math.abs(z.position.x) < 0.6 ? 0 : Math.sign(z.position.x)
+  if (out === 0) return new Vector3(0, 1, 0)
+  return new Vector3(out * Math.cos(e), Math.sin(e), 0).normalize()
+}
+
+function buildShipArcs(shipId: string): Group {
+  const g = new Group()
+  for (const z of SHIP_AA_ZONES[shipId] ?? []) {
+    const half = SHIP_AA_ARC_DEFAULTS[z.tier].halfAngleDeg * DEG
+    const mesh = new Mesh(arcGeometry(half, SHIP_ARC_LENGTH), new MeshBasicMaterial({
+      color: TIER_COLOR[z.tier] ?? 0xffffff, transparent: true, opacity: 0.13,
+      depthWrite: false, side: DoubleSide,
+    }))
+    mesh.position.copy(z.position)
+    mesh.quaternion.setFromUnitVectors(UNIT_Z, shipArcAxis(z))
+    g.add(mesh)
+  }
+  return g
+}
+
 const UNIT_Z = new Vector3(0, 0, 1)
 let barrels: Group | null = null
 let arcs: Group | null = null
 let arcsOn = false
 
+let shipId: string | null = null
+let shipGroup: Group | null = null
+
+/** 把飛機那一組（機體、砲管、射界錐）全部拿掉並釋放。 */
+function clearAircraft(): void {
+  if (model) { scene.remove(model.group); model.dispose(); model = null }
+  if (barrels) { scene.remove(barrels); disposeBarrels(barrels); barrels = null }
+  if (arcs) { scene.remove(arcs); disposeBarrels(arcs); arcs = null }
+}
+
+function clearShip(): void {
+  if (shipGroup) { scene.remove(shipGroup); disposeBarrels(shipGroup); shipGroup = null }
+}
+
+/**
+ * 切到某一艘船：載 GLB、依 `world/shipAA.ts` 的併區表擺射界錐。
+ *
+ * 【相機的遠平面要動】原本是 500 —— 265 m 的 Essex 加上 42 m 的射界錐，
+ * 用預設值會被遠平面切掉一半，而且**畫面上看起來像船尾被削平了**。
+ */
+function rebuildShip(id: string): void {
+  clearAircraft()
+  clearShip()
+  shipId = id
+  const cfg = SHIPS.find((sp) => sp.id === id)!
+  camera.far = 4000; camera.near = 1; camera.updateProjectionMatrix()
+  orthoCam.far = 4000; orthoCam.updateProjectionMatrix()
+  const g = new Group()
+  shipGroup = g
+  scene.add(g)
+  g.add(buildShipArcs(id))
+  const zones = SHIP_AA_ZONES[id] ?? []
+  const n: Record<string, number> = {}
+  for (const z of zones) n[z.tier] = (n[z.tier] ?? 0) + z.mountsInZone
+  stats.textContent =
+    `${cfg.name}
+` +
+    `全長      ${cfg.loa.toFixed(2)} m（史實）
+` +
+    `砲區      ${zones.length}（上限 8）
+` +
+    `兩用砲    ${n['flak'] ?? 0} 門 → 遠距空炸（黑霧）
+` +
+    `40 mm     ${n['autocannon'] ?? 0} 門 → 中距曳光
+` +
+    `20 mm     ${n['mg'] ?? 0} 門 → 近距曳光
+` +
+    `射界是起始值，由試飛裁定`
+  new GLTFLoader().load(cfg.url, (gltf) => {
+    if (shipId !== id) return          // 載入期間又切走了
+    g.add(gltf.scene)
+    const box = new Box3().setFromObject(gltf.scene)
+    controls.target.copy(box.getCenter(new Vector3()))
+    camera.position.copy(controls.target).add(new Vector3(cfg.loa * 0.55, cfg.loa * 0.35, cfg.loa * 0.7))
+    controls.update()
+    frameOrtho()
+  })
+  for (const b of specButtons) b.classList.remove('on')
+  for (const b of shipButtons) b.classList.toggle('on', b.dataset['id'] === id)
+}
+
 function rebuild(): void {
+  clearShip()
+  shipId = null
+  camera.far = 500; camera.near = 0.1; camera.updateProjectionMatrix()
+  orthoCam.far = 500; orthoCam.updateProjectionMatrix()
+  for (const b of shipButtons) b.classList.remove('on')
   if (model) {
     scene.remove(model.group)
     model.dispose()
@@ -495,6 +607,17 @@ const specButtons = SPECS.map((s, i) => {
   return b
 })
 
+// 軍艦切換按鈕（只看射界，不是飛行載具）
+const shipRow = $<HTMLDivElement>('shipRow')
+const shipButtons = SHIPS.map((sp) => {
+  const b = document.createElement('button')
+  b.textContent = sp.name
+  b.dataset['id'] = sp.id
+  b.onclick = () => { rebuildShip(sp.id) }
+  shipRow.appendChild(b)
+  return b
+})
+
 const rpm = $<HTMLInputElement>('rpm')
 
 function syncProp(): void {
@@ -504,12 +627,12 @@ function syncProp(): void {
 rpm.addEventListener('input', syncProp)
 
 /** 把正交相機框到整台飛機（含 8% 邊界），並擺到指定的正視方向。 */
-function frameOrtho(): void {
-  if (!model || !orthoView) return
-  model.group.rotation.y = 0
-  model.group.updateMatrixWorld(true)
-  const box = new Box3().setFromObject(model.group)
-  if (refModel?.visible) box.union(new Box3().setFromObject(refModel))
+/**
+ * 把正交相機框到某一個包圍盒上。**遠平面與退後距離跟著盒子走** —— 寫死 200／60
+ * 的話 265 m 的 Essex 會被切掉一半，而畫面上看起來像船尾被削平了。
+ */
+function frameBox(box: Box3): void {
+  if (!orthoView) return
   const size = box.getSize(new Vector3())
   const c = box.getCenter(new Vector3())
   orthoCenter.copy(c)
@@ -524,10 +647,10 @@ function frameOrtho(): void {
   orthoCam.right = half * aspect
   orthoCam.top = half
   orthoCam.bottom = -half
+  const d = Math.max(60, size.length())
   orthoCam.near = 0.1
-  orthoCam.far = 200
+  orthoCam.far = d * 4
   orthoCam.up.set(0, orthoView === 'top' ? 0 : 1, orthoView === 'top' ? -1 : 0)
-  const d = 60
   orthoCam.position.copy(c).add(
     orthoView === 'side' ? new Vector3(d, 0, 0)
       : orthoView === 'top' ? new Vector3(0, d, 0)
@@ -535,6 +658,21 @@ function frameOrtho(): void {
   )
   orthoCam.lookAt(c)
   orthoCam.updateProjectionMatrix()
+}
+
+function frameOrtho(): void {
+  if (!orthoView) return
+  if (shipGroup) {
+    shipGroup.updateMatrixWorld(true)
+    frameBox(new Box3().setFromObject(shipGroup))
+    return
+  }
+  if (!model) return
+  model.group.rotation.y = 0
+  model.group.updateMatrixWorld(true)
+  const box = new Box3().setFromObject(model.group)
+  if (refModel?.visible) box.union(new Box3().setFromObject(refModel))
+  frameBox(box)
 }
 
 for (const [id, view] of [['vSide', 'side'], ['vTop', 'top'], ['vFront', 'front']] as const) {
