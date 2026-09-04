@@ -184,11 +184,6 @@ export class CameraRig {
   /** 投彈視線。每幀朝夾制後的目標插值，見 `update` 的 `'bomb'` 分支 */
   private readonly bombDir = new Vector3(0, -1, 0)
   /**
-   * 這一幀的視線被圓錐夾住了。HUD 讀它決定圓準星要不要轉成警示樣式 ——
-   * 圓圈不在真正的落點上，那件事必須看得出來。
-   */
-  private bombClamped = false
-  /**
    * 投彈視線已經起算了。
    *
    * 【為什麼不共用 `initialised`】那一格的語意是「第三人稱的彈簧要不要吸附」，
@@ -196,9 +191,6 @@ export class CameraRig {
    * 塞進一格的話，切回機外視角相機會從投彈時的落後量開始盪。
    */
   private bombInit = false
-
-  /** 見 `bombClamped` */
-  get sightClamped(): boolean { return this.bombClamped }
 
   constructor(options: CameraRigOptions = DEFAULT_CAMERA_OPTIONS) {
     this.options = {
@@ -326,9 +318,9 @@ export class CameraRig {
       if (bombTarget !== null) want.copy(bombTarget).sub(eye).normalize()
       else want.copy(axis)
 
-      this.bombClamped = coneClamp(
-        want.x, want.y, want.z, axis.x, axis.y, axis.z, CONE_COS, CONE_SIN, want,
-      )
+      // 【回傳值刻意丟掉】有沒有夾制不影響畫面上任何東西：圈畫的恆是真
+      // 落點，被夾住的是相機。見 `HudFrame.bombState`
+      coneClamp(want.x, want.y, want.z, axis.x, axis.y, axis.z, CONE_COS, CONE_SIN, want)
 
       // 【剛切進來時從當下的相機朝向起算】視線因此是**轉**過去而不是跳過去
       if (!this.bombInit) {
@@ -375,7 +367,6 @@ export class CameraRig {
       return
     }
     this.bombInit = false
-    this.bombClamped = false
 
     if (viewMode === 'first') {
       // 眼點是機體上的一個座位，**要跟著滾**——用完整姿態；看的方向才用無滾轉基準

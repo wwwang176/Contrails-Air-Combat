@@ -144,14 +144,19 @@ export interface HudFrame {
   /** 落點在相機前方且投影落在畫面內 */
   bombVisible: boolean
   /**
-   * `off` = 不在投彈模式；`clamped` = 圓錐夾住了，圓圈不在真正的落點上；
-   * `none` = 在投彈模式但 90 秒內解不出落點。
+   * `off` = 不在投彈模式；`solved` = 有落點；`none` = 90 秒內解不出來。
+   *
+   * 【為什麼沒有「被圓錐夾住」這一格】夾制不改變圓圈的正確性 —— 圈畫的
+   * 恆是真落點，被夾住的是相機。而且夾制**觸發的那一瞬間畫面上什麼都還
+   * 沒發生**（落點方向與相機軸差 0°，圈就在正中央），它是慢慢滑開的：
+   * 一個指不出當下任何東西的警告就是雜訊。真正有後果的那一刻是圈滑出
+   * 畫面，那由 `bombVisible` 管。
    *
    * 【為什麼把「在不在投彈模式」也塞進這一格】`hudWidgets` 讀的是 frame
    * （同 `godView`），需要知道要不要換清單；另開一個 `bombing: boolean`
    * 就會有兩個欄位描述同一件事，而它們遲早會不同步。
    */
-  bombState: 'off' | 'solved' | 'clamped' | 'none'
+  bombState: 'off' | 'solved' | 'none'
   /** 彈艙裡還剩幾枚 */
   bombLoad: number
   /**

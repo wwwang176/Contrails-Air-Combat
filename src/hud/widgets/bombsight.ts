@@ -65,16 +65,17 @@ function drawBay(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void
  * 與滑鼠準星／機首十字的分離量是同一個語言 —— 只是這次它代表「投彈解還沒
  * 收斂」。所以圓圈要真的投影，不能寫死在中心。
  *
- * 【為什麼不畫離屏箭頭】落點跑出畫面只會發生在 `clamped` 之下，而那個狀態
- * 本身已經在警告了。再加一個指標是同一件事講兩次。
+ * 【為什麼不畫離屏箭頭】圈滑出畫面時已經退成中央的灰點了，那本身就是訊號。
+ * 再加一個指標是同一件事講兩次。
  *
- * 【三種顏色的語意】
+ * 【只有兩種樣式】
  *
  * ```
- *   綠實線   solved    相機對準了落點，圈就是落點
- *   黃虛線   clamped   圈仍然是落點，但相機被 70° 圓錐頂住、轉不過去
- *   灰圓點   none／圈跑出畫面   90 秒內解不出落點，或落點已經不在畫面上
+ *   綠實線   有落點，而且它在畫面上 —— 圈就是落點
+ *   灰圓點   90 秒內解不出落點，或落點已經滑出畫面
  * ```
+ *
+ * 【為什麼沒有「被圓錐夾住」的第三種】見 `HudFrame.bombState`。
  */
 export function drawBombsight(
   ctx: CanvasRenderingContext2D,
@@ -96,20 +97,10 @@ export function drawBombsight(
 
   const x = L.cx + (f.bombX * L.width) / 2
   const y = L.cy - (f.bombY * L.height) / 2
-  const clamped = f.bombState === 'clamped'
 
-  ctx.strokeStyle = clamped ? HUD_COLORS.warn : HUD_COLORS.primary
+  ctx.strokeStyle = HUD_COLORS.primary
   ctx.lineWidth = 1 * L.scale
-  // 【夾制中轉黃並畫虛線】**圓圈仍然是真的落點** —— 它畫的是 `BOMB_POINT`
-  // 的投影，被 70° 圓錐夾住的是**相機**（`CameraRig` 的 `bombClamped`）。
-  // 意思是「相機頂到機腹窗口的邊緣了，沒辦法再轉過去對準它」：圈會開始往
-  // 畫面邊緣滑，再歪下去就滑出去，那時只剩中央那個灰點。
-  //
-  // 兩種情況會走到這裡 —— 高度太低（落點被前拋推到接近地平線，90 m/s 是
-  // 200 m 以下）、或投彈航路上機動把機腹軸帶歪。
-  if (clamped) ctx.setLineDash([4 * L.scale, 4 * L.scale])
   ctx.beginPath()
   ctx.arc(x, y, RADIUS * L.scale, 0, Math.PI * 2)
   ctx.stroke()
-  ctx.setLineDash([])
 }
