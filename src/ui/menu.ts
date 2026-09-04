@@ -51,6 +51,18 @@ export interface Menu {
  * 只加型別而漏了這裡，卡片會**永遠畫不出來而且照樣編譯**。
  */
 const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '盟軍', germany: '德軍', japan: '日本' }
+/**
+ * 機種是哪一邊的 —— 機種選單上「盟軍　P-51D」的前綴。
+ *
+ * 【為什麼在這裡而不是 `AircraftSpec`】spec 是模擬用的係數，一架飛機飛在
+ * 哪一邊是戰役的設定不是機體的性質（同一台 P-51D 在遭遇戰裡兩邊都能派）。
+ * 這張表只服務顯示。
+ */
+const SIDE_OF: Record<string, Campaign> = {
+  p51d: 'allies', b17g: 'allies', f6f5: 'allies',
+  bf109k4: 'germany', he111: 'germany',
+  a6m5: 'japan', ki84: 'japan', g4m: 'japan',
+}
 const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string; readonly sub: string }> = {
   allies: { line: '第八航空軍的護航與轟炸，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5', sub: '第八航空軍' },
   germany: { line: '帝國防空：攔截轟炸機流，撐到燃料見底。', planes: 'Bf 109 K-4 · He 111', sub: '帝國防空' },
@@ -125,7 +137,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     versus: q('sk-versus'),
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
-    warn: q('sk-warn'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
   }
 
@@ -164,7 +175,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.className = 'tallcard paperbit'
       b.dataset['campaign'] = c
       const blurb = CAMPAIGN_BLURB[c]
-      b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="/ui/${c}.png" alt=""></span>`
+      b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="/ui/${c}.jpg" alt=""></span>`
         + `<span class="t">${CAMPAIGN_LABEL[c]}</span><span class="d">${escapeHtml(blurb.line)}</span>`
         + `<span class="m">${escapeHtml(blurb.planes)}　　<b>可出擊 ${readyCount(MISSIONS[c])}</b> / ${MISSIONS[c].length} 關</span>`
       // 【卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個字串，
@@ -279,9 +290,14 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     for (const spec of ALL_SPECS) {
       const b = document.createElement('button')
       b.className = 'plane'
+      // 【國家在前、類型在下】專案負責人 2026-09-04：「可以在飛機標題前方補上
+      // 國家嗎? 例如 盟軍 P51，然後下方顯示類型」。全名讓位給這兩項 ——
+      // 選單是兩欄的窄卡，`North American P-51D Mustang` 在那裡一定折行
+      const side = SIDE_OF[spec.id]
       b.innerHTML = `<span class="sil">${SIL[spec.role]}</span><span>`
-        + `<span class="nm">${escapeHtml(shortName(spec))}</span><br>`
-        + `<span class="st">${escapeHtml(fullName(spec))}　${topSpeedKmh(spec.id)} km/h</span></span>`
+        + `<span class="nm">${side === undefined ? '' : `<i>${CAMPAIGN_LABEL[side]}</i>　`}`
+        + `${escapeHtml(shortName(spec))}</span><br>`
+        + `<span class="st">${ROLE_WORD[spec.role]}　${topSpeedKmh(spec.id)} km/h</span></span>`
       b.addEventListener('click', () => {
         paletteOpen[team] = false
         hooks.onSetup(addFlight(setup, team, spec.id))
@@ -334,9 +350,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     optRow(el.alt, ALTITUDES.map((a, i) => ({ label: a.label, hint: `${a.value.toLocaleString()} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
-    const empty = flightsTotal(setup.blue) === 0 || flightsTotal(setup.red) === 0
-    el.go.disabled = empty
-    el.warn.textContent = empty ? '兩邊都要有人才打得起來' : ''
+    // 【只禁用，不寫一行字】專案負責人 2026-09-04：「兩邊都要有人才打得起來
+    // << 移除這個文字訊息」。一邊空著的時候那一欄本來就是空的，按鈕也灰了
+    el.go.disabled = flightsTotal(setup.blue) === 0 || flightsTotal(setup.red) === 0
   }
 
   renderMenuMeta()

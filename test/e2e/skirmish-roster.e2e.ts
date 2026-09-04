@@ -9,7 +9,7 @@
  * 分隊的加、減、架數、我帶哪一隊、四個想定的編成、與模擬編組表的等價 ——
  * 全部是純函數，已經由那一支逐條釘住。**這裡只驗那些純函數真的接到按鈕上**：
  * 想定一鍵成局、加分隊會展開機種卡、− ＋ ✕ 動得了、帶隊圓點換得了、
- * 對戰條的數字跟著變、按下起飛之後場上真的是那一組編制。
+ * 對戰條的數字跟著變、按下戰鬥之後場上真的是那一組編制。
  *
  * 【不得使用 process / fs】專案沒有 `@types/node`。
  *
@@ -112,14 +112,15 @@ async function main(): Promise<void> {
     await foe.nth(0).locator('.rm').click()
     await page.waitForTimeout(80)
     ok(await foe.count() === 0, '敵方清空')
-    ok(await fight.isDisabled(), '敵方空著時「起飛」是禁用的')
-    ok((await page.locator('#sk-warn').textContent())!.length > 0, '而且有一行說為什麼')
+    // 【只驗按鈕，沒有警告文字】2026-09-04 負責人把那一行字拿掉了：一邊空著
+    // 的時候那一欄本來就是空的，再寫一行「兩邊都要有人」是多的
+    ok(await fight.isDisabled(), '敵方空著時「戰鬥」是禁用的')
     await page.click('#sk-foe .add')
     await page.waitForTimeout(80)
     const foeNames = await page.locator('#sk-foe .plane .nm').allTextContents()
     await page.locator('#sk-foe .plane').nth(foeNames.findIndex((n) => n.includes('G4M'))).click()
     await page.waitForTimeout(80)
-    ok(await foe.count() === 1 && !(await fight.isDisabled()), '敵方加回一隊 G4M，起飛可以按')
+    ok(await foe.count() === 1 && !(await fight.isDisabled()), '敵方加回一隊 G4M，戰鬥可以按')
 
     // ── 打起來：場上真的是這一組編制 ─────────────────────
     await fight.click()

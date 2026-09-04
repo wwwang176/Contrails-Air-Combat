@@ -17,6 +17,8 @@
       :root {
         --veil: 24, 20, 14;
         --panel: rgba(38, 32, 23, .93);
+        /* 【戰報專用的薄底】它蓋在戰場上，厚底等於把剛打完的那一幕整個關掉 */
+        --panel-thin: rgba(38, 32, 23, .74);
         --bd: #6b5b3f; --bd2: #7d6b4a; --rule: #4a3f2c;
         --ink: #e3d9c0; --dim: #a2937a; --strong: #f2e9d2;
         --sel: #b8543f;                 /* 印章紅：選中、強調 */
@@ -199,6 +201,8 @@
       .plane:hover { border-color: var(--sel); background: #342c20; }
       .plane .sil { height: 22px; fill: #b0a28a; }
       .plane .nm { font-weight: 700; font-size: 13px; color: var(--strong); }
+      /* 國家前綴：認得出是誰的機，但不跟機種名搶 */
+      .plane .nm i { font-style: normal; font-weight: 400; color: var(--dim); }
       .plane .st { font-size: 10.5px; color: var(--dim); }
       .versus { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 42px; }
       .versus .vs { font: 700 15px/1 var(--f-body); color: var(--dim); }
@@ -216,7 +220,6 @@
       .opt button span { font-size: 11.5px; }
       .opt button small { font-size: 10px; color: var(--dim); }
       .foot { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
-      .foot .warn { color: #c9a35f; font-size: 12px; }
       .foot .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 
       /* 暫停 */
@@ -227,13 +230,13 @@
       #board {
         position: fixed; inset: 0; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 0;
-        background: rgba(var(--veil), .70); pointer-events: none; overflow-y: auto;
+        background: rgba(var(--veil), .46); pointer-events: none; overflow-y: auto;
       }
       #board[hidden] { display: none; }
       /* 【結算時 #board 要能點】按住 TAB 時它只是看，所以預設 pointer-events: none */
       #board.finished { pointer-events: auto; }
       .aar { position: relative; width: min(760px, 96vw); padding: 22px 26px 24px;
-        background: var(--panel); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
+        background: var(--panel-thin); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
       #banner { font: 700 30px/1.2 var(--f-body); color: var(--strong); letter-spacing: .04em; }
       #banner:empty { display: none; }
       #aar-sub { font-size: 13px; color: var(--dim); margin-top: 3px; }
@@ -245,16 +248,22 @@
       #aar-me .stat { text-align: center; }
       #aar-me .stat .v { font: 700 26px/1 var(--f-body); }
       #aar-me .stat .k { font-size: 10.5px; margin-top: 3px; }
-      #aar-tally { display: grid; grid-template-columns: 1fr 88px 1fr; align-items: center;
-        padding: 12px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
-      #aar-tally .a { text-align: right; font-weight: 700; padding: 3px 0; color: var(--mine); }
-      #aar-tally .b { text-align: left; font-weight: 700; padding: 3px 0; color: var(--foe); }
-      #aar-tally .k { text-align: center; font-size: 11px; color: var(--dim); }
+      /* 【橫的，不是三行】原本是 a|k|b 的三列網格，光這一塊就吃掉 80 px 高，
+         而戰報下面還有玩家卡與完整名單。三組數字並排成一列 */
+      #aar-tally { display: flex; justify-content: space-around; align-items: baseline;
+        flex-wrap: wrap; gap: 10px 26px; padding: 9px 0;
+        border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+      #aar-tally .item { display: flex; align-items: baseline; gap: 9px; }
+      #aar-tally .a { font-weight: 700; color: var(--mine); }
+      #aar-tally .b { font-weight: 700; color: var(--foe); }
+      #aar-tally .k { font-size: 11px; color: var(--dim); }
+      /* 【名單不收合】專案負責人 2026-09-04：「完整名單（18 架）就不需要有收合了」
+         —— 戰報就是要看這張表，把它藏在一個要再點一下的開關後面沒有道理 */
       #aar-details { margin-top: 14px; }
-      #aar-details summary { cursor: pointer; font-size: 12.5px; color: var(--dim); }
-      /* 【按住 TAB 的即時看板】沒有戰報的其餘區塊，名單直接攤開 */
-      #aar-details.bare summary { display: none; }
-      #tables { display: flex; gap: 28px; align-items: flex-start; margin-top: 10px; }
+      #aar-details .cap { font-size: 12.5px; color: var(--dim); }
+      /* 【按住 TAB 的即時看板】沒有戰報的其餘區塊，連標題都不用 */
+      #aar-details.bare .cap { display: none; }
+      #tables { display: flex; gap: 28px; align-items: flex-start; justify-content: center; margin-top: 10px; }
       #board table { border-collapse: collapse; min-width: 300px; font-size: 12.5px; }
       #board caption { text-align: left; padding-bottom: 4px; font-weight: 700; }
       #board table.blue caption { color: var(--mine); }
@@ -289,10 +298,10 @@
         <div id="aar-sub" hidden></div>
         <div id="aar-me" class="paperbit" hidden></div>
         <div id="aar-tally" hidden></div>
-        <details id="aar-details" open>
-          <summary>完整名單</summary>
+        <div id="aar-details">
+          <div class="cap">完整名單</div>
           <div id="tables"></div>
-        </details>
+        </div>
         <div id="board-actions" hidden>
           <!-- 兩個回頭的出口依模式擇一顯示（main.ts）。為什麼是兩顆按鈕而不是
                逐幀改 data-act：data-act 是選單那一層唯一的協定，改它等於讓一個
@@ -315,13 +324,13 @@
       <section id="menu" class="screen" style="--v:.50" hidden>
         <div class="cards">
           <button class="tallcard paperbit" data-act="mission">
-            <span class="photo"><i class="tape tl"></i><img src="/ui/mission.png" alt=""></span>
+            <span class="photo"><i class="tape tl"></i><img src="/ui/mission.jpg" alt=""></span>
             <span class="t">任務模式</span>
             <span class="d">三條戰役，各四關。從開局幾何到勝負條件都是照那一仗設計的。</span>
             <span class="m" id="menu-mission-meta"></span>
           </button>
           <button class="tallcard paperbit" data-act="skirmish">
-            <span class="photo"><i class="tape br"></i><img src="/ui/skirmish.png" alt=""></span>
+            <span class="photo"><i class="tape br"></i><img src="/ui/skirmish.jpg" alt=""></span>
             <span class="t">遭遇戰</span>
             <span class="d">自己編雙方兵力、選戰場與開場高度，打一場殲滅戰。</span>
             <span class="m" id="menu-skirmish-meta"></span>
@@ -374,8 +383,7 @@
               <div><div class="lbl" style="margin-bottom:7px">開場高度</div><div class="opt" id="sk-alt"></div></div>
             </div>
             <div class="foot">
-              <span class="warn" id="sk-warn"></span>
-              <div class="right"><button class="go" data-act="fight">起　飛</button></div>
+              <div class="right"><button class="go" data-act="fight">戰　鬥</button></div>
             </div>
           </div>
         </div>
