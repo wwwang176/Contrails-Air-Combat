@@ -220,31 +220,36 @@ describe('高砲的範圍傷害', () => {
 
 describe('飛機砲塔瞄船', () => {
   /**
-   * 一架在敵船**側上方**的一式陸攻。
+   * 一架貼在敵船側上方的一式陸攻。
    *
    * 【為什麼不是正上方】G4M 的砲塔是機首、機背、兩側、機尾 —— **沒有一座
    * 朝正下方**。擺在正上方的話一座都瞄不到，而那不是缺陷，是砲塔配置。
-   * 擺在側前方 450 m、高 300 m，側方的 20 mm 才有得打。
    *
-   * 【位置每步抄回去】這一條問的是「會不會瞄船」，不是「追不追得上」。
-   * 讓它待在原地，射界才穩定。
+   * 【為什麼貼這麼近 —— 這是刻意的】搖晃振幅 1° 在 d 公尺處的散佈是
+   * `d × tan(1°)`：60 m 處是 1.05 m，而 20 mm 砲位盒的半邊長是 1.2 m ——
+   * **搖晃打不出盒子，每一發都必中**。斷言因此是確定的，不是「跑二十秒
+   * 看有沒有碰巧中」。
    *
-   * 【為什麼是 220 m 而不是 500 m】實測：500 m 時砲塔**選得到船、也一直在
-   * 開火，但一發都打不中** —— 搖晃振幅 1° 在 500 m 是 8.7 m 的散佈，而
-   * 20 mm 砲位的盒（含 ×1.5 膨脹）只有 2.4 m。**這一層只有近距離才打得掉。**
-   * 那是遊戲事實，不是缺陷；記在這裡是因為它會影響試飛時的期待。
+   * 【那真實距離呢】實測 500 m 時砲塔選得到船、也一直在開火，但一發都打
+   * 不中（8.7 m 的散佈對 2.4 m 的盒）。**這一層只有近距離才打得掉** ——
+   * 那是遊戲事實，不是缺陷，但它不該混進「機制對不對」這個問題裡。
+   *
+   * 【位置每步抄回去】這一條問的是「會不會瞄船、打不打得掉」，不是
+   * 「追不追得上」。
    */
+  const AT = new Vector3(60, 55, 0)
+
   const build = (shipTeam: 'blue' | 'red') => {
     const w = new World()
     w.crashPolicy = () => false
     const s = fleetOf(w, SHIP_CLASSES.fletcher, shipTeam)
-    const c = w.add(new Aircraft(G4M), IDLE, 'blue', new Vector3(220, 120, 0), 120, 0)
+    const c = w.add(new Aircraft(G4M), IDLE, 'blue', AT.clone(), AT.y, 0)
     return { w, s, c }
   }
 
   const run = (w: World, seconds: number, c = w.combatants[0]!): void => {
     for (let i = 0; i < seconds * 240; i++) {
-      c.aircraft.state.position.set(220, 120, 0)
+      c.aircraft.state.position.copy(AT)
       c.aircraft.state.velocity.set(0, 0, 0)
       w.step(DT)
     }
@@ -252,17 +257,30 @@ describe('飛機砲塔瞄船', () => {
 
   const gunHp = (s: Ship): number => s.guns.reduce((n, g) => n + g.hp, 0)
 
-  it('一式陸攻的砲塔會打敵隊船上的砲位', () => {
+  it('砲塔選得到船上的砲位', () => {
+    const { w, c } = build('red')
+    run(w, 2)
+    const aiming = c.turretStates.filter((t) => t.targetShip >= 0)
+    expect(aiming.length).toBeGreaterThan(0)
+    for (const t of aiming) {
+      expect(t.targetIndex).toBe(-1)
+      expect(t.targetGun).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  /** 【必中的距離】見上面的算式 —— 這一條是確定的，不是統計的。 */
+  it('一式陸攻的砲塔真的打掉敵隊船上的砲位', () => {
     const { w, s } = build('red')
     const before = gunHp(s)
-    run(w, 20)
+    run(w, 6)
     expect(gunHp(s)).toBeLessThan(before)
+    expect(s.guns.some((g) => !g.alive)).toBe(true)
   })
 
   it('同隊的船不會被自己的砲塔打', () => {
     const { w, s } = build('blue')
     const before = gunHp(s)
-    run(w, 20)
+    run(w, 6)
     expect(gunHp(s)).toBe(before)
   })
 
@@ -270,7 +288,7 @@ describe('飛機砲塔瞄船', () => {
     const { w, s } = build('red')
     for (const g of s.guns) g.alive = false
     const before = gunHp(s)
-    run(w, 20)
+    run(w, 6)
     expect(gunHp(s)).toBe(before)
   })
 })

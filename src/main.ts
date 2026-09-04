@@ -13,7 +13,10 @@ import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
-import { createFireball, emitFireball } from './render/fireball'
+import { createFireball, emitFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
+import { createFlakBursts, emitFlakBursts } from './render/flakBursts'
+import { createShipModels, preloadShipModels, type ShipModels } from './render/ships'
+import { clearBursts } from './world/flak'
 import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
@@ -127,6 +130,24 @@ function wireTerrain(force = false): void {
 
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
+
+/**
+ * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
+ *
+ * 【為什麼不是煙霧池的一部分】壽命、上升與尺寸是整池共用的建立期設定，
+ * 而高砲雲要四秒、幾乎不上升、6→14 m。見 `render/flakBursts.ts`。
+ */
+const flakBursts = createFlakBursts()
+ctx.scene.add(flakBursts.object)
+
+/**
+ * 這一場的船。**沒有船的一場是 null**，而那是絕大多數的場次。
+ *
+ * 【生命週期比照地形】每一場重建（`startWorld`），因為艦隊是設定的一部分。
+ */
+let shipModels: ShipModels | null = null
+/** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
+const GUN_LOST_DIR = new Vector3()
 
 const input = createInputState()
 const bindings = attachInput(canvas, input)
@@ -308,7 +329,7 @@ const debris = createDebris()
  * 【殘骸不在這裡】殘骸池持有飛機模型，必須在 `visuals` 清空**之前**還回去，
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
-const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex]
+const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts]
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
@@ -616,6 +637,18 @@ function startWorld(cfg: BattleConfig): void {
   world.land = terrain.land
   player = battle.player
   rebuildVisuals()
+
+  // 【船的模型每一場重建】艦隊是設定的一部分 —— 沿用上一場的話，換一張
+  // 沒有艦隊的卡時那幾艘會留在海上。
+  if (shipModels !== null) {
+    ctx.scene.remove(shipModels.object)
+    shipModels.dispose()
+    shipModels = null
+  }
+  if (world.ships.length > 0) {
+    shipModels = createShipModels(world.ships)
+    ctx.scene.add(shipModels.object)
+  }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
   //    一條等著被第一次使用的死碼。沒有撤離點的一場就是建了不加進場景 ——
@@ -985,6 +1018,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
     emitKillSmoke(smoke, world.killEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
+    // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
+    // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
+    emitFlakBursts(flakBursts, world.burstEvents)
+    clearBursts(world.burstEvents)
     perf.endPhysics()
   })
 
@@ -1126,6 +1163,23 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  flakBursts.step(frameSeconds)
+  // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
+  // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
+  shipModels?.update(world.ships, (x, y, z) => {
+    // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
+    for (let k = 0; k < FIREBALL_COUNT; k++) {
+      GUN_LOST_DIR.set(
+        Math.cos(k * 2.39963) * 0.7, Math.abs(Math.sin(k * 1.7)) * 0.9, Math.sin(k * 2.39963) * 0.7,
+      ).normalize()
+      fireball.emit(
+        x, y, z,
+        GUN_LOST_DIR.x * FIREBALL_SPEED * 0.5,
+        GUN_LOST_DIR.y * FIREBALL_SPEED * 0.5,
+        GUN_LOST_DIR.z * FIREBALL_SPEED * 0.5,
+      )
+    }
+  })
   vortex.step(frameSeconds)
   spray.step(frameSeconds)
 
@@ -1563,6 +1617,9 @@ function frame(now: number) {
 // 【GLB 機種要在進迴圈前載完】`buildAircraft` 是同步的（`main.ts`、四個工具
 // 頁、node 單元測試都同步呼叫它），所以非同步只能關在這一行。
 await preloadAircraftModels()
+// 【船的 GLB 也在開場載】只載會用到的兩艘 —— japan-m4 沒有航母
+// （倫內爾島的 TF 18 是重巡編隊，Essex 那時還沒到太平洋）。
+await preloadShipModels(['wichita', 'fletcher'])
 requestAnimationFrame(frame)
 
 /**
