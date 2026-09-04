@@ -64,7 +64,7 @@ export interface CameraRigOptions {
    */
   firstPersonOffset: Vector3
   /**
-   * 投彈瞄具的眼點（**機體座標**）。
+   * 投彈瞄具的眼點（**機體座標**），在機腹中央。
    *
    * `main.ts` 每次換飛機後改寫成該機種的 `model.bombPoint`，與
    * `firstPersonOffset` 同一個做法。
@@ -75,10 +75,10 @@ export interface CameraRigOptions {
 }
 
 /**
- * 投彈視線靠向落點的時間常數，秒。**起始值，由試飛裁定。**
+ * 投彈視線**追隨落點**的時間常數，秒。**起始值，由試飛裁定。**
  *
- * 對齊 `lookReturnTime` —— 兩者都是「相機自己在動」，而不是玩家正在下指令
- * （後者是 `lookFollowTime`，短得多）。
+ * 只作用在投彈視野之內。切進投彈模式的那一幀是直接對正的 —— 換視角是一個
+ * 瞬間，不是一段動作。
  */
 export const BOMB_LERP_TIME = 0.25
 
@@ -100,7 +100,7 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   levelTime: 0.25,
   firstPersonOffset: new Vector3(0, 0.80, 0.70),
   // B-17G 的值。`main.ts` 每次建模後改寫成該機種的 `model.bombPoint`
-  bombPoint: new Vector3(0, -0.55, -4.60),
+  bombPoint: new Vector3(0, -0.76, 0),
   aimPointDistance: 400,
 }
 
@@ -322,22 +322,22 @@ export class CameraRig {
       // 落點，被夾住的是相機。見 `HudFrame.bombState`
       coneClamp(want.x, want.y, want.z, axis.x, axis.y, axis.z, CONE_COS, CONE_SIN, want)
 
-      // 【剛切進來時從當下的相機朝向起算】視線因此是**轉**過去而不是跳過去
       if (!this.bombInit) {
-        this.bombDir.set(0, 0, -1).applyQuaternion(camera.quaternion)
+        // 【切進來的那一幀直接對正】換視角是一個瞬間。插值只用在視野之內
+        // 追隨落點
+        this.bombDir.copy(want)
         this.bombInit = true
+      } else {
+        // 【恰好反向時線性混合會得到零向量】先把起點推離對蹠點一點點
+        if (this.bombDir.dot(want) < -0.9999) {
+          this.bombDir.x += 1e-3
+          this.bombDir.normalize()
+        }
+        const kb = dt > 0 ? 1 - Math.exp(-dt / BOMB_LERP_TIME) : 1
+        // 【nlerp 不是 slerp】`baseOrientation` 的上方向量用的就是 lerp +
+        // 正交化。差別只在大角度時的角速度分布，而這裡是 τ = 0.25 s 的追隨
+        this.bombDir.lerp(want, kb).normalize()
       }
-      // 【恰好反向時線性混合會得到零向量】從仰視切進投彈模式做得到這個角度。
-      // 先把起點推離對蹠點一點點，之後的插值就有定義了
-      if (this.bombDir.dot(want) < -0.9999) {
-        this.bombDir.x += 1e-3
-        this.bombDir.normalize()
-      }
-      const kb = dt > 0 ? 1 - Math.exp(-dt / BOMB_LERP_TIME) : 1
-      // 【nlerp 不是 slerp】`baseOrientation` 的上方向量用的就是 lerp + 正交化
-      // —— 這是這個檔案既有的做法。差別只在大角度時的角速度分布，而這裡插的是
-      // 一個 τ = 0.25 s 的追隨，看不出來
-      this.bombDir.lerp(want, kb).normalize()
 
       // 【螢幕上方 = 機首的投影，不是世界上方】`baseOrientation` 算的是後者，
       // 而且距垂直 8° 以內就凍結目標（那裡投影會退化）—— 投彈視角**永遠**在
