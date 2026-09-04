@@ -133,6 +133,28 @@ export interface HudFrame {
   noseY: number
   noseVisible: boolean
   /**
+   * 投彈落點在畫面上的位置，**NDC（−1…1）**，慣例同 `noseX` / `noseY`。
+   *
+   * 【為什麼不是恆在畫面中央】相機自動盯落點，所以解穩定時圓圈會回到中心；
+   * 飛機一機動、速度一變、圓錐一夾制，視線的 LERP 就讓它漂開。那個分離量
+   * 就是「投彈解還沒收斂」—— 與滑鼠準星／機首十字的分離量是同一個語言。
+   */
+  bombX: number
+  bombY: number
+  /** 落點在相機前方且投影落在畫面內 */
+  bombVisible: boolean
+  /**
+   * `off` = 不在投彈模式；`clamped` = 圓錐夾住了，圓圈不在真正的落點上；
+   * `none` = 在投彈模式但 90 秒內解不出落點。
+   *
+   * 【為什麼把「在不在投彈模式」也塞進這一格】`hudWidgets` 讀的是 frame
+   * （同 `godView`），需要知道要不要換清單；另開一個 `bombing: boolean`
+   * 就會有兩個欄位描述同一件事，而它們遲早會不同步。
+   */
+  bombState: 'off' | 'solved' | 'clamped' | 'none'
+  /** 剩餘彈數 */
+  bombLoad: number
+  /**
    * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
    * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
    * 一路閃警告。
@@ -271,6 +293,7 @@ export function createHudFrame(): HudFrame {
     ps: 0, es: 0, throttle: 0, powerW: 0,
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
+    bombX: 0, bombY: 0, bombVisible: false, bombState: 'off', bombLoad: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,
