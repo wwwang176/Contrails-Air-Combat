@@ -39,7 +39,7 @@ import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
-import { bombLoadFor, BOMB_RELEASE_INTERVAL } from './weapons/bomb'
+import { canBomb, createBombBay, resetBombBay, stepBombBay } from './weapons/bomb'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -286,10 +286,14 @@ const BOMB_START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const BOMB_EYE = new Vector3()
 const BOMB_POINT = new Vector3()
 const BOMB_NDC = new Vector3()
-/** 剩餘彈數。換飛機／重生時由 `syncBombLoad` 重設 */
-let bombLoad = 0
-let bombCooldown = 0
-/** 上一幀左鍵按著沒有。投彈是**邊緣觸發** —— 不做的話一次點擊會投掉整艙 */
+/** 彈艙。一次扳機投完整艙，空了之後回補 —— 狀態機在 `weapons/bomb.ts` */
+const bombBay = createBombBay()
+/**
+ * 上一幀左鍵按著沒有。
+ *
+ * 【為什麼要邊緣】`firing` 是持續按著的布林，而彈艙吃的是「剛按下」。
+ * 直接餵 `firing` 的話按著不放會被讀成每一幀都重新扣一次扳機。
+ */
 let bombWasFiring = false
 
 /**
@@ -300,11 +304,10 @@ let bombWasFiring = false
  */
 function syncBombLoad(): void {
   const m = visuals.get(player)!.model
-  bombLoad = bombLoadFor(player.aircraft.spec.id)
-  input.bombCapable = m.bombPoint !== null && bombLoad > 0
+  input.bombCapable = m.bombPoint !== null && canBomb(player.aircraft.spec.id)
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
-  bombCooldown = 0
+  resetBombBay(bombBay)
   bombWasFiring = false
 }
 
@@ -1141,23 +1144,26 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera.updateProjectionMatrix()
     }
   } else {
+    // 【掛得了彈就每幀算投彈點】不只在投彈模式 —— 連投中途切回機外視角時，
+    // 剩下那幾枚仍然要從正確的位置出去
+    const bp = visuals.get(player)!.model.bombPoint
+    if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+
     // 【落點要在 rig.update 之前解】相機的視線就是指向它
-    if (input.viewMode === 'bomb') {
+    if (input.viewMode === 'bomb' && bp !== null) {
       bombState = 'none'
-      const bp = visuals.get(player)!.model.bombPoint
-      if (bp !== null) {
-        BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
-        BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
-        const v = player.aircraft.state.velocity
-        BOMB_START.vx = v.x; BOMB_START.vy = v.y; BOMB_START.vz = v.z
-        // 【dt 用 loop.stepSeconds 而不是 frameSeconds】預測必須與空中的
-        // 炸彈同一個步長，那條護欄的整個重點就在這裡
-        if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
-          BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
-          bombTarget = BOMB_POINT
-          bombState = 'solved'
-        }
+      BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
+      const v = player.aircraft.state.velocity
+      BOMB_START.vx = v.x; BOMB_START.vy = v.y; BOMB_START.vz = v.z
+      // 【dt 用 loop.stepSeconds 而不是 frameSeconds】預測必須與空中的
+      // 炸彈同一個步長，那條護欄的整個重點就在這裡
+      if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
+        BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
+        bombTarget = BOMB_POINT
+        bombState = 'solved'
       }
+    } else if (input.viewMode === 'bomb') {
+      bombState = 'none'
     }
     // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
     rig.update(
@@ -1166,20 +1172,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
     )
     if (bombState === 'solved' && rig.sightClamped) bombState = 'clamped'
 
-    // 【投彈排在 rig.update 之後】用的是同一幀算好的 BOMB_EYE
-    if (bombCooldown > 0) bombCooldown -= frameSeconds
-    if (input.viewMode === 'bomb') {
-      // 【邊緣觸發】`firing` 是持續按著的布林；不做邊緣的話一次點擊會投掉整艙
-      if (input.firing && !bombWasFiring && bombLoad > 0 && bombCooldown <= 0) {
+    // 【彈艙每一幀都推進，不分視角】扣扳機需要瞄具，但**回補不需要**：綁在
+    // 投彈模式上的話，投完之後要盯著地面 20 秒才補得完，而那 20 秒正是應該
+    // 抬頭看有沒有人在咬你的時候
+    if (bp !== null) {
+      const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
+      stepBombBay(bombBay, frameSeconds, press, () => {
         const v = player.aircraft.state.velocity
         world.dropBomb(BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z)
-        bombLoad--
-        bombCooldown = BOMB_RELEASE_INTERVAL
-      }
-      bombWasFiring = input.firing
-    } else {
-      bombWasFiring = false
+      })
     }
+    // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被
+    // 讀成一次新的扣扳機
+    bombWasFiring = input.viewMode === 'bomb' && input.firing
   }
 
   tracers.update(world.projectiles)
@@ -1254,7 +1259,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 確實在中心；但視線的 LERP 會在機動時把它拖開，而那個分離量正是要看的
   // 東西 —— 「投彈解還沒收斂」。
   hudFrame.bombState = bombState
-  hudFrame.bombLoad = bombLoad
+  hudFrame.bombLoad = bombBay.load
+  hudFrame.bombReloading = bombBay.reloading
+  hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0
   hudFrame.bombVisible = false
   if (bombState === 'solved' || bombState === 'clamped') {
     BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)

@@ -41,6 +41,17 @@ export const BOMB_SPLASH_JETS = 3
  */
 export const BOMB_SPLASH_SPREAD = 2.5
 
+/**
+ * 投彈方向的隨機偏移，**弧度**（負責人指定 ±0.1°）。
+ *
+ * 【它不是瞄具的誤差，是彈的離散】同一串投下去的彈不會落在一條數學直線上
+ * —— 掛架的釋放、氣流、彈體本身的差異都有。0.1° 在 4,000 m 的落點上是
+ * 約 ±7 m，看得出「一串」而不是「一條線」，又不足以讓瞄具失去意義。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const BOMB_SPREAD_RAD = (0.1 * Math.PI) / 180
+
 /** 二次阻力係數：`a = −k·|v|·v`。由終端速度反推 —— 終端時阻力恰好抵銷重力 */
 export function bombDragK(terminalSpeed: number): number {
   return G0 / (terminalSpeed * terminalSpeed)
@@ -82,6 +93,72 @@ export function stepBomb(s: BombState, k: number, dt: number): void {
   s.x += s.vx * dt
   s.y += s.vy * dt
   s.z += s.vz * dt
+}
+
+/**
+ * 把速度向量繞兩個與它垂直的軸各轉一個小角度。就地寫進 `out`。
+ *
+ * 【為什麼角度由呼叫端給】**測試要能關掉偏移**。傳 0 就是恆等，落點的數學
+ * 驗證因此仍然精確；隨機留在呼叫端，這一支保持純函數。
+ *
+ * 【小角度近似】±0.1° 之下 `sin θ ≈ θ`、`cos θ ≈ 1`，誤差是 θ²/2 ≈ 1.5e-6
+ * —— 比偏移本身小五個數量級。用它換掉四次三角函數。
+ *
+ * @param ax 繞「水平橫向」轉的角度，rad（正 = 往右偏）
+ * @param ay 繞「垂直」轉的角度，rad（正 = 往上偏）
+ */
+export function spreadDirection(
+  vx: number, vy: number, vz: number,
+  ax: number, ay: number,
+  out: BombState,
+): void {
+  const speed = Math.sqrt(vx * vx + vy * vy + vz * vz)
+  if (speed < 1e-9 || (ax === 0 && ay === 0)) {
+    out.vx = vx; out.vy = vy; out.vz = vz
+    return
+  }
+  // 速度方向的兩個正交伴隨軸。水平橫向 = v × 世界上方 = (−vz, 0, vx)，
+  // 對朝 −Z 飛的飛機而言那是 +X，也就是**右**
+  const hx = -vz
+  const hz = vx
+  const hl = Math.sqrt(hx * hx + hz * hz)
+  if (hl < 1e-9) {
+    // 【垂直投彈】水平分量為 0，橫向未定義。任取一組正交軸即可
+    out.vx = vx + ax * speed
+    out.vy = vy
+    out.vz = vz + ay * speed
+    return
+  }
+  const rx = hx / hl
+  const rz = hz / hl
+  // u = r × v̂，與 r 及 v 都正交
+  const ivs = 1 / speed
+  const nx = vx * ivs
+  const ny = vy * ivs
+  const nz = vz * ivs
+  const ux = rz * ny * -1
+  const uy = rz * nx - rx * nz
+  const uz = rx * ny
+  out.vx = vx + (rx * ax + ux * ay) * speed
+  out.vy = vy + (uy * ay) * speed
+  out.vz = vz + (rz * ax + uz * ay) * speed
+}
+
+/**
+ * 從一個整數序號產生兩個 `[-1, 1)` 的偏移量。**確定性** —— 同一場重播結果
+ * 相同，而 `Math.random()` 做不到那件事（`resetBattle` 的「逐位元重播」）。
+ *
+ * splitmix32 的一輪混合，夠散也夠便宜。
+ */
+export function spreadPair(n: number, out: { u: number; v: number }): void {
+  let h = (n + 0x9e3779b9) | 0
+  h = Math.imul(h ^ (h >>> 16), 0x21f0aaad)
+  h = Math.imul(h ^ (h >>> 15), 0x735a2d97)
+  h ^= h >>> 15
+  out.u = ((h >>> 0) / 0x80000000) - 1
+  let g = Math.imul(h ^ 0x85ebca6b, 0xc2b2ae35)
+  g ^= g >>> 13
+  out.v = ((g >>> 0) / 0x80000000) - 1
 }
 
 /** `solveImpact` 內部重用的狀態 —— 模組層級的單例，避免每幀配置 */
@@ -173,6 +250,13 @@ export class Bombs {
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一顆身上 */
   private cursor = 0
   private liveCount = 0
+  /**
+   * 這一場累計投了幾顆。**投彈偏移的序號就是它**（見 `spreadPair`）。
+   *
+   * 【為什麼不是 `cursor`】那一個會繞回去，於是第 65 顆與第 1 顆的偏移完全
+   * 相同 —— 一串投下去看起來會有週期。
+   */
+  dropped = 0
   /** 推進一步時的暫存。熱路徑不得配置 */
   private readonly sim: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 
@@ -195,6 +279,7 @@ export class Bombs {
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
     this.age[i] = 0
     this.active[i] = 1
+    this.dropped++
     return i
   }
 
@@ -202,6 +287,9 @@ export class Bombs {
     this.active.fill(0)
     this.liveCount = 0
     this.cursor = 0
+    // 【序號也要歸零】不歸零的話第二場的偏移接在第一場後面 —— 與 `world.time`
+    // 在 `resetBattle` 歸零是同一條理由：逐位元重播
+    this.dropped = 0
   }
 
   /**

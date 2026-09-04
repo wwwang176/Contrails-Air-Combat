@@ -14,12 +14,14 @@ import { drawRoster } from './widgets/roster'
 import { drawObjective } from './widgets/objective'
 import { drawHeadingTape } from './widgets/tape'
 import { drawBombsight } from './widgets/bombsight'
+import { drawBombVignette } from './widgets/bombVignette'
 import type { HudFrame, HudLayout } from './types'
 
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
-  | 'godMarkers' | 'objective' | 'arena' | 'message' | 'bombsight'
+  | 'godMarkers' | 'objective' | 'arena' | 'message'
+  | 'bombsight' | 'bombVignette'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -76,7 +78,12 @@ const GOD: readonly HudWidget[] = [
  * 【為什麼用 map 而不是重抄一份清單】抄一份的話，`FULL` 加了新 widget 卻忘了
  * 加到這裡，症狀是「投彈模式下少一個儀表」而不會有任何錯誤。
  */
-export const BOMB: readonly HudWidget[] = FULL.map((w) => (w === 'reticle' ? 'bombsight' : w))
+export const BOMB: readonly HudWidget[] = [
+  // 【暗角排最前面】它壓的是**世界**，不是 HUD。排在後面的話儀表、小地圖、
+  // 隊列都會被一起壓暗，而那幾個是面板不是視野
+  'bombVignette',
+  ...FULL.map((w) => (w === 'reticle' ? 'bombsight' : w)),
+]
 
 /**
  * 這一幀要畫哪些 widget，依序。
@@ -122,6 +129,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   arena: (ctx, L, f) => drawArena(ctx, L, f),
   objective: (ctx, L, f) => drawObjective(ctx, L, f),
   bombsight: (ctx, L, f) => drawBombsight(ctx, L, f),
+  bombVignette: (ctx, L, f) => drawBombVignette(ctx, L, f),
   message: (ctx, L, f) => drawMessage(ctx, L, f),
 }
 

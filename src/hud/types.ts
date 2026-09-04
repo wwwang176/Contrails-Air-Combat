@@ -152,8 +152,17 @@ export interface HudFrame {
    * 就會有兩個欄位描述同一件事，而它們遲早會不同步。
    */
   bombState: 'off' | 'solved' | 'clamped' | 'none'
-  /** 剩餘彈數 */
+  /** 彈艙裡還剩幾枚 */
   bombLoad: number
+  /**
+   * 正在回補。
+   *
+   * 【為什麼一定要畫出來】彈艙空了之後扳機沒有反應。看不到「正在補彈」的話，
+   * 那與「壞了」在畫面上是同一件事 —— 而玩家會當成後者。
+   */
+  bombReloading: boolean
+  /** 補完還要幾秒。`bombReloading` 為 false 時為 0 */
+  bombReloadLeft: number
   /**
    * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
    * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
@@ -293,7 +302,8 @@ export function createHudFrame(): HudFrame {
     ps: 0, es: 0, throttle: 0, powerW: 0,
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
-    bombX: 0, bombY: 0, bombVisible: false, bombState: 'off', bombLoad: 0,
+    bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
+    bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,

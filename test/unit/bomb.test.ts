@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { G0 } from '../../src/core/math'
 import {
-  BOMB_MAX_SECONDS, BOMB_SPLASH_JETS, BOMB_TERMINAL_SPEED, BOMBS_CAPACITY,
-  Bombs, bombDragK, stepBomb, solveImpact,
+  BOMB_MAX_SECONDS, BOMB_SPLASH_JETS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  BOMBS_CAPACITY, Bombs, bombDragK, stepBomb, solveImpact, spreadDirection, spreadPair,
   type BombState, type Impact,
 } from '../../src/world/bomb'
 import { World } from '../../src/world/World'
@@ -153,6 +153,100 @@ describe('Bombs 池', () => {
     let n = 0
     b.step(DT, 0, SEA, () => { n++ })
     expect(n).toBe(0)
+  })
+})
+
+describe('spreadDirection：投彈的離散', () => {
+  const vec = (): BombState => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 })
+
+  it('角度為 0 時逐位元恆等 —— 落點的數學驗證不得被它污染', () => {
+    const o = vec()
+    for (const v of [[0, 0, -90], [30, -5, -80], [0, -200, 0], [-12, 3, 45]]) {
+      spreadDirection(v[0]!, v[1]!, v[2]!, 0, 0, o)
+      expect(o.vx).toBe(v[0]!)
+      expect(o.vy).toBe(v[1]!)
+      expect(o.vz).toBe(v[2]!)
+    }
+  })
+
+  it('速率幾乎不變 —— 它偏的是方向不是能量', () => {
+    const o = vec()
+    const s0 = Math.hypot(30, -5, -80)
+    spreadDirection(30, -5, -80, BOMB_SPREAD_RAD, -BOMB_SPREAD_RAD, o)
+    const s1 = Math.hypot(o.vx, o.vy, o.vz)
+    // 小角度近似之下 |v| 只長 θ²/2 ≈ 1.5e-6 的相對量
+    expect(s1 / s0).toBeCloseTo(1, 5)
+  })
+
+  it('偏角不超過 ±0.1 度的合成量', () => {
+    const o = vec()
+    const max = BOMB_SPREAD_RAD * Math.SQRT2 * 1.01
+    for (const [ax, ay] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [0, 1]] as const) {
+      spreadDirection(0, 0, -90, ax * BOMB_SPREAD_RAD, ay * BOMB_SPREAD_RAD, o)
+      const c = (o.vz * -90) / (90 * Math.hypot(o.vx, o.vy, o.vz))
+      expect(Math.acos(Math.min(1, c))).toBeLessThan(max)
+    }
+  })
+
+  it('兩個軸各自獨立，方向與符號對得上', () => {
+    const o = vec()
+    // 機首朝 −Z 飛：+ax 往 +X（右）、+ay 往 +Y（上）
+    spreadDirection(0, 0, -90, BOMB_SPREAD_RAD, 0, o)
+    expect(o.vx).toBeGreaterThan(0)
+    expect(Math.abs(o.vy)).toBeLessThan(1e-9)
+    spreadDirection(0, 0, -90, 0, BOMB_SPREAD_RAD, o)
+    expect(o.vy).toBeGreaterThan(0)
+    expect(Math.abs(o.vx)).toBeLessThan(1e-9)
+  })
+
+  it('垂直投彈（水平分量為 0）不產生 NaN', () => {
+    const o = vec()
+    spreadDirection(0, -200, 0, BOMB_SPREAD_RAD, BOMB_SPREAD_RAD, o)
+    expect(Number.isFinite(o.vx)).toBe(true)
+    expect(Number.isFinite(o.vy)).toBe(true)
+    expect(Number.isFinite(o.vz)).toBe(true)
+  })
+})
+
+describe('spreadPair：確定性的偏移量', () => {
+  it('同一個序號永遠給同一組值 —— Math.random 做不到重播', () => {
+    const a = { u: 0, v: 0 }
+    const b = { u: 0, v: 0 }
+    for (const n of [0, 1, 7, 1234, 99999]) {
+      spreadPair(n, a)
+      spreadPair(n, b)
+      expect(a.u).toBe(b.u)
+      expect(a.v).toBe(b.v)
+    }
+  })
+
+  it('落在 [−1, 1) 之內，而且相鄰序號不相同', () => {
+    const o = { u: 0, v: 0 }
+    const seen = new Set<string>()
+    for (let n = 0; n < 200; n++) {
+      spreadPair(n, o)
+      expect(o.u).toBeGreaterThanOrEqual(-1)
+      expect(o.u).toBeLessThan(1)
+      expect(o.v).toBeGreaterThanOrEqual(-1)
+      expect(o.v).toBeLessThan(1)
+      seen.add(`${o.u},${o.v}`)
+    }
+    // 200 個序號不該撞出重複
+    expect(seen.size).toBe(200)
+  })
+
+  it('平均接近 0 —— 不是系統性地偏向一邊', () => {
+    const o = { u: 0, v: 0 }
+    let su = 0
+    let sv = 0
+    const N = 4000
+    for (let n = 0; n < N; n++) {
+      spreadPair(n, o)
+      su += o.u
+      sv += o.v
+    }
+    expect(Math.abs(su / N)).toBeLessThan(0.05)
+    expect(Math.abs(sv / N)).toBeLessThan(0.05)
   })
 })
 
