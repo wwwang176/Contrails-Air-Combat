@@ -498,10 +498,12 @@ describe('Bombs 池', () => {
       b.step(DT, k, SEA, (x, y, z) => { hit = [x, y, z] })
     }
     expect(hit).not.toBeNull()
-    // 【為什麼可以要求這麼緊】兩邊跑的是同一支 stepBomb、同一個 dt，
-    // 差別只有落地那一步的內插由誰做。分家的話這一條就會紅。
-    expect(hit![0]).toBeCloseTo(out.x, 3)
-    expect(hit![2]).toBeCloseTo(out.z, 3)
+    // 【逐位元，不是「很接近」】兩邊跑同一支 stepBomb、同一個 dt、同一種
+    // 精度（池子是 Float64Array，見那裡的註解），連落地的內插都是同一段
+    // 算式。**用 toBe 而不是 toBeCloseTo** —— 只要有人把池子改回 float32，
+    // 或替其中一邊「順手優化」一個分支，這一條就會紅。
+    expect(hit![0]).toBe(out.x)
+    expect(hit![2]).toBe(out.z)
   })
 
   it('超過壽命就回收，不會永遠佔著槽位', () => {
@@ -547,16 +549,22 @@ export type BombImpactFn = (x: number, y: number, z: number, speed: number) => v
 /**
  * 空中的炸彈。SoA，形狀照 `Projectiles` —— 型別化陣列、環狀寫入指標、
  * 池滿時覆寫最舊的而不是拒絕投彈。
+ *
+ * 【**但精度用 Float64Array，與 `Projectiles` 不同**】「準星的預測與空中的
+ * 炸彈逐位元相同」這條護欄靠的是兩邊跑同一支 `stepBomb`，而 `solveImpact`
+ * 的狀態全程在一般 `number`（float64）裡。這裡若存 float32，每一步都會捨入
+ * 一次 —— 4,000 m 那個案例實算差 0.00378 m，護欄測試直接紅。
+ * 64 格 × 6 欄 × 8 bytes = 3 KB，換一條真的成立的不變式。
  */
 export class Bombs {
   readonly capacity: number
-  readonly x: Float32Array
-  readonly y: Float32Array
-  readonly z: Float32Array
-  readonly vx: Float32Array
-  readonly vy: Float32Array
-  readonly vz: Float32Array
-  readonly age: Float32Array
+  readonly x: Float64Array
+  readonly y: Float64Array
+  readonly z: Float64Array
+  readonly vx: Float64Array
+  readonly vy: Float64Array
+  readonly vz: Float64Array
+  readonly age: Float64Array
   readonly active: Uint8Array
 
   private cursor = 0
@@ -565,7 +573,7 @@ export class Bombs {
 
   constructor(capacity: number = BOMBS_CAPACITY) {
     this.capacity = capacity
-    const f = (): Float32Array => new Float32Array(capacity)
+    const f = (): Float64Array => new Float64Array(capacity)
     this.x = f(); this.y = f(); this.z = f()
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f()
@@ -647,6 +655,7 @@ Expected: PASS（10 個 it 全綠）
 
 ```ts
 import { World } from '../../src/world/World'
+import { BOMB_SPLASH_JETS } from '../../src/world/bomb'
 
 describe('落地事件的水陸之分', () => {
   const runToImpact = (waterAt: (x: number, z: number) => number) => {
@@ -658,8 +667,8 @@ describe('落地事件的水陸之分', () => {
     return w.splashEvents.count
   }
 
-  it('落海推一筆水柱事件', () => {
-    expect(runToImpact(() => 0)).toBe(1)
+  it('落海推 BOMB_SPLASH_JETS 根柱子 —— 用數量換規模', () => {
+    expect(runToImpact(() => 0)).toBe(BOMB_SPLASH_JETS)
   })
 
   it('落在陸地上什麼都不推 —— 純內陸地圖每一顆都會噴才是缺陷', () => {
@@ -719,12 +728,24 @@ describe('落地事件的水陸之分', () => {
     // `render/debris.ts` 已經為同一個坑留過註解。落陸這一輪什麼都不做
     // （爆炸在範圍外），所以這裡只有一個分支
     this.bombs.step(dt, this.bombDrag, this.groundAt, (x, y, z) => {
-      if (this.waterAt(x, z) > -Infinity) pushImpact(this.splashEvents, x, y, z, 0, 1, 0)
+      if (!(this.waterAt(x, z) > -Infinity)) return
+      // 【一顆炸彈推三根柱子】現有的水柱是子彈打出來的 12 m，炸彈不是子彈。
+      // **用數量換規模，`splash.ts` 不用改** —— `main.ts:1121` 為殘骸入水
+      // 寫過同一句。高低粗細本來就由 `splashSize` 依格子隨機，所以三根不會
+      // 疊成一根粗的
+      for (let n = 0; n < BOMB_SPLASH_JETS; n++) {
+        const a = (n / BOMB_SPLASH_JETS) * Math.PI * 2
+        pushImpact(this.splashEvents, x + Math.cos(a) * 2.5, y, z + Math.sin(a) * 2.5, 0, 1, 0)
+      }
     })
 ```
 
-4. `reset` / `clear` 那一類的方法（搜尋 `this.projectiles.clear()`）旁邊補
-   `this.bombs.clear()`。
+`BOMB_SPLASH_JETS = 3` 與 `BOMB_TERMINAL_SPEED` 放在一起（`world/bomb.ts`），
+標「起始值，由試飛裁定」。
+
+4. `src/battle/setup.ts` 的 `resetBattle`（**第 1469 行**，`b.world.projectiles
+   .clear()` 那一行下面）補 `b.world.bombs.clear()`。少了它，上一場還在空中的
+   炸彈會在第二場繼續落下 —— 而落地要 30 秒，看起來像憑空冒出來的水柱。
 
 - [ ] **Step 6: 型別檢查與全測**
 
@@ -761,11 +782,14 @@ git commit -m "feat(bomb): 炸彈池進 World.step —— 240 Hz，落地推進�
 
 - [ ] **Step 1: 寫失敗的測試**
 
-追加到 `test/unit/bindings.test.ts`。該檔已有 `setupDom()`、`key(code)` 與
-`dom.win.fire('keydown', key(code))` 的寫法，沿用：
+追加到 `test/unit/bindings.test.ts` 的最後。`setupDom()` 是檔案層級的，
+但 **`key(code)` 是每個 describe 各自宣告一份**（第 156、258、347 行各一），
+所以新的 describe 要自己帶一份：
 
 ```ts
 describe('attachInput：投彈模式', () => {
+  const key = (code: string) => ({ code, preventDefault: () => {} })
+
   const arm = (capable: boolean) => {
     const dom = setupDom()
     const state = createInputState()
@@ -797,7 +821,6 @@ describe('attachInput：投彈模式', () => {
 })
 ```
 
-`key(code)` 若在該檔是區域函式且定義在後面，把新的 describe 放在它之後。
 
 - [ ] **Step 2: 跑測試確認失敗**
 
@@ -970,7 +993,16 @@ const CONE_SIN = Math.sin(BOMB_CONE_HALF_ANGLE)
         this.bombDir.set(0, 0, -1).applyQuaternion(camera.quaternion)
         this.bombInit = true
       }
+      // 【恰好反向時線性混合會得到零向量】從仰視切進投彈模式做得到這個角度。
+      // 先把起點推離對蹠點一點點，之後的 nlerp 就有定義了
+      if (this.bombDir.dot(want) < -0.9999) {
+        this.bombDir.x += 1e-3
+        this.bombDir.normalize()
+      }
       const kb = dt > 0 ? 1 - Math.exp(-dt / BOMB_LERP_TIME) : 1
+      // 【nlerp 不是 slerp】`baseOrientation` 的上方向量用的就是 lerp + 正交化，
+      // 這是這個檔案既有的做法。差別只在大角度時的角速度分布，而這裡插的是一個
+      // τ = 0.25 s 的追隨，看不出來
       this.bombDir.lerp(want, kb).normalize()
 
       const look = this.baseOrientation(this.bombDir, dt, S.q[2]!)
@@ -1025,7 +1057,10 @@ git commit -m "feat(bomb): B 鍵切機腹視角 —— 視線盯落點、夾進 
   - `bombState: 'off' | 'solved' | 'clamped' | 'none'`（`'off'` = 不在投彈模式）
   - `drawBombsight(ctx, L, f): void`
   - `Hud.ts` 匯出的 `FULL`、`BOMB: readonly HudWidget[]`
-  - `hudWidgets(godView: boolean, bombing: boolean): readonly HudWidget[]`（**改簽章**）
+  - `hudWidgets(godView: boolean, bombing?: boolean): readonly HudWidget[]`
+    —— 第二個參數**必須有預設值 `false`**：`hudWidgets` 目前有 **11 個單參數
+    呼叫點**（`test/unit/hud.test.ts` 8 處、`hud-arena.test.ts` 3 處），
+    做成必填會讓那 11 條全部變紅，而它們測的事情與投彈完全無關
 
 - [ ] **Step 1: 寫失敗的測試**
 
@@ -1118,7 +1153,17 @@ export function drawBombsight(
   L: HudLayout,
   f: HudFrame,
 ): void {
-  if (f.bombState === 'off' || f.bombState === 'none' || !f.bombVisible) return
+  if (f.bombState === 'off') return
+
+  // 【解不出來時留一個中心點】什麼都不畫的話，「90 秒內落不到地面」與
+  // 「HUD 壞了」在畫面上長得一模一樣
+  if (f.bombState === 'none' || !f.bombVisible) {
+    ctx.fillStyle = HUD_COLORS.dim
+    ctx.beginPath()
+    ctx.arc(L.cx, L.cy, 1.5 * L.scale, 0, Math.PI * 2)
+    ctx.fill()
+    return
+  }
 
   const x = L.cx + (f.bombX * L.width) / 2
   const y = L.cy - (f.bombY * L.height) / 2
@@ -1161,15 +1206,17 @@ export const BOMB: readonly HudWidget[] = FULL.map((w) => (w === 'reticle' ? 'bo
  *
  * 【上帝視角優先於投彈模式】鏡頭都不在飛機上了，機腹瞄具更沒有意義。
  */
-export function hudWidgets(godView: boolean, bombing: boolean): readonly HudWidget[] {
+export function hudWidgets(godView: boolean, bombing = false): readonly HudWidget[] {
   if (godView) return GOD
   return bombing ? BOMB : FULL
 }
 ```
 
 - 呼叫端（`Hud.ts:146`）改成 `hudWidgets(f.godView, f.bombState !== 'off')`。
-- 既有的 `hudWidgets` 若在別處被單參數呼叫，一併補第二個引數 `false`
-  （`npx tsc --noEmit` 會全部指出來）。
+- **預設值不可省**：既有的 11 個單參數呼叫點都在測試裡，測的事情與投彈無關，
+  沒有理由為了一個新模式去動它們。
+- `WIDGET_DRAW` 是 `Record<HudWidget, …>`（`Hud.ts:86` 的護欄），所以 union
+  加了 `'bombsight'` 卻忘了補表**是編譯錯誤**，不會靜靜地不顯示。
 
 - [ ] **Step 6: 跑測試確認通過**
 
@@ -1191,6 +1238,8 @@ git commit -m "feat(bomb): HUD 的落點圓準星 —— 投彈模式把準星�
 - Create: `src/render/bombs.ts`
 - Create: `src/weapons/bomb.ts`
 - Modify: `src/main.ts`
+- Modify: `src/control/PlayerController.ts:22`（**投彈模式下左鍵不開槍**真正的
+  落點是這裡的 `out.firing = this.input.firing`，不是 `main.ts`）
 
 **Interfaces:**
 - Consumes: 前五個 Task 的全部產出
@@ -1296,8 +1345,17 @@ export function createBombs(): {
 
 依序加入（位置以既有的相鄰行為錨）：
 
-1. import：`createBombs`、`solveImpact`、`bombDragK`、`BOMB_TERMINAL_SPEED`、
-   `type Impact`、`bombLoadFor`、`BOMB_RELEASE_INTERVAL`。
+1. import —— **只列真的用到的**（`tsconfig.json` 開了 `noUnusedLocals`，
+   多一個沒用到的就是編譯錯誤）：
+
+```ts
+import { createBombs } from './render/bombs'
+import { solveImpact, type BombState, type Impact } from './world/bomb'
+import { bombLoadFor, BOMB_RELEASE_INTERVAL } from './weapons/bomb'
+```
+
+`bombDragK` 與 `BOMB_TERMINAL_SPEED` **不要 import** —— 阻力係數在 `World`
+的 `bombDrag` 欄位（Task 3 已經設好預設值），`main.ts` 讀 `world.bombDrag`。
 2. 模組層級：
 
 ```ts
@@ -1314,9 +1372,15 @@ let bombCooldown = 0
 let bombWasFiring = false
 ```
 
-3. `world.groundAt = terrain.collisionHeightAt` 與
-   `world.waterAt = terrain.waterAt`（緊接在既有的 `world.crashPolicy = ...`
-   旁邊；**換地形時要一起重設** —— `terrain` 換了物件，舊的閉包會指向上一張圖）。
+3. `startWorld` 內、**`world.land = terrain.land`（`main.ts:616`）那一行旁邊**：
+
+```ts
+  // 【炸彈的地面與水面】與 `crashPolicy` 同一個注入方式：規則的權威在
+  // `render/terrain.ts`，World 不抄第二份。**放在這裡就自動涵蓋換地形** ——
+  // 這一段每一場都重跑
+  world.groundAt = terrain.collisionHeightAt
+  world.waterAt = terrain.waterAt
+```
 4. 玩家換飛機的兩處（`rig.options.firstPersonOffset.copy(...)`，
    `main.ts:424` 與 `main.ts:1001`）各追加：
 
@@ -1398,8 +1462,14 @@ let bombWasFiring = false
   }
 ```
 
-8. **投彈模式下左鍵不開槍**：找到把 `input.firing` 餵給玩家武器的地方
-   （搜尋 `firing`），改成 `input.firing && input.viewMode !== 'bomb'`。
+8. **投彈模式下左鍵不開槍** —— 落點在 `src/control/PlayerController.ts:22`
+   （`out.firing = this.input.firing`），**不在 `main.ts`**：
+
+```ts
+    // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的子彈
+    // 玩家根本看不到，而彈藥是真的在消耗
+    out.firing = this.input.firing && this.input.viewMode !== 'bomb'
+```
 9. HUD frame 填欄位（在既有的 `noseX/noseY` 投影旁邊；變數名是 `hudFrame`）：
 
 ```ts
@@ -1417,8 +1487,9 @@ let bombWasFiring = false
 ```
 
 10. `bombVisuals.update(world.bombs)` 放在 `tracers.update(world.projectiles)`
-    旁邊（`main.ts:1104`）；`bombVisuals.dispose()` 放進既有的釋放路徑；
-    重開一場的地方補 `world.bombs.clear()`、`bombLoad` 重設。
+    旁邊（`main.ts:1104`）；`bombVisuals.dispose()` 放進既有的釋放路徑。
+    炸彈池的清空在 Task 3 已經接在 `resetBattle` 裡；`bombLoad` 的重設在
+    上面第 4 點那個區塊（玩家換飛機／重生都會走到）。
 11. `hudWidgets` 由 `hudFrame.bombState` 自己判斷，**`main.ts` 不必多傳參數**。
 
 - [ ] **Step 4: 型別檢查與全測**
@@ -1444,7 +1515,7 @@ Run: `npm run dev`，開 `http://localhost:5175/`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/main.ts src/render/bombs.ts src/weapons/bomb.ts
+git add src/main.ts src/render/bombs.ts src/weapons/bomb.ts src/control/PlayerController.ts
 git commit -m "feat(bomb): 接上投彈 —— B 進瞄具、左鍵投彈、落海噴水柱"
 ```
 

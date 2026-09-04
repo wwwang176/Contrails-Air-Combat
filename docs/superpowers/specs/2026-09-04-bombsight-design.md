@@ -66,6 +66,12 @@
 **③ 炸彈不能寄生在 `Projectiles` 上。** 那個池是「等速直線、無阻力、無重力」
 （spec §2 裁定），壽命上限 1.2 s。炸彈要重力、要阻力、要飛 48 秒。
 
+**④ 炸彈池用 `Float64Array`，不跟 `Projectiles` 一樣用 `Float32Array`。**
+「預測與實跑逐位元相同」這條護欄靠的是兩邊跑同一支 `stepBomb`，而 `solveImpact`
+的狀態全程在一般 `number`（float64）裡。池子若存 float32，每一步都會捨入一次
+—— 實算 4,000 m 那個案例差 **0.00378 m**，護欄測試直接紅。64 格 × 6 個欄位
+× 8 bytes = 3 KB，換一條真的成立的不變式。
+
 ---
 
 ## 2. 模組
@@ -133,8 +139,11 @@ export function solveImpact(
 飛行時間、落地速度。找不到解回 `false`（`bombState: 'none'`）。
 
 - **不得在 t = 0 就終止**：飛機在爬升時炸彈會先往上飛。第一步一定要走。
-- **地形只在 `y < land.ceiling` 之下才取樣**：之上一律與 0 比。`ceiling` 是
-  `PEAK_MAX = 1000`，`world/archipelago.ts` 已經保證沒有地形高過它。
+- **每一步都直接問 `groundAt`，不做高度早退。** 原本這裡寫過「只在
+  `y < land.ceiling` 之下才取樣地形」—— 那是寫過頭的微優化：最壞情況一幀多
+  11,498 次 `field.sample`（約 23 萬次運算），相對於 40 架 × 240 Hz 的飛行
+  物理可以忽略，而它會讓 `solveImpact` 與 `Bombs.step` 各多一個必須保持一致
+  的分支。**一致性比那點運算值錢。**
 - **落地那一步做一次線性內插**：`stepBomb` 一步在落地時走 1 m 以上，不內插
   的話落點會系統性偏過頭。
 - **熱路徑零配置**：`out` 就地寫入，內部不 new。
@@ -176,8 +185,13 @@ export function solveImpact(
 
 ### 4.3 LERP
 
-`CameraRig` 自持一個 `bombDir`，每幀以 `1 − exp(−dt/τ)` slerp 向夾制後的目標，
-`τ = BOMB_LERP_TIME`。
+`CameraRig` 自持一個 `bombDir`，每幀以 `1 − exp(−dt/τ)` 朝夾制後的目標做
+**正規化線性插值**（lerp 後 normalize），`τ = BOMB_LERP_TIME`。
+
+【為什麼是 nlerp 而不是真的 slerp】`baseOrientation` 的上方向量用的就是
+`up.lerp(...)` 再正交化 —— 這是這個檔案既有的做法。兩者只在大角度時的角速度
+分布上有差，而這裡插的是一個時間常數 0.25 s 的追隨，差別看不出來。**但退化
+情況要擋**：`bombDir` 與目標恰好反向時線性混合會得到零向量。
 
 - **進入時**由當下的相機朝向起算，所以視線是轉過去的，不是跳過去的。
 - **離開時**第三人稱照現有的 `initialised = false` 吸附——與 `V` 鍵現況相同。
@@ -249,7 +263,7 @@ export function solveImpact(
 | `BOMB_TERMINAL_SPEED` | 280 m/s | 500 lb GP 級 |
 | `BOMB_MAX_SECONDS` | 90 s | 8,000 m 落地 47.9 s，留近一倍餘裕 |
 | `BOMB_RELEASE_INTERVAL` | 0.25 s | 單投，可以走棋盤式散布 |
-| `BOMB_SPLASH_SCALE` | 3× | 現有水柱是子彈打出來的 12 m |
+| `BOMB_SPLASH_JETS` | 3 根 | 現有水柱是子彈打出來的 12 m。**用數量換規模，`splash.ts` 不用改** —— `main.ts:1121` 為殘骸入水寫過同一句 |
 | `BOMBS_CAPACITY` | 64 | 玩家單次最多 8 顆同時在空中（落地要 48 s，全投完第一顆還沒落地）。64 是留給日後 AI 投彈的餘裕，且相對 `PROJECTILE_CAPACITY = 4000` 可以忽略 |
 | 載彈量 | B-17G 8、He 111 8、G4M 4 | 史實量級。**投完就沒有，本輪不做補彈**；重生時回滿 |
 | `bombPoint` | 三架各一個值 | 照 `eyePoint` 的先例（`assembly.ts:183`：一機一個值，不從幾何推） |
