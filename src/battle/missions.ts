@@ -254,6 +254,18 @@ export interface MissionBattle {
    * → `createBattle`。少任何一處都是「型別過了但進戰鬥零艘船」，不報錯。
    */
   readonly fleet?: MissionFleet
+  /**
+   * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
+   *
+   * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
+   * 對倫內爾島那種**低空**雷擊來說 4,000 m 是錯的 —— 實測玩家開場在
+   * 3,850 m，而艦隊在 6.3 km 外、3.85 km 正下方：不低頭看不到船，
+   * 而那一關的第一印象本來就該是海面上的艦隊。
+   *
+   * 【它同時是撤離點與集合點的高度】`missionRules` 拿它算那些點，所以
+   * 兩邊要餵同一個值，不能一個讀卡片一個讀預設。
+   */
+  readonly altitude?: number
 }
 
 /**
@@ -584,6 +596,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         blueCount: 6, redCount: 6,
         terrain: 'sea',
         fleet: RENNELL_FLEET,
+        // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
+        // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
+        altitude: 1000,
       },
     },
   ],
@@ -664,7 +679,10 @@ export function missionRules(
  */
 export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   const b = card.battle
-  const rules = missionRules(card, DEFAULT_BATTLE.altitude, DEFAULT_BATTLE.lateralOffset)
+  // 【高度只讀一次，兩邊共用】`missionRules` 拿它算撤離點與集合點的高度。
+  // 一邊讀卡片、一邊讀預設的話，圓環會浮在編隊上方幾千公尺而不報錯。
+  const altitude = b.altitude ?? DEFAULT_BATTLE.altitude
+  const rules = missionRules(card, altitude, DEFAULT_BATTLE.lateralOffset)
   // 【擺法是生成器的第一個參數】`entry` 仍然是 `ENTRY_PLANS` 的鍵，那張表
   // 一個字不動
   const plan = ENTRY_PLANS[b.entry]
@@ -685,6 +703,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   return {
     ...DEFAULT_BATTLE,
     units,
+    altitude,
     aiProfile: VETERAN,
     rules,
     // 【只有護送／攔截會偏離中性值】其餘卡片的 `convoyPriority` 是 1，

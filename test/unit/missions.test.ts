@@ -194,3 +194,30 @@ describe('艦隊', () => {
     expect(f.ships.some((x) => x.cls === 'essex')).toBe(false)
   })
 })
+
+describe('開場高度', () => {
+  /**
+   * 【為什麼這一條值得存在】在 `MissionBattle.altitude` 之前，十二關的開場
+   * 高度全部寫死成 `DEFAULT_BATTLE.altitude`。倫內爾島是**低空**雷擊，
+   * 用 4,000 m 的話玩家開場在 3,850 m 而艦隊在 3.85 km 正下方 ——
+   * **不低頭看不到船**，而那一關的第一印象本來就該是海面上的艦隊。
+   */
+  it('倫內爾島是低空的，其餘沿用預設', () => {
+    const m4 = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    expect(missionConfigFrom(m4).altitude).toBe(1000)
+    expect(missionConfigFrom(readyCard(KILL_CARD)).altitude).toBe(DEFAULT_BATTLE.altitude)
+  })
+
+  /**
+   * 【撤離點要跟著卡片的高度走】`missionRules` 拿高度算撤離點與集合點。
+   * 一邊讀卡片、一邊讀預設的話，圓環會浮在編隊上方幾千公尺 —— 不報錯。
+   */
+  it('有終點的關，圓環的高度等於開場高度', () => {
+    for (const m of playable) {
+      const cfg = missionConfigFrom(m)
+      const r = cfg.rules
+      if (r.kind === 'annihilate') continue
+      expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
+    }
+  })
+})
