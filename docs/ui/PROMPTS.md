@@ -3,7 +3,7 @@
 **五張原檔全部是彩色的，黑白是 CSS 做的。** 負責人 2026-09-04：「我想讓這些圖都有
 顏色，只是用 CSS 做成黑白，然後 HOVER 的時候帶出 10~20% 顏色回來」——
 `index.html` 的 `.photo img` 是 `grayscale(1)`，`.tallcard:hover .photo img` 放到
-`grayscale(.85)`（還 15%），`sepia` 同時從 .26 降到 .10，不降的話那點顏色會被褐調吃掉。
+`grayscale(.70)`（還 30%），`sepia` 同時從 .26 降到 .06，不降的話那點顏色會被褐調吃掉。
 
 **構圖**：國旗（或國籍圖騰）填滿背景、前景是正在開火的飛機、低角度、主體壓滿框。
 **質感**：Kodachrome 彩色底片、高反差、深黑與過曝的高光、細顆粒、褪色紙邊。
@@ -26,11 +26,11 @@
 
 | 檔案 | 用途 | 比例 | 提示詞 |
 |---|---|---|---|
-| mission.jpg | 主選單 · 任務模式 | 3:4 | Vintage 1944 aerial photograph shot on Kodachrome colour film: a formation of B-17 Flying Fortress bombers leaving long white contrails high over Germany against a deep blue sky, shot from a nearby escort fighter. Rich saturated period colour, slightly faded, high contrast, fine film grain, scratches and dust like an archival print. No text, no lettering, no watermark. |
+| mission.jpg | 主選單 · 任務模式 | 3:4 | Vintage 1944 aerial photograph shot on Kodachrome colour film: a formation of B-17 Flying Fortress bombers flying away from the camera in the same direction, each aircraft trailing four long white condensation trails that begin exactly at its four engines and stream straight backwards behind it, all the contrails parallel to each other and to the direction of flight, receding into the distance. High altitude, deep blue sky above a hazy landscape far below. Rich saturated period colour, slightly faded, high contrast, fine film grain, scratches and dust like an archival print. No text, no lettering, no watermark. |
 | skirmish.jpg | 主選單 · 遭遇戰 | 3:4 | A single frame from 1944 WWII fighter gun camera footage shot on colour 16mm film: a Messerschmitt Bf 109 seen through the gunsight reticle, banking hard, orange tracer streaks passing it, grey-green camouflage and pale blue sky. Extremely grainy colour film, blurred motion, high contrast, dark vignette, film sprocket holes and frame counter numbers along one edge. Plain tail fin, no tail markings, no swastika. No text, no watermark. |
-| allies.jpg | 陣營頁 · 盟軍（星條旗當底） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a P-51D Mustang fighter filling most of the frame, diving steeply toward the viewer at a dramatic low angle, all six machine guns firing with brilliant white muzzle flashes and long tracer lines, a huge Stars and Stripes flag in bold red white and blue rippling across the entire background behind it, deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
-| germany.jpg | 陣營頁 · 德軍（鐵十字當圖騰，**不用國旗**：1944 年的德國國旗是卍字旗） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a Messerschmitt Bf 109 fighter filling most of the frame, charging head-on toward the viewer at a dramatic low angle, cannon and machine guns firing with brilliant white muzzle flashes and long tracer streaks, behind it a huge black Balkenkreuz (straight-armed cross with white outline) filling the entire background as a painted marking on a deep red and charcoal field. Absolutely no swastika, no eagle emblem, no flags, plain tail fin with no tail markings. Deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
-| japan.jpg | 陣營頁 · 日本（日章圓當底，**不是旭日旗**） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a Mitsubishi A6M5 Zero fighter filling most of the frame, climbing steeply and banking toward the viewer at a dramatic low angle, wing cannons firing with brilliant white muzzle flashes and long tracer streaks, behind it one enormous red Hinomaru sun disc on a plain white field filling the background, not the rising-sun ray flag. Deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
+| allies.jpg | 陣營頁 · 盟軍（星條旗當底） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a P-51D Mustang fighter filling most of the frame, diving steeply toward the viewer at a dramatic low angle, six wing machine guns firing. The gunfire is shown ONLY as small, short, sharp muzzle flashes at the gun ports themselves, each flash no bigger than the gun barrel, with a wisp of grey gun smoke. The aircraft is NOT burning and NOT damaged: no flames, no fireballs, no explosions, no engine fire. Absolutely no tracer lines, no tracer streaks, no bullet trails, no light streaks anywhere in the frame. A huge Stars and Stripes flag in bold red white and blue rippling across the entire background behind it. Deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
+| germany.jpg | 陣營頁 · 德軍（鐵十字當圖騰，**不用國旗**：1944 年的德國國旗是卍字旗） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a Messerschmitt Bf 109 fighter filling most of the frame, charging head-on toward the viewer at a dramatic low angle, nose cannon and wing machine guns firing. The gunfire is shown ONLY as small, short, sharp muzzle flashes at the gun ports themselves, each flash no bigger than the gun barrel, with a wisp of grey gun smoke. The aircraft is NOT burning and NOT damaged: no flames, no fireballs, no explosions, no engine fire. Absolutely no tracer lines, no tracer streaks, no bullet trails, no light streaks anywhere in the frame. Behind it a huge black Balkenkreuz (straight-armed cross with white outline) filling the entire background as a painted marking on a deep red and charcoal field. Absolutely no swastika, no eagle emblem, no flags, plain tail fin with no tail markings. Deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
+| japan.jpg | 陣營頁 · 日本（日章圓當底，**不是旭日旗**） | 3:4 | 1944 wartime propaganda photograph shot on Kodachrome colour film, high contrast: a Mitsubishi A6M5 Zero fighter filling most of the frame, climbing steeply and banking toward the viewer at a dramatic low angle, wing cannons firing. The gunfire is shown ONLY as small, short, sharp muzzle flashes at the gun ports themselves, each flash no bigger than the gun barrel, with a wisp of grey gun smoke. The aircraft is NOT burning and NOT damaged: no flames, no fireballs, no explosions, no engine fire. Absolutely no tracer lines, no tracer streaks, no bullet trails, no light streaks anywhere in the frame. Behind it one enormous red Hinomaru sun disc on a plain white field filling the background, not the rising-sun ray flag. Deep blacks and blown highlights, rich saturated period colour, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. No text, no lettering, no watermark. |
 
 跑法：`grok -p "<中文指令，內含上面的英文提示詞，指定存檔路徑>" --permission-mode bypassPermissions --no-subagents --max-turns 6`
 一張約 40 秒，864×1152 或 1152×864。正式版要出 2× 並改成 landscape 3:2。
@@ -55,3 +55,19 @@ python -c "from PIL import Image;import glob;[Image.open(p).convert('RGB').save(
 如果哪天又要純黑白的原檔，提示詞要帶
 `entirely black and white monochrome, absolutely no colour anywhere, no selective colour effect`。
 
+
+## 【踩過的坑】模型畫不對「彈道」與「凝結尾」
+
+負責人 2026-09-04 一眼看出兩處物理不對：
+
+- **曳光彈的方向反了**：日本那張機頭朝左上、槍口在翼上，曳光卻整排往右下飛出去 ——
+  子彈飛向飛機的後方。裁決：**陣營圖不畫射線，只畫槍焰**
+  （「陣營的開火只畫出槍焰 不要畫射線」）。
+- **凝結尾沒有接在發動機上**：B-17 那張的白線斜著穿過整個畫面，有幾條還從機頭前面
+  長出來。修法是把「從哪裡開始」寫死：`begin exactly at its four engines and stream
+  straight backwards behind it, all the contrails parallel to each other and to the
+  direction of flight`。
+
+第一次拿掉射線之後槍焰變成大火球，看起來像飛機在燒。再加一句
+`each flash no bigger than the gun barrel` ＋ `the aircraft is NOT burning and NOT
+damaged: no flames, no fireballs, no explosions` 才收得住。
