@@ -1124,6 +1124,31 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
+  // ── 彈艙 ──────────────────────────────────────────────
+  //
+  // 【**一定要在所有視角分支之外**】這個東西被關進條件式兩次了：第一次綁在
+  // 「投彈模式」（投完要盯著地面才補得完），第二次綁在「非上帝視角」（按 G
+  // 之後回補與連投節拍一起凍住）。它是機械，與鏡頭在哪裡無關。
+  //
+  // 【扣扳機不必另外擋】上帝視角與代飛都已經在上面把 `input.firing` 設成
+  // false，所以 `press` 自然是 false —— 那兩個模式下投不出彈，但連投中剩下
+  // 的幾枚會照節奏投完、回補照走。
+  //
+  // 【投彈點也要每幀算】少了它，連投中途切到別的視角時，剩下那幾枚會從一個
+  // 凍住的舊位置出去。
+  const bp = visuals.get(player)!.model.bombPoint
+  if (bp !== null) {
+    BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+    const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
+    stepBombBay(bombBay, frameSeconds, press, () => {
+      const v = player.aircraft.state.velocity
+      world.dropBomb(BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z)
+    })
+  }
+  // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成
+  // 一次新的扣扳機
+  bombWasFiring = input.viewMode === 'bomb' && input.firing
+
   let bombTarget: Vector3 | null = null
   let bombState: 'off' | 'solved' | 'none' = 'off'
   if (input.godView) {
@@ -1144,11 +1169,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera.updateProjectionMatrix()
     }
   } else {
-    // 【掛得了彈就每幀算投彈點】不只在投彈模式 —— 連投中途切回機外視角時，
-    // 剩下那幾枚仍然要從正確的位置出去
-    const bp = visuals.get(player)!.model.bombPoint
-    if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
-
     // 【落點要在 rig.update 之前解】相機的視線就是指向它
     if (input.viewMode === 'bomb' && bp !== null) {
       bombState = 'none'
@@ -1170,20 +1190,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
       input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
-
-    // 【彈艙每一幀都推進，不分視角】扣扳機需要瞄具，但**回補不需要**：綁在
-    // 投彈模式上的話，投完之後要盯著地面 20 秒才補得完，而那 20 秒正是應該
-    // 抬頭看有沒有人在咬你的時候
-    if (bp !== null) {
-      const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
-      stepBombBay(bombBay, frameSeconds, press, () => {
-        const v = player.aircraft.state.velocity
-        world.dropBomb(BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z)
-      })
-    }
-    // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被
-    // 讀成一次新的扣扳機
-    bombWasFiring = input.viewMode === 'bomb' && input.firing
   }
 
   tracers.update(world.projectiles)
