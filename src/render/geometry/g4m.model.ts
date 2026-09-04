@@ -55,6 +55,9 @@ export const G4M_MODEL: GlbAircraft = {
   // 右翼尖：翼尖扇的頂點（x 12.445、翼尖站中弦高 0.865、前後緣中點往後 0.10 → z 1.15）
   wingTip: new Vector3(12.445, 0.865, 1.15),
 
+  // 機首下方的投彈手席。**起始值** —— 看到機身內壁就再往下調
+  bombPoint: new Vector3(0, -0.55, -3.80),
+
   bodyColor: 0x4b5a44,
   accentColor: 0x262829,
 

@@ -50,6 +50,9 @@ export const KI84_MODEL: GlbAircraft = {
   // 右翼尖：翼尖扇的頂點（x 5.62、翼尖站中弦高 −0.02、前後緣中點往後 0.05 → z 0.07）
   wingTip: new Vector3(5.62, -0.02, 0.07),
 
+  /** 掛不了彈 */
+  bombPoint: null,
+
   bodyColor: 0x55603f,
   accentColor: 0x262829,
 

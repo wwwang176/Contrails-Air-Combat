@@ -42,6 +42,9 @@ export const P51D_MODEL: GlbAircraft = {
   // 訂的），y 是上反角 5° 到翼尖的高度
   wingTip: new Vector3(5.640, -0.1441, 0.1425),
 
+  /** 掛不了彈 */
+  bombPoint: null,
+
   bodyColor: 0x9aa7b4,
   accentColor: 0x2f3a46,
 

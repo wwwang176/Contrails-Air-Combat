@@ -24,6 +24,10 @@ export const B17G_MODEL: GlbAircraft = {
   // 右翼尖弦的中點，由 `b17g.ts` 的 WING 推出
   wingTip: new Vector3(15.810, 0.969, 1.527),
 
+  // 投彈手在機首下方。z -4.60 那一站的機腹底是 y -0.88（`b17g.hull.ts`），
+  // 相機放在它上方 0.33 m。**起始值** —— 看到機身內壁就再往下調
+  bombPoint: new Vector3(0, -0.55, -4.60),
+
   bodyColor: 0x8d9299,
   accentColor: 0x3c4147,
 

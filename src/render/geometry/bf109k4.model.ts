@@ -79,6 +79,9 @@ export const BF109K4_MODEL: GlbAircraft = {
   // 後緣 0.594（Blender 裡訂的收尖站），y 是量測上反角線到翼尖的高度
   wingTip: new Vector3(4.935, 0.225, 0.199),
 
+  /** 掛不了彈 */
+  bombPoint: null,
+
   /** 與程序版相同的塗裝（`bf109e.ts` 的 BF109_BODY_COLOR / accent）。 */
   bodyColor: 0x7e8a73,
   accentColor: 0x33403a,

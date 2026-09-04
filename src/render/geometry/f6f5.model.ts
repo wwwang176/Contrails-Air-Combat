@@ -46,6 +46,9 @@ export const F6F5_MODEL: GlbAircraft = {
    */
   wingTip: new Vector3(6.530, 0.227, 0.214),
 
+  /** 掛不了彈 */
+  bombPoint: null,
+
   /**
    * Glossy Sea Blue（ANA 623）—— 1944 年之後的美國海軍艦載機塗裝，F6F-5
    * 全機單色。比另外四台都暗，但那是真的；而且它讓敵我在空中好分辨。

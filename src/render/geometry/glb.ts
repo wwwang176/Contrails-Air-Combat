@@ -39,6 +39,17 @@ export interface GlbAircraft {
   eyePoint: Vector3
   /** **右**翼尖，機體座標 */
   wingTip: Vector3
+  /**
+   * 投彈瞄具的眼點，**機體座標**。**沒有掛彈的機種為 `null`。**
+   *
+   * 【為什麼一機一個值而不是從包圍盒推】與 `eyePoint` 同一個理由：三台轟炸機
+   * 的機身剖面差很多，共用一條「底面往上 0.3 m」的規則必然有一台的相機在
+   * 蒙皮外面。**起始值** —— 試飛時看到機身內壁就再往下調。
+   *
+   * 【近平面幫了忙】`CAMERA_NEAR = 1`，所以相機一公尺內的蒙皮會被裁掉，
+   * 視線自然穿得出機腹。
+   */
+  bombPoint: Vector3 | null
   bodyColor: number
   accentColor: number
   /**
@@ -94,6 +105,8 @@ export interface GlbTemplate {
   metrics: HullMetrics
   eyePoint: Vector3
   wingTip: Vector3
+  /** 見 `GlbAircraft.bombPoint`。`null` = 這一台掛不了彈 */
+  bombPoint: Vector3 | null
   /** 樣板自己持有的 GPU 資源。整局結束才需要放。 */
   dispose(): void
 }
@@ -263,6 +276,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     metrics: measure(group, def.realLength),
     eyePoint: def.eyePoint.clone(),
     wingTip: def.wingTip.clone(),
+    bombPoint: def.bombPoint === null ? null : def.bombPoint.clone(),
     dispose() { for (const d of owned) d.dispose() },
   }
 }
@@ -339,6 +353,7 @@ export function buildFromTemplate(t: GlbTemplate): AircraftModel {
     metrics: t.metrics,
     eyePoint: t.eyePoint.clone(),
     wingTip: t.wingTip.clone(),
+    bombPoint: t.bombPoint === null ? null : t.bombPoint.clone(),
     setPropSpin(r, b) {
       for (const p of props) {
         p.hub.rotation.z = r
