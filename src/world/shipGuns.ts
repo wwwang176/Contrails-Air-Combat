@@ -59,13 +59,19 @@ export interface ShipGunSpec {
  */
 export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 20 mm Oerlikon，射程 830 × 1.6 ≈ 1,330 m
+  //
+  // 【480 就是真砲的循環射速】原本訂 240，負責人試飛後要求加倍 —— 而加倍
+  // 之後反而回到史實：Oerlikon 的循環射速就是每分鐘 450 發上下。
   mg: {
-    muzzleVelocity: 830, roundsPerMinute: 240, life: 1.6,
+    muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6,
     damage: 12, hp: 60, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
   // 40 mm Bofors，射程 880 × 2.4 ≈ 2,110 m
+  //
+  // 【220 對四聯裝仍然保守】Bofors 每一管是每分鐘 120 發，四聯裝的理論值
+  // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
-    muzzleVelocity: 880, roundsPerMinute: 110, life: 2.4,
+    muzzleVelocity: 880, roundsPerMinute: 220, life: 2.4,
     damage: 40, hp: 120, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
