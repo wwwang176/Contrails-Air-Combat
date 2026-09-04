@@ -29,8 +29,8 @@ export interface Vec3Like {
  * `cosHalf` / `sinHalf` 由呼叫端預先算好 —— 半角是常數，每幀重算兩個三角
  * 函數沒有意義。
  *
- * @returns 有沒有夾制。true 對應 HUD 的 `clamped` 狀態 —— 圓圈不在真正的
- *          落點上，那件事必須看得出來
+ * @returns 有沒有夾制。**目前只有測試在讀** —— 畫面上不區分，因為夾制不改變
+ *          圓圈的正確性（圈畫的恆是真落點，被夾住的是相機）
  */
 export function coneClamp(
   dx: number, dy: number, dz: number,

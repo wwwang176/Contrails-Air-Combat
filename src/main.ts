@@ -1125,7 +1125,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
   let bombTarget: Vector3 | null = null
-  let bombState: 'off' | 'solved' | 'clamped' | 'none' = 'off'
+  let bombState: 'off' | 'solved' | 'none' = 'off'
   if (input.godView) {
     godInput.forward = input.godMove.forward
     godInput.back = input.godMove.back
@@ -1170,7 +1170,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
       input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
-    if (bombState === 'solved' && rig.sightClamped) bombState = 'clamped'
 
     // 【彈艙每一幀都推進，不分視角】扣扳機需要瞄具，但**回補不需要**：綁在
     // 投彈模式上的話，投完之後要盯著地面 20 秒才補得完，而那 20 秒正是應該
@@ -1263,7 +1262,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.bombReloading = bombBay.reloading
   hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0
   hudFrame.bombVisible = false
-  if (bombState === 'solved' || bombState === 'clamped') {
+  if (bombState === 'solved') {
     BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)
     hudFrame.bombX = BOMB_NDC.x
     hudFrame.bombY = BOMB_NDC.y
