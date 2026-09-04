@@ -46,7 +46,6 @@ export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Partic
     life: 4,
     // 【壽命要抖】同一朵的九顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
     lifeJitter: 0.3,
-    // 【×1.5，負責人試飛裁定】原本 6 → 14。
     sizeFrom: 9,
     sizeTo: 21,
     // 【幾乎不上升】終端速度 = gravity / drag = 0.1 m/s。高砲雲會掛在原地

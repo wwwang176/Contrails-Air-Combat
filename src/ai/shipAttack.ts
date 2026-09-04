@@ -3,7 +3,6 @@ import { makeScratch } from '../core/pool'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { AircraftSpec } from '../specs/types'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
 import type { Team } from '../world/World'
@@ -11,22 +10,30 @@ import type { Team } from '../world/World'
 /**
  * # AI 的對艦索敵與掃射
  *
- * **這是一條與空戰完全平行的路徑。**
+ * **與空戰完全平行的一條路徑。只在空戰那一側回傳「沒有目標」時才問。**
+ * 有敵機在、或這一場沒有船，程式碼路徑與沒有這個模組時相同。
  *
- * `selectTarget`／`targetScore`（`ai/target.ts`）一個字都沒有動 —— 那一層
- * 被一整排護欄釘著，而且它評的每一項（機會、威脅、切換成本、視野）對一艘
- * 不會轉向、不會還手（以砲位而非機首還手）的船都沒有意義。硬把船塞進
- * `TargetCandidate` 就要給它一具假的 `Aircraft`，那正是 spec §2 拒絕過的事。
+ * `selectTarget`／`targetScore`（`ai/target.ts`）不涉入：它評的每一項
+ * （機會、威脅、切換成本、視野）對一艘不會轉向、以砲位而非機首還手的船
+ * 都沒有意義，而把船塞進 `TargetCandidate` 要給它一具假的 `Aircraft`。
  *
- * 所以：**只有在空戰那一側回傳「沒有目標」時，才問這一層。** 有敵機在的
- * 時候行為與改動前逐字相同，沒有船的場次更是連問都不會問。
+ * ## 目標是砲位
  *
- * ## 這一層刻意不做的
+ * 掃射艦隊做的事就是打掉防空砲，而砲位是這一期唯一打得掉的東西（船體要等
+ * 魚雷）。瞄船體中心會讓飛機對著一塊沒有東西的甲板打。砲位全打光的船才
+ * 改瞄船體 —— 那是魚雷的目標，也是攻擊航路的起點。
  *
- * - **不迴避彈幕。** 威脅評估仍然只認得飛機。AI 會若無其事地飛進 32 門
- *   20 mm 的火網 —— 那其實蠻符合一式陸攻在倫內爾島的下場。
- * - **不投雷、不投彈。** 魚雷在另一支分支上。這裡只有機槍掃射。
- * - **不編隊攻擊。** 僚機仍然走站位那一格，只有自由獵手會去打船。
+ * ## 索敵不看自己有沒有武器
+ *
+ * 「能不能鎖定」與「打不打得動」是兩層。一式陸攻沒有固定槍，但它低空掠過
+ * 去時側方與機腹的 20 mm 銃手會打砲位（`world/turrets.ts` 的 `pickTarget`）
+ * —— 用武器擋索敵會讓那一整段行為消失。
+ *
+ * ## 這一層不做的
+ *
+ * - 不迴避彈幕。威脅評估只認得飛機。
+ * - 不投雷、不投彈。
+ * - 不編隊攻擊。僚機仍然走站位那一格。
  */
 
 /**
@@ -58,56 +65,101 @@ export const SHIP_FIRE_RANGE = 750
 export const SHIP_FIRE_CONE = 3 * DEG
 
 /**
- * 瞄點比水線高多少，m。
+ * 船體瞄點比水線高多少，m。
  *
- * 【為什麼不瞄艦體盒的原點】那個原點在**水線**上（與 `shipAA.ts` 同一套
- * 座標）。直接瞄它等於瞄海面：飛機對著水打，而且俯衝角比實際需要的更陡。
- * 抬到上層建築的高度帶，掃射線才落在船上。**起始值。**
+ * 【為什麼不是 0】艦體盒的原點在**水線**上（與 `shipAA.ts` 同一套座標），
+ * 瞄它等於瞄海面。**只有砲位全打光時才會用到** —— 平常瞄的是砲位本身。
  */
 export const SHIP_AIM_HEIGHT = 12
 
 /**
- * 這個機種能不能掃射船。
+ * 鎖定的東西：哪一艘船的哪一個砲位。
  *
- * 【為什麼是「有沒有固定掛架」】一式陸攻的武器全做成 AI 砲塔，`mounts` 是
- * 空陣列 —— 它飛到船上方**射不出任何東西**。少了這道閘，`japan-m4` 的五架
- * 僚機會排隊飛向艦隊、在彈幕裡繞圈、什麼都做不到，而且看起來像 AI 壞了。
- *
- * 砲塔那一側本來就會自己打船（`world/turrets.ts` 的 `pickTarget`），
- * 不需要飛行員飛過去。
+ * `gun` 為 −1 代表「這艘船的砲位都打光了，瞄船體」。
  */
-export function canAttackShips(spec: AircraftSpec): boolean {
-  return spec.battery.mounts.length > 0
+export interface ShipAim {
+  ship: number
+  gun: number
+}
+
+export function createShipAim(): ShipAim {
+  return { ship: -1, gun: -1 }
 }
 
 /**
- * 挑一艘船：敵隊、還浮著、在接戰半徑內，取**最近**的。回傳它在 `ships`
- * 裡的索引；沒有就是 −1。
+ * 粗篩的餘裕，m。取最長的艦體半長（Essex 133 m）再放寬。
  *
- * 【為什麼只用距離，不像空戰那樣評分】船不會轉向、不會逃、彼此也沒有
+ * 【它必須寬到不會假陰性】粗篩用船心、比距離用砲位，兩者最多差一個艦體
+ * 半長。算小了的症狀是「艦艏的砲位永遠不會被選中」，而且沒有任何錯誤。
+ */
+const HULL_SLACK = 200
+
+const P0 = /* @__PURE__ */ new Vector3()
+
+/**
+ * 挑一個對艦目標：敵隊、還浮著、在接戰半徑內，取**離自己最近的砲位**；
+ * 那艘船的砲位若已經打光，改瞄它的船體。回傳有沒有挑到。
+ *
+ * 【為什麼只用距離，不像空戰那樣評分】船不會轉向、不會逃，彼此也沒有
  * 「誰比較威脅我」的差別。多一套評分只是多一組要調的旋鈕。
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
 export function pickShipTarget(
-  selfPos: Vector3, selfTeam: Team, ships: readonly Ship[],
-): number {
-  let best = -1
+  selfPos: Vector3, selfTeam: Team, ships: readonly Ship[], out: ShipAim,
+): boolean {
+  out.ship = -1
+  out.gun = -1
   let bestSq = SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
   for (let i = 0; i < ships.length; i++) {
     const s = ships[i]!
     if (!s.alive || s.team === selfTeam) continue
-    const d = selfPos.distanceToSquared(s.position)
+    // 粗篩：船心離得比「目前最佳 ＋ 一個艦體半長」還遠就不必逐砲位比
+    const coarse = Math.sqrt(bestSq) + HULL_SLACK
+    if (selfPos.distanceToSquared(s.position) > coarse * coarse) continue
+
+    let anyGun = false
+    for (let g = 0; g < s.guns.length; g++) {
+      if (!s.guns[g]!.alive) continue
+      anyGun = true
+      const d = selfPos.distanceToSquared(gunWorld(s, g, P0))
+      if (d > bestSq) continue
+      bestSq = d
+      out.ship = i
+      out.gun = g
+    }
+
+    // 砲位全打光的船改瞄船體：魚雷的目標，也是攻擊航路的起點
+    if (anyGun) continue
+    const d = selfPos.distanceToSquared(shipAimPoint(s, P0))
     if (d > bestSq) continue
     bestSq = d
-    best = i
+    out.ship = i
+    out.gun = -1
   }
-  return best
+  return out.ship >= 0
 }
 
-/** 瞄點：船的位置抬到上層建築的高度帶。就地寫 `out`。 */
+/**
+ * 一個砲位的世界座標。就地寫 `out`。
+ *
+ * **與 `stepShipGuns` 的槍口、渲染層的槍焰是同一個算法** —— 三處分開寫會
+ * 漂開，症狀是「打的地方跟看到的地方差幾公尺」。
+ */
+export function gunWorld(ship: Ship, gunIndex: number, out: Vector3): Vector3 {
+  const g = ship.guns[gunIndex]
+  if (g === undefined) return shipAimPoint(ship, out)
+  return out.copy(g.zone.position).applyQuaternion(ship.orientation).add(ship.position)
+}
+
+/** 船體的瞄點：位置抬到上層建築的高度帶。 */
 export function shipAimPoint(ship: Ship, out: Vector3): Vector3 {
   return out.set(ship.position.x, ship.position.y + SHIP_AIM_HEIGHT, ship.position.z)
+}
+
+/** 鎖到砲位就瞄砲位，否則瞄船體。 */
+export function shipAimAt(ship: Ship, gunIndex: number, out: Vector3): Vector3 {
+  return gunIndex >= 0 ? gunWorld(ship, gunIndex, out) : shipAimPoint(ship, out)
 }
 
 const S = /* @__PURE__ */ makeScratch(3)
@@ -116,19 +168,24 @@ const FWD = /* @__PURE__ */ new Vector3(0, 0, -1)
 const MIN_ERROR = 1e-6
 
 /**
- * 掃射一艘船。寫滿整個 `Command`。
+ * 掃射一個目標。寫滿整個 `Command`。
  *
  * 三段：**遠了就飛過去、對準了就開火、太近就拉起來**。
  *
- * 【脫離優先於開火】兩者在同一步都成立時（貼著船還對得很準）要選脫離 ——
- * 多打的那零點幾秒換不到一架飛機。
+ * 【脫離優先於開火】兩者同時成立時（貼著船還對得很準）選脫離 —— 多打的
+ * 那零點幾秒換不到一架飛機。
+ *
+ * 【`firing` 對沒有固定槍的機種是空轉】`World.fire` 跑的是 `battery.mounts`，
+ * 空陣列就是零次迭代。它飛這一趟是為了讓自己的銃手打得到砲位。
  *
  * **呼叫端仍然要在之後套 `applySafety`**（spec §5.2：命令不豁免安全層）。
  *
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
-export function shipAttackCommand(self: Aircraft, ship: Ship, out: Command): void {
-  const aim = shipAimPoint(ship, S.v[0]!)
+export function shipAttackCommand(
+  self: Aircraft, ship: Ship, gunIndex: number, out: Command,
+): void {
+  const aim = shipAimAt(ship, gunIndex, S.v[0]!)
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const range = los.length()
 

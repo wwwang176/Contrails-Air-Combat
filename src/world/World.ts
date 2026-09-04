@@ -673,16 +673,12 @@ export class World {
           const a = S.v[0]!.set(ax, ay, az).sub(sh.position).applyQuaternion(SHIP_INV)
           const b = S.v[1]!.set(bx, by, bz).sub(sh.position).applyQuaternion(SHIP_INV)
 
-          // 【砲位優先於船體，不比 t】砲位盒**整個包在船體盒裡面** ——
-          // 砲架就長在甲板與上層建築上，而船體盒是 2–3 個粗體積。照 t 比的話
-          // 從上方來的子彈永遠先碰到船體那一面，**砲位一輩子打不掉**，
-          // 而且沒有任何錯誤。實測過：三條斷言同時紅，第四條假綠。
-          //
-          // 露在外面的是砲，所以打到砲就算打到砲。
+          // 【砲位優先於船體，不比 t】砲位盒可能與船體盒重疊（砲架長在甲板
+          // 與上層建築上，而船體盒是粗體積）。照 t 比的話從上方來的子彈會先
+          // 碰到船體那一面，砲位就打不掉了。露在外面的是砲，打到砲就算砲。
           for (let gi = 0; gi < sh.guns.length; gi++) {
             const g = sh.guns[gi]!
-            // 【死掉的砲位不參與判定】負責人裁定：打掉的砲位是一個洞，
-            // 不是還會擋子彈的殘骸。
+            // 【死掉的砲位不參與判定】打掉的砲位是一個洞，不是擋子彈的殘骸。
             if (!g.alive) continue
             const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
             if (t === NO_HIT || t >= bestT) continue
