@@ -1,0 +1,215 @@
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { World } from '../../src/world/World'
+import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
+import { SHIP_GUN_SPECS, createShipGuns, shipOwner } from '../../src/world/shipGuns'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import { Aircraft } from '../../src/aircraft/Aircraft'
+import { P51D } from '../../src/specs/p51d'
+import type { Controller } from '../../src/control/Controller'
+
+const DT = 1 / 240
+
+/** 什麼都不做的控制器。這幾條要驗的是判定，不是 AI。 */
+const IDLE: Controller = { update() {} }
+
+function fleetOf(w: World, cls = SHIP_CLASSES.fletcher, team: 'blue' | 'red' = 'red'): Ship {
+  const s = createShip(w.ships.length, cls, team, 0, 0, 0, 0)
+  s.guns = createShipGuns(cls)
+  s.gunCooldowns = new Float32Array(cls.zones.length)
+  w.ships.push(s)
+  return s
+}
+
+/**
+ * 從 `from` 朝 `at` 打一發，推進到它消失為止（最多 40 步）。
+ *
+ * 【為什麼要多步】彈丸一步只走 1.67 m（400 m/s ÷ 240 Hz），而判定吃的是
+ * [上一步, 這一步] 這一段線段 —— 一步到不了目標。
+ */
+function shoot(
+  w: World, from: Vector3, at: Vector3, damage: number,
+  owner = 0, team = 0,
+): void {
+  const v = at.clone().sub(from).normalize().multiplyScalar(400)
+  const i = w.projectiles.spawn(
+    from.x, from.y, from.z, v.x, v.y, v.z, damage, owner, team, PROJECTILE_LIFETIME,
+  )
+  for (let k = 0; k < 40 && w.projectiles.owner[i] !== -1; k++) {
+    w.projectiles.step(DT)
+    w.resolveHits()
+  }
+}
+
+/** 砲位在世界座標的位置。船在原點、艏向 0，所以就是艦體座標本身。 */
+const gunAt = (s: Ship, i: number): Vector3 => s.guns[i]!.zone.position.clone()
+
+describe('彈丸打船', () => {
+  it('打中砲位：砲位與船同時扣血', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const g = s.guns[0]!
+    const hp0 = s.hp
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 30)
+    expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp - 30)
+    expect(s.hp).toBe(hp0 - 30)
+  })
+
+  /** 【不套部位倍率】PART_MULTIPLIER 是飛機的六個部位，船沒有座艙也沒有機翼。 */
+  it('扣的是彈丸傷害的原值，不套部位倍率', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 17)
+    expect(s.guns[0]!.hp).toBe(SHIP_GUN_SPECS[s.guns[0]!.zone.tier].hp - 17)
+  })
+
+  it('砲位血量歸零之後就死了', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const g = s.guns[0]!
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 10_000)
+    expect(g.alive).toBe(false)
+    expect(g.hp).toBeLessThanOrEqual(0)
+  })
+
+  /**
+   * 【盒子要消失】負責人裁定：打掉的砲位是一個洞，不是還會擋子彈的殘骸。
+   *
+   * 用同一條線段打第二次 —— 砲位的血不該再變。
+   */
+  it('砲位死了之後盒子從判定裡消失', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const g = s.guns[0]!
+    const p = gunAt(s, 0)
+    const from = p.clone().add(new Vector3(0, 40, 0))
+    shoot(w, from, p, 10_000)
+    const hpAfterDeath = g.hp
+    shoot(w, from, p, 30)
+    expect(g.hp).toBe(hpAfterDeath)
+  })
+
+  /**
+   * 【自傷】砲口就在砲位盒的中心，而 `segmentBox` 對「起點已在盒內」回傳
+   * t = 0。沒有排除規則的話，每一發直射彈在出膛那一步就打中自己的砲位。
+   */
+  it('船自己打出去的彈丸不會打中自己', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const g = s.guns[0]!
+    const p = gunAt(s, 0)
+    shoot(w, p, p.clone().add(new Vector3(0, 300, 0)), 50, shipOwner(0), 1)
+    expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp)
+  })
+
+  /** 【船不打船】spec §12 明令不做船對船，而同隊的姊妹艦就在 800 m 外。 */
+  it('同隊的船不會被彼此的彈丸打到', () => {
+    const w = new World()
+    fleetOf(w)
+    const s2 = createShip(1, SHIP_CLASSES.fletcher, 'red', 800, 0, 0, 0)
+    s2.guns = createShipGuns(SHIP_CLASSES.fletcher)
+    s2.gunCooldowns = new Float32Array(SHIP_CLASSES.fletcher.zones.length)
+    w.ships.push(s2)
+    const g = s2.guns[0]!
+    const p = g.zone.position.clone().add(new Vector3(800, 0, 0))
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 50, shipOwner(0), 1)
+    expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp)
+  })
+
+  it('打中船體：船扣血、砲位不動', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const hp0 = s.hp
+    const hull = s.cls.hull[0]!
+    const p = hull.center.clone()
+    shoot(w, p.clone().add(new Vector3(0, 60, 0)), p, 25)
+    expect(s.hp).toBe(hp0 - 25)
+    for (const g of s.guns) expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp)
+  })
+})
+
+describe('飛機撞船', () => {
+  /**
+   * 【一定要關掉撞海】預設的 `crashPolicy` 是海平面判定，而艦體盒貼著水線。
+   * 不關的話「撞船」與「撞海」分不出來 —— 測試會綠，但綠的是錯的理由。
+   */
+  const build = () => {
+    const w = new World()
+    w.crashPolicy = () => false
+    return { w, s: fleetOf(w) }
+  }
+
+  const put = (w: World, x: number, y: number, z: number) => {
+    const c = w.add(new Aircraft(P51D), IDLE, 'blue', new Vector3(x, y, z), y, 0)
+    c.aircraft.state.position.set(x, y, z)
+    c.aircraft.state.velocity.set(0, 0, 0)
+    return c
+  }
+
+  it('飛機在船體盒裡 → 判墜毀', () => {
+    const { w, s } = build()
+    const b = s.cls.hull[0]!
+    const c = put(w, b.center.x, b.center.y, b.center.z)
+    w.step(DT)
+    expect(c.alive).toBe(false)
+  })
+
+  it('從舷外通過 → 不判', () => {
+    const { w, s } = build()
+    const b = s.cls.hull[0]!
+    const c = put(w, b.center.x + b.half.x * 4, b.center.y, b.center.z)
+    w.step(DT)
+    expect(c.alive).toBe(true)
+  })
+
+  /**
+   * 【這一條守的是「不能用重心」】飛機重心在盒外，但機翼伸進去了。用重心
+   * 判定的話這一條會綠著卻是錯的 —— 所以擺在剛好差一點的位置。
+   */
+  it('重心在盒外但機翼伸進去 → 仍然判墜毀', () => {
+    const { w, s } = build()
+    const b = s.cls.hull[0]!
+    const semi = P51D.hitBoxes
+      .filter((x) => x.part === 'wingLeft' || x.part === 'wingRight')
+      .reduce((m, x) => Math.max(m, Math.abs(x.center.x) + x.half.x), 0)
+    expect(semi).toBeGreaterThan(3)
+    const c = put(w, b.center.x + b.half.x + semi * 0.6, b.center.y, b.center.z)
+    w.step(DT)
+    expect(c.alive).toBe(false)
+  })
+
+  it('同隊的船一樣會撞死 —— 撞擊與陣營無關', () => {
+    const w = new World()
+    w.crashPolicy = () => false
+    const s = fleetOf(w, SHIP_CLASSES.fletcher, 'blue')
+    const b = s.cls.hull[0]!
+    const c = put(w, b.center.x, b.center.y, b.center.z)
+    w.step(DT)
+    expect(c.alive).toBe(false)
+  })
+})
+
+describe('高砲的範圍傷害', () => {
+  it('爆心附近的敵機扣血，同隊的不扣', () => {
+    const w = new World()
+    w.crashPolicy = () => false
+    const foe = w.add(new Aircraft(P51D), IDLE, 'blue', new Vector3(0, 1000, 0), 1000, 0)
+    const friend = w.add(new Aircraft(P51D), IDLE, 'red', new Vector3(5, 1000, 0), 1000, 0)
+    foe.aircraft.state.position.set(0, 1000, 0)
+    friend.aircraft.state.position.set(5, 1000, 0)
+    const hp0 = foe.hp
+    const fhp0 = friend.hp
+    // 紅隊（team 1）在原地引爆
+    w.flak.x[0] = 0; w.flak.y[0] = 1000; w.flak.z[0] = 0
+    w.flak.vx[0] = 0; w.flak.vy[0] = 0; w.flak.vz[0] = 0
+    w.flak.fuse[0] = DT / 2
+    w.flak.team[0] = 1
+    w.flak.live = 1
+    w.step(DT)
+    expect(foe.hp).toBeLessThan(hp0)
+    expect(friend.hp).toBe(fhp0)
+  })
+})
