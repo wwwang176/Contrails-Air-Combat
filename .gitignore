@@ -24,3 +24,6 @@ ref/
 # e2e 的人工檢視截圖：跑一次就重生，不進版控
 # （2026-08-21 的 PLAN 本來就寫「test-results/（未追蹤）」，是誤入的）
 test-results/
+
+# Git Bash 當掉時吐的堆疊，跟專案無關
+*.stackdump
