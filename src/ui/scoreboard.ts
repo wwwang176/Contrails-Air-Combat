@@ -163,13 +163,18 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
       + stat(`${Math.round(x.playerHp01 * 100)}%`, '剩餘結構')
   }
 
-  function tallyRows(blue: ScoreRow[], red: ScoreRow[], x: AfterAction): string {
+  /**
+   * 三組對比數字。**一組是一個 `.item`，橫著並排**（專案負責人 2026-09-04：
+   * 「aar-tally 是不是可以改橫的? 不然現在佔高度有點多」）—— 每一組自己
+   * 就是「我方　標籤　敵方」，所以拆成三個獨立的盒子不會讓左右錯開。
+   */
+  function tallyItems(blue: ScoreRow[], red: ScoreRow[], x: AfterAction): string {
     const t = tallyOf(blue, red)
-    const line = (a: string, k: string, b: string) =>
-      `<div class="a">${a}</div><div class="k">${k}</div><div class="b">${b}</div>`
-    let html = line(String(t.kills[0]), '擊落', String(t.kills[1]))
-    if (x.convoy !== null) html += line(`${x.convoy.alive} / ${x.convoy.total}`, '轟炸機存活', '—')
-    html += line(`${t.alive[0][0]} / ${t.alive[0][1]}`, '存活', `${t.alive[1][0]} / ${t.alive[1][1]}`)
+    const item = (a: string, k: string, b: string) =>
+      `<div class="item"><span class="a">${a}</span><span class="k">${k}</span><span class="b">${b}</span></div>`
+    let html = item(String(t.kills[0]), '擊落', String(t.kills[1]))
+    if (x.convoy !== null) html += item(`${x.convoy.alive} / ${x.convoy.total}`, '轟炸機存活', '—')
+    html += item(`${t.alive[0][0]} / ${t.alive[0][1]}`, '存活', `${t.alive[1][0]} / ${t.alive[1][1]}`)
     return html
   }
 
@@ -187,9 +192,9 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
       if (extra !== null) {
         sub.textContent = `${extra.objective}　·　${extra.title}　·　${formatDuration(extra.seconds)}`
         me.innerHTML = playerCard(blue, extra)
-        tally.innerHTML = tallyRows(blue, red, extra)
-        const summary = details.querySelector('summary')
-        if (summary) summary.textContent = `完整名單（${blue.length + red.length} 架）`
+        tally.innerHTML = tallyItems(blue, red, extra)
+        const cap = details.querySelector('.cap')
+        if (cap) cap.textContent = `完整名單（${blue.length + red.length} 架）`
       }
     },
     setVisible(v) {
