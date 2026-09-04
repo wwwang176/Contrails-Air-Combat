@@ -272,6 +272,7 @@ export function stepTurrets(
         // 這一項 —— 而 B-17G 的砲塔與 P-51D 的翼槍共用同一份 M2_BROWNING，
         // 改 WeaponSpec.damage 會把野馬一起砍半。見 TURRET_DAMAGE_SCALE。
         t.weapon.damage * t.guns * TURRET_DAMAGE_SCALE, c.index,
+        c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
       )
     }
   }

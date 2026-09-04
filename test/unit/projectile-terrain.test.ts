@@ -8,6 +8,7 @@ import { clearImpacts } from '../../src/world/events'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import type { Command, Controller } from '../../src/control/Controller'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 /**
  * 彈丸與陸地。
@@ -58,7 +59,7 @@ function fireOne(
   // 【owner 不能是 −1】那是彈丸池的空槽哨兵，resolveHits 會直接跳過。
   // 給 0：這一支多半沒有 combatants，於是射手是 undefined、陣營 −1，
   // 等於「不做同隊過濾」——正是這幾條想要的
-  w.projectiles.spawn(x, y, z, vx, vy, vz, 10, 0)
+  w.projectiles.spawn(x, y, z, vx, vy, vz, 10, 0, 0, PROJECTILE_LIFETIME)
   let hits = 0
   let splashes = 0
   let damage = 0
@@ -145,7 +146,7 @@ describe('命中與撞地的先後', () => {
     //
     // 沒有這個對齊的話命中會落在更早的一步（機體命中盒的頂在 103 以上），
     // 而那一步根本沒碰到地面 —— 測試就變成永遠綠、什麼都不擋。
-    w.projectiles.spawn(0, 190, 0, 0, -900, 0, 25, 1)
+    w.projectiles.spawn(0, 190, 0, 0, -900, 0, 25, 1, 0, PROJECTILE_LIFETIME)
     for (let i = 0; i < 40; i++) w.step(DT)
     expect(w.combatants[0]!.hp).toBeLessThan(before)
   })

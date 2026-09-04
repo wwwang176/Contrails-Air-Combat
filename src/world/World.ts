@@ -18,6 +18,7 @@ import type { TurretState } from './turrets'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
+import { PROJECTILE_LIFETIME } from './Projectiles'
 
 export type Team = 'blue' | 'red'
 
@@ -458,6 +459,7 @@ export class World {
       for (let n = 0; n < shots; n++) {
         this.projectiles.spawn(
           muzzle.x, muzzle.y, muzzle.z, v.x, v.y, v.z, mount.weapon.damage, c.index,
+          c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
         )
       }
     }

@@ -39,8 +39,30 @@ export class Projectiles {
 
   readonly age: Float32Array
   readonly damage: Float32Array
-  /** 射手的 combatant 索引；−1 代表空槽。判定時用它排除自傷。 */
+  /**
+   * 射手的 combatant 索引；−1 代表空槽。判定時用它排除自傷。
+   *
+   * 【船的編碼在負數區】艦上的砲用 `shipGuns.ts` 的
+   * `shipOwner(i) = −1000 − i`：−1 已經是空槽標記，而 0..3 會被
+   * `resolveHits` 當成同索引的**飛機** —— 錯誤排除那一架，還把命中數與
+   * 助攻記到它頭上。
+   */
   readonly owner: Int32Array
+  /**
+   * 射手的陣營：0 = blue、1 = red。**與 `resolveHits` 現有的 0/1 同一套。**
+   *
+   * 【為什麼不繼續從 owner 反查】船不是 combatant，反查不到 —— 同隊過濾會
+   * 靜靜失效，船於是打自己人。而且射手可能在彈丸落地之前就死了。
+   */
+  readonly team: Int8Array
+  /**
+   * 這一發的壽命，秒。
+   *
+   * 【為什麼不是全域常數】艦上的 40 mm 要飛 2.4 秒才到得了 2,110 m，而飛機
+   * 的固定槍仍然是 1.2 秒。`PROJECTILE_LIFETIME` **留著**：它同時是砲塔搜尋
+   * 與 HUD 預瞄環的射程判準，那條「看得到預瞄環＝打得到」的等式不能動。
+   */
+  readonly life: Float32Array
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一發身上。 */
   private cursor = 0
@@ -80,7 +102,9 @@ export class Projectiles {
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f()
     this.damage = f()
+    this.life = f()
     this.owner = new Int32Array(capacity).fill(-1)
+    this.team = new Int8Array(capacity)
   }
 
   get live(): number {
@@ -96,7 +120,7 @@ export class Projectiles {
   spawn(
     px: number, py: number, pz: number,
     vx: number, vy: number, vz: number,
-    damage: number, owner: number,
+    damage: number, owner: number, team: number, life: number,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -108,6 +132,8 @@ export class Projectiles {
     this.age[i] = 0
     this.damage[i] = damage
     this.owner[i] = owner
+    this.team[i] = team
+    this.life[i] = life
     if (this.liveCount > this.peakLive) this.peakLive = this.liveCount
     return i
   }
@@ -139,7 +165,7 @@ export class Projectiles {
       if (owner[i] === -1) continue
 
       const age = this.age[i]! + dt
-      if (age > PROJECTILE_LIFETIME) {
+      if (age > this.life[i]!) {
         owner[i] = -1
         this.liveCount--
         continue

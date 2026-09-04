@@ -46,7 +46,7 @@ function fill(state: MultiLoadState): void {
     const a = (i / PROJECTILE_CAPACITY) * Math.PI * 2
     p.spawn(
       o.x + Math.cos(a) * 40, o.y + Math.sin(a) * 40, o.z - 100 - (i % 700),
-      Math.cos(a) * 20, Math.sin(a) * 20, -887, 6, c.index,
+      Math.cos(a) * 20, Math.sin(a) * 20, -887, 6, c.index, 0, PROJECTILE_LIFETIME,
     )
     // 【壽命要錯開】全部給 age 0 的話會在同一步一起到期、再被一起補滿，
     // 量到的是週期性的尖峰而不是穩態
@@ -58,7 +58,7 @@ export function stepMultiLoad(state: MultiLoadState): void {
   const p = state.battle.world.projectiles
   const o = state.battle.world.combatants[0]!.aircraft.state.position
   while (p.live < PROJECTILE_CAPACITY) {
-    p.spawn(o.x, o.y, o.z - 200, 0, 0, -887, 6, 0)
+    p.spawn(o.x, o.y, o.z - 200, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
   }
   stepBattle(state.battle, LOAD_DT)
 }
