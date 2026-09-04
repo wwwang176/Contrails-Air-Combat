@@ -192,7 +192,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function unitRow(u: Briefing['mine'] extends readonly (infer U)[] | undefined ? U : never): string {
     return `<div class="unit"><span class="sil">${SIL[u.role]}</span>`
       + `<span><span class="nm">${escapeHtml(u.name)}</span> <span class="qty">× ${u.count}</span></span></div>`
-      + (u.note === undefined ? '' : `<div class="note">↑ ${escapeHtml(u.note)}</div>`)
   }
 
   function renderBrief(card: MissionCard): void {
@@ -200,7 +199,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const head = `<h2>${escapeHtml(b.title)}</h2><div class="lbl" style="margin:4px 0 12px">${escapeHtml(b.kind)}</div>`
     if (!b.ready) {
       el.brief.innerHTML = head
-        + `<p style="max-width:56ch;color:var(--dim)">${escapeHtml(b.summary)}</p>`
+        + `<p style="color:var(--dim)">${escapeHtml(b.summary)}</p>`
         + '<div class="soonbox"><b>準備中</b><br>這一關要打的是地面與海上目標（工廠、列車、艦船），'
         + '還要投彈與雷擊 —— 那一整套還沒做好。</div>'
       return
@@ -208,7 +207,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     el.brief.innerHTML = head
       + `<span class="stamp">機密</span>`
       + `<div class="obj">${escapeHtml(b.objective ?? '')}</div>`
-      + `<p style="max-width:58ch;margin:0 0 4px;color:var(--dim)">${escapeHtml(b.summary)}</p>`
+      + `<p style="margin:0 0 4px;color:var(--dim)">${escapeHtml(b.summary)}</p>`
       + `<div class="forces"><div><div class="lbl" style="margin-bottom:8px">我方</div>${(b.mine ?? []).map(unitRow).join('')}</div>`
       + `<div class="vs">對</div>`
       + `<div><div class="lbl" style="margin-bottom:8px">敵方</div>${(b.foe ?? []).map(unitRow).join('')}</div></div>`
@@ -232,7 +231,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     list.forEach((m, i) => {
       const ready = m.battle !== null
       const b = document.createElement('button')
-      b.className = `stop ${ready ? 'ready' : 'soon'}${i === k ? ' on paperbit' : ''}`
+      // 【每一關都是紙】不再只有選中的那一份是紙 —— 那一疊本來就是四份文件，
+      // 沒翻開的那幾份靠 `.stop:not(.on)` 壓暗一階
+      b.className = `stop paperbit ${ready ? 'ready' : 'soon'}${i === k ? ' on' : ''}`
       // 【e2e 用 id 選卡】標題會改，id 不會
       b.dataset['mission'] = m.id
       b.innerHTML = `<div class="k">第 ${i + 1} 關　${escapeHtml(m.type)}</div><div class="n">${escapeHtml(m.title)}</div>`

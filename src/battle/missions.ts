@@ -136,6 +136,14 @@ export interface MissionCard {
   /** 卡片上的一行說明 */
   readonly summary: string
   /**
+   * 這一關取材自哪一片空域。**簡報上取代了原本的「戰場 群島／內陸農地」**
+   * （專案負責人 2026-09-04：「戰場我覺得也可以換成寫實的位置」）——
+   * 地形是模擬的參數，空域才是簡報會寫的東西。
+   */
+  readonly place: string
+  /** 取材自哪一段時間。粗到年或月為止 —— 再細就會跟機型的服役期打架 */
+  readonly period: string
+  /**
    * 這一關的戰鬥設定。**null = 還沒做**，選單上 disabled。
    *
    * 【取代了 `playable` 旗標】原本是一個布林值與一堆散在根層、可以只填一半
@@ -333,6 +341,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'allies-m1', title: '護送堡壘', type: '護航',
       summary: '護送第八航空軍的 B-17 深入德國本土，轟炸施韋因富特的滾珠軸承廠。',
+      place: '德國　施韋因富特上空', period: '1944 年夏',
       battle: {
         ...CONVOY, objective: '護送轟炸機抵達投彈點',
         blueSpec: P51D, redSpec: BF109K4, convoySpec: B17G,
@@ -343,16 +352,19 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'allies-m2', title: '魯爾的油廠', type: '打擊',
       summary: '駕駛第八航空軍的 B-17G，轟炸蓋爾森基興的諾德斯特恩合成油廠。',
+      place: '魯爾區　蓋爾森基興', period: '1944 年夏',
       battle: null,
     },
     {
       id: 'allies-m3', title: '諾曼第斷軌', type: '打擊',
       summary: '掃射法國北部的機車與調車場，切斷德軍開往諾曼第的鐵路增援。',
+      place: '法國北部　塞納河以北', period: '1944 年春',
       battle: null,
     },
     {
       id: 'allies-m4', title: '沖繩外海', type: '殲滅',
       summary: '駕駛 F6F-5 守住沖繩外海的第 58 特遣艦隊，攔下零戰與低空進場的一式陸攻。',
+      place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
       battle: null,
     },
   ],
@@ -360,6 +372,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
       summary: '駕駛 Bf 109 K-4 撕開 P-51 的護航網，攔下飛往梅澤堡洛伊納油廠的 B-17G。',
+      place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
       battle: {
         ...CONVOY, objective: '在轟炸機抵達前擊落',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
@@ -379,16 +392,19 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'germany-m2', title: '庫班的鐵路', type: '打擊',
       summary: '駕駛第 55 轟炸航空團的 He 111，炸掉庫班橋頭堡後方的克羅波特金車站。',
+      place: '北高加索　克羅波特金', period: '1943 年春',
       battle: null,
     },
     {
       id: 'germany-m3', title: '奧博揚公路', type: '打擊',
       summary: '駕駛掛彈的 Bf 109 G 參加堡壘行動，低空攻擊奧博揚公路上的蘇軍戰車。',
+      place: '庫斯克南面　奧博揚公路', period: '1943 年 7 月',
       battle: null,
     },
     {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
       summary: '駕駛 Bf 109 K-4 從巴伐利亞的野戰機場升空，迎擊掃蕩德國本土的第八航空軍 P-51D。',
+      place: '德國南部　巴伐利亞上空', period: '1945 年春',
       battle: {
         objective: '擊落全部敵機',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
@@ -465,6 +481,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'japan-m1', title: '臺灣沖航空戰', type: '殲滅',
       summary: '駕駛 A6M5 從新竹起飛，迎戰空襲臺灣的第 38 特遣艦隊艦載機。',
+      place: '臺灣　新竹外海', period: '1944 年 10 月',
       battle: {
         ...KILL,
         blueSpec: A6M5, redSpec: F6F5,
@@ -475,11 +492,13 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'japan-m2', title: '讀谷灘頭', type: '殲滅',
       summary: '駕駛零戰攔下沖繩上空的艦載機，再回頭掃射讀谷灘頭的登陸艇。',
+      place: '沖繩　讀谷灘頭', period: '1945 年 4 月',
       battle: null,
     },
     {
       id: 'japan-m3', title: '雷伊泰的投雷點', type: '護航',
       summary: '駕駛 Ki-84 參加捷一號作戰，護送一式陸攻穿過 F6F 的攔截抵達投雷點。',
+      place: '菲律賓　雷伊泰灣', period: '1944 年 10 月',
       battle: {
         ...CONVOY, objective: '護送轟炸機抵達投雷點',
         blueSpec: KI84, redSpec: F6F5, convoySpec: G4M,
@@ -490,6 +509,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'japan-m4', title: '倫內爾島', type: '打擊',
       summary: '駕駛第 705 海軍航空隊的一式陸攻，在黃昏低空雷擊倫內爾島外的第 18 特遣艦隊。',
+      place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
       battle: null,
     },
   ],

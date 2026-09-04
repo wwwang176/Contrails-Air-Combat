@@ -26,6 +26,8 @@
         --btn: #3b3123; --btn-hi: #473b2b;
         --card: linear-gradient(180deg, rgba(59, 49, 35, .9), rgba(46, 38, 27, .9));
         --paper: #c5b894; --paper-ink: #2f271c; --paper-dim: #574a35;   /* ≥ 4.5:1 */
+        /* 疊在下面、還沒翻開的那幾份：同一種紙，只是壓在暗處 */
+        --paper-back: #9d926f; --paper-tab: #8b8163;
         --mine: #a9c3d2; --foe: #d0a89a;                                 /* 我方／敵方的隊色 */
         --f-body: 'Noto Serif TC', 'Songti TC', 'PMingLiU', serif;
         --f-ui: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
@@ -78,7 +80,7 @@
       .tape.tl { left: -14px; top: 10px; transform: rotate(-45deg); }
       .tape.br { right: -14px; bottom: 10px; transform: rotate(-45deg); }
       .stamp {
-        position: absolute; top: 16px; right: 20px; transform: rotate(9deg);
+        position: absolute; top: 16px; right: 20px;
         font: 700 12px/1 var(--f-title); letter-spacing: .18em; color: var(--sel);
         border: 2px solid var(--sel); padding: 5px 9px; opacity: .85;
       }
@@ -100,7 +102,7 @@
       h2 { font-size: 17px; font-weight: 700; }
 
       /* ① 開場 */
-      .cover { position: relative; padding: 26px 60px 22px; text-align: center; transform: rotate(-.5deg); }
+      .cover { position: relative; padding: 26px 60px 22px; text-align: center; }
       .cover::after { content: ''; position: absolute; left: 22px; top: -1px; width: 8px; height: 8px;
         border-radius: 50%; background: rgba(0,0,0,.5); box-shadow: 30px 0 0 rgba(0,0,0,.5); }
 
@@ -108,9 +110,7 @@
       .cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
       .tallcard { position: relative; width: 322px; padding: 0 0 18px; text-align: left;
         display: flex; flex-direction: column; background: var(--card); }
-      .tallcard .photo { height: 292px; margin: 10px 10px 14px; transform: rotate(-.6deg); }
-      .tallcard:nth-child(2) .photo { transform: rotate(.5deg); }
-      .tallcard:nth-child(3) .photo { transform: rotate(-.3deg); }
+      .tallcard .photo { height: 292px; margin: 10px 10px 14px; }
       .tallcard .t { margin: 0 20px; font: 700 19px/1.2 var(--f-body); }
       .tallcard .d { margin: 6px 20px 0; font-size: 12.5px; }
       .tallcard .m { margin: 12px 20px 0; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.18); font-size: 11px; }
@@ -122,23 +122,28 @@
       .brief { display: grid; grid-template-columns: 300px 1fr; width: min(1120px, 96vw);
         background: var(--panel); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
       .brief > .left { padding: 18px; border-right: 1px solid var(--rule); }
-      .brief > .right { position: relative; padding: 20px 24px; min-height: 470px; }
+      /* 【右欄是直向的 flex】「出擊」要釘在右下角（負責人 2026-09-04：「類似遭遇戰」），
+         靠的是 `.actions { margin-top: auto }` —— 內容短的時候它照樣沉到底 */
+      .brief > .right { position: relative; display: flex; flex-direction: column;
+        padding: 20px 24px; min-height: 470px; }
       .camphead { margin: 2px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
       .camphead .cn { font: 700 24px/1.2 var(--f-body); color: var(--strong); }
-      .route { position: relative; padding-left: 26px; }
-      .route::before { content: ''; position: absolute; left: 8px; top: 12px; bottom: 12px; width: 2px;
-        background: repeating-linear-gradient(180deg, var(--bd2) 0 5px, transparent 5px 10px); }
-      .stop { position: relative; width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 6px;
-        background: transparent; border: 1px solid transparent; }
-      .stop::before { content: ''; position: absolute; left: -22px; top: 15px; width: 11px; height: 11px;
-        border-radius: 50%; background: var(--panel); border: 2px solid var(--bd2); }
-      .stop.ready::before { border-color: var(--sel); }
-      .stop.on { transform: translateX(3px) rotate(-.5deg); }
+      /* 【一疊文件，不是時間軸】專案負責人 2026-09-04：「點點跟虛線可以移除，
+         頁籤就像文件的頁籤就好，任務像多份文件重疊」。所以圓點與虛線整條拿掉，
+         四關就是四份紙；每一份左緣那一條是它的頁籤，**選中的那一關轉紅**。
+         幾何完全不動 —— 負責人：「沒選到的頁籤不用比較短，選到的也不用左滑到齊」 */
+      .route { position: relative; }
+      .stop { position: relative; width: 100%; text-align: left;
+        padding: 9px 12px 9px 18px; margin-bottom: 5px; }
+      /* 【比 .paperbit 高一階】那一塊在樣式表最後面，但這一條是兩個類別選擇器 */
+      .stop:not(.on) { background-color: var(--paper-back); }
+      .stop::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+        background: var(--paper-tab); }
       .stop.on::before { background: var(--sel); }
-      .stop .k { font-size: 10.5px; letter-spacing: .1em; color: var(--dim); }
-      .stop .n { font-weight: 700; color: var(--strong); }
-      .stop.soon .n, .stop.soon .k { opacity: .55; }
-      .stop .soonmark { font-size: 10.5px; color: #cbb98d; }
+      .stop .k { font-size: 10.5px; letter-spacing: .1em; }
+      .stop .n { font-weight: 700; }
+      .stop.soon .n, .stop.soon .k { opacity: .58; }
+      .stop .soonmark { font-size: 10.5px; color: #6d5c3c; }
       .obj { font: 700 15px/1.4 var(--f-body); color: #cbb98d; border-left: 3px solid #cbb98d;
         padding-left: 11px; margin: 4px 0 16px; }
       .forces { display: grid; grid-template-columns: 1fr 60px 1fr; align-items: start;
@@ -148,11 +153,10 @@
       .unit .sil { width: 46px; fill: currentColor; opacity: .72; }
       .unit .nm { font-weight: 700; color: var(--strong); }
       .unit .qty { font-size: 12px; color: var(--dim); }
-      .unit .note { font-size: 11px; color: var(--dim); margin: -4px 0 6px 56px; }
       .facts { display: flex; gap: 26px; margin-top: 14px; flex-wrap: wrap; }
       .fact .v { font-weight: 700; color: var(--strong); }
       .soonbox { padding: 24px 20px; background: rgba(0,0,0,.10); border: 1px dashed var(--bd2); color: var(--dim); }
-      .brief .actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+      .brief .actions { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 22px; }
 
       /* ③ 編組 */
       .board { width: min(1180px, 96vw); padding: 22px 26px 24px; font-family: var(--f-ui);
@@ -171,8 +175,8 @@
       .side .count small { font-size: 11px; font-weight: 400; color: var(--dim); }
       .flight { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 10px; align-items: center;
         padding: 9px 11px; background: var(--card); border: 1px solid var(--bd2); box-shadow: 1px 3px 5px rgba(0,0,0,.42); }
-      /* 【我帶的那一隊是紙】它是我手上那張卡 —— 整頁只有這一塊亮面 */
-      .flight.lead { transform: rotate(-.4deg); }
+      /* 【我帶的那一隊是紙】它是我手上那張卡 —— 整頁只有這一塊亮面。
+         不轉角度：負責人 2026-09-04「遊戲內的文字歪斜好像都沒必要」 */
       .flight .pick { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--dim);
         background: transparent; padding: 0; display: grid; place-items: center; }
       .flight.lead .pick { border-color: var(--sel); }
