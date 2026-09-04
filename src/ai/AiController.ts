@@ -37,7 +37,7 @@ import {
   type WingmanConfig,
 } from './wingman'
 import { rallyCommand } from './rally'
-import { canAttackShips, pickShipTarget, shipAttackCommand } from './shipAttack'
+import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
 import type { Ship } from '../world/ships'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
@@ -111,13 +111,16 @@ export class AiController implements Controller {
   ships: readonly Ship[] = []
 
   /**
-   * 目前鎖定的敵艦索引；−1 = 沒有。
+   * 目前鎖定的**艦上目標**：哪一艘船的哪一個砲位。`ship` 為 −1 = 沒有。
    *
    * 【為什麼與 `targetIndex` 分開】那一格是 `TargetBoard.candidates` 的
    * 索引，而船不在那張表裡。共用一個欄位就得在每個讀它的地方先問
    * 「這是飛機還是船」—— 那正是 spec §2 拒絕過的那種污染。
+   *
+   * 【為什麼要記到砲位】掃射艦隊做的事就是打掉防空砲，而砲位也是這一期
+   * 唯一打得掉的東西。只記船的話飛機會瞄一塊空甲板。
    */
-  shipTargetIndex = -1
+  readonly shipAim = createShipAim()
 
   /**
    * 沒有空中目標時，試著找一艘船打。回傳 true 代表 `out` 已經寫滿。
@@ -130,10 +133,11 @@ export class AiController implements Controller {
    * 重選的話，兩艘距離相近的船會讓機首在 240 Hz 下抖。
    */
   private attackShip(self: Aircraft, decide: boolean, out: Command): boolean {
-    // 【沒有固定掛架就不去】一式陸攻飛到船上方射不出任何東西 ——
-    // 它的武器全是 AI 砲塔，而砲塔本來就會自己打船。
-    if (this.ships.length === 0 || !canAttackShips(self.spec)) {
-      this.shipTargetIndex = -1
+    // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
+    // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
+    // 側方與機腹的銃手會打砲位。
+    if (this.ships.length === 0) {
+      this.shipAim.ship = -1
       return false
     }
     // 【陣營從板子讀】`AiController` 自己沒有這一格 —— 它只知道自己在
@@ -141,20 +145,23 @@ export class AiController implements Controller {
     // 那些場景本來就沒有船）。
     const me = this.board?.candidates[this.selfIndex]
     if (me === undefined) {
-      this.shipTargetIndex = -1
+      this.shipAim.ship = -1
       return false
     }
-    if (decide) {
-      this.shipTargetIndex = pickShipTarget(self.state.position, me.team, this.ships)
-    }
-    const ship = this.shipTargetIndex >= 0 ? this.ships[this.shipTargetIndex] : undefined
+    if (decide) pickShipTarget(self.state.position, me.team, this.ships, this.shipAim)
+    const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
     // 【每一步都要複查】上一個決策拍之後它可能已經沉了，而下一次重選要
     // 到 100 ms 後 —— 那一段時間對著一艘沉船掃射看起來就是壞掉。
     if (ship === undefined || !ship.alive) {
-      this.shipTargetIndex = -1
+      this.shipAim.ship = -1
       return false
     }
-    shipAttackCommand(self, ship, out)
+    // 【砲位也要複查】它可能在這 100 ms 之內被打掉了。掉回瞄船體，
+    // 而不是繼續瞄一個已經不存在的東西。
+    if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
+      this.shipAim.gun = -1
+    }
+    shipAttackCommand(self, ship, this.shipAim.gun, out)
     return true
   }
 

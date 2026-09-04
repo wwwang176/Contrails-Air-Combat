@@ -2,12 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
-import { G4M } from '../../src/specs/g4m'
 import { createCommand } from '../../src/control/Controller'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import {
-  SHIP_ATTACK_RANGE, SHIP_BREAK_RANGE, canAttackShips,
+  SHIP_ATTACK_RANGE, SHIP_BREAK_RANGE, createShipAim, gunWorld,
   pickShipTarget, shipAttackCommand, shipAimPoint,
 } from '../../src/ai/shipAttack'
 
@@ -24,36 +23,55 @@ function at(x: number, y: number, z: number): Aircraft {
   return a
 }
 
-describe('canAttackShips', () => {
-  /**
-   * 【沒有固定掛架就不去】一式陸攻的武器全是 AI 砲塔（`mounts` 是空陣列），
-   * 它飛到船上方也**射不出任何東西**。少了這道閘，japan-m4 的五架僚機會
-   * 排隊飛向艦隊、在彈幕裡繞圈、什麼都做不到。
-   */
-  it('有固定掛架的才去打船', () => {
-    expect(canAttackShips(P51D)).toBe(true)
-    expect(canAttackShips(G4M)).toBe(false)
-  })
-})
-
 describe('pickShipTarget', () => {
-  it('沒有船時回 −1', () => {
-    expect(pickShipTarget(new Vector3(0, 500, 0), 'blue', [])).toBe(-1)
+  const pick = (pos: Vector3, ships: Ship[], team: 'blue' | 'red' = 'blue') => {
+    const aim = createShipAim()
+    const ok = pickShipTarget(pos, team, ships, aim)
+    return { ok, ...aim }
+  }
+
+  it('沒有船時挑不到', () => {
+    expect(pick(new Vector3(0, 500, 0), []).ok).toBe(false)
   })
 
   it('挑最近的敵艦', () => {
     const list = [ship(0, 3000, 0), ship(1, 500, 0), ship(2, 1500, 0)]
-    expect(pickShipTarget(new Vector3(0, 500, 0), 'blue', list)).toBe(1)
+    expect(pick(new Vector3(0, 500, 0), list).ship).toBe(1)
+  })
+
+  /**
+   * 【目標是砲位不是船】掃射艦隊做的事就是打掉防空砲，而砲位也是這一期
+   * 唯一打得掉的東西。瞄船體中心的話飛機會對著一塊空甲板打。
+   */
+  it('鎖到的是砲位，而且是最近的那一個', () => {
+    const s = ship(0, 0, 0)
+    const self = new Vector3(0, 300, -60)
+    const got = pick(self, [s])
+    expect(got.gun).toBeGreaterThanOrEqual(0)
+    const d = (g: number) => self.distanceTo(gunWorld(s, g, new Vector3()))
+    for (let g = 0; g < s.guns.length; g++) {
+      expect(d(got.gun)).toBeLessThanOrEqual(d(g) + 1e-6)
+    }
+  })
+
+  /** 【砲位打光了仍然鎖得住船體】那是魚雷的目標，也是攻擊航路的起點。 */
+  it('砲位全滅時改鎖船體', () => {
+    const s = ship(0, 0, 0)
+    for (const g of s.guns) g.alive = false
+    const got = pick(new Vector3(0, 500, 600), [s])
+    expect(got.ok).toBe(true)
+    expect(got.ship).toBe(0)
+    expect(got.gun).toBe(-1)
   })
 
   it('同隊的船不是目標', () => {
-    expect(pickShipTarget(new Vector3(0, 500, 0), 'blue', [ship(0, 500, 0, 'blue')])).toBe(-1)
+    expect(pick(new Vector3(0, 500, 0), [ship(0, 500, 0, 'blue')]).ok).toBe(false)
   })
 
   it('沉了的船不是目標', () => {
     const s = ship(0, 500, 0)
     s.alive = false
-    expect(pickShipTarget(new Vector3(0, 500, 0), 'blue', [s])).toBe(-1)
+    expect(pick(new Vector3(0, 500, 0), [s]).ok).toBe(false)
   })
 
   /**
@@ -62,9 +80,9 @@ describe('pickShipTarget', () => {
    */
   it('超出接戰半徑就不挑', () => {
     const far = SHIP_ATTACK_RANGE + 1000
-    expect(pickShipTarget(new Vector3(0, 500, far), 'blue', [ship(0, 0, 0)])).toBe(-1)
+    expect(pick(new Vector3(0, 500, far), [ship(0, 0, 0)]).ok).toBe(false)
     const near = SHIP_ATTACK_RANGE - 1000
-    expect(pickShipTarget(new Vector3(0, 500, near), 'blue', [ship(0, 0, 0)])).toBe(0)
+    expect(pick(new Vector3(0, 500, near), [ship(0, 0, 0)]).ship).toBe(0)
   })
 })
 
@@ -88,7 +106,7 @@ describe('shipAttackCommand', () => {
   it('遠距離時朝目標飛並開全油門', () => {
     const c = cmd()
     const self = at(0, 800, 3000)
-    shipAttackCommand(self, ship(0, 0, 0), c)
+    shipAttackCommand(self, ship(0, 0, 0), -1, c)
     // 目標在 −Z 方向且較低
     expect(c.aimWorld.z).toBeLessThan(0)
     expect(c.aimWorld.y).toBeLessThan(0)
@@ -104,7 +122,7 @@ describe('shipAttackCommand', () => {
     const c = cmd()
     const s = ship(0, 0, 0)
     const self = at(0, 120, SHIP_BREAK_RANGE - 50)
-    shipAttackCommand(self, s, c)
+    shipAttackCommand(self, s, -1, c)
     expect(c.aimWorld.y).toBeGreaterThan(0)
     expect(c.firing).toBe(false)
   })
@@ -121,14 +139,14 @@ describe('shipAttackCommand', () => {
     // 斜距約 630 m：大於脫離半徑 400、小於開火距離 750
     const a = at(0, 200, 600)
     facing(a, s)
-    shipAttackCommand(a, s, aligned)
+    shipAttackCommand(a, s, -1, aligned)
     expect(aligned.firing).toBe(true)
 
     // 同一個位置，機首偏開 90°
     const off = cmd()
     const b = at(0, 200, 600)
     b.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(1, 0, 0))
-    shipAttackCommand(b, s, off)
+    shipAttackCommand(b, s, -1, off)
     expect(off.firing).toBe(false)
   })
 
@@ -138,7 +156,7 @@ describe('shipAttackCommand', () => {
     const c = cmd()
     const a = at(0, 300, 900)
     facing(a, s)
-    shipAttackCommand(a, s, c)
+    shipAttackCommand(a, s, -1, c)
     expect(c.firing).toBe(false)
   })
 
@@ -148,7 +166,7 @@ describe('shipAttackCommand', () => {
     const a = at(0, 300, 5000)
     a.state.orientation.setFromUnitVectors(
       new Vector3(0, 0, -1), new Vector3(0, -300, -5000).normalize())
-    shipAttackCommand(a, s, c)
+    shipAttackCommand(a, s, -1, c)
     expect(c.firing).toBe(false)
   })
 
@@ -157,7 +175,7 @@ describe('shipAttackCommand', () => {
     const self = at(0, 800, 3000)
     const p = self.state.position.clone()
     const sp = s.position.clone()
-    shipAttackCommand(self, s, cmd())
+    shipAttackCommand(self, s, -1, cmd())
     expect(self.state.position.equals(p)).toBe(true)
     expect(s.position.equals(sp)).toBe(true)
   })

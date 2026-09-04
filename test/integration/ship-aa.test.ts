@@ -428,9 +428,8 @@ describe('AI 飛行員的對艦索敵', () => {
   /**
    * 一架 P-51D 在敵艦上方、場上沒有任何敵機。
    *
-   * 【為什麼用 P-51D 而不是這一關的 G4M】一式陸攻的固定掛架是空陣列，
-   * `canAttackShips` 會直接擋掉它 —— 那是刻意的（見 `ai/shipAttack.ts`）。
-   * 要驗「飛過去掃射」就得用一台真的有槍的。
+   * 【為什麼用 P-51D】它有固定槍，所以「開火」那一段也驗得到。一式陸攻
+   * 同樣會被派去（索敵不看武器），只是它的傷害由砲塔那一側造成。
    */
   const build = (shipTeam: 'blue' | 'red') => {
     const w = new World()
@@ -445,16 +444,48 @@ describe('AI 飛行員的對艦索敵', () => {
     return { w, s, c, ai }
   }
 
-  it('沒有空中目標時會鎖定敵艦', () => {
+  it('沒有空中目標時會鎖定敵艦上的砲位', () => {
     const { w, ai } = build('red')
     for (let i = 0; i < 240; i++) w.step(DT)
-    expect(ai.shipTargetIndex).toBe(0)
+    expect(ai.shipAim.ship).toBe(0)
+    // 【鎖到的是砲位，不是船】瞄船體中心的話會對著一塊空甲板打
+    expect(ai.shipAim.gun).toBeGreaterThanOrEqual(0)
+  })
+
+  /**
+   * 【索敵不看武器】用「有沒有固定掛架」擋的話，一式陸攻在天上沒有敵機
+   * 之後會直直平飛 —— 而它低空掠過去時，銃手是打得到砲位的。
+   */
+  it('沒有固定槍的一式陸攻同樣會被派去打船', () => {
+    const w = new World()
+    w.crashPolicy = () => false
+    fleetOf(w, SHIP_CLASSES.fletcher, 'red')
+    const ai = new AiController()
+    const c = w.add(new Aircraft(G4M), ai, 'blue', new Vector3(0, 900, 2500), 900, 150)
+    ai.board = createTargetBoard([c])
+    ai.selfIndex = 0
+    ai.ships = w.ships
+    const before = c.aircraft.state.position.distanceTo(w.ships[0]!.position)
+    for (let i = 0; i < 12 * 240; i++) w.step(DT)
+    expect(ai.shipAim.ship).toBe(0)
+    expect(c.aircraft.state.position.distanceTo(w.ships[0]!.position)).toBeLessThan(before - 500)
+  })
+
+  /** 【砲位被打掉就換一個】不換的話會一直瞄一個已經不存在的東西。 */
+  it('鎖定的砲位死了就改瞄別的', () => {
+    const { w, s, ai } = build('red')
+    for (let i = 0; i < 240; i++) w.step(DT)
+    const first = ai.shipAim.gun
+    expect(first).toBeGreaterThanOrEqual(0)
+    s.guns[first]!.alive = false
+    for (let i = 0; i < 60; i++) w.step(DT)
+    expect(ai.shipAim.gun).not.toBe(first)
   })
 
   it('同隊的船不會被鎖定', () => {
     const { w, ai } = build('blue')
     for (let i = 0; i < 240; i++) w.step(DT)
-    expect(ai.shipTargetIndex).toBe(-1)
+    expect(ai.shipAim.ship).toBe(-1)
   })
 
   /** 【真的會飛過去】不是只有選到而已。 */
@@ -478,10 +509,10 @@ describe('AI 飛行員的對艦索敵', () => {
   it('船沉了就放掉目標', () => {
     const { w, s, ai } = build('red')
     for (let i = 0; i < 240; i++) w.step(DT)
-    expect(ai.shipTargetIndex).toBe(0)
+    expect(ai.shipAim.ship).toBe(0)
     s.alive = false
     for (const g of s.guns) g.alive = false
     w.step(DT)
-    expect(ai.shipTargetIndex).toBe(-1)
+    expect(ai.shipAim.ship).toBe(-1)
   })
 })
