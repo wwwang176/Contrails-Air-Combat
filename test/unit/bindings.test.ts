@@ -510,3 +510,54 @@ describe('attachInput：上帝視角', () => {
     expect(state.godMove.up).toBe(false)
   })
 })
+
+describe('attachInput：投彈模式', () => {
+  /** 【自己帶一份】`key` 在這個檔案裡是每個 describe 各自的區域常數 */
+  const key = (code: string): unknown => ({ code, preventDefault: () => {} })
+
+  const arm = (capable: boolean) => {
+    const dom = setupDom()
+    const state = createInputState()
+    state.bombCapable = capable
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    return { dom, state }
+  }
+
+  it('B 在帶彈的飛機上切換投彈模式', () => {
+    const { dom, state } = arm(true)
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('bomb')
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('沒有掛彈時 B 沒有作用', () => {
+    const { dom, state } = arm(false)
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('投彈模式下 V 沒有作用 —— 它的軸是座艙／機外，投彈不在那條軸上', () => {
+    const { dom, state } = arm(true)
+    dom.win.fire('keydown', key('KeyB'))
+    dom.win.fire('keydown', key('KeyV'))
+    expect(state.viewMode).toBe('bomb')
+  })
+
+  it('機首視角下按 B 也進得去，退出時回機外', () => {
+    const { dom, state } = arm(true)
+    dom.win.fire('keydown', key('KeyV'))
+    expect(state.viewMode).toBe('first')
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('bomb')
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('上帝視角吃掉 B —— 鏡頭都不在飛機上了', () => {
+    const { dom, state } = arm(true)
+    dom.win.fire('keydown', key('KeyG'))
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.viewMode).toBe('third')
+  })
+})
