@@ -8,6 +8,10 @@ import {
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
+import {
+  BOMB_SPLASH_JETS, BOMB_SPLASH_SPREAD, BOMB_TERMINAL_SPEED, Bombs, bombDragK,
+  type BombImpactFn,
+} from './bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -155,6 +159,32 @@ export const SEA_KILL_Y = -20
 export class World {
   readonly combatants: Combatant[] = []
   readonly projectiles = new Projectiles()
+  readonly bombs = new Bombs()
+
+  /**
+   * 該點的**判定用**地面高度，m。海面是平的（0），陸地讀高度場。
+   *
+   * 【為什麼是注入的而不是自己讀 `this.land.field`】自己讀就要自己寫一次
+   * 「海面是平的」，而那條規則的權威在 `render/terrain.ts` 的
+   * `collisionHeightAt`（負責人 2026-08-28 裁定）。抄一份就是第二份真相。
+   * 與 `crashPolicy` 同一個注入方式。
+   */
+  groundAt: (x: number, z: number) => number = () => 0
+
+  /**
+   * 該點的**水面**高度，m。沒有水的地方回 `-Infinity`（`terrain.waterAt`）。
+   *
+   * 【為什麼要第二支而不是用 `groundAt` 判斷】`groundAt` 回的是「陸地與平海
+   * 取 max」，答不出「這裡碰到的是水嗎」。少了這一支，炸彈落在島上會噴水柱
+   * —— `render/debris.ts` 已經為同一個坑留過註解（「只有落水才噴濺」），
+   * 而純內陸地圖上那是**每一顆**都會發生。
+   */
+  waterAt: (x: number, z: number) => number = () => 0
+
+  /**
+   * 炸彈的阻力係數。與 `groundAt` 一樣由外面決定 —— `World` 不持有設計值。
+   */
+  bombDrag = bombDragK(BOMB_TERMINAL_SPEED)
 
   /**
    * 撞地判定。`main.ts` 注入與海面著色器共用波參數的版本。
@@ -391,8 +421,40 @@ export class World {
     // 3. 彈丸推進
     this.projectiles.step(dt)
 
+    // 3.5 炸彈推進
+    //
+    // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2 裁定），
+    // 壽命上限 1.2 s；炸彈要重力、要阻力、要飛 48 秒。
+    this.bombs.step(dt, this.bombDrag, this.groundAt, this.onBombImpact)
+
     // 4. 命中判定
     this.resolveHits()
+  }
+
+  /**
+   * 炸彈落地。**綁在實例上建一次，不在 `step` 裡寫成箭頭函數** —— 那樣會
+   * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
+   */
+  private readonly onBombImpact: BombImpactFn = (x, y, z) => {
+    // 【只有落水才推水柱】陸地上噴水柱是純內陸地圖每一顆都會發生的缺陷，
+    // `render/debris.ts` 為同一個坑留過註解。落陸目前什麼都不做
+    if (!(this.waterAt(x, z) > -Infinity)) return
+    // 【一顆炸彈推三根柱子】現有的水柱是子彈打出來的 12 m，炸彈不是子彈。
+    // 用數量換規模，`splash.ts` 不用改 —— `main.ts` 為殘骸入水寫過同一句。
+    // 高低粗細本來就由 `splashSize` 依格子隨機，三根不會疊成一根粗的
+    for (let n = 0; n < BOMB_SPLASH_JETS; n++) {
+      const a = (n / BOMB_SPLASH_JETS) * Math.PI * 2
+      pushImpact(
+        this.splashEvents,
+        x + Math.cos(a) * BOMB_SPLASH_SPREAD, y, z + Math.sin(a) * BOMB_SPLASH_SPREAD,
+        0, 1, 0,
+      )
+    }
+  }
+
+  /** 投一顆。位置與速度都是**世界座標** */
+  dropBomb(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
+    this.bombs.spawn(x, y, z, vx, vy, vz)
   }
 
   /**

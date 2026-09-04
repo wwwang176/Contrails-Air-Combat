@@ -1467,6 +1467,9 @@ export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
 ): void {
   b.world.projectiles.clear()
+  // 【炸彈也要清】它的壽命是彈丸的 75 倍（90 s 對 1.2 s）—— 上一場還在空中
+  // 的炸彈會在第二場繼續落下，看起來像憑空冒出來的水柱。
+  b.world.bombs.clear()
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
   // 看起來像隨機的。

@@ -33,6 +33,14 @@ export const BOMB_MAX_SECONDS = 90
  */
 export const BOMB_SPLASH_JETS = 3
 
+/**
+ * 那幾根柱子離落點多遠，m。**起始值，由試飛裁定。**
+ *
+ * 【為什麼要散開】三根疊在同一點只是一根比較不透明的柱子。2.5 m 大約是
+ * 水柱底半徑的量級，散開之後讀起來是「一團」而不是「一根」。
+ */
+export const BOMB_SPLASH_SPREAD = 2.5
+
 /** 二次阻力係數：`a = −k·|v|·v`。由終端速度反推 —— 終端時阻力恰好抵銷重力 */
 export function bombDragK(terminalSpeed: number): number {
   return G0 / (terminalSpeed * terminalSpeed)
@@ -127,4 +135,120 @@ export function solveImpact(
     return true
   }
   return false
+}
+
+/**
+ * 池子大小。
+ *
+ * 【64 怎麼來】玩家單次最多 8 顆同時在空中（4,000 m 落地要 31 秒，全投完
+ * 第一顆還沒落地）。64 是留給日後 AI 投彈的餘裕，而且相對
+ * `PROJECTILE_CAPACITY = 4000` 可以忽略。
+ */
+export const BOMBS_CAPACITY = 64
+
+/** 落地回呼。**不得配置** —— 一步之內可能呼叫好幾次 */
+export type BombImpactFn = (x: number, y: number, z: number, speed: number) => void
+
+/**
+ * 空中的炸彈。SoA，形狀照 `Projectiles` —— 型別化陣列、環狀寫入指標、
+ * 池滿時覆寫最舊的而不是拒絕投彈。
+ *
+ * 【**但精度用 Float64Array，與 `Projectiles` 不同**】「準星的預測與空中的
+ * 炸彈逐位元相同」這條護欄靠的是兩邊跑同一支 `stepBomb`，而 `solveImpact`
+ * 的狀態全程在一般 `number`（float64）裡。這裡若存 float32，每一步都會捨入
+ * 一次 —— 4,000 m 那個案例實算差 0.00378 m，護欄測試直接紅。
+ * 64 格 × 6 欄 × 8 bytes = 3 KB，換一條真的成立的不變式。
+ */
+export class Bombs {
+  readonly capacity: number
+  readonly x: Float64Array
+  readonly y: Float64Array
+  readonly z: Float64Array
+  readonly vx: Float64Array
+  readonly vy: Float64Array
+  readonly vz: Float64Array
+  readonly age: Float64Array
+  readonly active: Uint8Array
+
+  /** 環狀寫入指標。池滿時它自然會走到最舊的那一顆身上 */
+  private cursor = 0
+  private liveCount = 0
+  /** 推進一步時的暫存。熱路徑不得配置 */
+  private readonly sim: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
+
+  constructor(capacity: number = BOMBS_CAPACITY) {
+    this.capacity = capacity
+    const f = (): Float64Array => new Float64Array(capacity)
+    this.x = f(); this.y = f(); this.z = f()
+    this.vx = f(); this.vy = f(); this.vz = f()
+    this.age = f()
+    this.active = new Uint8Array(capacity)
+  }
+
+  get live(): number { return this.liveCount }
+
+  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number): number {
+    const i = this.cursor
+    this.cursor = (i + 1) % this.capacity
+    if (this.active[i] === 0) this.liveCount++
+    this.x[i] = x; this.y[i] = y; this.z[i] = z
+    this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
+    this.age[i] = 0
+    this.active[i] = 1
+    return i
+  }
+
+  clear(): void {
+    this.active.fill(0)
+    this.liveCount = 0
+    this.cursor = 0
+  }
+
+  /**
+   * 推進一步。**用的是與 `solveImpact` 相同的 `stepBomb`。**
+   *
+   * @param groundAt 該點的地面高度，出界回 `-Infinity`
+   * @param onImpact 落地回呼。那一顆在回呼之前就已經回收
+   */
+  step(
+    dt: number,
+    k: number,
+    groundAt: (x: number, z: number) => number,
+    onImpact: BombImpactFn,
+  ): void {
+    const s = this.sim
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.active[i] === 0) continue
+
+      const age = this.age[i]! + dt
+      if (age > BOMB_MAX_SECONDS) {
+        this.active[i] = 0
+        this.liveCount--
+        continue
+      }
+      this.age[i] = age
+
+      const px = this.x[i]!
+      const py = this.y[i]!
+      const pz = this.z[i]!
+      s.x = px; s.y = py; s.z = pz
+      s.vx = this.vx[i]!; s.vy = this.vy[i]!; s.vz = this.vz[i]!
+      stepBomb(s, k, dt)
+      this.x[i] = s.x; this.y[i] = s.y; this.z[i] = s.z
+      this.vx[i] = s.vx; this.vy[i] = s.vy; this.vz[i] = s.vz
+
+      const g = groundAt(s.x, s.z)
+      if (!(s.y <= g)) continue
+
+      // 【內插與 `solveImpact` 逐字相同】差一個字就是準星與水柱分家
+      const drop = py - s.y
+      const t = drop > 1e-9 ? (py - g) / drop : 0
+      this.active[i] = 0
+      this.liveCount--
+      onImpact(
+        px + (s.x - px) * t, g, pz + (s.z - pz) * t,
+        Math.sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz),
+      )
+    }
+  }
 }
