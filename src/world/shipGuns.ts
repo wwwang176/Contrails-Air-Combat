@@ -69,12 +69,17 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
     // 變厚、不是進去就死。降完之後總 DPS 與四艘時代相當。
     damage: 5, hp: 60, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
-  // 40 mm Bofors，射程 880 × 2.4 ≈ 2,110 m
+  // 40 mm Bofors，射程 880 × 3.4 ≈ 2,990 m
+  //
+  // 【壽命 2.4 → 3.4 是為了射程】2.4 秒只到 2,110 m，比史實的有效射程
+  // （2.7–3.5 km，見 shipAA.ts 表頭）短三成，而且與 20 mm 的 1,330 m 疊得
+  // 太近、讀不出層次。**初速不動，只延長飛行時間** —— 初速改了會連帶動到
+  // 預瞄解，那是另一件事。
   //
   // 【220 對四聯裝仍然保守】Bofors 每一管是每分鐘 120 發，四聯裝的理論值
   // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
-    muzzleVelocity: 880, roundsPerMinute: 220, life: 2.4,
+    muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4,
     // 【單發從 40 降到 18】理由同 mg。
     damage: 18, hp: 120, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
