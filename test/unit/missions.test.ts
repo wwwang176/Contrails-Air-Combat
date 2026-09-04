@@ -29,6 +29,7 @@ function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionC
   const kill = readyCard(KILL_CARD).battle
   return {
     id: 'test-evac', title: '測試用撤離', type: '撤離', summary: '',
+    place: '測試', period: '測試',
     battle: {
       objective: '飛抵撤離點',
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,

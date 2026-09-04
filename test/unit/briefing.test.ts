@@ -8,13 +8,20 @@ import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/m
  *
  * 【為什麼要一支純函數】「出擊前完全不知道我開什麼、對面幾架」是舊任務頁
  * 最大的問題，而這些資料 `missions.ts` 裡全都有。把「卡 → 簡報」寫成純函數，
- * 每一關的欄位就釘得住 —— 特別是增援時刻：**進場是 `at + warnLead` 秒**，
- * 不是 `at`（Codex 審查 2026-09-04 抓到的）。
+ * 每一關的欄位就釘得住。
+ *
+ * 【2026-09-04 第二輪：簡報只寫出擊前知道的事】負責人審過一輪，把時限、
+ * 增援、中途變更、撤離點四項都拿掉了 ——「這是遊戲內容，且玩家還沒進入戰鬥，
+ * 根本不會知道這些資訊」。**這一支現在反過來釘住「不該出現」**：那四個
+ * 標籤一個都不能回到 `facts` 裡；戰鬥那一側的資料（`waves`／`withdraw`）
+ * 一格都沒動，由 `battle-*.test.ts` 顧。
  */
 const fact = (b: Briefing, label: string): string | undefined =>
   b.facts?.find((f) => f.label === label)?.value
-const facts = (b: Briefing, label: string): string[] =>
-  (b.facts ?? []).filter((f) => f.label === label).map((f) => f.value)
+/** 出擊前不該知道的標籤。任何一個回到簡報上都是回歸 */
+const SECRET = ['時限', '敵方增援', '我方增援', '中途變更', '撤離點', '戰場', '航程']
+const noSecrets = (b: Briefing): string[] =>
+  (b.facts ?? []).map((f) => f.label).filter((l) => SECRET.includes(l))
 
 describe('briefingOf —— 護送（盟 M1）', () => {
   const b = briefingOf(readyCard(ESCORT_CARD))
@@ -31,21 +38,21 @@ describe('briefingOf —— 護送（盟 M1）', () => {
   })
 
   it('我方兩列：P-51D ×4，加上要護送的 B-17G ×4；敵方 Bf 109 K-4 ×10', () => {
+    // 【沒有「↑ 要護送的」那一列小字】負責人 2026-09-04：「這也很怪，請移除」
+    // —— 誰是要護送的，目標列已經說了
     expect(b.mine).toEqual([
       { name: 'P-51D', role: 'fighter', count: 4 },
-      { name: 'B-17G', role: 'bomber', count: 4, note: '要護送的' },
+      { name: 'B-17G', role: 'bomber', count: 4 },
     ])
     expect(b.foe).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
 
-  it('戰場群島、時限無、沒有增援、沒有中途變更、沒有航程', () => {
-    expect(fact(b, '戰場')).toBe('群島')
-    expect(fact(b, '時限')).toBe('無')
-    expect(facts(b, '敵方增援')).toEqual([])
-    expect(fact(b, '中途變更')).toBeUndefined()
-    // 【沒有航程列】`targetDistance` 12,000 不是實際航程（出生點在反方向 5,000，
-    // 實飛 17 km）—— 不顯示一個會騙人的數字
-    expect(fact(b, '航程')).toBeUndefined()
+  it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
+    expect(b.facts).toEqual([
+      { label: '空域', value: '德國　施韋因富特上空' },
+      { label: '時期', value: '1944 年夏' },
+    ])
+    expect(noSecrets(b)).toEqual([])
   })
 })
 
@@ -56,12 +63,13 @@ describe('briefingOf —— 攔截（德 M1）', () => {
     expect(b.mine).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
     expect(b.foe).toEqual([
       { name: 'P-51D', role: 'fighter', count: 4 },
-      { name: 'B-17G', role: 'bomber', count: 4, note: '要攔下的' },
+      { name: 'B-17G', role: 'bomber', count: 4 },
     ])
   })
 
-  it('增援在第 64 秒（60 秒預警 ＋ 4 秒），不是第 60 秒', () => {
-    expect(facts(b, '敵方增援')).toEqual(['第 64 秒　P-51D ×4'])
+  it('這一關有增援（第 64 秒），但簡報一個字都不提', () => {
+    expect(readyCard(INTERCEPT_CARD).battle.waves?.length).toBeGreaterThan(0)
+    expect(noSecrets(b)).toEqual([])
   })
 })
 
@@ -72,27 +80,22 @@ describe('briefingOf —— 殲滅＋返航（德 M4）', () => {
     expect(b.objective).toBe('擊落全部敵機 → 返航')
   })
 
-  it('兩批增援：第 4 秒與第 49 秒', () => {
-    expect(facts(b, '敵方增援')).toEqual(['第 4 秒　P-51D ×4', '第 49 秒　P-51D ×4'])
+  it('撤退只寫在目標列，不另外列中途變更與撤離點', () => {
+    // 資料還在（`withdraw` 驅動戰鬥），只是不上簡報
+    expect(readyCard('germany-m4').battle.withdraw).toBeDefined()
+    expect(noSecrets(b)).toEqual([])
   })
 
-  it('中途變更寫成白話：我方剩 ≤ 4 架時（最晚第 40 秒）→ 返航', () => {
-    expect(fact(b, '中途變更')).toBe('我方剩 ≤ 4 架時（最晚第 40 秒）→ 返航')
-  })
-
-  it('撤離點：後方 12 km，無倒數', () => {
-    expect(fact(b, '撤離點')).toBe('後方 12 km，無倒數')
-  })
-
-  it('戰場內陸農地，沒有被護送的', () => {
-    expect(fact(b, '戰場')).toBe('內陸農地')
+  it('空域與時期', () => {
+    expect(fact(b, '空域')).toBe('德國南部　巴伐利亞上空')
+    expect(fact(b, '時期')).toBe('1945 年春')
     expect(b.mine).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
   })
 })
 
 describe('briefingOf —— 其他', () => {
-  it('日 M3 的戰場是純海面', () => {
-    expect(fact(briefingOf(readyCard('japan-m3')), '戰場')).toBe('純海面')
+  it('日 M3 的空域是雷伊泰灣', () => {
+    expect(fact(briefingOf(readyCard('japan-m3')), '空域')).toBe('菲律賓　雷伊泰灣')
   })
 
   it('殲滅卡（日 M1）沒有護送列', () => {
@@ -113,12 +116,17 @@ describe('briefingOf —— 其他', () => {
     expect(b.facts).toBeUndefined()
   })
 
-  it('每一張可玩的卡都建得出簡報，而且欄位順序固定：戰場在前、時限第二', () => {
+  it('每一張可玩的卡都恰好兩列：空域在前、時期第二，值都不是空的', () => {
     for (const c of Object.values(MISSIONS).flat()) {
       if (c.battle === null) continue
       const b = briefingOf(c)
-      expect(b.facts![0]!.label).toBe('戰場')
-      expect(b.facts![1]!.label).toBe('時限')
+      expect(b.facts!.map((f) => f.label), c.id).toEqual(['空域', '時期'])
+      for (const f of b.facts!) expect(f.value.length, `${c.id} ${f.label}`).toBeGreaterThan(0)
     }
+  })
+
+  it('十二張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
+    const all = Object.values(MISSIONS).flat()
+    expect(new Set(all.map((c) => c.place)).size).toBe(12)
   })
 })

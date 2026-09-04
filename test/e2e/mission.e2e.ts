@@ -142,7 +142,9 @@ async function main(): Promise<void> {
           if (!pane.go) fail(`「${s.title}」可玩卻沒有出擊鈕`)
           if (pane.obj === '') fail(`「${s.title}」右欄沒有目標`)
           if (pane.units < 2) fail(`「${s.title}」右欄的編制少於兩列（我方＋敵方）`)
-          if (pane.facts < 2) fail(`「${s.title}」右欄沒有戰場與時限`)
+          // 【恰好兩列】2026-09-04 第二輪：簡報只留空域與時期，時限／增援／
+          // 中途變更／撤離點都拿掉了（出擊前不會知道的事不寫在簡報上）
+          if (pane.facts !== 2) fail(`「${s.title}」右欄應該恰好兩列（空域、時期），實得 ${pane.facts}`)
           ready.push({ campaign: c.id, id: s.id, title: s.title })
         }
       }

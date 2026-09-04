@@ -1,9 +1,6 @@
 import { missionConfigFrom } from '../battle/missions'
-import type {
-  MissionCard, ReadyMissionCard, MissionWave, MissionWithdraw, MissionTrigger,
-} from '../battle/missions'
+import type { MissionCard, ReadyMissionCard } from '../battle/missions'
 import type { AircraftSpec } from '../specs/types'
-import type { TerrainKind } from '../world/terrainKind'
 
 /**
  * 簡報頁右欄要畫的東西（2026-09-04 選單重做 spec §2.4）。**純資料，沒有 DOM。**
@@ -18,7 +15,6 @@ export interface BriefingUnit {
   readonly role: AircraftSpec['role']
   readonly count: number
   /** 「要護送的」「要攔下的」—— 被護送的那一列 */
-  readonly note?: string
 }
 
 export interface BriefingFact {
@@ -35,14 +31,19 @@ export interface Briefing {
   readonly objective?: string
   readonly mine?: readonly BriefingUnit[]
   readonly foe?: readonly BriefingUnit[]
-  /** 順序固定：戰場、時限、增援（每批一列）、中途變更、撤離點 */
+  /**
+   * 兩列：空域、時期。
+   *
+   * 【為什麼只剩這兩列】專案負責人 2026-09-04 審過一輪，把時限、敵方增援、
+   * 中途變更、撤離點都拿掉了：「這是遊戲內容，且玩家還沒進入戰鬥，根本不會
+   * 知道這些資訊」。出擊前寫得出來的是空域、時期、任務目標；寫不出
+   * 「敵人第 64 秒會來四架」，也寫不出「我方剩 ≤ 4 架時最晚第 40 秒撤」——
+   * 那是規則的內部數字，不是簡報的語言。
+   *
+   * 那幾項一個都沒從資料裡拿掉（`waves`／`seconds`／`withdraw` 照樣驅動
+   * 戰鬥），只是不上簡報；撤退這件事本身仍然寫在目標列的「→ 返航」。
+   */
   readonly facts?: readonly BriefingFact[]
-}
-
-const TERRAIN_LABEL: Record<TerrainKind, string> = {
-  archipelago: '群島',
-  farmland: '內陸農地',
-  sea: '純海面',
 }
 
 /**
@@ -58,36 +59,6 @@ export const SHORT_NAME: Record<string, string> = {
 
 export const shortName = (spec: AircraftSpec): string => SHORT_NAME[spec.id] ?? spec.name
 
-const SIDE_WORD = { mine: '我方', theirs: '敵方' } as const
-const ROLE_WORD: Record<AircraftSpec['role'], string> = { fighter: '戰鬥機', bomber: '轟炸機' }
-
-/**
- * 觸發條件的白話。`lead` 是預警到進場的秒數 —— 增援有，撤離沒有。
- *
- * 【`at + warnLead` 才是進場】`at` 秒發警告，`warnLead` 秒後才 `reinforce`
- * （`setup.ts` 的 `stepBeats`）。德 M1 是 60 秒預警、64 秒進場，不是第 60 秒
- * —— Codex 審查 2026-09-04 抓到的。
- */
-function whenWord(t: MissionTrigger, lead: number): string {
-  if (t.kind === 'clock') return `第 ${t.at + lead} 秒`
-  const role = t.role === undefined ? '' : ROLE_WORD[t.role]
-  return `${SIDE_WORD[t.side]}${role}剩 ≤ ${t.atMost} 架時（最晚第 ${t.byLatest + lead} 秒）`
-}
-
-function waveFact(w: MissionWave): BriefingFact {
-  return {
-    label: w.side === 'theirs' ? '敵方增援' : '我方增援',
-    value: `${whenWord(w.when, w.warnLead)}　${shortName(w.spec)} ×${w.count}`,
-  }
-}
-
-function withdrawFacts(w: MissionWithdraw): BriefingFact[] {
-  const km = Math.round(w.distance / 1000)
-  return [
-    { label: '中途變更', value: `${whenWord(w.when, 0)}→ ${w.message}` },
-    { label: '撤離點', value: `後方 ${km} km，${Number.isFinite(w.seconds) ? `倒數 ${w.seconds} 秒` : '無倒數'}` },
-  ]
-}
 
 function readyBriefing(card: ReadyMissionCard): Briefing {
   const b = card.battle
@@ -100,18 +71,15 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
   if (b.convoySpec !== null && rules.kind === 'convoy') {
     const unit: BriefingUnit = {
       name: shortName(b.convoySpec), role: b.convoySpec.role, count: b.convoyCount,
-      note: rules.owner === 'blue' ? '要護送的' : '要攔下的',
     }
     if (rules.owner === 'blue') mine.push(unit)
     else foe.push(unit)
   }
 
   const facts: BriefingFact[] = [
-    { label: '戰場', value: TERRAIN_LABEL[b.terrain] },
-    { label: '時限', value: Number.isFinite(b.seconds) ? `${b.seconds} 秒` : '無' },
+    { label: '空域', value: card.place },
+    { label: '時期', value: card.period },
   ]
-  for (const w of b.waves ?? []) facts.push(waveFact(w))
-  if (b.withdraw !== undefined) facts.push(...withdrawFacts(b.withdraw))
 
   return {
     ready: true,
