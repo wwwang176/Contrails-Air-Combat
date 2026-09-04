@@ -23,8 +23,8 @@ export const HE111_MODEL: GlbAircraft = {
   // 右翼尖弦的中點，由 `he111.ts` 的 WING 推出
   wingTip: new Vector3(11.300, 0.888, 1.883),
 
-  // 腹部吊艙（Bola）的位置。**起始值** —— 看到機身內壁就再往下調
-  bombPoint: new Vector3(0, -0.45, -3.20),
+  // 機腹中央（量測值，見 `belly-point.probe.ts`）
+  bombPoint: new Vector3(0, -0.84, 0),
 
   bodyColor: 0x5a6350,
   accentColor: 0x2b3128,
