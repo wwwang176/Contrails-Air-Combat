@@ -5,7 +5,15 @@
 任務內的陣營圖也可以做到這樣嗎?」—— 於是三張都用檔案照的提示詞重生，海報版不留。
 
 **構圖沒有變**：國旗（或國籍圖騰）當背景、前景是正在開火的飛機。變的只有渲染 ——
-從「網版印刷海報 ＋ 半調網點」換成「暗房照片蒙太奇 ＋ 粗顆粒黑白底片」。
+從「網版印刷海報 ＋ 半調網點」換成「**高反差銀鹽照片**」：飛機佔滿畫面、低角度、
+黑得下去白得上來、細顆粒、褪色紙邊。
+
+【為什麼是銀鹽而不是蒙太奇】第一版的「暗房照片蒙太奇 ＋ 粗顆粒」負責人看了說
+「感覺還是沒有原圖好看」—— 問題在灰：旗子和飛機都落在中間調，海報原本的力道
+（大面積純黑對純白、主體壓滿框）全被磨平了。改成 `high contrast silver gelatin
+print` ＋ `filling most of the frame` ＋ `deep blacks and blown highlights` 就回來了。
+另外兩個試過但沒選的方向：照相凹版報紙（`rotogravure ... halftone dot screen`，
+紙感很好但主體太小）、戲劇打光蒙太奇（`theatrical hard lighting`，暗部糊掉）。
 
 【2026-09-04 我在這裡走錯過一次】第一次改的時候把構圖也一起換成單純的空拍檔案照
 （飛機在雲上、沒有國旗），負責人：「我滿喜歡原本的構圖，我只是想改成膠片感而已」。
@@ -18,9 +26,9 @@
 |---|---|---|---|
 | mission.jpg | 主選單 · 任務模式 | 3:4 | Vintage 1944 aerial photograph of a formation of B-17 Flying Fortress bombers leaving long white contrails high over Germany, shot from a nearby escort fighter. Black and white, heavy film grain, slightly faded, high contrast, scratches and dust like an archival print. |
 | skirmish.jpg | 主選單 · 遭遇戰 | 3:4 | A single frame from 1944 WWII fighter gun camera footage: a Messerschmitt Bf 109 seen through the gunsight reticle, banking hard, tracer streaks passing it. Extremely grainy 16mm film, blurred motion, high contrast black and white, dark vignette, film sprocket holes and frame counter numbers along one edge. |
-| allies.jpg | 陣營頁 · 盟軍（星條旗當底） | 3:4 | 1944 wartime propaganda photograph, a darkroom photo montage printed on grainy black and white film: a P-51D Mustang fighter diving steeply toward the viewer, all six machine guns firing with bright muzzle flashes and tracer lines, the Stars and Stripes flag filling the entire background as a huge cloth flag photographed behind the aircraft, dramatic low angle, heroic energy. Entirely black and white monochrome, absolutely no colour anywhere, no selective colour effect, heavy film grain, slightly faded, high contrast, scratches and dust like an archival print, dark vignette. No text, no lettering, no watermark. |
-| germany.jpg | 陣營頁 · 德軍（鐵十字當圖騰，**不用國旗**：1944 年的德國國旗是卍字旗） | 3:4 | 1944 wartime propaganda photograph, a darkroom photo montage printed on grainy black and white film: a Messerschmitt Bf 109 fighter charging head-on toward the viewer, cannon and machine guns firing with muzzle flashes and tracer streaks, behind it a huge Balkenkreuz (straight-armed cross with white outline) filling the entire background as a painted marking, dramatic angle, heroic energy. Absolutely no swastika, no eagle emblem, no flags, plain tail fin with no tail markings. Entirely black and white monochrome, absolutely no colour anywhere, no selective colour effect, heavy film grain, slightly faded, high contrast, scratches and dust like an archival print, dark vignette. No text, no lettering, no watermark. |
-| japan.jpg | 陣營頁 · 日本（日章圓當底，**不是旭日旗**） | 3:4 | 1944 wartime propaganda photograph, a darkroom photo montage printed on grainy black and white film: a Mitsubishi A6M5 Zero fighter climbing steeply and banking toward the viewer, wing cannons firing with muzzle flashes and tracer streaks, behind it one enormous Hinomaru sun disc filling the background as a dark grey circle on a plain pale field, bold composition, heroic energy. Plain round disc only, not the rising-sun ray flag. Entirely black and white monochrome, absolutely no colour anywhere, no selective colour effect, heavy film grain, slightly faded, high contrast, scratches and dust like an archival print, dark vignette. No text, no lettering, no watermark. |
+| allies.jpg | 陣營頁 · 盟軍（星條旗當底） | 3:4 | 1944 wartime propaganda photograph, high contrast silver gelatin print: a P-51D Mustang fighter filling most of the frame, diving steeply toward the viewer at a dramatic low angle, all six machine guns firing with brilliant white muzzle flashes and long tracer lines, a huge Stars and Stripes flag rippling across the entire background behind it, deep blacks and blown highlights, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. Entirely black and white monochrome, absolutely no colour anywhere. No text, no lettering, no watermark. |
+| germany.jpg | 陣營頁 · 德軍（鐵十字當圖騰，**不用國旗**：1944 年的德國國旗是卍字旗） | 3:4 | 1944 wartime propaganda photograph, high contrast silver gelatin print: a Messerschmitt Bf 109 fighter filling most of the frame, charging head-on toward the viewer at a dramatic low angle, cannon and machine guns firing with brilliant white muzzle flashes and long tracer streaks, behind it a huge Balkenkreuz (straight-armed cross with white outline) filling the entire background as a painted marking. Absolutely no swastika, no eagle emblem, no flags, plain tail fin with no tail markings. Deep blacks and blown highlights, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. Entirely black and white monochrome, absolutely no colour anywhere. No text, no lettering, no watermark. |
+| japan.jpg | 陣營頁 · 日本（日章圓當底，**不是旭日旗**） | 3:4 | 1944 wartime propaganda photograph, high contrast silver gelatin print: a Mitsubishi A6M5 Zero fighter filling most of the frame, climbing steeply and banking toward the viewer at a dramatic low angle, wing cannons firing with brilliant white muzzle flashes and long tracer streaks, behind it one enormous Hinomaru sun disc filling the background as a plain circle, not the rising-sun ray flag. Deep blacks and blown highlights, fine film grain, faded edges, dust and fine scratches like an archival print, dark vignette. Entirely black and white monochrome, absolutely no colour anywhere. No text, no lettering, no watermark. |
 
 跑法：`grok -p "<中文指令，內含上面的英文提示詞，指定存檔路徑>" --permission-mode bypassPermissions --no-subagents --max-turns 6`
 一張約 40 秒，864×1152 或 1152×864。正式版要出 2× 並改成 landscape 3:2。
