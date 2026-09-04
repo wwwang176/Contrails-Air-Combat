@@ -64,7 +64,10 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 之後反而回到史實：Oerlikon 的循環射速就是每分鐘 450 發上下。
   mg: {
     muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6,
-    damage: 12, hp: 60, boxHalf: 1.2, rotationRate: 60 * DEG,
+    // 【單發從 12 降到 5】艦隊從四艘加到八艘，20 mm 砲區從 16 個變成 32 個
+    // —— 每秒 256 發。傷害不跟著降的話總 DPS 會翻倍，而要的是**視覺密度**
+    // 變厚、不是進去就死。降完之後總 DPS 與四艘時代相當。
+    damage: 5, hp: 60, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
   // 40 mm Bofors，射程 880 × 2.4 ≈ 2,110 m
   //
@@ -72,7 +75,8 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
     muzzleVelocity: 880, roundsPerMinute: 220, life: 2.4,
-    damage: 40, hp: 120, boxHalf: 2.0, rotationRate: 45 * DEG,
+    // 【單發從 40 降到 18】理由同 mg。
+    damage: 18, hp: 120, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
   flak: {

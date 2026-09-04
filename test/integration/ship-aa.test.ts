@@ -304,7 +304,7 @@ describe('resetBattle 要把船一起重設', () => {
    */
   it('船回到起點、砲位滿血、flak 池清空', () => {
     const b = createBattle(IDLE, missionConfigFrom(card), 1)
-    expect(b.world.ships.length).toBe(4)
+    expect(b.world.ships.length).toBe(8)
     const s = b.world.ships[0]!
     const spawn = s.position.clone()
 
@@ -322,10 +322,10 @@ describe('resetBattle 要把船一起重設', () => {
     expect(b.world.flak.live).toBe(0)
   })
 
-  it('四艘船照艦隊座標擺開，不是全部疊在中心', () => {
+  it('八艘船照艦隊座標擺開，不是全部疊在中心', () => {
     const b = createBattle(IDLE, missionConfigFrom(card), 1)
-    const xs = b.world.ships.map((s) => s.position.x)
-    expect(new Set(xs).size).toBe(4)
+    const key = (s: { position: { x: number; z: number } }) => `${s.position.x},${s.position.z}`
+    expect(new Set(b.world.ships.map(key)).size).toBe(8)
     for (const s of b.world.ships) expect(s.team).toBe('red')
   })
 })
