@@ -4,10 +4,12 @@ import { resetBurst, stepBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'
 import type { Arc } from '../weapons/turret'
+import { FLAK_MAX_FUSE, spawnFlak } from './flak'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { SHIP_AA_ARC_DEFAULTS, type ShipAATier } from './shipAA'
 import { FIRE_THRESHOLD, SEARCH_INTERVAL, TURRET_FLASH_SECONDS } from './turrets'
 import type { Ship, ShipClass, ShipGun } from './ships'
+import type { FlakShells } from './flak'
 import type { Projectiles } from './Projectiles'
 import type { TurretCombatant } from './turrets'
 
@@ -196,6 +198,7 @@ export function stepShipGuns(
   ship: Ship,
   all: readonly TurretCombatant[],
   projectiles: Projectiles,
+  flak: FlakShells,
   time: number,
   dt: number,
 ): void {
@@ -241,8 +244,28 @@ export function stepShipGuns(
     if (shots === 0) continue
     g.flash = TURRET_FLASH_SECONDS
 
-    // 【5 吋砲走近炸引信】它不進彈丸池，見 flak.ts（T5 接上）
-    if (g.zone.tier === 'flak') continue
+    // 【5 吋砲走近炸引信】它不進彈丸池，見 flak.ts
+    if (g.zone.tier === 'flak') {
+      // 【引信在發射那一刻就定死】目標之後閃避的話，雲就開在空的地方 ——
+      // 那正是要的手感：黑雲是危險的招牌，不是必中的判決。
+      //
+      // 【為什麼重解一次而不是沿用上面的 WANT】那一份是**機體座標**的方向，
+      // 而且不帶飛行時間。這裡要的是秒數，而 solveLead 只在有目標時才有解。
+      const o = all[g.targetIndex]
+      if (o === undefined) continue
+      P.copy(o.aircraft.state.position).sub(MUZZLE)
+      V.copy(o.aircraft.state.velocity)
+      const fuse = solveLead(P, V, spec.muzzleVelocity, LEAD)
+      if (fuse === NO_INTERCEPT || fuse > FLAK_MAX_FUSE) continue
+      applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
+      SHOT.applyQuaternion(q)
+      VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
+      spawnFlak(
+        flak, MUZZLE.x, MUZZLE.y, MUZZLE.z, VEL.x, VEL.y, VEL.z,
+        fuse, ship.team === 'blue' ? 0 : 1,
+      )
+      continue
+    }
 
     for (let n = 0; n < shots; n++) {
       applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
@@ -289,16 +312,9 @@ const ARC: Arc = { axis: UP, halfAngle: 0 }
 
 /** 這一層的飛行時間上限，秒。 */
 function rangeSeconds(g: ShipGun, spec: ShipGunSpec): number {
-  // flak 的 life 是 0（不進彈丸池），它的上限是引信 —— T5 接上之前先用
-  // 一個等效的秒數，讓射程判定在兩條路上是同一個意思。
+  // flak 的 life 是 0（不進彈丸池），它的射程上限是引信秒數
   return g.zone.tier === 'flak' ? FLAK_MAX_FUSE : spec.life
 }
-
-/**
- * 引信秒數上限。**與 `flak.ts` 的 `FLAK_MAX_FUSE` 是同一個數字**，
- * 但那個模組還不存在（T5）—— 接上之後這一份要刪掉，改成 import。
- */
-const FLAK_MAX_FUSE = 11
 
 /**
  * 挑目標：敵隊、存活、有解、在射界內，取**離槍口**最近的。

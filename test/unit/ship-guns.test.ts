@@ -5,6 +5,7 @@ import {
   SHIP_GUN_SPECS, SHIP_OWNER_BASE, createShipGuns, ownerShipIndex, shipOwner, stepShipGuns,
 } from '../../src/world/shipGuns'
 import { Projectiles } from '../../src/world/Projectiles'
+import { createFlak, type FlakShells } from '../../src/world/flak'
 import type { ShipAATier } from '../../src/world/shipAA'
 import type { TurretCombatant } from '../../src/world/turrets'
 
@@ -33,10 +34,12 @@ function shipWith(tier: ShipAATier, cls = SHIP_CLASSES.wichita): Ship {
   return s
 }
 
-function run(ship: Ship, all: TurretCombatant[], seconds: number): Projectiles {
+function run(
+  ship: Ship, all: TurretCombatant[], seconds: number, flak: FlakShells = createFlak(),
+): Projectiles {
   const p = new Projectiles(4096)
   const dt = 1 / 240
-  for (let i = 0; i < seconds * 240; i++) stepShipGuns(ship, all, p, i * dt, dt)
+  for (let i = 0; i < seconds * 240; i++) stepShipGuns(ship, all, p, flak, i * dt, dt)
   return p
 }
 
@@ -157,7 +160,7 @@ describe('stepShipGuns', () => {
     let fired = 0
     let prev = 0
     for (let i = 0; i < 4 * 240; i++) {
-      stepShipGuns(s, [target(0, 0, 600, 0)], p, i * dt, dt)
+      stepShipGuns(s, [target(0, 0, 600, 0)], p, createFlak(), i * dt, dt)
       const now = p.writeCursor
       fired += now - prev
       prev = now
@@ -165,8 +168,37 @@ describe('stepShipGuns', () => {
     expect(fired).toBeLessThanOrEqual(s.guns.length * (240 / 60) * 4)
   })
 
-  /** 【5 吋砲不進彈丸池】它走近炸引信那條路（T5）。 */
-  it('5 吋砲不產生彈丸', () => {
-    expect(run(shipWith('flak'), [target(0, 0, 2000, 0)], 3).live).toBe(0)
+  /** 【5 吋砲不進彈丸池】它走近炸引信那條路。 */
+  it('5 吋砲產生高砲彈而不是彈丸', () => {
+    const f = createFlak()
+    expect(run(shipWith('flak'), [target(0, 0, 2000, 0)], 3, f).live).toBe(0)
+    expect(f.live).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【引信 = 發射瞬間解出的攔截時間】2,000 m 的靜止目標，初速 450 →
+   * 約 4.4 秒。解不出來或超過上限就不開火。
+   */
+  it('引信約等於距離除以初速', () => {
+    const s = shipWith('flak')
+    const p = new Projectiles(64)
+    const f = createFlak()
+    const dt = 1 / 240
+    // 【要等】20 發/分，而且砲要從仰角 55° 轉到正上方（20°/s，約 1.75 秒）。
+    // 所以不是「跑一秒就有」——一出現就停，那一刻的引信才是發射時的值。
+    let i = -1
+    for (let k = 0; k < 10 * 240 && i < 0; k++) {
+      stepShipGuns(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+      i = f.team.findIndex((t) => t !== -1)
+    }
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(f.fuse[i]!).toBeCloseTo(2000 / SHIP_GUN_SPECS.flak.muzzleVelocity, 1)
+  })
+
+  /** 【超過引信上限就不開火】450 × 11 = 4,950 m 之外。 */
+  it('5 吋砲打不到 6,000 m 外的目標', () => {
+    const f = createFlak()
+    run(shipWith('flak'), [target(0, 0, 6000, 0)], 3, f)
+    expect(f.live).toBe(0)
   })
 })
