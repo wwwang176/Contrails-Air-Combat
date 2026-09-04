@@ -162,3 +162,35 @@ describe('missionConfigFrom', () => {
     expect(() => missionConfigFrom(broken)).toThrow()
   })
 })
+
+describe('艦隊', () => {
+  /**
+   * 【為什麼這一條是關鍵】`missionConfigFrom` 明列回傳欄位、**不透傳未知
+   * 資料**。只在 `MissionBattle` 上加一格的話型別檢查會過、卡片也讀得到，
+   * 但進戰鬥之後一艘船都不會有 —— 而且不報錯。
+   */
+  it('japan-m4 的艦隊真的流進 BattleConfig', () => {
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    expect(card.battle).not.toBeNull()
+    expect(card.battle.fleet).toBeDefined()
+    expect(missionConfigFrom(card).fleet?.ships.length).toBe(4)
+  })
+
+  it('沒有 fleet 的卡不產生任何船', () => {
+    expect(missionConfigFrom(readyCard(KILL_CARD)).fleet).toBeUndefined()
+    for (const m of playable) {
+      if (m.id === 'japan-m4') continue
+      expect(missionConfigFrom(m).fleet).toBeUndefined()
+    }
+  })
+
+  /** 【史實組】倫內爾島的 TF 18 是重巡編隊，Essex 那時還沒到太平洋。 */
+  it('倫內爾島是兩艘 Wichita 加兩艘 Fletcher，全部紅隊', () => {
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    const f = card.battle.fleet!
+    expect(f.ships.map((x) => x.cls).sort())
+      .toEqual(['fletcher', 'fletcher', 'wichita', 'wichita'])
+    for (const x of f.ships) expect(x.team).toBe('red')
+    expect(f.ships.some((x) => x.cls === 'essex')).toBe(false)
+  })
+})

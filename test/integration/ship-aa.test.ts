@@ -7,6 +7,9 @@ import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { G4M } from '../../src/specs/g4m'
+import { createBattle, resetBattle } from '../../src/battle/setup'
+import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
+import type { ReadyMissionCard } from '../../src/battle/missions'
 import type { Controller } from '../../src/control/Controller'
 
 const DT = 1 / 240
@@ -269,5 +272,42 @@ describe('飛機砲塔瞄船', () => {
     const before = gunHp(s)
     run(w, 20)
     expect(gunHp(s)).toBe(before)
+  })
+})
+
+describe('resetBattle 要把船一起重設', () => {
+  const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+
+  /**
+   * 【為什麼這一條非有不可】`japan-m4` 沒有 waves，所以「再打一場」走的是
+   * 就地 `resetBattle`，**不重建 World**。少了重設，第二局會是船停在上一局
+   * 結束的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆
+   * —— 全程不報錯。
+   */
+  it('船回到起點、砲位滿血、flak 池清空', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+    expect(b.world.ships.length).toBe(4)
+    const s = b.world.ships[0]!
+    const spawn = s.position.clone()
+
+    for (let i = 0; i < 30 * 240; i++) b.world.step(DT)
+    s.guns[0]!.hp = 0
+    s.guns[0]!.alive = false
+    expect(s.position.distanceTo(spawn)).toBeGreaterThan(100)
+    expect(b.world.flak.live).toBeGreaterThan(0)
+
+    resetBattle(b, 1)
+
+    expect(s.position.distanceTo(spawn)).toBeCloseTo(0, 6)
+    expect(s.guns[0]!.alive).toBe(true)
+    expect(s.guns[0]!.hp).toBe(SHIP_GUN_SPECS[s.guns[0]!.zone.tier].hp)
+    expect(b.world.flak.live).toBe(0)
+  })
+
+  it('四艘船照艦隊座標擺開，不是全部疊在中心', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+    const xs = b.world.ships.map((s) => s.position.x)
+    expect(new Set(xs).size).toBe(4)
+    for (const s of b.world.ships) expect(s.team).toBe('red')
   })
 })
