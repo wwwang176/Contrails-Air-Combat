@@ -10,10 +10,14 @@ describe('投彈模式的 HUD 清單', () => {
     expect(BOMB).toContain('bombsight')
   })
 
-  it('除了那一項換掉之外與一般飛行相同', () => {
+  it('除了準星換掉、加一層暗角之外，與一般飛行相同', () => {
     expect([...BOMB].sort()).toEqual(
-      [...FULL.filter((w) => w !== 'reticle'), 'bombsight'].sort(),
+      [...FULL.filter((w) => w !== 'reticle'), 'bombsight', 'bombVignette'].sort(),
     )
+  })
+
+  it('暗角排在最前面 —— 它壓的是世界，不是儀表', () => {
+    expect(BOMB[0]).toBe('bombVignette')
   })
 
   it('每一項都畫得出來 —— WIDGET_DRAW 不得缺格', () => {

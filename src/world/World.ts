@@ -9,8 +9,9 @@ import {
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
-  BOMB_SPLASH_JETS, BOMB_SPLASH_SPREAD, BOMB_TERMINAL_SPEED, Bombs, bombDragK,
-  type BombImpactFn,
+  BOMB_SPLASH_JETS, BOMB_SPLASH_SPREAD, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  Bombs, bombDragK, spreadDirection, spreadPair,
+  type BombImpactFn, type BombState,
 } from './bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
@@ -104,6 +105,10 @@ const S = makeScratch(4)
 
 /** 撞到陸地時的法線。模組級 —— 熱路徑不得配置 */
 const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
+
+/** 投彈偏移的暫存。模組級 —— 熱路徑不得配置 */
+const BOMB_PAIR = { u: 0, v: 0 }
+const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 
 /**
  * 槍焰的顯示時長，s。
@@ -452,9 +457,22 @@ export class World {
     }
   }
 
-  /** 投一顆。位置與速度都是**世界座標** */
+  /**
+   * 投一顆。位置與速度都是**世界座標**。
+   *
+   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
+   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
+   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
+   * （見 `resetBattle` 對 `world.time` 的說明）。
+   */
   dropBomb(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
-    this.bombs.spawn(x, y, z, vx, vy, vz)
+    spreadPair(this.bombs.dropped, BOMB_PAIR)
+    spreadDirection(
+      vx, vy, vz,
+      BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
+      BOMB_VEL,
+    )
+    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz)
   }
 
   /**
