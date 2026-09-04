@@ -32,7 +32,13 @@ import * as BASE from '../fixtures/spawn-baseline'
  * ```
  */
 describe('編組表重構：行為逐位元不變', () => {
-  for (const name of ['HEADON_20V20', 'PURSUIT_MIRROR_8V8'] as const) {
+  /**
+   * 【場景是逐一列出來的，不是掃 SCENES】新增一個場景時要記得加進來 ——
+   * 忘了的話那個場景有基準卻沒有人比對，是一條靜靜失效的護欄。
+   *
+   * ESCORT_B17 守的是砲塔那條路：前兩個場景只有固定槍。
+   */
+  for (const name of ['HEADON_20V20', 'PURSUIT_MIRROR_8V8', 'ESCORT_B17'] as const) {
     it(`${name}：出生表與編制表逐字相同`, () => {
       const b = createBattle(new Idle(), SCENES[name](), SEED)
       const got = spawnLines(b)
