@@ -1,10 +1,10 @@
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { mountDirection } from '../weapons/types'
 import { stepCadence } from '../weapons/cadence'
 import {
-  boundingRadius, createHitResult, hitAircraft, segmentPointDistanceSq,
-  PART_MULTIPLIER, type HitPart,
+  boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
+  NO_HIT, PART_MULTIPLIER, type HitPart,
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
@@ -14,6 +14,10 @@ import { CullIndex } from './cull'
 import { landHitT, type LandField } from './occlusion'
 import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
+import { stepShips, type Ship } from './ships'
+import { stepShipGuns, ownerShipIndex } from './shipGuns'
+import { createBursts, createFlak, flakDamage, stepFlak } from './flak'
+import { obbOverlap } from './obb'
 import type { TurretState } from './turrets'
 import { createCommand, type Command, type Controller } from '../control/Controller'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -102,6 +106,12 @@ const S = makeScratch(4)
 /** 撞到陸地時的法線。模組級 —— 熱路徑不得配置 */
 const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
 
+/** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
+const SHIP_INV = /* @__PURE__ */ new Quaternion()
+/** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
+const HULL_C = /* @__PURE__ */ new Vector3()
+const BODY_C = /* @__PURE__ */ new Vector3()
+
 /**
  * 槍焰的顯示時長，s。
  *
@@ -156,6 +166,22 @@ export const SEA_KILL_Y = -20
 export class World {
   readonly combatants: Combatant[] = []
   readonly projectiles = new Projectiles()
+
+  /**
+   * 這一場的船。**船不是 `Combatant`** —— 它沒有飛行模型、不進記分板、
+   * 不上 HUD 的接觸列表（見 spec §2）。空陣列 = 這一場沒有船，而三段推進
+   * 都是零長度早退，所以既有的空戰逐位元不變。
+   */
+  readonly ships: Ship[] = []
+
+  /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
+  readonly flak = createFlak()
+
+  /**
+   * 這一個物理步的高砲引爆事件。**呼叫端負責排空**（與 `hitEvents` 同一個
+   * 約定）—— 渲染層讀它畫黑雲。傷害則由 `applyBursts` 在這一層就吃掉。
+   */
+  readonly burstEvents = createBursts()
 
   /**
    * 撞地判定。`main.ts` 注入與海面著色器共用波參數的版本。
@@ -377,6 +403,14 @@ export class World {
       if (!c.alive) continue
       if (this.crashPolicy(c)) this.destroy(c)
     }
+    // 【撞船與撞地同一個位置、同一個理由】不擋的話飛機會直接穿過巡洋艦。
+    // 零長度的 `ships` 讓沒有船的場景完全不付這個成本。
+    if (this.ships.length > 0) {
+      for (const c of this.combatants) {
+        if (!c.alive) continue
+        if (this.hitsShip(c)) this.destroy(c)
+      }
+    }
     for (const c of this.combatants) {
       if (!c.alive) continue
       this.fire(c, dt)
@@ -388,6 +422,21 @@ export class World {
       if (!c.alive) continue
       stepTurrets(c, this.combatants, this.projectiles, this.time, dt, this.land)
     }
+    // 【船排在飛機砲塔之後、彈丸推進之前】三者都往同一個彈丸池寫，
+    // 順序固定才可重現。
+    stepShips(this.ships, dt)
+    for (const s of this.ships) {
+      // 砲位槍焰的遞減放在這裡而不是 stepShipGuns 裡面 —— 與飛機砲塔同一個
+      // 理由：寫在「死掉就 continue」之後的話，被打掉那一瞬間亮著的槍焰會
+      // 永遠停在那裡。
+      for (const g of s.guns) {
+        const v = g.flash - dt
+        g.flash = v > 0 ? v : 0
+      }
+      stepShipGuns(s, this.combatants, this.projectiles, this.flak, this.time, dt)
+    }
+    stepFlak(this.flak, dt, this.burstEvents)
+    this.applyBursts()
 
     // 3. 彈丸推進
     this.projectiles.step(dt)
@@ -513,6 +562,7 @@ export class World {
     const s1 = S.v[1]!
     // 【在迴圈外取出】4,000 發的迴圈裡每一發讀一次屬性是白付的
     const land = this.land
+    const ships = this.ships
 
     for (let i = 0; i < p.capacity; i++) {
       const owner = p.owner[i]!
@@ -520,10 +570,13 @@ export class World {
       const ax = p.sx[i]!, ay = p.sy[i]!, az = p.sz[i]!
       const bx = p.x[i]!, by = p.y[i]!, bz = p.z[i]!
 
-      // 射手的陣營。同隊的彈丸直接穿過（spec §5.4）；射手不在名單上時取 −1，
-      // 於是不會與任何 0/1 相等，等於不做同隊過濾。
+      // 射手的陣營。同隊的彈丸直接穿過（spec §5.4）。
+      //
+      // 【為什麼讀 p.team 而不是從 owner 反查】船不是 combatant，反查不到
+      // —— 同隊過濾會靜靜失效，船於是打自己人。飛機那一側 `World.fire` 與
+      // `stepTurrets` 填的值與反查出來的完全相同，所以行為逐位元不變。
       const shooter = owner >= 0 && owner < combatants.length ? combatants[owner] : undefined
-      const ownerTeam = shooter === undefined ? -1 : (shooter.team === 'blue' ? 0 : 1)
+      const ownerTeam = p.team[i]!
 
       const lo = (ax < bx ? ax : bx) - rMax
       const hi = (ax > bx ? ax : bx) + rMax
@@ -565,6 +618,84 @@ export class World {
         bestNy = this.hit.ny
         bestNz = this.hit.nz
       }
+      // ── 船 ──────────────────────────────────────────────
+      //
+      // 【為什麼排在飛機之後、陸地之前】同一個物理步之內「先擦過一架飛機、
+      // 再撞上艦橋」是合法的，而彈丸一步走 3.7–4.5 m。順序用線段參數 t 比。
+      //
+      // 【兩條排除規則缺一不可】
+      //   發射的那一艘：砲口就在砲位盒的中心，而 `segmentBox` 對「起點已在
+      //   盒內」回傳 t = 0 —— 每一發直射彈會在出膛那一步打中自己。
+      //   同隊的船：spec §12 明令不做船對船，而姊妹艦就在 800 m 外。
+      let shipHit: Ship | null = null
+      let shipGun = -1
+      if (ships.length > 0) {
+        const fromShip = ownerShipIndex(owner)
+        for (let k = 0; k < ships.length; k++) {
+          const sh = ships[k]!
+          if (k === fromShip) continue
+          if ((sh.team === 'blue' ? 0 : 1) === ownerTeam) continue
+          if (segmentPointDistanceSq(
+            ax, ay, az, bx, by, bz, sh.position.x, sh.position.y, sh.position.z,
+          ) > sh.cls.radius * sh.cls.radius) continue
+
+          // 世界 → 艦體：平移再套用艏向的逆旋轉。與 `hitAircraft` 同一招，
+          // 但船只有 yaw，所以直接用四元數共軛即可。
+          SHIP_INV.copy(sh.orientation).conjugate()
+          const a = S.v[0]!.set(ax, ay, az).sub(sh.position).applyQuaternion(SHIP_INV)
+          const b = S.v[1]!.set(bx, by, bz).sub(sh.position).applyQuaternion(SHIP_INV)
+
+          // 【砲位優先於船體，不比 t】砲位盒**整個包在船體盒裡面** ——
+          // 砲架就長在甲板與上層建築上，而船體盒是 2–3 個粗體積。照 t 比的話
+          // 從上方來的子彈永遠先碰到船體那一面，**砲位一輩子打不掉**，
+          // 而且沒有任何錯誤。實測過：三條斷言同時紅，第四條假綠。
+          //
+          // 露在外面的是砲，所以打到砲就算打到砲。
+          for (let gi = 0; gi < sh.guns.length; gi++) {
+            const g = sh.guns[gi]!
+            // 【死掉的砲位不參與判定】負責人裁定：打掉的砲位是一個洞，
+            // 不是還會擋子彈的殘骸。
+            if (!g.alive) continue
+            const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
+            if (t === NO_HIT || t >= bestT) continue
+            bestT = t
+            victim = null
+            shipHit = sh
+            shipGun = gi
+          }
+          if (shipGun >= 0) continue
+
+          for (const box of sh.cls.hull) {
+            const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+            if (t === NO_HIT || t >= bestT) continue
+            bestT = t
+            victim = null
+            shipHit = sh
+            shipGun = -1
+          }
+        }
+      }
+      if (shipHit !== null) {
+        // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`。
+        // **不推 `damageEvents`** —— 那一條要一個 combatant 索引，船不是飛機。
+        pushImpact(
+          this.hitEvents,
+          ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
+          -(bx - ax), -(by - ay), -(bz - az),
+        )
+        const dmg = p.damage[i]!
+        // 【不套 PART_MULTIPLIER】那是飛機的六個部位，船沒有座艙也沒有機翼。
+        // 裝甲差異由砲位與船體各自的血量表達，不由倍率表達。
+        shipHit.hp -= dmg
+        if (shipGun >= 0) {
+          const g = shipHit.guns[shipGun]!
+          g.hp -= dmg
+          if (g.hp <= 0) g.alive = false
+        }
+        p.kill(i)
+        continue
+      }
+
       // ── 陸地 ────────────────────────────────────────────
       //
       // 【為什麼排在飛機之後而不是迴圈開頭】同一個物理步之內「先打中飛機、
@@ -639,6 +770,59 @@ export class World {
       this.applyDamage(victim, p.damage[i]!, part, shooter)
       p.kill(i)
     }
+  }
+
+  /**
+   * 這一步的高砲引爆造成的傷害。
+   *
+   * 【為什麼掃重心而不是命中盒】破片是球形擴散的，50 m 的殺傷半徑遠大於
+   * 一架飛機（P-51D 的包圍球是 7.1 m）。用命中盒等於假裝破片是一條線。
+   *
+   * 【走 `fuselage`】高砲破片不挑部位，而座艙的 ×2.5 用在這裡會讓傷害
+   * 隨機到無法調校。**注意實扣的血仍然會除以機種的 `protection.fuselage`。**
+   */
+  private applyBursts(): void {
+    const e = this.burstEvents
+    if (e.count === 0) return
+    for (let k = 0; k < e.count; k++) {
+      const team = e.team[k]!
+      const x = e.x[k]!, y = e.y[k]!, z = e.z[k]!
+      for (const c of this.combatants) {
+        if (!c.alive) continue
+        if ((c.team === 'blue' ? 0 : 1) === team) continue
+        const pos = c.aircraft.state.position
+        const d = Math.hypot(pos.x - x, pos.y - y, pos.z - z)
+        const dmg = flakDamage(d)
+        if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
+      }
+    }
+  }
+
+  /**
+   * 這一架碰到船了嗎。
+   *
+   * 【不能用重心】低空進場一定有人擦著艦體過去。用重心的話機翼會穿過上層
+   * 建築而沒事 —— 所以用飛機的命中盒（機體 AABB ＋ 姿態 ＝ OBB）對船體盒
+   * 做分離軸測試。
+   *
+   * 【先比包圍球】只有真的貼近的那一架才付 15 條軸的錢。
+   */
+  private hitsShip(c: Combatant): boolean {
+    const pos = c.aircraft.state.position
+    const q = c.aircraft.state.orientation
+    for (const sh of this.ships) {
+      const reach = c.hitRadius + sh.cls.radius
+      if (pos.distanceToSquared(sh.position) > reach * reach) continue
+      for (const box of sh.cls.hull) {
+        // 船體盒的中心要轉到世界：船有艏向
+        HULL_C.copy(box.center).applyQuaternion(sh.orientation).add(sh.position)
+        for (const hb of c.aircraft.spec.hitBoxes) {
+          BODY_C.copy(hb.center).applyQuaternion(q).add(pos)
+          if (obbOverlap(BODY_C, hb.half, q, HULL_C, box.half, sh.orientation)) return true
+        }
+      }
+    }
+    return false
   }
 
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */

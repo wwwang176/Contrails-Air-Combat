@@ -37,14 +37,34 @@ describe('SHIP_CLASSES', () => {
   })
 
   /**
-   * 【船體盒要含得住砲位的高度】砲位盒掛在砲口上，而砲口在上層建築上。
-   * 船體盒若只到主甲板，子彈會從艦橋「裡面」穿過去打到對舷的砲位。
+   * 【硬性不變量：船體盒不得包含任何砲位】
+   *
+   * 這一條是實測換來的。一開始船體盒含上層建築（Fletcher 到 y 13），而砲位
+   * 在 y 5.0–10.8 —— **整個包在裡面**。從上方來的子彈在更早的物理步就被船體
+   * 吃掉，`砲位永遠打不掉`，而且沒有任何錯誤：三條斷言同時紅，第四條還假綠
+   * （兩發都打在船體上，砲位血量當然「沒變」）。
+   *
+   * 同一步之內的優先權救不了跨步的問題，所以規則訂在資料這一層。
    */
-  it('船體盒的最高點高於最高的砲位', () => {
+  it('沒有任何砲位落在船體盒內', () => {
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      for (const z of cls.zones) {
+        for (const b of cls.hull) {
+          const inside = Math.abs(z.position.x - b.center.x) <= b.half.x
+            && Math.abs(z.position.y - b.center.y) <= b.half.y
+            && Math.abs(z.position.z - b.center.z) <= b.half.z
+          expect(`${cls.id}/${z.id} 在盒內=${inside}`).toBe(`${cls.id}/${z.id} 在盒內=false`)
+        }
+      }
+    }
+  })
+
+  /** 【盒頂要低於最低的砲位】上一條的等價說法，但失敗訊息看得到差多少。 */
+  it('船體盒的最高點低於最低的砲位', () => {
     for (const cls of Object.values(SHIP_CLASSES)) {
       const top = Math.max(...cls.hull.map((b) => b.center.y + b.half.y))
-      const gunTop = Math.max(...cls.zones.map((z) => z.position.y))
-      expect(top).toBeGreaterThanOrEqual(gunTop)
+      const gunLow = Math.min(...cls.zones.map((z) => z.position.y))
+      expect(top).toBeLessThan(gunLow)
     }
   })
 })
