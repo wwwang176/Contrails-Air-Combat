@@ -375,7 +375,17 @@ const KILL = {
  * 放進來會差九個月 —— **它留給 `allies-m4` 沖繩**，1945 年 4 月的第 58
  * 特遣艦隊，而那一關的敘述本來就是「守住艦隊」。
  *
- * 【陣型】兩艘重巡並列在中央（左右 800 m），兩艘驅逐在前方兩側外張。
+ * 【陣型：防空序列的緊端】兩艘重巡並列（相距 500 m），兩艘驅逐在前方兩側
+ * 外張 700 m。整隊橫跨 1.4 km。
+ *
+ * 美軍 1943–45 年的防空警戒序列：縱隊裡的主力艦彼此 450–900 m，護衛幕在
+ * 距核心 1,400–2,700 m，而**遭空襲時會刻意收緊到 1,400–1,800 m 讓火網
+ * 重疊** —— 收緊本來就是那個序列的目的。
+ *
+ * 【為什麼從 3 km 收到 1.4 km】原本兩巡 800 m、驅逐外張 1,500 m 前方
+ * 1,200 m，仍在史實區間但落在鬆的那一端，遠看是四個分開的小點而不是一支
+ * 艦隊（人工回報：「船艦的密度太低，所以看起來無感」）。
+ *
  * 航速 8 m/s ≈ 15.5 節，**起始值** —— 真艦的戰鬥航速更高，但這一關的重點
  * 是彈幕不是追擊，船跑太快會讓低空進場的相對幾何每次都不一樣，調不準。
  */
@@ -384,10 +394,10 @@ const RENNELL_FLEET: MissionFleet = {
   heading: 0,
   speed: 8,
   ships: [
-    { cls: 'wichita', team: 'red', offset: new Vector3(-400, 0, 0) },
-    { cls: 'wichita', team: 'red', offset: new Vector3(400, 0, 0) },
-    { cls: 'fletcher', team: 'red', offset: new Vector3(-1500, 0, -1200) },
-    { cls: 'fletcher', team: 'red', offset: new Vector3(1500, 0, -1200) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(-250, 0, 0) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(250, 0, 0) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(-700, 0, -700) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(700, 0, -700) },
   ],
 }
 
