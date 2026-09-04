@@ -659,6 +659,8 @@ export class World {
         const fromShip = ownerShipIndex(owner)
         for (let k = 0; k < ships.length; k++) {
           const sh = ships[k]!
+          // 沉了的船不再擋子彈
+          if (!sh.alive) continue
           if (k === fromShip) continue
           if ((sh.team === 'blue' ? 0 : 1) === ownerTeam) continue
           if (segmentPointDistanceSq(
@@ -717,6 +719,14 @@ export class World {
           const g = shipHit.guns[shipGun]!
           g.hp -= dmg
           if (g.hp <= 0) g.alive = false
+        }
+        // 【擊沉】血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、
+        // 不再是任何人的目標。**砲位一起標死**，否則渲染層還會畫它們的
+        // 槍焰，而 `stepShipGuns` 已經整艘早退了 —— 那會是一排永遠亮著的
+        // 槍焰掛在沉船上。
+        if (shipHit.alive && shipHit.hp <= 0) {
+          shipHit.alive = false
+          for (const g of shipHit.guns) g.alive = false
         }
         p.kill(i)
         continue
@@ -837,6 +847,7 @@ export class World {
     const pos = c.aircraft.state.position
     const q = c.aircraft.state.orientation
     for (const sh of this.ships) {
+      if (!sh.alive) continue
       const reach = c.hitRadius + sh.cls.radius
       if (pos.distanceToSquared(sh.position) > reach * reach) continue
       for (const box of sh.cls.hull) {

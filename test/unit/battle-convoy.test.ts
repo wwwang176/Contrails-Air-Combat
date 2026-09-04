@@ -129,6 +129,8 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
       aliveRed: 10,
       playerPos: new Vector3(0, 4000, 5000),
       playerAlive: true,
+      shipsSunk: 0,
+      shipsTotal: 0,
       convoyAlive: 4,
       convoyLead: 17000,
       ...over,

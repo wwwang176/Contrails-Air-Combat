@@ -222,7 +222,7 @@ describe('開場高度', () => {
     for (const m of playable) {
       const cfg = missionConfigFrom(m)
       const r = cfg.rules
-      if (r.kind === 'annihilate') continue
+      if (r.kind === 'annihilate' || r.kind === 'sink') continue
       expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
     }
   })
