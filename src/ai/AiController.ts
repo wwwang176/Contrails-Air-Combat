@@ -37,6 +37,8 @@ import {
   type WingmanConfig,
 } from './wingman'
 import { rallyCommand } from './rally'
+import { canAttackShips, pickShipTarget, shipAttackCommand } from './shipAttack'
+import type { Ship } from '../world/ships'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
 import { losBlocked } from '../world/occlusion'
@@ -97,6 +99,64 @@ export class AiController implements Controller {
    * 不必重錄的原因。由 main.ts 的 wireTerrain 注入。
    */
   terrain: TerrainSource | null = null
+
+  /**
+   * 這一場的船。**空陣列 = 這一場沒有船**，而那是絕大多數的場次 ——
+   * 對艦那一段於是連問都不會問，行為與改動前逐字相同。
+   *
+   * 【為什麼是注入而不是 import 一個世界】與 `terrain` 同一個理由：
+   * `AiController` 不持有 `World`，而 `main.ts` 每幀掃一次把它接上
+   * （見 `wireTerrain`）。
+   */
+  ships: readonly Ship[] = []
+
+  /**
+   * 目前鎖定的敵艦索引；−1 = 沒有。
+   *
+   * 【為什麼與 `targetIndex` 分開】那一格是 `TargetBoard.candidates` 的
+   * 索引，而船不在那張表裡。共用一個欄位就得在每個讀它的地方先問
+   * 「這是飛機還是船」—— 那正是 spec §2 拒絕過的那種污染。
+   */
+  shipTargetIndex = -1
+
+  /**
+   * 沒有空中目標時，試著找一艘船打。回傳 true 代表 `out` 已經寫滿。
+   *
+   * 【為什麼是一支私有方法而不是寫在分支裡】那一段本來就有三個 `return`
+   * 與一堆鎖存維護，再塞五十行進去沒有人讀得完。而且這樣「沒有船就是
+   * 一次早退」看得出來。
+   *
+   * 【重選只在決策拍】與空戰的目標選擇同一個節奏（10 Hz）。每個物理步
+   * 重選的話，兩艘距離相近的船會讓機首在 240 Hz 下抖。
+   */
+  private attackShip(self: Aircraft, decide: boolean, out: Command): boolean {
+    // 【沒有固定掛架就不去】一式陸攻飛到船上方射不出任何東西 ——
+    // 它的武器全是 AI 砲塔，而砲塔本來就會自己打船。
+    if (this.ships.length === 0 || !canAttackShips(self.spec)) {
+      this.shipTargetIndex = -1
+      return false
+    }
+    // 【陣營從板子讀】`AiController` 自己沒有這一格 —— 它只知道自己在
+    // `candidates` 裡的位置。拿不到板子就不打船（那是試驗場與探針的情形，
+    // 那些場景本來就沒有船）。
+    const me = this.board?.candidates[this.selfIndex]
+    if (me === undefined) {
+      this.shipTargetIndex = -1
+      return false
+    }
+    if (decide) {
+      this.shipTargetIndex = pickShipTarget(self.state.position, me.team, this.ships)
+    }
+    const ship = this.shipTargetIndex >= 0 ? this.ships[this.shipTargetIndex] : undefined
+    // 【每一步都要複查】上一個決策拍之後它可能已經沉了，而下一次重選要
+    // 到 100 ms 後 —— 那一段時間對著一艘沉船掃射看起來就是壞掉。
+    if (ship === undefined || !ship.alive) {
+      this.shipTargetIndex = -1
+      return false
+    }
+    shipAttackCommand(self, ship, out)
+    return true
+  }
 
   /**
    * 清掉地形的鎖存。**換場、換座位、重生之後都要呼叫。**
@@ -529,6 +589,16 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
+      } else if (this.attackShip(self, decide, raw)) {
+        // 【對艦掃射排在站位之後、集合點之前】
+        //
+        // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——
+        // 那會讓整隊在艦隊上空散開。
+        //
+        // 集合點在後：指揮官叫你去某個點時，那是命令；自己找船打是
+        // 「沒有更好的事做」。命令的位階比較高。
+        //
+        // 這一格什麼都不必做，`attackShip` 已經寫滿 `raw` 了。
       } else if (this.order !== null && this.order.kind !== 'focus') {
         // 【長機收到命令且場上沒有值得打的敵人】飛集合點。這一格與下面的
         // 平飛是同一個位置的兩種答案 —— 有命令就有地方去。

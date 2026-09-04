@@ -7,6 +7,8 @@ import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { G4M } from '../../src/specs/g4m'
+import { AiController } from '../../src/ai/AiController'
+import { createTargetBoard } from '../../src/ai/target'
 import { createBattle, resetBattle, stepBattle } from '../../src/battle/setup'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import type { ReadyMissionCard } from '../../src/battle/missions'
@@ -419,5 +421,67 @@ describe('擊沉', () => {
     }
     stepBattle(b, DT)
     expect(b.mission.outcome).toBe('victory')
+  })
+})
+
+describe('AI 飛行員的對艦索敵', () => {
+  /**
+   * 一架 P-51D 在敵艦上方、場上沒有任何敵機。
+   *
+   * 【為什麼用 P-51D 而不是這一關的 G4M】一式陸攻的固定掛架是空陣列，
+   * `canAttackShips` 會直接擋掉它 —— 那是刻意的（見 `ai/shipAttack.ts`）。
+   * 要驗「飛過去掃射」就得用一台真的有槍的。
+   */
+  const build = (shipTeam: 'blue' | 'red') => {
+    const w = new World()
+    w.crashPolicy = () => false
+    const s = fleetOf(w, SHIP_CLASSES.fletcher, shipTeam)
+    const ai = new AiController()
+    const c = w.add(new Aircraft(P51D), ai, 'blue', new Vector3(0, 900, 2500), 900, 150)
+    const board = createTargetBoard([c])
+    ai.board = board
+    ai.selfIndex = 0
+    ai.ships = w.ships
+    return { w, s, c, ai }
+  }
+
+  it('沒有空中目標時會鎖定敵艦', () => {
+    const { w, ai } = build('red')
+    for (let i = 0; i < 240; i++) w.step(DT)
+    expect(ai.shipTargetIndex).toBe(0)
+  })
+
+  it('同隊的船不會被鎖定', () => {
+    const { w, ai } = build('blue')
+    for (let i = 0; i < 240; i++) w.step(DT)
+    expect(ai.shipTargetIndex).toBe(-1)
+  })
+
+  /** 【真的會飛過去】不是只有選到而已。 */
+  it('會朝敵艦接近', () => {
+    const { w, c, s } = build('red')
+    const before = c.aircraft.state.position.distanceTo(s.position)
+    for (let i = 0; i < 12 * 240; i++) w.step(DT)
+    expect(c.aircraft.state.position.distanceTo(s.position)).toBeLessThan(before - 500)
+  })
+
+  /**
+   * 【一定要拉得起來】撞船是致命的，而 `applySafety` 看的是地形與海面、
+   * 不是船。少了 `SHIP_BREAK_RANGE` 那一段，這一條會紅。
+   */
+  it('掃射之後拉得起來，不會撞上去', () => {
+    const { w, c } = build('red')
+    for (let i = 0; i < 40 * 240; i++) w.step(DT)
+    expect(c.alive).toBe(true)
+  })
+
+  it('船沉了就放掉目標', () => {
+    const { w, s, ai } = build('red')
+    for (let i = 0; i < 240; i++) w.step(DT)
+    expect(ai.shipTargetIndex).toBe(0)
+    s.alive = false
+    for (const g of s.guns) g.alive = false
+    w.step(DT)
+    expect(ai.shipTargetIndex).toBe(-1)
   })
 })
