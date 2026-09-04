@@ -42,8 +42,11 @@ export interface ShipClass {
    */
   readonly radius: number
   /**
-   * 船體血量。**這一期會扣、不會歸零** —— 機槍機砲打不沉軍艦，擊沉要等
-   * 魚雷與炸彈（spec §12）。
+   * 船體血量。
+   *
+   * 【它是用「幾枚魚雷」訂的，不是用機槍】機槍機砲打不沉軍艦：20 mm 一發
+   * 5 傷害，打沉一艘驅逐艦要 4,000 發。**魚雷那一支分支要照這個數字校準**
+   * —— 驅逐 20,000 ≈ 兩枚、巡洋 40,000 ≈ 四枚（若一枚 10,000）。
    */
   readonly hp: number
   readonly zones: readonly ShipAAZone[]
@@ -99,6 +102,15 @@ export interface Ship {
   /** 航速，m/s。固定不變。 */
   speed: number
   hp: number
+  /**
+   * 還浮著嗎。**血量歸零就是 false。**
+   *
+   * 【沉了之後它完全退場】砲位全部死掉、不再前進、不再是任何人的目標、
+   * 也不再擋子彈 —— 與 `Combatant.alive` 同一個性質：**旗標而不是從陣列
+   * 移除**，因為 `Ship.index` 是彈丸 `owner` 編碼的來源，移除會讓還在飛的
+   * 船砲彈認錯主人。
+   */
+  alive: boolean
   guns: ShipGun[]
   /**
    * 每個砲位一個射擊時鐘。
@@ -216,6 +228,7 @@ export function createShip(
     heading,
     speed,
     hp: cls.hp,
+    alive: true,
     // 【砲位由 shipGuns 填】這裡不 import 它的建構函數 —— 那會是
     // ships → shipGuns → ships 的循環。`createFleet` 負責把兩者接起來。
     guns: [],
@@ -233,6 +246,7 @@ export function createShip(
 export function resetShip(s: Ship): void {
   s.position.copy(s.spawn)
   s.hp = s.cls.hp
+  s.alive = true
   s.gunCooldowns.fill(0)
 }
 
@@ -247,7 +261,8 @@ const FWD = /* @__PURE__ */ new Vector3()
  */
 export function stepShips(ships: readonly Ship[], dt: number): void {
   for (const s of ships) {
-    if (s.speed === 0) continue
+    // 沉了的船不再前進
+    if (!s.alive || s.speed === 0) continue
     FWD.set(0, 0, -1).applyQuaternion(s.orientation)
     s.position.addScaledVector(FWD, s.speed * dt)
   }

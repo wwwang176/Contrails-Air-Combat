@@ -218,7 +218,8 @@ export function stepShipGuns(
   dt: number,
 ): void {
   const guns = ship.guns
-  if (guns.length === 0) return
+  // 【沉了的船一門砲都不動】與「砲位死了完全不動」同一條規則，只是整艘。
+  if (!ship.alive || guns.length === 0) return
 
   const q = ship.orientation
   // 【一艘只算一次逆姿態】每個砲位各算一次就是 8 倍的四元數共軛

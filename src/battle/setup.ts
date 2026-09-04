@@ -1335,6 +1335,8 @@ const MISSION_INPUTS: MissionInputs = {
   playerAlive: true,
   convoyAlive: 0,
   convoyLead: Infinity,
+  shipsSunk: 0,
+  shipsTotal: 0,
 }
 
 /**
@@ -1482,6 +1484,15 @@ export function stepBattle(b: Battle, dt: number): void {
       const d = c.aircraft.state.position.distanceTo(cv.goal)
       if (d < inp.convoyLead) inp.convoyLead = d
     }
+  }
+  // 【只算敵方的船】友軍的船要等 `allies-m4` 那種「守住艦隊」的規則。
+  // 八艘的迴圈，每個物理步跑一次 —— 與 convoy 那一段同一個量級。
+  inp.shipsSunk = 0
+  inp.shipsTotal = 0
+  for (const sh of b.world.ships) {
+    if (sh.team === 'blue') continue
+    inp.shipsTotal++
+    if (!sh.alive) inp.shipsSunk++
   }
   // 【讀 `b.rules` 而不是 `b.cfg.rules`】返航節拍會換掉這一場的規則
   stepMission(b.rules, inp, dt, b.mission)

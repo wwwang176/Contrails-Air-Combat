@@ -423,7 +423,7 @@ function pickTarget(
    */
   for (let k = 0; k < ships.length; k++) {
     const sh = ships[k]!
-    if (sh.team === c.team) continue
+    if (!sh.alive || sh.team === c.team) continue
     for (let gi = 0; gi < sh.guns.length; gi++) {
       const g = sh.guns[gi]!
       if (!g.alive) continue

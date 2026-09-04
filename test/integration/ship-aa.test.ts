@@ -7,7 +7,7 @@ import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { G4M } from '../../src/specs/g4m'
-import { createBattle, resetBattle } from '../../src/battle/setup'
+import { createBattle, resetBattle, stepBattle } from '../../src/battle/setup'
 import { MISSIONS, missionConfigFrom } from '../../src/battle/missions'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import type { Controller } from '../../src/control/Controller'
@@ -293,8 +293,9 @@ describe('飛機砲塔瞄船', () => {
   })
 })
 
+const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+
 describe('resetBattle 要把船一起重設', () => {
-  const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
 
   /**
    * 【為什麼這一條非有不可】`japan-m4` 沒有 waves，所以「再打一場」走的是
@@ -327,5 +328,96 @@ describe('resetBattle 要把船一起重設', () => {
     const key = (s: { position: { x: number; z: number } }) => `${s.position.x},${s.position.z}`
     expect(new Set(b.world.ships.map(key)).size).toBe(8)
     for (const s of b.world.ships) expect(s.team).toBe('red')
+  })
+})
+
+describe('擊沉', () => {
+  const sink = (w: World, s: Ship): void => {
+    const hull = s.cls.hull[0]!
+    const p = hull.center.clone().add(s.position)
+    // 【一發打完】用一發超大傷害，這一條問的是「歸零之後會怎樣」，
+    // 不是「打幾發才沉」——後者是魚雷那一支分支的事。
+    shoot(w, p.clone().add(new Vector3(0, 60, 0)), p, 1_000_000)
+  }
+
+  it('血量歸零 → 整艘退場，砲位全部跟著死', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    expect(s.alive).toBe(true)
+    sink(w, s)
+    expect(s.hp).toBeLessThanOrEqual(0)
+    expect(s.alive).toBe(false)
+    for (const g of s.guns) expect(g.alive).toBe(false)
+  })
+
+  /**
+   * 【砲位一定要一起標死】不標的話 `stepShipGuns` 整艘早退、槍焰的計時器
+   * 停在最後一個值，渲染層會畫出一排**永遠亮著的槍焰掛在沉船上**。
+   */
+  it('沉了之後不再開火', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    sink(w, s)
+    const before = w.projectiles.live
+    const c = w.add(new Aircraft(P51D), IDLE, 'blue', new Vector3(0, 600, 0), 600, 0)
+    for (let i = 0; i < 5 * 240; i++) {
+      c.aircraft.state.position.set(0, 600, 0)
+      w.step(DT)
+    }
+    expect(w.projectiles.live).toBe(before)
+  })
+
+  it('沉了之後不再前進', () => {
+    const w = new World()
+    const s = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 8)
+    s.guns = createShipGuns(SHIP_CLASSES.fletcher)
+    s.gunCooldowns = new Float32Array(SHIP_CLASSES.fletcher.zones.length)
+    w.ships.push(s)
+    sink(w, s)
+    const at = s.position.clone()
+    for (let i = 0; i < 5 * 240; i++) w.step(DT)
+    expect(s.position.distanceTo(at)).toBeCloseTo(0, 6)
+  })
+
+  it('沉了之後不再擋子彈', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    sink(w, s)
+    const hull = s.cls.hull[0]!
+    const p = hull.center.clone()
+    const hpAfter = s.hp
+    shoot(w, p.clone().add(new Vector3(0, 60, 0)), p, 50)
+    expect(s.hp).toBe(hpAfter)
+  })
+
+  it('resetBattle 之後浮回來', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+    const s = b.world.ships[0]!
+    s.hp = 0
+    s.alive = false
+    for (const g of s.guns) g.alive = false
+    resetBattle(b, 1)
+    expect(s.alive).toBe(true)
+    expect(s.hp).toBe(s.cls.hp)
+    for (const g of s.guns) expect(g.alive).toBe(true)
+  })
+
+  /** 【任務規則】japan-m4 的目標是擊沉任意三艘。 */
+  it('japan-m4 的規則是擊沉三艘', () => {
+    const r = missionConfigFrom(card).rules
+    expect(r.kind).toBe('sink')
+    if (r.kind === 'sink') expect(r.count).toBe(3)
+  })
+
+  it('打沉三艘就判勝', () => {
+    const b = createBattle(IDLE, missionConfigFrom(card), 1)
+    expect(b.mission.outcome).toBe('fighting')
+    for (const s of b.world.ships.slice(0, 3)) {
+      s.hp = 0
+      s.alive = false
+      for (const g of s.guns) g.alive = false
+    }
+    stepBattle(b, DT)
+    expect(b.mission.outcome).toBe('victory')
   })
 })

@@ -38,6 +38,7 @@ function rules(r: BattleConfig['rules']): unknown {
       seconds: num(r.seconds),
     }
   }
+  if (r.kind === 'sink') return { kind: r.kind, count: r.count }
   return {
     kind: r.kind,
     owner: r.owner,

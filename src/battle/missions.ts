@@ -266,6 +266,13 @@ export interface MissionBattle {
    * 兩邊要餵同一個值，不能一個讀卡片一個讀預設。
    */
   readonly altitude?: number
+  /**
+   * 要擊沉幾艘。**有這一格就是擊沉關**，勝負規則變成 `{ kind: 'sink' }`。
+   *
+   * 【它必須配 `fleet`】沒有艦隊卻要求擊沉是一個永遠打不完的任務，
+   * 而且畫面上一切正常 —— `campaigns.test.ts` 那一層守著。
+   */
+  readonly sinkCount?: number
 }
 
 /**
@@ -613,9 +620,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
       battle: {
         ...KILL,
-        // 【目標暫時是殲滅空中敵機】玩家這一期沒有可控武器（G4M 的固定
-        // 掛架是空陣列，武器全做成 AI 砲塔），魚雷做好之後這一關只要換
-        // 目標與加一條擊沉判定，幾何一格都不用動。
+        objective: '擊沉任意三艘敵艦',
         blueSpec: G4M, redSpec: F6F5,
         blueCount: 6, redCount: 6,
         terrain: 'sea',
@@ -623,6 +628,10 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
         // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
         altitude: 1000,
+        // 【擊沉任意三艘】八艘裡挑三艘，玩家自己決定打哪幾艘 —— 那本來
+        // 就是雷擊機該做的決定。**這一期玩家還沒有魚雷**（在另一支分支
+        // 上），規則先接好，武器進來就成立。
+        sinkCount: 3,
       },
     },
   ],
@@ -656,6 +665,13 @@ export function missionRules(
   card: ReadyMissionCard, altitude: number, lateralOffset: number,
 ): MissionRules {
   const b = card.battle
+  // 【擊沉排在最前面】判準是卡片上有沒有 `sinkCount`，不是 `type` ——
+  // `type` 是給玩家看的分類（打擊／殲滅／護航…），一張打擊卡可能是炸機場、
+  // 也可能是雷擊。用 type 推導的話，日後多一張「打擊」卡就會靜靜地變成
+  // 擊沉任務。
+  if (b.sinkCount !== undefined) {
+    return { kind: 'sink', count: b.sinkCount }
+  }
   if (card.type === '撤離') {
     return {
       kind: 'evacuate',
