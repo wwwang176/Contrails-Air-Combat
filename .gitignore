@@ -20,3 +20,7 @@ ref/
 
 # git worktree 的工作目錄（`.claude/skills/` 是原始碼，這個不是）
 .claude/worktrees/
+
+# e2e 的人工檢視截圖：跑一次就重生，不進版控
+# （2026-08-21 的 PLAN 本來就寫「test-results/（未追蹤）」，是誤入的）
+test-results/
