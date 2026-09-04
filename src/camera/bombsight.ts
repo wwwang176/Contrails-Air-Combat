@@ -71,3 +71,47 @@ export function coneClamp(
   out.z = az * cosHalf + nz * sinHalf
   return true
 }
+
+/**
+ * 投彈視角的「螢幕上方」：**機首方向**在垂直於視線的平面上的投影。
+ * 就地寫進 `out`（熱路徑不得配置）。
+ *
+ * 【為什麼不能用 `CameraRig.baseOrientation`】那一支算的是「**世界**上方」的
+ * 投影，而且有一道守衛：距垂直 8° 以內就凍結目標，因為那裡投影會退化。
+ * 投彈視角**永遠**在那個區域裡（視線就是朝正下方），所以它從來不更新，畫面的
+ * 滾轉是切進來之前留下的殘值再慢慢漂 —— 症狀是「偶爾右邊朝向機首、偶爾左邊」。
+ *
+ * 【為什麼機首朝上是對的】投彈瞄具是機腹上的一個窗口，玩家要判斷的是「落點
+ * 在航路的前後左右哪一邊」。機首固定朝畫面上方，那個判斷才有基準；而飛機
+ * 側滾時畫面跟著滾，正是從窗口往下看該有的樣子。
+ *
+ * @param dx,dy,dz 視線，單位向量
+ * @param fx,fy,fz 機首方向（機體 −Z 在世界座標），單位向量
+ * @param ux,uy,uz 機體上方（機體 +Y 在世界座標），單位向量。備援用
+ */
+export function sightUp(
+  dx: number, dy: number, dz: number,
+  fx: number, fy: number, fz: number,
+  ux: number, uy: number, uz: number,
+  out: Vec3Like,
+): void {
+  let d = fx * dx + fy * dy + fz * dz
+  let px = fx - dx * d
+  let py = fy - dy * d
+  let pz = fz - dz * d
+  let len = Math.sqrt(px * px + py * py + pz * pz)
+
+  if (len < 1e-6) {
+    // 【視線與機首平行】垂直俯衝到圓錐邊緣時做得到。退回機體上方 ——
+    // 機首與機體上方必定正交，所以這條備援**永遠**解得出來，不會再退化
+    d = ux * dx + uy * dy + uz * dz
+    px = ux - dx * d
+    py = uy - dy * d
+    pz = uz - dz * d
+    len = Math.sqrt(px * px + py * py + pz * pz)
+  }
+
+  out.x = px / len
+  out.y = py / len
+  out.z = pz / len
+}
