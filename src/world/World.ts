@@ -16,7 +16,9 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import { stepShipGuns, ownerShipIndex } from './shipGuns'
-import { createBursts, createFlak, flakDamage, stepFlak } from './flak'
+import {
+  createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
+} from './flak'
 import { obbOverlap } from './obb'
 import type { TurretState } from './turrets'
 import { createCommand, type Command, type Controller } from '../control/Controller'
@@ -179,9 +181,22 @@ export class World {
 
   /**
    * 這一個物理步的高砲引爆事件。**呼叫端負責排空**（與 `hitEvents` 同一個
-   * 約定）—— 渲染層讀它畫黑雲。傷害則由 `applyBursts` 在這一層就吃掉。
+   * 約定）—— 渲染層讀它畫黑雲。
    */
   readonly burstEvents = createBursts()
+
+  /**
+   * **這一步**的引爆，傷害用。每步開頭清空，由 `World` 自己吃掉。
+   *
+   * 【為什麼不能直接用 `burstEvents` 算傷害】那一份是呼叫端排空的 ——
+   * headless 測試不排空，於是同一朵雲會**每一個物理步再扣一次血**。
+   * 實測：一架停在 400 m 的一式陸攻兩秒內從 2,800 掉到 0，而畫面上只有
+   * 一朵雲。
+   *
+   * 【為什麼容量等於彈池】一步之內最多所有在空中的砲彈同時引爆，所以
+   * 這一份**在結構上不可能溢位** —— 而溢位就等於靜靜地少扣一次血。
+   */
+  private readonly stepBursts = createBursts(FLAK_CAPACITY)
 
   /**
    * 撞地判定。`main.ts` 注入與海面著色器共用波參數的版本。
@@ -420,7 +435,7 @@ export class World {
     // 迴圈裡做過了。
     for (const c of this.combatants) {
       if (!c.alive) continue
-      stepTurrets(c, this.combatants, this.projectiles, this.time, dt, this.land)
+      stepTurrets(c, this.combatants, this.projectiles, this.time, dt, this.land, this.ships)
     }
     // 【船排在飛機砲塔之後、彈丸推進之前】三者都往同一個彈丸池寫，
     // 順序固定才可重現。
@@ -435,8 +450,19 @@ export class World {
       }
       stepShipGuns(s, this.combatants, this.projectiles, this.flak, this.time, dt)
     }
-    stepFlak(this.flak, dt, this.burstEvents)
+    // 【兩份緩衝】傷害吃 `stepBursts`（每步清空、World 自己排空），
+    // 渲染讀 `burstEvents`（呼叫端排空）。共用一份的話，沒有排空的呼叫端
+    // 會讓同一朵雲每步都再扣一次血。
+    clearBursts(this.stepBursts)
+    stepFlak(this.flak, dt, this.stepBursts)
     this.applyBursts()
+    for (let k = 0; k < this.stepBursts.count; k++) {
+      pushBurst(
+        this.burstEvents,
+        this.stepBursts.x[k]!, this.stepBursts.y[k]!, this.stepBursts.z[k]!,
+        this.stepBursts.team[k]!,
+      )
+    }
 
     // 3. 彈丸推進
     this.projectiles.step(dt)
@@ -782,7 +808,7 @@ export class World {
    * 隨機到無法調校。**注意實扣的血仍然會除以機種的 `protection.fuselage`。**
    */
   private applyBursts(): void {
-    const e = this.burstEvents
+    const e = this.stepBursts
     if (e.count === 0) return
     for (let k = 0; k < e.count; k++) {
       const team = e.team[k]!

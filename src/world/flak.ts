@@ -168,7 +168,7 @@ export function stepFlak(f: FlakShells, dt: number, out: BurstEvents): void {
   }
 }
 
-function pushBurst(e: BurstEvents, x: number, y: number, z: number, team: number): void {
+export function pushBurst(e: BurstEvents, x: number, y: number, z: number, team: number): void {
   if (e.count >= e.capacity) {
     e.dropped++
     return

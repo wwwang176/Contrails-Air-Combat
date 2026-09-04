@@ -6,6 +6,7 @@ import { SHIP_GUN_SPECS, createShipGuns, shipOwner } from '../../src/world/shipG
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { G4M } from '../../src/specs/g4m'
 import type { Controller } from '../../src/control/Controller'
 
 const DT = 1 / 240
@@ -211,5 +212,62 @@ describe('高砲的範圍傷害', () => {
     w.step(DT)
     expect(foe.hp).toBeLessThan(hp0)
     expect(friend.hp).toBe(fhp0)
+  })
+})
+
+describe('飛機砲塔瞄船', () => {
+  /**
+   * 一架在敵船**側上方**的一式陸攻。
+   *
+   * 【為什麼不是正上方】G4M 的砲塔是機首、機背、兩側、機尾 —— **沒有一座
+   * 朝正下方**。擺在正上方的話一座都瞄不到，而那不是缺陷，是砲塔配置。
+   * 擺在側前方 450 m、高 300 m，側方的 20 mm 才有得打。
+   *
+   * 【位置每步抄回去】這一條問的是「會不會瞄船」，不是「追不追得上」。
+   * 讓它待在原地，射界才穩定。
+   *
+   * 【為什麼是 220 m 而不是 500 m】實測：500 m 時砲塔**選得到船、也一直在
+   * 開火，但一發都打不中** —— 搖晃振幅 1° 在 500 m 是 8.7 m 的散佈，而
+   * 20 mm 砲位的盒（含 ×1.5 膨脹）只有 2.4 m。**這一層只有近距離才打得掉。**
+   * 那是遊戲事實，不是缺陷；記在這裡是因為它會影響試飛時的期待。
+   */
+  const build = (shipTeam: 'blue' | 'red') => {
+    const w = new World()
+    w.crashPolicy = () => false
+    const s = fleetOf(w, SHIP_CLASSES.fletcher, shipTeam)
+    const c = w.add(new Aircraft(G4M), IDLE, 'blue', new Vector3(220, 120, 0), 120, 0)
+    return { w, s, c }
+  }
+
+  const run = (w: World, seconds: number, c = w.combatants[0]!): void => {
+    for (let i = 0; i < seconds * 240; i++) {
+      c.aircraft.state.position.set(220, 120, 0)
+      c.aircraft.state.velocity.set(0, 0, 0)
+      w.step(DT)
+    }
+  }
+
+  const gunHp = (s: Ship): number => s.guns.reduce((n, g) => n + g.hp, 0)
+
+  it('一式陸攻的砲塔會打敵隊船上的砲位', () => {
+    const { w, s } = build('red')
+    const before = gunHp(s)
+    run(w, 20)
+    expect(gunHp(s)).toBeLessThan(before)
+  })
+
+  it('同隊的船不會被自己的砲塔打', () => {
+    const { w, s } = build('blue')
+    const before = gunHp(s)
+    run(w, 20)
+    expect(gunHp(s)).toBe(before)
+  })
+
+  it('已經死掉的砲位不再是候選', () => {
+    const { w, s } = build('red')
+    for (const g of s.guns) g.alive = false
+    const before = gunHp(s)
+    run(w, 20)
+    expect(gunHp(s)).toBe(before)
   })
 })
