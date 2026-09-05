@@ -13,11 +13,12 @@ const PIP_W = 5
 const PIP_H = 11
 const PIP_GAP = 3
 /**
- * 「裝填中」的 baseline 離格子頂邊多遠，px。
+ * 「裝填中」的**字底**離格子頂邊多遠，px。
  *
- * 【在格子上方】下方是 `energy` 的 `THR … kW … 機名`，字會疊上去。
+ * 【在格子上方】下方是 `energy` 的 `THR … kW … 機名`（middle 基線在 26、
+ * 字級 13，字頂落在 32.5）—— 格子底邊在 41，中間只剩 8.5 px。
  */
-const LABEL_RISE = 5
+const LABEL_RISE = 4
 
 /**
  * 彈艙讀數：**恆是 `BOMB_BAY` 格**，有彈的實心、投掉的空心。
@@ -59,6 +60,10 @@ export function drawBombBay(
   ctx.font = hudFont(Math.round(9 * L.scale))
   ctx.fillStyle = HUD_COLORS.warn
   ctx.textAlign = 'center'
+  // 【一定要自己設 textBaseline】整個 HUD 共用一個 ctx，而這個屬性是黏著的
+  // ——不設就吃到上一個畫字的 widget 留下的值，字會隨別的儀表出沒而跳動。
+  // `bottom` 讓字底就是 y − LABEL_RISE，與格子的距離才算得準
+  ctx.textBaseline = 'bottom'
   ctx.fillText(`裝填中 ${f.bombReloadLeft.toFixed(0)}s`, L.cx, y - LABEL_RISE * L.scale)
   ctx.textAlign = 'left'
 }
