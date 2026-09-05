@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
-import { createTerrain } from '../render/terrain'
+import { createTerrain, type Terrain } from '../render/terrain'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import {
@@ -10,6 +10,7 @@ import {
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import { createShipGuns } from '../world/shipGuns'
 import { G4M } from '../specs/g4m'
+import type { TerrainKind } from '../world/terrainKind'
 
 /**
  * 時段展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -25,8 +26,40 @@ import { G4M } from '../specs/g4m'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
-const terrain = createTerrain('sea')
+
+/**
+ * 目前的地形。**換地形走與 `main.ts` 的 `enterBattle` 完全相同的三步**：
+ * 移除、`dispose`、重建 —— 那條路徑每一場都在走，工具照走才測得到它。
+ */
+let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
+
+function setTerrain(kind: TerrainKind): void {
+  ctx.scene.remove(terrain.object)
+  terrain.dispose()
+  terrain = createTerrain(kind)
+  ctx.scene.add(terrain.object)
+  // 【新的地形不知道現在是幾點】它剛建出來是正午 —— 少了這一行，切完地形
+  // 天是黃昏而海是中午的藍
+  terrain.setPalette(live)
+  // 內陸沒有海，船浮在田上很怪
+  shipModels.object.visible = kind !== 'farmland'
+  // 【內陸把飛機抬高】田地的丘陵最高到 HILL_PEAK_MAX，60 m 會插進山裡
+  plane.group.position.y = kind === 'farmland' ? 420 : 60
+  placeCamera(kind)
+}
+
+/** 內陸的視野要拉遠拉高才看得到田與樹的層次。 */
+function placeCamera(kind: TerrainKind): void {
+  if (kind === 'farmland') {
+    ctx.camera.position.set(0, 520, 900)
+    controls.target.set(0, 60, -600)
+  } else {
+    ctx.camera.position.set(0, 95, 260)
+    controls.target.set(0, 30, -420)
+  }
+  controls.update()
+}
 
 await preloadShipModels(['wichita', 'fletcher'])
 await preloadAircraftModels()
@@ -48,12 +81,10 @@ plane.group.position.set(-45, 60, -140)
 plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
 ctx.scene.add(plane.group)
 
-ctx.camera.position.set(0, 95, 260)
 const controls = new OrbitControls(ctx.camera, ctx.renderer.domElement)
-controls.target.set(0, 30, -420)
 controls.enableDamping = true
 controls.dampingFactor = 0.08
-controls.update()
+placeCamera('sea')
 
 /**
  * 可調的那一份 palette。
@@ -174,6 +205,7 @@ numRow('環境強度', 0, 0.6, 0.01, () => live.ambientIntensity,
 colorRow('海　本色', 'seaColor')
 colorRow('海　地平', 'seaHorizon')
 numRow('碎光', 0, 1.5, 0.01, () => live.sparkle, (v) => { live.sparkle = v }, f2)
+numRow('植被點', 0, 1.5, 0.01, () => live.foliage, (v) => { live.foliage = v }, f2)
 numRow('霧密度', 0.5, 5, 0.05, () => live.fogDensity * 1e5,
   (v) => { live.fogDensity = v * 1e-5 }, (v) => v.toFixed(2) + 'e-5')
 
@@ -205,9 +237,33 @@ function dump(): void {
     '    seaColor: ' + h(live.seaColor) + ',',
     '    seaHorizon: ' + h(live.seaHorizon) + ',',
     '    sparkle: ' + live.sparkle + ',',
+    '    foliage: ' + live.foliage + ',',
     '    fogDensity: ' + live.fogDensity.toExponential(1) + ',',
     '  },',
   ].join('\n')
+}
+
+const terrainTabs = document.getElementById('terrain') as HTMLElement
+
+const TERRAINS: readonly { kind: TerrainKind, name: string }[] = [
+  { kind: 'sea', name: '海面' },
+  { kind: 'archipelago', name: '群島' },
+  { kind: 'farmland', name: '內陸' },
+]
+
+function selectTerrain(kind: TerrainKind): void {
+  setTerrain(kind)
+  for (const b of Array.from(terrainTabs.children)) {
+    b.classList.toggle('on', b.id === 'k-' + kind)
+  }
+}
+
+for (const t of TERRAINS) {
+  const b = document.createElement('button')
+  b.id = 'k-' + t.kind
+  b.textContent = t.name
+  b.addEventListener('click', () => selectTerrain(t.kind))
+  terrainTabs.appendChild(b)
 }
 
 const tabs = document.getElementById('tabs') as HTMLElement
@@ -237,6 +293,7 @@ copy.addEventListener('click', () => {
   window.setTimeout(() => { copy.textContent = '複製設定' }, 1200)
 })
 
+selectTerrain('sea')
 selectTod('dusk')
 
 const SPIN = new Quaternion()

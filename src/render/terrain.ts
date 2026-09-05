@@ -185,7 +185,10 @@ function createArchipelagoTerrain(): Terrain {
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
     // 「動了地形就要重算」多一條沒有人記得的規則
     land: { field, ceiling: PEAK_MAX, landAbove: 0 },
-    setPalette(p) { ocean.setPalette(p) },
+    setPalette(p) {
+      ocean.setPalette(p)
+      flora.setPointLight(p.foliage)
+    },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
       flora.update(centerX, centerZ)
@@ -223,9 +226,9 @@ function createFarmlandTerrain(): Terrain {
     heightAt: (x, z) => solid.sample(x, z),
     collisionHeightAt: (x, z) => solid.sample(x, z),
     waterAt: () => -Infinity,
-    // 【內陸這一期不換時段】沒有海，而田地、樹與遠景環的顏色都是烘死的
-    // 頂點色 —— 換時段要重烘那三份。目前只有太平洋那幾關指定時段。
-    setPalette() {},
+    // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就
+    // 變暗；要補的只有吃不到光的點池
+    setPalette(p) { flora.setPointLight(p.foliage) },
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     // 【遠景環與地面是固定的】只有植被要跟著鏡頭補格
