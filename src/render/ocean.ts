@@ -1283,6 +1283,16 @@ ${face}
   }
 `
 
+/** `Ocean.paletteUniforms` 的形狀。 */
+export interface OceanPaletteUniforms {
+  readonly uSkyHorizon: { value: Color }
+  readonly uSkyZenith: { value: Color }
+  readonly uSkyPower: { value: number }
+  readonly uHorizonColor: { value: Color }
+  readonly uSunDirection: { value: Vector3 }
+  readonly uSparkleStrength: { value: number }
+}
+
 export interface Ocean {
   /**
    * 細浪面。**一組以相機為中心的巢狀方環**（clipmap），不是單一網格。
@@ -1308,6 +1318,15 @@ export interface Ocean {
    * 從材質上讀不到 uniform。公開它是為了讓那一條守得住，沒有別的用途。
    */
   readonly origin: Vector2
+  /**
+   * `setPalette` 會寫的那六個著色器 uniform。
+   *
+   * 【為什麼要出現在介面上】與 `origin` 同一個理由 —— `onBeforeCompile` 在
+   * headless 測試裡不會被呼叫，從材質上讀不到 uniform。少了這一格，
+   * 「海面反射的天空色跟著時段換」就沒有任何反證：漏掉其中一個的症狀是
+   * **黃昏的海反射著中午的天**，畫面上看得出來但不會有東西報錯。
+   */
+  readonly paletteUniforms: OceanPaletteUniforms
   /**
    * 換時段。**細浪面與遠海一起換** —— 漏掉其中一個就是 5 km 處的一條色帶。
    *
@@ -1665,6 +1684,7 @@ ${SPARKLE_COMMON}`,
     mesh,
     farMesh,
     origin: uOrigin.value,
+    paletteUniforms: sparkle,
     setPalette(p) {
       material.color.setHex(p.seaColor)
       farMaterial.color.setHex(p.seaColor)

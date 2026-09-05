@@ -7,7 +7,9 @@ import {
 import {
   applySkyPalette, createSky, skyColorAt, SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH,
 } from '../../src/render/sky'
-import { createOcean, SEA_COLOR, SEA_HORIZON_COLOR } from '../../src/render/ocean'
+import {
+  createOcean, SEA_COLOR, SEA_HORIZON_COLOR, SPARKLE_STRENGTH,
+} from '../../src/render/ocean'
 import { createLights, applyLightPalette } from '../../src/render/lighting'
 import { FOG_COLOR, FOG_DENSITY } from '../../src/render/fog'
 import { MISSIONS } from '../../src/battle/missions'
@@ -169,6 +171,42 @@ describe('Ocean.setPalette', () => {
     const farColor = ((ocean.farMesh as Mesh).material as MeshStandardMaterial).color.getHex()
     expect(nearColor).toBe(DAY_PALETTES.night.seaColor)
     expect(farColor).toBe(DAY_PALETTES.night.seaColor)
+    ocean.dispose()
+  })
+
+  /**
+   * 【海面反射的天空必須跟著換】漏掉其中一個 uniform 的症狀是**黃昏的海
+   * 反射著中午的天** —— 看得出來，但不會有任何東西報錯。這六個在 headless
+   * 讀不到材質上的 uniform，所以走 `Ocean.paletteUniforms`。
+   */
+  it('六個著色器 uniform 全部跟著 palette 走', () => {
+    const ocean = createOcean(null)
+    const p = DAY_PALETTES.dusk
+    ocean.setPalette(p)
+    const u = ocean.paletteUniforms
+    expect(u.uSkyHorizon.value.getHex()).toBe(p.skyHorizon)
+    expect(u.uSkyZenith.value.getHex()).toBe(p.skyZenith)
+    expect(u.uSkyPower.value).toBe(p.skyPower)
+    expect(u.uHorizonColor.value.getHex()).toBe(p.seaHorizon)
+    expect(u.uSparkleStrength.value).toBeCloseTo(SPARKLE_STRENGTH * p.sparkle, 12)
+    // 太陽方向是正規化過的 —— 海面的鏡面反射與三盞燈必須指向同一個地方
+    expect(u.uSunDirection.value.length()).toBeCloseTo(1, 9)
+    const sun = paletteSunDir(p, new Vector3())
+    expect(u.uSunDirection.value.x).toBeCloseTo(sun.x, 12)
+    expect(u.uSunDirection.value.y).toBeCloseTo(sun.y, 12)
+    ocean.dispose()
+  })
+
+  it('換回正午時六個 uniform 都回到原本的常數', () => {
+    const ocean = createOcean(null)
+    ocean.setPalette(DAY_PALETTES.night)
+    ocean.setPalette(DAY_PALETTES.noon)
+    const u = ocean.paletteUniforms
+    expect(u.uSkyHorizon.value.getHex()).toBe(SKY_HORIZON)
+    expect(u.uSkyZenith.value.getHex()).toBe(SKY_ZENITH)
+    expect(u.uSkyPower.value).toBe(SKY_GRADIENT_POWER)
+    expect(u.uHorizonColor.value.getHex()).toBe(SEA_HORIZON_COLOR)
+    expect(u.uSparkleStrength.value).toBe(SPARKLE_STRENGTH)
     ocean.dispose()
   })
 
