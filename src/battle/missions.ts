@@ -17,6 +17,7 @@ import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TerrainKind } from '../world/terrainKind'
+import type { TimeOfDay } from '../render/timeOfDay'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
@@ -273,6 +274,14 @@ export interface MissionBattle {
    * 而且畫面上一切正常 —— `campaigns.test.ts` 那一層守著。
    */
   readonly sinkCount?: number
+  /**
+   * 這一關的時段。**省略 = `'noon'`。**
+   *
+   * 【它只影響畫面，不進 `BattleConfig`】光照與模擬無關，所以它不走
+   * `missionConfigFrom` 那條路 —— `main.ts` 直接從卡片讀。混進戰鬥設定的話，
+   * 逐位元重播的護欄會開始被純視覺的改動弄紅。
+   */
+  readonly timeOfDay?: TimeOfDay
 }
 
 /**
@@ -630,6 +639,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 就是雷擊機該做的決定。**這一期玩家還沒有魚雷**（在另一支分支
         // 上），規則先接好，武器進來就成立。
         sinkCount: 3,
+        // 【卡片文案就寫黃昏】「在黃昏低空雷擊」—— 畫面本來一直是正午
+        timeOfDay: 'dusk',
       },
     },
   ],

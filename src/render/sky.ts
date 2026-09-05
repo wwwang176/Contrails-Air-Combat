@@ -1,4 +1,6 @@
 import { BackSide, Mesh, ShaderMaterial, SphereGeometry, Color, Vector3 } from 'three'
+// 【只匯入型別】`timeOfDay.ts` 要用這裡的 `SKY_HORIZON` 等常數，值匯入會成環
+import type { DayPalette } from './timeOfDay'
 
 /**
  * 天空球半徑，m。
@@ -173,11 +175,38 @@ const FRAG = /* glsl */ `
   uniform vec3 horizon;
   uniform vec3 zenith;
   uniform float power;
+  uniform float stars;
   varying vec3 vDir;
+
+  float hash21(vec2 p) {
+    p = fract(p * vec2(127.31, 311.7));
+    p += dot(p, p + 34.53);
+    return fract(p.x * p.y);
+  }
+
   void main() {
     // 【改這兩行就要同步改 skyColorAt】那是這段的 CPU 版，霧色靠它推導
     float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-    gl_FragColor = vec4(mix(horizon, zenith, pow(t, power)), 1.0);
+    vec3 col = mix(horizon, zenith, pow(t, power));
+    // 【星點只在 stars > 0 時算】正午與清晨走這個分支之外，輸出與加星之前
+    // 逐位元相同 —— 既有的畫面基準線因此不受影響
+    if (stars > 0.0) {
+      // 方位角 × 仰角的網格。兩極會擠壓，但那裡星星本來就密，看不出來
+      vec2 sc = vec2(atan(vDir.z, vDir.x), asin(clamp(vDir.y, -1.0, 1.0))) * 190.0;
+      vec2 cell = floor(sc);
+      float pick = hash21(cell);
+      // 每 ~300 格才有一顆
+      float lit = smoothstep(0.9966, 1.0, pick);
+      vec2 jitter = vec2(hash21(cell + 3.7), hash21(cell + 9.1)) - 0.5;
+      float d = length(fract(sc) - 0.5 - jitter * 0.7);
+      // 亮度也用同一個 hash 分級，整片才不會像等亮的點陣
+      float mag = 0.35 + 0.65 * hash21(cell + 17.3);
+      // 地平線附近淡出：那裡是大氣消光最強的地方，也避開海天接縫
+      float alt = smoothstep(0.0, 0.28, vDir.y);
+      col += vec3(0.86, 0.90, 1.0)
+        * (lit * smoothstep(0.42, 0.0, d) * mag * alt * stars);
+    }
+    gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
 `
@@ -205,6 +234,7 @@ export function createSky(): Mesh {
       horizon: { value: new Color(SKY_HORIZON) },
       zenith: { value: new Color(SKY_ZENITH) },
       power: { value: SKY_GRADIENT_POWER },
+      stars: { value: 0 },
     },
     side: BackSide,
     depthWrite: false,
@@ -236,4 +266,18 @@ function followCamera(mesh: Mesh, eye: Vector3): void {
   mesh.position.copy(eye)
   mesh.updateMatrix()
   mesh.updateMatrixWorld(true)
+}
+
+/**
+ * 換掉天空球的漸層與星點。
+ *
+ * 【呼叫端不要自己去摸 uniform 的名字】那三個名字同時被 `fog.test.ts` 綁著；
+ * 集中在這裡，改名只會壞一個地方。
+ */
+export function applySkyPalette(sky: Mesh, p: DayPalette): void {
+  const u = (sky.material as ShaderMaterial).uniforms
+  ;(u.horizon!.value as Color).setHex(p.skyHorizon)
+  ;(u.zenith!.value as Color).setHex(p.skyZenith)
+  u.power!.value = p.skyPower
+  u.stars!.value = p.stars
 }

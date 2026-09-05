@@ -72,7 +72,7 @@ export function planeShot(
   scene.background = new Color(BG)
   // 【一定要用正式場景那組燈】合併會改變法線所屬的 mesh 分組，若燈光與遊戲
   // 不同，量到的差異就不是玩家會看到的差異
-  for (const l of createLights()) scene.add(l)
+  for (const l of createLights().all) scene.add(l)
 
   const model = buildAircraft({ id } as unknown as AircraftSpec)
   model.setPropSpin(0.7, blurred)
