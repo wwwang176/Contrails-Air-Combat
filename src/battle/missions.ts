@@ -528,6 +528,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         targetDistance: 0, targetRadius: 0, seconds: Infinity,
         entry: 'headOn',
         terrain: 'farmland',
+        // 【拂曉】野戰機場的攔截隊天亮就升空 —— 停在地面上等於被掃射
+        timeOfDay: 'dawn',
         /**
          * 【`byLatest` 必須早於「打得完敵軍」的那一刻】開場規則是
          * `annihilate`，紅隊歸零就**直接判勝**，之後返航節拍再也沒有機會
@@ -602,6 +604,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         blueSpec: A6M5, redSpec: F6F5,
         blueCount: 8, redCount: 6,
         terrain: 'archipelago',
+        // 【清晨】1944 年 10 月 12 日第 38 特遣艦隊的首波在天亮時到新竹上空
+        timeOfDay: 'dawn',
       },
     },
     {
