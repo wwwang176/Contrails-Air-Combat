@@ -178,10 +178,15 @@ const FRAG = /* glsl */ `
   uniform float stars;
   varying vec3 vDir;
 
-  float hash21(vec2 p) {
-    p = fract(p * vec2(127.31, 311.7));
-    p += dot(p, p + 34.53);
-    return fract(p.x * p.y);
+  /**
+   * 【一定要用這一支，不要寫 fract(p * vec2(大數)) 那種】對整數輸入
+   * fract(n * 127.31) 等於 fract(n * 0.31)，沿座標軸強相關 —— 星點會排成
+   * 一列一列的直行。這是 Hoskins 的 hash13，三個分量互相混過。
+   */
+  float hash13(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return fract((p.x + p.y) * p.z);
   }
 
   void main() {
@@ -191,20 +196,33 @@ const FRAG = /* glsl */ `
     // 【星點只在 stars > 0 時算】正午與清晨走這個分支之外，輸出與加星之前
     // 逐位元相同 —— 既有的畫面基準線因此不受影響
     if (stars > 0.0) {
-      // 方位角 × 仰角的網格。兩極會擠壓，但那裡星星本來就密，看不出來
-      vec2 sc = vec2(atan(vDir.z, vDir.x), asin(clamp(vDir.y, -1.0, 1.0))) * 190.0;
-      vec2 cell = floor(sc);
-      float pick = hash21(cell);
-      // 每 ~300 格才有一顆
-      float lit = smoothstep(0.9966, 1.0, pick);
-      vec2 jitter = vec2(hash21(cell + 3.7), hash21(cell + 9.1)) - 0.5;
-      float d = length(fract(sc) - 0.5 - jitter * 0.7);
-      // 亮度也用同一個 hash 分級，整片才不會像等亮的點陣
-      float mag = 0.35 + 0.65 * hash21(cell + 17.3);
-      // 地平線附近淡出：那裡是大氣消光最強的地方，也避開海天接縫
-      float alt = smoothstep(0.0, 0.28, vDir.y);
-      col += vec3(0.86, 0.90, 1.0)
-        * (lit * smoothstep(0.42, 0.0, d) * mag * alt * stars);
+      vec3 dir = normalize(vDir);
+      /**
+       * 【網格建在方向向量上，不是方位角×仰角】球座標的格子在天頂會擠成
+       * 一點，而且經度線在畫面上本來就是直的 —— 兩者都讓星點看起來有結構。
+       * 半徑 150 的球殼切一個單位立方格，格子的角尺寸約 0.38°，
+       * 遠大於星點本身。
+       */
+      vec3 cell = floor(dir * 150.0) + 0.5;
+      // 約 0.55% 的格子有星，整顆天球約 2,300 顆 —— 肉眼可見的量級
+      if (hash13(cell) > 0.9945) {
+        vec3 jit = vec3(hash13(cell + 11.3), hash13(cell + 27.7), hash13(cell + 41.1));
+        vec3 star = normalize(cell + (jit - 0.5) * 0.9);
+        float ang = acos(clamp(dot(dir, star), -1.0, 1.0));
+        /**
+         * 【核心要小又要不閃爍】0.0021 rad 是 0.12°，1080p 下約兩個像素。
+         * 平方一次把邊緣收緊 —— 只留外圈當抗鋸齒，不然點會在鏡頭轉動時
+         * 一閃一閃地跳。
+         */
+        float core = smoothstep(0.0021, 0.0, ang);
+        core *= core;
+        // 【亮度偏暗】三次方讓絕大多數是暗星、少數幾顆明顯亮，才像星空
+        float h = hash13(cell + 5.9);
+        float mag = 0.18 + 0.82 * h * h * h;
+        // 地平線附近淡出：那裡大氣消光最強，也避開海天接縫
+        float alt = smoothstep(0.0, 0.28, dir.y);
+        col += vec3(0.86, 0.90, 1.0) * (core * mag * alt * stars);
+      }
     }
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
