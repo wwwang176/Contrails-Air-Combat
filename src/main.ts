@@ -1168,8 +1168,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera.updateProjectionMatrix()
     }
   } else {
-    // 【落點要在 rig.update 之前解】相機的視線就是指向它
-    if (input.viewMode === 'bomb' && bp !== null) {
+    // 【落點要在 rig.update 之前解】投彈模式下相機的視線就是指向它
+    //
+    // 【不看視角】落點是飛行狀態的函數，算得出來一般飛行也標得出來（HUD 的
+    // `bombsight` 在兩種模式都畫，只差顏色）。上帝視角則整段跳過 —— 那裡連
+    // 落點圈都不畫。
+    if (bp !== null) {
       bombState = 'none'
       BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
       const v = player.aircraft.state.velocity
@@ -1178,11 +1182,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 炸彈同一個步長，那條護欄的整個重點就在這裡
       if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
         BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
-        bombTarget = BOMB_POINT
         bombState = 'solved'
+        // 【只有投彈模式把落點交給相機】一般飛行時鏡頭跟的是瞄準點
+        if (input.viewMode === 'bomb') bombTarget = BOMB_POINT
       }
-    } else if (input.viewMode === 'bomb') {
-      bombState = 'none'
     }
     // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
     rig.update(
@@ -1263,6 +1266,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 確實在中心；但視線的 LERP 會在機動時把它拖開，而那個分離量正是要看的
   // 東西 —— 「投彈解還沒收斂」。
   hudFrame.bombState = bombState
+  hudFrame.bombing = input.viewMode === 'bomb'
+  hudFrame.bombCapable = input.bombCapable
   hudFrame.bombLoad = bombBay.load
   hudFrame.bombReloading = bombBay.reloading
   hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0

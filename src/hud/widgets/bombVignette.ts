@@ -30,7 +30,7 @@ export function drawBombVignette(
   L: HudLayout,
   f: HudFrame,
 ): void {
-  if (f.bombState === 'off') return
+  if (!f.bombing) return
 
   const r0 = (Math.min(L.width, L.height) / 2) * INNER
   const g = ctx.createRadialGradient(L.cx, L.cy, r0, L.cx, L.cy, r0 * OUTER)
