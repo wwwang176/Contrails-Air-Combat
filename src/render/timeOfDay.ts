@@ -57,6 +57,17 @@ export interface DayPalette {
    * 會變成整片白色多邊形，而不是水面的閃爍。
    */
   readonly sparkle: number
+  /**
+   * 遠處植被（點池）的亮度倍率。正午 = 1。
+   *
+   * 【為什麼只有點池要這一格】近、中兩級的樹與房子走 `MeshStandardMaterial`，
+   * 換了燈就自己變暗。**點走 `PointsMaterial`，是 basic 的** —— 見
+   * `vegetation.ts` 的 `POINT_LIGHT`。不補的話夜間會是一片發光的樹海。
+   *
+   * 【為什麼是可調的數字而不是從三盞燈推導】推導要假設一個照度模型，而
+   * `POINT_LIGHT` 本身就是量出來的、不是算出來的。同一條規矩：拿眼睛校。
+   */
+  readonly foliage: number
   readonly fogDensity: number
 }
 
@@ -92,6 +103,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: 0x16293c,
     seaHorizon: 0x51637a,
     sparkle: 0.75,
+    foliage: 0.6,
     fogDensity: 1.6e-5,
   },
   noon: {
@@ -112,6 +124,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: SEA_COLOR,
     seaHorizon: SEA_HORIZON_COLOR,
     sparkle: 1,
+    foliage: 1,
     fogDensity: FOG_DENSITY,
   },
   dusk: {
@@ -132,6 +145,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: 0x13243a,
     seaHorizon: 0x6e5468,
     sparkle: 0.85,
+    foliage: 0.5,
     fogDensity: 1.8e-5,
   },
   night: {
@@ -152,6 +166,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaColor: 0x070d17,
     seaHorizon: 0x1b2736,
     sparkle: 0.18,
+    foliage: 0.16,
     fogDensity: 2.2e-5,
   },
 }

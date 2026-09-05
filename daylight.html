@@ -14,8 +14,8 @@
         backdrop-filter: blur(4px);
       }
       #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
-      #tabs { display: flex; gap: 6px; margin-bottom: 10px; }
-      #tabs button { flex: 1; }
+      #tabs, #terrain { display: flex; gap: 6px; margin-bottom: 8px; }
+      #tabs button, #terrain button { flex: 1; }
       .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
       .row label { flex: 0 0 64px; color: #8ea6bb; }
       .row input[type=range] { flex: 1; min-width: 0; }
@@ -45,6 +45,7 @@
     <div id="panel">
       <h1>時段展示區</h1>
       <div id="tabs"></div>
+      <div id="terrain"></div>
       <div id="rows"></div>
     </div>
     <div id="dump">
