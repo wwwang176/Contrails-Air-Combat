@@ -13,6 +13,7 @@ import { B17G, B17G_HISTORICAL } from '../specs/b17g'
 import { HE111, HE111_HISTORICAL } from '../specs/he111'
 import type { AircraftSpec, HistoricalReference } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
+import type { TimeOfDay } from '../world/timeOfDay'
 
 /** 每隊最少架數。一架也要能打 —— 那時玩家沒有僚機可接，一死就落敗 */
 export const MIN_SIDE = 1
@@ -67,6 +68,14 @@ export interface SkirmishSetup {
    * 「地形進得了場」的另一半。
    */
   readonly altitude: number
+  /**
+   * 這一場打在什麼時候。**任務模式不吃它** —— 那邊的時段寫在卡片上
+   * （`MissionBattle.timeOfDay`），與地形同一個道理。
+   *
+   * 【它只影響畫面】光照與模擬無關，所以 `battleConfigFrom` 不帶它，
+   * `main.ts` 直接讀這一格。
+   */
+  readonly timeOfDay: TimeOfDay
 }
 
 /**
@@ -156,6 +165,7 @@ export function uniform(
     lead: Math.floor(blue.length / 2),
     terrain: 'archipelago',
     altitude: DEFAULT_BATTLE.altitude,
+    timeOfDay: 'noon',
   }
 }
 

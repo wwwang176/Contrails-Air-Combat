@@ -17,7 +17,7 @@ import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TerrainKind } from '../world/terrainKind'
-import type { TimeOfDay } from '../render/timeOfDay'
+import type { TimeOfDay } from '../world/timeOfDay'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
