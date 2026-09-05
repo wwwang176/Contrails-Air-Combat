@@ -10,8 +10,8 @@ const angleTo = (v: Vec3Like, ax: number, ay: number, az: number): number =>
   Math.acos(Math.max(-1, Math.min(1, v.x * ax + v.y * ay + v.z * az)))
 
 describe('coneClamp', () => {
-  it('圓錐半角是 45 度 —— 再開下去相機會掃到自己的機體', () => {
-    expect(BOMB_CONE_HALF_ANGLE).toBeCloseTo((45 * Math.PI) / 180, 12)
+  it('圓錐半角是 60 度 —— 再開下去相機會掃到自己的機體', () => {
+    expect(BOMB_CONE_HALF_ANGLE).toBeCloseTo((60 * Math.PI) / 180, 12)
   })
 
   it('錐內不動', () => {
@@ -67,7 +67,7 @@ describe('coneClamp', () => {
 
   it('輸出恆是單位向量', () => {
     const o = out()
-    for (const a of [0, 20, 44, 45, 46, 70, 90, 140, 179]) {
+    for (const a of [0, 20, 59, 60, 61, 90, 140, 179]) {
       const r = (a * Math.PI) / 180
       coneClamp(Math.sin(r), -Math.cos(r), 0, 0, -1, 0, COS, SIN, o)
       expect(Math.hypot(o.x, o.y, o.z)).toBeCloseTo(1, 9)
@@ -81,9 +81,9 @@ describe('coneClamp', () => {
     const ay = -Math.cos(Math.PI / 6)
     // 正下方離這根軸 30°，仍在錐內 → 不夾制。**陀螺穩定的話這裡會是 0°**
     expect(coneClamp(0, -1, 0, ax, ay, 0, COS, SIN, o)).toBe(false)
-    // 再滾到 60°：正下方離軸 60°，超出 45° 的錐 → 夾制
-    const bx = -Math.sin(Math.PI / 3)
-    const by = -Math.cos(Math.PI / 3)
+    // 再滾到 80°：正下方離軸 80°，超出 60° 的錐 → 夾制
+    const bx = -Math.sin((80 * Math.PI) / 180)
+    const by = -Math.cos((80 * Math.PI) / 180)
     expect(coneClamp(0, -1, 0, bx, by, 0, COS, SIN, o)).toBe(true)
     expect(angleTo(o, bx, by, 0)).toBeCloseTo(BOMB_CONE_HALF_ANGLE, 9)
   })
