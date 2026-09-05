@@ -14,6 +14,7 @@ export default defineConfig({
         propdisc: 'propdisc.html',
         damageedge: 'damageedge.html',
         daylight: 'daylight.html',
+        blast: 'blast.html',
       },
     },
   },
