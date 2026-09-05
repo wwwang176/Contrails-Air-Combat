@@ -595,11 +595,12 @@ function enterBattle(): void {
   terrain.dispose()
   terrain = createTerrain(terrainKind)
   ctx.scene.add(terrain.object)
-  // 【時段跟著卡片走，遭遇戰恆為正午】天空、霧、三盞燈與海一次換完 ——
-  // 分開叫的話漏掉海的症狀是「黃昏的天配中午的海」，而且不會有東西報錯
+  // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
+  // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
+  // 「黃昏的天配中午的海」，而且不會有東西報錯
   applyTimeOfDay(ctx, terrain, mode === 'mission' && pendingMission !== null
     ? pendingMission.battle.timeOfDay ?? 'noon'
-    : 'noon')
+    : setup.timeOfDay)
   resetArena()
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
