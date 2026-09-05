@@ -171,8 +171,9 @@ describe('落點矩陣：圓錐在哪一段開始作用', () => {
 
   it('低空會被夾 —— 圓錐真的有作用', () => {
     const half = (BOMB_CONE_HALF_ANGLE * 180) / Math.PI
-    expect(at(1000, 90).nadirDeg).toBeGreaterThan(half)
-    expect(at(2000, 130).nadirDeg).toBeGreaterThan(half)
+    // 量測的門檻：90 m/s 起於 508 m、130 m/s 起於 982 m
+    expect(at(200, 90).nadirDeg).toBeGreaterThan(half)
+    expect(at(500, 130).nadirDeg).toBeGreaterThan(half)
   })
 })
 
