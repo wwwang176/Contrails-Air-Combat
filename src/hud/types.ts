@@ -144,17 +144,21 @@ export interface HudFrame {
   /** 落點在相機前方且投影落在畫面內 */
   bombVisible: boolean
   /**
-   * `off` = 不在投彈模式；`solved` = 有落點；`none` = 90 秒內解不出來。
+   * `off` = 這一幀沒解落點（不是轟炸機，或在上帝視角）；`solved` = 有落點；
+   * `none` = 90 秒內解不出來。
    *
    * 【沒有「被圓錐夾住」這一格】夾制不改變圓圈的正確性 —— 圈畫的恆是真
    * 落點，被夾住的是相機；而且夾制觸發時落點方向與相機軸差 0°，圈就在正
    * 中央。有後果的是圈滑出畫面，那由 `bombVisible` 管。
-   *
-   * 【「在不在投彈模式」也在這一格】`hudWidgets` 讀的是 frame（同
-   * `godView`），需要知道要不要換清單。另開一個 `bombing: boolean` 會有
-   * 兩個欄位描述同一件事，遲早不同步。
    */
   bombState: 'off' | 'solved' | 'none'
+  /**
+   * 在投彈模式（按 B）。**與 `bombState` 是兩件事** —— 落點在一般飛行時
+   * 照樣解算，只是相機不去追它、圈用暗色、滑出畫面就不畫。
+   */
+  bombing: boolean
+  /** 這一台掛得了炸彈。彈艙讀數的顯示條件 */
+  bombCapable: boolean
   /** 彈艙裡還剩幾枚 */
   bombLoad: number
   /**
@@ -306,6 +310,7 @@ export function createHudFrame(): HudFrame {
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
     bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
+    bombing: false, bombCapable: false,
     bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
