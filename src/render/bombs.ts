@@ -7,7 +7,8 @@ import { BOMBS_CAPACITY, type Bombs } from '../world/bomb'
 
 const DUMMY = new Object3D()
 const DIR = new Vector3()
-const TAIL = new Vector3(0, 1, 0)
+/** 模型的尖端方向（局部座標）。姿態就是「把這一根轉到速度上」 */
+const NOSE = new Vector3(0, -1, 0)
 const Q = new Quaternion()
 
 /** 收起來時擺去哪裡。遠低於任何地形，而且 `frustumCulled` 關著所以不會被誤剔 */
@@ -18,8 +19,8 @@ export const BOMB_LENGTH = 1.6
 /** 彈體最大半徑，m。直徑 0.36 m 同上 */
 export const BOMB_BODY_RADIUS = 0.18
 
-/** 旋成體的徑向段數。8 段在空中的尺度上已經讀不出稜線，再多只是三角形 */
-const RADIAL = 8
+/** 旋成體的徑向段數。彈體因此是五邊形剖面 */
+const RADIAL = 5
 
 /**
  * 旋成體的輪廓，`[半徑, 軸向]`。**軸向 −Y 是頭、+Y 是尾。**
@@ -74,6 +75,23 @@ export function createBombGeometry(): BufferGeometry {
 }
 
 /**
+ * 炸彈的姿態：**尖端朝速度**。就地寫進 `out`。
+ *
+ * 【方向是尖端不是尾巴】`setFromUnitVectors(from, to)` 轉的是 `from`，所以
+ * 這裡要餵局部的 −Y（尖端）。餵 +Y 的話炸彈整支倒過來飛，而且不會有任何
+ * 錯誤 —— 尾翼在前看起來一樣「有姿態」。
+ *
+ * 【為什麼抽成函數】上面那件事只有算出來才看得見，而 `update` 進不了單元
+ * 測試。
+ */
+export function bombOrientation(
+  vx: number, vy: number, vz: number, out: Quaternion,
+): void {
+  DIR.set(vx, vy, vz).normalize()
+  out.setFromUnitVectors(NOSE, DIR)
+}
+
+/**
  * 空中的炸彈。
  */
 export function createBombs(): BombVisuals {
@@ -94,12 +112,14 @@ export function createBombs(): BombVisuals {
           DUMMY.quaternion.identity()
         } else {
           DUMMY.position.set(bombs.x[i]!, bombs.y[i]!, bombs.z[i]!)
-          DIR.set(bombs.vx[i]!, bombs.vy[i]!, bombs.vz[i]!)
-          // 【尖端朝速度】炸彈順著氣流轉正。投下的第一瞬間速度是水平的，
-          // 落地前幾乎垂直 —— 那個轉正本身就讀得出彈道
-          if (DIR.lengthSq() > 1e-6) {
-            DIR.normalize()
-            DUMMY.quaternion.copy(Q.setFromUnitVectors(TAIL, DIR))
+          const vx = bombs.vx[i]!
+          const vy = bombs.vy[i]!
+          const vz = bombs.vz[i]!
+          // 【炸彈順著氣流轉正】投下的第一瞬間速度是水平的，落地前幾乎
+          // 垂直 —— 那個轉正本身就讀得出彈道
+          if (vx * vx + vy * vy + vz * vz > 1e-6) {
+            bombOrientation(vx, vy, vz, Q)
+            DUMMY.quaternion.copy(Q)
           }
         }
         DUMMY.updateMatrix()
