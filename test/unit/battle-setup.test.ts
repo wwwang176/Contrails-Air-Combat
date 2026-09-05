@@ -16,6 +16,7 @@ import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Combatant } from '../../src/world/World'
 import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast, sideCount } from '../../src/battle/order'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 class Idle implements Controller {
   update(_a: Aircraft, _dt: number, out: Command): void {
@@ -311,7 +312,7 @@ describe('重置', () => {
 
   it('重置後彈丸池是空的——上一場的流彈不會打到新的一場', () => {
     const b = createBattle(new Idle())
-    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0)
+    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0, 0, PROJECTILE_LIFETIME)
     expect(b.world.projectiles.live).toBeGreaterThan(0)
     resetBattle(b)
     expect(b.world.projectiles.live).toBe(0)

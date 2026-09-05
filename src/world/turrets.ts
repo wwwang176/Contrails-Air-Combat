@@ -10,6 +10,7 @@ import type { BurstCycle } from '../weapons/burst'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
 import { losBlocked, type LandField } from './occlusion'
+import type { Ship } from './ships'
 import type { Projectiles } from './Projectiles'
 import type { Turret } from '../weapons/turret'
 import type { AircraftSpec } from '../specs/types'
@@ -45,8 +46,18 @@ export interface TurretState extends BurstCycle {
   aim: Vector3
   /** 搖晃相位。 */
   phase: number
-  /** 目前目標的 combatant 索引；−1 = 沒有目標。 */
+  /** 目前目標的 combatant 索引；−1 = 沒有目標**或目標是船**。 */
   targetIndex: number
+  /**
+   * 目標是艦上的砲位時：船在 `World.ships` 裡的索引；−1 = 目標不是船。
+   *
+   * 【為什麼不把船塞進同一個索引空間】`all[s.targetIndex]` 這個寫法散在
+   * 好幾處，混進船之後每一處都要先問「這個索引是飛機還是船」。多兩格
+   * int32 比較便宜，而且讀起來就知道是兩種目標。
+   */
+  targetShip: number
+  /** 目標是艦上的砲位時：那個砲位的索引。 */
+  targetGun: number
   /** 距離下一次重新搜尋還有幾秒。 */
   searchCooldown: number
   /**
@@ -111,7 +122,7 @@ export function createTurretStates(
   for (let i = 0; i < spec.turrets.length; i++) {
     out.push({
       aim: spec.turrets[i]!.axis.clone(),
-      phase: 0, targetIndex: -1, searchCooldown: 0,
+      phase: 0, targetIndex: -1, targetShip: -1, targetGun: -1, searchCooldown: 0,
       burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
       flash: 0, lastBarrel: 0,
     })
@@ -144,6 +155,8 @@ export function resetTurretStates(
     s.aim.copy(spec.turrets[i]!.axis)
     s.phase = wobblePhase(combatantIndex, i)
     s.targetIndex = -1
+    s.targetShip = -1
+    s.targetGun = -1
     // 黃金比的小數部分：低差異序列，任意前綴都接近均勻
     const k = combatantIndex * MAX_TURRETS + i
     s.searchCooldown = ((k * GOLDEN) % 1) * SEARCH_INTERVAL
@@ -181,6 +194,9 @@ const MUZZLE = /* @__PURE__ */ new Vector3()
 const VEL = /* @__PURE__ */ new Vector3()
 const OFFSET = /* @__PURE__ */ new Vector3()
 const INV_Q = /* @__PURE__ */ new Quaternion()
+/** 艦上砲位的世界座標與該船的速度。與上面那些同一條紀律：模組私有、不共用。 */
+const GUN_POS = /* @__PURE__ */ new Vector3()
+const SHIP_VEL = /* @__PURE__ */ new Vector3()
 
 /**
  * 推進一架飛機的全部砲塔一個物理步。
@@ -202,6 +218,7 @@ export function stepTurrets(
   time: number,
   dt: number,
   land: LandField | null = null,
+  ships: readonly Ship[] = [],
 ): void {
   const turrets = c.aircraft.spec.turrets
   if (turrets.length === 0 || !c.alive || c.hp <= 0) return
@@ -227,15 +244,22 @@ export function stepTurrets(
     // 選目標。搜尋一律受冷卻節流，**與現在有沒有目標無關**
     s.searchCooldown -= dt
     if (s.searchCooldown <= 0) {
-      s.targetIndex = pickTarget(c, all, t, vel, land)
+      pickTarget(c, all, ships, t, vel, land, s)
       s.searchCooldown += SEARCH_INTERVAL
     } else if (s.targetIndex >= 0) {
       const o = all[s.targetIndex]
       if (o === undefined || !o.alive) s.targetIndex = -1
+    } else if (s.targetShip >= 0) {
+      // 砲位可能在這一秒之內被別人打掉了
+      const g = ships[s.targetShip]?.guns[s.targetGun]
+      if (g === undefined || !g.alive) { s.targetShip = -1; s.targetGun = -1 }
     }
 
     let trigger = false
-    if (s.targetIndex >= 0 && leadInBody(all[s.targetIndex]!, t, vel, WANT)) {
+    const hasTarget = s.targetIndex >= 0
+      ? leadInBody(all[s.targetIndex]!, t, vel, WANT)
+      : s.targetShip >= 0 && leadShipGun(ships[s.targetShip]!, s.targetGun, t, vel, WANT)
+    if (hasTarget) {
       slew(s.aim, WANT, t.rotationRate * dt)
       trigger = firingWindow && s.aim.angleTo(WANT) < FIRE_THRESHOLD
     } else {
@@ -272,6 +296,7 @@ export function stepTurrets(
         // 這一項 —— 而 B-17G 的砲塔與 P-51D 的翼槍共用同一份 M2_BROWNING，
         // 改 WeaponSpec.damage 會把野馬一起砍半。見 TURRET_DAMAGE_SCALE。
         t.weapon.damage * t.guns * TURRET_DAMAGE_SCALE, c.index,
+        c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
       )
     }
   }
@@ -286,8 +311,31 @@ export function stepTurrets(
 function leadInBody(
   target: TurretCombatant, t: Turret, shooterVel: Vector3, out: Vector3,
 ): boolean {
-  P.copy(target.aircraft.state.position).sub(MUZZLE)
-  V.copy(target.aircraft.state.velocity).sub(shooterVel)
+  return leadPointInBody(
+    target.aircraft.state.position, target.aircraft.state.velocity, t, shooterVel, out)
+}
+
+/**
+ * 艦上砲位的版本。砲位的世界位置＝艦體座標經船的艏向轉過去。
+ *
+ * 【速度取整艘船的】砲位不會相對船移動，而船是等速直航的。
+ */
+function leadShipGun(
+  ship: Ship, gunIndex: number, t: Turret, shooterVel: Vector3, out: Vector3,
+): boolean {
+  const g = ship.guns[gunIndex]
+  if (g === undefined || !g.alive) return false
+  GUN_POS.copy(g.zone.position).applyQuaternion(ship.orientation).add(ship.position)
+  SHIP_VEL.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
+  return leadPointInBody(GUN_POS, SHIP_VEL, t, shooterVel, out)
+}
+
+/** 兩者共用的解算。`pos` 與 `vel` 都是世界座標。 */
+function leadPointInBody(
+  pos: Vector3, vel: Vector3, t: Turret, shooterVel: Vector3, out: Vector3,
+): boolean {
+  P.copy(pos).sub(MUZZLE)
+  V.copy(vel).sub(shooterVel)
   const tt = solveLead(P, V, t.weapon.muzzleVelocity, LEAD)
   // 【射程判定就是「t ≤ 彈丸壽命」】與 HUD 預瞄環同一個條件，不另訂數字
   if (tt === NO_INTERCEPT || tt > PROJECTILE_LIFETIME) return false
@@ -332,11 +380,13 @@ const MAX_REACH_SQ = ((887 + MAX_CLOSING_SPEED) * PROJECTILE_LIFETIME) ** 2
  * 二次式，但換到「沒有跨函數的隱式別名」。
  */
 function pickTarget(
-  c: TurretCombatant, all: readonly TurretCombatant[], t: Turret, vel: Vector3,
-  land: LandField | null,
-): number {
-  let best = -1
+  c: TurretCombatant, all: readonly TurretCombatant[], ships: readonly Ship[],
+  t: Turret, vel: Vector3, land: LandField | null, s: TurretState,
+): void {
   let bestDist = Infinity
+  let bestAircraft = -1
+  let bestShip = -1
+  let bestGun = -1
   for (let k = 0; k < all.length; k++) {
     const o = all[k]!
     if (!o.alive || o.team === c.team || o.index === c.index) continue
@@ -355,7 +405,43 @@ function pickTarget(
       if (losBlocked(MUZZLE.x, MUZZLE.y, MUZZLE.z, p.x, p.y, p.z, land)) continue
     }
     bestDist = d
-    best = o.index
+    bestAircraft = o.index
+    bestShip = -1
   }
-  return best
+
+  /*
+   * 艦上的砲位也是候選。
+   *
+   * 【為什麼要有這一條】這一期玩家開一式陸攻**沒有扳機**
+   * （`G4M_BATTERY.mounts` 是空陣列，武器全做成 AI 砲塔）。少了它，
+   * 「砲位可以被打掉」就只有測試看得見。史實上一式陸攻進場時，側方與機腹
+   * 的 20 mm 銃手本來就是對著艦上掃的。
+   *
+   * 【與飛機比的是同一個 bestDist】所以規則仍然是「離槍口最近的」。貼海面
+   * 進場時最近的常常就是船 —— 那正是要的畫面。**若試飛覺得銃手該優先打
+   * 攻擊中的戰鬥機，這裡就是要加偏置的地方。**
+   */
+  for (let k = 0; k < ships.length; k++) {
+    const sh = ships[k]!
+    if (!sh.alive || sh.team === c.team) continue
+    for (let gi = 0; gi < sh.guns.length; gi++) {
+      const g = sh.guns[gi]!
+      if (!g.alive) continue
+      GUN_POS.copy(g.zone.position).applyQuaternion(sh.orientation).add(sh.position)
+      const d = GUN_POS.distanceToSquared(MUZZLE)
+      if (d > MAX_REACH_SQ || d >= bestDist) continue
+      if (!leadShipGun(sh, gi, t, vel, BEST_WANT)) continue
+      if (land !== null
+        && losBlocked(MUZZLE.x, MUZZLE.y, MUZZLE.z, GUN_POS.x, GUN_POS.y, GUN_POS.z, land)) continue
+      bestDist = d
+      bestAircraft = -1
+      bestShip = k
+      bestGun = gi
+    }
+  }
+
+  s.targetIndex = bestAircraft
+  s.targetShip = bestShip
+  s.targetGun = bestGun
 }
+

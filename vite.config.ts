@@ -13,6 +13,7 @@ export default defineConfig({
         range: 'range.html',
         propdisc: 'propdisc.html',
         damageedge: 'damageedge.html',
+        daylight: 'daylight.html',
       },
     },
   },

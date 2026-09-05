@@ -1,4 +1,6 @@
 import { BackSide, Mesh, ShaderMaterial, SphereGeometry, Color, Vector3 } from 'three'
+// 【只匯入型別】`timeOfDay.ts` 要用這裡的 `SKY_HORIZON` 等常數，值匯入會成環
+import type { DayPalette } from './timeOfDay'
 
 /**
  * 天空球半徑，m。
@@ -173,11 +175,56 @@ const FRAG = /* glsl */ `
   uniform vec3 horizon;
   uniform vec3 zenith;
   uniform float power;
+  uniform float stars;
   varying vec3 vDir;
+
+  /**
+   * 【一定要用這一支，不要寫 fract(p * vec2(大數)) 那種】對整數輸入
+   * fract(n * 127.31) 等於 fract(n * 0.31)，沿座標軸強相關 —— 星點會排成
+   * 一列一列的直行。這是 Hoskins 的 hash13，三個分量互相混過。
+   */
+  float hash13(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return fract((p.x + p.y) * p.z);
+  }
+
   void main() {
     // 【改這兩行就要同步改 skyColorAt】那是這段的 CPU 版，霧色靠它推導
     float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-    gl_FragColor = vec4(mix(horizon, zenith, pow(t, power)), 1.0);
+    vec3 col = mix(horizon, zenith, pow(t, power));
+    // 【星點只在 stars > 0 時算】正午與清晨走這個分支之外，輸出與加星之前
+    // 逐位元相同 —— 既有的畫面基準線因此不受影響
+    if (stars > 0.0) {
+      vec3 dir = normalize(vDir);
+      /**
+       * 【網格建在方向向量上，不是方位角×仰角】球座標的格子在天頂會擠成
+       * 一點，而且經度線在畫面上本來就是直的 —— 兩者都讓星點看起來有結構。
+       * 半徑 150 的球殼切一個單位立方格，格子的角尺寸約 0.38°，
+       * 遠大於星點本身。
+       */
+      vec3 cell = floor(dir * 150.0) + 0.5;
+      // 約 0.55% 的格子有星，整顆天球約 2,300 顆 —— 肉眼可見的量級
+      if (hash13(cell) > 0.9945) {
+        vec3 jit = vec3(hash13(cell + 11.3), hash13(cell + 27.7), hash13(cell + 41.1));
+        vec3 star = normalize(cell + (jit - 0.5) * 0.9);
+        float ang = acos(clamp(dot(dir, star), -1.0, 1.0));
+        /**
+         * 【核心要小又要不閃爍】0.0021 rad 是 0.12°，1080p 下約兩個像素。
+         * 平方一次把邊緣收緊 —— 只留外圈當抗鋸齒，不然點會在鏡頭轉動時
+         * 一閃一閃地跳。
+         */
+        float core = smoothstep(0.0021, 0.0, ang);
+        core *= core;
+        // 【亮度偏暗】三次方讓絕大多數是暗星、少數幾顆明顯亮，才像星空
+        float h = hash13(cell + 5.9);
+        float mag = 0.18 + 0.82 * h * h * h;
+        // 地平線附近淡出：那裡大氣消光最強，也避開海天接縫
+        float alt = smoothstep(0.0, 0.28, dir.y);
+        col += vec3(0.86, 0.90, 1.0) * (core * mag * alt * stars);
+      }
+    }
+    gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
 `
@@ -205,6 +252,7 @@ export function createSky(): Mesh {
       horizon: { value: new Color(SKY_HORIZON) },
       zenith: { value: new Color(SKY_ZENITH) },
       power: { value: SKY_GRADIENT_POWER },
+      stars: { value: 0 },
     },
     side: BackSide,
     depthWrite: false,
@@ -236,4 +284,18 @@ function followCamera(mesh: Mesh, eye: Vector3): void {
   mesh.position.copy(eye)
   mesh.updateMatrix()
   mesh.updateMatrixWorld(true)
+}
+
+/**
+ * 換掉天空球的漸層與星點。
+ *
+ * 【呼叫端不要自己去摸 uniform 的名字】那三個名字同時被 `fog.test.ts` 綁著；
+ * 集中在這裡，改名只會壞一個地方。
+ */
+export function applySkyPalette(sky: Mesh, p: DayPalette): void {
+  const u = (sky.material as ShaderMaterial).uniforms
+  ;(u.horizon!.value as Color).setHex(p.skyHorizon)
+  ;(u.zenith!.value as Color).setHex(p.skyZenith)
+  u.power!.value = p.skyPower
+  u.stars!.value = p.stars
 }

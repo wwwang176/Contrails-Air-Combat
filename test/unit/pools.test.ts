@@ -4,7 +4,7 @@ import { createTracers } from '../../src/render/tracers'
 import { createSparks } from '../../src/render/sparks'
 import { createSplashes } from '../../src/render/splash'
 import { createMuzzles, createTurretMuzzles } from '../../src/render/muzzle'
-import { Projectiles } from '../../src/world/Projectiles'
+import { Projectiles, PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { createImpacts, pushImpact } from '../../src/world/events'
 
 /**
@@ -70,8 +70,8 @@ describe('曳光彈池', () => {
     t.update(p)
     const vt = uploads(t.object.instanceMatrix)
     // 前三格空著，第 3 格生一發（spawn 由 0 起算，所以先丟三發再殺掉）
-    for (let i = 0; i < 3; i++) { p.spawn(0, 0, 0, 0, 0, -887, 6, 0); p.kill(i) }
-    p.spawn(10, 20, 30, 0, 0, -887, 6, 0)
+    for (let i = 0; i < 3; i++) { p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME); p.kill(i) }
+    p.spawn(10, 20, 30, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
     p.step(0.02)
     t.update(p)
     expect(uploads(t.object.instanceMatrix)).toBeGreaterThan(vt)
@@ -83,8 +83,8 @@ describe('曳光彈池', () => {
   it('死掉的那一格會被歸零', () => {
     const t = createTracers(64)
     const p = new Projectiles(64)
-    p.spawn(10, 20, 30, 0, 0, -887, 6, 0)
-    p.spawn(40, 50, 60, 0, 0, -887, 6, 0)
+    p.spawn(10, 20, 30, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(40, 50, 60, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
     p.step(0.02)
     t.update(p)
     expect(scaleOf(t.object, 0).z).toBeGreaterThan(0)
@@ -104,13 +104,13 @@ describe('曳光彈池', () => {
     const t = createTracers(32)
     const p = new Projectiles(32)
     const script: (() => void)[] = [
-      () => { p.spawn(0, 0, 0, 0, 0, -887, 6, 0) },
-      () => { p.spawn(5, 0, 0, 0, 0, -887, 6, 1) },
+      () => { p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME) },
+      () => { p.spawn(5, 0, 0, 0, 0, -887, 6, 1, 0, PROJECTILE_LIFETIME) },
       () => { p.kill(0) },
-      () => { p.spawn(9, 0, 0, 0, 0, -887, 6, 0) },
+      () => { p.spawn(9, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME) },
       () => { p.kill(2) },
       () => { p.kill(1) },
-      () => { p.spawn(3, 0, 0, 0, 0, -887, 6, 1) },
+      () => { p.spawn(3, 0, 0, 0, 0, -887, 6, 1, 0, PROJECTILE_LIFETIME) },
     ]
     for (const act of script) {
       act()
