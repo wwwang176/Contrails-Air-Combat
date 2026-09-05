@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { Quaternion, Vector3 } from 'three'
 import {
-  BOMB_BODY_RADIUS, BOMB_LENGTH, createBombGeometry,
+  BOMB_BODY_RADIUS, BOMB_LENGTH, bombOrientation, createBombGeometry,
 } from '../../src/render/bombs'
 
 const geo = createBombGeometry()
@@ -55,5 +56,33 @@ describe('炸彈的幾何', () => {
 
   it('有法線 —— MeshLambertMaterial 少了它整批全黑', () => {
     expect(geo.getAttribute('normal')).toBeDefined()
+  })
+})
+
+describe('炸彈的姿態', () => {
+  const q = new Quaternion()
+  /** 模型的尖端是局部 −Y。轉到世界之後應該與速度同向 */
+  const nose = (vx: number, vy: number, vz: number): Vector3 => {
+    bombOrientation(vx, vy, vz, q)
+    return new Vector3(0, -1, 0).applyQuaternion(q)
+  }
+
+  it('尖端朝速度 —— 不是尾巴', () => {
+    const cases: readonly (readonly [number, number, number])[] = [
+      [0, -1, 0],       // 垂直落下
+      [0, 0, -1],       // 剛投出，水平
+      [90, -30, 0],     // 前拋中
+      [-40, -120, 60],  // 落地前
+      [0, 1, 0],        // 退化：速度朝正上方
+    ]
+    for (const [vx, vy, vz] of cases) {
+      const v = new Vector3(vx, vy, vz).normalize()
+      expect(nose(vx, vy, vz).dot(v)).toBeCloseTo(1, 6)
+    }
+  })
+
+  it('輸出是單位四元數', () => {
+    bombOrientation(90, -30, 12, q)
+    expect(q.length()).toBeCloseTo(1, 9)
   })
 })
