@@ -20,6 +20,8 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
+// 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
+import type { DayPalette } from './timeOfDay'
 import type { ShoreFieldData } from '../world/archipelago'
 
 export interface WaveSpec {
@@ -447,6 +449,14 @@ export const FAR_SEA_Y = -5.0
  * 亮度還要過一次 PBR 著色，比這個值亮。
  */
 export const SEA_COLOR = 0x18344c
+
+/**
+ * 海面接近地平線時融向的顏色（著色器的 `uHorizonColor`）。
+ *
+ * 一個接近海色的中深藍灰，比天空的淺藍暗得多 —— 所以那道漸層對比小、不刺眼。
+ * 混色發生在**最終色**上（PBR 之後，見 `SPARKLE_FRAGMENT` 末），不是 albedo。
+ */
+export const SEA_HORIZON_COLOR = 0x3d5975
 
 /**
  * 海面的粗糙度。**細浪面與遠海必須共用這一個值**（同 `SEA_COLOR` 的理由 ——
@@ -1298,6 +1308,13 @@ export interface Ocean {
    * 從材質上讀不到 uniform。公開它是為了讓那一條守得住，沒有別的用途。
    */
   readonly origin: Vector2
+  /**
+   * 換時段。**細浪面與遠海一起換** —— 漏掉其中一個就是 5 km 處的一條色帶。
+   *
+   * 【為什麼是可變的而不是建構參數】展示頁要能即時切換，而「建立時設一次」
+   * 與「事後改」若走兩條路徑，展示頁看到的就不是遊戲裡的東西。
+   */
+  setPalette(p: DayPalette): void
   update(time: number, centerX: number, centerZ: number): void
   heightAt(x: number, z: number, time: number): number
   dispose(): void
@@ -1477,10 +1494,7 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
     uAerialHi: { value: SEA_AERIAL_HI },
     uAerialLo: { value: SEA_AERIAL_LO },
     uAerialStrength: { value: SEA_AERIAL_STRENGTH },
-    // 漸層融向的目標色 = 負責人 2026-08-26 指定的 #3d5975（rgb 61,89,117），
-    // 一個接近海色的中深藍灰 —— 比天空淺藍暗得多，所以漸層對比小、不刺眼。
-    // 在**最終色**（PBR 之後，見 SPARKLE_FRAGMENT 末）mix，不是 albedo。
-    uHorizonColor: { value: new Color(0x3d5975) },
+    uHorizonColor: { value: new Color(SEA_HORIZON_COLOR) },
   }
 
   /**
@@ -1651,6 +1665,17 @@ ${SPARKLE_COMMON}`,
     mesh,
     farMesh,
     origin: uOrigin.value,
+    setPalette(p) {
+      material.color.setHex(p.seaColor)
+      farMaterial.color.setHex(p.seaColor)
+      sparkle.uSkyHorizon.value.setHex(p.skyHorizon)
+      sparkle.uSkyZenith.value.setHex(p.skyZenith)
+      sparkle.uSkyPower.value = p.skyPower
+      sparkle.uHorizonColor.value.setHex(p.seaHorizon)
+      sparkle.uSparkleStrength.value = SPARKLE_STRENGTH * p.sparkle
+      sparkle.uSunDirection.value
+        .set(p.sunDir[0], p.sunDir[1], p.sunDir[2]).normalize()
+    },
     update(time, centerX, centerZ) {
       uTime.value = time
 

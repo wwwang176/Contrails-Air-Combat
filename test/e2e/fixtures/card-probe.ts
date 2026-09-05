@@ -69,7 +69,7 @@ export function cardShot(
   // 【一定要用正式場景那組燈】點吃不到光照，亮度是烘進頂點色的，而
   // `POINT_LIGHT` 是拿「被照亮的中級樹冠」校出來的 —— fixture 自己另配一組
   // 燈的話，校出來的係數在遊戲裡就是錯的
-  for (const l of createLights()) scene.add(l)
+  for (const l of createLights().all) scene.add(l)
 
   // 【半徑寫死成 20 km】預設是 6 km，而外圈還會逐格往內抖 —— 量測用的距離
   // 不該撞到那條邊界，否則量到的是「這一格剛好被抖掉了」

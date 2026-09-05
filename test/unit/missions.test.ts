@@ -162,3 +162,68 @@ describe('missionConfigFrom', () => {
     expect(() => missionConfigFrom(broken)).toThrow()
   })
 })
+
+describe('艦隊', () => {
+  /**
+   * 【為什麼這一條是關鍵】`missionConfigFrom` 明列回傳欄位、**不透傳未知
+   * 資料**。只在 `MissionBattle` 上加一格的話型別檢查會過、卡片也讀得到，
+   * 但進戰鬥之後一艘船都不會有 —— 而且不報錯。
+   */
+  it('japan-m4 的艦隊真的流進 BattleConfig', () => {
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    expect(card.battle).not.toBeNull()
+    expect(card.battle.fleet).toBeDefined()
+    expect(missionConfigFrom(card).fleet?.ships.length).toBe(8)
+  })
+
+  it('沒有 fleet 的卡不產生任何船', () => {
+    expect(missionConfigFrom(readyCard(KILL_CARD)).fleet).toBeUndefined()
+    for (const m of playable) {
+      if (m.id === 'japan-m4') continue
+      expect(missionConfigFrom(m).fleet).toBeUndefined()
+    }
+  })
+
+  /**
+   * 【史實組】倫內爾島的 TF 18 是巡洋艦編隊：接戰時六巡六驅，兩艘護航
+   * 航母開打前就被留在後面。遊戲裡放八艘、巡洋與驅逐各四，維持一比一。
+   *
+   * **Essex 不准出現** —— 1943 年 1 月它還沒到太平洋，差九個月。
+   */
+  it('倫內爾島是四艘 Wichita 加四艘 Fletcher，全部紅隊，沒有航母', () => {
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    const f = card.battle.fleet!
+    const by = (id: string) => f.ships.filter((x) => x.cls === id).length
+    expect(by('wichita')).toBe(4)
+    expect(by('fletcher')).toBe(4)
+    expect(by('essex')).toBe(0)
+    for (const x of f.ships) expect(x.team).toBe('red')
+  })
+})
+
+describe('開場高度', () => {
+  /**
+   * 【為什麼這一條值得存在】在 `MissionBattle.altitude` 之前，十二關的開場
+   * 高度全部寫死成 `DEFAULT_BATTLE.altitude`。倫內爾島是**低空**雷擊，
+   * 用 4,000 m 的話玩家開場在 3,850 m 而艦隊在 3.85 km 正下方 ——
+   * **不低頭看不到船**，而那一關的第一印象本來就該是海面上的艦隊。
+   */
+  it('倫內爾島是低空的，其餘沿用預設', () => {
+    const m4 = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    expect(missionConfigFrom(m4).altitude).toBe(1000)
+    expect(missionConfigFrom(readyCard(KILL_CARD)).altitude).toBe(DEFAULT_BATTLE.altitude)
+  })
+
+  /**
+   * 【撤離點要跟著卡片的高度走】`missionRules` 拿高度算撤離點與集合點。
+   * 一邊讀卡片、一邊讀預設的話，圓環會浮在編隊上方幾千公尺 —— 不報錯。
+   */
+  it('有終點的關，圓環的高度等於開場高度', () => {
+    for (const m of playable) {
+      const cfg = missionConfigFrom(m)
+      const r = cfg.rules
+      if (r.kind === 'annihilate' || r.kind === 'sink') continue
+      expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
+    }
+  })
+})

@@ -7,7 +7,7 @@ import { createScene } from '../render/scene'
 import { createTerrain } from '../render/terrain'
 import { createTracers } from '../render/tracers'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
-import { Projectiles } from '../world/Projectiles'
+import { Projectiles, PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { P51D } from '../specs/p51d'
 
 /**
@@ -157,7 +157,7 @@ function spawnBurst(): void {
   spawnIndex++
   // 【彈丸在世界座標，跟著場景偏移一起搬】而 `tracers.object` 本身恆在原點
   // —— 那正是遊戲裡的樣子，也是排序會翻轉的原因
-  projectiles.spawn(lateral, vertical, -400 + sceneOffset, 0, 0, MUZZLE_SPEED, 1, 0)
+  projectiles.spawn(lateral, vertical, -400 + sceneOffset, 0, 0, MUZZLE_SPEED, 1, 0, 0, PROJECTILE_LIFETIME)
 }
 
 let sceneOffset = 0

@@ -203,9 +203,23 @@ const UP_FALLBACK = /* @__PURE__ */ new Vector3(0, 0, -1)
 /** 模組私有暫存，熱路徑零配置。禁止跨模組共用。 */
 const AXIS = /* @__PURE__ */ new Vector3()
 
-/** 方向是否落在射界錐內。`dir` 與 `turret.axis` 都必須是機體座標的單位向量。 */
-export function inArc(turret: Turret, dir: Vector3): boolean {
-  return turret.axis.dot(dir) >= Math.cos(turret.halfAngle)
+/**
+ * 射界錐 —— 一個中心方向加一個半角。
+ *
+ * 【為什麼從 `Turret` 抽出來】艦上的砲位也有射界錐，但它沒有 `weapon`、
+ * `position`、`guns` 那些欄位。要求它造一個假的 `Turret` 才能問「在不在
+ * 錐內」，等於為了型別複製一份資料。
+ */
+export interface Arc {
+  /** 錐軸，區域座標的單位向量。 */
+  axis: Vector3
+  /** 半角，rad。 */
+  halfAngle: number
+}
+
+/** 方向是否落在射界錐內。`dir` 與 `arc.axis` 都必須是同一組區域座標的單位向量。 */
+export function inArc(arc: Arc, dir: Vector3): boolean {
+  return arc.axis.dot(dir) >= Math.cos(arc.halfAngle)
 }
 
 /**

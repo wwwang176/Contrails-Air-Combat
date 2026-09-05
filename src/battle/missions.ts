@@ -10,12 +10,14 @@ import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast } from './order'
+import type { ShipClassId } from '../world/ships'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TerrainKind } from '../world/terrainKind'
+import type { TimeOfDay } from '../render/timeOfDay'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
@@ -246,6 +248,69 @@ export interface MissionBattle {
    * 存活數上才對 —— 那也正是這一關的敘述：「友軍逐漸減少 → 任務更新」。
    */
   readonly withdraw?: MissionWithdraw
+  /**
+   * 這一關的艦隊。**沒有這一格的卡完全不產生船**（與 `waves` 同一個約定）。
+   *
+   * 【它要一路透傳】`MissionBattle` → `BattleConfig` → `missionConfigFrom`
+   * → `createBattle`。少任何一處都是「型別過了但進戰鬥零艘船」，不報錯。
+   */
+  readonly fleet?: MissionFleet
+  /**
+   * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
+   *
+   * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
+   * 對倫內爾島那種**低空**雷擊來說 4,000 m 是錯的 —— 實測玩家開場在
+   * 3,850 m，而艦隊在 6.3 km 外、3.85 km 正下方：不低頭看不到船，
+   * 而那一關的第一印象本來就該是海面上的艦隊。
+   *
+   * 【它同時是撤離點與集合點的高度】`missionRules` 拿它算那些點，所以
+   * 兩邊要餵同一個值，不能一個讀卡片一個讀預設。
+   */
+  readonly altitude?: number
+  /**
+   * 要擊沉幾艘。**有這一格就是擊沉關**，勝負規則變成 `{ kind: 'sink' }`。
+   *
+   * 【它必須配 `fleet`】沒有艦隊卻要求擊沉是一個永遠打不完的任務，
+   * 而且畫面上一切正常 —— `campaigns.test.ts` 那一層守著。
+   */
+  readonly sinkCount?: number
+  /**
+   * 這一關的時段。**省略 = `'noon'`。**
+   *
+   * 【它只影響畫面，不進 `BattleConfig`】光照與模擬無關，所以它不走
+   * `missionConfigFrom` 那條路 —— `main.ts` 直接從卡片讀。混進戰鬥設定的話，
+   * 逐位元重播的護欄會開始被純視覺的改動弄紅。
+   */
+  readonly timeOfDay?: TimeOfDay
+}
+
+/**
+ * 這一關的艦隊。
+ *
+ * 【為什麼是一個中心＋一個艏向＋相對偏移】改艏向時若每一艘各存世界座標，
+ * 全部都要重算，而重算的錯誤是「陣型悄悄歪掉」—— 沒有任何測試會紅。
+ */
+export interface MissionFleet {
+  /** 艦隊中心的世界座標。 */
+  readonly center: Vector3
+  /**
+   * 整隊的艏向，rad（繞 Y，0 = 朝 −Z）。**一個數字管全隊** ——
+   * 船不各自轉向，而「同一個艏向」正是「不閃避」在資料上的樣子。
+   */
+  readonly heading: number
+  /** 航速，m/s。整隊一樣。 */
+  readonly speed: number
+  readonly ships: readonly FleetEntry[]
+}
+
+export interface FleetEntry {
+  readonly cls: ShipClassId
+  readonly team: Team
+  /**
+   * 相對艦隊中心的**艦隊座標**（+X 右、−Z 前，與艦體座標同一套朝向）。
+   * 擺位時先轉 `heading` 再加 `center`。
+   */
+  readonly offset: Vector3
 }
 
 /** 打到一半把任務目標換成撤離。 */
@@ -313,6 +378,56 @@ const KILL = {
   targetDistance: 0, targetRadius: 0, seconds: Infinity,
   entry: 'headOn',
 } as const
+
+/**
+ * 倫內爾島的第 18 特遣艦隊 —— **史實編成的三分之二**。
+ *
+ * ## 史實
+ *
+ * 1943 年 1 月 29–30 日，Giffen 少將的 TF 18 接戰時是 **12 艘**：
+ * 三艘重巡（Wichita、Chicago、Louisville）、三艘輕巡（Montpelier、
+ * Cleveland、Columbia）排成兩列縱隊，六艘驅逐艦在前方張開半圓形警戒幕。
+ * 兩艘護航航母（Chenango、Suwannee）跟不上 24 節，**開打前就被留在後面**
+ * —— 那也是為什麼那一夜沒有空中掩護。
+ *
+ * 攻擊方是第 705 與 701 航空隊的一式陸攻，黃昏兩波約 31 架。Chicago 中兩枚
+ * 魚雷，隔天被第二批雷擊擊沉。
+ *
+ * ## 為什麼放 8 艘而不是 12
+ *
+ * 巡洋與驅逐各四艘，維持史實的一比一。**只有兩個艦級模型**，12 艘會讓
+ * 重複太明顯；8 艘已經讀得出是一支艦隊，而四艘散在 3 km 上遠看只是四個
+ * 分開的點。
+ *
+ * ## 陣型
+ *
+ * 巡洋艦兩列縱隊（橫向相距 500 m、縱向 600 m），驅逐艦在前方張成警戒幕
+ * （最外側 ±900 m，前方 900–1,100 m）。整隊橫跨 1.8 km、縱深 1.4 km。
+ *
+ * 美軍 1943–45 年的防空警戒序列：縱隊裡的主力艦彼此 450–900 m，護衛幕在
+ * 距核心 1,400–2,700 m，**遭空襲時會刻意收緊到 1,400–1,800 m 讓火網重疊**
+ * —— 收緊正是那個序列的目的。這個擺法落在那個區間的緊端。
+ *
+ * 航速 8 m/s ≈ 15.5 節，**起始值** —— 真艦的戰鬥航速更高，但這一關的重點
+ * 是彈幕不是追擊，船跑太快會讓低空進場的相對幾何每次都不一樣，調不準。
+ */
+const RENNELL_FLEET: MissionFleet = {
+  center: new Vector3(0, 0, 0),
+  heading: 0,
+  speed: 8,
+  ships: [
+    // 巡洋艦：兩列縱隊。−Z 是艦首方向，所以 z 小的是前導艦。
+    { cls: 'wichita', team: 'red', offset: new Vector3(-250, 0, -300) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(-250, 0, 300) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(250, 0, -300) },
+    { cls: 'wichita', team: 'red', offset: new Vector3(250, 0, 300) },
+    // 驅逐艦：前方的半圓形警戒幕
+    { cls: 'fletcher', team: 'red', offset: new Vector3(-900, 0, -900) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(-300, 0, -1100) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(300, 0, -1100) },
+    { cls: 'fletcher', team: 'red', offset: new Vector3(900, 0, -900) },
+  ],
+}
 
 /** 德 M4 撤退段的終點在多遠，m */
 const RETREAT_DISTANCE = 12000
@@ -413,6 +528,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         targetDistance: 0, targetRadius: 0, seconds: Infinity,
         entry: 'headOn',
         terrain: 'farmland',
+        // 【拂曉】野戰機場的攔截隊天亮就升空 —— 停在地面上等於被掃射
+        timeOfDay: 'dawn',
         /**
          * 【`byLatest` 必須早於「打得完敵軍」的那一刻】開場規則是
          * `annihilate`，紅隊歸零就**直接判勝**，之後返航節拍再也沒有機會
@@ -487,6 +604,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         blueSpec: A6M5, redSpec: F6F5,
         blueCount: 8, redCount: 6,
         terrain: 'archipelago',
+        // 【清晨】1944 年 10 月 12 日第 38 特遣艦隊的首波在天亮時到新竹上空
+        timeOfDay: 'dawn',
       },
     },
     {
@@ -510,7 +629,23 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       id: 'japan-m4', title: '倫內爾島', type: '打擊',
       summary: '駕駛第 705 海軍航空隊的一式陸攻，在黃昏低空雷擊倫內爾島外的第 18 特遣艦隊。',
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
-      battle: null,
+      battle: {
+        ...KILL,
+        objective: '擊沉任意三艘敵艦',
+        blueSpec: G4M, redSpec: F6F5,
+        blueCount: 6, redCount: 6,
+        terrain: 'sea',
+        fleet: RENNELL_FLEET,
+        // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
+        // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
+        altitude: 1000,
+        // 【擊沉任意三艘】八艘裡挑三艘，玩家自己決定打哪幾艘 —— 那本來
+        // 就是雷擊機該做的決定。**這一期玩家還沒有魚雷**（在另一支分支
+        // 上），規則先接好，武器進來就成立。
+        sinkCount: 3,
+        // 【卡片文案就寫黃昏】「在黃昏低空雷擊」—— 畫面本來一直是正午
+        timeOfDay: 'dusk',
+      },
     },
   ],
 }
@@ -543,6 +678,13 @@ export function missionRules(
   card: ReadyMissionCard, altitude: number, lateralOffset: number,
 ): MissionRules {
   const b = card.battle
+  // 【擊沉排在最前面】判準是卡片上有沒有 `sinkCount`，不是 `type` ——
+  // `type` 是給玩家看的分類（打擊／殲滅／護航…），一張打擊卡可能是炸機場、
+  // 也可能是雷擊。用 type 推導的話，日後多一張「打擊」卡就會靜靜地變成
+  // 擊沉任務。
+  if (b.sinkCount !== undefined) {
+    return { kind: 'sink', count: b.sinkCount }
+  }
   if (card.type === '撤離') {
     return {
       kind: 'evacuate',
@@ -590,7 +732,10 @@ export function missionRules(
  */
 export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   const b = card.battle
-  const rules = missionRules(card, DEFAULT_BATTLE.altitude, DEFAULT_BATTLE.lateralOffset)
+  // 【高度只讀一次，兩邊共用】`missionRules` 拿它算撤離點與集合點的高度。
+  // 一邊讀卡片、一邊讀預設的話，圓環會浮在編隊上方幾千公尺而不報錯。
+  const altitude = b.altitude ?? DEFAULT_BATTLE.altitude
+  const rules = missionRules(card, altitude, DEFAULT_BATTLE.lateralOffset)
   // 【擺法是生成器的第一個參數】`entry` 仍然是 `ENTRY_PLANS` 的鍵，那張表
   // 一個字不動
   const plan = ENTRY_PLANS[b.entry]
@@ -611,12 +756,14 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   return {
     ...DEFAULT_BATTLE,
     units,
+    altitude,
     aiProfile: VETERAN,
     rules,
     // 【只有護送／攔截會偏離中性值】其餘卡片的 `convoyPriority` 是 1，
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
+    ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
   }
 }
 
