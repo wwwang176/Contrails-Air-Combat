@@ -30,6 +30,8 @@ function fakeModel(): Fake {
     metrics: { realLength: 9.83, noseZ: -3.4, noseY: 0.3, tipY: 0 },
     eyePoint: new Vector3(),
     wingTip: new Vector3(5.64, 0, 0),
+    // 【殘骸不投彈】這個假模型只餵 `render/wrecks.ts`，那一層不讀 bombPoint
+    bombPoint: null,
     setPropSpin: (rotation: number, blurred: boolean) => { spins.push({ rotation, blurred }) },
     dispose: () => {},
   }
