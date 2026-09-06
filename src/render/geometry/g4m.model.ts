@@ -6,7 +6,7 @@ import type { GlbAircraft } from './glb'
  * 每具四葉槳直徑 3.40 m。
  *
  * **來源是 `tools/blender/g4m.blend`，GLB 是它匯出的產物。** 沒有程式版，由
- * `tools/blender/build_g4m.py` 一支腳本建出來（2026-09-03）。參考模型 `ref/mitsubishi_g4m.glb`
+ * `tools/blender/build_g4m.py` 一支腳本建出來。參考模型 `ref/mitsubishi_g4m.glb`
  * 只有 1,524 個面、沒有玻璃、沒有座艙分件，只拿它量主翼、尾翼、發動機艙的位置與平面形；
  * 尺寸以史實為準；機身、座艙、玻璃、垂尾照二四型的側視／俯視線框圖定。
  *

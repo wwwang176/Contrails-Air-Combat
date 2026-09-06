@@ -6,7 +6,7 @@ import type { GlbAircraft } from './glb'
  * 四葉槳直徑 3.05 m。
  *
  * **來源是 `tools/blender/ki84.blend`，GLB 是它匯出的產物。** 沒有程式版，由
- * `tools/blender/build_ki84.py` 一支腳本建出來（2026-09-03，A6M5 那支的做法）：
+ * `tools/blender/build_ki84.py` 一支腳本建出來（做法與 A6M5 那支相同）：
  * `ref/ki-84_ko_war_thunder.glb` 匯進 Blender 對齊之後只當量尺，每個零件都是射線量出來再 loft。
  * 參考模型是真實尺寸（翼展 11.23、全長 9.92），翼展縮放只差 0.08%。
  *

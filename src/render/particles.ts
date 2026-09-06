@@ -25,8 +25,7 @@ export interface ParticleConfig {
    * 壽命的隨機幅度，比例。0.25 就是 0.75×~1.25×。省略等於不抖動。
    *
    * 【為什麼要有它】同一批煙用同一個壽命的話，整批會**同時**淡到不見 ——
-   * 煙帶的尾端讀起來是一條被切齊的線而不是散開。抖動壽命讓每一團各自
-   * 散掉，這是專案負責人在試驗場上要求的。
+   * 煙帶的尾端讀起來是一條被切齊的線而不是散開。抖動壽命讓每一團各自散掉。
    */
   lifeJitter?: number
   /**
@@ -284,9 +283,9 @@ export function createParticles(cfg: ParticleConfig): Particles {
   /**
    * 這一格的矩陣是不是已經被歸零了。
    *
-   * 【為什麼需要它】`step` 原本每幀對每一個死格子都寫一次零矩陣 —— 容量
-   * 6,144 而存活只有幾百時，九成的工作是把 0 重複寫成 0。歸零只需要在
-   * 「活 → 死」那一幀做一次。有了它，每幀的寫入量跟著**存活數**走而不是
+   * 【為什麼需要它】沒有它時 `step` 每幀對每一個死格子都寫一次零矩陣 ——
+   * 容量 6,144 而存活只有幾百時，九成的工作是把 0 重複寫成 0。歸零只需要
+   * 在「活 → 死」那一幀做一次。有了它，每幀的寫入量跟著**存活數**走而不是
    * 容量，加大池子才不用付代價。
    */
   const zeroed = new Uint8Array(capacity).fill(1)
@@ -342,7 +341,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
       // 則會在最該看到爆炸的時候整批不見。與 sparks.ts 同一個取捨。
       // 【先用舊壽命判生死，再寫新的】反過來的話，覆蓋一格活著的粒子時
-      // 有機會被新壽命誤判成「原本是死的」而重複計數
+      // 有機會被新壽命誤判成死的而重複計數
       if (age[i]! >= lifeOf[i]!) live++
       lifeOf[i] = particleLife(life, jitter, i)
       zeroed[i] = 0
@@ -366,7 +365,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
         const old = age[i]!
         const lf = lifeOf[i]!
         if (old >= lf) {
-          // 【已經歸零的死格子直接跳過】把 0 重複寫成 0 是這個迴圈原本
+          // 【已經歸零的死格子直接跳過】把 0 重複寫成 0 會佔掉這個迴圈
           // 九成的工作量
           if (zeroed[i] === 1) continue
           M.compose(ZERO, ROT.identity(), ZERO)
