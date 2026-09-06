@@ -35,7 +35,7 @@ describe('機種的陣營（決定名冊）', () => {
     // 成同盟，一整隊德國轟炸機的機組因此叫 Ray Bishop、Hal Carter。陣營現在
     // 是 `AircraftSpec` 的必填欄位，漏填是編譯錯誤 —— 這一條守的是「填對了」
     const want: Record<string, string> = {
-      p51d: 'allies', b17g: 'allies', f6f5: 'allies',
+      p51d: 'allies', b17g: 'allies', f6f5: 'allies', f4f4: 'allies',
       bf109k4: 'axis', he111: 'axis',
       ki84: 'japan', a6m5: 'japan', g4m: 'japan',
     }

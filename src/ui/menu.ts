@@ -60,7 +60,7 @@ const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '盟軍', germany: '�
  * 這張表只服務顯示。
  */
 const SIDE_OF: Record<string, Campaign> = {
-  p51d: 'allies', b17g: 'allies', f6f5: 'allies',
+  p51d: 'allies', b17g: 'allies', f6f5: 'allies', f4f4: 'allies',
   bf109k4: 'germany', he111: 'germany',
   a6m5: 'japan', ki84: 'japan', g4m: 'japan',
 }

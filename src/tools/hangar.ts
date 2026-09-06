@@ -24,6 +24,7 @@ import { KI84 } from '../specs/ki84'
 import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
 import { F6F5 } from '../specs/f6f5'
+import { F4F4 } from '../specs/f4f4'
 import type { AircraftSpec } from '../specs/types'
 
 /**
@@ -37,7 +38,7 @@ import type { AircraftSpec } from '../specs/types'
  * 進入方式：`npm run dev` 之後開 /hangar.html。
  */
 
-const SPECS: AircraftSpec[] = [P51D, BF109K4, F6F5, KI84, A6M5, HE111, B17G, G4M]
+const SPECS: AircraftSpec[] = [P51D, BF109K4, F6F5, F4F4, KI84, A6M5, HE111, B17G, G4M]
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 // preserveDrawingBuffer：外部工具要把畫面複製到 2D canvas 抽輪廓，
@@ -263,6 +264,19 @@ const REFS: Record<string, RefSpec> = {
    * 全長 10.124 對真機 10.24（−1.1%）。
    */
   f6f5: { url: '/ref/f6f.glb', yaw: 0, pitch: 0 },
+  /**
+   * F4F-4 Wildcat。**`ref/f4f4-ref.glb` 是已經整理過的那一份** —— 原始下載檔
+   * （`ref/grumman_f4f_wildcat.glb`，163k 三角形）是照材質合併的：整台飛機的
+   * 不透明件全在兩個 mesh 裡，起落架、輪子、螺旋槳、天線索跟蒙皮混在一起，
+   * 用物件名挑不出來。清理是**拆連通塊**，判準只有一條「翼展方向幅度 > 3 m」
+   * —— 41 塊裡只有主體與水平尾翼過得了，其餘 39 塊全是雜件。
+   *
+   * 縮放（×1.00519，以翼展為準）與平移（整流罩軸心、翼根四分之一弦線）都
+   * **烘進檔案**，所以這裡兩個角度都是 0：三片槳葉的縱向範圍完全相同
+   * （槳盤不傾斜）→ 推力線本來就水平，不必轉。清理與對齊的腳本是
+   * `tools/blender/build_f4f4.py` 的 `import_and_align_ref()`。
+   */
+  f4f4: { url: '/ref/f4f4-ref.glb', yaw: 0, pitch: 0 },
 }
 const refCache: Record<string, Object3D | null> = {}
 let refVisible = false
@@ -600,7 +614,7 @@ const specButtons = SPECS.map((s, i) => {
   // 【為什麼查表而不是三元式】原本是 `id === 'p51d' ? 'P-51D' : 'Bf 109'`
   // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
   // 任何東西提醒你。查表少一筆是一個 undefined，看得見
-  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
+  b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
   b.dataset['id'] = s.id
   b.onclick = () => { specIndex = i; rebuild() }
   specRow.appendChild(b)

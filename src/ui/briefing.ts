@@ -53,7 +53,7 @@ export interface Briefing {
  * 漏填的代價只是那一列比別人長，看得見、修得快。
  */
 export const SHORT_NAME: Record<string, string> = {
-  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', ki84: 'Ki-84', a6m5: 'A6M5',
+  p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5',
   b17g: 'B-17G', he111: 'He 111', g4m: 'G4M',
 }
 
