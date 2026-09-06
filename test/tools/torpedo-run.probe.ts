@@ -152,6 +152,26 @@ function trial(
     if (died < 0 && c.hp <= 0) died = i / 240
     if (c.aircraft.state.position.y < 5) lowTicks++
     // ── 直飛段：為什麼這一拍沒投 ──────────────────
+    if (TRACE && i % 120 === 0 && ai.strike.phase === 'approach' && c.bombBay.load > 0) {
+      const p2 = c.aircraft.state.position
+      const v2 = c.aircraft.state.velocity
+      const r = Math.hypot(ship.position.x - p2.x, ship.position.z - p2.z)
+      if (r < 3000) {
+        const aim = ai.strike.plan.aim
+        const ix = aim.x - p2.x
+        const iz = aim.z - p2.z
+        const il = Math.hypot(ix, iz)
+        const nl = Math.hypot(v2.x, v2.z)
+        const cos = il > 1e-6 && nl > 1e-6 ? (ix * v2.x + iz * v2.z) / (il * nl) : 1
+        const ang = Math.acos(Math.max(-1, Math.min(1, cos))) / DEG
+        console.log(`      [${name}] 進場 t=${(i / 240).toFixed(0).padStart(3)}s`
+          + ` alt=${p2.y.toFixed(0).padStart(4)}`
+          + ` vy=${v2.y.toFixed(1).padStart(6)}`
+          + ` range=${r.toFixed(0).padStart(4)}`
+          + ` lockRange=${ai.strike.plan.lockRange.toFixed(0).padStart(4)}`
+          + ` 機首偏差=${ang.toFixed(1).padStart(5)}°`)
+      }
+    }
     if (i % 120 === 0 && ai.strike.phase === 'run' && c.bombBay.load > 0) {
       runTicks++
       const d = diagnose(c.aircraft, ship)
@@ -163,7 +183,7 @@ function trial(
       if (!d.ok) blocked.geom++
       if (env && d.ok) blocked.both++
       if (TRACE) {
-        console.log(`      run t=${(i / 240).toFixed(0).padStart(3)}s`
+        console.log(`      [${name}] run t=${(i / 240).toFixed(0).padStart(3)}s`
           + ` alt=${p2.y.toFixed(0).padStart(3)}`
           + ` range=${Math.hypot(ship.position.x - p2.x, ship.position.z - p2.z).toFixed(0).padStart(4)}`
           + ` 航程=${d.run.toFixed(0).padStart(4)}`
@@ -218,6 +238,6 @@ console.log(`雷程 ${TORPEDO_RANGE} m｜航路高度 ${TORPEDO_PROFILE.runAltit
 for (const speed of [0, 8]) {
   console.log(`── 船速 ${speed} m/s ──`)
   trial('G4M 一式陸攻', G4M, speed)
-  if (!TRACE) trial('A6M5 零戰（測試場限定）', A6M5, speed)
+  trial('A6M5 零戰（測試場限定）', A6M5, speed)
   console.log('')
 }

@@ -213,6 +213,30 @@ function waterHeading(self: Aircraft, out: Vector3): boolean {
  * 【不配置】自己算 roll/pitch 而不呼叫 `attitudeFromOrientation` —— 那一支
  * 回一個物件，而這裡是決策拍。
  */
+function established(self: Aircraft, runAltitude: number): boolean {
+  // 【要在航路高度上穩住，不是勉強擠進天花板】只看包絡的話，飛機一鑽進
+  // 上限就鎖 —— 那時它還在俯衝。實測移動靶：鎖在 248 m、俯仰 −5°、夾角 0
+  // （正尾追），而同一份剖面對靜止靶是 148 m、坡度 0.2°、夾角 131°。
+  //
+  // 【兩個條件】高度到位，而且**不再上下動**。少了升降率那一條，穿越
+  // 航路高度的那一瞬也算數，於是它會在俯衝的途中鎖住。
+  const dy = self.state.position.y - runAltitude
+  if (!(Math.abs(dy) <= RUN_ALT_BAND)) return false
+  if (!(Math.abs(self.state.velocity.y) <= RUN_ALT_RATE)) return false
+  return releasable(self)
+}
+
+/** 離航路高度多近才算「在航路上」，m。**起始值，由試飛裁定。** */
+export const RUN_ALT_BAND = 60
+
+/**
+ * 升降率小於多少才算穩住，m/s。
+ *
+ * 【為什麼要這一條】高度控制有殘餘擺盪（125～230 m）。只看高度的話，
+ * 穿越航路高度的那一瞬也算數 —— 而那正是它下沉最快的時候。
+ */
+export const RUN_ALT_RATE = 8
+
 function releasable(self: Aircraft): boolean {
   const q = self.state.orientation
   const fwd = S.v[2]!.set(0, 0, -1).applyQuaternion(q)
@@ -280,10 +304,11 @@ export const ABORT_RANGE = 400
  * 1,000 m 掉到 50 m 的誤差一定頂得到。實測 45°：飛機一頭栽進海裡，安全層
  * 來不及改出，之後黏在水面上以 5 m/s 抹平。
  *
- * 【15° 要下多久】110 m/s 下降率 28 m/s，950 m 要 34 秒 —— 而進場段本來
- * 就有好幾公里可以走。**起始值，由試飛裁定。**
+ * 【為什麼是 0.45 而不是 0.26】要在進到鎖定距離（約 1,350 m）之前就降到
+ * 航路高度並改平 —— 沒降完就鎖不了航向。實測對移動靶：0.26 是 2 投 1 中，
+ * 0.45 與 0.7 都是 2 投 2 中，取小的那個。**起始值，由試飛裁定。**
  */
-export const RUN_SLOPE = 0.26
+export const RUN_SLOPE = 0.45
 
 /**
  * 水中航程的餘裕。**放手時算出來的航程要小於射程乘上這個係數。**
@@ -325,7 +350,15 @@ export function makeTorpedoProfile(
     lockCone,
     abortRange,
     runSeconds: 60,
-    egressClimb: 12 * DEG,
+    // 【脫離不爬升】轟炸是 12°，雷擊必須是 0 —— 每一趟爬一次，下一趟就從
+    // 更高的地方進場，來不及降回包絡（上限 200 m）就又飛過頭。實測兩台
+    // 飛機一艘船跑 120 秒：高度被一輪一輪打到 240 m，`run` 段只出現 2 次、
+    // 一枚都沒投，而 `egress` 佔了三分之一的時間 —— 從外面看就是「明明
+    // 前方有船，卻一直轉彎走掉」。
+    //
+    // 雷擊機本來也不爬升脫離：投完之後貼著海面閃開，爬升只是把自己送進
+    // 高砲的射界。
+    egressClimb: 0,
 
     /**
      * 瞄「船在**雷程時刻**的位置」，鎖定距離 =「空中前拋 ＋ 水中航程」。
@@ -344,15 +377,18 @@ export function makeTorpedoProfile(
       //
       // 【拿 y 當 AGL】雷擊的目標在海上，海面恆為 0。這一層拿不到地形，
       // 而內陸沒有船。
-      const ready = releasable(self)
+      const ready = established(self, runAltitude)
       if (solve(self, ship) && SOL.water >= 0) {
         shipAt(ship, SOL.air + SOL.water, out.aim)
         // 【水中航程要夾在射程之內】從 8 km 外解出來的航程是好幾公里，而雷
         // 只跑得了 2 km。不夾的話 `lockRange` 跟著距離一起長，飛機會在 5 km
         // 外就鎖死航向 —— 鎖了之後不能修正，等飛到投放點時解早就漂掉了；
         // `egressRange` 也跟著長，脫離要飛到 13 km 才准回頭。
-        const run = Math.min(TORPEDO_SPEED * SOL.water, RELEASE_RUN)
-        const reach = Math.hypot(SOL.ex - p.x, SOL.ez - p.z) + run
+        // 【用預期航程，不是這一拍解出來的】解出來的航程隨著飛機接近而變短，
+        // 於是 `lockRange` 跟著 `range` 一起縮、永遠差一點點 —— 實測
+        // 1086/884、1044/853、1001/821…**鎖定條件永遠不成立**。鎖定距離要
+        // 是一個固定的接戰距離：飛到這裡就開始直飛，不管這一拍算出什麼。
+        const reach = Math.hypot(SOL.ex - p.x, SOL.ez - p.z) + RELEASE_RUN
         out.lockRange = ready ? reach : 0
         // 【脫離距離照算】它管的是「飛多遠才准回頭」，與這一拍鎖不鎖無關
         out.egressRange = reach + 2 * turnRadius(self)
