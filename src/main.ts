@@ -55,7 +55,8 @@ import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageM
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
 import {
-  bombDamageOf, blastScaleOf, canBomb, createBombBay, resetBombBay, stepBombBay,
+  bombBayOf, bombDamageOf, blastScaleOf, canBomb, createBombBay, resetBombBay,
+  stepBombBay,
 } from './weapons/bomb'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
@@ -346,7 +347,7 @@ function syncBombLoad(): void {
   input.bombCapable = m.bombPoint !== null && canBomb(player.aircraft.spec.id)
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
-  resetBombBay(bombBay)
+  resetBombBay(bombBay, bombBayOf(player.aircraft.spec.id))
   bombWasFiring = false
 }
 
@@ -1482,6 +1483,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.bombState = bombState
   hudFrame.bombing = input.viewMode === 'bomb'
   hudFrame.bombCapable = input.bombCapable
+  hudFrame.bombBayCapacity = bombBay.capacity
   hudFrame.bombLoad = bombBay.load
   hudFrame.bombReloading = bombBay.reloading
   hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0

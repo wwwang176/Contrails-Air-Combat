@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BOMB_BAY, BOMB_RELOAD_SECONDS, BOMB_SALVO_INTERVAL,
-  canBomb, createBombBay, resetBombBay, stepBombBay,
+  BOMB_BAY_BY_AIRCRAFT, BOMB_BAY_MAX, BOMB_RELOAD_SECONDS, BOMB_SALVO_INTERVAL,
+  bombBayOf, canBomb, createBombBay, resetBombBay, stepBombBay,
 } from '../../src/weapons/bomb'
 
 const DT = 1 / 60
@@ -25,10 +25,10 @@ describe('canBomb', () => {
 })
 
 describe('彈艙：一次扳機投完整艙', () => {
-  it('按一次投滿 BOMB_BAY 枚，不多不少', () => {
+  it('按一次投滿 BOMB_BAY_MAX 枚，不多不少', () => {
     const b = createBombBay()
-    const n = run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 1, true)
-    expect(n).toBe(BOMB_BAY)
+    const n = run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 1, true)
+    expect(n).toBe(BOMB_BAY_MAX)
     expect(b.load).toBe(0)
   })
 
@@ -37,7 +37,7 @@ describe('彈艙：一次扳機投完整艙', () => {
     let n = 0
     stepBombBay(b, DT, true, () => { n++ })
     expect(n).toBe(1)
-    expect(b.load).toBe(BOMB_BAY - 1)
+    expect(b.load).toBe(BOMB_BAY_MAX - 1)
   })
 
   it('相鄰兩枚的間隔就是 BOMB_SALVO_INTERVAL', () => {
@@ -75,7 +75,7 @@ describe('彈艙：一次扳機投完整艙', () => {
 describe('彈艙：回補', () => {
   it('投完之後進入回補，期間投不出東西', () => {
     const b = createBombBay()
-    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 0.5, true)
+    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 0.5, true)
     expect(b.reloading).toBe(true)
     expect(run(b, BOMB_RELOAD_SECONDS - 1, true)).toBe(0)
     expect(b.load).toBe(0)
@@ -83,23 +83,23 @@ describe('彈艙：回補', () => {
 
   it('回補完成後補滿，而且要再按一次才投', () => {
     const b = createBombBay()
-    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 0.5, true)
+    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 0.5, true)
     run(b, BOMB_RELOAD_SECONDS + 0.5)
     expect(b.reloading).toBe(false)
-    expect(b.load).toBe(BOMB_BAY)
+    expect(b.load).toBe(BOMB_BAY_MAX)
     // 【沒有自動接續】回補完不會自己再投一輪
     expect(run(b, 1)).toBe(0)
-    expect(run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 1, true)).toBe(BOMB_BAY)
+    expect(run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 1, true)).toBe(BOMB_BAY_MAX)
   })
 
   it('回補期間按下的那一次被吃掉，不會在補完的瞬間追認', () => {
     const b = createBombBay()
-    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 0.5, true)
+    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 0.5, true)
     expect(b.reloading).toBe(true)
     // 【trigger 是邊緣不是按著】所以這裡只在補彈進行中送一次
     const n = run(b, BOMB_RELOAD_SECONDS + 1, true)
     expect(n).toBe(0)
-    expect(b.load).toBe(BOMB_BAY)
+    expect(b.load).toBe(BOMB_BAY_MAX)
     expect(b.queue).toBe(0)
   })
 })
@@ -107,10 +107,56 @@ describe('彈艙：回補', () => {
 describe('彈艙：重設', () => {
   it('resetBombBay 立刻滿艙並取消回補', () => {
     const b = createBombBay()
-    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 0.5, true)
+    run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 0.5, true)
     expect(b.reloading).toBe(true)
     resetBombBay(b)
-    expect(b).toEqual({ load: BOMB_BAY, queue: 0, timer: 0, reloading: false })
-    expect(run(b, BOMB_SALVO_INTERVAL * BOMB_BAY + 1, true)).toBe(BOMB_BAY)
+    expect(b).toEqual({
+      capacity: BOMB_BAY_MAX, load: BOMB_BAY_MAX, queue: 0, timer: 0, reloading: false,
+    })
+    expect(run(b, BOMB_SALVO_INTERVAL * BOMB_BAY_MAX + 1, true)).toBe(BOMB_BAY_MAX)
+  })
+})
+
+describe('彈艙：每一台的容量不同', () => {
+  it('三台轟炸機各有各的滿艙，戰鬥機是 0', () => {
+    expect(bombBayOf('b17g')).toBe(10)
+    expect(bombBayOf('he111')).toBe(8)
+    expect(bombBayOf('g4m')).toBe(2)
+    expect(bombBayOf('bf109k4')).toBe(0)
+    expect(bombBayOf('p51d')).toBe(0)
+  })
+
+  it('canBomb 與容量表是同一份清單 —— 兩份會不同步', () => {
+    for (const id of ['b17g', 'he111', 'g4m', 'bf109k4', 'p51d', 'a6m5', 'f6f5', 'ki84']) {
+      expect(canBomb(id)).toBe(bombBayOf(id) > 0)
+    }
+  })
+
+  it('BOMB_BAY_MAX 是那張表的上界 —— HUD 的格數與池的餘裕看它', () => {
+    for (const v of Object.values(BOMB_BAY_BY_AIRCRAFT)) {
+      expect(v).toBeLessThanOrEqual(BOMB_BAY_MAX)
+    }
+    expect(Object.values(BOMB_BAY_BY_AIRCRAFT)).toContain(BOMB_BAY_MAX)
+  })
+
+  it('小彈艙的一趟就只有那麼多枚', () => {
+    const g4m = createBombBay(bombBayOf('g4m'))
+    expect(run(g4m, BOMB_SALVO_INTERVAL * 10 + 1, true)).toBe(2)
+  })
+
+  it('回補補回自己的容量，不是別人的', () => {
+    const g4m = createBombBay(bombBayOf('g4m'))
+    run(g4m, BOMB_SALVO_INTERVAL * 4 + 0.5, true)
+    expect(g4m.reloading).toBe(true)
+    run(g4m, BOMB_RELOAD_SECONDS + 0.5, false)
+    expect(g4m.load).toBe(2)
+  })
+
+  it('resetBombBay 換得了容量 —— 換機種走這一條', () => {
+    const b = createBombBay(bombBayOf('b17g'))
+    expect(b.load).toBe(10)
+    resetBombBay(b, bombBayOf('g4m'))
+    expect(b.capacity).toBe(2)
+    expect(b.load).toBe(2)
   })
 })

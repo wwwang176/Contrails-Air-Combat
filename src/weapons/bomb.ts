@@ -1,17 +1,43 @@
 /**
- * 掛得了彈的機種。**沒有列在這裡的按 `B` 沒有作用。**
+ * 每一台的**彈艙容量**。列在這裡的才掛得了彈 —— 沒有的按 `B` 沒有作用。
  *
- * 【是集合而不是各自的載彈量】彈艙統一 10 枚（見 `BOMB_BAY`），這裡只剩
- * 「能不能投」這一個問題。
+ * 【載彈量才是這三台真正的差別】單顆彈的當量它們差不多（見
+ * `BOMB_DAMAGE_BY_AIRCRAFT`：B-17G 的 227 kg 對 He 111 的 250 kg），
+ * 重轟炸機的優勢在**帶得多**：
+ *
+ * ```
+ *              彈艙                     枚數   單枚傷害   一趟總量
+ *   B-17G      AN-M64 500 lb × 10       10      9,000     90,000
+ *   He 111     SC 250 × 8                8      9,300     74,400
+ *   G4M        五十番 500 kg × 2         2     11,700     23,400
+ * ```
+ *
+ * 【G4M 是兩發重彈】一式陸攻的彈艙上限 1,000 kg —— 800 kg 魚雷一枚、
+ * 500 kg 兩枚、250 kg 四枚擇一。取 500 kg × 2：單發最痛、但只有兩次機會，
+ * 與 B-17G 的十枚齊投是兩種完全不同的打法。
  */
-const BOMBERS: ReadonlySet<string> = new Set(['b17g', 'he111', 'g4m'])
+export const BOMB_BAY_BY_AIRCRAFT: Readonly<Record<string, number>> = {
+  b17g: 10,
+  he111: 8,
+  g4m: 2,
+}
 
 /**
- * 彈艙容量。
+ * 這一台的彈艙容量。不是轟炸機就回 0。
  *
  * 一次扳機把整艙依序投完，空了之後等 `BOMB_RELOAD_SECONDS` 回補滿。
  */
-export const BOMB_BAY = 10
+export function bombBayOf(aircraftId: string): number {
+  return BOMB_BAY_BY_AIRCRAFT[aircraftId] ?? 0
+}
+
+/**
+ * 彈艙容量的**上界**。HUD 的格子畫得下最多幾枚、池子要留多少餘裕都看它。
+ *
+ * 【為什麼要有這個常數】那兩件事都不能等到執行期才知道，而它是一張寫死的
+ * 表 —— 編譯期就求得出來。
+ */
+export const BOMB_BAY_MAX = Math.max(...Object.values(BOMB_BAY_BY_AIRCRAFT))
 
 /**
  * 連投的間隔，秒。**起始值，由試飛裁定。**
@@ -29,8 +55,9 @@ export const BOMB_SALVO_INTERVAL = 0.35
  */
 export const BOMB_RELOAD_SECONDS = 20
 
+/** 這一台掛不掛得了彈。**與彈艙表是同一份清單** */
 export function canBomb(specId: string): boolean {
-  return BOMBERS.has(specId)
+  return bombBayOf(specId) > 0
 }
 
 /**
@@ -41,6 +68,8 @@ export function canBomb(specId: string): boolean {
  * 測試，這個狀態機進得去。
  */
 export interface BombBay {
+  /** 這一台的滿艙是幾枚。**換機種時重設** */
+  capacity: number
   /** 艙裡還有幾枚 */
   load: number
   /** 這一輪還要投幾枚 */
@@ -51,13 +80,18 @@ export interface BombBay {
   reloading: boolean
 }
 
-export function createBombBay(): BombBay {
-  return { load: BOMB_BAY, queue: 0, timer: 0, reloading: false }
+export function createBombBay(capacity = BOMB_BAY_MAX): BombBay {
+  return { capacity, load: capacity, queue: 0, timer: 0, reloading: false }
 }
 
-/** 換飛機／重生：立刻滿艙、取消一切計時 */
-export function resetBombBay(b: BombBay): void {
-  b.load = BOMB_BAY
+/**
+ * 換飛機／重生：立刻滿艙、取消一切計時。
+ *
+ * @param capacity 新機種的彈艙容量。省略則沿用原本的
+ */
+export function resetBombBay(b: BombBay, capacity = b.capacity): void {
+  b.capacity = capacity
+  b.load = capacity
   b.queue = 0
   b.timer = 0
   b.reloading = false
@@ -78,7 +112,7 @@ export function stepBombBay(
     // 【回補期間吃掉扳機】按了沒反應會被當成 bug，但「正在補彈」是一個玩家
     // 看得到的狀態（HUD 有讀數），所以它是規則而不是失靈
     if (b.timer <= 0) {
-      b.load = BOMB_BAY
+      b.load = b.capacity
       b.reloading = false
       b.timer = 0
     }
@@ -143,7 +177,7 @@ export const BOMB_BLAST_DAMAGE = 9_000
  *              掛載                裝藥比   尺度   爆心傷害
  *   B-17G      AN-M64 500 lb       1.00    1.00    9,000    ← 基準
  *   He 111     SC 250              1.10    1.03    9,300
- *   G4M        八十番 800 kg       3.52    1.52   13,700
+ *   G4M        五十番 500 kg       2.20    1.30   11,700
  * ```
  *
  * 【B-17G 與 He 111 幾乎一樣是對的】兩者的單顆彈確實都是 250 kg 級。重
@@ -152,7 +186,7 @@ export const BOMB_BLAST_DAMAGE = 9_000
 export const BOMB_DAMAGE_BY_AIRCRAFT: Readonly<Record<string, number>> = {
   b17g: 9_000,
   he111: 9_300,
-  g4m: 13_700,
+  g4m: 11_700,
 }
 
 /**
