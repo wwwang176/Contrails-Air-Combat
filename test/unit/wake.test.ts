@@ -105,21 +105,23 @@ describe('容量與索引', () => {
 })
 
 describe('沿著一條直線鋪節點', () => {
-  /** 從原點往 −Z 餵，每次走 `step` 公尺 */
-  function run(w: ReturnType<typeof createWakes>, metres: number, step = 1): void {
+  /** 從原點往 −Z 餵一枚 `id` 號的魚雷，每次走 `step` 公尺 */
+  function run(
+    w: ReturnType<typeof createWakes>, metres: number, step = 1, id = 1,
+  ): void {
     let z = 0
     let travelled = 0
-    w.emit(0, 0, 0, 0)
+    w.emit(0, 0, 0, id)
     while (travelled < metres) {
       z -= step
       travelled += step
-      w.emit(0, 0, z, travelled)
+      w.emit(0, 0, z, id)
     }
   }
 
   it('第一幀不落正式節點 —— 沒有上一個位置就沒有線段', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
+    w.emit(0, 0, 0, 1)
     expect(w.live).toBe(0)
     w.dispose()
   })
@@ -140,23 +142,35 @@ describe('沿著一條直線鋪節點', () => {
   })
 
   /**
-   * 【航程倒退就是換了一枚】池子的格子會重用，而上一枚的航跡接到新的一枚
-   * 身上會畫出一條橫跨半張海圖的線。`run` 單調遞增，所以它就是身分。
+   * 【換一枚就整條重來】池子的格子會重用，而上一枚的航跡接到新的一枚身上
+   * 會畫出一條橫跨半張海圖的線。
+   *
+   * 【為什麼身分不能用航程】航程每一枚都從 0 開始，所以它只認得出「變小」。
+   * 上一枚在近距離命中、只被畫到航程 0 就收掉時，下一枚的第一幀也是 0
+   * ——「沒有變小」，兩條就接起來了。識別碼是**逐枚遞增**的，換人一定認得出。
    */
-  it('航程倒退時整條重來', () => {
+  it('識別碼一換就整條重來 —— 變大也算換', () => {
     const w = createWakes(2)
-    run(w, WAKE_NODE_SPACING * 10)
+    run(w, WAKE_NODE_SPACING * 10, 1, 7)
     expect(w.live).toBe(10)
-    w.emit(0, 500, 500, 0)
+    w.emit(0, 500, 500, 8)
     expect(w.live).toBe(0)
+    w.dispose()
+  })
+
+  it('識別碼相同就是同一枚 —— 不會每幀自己切自己', () => {
+    const w = createWakes(2)
+    run(w, WAKE_NODE_SPACING * 10, 1, 7)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 10, 7)
+    expect(w.live).toBe(10)
     w.dispose()
   })
 
   it('各格互不相干', () => {
     const w = createWakes(2)
     run(w, WAKE_NODE_SPACING * 10)
-    w.emit(1, 900, 0, 0)
-    w.emit(1, 900, -WAKE_NODE_SPACING * 2, WAKE_NODE_SPACING * 2)
+    w.emit(1, 900, 0, 2)
+    w.emit(1, 900, -WAKE_NODE_SPACING * 2, 2)
     expect(w.live).toBe(12)
     w.dispose()
   })
@@ -174,7 +188,7 @@ describe('沿著一條直線鋪節點', () => {
     run(w, WAKE_NODE_SPACING * 10)
     w.reset()
     expect(w.live).toBe(0)
-    w.emit(0, 0, 0, 0)
+    w.emit(0, 0, 0, 1)
     expect(w.live).toBe(0)
     w.dispose()
   })
@@ -182,7 +196,7 @@ describe('沿著一條直線鋪節點', () => {
   it('格子超出範圍不丟例外', () => {
     const w = createWakes(2)
     expect(() => w.emit(99, 0, 0, 0)).not.toThrow()
-    expect(() => w.emit(-1, 0, 0, 0)).not.toThrow()
+    expect(() => w.emit(-1, 0, 0, 1)).not.toThrow()
     expect(w.live).toBe(0)
     w.dispose()
   })
@@ -211,10 +225,10 @@ describe('頭端', () => {
    */
   it('帶子的前端就在魚雷身上，不落後一個間隔', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
-    w.emit(0, 0, -WAKE_NODE_SPACING, WAKE_NODE_SPACING)
+    w.emit(0, 0, 0, 1)
+    w.emit(0, 0, -WAKE_NODE_SPACING, 1)
     // 再往前走半個間隔 —— 不會落新的正式節點
-    w.emit(0, 0, -WAKE_NODE_SPACING * 1.5, WAKE_NODE_SPACING * 1.5)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 1.5, 1)
     expect(w.live).toBe(1)
     w.step(0, 0, FLAT)
     // 節點 0 是那一個正式節點，節點 1 是頭端
@@ -225,7 +239,7 @@ describe('頭端', () => {
 
   it('只有頭端、還沒有正式節點時什麼都不畫', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
+    w.emit(0, 0, 0, 1)
     w.step(0, 0, FLAT)
     expect(alphaAt(w, 0, 0)).toBe(0)
     expect(alphaAt(w, 0, 1)).toBe(0)
@@ -240,8 +254,8 @@ describe('貼著浪面', () => {
    */
   it('節點的高度跟著浪高場走，而且浮起 WAKE_LIFT', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
-    w.emit(0, 0, -WAKE_NODE_SPACING * 2, WAKE_NODE_SPACING * 2)
+    w.emit(0, 0, 0, 1)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 2, 1)
     w.step(0, 0, () => 3.5)
     expect(vertex(w, 0, 0, 0)[1]).toBeCloseTo(3.5 + WAKE_LIFT, 5)
     // 同一個節點，換一個時間就換一個高度
@@ -252,8 +266,8 @@ describe('貼著浪面', () => {
 
   it('帶子是平的 —— 同一個節點的左右緣等高', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
-    w.emit(0, 0, -WAKE_NODE_SPACING * 2, WAKE_NODE_SPACING * 2)
+    w.emit(0, 0, 0, 1)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 2, 1)
     w.step(0, 0, (x, z) => x * 0.1 + z * 0.1)
     for (let j = 0; j < 3; j++) {
       expect(vertex(w, 0, j, 0)[1]).toBeCloseTo(vertex(w, 0, j, 1)[1], 9)
@@ -263,8 +277,8 @@ describe('貼著浪面', () => {
 
   it('橫向垂直於航向 —— 往 −Z 走時左右緣分在 ±X', () => {
     const w = createWakes(2)
-    w.emit(0, 0, 0, 0)
-    w.emit(0, 0, -WAKE_NODE_SPACING * 2, WAKE_NODE_SPACING * 2)
+    w.emit(0, 0, 0, 1)
+    w.emit(0, 0, -WAKE_NODE_SPACING * 2, 1)
     w.step(0, 0, FLAT)
     const [lx, , lz] = vertex(w, 0, 0, 0)
     const [rx, , rz] = vertex(w, 0, 0, 1)

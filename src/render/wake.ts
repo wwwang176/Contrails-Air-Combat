@@ -134,11 +134,11 @@ export interface Wakes {
   /**
    * 一枚魚雷的一幀。位置是**水面上**的點，不是雷體。
    *
-   * @param run 這一枚已經跑了多遠，m。**它同時是身分** —— 單調遞增，所以
-   *            倒退就代表這一格換了一枚，整條要重來。格子超出範圍直接
-   *            return（不丟例外）。
+   * @param id 這一枚的識別碼（`Torpedoes.serial`）。**一換就整條重來** ——
+   *           池子的格子會重用，上一枚的航跡接到新的一枚身上會畫出一條橫跨
+   *           半張海圖的線。格子超出範圍直接 return（不丟例外）。
    */
-  emit(slot: number, x: number, z: number, run: number): void
+  emit(slot: number, x: number, z: number, id: number): void
   /**
    * 老化一幀並重寫頂點。**在渲染幀率呼叫，不在物理步。**
    *
@@ -167,8 +167,11 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
   const pz = new Float32Array(slots)
   /** 這一格有沒有上一幀 */
   const seen = new Uint8Array(slots)
-  /** 上一幀的航程。倒退 = 換了一枚 */
-  const lastRun = new Float32Array(slots)
+  /**
+   * 上一幀是哪一枚。**Float64 而不是 Float32** —— 識別碼要逐位元比對，
+   * 存進 Float32 會被捨入，比對的是捨入後的值
+   */
+  const lastId = new Float64Array(slots)
   /** 活動頭端：魚雷這一幀在哪裡。不進環形緩衝、不老化、不計入 `live` */
   const hx = new Float32Array(slots)
   const hz = new Float32Array(slots)
@@ -291,12 +294,13 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
     object,
     get live() { return liveNodes },
 
-    emit(slot, x, z, run) {
+    emit(slot, x, z, id) {
       if (!(slot >= 0) || slot >= slots) return
-      // 【航程倒退 = 換了一枚】上一枚的航跡接到新的一枚身上會畫出一條
-      // 橫跨半張海圖的線
-      if (run < lastRun[slot]!) cut(slot)
-      lastRun[slot] = run
+      // 【識別碼一換就是換了一枚】不能拿航程當身分：它每一枚都從 0 開始，
+      // 只認得出「變小」。上一枚在近距離命中、只被畫到航程 0 就收掉時，
+      // 下一枚的第一幀也是 0，兩條就接起來了
+      if (id !== lastId[slot]!) cut(slot)
+      lastId[slot] = id
 
       // 【頭端每幀都貼上去】不然帶子的前端永遠落後魚雷最多一個間隔，
       // 看起來像一段一段長出來的
@@ -362,7 +366,7 @@ export function createWakes(slots: number = WAKE_SLOTS): Wakes {
       head.fill(0)
       carry.fill(0)
       seen.fill(0)
-      lastRun.fill(0)
+      lastId.fill(0)
       hasHead.fill(0)
       liveNodes = 0
       pos.fill(0)

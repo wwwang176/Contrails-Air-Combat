@@ -1522,14 +1522,14 @@ function stepAndDrawBattle(frameSeconds: number): void {
   })
   // ── 魚雷的航跡 ───────────────────────────────────────
   //
-  // 【在渲染幀率餵，不在物理步】管子是視覺，取樣間隔由它自己按走過的距離
+  // 【在渲染幀率餵，不在物理步】帶子是視覺，取樣間隔由它自己按走過的距離
   // 決定 —— 與凝結尾同一個做法
   {
     const t = world.torpedoes
     for (let i = 0; i < t.capacity; i++) {
       // 【只有水中段有航跡】空中那一段沒有東西可以翻起泡沫
       if (t.active[i] === 0 || t.phase[i] !== 1) continue
-      wakes.emit(i, t.x[i]!, t.z[i]!, t.run[i]!)
+      wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
     }
   }
   // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉

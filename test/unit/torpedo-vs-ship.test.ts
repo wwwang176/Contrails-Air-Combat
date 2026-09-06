@@ -5,6 +5,7 @@ import { createShipGuns } from '../../src/world/shipGuns'
 import { TORPEDO_DEPTH, TORPEDO_SPEED } from '../../src/world/torpedo'
 import { loadoutOf } from '../../src/weapons/stores'
 import { IMPACT_STRIDE } from '../../src/world/events'
+import { solveImpact, type BombState, type Impact } from '../../src/world/bomb'
 
 const DT = 1 / 240
 const TORPEDO = loadoutOf('g4m')!
@@ -241,3 +242,38 @@ describe('雷速', () => {
     expect(Math.hypot(t.vx[0]!, t.vz[0]!)).toBeCloseTo(TORPEDO_SPEED, 9)
   })
 })
+
+describe('投放的散佈', () => {
+  /**
+   * 【圈是中心，不是這一枚】`World.dropTorpedo` 套的散佈與炸彈是同一組
+   * （`spreadPair`，由累計投放序號決定，可重播）。所以實際入水點會離瞄具
+   * 解的落點有一小段距離 —— **那是刻意的**。把散佈也套進瞄具的話，散佈就
+   * 變成免費的情報，等於沒有散佈。
+   *
+   * 這一條釘住的是「有差、而且差得不大」。它同時是一道護欄：把散佈拿掉會
+   * 紅，把散佈放大到船打不中也會紅。
+   */
+  it('實際入水點離瞄具解的中心有一小段，但小於船寬', () => {
+    const world = new World()
+    world.groundAt = () => 0
+    world.waterAt = () => 0
+    const entries: { x: number; z: number }[] = []
+    const start: BombState = { x: 0, y: 60, z: 0, vx: 0, vy: 0, vz: -80 }
+    const out: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+    expect(solveImpact(start, world.bombDrag, () => 0, DT, out)).toBe(true)
+
+    world.dropTorpedo(start.x, start.y, start.z, start.vx, start.vy, start.vz,
+      TORPEDO.damage, 0, -1)
+    const pool = world.torpedoes
+    for (let t = 0; t < 30; t += DT) {
+      if (pool.phase[0] === 1) break
+      pool.step(DT, world.bombDrag, () => 0, () => 0,
+        () => {}, (x, _y, z) => { entries.push({ x, z }) }, () => {})
+    }
+    expect(entries.length).toBe(1)
+    const d = Math.hypot(entries[0]!.x - out.x, entries[0]!.z - out.z)
+    expect(d).toBeGreaterThan(0)
+    expect(d).toBeLessThan(SHIP_CLASSES.fletcher.radius)
+  })
+})
+

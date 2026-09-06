@@ -118,6 +118,14 @@ export class Torpedoes {
    * 水平航向，單位向量。入水時由入水速度的水平分量決定；**垂直入水那種
    * 退化情況沿用投放瞬間的機首方向**，所以 `spawn` 就要收它。
    */
+  /**
+   * 這一枚的識別碼，**逐枚遞增，1 起跳**（0 = 這一格從來沒裝過東西）。
+   *
+   * 【為什麼航程不能當身分】航程每一枚都從 0 開始，所以它只認得出「變小」。
+   * 上一枚在近距離命中、只被畫到航程 0 就收掉時，下一枚的第一幀也是 0
+   * ——「沒有變小」，航跡就從上一枚的位置接過去，畫出一條橫跨海圖的線。
+   */
+  readonly serial: Float64Array
   readonly headX: Float64Array
   readonly headZ: Float64Array
   /** 0 = 空中，1 = 水中 */
@@ -149,6 +157,7 @@ export class Torpedoes {
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f(); this.run = f(); this.damage = f()
     this.headX = f(); this.headZ = f()
+    this.serial = f()
     this.phase = new Uint8Array(capacity)
     this.active = new Uint8Array(capacity)
   }
@@ -177,11 +186,14 @@ export class Torpedoes {
     this.phase[i] = AIR
     this.active[i] = 1
     this.dropped++
+    // 【1 起跳】0 留給「這一格從來沒裝過東西」
+    this.serial[i] = this.dropped
     return i
   }
 
   clear(): void {
     this.active.fill(0)
+    this.serial.fill(0)
     this.liveCount = 0
     this.cursor = 0
     // 【序號也要歸零】不歸零的話第二場的偏移接在第一場後面，逐位元重播就
@@ -194,8 +206,13 @@ export class Torpedoes {
    *
    * @param groundAt  該點的**碰撞**高度（`terrain.collisionHeightAt`）。
    *                  海是平的、回 0；陸地回高度。**水陸判準是它 > 0**
-   * @param waterAt   該點**含浪**的水面高度。只有航跡的高度用得到
-   * @param onEntry   入水的那一刻，帶**內插後的落點** —— 逐位元護欄看它
+   * @param waterAt   該點**含浪**的水面高度，沒有水的地方回 `-Infinity`。
+   *                  入水前用它確認這裡真的有水（一整趟只問一次），之後
+   *                  是航跡的高度
+   * @param onEntry   入水的那一刻，帶**內插後的落點**。逐位元護欄看它 ——
+   *                  比的是**彈道**：同一組初始狀態下，它與 `solveImpact`
+   *                  的落點逐位元相同（`World.dropTorpedo` 另外套的散佈在
+   *                  這一層之外）
    * @param onWake    每 `WAKE_INTERVAL` 公尺一次，`y` 是水面
    */
   step(
@@ -211,7 +228,7 @@ export class Torpedoes {
     const s = this.sim
     for (let i = 0; i < this.capacity; i++) {
       if (this.active[i] === 0) continue
-      if (this.phase[i] === AIR) this.stepAir(i, s, dt, k, groundAt, onEnd, onEntry)
+      if (this.phase[i] === AIR) this.stepAir(i, s, dt, k, groundAt, waterAt, onEnd, onEntry)
       else this.stepWater(i, dt, groundAt, waterAt, onEnd, onWake, blockedBy)
     }
   }
@@ -226,6 +243,7 @@ export class Torpedoes {
     dt: number,
     k: number,
     groundAt: (x: number, z: number) => number,
+    waterAt: (x: number, z: number) => number,
     onEnd: TorpedoEndFn,
     onEntry: TorpedoPointFn,
   ): void {
@@ -256,7 +274,15 @@ export class Torpedoes {
 
     // 【問的是內插後的落點，不是步末的位置】跨越岸線的那一步，兩者會給出
     // 相反的答案
-    if (groundAt(ix, iz) > 0) {
+    //
+    // 【碰撞高度 0 不等於有水】內陸地圖的平原就是 0，與海面一模一樣
+    // （`farmland` ±10 km 有 73.5% 的取樣點是「碰撞高度 0 且無水」）。少了
+    // 水面那一問，魚雷會把整片農田當成海：鑽進地裡跑到射程用盡、不引爆，
+    // 而且航跡事件帶著 `-Infinity` 餵進水花粒子池。
+    //
+    // 【肯定式】`waterAt` 給 NaN 時 `Number.isFinite` 回 false，判成陸地
+    // ——壞值向安全側倒。
+    if (groundAt(ix, iz) > 0 || !Number.isFinite(waterAt(ix, iz))) {
       this.active[i] = 0
       this.liveCount--
       onEnd(ix, g, iz, 0, this.damage[i]!)
