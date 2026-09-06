@@ -203,6 +203,14 @@ export const SHIP_FIRE_SMOKE_LIFE = 20
 export const SHIP_FIRE_SMOKE_DRAG = 0.02
 export const SHIP_FIRE_SMOKE_SIZE_FROM = 3
 export const SHIP_FIRE_SMOKE_SIZE_TO = 22
+/**
+ * 逐顆亮度抖動的幅度（`particleShade`）。
+ *
+ * 【為什麼煙柱特別需要它】柱子是一整條同色的東西，前後兩顆長得完全一樣時
+ * 眼睛拿不到深度線索，整根讀起來是一塊平的剪影。爆炸的煙用 0.5，柱子比它
+ * 厚、疊得更多層，所以再放寬一點。
+ */
+export const SHIP_FIRE_SMOKE_SHADE = 0.6
 
 /**
  * 想爬到 `height` 公尺要多快的初速，m/s。
@@ -259,6 +267,7 @@ export function createShipFireSmoke(
     drag: SHIP_FIRE_SMOKE_DRAG,
     alphaFrom: SMOKE_ALPHA,
     lifeJitter: SMOKE_LIFE_JITTER,
+    shadeJitter: SHIP_FIRE_SMOKE_SHADE,
     color: smokeColor,
   })
 }

@@ -37,6 +37,7 @@ import {
 import {
   createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
 } from './render/shipFires'
+import { hash01 } from './render/scatter'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -577,24 +578,29 @@ function emitBombBlasts(events: ImpactEvents): void {
  * 【一次三團】0.3 秒一次，一團的話那是一串珠子不是一道柱子。
  */
 const FIRE_SMOKE_PER_PUFF = 3
-/** 水平抖動，m/s。柱子的粗細 */
+/** 水平散開的最大速度，m/s。柱子的粗細 */
 const FIRE_SMOKE_SPREAD = 1.6
+/** 上升速度的抖動幅度，比例。0.25 = 落在 0.75×～1.25× 之間 */
+const FIRE_SMOKE_RISE_JITTER = 0.25
 
 const emitFirePuff: FirePuffFn = (x, y, z) => {
   emitBlast(BLAST_POOLS, FIRE_BLAST, x, y, z, (fireSeed = (fireSeed + 1) | 0))
-  const up = SHIP_FIRE_PLUME_SPEED
   for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
-    // 【等角度分佈，不用亂數】決定性不是這一層的要求，但免費的話就拿著；
-    // 亂數在這裡也只是換一種方式排成一圈
-    const a = ((fireSeed * 2.399963 + k * 2.094395) % 6.283185)
-    shipFireSmoke.emit(
-      x, y, z,
-      Math.cos(a) * FIRE_SMOKE_SPREAD, up, Math.sin(a) * FIRE_SMOKE_SPREAD,
-      1,
-    )
+    // 【三個維度各自抖】方位角、半徑、上升速度全部獨立取樣。
+    //
+    // 只抖方位角、而且用等角度分佈（黃金角 × 序號）的話，等速上升會把
+    // 連續幾朵串成一條**規則的螺旋線** —— 畫面上是兩三股麻花而不是一叢煙。
+    // 半徑固定會讓它們貼在同一個圓柱面上；上升速度一致則讓同一朵的三顆
+    // 永遠共面。
+    const s = fireSeed * FIRE_SMOKE_PER_PUFF + k
+    const a = hash01(s * 3 + 1) * Math.PI * 2
+    const r = Math.sqrt(hash01(s * 3 + 2)) * FIRE_SMOKE_SPREAD
+    const up = SHIP_FIRE_PLUME_SPEED
+      * (1 + (hash01(s * 3 + 3) * 2 - 1) * FIRE_SMOKE_RISE_JITTER)
+    shipFireSmoke.emit(x, y, z, Math.cos(a) * r, up, Math.sin(a) * r, 1)
   }
 }
-/** `emitFirePuff` 的散佈序號。爆炸配方與煙的方位角都吃它 */
+/** `emitFirePuff` 的散佈序號。爆炸配方與煙的三個抖動都吃它 */
 let fireSeed = 0
 
 /**
