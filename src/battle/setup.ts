@@ -57,10 +57,9 @@ export interface BattleConfig {
   /**
    * 這一場的編制。**外層是小隊、內層是那個小隊的每一架。**
    *
-   * 【為什麼取代了 blueSpec / redSpec / blueCount / redCount / entry】專案
-   * 負責人 2026-08-21：「設定檔應該是一個陣列決定什麼機種、初始方位、初始
-   * 姿態、小隊等等，而不是加開欄位，不然未來越多類型會更新不完。」加第三種
-   * 機體時前者只要多一列。見 `battle/order.ts`。
+   * 【為什麼不是 blueSpec / redSpec / blueCount / redCount / entry 那幾個
+   * 欄位】那種形狀每加一種類型就要再加欄位；一個陣列決定機種、初始方位、
+   * 初始姿態、小隊的話，加第三種機體只要多一列。見 `battle/order.ts`。
    *
    * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20)` ——
    * 產出的座標與改動前逐位元相同。
@@ -244,9 +243,9 @@ export interface ConvoyIndex {
    * 與 `seats` 對齊：**那一架自己要飛的點**。x 取它的出生 x，所以每一架
    * 飛的是一條**與 Z 軸平行**的直線。
    *
-   * 【為什麼不是全部瞄同一個點】專案負責人 2026-08-21：「這些轟炸機都有
-   * 各自的前方集合點，這樣既可以排除滾轉，又可以每台轟炸機平行飛。」
-   * 共用一個點的話整隊會沿途向內收攏 —— 起始值下只有 1° 的夾角，看起來
+   * 【為什麼不是全部瞄同一個點】每台轟炸機各有自己的前方集合點，既排除
+   * 滾轉又讓整隊平行飛。共用一個點的話整隊會沿途向內收攏 —— 起始值下只有
+   * 1° 的夾角，看起來
    * 差別不大，但那是「慢慢擠成一團」而不是編隊。
    *
    * 【判定仍然只有一個圈】兩者不衝突：整隊的寬度由 `order.ts` 的
@@ -406,8 +405,7 @@ export interface Battle {
    *
    * 【為什麼不能直接讀 `cfg.rules`】`cfg` 是不可變的設定，而 `stepMission`
    * 是依規則分支的：只換 `mission` 的內容而規則還是 annihilate 的話，倒數
-   * 永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
-   * （Codex 審查 2026-09-02 P0）。
+   * 永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝。
    */
   rules: MissionRules
   /**
@@ -483,7 +481,7 @@ function altitudeOffset(flight: number, spread: number): number {
  *
  * 【為什麼戰鬥機不套這條】套下去是 0.80 × 665 = 532 km/h，開局能量存款就
  * 沒了，而 AI 的能量判準（`steer.ts` 的 `brakeCornerRatio` 那一組）是照
- * 720 km/h 的開局調的。要改那一項得連同那一組門檻一起重掃。
+ * 720 km/h 的開局調的。要改那一項得連同那一組門檻一起重新掃描。
  */
 export const BOMBER_CRUISE = 0.80
 
@@ -763,7 +761,7 @@ export function createBattle(
   // 【為什麼要傳 `flights.flightOf`】分攤折扣因此**不數同小隊**（見
   // `countLocks` 的註解）。沒有它時長機會被自己的僚機罰：僚機的職責就是
   // 打長機正在打的那一架，跟上之後卻被算成「這架已經有人在打了」，長機
-  // 於是把到手的射擊解讓出去。專案負責人 2026-08-10 裁定打開。
+  // 於是把到手的射擊解讓出去。
   //
   // 【編制刻意排在前面】就是為了讓這裡拿得到 `flightOf` 那一個實體 ——
   // `compactFlights` 每個物理步就地重填它，板子因此永遠讀到當步的編制。
@@ -808,7 +806,7 @@ export function createBattle(
       // 【整隊必須落得進判定圈】每一架飛的是 (自己的 x, 終點的 y, 終點的 z)，
       // 所以它抵達時離圈心恰好是這個橫向偏移。大於半徑的那幾架**永遠判不到**,
       // 而畫面上的症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」。
-      // 2026-08-21 實測踩過一次：圈釘在 x = 0 而整隊偏 −750，最外側 1,050 > 1,000
+      // 實測踩過一次：圈釘在 x = 0 而整隊偏 −750，最外側 1,050 > 1,000
       const off = Math.abs(point.x - rules.point.x)
       if (!(off < rules.radius)) {
         throw new Error(
@@ -948,9 +946,9 @@ function makeCommandUnit(c: Combatant, ceilings: Map<AircraftSpec, number>): Com
   }
   return {
     // 【自己的向量，不是飛機那一份的別名】`stepCommandLayer` 每步 copy 進來。
-    // 舊版抓的是別名，倚賴「`state.position` 這個物件永遠是同一個」——
-    // 而 `Aircraft.reset` 當時會換掉整個 `state`，於是「再打一場」之後
-    // 這 40 個別名全部指向孤兒向量。見 `Aircraft.reset` 的註解。
+    // 抓別名等於倚賴「`state.position` 這個物件永遠是同一個」—— 只要
+    // `Aircraft.reset` 換掉整個 `state`，「再打一場」之後這 40 個別名就
+    // 全部指向孤兒向量。見 `Aircraft.reset` 的註解。
     position: new Vector3(),
     velocity: new Vector3(),
     cornerRatio: 1,
@@ -992,7 +990,7 @@ function stepBeats(b: Battle): void {
   aliveCounts.blueBomber = 0
   aliveCounts.redBomber = 0
   // 【六個分支寫死，不組字串當鍵】`${team}Bomber` 每一架都配置一個新字串 ——
-  // 20v20、240 Hz 是每秒 9,600 次，而這裡是熱路徑（Codex 審查 2026-09-02）
+  // 20v20、240 Hz 是每秒 9,600 次，而這裡是熱路徑
   for (const c of b.world.combatants) {
     if (!c.alive) continue
     const bomber = c.aircraft.spec.role === 'bomber'
@@ -1207,17 +1205,17 @@ function stepPressure(b: Battle, dt: number): void {
  * `flight.members`，那兩者由同一步的 `compactFlights` 重算。排在前面會用到
  * 上一步的編制 —— 剛陣亡的成員仍在名單裡。
  *
- * 【玩家那一隊自治，但只在**真的有人在操縱**的時候】第一份 spec §2.1：
- * 專案負責人裁定「指揮 AI 不用跟玩家這個小隊給指令」，理由是不跟人類搶
- * 操縱。座位上坐的是 `AiController` 時（`I` 代飛、上帝視角）那個理由就
- * 不成立了 —— 見下方 `playerFlight` 的推導。
+ * 【玩家那一隊自治，但只在**真的有人在操縱**的時候】指揮 AI 不對玩家的
+ * 小隊下令，理由是不跟人類搶操縱（spec §2.1）。座位上坐的是 `AiController`
+ * 時（`I` 代飛、上帝視角）那個理由就不成立了 —— 見下方 `playerFlight`
+ * 的推導。
  */
 /**
  * 指揮官要豁免的分隊索引；沒有要豁免的回 −1。
  *
- * 【跳過的是「有人類在操縱的那一支」，不是「玩家的座位」】第一份 spec
- * §2.1 裁定指揮 AI 不對玩家的小隊下令，理由是不跟人類搶操縱 —— 座位上
- * 坐的是 AiController 時（`I` 代飛、上帝視角）那個理由就不成立了。
+ * 【跳過的是「有人類在操縱的那一支」，不是「玩家的座位」】指揮 AI 不對
+ * 玩家的小隊下令，理由是不跟人類搶操縱（spec §2.1）—— 座位上坐的是
+ * AiController 時（`I` 代飛、上帝視角）那個理由就不成立了。
  *
  * 【為什麼用推導而不是加一個旗標】推導比鏡射安全：鏡射要求每一條會改變
  * 狀態的路徑都記得更新，漏掉任何一條就留下一個永遠不消失的幽靈狀態。
@@ -1244,10 +1242,10 @@ function stepCommandLayer(b: Battle, dt: number): void {
 
   // ── 快照：每步抄一份 ──────────────────────────────────
   //
-  // 【2026-08-15：位置與速度由「抓參考」改成「每步 copy」】舊版倚賴
-  // 「`c.aircraft.state.position` 這個 `Vector3` 物件永遠是同一個」，而
-  // `Aircraft.reset` 當時會整個換掉 `state` —— 於是 `resetBattle`（再打一場）
-  // 之後這裡的 40 個參考全部指向孤兒向量，指揮層讀一整場凍結的座標
+  // 【位置與速度每步 copy，不抓參考】抓參考等於倚賴
+  // 「`c.aircraft.state.position` 這個 `Vector3` 物件永遠是同一個」——
+  // `Aircraft.reset` 一旦整個換掉 `state`，`resetBattle`（再打一場）之後
+  // 這裡的 40 個參考就全部指向孤兒向量，指揮層讀一整場凍結的座標
   // （最大落差 5300 m，集合令因此解除不掉）。
   //
   // 根因已經在 `Aircraft.reset` 修掉（就地寫回 + `state` 標 `readonly`），
@@ -1387,7 +1385,7 @@ function drainKills(b: Battle): void {
     // 【互換必須在記錄之前】反過來的話這次陣亡與兇手的擊墜對象都會記到
     // 玩家頭上，交換只是把它搬給 AI —— 一個順序解決兩件事（M9 spec §7.1）。
     //
-    // 【這一段對自摔也要跑】專案負責人裁決：墜海不記 K/D，但**算死亡**，
+    // 【這一段對自摔也要跑】墜海不記 K/D，但**算死亡**，
     // 而玩家死亡就要換機。把 `killer < 0` 的判斷提到這裡之前，墜海就不再
     // 觸發接手 —— 玩家從此卡在一架已經退場的飛機裡，而記分板上每個數字
     // 都正常，沒有任何東西會透露這件事。
@@ -1531,8 +1529,8 @@ export function stepBattle(b: Battle, dt: number): void {
  * 【與 R 鍵共用同一條路徑】兩份長得很像的初始化，就是只有一份會被修好的
  * 那種危險 —— 與 `Aircraft.respawn`、`World.destroy` 是同一個理由。
  *
- * @param seed 新的名字種子。省略時抽一個 —— 專案負責人裁決「再打一場則
- *             重新隨機」（M9 spec §6.1）。
+ * @param seed 新的名字種子。省略時抽一個 —— 再打一場的名字重新隨機
+ *             （M9 spec §6.1）。
  */
 export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
@@ -1596,7 +1594,7 @@ export function resetBattle(
     c.controller = ai
   }
 
-  // 【名字重抽】專案負責人裁決「再打一場則重新隨機」
+  // 【名字重抽】再打一場的名字重新隨機
   b.seed = seed
   const blueNames = pilotNames(seed, b.blue[0]!.aircraft.spec.faction, b.blue.length)
   const redNames = pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)

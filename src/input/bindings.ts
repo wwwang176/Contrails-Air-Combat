@@ -46,7 +46,7 @@ export function attachInput(
   const onMouseDown = (e: MouseEvent) => {
     if (e.button === 0) {
       // 【左鍵一鍵兩用】未鎖定指標時它是「進入遊戲」，已鎖定時才是扳機。
-      // 這與 spec §8 的裁決一致，也避免玩家第一次點畫面就打出一串子彈。
+      // 這與 spec §8 一致，也避免玩家第一次點畫面就打出一串子彈。
       if (document.pointerLockElement === canvas) state.firing = true
       else requestLock()
     }

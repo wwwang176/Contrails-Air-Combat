@@ -3,11 +3,10 @@
  * `battle/` 大量 import `specs/`，反過來會繞成循環。這裡轉出去只是為了
  * 讓「陣營」與「名冊」在同一個檔案裡讀得到。
  *
- * 【2026-09-03 起沒有 `factionOf` 了】它以前是一份寫死的 id 白名單
- * （`id === 'bf109k4' || id === 'he111' ? 'axis' : 'allies'`）。漏一個機種的
- * 症狀是拿到錯的那一本名冊 —— 不是錯誤，是一排讀起來怪怪的名字，而
- * 2026-08-21 的 He 111 就是這樣漏的。現在陣營是 `AircraftSpec` 的必填欄位，
- * 直接讀 `spec.faction`；漏填是編譯錯誤。
+ * 【陣營不可以用 id 白名單推】`id === 'bf109k4' || id === 'he111' ? 'axis'
+ * : 'allies'` 那種寫法漏一個機種的症狀是拿到錯的那一本名冊 —— 不是錯誤，
+ * 是一排讀起來怪怪的名字。陣營是 `AircraftSpec` 的必填欄位，直接讀
+ * `spec.faction`；漏填是編譯錯誤。
  */
 export type { Faction } from '../specs/types'
 import type { Faction } from '../specs/types'

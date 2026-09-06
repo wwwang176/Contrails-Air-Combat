@@ -240,7 +240,7 @@ export class World {
    *
    * 【為什麼是注入的而不是自己讀 `this.land.field`】自己讀就要自己寫一次
    * 「海面是平的」，而那條規則的權威在 `render/terrain.ts` 的
-   * `collisionHeightAt`（負責人 2026-08-28 裁定）。抄一份就是第二份真相。
+   * `collisionHeightAt`。抄一份就是第二份真相。
    * 與 `crashPolicy` 同一個注入方式。
    */
   groundAt: (x: number, z: number) => number = () => 0
@@ -589,7 +589,7 @@ export class World {
 
     // 3.5 炸彈推進
     //
-    // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2 裁定），
+    // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2），
     // 壽命上限 1.2 s；炸彈要重力、要阻力、要飛 48 秒。
     this.bombs.step(
       dt, this.bombDrag, this.groundAt, this.onBombImpact,
@@ -636,8 +636,8 @@ export class World {
    *
    * 【船量的是到艦體的距離，不是到質心】Essex 有 266 m 長。落在艦首前
    * 10 m 的那一顆離船體只有 10 m、離質心卻有 140 m —— 照質心算的話它完全
-   * 不會傷到船，而那正是**專案負責人指出的那件事**。`pointBoxDistance`
-   * 在艦體座標裡問「離這個盒子多遠」，答案對艦首與對艦舯一樣正確。
+   * 不會傷到船。`pointBoxDistance` 在艦體座標裡問「離這個盒子多遠」，
+   * 答案對艦首與對艦舯一樣正確。
    *
    * 【砲位也各自算】它們是獨立的盒子，離爆心近的那幾座先報銷。
    *
@@ -699,7 +699,7 @@ export class World {
   /**
    * 魚雷引爆。**接觸引爆：只有直接命中的那一艘扣血。**
    *
-   * 【沒有範圍傷害，也不掃飛機】負責人裁定。真實魚雷是接觸引信，而「水下
+   * 【沒有範圍傷害，也不掃飛機】真實魚雷是接觸引信，而「水下
    * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
    */
   private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage) => {
@@ -1341,7 +1341,7 @@ export class World {
    * 退場。被打爆與撞地走同一條路徑（spec §7）。
    *
    * 【為什麼抽出來】兩個觸發、一套後果。分成兩份長得很像的副本，就是只有
-   * 一份會被修好的那種危險 —— 與 `isCrashed` 當初抽出來同一個理由。
+   * 一份會被修好的那種危險 —— 與 `isCrashed` 抽出來是同一個理由。
    *
    * 【`killer` 省略＝沒有人的功勞】撞海與自摔走的就是這一條。事件的兇手欄
    * 寫 −1，記分板於是不會把它算給任何人（M9 spec §4.1）。

@@ -10,9 +10,8 @@ import {
  * 的核心要求 —— 它壞掉的話畫面上會多出十幾個框，而沒有任何自動化的東西
  * 會發現。與 `hudWidgets`、`edgeIndicatorPosition` 是同一個做法。
  *
- * 【畫面外不畫】專案負責人 2026-08-09 的裁決：上帝視角本來就有小地圖畫
- * 全場，邊緣再排十個箭頭只是雜訊。所以這裡沒有 `edgeIndicatorPosition`
- * 的對應物。
+ * 【畫面外不畫】上帝視角有小地圖畫全場，邊緣再排十個箭頭只是雜訊。所以
+ * 這裡沒有 `edgeIndicatorPosition` 的對應物。
  */
 export function godMarkerVisible(c: HudContact, aspect: number): boolean {
   return c.active && c.flightLeader && !c.behind
@@ -36,9 +35,9 @@ export function flightStrengthLabel(alive: number, size: number): string {
  * 【為什麼借用 `contactColor` 而不自己寫一行三元式】那會是第三份同義的顏色
  * 邏輯，遲早與另外兩份漂開 —— `contactColor` 的註解記的就是這件事。
  *
- * 【`flightMate = false` 是刻意的裁決，不是忘了填】座艙的第三個顏色（警示黃）
+ * 【`flightMate = false` 是刻意的，不是忘了填】座艙的第三個顏色（警示黃）
  * 標的是玩家自己的 Schwarm，意思是「誰會在你被咬時回頭掩護你」。上帝視角是
- * 旁觀全場，那個區別沒有意義 —— 專案負責人 2026-08-09 的裁決。
+ * 旁觀全場，那個區別沒有意義。
  */
 export function godMarkerColor(hostile: boolean): string {
   return contactColor(hostile, false)
