@@ -337,6 +337,27 @@ describe('stepMission：擊沉', () => {
     expect(createMissionState(rules).metric).toBe(3)
   })
 
+  /**
+   * 【分母從開局就要在】目標列靠它決定印進度還是印裸數字。第一個物理步
+   * 之前是 −1 的話，畫面會先閃一下沒有分母的那個版本。
+   */
+  it('分母是總艘數，開局就有', () => {
+    const s = createMissionState(rules)
+    expect(s.metricTotal).toBe(3)
+    stepMission(rules, inputs({ shipsSunk: 1 }), DT, s)
+    expect(s.metricTotal).toBe(3)
+  })
+
+  /**
+   * 【換關要把分母清掉】與 `hasTarget` 殘留同一條：擊沉打完換遭遇戰時，
+   * 留著的 3 會讓殲滅的剩餘敵機數印成 `(-2/3)`。
+   */
+  it('重設成別種規則就沒有分母了', () => {
+    const s = createMissionState(rules)
+    resetMissionState({ kind: 'annihilate' }, s)
+    expect(s.metricTotal).toBe(-1)
+  })
+
   it('計量是「還差幾艘」，而且不會變成負的', () => {
     const s = createMissionState(rules)
     stepMission(rules, inputs({ shipsSunk: 1 }), DT, s)
