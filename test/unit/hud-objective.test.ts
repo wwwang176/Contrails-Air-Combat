@@ -7,6 +7,20 @@ describe('formatObjectiveMetric', () => {
     expect(formatObjectiveMetric(0, 'count')).toBe('0')
   })
 
+  /**
+   * 【分子是已達成數】`metric` 是「還差幾艘」，玩家要看的是「打掉幾艘」。
+   * 印錯邊的話開局就顯示 (4/4) —— 那是達標的樣子。
+   */
+  it('有分母就印進度，分子是已達成數', () => {
+    expect(formatObjectiveMetric(4, 'count', 4)).toBe('(0/4)')
+    expect(formatObjectiveMetric(2, 'count', 4)).toBe('(2/4)')
+    expect(formatObjectiveMetric(0, 'count', 4)).toBe('(4/4)')
+  })
+
+  it('沒有分母（−1）維持裸數字', () => {
+    expect(formatObjectiveMetric(7, 'count', -1)).toBe('7')
+  })
+
   it('distance 在 1 km 以上用公里、一位小數', () => {
     expect(formatObjectiveMetric(18400, 'distance')).toBe('18.4 km')
     expect(formatObjectiveMetric(1000, 'distance')).toBe('1.0 km')
