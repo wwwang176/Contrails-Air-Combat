@@ -62,6 +62,14 @@ export interface AircraftModel {
   eyePoint: Vector3
   /** **右**翼尖，**機體座標**（已含重心位移）。左翼取 −x。見 HullSpec.wingTip */
   wingTip: Vector3
+  /**
+   * 投彈瞄具的眼點，**機體座標**。**`null` = 這一台掛不了彈。**
+   *
+   * 見 `GlbAircraft.bombPoint`。程式版（`finish`）一律 `null` —— 三台轟炸機
+   * 都走 GLB 那條路（`buildAircraft.ts` 的 `GLB_MODELS`），程式版留著只是
+   * 重匯來源。
+   */
+  bombPoint: Vector3 | null
   /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
   setPropSpin(rotation: number, blurred: boolean): void
   dispose(): void
@@ -744,6 +752,9 @@ export function createHull(spec: HullSpec) {
         group,
         eyePoint: new Vector3(spec.eyePoint.x, spec.eyePoint.y, spec.eyePoint.z + spec.offsetZ),
         wingTip: new Vector3(spec.wingTip.x, spec.wingTip.y, spec.wingTip.z + spec.offsetZ),
+        // 【程式版一律掛不了彈】三台轟炸機都走 GLB（`GLB_MODELS` 先於
+        // `BUILDERS`），這條路只是重匯來源
+        bombPoint: null,
         metrics: {
           realLength: spec.realLength, noseZ,
           noseY: (noseLo + noseHi) / 2,

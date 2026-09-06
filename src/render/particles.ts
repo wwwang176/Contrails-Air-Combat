@@ -1,6 +1,6 @@
 import {
   Color, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh,
-  Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Vector3,
+  Matrix4, MeshBasicMaterial, PlaneGeometry, Quaternion, Texture, Vector3,
   type Blending,
 } from 'three'
 import { hash01 } from './scatter'
@@ -30,6 +30,20 @@ export interface ParticleConfig {
    */
   lifeJitter?: number
   /**
+   * 逐顆的亮度抖動，比例。0.45 就是 0.55×~1.45×。省略等於整批同色。
+   *
+   * 【誰需要它】煙與塵 —— 見 `particleShade`。曳光、火花、水花不需要：
+   * 它們是點狀的，重疊本來就少。
+   */
+  shadeJitter?: number
+  /**
+   * 高度明暗：從出生點往上多少公尺算「頂」。0 或省略 = 關。
+   * `shadeJitter` 是無方向的深度線索，這一層給方向。見 `particleRiseShade`。
+   */
+  riseSpan?: number
+  /** 底與頂的亮度落差，比例。0.5 = 底 0.5×、頂 1×。`riseSpan` 為 0 時無意義 */
+  riseRange?: number
+  /**
    * 顏色曲線。`t` 是年齡佔壽命的比例（0..1）。
    *
    * 【為什麼是回呼而不是兩個顏色常數】火球要走白 → 橘 → 暗紅三段，兩點
@@ -37,6 +51,16 @@ export interface ParticleConfig {
    * 容得下這兩種需求，而且各自的曲線在各自的模組裡被測試。
    */
   color(t: number, out: Color): void
+  /**
+   * 可選的**不透明度貼圖**。灰階圖，讀 `.g` 通道。
+   *
+   * 【為什麼是 alphaMap 而不是 map】那張圖是黑底白煙的灰階，當成顏色用會
+   * 把煙塗成白的；它描述的是「這個像素有多少煙」，那就是 alpha。顏色仍然
+   * 由 `color` 回呼給。
+   *
+   * 【給了它就等於關掉軟邊圓形】見 `injectBillboard` 的 `soft`。
+   */
+  alphaMap?: Texture | undefined
 }
 
 export interface Particles {
@@ -85,6 +109,36 @@ export function particleSize(age: number, life: number, from: number, to: number
   return from + (to - from) * (age / life)
 }
 
+/**
+ * 這一格的**亮度倍率**，`[1 − jitter, 1]`。
+ *
+ * 【只往暗走】煙不會比它的基色更亮，只會被自己遮住而變暗 —— 於是基色就是
+ * 「最亮的那一顆」，整團的深淺由它一個值決定。以 1 為中心的話，這一層與
+ * 高度那一層相乘之後最亮會到基色的兩倍，整團被拉成灰的。
+ *
+ * 【一批煙同色就是一塊平剪影】前後兩顆長得完全相同，眼睛拿不到深度線索。
+ *
+ * 【由格子索引決定】與 `particleLife` 同一條紀律：純函數才測得起來，重播
+ * 也才可重現。
+ */
+export function particleShade(slot: number, jitter: number): number {
+  if (jitter <= 0) return 1
+  return 1 - hash01(slot * 0x6a09e667) * jitter
+}
+
+/**
+ * 爬升了 `dy` 公尺的那一顆該乘多少亮度。底 `1 − range`、頂 `1`，同樣**只
+ * 變暗**（見 `particleShade`）。方向性的那一層：頂部受天光、底部自遮蔽。
+ *
+ * 【夾在 [0,1]】煙可能被吹到出生點以下，那時仍然算「底」；升過 `span`
+ * 之後不再更亮。
+ */
+export function particleRiseShade(dy: number, span: number, range: number): number {
+  if (span <= 0) return 1
+  const k = dy <= 0 ? 0 : dy >= span ? 1 : dy / span
+  return 1 - range * (1 - k)
+}
+
 /** 年齡 → 不透明度。線性淡出；壽命之外是 0。 */
 export function particleAlpha(age: number, life: number, alphaFrom: number): number {
   if (age < 0 || age >= life) return 0
@@ -93,35 +147,49 @@ export function particleAlpha(age: number, life: number, alphaFrom: number): num
 
 /**
  * 把 three 的 `MeshBasicMaterial` 著色器改造成**廣告板 + 逐實例 alpha +
- * 軟邊圓形**。
+ * 軟邊圓形或貼圖**。
  *
  * 【為什麼非得動著色器】`InstancedMesh` 的逐實例顏色只有 RGB 沒有 alpha。
  * M7 兩次繞開這條限制（槍焰靠加法混合淡到黑、水柱靠幾何曲線），黑煙繞不
  * 開：加法混合對黑色無效（`dst + 0` 等於隱形），往黑淡在亮天空上方向是反
  * 的，而一團 9 m 的深色物體直接消失非常明顯（M8 spec §4.3）。
  *
- * 【為什麼不用貼圖】專案目前一張貼圖都沒有。片段端一行 `smoothstep` 就
- * 得到軟邊圓形，而且不必管資產管線。
+ * 【軟邊圓形是預設，不是唯一】沒有貼圖時片段端一行 `smoothstep` 就得到一個
+ * 軟邊圓 —— 曳光、水花、火花都夠用。給了 `alphaMap` 就換成貼圖的形狀，那時
+ * `soft` 要關掉（見下）。
  *
  * 【為什麼抽成獨立的具名函式】`String.replace` 找不到目標時**不報錯**。
  * 抽出來之後可以拿 three 真正的 `ShaderLib.basic` 去斷言注入確實發生了 ——
  * 否則 three 改版重新命名 chunk，廣告板會靜靜地退化而沒有任何東西失敗。
+ *
+ * @param soft 片段端要不要自己裁成軟邊圓形。**用 `alphaMap` 時要關掉** ——
+ *             貼圖本身已經有邊緣，兩層淡出疊起來會把煙縮成一個小核
  */
 export function injectBillboard(
   shader: { vertexShader: string; fragmentShader: string },
+  soft = true,
 ): void {
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
       `#include <common>
        attribute float aAlpha;
+       attribute float aSpin;
        varying float vAlpha;
-       varying vec2 vOffset;`,
+       varying vec2 vOffset;
+       varying vec2 vSpunUv;`,
     )
     .replace(
       '#include <project_vertex>',
       `vAlpha = aAlpha;
        vOffset = position.xy;
+       // 【逐顆轉貼圖】同一張圖、又都正對相機，不轉的話十幾顆疊起來看得出
+       // 是同一個形狀重複。轉的是 UV 不是四邊形 —— 轉四邊形會連帶轉掉
+       // 廣告板的軸，而那正是它「永遠正對相機」的來源。
+       float sc = cos(aSpin);
+       float ss = sin(aSpin);
+       vec2 duv = uv - 0.5;
+       vSpunUv = vec2(sc * duv.x - ss * duv.y, ss * duv.x + sc * duv.y) + 0.5;
        // 【廣告板】只取實例矩陣的平移與縮放，在視圖空間把四邊形攤平 ——
        // 於是它永遠正對相機，不論從哪個角度看都是一團。
        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
@@ -135,15 +203,32 @@ export function injectBillboard(
       '#include <common>',
       `#include <common>
        varying float vAlpha;
-       varying vec2 vOffset;`,
+       varying vec2 vOffset;
+       varying vec2 vSpunUv;`,
     )
     .replace(
       '#include <dithering_fragment>',
-      `#include <dithering_fragment>
+      soft
+        ? `#include <dithering_fragment>
        // 軟邊圓形：四邊形的頂點在 [-0.5, 0.5]，所以半徑 0.5 是內接圓
        float rEdge = smoothstep(0.5, 0.25, length(vOffset));
-       gl_FragColor.a *= vAlpha * rEdge;`,
+       gl_FragColor.a *= vAlpha * rEdge;`
+        : `#include <dithering_fragment>
+       gl_FragColor.a *= vAlpha;`,
     )
+
+  if (soft) return
+  // 【three 自己的 alphaMap 取樣讀 `vAlphaMapUv`】那一份沒有轉過。同一件
+  // 事改用 `vSpunUv`。
+  //
+  // 【轉出去的角落】貼圖的包裹模式是 ClampToEdge，而煙的貼圖四邊是黑的
+  // （alpha 0），所以轉 45° 時角落取到的仍然是透明。
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <alphamap_fragment>',
+    `#ifdef USE_ALPHAMAP
+       diffuseColor.a *= texture2D( alphaMap, vSpunUv ).g;
+     #endif`,
+  )
 }
 
 /** 模組私有的暫存。熱路徑：不配置。 */
@@ -179,6 +264,9 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const vy = new Float32Array(capacity)
   const vz = new Float32Array(capacity)
   const jitter = cfg.lifeJitter ?? 0
+  const shadeJitter = cfg.shadeJitter ?? 0
+  const riseSpan = cfg.riseSpan ?? 0
+  const riseRange = cfg.riseRange ?? 0.7
   /**
    * 【起始年齡設無限大】等於「一出生就是死的」，不必另外一個 alive 陣列。
    *
@@ -191,6 +279,8 @@ export function createParticles(cfg: ParticleConfig): Particles {
   /** 這一格這一次的壽命。抖動關掉時每一格都是 `cfg.life`。 */
   const lifeOf = new Float32Array(capacity).fill(life)
   const sizeMul = new Float32Array(capacity).fill(1)
+  /** 出生時的高度。高度明暗量的是「從這裡爬了多高」，不是絕對高度 */
+  const birthY = new Float32Array(capacity)
   /**
    * 這一格的矩陣是不是已經被歸零了。
    *
@@ -208,11 +298,25 @@ export function createParticles(cfg: ParticleConfig): Particles {
   const alphas = new InstancedBufferAttribute(new Float32Array(capacity), 1)
   alphas.setUsage(DynamicDrawUsage)
   geometry.setAttribute('aAlpha', alphas)
+  /**
+   * 每一格的貼圖旋轉角，rad。
+   *
+   * 【為什麼建構時填好就不再動】它只跟格子有關，與這一顆是誰、活多久都無關
+   * ——環形緩衝繞一圈後同一格再拿到同一個角度，而那是 `capacity` 顆之後的
+   * 事。填一次就不必在 `emit` 的熱路徑上動它。
+   */
+  const spins = new InstancedBufferAttribute(new Float32Array(capacity), 1)
+  for (let i = 0; i < capacity; i++) {
+    (spins.array as Float32Array)[i] = hash01(i * 0x2545f491) * Math.PI * 2
+  }
+  geometry.setAttribute('aSpin', spins)
 
   const material = new MeshBasicMaterial({
     color: 0xffffff, transparent: true, depthWrite: false, blending: cfg.blending,
+    alphaMap: cfg.alphaMap ?? null,
   })
-  material.onBeforeCompile = injectBillboard
+  const soft = cfg.alphaMap === undefined
+  material.onBeforeCompile = (s): void => { injectBillboard(s, soft) }
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)
@@ -245,6 +349,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
       px[i] = x
       py[i] = y
       pz[i] = z
+      birthY[i] = y
       vx[i] = evx
       vy[i] = evy
       vz[i] = evz
@@ -310,6 +415,10 @@ export function createParticles(cfg: ParticleConfig): Particles {
         // 【顏色與 alpha 走各自的壽命比例】長命的那幾團淡得慢，那才是
         // 「壽命不同」在畫面上的意思
         cfg.color(na / lf, TINT)
+        // 兩層明暗：隨機（重疊處分前後）× 高度（上亮下暗）
+        let shade = shadeJitter > 0 ? particleShade(i, shadeJitter) : 1
+        if (riseSpan > 0) shade *= particleRiseShade(ny - birthY[i]!, riseSpan, riseRange)
+        if (shade !== 1) TINT.multiplyScalar(shade)
         object.setColorAt(i, TINT)
         a[i] = particleAlpha(na, lf, cfg.alphaFrom)
       }

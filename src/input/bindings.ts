@@ -147,7 +147,19 @@ export function attachInput(
     switch (e.code) {
       case 'KeyW': hold.up = true; break
       case 'KeyS': hold.down = true; state.braking = true; break
-      case 'KeyV': state.viewMode = state.viewMode === 'third' ? 'first' : 'third'; break
+      // 【只有掛得了彈的飛機能按】`bombCapable` 由 `main.ts` 在換飛機時寫入
+      // —— 這一層對飛機一無所知（見檔頭）
+      case 'KeyB':
+        if (state.bombCapable) state.viewMode = state.viewMode === 'bomb' ? 'third' : 'bomb'
+        break
+      // 【投彈模式下不作用】`V` 的軸是「座艙／機外」，投彈瞄具不是那條軸上
+      // 的一個點。照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回
+      // `third`，等於多了一個沒有人記得的離開鍵
+      case 'KeyV':
+        if (state.viewMode !== 'bomb') {
+          state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
+        }
+        break
       case 'KeyI': state.playerAi = !state.playerAi; break
       case 'Tab': state.scoreboardHeld = true; break
       default: return

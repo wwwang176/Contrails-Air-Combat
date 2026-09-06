@@ -5,9 +5,17 @@ import { stepCadence } from '../weapons/cadence'
 import {
   boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
   NO_HIT, PART_MULTIPLIER, type HitPart,
+  pointBoxDistance,
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
+import {
+  BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  type BombBlockFn,
+  Bombs, bombDragK, spreadDirection, spreadPair,
+  type BombImpactFn, type BombState,
+} from './bomb'
+import { blastRadiusOf, bombBlastDamage } from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -108,10 +116,15 @@ const S = makeScratch(4)
 /** 撞到陸地時的法線。模組級 —— 熱路徑不得配置 */
 const LAND_N: SurfaceNormal = { nx: 0, ny: 1, nz: 0 }
 
+/** 投彈偏移的暫存。模組級 —— 熱路徑不得配置 */
+const BOMB_PAIR = { u: 0, v: 0 }
+const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 /** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
 const SHIP_INV = /* @__PURE__ */ new Quaternion()
 /** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
 const HULL_C = /* @__PURE__ */ new Vector3()
+/** 爆心。範圍傷害每次爆炸用一次，與上面那兩個不同時活著 */
+const BLAST_P = /* @__PURE__ */ new Vector3()
 const BODY_C = /* @__PURE__ */ new Vector3()
 
 /**
@@ -168,6 +181,32 @@ export const SEA_KILL_Y = -20
 export class World {
   readonly combatants: Combatant[] = []
   readonly projectiles = new Projectiles()
+  readonly bombs = new Bombs()
+
+  /**
+   * 該點的**判定用**地面高度，m。海面是平的（0），陸地讀高度場。
+   *
+   * 【為什麼是注入的而不是自己讀 `this.land.field`】自己讀就要自己寫一次
+   * 「海面是平的」，而那條規則的權威在 `render/terrain.ts` 的
+   * `collisionHeightAt`（負責人 2026-08-28 裁定）。抄一份就是第二份真相。
+   * 與 `crashPolicy` 同一個注入方式。
+   */
+  groundAt: (x: number, z: number) => number = () => 0
+
+  /**
+   * 該點的**水面**高度，m。沒有水的地方回 `-Infinity`（`terrain.waterAt`）。
+   *
+   * 【為什麼要第二支而不是用 `groundAt` 判斷】`groundAt` 回的是「陸地與平海
+   * 取 max」，答不出「這裡碰到的是水嗎」。少了這一支，炸彈落在島上會噴水柱
+   * —— `render/debris.ts` 已經為同一個坑留過註解（「只有落水才噴濺」），
+   * 而純內陸地圖上那是**每一顆**都會發生。
+   */
+  waterAt: (x: number, z: number) => number = () => 0
+
+  /**
+   * 炸彈的阻力係數。與 `groundAt` 一樣由外面決定 —— `World` 不持有設計值。
+   */
+  bombDrag = bombDragK(BOMB_TERMINAL_SPEED)
 
   /**
    * 這一場的船。**船不是 `Combatant`** —— 它沒有飛行模型、不進記分板、
@@ -243,6 +282,18 @@ export class World {
    * 與 `hitEvents` 一樣由**呼叫端**排空。
    */
   readonly splashEvents: ImpactEvents = createImpacts()
+  /**
+   * 炸彈落地／落水。**`World` 只推事件，表現由 `main.ts` 決定** —— 與火花、
+   * 黑雲同一個約定。`nx` 是「這裡是不是水」的旗標，見 `onBombImpact`。
+   */
+  readonly bombEvents: ImpactEvents = createImpacts()
+  /**
+   * `onBombBlocked` 找到的那一艘與那一個砲位，`onBombImpact` 接著讀。
+   *
+   * 【為什麼是欄位而不是回傳值】`Bombs.step` 的擋路回呼只要一個 `t`，而扣血
+   * 要知道是誰。兩支回呼在同一個迴圈裡連續呼叫，欄位傳遞不必配置。
+   */
+  private bombShip: Ship | null = null
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -467,8 +518,113 @@ export class World {
     // 3. 彈丸推進
     this.projectiles.step(dt)
 
+    // 3.5 炸彈推進
+    //
+    // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2 裁定），
+    // 壽命上限 1.2 s；炸彈要重力、要阻力、要飛 48 秒。
+    this.bombs.step(
+      dt, this.bombDrag, this.groundAt, this.onBombImpact,
+      this.ships.length > 0 ? this.onBombBlocked : undefined,
+    )
+
     // 4. 命中判定
     this.resolveHits()
+  }
+
+  /**
+   * 炸彈落地。**綁在實例上建一次，不在 `step` 裡寫成箭頭函數** —— 那樣會
+   * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
+   */
+  private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked, damage) => {
+    // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船。三者是三套完全不同的
+    // 表現（土／水冠／火），而判斷所需的 `waterAt` 與 `ships` 只有這一層
+    // 有。法線那三格對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格。
+    this.applyBombBlast(x, y, z, damage)
+    // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
+    // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
+    const kind = blocked && this.bombShip !== null
+      ? 2
+      : this.waterAt(x, z) > -Infinity ? 1 : 0
+    pushImpact(this.bombEvents, x, y, z, kind, damage, 0)
+  }
+
+  /**
+   * 爆炸的範圍傷害。**直接命中只是距離 0 的那一個特例** —— 沒有另一套
+   * 「命中傷害」，兩者走同一條衰減曲線。
+   *
+   * 【船量的是到艦體的距離，不是到質心】Essex 有 266 m 長。落在艦首前
+   * 10 m 的那一顆離船體只有 10 m、離質心卻有 140 m —— 照質心算的話它完全
+   * 不會傷到船，而那正是**專案負責人指出的那件事**。`pointBoxDistance`
+   * 在艦體座標裡問「離這個盒子多遠」，答案對艦首與對艦舯一樣正確。
+   *
+   * 【砲位也各自算】它們是獨立的盒子，離爆心近的那幾座先報銷。
+   *
+   * 【不分敵我】炸彈沒有敵我識別。目前只有玩家投得了彈，而 4,000 m 投下來
+   * 的那一顆落在地面時，僚機不會在 30 m 之內。
+   */
+  private applyBombBlast(x: number, y: number, z: number, damage: number): void {
+    const radius = blastRadiusOf(damage)
+    for (const c of this.combatants) {
+      if (!c.alive) continue
+      const p = c.aircraft.state.position
+      const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z), damage)
+      // 【飛機用質心】一架 12 m 的飛機在 30 m 的半徑下，質心與機翼尖的
+      // 差別小於衰減曲線本身的精度
+      if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
+    }
+
+    for (const sh of this.ships) {
+      if (!sh.alive) continue
+      // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
+      const reach = sh.cls.radius + radius
+      if (sh.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
+
+      SHIP_INV.copy(sh.orientation).conjugate()
+      const local = BLAST_P.set(x, y, z).sub(sh.position).applyQuaternion(SHIP_INV)
+
+      let near = Infinity
+      for (const box of sh.cls.hull) {
+        const d = pointBoxDistance(local.x, local.y, local.z, box)
+        if (d < near) near = d
+      }
+      const hullDmg = bombBlastDamage(near, damage)
+      if (hullDmg > 0) sh.hp -= hullDmg
+
+      for (const g of sh.guns) {
+        if (!g.alive) continue
+        const gd = bombBlastDamage(
+          pointBoxDistance(local.x, local.y, local.z, g.box), damage,
+        )
+        if (gd <= 0) continue
+        g.hp -= gd
+        if (g.hp <= 0) g.alive = false
+      }
+      this.sinkIfDead(sh)
+    }
+  }
+
+  /**
+   * 投一顆。位置與速度都是**世界座標**。
+   *
+   * 【方向帶 ±0.1° 的偏移】同一串投下去的彈不會落在一條數學直線上。偏移量
+   * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
+   * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
+   * （見 `resetBattle` 對 `world.time` 的說明）。
+   *
+   * @param damage 這一顆的爆心傷害。**由投彈的那一台決定**
+   *               （`bombDamageOf`），整顆彈的規模都從它推導。
+   */
+  dropBomb(
+    x: number, y: number, z: number,
+    vx: number, vy: number, vz: number, damage: number,
+  ): void {
+    spreadPair(this.bombs.dropped, BOMB_PAIR)
+    spreadDirection(
+      vx, vy, vz,
+      BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
+      BOMB_VEL,
+    )
+    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage)
   }
 
   /**
@@ -716,14 +872,7 @@ export class World {
           g.hp -= dmg
           if (g.hp <= 0) g.alive = false
         }
-        // 【擊沉】血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、
-        // 不再是任何人的目標。**砲位一起標死**，否則渲染層還會畫它們的
-        // 槍焰，而 `stepShipGuns` 已經整艘早退了 —— 那會是一排永遠亮著的
-        // 槍焰掛在沉船上。
-        if (shipHit.alive && shipHit.hp <= 0) {
-          shipHit.alive = false
-          for (const g of shipHit.guns) g.alive = false
-        }
+        this.sinkIfDead(shipHit)
         p.kill(i)
         continue
       }
@@ -856,6 +1005,65 @@ export class World {
       }
     }
     return false
+  }
+
+  /**
+   * 血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、不再是任何人的目標。
+   *
+   * 【砲位一起標死】否則渲染層還會畫它們的槍焰，而 `stepShipGuns` 已經整艘
+   * 早退了 —— 那會是一排永遠亮著的槍焰掛在沉船上。
+   *
+   * 【為什麼抽出來】子彈與炸彈兩條路都會打沉船。兩份長得很像的副本就是只有
+   * 一份會被修好的那種危險。
+   */
+  private sinkIfDead(sh: Ship): void {
+    if (!sh.alive || sh.hp > 0) return
+    sh.alive = false
+    for (const g of sh.guns) g.alive = false
+  }
+
+  /**
+   * 炸彈這一步有沒有撞上船。**回傳線段參數 `t`，沒撞回 `NO_HIT`。**
+   *
+   * 【砲位與船體一起判】炸彈是面殺傷，落在砲座上與落在甲板上都是打中這艘
+   * 船。砲位盒突出於船體盒之外（砲架長在甲板上），只判船體的話從上方落下
+   * 的炸彈會穿過砲塔再在甲板上爆。
+   *
+   * 【哪一艘記在 `bombShip`】`Bombs.step` 只要 `t`，而落點的種類要知道撞到
+   * 的是不是船 —— 兩支回呼在同一個迴圈裡連續呼叫，用一個欄位傳遞不必配置。
+   * **扣血不看它**：那是 `applyBombBlast` 的事，而它對範圍內的每一艘都算。
+   */
+  private readonly onBombBlocked: BombBlockFn = (x0, y0, z0, x1, y1, z1) => {
+    this.bombShip = null
+    if (this.ships.length === 0) return NO_HIT
+    let best = NO_HIT
+    for (const sh of this.ships) {
+      if (!sh.alive) continue
+      // 【先比包圍球】只有真的落在船附近的那一顆才付逐盒的錢
+      if (segmentPointDistanceSq(
+        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
+      ) > sh.cls.radius * sh.cls.radius) continue
+
+      SHIP_INV.copy(sh.orientation).conjugate()
+      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
+      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
+
+      for (let gi = 0; gi < sh.guns.length; gi++) {
+        const g = sh.guns[gi]!
+        if (!g.alive) continue
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.bombShip = sh
+      }
+      for (const box of sh.cls.hull) {
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.bombShip = sh
+      }
+    }
+    return best
   }
 
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */

@@ -1,8 +1,14 @@
 import { Matrix4, Quaternion, Vector3, type PerspectiveCamera } from 'three'
 import { clamp } from '../core/math'
 import { makeScratch } from '../core/pool'
+import { BOMB_CONE_HALF_ANGLE, coneClamp, sightUp } from './bombsight'
 
-const S = makeScratch(9, 4)
+/**
+ * 【投彈分支只准用 v[9] 以後】前九格是第三人稱／機首視角在用的，其中
+ * `S.v[5]` 與 `S.v[6]` 屬於 `baseOrientation` 內部。共用一格的症狀是
+ * 「視線偶爾抽一下、而且只在特定姿態下出現」—— 找不回源頭的那一種。
+ */
+const S = makeScratch(15, 4)
 const BASIS = new Matrix4()
 const ORIGIN = new Vector3()
 const WORLD_UP = new Vector3(0, 1, 0)
@@ -57,9 +63,27 @@ export interface CameraRigOptions {
    * 預設值是 P-51D 的；`main.ts` 每次建模後改寫成該機種的 `model.eyePoint`。
    */
   firstPersonOffset: Vector3
+  /**
+   * 投彈瞄具的眼點（**機體座標**），在機腹中央。
+   *
+   * `main.ts` 每次換飛機後改寫成該機種的 `model.bombPoint`，與
+   * `firstPersonOffset` 同一個做法。
+   */
+  bombPoint: Vector3
   /** 相機注視點在機首前方的距離 */
   aimPointDistance: number
 }
+
+/**
+ * 投彈視線**追隨落點**的時間常數，秒。**起始值，由試飛裁定。**
+ *
+ * 只作用在投彈視野之內。切進投彈模式的那一幀是直接對正的 —— 換視角是一個
+ * 瞬間，不是一段動作。
+ */
+export const BOMB_LERP_TIME = 0.25
+
+const CONE_COS = Math.cos(BOMB_CONE_HALF_ANGLE)
+const CONE_SIN = Math.sin(BOMB_CONE_HALF_ANGLE)
 
 export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   // 12 m：11.28 m 翼展在 1280 寬的畫面上約佔 37%（32 m 時只有 14%）。機尾在
@@ -75,6 +99,8 @@ export const DEFAULT_CAMERA_OPTIONS: CameraRigOptions = {
   lookFollowTime: 0.04,
   levelTime: 0.25,
   firstPersonOffset: new Vector3(0, 0.80, 0.70),
+  // B-17G 的值。`main.ts` 每次建模後改寫成該機種的 `model.bombPoint`
+  bombPoint: new Vector3(0, -0.76, 0),
   aimPointDistance: 400,
 }
 
@@ -155,8 +181,23 @@ export class CameraRig {
   private appliedYaw = 0
   private appliedPitch = 0
 
+  /** 投彈視線。每幀朝夾制後的目標插值，見 `update` 的 `'bomb'` 分支 */
+  private readonly bombDir = new Vector3(0, -1, 0)
+  /**
+   * 投彈視線已經起算了。
+   *
+   * 【為什麼不共用 `initialised`】那一格的語意是「第三人稱的彈簧要不要吸附」，
+   * 而投彈模式**離開時**必須把它留成 false 讓第三人稱重新吸附 —— 兩個意思
+   * 塞進一格的話，切回機外視角相機會從投彈時的落後量開始盪。
+   */
+  private bombInit = false
+
   constructor(options: CameraRigOptions = DEFAULT_CAMERA_OPTIONS) {
-    this.options = { ...options, firstPersonOffset: options.firstPersonOffset.clone() }
+    this.options = {
+      ...options,
+      firstPersonOffset: options.firstPersonOffset.clone(),
+      bombPoint: options.bombPoint.clone(),
+    }
   }
 
   /**
@@ -173,6 +214,7 @@ export class CameraRig {
     this.appliedYaw = 0
     this.appliedPitch = 0
     this.initialised = true
+    this.bombInit = false
   }
 
   /**
@@ -240,10 +282,11 @@ export class CameraRig {
     orientation: Quaternion,
     viewDir: Vector3,
     tas: number,
-    viewMode: 'third' | 'first',
+    viewMode: 'third' | 'first' | 'bomb',
     lookYaw: number,
     lookPitch: number,
     dt: number,
+    bombTarget: Vector3 | null = null,
   ): void {
     const o = this.options
 
@@ -261,6 +304,75 @@ export class CameraRig {
     this.viewBase.copy(viewQuat)   // 疊上自由視角**之前**，見 viewBase 的說明
     const baseForward = S.v[7]!.set(0, 0, -1).applyQuaternion(viewQuat)
     viewQuat.multiply(lookQuat).multiply(pitchQuat)
+
+    if (viewMode === 'bomb') {
+      // 眼點是機體上的一個位置，**要跟著滾** —— 與機首視角同一條理由
+      const eye = S.v[9]!.copy(o.bombPoint).applyQuaternion(orientation).add(position)
+
+      // 圓錐軸 = 機體 −Y。**機體固定**（負責人裁定）：等於機腹上的一個窗口，
+      // 側滾大了看到的就是天，機動中投不了彈
+      const axis = S.v[10]!.set(0, -1, 0).applyQuaternion(orientation)
+
+      // 解不出落點時就盯著軸自己 —— 不會有 NaN，畫面停在機腹正下方
+      const want = S.v[11]!
+      if (bombTarget !== null) want.copy(bombTarget).sub(eye).normalize()
+      else want.copy(axis)
+
+      // 【回傳值刻意丟掉】有沒有夾制不影響畫面上任何東西：圈畫的恆是真
+      // 落點，被夾住的是相機。見 `HudFrame.bombState`
+      coneClamp(want.x, want.y, want.z, axis.x, axis.y, axis.z, CONE_COS, CONE_SIN, want)
+
+      if (!this.bombInit) {
+        // 【切進來的那一幀直接對正】換視角是一個瞬間。插值只用在視野之內
+        // 追隨落點
+        this.bombDir.copy(want)
+        this.bombInit = true
+      } else {
+        // 【恰好反向時線性混合會得到零向量】先把起點推離對蹠點一點點
+        if (this.bombDir.dot(want) < -0.9999) {
+          this.bombDir.x += 1e-3
+          this.bombDir.normalize()
+        }
+        const kb = dt > 0 ? 1 - Math.exp(-dt / BOMB_LERP_TIME) : 1
+        // 【nlerp 不是 slerp】`baseOrientation` 的上方向量用的就是 lerp +
+        // 正交化。差別只在大角度時的角速度分布，而這裡是 τ = 0.25 s 的追隨
+        this.bombDir.lerp(want, kb).normalize()
+      }
+
+      // 【螢幕上方 = 機首的投影，不是世界上方】`baseOrientation` 算的是後者，
+      // 而且距垂直 8° 以內就凍結目標（那裡投影會退化）—— 投彈視角**永遠**在
+      // 那個區域裡，用它的話滾轉是切進來之前留下的殘值再慢慢漂，症狀是
+      // 「偶爾右邊朝向機首、偶爾左邊」。見 `sightUp`
+      const nose = S.v[12]!.set(0, 0, -1).applyQuaternion(orientation)
+      const bodyUp = S.v[13]!.set(0, 1, 0).applyQuaternion(orientation)
+      const up = S.v[14]!
+      sightUp(
+        this.bombDir.x, this.bombDir.y, this.bombDir.z,
+        nose.x, nose.y, nose.z, bodyUp.x, bodyUp.y, bodyUp.z, up,
+      )
+      // up 已與視線正交且為單位向量，lookAt 取出的 +Y 就是 up 本身
+      BASIS.lookAt(ORIGIN, this.bombDir, up)
+      const look = S.q[2]!.setFromRotationMatrix(BASIS)
+      this.viewBase.copy(look)
+      camera.position.copy(eye)
+      camera.quaternion.copy(look)
+      // 【FOV 固定在 fovBase】第三人稱的 FOV 隨速度在 65～73 之間漲，不設回去
+      // 的話瞄具的角度尺規會停在「按 B 那一刻多快」，而且之後不再更新
+      if (Math.abs(camera.fov - o.fovBase) > 0.01) {
+        camera.fov = o.fovBase
+        camera.updateProjectionMatrix()
+      }
+      // 【切回第三人稱要重新吸附】與機首視角那一行同一個理由
+      this.initialised = false
+      // 【FOV 刻意不套速度增益】投彈時 FOV 一變，落點在畫面上就會跟著抖，
+      // 而那是一個與投彈無關的動作
+      //
+      // 【`this.up` 刻意不更新】投彈分支不經過 `baseOrientation`，所以那個
+      // 欄位停在切進來之前的值。切回第三人稱時 `initialised` 已經是 false，
+      // 相機重新吸附，第一幀就會把它正交化回去
+      return
+    }
+    this.bombInit = false
 
     if (viewMode === 'first') {
       // 眼點是機體上的一個座位，**要跟著滾**——用完整姿態；看的方向才用無滾轉基準

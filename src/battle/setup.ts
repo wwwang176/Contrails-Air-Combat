@@ -1513,6 +1513,9 @@ export function resetBattle(
   b: Battle, seed: number = (Math.random() * 0x100000000) >>> 0,
 ): void {
   b.world.projectiles.clear()
+  // 【炸彈也要清】它的壽命是彈丸的 75 倍（90 s 對 1.2 s）—— 上一場還在空中
+  // 的炸彈會在第二場繼續落下，看起來像憑空冒出來的水柱。
+  b.world.bombs.clear()
   // 【船與高砲也要重設】`japan-m4` 沒有波次，所以「再打一場」走的是就地
   // resetBattle、**不重建 World**。少了這一段，第二局會是船停在上一局結束
   // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——

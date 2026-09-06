@@ -53,6 +53,9 @@ export const A6M5_MODEL: GlbAircraft = {
   // 右翼尖：翼尖扇的頂點（x 5.5、翼尖站中弦高 0.10、前後緣中點往後 0.10 → z 0.46）
   wingTip: new Vector3(5.5, 0.10, 0.46),
 
+  /** 掛不了彈 */
+  bombPoint: null,
+
   bodyColor: 0x5b6650,
   accentColor: 0x262829,
 

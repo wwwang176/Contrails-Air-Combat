@@ -24,6 +24,9 @@ export const B17G_MODEL: GlbAircraft = {
   // 右翼尖弦的中點，由 `b17g.ts` 的 WING 推出
   wingTip: new Vector3(15.810, 0.969, 1.527),
 
+  // 機腹中央（量測值，見 `belly-point.probe.ts`）
+  bombPoint: new Vector3(0, -0.76, 0),
+
   bodyColor: 0x8d9299,
   accentColor: 0x3c4147,
 
