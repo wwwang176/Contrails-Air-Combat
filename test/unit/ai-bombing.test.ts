@@ -8,7 +8,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { G4M } from '../../src/specs/g4m'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
-import { bombBayOf } from '../../src/weapons/bomb'
+import { loadoutOf } from '../../src/weapons/stores'
 import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bomb'
 import type { BombState, Impact } from '../../src/world/bomb'
 import {
@@ -47,9 +47,14 @@ describe('Combatant.bombBay', () => {
   it('容量取自機種，一出場就滿艙', () => {
     const w = new World()
     const g4m = add(w, G4M)
-    expect(g4m.bombBay.capacity).toBe(bombBayOf('g4m'))
-    expect(g4m.bombBay.capacity).toBe(2)
-    expect(g4m.bombBay.load).toBe(2)
+    // 【不寫死枚數】G4M 的預設掛載是九一式航空魚雷 ×1，任務卡可以用
+    // `blueLoadout` 換成炸彈 ×2（japan-m4 就是）。這一條守的是「容量取自
+    // 掛載表」，不是某一個數字。
+    const n = loadoutOf('g4m')?.count ?? 0
+    expect(n).toBeGreaterThan(0)
+    expect(g4m.bombBay.capacity).toBe(n)
+    expect(g4m.bombBay.load).toBe(n)
+    expect(g4m.loadout).toBe(loadoutOf('g4m'))
   })
 
   /**
@@ -64,8 +69,8 @@ describe('Combatant.bombBay', () => {
 
   /**
    * 【換裝機種容量要跟著變】與 `cooldowns`／`muzzleFlash`／砲塔同一段。
-   * 漏了的話：G4M 換成 P-51 之後那一架仍然投得出兩枚 500 kg，而畫面上
-   * 沒有任何東西不對。
+   * 漏了的話：轟炸機換成 P-51 之後那一架仍然投得出東西，而畫面上沒有
+   * 任何東西不對。
    */
   it('setSpec 之後容量跟著換，而且滿艙', () => {
     const w = new World()
@@ -73,7 +78,7 @@ describe('Combatant.bombBay', () => {
     expect(c.bombBay.capacity).toBe(0)
 
     w.setSpec(c, B17G)
-    expect(c.bombBay.capacity).toBe(bombBayOf('b17g'))
+    expect(c.bombBay.capacity).toBe((loadoutOf('b17g')?.count ?? 0))
     expect(c.bombBay.capacity).toBe(10)
     expect(c.bombBay.load).toBe(10)
 
@@ -99,7 +104,7 @@ describe('Combatant.bombBay', () => {
     expect(c.bombBay.reloading).toBe(false)
     expect(c.bombBay.queue).toBe(0)
     expect(c.bombBay.timer).toBe(0)
-    expect(c.bombBay.load).toBe(2)
+    expect(c.bombBay.load).toBe(loadoutOf('g4m')?.count ?? 0)
   })
 })
 

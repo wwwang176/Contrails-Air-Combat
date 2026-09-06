@@ -15,11 +15,11 @@ import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
-import { createBombs } from './render/bombs'
+import { createBombs, createTorpedoes } from './render/bombs'
 import { createFireChunks } from './render/chunks'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitMist, scaleBlast,
   type BlastParams, type BlastPools,
@@ -54,10 +54,11 @@ import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
-import {
-  bombBayOf, bombDamageOf, blastScaleOf, canBomb, resetBombBay, type BombBay,
-  stepBombBay,
-} from './weapons/bomb'
+import { blastScaleOf, resetBombBay, stepBombBay, type BombBay } from './weapons/bomb'
+import { canRelease, envelopeFor } from './weapons/releaseEnvelope'
+import { type Loadout, loadoutOf } from './weapons/stores'
+import { WAKE_SPRAY_COUNT } from './render/spray'
+import { createWakes } from './render/wake'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -328,6 +329,8 @@ const splashes = createSplashes()
 ctx.scene.add(splashes.object)
 const bombVisuals = createBombs()
 ctx.scene.add(bombVisuals.object)
+const torpedoVisuals = createTorpedoes()
+ctx.scene.add(torpedoVisuals.object)
 
 // 【每幀重用，不得配置】solveImpact 每幀跑一次，最壞 11,498 步
 const BOMB_IMPACT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
@@ -336,19 +339,40 @@ const BOMB_EYE = new Vector3()
 const BOMB_POINT = new Vector3()
 const BOMB_NDC = new Vector3()
 /**
+ * 投雷時的機首**水平**方向。熱路徑不得配置，所以放在模組層。
+ *
+ * 【為什麼要它】垂直入水那種退化情況下，水中的航向沿用它 —— 那件事不能
+ * 從退化的速度反推。
+ */
+const NOSE_H = new Vector3()
+
+/**
  * 玩家的彈艙。**就是 `player.bombBay`，不是另一份。**
  *
- * 【為什麼不能各持一份】AI 的投彈走 `World.releaseBombs`，讀的是
+ * 【為什麼不能各持一份】AI 的投放走 `World.releaseBombs`，讀的是
  * `Combatant.bombBay`。這裡若自己再開一個，玩家投完按 `I` 代飛時 AI 會拿
- * 另一個滿艙再投一次 —— 而且代飛不會停掉既有的連投佇列（見下面
- * `stepBombBay` 那一段），兩條路會同時投。
+ * 另一個滿艙再投一次 —— 而且代飛不會停掉既有的連投佇列，兩條路會同時投。
  *
- * 【投彈本身仍然在幀迴圈】搬進物理步的話就沒有 `bombPoint` 與內插後的
+ * 【投放本身仍然在幀迴圈】搬進物理步的話就沒有 `bombPoint` 與內插後的
  * 算繪位置，準星與彈著會分家。**共用的是庫存，不是路徑。**
  */
 function playerBay(): BombBay {
   return player.bombBay
 }
+/**
+ * 玩家這一趟掛什麼。`null` = 掛不了東西。
+ *
+ * 【為什麼要記在這裡】投彈的那一段每幀都要它的 `kind` 與 `damage`，而
+ * `loadoutOf` 是一次查表 —— 換飛機時查一次就夠。
+ */
+let playerLoadout: Loadout | null = null
+/**
+ * 這一關複寫的掛載。`null` = 沒有複寫，照機種的預設走。
+ *
+ * 【為什麼記在這裡】`syncBombLoad` 在換飛機與重生時都會跑，而那時候手上
+ * 沒有 `BattleConfig`。`startWorld` 每一場設一次。
+ */
+let missionLoadout: Loadout | null = null
 /**
  * 上一幀左鍵按著沒有。
  *
@@ -365,10 +389,11 @@ let bombWasFiring = false
  */
 function syncBombLoad(): void {
   const m = visuals.get(player)!.model
-  input.bombCapable = m.bombPoint !== null && canBomb(player.aircraft.spec.id)
+  playerLoadout = missionLoadout ?? loadoutOf(player.aircraft.spec.id)
+  input.bombCapable = m.bombPoint !== null && playerLoadout !== null
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
-  resetBombBay(player.bombBay, bombBayOf(player.aircraft.spec.id))
+  resetBombBay(player.bombBay, playerLoadout)
   bombWasFiring = false
 }
 
@@ -382,6 +407,13 @@ const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
+/**
+ * 魚雷的航跡。**貼著浪面的一條白帶，不是粒子** —— 粒子池畫的是團狀的東西，
+ * 這是一條線（理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它
+ * 負責線上的閃爍。
+ */
+const wakes = createWakes()
+ctx.scene.add(wakes.object)
 // 【不進 POOLS】它沒有粒子狀態要在換場時歸零 —— 每一幀由指揮層的命令
 // 重新填滿，上一場的內容活不過一幀
 const orderMarkers = createOrderMarkers()
@@ -507,6 +539,27 @@ function emitBombBlasts(events: ImpactEvents): void {
 }
 
 /**
+ * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
+ *
+ * 【爆點抬到水面】事件的 y 是定深（−1 m）—— 水柱從那裡長的話，整根的底部
+ * 一公尺埋在水裡。
+ */
+function emitTorpedoBlasts(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    const x = d[o]!
+    const z = d[o + 2]!
+    const w = terrain.waterAt(x, z)
+    const scale = blastScaleOf(d[o + 4]!)
+    scaleBlast(TORPEDO_BLAST, scale * scale * scale, SCALED_BLAST)
+    emitBlast(BLAST_POOLS, SCALED_BLAST,
+      x, Number.isFinite(w) ? w : d[o + 1]!, z,
+      (e * 211 + Math.round(world.time * 60)) | 0)
+  }
+}
+
+/**
  * 每一場結束時要歸零的粒子池。**清單只有這一份。**
  *
  * 【為什麼要有這個陣列與 `resetPools`】換一場有**兩個**入口 ——
@@ -524,7 +577,7 @@ function emitBombBlasts(events: ImpactEvents): void {
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
 const POOLS = [
-  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts,
+  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts, wakes,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
 ]
 
@@ -812,6 +865,8 @@ function enterBattle(): void {
  * 重開一場不換地形，而換場才需要重建它。
  */
 function startWorld(cfg: BattleConfig): void {
+  // 【在 createBattle 之前】那一支會走到 `syncBombLoad`，而它讀這個值
+  missionLoadout = cfg.blueLoadout ?? null
   battle = createBattle(playerController, cfg)
   battleStartedAt = elapsed
   battleEndedAt = -1
@@ -1237,6 +1292,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
     emitBombBlasts(world.bombEvents)
     clearImpacts(world.bombEvents)
+    // 【魚雷的兩條管道】引爆走水冠、入水與航跡走水花。兩者都在物理子步裡
+    // 消費 —— 一枚魚雷跑 91 秒會推出 250 筆航跡，累到幀尾會滿
+    emitTorpedoBlasts(world.torpedoEvents)
+    clearImpacts(world.torpedoEvents)
+    emitSpray(spray, world.torpedoWakeEvents, WAKE_SPRAY_COUNT)
+    clearImpacts(world.torpedoWakeEvents)
     // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
     // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
     emitFlakBursts(flakBursts, world.burstEvents)
@@ -1342,16 +1403,37 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 投完、回補照走。
   //
   // 【投彈點每幀都算】連投中途換視角時，剩下那幾枚要從當下的位置出去。
+  // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
+  const att = attitudeFromOrientation(renderQuat)
+  const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
+  const releaseOk = playerLoadout !== null && canRelease(
+    envelopeFor(playerLoadout.kind),
+    att.roll, att.pitch, agl, aircraft.diag.aero.tas,
+  )
+
   const bp = visuals.get(player)!.model.bombPoint
   if (bp !== null) {
     BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
     const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
-    stepBombBay(playerBay(), frameSeconds, press, () => {
+    stepBombBay(playerBay(), frameSeconds, press, releaseOk, () => {
       const v = player.aircraft.state.velocity
-      world.dropBomb(
-        BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z,
-        bombDamageOf(player.aircraft.spec.id),
-      )
+      const damage = playerLoadout?.damage ?? 0
+      if (playerLoadout?.kind === 'torpedo') {
+        // 【機首的水平方向要一起送】垂直入水那種退化情況沿用它，而那件事
+        // **不能從退化的速度反推**
+        NOSE_H.set(0, 0, -1).applyQuaternion(renderQuat)
+        NOSE_H.y = 0
+        if (NOSE_H.lengthSq() < 1e-12) NOSE_H.set(0, 0, -1)
+        else NOSE_H.normalize()
+        world.dropTorpedo(
+          BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
+          NOSE_H.x, NOSE_H.z,
+        )
+      } else {
+        world.dropBomb(
+          BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
+        )
+      }
     })
   }
   // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成
@@ -1406,6 +1488,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
+  torpedoVisuals.update(world.torpedoes)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -1458,6 +1541,20 @@ function stepAndDrawBattle(frameSeconds: number): void {
       )
     }
   })
+  // ── 魚雷的航跡 ───────────────────────────────────────
+  //
+  // 【在渲染幀率餵，不在物理步】帶子是視覺，取樣間隔由它自己按走過的距離
+  // 決定 —— 與凝結尾同一個做法
+  {
+    const t = world.torpedoes
+    for (let i = 0; i < t.capacity; i++) {
+      // 【只有水中段有航跡】空中那一段沒有東西可以翻起泡沫
+      if (t.active[i] === 0 || t.phase[i] !== 1) continue
+      wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
+    }
+  }
+  // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
+  wakes.step(frameSeconds, elapsed, terrain.heightAt)
   vortex.step(frameSeconds)
   spray.step(frameSeconds)
 
@@ -1504,6 +1601,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.bombState = bombState
   hudFrame.bombing = input.viewMode === 'bomb'
   hudFrame.bombCapable = input.bombCapable
+  hudFrame.ordnance = playerLoadout?.kind ?? null
+  hudFrame.releaseOk = releaseOk
   const bay = playerBay()
   hudFrame.bombBayCapacity = bay.capacity
   hudFrame.bombLoad = bay.load
@@ -1526,7 +1625,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.aimY = probe.y
   hudFrame.aimVisible = probe.z < 1
 
-  const att = attitudeFromOrientation(renderQuat)
+  // 【姿態上面已經算過】投放包絡與 HUD 讀的是同一組值
   hudFrame.tas = aircraft.diag.aero.tas
   hudFrame.ias = indicatedAirspeed(aircraft.diag.aero.tas, aircraft.diag.air.sigma)
   hudFrame.mach = aircraft.diag.aero.mach

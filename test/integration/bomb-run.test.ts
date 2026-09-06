@@ -6,7 +6,12 @@ import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { G4M } from '../../src/specs/g4m'
+import { resetBombBay } from '../../src/weapons/bomb'
+import type { Loadout } from '../../src/weapons/stores'
 import type { Combatant } from '../../src/world/World'
+
+/** 與 `japan-m4` 的 `blueLoadout` 同一組：500 kg × 2。 */
+const BOMB_LOAD: Loadout = { kind: 'bomb', count: 2, damage: 11_700, reloadSeconds: 20 }
 
 /**
  * # 攻擊航路的乾淨試驗場
@@ -58,6 +63,11 @@ function rig(shipSpeed: number): Rig {
   // `new Aircraft()` 的預設高度（4,000 m），而那是完全不同的彈道
   c.aircraft.state.position.set(0, 1000, 1000)
   c.aircraft.prevPosition.copy(c.aircraft.state.position)
+  // 【明講掛炸彈】G4M 的**預設**掛載是九一式航空魚雷（`LOADOUT_BY_AIRCRAFT`），
+  // 而這一支測的是轟炸航路。任務裡走的是同一條路 —— `japan-m4` 用
+  // `MissionBattle.blueLoadout` 覆寫成炸彈。
+  c.loadout = BOMB_LOAD
+  resetBombBay(c.bombBay, c.loadout)
   ai.board = createTargetBoard([c])
   ai.selfIndex = 0
   ai.ships = w.ships
