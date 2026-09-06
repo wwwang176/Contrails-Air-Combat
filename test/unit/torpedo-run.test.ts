@@ -187,6 +187,26 @@ describe('plan：瞄雷程時刻，不是入水時刻', () => {
     expect(out.egressRange).toBeGreaterThan(out.lockRange)
   })
 
+  /**
+   * 【鎖定距離不得跟著距離一起縮】這是整支最深的一個坑。
+   *
+   * 拿「這一拍解出來的水中航程」去算鎖定距離的話，飛機越近、解出來的航程
+   * 越短，於是 `lockRange` 追著 `range` 一路縮、永遠差一點點 —— 實測
+   * 1086/884、1044/853、1001/821…**鎖定條件永遠不成立，一枚都投不出去。**
+   *
+   * 鎖定距離是一個**固定的接戰距離**：同樣的高度與速度，離船遠近不影響它。
+   */
+  it('同樣的高度與速度下，鎖定距離不隨離船的遠近改變', () => {
+    setTorpedoBallistics(K, DT)
+    const ship = target(8)
+    TORPEDO_PROFILE.plan(bomber(0, 2500), ship, out)
+    const far = out.lockRange
+    TORPEDO_PROFILE.plan(bomber(0, 1200), ship, out)
+    const near = out.lockRange
+    expect(far).toBeGreaterThan(0)
+    expect(near).toBeCloseTo(far, 6)
+  })
+
   /** 【解不出來也要給一個瞄點】那時它還在進場，粗略的前置量比沒有好 */
   it('阻力還沒設定時退回接近時刻，不丟例外也不給 NaN', () => {
     setTorpedoBallistics(0, DT)
