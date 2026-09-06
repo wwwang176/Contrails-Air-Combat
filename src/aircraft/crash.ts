@@ -14,8 +14,8 @@ export type HeightField = (x: number, z: number, time: number) => number
  *
  * 【為什麼吃一個 HeightField 而不是寫死 y ≤ 0】高度場裡有**山**。
  *
- * 【海面那一項是平的】專案負責人 2026-08-28 裁定「海面碰撞體就平面就好，
- * 海浪只是視覺高低而已」。浪的振幅和是 4.5 m，而下面那個 CRASH_CLEARANCE
+ * 【海面那一項是平的】海面碰撞體是平面，海浪只是視覺高低。浪的振幅和是
+ * 4.5 m，而下面那個 CRASH_CLEARANCE
  * 是 2 m 的**估計值** —— 用波高判定等於在一個猜出來的餘裕上疊精確度。
  * 遊戲那一條線走 world/seaCrash.ts 的 flatSeaCrashPolicy，海面恆為 0。
  *

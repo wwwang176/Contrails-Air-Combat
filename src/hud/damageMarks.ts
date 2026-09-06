@@ -5,7 +5,7 @@ import { DEG } from '../core/math'
  *
  * 【為什麼拆開】Canvas 在 node 環境測不了，而「兩發要不要併成一團」、
  * 「正後方是不是整圈」都是有實際行為的規則。拆開之後它們就是普通的單元
- * 測試 —— 與 `advanceGEffect` 當初從 `drawGEffect` 拆出來同一個做法。
+ * 測試 —— 與 `advanceGEffect` 由 `drawGEffect` 拆出來是同一個做法。
  */
 
 /** 角度窗的半寬，rad。原型上調出來的（spec §7） */

@@ -35,8 +35,8 @@ export const MG15: WeaponSpec = {
  * He 111 H-6 的 `Battery` —— **掛架是空的**。
  *
  * 【為什麼空的】機首那挺 MG 15 是球形槍座上的**手持活動槍**，由投彈手操作，
- * 駕駛員扣不到。專案負責人 2026-08-20 裁定：可以轉向的都交給 AI，玩家不控
- * 火砲。所以它搬到 `HE111_TURRETS` 的 `nose` 那一座。
+ * 駕駛員扣不到。**可以轉向的都交給 AI，玩家不控火砲**，所以它在
+ * `HE111_TURRETS` 的 `nose` 那一座。
  *
  * 【為什麼還留著這個 Battery】`sight` 仍然被讀：`ai/assess.ts` 與
  * `ai/steer.ts` 共四處用它的 `muzzleVelocity` 解射擊提前量。`convergence`

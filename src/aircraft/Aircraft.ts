@@ -26,11 +26,11 @@ export class Aircraft {
   /**
    * 運動狀態。**物件本身恆不更換** —— `reset` 就地寫回四個欄位。
    *
-   * 【`readonly` 是護欄不是裝飾】2026-08-15 的缺陷：舊版 `reset` 做
-   * `this.state = createFlightState(...)`，把 `state.position` 換成新的
-   * `Vector3`，於是指揮層在 `createBattle` 抓的那個參考變成孤兒，
-   * 「再打一場」之後整場讀凍結座標（40/40 架失聯、最大落差 5300 m）。
-   * 這個修飾字讓那件事在型別層就不可能重演。見 `reset` 的註解。
+   * 【`readonly` 是護欄不是裝飾】`this.state = createFlightState(...)` 會把
+   * `state.position` 換成新的 `Vector3`，於是指揮層在 `createBattle` 抓的
+   * 那個參考變成孤兒，「再打一場」之後整場讀凍結座標（40/40 架失聯、最大
+   * 落差 5300 m）。這個修飾字讓那件事在型別層就不可能發生。見 `reset` 的
+   * 註解。
    */
   readonly state: FlightState
   readonly diag: StepDiagnostics = createDiagnostics()
@@ -98,10 +98,9 @@ export class Aircraft {
   /**
    * 回到「朝 −Z 平飛」的初始狀態。
    *
-   * 【2026-08-15：就地寫回，不換 `state` 物件】舊版是
-   * `this.state = createFlightState(...)` —— 它把 `state.position` 換成一個
-   * **新的** `Vector3`，於是任何在此之前抓過那個向量的人，從此永遠讀到一個
-   * 停在重置那一刻的孤兒。
+   * 【就地寫回，不換 `state` 物件】`this.state = createFlightState(...)`
+   * 會把 `state.position` 換成一個**新的** `Vector3`，於是任何在此之前抓過
+   * 那個向量的人，從此永遠讀到一個停在重置那一刻的孤兒。
    *
    * 實際中招的是指揮層：`setup.ts` 的 `createBattle` 把快照的位置抓成參考
    * （`position: c.aircraft.state.position`，而且是 `readonly`，抓一次就再也
@@ -171,9 +170,8 @@ export class Aircraft {
    * （`FlightDirector.ts:191-192`）——這正是「每步做一次 world → body」
    * 這項要求的實作位置。若呼叫端先轉一次再傳進去，等於連轉兩次，
    * 瞄準方向會被姿態旋轉平方，飛機會追一個不存在的方向。
-   * 本任務的前一版在此有一次 body → world 的轉換，是為了抵銷指揮儀內部的
-   * 逆轉換（淨效果是恆等變換，也就是機體固定準星）；世界固定裁決之後
-   * 該轉換整個移除，指揮儀拿到的才是真正的世界方向。
+   * **這裡不做 body → world 的轉換** —— 那會抵銷指揮儀內部的逆轉換，
+   * 淨效果是機體固定準星，而準星是世界固定的。
    */
   update(aimDirWorld: Vector3, throttle: number, dt: number, brake = 0): void {
     this.prevPosition.copy(this.state.position)

@@ -78,8 +78,8 @@ export function propEfficiency(spec: AircraftSpec, tas: number): number {
  *
  * η(V) = etaMax·(1 − e^(−V/vRef)) 在 V → 0 時線性趨近 0（一階泰勒展開
  * η(V) ≈ etaMax·V/vRef），所以 η(V)/V 的極限是有限值 etaMax/vRef，
- * 但直接代入 V = 0 會得到 0/0 → 0（因為分母舊版被 Math.max(V,1) 夾到 1，
- * 而非同一個下限），使推力恆為 0、飛機永遠無法從靜止起動。
+ * 但分母若被 `Math.max(V, 1)` 夾到一個與分子不同的下限，V = 0 會得到
+ * 0/0 → 0，推力恆為 0、飛機永遠無法從靜止起動。
  * 對分子（η）與分母（V）使用同一個下限速度，極限才會正確浮現；
  * 0.1 m/s 遠小於 vRef（P-51D 55、Bf109 52），一階近似誤差 < 0.1%。
  */

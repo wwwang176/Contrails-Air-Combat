@@ -15,10 +15,10 @@ export function flightLabel(alive: number, size: number): string | null {
 /**
  * 雙方存活數與分隊存活。
  *
- * 【為什麼顯示數量而不顯示各機血量】與 M2 §8 的裁決一致：你看不出對方的
+ * 【為什麼顯示數量而不顯示各機血量】與 M2 §8 一致：你看不出對方的
  * 結構完整度。但「還有幾架在天上」是看得出來的 —— 那是一個真實可觀察的量。
  *
- * 【M9 起沒有重置倒數】勝負由結算畫面呈現（M9 spec §8），HUD 不再畫它。
+ * 【沒有重置倒數】勝負由結算畫面呈現（M9 spec §8），HUD 不畫它。
  */
 export function drawRoster(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,

@@ -25,7 +25,7 @@ const FWD = new Vector3()
  * （spec §11）。
  *
  * 【為什麼是「給指揮儀一個瞄準方向」而不是直接寫舵面】靶機必須跟玩家走
- * 同一套物理與同一顆指揮儀（spec §4.1 的裁決），否則預瞄解是對著一個
+ * 同一套物理與同一顆指揮儀（spec §4.1），否則預瞄解是對著一個
  * 不存在的運動模型驗證的。給方向就是唯一的介面。
  */
 export class ScriptedController implements Controller {

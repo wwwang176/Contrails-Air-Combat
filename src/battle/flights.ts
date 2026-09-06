@@ -3,7 +3,7 @@ import type { Team } from '../world/World'
 /**
  * 一個 Schwarm 的大小。
  *
- * 【4 機、兩個 Rotte】M0/M1 spec §17 已裁決的編制單位。Rotte（雙機）是
+ * 【4 機、兩個 Rotte】M0/M1 spec §17 的編制單位。Rotte（雙機）是
  * 不可分割的戰術單位，Schwarm 是兩個 Rotte 一起飛。
  */
 export const SCHWARM_SIZE = 4
@@ -258,7 +258,7 @@ export function stationReferenceOf(fi: FlightIndex, index: number): number {
  *
  * 【名字不叫 `flightOfIndex`】那會被讀成「回傳分隊的序號」，而它回傳的是
  * **分隊物件**。`FlightIndex` 裡本來就有一個叫 `flightOf` 的 `Int32Array`
- * 在回傳序號，兩者混淆的代價很高（Codex 2026-08-09 審查指出）。
+ * 在回傳序號，兩者混淆的代價很高。
  *
  * 【為什麼回傳物件而不是三個數】呼叫端（`main.ts` 的 HUD 迴圈）每幀跑幾十次，
  * 回傳一個新物件就是每幀幾十次配置。這裡回的是 `flights` 陣列裡那一個實體。

@@ -111,7 +111,7 @@ const MOUNTS: Mount[] = [
 
 export const A6M5_BATTERY: Battery = {
   mounts: MOUNTS,
-  /** 【1,000 m】與 P-51D、F6F-5、Ki-84 一致，專案負責人在 M10 對翼槍的裁決。 */
+  /** 【1,000 m】翼槍一律 1,000 m，與 P-51D、F6F-5、Ki-84 一致。 */
   convergence: 1000,
   /**
    * 預瞄環取**初速最快**的那挺。零戰的兩款槍初速幾乎一樣（750 對 747），

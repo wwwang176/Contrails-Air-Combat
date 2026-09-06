@@ -52,7 +52,7 @@ export function liftCoefficient(
   // 無法用單一 stallBlend 讓兩個縫翼狀態同時連續——所以在此縮放而非調參。
   // 縮放並非物理要求：真實平板在 40°~45° 攻角附近的 CL 峰值本就落在
   // 1.1~1.2，此處縮放後的峰值（P-51 1.134、Bf109 淨形 1.137、
-  // 縫翼展開 1.218）與該範圍相符，比舊版恆 ≤1 的公式更符合物理。
+  // 縫翼展開 1.218）與該範圍相符 —— 恆 ≤1 的公式反而不符合物理。
   // 交接點的斜率仍有約 35% 的落差（失速崩塌段 smoothstep 在 t=1 處
   // 導數為 0，深失速段導數非 0）——這是接受的 kink，不是要消除的缺陷；
   // 崩塌段之所以不直接延伸到 90°/180°，是因為它本來就只描述失速剛發生
@@ -92,8 +92,8 @@ export function updateSlatState(
  * 減速度**，不偏袒任何一方。未來若加入翼載差異大的機種，減速度自然會不同
  * ——那是物理上正確的結果，不是需要修正的偏差。
  *
- * 【數值怎麼來的】目標手感由專案負責人定為「水平飛行 700 → 400 km/h 約
- * 4 秒」。本值由 test/unit/brake.test.ts 實測驗證；改動時該測試會紅。
+ * 【數值怎麼來的】目標手感是「水平飛行 700 → 400 km/h 約 4 秒」。
+ * 本值由 test/unit/brake.test.ts 實測驗證；改動時該測試會紅。
  *
  * 【這個量級不是真機】乾淨機體零推力要 114 秒、放下起落架約 37 秒。刻意的
  * 街機化，理由與取捨見 M4 spec §2.1。
@@ -244,7 +244,7 @@ export function aeroForceMoment(
   // 【低速衰減與高速變重是同一個概念的兩端】兩者相乘。中間有一大段兩者
   // 都不作用——P-51D 是 1858 → 10884 Pa，相隔 5.9 倍（spec §4.2）。
   //
-  // 三軸乘同一個因子是專案負責人的裁決：不做副翼／升降舵／方向舵的差異化。
+  // 三軸乘同一個因子：不做副翼／升降舵／方向舵的差異化。
   const low = lowSpeedEffectiveness(spec, aero.qbar)
   const da = controls.aileron * low * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
   const de = controls.elevator * low * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)

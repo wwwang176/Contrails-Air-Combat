@@ -65,8 +65,8 @@ export function formatCountdown(seconds: number): string {
  *
  * 【為什麼也不放左上角】那裡有**效能面板**（`core/perf.ts`），而它
  * `visible = true`、預設就是開的（F3 才關）。它不是 HUD 的 widget 是一個
- * DOM overlay，所以只看 `hud/widgets/` 是看不到這個衝突的 —— Playwright
- * 的截圖才照出來（2026-08-16）。
+ * DOM overlay，所以只看 `hud/widgets/` 是看不到這個衝突的 —— 要靠
+ * Playwright 的截圖。
  *
  * 【右上角】整片是空的：航向帶與存活數置中、儀表血條能量在下半、
  * 小地圖與提示在左下。

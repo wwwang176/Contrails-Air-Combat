@@ -84,7 +84,7 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * 結算時除了兩張表之外的東西（2026-09-04 選單重做 spec §2.6）。`main.ts` 算好
+ * 結算時除了兩張表之外的東西（選單 spec §2.6）。`main.ts` 算好
  * 傳進來 —— 這一層只畫。
  *
  * 【沒有命中率】`Pilot` 沒有發數與命中的紀錄。不做假數字。
@@ -164,9 +164,9 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
   }
 
   /**
-   * 三組對比數字。**一組是一個 `.item`，橫著並排**（專案負責人 2026-09-04：
-   * 「aar-tally 是不是可以改橫的? 不然現在佔高度有點多」）—— 每一組自己
-   * 就是「我方　標籤　敵方」，所以拆成三個獨立的盒子不會讓左右錯開。
+   * 三組對比數字。**一組是一個 `.item`，橫著並排**（直排佔的高度太多）——
+   * 每一組自己就是「我方　標籤　敵方」，所以拆成三個獨立的盒子不會讓
+   * 左右錯開。
    */
   function tallyItems(blue: ScoreRow[], red: ScoreRow[], x: AfterAction): string {
     const t = tallyOf(blue, red)

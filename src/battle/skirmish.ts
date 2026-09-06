@@ -28,7 +28,7 @@ export const MAX_FLIGHTS = MAX_SIDE / SCHWARM_SIZE
 /**
  * 一個分隊：一種機種、幾架（1 … `SCHWARM_SIZE`）。
  *
- * 【為什麼一隊一種機種】編組頁的單位是「分隊」（2026-09-04 選單重做）：
+ * 【為什麼一隊一種機種】編組頁的單位是「分隊」：
  * 玩家掛一塊牌上去、調它的架數、選我帶哪一隊。混編小隊在 `FlightPlan.members`
  * 仍然表達得出來，但那不是這一頁要給的操作 —— 兩種機種要兩塊牌。
  */
@@ -40,10 +40,11 @@ export interface Flight {
 /**
  * 遭遇戰的出戰編組。**逐隊一個機種與架數，順序即編隊順序。**
  *
- * ── 為什麼從逐架名單改成分隊清單（2026-09-04）──
+ * ── 為什麼是分隊清單而不是逐架名單 ──
  *
- * 舊形狀是 `blue: string[]` 逐架，`mixedLine` 每 4 架硬切一隊，所以「一隊 3 架」
- * 會跟下一隊混隊（`[p,p,p,b,b,b,b]` → `[p,p,p,b]、[b,b,b]`）。編組頁的單位
+ * `blue: string[]` 那種逐架形狀交給 `mixedLine` 會每 4 架硬切一隊，所以
+ * 「一隊 3 架」會跟下一隊混隊（`[p,p,p,b,b,b,b]` → `[p,p,p,b]、[b,b,b]`）。
+ * 編組頁的單位
  * 是分隊，畫面上的一隊必須就是模擬裡的一隊 —— 而 `FlightPlan.members` 本來
  * 就允許 1~4 架，限制只在切法。改走 `flightLine`，切法跟著清單走。
  */
@@ -249,8 +250,7 @@ export function setLead(setup: SkirmishSetup, index: number): SkirmishSetup {
 }
 
 /**
- * 四個想定。**編成是定案的資料**（2026-09-04 mockup 與專案負責人往返定的），
- * 改了要改 `skirmish.test.ts` 的斷言。
+ * 四個想定。**編成是定案的資料**，改了要改 `skirmish.test.ts` 的斷言。
  */
 export const PRESETS = {
   even: {
@@ -279,7 +279,7 @@ export type PresetKey = keyof typeof PRESETS
 
 /**
  * 套一個想定。地形與高度不動；**lead 重設為 0** —— 從 lead = 4 套一個我方只有
- * 一隊的想定而保留 lead，`flightLine` 不會有任何 player（Codex 審查 2026-09-04）。
+ * 一隊的想定而保留 lead，`flightLine` 不會有任何 player。
  */
 export function applyPreset(setup: SkirmishSetup, key: PresetKey): SkirmishSetup {
   const p = PRESETS[key]

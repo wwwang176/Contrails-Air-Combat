@@ -41,8 +41,8 @@ for (const [x, y, z] of STATIONS) {
 
 export const P51D_BATTERY: Battery = {
   mounts: MOUNTS,
-  // spec §2 裁決：固定值，不提供玩家調整。專案負責人於 M10 驗收時由
-  // 300 m 改為 1,000 m
+  // spec §2：固定值，不提供玩家調整。**翼槍一律 1,000 m**，四台六挺
+  // .50 的翼槍機共用這個值
   convergence: 1000,
   sight: M2_BROWNING,
 }

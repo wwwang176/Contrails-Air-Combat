@@ -121,7 +121,7 @@ function fullName(spec: AircraftSpec): string {
 const readyCount = (list: readonly MissionCard[]): number => list.filter((m) => m.battle !== null).length
 
 /**
- * 選單的 DOM 元件（2026-09-04 選單重做）。
+ * 選單的 DOM 元件。
  *
  * 【為什麼不用前端框架】狀態只有「六個畫面之一」加上一個設定物件與兩個
  * 索引，一個變數與一次 `render()` 就寫完了。同一頁的真正風險是 three.js 的
@@ -300,9 +300,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     for (const spec of ALL_SPECS) {
       const b = document.createElement('button')
       b.className = 'plane'
-      // 【國家在前、類型在下】專案負責人 2026-09-04：「可以在飛機標題前方補上
-      // 國家嗎? 例如 盟軍 P51，然後下方顯示類型」。全名讓位給這兩項 ——
-      // 選單是兩欄的窄卡，`North American P-51D Mustang` 在那裡一定折行
+      // 【國家在前、類型在下】例如「盟軍 P-51」，類型排在下面。全名讓位給
+      // 這兩項 —— 選單是兩欄的窄卡，`North American P-51D Mustang` 在那裡
+      // 一定折行
       const side = SIDE_OF[spec.id]
       b.innerHTML = `<span class="sil">${SIL[spec.role]}</span><span>`
         + `<span class="nm">${side === undefined ? '' : `<i>${CAMPAIGN_LABEL[side]}</i>　`}`
@@ -361,8 +361,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
     optRow(el.tod, TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
-    // 【只禁用，不寫一行字】專案負責人 2026-09-04：「兩邊都要有人才打得起來
-    // << 移除這個文字訊息」。一邊空著的時候那一欄本來就是空的，按鈕也灰了
+    // 【只禁用，不寫一行字】一邊空著的時候那一欄本身就是空的、按鈕也灰了，
+    // 再寫一句「兩邊都要有人才打得起來」是多的
     el.go.disabled = flightsTotal(setup.blue) === 0 || flightsTotal(setup.red) === 0
   }
 

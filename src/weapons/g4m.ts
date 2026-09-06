@@ -58,8 +58,8 @@ export const TYPE99_1: WeaponSpec = {
  * G4M2a 的 `Battery` —— **掛架是空的**。
  *
  * 【為什麼空的】機首那挺是電動迴轉鼻錐上的**手持活動槍**，由偵察／爆撃手
- * 操作，駕駛員扣不到。專案負責人 2026-08-20 裁定：可以轉向的都交給 AI，
- * 玩家不控火砲。所以它搬到 `G4M_TURRETS` 的 `nose` 那一座。
+ * 操作，駕駛員扣不到。**可以轉向的都交給 AI，玩家不控火砲**，所以它在
+ * `G4M_TURRETS` 的 `nose` 那一座。
  *
  * 【為什麼還留著這個 Battery】`sight` 仍然被讀：`ai/assess.ts` 與
  * `ai/steer.ts` 共四處用它的 `muzzleVelocity` 解射擊提前量。與

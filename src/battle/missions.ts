@@ -74,8 +74,8 @@ export interface MissionWave {
    * 畫面中心的預警文字。
    *
    * 【不要宣稱方位】「正前方」那種寫法是一個**會變成假的斷言** —— 預警在
-   * 戰鬥進行中顯示，而玩家那時可能朝任何方向（專案負責人 2026-09-03）。
-   * 寫「發生了什麼」，不要寫「在哪裡」。
+   * 戰鬥進行中顯示，而玩家那時可能朝任何方向。寫「發生了什麼」，不要寫
+   * 「在哪裡」。
    *
    * 唯一的例外是**開場那一刻**（`clock: 0`）：那時玩家一定還朝著機首方向。
    */
@@ -140,9 +140,8 @@ export interface MissionCard {
   /** 卡片上的一行說明 */
   readonly summary: string
   /**
-   * 這一關取材自哪一片空域。**簡報上取代了原本的「戰場 群島／內陸農地」**
-   * （專案負責人 2026-09-04：「戰場我覺得也可以換成寫實的位置」）——
-   * 地形是模擬的參數，空域才是簡報會寫的東西。
+   * 這一關取材自哪一片空域。**簡報上寫的是這個，不是地形（群島／內陸
+   * 農地）** —— 地形是模擬的參數，空域才是簡報會寫的東西。
    */
   readonly place: string
   /** 取材自哪一段時間。粗到年或月為止 —— 再細就會跟機型的服役期打架 */
@@ -209,8 +208,7 @@ export interface MissionBattle {
   /**
    * 被護送的那幾架在**敵方**目標挑選裡值幾倍。**1 = 沒有偏置。**
    *
-   * 【為什麼在卡片上而不是一個全域常數】專案負責人 2026-08-21：「任務可能
-   * 會需要有一些獨立的小參數可以調。」護送與攔截要的量不一定一樣 —— 護送
+   * 【為什麼在卡片上而不是一個全域常數】護送與攔截要的量不一定一樣 —— 護送
    * 是「敵人更想打我方轟炸機」，攔截是「我方更想打敵方轟炸機」。同一個
    * 機制、兩個可以分開調的數字。詳見 `mission.ts` 的 `MissionTuning`。
    */
@@ -229,9 +227,8 @@ export interface MissionBattle {
   /**
    * 開局怎麼擺。**`battle/entry.ts` 那張表的鍵。**
    *
-   * 【為什麼是每張卡自己的欄位】專案負責人 2026-08-16：「任務的擺位不一定
-   * 只有對頭 OR 追我，應該要把擺位、面向、初始狀態都寫成陣列，讓每個任務
-   * 有不同的擺法。」
+   * 【為什麼是每張卡自己的欄位】擺位不只有對頭與追我，每個任務都可以有
+   * 不同的擺法。
    */
   readonly entry: EntryPlanId
   /**
@@ -352,7 +349,7 @@ const CONVOY_DISTANCE = 12000
 const CONVOY_RADIUS = 1000
 
 /**
- * 被護送的那幾架在敵方目標挑選裡值幾倍。**專案負責人的裁定，試飛中。**
+ * 被護送的那幾架在敵方目標挑選裡值幾倍。**起始值，試飛中。**
  *
  * 【為什麼一定要大於 1】不加偏置時護航機只要有兩架，轟炸機就**一發都挨不
  * 到**（實測血量 100/100/100/100）—— `targetScore` 只看威脅與幾何，而護航機
@@ -370,8 +367,8 @@ const CONVOY_PRIORITY = 5
  * 【對頭】護送要打穿出去，攔截則是迎向轟炸機流 —— 同一個擺法對兩邊都成立，
  * 因為它們本來就是同一個局面的兩側。
  *
- * 【無時限】專案負責人 2026-08-21 給的兩組勝負條件裡沒有時間 —— 護送敗北
- * 只有「全部被擊落」，攔截敗北只有「任一台抵達」。
+ * 【無時限】兩組勝負條件裡都沒有時間 —— 護送敗北只有「全部被擊落」，
+ * 攔截敗北只有「任一台抵達」。
  */
 const CONVOY = {
   convoyCount: 4, convoyPriority: CONVOY_PRIORITY,
@@ -453,11 +450,10 @@ const RETREAT_DISTANCE = 12000
  * ── 五張可玩的來歷 ──────────────────────────────────────
  *
  * ```
- *   盟 M1 / 德 M1   舊的 allies-escort / axis-intercept，數字一個都沒動
- *                   —— 那兩張是唯二有實測基礎的（2026-08-21 掃描定值），
- *                   由 `mission-config-baseline.test.ts` 逐項釘住
- *   日 M1 / 日 M3   新的。編制照掃描過的那兩種形狀（8v6 殲滅、護送）
- *   德 M4           新的。返航節拍的第一個真實使用者
+ *   盟 M1 / 德 M1   唯二有實測基礎的（掃描定值），由
+ *                   `mission-config-baseline.test.ts` 逐項釘住
+ *   日 M1 / 日 M3   編制照掃描過的那兩種形狀（8v6 殲滅、護送）
+ *   德 M4           返航節拍的第一個使用者
  * ```
  */
 export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
@@ -564,7 +560,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           message: '返航',
           distance: RETREAT_DISTANCE, radius: CONVOY_RADIUS,
           /**
-           * **無時限**（專案負責人 2026-09-03 試飛裁定：「撤離不用倒數」）。
+           * **無時限** —— 撤離不倒數。
            *
            * 【為什麼倒數是多的】這一關的壓力來源是**擋在路上的兩批攔截機**，
            * 不是碼表。再壓一個倒數上去，玩家要同時應付「打穿出去」與「來不
@@ -577,9 +573,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           seconds: Infinity,
         },
         /**
-         * 【敵人從斜前方分批來，不是在後面追】專案負責人 2026-09-03。
-         * 撤離點在 −Z，紅方的進場點也在 −Z —— 所以波次生在玩家**前方**，
-         * 玩家必須打穿出去。舊撤離卡的「追不到」從根本消失，因為沒有人在追。
+         * 【敵人從斜前方分批來，不是在後面追】撤離點在 −Z，紅方的進場點
+         * 也在 −Z —— 波次生在玩家**前方**，玩家必須打穿出去。從後面追的
+         * 擺法會遇到「追不到」，這一種沒有人在追。
          *
          * 【第二批要往前挪】玩家從 z≈0 跑到紅方開局點只要 28 秒。第二批不
          * 覆寫縱深的話會生在他背後 —— 見 `MissionWave.along`。
@@ -719,8 +715,8 @@ export function missionRules(
     // 【圈要放在那一隊自己的航道上，不是 x = 0】兩隊對頭時各自橫向偏
     // `across × lateralOffset`（起始值 ∓750 m）—— 那是為了不對撞。判定圈釘在
     // 0 的話，最外側那一架到圈心是 750 + 300 = 1,050 m，**永遠判不到**，而
-    // 症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」（2026-08-21 由
-    // `test/tools/convoy.probe.ts` 表三抓到）。
+    // 症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」（`test/tools/
+    // convoy.probe.ts` 表三）。
     const x = ENTRY_PLANS[b.entry][owner].across * lateralOffset
     return { kind: 'convoy', owner, point: new Vector3(x, altitude, z), radius: b.targetRadius }
   }
@@ -742,7 +738,7 @@ export function missionRules(
  *
  * 【但「寫錯就會炸」只對一半】`blueCount` 為 0 時 `createBattle` 確實會拋
  * 「玩家沒有被建立」；**大於 `MAX_SIDE` 不會拋**，只會建一個超出特效池容量
- * 假設的超大戰場（Codex 審查 2026-08-16）。所以那道保險由
+ * 假設的超大戰場。所以那道保險由
  * `test/unit/campaigns.test.ts` 補上。
  */
 export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
