@@ -367,10 +367,16 @@ describe('stepMission：擊沉', () => {
     expect(s2.metric).toBe(0)
   })
 
-  it('第二個計量是我方還剩幾架', () => {
+  /**
+   * 【不顯示我方架數】−1 是目標列的「不畫」。全滅仍然判敗，那條判定不吃
+   * 這個欄位 —— 所以「不顯示」與「不判定」是兩件事。
+   */
+  it('第二個計量恆是 −1，但全滅照樣判敗', () => {
     const s = createMissionState(rules)
     stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 5 }), DT, s)
-    expect(s.remaining).toBe(5)
+    expect(s.remaining).toBe(-1)
+    stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
   })
 
   /** 【擊沉沒有圓環】殘留的 hasTarget 會讓上一關的圈留在畫面上。 */
