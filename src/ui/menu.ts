@@ -51,9 +51,9 @@ export interface Menu {
  * 【為什麼是 `Record<Campaign, …>` 而不是陣列】少一格是編譯錯誤。加第四條線時
  * 只加型別而漏了這裡，卡片會**永遠畫不出來而且照樣編譯**。
  */
-const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '盟軍', germany: '德軍', japan: '日本' }
+const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '美軍', germany: '德軍', japan: '日軍' }
 /**
- * 機種是哪一邊的 —— 機種選單上「盟軍　P-51D」的前綴。
+ * 機種是哪一邊的 —— 機種選單上「美軍　P-51D」的前綴。
  *
  * 【為什麼在這裡而不是 `AircraftSpec`】spec 是模擬用的係數，一架飛機飛在
  * 哪一邊是戰役的設定不是機體的性質（同一台 P-51D 在遭遇戰裡兩邊都能派）。
@@ -64,10 +64,10 @@ const SIDE_OF: Record<string, Campaign> = {
   bf109k4: 'germany', he111: 'germany',
   a6m5: 'japan', ki84: 'japan', g4m: 'japan',
 }
-const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string; readonly sub: string }> = {
-  allies: { line: '第八航空軍的護航與轟炸，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5', sub: '第八航空軍' },
-  germany: { line: '帝國防空：攔截轟炸機流，撐到燃料見底。', planes: 'Bf 109 K-4 · He 111', sub: '帝國防空' },
-  japan: { line: '臺灣沖到雷伊泰：陸基攔截，護送雷擊隊。', planes: 'A6M5 · Ki-84 · G4M', sub: '海軍航空隊' },
+const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string }> = {
+  allies: { line: '歐洲的護航與打擊，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5' },
+  germany: { line: '東線到本土：地面打擊，攔截轟炸機流。', planes: 'Bf 109 K-4 · He 111' },
+  japan: { line: '臺灣沖到雷伊泰：陸基攔截，護送雷擊隊。', planes: 'A6M5 · Ki-84 · G4M' },
 }
 
 /** 場地的選項。**順序即按鈕順序。**群島在前：它是預設，也是有東西可看的那一個 */
@@ -143,11 +143,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const pause = root.querySelector('#pause') as HTMLElement
   const q = (id: string): HTMLElement => root.querySelector(`#${id}`) as HTMLElement
   const el = {
-    menuMissionMeta: q('menu-mission-meta'),
-    menuSkirmishMeta: q('menu-skirmish-meta'),
     campaignCards: q('campaign-cards'),
     campName: q('camp-name'),
-    campSub: q('camp-sub'),
     route: q('route'),
     brief: q('brief'),
     presets: q('sk-presets'),
@@ -179,13 +176,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'restart') { hooks.onRestart(); return }
     hooks.onEvent(act as ScreenEvent)
   })
-
-  // ── 主選單：狀態行算出來，不寫死 ─────────────────────────
-  function renderMenuMeta(): void {
-    const ready = CAMPAIGNS.reduce((n, c) => n + readyCount(MISSIONS[c]), 0)
-    el.menuMissionMeta.textContent = `${CAMPAIGNS.map((c) => CAMPAIGN_LABEL[c]).join(' · ')}　　可出擊 ${ready} 關`
-    el.menuSkirmishMeta.textContent = `${ALL_SPECS.length} 種機體　最多 ${MAX_SIDE} 對 ${MAX_SIDE}`
-  }
 
   // ── 陣營頁：三張海報卡 ────────────────────────────────
   function renderCampaign(): void {
@@ -246,7 +236,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const list = MISSIONS[campaign]
     const k = picked[campaign]
     el.campName.textContent = CAMPAIGN_LABEL[campaign]
-    el.campSub.textContent = `${CAMPAIGN_BLURB[campaign].sub} · 第 ${k + 1} 關 / ${list.length}`
     el.route.innerHTML = ''
     list.forEach((m, i) => {
       const ready = m.battle !== null
@@ -377,7 +366,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     el.go.disabled = flightsTotal(setup.blue) === 0 || flightsTotal(setup.red) === 0
   }
 
-  renderMenuMeta()
   renderCampaign()
 
   return {
