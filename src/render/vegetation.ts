@@ -307,6 +307,14 @@ const IS_POINT: Record<PoolName, boolean> =
 
 export interface Vegetation {
   readonly object: Object3D
+  /**
+   * 點池的亮度倍率，1 = 不變。**只作用在點池上** —— 近、中兩級走標準材質，
+   * 換了燈就自己變暗。
+   *
+   * 【為什麼乘在材質上而不是重烘逐株的顏色】格是串流進來的，重烘只會影響
+   * 之後才生出來的格 —— 畫面上會是新舊兩種亮度並存的補丁。
+   */
+  setPointLight(scale: number): void
   update(centerX: number, centerZ: number): void
   /**
    * 一次把生成佇列排乾。定格截圖與容量掃描要它。
@@ -976,6 +984,8 @@ export function createVegetation(
 
   return {
     object: group,
+    // 【`PointsMaterial.color` 逐通道乘上頂點色】所以 1 是恆等
+    setPointLight(scale) { pointMaterial.color.setScalar(scale) },
     update,
     settle,
     counts,

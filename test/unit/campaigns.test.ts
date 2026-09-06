@@ -33,12 +33,12 @@ describe('三條戰役', () => {
     for (const m of ALL) expect(m.summary.length, m.id).toBeGreaterThan(0)
   })
 
-  it('五張打得起來，七張是目錄卡', () => {
+  it('六張打得起來，六張是目錄卡', () => {
     const playable = ALL.filter(ready)
     expect(playable.map((m) => m.id).sort()).toEqual([
-      'allies-m1', 'germany-m1', 'germany-m4', 'japan-m1', 'japan-m3',
+      'allies-m1', 'germany-m1', 'germany-m4', 'japan-m1', 'japan-m3', 'japan-m4',
     ])
-    expect(ALL.length - playable.length).toBe(7)
+    expect(ALL.length - playable.length).toBe(6)
   })
 })
 
@@ -86,13 +86,13 @@ describe('可玩卡的戰鬥設定', () => {
 })
 
 describe('目錄卡', () => {
-  it('沒做的那七張仍然有完整的目錄資料', () => {
+  it('沒做的那六張仍然有完整的目錄資料', () => {
     // 【原本這裡還斷言「battle 是 null」，那是恆真的】篩選用的 `ready` 的
-    // 定義就是 `battle !== null`（Codex 審查 P2）。真正有內容的是「哪五張
+    // 定義就是 `battle !== null`（Codex 審查 P2）。真正有內容的是「哪幾張
     // 是 ready」那一條，以及這裡：**目錄那一半不准跟著空掉** ——
     // 一張沒有標題的卡在選單上是一塊點不下去的空白
     const locked = ALL.filter((m) => !ready(m))
-    expect(locked).toHaveLength(7)
+    expect(locked).toHaveLength(6)
     for (const m of locked) {
       expect(m.title.length, m.id).toBeGreaterThan(0)
       expect(m.summary.length, m.id).toBeGreaterThan(0)
@@ -118,5 +118,28 @@ describe('missionConfigFrom', () => {
     const convoy = cfg.units.filter((u) => u.duty === 'transit')
     expect(convoy.length).toBeGreaterThan(0)
     expect(convoy[0]!.members[0]!.id).toBe('g4m')
+  })
+})
+
+describe('擊沉任務', () => {
+  /**
+   * 【要求擊沉卻沒有艦隊 = 永遠打不完】而且畫面上一切正常：目標列顯示
+   * 「還差三艘」，海上一艘船都沒有。這是關卡資料的錯，要在這一層擋掉，
+   * 不是在戰鬥中判一個玩家看不懂的敗北。
+   */
+  it('有 sinkCount 就一定要有 fleet，而且艦隊數量夠', () => {
+    for (const m of ALL.filter(ready)) {
+      const n = m.battle.sinkCount
+      if (n === undefined) continue
+      expect(m.battle.fleet, `${m.id} 要求擊沉卻沒有艦隊`).toBeDefined()
+      const enemies = m.battle.fleet!.ships.filter((x) => x.team === 'red').length
+      expect(enemies, `${m.id} 目標 ${n} 艘但敵艦只有 ${enemies} 艘`).toBeGreaterThanOrEqual(n)
+    }
+  })
+
+  it('沒有艦隊的卡不會要求擊沉', () => {
+    for (const m of ALL.filter(ready)) {
+      if (m.battle.fleet === undefined) expect(m.battle.sinkCount, m.id).toBeUndefined()
+    }
   })
 })

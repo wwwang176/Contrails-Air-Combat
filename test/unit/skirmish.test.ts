@@ -43,7 +43,7 @@ describe('機種名單', () => {
   })
 })
 
-const FIELD = { terrain: 'archipelago', altitude: 4000 } as const
+const FIELD = { terrain: 'archipelago', altitude: 4000, timeOfDay: 'noon' } as const
 const F = (id: string, count: number): Flight => ({ id, count })
 const mk = (blue: Flight[], red: Flight[], lead = 0): SkirmishSetup =>
   ({ ...FIELD, blue, red, lead })

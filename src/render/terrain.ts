@@ -1,5 +1,6 @@
 import { Group, type Object3D } from 'three'
 import { createOcean } from './ocean'
+import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
@@ -78,6 +79,11 @@ export interface Terrain {
    * 擋住海面回歸的東西。`null` 加上那道判準是兩道保險。
    */
   readonly land: LandField | null
+  /**
+   * 換時段。**海的那一半**（陸地與植被的顏色這一期不跟著換，見
+   * `timeOfDay.ts`）。
+   */
+  setPalette(p: DayPalette): void
   /** 每幀更新。海浪要動；陸地是靜態的；植被跟著鏡頭補格 */
   update(time: number, centerX: number, centerZ: number): void
   /**
@@ -120,6 +126,7 @@ function createSeaTerrain(): Terrain {
     waterAt: (x, z) => ocean.heightAt(x, z, 0),
     islands: [],
     land: null,
+    setPalette(p) { ocean.setPalette(p) },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     dispose() { ocean.dispose() },
   }
@@ -178,6 +185,10 @@ function createArchipelagoTerrain(): Terrain {
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
     // 「動了地形就要重算」多一條沒有人記得的規則
     land: { field, ceiling: PEAK_MAX, landAbove: 0 },
+    setPalette(p) {
+      ocean.setPalette(p)
+      flora.setPointLight(p.foliage)
+    },
     update(time, centerX, centerZ) {
       ocean.update(time, centerX, centerZ)
       flora.update(centerX, centerZ)
@@ -215,6 +226,9 @@ function createFarmlandTerrain(): Terrain {
     heightAt: (x, z) => solid.sample(x, z),
     collisionHeightAt: (x, z) => solid.sample(x, z),
     waterAt: () => -Infinity,
+    // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就
+    // 變暗；要補的只有吃不到光的點池
+    setPalette(p) { flora.setPointLight(p.foliage) },
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     // 【遠景環與地面是固定的】只有植被要跟著鏡頭補格

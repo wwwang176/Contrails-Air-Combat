@@ -34,7 +34,7 @@ const fighterAt = (z: number, vz: number): TurretCombatant =>
   fake(P51D, 1, 'red', new Vector3(0, 3000, z), new Vector3(0, 0, vz))
 
 const freshState = (): TurretState => ({
-  aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1,
+  aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1, targetShip: -1, targetGun: -1,
   searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
   flash: 0, lastBarrel: 0,
 })

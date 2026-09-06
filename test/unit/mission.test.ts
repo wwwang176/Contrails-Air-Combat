@@ -13,7 +13,9 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     aliveRed: 16,
     playerPos: new Vector3(0, 4000, 5000),
     playerAlive: true,
-    convoyAlive: 0,
+    shipsSunk: 0,
+  shipsTotal: 0,
+  convoyAlive: 0,
     convoyLead: Infinity,
     ...over,
   }
@@ -294,5 +296,74 @@ describe('timeScale：分出勝負之後切慢動作', () => {
     // §8.1 的裁定就是為了避免那個觀感）；≥ 1 則是這條規則整個沒生效
     expect(FINISHED_TIME_SCALE).toBeGreaterThan(0)
     expect(FINISHED_TIME_SCALE).toBeLessThan(1)
+  })
+})
+
+describe('stepMission：擊沉', () => {
+  const rules: MissionRules = { kind: 'sink', count: 3 }
+
+  it('沉夠數量就贏', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 2, shipsTotal: 8 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    stepMission(rules, inputs({ shipsSunk: 3, shipsTotal: 8 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('沉超過也算贏', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 5, shipsTotal: 8 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('我方全滅就輸', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 1, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /** 【同一步同時滿足時算贏】與撤離那一條同一個裁決。 */
+  it('最後一艘沉的那一步我方剛好全滅 —— 算贏', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 3, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /**
+   * 【開局的計量不能是 0】那個數字的意思是「還差 0 艘」＝達標了。目標列
+   * 會在第一個物理步之前閃一下勝利的數字。
+   */
+  it('開局的計量是「還差全部」，不是 0', () => {
+    expect(createMissionState(rules).metric).toBe(3)
+  })
+
+  it('計量是「還差幾艘」，而且不會變成負的', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 1 }), DT, s)
+    expect(s.metric).toBe(2)
+    const s2 = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 9 }), DT, s2)
+    expect(s2.metric).toBe(0)
+  })
+
+  it('第二個計量是我方還剩幾架', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 5 }), DT, s)
+    expect(s.remaining).toBe(5)
+  })
+
+  /** 【擊沉沒有圓環】殘留的 hasTarget 會讓上一關的圈留在畫面上。 */
+  it('沒有終點圓環', () => {
+    const s = createMissionState(rules)
+    expect(s.hasTarget).toBe(false)
+  })
+
+  it('分出勝負之後不再改任何欄位', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 3 }), DT, s)
+    expect(s.outcome).toBe('victory')
+    stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+    expect(s.metric).toBe(0)
   })
 })

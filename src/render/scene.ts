@@ -1,11 +1,15 @@
 import {
+  Color,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
+  type FogExp2,
+  type Mesh,
 } from 'three'
-import { createLights } from './lighting'
-import { createSky } from './sky'
+import { applyLightPalette, createLights, type Lights } from './lighting'
+import { applySkyPalette, createSky } from './sky'
 import { createFog } from './fog'
+import { DAY_PALETTES, paletteSkyColorAt, type DayPalette, type TimeOfDay } from './timeOfDay'
 
 /** 近平面，m。**沒有動過** —— 深度精度幾乎全由它決定。 */
 export const CAMERA_NEAR = 1
@@ -47,16 +51,38 @@ export interface SceneContext {
   renderer: WebGLRenderer
   scene: Scene
   camera: PerspectiveCamera
+  /** 天空球。展示頁與 `__gfx` 的消融都要摸得到它。 */
+  sky: Mesh
+  lights: Lights
+  /**
+   * 換時段。**天空、霧、三盞燈一次到齊。**
+   *
+   * 【海不在這裡面】`Ocean` 是呼叫端自己建的（有的關卡沒有海），所以海那一半
+   * 走 `Ocean.setPalette`。兩邊都要換的話用 `timeOfDay.ts` 的
+   * `applyTimeOfDay`，那一支不會漏。
+   */
+  setPalette(p: DayPalette): void
   resize(): void
 }
 
-export function createScene(canvas: HTMLCanvasElement): SceneContext {
+/** 給 `setPalette` 用的暫存。模組私有，禁止跨模組共用。 */
+const FOG_SCRATCH = /* @__PURE__ */ new Color()
+
+/**
+ * @param timeOfDay 開局的時段。**預設正午** —— 那一組與時段功能上線前逐位元
+ *   相同，所以沒有指定時段的關卡與所有既有基準線都不受影響。
+ */
+export function createScene(
+  canvas: HTMLCanvasElement,
+  timeOfDay: TimeOfDay = 'noon',
+): SceneContext {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = false // M1 不啟用陰影，見 spec §15
 
   const scene = new Scene()
-  scene.add(createSky())
+  const sky = createSky()
+  scene.add(sky)
   // 【霧掛在 scene 上，逐材質生效】three 的 `material.fog` 預設為 true，
   // 所以飛機、參照物、殘骸、曳光彈、粒子都吃霧。天空球是 `ShaderMaterial`
   // （`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。
@@ -66,7 +92,8 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
 
   // 【燈的定義在 `lighting.ts`】遠處的植被走 gl.POINTS，亮度是烘進頂點色的，
   // 而那個係數要拿真正的光照去校 —— 兩處各配一組燈的話係數會是錯的
-  for (const l of createLights()) scene.add(l)
+  const lights = createLights()
+  for (const l of lights.all) scene.add(l)
 
   const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR)
 
@@ -84,5 +111,22 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   resize()
   window.addEventListener('resize', resize)
 
-  return { renderer, scene, camera, resize }
+  /**
+   * 【霧色跟著天空走】它就是**地平線上**的天空色（見 `fog.ts` 的
+   * `FOG_COLOR`）。少了這一行，換到黃昏時遠處的飛機仍然往中午的淺藍化開。
+   */
+  const setPalette = (p: DayPalette): void => {
+    applySkyPalette(sky, p)
+    applyLightPalette(lights, p)
+    const fog = scene.fog as FogExp2
+    paletteSkyColorAt(0, p, FOG_SCRATCH)
+    fog.color.copy(FOG_SCRATCH)
+    fog.density = p.fogDensity
+  }
+
+  // 【一律走同一條路徑】正午那一組的每個欄位都直接引用原本的常數，所以這一行
+  // 對 `'noon'` 是恆等 —— 而「建立時設一次」與「事後換」因此不會分家
+  setPalette(DAY_PALETTES[timeOfDay])
+
+  return { renderer, scene, camera, sky, lights, setPalette, resize }
 }
