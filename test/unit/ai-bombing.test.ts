@@ -9,11 +9,12 @@ import { G4M } from '../../src/specs/g4m'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import { loadoutOf } from '../../src/weapons/stores'
+import { blastRadiusOf } from '../../src/weapons/bomb'
 import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bomb'
 import type { BombState, Impact } from '../../src/world/bomb'
 import {
-  BOMB_PROFILE, deckHeightOf, releaseRadiusOf, setBombBallistics, shipAt, shouldRelease,
-  solveGateOf,
+  BOMB_PROFILE, RELEASE_BEAMS, deckHeightOf, releaseRadiusOf, setBombBallistics,
+  shipAt, shouldRelease, solveGateOf,
 } from '../../src/ai/bombRun'
 import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
@@ -175,18 +176,27 @@ const K = bombDragK(BOMB_TERMINAL_SPEED)
 const DT = 1 / 240
 
 describe('releaseRadiusOf', () => {
-  it('就是該艘船的船寬', () => {
-    expect(releaseRadiusOf(SHIP_CLASSES.fletcher)).toBeCloseTo(12.08, 6)
-    expect(releaseRadiusOf(SHIP_CLASSES.wichita)).toBeCloseTo(18.82, 6)
+  it('是船寬乘上 RELEASE_BEAMS', () => {
+    expect(releaseRadiusOf(SHIP_CLASSES.fletcher)).toBeCloseTo(12.08 * RELEASE_BEAMS, 6)
+    expect(releaseRadiusOf(SHIP_CLASSES.wichita)).toBeCloseTo(18.82 * RELEASE_BEAMS, 6)
+  })
+
+  /**
+   * 【上界是殺傷半徑】超過的話 AI 會把彈丟到船傷不到的地方。500 kg 的
+   * 殺傷半徑是 39 m。
+   */
+  it('不超過殺傷半徑', () => {
+    for (const cls of [SHIP_CLASSES.fletcher, SHIP_CLASSES.wichita]) {
+      expect(releaseRadiusOf(cls)).toBeLessThanOrEqual(blastRadiusOf(11_700))
+    }
   })
 
   /**
    * 【Essex 取主艦體，不是飛行甲板】它有兩個盒：艦體寬 28.4 m、飛行甲板
-   * 寬 43 m。照 `deckHeightOf` 那樣取極值的話釋放半徑會放大 51%
-   * （Codex 審查 C7）。
+   * 寬 43 m。取極值會讓釋放半徑放大 51%。
    */
   it('Essex 取的是艦體 28.4 m，不是飛行甲板的 43 m', () => {
-    expect(releaseRadiusOf(SHIP_CLASSES.essex)).toBeCloseTo(28.4, 6)
+    expect(releaseRadiusOf(SHIP_CLASSES.essex)).toBeCloseTo(28.4 * RELEASE_BEAMS, 6)
   })
 })
 

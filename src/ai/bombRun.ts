@@ -76,23 +76,32 @@ export function deckHeightOf(cls: ShipClass): number {
 }
 
 /**
- * 釋放半徑，m。**專案負責人裁定：照船體寬度處理。**
+ * 釋放半徑是船寬的幾倍。
+ *
+ * 【上界是殺傷半徑】500 kg 的殺傷半徑 39 m（`blastRadiusOf(11700)`），而
+ * 2 倍船寬是弗萊徹 24.2 m、威奇塔 37.6 m —— 都還傷得到船。再放寬就是丟進
+ * 海裡。
+ */
+export const RELEASE_BEAMS = 2
+
+/**
+ * 釋放半徑，m。**船寬 × `RELEASE_BEAMS`。**
  *
  * ```
- *   Fletcher DD-445    12.08 m
- *   Wichita CA-45      18.82 m
- *   Essex CV-9         28.40 m
+ *                      船寬     釋放半徑
+ *   Fletcher DD-445   12.08 m    24.16 m
+ *   Wichita CA-45     18.82 m    37.64 m
+ *   Essex CV-9        28.40 m    56.80 m
  * ```
  *
- * 【為什麼取 `hull[0]` 而不是最寬的那一個盒】Essex 有兩個盒：主艦體寬
- * 28.4 m、飛行甲板寬 43 m。照 `deckHeightOf` 那樣取極值的話釋放半徑會
- * 放大 51%（Codex 審查 C7）。**第一個盒恆是艦體**，那才是「船寬」。
+ * 【船寬取 `hull[0]`】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
+ * 取極值會放大 51%。**第一個盒恆是艦體。**
  *
- * 【它是這一關難度的主旋鈕】起始值，由試飛裁定。
+ * 【這一關難度的主旋鈕】
  */
 export function releaseRadiusOf(cls: ShipClass): number {
   const hull = cls.hull[0]
-  return hull === undefined ? 0 : hull.half.x * 2
+  return hull === undefined ? 0 : hull.half.x * 2 * RELEASE_BEAMS
 }
 
 const S = /* @__PURE__ */ makeScratch(3)
