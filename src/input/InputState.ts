@@ -45,7 +45,21 @@ export interface InputState {
   /** 自由視角偏移，rad */
   lookYaw: number
   lookPitch: number
-  viewMode: 'third' | 'first'
+  /**
+   * `third` 機外、`first` 座艙、`bomb` 機腹投彈瞄具。
+   *
+   * 【`bomb` 不在 `V` 的那條軸上】`V` 切的是「座艙／機外」；投彈瞄具是另一
+   * 件事，由 `B` 自己切換，而且 `V` 在它之下不作用。
+   */
+  viewMode: 'third' | 'first' | 'bomb'
+  /**
+   * 這一台飛機掛得了彈嗎。**由 `main.ts` 在玩家換飛機時寫入。**
+   *
+   * 【為什麼不是 bindings 自己判斷】`bindings.ts` 是純 DOM 外殼，對飛機
+   * 一無所知（見它的檔頭）。寫入點與 `rig.options.firstPersonOffset` 相同
+   * —— 那裡本來就是「玩家換了一台飛機」。
+   */
+  bombCapable: boolean
   /**
    * 扳機是否按住（滑鼠左鍵）。
    *
@@ -123,6 +137,7 @@ export function createInputState(): InputState {
     lookYaw: 0,
     lookPitch: 0,
     viewMode: 'third',
+    bombCapable: false,
     firing: false,
     braking: false,
     playerAi: false,

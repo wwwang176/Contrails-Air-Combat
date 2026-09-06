@@ -14,11 +14,21 @@ import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
-import { createFireball, emitFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
+import { TextureLoader } from 'three'
+import { createBombs } from './render/bombs'
+import { createFireChunks } from './render/chunks'
+import { JET_RISE, createWaterJets } from './render/waterJets'
+import {
+  AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST,
+  createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
+  emitBlast, emitEmber, emitMist, scaleBlast,
+  type BlastParams, type BlastPools,
+} from './render/blast'
+import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createShipModels, preloadShipModels, type ShipModels } from './render/ships'
 import { clearBursts } from './world/flak'
-import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
+import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -27,8 +37,10 @@ import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
-import { clearImpacts } from './world/events'
-import { clearKills } from './world/kills'
+import {
+  IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
+} from './world/events'
+import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
@@ -41,6 +53,11 @@ import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
+import { solveImpact, type BombState, type Impact } from './world/bomb'
+import {
+  bombBayOf, bombDamageOf, blastScaleOf, canBomb, createBombBay, resetBombBay,
+  stepBombBay,
+} from './weapons/bomb'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -300,6 +317,39 @@ const sparks = createSparks()
 ctx.scene.add(sparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
+const bombVisuals = createBombs()
+ctx.scene.add(bombVisuals.object)
+
+// 【每幀重用，不得配置】solveImpact 每幀跑一次，最壞 11,498 步
+const BOMB_IMPACT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+const BOMB_START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
+const BOMB_EYE = new Vector3()
+const BOMB_POINT = new Vector3()
+const BOMB_NDC = new Vector3()
+/** 彈艙。一次扳機投完整艙，空了之後回補 —— 狀態機在 `weapons/bomb.ts` */
+const bombBay = createBombBay()
+/**
+ * 上一幀左鍵按著沒有。
+ *
+ * 【為什麼要邊緣】`firing` 是持續按著的布林，而彈艙吃的是「剛按下」。
+ * 直接餵 `firing` 的話按著不放會被讀成每一幀都重新扣一次扳機。
+ */
+let bombWasFiring = false
+
+/**
+ * 玩家換了一台飛機：重算掛彈量與瞄具眼點。
+ *
+ * 【換到不能投彈的飛機要強制退出】少了這一條，重生成戰鬥機之後相機會卡在
+ * 一個沒有 `bombPoint` 的模式裡。
+ */
+function syncBombLoad(): void {
+  const m = visuals.get(player)!.model
+  input.bombCapable = m.bombPoint !== null && canBomb(player.aircraft.spec.id)
+  if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
+  if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
+  resetBombBay(bombBay, bombBayOf(player.aircraft.spec.id))
+  bombWasFiring = false
+}
 
 // 【擊墜表現：+4 個 draw call】火球、黑煙、噴濺、零件。殘骸接管既有的
 // AircraftModel，所以它 +0；水柱沿用 M7 的池子，也是 +0（M8 spec §11）
@@ -316,6 +366,124 @@ ctx.scene.add(vortex.object)
 const orderMarkers = createOrderMarkers()
 ctx.scene.add(orderMarkers.object)
 const debris = createDebris()
+
+// ── 爆炸 ────────────────────────────────────────────────
+//
+// 【`load` 不 `await`】它同步回傳一個 Texture，圖到了自己填進去。第一次
+// 爆炸離開場有好幾秒，貼圖早就在了；真的沒到的話 alphaMap 是空的，那一批
+// 粒子透明 —— 不會壞，只是看不見。
+const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+
+//
+// 【七個池一組】球塊火球、光暈、交棒煙、爆炸煙柱、揚塵、水冠、水霧。
+// 配方在 `render/blast.ts`，`/blast.html` 是它的調校台。
+const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
+  emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
+})
+ctx.scene.add(blastChunks.object)
+const blastGlow = createFireGlow(undefined, BLAST_PACE)
+ctx.scene.add(blastGlow.object)
+const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastEmber.object)
+const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastSmoke.object)
+const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastDust.object)
+const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastMist.object)
+const blastJets = createWaterJets({
+  capacity: 256, life: 1.5 * BLAST_PACE, rise: JET_RISE, alphaFrom: 0.8,
+  onFade: (x, y, z, height, radius, slot) => {
+    emitMist(blastMist, slot, WATER_BLAST.mistPerJet, WATER_BLAST.mistSize,
+      x, y, z, height, radius)
+  },
+})
+ctx.scene.add(blastJets.object)
+
+/**
+ * 給 `emitBlast` 的那一組。每幀都是同一個物件 —— 熱路徑不配置。
+ *
+ * 【`splashEvents` 是它自己的，不是 `world` 的】那一格只在**沒有** `jets`
+ * 池時才會被寫（`emitCrown` 的退路），而這裡永遠有 —— 給它一個專用的空
+ * 通道比接上世界的那一條安全：`world` 要到 `startWorld()` 才存在。
+ */
+const BLAST_POOLS: BlastPools = {
+  fireball: blastChunks,
+  smoke: blastSmoke,
+  dust: blastDust,
+  spray,
+  splashEvents: createImpacts(),
+  glow: blastGlow,
+  jets: blastJets,
+}
+
+/**
+ * 離地多近算「墜地」，m。
+ *
+ * 【它分的是兩套表現】貼著地面炸的要揚塵，空中炸的不要 —— 一架 12 m 長的
+ * 飛機撞地時機身中心大約就在這個高度。
+ */
+const CRASH_BLAST_HEIGHT = 25
+
+/** 依當量縮放後的配方。模組級 —— 每次爆炸不配置 */
+const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
+
+/**
+ * 空中擊墜的爆炸繼承多少母機速度。
+ *
+ * 【與 `FIREBALL_INHERIT` 同一個值、同一個理由】火球完全靜止的話，一架
+ * 150 m/s 的飛機在半秒的壽命內會飛出 75 m —— 畫面上是「爆炸發生在飛機
+ * 後面」。真實的火球會先隨殘骸往前衝，再被空氣煞住。
+ */
+const KILL_BLAST_INHERIT = 0.5
+
+/**
+ * 擊墜的爆炸。**空中與墜地是同一條事件流**（兩者都走 `World.destroy`），
+ * 由離地高度分辨。
+ */
+function emitKillBlasts(events: KillEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * KILL_STRIDE
+    const x = d[o]!
+    const y = d[o + 1]!
+    const z = d[o + 2]!
+    const ground = terrain.collisionHeightAt(x, z)
+    // 【撞海不算墜地】海面的 `collisionHeightAt` 是 0，只看高度的話撞海會
+    // 揚起一團深咖啡色的土。入水的表現由殘骸的水柱負責（`wrecks`）
+    const onLand = !(terrain.waterAt(x, z) > -Infinity)
+      && y - ground <= CRASH_BLAST_HEIGHT
+    // 【墜地那一份的爆點壓到地面】事件的 y 是機身中心，火球生在半空的話
+    // 揚塵會浮著
+    // 【空中那一份繼承母機速度】墜地的不繼承 —— 它已經撞停了
+    const inherit = onLand ? 0 : KILL_BLAST_INHERIT
+    emitBlast(BLAST_POOLS, onLand ? LAND_BLAST : AIR_BLAST,
+      x, onLand ? ground : y, z, (e * 131 + Math.round(world.time * 60)) | 0,
+      d[o + 3]! * inherit, d[o + 4]! * inherit, d[o + 5]! * inherit)
+  }
+}
+
+/**
+ * 炸彈落地。`nx` 是落點的種類：0 = 陸、1 = 水、2 = 船（見
+ * `World.onBombImpact`）。
+ *
+ * 【打中船用空爆那一份】甲板上炸不揚土、也不掀水冠 —— 剩下的正好是
+ * `AIR_BLAST` 的火球加煙。
+ */
+function emitBombBlasts(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    const kind = d[o + 3]!
+    const recipe = kind > 1.5 ? AIR_BLAST : kind > 0.5 ? WATER_BLAST : LAND_BLAST
+    // 【表現的規模跟著那一顆的傷害走】`ny` 帶的是爆心傷害，而尺度的立方
+    // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
+    const scale = blastScaleOf(d[o + 4]!)
+    scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
+    emitBlast(BLAST_POOLS, SCALED_BLAST,
+      d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
+  }
+}
 
 /**
  * 每一場結束時要歸零的粒子池。**清單只有這一份。**
@@ -334,7 +502,10 @@ const debris = createDebris()
  * 【殘骸不在這裡】殘骸池持有飛機模型，必須在 `visuals` 清空**之前**還回去，
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
-const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts]
+const POOLS = [
+  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts,
+  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
+]
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
@@ -449,6 +620,7 @@ function rebuildVisuals(): void {
   renderQuaternions = world.combatants.map((c) => visuals.get(c)!.quaternion)
   // 眼點是量出來的座艙位置，一機一個值
   rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+  syncBombLoad()
   fitCameraToPlayer()
 }
 
@@ -647,6 +819,11 @@ function startWorld(cfg: BattleConfig): void {
   // 【彈丸的陸地】撞到山就爆火花並回收。玩家、AI 與砲塔的槍全部走同一個
   // 彈丸池，所以這一行就涵蓋三者
   world.land = terrain.land
+  // 【炸彈的地面與水面】與 `crashPolicy` 同一個注入方式：規則的權威在
+  // `render/terrain.ts`，`World` 不抄第二份。放在這裡就自動涵蓋換地形 ——
+  // 這一段每一場都重跑
+  world.groundAt = terrain.collisionHeightAt
+  world.waterAt = terrain.waterAt
   player = battle.player
   rebuildVisuals()
 
@@ -948,6 +1125,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
     input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
     // 左鍵失效：開火完全由 AI 的開火紀律決定
     input.firing = false
+  } else if (input.viewMode === 'bomb') {
+    // 【投彈模式凍結瞄準點】瞄準點就是飛行指令，而 `slewAimWorld` 的旋轉軸
+    // 取自相機 —— 相機一朝下，滑鼠的語意就變了。凍結它、指揮儀照舊追它，
+    // 等於「保持航向與姿態」。什麼都不做就是凍結。
+    //
+    // 下面照舊歸零 `aimDelta`：不歸零的話位移會累積到離開投彈模式的那一幀，
+    // 鏡頭一次噴過去
   } else {
     slewAimWorld(
       input.aimWorld, input.aimDeltaX, input.aimDeltaY,
@@ -1026,10 +1210,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
-    emitFireball(fireball, world.killEvents)
-    emitKillSmoke(smoke, world.killEvents)
+    emitKillBlasts(world.killEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
+    // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
+    emitBombBlasts(world.bombEvents)
+    clearImpacts(world.bombEvents)
     // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
     // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
     emitFlakBursts(flakBursts, world.burstEvents)
@@ -1048,6 +1234,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     playerAi.clearTerrainState()
     // 眼點是量出來的座艙位置，一機一個值 —— 兩隊機種不同時位置不一樣
     rig.options.firstPersonOffset.copy(visuals.get(player)!.model.eyePoint)
+    syncBombLoad()
     fitCameraToPlayer()
     // 【瞄準點要放回機首】不放的話它還指著舊機體墜落前指的地方（多半是
     // 海面），接手的第一瞬間新機就被硬扯下去 —— 與 `I` 交還操縱時把瞄準點
@@ -1123,6 +1310,35 @@ function stepAndDrawBattle(frameSeconds: number): void {
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
+  // ── 彈艙 ──────────────────────────────────────────────
+  //
+  // 【**必須在所有視角分支之外**】彈艙是機械，與鏡頭在哪裡無關：關進任何一個
+  // 視角分支，回補與連投節拍就會在那個視角之外凍住。`bomb-bay-wiring.test.ts`
+  // 守這一條。
+  //
+  // 【扣扳機不必另外擋】上帝視角與代飛在上面已經把 `input.firing` 設成 false，
+  // 所以 `press` 恆為 false —— 那兩個模式投不出彈，但連投剩下的幾枚照節奏
+  // 投完、回補照走。
+  //
+  // 【投彈點每幀都算】連投中途換視角時，剩下那幾枚要從當下的位置出去。
+  const bp = visuals.get(player)!.model.bombPoint
+  if (bp !== null) {
+    BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+    const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
+    stepBombBay(bombBay, frameSeconds, press, () => {
+      const v = player.aircraft.state.velocity
+      world.dropBomb(
+        BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z,
+        bombDamageOf(player.aircraft.spec.id),
+      )
+    })
+  }
+  // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成
+  // 一次新的扣扳機
+  bombWasFiring = input.viewMode === 'bomb' && input.firing
+
+  let bombTarget: Vector3 | null = null
+  let bombState: 'off' | 'solved' | 'none' = 'off'
   if (input.godView) {
     godInput.forward = input.godMove.forward
     godInput.back = input.godMove.back
@@ -1141,14 +1357,34 @@ function stepAndDrawBattle(frameSeconds: number): void {
       ctx.camera.updateProjectionMatrix()
     }
   } else {
+    // 【落點要在 rig.update 之前解】投彈模式下相機的視線就是指向它
+    //
+    // 【不看視角】落點是飛行狀態的函數，算得出來一般飛行也標得出來（HUD 的
+    // `bombsight` 在兩種模式都畫，只差顏色）。上帝視角則整段跳過 —— 那裡連
+    // 落點圈都不畫。
+    if (bp !== null) {
+      bombState = 'none'
+      BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
+      const v = player.aircraft.state.velocity
+      BOMB_START.vx = v.x; BOMB_START.vy = v.y; BOMB_START.vz = v.z
+      // 【dt 用 loop.stepSeconds 而不是 frameSeconds】預測必須與空中的
+      // 炸彈同一個步長，那條護欄的整個重點就在這裡
+      if (solveImpact(BOMB_START, world.bombDrag, world.groundAt, loop.stepSeconds, BOMB_IMPACT)) {
+        BOMB_POINT.set(BOMB_IMPACT.x, BOMB_IMPACT.y, BOMB_IMPACT.z)
+        bombState = 'solved'
+        // 【只有投彈模式把落點交給相機】一般飛行時鏡頭跟的是瞄準點
+        if (input.viewMode === 'bomb') bombTarget = BOMB_POINT
+      }
+    }
     // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
     rig.update(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
-      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds,
+      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
   }
 
   tracers.update(world.projectiles)
+  bombVisuals.update(world.bombs)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -1175,6 +1411,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
+  // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
+  blastJets.step(frameSeconds)
+  blastChunks.step(frameSeconds)
+  blastGlow.step(frameSeconds)
+  blastEmber.step(frameSeconds)
+  blastSmoke.step(frameSeconds)
+  blastDust.step(frameSeconds)
+  blastMist.step(frameSeconds)
   flakBursts.step(frameSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
@@ -1229,6 +1474,27 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.noseX = probe.x
   hudFrame.noseY = probe.y
   hudFrame.noseVisible = probe.z < 1
+
+  // 投彈落點。**照 noseX/noseY 同一條路**：世界點 → NDC。
+  //
+  // 【為什麼要投影而不是寫死在畫面中央】相機自動盯落點，所以解穩定時圓圈
+  // 確實在中心；但視線的 LERP 會在機動時把它拖開，而那個分離量正是要看的
+  // 東西 —— 「投彈解還沒收斂」。
+  hudFrame.bombState = bombState
+  hudFrame.bombing = input.viewMode === 'bomb'
+  hudFrame.bombCapable = input.bombCapable
+  hudFrame.bombBayCapacity = bombBay.capacity
+  hudFrame.bombLoad = bombBay.load
+  hudFrame.bombReloading = bombBay.reloading
+  hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0
+  hudFrame.bombVisible = false
+  if (bombState === 'solved') {
+    BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)
+    hudFrame.bombX = BOMB_NDC.x
+    hudFrame.bombY = BOMB_NDC.y
+    hudFrame.bombVisible = BOMB_NDC.z < 1 &&
+      Math.abs(BOMB_NDC.x) <= 1 && Math.abs(BOMB_NDC.y) <= 1
+  }
 
   // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
   // 才會換成「螢幕半高」。相機追著它，所以這一組值正常情況下都貼近 0。

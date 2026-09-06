@@ -133,6 +133,46 @@ export interface HudFrame {
   noseY: number
   noseVisible: boolean
   /**
+   * 投彈落點在畫面上的位置，**NDC（−1…1）**，慣例同 `noseX` / `noseY`。
+   *
+   * 【為什麼不是恆在畫面中央】相機自動盯落點，所以解穩定時圓圈會回到中心；
+   * 飛機一機動、速度一變、圓錐一夾制，視線的 LERP 就讓它漂開。那個分離量
+   * 就是「投彈解還沒收斂」—— 與滑鼠準星／機首十字的分離量是同一個語言。
+   */
+  bombX: number
+  bombY: number
+  /** 落點在相機前方且投影落在畫面內 */
+  bombVisible: boolean
+  /**
+   * `off` = 這一幀沒解落點（不是轟炸機，或在上帝視角）；`solved` = 有落點；
+   * `none` = 90 秒內解不出來。
+   *
+   * 【沒有「被圓錐夾住」這一格】夾制不改變圓圈的正確性 —— 圈畫的恆是真
+   * 落點，被夾住的是相機；而且夾制觸發時落點方向與相機軸差 0°，圈就在正
+   * 中央。有後果的是圈滑出畫面，那由 `bombVisible` 管。
+   */
+  bombState: 'off' | 'solved' | 'none'
+  /**
+   * 在投彈模式（按 B）。**與 `bombState` 是兩件事** —— 落點在一般飛行時
+   * 照樣解算，只是相機不去追它、圈用暗色、滑出畫面就不畫。
+   */
+  bombing: boolean
+  /** 這一台掛得了炸彈。彈艙讀數的顯示條件 */
+  bombCapable: boolean
+  /** 這一台的滿艙是幾枚。**讀數畫幾格就看它** */
+  bombBayCapacity: number
+  /** 彈艙裡還剩幾枚 */
+  bombLoad: number
+  /**
+   * 正在回補。
+   *
+   * 【為什麼一定要畫出來】彈艙空了之後扳機沒有反應。看不到「正在補彈」的話，
+   * 那與「壞了」在畫面上是同一件事 —— 而玩家會當成後者。
+   */
+  bombReloading: boolean
+  /** 補完還要幾秒。`bombReloading` 為 false 時為 0 */
+  bombReloadLeft: number
+  /**
    * 這一場有沒有戰場邊界。**遭遇戰有，任務卡沒有** —— 撤離點在 −20 km、
    * 護航的集合點 12 km，兩者都在界外。沒有這一格的話，任務裡飛去撤離點會
    * 一路閃警告。
@@ -271,6 +311,9 @@ export function createHudFrame(): HudFrame {
     ps: 0, es: 0, throttle: 0, powerW: 0,
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
+    bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
+    bombing: false, bombCapable: false, bombBayCapacity: 0,
+    bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,

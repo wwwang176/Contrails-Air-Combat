@@ -13,20 +13,27 @@ import { drawReticle } from './widgets/reticle'
 import { drawRoster } from './widgets/roster'
 import { drawObjective } from './widgets/objective'
 import { drawHeadingTape } from './widgets/tape'
+import { drawBombsight } from './widgets/bombsight'
+import { drawBombBay } from './widgets/bombBay'
+import { drawBombVignette } from './widgets/bombVignette'
 import type { HudFrame, HudLayout } from './types'
 
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
   | 'godMarkers' | 'objective' | 'arena' | 'message'
+  | 'bombsight' | 'bombBay' | 'bombVignette'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
  * 黑視／紅視先畫，其餘 HUD 元件疊在上面維持可讀；受擊方向壓在世界上面、
  * 儀表與數字之下；接觸點畫在準星底下 —— 準星必須壓在最上層。
  */
-const FULL: readonly HudWidget[] = [
-  'gEffect', 'damageEdge', 'contacts', 'reticle', 'tape',
+export const FULL: readonly HudWidget[] = [
+  'gEffect', 'damageEdge', 'contacts', 'reticle',
+  // 【落點圈排在準星之後】兩者重疊時壓在上面的是落點圈
+  'bombsight', 'bombBay',
+  'tape',
   'dials', 'minimap', 'health', 'energy', 'roster', 'hints',
   // 【界的警告排在 objective 之前】兩者都是「這一場的規則」而不是儀表，
   // 但目標壓最上層
@@ -65,14 +72,32 @@ const GOD: readonly HudWidget[] = [
 ]
 
 /**
+ * 投彈模式畫的那一套：**拿掉準星、加一層暗角，其餘照舊。**
+ *
+ * 【為什麼一定要拿掉 `reticle`】瞄準點在投彈模式下是**凍結**的（`main.ts`
+ * 不再 slew 它），畫出來就是一個指著沒有意義的方向的圓圈。理由與上面 `GOD`
+ * 那一段逐字相同：「準星更是直接誤導 —— 它會讓人以為那個方向會有子彈出去」。
+ *
+ * 【為什麼用 filter 而不是重抄一份清單】抄一份的話，`FULL` 加了新 widget 卻
+ * 忘了加到這裡，症狀是「投彈模式下少一個儀表」而不會有任何錯誤。
+ */
+export const BOMB: readonly HudWidget[] = [
+  // 【暗角排最前面】它壓的是**世界**，不是 HUD。排在後面的話儀表、小地圖、
+  // 隊列都會被一起壓暗，而那幾個是面板不是視野
+  'bombVignette',
+  ...FULL.filter((w) => w !== 'reticle'),
+]
+
+/**
  * 這一幀要畫哪些 widget，依序。
  *
  * 【為什麼是純函數】canvas 在 node 環境驗不到，而「準星在上帝視角下絕不
  * 出現」是一條真的會壞、壞了又很難察覺的性質。抽出來就驗得到，順帶把
  * 繪製順序也釘進測試裡。
  */
-export function hudWidgets(godView: boolean): readonly HudWidget[] {
-  return godView ? GOD : FULL
+export function hudWidgets(godView: boolean, bombing = false): readonly HudWidget[] {
+  if (godView) return GOD
+  return bombing ? BOMB : FULL
 }
 
 type WidgetDraw = (
@@ -106,6 +131,9 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   hints: (ctx, L, f) => drawHints(ctx, L, f),
   arena: (ctx, L, f) => drawArena(ctx, L, f),
   objective: (ctx, L, f) => drawObjective(ctx, L, f),
+  bombsight: (ctx, L, f) => drawBombsight(ctx, L, f),
+  bombBay: (ctx, L, f) => drawBombBay(ctx, L, f),
+  bombVignette: (ctx, L, f) => drawBombVignette(ctx, L, f),
   message: (ctx, L, f) => drawMessage(ctx, L, f),
 }
 
@@ -143,6 +171,8 @@ export class Hud {
   render(f: HudFrame, dt: number): void {
     const { ctx, layout: L } = this
     ctx.clearRect(0, 0, L.width, L.height)
-    for (const w of hudWidgets(f.godView)) WIDGET_DRAW[w](ctx, L, f, dt)
+    for (const w of hudWidgets(f.godView, f.bombing)) {
+      WIDGET_DRAW[w](ctx, L, f, dt)
+    }
   }
 }

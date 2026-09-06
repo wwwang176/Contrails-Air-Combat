@@ -57,6 +57,22 @@ export function makeHitBox(
 export const NO_HIT = -1
 
 /**
+ * 點到 AABB 的**最短距離**，座標一律是盒子所屬的那個座標系。點在盒內回 0。
+ *
+ * 【為什麼不能用到中心的距離】爆炸的範圍傷害要問「離這個東西多遠」，而船
+ * 是 266 m 長的。炸彈落在艦首前 10 m 時離船體只有 10 m，離質心卻有 140 m
+ * ——照質心算的話，一顆貼著艦首爆的炸彈完全不會傷到船。
+ */
+export function pointBoxDistance(
+  px: number, py: number, pz: number, box: Box,
+): number {
+  const dx = Math.max(0, Math.abs(px - box.center.x) - box.half.x)
+  const dy = Math.max(0, Math.abs(py - box.center.y) - box.half.y)
+  const dz = Math.max(0, Math.abs(pz - box.center.z) - box.half.z)
+  return Math.sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+/**
  * 線段 vs AABB（slab 法）。座標一律是**機體座標**。
  *
  * @returns 進入參數 t ∈ [0, 1]；起點已在盒內時為 0；未命中回傳 NO_HIT。
