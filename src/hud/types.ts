@@ -79,6 +79,37 @@ export function createHudContact(): HudContact {
   }
 }
 
+/**
+ * 一個標記（畫面上的一顆彈、一枚雷、一艘船）。
+ *
+ * 【為什麼不併進 `HudContact`】接觸點帶著十六個欄位 —— 預瞄環、分隊、
+ * 目標框半徑、小地圖用的世界座標。這三種東西一個都用不到：炸彈不屬於
+ * 任何 Schwarm、不需要預瞄解、也不進小地圖。併進去等於每顆彈都拖著
+ * 十三格死資料，而池子是 48 格的固定長度 —— 64 顆彈就把接觸點擠掉了。
+ */
+export interface HudMarker {
+  /** 這一格有沒有在用。markers 是固定長度的池，用 markerCount 界定範圍 */
+  active: boolean
+  /** 螢幕座標，單位為**螢幕半高**（與 contacts 同一套） */
+  x: number
+  y: number
+  /** 在相機背後 —— 不畫。標記沒有畫面外指示 */
+  behind: boolean
+  hostile: boolean
+}
+
+/**
+ * 標記池的容量。炸彈 64 ＋ 魚雷 8 ＋ 艦隊，加餘裕。
+ *
+ * 【為什麼是固定長度的池】與 `HUD_MAX_CONTACTS` 逐字同一條：每幀 new 一個
+ * 陣列就是每幀一次配置。
+ */
+export const HUD_MAX_MARKERS = 96
+
+export function createHudMarker(): HudMarker {
+  return { active: false, x: 0, y: 0, behind: false, hostile: true }
+}
+
 /** 命中 X 標記的顯示時間，秒（spec §8）。 */
 export const HIT_FLASH_SECONDS = 0.15
 
@@ -203,6 +234,9 @@ export interface HudFrame {
   /** 接觸點池。只有前 contactCount 格有效 */
   contacts: HudContact[]
   contactCount: number
+  /** 標記池（彈、雷、船）。只有前 markerCount 格有效 */
+  markers: HudMarker[]
+  markerCount: number
   /** 命中回饋的剩餘秒數。> 0 時機首十字周圍畫 X（spec §8：0.15 s） */
   hitFlash: number
   /**
@@ -334,6 +368,8 @@ export function createHudFrame(): HudFrame {
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
     contactCount: 0,
+    markers: Array.from({ length: HUD_MAX_MARKERS }, createHudMarker),
+    markerCount: 0,
     hitFlash: 0,
     damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,

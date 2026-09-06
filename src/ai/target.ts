@@ -713,15 +713,10 @@ export interface TargetBoard {
 export const PRESSURE_RANGE = 2000
 
 /**
- * 隊別對應到 `pressure` 的格子。
- *
- * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
- * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀是「某一
- * 隊的護航機從來不緊張」。
+ * 隊別對應到 `pressure` 的格子。**定義在 `world/World.ts`** —— 彈丸、
+ * 炸彈、魚雷三個池用的是同一個編碼，而 `world/` 不能往上依賴這裡。
  */
-export function teamSlot(team: Team): number {
-  return team === 'blue' ? 0 : 1
-}
+export { teamSlot } from '../world/World'
 
 /**
  * 建立指派板。

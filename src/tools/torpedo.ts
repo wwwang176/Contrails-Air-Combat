@@ -246,7 +246,8 @@ function fire(): void {
   world.torpedoes.tuning = { speed, range, depth, wakeInterval: wakeEvery }
   setupRelease()
   world.dropTorpedo(
-    DROP.x, DROP.y, DROP.z, VEL.x, VEL.y, VEL.z, DAMAGE, NOSE.x, NOSE.z,
+    // 【最後那個 0 是投放者的隊別】展示區只有一枚雷，沒有敵我
+    DROP.x, DROP.y, DROP.z, VEL.x, VEL.y, VEL.z, DAMAGE, NOSE.x, NOSE.z, 0,
   )
   seed = (seed + 7919) >>> 0
   sinceFire = 0

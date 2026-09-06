@@ -35,8 +35,10 @@ const DT = 1 / 240
  * 20,000 —— **第一趟就沉了**，循環根本跑不到第二趟。威奇塔 40,000 撐得住
  * 一趟，才量得到脫離與再進場。
  */
-function bareShip(w: World, speed: number, cls = SHIP_CLASSES.wichita): Ship {
-  const s = createShip(w.ships.length, cls, 'red', 0, -4000, 0, speed)
+function bareShip(
+  w: World, speed: number, team: 'blue' | 'red' = 'red', cls = SHIP_CLASSES.wichita,
+): Ship {
+  const s = createShip(w.ships.length, cls, team, 0, -4000, 0, speed)
   s.guns = []
   s.gunCooldowns = new Float32Array(0)
   w.ships.push(s)
@@ -51,14 +53,15 @@ interface Rig {
 }
 
 /** 一台 G4M 從 5 km 外、1,000 m 高度、朝船飛過去。 */
-function rig(shipSpeed: number): Rig {
+function rig(shipSpeed: number, team: 'blue' | 'red' = 'blue'): Rig {
   const w = new World()
   // 【關掉墜地】這一支要量的是航路，不是撞海。開著的話低空的那幾趟會混進
   // 「被地形殺掉」的樣本
   w.crashPolicy = () => false
-  const ship = bareShip(w, shipSpeed)
+  // 【船一定是轟炸機的敵隊】同隊的話 AI 根本不會去打它，整個試驗場是空轉的
+  const ship = bareShip(w, shipSpeed, team === 'blue' ? 'red' : 'blue')
   const ai = new AiController()
-  const c = w.add(new Aircraft(G4M), ai, 'blue', new Vector3(0, 1000, 1000), 1000, 110)
+  const c = w.add(new Aircraft(G4M), ai, team, new Vector3(0, 1000, 1000), 1000, 110)
   // 【`w.add` 只存重生點，不會把飛機放過去】少了這兩行它會留在
   // `new Aircraft()` 的預設高度（4,000 m），而那是完全不同的彈道
   c.aircraft.state.position.set(0, 1000, 1000)
@@ -140,6 +143,25 @@ describe('攻擊航路（一台 G4M、一艘不開火的船）', () => {
     expect(out.bombs).toBeGreaterThan(0)
     expect(out.passes).toBeGreaterThan(1)
     expect(out.hp).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【HUD 標記靠它分紅藍】`Bombs.team` 由投放的那一台帶進來。兩隊都要驗
+   * —— 只驗一隊的話，把 `teamSlot` 改成恆回 0 仍然全綠，而症狀是
+   * 「敵方投的炸彈在畫面上是藍的」。
+   */
+  it('投出去的炸彈帶著投放者的隊別', () => {
+    for (const [team, slot] of [['blue', 0], ['red', 1]] as const) {
+      const r = rig(0, team)
+      fly(r, 120)
+      const bo = r.w.bombs
+      expect(bo.dropped, team).toBeGreaterThan(0)
+      // 【只看真的寫過的格子】`team` 的初始值是 0，沒投過的格子恆是 0 ——
+      // 全掃的話藍隊那一輪會因為「空格也是 0」而恆綠。環狀指標從 0 起跳，
+      // 所以投不滿一圈時寫過的就是前 dropped 格
+      const n = Math.min(bo.dropped, bo.capacity)
+      for (let i = 0; i < n; i++) expect(bo.team[i], `${team} 第 ${i} 顆`).toBe(slot)
+    }
   })
 
   /**

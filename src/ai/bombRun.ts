@@ -5,6 +5,7 @@ import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
+import { deckHeightOf } from '../world/ships'
 import type { Ship, ShipClass } from '../world/ships'
 
 /**
@@ -58,22 +59,10 @@ export function solveGateOf(altitude: number): number {
 }
 
 /**
- * 解算用的落地平面高度：**主甲板**，不是海面。
- *
- * 【為什麼不用海面】甲板高 4.5～7 m，多掉那幾公尺在末速下多飛約 7 m。
- * 在釋放半徑的量級之內，但沒有理由留著這個偏差。
- *
- * 【為什麼是 `hull` 的最高點】船體盒一律止於主甲板（`world/ships.ts` 的
- * 硬性不變量：盒頂低於最低的砲位），所以那就是甲板。
+ * 解算用的落地平面高度：**主甲板**，不是海面。**定義在 `world/ships.ts`**
+ * —— HUD 的標記高度用的是同一個數字，而 `hud/` 不能往上依賴 `ai/`。
  */
-export function deckHeightOf(cls: ShipClass): number {
-  let top = 0
-  for (const b of cls.hull) {
-    const t = b.center.y + b.half.y
-    if (t > top) top = t
-  }
-  return top
-}
+export { deckHeightOf }
 
 /**
  * 釋放半徑是船寬的幾倍。

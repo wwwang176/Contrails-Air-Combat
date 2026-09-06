@@ -128,6 +128,11 @@ export class Torpedoes {
   readonly serial: Float64Array
   readonly headX: Float64Array
   readonly headZ: Float64Array
+  /**
+   * 投放者的隊別。**0 = 藍、1 = 紅**，與 `Bombs.team` 同一個編碼。
+   * HUD 的標記靠它決定紅還是藍；模擬完全不讀它。
+   */
+  readonly team: Int8Array
   /** 0 = 空中，1 = 水中 */
   readonly phase: Uint8Array
   readonly active: Uint8Array
@@ -158,6 +163,7 @@ export class Torpedoes {
     this.age = f(); this.run = f(); this.damage = f()
     this.headX = f(); this.headZ = f()
     this.serial = f()
+    this.team = new Int8Array(capacity)
     this.phase = new Uint8Array(capacity)
     this.active = new Uint8Array(capacity)
   }
@@ -168,11 +174,14 @@ export class Torpedoes {
    * @param damage      這一枚的**接觸**傷害。沒有距離衰減
    * @param headX/headZ 投放瞬間的機首水平方向，單位向量。只有垂直入水那種
    *                    退化情況用得到
+   * @param team        投放者的隊別，0 = 藍、1 = 紅。只有 HUD 標記讀它。
+   *                    **這一層有預設值，`World.dropTorpedo` 那一層沒有** ——
+   *                    理由同 `Bombs.spawn`
    */
   spawn(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
-    headX: number, headZ: number,
+    headX: number, headZ: number, team = 0,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -181,6 +190,9 @@ export class Torpedoes {
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
     this.headX[i] = headX; this.headZ[i] = headZ
     this.damage[i] = damage
+    // 【一定要寫，不能靠 clear】`clear` 只清 `active` 與 `serial`；環狀指標
+    // 繞回來時這一格會沿用前一枚的隊別
+    this.team[i] = team
     this.age[i] = 0
     this.run[i] = 0
     this.phase[i] = AIR

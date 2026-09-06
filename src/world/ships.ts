@@ -224,6 +224,25 @@ for (const cls of Object.values(SHIP_CLASSES)) {
   (cls as { radius: number }).radius = radiusOf(cls.hull, cls.zones)
 }
 
+/**
+ * 主甲板的高度，m。
+ *
+ * 【為什麼是 `hull` 的最高點】船體盒一律止於主甲板（本檔的硬性不變量：
+ * 盒頂低於最低的砲位），所以那就是甲板。
+ *
+ * 兩個消費端：轟炸解算用它當落地平面（`ai/bombRun.ts`；用海面的話末速下
+ * 多飛約 7 m），HUD 的標記用它當高度（`Ship.position.y` 恆為 0，照抄的話
+ * 倒三角形指的是水面而不是船）。
+ */
+export function deckHeightOf(cls: ShipClass): number {
+  let top = 0
+  for (const b of cls.hull) {
+    const t = b.center.y + b.half.y
+    if (t > top) top = t
+  }
+  return top
+}
+
 export function createShip(
   index: number, cls: ShipClass, team: Team,
   x: number, z: number, heading: number, speed: number,

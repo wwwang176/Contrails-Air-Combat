@@ -49,6 +49,21 @@ import { PROJECTILE_LIFETIME } from './Projectiles'
 
 export type Team = 'blue' | 'red'
 
+/**
+ * 隊別的整數編碼。**0 = 藍、1 = 紅。**
+ *
+ * 【為什麼是一個函數而不是讓呼叫端自己寫 `team === 'blue' ? 0 : 1`】那條
+ * 三元式若在兩處各寫一次，其中一處寫反了不會有任何測試紅 —— 症狀只是
+ * 「某一隊的東西顏色不對」或「某一隊的護航機從來不緊張」。
+ *
+ * 【為什麼住在這裡而不是 `ai/target.ts`】它本來在那裡，但彈丸、炸彈、
+ * 魚雷這三個池都要用同一個編碼，而 `world/` 不能往上依賴 `ai/`。
+ * `ai/target.ts` 現在轉出這一支。
+ */
+export function teamSlot(team: Team): number {
+  return team === 'blue' ? 0 : 1
+}
+
 /** 世界裡的一架飛機：機體 + 控制器 + 武器狀態 + 戰損狀態。 */
 export interface Combatant {
   /** 在 `World.combatants` 裡的索引。彈丸用它記錄射手，判定時排除自傷。 */
@@ -746,11 +761,13 @@ export class World {
    * @param damage      這一枚的接觸傷害。由投放的那一台的掛載決定
    * @param headX/headZ 投放瞬間的機首**水平**方向，單位向量。只有垂直入水
    *                    那種退化情況用得到 —— **不能從退化的速度反推**
+   * @param team        投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
+   *                    **沒有預設值** —— 漏傳會靜靜地把雷標成藍色
    */
   dropTorpedo(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
-    headX: number, headZ: number,
+    headX: number, headZ: number, team: number,
   ): void {
     // 【散佈與炸彈同一組】由累計投放序號決定（可重播），不是亂數。瞄具解的
     // 是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 —— 把散佈也
@@ -762,13 +779,17 @@ export class World {
       BOMB_VEL,
     )
     this.torpedoes.spawn(
-      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ,
+      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ, team,
     )
   }
 
+  /**
+   * @param team 投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
+   *             **沒有預設值** —— 漏傳會靜靜地把彈標成藍色
+   */
   dropBomb(
     x: number, y: number, z: number,
-    vx: number, vy: number, vz: number, damage: number,
+    vx: number, vy: number, vz: number, damage: number, team: number,
   ): void {
     spreadPair(this.bombs.dropped, BOMB_PAIR)
     spreadDirection(
@@ -776,7 +797,7 @@ export class World {
       BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
       BOMB_VEL,
     )
-    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage)
+    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, team)
   }
 
   /**
@@ -836,7 +857,7 @@ export class World {
     // 【從質心投，不是 `bombPoint`】那一格住在算繪層的 `AircraftModel`，
     // `World` 讀不到也不該讀 —— 而它是給玩家對準星用的，與質心差兩三公尺，
     // 落在 30 m 量級的殺傷半徑的雜訊裡。
-    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, c.loadout?.damage ?? 0)
+    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, c.loadout?.damage ?? 0, teamSlot(c.team))
   }
 
   /**

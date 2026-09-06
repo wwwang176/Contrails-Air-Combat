@@ -404,7 +404,7 @@ describe('上帝視角的 HUD', () => {
    */
   it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標、中央訊息', () => {
     expect(hudWidgets(true)).toEqual(
-      ['godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective'],
+      ['markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective'],
     )
   })
 
@@ -470,6 +470,26 @@ describe('上帝視角的 HUD', () => {
     const w = hudWidgets(false)
     expect(w[0]).toBe('gEffect')
     expect(w.indexOf('contacts')).toBeLessThan(w.indexOf('reticle'))
+  })
+
+  /**
+   * 【標記壓在目標框底下】剛脫手的那一瞬間，炸彈與投它的那一架在畫面上是
+   * 同一個點。兩者疊到時該讀的是飛機。
+   */
+  it('彈藥與艦船的標記排在目標框之前', () => {
+    const w = hudWidgets(false)
+    expect(w.indexOf('markers')).toBeLessThan(w.indexOf('contacts'))
+  })
+
+  /**
+   * 【三種視角都要有】標記是**世界疊加層**而不是座艙儀表 —— 彈、雷、船在
+   * 哪裡與鏡頭在哪裡無關。投彈模式是最需要看到船的時候；上帝視角那裡沒有
+   * 目標框，整片海上只剩幾個灰色小點（負責人 2026-09-07 試玩回報）。
+   */
+  it('三種視角都畫標記', () => {
+    expect(hudWidgets(false)).toContain('markers')
+    expect(hudWidgets(false, true)).toContain('markers')
+    expect(hudWidgets(true)).toContain('markers')
   })
 
   /** 【提示行要換】上帝視角下 W/S 不是油門，寫著油門就是騙人 */
