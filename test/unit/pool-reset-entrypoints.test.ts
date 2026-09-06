@@ -102,4 +102,25 @@ describe('換一場的兩個入口都要清粒子池', () => {
       ].sort(),
     )
   })
+
+  /**
+   * 【進了 `POOLS` 還要有人推它】清乾淨與會動是兩件事。少了 `step` 的池子
+   * 會**收得到 `emit` 但一個粒子都不畫** —— 實例矩陣是在 `step` 裡寫的，
+   * 從來不推就等於整池不存在，而且完全不報錯。
+   *
+   * 【`shipFires` 不在此列】它不是粒子池，走的是 `stepShipFires(...)`。
+   */
+  it('POOLS 裡的每一個粒子池每幀都被推', () => {
+    const m = MAIN.match(/const POOLS[^=]*=\s*\[([^\]]*)\]/)
+    const listed = m![1]!
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s !== 'shipFires')
+    for (const pool of listed) {
+      expect(MAIN, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
+    }
+  })
 })

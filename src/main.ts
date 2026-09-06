@@ -1603,6 +1603,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  shipFireSmoke.step(frameSeconds)
   // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
   // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
   blastJets.step(frameSeconds)
