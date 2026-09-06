@@ -12,8 +12,10 @@ import { bombBayOf } from '../../src/weapons/bomb'
 import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bomb'
 import type { BombState, Impact } from '../../src/world/bomb'
 import {
-  bombRunCommand, deckHeightOf, releaseRadiusOf, shipAt, shouldRelease, solveGateOf,
+  BOMB_PROFILE, deckHeightOf, releaseRadiusOf, setBombBallistics, shipAt, shouldRelease,
+  solveGateOf,
 } from '../../src/ai/bombRun'
+import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import type { Controller } from '../../src/control/Controller'
 
@@ -301,31 +303,164 @@ describe('shouldRelease', () => {
   })
 })
 
-describe('bombRunCommand', () => {
-  it('平飛：aimWorld 沒有垂直分量', () => {
-    const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+describe('攻擊航路的狀態機', () => {
+  const strike = () => createStrikeState()
+
+  function plane(y = 1000, z = 0): Aircraft {
     const a = new Aircraft(G4M)
-    a.state.position.set(0, 1000, 0)
+    a.state.position.set(0, y, z)
+    a.state.velocity.set(0, 0, -90)
+    return a
+  }
+
+  it('轟炸剖面維持現在的高度：aimWorld 沒有垂直分量', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+    const a = plane()
     a.state.velocity.set(0, -12, -90)
     const out = createCommand()
-    bombRunCommand(a, ship, false, out)
+    setBombBallistics(K, DT)
+    stepStrike(strike(), a, sh, 0, BOMB_PROFILE, true, true, DT, out)
     expect(out.aimWorld.y).toBe(0)
     expect(out.aimWorld.length()).toBeCloseTo(1, 9)
   })
 
-  /** 【轟炸航路不開固定槍】B-17 與 He 111 有槍，掃射會把機首拉離航路。 */
-  it('不開固定槍，而且 bombing 照參數走', () => {
-    const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
-    const a = new Aircraft(G4M)
-    a.state.position.set(0, 1000, 0)
-    a.state.velocity.set(0, 0, -90)
+  /** 【攻擊航路不開固定槍】B-17 與 He 111 有槍，掃射會把機首拉離航路。 */
+  it('不開固定槍', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
     const out = createCommand()
     out.firing = true
-    bombRunCommand(a, ship, true, out)
+    setBombBallistics(K, DT)
+    stepStrike(strike(), plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
     expect(out.firing).toBe(false)
-    expect(out.bombing).toBe(true)
-    bombRunCommand(a, ship, false, out)
+  })
+
+  /**
+   * 【遠的時候是進場，不鎖航向】只看角度的話會在 8 km 外就鎖住一個之後
+   * 一定會歪掉的航向。
+   */
+  it('超出鎖定距離時留在進場', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
+    const st = strike()
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.phase).toBe('approach')
+  })
+
+  /**
+   * 【對正且進到鎖定距離就轉直飛，並且把目標鎖住】換船等於航向白鎖。
+   *
+   * 【2,000 m 是算出來的，不是猜的】鎖定距離＝前拋 ＋ `RUN_SETTLE`。
+   * 1,000 m 平飛 90 m/s 的前拋約 1,260 m，加 1,200 得約 2,460 m。
+   */
+  it('對正且進到鎖定距離就轉直飛並鎖住目標', () => {
+    const sh = createShip(3, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+    const st = strike()
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 3, BOMB_PROFILE, true, true, DT, out)
+    expect(st.phase).toBe('run')
+    expect(st.ship).toBe(3)
+  })
+
+  /**
+   * 【鎖定距離必須隨高度變】寫死的話高空的轟炸機進到那個距離時**早就飛過
+   * 投彈點了** —— 實測 4,000 m 的落點誤差一路單調增加（503 → 2283 m）。
+   *
+   * 【但不是線性的】阻力在長落程裡把水平速度削掉很多，所以前拋是**次線性**
+   * 的：實測鎖定距離 1,000 m → 2,410 m、4,000 m → 3,432 m，高度四倍只換到
+   * 1.42 倍。寫「三倍」那種直覺的斷言會紅，而紅的是斷言不是實作。
+   */
+  it('鎖定距離隨高度變大', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -3000, 0, 8)
+    const out = createCommand()
+    setBombBallistics(K, DT)
+
+    const low = strike()
+    stepStrike(low, plane(1000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    const high = strike()
+    stepStrike(high, plane(4000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+
+    expect(low.plan.lockRange).toBeGreaterThan(0)
+    expect(high.plan.lockRange).toBeGreaterThan(low.plan.lockRange + 800)
+  })
+
+  /**
+   * 【空艙就脫離】這一條守的是實測到的「空手飛一趟」累計 115 秒 ——
+   * 少了它，AI 會一直飛攻擊航路而不知道手上沒東西，然後鑽進近迫火網。
+   */
+  it('空艙時轉脫離，而且背離船並爬升', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2500, 0, 8)
+    const st = strike()
+    st.phase = 'run'
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 0, BOMB_PROFILE, false, true, DT, out)
+    expect(st.phase).toBe('egress')
+    // 船在 −Z，脫離要往 +Z，而且要爬升
+    expect(out.aimWorld.z).toBeGreaterThan(0)
+    expect(out.aimWorld.y).toBeGreaterThan(0)
     expect(out.bombing).toBe(false)
+  })
+
+  /** 【飛過頭也要放棄】留在直飛只會鑽進 20 mm 的近迫火網。 */
+  it('飛到放棄距離之內就轉脫離', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -400, 0, 8)
+    const st = strike()
+    st.phase = 'run'
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.phase).toBe('egress')
+  })
+
+  /** 【補滿且拉開夠遠才准再進場】兩個條件缺一個就會空手再衝一次。 */
+  it('脫離時只有補滿還不夠，要拉開夠遠', () => {
+    const near = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+    const far = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
+    const out = createCommand()
+    setBombBallistics(K, DT)
+
+    const a = strike(); a.phase = 'egress'
+    stepStrike(a, plane(), near, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(a.phase).toBe('egress')
+
+    const b2 = strike(); b2.phase = 'egress'
+    stepStrike(b2, plane(), far, 0, BOMB_PROFILE, false, true, DT, out)
+    expect(b2.phase).toBe('egress')
+
+    const c = strike(); c.phase = 'egress'
+    stepStrike(c, plane(), far, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(c.phase).toBe('approach')
+  })
+
+  /**
+   * 【直飛段不逐步重瞄】這是整件事的核心。航向每拍只朝理想值收斂
+   * `RUN_TRIM`，所以一步之內的變化必須遠小於「直接對準」。
+   */
+  it('直飛段的航向是重阻尼，不是每步重瞄', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
+    const st = strike()
+    st.phase = 'run'
+    st.heading.set(0, 0, -1)
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    // 理想航向偏了約 20°，一拍只能走掉 RUN_TRIM 那一小段
+    const moved = Math.acos(Math.min(1, st.heading.dot(new Vector3(0, 0, -1))))
+    expect(moved).toBeGreaterThan(0)
+    expect(moved).toBeLessThan(0.25 * RUN_TRIM * 4)
+  })
+
+  it('非決策拍不動航向', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
+    const st = strike()
+    st.phase = 'run'
+    st.heading.set(0, 0, -1)
+    const out = createCommand()
+    setBombBallistics(K, DT)
+    stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, false, DT, out)
+    expect(st.heading.z).toBe(-1)
   })
 })
 

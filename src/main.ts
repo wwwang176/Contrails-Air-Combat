@@ -142,7 +142,7 @@ function wireTerrain(force = false): void {
     // 【投彈那兩格跟著一起接】理由與船完全相同，而且它們也是每一場、每一次
     // 重生都要重接：`bombBay` 隨機種變（換裝、接手僚機），`bombDrag` 必須
     // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
-    ctl.bombBay = c.bombBay.capacity
+    ctl.bombBay = c.bombBay
     ctl.bombDrag = world.bombDrag
     if (!force && ctl.terrain === terrain) continue
     ctl.terrain = terrain
@@ -150,8 +150,8 @@ function wireTerrain(force = false): void {
   }
   playerAi.ships = world.ships
   // 【代飛的那一架不投彈】`playerAi` 只在玩家交出操縱時接手，而投彈仍然
-  // 由玩家的幀迴圈發動（見 `playerBay`）。給 0 就讓它走掃射那一支。
-  playerAi.bombBay = 0
+  // 由玩家的幀迴圈發動（見 `playerBay`）。給 null 就讓它走掃射那一支。
+  playerAi.bombBay = null
   playerAi.bombDrag = world.bombDrag
   if (force || playerAi.terrain !== terrain) {
     playerAi.terrain = terrain

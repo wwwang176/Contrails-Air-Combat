@@ -39,7 +39,7 @@ function wire(cfg: BattleConfig, solve: boolean): () => void {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
     ctl.ships = b.world.ships
-    ctl.bombBay = solve ? c.bombBay.capacity : 0
+    ctl.bombBay = solve ? c.bombBay : null
     ctl.bombDrag = b.world.bombDrag
   }
   return () => stepBattle(b, DT)
