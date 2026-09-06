@@ -7,8 +7,7 @@
  *   有限時限 → 必須 `defeat`、`secondsLeft <= 0`、藍隊還有人、玩家還在圈外
  *   Infinity  → 跑同樣的時長必須仍然是 `fighting`
  *
- * 這四加二條合起來說的是「**它是因為時限到了才輸的**」，而不只是「它輸了」
- * （Codex 審查 2026-08-16）。
+ * 這四加二條合起來說的是「**它是因為時限到了才輸的**」，而不只是「它輸了」。
  */
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
@@ -41,8 +40,7 @@ class Runner implements Controller {
  *
  * 【為什麼不是「維持現在的航向」】藍隊出生時機首朝 −Z（`setup.ts` 的
  * `createBattle`），而撤離點也在 −Z —— 一個「維持航向」的控制器會直飛
- * 撤離點然後判 victory，那條「超時落敗」的測試會量到完全相反的東西
- * （Codex 審查 2026-08-16）。
+ * 撤離點然後判 victory，那條「超時落敗」的測試會量到完全相反的東西。
  *
  * 【為什麼一定要水平】`World.crashPolicy` 的預設是 `SEA_LEVEL`，無頭環境
  * 一樣會撞海。開局在 4,000 m 平飛才不會在中途墜海把「還有人活著」那條

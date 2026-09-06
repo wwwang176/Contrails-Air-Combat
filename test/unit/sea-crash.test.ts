@@ -15,7 +15,7 @@ import type { Command, Controller } from '../../src/control/Controller'
  *
  * 【為什麼要走真正的 `World.crashPolicy → destroy`】只測
  * `Terrain.collisionHeightAt` 的話，`main.ts` 忘了由 `heightAt` 換過去仍然
- * 全綠 —— 那正是這一輪最可能的靜默失效（Codex 2026-08-28 審查抓到的）。
+ * 全綠 —— 那正是這一輪最可能的靜默失效。
  * 這裡把政策裝進一個真的 `World` 裡，讓判定經過它自己的退場路徑。
  */
 

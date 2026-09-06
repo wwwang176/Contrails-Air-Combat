@@ -3,7 +3,7 @@
  *
  *   npx tsx test/tools/turret-pivot.probe.ts
  *
- * 【人工回報 2026-08-21】「B17 機腹底的機槍，旋轉點好像不對」。
+ * 【人工回報】「B17 機腹底的機槍，旋轉點好像不對」。
  *
  * 三處都把槍管的**管口釘在 `t.position`**，再把管身朝 −aim 擺出去
  * （`render/turretBarrels.ts`、`render/muzzle.ts`、`world/turrets.ts`）。

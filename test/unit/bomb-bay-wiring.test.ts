@@ -61,8 +61,8 @@ describe('彈艙的接線：不得被關進任何視角分支', () => {
  * 守的是「`fillMarkers` 真的被叫到」。`hud-marker-feed.test.ts` 是**直接**
  * 呼叫那支函數，所以把 `main.ts` 裡那一行刪掉不會讓任何測試紅 ——
  * 而 `HudFrame` 開出來 `markerCount` 是 0、widget 只讀前 `markerCount` 格，
- * 症狀就是**整組標記一個都不畫，而且沒有任何錯誤訊息**（Codex 審查
- * 2026-09-07）。與上面那一支是同一個手法、同一個理由。
+ * 症狀就是**整組標記一個都不畫，而且沒有任何錯誤訊息**。
+ * 與上面那一支是同一個手法、同一個理由。
  */
 describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
   const fill = only('fillMarkers(')

@@ -17,7 +17,7 @@ import { readyCard } from '../fixtures/mission'
  * 平均，答的就不是人工回報的那個問題。實測過兩次教訓：
  *
  * - 取中位會把「近距離纏鬥中被踢出去」與「遠距離正常撤退」混成一個不存在
- *   的案例（2026-08-22 專案負責人指出）。
+ *   的案例。
  * - 逐卡的 extend 佔時對「玩家那一支分隊有沒有在打」極度敏感：同一張卡，
  *   玩家座位放 `Idle` 是 0.0%、放 AI 是 41.9%。那個量承載不了「哪張卡比較
  *   嚴重」的結論。
@@ -30,7 +30,7 @@ const SEED = 20260805
 const STRIDE = 24
 const STEP = DT * STRIDE
 
-/** 專案負責人實際玩過的兩張卡 */
+/** 實際玩過的兩張卡 */
 const CARDS: [string, 'allies' | 'axis'][] = [
   ['allies-m1', 'axis'],
   ['allies-m1', 'allies'],

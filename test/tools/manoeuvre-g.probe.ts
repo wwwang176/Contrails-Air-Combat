@@ -29,7 +29,7 @@
  * `safetyShare` 是主否決條件，不是附註。
  *
  * 【1.0 是恆等基準】`manoeuvreGFraction = 1` 時 `manoeuvreSpeed` 就是
- * `cornerSpeed`，行為與 2026-08-13 之前逐位元相同。表的第一列若與既有紀錄
+ * `cornerSpeed`，那一列因此是恆等。表的第一列若與既有紀錄
  * 對不上，那是量具壞了，不是改動有效。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'

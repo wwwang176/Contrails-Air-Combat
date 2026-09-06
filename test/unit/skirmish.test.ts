@@ -31,7 +31,7 @@ describe('機種名單', () => {
 
   /**
    * 【極速不在 `AircraftSpec` 上】它在各機種檔另外匯出的 `HistoricalReference`
-   * （Codex 審查 2026-09-04 抓到的）。少一格是測試紅，不是編組頁上少一個數字。
+   * 。少一格是測試紅，不是編組頁上少一個數字。
    */
   it('八台都有史實極速可以顯示', () => {
     for (const s of ALL_SPECS) {
@@ -55,7 +55,7 @@ const leadOf = (c: BattleConfig, team: 'blue' | 'red') =>
  * 【第一條是全部的重點】`uniform(20, 20)` 換走 `flightLine` 之後，編組表必須
  * 與舊路徑 `mixedLine(逐架名單, 8)` 逐項相同 —— 對照組留在這裡，不是靠記憶。
  */
-describe('battleConfigFrom（2026-09-04 換成分隊清單）', () => {
+describe('battleConfigFrom（分隊清單）', () => {
   it('預設 20v20 的編組表與舊路徑逐項相同', () => {
     const want = mixedLine(
       HEAD_ON,
@@ -118,7 +118,7 @@ describe('battleConfigFrom（2026-09-04 換成分隊清單）', () => {
   /**
    * 【lead 的夾制不能消失】`flightLine` 對超界是丟錯的；這裡是 UI 語意的
    * 邊界，要夾。症狀否則是 `assertOrderOfBattle`「必須恰好有一筆 player」
-   * —— 按下起飛直接白畫面（Codex 審查 2026-09-04）。
+   * —— 按下起飛直接白畫面。
    */
   it('lead 超界仍恰好一筆 player', () => {
     for (const lead of [99, -3, NaN, 4]) {
@@ -302,7 +302,7 @@ describe('想定', () => {
 
   /**
    * 【lead 重設為 0】從 lead = 4 套「以寡擊眾」（我方只有一隊）而保留 lead，
-   * `flightLine` 不會有任何 player —— Codex 審查 2026-09-04。
+   * `flightLine` 不會有任何 player。
    */
   it('套想定後 lead 是 0，而且每個想定都建得出恰好一筆 player', () => {
     const from = { ...DEFAULT_SKIRMISH, lead: 4 }

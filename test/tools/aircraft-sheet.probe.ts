@@ -3,7 +3,7 @@
  * 跑法：npx vite-node test/tools/aircraft-sheet.probe.ts
  *
  * 【印的是玩家實際飛到的那台】套過 `GAME_FEEL`，過載上限用 `spec.limits.gPositive`
- * ——2026-08-11 拿掉飛行員硬夾之後，那就是真正夾住飛機的值。
+ * ——沒有飛行員硬夾，那就是真正夾住飛機的值。
  */
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'

@@ -13,7 +13,7 @@ import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 /**
  * 彈丸與陸地。
  *
- * 【四條各自擋一個 Codex 審查抓到的坑】
+ * 【四條各自擋一個坑】
  *
  * ```
  *   海面回歸    高度場沒島的地方是 −8。少了「陸地要 > 0」，入海的子彈會在

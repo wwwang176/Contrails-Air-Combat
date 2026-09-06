@@ -4,7 +4,7 @@
  *
  * 跑法：`npx vite-node test/tools/target-churn.probe.ts`
  *
- * 【它要回答什麼】專案負責人回報「AI 還是會在兩個敵人之間猶豫」，並提議
+ * 【它要回答什麼】回報的症狀是「AI 還是會在兩個敵人之間猶豫」，提議
  * 三件事：提高換敵成本、瞄準點角度內加分、背後扣分。這支把「猶豫」拆成
  * 可量的東西，好判斷那三件事各自打不打得中真正的成因：
  *
@@ -401,7 +401,7 @@ const f2 = (x: number): string => x.toFixed(2)
 /**
  * 【為什麼要跑三種架數】這個模擬是**全決定性的**（種子只決定飛行員名字），
  * 所以單一場次只有**一個樣本**。換架數是這個專案唯一拿得到獨立實現的辦法。
- * 2026-08-09 的 `engagedMargin` 提案就是這樣被否決的：20v20 看起來 −43%，
+ * `engagedMargin` 那個提案就是這樣掛掉的：20v20 看起來 −43%，
  * 12v12 只有 −3%。
  */
 const SIZES = [20, 12, 8]
@@ -444,7 +444,7 @@ for (const [n, r] of results) {
   )
 }
 
-console.log('\n=== 【專案負責人看到的那一幕】有射擊解卻換走，依機制拆開 ===')
+console.log('\n=== 【有射擊解卻換走】依機制拆開 ===')
 console.log('架數    全體有槍解卻換走  長機的  其中集火造成  其中 selectTarget 造成')
 for (const [n, r] of results) {
   const tot = r.leaderShotFocus + r.leaderShotSelect

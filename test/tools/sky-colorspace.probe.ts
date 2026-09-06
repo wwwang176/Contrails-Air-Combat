@@ -11,9 +11,8 @@
  * 海面走 `MeshStandardMaterial`，本來就有轉換，所以 `SEA_COLOR` 沒有這個問題
  * —— 這支順帶把那件事也算出來當對照。
  *
- * 這是 Codex 2026-08-10 審查發現的**既有** bug，專案負責人裁定走「甲」：
- * 補上轉換、常數不動。理由與數字見
- * `docs/superpowers/plans/2026-08-10-ocean-glint.md` 的裁定那一節。
+ * 處置是**補上轉換、常數不動**。理由與數字見
+ * `docs/superpowers/plans/2026-08-10-ocean-glint.md`。
  */
 import { Color, SRGBColorSpace } from 'three'
 
@@ -37,7 +36,7 @@ function screenCodeNow(hex: number): [number, number, number] {
 /**
  * 要在「有轉換」之下重現同一個螢幕外觀，新的線性值 = sRGBToLinear(舊的線性值)。
  *
- * 【它只保住端點，保不住整條漸層 —— Codex 第四輪審查】decode 是非線性的、
+ * 【它只保住端點，保不住整條漸層】decode 是非線性的、
  * 內插是線性的，兩者不可交換。所以換算過去之後 `t = 0` 與 `t = 1` 兩處的
  * 外觀確實不變，中間整段仍會偏移。「保持現在的畫面」這個說法過度承諾了。
  *
@@ -61,7 +60,7 @@ for (const [name, hex] of [['SKY_HORIZON', HZ_OLD], ['SKY_ZENITH', ZEN_OLD]] as 
 }
 
 /**
- * 【內插與非線性轉換不可交換 —— Codex 第三輪審查的 Minor】
+ * 【內插與非線性轉換不可交換】
  *
  * 初版先對兩個端點各自 decode 再內插：mix(decode(H), decode(Z), t)。
  * 但著色器實際做的是**先在線性空間內插**，再把結果誤當成 sRGB code 輸出：

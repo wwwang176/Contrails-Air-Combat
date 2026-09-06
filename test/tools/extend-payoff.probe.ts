@@ -8,7 +8,7 @@
  *   補得到 → `extend` 是好的，該治的是「為什麼掉那麼快」
  *   補不到 → `extend` 本身壞了，調它的門檻永遠沒用
  *
- * 2026-08-13 之前的所有調參都跳過了這個問題直接動門檻，兩次都被否決。
+ * 直接動門檻而跳過這個問題的調參，兩次都沒過。
  *
  * 【量什麼】每一段 `extend`（進入 → 離開）記下：
  *
@@ -23,7 +23,7 @@
  * 沒被允許跑完。
  *
  * 【跑玩家實際玩到的配置】`battleConfigFrom(DEFAULT_SKIRMISH)` = `VETERAN`，
- * 不是護欄用的 `ACE`（見 2026-08-13 紀錄的缺陷丙）。
+ * 不是護欄用的 `ACE`（缺陷丙）。
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'

@@ -20,7 +20,7 @@
  *
  * 【失速那一項最有力】它完全不吃出力，只有升力除以重量。爬升與升限都可能被
  * 「模型推力不足」解釋，失速不行 —— 失速跟著另外兩項指到同一個重量，才排得掉
- * 那個解釋。2026-08-27 的 P-51D 就是這樣定案的（見 `specs/p51d.ts` 的 `mass`）。
+ * 那個解釋。P-51D 就是這樣定案的（見 `specs/p51d.ts` 的 `mass`）。
  */
 import {
   maxClimbRate, maxLevelSpeed, serviceCeiling, stallSpeed,

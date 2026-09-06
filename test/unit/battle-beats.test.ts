@@ -94,7 +94,7 @@ describe('節拍接進 stepBattle', () => {
   it('返航節拍：整場的規則換成撤離，不只是換一份狀態', () => {
     // 【`stepMission` 是依規則分支的】只換 `mission` 的內容而規則還是
     // annihilate 的話，倒數永遠停在 300、計量顯示的是敵機數，飛進撤離圈
-    // 也不會判勝 —— 而那個狀態長得很像成功（Codex 審查 2026-09-02 P0）
+    // 也不會判勝 —— 而那個狀態長得很像成功
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 2 },

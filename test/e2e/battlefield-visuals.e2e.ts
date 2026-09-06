@@ -97,7 +97,7 @@ async function main(): Promise<void> {
     await page.screenshot({ path: SHOTS + 'vis-3-high.png' })
     console.log(`[人工看] ${SHOTS}vis-3-high.png —— 俯視。畫面下半不得出現`
       + '方形的邊或天空色的破洞；遠處的飛機／煙霧在深海背景上不得亮得突兀'
-      + '（海面自 2026-08-09 起不吃霧，而物件仍吃 —— 見 fog.ts 的已知代價）')
+      + '（海面不吃霧，而物件仍吃 —— 見 fog.ts 的已知代價）')
 
     // 24. 把鏡頭抬起來看海天交界（海色與天空色的那一階）
     //
@@ -120,9 +120,9 @@ async function main(): Promise<void> {
     //
     // 「地平線看不看得出來、海有沒有比天暗」的權威判準有兩個，都不在這裡：
     //   一、`test/unit/fog.test.ts` 把顏色關係釘死（**海色**必須比
-    //       `skyColorAt(0)` 暗，而且差距 > 0.25。2026-08-09 之前比的是
+    //       `skyColorAt(0)` 暗，而且差距 > 0.25。不可以比
     //       霧色，那時海面還吃霧）。
-    //   二、專案負責人的手動試飛 —— 第一版的錯就是他一眼看出來的。
+    //   二、手動試飛 —— 有些錯只有人眼看得出來。
     //
     // 【地平線的證據是 `vis-1-cockpit.png`，不是 `vis-3-high.png`】曾經寫成
     // 後者，那是錯的：進上帝視角時相機是 −45° 俯角，65° 的垂直 FOV **整個
@@ -158,14 +158,14 @@ async function main(): Promise<void> {
     // 26a. 圖形相關的 warning 也算失敗。
     //
     // 【原本這支只收 error，檔頭卻聲稱會抓 WebGL warning】那句話是假的 ——
-    // 2026-08-09 補上。巨大幾何（遠海半邊 3,000 km）與 5,000 km 遠平面
+    // 巨大幾何（遠海半邊 3,000 km）與 5,000 km 遠平面
     // **不一定會噴 error，但幾乎一定會先噴 warning**，而那正是這一類改動
     // 最可能壞掉的方式。非圖形的 warning 只記錄不失敗。
     //
     // 【驅動的 Performance 類訊息不算】實測這支會穩定噴四則
     // `GL Driver Message (OpenGL, Performance, ...): GPU stall due to ReadPixels`
     // —— 那是 `page.screenshot()` 自己讀回 framebuffer 造成的，是**儀器的**
-    // 副作用不是場景的問題。把 2026-08-09 之前的 `src/render/*` checkout
+    // 副作用不是場景的問題。把舊版的 `src/render/*` checkout
     // 回來跑同一支，四則一字不差地出現，證實與任何場景改動無關。
     // 只濾掉 `Performance` 這一類；`Error` / `Deprecated` / `Portability`
     // 與 three 自己的 `THREE.xxx:` 警告一律照樣失敗。

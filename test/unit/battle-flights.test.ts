@@ -222,8 +222,7 @@ describe('flightOfCombatant 與 isFlightLeader —— HUD 分隊標示要用的�
    * 回傳 `fi.flights[undefined]` —— 型別上宣稱是 `Flight`，執行期是
    * `undefined`。有這一條，那個改動當場紅。
    *
-   * 與 `stationReferenceOf` 的「不在編制內或越界」是同一道契約
-   * （Codex 2026-08-09 審查指出這個缺口）。
+   * 與 `stationReferenceOf` 的「不在編制內或越界」是同一道契約。
    */
   it('索引越界回傳 null 與 false', () => {
     const fi = createFlights(roster(8))

@@ -2,7 +2,7 @@
  * `extend`（放棄追擊、撤下來補能量）門檻的掃描。**不是測試**（`.probe.ts`）。
  * 跑法：npx vite-node test/tools/extend-threshold.probe.ts
  *
- * 【問題】專案負責人實機回報「明明在追擊敵人，卻很常放棄追擊改平累積能量，
+ * 【問題】實機回報「明明在追擊敵人，卻很常放棄追擊改平累積能量，
  * 頻率滿高的」。`rules.ts` 的判準是 `cornerRatio < cornerEnter(0.75)` 觸發、
  * `> cornerExit(0.95)` 解除，而 `cornerRatio = TAS ÷ 角落速度`。
  *
@@ -26,7 +26,7 @@
  *   cornerRatio    速度帶本身有沒有被推高（門檻放寬會不會讓 AI 一直低速泡著）
  *
  * 【為什麼跑 VETERAN 而不是 ACE】`DEFAULT_BATTLE` 用 `ACE`（零反應延遲），
- * 玩家實際玩到的是 `VETERAN`。護欄全部跑在 ACE 上，那正是 2026-08-13 記下
+ * 玩家實際玩到的是 `VETERAN`。護欄全部跑在 ACE 上，那正是記下
  * 的缺陷丙。這一支要回答的是玩家的觀察，所以跑玩家的配置。
  *
  * 【一組門檻跑兩個開局】種子不進物理路徑（只取飛行員名字），所以誤差棒

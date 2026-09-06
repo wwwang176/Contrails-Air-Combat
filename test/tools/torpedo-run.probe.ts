@@ -24,7 +24,7 @@ import type { AircraftSpec } from '../../src/specs/types'
  * `bomb-run-ab.probe.ts` 同一個形狀 —— 那一支的註解寫著為什麼靶要打不沉：
  * 船沉了就沒有下一趟，四組都會停在「趟數 2」，快慢完全看不出來。
  *
- * 要回答的是負責人 2026-09-07 的三件事：投得出去嗎、會不會自殺、命中率
+ * 要回答三件事：投得出去嗎、會不會自殺、命中率
  * 多少。夾角不設門檻（見 `ai/torpedoRun.ts`），但**要量出來** —— 之後決定
  * 要不要加門檻靠的是這張表。
  *
@@ -37,7 +37,7 @@ const DT = 1 / 240
 const TRACE = process.env.TRACE === '1'
 const SECONDS = 300
 
-/** 掛一枚魚雷。零戰不在機種表裡（負責人裁定：只在測試場裡掘），直接塞。 */
+/** 掛一枚魚雷。零戰不在機種表裡（只在測試場裡用），直接塞。 */
 const TORPEDO: Loadout = {
   kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 45,
 }
