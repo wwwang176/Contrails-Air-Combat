@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import {
-  LAND_BLAST, WATER_BLAST, dustColor, emitBlast, type BlastParams, type BlastPools,
+  EMBER_PER_CHUNK, LAND_BLAST, WATER_BLAST, blastScale, blastSmokeColor, dustColor,
+  emitBlast, emitEmber, fireGlowColor, scaleBlast,
+  type BlastParams, type BlastPools,
 } from '../../src/render/blast'
 
 /** 記下每一次 emit 的假粒子池。只實作 `emitBlast` 用得到的那一支 */
@@ -15,7 +17,10 @@ function fakePool(): { shots: Shot[] } & BlastPools['fireball'] {
   const shots: Shot[] = []
   return {
     shots,
-    emit(x, y, z, vx, vy, vz, size = 1) { shots.push({ x, y, z, vx, vy, vz, size }) },
+    emit(
+      x: number, y: number, z: number,
+      vx: number, vy: number, vz: number, size = 1,
+    ): void { shots.push({ x, y, z, vx, vy, vz, size }) },
   } as never
 }
 
@@ -170,5 +175,188 @@ describe('dustColor', () => {
     dustColor(0, young)
     dustColor(1, old)
     expect(old.r + old.g + old.b).toBeLessThan(young.r + young.g + young.b)
+  })
+})
+
+describe('emitBlast：光暈', () => {
+  it('光暈與火球同數量、同方向 —— 貼在球塊上而不是散在旁邊', () => {
+    const p = pools()
+    const glow = fakePool()
+    emitBlast({ ...p, glow }, LAND_BLAST, 0, 0, 0, 5)
+    expect(glow.shots.length).toBe(LAND_BLAST.fireCount)
+    for (let i = 0; i < glow.shots.length; i++) {
+      const g = glow.shots[i]!
+      const f = p.shots.fireball![i]!
+      expect(g.vx).toBe(f.vx)
+      expect(g.vy).toBe(f.vy)
+      expect(g.vz).toBe(f.vz)
+    }
+  })
+
+  it('光暈比火球大', () => {
+    const p = pools()
+    const glow = fakePool()
+    emitBlast({ ...p, glow }, LAND_BLAST, 0, 0, 0, 5)
+    expect(glow.shots[0]!.size).toBeGreaterThan(p.shots.fireball![0]!.size)
+  })
+
+  it('glowSize 為 0 就一顆都不發', () => {
+    const p = pools()
+    const glow = fakePool()
+    emitBlast({ ...p, glow }, { ...LAND_BLAST, glowSize: 0 }, 0, 0, 0, 5)
+    expect(glow.shots.length).toBe(0)
+  })
+
+  it('沒有 glow 池時不會爆 —— 遊戲可以先不接它', () => {
+    const p = pools()
+    expect(() => emitBlast(p, LAND_BLAST, 0, 0, 0, 5)).not.toThrow()
+  })
+})
+
+describe('emitEmber：火交棒給煙', () => {
+  it('一塊火球換 EMBER_PER_CHUNK 顆', () => {
+    const pool = fakePool()
+    emitEmber(pool, 3, 0, 0, 0, 1, 2, 3, 10)
+    expect(pool.shots.length).toBe(EMBER_PER_CHUNK)
+  })
+
+  it('散開 —— 三顆不在同一點上', () => {
+    const pool = fakePool()
+    emitEmber(pool, 3, 100, 50, -20, 0, 0, 0, 10)
+    const seen = new Set(pool.shots.map((s) => `${s.x},${s.y},${s.z}`))
+    expect(seen.size).toBe(EMBER_PER_CHUNK)
+    // 【散開的半徑跟著火球的直徑走】否則大爆炸的煙會擠成一顆
+    for (const s of pool.shots) {
+      expect(Math.hypot(s.x - 100, (s.y - 50) / 0.6, s.z + 20)).toBeCloseTo(3.2, 4)
+    }
+  })
+
+  it('每一顆都比原本那一塊小 —— 三顆加起來才蓋得住', () => {
+    const pool = fakePool()
+    emitEmber(pool, 3, 0, 0, 0, 0, 0, 0, 10)
+    for (const s of pool.shots) expect(s.size).toBeLessThan(10)
+  })
+
+  it('繼承火球的速度', () => {
+    const pool = fakePool()
+    emitEmber(pool, 3, 0, 0, 0, 7, -2, 4, 10)
+    for (const s of pool.shots) {
+      expect(s.vx).toBe(7)
+      expect(s.vy).toBe(-2)
+      expect(s.vz).toBe(4)
+    }
+  })
+
+  it('同一格恆得同一組位置 —— 重播靠這條', () => {
+    const a = fakePool()
+    const b = fakePool()
+    emitEmber(a, 9, 0, 0, 0, 0, 0, 0, 10)
+    emitEmber(b, 9, 0, 0, 0, 0, 0, 0, 10)
+    expect(b.shots).toEqual(a.shots)
+  })
+})
+
+describe('blastScale：立方根律', () => {
+  it('基準是 1', () => {
+    expect(blastScale(1)).toBe(1)
+  })
+
+  it('八倍的裝藥只有兩倍大', () => {
+    expect(blastScale(8)).toBeCloseTo(2, 9)
+    expect(blastScale(0.125)).toBeCloseTo(0.5, 9)
+  })
+
+  it('負當量不產生 NaN', () => {
+    expect(Number.isFinite(blastScale(-1))).toBe(true)
+    expect(blastScale(0)).toBe(0)
+  })
+})
+
+describe('scaleBlast', () => {
+  const out = (): { -readonly [K in keyof BlastParams]: number } => ({ ...LAND_BLAST })
+
+  it('1× 是恆等', () => {
+    const o = out()
+    scaleBlast(LAND_BLAST, 1, o)
+    expect(o).toEqual({ ...LAND_BLAST })
+  })
+
+  it('尺寸與顆數都乘上尺度，初速與錐角不動', () => {
+    const o = out()
+    scaleBlast(LAND_BLAST, 8, o)
+    expect(o.fireSize).toBeCloseTo(LAND_BLAST.fireSize * 2, 9)
+    expect(o.fireCount).toBe(Math.round(LAND_BLAST.fireCount * 2))
+    expect(o.fireSpeed).toBe(LAND_BLAST.fireSpeed)
+    expect(o.fireCone).toBe(LAND_BLAST.fireCone)
+  })
+
+  it('顆數為 0 的保持 0 —— 墜地不該被當量放出水柱', () => {
+    const o = out()
+    scaleBlast(LAND_BLAST, 8, o)
+    expect(o.jetCount).toBe(0)
+    expect(o.sprayCount).toBe(0)
+    expect(o.dustCount).toBeGreaterThan(0)
+  })
+
+  it('顆數不會被縮到 0 —— 小當量仍然看得見', () => {
+    const o = out()
+    scaleBlast(LAND_BLAST, 0.001, o)
+    expect(o.fireCount).toBeGreaterThanOrEqual(1)
+    expect(o.smokeCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it('光暈是比例，不吃當量 —— 火球的直徑已經乘過了', () => {
+    const o = out()
+    scaleBlast(LAND_BLAST, 8, o)
+    expect(o.glowSize).toBe(LAND_BLAST.glowSize)
+    expect(o.glowAlpha).toBe(LAND_BLAST.glowAlpha)
+  })
+})
+
+describe('blastSmokeColor：黑接手，慢慢轉深灰', () => {
+  const c = new Color()
+
+  it('出生近黑 —— 接的是燒完的火球那一刻', () => {
+    blastSmokeColor(0, c)
+    expect(c.r + c.g + c.b).toBeLessThan(0.12)
+  })
+
+  it('之後單調變亮到深灰，然後停住', () => {
+    let prev = 0
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      blastSmokeColor(t, c)
+      const l = c.r + c.g + c.b
+      expect(l).toBeGreaterThanOrEqual(prev - 1e-9)
+      prev = l
+    }
+    blastSmokeColor(1, c)
+    expect(c.r).toBeLessThan(0.3)
+  })
+})
+
+describe('fireGlowColor', () => {
+  const c = new Color()
+
+  it('全程在 [0,1] 之內', () => {
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      fireGlowColor(t, c)
+      for (const v of [c.r, c.g, c.b]) {
+        expect(v).toBeGreaterThanOrEqual(0)
+        expect(v).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
+  it('收到黑 —— 加法混合下那就是消失', () => {
+    fireGlowColor(1, c)
+    expect(c.r + c.g + c.b).toBeCloseTo(0, 6)
+  })
+
+  it('是暖色 —— 紅 > 綠 > 藍', () => {
+    for (const t of [0, 0.2, 0.4]) {
+      fireGlowColor(t, c)
+      expect(c.r).toBeGreaterThan(c.g)
+      expect(c.g).toBeGreaterThan(c.b)
+    }
   })
 })

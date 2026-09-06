@@ -26,8 +26,13 @@ export const SMOKE_SIZE_FROM = 2
 /** 死亡直徑，m。膨脹是煙散開的樣子。 */
 export const SMOKE_SIZE_TO = 9
 
-/** 出生時的不透明度，線性淡到 0。 */
-export const SMOKE_ALPHA = 0.55
+/**
+ * 出生時的不透明度，線性淡到 0。
+ *
+ * 【誰在讀它】飛機的拖煙、擊墜煙、爆炸的煙柱、火轉煙 —— **四者共用一個
+ * 濃度**，專案負責人裁定。
+ */
+export const SMOKE_ALPHA = 0.7
 
 /** 終端上浮速度，m/s。 */
 export const SMOKE_RISE = 3

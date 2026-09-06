@@ -1,12 +1,15 @@
+import { TextureLoader, type Texture } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain, type Terrain } from '../render/terrain'
 import { createFireball } from '../render/fireball'
-import { createSmoke } from '../render/smoke'
+import { createFireChunks } from '../render/chunks'
 import { createSpray, WATER_COLOR } from '../render/spray'
 import { createSplashes } from '../render/splash'
 import {
-  LAND_BLAST, WATER_BLAST, createDust, emitBlast, type BlastParams, type BlastPools,
+  BLAST_PACE, LAND_BLAST, WATER_BLAST, createBlastSmoke, createDust, createEmberSmoke,
+  createFireGlow, emitBlast, emitEmber, blastScale, scaleBlast,
+  type BlastParams, type BlastPools,
 } from '../render/blast'
 import { createImpacts, clearImpacts } from '../world/events'
 import {
@@ -38,14 +41,84 @@ let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
 
 const fireball = createFireball()
-const smoke = createSmoke()
-const dust = createDust()
 const spray = createSpray(WATER_COLOR)
 const splashes = createSplashes()
-for (const p of [fireball, smoke, dust, spray, splashes]) ctx.scene.add(p.object)
+for (const p of [fireball, spray, splashes]) ctx.scene.add(p.object)
 
 const splashEvents = createImpacts()
-const pools: BlastPools = { fireball, smoke, dust, spray, splashEvents }
+
+/**
+ * 整個爆炸的快慢。**改它要重建池** —— 粒子的壽命在建構時就固定了。
+ */
+let pace = BLAST_PACE
+/**
+ * 當量倍率。1 = 500 lb。**尺寸、顆數、時間全部由它一個值推導** ——
+ * 見 `scaleBlast` 的表。
+ */
+let yieldRatio = 1
+/** 池的壽命也吃當量：時間與尺寸同樣是立方根律 */
+const paced = (): number => pace * blastScale(yieldRatio)
+
+/**
+ * 煙與塵的不透明度貼圖。**專案的第一張貼圖。**
+ *
+ * 【為什麼要它】沒有貼圖時每一顆都是一個乾淨的軟邊圓，十幾顆疊起來仍然是
+ * 一團均勻的灰 —— 那就是「太平面」。這張圖自帶 noise，每一顆的內部就有明暗。
+ */
+const smokeTex = await new TextureLoader().loadAsync('/textures/smoke.png')
+/** 貼圖版 / 純圓片版。開關留著才比得出它值不值得 */
+let textured = true
+const tex = (): Texture | undefined => (textured ? smokeTex : undefined)
+
+/** 光暈開關。關掉等於 `glowSize = 0` */
+let glowOn = true
+let glow = createFireGlow(undefined, paced())
+let ember = createEmberSmoke(undefined, paced(), tex())
+/**
+ * 【火交棒給煙】每一塊火球開始淡出時，在**同一個位置、同一個尺寸**留下一顆
+ * 煙。`EMBER_SIZE_FROM` 是 1，所以直徑直接就是倍率。
+ */
+const handoff = (
+  x: number, y: number, z: number,
+  vx: number, vy: number, vz: number, d: number, slot: number,
+): void => { emitEmber(ember, slot, x, y, z, vx, vy, vz, d) }
+
+let chunks = createFireChunks(undefined, paced(), handoff)
+let smoke = createBlastSmoke(undefined, paced(), tex())
+let dust = createDust(undefined, paced(), tex())
+for (const p of [glow, chunks, ember, smoke, dust]) ctx.scene.add(p.object)
+
+function rebuildPaced(): void {
+  for (const p of [glow, chunks, ember, smoke, dust]) {
+    ctx.scene.remove(p.object)
+    p.dispose()
+  }
+  glow = createFireGlow(undefined, paced())
+  ember = createEmberSmoke(undefined, paced(), tex())
+  chunks = createFireChunks(undefined, paced(), handoff)
+  smoke = createBlastSmoke(undefined, paced(), tex())
+  dust = createDust(undefined, paced(), tex())
+  for (const p of [glow, chunks, ember, smoke, dust]) ctx.scene.add(p.object)
+}
+
+/**
+ * 火球的畫法。**兩者實作同一個 `Particles` 介面**，所以切換就是換
+ * `BlastPools.fireball` 指向哪一個池 —— `emitBlast` 一行都不用改。
+ */
+type FireStyle = 'billboard' | 'chunks'
+let fireStyle: FireStyle = 'billboard'
+/** 每幀要步進、重播前要清的全部。水柱不是 `Particles`，但這兩支都有 */
+interface Steppable {
+  step(dt: number): void
+  reset(): void
+}
+const ALL = (): Steppable[] =>
+  [fireball, glow, chunks, ember, smoke, dust, spray, splashes]
+const pools = (): BlastPools => ({
+  fireball: fireStyle === 'chunks' ? chunks : fireball,
+  smoke, dust, spray, splashEvents,
+  glow: glowOn ? glow : undefined,
+})
 
 /** 爆點的水平位置。原點 —— 相機繞著它轉 */
 const BX = 0
@@ -79,13 +152,15 @@ let seed = 1
 let elapsed = 0
 let sinceFire = 0
 
+/** 縮放後的配方。模組級 —— 每次重播不配置 */
+const SCALED: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
+
 function fire(): void {
-  if (clearFirst) {
-    for (const p of [fireball, smoke, dust, spray, splashes]) p.reset()
-  }
+  if (clearFirst) for (const p of ALL()) p.reset()
   if (!fixedSeed) seed = (seed + 7919) >>> 0
   const y = terrain.heightAt(BX, BZ, elapsed)
-  emitBlast(pools, live(), BX, y, BZ, seed)
+  scaleBlast(live(), yieldRatio, SCALED)
+  emitBlast(pools(), SCALED, BX, y, BZ, seed)
   splashes.emit(splashEvents, terrain.heightAt, elapsed)
   clearImpacts(splashEvents)
   sinceFire = 0
@@ -164,9 +239,17 @@ const coneSet = (k: keyof BlastParams) => (v: number): void => {
 const numGet = (k: keyof BlastParams) => (): number => live()[k]
 const numSet = (k: keyof BlastParams) => (v: number): void => { live()[k] = v }
 
-numRow(sceneRows, '時間', 0.05, 1, 0.05, () => timeScale, (v) => { timeScale = v }, f1)
+numRow(sceneRows, '當量', 0.2, 8, 0.2, () => yieldRatio,
+  (v) => { yieldRatio = v; rebuildPaced(); fire() },
+  (v) => v.toFixed(1) + '× (尺度 ' + blastScale(v).toFixed(2) + ')')
+numRow(sceneRows, '爆炸速度', 0.3, 3, 0.1, () => pace,
+  (v) => { pace = v; rebuildPaced(); fire() }, (v) => v.toFixed(1) + '×')
+numRow(sceneRows, '播放速度', 0.05, 1, 0.05, () => timeScale, (v) => { timeScale = v }, f1)
 numRow(sceneRows, '自動重播', 0, 8, 0.5,
   () => autoEvery, (v) => { autoEvery = v }, (v) => (v === 0 ? '關' : v.toFixed(1) + 's'))
+chkRow(sceneRows, '光暈', () => glowOn, (v) => { glowOn = v; fire() })
+chkRow(sceneRows, '煙用貼圖', () => textured,
+  (v) => { textured = v; rebuildPaced(); fire() })
 chkRow(sceneRows, '重播前清場', () => clearFirst, (v) => { clearFirst = v })
 chkRow(sceneRows, '固定亂數（同一發）', () => fixedSeed, (v) => { fixedSeed = v })
 
@@ -174,6 +257,8 @@ numRow(rows, '火　顆數', 0, 60, 1, numGet('fireCount'), numSet('fireCount'),
 numRow(rows, '火　初速', 0, 60, 1, numGet('fireSpeed'), numSet('fireSpeed'), n0)
 numRow(rows, '火　尺寸', 0.2, 5, 0.1, numGet('fireSize'), numSet('fireSize'), f1)
 numRow(rows, '火　錐角', 0, 90, 1, coneGet('fireCone'), coneSet('fireCone'), deg)
+numRow(rows, '光暈尺寸', 0, 4, 0.1, numGet('glowSize'), numSet('glowSize'), f1)
+numRow(rows, '光暈濃度', 0, 1, 0.05, numGet('glowAlpha'), numSet('glowAlpha'), f1)
 numRow(rows, '煙　顆數', 0, 60, 1, numGet('smokeCount'), numSet('smokeCount'), n0)
 numRow(rows, '煙　初速', 0, 40, 1, numGet('smokeSpeed'), numSet('smokeSpeed'), n0)
 numRow(rows, '煙　尺寸', 0.2, 6, 0.1, numGet('smokeSize'), numSet('smokeSize'), f1)
@@ -193,6 +278,7 @@ function dump(): void {
   const p = live()
   const d = (v: number): string => '(' + Math.round((v * 180) / Math.PI) + ' * Math.PI) / 180'
   out.textContent = [
+    '// BLAST_PACE = ' + pace + '　當量 ' + yieldRatio + '×',
     'export const ' + (kind === 'land' ? 'LAND_BLAST' : 'WATER_BLAST') +
       ': BlastParams = {',
     '  fireCount: ' + p.fireCount + ',',
@@ -212,6 +298,8 @@ function dump(): void {
     '  sprayCone: ' + d(p.sprayCone) + ',',
     '  jetCount: ' + p.jetCount + ',',
     '  jetSpread: ' + p.jetSpread + ',',
+    '  glowSize: ' + p.glowSize + ',',
+    '  glowAlpha: ' + p.glowAlpha + ',',
     '}',
   ].join('\n')
 }
@@ -242,6 +330,14 @@ tabs(kindTabs, [{ id: 'land', name: '墜地' }, { id: 'water', name: '落水' }]
   fire()
 })
 
+const styleTabs = document.getElementById('style') as HTMLElement
+tabs(styleTabs, [
+  { id: 'billboard', name: '圓片' }, { id: 'chunks', name: '球塊' },
+], (id) => {
+  fireStyle = id as FireStyle
+  fire()
+})
+
 const terrainTabs = document.getElementById('terrain') as HTMLElement
 tabs(terrainTabs, [
   { id: 'sea', name: '海面' }, { id: 'archipelago', name: '群島' },
@@ -255,11 +351,26 @@ tabs(todTabs, TIME_OF_DAY_IDS.map((t) => ({ id: t, name: DAY_PALETTES[t].name })
   applyTimeOfDay(ctx, terrain, tod)
 })
 
+/**
+ * 相機擺到爆點旁邊。
+ *
+ * 【要跟著地面走】內陸的地面在幾百公尺高，釘死在 y = 0 的話鏡頭會埋在土裡。
+ * 【47 m】爆炸的量體約 30 m，65° 視野在這個距離的畫面寬是 70 m —— 再遠就
+ * 只是一個點，再近則塵團會蓋滿整個畫面。
+ */
+function placeCamera(): void {
+  const y = terrain.heightAt(BX, BZ, elapsed)
+  ctx.camera.position.set(30, y + 16, 36)
+  controls.target.set(BX, y + 10, BZ)
+  controls.update()
+}
+
 function setTerrain(k: TerrainKind): void {
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(k)
   ctx.scene.add(terrain.object)
+  placeCamera()
   // 【新地形不知道現在是幾點】剛建出來是正午 —— 少了這一行，切完地形天是
   // 黃昏而海是中午的藍（`daylight.ts` 為同一件事留過同一句）
   applyTimeOfDay(ctx, terrain, tod)
@@ -287,12 +398,13 @@ copy.addEventListener('click', () => {
 const controls = new OrbitControls(ctx.camera, ctx.renderer.domElement)
 controls.enableDamping = true
 controls.dampingFactor = 0.08
-ctx.camera.position.set(52, 26, 62)
-controls.target.set(0, 12, 0)
-controls.update()
+placeCamera()
 
 for (const el of Array.from(kindTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset.id === 'land')
+}
+for (const el of Array.from(styleTabs.children)) {
+  el.classList.toggle('on', (el as HTMLElement).dataset.id === 'billboard')
 }
 for (const el of Array.from(terrainTabs.children)) {
   el.classList.toggle('on', (el as HTMLElement).dataset.id === 'sea')
@@ -303,6 +415,72 @@ for (const el of Array.from(todTabs.children)) {
 applyTimeOfDay(ctx, terrain, tod)
 dump()
 fire()
+
+/**
+ * 截圖用的鉤子。**只有 `test/e2e/blast-sheet.e2e.ts` 讀它。**
+ *
+ * 【為什麼不能只靠 rAF 加 setTimeout】爆炸整個只有 2.5 秒，而 rAF 的間隔
+ * 由瀏覽器決定 —— 兩種畫法各截十二張的話，兩排的時間點對不起來，比對就
+ * 沒有意義。這裡改用固定 dt 手動推進，每一格恰好差 0.1 s。
+ *
+ * 【`toDataURL` 為什麼讀得到】WebGL 的繪圖緩衝在 rAF 之外預設已經被清掉，
+ * 但 `render()` 之後的**同一個同步區塊**內仍然讀得到。
+ */
+interface Probe {
+  fire(k: Kind, style: FireStyle): void
+  /** 截圖前設定當量。會重建池 */
+  setYield(v: number): void
+  /** 煙用不用貼圖。會重建池 */
+  setTextured(v: boolean): void
+  /** 火球要不要光暈 */
+  setGlow(v: boolean): void
+  sheet(k: Kind, style: FireStyle, frames: number, dt: number,
+    cols: number, cellW: number, cellH: number): string
+}
+const probe: Probe = {
+  fire(k, style) {
+    kind = k
+    fireStyle = style
+    fire()
+  },
+  setYield(v) {
+    yieldRatio = v
+    rebuildPaced()
+    for (const b of bindings) b.refresh()
+  },
+  setTextured(v) {
+    textured = v
+    rebuildPaced()
+  },
+  setGlow(v) {
+    glowOn = v
+  },
+  sheet(k, style, frames, dt, cols, cellW, cellH) {
+    const sheetCanvas = document.createElement('canvas')
+    const rowsN = Math.ceil(frames / cols)
+    sheetCanvas.width = cols * cellW
+    sheetCanvas.height = rowsN * cellH
+    const g = sheetCanvas.getContext('2d')!
+    g.fillStyle = '#000'
+    g.fillRect(0, 0, sheetCanvas.width, sheetCanvas.height)
+
+    this.fire(k, style)
+    for (let f = 0; f < frames; f++) {
+      for (const p of ALL()) p.step(dt)
+      ctx.renderer.render(ctx.scene, ctx.camera)
+      const col = f % cols
+      const rowI = Math.floor(f / cols)
+      g.drawImage(canvas, col * cellW, rowI * cellH, cellW, cellH)
+      g.font = '13px ui-monospace, monospace'
+      g.fillStyle = '#7dfba8'
+      g.fillText(((f + 1) * dt).toFixed(1) + 's', col * cellW + 8, rowI * cellH + 18)
+      g.strokeStyle = 'rgba(125,251,168,0.25)'
+      g.strokeRect(col * cellW + 0.5, rowI * cellH + 0.5, cellW - 1, cellH - 1)
+    }
+    return sheetCanvas.toDataURL('image/png')
+  },
+}
+;(window as unknown as Record<string, unknown>)['__blastProbe'] = probe
 
 let last = performance.now()
 
@@ -317,7 +495,7 @@ function frame(now: number): void {
 
   if (autoEvery > 0 && sinceFire >= autoEvery) fire()
 
-  for (const p of [fireball, smoke, dust, spray, splashes]) p.step(dt)
+  for (const p of ALL()) p.step(dt)
   controls.update()
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
