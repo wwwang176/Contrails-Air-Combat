@@ -5,6 +5,7 @@ import { stepCadence } from '../weapons/cadence'
 import {
   boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
   NO_HIT, PART_MULTIPLIER, type HitPart,
+  pointBoxDistance,
 } from './hit'
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
@@ -14,7 +15,7 @@ import {
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
-import { BOMB_SHIP_DAMAGE } from '../weapons/bomb'
+import { BOMB_BLAST_RADIUS, bombBlastDamage } from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -122,6 +123,8 @@ const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const SHIP_INV = /* @__PURE__ */ new Quaternion()
 /** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
 const HULL_C = /* @__PURE__ */ new Vector3()
+/** 爆心。範圍傷害每次爆炸用一次，與上面那兩個不同時活著 */
+const BLAST_P = /* @__PURE__ */ new Vector3()
 const BODY_C = /* @__PURE__ */ new Vector3()
 
 /**
@@ -291,7 +294,6 @@ export class World {
    * 要知道是誰。兩支回呼在同一個迴圈裡連續呼叫，欄位傳遞不必配置。
    */
   private bombShip: Ship | null = null
-  private bombShipGun = -1
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -537,21 +539,65 @@ export class World {
     // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船。三者是三套完全不同的
     // 表現（土／水冠／火），而判斷所需的 `waterAt` 與 `ships` 只有這一層
     // 有。法線那三格對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格。
+    this.applyBombBlast(x, y, z)
     if (blocked && this.bombShip !== null) {
-      const sh = this.bombShip
-      sh.hp -= BOMB_SHIP_DAMAGE
-      // 【直接命中砲位就一起打掉】炸彈落在砲座上，那一座不會還在射
-      if (this.bombShipGun >= 0) {
-        const g = sh.guns[this.bombShipGun]!
-        g.hp -= BOMB_SHIP_DAMAGE
-        if (g.hp <= 0) g.alive = false
-      }
-      this.sinkIfDead(sh)
       pushImpact(this.bombEvents, x, y, z, 2, 1, 0)
       return
     }
     const water = this.waterAt(x, z) > -Infinity ? 1 : 0
     pushImpact(this.bombEvents, x, y, z, water, 1, 0)
+  }
+
+  /**
+   * 爆炸的範圍傷害。**直接命中只是距離 0 的那一個特例** —— 沒有另一套
+   * 「命中傷害」，兩者走同一條衰減曲線。
+   *
+   * 【船量的是到艦體的距離，不是到質心】Essex 有 266 m 長。落在艦首前
+   * 10 m 的那一顆離船體只有 10 m、離質心卻有 140 m —— 照質心算的話它完全
+   * 不會傷到船，而那正是**專案負責人指出的那件事**。`pointBoxDistance`
+   * 在艦體座標裡問「離這個盒子多遠」，答案對艦首與對艦舯一樣正確。
+   *
+   * 【砲位也各自算】它們是獨立的盒子，離爆心近的那幾座先報銷。
+   *
+   * 【不分敵我】炸彈沒有敵我識別。目前只有玩家投得了彈，而 4,000 m 投下來
+   * 的那一顆落在地面時，僚機不會在 30 m 之內。
+   */
+  private applyBombBlast(x: number, y: number, z: number): void {
+    for (const c of this.combatants) {
+      if (!c.alive) continue
+      const p = c.aircraft.state.position
+      const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z))
+      // 【飛機用質心】一架 12 m 的飛機在 30 m 的半徑下，質心與機翼尖的
+      // 差別小於衰減曲線本身的精度
+      if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
+    }
+
+    for (const sh of this.ships) {
+      if (!sh.alive) continue
+      // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
+      const reach = sh.cls.radius + BOMB_BLAST_RADIUS
+      if (sh.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
+
+      SHIP_INV.copy(sh.orientation).conjugate()
+      const local = BLAST_P.set(x, y, z).sub(sh.position).applyQuaternion(SHIP_INV)
+
+      let near = Infinity
+      for (const box of sh.cls.hull) {
+        const d = pointBoxDistance(local.x, local.y, local.z, box)
+        if (d < near) near = d
+      }
+      const hullDmg = bombBlastDamage(near)
+      if (hullDmg > 0) sh.hp -= hullDmg
+
+      for (const g of sh.guns) {
+        if (!g.alive) continue
+        const gd = bombBlastDamage(pointBoxDistance(local.x, local.y, local.z, g.box))
+        if (gd <= 0) continue
+        g.hp -= gd
+        if (g.hp <= 0) g.alive = false
+      }
+      this.sinkIfDead(sh)
+    }
   }
 
   /**
@@ -974,12 +1020,12 @@ export class World {
    * 船。砲位盒突出於船體盒之外（砲架長在甲板上），只判船體的話從上方落下
    * 的炸彈會穿過砲塔再在甲板上爆。
    *
-   * 【哪一艘記在 `bombShip`】`Bombs.step` 只要 `t`，而扣血要知道是誰 ——
-   * 兩支回呼在同一個迴圈裡連續呼叫，用一個欄位傳遞不必配置。
+   * 【哪一艘記在 `bombShip`】`Bombs.step` 只要 `t`，而落點的種類要知道撞到
+   * 的是不是船 —— 兩支回呼在同一個迴圈裡連續呼叫，用一個欄位傳遞不必配置。
+   * **扣血不看它**：那是 `applyBombBlast` 的事，而它對範圍內的每一艘都算。
    */
   private readonly onBombBlocked: BombBlockFn = (x0, y0, z0, x1, y1, z1) => {
     this.bombShip = null
-    this.bombShipGun = -1
     if (this.ships.length === 0) return NO_HIT
     let best = NO_HIT
     for (const sh of this.ships) {
@@ -1000,14 +1046,12 @@ export class World {
         if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
         best = t
         this.bombShip = sh
-        this.bombShipGun = gi
       }
       for (const box of sh.cls.hull) {
         const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
         if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
         best = t
         this.bombShip = sh
-        this.bombShipGun = -1
       }
     }
     return best

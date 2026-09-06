@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { World } from '../../src/world/World'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
-import { BOMB_SHIP_DAMAGE } from '../../src/weapons/bomb'
+import {
+  BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS, bombBlastDamage,
+} from '../../src/weapons/bomb'
 import { IMPACT_STRIDE } from '../../src/world/events'
 
 const DT = 1 / 240
@@ -29,7 +31,7 @@ describe('炸彈打船', () => {
     const { world, ship } = seaWithShip()
     const before = ship.hp
     dropOn(world, 0, 0)
-    expect(ship.hp).toBe(before - BOMB_SHIP_DAMAGE)
+    expect(ship.hp).toBe(before - BOMB_BLAST_DAMAGE)
   })
 
   it('那一筆事件的種類是「船」（nx = 2）', () => {
@@ -107,5 +109,55 @@ describe('炸彈打船', () => {
     for (let e = 0; e < 3; e++) {
       expect(world.bombEvents.data[e * IMPACT_STRIDE + 3]).toBe(2)
     }
+  })
+})
+
+describe('炸彈的範圍傷害', () => {
+  it('衰減曲線：爆心全額、半徑處歸零、半徑外不倒扣', () => {
+    expect(bombBlastDamage(0)).toBe(BOMB_BLAST_DAMAGE)
+    expect(bombBlastDamage(BOMB_BLAST_RADIUS / 2)).toBeCloseTo(BOMB_BLAST_DAMAGE / 2, 9)
+    expect(bombBlastDamage(BOMB_BLAST_RADIUS)).toBe(0)
+    expect(bombBlastDamage(1e6)).toBe(0)
+  })
+
+  /**
+   * 【這一條守的是專案負責人指出的那件事】Fletcher 長 114.8 m，艦首在
+   * z = −57.4。落在艦首前 8 m 的那一顆離**船體**只有 8 m，離**質心**卻有
+   * 65 m —— 照質心算的話它一點血都扣不到。
+   */
+  it('艦首前爆炸照樣扣血 —— 量的是到艦體的距離，不是到質心', () => {
+    const { world, ship } = seaWithShip()
+    const bow = ship.cls.hull[0]!.half.z
+    const before = ship.hp
+    dropOn(world, 0, -(bow + 8))
+    const lost = before - ship.hp
+    expect(lost).toBeGreaterThan(0)
+    // 離船體 8 m：全額的 (1 − 8/30) ≈ 73%
+    expect(lost).toBeCloseTo(bombBlastDamage(8), 6)
+    // 【對照組】照質心算的話 65 m 早就在半徑外了
+    expect(bombBlastDamage(bow + 8)).toBe(0)
+  })
+
+  it('半徑外的近失彈一點血都不扣', () => {
+    const { world, ship } = seaWithShip()
+    const bow = ship.cls.hull[0]!.half.z
+    const before = ship.hp
+    dropOn(world, 0, -(bow + BOMB_BLAST_RADIUS + 5))
+    expect(ship.hp).toBe(before)
+  })
+
+  it('近失彈也削得到砲位 —— 它們各自算自己的距離', () => {
+    const { world, ship } = seaWithShip()
+    const g = ship.guns[0]!
+    const before = g.hp
+    // 落在那一座砲的正上方外側 10 m
+    dropOn(world, g.box.center.x + 10, g.box.center.z)
+    expect(g.hp).toBeLessThan(before)
+  })
+
+  it('範圍傷害也打飛機 —— 貼地掠過爆點的那一架', () => {
+    const { world } = seaWithShip()
+    // 【沒有 combatant 時不得爆】這一條同時守「空陣列不當機」
+    expect(() => dropOn(world, 300, 300)).not.toThrow()
   })
 })

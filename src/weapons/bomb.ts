@@ -104,7 +104,7 @@ export function stepBombBay(
 }
 
 /**
- * 一顆炸彈打中船扣多少血。**起始值，由試飛裁定。**
+ * 爆心的傷害。**起始值，由試飛裁定。**
  *
  * 【量級的推導】三級船的血量是 Fletcher 20,000／Wichita 40,000／
  * Essex 60,000，彈艙一次十顆。9,000 之下：
@@ -119,6 +119,30 @@ export function stepBombBay(
  * 打得沉驅逐艦、航母要兩趟」。
  *
  * 【不套機砲那一套的部位倍率】那是飛機的六個部位。船的裝甲差異由砲位與
- * 船體各自的血量表達（`World` 的子彈路徑寫過同一句）。
+ * 船體各自的血量表達（`World` 的子彈路徑寫過同一句）。飛機那一邊照走
+ * `applyDamage`，所以機身的防護力仍然有效。
  */
-export const BOMB_SHIP_DAMAGE = 9_000
+export const BOMB_BLAST_DAMAGE = 9_000
+
+/**
+ * 殺傷半徑，m。**起始值，由試飛裁定。**
+ *
+ * 【它是「近失彈」的尺度】30 m 之下：貼著艦首爆的那一顆仍然扣到接近全額，
+ * 落在 15 m 外的扣一半，30 m 外完全不扣。對 57 m 長的驅逐艦來說，這讓
+ * 「差一點」仍然有意義而不是全有全無。
+ *
+ * 【比五寸砲的 50 m 小】那一朵是空爆的破片雲，設計上要罩得住一個機動中的
+ * 編隊；炸彈是落在一個定點上的。
+ */
+export const BOMB_BLAST_RADIUS = 30
+
+/**
+ * 離爆心 `distance` 公尺處扣多少血。線性衰減，半徑外為 0。
+ *
+ * 【半徑外一定要夾成 0】不夾的話公式會給出負數 —— 遠方的東西會被「治療」，
+ * 而且那個錯誤在畫面上完全看不出來（`flakDamage` 為同一件事留過同一句）。
+ */
+export function bombBlastDamage(distance: number): number {
+  if (distance >= BOMB_BLAST_RADIUS) return 0
+  return BOMB_BLAST_DAMAGE * (1 - distance / BOMB_BLAST_RADIUS)
+}
