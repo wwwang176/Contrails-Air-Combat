@@ -230,39 +230,17 @@ for (const cls of Object.values(SHIP_CLASSES)) {
  * 【為什麼是 `hull` 的最高點】船體盒一律止於主甲板（本檔的硬性不變量：
  * 盒頂低於最低的砲位），所以那就是甲板。
  *
- * 兩個消費端：轟炸解算用它當落地平面（`ai/bombRun.ts`；用海面的話末速下
- * 多飛約 7 m），HUD 的標記用它當高度（`Ship.position.y` 恆為 0，照抄的話
- * 倒三角形指的是水面而不是船）。
+ * 【它不是「船有多高」】桅杆、測距儀、上層建築全在盒外，所以它只有模型
+ * 高度的三分之一到一半。要「整艘船的最高點」的話問的是**模型** ——
+ * `render/ships.ts` 的 `shipModelTop`，HUD 的標記走那一支。
+ *
+ * 唯一的消費端是轟炸解算（`ai/bombRun.ts`）：炸彈落在甲板上，用海面的話
+ * 末速下多飛約 7 m。
  */
 export function deckHeightOf(cls: ShipClass): number {
   let top = 0
   for (const b of cls.hull) {
     const t = b.center.y + b.half.y
-    if (t > top) top = t
-  }
-  return top
-}
-
-/**
- * 整艘船的**最高點**，m —— 船體盒與所有砲位盒的頂，取最大。
- *
- * 【與 `deckHeightOf` 的差別】那一支只看 `hull`，而船體盒**一律止於主甲板**
- * （本檔的硬性不變量）。上層建築、艦橋、砲塔全在盒外，所以巡洋艦的
- * `deckHeightOf` 只有 7 m —— 貼近看時那大約是艦體的腰部，HUD 的標記擺在
- * 那裡看起來像插在船身上。轟炸解算要的是甲板（炸彈落在那裡），標記要的是
- * 頂（符號要浮在整艘船的上方）。兩者是不同的問題。
- *
- * 【為什麼收 `Ship` 而不是 `ShipClass`】砲位盒的半邊長住在 `shipGuns.ts`
- * （行為模組），而這個資料模組不認識它 —— 見 `ShipGun` 的說明。實例的
- * `guns[].box` 已經是算好的盒，直接量它就繞開了那個方向。
- *
- * 【打掉的砲位照算】用 `alive` 過濾的話，桅杆上那一座被打掉的瞬間標記會
- * 整個往下跳一截。它量的是船有多高，不是船還剩幾門砲。
- */
-export function topHeightOf(ship: Ship): number {
-  let top = deckHeightOf(ship.cls)
-  for (const g of ship.guns) {
-    const t = g.box.center.y + g.box.half.y
     if (t > top) top = t
   }
   return top

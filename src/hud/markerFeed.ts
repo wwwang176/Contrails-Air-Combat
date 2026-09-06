@@ -1,5 +1,4 @@
 import { HUD_MAX_MARKERS, type HudFrame } from './types'
-import { topHeightOf } from '../world/ships'
 import { teamSlot } from '../world/World'
 import type { Ship } from '../world/ships'
 
@@ -28,6 +27,15 @@ export type MarkerProject = (
   x: number, y: number, z: number, out: { x: number; y: number },
 ) => boolean
 
+/**
+ * 這一艘船的標記該畫在多高，m（水線為 0）。
+ *
+ * 【為什麼是回呼】答案只有**模型**知道 —— 桅杆與測距儀不在任何碰撞盒裡，
+ * 碰撞盒推出來的高度只有模型的三分之一到一半。而模型住在算繪層，
+ * `hud/` 不能往那個方向依賴。
+ */
+export type ShipMarkerTop = (ship: Ship) => number
+
 /** 投影結果的暫存。熱路徑不配置 */
 const OUT = { x: 0, y: 0 }
 
@@ -50,6 +58,7 @@ export function fillMarkers(
   pools: readonly MarkerPool[],
   own: number,
   project: MarkerProject,
+  shipTop: ShipMarkerTop,
 ): void {
   let n = 0
   for (const s of ships) {
@@ -57,10 +66,9 @@ export function fillMarkers(
     // 排在它後面的每一艘都會一起消失
     if (!s.alive) continue
     if (n >= HUD_MAX_MARKERS) break
-    // 【抬到整艘船的最高點】`Ship.position.y` 恆為 0（水線）。用甲板高
-    // （`deckHeightOf`）也不夠 —— 那是船體盒的頂，上層建築與砲塔都在它之上，
-    // 貼近看時符號會插在船身腰部
-    n = put(f, n, s.position.x, topHeightOf(s), s.position.z,
+    // 【抬到整艘船的最高點】`Ship.position.y` 恆為 0（水線），而甲板高與
+    // 砲位盒的頂都不夠 —— 桅杆比它們高兩三倍
+    n = put(f, n, s.position.x, shipTop(s), s.position.z,
       teamSlot(s.team), own, project)
   }
   for (const p of pools) {

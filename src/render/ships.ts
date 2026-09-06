@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
+  AdditiveBlending, Box3, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
   Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3,
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -23,6 +23,39 @@ import { TURRET_FLASH_SECONDS } from '../world/turrets'
 const templates = new Map<ShipClassId, Object3D>()
 
 /**
+ * 每個艦級的模型最高點，m（艦體座標，水線為 0）。**HUD 的標記高度用它。**
+ *
+ * 【為什麼不能用碰撞盒推】`world/ships.ts` 的船體盒止於主甲板、砲位盒只包
+ * 到砲塔 —— 桅杆與測距儀不在任何一個盒裡。兩者差了兩三倍：
+ *
+ * ```
+ *              碰撞盒   模型
+ *   Fletcher    12.7    27.0
+ *   Wichita     13.7    38.2
+ *   Essex       23.1    45.2
+ * ```
+ *
+ * 標記畫在 13.7 m 的話，貼近看時它插在艦橋中間（負責人 2026-09-07 試玩
+ * 回報第二次）。**「物體的最高點」只有模型答得出來**，所以這一格住在算繪層。
+ */
+const modelTops = new Map<ShipClassId, number>()
+const BOX = /* @__PURE__ */ new Box3()
+
+/**
+ * 這個艦級的模型最高點，m。**`preloadShipModels` 之後才有值。**
+ *
+ * 【載不到就丟】回一個猜的數字會讓標記靜靜地跑到錯的高度，而那正是這一
+ * 整輪在修的東西 —— 與 `createShipModels` 少了 GLB 就丟是同一條。
+ */
+export function shipModelTop(id: ShipClassId): number {
+  const y = modelTops.get(id)
+  if (y === undefined) {
+    throw new Error(`艦級 ${id} 的 GLB 還沒載入 —— 少了 preloadShipModels()`)
+  }
+  return y
+}
+
+/**
  * 先把要用到的艦級載進來。**開場 await 一次**，之後 `createShipModels`
  * 是同步的 —— 與 `preloadAircraftModels` 同一個做法。
  *
@@ -34,6 +67,9 @@ export async function preloadShipModels(ids: readonly ShipClassId[]): Promise<vo
   await Promise.all([...new Set(ids)].map(async (id) => {
     if (templates.has(id)) return
     const gltf = await loader.loadAsync(SHIP_CLASSES[id].url)
+    // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
+    gltf.scene.updateMatrixWorld(true)
+    modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
     templates.set(id, gltf.scene)
   }))
 }
