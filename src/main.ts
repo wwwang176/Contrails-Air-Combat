@@ -14,14 +14,20 @@ import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
 import { createSplashes } from './render/splash'
+import { TextureLoader } from 'three'
 import { createBombs } from './render/bombs'
+import { createFireChunks } from './render/chunks'
+import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  createFireball, emitFireball, FIREBALL_COUNT, FIREBALL_SPEED,
-} from './render/fireball'
+  AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST,
+  createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
+  emitBlast, emitEmber, emitMist, type BlastPools,
+} from './render/blast'
+import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
 import { createShipModels, preloadShipModels, type ShipModels } from './render/ships'
 import { clearBursts } from './world/flak'
-import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
+import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -30,8 +36,10 @@ import { createOrderMarkers } from './render/orderMarkers'
 import { createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
-import { clearImpacts } from './world/events'
-import { clearKills } from './world/kills'
+import {
+  IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
+} from './world/events'
+import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
@@ -355,6 +363,110 @@ const orderMarkers = createOrderMarkers()
 ctx.scene.add(orderMarkers.object)
 const debris = createDebris()
 
+// ── 爆炸 ────────────────────────────────────────────────
+//
+// 【`load` 不 `await`】它同步回傳一個 Texture，圖到了自己填進去。第一次
+// 爆炸離開場有好幾秒，貼圖早就在了；真的沒到的話 alphaMap 是空的，那一批
+// 粒子透明 —— 不會壞，只是看不見。
+const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+
+//
+// 【七個池一組】球塊火球、光暈、交棒煙、爆炸煙柱、揚塵、水冠、水霧。
+// 配方在 `render/blast.ts`，`/blast.html` 是它的調校台。
+const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
+  emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
+})
+ctx.scene.add(blastChunks.object)
+const blastGlow = createFireGlow(undefined, BLAST_PACE)
+ctx.scene.add(blastGlow.object)
+const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastEmber.object)
+const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastSmoke.object)
+const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastDust.object)
+const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastMist.object)
+const blastJets = createWaterJets({
+  capacity: 256, life: 1.5 * BLAST_PACE, rise: JET_RISE, alphaFrom: 0.8,
+  onFade: (x, y, z, height, radius, slot) => {
+    emitMist(blastMist, slot, WATER_BLAST.mistPerJet, WATER_BLAST.mistSize,
+      x, y, z, height, radius)
+  },
+})
+ctx.scene.add(blastJets.object)
+
+/**
+ * 給 `emitBlast` 的那一組。每幀都是同一個物件 —— 熱路徑不配置。
+ *
+ * 【`splashEvents` 是它自己的，不是 `world` 的】那一格只在**沒有** `jets`
+ * 池時才會被寫（`emitCrown` 的退路），而這裡永遠有 —— 給它一個專用的空
+ * 通道比接上世界的那一條安全：`world` 要到 `startWorld()` 才存在。
+ */
+const BLAST_POOLS: BlastPools = {
+  fireball: blastChunks,
+  smoke: blastSmoke,
+  dust: blastDust,
+  spray,
+  splashEvents: createImpacts(),
+  glow: blastGlow,
+  jets: blastJets,
+}
+
+/**
+ * 離地多近算「墜地」，m。
+ *
+ * 【它分的是兩套表現】貼著地面炸的要揚塵，空中炸的不要 —— 一架 12 m 長的
+ * 飛機撞地時機身中心大約就在這個高度。
+ */
+const CRASH_BLAST_HEIGHT = 25
+
+/**
+ * 空中擊墜的爆炸繼承多少母機速度。
+ *
+ * 【與 `FIREBALL_INHERIT` 同一個值、同一個理由】火球完全靜止的話，一架
+ * 150 m/s 的飛機在半秒的壽命內會飛出 75 m —— 畫面上是「爆炸發生在飛機
+ * 後面」。真實的火球會先隨殘骸往前衝，再被空氣煞住。
+ */
+const KILL_BLAST_INHERIT = 0.5
+
+/**
+ * 擊墜的爆炸。**空中與墜地是同一條事件流**（兩者都走 `World.destroy`），
+ * 由離地高度分辨。
+ */
+function emitKillBlasts(events: KillEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * KILL_STRIDE
+    const x = d[o]!
+    const y = d[o + 1]!
+    const z = d[o + 2]!
+    const ground = terrain.collisionHeightAt(x, z)
+    // 【撞海不算墜地】海面的 `collisionHeightAt` 是 0，只看高度的話撞海會
+    // 揚起一團深咖啡色的土。入水的表現由殘骸的水柱負責（`wrecks`）
+    const onLand = !(terrain.waterAt(x, z) > -Infinity)
+      && y - ground <= CRASH_BLAST_HEIGHT
+    // 【墜地那一份的爆點壓到地面】事件的 y 是機身中心，火球生在半空的話
+    // 揚塵會浮著
+    // 【空中那一份繼承母機速度】墜地的不繼承 —— 它已經撞停了
+    const inherit = onLand ? 0 : KILL_BLAST_INHERIT
+    emitBlast(BLAST_POOLS, onLand ? LAND_BLAST : AIR_BLAST,
+      x, onLand ? ground : y, z, (e * 131 + Math.round(world.time * 60)) | 0,
+      d[o + 3]! * inherit, d[o + 4]! * inherit, d[o + 5]! * inherit)
+  }
+}
+
+/** 炸彈落地：`nx` 是水陸旗標，見 `World.onBombImpact` */
+function emitBombBlasts(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    const water = d[o + 3]! > 0.5
+    emitBlast(BLAST_POOLS, water ? WATER_BLAST : LAND_BLAST,
+      d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
+  }
+}
+
 /**
  * 每一場結束時要歸零的粒子池。**清單只有這一份。**
  *
@@ -372,7 +484,10 @@ const debris = createDebris()
  * 【殘骸不在這裡】殘骸池持有飛機模型，必須在 `visuals` 清空**之前**還回去，
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
-const POOLS = [fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts]
+const POOLS = [
+  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts,
+  blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
+]
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
@@ -1076,10 +1191,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【火球與零件走事件】它們是世界錨定的一次性效果，用事件裡的子步位置
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
-    emitFireball(fireball, world.killEvents)
-    emitKillSmoke(smoke, world.killEvents)
+    emitKillBlasts(world.killEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
+    // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
+    emitBombBlasts(world.bombEvents)
+    clearImpacts(world.bombEvents)
     // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
     // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
     emitFlakBursts(flakBursts, world.burstEvents)
@@ -1272,6 +1389,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
+  // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
+  blastJets.step(frameSeconds)
+  blastChunks.step(frameSeconds)
+  blastGlow.step(frameSeconds)
+  blastEmber.step(frameSeconds)
+  blastSmoke.step(frameSeconds)
+  blastDust.step(frameSeconds)
+  blastMist.step(frameSeconds)
   flakBursts.step(frameSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
