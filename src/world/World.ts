@@ -15,7 +15,10 @@ import {
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
-import { blastRadiusOf, bombBlastDamage } from '../weapons/bomb'
+import {
+  blastRadiusOf, bombBlastDamage, bombBayOf, createBombBay, resetBombBay,
+  type BombBay,
+} from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -50,6 +53,14 @@ export interface Combatant {
    * `setSpec` 必須換掉整個陣列。
    */
   cooldowns: Float32Array
+  /**
+   * 這一台的彈艙。**不是 readonly** —— 換裝機種時容量會變（B-17G 十枚、
+   * G4M 兩枚、戰鬥機零枚），與 `cooldowns` 同一個理由。
+   *
+   * 【零容量就是掛不了彈】`stepBombBay` 在 `load === 0 && queue === 0` 時
+   * 進回補，而回補又補回 0 —— 空艙的機種因此永遠投不出東西，不必另外擋。
+   */
+  bombBay: BombBay
   /**
    * 每個掛架的槍焰剩餘秒數。長度等於 `spec.battery.mounts.length`。
    *
@@ -366,6 +377,7 @@ export class World {
       controller,
       command: createCommand(),
       cooldowns: new Float32Array(aircraft.spec.battery.mounts.length),
+      bombBay: createBombBay(bombBayOf(aircraft.spec.id)),
       muzzleFlash: new Float32Array(aircraft.spec.battery.mounts.length),
       turretStates: createTurretStates(aircraft.spec, this.combatants.length),
       turretCooldowns: new Float32Array(aircraft.spec.turrets.length),
@@ -659,6 +671,9 @@ export class World {
       c.turretCooldowns.fill(0)
       resetTurretStates(c.turretStates, spec, c.index)
     }
+    // 【彈艙是第四個】與上面三個「換機種會變」的東西同一段 —— 分開寫就是
+    // 只有一份會被修好的那種危險。換完立刻滿艙、取消回補計時。
+    resetBombBay(c.bombBay, bombBayOf(spec.id))
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)
   }
