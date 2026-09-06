@@ -100,7 +100,7 @@ function runTimed(
   ctl.point.copy(point)
   const b: Battle = createBattle(ctl, {
     ...base,
-    // 【架數要重新組一張表】改動前是覆寫 `blueCount` / `redCount` 兩個欄位。
+    // 【架數要重新組一張表】沒有 `blueCount` / `redCount` 可以覆寫。
     // 機種與擺法沿用那張卡的（`CARD.entry` 是 `ENTRY_PLANS` 的鍵）
     units: lineAbreast(
       ENTRY_PLANS[CARD.entry], CARD.blueSpec, blue, CARD.redSpec, red),

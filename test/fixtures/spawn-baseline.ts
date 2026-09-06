@@ -43,7 +43,7 @@
  *
  * 【`_REPLAY` 的格式】`元素個數:SHA-256 十六進位`。涵蓋範圍與刻意不涵蓋的
  * 東西見 `test/tools/spawn-snapshot.ts` 的 `replayDigest`。
- * 【ESCORT_B17 是後來加的，而且刻意在動彈丸池之前錄】前兩個場景只有
+ * 【ESCORT_B17 為什麼也要錄一份】前兩個場景只有
  * P-51D 與 Bf 109，跑不到 `stepTurrets` 生彈丸那一行。B-17G 帶八座砲塔，
  * 它守的是「彈丸多了 team 與 life 兩格之後，砲塔那條路也逐位元不變」。
  *

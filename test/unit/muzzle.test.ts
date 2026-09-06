@@ -193,7 +193,7 @@ describe('槍焰的位置與朝向', () => {
     }
     expect(zMin).toBeCloseTo(0, 9)
     expect(zMax).toBeCloseTo(MUZZLE_LENGTH, 5)
-    // 【向外張開】人工驗收：原本是根部寬、外端收尖，讀起來像從空中往槍口
+    // 【向外張開】根部寬、外端收尖的話，人工驗收讀起來像從空中往槍口
     // 收回去。火焰是從槍管噴出來的氣體，愈遠愈開才是對的方向感。
     expect(tipHalf).toBeCloseTo(MUZZLE_HALF_WIDTH, 5)
     expect(rootHalf).toBeGreaterThan(0)

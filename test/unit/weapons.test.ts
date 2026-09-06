@@ -94,8 +94,8 @@ describe('L2 武器史實值', () => {
  */
 describe('L3 火力平衡的相對關係', () => {
   it('MK 108 的單發傷害顯著高於 .50 BMG', () => {
-    // 30 mm Minengeschoss 對 .50 BMG。上一版的 MG 151/20 是 ×4.7，
-    // 換上 MK 108 之後是 ×13.9——門檻仍寫 ×3，守的是「量級不同」這件事。
+    // 30 mm Minengeschoss 對 .50 BMG，實測 ×13.9（MG 151/20 只有 ×4.7）。
+    // 門檻寫 ×3，守的是「量級不同」這件事。
     expect(MK108.damage).toBeGreaterThan(M2_BROWNING.damage * 3)
   })
 

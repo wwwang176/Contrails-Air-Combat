@@ -124,8 +124,8 @@ async function main(): Promise<void> {
     //       霧色，那時海面還吃霧）。
     //   二、手動試飛 —— 有些錯只有人眼看得出來。
     //
-    // 【地平線的證據是 `vis-1-cockpit.png`，不是 `vis-3-high.png`】曾經寫成
-    // 後者，那是錯的：進上帝視角時相機是 −45° 俯角，65° 的垂直 FOV **整個
+    // 【地平線的證據是 `vis-1-cockpit.png`，不是 `vis-3-high.png`】寫成
+    // 後者是錯的：進上帝視角時相機是 −45° 俯角，65° 的垂直 FOV **整個
     // 落在幾何地平線以下** —— 那張圖裡不會有地平線。`vis-3-high.png` 證明的
     // 是另一件事：俯視時畫面下半不得出現方形的邊或天空色的破洞。
     await page.mouse.move(640, 360)
@@ -165,7 +165,7 @@ async function main(): Promise<void> {
     // 【驅動的 Performance 類訊息不算】實測這支會穩定噴四則
     // `GL Driver Message (OpenGL, Performance, ...): GPU stall due to ReadPixels`
     // —— 那是 `page.screenshot()` 自己讀回 framebuffer 造成的，是**儀器的**
-    // 副作用不是場景的問題。把舊版的 `src/render/*` checkout
+    // 副作用不是場景的問題。把改動前的 `src/render/*` checkout
     // 回來跑同一支，四則一字不差地出現，證實與任何場景改動無關。
     // 只濾掉 `Performance` 這一類；`Error` / `Deprecated` / `Portability`
     // 與 three 自己的 `THREE.xxx:` 警告一律照樣失敗。

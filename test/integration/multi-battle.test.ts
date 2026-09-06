@@ -52,7 +52,7 @@ const STEPS_PER_DECISION = 240 / AI_DECISION_HZ
  * 決定性的（見檔尾的決定性測試），所以取在界上不會間歇性紅燈；真的紅了，
  * 該做的是回頭看集火那一級為什麼跨了分隊，不是把 7 改成 8。
  *
- * 【這個數字換過兩次】第一版量到 1，那是在 `lateralOffset` 還是 0、整場仗
+ * 【這個數字對場景很敏感】量到 1 的那一次是在 `lateralOffset` 為 0、整場仗
  * 6 秒就以一方全滅收場的退化區間量的。門檻在錯的區間量出來會鬆得剛好
  * 看不出問題。
  *
@@ -242,7 +242,7 @@ function observe(fair = false): Observed {
   // 「雙方都吃得到對方」那條測試的註解。
   const b: Battle = fair
     ? createBattle(new AiController(), {
-      // 【兩隊同機種】改動前寫的是 `redSpec: DEFAULT_BATTLE.blueSpec`
+      // 【兩隊同機種】機種由 `units` 這張編組表決定，蓋 `redSpec` 沒有用
       ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, P51D, 20),
     })
     : createBattle(new Idle())
@@ -283,7 +283,7 @@ function observe(fair = false): Observed {
 
   const ais = cs.map((c) => (c.controller instanceof AiController ? c.controller : null))
   const prevDecisions = ais.map((a) => a?.decisionsMade ?? 0)
-  // 【改讀實際生出來的架數】改動前讀 `cfg.blueCount`。編組表沒有那個欄位，
+  // 【要讀實際生出來的架數】讀 `cfg.blueCount` 不行 —— 編組表沒有那個欄位，
   // 而 `b.blue` / `b.red` 就是生成時分好的兩隊 —— 開局全員存活，兩者相等
   let prevBlue = b.blue.length
   let prevRed = b.red.length
@@ -539,7 +539,7 @@ describe('20v20 跑滿 150 秒', () => {
    * ```
    *
    * **非單調，而且 1.3 比 1.2 多** —— 它對任何無關的擾動都敏感，紅了也指不出
-   * 是哪裡壞了。與本檔「不是一面倒」那條當初被移到公平對照組是同一類問題。
+   * 是哪裡壞了。與本檔「不是一面倒」那條被移到公平對照組是同一類問題。
    *
    * 條件 13 改由 `test/integration/ai-rejoin.test.ts` 守：長機平飛、僚機放在
    * 離站位 1400~1800 m 的地方、場上沒有敵機，三種幾何都必須在 120 秒內回到

@@ -26,7 +26,7 @@ const DT = 1 / 240
 const SECONDS = 150
 const SIZES = [20, 16, 12, 8]
 
-/** 拆盒前的那一個尾翼 AABB，逐字抄自 git 上一版。 */
+/** 對照組：尾翼拆盒之前的那一個 AABB。 */
 const OLD_TAIL: Record<string, HitBox> = {
   p51d: makeHitBox('tail', [-1.98, -0.31, 4.40], [1.98, 1.93, 6.58]),
   bf109k4: makeHitBox('tail', [-1.66, -0.18, 4.50], [1.66, 1.46, 6.07]),

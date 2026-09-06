@@ -82,8 +82,7 @@ describe('戰術層關掉時等於它上線之前', () => {
     it(`${name}：quota = 0.5 的校驗和不同 —— 否則這一層沒接上`, async () => {
       const on = await run(name, 0.5)
       // 【連成因一起釘】兩場現在都打得到 enterRange。哪天有人把它調高到
-      // 擋住其中一場，這一行會先紅，訊息直接指向那個參數 —— 那正是上一版
-      // 那一格想留下的東西，只是換了個位置。
+      // 擋住其中一場，這一行會先紅，訊息直接指向那個參數。
       expect(on.maxRange).toBeGreaterThan(DEFAULT_TACTICS.enterRange)
       expect(on.digest).not.toBe(BASE[`${name}_BEFORE_TACTICS`])
     }, 300_000)

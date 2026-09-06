@@ -135,7 +135,7 @@ function observe(commanded: 'none' | 'blue' | 'red', cfg: BattleConfig): Damage 
  * 分不清偏離是機種造成的還是抽樣造成的。同機種把真值釘死在 1.0。
  */
 const SYMMETRIC: readonly BattleConfig[] = (() => {
-  // 【兩隊同機種】改動前寫的是 `redSpec: DEFAULT_BATTLE.blueSpec`，
+  // 【兩隊同機種】不可以寫成 `redSpec: DEFAULT_BATTLE.blueSpec`，
   // 也就是「紅隊換成藍隊那一台」。編組表版本把它寫明白
   const same: BattleConfig = {
     ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 20, P51D, 20),
