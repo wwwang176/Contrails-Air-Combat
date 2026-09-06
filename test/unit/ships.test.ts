@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  SHIP_CLASSES, createShip, deckHeightOf, resetShip, stepShips, topHeightOf,
+  SHIP_CLASSES, createShip, deckHeightOf, resetShip, stepShips,
 } from '../../src/world/ships'
-import { createShipGuns } from '../../src/world/shipGuns'
 import { SHIP_AA_ZONES } from '../../src/world/shipAA'
 import { boundingRadius } from '../../src/world/hit'
 
@@ -67,46 +66,20 @@ describe('SHIP_CLASSES', () => {
   })
 })
 
-describe('topHeightOf', () => {
-  const rig = (id: 'fletcher' | 'wichita' | 'essex') => {
-    const s = createShip(0, SHIP_CLASSES[id], 'red', 0, 0, 0, 0)
-    s.guns = createShipGuns(s.cls)
-    return s
-  }
-
+describe('deckHeightOf', () => {
   /**
-   * 【一定要比甲板高】船體盒**一律止於主甲板**（`ships.ts` 的硬性不變量），
-   * 上層建築、艦橋、砲塔全在盒外。相等的話就代表這支函數根本沒看砲位盒，
-   * 而症狀只是「HUD 的標記插在船身腰部」—— 沒有任何錯誤訊息。
+   * 【它是甲板，不是「船有多高」】船體盒**一律止於主甲板**（`ships.ts` 的
+   * 硬性不變量），桅杆與上層建築全在盒外。這一條把那件事釘住：拿它當
+   * 「整艘船的最高點」用的話，標記會插在艦橋中間（負責人 2026-09-07 試玩
+   * 回報兩次）。真正的最高點問的是模型 —— `render/ships.ts` 的
+   * `shipModelTop`，量到的是這裡的兩到三倍。
    */
-  it('三個艦級都比甲板高', () => {
+  it('比最低的砲位還低 —— 盒頂止於主甲板', () => {
     for (const id of ['fletcher', 'wichita', 'essex'] as const) {
-      const s = rig(id)
-      expect(topHeightOf(s), id).toBeGreaterThan(deckHeightOf(s.cls))
+      const cls = SHIP_CLASSES[id]
+      const lowestGun = Math.min(...cls.zones.map((z) => z.position.y))
+      expect(deckHeightOf(cls), id).toBeLessThan(lowestGun)
     }
-  })
-
-  /** 【大船比小船高】排序錯了代表量錯了對象。 */
-  it('航母高於巡洋艦', () => {
-    expect(topHeightOf(rig('essex'))).toBeGreaterThan(topHeightOf(rig('wichita')))
-  })
-
-  /**
-   * 【打掉的砲位照算】用 `alive` 過濾的話，桅杆上那一座被打掉的瞬間標記會
-   * 整個往下跳一截。它量的是船有多高，不是船還剩幾門砲。
-   */
-  it('砲位全滅之後高度不變', () => {
-    const s = rig('wichita')
-    const before = topHeightOf(s)
-    for (const g of s.guns) g.alive = false
-    expect(topHeightOf(s)).toBe(before)
-  })
-
-  /** 【沒有砲位就退回甲板】試驗場的無砲船（`bomb-run.test.ts`）走這一條。 */
-  it('沒有砲位的船退回甲板高', () => {
-    const s = rig('wichita')
-    s.guns = []
-    expect(topHeightOf(s)).toBe(deckHeightOf(s.cls))
   })
 })
 

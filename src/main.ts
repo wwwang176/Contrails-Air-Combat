@@ -26,7 +26,9 @@ import {
 } from './render/blast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
-import { createShipModels, preloadShipModels, type ShipModels } from './render/ships'
+import {
+  createShipModels, preloadShipModels, shipModelTop, type ShipModels,
+} from './render/ships'
 import { clearBursts } from './world/flak'
 import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
 import {
@@ -47,7 +49,9 @@ import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
-import { fillMarkers, type MarkerPool, type MarkerProject } from './hud/markerFeed'
+import {
+  fillMarkers, type MarkerPool, type MarkerProject, type ShipMarkerTop,
+} from './hud/markerFeed'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
@@ -643,6 +647,11 @@ const projectMarker: MarkerProject = (x, y, z, out) => {
 }
 /** 餵給 `fillMarkers` 的池清單。就地換內容，不每幀造一個陣列 */
 const MARKER_POOLS: MarkerPool[] = []
+/**
+ * 船的標記畫在模型的最高點。**桅杆不在任何碰撞盒裡** —— 用
+ * `world/ships.ts` 推出來的高度只有模型的三分之一到一半。
+ */
+const shipMarkerTop: ShipMarkerTop = (s) => shipModelTop(s.cls.id)
 
 let propRotation = 0
 /** 上一幀是否正在等待接手。用來偵測「剛死掉」那一幀 */
@@ -1797,7 +1806,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 用 `visuals` 是因為它有內插後的算繪位置，而彈藥沒有。
   MARKER_POOLS[0] = world.bombs
   MARKER_POOLS[1] = world.torpedoes
-  fillMarkers(hudFrame, world.ships, MARKER_POOLS, teamSlot(player.team), projectMarker)
+  fillMarkers(
+    hudFrame, world.ships, MARKER_POOLS, teamSlot(player.team), projectMarker, shipMarkerTop,
+  )
 
   // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
   hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)
