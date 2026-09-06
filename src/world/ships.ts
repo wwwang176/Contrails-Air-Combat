@@ -31,6 +31,11 @@ export interface ShipClass {
    *
    * 【盒頂一律低於最低的砲位】見 `SHIP_CLASSES` 的註解 —— 包住砲位的話，
    * 砲位永遠打不掉而且不報錯。有測試守著。
+   *
+   * 【艦體盒的底是吃水，不是水線】水下沒有盒的話，定深 1 m 的魚雷會從每
+   * 一艘船的底下穿過去 —— 而那個失效的樣子是「魚雷安靜地穿過去繼續跑」。
+   * 對炸彈是零影響：垂直距離只跟盒頂有關，而炸彈的爆心到不了水線之下
+   * （`ship-draft.test.ts` 逐位元守著）。
    */
   readonly hull: readonly Box[]
   /**
@@ -45,8 +50,14 @@ export interface ShipClass {
    * 船體血量。
    *
    * 【它是用「幾枚魚雷」訂的，不是用機槍】機槍機砲打不沉軍艦：20 mm 一發
-   * 5 傷害，打沉一艘驅逐艦要 4,000 發。**魚雷那一支分支要照這個數字校準**
-   * —— 驅逐 20,000 ≈ 兩枚、巡洋 40,000 ≈ 四枚（若一枚 10,000）。
+   * 5 傷害，打沉一艘驅逐艦要 4,000 發。魚雷一枚 15,000
+   * （`weapons/stores.ts`）之下是：
+   *
+   * ```
+   *   驅逐 20,000   2 枚
+   *   巡洋 40,000   3 枚
+   *   航母 60,000   4 枚
+   * ```
    */
   readonly hp: number
   readonly zones: readonly ShipAAZone[]
@@ -176,7 +187,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     url: '/models/essex.glb',
     // 艦體 → 飛行甲板（比水線寬很多，砲位掛在甲板邊的砲座上）→ 艦島
     hull: [
-      box([-14.2, 0, -133.0], [14.2, 12.0, 133.0]),
+      box([-14.2, -8.5, -133.0], [14.2, 12.0, 133.0]),
       // 飛行甲板。頂 14.0 剛好在最低的砲位（14.18）之下
       box([-24.5, 12.0, -130.0], [18.5, 14.0, 130.0]),
     ],
@@ -189,7 +200,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     name: 'USS Fletcher DD-445',
     url: '/models/fletcher.glb',
     hull: [
-      box([-6.04, 0, -57.4], [6.04, 4.5, 57.4]),
+      box([-6.04, -4.0, -57.4], [6.04, 4.5, 57.4]),
     ],
     radius: 0,
     hp: 20_000,
@@ -200,7 +211,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     name: 'USS Wichita CA-45',
     url: '/models/wichita.glb',
     hull: [
-      box([-9.41, 0, -92.7], [9.41, 7.0, 92.7]),
+      box([-9.41, -6.5, -92.7], [9.41, 7.0, 92.7]),
     ],
     radius: 0,
     hp: 40_000,

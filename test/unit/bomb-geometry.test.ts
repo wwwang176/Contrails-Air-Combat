@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
+import type { BufferGeometry } from 'three'
 import {
-  BOMB_BODY_RADIUS, BOMB_LENGTH, bombOrientation, createBombGeometry,
+  BOMB_BODY_RADIUS, BOMB_LENGTH, BOMB_SHAPE, TORPEDO_SHAPE,
+  bombOrientation, createBombGeometry,
 } from '../../src/render/bombs'
 
 const geo = createBombGeometry()
@@ -84,5 +86,74 @@ describe('炸彈的姿態', () => {
   it('輸出是單位四元數', () => {
     bombOrientation(90, -30, 12, q)
     expect(q.length()).toBeCloseTo(1, 9)
+  })
+})
+
+/**
+ * 頂點陣列的逐位元指紋。**只比頂點數與包圍盒抓不到頂點重排或局部變形。**
+ *
+ * 【怎麼用】這個值變了，就是幾何真的變了。若那是有意的改動，重新量一次
+ * 並更新常數；若不是，那就是回歸。
+ */
+function fingerprint(geo: BufferGeometry): number {
+  const a = geo.getAttribute('position').array
+  let h = 0
+  for (let i = 0; i < a.length; i++) {
+    const u = new Uint32Array(new Float64Array([a[i] as number]).buffer)
+    h = (Math.imul(h ^ u[0]!, 0x01000193) ^ u[1]!) >>> 0
+  }
+  return h
+}
+
+describe('外型參數化', () => {
+  /**
+   * 【炸彈的倍率是 1】`x * 1` 在 IEEE754 下精確，所以把輪廓表改成「絕對
+   * 尺寸 × 倍率」之後，炸彈的每一個頂點都不變。
+   */
+  it('炸彈的頂點與參數化之前逐位元相同', () => {
+    expect(createBombGeometry().getAttribute('position').count).toBe(90)
+    expect(geo.getIndex()!.count).toBe(252)
+    expect(fingerprint(geo)).toBe(2423306638)
+  })
+
+  it('預設參數就是 BOMB_SHAPE', () => {
+    expect(fingerprint(createBombGeometry(BOMB_SHAPE))).toBe(fingerprint(geo))
+  })
+
+  it('魚雷是拉長的炸彈：5.27 m × 0.45 m', () => {
+    const t = createBombGeometry(TORPEDO_SHAPE)
+    const p = t.getAttribute('position')
+    let minY = Infinity
+    let maxY = -Infinity
+    let maxR = 0
+    for (let i = 0; i < p.count; i++) {
+      minY = Math.min(minY, p.getY(i))
+      maxY = Math.max(maxY, p.getY(i))
+      maxR = Math.max(maxR, Math.hypot(p.getX(i), p.getZ(i)))
+    }
+    expect(maxY - minY).toBeCloseTo(5.27, 2)
+    expect(maxR * 2).toBeCloseTo(0.45, 2)
+  })
+
+  /**
+   * 【面數不得跟著變】拉長不是細分。同樣 84 個三角形，只是比例不同。
+   */
+  it('魚雷與炸彈的面數相同 —— 拉長不加面', () => {
+    const t = createBombGeometry(TORPEDO_SHAPE)
+    expect(t.getAttribute('position').count).toBe(geo.getAttribute('position').count)
+    expect(t.getIndex()!.count).toBe(geo.getIndex()!.count)
+  })
+
+  it('魚雷的尖端也在 −Y —— 姿態公式共用', () => {
+    const p = createBombGeometry(TORPEDO_SHAPE).getAttribute('position')
+    let noseR = 0
+    let tailR = 0
+    for (let i = 0; i < p.count; i++) {
+      const r = Math.hypot(p.getX(i), p.getZ(i))
+      if (p.getY(i) < -2.5) noseR = Math.max(noseR, r)
+      if (p.getY(i) > 2.5) tailR = Math.max(tailR, r)
+    }
+    expect(noseR).toBeLessThan(0.06)
+    expect(tailR).toBeGreaterThan(0.1)
   })
 })

@@ -18,6 +18,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
+import type { Loadout } from '../weapons/stores'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
@@ -179,6 +180,13 @@ export interface MissionBattle {
    * 識別的快取（`envelope`、`doctrine`、`ceilings`）認的就是這個參考。
    */
   readonly blueSpec: AircraftSpec
+  /**
+   * 複寫玩家這一關掛什麼。**省略 = 用 `blueSpec` 的預設掛載。**
+   *
+   * 【為什麼要有】G4M 的預設是魚雷 × 1（`weapons/stores.ts`），但護送關的
+   * 那一台該掛炸彈。機種與掛載本來就是兩件事。
+   */
+  readonly blueLoadout?: Loadout
   /** 敵方（紅隊）的主力機種 */
   readonly redSpec: AircraftSpec
   /**
@@ -640,9 +648,13 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
         altitude: 1000,
         // 【擊沉任意三艘】八艘裡挑三艘，玩家自己決定打哪幾艘 —— 那本來
-        // 就是雷擊機該做的決定。**這一期玩家還沒有魚雷**（在另一支分支
-        // 上），規則先接好，武器進來就成立。
+        // 就是雷擊機該做的決定。
         sinkCount: 3,
+        // 【這一關的一式陸攻掛炸彈，不是魚雷】`LOADOUT_BY_AIRCRAFT` 給
+        // G4M 的預設是九一式航空魚雷，但 AI 的雷擊剖面還沒寫
+        // （`ai/strikeRun.ts` 的 `StrikeProfile`）—— 掛雷的 AI 不會投。
+        // **負責人裁定：先保持掛炸彈**，等雷擊剖面上線再拿掉這一格。
+        blueLoadout: { kind: 'bomb', count: 2, damage: 11_700, reloadSeconds: 20 },
         // 【卡片文案就寫黃昏】「在黃昏低空雷擊」—— 畫面本來一直是正午
         timeOfDay: 'dusk',
       },
@@ -764,6 +776,9 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
+    // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
+    ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),
   }
 }
 

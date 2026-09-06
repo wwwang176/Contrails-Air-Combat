@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import {
-  EMBER_PER_CHUNK, LAND_BLAST, WATER_BLAST, blastScale, blastSmokeColor, dustColor,
+  EMBER_PER_CHUNK, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  blastScale, blastSmokeColor, dustColor,
   emitBlast, emitEmber, fireGlowColor, scaleBlast,
   type BlastParams, type BlastPools,
 } from '../../src/render/blast'
@@ -381,5 +382,75 @@ describe('fireGlowColor', () => {
       expect(c.r).toBeGreaterThan(c.g)
       expect(c.g).toBeGreaterThan(c.b)
     }
+  })
+})
+
+describe('魚雷命中的配方', () => {
+  /**
+   * 【釘死每一個值】寫成「比 `WATER_BLAST` 窄／高」的話，填錯數字仍然會綠。
+   */
+  it('就是這幾個數字', () => {
+    expect(TORPEDO_BLAST.jetCount).toBe(9)
+    expect(TORPEDO_BLAST.jetSpread).toBe(4.0)
+    expect(TORPEDO_BLAST.jetHeight).toBe(46)
+    expect(TORPEDO_BLAST.jetRadius).toBe(3.6)
+    expect(TORPEDO_BLAST.mistPerJet).toBe(6)
+    expect(TORPEDO_BLAST.mistSize).toBe(4.2)
+    expect(TORPEDO_BLAST.sprayCount).toBe(10)
+    expect(TORPEDO_BLAST.fireCount).toBe(7)
+    expect(TORPEDO_BLAST.fireSize).toBe(1.7)
+    expect(TORPEDO_BLAST.smokeCount).toBe(15)
+    expect(TORPEDO_BLAST.smokeSize).toBe(2.4)
+    expect(TORPEDO_BLAST.glowSize).toBe(1.4)
+  })
+
+  /**
+   * 【落水沒有火、命中有】前者是自己在水裡炸，後者炸的是船 —— 燃料、彈藥
+   * 與艦體本身都在燒。只檢查 `fireCount` 的話 `fireSize` 填了值不會被抓到，
+   * 所以四組欄位逐格驗。
+   */
+  it('落水那一份的火、煙、塵、光暈每一格都是 0', () => {
+    for (const k of [
+      'fireCount', 'fireSpeed', 'fireSize', 'fireCone',
+      'smokeCount', 'smokeSpeed', 'smokeSize', 'smokeCone',
+      'dustCount', 'dustSpeed', 'dustSize', 'dustCone',
+      'glowSize', 'glowAlpha',
+    ] as const) {
+      expect(WATER_BLAST[k], k).toBe(0)
+    }
+  })
+
+  it('命中那一份有火有煙，但不揚塵 —— 海上沒有土', () => {
+    for (const k of ['fireCount', 'fireSpeed', 'fireSize', 'fireCone',
+      'smokeCount', 'smokeSpeed', 'smokeSize', 'smokeCone',
+      'glowSize', 'glowAlpha'] as const) {
+      expect(TORPEDO_BLAST[k], k).toBeGreaterThan(0)
+    }
+    for (const k of ['dustCount', 'dustSpeed', 'dustSize', 'dustCone'] as const) {
+      expect(TORPEDO_BLAST[k], k).toBe(0)
+    }
+  })
+
+  /**
+   * 【火不能蓋過水柱】讀起來要是「一道水牆，根部有一團火」。火球團徑約
+   * `fireSize × fireSpeed` 的量級，水柱是 `jetHeight`。
+   */
+  it('火比水柱矮得多', () => {
+    expect(TORPEDO_BLAST.fireSize * 8).toBeLessThan(TORPEDO_BLAST.jetHeight)
+    expect(TORPEDO_BLAST.fireCount).toBeLessThan(LAND_BLAST.fireCount)
+    expect(TORPEDO_BLAST.smokeCount).toBeLessThan(LAND_BLAST.smokeCount)
+  })
+
+  it('比落水的水冠更窄、更高', () => {
+    expect(TORPEDO_BLAST.jetSpread).toBeLessThan(WATER_BLAST.jetSpread)
+    expect(TORPEDO_BLAST.jetHeight).toBeGreaterThan(WATER_BLAST.jetHeight)
+    expect(TORPEDO_BLAST.jetCount).toBeLessThan(WATER_BLAST.jetCount)
+  })
+
+  it('走的是同一支縮放', () => {
+    const out = { ...TORPEDO_BLAST }
+    scaleBlast(TORPEDO_BLAST, 8, out)
+    expect(out.jetHeight).toBeCloseTo(TORPEDO_BLAST.jetHeight * 2, 9)
+    expect(out.jetCount).toBeGreaterThan(TORPEDO_BLAST.jetCount)
   })
 })

@@ -16,9 +16,19 @@ import {
   type BombImpactFn, type BombState,
 } from './bomb'
 import {
-  blastRadiusOf, bombBlastDamage, bombBayOf, bombDamageOf, createBombBay,
-  resetBombBay, stepBombBay, type BombBay,
+  blastRadiusOf, bombBlastDamage, createBombBay, resetBombBay, stepBombBay,
+  type BombBay,
 } from '../weapons/bomb'
+import { loadoutOf, type Loadout } from '../weapons/stores'
+import { canRelease, envelopeFor } from '../weapons/releaseEnvelope'
+// 【`attitude-math.ts` 放錯層了】它是純數學（只依賴 three 與 core），
+// 卻住在 `hud/` 底下 —— `camera/godCamera.ts` 也已經跨層引用它。應該搬到
+// `core/`，但那是另一次清理，不在這次合併的範圍。
+import { attitudeFromOrientation } from '../hud/attitude-math'
+import {
+  Torpedoes,
+  type TorpedoBlockFn, type TorpedoEndFn, type TorpedoPointFn,
+} from './torpedo'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -61,6 +71,14 @@ export interface Combatant {
    * 進回補，而回補又補回 0 —— 空艙的機種因此永遠投不出東西，不必另外擋。
    */
   bombBay: BombBay
+  /**
+   * 這一台掛什麼。**`null` = 掛不了東西。**
+   *
+   * 【為什麼不是每次從 spec 查】`bombBay.capacity` 由它推導，而任務卡可以
+   * 用 `blueLoadout` 覆寫（`battle/setup.ts`）—— 覆寫過的值必須留得住，
+   * 從 spec 重查會把它抹掉。
+   */
+  loadout: Loadout | null
   /**
    * 每個掛架的槍焰剩餘秒數。長度等於 `spec.battery.mounts.length`。
    *
@@ -193,6 +211,7 @@ export class World {
   readonly combatants: Combatant[] = []
   readonly projectiles = new Projectiles()
   readonly bombs = new Bombs()
+  readonly torpedoes = new Torpedoes()
 
   /**
    * 該點的**判定用**地面高度，m。海面是平的（0），陸地讀高度場。
@@ -307,6 +326,20 @@ export class World {
   private bombShip: Ship | null = null
 
   /**
+   * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，`ny` 是這一枚的傷害。
+   *
+   * 【射程用盡不推事件】跑完自沉，爆了的話玩家會以為打中了什麼。
+   */
+  readonly torpedoEvents: ImpactEvents = createImpacts()
+  /**
+   * 魚雷的入水點與航跡。**同一個管道** —— 兩者的表現都是水面上的一叢
+   * 水花，只有規模不同（`main.ts` 決定）。與 `hitEvents` 一樣由呼叫端排空。
+   */
+  readonly torpedoWakeEvents: ImpactEvents = createImpacts()
+  /** `onTorpedoBlocked` 找到的那一艘，`onTorpedoEnd` 接著讀。同 `bombShip` */
+  private torpedoShip: Ship | null = null
+
+  /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
    *
    * 【為什麼不是 readonly】容量要跟著參戰架數走，而架數是 `add()` 一架一架
@@ -377,7 +410,8 @@ export class World {
       controller,
       command: createCommand(),
       cooldowns: new Float32Array(aircraft.spec.battery.mounts.length),
-      bombBay: createBombBay(bombBayOf(aircraft.spec.id)),
+      loadout: loadoutOf(aircraft.spec.id),
+      bombBay: createBombBay(loadoutOf(aircraft.spec.id)),
       muzzleFlash: new Float32Array(aircraft.spec.battery.mounts.length),
       turretStates: createTurretStates(aircraft.spec, this.combatants.length),
       turretCooldowns: new Float32Array(aircraft.spec.turrets.length),
@@ -540,6 +574,17 @@ export class World {
       this.ships.length > 0 ? this.onBombBlocked : undefined,
     )
 
+    // 3.6 魚雷推進
+    //
+    // 【空中段與炸彈同一支積分】所以瞄具解的落點與入水點走的是同一條彈道。
+    // 實際投放另外套一層散佈（見 `dropTorpedo`），瞄具畫的是**散佈前的
+    // 中心** —— 與炸彈一樣。水中段是定深等速直線，只由航程回收。
+    this.torpedoes.step(
+      dt, this.bombDrag, this.groundAt, this.waterAt,
+      this.onTorpedoEnd, this.onTorpedoEntry, this.onTorpedoWake,
+      this.ships.length > 0 ? this.onTorpedoBlocked : undefined,
+    )
+
     // 4. 命中判定
     this.resolveHits()
   }
@@ -624,9 +669,103 @@ export class World {
    * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
    * （見 `resetBattle` 對 `world.time` 的說明）。
    *
-   * @param damage 這一顆的爆心傷害。**由投彈的那一台決定**
-   *               （`bombDamageOf`），整顆彈的規模都從它推導。
+   * @param damage 這一顆的爆心傷害。**由投彈的那一台的掛載決定**
+   *               （`weapons/stores.ts`），整顆彈的規模都從它推導。
    */
+  /**
+   * 魚雷引爆。**接觸引爆：只有直接命中的那一艘扣血。**
+   *
+   * 【沒有範圍傷害，也不掃飛機】負責人裁定。真實魚雷是接觸引信，而「水下
+   * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
+   */
+  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage) => {
+    const sh = this.torpedoShip
+    if (kind === 1 && sh !== null && sh.alive) {
+      sh.hp -= damage
+      this.sinkIfDead(sh)
+    }
+    pushImpact(this.torpedoEvents, x, y, z, kind, damage, 0)
+  }
+
+  /**
+   * 魚雷入水。**與航跡走同一個管道** —— 兩者的表現都是水面上的一叢水花。
+   *
+   * 【高度改讀含浪的水面】`Torpedoes` 給的 `y` 是平海的碰撞高度（那一個
+   * 值要與瞄具的落點逐位元相同，護欄在 `torpedo.test.ts`）；水花要浮在
+   * **看得見**的水面上。讀不到水面時退回原值 —— 那是岸邊的淺帶，兩支
+   * 地形 API 在那裡的答案本來就不一致。
+   */
+  private readonly onTorpedoEntry: TorpedoPointFn = (x, y, z) => {
+    const w = this.waterAt(x, z)
+    pushImpact(this.torpedoWakeEvents, x, Number.isFinite(w) ? w : y, z, 0, 0, 0)
+  }
+
+  private readonly onTorpedoWake: TorpedoPointFn = (x, y, z) => {
+    pushImpact(this.torpedoWakeEvents, x, y, z, 0, 0, 0)
+  }
+
+  /**
+   * 魚雷這一步有沒有撞上船。**只掃船體盒，不掃砲位。**
+   *
+   * 【這是成本決定，不是行為差異】炸彈是面殺傷，落在砲座上與落在甲板上都
+   * 算打中，所以那一支兩種盒都掃。魚雷在水面下 1 m，而砲位盒全部在甲板上
+   * （Essex 最低的在 y = 14.18）—— 掃了也永遠不會命中，只是白花錢。
+   * 掃與不掃在行為上等價，`torpedo-vs-ship.test.ts` 的護欄因此分不出兩者；
+   * 它守的是「砲位不會被魚雷打掉」這條規則本身。
+   *
+   * 【比較的形狀】`NO_HIT` 是 **−1** 不是 `Infinity`，所以不能只寫
+   * `t >= best`：初值 −1 會讓每一個合法的 `t ≥ 0` 都被跳過。
+   */
+  private readonly onTorpedoBlocked: TorpedoBlockFn = (x0, y0, z0, x1, y1, z1) => {
+    this.torpedoShip = null
+    if (this.ships.length === 0) return NO_HIT
+    let best = NO_HIT
+    for (const sh of this.ships) {
+      if (!sh.alive) continue
+      if (segmentPointDistanceSq(
+        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
+      ) > sh.cls.radius * sh.cls.radius) continue
+
+      SHIP_INV.copy(sh.orientation).conjugate()
+      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
+      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
+
+      for (const box of sh.cls.hull) {
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.torpedoShip = sh
+      }
+    }
+    return best
+  }
+
+  /**
+   * 投一枚魚雷。位置與速度都是**世界座標**。
+   *
+   * @param damage      這一枚的接觸傷害。由投放的那一台的掛載決定
+   * @param headX/headZ 投放瞬間的機首**水平**方向，單位向量。只有垂直入水
+   *                    那種退化情況用得到 —— **不能從退化的速度反推**
+   */
+  dropTorpedo(
+    x: number, y: number, z: number,
+    vx: number, vy: number, vz: number, damage: number,
+    headX: number, headZ: number,
+  ): void {
+    // 【散佈與炸彈同一組】由累計投放序號決定（可重播），不是亂數。瞄具解的
+    // 是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 —— 把散佈也
+    // 套進瞄具的話，散佈就變成免費的情報，等於沒有散佈
+    spreadPair(this.torpedoes.dropped, BOMB_PAIR)
+    spreadDirection(
+      vx, vy, vz,
+      BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
+      BOMB_VEL,
+    )
+    this.torpedoes.spawn(
+      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ,
+    )
+  }
+
   dropBomb(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
@@ -674,7 +813,8 @@ export class World {
     }
     // 【彈艙是第四個】與上面三個「換機種會變」的東西同一段 —— 分開寫就是
     // 只有一份會被修好的那種危險。換完立刻滿艙、取消回補計時。
-    resetBombBay(c.bombBay, bombBayOf(spec.id))
+    c.loadout = loadoutOf(spec.id)
+    resetBombBay(c.bombBay, c.loadout)
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)
   }
@@ -696,7 +836,7 @@ export class World {
     // 【從質心投，不是 `bombPoint`】那一格住在算繪層的 `AircraftModel`，
     // `World` 讀不到也不該讀 —— 而它是給玩家對準星用的，與質心差兩三公尺，
     // 落在 30 m 量級的殺傷半徑的雜訊裡。
-    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, bombDamageOf(c.aircraft.spec.id))
+    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, c.loadout?.damage ?? 0)
   }
 
   /**
@@ -712,9 +852,21 @@ export class World {
    * 熱路徑，不配置。
    */
   private releaseBombs(c: Combatant, dt: number): void {
-    if (c.hp <= 0 || c.bombBay.capacity === 0) return
+    // 【只有掛炸彈的走這裡】魚雷是另一套投放（低空、直線、入水），AI 那一份
+    // 剖面還沒寫 —— 見 `ai/strikeRun.ts` 的 `StrikeProfile`。掛雷的 AI 因此
+    // 不會投，而不是用彈道去投一枚魚雷。
+    if (c.hp <= 0 || c.loadout?.kind !== 'bomb' || c.bombBay.capacity === 0) return
+    // 【投放包絡對 AI 一樣成立】玩家的準星顏色與 AI 的投放門檻是同一條
+    // （`main.ts` 的 `releaseOk`）—— 兩邊分家的話會出現「AI 投得出玩家投不
+    // 出的彈」。
+    const a = c.aircraft
+    const att = attitudeFromOrientation(a.state.orientation)
+    const agl = a.state.position.y - this.groundAt(a.state.position.x, a.state.position.z)
+    const ok = canRelease(
+      envelopeFor(c.loadout.kind), att.roll, att.pitch, agl, a.diag.aero.tas,
+    )
     this.bombing = c
-    stepBombBay(c.bombBay, dt, c.command.bombing, this.dropOne)
+    stepBombBay(c.bombBay, dt, c.command.bombing, ok, this.dropOne)
     this.bombing = null
   }
 
@@ -1187,7 +1339,8 @@ export class World {
     resetTurretStates(c.turretStates, c.aircraft.spec, c.index)
     // 【彈艙也要清】「再打一場」不重建 World 而是逐架 respawn。不清的話
     // 上一局的空艙、待投佇列與回補倒數會直接帶進下一局。
-    resetBombBay(c.bombBay, bombBayOf(c.aircraft.spec.id))
+    // 【用 `c.loadout` 不重查 spec】任務卡覆寫過的掛載必須留得住
+    resetBombBay(c.bombBay, c.loadout)
     c.hitsDealt = 0
     c.alive = true
     // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條

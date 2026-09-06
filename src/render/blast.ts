@@ -156,6 +156,48 @@ export const WATER_BLAST: BlastParams = {
 }
 
 /**
+ * 魚雷命中。**水柱＋爆炸**（負責人 2026-09-06）。起始值，由試飛裁定。
+ *
+ * 【比落水的水冠更窄更高】魚雷在船側水線下引爆，水沿著艦身噴上去，是一道
+ * 貼著船的水牆而不是散開的水冠。柱數少一點、間距收一半、高度加三成。
+ *
+ * 【與 `WATER_BLAST` 的差別就是那團火】落水的那一顆是自己在水裡炸，看不到
+ * 火；打中船的這一顆炸的是船 —— 燃料、彈藥與艦體本身都在燒。所以火與煙
+ * 都有，但比墜地那一組小：水吞掉大半的能量，冒出水面的只是其中一部分。
+ *
+ * 【火比水柱矮】火球團徑約 12 m，水柱 46 m —— 讀起來要是「一道水牆，根部
+ * 有一團火」，而不是「一團火，旁邊有水」。
+ *
+ * 【撞岸也用這一份】岸邊的爆炸仍然是水柱 —— 為它另開一張表要先有一個真的
+ * 分得出來的畫面。
+ */
+export const TORPEDO_BLAST: BlastParams = {
+  fireCount: 7,
+  fireSpeed: 24,
+  fireSize: 1.7,
+  fireCone: (68 * Math.PI) / 180,
+  smokeCount: 15,
+  smokeSpeed: 13,
+  smokeSize: 2.4,
+  smokeCone: (70 * Math.PI) / 180,
+  dustCount: 0,
+  dustSpeed: 0,
+  dustSize: 0,
+  dustCone: 0,
+  sprayCount: 10,
+  spraySpeed: 19,
+  sprayCone: (58 * Math.PI) / 180,
+  jetCount: 9,
+  jetSpread: 4.0,
+  jetHeight: 46,
+  jetRadius: 3.6,
+  mistPerJet: 6,
+  mistSize: 4.2,
+  glowSize: 1.4,
+  glowAlpha: 0.5,
+}
+
+/**
  * 空中擊墜。**沒有塵、沒有水冠** —— 那兩樣都是地面的東西。
  *
  * 【比墜地小】一架飛機的油箱不是 500 lb 的裝藥。火球團徑約 20 m，煙也少

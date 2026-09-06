@@ -227,3 +227,32 @@ describe('開場高度', () => {
     }
   })
 })
+
+/**
+ * 掛載的複寫。
+ *
+ * 【為什麼這一條非有不可】`missionConfigFrom` **明列回傳欄位、不透傳未知
+ * 資料**（那是它自己的註解寫的），所以新增一欄而忘了在那裡抄一次，症狀是
+ * 「複寫靜靜失效、玩家掛著預設的東西起飛」——型別過得去，畫面也正常。
+ */
+describe('卡片可以複寫玩家的掛載', () => {
+  const OVERRIDE = {
+    kind: 'bomb', count: 4, damage: 1234, reloadSeconds: 7,
+  } as const
+
+  it('卡片上有就傳得到 BattleConfig', () => {
+    const card = readyCard(KILL_CARD)
+    const withLoadout: ReadyMissionCard = {
+      ...card,
+      battle: { ...card.battle, blueLoadout: OVERRIDE },
+    }
+    expect(missionConfigFrom(withLoadout).blueLoadout).toEqual(OVERRIDE)
+  })
+
+  it('卡片上沒有就不出現 —— 下游才分得出「沒複寫」與「複寫成空的」', () => {
+    for (const m of playable) {
+      if (m.battle.blueLoadout !== undefined) continue
+      expect(missionConfigFrom(m).blueLoadout, m.id).toBeUndefined()
+    }
+  })
+})

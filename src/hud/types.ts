@@ -1,5 +1,6 @@
 import { createDamageMarks, type DamageMark } from './damageMarks'
 import { ARENA_COUNTDOWN } from '../world/arena'
+import type { OrdnanceKind } from '../weapons/stores'
 
 /**
  * 一個接觸點（畫面上的一架他機）。
@@ -157,8 +158,21 @@ export interface HudFrame {
    * 照樣解算，只是相機不去追它、圈用暗色、滑出畫面就不畫。
    */
   bombing: boolean
-  /** 這一台掛得了炸彈。彈艙讀數的顯示條件 */
+  /** 這一台掛得了東西。彈艙讀數的顯示條件 */
   bombCapable: boolean
+  /**
+   * 掛的是什麼。`null` = 這一台掛不了東西。
+   *
+   * 【它決定包絡與讀數的樣子】魚雷的投放包絡比炸彈嚴得多，而彈艙只有一格。
+   */
+  ordnance: OrdnanceKind | null
+  /**
+   * **這一幀投得出去嗎。** 準星的顏色看它：可投綠、不可投紅。
+   *
+   * 【為什麼是一個布林而不是「哪一條不過」】畫面上只有兩種顏色。要告訴
+   * 玩家是坡度還是高度不對的話，那是另一個儀表的工作。
+   */
+  releaseOk: boolean
   /** 這一台的滿艙是幾枚。**讀數畫幾格就看它** */
   bombBayCapacity: number
   /** 彈艙裡還剩幾枚 */
@@ -312,7 +326,8 @@ export function createHudFrame(): HudFrame {
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
     bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
-    bombing: false, bombCapable: false, bombBayCapacity: 0,
+    bombing: false, bombCapable: false, ordnance: null, releaseOk: false,
+    bombBayCapacity: 0,
     bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
