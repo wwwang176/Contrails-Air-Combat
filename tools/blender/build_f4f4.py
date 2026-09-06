@@ -270,6 +270,47 @@ TP_BAND_Z = (0.44, 0.62)
 FIN_BAND_Y = -4.02
 STA_TOP_CLEAN = (-4.02, 0.586)
 
+# ── 機背（龜背）是獨立的一件 ────────────────────────────────────
+#
+# 【為什麼要拆】機身環是「腹線極點 → LEVELS 級 → 頂極點」，級距用餘弦分佈（頂底密）。
+# 在 y −1.5 那一站腹線 −0.77、冠線 +1.06，1.83 m 分 8 級，而餘弦把點擠到**上下兩端**，
+# 曲率最大的肩部（z −0.3…+0.3）只分到三級、間距 0.3 m。算圖上那一段就是兩片平板夾
+# 一道硬稜，側視看是一條從座艙後方往上後掠的亮線 —— 負責人 2026-09-07：「機身線條
+# 不應該往上走」。
+#
+# 【做法：純分件，外表面不變】機身環的頂端由一個極點改成折線上的**兩點**
+# （±w_fold, z_fold），機背從同一圈邊往上長到冠線。兩件共用那圈邊，所以合起來的
+# 外皮與單件 loft 完全一樣；差別是機身的 8 級現在只要撐 −0.77…0.50（間距 0.16），
+# 機背再自己分 DLEVELS 級。折線之外的站位 w_fold = 0，兩點重合，`finish()` 的
+# remove_doubles 會把它收回成極點 —— 環的點數因此全長一致，loft 不必分段。
+#
+# 【折線是量出來的】剖面在機身頂／機背底之間有一道折：半寬沿 z 往上的增量由每
+# 0.05 約 0.05…0.08（機身在張開）掉到約 0.022（機背在收）。實測（Ref_Body）：
+#
+# ```
+#   y        -1.3   -1.6   -2.0   -2.4   -2.8   -3.2   -3.6   -4.0
+#   折 z     0.59   0.53   0.47   0.46   0.47   0.42   0.37   0.34
+#   冠 z     1.089  1.034  0.974  0.912  0.822  0.719  0.618  0.586
+# ```
+#
+# 【前端要蓋過整個座艙，不能停在座艙罩後緣】停在 −1.28 的話，機身頂在 −1.24 還是
+# 冠線 1.08、到 −1.32 就掉成折線 0.53，中間是一片近乎垂直的牆，而機背的前封蓋又
+# 剛好貼在那裡 —— 算圖上是一道裂縫。往前拉到 +0.30 之後，座艙那一段量到的「折」
+# 自然就是**艙緣線**（參考模型在那裡的剖面本來就是「機身 + 座艙罩」兩段），機身
+# 因此整條都是子彈狀，而機背件就是「座艙罩整流 + 龜背」一整條 —— 與參考模型
+# f4f_wildcat 把 Object_9 從風擋一路做到垂尾是同一個分法。玻璃盒的布林要**兩件
+# 都切**（見第 2 節），座艙開口才會同時穿過機身與機背。
+#
+# 後端接在 FIN_BAND_Y —— 那一站的冠線正好是 STA_TOP_CLEAN，也就是垂尾前緣反解
+# 出來的交班點（見 fin_le），所以機背收尾整片藏在垂尾裡面。
+#
+# 【參考模型的分件方式】`ref/f4f_wildcat.glb`（Sketchfab, ScheeWheed, CC-BY-NC-4.0，
+# 只當分件的範例看，尺寸不可信：翼展對齊後全長短了 8%）把座艙罩＋龜背＋垂尾做成
+# 一件 `Object_9`（z 到 1.013）疊在子彈狀機身 `Object_10`（z 只到 0.428）上，底邊
+# 沉進機身 0.05…0.10。本專案取它的分件想法，形狀仍照自家 ref 量。
+DORSAL_Y = (FIN_BAND_Y, -0.02)     # [後, 前]；前端 = 風擋，見下
+DLEVELS = 5                        # 機背每側的級數
+
 def belly_fix(y):
     """翼根段的腹線。**不是平滑處理，是把量壞的一段換掉**，兩個原因疊在一起：
 
@@ -364,6 +405,35 @@ def resample(s, L=LEVELS):
             out.append((ws[-1], zz, oks[-1]))
     return out
 
+def fold_of(s):
+    """機身頂／機背底的那道折，由細掃剖面自己找出來。
+
+    判準是**半寬對 z 的斜率**：機身那一側在張開（每 0.05 掉 0.05…0.08），機背那一側
+    在收（約 0.022）。折就是斜率最不負的那個轉折 —— 取二階差最大的 z。搜尋範圍限在
+    剖面上半（0.45 以上）到冠線下 0.06，免得把腹線的圓角或頂點當成折。
+    """
+    if not (DORSAL_Y[0] <= s['y'] <= DORSAL_Y[1]): return None
+    zs, ws = s['z'], s['w']
+    def w_at(z):
+        if z <= zs[0]: return ws[0]
+        if z >= zs[-1]: return ws[-1]
+        for i in range(len(zs) - 1):
+            if zs[i] <= z <= zs[i + 1]:
+                f = (z - zs[i]) / (zs[i + 1] - zs[i]) if zs[i + 1] > zs[i] else 0.0
+                return ws[i] + (ws[i + 1] - ws[i]) * f
+        return ws[-1]
+    bot, top = s['bot'], s['top']
+    h = 0.05
+    lo = bot + 0.45 * (top - bot); hi = top - 0.06
+    if hi - lo < 3 * h: return None
+    best = None; bz = None
+    z = lo + h
+    while z <= hi - h:
+        d2 = (w_at(z + h) - 2 * w_at(z) + w_at(z - h)) / (h * h)
+        if best is None or d2 > best: best, bz = d2, z
+        z += 0.01
+    return bz
+
 def fill_bands(sta):
     """量不到的級沿 **y** 補，不要沿 z 補。
 
@@ -398,8 +468,202 @@ for y in FUS_Y:
 # 那時只剩直線在管，於是 y −5.4 是 0.108 而 −5.8 回到 0.162 —— 尾錐末端反而變高。
 for a, b in zip(STA, STA[1:]):
     if b['y'] <= FIN_BAND_Y and b['top'] > a['top']: b['top'] = a['top']
+for s in STA: s['fold'] = fold_of(s)
+
+# 【折線再往上抬到「機背只有這麼厚」】量到的膝點是剖面上真實的曲率轉折，照它做
+# 出來的機背在 y −2.5 有 0.43 厚；`ref/f4f_wildcat.glb`（Sketchfab, ScheeWheed,
+# CC-BY-NC-4.0）同一站只有 0.33。**負責人 2026-09-07 裁定照後者的厚度**。
+#
+# 那支的機身頂看起來更高（−2.5 是 0.611，我的膝點是 0.465），但**不能直接搬**：
+# 它的機身件在頂端只有 0.155 半寬，而該處外皮實際是 0.26 —— 它的機身是一顆藏在
+# 機背裡的內膽，兩件互相穿插，不是像本專案沿一圈邊對接。可以搬的是**機背的厚度**。
+#
+# 抬高折線不動外皮（折線只決定兩件在哪交班），代價只是機身的 8 級要撐高一點、
+# 機背的 DLEVELS 級撐得更密。
+H_DORSAL = [(-0.14, 0.162), (-0.28, 0.290), (-0.42, 0.385), (-0.70, 0.382),
+            (-0.98, 0.379), (-1.24, 0.377), (-1.46, 0.378), (-1.80, 0.368),
+            (-2.25, 0.353), (-2.50, 0.329), (-2.80, 0.289), (-3.10, 0.249),
+            (-3.45, 0.203), (-3.80, 0.199)]
+def dorsal_h(y):
+    if y >= H_DORSAL[0][0]: return H_DORSAL[0][1]
+    if y <= H_DORSAL[-1][0]: return H_DORSAL[-1][1]
+    for (y0, h0), (y1, h1) in zip(H_DORSAL, H_DORSAL[1:]):
+        if y1 <= y <= y0: return h0 + (h1 - h0) * (y - y0) / (y1 - y0)
+    return H_DORSAL[-1][1]
+for s in STA:
+    if s['fold'] is None: continue
+    s['fold'] = max(s['fold'], s['top'] - dorsal_h(s['y']))
+# 沿 y 平滑一次（λ0.5）：折是一條連續的線，逐站找出來的極值會有 10…20 mm 的抖。
+_fi = [i for i, s in enumerate(STA) if s['fold'] is not None]
+for _ in range(2):
+    _new = {}
+    for k, i in enumerate(_fi):
+        if k == 0 or k == len(_fi) - 1: continue
+        a, b = STA[_fi[k - 1]], STA[_fi[k + 1]]
+        t = (STA[i]['y'] - a['y']) / (b['y'] - a['y'])
+        _new[i] = STA[i]['fold'] + (a['fold'] + (b['fold'] - a['fold']) * t - STA[i]['fold']) * 0.5
+    for i, v in _new.items(): STA[i]['fold'] = v
+# 【尾端要收成零高度，不能切一刀】機背若在 −3.80 就結束，那一片朝後的封蓋是露出來的：
+# 再往後機身頂會跳回冠線（FIN_BAND_Y 之後由 STA_TOP_CLEAN 那條線管），中間差 0.2 m。
+# 把最後一站的折線頂到冠線，機背在那裡厚度歸零、環退化成一點，remove_doubles 收掉，
+# 機身的環頂也自動變回極點。交班處正好是垂尾前緣反解出來的 −4.0（見 fin_le），
+# 也就是背鰭併進垂尾的那一點。
+# 【尾端要收成零高度，不能切一刀】機背若在折線帶的最後一站就結束，那一片朝後的封蓋
+# 是露出來的：再往後機身頂會跳回冠線（FIN_BAND_Y 之後由 STA_TOP_CLEAN 那條線管）。
+# 所以在帶外**再補一站**、折線頂到該站自己的冠線：機背在那裡厚度歸零、環退化成一點，
+# remove_doubles 收掉，機身的環頂也自動變回極點。交班處正好是垂尾前緣反解出來的
+# −4.0（見 fin_le），也就是背鰭併進垂尾的那一點。
+#
+# **這一站不能參與上面的平滑**：它的折線是人為頂到冠線的，拉進拉普拉斯會把前兩站
+# 的折線一起往下扯（實測 −3.80 由 0.364 掉到 0.224，機背基座反而變胖）。
+# 【兩端要「漸進收掉」，不能一站切死】機背的環在折線帶外是退化的一點、帶內第一站就
+# 是完整一圈，中間機身與機背各自從那一點張成一片錐面 —— 兩片不同的錐面佔同一塊
+# 空間，算圖上是風擋前一團互相穿插的碎面。
+#
+# 根因是**級數的意義變了**：機身的 L 級在帶外撐 bot…冠線、在帶內只撐 bot…折線，
+# 同一個 k 在相鄰兩站的高度差一大截，loft 把它們接起來就會扭。
+#
+# 做法：把機背的高度 h = 冠線 − 折線 在帶外沿 K 站線性收到 0，級數的意義因此
+# 逐站慢慢改，不會一次跳掉。前端 4 站（約 0.6 m）、後端 2 站就夠。
+def _taper(i0, step, K):
+    if not (0 <= i0 < len(STA)): return
+    h0 = STA[i0]['top'] - STA[i0]['fold']   # 此時 top 仍是冠線，crown 還沒存
+    for j in range(1, K + 1):
+        i = i0 + step * j
+        if not (0 <= i < len(STA)) or STA[i]['fold'] is not None: return
+        STA[i]['fold'] = STA[i]['top'] - h0 * max(0.0, 1.0 - j / K)
+        STA[i]['taper'] = (j == K)      # 高度歸零的那一站，平滑之後要釘回冠線
+# 【前端只收一站，就收在風擋上】風擋之前沒有機背整流，那一段本來就是機身甲板
+# （負責人 2026-09-07 圈的正是 y −0.24…+0.90）。但完全不收會破洞：+0.02 的機身環
+# 還收在冠線、−0.02 已經收在折線，中間那 40 mm 沒有任何面蓋得到（實測 y 0.00 的
+# 剪影由 0.822 掉到 0.593）。補一站、把機背高度收到零，機背就從冠線上的一個點張
+# 成 −0.02 的整圈，正好蓋住那一段；機身自己那片斜面藏在裡面。
+_taper(_fi[0], -1, 1) if _fi else None      # 前端：風擋那一站
+_taper(_fi[-1], +1, 2) if _fi else None     # 後端：往機尾方向
+# 收尾站補進來之後再平滑一次（兩端固定）。**風擋那一站的折線偵測不可靠**：剖面在
+# 那裡本來就含風擋，二階差找到的是風擋根而不是機身頂，實測 −0.02 讀到 0.377 而鄰站
+# −0.14 是 0.595。不修的話機背在那一段要從一個點張開 0.45 m，算圖上是一片扇形。
+_fj = [i for i, s in enumerate(STA) if s['fold'] is not None]
+for _ in range(2):
+    _new = {}
+    for k in range(1, len(_fj) - 1):
+        i = _fj[k]; a, b = STA[_fj[k - 1]], STA[_fj[k + 1]]
+        t = (STA[i]['y'] - a['y']) / (b['y'] - a['y'])
+        _new[i] = STA[i]['fold'] + (a['fold'] + (b['fold'] - a['fold']) * t - STA[i]['fold']) * 0.5
+    for i, v in _new.items(): STA[i]['fold'] = min(v, STA[i]['top'])
+
+# ── 折線本身要是一條水滴線 ──────────────────────────────────
+#
+# 【它是構造線，不是外皮】折線只決定兩件在哪裡交班與各自的級數怎麼分；只要它落在
+# 腹線與冠線之間，合起來的外皮一個頂點都不會動。所以它不必照著逐站量到的「膝點」
+# 走 —— 那個膝點在座艙段量到的其實是**艙緣**（剖面在那裡本來就是「機身 + 座艙罩」），
+# 於是機身自己的線在 +0.02 一站掉 156 mm（0.809 → 0.657），−0.14 到 −0.42 還鼓一個
+# 30 mm 的包（0.618 → 0.629 → 0.648）。機身應該是一條由機首拉到機尾的水滴。
+#
+# 做法兩步：**先壓單調**（由風擋往後只能降，把包削掉），**再多平滑幾輪**（把風擋
+# 那一站的陡降攤到三四站上）。兩端固定：前端是收尾站（動了會破洞，見上），後端是
+# 併進垂尾的那一點。
+for k in range(1, len(_fj)):
+    a, b = STA[_fj[k - 1]], STA[_fj[k]]
+    if b['fold'] > a['fold']: b['fold'] = a['fold']
+for _ in range(8):
+    _new = {}
+    for k in range(1, len(_fj) - 1):
+        i = _fj[k]; a, b = STA[_fj[k - 1]], STA[_fj[k + 1]]
+        t = (STA[i]['y'] - a['y']) / (b['y'] - a['y'])
+        _new[i] = STA[i]['fold'] + (a['fold'] + (b['fold'] - a['fold']) * t - STA[i]['fold']) * 0.5
+    for i, v in _new.items(): STA[i]['fold'] = min(v, STA[i]['top'])
+
+# 【座艙段的折線要拉一條餘弦過渡，不能照著量到的膝點走】剖面在座艙段本來就是
+# 「機身 + 座艙罩」兩段，量到的膝點是**艙緣**而不是機身該有的線；照著走的話折線
+# 由風擋的 0.813 兩站之內掉到 0.714（每單位 y 掉 0.90），而級數是腹線到頂線的固定
+# 比例 —— 八條級線在那裡整組跟著俯衝，算圖上每一條都折一下（負責人 2026-09-07）。
+#
+# 折線只要落在腹線與冠線之間就合法，所以直接由**風擋的冠線**拉到**座艙後方的膝點**
+# 拉一條餘弦（兩端斜率為零，接得上前面的甲板也接得上後面的龜背）。過渡段的折線會
+# 略高於艙緣，多出來的那一點由玻璃盒的布林切掉 —— 與單件時的行為相同。
+BLEND_END_Y = -1.40
+_b1 = next((i for i in _fj if STA[i]['y'] <= BLEND_END_Y), None)
+if _fj and _b1 is not None:
+    _y0, _z0 = STA[_fj[0]]['y'], STA[_fj[0]]['fold']
+    _y1, _z1 = STA[_b1]['y'], STA[_b1]['fold']
+    for i in _fj:
+        if not (_y1 < STA[i]['y'] < _y0): continue
+        u = (STA[i]['y'] - _y0) / (_y1 - _y0)
+        STA[i]['fold'] = min(_z0 + (_z1 - _z0) * (0.5 - 0.5 * math.cos(math.pi * u)),
+                             STA[i]['top'])
+
+def span_levels(s, z0, z1, L):
+    """細掃剖面在 [z0, z1] 之間取 L 級（餘弦分佈），回傳 [(w, z)]。"""
+    zs, ws = s['z'], s['w']; out = []
+    for k in range(1, L + 1):
+        t = k / (L + 1)
+        zz = z0 + (z1 - z0) * (0.5 - 0.5 * math.cos(math.pi * t))
+        w = ws[-1]
+        for i in range(len(zs) - 1):
+            if zs[i] <= zz <= zs[i + 1]:
+                f = (zz - zs[i]) / (zs[i + 1] - zs[i]) if zs[i + 1] > zs[i] else 0.0
+                w = ws[i] + (ws[i + 1] - ws[i]) * f; break
+        out.append((w, zz))
+    return out
+
+# 機背的級數要在動 s['top'] 之前算完，之後機身的 top 就換成折線。
+for s in STA:
+    s['crown'] = s['top']; s['wfold'] = 0.0; s['lvd'] = None
+    if s['fold'] is None: continue
+    s['lvd'] = span_levels(s, s['fold'], s['crown'], DLEVELS)
+    s['wfold'] = span_levels(s, s['fold'] - 0.001, s['fold'] + 0.001, 1)[0][0]
+    s['top'] = s['fold']
+
 for s in STA:
     s['lv'] = resample(s)
+
+def w_at(s, z):
+    zs, ws = s['z'], s['w']
+    if z <= zs[0]: return ws[0], s['ok'][0]
+    if z >= zs[-1]: return ws[-1], s['ok'][-1]
+    for i in range(len(zs) - 1):
+        if zs[i] <= z <= zs[i + 1]:
+            f = (z - zs[i]) / (zs[i + 1] - zs[i]) if zs[i + 1] > zs[i] else 0.0
+            return ws[i] + (ws[i + 1] - ws[i]) * f, (s['ok'][i] and s['ok'][i + 1])
+    return ws[-1], s['ok'][-1]
+
+def smooth_level_z(sta, passes=6, lam=0.5, room=0.30):
+    """**級線的高度要沿 y 平滑，再回細掃剖面重新取半寬。**
+
+    resample 把八級放在 bot…top 之間的固定比例上，所以 top 一動，八條級線整組跟著
+    動。機身頂線在風擋是一段陡降（0.813 → 0.777 → 0.714 → 0.655，每單位 y 掉 0.90
+    → 0.42），於是每一條級線在那裡都折一下 —— 負責人 2026-09-07 圈的正是這個。
+    **表面本身是對的**（固定高度的水線與參考模型走勢一致，z 0.55 那條兩邊的峰都在
+    y 0.0），錯的是取樣線。
+
+    做法：把每一級的 **絕對 z** 沿 y 做拉普拉斯，再用平滑後的 z 回 `station()` 留下
+    的細掃剖面重新查半寬 —— 線順了，而每一點仍然落在量到的剖面上，外皮不會漂。
+
+    `room` 是每一級可以離開餘弦位置的上限（本站高度的比例）。不設的話尾錐那種很矮
+    的站位會被前一站的大高度拉爆，八級全擠到頂或底。
+
+    **要在 fill_bands 之前做**：重新查半寬會把主輪艙那一段的假值再讀回來，得讓
+    fill_bands 在後面重補一次（它是沿 y 補的，見該函式）。
+    """
+    base = [[z for _, z, _ in s['lv']] for s in sta]
+    cur = [row[:] for row in base]
+    for _ in range(passes):
+        new = [row[:] for row in cur]
+        for i in range(1, len(sta) - 1):
+            a, b = sta[i - 1], sta[i + 1]
+            t = (sta[i]['y'] - a['y']) / (b['y'] - a['y'])
+            for k in range(LEVELS):
+                zl = cur[i - 1][k] + (cur[i + 1][k] - cur[i - 1][k]) * t
+                new[i][k] = cur[i][k] + (zl - cur[i][k]) * lam
+        cur = new
+    for s, row, ref in zip(sta, cur, base):
+        rng = s['top'] - s['bot']
+        z = [min(max(v, r - room * rng), r + room * rng) for v, r in zip(row, ref)]
+        z = [min(max(v, s['bot'] + 1e-4), s['top'] - 1e-4) for v in z]
+        z.sort()
+        s['lv'] = [(w_at(s, v)[0], v, w_at(s, v)[1]) for v in z]
+smooth_level_z(STA)
 fill_bands(STA)
 
 def smooth_levels(sta, passes=2, lam=0.5, thr=0.06):
@@ -409,7 +673,7 @@ def smooth_levels(sta, passes=2, lam=0.5, thr=0.06):
         new = []
         for i, s in enumerate(sta):
             if i == 0 or i == len(sta) - 1:
-                new.append((s['lv'], s['top'], s['bot'])); continue
+                new.append((s['lv'], s['top'], s['bot'], s['crown'])); continue
             a, b = sta[i - 1], sta[i + 1]
             t = (s['y'] - a['y']) / (b['y'] - a['y'])
             lv = []
@@ -423,14 +687,33 @@ def smooth_levels(sta, passes=2, lam=0.5, thr=0.06):
             bl = a['bot'] + (b['bot'] - a['bot']) * t
             top = s['top'] + (tl - s['top']) * lam if abs(tl - s['top']) < thr else s['top']
             bot = s['bot'] + (bl - s['bot']) * lam if abs(bl - s['bot']) < thr else s['bot']
-            new.append((lv, top, bot))
-        for s, (lv, top, bot) in zip(sta, new): s['lv'], s['top'], s['bot'] = lv, top, bot
+            # 【冠線也要平滑】機身的 top 現在是折線，冠線交給機背件用，兩條都是外皮的
+            # 一部分。少平滑這一條的話座艙罩頂會由 1.082 變成 1.143 —— 玻璃是從機背
+            # INTERSECT 出來的，冠線的抖會原封不動長在罩子上。
+            cl = a['crown'] + (b['crown'] - a['crown']) * t
+            cr = s['crown'] + (cl - s['crown']) * lam if abs(cl - s['crown']) < thr else s['crown']
+            new.append((lv, top, bot, cr))
+        for s, q in zip(sta, new): s['lv'], s['top'], s['bot'], s['crown'] = q
 smooth_levels(STA)
+# 【機背的基準要在平滑之後重算】smooth_levels 會把 s['top'] 動個幾 mm，而機身環的
+# 頂端兩點用的就是 s['top'] 與 s['wfold'] —— 機背若還用平滑前的值，兩件之間會裂一條縫。
+for s in STA:
+    if s['fold'] is None: continue
+    # 【收尾站要釘回冠線】smooth_levels 把折線與冠線分開平滑，收尾站的折線因此由
+    # 0.813 掉到 0.789 —— 那 24 mm 機背不再覆蓋（機背在更前面的站位根本不存在），
+    # 剪影在 y +0.05 就掉了 21 mm。這一站的機背高度必須**恰好**是零。
+    if s.get('taper'): s['top'] = s['crown']
+    s['lvd'] = span_levels(s, s['top'], s['crown'], DLEVELS)
+    s['wfold'] = span_levels(s, s['top'] - 0.001, s['top'] + 0.001, 1)[0][0]
 
 def ring_of(s):
-    y = s['y']; pts = [Vector((0, y, s['bot']))]
+    """機身的一圈剖面。**頂端是兩點不是一個極點**：機背件從這兩點往上長（見
+    DORSAL_Y）。沒有機背的站位 wfold = 0，兩點重合，finish() 的 remove_doubles
+    會把它收回成極點 —— 環的點數因此全長一致。"""
+    y = s['y']; wf = s.get('wfold', 0.0); pts = [Vector((0, y, s['bot']))]
     for w, z, _ in s['lv']: pts.append(Vector((w, y, z)))
-    pts.append(Vector((0, y, s['top'])))
+    pts.append(Vector((wf, y, s['top'])))
+    pts.append(Vector((-wf, y, s['top'])))
     for w, z, _ in reversed(s['lv']): pts.append(Vector((-w, y, z)))
     return pts
 
@@ -443,6 +726,28 @@ for f in bm.faces:
 fus = new_object('F4F_Fuselage', bm, [M_BODY, M_COCK])
 LOG['fus_stations'] = [[round(s['y'], 2), round(s['top'], 3), round(s['bot'], 3),
                         round(max(w for w, z, _ in s['lv']), 3)] for s in STA]
+
+# ── 機背（龜背）：與機身共用折線那一圈邊 ─────────────────────
+# 環是 (wf, fold) → DLEVELS 級 → 冠線極點 → 鏡射 → (−wf, fold)，**封閉實體**：
+# 底面與機身環頂端的那條平頂共面，但兩片都在合體的內部（外面看到的一律是側皮），
+# 而且封閉才切得動布林 —— 座艙玻璃就是從這一件 INTERSECT 出來的。
+DST = [s for s in STA if s['fold'] is not None]
+bm = bmesh.new()
+rings = []
+for s in DST:
+    y, wf = s['y'], s['wfold']
+    pts = [Vector((wf, y, s['top']))]
+    for w, z in s['lvd']: pts.append(Vector((w, y, z)))
+    pts.append(Vector((0, y, s['crown'])))
+    for w, z in reversed(s['lvd']): pts.append(Vector((-w, y, z)))
+    pts.append(Vector((-wf, y, s['top'])))
+    rings.append(pts)
+vs = loft(bm, rings)
+cap(bm, vs[0]); cap(bm, list(reversed(vs[-1])))
+finish(bm)
+new_object('F4F_Dorsal', bm, [M_BODY])
+LOG['dorsal'] = [[round(s['y'], 2), round(s['top'], 3), round(s['crown'], 3),
+                  round(s['wfold'], 3)] for s in DST]
 
 # ═══════════════════════════ 2. 座艙：盒切玻璃 + 黑色內槽 ═══════════════════════════
 def hull_object(name, pts, mat_, hide=True):
@@ -472,7 +777,10 @@ def boolean_apply(ob, cutter, op):
     me.name = old.name + '_b'; bpy.data.meshes.remove(old); me.name = ob.name
     return ob
 
-glass = bpy.data.objects.new('F4F_Glass', fus.data.copy()); COLL.objects.link(glass)
+# 【玻璃的來源是機背件，不是機身】艙緣線（前 0.808、後 0.698）在整個座艙段都**高於
+# 折線**（−0.42 的折是 0.669、−1.24 是 0.538），所以罩子的外皮整片屬於機背；從機身
+# 切會得到空的網格。
+glass = bpy.data.objects.new('F4F_Glass', O['F4F_Dorsal'].data.copy()); COLL.objects.link(glass)
 boolean_apply(glass, cut_glass, 'INTERSECT')
 # 刪封蓋：面心落在切割盒任一個面的平面上、法線平行。**判準要用盒子自己的面**——
 # 手寫條件會漏掉斜底，而那一片與機身塗黑的切面完全共面，遊戲裡會閃爍。
@@ -492,6 +800,9 @@ bm.to_mesh(glass.data); bm.free()
 LOG['glass_caps_removed'] = len(kill)
 boolean_apply(fus, cut_glass, 'DIFFERENCE')
 boolean_apply(fus, cut_tub, 'DIFFERENCE')
+# 機背是獨立的一件，座艙開口要同樣穿過它，否則罩子底下會被龜背的前段堵住。
+boolean_apply(O['F4F_Dorsal'], cut_glass, 'DIFFERENCE')
+boolean_apply(O['F4F_Dorsal'], cut_tub, 'DIFFERENCE')
 
 # ═══════════════════════════ 3. 槳轂與槳葉 ═══════════════════════════
 # F4F 沒有整流罩錐——Curtiss Electric 的槳轂直接露在外面。參考模型只給一根半徑 0.08、
@@ -714,6 +1025,53 @@ def fin_le(z):
         if z0 <= z <= z1:
             return y0 + (y1 - y0) * (z - z0) / (z1 - z0)
     return DORSAL[_lo][0] if z < DORSAL[_lo][1] else DORSAL[-1][0]
+def skin_hw(T, y, z, half=0.045, step=0.015, tol=0.88):
+    """垂尾的半寬 —— **一條射線會掉進抹縫，要用一窗去驗它。**
+
+    【判準是「讀回來的值不隨高度變」】參考模型的方向舵鉸鏈在 y = −5.50 是一道
+    凹槽，那條線上 z 1.44/1.48/1.52/1.60 讀回 0.0291/0.0291/0.0290/0.0290 ——
+    一個**與 z 無關的定值**，而兩側 20 mm 外是 0.0500 與 0.0435。蒙皮沿高度是
+    漸縮的，讀到定值就代表打到的是鉸鏈整流的內壁，不是外皮。0.40 弦長處在
+    z 1.48…1.56 正好掃過這條線，第三欄於是由 .0502 塌到 .0199 再彈回 .0460：
+    單調收斂的厚度分佈中間插一個 V 形凹陷，平面著色下就是一道折痕。
+
+    【做法：只在偵測到時才介入，其餘原封不動】在目標 y 前後取一窗射線，對窗做
+    一次穩健線性擬合（丟掉殘差最負的兩點再擬），得到該處蒙皮的局部趨勢；只有
+    當中心那條射線低於趨勢的 tol 倍時才用趨勢值取代，否則回傳原始量測。
+
+    **不可以改用中位數濾波**：試過「窗 ±0.10、低於中位數 95% 就丟」，抹縫是修好
+    了（.0484 對驗收 .0486），但近前緣那一欄被往外撐了 9…22%（0.05 弦長處 z 1.72
+    由 .0255 變 .0311）—— 前緣附近蒙皮沿弦向本來就變化快，中位數把較薄的前側樣本
+    當成雜訊丟掉。線性擬合吃得下這個斜率，中位數吃不下。實測這一版在 11 站 × 5 欄
+    共 55 個值裡**只動了一個**（z 1.50 第三欄 .0298 → .0488），其餘與原始射線相同。
+
+    **也不可以事後平滑**：拉普拉斯的門檻要嘛低到把翼尖收攏那種真折一起抹掉
+    （1.62→1.72 弦長斜率由 −0.69 變 −1.61，那是真的），要嘛高到蓋不住 20 mm 的
+    凹陷。這是量測層的錯，要在量測層修。
+
+    鉸鏈縫在真機上是有的，但這個面數（每圈 12 點）表現不了，與輪胎凹槽同一條
+    裁決：不做。
+    """
+    ss = []
+    n = int(round(half / step))
+    for i in range(-n, n + 1):
+        h = hit(T, (0.6, y + step * i, z), (-1, 0, 0), 1.2)
+        ss.append((step * i, None if (h is None or h.x <= 0.0) else h.x))
+    w0 = next((w for d, w in ss if d == 0.0 and w is not None), None)
+    pts = [(d, w) for d, w in ss if w is not None]
+    if w0 is None: return max(0.006, pts[len(pts) // 2][1]) if pts else None
+    if len(pts) < 4: return max(0.006, w0)
+    def fit(ps):
+        mx = sum(d for d, _ in ps) / len(ps); my = sum(w for _, w in ps) / len(ps)
+        sxx = sum((d - mx) ** 2 for d, _ in ps)
+        sl = sum((d - mx) * (w - my) for d, w in ps) / sxx if sxx > 1e-12 else 0.0
+        return my - sl * mx, sl
+    a, sl = fit(pts)
+    ranked = sorted(pts, key=lambda q: q[1] - (a + sl * q[0]))
+    pred = fit(ranked[2:] if len(ranked) > 5 else ranked)[0]
+    return max(0.006, pred if w0 < tol * pred else w0)
+
+
 def fin_station(z):
     le = te = None
     for i in range(-10, 11):
@@ -722,11 +1080,7 @@ def fin_station(z):
         if h is not None and (le is None or h.y > le): le = h.y
         h = hit(TAIL, (x, -7.4, z), (0, 1, 0))
         if h is not None and (te is None or h.y < te): te = h.y
-    hw = []
-    for f in FR:
-        y = le - (le - te) * f
-        h = hit(TAIL, (0.6, y, z), (-1, 0, 0), 1.2)
-        hw.append(None if h is None else max(0.006, h.x))
+    hw = [skin_hw(TAIL, le - (le - te) * f, z) for f in FR]
     return {'z': z, 'le': le, 'te': te, 'hw': hw}
 NLOW = 6                                    # 0.80 以下的六站是合成的（量不到，見上）
 fst = [fin_station(z) for z in FIN_Z[NLOW:]]
