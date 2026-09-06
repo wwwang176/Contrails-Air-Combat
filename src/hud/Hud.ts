@@ -7,6 +7,7 @@ import { drawGEffect } from './widgets/gEffect'
 import { drawGodMarkers } from './widgets/godMarkers'
 import { drawHealth } from './widgets/health'
 import { drawHints } from './widgets/hints'
+import { drawMarkers } from './widgets/markers'
 import { drawMessage } from './widgets/message'
 import { drawMinimap } from './widgets/minimap'
 import { drawReticle } from './widgets/reticle'
@@ -19,7 +20,7 @@ import { drawBombVignette } from './widgets/bombVignette'
 import type { HudFrame, HudLayout } from './types'
 
 export type HudWidget =
-  | 'gEffect' | 'damageEdge' | 'contacts' | 'reticle' | 'tape'
+  | 'gEffect' | 'damageEdge' | 'markers' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
   | 'godMarkers' | 'objective' | 'arena' | 'message'
   | 'bombsight' | 'bombBay' | 'bombVignette'
@@ -30,7 +31,9 @@ export type HudWidget =
  * 儀表與數字之下；接觸點畫在準星底下 —— 準星必須壓在最上層。
  */
 export const FULL: readonly HudWidget[] = [
-  'gEffect', 'damageEdge', 'contacts', 'reticle',
+  // 【標記排在目標框之前】同一個位置同時有飛機與剛脫手的炸彈時，壓在上面
+  // 的該是飛機
+  'gEffect', 'damageEdge', 'markers', 'contacts', 'reticle',
   // 【落點圈排在準星之後】兩者重疊時壓在上面的是落點圈
   'bombsight', 'bombBay',
   'tape',
@@ -52,6 +55,9 @@ export const FULL: readonly HudWidget[] = [
  * 接觸點）全部是**座艙儀表** —— 鏡頭都不在飛機上了，留著只是雜訊，而
  * **準星更是直接誤導**：它會讓人以為那個方向會有子彈出去。
  *
+ * 【`markers` 不算在那一批裡】它標的是彈、雷、船的世界位置，與鏡頭在哪裡
+ * 無關 —— 與 `godMarkers` 同一個性質，見下面那一段。
+ *
  * 【`godMarkers` 不是座艙儀表】它標的是分隊，而分隊只有在看得見全場的時候
  * 才讀得出來。反過來座艙裡也不排它：那裡已經有完整的目標框與預瞄環，再疊
  * 一層分隊框是雜訊。
@@ -67,8 +73,11 @@ export const FULL: readonly HudWidget[] = [
 // 上帝視角。少了它，上帝視角裡飛機會無預警爆炸
 // 【`message` 也在這裡】節拍的預警與鏡頭在哪裡無關 —— 上帝視角下看不到
 // 「敵方護航機！」的話，那一則預警在兩種視角裡的意義是不一樣的
+// 【`markers` 也在這裡】它不是座艙儀表，是**世界疊加層**：彈、雷、船在
+// 哪裡與鏡頭在哪裡無關。上帝視角更是最需要它的地方 —— 那裡沒有目標框，
+// 整片海上只剩幾個灰色小點
 const GOD: readonly HudWidget[] = [
-  'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective',
+  'markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective',
 ]
 
 /**
@@ -120,6 +129,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   gEffect: (ctx, L, f, dt) => drawGEffect(ctx, L, f, dt),
   godMarkers: (ctx, L, f) => drawGodMarkers(ctx, L, f),
   damageEdge: (ctx, L, f) => drawDamageEdge(ctx, L, f),
+  markers: (ctx, L, f) => drawMarkers(ctx, L, f),
   contacts: (ctx, L, f) => drawContacts(ctx, L, f),
   reticle: (ctx, L, f) => drawReticle(ctx, L, f),
   tape: (ctx, L, f) => drawHeadingTape(ctx, L, f),

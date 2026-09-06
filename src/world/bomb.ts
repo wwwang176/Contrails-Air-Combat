@@ -252,6 +252,13 @@ export class Bombs {
    * 整顆彈的規模（殺傷半徑、爆炸的視覺尺寸）都由它推導。
    */
   readonly damage: Float64Array
+  /**
+   * 投放者的隊別。**0 = 藍、1 = 紅**，與 `projectiles.ts` 的 `team` 同一個
+   * 編碼。HUD 的標記靠它決定紅還是藍。
+   *
+   * 【模擬完全不讀它】炸彈對誰都有傷害 —— 這一格純粹是給畫面用的。
+   */
+  readonly team: Int8Array
   readonly active: Uint8Array
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一顆身上 */
@@ -274,6 +281,7 @@ export class Bombs {
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f()
     this.damage = f()
+    this.team = new Int8Array(capacity)
     this.active = new Uint8Array(capacity)
   }
 
@@ -283,10 +291,14 @@ export class Bombs {
    * @param damage 這一顆的**爆心傷害**。整顆彈的規模都由它推導 —— 殺傷
    *               半徑與爆炸的視覺尺寸都是它的函數，見 `weapons/bomb.ts`
    *               的 `blastScaleOf`。
+   * @param team   投放者的隊別，0 = 藍、1 = 紅。只有 HUD 標記讀它。
+   *               **這一層有預設值，`World.dropBomb` 那一層沒有** —— 進得了
+   *               遊戲的路徑只有後者，強制在那裡；這一層是資料結構，彈道
+   *               測試不該為了一個顏色欄位每一行都多帶一個 0
    */
   spawn(
     x: number, y: number, z: number,
-    vx: number, vy: number, vz: number, damage: number,
+    vx: number, vy: number, vz: number, damage: number, team = 0,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -294,6 +306,9 @@ export class Bombs {
     this.x[i] = x; this.y[i] = y; this.z[i] = z
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
     this.damage[i] = damage
+    // 【一定要寫，不能靠 clear】`clear` 只清 `active`，資料陣列留著上一場的
+    // 值；環狀指標繞回來時這一格會沿用前一顆的隊別
+    this.team[i] = team
     this.age[i] = 0
     this.active[i] = 1
     this.dropped++

@@ -58,7 +58,8 @@ function fill(state: TorpedoLoadState): void {
       -Math.cos(a) * 90, 0, -Math.sin(a) * 90,
       // 【傷害 0】量的是彈道與碰撞的成本。真的扣血的話船會沉，而沉了的
       // 船在後面的每一步都便宜 —— 那會讓「有魚雷」看起來比「沒魚雷」快
-      0, -Math.cos(a), -Math.sin(a),
+      // 【最後那個 0 是投放者的隊別】只有 HUD 標記讀它，量不到成本
+      0, -Math.cos(a), -Math.sin(a), 0,
     )
   }
 }

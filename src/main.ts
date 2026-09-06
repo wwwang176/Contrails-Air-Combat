@@ -47,6 +47,7 @@ import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
+import { fillMarkers, type MarkerPool, type MarkerProject } from './hud/markerFeed'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
@@ -67,7 +68,7 @@ import { deathCamAim } from './camera/deathCam'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
-import type { Combatant, World } from './world/World'
+import { teamSlot, type Combatant, type World } from './world/World'
 import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
@@ -629,6 +630,20 @@ const relPos = new Vector3()
 const relVel = new Vector3()
 const leadDir = new Vector3()
 const leadProbe = new Vector3()
+
+/**
+ * `fillMarkers` 的投影回呼。**綁在模組層建一次** —— 幀迴圈裡宣告一個閉包
+ * 是每幀一次配置，與 `World.dropOne` 綁成欄位是同一條理由。
+ */
+const projectMarker: MarkerProject = (x, y, z, out) => {
+  probe.set(x, y, z).project(ctx.camera)
+  out.x = probe.x * ctx.camera.aspect
+  out.y = probe.y
+  return probe.z >= 1
+}
+/** 餵給 `fillMarkers` 的池清單。就地換內容，不每幀造一個陣列 */
+const MARKER_POOLS: MarkerPool[] = []
+
 let propRotation = 0
 /** 上一幀是否正在等待接手。用來偵測「剛死掉」那一幀 */
 let wasDying = false
@@ -1427,11 +1442,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
         else NOSE_H.normalize()
         world.dropTorpedo(
           BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
-          NOSE_H.x, NOSE_H.z,
+          NOSE_H.x, NOSE_H.z, teamSlot(player.team),
         )
       } else {
         world.dropBomb(
           BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
+          teamSlot(player.team),
         )
       }
     })
@@ -1769,6 +1785,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
     n++
   }
   hudFrame.contactCount = n
+
+  // ── 彈藥與艦船的標記 ────────────────────────────────
+  //
+  // 【為什麼不塞進 `contacts`】接觸點那一格帶著預瞄環、分隊、目標框半徑、
+  // 小地圖座標 —— 這三種東西一個都用不到，而池子只有 48 格：64 顆彈就把
+  // 飛機全擠掉了。
+  //
+  // 【位置用池裡的物理座標，不內插】`bombVisuals`／`torpedoVisuals` 讀的
+  // 就是同一組數字（見上面的 `update`），所以標記與模型逐幀對齊。飛機那一側
+  // 用 `visuals` 是因為它有內插後的算繪位置，而彈藥沒有。
+  MARKER_POOLS[0] = world.bombs
+  MARKER_POOLS[1] = world.torpedoes
+  fillMarkers(hudFrame, world.ships, MARKER_POOLS, teamSlot(player.team), projectMarker)
 
   // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
   hudFrame.hitFlash = nextHitFlash(hudFrame.hitFlash, hitsThisFrame, frameSeconds)

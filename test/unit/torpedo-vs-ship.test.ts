@@ -9,6 +9,8 @@ import { solveImpact, type BombState, type Impact } from '../../src/world/bomb'
 
 const DT = 1 / 240
 const TORPEDO = loadoutOf('g4m')!
+/** 投放者的隊別（`teamSlot`）。這一支測的是彈道與命中，顏色與它無關 */
+const BLUE = 0
 
 /** 一艘停在原點、艏向 −Z 的船，海面在 y = 0 */
 function seaWithShip(id: ShipClassId = 'fletcher'): { world: World; ship: Ship } {
@@ -28,7 +30,7 @@ function seaWithShip(id: ShipClassId = 'fletcher'): { world: World; ship: Ship }
  * 容易錯的地方，繞過它等於不測。
  */
 function launch(world: World, d: number, damage = TORPEDO.damage, offsetX = 0): void {
-  world.dropTorpedo(offsetX, 40, -d, 0, 0, 90, damage, 0, 1)
+  world.dropTorpedo(offsetX, 40, -d, 0, 0, 90, damage, 0, 1, BLUE)
   for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
 }
 
@@ -170,7 +172,7 @@ describe('事件', () => {
     // z < −600 之後是陸地
     world.groundAt = (_x, z) => (z < -600 ? 5 : 0)
     world.waterAt = (_x, z) => (z < -600 ? -Infinity : 0)
-    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
+    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
     for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
     expect(world.torpedoEvents.count).toBe(1)
     expect(world.torpedoEvents.data[3]).toBe(0)
@@ -180,7 +182,7 @@ describe('事件', () => {
     const world = new World()
     world.groundAt = () => 0
     world.waterAt = () => 0
-    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
+    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
     for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
     expect(world.torpedoes.live).toBe(0)
     expect(world.torpedoEvents.count).toBe(0)
@@ -190,7 +192,7 @@ describe('事件', () => {
     const world = new World()
     world.groundAt = () => 0
     world.waterAt = () => 1.5
-    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
+    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
     let wakes = 0
     for (let i = 0; i < 240 * 20; i++) {
       world.step(DT)
@@ -210,7 +212,7 @@ describe('確定性', () => {
     const b = new World()
     for (const w of [a, b]) { w.groundAt = () => 0; w.waterAt = () => 0 }
     for (const w of [a, b]) {
-      w.dropTorpedo(0, 40, 0, 5, 0, -90, TORPEDO.damage, 0, -1)
+      w.dropTorpedo(0, 40, 0, 5, 0, -90, TORPEDO.damage, 0, -1, BLUE)
       for (let i = 0; i < 240 * 3; i++) w.step(DT)
     }
     expect(a.torpedoes.x[0]).toBe(b.torpedoes.x[0])
@@ -221,8 +223,8 @@ describe('確定性', () => {
     const w = new World()
     w.groundAt = () => 0
     w.waterAt = () => 0
-    w.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
-    w.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
+    w.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
+    w.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
     expect(w.torpedoes.dropped).toBe(2)
     const same = w.torpedoes.vx[0] === w.torpedoes.vx[1]
       && w.torpedoes.vy[0] === w.torpedoes.vy[1]
@@ -235,7 +237,7 @@ describe('雷速', () => {
     const world = new World()
     world.groundAt = () => 0
     world.waterAt = () => 0
-    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1)
+    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
     for (let i = 0; i < 240 * 5; i++) world.step(DT)
     const t = world.torpedoes
     expect(t.phase[0]).toBe(1)
@@ -263,7 +265,7 @@ describe('投放的散佈', () => {
     expect(solveImpact(start, world.bombDrag, () => 0, DT, out)).toBe(true)
 
     world.dropTorpedo(start.x, start.y, start.z, start.vx, start.vy, start.vz,
-      TORPEDO.damage, 0, -1)
+      TORPEDO.damage, 0, -1, BLUE)
     const pool = world.torpedoes
     for (let t = 0; t < 30; t += DT) {
       if (pool.phase[0] === 1) break

@@ -146,6 +146,19 @@ describe('Bombs 池', () => {
     expect(b.live).toBe(BOMBS_CAPACITY)
   })
 
+  /**
+   * 【環狀指標繞回來時 `team` 要被蓋掉】`clear` 只清 `active`，資料陣列留著
+   * 上一顆的值。少了 `spawn` 裡那一行覆寫，第 65 顆會沿用第 1 顆的隊別 ——
+   * 症狀是「打久了敵方的炸彈變成藍色」，而且**只在池繞滿一圈之後才出現**。
+   */
+  it('繞滿一圈之後，同一格的隊別跟著新的那一顆走', () => {
+    const b = new Bombs()
+    b.spawn(0, 1000, 0, 0, 0, 0, D, 1)
+    expect(b.team[0]).toBe(1)
+    for (let i = 0; i < BOMBS_CAPACITY; i++) b.spawn(0, 1000, 0, 0, 0, 0, D, 0)
+    expect(b.team[0]).toBe(0)
+  })
+
   it('clear 之後不留任何一顆', () => {
     const b = new Bombs()
     b.spawn(0, 1000, 0, 0, 0, 0, D)
@@ -256,7 +269,8 @@ describe('落地事件的水陸之分', () => {
     const w = new World()
     w.groundAt = () => 0
     w.waterAt = waterAt
-    w.dropBomb(0, 500, 0, 0, 0, 0, D)
+    // 【最後那個 0 是投放者的隊別】這一支測的是彈道，顏色與它無關
+    w.dropBomb(0, 500, 0, 0, 0, 0, D, 0)
     for (let i = 0; i < 240 * 30 && w.bombs.live > 0; i++) w.step(DT)
     return w
   }

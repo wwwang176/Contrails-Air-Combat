@@ -24,7 +24,8 @@ function seaWithShip(): { world: World; ship: Ship } {
 
 /** 從 `(x, 400, z)` 垂直投一顆，跑到它消失為止 */
 function dropOn(world: World, x: number, z: number, damage = BOMB_BLAST_DAMAGE): void {
-  world.dropBomb(x, 400, z, 0, 0, 0, damage)
+  // 【最後那個 0 是投放者的隊別】這一支測的是彈道與命中，顏色與它無關
+  world.dropBomb(x, 400, z, 0, 0, 0, damage, 0)
   for (let i = 0; i < 240 * 30 && world.bombs.live > 0; i++) world.step(DT)
 }
 
