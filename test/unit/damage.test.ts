@@ -7,6 +7,7 @@ import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import type { Command, Controller } from '../../src/control/Controller'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 describe('DamageEvents', () => {
   it('每筆四個 float：受害者索引 + 來彈方向', () => {
@@ -89,7 +90,7 @@ describe('World 的受擊事件', () => {
   it('命中就推一筆，方向是彈丸速度的反向', () => {
     // 由 +X 側往 −X 打，橫向穿過機身 —— 來彈方向於是是 +X。
     const w = shooterAndVictim()
-    w.projectiles.spawn(50, 4000, 0, -1000, 0, 0, 10, 0)
+    w.projectiles.spawn(50, 4000, 0, -1000, 0, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(0.1)
     w.resolveHits()
 
@@ -105,7 +106,7 @@ describe('World 的受擊事件', () => {
     // 【為什麼要測】漏掉正規化的話 `markOffAxis` 會是 887 而不是 1，
     // 角度窗直接壞掉，而畫面上看起來只是「紅光有點怪」。
     const w = shooterAndVictim()
-    w.projectiles.spawn(30, 4000, 30, -700, 0, -700, 10, 0)
+    w.projectiles.spawn(30, 4000, 30, -700, 0, -700, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(0.1)
     w.resolveHits()
 
@@ -116,7 +117,7 @@ describe('World 的受擊事件', () => {
 
   it('沒打中就不推', () => {
     const w = shooterAndVictim()
-    w.projectiles.spawn(50, 5000, 0, -1000, 0, 0, 10, 0)
+    w.projectiles.spawn(50, 5000, 0, -1000, 0, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(0.1)
     w.resolveHits()
     expect(w.damageEvents.count).toBe(0)
@@ -127,7 +128,7 @@ describe('World 的受擊事件', () => {
     // 旁邊，若位置放錯（例如放到粗篩之後、命中判定之前）就會漏出來。
     // 射手寫 1（紅隊自己），彈丸於是穿過紅隊那一架。
     const w = shooterAndVictim()
-    w.projectiles.spawn(50, 4000, 0, -1000, 0, 0, 10, 1)
+    w.projectiles.spawn(50, 4000, 0, -1000, 0, 0, 10, 1, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(0.1)
     w.resolveHits()
     expect(w.damageEvents.count).toBe(0)

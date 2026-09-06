@@ -44,7 +44,7 @@ function render(model: AircraftModel, azimuthDeg: number, pitchDeg: number, blur
 
   const scene = new Scene()
   scene.background = new Color(BG)
-  for (const l of createLights()) scene.add(l)
+  for (const l of createLights().all) scene.add(l)
 
   model.setPropSpin(0.7, blurred)
   scene.add(model.group)

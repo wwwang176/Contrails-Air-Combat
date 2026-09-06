@@ -18,16 +18,26 @@ export const PART_MULTIPLIER: Readonly<Record<HitPart, number>> = {
 }
 
 /**
+ * 一個軸對齊盒，**擁有者的區域座標**。
+ *
+ * 【為什麼與 `HitBox` 分開】船的船體盒與砲位盒不需要 `HitPart` —— 那是
+ * 飛機的六個部位。而 `segmentBox` 本來就只讀 `center` 與 `half`，強迫船
+ * 帶一個「機翼」或「座艙」的標籤只是為了通過型別檢查。
+ */
+export interface Box {
+  center: Vector3
+  half: Vector3
+}
+
+/**
  * 一個命中盒，**機體座標**的 AABB。
  *
  * 【為什麼定義在機體座標而不是世界座標】判定前把線段轉進機體座標，
  * 等價於世界座標的 OBB，飛機滾轉不失真。世界座標的 AABB 在 45° 滾轉時
  * 會膨脹到 1.41 倍——機翼是薄板，那等於憑空長出一公尺厚。
  */
-export interface HitBox {
+export interface HitBox extends Box {
   part: HitPart
-  center: Vector3
-  half: Vector3
 }
 
 /** 以 min/max 建盒——資料寫成兩個角點比中心＋半尺寸好讀也好對照量測值。 */
@@ -65,7 +75,7 @@ export interface FaceNormal {
 export function segmentBox(
   ox: number, oy: number, oz: number,
   ex: number, ey: number, ez: number,
-  box: HitBox,
+  box: Box,
   outFace?: FaceNormal,
 ): number {
   let tMin = 0
@@ -131,7 +141,7 @@ export function segmentBox(
  * 曳光彈穿過機翼卻不扣血，而且只在特定角度發生。所以取每個盒**離原點
  * 最遠的角**：該角在各軸上是 |center| + half。
  */
-export function boundingRadius(boxes: readonly HitBox[]): number {
+export function boundingRadius(boxes: readonly Box[]): number {
   let r2 = 0
   for (const b of boxes) {
     const x = Math.abs(b.center.x) + b.half.x

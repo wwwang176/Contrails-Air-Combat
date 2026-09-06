@@ -58,6 +58,20 @@ export type MissionRules =
     /** 抵達半徑，m。**也就是圓環的半徑** */
     radius: number
   }
+  | {
+    /**
+     * 擊沉任意 `count` 艘敵艦。
+     *
+     * 【為什麼是「任意幾艘」而不是指名】指名的話玩家要先認出哪一艘是目標，
+     * 而八艘裡有四艘長得一樣（只有兩個艦級模型）。「任意三艘」讓玩家自己
+     * 挑最好打的那幾艘 —— 那本來就是雷擊機該做的決定。
+     *
+     * 【本期玩家打不完】一式陸攻的固定掛架是空的，魚雷在另一支分支上。
+     * 規則先接好，武器進來就成立 —— 見 spec §10.3。
+     */
+    kind: 'sink'
+    count: number
+  }
 
 /**
  * 這一關自己的小旋鈕。**每一項都是一個獨立的數字，預設值等於「沒有這一關」。**
@@ -140,6 +154,15 @@ export interface MissionInputs {
    * 都說得出道理。只算活著的之後兩者**互斥**，順序不再是一個要裁決的問題。
    */
   convoyLead: number
+  /**
+   * **敵方**已經被擊沉幾艘。
+   *
+   * 【為什麼只算敵方】友軍的船在 `allies-m4` 那種「守住艦隊」的關才有意義，
+   * 而那是另一條規則。這一格只回答「我打沉幾艘了」。
+   */
+  shipsSunk: number
+  /** 敵方一共有幾艘。全部沉了但目標更高時，這一關就打不完了 —— 見 `stepMission`。 */
+  shipsTotal: number
 }
 
 /**
@@ -263,7 +286,9 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   out.hasTarget = false
   out.targetRadius = 0
   out.secondsLeft = Infinity
-  out.metric = 0
+  // 【擊沉的開局計量是「還差幾艘」＝全部】給 0 的話目標列會在第一幀
+  // 閃一下「還差 0 艘」—— 那個數字的意思是達標了。
+  out.metric = rules.kind === 'sink' ? rules.count : 0
 }
 
 /**
@@ -286,6 +311,25 @@ export function stepMission(
     out.metric = inp.aliveRed
     if (inp.aliveRed === 0) out.outcome = 'victory'
     else if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
+  // ── 擊沉 ──────────────────────────────────────────────
+  //
+  // 【兩個計量都要】`metric` 是還差幾艘（主要目標），`remaining` 是還剩
+  // 幾架能飛（籌碼）。與護送同一個理由：一個說「還要多久」，一個說
+  // 「還撐不撐得住」。
+  if (rules.kind === 'sink') {
+    out.metric = Math.max(0, rules.count - inp.shipsSunk)
+    out.remaining = inp.aliveBlue
+    if (inp.shipsSunk >= rules.count) {
+      out.outcome = 'victory'
+      return
+    }
+    // 【全滅才算輸，不是「船沉光了還沒達標」】後者是關卡設計錯誤
+    // （目標數大於艦隊數），應該由 `campaigns.test.ts` 那一層擋掉，
+    // 而不是在戰鬥中判一個玩家看不懂的敗北。
+    if (inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }
 

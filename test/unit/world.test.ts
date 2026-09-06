@@ -285,7 +285,7 @@ describe('一步的順序（spec §4.2）', () => {
     pin(t.aircraft, 0, 4000, 0, 300)
 
     const before = t.hp
-    w.projectiles.spawn(0, 4000, 56, 0, 0, -887, 6, 1)   // owner 1 = 不存在的射手
+    w.projectiles.spawn(0, 4000, 56, 0, 0, -887, 6, 1, 0, PROJECTILE_LIFETIME)   // owner 1 = 不存在的射手
     w.step(0.05)
 
     expect(t.aircraft.state.position.z).toBeGreaterThan(14)
@@ -547,7 +547,7 @@ describe('命中事件（M7 spec §2.2）', () => {
 
   it('打中飛機時推一筆事件，命中點落在紅機附近', () => {
     const { w, r } = duel()
-    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     expect(w.hitEvents.count).toBe(1)
@@ -558,7 +558,7 @@ describe('命中事件（M7 spec §2.2）', () => {
 
   it('法線是世界座標的單位向量', () => {
     const { w } = duel()
-    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     const d = w.hitEvents.data
@@ -569,7 +569,7 @@ describe('命中事件（M7 spec §2.2）', () => {
     // 【為什麼只要求「大致」】命中盒是機體座標的 AABB，法線是盒面的法線，
     // 不是機體外殼的真實曲面法線。要求的是「不會朝著彈丸飛去的方向」。
     const { w } = duel()
-    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     // 彈丸往 −Z 飛，所以法線的 Z 分量必須為正（迎著它）
@@ -578,7 +578,7 @@ describe('命中事件（M7 spec §2.2）', () => {
 
   it('沒打中就沒有事件', () => {
     const { w } = duel()
-    w.projectiles.spawn(500, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.spawn(500, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     expect(w.hitEvents.count).toBe(0)
@@ -586,7 +586,7 @@ describe('命中事件（M7 spec §2.2）', () => {
 
   it('一步之內多發命中就有多筆', () => {
     const { w } = duel()
-    for (let i = 0; i < 3; i++) w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    for (let i = 0; i < 3; i++) w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     expect(w.hitEvents.count).toBe(3)
@@ -594,7 +594,7 @@ describe('命中事件（M7 spec §2.2）', () => {
 
   it('事件不會跨步累積 —— 呼叫端排空之後就是乾淨的', () => {
     const { w } = duel()
-    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0)
+    w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(HIT_DT)
     w.resolveHits()
     expect(w.hitEvents.count).toBe(1)
@@ -606,7 +606,7 @@ describe('命中事件（M7 spec §2.2）', () => {
   it('緩衝滿了不會越界，dropped 會計數', () => {
     const { w } = duel()
     for (let i = 0; i < w.hitEvents.capacity + 5; i++) {
-      w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 1, 0)
+      w.projectiles.spawn(0, 4000, -280, 0, 0, -887, 1, 0, 0, PROJECTILE_LIFETIME)
     }
     w.projectiles.step(HIT_DT)
     w.resolveHits()
@@ -629,7 +629,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
   it('線段跨過水面時推一筆水柱事件，交點內插正確', () => {
     const w = empty()
     // 從 y = 10 往下走一步到 y = −10：交點在中間，t = 10/20 = 0.5
-    const i = w.projectiles.spawn(100, 10, 200, 20, -20, 40, 10, 0)
+    const i = w.projectiles.spawn(100, 10, 200, 20, -20, 40, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(1)
     expect(w.projectiles.y[i]).toBeCloseTo(-10, 6)
     w.resolveHits()
@@ -642,7 +642,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
 
   it('水柱的法線朝上 —— 它就是「法線朝上的撞擊」', () => {
     const w = empty()
-    w.projectiles.spawn(0, 10, 0, 0, -20, 0, 10, 0)
+    w.projectiles.spawn(0, 10, 0, 0, -20, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(1)
     w.resolveHits()
     const d = w.splashEvents.data
@@ -653,7 +653,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
     // 【為什麼會噴兩根】判準若寫成「y <= 0」而不是「跨過 0」，彈丸在
     // 水面下的每一步都會再推一筆，一發變成一串。
     const w = empty()
-    w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0)
+    w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     for (let n = 0; n < 5; n++) {
       w.projectiles.step(1 / 240)
       w.resolveHits()
@@ -663,7 +663,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
 
   it('低於 SEA_KILL_Y 才回收，不是一入水就回收', () => {
     const w = empty()
-    const i = w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0)
+    const i = w.projectiles.spawn(0, 1, 0, 0, -100, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     // 一步走 −100/240 ≈ −0.42 m。走到 y ≈ −1 時仍該活著
     for (let n = 0; n < 5; n++) {
       w.projectiles.step(1 / 240)
@@ -683,7 +683,7 @@ describe('入海回收與水柱事件（M7 spec §4）', () => {
 
   it('往上飛的彈丸不會誤判', () => {
     const w = empty()
-    w.projectiles.spawn(0, 1, 0, 0, 100, 0, 10, 0)
+    w.projectiles.spawn(0, 1, 0, 0, 100, 0, 10, 0, 0, PROJECTILE_LIFETIME)
     w.projectiles.step(1 / 240)
     w.resolveHits()
     expect(w.splashEvents.count).toBe(0)

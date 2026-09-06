@@ -23,6 +23,7 @@ import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { B17G } from '../../src/specs/b17g'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
 
@@ -195,5 +196,17 @@ export const SCENES = {
   }),
   PURSUIT_MIRROR_8V8: (): BattleConfig => ({
     ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 8, P51D, 8),
+  }),
+  /**
+   * 【第三個場景：帶砲塔的】前兩個是 P-51D 與 Bf 109，只跑得到
+   * `World.fire` 的固定掛架，**跑不到 `stepTurrets` 生彈丸那一行**。
+   * 而 `turret-replay.test.ts` 是拿新實作跟自己比 —— 砲塔那條路的參數
+   * 順序若接反，兩次會一樣地錯，測試照樣綠。
+   *
+   * 這一份刻意在「彈丸池加 team 與 life」**之前**錄，否則基準是改動後的，
+   * 等於自己證明自己。
+   */
+  ESCORT_B17: (): BattleConfig => ({
+    ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, B17G, 4, BF109K4, 8),
   }),
 }

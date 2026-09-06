@@ -8,6 +8,7 @@ import {
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 /** 什麼都不做的控制器。等價測試只關心命中判定。 */
 class Idle implements Controller {
@@ -130,7 +131,13 @@ function scenario(seed: number, n: number, shots: number): World {
     const len = Math.hypot(ux, uy, uz) || 1
     const hx = (ux / len) * 1.85, hy = (uy / len) * 1.85, hz = (uz / len) * 1.85
 
-    const idx = w.projectiles.spawn(cx - hx, cy - hy, cz - hz, 0, 0, 0, 6, shooter)
+    // 【陣營要跟著射手】`resolveHits` 現在讀彈丸自己記的陣營（船不是
+    // combatant，反查不到）。一律填 0 的話紅隊射手的子彈打不到任何人，
+    // 而症狀是「受害者少了一半」—— 這一條就是這樣紅出來的。
+    const idx = w.projectiles.spawn(
+      cx - hx, cy - hy, cz - hz, 0, 0, 0, 6, shooter,
+      w.combatants[shooter]!.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
+    )
     w.projectiles.sx[idx] = cx - hx
     w.projectiles.sy[idx] = cy - hy
     w.projectiles.sz[idx] = cz - hz
