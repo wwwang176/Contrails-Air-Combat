@@ -188,8 +188,8 @@ describe('炸彈的規模由它自己的傷害推導', () => {
     const he = bombDamageOf('he111')
     const g4m = bombDamageOf('g4m')
     for (const v of [b17, he, g4m]) expect(v).toBeGreaterThan(0)
-    // 【八十番 800 kg 明顯大過 250 kg 級的那兩台】
-    expect(g4m).toBeGreaterThan(b17 * 1.4)
+    // 【五十番 500 kg 明顯大過 250 kg 級的那兩台】
+    expect(g4m).toBeGreaterThan(b17 * 1.25)
     // 【B-17G 與 He 111 幾乎一樣】兩者的單顆彈都是 250 kg 級
     expect(Math.abs(he / b17 - 1)).toBeLessThan(0.1)
   })

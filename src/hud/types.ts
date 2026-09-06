@@ -159,6 +159,8 @@ export interface HudFrame {
   bombing: boolean
   /** 這一台掛得了炸彈。彈艙讀數的顯示條件 */
   bombCapable: boolean
+  /** 這一台的滿艙是幾枚。**讀數畫幾格就看它** */
+  bombBayCapacity: number
   /** 彈艙裡還剩幾枚 */
   bombLoad: number
   /**
@@ -310,7 +312,7 @@ export function createHudFrame(): HudFrame {
     aimX: 0, aimY: 0, aimVisible: true,
     noseX: 0, noseY: 0, noseVisible: true,
     bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
-    bombing: false, bombCapable: false,
+    bombing: false, bombCapable: false, bombBayCapacity: 0,
     bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
     contacts: Array.from({ length: HUD_MAX_CONTACTS }, createHudContact),
