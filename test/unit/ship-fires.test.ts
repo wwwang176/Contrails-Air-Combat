@@ -5,6 +5,7 @@ import {
   createShipFires, lightShipFires, stepShipFires,
 } from '../../src/render/shipFires'
 import {
+  SHIP_FIRE_PLUME_HEIGHT, SHIP_FIRE_PLUME_SPEED,
   SHIP_FIRE_SMOKE_DRAG, SHIP_FIRE_SMOKE_LIFE, plumeSpeed,
 } from '../../src/render/smoke'
 import { createImpacts, pushImpact } from '../../src/world/events'
@@ -153,7 +154,7 @@ describe('plumeSpeed', () => {
    */
   it('照它給的初速跑完壽命，剛好爬到目標高度', () => {
     const dt = 1 / 60
-    for (const target of [135, 191, 226]) {
+    for (const target of [100, SHIP_FIRE_PLUME_HEIGHT, 400]) {
       let v = plumeSpeed(target)
       let y = 0
       const damp = Math.exp(-SHIP_FIRE_SMOKE_DRAG * dt)
@@ -167,10 +168,10 @@ describe('plumeSpeed', () => {
     }
   })
 
-  /** 【高的船要更快的初速】倒過來的話航母的煙柱會比驅逐艦矮。 */
-  it('目標愈高、初速愈快', () => {
-    expect(plumeSpeed(226)).toBeGreaterThan(plumeSpeed(191))
-    expect(plumeSpeed(191)).toBeGreaterThan(plumeSpeed(135))
+  /** 【送出去的就是那一個高度算出來的】接錯常數的話柱高會靜靜地跑掉。 */
+  it('SHIP_FIRE_PLUME_SPEED 就是 200 m 反解出來的初速', () => {
+    expect(SHIP_FIRE_PLUME_SPEED).toBe(plumeSpeed(SHIP_FIRE_PLUME_HEIGHT))
+    expect(SHIP_FIRE_PLUME_HEIGHT).toBe(200)
   })
 })
 

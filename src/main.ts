@@ -31,8 +31,8 @@ import {
 } from './render/ships'
 import { clearBursts } from './world/flak'
 import {
-  createShipFireSmoke, createSmoke, emitSmoke, plumeSpeed,
-  DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SHIPS,
+  createShipFireSmoke, createSmoke, emitSmoke,
+  DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SPEED,
 } from './render/smoke'
 import {
   createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
@@ -570,9 +570,9 @@ function emitBombBlasts(events: ImpactEvents): void {
  * 【煙一律往上，不走錐狀噴射】`FIRE_BLAST` 的 `smokeCount` 是 0，這裡的
  * 每一團都給一個**朝上**的初速，只在水平方向抖一點寬度。
  *
- * 【柱高是船高的 5 倍】驅逐艦 135 m、巡洋艦 191 m、航母 226 m。初速由
- * `plumeSpeed` 從目標柱高反解 —— 兩者之間隔著阻尼，寫死一個看起來差不多
- * 的速度的話，改了壽命或阻尼之後就不對了。
+ * 【柱高固定 200 m】每一艘都一樣。初速由 `plumeSpeed` 從那個高度反解 ——
+ * 兩者之間隔著阻尼，寫死一個看起來差不多的速度的話，改了壽命或阻尼之後
+ * 就不對了。
  *
  * 【一次三團】0.3 秒一次，一團的話那是一串珠子不是一道柱子。
  */
@@ -580,9 +580,9 @@ const FIRE_SMOKE_PER_PUFF = 3
 /** 水平抖動，m/s。柱子的粗細 */
 const FIRE_SMOKE_SPREAD = 1.6
 
-const emitFirePuff: FirePuffFn = (x, y, z, ship) => {
+const emitFirePuff: FirePuffFn = (x, y, z) => {
   emitBlast(BLAST_POOLS, FIRE_BLAST, x, y, z, (fireSeed = (fireSeed + 1) | 0))
-  const up = plumeSpeed(shipModelTop(ship.cls.id) * SHIP_FIRE_PLUME_SHIPS)
+  const up = SHIP_FIRE_PLUME_SPEED
   for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
     // 【等角度分佈，不用亂數】決定性不是這一層的要求，但免費的話就拿著；
     // 亂數在這裡也只是換一種方式排成一圈
