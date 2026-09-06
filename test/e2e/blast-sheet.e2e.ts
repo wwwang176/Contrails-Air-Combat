@@ -45,16 +45,16 @@ interface Shot {
 // 任何畫面上的意義
 const SHOTS: readonly Shot[] = [
   {
-    kind: 'land', style: 'chunks', terrain: 2, yield: 1, tex: true, glow: false,
-    file: 'blast-noglow.png',
+    kind: 'water', style: 'chunks', terrain: 0, yield: 1, tex: true, glow: true,
+    file: 'blast-water.png',
+  },
+  {
+    kind: 'water', style: 'chunks', terrain: 0, yield: 4, tex: true, glow: true,
+    file: 'blast-water-4x.png',
   },
   {
     kind: 'land', style: 'chunks', terrain: 2, yield: 1, tex: true, glow: true,
     file: 'blast-glow.png',
-  },
-  {
-    kind: 'land', style: 'chunks', terrain: 2, yield: 4, tex: true, glow: true,
-    file: 'blast-glow-4x.png',
   },
 ]
 

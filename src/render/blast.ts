@@ -2,6 +2,7 @@ import {
   AdditiveBlending, Color, NormalBlending, SRGBColorSpace, Vector3, type Texture,
 } from 'three'
 import { FIRE_CHUNK_SIZE } from './chunks'
+import { jetFalloff, jetProfileRadius, type WaterJets } from './waterJets'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
 import {
@@ -45,14 +46,22 @@ export interface BlastParams {
   dustSpeed: number
   dustSize: number
   dustCone: number
-  /** 水霧。墜地恆為 0 */
+  /** **每一根水柱**的柱腳噴幾顆水花。墜地恆為 0 */
   sprayCount: number
   spraySpeed: number
   sprayCone: number
   /** 水柱根數。墜地恆為 0 */
   jetCount: number
-  /** 水柱離爆點多遠，m。一根柱子太細，用一圈換規模 */
+  /** 水冠的散佈半徑，m。柱子撒在這個圓內 */
   jetSpread: number
+  /** 中央那一根的高度，m。往外照 `jetFalloff` 遞減 */
+  jetHeight: number
+  /** 中央那一根的底部半徑，m */
+  jetRadius: number
+  /** 一根水柱塌下時留幾團水霧 */
+  mistPerJet: number
+  /** 水霧的尺寸相對水柱的半徑 */
+  mistSize: number
   /**
    * 光暈的尺寸，佔火球直徑的倍率。**0 = 不畫光暈。**
    *
@@ -106,6 +115,10 @@ export const LAND_BLAST: BlastParams = {
   sprayCone: 0,
   jetCount: 0,
   jetSpread: 0,
+  jetHeight: 0,
+  jetRadius: 0,
+  mistPerJet: 0,
+  mistSize: 0,
   glowSize: 1.5,
   glowAlpha: 0.55,
 }
@@ -113,29 +126,33 @@ export const LAND_BLAST: BlastParams = {
 /**
  * 落水。**起始值，由試飛裁定。**
  *
- * 【火球留一點點】水面爆炸的火在一瞬間就被壓熄，但那一下黃光是「這是爆炸不是
- * 掉東西」的唯一線索 —— 全關掉的話與濺水長得一樣。
+ * 【沒有火、沒有黑煙】水面下的爆炸看不到火 —— 整個效果就是水冠：一叢粗
+ * 水柱瞬間衝起、塌下時淡出，體積交給白色的水霧。**專案負責人裁定。**
  */
 export const WATER_BLAST: BlastParams = {
-  fireCount: 5,
-  fireSpeed: 15,
-  fireSize: 1.2,
-  fireCone: (35 * Math.PI) / 180,
-  smokeCount: 6,
-  smokeSpeed: 7,
-  smokeSize: 1.6,
-  smokeCone: (30 * Math.PI) / 180,
+  fireCount: 0,
+  fireSpeed: 0,
+  fireSize: 0,
+  fireCone: 0,
+  smokeCount: 0,
+  smokeSpeed: 0,
+  smokeSize: 0,
+  smokeCone: 0,
   dustCount: 0,
   dustSpeed: 0,
   dustSize: 0,
   dustCone: 0,
-  sprayCount: 60,
-  spraySpeed: 30,
-  sprayCone: (52 * Math.PI) / 180,
-  jetCount: 7,
-  jetSpread: 7,
-  glowSize: 1.2,
-  glowAlpha: 0.4,
+  sprayCount: 8,
+  spraySpeed: 17,
+  sprayCone: (62 * Math.PI) / 180,
+  jetCount: 13,
+  jetSpread: 6.5,
+  jetHeight: 34,
+  jetRadius: 3.2,
+  mistPerJet: 5,
+  mistSize: 4.2,
+  glowSize: 0,
+  glowAlpha: 0,
 }
 
 /**
@@ -195,6 +212,10 @@ export function scaleBlast(
   out.sprayCone = src.sprayCone
   out.jetCount = n(src.jetCount)
   out.jetSpread = src.jetSpread * s
+  out.jetHeight = src.jetHeight * s
+  out.jetRadius = src.jetRadius * s
+  out.mistPerJet = src.mistPerJet
+  out.mistSize = src.mistSize
   // 【光暈是比例，不吃當量】它跟著火球的直徑走，而那已經乘過 s 了
   out.glowSize = src.glowSize
   out.glowAlpha = src.glowAlpha
@@ -484,6 +505,96 @@ export function createFireGlow(
   })
 }
 
+/**
+ * 水霧 —— **水柱塌下時接手它的體積**。
+ *
+ * 【與煙相反的方向】煙是熱的、往上；水霧是被拋起來的水滴，往下沉而且往外
+ * 攤開。`gravity` 因此是負的。
+ *
+ * 【白色】它是水不是煙。顏色與 `spray.ts` 的水花同一個 `WATER_COLOR`。
+ */
+export const MIST_LIFE = 2.6
+export const MIST_LIFE_JITTER = 0.3
+export const MIST_SIZE_FROM = 1
+export const MIST_SIZE_TO = 3.2
+/** 往下沉，m/s²。終端速度 = gravity / drag = 2.2 m/s */
+export const MIST_GRAVITY = -3.3
+export const MIST_DRAG = 1.5
+export const MIST_ALPHA = 0.6
+export const MIST_SHADE = 0.3
+export const MIST_CAPACITY = 1024
+/** 水霧的顏色。`spray.ts` 的 `WATER_COLOR` 同一個值 */
+const MIST_TINT = { r: 0.95, g: 0.97, b: 1.0 }
+
+export function mistColor(_t: number, out: Color): void {
+  out.setRGB(MIST_TINT.r, MIST_TINT.g, MIST_TINT.b, SRGBColorSpace)
+}
+
+export function createWaterMist(
+  capacity = MIST_CAPACITY, pace = 1, alphaMap?: Texture,
+): Particles {
+  return createParticles({
+    capacity,
+    alphaMap,
+    blending: NormalBlending,
+    life: MIST_LIFE * pace,
+    lifeJitter: MIST_LIFE_JITTER,
+    sizeFrom: MIST_SIZE_FROM,
+    sizeTo: MIST_SIZE_TO,
+    gravity: MIST_GRAVITY,
+    drag: MIST_DRAG,
+    alphaFrom: MIST_ALPHA,
+    shadeJitter: MIST_SHADE,
+    color: mistColor,
+  })
+}
+
+/** 水霧往外攤開的速度，m/s。與下沉合起來就是錐狀 */
+export const MIST_SPREAD_SPEED = 9.5
+/**
+ * 柱頂那一團的向下初速，m/s，往柱腳線性收到 0。
+ *
+ * 【為什麼需要它】霧自己的下沉終端只有 2.2 m/s，而柱子塌得快得多 —— 生在
+ * 34 m 高的那幾團會被留在半空，讀起來是一縷飄著的煙而不是塌下來的水。
+ */
+export const MIST_FALL_SPEED = 8
+
+/**
+ * 一根水柱的交棒 —— **照柱子當下的形狀**沿整根柱身留下 `count` 團水霧。
+ *
+ * ```
+ *   位置   柱腳到頂點等距取樣
+ *   半徑   `jetProfileRadius(up)` —— 底粗頂細，與柱身同一條輪廓
+ *   往外   越高拋得越開
+ *   往下   越高掉得越快（`MIST_FALL_SPEED`），頂端那幾團才不會留在半空
+ * ```
+ *
+ * @param height 這一刻的柱高，m
+ * @param radius 柱子的底部半徑，m
+ */
+export function emitMist(
+  pool: Particles, slot: number, count: number, sizeScale: number,
+  x: number, y: number, z: number, height: number, radius: number,
+): void {
+  for (let k = 0; k < count; k++) {
+    const up = count <= 1 ? 0.5 : k / (count - 1)
+    // 【頂點取 0.94 不取 1】輪廓在 1.0 處收到半徑 0，那一團會是一個點
+    const pr = jetProfileRadius(up * 0.94)
+    coneDirection(0, 1, 0, Math.PI, slot * 53 + k, DIR)
+    const outX = DIR.x
+    const outZ = DIR.z
+    const len = Math.hypot(outX, outZ) || 1
+    const spread = MIST_SPREAD_SPEED * (0.35 + up)
+    pool.emit(
+      x + (outX / len) * radius * pr * 0.8,
+      y + height * up,
+      z + (outZ / len) * radius * pr * 0.8,
+      (outX / len) * spread, -MIST_FALL_SPEED * up, (outZ / len) * spread,
+      radius * pr * sizeScale,
+    )
+  }
+}
+
 export interface BlastPools {
   fireball: Particles
   smoke: Particles
@@ -493,6 +604,10 @@ export interface BlastPools {
   splashEvents: ImpactEvents
   /** 火球的光暈。省略 = 不畫 */
   glow?: Particles | undefined
+  /**
+   * 爆炸的水冠。**省略時水柱退回 `splashEvents`**（子彈入水那一套細柱）。
+   */
+  jets?: WaterJets | undefined
 }
 
 /** 模組私有的暫存。熱路徑：不配置 */
@@ -521,18 +636,48 @@ export function emitBlast(
     x, y, z, seed + 1013)
   emitCone(pools.dust, p.dustCount, p.dustSpeed, p.dustCone, p.dustSize,
     x, y, z, seed + 2027)
-  emitCone(pools.spray, p.sprayCount, p.spraySpeed, p.sprayCone, 1,
-    x, y, z, seed + 3041)
+  // 【水花跟著水柱走，不是撒在爆心】見 `emitCrown`
 
-  // 【水柱排成一圈而不是疊在一點】`splashSize` 依池格給高低粗細，五根散開
-  // 讀起來是一圈掀起來的水；疊在同一點只是一根比較亮的柱子
+  emitCrown(pools, p, x, y, z, seed)
+}
+
+/**
+ * 水冠 —— 一叢粗水柱，**中央最高、往外遞減**。
+ *
+ * 【柱子要重疊】中央那幾根的直徑（`jetRadius` × 2 = 6.4 m）大過相鄰兩根的
+ * 間距（半徑 6.5 m 內撒 13 根，相鄰約 1.8 m），所以柱身互相穿插 —— 讀起來
+ * 是一叢水而不是幾根分開的柱子。**專案負責人裁定。**
+ *
+ * 【第一根在正中心】那是最高的一根。其餘的照 `√(k / count)` 取半徑，讓柱子
+ * 在圓面上分佈均勻而不是擠在外圈（等距取半徑會讓外圈稀、內圈密）。
+ *
+ * 【方位角用黃金角】相鄰的兩根不會排成一條直線，也不會在小數量時剛好對稱。
+ *
+ * 【沒有 `jets` 池時退回 `splashEvents`】遊戲目前接的是後者。
+ */
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
+
+function emitCrown(
+  pools: BlastPools, p: BlastParams,
+  x: number, y: number, z: number, seed: number,
+): void {
+  if (p.jetCount <= 0) return
   for (let n = 0; n < p.jetCount; n++) {
-    const a = (n / p.jetCount) * Math.PI * 2
-    pushImpact(
-      pools.splashEvents,
-      x + Math.cos(a) * p.jetSpread, y, z + Math.sin(a) * p.jetSpread,
-      0, 1, 0,
-    )
+    const u = p.jetCount <= 1 ? 0 : Math.sqrt(n / (p.jetCount - 1))
+    const r = u * p.jetSpread
+    const a = seed * 0.37 + n * GOLDEN_ANGLE
+    const jx = x + Math.cos(a) * r
+    const jz = z + Math.sin(a) * r
+    if (pools.jets !== undefined && p.jetHeight > 0) {
+      const f = jetFalloff(u)
+      pools.jets.emit(jx, y, jz, p.jetHeight * f, p.jetRadius * (0.45 + 0.55 * f))
+    } else {
+      pushImpact(pools.splashEvents, jx, y, jz, 0, 1, 0)
+    }
+    // 【每一根柱腳都炸出一圈水花】柱子出水那一下把表面的水掀開。跟著柱子的
+    // 位置走，所以柱子排得密，水花也密
+    emitCone(pools.spray, p.sprayCount, p.spraySpeed, p.sprayCone, 1,
+      jx, y, jz, seed + 3041 + n * 97)
   }
 }
 
