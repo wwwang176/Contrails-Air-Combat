@@ -52,6 +52,24 @@ describe('炸彈打船', () => {
     expect(y).toBeLessThanOrEqual(ship.cls.hull[0]!.half.y * 2 + 1)
   })
 
+  /**
+   * 【第六格帶命中的那一艘】火災要長在船身上，而火點必須存成**艦體座標**
+   * 才跟得住會動的船 —— 所以起火的那一層要知道是哪一艘。−1 = 沒中船。
+   *
+   * 【為什麼借第六格而不是加第七格】`IMPACT_STRIDE` 是 6，改它要動每一個
+   * 消費端；而 `nz` 對炸彈本來就恆是 0，是一格現成的空位。
+   */
+  it('那一筆事件的第六格是命中的船，沒中船是 −1', () => {
+    const { world, ship } = seaWithShip()
+    dropOn(world, 0, 0)
+    expect(world.bombEvents.data[5]).toBe(ship.index)
+
+    const other = seaWithShip()
+    dropOn(other.world, 200, 0)
+    expect(other.world.bombEvents.data[3]).toBe(1)
+    expect(other.world.bombEvents.data[5]).toBe(-1)
+  })
+
   it('落在船旁邊的水裡不扣血，而且事件是「水」', () => {
     const { world, ship } = seaWithShip()
     const before = ship.hp

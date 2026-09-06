@@ -615,10 +615,12 @@ export class World {
     this.applyBombBlast(x, y, z, damage)
     // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
     // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
-    const kind = blocked && this.bombShip !== null
-      ? 2
-      : this.waterAt(x, z) > -Infinity ? 1 : 0
-    pushImpact(this.bombEvents, x, y, z, kind, damage, 0)
+    const hitShip = blocked && this.bombShip !== null
+    const kind = hitShip ? 2 : this.waterAt(x, z) > -Infinity ? 1 : 0
+    // 【`nz` 帶命中的那一艘，沒中船是 −1】火災要長在船身上，而火點存的是
+    // **艦體座標**（船在動）—— 起火的那一層因此要知道是哪一艘。第六格對
+    // 炸彈本來就恆是 0，是一格現成的空位
+    pushImpact(this.bombEvents, x, y, z, kind, damage, hitShip ? this.bombShip!.index : -1)
   }
 
   /**
@@ -699,7 +701,11 @@ export class World {
       sh.hp -= damage
       this.sinkIfDead(sh)
     }
-    pushImpact(this.torpedoEvents, x, y, z, kind, damage, 0)
+    // 【`nz` 帶命中的那一艘，撞岸是 −1】與炸彈同一個約定，見 `onBombImpact`
+    pushImpact(
+      this.torpedoEvents, x, y, z, kind, damage,
+      kind === 1 && sh !== null ? sh.index : -1,
+    )
   }
 
   /**

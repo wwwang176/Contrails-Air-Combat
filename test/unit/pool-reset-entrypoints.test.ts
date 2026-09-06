@@ -79,7 +79,15 @@ describe('換一場的兩個入口都要清粒子池', () => {
   it('POOLS 涵蓋每一個粒子池', () => {
     const m = MAIN.match(/const POOLS[^=]*=\s*\[([^\]]*)\]/)
     expect(m).not.toBeNull()
-    const listed = m![1]!.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+    // 【要先把註解剝掉】陣列裡是可以寫註解的，而註解與它下一行的名字之間
+    // 沒有逗號 —— 不剝的話那一整段會被當成一個「池名」
+    const listed = m![1]!
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
     expect(listed.sort()).toEqual(
       [
         'debris', 'fireball', 'flakBursts', 'smoke', 'sparks', 'splashes',
@@ -87,6 +95,10 @@ describe('換一場的兩個入口都要清粒子池', () => {
         // 爆炸那一組
         'blastChunks', 'blastGlow', 'blastEmber', 'blastSmoke', 'blastDust',
         'blastMist', 'blastJets',
+        // 【船火那一組】`shipFires` 不是粒子池，但它有跨場狀態而且
+        // `reset()` 的簽章一樣。漏清的話上一場的火會用同一個船索引附到
+        // 新一場的船上，燒滿 60 秒
+        'shipFireSmoke', 'shipFires',
       ].sort(),
     )
   })

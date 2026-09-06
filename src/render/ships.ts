@@ -35,8 +35,8 @@ const templates = new Map<ShipClassId, Object3D>()
  *   Essex       23.1    45.2
  * ```
  *
- * 標記畫在 13.7 m 的話，貼近看時它插在艦橋中間（負責人 2026-09-07 試玩
- * 回報第二次）。**「物體的最高點」只有模型答得出來**，所以這一格住在算繪層。
+ * 標記畫在 13.7 m 的話，貼近看時它插在艦橋中間。**「物體的最高點」只有
+ * 模型答得出來**，所以這一格住在算繪層。
  */
 const modelTops = new Map<ShipClassId, number>()
 const BOX = /* @__PURE__ */ new Box3()
