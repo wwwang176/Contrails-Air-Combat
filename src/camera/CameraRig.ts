@@ -402,7 +402,7 @@ export class CameraRig {
       // 【自由視角不經過彈簧】轉頭是玩家自己下的指令，再濾一次就只是延遲。
       // 這裡把彈簧的**落後量**（offset − desired，機動造成的那一份）加到
       // 「已經轉過去的理想偏移」上：不轉頭時 viewForward === baseForward，
-      // 整條式子退化成 this.offset，行為與先前完全相同。
+      // 整條式子退化成 this.offset，也就是不轉頭時的純彈簧行為。
       const finalOffset = this.chaseOffset(viewForward, S.v[4]!).add(this.offset).sub(desired)
       camera.position.copy(position).add(finalOffset)
       // 注視機首前方的瞄準點，使準星穩定於畫面中央區

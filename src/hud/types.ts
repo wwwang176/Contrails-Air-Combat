@@ -392,7 +392,7 @@ export function createHudFrame(): HudFrame {
     objectiveRemaining: -1,
     // 【為什麼是 0 而不是 Infinity】既有護欄「初始值不含 NaN」實際斷言的是
     // `Number.isFinite`（`test/unit/hud.test.ts:71-78`），而 `Infinity` 過不了。
-    // 那條護欄不歸這一輪動。
+    // 重新定值那條護欄是負責人的決定。
     //
     // 這個 0 不會被看見：`objectiveActive` 預設 false，整組欄位不畫；任務模式
     // 下 `main.ts` 每一幀從 `MissionState.secondsLeft` 抄真值進來 —— **執行期

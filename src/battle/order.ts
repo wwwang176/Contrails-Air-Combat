@@ -80,13 +80,13 @@ export type OrderOfBattle = readonly FlightPlan[]
  *
  * 【它存在的唯一理由】既有的一百多處呼叫端寫的是
  * `{ ...DEFAULT_BATTLE, blueSpec: P51D, blueCount: 20, … }`，全部是既有護欄
- * 的基準。這支讓它們變成一行替換，而且**產出的座標與改動前逐位元相同**：
+ * 的基準。這支讓它們變成一行替換，而且**產出的座標逐位元相同**：
  *
  * ```
- *   lane = f − (小隊數 − 1) / 2      ← 改動前 leadX 括號裡那個中間值
- *   tier = f                          ← 改動前餵給 altitudeOffset 的那個 f
+ *   lane = f − (小隊數 − 1) / 2      ← leadX 括號裡那個中間值
+ *   tier = f                          ← 餵給 altitudeOffset 的那個 f
  *   player 落在藍隊第 floor(藍隊小隊數 / 2) 隊的長機
- *                                     ← 改動前的 playerSlot 同一條式子
+ *                                     ← 與 playerSlot 同一條式子
  * ```
  *
  * 【藍隊全部排在紅隊之前】`world.add` 的順序決定 combatant 索引，而索引決定

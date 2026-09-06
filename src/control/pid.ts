@@ -27,7 +27,7 @@ export class Pid {
   /**
    * 可直接修改，供調參面板即時調整。
    *
-   * 【Task 18 修正：改為持有參考，不再複製】原本是 `this.gains = { ...gains }`，
+   * 【持有參考，不可以複製】寫成 `this.gains = { ...gains }` 的話，
    * 於是 `new Pid(x)` 之後對 `x` 的修改完全不會影響控制器。這在
    * FlightDirector 上會變成一個特別惡劣的陷阱：它以
    * `new Pid(this.gains.rollInner)` 建構，所以調參面板改

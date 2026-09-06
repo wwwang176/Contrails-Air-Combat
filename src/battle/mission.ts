@@ -167,8 +167,8 @@ export interface MissionInputs {
  * 任務的狀態。**判定與顯示都在這裡**，由同一次 `stepMission` 寫出。
  *
  * 【為什麼判定與顯示不分開】分開的話 HUD 要自己再算一次進度，而兩份邏輯
- * 會漂移 —— 玩家看到「剩 12 架」卻突然贏了。這是這一輪唯一真正的新風險，
- * 合在一起就從結構上消掉（spec §4.3）。
+ * 會漂移 —— 玩家看到「剩 12 架」卻突然贏了。合在一起就從結構上消掉這個
+ * 風險（spec §4.3）。
  */
 export interface MissionState {
   outcome: Outcome
@@ -308,7 +308,7 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
  * 數字會在勝負已定之後繼續跳。
  *
  * 【victory 先於 defeat】同一步同時滿足時算贏：飛進圓環的那一步剛好時限
- * 歸零，判贏才符合玩家的認知。殲滅那一側的順序則是**照抄改動前的兩行**
+ * 歸零，判贏才符合玩家的認知。殲滅那一側的順序照的是**既有的兩行**
  * （`setup.ts` 舊的 `if (red === 0) ... else if (blue === 0) ...`）。
  */
 export function stepMission(

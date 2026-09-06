@@ -112,7 +112,7 @@ export class AiController implements Controller {
 
   /**
    * 這一場的船。**空陣列 = 這一場沒有船**，而那是絕大多數的場次 ——
-   * 對艦那一段於是連問都不會問，行為與改動前逐字相同。
+   * 對艦那一段於是連問都不會問，一格成本都不多付。
    *
    * 【為什麼是注入而不是 import 一個世界】與 `terrain` 同一個理由：
    * `AiController` 不持有 `World`，而 `main.ts` 每幀掃一次把它接上

@@ -50,7 +50,7 @@ export interface GodCameraOptions {
  *   `input/bindings.ts` 累積它時**已經乘過** `MOUSE_SENSITIVITY`（1.6）；
  *   自由視角走的是另一條路徑，用的是**原始比值**乘 `LOOK_SENSITIVITY`
  *   （5.5）。直接寫 5.5 的話實際值會是 8.8 —— 比自由視角高六成，而註解
- *   卻寫著「沿用」。這是審查抓到的（I7）。
+ *   看起來仍然像在「沿用」。
  */
 export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   moveSpeed: 300,

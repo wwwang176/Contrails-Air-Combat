@@ -90,7 +90,7 @@ export const TRAIL_LIFE = 1.4
  * 否則會把「太白」誤判成參數選得不好。
  */
 export const TRAIL_RADIUS_FROM = 0.2
-/** 死亡時的管半徑，m。渦會擴散。同樣收成第一版（2.0）的三分之一。 */
+/** 死亡時的管半徑，m。渦會擴散。同樣是 2.0 的三分之一。 */
 export const TRAIL_RADIUS_TO = 0.65
 
 /**
@@ -200,7 +200,7 @@ export interface Vortex {
   /**
    * 目前有幾個**節點**（含斷開處的退化節點）。測試與 telemetry 用。
    *
-   * 【不是粒子數】第二版起這是掃掠管，`live` 數的是路徑上的取樣點。
+   * 【不是粒子數】這是掃掠管，`live` 數的是路徑上的取樣點。
    */
   readonly live: number
   /**

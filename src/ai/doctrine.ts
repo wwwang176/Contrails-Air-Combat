@@ -275,7 +275,7 @@ export const DEFAULT_DOCTRINE: DoctrineConfig = {
  * **我實際會用的**過載」。前者是飛機的性質，後者是打法的選擇。名字分開，
  * 下一個人才不會把政策改到物理層去。
  *
- * 熱路徑：`stallSpeed` 每次呼叫都會算一次 `atmosphere`，與改動前相同 ——
+ * 熱路徑：`stallSpeed` 每次呼叫本來就會算一次 `atmosphere` ——
  * 這個函數沒有讓既有的呼叫變貴。
  */
 export function manoeuvreSpeed(
