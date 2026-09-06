@@ -173,7 +173,7 @@ export const DEFAULT_TACTICS: TacticalConfig = {
   //
   // 【它幾乎不會咬到】同一批量測裡 `build` 的停留中位是 0.4 s，也就是
   // `minDwell` —— 進場時 `energyRatio` 多半已經高於 `perchEnter`。這道期限是
-  // 止損，不是節奏；60 s 的舊值不會弄壞什麼，只是它擋不住任何東西。
+  // 止損，不是節奏；訂到 60 s 不會弄壞什麼，只是擋不住任何東西。
   buildMax: 13,
   perchMax: 20,
   passSeconds: 1,

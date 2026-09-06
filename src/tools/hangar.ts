@@ -332,8 +332,8 @@ function applyWireframe(m: AircraftModel, on: boolean): void {
  * 砲塔的槍管，畫在**靜止位置**（`turret.axis`）上。
  *
  * 【為什麼機庫要畫它】槍管在遊戲裡是由 combatant 狀態驅動的
- * `InstancedMesh`，機庫沒有 combatant。但砲塔位置是這一輪最需要用眼睛驗
- * 的東西（十三座裡有六座是「量到的機身剖面 + 史實站位」推算出來的），而
+ * `InstancedMesh`，機庫沒有 combatant。但砲塔位置最需要用眼睛驗
+ * （十三座裡有六座是「量到的機身剖面 + 史實站位」推算出來的），而
  * 機庫是這個專案唯一截得到 3D 畫面的地方 —— 遊戲的畫布沒開
  * `preserveDrawingBuffer`，截圖只有 HUD。
  *
@@ -504,7 +504,7 @@ function clearShip(): void {
 /**
  * 切到某一艘船：載 GLB、依 `world/shipAA.ts` 的併區表擺射界錐。
  *
- * 【相機的遠平面要動】原本是 500 —— 265 m 的 Essex 加上 42 m 的射界錐，
+ * 【相機的遠平面要拉開】500 不夠 —— 265 m 的 Essex 加上 42 m 的射界錐，
  * 用預設值會被遠平面切掉一半，而且**畫面上看起來像船尾被削平了**。
  */
 function rebuildShip(id: string): void {
@@ -610,7 +610,7 @@ function rebuild(): void {
 const specRow = $<HTMLDivElement>('specRow')
 const specButtons = SPECS.map((s, i) => {
   const b = document.createElement('button')
-  // 【為什麼查表而不是三元式】原本是 `id === 'p51d' ? 'P-51D' : 'Bf 109'`
+  // 【為什麼查表而不是三元式】`id === 'p51d' ? 'P-51D' : 'Bf 109'`
   // —— 那在只有兩台時剛好對，第三台一加就會被標成「Bf 109」而且不會有
   // 任何東西提醒你。查表少一筆是一個 undefined，看得見
   b.textContent = ({ p51d: 'P-51D', bf109k4: 'Bf 109 K-4', f6f5: 'F6F-5', f4f4: 'F4F-4', ki84: 'Ki-84', a6m5: 'A6M5', g4m: 'G4M', he111: 'He 111', b17g: 'B-17G' } as Record<string, string>)[s.id] ?? s.id
@@ -832,8 +832,8 @@ rebuild()
 /**
  * 把參考模型依「當前機種的真機全長」等比縮放，並讓機首對齊。
  *
- * 【必須在每次切換機種時重跑】兩架飛機的全長與重心位移都不同。第一版
- * 只在載入完成時對齊一次，而 GLB 有 23 MB、載入比機種切換慢，結果對齊
+ * 【必須在每次切換機種時重跑】兩架飛機的全長與重心位移都不同。只在
+ * 載入完成時對齊一次的話，GLB 有 23 MB、載入比機種切換慢，對齊
  * 用的是切換前那架的參數——疊出來整台平移了 1.5 m。
  */
 function placeRef(): void {
@@ -996,8 +996,8 @@ function applyRefMaterial(root: Object3D): void {
  * 開發用：把量測腳本需要的東西一次交出去。
  *
  * 【為什麼要有 ortho 這一段】抽剪影輪廓時要把像素換回世界座標。那個換算
- * （框圖公式、螢幕右邊是 −Z、每像素幾公尺）先前是在腳本裡**手推**的，推過
- * 至少四次，而且錯過一次——第一版的百分比表整個左右顛倒，機首機尾對調。
+ * （框圖公式、螢幕右邊是 −Z、每像素幾公尺）在腳本裡**手推**的話，每一支
+ * 腳本都要推一次，而推錯的症狀是百分比表整個左右顛倒、機首機尾對調。
  * 相機自己知道答案，直接問它就不會錯：
  *
  *   world = center + right·(px − W/2)·mPerPx + up·(H/2 − py)·mPerPx

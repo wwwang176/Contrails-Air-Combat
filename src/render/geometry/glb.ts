@@ -137,7 +137,7 @@ export function registerGlbTemplate(id: string, t: GlbTemplate): void {
 }
 
 export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Promise<GlbTemplate> {
-  // 【`parse` 是非同步的】它的 onLoad 走 Promise，不是同步回呼。第一版照
+  // 【`parse` 是非同步的】它的 onLoad 走 Promise，不是同步回呼。照
   // 「GLB 沒有外部資源就會同步完成」寫，拿到的是 null。
   const scene = await new Promise<Group>((res, rej) => {
     new GLTFLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)

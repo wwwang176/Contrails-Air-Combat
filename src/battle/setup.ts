@@ -62,7 +62,7 @@ export interface BattleConfig {
    * 初始姿態、小隊的話，加第三種機體只要多一列。見 `battle/order.ts`。
    *
    * 【既有場景怎麼寫】`lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20)` ——
-   * 產出的座標與改動前逐位元相同。
+   * 產出的座標與展開寫死的版本逐位元相同。
    */
   units: OrderOfBattle
   /**
@@ -78,7 +78,7 @@ export interface BattleConfig {
    * （見 `createFlights` 的 `teams`）。
    *
    * **省略（或空陣列）等於「這一場不會再有人加入」**，此時容量與開局架數
-   * 相等，整條路逐位元回到改動前。
+   * 相等，整條路是恆等的。
    */
   readonly reserve?: readonly { readonly team: Team; readonly count: number }[]
   /**
@@ -212,7 +212,7 @@ export const DEFAULT_BATTLE: BattleConfig = {
   // 【測試的基準是天花板】遊戲的難度由 `battleConfigFrom` 覆寫，見
   // `aiProfile` 的註解。
   aiProfile: ACE,
-  // 【遭遇戰＝沒有時限的殲滅】改動前寫死的那兩行，現在是這一條規則
+  // 【遭遇戰＝沒有時限的殲滅】它是一條規則，不是兩行寫死的判斷
   rules: { kind: 'annihilate' },
   tuning: NEUTRAL_TUNING,
 }
@@ -421,7 +421,7 @@ export interface Battle {
    *
    * 【為什麼留著 `outcome` 而不是處處改讀 `mission.outcome`】`main.ts`、
    * `ui/scoreboard`、Playwright 判準與既有的五支測試都讀它。全面改讀是一次
-   * 與這一輪無關的擴散性修改，而它換來的只是少一行賦值。
+   * 擴散到五個檔案的修改，而它換來的只是少一行賦值。
    *
    * 【為什麼是 readonly】`main.ts` 與 HUD 每幀讀 `mission.target`。換掉整個
    * 物件會讓那些參考指向孤兒 —— 與 `Aircraft.reset` 改成就地寫回是同一條
@@ -533,7 +533,7 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
   // 【方向逐小隊，速率逐架】速率由 `openingTas` 逐機種決定，而同一個
   // 分隊可以是混編的
   const heading = FWD.clone().applyQuaternion(orientation)
-  // 【乘法的順序要與改動前逐字相同】改動前是
+  // 【乘法的順序不能換】原式是
   // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
   // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
   const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
@@ -651,7 +651,7 @@ export function createBattle(
   /**
    * base spec → 套過手感係數的 spec。**每陣營一張表。**
    *
-   * 【為什麼要記憶】改動前 `applyFeel` 一側算一次，所以同一側的 20 架共用
+   * 【為什麼要記憶】`applyFeel` 一側算一次，所以同一側的 20 架共用
    * 同一個物件。逐小隊算的話同隊會變成好幾個物件 —— 數值完全相同
    * （`applyFeel` 是純函數），但下游有三個**依物件識別**的快取會失效。
    *
@@ -669,7 +669,7 @@ export function createBattle(
    * 共用會少填一張表 —— 數值仍然相同，但那是一個沒有必要冒的啟動成本與
    * perf gate 的變動。
    *
-   * 每陣營一張則與改動前**完全一致**：同隊同機種共用一份、兩隊各自一份。
+   * 每陣營一張的分法是：同隊同機種共用一份、兩隊各自一份。
    */
   const feeled = {
     blue: new Map<AircraftSpec, AircraftSpec>(),
@@ -722,7 +722,7 @@ export function createBattle(
   //
   // 【沒有 reserve 時這一段完全空轉】`capacity` 等於架數，`world.reserve`
   // 的三個條件都不成立，`createFlights` 與 `createTargetBoard` 走的是省略
-  // 參數的那一條。整條路逐位元回到改動前。
+  // 參數的那一條。整條路是恆等的。
   let capacity = world.combatants.length
   const reserve = cfg.reserve ?? (cfg.beats ?? [])
     .filter((x): x is Extract<Beat, { kind: 'reinforce' }> => x.kind === 'reinforce')

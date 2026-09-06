@@ -1039,8 +1039,8 @@ export function stepCommand(
         i--
       }
     }
-    // 【空的時候是 Infinity】與舊碼的 `let worst = Infinity` 逐位元等價 ——
-    // 成員全部陣亡時不該累積見底。
+    // 【空的時候是 Infinity】成員全部陣亡時不該累積見底，所以初值是
+    // `Infinity` 不是 0。
     //
     // 【三面都要夾】上界是存活人數，下界是 0，而且要取整。`RATIOS[-1]`、
     // `RATIOS[0.5]`、`RATIOS[9]` 都是 `undefined`，而 `undefined < spentRatio`

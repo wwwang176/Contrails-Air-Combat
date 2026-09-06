@@ -67,7 +67,7 @@ export const BARREL_LENGTH = 0.9
 /**
  * 槍管露在蒙皮外的長度，m。**`muzzleAt` 用它把量到的蒙皮點推成槍口。**
  *
- * 【為什麼需要它 —— 實測】第一版把砲塔的 `position` 直接填成量到的蒙皮點，
+ * 【為什麼需要它 —— 實測】把砲塔的 `position` 直接填成量到的蒙皮點，
  * 而槍管是**由槍口往機體方向長**的（`render/turretBarrels.ts`）。結果是
  * 整根管子埋在機身裡，畫面上只剩 0.15–0.20 m 的管口端面 —— 機庫近照
  * （`test/tools/turret-shots.probe.ts`）拍出來是**一個黑點，不是一根管子**。

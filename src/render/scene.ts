@@ -27,8 +27,8 @@ export const CAMERA_NEAR = 1
  *
  * 【但那個計算假設 24-bit 深度緩衝，而 WebGL 只保證 16 bit】24-bit 下
  * 100 m 處是 0.6 mm、12,000 m 處是 8.58 m；16-bit 下是 0.15 m 與 2.2 km。
- * **這是遠平面拉到 800 km 時就存在的事，不是後來引入的** —— `f ≫ n` 之後
- * 精度幾乎只由近平面決定。實際位元數由 `battlefield-visuals.e2e.ts` 讀
+ * **位元數才是主導，遠平面不是** —— `f ≫ n` 之後精度幾乎只由近平面決定。
+ * 實際位元數由 `battlefield-visuals.e2e.ts` 讀
  * `gl.getParameter(gl.DEPTH_BITS)` 記錄。
  *
  * 【遠海與細浪面只相距 3 m】高空俯視時兩者的深度分不出前後 —— 既有的限制，
