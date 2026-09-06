@@ -369,7 +369,12 @@ describe('擊沉', () => {
     expect(w.projectiles.live).toBe(before)
   })
 
-  it('沉了之後不再前進', () => {
+  /**
+   * 【沉了要滑行到停，不是煞停】負責人 2026-09-07：「船血量歸零後，速度是
+   * 慢慢降低，現況是瞬間煞停」。一萬噸的船在同一個物理步內從 8 m/s 變成 0，
+   * 畫面上像撞到牆。
+   */
+  it('沉了之後滑行到停，不是原地煞停', () => {
     const w = new World()
     const s = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, 0, 8)
     s.guns = createShipGuns(SHIP_CLASSES.fletcher)
@@ -378,7 +383,17 @@ describe('擊沉', () => {
     sink(w, s)
     const at = s.position.clone()
     for (let i = 0; i < 5 * 240; i++) w.step(DT)
-    expect(s.position.distanceTo(at)).toBeCloseTo(0, 6)
+    // 還在動，但已經慢下來了
+    expect(s.position.distanceTo(at)).toBeGreaterThan(1)
+    expect(s.speed).toBeGreaterThan(0)
+    expect(s.speed).toBeLessThan(8)
+
+    // 再跑一分鐘就停住，而且停住之後真的不動
+    for (let i = 0; i < 60 * 240; i++) w.step(DT)
+    expect(s.speed).toBe(0)
+    const rest = s.position.clone()
+    for (let i = 0; i < 5 * 240; i++) w.step(DT)
+    expect(s.position.distanceTo(rest)).toBe(0)
   })
 
   it('沉了之後不再擋子彈', () => {

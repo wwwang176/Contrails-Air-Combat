@@ -110,16 +110,23 @@ export interface Ship {
   /** 開局位置。`resetShip` 抄回去 —— 沒有波次的關重開不重建 World。 */
   readonly spawn: Vector3
   readonly heading: number
-  /** 航速，m/s。固定不變。 */
+  /**
+   * 目前航速，m/s。**沉了之後會被 `stepShips` 一路減到 0**，其餘時間等於
+   * `cruiseSpeed`。
+   */
   speed: number
+  /** 開局航速，m/s。`resetShip` 抄回去 —— `speed` 會被滑行歸零。 */
+  readonly cruiseSpeed: number
   hp: number
   /**
    * 還浮著嗎。**血量歸零就是 false。**
    *
-   * 【沉了之後它完全退場】砲位全部死掉、不再前進、不再是任何人的目標、
-   * 也不再擋子彈 —— 與 `Combatant.alive` 同一個性質：**旗標而不是從陣列
-   * 移除**，因為 `Ship.index` 是彈丸 `owner` 編碼的來源，移除會讓還在飛的
-   * 船砲彈認錯主人。
+   * 【沉了之後它完全退場】砲位全部死掉、不再是任何人的目標、也不再擋
+   * 子彈 —— 與 `Combatant.alive` 同一個性質：**旗標而不是從陣列移除**，
+   * 因為 `Ship.index` 是彈丸 `owner` 編碼的來源，移除會讓還在飛的船砲彈
+   * 認錯主人。
+   *
+   * 【但它還會動】沉了之後 `stepShips` 讓它滑行到停 —— 見那一支。
    */
   alive: boolean
   guns: ShipGun[]
@@ -259,6 +266,7 @@ export function createShip(
     spawn: new Vector3(x, 0, z),
     heading,
     speed,
+    cruiseSpeed: speed,
     hp: cls.hp,
     alive: true,
     // 【砲位由 shipGuns 填】這裡不 import 它的建構函數 —— 那會是
@@ -277,6 +285,9 @@ export function createShip(
  */
 export function resetShip(s: Ship): void {
   s.position.copy(s.spawn)
+  // 【航速也要抄回去】它會被沉沒後的滑行減到 0。少了這一行，第二場的
+  // 沉船從 0 起步 —— 而 `rematch` 那一組護欄比的是耗時，抓不到
+  s.speed = s.cruiseSpeed
   s.hp = s.cls.hp
   s.alive = true
   s.gunCooldowns.fill(0)
@@ -286,15 +297,31 @@ export function resetShip(s: Ship): void {
 const FWD = /* @__PURE__ */ new Vector3()
 
 /**
+ * 沉沒之後的減速度，m/s²。**起始值，待試飛。**
+ *
+ * 艦隊航速 8 m/s ⇒ 約 27 秒停下、滑行約 107 m。
+ *
+ * 【為什麼是固定減速度而不是指數衰減】指數衰減永遠到不了 0 —— 畫面上那是
+ * 一艘永遠在慢慢爬的船，而且 `speed === 0` 那條捷徑永遠不成立。
+ */
+export const COAST_DECEL = 0.3
+
+/**
  * 推進一步：等速直線，固定艏向。
  *
  * 【為什麼這麼簡單】負責人裁定：任務中的船緩慢向前、不閃避。轉向與損管
  * 都不在這一期。
+ *
+ * 【沉了之後滑行到停】一萬噸的船在同一個物理步之內從 8 m/s 變成 0，畫面上
+ * 像撞到牆。停下來之後 `speed === 0`，這個迴圈就跳過它了。
  */
 export function stepShips(ships: readonly Ship[], dt: number): void {
   for (const s of ships) {
-    // 沉了的船不再前進
-    if (!s.alive || s.speed === 0) continue
+    if (s.speed === 0) continue
+    if (!s.alive) {
+      const v = s.speed - COAST_DECEL * dt
+      s.speed = v > 0 ? v : 0
+    }
     FWD.set(0, 0, -1).applyQuaternion(s.orientation)
     s.position.addScaledVector(FWD, s.speed * dt)
   }
