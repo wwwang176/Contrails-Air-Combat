@@ -16,10 +16,23 @@ export interface Command {
   /** 減速，0 ~ 1。玩家的按鍵給 0 或 1；AI 可以只踩一部分（M4 spec §2.1） */
   brake: number
   firing: boolean
+  /**
+   * 投彈。**與 `firing` 分開。**
+   *
+   * 【為什麼不合成一格】陸攻要能一邊由砲塔自衛、一邊投彈 —— 那是同一台
+   * 飛機上的兩套武器，合成一格會讓它們互斥。
+   *
+   * 【玩家恆為 false】玩家的投彈走 `main.ts` 的幀迴圈（要用內插後的算繪
+   * 位置與 `bombPoint` 對準星）。這一格是 AI 的路徑，執行在物理步裡 ——
+   * 兩邊都寫的話會投兩倍。
+   */
+  bombing: boolean
 }
 
 export function createCommand(): Command {
-  return { aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false }
+  return {
+    aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
+  }
 }
 
 export interface Controller {
