@@ -3,8 +3,8 @@ import {
   InstancedMesh, Matrix4, NormalBlending, Quaternion, ShaderLib, Vector3,
 } from 'three'
 import {
-  createParticles, injectBillboard, particleAlpha, particleSize,
-  type ParticleConfig,
+  createParticles, injectBillboard, particleAlpha, particleRiseShade, particleShade,
+  particleSize, type ParticleConfig,
 } from '../../src/render/particles'
 
 function instance(mesh: InstancedMesh, i: number) {
@@ -209,5 +209,83 @@ describe('createParticles', () => {
     expect(seen[0]).toBeCloseTo(0.25, 6)
     expect(seen[1]).toBeCloseTo(0.5, 6)
     p.dispose()
+  })
+})
+
+describe('particleShade：逐顆的明暗', () => {
+  it('只往暗走 —— 基色就是最亮的那一顆', () => {
+    for (let i = 0; i < 256; i++) {
+      const s = particleShade(i, 0.5)
+      expect(s).toBeGreaterThanOrEqual(0.5)
+      expect(s).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('抖動為 0 時整批同色', () => {
+    for (let i = 0; i < 16; i++) expect(particleShade(i, 0)).toBe(1)
+  })
+
+  it('同一格恆得同一個值、相鄰的格子不同 —— 重疊處才分得出前後', () => {
+    expect(particleShade(7, 0.5)).toBe(particleShade(7, 0.5))
+    expect(particleShade(7, 0.5)).not.toBe(particleShade(8, 0.5))
+  })
+})
+
+describe('particleRiseShade：上亮下暗', () => {
+  it('底是 1 − range、頂是 1', () => {
+    expect(particleRiseShade(0, 20, 0.5)).toBeCloseTo(0.5, 9)
+    expect(particleRiseShade(20, 20, 0.5)).toBeCloseTo(1, 9)
+  })
+
+  it('span 為 0 時關閉', () => {
+    expect(particleRiseShade(5, 0, 0.5)).toBe(1)
+  })
+
+  it('掉到出生點以下仍然算底，升過 span 不再更亮', () => {
+    expect(particleRiseShade(-100, 20, 0.5)).toBeCloseTo(0.5, 9)
+    expect(particleRiseShade(1000, 20, 0.5)).toBeCloseTo(1, 9)
+  })
+
+  it('中間單調上升', () => {
+    let prev = 0
+    for (let dy = 0; dy <= 20; dy += 1) {
+      const s = particleRiseShade(dy, 20, 0.5)
+      expect(s).toBeGreaterThanOrEqual(prev - 1e-9)
+      prev = s
+    }
+  })
+})
+
+describe('injectBillboard：貼圖那一條分支', () => {
+  const make = (): { vertexShader: string; fragmentShader: string } => ({
+    vertexShader: ShaderLib.basic.vertexShader,
+    fragmentShader: ShaderLib.basic.fragmentShader,
+  })
+
+  it('逐顆的貼圖旋轉真的注入了', () => {
+    const s = make()
+    injectBillboard(s, false)
+    expect(s.vertexShader).toContain('attribute float aSpin')
+    expect(s.vertexShader).toContain('vSpunUv')
+  })
+
+  it('soft 關掉時不再自己裁圓 —— 兩層淡出會把煙縮成一個小核', () => {
+    const s = make()
+    injectBillboard(s, false)
+    expect(s.fragmentShader).not.toContain('smoothstep(0.5, 0.25')
+  })
+
+  it('soft 開著時仍然裁圓，而且不覆寫 alphaMap 的取樣', () => {
+    const s = make()
+    injectBillboard(s, true)
+    expect(s.fragmentShader).toContain('smoothstep(0.5, 0.25')
+    expect(s.fragmentShader).toContain('#include <alphamap_fragment>')
+  })
+
+  it('貼圖分支換掉了 three 自己的 alphaMap 取樣', () => {
+    const s = make()
+    injectBillboard(s, false)
+    expect(s.fragmentShader).not.toContain('#include <alphamap_fragment>')
+    expect(s.fragmentShader).toContain('texture2D( alphaMap, vSpunUv )')
   })
 })
