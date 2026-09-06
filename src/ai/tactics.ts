@@ -146,7 +146,7 @@ export interface TacticalConfig {
  */
 export const DEFAULT_TACTICS: TacticalConfig = {
   // 【開發期間出 0】戰術層一開就會改變 `order-of-battle-replay` 的 digest，
-  // 而那個基準每重跑一次都要專案負責人裁定。出 0 的話整個開發期間那條測試
+  // 而那個基準每重跑一次都要負責人重新定值。出 0 的話整個開發期間那條測試
   // 都是綠的，所有參數定案後才翻開，只需要重跑一次。
   //
   // 消融與整合測試自己注入 `quota`，不受這個預設影響。
@@ -553,17 +553,17 @@ function selfHeading(self: Aircraft, out: Vector3): void {
  * 不由任何設計參數決定 —— 那是專案在 1000 m 線上震盪 40 秒那次的同型錯誤，
  * 見 `extendPitchAngle` 的註解。
  *
- * 二、**無界的後退**。`build` 原本一律取反（`flat.negate()`），離場因此只有
+ * 二、**無界的後退**。`build` 一律取反（`flat.negate()`）的話，離場就只有
  * 能量出口、沒有距離出口。實測（`tactics-ablation.probe.ts`）：掃蕩卡上只要
  * **3 架**進過 `build`，全場戰鬥機與目標的距離中位就由 734 m 變成 12 301 m、
  * 射擊解由 5.5% 掉到 0.0% —— 跑掉的人會把鎖定它們的人一起帶出去。**建能是
  * 爬升，不是拉開距離**；水平方向該做的事與 `perch` 完全一樣。
  *
  * 【切向為什麼是閂鎖而不是算出來的】水平面上的切向只有 ±1 兩個選擇，沒有
- * 連續的選法。舊版由航向投影導出並正規化，實測（Codex 2026-08-22）在同一條
- * 視線、`range === perchRange` 上，yaw +0.0009 rad 給 `+X`、+0.0011 rad 給
- * `−X` —— 差 0.011° 而水平指令翻半圈。改成不正規化則翻轉點搬到 `perchRange`
- * 上（徑向穿零時整個向量穿零）。兩個都是翻。見 `TacticalState.orbitSide`。
+ * 連續的選法。由航向投影導出並正規化的版本，在同一條視線、
+ * `range === perchRange` 上，yaw +0.0009 rad 給 `+X`、+0.0011 rad 給 `−X`
+ * —— 差 0.011° 而水平指令翻半圈；不正規化則把翻轉點搬到 `perchRange` 上
+ * （徑向穿零時整個向量穿零）。兩個都是翻。見 `TacticalState.orbitSide`。
  */
 function stationKeeping(
   st: TacticalState, range: number, self: Aircraft, cfg: TacticalConfig,

@@ -79,7 +79,7 @@ export function flightPathRate(self: Aircraft): number {
  * `changed = 0`）。用 `nMax > 1` 當分界則會在 `nMax → 1⁺` 留一個跳到無限大
  * 的斷點。
  *
- * 【2026-08-09：為什麼不再回 Infinity】`nMax ≤ 1` 說的是「用**現在這個
+ * 【為什麼不回 Infinity】`nMax ≤ 1` 說的是「用**現在這個
  * 速度**拉不平」，不是「救不回來」。回 Infinity 會讓下面的撞地分支在
  * **任何有限高度**接管，並對一台已經失速的飛機下令爬升 —— 而失速分支
  * （壓頭）在 `nMax ≤ 1` 時保證成立卻永遠輪不到，因為
@@ -97,10 +97,10 @@ export function flightPathRate(self: Aircraft): number {
  * `nMax = 1` 會落進單段支並除以 `√(1−1) = 0`。回 `Infinity` —— 那既是拉起
  * 半徑真正的極限，也與修改前 `!(nMax > 1) → Infinity` 完全一致。
  *
- * 【為什麼不乾脆把 `c` 換成半正矢 `2·sin²(|γ|/2)`】試過，退掉了：它在數學上
- * 恆等、浮點下確實不會塌成 0，但**沒有多擋掉任何東西**（NaN 是上面那個
- * 純乘法擋掉的），代價卻是 288 格安全矩陣裡有 144 格的回傳值差 1 ULP ——
- * 換掉「拉得動的那一側逐位元不變」這個最強的迴歸證據，買一個買不到的東西。
+ * 【為什麼不乾脆把 `c` 換成半正矢 `2·sin²(|γ|/2)`】它在數學上恆等、浮點下
+ * 確實不會塌成 0，但**沒有多擋掉任何東西**（NaN 是上面那個純乘法擋掉的），
+ * 代價卻是 288 格安全矩陣裡有 144 格的回傳值差 1 ULP —— 會換掉「拉得動的
+ * 那一側逐位元不變」這個最強的迴歸證據。
  *
  * 【模型忽略了什麼】第一段假設推力與阻力相消。WEP 下低速段推力大於阻力，
  * 所以這裡**高估**所需高度，偏保守。反方向的偏差（俯衝中 γ 還會變陡）由
@@ -216,9 +216,8 @@ export interface SafetyConfig {
 }
 
 /**
- * `factor`、`clearance`、`recoveryPitch` 仍是 M4 的起始值。
- * `stallMargin`、`stallRecoveryPitch` 是 2026-08-05 加的失速硬介入，
- * 見各欄位註解。
+ * `factor`、`clearance`、`recoveryPitch` 仍是起始值。
+ * `stallMargin`、`stallRecoveryPitch` 是失速硬介入的兩個門檻，見各欄位註解。
  *
  * `factor` 取 1.5 是因為閉式解假設立刻拉到 nMax，而實際上指揮儀要花時間
  * 滾平與建立過載。`clearance` 取 120 m 是「就算完全水平也不准比這更低」。
@@ -268,9 +267,9 @@ function horizontalHeading(self: Aircraft, out: Vector3): void {
  *
  * 【為什麼要分辨而不是回傳布林】兩個接管的補救**方向相反** ——「撞地」拉起、
  * 「失速」壓頭。把它們混進同一個布林，量出來的「安全層介入率」就同時包含
- * 兩件無關的事。2026-08-07 實測撞到：`ai-visible-evasion` 有兩場在 3950 m
- * 量到 2.23% / 3.67% 的介入率，那個高度不可能是撞地，是失速接管 —— 而那條
- * 護欄要守的是「不墜海」。
+ * 兩件無關的事：`ai-visible-evasion` 有兩場在 3950 m 量到 2.23% / 3.67% 的
+ * 介入率，那個高度不可能是撞地，是失速接管 —— 而那條護欄要守的是
+ * 「不墜海」。
  */
 export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'
 
@@ -297,10 +296,9 @@ export function applySafety(
   const tas = vel.length()
   const gamma = tas > 1e-3 ? Math.asin(Math.max(-1, Math.min(1, vel.y / tas))) : 0
 
-  // 【2026-08-11：改用結構極限】原本第二項是 PILOT_G_POSITIVE=6.5，與當時
-  // `pitchRateLimit` 的硬夾一致。那個硬夾已經拿掉（生理極限改以黑視呈現），
-  // 這裡若不跟著走，AI 會以為自己只拉得到 6.5 G 去算改出高度，算出比實際
-  // 需要更高的門檻 —— 不會撞海，但會提早拉起、多出無謂的脫離。
+  // 【第二項用結構極限，不是 PILOT_G_POSITIVE】生理極限以黑視呈現、不夾
+  // 過載，這裡若用 6.5 G，AI 會以為自己只拉得到 6.5 G 去算改出高度，算出
+  // 比實際需要更高的門檻 —— 不會撞海，但會提早拉起、多出無謂的脫離。
   // 這一項必須與 `pitchRateLimit` 的 nLimit 用同一個上限。
   const nMax = Math.min(
     maxLoadFactorAero(self.spec, self.state.position.y, tas),
@@ -310,10 +308,8 @@ export function applySafety(
   // 平飛或爬升時套用會製造出一個不存在的俯衝：實測 4000 m、TAS 30 的平飛
   // 被推出一個負的 γ，於是要付一份根本不存在的改出高度。
   //
-  // 【這道守衛不再兼任「擋掉 Infinity」】2026-08-09 之前 `recoveryAltitude`
-  // 在 `nMax ≤ 1` 時回 Infinity，這道守衛順便擋掉了平飛那一格；但只要有
-  // 一點點下沉就擋不住，實測五公里高空仍然誤觸發。根因已在
-  // `recoveryAltitude` 修掉，這裡只剩上面那個理由。
+  // 【這道守衛不兼任「擋掉 Infinity」】那件事在 `recoveryAltitude` 裡處理
+  // —— 靠這裡擋的話只要有一點點下沉就擋不住，五公里高空一樣誤觸發。
   //
   // 【取較悲觀的那個】只在航跡**變陡**時提前介入；變緩時不會反而延後。
   // 夾在 −90° 是因為閉式解只在 |γ| ≤ 90° 有意義。
