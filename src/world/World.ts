@@ -15,7 +15,7 @@ import {
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
-import { BOMB_BLAST_RADIUS, bombBlastDamage } from '../weapons/bomb'
+import { blastRadiusOf, bombBlastDamage } from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -535,17 +535,17 @@ export class World {
    * 炸彈落地。**綁在實例上建一次，不在 `step` 裡寫成箭頭函數** —— 那樣會
    * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
    */
-  private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked) => {
+  private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked, damage) => {
     // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船。三者是三套完全不同的
     // 表現（土／水冠／火），而判斷所需的 `waterAt` 與 `ships` 只有這一層
     // 有。法線那三格對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格。
-    this.applyBombBlast(x, y, z)
-    if (blocked && this.bombShip !== null) {
-      pushImpact(this.bombEvents, x, y, z, 2, 1, 0)
-      return
-    }
-    const water = this.waterAt(x, z) > -Infinity ? 1 : 0
-    pushImpact(this.bombEvents, x, y, z, water, 1, 0)
+    this.applyBombBlast(x, y, z, damage)
+    // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
+    // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
+    const kind = blocked && this.bombShip !== null
+      ? 2
+      : this.waterAt(x, z) > -Infinity ? 1 : 0
+    pushImpact(this.bombEvents, x, y, z, kind, damage, 0)
   }
 
   /**
@@ -562,11 +562,12 @@ export class World {
    * 【不分敵我】炸彈沒有敵我識別。目前只有玩家投得了彈，而 4,000 m 投下來
    * 的那一顆落在地面時，僚機不會在 30 m 之內。
    */
-  private applyBombBlast(x: number, y: number, z: number): void {
+  private applyBombBlast(x: number, y: number, z: number, damage: number): void {
+    const radius = blastRadiusOf(damage)
     for (const c of this.combatants) {
       if (!c.alive) continue
       const p = c.aircraft.state.position
-      const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z))
+      const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z), damage)
       // 【飛機用質心】一架 12 m 的飛機在 30 m 的半徑下，質心與機翼尖的
       // 差別小於衰減曲線本身的精度
       if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
@@ -575,7 +576,7 @@ export class World {
     for (const sh of this.ships) {
       if (!sh.alive) continue
       // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
-      const reach = sh.cls.radius + BOMB_BLAST_RADIUS
+      const reach = sh.cls.radius + radius
       if (sh.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
 
       SHIP_INV.copy(sh.orientation).conjugate()
@@ -586,12 +587,14 @@ export class World {
         const d = pointBoxDistance(local.x, local.y, local.z, box)
         if (d < near) near = d
       }
-      const hullDmg = bombBlastDamage(near)
+      const hullDmg = bombBlastDamage(near, damage)
       if (hullDmg > 0) sh.hp -= hullDmg
 
       for (const g of sh.guns) {
         if (!g.alive) continue
-        const gd = bombBlastDamage(pointBoxDistance(local.x, local.y, local.z, g.box))
+        const gd = bombBlastDamage(
+          pointBoxDistance(local.x, local.y, local.z, g.box), damage,
+        )
         if (gd <= 0) continue
         g.hp -= gd
         if (g.hp <= 0) g.alive = false
@@ -607,15 +610,21 @@ export class World {
    * 由**累計投彈序號**決定（`spreadPair`）而不是 `Math.random()` —— 後者
    * 讓同一場重播不出同一個結果，而這個專案為「逐位元重播」寫過鐵律
    * （見 `resetBattle` 對 `world.time` 的說明）。
+   *
+   * @param damage 這一顆的爆心傷害。**由投彈的那一台決定**
+   *               （`bombDamageOf`），整顆彈的規模都從它推導。
    */
-  dropBomb(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
+  dropBomb(
+    x: number, y: number, z: number,
+    vx: number, vy: number, vz: number, damage: number,
+  ): void {
     spreadPair(this.bombs.dropped, BOMB_PAIR)
     spreadDirection(
       vx, vy, vz,
       BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
       BOMB_VEL,
     )
-    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz)
+    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage)
   }
 
   /**

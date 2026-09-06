@@ -213,6 +213,7 @@ export const BOMBS_CAPACITY = 64
  */
 export type BombImpactFn = (
   x: number, y: number, z: number, speed: number, blocked: boolean,
+  damage: number,
 ) => void
 
 /**
@@ -246,6 +247,11 @@ export class Bombs {
   readonly vy: Float64Array
   readonly vz: Float64Array
   readonly age: Float64Array
+  /**
+   * 這一顆的爆心傷害。**每一顆各自帶著** —— 不同的轟炸機掛不同的彈，而
+   * 整顆彈的規模（殺傷半徑、爆炸的視覺尺寸）都由它推導。
+   */
+  readonly damage: Float64Array
   readonly active: Uint8Array
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一顆身上 */
@@ -267,17 +273,27 @@ export class Bombs {
     this.x = f(); this.y = f(); this.z = f()
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f()
+    this.damage = f()
     this.active = new Uint8Array(capacity)
   }
 
   get live(): number { return this.liveCount }
 
-  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number): number {
+  /**
+   * @param damage 這一顆的**爆心傷害**。整顆彈的規模都由它推導 —— 殺傷
+   *               半徑與爆炸的視覺尺寸都是它的函數，見 `weapons/bomb.ts`
+   *               的 `blastScaleOf`。
+   */
+  spawn(
+    x: number, y: number, z: number,
+    vx: number, vy: number, vz: number, damage: number,
+  ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
     if (this.active[i] === 0) this.liveCount++
     this.x[i] = x; this.y[i] = y; this.z[i] = z
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
+    this.damage[i] = damage
     this.age[i] = 0
     this.active[i] = 1
     this.dropped++
@@ -338,7 +354,7 @@ export class Bombs {
           this.liveCount--
           onImpact(
             px + (s.x - px) * bt, py + (s.y - py) * bt, pz + (s.z - pz) * bt,
-            speed, true,
+            speed, true, this.damage[i]!,
           )
           continue
         }
@@ -354,7 +370,7 @@ export class Bombs {
       this.liveCount--
       onImpact(
         px + (s.x - px) * t, g, pz + (s.z - pz) * t,
-        speed, false,
+        speed, false, this.damage[i]!,
       )
     }
   }
