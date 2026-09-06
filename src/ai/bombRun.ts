@@ -65,28 +65,29 @@ export function solveGateOf(altitude: number): number {
 export { deckHeightOf }
 
 /**
- * 釋放半徑是船寬的幾倍。
+ * 釋放半徑是船寬的幾倍。**這一關難度的主旋鈕。**
  *
- * 【上界是殺傷半徑】500 kg 的殺傷半徑 39 m（`blastRadiusOf(11700)`），而
- * 2 倍船寬是弗萊徹 24.2 m、威奇塔 37.6 m —— 都還傷得到船。再放寬就是丟進
- * 海裡。
+ * 【它已經大過殺傷半徑】500 kg 的殺傷半徑是 39 m
+ * （`blastRadiusOf(11700)`），而 3 倍船寬是弗萊徹 36.2 m、威奇塔 56.5 m、
+ * 艾塞克斯 85.2 m —— 只有驅逐艦還整個落在殺傷範圍內。
+ *
+ * 換句話說**在窗口邊緣放手的那一顆一定不會傷到船**。這是刻意的：AI 早一點
+ * 投、飛得順一點比命中率重要。
  */
-export const RELEASE_BEAMS = 2
+export const RELEASE_BEAMS = 3
 
 /**
  * 釋放半徑，m。**船寬 × `RELEASE_BEAMS`。**
  *
  * ```
  *                      船寬     釋放半徑
- *   Fletcher DD-445   12.08 m    24.16 m
- *   Wichita CA-45     18.82 m    37.64 m
- *   Essex CV-9        28.40 m    56.80 m
+ *   Fletcher DD-445   12.08 m    36.24 m
+ *   Wichita CA-45     18.82 m    56.46 m
+ *   Essex CV-9        28.40 m    85.20 m
  * ```
  *
  * 【船寬取 `hull[0]`】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
  * 取極值會放大 51%。**第一個盒恆是艦體。**
- *
- * 【這一關難度的主旋鈕】
  */
 export function releaseRadiusOf(cls: ShipClass): number {
   const hull = cls.hull[0]

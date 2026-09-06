@@ -182,12 +182,23 @@ describe('releaseRadiusOf', () => {
   })
 
   /**
-   * 【上界是殺傷半徑】超過的話 AI 會把彈丟到船傷不到的地方。500 kg 的
-   * 殺傷半徑是 39 m。
+   * 【釋放半徑已經大過殺傷半徑，這是刻意的】500 kg 的殺傷半徑是 39 m，而
+   * 只有驅逐艦的釋放半徑（36.2 m）落在它裡面。窗口邊緣放手的那一顆對巡洋艦
+   * 與航母一定不會造成傷害 —— AI 早一點投、飛得順一點比命中率重要。
+   *
+   * 【那上界呢】改由**船的長度**當上界：釋放半徑超過半個艦身的話，那顆彈
+   * 連「朝著這艘船去的」都稱不上。
    */
-  it('不超過殺傷半徑', () => {
-    for (const cls of [SHIP_CLASSES.fletcher, SHIP_CLASSES.wichita]) {
-      expect(releaseRadiusOf(cls)).toBeLessThanOrEqual(blastRadiusOf(11_700))
+  it('驅逐艦仍在殺傷半徑內，大船刻意超出', () => {
+    const blast = blastRadiusOf(11_700)
+    expect(releaseRadiusOf(SHIP_CLASSES.fletcher)).toBeLessThanOrEqual(blast)
+    expect(releaseRadiusOf(SHIP_CLASSES.wichita)).toBeGreaterThan(blast)
+  })
+
+  it('不超過半個艦身 —— 再遠就與這艘船無關了', () => {
+    for (const cls of [SHIP_CLASSES.fletcher, SHIP_CLASSES.wichita, SHIP_CLASSES.essex]) {
+      const halfLength = cls.hull[0]!.half.z
+      expect(releaseRadiusOf(cls), cls.id).toBeLessThanOrEqual(halfLength)
     }
   })
 
