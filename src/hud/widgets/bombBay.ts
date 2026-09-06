@@ -51,7 +51,7 @@ export function drawBombBay(
   // 【底邊對齊，不是頂邊】魚雷那一格比較矮，照頂邊對齊的話「裝填中」那一行
   // 會離格子更遠，看起來像浮著
   const y = L.height - BOTTOM * L.scale + (PIP_H * L.scale - h)
-  // 【格數是這一台的滿艙，不是全域常數】B-17G 十枚、He 111 八枚、G4M 兩枚
+  // 【格數是這一台的滿艙，不是全域常數】B-17G 十枚、He 111 八枚、G4M 魚雷一枚
   const slots = f.bombBayCapacity
   const full = slots * w + (slots - 1) * gap
   const x0 = L.cx - full / 2

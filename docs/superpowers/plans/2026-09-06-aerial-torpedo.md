@@ -56,16 +56,16 @@
   g4m     torpedo   1   15,000   45 s
 ```
 
-- [ ] **Step 1: 寫失敗的測試** — `test/unit/stores.test.ts`
+- [x] **Step 1: 寫失敗的測試** — `test/unit/stores.test.ts`
   - 三台各自的 `kind` / `count` / `damage` / `reloadSeconds`（**釘死數值**）
   - `loadoutOf('bf109k4')`、`'p51d'`、`'f6f5'`、`'ki84'`、`'a6m5'` 都是 `null`
   - **魚雷的裝填比每一台炸彈久**（寫成比較，不寫死 45）
   - `LOADOUT_BY_AIRCRAFT` 的每一個 key 都是真的機種 id（拿 `specOf` 對）
-- [ ] **Step 2: 實作** `src/weapons/stores.ts`
-- [ ] **Step 3: 三張舊表退場。** `BombBay` 加 `reloadSeconds` 欄，`resetBombBay(b, loadout)` 一併寫入，`stepBombBay` 的回補讀 `b.reloadSeconds`；`main.ts` 的三個呼叫點換成 `loadoutOf`
-- [ ] **Step 4:** `MissionBattle` 加 `readonly blueLoadout?: Loadout`
+- [x] **Step 2: 實作** `src/weapons/stores.ts`
+- [x] **Step 3: 三張舊表退場。** `BombBay` 加 `reloadSeconds` 欄，`resetBombBay(b, loadout)` 一併寫入，`stepBombBay` 的回補讀 `b.reloadSeconds`；`main.ts` 的三個呼叫點換成 `loadoutOf`
+- [x] **Step 4:** `MissionBattle` 加 `readonly blueLoadout?: Loadout`
   - **`missionConfigFrom` 是明列欄位、不透傳未知資料**（`missions.ts:733`），漏抄會靜默消失 → **要有透傳測試**：一張帶 `blueLoadout` 的卡片，走完 `missionConfigFrom` 之後 `BattleConfig` 上讀得到同一個物件
-- [ ] **Step 5:** 全套綠、`npx tsc --noEmit` 0 錯誤
+- [x] **Step 5:** 全套綠、`npx tsc --noEmit` 0 錯誤
 
 **Verification:** `bomb-bay.test.ts` 現有的 15 條改寫成讀 `Loadout` 之後**一條都不能少**；`bomb-vs-ship.test.ts` 的 G4M 兩條要改成魚雷的語意或改用 `he111`。
 
@@ -93,14 +93,14 @@
 **兩張表的 `minTas` 都是 0、`maxTas` 都是 `Infinity`**（負責人 2026-09-06：
 魚雷包絡先不限速度）。欄位保留 —— 重開限制時改一個數字，不是改簽章。
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - 倒飛（roll = ±180°、±91°）在**兩張表**都投不出去
   - 魚雷包絡：`roll`、`pitch` 上下、`agl` 上下共六個邊界，各驗「剛好在內」與「剛好在外」
   - 炸彈包絡在「平飛、AGL 60…8,000 m、任意速度」的整條帶上恆為真
   - **`maxTas = Infinity` 時任何速度都過**（含 0 與 1e9）—— 這一條守住「不限速度」是真的不限
   - `roll` 用絕對值：`−89°` 與 `+89°` 結果相同
-- [ ] **Step 2: 實作。** 不得 `new`，不得呼叫三角函數（門檻直接存 rad）
-- [ ] **Step 3:** 全套綠
+- [x] **Step 2: 實作。** 不得 `new`，不得呼叫三角函數（門檻直接存 rad）
+- [x] **Step 3:** 全套綠
 
 **Verification:** mutation —— `maxRoll` 的比較由 `<=` 改成 `<` 之後邊界那一條必須紅；`maxAgl` 由 120 改成 121 之後上界那一條必須紅。
 
@@ -115,14 +115,14 @@
 **改動（spec §4）：** 艦體盒底 `0.0` → fletcher `−4.0`、wichita `−6.5`、essex `−8.5`。
 **Essex 的第二個盒（飛行甲板 `[12.0, 14.0]`）不動。**
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - **釘死每一個值**：三個艦體盒的 `center.y − half.y` 分別是 −4.0 / −6.5 / −8.5，且 Essex 第二個盒仍是 12.0 —— 不寫成「至少一個 < 0」，那樣改成 −0.01 也會綠
   - 盒頂仍分別是 4.5 / 7.0 / 12.0（沒有順手動到）
   - **迴歸護欄**：`py ≥ 0` 的網格取樣上，`bombBlastDamage(pointBoxDistance(...))` 與改盒前**逐位元相同**（`Object.is`）。期望值在改盒**之前**先跑一次取得並寫成字面常數
   - 盒頂仍低於該艦最低的砲位（既有護欄不得因此變紅）
-- [ ] **Step 2: 改盒**
-- [ ] **Step 3:** `test/unit/ships.test.ts`、`test/unit/bomb-vs-ship.test.ts`、`test/integration/ship-aa.test.ts` 全綠
-- [ ] **Step 4:** 改 `ships.ts:47` 的血量註解 —— 括號裡的「若一枚 10,000」換成現行的 15,000，枚數重算（2 / 3 / 4）
+- [x] **Step 2: 改盒**
+- [x] **Step 3:** `test/unit/ships.test.ts`、`test/unit/bomb-vs-ship.test.ts`、`test/integration/ship-aa.test.ts` 全綠
+- [x] **Step 4:** 改 `ships.ts:47` 的血量註解 —— 括號裡的「若一枚 10,000」換成現行的 15,000，枚數重算（2 / 3 / 4）
 
 **Verification:** 迴歸護欄的期望值要在**舊盒**上跑一次取得。兩次結果不同就是 spec §4.1 算錯了，**停下來報告，不要調容差**。（已先量過：`py ≥ 0` 的 21,525 個取樣點全等。）
 
@@ -164,7 +164,7 @@
 
 **`groundAt` 就是 `terrain.collisionHeightAt`；`waterAt` 只在 `onWake` 用一次。**
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - **逐位元**：同一組初始條件下 `onEntry` 收到的三軸 `toBe` 等於 `solveImpact` 的 `out.x/y/z`（不是 `toBeCloseTo`）
   - 入水後 `y` 恆等於 `−TORPEDO_DEPTH`，**第一步就是**，而且**不隨 `waterAt` 變動**（餵一個回 ±3 的 `waterAt` 進去，`y` 不變）
   - 水中段跑 10 秒之後水平位移 = `22 × 10`（容差一步），`vy === 0`
@@ -177,14 +177,14 @@
   - 空中段落在陸地（`groundAt` 回 5）：不呼叫 `onEntry`，直接 `kind === 0`
   - 水平分量退化（`vx = vz = 0` 垂直投放）時沿用 `spawn` 帶進來的 `headX/headZ`
   - `clear()` 之後 `dropped === 0`
-- [ ] **Step 2: 實作。** 逐位元那一條要求的實作次序，**寫死不得動**：
+- [x] **Step 2: 實作。** 逐位元那一條要求的實作次序，**寫死不得動**：
   - 池用 `Float64Array`
   - 先存 `px/py/pz`，以**完全相同的欄位順序**呼叫 `stepBomb`
   - 在**更新後**的 `(x, z)` 問 `groundAt`
   - 保留否定式 `if (!(y <= g))`
   - 內插的算式與運算順序**逐字**照抄 `world/bomb.ts:366`
   - 水陸分類問的是**內插後**的落點 x/z
-- [ ] **Step 3:** 全套綠
+- [x] **Step 3:** 全套綠
 
 **Verification:** 逐位元那一條先用 `toBeCloseTo(…, 10)` 確認數量級，再改成 `toBe`。`toBe` 紅就是空中段沒有共用 `stepBomb` —— **修實作，不要放寬斷言。**
 
@@ -207,7 +207,7 @@
 
 `step()` 的 3.5 之後插 3.6。
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - 命中 Fletcher 扣滿 15,000
   - 三級船各要幾枚沉（2 / 3 / 4）
   - **不掃 `combatants`**：一架飛機停在爆點上，血量不變
@@ -218,8 +218,8 @@
   - `torpedoEvents` 的編碼：`nx` 是 0/1、`ny` 是 damage
   - `dropTorpedo` 的散佈由 `dropped` 決定，同一組輸入兩次結果相同
   - **`resetBattle` 之後**：池空、`dropped === 0`
-- [ ] **Step 2: 實作**
-- [ ] **Step 3:** 全套綠
+- [x] **Step 2: 實作**
+- [x] **Step 3:** 全套綠
 
 **Verification:** 「不掃砲位」與「近的那一艘」兩條先把實作故意改壞，確認會紅。
 
@@ -233,9 +233,9 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 
 改用平海判準之後每枚活魚雷每個物理步的成本是：**1 次高度場取樣**（零次 `sin`）＋ 對每一艘船 1 次線段到船心的粗篩。8 枚 × 8 艘 × 240 Hz = 每秒 15,360 次粗篩、1,920 次取樣。
 
-- [ ] **Step 1:** 在 `bench/` 加一支一次性的量測（不進 `perf-gate` 的護欄清單），載入含艦隊的關卡、生 8 枚活魚雷，量 `World.step` 的每步時間
-- [ ] **Step 2:** 與同一台機器上的空池基準線對照，**把兩個數字報告給負責人**
-- [ ] **Step 3:** 若逼近門檻，**先報告再談對策** —— 護欄重新定值是負責人的決定
+- [x] **Step 1:** 在 `bench/` 加一支一次性的量測（不進 `perf-gate` 的護欄清單），載入含艦隊的關卡、生 8 枚活魚雷，量 `World.step` 的每步時間
+- [x] **Step 2:** 與同一台機器上的空池基準線對照，**把兩個數字報告給負責人**
+- [x] **Step 3:** 若逼近門檻，**先報告再談對策** —— 護欄重新定值是負責人的決定
 
 ---
 
@@ -251,12 +251,12 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 - `BOMB_SHAPE`、`TORPEDO_SHAPE`（軸向 ×3.3、徑向 ×1.25、尾翼跨度 = 直徑 ×1.5）
 - `createTorpedoes(): TorpedoVisuals`，形狀同 `createBombs`
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - 魚雷全長 ≈ 5.27 m、最大直徑 ≈ 0.45 m（由幾何的包圍盒量）
   - **`BOMB_SHAPE` 的頂點與索引陣列與參數化之前逐位元相同** —— 改之前先把 `position` 與 `index` 兩個陣列 dump 成字面常數，測試逐格比。**只比頂點數與包圍盒抓不到頂點重排或局部變形**
   - 姿態沿用 `bombOrientation`（既有護欄不得變紅）
-- [ ] **Step 2: 實作**
-- [ ] **Step 3:** 全套綠
+- [x] **Step 2: 實作**
+- [x] **Step 3:** 全套綠
 
 ---
 
@@ -269,11 +269,11 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
   TORPEDO_BLAST       9       4.0 m      46 m       3.6 m         6
 ```
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - **釘死上表每一個值**（不寫成「比 `WATER_BLAST` 窄／高」—— 那樣填錯數字也會綠）
   - `fire*` / `smoke*` / `dust*` / `glow*` **每一個欄位**都是 0（不只 `fireCount`）
   - `scaleBlast(TORPEDO_BLAST, …)` 與其他配方走同一支
-- [ ] **Step 2: 實作**
+- [x] **Step 2: 實作**
 
 ---
 
@@ -284,13 +284,13 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 - `HudFrame` 加 `releaseOk: boolean`、`ordnance: OrdnanceKind | null`
 - `bombsightColor(style: BombsightStyle, releaseOk: boolean): string`
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - `bombsightColor` 四種組合：ring×ok = `primary`、ring×!ok = `danger`、faint×ok = `dim`、faint×!ok = 紅的暗色
   - `bombsightStyle` 的既有五條**不得改變**（顏色與樣式是兩件事）
   - `ordnance === null` 時彈艙不畫
   - `ordnance === 'torpedo'` 時 1 格、圖示是魚雷
   - `textBaseline` 護欄（`hud-text-state.test.ts`）仍綠
-- [ ] **Step 2: 實作**
+- [x] **Step 2: 實作**
 
 ---
 
@@ -299,17 +299,17 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 **Files:** Modify `src/main.ts`、`src/weapons/bomb.ts`（`stepBombBay` 收 `releaseOk`）
 **Test:** 改 `test/unit/bomb-bay.test.ts`（狀態機）、`test/unit/pool-reset-entrypoints.test.ts`（寫死的 POOLS 清單）、確認 `test/unit/bomb-bay-wiring.test.ts` 仍綠
 
-- [ ] **Step 1: `stepBombBay(b, dt, trigger, releaseOk, drop)`。** 先寫失敗的測試：
+- [x] **Step 1: `stepBombBay(b, dt, trigger, releaseOk, drop)`。** 先寫失敗的測試：
   - `releaseOk === false` 時按扳機**不排入 queue**
   - `releaseOk` 在連投中途轉 false：**queue 暫停**，`load` 與 `queue` **都不遞減**（彈藥不被無聲吃掉）
   - 轉回 true 之後**接著投完剩下的**
   - `releaseOk === false` 期間 `timer` 與回補**照常推進**
-- [ ] **Step 2:** 建 `torpedoVisuals`，加進場景與 `POOLS`，**同步更新 `pool-reset-entrypoints` 的寫死清單**（`flakBursts` 那次已經紅過一次）
-- [ ] **Step 3:** `syncBombLoad` 改讀 `loadoutOf` / `mission.blueLoadout`，寫入 `hudFrame.ordnance`
-- [ ] **Step 4:** 每幀算 `releaseOk`：`attitudeFromOrientation` 的 roll/pitch、`renderPos.y − terrain.collisionHeightAt(x, z)` 的 AGL、`aircraft.diag.aero.tas`，餵 `canRelease(envelopeFor(kind), …)`
-- [ ] **Step 5:** `drop()` 依 `kind` 分流 `world.dropBomb` / `world.dropTorpedo`（後者要帶**機首的水平方向**）
-- [ ] **Step 6:** 消費 `world.torpedoEvents` → `emitBlast(TORPEDO_BLAST)`；`world.torpedoWakeEvents` → `emitSpray(spray, …, WAKE_SPRAY_COUNT)`。兩者在**物理子步**的回呼裡消費並 `clearImpacts`（同 `bombEvents`）
-- [ ] **Step 7:** 全套綠（`perf-gate`、`rematch` 單獨跑）
+- [x] **Step 2:** 建 `torpedoVisuals`，加進場景與 `POOLS`，**同步更新 `pool-reset-entrypoints` 的寫死清單**（`flakBursts` 那次已經紅過一次）
+- [x] **Step 3:** `syncBombLoad` 改讀 `loadoutOf` / `mission.blueLoadout`，寫入 `hudFrame.ordnance`
+- [x] **Step 4:** 每幀算 `releaseOk`：`attitudeFromOrientation` 的 roll/pitch、`renderPos.y − terrain.collisionHeightAt(x, z)` 的 AGL、`aircraft.diag.aero.tas`，餵 `canRelease(envelopeFor(kind), …)`
+- [x] **Step 5:** `drop()` 依 `kind` 分流 `world.dropBomb` / `world.dropTorpedo`（後者要帶**機首的水平方向**）
+- [x] **Step 6:** 消費 `world.torpedoEvents` → `emitBlast(TORPEDO_BLAST)`；`world.torpedoWakeEvents` → `emitSpray(spray, …, WAKE_SPRAY_COUNT)`。兩者在**物理子步**的回呼裡消費並 `clearImpacts`（同 `bombEvents`）
+- [x] **Step 7:** 全套綠（`perf-gate`、`rematch` 單獨跑）
 
 **Verification:** 手動試飛：G4M 起飛 → 按 B → 爬升時準星紅、改平轉綠 → 投雷 → 入水、航跡、命中水柱 → 兩枚沉一艘 Fletcher。
 
@@ -321,11 +321,11 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 
 演一整條：投放 → 空中段 → 入水 → 航跡 → 命中引爆。旋鈕見 spec §8（**速度那一格留著當視覺參數，包絡不吃它**）。
 
-- [ ] **Step 1:** 照 `blast.html` / `src/tools/blast.ts` 的慣例建檔
-- [ ] **Step 2:** 旋鈕：投放高度 AGL、投放速度、坡度／俯仰、定深、雷速、射程、航跡間隔／顆數、目標距離、目標航速、播放速度、自動重播
-- [ ] **Step 3:** 準星的紅綠**也要畫在展示區**上
-- [ ] **Step 4:** `__torpedoProbe.sheet()`：固定 dt 手動推進、瀏覽器內合成 contact sheet
-- [ ] **Step 5:** `npm run build` 產出所有 entry
+- [x] **Step 1:** 照 `blast.html` / `src/tools/blast.ts` 的慣例建檔
+- [x] **Step 2:** 旋鈕：投放高度 AGL、投放速度、坡度／俯仰、定深、雷速、射程、航跡間隔／顆數、目標距離、目標航速、播放速度、自動重播
+- [x] **Step 3:** 準星的紅綠**也要畫在展示區**上
+- [x] **Step 4:** `__torpedoProbe.sheet()`：固定 dt 手動推進、瀏覽器內合成 contact sheet
+- [x] **Step 5:** `npm run build` 產出所有 entry
 
 ---
 
@@ -339,6 +339,10 @@ Codex 指出：現行 `perf-gate` 的 20v20 負載走 `DEFAULT_BATTLE`，**沒�
 | — | `vite.config.ts` 加 **`build.target: 'es2022'`** | `vite build` **本來就是壞的**：`main.ts` 與五個工具頁都用 top-level await，而預設 target 是 es2020。dev server 照樣能開，所以一直沒被發現。不修的話這一輪的展示區驗不了打包 |
 | 魚雷包絡限速 55…110 m/s | **不限速** | 負責人 2026-09-06 中途裁定 |
 | 「不掃砲位」要有承重的護欄 | **做不到，已在註解裡寫明** | 砲位盒全在甲板上，定深 1 m 的魚雷本來就碰不到 —— 掃與不掃**行為等價**（mutation 驗過：故意改成掃砲位，17 條全綠）。那是成本決定，不是行為差異 |
+| 航跡：水面上的水花粒子 | **貼著浪面的一條白帶**（`render/wake.ts`，`WAKE_*`） | 負責人 2026-09-06 試飛：「航跡不明顯，有什麼方法可以拖一條線?」→「畫一條白帶就好」。粒子池畫的是團狀的東西，線要用幾何 —— 與凝結尾同一條。水花沒有拿掉，它負責線上的閃爍 |
+| 命中：水柱 | **水柱＋爆炸**（`TORPEDO_BLAST` 加火 7、煙 15、光暈 1.4） | 負責人 2026-09-06 試飛。落水是魚雷自己在水裡炸（`WATER_BLAST`，無火），命中炸的是船 —— 燃料、彈藥、艦體都在燒 |
+| — | `wakeAlpha` 改**平方**淡出 | 線性之下尾端在 12 秒時還有 0.29 對頭端的 0.55，在深色海面上讀起來一樣白 |
+| — | 節點高度**每幀**問 `terrain.heightAt(x, z, time)`，再浮起 `WAKE_LIFT = 0.8` | `waterAt` 給的是時間 0 的浪高，帶子會被真正在動的浪蓋掉；而浪面網格的線性內插在浪谷處高於解析曲線，照解析高度擺會變成一條虛線 |
 
 ## 收尾
 
