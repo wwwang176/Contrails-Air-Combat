@@ -83,7 +83,7 @@ describe('換一場的兩個入口都要清粒子池', () => {
     expect(listed.sort()).toEqual(
       [
         'debris', 'fireball', 'flakBursts', 'smoke', 'sparks', 'splashes',
-        'spray', 'vortex',
+        'spray', 'vortex', 'wakes',
         // 爆炸那一組
         'blastChunks', 'blastGlow', 'blastEmber', 'blastSmoke', 'blastDust',
         'blastMist', 'blastJets',

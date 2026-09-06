@@ -4,12 +4,14 @@ import { createScene } from '../render/scene'
 import { createTerrain } from '../render/terrain'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { createTorpedoes } from '../render/bombs'
+import { createWakes } from '../render/wake'
+import { createFireChunks } from '../render/chunks'
 import { createSpray, emitSpray, WAKE_SPRAY_COUNT, WATER_COLOR } from '../render/spray'
 import { createSplashes } from '../render/splash'
 import { JET_RISE, createWaterJets } from '../render/waterJets'
 import {
-  BLAST_PACE, TORPEDO_BLAST, createBlastSmoke, createDust, createFireGlow,
-  createWaterMist, emitBlast, emitMist, scaleBlast,
+  BLAST_PACE, TORPEDO_BLAST, createBlastSmoke, createDust, createEmberSmoke,
+  createFireGlow, createWaterMist, emitBlast, emitEmber, emitMist, scaleBlast,
   type BlastParams, type BlastPools,
 } from '../render/blast'
 import {
@@ -95,14 +97,19 @@ let jets = createWaterJets({
   onFade: jetHandoff,
 })
 /**
- * 【火、煙、塵、光暈都建但恆是空的】`TORPEDO_BLAST` 那四組全是 0，所以
- * `emitBlast` 一顆都不會發。建它們是為了讓 `BlastPools` 完整 —— 少一格就
- * 要在這裡寫一條「這一種不會用到」的判斷，而那是遊戲那一邊沒有的分支。
+ * 火球與它交棒的煙。**與 `main.ts` 同一組建構函數** —— 命中的爆炸是水柱
+ * 加一團火，火那一半走的就是球塊那條路。
  */
+const ember = createEmberSmoke(undefined, BLAST_PACE, smokeTex)
+const chunks = createFireChunks(undefined, BLAST_PACE,
+  (x, y, z, vx, vy, vz, d, slot) => { emitEmber(ember, slot, x, y, z, vx, vy, vz, d) })
 const glow = createFireGlow(undefined, BLAST_PACE)
 const smoke = createBlastSmoke(undefined, BLAST_PACE, smokeTex)
+/** 【塵恆是空的】`TORPEDO_BLAST` 的 `dustCount` 是 0 —— 海上沒有土 */
 const dust = createDust(undefined, BLAST_PACE, smokeTex)
-for (const p of [glow, smoke, dust, mist, jets]) ctx.scene.add(p.object)
+const wakes = createWakes()
+for (const p of [chunks, ember, glow, smoke, dust, mist, jets]) ctx.scene.add(p.object)
+ctx.scene.add(wakes.object)
 
 /**
  * 【`splashEvents` 借用 `World` 的那一個】`emitBlast` 在**沒有** `jets`
@@ -110,7 +117,7 @@ for (const p of [glow, smoke, dust, mist, jets]) ctx.scene.add(p.object)
  * 多開一個永遠是空的池。
  */
 const POOLS = (): BlastPools => ({
-  fireball: smoke, smoke, dust, spray,
+  fireball: chunks, smoke, dust, spray,
   splashEvents: world.splashEvents,
   glow, jets,
 })
@@ -233,7 +240,8 @@ function fire(): void {
   clearImpacts(world.torpedoEvents)
   clearImpacts(world.torpedoWakeEvents)
   clearImpacts(world.splashEvents)
-  for (const p of [spray, splashes, glow, smoke, dust, mist, jets]) p.reset()
+  for (const p of [spray, splashes, chunks, ember, glow, smoke, dust, mist, jets]) p.reset()
+  wakes.reset()
 
   world.torpedoes.tuning = { speed, range, depth, wakeInterval: wakeEvery }
   setupRelease()
@@ -261,11 +269,14 @@ function placeCamera(): void {
     controls.target.copy(ship.position)
   } else {
     const t = world.torpedoes
-    // 【拉遠拉高】雷體在水面下 1 m，貼著看只看得到一片海；而引爆時鏡頭
-    // 若在爆點上，整個畫面會被一團水霧的內面塞滿。這個距離框得下 46 m 的
-    // 水柱，也看得到後面那一條航跡
-    ctx.camera.position.set(t.x[0]! + 34, 48, t.z[0]! + 96)
-    controls.target.set(t.x[0]!, 6, t.z[0]!)
+    // 【擺側面，不是正後方】航跡是往魚雷**後方**拉的，鏡頭放在正後方的話
+    // 帶子一長過鏡頭的距離就整條跑到背後去 —— 看起來像航跡消失了。側面才
+    // 同時框得下魚雷、那條帶子與 46 m 的水柱
+    // 【中等仰角】兩頭都不行：貼著海面平看時 2 m 寬的帶子在幾百公尺外只剩
+    // 不到一個像素；近乎正上方俯視則會把海面網格的低面數浪冠放大成一塊塊
+    // 死白的多邊形。約 35° 同時看得到帶子、魚雷與 46 m 的水柱
+    ctx.camera.position.set(t.x[0]! + 92, 68, t.z[0]! + 48)
+    controls.target.set(t.x[0]!, 0, t.z[0]! + 60)
   }
   controls.update()
 }
@@ -455,6 +466,16 @@ fire()
  * 引爆。**配方由這裡的 `live` 給，位置抬到水面** —— 與 `main.ts` 的
  * `emitTorpedoBlasts` 是同一段。
  */
+/** 航跡：只有水中段有 —— 與 `main.ts` 逐字相同 */
+function stepWakes(dt: number): void {
+  const t = world.torpedoes
+  for (let i = 0; i < t.capacity; i++) {
+    if (t.active[i] === 0 || t.phase[i] !== 1) continue
+    wakes.emit(i, t.x[i]!, t.z[i]!, t.run[i]!)
+  }
+  wakes.step(dt, elapsed, terrain.heightAt)
+}
+
 function drainEvents(): void {
   const d = world.torpedoEvents.data
   for (let e = 0; e < world.torpedoEvents.count; e++) {
@@ -502,10 +523,13 @@ function frame(now: number): void {
   }
   shipModels.update([ship], () => {})
 
-  for (const p of [spray, splashes, glow, smoke, dust, mist, jets]) p.step(dt)
+  for (const p of [spray, splashes, chunks, ember, glow, smoke, dust, mist, jets]) p.step(dt)
+  stepWakes(dt)
   torpedoVisuals.update(world.torpedoes)
 
-  if (view === 'chase' && world.torpedoes.live > 0) placeCamera()
+  // 【追蹤的兩種視角每幀重擺】`release` 是固定的投放點，另外兩個要跟著
+  // 目標走 —— 靶艦一分鐘走 480 m，不跟就只剩一片海
+  if (view === 'target' || (view === 'chase' && world.torpedoes.live > 0)) placeCamera()
   controls.update()
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
@@ -525,6 +549,7 @@ function frame(now: number): void {
     `離靶 ${alive ? toShip.toFixed(0) : '—'} m\n` +
     `艦體 ${(ship.hp / ship.cls.hp * 100).toFixed(0)}%\n` +
     `水柱 ${jets.live}　水霧 ${mist.live}　水花 ${spray.live}\n` +
+    `航跡 ${wakes.live} 節　火 ${chunks.live}\n` +
     `距上一發 ${sinceFire.toFixed(1)}s`
   requestAnimationFrame(frame)
 }
@@ -538,6 +563,10 @@ requestAnimationFrame(frame)
  */
 interface Probe {
   fire(): void
+  /** 各池目前有幾顆。診斷「畫面上那一團是誰」用 */
+  counts(): Record<string, number>
+  /** 逐一關掉某一個物件。同上，診斷用 */
+  show(name: string, on: boolean): void
   set(k: 'agl' | 'tas' | 'standoff' | 'lead' | 'shipSpeed', v: number): void
   /**
    * @param skip 開拍之前先快轉幾秒。**引爆只有 0.9 秒**，整條序列卻要 17
@@ -550,6 +579,25 @@ interface Probe {
 }
 const probe: Probe = {
   fire() { fire() },
+  show(name, on) {
+    const map: Record<string, { visible: boolean }> = {
+      chunks: chunks.object, ember: ember.object, glow: glow.object,
+      smoke: smoke.object, dust: dust.object, mist: mist.object,
+      jets: jets.object, spray: spray.object, splashes: splashes.object,
+      wakes: wakes.object, torpedo: torpedoVisuals.object,
+      ships: shipModels.object, terrain: terrain.object,
+    }
+    const o = map[name]
+    if (o !== undefined) o.visible = on
+  },
+  counts() {
+    return {
+      chunks: chunks.live, ember: ember.live, glow: glow.live, smoke: smoke.live,
+      dust: dust.live, mist: mist.live, jets: jets.live, spray: spray.live,
+      splashes: splashes.live, wakes: wakes.live,
+      splashEvents: world.splashEvents.count,
+    }
+  },
   set(k, v) {
     if (k === 'agl') agl = v
     else if (k === 'tas') tas = v
@@ -573,7 +621,8 @@ const probe: Probe = {
     for (let t = 0; t < skip; t += DT) {
       world.step(DT)
       drainEvents()
-      for (const p of [spray, splashes, glow, smoke, dust, mist, jets]) p.step(DT)
+      for (const p of [spray, splashes, chunks, ember, glow, smoke, dust, mist, jets]) p.step(DT)
+      stepWakes(DT)
     }
     for (let f = 0; f < frames; f++) {
       let acc = dt
@@ -584,9 +633,15 @@ const probe: Probe = {
         acc -= s
       }
       shipModels.update([ship], () => {})
-      for (const p of [spray, splashes, glow, smoke, dust, mist, jets]) p.step(dt)
+      for (const p of [spray, splashes, chunks, ember, glow, smoke, dust, mist, jets]) p.step(dt)
+  stepWakes(dt)
       torpedoVisuals.update(world.torpedoes)
-      if (view === 'chase' && world.torpedoes.live > 0) placeCamera()
+      if (view === 'target' || (view === 'chase' && world.torpedoes.live > 0)) {
+        placeCamera()
+      }
+      // 【海面網格要跟著鏡頭捲動】少了這一行，鏡頭一飛開就看到網格粗糙的
+      // 邊緣 —— 畫面上是幾塊巨大的淺色多邊形，很像某個粒子池壞掉了
+      terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
       ctx.renderer.render(ctx.scene, ctx.camera)
 
       const col = f % cols
