@@ -90,6 +90,11 @@ export class CommandDelay {
     const steps = Math.min(raw, cap)
     const rawFire = fireSeconds > 0 && dt > 0 ? Math.round(fireSeconds / dt) : 0
     const fireSteps = Math.min(rawFire, cap)
+    // 【投彈直通，不進緩衝區】反應延遲模型的是「看到→動作」的遲滯，而
+    // 投彈的判準是 AI 對**自己此刻的彈道**算出來的（`ai/bombRun.ts`）。
+    // 延遲 0.3 s 之後飛機已經走了 27 m（90 m/s），大於最小的釋放半徑
+    // 12.08 m —— 每一顆都會系統性地落在船尾之後。
+    out.bombing = input.bombing
     if (steps <= 0 && fireSteps <= 0) {
       out.aimWorld.copy(input.aimWorld)
       out.throttle = input.throttle

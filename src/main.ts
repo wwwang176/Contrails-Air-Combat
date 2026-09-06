@@ -55,7 +55,7 @@ import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageM
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
 import {
-  bombBayOf, bombDamageOf, blastScaleOf, canBomb, createBombBay, resetBombBay,
+  bombBayOf, bombDamageOf, blastScaleOf, canBomb, resetBombBay, type BombBay,
   stepBombBay,
 } from './weapons/bomb'
 import {
@@ -139,11 +139,20 @@ function wireTerrain(force = false): void {
     // 【船跟著地形一起接】兩者的生命週期一模一樣：每一場重建、跨場重用的
     // 控制器要換掉、重生也會建新的。分開兩個迴圈只會多一個會漏掉的地方。
     ctl.ships = world.ships
+    // 【投彈那兩格跟著一起接】理由與船完全相同，而且它們也是每一場、每一次
+    // 重生都要重接：`bombBay` 隨機種變（換裝、接手僚機），`bombDrag` 必須
+    // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
+    ctl.bombBay = c.bombBay
+    ctl.bombDrag = world.bombDrag
     if (!force && ctl.terrain === terrain) continue
     ctl.terrain = terrain
     ctl.clearTerrainState()
   }
   playerAi.ships = world.ships
+  // 【代飛的那一架不投彈】`playerAi` 只在玩家交出操縱時接手，而投彈仍然
+  // 由玩家的幀迴圈發動（見 `playerBay`）。給 null 就讓它走掃射那一支。
+  playerAi.bombBay = null
+  playerAi.bombDrag = world.bombDrag
   if (force || playerAi.terrain !== terrain) {
     playerAi.terrain = terrain
     playerAi.clearTerrainState()
@@ -326,8 +335,20 @@ const BOMB_START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const BOMB_EYE = new Vector3()
 const BOMB_POINT = new Vector3()
 const BOMB_NDC = new Vector3()
-/** 彈艙。一次扳機投完整艙，空了之後回補 —— 狀態機在 `weapons/bomb.ts` */
-const bombBay = createBombBay()
+/**
+ * 玩家的彈艙。**就是 `player.bombBay`，不是另一份。**
+ *
+ * 【為什麼不能各持一份】AI 的投彈走 `World.releaseBombs`，讀的是
+ * `Combatant.bombBay`。這裡若自己再開一個，玩家投完按 `I` 代飛時 AI 會拿
+ * 另一個滿艙再投一次 —— 而且代飛不會停掉既有的連投佇列（見下面
+ * `stepBombBay` 那一段），兩條路會同時投。
+ *
+ * 【投彈本身仍然在幀迴圈】搬進物理步的話就沒有 `bombPoint` 與內插後的
+ * 算繪位置，準星與彈著會分家。**共用的是庫存，不是路徑。**
+ */
+function playerBay(): BombBay {
+  return player.bombBay
+}
 /**
  * 上一幀左鍵按著沒有。
  *
@@ -347,7 +368,7 @@ function syncBombLoad(): void {
   input.bombCapable = m.bombPoint !== null && canBomb(player.aircraft.spec.id)
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
-  resetBombBay(bombBay, bombBayOf(player.aircraft.spec.id))
+  resetBombBay(player.bombBay, bombBayOf(player.aircraft.spec.id))
   bombWasFiring = false
 }
 
@@ -1325,7 +1346,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (bp !== null) {
     BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
     const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
-    stepBombBay(bombBay, frameSeconds, press, () => {
+    stepBombBay(playerBay(), frameSeconds, press, () => {
       const v = player.aircraft.state.velocity
       world.dropBomb(
         BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z,
@@ -1483,10 +1504,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.bombState = bombState
   hudFrame.bombing = input.viewMode === 'bomb'
   hudFrame.bombCapable = input.bombCapable
-  hudFrame.bombBayCapacity = bombBay.capacity
-  hudFrame.bombLoad = bombBay.load
-  hudFrame.bombReloading = bombBay.reloading
-  hudFrame.bombReloadLeft = bombBay.reloading ? bombBay.timer : 0
+  const bay = playerBay()
+  hudFrame.bombBayCapacity = bay.capacity
+  hudFrame.bombLoad = bay.load
+  hudFrame.bombReloading = bay.reloading
+  hudFrame.bombReloadLeft = bay.reloading ? bay.timer : 0
   hudFrame.bombVisible = false
   if (bombState === 'solved') {
     BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)

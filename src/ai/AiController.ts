@@ -38,6 +38,16 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
+import { BOMB_PROFILE, setBombBallistics } from './bombRun'
+import type { StrikeProfile } from './strikeRun'
+import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
+import type { BombBay } from '../weapons/bomb'
+
+/**
+ * 投彈解算的步長。**必須與空中的炸彈相同** —— `World.step` 跑 240 Hz，
+ * 兩邊不同的話 AI 算的落點與真正飛出去的那一顆會分家。
+ */
+const DT_SOLVE = 1 / 240
 import type { Ship } from '../world/ships'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
@@ -111,6 +121,35 @@ export class AiController implements Controller {
   ships: readonly Ship[] = []
 
   /**
+   * 這一台的彈艙。**`null` = 掛不了彈**，也就是絕大多數的機種。
+   *
+   * 【為什麼是本體而不是容量】狀態機要知道**現在還有沒有東西可以放** ——
+   * 空了就該脫離。只給容量的話它會一直飛攻擊航路而不知道手上是空的
+   * （實測累計 115 秒的「空手飛一趟」）。
+   *
+   * 【為什麼是注入】`AiController` 不持有 `Combatant`。由 `main.ts` 的
+   * `wireTerrain` 每幀接一次，與 `ships` 同一個生命週期。
+   */
+  bombBay: BombBay | null = null
+
+  /**
+   * 炸彈的阻力係數。**必須與 `World.bombDrag` 是同一個值** —— 兩份會漂開，
+   * 症狀是「AI 算的落點與飛出去的那一顆不一樣」而且畫面上只是投不準。
+   */
+  bombDrag = 0
+
+  /** 對艦攻擊的狀態機。與 `shipAim` 同一個性質。 */
+  readonly strike = createStrikeState()
+
+  /**
+   * 這一台的攻擊剖面。**魚雷機換成雷擊那一份。**
+   *
+   * 【為什麼可注入】狀態機與武器無關（`ai/strikeRun.ts`），差異全在剖面上。
+   * 寫死 `BOMB_PROFILE` 的話魚雷那一支要改這裡，而那正是不該共用的東西。
+   */
+  strikeProfile: StrikeProfile = BOMB_PROFILE
+
+  /**
    * 目前鎖定的**艦上目標**：哪一艘船的哪一個砲位。`ship` 為 −1 = 沒有。
    *
    * 【為什麼與 `targetIndex` 分開】那一格是 `TargetBoard.candidates` 的
@@ -132,7 +171,7 @@ export class AiController implements Controller {
    * 【重選只在決策拍】與空戰的目標選擇同一個節奏（10 Hz）。每個物理步
    * 重選的話，兩艘距離相近的船會讓機首在 240 Hz 下抖。
    */
-  private attackShip(self: Aircraft, decide: boolean, out: Command): boolean {
+  private attackShip(self: Aircraft, decide: boolean, dt: number, out: Command): boolean {
     // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
     // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
     // 側方與機腹的銃手會打砲位。
@@ -161,6 +200,19 @@ export class AiController implements Controller {
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
     }
+    // 【有彈艙的走攻擊航路】掃射與攻擊航路是兩個模式：前者對準砲位俯衝、
+    // 400 m 拉起脫離；後者是「進場→鎖航向直飛→脫離」的循環，因為投出去的
+    // 東西繼承的是速度向量，轉彎中放等於往切線丟（spec §5.1）。
+    const bay = this.bombBay
+    if (bay !== null && bay.capacity > 0) {
+      setBombBallistics(this.bombDrag, DT_SOLVE)
+      const loaded = bay.load > 0 || bay.queue > 0
+      stepStrike(
+        this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
+        loaded, decide, dt, out,
+      )
+      return true
+    }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
     return true
   }
@@ -173,6 +225,10 @@ export class AiController implements Controller {
    */
   clearTerrainState(): void {
     resetSense(this.sense)
+    // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
+    // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
+    resetStrike(this.strike)
+    this.shipAim.ship = -1
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0
@@ -472,6 +528,10 @@ export class AiController implements Controller {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
+    // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
+    // 一次釋放之後它會殘留 true，整艙會在下一次進入任何航路時倒光
+    // （Codex 審查 C1 的後半，探針驗過）。
+    raw.bombing = false
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會
@@ -554,6 +614,25 @@ export class AiController implements Controller {
       }
     }
 
+    // ── 轟炸機的對艦排在空中接戰與站位之前 ────────────────────
+    //
+    // 【為什麼要插在這裡】對艦分支本來包在 `if (!target)` 裡，而站位又排在
+    // 它前面 —— 實跑 `japan-m4` 48 步，五架 AI 一式陸攻的 `shipAim.ship`
+    // 全是 −1：長機選了空中目標，僚機都有站位參考。**整個功能靜靜地不
+    // 動作**（Codex 審查 C2）。
+    //
+    // 轟炸機出擊就是為了炸船，空中目標與編隊都不該蓋過它。
+    //
+    // 【只對有彈艙的機種成立】戰鬥機仍然走原本的仲裁，一位元都沒動；
+    // 而 `attackShip` 在沒有船時是一次早退，所以絕大多數場次連問都不會問。
+    //
+    // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
+    // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
+    if (this.bombBay !== null && this.attackShip(self, decide, dt, raw)) {
+      this.emit(self, dt, out)
+      return
+    }
+
     const target = this.target
     if (!target) {
       // 【目標消失就放掉】那條路徑下面有三個 `return`（飛站位、飛集合點、
@@ -596,7 +675,7 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
-      } else if (this.attackShip(self, decide, raw)) {
+      } else if (this.attackShip(self, decide, dt, raw)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //
         // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——
