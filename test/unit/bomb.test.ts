@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { G0 } from '../../src/core/math'
 import {
-  BOMB_MAX_SECONDS, BOMB_SPLASH_JETS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  BOMB_MAX_SECONDS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
   BOMBS_CAPACITY, Bombs, bombDragK, stepBomb, solveImpact, spreadDirection, spreadPair,
   type BombState, type Impact,
 } from '../../src/world/bomb'
@@ -251,20 +251,28 @@ describe('spreadPair：確定性的偏移量', () => {
 })
 
 describe('落地事件的水陸之分', () => {
-  const runToImpact = (waterAt: (x: number, z: number) => number): number => {
+  const runToImpact = (waterAt: (x: number, z: number) => number): World => {
     const w = new World()
     w.groundAt = () => 0
     w.waterAt = waterAt
     w.dropBomb(0, 500, 0, 0, 0, 0)
     for (let i = 0; i < 240 * 30 && w.bombs.live > 0; i++) w.step(DT)
-    return w.splashEvents.count
+    return w
   }
 
-  it('落海推 BOMB_SPLASH_JETS 根柱子 —— 用數量換規模', () => {
-    expect(runToImpact(() => 0)).toBe(BOMB_SPLASH_JETS)
+  it('落地推一筆事件，不論水陸 —— 表現是 main.ts 的事', () => {
+    expect(runToImpact(() => 0).bombEvents.count).toBe(1)
+    expect(runToImpact(() => -Infinity).bombEvents.count).toBe(1)
   })
 
-  it('落在陸地上什麼都不推 —— 純內陸地圖每一顆都會噴才是缺陷', () => {
-    expect(runToImpact(() => -Infinity)).toBe(0)
+  it('落海的那一筆 nx 是 1，落陸是 0', () => {
+    const sea = runToImpact(() => 0)
+    expect(sea.bombEvents.data[3]).toBe(1)
+    const land = runToImpact(() => -Infinity)
+    expect(land.bombEvents.data[3]).toBe(0)
+  })
+
+  it('World 不再自己推水柱 —— 那條路會讓內陸地圖每一顆都噴水', () => {
+    expect(runToImpact(() => 0).splashEvents.count).toBe(0)
   })
 })

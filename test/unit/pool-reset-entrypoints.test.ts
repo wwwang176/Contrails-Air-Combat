@@ -76,7 +76,7 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 【清單本身要有東西】`resetPools` 有呼叫 `reset()` 但 `POOLS` 是空的，
    * 上面每一條都綠。這一條讀 `POOLS` 的字面量，確認每一個池都在裡面。
    */
-  it('POOLS 涵蓋全部八個粒子池', () => {
+  it('POOLS 涵蓋每一個粒子池', () => {
     const m = MAIN.match(/const POOLS[^=]*=\s*\[([^\]]*)\]/)
     expect(m).not.toBeNull()
     const listed = m![1]!.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
@@ -84,6 +84,9 @@ describe('換一場的兩個入口都要清粒子池', () => {
       [
         'debris', 'fireball', 'flakBursts', 'smoke', 'sparks', 'splashes',
         'spray', 'vortex',
+        // 爆炸那一組
+        'blastChunks', 'blastGlow', 'blastEmber', 'blastSmoke', 'blastDust',
+        'blastMist', 'blastJets',
       ].sort(),
     )
   })

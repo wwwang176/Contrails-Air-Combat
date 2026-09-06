@@ -9,7 +9,7 @@ import {
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
-  BOMB_SPLASH_JETS, BOMB_SPLASH_SPREAD, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
@@ -277,6 +277,11 @@ export class World {
    * 與 `hitEvents` 一樣由**呼叫端**排空。
    */
   readonly splashEvents: ImpactEvents = createImpacts()
+  /**
+   * 炸彈落地／落水。**`World` 只推事件，表現由 `main.ts` 決定** —— 與火花、
+   * 黑雲同一個約定。`nx` 是「這裡是不是水」的旗標，見 `onBombImpact`。
+   */
+  readonly bombEvents: ImpactEvents = createImpacts()
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -516,20 +521,11 @@ export class World {
    * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
    */
   private readonly onBombImpact: BombImpactFn = (x, y, z) => {
-    // 【只有落水才推水柱】陸地上噴水柱是純內陸地圖每一顆都會發生的缺陷，
-    // `render/debris.ts` 為同一個坑留過註解。落陸目前什麼都不做
-    if (!(this.waterAt(x, z) > -Infinity)) return
-    // 【一顆炸彈推三根柱子】現有的水柱是子彈打出來的 12 m，炸彈不是子彈。
-    // 用數量換規模，`splash.ts` 不用改 —— `main.ts` 為殘骸入水寫過同一句。
-    // 高低粗細本來就由 `splashSize` 依格子隨機，三根不會疊成一根粗的
-    for (let n = 0; n < BOMB_SPLASH_JETS; n++) {
-      const a = (n / BOMB_SPLASH_JETS) * Math.PI * 2
-      pushImpact(
-        this.splashEvents,
-        x + Math.cos(a) * BOMB_SPLASH_SPREAD, y, z + Math.sin(a) * BOMB_SPLASH_SPREAD,
-        0, 1, 0,
-      )
-    }
+    // 【`nx` 帶「這裡是不是水」】落陸與落水是兩套完全不同的表現（土與火
+    // 對水冠），而判斷所需的 `waterAt` 只有 `World` 這一層有。法線那三格
+    // 對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格當旗標。
+    const water = this.waterAt(x, z) > -Infinity ? 1 : 0
+    pushImpact(this.bombEvents, x, y, z, water, 1, 0)
   }
 
   /**
