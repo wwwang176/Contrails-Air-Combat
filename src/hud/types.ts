@@ -291,6 +291,8 @@ export interface HudFrame {
   objectiveMetric: number
   /** 計量的種類，決定 widget 怎麼格式化 */
   objectiveMetricKind: 'count' | 'distance'
+  /** 計量的分母。**−1 = 沒有分母**，就印裸數字。擊沉印成 `(已沉/總數)` */
+  objectiveMetricTotal: number
   /**
    * **第二個**計量：護送／攔截還剩幾架。**−1 = 不畫**（其餘每一種任務）。
    *
@@ -350,6 +352,7 @@ export function createHudFrame(): HudFrame {
     objectiveText: '',
     objectiveMetric: 0,
     objectiveMetricKind: 'count',
+    objectiveMetricTotal: -1,
     objectiveRemaining: -1,
     // 【為什麼是 0 而不是 Infinity】既有護欄「初始值不含 NaN」實際斷言的是
     // `Number.isFinite`（`test/unit/hud.test.ts:71-78`），而 `Infinity` 過不了。
