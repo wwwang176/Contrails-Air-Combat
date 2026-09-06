@@ -14,6 +14,13 @@ const DAMAGE = 15_000
 /** 平海：碰撞面恆為 0，浪面也恆為 0 */
 const SEA = (): number => 0
 
+/**
+ * 內陸：碰撞面也是 0（平原就是 0），但**沒有水**。
+ *
+ * 見 `render/terrain.ts` 的 `createFarmlandTerrain` —— `waterAt` 恆 `-Infinity`。
+ */
+const DRY = (): number => -Infinity
+
 interface Ended { x: number; y: number; z: number; kind: number; damage: number }
 
 /**
@@ -56,11 +63,51 @@ function fly(opts: {
   return { pool, slot, ends, entries, wakes }
 }
 
+describe('沒有水的地方不入水', () => {
+  /**
+   * 【碰撞高度 0 不等於有水】內陸地圖的 `collisionHeightAt` 在平原上就是 0，
+   * 和海面一模一樣 —— 高度值兼任水陸分類時，魚雷會把整片農田當成海。
+   * 實測：`farmland` ±10 km 的取樣點有 **73.5%** 是「碰撞高度 0 且無水」。
+   *
+   * 症狀有兩層：雷體鑽進地裡跑到射程用盡（不引爆、無事件），而航跡事件
+   * 帶著 `y = -Infinity` 出去 —— 那會餵進水花粒子池。
+   */
+  it('內陸平原上投雷 —— 撞地引爆，不鑽進地裡', () => {
+    const { ends, entries } = fly({ waterAt: DRY })
+    expect(entries.length).toBe(0)
+    expect(ends.length).toBe(1)
+    expect(ends[0]!.kind).toBe(0)
+    expect(ends[0]!.damage).toBe(DAMAGE)
+  })
+
+  it('沒有入水就沒有航跡 —— 不會把 -Infinity 餵給水花', () => {
+    const { wakes } = fly({ waterAt: DRY })
+    expect(wakes.length).toBe(0)
+  })
+
+  it('水面高度是 NaN 也算陸地 —— 判準是肯定式，壞值向安全側倒', () => {
+    const { ends, entries } = fly({ waterAt: () => NaN })
+    expect(entries.length).toBe(0)
+    expect(ends.length).toBe(1)
+    expect(ends[0]!.kind).toBe(0)
+  })
+
+  it('海面照舊入水', () => {
+    const { ends, entries } = fly({ waterAt: SEA, seconds: 5 })
+    expect(entries.length).toBe(1)
+    expect(ends.length).toBe(0)
+  })
+})
+
 describe('空中段與炸彈是同一支積分', () => {
   /**
-   * 【這一條是整個檔案的重點】瞄具畫的落點圈就是入水點。兩邊分家的症狀是
-   * 「圈說一個地方、水柱噴在另一個地方」，而且**隨畫面更新率變動**。
+   * 【這一條是整個檔案的重點】瞄具畫的落點圈與入水點走同一條彈道。兩邊分家
+   * 的症狀是「圈說一個地方、水柱噴在另一個地方」，而且**隨畫面更新率變動**。
    * 所以比的是 `toBe` 不是 `toBeCloseTo`。
+   *
+   * 【比的是彈道，不是那一枚的落點】正式投放走 `World.dropTorpedo`，它會
+   * 再套一層與炸彈相同的散佈（`spreadPair`，由累計序號決定、不是亂數）。
+   * 圈畫的是散佈**之前**的中心 —— 見 `torpedo-vs-ship.test.ts` 的那一條。
    */
   it('入水點與 solveImpact 的落點逐位元相同', () => {
     const start: BombState = { x: 12, y: 3000, z: -7, vx: 30, vy: -4, vz: -95 }

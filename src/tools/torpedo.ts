@@ -471,7 +471,7 @@ function stepWakes(dt: number): void {
   const t = world.torpedoes
   for (let i = 0; i < t.capacity; i++) {
     if (t.active[i] === 0 || t.phase[i] !== 1) continue
-    wakes.emit(i, t.x[i]!, t.z[i]!, t.run[i]!)
+    wakes.emit(i, t.x[i]!, t.z[i]!, t.serial[i]!)
   }
   wakes.step(dt, elapsed, terrain.heightAt)
 }

@@ -548,8 +548,9 @@ export class World {
 
     // 3.6 魚雷推進
     //
-    // 【空中段與炸彈同一支積分】所以瞄具解出來的落點就是入水點。水中段是
-    // 定深等速直線，只由航程回收。
+    // 【空中段與炸彈同一支積分】所以瞄具解的落點與入水點走的是同一條彈道。
+    // 實際投放另外套一層散佈（見 `dropTorpedo`），瞄具畫的是**散佈前的
+    // 中心** —— 與炸彈一樣。水中段是定深等速直線，只由航程回收。
     this.torpedoes.step(
       dt, this.bombDrag, this.groundAt, this.waterAt,
       this.onTorpedoEnd, this.onTorpedoEntry, this.onTorpedoWake,
@@ -723,6 +724,9 @@ export class World {
     vx: number, vy: number, vz: number, damage: number,
     headX: number, headZ: number,
   ): void {
+    // 【散佈與炸彈同一組】由累計投放序號決定（可重播），不是亂數。瞄具解的
+    // 是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 —— 把散佈也
+    // 套進瞄具的話，散佈就變成免費的情報，等於沒有散佈
     spreadPair(this.torpedoes.dropped, BOMB_PAIR)
     spreadDirection(
       vx, vy, vz,
