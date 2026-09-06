@@ -111,11 +111,31 @@ HUD_MAX_MARKERS          96
   測試，而投影不是這支函數的內容：它負責的是「哪些東西進池、敵我怎麼判、
   滿了怎麼辦」。
 
-### 4.5 `deckHeightOf` 搬到 `world/ships.ts`
+### 4.5 船的標記高度是 `topHeightOf`，不是甲板
 
-它本來住在 `ai/bombRun.ts`（轟炸解算的落地平面）。標記的高度要用同一個
-數字，而 `hud/` 不能往上依賴 `ai/` —— 所以搬到 `ShipClass` 的旁邊，
-`ai/bombRun.ts` 轉出它。
+第一版用 `deckHeightOf`（船體盒的頂）。**那不夠高** —— 船體盒一律止於主甲板
+（`ships.ts` 的硬性不變量），上層建築、艦橋、砲塔全在盒外：
+
+```
+             甲板    最高點
+  Fletcher    4.5     12.7
+  Wichita     7.0     13.7
+  Essex      14.0     23.1
+```
+
+威奇塔的 7 m 在 18.8 m 寬的艦體上看起來就是**腰部**，符號像插在船身上
+（負責人 2026-09-07 試玩回報）。改用 `topHeightOf(ship)` = 船體盒與所有
+砲位盒的頂取最大。
+
+- **收 `Ship` 而不是 `ShipClass`**：砲位盒的半邊長住在 `shipGuns.ts`
+  （行為模組），而 `ships.ts` 這個資料模組不認識它（見 `ShipGun` 的說明）。
+  實例的 `guns[].box` 已經是算好的盒。
+- **打掉的砲位照算**：用 `alive` 過濾的話，桅杆上那一座被打掉的瞬間標記
+  會往下跳一截。它量的是船有多高，不是船還剩幾門砲。
+- `deckHeightOf` 留給轟炸解算 —— 炸彈落在甲板上，那是不同的問題。
+
+它本來住在 `ai/bombRun.ts`；兩者都搬到 `world/ships.ts`，因為 `hud/` 不能
+往上依賴 `ai/`。`ai/bombRun.ts` 轉出 `deckHeightOf`。
 
 ## 5. 幾何
 
