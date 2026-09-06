@@ -327,13 +327,12 @@ export function stepMission(
 
   // ── 擊沉 ──────────────────────────────────────────────
   //
-  // 【兩個計量都要】`metric` 是還差幾艘（主要目標），`remaining` 是還剩
-  // 幾架能飛（籌碼）。與護送同一個理由：一個說「還要多久」，一個說
-  // 「還撐不撐得住」。
+  // 【只顯示擊沉進度，不顯示我方架數】`(2/4)` 已經說完這一關要做什麼。
+  // 我方全滅仍然判敗，只是那件事不占目標列的版面。
   if (rules.kind === 'sink') {
     out.metric = Math.max(0, rules.count - inp.shipsSunk)
     out.metricTotal = rules.count
-    out.remaining = inp.aliveBlue
+    out.remaining = -1
     if (inp.shipsSunk >= rules.count) {
       out.outcome = 'victory'
       return
