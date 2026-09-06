@@ -6,9 +6,11 @@ import { createFireball } from '../render/fireball'
 import { createFireChunks } from '../render/chunks'
 import { createSpray, WATER_COLOR } from '../render/spray'
 import { createSplashes } from '../render/splash'
+import { JET_RISE, createWaterJets } from '../render/waterJets'
 import {
   BLAST_PACE, LAND_BLAST, WATER_BLAST, createBlastSmoke, createDust, createEmberSmoke,
-  createFireGlow, emitBlast, emitEmber, blastScale, scaleBlast,
+  createFireGlow, createWaterMist, emitBlast, emitEmber, emitMist,
+  blastScale, scaleBlast,
   type BlastParams, type BlastPools,
 } from '../render/blast'
 import { createImpacts, clearImpacts } from '../world/events'
@@ -73,7 +75,21 @@ const tex = (): Texture | undefined => (textured ? smokeTex : undefined)
 /** 光暈開關。關掉等於 `glowSize = 0` */
 let glowOn = true
 let glow = createFireGlow(undefined, paced())
+let mist = createWaterMist(undefined, paced(), tex())
 let ember = createEmberSmoke(undefined, paced(), tex())
+/**
+ * 【水柱交棒給水霧】一根柱子開始塌時，沿著柱身留下幾團往外下沉的白霧 ——
+ * 與火球交棒給黑煙同一個手法。
+ */
+const jetHandoff = (
+  x: number, y: number, z: number, height: number, radius: number, slot: number,
+): void => {
+  emitMist(mist, slot, SCALED.mistPerJet, SCALED.mistSize, x, y, z, height, radius)
+}
+let jets = createWaterJets({
+  capacity: 256, life: 1.5 * paced(), rise: JET_RISE, alphaFrom: 0.8,
+  onFade: jetHandoff,
+})
 /**
  * 【火交棒給煙】每一塊火球開始淡出時，在**同一個位置、同一個尺寸**留下一顆
  * 煙。`EMBER_SIZE_FROM` 是 1，所以直徑直接就是倍率。
@@ -86,19 +102,24 @@ const handoff = (
 let chunks = createFireChunks(undefined, paced(), handoff)
 let smoke = createBlastSmoke(undefined, paced(), tex())
 let dust = createDust(undefined, paced(), tex())
-for (const p of [glow, chunks, ember, smoke, dust]) ctx.scene.add(p.object)
+for (const p of [glow, chunks, ember, smoke, dust, mist, jets]) ctx.scene.add(p.object)
 
 function rebuildPaced(): void {
-  for (const p of [glow, chunks, ember, smoke, dust]) {
+  for (const p of [glow, chunks, ember, smoke, dust, mist, jets]) {
     ctx.scene.remove(p.object)
     p.dispose()
   }
   glow = createFireGlow(undefined, paced())
+  mist = createWaterMist(undefined, paced(), tex())
+  jets = createWaterJets({
+    capacity: 256, life: 1.5 * paced(), rise: JET_RISE, alphaFrom: 0.8,
+    onFade: jetHandoff,
+  })
   ember = createEmberSmoke(undefined, paced(), tex())
   chunks = createFireChunks(undefined, paced(), handoff)
   smoke = createBlastSmoke(undefined, paced(), tex())
   dust = createDust(undefined, paced(), tex())
-  for (const p of [glow, chunks, ember, smoke, dust]) ctx.scene.add(p.object)
+  for (const p of [glow, chunks, ember, smoke, dust, mist, jets]) ctx.scene.add(p.object)
 }
 
 /**
@@ -113,11 +134,12 @@ interface Steppable {
   reset(): void
 }
 const ALL = (): Steppable[] =>
-  [fireball, glow, chunks, ember, smoke, dust, spray, splashes]
+  [fireball, glow, chunks, ember, smoke, dust, mist, jets, spray, splashes]
 const pools = (): BlastPools => ({
   fireball: fireStyle === 'chunks' ? chunks : fireball,
   smoke, dust, spray, splashEvents,
   glow: glowOn ? glow : undefined,
+  jets,
 })
 
 /** 爆點的水平位置。原點 —— 相機繞著它轉 */
@@ -270,8 +292,12 @@ numRow(rows, '塵　錐角', 0, 90, 1, coneGet('dustCone'), coneSet('dustCone'),
 numRow(rows, '水霧顆數', 0, 100, 1, numGet('sprayCount'), numSet('sprayCount'), n0)
 numRow(rows, '水霧初速', 0, 60, 1, numGet('spraySpeed'), numSet('spraySpeed'), n0)
 numRow(rows, '水霧錐角', 0, 90, 1, coneGet('sprayCone'), coneSet('sprayCone'), deg)
-numRow(rows, '水柱根數', 0, 12, 1, numGet('jetCount'), numSet('jetCount'), n0)
-numRow(rows, '水柱半徑', 0, 15, 0.5, numGet('jetSpread'), numSet('jetSpread'), f1)
+numRow(rows, '水柱根數', 0, 24, 1, numGet('jetCount'), numSet('jetCount'), n0)
+numRow(rows, '水冠半徑', 0, 30, 0.5, numGet('jetSpread'), numSet('jetSpread'), f1)
+numRow(rows, '水柱高', 0, 80, 1, numGet('jetHeight'), numSet('jetHeight'), n0)
+numRow(rows, '水柱粗', 0, 8, 0.1, numGet('jetRadius'), numSet('jetRadius'), f1)
+numRow(rows, '水霧／柱', 0, 8, 1, numGet('mistPerJet'), numSet('mistPerJet'), n0)
+numRow(rows, '水霧尺寸', 0, 8, 0.1, numGet('mistSize'), numSet('mistSize'), f1)
 
 /** 吐成可以直接貼回 `blast.ts` 的字面值。 */
 function dump(): void {
@@ -298,6 +324,10 @@ function dump(): void {
     '  sprayCone: ' + d(p.sprayCone) + ',',
     '  jetCount: ' + p.jetCount + ',',
     '  jetSpread: ' + p.jetSpread + ',',
+    '  jetHeight: ' + p.jetHeight + ',',
+    '  jetRadius: ' + p.jetRadius + ',',
+    '  mistPerJet: ' + p.mistPerJet + ',',
+    '  mistSize: ' + p.mistSize + ',',
     '  glowSize: ' + p.glowSize + ',',
     '  glowAlpha: ' + p.glowAlpha + ',',
     '}',

@@ -54,10 +54,10 @@ describe('emitBlast：數量', () => {
 
   it('顆數為 0 的那一種一顆都不發', () => {
     const p = pools()
-    const none: BlastParams = { ...WATER_BLAST, fireCount: 0, sprayCount: 0 }
+    const none: BlastParams = { ...LAND_BLAST, fireCount: 0, dustCount: 0 }
     emitBlast(p, none, 0, 0, 0, 0)
     expect(p.shots.fireball!.length).toBe(0)
-    expect(p.shots.spray!.length).toBe(0)
+    expect(p.shots.dust!.length).toBe(0)
     expect(p.shots.smoke!.length).toBeGreaterThan(0)
   })
 })
@@ -79,17 +79,40 @@ describe('emitBlast：兩種爆炸的分野', () => {
     expect(p.shots.dust!.length).toBe(0)
   })
 
-  it('落水的水柱散開成一圈，不疊在同一點上', () => {
+  it('沒有 jets 池時水柱退回 splashEvents', () => {
+    const p = pools()
+    emitBlast(p, WATER_BLAST, 100, 0, -50, 0)
+    expect(p.splashEvents.count).toBe(WATER_BLAST.jetCount)
+  })
+
+  it('水冠由內往外撒，第一根在正中心', () => {
     const p = pools()
     emitBlast(p, WATER_BLAST, 100, 0, -50, 0)
     const d = p.splashEvents.data
+    const radiusOf = (e: number): number =>
+      Math.hypot(d[e * IMPACT_STRIDE]! - 100, d[e * IMPACT_STRIDE + 2]! + 50)
+    expect(radiusOf(0)).toBeCloseTo(0, 9)
+    let prev = -1
     for (let e = 0; e < p.splashEvents.count; e++) {
-      const o = e * IMPACT_STRIDE
-      const r = Math.hypot(d[o]! - 100, d[o + 2]! - -50)
-      expect(r).toBeCloseTo(WATER_BLAST.jetSpread, 4)
+      const r = radiusOf(e)
+      expect(r).toBeGreaterThan(prev)
+      expect(r).toBeLessThanOrEqual(WATER_BLAST.jetSpread + 1e-6)
+      prev = r
     }
-    // 第一根與第二根不同位置
-    expect(d[0]).not.toBe(d[IMPACT_STRIDE])
+  })
+
+  it('柱子密到會重疊 —— 中央柱的直徑大過相鄰兩根的間距', () => {
+    const n = WATER_BLAST.jetCount
+    // 相鄰兩根在半徑上的間距（最外圈最密）
+    const gap = WATER_BLAST.jetSpread
+      * (Math.sqrt((n - 1) / (n - 1)) - Math.sqrt((n - 2) / (n - 1)))
+    expect(WATER_BLAST.jetRadius * 2).toBeGreaterThan(gap)
+  })
+
+  it('水花跟著每一根柱子走 —— 柱子密，水花也密', () => {
+    const p = pools()
+    emitBlast(p, WATER_BLAST, 0, 0, 0, 0)
+    expect(p.shots.spray!.length).toBe(WATER_BLAST.sprayCount * WATER_BLAST.jetCount)
   })
 })
 
