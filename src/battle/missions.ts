@@ -18,6 +18,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
+import type { Loadout } from '../weapons/stores'
 
 /** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
 export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
@@ -179,6 +180,13 @@ export interface MissionBattle {
    * 識別的快取（`envelope`、`doctrine`、`ceilings`）認的就是這個參考。
    */
   readonly blueSpec: AircraftSpec
+  /**
+   * 複寫玩家這一關掛什麼。**省略 = 用 `blueSpec` 的預設掛載。**
+   *
+   * 【為什麼要有】G4M 的預設是魚雷 × 1（`weapons/stores.ts`），但護送關的
+   * 那一台該掛炸彈。機種與掛載本來就是兩件事。
+   */
+  readonly blueLoadout?: Loadout
   /** 敵方（紅隊）的主力機種 */
   readonly redSpec: AircraftSpec
   /**
@@ -764,6 +772,9 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
+    // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
+    ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),
   }
 }
 

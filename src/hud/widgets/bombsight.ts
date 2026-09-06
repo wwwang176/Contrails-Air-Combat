@@ -41,6 +41,24 @@ export function bombsightStyle(
   return bombing ? 'dot' : 'hidden'
 }
 
+/** 不可投時的暗色圈。與 `HUD_COLORS.dim` 是同一個透明度，只換色相 */
+const DIM_BAD = 'rgba(255, 90, 77, 0.45)'
+
+/**
+ * 圈用什麼顏色畫。**綠 = 這一幀投得出去，紅 = 投不出去。**
+ *
+ * 【一般飛行的暗圈也照這條走】那個圈本來就是「現在按 B 投得中」的訊號，
+ * 顏色再帶上「而且投得下去」是同一件事的延伸 —— 低空進場時它從畫面下緣
+ * 進來、由紅轉綠，那一刻就是可以投的時候。
+ *
+ * 【為什麼與 `bombsightStyle` 分兩支】樣式回答「畫不畫、畫哪一種」，顏色
+ * 回答「投不投得出去」。混成一支的話，加一種顏色就要動樣式的每一條測試。
+ */
+export function bombsightColor(style: BombsightStyle, releaseOk: boolean): string {
+  if (style === 'faint') return releaseOk ? HUD_COLORS.dim : DIM_BAD
+  return releaseOk ? HUD_COLORS.primary : HUD_COLORS.danger
+}
+
 /**
  * 投彈落點的圓準星。**圓形，不是十字。**
  *
@@ -73,7 +91,7 @@ export function drawBombsight(
   const x = L.cx + (f.bombX * L.width) / 2
   const y = L.cy - (f.bombY * L.height) / 2
 
-  ctx.strokeStyle = style === 'ring' ? HUD_COLORS.primary : HUD_COLORS.dim
+  ctx.strokeStyle = bombsightColor(style, f.releaseOk)
   ctx.lineWidth = 1 * L.scale
   ctx.beginPath()
   ctx.arc(x, y, RADIUS * L.scale, 0, Math.PI * 2)

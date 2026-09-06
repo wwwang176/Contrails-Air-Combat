@@ -1,43 +1,4 @@
-/**
- * 每一台的**彈艙容量**。列在這裡的才掛得了彈 —— 沒有的按 `B` 沒有作用。
- *
- * 【載彈量才是這三台真正的差別】單顆彈的當量它們差不多（見
- * `BOMB_DAMAGE_BY_AIRCRAFT`：B-17G 的 227 kg 對 He 111 的 250 kg），
- * 重轟炸機的優勢在**帶得多**：
- *
- * ```
- *              彈艙                     枚數   單枚傷害   一趟總量
- *   B-17G      AN-M64 500 lb × 10       10      9,000     90,000
- *   He 111     SC 250 × 8                8      9,300     74,400
- *   G4M        五十番 500 kg × 2         2     11,700     23,400
- * ```
- *
- * 【G4M 是兩發重彈】一式陸攻的彈艙上限 1,000 kg —— 800 kg 魚雷一枚、
- * 500 kg 兩枚、250 kg 四枚擇一。取 500 kg × 2：單發最痛、但只有兩次機會，
- * 與 B-17G 的十枚齊投是兩種完全不同的打法。
- */
-export const BOMB_BAY_BY_AIRCRAFT: Readonly<Record<string, number>> = {
-  b17g: 10,
-  he111: 8,
-  g4m: 2,
-}
-
-/**
- * 這一台的彈艙容量。不是轟炸機就回 0。
- *
- * 一次扳機把整艙依序投完，空了之後等 `BOMB_RELOAD_SECONDS` 回補滿。
- */
-export function bombBayOf(aircraftId: string): number {
-  return BOMB_BAY_BY_AIRCRAFT[aircraftId] ?? 0
-}
-
-/**
- * 彈艙容量的**上界**。HUD 的格子畫得下最多幾枚、池子要留多少餘裕都看它。
- *
- * 【為什麼要有這個常數】那兩件事都不能等到執行期才知道，而它是一張寫死的
- * 表 —— 編譯期就求得出來。
- */
-export const BOMB_BAY_MAX = Math.max(...Object.values(BOMB_BAY_BY_AIRCRAFT))
+import type { Loadout } from './stores'
 
 /**
  * 連投的間隔，秒。**起始值，由試飛裁定。**
@@ -48,19 +9,6 @@ export const BOMB_BAY_MAX = Math.max(...Object.values(BOMB_BAY_BY_AIRCRAFT))
 export const BOMB_SALVO_INTERVAL = 0.35
 
 /**
- * 空艙到補滿要多久，秒。**起始值，由試飛裁定。**
- *
- * 少了它彈艙等於無限，投彈就沒有「這一趟要投在哪」的取捨。20 s 約是一次
- * 重新對正航路的時間。
- */
-export const BOMB_RELOAD_SECONDS = 20
-
-/** 這一台掛不掛得了彈。**與彈艙表是同一份清單** */
-export function canBomb(specId: string): boolean {
-  return bombBayOf(specId) > 0
-}
-
-/**
  * 彈艙的執行期狀態。
  *
  * 【抽成純函數】三個計時分支互相牽制（連投中、空艙回補中、待命），交界
@@ -68,8 +16,10 @@ export function canBomb(specId: string): boolean {
  * 測試，這個狀態機進得去。
  */
 export interface BombBay {
-  /** 這一台的滿艙是幾枚。**換機種時重設** */
+  /** 這一台的滿艙是幾枚。**換機種時重設**。0 = 這一台掛不了東西 */
   capacity: number
+  /** 空艙補滿要幾秒。**跟著機種走** —— 魚雷比炸彈久 */
+  reloadSeconds: number
   /** 艙裡還有幾枚 */
   load: number
   /** 這一輪還要投幾枚 */
@@ -80,18 +30,32 @@ export interface BombBay {
   reloading: boolean
 }
 
-export function createBombBay(capacity = BOMB_BAY_MAX): BombBay {
-  return { capacity, load: capacity, queue: 0, timer: 0, reloading: false }
+/**
+ * @param loadout 這一台掛什麼。`null`／省略 = 掛不了東西，容量 0
+ */
+export function createBombBay(loadout?: Loadout | null): BombBay {
+  const capacity = loadout?.count ?? 0
+  return {
+    capacity,
+    reloadSeconds: loadout?.reloadSeconds ?? 0,
+    load: capacity,
+    queue: 0,
+    timer: 0,
+    reloading: false,
+  }
 }
 
 /**
  * 換飛機／重生：立刻滿艙、取消一切計時。
  *
- * @param capacity 新機種的彈艙容量。省略則沿用原本的
+ * @param loadout 新機種掛什麼。省略則沿用原本的容量與裝填秒數
  */
-export function resetBombBay(b: BombBay, capacity = b.capacity): void {
-  b.capacity = capacity
-  b.load = capacity
+export function resetBombBay(b: BombBay, loadout?: Loadout | null): void {
+  if (loadout !== undefined) {
+    b.capacity = loadout?.count ?? 0
+    b.reloadSeconds = loadout?.reloadSeconds ?? 0
+  }
+  b.load = b.capacity
   b.queue = 0
   b.timer = 0
   b.reloading = false
@@ -100,11 +64,19 @@ export function resetBombBay(b: BombBay, capacity = b.capacity): void {
 /**
  * 推進一幀。
  *
- * @param trigger 這一幀**剛按下**扳機（邊緣，不是按著）
- * @param drop    投一枚。一幀最多呼叫一次
+ * @param trigger   這一幀**剛按下**扳機（邊緣，不是按著）
+ * @param releaseOk 投放包絡成不成立（`weapons/envelope.ts`）
+ * @param drop      投一枚。一幀最多呼叫一次
+ *
+ * 【包絡是參數，不是呼叫端的一個 `&&`】這支狀態機有兩段各自獨立的分支：
+ * 一段把整艙排進 `queue`、另一段真的投。在呼叫端寫 `press && releaseOk`
+ * 只閘得住第一段，`queue` 裡的照樣投出去。而只把 `drop` 換成空函數更糟
+ * ——`load` 與 `queue` 仍然遞減，**彈藥被無聲吃掉**。
+ *
+ * 【不成立時 `timer` 與回補照常推進】補彈不該因為玩家在翻滾而停住。
  */
 export function stepBombBay(
-  b: BombBay, dt: number, trigger: boolean, drop: () => void,
+  b: BombBay, dt: number, trigger: boolean, releaseOk: boolean, drop: () => void,
 ): void {
   if (b.timer > 0) b.timer -= dt
 
@@ -120,9 +92,11 @@ export function stepBombBay(
   }
 
   // 【連投中不接受新的扳機】一次按下就是一整艙，中途再按沒有第二個意思
-  if (trigger && b.queue === 0 && b.load > 0) b.queue = b.load
+  if (releaseOk && trigger && b.queue === 0 && b.load > 0) b.queue = b.load
 
-  if (b.queue > 0 && b.timer <= 0) {
+  // 【包絡不成立時連投暫停而不取消】一串十枚投到一半被防空砲打得翻過去，
+  // 取消整串會比暫停更難懂。`timer` 照走，所以恢復姿態的下一步就接著投
+  if (releaseOk && b.queue > 0 && b.timer <= 0) {
     drop()
     b.load--
     b.queue--
@@ -131,9 +105,9 @@ export function stepBombBay(
 
   // 【空了才開始回補，而且要等最後一枚的間隔走完】否則整串的節拍會在最後
   // 一枚上少一拍
-  if (b.load === 0 && b.queue === 0 && b.timer <= 0) {
+  if (b.capacity > 0 && b.load === 0 && b.queue === 0 && b.timer <= 0) {
     b.reloading = true
-    b.timer = BOMB_RELOAD_SECONDS
+    b.timer = b.reloadSeconds
   }
 }
 
@@ -165,43 +139,15 @@ export function stepBombBay(
 export const BOMB_BLAST_DAMAGE = 9_000
 
 /**
- * 各機種掛的炸彈，**爆心傷害**。
- *
- * 【為什麼是傷害而不是公斤】設計上要調的是「這一台炸起來多痛」，而傷害是
- * 那件事的直接表達。裝藥量則要再過一次換算才看得出後果。
- *
- * 【換算】爆炸的衝量與裝藥的立方根成正比（Hopkinson–Cranz），所以
- * **傷害的比值就是尺度的比值**，裝藥的比值是它的三次方：
- *
- * ```
- *              掛載                裝藥比   尺度   爆心傷害
- *   B-17G      AN-M64 500 lb       1.00    1.00    9,000    ← 基準
- *   He 111     SC 250              1.10    1.03    9,300
- *   G4M        五十番 500 kg       2.20    1.30   11,700
- * ```
- *
- * 【B-17G 與 He 111 幾乎一樣是對的】兩者的單顆彈確實都是 250 kg 級。重
- * 轟炸機的優勢在**帶得多**，不在單顆更狠 —— 要拉開差距該動的是彈艙容量。
- */
-export const BOMB_DAMAGE_BY_AIRCRAFT: Readonly<Record<string, number>> = {
-  b17g: 9_000,
-  he111: 9_300,
-  g4m: 11_700,
-}
-
-/**
- * 這一台掛的炸彈有多痛。不是轟炸機就回 0。
- */
-export function bombDamageOf(aircraftId: string): number {
-  return BOMB_DAMAGE_BY_AIRCRAFT[aircraftId] ?? 0
-}
-
-/**
  * 爆心傷害 → **線性尺度**。基準彈是 1。
  *
- * 【為什麼是線性而不是立方根】立方根律吃的是**裝藥量**，而這裡的輸入已經
- * 是傷害了 —— 傷害本身就正比於尺度（見 `BOMB_DAMAGE_BY_AIRCRAFT` 的換算
- * 表）。再開一次三次方就等於開了兩次。
+ * 【為什麼是線性而不是立方根】爆炸的衝量與裝藥的立方根成正比
+ * （Hopkinson–Cranz），所以立方根律吃的是**裝藥量**；而這裡的輸入已經是
+ * 傷害了 —— 傷害本身就正比於尺度。再開一次三次方就等於開了兩次。
+ *
+ * 【換算的樣子】`weapons/stores.ts` 的表上，B-17G 的 AN-M64 500 lb 是基準
+ * （裝藥比 1.00、尺度 1.00、9,000），He 111 的 SC 250 是 1.10 / 1.03 /
+ * 9,300。餵給視覺 `scaleBlast` 的當量則是尺度的三次方。
  */
 export function blastScaleOf(damage: number): number {
   if (!(damage > 0)) return 0

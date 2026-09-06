@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import {
-  EMBER_PER_CHUNK, LAND_BLAST, WATER_BLAST, blastScale, blastSmokeColor, dustColor,
+  EMBER_PER_CHUNK, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  blastScale, blastSmokeColor, dustColor,
   emitBlast, emitEmber, fireGlowColor, scaleBlast,
   type BlastParams, type BlastPools,
 } from '../../src/render/blast'
@@ -381,5 +382,49 @@ describe('fireGlowColor', () => {
       expect(c.r).toBeGreaterThan(c.g)
       expect(c.g).toBeGreaterThan(c.b)
     }
+  })
+})
+
+describe('魚雷命中的配方', () => {
+  /**
+   * 【釘死每一個值】寫成「比 `WATER_BLAST` 窄／高」的話，填錯數字仍然會綠。
+   */
+  it('就是這幾個數字', () => {
+    expect(TORPEDO_BLAST.jetCount).toBe(9)
+    expect(TORPEDO_BLAST.jetSpread).toBe(4.0)
+    expect(TORPEDO_BLAST.jetHeight).toBe(46)
+    expect(TORPEDO_BLAST.jetRadius).toBe(3.6)
+    expect(TORPEDO_BLAST.mistPerJet).toBe(6)
+    expect(TORPEDO_BLAST.mistSize).toBe(4.2)
+    expect(TORPEDO_BLAST.sprayCount).toBe(10)
+  })
+
+  /**
+   * 【水面下的爆炸看不到火】火、煙、塵、光暈**每一個欄位**都要是 0 ——
+   * 只檢查 `fireCount` 的話，`fireSize` 填了值也不會被抓到。
+   */
+  it('火、煙、塵、光暈的每一格都是 0', () => {
+    for (const k of [
+      'fireCount', 'fireSpeed', 'fireSize', 'fireCone',
+      'smokeCount', 'smokeSpeed', 'smokeSize', 'smokeCone',
+      'dustCount', 'dustSpeed', 'dustSize', 'dustCone',
+      'glowSize', 'glowAlpha',
+    ] as const) {
+      expect(TORPEDO_BLAST[k], k).toBe(0)
+      expect(WATER_BLAST[k], k).toBe(0)
+    }
+  })
+
+  it('比落水的水冠更窄、更高', () => {
+    expect(TORPEDO_BLAST.jetSpread).toBeLessThan(WATER_BLAST.jetSpread)
+    expect(TORPEDO_BLAST.jetHeight).toBeGreaterThan(WATER_BLAST.jetHeight)
+    expect(TORPEDO_BLAST.jetCount).toBeLessThan(WATER_BLAST.jetCount)
+  })
+
+  it('走的是同一支縮放', () => {
+    const out = { ...TORPEDO_BLAST }
+    scaleBlast(TORPEDO_BLAST, 8, out)
+    expect(out.jetHeight).toBeCloseTo(TORPEDO_BLAST.jetHeight * 2, 9)
+    expect(out.jetCount).toBeGreaterThan(TORPEDO_BLAST.jetCount)
   })
 })

@@ -37,6 +37,17 @@ export const WRECK_SPRAY_COUNT = 24
 /** 一片零件入水噴幾顆。比殘骸小一號。 */
 export const DEBRIS_SPRAY_COUNT = 6
 
+/**
+ * 魚雷航跡的一叢幾顆。**入水那一叢也是這個數。**
+ *
+ * 【為什麼這麼少】航跡是一條連續的線而不是一次事件：22 m/s 之下每 8 m
+ * 一叢就是每 0.36 s 一次，而 `SPRAY_LIFE` 是 0.6 s —— 同時活著約 5 叢。
+ * 每叢再多幾顆的話航跡會讀成一道白牆而不是一條線。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const WAKE_SPRAY_COUNT = 3
+
 /** 池子大小。 */
 export const SPRAY_CAPACITY = 1024
 
