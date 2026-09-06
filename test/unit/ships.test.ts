@@ -113,9 +113,57 @@ describe('stepShips', () => {
     expect(s.position.x).toBe(10)
     expect(s.position.z).toBe(20)
   })
+
+  /**
+   * 【沉了要滑行，不是煞停】一萬噸的船在同一個物理步之內從 8 m/s 變成 0，
+   * 畫面上像撞到牆。
+   */
+  it('沉了之後速度慢慢降、位置繼續前進', () => {
+    const s = createShip(0, SHIP_CLASSES.wichita, 'red', 0, 0, 0, 8)
+    s.alive = false
+    for (let i = 0; i < 240; i++) stepShips([s], 1 / 240)
+    expect(s.speed).toBeLessThan(8)
+    expect(s.speed).toBeGreaterThan(0)
+    expect(s.position.z).toBeLessThan(0)
+  })
+
+  /**
+   * 【一定要真的停下來】用指數衰減的話它永遠到不了 0 —— 畫面上是一艘
+   * 永遠在慢慢爬的船。
+   */
+  it('滑行到最後真的停住', () => {
+    const s = createShip(0, SHIP_CLASSES.wichita, 'red', 0, 0, 0, 8)
+    s.alive = false
+    for (let i = 0; i < 120 * 240; i++) stepShips([s], 1 / 240)
+    expect(s.speed).toBe(0)
+    const z = s.position.z
+    for (let i = 0; i < 240; i++) stepShips([s], 1 / 240)
+    expect(s.position.z).toBe(z)
+  })
+
+  /** 【還活著就不減速】減速條件寫錯邊的話整支艦隊會慢慢停下來。 */
+  it('活著的船速度不變', () => {
+    const s = createShip(0, SHIP_CLASSES.wichita, 'red', 0, 0, 0, 8)
+    for (let i = 0; i < 60 * 240; i++) stepShips([s], 1 / 240)
+    expect(s.speed).toBe(8)
+  })
 })
 
 describe('resetShip', () => {
+  /**
+   * 【航速也要復原】`speed` 從「固定不變」變成會被滑行歸零的欄位之後，
+   * 不抄回去的話第二場的沉船從 0 起步 —— 而 `rematch` 那一組護欄比的是
+   * 耗時，抓不到這件事。
+   */
+  it('航速回到開場值', () => {
+    const s = createShip(0, SHIP_CLASSES.wichita, 'red', 0, 0, 0, 8)
+    s.alive = false
+    for (let i = 0; i < 120 * 240; i++) stepShips([s], 1 / 240)
+    expect(s.speed).toBe(0)
+    resetShip(s)
+    expect(s.speed).toBe(8)
+  })
+
   it('位置回到起點、血量回滿', () => {
     const s = createShip(0, SHIP_CLASSES.wichita, 'red', 300, -400, 0.5, 8)
     for (let i = 0; i < 2400; i++) stepShips([s], 1 / 240)
