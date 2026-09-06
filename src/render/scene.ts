@@ -19,8 +19,7 @@ export const CAMERA_NEAR = 1
  *
  * 【它只有一個約束】必須大於遠海的**半對角線**（`FAR_SEA_SIZE / 2 × √2`
  * = 4,243 km），否則遠海的四個角會被裁掉，而被裁掉的邊緣就是一條硬邊。
- * 2026-08-09 遠海由半邊 250 km 放大到 3,000 km（見 `ocean.ts` 的
- * `FAR_SEA_SIZE`），這裡跟著由 800 km 拉到 5,000 km。
+ * **`ocean.ts` 的 `FAR_SEA_SIZE` 一改，這個值要跟著改。**
  *
  * 【深度精度的代價幾乎是零】解析度是 `Δz ≈ z²·(f−n)/(n·f·2^bits)`，而
  * `f ≫ n` 時 `(f−n)/(n·f) → 1/n`。**近平面沒有動**，所以近場精度不變。
@@ -86,8 +85,8 @@ export function createScene(
   // 【霧掛在 scene 上，逐材質生效】three 的 `material.fog` 預設為 true，
   // 所以飛機、參照物、殘骸、曳光彈、粒子都吃霧。天空球是 `ShaderMaterial`
   // （`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。
-  // **海面自 2026-08-09 起明確關掉**（`ocean.ts` 的 `fog: false`），否則
-  // 遠海會往天空色靠、地平線糊掉。HUD 是另一張 2D canvas，與這裡無關。
+  // **海面明確關掉**（`ocean.ts` 的 `fog: false`），否則遠海會往天空色
+  // 靠、地平線糊掉。HUD 是另一張 2D canvas，與這裡無關。
   scene.fog = createFog()
 
   // 【燈的定義在 `lighting.ts`】遠處的植被走 gl.POINTS，亮度是烘進頂點色的，
@@ -124,8 +123,8 @@ export function createScene(
     fog.density = p.fogDensity
   }
 
-  // 【一律走同一條路徑】正午那一組的每個欄位都直接引用原本的常數，所以這一行
-  // 對 `'noon'` 是恆等 —— 而「建立時設一次」與「事後換」因此不會分家
+  // 【一律走同一條路徑】正午那一組的每個欄位都直接引用模組層的常數，所以
+  // 這一行對 `'noon'` 是恆等 —— 「建立時設一次」與「事後換」因此不會分家
   setPalette(DAY_PALETTES[timeOfDay])
 
   return { renderer, scene, camera, sky, lights, setPalette, resize }

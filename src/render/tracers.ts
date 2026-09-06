@@ -15,10 +15,10 @@ export const TRACER_LENGTH = 14
 /**
  * 曳光彈頭端的半徑，m。
  *
- * 【為什麼需要一個世界單位的半徑】原本是 `LineBasicMaterial`，而 `linewidth`
- * 在所有 WebGL 實作上都被忽略（ANGLE 與 OpenGL core profile 把線寬鎖在
- * 1 個裝置像素）。長度有正確的透視縮短，粗細卻永遠是 1 px —— 3 km 外和
- * 30 m 外一樣粗。換成世界單位的幾何之後，透視自然成立。
+ * 【為什麼需要一個世界單位的半徑】`LineBasicMaterial` 的 `linewidth` 在所有
+ * WebGL 實作上都被忽略（ANGLE 與 OpenGL core profile 把線寬鎖在 1 個裝置
+ * 像素）：長度有正確的透視縮短，粗細卻永遠是 1 px —— 3 km 外和 30 m 外
+ * 一樣粗。世界單位的幾何讓透視自然成立。
  *
  * 【0.12 m 怎麼來的】1920 px 寬、65° 視野下每像素約 5.9e-4 rad。在 M2 的
  * 實戰有效射程 400 m 上，1 px 對應 0.24 m —— 取直徑 0.24 m（半徑 0.12 m），
@@ -69,7 +69,7 @@ const ZERO = new Vector3(0, 0, 0)
 export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
   // 【高度取 1、半徑烘進幾何】長度由每個實例的 Z 縮放給，粗細不跟著被拉長。
   //
-  // CylinderGeometry 的軸原本沿 +Y，rotateX(π/2) 把它轉到 +Z：較粗的
+  // CylinderGeometry 的軸沿 +Y，rotateX(π/2) 把它轉到 +Z：較粗的
   // radiusTop 因此落在 +Z 端。把 +Z 對齊「由尾指向頭」就得到頭粗尾細。
   const geometry = new CylinderGeometry(
     TRACER_RADIUS, TRACER_RADIUS * TRACER_TAPER, 1, RADIAL_SEGMENTS, 1, true,
