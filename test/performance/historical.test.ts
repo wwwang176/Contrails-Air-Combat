@@ -7,6 +7,7 @@ import { BF109K4, BF109K4_HISTORICAL } from '../../src/specs/bf109k4'
 import { HE111, HE111_HISTORICAL } from '../../src/specs/he111'
 import { B17G, B17G_HISTORICAL } from '../../src/specs/b17g'
 import { F6F5, F6F5_HISTORICAL } from '../../src/specs/f6f5'
+import { F4F4, F4F4_HISTORICAL } from '../../src/specs/f4f4'
 import { KI84, KI84_HISTORICAL } from '../../src/specs/ki84'
 import { A6M5, A6M5_HISTORICAL } from '../../src/specs/a6m5'
 import { G4M, G4M_HISTORICAL } from '../../src/specs/g4m'
@@ -140,6 +141,25 @@ const PENDING: readonly { id: string; check: Check; reason: string }[] = [
      */
     reason: '失速值是由著陸速度反推的；而且三台轟炸機的失速在本模型裡同方向偏高 5–7%',
   },
+  {
+    id: 'f4f4',
+    check: 'vmaxSeaLevel',
+    /**
+     * 【這一項不是模型對不上，是那兩個史實數字自己對不上】試飛報告
+     * （BIS, F4F-4 No. 4058）**沒有量海平面極速**，只量了臨界高度的 319 mph。
+     * 275 mph 來自 Grumman Report 1471C 的 Normal Fighter 欄 —— 同一台飛機的
+     * 試飛結果，但那一欄是**估算**。
+     *
+     * 兩者的比值 275/318 = 0.865，而等出力下的密度關係只給
+     * σ(19,400 ft)^(1/3) = 0.816 —— 相差 6%。報告第 15 段寫明引擎在海平面與
+     * 19,000 ft **都是 1,000 BHP**，所以那 6% 沒有物理解釋，只能是其中一個
+     * 數字（多半是估算的那個）偏樂觀。
+     *
+     * 模型對齊的是量測到的那一點，海平面因此固定落在 −6%。要把它拉進門就得
+     * 讓臨界高度那一點超出 +4%，那是拿量測值去遷就估算值。
+     */
+    reason: '−6.1%。275 mph 是 Grumman 的估算，與量到的 319 mph @ 19,400 ft 在等出力下差 6%',
+  },
 ]
 
 const CASES: {
@@ -147,6 +167,17 @@ const CASES: {
   checks: readonly Check[]
 }[] = [
   { spec: P51D, hist: P51D_HISTORICAL, checks: ALL },
+  /**
+   * 【守四項，海平面極速進 PENDING】四項全部來自同一份試飛報告
+   * （BIS, F4F-4 No. 4058，7,370 lb、額定出力）：臨界高度極速 319 mph、
+   * 實用升限 35,000 ft、乾淨失速 87 mph 是正文，海平面爬升 1,940 fpm 是
+   * Enclosure E 的圖。海平面極速那一項報告沒有量，理由見 `PENDING`。
+   */
+  {
+    spec: F4F4,
+    hist: F4F4_HISTORICAL,
+    checks: ['vmaxCritical', 'climb', 'stall', 'ceiling', 'peak'],
+  },
   { spec: BF109K4, hist: BF109K4_HISTORICAL, checks: ALL },
   /**
    * 【五項全守，而且質量沒有校準過】四項驗收值出自同一份試飛報告（Patuxent
