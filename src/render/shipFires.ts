@@ -123,7 +123,10 @@ export function lightShipFires(
     // 世界 → 艦體：先扣掉船的位置，再套艏向的反轉
     P.set(d[o]! - s.position.x, d[o + 1]! - s.position.y, d[o + 2]! - s.position.z)
     P.applyQuaternion(INV.copy(s.orientation).invert())
-    f.x[i] = P.x; f.y[i] = P.y; f.z[i] = P.z
+    // 【不沉到水線以下】艦體座標的原點就在水線上（`world/ships.ts`），所以
+    // 夾在 0 等於夾在水面。魚雷的引爆事件帶的是**雷體自己的高度**
+    // （定深 −1 m），不夾的話那根煙柱從水面底下長出來
+    f.x[i] = P.x; f.y[i] = P.y > 0 ? P.y : 0; f.z[i] = P.z
     f.ship[i] = index
     f.left[i] = FIRE_SECONDS
     // 【第一朵立刻放】歸零的話玩家要等 0.3 秒才看得到命中處起火
