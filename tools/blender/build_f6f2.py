@@ -22,13 +22,12 @@ lowpoly F6F-5 Hellcat —— **Blender 原生做法**的第二版。
   ── 基本體用 bmesh.ops.create_cone / create_cube ────────────
      整流罩與槳葉不必手刻。
 
-  ── 座艙：**先畫玻璃，再讓機身去貼合** ────────────────────────
-     這是專案負責人的裁決（技能坑 57）。玻璃是**輸入**：先照量測值把罩子
-     建出來，再由罩子的底緣長出一個 Boolean 切刀，用 Boolean 修改器在機身
-     上挖洞。洞的邊界因此**恆等於**玻璃的底緣 —— 不是兩邊各自逼近然後希望
-     它們對得上（第一版就是那樣，後段開口比罩子寬 0.19 m）。
+  ── 座艙：**盒切** ──────────────────────────────────────────
+     玻璃不是自己一片面，而是**機身本身的那片面**：機身的背線先抬到罩頂
+     （`lift_to_canopy`），再用一個六面的盒子切 —— 玻璃 = 機身∩盒、機身 =
+     機身−盒。接縫的落差因此**恆等於零**，罩子與龜背是同一條 loft。
 
-     而且 Boolean 是修改器：把 `F6F_CockpitCutter` 往後拉 10 cm，洞就跟著
+     而且 Boolean 是修改器：把 `F6F_GlassBox` 的前後壁挪一下，開口就跟著
      變，機身不必重建。
 
 所有尺寸量自 ref/f6f.glb（已清理對齊）。座標是**機體座標**：X 翼展、
@@ -193,10 +192,9 @@ HULL = smooth_hull(HULL)
 # 後三站已經平了（散佈 0.014），前兩站那個下降是參考模型把風擋前框的**下角**
 # 一起算進來了，不是軌本身。真機那條軌是水平的，取後段的 0.812。
 #
-# 【而且它本來就埋在機身裡】Zb 1.13 的艙緣在 |x| 0.422，而機身在 y = 0.814
-# 的半寬是 0.554 —— 玻璃比機身窄。所以側視看到的「玻璃下緣」是**玻璃與機身
-# 的交線**，不是玻璃自己的邊。切刀因此直接用玻璃本身往下封成實體，交線就
-# 自動是對的（見 build_cutter）。
+# 【玻璃比機身窄，所以「玻璃下緣」是交線】Zb 1.13 的艙緣在 |x| 0.422，而機身
+# 在 y = 0.814 的半寬是 0.554。盒切之後這一點自動成立：切盒的底面就是艙緣那個
+# 高度，玻璃的下緣因此**恆等於**機身在該高度的輪廓，不必另外對齊。
 #
 #          Zb    艙緣x  艙緣y   肩y     罩頂y
 SILL_Y = 0.812                             # 水平的艙緣
@@ -208,10 +206,50 @@ CANOPY = [
     (1.075, 0.430, SILL_Y, 1.418, 1.511),  # 最高
     (1.443, 0.389, SILL_Y, 1.352, 1.445),  # 後框（垂直面，會封起來）
 ]
-SHOULDER_X = 0.187          # 肩的半寬；前端剖面比它窄時按艙緣等比收
+# 【肩：量到的溫室骨架，盒切做不出來】四個站位（Zb 0.630／0.787／1.075／1.452）
+# 的肩都在 |x| 0.187、比中線低 **0.093**，散佈為零 —— 那是有骨架的溫室罩。盒切
+# 之後罩子的剖面是機身的超橢圓族，這道稜由 4.6 倍的斜率變化軟化成 2.1 倍。
+# 專案負責人 2026-09-07 看過兩版的算圖後裁定接受，換取接縫落差歸零。
+SHOULDER_X = 0.187
 
-# 切刀只在這個 z 範圍內挖 —— 前後兩端的罩子是坐在實心機背上的整流
-CUT_Z0, CUT_Z1 = 0.34, 1.40
+# 內槽只在這個 zb 範圍內挖 —— 罩子的前後兩端是坐在實心機背上的整流，挖穿了會
+# 從風擋看出去看到天空。內縮 0.05 給艙緣留一圈唇。
+TUB_Z0, TUB_Z1 = 0.34, 1.40
+TUB_INSET = 0.05
+# 【盒切】玻璃改成「機身∩盒」，切刀不再由玻璃長出來 —— 見 canopy_crown()。
+CANOPY_Z0, CANOPY_Z1 = CANOPY[0][0], CANOPY[-1][0]      # 0.300 / 1.443
+
+
+def canopy_crown(zb):
+    """座艙段的罩頂高度（CANOPY 表最後一欄），範圍外回 None。"""
+    if not (CANOPY_Z0 <= zb <= CANOPY_Z1):
+        return None
+    return _lerp_canopy(zb, 4)
+
+
+def lift_to_canopy(pts, zb):
+    """把剖面在**艙緣以上**的部分垂直拉到罩頂 —— 盒切的前提。
+
+    【為什麼是「艙緣以上」而不是整個上半】超橢圓的上半由 `back` 撐開，直接把
+    `back` 換成罩頂會連艙緣那一圈一起變寬：Zb 0.822 的剖面在 z = 0.812 會由
+    半寬 0.455 撐到 **0.639**（+40%），罩子胖一圈。只拉艙緣以上的話，艙緣那一
+    圈原封不動，罩子的寬度自然就是量到的那個。
+
+    代價是艙緣上會多一道摺 —— 但**那條摺正好是盒子要切的線**，切完之後它就是
+    玻璃的下緣，本來就該是一條稜。
+
+    【兩端會自己接上】基準取剖面的**實際最高點**（含龜背的 dh），不是 `back`：
+    Zb 0.300 是 1.075 對罩頂 1.083（k = 1.03）、Zb 1.443 是 1.400 對 1.445
+    （k = 1.08）。兩端 k 都接近 1，所以不必另外做過渡。
+    """
+    crown = canopy_crown(zb)
+    if crown is None:
+        return pts
+    ymax = max(y for _, y in pts)
+    if ymax <= SILL_Y + 1e-6:
+        return pts
+    k = (crown - SILL_Y) / (ymax - SILL_Y)
+    return [(x, SILL_Y + (y - SILL_Y) * k if y > SILL_Y else y) for x, y in pts]
 FLOOR_Y = -0.28        # 座艙地板（機體 Y）
 
 # ── 機背整流罩（turtledeck）────────────────────────────────────────
@@ -594,16 +632,6 @@ def _lerp_canopy(zb, col):
     return CANOPY[-1][col]
 
 
-def halfwidth_at(zb):
-    """玻璃在艙緣的半寬 —— 機身開口的寬度由它決定。"""
-    return _lerp_canopy(zb, 1)
-
-
-def sill_at(zb):
-    """玻璃底緣（艙緣）的高度。"""
-    return _lerp_canopy(zb, 2)
-
-
 # ═════════════════════════════════════════════════════════════════════
 # 零件
 # ═════════════════════════════════════════════════════════════════════
@@ -612,8 +640,8 @@ def build_fuselage(coll, mat):
     bm = bmesh.new()
     rings = []
     for zb, a, back, belly, cy, dw, dh in catmull_rom(HULL, STATIONS):
-        rings.append([(x, y, zb)
-                      for x, y in superellipse_half(a, back, belly, cy, dw, dh)])
+        half = lift_to_canopy(superellipse_half(a, back, belly, cy, dw, dh), zb)
+        rings.append([(x, y, zb) for x, y in half])
     # 【close_ends 必須是 False】半剖面若封成閉迴圈，bridge_loops 會在
     # x = 0 平面多鋪一整片內壁；鏡射之後兩片重疊，中線每條邊掛 4 個面。
     # 實測：機身沿全長 200 條非流形邊，而且平面著色下完全看不出來。
@@ -625,64 +653,22 @@ def build_fuselage(coll, mat):
     return ob
 
 
-def build_canopy(coll, mat):
-    """
-    座艙玻璃 —— **先畫這個**，機身的洞由它決定。
+def build_glass_box(coll, mat):
+    """座艙的切盒 —— **只有六個面，前後壁垂直、底面是水平的艙緣**。
 
-    剖面照量測值分三層：中線、`|x| = 0.187` 的肩、艙緣。只建 x ≥ 0 的一半，
-    Mirror 合起來。**前後兩端各封一片垂直的框** —— 那是量到的，不是為了
-    補洞：後端五個頂點全部落在 Zb 1.443…1.452。
+    盒切的刀不必貼著玻璃長（那是「玻璃先行」那一版的做法），因為玻璃的形狀
+    已經被機身的背線決定了（見 lift_to_canopy）。刀只負責畫出**開口的邊界**：
+    前後壁落在 CANOPY 表的兩端、底面落在艙緣 SILL_Y。
     """
     bm = bmesh.new()
-    rings = []
-    for zb, sx, sy, shy, ry in catmull_rom(CANOPY, 8):
-        shx = min(SHOULDER_X, sx * 0.45)
-        rings.append([(0.0, ry, zb), (shx, shy, zb), (sx, sy, zb)])
-    loops = loft(bm, rings, close_ends=False)
-    # 前框與後框：半剖面加上中線那一段，鏡射後就是一整片垂直的框
-    cap(bm, loops[0][0])
-    cap(bm, list(reversed(loops[-1][0])))
-    ob = new_object('F6F_Canopy', bm, coll, mat)
-    add_mirror(ob, clip=True)
-    return ob
-
-
-def build_cutter(coll, mat):
-    """
-    座艙的 Boolean 切刀 —— **就是玻璃本身往下封成的實體**。
-
-    第一版的切刀是自己另外訂的方管（艙緣、腰身、往上開），等於玻璃與洞各訂
-    一次形狀，兩邊要對得上只能靠運氣。這一版直接拿玻璃的剖面往下延伸到座艙
-    地板再封起來：機身減掉它之後，開口的邊界就是**玻璃與機身的交線**，恆等
-    成立，不需要任何對齊。
-
-    這正是專案負責人講的「先把玻璃定下來，再讓機身去貼合玻璃」（技能坑 57）。
-
-    切出來的面用暗色 —— 由 Boolean 的 `material_mode = 'TRANSFER'` 帶進去。
-    """
-    # 【取樣數必須和玻璃一樣】玻璃用 8 站、切刀用 10 站的時候，兩邊是同一條
-    # 曲線的**兩種折線近似**；切刀的弦在某些區段跑到玻璃的弦外面，機身就被
-    # 多切掉一條，看起來是玻璃後緣旁邊有一道黑縫。
-    #
-    # 【再往內縮一點】兩者完全重合會沿著整條交線 z-fighting。切刀水平縮 3%、
-    # 罩線壓低 12 mm，開口就嚴格小於玻璃，玻璃壓在蒙皮上（真機也是這樣裝的）。
-    INSET_X, INSET_Y = 0.97, 0.012
-    bm = bmesh.new()
-    rings = []
-    for zb, sx, sy, shy, ry in catmull_rom(CANOPY, 8):
-        shx = min(SHOULDER_X, sx * 0.45)
-        sx, shx = sx * INSET_X, shx * INSET_X
-        sy, shy, ry = sy - INSET_Y, shy - INSET_Y, ry - INSET_Y
-        # 罩子的半剖面（頂 → 肩 → 艙緣），再往下接到座艙地板並封回中線
-        half = [(0.0, ry), (shx, shy), (sx, sy), (sx * 0.90, FLOOR_Y), (0.0, FLOOR_Y)]
-        ring = half + [(-x, y) for x, y in reversed(half[1:-1])]
-        rings.append([(x, y, zb) for x, y in ring])
-    loops = loft(bm, rings, close_ends=True)
-    cap(bm, loops[0][0])
-    cap(bm, list(reversed(loops[-1][0])))
-    # 【切刀不鏡射】Boolean 的刀必須是乾淨的封閉實體
-    ob = new_object('F6F_CockpitCutter', bm, coll, mat)
-    ob.display_type = 'WIRE'
+    for x in (-1.4, 1.4):
+        for zb in (CANOPY_Z0, CANOPY_Z1):
+            for y in (SILL_Y, 2.6):
+                bm.verts.new(to_bl((x, y, zb)))     # 機體座標 → Blender，與 loft 一致
+    bmesh.ops.convex_hull(bm, input=list(bm.verts))
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+    ob = new_object('F6F_GlassBox', bm, coll, mat)
+    ob.hide_set(True)
     ob.hide_render = True
     return ob
 
@@ -710,6 +696,28 @@ def panel_y(p, x):
         return p['root_y'] + math.tan(d_in) * x
     return (p['root_y'] + math.tan(d_in) * bx
             + math.tan(p['dihedral']) * (x - bx))
+
+def build_cockpit_tub(coll, mat):
+    """座艙內槽 —— **盒切之後機身在座艙段只剩一片平的艙緣板**（z 全是 0.812），
+    從罩子看進去是一塊平板。這一刀往下挖到 FLOOR_Y，看起來才像個艙。
+
+    寬度照 CANOPY 表的艙緣 x 收 TUB_INSET，前後只挖 TUB_Z0…TUB_Z1 —— 罩子的
+    前後兩端本來就是坐在實心機背上的整流。
+    """
+    pts = []
+    for zb, sx, *_ in CANOPY:
+        z = min(max(zb, TUB_Z0), TUB_Z1)
+        for x in (-(sx - TUB_INSET), sx - TUB_INSET):
+            for y in (FLOOR_Y, SILL_Y + 0.01):
+                pts.append((x, y, z))
+    bm = bmesh.new()
+    for q in pts: bm.verts.new(to_bl(q))
+    bmesh.ops.convex_hull(bm, input=list(bm.verts))
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
+    ob = new_object('F6F_CockpitTub', bm, coll, mat)
+    ob.hide_set(True)
+    ob.hide_render = True
+    return ob
 
 
 def build_panel(name, p, coll, mat, mirror_merge=True):
@@ -891,18 +899,44 @@ def main():
     accent = make_material('F6F_Accent', ACCENT_COLOR)
     glass = make_material('F6F_Glass', GLASS_COLOR, glass=True)
 
-    # ── 順序有意義：玻璃先，切刀由玻璃長出來，機身最後減掉切刀 ──
-    build_canopy(coll, glass)
-    cutter = build_cutter(coll, accent)
+    # ── 盒切：機身先建（背線已抬到罩頂），玻璃 = 機身∩盒、機身 = 機身−盒 ──
+    #
+    # 【與「玻璃先行」那一版的差別】舊版是先照量測值畫一片玻璃，再由它的底緣長出
+    # 切刀去挖機身。接縫一樣是恆等的，但**玻璃是自己一片面**，與龜背之間會有落差
+    # ——實測罩子後緣 40 mm 之內掉 42 mm、下一站又回升 5 mm（曲率變號）。盒切之後
+    # 玻璃就是機身本身的那片面，落差恆等於零。
+    #
+    # 代價寫在 lift_to_canopy 裡：罩子的剖面變成機身的超橢圓族，量到的「三層」
+    # （中線→肩→陡玻璃，肩固定比中線低 0.093）軟化成 2.1 倍的斜率變化。
+    # 專案負責人 2026-09-07 看過兩版的算圖後裁定用盒切。
     fus = build_fuselage(coll, body)
-    # 切出來的面要用暗色 —— 讓 Boolean 自己把切刀的材質帶進去
+    box = build_glass_box(coll, accent)
+
+    canopy = fus.copy()
+    canopy.data = fus.data.copy()
+    canopy.name = canopy.data.name = 'F6F_Canopy'
+    canopy.modifiers.clear()
+    add_mirror(canopy)
+    canopy.data.materials.clear()
+    canopy.data.materials.append(glass)
+    coll.objects.link(canopy)
+    cut = canopy.modifiers.new('Glass', 'BOOLEAN')
+    cut.operation, cut.object, cut.solver = 'INTERSECT', box, 'EXACT'
+
+    # 切出來的面要用暗色 —— 讓 Boolean 自己把盒子的材質帶進去
     fus.data.materials.append(accent)
     boo = fus.modifiers.new('Cockpit', 'BOOLEAN')
     boo.operation = 'DIFFERENCE'
-    boo.object = cutter
+    boo.object = box
     boo.solver = 'EXACT'
     if hasattr(boo, 'material_mode'):
         boo.material_mode = 'TRANSFER'
+
+    tub = build_cockpit_tub(coll, accent)
+    boo2 = fus.modifiers.new('Tub', 'BOOLEAN')
+    boo2.operation, boo2.object, boo2.solver = 'DIFFERENCE', tub, 'EXACT'
+    if hasattr(boo2, 'material_mode'):
+        boo2.material_mode = 'TRANSFER'
 
     build_panel('F6F_Wing', WING, coll, body)
     build_panel('F6F_Tailplane', TAIL, coll, body)
