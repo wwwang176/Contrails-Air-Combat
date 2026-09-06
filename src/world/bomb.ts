@@ -207,7 +207,25 @@ export function solveImpact(
 export const BOMBS_CAPACITY = 64
 
 /** 落地回呼。**不得配置** —— 一步之內可能呼叫好幾次 */
-export type BombImpactFn = (x: number, y: number, z: number, speed: number) => void
+/**
+ * @param blocked 撞上的是**擋路的東西**（船）而不是地面。落點的 `y` 因此
+ *                是撞擊高度，不是地形高度。
+ */
+export type BombImpactFn = (
+  x: number, y: number, z: number, speed: number, blocked: boolean,
+) => void
+
+/**
+ * 這一步的線段有沒有被擋住。命中回 `[0,1]` 的參數 `t`，**沒撞回任何落在
+ * 那個區間外的值** —— `world/hit.ts` 的 `NO_HIT` 是 −1，這裡因此兩頭都夾。
+ *
+ * 【為什麼是回呼而不是把船傳進來】`world/bomb.ts` 不認識 `Ship`，也不該認識
+ * ——它只有彈道。誰擋路是 `World` 的知識。
+ */
+export type BombBlockFn = (
+  x0: number, y0: number, z0: number,
+  x1: number, y1: number, z1: number,
+) => number
 
 /**
  * 空中的炸彈。SoA，形狀照 `Projectiles` —— 型別化陣列、環狀寫入指標、
@@ -286,6 +304,7 @@ export class Bombs {
     k: number,
     groundAt: (x: number, z: number) => number,
     onImpact: BombImpactFn,
+    blockedBy?: BombBlockFn,
   ): void {
     const s = this.sim
     for (let i = 0; i < this.capacity; i++) {
@@ -308,6 +327,23 @@ export class Bombs {
       this.x[i] = s.x; this.y[i] = s.y; this.z[i] = s.z
       this.vx[i] = s.vx; this.vy[i] = s.vy; this.vz[i] = s.vz
 
+      const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz)
+
+      // 【擋路的先判】船的甲板在地面之上，照地面判的話炸彈會穿過艦體再
+      // 在水面上爆
+      if (blockedBy !== undefined) {
+        const bt = blockedBy(px, py, pz, s.x, s.y, s.z)
+        if (bt >= 0 && bt <= 1) {
+          this.active[i] = 0
+          this.liveCount--
+          onImpact(
+            px + (s.x - px) * bt, py + (s.y - py) * bt, pz + (s.z - pz) * bt,
+            speed, true,
+          )
+          continue
+        }
+      }
+
       const g = groundAt(s.x, s.z)
       if (!(s.y <= g)) continue
 
@@ -318,7 +354,7 @@ export class Bombs {
       this.liveCount--
       onImpact(
         px + (s.x - px) * t, g, pz + (s.z - pz) * t,
-        Math.sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz),
+        speed, false,
       )
     }
   }

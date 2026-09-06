@@ -10,9 +10,11 @@ import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
   BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  type BombBlockFn,
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
 } from './bomb'
+import { BOMB_SHIP_DAMAGE } from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
 import { CullIndex } from './cull'
@@ -282,6 +284,14 @@ export class World {
    * 黑雲同一個約定。`nx` 是「這裡是不是水」的旗標，見 `onBombImpact`。
    */
   readonly bombEvents: ImpactEvents = createImpacts()
+  /**
+   * `onBombBlocked` 找到的那一艘與那一個砲位，`onBombImpact` 接著讀。
+   *
+   * 【為什麼是欄位而不是回傳值】`Bombs.step` 的擋路回呼只要一個 `t`，而扣血
+   * 要知道是誰。兩支回呼在同一個迴圈裡連續呼叫，欄位傳遞不必配置。
+   */
+  private bombShip: Ship | null = null
+  private bombShipGun = -1
 
   /**
    * 這一個物理步的擊墜事件。與 `hitEvents` 一樣由**呼叫端**排空。
@@ -510,7 +520,10 @@ export class World {
     //
     // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2 裁定），
     // 壽命上限 1.2 s；炸彈要重力、要阻力、要飛 48 秒。
-    this.bombs.step(dt, this.bombDrag, this.groundAt, this.onBombImpact)
+    this.bombs.step(
+      dt, this.bombDrag, this.groundAt, this.onBombImpact,
+      this.ships.length > 0 ? this.onBombBlocked : undefined,
+    )
 
     // 4. 命中判定
     this.resolveHits()
@@ -520,10 +533,23 @@ export class World {
    * 炸彈落地。**綁在實例上建一次，不在 `step` 裡寫成箭頭函數** —— 那樣會
    * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
    */
-  private readonly onBombImpact: BombImpactFn = (x, y, z) => {
-    // 【`nx` 帶「這裡是不是水」】落陸與落水是兩套完全不同的表現（土與火
-    // 對水冠），而判斷所需的 `waterAt` 只有 `World` 這一層有。法線那三格
-    // 對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格當旗標。
+  private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked) => {
+    // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船。三者是三套完全不同的
+    // 表現（土／水冠／火），而判斷所需的 `waterAt` 與 `ships` 只有這一層
+    // 有。法線那三格對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格。
+    if (blocked && this.bombShip !== null) {
+      const sh = this.bombShip
+      sh.hp -= BOMB_SHIP_DAMAGE
+      // 【直接命中砲位就一起打掉】炸彈落在砲座上，那一座不會還在射
+      if (this.bombShipGun >= 0) {
+        const g = sh.guns[this.bombShipGun]!
+        g.hp -= BOMB_SHIP_DAMAGE
+        if (g.hp <= 0) g.alive = false
+      }
+      this.sinkIfDead(sh)
+      pushImpact(this.bombEvents, x, y, z, 2, 1, 0)
+      return
+    }
     const water = this.waterAt(x, z) > -Infinity ? 1 : 0
     pushImpact(this.bombEvents, x, y, z, water, 1, 0)
   }
@@ -791,14 +817,7 @@ export class World {
           g.hp -= dmg
           if (g.hp <= 0) g.alive = false
         }
-        // 【擊沉】血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、
-        // 不再是任何人的目標。**砲位一起標死**，否則渲染層還會畫它們的
-        // 槍焰，而 `stepShipGuns` 已經整艘早退了 —— 那會是一排永遠亮著的
-        // 槍焰掛在沉船上。
-        if (shipHit.alive && shipHit.hp <= 0) {
-          shipHit.alive = false
-          for (const g of shipHit.guns) g.alive = false
-        }
+        this.sinkIfDead(shipHit)
         p.kill(i)
         continue
       }
@@ -931,6 +950,67 @@ export class World {
       }
     }
     return false
+  }
+
+  /**
+   * 血量歸零就整艘退場：砲位全滅、停船、不再擋子彈、不再是任何人的目標。
+   *
+   * 【砲位一起標死】否則渲染層還會畫它們的槍焰，而 `stepShipGuns` 已經整艘
+   * 早退了 —— 那會是一排永遠亮著的槍焰掛在沉船上。
+   *
+   * 【為什麼抽出來】子彈與炸彈兩條路都會打沉船。兩份長得很像的副本就是只有
+   * 一份會被修好的那種危險。
+   */
+  private sinkIfDead(sh: Ship): void {
+    if (!sh.alive || sh.hp > 0) return
+    sh.alive = false
+    for (const g of sh.guns) g.alive = false
+  }
+
+  /**
+   * 炸彈這一步有沒有撞上船。**回傳線段參數 `t`，沒撞回 `NO_HIT`。**
+   *
+   * 【砲位與船體一起判】炸彈是面殺傷，落在砲座上與落在甲板上都是打中這艘
+   * 船。砲位盒突出於船體盒之外（砲架長在甲板上），只判船體的話從上方落下
+   * 的炸彈會穿過砲塔再在甲板上爆。
+   *
+   * 【哪一艘記在 `bombShip`】`Bombs.step` 只要 `t`，而扣血要知道是誰 ——
+   * 兩支回呼在同一個迴圈裡連續呼叫，用一個欄位傳遞不必配置。
+   */
+  private readonly onBombBlocked: BombBlockFn = (x0, y0, z0, x1, y1, z1) => {
+    this.bombShip = null
+    this.bombShipGun = -1
+    if (this.ships.length === 0) return NO_HIT
+    let best = NO_HIT
+    for (const sh of this.ships) {
+      if (!sh.alive) continue
+      // 【先比包圍球】只有真的落在船附近的那一顆才付逐盒的錢
+      if (segmentPointDistanceSq(
+        x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
+      ) > sh.cls.radius * sh.cls.radius) continue
+
+      SHIP_INV.copy(sh.orientation).conjugate()
+      const a = S.v[0]!.set(x0, y0, z0).sub(sh.position).applyQuaternion(SHIP_INV)
+      const b = S.v[1]!.set(x1, y1, z1).sub(sh.position).applyQuaternion(SHIP_INV)
+
+      for (let gi = 0; gi < sh.guns.length; gi++) {
+        const g = sh.guns[gi]!
+        if (!g.alive) continue
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, g.box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.bombShip = sh
+        this.bombShipGun = gi
+      }
+      for (const box of sh.cls.hull) {
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.bombShip = sh
+        this.bombShipGun = -1
+      }
+    }
+    return best
   }
 
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */

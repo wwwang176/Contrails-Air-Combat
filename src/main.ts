@@ -456,13 +456,20 @@ function emitKillBlasts(events: KillEvents): void {
   }
 }
 
-/** 炸彈落地：`nx` 是水陸旗標，見 `World.onBombImpact` */
+/**
+ * 炸彈落地。`nx` 是落點的種類：0 = 陸、1 = 水、2 = 船（見
+ * `World.onBombImpact`）。
+ *
+ * 【打中船用空爆那一份】甲板上炸不揚土、也不掀水冠 —— 剩下的正好是
+ * `AIR_BLAST` 的火球加煙。
+ */
 function emitBombBlasts(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
-    const water = d[o + 3]! > 0.5
-    emitBlast(BLAST_POOLS, water ? WATER_BLAST : LAND_BLAST,
+    const kind = d[o + 3]!
+    const recipe = kind > 1.5 ? AIR_BLAST : kind > 0.5 ? WATER_BLAST : LAND_BLAST
+    emitBlast(BLAST_POOLS, recipe,
       d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
   }
 }
