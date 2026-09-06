@@ -497,7 +497,7 @@ describe('stepBattle 的戰績記錄（M9 spec §4.3）', () => {
   })
 
   it('撞海在戰績上完全不存在 —— 只是退場', () => {
-    // 【專案負責人裁決】自殺不算真的擊殺：不給 K、不給 D、也不給助攻。
+    // 【自殺不算真的擊殺】不給 K、不給 D、也不給助攻。
     const b = createBattle(new Idle(), DEFAULT_BATTLE, 1)
     const victim = b.red[0]!
     const helper = b.blue[1]!
@@ -583,7 +583,7 @@ describe('玩家陣亡接手僚機（M9 spec §7）', () => {
     // 【為什麼這條非有不可】「自摔什麼都不記」讀起來很像「自摔什麼都不做」。
     // 只要有人把 `killer < 0` 的判斷提到 `drainKills` 開頭，墜海就不再觸發
     // 接手 —— 玩家從此卡在一架已經退場的飛機裡，而記分板上每個數字都正常，
-    // 沒有任何東西會透露這件事（專案負責人裁決：算死亡、觸發換機，但不記 K/D）。
+    // 沒有任何東西會透露這件事（算死亡、觸發換機，但不記 K/D）。
     const b = createBattle(new Idle(), DEFAULT_BATTLE, 3)
     const seat = b.player.index
     const wingSeat = wingmanSeat(b)
@@ -758,7 +758,7 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
   })
 
   /**
-   * 【2026-08-15 的缺陷：再打一場之後指揮層讀凍結座標】
+   * 【的缺陷：再打一場之後指揮層讀凍結座標】
    *
    * 舊版 `Aircraft.reset` 做 `this.state = createFlightState(...)`，把
    * `state.position` 換成一個**新的** `Vector3`；而 `createBattle` 把指揮層

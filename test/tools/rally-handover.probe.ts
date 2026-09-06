@@ -3,7 +3,7 @@
  * 跑法：npx vite-node test/tools/rally-handover.probe.ts
  *
  * 【為什麼要這一支】`rally-stuck.probe.ts` 全程用 `AiController` 佔玩家座位，
- * 32 張 rally 命令 32 張都正常解除，一張都卡不住。而人工回報（2026-08-14、
+ * 32 張 rally 命令 32 張都正常解除，一張都卡不住。而人工回報（
  * 座位 #8）是一張握了 196 秒、期間多次深入判定圈（250 m、209 m、145 m／
  * 判定 300 m）都沒解除。
  *

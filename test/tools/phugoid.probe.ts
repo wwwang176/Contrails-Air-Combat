@@ -3,7 +3,7 @@
  * 跑法：npx vite-node test/tools/phugoid.probe.ts
  *
  * 【為什麼要與 `stall-loop.probe.ts` 分開】那一支讀 `AiController.mode` 與
- * `.sit`，那兩個欄位是 2026-08-12 才公開的 —— 拿去跑舊 commit 只會讀到
+ * `.sit`，那兩個欄位是後來才公開的 —— 拿去跑舊 commit 只會讀到
  * `undefined`。這一支**只讀運動學**（高度與 TAS），任何 commit 都跑得動，
  * 所以它才是跨版本比較的那把尺。
  *

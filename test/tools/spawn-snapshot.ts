@@ -3,7 +3,7 @@
  * 印東西的是 `spawn-baseline.probe.ts`，比對的是
  * `test/integration/order-of-battle-replay.test.ts`，兩邊 import 這裡。
  *
- * 【它為什麼存在】編組表那一輪（spec 2026-08-21）宣稱**行為逐位元不變**。
+ * 【它為什麼存在】編組表那一輪宣稱**行為逐位元不變**。
  * 重構之後就跑不出改動前的那一份了，所以基準必須先落地。
  *
  * 【為什麼用字串而不是 Float64Array】JS 的 `String(number)` 對有限值是
@@ -69,8 +69,8 @@ export function spawnLines(b: Battle): string[] {
       + ` | ${num(s.orientation.x)} ${num(s.orientation.y)}`
       + ` ${num(s.orientation.z)} ${num(s.orientation.w)}`
       + ` | ${num(s.velocity.x)} ${num(s.velocity.y)} ${num(s.velocity.z)}`
-      // 【prev* 與 spawn* 都是這個迴圈直接寫進去的 —— Codex 2026-08-21 指出
-      // 漏了】漏掉的欄位在基準與候選兩邊都不會進陣列，所以「元素個數相同」
+      // 【prev* 與 spawn* 都是這個迴圈直接寫進去的，一個都不能
+      // 漏】漏掉的欄位在基準與候選兩邊都不會進陣列，所以「元素個數相同」
       // 補不了這個洞：那個欄位的迴歸永遠抓不到。
       + ` | ${num(a.prevPosition.x)} ${num(a.prevPosition.y)} ${num(a.prevPosition.z)}`
       + ` | ${num(a.prevOrientation.x)} ${num(a.prevOrientation.y)}`
@@ -88,7 +88,7 @@ export function spawnLines(b: Battle): string[] {
 /**
  * 30 秒之後**可觀測狀態**的 SHA-256，外加元素個數。
  *
- * 【為什麼不是 32 位元 FNV-1a —— Codex 2026-08-21】32 位元的碰撞空間只有
+ * 【為什麼不是 32 位元 FNV-1a】32 位元的碰撞空間只有
  * 43 億，而這裡比的是四萬多個浮點數。長度相同 + 32 位元雜湊相同**推不出**
  * 位元相同。SHA-256 在密碼學意義上碰撞不可行，所以它是**高可信校驗**
  * —— 不是數學上的逐位元比較，但足以當護欄。真正逐位元的那一半是出生表
@@ -100,7 +100,7 @@ export function spawnLines(b: Battle): string[] {
  * 【`crypto.subtle` 不需要 @types/node】它在 `lib: ["DOM"]` 裡，實測
  * `npx tsx` 與 vitest 下都可用。代價是這支必須是 async。
  *
- * ── 【它涵蓋什麼、不涵蓋什麼】Codex 複審 2026-08-21 ──────────
+ * ── 【它涵蓋什麼、不涵蓋什麼】────────────────────────────
  *
  * **涵蓋**：飛機的完整運動狀態（含 `prev*` 與作動器 `surfaces`）、血量、
  * 命中數、射速時鐘、槍焰、全部砲塔狀態、全部彈丸的並排陣列、彈丸環狀游標、
@@ -142,7 +142,7 @@ export async function replayDigest(b: Battle): Promise<string> {
     v.push(c.aircraft.prevOrientation.x, c.aircraft.prevOrientation.y,
       c.aircraft.prevOrientation.z, c.aircraft.prevOrientation.w)
     v.push(c.hp, c.alive ? 1 : 0, c.hitsDealt)
-    // 【controls 與 surfaces 都要 —— Codex 2026-08-21 指出漏了】`surfaces`
+    // 【controls 與 surfaces 都要】`surfaces`
     // 是作動器落後的狀態，**會延續到下一步**。漏掉它等於漏掉一整條積分。
     for (const k of ['aileron', 'elevator', 'rudder', 'throttle', 'brake'] as const) {
       v.push(c.aircraft.controls[k], c.aircraft.surfaces[k])

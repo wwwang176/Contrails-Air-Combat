@@ -59,7 +59,7 @@ describe('latch（遲滯）', () => {
 
 describe('stepRules（優先序）', () => {
   /**
-   * 【六種而不是五種】`rally` 是 2026-08-07 指揮層加進來的，而它**不由
+   * 【六種而不是五種】`rally` 由指揮層加進來，而它**不由
    * `arbitrate` 產生** —— 它是 `AiController` 的外部覆寫（見 `rules.ts` 的
    * `Intent` 註解）。放進聯集是因為 HUD、telemetry 與測試都以 `Intent` 當
    * 意圖的全集，少了它「AI 現在在幹嘛」就有一格顯示不出來。
@@ -369,7 +369,7 @@ describe('extend 的三個理由與射擊否決權', () => {
   })
 
   /**
-   * 【破防壓過「我飛不動了」是刻意的 —— 一個被實測否決的設計，2026-08-07】
+   * 【破防壓過「我飛不動了」是刻意的 —— 一個被實測否決的設計】
    *
    * `arbitrate` 第一行是 `if (s.defendLatch) return 'defend'`，它把同一個
    * 檔案自己定義的分野（相對理由 vs 絕對理由）對 `defend` 整條蓋掉。task #136

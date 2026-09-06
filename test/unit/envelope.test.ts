@@ -233,7 +233,7 @@ describe('bestSustainedTurnRate', () => {
         for (let v = 30; v <= 260; v += 0.25) {
           brute = Math.max(brute, sustainedTurnRate(spec, alt, v))
         }
-        // 【2026-08-25：由單邊「不得低於暴力解」改成雙邊容差】
+        // 【由單邊「不得低於暴力解」改成雙邊容差】
         //
         // 舊版寫 `fast >= brute - 1e-9`，也就是要求細化解**永遠**不低於
         // 0.25 m/s 網格的暴力解。那不是 `searchBestTurn` 保證得了的性質：

@@ -15,12 +15,11 @@ import { AI_DECISION_HZ } from '../../src/ai/AiController'
  * 投彈解算的效能量測。
  *
  * 【為什麼要一支獨立的探針】現有的 perf gate 量不到這條路 —— `bench/ai-load.ts`
- * 是兩架戰鬥機、20v20 那一組也沒有艦隊，所以 `shouldRelease` 一次都不會跑
- * （Codex 審查 C6）。
+ * 是兩架戰鬥機、20v20 那一組也沒有艦隊，所以 `shouldRelease` 一次都不會跑。
  *
  * 跑法：`npx vitest run test/tools/ai-bombing-perf.probe.ts`（它自己不是
  * 測試檔，用 vite-node 或改副檔名跑）。這裡輸出數字，不設門檻 ——
- * **護欄定值是專案負責人的決定。**
+ * **護欄定值是負責人的決定。**
  */
 
 const IDLE: Controller = { update() {} }

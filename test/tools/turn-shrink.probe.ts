@@ -170,7 +170,7 @@ const ALL: Record<string, { name: string; blue: AircraftSpec; red: AircraftSpec 
     blue: withG({ ...P51D, mass: P51D.mass * 0.8 }, 1.5),
     red: withG({ ...BF109K4, mass: BF109K4.mass * 0.8 }, 1.5),
   },
-  // M：專案負責人的提案 —— 軟夾到**史實結構極限**（gPositive 原封不動，
+  // M：軟夾到**史實結構極限**（gPositive 原封不動，
   // 由 PROBE_PILOT_G 放開飛行員夾）＋ 減重 10%
   M: {
     name: 'M 質量 ×0.9（結構極限原值）',

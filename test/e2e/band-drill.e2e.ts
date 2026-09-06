@@ -4,7 +4,7 @@
  *   npx vite-node test/e2e/band-drill.e2e.ts
  *   SECONDS=60 ALT=5000 npx vite-node test/e2e/band-drill.e2e.ts
  *
- * 【場景由專案負責人指定】「用 PLAYWRIGHT 有頭實際測試，情境可以設定一台
+ * 【場景】用 Playwright 有頭實際測試，設定一台
  * 打不死的靶機（永遠直飛）跟我機面對面 1v1。」場景組裝在 `main.ts` 的
  * `__drill`：Bf 109（玩家座位、開戰即代飛）對 P-51 靶機，5000 m 對頭 3 km。
  *

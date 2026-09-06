@@ -18,7 +18,7 @@ describe('markAngle', () => {
     expect(markAngle(mark(0, 1, 0))).toBeCloseTo(Math.PI / 2, 6)
   })
 
-  it('「右上 15°」就是 15° —— 專案負責人原話裡的那個例子', () => {
+  it('「右上 15°」就是 15°', () => {
     // 右上 15° 指的是螢幕上偏離正右 15°：右上多一點、右下少一點。
     const m = mark(Math.cos(15 * DEG), Math.sin(15 * DEG), 0)
     expect(markAngle(m) / DEG).toBeCloseTo(15, 6)

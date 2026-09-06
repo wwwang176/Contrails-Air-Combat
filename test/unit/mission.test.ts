@@ -116,8 +116,8 @@ describe('stepMission：撤離', () => {
 
   /**
    * 【為什麼要釘 NaN】`NaN < radius` 是 false，所以現況安全 —— 但這是**要被
-   * 釘住的安全**。前例：`sweetYield` 的 `Number.isFinite` 守衛是 Codex 審查
-   * 時抓出來的。
+   * 釘住的安全**。同一類的前例是 `sweetYield` 的 `Number.isFinite`
+   * 守衛。
    */
   it('playerPos 含 NaN 時不得誤判 victory', () => {
     const r = evac()
@@ -130,7 +130,7 @@ describe('stepMission：撤離', () => {
    * 【為什麼一定要守 `dt`】非有限或負的 `dt` 是呼叫端的 bug，但代價全部落在
    * `stepMission`：`NaN` 會**永久污染** `secondsLeft`（一旦是 NaN，`<= 0`
    * 恆為 false，任務再也不會超時），而 `formatCountdown` 對 NaN 回空字串
-   * —— 玩家看到的只是「倒數消失了」（Codex 審查 2026-08-16）。
+   * —— 玩家看到的只是「倒數消失了」。
    */
   it('dt 是 NaN／Infinity／負數時，倒數不動而不是被污染', () => {
     for (const bad of [NaN, Infinity, -Infinity, -1, -0.5]) {
@@ -168,7 +168,7 @@ describe('stepMission：撤離', () => {
 describe('stepMission：定案之後不再改任何欄位', () => {
   /**
    * 【為什麼要逐欄比而不是只比 outcome/metric】少比的那幾欄正是最容易被
-   * 「順手清一下」的（Codex 審查 2026-08-16）。`hasTarget` 若在定案後被清掉，
+   * 「順手清一下」的。`hasTarget` 若在定案後被清掉，
    * 圓環會在勝利畫面上憑空消失。
    */
   it('已經 victory 之後再呼叫，六個欄位全部凍結', () => {
@@ -196,7 +196,7 @@ describe('stepMission：定案之後不再改任何欄位', () => {
 /**
  * ★ **選項丙的核心保證。這一條紅了就代表 HUD 會騙人。**
  *
- * 【Codex 審查 2026-08-16：原版不是獨立的 oracle】原版同時讀同一次
+ * 【oracle 必須獨立】同時讀同一次
  * `stepMission` 算出的 `metric` 與 `outcome`，所以「兩者用同一條錯誤公式」
  * 仍然會全綠 —— 例如距離被錯誤地縮放，再用那個錯的距離判勝，等價式照樣成立。
  *
@@ -246,7 +246,7 @@ describe('resetMissionState', () => {
   /**
    * 【為什麼要跨 rules 重設】`resetMissionState` 的 annihilate 分支若忘了把
    * `hasTarget` 清成 false，撤離打完換遭遇戰時圓環會留在畫面上、小地圖上
-   * 也會留一個指向不存在座標的圈（Codex 審查 2026-08-16）。
+   * 也會留一個指向不存在座標的圈。
    */
   it('用 annihilate 重設一個撤離過的狀態，目標要被清乾淨', () => {
     const s = createMissionState(evac())

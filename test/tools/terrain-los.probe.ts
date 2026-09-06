@@ -3,8 +3,8 @@
  *
  * 跑法：`node node_modules/vite-node/vite-node.mjs test/tools/terrain-los.probe.ts`
  *
- * 【要回答什麼】專案負責人 2026-08-28 問「AI 會不會對地形後面的敵人開火／
- * 做防禦機動」。程式碼那一側的答案很明確：`shouldFire`、`alarmFactor`、
+ * 【要回答什麼】AI 會不會對地形後面的敵人開火或做防禦機動？
+ * 程式碼那一側的答案很明確：`shouldFire`、`alarmFactor`、
  * `Projectiles.step`、`World.resolveHits` **全部沒有任何遮蔽判斷**，
  * 整個 `src/` 裡也只有 `terrainSense.ts` 出現過 `blocked` 這個字。
  *

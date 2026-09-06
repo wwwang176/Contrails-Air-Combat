@@ -331,7 +331,7 @@ async function main(): Promise<void> {
   // 【二】同一個場景解鎖 vsync：真實工作量與餘裕。鎖著量不出離掉幀還有多少餘裕
   await pass('解鎖 vsync（量餘裕）', { unlockVsync: true, width: 1707, height: 960, dpr: 1.5 })
   // 【三】填充率消融：同一場景只把像素數砍成 1/9。幀時間跟著掉 = GPU 吃緊，
-  // 幾乎不動 = CPU 吃緊。2026-08-26 的答案是前者（頓挫 5.64/s → 0.08/s）
+  // 幾乎不動 = CPU 吃緊。實測的答案是前者（頓挫 5.64/s → 0.08/s）
   await pass('填充率消融 DPR 0.5（解鎖 vsync）',
     { unlockVsync: true, width: 1707, height: 960, dpr: 0.5, dogfightOnly: true })
   // 【四】填充率確定是瓶頸之後，逐層歸因到「是哪一層在畫」

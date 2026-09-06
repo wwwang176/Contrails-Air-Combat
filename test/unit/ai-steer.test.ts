@@ -257,7 +257,7 @@ describe('失速的兩種診斷', () => {
   })
 
   /**
-   * 【`unload` 不再換掉瞄準方位，2026-08-05】舊版是 `unloadAim(self, 0)`
+   * 【`unload` 不再換掉瞄準方位】舊版是 `unloadAim(self, 0)`
    * ——把瞄準點整個搬到自身速度向量上。人工驗收看到「右彎時瞬間抖一下」，
    * 追查到的就是它：
    *
@@ -557,7 +557,7 @@ describe('steerCommand', () => {
   })
 
   /**
-   * 【2026-08-13：超前不再收油門】舊版是 `throttle = THROTTLE_FLOOR` +
+   * 【超前不再收油門】舊版是 `throttle = THROTTLE_FLOOR` +
    * `brake = 1`，三個手段（後置、高 yo-yo、減速）同時消耗能量。實測的
    * 症狀：525 km/h 掉到 149 km/h 同時爬升 700 m —— 而 `overshoot` 的
    * 觸發條件（`range < 120 && closureRate > 0`）**純幾何、不看速度**，
@@ -660,7 +660,7 @@ describe('steerCommand', () => {
   })
 
   /**
-   * **破防對準的是威脅來源，不是當前目標**（2026-08-05）。
+   * **破防對準的是威脅來源，不是當前目標**。
    *
    * 【人工驗收】「AI 好像不太會閃」。實測 20v20：長機被鎖定的時間裡有
    * **97.8% 的鎖定來自不是它目標的敵機**，而舊版 `defendAim` 吃的是對當前
@@ -1094,7 +1094,7 @@ describe('extend 的俯仰是連續量', () => {
     // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
     steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, createDefendState(), null, cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-    // 【為什麼要取 max，2026-08-07】離地底限（floorPitchAngle）上線後，吃
+    // 【為什麼要取 max】離地底限（floorPitchAngle）上線後，吃
     // groundClearance 的層變成兩個，`steerCommand` 的輸出是兩者的較高者 ——
     // 這正是「只抬不壓」的設計買到的東西（見 applyFloor 的註解）。這一格
     // 剛好把它逼出來：cornerRatio 0.6、餘裕 100 m 時 extendPitchAngle 的
@@ -1114,7 +1114,7 @@ describe('extend 的俯仰是連續量', () => {
  * 真實 BFM 裡這一格是整段防禦最值錢的：破防把他甩出去 → 他衝到我前半球 →
  * 我反向拉進去。剪刀（scissors）不是寫死的動作，是這一格重複發生長出來的。
  *
- * 【只做瞄準那一半】原設計（2026-08-05 batch-2 spec §3.4）還有一半是向
+ * 【只做瞄準那一半】設計（batch-2 spec §3.4）還有一半是向
  * `selectTarget` 請求越權換目標。實測否決：紅 B 真的衝過頭時，藍方的目標
  * **100% 已經是紅 B**（兩個延遲、六個場景全部）—— 那一半解決的是一個不存在
  * 的問題。記在 `target.ts`。
@@ -1783,7 +1783,7 @@ describe('steerCommand：甜蜜區偏置', () => {
     sit.pullCeiling = 1
     sit.sweetPitch = 0
     engageKnobs(sit, k)
-    // 【把射擊讓位那一層推開，這個 describe 才量得到偏置本身】2026-08-16 加。
+    // 【把射擊讓位那一層推開，這個 describe 才量得到偏置本身】
     // 這幾條的責任是「`applyPitchBias` 有沒有正確地把角度加到航跡角上」，
     // 不是「讓位係數對不對」。800 m 同速尾追的 `interceptTime ≈ 0.90 s`，
     // 落在開火範圍內（係數 0），會把 12° 整個量成 0°。推到範圍外正是**保住**
@@ -1883,7 +1883,7 @@ describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
   /**
    * 【NaN 會汙染整個操縱向量】它與任何數比較都是 false，所以會穿過每一個
    * 分支，從最後一行帶著 `NaN / span` 出去，乘進偏置後讓 `aimWorld` 整個
-   * 變 NaN。Codex 審查 2026-08-16 抓到。
+   * 變 NaN。
    */
   it('非有限的攔截時間不讓位，不吐出 NaN', () => {
     for (const t of [Number.NaN, Infinity, -Infinity]) {
@@ -2028,7 +2028,7 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     const on = pitchOf(cmd.aimWorld)
 
     // 【兩邊都要夾】只寫「小於某個角度」是單邊的：讓位若把號搞反、`on` 比
-    // `off` 還抬頭，差值變負仍然會通過（Codex 審查 2026-08-16）。所以直接
+    // `off` 還抬頭，差值變負仍然會通過。所以直接
     // 對上由真實 `interceptTime` 算出的期望值。
     const expected = 10 * DEG * (1 - sweetYield(basis.interceptTime))
     expect(on).toBeCloseTo(off - expected, 9)
@@ -2037,7 +2037,7 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
 
   /**
    * 【這一條就是人工回報的那個態勢】109 停在目標線上方 10°、開火錐只有 3°，
-   * 敵人在射程內卻結構上開不了火（回報兩次：2026-08-16、2026-08-23）。
+   * 敵人在射程內卻結構上開不了火（回報過兩次）。
    * 分界與 `shouldFire`／HUD `leadValid` 共用同一個 `PROJECTILE_LIFETIME`，
    * 所以這條守的是「**預瞄環亮著的時候偏置必須是 0**」。
    */
@@ -2424,7 +2424,7 @@ describe('stepTrack —— 追不上的閘鎖', () => {
    * 飛機在很慢的視線角速度下也會讓比值超過門檻，而那個角速度低到
    * `shouldFire` 根本沒擋。那一格要讓給扴機。
    *
-   * 【為什麼不是靠推論】原本的計畫寫「比值大蘊含開不了火」，Codex 指出
+   * 【為什麼不是靠推論】「比值大蘊含開不了火」
    * 那在 `instantaneousTurnRate` 很小時不成立。改成明寫一道地板。
    */
   it('視線角速度低於 trackLosFloor 時不閘', () => {
@@ -2439,7 +2439,7 @@ describe('stepTrack —— 追不上的閘鎖', () => {
 /**
  * 佈局的旋鈕。spec `2026-08-23-track-break-design.md` §4。
  *
- * 專案負責人的原話：「我就會拉平並轉向方位，或是抬高 90 度轉方位（因為我有
+ * 要模仿的動作：拉平並轉向方位，或是抬高 90 度轉方位（因為有
  * 能量所以可以垂直抬高）⋯⋯之所以轉向的原因是**我要創造下一次矄準敵人的
  * 機會**。」—— 後置追擊 + 高 yo-yo 正是這兩個動作。
  */
@@ -2624,7 +2624,7 @@ describe('steerCommand：追不上就改為佈局', () => {
 
   /**
    * 【扴機優先是明寫的，不是推論出來的】原本的計畫主張「比值大蘊含開不了
-   * 火」，Codex 指出那在 `instantaneousTurnRate` 很小時不成立 —— 一台轉彎率
+   * 火」，而那在 `instantaneousTurnRate` 很小時不成立 —— 一台轉彎率
    * 很低的飛機在慢速視線下也會超過門檻，而那個角速度低到 `shouldFire`
    * 根本沒擋。所以改成 `stepTrack` 明寫一道 `trackLosFloor`。
    *

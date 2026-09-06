@@ -20,7 +20,7 @@ function idle(over: Partial<GodCameraInput> = {}): GodCameraInput {
 
 describe('stepGodCamera：移動', () => {
   /**
-   * 【這一條是這個模式的定義】專案負責人裁定「保持高度的平面式」：
+   * 【這一條是這個模式的定義】保持高度的平面式移動：
    * W/S/A/D 只在水平面上走，鏡頭的俯仰完全不參與。少了這一條，俯視著
    * 按 W 就會一頭栽進海裡 —— 而 45° 進場俯視正是預設姿態。
    */

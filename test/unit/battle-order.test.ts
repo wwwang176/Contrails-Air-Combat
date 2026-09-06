@@ -50,7 +50,7 @@ describe('lineAbreast', () => {
    * `playerSlot = floor(ceil(blueCount / SCHWARM_SIZE) / 2) × SCHWARM_SIZE`。
    */
   it('恰好一筆 player，且在藍隊正中央那一隊', () => {
-    // 【6 架的期望值是 1 不是 0 —— Codex 2026-08-21 實測抓到】
+    // 【6 架的期望值是 1 不是 0】
     // floor(ceil(6/4)/2) = floor(2/2) = 1，也就是第二個小隊（那一隊只有兩架）。
     // 實跑現行程式：playerIndex 4、flight 1、rosters [[0,1,2,3],[4,5],…]
     for (const [count, want] of [[20, 2], [16, 2], [6, 1], [4, 0], [1, 0]] as const) {
@@ -214,7 +214,7 @@ describe('mixedLine', () => {
 
 
 /**
- * `flightLine` —— 分隊清單的編組函數（2026-09-04 選單重做 spec §3.4）。
+ * `flightLine` —— 分隊清單的編組函數（選單重做 spec §3.4）。
  *
  * 【與 `mixedLine` 的關係】`mixedLine` 把逐架名單每 4 架硬切一隊；這一支收
  * 「每隊一個機種與架數」，所以 3 架一隊是合法的、不會跟下一隊混隊。

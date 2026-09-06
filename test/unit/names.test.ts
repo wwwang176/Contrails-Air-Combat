@@ -31,7 +31,7 @@ describe('mulberry32', () => {
 
 describe('機種的陣營（決定名冊）', () => {
   it('每一台在編的機種都拿到對的那一本名冊', () => {
-    // 【這一條取代了舊的 `factionOf` id 白名單】2026-08-21 之前 He 111 被判
+    // 【不可以用 `factionOf` 那種 id 白名單】漏一個機種時 He 111 會被判
     // 成同盟，一整隊德國轟炸機的機組因此叫 Ray Bishop、Hal Carter。陣營現在
     // 是 `AircraftSpec` 的必填欄位，漏填是編譯錯誤 —— 這一條守的是「填對了」
     const want: Record<string, string> = {

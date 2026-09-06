@@ -55,7 +55,7 @@ const DEG = Math.PI / 180
 // 【就地宣告而不裝 @types/node】與其他探針同一個做法
 declare const process: { env: Record<string, string | undefined> }
 
-/** 三個候選的航跡角。名字就是專案負責人的說法 */
+/** 三個候選的航跡角 */
 const CANDIDATES = [
   { name: '俯衝迴旋', gamma: -30 * DEG },
   { name: '水平迴旋', gamma: 0 },

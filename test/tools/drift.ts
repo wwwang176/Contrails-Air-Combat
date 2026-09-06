@@ -3,7 +3,7 @@
  *
  * 【為什麼抽出來】`defend-tilt.probe.ts`（掃 `defendTilt`）與
  * `defend-energy.probe.ts`（掃 `defendEnergyGain`）量的是**完全相同的東西**，
- * 只有「掃哪個旋鈕」不同。複製一份會讓兩張表的定義偷偷分岔，而 2026-08-13
+ * 只有「掃哪個旋鈕」不同。複製一份會讓兩張表的定義偷偷分岔，而那
  * 這一輪的主判準正是靠「兩張表可以直接比」才成立的。
  *
  * 【`buckets` 逐字複製 `altitude-drift.probe.ts` 的定義】那一支把整個 60 秒

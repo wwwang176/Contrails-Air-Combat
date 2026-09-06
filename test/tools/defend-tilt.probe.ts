@@ -2,7 +2,7 @@
  * **止損閘門**：高度對 `defendTilt` 有沒有反應？**不是測試**（`.probe.ts`）。
  * 跑法：npx vite-node test/tools/defend-tilt.probe.ts
  *
- * 【這一支存在的理由】2026-08-13 的 `pitchSurplusGain` 蓋完整套才發現「關到
+ * 【這一支存在的理由】`pitchSurplusGain` 那一輪蓋完整套才發現「關到
  * 底都沒差」，白燒一輪。這次先問「這根槓桿接得上嗎」再決定要不要蓋。
  *
  * 【不改任何出貨值】`defendTilt` 已經是 `SteerConfig` 的欄位，這裡在跑之前
