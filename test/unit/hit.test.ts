@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   boundingRadius, createHitResult, hitAircraft, makeHitBox, segmentBox,
-  segmentPointDistanceSq, HIT_PARTS, NO_HIT, PART_MULTIPLIER,
+  segmentPointDistanceSq, pointBoxDistance, HIT_PARTS, NO_HIT, PART_MULTIPLIER,
   type FaceNormal, type HitBox,
 } from '../../src/world/hit'
 import { P51D } from '../../src/specs/p51d'
@@ -358,5 +358,34 @@ describe('hitAircraft 的法線（M7 spec §3.2）', () => {
     expect(out.nx).toBe(0)
     expect(out.ny).toBe(0)
     expect(out.nz).toBe(0)
+  })
+})
+
+describe('pointBoxDistance', () => {
+  const box = { center: new Vector3(0, 0, 0), half: new Vector3(2, 1, 10) }
+
+  it('盒內是 0', () => {
+    expect(pointBoxDistance(0, 0, 0, box)).toBe(0)
+    expect(pointBoxDistance(2, 1, 10, box)).toBe(0)
+  })
+
+  it('單軸外側就是那一軸的超出量', () => {
+    expect(pointBoxDistance(5, 0, 0, box)).toBeCloseTo(3, 9)
+    expect(pointBoxDistance(0, 0, -14, box)).toBeCloseTo(4, 9)
+  })
+
+  it('角落是三軸超出量的歐氏距離', () => {
+    expect(pointBoxDistance(5, 5, 10, box)).toBeCloseTo(5, 9)
+  })
+
+  /**
+   * 【它為什麼存在】長條的盒子上，「到面的距離」與「到中心的距離」差很多
+   * ——那正是艦首爆炸的情況。
+   */
+  it('長盒的一端：到面 4、到中心 14', () => {
+    const near = pointBoxDistance(0, 0, -14, box)
+    const toCentre = 14
+    expect(near).toBeCloseTo(4, 9)
+    expect(toCentre / near).toBeGreaterThan(3)
   })
 })
