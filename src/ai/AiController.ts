@@ -38,6 +38,13 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
+import { bombRunCommand, shouldRelease } from './bombRun'
+
+/**
+ * 投彈解算的步長。**必須與空中的炸彈相同** —— `World.step` 跑 240 Hz，
+ * 兩邊不同的話 AI 算的落點與真正飛出去的那一顆會分家。
+ */
+const DT_SOLVE = 1 / 240
 import type { Ship } from '../world/ships'
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
@@ -111,6 +118,24 @@ export class AiController implements Controller {
   ships: readonly Ship[] = []
 
   /**
+   * 這一台的彈艙容量。**0 = 掛不了彈**，也就是絕大多數的機種。
+   *
+   * 【為什麼是注入而不是從 spec 讀】`bombBayOf` 讀的是機種代號，
+   * `AiController` 拿得到 `self.spec.id` —— 但那樣每一步要查一次雜湊表。
+   * 由 `main.ts` 與 `battle/setup.ts` 在接線時填一次。
+   */
+  bombBay = 0
+
+  /**
+   * 炸彈的阻力係數。**必須與 `World.bombDrag` 是同一個值** —— 兩份會漂開，
+   * 症狀是「AI 算的落點與飛出去的那一顆不一樣」而且畫面上只是投不準。
+   */
+  bombDrag = 0
+
+  /** 這一步的投彈解算結果。`emit` 之前由對艦分支寫。 */
+  private bombRelease = false
+
+  /**
    * 目前鎖定的**艦上目標**：哪一艘船的哪一個砲位。`ship` 為 −1 = 沒有。
    *
    * 【為什麼與 `targetIndex` 分開】那一格是 `TargetBoard.candidates` 的
@@ -160,6 +185,17 @@ export class AiController implements Controller {
     // 而不是繼續瞄一個已經不存在的東西。
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
+    }
+    // 【有彈艙的走轟炸航路】掃射與轟炸是兩個模式：前者對準砲位俯衝、
+    // 400 m 拉起脫離，後者要平飛定高穩定通過船的正上方。照掃射的行為，
+    // 轟炸機在投彈點之前就脫離了。
+    if (this.bombBay > 0) {
+      // 【釋放只在決策拍算】精確解一次 58～188 µs，每個物理步跑會直接
+      // 撞穿設計預算（Codex 2026-09-06 實測）。10 Hz 的取樣間距在
+      // 12.08 m 的最小釋放半徑之下仍然夠細 —— 見 `bombRun.ts`。
+      if (decide) this.bombRelease = shouldRelease(self, ship, this.bombDrag, DT_SOLVE)
+      bombRunCommand(self, ship, this.bombRelease, out)
+      return true
     }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
     return true
@@ -472,6 +508,10 @@ export class AiController implements Controller {
     const period = 1 / AI_DECISION_HZ
     const reference = this.stationReference
     const raw = this.raw
+    // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
+    // 一次釋放之後它會殘留 true，整艙會在下一次進入任何航路時倒光
+    // （Codex 審查 C1 的後半，探針驗過）。
+    raw.bombing = false
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會
@@ -552,6 +592,25 @@ export class AiController implements Controller {
         // 【集火的權威索引在命令上】`assignments` 那一格是它自由選的那一架
         this.targetIndex = this.order !== null ? this.order.focusIndex : -1
       }
+    }
+
+    // ── 轟炸機的對艦排在空中接戰與站位之前 ────────────────────
+    //
+    // 【為什麼要插在這裡】對艦分支本來包在 `if (!target)` 裡，而站位又排在
+    // 它前面 —— 實跑 `japan-m4` 48 步，五架 AI 一式陸攻的 `shipAim.ship`
+    // 全是 −1：長機選了空中目標，僚機都有站位參考。**整個功能靜靜地不
+    // 動作**（Codex 審查 C2）。
+    //
+    // 轟炸機出擊就是為了炸船，空中目標與編隊都不該蓋過它。
+    //
+    // 【只對有彈艙的機種成立】戰鬥機仍然走原本的仲裁，一位元都沒動；
+    // 而 `attackShip` 在沒有船時是一次早退，所以絕大多數場次連問都不會問。
+    //
+    // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
+    // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
+    if (this.bombBay > 0 && this.attackShip(self, decide, raw)) {
+      this.emit(self, dt, out)
+      return
     }
 
     const target = this.target
