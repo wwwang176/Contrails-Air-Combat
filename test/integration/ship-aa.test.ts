@@ -404,17 +404,17 @@ describe('擊沉', () => {
     for (const g of s.guns) expect(g.alive).toBe(true)
   })
 
-  /** 【任務規則】japan-m4 的目標是擊沉任意三艘。 */
-  it('japan-m4 的規則是擊沉三艘', () => {
+  /** 【任務規則】japan-m4 的目標是擊沉任意四艘。 */
+  it('japan-m4 的規則是擊沉四艘', () => {
     const r = missionConfigFrom(card).rules
     expect(r.kind).toBe('sink')
-    if (r.kind === 'sink') expect(r.count).toBe(3)
+    if (r.kind === 'sink') expect(r.count).toBe(4)
   })
 
-  it('打沉三艘就判勝', () => {
+  it('打沉四艘就判勝', () => {
     const b = createBattle(IDLE, missionConfigFrom(card), 1)
     expect(b.mission.outcome).toBe('fighting')
-    for (const s of b.world.ships.slice(0, 3)) {
+    for (const s of b.world.ships.slice(0, 4)) {
       s.hp = 0
       s.alive = false
       for (const g of s.guns) g.alive = false
