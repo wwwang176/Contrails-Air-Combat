@@ -126,6 +126,41 @@ describe('lightShipFires', () => {
     expect(xs).not.toContain(0)
   })
 
+  /**
+   * 【魚雷的火要抬到水線】`onTorpedoEnd` 推的 y 是**雷體自己的高度** ——
+   * 定深 −1 m。照抄的話那根 200 m 的煙柱從水面底下長出來。
+   *
+   * 艦體座標的原點就在水線上（`world/ships.ts`），所以夾在 0 等於夾在水面。
+   */
+  it('水線以下的命中點抬到水線', () => {
+    const fires = createShipFires()
+    const ev = createImpacts()
+    const s = ship(0, 0, 300)
+    // 魚雷命中舷側，y = −1（定深）
+    pushImpact(ev, 12, -1, 300, 1, 15_000, 0)
+    lightShipFires(fires, ev, [s])
+
+    const c = collector()
+    for (let i = 0; i < 1 / DT; i++) stepShipFires(fires, [s], DT, c.emit)
+    expect(c.at[0]!.y).toBe(0)
+    // 橫向不動 —— 夾的只有高度
+    expect(c.at[0]!.x).toBeCloseTo(12, 4)
+    expect(c.at[0]!.z).toBeCloseTo(300, 4)
+  })
+
+  /** 【甲板上的不受影響】夾錯邊的話炸彈的火會全部掉到水面。 */
+  it('水線以上的命中點原樣保留', () => {
+    const fires = createShipFires()
+    const ev = createImpacts()
+    const s = ship(0, 0, 300)
+    pushImpact(ev, 5, 7, 300, 2, 11_700, 0)
+    lightShipFires(fires, ev, [s])
+
+    const c = collector()
+    for (let i = 0; i < 1 / DT; i++) stepShipFires(fires, [s], DT, c.emit)
+    expect(c.at[0]!.y).toBeCloseTo(7, 4)
+  })
+
   /** 【找不到那一艘就不起火】索引對不上時寧可不畫，也不要讀到 undefined。 */
   it('索引指向不存在的船就不起火', () => {
     const fires = createShipFires()
