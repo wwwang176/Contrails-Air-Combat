@@ -426,6 +426,20 @@ TAIL = dict(
     sweep=math.radians(17.30), dihedral=0.0, root_y=0.275,
     root_tc=0.125, tip_tc=0.115,
     tip_round=0.10, round_from=0.8014, n_in=4, n_tip=4,
+    # 【翼根的後緣有缺口 —— 升降舵讓方向舵】把升降舵（ref 的 Object_32/34）單獨
+    # 拉出來量，後緣由翼根往外 0.2 m 之內收 289 mm，x 0.30 以外就是一條直線：
+    #
+    #   x     0.06   0.10    0.15    0.20    0.25    0.30 以外
+    #   後緣   端點  -8.135  -8.257  -8.330  -8.402  -8.424（平）
+    #
+    # 【一定要單獨量升降舵】連著機身量的話 x < 0.30 讀到的是尾錐，缺口整片被填掉
+    # —— F4F 那一輪就是這樣漏掉的（見 f4f4.model.ts 的「升降舵讓方向舵的缺口」）。
+    # 機身在 Zb 6.95 的半寬只有 0.10，所以 x 0.10…0.30 這段缺口是**露在外面**的。
+    #
+    # 表是量測值，不是擬合的：實測的曲線是外凸的（0.10→0.15 掉 122 mm，
+    # 0.20→0.25 只掉 72 mm），直線配不上。x < 0.10 用第一段的斜率外推 —— 那一段
+    # 埋在機身裡，看不到。
+    root_te_cut=[(0.10, 0.289), (0.15, 0.167), (0.20, 0.094), (0.25, 0.022), (0.30, 0.0)],
 )
 
 # ── 垂尾 ────────────────────────────────────────────────────────────
@@ -685,7 +699,27 @@ def panel_stations(p):
     if p.get('break_x'):
         us.append(p['break_x'] / p['half_span'])
     us += [rf + (1.0 - rf) * (j + 1) / n_tip for j in range(n_tip)]
+    # 翼根缺口要有站位才做得出來：n_in=4 的話最內側兩站是 u 0 與 0.2（x 0 與
+    # 0.57），缺口整個落在同一格裡，loft 只會把它拉成一條斜邊。
+    for xc, _ in p.get('root_te_cut', []):
+        us.append(xc / p['half_span'])
     return sorted(set(round(u, 6) for u in us))
+
+
+def root_te_cut(p, x):
+    """翼根後緣要往前收多少（見 TAIL 的 root_te_cut）。沒這一項就回 0。"""
+    tbl = p.get('root_te_cut')
+    if not tbl:
+        return 0.0
+    if x >= tbl[-1][0]:
+        return 0.0
+    if x <= tbl[0][0]:                       # 往內外推：這一段埋在機身裡
+        (x0, c0), (x1, c1) = tbl[0], tbl[1]
+        return max(0.0, c0 + (c0 - c1) * (x0 - x) / (x1 - x0))
+    for (x0, c0), (x1, c1) in zip(tbl, tbl[1:]):
+        if x0 <= x <= x1:
+            return c0 + (c1 - c0) * (x - x0) / (x1 - x0)
+    return 0.0
 
 
 def panel_y(p, x):
@@ -738,6 +772,9 @@ def build_panel(name, p, coll, mat, mirror_merge=True):
         chord = nom * shrink
         tc = p['root_tc'] + (p['tip_tc'] - p['root_tc']) * u
         le = p['root_le_z'] + math.tan(p['sweep']) * x + (nom - chord) * 0.25
+        # 【先算完 le 再扣缺口】缺口只收後緣，前緣不動；扣在 le 之前的話上面那個
+        # 四分之一弦的補償會把前緣一起往後拉。
+        chord -= root_te_cut(p, x)
         y = panel_y(p, x)
         ring = [(x, y + chord * tc * ct / 2, le + chord * cu)
                 for cu, ct in zip(CHORD_U, CHORD_T)]

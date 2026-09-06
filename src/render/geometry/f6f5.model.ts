@@ -4,6 +4,11 @@ import type { GlbAircraft } from './glb'
 /**
  * F6F-5 Hellcat 的外型 —— **這一台不是量出來的，是畫出來的。**
  *
+ * 【水平尾翼的翼根後緣有缺口】升降舵讓方向舵：後緣由翼根往外 0.2 m 之內收
+ * 289 mm，x 0.30 以外才是直線。機身在該站的半寬只有 0.10，所以那段缺口是露在
+ * 外面的。量法見 `build_f6f2.py` 的 `TAIL['root_te_cut']` —— **升降舵要單獨拉
+ * 出來量**，連著機身量的話 x < 0.30 讀到的是尾錐，缺口整片被填掉。
+ *
  * 【座艙是盒切的】玻璃不是自己一片面，而是**機身本身的那片面**：機身的背線先
  * 抬到罩頂（`build_f6f2.py` 的 `lift_to_canopy`），再用一個六面盒切 —— 玻璃 =
  * 機身∩盒、機身 = 機身−盒。罩子與龜背因此是同一條 loft，接縫的落差恆等於零
@@ -15,7 +20,7 @@ import type { GlbAircraft } from './glb'
  *
  * 幾何全部在 Blender 裡建（來源 `tools/blender/f6f5.blend`；建模腳本
  * `tools/blender/build_f6f2.py` 是它的出處），直接匯出
- * `public/models/f6f5.glb`，2,978 個三角形（P-51D 是 2,703）。所以這裡沒有
+ * `public/models/f6f5.glb`，3,178 個三角形（P-51D 是 2,703、F4F-4 是 4,602）。所以這裡沒有
  * `.hull.ts` 錨點表 —— GLB 就是那份資料。
  *
  * 【GLB 的座標系正好就是機體座標】Blender 匯出 glTF 時 +Y up、−Z forward，
