@@ -63,6 +63,14 @@ export const BOMB_ENVELOPE: ReleaseEnvelope = {
  *
  * 【高度有上界】太高投下去雷體會折斷 —— 這是炸彈沒有的一條。
  *
+ * 【200 而不是史實的 100】負責人 2026-09-07 裁定：**上界跟著 AI 飛得住的
+ * 高度走。** 原本訂 120，而 AI 帶不了一台轟炸機到那個高度平飛 —— 實測命令
+ * 它飛 50 m 或 100 m，兩次都在兩分鐘之內飛進海裡（`ai/torpedoRun.ts` 的
+ * `RUN_ALTITUDE`）。它自然穩得住的是 150 m 附近。
+ *
+ * 【為什麼不是只放寬給 AI】玩家與 AI 共用同一條包絡，準星的紅綠與 AI 的
+ * 投放門檻是同一個判準。分家的話會出現「AI 投得出玩家投不出的雷」。
+ *
  * **起始值，由試飛裁定。**
  */
 export const TORPEDO_ENVELOPE: ReleaseEnvelope = {
@@ -70,7 +78,7 @@ export const TORPEDO_ENVELOPE: ReleaseEnvelope = {
   minPitch: -6 * DEG,
   maxPitch: 6 * DEG,
   minAgl: 20,
-  maxAgl: 120,
+  maxAgl: 200,
   minTas: 0,
   maxTas: Infinity,
 }
