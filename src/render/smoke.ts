@@ -1,4 +1,4 @@
-import { Color, NormalBlending, Vector3 } from 'three'
+import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
@@ -251,12 +251,20 @@ export const SHIP_FIRE_SMOKE_CAPACITY = 16384
 /**
  * 船火的煙柱池。**垂直向上**：每一團的初速是朝上的，水平只抖一點寬度。
  * 爆炸那一份的煙是錐狀噴出去的，這一份不是。
+ *
+ * @param alphaMap 煙團的不透明度貼圖。**給了它，著色器就不再自己裁軟邊
+ *                 圓形**（`injectBillboard` 的 `soft`）—— 兩層淡出疊起來
+ *                 會把煙縮成一個小核。柱子是全場疊得最厚的一叢粒子，正是
+ *                 「一堆同心圓看得出是圓形」最明顯的地方，而貼圖版還會逐顆
+ *                 轉 UV 破掉那個重複感
  */
 export function createShipFireSmoke(
   capacity: number = SHIP_FIRE_SMOKE_CAPACITY,
+  alphaMap?: Texture,
 ): Particles {
   return createParticles({
     capacity,
+    alphaMap,
     blending: NormalBlending,
     life: SHIP_FIRE_SMOKE_LIFE,
     sizeFrom: SHIP_FIRE_SMOKE_SIZE_FROM,

@@ -411,16 +411,25 @@ function syncBombLoad(): void {
 
 // 【擊墜表現：+4 個 draw call】火球、黑煙、噴濺、零件。殘骸接管既有的
 // AircraftModel，所以它 +0；水柱沿用 M7 的池子，也是 +0（M8 spec §11）
+/**
+ * 煙團的不透明度貼圖。爆炸那一組與船火的煙柱共用。
+ *
+ * 【`load` 不 `await`】它同步回傳一個 Texture，圖到了自己填進去。第一次
+ * 爆炸離開場有好幾秒，貼圖早就在了；真的沒到的話 alphaMap 是空的，那一批
+ * 粒子透明 —— 不會壞，只是看不見。
+ */
+const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
 const smoke = createSmoke()
 ctx.scene.add(smoke.object)
 /**
- * 船火的煙柱。**與通用煙池分開** —— 這一份壽命 12 秒、終端上升 8 m/s，
- * 柱高約 92 m；通用的那一份是 2.5 秒、3 m/s，柱高 7.5 m，在 1,000 m 的
+ * 船火的煙柱。**與通用煙池分開** —— 這一份壽命 20 秒、上升約 10 m/s，
+ * 柱高 200 m；通用的那一份是 2.5 秒、3 m/s，柱高 7.5 m，在 1,000 m 的
  * 投彈高度上看不見。
  */
-const shipFireSmoke = createShipFireSmoke()
+const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
 ctx.scene.add(shipFireSmoke.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
@@ -446,12 +455,6 @@ ctx.scene.add(orderMarkers.object)
 const debris = createDebris()
 
 // ── 爆炸 ────────────────────────────────────────────────
-//
-// 【`load` 不 `await`】它同步回傳一個 Texture，圖到了自己填進去。第一次
-// 爆炸離開場有好幾秒，貼圖早就在了；真的沒到的話 alphaMap 是空的，那一批
-// 粒子透明 —— 不會壞，只是看不見。
-const smokeTexture = new TextureLoader().load('/textures/smoke.png')
-
 //
 // 【七個池一組】球塊火球、光暈、交棒煙、爆炸煙柱、揚塵、水冠、水霧。
 // 配方在 `render/blast.ts`，`/blast.html` 是它的調校台。
