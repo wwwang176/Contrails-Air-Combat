@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { createCommand } from '../../src/control/Controller'
+import { CommandDelay } from '../../src/ai/delay'
+import { applySafety } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { G4M } from '../../src/specs/g4m'
 import { P51D } from '../../src/specs/p51d'
@@ -90,5 +92,66 @@ describe('Combatant.bombBay', () => {
     expect(c.bombBay.queue).toBe(0)
     expect(c.bombBay.timer).toBe(0)
     expect(c.bombBay.load).toBe(2)
+  })
+})
+
+describe('bombing 穿過既有的指令管線', () => {
+  /**
+   * 【投彈直通 `CommandDelay`，不進緩衝區】反應延遲模型的是「看到→動作」
+   * 的遲滯，而投彈的判準是 AI 對**自己此刻的彈道**算出來的。延遲 0.3 s
+   * 之後飛機已經走了 27 m（90 m/s），大於最小的釋放半徑 12.08 m ——
+   * 每一顆都會系統性地落在船尾之後。
+   *
+   * 【這一條守的是「整個功能靜靜地不動作」】漏掉這一格的話，`bombRunCommand`
+   * 寫了也送不出去，AI 一顆都投不出來而且不報錯。
+   */
+  it('有反應延遲時投彈仍然當步送達', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    input.bombing = true
+    // 0.3 s 的延遲、1/240 的步長 —— 緩衝區有 72 格
+    d.push(input, 0.3, 1 / 240, out)
+    expect(out.bombing).toBe(true)
+  })
+
+  it('放開之後也是當步歸零，不會殘留', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    input.bombing = true
+    d.push(input, 0.3, 1 / 240, out)
+    input.bombing = false
+    d.push(input, 0.3, 1 / 240, out)
+    expect(out.bombing).toBe(false)
+  })
+
+  it('零延遲那條捷徑也要傳遞', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    input.bombing = true
+    d.push(input, 0, 1 / 240, out)
+    expect(out.bombing).toBe(true)
+  })
+})
+
+describe('applySafety 取消投彈', () => {
+  /**
+   * 【接管時航向已經被改掉】而釋放的判準是照原本那條航路算的 —— 不取消的話
+   * 炸彈會在偏離解算航路之後才出去。兩個接管分支（撞地、失速）都要關。
+   */
+  it('撞地接管時關掉 bombing', () => {
+    const a = new Aircraft(G4M)
+    // 低空、下沉：撞地接管的條件
+    a.state.position.set(0, 40, 0)
+    a.state.velocity.set(0, -60, -80)
+    const out = createCommand()
+    out.bombing = true
+    out.firing = true
+    const action = applySafety(a, 0, out)
+    expect(action).not.toBe('none')
+    expect(out.firing).toBe(false)
+    expect(out.bombing).toBe(false)
   })
 })

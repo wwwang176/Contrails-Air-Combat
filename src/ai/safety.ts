@@ -378,6 +378,9 @@ export function applySafety(
     }
 
     out.firing = false
+    // 【接管時一併取消投彈】航向已經被改掉，而釋放的判準是照原本那條航路
+    // 算的 —— 不取消的話炸彈會在偏離解算航路之後才出去
+    out.bombing = false
     return action
   }
 
@@ -395,6 +398,7 @@ export function applySafety(
     out.throttle = WEP_THROTTLE
     out.brake = 0
     out.firing = false
+    out.bombing = false
     return 'stall'
   }
 
