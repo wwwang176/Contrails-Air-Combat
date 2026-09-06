@@ -184,12 +184,23 @@ export function smokeTimer(timer: number, dt: number, interval: number): number 
  * **起始值，待試飛。**
  */
 export const SHIP_FIRE_PLUME_HEIGHT = 200
-export const SHIP_FIRE_SMOKE_LIFE = 12
 /**
- * 阻尼，s⁻¹。**很小** —— 大的話初速一兩秒就被吃光，柱高又變回由池層級的
- * 浮力決定，逐船不同就做不出來了。
+ * 一團煙活多久，s。
+ *
+ * 【它與柱高一起決定上升速度】兩者的比就是平均速度：200 m ÷ 20 s = 10 m/s，
+ * 那是大火煙柱的量級。壽命縮到 12 秒的話同樣的柱高要 31 m/s 的初速 ——
+ * 113 km/h，看起來像砲彈不像煙。
  */
-export const SHIP_FIRE_SMOKE_DRAG = 0.12
+export const SHIP_FIRE_SMOKE_LIFE = 20
+/**
+ * 阻尼，s⁻¹。**很小。**
+ *
+ * 【為什麼要這麼小】阻尼大就代表「起步很快、然後迅速慢下來」。整段柱子的
+ * 高度是固定的，所以阻尼愈大、起步的那一下就愈猛：0.12 之下初速是 12.6 m/s
+ * 而收尾只剩 4.6，看起來像噴出去的；0.02 之下是 12.1 → 8.1，從頭到尾都在
+ * 10 m/s 上下。
+ */
+export const SHIP_FIRE_SMOKE_DRAG = 0.02
 export const SHIP_FIRE_SMOKE_SIZE_FROM = 3
 export const SHIP_FIRE_SMOKE_SIZE_TO = 22
 
@@ -218,8 +229,8 @@ export function plumeSpeed(
 export const SHIP_FIRE_PLUME_SPEED = plumeSpeed(SHIP_FIRE_PLUME_HEIGHT)
 
 /**
- * 容量。**64 個火點 × 每 0.3 秒 3 團 × 壽命 12 秒 = 7,680** 的上界，
- * 取 8,192。
+ * 容量。**64 個火點 × 每 0.3 秒 3 團 × 壽命 20 秒 = 12,800** 的上界，
+ * 取 16,384。
  *
  * 【為什麼要照上界配】滿了會覆寫最舊的（`createParticles`），而最舊的正是
  * 柱子的**頂端** —— 症狀是煙柱莫名其妙變矮，而不是任何錯誤。
@@ -227,7 +238,7 @@ export const SHIP_FIRE_PLUME_SPEED = plumeSpeed(SHIP_FIRE_PLUME_HEIGHT)
  * 【為什麼容量大不等於每幀貴】`step` 對已經歸零的死格子跳過寫入，所以成本
  * 跟著存活數走而不是容量。實戰到不了 64 個火點：那要八艘船全部挨滿彈。
  */
-export const SHIP_FIRE_SMOKE_CAPACITY = 8192
+export const SHIP_FIRE_SMOKE_CAPACITY = 16384
 
 /**
  * 船火的煙柱池。**垂直向上**：每一團的初速是朝上的，水平只抖一點寬度。
