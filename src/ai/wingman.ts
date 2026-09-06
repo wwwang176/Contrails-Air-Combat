@@ -48,9 +48,9 @@ export interface WingmanConfig {
 }
 
 /**
- * `breakEnter`、`breakExit`、`minDwell` 仍是 M6 的起始值。
- * `turnTimeScale`、`turnWeight` 是 2026-08-05 加的切換成本，與
- * `DEFAULT_TARGET` 同值 —— 掃描表在那邊。
+ * `breakEnter`、`breakExit`、`minDwell` 仍是起始值。
+ * `turnTimeScale`、`turnWeight` 是切換成本，與 `DEFAULT_TARGET` 同值
+ * —— 掃描表在那邊。
  *
  * 【`breakEnter` / `breakExit` = 800 / 1,200 m】800 m 約是站位橫向間距
  * （200 m）的四倍 —— 散到這個程度還讀得出是編隊。1,200 m 落在 M5 的
@@ -248,7 +248,7 @@ function turnDiscount(self: Aircraft, enemy: Aircraft, cfg: WingmanConfig): numb
 }
 
 /**
- * 現任目標在**它當初被選上的那一級**的評分。找不到可比的分數時回 0。
+ * 現任目標在**它被選上的那一級**的評分。找不到可比的分數時回 0。
  *
  * 【為什麼要照原級別算】第一級問「他威脅我多少」、第二級問「他威脅長機
  * 多少」——同一架敵機在兩級的分數完全不同。拿錯級別比，門檻就是在比兩個
