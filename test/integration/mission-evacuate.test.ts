@@ -107,9 +107,9 @@ function run(controller: Controller, seconds: number, limit?: number) {
   const b = createBattle(controller, {
     ...base,
     rules,
-    // 【逐架把槍拆掉】改動前是換掉 `blueSpec` / `redSpec` 兩個欄位；編組表
-    // 版本掃過每一個小隊的每一架。**混編也照樣正確** —— 每一種機各自被
-    // 換成自己的無害版本，而不是整隊被壓成同一台
+    // 【逐架把槍拆掉】不能只換 `blueSpec` / `redSpec` 兩個欄位，要掃過每一個
+    // 小隊的每一架。**混編也照樣正確** —— 每一種機各自被換成自己的無害
+    // 版本，而不是整隊被壓成同一台
     units: base.units.map((u) => ({
       ...u,
       members: u.members.map((m) => ({ ...m, battery: harmless(m.battery) })),

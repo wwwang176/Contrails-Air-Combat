@@ -49,11 +49,11 @@ describe('stepMission：殲滅', () => {
   })
 
   /**
-   * 【逐字等於現況】改動前 `setup.ts` 的兩行是
+   * 【判定順序逐字等於 `setup.ts` 的那兩行】
    * `if (red === 0) victory else if (blue === 0) defeat` —— `else if` 的意思
    * 就是同時全滅時算贏。這一條把那個順序釘住。
    */
-  it('雙方同時全滅時判 victory —— 與改動前那兩行的順序一致', () => {
+  it('雙方同時全滅時判 victory —— `else if` 的順序不能翻', () => {
     const s = createMissionState(ANNIHILATE)
     stepMission(ANNIHILATE, inputs({ aliveBlue: 0, aliveRed: 0 }), DT, s)
     expect(s.outcome).toBe('victory')

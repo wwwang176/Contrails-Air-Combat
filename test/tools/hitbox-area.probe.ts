@@ -145,8 +145,8 @@ for (const spec of [P51D, F6F5, BF109K4, HE111, B17G]) {
     const per: string[] = []
     for (const p of PARTS) {
       // 【一定要 filter 不能 find】尾翼與（日後的）機翼都可能是多個盒。
-      // `find` 只量到第一個，聯集會少算 —— 第一版就是這樣把 B-17G 從側面
-      // 量成「盒比真外形還小」，那在幾何上不可能。
+      // `find` 只量到第一個，聯集會少算 —— B-17G 從側面會量成「盒比真外形
+      // 還小」，那在幾何上不可能。
       const one = new Set<number>()
       for (const box of spec.hitBoxes.filter((b) => b.part === p)) rasterBox(box, ex, ey, one)
       for (const c of one) union.add(c)

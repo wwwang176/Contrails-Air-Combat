@@ -26,7 +26,7 @@
  * 【`intent` 與 `mode` 在早退路徑上是過期值】沒有目標的三條分支（站位、
  * 集合、平飛）直接寫 `aimWorld` 然後 return，不更新那兩個欄位，所以它們
  * 留著上一次有目標時的值。**表裡多印一欄「有沒有目標」就是為了這件事** ——
- * 第一版沒有，於是把一段站位保持誤讀成 `extend`。
+ * 少了那一欄，一段站位保持會被讀成 `extend`。
  */
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'

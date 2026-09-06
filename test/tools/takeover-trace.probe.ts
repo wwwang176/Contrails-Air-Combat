@@ -53,8 +53,8 @@ function nearestEnemy(cs: readonly Combatant[], self: Combatant): number {
 }
 
 /**
- * 【為什麼要容錯】這支要拿去跑舊 commit 做 A/B。`tactics` 與
- * `speedAdvantage` 是這一輪才加的欄位，舊版讀到 `undefined`，
+ * 【為什麼要容錯】這支要拿去跑舊 commit 做 A/B，而那些 commit 沒有
+ * `tactics` 與 `speedAdvantage` 這兩個欄位。讀到 `undefined` 時
  * `.toFixed()` 會直接拋 —— 那會讓「跨版本比較」這件事本身做不成。
  */
 function num(x: number | undefined): string {

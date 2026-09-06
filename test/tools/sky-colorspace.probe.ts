@@ -62,9 +62,9 @@ for (const [name, hex] of [['SKY_HORIZON', HZ_OLD], ['SKY_ZENITH', ZEN_OLD]] as 
 /**
  * 【內插與非線性轉換不可交換】
  *
- * 初版先對兩個端點各自 decode 再內插：mix(decode(H), decode(Z), t)。
- * 但著色器實際做的是**先在線性空間內插**，再把結果誤當成 sRGB code 輸出：
- * decode(mix(H, Z, t))。兩者不相等。
+ * 對兩個端點各自 decode 再內插是 mix(decode(H), decode(Z), t)；著色器實際
+ * 做的是**先在線性空間內插**，再把結果誤當成 sRGB code 輸出：
+ * decode(mix(H, Z, t))。兩者不相等，算亮度要照後者。
  *
  * 地平線因此不是 0.315 而是 **0.241**；天頂 t = 1 沒有內插，0.101 是對的。
  */

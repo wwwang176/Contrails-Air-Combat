@@ -58,9 +58,8 @@ async function main(): Promise<void> {
     await page.click('[data-act="start"]')
     await page.click('[data-act="skirmish"]')
 
-    // 【遇遇戰改成出戰名單】以前是「選一個機型套到整隊」，
-    // 現在是逐架的名單：先清空我方，再點 20 下 B-17。紅隊維持預設
-    // （20 架 Bf109），所以場景跟以前一樣。
+    // 【遭遇戰用的是逐架的出戰名單，不是「選一個機型套到整隊」】
+    // 先清空我方，再點 20 下 B-17。紅隊維持預設（20 架 Bf109）。
     //
     // 【機種按鈕沒有 data-act】它是 renderSetup 動態長出來的一排 button，
     // 只認得出文字。B-17G 的 `name` 見 `src/specs/b17g.ts`。

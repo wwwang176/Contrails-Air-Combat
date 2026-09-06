@@ -22,7 +22,7 @@ describe('lineAbreast', () => {
 
   /**
    * 【lane 是序號不是公尺】它乘上 `schwarmSpacing` 才是公尺。這條守的是
-   * 「改動前 `(f − (n−1)/2)` 那個中間值」—— 數字一樣，浮點運算序列才一樣。
+   * `(f − (n−1)/2)` 那個中間值 —— 數字一樣，浮點運算序列才一樣。
    */
   it('lane 對稱、以中央為 0', () => {
     expect(blue(lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20)).map((f) => f.lane))
@@ -46,7 +46,7 @@ describe('lineAbreast', () => {
   })
 
   /**
-   * 【玩家落在藍隊正中央那個小隊的長機】判準逐字照抄改動前的
+   * 【玩家落在藍隊正中央那個小隊的長機】判準逐字是
    * `playerSlot = floor(ceil(blueCount / SCHWARM_SIZE) / 2) × SCHWARM_SIZE`。
    */
   it('恰好一筆 player，且在藍隊正中央那一隊', () => {

@@ -758,12 +758,12 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
   })
 
   /**
-   * 【的缺陷：再打一場之後指揮層讀凍結座標】
+   * 【再打一場之後指揮層不得讀到凍結座標】
    *
-   * 舊版 `Aircraft.reset` 做 `this.state = createFlightState(...)`，把
-   * `state.position` 換成一個**新的** `Vector3`；而 `createBattle` 把指揮層
-   * 快照的位置抓成那個向量的**別名**。`resetBattle`（再打一場）對每一架都
-   * 呼叫 `World.respawn` → `reset()`，於是 40 個別名全部指向孤兒，指揮層
+   * `Aircraft.reset` 若做 `this.state = createFlightState(...)`，就把
+   * `state.position` 換成一個**新的** `Vector3`；而 `createBattle` 若把指揮層
+   * 快照的位置抓成那個向量的**別名**，`resetBattle`（再打一場）對每一架都
+   * 呼叫 `World.respawn` → `reset()` 之後，40 個別名全部指向孤兒，指揮層
    * 從此讀一整場凍結的座標。
    *
    * 實測（`test/tools/rally-reset.probe.ts`）：重開後 40/40 架失聯、最大
@@ -797,8 +797,8 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
 
   /**
    * 【快照要是**副本**，不是別名】上一條驗數值跟得上，這一條驗它不是靠
-   * 「指到同一個物件」才跟得上的 —— 那正是舊版的作法，而它把「那個物件
-   * 永遠不會被換掉」變成一條沒人守的默契。
+   * 「指到同一個物件」才跟得上的 —— 靠別名等於把「那個物件永遠不會被
+   * 換掉」變成一條沒人守的默契。
    */
   it('指揮層快照持有自己的向量，不是飛機那一份的別名', () => {
     const b = createBattle(new AiController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, BF109K4, 4) }, 3)
