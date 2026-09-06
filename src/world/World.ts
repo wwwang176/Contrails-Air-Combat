@@ -16,8 +16,8 @@ import {
   type BombImpactFn, type BombState,
 } from './bomb'
 import {
-  blastRadiusOf, bombBlastDamage, bombBayOf, createBombBay, resetBombBay,
-  type BombBay,
+  blastRadiusOf, bombBlastDamage, bombBayOf, bombDamageOf, createBombBay,
+  resetBombBay, stepBombBay, type BombBay,
 } from '../weapons/bomb'
 import { createKills, pushKill, type KillEvents } from './kills'
 import { createDamageEvents, pushDamage, type DamageEvents } from './damage'
@@ -492,6 +492,7 @@ export class World {
     for (const c of this.combatants) {
       if (!c.alive) continue
       this.fire(c, dt)
+      this.releaseBombs(c, dt)
     }
     // 【砲塔在 fire 之後、彈丸推進之前】兩者都往同一個池子寫，順序固定
     // 才可重現。跳過死掉的 —— 槍焰的遞減已經在上面那個全 combatant 的
@@ -676,6 +677,45 @@ export class World {
     resetBombBay(c.bombBay, bombBayOf(spec.id))
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)
+  }
+
+  /**
+   * 這一步正在投彈的那一架。**`releaseBombs` 寫、`dropOne` 讀。**
+   *
+   * 【為什麼是欄位而不是參數】`stepBombBay` 的 `drop` 是一個無參數的回呼，
+   * 而熱路徑不得每步配置一個閉包。與 `onBombImpact` 同一個手法。
+   */
+  private bombing: Combatant | null = null
+
+  /** `stepBombBay` 的投彈回呼。綁在實例上建一次。 */
+  private readonly dropOne = (): void => {
+    const c = this.bombing
+    if (c === null) return
+    const p = c.aircraft.state.position
+    const v = c.aircraft.state.velocity
+    // 【從質心投，不是 `bombPoint`】那一格住在算繪層的 `AircraftModel`，
+    // `World` 讀不到也不該讀 —— 而它是給玩家對準星用的，與質心差兩三公尺，
+    // 落在 30 m 量級的殺傷半徑的雜訊裡。
+    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, bombDamageOf(c.aircraft.spec.id))
+  }
+
+  /**
+   * AI 的投彈。**玩家不走這裡** —— 它的 `command.bombing` 恆為 false，
+   * 投彈由 `main.ts` 的幀迴圈發動（那裡才有內插後的算繪位置與 `bombPoint`）。
+   *
+   * 【為什麼不是 `World` 認出玩家】這一層不知道誰是玩家（見 `damageEvents`
+   * 的說明），也不該知道。差別做在控制器那一端。
+   *
+   * 【空艙的機種不必另外擋】容量 0 時 `stepBombBay` 的 `load > 0` 不成立，
+   * 而回補又補回 0 —— 結構上投不出東西。
+   *
+   * 熱路徑，不配置。
+   */
+  private releaseBombs(c: Combatant, dt: number): void {
+    if (c.hp <= 0 || c.bombBay.capacity === 0) return
+    this.bombing = c
+    stepBombBay(c.bombBay, dt, c.command.bombing, this.dropOne)
+    this.bombing = null
   }
 
   /** 依扳機與射速時鐘發射。熱路徑，不配置。 */
@@ -1145,6 +1185,9 @@ export class World {
     // 跑。就地重設，不配置 —— respawn 可能在物理步之內被呼叫。
     c.turretCooldowns.fill(0)
     resetTurretStates(c.turretStates, c.aircraft.spec, c.index)
+    // 【彈艙也要清】「再打一場」不重建 World 而是逐架 respawn。不清的話
+    // 上一局的空艙、待投佇列與回補倒數會直接帶進下一局。
+    resetBombBay(c.bombBay, bombBayOf(c.aircraft.spec.id))
     c.hitsDealt = 0
     c.alive = true
     // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條
