@@ -62,8 +62,6 @@ export interface StrikeProfile {
   readonly abortRange: number
   /** 一趟直飛最多幾秒。逾時就放棄 —— 避免鎖了一個永遠到不了的航向。 */
   readonly runSeconds: number
-  /** 脫離要拉開到多遠才准再進場，m。 */
-  readonly egressRange: number
   /** 脫離時的爬升角，rad。 */
   readonly egressClimb: number
   /**
@@ -90,6 +88,15 @@ export interface StrikePlan {
   readonly aim: Vector3
   /** 進到這麼近且對正了就鎖航向轉入直飛，m。 */
   lockRange: number
+  /**
+   * 脫離要拉開到多遠才准再進場，m。
+   *
+   * 【為什麼也是推導的】它的下限是「掉頭之後還有空間重新鎖住航向」，也就是
+   * `lockRange + 2 × 迴旋半徑`。三個量都隨機種與高度變 —— 寫死一定會錯一邊：
+   * 5,000 m 是 4,000 m 高度的值，拿到 1,000 m 就多飛了一倍多的路
+   * （實測循環 111 s vs 66 s）。
+   */
+  egressRange: number
 }
 
 /**
@@ -121,7 +128,7 @@ export function createStrikeState(): StrikeState {
     ship: -1,
     seconds: 0,
     release: false,
-    plan: { aim: new Vector3(), lockRange: 0 },
+    plan: { aim: new Vector3(), lockRange: 0, egressRange: 0 },
   }
 }
 
@@ -133,6 +140,7 @@ export function resetStrike(s: StrikeState): void {
   s.release = false
   s.plan.aim.set(0, 0, 0)
   s.plan.lockRange = 0
+  s.plan.egressRange = 0
 }
 
 /**
@@ -183,13 +191,17 @@ export function stepStrike(
   out.firing = false
   state.release = false
 
+  // 【三個幾何量只在決策拍重算】見 `StrikeState.plan`。**排在相位分支之前**
+  // —— 脫離段也要用得到 `egressRange`，而那一段直接 return
+  if (decide) profile.plan(self, ship, state.plan)
+
   // ── 脫離 ──────────────────────────────────────────────
   //
   // 【背離＋爬高】投完之後繼續往船飛是十架死八架的直接原因（spec §5.1）。
   if (state.phase === 'egress') {
     steerEgress(self, profile, dx, dz, out)
     // 補滿且拉開夠遠才准再進場 —— 兩個條件缺一個就會空手再衝一次
-    if (loaded && range > profile.egressRange) {
+    if (loaded && range > state.plan.egressRange) {
       state.phase = 'approach'
       state.ship = -1
     }
@@ -197,8 +209,6 @@ export function stepStrike(
     return
   }
 
-  // 【瞄點與鎖定距離只在決策拍重算】見 `StrikeState.plan`
-  if (decide) profile.plan(self, ship, state.plan)
   const aim = state.plan.aim
   const ideal = flatten(S.v[2]!.set(aim.x - p.x, 0, aim.z - p.z))
 

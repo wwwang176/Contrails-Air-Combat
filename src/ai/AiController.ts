@@ -39,6 +39,7 @@ import {
 import { rallyCommand } from './rally'
 import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
 import { BOMB_PROFILE, setBombBallistics } from './bombRun'
+import type { StrikeProfile } from './strikeRun'
 import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
 import type { BombBay } from '../weapons/bomb'
 
@@ -141,6 +142,14 @@ export class AiController implements Controller {
   readonly strike = createStrikeState()
 
   /**
+   * 這一台的攻擊剖面。**魚雷機換成雷擊那一份。**
+   *
+   * 【為什麼可注入】狀態機與武器無關（`ai/strikeRun.ts`），差異全在剖面上。
+   * 寫死 `BOMB_PROFILE` 的話魚雷那一支要改這裡，而那正是不該共用的東西。
+   */
+  strikeProfile: StrikeProfile = BOMB_PROFILE
+
+  /**
    * 目前鎖定的**艦上目標**：哪一艘船的哪一個砲位。`ship` 為 −1 = 沒有。
    *
    * 【為什麼與 `targetIndex` 分開】那一格是 `TargetBoard.candidates` 的
@@ -199,7 +208,8 @@ export class AiController implements Controller {
       setBombBallistics(this.bombDrag, DT_SOLVE)
       const loaded = bay.load > 0 || bay.queue > 0
       stepStrike(
-        this.strike, self, ship, this.shipAim.ship, BOMB_PROFILE, loaded, decide, dt, out,
+        this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
+        loaded, decide, dt, out,
       )
       return true
     }
