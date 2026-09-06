@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { fillMarkers, type MarkerPool, type MarkerProject } from '../../src/hud/markerFeed'
 import { createHudFrame, HUD_MAX_MARKERS } from '../../src/hud/types'
-import { SHIP_CLASSES, createShip, deckHeightOf, type Ship } from '../../src/world/ships'
+import { SHIP_CLASSES, createShip, topHeightOf, type Ship } from '../../src/world/ships'
+import { createShipGuns } from '../../src/world/shipGuns'
 
 /**
  * # 標記進池的規則
@@ -49,7 +50,10 @@ function pool(items: readonly { x: number; y: number; z: number; team: number }[
 }
 
 function ship(index: number, team: 'blue' | 'red', x = 0, z = 0): Ship {
-  return createShip(index, SHIP_CLASSES.fletcher, team, x, z, 0, 0)
+  const s = createShip(index, SHIP_CLASSES.fletcher, team, x, z, 0, 0)
+  // 【砲位要建】標記的高度是「整艘船的最高點」，而那包含砲位盒
+  s.guns = createShipGuns(s.cls)
+  return s
 }
 
 describe('fillMarkers', () => {
@@ -107,16 +111,18 @@ describe('fillMarkers', () => {
   })
 
   /**
-   * 【船的高度是甲板不是水線】`Ship.position.y` 恆為 0。照抄的話倒三角形的
-   * 尖端指的是水面，而不是船。
+   * 【船的高度是整艘船的最高點，不是水線也不是甲板】`Ship.position.y` 恆為
+   * 0，照抄的話尖端指的是水面。用甲板（`deckHeightOf`）也不夠 —— 那是船體
+   * 盒的頂，上層建築與砲塔都在它之上，貼近看時符號會插在船身腰部
+   * （負責人 2026-09-07 試玩回報）。
    */
-  it('船用甲板高度，不是 position.y', () => {
+  it('船用整艘船的最高點，不是 position.y', () => {
     const f = createHudFrame()
     const s = ship(0, 'red')
     expect(s.position.y).toBe(0)
     // FLAT 把 y 原樣傳回 out.y，所以標記的 y 就是餵進投影的那個高度
     fillMarkers(f, [s], [], 0, FLAT)
-    expect(f.markers[0]!.y).toBeCloseTo(deckHeightOf(SHIP_CLASSES.fletcher), 6)
+    expect(f.markers[0]!.y).toBeCloseTo(topHeightOf(s), 6)
     expect(f.markers[0]!.y).toBeGreaterThan(0)
   })
 

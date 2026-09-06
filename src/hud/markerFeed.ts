@@ -1,5 +1,5 @@
 import { HUD_MAX_MARKERS, type HudFrame } from './types'
-import { deckHeightOf } from '../world/ships'
+import { topHeightOf } from '../world/ships'
 import { teamSlot } from '../world/World'
 import type { Ship } from '../world/ships'
 
@@ -57,9 +57,10 @@ export function fillMarkers(
     // 排在它後面的每一艘都會一起消失
     if (!s.alive) continue
     if (n >= HUD_MAX_MARKERS) break
-    // 【抬到甲板高度】`Ship.position.y` 恆為 0（水線），照抄的話倒三角形的
-    // 尖端指的是水面而不是船
-    n = put(f, n, s.position.x, deckHeightOf(s.cls), s.position.z,
+    // 【抬到整艘船的最高點】`Ship.position.y` 恆為 0（水線）。用甲板高
+    // （`deckHeightOf`）也不夠 —— 那是船體盒的頂，上層建築與砲塔都在它之上，
+    // 貼近看時符號會插在船身腰部
+    n = put(f, n, s.position.x, topHeightOf(s), s.position.z,
       teamSlot(s.team), own, project)
   }
   for (const p of pools) {
