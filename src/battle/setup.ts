@@ -44,6 +44,7 @@ import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import { createShipGuns, resetShipGuns } from '../world/shipGuns'
 import { clearBursts, clearFlak } from '../world/flak'
 import type { MissionFleet } from './missions'
+import type { Loadout } from '../weapons/stores'
 
 /**
  * 一場戰鬥的編制與出生幾何。全部由實測定案（M5 spec §14、M6 spec §8）。
@@ -98,6 +99,18 @@ export interface BattleConfig {
    * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
    */
   readonly fleet?: MissionFleet
+  /**
+   * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
+   * `loadoutOf`）。
+   *
+   * 【為什麼是整份而不是 `Partial`】部分複寫要定義「沒填的欄位從哪來」，
+   * 而那條規則沒有人會記得；整份替換則是看到什麼就是什麼。
+   *
+   * 【為什麼在 `BattleConfig` 而不是只留在卡片上】它決定投出去的東西有多痛
+   * ——那是模擬的一部分。與 `timeOfDay` 相反：那一個只影響畫面，明文規定
+   * 不進這裡（見 `missions.ts` 的說明）。
+   */
+  readonly blueLoadout?: Loadout
   altitude: number
   tas: number
   /**
@@ -1516,6 +1529,9 @@ export function resetBattle(
   // 【炸彈也要清】它的壽命是彈丸的 75 倍（90 s 對 1.2 s）—— 上一場還在空中
   // 的炸彈會在第二場繼續落下，看起來像憑空冒出來的水柱。
   b.world.bombs.clear()
+  // 【魚雷更久】跑滿射程要 91 秒，比炸彈的上限還長。而且它會在水面拉出
+  // 一條航跡 —— 上一場的那一條會在第二場繼續往前走
+  b.world.torpedoes.clear()
   // 【船與高砲也要重設】`japan-m4` 沒有波次，所以「再打一場」走的是就地
   // resetBattle、**不重建 World**。少了這一段，第二局會是船停在上一局結束
   // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——

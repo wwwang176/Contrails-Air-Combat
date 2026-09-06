@@ -4,8 +4,9 @@ import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import {
   BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS, blastRadiusOf, blastScaleOf,
-  bombBlastDamage, bombDamageOf,
+  bombBlastDamage,
 } from '../../src/weapons/bomb'
+import { LOADOUT_BY_AIRCRAFT, loadoutOf } from '../../src/weapons/stores'
 import { IMPACT_STRIDE } from '../../src/world/events'
 
 const DT = 1 / 240
@@ -183,29 +184,35 @@ describe('炸彈的規模由它自己的傷害推導', () => {
     expect(bombBlastDamage(far, BOMB_BLAST_DAMAGE * 2)).toBeGreaterThan(0)
   })
 
-  it('每一台掛的彈不同 —— 三台轟炸機各有各的值', () => {
-    const b17 = bombDamageOf('b17g')
-    const he = bombDamageOf('he111')
-    const g4m = bombDamageOf('g4m')
-    for (const v of [b17, he, g4m]) expect(v).toBeGreaterThan(0)
-    // 【五十番 500 kg 明顯大過 250 kg 級的那兩台】
-    expect(g4m).toBeGreaterThan(b17 * 1.25)
-    // 【B-17G 與 He 111 幾乎一樣】兩者的單顆彈都是 250 kg 級
-    expect(Math.abs(he / b17 - 1)).toBeLessThan(0.1)
+  it('兩台掛炸彈的轟炸機各有各的值，而且都是 250 kg 級', () => {
+    const b17 = loadoutOf('b17g')!
+    const he = loadoutOf('he111')!
+    expect(b17.kind).toBe('bomb')
+    expect(he.kind).toBe('bomb')
+    // 【B-17G 與 He 111 幾乎一樣】兩者的單顆彈都是 250 kg 級 —— 重轟炸機
+    // 的優勢在帶得多，不在單顆更狠
+    expect(Math.abs(he.damage / b17.damage - 1)).toBeLessThan(0.1)
+    expect(he.count).toBeLessThan(b17.count)
   })
 
-  it('不是轟炸機的回 0 —— 戰鬥機掛不了彈', () => {
-    expect(bombDamageOf('bf109k4')).toBe(0)
-    expect(bombDamageOf('p51d')).toBe(0)
+  it('基準彈就是 B-17G 掛的那一種 —— 尺度的分母不能與表分家', () => {
+    expect(loadoutOf('b17g')!.damage).toBe(BOMB_BLAST_DAMAGE)
+    expect(blastScaleOf(loadoutOf('b17g')!.damage)).toBe(1)
   })
 
-  it('G4M 的彈打得比 B-17G 的遠', () => {
+  it('掛載表上每一枚的尺度都是正的', () => {
+    for (const l of Object.values(LOADOUT_BY_AIRCRAFT)) {
+      expect(blastScaleOf(l.damage)).toBeGreaterThan(0)
+    }
+  })
+
+  it('更痛的彈打得更遠 —— 基準彈打不到的距離上仍然扣得到血', () => {
     const world1 = seaWithShip()
     const world2 = seaWithShip()
     const bow = world1.ship.cls.hull[0]!.half.z
     // 落在艦首前 32 m —— 超出基準彈的 30 m
-    dropOn(world1.world, 0, -(bow + 32), bombDamageOf('b17g'))
-    dropOn(world2.world, 0, -(bow + 32), bombDamageOf('g4m'))
+    dropOn(world1.world, 0, -(bow + 32), BOMB_BLAST_DAMAGE)
+    dropOn(world2.world, 0, -(bow + 32), BOMB_BLAST_DAMAGE * 1.5)
     expect(world1.ship.hp).toBe(world1.ship.cls.hp)
     expect(world2.ship.hp).toBeLessThan(world2.ship.cls.hp)
   })

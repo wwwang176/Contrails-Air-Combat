@@ -156,6 +156,43 @@ export const WATER_BLAST: BlastParams = {
 }
 
 /**
+ * 魚雷命中。**起始值，由試飛裁定。**
+ *
+ * 【比落水的水冠更窄更高】魚雷在船側水線下引爆，水沿著艦身噴上去，是一道
+ * 貼著船的水牆而不是散開的水冠。柱數少一點、間距收一半、高度加三成。
+ *
+ * 【沒有火也沒有煙】與 `WATER_BLAST` 同一個理由：水面下的爆炸看不到火。
+ *
+ * 【撞岸也用這一份】岸邊的爆炸仍然是水柱 —— 為它另開一張表要先有一個真的
+ * 分得出來的畫面。
+ */
+export const TORPEDO_BLAST: BlastParams = {
+  fireCount: 0,
+  fireSpeed: 0,
+  fireSize: 0,
+  fireCone: 0,
+  smokeCount: 0,
+  smokeSpeed: 0,
+  smokeSize: 0,
+  smokeCone: 0,
+  dustCount: 0,
+  dustSpeed: 0,
+  dustSize: 0,
+  dustCone: 0,
+  sprayCount: 10,
+  spraySpeed: 19,
+  sprayCone: (58 * Math.PI) / 180,
+  jetCount: 9,
+  jetSpread: 4.0,
+  jetHeight: 46,
+  jetRadius: 3.6,
+  mistPerJet: 6,
+  mistSize: 4.2,
+  glowSize: 0,
+  glowAlpha: 0,
+}
+
+/**
  * 空中擊墜。**沒有塵、沒有水冠** —— 那兩樣都是地面的東西。
  *
  * 【比墜地小】一架飛機的油箱不是 500 lb 的裝藥。火球團徑約 20 m，煙也少

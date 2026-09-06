@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { BOMB, FULL, WIDGET_DRAW, hudWidgets } from '../../src/hud/Hud'
-import { bombsightStyle } from '../../src/hud/widgets/bombsight'
+import { bombsightColor, bombsightStyle } from '../../src/hud/widgets/bombsight'
+import { HUD_COLORS } from '../../src/hud/types'
 
 describe('投彈模式的 HUD 清單', () => {
   it('不含 reticle —— 瞄準點是凍結的，畫出來是誤導', () => {
@@ -80,5 +81,41 @@ describe('bombsightStyle', () => {
     // 準星的一部分
     expect(bombsightStyle(false, 'none', false)).toBe('hidden')
     expect(bombsightStyle(false, 'solved', false)).toBe('hidden')
+  })
+})
+
+/**
+ * 顏色只回答一件事：**這一幀投得出去嗎。** 負責人：「只有在可投彈的位置
+ * 投彈瞄準框才會變成綠色（否則紅色）」。
+ */
+describe('bombsightColor', () => {
+  it('投彈模式：可投綠、不可投紅', () => {
+    expect(bombsightColor('ring', true)).toBe(HUD_COLORS.primary)
+    expect(bombsightColor('ring', false)).toBe(HUD_COLORS.danger)
+  })
+
+  it('一般飛行的暗圈也照這一條走', () => {
+    expect(bombsightColor('faint', true)).toBe(HUD_COLORS.dim)
+    expect(bombsightColor('faint', false)).not.toBe(HUD_COLORS.dim)
+  })
+
+  it('暗圈的兩種顏色都是半透明的 —— 不能比實線圈搶眼', () => {
+    for (const ok of [true, false]) {
+      expect(bombsightColor('faint', ok)).toContain('0.45')
+    }
+  })
+
+  it('解不出來時的那一點也分紅綠', () => {
+    expect(bombsightColor('dot', true)).toBe(HUD_COLORS.primary)
+    expect(bombsightColor('dot', false)).toBe(HUD_COLORS.danger)
+  })
+
+  /**
+   * 【樣式與顏色是兩件事】加一種顏色不該動到「畫不畫、畫哪一種」的任何
+   * 一條規則。
+   */
+  it('顏色不影響樣式', () => {
+    expect(bombsightStyle(true, 'solved', true)).toBe('ring')
+    expect(bombsightStyle(false, 'solved', true)).toBe('faint')
   })
 })
