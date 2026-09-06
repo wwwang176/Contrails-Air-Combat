@@ -181,8 +181,15 @@ export interface MissionState {
   targetRadius: number
   /** 剩餘秒數。無時限時是 `Infinity` */
   secondsLeft: number
-  /** HUD 的計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
+  /** HUD 的計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m，擊沉＝還差幾艘 */
   metric: number
+  /**
+   * `metric` 的分母。**−1 = 這一關沒有分母**，目標列就印裸數字。
+   *
+   * 【只有擊沉有】「還差 4 艘」單獨一個 4 讀不出進度；有分母才看得出
+   * 打掉幾艘、總共要幾艘。距離與剩餘敵機數沒有一個固定的總量可以當分母。
+   */
+  metricTotal: number
   /**
    * HUD 的**第二個**計量：還剩幾架要護送／要打掉。**−1 = 這一關沒有這個
    * 數字**，目標列就不畫它。
@@ -240,6 +247,7 @@ export function createMissionState(rules: MissionRules): MissionState {
     targetRadius: 0,
     secondsLeft: Infinity,
     metric: 0,
+    metricTotal: -1,
     remaining: -1,
   }
   resetMissionState(rules, s)
@@ -259,6 +267,8 @@ export function createMissionState(rules: MissionRules): MissionState {
  */
 export function resetMissionState(rules: MissionRules, out: MissionState): void {
   out.outcome = 'fighting'
+  // 【只有擊沉會覆寫它】其餘三種在下面都不碰，所以一律先關掉分母
+  out.metricTotal = -1
   if (rules.kind === 'convoy') {
     out.target.copy(rules.point)
     out.hasTarget = true
@@ -289,6 +299,7 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   // 【擊沉的開局計量是「還差幾艘」＝全部】給 0 的話目標列會在第一幀
   // 閃一下「還差 0 艘」—— 那個數字的意思是達標了。
   out.metric = rules.kind === 'sink' ? rules.count : 0
+  if (rules.kind === 'sink') out.metricTotal = rules.count
 }
 
 /**
@@ -316,12 +327,12 @@ export function stepMission(
 
   // ── 擊沉 ──────────────────────────────────────────────
   //
-  // 【兩個計量都要】`metric` 是還差幾艘（主要目標），`remaining` 是還剩
-  // 幾架能飛（籌碼）。與護送同一個理由：一個說「還要多久」，一個說
-  // 「還撐不撐得住」。
+  // 【只顯示擊沉進度，不顯示我方架數】`(2/4)` 已經說完這一關要做什麼。
+  // 我方全滅仍然判敗，只是那件事不占目標列的版面。
   if (rules.kind === 'sink') {
     out.metric = Math.max(0, rules.count - inp.shipsSunk)
-    out.remaining = inp.aliveBlue
+    out.metricTotal = rules.count
+    out.remaining = -1
     if (inp.shipsSunk >= rules.count) {
       out.outcome = 'victory'
       return

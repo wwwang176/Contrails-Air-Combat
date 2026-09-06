@@ -4,6 +4,7 @@ import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import { F6F5 } from '../specs/f6f5'
+import { F4F4 } from '../specs/f4f4'
 import { B17G } from '../specs/b17g'
 import { KI84 } from '../specs/ki84'
 import { A6M5 } from '../specs/a6m5'
@@ -639,17 +640,22 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
       battle: {
         ...KILL,
-        objective: '擊沉任意三艘敵艦',
-        blueSpec: G4M, redSpec: F6F5,
-        blueCount: 6, redCount: 6,
+        objective: '擊沉任意四艘敵艦',
+        // 【F4F-4 不是 F6F-5】1943 年 1 月的攔截者是企業號 VF-10 的野貓；
+        // 地獄貓 1943 年 8 月才首戰，晚了七個月。
+        blueSpec: G4M, redSpec: F4F4,
+        // 【11 對 8 是史實的量級】倫內爾島 29 日黃昏兩波共約 31 架一式陸攻，
+        // 30 日再來 11 架、被 VF-10 的野貓打下 8 架。取 30 日那一波的架數，
+        // 但**保留 29 日的黃昏**（卡片文案就是那一波）。
+        blueCount: 11, redCount: 8,
         terrain: 'sea',
         fleet: RENNELL_FLEET,
         // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
         // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
         altitude: 1000,
-        // 【擊沉任意三艘】八艘裡挑三艘，玩家自己決定打哪幾艘 —— 那本來
+        // 【擊沉任意四艘】八艘裡挑四艘，玩家自己決定打哪幾艘 —— 那本來
         // 就是雷擊機該做的決定。
-        sinkCount: 3,
+        sinkCount: 4,
         // 【這一關的一式陸攻掛炸彈，不是魚雷】`LOADOUT_BY_AIRCRAFT` 給
         // G4M 的預設是九一式航空魚雷，但 AI 的雷擊剖面還沒寫
         // （`ai/strikeRun.ts` 的 `StrikeProfile`）—— 掛雷的 AI 不會投。
