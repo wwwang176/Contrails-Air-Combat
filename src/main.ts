@@ -387,9 +387,9 @@ ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
 /**
- * 魚雷的航跡。**掃掠管，不是粒子** —— 粒子池畫的是團狀的東西，這是一條線
- * （理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它負責線上的
- * 閃爍。
+ * 魚雷的航跡。**貼著浪面的一條白帶，不是粒子** —— 粒子池畫的是團狀的東西，
+ * 這是一條線（理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它
+ * 負責線上的閃爍。
  */
 const wakes = createWakes()
 ctx.scene.add(wakes.object)

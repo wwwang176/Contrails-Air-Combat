@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import { createBattle, stepBattle, DEFAULT_BATTLE, type Battle } from '../src/battle/setup'
+import { createBattle, stepBattle, type Battle } from '../src/battle/setup'
 import { TORPEDOES_CAPACITY } from '../src/world/torpedo'
 import { MISSIONS } from '../src/battle/missions'
 import type { ReadyMissionCard } from '../src/battle/missions'
