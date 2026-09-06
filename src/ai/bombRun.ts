@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
+import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
 import type { Ship, ShipClass } from '../world/ships'
@@ -171,6 +172,26 @@ let drag = 0
 let solveDt = 1 / 240
 
 /**
+ * 這一台在現在這個高度與速度下的持續迴旋半徑，m。
+ *
+ * 【為什麼是持續而不是瞬間】掉頭是一個 180° 的迴轉，撐不住的過載換不到
+ * 那一整圈。`sustainedTurnRate` 解的正是 Ps = 0 的那個過載。
+ *
+ * 【差距很大，所以非推導不可】1,000 m 實測：零戰 487 m、G4M 534 m、
+ * B-17G 555 m、He 111 639 m —— He 111 推重比最差，退得比 B-17 還遠。
+ *
+ * 【退化時回 0】速度太低或爬不動時 `sustainedTurnRate` 回 0，此時脫離距離
+ * 退化成只有 `lockRange`。那已經是一個安全的下限（進得了場）。
+ */
+function turnRadius(self: Aircraft): number {
+  const v = self.state.velocity
+  const tas = Math.hypot(v.x, v.y, v.z)
+  if (tas < MIN_ERROR) return 0
+  const omega = sustainedTurnRate(self.spec, self.state.position.y, tas)
+  return omega > 0 ? tas / omega : 0
+}
+
+/**
  * 設定彈道參數。**`drag` 必須與 `World.bombDrag` 是同一個值**，`dt` 必須與
  * 空中的炸彈相同 —— 兩邊漂開的話 AI 算的落點與飛出去的那一顆不一樣，而
  * 症狀只是「投不準」。
@@ -195,19 +216,46 @@ export function setBombBallistics(k: number, dt: number): void {
  * 的 3 km）。5 km 同時滿足兩者。
  */
 /**
- * 鎖定航向之後到放手之前要留多長，m。
+ * 鎖定航向之後到放手之前要留多長，m。**負責人 2026-09-06 裁定：0。**
  *
- * 【它就是那段直線的長度】機身要把轉彎的餘擺收乾淨，落點才會停止橫掃。
- * 1,200 m 在 110 m/s 下約 11 秒。**起始值，由試飛裁定。**
+ * 【它的作用不是「讓第一枚打得中」——那是航向鎖定做的】A/B 實測（一台
+ * G4M、一艘不開火的威奇塔、五分鐘）：
+ *
+ * ```
+ *                        平均循環   命中(<40m)   落點
+ *   脫離5000 / 直線1200    111 s      6/6       6,33,12,33
+ *   脫離3000 / 直線1200     66 s      8/8       6,33,15,25
+ *   脫離3000 / 直線   0     67 s      4/8       6,45,11,54
+ *   脫離5000 / 直線   0    111 s      3/6       6,45, 5,49
+ * ```
+ *
+ * **每一趟的第一枚，四組完全一樣（6 m）。** 直線段只影響**連投的第二枚**
+ * ——G4M 一趟兩枚間隔 0.35 s，飛機還在轉的話第二枚會飛出去 45～54 m。
+ *
+ * 【為什麼還是訂 0】負責人裁定：「命中率低沒關係，AI 操作玩起來比較好玩
+ * 比較重要」。直線段對循環時間沒有影響（111 vs 111、66 vs 67），但它會把
+ * `lockRange` 撐大 1,200 m，連帶把脫離距離也撐大 —— 拿掉之後 G4M 在
+ * 1,000 m 的脫離距離由 3,456 m 降到 2,256 m。
+ *
+ * 【參數保留】`makeBombProfile` 仍然收它，隨時可以調回來重測。
  */
-export const RUN_SETTLE = 1200
+export const RUN_SETTLE = 0
 
-export const BOMB_PROFILE: StrikeProfile = {
+/**
+ * 造一份轟炸剖面。
+ *
+ * 【為什麼是工廠不是常數】魚雷那一支要換掉整份剖面，而這一支的兩個幾何
+ * 旋鈕（直線段長度、脫離距離）還在試飛階段 —— 用工廠才比較得出來。
+ *
+ * @param runSettle  鎖定航向之後到放手之前要留多長，m。見 `RUN_SETTLE`
+ * @param egressRange 脫離要拉開到多遠才准再進場，m
+ */
+export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
+  return {
   runAltitude: null,
   lockCone: 25 * DEG,
   abortRange: 600,
   runSeconds: 60,
-  egressRange: 5000,
   egressClimb: 12 * DEG,
 
   /**
@@ -228,16 +276,22 @@ export const BOMB_PROFILE: StrikeProfile = {
     if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
       shipAt(ship, HIT.seconds, out.aim)
       // 前拋距離：落點離現在的水平距離
-      out.lockRange = Math.hypot(HIT.x - p.x, HIT.z - p.z) + RUN_SETTLE
+      out.lockRange = Math.hypot(HIT.x - p.x, HIT.z - p.z) + runSettle
+      out.egressRange = out.lockRange + 2 * turnRadius(self)
       return
     }
     const speed = Math.hypot(v.x, v.z)
     const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
     shipAt(ship, speed > MIN_ERROR ? range / speed : 0, out.aim)
-    out.lockRange = RUN_SETTLE
+    out.lockRange = runSettle
+    out.egressRange = runSettle + 2 * turnRadius(self)
   },
 
   shouldRelease(self, ship) {
     return shouldRelease(self, ship, drag, solveDt)
   },
+  }
 }
+
+/** 目前上場的那一份。 */
+export const BOMB_PROFILE = makeBombProfile()

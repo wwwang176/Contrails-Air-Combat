@@ -339,7 +339,7 @@ describe('攻擊航路的狀態機', () => {
    * 一定會歪掉的航向。
    */
   it('超出鎖定距離時留在進場', () => {
-    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -3000, 0, 8)
     const st = strike()
     const out = createCommand()
     setBombBallistics(K, DT)
@@ -350,11 +350,12 @@ describe('攻擊航路的狀態機', () => {
   /**
    * 【對正且進到鎖定距離就轉直飛，並且把目標鎖住】換船等於航向白鎖。
    *
-   * 【2,000 m 是算出來的，不是猜的】鎖定距離＝前拋 ＋ `RUN_SETTLE`。
-   * 1,000 m 平飛 90 m/s 的前拋約 1,260 m，加 1,200 得約 2,460 m。
+   * 【1,000 m 是算出來的，不是猜的】鎖定距離＝前拋 ＋ `RUN_SETTLE`，而
+   * `RUN_SETTLE` 現在是 0（負責人裁定，見那個常數）—— 所以它就是前拋，
+   * 1,000 m 平飛 90 m/s 約 1,210 m。
    */
   it('對正且進到鎖定距離就轉直飛並鎖住目標', () => {
-    const sh = createShip(3, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+    const sh = createShip(3, SHIP_CLASSES.fletcher, 'red', 0, -1000, 0, 8)
     const st = strike()
     const out = createCommand()
     setBombBallistics(K, DT)
@@ -403,6 +404,25 @@ describe('攻擊航路的狀態機', () => {
     expect(out.bombing).toBe(false)
   })
 
+  /**
+   * 【脫離距離也是推導的】＝ 鎖定距離 ＋ 2 × 持續迴旋半徑。寫死的話一定會
+   * 錯一邊：5,000 m 是 4,000 m 高度的值，拿到 1,000 m 多飛一倍多的路
+   * （實測循環 111 s 對 41 s）。
+   */
+  it('脫離距離大於鎖定距離，而且隨高度變大', () => {
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -3000, 0, 8)
+    const out = createCommand()
+    setBombBallistics(K, DT)
+
+    const low = strike()
+    stepStrike(low, plane(1000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    const high = strike()
+    stepStrike(high, plane(4000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+
+    expect(low.plan.egressRange).toBeGreaterThan(low.plan.lockRange)
+    expect(high.plan.egressRange).toBeGreaterThan(low.plan.egressRange)
+  })
+
   /** 【飛過頭也要放棄】留在直飛只會鑽進 20 mm 的近迫火網。 */
   it('飛到放棄距離之內就轉脫離', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -400, 0, 8)
@@ -416,7 +436,7 @@ describe('攻擊航路的狀態機', () => {
 
   /** 【補滿且拉開夠遠才准再進場】兩個條件缺一個就會空手再衝一次。 */
   it('脫離時只有補滿還不夠，要拉開夠遠', () => {
-    const near = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2000, 0, 8)
+    const near = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -1200, 0, 8)
     const far = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
     const out = createCommand()
     setBombBallistics(K, DT)
