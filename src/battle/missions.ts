@@ -656,12 +656,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【擊沉任意四艘】八艘裡挑四艘，玩家自己決定打哪幾艘 —— 那本來
         // 就是雷擊機該做的決定。
         sinkCount: 4,
-        // 【這一關的一式陸攻掛炸彈，不是魚雷】`LOADOUT_BY_AIRCRAFT` 給
-        // G4M 的預設是九一式航空魚雷，但 AI 的雷擊剖面還沒寫
-        // （`ai/strikeRun.ts` 的 `StrikeProfile`）—— 掛雷的 AI 不會投。
-        // **負責人裁定：先保持掛炸彈**，等雷擊剖面上線再拿掉這一格。
-        blueLoadout: { kind: 'bomb', count: 2, damage: 11_700, reloadSeconds: 20 },
-        // 【卡片文案就寫黃昏】「在黃昏低空雷擊」—— 畫面本來一直是正午
+        // 【沒有 `blueLoadout`】掛魚雷，照 G4M 的預設。卡片文案是「低空
+        // 雷擊」，而 AI 的雷擊剖面在 `ai/torpedoRun.ts`
+        // 【卡片文案就寫黃昏】「在黃昏低空雷擊」
         timeOfDay: 'dusk',
       },
     },

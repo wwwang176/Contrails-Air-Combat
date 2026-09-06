@@ -69,6 +69,8 @@ import { solveImpact, type BombState, type Impact } from './world/bomb'
 import { blastScaleOf, resetBombBay, stepBombBay, type BombBay } from './weapons/bomb'
 import { canRelease, envelopeFor } from './weapons/releaseEnvelope'
 import { type Loadout, loadoutOf } from './weapons/stores'
+import { BOMB_PROFILE } from './ai/bombRun'
+import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
 import { createWakes } from './render/wake'
 import {
@@ -157,6 +159,9 @@ function wireTerrain(force = false): void {
     // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
     ctl.bombBay = c.bombBay
     ctl.bombDrag = world.bombDrag
+    // 【剖面跟著掛載走，不跟著機種】任務卡可以把 G4M 的魚雷複寫成炸彈
+    // （`MissionBattle.blueLoadout`），查機種的話那一關會飛雷擊航路去投彈
+    ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
     if (!force && ctl.terrain === terrain) continue
     ctl.terrain = terrain
     ctl.clearTerrainState()

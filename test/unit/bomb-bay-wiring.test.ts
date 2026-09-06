@@ -23,8 +23,9 @@ function only(needle: string): number {
 }
 
 describe('彈艙的接線：不得被關進任何視角分支', () => {
-  // 【比對到左括號為止】參數名不是這支護欄的內容 —— 釘住 `bombBay` 的話，
-  // 改成 `playerBay()` 就讓整支護欄靜靜地失效（32f4c79 起紅到現在）
+  // 【針對呼叫本身，不針對引數的名字】守的是「這一行在哪裡」。釘住引數名
+  // 的話，改名就會讓護欄靜靜地失效：`bombBay` 改成 `playerBay()` 之後，
+  // 這一支變成 0 個相符而不是位置錯了
   const bay = only('stepBombBay(')
   const godBranch = only('stepGodCamera(godCam')
   const flyBranch = only('rig.update(')

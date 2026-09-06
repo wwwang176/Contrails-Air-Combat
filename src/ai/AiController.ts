@@ -41,6 +41,7 @@ import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
 import { BOMB_PROFILE, setBombBallistics } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
 import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
+import { setTorpedoBallistics } from './torpedoRun'
 import type { BombBay } from '../weapons/bomb'
 
 /**
@@ -205,7 +206,10 @@ export class AiController implements Controller {
     // 東西繼承的是速度向量，轉彎中放等於往切線丟（spec §5.1）。
     const bay = this.bombBay
     if (bay !== null && bay.capacity > 0) {
+      // 【兩份都設】剖面由 `strikeProfile` 決定，而這裡不知道是哪一份 ——
+      // 兩支的參數是同一組值（阻力與步長），設漏一支的症狀只是「投不準」
       setBombBallistics(this.bombDrag, DT_SOLVE)
+      setTorpedoBallistics(this.bombDrag, DT_SOLVE)
       const loaded = bay.load > 0 || bay.queue > 0
       stepStrike(
         this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
