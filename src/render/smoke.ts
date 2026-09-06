@@ -201,8 +201,27 @@ export const SHIP_FIRE_SMOKE_LIFE = 20
  * 10 m/s 上下。
  */
 export const SHIP_FIRE_SMOKE_DRAG = 0.02
-export const SHIP_FIRE_SMOKE_SIZE_FROM = 3
-export const SHIP_FIRE_SMOKE_SIZE_TO = 22
+/**
+ * 煙團的直徑，m：出生 → 壽命結束。
+ *
+ * 【為什麼比色塊版的 3 → 22 大】換成 `smoke.png` 之後同樣的四邊形看起來
+ * 小了一截：貼圖是有邊有絮的煙團，而著色器自己裁的圓是實心的。逐像素量
+ * 同一張 128×128 的圖與那個圓：
+ *
+ * ```
+ *   α ≥ 0.50 的等面積半徑    色塊 0.750   貼圖 0.413    差 1.81 倍
+ *   α ≥ 0.25                     0.837        0.623        1.34
+ *   平均 α（總墨水量）           0.452        0.188        1.55 ← 取它
+ * ```
+ *
+ * 取**等墨水量**那一個：實心核心的比值（1.81）會讓外圈的絮飄得太開，
+ * 只看外緣（1.34）又補不回中心的份量。1.55 是「整團的視覺重量相同」。
+ *
+ * 【代價是填充率】線性放大 1.55 倍等於面積 2.4 倍，而這個場景本來就是
+ * 填充率吃緊的。真的掉幀時這一格與 `FIRE_SMOKE_PER_PUFF` 是第一順位。
+ */
+export const SHIP_FIRE_SMOKE_SIZE_FROM = 4.6
+export const SHIP_FIRE_SMOKE_SIZE_TO = 34
 /**
  * 逐顆亮度抖動的幅度（`particleShade`）。
  *
