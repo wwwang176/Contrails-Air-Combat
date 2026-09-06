@@ -8,6 +8,7 @@ import {
 import { briefingOf, shortName, type Briefing } from './briefing'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
+import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
 
 export interface MenuHooks {
@@ -86,6 +87,24 @@ const altSil = (y: number): string =>
   + `<g transform="translate(30 ${y - 3})" fill="#e3d9c0"><rect x="4" y="0" width="2" height="7"/><rect x="0" y="2" width="10" height="2"/></g></svg>`
 const ALT_Y: readonly number[] = [20, 12, 4]
 
+/**
+ * 時段的四個選項。**順序即按鈕順序，與 `render/timeOfDay.ts` 的
+ * `TIME_OF_DAY_IDS` 一致。**
+ *
+ * 【剪影不從 palette 取色】那一份是線性工作空間的光照參數，而這裡是 UI 的
+ * sRGB 色票 —— 兩者不是同一件事。剪影只要認得出是哪個時段。
+ */
+const TIMES: readonly { label: string; hint: string; value: TimeOfDay; sil: string }[] = [
+  { label: '清晨', hint: '日出前後', value: 'dawn',
+    sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#2c3a46"/><rect width="56" height="18" fill="#5b6f86"/><path d="M0 18h56" stroke="#f0c9a0"/><circle cx="28" cy="18" r="6" fill="#ffd7a8"/></svg>' },
+  { label: '正午', hint: '日正當中', value: 'noon',
+    sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#2e4658"/><rect width="56" height="18" fill="#7ba3c6"/><circle cx="28" cy="7" r="5" fill="#fff4d8"/></svg>' },
+  { label: '黃昏', hint: '日落前後', value: 'dusk',
+    sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#241f2e"/><rect width="56" height="18" fill="#8a5468"/><path d="M0 18h56" stroke="#ff9a52"/><circle cx="28" cy="18" r="6" fill="#ff9a52"/></svg>' },
+  { label: '夜間', hint: '月光', value: 'night',
+    sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#0a1018"/><rect width="56" height="18" fill="#16233a"/><circle cx="38" cy="7" r="4" fill="#c8d6ee"/><circle cx="12" cy="6" r="1" fill="#dce6f6"/><circle cx="20" cy="12" r="1" fill="#dce6f6"/><circle cx="7" cy="13" r="1" fill="#dce6f6"/></svg>' },
+]
+
 /** 剪影：戰鬥機一種、轟炸機一種 */
 const SIL: Record<AircraftSpec['role'], string> = {
   fighter: '<svg width="46" height="20" viewBox="0 0 46 20"><rect x="21" y="1" width="4" height="17" rx="2"/><path d="M2 9h42v3H2z"/><path d="M18 15h10v2H18z"/></svg>',
@@ -137,6 +156,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     versus: q('sk-versus'),
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
+    tod: q('sk-tod'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
   }
 
@@ -350,6 +370,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     optRow(el.terrain, TERRAINS, setup.terrain, (v) => hooks.onSetup({ ...setup, terrain: v }))
     optRow(el.alt, ALTITUDES.map((a, i) => ({ label: a.label, hint: `${a.value.toLocaleString()} m`, value: a.value, sil: altSil(ALT_Y[i] ?? 12) })),
       setup.altitude, (v) => hooks.onSetup({ ...setup, altitude: v }))
+    optRow(el.tod, TIMES, setup.timeOfDay, (v) => hooks.onSetup({ ...setup, timeOfDay: v }))
     // 【任一邊空著就禁用】不靠 `battleConfigFrom` 補一架 —— 那是防禦，不是 UI 的行為
     // 【只禁用，不寫一行字】專案負責人 2026-09-04：「兩邊都要有人才打得起來
     // << 移除這個文字訊息」。一邊空著的時候那一欄本來就是空的，按鈕也灰了

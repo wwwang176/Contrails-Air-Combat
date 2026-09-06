@@ -2,19 +2,23 @@ import { Color, Vector3 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
 import { SEA_COLOR, SEA_HORIZON_COLOR } from './ocean'
 import { FOG_DENSITY } from './fog'
+import type { TimeOfDay } from '../world/timeOfDay'
 // 【只匯入型別】這兩支都要用這裡的值，值匯入會成環
 import type { SceneContext } from './scene'
 
 /**
  * # 時段
  *
- * 一場戰鬥的光照設定值。**由任務卡指定**（`MissionBattle.timeOfDay`），
- * 沒有指定就是 `'noon'`。
+ * 光照的設定值。任務由卡片指定（`MissionBattle.timeOfDay`，省略 = 正午）、
+ * 遭遇戰由玩家在編組頁選（`SkirmishSetup.timeOfDay`）。
  *
  * 【不是日夜循環】場上的光照開局後固定不變 —— 遠處植被的亮度是烘進頂點色
  * 的（見 `lighting.ts`），會隨時間變的光照要把那一份也一起重烘。
+ *
+ * 【聯集本身住在 `world/`】見 `world/timeOfDay.ts`。這裡再匯出，既有的
+ * import 站點不用動 —— 與 `TerrainKind` 同一個安排。
  */
-export type TimeOfDay = 'dawn' | 'noon' | 'dusk' | 'night'
+export type { TimeOfDay }
 
 export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = ['dawn', 'noon', 'dusk', 'night']
 

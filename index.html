@@ -222,10 +222,11 @@
       .versus .bar .f { bottom: 0; background: #8a6658; }
       .versus .odds { font-size: 11px; color: var(--dim); text-align: center; line-height: 1.5; }
       .versus .odds b.m { color: var(--mine); } .versus .odds b.f { color: var(--foe); }
-      .setup { display: flex; gap: 34px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--rule); }
+      .setup { display: flex; flex-wrap: wrap; gap: 20px 34px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--rule); }
       .opt { display: flex; gap: 8px; }
       .opt button { padding: 7px; background: #2a2219; border: 1px solid var(--bd); color: var(--ink);
         display: flex; flex-direction: column; align-items: center; gap: 5px; width: 92px; }
+      .opt.narrow button { width: 70px; }
       .opt button.on { border-color: var(--sel); box-shadow: inset 0 -2px 0 var(--sel); }
       .opt button span { font-size: 11.5px; }
       .opt button small { font-size: 10px; color: var(--dim); }
@@ -391,6 +392,7 @@
             <div class="setup">
               <div><div class="lbl" style="margin-bottom:7px">戰場</div><div class="opt" id="sk-terrain"></div></div>
               <div><div class="lbl" style="margin-bottom:7px">開場高度</div><div class="opt" id="sk-alt"></div></div>
+              <div><div class="lbl" style="margin-bottom:7px">時段</div><div class="opt narrow" id="sk-tod"></div></div>
             </div>
             <div class="foot">
               <div class="right"><button class="go" data-act="fight">戰　鬥</button></div>
