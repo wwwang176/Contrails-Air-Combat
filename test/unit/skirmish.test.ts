@@ -16,7 +16,7 @@ import { BF109K4 } from '../../src/specs/bf109k4'
 describe('機種名單', () => {
   it('遭遇戰的名單全部一起列 —— 混搭之後陣營不再是一個選擇', () => {
     expect(ALL_SPECS.map((s) => s.id)).toEqual(
-      ['p51d', 'bf109k4', 'f6f5', 'ki84', 'a6m5', 'b17g', 'he111', 'g4m'])
+      ['p51d', 'bf109k4', 'f6f5', 'f4f4', 'ki84', 'a6m5', 'b17g', 'he111', 'g4m'])
   })
 
   it('戰鬥機在前、轟炸機在後', () => {
