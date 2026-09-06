@@ -640,7 +640,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
       battle: {
         ...KILL,
-        objective: '擊沉任意三艘敵艦',
+        objective: '擊沉任意四艘敵艦',
         // 【F4F-4 不是 F6F-5】1943 年 1 月的攔截者是企業號 VF-10 的野貓；
         // 地獄貓 1943 年 8 月才首戰，晚了七個月。
         blueSpec: G4M, redSpec: F4F4,
@@ -653,9 +653,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
         // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
         altitude: 1000,
-        // 【擊沉任意三艘】八艘裡挑三艘，玩家自己決定打哪幾艘 —— 那本來
+        // 【擊沉任意四艘】八艘裡挑四艘，玩家自己決定打哪幾艘 —— 那本來
         // 就是雷擊機該做的決定。
-        sinkCount: 3,
+        sinkCount: 4,
         // 【這一關的一式陸攻掛炸彈，不是魚雷】`LOADOUT_BY_AIRCRAFT` 給
         // G4M 的預設是九一式航空魚雷，但 AI 的雷擊剖面還沒寫
         // （`ai/strikeRun.ts` 的 `StrikeProfile`）—— 掛雷的 AI 不會投。
