@@ -25,10 +25,20 @@ const URGENT = 30
  * 【為什麼非有限值印破折號而不是 0】0 在殲滅那一側的意思是「贏了」。
  * 讓一個壞掉的數字長得像勝利，是最糟的失敗模式。
  */
-export function formatObjectiveMetric(v: number, kind: 'count' | 'distance'): string {
+export function formatObjectiveMetric(
+  v: number,
+  kind: 'count' | 'distance',
+  total = -1,
+): string {
   if (!Number.isFinite(v)) return '—'
   const x = v > 0 ? v : 0
-  if (kind === 'count') return String(Math.round(x))
+  if (kind === 'count') {
+    // 【有分母就印進度】擊沉是「還差 4 艘」，而單獨一個 4 讀不出打掉幾艘。
+    // 分子是**已達成數**，所以它從 0 往上走 —— 與目標列的其他數字（都在
+    // 往下掉）方向相反，但那正是玩家在追的那個數。
+    if (total >= 0) return `(${total - Math.round(x)}/${total})`
+    return String(Math.round(x))
+  }
   if (x < METRE_BELOW) return `${Math.round(x)} m`
   return `${(x / 1000).toFixed(1)} km`
 }
@@ -68,14 +78,13 @@ export function formatCountdown(seconds: number): string {
 export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
   if (!f.objectiveActive) return
 
-  const metric = formatObjectiveMetric(f.objectiveMetric, f.objectiveMetricKind)
+  const metric = formatObjectiveMetric(
+    f.objectiveMetric, f.objectiveMetricKind, f.objectiveMetricTotal)
   const clock = formatCountdown(f.objectiveSeconds)
   // 【剩餘架數排在距離之前】它是勝負的直接量：護送輸在「全部被擊落」，
   // 而距離只說還要多久。−1 的意思是這一關沒有這個數字
-  const left = f.objectiveRemaining >= 0 ? `${Math.round(f.objectiveRemaining)} 架　` : ''
-  const text = clock === ''
-    ? `${f.objectiveText}　${left}${metric}`
-    : `${f.objectiveText}　${left}${metric}　${clock}`
+  const left = f.objectiveRemaining >= 0 ? `${Math.round(f.objectiveRemaining)} 架` : ''
+  const text = [f.objectiveText, left, metric, clock].filter((s) => s !== '').join('　')
 
   const size = Math.round(14 * L.scale)
   const pad = 8 * L.scale
