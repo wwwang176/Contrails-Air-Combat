@@ -165,6 +165,13 @@ const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 /** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
 const SHIP_INV = /* @__PURE__ */ new Quaternion()
+/**
+ * 投雷時的機首水平方向。**熱路徑不得配置**，所以是模組層級的一格。
+ *
+ * 【為什麼不併進 `S`】那一組在 `onBombBlocked` 與 `onTorpedoBlocked` 的
+ * 迴圈裡活著，而投放回呼可能在同一個物理步裡被呼叫。
+ */
+const NOSE_H = /* @__PURE__ */ new Vector3()
 /** 撞船判定用的暫存。與 `SHIP_INV` 分開 —— 兩者同時活著。 */
 const HULL_C = /* @__PURE__ */ new Vector3()
 /** 爆心。範圍傷害每次爆炸用一次，與上面那兩個不同時活著 */
@@ -854,16 +861,28 @@ export class World {
    */
   private bombing: Combatant | null = null
 
-  /** `stepBombBay` 的投彈回呼。綁在實例上建一次。 */
+  /** `stepBombBay` 的投放回呼。綁在實例上建一次。 */
   private readonly dropOne = (): void => {
     const c = this.bombing
     if (c === null) return
     const p = c.aircraft.state.position
     const v = c.aircraft.state.velocity
+    const damage = c.loadout?.damage ?? 0
     // 【從質心投，不是 `bombPoint`】那一格住在算繪層的 `AircraftModel`，
     // `World` 讀不到也不該讀 —— 而它是給玩家對準星用的，與質心差兩三公尺，
     // 落在 30 m 量級的殺傷半徑的雜訊裡。
-    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, c.loadout?.damage ?? 0, teamSlot(c.team))
+    const team = teamSlot(c.team)
+    if (c.loadout?.kind === 'torpedo') {
+      // 【機首的水平方向要一起送】垂直入水那種退化情況沿用它，而那件事
+      // **不能從退化的速度反推**（同 `main.ts` 的玩家路徑）
+      const n = NOSE_H.set(0, 0, -1).applyQuaternion(c.aircraft.state.orientation)
+      n.y = 0
+      if (n.lengthSq() < 1e-12) n.set(0, 0, -1)
+      else n.normalize()
+      this.dropTorpedo(p.x, p.y, p.z, v.x, v.y, v.z, damage, n.x, n.z, team)
+      return
+    }
+    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, damage, team)
   }
 
   /**
@@ -879,10 +898,9 @@ export class World {
    * 熱路徑，不配置。
    */
   private releaseBombs(c: Combatant, dt: number): void {
-    // 【只有掛炸彈的走這裡】魚雷是另一套投放（低空、直線、入水），AI 那一份
-    // 剖面還沒寫 —— 見 `ai/strikeRun.ts` 的 `StrikeProfile`。掛雷的 AI 因此
-    // 不會投，而不是用彈道去投一枚魚雷。
-    if (c.hp <= 0 || c.loadout?.kind !== 'bomb' || c.bombBay.capacity === 0) return
+    // 【炸彈與魚雷都走這裡】差別收在 `dropOne` 的分流與包絡上；航路那一層
+    // 由 `AiController.strikeProfile` 換剖面（`ai/torpedoRun.ts`）。
+    if (c.hp <= 0 || c.loadout === null || c.bombBay.capacity === 0) return
     // 【投放包絡對 AI 一樣成立】玩家的準星顏色與 AI 的投放門檻是同一條
     // （`main.ts` 的 `releaseOk`）—— 兩邊分家的話會出現「AI 投得出玩家投不
     // 出的彈」。

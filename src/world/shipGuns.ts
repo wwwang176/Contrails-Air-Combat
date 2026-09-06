@@ -57,6 +57,24 @@ export interface ShipGunSpec {
  * 在你前方一朵一朵開出來**。代價是它對閃避中的戰鬥機幾乎打不中，而那正是
  * 要的手感：黑雲是危險的招牌，不是必中的判決。
  */
+/**
+ * 每一層的砲位規格。
+ *
+ * 【血量在 2026-09-07 拉成五倍】負責人：「太容易被轟炸機的機槍打爆了」。
+ * 60/120/200 → 300/600/1000。
+ *
+ * 【上界是艦體血量】砲位不該比船本身還耐打 —— 那會讓「打掉防空砲」變成
+ * 比擊沉還難的事。五倍之後離上界仍然很遠：
+ *
+ * ```
+ *                砲位   砲位總血   艦體血    占比
+ *   Fletcher      6      2,800    20,000   14.0%
+ *   Wichita       8      4,400    40,000   11.0%
+ *   Essex         8      4,400    60,000    7.3%
+ * ```
+ *
+ * 護欄在 `test/unit/ships.test.ts`。**起始值，由試飛裁定。**
+ */
 export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 20 mm Oerlikon，射程 830 × 1.6 ≈ 1,330 m
   //
@@ -66,7 +84,7 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 乘上砲區數。要的是**視覺密度**厚，不是進去就死。
   mg: {
     muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6,
-    damage: 5, hp: 60, boxHalf: 1.2, rotationRate: 60 * DEG,
+    damage: 5, hp: 300, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
   // 40 mm Bofors，射程 880 × 3.4 ≈ 2,990 m
   //
@@ -77,12 +95,12 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
     muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4,
-    damage: 18, hp: 120, boxHalf: 2.0, rotationRate: 45 * DEG,
+    damage: 18, hp: 600, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
   flak: {
     muzzleVelocity: 450, roundsPerMinute: 20, life: 0,
-    damage: 200, hp: 200, boxHalf: 3.0, rotationRate: 20 * DEG,
+    damage: 200, hp: 1000, boxHalf: 3.0, rotationRate: 20 * DEG,
   },
 }
 

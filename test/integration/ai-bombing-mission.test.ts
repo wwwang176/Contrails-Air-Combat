@@ -5,6 +5,8 @@ import { AiController } from '../../src/ai/AiController'
 import type { Battle } from '../../src/battle/setup'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import type { Controller } from '../../src/control/Controller'
+import { BOMB_PROFILE } from '../../src/ai/bombRun'
+import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
 
 /**
  * # AI 投彈的端到端驗收
@@ -39,8 +41,16 @@ function mission(): Battle {
     ctl.ships = b.world.ships
     ctl.bombBay = c.bombBay
     ctl.bombDrag = b.world.bombDrag
+    // 【剖面也要接】`main.ts` 依掛載選剖面。漏掉這一格的話掛雷的機種會用
+    // 轟炸剖面去飛雷擊 —— 而症狀又是「AI 好像不太會投」，沒有錯誤訊息
+    ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   }
   return b
+}
+
+/** 這一關投的是什麼。`japan-m4` 掛的是魚雷（`weapons/stores.ts`） */
+function dropped(b: Battle): number {
+  return b.world.bombs.dropped + b.world.torpedoes.dropped
 }
 
 function run(b: Battle, seconds: number): void {
@@ -61,12 +71,14 @@ describe('japan-m4 的 AI 一式陸攻', () => {
     }
     expect(acquired).toBeGreaterThan(0)
 
+    // 【90 秒】雷擊的循環比轟炸長：進場要先降到航路高度、裝填 45 秒。
+    // 十一架裡總有人投得出去 —— 一架都沒有就是這條路又斷了
     run(b, 89)
-    expect(b.world.bombs.dropped).toBeGreaterThan(0)
+    expect(dropped(b)).toBeGreaterThan(0)
 
     const hurt = b.world.ships.filter((s, i) => s.hp < hp0[i]!).length
     console.log(
-      `鎖定 ${acquired} 架、投彈 ${b.world.bombs.dropped} 枚、扣到血的船 ${hurt} 艘`,
+      `鎖定 ${acquired} 架、投放 ${dropped(b)} 枚、扣到血的船 ${hurt} 艘`,
     )
     console.log(`船血：${b.world.ships.map((s) => Math.round(s.hp)).join(' ')}`)
     expect(hurt).toBeGreaterThan(0)
@@ -85,7 +97,7 @@ describe('japan-m4 的 AI 一式陸攻', () => {
     const b = mission()
     run(a, 60)
     run(b, 60)
-    expect(a.world.bombs.dropped).toBe(b.world.bombs.dropped)
+    expect(dropped(a)).toBe(dropped(b))
     expect(a.world.ships.map((s) => s.hp)).toEqual(b.world.ships.map((s) => s.hp))
     expect(a.world.ships.map((s) => s.alive)).toEqual(b.world.ships.map((s) => s.alive))
   })

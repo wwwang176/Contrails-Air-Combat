@@ -29,6 +29,30 @@ const SOURCES = import.meta.glob('../../src/main.ts', {
 
 const MAIN = Object.values(SOURCES)[0]!
 
+const POOLS_RE = /const POOLS[^=]*=\s*\[([^\]]*)\]/
+
+/**
+ * `POOLS` 陣列裡列了哪幾個池。
+ *
+ * 【註解要剝掉，而且不能用 `$` 錨】陣列裡是可以寫註解的，而註解與它下一行
+ * 的名字之間沒有逗號 —— 不剝的話那一整段會被當成一個「池名」。
+ *
+ * 剝的正則是 `/\/\/.*​/` 而不是 `/\/\/.*$/`：**`.` 不匹配 `\r`**（它是行
+ * 終止符），而 `$` 沒有 `m` 旗標時錨的是字串結尾。`main.ts` 在 Windows 上
+ * 是 CRLF，於是那條有錨的版本一個字都剝不掉 —— 而它在 LF 的工作樹上是綠的。
+ */
+function poolNames(): string[] {
+  const m = MAIN.match(POOLS_RE)
+  if (m === null) throw new Error('main.ts 裡找不到 POOLS —— 這條測試的錨點過期了')
+  return m[1]!
+    .split('\n')
+    .map((line) => line.replace(/\/\/.*/, ''))
+    .join('\n')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
 /** 取出某個函數的函數體（到第一個頂層 `\n}` 為止）。 */
 function bodyOf(name: string): string {
   const head = `function ${name}(): void {`
@@ -77,18 +101,8 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 上面每一條都綠。這一條讀 `POOLS` 的字面量，確認每一個池都在裡面。
    */
   it('POOLS 涵蓋每一個粒子池', () => {
-    const m = MAIN.match(/const POOLS[^=]*=\s*\[([^\]]*)\]/)
-    expect(m).not.toBeNull()
-    // 【要先把註解剝掉】陣列裡是可以寫註解的，而註解與它下一行的名字之間
-    // 沒有逗號 —— 不剝的話那一整段會被當成一個「池名」
-    const listed = m![1]!
-      .split('\n')
-      .map((line) => line.replace(/\/\/.*$/, ''))
-      .join('\n')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-    expect(listed.sort()).toEqual(
+    expect(MAIN.match(POOLS_RE)).not.toBeNull()
+    expect(poolNames().sort()).toEqual(
       [
         'debris', 'fireball', 'flakBursts', 'smoke', 'sparks', 'splashes',
         'spray', 'vortex', 'wakes',
@@ -111,15 +125,8 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 【`shipFires` 不在此列】它不是粒子池，走的是 `stepShipFires(...)`。
    */
   it('POOLS 裡的每一個粒子池每幀都被推', () => {
-    const m = MAIN.match(/const POOLS[^=]*=\s*\[([^\]]*)\]/)
-    const listed = m![1]!
-      .split('\n')
-      .map((line) => line.replace(/\/\/.*$/, ''))
-      .join('\n')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s !== 'shipFires')
-    for (const pool of listed) {
+    for (const pool of poolNames()) {
+      if (pool === 'shipFires') continue
       expect(MAIN, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
     }
   })

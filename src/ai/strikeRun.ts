@@ -51,6 +51,17 @@ export interface StrikeProfile {
    * 轟炸是 `null`（從巡航高度投）；雷擊要降到投雷高度。
    */
   readonly runAltitude: number | null
+  /**
+   * 改變高度時最陡准到多少，**指令方向的 sin**。省略 = 1（45°）。
+   *
+   * 【為什麼需要它】`applyRunAltitude` 的 1/400 增益是為**小誤差**訂的，
+   * 而雷擊要從巡航高度掉到 50 m —— 誤差 950 m 會直接把指令頂到滿舵。實測
+   * 一台 G4M 以 45° 從 427 m 俯衝進場，安全層來不及改出，飛機黏在海面上
+   * 以 5 m/s 抹平（`test/tools/torpedo-run.probe.ts`）。
+   *
+   * 轟炸不受影響 —— 它的 `runAltitude` 是 `null`，整段不執行。
+   */
+  readonly runSlope?: number
   /** 機首與理想航向的夾角小於這個才鎖，rad。 */
   readonly lockCone: number
   /**
@@ -280,6 +291,14 @@ function steerEgress(
  * 高度控制只能透過它。比例增益 1/400 讓 400 m 的高度差對應 45° ——
  * 再陡的話低空進場會踩到安全層。
  */
+/**
+ * 高度控制的前瞻時間，s。**`err − damp · vy`。**
+ *
+ * 【為什麼是 6】長週期振盪的週期約 10 秒，前瞻取四分之一週期上下是標準的
+ * 起手；6 秒實測把 86～156 m 的擺幅收到個位數。**由試飛裁定。**
+ */
+const RUN_ALT_DAMP = 6
+
 function applyRunAltitude(self: Aircraft, profile: StrikeProfile, out: Command): void {
   if (profile.runAltitude === null) {
     out.aimWorld.y = 0
@@ -291,7 +310,16 @@ function applyRunAltitude(self: Aircraft, profile: StrikeProfile, out: Command):
   out.aimWorld.y = 0
   if (out.aimWorld.lengthSq() < MIN_ERROR) out.aimWorld.set(0, 0, -1)
   else out.aimWorld.normalize()
-  out.aimWorld.y = Math.max(-1, Math.min(1, err / 400))
+  const slope = profile.runSlope ?? 1
+  // 【要有阻尼項，不然是長週期振盪】純比例控制配上俯仰的遲滯，實測一台
+  // G4M 被命令飛 50 m 時在 86～156 m 之間以 10 秒的週期上下飄，高度與速度
+  // 反相 —— 典型的能量交換。誤差全程是負的（一直在命令下降）而高度照樣
+  // 往上，所以問題不在增益大小，是**沒有微分項**。
+  //
+  // 【`RUN_ALT_DAMP` 的單位是秒】`err − damp · vy` 等於「照現在的升降率，
+  // damp 秒之後還差多少」—— 前瞻，不是憑空的係數。
+  const vy = self.state.velocity.y
+  out.aimWorld.y = Math.max(-slope, Math.min(slope, (err - RUN_ALT_DAMP * vy) / 400))
   out.aimWorld.normalize()
 }
 

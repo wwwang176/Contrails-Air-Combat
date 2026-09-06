@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 import {
   SHIP_CLASSES, createShip, deckHeightOf, resetShip, stepShips,
 } from '../../src/world/ships'
@@ -171,5 +172,30 @@ describe('resetShip', () => {
     expect(s.position.x).toBeCloseTo(300, 6)
     expect(s.position.z).toBeCloseTo(-400, 6)
     expect(s.hp).toBe(SHIP_CLASSES.wichita.hp)
+  })
+})
+
+describe('砲位的血量', () => {
+  /**
+   * 【上界是艦體血量】負責人 2026-09-07 的條件：血量加倍，**但不超過船體
+   * 血量**。砲位比船還耐打的話，「打掉防空砲」會變成比擊沉還難的事。
+   *
+   * 兩個尺度都要守：單一砲位不得超過最小的艦體，整艘船的砲位加起來也不得
+   * 超過那一艘的艦體。
+   */
+  it('單一砲位的血量遠低於最小的艦體血量', () => {
+    const hulls = Object.values(SHIP_CLASSES).map((c) => c.hp)
+    const minHull = Math.min(...hulls)
+    for (const [tier, spec] of Object.entries(SHIP_GUN_SPECS)) {
+      expect(spec.hp, tier).toBeLessThan(minHull)
+    }
+  })
+
+  it('整艘船的砲位血量加起來也不超過艦體', () => {
+    for (const cls of Object.values(SHIP_CLASSES)) {
+      let total = 0
+      for (const z of cls.zones) total += SHIP_GUN_SPECS[z.tier].hp
+      expect(total, cls.id).toBeLessThan(cls.hp)
+    }
   })
 })
