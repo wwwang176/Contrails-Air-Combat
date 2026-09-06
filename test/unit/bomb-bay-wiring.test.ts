@@ -81,3 +81,44 @@ describe('標記的接線：`fillMarkers` 必須真的被呼叫', () => {
     expect(near).toContain('world.torpedoes')
   })
 })
+
+/**
+ * # 火災的接線護欄 —— 同樣讀 `main.ts` 的原始碼
+ *
+ * `ship-fires.test.ts` 直接呼叫 `lightShipFires`，所以把 `main.ts` 裡那兩行
+ * 刪掉不會讓任何測試紅。而症狀是**一個火點都不會出現、零錯誤訊息**。
+ *
+ * **順序是這支護欄真正的內容**：兩份命中事件都在物理子步裡被 `clearImpacts`
+ * 清掉。起火排在排空之後的話讀到的永遠是空的。
+ */
+describe('火災的接線：起火必須排在事件排空之前', () => {
+  const lines = (needle: string): number[] => {
+    const hits: number[] = []
+    for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes(needle)) hits.push(i)
+    return hits
+  }
+
+  it('炸彈與魚雷兩份事件都拿去起火', () => {
+    expect(lines('lightShipFires(')).toHaveLength(2)
+    const near = lines('lightShipFires(').map((i) => SRC[i]!).join('\n')
+    expect(near).toContain('world.bombEvents')
+    expect(near).toContain('world.torpedoEvents')
+  })
+
+  it('每一個 clearImpacts 的命中事件之前都先起火', () => {
+    for (const events of ['world.bombEvents', 'world.torpedoEvents']) {
+      const light = lines(`lightShipFires(shipFires, ${events}`)
+      const clear = lines(`clearImpacts(${events})`)
+      expect(light, events).toHaveLength(1)
+      expect(clear, events).toHaveLength(1)
+      expect(light[0]!, events).toBeLessThan(clear[0]!)
+    }
+  })
+
+  /** 【燃燒走畫面時間】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
+  it('stepShipFires 吃的是 frameSeconds', () => {
+    const step = lines('stepShipFires(')
+    expect(step).toHaveLength(1)
+    expect(SRC[step[0]!]!).toContain('frameSeconds')
+  })
+})

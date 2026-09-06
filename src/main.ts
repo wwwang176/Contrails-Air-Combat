@@ -19,7 +19,7 @@ import { createBombs, createTorpedoes } from './render/bombs'
 import { createFireChunks } from './render/chunks'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, FIRE_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitMist, scaleBlast,
   type BlastParams, type BlastPools,
@@ -30,7 +30,13 @@ import {
   createShipModels, preloadShipModels, shipModelTop, type ShipModels,
 } from './render/ships'
 import { clearBursts } from './world/flak'
-import { createSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from './render/smoke'
+import {
+  createShipFireSmoke, createSmoke, emitSmoke, plumeSpeed,
+  DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SHIPS,
+} from './render/smoke'
+import {
+  createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
+} from './render/shipFires'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from './render/spray'
@@ -408,10 +414,23 @@ const fireball = createFireball()
 ctx.scene.add(fireball.object)
 const smoke = createSmoke()
 ctx.scene.add(smoke.object)
+/**
+ * 船火的煙柱。**與通用煙池分開** —— 這一份壽命 12 秒、終端上升 8 m/s，
+ * 柱高約 92 m；通用的那一份是 2.5 秒、3 m/s，柱高 7.5 m，在 1,000 m 的
+ * 投彈高度上看不見。
+ */
+const shipFireSmoke = createShipFireSmoke()
+ctx.scene.add(shipFireSmoke.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
+/**
+ * 船身上的火點。**只有位置與計時，粒子由上面兩個池生。**
+ *
+ * 它與粒子池一起進 `POOLS` —— `reset()` 這個名字就是為了那份清單。
+ */
+const shipFires = createShipFires()
 /**
  * 魚雷的航跡。**貼著浪面的一條白帶，不是粒子** —— 粒子池畫的是團狀的東西，
  * 這是一條線（理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它
@@ -544,6 +563,41 @@ function emitBombBlasts(events: ImpactEvents): void {
 }
 
 /**
+ * 一朵火災的迷你爆炸：一團小爆燃 ＋ 幾團垂直上升的煙。
+ *
+ * **綁在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
+ *
+ * 【煙一律往上，不走錐狀噴射】`FIRE_BLAST` 的 `smokeCount` 是 0，這裡的
+ * 每一團都給一個**朝上**的初速，只在水平方向抖一點寬度。
+ *
+ * 【柱高是船高的 5 倍】驅逐艦 135 m、巡洋艦 191 m、航母 226 m。初速由
+ * `plumeSpeed` 從目標柱高反解 —— 兩者之間隔著阻尼，寫死一個看起來差不多
+ * 的速度的話，改了壽命或阻尼之後就不對了。
+ *
+ * 【一次三團】0.3 秒一次，一團的話那是一串珠子不是一道柱子。
+ */
+const FIRE_SMOKE_PER_PUFF = 3
+/** 水平抖動，m/s。柱子的粗細 */
+const FIRE_SMOKE_SPREAD = 1.6
+
+const emitFirePuff: FirePuffFn = (x, y, z, ship) => {
+  emitBlast(BLAST_POOLS, FIRE_BLAST, x, y, z, (fireSeed = (fireSeed + 1) | 0))
+  const up = plumeSpeed(shipModelTop(ship.cls.id) * SHIP_FIRE_PLUME_SHIPS)
+  for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
+    // 【等角度分佈，不用亂數】決定性不是這一層的要求，但免費的話就拿著；
+    // 亂數在這裡也只是換一種方式排成一圈
+    const a = ((fireSeed * 2.399963 + k * 2.094395) % 6.283185)
+    shipFireSmoke.emit(
+      x, y, z,
+      Math.cos(a) * FIRE_SMOKE_SPREAD, up, Math.sin(a) * FIRE_SMOKE_SPREAD,
+      1,
+    )
+  }
+}
+/** `emitFirePuff` 的散佈序號。爆炸配方與煙的方位角都吃它 */
+let fireSeed = 0
+
+/**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
  *
  * 【爆點抬到水面】事件的 y 是定深（−1 m）—— 水柱從那裡長的話，整根的底部
@@ -584,6 +638,9 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
 const POOLS = [
   fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts, wakes,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
+  // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
+  // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
+  shipFireSmoke, shipFires,
 ]
 
 function resetPools(): void {
@@ -1315,10 +1372,14 @@ function stepAndDrawBattle(frameSeconds: number): void {
     clearKills(world.killEvents)
     // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
     emitBombBlasts(world.bombEvents)
+    // 【起火要排在排空之前】兩份事件都在這個物理子步裡就被清掉了；等到
+    // 幀率區段才讀的話它們已經是空的，火點永遠是 0 而且不報錯
+    lightShipFires(shipFires, world.bombEvents, world.ships)
     clearImpacts(world.bombEvents)
     // 【魚雷的兩條管道】引爆走水冠、入水與航跡走水花。兩者都在物理子步裡
     // 消費 —— 一枚魚雷跑 91 秒會推出 250 筆航跡，累到幀尾會滿
     emitTorpedoBlasts(world.torpedoEvents)
+    lightShipFires(shipFires, world.torpedoEvents, world.ships)
     clearImpacts(world.torpedoEvents)
     emitSpray(spray, world.torpedoWakeEvents, WAKE_SPRAY_COUNT)
     clearImpacts(world.torpedoWakeEvents)
@@ -1514,6 +1575,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
   torpedoVisuals.update(world.torpedoes)
+  // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
+  stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)

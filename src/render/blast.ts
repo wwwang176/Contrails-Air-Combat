@@ -230,6 +230,45 @@ export const AIR_BLAST: BlastParams = {
 }
 
 /**
+ * 船上火災的**迷你爆炸**，每 0.3 秒一朵（`render/shipFires.ts`）。
+ *
+ * 【為什麼是 `AIR_BLAST` 的縮小版】燒的東西一樣 —— 甲板上的燃料與彈藥，
+ * 所以不揚土也不掀水冠。差別只在規模：這是持續燃燒中的一次小爆燃，
+ * 不是一枚 500 kg 落下。
+ *
+ * 【這裡完全不出煙】煙全部交給 `createShipFireSmoke` 那個池。爆炸的煙是
+ * **錐狀噴出去**的（`smokeCone`），噴完就被 2.5 秒的壽命收掉；混在一起的話
+ * 它會在數量上壓過真正往上長的那一份，整叢煙就不往上走了。
+ *
+ * **起始值，待試飛。**
+ */
+export const FIRE_BLAST: BlastParams = {
+  fireCount: 4,
+  fireSpeed: 11,
+  fireSize: 1.1,
+  fireCone: (60 * Math.PI) / 180,
+  smokeCount: 0,
+  smokeSpeed: 0,
+  smokeSize: 0,
+  smokeCone: 0,
+  dustCount: 0,
+  dustSpeed: 0,
+  dustSize: 0,
+  dustCone: 0,
+  sprayCount: 0,
+  spraySpeed: 0,
+  sprayCone: 0,
+  jetCount: 0,
+  jetSpread: 0,
+  jetHeight: 0,
+  jetRadius: 0,
+  mistPerJet: 0,
+  mistSize: 0,
+  glowSize: 0.7,
+  glowAlpha: 0.5,
+}
+
+/**
  * 當量 → **線性尺度倍率**。`LAND_BLAST`／`WATER_BLAST` 的基準是 1
  * （AN-M64，500 lb）。
  *

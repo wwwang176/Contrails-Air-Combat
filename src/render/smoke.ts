@@ -174,6 +174,97 @@ export function smokeTimer(timer: number, dt: number, interval: number): number 
   return (timer + dt) % interval
 }
 
+/**
+ * 船火的煙柱。
+ *
+ * 【柱高是船高的 5 倍】所以它不是一個常數 —— 驅逐艦與航母的煙柱不一樣高：
+ *
+ * ```
+ *   Fletcher   船高 27.0 m   柱高 135 m
+ *   Wichita    船高 38.2 m   柱高 191 m
+ *   Essex      船高 45.2 m   柱高 226 m
+ * ```
+ *
+ * 船高問的是 GLB 的包圍盒（`render/ships.ts` 的 `shipModelTop`），與 HUD
+ * 標記用的是同一個數字。
+ *
+ * 【為什麼靠初速而不是浮力】`gravity / drag` 那個終端上升速度是**池層級**
+ * 的設定，一個池只有一個值，做不出逐船不同的柱高。所以 `gravity = 0`、
+ * 阻尼調得很小，讓每一團的**初速**決定它能爬多高 —— 初速是逐團的參數，
+ * `plumeSpeed` 由目標柱高反解它。
+ *
+ * 【為什麼不共用通用的煙池】`SMOKE_LIFE` 是 2.5 秒、上升 3 m/s ⇒ 柱高只有
+ * 7.5 m。那個高度在 1,000 m 的投彈高度上看不見，而「哪幾艘在燒」正是玩家
+ * 要從空中讀的東西。
+ *
+ * **倍率是起始值，待試飛。**
+ */
+
+export const SHIP_FIRE_PLUME_SHIPS = 5
+export const SHIP_FIRE_SMOKE_LIFE = 12
+/**
+ * 阻尼，s⁻¹。**很小** —— 大的話初速一兩秒就被吃光，柱高又變回由池層級的
+ * 浮力決定，逐船不同就做不出來了。
+ */
+export const SHIP_FIRE_SMOKE_DRAG = 0.12
+export const SHIP_FIRE_SMOKE_SIZE_FROM = 3
+export const SHIP_FIRE_SMOKE_SIZE_TO = 22
+
+/**
+ * 想爬到 `height` 公尺要多快的初速，m/s。
+ *
+ * 積分器是 `v ← v·exp(−k·dt)`（`gravity` 為 0），所以
+ * `v(t) = v₀·e^(−kt)`，積出來的高度是
+ *
+ * ```
+ *   y(L) = v₀ · (1 − e^(−kL)) / k
+ * ```
+ *
+ * **不要寫死一個「看起來差不多」的速度** —— 柱高與初速之間隔著阻尼，
+ * 改了壽命或阻尼之後那個數字就不對了，而症狀只是「煙柱好像有點矮」。
+ */
+export function plumeSpeed(
+  height: number,
+  life: number = SHIP_FIRE_SMOKE_LIFE,
+  drag: number = SHIP_FIRE_SMOKE_DRAG,
+): number {
+  return (height * drag) / (1 - Math.exp(-drag * life))
+}
+/**
+ * 容量。**64 個火點 × 每 0.3 秒 3 團 × 壽命 12 秒 = 7,680** 的上界，
+ * 取 8,192。
+ *
+ * 【為什麼要照上界配】滿了會覆寫最舊的（`createParticles`），而最舊的正是
+ * 柱子的**頂端** —— 症狀是煙柱莫名其妙變矮，而不是任何錯誤。
+ *
+ * 【為什麼容量大不等於每幀貴】`step` 對已經歸零的死格子跳過寫入，所以成本
+ * 跟著存活數走而不是容量。實戰到不了 64 個火點：那要八艘船全部挨滿彈。
+ */
+export const SHIP_FIRE_SMOKE_CAPACITY = 8192
+
+/**
+ * 船火的煙柱池。**垂直向上**：每一團的初速是朝上的，水平只抖一點寬度。
+ * 爆炸那一份的煙是錐狀噴出去的，這一份不是。
+ */
+export function createShipFireSmoke(
+  capacity: number = SHIP_FIRE_SMOKE_CAPACITY,
+): Particles {
+  return createParticles({
+    capacity,
+    blending: NormalBlending,
+    life: SHIP_FIRE_SMOKE_LIFE,
+    sizeFrom: SHIP_FIRE_SMOKE_SIZE_FROM,
+    sizeTo: SHIP_FIRE_SMOKE_SIZE_TO,
+    // 【浮力是 0】柱高全部由每一團的初速決定（見 `plumeSpeed`）。給了浮力
+    // 就多一個池層級的常數項，逐船不同的柱高會被它拉平
+    gravity: 0,
+    drag: SHIP_FIRE_SMOKE_DRAG,
+    alphaFrom: SMOKE_ALPHA,
+    lifeJitter: SMOKE_LIFE_JITTER,
+    color: smokeColor,
+  })
+}
+
 export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
   return createParticles({
     capacity,

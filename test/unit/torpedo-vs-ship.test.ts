@@ -167,6 +167,36 @@ describe('事件', () => {
     expect(d[1]).toBe(-TORPEDO_DEPTH)
   })
 
+  /** 【第六格帶命中的那一艘】與炸彈同一個約定，火災靠它知道長在誰身上。 */
+  it('那一筆事件的第六格是命中的船，撞岸是 −1', () => {
+    const { world, ship } = seaWithShip()
+    launch(world, 400)
+    expect(world.torpedoEvents.data[5]).toBe(ship.index)
+  })
+
+  /**
+   * 【先命中船、再撞岸的那一枚不能帶到舊索引】`torpedoShip` 是一個**跨枚
+   * 留著的欄位**，而空中撞岸走的是 `onEnd`、不經過會清空它的
+   * `onTorpedoBlocked`。用一個全新的 `World` 測撞岸抓不到這件事 ——
+   * 那裡的欄位是 null。
+   */
+  it('同一個 World 裡先打中船、再撞岸，第二枚是 −1', () => {
+    const { world, ship } = seaWithShip()
+    launch(world, 400)
+    expect(world.torpedoEvents.data[5]).toBe(ship.index)
+    world.torpedoEvents.count = 0
+
+    // 把船挪開，並讓 z < −600 之後是陸地
+    ship.position.set(0, 0, 5000)
+    world.groundAt = (_x, z) => (z < -600 ? 5 : 0)
+    world.waterAt = (_x, z) => (z < -600 ? -Infinity : 0)
+    world.dropTorpedo(0, 40, 0, 0, 0, -90, TORPEDO.damage, 0, -1, BLUE)
+    for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
+    expect(world.torpedoEvents.count).toBe(1)
+    expect(world.torpedoEvents.data[3]).toBe(0)
+    expect(world.torpedoEvents.data[5]).toBe(-1)
+  })
+
   it('撞岸的事件：nx = 0', () => {
     const world = new World()
     // z < −600 之後是陸地
@@ -176,6 +206,7 @@ describe('事件', () => {
     for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
     expect(world.torpedoEvents.count).toBe(1)
     expect(world.torpedoEvents.data[3]).toBe(0)
+    expect(world.torpedoEvents.data[5]).toBe(-1)
   })
 
   it('射程用盡不推事件', () => {
