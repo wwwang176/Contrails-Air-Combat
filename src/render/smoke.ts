@@ -175,32 +175,15 @@ export function smokeTimer(timer: number, dt: number, interval: number): number 
 }
 
 /**
- * 船火的煙柱。
- *
- * 【柱高是船高的 5 倍】所以它不是一個常數 —— 驅逐艦與航母的煙柱不一樣高：
- *
- * ```
- *   Fletcher   船高 27.0 m   柱高 135 m
- *   Wichita    船高 38.2 m   柱高 191 m
- *   Essex      船高 45.2 m   柱高 226 m
- * ```
- *
- * 船高問的是 GLB 的包圍盒（`render/ships.ts` 的 `shipModelTop`），與 HUD
- * 標記用的是同一個數字。
- *
- * 【為什麼靠初速而不是浮力】`gravity / drag` 那個終端上升速度是**池層級**
- * 的設定，一個池只有一個值，做不出逐船不同的柱高。所以 `gravity = 0`、
- * 阻尼調得很小，讓每一團的**初速**決定它能爬多高 —— 初速是逐團的參數，
- * `plumeSpeed` 由目標柱高反解它。
+ * 船火的煙柱高度，m。**每一艘都一樣。**
  *
  * 【為什麼不共用通用的煙池】`SMOKE_LIFE` 是 2.5 秒、上升 3 m/s ⇒ 柱高只有
  * 7.5 m。那個高度在 1,000 m 的投彈高度上看不見，而「哪幾艘在燒」正是玩家
  * 要從空中讀的東西。
  *
- * **倍率是起始值，待試飛。**
+ * **起始值，待試飛。**
  */
-
-export const SHIP_FIRE_PLUME_SHIPS = 5
+export const SHIP_FIRE_PLUME_HEIGHT = 200
 export const SHIP_FIRE_SMOKE_LIFE = 12
 /**
  * 阻尼，s⁻¹。**很小** —— 大的話初速一兩秒就被吃光，柱高又變回由池層級的
@@ -230,6 +213,10 @@ export function plumeSpeed(
 ): number {
   return (height * drag) / (1 - Math.exp(-drag * life))
 }
+
+/** 每一團煙出生時的上升初速，m/s。 */
+export const SHIP_FIRE_PLUME_SPEED = plumeSpeed(SHIP_FIRE_PLUME_HEIGHT)
+
 /**
  * 容量。**64 個火點 × 每 0.3 秒 3 團 × 壽命 12 秒 = 7,680** 的上界，
  * 取 8,192。
@@ -255,8 +242,8 @@ export function createShipFireSmoke(
     life: SHIP_FIRE_SMOKE_LIFE,
     sizeFrom: SHIP_FIRE_SMOKE_SIZE_FROM,
     sizeTo: SHIP_FIRE_SMOKE_SIZE_TO,
-    // 【浮力是 0】柱高全部由每一團的初速決定（見 `plumeSpeed`）。給了浮力
-    // 就多一個池層級的常數項，逐船不同的柱高會被它拉平
+    // 【浮力是 0】柱高全部由每一團的初速決定（見 `plumeSpeed`），這樣
+    // 「爬到 200 m」就是一個解得出來的式子而不是兩個常數湊出來的結果
     gravity: 0,
     drag: SHIP_FIRE_SMOKE_DRAG,
     alphaFrom: SMOKE_ALPHA,

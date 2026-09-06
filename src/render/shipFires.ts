@@ -33,13 +33,8 @@ export const FIRE_PUFF = 0.3
  */
 export const SHIP_FIRE_CAPACITY = 64
 
-/**
- * 一朵迷你爆炸要放在哪。世界座標。
- *
- * @param ship 燒的是哪一艘。**煙柱高度是船高的倍數**，所以呼叫端要拿得到
- *             它才問得出那艘船有多高（`render/ships.ts` 的 `shipModelTop`）
- */
-export type FirePuffFn = (x: number, y: number, z: number, ship: Ship) => void
+/** 一朵迷你爆炸要放在哪。世界座標。 */
+export type FirePuffFn = (x: number, y: number, z: number) => void
 
 export interface ShipFires {
   readonly capacity: number
@@ -174,6 +169,6 @@ export function stepShipFires(
     // 的畫面只會出現一次，多放的幾朵疊在同一個位置
     do { t += FIRE_PUFF } while (t <= 0)
     f.puff[i] = t
-    puff(P.x, P.y, P.z, s)
+    puff(P.x, P.y, P.z)
   }
 }
