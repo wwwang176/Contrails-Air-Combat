@@ -38,7 +38,9 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
-import { bombRunCommand, shouldRelease } from './bombRun'
+import { BOMB_PROFILE, setBombBallistics } from './bombRun'
+import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
+import type { BombBay } from '../weapons/bomb'
 
 /**
  * 投彈解算的步長。**必須與空中的炸彈相同** —— `World.step` 跑 240 Hz，
@@ -118,13 +120,16 @@ export class AiController implements Controller {
   ships: readonly Ship[] = []
 
   /**
-   * 這一台的彈艙容量。**0 = 掛不了彈**，也就是絕大多數的機種。
+   * 這一台的彈艙。**`null` = 掛不了彈**，也就是絕大多數的機種。
    *
-   * 【為什麼是注入而不是從 spec 讀】`bombBayOf` 讀的是機種代號，
-   * `AiController` 拿得到 `self.spec.id` —— 但那樣每一步要查一次雜湊表。
-   * 由 `main.ts` 與 `battle/setup.ts` 在接線時填一次。
+   * 【為什麼是本體而不是容量】狀態機要知道**現在還有沒有東西可以放** ——
+   * 空了就該脫離。只給容量的話它會一直飛攻擊航路而不知道手上是空的
+   * （實測累計 115 秒的「空手飛一趟」）。
+   *
+   * 【為什麼是注入】`AiController` 不持有 `Combatant`。由 `main.ts` 的
+   * `wireTerrain` 每幀接一次，與 `ships` 同一個生命週期。
    */
-  bombBay = 0
+  bombBay: BombBay | null = null
 
   /**
    * 炸彈的阻力係數。**必須與 `World.bombDrag` 是同一個值** —— 兩份會漂開，
@@ -132,8 +137,8 @@ export class AiController implements Controller {
    */
   bombDrag = 0
 
-  /** 這一步的投彈解算結果。`emit` 之前由對艦分支寫。 */
-  private bombRelease = false
+  /** 對艦攻擊的狀態機。與 `shipAim` 同一個性質。 */
+  readonly strike = createStrikeState()
 
   /**
    * 目前鎖定的**艦上目標**：哪一艘船的哪一個砲位。`ship` 為 −1 = 沒有。
@@ -157,7 +162,7 @@ export class AiController implements Controller {
    * 【重選只在決策拍】與空戰的目標選擇同一個節奏（10 Hz）。每個物理步
    * 重選的話，兩艘距離相近的船會讓機首在 240 Hz 下抖。
    */
-  private attackShip(self: Aircraft, decide: boolean, out: Command): boolean {
+  private attackShip(self: Aircraft, decide: boolean, dt: number, out: Command): boolean {
     // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
     // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
     // 側方與機腹的銃手會打砲位。
@@ -186,15 +191,16 @@ export class AiController implements Controller {
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
     }
-    // 【有彈艙的走轟炸航路】掃射與轟炸是兩個模式：前者對準砲位俯衝、
-    // 400 m 拉起脫離，後者要平飛定高穩定通過船的正上方。照掃射的行為，
-    // 轟炸機在投彈點之前就脫離了。
-    if (this.bombBay > 0) {
-      // 【釋放只在決策拍算】精確解一次 58～188 µs，每個物理步跑會直接
-      // 撞穿設計預算（Codex 2026-09-06 實測）。10 Hz 的取樣間距在
-      // 12.08 m 的最小釋放半徑之下仍然夠細 —— 見 `bombRun.ts`。
-      if (decide) this.bombRelease = shouldRelease(self, ship, this.bombDrag, DT_SOLVE)
-      bombRunCommand(self, ship, this.bombRelease, out)
+    // 【有彈艙的走攻擊航路】掃射與攻擊航路是兩個模式：前者對準砲位俯衝、
+    // 400 m 拉起脫離；後者是「進場→鎖航向直飛→脫離」的循環，因為投出去的
+    // 東西繼承的是速度向量，轉彎中放等於往切線丟（spec §5.1）。
+    const bay = this.bombBay
+    if (bay !== null && bay.capacity > 0) {
+      setBombBallistics(this.bombDrag, DT_SOLVE)
+      const loaded = bay.load > 0 || bay.queue > 0
+      stepStrike(
+        this.strike, self, ship, this.shipAim.ship, BOMB_PROFILE, loaded, decide, dt, out,
+      )
       return true
     }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
@@ -209,6 +215,10 @@ export class AiController implements Controller {
    */
   clearTerrainState(): void {
     resetSense(this.sense)
+    // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
+    // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
+    resetStrike(this.strike)
+    this.shipAim.ship = -1
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0
@@ -608,7 +618,7 @@ export class AiController implements Controller {
     //
     // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
     // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
-    if (this.bombBay > 0 && this.attackShip(self, decide, raw)) {
+    if (this.bombBay !== null && this.attackShip(self, decide, dt, raw)) {
       this.emit(self, dt, out)
       return
     }
@@ -655,7 +665,7 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
-      } else if (this.attackShip(self, decide, raw)) {
+      } else if (this.attackShip(self, decide, dt, raw)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //
         // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——

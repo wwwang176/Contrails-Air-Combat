@@ -37,7 +37,7 @@ function mission(): Battle {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
     ctl.ships = b.world.ships
-    ctl.bombBay = c.bombBay.capacity
+    ctl.bombBay = c.bombBay
     ctl.bombDrag = b.world.bombDrag
   }
   return b
@@ -57,7 +57,7 @@ describe('japan-m4 的 AI 一式陸攻', () => {
     let acquired = 0
     for (const c of b.world.combatants) {
       const ctl = c.controller
-      if (ctl instanceof AiController && ctl.bombBay > 0 && ctl.shipAim.ship >= 0) acquired++
+      if (ctl instanceof AiController && ctl.bombBay !== null && ctl.shipAim.ship >= 0) acquired++
     }
     expect(acquired).toBeGreaterThan(0)
 

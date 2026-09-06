@@ -1,8 +1,9 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
+import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import type { Aircraft } from '../aircraft/Aircraft'
-import type { Command } from '../control/Controller'
+import type { StrikeProfile } from './strikeRun'
 import type { Ship, ShipClass } from '../world/ships'
 
 /**
@@ -93,8 +94,10 @@ export function releaseRadiusOf(cls: ShipClass): number {
   return hull === undefined ? 0 : hull.half.x * 2
 }
 
-const FWD = /* @__PURE__ */ new Vector3(0, 0, -1)
 const S = /* @__PURE__ */ makeScratch(3)
+
+/** 方向退化的下限。與 `shipAttack.ts` 的 `MIN_ERROR` 同一個手法。 */
+const MIN_ERROR = 1e-6
 
 /**
  * 船在 `t` 秒後的位置。就地寫 `out`。
@@ -157,60 +160,84 @@ export function shouldRelease(
   return ex * ex + ez * ez <= r * r
 }
 
-/** 方向退化的下限。與 `shipAttack.ts` 的 `MIN_ERROR` 同一個手法。 */
-const MIN_ERROR = 1e-6
+/**
+ * 轟炸的攻擊剖面。**狀態機在 `ai/strikeRun.ts`，這裡只填武器相關的那幾格。**
+ *
+ * 【`drag` 與 `dt` 為什麼是可變的模組變數】`StrikeProfile` 的方法簽名對
+ * 轟炸與雷擊共用，不能為了彈道多兩個參數。呼叫端在跑狀態機之前用
+ * `setBombBallistics` 設一次 —— 一場之內它們是常數。
+ */
+let drag = 0
+let solveDt = 1 / 240
 
 /**
- * 轟炸航路。寫滿整個 `Command`。
- *
- * **平飛、朝船的預測位置、不開固定槍。**
- *
- * 【為什麼是水平的 `aimWorld`】投彈解算假設的是穩定的航路。俯衝的話落點
- * 每一步都在大幅移動，而且 `applySafety` 會在低空接管、把 `bombing` 關掉
- * （見那一支）。定高才投得中。
- *
- * 【為什麼不開固定槍】一式陸攻沒有（`battery.mounts` 是空陣列），但
- * B-17 與 He 111 有 —— 讓它們在航路上掃射會把機首拉離航路。自衛是砲塔的事
- * （`world/turrets.ts`），那一層與 `Command` 無關。
- *
- * 【飛過頭之後】瞄的是船的預測位置，所以通過之後方向自然反轉、它會繞回來
- * 重新進場。這一版沒有專門的脫離段。
- *
- * **呼叫端仍然要在之後套 `applySafety`**（spec §5.2：命令不豁免安全層）。
- *
- * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
+ * 設定彈道參數。**`drag` 必須與 `World.bombDrag` 是同一個值**，`dt` 必須與
+ * 空中的炸彈相同 —— 兩邊漂開的話 AI 算的落點與飛出去的那一顆不一樣，而
+ * 症狀只是「投不準」。
  */
-export function bombRunCommand(
-  self: Aircraft, ship: Ship, release: boolean, out: Command,
-): void {
-  const p = self.state.position
-  const v = self.state.velocity
+export function setBombBallistics(k: number, dt: number): void {
+  drag = k
+  solveDt = dt
+}
 
-  // 【前置量取「水平接近時間」】不是彈道時間 —— 那一段由 `shouldRelease`
-  // 負責。這裡只要機首指向它屆時會在的地方，航路才不會一路被拖著修正。
-  const speed = Math.hypot(v.x, v.z)
-  const dx = ship.position.x - p.x
-  const dz = ship.position.z - p.z
-  const range = Math.hypot(dx, dz)
-  const lead = speed > MIN_ERROR ? range / speed : 0
-  const at = shipAt(ship, lead, S.v[1]!)
+/**
+ * 轟炸剖面的起始值。**全部由試飛裁定。**
+ *
+ * 【`lockRange` 為什麼是 3,000】炸彈從 1,000 m 平飛投下的水平行程約
+ * 1,260 m，所以放手點在船前約 1.3 km。3 km 開始鎖航向留下約 19 秒的
+ * 穩定時間（90 m/s），足夠機身把轉彎的餘擺收乾淨。
+ *
+ * 【`abortRange` 為什麼是 600】比放手點（約 1,300 m）更近就代表這一趟已經
+ * 錯過了。600 m 還在 20 mm 的有效射程之外一點，來得及掉頭。
+ *
+ * 【`egressRange` 為什麼是 5,000】補彈要 20 秒，而 90 m/s 下 20 秒是
+ * 1.8 km —— 但脫離之後還要留夠長度讓下一趟的直飛穩定下來（見 `lockRange`
+ * 的 3 km）。5 km 同時滿足兩者。
+ */
+/**
+ * 鎖定航向之後到放手之前要留多長，m。
+ *
+ * 【它就是那段直線的長度】機身要把轉彎的餘擺收乾淨，落點才會停止橫掃。
+ * 1,200 m 在 110 m/s 下約 11 秒。**起始值，由試飛裁定。**
+ */
+export const RUN_SETTLE = 1200
 
-  const ax = at.x - p.x
-  const az = at.z - p.z
-  const horiz = Math.hypot(ax, az)
-  if (horiz < MIN_ERROR) {
-    // 正上方：保持現在的水平航向，不要讓 aim 退化成零向量
-    const fwd = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
-    fwd.y = 0
-    if (fwd.lengthSq() < MIN_ERROR) fwd.set(0, 0, -1)
-    else fwd.normalize()
-    out.aimWorld.copy(fwd)
-  } else {
-    out.aimWorld.set(ax / horiz, 0, az / horiz)
-  }
+export const BOMB_PROFILE: StrikeProfile = {
+  runAltitude: null,
+  lockCone: 25 * DEG,
+  abortRange: 600,
+  runSeconds: 60,
+  egressRange: 5000,
+  egressClimb: 12 * DEG,
 
-  out.throttle = 1
-  out.brake = 0
-  out.firing = false
-  out.bombing = release
+  /**
+   * 瞄「船在落彈時刻的位置」，鎖定距離＝「前拋距離 ＋ `RUN_SETTLE`」。
+   *
+   * 【為什麼不是接近時刻】航向要對準的是炸彈**最後會落到**的那一點，不是
+   * 飛機會飛到的那一點。兩者差 112 m（8 m/s × 14 s），而窗只有 18.82 m。
+   *
+   * 【解算失敗就退回接近時刻】那發生在高度不夠或速度太低時，此時它還在
+   * 進場段，一個粗略的前置量比什麼都不給好。
+   */
+  plan(self, ship, out) {
+    const p = self.state.position
+    const v = self.state.velocity
+    START.x = p.x; START.y = p.y; START.z = p.z
+    START.vx = v.x; START.vy = v.y; START.vz = v.z
+    deckY = deckHeightOf(ship.cls)
+    if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
+      shipAt(ship, HIT.seconds, out.aim)
+      // 前拋距離：落點離現在的水平距離
+      out.lockRange = Math.hypot(HIT.x - p.x, HIT.z - p.z) + RUN_SETTLE
+      return
+    }
+    const speed = Math.hypot(v.x, v.z)
+    const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
+    shipAt(ship, speed > MIN_ERROR ? range / speed : 0, out.aim)
+    out.lockRange = RUN_SETTLE
+  },
+
+  shouldRelease(self, ship) {
+    return shouldRelease(self, ship, drag, solveDt)
+  },
 }
