@@ -3,7 +3,8 @@ import { World } from '../../src/world/World'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import {
-  BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS, bombBlastDamage,
+  BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS, blastRadiusOf, blastScaleOf,
+  bombBlastDamage, bombDamageOf,
 } from '../../src/weapons/bomb'
 import { IMPACT_STRIDE } from '../../src/world/events'
 
@@ -21,8 +22,8 @@ function seaWithShip(): { world: World; ship: Ship } {
 }
 
 /** 從 `(x, 400, z)` 垂直投一顆，跑到它消失為止 */
-function dropOn(world: World, x: number, z: number): void {
-  world.dropBomb(x, 400, z, 0, 0, 0)
+function dropOn(world: World, x: number, z: number, damage = BOMB_BLAST_DAMAGE): void {
+  world.dropBomb(x, 400, z, 0, 0, 0, damage)
   for (let i = 0; i < 240 * 30 && world.bombs.live > 0; i++) world.step(DT)
 }
 
@@ -114,10 +115,11 @@ describe('炸彈打船', () => {
 
 describe('炸彈的範圍傷害', () => {
   it('衰減曲線：爆心全額、半徑處歸零、半徑外不倒扣', () => {
-    expect(bombBlastDamage(0)).toBe(BOMB_BLAST_DAMAGE)
-    expect(bombBlastDamage(BOMB_BLAST_RADIUS / 2)).toBeCloseTo(BOMB_BLAST_DAMAGE / 2, 9)
-    expect(bombBlastDamage(BOMB_BLAST_RADIUS)).toBe(0)
-    expect(bombBlastDamage(1e6)).toBe(0)
+    const D = BOMB_BLAST_DAMAGE
+    expect(bombBlastDamage(0, D)).toBe(D)
+    expect(bombBlastDamage(BOMB_BLAST_RADIUS / 2, D)).toBeCloseTo(D / 2, 9)
+    expect(bombBlastDamage(BOMB_BLAST_RADIUS, D)).toBe(0)
+    expect(bombBlastDamage(1e6, D)).toBe(0)
   })
 
   /**
@@ -133,9 +135,9 @@ describe('炸彈的範圍傷害', () => {
     const lost = before - ship.hp
     expect(lost).toBeGreaterThan(0)
     // 離船體 8 m：全額的 (1 − 8/30) ≈ 73%
-    expect(lost).toBeCloseTo(bombBlastDamage(8), 6)
+    expect(lost).toBeCloseTo(bombBlastDamage(8, BOMB_BLAST_DAMAGE), 6)
     // 【對照組】照質心算的話 65 m 早就在半徑外了
-    expect(bombBlastDamage(bow + 8)).toBe(0)
+    expect(bombBlastDamage(bow + 8, BOMB_BLAST_DAMAGE)).toBe(0)
   })
 
   it('半徑外的近失彈一點血都不扣', () => {
@@ -159,5 +161,52 @@ describe('炸彈的範圍傷害', () => {
     const { world } = seaWithShip()
     // 【沒有 combatant 時不得爆】這一條同時守「空陣列不當機」
     expect(() => dropOn(world, 300, 300)).not.toThrow()
+  })
+})
+
+describe('炸彈的規模由它自己的傷害推導', () => {
+  it('尺度是傷害的比值，基準彈是 1', () => {
+    expect(blastScaleOf(BOMB_BLAST_DAMAGE)).toBe(1)
+    expect(blastScaleOf(BOMB_BLAST_DAMAGE * 2)).toBe(2)
+    expect(blastScaleOf(0)).toBe(0)
+    expect(blastScaleOf(-5)).toBe(0)
+  })
+
+  it('半徑跟著尺度走 —— 痛的彈也炸得遠', () => {
+    expect(blastRadiusOf(BOMB_BLAST_DAMAGE)).toBe(BOMB_BLAST_RADIUS)
+    expect(blastRadiusOf(BOMB_BLAST_DAMAGE * 2)).toBe(BOMB_BLAST_RADIUS * 2)
+  })
+
+  it('兩倍傷害的彈，在基準彈打不到的距離上仍然扣得到血', () => {
+    const far = BOMB_BLAST_RADIUS + 5
+    expect(bombBlastDamage(far, BOMB_BLAST_DAMAGE)).toBe(0)
+    expect(bombBlastDamage(far, BOMB_BLAST_DAMAGE * 2)).toBeGreaterThan(0)
+  })
+
+  it('每一台掛的彈不同 —— 三台轟炸機各有各的值', () => {
+    const b17 = bombDamageOf('b17g')
+    const he = bombDamageOf('he111')
+    const g4m = bombDamageOf('g4m')
+    for (const v of [b17, he, g4m]) expect(v).toBeGreaterThan(0)
+    // 【八十番 800 kg 明顯大過 250 kg 級的那兩台】
+    expect(g4m).toBeGreaterThan(b17 * 1.4)
+    // 【B-17G 與 He 111 幾乎一樣】兩者的單顆彈都是 250 kg 級
+    expect(Math.abs(he / b17 - 1)).toBeLessThan(0.1)
+  })
+
+  it('不是轟炸機的回 0 —— 戰鬥機掛不了彈', () => {
+    expect(bombDamageOf('bf109k4')).toBe(0)
+    expect(bombDamageOf('p51d')).toBe(0)
+  })
+
+  it('G4M 的彈打得比 B-17G 的遠', () => {
+    const world1 = seaWithShip()
+    const world2 = seaWithShip()
+    const bow = world1.ship.cls.hull[0]!.half.z
+    // 落在艦首前 32 m —— 超出基準彈的 30 m
+    dropOn(world1.world, 0, -(bow + 32), bombDamageOf('b17g'))
+    dropOn(world2.world, 0, -(bow + 32), bombDamageOf('g4m'))
+    expect(world1.ship.hp).toBe(world1.ship.cls.hp)
+    expect(world2.ship.hp).toBeLessThan(world2.ship.cls.hp)
   })
 })

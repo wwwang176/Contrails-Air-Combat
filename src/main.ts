@@ -21,7 +21,8 @@ import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
   AIR_BLAST, BLAST_PACE, LAND_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
-  emitBlast, emitEmber, emitMist, type BlastPools,
+  emitBlast, emitEmber, emitMist, scaleBlast,
+  type BlastParams, type BlastPools,
 } from './render/blast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
@@ -53,7 +54,9 @@ import { resetGEffect } from './hud/widgets/gEffect'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
-import { canBomb, createBombBay, resetBombBay, stepBombBay } from './weapons/bomb'
+import {
+  bombDamageOf, blastScaleOf, canBomb, createBombBay, resetBombBay, stepBombBay,
+} from './weapons/bomb'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -421,6 +424,9 @@ const BLAST_POOLS: BlastPools = {
  */
 const CRASH_BLAST_HEIGHT = 25
 
+/** 依當量縮放後的配方。模組級 —— 每次爆炸不配置 */
+const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_BLAST }
+
 /**
  * 空中擊墜的爆炸繼承多少母機速度。
  *
@@ -469,7 +475,11 @@ function emitBombBlasts(events: ImpactEvents): void {
     const o = e * IMPACT_STRIDE
     const kind = d[o + 3]!
     const recipe = kind > 1.5 ? AIR_BLAST : kind > 0.5 ? WATER_BLAST : LAND_BLAST
-    emitBlast(BLAST_POOLS, recipe,
+    // 【表現的規模跟著那一顆的傷害走】`ny` 帶的是爆心傷害，而尺度的立方
+    // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
+    const scale = blastScaleOf(d[o + 4]!)
+    scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
+    emitBlast(BLAST_POOLS, SCALED_BLAST,
       d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
   }
 }
@@ -1316,7 +1326,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
     const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
     stepBombBay(bombBay, frameSeconds, press, () => {
       const v = player.aircraft.state.velocity
-      world.dropBomb(BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z)
+      world.dropBomb(
+        BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z,
+        bombDamageOf(player.aircraft.spec.id),
+      )
     })
   }
   // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成

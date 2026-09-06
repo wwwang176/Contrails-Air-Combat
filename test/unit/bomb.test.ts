@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { BOMB_BLAST_DAMAGE as D } from '../../src/weapons/bomb'
 import { G0 } from '../../src/core/math'
 import {
   BOMB_MAX_SECONDS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
@@ -97,7 +98,7 @@ describe('solveImpact', () => {
 describe('Bombs 池', () => {
   it('投下去、飛、落地時回報一次', () => {
     const b = new Bombs()
-    b.spawn(0, 4000, 0, 0, 0, -90)
+    b.spawn(0, 4000, 0, 0, 0, -90, D)
     expect(b.live).toBe(1)
     const hits: number[][] = []
     const k = bombDragK(BOMB_TERMINAL_SPEED)
@@ -115,7 +116,7 @@ describe('Bombs 池', () => {
     expect(solveImpact(start, k, SEA, DT, out)).toBe(true)
 
     const b = new Bombs()
-    b.spawn(start.x, start.y, start.z, start.vx, start.vy, start.vz)
+    b.spawn(start.x, start.y, start.z, start.vx, start.vy, start.vz, D)
     let hitX = NaN
     let hitZ = NaN
     for (let i = 0; i < 240 * 60 && b.live > 0; i++) {
@@ -130,7 +131,7 @@ describe('Bombs 池', () => {
 
   it('超過壽命就回收，不會永遠佔著槽位', () => {
     const b = new Bombs()
-    b.spawn(0, 4000, 0, 0, 0, 0)
+    b.spawn(0, 4000, 0, 0, 0, 0, D)
     let n = 0
     for (let i = 0; i < Math.ceil(BOMB_MAX_SECONDS / DT) + 10; i++) {
       b.step(DT, 0, () => -Infinity, () => { n++ })
@@ -141,13 +142,13 @@ describe('Bombs 池', () => {
 
   it('池滿了覆寫最舊的，不拒絕投彈', () => {
     const b = new Bombs()
-    for (let i = 0; i < BOMBS_CAPACITY + 5; i++) b.spawn(0, 1000, 0, 0, 0, 0)
+    for (let i = 0; i < BOMBS_CAPACITY + 5; i++) b.spawn(0, 1000, 0, 0, 0, 0, D)
     expect(b.live).toBe(BOMBS_CAPACITY)
   })
 
   it('clear 之後不留任何一顆', () => {
     const b = new Bombs()
-    b.spawn(0, 1000, 0, 0, 0, 0)
+    b.spawn(0, 1000, 0, 0, 0, 0, D)
     b.clear()
     expect(b.live).toBe(0)
     let n = 0
@@ -255,7 +256,7 @@ describe('落地事件的水陸之分', () => {
     const w = new World()
     w.groundAt = () => 0
     w.waterAt = waterAt
-    w.dropBomb(0, 500, 0, 0, 0, 0)
+    w.dropBomb(0, 500, 0, 0, 0, 0, D)
     for (let i = 0; i < 240 * 30 && w.bombs.live > 0; i++) w.step(DT)
     return w
   }
