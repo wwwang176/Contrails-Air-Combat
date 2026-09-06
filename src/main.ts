@@ -58,6 +58,7 @@ import { blastScaleOf, createBombBay, resetBombBay, stepBombBay } from './weapon
 import { canRelease, envelopeFor } from './weapons/releaseEnvelope'
 import { type Loadout, loadoutOf } from './weapons/stores'
 import { WAKE_SPRAY_COUNT } from './render/spray'
+import { createWakes } from './render/wake'
 import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
@@ -385,6 +386,13 @@ const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
 ctx.scene.add(vortex.object)
+/**
+ * 魚雷的航跡。**掃掠管，不是粒子** —— 粒子池畫的是團狀的東西，這是一條線
+ * （理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它負責線上的
+ * 閃爍。
+ */
+const wakes = createWakes()
+ctx.scene.add(wakes.object)
 // 【不進 POOLS】它沒有粒子狀態要在換場時歸零 —— 每一幀由指揮層的命令
 // 重新填滿，上一場的內容活不過一幀
 const orderMarkers = createOrderMarkers()
@@ -548,7 +556,7 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
 const POOLS = [
-  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts,
+  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts, wakes,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
 ]
 
@@ -1512,6 +1520,20 @@ function stepAndDrawBattle(frameSeconds: number): void {
       )
     }
   })
+  // ── 魚雷的航跡 ───────────────────────────────────────
+  //
+  // 【在渲染幀率餵，不在物理步】管子是視覺，取樣間隔由它自己按走過的距離
+  // 決定 —— 與凝結尾同一個做法
+  {
+    const t = world.torpedoes
+    for (let i = 0; i < t.capacity; i++) {
+      // 【只有水中段有航跡】空中那一段沒有東西可以翻起泡沫
+      if (t.active[i] === 0 || t.phase[i] !== 1) continue
+      wakes.emit(i, t.x[i]!, t.z[i]!, t.run[i]!)
+    }
+  }
+  // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
+  wakes.step(frameSeconds, elapsed, terrain.heightAt)
   vortex.step(frameSeconds)
   spray.step(frameSeconds)
 
