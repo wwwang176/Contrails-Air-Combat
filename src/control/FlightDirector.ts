@@ -6,7 +6,7 @@ import {
   PILOT_G_NEGATIVE, QMAX_FLOOR, createPitchLimit, gLoadFromOrientation, pitchRateLimit,
   type PitchLimit,
 } from './limiters'
-import { controlEffectiveness } from '../physics/aero'
+import { controlEffectiveness, redlineEffectiveness } from '../physics/aero'
 import type { AircraftSpec } from '../specs/types'
 import type { AeroState, Controls, FlightState } from '../physics/types'
 
@@ -737,7 +737,9 @@ export class FlightDirector {
  */
 function steadyRollRate(spec: AircraftSpec, aero: AeroState): number {
   const s = spec.controlStiffening
+  // 【紅線因子也乘進去】否則在紅線附近會高估自己轉得動，指令與實際脫節
   const eff = controlEffectiveness(s.aileronK, s.qRef, aero.qbar)
+    * redlineEffectiveness(spec.limits.vne, aero.qbar)
   const p = (eff * spec.moments.clDa / -spec.moments.clP) * ((2 * aero.tas) / spec.wing.span)
   return Math.max(p, 1e-3)
 }
