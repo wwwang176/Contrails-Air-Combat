@@ -501,7 +501,7 @@ export class AiController implements Controller {
   tacticalConfig: TacticalConfig = DEFAULT_TACTICS
   /** `stepTactics` 的輸入。每步就地重填 —— 熱路徑不配置 */
   private readonly tacticalInput: TacticalInput = {
-    slot: false, suspended: false, targetIndex: -1, range: 0,
+    slot: false, mandatory: false, suspended: false, targetIndex: -1, range: 0,
     energyRatio: 0, psTarget: 0, closureRate: 0, shotInstant: 0, pressure: false,
   }
   /**
@@ -654,6 +654,7 @@ export class AiController implements Controller {
       if (decide) {
         const ti = this.tacticalInput
         ti.slot = false
+        ti.mandatory = false
         ti.suspended = true
         ti.targetIndex = -1
         ti.range = 0
@@ -860,7 +861,12 @@ export class AiController implements Controller {
           && hasSlot(teamIndexOf(this.board, this.selfIndex), tcfg.quota)
       }
       const ti = this.tacticalInput
-      ti.slot = this.slotHas
+      // 【徵召的來源是機體比較，不是當下態勢】`extendTurnLatch` 讀的是
+      // `airframeTurnAdvantage`，對一組機種對幾乎是常數。那個性質讓它不
+      // 適合當「此刻要不要撤」的開關（會永遠鎖著），卻正好適合當「這一對
+      // 該用哪種打法」的開關 —— 打法本來就該整場一致。
+      ti.slot = this.slotHas || this.rules.extendTurnLatch
+      ti.mandatory = this.rules.extendTurnLatch
       ti.suspended = this.transit || this.order !== null
       ti.targetIndex = this.targetIndex
       ti.range = this.sit.range
