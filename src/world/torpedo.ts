@@ -130,7 +130,7 @@ export const TORPEDOES_CAPACITY = 8
  * @param kind 0 = 撞岸，1 = 撞船。射程用盡是無聲回收，不會走到這裡
  */
 export type TorpedoEndFn = (
-  x: number, y: number, z: number, kind: 0 | 1, damage: number,
+  x: number, y: number, z: number, kind: 0 | 1, damage: number, team: number,
 ) => void
 
 /**
@@ -198,7 +198,9 @@ export class Torpedoes {
   readonly headZ: Float64Array
   /**
    * 投放者的隊別。**0 = 藍、1 = 紅**，與 `Bombs.team` 同一個編碼。
-   * HUD 的標記靠它決定紅還是藍；模擬完全不讀它。
+   *
+   * HUD 的標記靠它決定紅還是藍，而**判定也讀它** —— 撞上同隊的船時雷照樣
+   * 被擋下來（船是實體），但不扣血、也不爆（`World.onTorpedoEnd`）。
    */
   readonly team: Int8Array
   /** 0 = 空中，1 = 水中 */
@@ -369,7 +371,7 @@ export class Torpedoes {
     if (!torpedoEntersWater(groundAt(ix, iz), waterAt(ix, iz))) {
       this.active[i] = 0
       this.liveCount--
-      onEnd(ix, g, iz, 0, this.damage[i]!)
+      onEnd(ix, g, iz, 0, this.damage[i]!, this.team[i]!)
       return
     }
 
@@ -417,7 +419,10 @@ export class Torpedoes {
       if (bt >= 0 && bt <= 1) {
         this.active[i] = 0
         this.liveCount--
-        onEnd(px + (nx - px) * bt, py, pz + (nz - pz) * bt, 1, this.damage[i]!)
+        onEnd(
+          px + (nx - px) * bt, py, pz + (nz - pz) * bt,
+          1, this.damage[i]!, this.team[i]!,
+        )
         return
       }
     }
@@ -430,7 +435,7 @@ export class Torpedoes {
     if (groundAt(nx, nz) > 0) {
       this.active[i] = 0
       this.liveCount--
-      onEnd(nx, py, nz, 0, this.damage[i]!)
+      onEnd(nx, py, nz, 0, this.damage[i]!, this.team[i]!)
       return
     }
 
