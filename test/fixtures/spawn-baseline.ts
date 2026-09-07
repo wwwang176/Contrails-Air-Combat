@@ -106,7 +106,7 @@ export const HEADON_20V20: readonly string[] = [
  * `turnEnter`，所以整隊 P-51 被徵召進戰術層打能量戰。校驗和因此與
  * `PURSUIT_MIRROR_8V8`（鏡像、不徵召）走的不是同一條路徑。
  */
-export const HEADON_20V20_REPLAY = '51409:58d060e271adbd94a62e3793d910e5ce819fb1aa00cc691c1bb86084eba6a684'
+export const HEADON_20V20_REPLAY = '51409:dae2f7c6e0bfb69c1a1ed8d71a903750a1c437fd6f8ffd8907e967f31092d353'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',
