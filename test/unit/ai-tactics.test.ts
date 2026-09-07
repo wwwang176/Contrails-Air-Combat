@@ -190,10 +190,16 @@ describe('起始設定的內部一致性', () => {
 const DT = 1 / 240
 const C = DEFAULT_TACTICS
 
-/** 一個「有名額、有目標、很遠、能量持平」的預設輸入 */
+/**
+ * 一個「有名額、有目標、很遠、能量持平」的預設輸入。
+ *
+ * 【`mandatory` 預設 false】徵召會豁免入場的兩道門，預設打開的話這一批
+ * 測的就不是一般路徑了。要測徵召的案例自己傳 `{ mandatory: true }`。
+ */
 function input(over: Partial<TacticalInput> = {}): TacticalInput {
   return {
     slot: true,
+    mandatory: false,
     suspended: false,
     targetIndex: 7,
     range: 3000,
@@ -269,6 +275,39 @@ describe('戰術層的狀態機', () => {
   it('太近時不進戰術層', () => {
     const s = createTacticalState()
     run(s, input({ range: 800 }), 120)
+    expect(s.phase).toBe('off')
+  })
+
+  /**
+   * 【徵召者豁免距離】距離門檻的意思是「還不必急著蓄能」，前提是這架飛機
+   * 有別的打法可選。徵召者沒有 —— 門外就是它打不贏的盤旋戰。
+   *
+   * 【壞掉會怎樣】混戰裡退不到 `enterRange` 是常態。這道門對徵召者會變成
+   * 「要先拉開才准開始拉開」，第一次冷卻之後這一層對它就永久失效了。
+   */
+  it('徵召者不看距離', () => {
+    const s = createTacticalState()
+    run(s, input({ range: 800, mandatory: true }), 1)
+    expect(s.phase).toBe('build')
+  })
+
+  /**
+   * 【徵召者豁免再進入條件】那道門要求「換過目標，或能量比上次放棄時高」，
+   * 用意是不要對同一個打不動的目標一直重試。徵召者沒有別的打法可以退回去，
+   * 「不再重試」對它等於永久失效。節流由 `cooldownSeconds` 承擔。
+   */
+  it('徵召者冷卻結束後進得回去，即使能量更差', () => {
+    const s = createTacticalState()
+    // 假造一次「在 0.5 的能量下放棄過」
+    s.lastCooldownRatio = 0.5
+    run(s, input({ energyRatio: 0.1, mandatory: true }), 1)
+    expect(s.phase).toBe('build')
+  })
+
+  it('非徵召者在同樣條件下進不去', () => {
+    const s = createTacticalState()
+    s.lastCooldownRatio = 0.5
+    run(s, input({ energyRatio: 0.1 }), 120)
     expect(s.phase).toBe('off')
   })
 

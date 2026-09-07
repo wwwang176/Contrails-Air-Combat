@@ -289,6 +289,18 @@ export function hasSlot(teamIndex: number, quota: number): boolean {
 export interface TacticalInput {
   /** 有名額（`hasSlot` 的結果）。`selfIndex < 0` 時呼叫端給 `false` */
   slot: boolean
+  /**
+   * 徵召：這架飛機沒有別的打法可選（機體迴旋明顯吃虧）。
+   *
+   * 【與 `slot` 的分工】`slot` 是「有名額」—— 一個與機種無關的抽籤，用來
+   * 控制有多少架**轉得贏的**飛機也去打能量戰。`mandatory` 是「非這樣不
+   * 可」，它不佔名額也不受名額限制。
+   *
+   * 【它豁免哪兩道門】入場的距離門檻與再進入條件（見 `stepTactics` 的
+   * `off → build`）。那兩道門的前提都是「這架飛機還有別的事可做」；對
+   * 徵召者不成立，它們會從節流變成永久關門。
+   */
+  mandatory: boolean
   /** 有命令（rally / flank / focus）或 `transit` */
   suspended: boolean
   /** 目標的識別。−1 = 沒有目標 */
@@ -440,13 +452,19 @@ export function stepTactics(
 
   // ── off → build ──────────────────────────────────────
   if (s.phase === 'off') {
-    if (!s.farLatch) return
+    // 【徵召者不看距離】這道門的意思是「還不必急著蓄能」，前提是這架飛機
+    // 有別的打法可選。徵召者沒有 —— 對它，門外就是那個它打不贏的盤旋戰。
+    if (!inp.mandatory && !s.farLatch) return
     // 【再進入條件】同一個目標、同樣打不動的能量，不會一直重試。少了它，
     // `build → cooldown → off → 立刻 build → …` 會永遠繞下去，正好把原問題
     // 換成另一種永久循環
+    //
+    // 【徵召者豁免】「不再重試」對它等於永久失效，而它沒有別的打法可以
+    // 退回去。節流改由 `cooldownSeconds` 與 `longCooldownSeconds` 承擔 ——
+    // 那兩個是時間，會自己走完。
     const fresh = Number.isNaN(s.lastCooldownRatio)
       || inp.energyRatio > s.lastCooldownRatio
-    if (!fresh) return
+    if (!inp.mandatory && !fresh) return
     enter(s, 'build')
     openCycle(s, inp.energyRatio)
     return
