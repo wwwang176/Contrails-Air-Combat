@@ -94,7 +94,8 @@ describe('陸地還是撞得到', () => {
     const isl = arch.islands[0]!
     expect(terrain.collisionHeightAt(isl.cx, isl.cz))
       .toBeCloseTo(arch.field.sample(isl.cx, isl.cz), 6)
-    expect(terrain.collisionHeightAt(isl.cx, isl.cz)).toBeGreaterThan(500)
+    // 要真的是山：島心取樣落在格點之間，比 peak 低一點是內插，低很多就是讀錯圖
+    expect(terrain.collisionHeightAt(isl.cx, isl.cz)).toBeGreaterThan(isl.peak * 0.9)
     // 場地之外：高度場出界回 −Infinity，判定高度要退回平海面
     expect(terrain.collisionHeightAt(1e7, 1e7)).toBe(0)
     terrain.dispose()

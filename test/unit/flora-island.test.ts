@@ -333,6 +333,59 @@ describe('群島的樹', () => {
     expect(high).toBeGreaterThan(low * 2)
   })
 
+  /**
+   * 【樹要成叢】逐格獨立的 Bernoulli 抽樣鋪出來的是均勻的絨毛。把島切成
+   * 100 m 的格數樹，獨立抽樣下每格的株數是二項分佈，變異數／平均
+   * （離散指數）恆小於 1；成叢的話有的格滿、有的格空，離散指數遠大於 1。
+   *
+   * 【只在同一條高度帶裡量】高度那條斜線本身也會讓格與格不同，山頂與
+   * 山腳混在一起量到的是斜線不是叢。
+   *
+   * 【殺得死】`islandAccept` 拿掉 `islandClump` 那一項就回到獨立抽樣，
+   * 指數掉到 1 以下。
+   */
+  it('同一條高度帶裡，樹是一叢一叢的 —— 每百公尺格株數的離散指數遠大於 1', () => {
+    const r = big.outerRadius
+    const rows = onBig()
+    const CELL = 100
+    const n = Math.ceil((2 * r) / CELL)
+    const counts = new Float64Array(n * n)
+    const inBand = (x: number, z: number): boolean => {
+      const h = height(x, z)
+      if (!isGrass(h)) return false
+      const t = h / nearest(x, z).peak
+      return t >= 0.25 && t < 0.6
+    }
+    for (const row of rows) {
+      if (row.kind !== FloraKind.ConeTree || !inBand(row.x, row.z)) continue
+      const a = Math.floor((row.x - (big.cx - r)) / CELL)
+      const b = Math.floor((row.z - (big.cz - r)) / CELL)
+      counts[b * n + a]!++
+    }
+    // 只算整格都在帶內的格：邊緣格一半是海，株數低是幾何不是叢
+    const used: number[] = []
+    for (let b = 0; b < n; b++) {
+      for (let a = 0; a < n; a++) {
+        const x0 = big.cx - r + a * CELL
+        const z0 = big.cz - r + b * CELL
+        let inside = true
+        for (let k = 0; k < 9 && inside; k++) {
+          inside = inBand(x0 + (k % 3) * (CELL / 2), z0 + Math.floor(k / 3) * (CELL / 2))
+        }
+        if (inside) used.push(counts[b * n + a]!)
+      }
+    }
+    const mean = used.reduce((s, v) => s + v, 0) / used.length
+    const variance = used.reduce((s, v) => s + (v - mean) ** 2, 0) / used.length
+    const dispersion = variance / mean
+    console.log(JSON.stringify({
+      格數: used.length, 平均株數: mean.toFixed(1), 離散指數: dispersion.toFixed(2),
+    }))
+    expect(used.length).toBeGreaterThan(30)
+    expect(mean).toBeGreaterThan(5)
+    expect(dispersion).toBeGreaterThan(3)
+  })
+
   /** 一格最多一棵樹加一叢灌木，所以上限要各自比 */
   it('樹與灌木各自的密度都不超過網格上限', () => {
     const rows = onBig()

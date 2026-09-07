@@ -14,19 +14,20 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { B17G } from '../../src/specs/b17g'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import { findOcclusionCase } from '../fixtures/occlusion-case'
 
 /**
  * 山要擋得住子彈與視線。
  *
  * ── 考題怎麼來的 ────────────────────────────────────────
  *
- * `test/tools/occlusion-case.probe.ts` 掃過「離島心多遠 × 多高」的網格，
- * 在「兩架離地都 ≥ 120 m（安全層的 clearance）」的條件下取視線沉得最深的
- * 一組：**兩架同高 850 m，各在錨島島心兩側 500 m，相距 1 km，山頂比兩者的
- * 連線高 49.6 m。**
+ * `test/fixtures/occlusion-case.ts` 在真的高度場上搜一條弦：兩架同高、
+ * 離地 120 m（安全層的 clearance）、相距 ≤ 1 km，取山頂高出連線最多的
+ * 那一組 —— 高出越多，兩架接近時遮蔽維持得越久。
  *
- * 座標由島心導出而不是抄下來 —— 錨島若被移動，下面「考題本身要成立」那
- * 三條會直接紅，而不是靜靜地變成一個不再遮蔽的場景。
+ * 座標是搜出來而不是抄下來的 —— 山改矮改緩這裡跟著動，而下面「考題本身
+ * 要成立」那三條會在幾何不再成立時直接紅，不會靜靜地變成一個不再遮蔽的
+ * 場景。
  *
  * ── 每一條都有對照組 ──────────────────────────────────
  *
@@ -44,15 +45,13 @@ const FWD = new Vector3(0, 0, -1)
 const TAS = 200
 
 const arch = createArchipelago()
-/** 錨島。`islands[0]` 是寫死的那一座，見 `archipelago.ts` 的 ANCHORS */
-const isl = arch.islands[0]!
 const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX, landAbove: 0 }
 
-const D = 500
-const Y = 850
-const line = Math.hypot(isl.cx, isl.cz)
-const A = new Vector3(isl.cx - (isl.cx / line) * D, Y, isl.cz - (isl.cz / line) * D)
-const B = new Vector3(isl.cx + (isl.cx / line) * D, Y, isl.cz + (isl.cz / line) * D)
+const CASE = findOcclusionCase(arch.field, arch.islands)
+const D = CASE.d
+const Y = CASE.y
+const A = new Vector3(CASE.ax, Y, CASE.az)
+const B = new Vector3(CASE.bx, Y, CASE.bz)
 
 /** 擺一架在 `pos`、機首指向 `look`、以 TAS 沿機首飛 */
 function place(a: Aircraft, pos: Vector3, look: Vector3): void {
@@ -65,9 +64,9 @@ function place(a: Aircraft, pos: Vector3, look: Vector3): void {
 }
 
 describe('考題本身要成立', () => {
-  it('兩架都在飛 —— 離地高於安全層的 clearance', () => {
-    expect(A.y - arch.field.sample(A.x, A.z)).toBeGreaterThan(120)
-    expect(B.y - arch.field.sample(B.x, B.z)).toBeGreaterThan(120)
+  it('兩架都在飛 —— 離地不低於安全層的 clearance', () => {
+    expect(A.y - arch.field.sample(A.x, A.z)).toBeGreaterThanOrEqual(120 - 1e-9)
+    expect(B.y - arch.field.sample(B.x, B.z)).toBeGreaterThanOrEqual(120 - 1e-9)
   })
 
   it('在有效射程之內', () => {
@@ -75,7 +74,10 @@ describe('考題本身要成立', () => {
   })
 
   it('山頂比兩者的連線高', () => {
-    expect(arch.field.sample(isl.cx, isl.cz)).toBeGreaterThan(Y)
+    console.log(JSON.stringify({
+      半弦: D, 高度: Y.toFixed(1), 稜線: CASE.ridge.toFixed(1), 高出: CASE.drop.toFixed(1),
+    }))
+    expect(CASE.ridge).toBeGreaterThan(Y)
   })
 })
 
@@ -249,8 +251,10 @@ describe('戰鬥機 AI：不對山後面的瞄準做防禦機動', () => {
     }))
     // 前 6 秒山確實擋在中間 —— 一次都不准
     expect(withLand.early).toBe(0)
-    // 整段仍必須遠低於對照組（實測 0.075 對 0.225）
-    expect(withLand.all).toBeLessThan(noLand.all * 0.5)
+    // 【整段只要求不多於對照組】搜出來的島半徑 800 m 上下，兩架 2.5 秒就
+    // 交錯，之後遮蔽自己失效、兩組的行為一樣；整段的份額分不出遮蔽的效果，
+    // 效果由上面「前 6 秒為 0」那一條守。這一條擋的是「遮蔽反而多出 defend」
+    expect(withLand.all).toBeLessThanOrEqual(noLand.all)
   })
 })
 
