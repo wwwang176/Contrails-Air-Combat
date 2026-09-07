@@ -5,7 +5,8 @@ import {
 } from '../../src/world/bomb'
 import {
   TORPEDO_DEPTH, TORPEDO_RANGE, TORPEDO_RUN_SAMPLES, TORPEDO_RUN_STEP,
-  TORPEDO_SPEED, Torpedoes, WAKE_INTERVAL, runSampleDistance, torpedoHeading,
+  TORPEDO_SPEED, Torpedoes, WAKE_INTERVAL, runSampleDistance, torpedoEntersWater,
+  torpedoHeading,
 } from '../../src/world/torpedo'
 
 const DT = 1 / 240
@@ -420,5 +421,51 @@ describe('垂直入水', () => {
     // 水中速度由航向乘上雷速 —— 證明航向真的被拿去用了
     expect(pool.vx[slot]).toBeCloseTo(TORPEDO_SPEED, 9)
     expect(pool.vz[slot]).toBeCloseTo(0, 9)
+  })
+})
+
+/**
+ * 【落點是不是水】`solveImpact` 撞到**任何**地面都回成功，所以「解得出落點」
+ * 不代表有水中段 —— 真雷遇到陸地或無水是立刻結束（`stepAir`）。
+ *
+ * HUD 的航跡線要用同一條判準，否則飛過島嶼或內陸農地時會畫出一條不存在的
+ * 2 km 水中航跡，而海上的截圖驗收抓不到它。
+ */
+describe('torpedoEntersWater', () => {
+  it('平海：碰撞高度 0、水面 0 → 入水', () => {
+    expect(torpedoEntersWater(0, 0)).toBe(true)
+  })
+
+  it('陸地：碰撞高度 > 0 → 不入水', () => {
+    expect(torpedoEntersWater(120, 0)).toBe(false)
+  })
+
+  it('內陸平原：碰撞高度 0 但沒有水 → 不入水', () => {
+    expect(torpedoEntersWater(0, -Infinity)).toBe(false)
+  })
+
+  /**
+   * 【判準是 `> 0` 不是 `>= 0`】海的碰撞面恰好是 0。寫成 `>= 0` 的話海上
+   * 一枚都投不出去。
+   */
+  it('碰撞高度恰好 0 算水面', () => {
+    expect(torpedoEntersWater(0, 0)).toBe(true)
+  })
+
+  /**
+   * 【水面讀不到就不入水】`waterAt` 在沒有水的地方回 `-Infinity`，而
+   * `Number.isFinite` 同時擋掉它與 NaN。
+   */
+  it('水面讀不到時不入水', () => {
+    expect(torpedoEntersWater(0, NaN)).toBe(false)
+  })
+
+  /**
+   * 【碰撞高度是 NaN 時照樣入水】這是 `stepAir` 的現行行為
+   * （`NaN > 0` 為 false），這一支只是把它抽出來，**不是改它**。
+   * 寫成 `groundY <= 0` 那種否定式就會翻面 —— 那是改到模擬。
+   */
+  it('碰撞高度是 NaN 時的行為與 stepAir 相同', () => {
+    expect(torpedoEntersWater(NaN, 0)).toBe(true)
   })
 })

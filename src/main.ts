@@ -65,7 +65,7 @@ import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
 import { runFrontCount } from './hud/widgets/torpedoLine'
 import {
-  TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoHeading,
+  TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoEntersWater, torpedoHeading,
 } from './world/torpedo'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
@@ -1755,9 +1755,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 遇到陸地或無水是立刻結束（`world/torpedo.ts` 的 `stepAir`）—— 判準逐字
     // 沿用它，不得改用含浪的高度、也不得寫成 `> 雷體高度`。少了這一條，
     // 飛過島嶼或內陸農地時會畫出一條不存在的 2 km 水中航跡
-    const onWater = playerLoadout?.kind === 'torpedo'
-      && !(terrain.collisionHeightAt(BOMB_POINT.x, BOMB_POINT.z) > 0)
-      && Number.isFinite(terrain.waterAt(BOMB_POINT.x, BOMB_POINT.z))
+    const onWater = playerLoadout?.kind === 'torpedo' && torpedoEntersWater(
+      terrain.collisionHeightAt(BOMB_POINT.x, BOMB_POINT.z),
+      terrain.waterAt(BOMB_POINT.x, BOMB_POINT.z),
+    )
     if (onWater) {
       const v = player.aircraft.state.velocity
       noseHorizontal(renderQuat, NOSE_H)
