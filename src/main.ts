@@ -1788,6 +1788,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【姿態上面已經算過】投放包絡與 HUD 讀的是同一組值
   hudFrame.tas = aircraft.diag.aero.tas
   hudFrame.ias = indicatedAirspeed(aircraft.diag.aero.tas, aircraft.diag.air.sigma)
+  hudFrame.vneRatio = hudFrame.ias / aircraft.spec.limits.vne
   hudFrame.mach = aircraft.diag.aero.mach
   hudFrame.altitude = renderPos.y
   hudFrame.verticalSpeed = aircraft.state.velocity.y
