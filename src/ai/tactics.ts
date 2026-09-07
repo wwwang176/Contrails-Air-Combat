@@ -49,6 +49,19 @@ export interface TacticalState {
   perchLatch: boolean
   /** 距離的閂鎖。true = 「遠」，也就是可以進戰術層 */
   farLatch: boolean
+  /**
+   * 本輪的蓄能已經跑滿期限：能量門檻對這一輪免除。
+   *
+   * 【為什麼不能用 `perchLatch` 代替】那個閂鎖每一拍由
+   * `latch(perchLatch, energyRatio, perchEnter, perchExit)` 重算。把它設成
+   * true，`energyRatio` 低於 `perchExit` 的下一拍就被打回 false。這一格的
+   * 生命週期綁在**一輪**上，不綁在能量上。
+   *
+   * 【壞掉會怎樣，而且不會報錯】少了它，撞期限進 `perch` 的飛機會因為
+   * `perchLatch` 為 false 立刻被彈回 `build`，再撞一次期限，再彈回來 ——
+   * build ↔ perch 乒乓，`dive` 永遠不會發生。實測 4v4：`dive` 0 次。
+   */
+  settled: boolean
   /** `psTarget < 0` 已經連續多久，s */
   commit: number
   /** `dive` 期間接近率曾經為正 */
@@ -193,6 +206,7 @@ export function createTacticalState(): TacticalState {
     dwell: 0,
     perchLatch: false,
     farLatch: false,
+    settled: false,
     commit: 0,
     closed: false,
     passing: 0,
@@ -219,6 +233,7 @@ export function resetTacticalState(s: TacticalState): void {
   s.dwell = 0
   s.perchLatch = false
   s.farLatch = false
+  s.settled = false
   s.commit = 0
   s.closed = false
   s.passing = 0
@@ -352,6 +367,10 @@ function clearRelative(s: TacticalState, energyRatio: number): void {
   s.cycleValid = false
   s.cycleShot = false
   s.lastCooldownRatio = NaN
+  // 【`settled` 也是相對的】它免除的門檻是 `perchEnter`，而那個門檻拿
+  // `energyRatio` 跟**當前目標**比。對前一個目標「已經盡力」不代表對新的
+  // 也是 —— 留著它，換完目標的飛機會拿著對新目標毫無優勢的能量直接俯衝。
+  s.settled = false
 }
 
 /** 開一輪新的能量帳 */
@@ -359,6 +378,9 @@ function openCycle(s: TacticalState, energyRatio: number): void {
   s.cycleBase = energyRatio
   s.cycleValid = true
   s.cycleShot = false
+  // 【一輪一次】`settled` 說的是「本輪的蓄能已經盡力」。開新一輪就要重新
+  // 爭取，否則第一次撞期限之後每一輪都免除門檻，等於門檻不存在。
+  s.settled = false
 }
 
 /** 進 `cooldown`，並記下這次是在什麼能量下放棄的 */
@@ -471,8 +493,13 @@ export function stepTactics(
   }
 
   // ── 第 2 級：絕對止損 ────────────────────────────────
+  // 【撞期限不是放棄這一輪】蓄能是盡力而為：跑滿期限代表「這就是我拿得到
+  // 的能量」，那就帶著它去等機會。實測 `energyRatio` 的累積速率 0.0057 /s，
+  // 由進場的 0.16 爬到 `perchEnter` 0.5 需要約 60 秒 —— 而 60 秒不可能不被
+  // `defend`、命令或丟失目標打斷。要求「蓄滿才准打」等於永遠不准打。
   if (s.phase === 'build' && s.dwell >= cfg.buildMax) {
-    goCooldown(s, inp.energyRatio, cfg.cooldownSeconds)
+    s.settled = true
+    enter(s, 'perch')
     return
   }
   if (s.cycleValid && inp.energyRatio - s.cycleBase < -cfg.cycleLossMax) {
@@ -499,7 +526,9 @@ export function stepTactics(
       break
     case 'perch':
       if (s.commit >= cfg.commitSeconds) enter(s, 'dive')
-      else if (!s.perchLatch) {
+      // 【`settled` 擋掉彈回】撞期限進來的飛機定義上 `perchLatch` 就是
+      // false，少了這個條件它會立刻被彈回 `build` 形成乒乓。
+      else if (!s.perchLatch && !s.settled) {
         // 【回 build 也要開新帳】一輪的定義是「進入 build 到下一次進入
         // build」。少了這一行，`cycleBase` 會跨過好幾次 perch → build，
         // 能量帳比的就不是本輪

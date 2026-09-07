@@ -243,6 +243,21 @@ function toPerch(): TacticalState {
 }
 
 /**
+ * 進 `cooldown`。走的是**能量帳止損**：開帳時 0.4，掉到 0 就跌破
+ * `cycleLossMax`（0.3）。
+ *
+ * 【為什麼不用「跑到建能期限」】那條路現在去 `perch`（帶著手上的能量去打），
+ * 不再進 `cooldown`。這一支是為了讓「冷卻之後怎麼回來」那幾條測試仍然測得到
+ * 真正的冷卻路徑。
+ */
+function toCooldown(): TacticalState {
+  const s = createTacticalState()
+  run(s, input({ energyRatio: 0.4 }), 1)
+  run(s, input({ energyRatio: 0 }), 1)
+  return s
+}
+
+/**
  * 跑完一整圈 `build → perch → dive → zoom → 下一個相位`，回傳那個相位。
  *
  * 【為什麼每一段都用 `until` 而不是固定秒數】固定秒數多跑的那零點幾秒會讓
@@ -298,6 +313,10 @@ describe('戰術層的狀態機', () => {
    */
   it('徵召者冷卻結束後進得回去，即使能量更差', () => {
     const s = createTacticalState()
+    // 【`lastTarget` 要先對上】否則第一拍會判定「換過目標」而走
+    // `clearRelative`，把剛擺好的 `lastCooldownRatio` 清成 NaN ——
+    // 再進入條件因此恆成立，這條測試就變成永遠綠的假護欄。
+    s.lastTarget = 7
     // 假造一次「在 0.5 的能量下放棄過」
     s.lastCooldownRatio = 0.5
     run(s, input({ energyRatio: 0.1, mandatory: true }), 1)
@@ -306,6 +325,7 @@ describe('戰術層的狀態機', () => {
 
   it('非徵召者在同樣條件下進不去', () => {
     const s = createTacticalState()
+    s.lastTarget = 7
     s.lastCooldownRatio = 0.5
     run(s, input({ energyRatio: 0.1 }), 120)
     expect(s.phase).toBe('off')
@@ -372,19 +392,39 @@ describe('戰術層的狀態機', () => {
     expect(s.phase).toBe('perch')
   })
 
-  it('建能期限到 → cooldown，而且贏過同拍成立的 perch', () => {
-    // 【優先序】期限到了表示這一輪的建能不健康，帶著它進 perch 只是把問題
-    // 延後。絕對止損（第 2 級）高於條件轉移（第 5 級）。
+  /**
+   * 【蓄能是盡力而為，不是通過制】期限到了代表「這就是我拿得到的能量」，
+   * 那就帶著它去等機會。實測累積速率 0.0057 /s，由進場的 0.16 爬到
+   * `perchEnter` 0.5 需要約 60 秒 —— 而 60 秒不可能不被打斷。
+   */
+  it('建能期限到 → perch，而且掛上 settled', () => {
     const s = createTacticalState()
-    // 全程能量為 0（不會進 perch），跑到期限
+    // 全程能量為 0：`perchLatch` 不會成立，只可能由期限那一支推過去
     run(s, input({ energyRatio: 0 }), C.buildMax + 1)
-    expect(s.phase).toBe('cooldown')
+    expect(s.phase).toBe('perch')
+    expect(s.settled).toBe(true)
   })
 
-  it('建能期限與 perch 同拍成立時，cooldown 贏', () => {
+  /**
+   * 【settled 是免除本輪的能量門檻，不是永久免除】少了它，撞期限進 `perch`
+   * 的飛機因為 `perchLatch` 為 false 會立刻被彈回 `build`，再撞一次期限，
+   * 再彈回來 —— build ↔ perch 乒乓，`dive` 永遠不會發生。
+   */
+  it('settled 擋掉 perch 彈回 build', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    expect(s.phase).toBe('perch')
+    // 能量仍然不足，但不會被彈回去
+    run(s, input({ energyRatio: 0 }), C.minDwell + 1)
+    expect(s.phase).toBe('perch')
+  })
+
+  it('建能期限與 perch 同拍成立時，期限那一支贏', () => {
     // 【為什麼手工造狀態而不是跑到那一拍】要讓「期限到期」與「閂鎖翻真」
     // 落在同一個 dt 上，靠累加 14400 次浮點是碰運氣的。直接把狀態擺成
     // 「還差半拍到期、閂鎖還沒開」，一步就是那一拍。
+    //
+    // 【兩支都去 perch，用 settled 分辨誰贏】只比相位分不出來。
     const s = createTacticalState()
     s.phase = 'build'
     s.dwell = C.buildMax - DT / 2
@@ -392,7 +432,38 @@ describe('戰術層的狀態機', () => {
     s.farLatch = true
     s.cycleValid = true
     stepTactics(s, input({ energyRatio: 0.9 }), DT, C)
-    expect(s.phase).toBe('cooldown')
+    expect(s.phase).toBe('perch')
+    expect(s.settled).toBe(true)
+  })
+
+  /**
+   * 【一輪一次】開新一輪就要重新爭取。少了 `openCycle` 那一行，第一次撞
+   * 期限之後每一輪都免除門檻，等於門檻不存在。
+   */
+  it('開新一輪會清掉 settled', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    expect(s.settled).toBe(true)
+    // 【每一段都用 `until`】固定秒數多跑的那零點幾秒會讓狀態又往前走一格，
+    // 相位邊界因此會漂 —— 實測會從 `dive` 漂到 `zoom`。
+    const low = input({ energyRatio: 0 })
+    expect(until(s, low)).toBe('dive')     // 待機期限到
+    expect(until(s, low)).toBe('zoom')     // 俯衝期限到
+    expect(until(s, low)).toBe('build')    // 拉起結束，開新一輪
+    expect(s.settled).toBe(false)
+  })
+
+  /**
+   * 【換目標也要清】`settled` 免除的門檻 `perchEnter` 拿 `energyRatio` 跟
+   * **當前目標**比。對前一個目標「已經盡力」不代表對新目標也是 —— 留著它，
+   * 換完目標的飛機會拿著對新目標毫無優勢的能量直接俯衝。
+   */
+  it('換目標會清掉 settled', () => {
+    const s = createTacticalState()
+    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    expect(s.settled).toBe(true)
+    run(s, input({ energyRatio: 0, targetIndex: 99 }), 1)
+    expect(s.settled).toBe(false)
   })
 
   it('待機期限到 → 強制 dive，不是 cooldown', () => {
@@ -448,18 +519,16 @@ describe('戰術層的狀態機', () => {
   })
 
   it('cooldown 之後先回 off，不會同拍重進 build', () => {
-    const s = createTacticalState()
-    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    const s = toCooldown()
     expect(s.phase).toBe('cooldown')
     run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 0.1)
     expect(s.phase).toBe('off')
   })
 
   it('同一個目標、同樣的能量，cooldown 之後不會一直重試', () => {
-    // 【它擋的是一個永久迴圈】build → cooldown → off → 立刻 build → …
-    // 目標一直很遠的話會永遠繞下去，正好把原問題換成另一種永久循環。
-    const s = createTacticalState()
-    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    // 【它擋的是一個永久迴圈】cooldown → off → 立刻重進 → 再冷卻 → …
+    // 目標一直很遠的話會永遠繞下去。
+    const s = toCooldown()
     run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
     expect(s.phase).toBe('off')
     run(s, input({ energyRatio: 0 }), 60)
@@ -467,8 +536,7 @@ describe('戰術層的狀態機', () => {
   })
 
   it('換了目標就可以重進', () => {
-    const s = createTacticalState()
-    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    const s = toCooldown()
     run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
     expect(s.phase).toBe('off')
     run(s, input({ energyRatio: 0, targetIndex: 99 }), 1)
@@ -476,8 +544,7 @@ describe('戰術層的狀態機', () => {
   })
 
   it('能量比上次冷卻時高也可以重進', () => {
-    const s = createTacticalState()
-    run(s, input({ energyRatio: 0 }), C.buildMax + 1)
+    const s = toCooldown()
     run(s, input({ energyRatio: 0 }), C.cooldownSeconds + 1)
     expect(s.phase).toBe('off')
     run(s, input({ energyRatio: 0.3 }), 1)
