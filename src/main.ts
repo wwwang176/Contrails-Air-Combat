@@ -1035,10 +1035,6 @@ function startWorld(cfg: BattleConfig): void {
    */
   playerAi.profile = cfg.aiProfile
   // 【戰術狀態也要清】`playerAi` 是跨關卡重用的同一顆。少了這一行，上一場
-  // 代飛留下的相位、計時、輪次與冷卻會帶進新的一場 —— 而且只有「新場的目標
-  // 剛好用到同一個數字索引」時才看得出來，那是最難查的一種殘留。
-  // `resetBattle` 那條路徑另外處理場上其他的 AI。
-  playerAi.resetTactics()
   // 【重現一場戰鬥的鑰匙】種子是 `Math.random()` 抽的，不印出來就永遠
   // 找不回這一場。（設定, 種子, 秒數, 座位）四樣湊齊，無頭環境就能把
   // 同一場逐位元重跑 —— 人工試飛回報異常行為時，那是唯一的復現途徑。
@@ -1765,7 +1761,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (input.playerAi) {
     hudFrame.aiIntent = playerAi.intent
     hudFrame.aiMode = playerAi.mode
-    hudFrame.aiPhase = playerAi.tactics.phase
     hudFrame.aiExtendWhy = playerAi.intent === 'extend'
       ? extendReason(playerAi.rules) : ''
   }
