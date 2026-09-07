@@ -583,6 +583,27 @@ describe('attachInput：陣亡中的右鍵', () => {
     expect(state.aimDeltaY).toBe(0)
   })
 
+  it('陣亡中 V 沒有作用 —— 座艙視角是從殘骸裡面往外看', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    state.dead = true
+    dom.win.fire('keydown', { code: 'KeyV', preventDefault: () => {} })
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('上帝視角下陣亡，按住右鍵鏡頭照樣轉得動 —— 死亡不影響上帝視角', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', { code: 'KeyG', preventDefault: () => {} })
+    state.dead = true
+    dom.canvas.fire('mousedown', { button: 2 })
+    dom.win.fire('mousemove', move(0.4, 0))
+    expect(state.aimDeltaX).toBeGreaterThan(0)
+    expect(state.lookYaw).toBe(0)
+  })
+
   it('接手之後（dead 解除）右鍵轉頭恢復', () => {
     const dom = setupDom()
     const state = createInputState()
