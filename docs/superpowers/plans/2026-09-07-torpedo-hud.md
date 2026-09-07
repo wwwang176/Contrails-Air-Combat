@@ -189,20 +189,20 @@ runCount: number
 
 所以主要護欄是**用假 canvas context 直接呼叫 `drawBombBay`**。`test/unit/hud.test.ts` 已經有記錄式 context 的用法（比對 `texts.map(t => t.color)` 與 `t.text`）—— **沿用它，不要為了可測性在 production 端新增抽象。**
 
-- [ ] **Step 1: 寫失敗的測試（純函數）**
+- [x] **Step 1: 寫失敗的測試（純函數）**
   - **二擇一**：`bombReloading` 為真 → `releaseGateVisible` 為假
   - 掛炸彈 → 為假；掛魚雷且未裝填 → 為真
   - **不限投彈模式**：`bombing` 為假時仍為真（spec §6.2）
   - `releaseGateColor(true) === HUD_COLORS.primary`、`false === HUD_COLORS.danger`
-- [ ] **Step 2: 寫失敗的測試（畫出來的東西）** —— 假 ctx 呼叫 `drawBombBay`
+- [x] **Step 2: 寫失敗的測試（畫出來的東西）** —— 假 ctx 呼叫 `drawBombBay`
   - 三段文字的**內容與順序**是坡度／俯仰／高度
   - 三段各自的顏色**只受自己那一軸影響**：只把 `pitch` 推出界時，只有「俯仰」轉紅、另外兩格仍綠（**這一條殺「兩格對調」**）
   - **高度那一格跟著 `releaseAgl` 走**：固定 `altitude`、只動 `releaseAgl`，文字要變（**殺「讀 altitude」**）
   - **門檻跟著 `releaseEnv` 走**：換一組包絡，同一組姿態的紅綠翻面（**殺「重抄一份 12°」**）
   - `bombReloading` 為真時：畫得出「裝填中」，而且**完全沒有閘門的三段文字**（**殺「兩個都畫」**）
-- [ ] **Step 3: 實作。** 一定要自己設 `ctx.textBaseline` 與 `textAlign`（既有註解已寫明這個 ctx 是共用且屬性黏著的），畫完把 `textAlign` 還原成 `'left'`
-- [ ] **Step 4: 回歸**：掛炸彈且 `bombReloading` 時「裝填中」照舊畫 —— `bomb-bay` 相關的既有測試全綠
-- [ ] **Step 5:** 全套綠、tsc 不增行
+- [x] **Step 3: 實作。** 一定要自己設 `ctx.textBaseline` 與 `textAlign`（既有註解已寫明這個 ctx 是共用且屬性黏著的），畫完把 `textAlign` 還原成 `'left'`
+- [x] **Step 4: 回歸**：掛炸彈且 `bombReloading` 時「裝填中」照舊畫 —— `bomb-bay` 相關的既有測試全綠
+- [x] **Step 5:** 全套綠、tsc 不增行
 
 **Verification:** 上面括號裡標的四條 mutation 逐一手動驗紅。
 
