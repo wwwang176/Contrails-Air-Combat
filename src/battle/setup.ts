@@ -18,6 +18,8 @@ import {
   type CommandState, type CommandUnit, type FlightOrder,
 } from '../ai/command'
 import { maxLevelSpeed, serviceCeiling } from '../analysis/envelope'
+import { atmosphere } from '../physics/atmosphere'
+import type { AirData } from '../physics/types'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import {
   conditionMet, createBeatStates, type Beat, type BeatState,
@@ -486,22 +488,41 @@ function altitudeOffset(flight: number, spread: number): number {
 export const BOMBER_CRUISE = 0.80
 
 /**
+ * 開局空速對 `vne` 的上限比，以 IAS 計。
+ *
+ * 【為什麼是 0.8】HUD 的 OVERSPEED 在 0.85 亮起、紅線因子也從 0.85 開始把
+ * 操縱面變重（`physics/aero.ts` 的 `REDLINE_KNEE`）。留 5% 是給開場推油門
+ * 與淺俯衝的餘裕 —— 貼著 0.85 生出來的話，第一秒就在警告裡。
+ */
+export const OPENING_VNE_FRACTION = 0.8
+
+/** `openingTas` 查大氣用的暫存。出生不是熱路徑，但也不必每架配一份 */
+const OPENING_AIR: AirData = { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 }
+
+/**
  * 一架飛機的開局／重生真空速，m/s。
  *
  * 兩條規則，第二條蓋過第一條：
  *
- * 1. **不得超過自己的 `vne`。** 這條套在每一架上，但只咬得到轟炸機 ——
- *    三台戰鬥機的 vne 是 201–225 m/s，都在 `DEFAULT_BATTLE.tas` 的 200 之上。
+ * 1. **IAS 不得超過 `vne` 的 `OPENING_VNE_FRACTION`。** `vne` 是 IAS
+ *    （`specs/types.ts`），開局速度是 TAS，所以要除以 √σ 換算 —— 直接拿
+ *    `vne` 夾 TAS 的話，低空的 IAS 幾乎貼著 vne，開場就 OVERSPEED。這條
+ *    咬得到誰看高度與機種：A6M5 的 vne 是 145 m/s，在任何高度都被夾住；
+ *    P-51D 與 K-4 在 4,000 m 以上不受影響，開局仍是 `DEFAULT_BATTLE.tas`。
  * 2. **轟炸機用自己的巡航速度**（見 `BOMBER_CRUISE`），不是那個照戰鬥機
  *    訂的絕對值。
  *
- * @param nominal `cfg.tas × entry.speed` —— 戰鬥機仍然拿這個值
- * @param cruise  轟炸機的巡航速度，由呼叫端查表（`maxLevelSpeed` 是搜尋，
- *                同機種只該算一次）
+ * @param nominal  `cfg.tas × entry.speed` —— 戰鬥機仍然拿這個值
+ * @param cruise   轟炸機的巡航速度，由呼叫端查表（`maxLevelSpeed` 是搜尋，
+ *                 同機種只該算一次）
+ * @param altitude 出生高度，決定 IAS 與 TAS 的換算
  */
-function openingTas(spec: AircraftSpec, nominal: number, cruise: number): number {
+export function openingTas(
+  spec: AircraftSpec, nominal: number, cruise: number, altitude: number,
+): number {
   const want = spec.role === 'bomber' ? cruise : nominal
-  return Math.min(want, spec.limits.vne)
+  const sigma = atmosphere(altitude, OPENING_AIR).sigma
+  return Math.min(want, (OPENING_VNE_FRACTION * spec.limits.vne) / Math.sqrt(sigma))
 }
 
 /**
@@ -584,8 +605,6 @@ function spawnMember(
     cruise = cruises.get(base) ?? maxLevelSpeed(spec, cfg.altitude) * BOMBER_CRUISE
     cruises.set(base, cruise)
   }
-  const tas = openingTas(base, frame.nominalTas, cruise)
-
   // 【分隊內部直接由 stationPoint 生成】出生位置就是站位。兩份長得
   // 很像的幾何就是只有一份會被修好的那種危險 —— 與 `resetBattle`
   // 走 `World.respawn` 是同一個理由。
@@ -595,6 +614,9 @@ function spawnMember(
   const ref = STATION_REFERENCE[k]!
   if (ref < 0) SPAWN.set(frame.leadX, frame.leadY, frame.z)
   else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+
+  // 排在出生點之後：IAS 的換算吃的是這一架真正的出生高度
+  const tas = openingTas(base, frame.nominalTas, cruise, SPAWN.y)
 
   const aircraft = new Aircraft(spec, SPAWN.y, tas)
   aircraft.state.position.copy(SPAWN)
