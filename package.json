@@ -6,6 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:unit": "vitest run test/unit test/control test/balance test/performance",
+    "test:integration": "vitest run test/integration",
     "test:watch": "vitest",
     "bench": "vitest bench --run"
   },

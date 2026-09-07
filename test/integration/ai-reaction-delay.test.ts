@@ -12,7 +12,6 @@ import type { AircraftSpec } from '../../src/specs/types'
 import type { Battery } from '../../src/weapons/types'
 
 const DT = 1 / 240
-const SECONDS = 300
 
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
@@ -35,109 +34,19 @@ interface Side {
   headingDeg: number
 }
 
-interface Duel {
-  /** 'blue' | 'red' | 'timeout' */
-  winner: string
-  seconds: number
-}
-
 /**
- * 一對一，同機種（P-51D），一邊有反應延遲、另一邊沒有。
+ * 【「VETERAN 打不贏 ACE」不在這裡】那是 24 場對決的**勝負與平均長度**，
+ * 也就是這顆旋鈕調出來的手感 —— 判它合不合理是試飛的事，不是護欄。
+ * 量它的是 `test/tools/fire-delay.probe.ts`，那支沿用同一組開局，
+ * 連扣扳機步數與每秒傷害一起印。
  *
- * 【為什麼不用 `createBattle`】它是 20v20 的編隊生成。要量的是「延遲讓
- * 追瞄變差多少」，20v20 的混戰把那件事埋在目標選擇與分攤裡面。
+ * 這顆旋鈕的**機制**分三處守，各自獨立、各自便宜：
+ *
+ *   `test/unit/ai-delay.test.ts`        `CommandDelay` 本身的行為
+ *   `test/unit/ai-controller.test.ts`   `profile.reactionDelay` 真的走到它
+ *   本檔下面那一條                       延遲之後安全層仍然攔得住撞地
  */
-function duel(blue: Side, red: Side, delayed: string): Duel {
-  const world = new World()
-  const make = (s: Side) => {
-    const a = new Aircraft(P51D, s.altitude, s.tas)
-    const pos = new Vector3(s.offset[0], s.altitude, s.offset[2])
-    const h = s.headingDeg * DEG
-    const dir = new Vector3(-Math.sin(h), 0, -Math.cos(h))
-    a.state.position.copy(pos)
-    a.state.velocity.copy(dir).multiplyScalar(s.tas)
-    a.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), dir)
-    a.prevPosition.copy(a.state.position)
-    a.prevOrientation.copy(a.state.orientation)
-    return { a, pos }
-  }
-  const b = make(blue)
-  const r = make(red)
-  const blueAi = new AiController()
-  const redAi = new AiController()
-  blueAi.profile = delayed === 'blue' ? VETERAN : ACE
-  redAi.profile = delayed === 'red' ? VETERAN : ACE
-  const bc = world.add(b.a, blueAi, 'blue', b.pos, blue.altitude, blue.tas)
-  const rc = world.add(r.a, redAi, 'red', r.pos, red.altitude, red.tas)
-  blueAi.target = r.a
-  redAi.target = b.a
-  bc.respawnOnDestroy = false
-  rc.respawnOnDestroy = false
-
-  const total = SECONDS * 240
-  for (let i = 0; i < total; i++) {
-    world.step(DT)
-    if (bc.hp <= 0 || rc.hp <= 0) {
-      return { winner: rc.hp <= 0 ? 'blue' : 'red', seconds: i * DT }
-    }
-  }
-  return { winner: 'timeout', seconds: SECONDS }
-}
-
-/**
- * 12 種開局。每一種都跑兩次、把延遲換邊，**因為開局本身不對稱** ——
- * 「藍在後 600」對後方那一架有利，只跑一次量到的是開局不是延遲。
- * 零延遲對照（兩邊都 0）在這一組上剛好 12:12，證明換邊確實抵銷掉了。
- */
-const GEOMETRIES: readonly [Side, Side][] = [
-  [{ altitude: 4000, tas: 200, offset: [0, 0, 1500], headingDeg: 180 }, { altitude: 4000, tas: 200, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 220, offset: [0, 0, 3000], headingDeg: 180 }, { altitude: 4000, tas: 220, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 190, offset: [400, 0, 400], headingDeg: 135 }, { altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 190, offset: [900, 0, 0], headingDeg: 90 }, { altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 190, offset: [0, 0, 600], headingDeg: 0 }, { altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 }, { altitude: 4000, tas: 190, offset: [0, 0, 600], headingDeg: 0 }],
-  [{ altitude: 5000, tas: 200, offset: [0, 0, 1200], headingDeg: 180 }, { altitude: 4000, tas: 200, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 200, offset: [0, 0, 1200], headingDeg: 180 }, { altitude: 5000, tas: 200, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 250, offset: [0, 0, 1500], headingDeg: 180 }, { altitude: 4000, tas: 190, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 4000, tas: 190, offset: [0, 0, 1500], headingDeg: 180 }, { altitude: 4000, tas: 250, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 3000, tas: 200, offset: [1200, 0, 600], headingDeg: 45 }, { altitude: 3000, tas: 200, offset: [0, 0, 0], headingDeg: 0 }],
-  [{ altitude: 6000, tas: 210, offset: [1200, 0, 600], headingDeg: 45 }, { altitude: 6000, tas: 210, offset: [0, 0, 0], headingDeg: 0 }],
-]
-
 describe('反應延遲 —— 出貨設定', () => {
-  it('VETERAN 打不贏 ACE，而且咬得住殺不掉', () => {
-    let aceWin = 0
-    let lagWin = 0
-    let seconds = 0
-    let n = 0
-    for (const [blue, red] of GEOMETRIES) {
-      for (const delayed of ['blue', 'red'] as const) {
-        const o = duel(blue, red, delayed)
-        n++
-        seconds += o.seconds
-        if (o.winner === 'timeout') continue
-        if (o.winner === delayed) lagWin++
-        else aceWin++
-      }
-    }
-    const mean = seconds / n
-
-    // 實測（`profile.ts` 有完整掃描表）：
-    //
-    //   零延遲雙方（對照）  12 勝 : 12 勝    平均 65 s
-    //   VETERAN vs ACE      14 勝 :  6 勝    平均 133 s（4 場平手）
-    //
-    // 【門檻取 8 而不是 6】24 場在 p=0.5 的二項標準差就有 2.4 場，門檻貼著
-    // 實測值會變成量測雜訊的偵測器。8 仍然遠低於對照組的 12。
-    expect(lagWin).toBeLessThanOrEqual(8)
-
-    // 【為什麼還要量戰鬥長度】勝負在 24 場的取樣下區分力有限（見 profile.ts
-    // 的掃描表），但**戰鬥被拖長**這件事是單調且大幅的：65 → 133 s。它直接
-    // 對應到「延遲讓 AI 咬得住但殺不掉」，也就是這個旋鈕的目的。
-    // 100 s 落在對照組（65）與實測（133）之間。
-    expect(mean).toBeGreaterThan(100)
-  }, 10 * 60 * 1000)
-
   it('遊戲實際開打的那一局吃得到 VETERAN', () => {
     // 【為什麼釘 `battleConfigFrom` 而不是 `DEFAULT_BATTLE`】前者是遊戲
     // 唯一的入口（`main.ts:326`），後者是測試的基準。兩者刻意不同值。

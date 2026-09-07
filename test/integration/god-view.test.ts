@@ -1,16 +1,29 @@
 import { describe, it, expect } from 'vitest'
 import {
-  commandExemptFlight, createBattle, stepBattle, type Battle,
+  commandExemptFlight, createBattle, stepBattle,
+  DEFAULT_BATTLE, type Battle,
 } from '../../src/battle/setup'
+import { lineAbreast } from '../../src/battle/order'
+import { HEAD_ON } from '../../src/battle/entry'
+import { P51D } from '../../src/specs/p51d'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
 import {
   createGodCameraState, stepGodCamera, type GodCameraInput,
 } from '../../src/camera/godCamera'
+import { replayDigest } from '../tools/spawn-snapshot'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
 const SECONDS = 120
+/**
+ * 中立性那兩場的長度，s。
+ *
+ * 【為什麼比上面那兩條短這麼多】它比的是逐位元的狀態校驗和，分歧在幾個
+ * 物理步內就顯示得出來；上面兩條要等指揮官真的排到命令，那需要整場仗。
+ */
+const NEUTRAL_SECONDS = 20
 
 /** 人類座位的替身：平飛、不參戰。代表「有人在操縱」 */
 class Human implements Controller {
@@ -90,7 +103,7 @@ describe('指揮權跟著代飛走（20v20、120 秒）', () => {
   }, 10 * 60 * 1000)
 })
 
-describe('鏡頭不得改變戰局（20v20、120 秒、兩場）', () => {
+describe('鏡頭不得改變戰局（4v4、20 秒、兩場）', () => {
   /**
    * 【這條護欄實際在守什麼】它看起來近乎恆真 —— `godCamera.ts` 不 import
    * `src/battle/`，怎麼可能改到戰局？但這個專案裡有一個真的會踩到的機制：
@@ -102,36 +115,30 @@ describe('鏡頭不得改變戰局（20v20、120 秒、兩場）', () => {
    *
    * 它**守不到** `main.ts` 的算繪路徑（`terrain.update` 的中心點接錯之類），
    * 那一段沒有無頭測試 —— 由 Playwright 驗收補（spec §8.6）。
+   *
+   * 【為什麼比的是完整狀態校驗和，不是掉血】掉血只在子彈命中時才動，所以
+   * 要先讓兩隊接敵、開火，才看得出分歧 —— 那是一場 20v20 打滿 120 秒。
+   * `replayDigest` 涵蓋每一架的位置、姿態、角速度、作動器、血量與彈丸池，
+   * 位置每一步都在變，**分歧在幾個物理步內就顯示得出來**。同一件事守得
+   * 更嚴，而且 4v4 × 20 秒就夠。
    */
-  function damage(stepCamera: boolean): { blue: number, red: number } {
-    const b = createBattle(new AiController())
-    const hp0 = b.world.combatants.map((c) => c.hp)
+  async function run(stepCamera: boolean): Promise<string> {
+    const b = createBattle(new AiController(), {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, BF109K4, 4),
+    })
     const cam = createGodCameraState()
     const input: GodCameraInput = {
       forward: true, back: false, left: false, right: true,
       up: true, down: false, boost: true, lookX: 0.01, lookY: -0.005,
     }
-    for (let s = 0; s < SECONDS * 240; s++) {
+    for (let s = 0; s < NEUTRAL_SECONDS * 240; s++) {
       stepBattle(b, DT)
       if (stepCamera) stepGodCamera(cam, input, DT)
     }
-    const out = { blue: 0, red: 0 }
-    for (const c of b.world.combatants) {
-      const lost = hp0[c.index]! - c.hp
-      if (c.team === 'blue') out.blue += lost
-      else out.red += lost
-    }
-    return out
+    return replayDigest(b)
   }
 
-  it('推進上帝鏡頭不改變任何一架的掉血', () => {
-    const off = damage(false)
-    const on = damage(true)
-    console.log(JSON.stringify({
-      off: `B${off.blue.toFixed(0)}:R${off.red.toFixed(0)}`,
-      on: `B${on.blue.toFixed(0)}:R${on.red.toFixed(0)}`,
-    }))
-    expect(on.blue).toBe(off.blue)
-    expect(on.red).toBe(off.red)
-  }, 10 * 60 * 1000)
+  it('推進上帝鏡頭不改變任何一架的狀態', async () => {
+    expect(await run(true)).toBe(await run(false))
+  }, 5 * 60 * 1000)
 })

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
@@ -115,8 +115,14 @@ function shot(land: LandField | null) {
 }
 
 describe('彈丸：山擋得住子彈', () => {
-  const withLand = shot(LAND)
-  const without = shot(null)
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let withLand: ReturnType<typeof shot>
+  let without: ReturnType<typeof shot>
+  beforeAll(() => {
+    withLand = shot(LAND)
+    without = shot(null)
+  }, 60_000)
 
   it('有山：到不了對面，而且山壁上有火花', () => {
     console.log(JSON.stringify({

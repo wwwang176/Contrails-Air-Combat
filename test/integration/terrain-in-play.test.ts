@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
@@ -225,8 +225,14 @@ function fly(altitude: number, land: Land = SEA_LAND): Run {
 }
 
 describe('地形進得了場', () => {
-  const deck = fly(DECK)
-  const high = fly(HIGH)
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let deck: Run
+  let high: Run
+  beforeAll(() => {
+    deck = fly(DECK)
+    high = fly(HIGH)
+  }, 10 * 60 * 1000)
 
   it('甲板高度：山真的擋得住路', () => {
     console.log(JSON.stringify({
@@ -309,7 +315,8 @@ describe('地形進得了場', () => {
  * 護欄會逼著它去滿足一個對它沒有意義的門檻。
  */
 describe('內陸農地的基準（紀錄，不是護欄）', () => {
-  const deck = fly(DECK, FARM_LAND)
+  let deck: Run
+  beforeAll(() => { deck = fly(DECK, FARM_LAND) }, 10 * 60 * 1000)
 
   it('印出這張圖的基準', () => {
     console.log(JSON.stringify({
