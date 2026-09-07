@@ -6,7 +6,10 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
-import type { MissionFleet } from '../../src/battle/missions'
+import {
+  MISSIONS, missionConfigFrom, missionRules,
+  type MissionFleet, type ReadyMissionCard,
+} from '../../src/battle/missions'
 import type { Battle } from '../../src/battle/setup'
 
 const DT = 1 / 240
@@ -107,5 +110,73 @@ describe('守住艦隊：`vitalSunk` 只算我方的要害艦', () => {
     const d = battle()
     stepBattle(d, DT)
     expect(d.mission.outcome, '新的一場不得沿用上一場的計數').toBe('fighting')
+  })
+})
+
+/**
+ * 盟 M4「沖繩外海」的卡片。
+ *
+ * 【為什麼卡片自己要有測試】`missionConfigFrom` 是**明列欄位、不透傳未知
+ * 資料**，而漏抄一格的症狀是「型別過了但進戰鬥少了東西」，不報錯。
+ */
+describe('盟 M4：沖繩外海', () => {
+  const card = MISSIONS.allies.find((m) => m.id === 'allies-m4')!
+  const b = card.battle!
+
+  it('打得起來了', () => {
+    expect(card.battle).not.toBeNull()
+  })
+
+  it('規則是守住艦隊', () => {
+    expect(missionRules(card as ReadyMissionCard, b.altitude ?? 4000, 750))
+      .toEqual({ kind: 'defend' })
+  })
+
+  /**
+   * 【恰好一艘要害艦】漏標的症狀是「這一關永遠不會輸」而畫面上一切正常；
+   * 多標的症狀是「掉一艘驅逐艦就輸」。兩種都不報錯。
+   */
+  it('艦隊 9 艘、全部是我方的、恰好一艘要害艦', () => {
+    const ships = b.fleet!.ships
+    expect(ships.length).toBe(9)
+    for (const s of ships) expect(s.team).toBe('blue')
+    expect(ships.filter((s) => s.vital === true).length).toBe(1)
+    expect(ships.find((s) => s.vital === true)!.cls).toBe('essex')
+  })
+
+  /**
+   * 【`role` 不能省】省了的話第一批 G4M 進場之後會把自己算進存活數，
+   * 第二批就永遠不來。
+   */
+  it('波次由敵方戰鬥機的存活數觸發，而且有時間兜底', () => {
+    const w = b.waves![0]!
+    expect(w.when.kind).toBe('alive')
+    if (w.when.kind !== 'alive') throw new Error('應為 alive')
+    expect(w.when.side).toBe('theirs')
+    expect(w.when.role).toBe('fighter')
+    expect(w.when.atMost).toBeLessThan(b.redCount)
+    expect(Number.isFinite(w.when.byLatest)).toBe(true)
+    expect(w.spec.id).toBe('g4m')
+  })
+
+  /** 【透傳】艦隊原樣、波次轉成等價的 beats */
+  it('走完 missionConfigFrom 之後艦隊與波次都在', () => {
+    const cfg = missionConfigFrom(card as ReadyMissionCard)
+    expect(cfg.fleet).toBe(b.fleet)
+    expect(cfg.beats?.length).toBe(1)
+    expect(cfg.beats![0]!.kind).toBe('reinforce')
+  })
+
+  /** 【端到端】進戰鬥之後場上真的有九艘藍船，打沉航母就判輸 */
+  it('進戰鬥之後打沉航母 → defeat', () => {
+    const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
+    expect(bt.world.ships.length).toBe(9)
+    const carrier = bt.world.ships.find((s) => s.vital)!
+    expect(carrier.team).toBe('blue')
+    stepBattle(bt, DT)
+    expect(bt.mission.outcome).toBe('fighting')
+    carrier.alive = false
+    stepBattle(bt, DT)
+    expect(bt.mission.outcome).toBe('defeat')
   })
 })

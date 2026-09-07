@@ -176,11 +176,16 @@ describe('艦隊', () => {
     expect(missionConfigFrom(card).fleet?.ships.length).toBe(8)
   })
 
-  it('沒有 fleet 的卡不產生任何船', () => {
+  /**
+   * 【驗透傳本身，不維護一張「哪幾張有艦隊」的名單】名單會漂：多一張帶
+   * 艦隊的卡就要回來改一次，而漏改的症狀是這一條紅在一個與缺陷無關的
+   * 地方。比對**卡片上的那一個物件**則永遠成立 —— 沒有艦隊的卡兩邊都是
+   * `undefined`。
+   */
+  it('fleet 原樣透傳，沒有的卡就是沒有', () => {
     expect(missionConfigFrom(readyCard(KILL_CARD)).fleet).toBeUndefined()
     for (const m of playable) {
-      if (m.id === 'japan-m4') continue
-      expect(missionConfigFrom(m).fleet).toBeUndefined()
+      expect(missionConfigFrom(m).fleet, m.id).toBe(m.battle.fleet)
     }
   })
 

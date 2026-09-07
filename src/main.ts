@@ -2195,9 +2195,10 @@ function frame(now: number) {
 // 【GLB 機種要在進迴圈前載完】`buildAircraft` 是同步的（`main.ts`、四個工具
 // 頁、node 單元測試都同步呼叫它），所以非同步只能關在這一行。
 await preloadAircraftModels()
-// 【船的 GLB 也在開場載】只載會用到的兩艘 —— japan-m4 沒有航母
-// （倫內爾島的 TF 18 是重巡編隊，Essex 那時還沒到太平洋）。
-await preloadShipModels(['wichita', 'fletcher'])
+// 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
+// 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
+// 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
+await preloadShipModels(['essex', 'wichita', 'fletcher'])
 requestAnimationFrame(frame)
 
 /**
