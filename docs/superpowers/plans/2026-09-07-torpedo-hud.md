@@ -260,9 +260,9 @@ runCount: number
 4. 航跡線取樣點：`ordnance === 'torpedo' && bombState === 'solved' && 是水` 時，用 `torpedoHeading` 取方向、`runSampleDistance(k)` 取距離，逐點 `.project(ctx.camera)` 寫進 `runX` / `runY` / `RUN_Z`，再 `runFrontCount(RUN_Z, TORPEDO_RUN_SAMPLES)` 算 `runCount`；否則 `runCount = 0`
 5. 退化分支的 nose 方向與投放路徑（`main.ts:1521-1524` 的 `NOSE_H`）**共用同一段計算**
 
-- [ ] **Step 1:** 加預先配置的暫存（`TORP_DIR: Float64Array(2)`、**`RUN_Z: Float64Array(TORPEDO_RUN_SAMPLES)`**、`RUN_WORLD: Vector3`、`RUN_NDC: Vector3`），**照抄 `BOMB_NDC` 的做法**。
+- [x] **Step 1:** 加預先配置的暫存（`TORP_DIR: Float64Array(2)`、**`RUN_Z: Float64Array(TORPEDO_RUN_SAMPLES)`**、`RUN_WORLD: Vector3`、`RUN_NDC: Vector3`），**照抄 `BOMB_NDC` 的做法**。
       `RUN_Z` 不能省：`runFrontCount` 要一次看完五個 z，而 `HudFrame` 上只有 `runX`/`runY`。省掉它只剩兩條路 —— 每幀生一個陣列，或在這裡另寫一份判斷讓那支測過的純函數變成**沒人呼叫的死護欄**
-- [ ] **Step 2:** 五件事接上；`NOSE_H` 那一段抽出來讓投放與 HUD 共用
+- [x] **Step 2:** 五件事接上；`NOSE_H` 那一段抽出來讓投放與 HUD 共用
 - [ ] **Step 3:** `npx tsc --noEmit` 不增行；全套單元測試綠
 - [ ] **Step 4:** 手動確認 `spawn-baseline` 的校驗和沒有變（**變了就是誤動了模擬，停下來報告**）
 
