@@ -428,6 +428,52 @@ const KILL = {
  * 航速 8 m/s ≈ 15.5 節，**起始值** —— 真艦的戰鬥航速更高，但這一關的重點
  * 是彈幕不是追擊，船跑太快會讓低空進場的相對幾何每次都不一樣，調不準。
  */
+/**
+ * 沖繩外海的第 58 特遣支隊 —— **史實編成的三分之一，而且只有三個艦級。**
+ *
+ * ## 史實
+ *
+ * 1945 年 4 月，Mitscher 中將的 TF 58 分成四個特遣支隊。單一支隊典型是
+ * 艦隊航母 2–3、輕航母 1–2、快速戰艦 2–3、巡洋艦 3–5、驅逐艦 13–18，
+ * 合計 22–28 艘。環形防空序列：航母在中心（彼此 2,300–2,750 m）、戰艦與
+ * 巡洋艦內環、驅逐艦外環（半徑 3,600–5,500 m）。
+ *
+ * ## 為什麼航母只有一艘
+ *
+ * 專案只有三個艦級模型（Essex／Wichita／Fletcher），沒有戰艦、沒有輕航母。
+ * 兩艘 Essex 並排會讓重複很明顯（同 `RENNELL_FLEET` 的「12 艘取 8 艘」），
+ * 而且**「守兩艘」會讓失敗判定變模糊**。一艘航母＝一個要守的東西。
+ *
+ * 六艘驅逐艦不是佈景 —— 每一艘都有完整的三層防空（`world/shipAA.ts`），
+ * 是玩家真正的火力支援。
+ *
+ * ## 為什麼中心在原點
+ *
+ * 雙方 `headOn` 進場都收斂到中點，所以艦隊放原點時**空戰自然發生在艦隊
+ * 上空** —— 艦載防空因此真的參戰，而不是遠遠看著。
+ *
+ * 陣型尺度沿用 `RENNELL_FLEET`（整隊橫跨約 1.8 km）。**起始值，由試飛裁定。**
+ */
+const TF58_GROUP: MissionFleet = {
+  center: new Vector3(0, 0, 0),
+  heading: 0,
+  speed: 8,
+  ships: [
+    // 【航母在中心，而且是唯一的要害艦】沉了就輸
+    { cls: 'essex', team: 'blue', offset: new Vector3(0, 0, 0), vital: true },
+    // 巡洋艦：內環，左右各一
+    { cls: 'wichita', team: 'blue', offset: new Vector3(-500, 0, 200) },
+    { cls: 'wichita', team: 'blue', offset: new Vector3(500, 0, 200) },
+    // 驅逐艦：外環警戒幕。前方張得比後方開 —— 敵機從 −Z 來
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(-900, 0, -900) },
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(-300, 0, -1100) },
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(300, 0, -1100) },
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(900, 0, -900) },
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(-800, 0, 800) },
+    { cls: 'fletcher', team: 'blue', offset: new Vector3(800, 0, 800) },
+  ],
+}
+
 const RENNELL_FLEET: MissionFleet = {
   center: new Vector3(0, 0, 0),
   heading: 0,
@@ -496,7 +542,45 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       id: 'allies-m4', title: '沖繩外海', type: '殲滅',
       summary: '駕駛 F6F-5 守住沖繩外海的第 58 特遣艦隊，攔下零戰與低空進場的一式陸攻。',
       place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
-      battle: null,
+      battle: {
+        ...KILL,
+        objective: '守住艦隊',
+        blueSpec: F6F5, redSpec: A6M5,
+        blueCount: 4, redCount: 8,
+        terrain: 'sea',
+        fleet: TF58_GROUP,
+        /**
+         * 【2,000 m 而不是預設的 4,000】G4M 進場之後要降到
+         * `ai/torpedoRun.ts` 的 `RUN_ALTITUDE`（150 m）才投得出雷，從
+         * 4,000 m 掉下來那一段是空白時間。**起始值，由試飛裁定。**
+         */
+        altitude: 2000,
+        /**
+         * 【零戰被打退才輪到魚雷機】`role: 'fighter'` **不能省** ——
+         * 省了的話第一批 G4M 進場之後會把自己算進存活數，第二批就永遠不來
+         * （見 `MissionTrigger` 的註解）。
+         *
+         * 【兩個條件誰先到算誰】`atMost` 是八架零戰的 25%（30% 算出來是
+         * 2.4）；`byLatest` 是那個緊迫感的碼表 —— 玩家打太慢的話它照樣來。
+         *
+         * 【`warnLead` 那幾秒不會被判成勝利】`MissionInputs.redInbound`
+         * 擋著（`defend` 的勝利條件讀它）。少了那一格，紅方在預警期間歸零
+         * 會先判勝、第二波永遠不來。
+         *
+         * 兩個數字都是**起始值，由試飛裁定**。
+         */
+        waves: [
+          {
+            when: {
+              kind: 'alive', side: 'theirs', role: 'fighter',
+              atMost: 2, byLatest: 120,
+            },
+            warn: '雷擊機低空進場',
+            warnLead: 6,
+            side: 'theirs', spec: G4M, count: 4,
+          },
+        ],
+      },
     },
   ],
   germany: [
@@ -706,6 +790,13 @@ export function missionRules(
   // 擊沉任務。
   if (b.sinkCount !== undefined) {
     return { kind: 'sink', count: b.sinkCount }
+  }
+  // 【判準是「艦隊裡有沒有要害艦」，不是 `type`】理由同上面那一段：`type`
+  // 是給玩家看的分類，用它推導的話日後多一張「殲滅」卡就會靜靜地變成
+  // 守住艦隊。**排在擊沉之後** —— 進攻的規則優先，而日 M4 的艦隊一艘
+  // `vital` 都沒有，所以順序不影響它
+  if (b.fleet?.ships.some((s) => s.vital === true) === true) {
+    return { kind: 'defend' }
   }
   if (card.type === '撤離') {
     return {
