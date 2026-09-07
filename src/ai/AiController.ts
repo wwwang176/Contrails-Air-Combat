@@ -867,7 +867,16 @@ export class AiController implements Controller {
       // 該用哪種打法」的開關 —— 打法本來就該整場一致。
       ti.slot = this.slotHas || this.rules.extendTurnLatch
       ti.mandatory = this.rules.extendTurnLatch
+      // 【被覆寫時要算暫停，不能只是壓掉操舵】`defend` 與速度見底會讓下面
+      // 的意圖覆寫與 `tacticalCommand` 兩處都讓位，但相位機若照常前進，
+      // 飛機就會在做防禦機動的同時把 `build.dwell` 累積到期限、拿到
+      // `settled` —— 那個「本輪蓄能已盡力」是假的，接著它會帶著沒蓄到的
+      // 能量去俯衝。
+      //
+      // 實測（20v20、300 s）：不算暫停時 `build` 佔時 19%，算了之後 9%。
+      // 那十個百分點是掛在一個它根本沒在執行的相位裡空轉。
       ti.suspended = this.transit || this.order !== null
+        || this.rules.defendLatch || this.rules.extendFloorLatch
       ti.targetIndex = this.targetIndex
       ti.range = this.sit.range
       ti.energyRatio = this.sit.energyRatio
