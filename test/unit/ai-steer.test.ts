@@ -202,7 +202,7 @@ describe('失速的兩種診斷', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+  const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
   /** 一組不觸發任何閘門的態勢 */
   const clean = (): void => {
@@ -350,7 +350,7 @@ describe('失速的兩種診斷', () => {
 })
 
 describe('engageKnobs', () => {
-  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
   const sit = createSituation()
 
   const base = () => {
@@ -433,7 +433,7 @@ describe('aimFromKnobs', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const out = new Vector3()
-  const k: Knobs = { leadLag: 1, vertical: 0 }
+  const k: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
 
   const scene = () => {
     const self = flyer()
@@ -522,7 +522,7 @@ describe('steerCommand', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const k: Knobs = { leadLag: 1, vertical: 0 }
+  const k: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   let self: Aircraft
 
   const scene = (targetPos: [number, number, number], targetVel: [number, number, number]) => {
@@ -650,6 +650,43 @@ describe('steerCommand', () => {
     steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
     const velDir = self.state.velocity.clone().normalize()
     expect(cmd.aimWorld.y).toBeLessThan(velDir.y)
+  })
+
+  /**
+   * 規則 3 的俯衝目標（`Knobs.diveIas`）：目標速度還沒到就滿俯衝，到了就回到
+   * 正常的 extendPitchAngle，離地餘裕永遠蓋在上面。
+   *
+   * 自機 P-51 在 4000 m、TAS 180 → IAS 約 147 m/s。
+   */
+  it('diveIas 高於目前 IAS → 滿俯衝（−extendPitch）', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 1
+    k.diveIas = 200
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    k.diveIas = 0
+    expect(cmd.aimWorld.y).toBeLessThan(-Math.sin(DEFAULT_STEER.extendPitch * 0.9))
+  })
+
+  it('diveIas 低於目前 IAS → 與關閉時逐位元相同', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 1
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    const off = cmd.aimWorld.clone()
+    k.diveIas = 100
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    k.diveIas = 0
+    expect(cmd.aimWorld.equals(off)).toBe(true)
+  })
+
+  it('diveIas 開著但貼海 → 離地餘裕蓋過俯衝，不往下', () => {
+    scene([0, 4000, -600], [0, 0, -180])
+    sit.cornerRatio = 1
+    self.state.position.y = 100
+    k.diveIas = 200
+    steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
+    k.diveIas = 0
+    const velDir = self.state.velocity.clone().normalize()
+    expect(cmd.aimWorld.y).toBeGreaterThanOrEqual(velDir.y - 1e-9)
   })
 
   it('defend 的瞄準點明顯偏離目標方向（破壞他的預瞄解）', () => {
@@ -868,7 +905,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+  const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
   /**
    * 【這是人工驗收抓到的主缺陷】`unloadAim` 原本寫成 `v.y += tan(pitch)`，
@@ -937,7 +974,7 @@ describe('extend 的俯仰偏置不會滾雪球', () => {
 
 describe('超前的判斷要用幾何門住', () => {
   const sit = createSituation()
-  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
   /**
    * 【人工驗收抓到的缺陷】對頭時接近率是**雙方速度相加**。兩台各 150 m/s
@@ -1059,7 +1096,7 @@ describe('extend 的俯仰是連續量', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -1079,7 +1116,7 @@ describe('extend 的俯仰是連續量', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -1120,7 +1157,7 @@ describe('extend 的俯仰是連續量', () => {
 describe('反轉', () => {
   const sit = createSituation()
   const basis = createEngageBasis()
-  const knobs: Knobs = { leadLag: 1, vertical: 0 }
+  const knobs: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   const cmd = createCommand()
 
   /** 自機朝 −Z 平飛在 4000 m；攻擊者放在 `at`、朝 `look` 飛 */
@@ -1538,7 +1575,7 @@ describe('rally 意圖', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -1566,7 +1603,7 @@ describe('rally 意圖', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -1591,7 +1628,7 @@ describe('rally 意圖', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const knobs: Knobs = { leadLag: 0, vertical: 0 }
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -1619,7 +1656,7 @@ describe('steerCommand：拉桿紀律', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const k: Knobs = { leadLag: 1, vertical: 0 }
+  const k: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   let self: Aircraft
 
   /** 目標在側前方，製造一個夠大的瞄準誤差角。 */
@@ -1766,7 +1803,7 @@ describe('steerCommand：甜蜜區偏置', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
   let self: Aircraft
 
   const scene = () => {
@@ -1941,7 +1978,7 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     // 目標在正前方 150 m、下方約 15°
@@ -2005,7 +2042,7 @@ describe('steerCommand：甜蜜區偏置讓位給射擊解', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
-    const k: Knobs = { leadLag: 0, vertical: 0 }
+    const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
     const self = flyer()
     const target = flyer()
     place(self, [0, 4000, 0], [0, 0, -180])
@@ -2244,7 +2281,7 @@ describe('extend 的回場方向', () => {
       const basis = createEngageBasis()
       const sit = createSituation()
       const cmd = createCommand()
-      const k: Knobs = { leadLag: 0, vertical: 0 }
+      const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
       const self = level()
       const target = at(targetPos)
       evaluateGeometry(self, target, sit)
@@ -2443,7 +2480,7 @@ describe('stepTrack —— 追不上的閘鎖', () => {
  */
 describe('repositionKnobs —— 佈局下一次機會', () => {
   const cfg = DEFAULT_STEER
-  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
   function at(cornerRatio: number): Knobs {
     const sit = createSituation()
@@ -2503,7 +2540,7 @@ describe('steerCommand：追不上就改為佈局', () => {
   const basis = createEngageBasis()
   const sit = createSituation()
   const cmd = createCommand()
-  const k: Knobs = { leadLag: 0, vertical: 0 }
+  const k: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
   let self: Aircraft
 
   /** 目標在右前方 900 m、橫向高速穿越 —— 追不上的典型幾何 */

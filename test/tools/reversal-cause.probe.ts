@@ -73,7 +73,7 @@ const tracks = cs.map((): Track => ({
   lastIntentChange: -1e9, lastModeChange: -1e9, lastTargetChange: -1e9, lastSafety: -1e9,
   vSign: 0, lastVerticalFlip: -1e9,
 }))
-const knobs: Knobs = { leadLag: 0, vertical: 0 }
+const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
 const mk = (): Tally => ({
   n: 0, intentChange: 0, targetChange: 0, modeChange: 0, safety: 0, verticalFlip: 0,

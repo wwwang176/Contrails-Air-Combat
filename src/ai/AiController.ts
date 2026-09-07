@@ -8,7 +8,7 @@ import {
 } from './rules'
 import {
   buildEngageBasis, createBandState, createDefendState, createEngageBasis, createTrackState,
-  engageKnobs, stepBand,
+  engageKnobs, redlineDiveIas, stepBand,
   geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
@@ -434,7 +434,7 @@ export class AiController implements Controller {
    * 「進入那一刻的高度」必須由持有狀態的這一層記。
    */
   readonly band = createBandState()
-  private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
+  private readonly knobs: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
   /**
@@ -792,6 +792,12 @@ export class AiController implements Controller {
 
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
+    // 【規則 3 的俯衝目標】steerCommand 讀不到 RuleState，這裡算好塞進 knobs。
+    // 只在規則 3 的脫離期間非 0 —— 能量／見底型脫離沒有上限，往紅線壓會一路
+    // 俯衝到海
+    this.knobs.diveIas = this.rules.trackExtend > 0
+      ? redlineDiveIas(self.spec.limits.vne, target.spec.limits.vne)
+      : 0
     const mode = geometryGate(this.sit, this.basis)
     this.mode = mode
     // 【意圖是上一個決策節拍的值】反轉的觸發只在進入的那一格用得上，晚一個
