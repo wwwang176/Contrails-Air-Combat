@@ -254,6 +254,16 @@ export interface Situation {
   threatLos: Vector3
   /** 我打得到他的瞬時程度，0..1 */
   shotInstant: number
+  /**
+   * 把機首轉到他身上要幾秒。**`Infinity` = 轉不到。**
+   *
+   * `偏離角 ÷ (我的最大角速度 − 視線角速度)`，分母是淨追趕率。同時吃角度
+   * 與角速度：只看角速度會漏掉「他在正上方而相對不動」，只看角度會漏掉
+   * 「他正在橫越」。分母 ≤ 0 就是永遠追不上。
+   *
+   * **它是量級估計。** 見 `evaluateGeometry` 裡的推導與已知偏差。
+   */
+  timeToBear: number
 }
 
 export function createSituation(): Situation {
@@ -268,6 +278,7 @@ export function createSituation(): Situation {
     pullCeiling: 1, sweetPitch: 0, turnPitch: 0,
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
+    timeToBear: Infinity,
   }
 }
 
@@ -330,6 +341,25 @@ export function evaluateGeometry(self: Aircraft, target: Aircraft, out: Situatio
 
   const selfFwd = S.v[4]!.copy(FWD).applyQuaternion(self.state.orientation)
   out.aspectAngle = Math.acos(clampUnit(selfFwd.dot(losUnit)))
+
+  // 【把機首轉到他身上要幾秒】分母是**淨追趕率**：我轉得動的，扣掉他跑掉的。
+  //
+  //   t = 機首偏離角 ÷ (我的最大角速度 − 視線角速度)
+  //
+  // 【它同時吃角度與角速度】只看角速度會漏掉「敵人在座艙罩正上方而相對
+  // 不動」——那時視線角速度很小，卻要抬 86° 才對得到（`trackEnter` 出貨為 0
+  // 的原因）。只看角度則會漏掉橫越的目標：等我轉過那 10°，他已經在 40° 外。
+  //
+  // 【分母 ≤ 0 就是轉不到】他跑掉的比我轉得動的還快，機首永遠追不上。
+  // 「轉不過去」因此不需要另外定義，它是這個式子的自然結果。
+  //
+  // 【它是量級估計，不是精確值】沒有算滾轉的時間、沒有算往上轉要對抗重力
+  // （兩者都讓它偏樂觀），也沒有扣掉「進到射擊錐就夠」的那 15°（偏悲觀）。
+  // 精確值在這裡不存在——它要假設敵人接下來怎麼飛。下游只是一個二元決策
+  // 加遲滯，需要的是**號數與量級對**：3 秒與 60 秒要分得出來，5 秒與 6 秒
+  // 不必。
+  const net = itr - out.losRate
+  out.timeToBear = Number.isFinite(out.losRate) && net > 0 ? out.aspectAngle / net : Infinity
 
   // 【angleOffTail 為什麼是 acos(losUnit · targetFwd)】我在他正後方時，
   // 由我指向他的向量與他的機首同向，點積為 1、夾角為 0。這與「他的機尾
