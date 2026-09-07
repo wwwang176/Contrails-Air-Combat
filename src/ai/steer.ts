@@ -489,6 +489,25 @@ export interface SteerConfig {
   /** 轉向偏置全開的 `cornerRatio`。Enter..Full 之間 smoothstep。 */
   extendVigorFull: number
   /**
+   * 規則 3 俯衝目標的自身上限，IAS / vne。**不得高於安全層的 `overspeedRatio`**
+   * —— 高於它的話脫離的一方會自己撞進守線，兩層打架。
+   */
+  diveSelfRatio: number
+  /**
+   * 規則 3 俯衝目標：對手紅線的這個倍數。過一點就夠 —— 對手在自己的 0.9
+   * 就放手了，多俯衝的高度是白丟的。
+   */
+  diveTargetRatio: number
+  /**
+   * 規則 3 俯衝的航跡角，rad。**比 `extendPitch` 陡得多，而且必須如此。**
+   *
+   * 【為什麼 25° 不夠】F4F 又重又拖（cd0 0.0248），−15～−25° 的重力分量推不
+   * 動它：實測 19 秒只從 0.41 爬到 0.56 vne、掉 685 m，連對手放手的速度都
+   * 沒摸到，等於白丟高度。−45° 的重力分量是 −15° 的 2.7 倍，粗算 10 秒內
+   * 到得了。
+   */
+  divePitch: number
+  /**
    * 回場偏置**淡到滿**的距離，m。由 0 漸進到這個值，之後全程滿偏。
    *
    * 【淡入區本身有害，要讓 AI 快速通過】它存在只是為了不抖 —— 距離在門檻
@@ -928,6 +947,9 @@ export const DEFAULT_STEER: SteerConfig = {
   extendTurnCap: 20 * (Math.PI / 180),
   extendVigorEnter: 0.85,
   extendVigorFull: 1.05,
+  diveSelfRatio: 0.90,
+  diveTargetRatio: 1.05,
+  divePitch: 45 * (Math.PI / 180),
   extendTurnFade: 750,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
@@ -1067,6 +1089,28 @@ export interface Knobs {
   leadLag: number
   /** −1 = 壓到交戰平面下方、0 = 同平面、+1 = 拉到上方 */
   vertical: number
+  /**
+   * 規則 3 的俯衝目標 IAS，m/s。**0 = 關閉。**
+   *
+   * 由 `AiController` 每步寫入 —— `steerCommand` 讀不到 `RuleState`，「這一段
+   * 是不是規則 3 的脫離」只有它知道。見 `redlineDiveIas`。
+   */
+  diveIas: number
+}
+
+/**
+ * 規則 3 的俯衝目標 IAS，m/s。**0 = 沒有實質餘裕，不俯衝。**
+ *
+ * 【餘裕條件】對手紅線 × `diveTargetRatio` 要低於自己的 × `diveSelfRatio`
+ * 才算：P-51 對 Bf109（787 對 729 km/h）不成立，行為一個字不變；F4F 對 A6M
+ * （549 對 630）成立。俯衝到對手放手的速度就夠，不是俯衝到自己的極限。
+ */
+export function redlineDiveIas(
+  vneSelf: number, vneTarget: number, cfg: SteerConfig = DEFAULT_STEER,
+): number {
+  const target = cfg.diveTargetRatio * vneTarget
+  const ceiling = cfg.diveSelfRatio * vneSelf
+  return target < ceiling ? target : 0
 }
 
 /** 接近率的舒適區間，m/s。超過上界要殺、低於下界要補。 */
@@ -1352,7 +1396,7 @@ export function bandError(deltaAltitude: number, cfg: SteerConfig = DEFAULT_STEE
 const A = makeScratch(2)
 
 /** `repositionKnobs` 的輸出暫存。與 `makeScratch` 同一個理由：不在熱路徑配置 */
-const RK: Knobs = { leadLag: 0, vertical: 0 }
+const RK: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
 /**
  * 由旋鈕算出世界座標的瞄準方向（單位向量）。
@@ -1626,7 +1670,7 @@ export function floorPitchAngle(
 }
 
 /** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
-const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1 }
+const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1, diveIas: 0 }
 
 /**
  * 卸載的拉桿係數，0..1。1 = 照常拉、0 = 完全鬆桿（瞄準機首）。
@@ -1926,26 +1970,40 @@ export function steerCommand(
         // （spec §4.4：這是 aimWorld 介面唯一能表達的卸載近似）。
         // 俯仰由速度赤字與離地餘裕連續決定（見 extendPitchAngle）。
         const clearance = self.state.position.y - seaHeight
-        unloadAim(
-          self,
-          extendPitchAngle(sit.cornerRatio, sit.altitudeAdvantage, clearance, cfg),
-          out.aimWorld,
-        )
+        let pitch = extendPitchAngle(sit.cornerRatio, sit.altitudeAdvantage, clearance, cfg)
+        // 【規則 3 的俯衝】目標速度還沒到就以 `divePitch` 俯衝。離地餘裕仍然
+        // 蓋在上面：cornerRatio = 1 讓速度項歸零、高度差傳 −Infinity 被
+        // isFinite 擋掉，剩下的就是離地項 —— 它為正時貼海不俯衝。
+        let diving = false
+        if (k.diveIas > 0) {
+          const ias = self.diag.aero.tas * Math.sqrt(self.diag.air.sigma)
+          if (ias < k.diveIas) {
+            const floor = extendPitchAngle(1, -Infinity, clearance, cfg)
+            if (floor > 0) pitch = floor
+            else { pitch = -cfg.divePitch; diving = true }
+          }
+        }
+        unloadAim(self, pitch, out.aimWorld)
         // 【回場方向】卸載保住了「不轉向」，代價是脫離時機頭朝哪就一路朝哪
         // 飛到出場 —— 剛 merge 完就正對著敵人直直飛（人工回報）。往錨點偏
         // 一個**有上限**的角度：誤差角的大小決定拉多少 G，上限因此直接是
         // 能量損失的上限（見 `SteerConfig.extendTurnCap`）。
         //
+        // 【俯衝中不偏】俯衝要的是最短時間換到速度，往錨點偏是在對追擊者
+        // 畫弧、把速度花在轉彎上。俯衝有 `trackDiveMax` 兜底，不會直飛到天邊。
+        //
         // 【錨點是當前目標】`losAxis` 由 `buildEngageBasis` 對攻擊目標建立。
         // 【錨點取敵人不取被保護單位】要的是「朝向敵人」，而且敵人每一格都
         // 有 —— 編隊形心會在一架陣亡時跳半個間距（spec §9.5）。
-        rotateHeading(
-          out.aimWorld,
-          extendHeadingBias(
-            defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range,
-            sit.cornerRatio, cfg,
-          ),
-        )
+        if (!diving) {
+          rotateHeading(
+            out.aimWorld,
+            extendHeadingBias(
+              defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range,
+              sit.cornerRatio, cfg,
+            ),
+          )
+        }
         break
       }
       case 'defend':

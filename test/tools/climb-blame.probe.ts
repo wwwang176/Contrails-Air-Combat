@@ -53,7 +53,7 @@ interface Blame {
   seconds: number
 }
 
-const knobs: Knobs = { leadLag: 0, vertical: 0 }
+const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
 
 const b = createBattle(
   new AiController(),

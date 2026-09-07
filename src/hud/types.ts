@@ -132,6 +132,8 @@ export interface HudFrame {
   tas: number
   /** 指示空速，m/s */
   ias: number
+  /** IAS / vne。0.85 起操縱面變重、速度錶變黃；0.95 變紅。見 `redlineEffectiveness` */
+  vneRatio: number
   mach: number
   /** m */
   altitude: number
@@ -398,7 +400,7 @@ export interface HudFrame {
 
 export function createHudFrame(): HudFrame {
   return {
-    tas: 0, ias: 0, mach: 0, altitude: 0, verticalSpeed: 0,
+    tas: 0, ias: 0, vneRatio: 0, mach: 0, altitude: 0, verticalSpeed: 0,
     heading: 0, roll: 0, pitch: 0,
     loadFactor: 1, alpha: 0, alphaCrit: 1,
     ps: 0, es: 0, throttle: 0, powerW: 0,

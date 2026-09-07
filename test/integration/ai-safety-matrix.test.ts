@@ -105,7 +105,14 @@ function withinContract(
 
 const SPECS: readonly [string, AircraftSpec][] = [['P-51D', P51D], ['Bf 109', BF109K4]]
 const ALTITUDES = [300, 600, 1200, 2500] as const
-const SPEEDS = [120, 200, 300] as const
+/**
+ * 【上界 200，不是 300】300 m/s 在 4000 m 的 IAS 是 P-51 紅線的 1.09 倍、在
+ * 300 m 是 Bf 109 的 1.42 倍。紅線因子之下升降舵剩不到 5%，拉不起來是物理
+ * 不是安全層 —— 那個狀態根本不在契約裡（安全層自己的守線在 0.9 vne 就會
+ * 把 AI 擋在外面）。200 m/s 在 300 m 是 Bf 109 的 0.95，還有 22% 權限，
+ * 實測拉得起來。
+ */
+const SPEEDS = [120, 160, 200] as const
 const DIVES = [-20, -45, -70, -89] as const
 const BANKS = [0, 60, 135] as const
 
