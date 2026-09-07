@@ -201,44 +201,29 @@ export function setBombBallistics(k: number, dt: number): void {
 }
 
 /**
- * 轟炸剖面的起始值。**全部由試飛裁定。**
+ * 【`abortRange` 為什麼是 600】放手點隨高度變（1,000 m 平飛約在船前 1.3 km），
+ * 比它更近就代表這一趟已經錯過了。600 m 還在 20 mm 的有效射程之外一點，
+ * 來得及掉頭。**起始值，由試飛裁定。**
  *
- * 【`lockRange` 為什麼是 3,000】炸彈從 1,000 m 平飛投下的水平行程約
- * 1,260 m，所以放手點在船前約 1.3 km。3 km 開始鎖航向留下約 19 秒的
- * 穩定時間（90 m/s），足夠機身把轉彎的餘擺收乾淨。
- *
- * 【`abortRange` 為什麼是 600】比放手點（約 1,300 m）更近就代表這一趟已經
- * 錯過了。600 m 還在 20 mm 的有效射程之外一點，來得及掉頭。
- *
- * 【`egressRange` 為什麼是 5,000】補彈要 20 秒，而 90 m/s 下 20 秒是
- * 1.8 km —— 但脫離之後還要留夠長度讓下一趟的直飛穩定下來（見 `lockRange`
- * 的 3 km）。5 km 同時滿足兩者。
+ * `lockRange` 與 `egressRange` 不是常數，每個決策拍由 `plan` 推導。
  */
 /**
- * 鎖定航向之後到放手之前要留多長，m。**出貨值 0。**
+ * 鎖定航向之後到放手之前要留多長，m。
  *
- * 【它的作用不是「讓第一枚打得中」——那是航向鎖定做的】A/B 實測（一台
- * G4M、一艘不開火的威奇塔、五分鐘）：
+ * 【它是投彈窗的餘裕，不能是 0】鎖定距離的本體（到瞄點的距離）指的是窗口
+ * 的**正中央** —— 恰好那一點放手才打得中。窗口沿著航路只有正負幾十公尺寬
+ * （艦寬的函數，埃塞克斯約 ±75 m），而投彈只在直飛段判定。餘裕是 0 的話
+ * 飛機在窗口中央才轉直飛，前半個窗口整段是浪費的，而進場段任何一點偏差
+ * 都會把剩下的半個窗口也吃掉，症狀是**整趟一枚都投不出來**。
  *
- * ```
- *                        平均循環   命中(<40m)   落點
- *   脫離5000 / 直線1200    111 s      6/6       6,33,12,33
- *   脫離3000 / 直線1200     66 s      8/8       6,33,15,25
- *   脫離3000 / 直線   0     67 s      4/8       6,45,11,54
- *   脫離5000 / 直線   0    111 s      3/6       6,45, 5,49
- * ```
+ * 【它不負責讓第一枚打得中】那是航向鎖定做的。直線段只影響連投的第二枚：
+ * G4M 一趟兩枚間隔 0.35 s，機身還在轉的話第二枚會飛出去 45～54 m。
  *
- * **每一趟的第一枚，四組完全一樣（6 m）。** 直線段只影響**連投的第二枚**
- * ——G4M 一趟兩枚間隔 0.35 s，飛機還在轉的話第二枚會飛出去 45～54 m。
+ * 【代價】它同時把 `egressRange` 撐大同樣的量，一趟循環因此長一點。
  *
- * 【為什麼是 0】判準是「AI 操作玩起來好不好看」，不是命中率。直線段對
- * 循環時間沒有影響（111 vs 111、66 vs 67），但它會把
- * `lockRange` 撐大 1,200 m，連帶把脫離距離也撐大 —— 拿掉之後 G4M 在
- * 1,000 m 的脫離距離由 3,456 m 降到 2,256 m。
- *
- * 【參數保留】`makeBombProfile` 仍然收它，隨時可以調回來重測。
+ * **起始值，由試飛裁定。**
  */
-export const RUN_SETTLE = 0
+export const RUN_SETTLE = 150
 
 /**
  * 造一份轟炸剖面。
@@ -274,8 +259,18 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
     deckY = deckHeightOf(ship.cls)
     if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
       shipAt(ship, HIT.seconds, out.aim)
-      // 前拋距離：落點離現在的水平距離
-      out.lockRange = Math.hypot(HIT.x - p.x, HIT.z - p.z) + runSettle
+      // 【放手點 ＝ 前拋距離 ＋ 船沿視線靠近的量】炸彈落在自己前方 `throw`
+      // 處，而它要落在**船的未來位置**上 —— 船迎面開來時那一點比現在的船更
+      // 近，所以該放手的距離比前拋遠一個 `lead`。少了它，投彈窗整段落在鎖定
+      // 距離之外，而投彈只在直飛段判定：整趟扣不到扳機，一枚都投不出去。
+      //
+      // 【不能直接用「到瞄點的距離」】那個量會隨著飛機接近一起縮，鎖定條件
+      // 於是永遠差一點點（同 `ai/torpedoRun.ts` 記過的那個陷阱）。前拋與
+      // `lead` 都不隨距離變，這個閘門才是一個固定的接戰距離。
+      const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
+      const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
+      const lead = range - Math.hypot(out.aim.x - p.x, out.aim.z - p.z)
+      out.lockRange = throwRange + lead + runSettle
       out.egressRange = out.lockRange + 2 * turnRadius(self)
       return
     }

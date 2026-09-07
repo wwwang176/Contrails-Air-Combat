@@ -20,6 +20,7 @@ import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
  */
 
 const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+const zeroCard = MISSIONS.allies.find((c) => c.id === 'allies-m4') as ReadyMissionCard
 
 /** 玩家席位由它佔著不動 —— 這一支驗的是 AI，不是玩家。 */
 const IDLE: Controller = { update() {} }
@@ -33,8 +34,8 @@ const SEED = 1234
  * **接線與 `main.ts` 的 `wireTerrain` 逐字相同** —— 漏掉 `bombDrag` 的話
  * AI 算的落點與飛出去的那一顆會分家，而症狀只是「投不準」。
  */
-function mission(): Battle {
-  const b = createBattle(IDLE, missionConfigFrom(card), SEED)
+function mission(which: ReadyMissionCard = card): Battle {
+  const b = createBattle(IDLE, missionConfigFrom(which), SEED)
   for (const c of b.world.combatants) {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
@@ -100,5 +101,31 @@ describe('japan-m4 的 AI 一式陸攻', () => {
     expect(dropped(a)).toBe(dropped(b))
     expect(a.world.ships.map((s) => s.hp)).toEqual(b.world.ships.map((s) => s.hp))
     expect(a.world.ships.map((s) => s.alive)).toEqual(b.world.ships.map((s) => s.alive))
+  })
+})
+
+/**
+ * 【為什麼要第二關】`japan-m4` 掛的是魚雷，走的是另一份剖面 —— 轟炸那一份
+ * 在真正的關卡裡從來沒有被端到端驗過。
+ *
+ * 這一關的艦隊**迎著**進場方向開（TF58 航向 −Z，零戰從 −Z 來），而炸彈的
+ * 落彈時間長達二十秒。船在那二十秒裡沿著視線走掉的距離，是投彈窗與鎖定
+ * 距離之間的全部差距 —— 差了它，八架零戰四分鐘一枚都投不出來，而畫面上
+ * 只會看到「零戰飛過艦隊上空就走了」。
+ */
+describe('allies-m4 的 AI 零戰', () => {
+  it('投得出彈、打得到船', () => {
+    const b = mission(zeroCard)
+    const hp0 = b.world.ships.map((s) => s.hp)
+
+    // 【60 秒】零戰從 5 km 外以 143 m/s 進場約 18 秒到投彈點，一趟循環
+    // 約 60 秒。八架裡一枚都沒投就是這條路斷了
+    run(b, 60)
+    expect(dropped(b)).toBeGreaterThan(0)
+
+    const hurt = b.world.ships.filter((s, i) => s.hp < hp0[i]!).length
+    console.log(`零戰投放 ${dropped(b)} 枚、扣到血的船 ${hurt} 艘`)
+    console.log(`船血：${b.world.ships.map((s) => Math.round(s.hp)).join(' ')}`)
+    expect(hurt).toBeGreaterThan(0)
   })
 })

@@ -413,6 +413,35 @@ describe('攻擊航路的狀態機', () => {
   })
 
   /**
+   * 【鎖定距離要涵蓋投彈窗】投彈只在直飛段判定（進場段的 `bombing` 恆為
+   * false），而轉直飛的閘門就是鎖定距離。閘門開在窗口關掉之後的話，整趟
+   * 從頭到尾扣不到扳機，而畫面上只看得到「飛過艦隊上空就走了」。
+   *
+   * 【為什麼是迎面的船】鎖定距離若只算炸彈的前拋距離，就漏掉船在落彈時間
+   * 裡沿著視線走掉的那一段。船背離時漏掉的量是負的（閘門偏早，不會出事），
+   * 迎面時才會把窗口整個推到閘門之外。
+   */
+  it('鎖定距離涵蓋投彈窗：船迎面開來也一樣', () => {
+    setBombBallistics(K, DT)
+    // 航向 π = 朝 +Z 開，迎著從 +Z 往 −Z 進場的飛機
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -6000, Math.PI, 8)
+
+    // 掃出投彈窗的外緣：最遠還放得中的那個距離
+    let open = 0
+    for (let z = -1000; z >= -5000; z -= 10) {
+      if (!shouldRelease(plane(2000, z), sh, K, DT)) continue
+      open = z + 6000
+      break
+    }
+    expect(open).toBeGreaterThan(0)
+
+    const st = strike()
+    const out = createCommand()
+    stepStrike(st, plane(2000, open - 6000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.plan.lockRange).toBeGreaterThanOrEqual(open)
+  })
+
+  /**
    * 【空艙就脫離】這一條守的是實測到的「空手飛一趟」累計 115 秒 ——
    * 少了它，AI 會一直飛攻擊航路而不知道手上沒東西，然後鑽進近迫火網。
    */
