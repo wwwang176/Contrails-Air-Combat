@@ -80,8 +80,15 @@ const CARD: ReadyMissionCard = (() => {
     battle: {
       objective: '飛抵撤離點',
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
-      blueCount: 4, redCount: 16, convoyCount: 0, convoyPriority: 1,
-      targetDistance: 20000, targetRadius: 1000, seconds: 176,
+      // 【場景刻意小】這一組數字要滿足的只有一件事：飛得到、而且飛不到
+      // 的時候時限會先到。20 km / 176 s / 16 架敵機是關卡的尺寸，不是判定
+      // 需要的尺寸 —— 判定是 `mission.ts` 的規則，與距離和架數無關。
+      //
+      // 【時限要留餘裕】`targetDistance` 是撤離點離**原點**多遠，不是離
+      // 出生點多遠 —— `pursuit` 開局把藍隊放在後方，實際航程比它長。實測
+      // 直飛約 57 秒抵達，80 秒留了四成餘裕。
+      blueCount: 4, redCount: 4, convoyCount: 0, convoyPriority: 1,
+      targetDistance: 4000, targetRadius: 1000, seconds: 80,
       entry: 'pursuit', terrain: 'archipelago',
     },
   }

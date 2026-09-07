@@ -117,12 +117,27 @@ describe('護送與攔截：一條規則的兩側', () => {
    * 兩者綁在一起的話，每一次調難度都會弄紅一條與難度無關的測試，而那正是
    * 「護欄被改成配合實作」的起點。
    */
+  /**
+   * 終點拉近到這裡。
+   *
+   * 【為什麼可以動】判定是「轟炸機進了圈沒有」，與圈在多遠無關 ——
+   * 卡片的 12,000 m 是**關卡的長度**，不是判定需要的長度。整隊飛完
+   * 12 km 要一百多秒，而這幾條每一條都要飛到底。
+   *
+   * 【為什麼不歸零】太近的話轟炸機出生就在圈裡，「飛到終點」與「一開始
+   * 就在終點」分不出來，那四條會在規則接反的情況下照樣綠。3,000 m 足夠
+   * 讓它們真的飛一段。
+   */
+  const NEAR_GOAL = 3000
+
   function outcomeOf(
     id: string,
     over: Partial<MissionBattle> = {}, disarm: Team | null = null,
   ) {
     const card = readyCard(id)
-    const cfg = missionConfigFrom({ ...card, battle: { ...card.battle, ...over } })
+    const cfg = missionConfigFrom({
+      ...card, battle: { ...card.battle, targetDistance: NEAR_GOAL, ...over },
+    })
     const b = createBattle(new Idle(), disarm === null ? cfg : {
       ...cfg,
       // 【逐架把槍拆掉】與 `mission-evacuate.test.ts` 同一手。混編也正確 ——
@@ -154,8 +169,10 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 判定的那一刻，至少一架在圈內
     expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
     expect(b.mission.remaining).toBeGreaterThan(0)
-    // 12 km 的航程，轟炸機全速約 128 m/s —— 兩分鐘上下
-    expect(t).toBeGreaterThan(80)
+    // 【它守的是「真的飛過去」】下界擋「規則接反、開局就判贏」：終點在
+    // `NEAR_GOAL` 外，轟炸機全速約 128 m/s，物理上不可能在 20 秒內到。
+    // 上界擋「卡住、靠 300 秒的迴圈上限才收場」。實測 68 秒，兩邊都很寬。
+    expect(t).toBeGreaterThan(20)
     expect(t).toBeLessThan(200)
   }, 120_000)
 
