@@ -1581,9 +1581,7 @@ export function resetBattle(
       c.controller = b.playerController
       continue
     }
-    // 【保留下來的那幾顆要清戰術狀態】相位、計時、輪次、冷卻與上一個目標
-    // 都會跨場殘留，第二場的第一秒就會有幾架飛機從別人的 perch 中途開始
-    if (c.controller instanceof AiController) { c.controller.resetTactics(); continue }
+    if (c.controller instanceof AiController) continue
     const ai = new AiController()
     ai.board = b.board
     ai.selfIndex = c.index

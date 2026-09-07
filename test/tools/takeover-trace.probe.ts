@@ -54,7 +54,7 @@ function nearestEnemy(cs: readonly Combatant[], self: Combatant): number {
 
 /**
  * 【為什麼要容錯】這支要拿去跑舊 commit 做 A/B，而那些 commit 沒有
- * `tactics` 與 `speedAdvantage` 這兩個欄位。讀到 `undefined` 時
+ * `speedAdvantage` 這個欄位。讀到 `undefined` 時
  * `.toFixed()` 會直接拋 —— 那會讓「跨版本比較」這件事本身做不成。
  */
 function num(x: number | undefined): string {
@@ -87,7 +87,6 @@ for (let k = 0; k < Math.round(SECONDS / DT); k++) {
     + `${theta.toFixed(1).padStart(6)} ${gamma.toFixed(1).padStart(6)} `
     + `${me.command.aimWorld.y.toFixed(3).padStart(6)} `
     + `${ai.intent.padEnd(9)} ${ai.mode.padEnd(11)} `
-    + `${(ai.tactics?.phase ?? '—').padEnd(6)} `
     + `${num(ai.sit.cornerRatio).padStart(6)} `
     + `${num(ai.sit.speedAdvantage).padStart(7)} `
     + `${nearestEnemy(b.world.combatants, me).toFixed(0).padStart(7)}`,
