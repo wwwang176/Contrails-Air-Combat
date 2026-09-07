@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import {
   createBattle, stepBattle, DEFAULT_BATTLE, type Battle, type BattleConfig,
 } from '../../src/battle/setup'
@@ -149,10 +149,15 @@ const SYMMETRIC: readonly BattleConfig[] = (() => {
 })()
 
 describe('傷害交換比這把尺的解析度（20v20、120 秒、四個對稱編成）', () => {
-  const ratios = SYMMETRIC.map((cfg) => {
-    const d = observe('none', cfg)
-    return d.red / Math.max(d.blue, 1)
-  })
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let ratios: number[]
+  beforeAll(() => {
+    ratios = SYMMETRIC.map((cfg) => {
+      const d = observe('none', cfg)
+      return d.red / Math.max(d.blue, 1)
+    })
+  }, 30 * 60 * 1000)
 
   /**
    * 【比值判準為什麼被否決】見 `RETIRED`。這一條是那句話的可證偽形式：

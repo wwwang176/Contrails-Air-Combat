@@ -15,7 +15,9 @@ npm run dev       # http://localhost:5173
 |---|---|
 | `npm run dev` | 開發伺服器 |
 | `npm run build` | `tsc --noEmit` + 正式建置 |
-| `npm test` | 全部測試（49 檔 / 1,371 條） |
+| `npm test` | 全部測試 |
+| `npm run test:unit` | 純函數與單一機制那一層（unit、control、balance、performance），改一行跑一次用這個 |
+| `npm run test:integration` | 跑整場戰鬥的那一層，提交前跑 |
 | `npm run bench` | 物理步、彈丸步、AI 步的微基準 |
 
 ## 操作

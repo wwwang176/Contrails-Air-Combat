@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Vector3 } from 'three'
 import {
   aliveCount, createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
@@ -391,7 +391,10 @@ function observe(): Observed {
 }
 
 describe('20v20 跑滿 150 秒', () => {
-  const o = observe()
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let o: Observed
+  beforeAll(() => { o = observe() }, 10 * 60 * 1000)
 
   it('鎖定夠分散：圍毆是瞬間而不是常態（M5 spec §3.1 條件 3）', () => {
     // 主判準是**分布**：被超過 7 架鎖定的時間佔比。見 MAX_LOCKS 的註解。

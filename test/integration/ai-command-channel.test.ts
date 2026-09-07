@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_COMMAND } from '../../src/ai/command'
@@ -269,7 +269,10 @@ function observe(commanders = true): Observed {
 }
 
 describe('指令通道（20v20、300 秒）', () => {
-  const o = observe()
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let o: Observed
+  beforeAll(() => { o = observe() }, 10 * 60 * 1000)
 
   /**
    * 【場景要成立】指揮層若一次都沒發過命令，下面每一條都會空洞地通過。
@@ -428,8 +431,12 @@ describe('指令通道（20v20、300 秒）', () => {
 }, 10 * 60 * 1000)
 
 describe('指揮層的效果（20v20 開／關對照、300 秒）', () => {
-  const on = observe(true)
-  const off = observe(false)
+  let on: Observed
+  let off: Observed
+  beforeAll(() => {
+    on = observe(true)
+    off = observe(false)
+  }, 10 * 60 * 1000)
 
   /**
    * 【為什麼是開／關對照而不是「有指揮的一方打贏」】spec §2.1：兩隊都有
