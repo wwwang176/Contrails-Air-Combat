@@ -322,6 +322,18 @@ export interface RuleConfig {
    */
   trackMax: number
   /**
+   * 規則 3 **俯衝中**的上限，s。自己紅線比對手高、目標速度還沒到時用它取代
+   * `trackMax`。
+   *
+   * 【為什麼要另一個上限】從纏鬥出來時速度只有 90 m/s 上下，25° 俯衝到對手
+   * 放手的速度要 12 秒左右；7 秒的上限會在半路把俯衝切掉，實測 IAS 最高只到
+   * 對手紅線的 0.9 以下，等於白俯衝一段。
+   *
+   * 【仍然有界】它是絕對值，不是「到達目標為止」—— 貼海、對手比預期快、
+   * 或推力不夠時目標可能永遠到不了，那種條件式會變成永久脫離。
+   */
+  trackDiveMax: number
+  /**
    * 規則 3 撞上限之後的冷卻，s。**這段時間不再脫離，硬著頭皮打。**
    *
    * 【為什麼要有】撞上限代表「脫離沒有解決問題」。沒有冷卻的話下一拍立刻
@@ -390,6 +402,7 @@ export const DEFAULT_RULES: RuleConfig = {
   bearMax: 6,
   trackCommit: 4,
   trackMax: 7,
+  trackDiveMax: 20,
   trackCooldown: 10,
   extendRange: 1500,
   engageTimeEnter: 8,
@@ -479,6 +492,7 @@ export function stepRules(
   dt: number,
   cfg: RuleConfig = DEFAULT_RULES,
   fighter = true,
+  diving = false,
 ): Intent {
   s.dwell += dt
 
@@ -572,7 +586,10 @@ export function stepRules(
     // 的出場遲滯（`threatExit`）；閂鎖一放，計時器就繼續走向上限。
     if (!s.defendLatch) s.trackExtend += dt
     const committed = s.trackExtend >= cfg.trackCommit
-    if (s.trackExtend >= cfg.trackMax) {
+    // 【俯衝中上限換成 trackDiveMax】呼叫端只在「有紅線餘裕、目標速度還沒到」
+    // 時傳 true，見 `RuleConfig.trackDiveMax`
+    const cap = diving ? cfg.trackDiveMax : cfg.trackMax
+    if (s.trackExtend >= cap) {
       // 【撞上限要罰冷卻】只把計時器歸零的話，下一拍條件仍然成立、立刻
       // 重新觸發 —— 每 `trackMax` 秒一段無限接續，上限等於沒有界限作用。
       //
