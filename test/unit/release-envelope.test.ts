@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BOMB_ENVELOPE, TORPEDO_ENVELOPE, canRelease, envelopeFor,
+  rollOk, pitchOk, aglOk, tasOk,
 } from '../../src/weapons/releaseEnvelope'
 
 const DEG = Math.PI / 180
@@ -121,5 +122,92 @@ describe('退化的輸入', () => {
     expect(ok(TORPEDO_ENVELOPE, { pitch: NaN })).toBe(false)
     expect(ok(TORPEDO_ENVELOPE, { agl: NaN })).toBe(false)
     expect(ok(BOMB_ENVELOPE, { agl: NaN })).toBe(false)
+  })
+})
+
+/**
+ * 逐軸述詞。**HUD 的投放閘門要說出「是哪一條不過」，而畫面上只有一份門檻。**
+ *
+ * 【為什麼不讓閘門自己寫一份比較】兩份 `Math.abs(roll) <= env.maxRoll` 遲早
+ * 會漂，而症狀是**閘門三格全綠而扳機沒有反應**（或反過來）—— 不拋例外、
+ * 沒有錯誤訊息，玩家只會覺得投彈壞了。
+ */
+describe('逐軸述詞', () => {
+  it('坡度：邊界之內為真、之外為假，而且看絕對值', () => {
+    const m = TORPEDO_ENVELOPE.maxRoll
+    expect(rollOk(TORPEDO_ENVELOPE, m)).toBe(true)
+    expect(rollOk(TORPEDO_ENVELOPE, -m)).toBe(true)
+    expect(rollOk(TORPEDO_ENVELOPE, m + 1e-9)).toBe(false)
+    expect(rollOk(TORPEDO_ENVELOPE, -m - 1e-9)).toBe(false)
+  })
+
+  it('俯仰：上下界各自成立', () => {
+    const e = TORPEDO_ENVELOPE
+    expect(pitchOk(e, e.minPitch)).toBe(true)
+    expect(pitchOk(e, e.maxPitch)).toBe(true)
+    expect(pitchOk(e, e.minPitch - 1e-9)).toBe(false)
+    expect(pitchOk(e, e.maxPitch + 1e-9)).toBe(false)
+  })
+
+  it('高度：上下界各自成立', () => {
+    const e = TORPEDO_ENVELOPE
+    expect(aglOk(e, e.minAgl)).toBe(true)
+    expect(aglOk(e, e.maxAgl)).toBe(true)
+    expect(aglOk(e, e.minAgl - 1e-9)).toBe(false)
+    expect(aglOk(e, e.maxAgl + 1e-9)).toBe(false)
+  })
+
+  it('速度：不限速時任何值都過，含 0 與 1e9', () => {
+    for (const v of [0, 80, 1e9]) expect(tasOk(TORPEDO_ENVELOPE, v)).toBe(true)
+  })
+
+  it('沒有上界時 Infinity 也過 —— 炸彈的高度就是這一格', () => {
+    expect(aglOk(BOMB_ENVELOPE, Infinity)).toBe(true)
+  })
+
+  /**
+   * 【這一條是那個症狀的守門員】掃一格網格，逐點斷言 `canRelease` 恰好是
+   * 四支述詞的合取。任何一支與 `canRelease` 漂開都在這裡紅。
+   */
+  it('canRelease 恰好是四支述詞的合取', () => {
+    const e = TORPEDO_ENVELOPE
+    const rolls = [0, e.maxRoll, e.maxRoll * 1.5, -e.maxRoll, -e.maxRoll * 1.5]
+    const pitches = [0, e.minPitch, e.maxPitch, e.minPitch * 2, e.maxPitch * 2]
+    const agls = [0, e.minAgl, e.maxAgl, e.minAgl / 2, e.maxAgl * 2]
+    const tases = [0, 80, 1e9]
+    let sawTrue = false
+    let sawFalse = false
+    for (const roll of rolls) {
+      for (const pitch of pitches) {
+        for (const agl of agls) {
+          for (const tas of tases) {
+            const want = rollOk(e, roll) && pitchOk(e, pitch)
+              && aglOk(e, agl) && tasOk(e, tas)
+            expect(
+              canRelease(e, roll, pitch, agl, tas),
+              `roll=${roll} pitch=${pitch} agl=${agl} tas=${tas}`,
+            ).toBe(want)
+            if (want) sawTrue = true
+            else sawFalse = true
+          }
+        }
+      }
+    }
+    // 【網格要真的兩種都掃到】全部同一個答案的話這一條什麼都沒守
+    expect(sawTrue).toBe(true)
+    expect(sawFalse).toBe(true)
+  })
+
+  /**
+   * 【NaN 一律為假】四支都寫成正向的區間比較，所以 NaN 在每一個比較裡都是
+   * false。寫成 `!(x > max)` 那種否定式的話 NaN 會被放行 —— 讀不到姿態時
+   * 投得出彈。
+   */
+  it('NaN 在每一支述詞裡都是假', () => {
+    const e = TORPEDO_ENVELOPE
+    expect(rollOk(e, NaN)).toBe(false)
+    expect(pitchOk(e, NaN)).toBe(false)
+    expect(aglOk(e, NaN)).toBe(false)
+    expect(tasOk(e, NaN)).toBe(false)
   })
 })
