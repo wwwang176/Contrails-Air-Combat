@@ -1,7 +1,7 @@
 import { G0 } from '../core/math'
 import { atmosphere } from '../physics/atmosphere'
 import {
-  controlEffectiveness, dragCoefficient, inducedDragFactor,
+  controlEffectiveness, dragCoefficient, inducedDragFactor, redlineEffectiveness,
 } from '../physics/aero'
 import { WEP_THROTTLE, enginePower, propThrust } from '../physics/propulsion'
 import { derivedClMax, type AircraftSpec } from '../specs/types'
@@ -434,7 +434,7 @@ export function maxRollRate(spec: AircraftSpec, altitude: number, tas: number): 
   atmosphere(altitude, air)
   const qbar = 0.5 * air.density * tas * tas
   const CS = spec.controlStiffening
-  const da = controlEffectiveness(CS.aileronK, CS.qRef, qbar)
+  const da = controlEffectiveness(CS.aileronK, CS.qRef, qbar) * redlineEffectiveness(spec.limits.vne, qbar)
   return (spec.moments.clDa * da * 2 * tas) / (Math.abs(spec.moments.clP) * spec.wing.span)
 }
 

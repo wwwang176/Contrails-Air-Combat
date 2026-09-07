@@ -8,7 +8,7 @@ import {
 } from './rules'
 import {
   buildEngageBasis, createBandState, createDefendState, createEngageBasis, createTrackState,
-  engageKnobs, stepBand,
+  engageKnobs, redlineDiveIas, stepBand,
   geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
@@ -50,6 +50,7 @@ import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
 import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
+import { THROTTLE_RATE } from '../input/throttle'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -353,6 +354,8 @@ export class AiController implements Controller {
    */
   mode: SteerMode = 'normal'
   safetyActive = false
+  /** 上一格送出的油門。NaN = 還沒送過，第一格直接用命令值。見 `emit` */
+  private lastThrottle = NaN
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
    *
@@ -434,7 +437,7 @@ export class AiController implements Controller {
    * 「進入那一刻的高度」必須由持有狀態的這一層記。
    */
   readonly band = createBandState()
-  private readonly knobs: Knobs = { leadLag: 1, vertical: 0 }
+  private readonly knobs: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
   /**
@@ -761,9 +764,13 @@ export class AiController implements Controller {
         this.sit.altitudeAdvantage,
         this.sit.floorGap - 2 * this.rulesConfig.floorAltExit,
       )
+      // 【俯衝中】上一格算出來的俯衝目標還沒到 —— 規則 3 的上限換成
+      // trackDiveMax。讀上一格的 knobs 差 100 ms，對一個以秒計的上限沒差
+      const diving = this.knobs.diveIas > 0
+        && self.diag.aero.tas * Math.sqrt(self.diag.air.sigma) < this.knobs.diveIas
       this.intent = stepRules(
         this.rules, this.sit, danger, period, this.rulesConfig,
-        self.spec.role === 'fighter',
+        self.spec.role === 'fighter', diving,
       )
       // 【命令是外部覆寫，不是 arbitrate 的一列】那個函式的優先序關係是
       // 實測逐條談定的（相對理由 vs 絕對理由、defend 的絕對優先權，見
@@ -792,6 +799,12 @@ export class AiController implements Controller {
 
     // ── 240 Hz：轉向、開火 ────────────────────────────────
     engageKnobs(this.sit, this.knobs)
+    // 【規則 3 的俯衝目標】steerCommand 讀不到 RuleState，這裡算好塞進 knobs。
+    // 只在規則 3 的脫離期間非 0 —— 能量／見底型脫離沒有上限，往紅線壓會一路
+    // 俯衝到海
+    this.knobs.diveIas = this.rules.trackExtend > 0
+      ? redlineDiveIas(self.spec.limits.vne, target.spec.limits.vne)
+      : 0
     const mode = geometryGate(this.sit, this.basis)
     this.mode = mode
     // 【意圖是上一個決策節拍的值】反轉的觸發只在進入的那一格用得上，晚一個
@@ -896,6 +909,15 @@ export class AiController implements Controller {
     }
     this.safetyAction = applySafety(self, floor, out, undefined, sense)
     this.safetyActive = this.safetyAction !== 'none'
+    // 【油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE 推的，
+    // AI 直接寫值等於瞬間收滿或推滿 —— 守線那一格看起來像引擎被關掉。
+    // 排在安全層之後：硬接管給的油門也照樣用同一個速率走到位。
+    if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
+    const step = THROTTLE_RATE * dt
+    const d = out.throttle - this.lastThrottle
+    if (d > step) out.throttle = this.lastThrottle + step
+    else if (d < -step) out.throttle = this.lastThrottle - step
+    this.lastThrottle = out.throttle
   }
 
   /**
@@ -912,16 +934,22 @@ export class AiController implements Controller {
    */
   private scanThreat(self: Aircraft): Aircraft | null {
     const board = this.board
+    // 【沒有板就退回目標距離】單機對單機沒有「別的敵機」，最近的就是他
+    this.sit.nearestRange = this.sit.range
     if (board === null) return null
     const me = board.candidates[this.selfIndex]
     if (me === undefined) return null
 
     let best: Aircraft | null = null
     let bestValue = 0
+    let nearest = Infinity
     const cs = board.candidates
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!
       if (!c.alive || c.team === me.team) continue
+      // 【順便量最近敵機】同一個迴圈、不配置。見 `Situation.nearestRange`
+      const d = c.aircraft.state.position.distanceTo(self.state.position)
+      if (d < nearest) nearest = d
       // 【用警戒而不是威脅排序】`threatFactor` 在 900 m 外恆為 0，所以
       // 用它掃描的話，一架咬在我 950 m 正後方的敵機得分與「不存在」相同 ——
       // 選不出來，`defend` 的破防軸也就繞不到他身上。`alarmFactor` 的支撐集
@@ -933,6 +961,9 @@ export class AiController implements Controller {
         best = c.aircraft
       }
     }
+    // 【敵機全滅時保持 `range`】`Infinity` 會讓規則 3 的距離出場立刻成立，
+    // 而那時候根本沒有人可以脫離
+    if (nearest !== Infinity) this.sit.nearestRange = nearest
     return best
   }
 

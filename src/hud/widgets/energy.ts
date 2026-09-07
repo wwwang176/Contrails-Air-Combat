@@ -82,4 +82,13 @@ export function drawEnergy(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFr
     ctx.textAlign = 'center'
     ctx.fillText('LOW SPEED', L.cx, L.height * 0.29)
   }
+
+  // 紅線警告。與 LOW SPEED 同一個位置：兩者互斥（低速時不可能超速），
+  // 門檻與速度錶的變色相同 —— 0.85 是操縱面開始變重的點，0.95 剩 22%。
+  if (f.vneRatio > 0.85) {
+    ctx.fillStyle = f.vneRatio > 0.95 ? HUD_COLORS.danger : HUD_COLORS.warn
+    ctx.font = hudFont(18 * L.scale, true)
+    ctx.textAlign = 'center'
+    ctx.fillText('OVERSPEED', L.cx, L.height * 0.29)
+  }
 }

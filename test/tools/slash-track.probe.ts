@@ -159,7 +159,7 @@ function main(): void {
   rc.respawnOnDestroy = false
 
   const right = new Vector3()
-  const knobs: Knobs = { leadLag: 0, vertical: 0 }
+  const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
   const out: Sample[] = []
 
   const total = SECONDS * 240

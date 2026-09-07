@@ -217,6 +217,9 @@ export function drawDials(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
   ctx.fillStyle = HUD_COLORS.dim
   ctx.fillText('IAS km/h', asiX, labelY)
   ctx.fillText('ALT m', altX, labelY)
+  // 【紅線警告與失速警告同一組門檻】0.85 是操縱面開始變重的點，0.95 剩 22%
+  ctx.fillStyle = f.vneRatio > 0.95 ? HUD_COLORS.danger
+    : f.vneRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.dim
   ctx.fillText(`TAS ${(f.tas * 3.6).toFixed(0)}   M ${f.mach.toFixed(2)}`, asiX, subY)
 
   ctx.fillStyle = f.verticalSpeed >= 0 ? HUD_COLORS.primary : HUD_COLORS.warn

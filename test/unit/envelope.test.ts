@@ -8,6 +8,7 @@ import {
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { A6M5 } from '../../src/specs/a6m5'
 
 const KMH = 1 / 3.6
 const RAD2DEG = 180 / Math.PI
@@ -215,6 +216,14 @@ describe('maxRollRate', () => {
     const r = maxRollRate(BF109K4, 0, 650 * KMH) * RAD2DEG
     expect(r).toBeGreaterThan(20)
     expect(r).toBeLessThan(45)
+  })
+
+  it('紅線那一點滾轉率跟著操縱權限掉到一成', () => {
+    // 海平面 IAS = TAS。紅線因子在 r = 1 剩 10%，高速變硬另外再乘，
+    // 所以比值必須低於 0.10 再加一點餘裕
+    const knee = maxRollRate(A6M5, 0, 0.85 * A6M5.limits.vne)
+    const atLine = maxRollRate(A6M5, 0, A6M5.limits.vne)
+    expect(atLine / knee).toBeLessThan(0.12)
   })
 })
 

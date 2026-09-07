@@ -106,7 +106,7 @@ export const HEADON_20V20: readonly string[] = [
  * `turnEnter`，所以整隊 P-51 被徵召進戰術層打能量戰。校驗和因此與
  * `PURSUIT_MIRROR_8V8`（鏡像、不徵召）走的不是同一條路徑。
  */
-export const HEADON_20V20_REPLAY = '51409:dae2f7c6e0bfb69c1a1ed8d71a903750a1c437fd6f8ffd8907e967f31092d353'
+export const HEADON_20V20_REPLAY = '51409:53a96386eea2365833eca1d695a846ec5fa0f045c82338dc84f3d66ffeaddb77'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',
@@ -131,7 +131,7 @@ export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '小隊 red 12,13,14,15',
   '玩家座位 4',
 ]
-export const PURSUIT_MIRROR_8V8_REPLAY = '49033:b44cff56aee76df2f25fbbd0a5e2557365b563f7506a7d03b55636264a6687bd'
+export const PURSUIT_MIRROR_8V8_REPLAY = '49033:a3bccc3ef0f31f899b4375b4679a7bd7aeea03e359fe7f042e488898485366c8'
 
 export const ESCORT_B17: readonly string[] = [
   '0 blue b17g | -750 3700 5000 | 0 0 0 1 | 0 0 -98.7226258310843 | -750 3700 5000 | 0 0 0 1 | -750 3700 5000 | 98.7226258310843 3700 0 | 玩家',
@@ -151,5 +151,5 @@ export const ESCORT_B17: readonly string[] = [
   '小隊 red 8,9,10,11',
   '玩家座位 0',
 ]
-export const ESCORT_B17_REPLAY = '49017:80f6424fba5a1d8433ec9bebf73819e5306c6003a920e777ebb5b1b38e52f683'
+export const ESCORT_B17_REPLAY = '49017:1be057c3985ea4034181c0e65693bca9918b9f48307633998b7cef46d710ba01'
 

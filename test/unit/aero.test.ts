@@ -3,10 +3,12 @@ import { Vector3 } from 'three'
 import {
   liftCoefficient, dragCoefficient, inducedDragFactor, controlEffectiveness,
   lowSpeedEffectiveness, stallDynamicPressure, LOW_SPEED_KNEE,
+  redlineEffectiveness, REDLINE_KNEE, REDLINE_K,
+  redlinePitchEffectiveness, REDLINE_PITCH_FLOOR,
   updateSlatState, computeAeroState, aeroForceMoment,
 } from '../../src/physics/aero'
 import { stallSpeed } from '../../src/analysis/envelope'
-import { atmosphere } from '../../src/physics/atmosphere'
+import { atmosphere, RHO0 } from '../../src/physics/atmosphere'
 import { derivedClMax } from '../../src/specs/types'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
@@ -545,5 +547,91 @@ describe('aeroForceMoment 的低速舵面衰減', () => {
     expect(ratio).toBeCloseTo(
       stallDynamicPressure(BF109K4) / stallDynamicPressure(P51D), 9,
     )
+  })
+})
+
+/**
+ * 紅線因子：IAS 超過 0.85 vne 之後三軸操縱面指數變重，紅線那一點剩 10%。
+ *
+ * 【它擋的是「紅線在表上、飛行中沒後果」】`limits.vne` 原本只在出生時夾初速。
+ * 零戰俯衝到 600 km/h 照樣轉，F4F 的俯衝脫離在物理上不存在出口。
+ */
+describe('redlineEffectiveness', () => {
+  const KMH = 1 / 3.6
+  const vne = 700 * KMH
+  /** 海平面：IAS = TAS，動壓由 IAS 直接算 */
+  const q = (ias: number): number => 0.5 * RHO0 * ias * ias
+
+  it('r ≤ 0.85 時恆為 1，連膝點本身也是', () => {
+    expect(redlineEffectiveness(vne, q(0.5 * vne))).toBe(1)
+    expect(redlineEffectiveness(vne, q(REDLINE_KNEE * vne))).toBe(1)
+  })
+
+  it('紅線那一點剩 10%', () => {
+    expect(redlineEffectiveness(vne, q(vne))).toBeCloseTo(0.10, 3)
+  })
+
+  it('膝點之後單調遞減', () => {
+    let prev = 1
+    for (let r = 0.86; r <= 1.2; r += 0.01) {
+      const e = redlineEffectiveness(vne, q(r * vne))
+      expect(e).toBeLessThan(prev)
+      prev = e
+    }
+  })
+
+  it('膝點兩側的值連續 —— 玩家感受是「越來越重」，不是「突然鎖死」', () => {
+    // 值連續、斜率有 −K 的折角：跨過膝點 ε 的落差不超過 K·ε
+    const eps = 1e-5
+    const left = redlineEffectiveness(vne, q(REDLINE_KNEE * vne))
+    const right = redlineEffectiveness(vne, q((REDLINE_KNEE + eps) * vne))
+    expect(left - right).toBeGreaterThan(0)
+    expect(left - right).toBeLessThan(REDLINE_K * eps * 1.01)
+  })
+
+  it('紅線在膝點的高空：同樣的 TAS，動壓小，因子比較晚到', () => {
+    // 4000 m 的密度比約 0.67：TAS = vne 時 IAS 只有 0.82 vne，還在膝點以下
+    const qbarHigh = 0.5 * air(4000).density * vne * vne
+    expect(redlineEffectiveness(vne, qbarHigh)).toBe(1)
+  })
+
+  it('升降舵有 30% 的底：紅線之後桿還壓得住，不會被機體配平自己拉起', () => {
+    expect(redlinePitchEffectiveness(vne, q(0.5 * vne))).toBe(1)
+    expect(redlinePitchEffectiveness(vne, q(0.90 * vne))).toBeCloseTo(redlineEffectiveness(vne, q(0.90 * vne)), 9)
+    expect(redlinePitchEffectiveness(vne, q(vne))).toBe(REDLINE_PITCH_FLOOR)
+    expect(redlinePitchEffectiveness(vne, q(1.3 * vne))).toBe(REDLINE_PITCH_FLOOR)
+  })
+
+  it('aeroForceMoment：紅線上滾轉力矩掉到一成、俯仰力矩只掉到三成', () => {
+    // 同一台 P-51D、同一個動壓，只打舵：比較膝點與紅線兩處的舵面力矩
+    // 海平面、機首平飛、只打一個舵：舵面力矩的大小。機體自己的俯仰力矩
+    // （cm0）不打舵也在，要扣掉不打舵的基準才是舵面的貢獻
+    const moment = (ias: number, controls: { aileron: number; elevator: number }): number => {
+      const s = computeAeroState(new Vector3(0, 0, -ias), air(0), aeroOut())
+      const base = aeroForceMoment(P51D, s, new Vector3(), NO_CONTROL, false, fmOut()).moment.clone()
+      const fm = aeroForceMoment(P51D, s, new Vector3(), { ...NO_CONTROL, ...controls }, false, fmOut())
+      return fm.moment.sub(base).length()
+    }
+    const vneP = P51D.limits.vne
+    const rollKnee = moment(REDLINE_KNEE * vneP, { aileron: 1, elevator: 0 })
+    const rollLine = moment(vneP, { aileron: 1, elevator: 0 })
+    const pitchKnee = moment(REDLINE_KNEE * vneP, { aileron: 0, elevator: 1 })
+    const pitchLine = moment(vneP, { aileron: 0, elevator: 1 })
+    // 動壓本身由 0.85² 長到 1，力矩要先除掉那個比例才看得到舵面因子
+    const qGrow = 1 / (REDLINE_KNEE * REDLINE_KNEE)
+    const stiff = (k: number) => controlEffectiveness(k, P51D.controlStiffening.qRef, q(vneP))
+      / controlEffectiveness(k, P51D.controlStiffening.qRef, q(REDLINE_KNEE * vneP))
+    expect(rollLine / rollKnee / qGrow / stiff(P51D.controlStiffening.aileronK)).toBeCloseTo(0.10, 2)
+    expect(pitchLine / pitchKnee / qGrow / stiff(P51D.controlStiffening.elevatorK)).toBeCloseTo(REDLINE_PITCH_FLOOR, 2)
+  })
+
+  it('在 aeroForceMoment 裡是乘在 controlEffectiveness 後面，不是取代', () => {
+    // P-51D 在自己的紅線上：三軸權限 = 高速變硬 × 紅線因子（0.10）
+    const CS = P51D.controlStiffening
+    const qbar = q(P51D.limits.vne)
+    const stiff = controlEffectiveness(CS.aileronK, CS.qRef, qbar)
+    const both = stiff * redlineEffectiveness(P51D.limits.vne, qbar)
+    expect(both).toBeCloseTo(stiff * 0.10, 3)
+    expect(both).toBeLessThan(stiff)
   })
 })
