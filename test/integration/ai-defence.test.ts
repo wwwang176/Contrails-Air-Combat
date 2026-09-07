@@ -227,6 +227,17 @@ describe('被夾擊時的閃躲（1 藍 2 紅、30 秒）', () => {
     it(`${c.name}`, () => {
       const o = scenario(c.behind)
 
+      // 【印出整組量測】只有斷言的話，一條紅了就看不到其餘幾條的值，而
+      // 判斷「這是迴歸還是雜訊」需要整組。與 `ai-targeting` 同一手法。
+      console.log(
+        `${c.name.padEnd(14)} defend ${(100 * o.defendShare).toFixed(1)}%`
+        + `　反應 ${o.reactionSeconds === Infinity ? '從未' : `${o.reactionSeconds.toFixed(2)}s`}`
+        + `　被掛著射擊解 ${(100 * o.huntedShare).toFixed(1)}%`
+        + `　目標穩定 ${(100 * o.targetStable).toFixed(1)}%`
+        + `　藍方掉血 ${o.blueDamage.toFixed(0)}`
+        + `　打掉紅A ${o.dealtToA.toFixed(0)}`,
+      )
+
       // 【一：必須真的察覺並反應】修補前這兩條在四種幾何下全部是
       // `defend 0.0%` / 反應「從未」—— 長機結構上看不見非目標的威脅。
       expect(o.defendShare).toBeGreaterThan(0)
@@ -275,20 +286,3 @@ describe('被夾擊時的閃躲（1 藍 2 紅、30 秒）', () => {
  * 一個斷言若在壞掉的程式上是綠的、修好之後變紅，它量的就不是它宣稱的東西。
  */
 
-/** 觀測值：跑一輪把數字印出來，供回填門檻與日後比對。 */
-describe('被夾擊時的閃躲 —— 觀測值', () => {
-  it('印出四種幾何的量測', () => {
-    for (const c of CASES) {
-      const o = scenario(c.behind)
-      console.log(
-        `${c.name.padEnd(14)} defend ${(100 * o.defendShare).toFixed(1)}%`
-        + `　反應 ${o.reactionSeconds === Infinity ? '從未' : `${o.reactionSeconds.toFixed(2)}s`}`
-        + `　被掛著射擊解 ${(100 * o.huntedShare).toFixed(1)}%`
-        + `　目標穩定 ${(100 * o.targetStable).toFixed(1)}%`
-        + `　藍方掉血 ${o.blueDamage.toFixed(0)}`
-        + `　打掉紅A ${o.dealtToA.toFixed(0)}`,
-      )
-    }
-    expect(true).toBe(true)
-  })
-})

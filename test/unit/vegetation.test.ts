@@ -3,7 +3,7 @@ import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Points } from 'th
 import { POINT_POOLS } from '../../src/render/floraShapes'
 import {
   createVegetation, lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS,
-  ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
+  CAPACITY, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
   LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
   TILES_PER_FRAME, TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
@@ -140,9 +140,20 @@ const POOLS: readonly PoolName[] = [
   'house', 'barn', 'church',
 ]
 
-/** 大到不可能截斷的容量。掃描與變異驗證用 */
+/**
+ * 大到不可能截斷的容量。掃描與變異驗證用。
+ *
+ * 逐池取兩張圖正式容量的最大值再乘 2。正式容量由下面那條斷言保證在峰值的
+ * 1.35 倍以上，所以哨兵至少是峰值的 2.7 倍；峰值真的長到哨兵之上時，掃描
+ * 那兩條的 overflow 斷言會紅，不會靜靜截斷。
+ *
+ * 【為什麼不是一個很大的常數】每一格實例是 152 byte，11 池各 40 萬就是
+ * 670 MB，而「壓到峰值之下必溢位」那條要建 11 次。全套並行時 worker 會在
+ * 這裡把記憶體用光，症狀是 `Array buffer allocation failed` 或整個 worker
+ * 消失。
+ */
 const SENTINEL = Object.fromEntries(
-  POOLS.map((n) => [n, 400000]),
+  POOLS.map((n) => [n, 2 * Math.max(CAPACITY[n], ISLAND_CAPACITY[n])]),
 ) as Record<PoolName, number>
 
 /** 兩張圖各自掃到的最大值，給容量那兩條用 */

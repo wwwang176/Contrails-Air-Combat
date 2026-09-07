@@ -1,4 +1,24 @@
-import { describe, it, expect } from 'vitest'
+/**
+ * **AI 目標選擇的品質量測（20v20、150 秒）。**
+ * 不是測試（`.probe.ts`）。跑法：npx vite-node test/tools/targeting-quality.probe.ts
+ *
+ * ── 【為什麼這六個數字不是護欄】────────────────────────
+ *
+ * 它們是一場 20v20 混戰的**聚合統計**，量的是「AI 打得好不好」——
+ * 也就是手感。而且**它們對與目標選擇無關的參數敏感**：下面 `LIMITS` 的
+ * 註解裡有一張質量掃描表，`rearShare` 對機體質量單調（0.309 → 0.366），
+ * `holdMedian` 五格量到 1.40 / 1.10 / 1.20 / 1.20 / 1.10 —— 自己的抖動就有
+ * ±0.15。門檻壓在這種量上，紅了指不出是哪裡壞了。
+ *
+ * 目標選擇的**契約**由純函數測試守，而且守得細得多：`targetScore` 的機會
+ * 項、威脅項、三個折扣、切換成本、視野折扣、射擊解免除、退化處理，全部
+ * 在 `test/unit/ai-target.test.ts`。鎖定分散另有
+ * `test/integration/multi-battle.test.ts` 的「鎖定夠分散」在同一場 20v20
+ * 上守著分布與災難線。
+ *
+ * 下面保留的門檻值是**參考線**：跑完會標出哪一項超出，供調完手感之後
+ * 對照用。超出不代表壞掉 —— 那是要人去判斷的事。
+ */
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
@@ -298,25 +318,30 @@ const LOCK_SPREAD = 7
 /** 圍毆的時間佔比上限。實測 0.023%，取 0.5% 留 20 倍餘裕 */
 const LOCK_PILEUP_SHARE = 0.005
 
-describe('AI 目標選擇品質（20v20、150 秒）', () => {
-  it('持有時間、後半球比例、產出、鎖定分散', () => {
-    const m = battle()
-    // 【印出全部量測】只有斷言的話，一條紅了就看不到其餘幾條的值，
-    // 而判斷「這是迴歸還是雜訊」需要整組。與 `ai-withdraw-anchor` 同一手法。
-    console.log(JSON.stringify({
-      holdMedian: m.holdMedian.toFixed(2),
-      rearShare: m.rearShare.toFixed(3),
-      fireShare: m.fireShare.toFixed(4),
-      onNose: m.onNose.toFixed(3),
-      maxLocks: m.maxLocks,
-      lockPileupShare: m.lockPileupShare.toFixed(5),
-    }))
-    expect(m.holdMedian).toBeGreaterThanOrEqual(LIMITS.holdMedian)
-    expect(m.rearShare).toBeLessThanOrEqual(LIMITS.rearShare)
-    expect(m.fireShare).toBeGreaterThanOrEqual(LIMITS.fireShare)
-    expect(m.onNose).toBeGreaterThanOrEqual(LIMITS.onNose)
-    // 主判準是**分布**；`maxLocks` 降級成災難護欄。見 MAX_LOCKS 的註解
-    expect(m.lockPileupShare).toBeLessThan(LOCK_PILEUP_SHARE)
-    expect(m.maxLocks).toBeLessThanOrEqual(MAX_LOCKS)
-  }, 120000)
-})
+const m = battle()
+const mark = (ok: boolean): string => (ok ? '　' : '←超出')
+console.log(
+  `holdMedian     ${m.holdMedian.toFixed(2)}　參考 ≥ ${LIMITS.holdMedian}`
+  + mark(m.holdMedian >= LIMITS.holdMedian),
+)
+console.log(
+  `rearShare      ${m.rearShare.toFixed(3)}　參考 ≤ ${LIMITS.rearShare}`
+  + mark(m.rearShare <= LIMITS.rearShare),
+)
+console.log(
+  `fireShare      ${m.fireShare.toFixed(4)}　參考 ≥ ${LIMITS.fireShare}`
+  + mark(m.fireShare >= LIMITS.fireShare),
+)
+console.log(
+  `onNose         ${m.onNose.toFixed(3)}　參考 ≥ ${LIMITS.onNose}`
+  + mark(m.onNose >= LIMITS.onNose),
+)
+console.log(
+  `maxLocks       ${m.maxLocks}　災難線 ≤ ${MAX_LOCKS}`
+  + mark(m.maxLocks <= MAX_LOCKS),
+)
+console.log(
+  `lockPileup     ${m.lockPileupShare.toFixed(5)}`
+  + `　（被 > ${LOCK_SPREAD} 架鎖定的時間佔比）參考 < ${LOCK_PILEUP_SHARE}`
+  + mark(m.lockPileupShare < LOCK_PILEUP_SHARE),
+)
