@@ -356,6 +356,8 @@ export class AiController implements Controller {
   safetyActive = false
   /** 上一格送出的油門。NaN = 還沒送過，第一格直接用命令值。見 `emit` */
   private lastThrottle = NaN
+  /** 守線介入過、油門還在以速率追命令值。見 `emit` */
+  private throttleRamp = false
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
    *
@@ -909,14 +911,23 @@ export class AiController implements Controller {
     }
     this.safetyAction = applySafety(self, floor, out, undefined, sense)
     this.safetyActive = this.safetyAction !== 'none'
-    // 【油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE 推的，
-    // AI 直接寫值等於瞬間收滿或推滿 —— 守線那一格看起來像引擎被關掉。
-    // 排在安全層之後：硬接管給的油門也照樣用同一個速率走到位。
-    if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
-    const step = THROTTLE_RATE * dt
-    const d = out.throttle - this.lastThrottle
-    if (d > step) out.throttle = this.lastThrottle + step
-    else if (d < -step) out.throttle = this.lastThrottle - step
+    // 【守線的油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE
+    // 推的，AI 直接寫值等於瞬間收滿 —— 守線那一格看起來像引擎被關掉。
+    // 守線介入時開始以那個速率走，放開後也以同樣速率推回，追上命令值就
+    // 回到直接寫值。
+    //
+    // 【為什麼不是所有 AI 全程都走速率】那會改掉每一架的時機：實測 P-51 對
+    // Bf109 的側翼品質由「比對照低 0.05」掉到 0.04，紅掉一條門檻定死的
+    // 護欄。守線之外的 AI 一個字不變。
+    if (this.safetyAction === 'overspeed') this.throttleRamp = true
+    if (this.throttleRamp) {
+      if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
+      const step = THROTTLE_RATE * dt
+      const d = out.throttle - this.lastThrottle
+      if (d > step) out.throttle = this.lastThrottle + step
+      else if (d < -step) out.throttle = this.lastThrottle - step
+      else if (this.safetyAction !== 'overspeed') this.throttleRamp = false
+    }
     this.lastThrottle = out.throttle
   }
 
