@@ -71,7 +71,9 @@ import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageM
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
 import { blastScaleOf, resetBombBay, stepBombBay, type BombBay } from './weapons/bomb'
-import { canRelease, envelopeFor } from './weapons/releaseEnvelope'
+import {
+  aglOk, canRelease, envelopeFor, pitchOk, rollOk,
+} from './weapons/releaseEnvelope'
 import { type Loadout, loadoutOf } from './weapons/stores'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
@@ -2454,5 +2456,26 @@ const GFX_HIDDEN_LAYER = 31
     ring: objectiveRing.object.parent !== null,
     /** 這一場有沒有終點。`ring` 的對照 —— 兩者必須一致 */
     tgtOn: battle.mission.hasTarget,
+    /**
+     * ── 投雷 HUD 的實際狀態 ──────────────────────────────
+     *
+     * 【為什麼要暴露這幾格】`test/e2e/torpedo-hud.e2e.ts` 只截圖的話，把
+     * `main.ts` 的接線整個刪掉、`releaseAgl` 填錯、甚至 widget 完全不畫，
+     * 那支腳本都還是會成功結束 —— 那是一條殺不死的護欄。
+     *
+     * 讀的是 `hudFrame` 本身，也就是 widget 真正拿到的那一份。
+     */
+    /** 航跡線這一幀畫幾個取樣點。0 = 不畫 */
+    runN: hudFrame.runCount,
+    /** HUD 拿到的離地高度 —— 必須是 `canRelease` 吃的那一個 */
+    hudAgl: +hudFrame.releaseAgl.toFixed(1),
+    /** 投放閘門三格的結果，順序同畫面 */
+    gate: hudFrame.releaseEnv === null ? null : {
+      roll: rollOk(hudFrame.releaseEnv, hudFrame.roll),
+      pitch: pitchOk(hudFrame.releaseEnv, hudFrame.pitch),
+      agl: aglOk(hudFrame.releaseEnv, hudFrame.releaseAgl),
+    },
+    /** 這一幀投得出去嗎 —— 三格全綠必須等於它 */
+    relOk: hudFrame.releaseOk,
   }
 }

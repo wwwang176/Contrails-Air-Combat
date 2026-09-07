@@ -113,6 +113,23 @@ function bomber(x: number, z: number, alt = RUN_ALTITUDE, tas = 100): Aircraft {
   return a
 }
 
+/**
+ * 一台坡度**確定**超出包絡的轟炸機。
+ *
+ * 【角度相對包絡取，而且驗過】寫死 45° 的話，包絡一放寬到 45° 這條就只靠
+ * `Quaternion` 換算多出來的 1e-16 過關 —— 測試名字說「超過包絡」而實際上
+ * 站在邊界上，數值實作稍動就會讓正確的程式變紅。所以取 1.2 倍，並且**先
+ * 斷言算出來的坡度真的超過上界**，前提不成立時這裡就紅。
+ */
+function overBanked(): Aircraft {
+  const a = bomber(0, 1500)
+  a.state.orientation.setFromAxisAngle(new Vector3(0, 0, 1), TORPEDO_ENVELOPE.maxRoll * 1.2)
+  const up = new Vector3(0, 1, 0).applyQuaternion(a.state.orientation)
+  const right = new Vector3(1, 0, 0).applyQuaternion(a.state.orientation)
+  expect(Math.abs(Math.atan2(-right.y, up.y))).toBeGreaterThan(TORPEDO_ENVELOPE.maxRoll)
+  return a
+}
+
 describe('剖面的旋鈕', () => {
   /**
    * 【航路高度必須落在投雷包絡裡】太低踩安全層、太高投不出去，兩邊都是
@@ -305,9 +322,7 @@ describe('可以鎖 = 可以投', () => {
     TORPEDO_PROFILE.plan(level, ship, out)
     expect(out.lockRange).toBeGreaterThan(0)
 
-    const banked = bomber(0, 1500)
-    // 繞機身縱軸滾 45°
-    banked.state.orientation.setFromAxisAngle(new Vector3(0, 0, 1), 45 * (Math.PI / 180))
+    const banked = overBanked()
     TORPEDO_PROFILE.plan(banked, ship, out)
     expect(out.lockRange).toBe(0)
   })
@@ -315,9 +330,7 @@ describe('可以鎖 = 可以投', () => {
   /** 【脫離距離照算】它管的是「飛多遠才准回頭」，與這一拍鎖不鎖無關 */
   it('不准鎖的時候脫離距離仍然是正的', () => {
     setTorpedoBallistics(K, DT)
-    const banked = bomber(0, 1500)
-    banked.state.orientation.setFromAxisAngle(new Vector3(0, 0, 1), 45 * (Math.PI / 180))
-    TORPEDO_PROFILE.plan(banked, target(8), out)
+    TORPEDO_PROFILE.plan(overBanked(), target(8), out)
     expect(out.egressRange).toBeGreaterThan(0)
   })
 })

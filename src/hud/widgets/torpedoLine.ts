@@ -16,6 +16,10 @@ const END_TICK = 7
 /** 射程數字離末端刻度多遠，px */
 const LABEL_GAP = 6
 
+/** NDC → 螢幕 px 的換算結果。**每幀畫一次，不重新配置** */
+const PX = new Float64Array(TORPEDO_RUN_SAMPLES)
+const PY = new Float64Array(TORPEDO_RUN_SAMPLES)
+
 /**
  * 從第 0 點起**連續**落在相機前方的取樣點有幾個。
  *
@@ -79,21 +83,25 @@ export function drawTorpedoLine(
 
   const n = f.runCount
   const color = bombsightColor('ring', f.releaseOk)
-  const px = (k: number): number => L.cx + (f.runX[k]! * L.width) / 2
-  const py = (k: number): number => L.cy - (f.runY[k]! * L.height) / 2
+  // 【先換算進預先配置的緩衝】每幀畫一次，寫成兩個區域閉包就是每幀兩個
+  // 配置；順帶讓每一點的換算只做一次
+  for (let k = 0; k < n; k++) {
+    PX[k] = L.cx + (f.runX[k]! * L.width) / 2
+    PY[k] = L.cy - (f.runY[k]! * L.height) / 2
+  }
 
   ctx.strokeStyle = color
   ctx.lineWidth = 1 * L.scale
   ctx.beginPath()
-  ctx.moveTo(px(0), py(0))
-  for (let k = 1; k < n; k++) ctx.lineTo(px(k), py(k))
+  ctx.moveTo(PX[0]!, PY[0]!)
+  for (let k = 1; k < n; k++) ctx.lineTo(PX[k]!, PY[k]!)
   ctx.stroke()
 
   // 【入水點不畫刻度】落點圈已經在那裡了
   for (let k = 1; k < n; k++) {
     // 【方向取自前一段】刻度要垂直於線在**那一點**的走向
-    const dx = px(k) - px(k - 1)
-    const dy = py(k) - py(k - 1)
+    const dx = PX[k]! - PX[k - 1]!
+    const dy = PY[k]! - PY[k - 1]!
     const len = Math.hypot(dx, dy)
     if (len < 1e-9) continue
     const last = k === TORPEDO_RUN_SAMPLES - 1
@@ -102,16 +110,16 @@ export function drawTorpedoLine(
     const nx = (-dy / len) * half
     const ny = (dx / len) * half
     ctx.beginPath()
-    ctx.moveTo(px(k) - nx, py(k) - ny)
-    ctx.lineTo(px(k) + nx, py(k) + ny)
+    ctx.moveTo(PX[k]! - nx, PY[k]! - ny)
+    ctx.lineTo(PX[k]! + nx, PY[k]! + ny)
     ctx.stroke()
   }
 
   // 【只有真的走到末端才標】沒走到就標的話那個數字是假的
   if (n < TORPEDO_RUN_SAMPLES) return
   const end = TORPEDO_RUN_SAMPLES - 1
-  const dx = px(end) - px(end - 1)
-  const dy = py(end) - py(end - 1)
+  const dx = PX[end]! - PX[end - 1]!
+  const dy = PY[end]! - PY[end - 1]!
   const len = Math.hypot(dx, dy)
   if (len < 1e-9) return
   ctx.font = hudFont(Math.round(9 * L.scale))
@@ -122,8 +130,8 @@ export function drawTorpedoLine(
   const gap = (END_TICK + LABEL_GAP) * L.scale
   ctx.fillText(
     String(TORPEDO_RANGE),
-    px(end) + (-dy / len) * gap,
-    py(end) + (dx / len) * gap,
+    PX[end]! + (-dy / len) * gap,
+    PY[end]! + (dx / len) * gap,
   )
   ctx.textAlign = 'left'
 }
