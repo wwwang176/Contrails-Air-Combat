@@ -243,7 +243,8 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
   egressClimb: 12 * DEG,
 
   /**
-   * 瞄「船在落彈時刻的位置」，鎖定距離＝「前拋距離 ＋ `RUN_SETTLE`」。
+   * 瞄「船在落彈時刻的位置」，鎖定距離＝「前拋距離 ＋ 船沿視線靠近的量
+   * ＋ `RUN_SETTLE`」。
    *
    * 【為什麼不是接近時刻】航向要對準的是炸彈**最後會落到**的那一點，不是
    * 飛機會飛到的那一點。兩者差 112 m（8 m/s × 14 s），而窗只有 18.82 m。
