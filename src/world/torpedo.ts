@@ -61,6 +61,25 @@ export function runSampleDistance(k: number): number {
 }
 
 /**
+ * 落點是水嗎 —— **有沒有水中段就看它。**
+ *
+ * 【為什麼要轉出來】`solveImpact` 撞到**任何**地面都回成功，所以「解得出
+ * 落點」不代表有水中段。HUD 的航跡線得用與 `stepAir` **同一條**判準，否則
+ * 飛過島嶼或內陸農地時會畫出一條不存在的 2 km 水中航跡 —— 而海上的截圖
+ * 驗收抓不到它。
+ *
+ * 【判準寫成 `> 0` 而不是 `<= 0`】海的碰撞面恰好是 0。`groundY` 是 NaN 時
+ * `NaN > 0` 為 false，所以照樣入水 —— 那是 `stepAir` 的現行行為，這一支
+ * 只是把它抽出來，不是改它。
+ *
+ * @param groundY 該點的**碰撞**高度（`terrain.collisionHeightAt`）。海是 0
+ * @param waterY  該點**含浪**的水面高度，沒有水的地方是 `-Infinity`
+ */
+export function torpedoEntersWater(groundY: number, waterY: number): boolean {
+  return !(groundY > 0) && Number.isFinite(waterY)
+}
+
+/**
  * 水中航向。**寫進 `out[0]`（x）與 `out[1]`（z），不配置。**
  *
  * 雷入水之後定深等速直行，航向就是**入水速度的水平單位向量**；水平分量退化
@@ -345,7 +364,9 @@ export class Torpedoes {
     //
     // 【肯定式】`waterAt` 給 NaN 時 `Number.isFinite` 回 false，判成陸地
     // ——壞值向安全側倒。
-    if (groundAt(ix, iz) > 0 || !Number.isFinite(waterAt(ix, iz))) {
+    // 【與 HUD 的航跡線共用同一條判準】兩邊各寫一份的話，畫得出線的地方
+    // 不一定投得下雷
+    if (!torpedoEntersWater(groundAt(ix, iz), waterAt(ix, iz))) {
       this.active[i] = 0
       this.liveCount--
       onEnd(ix, g, iz, 0, this.damage[i]!)
