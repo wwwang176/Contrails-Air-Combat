@@ -14,8 +14,10 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     playerPos: new Vector3(0, 4000, 5000),
     playerAlive: true,
     shipsSunk: 0,
-  shipsTotal: 0,
-  convoyAlive: 0,
+    shipsTotal: 0,
+    vitalSunk: 0,
+    redInbound: false,
+    convoyAlive: 0,
     convoyLead: Infinity,
     ...over,
   }
@@ -392,5 +394,98 @@ describe('stepMission：擊沉', () => {
     stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 0 }), DT, s)
     expect(s.outcome).toBe('victory')
     expect(s.metric).toBe(0)
+  })
+})
+
+const DEFEND: MissionRules = { kind: 'defend' }
+
+/**
+ * 守住艦隊。
+ *
+ * 【判定順序與其他規則相反 —— 要害艦排在勝利之前】其他規則沿用「victory
+ * 先於 defeat」，理由是 `evacuate` 的「飛進圓環那一步剛好時限歸零，判贏才
+ * 符合玩家的認知」。那是**同一個目標在邊界達成**；這裡不是：這一關的整句
+ * 話就是「航母被擊沉就輸」，判成勝利的話結算畫面會在一艘沉到海底的航母上
+ * 寫「任務成功」。
+ */
+describe('stepMission：守住艦隊', () => {
+  it('雙方都活著時是 fighting，metric 是剩餘敵機數', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs(), DT, s)
+    expect(s.outcome).toBe('fighting')
+    expect(s.metric).toBe(16)
+  })
+
+  it('敵方全滅 = victory', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ aliveRed: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('我方全滅 = defeat', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /** 【這一條自己就判得出來】雙方飛機都還在，只有船沉了 */
+  it('要害艦沉 = defeat，與雙方存活數無關', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ vitalSunk: 1 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /**
+   * 【判定順序的守門員】要害艦沉的同一步敵方也全滅 —— **判輸**。
+   * 把 `vitalSunk` 那一條移到勝利之後，這一條就紅。
+   */
+  it('要害艦沉的同一步敵方也全滅 —— 仍然判輸', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ vitalSunk: 1, aliveRed: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /**
+   * 【預警期間不判勝】`stepBeats` 在觸發那一步先把節拍轉成 `warned`，飛機
+   * 要等 `warnLead` 秒才生成。那幾秒之內紅方歸零就先判勝的話，第二波永遠
+   * 不來 —— 這一關的下半場整段跳過，而畫面上一切正常。
+   */
+  it('敵機正在進場的路上時，紅方歸零仍然 fighting', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ aliveRed: 0, redInbound: true }), DT, s)
+    expect(s.outcome).toBe('fighting')
+  })
+
+  it('進場的那一批到了之後照常判勝', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ aliveRed: 0, redInbound: true }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    stepMission(DEFEND, inputs({ aliveRed: 0, redInbound: false }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /** 【我方全滅照樣輸】即使敵機還在路上 */
+  it('我方全滅時不受 redInbound 影響', () => {
+    const s = createMissionState(DEFEND)
+    stepMission(DEFEND, inputs({ aliveBlue: 0, redInbound: true }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  /**
+   * 【沒有要害艦時自然退化成殲滅】沒有另寫一條 fallback —— `vitalSunk` 恆為
+   * 0 時那一條分支本來就不影響結果。這一條比的是**整個 `MissionState`**，
+   * 不是只比 `outcome`。
+   */
+  it('沒有要害艦、沒有增援在路上時，與殲滅逐格相同', () => {
+    for (const over of [
+      {}, { aliveRed: 0 }, { aliveBlue: 0 }, { aliveRed: 0, aliveBlue: 0 },
+      { aliveRed: 3, aliveBlue: 1 },
+    ]) {
+      const a = createMissionState(ANNIHILATE)
+      const d = createMissionState(DEFEND)
+      stepMission(ANNIHILATE, inputs(over), DT, a)
+      stepMission(DEFEND, inputs(over), DT, d)
+      expect(d, JSON.stringify(over)).toEqual(a)
+    }
   })
 })

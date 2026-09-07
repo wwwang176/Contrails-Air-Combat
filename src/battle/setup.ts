@@ -1360,6 +1360,8 @@ const MISSION_INPUTS: MissionInputs = {
   convoyLead: Infinity,
   shipsSunk: 0,
   shipsTotal: 0,
+  vitalSunk: 0,
+  redInbound: false,
 }
 
 /**

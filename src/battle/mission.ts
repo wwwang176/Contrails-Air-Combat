@@ -72,6 +72,31 @@ export type MissionRules =
     kind: 'sink'
     count: number
   }
+  | {
+    /**
+     * 守住我方艦隊。**勝負都寫在這一條裡。**
+     *
+     * ```
+     *   負  任何一艘要害艦被擊沉（**排在勝之前**，見下）
+     *   勝  紅方飛機全滅，而且沒有敵機正在進場的路上
+     *   負  藍方飛機全滅
+     * ```
+     *
+     * 【要害艦排在勝利之前，刻意不沿用「victory 先於 defeat」】那條慣例的
+     * 理由是 `evacuate` 的「飛進圓環那一步剛好時限歸零，判贏才符合玩家的
+     * 認知」—— 那是**同一個目標在邊界達成**。這裡不是：最後一架敵機與航母
+     * 同一步沉，而這一關的整句話就是「航母被擊沉就輸」。判成勝利的話，
+     * 結算畫面會在一艘沉到海底的航母上寫「任務成功」。
+     *
+     * 【沒有「哪一艘」這個欄位】要害艦由 `MissionFleet` 的條目上的 `vital`
+     * 指名 —— 誰要緊與艦名單住在同一個地方。把艦級寫進規則的話，換一艘船
+     * 當主角就要改規則。
+     *
+     * 【沒有要害艦時自然退化成 `annihilate`】`vitalSunk` 恆為 0，第一條分支
+     * 就不成立。**不另寫 fallback** —— 那是死碼：拿掉它行為完全相同。
+     */
+    kind: 'defend'
+  }
 
 /**
  * 這一關自己的小旋鈕。**每一項都是一個獨立的數字，預設值等於「沒有這一關」。**
@@ -161,6 +186,24 @@ export interface MissionInputs {
   shipsSunk: number
   /** 敵方一共有幾艘。全部沉了但目標更高時，這一關就打不完了 —— 見 `stepMission`。 */
   shipsTotal: number
+  /**
+   * **我方**的要害艦已經沉了幾艘（`MissionFleet` 上標了 `vital` 的那些）。
+   * `defend` 以外的規則不讀它。
+   */
+  vitalSunk: number
+  /**
+   * 還有敵機正在進場的路上 —— **已經預警、還沒生出來**。
+   *
+   * 【為什麼勝利要看它】`stepBeats` 在觸發那一步先把節拍轉成 `warned`，
+   * 飛機要等 `warnLead` 秒才生成（`setup.ts` 的 `dueAt`），而存活數只數場上
+   * 活著的。那幾秒之內紅方歸零的話會**先判勝，第二波永遠不來** —— 那一關
+   * 的下半場整段跳過，而畫面上一切正常。
+   *
+   * 【`setup.ts:1467` 的排序沒有涵蓋這一段】那條註解解決的是「最後一架第一
+   * 波敵機被擊落的**同一步**就要能加第二波」；預警到生效之間那幾秒是另一
+   * 件事。
+   */
+  redInbound: boolean
 }
 
 /**
@@ -319,6 +362,20 @@ export function stepMission(
   if (rules.kind === 'annihilate') {
     out.metric = inp.aliveRed
     if (inp.aliveRed === 0) out.outcome = 'victory'
+    else if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
+  // ── 守住艦隊 ──────────────────────────────────────────
+  //
+  // 【要害艦排在勝利之前】理由見 `MissionRules` 的 `defend`。
+  //
+  // 【`redInbound` 也擋在勝利那一條上】預警期間紅方歸零不算贏 —— 那一批
+  // 還在路上。
+  if (rules.kind === 'defend') {
+    out.metric = inp.aliveRed
+    if (inp.vitalSunk > 0) out.outcome = 'defeat'
+    else if (inp.aliveRed === 0 && !inp.redInbound) out.outcome = 'victory'
     else if (inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }
