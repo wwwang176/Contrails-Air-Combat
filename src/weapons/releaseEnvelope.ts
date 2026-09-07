@@ -86,10 +86,37 @@ export function envelopeFor(kind: OrdnanceKind): ReleaseEnvelope {
 }
 
 /**
- * 這一幀投得出去嗎。
+ * 逐軸的四支述詞。
+ *
+ * 【為什麼要拆出來】HUD 的投放閘門要說出**是哪一條不過** ——
+ * `canRelease` 回一個布林，答不了那個問題。閘門自己再寫一份
+ * `Math.abs(roll) <= env.maxRoll` 的話兩份比較遲早會漂，而症狀是**閘門三格
+ * 全綠而扳機沒有反應**（或反過來）：不拋例外、沒有錯誤訊息，玩家只會覺得
+ * 投彈壞了。`canRelease` 因此是這四支的合取，不是另一份比較。
  *
  * 【全部寫成正向的區間比較】NaN 在每一個比較裡都是 false，所以讀不到姿態
- * 時整支回 false —— 寫成 `!(x > max)` 那種否定式的話 NaN 會被放行。
+ * 時四支都回 false —— 寫成 `!(x > max)` 那種否定式的話 NaN 會被放行。
+ *
+ * 【坡度取絕對值】左右一樣。
+ */
+export function rollOk(env: ReleaseEnvelope, roll: number): boolean {
+  return Math.abs(roll) <= env.maxRoll
+}
+
+export function pitchOk(env: ReleaseEnvelope, pitch: number): boolean {
+  return pitch >= env.minPitch && pitch <= env.maxPitch
+}
+
+export function aglOk(env: ReleaseEnvelope, agl: number): boolean {
+  return agl >= env.minAgl && agl <= env.maxAgl
+}
+
+export function tasOk(env: ReleaseEnvelope, tas: number): boolean {
+  return tas >= env.minTas && tas <= env.maxTas
+}
+
+/**
+ * 這一幀投得出去嗎。**四支逐軸述詞的合取，不得另寫一份比較。**
  *
  * @param roll  坡度，rad。**取絕對值**，左右一樣
  * @param pitch 俯仰，rad
@@ -100,8 +127,6 @@ export function canRelease(
   env: ReleaseEnvelope,
   roll: number, pitch: number, agl: number, tas: number,
 ): boolean {
-  return Math.abs(roll) <= env.maxRoll
-    && pitch >= env.minPitch && pitch <= env.maxPitch
-    && agl >= env.minAgl && agl <= env.maxAgl
-    && tas >= env.minTas && tas <= env.maxTas
+  return rollOk(env, roll) && pitchOk(env, pitch)
+    && aglOk(env, agl) && tasOk(env, tas)
 }
