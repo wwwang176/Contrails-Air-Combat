@@ -132,12 +132,24 @@ describe('stepRules（優先序）', () => {
     expect(stepRules(s, sit, 0, DT)).toBe('extend')
   })
 
-  it('轉彎劣勢 → extend（即使能量持平）', () => {
+  /**
+   * 【轉彎劣勢不是脫離的理由】它是**打法的選擇** —— 轉不贏他的飛機照樣
+   * 要靠近他打，只是不能跟他繞圈。閂鎖照常點亮供戰術層徵召，但意圖落在
+   * `approach`。
+   *
+   * 【壞掉會怎樣】`airframeTurnAdvantage` 對一組機種對幾乎是常數，差距
+   * 超過遲滯帶的配對閂鎖永不解除。讓它推 `extend`，飛機在 `extendRange`
+   * 內就恆為脫離，而脫離的卸載操舵讓射擊解起不來、開火豁免因此永遠不
+   * 成立 —— 自鎖。
+   */
+  it('轉彎劣勢 → 閂鎖點亮，但意圖不是 extend', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.airframeTurnAdvantage = -0.2
     sit.range = 900
-    expect(stepRules(s, sit, 0, DT)).toBe('extend')
+    const intent = stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(true)
+    expect(intent).toBe('approach')
   })
 
   it('轉彎優勢且即將接觸 → engage', () => {
@@ -159,8 +171,9 @@ describe('stepRules（優先序）', () => {
     sit.range = 500
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
-    // 立刻把條件改成 extend 該成立，但停留時間還沒到
-    sit.airframeTurnAdvantage = -0.5
+    // 立刻把條件改成 extend 該成立，但停留時間還沒到。
+    // 【用速度見底不用迴旋劣勢】迴旋劣勢不再推 `extend`（見上面那一條）
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
     // 等過最小停留時間
@@ -313,9 +326,13 @@ describe('extend 的三個理由與射擊否決權', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = 500
-    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    // 【相對理由只剩能量】迴旋劣勢不推 `extend`。合取的另一半要
+    // `extendRecoveredLatch` 不成立，所以速度也得壓下來
+    sit.energyAdvantage = -800
+    sit.cornerRatio = 0.80
     sit.shotInstant = 0
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendEnergyLatch).toBe(true)
     expect(s.intent).toBe('extend')
   })
 
@@ -510,16 +527,19 @@ describe('因能量脫離改成合取', () => {
   }
 
   /**
-   * 【迴旋理由不套合取】「轉不贏他」談的是機體，補速度改變不了它。
+   * 【迴旋劣勢完全不參與這個合取】它談的是機體，而機體決定的是**用哪種
+   * 打法**，不是要不要脫離。飛得動的時候它不脫離，飛不動的時候脫離也是
+   * 能量那一半說了算。
    */
-  it('迴旋劣勢時，飛得動也照樣脫離', () => {
+  it('迴旋劣勢時，飛得動就不脫離', () => {
     const s = createRuleState()
     const sit = neutral()              // cornerRatio 1.2，recovered 會成立
     sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     sit.range = 900
     for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, ON)
+    expect(s.extendTurnLatch).toBe(true)
     expect(s.extendRecoveredLatch).toBe(true)
-    expect(s.intent).toBe('extend')
+    expect(s.intent).not.toBe('extend')
   })
 
   /** 【關掉時退回舊行為】消融的恆等基準 */

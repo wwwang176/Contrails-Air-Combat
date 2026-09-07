@@ -521,16 +521,22 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 【開火豁免比照相對理由】正咬著人開火時摸到地板，先把這一輪打完 ——
   // 鎖的 −100 m 緩衝就是留給攻擊窗收尾的。
   if (!shooting && s.altFloorLatch) return 'extend'
-  // 【能量理由是合取，迴旋理由不是】「我比他弱」（相對）與「我還飛不動」
-  // （絕對）是兩件事，兩件都成立才該脫離。速度補回來了就回去打 ——
-  // 「比對手強」那個出場條件對劣勢方在整場戰鬥中都達不到，實測能量閂鎖
-  // 曾連續開著 166 秒。
+  // 【能量理由是合取】「我比他弱」（相對）與「我還飛不動」（絕對）是兩件
+  // 事，兩件都成立才該脫離。速度補回來了就回去打 ——「比對手強」那個出場
+  // 條件對劣勢方在整場戰鬥中都達不到，實測能量閂鎖曾連續開著 166 秒。
   //
-  // 迴旋劣勢不套合取：那談的是機體，補速度改變不了它。
+  // 【迴旋劣勢不在這裡】`extendTurnLatch` 是**打法的選擇**，不是脫離的
+  // 理由：轉不贏他的飛機照樣要靠近他打，只是不能跟他繞圈。它由戰術層
+  // 消費（`AiController` 的 `ti.mandatory`），走 boom and zoom 那條路。
+  //
+  // 【壞掉會怎樣】把它加回這個分支，`airframeTurnAdvantage` 對一組機種對
+  // 幾乎是常數 —— 差距超過遲滯帶的配對（F4F vs A6M 是門檻的 3～5 倍）
+  // 閂鎖永不解除，距離一進 `extendRange` 就恆為 `extend`，而 `extend` 的
+  // 卸載操舵讓射擊解起不來、`shooting` 的豁免因此永遠不成立。自鎖。
   const weakAndSlow = s.extendEnergyLatch && !s.extendRecoveredLatch
   if (
     !shooting
-    && (weakAndSlow || s.extendTurnLatch)
+    && weakAndSlow
     && sit.range < cfg.extendRange
   ) return 'extend'
 
@@ -541,19 +547,22 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
 }
 
 /**
- * `extend` 是被哪一個閂鎖推過去的，供 HUD 顯示。**三個都成立就全列。**
+ * `extend` 是被哪一個閂鎖推過去的，供 HUD 顯示。**成立的全列。**
  *
- * 【為什麼是純函數而不是在 HUD 那邊拆】那三個欄位的語意（相對／相對／絕對）
- * 住在這個檔案裡，判讀也該住在這裡。HUD 只負責畫字。
+ * 【為什麼是純函數而不是在 HUD 那邊拆】那些欄位的語意（相對／絕對）住在
+ * 這個檔案裡，判讀也該住在這裡。HUD 只負責畫字。
  *
- * 【為什麼不回傳空字串當「沒有理由」】意圖是 `extend` 而三個閂鎖都沒開是
- * 可能的 —— `arbitrate` 還有別的路徑（例如命令）。那時候誠實寫「無」，
- * 不要讓畫面看起來像是漏了一格。
+ * 【為什麼沒有迴旋】`extendTurnLatch` 不推 `extend`（見 `arbitrate`）。
+ * 列一個不成立的因果會讓 HUD 指著錯的原因，而那是人工驗收唯一看得到的
+ * 東西。「這架被徵召去打能量戰」屬於戰術相位，不掛在 `extend` 底下。
+ *
+ * 【為什麼不回傳空字串當「沒有理由」】意圖是 `extend` 而閂鎖都沒開是可能
+ * 的 —— `arbitrate` 還有別的路徑（例如命令）。那時候誠實寫「無」，不要讓
+ * 畫面看起來像是漏了一格。
  */
 export function extendReason(s: RuleState): string {
   const parts: string[] = []
   if (s.extendEnergyLatch) parts.push('能量')
-  if (s.extendTurnLatch) parts.push('迴旋')
   if (s.extendFloorLatch) parts.push('見底')
   if (s.altFloorLatch) parts.push('高度')
   return parts.length > 0 ? parts.join('+') : '無'
