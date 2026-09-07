@@ -702,8 +702,14 @@ export class World {
    * 【沒有範圍傷害，也不掃飛機】真實魚雷是接觸引信，而「水下
    * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
    */
-  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage) => {
+  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage, team) => {
     const sh = this.torpedoShip
+    // 【同隊的船擋得住雷，但雷對它無效】船是實體，不是空氣 —— 友軍艦擋在
+    // 航路上時雷撞上去就沒了。但它**不扣血、也不推爆炸事件**：畫面上不該
+    // 在自家船邊長出一根水柱。
+    if (kind === 1 && sh !== null && (sh.team === 'blue' ? 0 : 1) === team) return
+    // 【沉船只擋，不再扣血】`sinkIfDead` 對已經沉的船本來就早退，這一行的
+    // `sh.alive` 是讓意圖看得出來
     if (kind === 1 && sh !== null && sh.alive) {
       sh.hp -= damage
       this.sinkIfDead(sh)
@@ -748,8 +754,10 @@ export class World {
     this.torpedoShip = null
     if (this.ships.length === 0) return NO_HIT
     let best = NO_HIT
+    // 【沉船照樣擋】它不再開火、不再算勝負，但船體還浮在那裡 —— 跳過它的話
+    // 雷會穿過一艘船去打後面那一艘，而畫面上看得一清二楚。
+    // 同隊的船也擋（雷對它無效由 `onTorpedoEnd` 處理）
     for (const sh of this.ships) {
-      if (!sh.alive) continue
       if (segmentPointDistanceSq(
         x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,
       ) > sh.cls.radius * sh.cls.radius) continue
@@ -1289,8 +1297,9 @@ export class World {
     this.bombShip = null
     if (this.ships.length === 0) return NO_HIT
     let best = NO_HIT
+    // 【沉船照樣擋】理由同 `onTorpedoBlocked` —— 船體還浮在那裡。
+    // 沉船的砲位全死了，所以下面那一圈只會比到船體盒
     for (const sh of this.ships) {
-      if (!sh.alive) continue
       // 【先比包圍球】只有真的落在船附近的那一顆才付逐盒的錢
       if (segmentPointDistanceSq(
         x0, y0, z0, x1, y1, z1, sh.position.x, sh.position.y, sh.position.z,

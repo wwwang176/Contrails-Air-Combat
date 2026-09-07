@@ -88,11 +88,17 @@ describe('炸彈打船', () => {
     expect(ship.alive).toBe(false)
   })
 
-  it('沉了的船不再擋炸彈 —— 落在它上面的那一顆會直接入水', () => {
+  /**
+   * 【沉船照樣擋炸彈】船體還浮在那裡 —— 落在殘骸上的那一顆是打在船上，
+   * 不是入水。`kind` 因此是 2（船）而不是 1（水）。
+   *
+   * 【砲位不參與】沉船的砲位全死了，所以擋下來的只有船體盒。
+   */
+  it('沉了的船照樣擋炸彈 —— 落在它上面的那一顆算打在船上', () => {
     const { world, ship } = seaWithShip()
     ship.alive = false
     dropOn(world, 0, 0)
-    expect(world.bombEvents.data[3]).toBe(1)
+    expect(world.bombEvents.data[3]).toBe(2)
   })
 
   it('擊沉時砲位一起標死 —— 沉船上不該有槍焰', () => {

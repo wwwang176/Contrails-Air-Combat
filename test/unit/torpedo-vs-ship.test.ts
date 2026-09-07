@@ -77,11 +77,34 @@ describe('魚雷打船', () => {
     expect(ship.guns.every((g) => !g.alive)).toBe(true)
   })
 
-  it('死掉的船不再擋雷', () => {
+  /**
+   * 【沉船照樣擋雷】它不再開火、不再算勝負，但船體還浮在那裡 —— 跳過它的話
+   * 雷會穿過一艘船去打後面那一艘，而畫面上看得一清二楚。
+   *
+   * 血不再扣（它已經沉了），但**事件照推** —— 那是一根打在殘骸上的水柱。
+   */
+  it('沉船照樣擋雷，血不再扣', () => {
     const { world, ship } = seaWithShip()
     ship.alive = false
+    const before = ship.hp
     launch(world, 400)
+    expect(world.torpedoEvents.count).toBeGreaterThan(0)
+    expect(ship.hp).toBe(before)
+  })
+
+  /**
+   * 【同隊的船擋得住，但雷對它無效】船是實體，不是空氣。撞上去雷就沒了，
+   * 而且**不扣血、不推事件** —— 畫面上不該在自家船邊長出一根水柱。
+   */
+  it('同隊的船擋得住雷，但不扣血也不爆', () => {
+    const { world, ship } = seaWithShip()
+    const before = ship.hp
+    // `seaWithShip` 的船是紅隊，這一枚也標紅隊
+    world.dropTorpedo(0, 40, -400, 0, 0, 90, TORPEDO.damage, 0, 1, 1)
+    for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
+    expect(ship.hp).toBe(before)
     expect(world.torpedoEvents.count).toBe(0)
+    expect(world.torpedoes.live).toBe(0)
   })
 
   it('打偏就跑過去，不扣血', () => {

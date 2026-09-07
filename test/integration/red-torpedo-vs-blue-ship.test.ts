@@ -108,25 +108,87 @@ describe('紅方的一式陸攻對藍方艦隊', () => {
     expect(ship.hp, '藍船沒有掉血').toBeLessThan(hp0)
   })
 
-  /**
-   * 【魚雷不看隊別 —— 這是現況，已回報負責人】`onTorpedoBlocked`
-   * （`World.ts:751`）的迴圈只跳過沉船，沒有 `sh.team` 的比較，所以自家的
-   * 魚雷一樣打得掉自家的船。
-   *
-   * **與機槍不一致**：`World.ts:1073` 對友軍的船是早退的。範圍傷害
-   * （`applyBombBlast`）則與魚雷一樣不分隊 —— 那一條講得通（爆炸不看陣營），
-   * 魚雷這一條講不講得通是遊戲設計的決定。
-   *
-   * 這一輪的兩關都不受影響：日 M4 只有藍方掛雷、紅方全是船；盟 M4 反過來。
-   *
-   * 這一條**釘住現況**，不是主張它是對的。要改是動模擬，那是負責人的決定。
-   */
-  it('魚雷不分隊別 —— 藍隊投的一樣打得掉藍船', () => {
+  /** 【同隊投的不傷】友軍誤擊只是把雷用掉，見下面那一組 */
+  it('藍隊投的魚雷不傷藍船', () => {
     const world = sea()
     const ship = blueCarrier(world)
     const hp0 = ship.hp
     world.dropTorpedo(0, 40, -800, 0, 0, 90, 15_000, 0, 1, 0)
     for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
-    expect(ship.hp).toBeLessThan(hp0)
+    expect(ship.hp).toBe(hp0)
+  })
+})
+
+/**
+ * # 沉船與友軍船是障礙物，不是空氣
+ *
+ * 三條各自獨立的機制，不驗「幾秒打得掉」那種平衡量。
+ */
+describe('魚雷與船體的阻擋', () => {
+  /** 兩艘一前一後，前面那艘沉了 */
+  function twoInLine(frontTeam: 'blue' | 'red', backTeam: 'blue' | 'red') {
+    const world = sea()
+    const front = createShip(0, SHIP_CLASSES.fletcher!, frontTeam, 0, -300, 0, 0)
+    front.guns = createShipGuns(front.cls)
+    front.gunCooldowns = new Float32Array(front.cls.zones.length)
+    world.ships.push(front)
+    const back = createShip(1, SHIP_CLASSES.essex!, backTeam, 0, 0, 0, 0)
+    back.guns = createShipGuns(back.cls)
+    back.gunCooldowns = new Float32Array(back.cls.zones.length)
+    world.ships.push(back)
+    return { world, front, back }
+  }
+
+  const runTorpedo = (world: World, team: number): void => {
+    world.dropTorpedo(0, 40, -1200, 0, 0, 90, 15_000, 0, 1, team)
+    for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
+  }
+
+  /**
+   * 【沉船是障礙物】沉了的船不再開火、不再算勝負，但它還浮在那裡 ——
+   * 魚雷該撞上它，不是穿過去打後面那一艘。
+   */
+  it('沉船擋得住魚雷 —— 後面那艘不掉血', () => {
+    const { world, front, back } = twoInLine('red', 'red')
+    front.alive = false
+    for (const g of front.guns) g.alive = false
+    const hp0 = back.hp
+    runTorpedo(world, 0)
+    expect(back.hp, '雷穿過沉船打到後面那艘').toBe(hp0)
+  })
+
+  /**
+   * 【友軍船也擋】雷撞上去就結束，**但不掉血、也不爆**。
+   */
+  it('友軍船擋得住魚雷', () => {
+    const { world, back } = twoInLine('blue', 'red')
+    const hp0 = back.hp
+    runTorpedo(world, 0)
+    expect(back.hp, '雷穿過友軍船打到後面那艘').toBe(hp0)
+  })
+
+  it('友軍船不掉血', () => {
+    const { world, front } = twoInLine('blue', 'red')
+    const hp0 = front.hp
+    runTorpedo(world, 0)
+    expect(front.hp).toBe(hp0)
+  })
+
+  /** 【也不爆】友軍誤擊不該在畫面上長出一根水柱 */
+  it('友軍船不產生爆炸事件', () => {
+    const { world } = twoInLine('blue', 'red')
+    world.torpedoEvents.count = 0
+    runTorpedo(world, 0)
+    expect(world.torpedoEvents.count).toBe(0)
+  })
+
+  /** 【敵船照舊】掉血，而且有爆炸事件 */
+  it('敵船照舊掉血並產生爆炸事件', () => {
+    const { world, front } = twoInLine('red', 'red')
+    const hp0 = front.hp
+    world.torpedoEvents.count = 0
+    runTorpedo(world, 0)
+    expect(front.hp).toBeLessThan(hp0)
+    expect(world.torpedoEvents.count).toBeGreaterThan(0)
   })
 })
