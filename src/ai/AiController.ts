@@ -761,9 +761,13 @@ export class AiController implements Controller {
         this.sit.altitudeAdvantage,
         this.sit.floorGap - 2 * this.rulesConfig.floorAltExit,
       )
+      // 【俯衝中】上一格算出來的俯衝目標還沒到 —— 規則 3 的上限換成
+      // trackDiveMax。讀上一格的 knobs 差 100 ms，對一個以秒計的上限沒差
+      const diving = this.knobs.diveIas > 0
+        && self.diag.aero.tas * Math.sqrt(self.diag.air.sigma) < this.knobs.diveIas
       this.intent = stepRules(
         this.rules, this.sit, danger, period, this.rulesConfig,
-        self.spec.role === 'fighter',
+        self.spec.role === 'fighter', diving,
       )
       // 【命令是外部覆寫，不是 arbitrate 的一列】那個函式的優先序關係是
       // 實測逐條談定的（相對理由 vs 絕對理由、defend 的絕對優先權，見

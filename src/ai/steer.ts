@@ -499,6 +499,15 @@ export interface SteerConfig {
    */
   diveTargetRatio: number
   /**
+   * 規則 3 俯衝的航跡角，rad。**比 `extendPitch` 陡得多，而且必須如此。**
+   *
+   * 【為什麼 25° 不夠】F4F 又重又拖（cd0 0.0248），−15～−25° 的重力分量推不
+   * 動它：實測 19 秒只從 0.41 爬到 0.56 vne、掉 685 m，連對手放手的速度都
+   * 沒摸到，等於白丟高度。−45° 的重力分量是 −15° 的 2.7 倍，粗算 10 秒內
+   * 到得了。
+   */
+  divePitch: number
+  /**
    * 回場偏置**淡到滿**的距離，m。由 0 漸進到這個值，之後全程滿偏。
    *
    * 【淡入區本身有害，要讓 AI 快速通過】它存在只是為了不抖 —— 距離在門檻
@@ -940,6 +949,7 @@ export const DEFAULT_STEER: SteerConfig = {
   extendVigorFull: 1.05,
   diveSelfRatio: 0.90,
   diveTargetRatio: 1.05,
+  divePitch: 45 * (Math.PI / 180),
   extendTurnFade: 750,
   pitchSpeedGain: 4 * EXTEND_PITCH,
   pitchAltitudeGain: 2 * EXTEND_PITCH,
@@ -1961,14 +1971,16 @@ export function steerCommand(
         // 俯仰由速度赤字與離地餘裕連續決定（見 extendPitchAngle）。
         const clearance = self.state.position.y - seaHeight
         let pitch = extendPitchAngle(sit.cornerRatio, sit.altitudeAdvantage, clearance, cfg)
-        // 【規則 3 的俯衝】目標速度還沒到就滿俯衝。離地餘裕仍然蓋在上面：
-        // cornerRatio = 1 讓速度項歸零、高度差傳 −Infinity 被 isFinite 擋掉，
-        // 剩下的就是離地項 —— 它為正時貼海不俯衝。
+        // 【規則 3 的俯衝】目標速度還沒到就以 `divePitch` 俯衝。離地餘裕仍然
+        // 蓋在上面：cornerRatio = 1 讓速度項歸零、高度差傳 −Infinity 被
+        // isFinite 擋掉，剩下的就是離地項 —— 它為正時貼海不俯衝。
+        let diving = false
         if (k.diveIas > 0) {
           const ias = self.diag.aero.tas * Math.sqrt(self.diag.air.sigma)
           if (ias < k.diveIas) {
             const floor = extendPitchAngle(1, -Infinity, clearance, cfg)
-            pitch = floor > 0 ? floor : -cfg.extendPitch
+            if (floor > 0) pitch = floor
+            else { pitch = -cfg.divePitch; diving = true }
           }
         }
         unloadAim(self, pitch, out.aimWorld)
@@ -1977,16 +1989,21 @@ export function steerCommand(
         // 一個**有上限**的角度：誤差角的大小決定拉多少 G，上限因此直接是
         // 能量損失的上限（見 `SteerConfig.extendTurnCap`）。
         //
+        // 【俯衝中不偏】俯衝要的是最短時間換到速度，往錨點偏是在對追擊者
+        // 畫弧、把速度花在轉彎上。俯衝有 `trackDiveMax` 兜底，不會直飛到天邊。
+        //
         // 【錨點是當前目標】`losAxis` 由 `buildEngageBasis` 對攻擊目標建立。
         // 【錨點取敵人不取被保護單位】要的是「朝向敵人」，而且敵人每一格都
         // 有 —— 編隊形心會在一架陣亡時跳半個間距（spec §9.5）。
-        rotateHeading(
-          out.aimWorld,
-          extendHeadingBias(
-            defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range,
-            sit.cornerRatio, cfg,
-          ),
-        )
+        if (!diving) {
+          rotateHeading(
+            out.aimWorld,
+            extendHeadingBias(
+              defend.extendSide, headingErrorTo(self, basis.losAxis), sit.range,
+              sit.cornerRatio, cfg,
+            ),
+          )
+        }
         break
       }
       case 'defend':

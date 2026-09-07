@@ -758,6 +758,42 @@ describe('規則 3：轉不到就脫離', () => {
     expect(s.intent).not.toBe('extend')
   })
 
+  /**
+   * 【俯衝中的上限】自己紅線比對手高、目標速度還沒到時，7 秒會在半路把俯衝
+   * 切掉（實測 IAS 最高只到對手紅線的 0.9 以下）。呼叫端傳 `diving = true`，
+   * 上限換成 `trackDiveMax` —— 仍然是絕對值，不是「到達目標為止」。
+   */
+  it('俯衝中：過了 trackMax 還在脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    const n = Math.ceil(DEFAULT_RULES.trackMax / DT) + 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT, DEFAULT_RULES, true, true)
+    expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  it('俯衝中：trackDiveMax 一到照樣結束、照樣罰冷卻 —— 不是永久脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    const n = Math.ceil(DEFAULT_RULES.trackDiveMax / DT) + 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT, DEFAULT_RULES, true, true)
+    expect(s.trackExtend).toBe(0)
+    expect(s.trackCooldown).toBeGreaterThan(0)
+  })
+
+  it('俯衝結束（diving 變回 false）後，普通上限立刻生效', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    const n = Math.ceil(DEFAULT_RULES.trackMax / DT) + 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT, DEFAULT_RULES, true, true)
+    expect(s.trackExtend).toBeGreaterThan(0)
+    stepRules(s, sit, 0, DT, DEFAULT_RULES, true, false)
+    expect(s.trackExtend).toBe(0)
+  })
+
+  it('起始設定：俯衝上限比普通上限長', () => {
+    expect(DEFAULT_RULES.trackDiveMax).toBeGreaterThan(DEFAULT_RULES.trackMax)
+  })
+
   it('起始設定：上限比承諾長', () => {
     // 【它擋的是參數自我否定】上限比承諾短的話承諾永遠跑不完，「一旦決定
     // 就飛完」這件事等於不存在

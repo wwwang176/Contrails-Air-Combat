@@ -612,6 +612,9 @@ describe('超速守線', () => {
     const cmd = createCommand()
     expect(applySafety(a, 0, cmd)).toBe('overspeed')
     expect(cmd.throttle).toBe(0)
+    // 不煞車：停在 0.90 會留在目標上方等它爬回來；衝到 0.98 只剩 15% 權限，
+    // 跟不上目標的轉彎才是設計要的
+    expect(cmd.brake).toBe(0)
     expect(cmd.aimWorld.y).toBeGreaterThanOrEqual(-1e-9)
   })
 

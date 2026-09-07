@@ -658,13 +658,22 @@ describe('steerCommand', () => {
    *
    * 自機 P-51 在 4000 m、TAS 180 → IAS 約 147 m/s。
    */
-  it('diveIas 高於目前 IAS → 滿俯衝（−extendPitch）', () => {
+  it('diveIas 高於目前 IAS → 以 divePitch 俯衝，而且不往錨點偏', () => {
     scene([0, 4000, -600], [0, 0, -180])
     sit.cornerRatio = 1
     k.diveIas = 200
     steerCommand('extend', 'normal', sit, basis, self, 0, k, createDefendState(), null, cmd)
     k.diveIas = 0
-    expect(cmd.aimWorld.y).toBeLessThan(-Math.sin(DEFAULT_STEER.extendPitch * 0.9))
+    expect(cmd.aimWorld.y).toBeCloseTo(-Math.sin(DEFAULT_STEER.divePitch), 3)
+    // 水平方向與自身速度向量一致 —— 沒有回場偏置
+    const v = self.state.velocity
+    const hv = Math.hypot(v.x, v.z)
+    const ha = Math.hypot(cmd.aimWorld.x, cmd.aimWorld.z)
+    expect((cmd.aimWorld.x * v.x + cmd.aimWorld.z * v.z) / (hv * ha)).toBeCloseTo(1, 6)
+  })
+
+  it('divePitch 比 extendPitch 陡', () => {
+    expect(DEFAULT_STEER.divePitch).toBeGreaterThan(DEFAULT_STEER.extendPitch)
   })
 
   it('diveIas 低於目前 IAS → 與關閉時逐位元相同', () => {
