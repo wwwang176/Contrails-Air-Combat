@@ -317,9 +317,23 @@ runCount: number
 
 ## 收尾
 
-- [ ] `npx tsc --noEmit` 與動工前的基準行數相同
-- [ ] `npx vitest run test/unit` 全綠
-- [ ] `perf-gate.test.ts`、`rematch.test.ts` 單獨跑，綠
-- [ ] `spawn-baseline` 的校驗和未變
-- [ ] Codex 複審
-- [ ] 分 Task commit，不 `git add -A`
+- [x] `npx tsc --noEmit` 與動工前的基準行數相同（24）
+- [x] `npx vitest run test/unit` 全綠
+- [x] `perf-gate.test.ts`、`rematch.test.ts` 單獨跑，綠
+      —— **`perf-gate` 一定要在機器閒置時跑**：dev server 加無頭 chromium
+      在跑的時候它會紅 3~5 條，那是它自己註解記載的並行雜訊
+- [x] `spawn-baseline` 的校驗和未變
+- [x] Codex 複審（兩輪：文件九條、實作八條）
+- [x] 分 Task commit，不 `git add -A`
+
+## 交付時的已知限制
+
+- **e2e 的「坡度出界」那一格拍不到。** 包絡放寬到 45° 之後，用滑鼠在無頭
+  環境擺不出出界的姿態；腳本會印警告並繼續（其餘斷言照跑）。出界時的紅色
+  留給人工試飛。
+- **`releaseAgl` 的斷言在海上抓不到「填成 `altitude`」這一種錯**：海拔與
+  離地在那裡本來就相等。那一條由 `hud-release-gate.test.ts` 的
+  「高度那一格讀 releaseAgl，不讀 altitude」守，它是在單元層面把兩者拆開的。
+- **包絡放寬同時放寬了 AI 的鎖航向條件**（`established()` 是 `lockRange`
+  的閘）。AI 會更早進入直飛段並鎖住航向 —— 那是軌跡改變，不只是「更容易
+  投」。試飛要一併看 AI 的雷擊，不只看玩家那一架。
