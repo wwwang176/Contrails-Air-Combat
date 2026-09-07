@@ -924,7 +924,11 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
   for (const e of fleet.ships) {
     p.copy(e.offset).applyQuaternion(q).add(fleet.center)
     const cls = SHIP_CLASSES[e.cls]
-    const ship = createShip(world.ships.length, cls, e.team, p.x, p.z, fleet.heading, fleet.speed)
+    // 【`vital` 也要透傳】漏掉的症狀是「打沉航母卻沒判輸」，不報錯
+    const ship = createShip(
+      world.ships.length, cls, e.team, p.x, p.z, fleet.heading, fleet.speed,
+      e.vital === true,
+    )
     ship.guns = createShipGuns(cls)
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
@@ -1514,10 +1518,27 @@ export function stepBattle(b: Battle, dt: number): void {
   // 八艘的迴圈，每個物理步跑一次 —— 與 convoy 那一段同一個量級。
   inp.shipsSunk = 0
   inp.shipsTotal = 0
+  // 【三格都要每一步歸零】少了歸零就是上一步的值累加下去，而重開同一關時
+  // 殘留的 `vitalSunk` 會讓一艘健康的航母在開場立刻判輸
+  inp.vitalSunk = 0
   for (const sh of b.world.ships) {
-    if (sh.team === 'blue') continue
+    // 【我方的船只看要害艦】六艘驅逐艦沉光也不算輸 —— 它們的價值在防空
+    // 火網，那已經是機制上真的（`shipGuns.ts` 每一艘都在開火）
+    if (sh.team === 'blue') {
+      if (sh.vital && !sh.alive) inp.vitalSunk++
+      continue
+    }
     inp.shipsTotal++
     if (!sh.alive) inp.shipsSunk++
+  }
+  // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
+  // 第二波永遠不來（見 `MissionInputs.redInbound`）
+  inp.redInbound = false
+  const beats = b.cfg.beats ?? []
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i]!
+    if (beat.kind !== 'reinforce' || beat.flight.team !== 'red') continue
+    if (b.beatStates[i]!.phase === 'warned') { inp.redInbound = true; break }
   }
   // 【讀 `b.rules` 而不是 `b.cfg.rules`】返航節拍會換掉這一場的規則
   stepMission(b.rules, inp, dt, b.mission)
