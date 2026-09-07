@@ -24,6 +24,10 @@ function neutral(): Situation {
   s.speedMargin = 2
   s.threatInstant = 0
   s.shotInstant = 0
+  // 【中性 = 追得到】`createSituation` 的預設是 `Infinity`（「不知道」），
+  // 而那對規則 3 是「轉不過去」——中性態勢不該觸發脫離。要測規則 3 的案例
+  // 自己把它設大。
+  s.timeToBear = 1
   return s
 }
 
@@ -132,12 +136,24 @@ describe('stepRules（優先序）', () => {
     expect(stepRules(s, sit, 0, DT)).toBe('extend')
   })
 
-  it('轉彎劣勢 → extend（即使能量持平）', () => {
+  /**
+   * 【轉彎劣勢不是脫離的理由】它是**打法的選擇** —— 轉不贏他的飛機照樣
+   * 要靠近他打，只是不能跟他繞圈。閂鎖照常點亮供戰術層徵召，但意圖落在
+   * `approach`。
+   *
+   * 【壞掉會怎樣】`airframeTurnAdvantage` 對一組機種對幾乎是常數，差距
+   * 超過遲滯帶的配對閂鎖永不解除。讓它推 `extend`，飛機在 `extendRange`
+   * 內就恆為脫離，而脫離的卸載操舵讓射擊解起不來、開火豁免因此永遠不
+   * 成立 —— 自鎖。
+   */
+  it('轉彎劣勢 → 閂鎖點亮，但意圖不是 extend', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.airframeTurnAdvantage = -0.2
     sit.range = 900
-    expect(stepRules(s, sit, 0, DT)).toBe('extend')
+    const intent = stepRules(s, sit, 0, DT)
+    expect(s.extendTurnLatch).toBe(true)
+    expect(intent).toBe('approach')
   })
 
   it('轉彎優勢且即將接觸 → engage', () => {
@@ -159,8 +175,9 @@ describe('stepRules（優先序）', () => {
     sit.range = 500
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
-    // 立刻把條件改成 extend 該成立，但停留時間還沒到
-    sit.airframeTurnAdvantage = -0.5
+    // 立刻把條件改成 extend 該成立，但停留時間還沒到。
+    // 【用速度見底不用迴旋劣勢】迴旋劣勢不再推 `extend`（見上面那一條）
+    sit.cornerRatio = DEFAULT_RULES.cornerEnter * 0.9
     expect(stepRules(s, sit, 0, DT)).toBe('engage')
 
     // 等過最小停留時間
@@ -313,9 +330,13 @@ describe('extend 的三個理由與射擊否決權', () => {
     const s = createRuleState()
     const sit = neutral()
     sit.range = 500
-    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    // 【相對理由只剩能量】迴旋劣勢不推 `extend`。合取的另一半要
+    // `extendRecoveredLatch` 不成立，所以速度也得壓下來
+    sit.energyAdvantage = -800
+    sit.cornerRatio = 0.80
     sit.shotInstant = 0
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.extendEnergyLatch).toBe(true)
     expect(s.intent).toBe('extend')
   })
 
@@ -510,16 +531,19 @@ describe('因能量脫離改成合取', () => {
   }
 
   /**
-   * 【迴旋理由不套合取】「轉不贏他」談的是機體，補速度改變不了它。
+   * 【迴旋劣勢完全不參與這個合取】它談的是機體，而機體決定的是**用哪種
+   * 打法**，不是要不要脫離。飛得動的時候它不脫離，飛不動的時候脫離也是
+   * 能量那一半說了算。
    */
-  it('迴旋劣勢時，飛得動也照樣脫離', () => {
+  it('迴旋劣勢時，飛得動就不脫離', () => {
     const s = createRuleState()
     const sit = neutral()              // cornerRatio 1.2，recovered 會成立
     sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     sit.range = 900
     for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, ON)
+    expect(s.extendTurnLatch).toBe(true)
     expect(s.extendRecoveredLatch).toBe(true)
-    expect(s.intent).toBe('extend')
+    expect(s.intent).not.toBe('extend')
   })
 
   /** 【關掉時退回舊行為】消融的恆等基準 */
@@ -532,5 +556,141 @@ describe('因能量脫離改成合取', () => {
     sit.range = 900
     for (let i = 0; i < 5; i++) stepRules(s, sit, 0, DT, cfg)
     expect(s.intent).toBe('extend')
+  })
+})
+
+/**
+ * 規則 3：轉不到他身上就脫離，而且脫離有頭有尾。
+ *
+ * 【它取代了什麼】舊的判準是機體規格之差（`airframeTurnAdvantage`），
+ * 對一組機種對幾乎是常數 —— 貼上就撕不掉。實測 F4F 對 A6M5 的迴旋閂鎖
+ * 佔時 100.0%，`extend` 因此佔到 54.6%。`timeToBear` 是態勢量，敵人變遠、
+ * 橫越變慢時它自己就縮回來。
+ */
+describe('規則 3：轉不到就脫離', () => {
+  /** 轉不贏他（前提）＋ 轉不到他（觸發） */
+  function stuck(): Situation {
+    const sit = neutral()
+    sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
+    sit.range = 900
+    sit.timeToBear = DEFAULT_RULES.bearMax + 1
+    return sit
+  }
+
+  it('轉不贏而且轉不到 → extend', () => {
+    const s = createRuleState()
+    expect(stepRules(s, stuck(), 0, DT)).toBe('extend')
+    expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  it('轉得贏的話，轉不到也不脫離', () => {
+    // 【為什麼】轉得贏的飛機該做的是繼續轉，不是脫離。這條規則是給沒有
+    // 那個選項的一方的
+    const s = createRuleState()
+    const sit = stuck()
+    sit.airframeTurnAdvantage = 0.05
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBe(0)
+    expect(s.intent).not.toBe('extend')
+  })
+
+  it('轟炸機不走這條規則', () => {
+    // 【它擋的是實測過的回歸】轟炸機轉不贏攔截機是常態，少了機種閘門整隊
+    // 會離開航線 —— `turrets.test.ts` 的「P-51 也打下了東西」曾因此變成 0
+    const s = createRuleState()
+    const sit = stuck()
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT, DEFAULT_RULES, false)
+    expect(s.trackExtend).toBe(0)
+  })
+
+  /**
+   * 【承諾擋的是抖動】沒有它：脫離 → 飛開 → 敵人變遠、變好追 → 立刻回頭
+   * → 一接近又追不到 → 又脫離。每隔幾秒抽搐一次，是「永不解除」的鏡像。
+   */
+  it('承諾期內，就算變得追得到也不反悔', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBeGreaterThan(0)
+    // 立刻變成追得到，但承諾還沒跑完
+    sit.timeToBear = 1
+    const n = Math.floor(DEFAULT_RULES.trackCommit / DT) - 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  it('過了承諾而且追得到了 → 結束脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    sit.timeToBear = 1
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackCommit / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
+    expect(s.trackExtend).toBe(0)
+  })
+
+  /**
+   * 【上限擋的是永久脫離】他比我快時距離永遠拉不開，只靠距離出場會變成
+   * 一路逃到天邊 —— 那正是這一整輪要修的原始缺陷的形狀。
+   */
+  it('一直追不到又拉不開，上限也會把它結束', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    const n = Math.ceil(DEFAULT_RULES.trackMax / DT) + 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBe(0)
+  })
+
+  /**
+   * 【上限要真的有界限作用】只把計時器歸零的話，下一拍條件仍然成立、立刻
+   * 重新觸發 —— 變成每 `trackMax` 秒一段的無限接續，看起來就是「一直在跑」。
+   *
+   * 【為什麼冷卻是計時器不是條件式】用「等幾何改變」的話，對手就是比我快時
+   * 那個條件永遠不成立，飛機整場再也不脫離 —— 與 `extendTurnLatch` 那個原始
+   * 缺陷同一個形狀（閂鎖因為出場條件不可達而永久卡住）。計時器一定會走完。
+   */
+  it('撞上限之後的冷卻期內不會立刻重新脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    // 跑滿上限
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackMax / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
+    expect(s.trackExtend).toBe(0)
+    // 條件完全沒變，但冷卻期內不准再觸發
+    const n = Math.floor(DEFAULT_RULES.trackCooldown / DT) - 2
+    for (let i = 0; i < n; i++) {
+      stepRules(s, sit, 0, DT)
+      expect(s.trackExtend).toBe(0)
+    }
+  })
+
+  it('冷卻走完之後可以再脫離 —— 不是永久禁止', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackMax / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
+    // 幾何一個字都沒變（他就是比我快），冷卻仍然要自己走完
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackCooldown / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
+    expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  it('正在開火時不走這條規則', () => {
+    // 【與其他相對理由同一條分野】有槍在手就先開槍
+    const s = createRuleState()
+    const sit = stuck()
+    sit.shotInstant = 0.5
+    for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT)
+    expect(s.intent).not.toBe('extend')
+  })
+
+  it('起始設定：上限比承諾長', () => {
+    // 【它擋的是參數自我否定】上限比承諾短的話承諾永遠跑不完，「一旦決定
+    // 就飛完」這件事等於不存在
+    expect(DEFAULT_RULES.trackMax).toBeGreaterThan(DEFAULT_RULES.trackCommit)
   })
 })
