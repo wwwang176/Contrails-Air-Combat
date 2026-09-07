@@ -865,8 +865,16 @@ export class AiController implements Controller {
       // `airframeTurnAdvantage`，對一組機種對幾乎是常數。那個性質讓它不
       // 適合當「此刻要不要撤」的開關（會永遠鎖著），卻正好適合當「這一對
       // 該用哪種打法」的開關 —— 打法本來就該整場一致。
-      ti.slot = this.slotHas || this.rules.extendTurnLatch
-      ti.mandatory = this.rules.extendTurnLatch
+      //
+      // 【只徵召戰鬥機】boom and zoom 是戰鬥機的打法。轟炸機轉不贏攔截機
+      // 是常態（B-17 對 P-51 的差值是 −0.045～−0.074），但它的答案是編隊
+      // 與防禦火網，不是爬升俯衝。少了這個條件，整隊轟炸機會離開航線去
+      // 蓄能 —— 實測 P-51 對 B-17 的擊墜數歸零，因為轟炸機不在它預期的
+      // 位置上。
+      const fighter = self.spec.role === 'fighter'
+      const drafted = fighter && this.rules.extendTurnLatch
+      ti.slot = this.slotHas || drafted
+      ti.mandatory = drafted
       // 【被覆寫時要算暫停，不能只是壓掉操舵】`defend` 與速度見底會讓下面
       // 的意圖覆寫與 `tacticalCommand` 兩處都讓位，但相位機若照常前進，
       // 飛機就會在做防禦機動的同時把 `build.dwell` 累積到期限、拿到
