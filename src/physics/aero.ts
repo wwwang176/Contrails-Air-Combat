@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three'
 import { G0, smoothstep } from '../core/math'
+import { RHO0 } from './atmosphere'
 import { alphaFrom, betaFrom, bodyToStd, stdToBody, type StdVec } from './axes'
 import { derivedClMax, type AircraftSpec } from '../specs/types'
 import type { AeroState, AirData, Controls, ForceMoment } from './types'
@@ -130,6 +131,32 @@ export function controlEffectiveness(k: number, qRef: number, qbar: number): num
   return Math.pow(qRef / qbar, k)
 }
 
+/** 紅線因子開始作用的 IAS / vne 比值。HUD 速度錶變黃用同一個數 */
+export const REDLINE_KNEE = 0.85
+/** 使紅線那一點（r = 1）剩 10%：exp(−K · (1 − 膝點)) = 0.1 */
+export const REDLINE_K = Math.log(10) / (1 - REDLINE_KNEE)
+
+/**
+ * 超速的操縱面變重：δ_eff = δ × exp(−K·(IAS/vne − 0.85))，膝點以下為 1。
+ *
+ * 【與 controlEffectiveness 的分工】那一個是「高速舵面變重」的冪次曲線，
+ * 過了 qRef 就緩緩生效；這一個是紅線附近的指數懲罰，膝點之前完全不作用。
+ * 兩者相乘，三軸同一個值。
+ *
+ * 【為什麼是 IAS】史實紅線是 IAS，而舵面變重的物理量本來就是動壓。高空
+ * TAS 大、動壓小，紅線自然比較晚到。
+ *
+ * 【壞掉會怎樣】沒有它時 `limits.vne` 在飛行中沒有任何後果 —— 零戰俯衝到
+ * 600 km/h 照樣轉，F4F 的俯衝脫離在物理上不存在出口。
+ *
+ * 熱路徑（240 Hz）。膝點以下連 exp 都不算。
+ */
+export function redlineEffectiveness(vne: number, qbar: number): number {
+  const r = Math.sqrt((2 * qbar) / RHO0) / vne
+  if (r <= REDLINE_KNEE) return 1
+  return Math.exp(-REDLINE_K * (r - REDLINE_KNEE))
+}
+
 /**
  * 拐點動壓相對 1 G 失速動壓的倍率。**1.2² = 1.44** —— 拐點在 1.2 × Vs。
  *
@@ -246,9 +273,11 @@ export function aeroForceMoment(
   //
   // 三軸乘同一個因子：不做副翼／升降舵／方向舵的差異化。
   const low = lowSpeedEffectiveness(spec, aero.qbar)
-  const da = controls.aileron * low * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
-  const de = controls.elevator * low * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
-  const dr = controls.rudder * low * controlEffectiveness(CS.rudderK, CS.qRef, aero.qbar)
+  // 【紅線因子三軸同一個值】與低速衰減同一條原則，不做軸的差異化
+  const red = redlineEffectiveness(spec.limits.vne, aero.qbar)
+  const da = controls.aileron * low * red * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
+  const de = controls.elevator * low * red * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
+  const dr = controls.rudder * low * red * controlEffectiveness(CS.rudderK, CS.qRef, aero.qbar)
 
   const M = spec.moments
   const cRoll = M.clBeta * aero.beta + M.clP * pHat + M.clDa * da
