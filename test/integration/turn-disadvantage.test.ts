@@ -84,9 +84,10 @@ describe('規則 3：跟不上就脫離，而且脫離有界', () => {
    * `trackExtend` 是計時器：一次脫離最多 `trackMax` 秒。
    */
   it('單次脫離不超過上限', () => {
-    // 【留一拍餘裕】計時器在決策拍（10 Hz）推進
+    // 【上限是俯衝那一個】F4F 對 A6M 有紅線餘裕，規則 3 的脫離會俯衝，上限
+    // 換成 trackDiveMax（見 RuleConfig）。留一拍餘裕：計時器在決策拍推進
     expect(s.longestExtend, '規則 3 的最長連續脫離')
-      .toBeLessThan(DEFAULT_RULES.trackMax + 1)
+      .toBeLessThan(DEFAULT_RULES.trackDiveMax + 1)
   })
 
   it('規則 3 真的有在跑 —— 否則上面那條是空的', () => {
