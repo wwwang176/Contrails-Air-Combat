@@ -17,13 +17,14 @@ import { drawHeadingTape } from './widgets/tape'
 import { drawBombsight } from './widgets/bombsight'
 import { drawBombBay } from './widgets/bombBay'
 import { drawBombVignette } from './widgets/bombVignette'
+import { drawTorpedoLine } from './widgets/torpedoLine'
 import type { HudFrame, HudLayout } from './types'
 
 export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'markers' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
   | 'godMarkers' | 'objective' | 'arena' | 'message'
-  | 'bombsight' | 'bombBay' | 'bombVignette'
+  | 'torpedoLine' | 'bombsight' | 'bombBay' | 'bombVignette'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -34,6 +35,8 @@ export const FULL: readonly HudWidget[] = [
   // 【標記排在目標框之前】同一個位置同時有飛機與剛脫手的炸彈時，壓在上面
   // 的該是飛機
   'gEffect', 'damageEdge', 'markers', 'contacts', 'reticle',
+  // 【航跡線排在落點圈之前】圈是線的起點，兩者重疊時壓在上面的該是圈
+  'torpedoLine',
   // 【落點圈排在準星之後】兩者重疊時壓在上面的是落點圈
   'bombsight', 'bombBay',
   'tape',
@@ -140,6 +143,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   hints: (ctx, L, f) => drawHints(ctx, L, f),
   arena: (ctx, L, f) => drawArena(ctx, L, f),
   objective: (ctx, L, f) => drawObjective(ctx, L, f),
+  torpedoLine: (ctx, L, f) => drawTorpedoLine(ctx, L, f),
   bombsight: (ctx, L, f) => drawBombsight(ctx, L, f),
   bombBay: (ctx, L, f) => drawBombBay(ctx, L, f),
   bombVignette: (ctx, L, f) => drawBombVignette(ctx, L, f),

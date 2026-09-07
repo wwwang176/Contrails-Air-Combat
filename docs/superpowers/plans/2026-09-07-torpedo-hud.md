@@ -140,21 +140,21 @@ runCount: number
 
 **為什麼 `runFrontCount`**（spec §5.4）：`w ≤ 0` 的點投影出來是穿過中心鏡射的 —— 它會落在畫面上、方向剛好相反，canvas 再乾乾淨淨把它裁到邊緣。**得到的是一條線條漂亮、方向錯 180° 的瞄準線，不會報錯。**
 
-- [ ] **Step 1: 寫失敗的測試** —— `runFrontCount`
+- [x] **Step 1: 寫失敗的測試** —— `runFrontCount`
   - 全部 `z < 1` → n
   - `z[0] >= 1` → 0
   - 中間一個非 front → 停在它之前
   - **後面又變回 front 不得復活**（鏡射線的守門員）
   - 邊界：`z === 1` 算非 front
-- [ ] **Step 2: 寫失敗的測試** —— `torpedoLineVisible`
+- [x] **Step 2: 寫失敗的測試** —— `torpedoLineVisible`
   - 四條各自為假時都不畫（非投彈模式／掛炸彈／`bombState !== 'solved'`／`runCount < 2`）
   - **`bombVisible === false` 但 `runCount >= 2` 時照畫**（spec §5.7：圈滑出畫面時線還有一大段在畫面裡）
-- [ ] **Step 3: 實作** `torpedoLine.ts`
+- [x] **Step 3: 實作** `torpedoLine.ts`
   - 顏色走 `bombsightColor('ring', f.releaseOk)`，**從 `bombsight.ts` import，不得自己判一次**
   - 刻度是垂直於線的短橫；末端那一格長一截並標 `2000`（值取自 `TORPEDO_RANGE`，不寫死）
   - 線寬 `1 * L.scale`，與落點圈相同
-- [ ] **Step 4:** 註冊進 `Hud.ts` 三處；`hud.test.ts` 的順序斷言更新，並確認 `BOMB` 自動含它、`GOD` 不含
-- [ ] **Step 5:** 全套綠、tsc 不增行
+- [x] **Step 4:** 註冊進 `Hud.ts` 三處；`hud.test.ts` 的順序斷言更新，並確認 `BOMB` 自動含它、`GOD` 不含
+- [x] **Step 5:** 全套綠、tsc 不增行
 
 **Verification:** mutation —— `runFrontCount` 的 `>= 1` 改成 `> 1` 之後邊界那條必須紅；`WIDGET_DRAW` 少一格是編譯錯誤（既有機制）。
 

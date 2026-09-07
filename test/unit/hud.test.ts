@@ -492,6 +492,25 @@ describe('上帝視角的 HUD', () => {
   })
 
   /**
+   * 【圈是線的起點，所以圈壓在線上面】兩者在入水點那一格恆重疊 —— 讓線壓
+   * 在圈上的話，圈被截斷一段，讀起來像圓圈破了一個口。
+   */
+  it('魚雷航跡線排在落點圈之前', () => {
+    const w = hudWidgets(false)
+    expect(w.indexOf('torpedoLine')).toBeLessThan(w.indexOf('bombsight'))
+  })
+
+  /**
+   * 【投彈模式要有它，上帝視角不要】航跡線是座艙的瞄準輔助。`BOMB` 靠
+   * `FULL.filter` 自動繼承，這一條釘住那個繼承真的發生了 —— 哪天有人把
+   * `BOMB` 改成另抄一份清單，這裡會紅。
+   */
+  it('投彈模式畫得到航跡線，上帝視角畫不到', () => {
+    expect(hudWidgets(false, true)).toContain('torpedoLine')
+    expect(hudWidgets(true)).not.toContain('torpedoLine')
+  })
+
+  /**
    * 【標記壓在目標框底下】剛脫手的那一瞬間，炸彈與投它的那一架在畫面上是
    * 同一個點。兩者疊到時該讀的是飛機。
    */
