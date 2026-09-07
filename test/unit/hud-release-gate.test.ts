@@ -7,7 +7,14 @@ import {
   BOMB_ENVELOPE, TORPEDO_ENVELOPE, canRelease,
 } from '../../src/weapons/releaseEnvelope'
 
-const DEG = Math.PI / 180
+/**
+ * 一定在包絡外的姿態。
+ *
+ * 【相對包絡寫，不寫死度數】包絡的值是「起始值，由試飛裁定」—— 寫死 30°
+ * 的話，負責人一放寬門檻這幾條就會因為**調參數**而不是**壞掉**變紅。
+ */
+const OUT_ROLL = TORPEDO_ENVELOPE.maxRoll * 2
+const OUT_PITCH = TORPEDO_ENVELOPE.maxPitch * 2
 
 const LAYOUT: HudLayout = {
   width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1,
@@ -145,7 +152,7 @@ describe('drawBombBay 畫出來的閘門', () => {
    */
   it('只有俯仰出界時，只有俯仰那一格紅', () => {
     const f = torpedoFrame()
-    f.pitch = 30 * DEG
+    f.pitch = OUT_PITCH
     const t = gateTexts(f)
     expect(t[0]!.color).toBe(HUD_COLORS.primary)
     expect(t[1]!.color).toBe(HUD_COLORS.danger)
@@ -154,7 +161,7 @@ describe('drawBombBay 畫出來的閘門', () => {
 
   it('只有坡度出界時，只有坡度那一格紅', () => {
     const f = torpedoFrame()
-    f.roll = 30 * DEG
+    f.roll = OUT_ROLL
     const t = gateTexts(f)
     expect(t[0]!.color).toBe(HUD_COLORS.danger)
     expect(t[1]!.color).toBe(HUD_COLORS.primary)
@@ -163,7 +170,7 @@ describe('drawBombBay 畫出來的閘門', () => {
 
   it('坡度看絕對值 —— 左右一樣紅', () => {
     const f = torpedoFrame()
-    f.roll = -30 * DEG
+    f.roll = -OUT_ROLL
     expect(gateTexts(f)[0]!.color).toBe(HUD_COLORS.danger)
   })
 
@@ -181,14 +188,14 @@ describe('drawBombBay 畫出來的閘門', () => {
   })
 
   /**
-   * 【門檻跟著 `releaseEnv` 走】這一條殺的是「在繪圖函數裡重抄一份 12°」。
+   * 【門檻跟著 `releaseEnv` 走】這一條殺的是「在繪圖函數裡重抄一份門檻」。
    */
   it('換一組包絡，同一組姿態的紅綠跟著翻', () => {
     const f = torpedoFrame()
-    f.roll = 30 * DEG
+    f.roll = OUT_ROLL
     expect(gateTexts(f)[0]!.color).toBe(HUD_COLORS.danger)
-    // 放寬到 90°：同一個坡度就變合法
-    f.releaseEnv = { ...TORPEDO_ENVELOPE, maxRoll: 90 * DEG }
+    // 放寬到剛好蓋過它：同一個坡度就變合法
+    f.releaseEnv = { ...TORPEDO_ENVELOPE, maxRoll: OUT_ROLL * 1.5 }
     expect(gateTexts(f)[0]!.color).toBe(HUD_COLORS.primary)
   })
 

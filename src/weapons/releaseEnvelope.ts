@@ -57,8 +57,10 @@ export const BOMB_ENVELOPE: ReleaseEnvelope = {
  * 【不限速度】限了很難投。`minTas` / `maxTas` 兩格保留 —— 重開限制時改的
  * 是一個數字，不是一支函式的簽章與它的每一個呼叫端。
  *
- * 【姿態幾乎要平】九一式入水後靠尾舵定深，投放時帶坡度或俯仰會讓它入水
- * 角錯誤。12° 與 ±6° 讓玩家還做得到修正，但做不到「一邊轉彎一邊投」。
+ * 【姿態的限制是玩法取捨，不是史實】九一式入水後靠尾舵定深，投放時帶坡度
+ * 或俯仰確實會讓入水角錯誤 —— 但 45° 與 ±60° 遠寬於任何史實投雷姿態。
+ * 這兩個值要的是「進場時修得動、投得出去」，不是照抄手冊。真正還擋得住的
+ * 是倒飛與垂直俯衝那種退化姿態。
  *
  * 【高度有上界】太高投下去雷體會折斷 —— 這是炸彈沒有的一條。
  *
@@ -72,9 +74,9 @@ export const BOMB_ENVELOPE: ReleaseEnvelope = {
  * **起始值，由試飛裁定。**
  */
 export const TORPEDO_ENVELOPE: ReleaseEnvelope = {
-  maxRoll: 12 * DEG,
-  minPitch: -6 * DEG,
-  maxPitch: 6 * DEG,
+  maxRoll: 45 * DEG,
+  minPitch: -60 * DEG,
+  maxPitch: 60 * DEG,
   minAgl: 20,
   maxAgl: 200,
   minTas: 0,
