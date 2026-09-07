@@ -317,6 +317,17 @@ export interface FleetEntry {
    * 擺位時先轉 `heading` 再加 `center`。
    */
   readonly offset: Vector3
+  /**
+   * 這一艘沉了就輸。**只有 `defend` 規則讀它**（`mission.ts` 的 `vitalSunk`）。
+   *
+   * 【為什麼是旗標而不是把艦級寫進規則】`cls === 'essex'` 那種寫法把「誰
+   * 要緊」耦進判定裡，換一艘船當主角就要改規則；旗標與艦名單住在同一個
+   * 地方，看得到編成就看得到誰要緊。
+   *
+   * 【為什麼是 `?: true` 而不是 `boolean`】`exactOptionalPropertyTypes`
+   * 開著，與 `FlightPlan.player` 同一個寫法 —— 不必為每一艘補 `vital: false`。
+   */
+  readonly vital?: true
 }
 
 /** 打到一半把任務目標換成撤離。 */

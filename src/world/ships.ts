@@ -101,6 +101,13 @@ export interface ShipGun extends BurstCycle {
 export interface Ship {
   readonly index: number
   readonly team: Team
+  /**
+   * 這一艘沉了就輸 —— 只有 `defend` 規則讀它（`battle/mission.ts` 的
+   * `vitalSunk`）。由關卡的 `MissionFleet` 條目帶進來。
+   *
+   * **`World` 自己不讀它。** 船怎麼被打沉與它要不要緊是兩件事。
+   */
+  readonly vital: boolean
   readonly cls: ShipClass
   /** 世界座標，水線。**y 恆為 0** —— 船不隨浪起伏（spec §12）。 */
   readonly position: Vector3
@@ -255,10 +262,12 @@ export function deckHeightOf(cls: ShipClass): number {
 export function createShip(
   index: number, cls: ShipClass, team: Team,
   x: number, z: number, heading: number, speed: number,
+  vital = false,
 ): Ship {
   return {
     index,
     team,
+    vital,
     cls,
     position: new Vector3(x, 0, z),
     orientation: new Quaternion().setFromAxisAngle(UP, heading),
