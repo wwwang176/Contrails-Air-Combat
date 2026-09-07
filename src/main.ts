@@ -83,7 +83,8 @@ import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
 } from './camera/godCamera'
-import { deathCamAim } from './camera/deathCam'
+import { deathCamAim, enterDeathCam } from './camera/deathCam'
+import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
@@ -296,6 +297,10 @@ const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
 /** 結算的兩個回頭出口。依 `mode` 擇一顯示 —— 見 `stepAndDrawBattle` 尾端 */
 const backToSetup = boardActions.querySelector('[data-act="toSetup"]') as HTMLElement
 const backToMission = boardActions.querySelector('[data-act="toMission"]') as HTMLElement
+/** 暫停選單的兩個出口。依 `mode` 擇一顯示，與結算板同一個做法 */
+const pauseEl = document.getElementById('pause') as HTMLElement
+const pauseToMenu = pauseEl.querySelector('[data-act="toMenu"]') as HTMLElement
+const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
 
 /**
@@ -714,6 +719,8 @@ const rig = new CameraRig()
 const godCam = createGodCameraState()
 /** 上一幀是否在上帝視角。進出的邊緣偵測用 */
 let wasGodView = false
+/** G 進出兩個方向共用的鏡頭過渡 */
+const godBlend = createCameraBlend()
 /**
  * 餵給 `stepGodCamera` 的輸入。**重用，不每幀配置** —— 與 `probe`、
  * `relPos` 那一組同一個做法。
@@ -938,6 +945,8 @@ function leaveGodView(): void {
   input.godView = false
   wasGodView = false
   input.playerAi = false
+  // 新的一場不該從上一場的鏡頭位置飄過來
+  godBlend.active = false
   bindings.clearHolds()
 }
 
@@ -1266,6 +1275,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【一定要排在讀 `input.playerAi` 之前】進入的那一幀就要代飛，否則會有
   // 一幀是「鏡頭已經飛走了但飛機沒人在開」
   if (input.godView !== wasGodView) {
+    // 【兩個方向都從相機現在的姿態開始過渡】這裡是幀首，相機還停在上一幀
+    // 的姿態 —— 那正是玩家眼前的畫面。下面各自算出目的姿態後由 `applyBlend`
+    // 拉回起點的比例，所以進去與回來走的是同一條路
+    startBlend(godBlend, ctx.camera)
     if (input.godView) {
       input.playerAi = true
       // 【用算繪位置而不是物理位置】這裡是幀首，算繪位置是上一幀內插的
@@ -1294,7 +1307,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (dying && !wasDying) {
     resetGEffect()
     resetDamageMarks(hudFrame.damageMarks)
+    // 視角退回機外、取消右鍵轉頭 —— 死亡鏡頭只在機外、只看擊殺者
+    enterDeathCam(input)
   }
+  // 輸入層靠它擋掉死亡鏡頭期間的右鍵與 B；接手完成的那一幀自動解除
+  input.dead = dying
   wasDying = dying
   if (input.godView) {
     // 【上帝分支排在 `dying` 之前】排在後面的話，陣亡那 2 秒 `lookX/lookY`
@@ -1612,6 +1629,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
       input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
   }
+  // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
+  // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
+  applyBlend(godBlend, ctx.camera, frameSeconds)
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
@@ -2009,6 +2029,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // （`menu.ts` 的事件委派註解），改它等於讓一個 DOM 屬性變成隱性狀態
   backToSetup.hidden = mode !== 'skirmish'
   backToMission.hidden = mode !== 'mission'
+  pauseToMenu.hidden = mode !== 'skirmish'
+  pauseAbandon.hidden = mode !== 'mission'
   boardEl.classList.toggle('finished', finished)
 }
 
