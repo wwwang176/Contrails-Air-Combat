@@ -101,7 +101,12 @@ export const HEADON_20V20: readonly string[] = [
   '小隊 red 36,37,38,39',
   '玩家座位 8',
 ]
-export const HEADON_20V20_REPLAY = '51409:400d02eb1d2109d2f111c1c047f98318d63dea118393e61cc8e1477abc8c8b87'
+/**
+ * 【這一場的 AI 打法與另外兩場不同】P-51D vs Bf 109 K-4 的機體迴旋差值低於
+ * `turnEnter`，所以整隊 P-51 被徵召進戰術層打能量戰。校驗和因此與
+ * `PURSUIT_MIRROR_8V8`（鏡像、不徵召）走的不是同一條路徑。
+ */
+export const HEADON_20V20_REPLAY = '51409:58d060e271adbd94a62e3793d910e5ce819fb1aa00cc691c1bb86084eba6a684'
 
 export const PURSUIT_MIRROR_8V8: readonly string[] = [
   '0 blue p51d | -400 3700 5000 | 0 0 0 1 | 0 0 -200 | -400 3700 5000 | 0 0 0 1 | -400 3700 5000 | 200 3700 0 | AI',
