@@ -297,6 +297,37 @@ export interface RuleConfig {
    * 完全沒有差別；取 2000 是為了在混戰裡罕見。
    */
   floorExempt: number
+  /**
+   * 規則 3 的觸發：`timeToBear` 超過這麼多秒就算「轉不到他身上」，s。
+   *
+   * 【單位是秒，所以看得懂】它不是無因次的比值 —— 「要 8 秒才轉得到」
+   * 這句話直接對應人在座艙裡的判斷。轟炸機的「錐角」因此自動變窄、
+   * 戰鬥機自動變寬，不必為機種各訂一個角度。
+   */
+  bearMax: number
+  /**
+   * 規則 3 的最小承諾，s。**一旦因為「跟不上」而脫離，至少飛這麼久。**
+   *
+   * 【它擋的是抖動】沒有承諾時：跟不上 → 脫離 → 飛開 → 敵人變遠、視線角
+   * 速度變小 → 跟得上了 → 回頭 → 一接近又跟不上 → 脫離 …… 每隔幾秒抖一次。
+   * 那是「永不解除」的鏡像缺陷。
+   */
+  trackCommit: number
+  /**
+   * 規則 3 的上限，s。**拉不到 `extendRange` 時的保底。**
+   *
+   * 【為什麼距離出場還不夠】脫離真正要的是「拉開到足以重置幾何」，時間只是
+   * 它的代理 —— 所以距離優先。但他比我快時永遠拉不到那個距離，於是變成
+   * 永久脫離。兩個一起才有界。
+   */
+  trackMax: number
+  /**
+   * 規則 3 撞上限之後的冷卻，s。**這段時間不再脫離，硬著頭皮打。**
+   *
+   * 【為什麼要有】撞上限代表「脫離沒有解決問題」。沒有冷卻的話下一拍立刻
+   * 又脫離，上限只是把一段長脫離切成小段。
+   */
+  trackCooldown: number
   /** extend：拉開超過這個距離就結束脫離，m */
   extendRange: number
   /**
@@ -342,6 +373,24 @@ export const DEFAULT_RULES: RuleConfig = {
   recoveredExit: false,
   floorExempt: 2000,
   floorAltExit: 150,
+  // 【三個值由負責人指定，人工試飛通過】掃描沒有鑑別力 —— 20v20 的結果
+  // 非單調、雜訊主導，這三個值不是量出來的。支持它們的證據是人工試飛，
+  // 而那正是本專案的主判準（「玩起來合不合理，不是攻擊效率」）。
+  //
+  // 【它們一起定義脫離的一生】
+  //
+  //   bearMax      轉到他身上要超過這麼久 → 判定轉不過去，開始脫離
+  //   trackCommit  一旦脫離，至少飛這麼久不准反悔（擋抖動）
+  //   trackMax     最多脫離這麼久（拉不開距離時的保底，擋永久脫離）
+  //
+  // 中間還有一個出口：拉開到 `extendRange` 就結束，但要先過承諾。
+  //
+  // 【往下調的訊號】人工回報「明明追不到還在追」。往上調的訊號是「太容易
+  // 放棄」。
+  bearMax: 6,
+  trackCommit: 4,
+  trackMax: 7,
+  trackCooldown: 10,
   extendRange: 1500,
   engageTimeEnter: 8,
   engageTimeExit: 12,
@@ -369,6 +418,24 @@ export interface RuleState {
   extendRecoveredLatch: boolean
   /** 上面兩者的或。**由 `stepRules` 寫入，不要回寫** */
   extendLatch: boolean
+  /**
+   * 規則 3 的脫離已經持續多久，s。**0 = 沒有在這條規則下脫離。**
+   *
+   * 【為什麼是計時器不是布林】這一條有三個出場條件（拉開夠遠、跟上了、
+   * 到上限），前兩個都要先跑完最小承諾。少了計時器就寫不出「承諾」。
+   */
+  trackExtend: number
+  /**
+   * 規則 3 撞過上限之後的冷卻剩餘，s。**這段時間硬著頭皮打。**
+   *
+   * 【它擋的是「上限沒有界限作用」】只把計時器歸零的話下一拍立刻重新觸發，
+   * 於是變成每 `trackMax` 秒一段的無限接續。
+   *
+   * 【為什麼是計時器】用「等幾何改變」當清帳條件的話，對手就是比我快時
+   * 那個條件永遠不成立，飛機整場再也不脫離 —— 與本輪要修的原始缺陷同一個
+   * 形狀。計時器一定會走完。
+   */
+  trackCooldown: number
   engageLatch: boolean
   /** 高度鎖：跌破地板，爬回來之前用 extend 補高度。見 `floorAltExit` */
   altFloorLatch: boolean
@@ -387,6 +454,8 @@ export function createRuleState(): RuleState {
     extendEnergyLatch: false, extendTurnLatch: false, extendFloorLatch: false,
     extendRecoveredLatch: false,
     extendLatch: false,
+    trackExtend: 0,
+    trackCooldown: 0,
     engageLatch: false,
     altFloorLatch: false,
   }
@@ -409,6 +478,7 @@ export function stepRules(
   threat: number,
   dt: number,
   cfg: RuleConfig = DEFAULT_RULES,
+  fighter = true,
 ): Intent {
   s.dwell += dt
 
@@ -465,6 +535,49 @@ export function stepRules(
   s.altFloorLatch = cfg.floorAltExit > 0 && latch(
     s.altFloorLatch, sit.floorGap, 0, cfg.floorAltExit,
   )
+
+  // 【規則 3：轉不到他身上就脫離，但一旦決定就要飛完承諾】
+  //
+  // 【為什麼判準是 `timeToBear` 而不是機體比較】`airframeTurnAdvantage` 是
+  // 兩台的規格之差，對一組機種對幾乎是常數 —— 拿它當脫離條件會永久成立
+  // （F4F 對 A6M 實測佔時 100.0%，`extend` 因此佔到 54.6%）。`timeToBear`
+  // 問的是「**此刻**把機首轉到他身上要幾秒」，敵人變遠、橫越變慢時它自己
+  // 就縮回來。
+  //
+  // 【為什麼還要 `extendTurnLatch` 當前提】轉得贏的飛機轉不到時該做的是
+  // 繼續轉，不是脫離。這一條是給沒有那個選項的一方的。
+  //
+  // 【為什麼只給戰鬥機】轟炸機轉不贏攔截機是常態，`extendTurnLatch` 對它
+  // 永遠成立；而它的答案是編隊與防禦火網，不是脫離。少了這個閘門，整隊
+  // 轟炸機會離開航線 —— 實測過一次：P-51 對 B-17 的擊墜數歸零，因為轟炸機
+  // 不在攔截機預期的位置上，而那條紅掉的測試講的是砲塔平衡，成因完全看
+  // 不出來。
+  //
+  // 【三個出場，距離優先】拉開夠遠是真正要的東西；轉得到了代表幾何已經
+  // 重置；上限是「他比我快、永遠拉不開」時的保底。前兩個都要先跑完承諾。
+  const cannotBear = sit.timeToBear > cfg.bearMax
+  if (s.trackCooldown > 0) s.trackCooldown -= dt
+  if (s.trackExtend > 0) {
+    s.trackExtend += dt
+    const committed = s.trackExtend >= cfg.trackCommit
+    if (s.trackExtend >= cfg.trackMax) {
+      // 【撞上限要罰冷卻】只把計時器歸零的話，下一拍條件仍然成立、立刻
+      // 重新觸發 —— 每 `trackMax` 秒一段無限接續，上限等於沒有界限作用。
+      //
+      // 【為什麼是計時器不是「等幾何改變」】那個條件可能永遠不成立（他就是
+      // 比我快），於是記號永遠清不掉、這架飛機整場再也不脫離。那是本輪要修
+      // 的原始缺陷的鏡像 —— 一個閂鎖因為出場條件不可達而永久卡住。
+      // **計時器一定會走完，條件式不一定。**
+      s.trackExtend = 0
+      s.trackCooldown = cfg.trackCooldown
+    } else if (committed && (sit.range > cfg.extendRange || !cannotBear)) {
+      // 【正常出場不罰】拉開了或追得到了代表這一趟有用，沒有理由罰它
+      s.trackExtend = 0
+    }
+  } else if (fighter && cannotBear && s.trackCooldown <= 0
+    && s.extendTurnLatch && sit.range < cfg.extendRange) {
+    s.trackExtend = dt
+  }
 
   const next = arbitrate(s, sit, cfg)
 
@@ -540,6 +653,10 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
     && sit.range < cfg.extendRange
   ) return 'extend'
 
+  // 【規則 3】準星跟不上預瞄點就佈局下一次機會。計時器由 `stepRules` 維護，
+  // 開火時仍然豁免 —— 與其他相對理由同一條分野。
+  if (!shooting && s.trackExtend > 0) return 'extend'
+
   // 【門檻與 extend 對齊，不是 `>= 0`】機體差距可能只有 ±2% 且隨高度換號，
   // 用 `>= 0` 等於擲銅板。要拒絕交戰得是**明顯**轉不贏，那與脫離同一個標準。
   if (sit.airframeTurnAdvantage > cfg.turnEnter && s.engageLatch) return 'engage'
@@ -552,9 +669,9 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
  * 【為什麼是純函數而不是在 HUD 那邊拆】那些欄位的語意（相對／絕對）住在
  * 這個檔案裡，判讀也該住在這裡。HUD 只負責畫字。
  *
- * 【為什麼沒有迴旋】`extendTurnLatch` 不推 `extend`（見 `arbitrate`）。
- * 列一個不成立的因果會讓 HUD 指著錯的原因，而那是人工驗收唯一看得到的
- * 東西。「這架被徵召去打能量戰」屬於戰術相位，不掛在 `extend` 底下。
+ * 【為什麼沒有「迴旋」】`extendTurnLatch` 自己不推 `extend`，它只是規則 3
+ * 的前提。列它會讓 HUD 指著錯的原因，而那是人工驗收唯一看得到的東西。
+ * 規則 3 真的成立時列的是「轉不到」。
  *
  * 【為什麼不回傳空字串當「沒有理由」】意圖是 `extend` 而閂鎖都沒開是可能
  * 的 —— `arbitrate` 還有別的路徑（例如命令）。那時候誠實寫「無」，不要讓
@@ -565,5 +682,8 @@ export function extendReason(s: RuleState): string {
   if (s.extendEnergyLatch) parts.push('能量')
   if (s.extendFloorLatch) parts.push('見底')
   if (s.altFloorLatch) parts.push('高度')
+  // 【規則 3 要列】它是人工試飛唯一看得到的診斷。少了這一格，規則 3 造成
+  // 的脫離會顯示「無」——畫面看起來像是漏了一格，而實際上是最常見的理由。
+  if (s.trackExtend > 0) parts.push('轉不到')
   return parts.length > 0 ? parts.join('+') : '無'
 }
