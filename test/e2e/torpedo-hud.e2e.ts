@@ -44,10 +44,21 @@ const SHOTS = '.shots/torpedo-hud/'
  * `__probe` 回的那一份的一小部分。
  *
  * `y` 是海拔；魚雷都投在海上，那裡海拔就是離地（碰撞面 0）。`bk` 已經是度。
+ * `runN`／`hudAgl`／`gate`／`relOk` 讀的是 `hudFrame` 本身，也就是 widget
+ * 真正拿到的那一份 —— 這一支的斷言全部靠它們，截圖只補版面的目視。
  */
 interface Probe {
   y: number
   bk: number
+  runN: number
+  hudAgl: number
+  gate: { roll: boolean; pitch: boolean; agl: boolean } | null
+  relOk: boolean
+}
+
+function need(p: Probe | null, what: string): Probe {
+  if (p === null) throw new Error(`__probe 讀不到（${what}）—— 沒進戰鬥？`)
+  return p
 }
 
 async function probe(page: Page): Promise<Probe | null> {
@@ -109,27 +120,66 @@ async function main(): Promise<void> {
       if (s % 10 === 9) console.log(`    高度 ${p.y.toFixed(0)} m　坡度 ${p.bk.toFixed(0)}°`)
     }
     await page.waitForTimeout(1000)
-    p = await probe(page)
-    console.log(`  高度 ${p === null ? '?' : p.y.toFixed(0)} m　坡度 ${p === null ? '?' : p.bk.toFixed(0)}°`)
-    if (p === null || p.y > 200 || p.y < 20) {
-      console.log('  ⚠ 沒停在可投高度帶 —— 第 1 張的閘門與高度弧不會是綠的')
+    const level = need(await probe(page), '改平之後')
+    console.log(`  高度 ${level.y.toFixed(0)} m　坡度 ${level.bk.toFixed(0)}°`)
+    // 【前置條件不成立就拋，不是印個警告繼續】沒進可投高度帶的話，下面
+    // 那幾條斷言全部沒有意義 —— 而一支「怎樣都會成功」的 e2e 不是護欄
+    if (level.y > 200 || level.y < 20) {
+      throw new Error(`沒停在可投高度帶：${level.y.toFixed(0)} m 不在 20…200`)
     }
 
     // ① ② ③：投彈模式的低空進場
     await page.keyboard.press('KeyB')
-    await page.waitForTimeout(700)
+    await page.waitForTimeout(900)
+    const inRun = need(await probe(page), '投彈模式')
     await page.screenshot({ path: `${SHOTS}1-run-in.png` })
-    console.log('  ① 低空進場（航跡線＋閘門＋高度弧）→ 1-run-in.png')
 
-    // ④：帶坡度 —— 把瞄準往側邊移，指揮儀會壓坡度轉過去
-    await page.mouse.move(980, 180)
-    await page.waitForTimeout(1400)
-    const rolled = await probe(page)
-    await page.screenshot({ path: `${SHOTS}2-banked.png` })
+    // ── 斷言，不是只截圖 ────────────────────────────────
+    //
+    // 【航跡線真的接上了】`runCount` 是 `main.ts` 投影出來、widget 直接讀的
+    // 那一格。刪掉接線、落點判成陸地、或 `runFrontCount` 判錯，這裡都是 0
+    if (inRun.runN < 2) {
+      throw new Error(`航跡線沒有取樣點：runCount = ${inRun.runN}`)
+    }
+    // 【HUD 的離地高度就是飛機的】填成 `altitude`、或另外減一次地形，都會偏
+    if (Math.abs(inRun.hudAgl - inRun.y) > 1) {
+      throw new Error(`HUD 的 releaseAgl ${inRun.hudAgl} 與實際高度 ${inRun.y} 不符`)
+    }
+    if (inRun.gate === null) throw new Error('掛著魚雷卻沒有包絡')
+    // 【三格全綠 ⟺ 投得出去】兩者分家就是「錶上綠燈而扳機沒反應」
+    const allGreen = inRun.gate.roll && inRun.gate.pitch && inRun.gate.agl
+    if (allGreen !== inRun.relOk) {
+      throw new Error(`閘門 ${JSON.stringify(inRun.gate)} 與 releaseOk ${inRun.relOk} 不一致`)
+    }
+    // 這一幀是刻意擺出來的可投狀態，三格本來就該全綠
+    if (!allGreen) throw new Error(`在可投高度帶卻不是三格全綠：${JSON.stringify(inRun.gate)}`)
     console.log(
-      `  ② 帶坡度 ${rolled === null ? '?' : rolled.bk.toFixed(0)}°`
-      + '（線與圈轉紅、只有坡度那一格紅）→ 2-banked.png',
+      `  ① 低空進場　取樣點 ${inRun.runN}／閘門全綠／releaseAgl ${inRun.hudAgl} m`
+      + ' → 1-run-in.png',
     )
+
+    // ④：坡度推出包絡 —— 把瞄準甩到側邊，指揮儀會壓坡度轉過去
+    await page.mouse.move(1240, 180)
+    let rolled = need(await probe(page), '壓坡度')
+    for (let s = 0; s < 20 && rolled.gate?.roll !== false; s++) {
+      await page.waitForTimeout(500)
+      rolled = need(await probe(page), '壓坡度')
+    }
+    await page.screenshot({ path: `${SHOTS}2-banked.png` })
+    if (rolled.gate === null) throw new Error('壓坡度時沒有包絡')
+    if (!rolled.gate.roll) {
+      // 【只有坡度那一格該紅】另外兩格跟著紅就代表三格不是各看各的軸
+      if (!rolled.gate.pitch || !rolled.gate.agl) {
+        console.log(`  ⚠ 坡度出界時俯仰／高度也出界了：${JSON.stringify(rolled.gate)}`)
+      }
+      if (rolled.relOk) throw new Error('坡度出界而 releaseOk 仍為真')
+      console.log(`  ② 坡度 ${rolled.bk.toFixed(0)}° 出界，閘門轉紅 → 2-banked.png`)
+    } else {
+      console.log(
+        `  ⚠ 沒把坡度推出包絡（${rolled.bk.toFixed(0)}° vs 上界 45°）`
+        + ' —— 出界那一格留給人工試飛 → 2-banked.png',
+      )
+    }
 
 
     if (errors.length > 0) {

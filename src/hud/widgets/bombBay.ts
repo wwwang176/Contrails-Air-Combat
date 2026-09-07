@@ -38,8 +38,8 @@ const GATE_GAP = 74
  * 這一幀畫不畫投放閘門。**與「裝填中」二擇一。**
  *
  * 【為什麼只有魚雷】`BOMB_ENVELOPE` 只擋退化狀態（倒飛、60 m），常態恆綠
- * —— 畫出來是純噪音。魚雷的是 12°／±6°／20…200 m，紅是常態，而「哪一根
- * 桿子拉錯」正是玩家需要的那句話。
+ * —— 畫出來是純噪音。`TORPEDO_ENVELOPE` 三個軸都會在進場時真的擋人，而
+ * 「哪一根桿子拉錯」正是玩家需要的那句話。
  *
  * 【為什麼不限投彈模式】它是儀表，不是瞄具。進場的姿態要在切投彈模式
  * **之前**就擺好 —— 理由與彈艙格子「釘在畫面下方而不是跟著準星走」相同。
@@ -65,10 +65,17 @@ export function releaseGateColor(ok: boolean): string {
  *
  * 【門檻與高度都只有一份】三格直接呼叫 `weapons/releaseEnvelope.ts` 的逐軸
  * 述詞，吃的是 `f.releaseEnv` 與 `f.releaseAgl` —— 也就是 `main.ts` 餵給
- * `canRelease` 的那一組。自己在這裡寫一份 `Math.abs(roll) <= 12°`，或改讀
+ * `canRelease` 的那一組。自己在這裡抄一份門檻的比較，或改讀
  * `f.altitude`（那是海拔不是離地），症狀都是**三格全綠而扳機沒有反應**：
  * 不拋例外、沒有訊息。
  */
+function cell(
+  ctx: CanvasRenderingContext2D, text: string, ok: boolean, x: number, y: number,
+): void {
+  ctx.fillStyle = releaseGateColor(ok)
+  ctx.fillText(text, x, y)
+}
+
 function drawReleaseGate(
   ctx: CanvasRenderingContext2D,
   L: HudLayout,
@@ -77,22 +84,19 @@ function drawReleaseGate(
 ): void {
   const env = f.releaseEnv
   if (env === null) return
-  const cells: readonly [string, boolean][] = [
-    [`坡度 ${Math.round(Math.abs(f.roll) * RAD)}°`, rollOk(env, f.roll)],
-    [`俯仰 ${Math.round(f.pitch * RAD)}°`, pitchOk(env, f.pitch)],
-    [`高度 ${Math.round(f.releaseAgl)} m`, aglOk(env, f.releaseAgl)],
-  ]
   ctx.font = hudFont(Math.round(9 * L.scale))
   ctx.textAlign = 'center'
   // 【一定要自己設 textBaseline】整個 HUD 共用一個 ctx，而這個屬性是黏著的
   ctx.textBaseline = 'bottom'
   const gap = GATE_GAP * L.scale
   const x0 = L.cx - gap
-  for (let i = 0; i < cells.length; i++) {
-    const [text, ok] = cells[i]!
-    ctx.fillStyle = releaseGateColor(ok)
-    ctx.fillText(text, x0 + i * gap, baseline)
-  }
+  // 【三格逐一畫，不先組一個陣列】組陣列會每幀配置一個外層加三個 tuple
+  cell(ctx, `坡度 ${Math.round(Math.abs(f.roll) * RAD)}°`,
+    rollOk(env, f.roll), x0, baseline)
+  cell(ctx, `俯仰 ${Math.round(f.pitch * RAD)}°`,
+    pitchOk(env, f.pitch), x0 + gap, baseline)
+  cell(ctx, `高度 ${Math.round(f.releaseAgl)} m`,
+    aglOk(env, f.releaseAgl), x0 + 2 * gap, baseline)
   ctx.textAlign = 'left'
 }
 
