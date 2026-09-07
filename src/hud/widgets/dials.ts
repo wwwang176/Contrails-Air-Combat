@@ -1,4 +1,5 @@
 import { DEG, clamp } from '../../core/math'
+import type { ReleaseEnvelope } from '../../weapons/releaseEnvelope'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 import { drawAttitude } from './attitude'
 
@@ -87,6 +88,63 @@ function drawAirspeed(
   ctx.fillText(kmh.toFixed(0), cx, cy + r * 0.42)
 }
 
+/** 長針一圈幾公尺。可投高度弧畫在這一圈上 */
+const ALT_NEEDLE_SPAN = 1000
+
+/**
+ * 可投高度帶在**長針那一圈**上的起訖角，`needle` 的慣例（0 指 12 點、
+ * 順時針為正）。畫不出來時回 `null`。
+ *
+ * 【範圍是算的，不是寫死的】`env` 由 `main.ts` 從它餵給 `canRelease` 的那一
+ * 個物件填進來，所以包絡日後怎麼改、變不變成逐機的，這裡都不用動。
+ *
+ * 【要補地面高】錶讀的是**海拔**，包絡管的是**離地**。海上兩者相同，飛在
+ * 島上空時不補就會把弧畫在錯的刻度上 —— 而畫面上看不出來。
+ *
+ * 【兩個退化情形都回 `null`】
+ *
+ * ```
+ *   高度不在弧所屬的那一圈   長針每 1,000 m 繞一圈，1,020 m 時它也會落在
+ *                            弧裡 —— 玩家高了十倍而錶面在說可以投
+ *   弧跨過 1,000 m 的邊界     一段繞回盤面另一頭的弧比不畫更難讀
+ * ```
+ */
+export function releaseBandArc(
+  altitude: number, releaseAgl: number, env: ReleaseEnvelope,
+): { from: number; to: number } | null {
+  const ground = altitude - releaseAgl
+  const lo = ground + env.minAgl
+  const hi = ground + env.maxAgl
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
+  const turn = Math.floor(lo / ALT_NEEDLE_SPAN)
+  if (Math.floor(hi / ALT_NEEDLE_SPAN) !== turn) return null
+  if (Math.floor(altitude / ALT_NEEDLE_SPAN) !== turn) return null
+  const TAU = Math.PI * 2
+  return {
+    from: ((lo / ALT_NEEDLE_SPAN) % 1) * TAU,
+    to: ((hi / ALT_NEEDLE_SPAN) % 1) * TAU,
+  }
+}
+
+/**
+ * `needle` 的角度（0 指 12 點）換成 canvas `arc()` 的角度（0 指 3 點）。
+ *
+ * 【這一行掉了不會有東西紅，但弧會整段跑到盤面另一側】所以護欄看的是
+ * `ctx.arc()` **實際收到的引數**，不是 `releaseBandArc` 的回傳值。
+ */
+const toCanvasAngle = (a: number): number => a - Math.PI / 2
+
+/**
+ * 可投高度弧的半徑與粗細。
+ *
+ * 【避開既有的東西】刻度佔 `r*0.78`…`r*0.94`，刻度數字在 `r*0.62`，
+ * 長針到 `r*0.82`。弧落在數字與刻度之間那一圈。
+ *
+ * **起始值，由試飛裁定。**
+ */
+const BAND_R = 0.71
+const BAND_W = 3
+
 /** 高度表：長針一圈 1000 m、短針一圈 10000 m。 */
 function drawAltimeter(
   ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
@@ -105,6 +163,19 @@ function drawAltimeter(
     const major = i % 5 === 0
     tick(ctx, cx, cy, a, r * 0.94, r * (major ? 0.78 : 0.88))
     if (major) tickLabel(ctx, cx, cy, a, r * 0.62, String(i / 5))
+  }
+
+  // 【可投高度弧排在指針之前】指針必須壓在它上面 —— 讀的是指針落在弧裡沒有
+  const band = f.ordnance === 'torpedo' && f.releaseEnv !== null
+    ? releaseBandArc(f.altitude, f.releaseAgl, f.releaseEnv)
+    : null
+  if (band !== null) {
+    ctx.strokeStyle = HUD_COLORS.primary
+    ctx.lineWidth = BAND_W * L.scale
+    ctx.beginPath()
+    ctx.arc(cx, cy, r * BAND_R, toCanvasAngle(band.from), toCanvasAngle(band.to))
+    ctx.stroke()
+    ctx.lineWidth = 1
   }
 
   const alt = f.altitude

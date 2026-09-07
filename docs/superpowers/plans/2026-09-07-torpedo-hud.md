@@ -224,17 +224,17 @@ runCount: number
   from = (lo / 1000 mod 1) · 2π,  to = (hi / 1000 mod 1) · 2π
 ```
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - 海上（ground 0）、altitude 150 → 弧是 20…200 m 對應的角度（7.2°…72°）
   - **altitude 1,020 → `null`**（長針繞回來了，spec §7.3 第一條）
   - **ground 900（弧跨 1,000 m 邊界）→ `null`**（第二條）
   - **ground 300、altitude 400 → 弧是 320…500 m 的角度**（證明跟著地形走）
   - **換一組 `env`（例如 30…150）→ 弧跟著變**（證明沒寫死）
-- [ ] **Step 2: 實作。** `needle` 角度（0 指 12 點）轉 canvas `arc()`（0 指 3 點）**差 −90°**，換算要寫出來不要用猜的
-- [ ] **Step 3: 接進 `drawAltimeter`。** 只在 `ordnance === 'torpedo' && releaseEnv !== null` 時畫；半徑避開刻度（`r*0.78`…`r*0.94`）與刻度數字（`r*0.62`）；顏色 `HUD_COLORS.primary` 或 `dim`，粗細與半徑標「起始值，由試飛裁定」
-- [ ] **Step 4: 寫失敗的測試（畫出來的東西）。** 用假 ctx 呼叫 `drawDials`，捕捉 `ctx.arc()` **實際收到的起訖角**，斷言等於 `releaseBandArc` 的值**減 90°**。
+- [x] **Step 2: 實作。** `needle` 角度（0 指 12 點）轉 canvas `arc()`（0 指 3 點）**差 −90°**，換算要寫出來不要用猜的
+- [x] **Step 3: 接進 `drawAltimeter`。** 只在 `ordnance === 'torpedo' && releaseEnv !== null` 時畫；半徑避開刻度（`r*0.78`…`r*0.94`）與刻度數字（`r*0.62`）；顏色 `HUD_COLORS.primary` 或 `dim`，粗細與半徑標「起始值，由試飛裁定」
+- [x] **Step 4: 寫失敗的測試（畫出來的東西）。** 用假 ctx 呼叫 `drawDials`，捕捉 `ctx.arc()` **實際收到的起訖角**，斷言等於 `releaseBandArc` 的值**減 90°**。
       **少了這一條，把 needle 慣例的角度直接餵進 `ctx.arc()` 時，Step 1 的每一條與下面的 ground mutation 都還是綠的**，而弧會從 12–2 點整段轉到 3–5 點
-- [ ] **Step 5:** 既有的 `dials` 相關測試全綠、tsc 不增行
+- [x] **Step 5:** 既有的 `dials` 相關測試全綠、tsc 不增行
 
 **Verification:** mutation —— (a) 把 `ground` 那一項拿掉（直接用 `env.minAgl`）之後「ground 300」那條必須紅；(b) 把 `−90°` 的換算拿掉之後 Step 4 那條必須紅。
 
