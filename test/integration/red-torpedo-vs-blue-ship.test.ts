@@ -6,7 +6,7 @@ import { createShipGuns, resetShipGuns } from '../../src/world/shipGuns'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { G4M } from '../../src/specs/g4m'
 import { bombDragK, BOMB_TERMINAL_SPEED } from '../../src/world/bomb'
-import { pickShipTarget, type ShipAim } from '../../src/ai/shipAttack'
+import { createShipAim, pickShipTarget } from '../../src/ai/shipAttack'
 import {
   RUN_ALTITUDE, TORPEDO_PROFILE, setTorpedoBallistics,
 } from '../../src/ai/torpedoRun'
@@ -63,7 +63,7 @@ describe('紅方的一式陸攻對藍方艦隊', () => {
   it('紅機選得到藍船，選不到紅船', () => {
     const world = sea()
     const blue = blueCarrier(world)
-    const out: ShipAim = { ship: -1, gun: -1, point: new Vector3() }
+    const out = createShipAim()
     const p = new Vector3(0, RUN_ALTITUDE, 1500)
 
     expect(pickShipTarget(p, 'red', world.ships, out)).toBe(true)
