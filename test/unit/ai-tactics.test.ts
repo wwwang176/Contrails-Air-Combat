@@ -518,6 +518,28 @@ describe('戰術層的狀態機', () => {
     expect(oneRound(s, 0.4)).toBe('build')
   })
 
+  /**
+   * 【中斷不得讓冷卻失效】強制離場把相位直接設成 `off`，冷卻的剩餘時間卻
+   * 還在倒數。少了 `off → build` 那道冷卻檢查，冷卻期間收到命令、進
+   * transit 或短暫失去目標，中斷一解除就重進 `build` —— 止損等於沒有。
+   *
+   * 【為什麼徵召者也不豁免】它是時間，會自己走完，不會像距離與再進入條件
+   * 那樣變成永久關門。
+   */
+  it('冷卻期間被中斷，中斷解除也不得提前重進', () => {
+    const s = toCooldown()
+    expect(s.phase).toBe('cooldown')
+    // 中斷：丟失目標。相位被強制設成 off，但冷卻還沒走完
+    run(s, input({ targetIndex: -1 }), 1)
+    expect(s.phase).toBe('off')
+    // 中斷解除，而且是徵召者（兩道門都豁免）—— 冷卻仍然要擋住它
+    run(s, input({ energyRatio: 0, mandatory: true }), 1)
+    expect(s.phase).toBe('off')
+    // 冷卻走完才進得去
+    run(s, input({ energyRatio: 0, mandatory: true }), C.cooldownSeconds)
+    expect(s.phase).toBe('build')
+  })
+
   it('cooldown 之後先回 off，不會同拍重進 build', () => {
     const s = toCooldown()
     expect(s.phase).toBe('cooldown')
