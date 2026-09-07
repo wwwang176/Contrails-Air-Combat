@@ -409,13 +409,14 @@ export function applySafety(
   // 會讓追擊者在守線的那幾秒放掉目標（人工試飛回報「追丟」）；保留方位它
   // 繼續朝敵人轉，只是不再往下。
   //
-  // 【只收油門，不煞車】跟著 45° 俯衝的目標追下來時動量會帶到 0.98 —— 那是
-  // 設計的一部分：紅線因子在那裡只剩 15% 權限，追擊者**跟不上目標的轉彎**。
-  // 煞車會讓它停在 0.90、留在目標上方等它爬回來，實測把被追的一方打成全滅。
+  // 【減速的手段與玩家按 S 相同】怠速 ＋ 滿減速板。油門 0 是玩家按到底都
+  // 到不了的值（`THROTTLE_FLOOR` 是 0.2，因為活塞引擎不可能零功率運轉，而
+  // 且本模型沒有螺旋槳風車阻力），兩邊不同的話同一個態勢下 AI 與玩家掉速的
+  // 方式不一樣。
   const ratio = Math.sqrt((2 * self.diag.aero.qbar) / RHO0) / self.spec.limits.vne
   if (gamma < 0 && ratio > cfg.overspeedThrottleRatio) {
-    out.throttle = 0
-    out.brake = 0
+    out.throttle = THROTTLE_FLOOR
+    out.brake = 1
     if (ratio > cfg.overspeedRatio && out.aimWorld.y < 0) {
       const h = Math.hypot(out.aimWorld.x, out.aimWorld.z)
       if (h > 1e-6) {
