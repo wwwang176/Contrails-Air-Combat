@@ -33,6 +33,67 @@ describe('DifficultyProfile', () => {
   })
 })
 
+/**
+ * `profile.reactionDelay` 真的走到 `CommandDelay`，而且**走的是那個值**。
+ *
+ * ── 【這一條在守什麼】────────────────────────────────
+ *
+ * `CommandDelay` 自己的行為由 `test/unit/ai-delay.test.ts` 守著（延遲 n 步
+ * 之後吐出 n 步之前的輸入、扳機各走各的、緩衝區填滿…）。**接線是另一回
+ * 事**：`AiController` 若忘了把 `this.profile.reactionDelay` 傳下去，
+ * 那一整組測試照樣全綠，而遊戲裡每一個難度都悄悄變成王牌。
+ *
+ * ── 【量的是「不動多久」，不是「輸出等於平移」】──────────────
+ *
+ * 兩個控制器讀同一架 `self` 與同一個 `target`，但它們**各有內部狀態**
+ * （決策時鐘、閂鎖、意圖），所以延遲那一路的輸出不是對照組的逐位元平移
+ * —— 實測任何位移都對不齊。
+ *
+ * 對得齊的是**開場那一段**：緩衝區還沒填滿之前，延遲那一路的輸出釘死不動。
+ * 目標從第一步就在移動，對照組因此第二步就變了；延遲那一路要撐滿
+ * `reactionDelay` 才第一次動。這是一條等式（不動的步數 = 延遲的步數 + 1），
+ * 不是一個門檻。
+ */
+describe('反應延遲接到控制器上', () => {
+  /** 讓 `delay` 秒的控制器跑一段，回傳輸出第一次改變之前的步數 */
+  function heldSteps(delay: number): number {
+    const self = new Aircraft(BF109K4, 4000, 180)
+    const target = new Aircraft(P51D, 4000, 180)
+    self.update(new Vector3(0, 0, -1), 0.7, DT)
+    target.update(new Vector3(0, 0, -1), 0.7, DT)
+    self.state.position.set(0, 4000, 0)
+    const ai = new AiController()
+    ai.target = target
+    ai.profile = { reactionDelay: delay, aimError: 0 }
+    const out = createCommand()
+    const steps = Math.round(delay / DT) + 60
+    let first: Vector3 | null = null
+    for (let k = 0; k < steps; k++) {
+      // 【目標一定要動】不動的話原始指令是常數，接線斷掉也看不出來
+      target.state.position.set(200 * Math.sin(k * 0.01), 4000, -600 + k)
+      ai.update(self, DT, out)
+      if (first === null) first = out.aimWorld.clone()
+      else if (out.aimWorld.distanceTo(first) > 1e-12) return k
+    }
+    return steps
+  }
+
+  /**
+   * 【+1 是緩衝區的填充步】第 0 步把當下的指令寫進去、同時讀出來，所以
+   * 「不動」的步數是延遲步數再加開場那一步。
+   */
+  it('不動的步數 = 延遲的步數 + 1', () => {
+    for (const delay of [0.25, 0.5]) {
+      expect([delay, heldSteps(delay)]).toEqual([delay, Math.round(delay / DT) + 1])
+    }
+  })
+
+  /** 【對照組】零延遲的下一步就跟著目標動 —— 否則上面那條是在量別的東西 */
+  it('零延遲時第二步就動了', () => {
+    expect(heldSteps(0)).toBe(1)
+  })
+})
+
 describe('AiController', () => {
   const cmd = createCommand()
 

@@ -1,11 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { createBattle, stepBattle } from '../../src/battle/setup'
+import {
+  createBattle, stepBattle, DEFAULT_BATTLE, type Battle,
+} from '../../src/battle/setup'
+import { lineAbreast } from '../../src/battle/order'
+import { HEAD_ON } from '../../src/battle/entry'
+import { P51D } from '../../src/specs/p51d'
+import { BF109K4 } from '../../src/specs/bf109k4'
 import { AiController } from '../../src/ai/AiController'
 import { createVortex } from '../../src/render/vortex'
+import { replayDigest } from '../tools/spawn-snapshot'
 
 const DT = 1 / 240
-const SECONDS = 120
+const SECONDS = 20
 
 /** 翼尖的世界座標。與 `main.ts` 同一招：模組層暫存，迴圈裡不配置。 */
 const TIP = new Vector3()
@@ -24,27 +31,32 @@ const TIP2 = new Vector3()
  * 它**守不到** `main.ts` 的算繪路徑（接線點接錯、翼尖換算用錯姿態之類），
  * 那一段沒有無頭測試 —— 由 Playwright 與手動試飛補。
  *
- * ── 【這條測試不是空的：兩個實驗】──
+ * ── 【為什麼比的是完整狀態校驗和，不是掉血】────────────────
  *
- * 它一開始就是綠的，所以必須證明它抓得到東西。做了兩個實驗：
+ * 掉血只在子彈命中時才動，所以要先讓兩隊接敵、開火，才看得出分歧 ——
+ * 那是一場 20v20 打滿 120 秒。**改比 `replayDigest`（每一架的位置、姿態、
+ * 角速度、作動器、血量、彈丸池）之後，分歧在幾個物理步內就顯示得出來**，
+ * 因為位置每一步都在變。同一件事守得更嚴，而且 4v4 × 20 秒就夠。
+ *
+ * ── 【證明它抓得到東西：兩個實驗】──────────────────────
  *
  * **一、借用別人的暫存池 —— 沒有變紅。** 把 `ai/fire.ts` 的私有 `S`
  * 暫時 export 出來，讓 `vortex.emit` 每次都往 `S.v[0]` 塞 (1e9, 1e9, 1e9)。
- * 測試**照樣綠**（B2714:R1873 兩場相同）。原因是那個池子每次使用前都先寫
- * 再讀，幀與幀之間塗改它是無害的 —— 也就是說這個探針本身無效，不是護欄
- * 無效。真正危險的是「讀在寫之前」的暫存，而那種池子要一個一個找。
+ * 測試**照樣綠**。原因是那個池子每次使用前都先寫再讀，幀與幀之間塗改它是
+ * 無害的 —— 也就是說這個探針本身無效，不是護欄無效。真正危險的是
+ * 「讀在寫之前」的暫存，而那種池子要一個一個找。
  *
- * **二、斷言的靈敏度 —— 變紅，而且非常靈敏。** 在 `on` 那一場對**一架**
- * 飛機注入 `velocity.x += 1e-9`（每物理步一次）。120 秒後藍隊掉血從
- * **2714.0 變成 1822.6**，紅隊 1873 → 1956 —— 三成的差距。
+ * **二、斷言的靈敏度 —— 變紅。** 在 `on` 那一場對**一架**飛機注入
+ * `velocity.x += 1e-9`（每物理步一次），校驗和立刻不同。
  *
- * 結論：這個比較能偵測到任意小的分歧，所以「兩場逐位元組相同」確實等價於
- * 「凝結尾沒有碰到戰局」。實驗二才是有意義的那一個。
+ * 結論：這個比較偵測得到任意小的分歧，所以「兩場校驗和相同」確實等價於
+ * 「凝結尾沒有碰到戰局」。
  */
-describe('凝結尾不得改變戰局（20v20、120 秒、兩場）', () => {
-  function damage(stepVortex: boolean): { blue: number, red: number } {
-    const b = createBattle(new AiController())
-    const hp0 = b.world.combatants.map((c) => c.hp)
+describe('凝結尾不得改變戰局（4v4、20 秒、兩場）', () => {
+  async function run(stepVortex: boolean): Promise<string> {
+    const b: Battle = createBattle(new AiController(), {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, BF109K4, 4),
+    })
     const vortex = createVortex()
     for (let s = 0; s < SECONDS * 240; s++) {
       stepBattle(b, DT)
@@ -55,8 +67,8 @@ describe('凝結尾不得改變戰局（20v20、120 秒、兩場）', () => {
           const q = c.aircraft.state.orientation
           // 【2.8 是隨便取的一個約當半翼展】這條測的是「有沒有碰到共用暫存
           // 池」，翼尖精確在哪裡與它無關 —— 所以刻意不 import buildAircraft，
-          // 那會把整個 src/render/geometry/ 拉進一條 120 秒 × 240 Hz 的迴圈
-          // 裡，只為了兩個常數。真正要跑的是 applyQuaternion 這條路徑。
+          // 那會把整個 src/render/geometry/ 拉進這條迴圈裡，只為了兩個常數。
+          // 真正要跑的是 applyQuaternion 這條路徑。
           TIP.set(-2.8, 0, 0).applyQuaternion(q).add(p)
           TIP2.set(2.8, 0, 0).applyQuaternion(q).add(p)
           vortex.emit(
@@ -67,24 +79,12 @@ describe('凝結尾不得改變戰局（20v20、120 秒、兩場）', () => {
         vortex.step(DT)
       }
     }
-    const out = { blue: 0, red: 0 }
-    for (const c of b.world.combatants) {
-      const lost = hp0[c.index]! - c.hp
-      if (c.team === 'blue') out.blue += lost
-      else out.red += lost
-    }
+    const digest = await replayDigest(b)
     vortex.dispose()
-    return out
+    return digest
   }
 
-  it('推進凝結尾不改變任何一架的掉血', () => {
-    const off = damage(false)
-    const on = damage(true)
-    console.log(JSON.stringify({
-      off: `B${off.blue.toFixed(0)}:R${off.red.toFixed(0)}`,
-      on: `B${on.blue.toFixed(0)}:R${on.red.toFixed(0)}`,
-    }))
-    expect(on.blue).toBe(off.blue)
-    expect(on.red).toBe(off.red)
-  }, 10 * 60 * 1000)
+  it('推進凝結尾不改變任何一架的狀態', async () => {
+    expect(await run(true)).toBe(await run(false))
+  }, 5 * 60 * 1000)
 })

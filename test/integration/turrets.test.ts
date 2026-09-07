@@ -10,7 +10,17 @@ import type { Command, Controller } from '../../src/control/Controller'
 
 const DT = 1 / 240
 const SEED = 20260821
-const SECONDS = 300
+/**
+ * 兩場各跑這麼久，s。
+ *
+ * 【為什麼 150 夠】這四條要的是「砲塔造成了壓力」，而壓力在雙方進入彼此
+ * 射程之後就開始累積；跑更久只是把同一個差距拉大。150 秒的實測差距是
+ * **P-51 存活 4 架對 20 架** —— 主判準只要求「開著的比較少」，餘裕十六架。
+ *
+ * 【要縮之前先看主判準印出來的那一行】最緊的一項是「P-51 的戰果 > 0」，
+ * 實測 3 架。時間再短會先撞到它。
+ */
+const SECONDS = 150
 
 class Idle implements Controller {
   update(_a: Aircraft, _dt: number, out: Command): void {
@@ -80,6 +90,13 @@ describe('砲塔的整合驗收（P-51D 20 對 B-17G 20、300 秒）', () => {
   it('砲塔開著時 P-51 的存活數比關著時少', () => {
     const a = alive(on, P51D)
     const b = alive(off, P51D)
+    // 【印出四個量】判斷「這是迴歸還是雜訊」需要整組，而且它是
+    // `SECONDS` 還夠不夠的依據
+    console.log(
+      `[砲塔] P-51 存活 開 ${a} / 關 ${b}`
+      + `　B-17 的戰果 ${kills(on, B17G)}　P-51 的戰果 ${kills(on, P51D)}`
+      + `　彈丸高水位 ${on.world.projectiles.peakLive} / ${PROJECTILE_CAPACITY}`,
+    )
     expect(a, `砲塔開 ${a} 架、關 ${b} 架 —— 砲塔沒有造成任何壓力`).toBeLessThan(b)
   })
 
