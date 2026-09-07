@@ -41,6 +41,56 @@ export const TORPEDO_RANGE = 2000
 export const TORPEDO_DEPTH = 1
 
 /**
+ * 航跡線的刻度間距，m。HUD 每這麼遠畫一個短橫。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const TORPEDO_RUN_STEP = 500
+
+/**
+ * 航跡線畫幾個取樣點（含入水點那一個）。
+ *
+ * 【算出來的】射程一改點數要跟著變，否則線的末端就不再是射程 —— 而畫面上
+ * 看不出來，玩家只會覺得「投在射程內卻沒中」。
+ */
+export const TORPEDO_RUN_SAMPLES = Math.round(TORPEDO_RANGE / TORPEDO_RUN_STEP) + 1
+
+/** 第 `k` 個取樣點離入水點多遠，m。最後一個恰好是 `TORPEDO_RANGE`。 */
+export function runSampleDistance(k: number): number {
+  return k * TORPEDO_RUN_STEP
+}
+
+/**
+ * 水中航向。**寫進 `out[0]`（x）與 `out[1]`（z），不配置。**
+ *
+ * 雷入水之後定深等速直行，航向就是**入水速度的水平單位向量**；水平分量退化
+ * 時沿用投放瞬間的機首水平方向。
+ *
+ * 【門檻是 `> 1e-9` 才正規化】恰好等於門檻時**走機首**。這一支同時給
+ * `stepAir`（模擬）與 HUD（畫線）用 —— 把比較寫成 `>=` 就是改到模擬。
+ *
+ * 【為什麼 HUD 也能用它】`stepBomb` 的阻力與速度反向、重力只動垂直分量，
+ * 所以水平兩軸恆等比例縮放 —— **方向在整個空中段守恆**，拿投放當下的速度
+ * 算與拿入水速度算是同一個答案（推導見 `ai/torpedoRun.ts`）。
+ *
+ * 【HUD 畫的是散佈之前的中心】`World.dropTorpedo` 另外套一層散佈，所以真雷
+ * 的航向與這一支算出來的有一小段差 —— 與落點圈同一條：把散佈也套進瞄具的話，
+ * 散佈就變成免費的情報。
+ */
+export function torpedoHeading(
+  vx: number, vz: number, noseX: number, noseZ: number, out: Float64Array,
+): void {
+  const hl = Math.hypot(vx, vz)
+  if (hl > 1e-9) {
+    out[0] = vx / hl
+    out[1] = vz / hl
+  } else {
+    out[0] = noseX
+    out[1] = noseZ
+  }
+}
+
+/**
  * 航跡每幾公尺留一叢水花，m。
  *
  * 22 m/s 之下是每 0.36 s 一叢；`SPRAY_LIFE` 是 0.6 s，所以同時活著約 5 叢。
@@ -114,10 +164,6 @@ export class Torpedoes {
   readonly run: Float64Array
   readonly damage: Float64Array
   /**
-   * 水平航向，單位向量。入水時由入水速度的水平分量決定；**垂直入水那種
-   * 退化情況沿用投放瞬間的機首方向**，所以 `spawn` 就要收它。
-   */
-  /**
    * 這一枚的識別碼，**逐枚遞增，1 起跳**（0 = 這一格從來沒裝過東西）。
    *
    * 【為什麼航程不能當身分】航程每一枚都從 0 開始，所以它只認得出「變小」。
@@ -125,6 +171,10 @@ export class Torpedoes {
    * ——「沒有變小」，航跡就從上一枚的位置接過去，畫出一條橫跨海圖的線。
    */
   readonly serial: Float64Array
+  /**
+   * 水平航向，單位向量。入水時由入水速度的水平分量決定（`torpedoHeading`）；
+   * **垂直入水那種退化情況沿用投放瞬間的機首方向**，所以 `spawn` 就要收它。
+   */
   readonly headX: Float64Array
   readonly headZ: Float64Array
   /**
@@ -141,6 +191,8 @@ export class Torpedoes {
   /** 這一場累計投了幾枚。**投放偏移的序號就是它** */
   dropped = 0
   private readonly sim: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
+  /** `torpedoHeading` 的輸出。**熱路徑不配置**，所以建一次留著 */
+  private readonly head = new Float64Array(2)
 
   /**
    * 這一批魚雷的四個設計值。**可以就地換掉** —— 展示區靠它拉滑桿，而
@@ -302,12 +354,12 @@ export class Torpedoes {
 
     onEntry(ix, g, iz)
 
-    // 【航向由入水速度的水平分量決定】退化時沿用 `spawn` 帶進來的機首方向
-    const hl = Math.hypot(s.vx, s.vz)
-    if (hl > 1e-9) {
-      this.headX[i] = s.vx / hl
-      this.headZ[i] = s.vz / hl
-    }
+    // 【航向由入水速度的水平分量決定】退化時沿用 `spawn` 帶進來的機首方向。
+    // **與 HUD 的航跡線共用同一支** —— 兩邊各寫一份會在退化那一點分家，而
+    // 那只在垂直下墜時出現，看不到也測不到
+    torpedoHeading(s.vx, s.vz, this.headX[i]!, this.headZ[i]!, this.head)
+    this.headX[i] = this.head[0]!
+    this.headZ[i] = this.head[1]!
     this.x[i] = ix
     this.y[i] = -this.tuning.depth
     this.z[i] = iz

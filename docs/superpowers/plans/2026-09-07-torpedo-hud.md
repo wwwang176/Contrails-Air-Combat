@@ -4,7 +4,7 @@
 
 **Goal:** 掛魚雷時，投彈模式下從入水點沿水中航向畫一條 2,000 m 的航跡線（每 500 m 一刻度、末端標射程），畫面下方與「裝填中」同位、二擇一地顯示逐軸的投放閘門（坡度／俯仰／高度，顯示數值），高度錶長針那一圈加一段可投高度的弧。**不動任何模擬。**
 
-**Architecture:** 三個顯示物共用**同一份包絡與同一個 AGL** —— `main.ts` 把它餵給 `canRelease` 的那一個 `ReleaseEnvelope` 物件與那一個 `agl` 區域變數原封放進 `HudFrame`，widget 只讀這兩格。`canRelease` 改寫成三支逐軸述詞的合取，閘門直接呼叫那三支，所以「錶上綠燈但投不出去」在結構上不可能發生。航跡線的取樣點在 `main.ts` 投影（那裡才有相機，做法照抄 `BOMB_NDC`），「哪幾個點在相機前面」是一支測得到的純函數。
+**Architecture:** 三個顯示物共用**同一份包絡與同一個 AGL** —— `main.ts` 把它餵給 `canRelease` 的那一個 `ReleaseEnvelope` 物件與那一個 `agl` 區域變數原封放進 `HudFrame`，widget 只讀這兩格。`canRelease` 改寫成四支逐軸述詞的合取，閘門直接呼叫其中三支，所以「錶上綠燈但投不出去」在結構上不可能發生。航跡線的取樣點在 `main.ts` 投影（那裡才有相機，做法照抄 `BOMB_NDC`），「哪幾個點在相機前面」是一支測得到的純函數。
 
 **Tech Stack:** TypeScript、three.js、vitest、Playwright。`weapons/releaseEnvelope.ts`、`world/torpedo.ts`、`hud/widgets/*` **不 import three**。
 
@@ -29,7 +29,7 @@
 
 ---
 
-### Task 1: `canRelease` 拆成三支逐軸述詞
+### Task 1: `canRelease` 拆成四支逐軸述詞
 
 **Files:**
 - Modify: `src/weapons/releaseEnvelope.ts`
@@ -48,8 +48,8 @@
   - **合取律**：掃一格網格（roll、pitch、agl 各取邊界內外若干點，tas 取 0 / 100 / 1e9），逐點斷言
     `canRelease(...) === rollOk && pitchOk && aglOk && tasOk`
   - **NaN 一律為假**（既有 `canRelease` 靠正向比較達成，四支述詞要保持同一性質）
-- [ ] **Step 3: 實作。** 不得 `new`、不得呼叫三角函數（門檻已存 rad）
-- [ ] **Step 4:** `test/unit/release-envelope.test.ts` 既有的每一條**都不得修改、不得刪除**，且全綠
+- [x] **Step 3: 實作。** 不得 `new`、不得呼叫三角函數（門檻已存 rad）
+- [x] **Step 4:** `test/unit/release-envelope.test.ts` 既有的每一條**都不得修改、不得刪除**，且全綠
 
 **Verification:** 兩個變異的對象不同，要分開驗：
 
@@ -76,7 +76,7 @@
 
 **契約逐字照現行 `stepAir`（`torpedo.ts:306`）：`hl > 1e-9` 才正規化，否則走 nose。** 也就是 `hl === 1e-9` 那一點**走 nose**。寫成「`hl < 1e-9` 才退化」會在等號那一點翻面，而 `stepAir` 呼叫這一支 —— **那是改到模擬**。
 
-- [ ] **Step 1: 寫失敗的測試**
+- [x] **Step 1: 寫失敗的測試**
   - `runSampleDistance(0) === 0`
   - `runSampleDistance(TORPEDO_RUN_SAMPLES - 1) === TORPEDO_RANGE`（**比的是常數，不是 2000 這個字面值**）
   - 相鄰兩點差恆為 `TORPEDO_RUN_STEP`
@@ -84,9 +84,9 @@
   - **`hl` 恰為 `1e-9` 時走 nose**（邊界那一點，殺 `>` ↔ `>=` 的變異）
   - **`hl` 略大於 `1e-9` 時正規化**（邊界的另一側）
   - **`TORPEDO_RANGE` 改成 2500 時 `TORPEDO_RUN_SAMPLES` 跟著變**（證明沒寫死）
-- [ ] **Step 2: 實作**
-- [ ] **Step 3:** `torpedo.test.ts`、`torpedo-vs-ship.test.ts` 全綠 —— **`stepAir` 是改寫不是改行為**，那兩支是它的守門員
-- [ ] **Step 4:** 加一條 `Torpedoes.step` 的回歸：入水航向在重構前後逐位元相同（`spawn-baseline` 的三個場景**沒有 G4M／魚雷**，指望不上它）
+- [x] **Step 2: 實作**
+- [x] **Step 3:** `torpedo.test.ts`、`torpedo-vs-ship.test.ts` 全綠 —— **`stepAir` 是改寫不是改行為**，那兩支是它的守門員
+- [x] **Step 4:** 加一條 `Torpedoes.step` 的回歸：入水航向在重構前後逐位元相同（`spawn-baseline` 的三個場景**沒有 G4M／魚雷**，指望不上它）
 
 **Verification:** mutation —— `torpedoHeading` 的 `>` 改成 `>=` 之後，`hl === 1e-9` 那條必須紅。`stepAir` 重構前後，`torpedo.test.ts` 裡任何逐位元的彈道斷言不得移動。
 
