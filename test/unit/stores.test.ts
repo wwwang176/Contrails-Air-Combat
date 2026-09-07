@@ -20,9 +20,16 @@ describe('掛載表', () => {
     })
   })
 
-  it('戰鬥機沒有掛載 —— 按 B 沒有作用', () => {
-    for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84', 'a6m5']) {
-      expect(loadoutOf(id)).toBeNull()
+  /**
+   * 【零戰是例外，而且是史實的】翼下兩個掛架各一顆 60 kg —— 爆戦。
+   * 其餘四台戰鬥機掛不了東西，按 `B` 沒有作用。
+   */
+  it('零戰掛得了兩顆 60 kg，其餘戰鬥機掛不了', () => {
+    expect(loadoutOf('a6m5')).toEqual({
+      kind: 'bomb', count: 2, damage: 2_300, reloadSeconds: 20,
+    })
+    for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84']) {
+      expect(loadoutOf(id), id).toBeNull()
     }
   })
 

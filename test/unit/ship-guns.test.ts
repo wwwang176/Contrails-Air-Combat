@@ -137,7 +137,7 @@ describe('stepShipGuns', () => {
   })
 
   /**
-   * 【傷害是表上的值】照抄 `stepTurrets` 會套 `TURRET_DAMAGE_SCALE`（0.9375）
+   * 【傷害是表上的值】照抄 `stepTurrets` 會套 `TURRET_DAMAGE_SCALE`
    * 與 `guns` —— 四聯裝 40 mm 會從 40 變成 150。
    */
   it('單發傷害等於表上的值，不乘 guns 也不乘 TURRET_DAMAGE_SCALE', () => {

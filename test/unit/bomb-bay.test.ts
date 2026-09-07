@@ -25,10 +25,13 @@ function run(
 }
 
 describe('誰掛得了東西', () => {
-  it('三台轟炸機可以，戰鬥機不行', () => {
-    for (const id of ['b17g', 'he111', 'g4m']) expect(loadoutOf(id)).not.toBeNull()
-    for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84', 'a6m5']) {
-      expect(loadoutOf(id)).toBeNull()
+  /** 【零戰也掛得了】翼下兩顆 60 kg —— 爆戦，A6M2 就有的用法 */
+  it('三台轟炸機與零戰可以，其餘戰鬥機不行', () => {
+    for (const id of ['b17g', 'he111', 'g4m', 'a6m5']) {
+      expect(loadoutOf(id), id).not.toBeNull()
+    }
+    for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84']) {
+      expect(loadoutOf(id), id).toBeNull()
     }
   })
 })

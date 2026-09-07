@@ -35,7 +35,18 @@ export interface Loadout {
  *   B-17G      AN-M64 500 lb           10      9,000     20 s    90,000
  *   He 111     SC 250                   8      9,300     20 s    74,400
  *   G4M        九一式改三 航空魚雷      1     15,000     45 s    15,000
+ *   A6M5       九九式二番 60 kg         2      2,300     20 s     4,600
  * ```
+ *
+ * 【零戰也掛得了】翼下兩個掛架，各一顆 60 kg —— **爆戦（ばくせん）**，
+ * A6M2 就有的用法。1945 年 4 月的沖繩，零戰掛彈衝第 58 特遣艦隊是那場
+ * 戰役最標誌性的畫面。
+ *
+ * 【單枚 2,300 是照當量換算的】另外三格是 227 kg → 9,000、250 kg → 9,300，
+ * 也就是每公斤約 37~40。60 kg 落在 2,200~2,400，取 2,300。
+ *
+ * 【中線那個 250 kg 沒有做】機腹掛架平常掛 330 L 副油箱，換成炸彈是神風
+ * 攻擊的裝法 —— 那是一整套自殺衝撞的行為，與現有的攻擊航路是兩回事。
  *
  * 【載彈量才是兩台轟炸機的差別】單顆彈的當量它們差不多（B-17G 的 227 kg
  * 對 He 111 的 250 kg），重轟炸機的優勢在帶得多。
@@ -51,6 +62,7 @@ export const LOADOUT_BY_AIRCRAFT: Readonly<Record<string, Loadout>> = {
   b17g: { kind: 'bomb', count: 10, damage: 9_000, reloadSeconds: 20 },
   he111: { kind: 'bomb', count: 8, damage: 9_300, reloadSeconds: 20 },
   g4m: { kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 45 },
+  a6m5: { kind: 'bomb', count: 2, damage: 2_300, reloadSeconds: 20 },
 }
 
 /** 這一台掛什麼。掛不了東西的回 `null` */

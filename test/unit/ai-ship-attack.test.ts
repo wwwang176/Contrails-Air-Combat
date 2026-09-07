@@ -180,3 +180,97 @@ describe('shipAttackCommand', () => {
     expect(s.position.equals(sp)).toBe(true)
   })
 })
+
+/**
+ * 艦艇價值優先。
+ *
+ * 【為什麼要這一組】一支艦隊的護衛幕本來就擋在主力前面。只比距離的話
+ * 攻擊機永遠先咬到最外圈的驅逐艦 —— 而那不是任何一支雷擊隊會做的事：
+ * 倫內爾島打的是重巡、沖繩打的是航母。
+ */
+describe('pickShipTarget：價值優先，同價值才比距離', () => {
+  function shipOf(
+    index: number, cls: 'essex' | 'wichita' | 'fletcher', x: number, z: number,
+  ): Ship {
+    const c = SHIP_CLASSES[cls]
+    const s = createShip(index, c, 'red', x, z, 0, 0)
+    s.guns = createShipGuns(c)
+    s.gunCooldowns = new Float32Array(c.zones.length)
+    return s
+  }
+
+  const pick = (pos: Vector3, ships: Ship[]) => {
+    const aim = createShipAim()
+    const ok = pickShipTarget(pos, 'blue', ships, aim)
+    return { ok, ...aim }
+  }
+
+  /** 【近的驅逐艦讓給遠的航母】這一條就是負責人要的行為 */
+  it('航母比較遠也仍然優先於驅逐艦', () => {
+    const ships = [
+      shipOf(0, 'fletcher', 0, -1000),   // 近
+      shipOf(1, 'essex', 0, 0),          // 遠
+    ]
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+  })
+
+  it('巡洋艦優先於驅逐艦', () => {
+    const ships = [
+      shipOf(0, 'fletcher', 0, -1000),
+      shipOf(1, 'wichita', 0, 0),
+    ]
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+  })
+
+  it('航母優先於巡洋艦', () => {
+    const ships = [
+      shipOf(0, 'wichita', 0, -1000),
+      shipOf(1, 'essex', 0, 0),
+    ]
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+  })
+
+  /** 【同價值才比距離】兩艘同級時仍然取近的 */
+  it('兩艘同級時取近的', () => {
+    const ships = [
+      shipOf(0, 'fletcher', 0, 0),
+      shipOf(1, 'fletcher', 0, -1500),
+    ]
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(1)
+  })
+
+  /** 【超出接戰半徑的不算】航母太遠時退回打得到的那一艘 */
+  it('航母在接戰半徑之外時，改打打得到的驅逐艦', () => {
+    const far = -(SHIP_ATTACK_RANGE + 3000)
+    const ships = [
+      shipOf(0, 'fletcher', 0, 0),
+      shipOf(1, 'essex', 0, far),
+    ]
+    expect(pick(new Vector3(0, 150, 0), ships).ship).toBe(0)
+  })
+
+  /** 【沉了的不算】航母沉了就換次高價值的 */
+  it('航母沉了改打巡洋艦', () => {
+    const ships = [
+      shipOf(0, 'wichita', 0, -1000),
+      shipOf(1, 'essex', 0, 0),
+    ]
+    ships[1]!.alive = false
+    expect(pick(new Vector3(0, 150, -2500), ships).ship).toBe(0)
+  })
+
+  /** 【選中之後在那一艘上取最近的砲位】價值決定哪一艘，距離決定哪一門 */
+  it('選中的那一艘上取離自己最近的砲位', () => {
+    const ships = [shipOf(0, 'essex', 0, 0)]
+    const p = new Vector3(0, 150, -2000)
+    const got = pick(p, ships)
+    expect(got.ship).toBe(0)
+    expect(got.gun).toBeGreaterThanOrEqual(0)
+    const chosen = p.distanceToSquared(gunWorld(ships[0]!, got.gun, new Vector3()))
+    for (let g = 0; g < ships[0]!.guns.length; g++) {
+      if (!ships[0]!.guns[g]!.alive) continue
+      expect(p.distanceToSquared(gunWorld(ships[0]!, g, new Vector3())))
+        .toBeGreaterThanOrEqual(chosen - 1e-6)
+    }
+  })
+})
