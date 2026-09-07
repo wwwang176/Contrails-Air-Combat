@@ -912,16 +912,22 @@ export class AiController implements Controller {
    */
   private scanThreat(self: Aircraft): Aircraft | null {
     const board = this.board
+    // 【沒有板就退回目標距離】單機對單機沒有「別的敵機」，最近的就是他
+    this.sit.nearestRange = this.sit.range
     if (board === null) return null
     const me = board.candidates[this.selfIndex]
     if (me === undefined) return null
 
     let best: Aircraft | null = null
     let bestValue = 0
+    let nearest = Infinity
     const cs = board.candidates
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i]!
       if (!c.alive || c.team === me.team) continue
+      // 【順便量最近敵機】同一個迴圈、不配置。見 `Situation.nearestRange`
+      const d = c.aircraft.state.position.distanceTo(self.state.position)
+      if (d < nearest) nearest = d
       // 【用警戒而不是威脅排序】`threatFactor` 在 900 m 外恆為 0，所以
       // 用它掃描的話，一架咬在我 950 m 正後方的敵機得分與「不存在」相同 ——
       // 選不出來，`defend` 的破防軸也就繞不到他身上。`alarmFactor` 的支撐集
@@ -933,6 +939,9 @@ export class AiController implements Controller {
         best = c.aircraft
       }
     }
+    // 【敵機全滅時保持 `range`】`Infinity` 會讓規則 3 的距離出場立刻成立，
+    // 而那時候根本沒有人可以脫離
+    if (nearest !== Infinity) this.sit.nearestRange = nearest
     return best
   }
 

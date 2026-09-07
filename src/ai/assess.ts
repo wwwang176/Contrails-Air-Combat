@@ -264,6 +264,19 @@ export interface Situation {
    * **它是量級估計。** 見 `evaluateGeometry` 裡的推導與已知偏差。
    */
   timeToBear: number
+  /**
+   * 離**最近一架活著的敵機**的距離，m。沒有指派板時等於 `range`。
+   *
+   * 【為什麼不能拿 `range` 當「拉開了沒」】`range` 量的是當前目標，而目標
+   * 會換：從 A 身上脫離、脫到一半最近的變成 B、改鎖 B，`range` 瞬間歸零。
+   * 實測 20v20 換目標 1169 次，45% 換完之後距離變近；一架在 5 秒內由
+   * 「距目標 1983 m」變成「50 m」。拿一把會自己歸零的尺量「我出球了沒」，
+   * 出口永遠到不了。
+   *
+   * 由 `AiController.scanThreat` 在決策拍（10 Hz）寫入 —— 它本來就在掃全場。
+   * 消費端是規則 3 的距離出場，那是一個以秒計的計時器，10 Hz 足夠。
+   */
+  nearestRange: number
 }
 
 export function createSituation(): Situation {
@@ -279,6 +292,7 @@ export function createSituation(): Situation {
     climbAngle: 0,
     threatInstant: 0, threatLos: new Vector3(0, 0, -1), shotInstant: 0,
     timeToBear: Infinity,
+    nearestRange: Infinity,
   }
 }
 

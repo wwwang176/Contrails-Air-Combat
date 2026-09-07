@@ -10,6 +10,8 @@ const DT = 1 / 10
 function neutral(): Situation {
   const s = createSituation()
   s.range = 3000
+  // 中性態勢只有一架敵機，最近的就是他
+  s.nearestRange = 3000
   s.closureRate = 0
   s.timeToMerge = Infinity
   s.aspectAngle = Math.PI / 2
@@ -573,6 +575,7 @@ describe('規則 3：轉不到就脫離', () => {
     const sit = neutral()
     sit.airframeTurnAdvantage = DEFAULT_RULES.turnEnter * 2
     sit.range = 900
+    sit.nearestRange = 900
     sit.timeToBear = DEFAULT_RULES.bearMax + 1
     return sit
   }
@@ -619,7 +622,12 @@ describe('規則 3：轉不到就脫離', () => {
     expect(s.trackExtend).toBeGreaterThan(0)
   })
 
-  it('過了承諾而且追得到了 → 結束脫離', () => {
+  /**
+   * 【「追得到了」不是出口】脫離一拉開，視線角速度就掉、`timeToBear` 就縮
+   * 回門檻以下 —— 那是脫離自己造成的。拿它當出口，每一段都在承諾到期那一
+   * 格結束，實測 83% 的段落如此、一段只換到 60 m。
+   */
+  it('過了承諾、追得到了也不結束 —— 出口只認距離與上限', () => {
     const s = createRuleState()
     const sit = stuck()
     stepRules(s, sit, 0, DT)
@@ -627,7 +635,38 @@ describe('規則 3：轉不到就脫離', () => {
     for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackCommit / DT) + 2; i++) {
       stepRules(s, sit, 0, DT)
     }
+    expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  it('過了承諾而且離最近敵機拉開到 extendRange → 結束脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    sit.range = DEFAULT_RULES.extendRange + 1
+    sit.nearestRange = DEFAULT_RULES.extendRange + 1
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackCommit / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
     expect(s.trackExtend).toBe(0)
+    // 正常出場不罰冷卻
+    expect(s.trackCooldown).toBe(0)
+  })
+
+  /**
+   * 【它擋的是「換目標把尺歸零」的反面】目標換成遠的那一架時 `range` 會跳
+   * 過 `extendRange`，但球裡最近的敵機還在 400 m —— 這時候沒有拉開，不准
+   * 結束。實測 20v20 換目標 1169 次，45% 換完距離變近，反過來的也一樣多。
+   */
+  it('當前目標很遠、但最近的敵機還在身邊 → 不結束', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    sit.range = DEFAULT_RULES.extendRange + 1
+    sit.nearestRange = 400
+    for (let i = 0; i < Math.ceil(DEFAULT_RULES.trackCommit / DT) + 2; i++) {
+      stepRules(s, sit, 0, DT)
+    }
+    expect(s.trackExtend).toBeGreaterThan(0)
   })
 
   /**
@@ -677,6 +716,37 @@ describe('規則 3：轉不到就脫離', () => {
       stepRules(s, sit, 0, DT)
     }
     expect(s.trackExtend).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【它擋的是「計時器在跑、動作沒做」】`defend` 壓過規則 3，被咬的那幾秒
+   * 飛機在破防。計時器照走的話會在破防期間燒完上限、進冷卻，而那趟脫離
+   * 沒有飛過一格。實測 39% 的計時器時間是這樣空轉掉的。
+   */
+  it('被咬（defend）時，規則 3 的計時器暫停，放開後繼續', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    const before = s.trackExtend
+    expect(before).toBeGreaterThan(0)
+    // 高威脅 → defendLatch 閂上，計時器不動
+    for (let i = 0; i < 50; i++) stepRules(s, sit, 1, DT)
+    expect(s.intent).toBe('defend')
+    expect(s.trackExtend).toBe(before)
+    // 威脅消失 → 閂鎖放開，計時器繼續走
+    for (let i = 0; i < 50; i++) stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBeGreaterThan(before)
+  })
+
+  it('暫停之後上限仍然有界 —— 不會因為暫停過就永遠脫離', () => {
+    const s = createRuleState()
+    const sit = stuck()
+    stepRules(s, sit, 0, DT)
+    for (let i = 0; i < 50; i++) stepRules(s, sit, 1, DT)
+    const n = Math.ceil(DEFAULT_RULES.trackMax / DT) + 2
+    for (let i = 0; i < n; i++) stepRules(s, sit, 0, DT)
+    expect(s.trackExtend).toBe(0)
+    expect(s.trackCooldown).toBeGreaterThan(0)
   })
 
   it('正在開火時不走這條規則', () => {

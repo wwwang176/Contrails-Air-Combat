@@ -421,8 +421,8 @@ export interface RuleState {
   /**
    * 規則 3 的脫離已經持續多久，s。**0 = 沒有在這條規則下脫離。**
    *
-   * 【為什麼是計時器不是布林】這一條有三個出場條件（拉開夠遠、跟上了、
-   * 到上限），前兩個都要先跑完最小承諾。少了計時器就寫不出「承諾」。
+   * 【為什麼是計時器不是布林】這一條有兩個出場條件（拉開夠遠、到上限），
+   * 前者要先跑完最小承諾。少了計時器就寫不出「承諾」。
    */
   trackExtend: number
   /**
@@ -553,12 +553,24 @@ export function stepRules(
   // 不在攔截機預期的位置上，而那條紅掉的測試講的是砲塔平衡，成因完全看
   // 不出來。
   //
-  // 【三個出場，距離優先】拉開夠遠是真正要的東西；轉得到了代表幾何已經
-  // 重置；上限是「他比我快、永遠拉不開」時的保底。前兩個都要先跑完承諾。
+  // 【兩個出場，距離優先】拉開夠遠是真正要的東西；上限是「他比我快、永遠
+  // 拉不開」時的保底。距離出場要先跑完承諾。
+  //
+  // 【「轉得到了」不是出場條件】脫離一卸載拉開，視線角速度就掉、`timeToBear`
+  // 就縮回門檻以下 —— 那是脫離本身造成的，不代表態勢重置。拿它當出口的話，
+  // 每一段脫離都在承諾一到期的那一格結束（實測 244 段裡 83% 如此，中位
+  // 持續 4.0 s 恰等於 `trackCommit`，一段只換到 60 m），脫離等於沒做。
   const cannotBear = sit.timeToBear > cfg.bearMax
   if (s.trackCooldown > 0) s.trackCooldown -= dt
   if (s.trackExtend > 0) {
-    s.trackExtend += dt
+    // 【被咬時計時器暫停】`defend` 在仲裁裡壓過這一條，被咬的那幾秒飛機
+    // 在破防、不在脫離。計時器照走的話，承諾與上限量的就是「牆鐘」而不是
+    // 「真的在脫離的時間」——實測 39% 的計時器時間意圖不是 extend，段落
+    // 燒完上限、進了冷卻，而那趟脫離從頭到尾沒飛過。
+    //
+    // 【它不會變成新的鎖】暫停只發生在 `defendLatch` 開著時，那個閂鎖有自己
+    // 的出場遲滯（`threatExit`）；閂鎖一放，計時器就繼續走向上限。
+    if (!s.defendLatch) s.trackExtend += dt
     const committed = s.trackExtend >= cfg.trackCommit
     if (s.trackExtend >= cfg.trackMax) {
       // 【撞上限要罰冷卻】只把計時器歸零的話，下一拍條件仍然成立、立刻
@@ -570,8 +582,11 @@ export function stepRules(
       // **計時器一定會走完，條件式不一定。**
       s.trackExtend = 0
       s.trackCooldown = cfg.trackCooldown
-    } else if (committed && (sit.range > cfg.extendRange || !cannotBear)) {
-      // 【正常出場不罰】拉開了或追得到了代表這一趟有用，沒有理由罰它
+    } else if (committed && sit.nearestRange > cfg.extendRange) {
+      // 【正常出場不罰】拉開了代表這一趟有用，沒有理由罰它
+      //
+      // 【量的是最近敵機，不是當前目標】「出球了沒」問的是離最近的敵人多遠。
+      // `range` 會跟著換目標歸零，見 `Situation.nearestRange`
       s.trackExtend = 0
     }
   } else if (fighter && cannotBear && s.trackCooldown <= 0

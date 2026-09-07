@@ -53,8 +53,11 @@ function solo(blue: string, red: string, seat: number): Solo {
     alive += DT
     // 【只量規則 3 那一段】`extend` 還有能量與見底兩個理由，那兩個沒有
     // 時間上限，混進來這條護欄就永遠是紅的
-    if (ai.rules.trackExtend > 0) {
-      trackExtend += DT
+    if (ai.rules.trackExtend > 0) trackExtend += DT
+    // 【連續時間只算「真的在脫離」的格】計時器在被咬（`defend`）時暫停，
+    // 一段脫離的牆鐘因此可以遠超上限 —— 但那些格飛機在破防，不在脫離。
+    // 上限管的是脫離本身的長度；計時器跨過暫停累積，所以總量仍然有界。
+    if (ai.rules.trackExtend > 0 && ai.intent === 'extend') {
       run += DT
       if (run > longestExtend) longestExtend = run
     } else {
