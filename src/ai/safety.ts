@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { G0 } from '../core/math'
 import { makeScratch } from '../core/pool'
 import { cornerSpeed, maxLoadFactorAero, stallSpeed } from '../analysis/envelope'
+import { RHO0 } from '../physics/atmosphere'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -156,6 +157,14 @@ export interface SafetyConfig {
   /** 失速介入時的壓頭角度，rad。正值，實際命令的是它的負值 */
   stallRecoveryPitch: number
   /**
+   * 超速守線的 IAS / vne 門檻。**只擋往下。**
+   *
+   * 【為什麼是 0.90】紅線因子在 0.90 還剩 46% 操縱權限，抬得起來；0.95 只剩
+   * 22%，來不及。拉起的閉式解假設 `gPositive` 全部可用，紅線一過那個假設
+   * 整個失效 —— 沒有這一條，追擊中的 AI 會追進紅線、拉不起來、撞海。
+   */
+  overspeedRatio: number
+  /**
    * 航跡角的前瞻時間，s。用 `flightPathRate` 把 γ 往前推這麼久再算所需高度。
    *
    * 【為什麼需要它 —— `factor` 蓋不住這件事】閉式解假設 γ 不再變陡，而 AI
@@ -237,6 +246,7 @@ export const DEFAULT_SAFETY: SafetyConfig = {
   // 【0.25 s 是兩組掃描夾出來的，見 `lookahead` 欄位的註解】上界由六場機動
   // 測試給（≥ 0.75 時側舷@1000 會炸開），下界由「不觸海」給（0 會觸海）。
   lookahead: 0.25,
+  overspeedRatio: 0.90,
 }
 
 /**
@@ -271,7 +281,7 @@ function horizontalHeading(self: Aircraft, out: Vector3): void {
  * 介入率，那個高度不可能是撞地，是失速接管 —— 而那條護欄要守的是
  * 「不墜海」。
  */
-export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain'
+export type SafetyAction = 'none' | 'ground' | 'stall' | 'terrain' | 'overspeed'
 
 
 /**
@@ -383,6 +393,20 @@ export function applySafety(
   // ── 失速硬接管（撞地之後才判，spec §4.5）─────────────────
   // 【為什麼排在撞地之後】兩者的補救相反：失速要壓頭、撞地要拉起。撞地
   // 優先，因為失速還有機會改出，撞地沒有。
+  // ── 超速守線 ────────────────────────────────────────────
+  // 【只擋往下，不擋往上】拉平之後 r 自己會掉。優先序在撞地之後：離地已經
+  // 不夠時拉起是唯一的事。油門收到 0 讓速度不再長；不動 firing／bombing ——
+  // 守線不是閃避，開火權留給上層。
+  const ias = Math.sqrt((2 * self.diag.aero.qbar) / RHO0)
+  if (gamma < 0 && ias > cfg.overspeedRatio * self.spec.limits.vne) {
+    const horiz = S.v[0]!
+    horizontalHeading(self, horiz)
+    out.aimWorld.copy(horiz)
+    out.throttle = 0
+    out.brake = 0
+    return 'overspeed'
+  }
+
   const vs = Math.max(stallSpeed(self.spec, self.state.position.y, 1), 1)
   if (tas / vs < cfg.stallMargin) {
     const horiz = S.v[0]!
