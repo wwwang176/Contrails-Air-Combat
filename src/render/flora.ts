@@ -789,7 +789,7 @@ export function createIslandFlora(
     for (let gz = h0; gz <= h1; gz++) {
       for (let gx = g0; gx <= g1; gx++) {
         // 【最近的島用格中心找】它只提供峰高（密度斜線的尺），而同一格的
-        // 兩個候選點最遠只差 8.6 m —— 找一次，兩者共用
+        // 兩個候選點最遠只差 7 m —— 找一次，兩者共用
         const cx = (gx + 0.5) * ISLAND_GRID
         const cz = (gz + 0.5) * ISLAND_GRID
         let isl = near

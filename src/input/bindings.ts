@@ -70,8 +70,9 @@ export function attachInput(
     // return，`aimDelta` 不再累積 —— 而上帝視角餵給鏡頭的就是那兩個值，
     // 症狀是「按住右鍵鏡頭就不動了」，而按鍵提示裡根本沒有右鍵。
     // 【死亡鏡頭下右鍵什麼都不做】視線由 `deathCamAim` 接管，轉頭會把它從
-    // 擊殺者身上拉走；瞄準位移也不累積，那 2 秒沒有飛機可以操縱
-    if (state.lookActive && state.dead) return
+    // 擊殺者身上拉走；瞄準位移也不累積，那 2 秒沒有飛機可以操縱。
+    // 上帝視角例外：死亡不影響它，而它的鏡頭吃的正是下面那兩個累積值
+    if (state.lookActive && state.dead && !state.godView) return
     if (state.lookActive && !state.godView) {
       state.lookYaw = clamp(
         state.lookYaw - (e.movementX / half) * LOOK_SENSITIVITY,
@@ -161,8 +162,9 @@ export function attachInput(
       // 【投彈模式下不作用】`V` 的軸是「座艙／機外」，投彈瞄具不是那條軸上
       // 的一個點。照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回
       // `third`，等於多了一個沒有人記得的離開鍵
+      // 【死亡鏡頭下也不作用】座艙視角是從殘骸裡面往外看
       case 'KeyV':
-        if (state.viewMode !== 'bomb') {
+        if (state.viewMode !== 'bomb' && !state.dead) {
           state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
         }
         break
