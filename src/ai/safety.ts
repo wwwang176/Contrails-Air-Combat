@@ -165,6 +165,11 @@ export interface SafetyConfig {
    */
   overspeedRatio: number
   /**
+   * 黃線：俯衝中 IAS / vne 過了這裡就收油門，還不動瞄準點。與 HUD 變黃、
+   * 紅線因子開始作用是同一個數（`REDLINE_KNEE`）。
+   */
+  overspeedThrottleRatio: number
+  /**
    * 航跡角的前瞻時間，s。用 `flightPathRate` 把 γ 往前推這麼久再算所需高度。
    *
    * 【為什麼需要它 —— `factor` 蓋不住這件事】閉式解假設 γ 不再變陡，而 AI
@@ -247,6 +252,7 @@ export const DEFAULT_SAFETY: SafetyConfig = {
   // 測試給（≥ 0.75 時側舷@1000 會炸開），下界由「不觸海」給（0 會觸海）。
   lookahead: 0.25,
   overspeedRatio: 0.90,
+  overspeedThrottleRatio: 0.85,
 }
 
 /**
@@ -398,16 +404,26 @@ export function applySafety(
   // 不夠時拉起是唯一的事。不動 firing／bombing —— 守線不是閃避，開火權留給
   // 上層。
   //
+  // 【兩級】黃線（`overspeedThrottleRatio`）先收油門；到 `overspeedRatio` 才
+  // 動瞄準點 —— 而且只把俯仰夾到水平以上，**方位保留**。整個換成水平航向
+  // 會讓追擊者在守線的那幾秒放掉目標（人工試飛回報「追丟」）；保留方位它
+  // 繼續朝敵人轉，只是不再往下。
+  //
   // 【只收油門，不煞車】跟著 45° 俯衝的目標追下來時動量會帶到 0.98 —— 那是
   // 設計的一部分：紅線因子在那裡只剩 15% 權限，追擊者**跟不上目標的轉彎**。
   // 煞車會讓它停在 0.90、留在目標上方等它爬回來，實測把被追的一方打成全滅。
-  const ias = Math.sqrt((2 * self.diag.aero.qbar) / RHO0)
-  if (gamma < 0 && ias > cfg.overspeedRatio * self.spec.limits.vne) {
-    const horiz = S.v[0]!
-    horizontalHeading(self, horiz)
-    out.aimWorld.copy(horiz)
+  const ratio = Math.sqrt((2 * self.diag.aero.qbar) / RHO0) / self.spec.limits.vne
+  if (gamma < 0 && ratio > cfg.overspeedThrottleRatio) {
     out.throttle = 0
     out.brake = 0
+    if (ratio > cfg.overspeedRatio && out.aimWorld.y < 0) {
+      const h = Math.hypot(out.aimWorld.x, out.aimWorld.z)
+      if (h > 1e-6) {
+        out.aimWorld.set(out.aimWorld.x / h, 0, out.aimWorld.z / h)
+      } else {
+        horizontalHeading(self, out.aimWorld)
+      }
+    }
     return 'overspeed'
   }
 
