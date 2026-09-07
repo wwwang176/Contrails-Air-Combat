@@ -63,6 +63,10 @@ import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
 import { shortName } from './ui/briefing'
 import { resetGEffect } from './hud/widgets/gEffect'
+import { runFrontCount } from './hud/widgets/torpedoLine'
+import {
+  TORPEDO_RUN_SAMPLES, runSampleDistance, torpedoHeading,
+} from './world/torpedo'
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
@@ -362,6 +366,32 @@ const BOMB_NDC = new Vector3()
  * 從退化的速度反推。
  */
 const NOSE_H = new Vector3()
+/**
+ * 機首的水平方向，**就地寫進 `out`**。
+ *
+ * 【為什麼投放與 HUD 共用一支】兩邊各寫一份的話會在垂直下墜那一點分家 ——
+ * 症狀是「航跡線指一邊、雷跑另一邊」，而那個幾何看不到也測不到。
+ */
+function noseHorizontal(q: Quaternion, out: Vector3): Vector3 {
+  out.set(0, 0, -1).applyQuaternion(q)
+  out.y = 0
+  if (out.lengthSq() < 1e-12) out.set(0, 0, -1)
+  else out.normalize()
+  return out
+}
+/** 航跡線：航向、取樣點的世界座標與投影，全部預先配置 */
+const TORP_DIR = new Float64Array(2)
+const RUN_WORLD = new Vector3()
+const RUN_NDC = new Vector3()
+/**
+ * 取樣點投影後的 NDC z。
+ *
+ * 【為什麼要留一條】`runFrontCount` 要一次看完全部的 z 才判得出「從 0 起
+ * 連續在相機前方幾個」，而 `HudFrame` 上只有 `runX` / `runY`。少了這一條
+ * 就只剩兩條路：每幀生一個陣列，或在這裡另寫一份判斷讓那支測過的純函數
+ * 變成沒人呼叫的死護欄。
+ */
+const RUN_Z = new Float64Array(TORPEDO_RUN_SAMPLES)
 
 /**
  * 玩家的彈艙。**就是 `player.bombBay`，不是另一份。**
@@ -1504,9 +1534,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
   const att = attitudeFromOrientation(renderQuat)
   const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
-  const releaseOk = playerLoadout !== null && canRelease(
-    envelopeFor(playerLoadout.kind),
-    att.roll, att.pitch, agl, aircraft.diag.aero.tas,
+  // 【包絡與 agl 只解一次】HUD 的投放閘門與高度弧讀的必須是**這兩個值**，
+  // 不是各自再查一次 —— 分家的症狀是「錶上綠燈而扳機沒有反應」，不拋例外
+  // 也沒有訊息
+  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind) : null
+  const releaseOk = releaseEnv !== null && canRelease(
+    releaseEnv, att.roll, att.pitch, agl, aircraft.diag.aero.tas,
   )
 
   const bp = visuals.get(player)!.model.bombPoint
@@ -1519,10 +1552,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
       if (playerLoadout?.kind === 'torpedo') {
         // 【機首的水平方向要一起送】垂直入水那種退化情況沿用它，而那件事
         // **不能從退化的速度反推**
-        NOSE_H.set(0, 0, -1).applyQuaternion(renderQuat)
-        NOSE_H.y = 0
-        if (NOSE_H.lengthSq() < 1e-12) NOSE_H.set(0, 0, -1)
-        else NOSE_H.normalize()
+        noseHorizontal(renderQuat, NOSE_H)
         world.dropTorpedo(
           BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
           NOSE_H.x, NOSE_H.z, teamSlot(player.team),
@@ -1705,18 +1735,47 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.bombCapable = input.bombCapable
   hudFrame.ordnance = playerLoadout?.kind ?? null
   hudFrame.releaseOk = releaseOk
+  // 【就是餵給 `canRelease` 的那一組】不是各自再查一次 —— 見上面 releaseEnv
+  hudFrame.releaseEnv = releaseEnv
+  hudFrame.releaseAgl = agl
   const bay = playerBay()
   hudFrame.bombBayCapacity = bay.capacity
   hudFrame.bombLoad = bay.load
   hudFrame.bombReloading = bay.reloading
   hudFrame.bombReloadLeft = bay.reloading ? bay.timer : 0
   hudFrame.bombVisible = false
+  hudFrame.runCount = 0
   if (bombState === 'solved') {
     BOMB_NDC.copy(BOMB_POINT).project(ctx.camera)
     hudFrame.bombX = BOMB_NDC.x
     hudFrame.bombY = BOMB_NDC.y
     hudFrame.bombVisible = BOMB_NDC.z < 1 &&
       Math.abs(BOMB_NDC.x) <= 1 && Math.abs(BOMB_NDC.y) <= 1
+    // 【落點是水才有水中段】`solveImpact` 撞到**任何**地面都回成功，而真雷
+    // 遇到陸地或無水是立刻結束（`world/torpedo.ts` 的 `stepAir`）—— 判準逐字
+    // 沿用它，不得改用含浪的高度、也不得寫成 `> 雷體高度`。少了這一條，
+    // 飛過島嶼或內陸農地時會畫出一條不存在的 2 km 水中航跡
+    const onWater = playerLoadout?.kind === 'torpedo'
+      && !(terrain.collisionHeightAt(BOMB_POINT.x, BOMB_POINT.z) > 0)
+      && Number.isFinite(terrain.waterAt(BOMB_POINT.x, BOMB_POINT.z))
+    if (onWater) {
+      const v = player.aircraft.state.velocity
+      noseHorizontal(renderQuat, NOSE_H)
+      torpedoHeading(v.x, v.z, NOSE_H.x, NOSE_H.z, TORP_DIR)
+      for (let k = 0; k < TORPEDO_RUN_SAMPLES; k++) {
+        const d = runSampleDistance(k)
+        RUN_WORLD.set(
+          BOMB_POINT.x + TORP_DIR[0]! * d,
+          BOMB_POINT.y,
+          BOMB_POINT.z + TORP_DIR[1]! * d,
+        )
+        RUN_NDC.copy(RUN_WORLD).project(ctx.camera)
+        hudFrame.runX[k] = RUN_NDC.x
+        hudFrame.runY[k] = RUN_NDC.y
+        RUN_Z[k] = RUN_NDC.z
+      }
+      hudFrame.runCount = runFrontCount(RUN_Z, TORPEDO_RUN_SAMPLES)
+    }
   }
 
   // 瞄準點是世界方向（Task 19），螢幕位置得自己投影。NDC 的 x 乘上長寬比
