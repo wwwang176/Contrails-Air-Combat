@@ -12,6 +12,7 @@ import { MAX_COMBATANTS } from '../../src/battle/skirmish'
 import { attitudeFromOrientation, headingFromOrientation } from '../../src/hud/attitude-math'
 import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE } from '../../src/control/limiters'
+import { TORPEDO_RUN_SAMPLES } from '../../src/world/torpedo'
 import { P51D } from '../../src/specs/p51d'
 import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
@@ -73,6 +74,24 @@ describe('createHudFrame', () => {
     const f = createHudFrame()
     for (const v of Object.values(f)) {
       if (typeof v === 'number') expect(Number.isFinite(v)).toBe(true)
+    }
+  })
+
+  /**
+   * 【上面那一條看不到 `Float64Array`】它走的是
+   * `Object.values(f)` 加 `typeof v === 'number'`，而 typed array 是物件 ——
+   * 整個被跳過。
+   *
+   * 長度少一格不會紅，而 typed array 越界寫入**不拋例外**：症狀是航跡線的
+   * 末段與末端刻度靜靜地消失。
+   */
+  it('航跡線的取樣陣列長度正確、逐元素有限', () => {
+    const f = createHudFrame()
+    expect(f.runX.length).toBe(TORPEDO_RUN_SAMPLES)
+    expect(f.runY.length).toBe(TORPEDO_RUN_SAMPLES)
+    for (let k = 0; k < TORPEDO_RUN_SAMPLES; k++) {
+      expect(Number.isFinite(f.runX[k]!), `runX[${k}]`).toBe(true)
+      expect(Number.isFinite(f.runY[k]!), `runY[${k}]`).toBe(true)
     }
   })
 })

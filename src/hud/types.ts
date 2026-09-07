@@ -1,6 +1,8 @@
 import { createDamageMarks, type DamageMark } from './damageMarks'
 import { ARENA_COUNTDOWN } from '../world/arena'
 import type { OrdnanceKind } from '../weapons/stores'
+import type { ReleaseEnvelope } from '../weapons/releaseEnvelope'
+import { TORPEDO_RUN_SAMPLES } from '../world/torpedo'
 
 /**
  * 一個接觸點（畫面上的一架他機）。
@@ -204,6 +206,47 @@ export interface HudFrame {
    * 玩家是坡度還是高度不對的話，那是另一個儀表的工作。
    */
   releaseOk: boolean
+  /**
+   * 這一幀 `canRelease` 吃的**那一個**包絡物件。`null` = 這一台掛不了東西。
+   *
+   * 【為什麼是物件而不是四個數字，也不是讓 widget 自己查】
+   * `envelopeFor(kind)` 今天回的是依彈種分的模組常數，**每一台飛機共用同
+   * 一份**。widget 自己呼叫它，拿到的是「HUD 沒寫死」，但拿不到「每台飛機
+   * 不同」—— 哪天包絡變成逐機的，widget 還得再改一次。由 `main.ts` 把它
+   * 實際用的那一個放進來，HUD 這一側就永遠不用動。
+   *
+   * 它是模組常數的參考，不是複本 —— 不配置。
+   */
+  releaseEnv: ReleaseEnvelope | null
+  /**
+   * 這一幀 `canRelease` 吃的**那一個**離地高度，m。
+   *
+   * 【為什麼不能用 `altitude`】那一格是 `renderPos.y`（海拔），而包絡吃的是
+   * `renderPos.y − collisionHeightAt(x, z)`。海上兩者相同，飛過島上空就分家
+   * —— 症狀是投放閘門與高度弧說可以投，而扳機沒有反應。
+   */
+  releaseAgl: number
+  /**
+   * 魚雷航跡線的取樣點，**NDC**，慣例同 `bombX` / `bombY`。
+   * 第 0 點是入水點（＝落點圈的圓心），最後一點是射程末端。
+   *
+   * 【固定長度、預先配置】每幀生一個陣列就是每幀一次配置 —— 與 `contacts`
+   * ／`markers` 逐字同一個做法。**長度恆為 `TORPEDO_RUN_SAMPLES`。**
+   */
+  runX: Float64Array
+  runY: Float64Array
+  /**
+   * 從第 0 點起**連續**落在相機前方的點數。`< 2` = 不畫。
+   *
+   * 【為什麼是「連續」而不是「總數」】相機後面的點投影出來是穿過中心鏡射
+   * 的 —— 它落在畫面上、方向剛好相反，canvas 再乾乾淨淨把它裁到邊緣。
+   * 只數總數的話會畫出一條線條漂亮、方向錯 180° 的瞄準線。
+   *
+   * 【落點在陸地時也是 0】`bombState === 'solved'` 不代表落在水上，而真雷
+   * 遇到陸地是立刻結束、根本沒有水中段。判準在 `main.ts`（與 `stepAir`
+   * 同一條）。
+   */
+  runCount: number
   /** 這一台的滿艙是幾枚。**讀數畫幾格就看它** */
   bombBayCapacity: number
   /** 彈艙裡還剩幾枚 */
@@ -363,6 +406,10 @@ export function createHudFrame(): HudFrame {
     noseX: 0, noseY: 0, noseVisible: true,
     bombX: 0, bombY: 0, bombVisible: false, bombState: 'off',
     bombing: false, bombCapable: false, ordnance: null, releaseOk: false,
+    releaseEnv: null, releaseAgl: 0,
+    runX: new Float64Array(TORPEDO_RUN_SAMPLES),
+    runY: new Float64Array(TORPEDO_RUN_SAMPLES),
+    runCount: 0,
     bombBayCapacity: 0,
     bombLoad: 0, bombReloading: false, bombReloadLeft: 0,
     worldX: 0, worldZ: 0, aircraftName: '',
