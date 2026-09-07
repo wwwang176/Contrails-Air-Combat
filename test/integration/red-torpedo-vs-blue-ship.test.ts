@@ -10,8 +10,7 @@ import { createShipAim, pickShipTarget } from '../../src/ai/shipAttack'
 import {
   RUN_ALTITUDE, TORPEDO_PROFILE, setTorpedoBallistics,
 } from '../../src/ai/torpedoRun'
-import { createStrikeState, stepStrike, type StrikePlan } from '../../src/ai/strikeRun'
-import { createCommand } from '../../src/control/Controller'
+import type { StrikePlan } from '../../src/ai/strikeRun'
 
 const DT = 1 / 240
 const K = bombDragK(BOMB_TERMINAL_SPEED)
@@ -90,43 +89,44 @@ describe('紅方的一式陸攻對藍方艦隊', () => {
   })
 
   /**
-   * 【端到端】把紅機交給打擊狀態機跑到它真的投雷，然後看藍船掉不掉血。
+   * 【紅隊投的魚雷傷得了藍船】直接投一枚，不經過 AI。
    *
-   * **這一條是整支的重點。** 前兩條各自只證明一層。
+   * 【為什麼不讓 AI 飛完一整趟】那會把「AI 飛得夠好嗎」綁進這一條：進場
+   * 幾何、`RUN_ALTITUDE`、`LOCK_CONE`、裝填秒數任何一個被調就會紅，而那時
+   * 紅的不是缺陷，是有人在調手感。**AI 打得準不準是試飛的事。**
+   *
+   * 這一支要證明的是**方向**：紅隊投的東西傷得了藍隊的船。既有的
+   * `torpedo-vs-ship.test.ts` 只跑過藍打紅。
    */
-  it('紅機投得出雷，而且藍船會掉血', () => {
-    setTorpedoBallistics(K, DT)
+  it('紅隊投的魚雷打得掉藍船的血', () => {
     const world = sea()
     const ship = blueCarrier(world)
     const hp0 = ship.hp
-    const self = redBomber(4000)
-    const state = createStrikeState()
-    const out = createCommand()
-
-    let dropped = false
-    for (let i = 0; i < 240 * 240; i++) {
-      // 【每 24 步一個決策拍】與 `AiController` 的 10 Hz 同頻
-      stepStrike(
-        state, self, ship, 0, TORPEDO_PROFILE,
-        !dropped, i % 24 === 0, DT, out,
-      )
-      // 【姿態要跟著指令走】不推進飛行模型的話它永遠停在初始姿態，
-      // 剖面的「對正才鎖」就永遠不成立
-      self.update(out.aimWorld, out.throttle, DT, out.brake)
-      if (out.bombing && !dropped) {
-        const v = self.state.velocity
-        const p = self.state.position
-        world.dropTorpedo(
-          p.x, p.y, p.z, v.x, v.y, v.z, 15_000,
-          v.x / Math.hypot(v.x, v.z), v.z / Math.hypot(v.x, v.z), 1,
-        )
-        dropped = true
-      }
-      world.step(DT)
-      if (dropped && world.torpedoes.live === 0) break
-    }
-
-    expect(dropped, '紅機從來沒有投出去').toBe(true)
+    // 從艦艏前方朝船投，`team = 1`（紅）
+    world.dropTorpedo(0, 40, -800, 0, 0, 90, 15_000, 0, 1, 1)
+    for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
     expect(ship.hp, '藍船沒有掉血').toBeLessThan(hp0)
+  })
+
+  /**
+   * 【魚雷不看隊別 —— 這是現況，已回報負責人】`onTorpedoBlocked`
+   * （`World.ts:751`）的迴圈只跳過沉船，沒有 `sh.team` 的比較，所以自家的
+   * 魚雷一樣打得掉自家的船。
+   *
+   * **與機槍不一致**：`World.ts:1073` 對友軍的船是早退的。範圍傷害
+   * （`applyBombBlast`）則與魚雷一樣不分隊 —— 那一條講得通（爆炸不看陣營），
+   * 魚雷這一條講不講得通是遊戲設計的決定。
+   *
+   * 這一輪的兩關都不受影響：日 M4 只有藍方掛雷、紅方全是船；盟 M4 反過來。
+   *
+   * 這一條**釘住現況**，不是主張它是對的。要改是動模擬，那是負責人的決定。
+   */
+  it('魚雷不分隊別 —— 藍隊投的一樣打得掉藍船', () => {
+    const world = sea()
+    const ship = blueCarrier(world)
+    const hp0 = ship.hp
+    world.dropTorpedo(0, 40, -800, 0, 0, 90, 15_000, 0, 1, 0)
+    for (let i = 0; i < 240 * 160 && world.torpedoes.live > 0; i++) world.step(DT)
+    expect(ship.hp).toBeLessThan(hp0)
   })
 })

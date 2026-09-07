@@ -97,11 +97,24 @@ const HULL_SLACK = 200
 const P0 = /* @__PURE__ */ new Vector3()
 
 /**
- * 挑一個對艦目標：敵隊、還浮著、在接戰半徑內，取**離自己最近的砲位**；
- * 那艘船的砲位若已經打光，改瞄它的船體。回傳有沒有挑到。
+ * 挑一個對艦目標：敵隊、還浮著、在接戰半徑內。
  *
- * 【為什麼只用距離，不像空戰那樣評分】船不會轉向、不會逃，彼此也沒有
- * 「誰比較威脅我」的差別。多一套評分只是多一組要調的旋鈕。
+ * **先比艦艇價值，價值相同才比距離。** 選中之後在**那一艘**上取離自己最近
+ * 的砲位；砲位全打光就改瞄船體（魚雷的目標，也是攻擊航路的起點）。
+ *
+ * 【為什麼價值優先，而不是一律取最近的】一支艦隊的護衛幕本來就擋在主力
+ * 前面 —— 只比距離的話，攻擊機永遠先咬到最外圈的驅逐艦，而那不是任何一支
+ * 雷擊隊會做的事。倫內爾島打的是重巡、沖繩打的是航母。
+ *
+ * 【價值就是艦級的血量】Essex 60,000 ／ Wichita 40,000 ／ Fletcher 20,000
+ * —— 那本來就是「這艘船有多重要」的量。**不另開一個 `value` 欄位**：多一格
+ * 就多一個會與血量不同步的地方。
+ *
+ * 【用艦級的血量，不是剩餘血量】半沉的航母仍然是第一順位。改用剩餘血量的話
+ * 攻擊機會在打到一半時掉頭去找完好的驅逐艦。
+ *
+ * 【為什麼不像空戰那樣評分】船不會轉向、不會逃，彼此也沒有「誰比較威脅我」
+ * 的差別。價值加距離兩層就夠，多一套評分只是多一組要調的旋鈕。
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
@@ -110,32 +123,36 @@ export function pickShipTarget(
 ): boolean {
   out.ship = -1
   out.gun = -1
-  let bestSq = SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
+  const rangeSq = SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
+  let bestValue = -1
+  let bestSq = Infinity
   for (let i = 0; i < ships.length; i++) {
     const s = ships[i]!
     if (!s.alive || s.team === selfTeam) continue
-    // 粗篩：船心離得比「目前最佳 ＋ 一個艦體半長」還遠就不必逐砲位比
-    const coarse = Math.sqrt(bestSq) + HULL_SLACK
+    const value = s.cls.hp
+    // 已經鎖定一艘更值錢的就不必再算這一艘的砲位
+    if (value < bestValue) continue
+    // 粗篩：船心離得比「接戰半徑 ＋ 一個艦體半長」還遠就一定不在範圍內
+    const coarse = SHIP_ATTACK_RANGE + HULL_SLACK
     if (selfPos.distanceToSquared(s.position) > coarse * coarse) continue
 
-    let anyGun = false
+    // 這一艘離自己多遠：取它最近的砲位，砲位全沒了取船體
+    let nearSq = Infinity
+    let gun = -1
     for (let g = 0; g < s.guns.length; g++) {
       if (!s.guns[g]!.alive) continue
-      anyGun = true
       const d = selfPos.distanceToSquared(gunWorld(s, g, P0))
-      if (d > bestSq) continue
-      bestSq = d
-      out.ship = i
-      out.gun = g
+      if (d < nearSq) { nearSq = d; gun = g }
     }
+    if (gun < 0) nearSq = selfPos.distanceToSquared(shipAimPoint(s, P0))
 
-    // 砲位全打光的船改瞄船體：魚雷的目標，也是攻擊航路的起點
-    if (anyGun) continue
-    const d = selfPos.distanceToSquared(shipAimPoint(s, P0))
-    if (d > bestSq) continue
-    bestSq = d
+    if (nearSq > rangeSq) continue
+    // 同價值時才比距離
+    if (value === bestValue && nearSq >= bestSq) continue
+    bestValue = value
+    bestSq = nearSq
     out.ship = i
-    out.gun = -1
+    out.gun = gun
   }
   return out.ship >= 0
 }
