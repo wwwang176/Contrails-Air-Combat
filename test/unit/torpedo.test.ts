@@ -4,7 +4,8 @@ import {
   type BombState, type Impact,
 } from '../../src/world/bomb'
 import {
-  TORPEDO_DEPTH, TORPEDO_RANGE, TORPEDO_SPEED, Torpedoes, WAKE_INTERVAL,
+  TORPEDO_DEPTH, TORPEDO_RANGE, TORPEDO_RUN_SAMPLES, TORPEDO_RUN_STEP,
+  TORPEDO_SPEED, Torpedoes, WAKE_INTERVAL, runSampleDistance, torpedoHeading,
 } from '../../src/world/torpedo'
 
 const DT = 1 / 240
@@ -316,5 +317,108 @@ describe('池子', () => {
     const b = pool.spawn(0, 0, 0, 0, 0, -1, 2000, 0, -1)
     expect(pool.damage[a]).toBe(1000)
     expect(pool.damage[b]).toBe(2000)
+  })
+})
+
+/**
+ * 航跡線的取樣距離。**HUD 拿它畫「雷會跑到哪」的刻度。**
+ *
+ * 【為什麼住在這裡而不是 HUD】射程是這個檔案的常數。取樣點寫在 HUD 那一側
+ * 的話，`TORPEDO_RANGE` 一改，線的末端就不再是射程 —— 而畫面上看不出來。
+ */
+describe('航跡線的取樣距離', () => {
+  it('第一點在入水點上', () => {
+    expect(runSampleDistance(0)).toBe(0)
+  })
+
+  it('最後一點恰好落在射程上', () => {
+    expect(runSampleDistance(TORPEDO_RUN_SAMPLES - 1)).toBe(TORPEDO_RANGE)
+  })
+
+  it('相鄰兩點的間距恆為一格', () => {
+    for (let k = 1; k < TORPEDO_RUN_SAMPLES; k++) {
+      expect(runSampleDistance(k) - runSampleDistance(k - 1)).toBeCloseTo(TORPEDO_RUN_STEP, 9)
+    }
+  })
+
+  /** 【點數是算出來的】射程改了點數要跟著變，不是寫死的 5 */
+  it('點數 = 射程 ÷ 間距 + 1', () => {
+    expect(TORPEDO_RUN_SAMPLES).toBe(Math.round(TORPEDO_RANGE / TORPEDO_RUN_STEP) + 1)
+  })
+})
+
+/**
+ * 水中航向。
+ *
+ * 【為什麼要轉出來】`stepAir` 在入水那一刻算它，而 HUD 要在**投放之前**就
+ * 畫出線指哪裡。兩邊各寫一份的話會在退化那一點分家 —— 而那只在垂直下墜時
+ * 出現，看不到也測不到。
+ */
+describe('torpedoHeading', () => {
+  const OUT = new Float64Array(2)
+
+  it('正常情形回速度的水平單位向量', () => {
+    torpedoHeading(3, 4, 0, -1, OUT)
+    expect(OUT[0]).toBeCloseTo(0.6, 12)
+    expect(OUT[1]).toBeCloseTo(0.8, 12)
+  })
+
+  it('垂直下墜時沿用機首水平方向', () => {
+    torpedoHeading(0, 0, 0, -1, OUT)
+    expect(OUT[0]).toBe(0)
+    expect(OUT[1]).toBe(-1)
+  })
+
+  /**
+   * 【等號那一點走機首】`stepAir` 寫的是 `if (hl > 1e-9)` —— 恰好等於門檻時
+   * **不**正規化。這一條殺的是把它寫成 `>=` 的變異：`stepAir` 也呼叫這一支，
+   * 改錯就是改到模擬，而 `spawn-baseline` 的三個場景沒有魚雷、接不住。
+   */
+  it('水平速度恰好等於門檻時走機首', () => {
+    const hl = 1e-9
+    torpedoHeading(hl, 0, 0, -1, OUT)
+    expect(OUT[0]).toBe(0)
+    expect(OUT[1]).toBe(-1)
+  })
+
+  it('水平速度略大於門檻時正規化', () => {
+    torpedoHeading(1e-8, 0, 0, -1, OUT)
+    expect(OUT[0]).toBeCloseTo(1, 12)
+    expect(OUT[1]).toBeCloseTo(0, 12)
+  })
+
+  it('不配置 —— 就地寫進呼叫端給的陣列', () => {
+    const before = OUT
+    torpedoHeading(1, 0, 0, -1, OUT)
+    expect(OUT).toBe(before)
+  })
+})
+
+/**
+ * 【垂直入水走機首，而且要走得到 `Torpedoes.step`】`torpedoHeading` 的單元
+ * 測試只驗那支純函數；這一條驗的是 `stepAir` 真的把退化分支接上去了。
+ *
+ * `spawn-baseline` 的三個場景沒有魚雷，所以逐位元重播接不住這條路徑。
+ */
+describe('垂直入水', () => {
+  it('水平速度為零時，水中航向是投放瞬間的機首方向', () => {
+    const pool = new Torpedoes()
+    // 機首朝 +X，但速度是純垂直的 —— 只有退化分支答得出航向
+    const slot = pool.spawn(0, 60, 0, 0, -50, 0, DAMAGE, 1, 0)
+    let entered = false
+    for (let i = 0; i < 240 * 10 && !entered; i++) {
+      pool.step(
+        DT, K, SEA, SEA,
+        () => {},
+        () => { entered = true },
+        () => {},
+      )
+    }
+    expect(entered).toBe(true)
+    expect(pool.headX[slot]).toBe(1)
+    expect(pool.headZ[slot]).toBe(0)
+    // 水中速度由航向乘上雷速 —— 證明航向真的被拿去用了
+    expect(pool.vx[slot]).toBeCloseTo(TORPEDO_SPEED, 9)
+    expect(pool.vz[slot]).toBeCloseTo(0, 9)
   })
 })
