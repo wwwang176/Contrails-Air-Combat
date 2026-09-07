@@ -25,7 +25,7 @@
  * 【為什麼要關閉對照】若把這一層關掉、判準卻沒有變差，代表判準沒有量到
  * 這一層 —— 那條讓「這個缺陷是真的」可證偽。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
@@ -194,11 +194,19 @@ function withYieldTime<T>(seconds: number, fn: () => T): T {
 }
 
 describe(`甜蜜區偏置不得擋住扳機（109 交 AI、敵機正前方 ${RANGE} m、預瞄點在下方 ${DROP_DEG}°）`, () => {
-  const on = withYieldTime(DEFAULT_STEER.sweetYieldTime, run)
-  const off = withYieldTime(0, run)
+  // 【模擬放 beforeAll，不放 describe 本體】放本體會在收集階段就跑，
+  // reporter 記不到它的時間，而且 `.skip` 與 `-t` 過濾都擋不住它
+  let on: Shot
+  let off: Shot
+  beforeAll(() => {
+    on = withYieldTime(DEFAULT_STEER.sweetYieldTime, run)
+    off = withYieldTime(0, run)
+  }, 5 * 60 * 1000)
 
-  for (const [name, r] of [['讓位開', on], ['讓位關', off]] as const) {
+  // 收集階段 on / off 還沒有值，所以用取值函數延後到 it 執行時再讀
+  for (const [name, pick] of [['讓位開', () => on], ['讓位關', () => off]] as const) {
     it(`${name}：場景成立 —— 兩架全程活著、取樣夠、安全層沒有主導`, () => {
+      const r = pick()
       expect(r.bothAlive, '兩架飛機要全程活著').toBe(true)
       expect(r.samples).toBeGreaterThanOrEqual(200)
       // 【確認不是別層把機首帶進去的】安全層會覆寫整個瞄準方向

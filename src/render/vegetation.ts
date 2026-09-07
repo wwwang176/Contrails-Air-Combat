@@ -258,8 +258,11 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 但那個數字對「村剛好在圈心」很敏感。三個池加起來也才 180 個實例。
  *
  * 溢位時丟掉並記一次告警，不靜默截斷。
+ *
+ * 匯出是給測試的哨兵容量用的：哨兵取兩張圖容量的最大值再乘 2，跟著這裡走，
+ * 測試裡不另外寫死一份數字。
  */
-const CAPACITY: Record<PoolName, number> = {
+export const CAPACITY: Record<PoolName, number> = {
   broadNear: 2800,     // 掃描最大 2,056
   coneNear: 1300,      // 913
   broadMid: 24100,     // 17,786
