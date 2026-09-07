@@ -347,8 +347,9 @@ describe('applySafety', () => {
   })
 
   it('海面高度不是 0 時一併考慮', () => {
-    // 未來加入地形時，seaHeight 會換成該點的地表高度
-    const a = diving(200, 200, -60)
+    // 未來加入地形時，seaHeight 會換成該點的地表高度。
+    // TAS 180：200 在 200 m 的 IAS 已過 P-51 的黃線（0.88），守線會先收油門
+    const a = diving(200, 180, -60)
     clean()
     expect(applySafety(a, 0, cmd)).toBe('ground')
     clean()
@@ -607,15 +608,32 @@ describe('超速守線', () => {
     return divingSpec(A6M5, 3000, ias / Math.sqrt(air.sigma), gammaDeg)
   }
 
-  it('r = 0.91 且俯衝中 → overspeed：收油門、抬到平飛', () => {
+  it('r = 0.91 且俯衝中 → overspeed：收油門、俯仰夾到水平、方位保留', () => {
     const a = overspeeding(0.91, -20)
     const cmd = createCommand()
+    // 上層要它朝右前下方追
+    cmd.aimWorld.set(0.6, -0.5, -0.6).normalize()
+    const before = cmd.aimWorld.clone()
     expect(applySafety(a, 0, cmd)).toBe('overspeed')
     expect(cmd.throttle).toBe(0)
     // 不煞車：停在 0.90 會留在目標上方等它爬回來；衝到 0.98 只剩 15% 權限，
     // 跟不上目標的轉彎才是設計要的
     expect(cmd.brake).toBe(0)
-    expect(cmd.aimWorld.y).toBeGreaterThanOrEqual(-1e-9)
+    expect(cmd.aimWorld.y).toBeCloseTo(0, 9)
+    // 方位跟原本的瞄準點一樣 —— 繼續朝敵人轉，只是不再往下
+    const hb = Math.hypot(before.x, before.z)
+    expect(cmd.aimWorld.x).toBeCloseTo(before.x / hb, 9)
+    expect(cmd.aimWorld.z).toBeCloseTo(before.z / hb, 9)
+    expect(cmd.aimWorld.length()).toBeCloseTo(1, 9)
+  })
+
+  it('r = 0.91 但瞄準點本來就在水平以上 → 瞄準點不動', () => {
+    const a = overspeeding(0.91, -20)
+    const cmd = createCommand()
+    cmd.aimWorld.set(0.6, 0.3, -0.6).normalize()
+    const before = cmd.aimWorld.clone()
+    expect(applySafety(a, 0, cmd)).toBe('overspeed')
+    expect(cmd.aimWorld.equals(before)).toBe(true)
   })
 
   it('r = 0.91 但正在爬升 → none（只擋往下）', () => {
@@ -623,8 +641,18 @@ describe('超速守線', () => {
     expect(applySafety(a, 0, createCommand())).toBe('none')
   })
 
-  it('r = 0.88 俯衝中 → none（門檻是 0.90）', () => {
+  it('r = 0.88 俯衝中 → 黃線：只收油門，瞄準點不動', () => {
     const a = overspeeding(0.88, -20)
+    const cmd = createCommand()
+    cmd.aimWorld.set(0.6, -0.5, -0.6).normalize()
+    const before = cmd.aimWorld.clone()
+    expect(applySafety(a, 0, cmd)).toBe('overspeed')
+    expect(cmd.throttle).toBe(0)
+    expect(cmd.aimWorld.equals(before)).toBe(true)
+  })
+
+  it('r = 0.84 俯衝中 → none（黃線是 0.85）', () => {
+    const a = overspeeding(0.84, -20)
     expect(applySafety(a, 0, createCommand())).toBe('none')
   })
 

@@ -50,6 +50,7 @@ import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
 import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
+import { THROTTLE_RATE } from '../input/throttle'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -353,6 +354,8 @@ export class AiController implements Controller {
    */
   mode: SteerMode = 'normal'
   safetyActive = false
+  /** 上一格送出的油門。NaN = 還沒送過，第一格直接用命令值。見 `emit` */
+  private lastThrottle = NaN
   /**
    * 安全層這一格接管了哪一種：`'none'` / `'ground'`（撞地）/ `'stall'`（失速）。
    *
@@ -906,6 +909,15 @@ export class AiController implements Controller {
     }
     this.safetyAction = applySafety(self, floor, out, undefined, sense)
     this.safetyActive = this.safetyAction !== 'none'
+    // 【油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE 推的，
+    // AI 直接寫值等於瞬間收滿或推滿 —— 守線那一格看起來像引擎被關掉。
+    // 排在安全層之後：硬接管給的油門也照樣用同一個速率走到位。
+    if (Number.isNaN(this.lastThrottle)) this.lastThrottle = out.throttle
+    const step = THROTTLE_RATE * dt
+    const d = out.throttle - this.lastThrottle
+    if (d > step) out.throttle = this.lastThrottle + step
+    else if (d < -step) out.throttle = this.lastThrottle - step
+    this.lastThrottle = out.throttle
   }
 
   /**
