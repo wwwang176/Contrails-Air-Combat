@@ -111,14 +111,14 @@ runY: Float64Array
 runCount: number
 ```
 
-- [ ] **Step 1:** 加欄位與註解；`createHudFrame` 的預設值（`releaseEnv: null`、`releaseAgl: 0`、兩個 `Float64Array(TORPEDO_RUN_SAMPLES)`、`runCount: 0`）
-- [ ] **Step 2: 加一條新測試給陣列。** 既有的「初始值不含 NaN」是
+- [x] **Step 1:** 加欄位與註解；`createHudFrame` 的預設值（`releaseEnv: null`、`releaseAgl: 0`、兩個 `Float64Array(TORPEDO_RUN_SAMPLES)`、`runCount: 0`）
+- [x] **Step 2: 加一條新測試給陣列。** 既有的「初始值不含 NaN」是
       `for (const v of Object.values(f)) if (typeof v === 'number')` ——
       **`Float64Array` 是物件，整個被跳過**。長度少一格或元素是 NaN 都不會紅，
       而 typed array 越界寫入不拋例外，症狀是末段航跡與末端刻度**靜靜消失**。
       新測試要明寫：`runX.length === runY.length === TORPEDO_RUN_SAMPLES`，
       且兩條陣列**逐元素**都是有限值
-- [ ] **Step 3:** 這一步**不畫任何東西**，全套綠、tsc 不增行
+- [x] **Step 3:** 這一步**不畫任何東西**，全套綠、tsc 不增行
 
 **Verification:** mutation —— 把 `Float64Array(TORPEDO_RUN_SAMPLES)` 改成 `Float64Array(TORPEDO_RUN_SAMPLES - 1)` 之後，Step 2 那條必須紅（既有那條不會）。`HudFrame` 是 `Record` 型別的消費者之一，漏掉預設值是編譯錯誤。
 
