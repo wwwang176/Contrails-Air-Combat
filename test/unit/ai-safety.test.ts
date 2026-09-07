@@ -5,12 +5,24 @@ import { createCommand } from '../../src/control/Controller'
 import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
+import { A6M5 } from '../../src/specs/a6m5'
+import { atmosphere } from '../../src/physics/atmosphere'
 import { DEG, G0 } from '../../src/core/math'
 import type { TerrainSense } from '../../src/ai/terrainSense'
+import type { AircraftSpec } from '../../src/specs/types'
 
-/** 讓飛機以 tas 沿 dir 飛，位於 altitude。 */
+/**
+ * 讓 P-51 以 tas 沿 dir 飛，位於 altitude。
+ *
+ * 【要驗「不介入」的案例 TAS 用 200】250 m/s 在 4000 m 的 IAS 已是 P-51 紅線的
+ * 0.91、在 200 m 是 1.1 —— 會先被超速守線接管，量到的不是撞地那條規則。
+ */
 function diving(altitude: number, tas: number, gammaDeg: number): Aircraft {
-  const a = new Aircraft(P51D, altitude, tas)
+  return divingSpec(P51D, altitude, tas, gammaDeg)
+}
+
+function divingSpec(spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number): Aircraft {
+  const a = new Aircraft(spec, altitude, tas)
   const g = gammaDeg * DEG
   const dir = new Vector3(0, Math.sin(g), -Math.cos(g))
   a.state.position.set(0, altitude, 0)
@@ -280,7 +292,7 @@ describe('applySafety', () => {
   })
 
   it('巡航高度陡俯衝 → 不介入（高度夠，拉得起來）', () => {
-    const a = diving(4000, 250, -60)
+    const a = diving(4000, 200, -60)
     clean()
     expect(applySafety(a, 0, cmd)).toBe('none')
   })
@@ -336,7 +348,7 @@ describe('applySafety', () => {
 
   it('海面高度不是 0 時一併考慮', () => {
     // 未來加入地形時，seaHeight 會換成該點的地表高度
-    const a = diving(200, 250, -60)
+    const a = diving(200, 200, -60)
     clean()
     expect(applySafety(a, 0, cmd)).toBe('ground')
     clean()
@@ -528,7 +540,7 @@ describe('applySafety —— 地形的橫向規避', () => {
    * 這一條把那個結構釘住 —— 有人把它搬出去就會紅。
    */
   it('高度夠、根本不需要拉起時，給了 turn 也不介入', () => {
-    const a = diving(4000, 250, -10)
+    const a = diving(4000, 200, -10)
     cmd.aimWorld.set(0, -0.2, -0.98).normalize()
     expect(applySafety(a, 0, cmd, undefined, sense(0.5))).toBe('none')
   })
@@ -578,5 +590,49 @@ describe('applySafety —— 地形的橫向規避', () => {
     expect(Object.is(cmd.aimWorld.z, z1)).toBe(true)
     expect(Object.is(cmd.throttle, t1)).toBe(true)
     expect(Object.is(cmd.brake, b1)).toBe(true)
+  })
+})
+
+/**
+ * 超速守線：俯衝到 0.9 vne 就收油門抬平。
+ *
+ * 【它擋的是「追進紅線、拉不起來、撞海」】拉起的閉式解假設 `gPositive` 全部
+ * 可用；紅線因子在 r = 1 只剩 10% 操縱權限，那個假設整個失效。
+ */
+describe('超速守線', () => {
+  /** 讓一台 A6M5 在 3000 m 以給定的 IAS / vne 比值飛 */
+  function overspeeding(ratio: number, gammaDeg: number): Aircraft {
+    const air = atmosphere(3000, { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 })
+    const ias = ratio * A6M5.limits.vne
+    return divingSpec(A6M5, 3000, ias / Math.sqrt(air.sigma), gammaDeg)
+  }
+
+  it('r = 0.91 且俯衝中 → overspeed：收油門、抬到平飛', () => {
+    const a = overspeeding(0.91, -20)
+    const cmd = createCommand()
+    expect(applySafety(a, 0, cmd)).toBe('overspeed')
+    expect(cmd.throttle).toBe(0)
+    expect(cmd.aimWorld.y).toBeGreaterThanOrEqual(-1e-9)
+  })
+
+  it('r = 0.91 但正在爬升 → none（只擋往下）', () => {
+    const a = overspeeding(0.91, 10)
+    expect(applySafety(a, 0, createCommand())).toBe('none')
+  })
+
+  it('r = 0.88 俯衝中 → none（門檻是 0.90）', () => {
+    const a = overspeeding(0.88, -20)
+    expect(applySafety(a, 0, createCommand())).toBe('none')
+  })
+
+  it('撞地與超速同時成立時撞地贏', () => {
+    const a = overspeeding(0.95, -60)
+    a.state.position.y = 150
+    expect(applySafety(a, 0, createCommand())).toBe('ground')
+  })
+
+  it('起始設定：規則 3 的俯衝目標不得高於守線', () => {
+    // 俯衝目標比守線高的話，脫離的一方會自己撞進安全層，兩層打架
+    expect(DEFAULT_STEER.diveSelfRatio).toBeLessThanOrEqual(DEFAULT_SAFETY.overspeedRatio)
   })
 })
