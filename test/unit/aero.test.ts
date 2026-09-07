@@ -4,6 +4,7 @@ import {
   liftCoefficient, dragCoefficient, inducedDragFactor, controlEffectiveness,
   lowSpeedEffectiveness, stallDynamicPressure, LOW_SPEED_KNEE,
   redlineEffectiveness, REDLINE_KNEE, REDLINE_K,
+  redlinePitchEffectiveness, REDLINE_PITCH_FLOOR,
   updateSlatState, computeAeroState, aeroForceMoment,
 } from '../../src/physics/aero'
 import { stallSpeed } from '../../src/analysis/envelope'
@@ -592,6 +593,36 @@ describe('redlineEffectiveness', () => {
     // 4000 m 的密度比約 0.67：TAS = vne 時 IAS 只有 0.82 vne，還在膝點以下
     const qbarHigh = 0.5 * air(4000).density * vne * vne
     expect(redlineEffectiveness(vne, qbarHigh)).toBe(1)
+  })
+
+  it('升降舵有 30% 的底：紅線之後桿還壓得住，不會被機體配平自己拉起', () => {
+    expect(redlinePitchEffectiveness(vne, q(0.5 * vne))).toBe(1)
+    expect(redlinePitchEffectiveness(vne, q(0.90 * vne))).toBeCloseTo(redlineEffectiveness(vne, q(0.90 * vne)), 9)
+    expect(redlinePitchEffectiveness(vne, q(vne))).toBe(REDLINE_PITCH_FLOOR)
+    expect(redlinePitchEffectiveness(vne, q(1.3 * vne))).toBe(REDLINE_PITCH_FLOOR)
+  })
+
+  it('aeroForceMoment：紅線上滾轉力矩掉到一成、俯仰力矩只掉到三成', () => {
+    // 同一台 P-51D、同一個動壓，只打舵：比較膝點與紅線兩處的舵面力矩
+    // 海平面、機首平飛、只打一個舵：舵面力矩的大小。機體自己的俯仰力矩
+    // （cm0）不打舵也在，要扣掉不打舵的基準才是舵面的貢獻
+    const moment = (ias: number, controls: { aileron: number; elevator: number }): number => {
+      const s = computeAeroState(new Vector3(0, 0, -ias), air(0), aeroOut())
+      const base = aeroForceMoment(P51D, s, new Vector3(), NO_CONTROL, false, fmOut()).moment.clone()
+      const fm = aeroForceMoment(P51D, s, new Vector3(), { ...NO_CONTROL, ...controls }, false, fmOut())
+      return fm.moment.sub(base).length()
+    }
+    const vneP = P51D.limits.vne
+    const rollKnee = moment(REDLINE_KNEE * vneP, { aileron: 1, elevator: 0 })
+    const rollLine = moment(vneP, { aileron: 1, elevator: 0 })
+    const pitchKnee = moment(REDLINE_KNEE * vneP, { aileron: 0, elevator: 1 })
+    const pitchLine = moment(vneP, { aileron: 0, elevator: 1 })
+    // 動壓本身由 0.85² 長到 1，力矩要先除掉那個比例才看得到舵面因子
+    const qGrow = 1 / (REDLINE_KNEE * REDLINE_KNEE)
+    const stiff = (k: number) => controlEffectiveness(k, P51D.controlStiffening.qRef, q(vneP))
+      / controlEffectiveness(k, P51D.controlStiffening.qRef, q(REDLINE_KNEE * vneP))
+    expect(rollLine / rollKnee / qGrow / stiff(P51D.controlStiffening.aileronK)).toBeCloseTo(0.10, 2)
+    expect(pitchLine / pitchKnee / qGrow / stiff(P51D.controlStiffening.elevatorK)).toBeCloseTo(REDLINE_PITCH_FLOOR, 2)
   })
 
   it('在 aeroForceMoment 裡是乘在 controlEffectiveness 後面，不是取代', () => {

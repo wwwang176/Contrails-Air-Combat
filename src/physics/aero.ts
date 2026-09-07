@@ -158,6 +158,24 @@ export function redlineEffectiveness(vne: number, qbar: number): number {
 }
 
 /**
+ * 俯仰軸的紅線因子下限。滾轉與偏航照 `redlineEffectiveness` 掉到 10%，
+ * 升降舵最低留 30%。
+ *
+ * 【壞掉會怎樣】升降舵也掉到 10% 的話，過了紅線桿推到底等於沒推，接管的是
+ * 機體自己的配平 —— 靜穩定性把它拉回配平攻角，在那個速度下就是 1.5～2 G
+ * 的自動拉起。實測零戰 45° 俯衝到 1.2 vne，桿推到底航跡角照樣由 −44°
+ * 抬到 +20°：懲罰變成了「飛機替你做動作」。史實上零戰高速時鎖死的是副翼
+ * （`aileronK` 0.55 對 `elevatorK` 0.22），升降舵是重、不是死。
+ */
+export const REDLINE_PITCH_FLOOR = 0.30
+
+/** 升降舵的紅線因子：`redlineEffectiveness` 夾在 `REDLINE_PITCH_FLOOR` 以上 */
+export function redlinePitchEffectiveness(vne: number, qbar: number): number {
+  const red = redlineEffectiveness(vne, qbar)
+  return red < REDLINE_PITCH_FLOOR ? REDLINE_PITCH_FLOOR : red
+}
+
+/**
  * 拐點動壓相對 1 G 失速動壓的倍率。**1.2² = 1.44** —— 拐點在 1.2 × Vs。
  *
  * 【為什麼是 1.2】實測纏鬥不會發生在 1.44 × Vs 以下（最佳持續轉彎
@@ -273,10 +291,11 @@ export function aeroForceMoment(
   //
   // 三軸乘同一個因子：不做副翼／升降舵／方向舵的差異化。
   const low = lowSpeedEffectiveness(spec, aero.qbar)
-  // 【紅線因子三軸同一個值】與低速衰減同一條原則，不做軸的差異化
+  // 【紅線因子】滾轉與偏航掉到 10%；升降舵留 30% 的底，見 REDLINE_PITCH_FLOOR
   const red = redlineEffectiveness(spec.limits.vne, aero.qbar)
+  const redPitch = red < REDLINE_PITCH_FLOOR ? REDLINE_PITCH_FLOOR : red
   const da = controls.aileron * low * red * controlEffectiveness(CS.aileronK, CS.qRef, aero.qbar)
-  const de = controls.elevator * low * red * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
+  const de = controls.elevator * low * redPitch * controlEffectiveness(CS.elevatorK, CS.qRef, aero.qbar)
   const dr = controls.rudder * low * red * controlEffectiveness(CS.rudderK, CS.qRef, aero.qbar)
 
   const M = spec.moments
