@@ -6,8 +6,9 @@ import type { Team } from './World'
  * # 打擊目標的視圖
  *
  * AI 的攻擊航路（`ai/strikeRun.ts`）與投放判斷（`ai/bombRun.ts`、
- * `ai/torpedoRun.ts`）只讀這幾格。船與地面目標各自滿足它：地面目標直接
- * 就是（`groundTargets.ts`），船靠 `ai/shipStrikeView.ts` 的視圖物件。
+ * `ai/torpedoRun.ts`）只讀這幾格。`Ship` 與 `GroundTarget` 都直接滿足它，
+ * 沒有轉接物件：船的 `hull`／`impactY`／`value` 是艦級資料的複本，建船時
+ * 填一次（`ships.ts`）。
  *
  * 【`orientation` 直接透傳，不從 heading 重算】三角函數與四元數的浮點
  * 結果不保證逐位元相同，而船那條路的基準是逐位元的

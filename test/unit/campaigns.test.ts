@@ -170,3 +170,31 @@ describe('炸毀任務', () => {
     }
   })
 })
+
+describe('盟 M2 的卡片', () => {
+  const m2 = ALL.find((m) => m.id === 'allies-m2') as ReadyMissionCard
+
+  /** 【釘住精確的資料】通用的護欄只擋「有廠區才要求炸毀」；這裡釘的是這一關本身 */
+  it('十二座構件、八座砲位、卡車；炸毀六座；洛伊納、十一月正午', () => {
+    const b = m2.battle
+    const units = b.ground!.map((e) => e.unit)
+    expect(units.filter((u) => u === 'flakHeavy')).toHaveLength(8)
+    expect(units.filter((u) => u === 'truck').length).toBeGreaterThan(0)
+    const plant = units.filter((u) => u !== 'flakHeavy' && u !== 'truck')
+    expect(plant).toHaveLength(12)
+    expect(b.ground!.every((e) => e.team === 'red')).toBe(true)
+    expect(b.destroyCount).toBe(6)
+    expect(b.terrain).toBe('leuna')
+    expect(b.timeOfDay).toBe('novemberNoon')
+    expect(b.blueSpec.id).toBe('b17g')
+    expect(b.blueCount).toBe(4)
+  })
+
+  it('第二批恰好四架 Bf 109，從後方（starboard = π）', () => {
+    const waves = m2.battle.waves!
+    expect(waves).toHaveLength(1)
+    expect(waves[0]!.count).toBe(4)
+    expect(waves[0]!.spec.id).toBe('bf109k4')
+    expect(waves[0]!.starboard).toBe(Math.PI)
+  })
+})

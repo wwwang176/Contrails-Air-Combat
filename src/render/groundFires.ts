@@ -88,9 +88,3 @@ export function stepGroundFires(fires: GroundFires, dt: number, puff: FirePuffFn
   }
 }
 
-/** 還在燒的火點數。給測試與除錯列 */
-export function groundFiresLive(fires: GroundFires): number {
-  let n = 0
-  for (let i = 0; i < fires.capacity; i++) if (fires.live[i] !== 0) n++
-  return n
-}

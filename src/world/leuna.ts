@@ -67,7 +67,7 @@ export const LEUNA_HILLS = [
 ] as const
 
 /**
- * 預定砲位。**這一版是不還手的靶**：打得掉、算進炸毀的計數，但不瞄不射。
+ * 預定砲位。**是不還手的靶**：打得掉、算進炸毀的計數，但不瞄不射。
  * 環繞廠區 2.4 到 3.2 km，全部在墊面外。
  */
 export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] = [

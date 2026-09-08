@@ -608,10 +608,14 @@ function emitGroundKills(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
-    emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
-      (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
-    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數。炸彈落點的火球與碎片
-    // 由 `emitBombBlasts` 負責 —— 這裡只點火，不再放第二次爆炸
+    // 【炸彈擊毀不放第二次爆炸】`ny` 是兇手：−1 = 炸彈，那一顆的落點事件
+    // 已經在 `emitBombBlasts` 放過火球與碎片；子彈擊毀沒有落點事件，這裡
+    // 才放一團
+    if (d[o + 4]! >= 0) {
+      emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+        (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+    }
+    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數
     const t = world.groundTargets[d[o + 3]!]
     const top = t === undefined ? 0 : t.impactY - t.position.y
     lightGroundFire(groundFires, d[o]!, d[o + 1]! + top * 0.3, d[o + 2]!)

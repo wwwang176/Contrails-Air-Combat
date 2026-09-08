@@ -575,7 +575,7 @@ const RETREAT_DISTANCE = 12000
  */
 /**
  * 洛伊納的廠區與預定砲位，世界座標。佈局在 `world/leuna.ts`，這裡只把相對
- * 偏移換成絕對座標。砲位這一版是不還手的靶（`groundTargets.ts` 檔頭）。
+ * 偏移換成絕對座標。砲位是不還手的靶（`groundTargets.ts` 檔頭）。
  */
 const LEUNA_GROUND: readonly GroundEntry[] = [
   ...PLANT_LAYOUT.map((p): GroundEntry => ({
@@ -624,7 +624,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 十一月的正午：太陽低、天色灰（`render/timeOfDay.ts`）
         timeOfDay: 'novemberNoon',
         ground: LEUNA_GROUND,
-        // 【炸毀任意六座】廠區十二座構件加八座砲位。**起始值，由試飛裁定**
+        // 【炸毀任意六座】計數的池是廠區十二座構件、八座砲位與卡車 —— 全部
+        // 都是敵方的地面目標。**起始值**
         destroyCount: 6,
         waves: [{
           when: { kind: 'clock', at: 90 },
@@ -632,7 +633,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           warnLead: 5,
           side: 'theirs', spec: BF109K4, count: 4,
           // 【從後方】對應突擊大隊從尾部衝進轟炸箱。省略的話沿用紅方的正面
-          // 進場，會生在前方反向飛來。**起始值**
+          // 進場，會生在前方反向飛來
           starboard: Math.PI,
         }],
       },
