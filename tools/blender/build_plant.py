@@ -245,17 +245,25 @@ class Builder:
             self.mats.append(material)
         return i
 
-    def add(self, verts, faces, material, loc, rz_deg=0.0, rx_deg=0.0):
-        """把一組頂點先繞 X、再繞 Z 轉，平移到 `loc`，累積進來"""
+    def add(self, verts, faces, material, loc, rz_deg=0.0, rx_deg=0.0, ry_deg=0.0):
+        """把一組頂點依 X → Y → Z 的次序轉，平移到 `loc`，累積進來。
+
+        【`ry` 是給立面上的斜件用的】`rx = 90` 把一片平面立起來之後，要讓它
+        在自己的立面裡傾斜就只能繞 Y —— 桁架的斜撐就是這樣擺的。
+        """
         base = len(self.verts)
         mi = self._mat(material)
         cz, sz = math.cos(math.radians(rz_deg)), math.sin(math.radians(rz_deg))
         cx, sx = math.cos(math.radians(rx_deg)), math.sin(math.radians(rx_deg))
+        cy, sy = math.cos(math.radians(ry_deg)), math.sin(math.radians(ry_deg))
         lx, ly, lz = loc
         for x, y, z in verts:
-            y2 = y * cx - z * sx
-            z2 = y * sx + z * cx
-            self.verts.append((x * cz - y2 * sz + lx, x * sz + y2 * cz + ly, z2 + lz))
+            y1 = y * cx - z * sx
+            z1 = y * sx + z * cx
+            x2 = x * cy + z1 * sy
+            z2 = -x * sy + z1 * cy
+            y2 = y1
+            self.verts.append((x2 * cz - y2 * sz + lx, x2 * sz + y2 * cz + ly, z2 + lz))
         for f in faces:
             self.faces.append(tuple(base + i for i in f))
             self.face_mat.append(mi)
@@ -309,7 +317,7 @@ def plane_mesh(sx, sy, off=0.0):
     return ([(-hx, -hy, off), (hx, -hy, off), (hx, hy, off), (-hx, hy, off)], [(0, 1, 2, 3)])
 
 
-def add_plane(b, name, mtl, cx, cy, cz, sx, sy, rz=0.0, rx=0.0, two_sided=False):
+def add_plane(b, name, mtl, cx, cy, cz, sx, sy, rz=0.0, rx=0.0, two_sided=False, ry=0.0):
     """一片四邊形。盒子是十二個三角形，這個是兩個。
 
     【單面，背面會被剔除】遊戲那邊的材質是預設的 FrontSide，所以只能用在
@@ -321,10 +329,10 @@ def add_plane(b, name, mtl, cx, cy, cz, sx, sy, rz=0.0, rx=0.0, two_sided=False)
     而兩片重疊在同一個平面上會閃爍。
     """
     v, f = plane_mesh(sx, sy)
-    b.add(v, f, mtl, (cx, cy, cz), rz, rx)
+    b.add(v, f, mtl, (cx, cy, cz), rz, rx, ry)
     if two_sided:
         v2, _ = plane_mesh(sx, sy, -0.2)
-        b.add(v2, [(3, 2, 1, 0)], mtl, (cx, cy, cz), rz, rx)
+        b.add(v2, [(3, 2, 1, 0)], mtl, (cx, cy, cz), rz, rx, ry)
 
 
 def add_box(b, name, mtl, cx, cy, cz, sx, sy, sz, rz=0.0, rx=0.0):
@@ -454,6 +462,11 @@ def truss_tower(col, dx, dz, size, layers, seed):
             add_cyl(col, 'truss_leg', frame, dx + sx * (h - 0.35), -(dz + sz * (h - 0.35)),
                     0.0, 0.45, 0.45, top, 3)
             n += 1
+    # 斜撐的一段：由樓板下緣 0.4 m 起到上一層。**不從 0 起** —— 帶子是斜的，
+    # 兩端還要各多出半個寬度，從 0 起的話最低點會落到地面以下
+    rise = FLOOR_H - 0.4
+    brace_len = math.hypot(size, rise)
+    brace_deg = math.degrees(math.atan2(rise, size))
     for f in range(1, layers + 1):
         y = f * FLOOR_H
         add_plane(col, 'truss_deck', steel, dx, -dz, y, size, size)
@@ -462,6 +475,16 @@ def truss_tower(col, dx, dz, size, layers, seed):
         add_plane(col, 'truss_stair', frame, dx + d * (h - 1), -dz,
                   y - FLOOR_H / 2 + 0.3, 1.2, FLOOR_H * 1.4, 0.0, d * 45)
         n += 2
+        # 【四個立面各一道斜撐】只有柱與樓板的話，從側面看是一個層板架 ——
+        # 桁架之所以看得出是桁架，靠的是那些三角形。逐層逐面交替方向，繞著
+        # 塔看是一圈鋸齒而不是四道同向的斜線
+        for k, (ox, oz, face) in enumerate((
+            (0.0, h, 0.0), (h, 0.0, 90.0), (0.0, -h, 180.0), (-h, 0.0, 270.0),
+        )):
+            tilt = brace_deg if (f + k) % 2 == 0 else -brace_deg
+            add_plane(col, 'truss_brace', frame, dx + ox, -(dz + oz),
+                      y - rise / 2, brace_len, 0.5, face, 90.0, False, tilt)
+            n += 1
     add_plane(col, 'truss_top', steel, dx, -dz, top + 0.2, size * 0.8, size * 0.8)
     add_cyl(col, 'truss_vent', grime_mat(seed + 1), dx + h * 0.5, -dz, top, 0.5, 0.5,
             top * 0.25, 3)
