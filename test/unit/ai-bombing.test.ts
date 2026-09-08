@@ -14,8 +14,8 @@ import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bom
 import type { BombState, Impact } from '../../src/world/bomb'
 import { A6M5 } from '../../src/specs/a6m5'
 import {
-  BOMB_PROFILE, RELEASE_BEAMS, createBombAim, deckHeightOf, releaseRadiusOf,
-  setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
+  BOMB_PROFILE, RELEASE_HULLS, RUN_SETTLE, createBombAim, deckHeightOf, insideWindow,
+  releaseWindowOf, setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
 } from '../../src/ai/bombRun'
 import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
@@ -176,39 +176,46 @@ describe('applySafety 取消投彈', () => {
 const K = bombDragK(BOMB_TERMINAL_SPEED)
 const DT = 1 / 240
 
-describe('releaseRadiusOf', () => {
-  it('是船寬乘上 RELEASE_BEAMS', () => {
-    expect(releaseRadiusOf(SHIP_CLASSES.fletcher)).toBeCloseTo(12.08 * RELEASE_BEAMS, 6)
-    expect(releaseRadiusOf(SHIP_CLASSES.wichita)).toBeCloseTo(18.82 * RELEASE_BEAMS, 6)
+describe('releaseWindowOf', () => {
+  /**
+   * 【窗是方的，不是圓的】艦體細長：弗萊徹半長 57.4 m 對半寬 6.04 m，
+   * 差 9.5 倍。用一個圓去比的話，取大的會投一堆從船頭前面擦過去的彈、
+   * 取小的則正橫進場永遠不准投。
+   *
+   * 【為什麼是艦體的兩倍】判準是**玩起來好不好玩**，不是命中率。放寬到
+   * 兩倍讓 AI 願意投，投出去中不中交給彈道 —— 傷害判定一個字都不動。
+   */
+  it('是艦體半長半寬的 RELEASE_HULLS 倍', () => {
+    const w = releaseWindowOf(SHIP_CLASSES.fletcher)
+    expect(w.along).toBeCloseTo(57.4 * RELEASE_HULLS, 6)
+    expect(w.across).toBeCloseTo(6.04 * RELEASE_HULLS, 6)
   })
 
   /**
-   * 【釋放半徑已經大過殺傷半徑，這是刻意的】500 kg 的殺傷半徑是 39 m，而
-   * 只有驅逐艦的釋放半徑（36.2 m）落在它裡面。窗口邊緣放手的那一顆對巡洋艦
-   * 與航母一定不會造成傷害 —— AI 早一點投、飛得順一點比命中率重要。
-   *
-   * 【那上界呢】改由**船的長度**當上界：釋放半徑超過半個艦身的話，那顆彈
-   * 連「朝著這艘船去的」都稱不上。
+   * 【窗遠大於殺傷半徑，這是刻意的】500 kg 的殺傷半徑是 39 m，而弗萊徹
+   * 沿船身的窗有 114.8 m。窗口邊緣放手的那一顆一定不會造成傷害 ——
+   * AI 願意投、飛得順比命中率重要。
    */
-  it('驅逐艦仍在殺傷半徑內，大船刻意超出', () => {
-    const blast = blastRadiusOf(11_700)
-    expect(releaseRadiusOf(SHIP_CLASSES.fletcher)).toBeLessThanOrEqual(blast)
-    expect(releaseRadiusOf(SHIP_CLASSES.wichita)).toBeGreaterThan(blast)
-  })
-
-  it('不超過半個艦身 —— 再遠就與這艘船無關了', () => {
-    for (const cls of [SHIP_CLASSES.fletcher, SHIP_CLASSES.wichita, SHIP_CLASSES.essex]) {
-      const halfLength = cls.hull[0]!.half.z
-      expect(releaseRadiusOf(cls), cls.id).toBeLessThanOrEqual(halfLength)
-    }
+  it('沿船身的窗遠大於殺傷半徑', () => {
+    expect(releaseWindowOf(SHIP_CLASSES.fletcher).along)
+      .toBeGreaterThan(blastRadiusOf(11_700))
   })
 
   /**
    * 【Essex 取主艦體，不是飛行甲板】它有兩個盒：艦體寬 28.4 m、飛行甲板
-   * 寬 43 m。取極值會讓釋放半徑放大 51%。
+   * 寬 43 m。取極值會讓窗橫向放大 51%。
    */
-  it('Essex 取的是艦體 28.4 m，不是飛行甲板的 43 m', () => {
-    expect(releaseRadiusOf(SHIP_CLASSES.essex)).toBeCloseTo(28.4 * RELEASE_BEAMS, 6)
+  it('Essex 取的是艦體不是飛行甲板', () => {
+    expect(releaseWindowOf(SHIP_CLASSES.essex).across).toBeCloseTo(14.2 * RELEASE_HULLS, 6)
+  })
+
+  /** 【誤差要拆進船的體軸】船是斜的時候，世界座標的差向量沒有意義 */
+  it('窗依船的艏向擺放', () => {
+    // 艏向 90°：船身沿 ±X，所以 X 方向可以差很遠、Z 方向不行
+    const s = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, Math.PI / 2, 0)
+    expect(insideWindow(s, 100, 0)).toBe(true)
+    expect(insideWindow(s, 0, 100)).toBe(false)
+    expect(insideWindow(s, 0, 10)).toBe(true)
   })
 })
 
@@ -297,28 +304,45 @@ describe('shouldRelease', () => {
    * 【落點要落在船體盒內】不是「差不多」—— 弗萊徹半長 57.4 m、半寬 6.04 m，
    * 落在盒內才是真的打中。
    */
-  it('對靜止的船：投得出來，而且落點在船體盒內', () => {
+  it('對靜止的船：投得出來，而且落點在釋放窗內', () => {
     const r = flyUntilRelease(0)
     expect(r.released).toBe(true)
-    const b = SHIP_CLASSES.fletcher.hull[0]!
-    expect(Math.abs(r.impact.x - r.ship.position.x)).toBeLessThanOrEqual(b.half.x)
-    expect(Math.abs(r.impact.z - r.ship.position.z)).toBeLessThanOrEqual(b.half.z)
+    const w = releaseWindowOf(SHIP_CLASSES.fletcher)
+    // 艏向 0：船身沿 Z，所以 z 差比的是 along、x 差比的是 across
+    expect(Math.abs(r.impact.x - r.ship.position.x)).toBeLessThanOrEqual(w.across)
+    expect(Math.abs(r.impact.z - r.ship.position.z)).toBeLessThanOrEqual(w.along)
   })
 
   /**
-   * 【會動的船也要打得中】這一條是外推那一段的正面驗收：船 8 m/s，
-   * 落點必須跟著跑到船屆時的位置上。
+   * 【外推的正面驗收在瞄點上，不在落點上】釋放窗放寬到艦體的兩倍之後，
+   * 落點那一側量不到外推了：船 8 m/s、落彈 14 s 走 112 m，而弗萊徹沿船身的
+   * 窗有 114.8 m —— 把外推整段拿掉，落點仍然落在窗內。
+   *
+   * 瞄點沒有這個問題，它是**船屆時的位置**本身。
+   *
+   * 【期望值就地算，不呼叫 `shipAt`】用同一支函數的話，把外推拿掉的變異會在
+   * 等式兩邊同時生效而自我抵銷 —— 這一條就不再是反證。艏向 0 = 往 −Z。
    */
-  it('對 8 m/s 的船：落點落在它屆時的位置的船體盒內', () => {
-    const r = flyUntilRelease(8)
-    expect(r.released).toBe(true)
-    // 【期望值就地算，不呼叫 `shipAt`】用同一支函數的話，把外推拿掉的變異
-    // 會在等式兩邊同時生效而**自我抵銷** —— 這一條就不再是反證。
-    // 艏向 0 = 往 −Z，所以屆時的位置是 z − 8t。
-    const atZ = r.ship.position.z - 8 * r.impact.seconds
-    const b = SHIP_CLASSES.fletcher.hull[0]!
-    expect(Math.abs(r.impact.x - r.ship.position.x)).toBeLessThanOrEqual(b.half.x)
-    expect(Math.abs(r.impact.z - atZ)).toBeLessThanOrEqual(b.half.z)
+  it('瞄點跟著船外推：8 m/s 的船，瞄點領先它落彈時間 × 船速', () => {
+    const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2500, 0, 8)
+    const a = new Aircraft(G4M)
+    a.state.position.set(0, 1000, 0)
+    a.state.velocity.set(0, 0, -90)
+    const plan = { aim: new Vector3(), lockRange: 0, egressRange: 0 }
+    setBombBallistics(K, DT)
+    BOMB_PROFILE.plan(a, ship, plan)
+
+    const hit: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+    const st: BombState = { x: 0, y: 1000, z: 0, vx: 0, vy: 0, vz: -90 }
+    expect(solveImpact(st, K, () => deckHeightOf(SHIP_CLASSES.fletcher), DT, hit)).toBe(true)
+    expect(plan.aim.z).toBeCloseTo(ship.position.z - 8 * hit.seconds, 6)
+    expect(plan.aim.x).toBeCloseTo(ship.position.x, 9)
+    // 外推的量要真的看得見 —— 14 秒約 112 m
+    expect(ship.position.z - plan.aim.z).toBeGreaterThan(100)
+  })
+
+  it('對 8 m/s 的船也投得出來', () => {
+    expect(flyUntilRelease(8).released).toBe(true)
   })
 
   it('離太遠時不投', () => {
@@ -422,24 +446,49 @@ describe('攻擊航路的狀態機', () => {
    * 裡沿著視線走掉的那一段。船背離時漏掉的量是負的（閘門偏早，不會出事），
    * 迎面時才會把窗口整個推到閘門之外。
    */
-  it('鎖定距離涵蓋投彈窗：船迎面開來也一樣', () => {
+  it('鎖定距離要含船的前置量：船迎面開來時比純前拋遠', () => {
     setBombBallistics(K, DT)
     // 航向 π = 朝 +Z 開，迎著從 +Z 往 −Z 進場的飛機
-    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -6000, Math.PI, 8)
-
-    // 掃出投彈窗的外緣：最遠還放得中的那個距離
-    let open = 0
-    for (let z = -1000; z >= -5000; z -= 10) {
-      if (!shouldRelease(plane(2000, z), sh, K, DT)) continue
-      open = z + 6000
-      break
-    }
-    expect(open).toBeGreaterThan(0)
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -3000, Math.PI, 8)
+    const a = plane(2000, 0)
 
     const st = strike()
     const out = createCommand()
-    stepStrike(st, plane(2000, open - 6000), sh, 0, BOMB_PROFILE, true, true, DT, out)
-    expect(st.plan.lockRange).toBeGreaterThanOrEqual(open)
+    stepStrike(st, a, sh, 0, BOMB_PROFILE, true, true, DT, out)
+
+    // 純前拋：炸彈自己往前飛多遠，與船動不動無關
+    const hit: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+    const bs: BombState = { x: 0, y: 2000, z: 0, vx: 0, vy: 0, vz: -90 }
+    expect(solveImpact(bs, K, () => deckHeightOf(SHIP_CLASSES.essex), DT, hit)).toBe(true)
+    const throwRange = Math.hypot(hit.x, hit.z)
+
+    // 船以 8 m/s 迎面走了一整個落彈時間，放手點因此比前拋遠那麼多
+    const lead = 8 * hit.seconds
+    expect(lead).toBeGreaterThan(100)
+    expect(st.plan.lockRange - throwRange).toBeCloseTo(lead + RUN_SETTLE, 0)
+  })
+
+  /**
+   * 【閘門要在窗關上之前開】投彈只在直飛段判定，閘門開在窗口關掉之後的話，
+   * 整趟從頭到尾扣不到扳機 —— 而畫面上只看得到「飛過艦隊上空就走了」。
+   */
+  it('鎖定距離在投彈窗關上之前就到', () => {
+    setBombBallistics(K, DT)
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -6000, Math.PI, 8)
+
+    // 掃出投彈窗的內緣：最近還放得中的那個距離
+    let close = 0
+    for (let z = -5000; z <= -1000; z += 10) {
+      if (!shouldRelease(plane(2000, z), sh, K, DT)) continue
+      close = z + 6000
+      break
+    }
+    expect(close).toBeGreaterThan(0)
+
+    const st = strike()
+    const out = createCommand()
+    stepStrike(st, plane(2000, close - 6000), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.plan.lockRange).toBeGreaterThan(close)
   })
 
   /**
@@ -660,7 +709,10 @@ describe('戰鬥機的落彈點瞄準', () => {
   it('要不要放與 shouldRelease 一致', () => {
     setBombBallistics(K2, DT)
     const sh = still()
-    for (const [y, z, g] of [[700, 0, -20], [500, -200, -35], [300, -400, -45]] as const) {
+    // 【幾何都要落在瞄準帶裡】斜距介於拉起的 400 與接手的 1,000 之間 ——
+    // 帶外 `stepBombAim` 直接早退，而 `shouldRelease` 不看距離，兩者於是
+    // 「不一致」而那不是缺陷
+    for (const [y, z, g] of [[500, -100, -20], [400, -200, -35], [300, -350, -45]] as const) {
       const a = zero(y, z, g)
       const st = createBombAim()
       stepBombAim(st, a, sh, true, true)

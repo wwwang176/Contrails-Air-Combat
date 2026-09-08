@@ -3,12 +3,12 @@ import { makeScratch } from '../core/pool'
 import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import { TORPEDO_RANGE, TORPEDO_SPEED } from '../world/torpedo'
-import { shipAt } from './bombRun'
+import { insideWindow, releaseWindowOf, shipAt } from './bombRun'
 import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
 import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
-import type { Ship, ShipClass } from '../world/ships'
+import type { Ship } from '../world/ships'
 
 /**
  * # AI 的雷擊航路
@@ -98,21 +98,10 @@ export function waterRunSeconds(
 }
 
 /**
- * 命中窗：船體盒的**半長與半寬**，m。
- *
- * 【為什麼不是一個半徑】魚雷是**接觸引爆、沒有範圍傷害**，所以窗就是艦體
- * 本身，而艦體是細長的：弗萊徹半長 57.4 m、半寬 6.04 m —— 差 9.5 倍。用
- * 一個圓去近似的話，取大的會投一堆擦身而過的雷，取小的則正橫進場永遠不
- * 准投。
- *
- * 【第一個盒恆是艦體】與 `releaseRadiusOf` 同一條不變量：Essex 的第二個盒
- * 是寬 43 m 的飛行甲板，取極值會放大 51%。
+ * 釋放窗。**與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`）——
+ * 兩種武器都是「落點落在艦體的幾倍範圍內就投」，只有落點怎麼算不同。
  */
-export function hitWindowOf(cls: ShipClass): { along: number; across: number } {
-  const hull = cls.hull[0]
-  if (hull === undefined) return { along: 0, across: 0 }
-  return { along: hull.half.z, across: hull.half.x }
-}
+export { releaseWindowOf as hitWindowOf }
 
 /**
  * 空中段的落地平面是**海面**，不是甲板。
@@ -429,15 +418,8 @@ export function shouldRelease(self: Aircraft, ship: Ship): boolean {
   const tx = SOL.ex + h.x * run
   const tz = SOL.ez + h.z * run
   const at = shipAt(ship, SOL.air + SOL.water, S.v[0]!)
-  // 【誤差拆進船的體軸】艦體細長（半長 57.4 對半寬 6.04），用一個圓去比
-  // 的話取大的會投一堆擦身而過的雷、取小的則永遠不准投
-  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
-  const ex = tx - at.x
-  const ez = tz - at.z
-  const along = ex * dir.x + ez * dir.z
-  const across = ex * dir.z - ez * dir.x
-  const w = hitWindowOf(ship.cls)
-  return Math.abs(along) <= w.along && Math.abs(across) <= w.across
+  // 【窗與轟炸共用】誤差拆進船的體軸，窗是艦體的 `RELEASE_HULLS` 倍
+  return insideWindow(ship, tx - at.x, tz - at.z)
 }
 
 /**
@@ -450,7 +432,7 @@ export function diagnose(self: Aircraft, ship: Ship): {
   run: number; along: number; across: number
   wAlong: number; wAcross: number; ok: boolean
 } {
-  const w = hitWindowOf(ship.cls)
+  const w = releaseWindowOf(ship.cls)
   const out = { run: NaN, along: NaN, across: NaN, wAlong: w.along, wAcross: w.across, ok: false }
   const h = new Vector3()
   if (!waterHeading(self, h) || !solve(self, ship) || SOL.water < 0) return out

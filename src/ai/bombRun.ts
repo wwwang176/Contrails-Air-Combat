@@ -66,33 +66,52 @@ export function solveGateOf(altitude: number): number {
 export { deckHeightOf }
 
 /**
- * 釋放半徑是船寬的幾倍。**這一關難度的主旋鈕。**
+ * 釋放窗是艦體的幾倍。**這一關難度的主旋鈕，炸彈與魚雷共用。**
  *
- * 【它已經大過殺傷半徑】500 kg 的殺傷半徑是 39 m
- * （`blastRadiusOf(11700)`），而 3 倍船寬是弗萊徹 36.2 m、威奇塔 56.5 m、
- * 艾塞克斯 85.2 m —— 只有驅逐艦還整個落在殺傷範圍內。
+ * 【判準是玩起來好不好玩，不是命中率】1 倍等於「算出來會打中才准投」，
+ * 而彈道解算精確到近乎作弊 —— 實測魚雷幾乎彈無虛發。放寬到兩倍讓 AI 願意
+ * 投，投出去中不中交給彈道。
  *
- * 換句話說**在窗口邊緣放手的那一顆一定不會傷到船**。這是刻意的：AI 早一點
- * 投、飛得順一點比命中率重要。
+ * 【傷害判定不受影響】那是 `World` 那一側的事：炸彈量爆心到艦體盒的距離、
+ * 魚雷是接觸引爆。這個窗只決定**扣不扣扳機**。
+ *
+ * **起始值，由試飛裁定。**
  */
-export const RELEASE_BEAMS = 3
+export const RELEASE_HULLS = 2
 
 /**
- * 釋放半徑，m。**船寬 × `RELEASE_BEAMS`。**
+ * 釋放窗的半長與半寬，m。**沿船身與橫過船身各一個。**
  *
- * ```
- *                      船寬     釋放半徑
- *   Fletcher DD-445   12.08 m    36.24 m
- *   Wichita CA-45     18.82 m    56.46 m
- *   Essex CV-9        28.40 m    85.20 m
- * ```
+ * 【為什麼不是一個半徑】艦體細長：弗萊徹半長 57.4 m 對半寬 6.04 m，差
+ * 9.5 倍。用一個圓去比的話，取大的會投一堆從船頭前面擦過去的彈，取小的則
+ * 正橫進場永遠不准投。
  *
- * 【船寬取 `hull[0]`】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
- * 取極值會放大 51%。**第一個盒恆是艦體。**
+ * 【第一個盒恆是艦體】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
+ * 取極值會讓窗橫向放大 51%。
  */
-export function releaseRadiusOf(cls: ShipClass): number {
+export function releaseWindowOf(cls: ShipClass): { along: number, across: number } {
   const hull = cls.hull[0]
-  return hull === undefined ? 0 : hull.half.x * 2 * RELEASE_BEAMS
+  if (hull === undefined) return { along: 0, across: 0 }
+  return { along: hull.half.z * RELEASE_HULLS, across: hull.half.x * RELEASE_HULLS }
+}
+
+/**
+ * 落點與船的差向量在不在窗內。**炸彈與魚雷共用這一支。**
+ *
+ * @param ex 落點 − 船屆時的位置，世界座標的 x 分量
+ * @param ez 同上的 z 分量
+ *
+ * 【為什麼要拆進體軸】船是斜的時候，世界座標的差向量沒有意義 —— 沿船身
+ * 差 50 m 仍然在船上，橫過船身差 50 m 早就落海了。
+ *
+ * 熱路徑（決策拍）：不配置。
+ */
+export function insideWindow(ship: Ship, ex: number, ez: number): boolean {
+  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
+  const along = ex * dir.x + ez * dir.z
+  const across = ex * dir.z - ez * dir.x
+  const w = releaseWindowOf(ship.cls)
+  return Math.abs(along) <= w.along && Math.abs(across) <= w.across
 }
 
 const S = /* @__PURE__ */ makeScratch(3)
@@ -155,10 +174,7 @@ export function shouldRelease(
   if (!solveImpact(START, k, DECK, dt, HIT)) return false
 
   const at = shipAt(ship, HIT.seconds, S.v[0]!)
-  const ex = HIT.x - at.x
-  const ez = HIT.z - at.z
-  const r = releaseRadiusOf(ship.cls)
-  return ex * ex + ez * ez <= r * r
+  return insideWindow(ship, HIT.x - at.x, HIT.z - at.z)
 }
 
 /**
@@ -380,8 +396,7 @@ export function stepBombAim(
   const at = shipAt(ship, HIT.seconds, S.v[0]!)
   const ex = at.x - HIT.x
   const ez = at.z - HIT.z
-  const r = releaseRadiusOf(ship.cls)
-  state.release = ex * ex + ez * ez <= r * r
+  state.release = insideWindow(ship, ex, ez)
 
   const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
   const aim = state.aim.set(dx / slant, dy / slant, dz / slant)
