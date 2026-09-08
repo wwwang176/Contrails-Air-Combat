@@ -138,8 +138,11 @@ describe('leuna 的廠區', () => {
  * （`render/geometry/ground/plantFill.ts`）只認這張表。
  */
 describe('廠區的街廓', () => {
-  it('24 個街廓，全部在墊面內，互不重疊', () => {
-    expect(PLANT_BLOCKS).toHaveLength(24)
+  it('十幾到二十幾個街廓，全部在墊面內，互不重疊', () => {
+    // 六欄四列合併同機能的相鄰對之後剩下的數量。合太多會出現橫跨整張圖的
+    // 長條，一個都不合就是二十四塊等大的拼圖
+    expect(PLANT_BLOCKS.length).toBeGreaterThanOrEqual(14)
+    expect(PLANT_BLOCKS.length).toBeLessThanOrEqual(22)
     const x0 = PLANT_CENTER.x - PLANT_PAD.halfX
     const x1 = PLANT_CENTER.x + PLANT_PAD.halfX
     const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
@@ -165,22 +168,36 @@ describe('廠區的街廓', () => {
   /**
    * 【為什麼要驗這一條】巷道是格線退出來的。退錯邊（減成加）街廓會壓在
    * 巷道上，而畫面上只是「東西擺得比較滿」，看不出錯。
+   *
+   * 巷寬因街廓而異（每一條都同寬的話，白邊自己會排成一張格線），所以量的
+   * 是區間不是定值。
    */
-  it('相鄰街廓之間恰好留一條 LANE_WIDTH 的巷', () => {
-    const cols = [...new Set(PLANT_BLOCKS.map((b) => b.x0))].sort((a, b) => a - b)
-    expect(cols.length).toBe(6)
-    for (let i = 0; i + 1 < cols.length; i++) {
-      const left = PLANT_BLOCKS.find((b) => b.x0 === cols[i])!
-      const right = PLANT_BLOCKS.find((b) => b.x0 === cols[i + 1])!
-      expect(right.x0 - left.x1).toBeCloseTo(LANE_WIDTH, 6)
+  it('任兩個街廓之間都留得下一條巷', () => {
+    let closest = Infinity
+    let widest = 0
+    for (let i = 0; i < PLANT_BLOCKS.length; i++) {
+      for (let j = i + 1; j < PLANT_BLOCKS.length; j++) {
+        const a = PLANT_BLOCKS[i]!
+        const b = PLANT_BLOCKS[j]!
+        // 只看真正面對面的那一對：另一軸要有重疊
+        const zOverlap = a.z0 < b.z1 && b.z0 < a.z1
+        const xOverlap = a.x0 < b.x1 && b.x0 < a.x1
+        if (zOverlap) {
+          const gap = a.x0 >= b.x1 ? a.x0 - b.x1 : b.x0 >= a.x1 ? b.x0 - a.x1 : Infinity
+          if (gap < closest) closest = gap
+          if (gap !== Infinity && gap > widest) widest = gap
+        }
+        if (xOverlap) {
+          const gap = a.z0 >= b.z1 ? a.z0 - b.z1 : b.z0 >= a.z1 ? b.z0 - a.z1 : Infinity
+          if (gap < closest) closest = gap
+          if (gap !== Infinity && gap > widest) widest = gap
+        }
+      }
     }
-    const rows = [...new Set(PLANT_BLOCKS.map((b) => b.z0))].sort((a, b) => a - b)
-    expect(rows.length).toBe(4)
-    for (let j = 0; j + 1 < rows.length; j++) {
-      const north = PLANT_BLOCKS.find((b) => b.z0 === rows[j])!
-      const south = PLANT_BLOCKS.find((b) => b.z0 === rows[j + 1])!
-      expect(south.z0 - north.z1).toBeCloseTo(LANE_WIDTH, 6)
-    }
+    expect(closest, `最窄的巷只有 ${closest.toFixed(1)} m`).toBeGreaterThanOrEqual(LANE_WIDTH * 0.6)
+    expect(closest).toBeLessThanOrEqual(LANE_WIDTH * 1.5)
+    // 【寬窄要真的不一樣】全部同寬的話這一條會退化成上面那一條
+    expect(widest - closest, '每一條巷都一樣寬').toBeGreaterThan(2)
   })
 
   it('每一座可炸構件都落在某個街廓內，而且那個街廓不是 open', () => {
@@ -196,6 +213,8 @@ describe('廠區的街廓', () => {
   it('機能配比：open 不超過 4 個，六種機能都有人用，種子互不相同', () => {
     expect(PLANT_BLOCKS.filter((b) => b.kind === 'open').length).toBeLessThanOrEqual(4)
     expect(new Set(PLANT_BLOCKS.map((b) => b.kind)).size).toBe(6)
-    expect(new Set(PLANT_BLOCKS.map((b) => b.seed)).size).toBe(24)
+    expect(new Set(PLANT_BLOCKS.map((b) => b.seed)).size).toBe(PLANT_BLOCKS.length)
+    // 【合併要真的發生】一個都沒合就是二十四塊等大的拼圖
+    expect(PLANT_BLOCKS.length).toBeLessThan(24)
   })
 })

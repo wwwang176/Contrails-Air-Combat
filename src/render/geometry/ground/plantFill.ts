@@ -104,7 +104,7 @@ function free(x: number, z: number, r: number, blocked: readonly Keepout[]): boo
  *
  * 太短的子段丟掉：兩公尺的管廊看起來是漂浮的垃圾。
  */
-function spans(
+export function spans(
   ax: number, az: number, bx: number, bz: number, r: number, blocked: readonly Keepout[],
 ): { readonly ax: number; readonly az: number; readonly bx: number; readonly bz: number }[] {
   const out: { ax: number; az: number; bx: number; bz: number }[] = []
@@ -140,6 +140,54 @@ function inner(b: PlantBlock): { x0: number; z0: number; x1: number; z1: number;
   return { x0, z0, x1, z1, w: x1 - x0, d: z1 - z0 }
 }
 
+/** 格點的決策雜湊。同一格每次問到的答案一樣 */
+function cellHash(i: number, j: number, salt: number): number {
+  let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b) ^ Math.imul(salt | 0, 0x165667b1)
+  h = Math.imul(h ^ (h >>> 15), 0x2545f491)
+  return (h ^ (h >>> 13)) >>> 0
+}
+
+/**
+ * 街廓的**主軸**。填充器全部照 (沿主軸 u、沿次軸 v) 擺，由這一層翻譯成
+ * 世界座標。
+ *
+ * 【為什麼要有它】主軸寫死的話，六個製程區的管廊全部是同一個方向的平行
+ * 線，四個儲槽區是同一張圓點紙 —— 從投彈高度看下去，一眼就認得出那是
+ * 同一個模板蓋了幾次。主軸由種子抽，相鄰街廓的紋理才會轉向。
+ */
+interface Frame {
+  /** 主軸長度，m */
+  readonly along: number
+  /** 次軸長度，m */
+  readonly across: number
+  /** 沿主軸 `u`、沿次軸 `v` 的世界座標 */
+  at(u: number, v: number): { x: number; z: number }
+  /**
+   * 給**長軸沿 Z** 的零件（`horizTank`、`railCar`）對齊主軸用的 `ry`。
+   */
+  readonly ry: number
+  /**
+   * 給**寬沿 X** 的零件（`sawtoothHall`）用的 `ry`。
+   *
+   * 【兩個角不能共用一個】兩類零件未轉時的長軸差 90°，共用的話廠房會與
+   * 管廊互相垂直 —— 而那在畫面上只像「這一區的廠房蓋歪了」。
+   */
+  readonly hallRy: number
+}
+
+function frameOf(a: ReturnType<typeof inner>, alongX: boolean): Frame {
+  if (alongX) {
+    return {
+      along: a.w, across: a.d, ry: 90, hallRy: 0,
+      at: (u, v) => ({ x: a.x0 + u, z: a.z0 + v }),
+    }
+  }
+  return {
+    along: a.d, across: a.w, ry: 0, hallRy: 90,
+    at: (u, v) => ({ x: a.x0 + v, z: a.z0 + u }),
+  }
+}
+
 /**
  * 儲槽區：一圈環形土堤圍住整個街廓，裡面是成排的立式槽，排與排之間一條
  * 低矮的管廊。
@@ -148,6 +196,7 @@ function fillTankFarm(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometr
   const out: BufferGeometry[] = []
   const a = inner(b)
   const rand = makeRand(b.seed)
+  const f = frameOf(a, rand() < 0.5)
   // 環形土堤：四邊各自切段，遇到禁區就斷開留成出入口
   const bx0 = a.x0 + 4
   const bx1 = a.x1 - 4
@@ -158,31 +207,39 @@ function fillTankFarm(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometr
     [bx0, bz0, bx0, bz1], [bx1, bz0, bx1, bz1],
   ] as const) {
     for (const s of spans(ax, az, bx, bz, 2, blocked)) {
-      out.push(...bundRun(s.ax, s.az, s.bx, s.bz, 3.5))
+      out.push(...bundRun(s.ax, s.az, s.bx, s.bz, 3 + rand()))
     }
   }
-  const RADII = [10, 13, 16] as const
-  const r = RADII[Math.floor(rand() * RADII.length)]!
-  const pitch = r * 2.4
-  const nx = Math.max(1, Math.floor((a.w - 20) / pitch))
-  const nz = Math.max(1, Math.floor((a.d - 20) / pitch))
-  const ox = a.x0 + 10 + (a.w - 20 - nx * pitch) / 2 + pitch / 2
-  const oz = a.z0 + 10 + (a.d - 20 - nz * pitch) / 2 + pitch / 2
+  // 【同一區混兩級槽】整片同一個尺寸的話，四個儲槽區從空中看是同一張紙
+  const big = 10 + Math.floor(rand() * 4) * 1.8
+  const small = big * (0.5 + rand() * 0.16)
+  const pitch = big * (2.2 + rand() * 0.5)
+  const nu = Math.max(1, Math.floor((f.along - 20) / pitch))
+  const nv = Math.max(1, Math.floor((f.across - 20) / pitch))
+  const ou = 10 + (f.along - 20 - nu * pitch) / 2 + pitch / 2
+  const ov = 10 + (f.across - 20 - nv * pitch) / 2 + pitch / 2
   let n = 0
-  for (let j = 0; j < nz; j++) {
-    for (let i = 0; i < nx; i++) {
-      const x = ox + i * pitch
-      const z = oz + j * pitch
-      if (!free(x, z, r + 2, blocked)) continue
-      // 高度分三級：整片一樣高的話俯視是一張規則的圓點紙
-      const h = 10 + (i + j) % 3 * 4
-      out.push(...uprightTank(x, z, r, h, b.seed * 31 + n++))
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      const h = cellHash(i, j, b.seed)
+      // 【留缺口】整齊的滿格陣列看起來是印出來的。空一成的格
+      if ((h & 0xff) < 26) continue
+      const r = (h >>> 8) % 3 === 0 ? small : big
+      const jit = pitch * 0.07
+      const p = f.at(
+        ou + i * pitch + (((h >>> 12) & 0xff) / 255 - 0.5) * jit,
+        ov + j * pitch + (((h >>> 20) & 0xff) / 255 - 0.5) * jit,
+      )
+      if (!free(p.x, p.z, r + 2, blocked)) continue
+      out.push(...uprightTank(p.x, p.z, r, 9 + ((h >>> 4) & 0x3) * 4, b.seed * 31 + n++))
     }
-    // 排間的管廊
-    if (j + 1 < nz) {
-      const z = oz + (j + 0.5) * pitch
-      for (const s of spans(a.x0 + 2, z, a.x1 - 2, z, 4, blocked)) {
-        out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 4.5, 3, b.seed * 31 + n++))
+    // 排間的管廊：不是每一排都有
+    if (j + 1 < nv && (cellHash(j, 77, b.seed) & 1) === 0) {
+      const v = ov + (j + 0.5) * pitch
+      const p0 = f.at(2, v)
+      const p1 = f.at(f.along - 2, v)
+      for (const s of spans(p0.x, p0.z, p1.x, p1.z, 4, blocked)) {
+        out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 4 + rand() * 2, 3, b.seed * 31 + n++))
       }
     }
   }
@@ -197,44 +254,56 @@ function fillProcess(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry
   const out: BufferGeometry[] = []
   const a = inner(b)
   const rand = makeRand(b.seed)
+  const f = frameOf(a, rand() < 0.5)
   let n = 0
-  // 管廊：沿長軸橫貫，六條平行
-  const lanes = 6
+  // 管廊：沿主軸橫貫。條數與間距抽 —— 條數寫死的話每個製程區都是同一組
+  // 平行線
+  const lanes = 4 + Math.floor(rand() * 4)
   for (let k = 0; k < lanes; k++) {
-    const z = a.z0 + (a.d * (k + 0.5)) / lanes
-    const height = 6 + (k % 3) * 1.5
-    const pipes = 3 + (k % 3)
-    for (const s of spans(a.x0, z, a.x1, z, pipes, blocked)) {
-      out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, height, pipes, b.seed * 31 + n++))
+    const v = f.across * ((k + 0.5) / lanes + (rand() - 0.5) * 0.07)
+    const pipes = 3 + Math.floor(rand() * 3)
+    const p0 = f.at(0, v)
+    const p1 = f.at(f.along, v)
+    for (const s of spans(p0.x, p0.z, p1.x, p1.z, pipes, blocked)) {
+      out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 5.5 + rand() * 5, pipes, b.seed * 31 + n++))
     }
   }
-  // 桁架塔：三座，沿長軸等分
-  for (let k = 0; k < 3; k++) {
-    const size = 18 + Math.floor(rand() * 3) * 3
-    const x = a.x0 + (a.w * (k + 0.5)) / 3
-    const z = a.z0 + a.d * 0.28
-    if (!free(x, z, size, blocked)) continue
-    out.push(...trussTower(x, z, size, 4 + Math.floor(rand() * 3), b.seed * 31 + n++))
+  // 桁架塔：兩到四座，沿主軸等分再抖
+  const towers = 2 + Math.floor(rand() * 3)
+  const towerV = f.across * (0.16 + rand() * 0.2)
+  for (let k = 0; k < towers; k++) {
+    const size = 16 + Math.floor(rand() * 5) * 2.5
+    const p = f.at(f.along * ((k + 0.5) / towers + (rand() - 0.5) * 0.08), towerV)
+    if (!free(p.x, p.z, size, blocked)) continue
+    out.push(...trussTower(p.x, p.z, size, 3 + Math.floor(rand() * 4), b.seed * 31 + n++))
   }
-  // 塔柱：兩帶成排，間距 9 m
-  for (const band of [0.55, 0.82]) {
-    const z = a.z0 + a.d * band
-    for (let x = a.x0 + 6; x < a.x1 - 6; x += 9) {
-      if (!free(x, z, 5, blocked)) continue
-      const r = 3.5 + (n % 3) * 0.6
-      out.push(...uprightTank(x, z, r, 20 + (n % 4) * 4, b.seed * 31 + n++))
+  // 塔柱：一到兩帶成排，間距與缺席由格點的雜湊決定
+  const bands = 1 + Math.floor(rand() * 2)
+  const step = 8 + rand() * 5
+  for (let t = 0; t < bands; t++) {
+    const v = f.across * (0.52 + t * 0.28 + (rand() - 0.5) * 0.1)
+    let i = 0
+    for (let u = 6; u < f.along - 6; u += step) {
+      const h = cellHash(i++, t, b.seed + 13)
+      if ((h & 0xff) < 38) continue
+      const p = f.at(u, v)
+      const r = 3.2 + ((h >>> 8) & 0x3) * 0.7
+      if (!free(p.x, p.z, r + 1.5, blocked)) continue
+      out.push(...uprightTank(p.x, p.z, r, 18 + ((h >>> 10) & 0x7) * 3, b.seed * 31 + n++))
     }
   }
   // 空隙的臥式槽與風扇筒
-  for (let k = 0; k < 6; k++) {
-    const x = a.x0 + a.w * (0.1 + 0.16 * k)
-    const z = a.z0 + a.d * 0.42
+  const fillers = 4 + Math.floor(rand() * 4)
+  const fillV = f.across * (0.32 + rand() * 0.12)
+  for (let k = 0; k < fillers; k++) {
+    const p = f.at(f.along * ((k + 0.5) / fillers + (rand() - 0.5) * 0.06), fillV)
     if (k % 2 === 0) {
-      if (!freeRect(x, z, 11.5, 4.5, blocked)) continue
-      out.push(...horizTank(x, z, 3.5, 22, 90, b.seed * 31 + n++))
+      const len = 16 + rand() * 12
+      if (!freeRect(p.x, p.z, len / 2 + 1, 6, blocked)) continue
+      out.push(...horizTank(p.x, p.z, 3 + rand(), len, f.ry, b.seed * 31 + n++))
     } else {
-      if (!free(x, z, 6, blocked)) continue
-      out.push(...fanStack(x, z, 5, 9, b.seed * 31 + n++))
+      if (!free(p.x, p.z, 6, blocked)) continue
+      out.push(...fanStack(p.x, p.z, 4 + rand() * 2, 7 + rand() * 4, b.seed * 31 + n++))
     }
   }
   return out
@@ -248,32 +317,49 @@ function fillHalls(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[]
   const out: BufferGeometry[] = []
   const a = inner(b)
   const rand = makeRand(b.seed)
+  const alongX = rand() < 0.5
+  const f = frameOf(a, alongX)
   let n = 0
-  const rows = 3
-  const gap = 14
-  const d = (a.d - gap * (rows - 1)) / rows
+  // 排數、每棟的長度與對齊都抽 —— 三棟等長置中的話，五個廠房區從空中看
+  // 是同一個梳子
+  const rows = 2 + Math.floor(rand() * 3)
+  const gap = 12 + rand() * 8
+  const span = (f.across - gap * (rows - 1)) / rows
   for (let k = 0; k < rows; k++) {
-    const z = a.z0 + d / 2 + k * (d + gap)
-    const w = a.w * (0.82 + rand() * 0.16)
-    const x = (a.x0 + a.x1) / 2
-    if (!freeRect(x, z, w / 2, d * 0.46, blocked)) {
+    const v = span / 2 + k * (span + gap)
+    const len = f.along * (0.5 + rand() * 0.48)
+    // 對齊：靠一端、置中、靠另一端
+    const anchor = rand()
+    const u = anchor < 0.34 ? len / 2 + 2
+      : anchor < 0.67 ? f.along / 2
+        : f.along - len / 2 - 2
+    const p = f.at(u, v)
+    const hw = alongX ? len / 2 : span * 0.46
+    const hd = alongX ? span * 0.46 : len / 2
+    const h = 7 + rand() * 7
+    const teeth = 3 + Math.floor(rand() * 5)
+    if (!freeRect(p.x, p.z, hw, hd, blocked)) {
       // 被佔就退成兩棟短的，不要整列消失
-      const hw = a.w / 4 - 4
-      for (const half of [-1, 1]) {
-        const hx = x + half * (a.w / 4)
-        if (!freeRect(hx, z, hw, d * 0.45, blocked)) continue
-        out.push(...sawtoothHall(hx, z, hw * 2, d * 0.9, 9, 4, 0, b.seed * 31 + n++))
+      const half = len * 0.4
+      for (const side of [-1, 1]) {
+        const q = f.at(u + side * len * 0.28, v)
+        const qw = alongX ? half / 2 : span * 0.45
+        const qd = alongX ? span * 0.45 : half / 2
+        if (!freeRect(q.x, q.z, qw, qd, blocked)) continue
+        out.push(...sawtoothHall(
+          q.x, q.z, half, span * 0.9, h, Math.max(2, teeth - 1), f.hallRy, b.seed * 31 + n++,
+        ))
       }
       continue
     }
-    const h = 8 + Math.floor(rand() * 4)
-    const teeth = 4 + Math.floor(rand() * 3)
-    out.push(...sawtoothHall(x, z, w, d * 0.92, h, teeth, 0, b.seed * 31 + n++))
+    out.push(...sawtoothHall(p.x, p.z, len, span * 0.92, h, teeth, f.hallRy, b.seed * 31 + n++))
   }
   // 屋頂之間的高管廊
-  const z = a.z0 + d + gap / 2
-  for (const s of spans(a.x0, z, a.x1, z, 4, blocked)) {
-    out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 13, 3, b.seed * 31 + n++))
+  const v = span + gap / 2
+  const p0 = f.at(0, v)
+  const p1 = f.at(f.along, v)
+  for (const s of spans(p0.x, p0.z, p1.x, p1.z, 4, blocked)) {
+    out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 12 + rand() * 4, 3, b.seed * 31 + n++))
   }
   return out
 }
@@ -282,40 +368,58 @@ function fillHalls(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[]
 function fillRailyard(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[] {
   const out: BufferGeometry[] = []
   const a = inner(b)
+  const rand = makeRand(b.seed)
+  const alongX = rand() < 0.5
+  const f = frameOf(a, alongX)
   let n = 0
-  const tracks = 5
-  const pitch = 9
-  const z0 = a.z0 + (a.d - pitch * (tracks - 1)) / 2
+  // 股數、間距與整束的位置都抽 —— 五股置中的話三個調車場是同一把梳子
+  const tracks = 3 + Math.floor(rand() * 4)
+  const pitch = 8 + rand() * 4
+  const v0 = (f.across - pitch * (tracks - 1)) * (0.25 + rand() * 0.5)
   for (let k = 0; k < tracks; k++) {
-    const z = z0 + k * pitch
-    for (const s of spans(a.x0, z, a.x1, z, 3, blocked)) {
+    const v = v0 + k * pitch
+    // 【股道不必等長】調車場的股道本來就是一頭岔出去、長度不一
+    const u0 = f.along * rand() * 0.12
+    const u1 = f.along * (1 - rand() * 0.18)
+    const p0 = f.at(u0, v)
+    const p1 = f.at(u1, v)
+    for (const s of spans(p0.x, p0.z, p1.x, p1.z, 3, blocked)) {
       out.push(...railTrack(s.ax, s.az, s.bx, s.bz))
-      // 車廂：一節 12 m，間距 16 m，從子段的起點排
       const len = Math.hypot(s.bx - s.ax, s.bz - s.az)
-      const cars = Math.floor(len / 16)
+      const gap = 15 + rand() * 8
+      const cars = Math.floor(len / gap)
       for (let c = 0; c < cars; c++) {
+        const h = cellHash(c, k, b.seed + 5)
+        // 空車位：整串排滿的話每一股都一樣長
+        if ((h & 0xff) < 64) continue
         const t = (c + 0.5) / cars
         const x = s.ax + (s.bx - s.ax) * t
         const cz = s.az + (s.bz - s.az) * t
         if (!free(x, cz, 8, blocked)) continue
-        out.push(...railCar(x, cz, 90, (c + k) % 2 === 0, b.seed * 31 + n++))
+        out.push(...railCar(x, cz, f.ry, ((h >>> 8) & 1) === 0, b.seed * 31 + n++))
       }
     }
   }
-  // 卸料棚：股道的一端一棟，另一端一棟
-  for (const band of [0.14, 0.88]) {
-    const hx = a.x0 + a.w * band
-    const hz = a.z0 + a.d * 0.13
-    const hw = a.w * 0.11
-    const hd = a.d * 0.1
-    if (!freeRect(hx, hz, hw, hd, blocked)) continue
-    out.push(...sawtoothHall(hx, hz, hw * 2, hd * 2, 8, 3, 0, b.seed * 31 + n++))
+  // 卸料棚：股道的一端一棟到兩棟
+  const sheds = 1 + Math.floor(rand() * 2)
+  for (let k = 0; k < sheds; k++) {
+    const p = f.at(f.along * (0.1 + rand() * 0.8), f.across * (0.06 + rand() * 0.1))
+    const hu = f.along * (0.08 + rand() * 0.06)
+    const hv = f.across * 0.09
+    const hw = alongX ? hu : hv
+    const hd = alongX ? hv : hu
+    if (!freeRect(p.x, p.z, hw, hd, blocked)) continue
+    out.push(...sawtoothHall(p.x, p.z, hu * 2, hv * 2, 8, 3, f.hallRy, b.seed * 31 + n++))
   }
-  // 站台：股道南側一條長月台
-  const pz = a.z0 + a.d * 0.88
-  for (const s of spans(a.x0, pz, a.x1, pz, 6, blocked)) {
+  // 站台：股道旁一條長月台
+  const pv = f.across * (0.82 + rand() * 0.12)
+  const q0 = f.at(0, pv)
+  const q1 = f.at(f.along, pv)
+  for (const s of spans(q0.x, q0.z, q1.x, q1.z, 6, blocked)) {
     const len = Math.hypot(s.bx - s.ax, s.bz - s.az)
-    out.push(box(len, 1.2, 10, 0x7d7a72, { x: (s.ax + s.bx) / 2, y: 0.6, z: (s.az + s.bz) / 2 }))
+    out.push(box(len, 1.2, 10, 0x7d7a72, {
+      x: (s.ax + s.bx) / 2, y: 0.6, z: (s.az + s.bz) / 2, ry: f.hallRy,
+    }))
   }
   return out
 }
@@ -324,57 +428,83 @@ function fillRailyard(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometr
 function fillUtility(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[] {
   const out: BufferGeometry[] = []
   const a = inner(b)
+  const rand = makeRand(b.seed)
+  const alongX = rand() < 0.5
+  const f = frameOf(a, alongX)
   let n = 0
-  // 鍋爐房與副廠房：南北各一棟長條
-  for (const [band, frac, teeth] of [[0.14, 0.24, 5], [0.9, 0.16, 4]] as const) {
-    const hx = (a.x0 + a.x1) / 2
-    const hz = a.z0 + a.d * band
-    const hw = a.w * 0.36
-    const hd = a.d * frac * 0.5
-    if (!freeRect(hx, hz, hw, hd, blocked)) continue
-    out.push(...sawtoothHall(hx, hz, hw * 2, hd * 2, 12, teeth, 0, b.seed * 31 + n++))
+  // 【元素的帶位置由種子重排】固定的上中下三層，六個動力區從空中看是
+  // 同一張分層圖
+  const lanes = [0.12 + rand() * 0.1, 0.34 + rand() * 0.12, 0.58 + rand() * 0.12,
+    0.8 + rand() * 0.12]
+  // 鍋爐房與副廠房
+  for (const [k, teeth] of [[0, 5], [3, 4]] as const) {
+    const len = f.along * (0.5 + rand() * 0.28)
+    const p = f.at(f.along * (0.3 + rand() * 0.4), f.across * lanes[k]!)
+    const hu = len / 2
+    const hv = f.across * (0.07 + rand() * 0.04)
+    if (!freeRect(p.x, p.z, alongX ? hu : hv, alongX ? hv : hu, blocked)) continue
+    out.push(...sawtoothHall(p.x, p.z, hu * 2, hv * 2, 10 + rand() * 4, teeth, f.hallRy,
+      b.seed * 31 + n++))
   }
-  // 風扇筒：兩排，間距 15 m
-  for (const band of [0.36, 0.5]) {
-    const fz = a.z0 + a.d * band
-    for (let x = a.x0 + 12; x < a.x1 - 12; x += 15) {
-      if (!free(x, fz, 6.5, blocked)) continue
-      out.push(...fanStack(x, fz, 5.5, 7 + (n % 3) * 1.5, b.seed * 31 + n++))
+  // 風扇筒：一到兩排，間距抽
+  const fanRows = 1 + Math.floor(rand() * 2)
+  const fanStep = 13 + rand() * 6
+  for (let t = 0; t < fanRows; t++) {
+    const v = f.across * (lanes[1]! + t * 0.1)
+    let i = 0
+    for (let u = 12; u < f.along - 12; u += fanStep) {
+      const h = cellHash(i++, t, b.seed + 21)
+      if ((h & 0xff) < 30) continue
+      const p = f.at(u, v)
+      if (!free(p.x, p.z, 6.5, blocked)) continue
+      out.push(...fanStack(p.x, p.z, 4.5 + ((h >>> 8) & 0x3) * 0.6, 6 + ((h >>> 10) & 0x7),
+        b.seed * 31 + n++))
     }
   }
-  // 球罐：一排
-  for (let k = 0; k < 4; k++) {
-    const x = a.x0 + a.w * (0.15 + 0.23 * k)
-    const z = a.z0 + a.d * 0.64
-    const r = 8 + (k % 2) * 2
-    if (!free(x, z, r + 1, blocked)) continue
-    out.push(...sphereTank(x, z, r, b.seed * 31 + n++))
+  // 球罐：三到五顆
+  const spheres = 3 + Math.floor(rand() * 3)
+  for (let k = 0; k < spheres; k++) {
+    const p = f.at(f.along * ((k + 0.5) / spheres + (rand() - 0.5) * 0.1), f.across * lanes[2]!)
+    const r = 7 + rand() * 4
+    if (!free(p.x, p.z, r + 1, blocked)) continue
+    out.push(...sphereTank(p.x, p.z, r, b.seed * 31 + n++))
   }
   // 變電站：柱陣列加橫樑
-  const sx = a.x0 + a.w * 0.74
-  const sz = a.z0 + a.d * 0.78
-  if (freeRect(sx, sz, 18, 12, blocked)) {
+  const su = f.along * (0.15 + rand() * 0.7)
+  const sv = f.across * lanes[3]!
+  const sp = f.at(su, sv)
+  if (freeRect(sp.x, sp.z, 18, 18, blocked)) {
     for (let i = 0; i < 6; i++) {
       for (let j = 0; j < 3; j++) {
-        const x = sx - 15 + i * 6
-        const z = sz - 6 + j * 6
-        out.push(box(0.6, 9, 0.6, 0x33383d, { x, y: 4.5, z }))
-        if (j === 0) out.push(box(0.5, 0.5, 12, 0x33383d, { x, y: 8.6, z: z + 6 }))
+        const p = f.at(su - 15 + i * 6, sv - 6 + j * 6)
+        out.push(box(0.6, 9, 0.6, 0x33383d, { x: p.x, y: 4.5, z: p.z }))
+        if (j === 0) {
+          const q = f.at(su - 15 + i * 6, sv)
+          out.push(box(0.5, 0.5, 12, 0x33383d, { x: q.x, y: 8.6, z: q.z, ry: f.hallRy }))
+        }
       }
     }
   }
-  // 堆煤：壓扁的長方體
-  for (let k = 0; k < 2; k++) {
-    const x = a.x0 + a.w * (0.14 + 0.24 * k)
-    const z = a.z0 + a.d * 0.78
-    if (!freeRect(x, z, a.w * 0.1, 11, blocked)) continue
-    out.push(box(a.w * 0.2, 4, 22, 0x2b2723, { x, y: 2, z }))
+  // 堆煤：一到兩堆
+  const piles = 1 + Math.floor(rand() * 2)
+  for (let k = 0; k < piles; k++) {
+    const len = f.along * (0.14 + rand() * 0.1)
+    const p = f.at(f.along * (0.12 + rand() * 0.7), f.across * lanes[3]!)
+    const hu = len / 2
+    const hv = 11
+    if (!freeRect(p.x, p.z, alongX ? hu : hv, alongX ? hv : hu, blocked)) continue
+    // 高度是抽的，所以中心也要跟著抽 —— 寫死的 y 會讓高一點的那幾堆陷地
+    const ph = 3 + rand() * 2
+    out.push(box(len, ph, 22, 0x2b2723, { x: p.x, y: ph / 2, z: p.z, ry: f.hallRy }))
   }
-  // 管廊：四條橫貫
-  for (const band of [0.26, 0.44, 0.58, 0.72]) {
-    const z = a.z0 + a.d * band
-    for (const s of spans(a.x0, z, a.x1, z, 4, blocked)) {
-      out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 7 + band * 4, 3, b.seed * 31 + n++))
+  // 管廊：三到五條橫貫
+  const bridges = 3 + Math.floor(rand() * 3)
+  for (let k = 0; k < bridges; k++) {
+    const v = f.across * ((k + 0.5) / bridges + (rand() - 0.5) * 0.08)
+    const p0 = f.at(0, v)
+    const p1 = f.at(f.along, v)
+    for (const s of spans(p0.x, p0.z, p1.x, p1.z, 4, blocked)) {
+      out.push(...pipeBridge(s.ax, s.az, s.bx, s.bz, 6 + rand() * 5, 3, b.seed * 31 + n++))
     }
   }
   return out

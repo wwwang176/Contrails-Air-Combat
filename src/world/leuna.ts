@@ -197,27 +197,87 @@ const BLOCK_KINDS: readonly (readonly BlockKind[])[] = [
   ['tankFarm', 'tankFarm', 'open', 'open'], //    x 1000…1500
 ]
 
+/**
+ * 相鄰而且**機能相同**的兩格合併成一個大街廓。
+ *
+ * 【為什麼要合】六欄四列的格子等大又等距，從投彈高度看下去像二十四塊拼圖
+ * —— 而真正的廠區是一整片儲槽區、一整條廠房排。只合同機能的兩格，機能的
+ * 種類與配比因此不變。
+ *
+ * 【只合一次】連著合三格會出現橫跨整張圖的長條，那又是另一種一眼看得出來
+ * 的規則。
+ */
+function mergePlan(cols: number, rows: number): number[] {
+  // 每一格記自己屬於哪一個街廓；−1 表示還沒被別人吃掉
+  const owner = new Array<number>(cols * rows).fill(-1)
+  const at = (i: number, j: number): number => i * rows + j
+  let h = 0x9e3779b9
+  const roll = (): number => {
+    h = (Math.imul(h, 1664525) + 1013904223) >>> 0
+    return h / 4294967296
+  }
+  for (let i = 0; i + 1 < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      if (owner[at(i, j)] !== -1 || owner[at(i + 1, j)] !== -1) continue
+      if (BLOCK_KINDS[i]![j] !== BLOCK_KINDS[i + 1]![j]) continue
+      if (roll() > 0.85) continue
+      owner[at(i, j)] = at(i, j)
+      owner[at(i + 1, j)] = at(i, j)
+    }
+  }
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j + 1 < rows; j++) {
+      if (owner[at(i, j)] !== -1 || owner[at(i, j + 1)] !== -1) continue
+      if (BLOCK_KINDS[i]![j] !== BLOCK_KINDS[i]![j + 1]) continue
+      if (roll() > 0.8) continue
+      owner[at(i, j)] = at(i, j)
+      owner[at(i, j + 1)] = at(i, j)
+    }
+  }
+  for (let k = 0; k < owner.length; k++) if (owner[k] === -1) owner[k] = k
+  return owner
+}
+
 function buildBlocks(): PlantBlock[] {
-  const half = LANE_WIDTH / 2
   const xs = [-PLANT_PAD.halfX, ...PLANT_LANES.x, PLANT_PAD.halfX]
   const zs = [-PLANT_PAD.halfZ, ...PLANT_LANES.z, PLANT_PAD.halfZ]
+  const cols = xs.length - 1
+  const rows = zs.length - 1
+  const owner = mergePlan(cols, rows)
   const out: PlantBlock[] = []
-  for (let i = 0; i + 1 < xs.length; i++) {
-    for (let j = 0; j + 1 < zs.length; j++) {
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      // 只有「自己就是頭」的那一格生街廓；被吃掉的那一格跳過
+      if (owner[i * rows + j] !== i * rows + j) continue
+      let i1 = i
+      let j1 = j
+      for (let k = 0; k < cols * rows; k++) {
+        const ci = Math.floor(k / rows)
+        const cj = k % rows
+        if (owner[k] !== i * rows + j) continue
+        i1 = Math.max(i1, ci)
+        j1 = Math.max(j1, cj)
+      }
+      // 【巷寬因街廓而異】每一格都留同寬的白邊，白邊本身就會排成格線
+      const seed = 2000 + i * 10 + j
+      const half = (LANE_WIDTH * (0.7 + ((seed * 37) % 7) / 10)) / 2
       out.push({
         x0: PLANT_CENTER.x + xs[i]! + half,
-        x1: PLANT_CENTER.x + xs[i + 1]! - half,
+        x1: PLANT_CENTER.x + xs[i1 + 1]! - half,
         z0: PLANT_CENTER.z + zs[j]! + half,
-        z1: PLANT_CENTER.z + zs[j + 1]! - half,
+        z1: PLANT_CENTER.z + zs[j1 + 1]! - half,
         kind: BLOCK_KINDS[i]![j]!,
-        seed: 2000 + i * 10 + j,
+        seed,
       })
     }
   }
   return out
 }
 
-/** 二十四個街廓。`render/geometry/ground/plantFill.ts` 逐個鋪 */
+/**
+ * 街廓。六欄四列的格子合併同機能的相鄰對之後剩下的那些，大小不一。
+ * `render/geometry/ground/plantFill.ts` 逐個鋪。
+ */
 export const PLANT_BLOCKS: readonly PlantBlock[] = /* @__PURE__ */ buildBlocks()
 
 /**

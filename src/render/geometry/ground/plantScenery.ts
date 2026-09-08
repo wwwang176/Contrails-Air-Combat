@@ -3,7 +3,7 @@ import { assemble, box } from './parts'
 import {
   FLAK_SITES, PLANT_BLOCKS, PLANT_CENTER, PLANT_LANES, PLANT_PAD, PLANT_SCENERY, ROADS,
 } from '../../../world/leuna'
-import { fillBlock, keepouts } from './plantFill'
+import { fillBlock, keepouts, spans } from './plantFill'
 import { pipeBridge } from './plantParts'
 
 /**
@@ -37,18 +37,43 @@ export function buildPlantScenery(): BufferGeometry {
   // ── 街廓 ──────────────────────────────────────────────
   for (const b of PLANT_BLOCKS) parts.push(...fillBlock(b, blocked))
 
-  // ── 管廊骨幹：沿巷道貫穿整個廠區，把各街廓串起來 ────────
+  // ── 管廊骨幹：沿巷道蜿蜒，把各街廓串起來 ────────────────
+  //
+  // 【不是貫穿全廠的十字】每條巷道各拉一條直的主幹，從投彈高度看下去是一張
+  // 規則的網 —— 而那正是「這是程式鋪出來的」最明顯的破綻。改成幾條會轉彎、
+  // 長度不一的主幹：它們仍沿著巷道走（管廊不會從廠房上面壓過去），但轉折點
+  // 與起訖由種子決定。
   {
-    const hx = PLANT_PAD.halfX
-    const hz = PLANT_PAD.halfZ
-    let n = 0
-    for (const dx of PLANT_LANES.x) {
-      const x = cx + dx
-      parts.push(...pipeBridge(x, cz - hz + 20, x, cz + hz - 20, 7 + (n % 3), 4, 900 + n++))
+    const xs = [cx - PLANT_PAD.halfX + 30, ...PLANT_LANES.x.map((d) => cx + d),
+      cx + PLANT_PAD.halfX - 30]
+    const zs = [cz - PLANT_PAD.halfZ + 30, ...PLANT_LANES.z.map((d) => cz + d),
+      cz + PLANT_PAD.halfZ - 30]
+    let s = 0x51ed2701
+    const roll = (): number => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+      return s / 4294967296
     }
-    for (const dz of PLANT_LANES.z) {
-      const z = cz + dz
-      parts.push(...pipeBridge(cx - hx + 20, z, cx + hx - 20, z, 9 + (n % 2), 5, 900 + n++))
+    const trunks = 5
+    for (let t = 0; t < trunks; t++) {
+      // 起點：邊界上的一個節點，交替從縱橫兩側出發
+      let i = t % 2 === 0 ? 0 : Math.floor(roll() * xs.length)
+      let j = t % 2 === 0 ? Math.floor(roll() * zs.length) : 0
+      let horizontal = t % 2 === 0
+      const height = 6 + roll() * 6
+      const pipes = 3 + Math.floor(roll() * 3)
+      const legs = 3 + Math.floor(roll() * 4)
+      for (let k = 0; k < legs; k++) {
+        const ni = horizontal ? Math.min(xs.length - 1, i + 1 + Math.floor(roll() * 2)) : i
+        const nj = horizontal ? j : Math.min(zs.length - 1, j + 1 + Math.floor(roll() * 2))
+        if (ni === i && nj === j) break
+        for (const sp of spans(xs[i]!, zs[j]!, xs[ni]!, zs[nj]!, pipes, blocked)) {
+          parts.push(...pipeBridge(sp.ax, sp.az, sp.bx, sp.bz, height, pipes, 900 + t * 10 + k))
+        }
+        i = ni
+        j = nj
+        // 【轉彎才有蜿蜒】一路直走就退回原本那條貫穿線
+        if (roll() < 0.62) horizontal = !horizontal
+      }
     }
   }
 

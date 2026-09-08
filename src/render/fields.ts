@@ -611,6 +611,33 @@ export interface SiteLayout {
 const CONCRETE = 0x8d8a82
 const ASPHALT = 0x3f3d3a
 
+/** 廠界的鋸齒：每一段的長度，m */
+const EDGE_CELL = 110
+/** 廠界的鋸齒：最深咬進去多少，m。地形的平坦保證仍然是整個矩形 */
+const EDGE_BITE = 130
+
+/**
+ * 鋸齒的深度。**兩側加起來不得吃掉整塊墊面** —— 咬得比半邊長還深的話，
+ * 小一點的墊面會整片消失，而它在畫面上只是「這一關的廠區不見了」。
+ */
+function edgeBite(pad: SiteLayout['pad']): number {
+  return Math.min(EDGE_BITE, (pad.x1 - pad.x0) * 0.15, (pad.z1 - pad.z0) * 0.15)
+}
+
+/**
+ * 一點在不在墊面上。**GLSL 與 CPU 兩份要算出同一個答案** —— 分家的話畫面上
+ * 的廠界與取樣到的顏色差一整條邊，而那只有在小地圖與畫面並排時才看得出來。
+ */
+function insidePad(x: number, z: number, pad: SiteLayout['pad']): boolean {
+  const bite = edgeBite(pad)
+  const wx = (hash2(Math.floor(z / EDGE_CELL), 4517) & 0xff) / 255
+  const ex = (hash2(Math.floor(z / EDGE_CELL), 2287) & 0xff) / 255
+  const nz = (hash2(Math.floor(x / EDGE_CELL), 9911) & 0xff) / 255
+  const sz = (hash2(Math.floor(x / EDGE_CELL), 7331) & 0xff) / 255
+  return x >= pad.x0 + wx * bite && x < pad.x1 - ex * bite
+    && z >= pad.z0 + nz * bite && z < pad.z1 - sz * bite
+}
+
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
 function segmentsOf(site: SiteLayout): { ax: number; az: number; bx: number; bz: number }[] {
   const out: { ax: number; az: number; bx: number; bz: number }[] = []
@@ -640,6 +667,7 @@ function siteGlsl(site: SiteLayout): string {
   const segs = segmentsOf(site)
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
+  const BITE = edgeBite(site.pad)
   const patches = site.patches ?? []
   const patchList = patches.map((p) =>
     `  vec4(${p.x0.toFixed(1)}, ${p.z0.toFixed(1)}, ${p.x1.toFixed(1)}, ${p.z1.toFixed(1)})`).join(',\n')
@@ -660,8 +688,17 @@ ${patchHues}
   return `
   // 墊面：混凝土。三層疊起來 —— 120 m 的鋪面塊、40 m 的油漬、40 m 的微亮暗。
   // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
-  if (world.x >= ${site.pad.x0.toFixed(1)} && world.x < ${site.pad.x1.toFixed(1)}
-      && world.y >= ${site.pad.z0.toFixed(1)} && world.y < ${site.pad.z1.toFixed(1)}) {
+  //
+  // 【廠界不是直角矩形】四條邊各依 ${EDGE_CELL.toFixed(0)} m 的格抽一段縮進：
+  // 一條直的邊在投彈高度看下去就是一把尺，而廠區是幾十年間一塊一塊擴出來的
+  float padWx = float(fieldHash2(int(floor(world.y / ${EDGE_CELL.toFixed(1)})), 4517) & 0xffu) / 255.0;
+  float padEx = float(fieldHash2(int(floor(world.y / ${EDGE_CELL.toFixed(1)})), 2287) & 0xffu) / 255.0;
+  float padNz = float(fieldHash2(int(floor(world.x / ${EDGE_CELL.toFixed(1)})), 9911) & 0xffu) / 255.0;
+  float padSz = float(fieldHash2(int(floor(world.x / ${EDGE_CELL.toFixed(1)})), 7331) & 0xffu) / 255.0;
+  if (world.x >= ${site.pad.x0.toFixed(1)} + padWx * ${BITE.toFixed(1)}
+      && world.x < ${site.pad.x1.toFixed(1)} - padEx * ${BITE.toFixed(1)}
+      && world.y >= ${site.pad.z0.toFixed(1)} + padNz * ${BITE.toFixed(1)}
+      && world.y < ${site.pad.z1.toFixed(1)} - padSz * ${BITE.toFixed(1)}) {
     uint ph = fieldHash2(int(floor(world.x / 40.0)), int(floor(world.y / 40.0)));
     uint sh = fieldHash2(int(floor(world.x / 120.0)) + 7919, int(floor(world.y / 120.0)) - 104729);
     uint oh = fieldHash1(ph);
@@ -707,8 +744,7 @@ export function siteSurfaceColor(
     for (const q of site.patches ?? []) {
       if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) return out.setHex(q.hex)
     }
-    const p = site.pad
-    if (x >= p.x0 && x < p.x1 && z >= p.z0 && z < p.z1) {
+    if (insidePad(x, z, site.pad)) {
       // 【與 `siteGlsl` 逐項對應】兩份不一致的話，小地圖與畫面上的地是兩種顏色
       const ph = hash2(Math.floor(x / 40), Math.floor(z / 40))
       const sh = hash2(Math.floor(x / 120) + 7919, Math.floor(z / 120) - 104729)

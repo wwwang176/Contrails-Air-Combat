@@ -201,13 +201,19 @@ async function pass(
     await page.goto(URL)
     await page.click('[data-act="start"]')
     if (opts.scene === 'leuna') {
+      // 【等元素，不要等時間】任務頁是三層（陣營 → 航線 → 簡報），
+      // 每一層的按鈕都是進了上一層才生出來的
       await page.click('[data-act="mission"]')
-      await page.waitForTimeout(300)
-      await page.click('#campaign-cards button[data-campaign="allies"]')
-      await page.waitForTimeout(300)
-      await page.click('#route .stop[data-mission="allies-m2"]')
-      await page.waitForTimeout(200)
-      await page.click('#brief-go')
+      // 【點完要等一下】畫面切換有過場，元素出現的那一刻點下去會落空 ——
+      // 而落空的症狀是下一層的按鈕永遠等不到
+      const step = async (sel: string): Promise<void> => {
+        await page.waitForSelector(sel, { state: 'visible' })
+        await page.waitForTimeout(400)
+        await page.click(sel)
+      }
+      await step('#campaign-cards button[data-campaign="allies"]')
+      await step('#route .stop[data-mission="allies-m2"]')
+      await step('#brief-go')
     } else {
       await page.click('[data-act="skirmish"]')
       await page.click('#skirmish [data-act="fight"]')
