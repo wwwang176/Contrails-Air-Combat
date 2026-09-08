@@ -543,18 +543,23 @@ def rail_track(col, ax, az, bx, bz):
 
 
 def rail_car(col, dx, dz, rz, tank, seed):
-    """車廂：底架、車身（罐車是六邊臥筒、敞車是盒子）、一條轉向架"""
+    """車廂：底架、車身（罐車是六邊臥筒、敞車是盒子）。
+
+    【底架與轉向架合成一個盒子】原本是兩個：0.8–1.3 m 的底架加 0–0.7 m 的
+    轉向架。轉向架在俯視完全看不到，側面在 200 m 也只是一條暗邊 —— 全廠
+    幾百節車廂，一節省 12 個三角形。合成之後底架直接落地，車身的下緣位置
+    不變。
+    """
     m = grime_mat(seed)
     frame = fixed_mat('LP_PlantSteel')
-    add_box(col, 'car_frame', frame, dx, -dz, 1.05, 3.0, 12.0, 0.5, rz)
-    add_box(col, 'car_bogie', fixed_mat('LP_PlantCoal'), dx, -dz, 0.35, 2.2, 10.0, 0.7, rz)
+    add_box(col, 'car_frame', frame, dx, -dz, 0.7, 2.8, 12.0, 1.4, rz)
     if tank:
         add_cyl(col, 'car_tank', m, dx, -dz, 2.8, 1.5, 1.5, 10.5, 6, rz, 90.0, True)
     else:
         add_box(col, 'car_body', m, dx, -dz, 2.5, 3.0, 11.0, 2.4, rz)
     c, s = abs(math.cos(math.radians(rz))), abs(math.sin(math.radians(rz)))
     col.claim(dx, dz, (3.0 * c + 12.0 * s) / 2, (3.0 * s + 12.0 * c) / 2, 4.0)
-    return 3
+    return 2
 
 
 RACK_LEG_STEP = 46.0
