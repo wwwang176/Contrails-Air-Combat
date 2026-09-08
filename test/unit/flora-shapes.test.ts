@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Box3, Color, Vector3, type BufferGeometry } from 'three'
 import {
-  createFloraGeometries, disposeFloraGeometries, POINT_COLOR, POINT_POOLS, POINT_SIZE,
+  createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
   POINT_Y, TREE_HEIGHT, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
 import { HEDGE_BUSH_SPACING } from '../../src/render/flora'
@@ -369,7 +369,7 @@ describe('植被與建築的幾何', () => {
   it('點的顏色等於它取代的那一級的樹冠色', () => {
     for (const name of POINT_POOLS) {
       const want = crownColour(geo[REPLACES[name as PointPool]])
-      const c = new Color(POINT_COLOR[name as PointPool])
+      const c = new Color(pointColorOf(name as PointPool, 'summer'))
       const got = [c.r, c.g, c.b].map((v) => v.toFixed(4)).join(',')
       expect([name, got]).toEqual([name, want])
     }

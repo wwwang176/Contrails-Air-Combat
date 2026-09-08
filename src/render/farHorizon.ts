@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, Mesh, MeshStandardMaterial } from 'three'
 import { applyFields } from './farmGround'
+import type { Season } from './season'
 import { FARM_EXTENT } from '../world/farmland'
 
 /**
@@ -58,7 +59,7 @@ export interface FarHorizon {
   dispose(): void
 }
 
-export function createFarHorizon(): FarHorizon {
+export function createFarHorizon(season: Season = 'summer'): FarHorizon {
   const half = FARM_EXTENT / 2
   const xs = axis(half)
   const n = xs.length
@@ -101,7 +102,7 @@ export function createFarHorizon(): FarHorizon {
   // 【平的東西不必 flatShading】法線全部是 +Y，兩種著色結果相同，而關掉
   // 少一個 shader 變體
   const material = new MeshStandardMaterial({ flatShading: false, roughness: ROUGHNESS })
-  applyFields(material)
+  applyFields(material, season)
 
   const mesh = new Mesh(geometry, material)
   mesh.frustumCulled = false
