@@ -197,6 +197,21 @@ describe('盟 M4：沖繩外海', () => {
     }
   })
 
+  /**
+   * 【雷擊機要低空進場】投雷高度是 150 m，而它從進場點飛到艦隊只有五公里
+   * 多。從任務高度 2,000 m 掉下來的話，飛到航母正上方時還在 250 m ——
+   * 姿態進不了投放包絡就不准鎖航向，於是整個第一趟帶著雷飛過去，繞回來
+   * 才投得出，而且那時已經太近，水中航程只剩一百多公尺。
+   */
+  it('陸攻那一波的進場高度比任務高度低', () => {
+    const w = b.waves![0]!
+    expect(w.altitude).toBeDefined()
+    expect(w.altitude!).toBeLessThan(b.altitude ?? 4000)
+    const beat = missionConfigFrom(card as ReadyMissionCard).beats![0]!
+    if (beat.kind !== 'reinforce') throw new Error('第一個節拍應該是增援')
+    expect(beat.flight.entry.climb).toBeCloseTo(w.altitude! - (b.altitude ?? 4000), 6)
+  })
+
   /** 【端到端】進戰鬥之後場上真的有九艘藍船，打沉航母就判輸 */
   it('進戰鬥之後打沉航母 → defeat', () => {
     const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
