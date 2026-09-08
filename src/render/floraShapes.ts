@@ -1,4 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three'
+import { FLORA_COLORS, type Season } from './season'
 
 /**
  * 植被與建築的幾何。**每一個都是一堆三角形，不共用頂點。**
@@ -62,9 +63,7 @@ const BUSH_CY = 4
 const BUSH_CARD_TOP = 8
 
 const TRUNK = 0x4a3b2a
-const BROAD_LEAF = 0x3f5233
-const CONIFER = 0x2f4530
-const BUSH_LEAF = 0x33452c
+// 樹冠色由季節決定（`season.ts`）；房子的顏色不換季
 const WALL = 0xbfb49b
 const ROOF = 0xa8503a
 const BARN_WALL = 0x8b6b4a
@@ -86,12 +85,11 @@ export type PointPool = 'broadPoint' | 'conePoint' | 'bushPoint'
 
 /**
  * 點池的樹冠色。`gl.POINTS` 沒有幾何、也就沒有頂點色 —— 顏色要由 CPU 端寫進
- * 屬性，所以這裡要看得到。
+ * 屬性，所以這裡要看得到。**與它取代的那一級的樹冠色相同**，換級不得換樹種。
  */
-export const POINT_COLOR: Record<PointPool, number> = {
-  broadPoint: BROAD_LEAF,
-  conePoint: CONIFER,
-  bushPoint: BUSH_LEAF,
+export function pointColorOf(pool: PointPool, season: Season): number {
+  const c = FLORA_COLORS[season]
+  return pool === 'broadPoint' ? c.broadLeaf : pool === 'conePoint' ? c.conifer : c.bushLeaf
 }
 
 /**
@@ -247,26 +245,27 @@ export type MeshPool = Exclude<PoolName, PointPool>
  * 【遠處那三個池不在這裡】它們是 `Points`，一株一個頂點、大小由
  * `POINT_SIZE` 給 —— 沒有幾何可以綁。
  */
-export function createFloraGeometries(): Record<MeshPool, BufferGeometry> {
+export function createFloraGeometries(season: Season = 'summer'): Record<MeshPool, BufferGeometry> {
+  const c = FLORA_COLORS[season]
   return {
     // 闊葉近：圓柱樹幹 12 ＋ 八面體樹冠 8 = 20
     broadNear: build((s) => {
       cylinder(s, TRUNK, 6, 1, 0, BROAD_CROWN_Y0)
-      octa(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY)
+      octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY)
     }),
     // 【中級掉的只有樹幹，樹冠一動都不動】樹冠仍然在 BROAD_CROWN_Y0 到
     // TREE_HEIGHT 之間、寬度也一樣 —— 把它拉到地面（`octa(…, H/2, H/2)`）
     // 的話，過門檻的瞬間樹冠會往下掉一截又變胖，那比少一根樹幹明顯得多。
     // 900 m 外樹幹不足 1 px，那才是這一級唯一該省的東西。
-    broadMid: build((s) => { octa(s, BROAD_LEAF, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
+    broadMid: build((s) => { octa(s, c.broadLeaf, BROAD_CROWN_R, BROAD_CROWN_RY, BROAD_CROWN_CY) }),
     // 針葉近：圓柱樹幹 12 ＋ 七邊錐 7 = 19
     coneNear: build((s) => {
       cylinder(s, TRUNK, 6, 0.9, 0, CONE_CROWN_Y0)
-      cone(s, CONIFER, 7, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
+      cone(s, c.conifer, 7, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT)
     }),
     // 針葉中：六邊錐，底仍然在 CONE_CROWN_Y0，不落地 —— 與闊葉同一個理由
-    coneMid: build((s) => { cone(s, CONIFER, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
-    bushNear: build((s) => { octa(s, BUSH_LEAF, BUSH_R, BUSH_RY, BUSH_CY) }),
+    coneMid: build((s) => { cone(s, c.conifer, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
+    bushNear: build((s) => { octa(s, c.bushLeaf, BUSH_R, BUSH_RY, BUSH_CY) }),
     // 房子：牆 12 ＋ 屋頂 6 = 18
     // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
     // 出來。放大到 11 m 之後從空中看得到那一叢屋頂

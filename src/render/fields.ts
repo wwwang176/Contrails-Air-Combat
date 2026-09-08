@@ -1,4 +1,5 @@
 import { Color } from 'three'
+import { FIELD_COLORS, PALETTE_STEPS, type Season } from './season'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -83,9 +84,6 @@ export const HEDGE_CHANCE = 0.92
 /** 凹路的寬度，m。兩區交界的那一條 */
 export const TRACK_WIDTH = 20
 
-/** 犁過的田的比例。與色調無關，散落在各處 */
-const PLOUGH_CHANCE = 0.12
-
 /**
  * 一塊田整片變成樹林（copse）的機率。
  *
@@ -96,28 +94,10 @@ const PLOUGH_CHANCE = 0.12
 export const WOOD_CHANCE = 0.05
 
 /**
- * 作物色。**順序是一條漸層**（深綠 → 淺綠 → 麥金），因為每塊田是在
- * 「區塊的基調 ± 1」裡挑的 —— 索引相鄰就必須顏色相近，不然又變回雜訊。
- *
- * 【飽和度是取樣稿的 0.6】色相與明度照原稿，只把 HSL 的 S 乘 0.6 ——
- * 樹籬、犁田、凹路一起。
+ * 色值不在這個檔案。作物色盤、犁田、樹籬、凹路、樹林與犁田比例都由季節
+ * 決定（`season.ts`）；這裡只管圖案。**作物色盤是一條漸層**，因為每塊田是
+ * 在「區塊的基調 ± 1」裡挑的 —— 索引相鄰就必須顏色相近，不然又變回雜訊。
  */
-const PALETTE = [
-  0x414d37, 0x4d5a40, 0x59664a, 0x677253,
-  0x767e5c, 0x858863, 0x928f6a, 0xa09872,
-] as const
-
-/** 犁過的田。不在漸層上 —— 它是另一種地，不是另一個色調 */
-const PLOUGHED = 0x615242
-
-/** 樹籬。比任何一塊田都暗 —— 灌木加喬木的樹冠，而且自己有陰影 */
-const HEDGE = 0x293123
-
-/** 凹路。乾土色 */
-const TRACK = 0x938b77
-
-/** 樹林。比色盤最深的一階再暗，而且不在漸層上 —— 它是另一種地 */
-const WOOD = 0x2f3a28
 
 /** 犁溝與作物行的間距，m */
 const STRIPE_PERIOD = 7
@@ -230,7 +210,7 @@ export function regionParams(id: number, out: RegionSample): void {
   // 【三角分佈，不是均勻】均勻抽的話四分之一的地是最深的綠、四分之一是
   // 最淡的金 —— 30 km 看下去區塊那一層自己會變成新的迷彩
   const th = hash1(rh)
-  out.tone = (((th & 0xffff) % PALETTE.length) + ((th >>> 16) % PALETTE.length)) >> 1
+  out.tone = (((th & 0xffff) % PALETTE_STEPS) + ((th >>> 16) % PALETTE_STEPS)) >> 1
 }
 
 /** `regionAt` 找種子用的暫存。熱路徑之外，但仍然不配置 */
@@ -381,22 +361,25 @@ const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
  *
  * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。
  */
-export function fieldSurfaceColor(x: number, z: number, out: Color): Color {
+export function fieldSurfaceColor(
+  x: number, z: number, out: Color, season: Season = 'summer',
+): Color {
+  const c = FIELD_COLORS[season]
   regionAt(x, z, REG)
-  if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(TRACK)
+  if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(c.track)
 
   fieldAt(x, z, REG, FLD)
-  if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(HEDGE)
+  if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(c.hedge)
 
   const fh = FLD.id
-  if (isWoodField(fh)) return out.setHex(WOOD)
-  if ((fh & 0xff) / 256 < PLOUGH_CHANCE) return out.setHex(PLOUGHED)
+  if (isWoodField(fh)) return out.setHex(c.wood)
+  if ((fh & 0xff) / 256 < c.ploughChance) return out.setHex(c.ploughed)
 
   // 【在區塊的基調 ±1 裡挑】色盤是一條漸層，所以相鄰的索引顏色相近
   let t = REG.tone + ((fh >>> 8) % 3) - 1
   if (t < 0) t = 0
-  if (t >= PALETTE.length) t = PALETTE.length - 1
-  out.setHex(PALETTE[t]!)
+  if (t >= PALETTE_STEPS) t = PALETTE_STEPS - 1
+  out.setHex(c.palette[t]!)
   // 【每塊田再抖一點亮度】同色調的兩塊田仍然分得出來，而且不會跳色
   const k = 0.94 + (((fh >>> 16) & 0xff) / 255) * 0.12
   return out.multiplyScalar(k)
@@ -407,8 +390,6 @@ const rgb = (hex: number): string => {
   return `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
 }
 
-const glslPalette = PALETTE.map((c) => '  ' + rgb(c)).join(',\n')
-
 /**
  * 上面那一切的 GLSL。提供 `vec3 fieldColorAt(vec2 world)`。
  *
@@ -418,8 +399,14 @@ const glslPalette = PALETTE.map((c) => '  ' + rgb(c)).join(',\n')
  * 【GLSL 版本】three 對內建材質一律加 `#version 300 es`
  * （`WebGLProgram` 的 `versionString`），所以 `uint`、位移、`const vec3[]`
  * 與非常數索引都合法。
+ *
+ * 【吃季節】色值烘進字串，所以一個季節一份字串；圖案的常數兩份相同。
+ * 呼叫端換了字串就要換材質的 `customProgramCacheKey`（`farmGround.ts`）。
  */
-export const FIELD_GLSL = `
+export function fieldGlsl(season: Season): string {
+  const c = FIELD_COLORS[season]
+  const glslPalette = c.palette.map((h) => '  ' + rgb(h)).join(',\n')
+  return `
 const float FIELD_SPACING = ${FIELD_SPACING.toFixed(1)};
 const float FIELD_ANISO = ${FIELD_ANISO.toFixed(3)};
 const float EDGE_JITTER = ${EDGE_JITTER.toFixed(3)};
@@ -428,17 +415,17 @@ const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};
 const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
 const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
-const float PLOUGH_CHANCE = ${PLOUGH_CHANCE.toFixed(3)};
+const float PLOUGH_CHANCE = ${c.ploughChance.toFixed(3)};
 const float WOOD_CHANCE = ${WOOD_CHANCE.toFixed(3)};
 const float STRIPE_PERIOD = ${STRIPE_PERIOD.toFixed(1)};
 const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
-const vec3 HEDGE_COLOR = ${rgb(HEDGE)};
-const vec3 TRACK_COLOR = ${rgb(TRACK)};
-const vec3 PLOUGHED_COLOR = ${rgb(PLOUGHED)};
-const vec3 WOOD_COLOR = ${rgb(WOOD)};
-const vec3 FIELD_PALETTE[${PALETTE.length}] = vec3[${PALETTE.length}](
+const vec3 HEDGE_COLOR = ${rgb(c.hedge)};
+const vec3 TRACK_COLOR = ${rgb(c.track)};
+const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
+const vec3 WOOD_COLOR = ${rgb(c.wood)};
+const vec3 FIELD_PALETTE[${PALETTE_STEPS}] = vec3[${PALETTE_STEPS}](
 ${glslPalette}
 );
 
@@ -522,8 +509,8 @@ vec3 fieldColorAt(vec2 world) {
   float cellW = FIELD_SPACING * scale;
   float cellH = FIELD_SPACING * scale * FIELD_ANISO;
   uint th = fieldHash1(rh);
-  int tone = int(((th & 0xffffu) % ${PALETTE.length}u
-    + (th >> 16u) % ${PALETTE.length}u) >> 1u);
+  int tone = int(((th & 0xffffu) % ${PALETTE_STEPS}u
+    + (th >> 16u) % ${PALETTE_STEPS}u) >> 1u);
 
   // ── 細的一層：抖動的矩形格 ──────────────────────
   float cs = cos(-angle);
@@ -573,7 +560,7 @@ vec3 fieldColorAt(vec2 world) {
   bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
   vec3 col = wood ? WOOD_COLOR : PLOUGHED_COLOR;
   if (!wood && !ploughed) {
-    int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE.length - 1});
+    int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
     col = FIELD_PALETTE[t] * k;
   }
@@ -589,3 +576,7 @@ vec3 fieldColorAt(vec2 world) {
   return col;
 }
 `
+}
+
+/** 夏季那一份。農地與群島讀它，測試與 e2e 的著色器編譯也讀它 */
+export const FIELD_GLSL = fieldGlsl('summer')

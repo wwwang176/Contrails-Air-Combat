@@ -7,9 +7,10 @@ import {
   createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
-  createFloraGeometries, disposeFloraGeometries, POINT_POOLS, POINT_COLOR,
+  createFloraGeometries, disposeFloraGeometries, POINT_POOLS, pointColorOf,
   POINT_SIZE, POINT_Y, type MeshPool, type PointPool, type PoolName,
 } from './floraShapes'
+import type { Season } from './season'
 
 export type { PoolName }
 
@@ -464,6 +465,8 @@ export interface VegetationOptions {
   tileCache?: number
   /** 每幀最多生幾格 —— 見 `TILES_PER_FRAME` */
   tilesPerFrame?: number
+  /** 樹冠色的季節。省略 = 夏季。每一份植被自己建幾何與池，兩個季節互不污染 */
+  season?: Season
 }
 
 export function createVegetation(
@@ -482,7 +485,8 @@ export function createVegetation(
     ((Math.PI * radius * radius) / (TILE_SIZE * TILE_SIZE)) * 1.16,
   )
   const tilesPerFrame = opts.tilesPerFrame ?? TILES_PER_FRAME
-  const geometries = createFloraGeometries()
+  const season = opts.season ?? 'summer'
+  const geometries = createFloraGeometries(season)
   const material = new MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.9,
   })
@@ -543,7 +547,7 @@ export function createVegetation(
       pts.frustumCulled = false
       pools[name] = pts
       group.add(pts)
-      pointBase[name] = new Color(POINT_COLOR[name as PointPool]).multiply(POINT_LIGHT)
+      pointBase[name] = new Color(pointColorOf(name as PointPool, season)).multiply(POINT_LIGHT)
       continue
     }
     // 【型別】上面那個 `continue` 已經把點池濾掉了，但 TS 收窄不到
