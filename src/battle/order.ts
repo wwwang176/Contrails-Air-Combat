@@ -389,3 +389,65 @@ export function sideSummary(units: OrderOfBattle, team: Team): string {
   }
   return order.map((id) => `${counts.get(id)!} × ${id}`).join(' + ')
 }
+
+/**
+ * 產出「藍隊一路、紅隊分兩路夾擊」的編組表。
+ *
+ * 第一群留在 `plan.red` 的方位，第二群**繞世界原點**往右舷轉 `starboard`。
+ * 任務的艦隊中心就在原點（`MissionFleet.center`），所以那等於繞著艦隊轉。
+ *
+ * 【為什麼要吃 `entryRange` 與 `lateralOffset`】`SideEntry` 的 `along` 與
+ * `across` 是**兩個不同尺度的係數**（10,000 對 1,500），轉方位是在公尺上做
+ * 的旋轉 —— 直接轉係數會把圓轉成橢圓。呼叫端本來就有這兩個值。
+ *
+ * 【右舷是負角】艦隊艏向 −Z、右舷 +X，而繞 Y 的正角把 −Z 轉向 −X。
+ *
+ * 【兩群各自置中】沿用整隊的 lane 會讓第二群整個偏在一邊，`tier` 同理 ——
+ * 它是高度階梯的序號。
+ */
+export function pincer(
+  plan: EntryPlan,
+  blueSpec: AircraftSpec, blueCount: number,
+  redSpec: AircraftSpec, redCount: number,
+  starboard: number,
+  entryRange: number, lateralOffset: number,
+): OrderOfBattle {
+  const base = lineAbreast(plan, blueSpec, blueCount, redSpec, redCount)
+  const reds = base.filter((f) => f.team === 'red')
+  // 【第一群多一隊】單數時把多的那一隊留在原方位 —— 那是玩家正面對著的
+  // 方向，也是任務簡報上寫的方向
+  const first = Math.ceil(reds.length / 2)
+  const turned = rotateEntry(plan.red, starboard, entryRange, lateralOffset)
+
+  const out: FlightPlan[] = base.filter((f) => f.team === 'blue')
+  for (let i = 0; i < reds.length; i++) {
+    const f = reds[i]!
+    const group = i < first ? 0 : 1
+    const n = group === 0 ? first : reds.length - first
+    const k = group === 0 ? i : i - first
+    out.push({
+      ...f,
+      entry: group === 0 ? f.entry : turned,
+      lane: k - (n - 1) / 2,
+      tier: k,
+    })
+  }
+  return out
+}
+
+/** 繞世界原點把一個入場位置往右舷轉。`gap` 折進 `along`。 */
+function rotateEntry(
+  e: SideEntry, starboard: number, entryRange: number, lateralOffset: number,
+): SideEntry {
+  const c = Math.cos(-starboard)
+  const s = Math.sin(-starboard)
+  const x = e.across * lateralOffset
+  const z = e.along * entryRange + e.gap
+  return {
+    ...e,
+    across: (x * c + z * s) / lateralOffset,
+    along: (-x * s + z * c) / entryRange,
+    gap: 0,
+    heading: e.heading - starboard,
+  }
+}

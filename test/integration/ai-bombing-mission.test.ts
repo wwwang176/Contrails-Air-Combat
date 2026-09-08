@@ -29,10 +29,15 @@ const DT = 1 / 240
 const SEED = 1234
 
 /**
- * 開一場 `japan-m4` 並接好線。
+ * 開一場並接好線。
  *
- * **接線與 `main.ts` 的 `wireTerrain` 逐字相同** —— 漏掉 `bombDrag` 的話
+ * **接的欄位與 `main.ts` 的 `wireTerrain` 相同** —— 漏掉 `bombDrag` 的話
  * AI 算的落點與飛出去的那一顆會分家，而症狀只是「投不準」。
+ *
+ * 【但這裡只接一次，`wireTerrain` 是每幀接】增援進場時那個座位會換一個新的
+ * 控制器，接一次的話它的 `ships` 是空的 —— 那一架於是永遠選不到船，
+ * `shipAim.ship` 停在 −1，安安靜靜地在空中繞。要驗波次的對艦行為，得比照
+ * 遊戲在每一步重接。
  */
 function mission(which: ReadyMissionCard = card): Battle {
   const b = createBattle(IDLE, missionConfigFrom(which), SEED)

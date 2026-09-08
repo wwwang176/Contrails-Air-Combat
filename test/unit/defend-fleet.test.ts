@@ -167,6 +167,36 @@ describe('盟 M4：沖繩外海', () => {
     expect(cfg.beats![0]!.kind).toBe('reinforce')
   })
 
+  /**
+   * 【端到端】零戰分兩路，一路在艦隊正前方、一路在右舷。
+   *
+   * 【為什麼要驗到世界座標】`redStarboard` 只是一個係數，錯了的症狀是
+   * 「兩路都從同一邊來」或「第二路跑到艦隊後面」，而兩者在型別上都合法。
+   */
+  it('十六架零戰分兩路，第二路在右舷 45 度', () => {
+    const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
+    expect(bt.red.length).toBe(16)
+    // 方位角以艦隊艏向（−Z）為 0、右舷為正
+    const bearing = (c: (typeof bt.red)[number]) => {
+      const p = c.aircraft.state.position
+      return (Math.atan2(p.x, -p.z) * 180) / Math.PI
+    }
+    const near = bt.red.filter((c) => bearing(c) < 25)
+    const far = bt.red.filter((c) => bearing(c) >= 25)
+    expect(near.length).toBe(8)
+    expect(far.length).toBe(8)
+    // 兩路的平均方位差 45 度；同一路的散佈遠小於那個角
+    //
+    // 【為什麼不是剛好 45】小隊之間的橫向間隔沿世界 X 排開，轉過去之後那個
+    // 間隔在方位上不對稱，平均值因此差 0.1 度。轉的是分隊中心，不是每一架
+    const mean = (g: typeof near) => g.reduce((a, c) => a + bearing(c), 0) / g.length
+    expect(mean(far) - mean(near)).toBeCloseTo(45, 0)
+    for (const g of [near, far]) {
+      const m = mean(g)
+      for (const c of g) expect(Math.abs(bearing(c) - m)).toBeLessThan(20)
+    }
+  })
+
   /** 【端到端】進戰鬥之後場上真的有九艘藍船，打沉航母就判輸 */
   it('進戰鬥之後打沉航母 → defeat', () => {
     const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
