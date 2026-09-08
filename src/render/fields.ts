@@ -611,6 +611,30 @@ export interface SiteLayout {
 const CONCRETE = 0x8d8a82
 const ASPHALT = 0x3f3d3a
 
+/**
+ * 髒污碎花的格，m。小格是逐格的亮暗與油漬，大格是整片鋪面的深淺。
+ *
+ * 【不要再放大】投彈高度一個像素蓋到地面約 4 m，小格已經只有三個像素寬 ——
+ * 再細下去會在飛行中閃爍，而那是看得出來的雜訊不是髒。
+ */
+const GRIME_CELL = 13
+const SLAB_CELL = 40
+
+/**
+ * 一點的髒污倍率。**墊面與鋪面共用** —— 調車場的碴石與留白的裸土乘上它就
+ * 是同色系的碎花，而不是一整塊平色。
+ *
+ * 【與 `siteGlsl` 逐項對應】兩份不一致的話，小地圖與畫面上的地是兩種顏色。
+ */
+function grimeFactor(x: number, z: number): number {
+  const ph = hash2(Math.floor(x / GRIME_CELL), Math.floor(z / GRIME_CELL))
+  const sh = hash2(Math.floor(x / SLAB_CELL) + 7919, Math.floor(z / SLAB_CELL) - 104729)
+  const oh = hash1(ph)
+  const slab = 0.86 + (0.2 * ((sh >>> 8) & 0x7)) / 7
+  const stain = (oh & 0xff) < 46 ? 0.74 : 1
+  return slab * stain * (0.96 + (0.08 * (ph & 0xff)) / 255)
+}
+
 /** 廠界的鋸齒：每一段的長度，m */
 const EDGE_CELL = 110
 /** 廠界的鋸齒：最深咬進去多少，m。地形的平坦保證仍然是整個矩形 */
@@ -682,12 +706,23 @@ ${patchHues}
   for (int i = 0; i < ${patches.length}; i++) {
     if (world.x >= PATCHES[i].x && world.x < PATCHES[i].z
         && world.y >= PATCHES[i].y && world.y < PATCHES[i].w) {
-      col = PATCH_HUE[i];
+      col = PATCH_HUE[i] * siteGrime;
     }
   }`
   return `
-  // 墊面：混凝土。三層疊起來 —— 120 m 的鋪面塊、40 m 的油漬、40 m 的微亮暗。
+  // 髒污：${SLAB_CELL.toFixed(0)} m 的鋪面塊疊 ${GRIME_CELL.toFixed(0)} m 的油漬與微亮暗。
+  // 墊面與鋪面共用，所以碴石與裸土也是同色系的碎花而不是一整塊平色
+  //
   // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
+  uint sgP = fieldHash2(int(floor(world.x / ${GRIME_CELL}.0)), int(floor(world.y / ${GRIME_CELL}.0)));
+  uint sgS = fieldHash2(int(floor(world.x / ${SLAB_CELL}.0)) + 7919,
+                        int(floor(world.y / ${SLAB_CELL}.0)) - 104729);
+  uint sgO = fieldHash1(sgP);
+  float siteGrime = (0.86 + 0.2 * float((sgS >> 8) & 0x7u) / 7.0)
+    * ((sgO & 0xffu) < 46u ? 0.74 : 1.0)
+    * (0.96 + 0.08 * float(sgP & 0xffu) / 255.0);
+
+  // 墊面：混凝土
   //
   // 【廠界不是直角矩形】四條邊各依 ${EDGE_CELL.toFixed(0)} m 的格抽一段縮進：
   // 一條直的邊在投彈高度看下去就是一把尺，而廠區是幾十年間一塊一塊擴出來的
@@ -699,12 +734,7 @@ ${patchHues}
       && world.x < ${site.pad.x1.toFixed(1)} - padEx * ${BITE.toFixed(1)}
       && world.y >= ${site.pad.z0.toFixed(1)} + padNz * ${BITE.toFixed(1)}
       && world.y < ${site.pad.z1.toFixed(1)} - padSz * ${BITE.toFixed(1)}) {
-    uint ph = fieldHash2(int(floor(world.x / 40.0)), int(floor(world.y / 40.0)));
-    uint sh = fieldHash2(int(floor(world.x / 120.0)) + 7919, int(floor(world.y / 120.0)) - 104729);
-    uint oh = fieldHash1(ph);
-    float slab = 0.86 + 0.2 * float((sh >> 8) & 0x7u) / 7.0;
-    float stain = (oh & 0xffu) < 46u ? 0.74 : 1.0;
-    col = ${rgb(CONCRETE)} * slab * stain * (0.96 + 0.08 * float(ph & 0xffu) / 255.0);
+    col = ${rgb(CONCRETE)} * siteGrime;
   }
 ${patchGlsl}
   // 道路：離任一條線段小於半寬
@@ -742,16 +772,12 @@ export function siteSurfaceColor(
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
     }
     for (const q of site.patches ?? []) {
-      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) return out.setHex(q.hex)
+      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) {
+        return out.setHex(q.hex).multiplyScalar(grimeFactor(x, z))
+      }
     }
     if (insidePad(x, z, site.pad)) {
-      // 【與 `siteGlsl` 逐項對應】兩份不一致的話，小地圖與畫面上的地是兩種顏色
-      const ph = hash2(Math.floor(x / 40), Math.floor(z / 40))
-      const sh = hash2(Math.floor(x / 120) + 7919, Math.floor(z / 120) - 104729)
-      const oh = hash1(ph)
-      const slab = 0.86 + (0.2 * ((sh >>> 8) & 0x7)) / 7
-      const stain = (oh & 0xff) < 46 ? 0.74 : 1
-      return out.setHex(CONCRETE).multiplyScalar(slab * stain * (0.96 + (0.08 * (ph & 0xff)) / 255))
+      return out.setHex(CONCRETE).multiplyScalar(grimeFactor(x, z))
     }
   }
   return fieldSurfaceColor(x, z, out, season)
