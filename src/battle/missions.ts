@@ -702,7 +702,11 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
             },
             // 【不宣稱方位】波次的橫向槽位把它推到開場那兩路之外，實際方位
             // 因此不等於這裡設的 45°。寫「發生了什麼」，不要寫「在哪裡」
-            warn: '第二批零戰進場',
+            //
+            // 【寫成無線電通報，不寫波次編號】玩家不知道也不該知道自己在打
+            // 第幾批 —— 那是設定檔的內部結構。1945 年的第 58 特遣艦隊有
+            // 戰鬥機管制台，雷達通報就是這一則訊息的來源
+            warn: '雷達發現更多零戰',
             warnLead: 5,
             side: 'theirs', spec: A6M5, count: 4,
             starboard: 45 * DEG,
@@ -712,13 +716,13 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
               kind: 'alive', side: 'theirs', role: 'fighter',
               atMost: 4, byLatest: 85,
             },
-            warn: '第三批零戰進場',
+            warn: '零戰還在增援',
             warnLead: 5,
             side: 'theirs', spec: A6M5, count: 4,
           },
           {
             when: { kind: 'clock', at: 115 },
-            warn: '雷擊機低空進場',
+            warn: '低空發現雷擊機',
             warnLead: 6,
             side: 'theirs', spec: G4M, count: 4,
             /**
@@ -839,7 +843,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           },
           {
             when: { kind: 'clock', at: 45 },
-            warn: '警告：敵方第二批支援進場',
+            warn: '警告：敵方援軍加入戰鬥',
             warnLead: 4,
             side: 'theirs', spec: P51D, count: 4, along: -1.0,
           },
