@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { preloadPlantScenery } from '../../src/render/geometry/ground/plantScenery'
 import { createTerrain } from '../../src/render/terrain'
 import { FAR_SEA_Y, gerstnerHeight } from '../../src/render/ocean'
 import { createIslands } from '../../src/render/island'
@@ -337,7 +339,20 @@ describe('植被接線', () => {
 })
 
 describe('洛伊納', () => {
-  const t = createTerrain('leuna')
+  // 【要先載 GLB】廠區的佈景是 `public/models/leuna_plant.glb`，而地形的組裝
+  // 是同步的。放 `beforeAll` 而不是 describe 本體：reporter 只算 it 與 hook 的
+  // 時間，本體裡的耗時會憑空消失
+  let t: ReturnType<typeof createTerrain>
+  beforeAll(async () => {
+    await preloadPlantScenery((url) => {
+      const buf = readFileSync('public' + url)
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+      return Promise.resolve(ab)
+    })
+    t = createTerrain('leuna')
+  })
+
+  afterAll(() => { t.dispose() })
 
   it('前四個位置的契約與農地相同，第五個是廠區的佈景', () => {
     expect(t.object.children.length).toBe(5)
@@ -359,6 +374,4 @@ describe('洛伊納', () => {
   it('廠區中心的高度是 0', () => {
     expect(t.collisionHeightAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(0)
   })
-
-  t.dispose()
 })

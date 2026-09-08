@@ -2,6 +2,7 @@ import { TextureLoader, type Texture } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain, type Terrain } from '../render/terrain'
+import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import { createFireball } from '../render/fireball'
 import { createFireChunks } from '../render/chunks'
 import { createSpray, WATER_COLOR } from '../render/spray'
@@ -38,6 +39,9 @@ import type { TerrainKind } from '../world/terrainKind'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
+
+// 【廠區的佈景是 GLB】切到洛伊納要先載完，`createTerrain` 是同步的
+await preloadPlantScenery()
 
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)

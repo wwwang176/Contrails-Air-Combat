@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createLeuna, EGRESS, FLAK_SITES, LEUNA_HILLS, PAD_CLEARANCE, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD,
-  ROADS, TRUCKS,
+  type BlockKind,
+  createLeuna, EGRESS, FLAK_SITES, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
+  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, ROADS,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -106,22 +107,58 @@ describe('leuna 的廠區', () => {
     expect(PLANT_PAD.halfZ * 2).toBe(1500)
   })
 
-  it('卡車停在墊面內或道路旁', () => {
-    for (const t of TRUCKS) {
-      const inPad = padDistance(t.x, t.z) === 0
-      let nearRoad = false
-      for (const road of ROADS) {
-        for (let i = 0; i + 1 < road.length; i++) {
-          const a = road[i]!
-          const b = road[i + 1]!
-          const dx = b.x - a.x
-          const dz = b.z - a.z
-          const l2 = dx * dx + dz * dz
-          const u = Math.max(0, Math.min(1, ((t.x - a.x) * dx + (t.z - a.z) * dz) / l2))
-          if (Math.hypot(t.x - (a.x + dx * u), t.z - (a.z + dz * u)) < 40) nearRoad = true
+  /**
+   * 【機能要相符】氫化塔進製程區、鍋爐房與冷卻塔進公用區、儲油槽進儲槽區。
+   * 街廓表改過幾輪，構件沒跟著挪的症狀是「反應塔站在一圈土堤圍起來的儲槽
+   * 中間」—— 玩得起來，但一眼看得出是兩套東西擺在一起。
+   */
+  it('每一座構件都在機能相符的街廓裡，沒有一座落在巷道上', () => {
+    const want: Record<string, readonly BlockKind[]> = {
+      hydroTower: ['process'], chimney: ['utility', 'process'],
+      boilerHouse: ['utility'], coolingTower: ['utility'],
+      gasHolder: ['utility'], oilTank: ['tankFarm'],
+    }
+    for (const t of PLANT_LAYOUT) {
+      const x = PLANT_CENTER.x + t.dx
+      const z = PLANT_CENTER.z + t.dz
+      const b = PLANT_BLOCKS.find((k) => x >= k.x0 && x < k.x1 && z >= k.z0 && z < k.z1)
+      expect(b, `${t.kind} (${t.dx}, ${t.dz}) 落在巷道上`).toBeDefined()
+      expect(want[t.kind], `${t.kind} 沒有登記機能`).toBeDefined()
+      expect(want[t.kind]!, `${t.kind} (${t.dx}, ${t.dz}) 在 ${b!.kind} 街廓裡`)
+        .toContain(b!.kind)
+    }
+  })
+
+  /**
+   * 【四群各三座】一趟對準的投彈帶得走一群，四群要飛四趟，而過關只要六座。
+   * 全部擠成一堆的話一趟就結束，散成十二處的話飛不完 —— 兩邊都是這一關
+   * 不要的節奏。
+   */
+  it('分成四群，群內間距不到 200 m、群與群相隔 500 m 以上', () => {
+    const rest = PLANT_LAYOUT.map((p) => ({ x: p.dx, z: p.dz }))
+    const groups: { x: number; z: number }[][] = []
+    while (rest.length > 0) {
+      const g = [rest.shift()!]
+      for (let grew = true; grew;) {
+        grew = false
+        for (let i = rest.length - 1; i >= 0; i--) {
+          if (!g.some((m) => Math.hypot(m.x - rest[i]!.x, m.z - rest[i]!.z) < 200)) continue
+          g.push(...rest.splice(i, 1))
+          grew = true
         }
       }
-      expect(inPad || nearRoad, `${t.x},${t.z}`).toBe(true)
+      groups.push(g)
+    }
+    expect(groups.length, `分成 ${groups.length} 群`).toBe(4)
+    for (const g of groups) expect(g.length).toBe(3)
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        let best = Infinity
+        for (const a of groups[i]!) {
+          for (const b of groups[j]!) best = Math.min(best, Math.hypot(a.x - b.x, a.z - b.z))
+        }
+        expect(best, `第 ${i} 群與第 ${j} 群只隔 ${best.toFixed(0)} m`).toBeGreaterThan(500)
+      }
     }
   })
 
@@ -130,5 +167,104 @@ describe('leuna 的廠區', () => {
     const touchesPad = ROADS.some((r) => r.some((p) => padDistance(p.x, p.z) === 0))
     expect(reachesEdge).toBe(true)
     expect(touchesPad).toBe(true)
+  })
+})
+
+/**
+ * 街廓是佈景填充的單位：巷道格線切出來，每一格掛一個機能標籤。填充器
+ * （`render/geometry/ground/plantFill.ts`）只認這張表。
+ */
+describe('廠區的街廓', () => {
+  it('二十幾個街廓，全部在墊面內，互不重疊', () => {
+    // 七欄四列＝二十八格，扣掉調車場那一對合併之後是二十七個
+    expect(PLANT_BLOCKS.length).toBeGreaterThanOrEqual(24)
+    expect(PLANT_BLOCKS.length).toBeLessThanOrEqual(28)
+    const x0 = PLANT_CENTER.x - PLANT_PAD.halfX
+    const x1 = PLANT_CENTER.x + PLANT_PAD.halfX
+    const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
+    const z1 = PLANT_CENTER.z + PLANT_PAD.halfZ
+    for (const b of PLANT_BLOCKS) {
+      expect(b.x0).toBeGreaterThanOrEqual(x0)
+      expect(b.x1).toBeLessThanOrEqual(x1)
+      expect(b.z0).toBeGreaterThanOrEqual(z0)
+      expect(b.z1).toBeLessThanOrEqual(z1)
+      expect(b.x1 - b.x0).toBeGreaterThan(100)
+      expect(b.z1 - b.z0).toBeGreaterThan(100)
+    }
+    for (let i = 0; i < PLANT_BLOCKS.length; i++) {
+      for (let j = i + 1; j < PLANT_BLOCKS.length; j++) {
+        const a = PLANT_BLOCKS[i]!
+        const b = PLANT_BLOCKS[j]!
+        const apart = a.x1 <= b.x0 || b.x1 <= a.x0 || a.z1 <= b.z0 || b.z1 <= a.z0
+        expect(apart, `街廓 ${i} 與 ${j} 重疊`).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * 【為什麼要驗這一條】巷道是格線退出來的。退錯邊（減成加）街廓會壓在
+   * 巷道上，而畫面上只是「東西擺得比較滿」，看不出錯。
+   *
+   * 巷寬因街廓而異（每一條都同寬的話，白邊自己會排成一張格線），所以量的
+   * 是區間不是定值。
+   */
+  it('任兩個街廓之間都留得下一條巷', () => {
+    let closest = Infinity
+    let widest = 0
+    for (let i = 0; i < PLANT_BLOCKS.length; i++) {
+      for (let j = i + 1; j < PLANT_BLOCKS.length; j++) {
+        const a = PLANT_BLOCKS[i]!
+        const b = PLANT_BLOCKS[j]!
+        // 只看真正面對面的那一對：另一軸要有重疊
+        const zOverlap = a.z0 < b.z1 && b.z0 < a.z1
+        const xOverlap = a.x0 < b.x1 && b.x0 < a.x1
+        if (zOverlap) {
+          const gap = a.x0 >= b.x1 ? a.x0 - b.x1 : b.x0 >= a.x1 ? b.x0 - a.x1 : Infinity
+          if (gap < closest) closest = gap
+          if (gap !== Infinity && gap > widest) widest = gap
+        }
+        if (xOverlap) {
+          const gap = a.z0 >= b.z1 ? a.z0 - b.z1 : b.z0 >= a.z1 ? b.z0 - a.z1 : Infinity
+          if (gap < closest) closest = gap
+          if (gap !== Infinity && gap > widest) widest = gap
+        }
+      }
+    }
+    expect(closest, `最窄的巷只有 ${closest.toFixed(1)} m`).toBeGreaterThanOrEqual(LANE_WIDTH * 0.6)
+    expect(closest).toBeLessThanOrEqual(LANE_WIDTH * 1.5)
+    // 【寬窄要真的不一樣】全部同寬的話這一條會退化成上面那一條
+    expect(widest - closest, '每一條巷都一樣寬').toBeGreaterThan(2)
+  })
+
+  it('每一座可炸構件都落在某個街廓內，而且那個街廓不是 open', () => {
+    for (const p of PLANT_LAYOUT) {
+      const x = PLANT_CENTER.x + p.dx
+      const z = PLANT_CENTER.z + p.dz
+      const b = PLANT_BLOCKS.find((k) => x >= k.x0 && x < k.x1 && z >= k.z0 && z < k.z1)
+      expect(b, `構件 ${p.kind} (${p.dx},${p.dz}) 掉在巷道或街廓外`).toBeDefined()
+      expect(b!.kind, `構件 ${p.kind} 落在 open 街廓`).not.toBe('open')
+    }
+  })
+
+  it('機能配比：open 不超過 4 個，六種機能都有人用，種子互不相同', () => {
+    expect(PLANT_BLOCKS.filter((b) => b.kind === 'open').length).toBeLessThanOrEqual(4)
+    expect(new Set(PLANT_BLOCKS.map((b) => b.kind)).size).toBe(6)
+    expect(new Set(PLANT_BLOCKS.map((b) => b.seed)).size).toBe(PLANT_BLOCKS.length)
+  })
+
+  /**
+   * 【同機能不能連成一大片】相鄰同機能會被 `mergePlan` 併成一塊，而併出來的
+   * 大方塊從投彈高度看下去就是「那一整區都是油槽」。一格約 350 × 370 m，
+   * 兩格就超過 21 萬 m²。
+   *
+   * **調車場是例外**：它要接得到外面的鐵路，沿南緣併成一條長場才合理。
+   */
+  it('除了調車場，沒有一個街廓大到兩格', () => {
+    for (const b of PLANT_BLOCKS) {
+      const area = (b.x1 - b.x0) * (b.z1 - b.z0)
+      const cap = b.kind === 'railyard' ? 340_000 : 210_000
+      expect(area, `${b.kind} ${b.seed} 佔 ${Math.round(area / 1000)} 千 m²`)
+        .toBeLessThanOrEqual(cap)
+    }
   })
 })

@@ -125,6 +125,8 @@ import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
+import { PLANT_STACKS } from './world/leuna'
+import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -775,15 +777,29 @@ let steamAccum = 0
 let steamSeed = 0
 
 /**
- * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽。炸毀就停
- * （`alive` 為假的那一座不再放）。純裝飾，種子用計數器 —— 與 `emitFirePuff`
- * 同一套。
+ * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽，加上佈景的
+ * 八根煙囪（打不掉，所以炸完六座構件之後廠區仍在冒煙）。純裝飾，種子用
+ * 計數器 —— 與 `emitFirePuff` 同一套。
+ *
+ * 【這裡不配置記憶體】每幀跑。`PLANT_STACKS` 是模組常數而且已經是世界
+ * 座標，迴圈裡沒有 `new`、沒有換算。
  */
 function emitPlantSteam(frameSeconds: number): void {
   steamAccum += frameSeconds * STEAM_PER_SECOND
   const n = Math.floor(steamAccum)
   if (n <= 0) return
   steamAccum -= n
+  if (terrainKind === 'leuna') {
+    for (const p of PLANT_STACKS) {
+      for (let k = 0; k < n; k++) {
+        const s = (steamSeed = (steamSeed + 1) | 0)
+        const a = hash01(s * 3 + 1) * Math.PI * 2
+        const r = hash01(s * 3 + 2) * STEAM_DRIFT
+        const ox = (hash01(s * 3 + 3) * 2 - 1) * 1.5
+        steam.emit(p.x + ox, p.y, p.z, Math.cos(a) * r, 0, Math.sin(a) * r, 1)
+      }
+    }
+  }
   for (const t of world.groundTargets) {
     if (!t.alive) continue
     const id = t.unit.id
@@ -2355,6 +2371,9 @@ await preloadAircraftModels()
 await preloadShipModels(['essex', 'wichita', 'fletcher'])
 // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
 await preloadGroundModels()
+// 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
+// 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
+await preloadPlantScenery()
 requestAnimationFrame(frame)
 
 /**

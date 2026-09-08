@@ -17,8 +17,9 @@
  * 玩家機器上的編譯器。與 `island-shot.e2e.ts` 同一個理由。
  */
 import { chromium } from 'playwright'
-import { fieldGlsl } from '../../src/render/fields'
+import { fieldGlsl, fieldGlslWithSite } from '../../src/render/fields'
 import { SEASONS } from '../../src/render/season'
+import { LEUNA_SITE } from '../../src/render/terrain'
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: false })
@@ -37,6 +38,15 @@ async function main(): Promise<void> {
       console.error(log)
       throw new Error('GLSL 編譯失敗')
     }
+    // 【廠區那一份要單獨編】墊面、鋪面矩形與道路是接在 fieldColorAt 尾巴的
+    // 另一段字串，沒有 site 的那四份編得過不代表它編得過
+    const siteLog = await compile(page, fieldGlslWithSite('lateAutumn', LEUNA_SITE))
+    if (siteLog.trim() !== '') {
+      console.error('  洛伊納的 fieldGlslWithSite 編譯失敗：')
+      console.error(siteLog)
+      throw new Error('GLSL 編譯失敗')
+    }
+    console.log('  洛伊納的 fieldGlslWithSite 編譯通過')
   } finally {
     await browser.close()
   }
