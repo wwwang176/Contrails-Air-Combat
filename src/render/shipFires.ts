@@ -112,6 +112,10 @@ export function lightShipFires(
     const o = e * IMPACT_STRIDE
     const index = d[o + 5]!
     if (index < 0) continue
+    // 【只認打中船的那一筆】第六格對建築帶的是建築的索引（`nx = 3`），
+    // 拿去查船會讓火長到編號相同的那一艘船上。魚雷事件的 `nx` 是 0/1，
+    // 帶索引的一律是船，所以只擋炸彈的 3
+    if (d[o + 3] === 3) continue
     const s = ships[index]
     // 【找不到就不起火】索引對不上時寧可不畫，也不要讀到 undefined
     if (s === undefined || s.index !== index) continue

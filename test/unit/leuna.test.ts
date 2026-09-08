@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createLeuna, FLAK_SITES, LEUNA_HILLS, PAD_CLEARANCE, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD,
+  createLeuna, EGRESS, FLAK_SITES, LEUNA_HILLS, PAD_CLEARANCE, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -81,5 +81,20 @@ describe('leuna 地形', () => {
     }
     expect(FLAK_SITES).toHaveLength(8)
     for (const s of FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(800)
+  })
+})
+
+describe('leuna 的佈局常數', () => {
+  it('預定砲位環繞廠區 1.5 到 3 km', () => {
+    for (const s of FLAK_SITES) {
+      const d = Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)
+      expect(d, `${s.x},${s.z}`).toBeGreaterThanOrEqual(1500)
+      expect(d, `${s.x},${s.z}`).toBeLessThanOrEqual(3000)
+    }
+  })
+
+  it('脫離方向是 −Z：投完繼續往前，不回頭', () => {
+    expect(EGRESS.z).toBeLessThan(0)
+    expect(EGRESS.x).toBe(0)
   })
 })

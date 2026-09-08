@@ -123,3 +123,19 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
     expect(SRC[step[0]!]!).toContain('frameSeconds')
   })
 })
+
+/**
+ * # 地面目標的標記接線
+ *
+ * `hud-marker-feed.test.ts` 直接呼叫 `fillMarkers`，所以 `main.ts` 忘了把
+ * `world.groundTargets` 傳進去不會讓任何測試紅 —— 症狀是**畫面上沒有任何
+ * 建築的標記**，而船與炸彈的都在。呼叫是多行的，看呼叫起點之後幾行。
+ */
+describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
+  it('呼叫的引數裡有 world.groundTargets', () => {
+    const fill = only('fillMarkers(')
+    const call = SRC.slice(fill, fill + 4).join('\n')
+    expect(call).toContain('world.ships')
+    expect(call).toContain('world.groundTargets')
+  })
+})

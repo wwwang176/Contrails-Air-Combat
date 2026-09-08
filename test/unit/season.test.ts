@@ -43,6 +43,27 @@ describe('季節', () => {
     expect(FIELD_COLORS.lateAutumn.ploughChance).toBeGreaterThan(FIELD_COLORS.summer.ploughChance)
   })
 
+  it('晚秋的每一個色值都與夏季不同，而且都進了 GLSL', () => {
+    const s = FIELD_COLORS.summer
+    const w = FIELD_COLORS.lateAutumn
+    const autumn = fieldGlsl('lateAutumn')
+    const vec = (hex: number): string => {
+      const c = new Color().setHex(hex)
+      return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`
+    }
+    for (const k of ['ploughed', 'hedge', 'track', 'wood'] as const) {
+      expect(w[k], k).not.toBe(s[k])
+      expect(autumn, k).toContain(vec(w[k]))
+    }
+    for (let i = 0; i < PALETTE_STEPS; i++) {
+      expect(w.palette[i], `palette ${i}`).not.toBe(s.palette[i])
+      expect(autumn).toContain(vec(w.palette[i]!))
+    }
+    for (const k of ['broadLeaf', 'conifer', 'bushLeaf'] as const) {
+      expect(FLORA_COLORS.lateAutumn[k], k).not.toBe(FLORA_COLORS.summer[k])
+    }
+  })
+
   it('晚秋的闊葉樹冠換色、房子不變；點池的色跟著換', () => {
     const s = createFloraGeometries('summer')
     const w = createFloraGeometries('lateAutumn')

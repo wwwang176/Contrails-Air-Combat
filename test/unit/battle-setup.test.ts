@@ -338,6 +338,22 @@ describe('地面目標的放置', () => {
     expect(t.hp).toBe(GROUND_HP.chimney)
     expect(t.alive).toBe(true)
   })
+
+  /**
+   * 【任務輸入是跨場的模組單例】上一場炸毀了目標，下一場沒有地面目標的
+   * 炸毀關第一步若繼承舊值就直接判勝。先跑一場有炸毀的，再跑一場空的。
+   */
+  it('上一場炸毀的數量不會殘留到下一場', () => {
+    const rules = { kind: 'destroy', count: 1 } as const
+    const a = createBattle(new Idle(), { ...DEFAULT_BATTLE, ground, rules })
+    a.world.groundTargets[0]!.hp = 0
+    a.world.groundTargets[0]!.alive = false
+    stepBattle(a, 1 / 240)
+    expect(a.mission.outcome).toBe('victory')
+    const b = createBattle(new Idle(), { ...DEFAULT_BATTLE, rules })
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+  })
 })
 
 describe('重置', () => {
