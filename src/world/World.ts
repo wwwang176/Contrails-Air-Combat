@@ -1211,7 +1211,8 @@ export class World {
             ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
             -(bx - ax), -(by - ay), -(bz - az),
           )
-          hitTarget.hp -= p.damage[i]!
+          // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
+          hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
           // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
           this.wreckIfDead(hitTarget, owner >= 0 && owner < combatants.length ? owner : -1)
           p.kill(i)

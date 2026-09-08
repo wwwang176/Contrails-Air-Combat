@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { World } from '../../src/world/World'
 import {
-  GROUND_HP, createGroundTarget, resetGroundTarget, settleGroundTargets, type GroundTarget,
+  GROUND_ARMOUR, GROUND_HP, createGroundTarget, resetGroundTarget, settleGroundTargets,
+  type GroundTarget,
 } from '../../src/world/groundTargets'
+import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { GROUND_UNITS } from '../../src/render/geometry/ground'
 import { boundingRadius } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
@@ -16,8 +18,8 @@ import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
 
 const DT = 1 / 240
 
-/** 平地、沒有水的世界，一台紅隊 T-34 停在原點。 */
-function fieldWith(id: 'tank' | 'truck' = 'tank', heading = 0): { world: World; target: GroundTarget } {
+/** 平地、沒有水的世界，一台紅隊卡車（沒裝甲，子彈全額扣）停在原點。 */
+function fieldWith(id: 'tank' | 'truck' = 'truck', heading = 0): { world: World; target: GroundTarget } {
   const world = new World()
   world.groundAt = () => 0
   world.waterAt = () => -Infinity
@@ -36,8 +38,8 @@ function fieldWith(id: 'tank' | 'truck' = 'tank', heading = 0): { world: World; 
  * 飛機，隨便一個反查不到人的索引就好；兇手於是記成 −1。
  */
 const NOBODY = 7
-function shoot(world: World, x: number, team = 0, damage = 100): void {
-  world.projectiles.spawn(x, 1, -40, 0, 0, 800, damage, NOBODY, team, 0.5)
+function shoot(world: World, x: number, team = 0, damage = 100, caliber = 20): void {
+  world.projectiles.spawn(x, 1, -40, 0, 0, 800, damage, NOBODY, team, 0.5, caliber)
   for (let i = 0; i < 60; i++) world.step(DT)
 }
 
@@ -78,18 +80,29 @@ describe('子彈打地面目標', () => {
   it('同隊的子彈穿過去', () => {
     const { world, target } = fieldWith()
     shoot(world, 0, 1)
-    expect(target.hp).toBe(GROUND_HP.tank)
+    expect(target.hp).toBe(GROUND_HP.truck)
   })
 
   it('盒子跟著航向轉 —— 轉了 90° 之後車長變成橫向', () => {
-    // T-34 寬 3.0、長 6.2：x = 2.5 在未轉時打不到，轉 90° 後車身橫過來就打得到
-    const straight = fieldWith('tank', 0)
+    // 卡車寬 2.4、長 6.7：x = 2.5 在未轉時打不到，轉 90° 後車身橫過來就打得到
+    const straight = fieldWith('truck', 0)
     shoot(straight.world, 2.5)
-    expect(straight.target.hp).toBe(GROUND_HP.tank)
+    expect(straight.target.hp).toBe(GROUND_HP.truck)
 
-    const turned = fieldWith('tank', Math.PI / 2)
+    const turned = fieldWith('truck', Math.PI / 2)
     shoot(turned.world, 2.5)
-    expect(turned.target.hp).toBe(GROUND_HP.tank - 100)
+    expect(turned.target.hp).toBe(GROUND_HP.truck - 100)
+  })
+
+  /**
+   * 【戰車靠裝甲不靠血量】20 mm 打上去只扣底線 —— 與艦體同一支
+   * `penetrationDamage`。炸彈那一條路不問口徑，見下面「炸彈打地面目標」。
+   */
+  it('20 mm 打不穿 T-34，只扣底線 1 點', () => {
+    expect(GROUND_ARMOUR.tank).toBeGreaterThan(20)
+    const { world, target } = fieldWith('tank')
+    shoot(world, 0, 0, 100, 20)
+    expect(target.hp).toBe(GROUND_HP.tank - NO_PENETRATION_DAMAGE)
   })
 
   it('血量歸零就退場：不再擋子彈，而且推一筆擊毀事件', () => {
@@ -109,14 +122,14 @@ describe('子彈打地面目標', () => {
 })
 
 describe('炸彈打地面目標', () => {
-  it('直接命中吃爆心傷害', () => {
-    const { world, target } = fieldWith()
+  it('直接命中吃爆心傷害 —— 裝甲擋不住炸彈，戰車也全額扣', () => {
+    const { world, target } = fieldWith('tank')
     dropOn(world, 0, 0)
     expect(target.hp).toBe(GROUND_HP.tank - BOMB_BLAST_DAMAGE)
   })
 
   it('落在殺傷半徑外不扣血', () => {
-    const { world, target } = fieldWith()
+    const { world, target } = fieldWith('tank')
     dropOn(world, 200, 0)
     expect(target.hp).toBe(GROUND_HP.tank)
   })
