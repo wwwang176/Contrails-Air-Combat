@@ -305,6 +305,31 @@ export const PLANT_STACKS: readonly { readonly x: number; readonly z: number; re
   { x: -60, z: -7060, y: 60 },
 ]
 
+/**
+ * 牆外的衛星設施。**相對廠區中心**：dx／dz 是中心，w／d 是寬與深。
+ *
+ * 【廠區不能只有一個盒子】主廠區是一塊被牆圍起來的方塊，牆外一片田 ——
+ * 從投彈高度看下去那條界線是整幅畫面最刺眼的東西。真的合成油廠周邊本來
+ * 就散著變電所、加壓站、倉庫與側線，它們讓「人造的地」不只有一塊。
+ *
+ * **與 `tools/blender/build_plant.py` 的 `SATELLITES` 同一份數字。**
+ *
+ * 【要避開砲位與連外道路】兩者都不在 `KEEPOUTS` 裡，位置是手挑的。挪動之前
+ * 先對照 `FLAK_SITES` 與 `OUT_ROADS`。
+ */
+export const PLANT_SATELLITES: readonly {
+  readonly dx: number; readonly dz: number
+  readonly w: number; readonly d: number
+  readonly kind: string
+}[] = [
+  { dx: -1900, dz: -250, w: 220, d: 160, kind: 'substation' },
+  { dx: 720, dz: 1080, w: 190, d: 150, kind: 'pump' },
+  { dx: -1240, dz: 1090, w: 260, d: 150, kind: 'warehouse' },
+  { dx: 1780, dz: 470, w: 320, d: 130, kind: 'siding' },
+  { dx: 1700, dz: -980, w: 210, d: 190, kind: 'stockpile' },
+  { dx: -2060, dz: 360, w: 180, d: 150, kind: 'motorpool' },
+]
+
 /** 瓣的抽法與農地相同：固定 4 瓣，半徑比在 [0.30, 0.48] */
 const HILL_LOBES = 4
 const HILL_LOBE_RADIUS = [0.30, 0.48] as const

@@ -86,6 +86,19 @@ OUT_ROADS = [
 FLAK_SITES = [(-2600, -1200), (2600, -1200), (-3000, 0), (3000, 0),
               (-2600, 1200), (2600, 1200), (0, -2700), (0, 2700)]
 
+# 牆外的衛星設施（相對廠區中心）：dx, dz, 寬, 深, 種類
+# **與 src/world/leuna.ts 的 PLANT_SATELLITES 同一份數字**。地面的鋪面由
+# `LEUNA_SITE.outposts` 上色，這裡只建上面的東西。
+# 【位置是手挑的】砲位與連外道路都不在 KEEPOUTS 裡，挪動前先自己對照
+SATELLITES = [
+    (-1900, -250, 220, 160, 'substation'),
+    (720, 1080, 190, 150, 'pump'),
+    (-1240, 1090, 260, 150, 'warehouse'),
+    (1780, 470, 320, 130, 'siding'),
+    (1700, -980, 210, 190, 'stockpile'),
+    (-2060, 360, 180, 150, 'motorpool'),
+]
+
 # 佈景煙囪（相對廠區中心）：dx, dz, 高
 STACKS = [(-1440, -340, 62), (-1050, -690, 55), (-1050, -60, 68), (-560, -80, 58),
           (-60, -700, 64), (-1440, 60, 48), (-560, -700, 52), (-60, -60, 60)]
@@ -1478,8 +1491,30 @@ def build_skyways(b):
     return n
 
 
+WALL_SEG = 60.0
+WALL_RUN = 3
+WALL_PUSH = 140.0
+WALL_DROP = 0.34
+WALL_CORNER = 460.0
+
+
+def _wall_run(i, salt):
+    """一段牆在不在、往外推多少。**每 `WALL_RUN` 段共用一組值** —— 逐段各抽
+    一個是雜訊，成組才會是折來折去的階梯線。
+
+    【只往外推不往內縮】往內會切過街廓裡的設備，而避讓表只認可炸構件、卡車
+    與道路 —— 牆穿過一排儲槽不會有任何一條護欄變紅。
+    """
+    h = cell_hash(i // WALL_RUN, salt, 0x5715)
+    return (h & 0xFF) >= int(WALL_DROP * 255), (((h >> 8) & 0xFF) / 255) * WALL_PUSH
+
+
 def build_wall(b):
-    """圍牆：沿墊面四周，道路穿過的地方留門。
+    """圍牆：沿墊面四周，道路穿過的地方留門，四個角不接起來。
+
+    【一條 3 km 的直線是畫面上最刺眼的東西】牆只有 2.5 m 高，但在投彈高度
+    它是唯一一條貫穿全圖的直線，把廠區框回一個矩形。所以成組往外推、丟掉
+    三分之一、四個角各留一段不建。
 
     【每一段都走避讓，不是只避連外的門】廠內那三條道路的端點也在墊面邊上 ——
     只避連外門的話，牆會橫在廠內道路的出口上，而那一段在畫面上只是「圍牆」，
@@ -1487,31 +1522,124 @@ def build_wall(b):
     """
     n = 0
     m = fixed_mat('LP_PlantWall')
-    seg, gate = 60.0, 24.0
-    gates = [(500, 750), (-1500, 0)]
-    half = (seg - 0.5) / 2
-    x = -PAD_HALF_X + seg / 2
+    gate = 34.0
+    # 連外的兩座門：南門在 z = +750 的 x = 500、西門在 x = −1500 的 z = 0。
+    # 【只比沿邊的那一個座標】牆會往外推，拿兩點距離比會讓門被推出去的那一段補上
+    h_gates = {1: (500.0,)}
+    v_gates = {-1: (0.0,)}
+    half = (WALL_SEG - 0.5) / 2
+
+    def corner_skip(along, span, salt):
+        """離兩端多近就不建。四個角的長度不一樣，否則切完仍然是對稱的"""
+        for end in (-span, span):
+            cut = WALL_CORNER * (0.55 + ((cell_hash(int(end), salt, 0x3f1) >> 11) & 0xF) / 15)
+            if abs(along - end) < cut:
+                return True
+        return False
+
+    i = 0
+    x = -PAD_HALF_X + WALL_SEG / 2
     while x < PAD_HALF_X:
         for sz in (-1, 1):
-            z = sz * PAD_HALF_Z
-            if any(math.hypot(gx - x, gz - z) < gate for gx, gz in gates):
+            keep, push = _wall_run(i, 17 + sz)
+            if not keep or corner_skip(x, PAD_HALF_X, 5 + sz):
                 continue
+            if any(abs(gx - x) < gate for gx in h_gates.get(sz, ())):
+                continue
+            z = sz * (PAD_HALF_Z + push)
             if not free_rect(x, z, half, 0.4):
                 continue
-            add_box(b, 'wall', m, x, -z, 1.25, seg - 0.5, 0.4, 2.5)
+            add_box(b, 'wall', m, x, -z, 1.25, WALL_SEG - 0.5, 0.4, 2.5)
             n += 1
-        x += seg
-    z = -PAD_HALF_Z + seg / 2
+        i += 1
+        x += WALL_SEG
+    j = 0
+    z = -PAD_HALF_Z + WALL_SEG / 2
     while z < PAD_HALF_Z:
         for sx in (-1, 1):
-            x = sx * PAD_HALF_X
-            if any(math.hypot(gx - x, gz - z) < gate for gx, gz in gates):
+            keep, push = _wall_run(j, 41 + sx)
+            if not keep or corner_skip(z, PAD_HALF_Z, 29 + sx):
                 continue
+            if any(abs(gz - z) < gate for gz in v_gates.get(sx, ())):
+                continue
+            x = sx * (PAD_HALF_X + push)
             if not free_rect(x, z, 0.4, half):
                 continue
-            add_box(b, 'wall', m, x, -z, 1.25, 0.4, seg - 0.5, 2.5)
+            add_box(b, 'wall', m, x, -z, 1.25, 0.4, WALL_SEG - 0.5, 2.5)
             n += 1
-        z += seg
+        j += 1
+        z += WALL_SEG
+    return n
+
+
+def build_satellites(b):
+    """牆外的衛星設施：變電所、加壓站、倉庫、鐵路側線、堆料場、卡車場。
+
+    【廠區不能只有一個盒子】主廠區是一塊被牆圍起來的方塊，牆外一片田 ——
+    從投彈高度看下去那條界線是整幅畫面最刺眼的東西。真的合成油廠周邊本來
+    就散著這些附屬設施，它們讓「人造的地」不只有一塊。
+
+    地面的鋪面由著色器畫（`LEUNA_SITE.outposts`），這裡只建上面的東西。
+    """
+    n = 0
+    steel = fixed_mat('LP_PlantSteel')
+    for k, (dx, dz, w, d, kind) in enumerate(SATELLITES):
+        rnd = Rand(0x9e3d51 + k * 7919)
+        hw, hd = w / 2 - 12, d / 2 - 12
+        if kind == 'substation':
+            for i in range(5):
+                for j in range(3):
+                    add_box(b, 'switch_post', steel, dx - hw + 10 + i * 22,
+                            -(dz - hd + 12 + j * 22), 4.5, 0.6, 0.6, 9.0)
+                    n += 1
+            for j in range(3):
+                add_box(b, 'switch_beam', steel, dx, -(dz - hd + 12 + j * 22), 8.6,
+                        hw * 1.8, 0.5, 0.5)
+                n += 1
+            n += sawtooth_hall(b, dx + hw * 0.55, dz + hd * 0.55, 34, 18, 7, 2, 0.0, k)
+        elif kind == 'pump':
+            for i in range(3):
+                n += upright_tank(b, dx - hw + 18 + i * 26, dz - hd + 20,
+                                  7 + rnd() * 2, 12 + rnd() * 6, k * 31 + i)
+            n += clutter(b, dx, dz + hd * 0.5, 3, k * 17)
+            n += pipe_bridge(b, dx - hw, dz + hd * 0.5, dx + hw, dz + hd * 0.5, 7, 3, k)
+        elif kind == 'warehouse':
+            for i in range(3):
+                n += sawtooth_hall(b, dx - hw + 24 + i * 46, dz, 38, d * 0.66,
+                                   8 + rnd() * 3, 3, 0.0, k * 31 + i)
+        elif kind == 'siding':
+            for j in range(2):
+                z = dz - hd * 0.5 + j * hd
+                n += rail_track(b, dx - hw, z, dx + hw, z)
+                for i in range(6):
+                    if (cell_hash(i, j, k) & 0xFF) < 70:
+                        continue
+                    n += rail_car(b, dx - hw + 16 + i * 26, z, 90.0,
+                                  (cell_hash(i, j, k + 3) & 1) == 0, k * 31 + i)
+            add_box(b, 'platform', fixed_mat('LP_PlantPlatform'), dx, -dz, 0.6,
+                    hw * 1.9, 8.0, 1.2)
+            n += 1
+        elif kind == 'stockpile':
+            for i in range(3):
+                ph = 3.5 + rnd() * 2
+                add_box(b, 'stockpile', fixed_mat('LP_PlantCoal'),
+                        dx - hw + 26 + i * 32, -dz, ph / 2, 24.0, hd * 1.6, ph)
+                n += 1
+            n += clutter(b, dx + hw * 0.8, dz - hd * 0.7, 7, k * 17)
+        else:
+            for j in range(3):
+                for i in range(6):
+                    if (cell_hash(i, j, k + 11) & 0xFF) < 60:
+                        continue
+                    add_box(b, 'truck', grime_mat(k * 31 + i * 3 + j),
+                            dx - hw + 8 + i * 17, -(dz - hd + 14 + j * 26), 1.6,
+                            3.0, 7.0, 3.2)
+                    n += 1
+            n += sawtooth_hall(b, dx, dz + hd * 0.8, w * 0.5, 16, 6, 2, 0.0, k)
+        for i in range(3):
+            cx = dx + (rnd() - 0.5) * w * 0.8
+            cz = dz + (rnd() - 0.5) * d * 0.8
+            n += clutter(b, cx, cz, int(rnd() * CLUTTER_KINDS), k * 97 + i)
     return n
 
 
@@ -1588,6 +1716,10 @@ def build_plant():
     ob = Builder()
     total += build_outskirts(ob)
     ob.to_object('Plant_outskirts', root)
+
+    stb = Builder()
+    total += build_satellites(stb)
+    stb.to_object('Plant_satellites', root)
 
     LOG['parts'] = total
     LOG['blocks'] = len(BLOCKS)
