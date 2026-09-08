@@ -51,6 +51,11 @@ interface Run {
   impacts: { x: number; z: number; kind: number }[]
   /** 第二批進場那一步：新來那幾架的出生點與機首方向 */
   lateSpawn: { z: number; forwardZ: number }[]
+  /**
+   * 藍隊平均 z。**取的是最後一次有藍機活著的那一步** —— 全滅之後那個值就
+   * 停在那裡。B-17 一路往 −Z 飛，所以停住的值比當下的位置**大**，拿它當
+   * 「波次要生在藍隊後方」的門檻只會更嚴。
+   */
   blueZAtWave: number
 }
 
@@ -77,18 +82,23 @@ function simulate(cfg: BattleConfig, noEnemies: boolean): Run {
     }
     clearImpacts(b.world.bombEvents)
     clearImpacts(b.world.groundKillEvents)
+    // 【每一步都記，不是等到波次那一步才算】藍方可能在第二批到場之前就
+    // 全滅，而那一步取平均會得到 NaN —— 拿 NaN 去比大小恆為假，症狀是
+    // 「波次生錯位置」而不是「沒有藍機可以比」
+    {
+      let sum = 0
+      let n = 0
+      for (const c of b.world.combatants) {
+        if (c.team === 'blue' && c.alive) { sum += c.aircraft.state.position.z; n++ }
+      }
+      if (n > 0) run.blueZAtWave = sum / n
+    }
     if (run.lateSpawn.length === 0 && b.world.combatants.length > opening) {
       run.lateSpawn = b.world.combatants.slice(opening).map((c) => {
         const q = c.aircraft.state.orientation
         // 自身 −Z 轉到世界的 z 分量
         return { z: c.spawnPosition.z, forwardZ: -(1 - 2 * (q.x * q.x + q.y * q.y)) }
       })
-      let sum = 0
-      let n = 0
-      for (const c of b.world.combatants) {
-        if (c.team === 'blue' && c.alive) { sum += c.aircraft.state.position.z; n++ }
-      }
-      run.blueZAtWave = n > 0 ? sum / n : NaN
     }
   }
   return run

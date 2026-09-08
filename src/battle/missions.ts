@@ -619,9 +619,15 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         terrain: 'leuna',
         // 十一月的正午：太陽低、天色灰（`render/timeOfDay.ts`）
         timeOfDay: 'novemberNoon',
+        /**
+         * 【1,500 m 而不是預設的 4,000】史實的投彈高度在 7,000 m 以上，但
+         * 那個高度上廠區只剩一片灰色的紋理，而投下的彈要飛四十秒才落地。
+         * **起始值，由試飛裁定。**
+         */
+        altitude: 1500,
         ground: LEUNA_GROUND,
-        // 【炸毀任意六座】計數的池是廠區十二座構件、八座砲位與卡車 —— 全部
-        // 都是敵方的地面目標。**起始值**
+        // 【炸毀任意六座】計數的池是廠區十二座構件與八座砲位 —— 全部都是
+        // 敵方的地面目標。**起始值**
         destroyCount: 6,
         waves: [{
           when: { kind: 'clock', at: 90 },
