@@ -2,7 +2,6 @@ import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { createLights } from '../../../src/render/lighting'
 import { buildAircraft, preloadAircraftModels, type AircraftModel } from '../../../src/render/geometry/buildAircraft'
 import { buildHe111 } from '../../../src/render/geometry/he111'
-import { buildB17G } from '../../../src/render/geometry/b17g'
 import type { AircraftSpec } from '../../../src/specs/types'
 
 /**
@@ -17,7 +16,8 @@ const SIZE = 512
 const BG = 0x0000ff
 const CANVAS_ID = 'plane-probe'
 
-const PROC: Record<string, () => AircraftModel> = { he111: buildHe111, b17g: buildB17G }
+/** 只有 GLB 確實是程式版匯出來的機種才比得下去；B-17G 已經改成從參考模型重建。 */
+const PROC: Record<string, () => AircraftModel> = { he111: buildHe111 }
 
 export interface PlaneDiff {
   /** 非背景像素（程式版那張） */

@@ -28,16 +28,18 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import type { AircraftModel } from '../../src/render/geometry/assembly'
 import type { GlbAircraft } from '../../src/render/geometry/glb'
 import { buildHe111 } from '../../src/render/geometry/he111'
-import { buildB17G } from '../../src/render/geometry/b17g'
 import { HE111_MODEL } from '../../src/render/geometry/he111.model'
-import { B17G_MODEL } from '../../src/render/geometry/b17g.model'
 
 declare const process: { argv: readonly string[]; exitCode?: number }
 
-/** 程式版還留著、可以重匯的機種。 */
+/**
+ * 程式版還留著、可以重匯的機種。
+ *
+ * B-17G **不在這裡** —— 它的 GLB 由 `tools/blender/build_b17.py` 對著參考模型
+ * 重建，與程式版沒有血緣，重匯會把外型倒退回第一代。
+ */
 const SOURCES: Record<string, { build: () => AircraftModel; def: GlbAircraft }> = {
   he111: { build: buildHe111, def: HE111_MODEL },
-  b17g: { build: buildB17G, def: B17G_MODEL },
 }
 
 interface BlobLike { arrayBuffer(): Promise<ArrayBuffer> }

@@ -3,21 +3,20 @@ import { BufferGeometry, Material, Matrix4, Mesh, Object3D, Vector3 } from 'thre
 import { buildAircraft } from '../../src/render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER, type AircraftModel } from '../../src/render/geometry/assembly'
 import { buildHe111 } from '../../src/render/geometry/he111'
-import { buildB17G } from '../../src/render/geometry/b17g'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 
 // setPropSpin 那條用的是 bf109k4（單發，盤面恰為 1），它走 GLB 路，要先載樣板
 beforeAll(async () => { await loadGlbTemplatesForNode() })
 
 /**
- * 【直接呼叫 builder，不經 `buildAircraft`】五台現在都走 GLB 路，`buildAircraft`
- * 對 he111／b17g 回的是樣板的複製，不再經過 `finish()` 的程序化合併。這裡
- * 守的是合併本身，而程式版仍然是 `test/tools/procedural-export.ts` 的重匯
- * 來源 —— 合併若動了頂點，匯出的 GLB 也跟著錯。
+ * 【直接呼叫 builder，不經 `buildAircraft`】機種現在全部走 GLB 路，
+ * `buildAircraft` 對 he111 回的是樣板的複製，不再經過 `finish()` 的程序化
+ * 合併。這裡守的是合併本身，而 He 111 的程式版仍然是
+ * `test/tools/procedural-export.ts` 的重匯來源 —— 合併若動了頂點，匯出的
+ * GLB 也跟著錯。
  */
 const BUILD: Record<(typeof IDS)[number], () => AircraftModel> = {
   he111: buildHe111,
-  b17g: buildB17G,
 }
 
 /**
@@ -33,10 +32,11 @@ const BUILD: Record<(typeof IDS)[number], () => AircraftModel> = {
  * mesh 仍然掛在 `hull` 底下，世界矩陣一模一樣，頂點資料一個 bit 都沒動。
  */
 
-// 【bf109k4 已退出這份清單】它改走 GLB 路（`GLB_MODELS`），不再經過
-// `finish()` 的程序化合併；GLB 那條路的合併守則在 `p51d-glb.test.ts`。
-// 下面的常數是程序化路徑上量的，對 GLB 機種本來就不成立（技能坑 35）。
-const IDS = ['he111', 'b17g'] as const
+// 【bf109k4 與 b17g 已退出這份清單】兩台都不再有「程式版 → GLB」的血緣：
+// bf109k4 的 GLB 在 Blender 裡改過，b17g 是 `tools/blender/build_b17.py` 對著
+// 參考模型重建的。GLB 那條路的合併守則在 `p51d-glb.test.ts`。下面的常數是
+// 程序化路徑上量的，對 GLB 機種本來就不成立（技能坑 35）。
+const IDS = ['he111'] as const
 
 /**
  * 合併後每一架剩幾個 `Mesh`。**這是量出來的，不是訂出來的**
