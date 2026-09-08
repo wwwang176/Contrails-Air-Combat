@@ -10,6 +10,7 @@ import {
   SMOKE_SIZE_FROM, SMOKE_SIZE_TO,
 } from './smoke'
 import { pushImpact, type ImpactEvents } from '../world/events'
+import type { BurstEvents } from '../world/flak'
 
 /**
  * 炸彈落地的爆炸 —— **組成規則**，不是粒子系統本身。
@@ -266,6 +267,67 @@ export const FIRE_BLAST: BlastParams = {
   mistSize: 0,
   glowSize: 0.7,
   glowAlpha: 0.5,
+}
+
+/**
+ * 高砲砲彈在空中引爆的**小爆炸**：一瞬間的閃光加幾顆小火球，半秒內收掉；
+ * 黑雲由 `render/flakBursts.ts` 那個池另外出，掛在原地四秒。
+ *
+ * 【為什麼不出煙】與 `FIRE_BLAST` 同一個理由 —— 錐狀噴出去的煙會壓過
+ * 真正要留在那裡的黑雲。
+ *
+ * 【尺度】火球 `fireSize` 0.5 是 1.5 → 4 m 的球塊，比船火的迷你爆燃再小；
+ * 光暈反而放大到火球直徑的 1.4 倍 —— 遠處看得到的是那一下閃光，不是球。
+ *
+ * **起始值，待試飛。**
+ */
+export const FLAK_BLAST: BlastParams = {
+  fireCount: 3,
+  fireSpeed: 9,
+  fireSize: 0.5,
+  fireCone: Math.PI,
+  smokeCount: 0,
+  smokeSpeed: 0,
+  smokeSize: 0,
+  smokeCone: 0,
+  dustCount: 0,
+  dustSpeed: 0,
+  dustSize: 0,
+  dustCone: 0,
+  sprayCount: 0,
+  spraySpeed: 0,
+  sprayCone: 0,
+  jetCount: 0,
+  jetSpread: 0,
+  jetHeight: 0,
+  jetRadius: 0,
+  mistPerJet: 0,
+  mistSize: 0,
+  glowSize: 1.4,
+  glowAlpha: 0.7,
+}
+
+/**
+ * 這一場已經引爆過幾發。**種子用它，不用事件在這一幀的序號** —— 與
+ * `emitFlakBursts` 同一條紀律：大部分幀只有一次引爆，序號恆為 0，每一朵
+ * 孤立的爆炸會長得一模一樣。
+ */
+let flakBlastSeed = 0
+
+/** 換一場時歸零，與 `resetFlakBurstSeed` 一起呼叫 */
+export function resetFlakBlastSeed(): void {
+  flakBlastSeed = 0
+}
+
+/**
+ * 把這一幀的高砲引爆事件變成小爆炸。**呼叫端負責排空 `events`。**
+ * 砲彈爆炸不繼承任何母體速度，所以不傳 `ivx/ivy/ivz`。
+ */
+export function emitFlakBlasts(pools: BlastPools, events: BurstEvents): void {
+  for (let e = 0; e < events.count; e++) {
+    emitBlast(pools, FLAK_BLAST, events.x[e]!, events.y[e]!, events.z[e]!,
+      (flakBlastSeed = (flakBlastSeed + 1) | 0))
+  }
 }
 
 /**

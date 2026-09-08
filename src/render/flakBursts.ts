@@ -1,4 +1,4 @@
-import { Color, NormalBlending, Vector3 } from 'three'
+import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
 import { FLAK_RADIUS, type BurstEvents } from '../world/flak'
@@ -39,9 +39,17 @@ export const FLAK_BURST_CAPACITY = 384
  */
 export const FLAK_COLOR = 0x121212
 
-export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Particles {
+/**
+ * @param alphaMap 煙團的不透明度貼圖，與船火、爆炸的煙共用同一張。不給的話
+ *                 走著色器裁的軟邊實心圓 —— 九顆疊起來是九個圓盤，與畫面裡
+ *                 其他的煙是兩種質感
+ */
+export function createFlakBursts(
+  capacity: number = FLAK_BURST_CAPACITY, alphaMap?: Texture,
+): Particles {
   return createParticles({
     capacity,
+    alphaMap,
     blending: NormalBlending,
     life: 4,
     // 【壽命要抖】同一朵的九顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
