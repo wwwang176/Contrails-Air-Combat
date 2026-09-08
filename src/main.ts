@@ -40,7 +40,9 @@ import {
 import {
   createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
 } from './render/shipFires'
-import { createGroundFires, lightGroundFire, stepGroundFires } from './render/groundFires'
+import {
+  createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
+} from './render/groundFires'
 import { hash01 } from './render/scatter'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
@@ -1522,6 +1524,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【起火要排在排空之前】兩份事件都在這個物理子步裡就被清掉了；等到
     // 幀率區段才讀的話它們已經是空的，火點永遠是 0 而且不報錯
     lightShipFires(shipFires, world.bombEvents, world.ships)
+    // 【落在陸地的炸彈也留火】水上的、打中船的、打中建築的各有各的去處
+    lightGroundFires(groundFires, world.bombEvents)
     clearImpacts(world.bombEvents)
     // 【魚雷的兩條管道】引爆走水冠、入水與航跡走水花。兩者都在物理子步裡
     // 消費 —— 一枚魚雷跑 91 秒會推出 250 筆航跡，累到幀尾會滿
