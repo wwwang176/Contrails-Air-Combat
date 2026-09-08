@@ -21,6 +21,7 @@ export const TYPE92: WeaponSpec = {
   id: 'type92',
   name: '九二式 7.7mm',
   muzzleVelocity: 745,
+  caliber: 7.7,
   roundsPerMinute: 700,
   damage: 5,
 }
@@ -50,6 +51,7 @@ export const TYPE99_1: WeaponSpec = {
   id: 'type99-1',
   name: '九九式二〇粍一号',
   muzzleVelocity: 600,
+  caliber: 20,
   roundsPerMinute: 535,
   damage: 80,
 }

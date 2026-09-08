@@ -33,6 +33,8 @@ import type { TurretCombatant } from './turrets'
 /** 一層砲位的規格。**每一個數字都是起始值，由試飛裁定。** */
 export interface ShipGunSpec {
   readonly muzzleVelocity: number
+  /** 口徑，mm。與飛機的槍同一格，見 `weapons/armour.ts` */
+  readonly caliber: number
   readonly roundsPerMinute: number
   /** 彈丸壽命，秒。射程 = 初速 × 它。`flak` 用不到（走引信），填 0。 */
   readonly life: number
@@ -83,7 +85,7 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 【單發只有 5】32 個砲區合起來每秒 256 發 —— 這一層真正的火力是單發
   // 乘上砲區數。要的是**視覺密度**厚，不是進去就死。
   mg: {
-    muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6,
+    muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6, caliber: 20,
     damage: 5, hp: 300, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
   // 40 mm Bofors，射程 880 × 3.4 ≈ 2,990 m
@@ -94,12 +96,12 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 【220 對四聯裝仍然保守】Bofors 每一管是每分鐘 120 發，四聯裝的理論值
   // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
-    muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4,
+    muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4, caliber: 40,
     damage: 18, hp: 600, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
   flak: {
-    muzzleVelocity: 450, roundsPerMinute: 20, life: 0,
+    muzzleVelocity: 450, roundsPerMinute: 20, life: 0, caliber: 127,
     damage: 200, hp: 1000, boxHalf: 3.0, rotationRate: 20 * DEG,
   },
 }
@@ -308,7 +310,7 @@ export function stepShipGuns(
         // 【傷害就是表上的值】照抄 stepTurrets 會套 TURRET_DAMAGE_SCALE
         // 與 guns —— 四聯裝 40 mm 會從 40 變成 150。
         spec.damage, shipOwner(ship.index),
-        ship.team === 'blue' ? 0 : 1, spec.life,
+        ship.team === 'blue' ? 0 : 1, spec.life, spec.caliber,
       )
     }
   }

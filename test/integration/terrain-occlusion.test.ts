@@ -97,7 +97,10 @@ function shot(land: LandField | null) {
   const speed = 887
   // owner 0：這一支沒有 combatants，射手是 undefined、陣營 −1，等於不做
   // 同隊過濾。**不能給 −1**，那是彈丸池的空槽哨兵
-  w.projectiles.spawn(A.x, A.y, A.z, dir.x * speed, dir.y * speed, dir.z * speed, 10, 0, 0, PROJECTILE_LIFETIME)
+  w.projectiles.spawn(
+    A.x, A.y, A.z, dir.x * speed, dir.y * speed, dir.z * speed, 10, 0, 0,
+    PROJECTILE_LIFETIME, 12.7,
+  )
 
   let sparks = 0
   let closest = Infinity

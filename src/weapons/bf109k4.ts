@@ -32,6 +32,7 @@ export const MK108: WeaponSpec = {
   id: 'mk108',
   name: 'MK 108',
   muzzleVelocity: 505,
+  caliber: 30,
   roundsPerMinute: 650,
   damage: 250,
 }
@@ -44,6 +45,7 @@ export const MG131: WeaponSpec = {
   id: 'mg131',
   name: 'MG 131',
   muzzleVelocity: 750,
+  caliber: 13,
   roundsPerMinute: 900,
   damage: 30,
 }

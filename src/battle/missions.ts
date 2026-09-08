@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
 import { VETERAN } from '../ai/profile'
+import { DEG } from '../core/math'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import { F6F5 } from '../specs/f6f5'
@@ -10,7 +11,7 @@ import { KI84 } from '../specs/ki84'
 import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
-import { convoyLine, lineAbreast } from './order'
+import { convoyLine, lineAbreast, pincer } from './order'
 import type { ShipClassId } from '../world/ships'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
@@ -203,6 +204,13 @@ export interface MissionBattle {
    */
   readonly blueCount: number
   readonly redCount: number
+  /**
+   * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**
+   *
+   * 【它繞的是世界原點】`MissionFleet.center` 就在原點，兩者是同一個點。
+   * 沒有艦隊的關卡用它只會把敵人擺到一個奇怪的方位，所以那些卡片不填。
+   */
+  readonly redStarboard?: number
   /** 被護送／被攔截的那幾架有幾架。其餘任務為 0 */
   readonly convoyCount: number
   /**
@@ -546,7 +554,17 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         ...KILL,
         objective: '守住艦隊',
         blueSpec: F6F5, redSpec: A6M5,
-        blueCount: 4, redCount: 8,
+        /**
+         * 【十六架、分兩路】掛彈的零戰走的是掃射航路（`ai/bombRun.ts` 的
+         * 落彈點瞄準）：機首指著艦隊一路壓下去、七百公尺投彈、再拉起。那條
+         * 航路把自己送進近迫火網，所以損耗很快 —— 一路壓上來的八架會在防空
+         * 網前面被吃光，投得出彈的沒幾架。
+         *
+         * 分兩路的用意不只是加人：艦隊的防空火力要同時分給兩個方位，四架
+         * F6F 也只攔得住其中一路。
+         */
+        blueCount: 4, redCount: 16,
+        redStarboard: 45 * DEG,
         terrain: 'sea',
         fleet: TF58_GROUP,
         /**
@@ -560,8 +578,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
          * 省了的話第一批 G4M 進場之後會把自己算進存活數，第二批就永遠不來
          * （見 `MissionTrigger` 的註解）。
          *
-         * 【兩個條件誰先到算誰】`atMost` 是八架零戰的 25%（30% 算出來是
-         * 2.4）；`byLatest` 是那個緊迫感的碼表 —— 玩家打太慢的話它照樣來。
+         * 【兩個條件誰先到算誰】`atMost` 是「零戰剩四架」，也就是十六架打到
+         * 只剩四分之一；`byLatest` 是那個緊迫感的碼表 —— 玩家打太慢的話它
+         * 照樣來。
          *
          * 【`warnLead` 那幾秒不會被判成勝利】`MissionInputs.redInbound`
          * 擋著（`defend` 的勝利條件讀它）。少了那一格，紅方在預警期間歸零
@@ -573,7 +592,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           {
             when: {
               kind: 'alive', side: 'theirs', role: 'fighter',
-              atMost: 2, byLatest: 120,
+              atMost: 4, byLatest: 120,
             },
             warn: '雷擊機低空進場',
             warnLead: 6,
@@ -864,7 +883,12 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       bomber: rules.owner === 'red' ? convoyOf(card) : null,
       bombers: b.convoyCount,
     })
-    : lineAbreast(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
+    : b.redStarboard === undefined
+      ? lineAbreast(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
+      : pincer(
+        plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
+        DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
+      )
   const beats = cardBeats(card, plan)
   return {
     ...DEFAULT_BATTLE,

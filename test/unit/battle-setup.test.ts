@@ -318,7 +318,7 @@ describe('重置', () => {
 
   it('重置後彈丸池是空的——上一場的流彈不會打到新的一場', () => {
     const b = createBattle(new Idle())
-    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0, 0, PROJECTILE_LIFETIME)
+    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     expect(b.world.projectiles.live).toBeGreaterThan(0)
     resetBattle(b)
     expect(b.world.projectiles.live).toBe(0)

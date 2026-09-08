@@ -4,7 +4,7 @@ import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { G4M } from '../../src/specs/g4m'
-import { deckHeightOf, releaseRadiusOf, shipAt } from '../../src/ai/bombRun'
+import { deckHeightOf, releaseWindowOf, shipAt } from '../../src/ai/bombRun'
 import { solveImpact } from '../../src/world/bomb'
 import { Vector3 } from 'three'
 import type { BombState, Impact } from '../../src/world/bomb'
@@ -70,7 +70,10 @@ function run(shipSpeed: number): void {
     if (line.slice(5) !== last) console.log('  ' + line)
     last = line.slice(5)
   }
-  console.log(`  投彈 ${w.bombs.dropped}、釋放半徑 ${releaseRadiusOf(ship.cls).toFixed(2)} m`)
+  const win = releaseWindowOf(ship.cls)
+  console.log(
+    `  投彈 ${w.bombs.dropped}、釋放窗 沿 ${win.along.toFixed(1)} × 橫 ${win.across.toFixed(1)} m`,
+  )
   console.log('')
 }
 
