@@ -6,6 +6,7 @@ import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
 import { deckHeightOf } from '../world/ships'
+import { SHIP_BREAK_RANGE } from './shipAttack'
 import type { Ship, ShipClass } from '../world/ships'
 
 /**
@@ -290,3 +291,107 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
 
 /** 目前上場的那一份。 */
 export const BOMB_PROFILE = makeBombProfile()
+
+// ── 戰鬥機的掛彈掃射 ─────────────────────────────────────────────────
+
+/**
+ * 距離多近才把瞄準點換成落彈解，m。**斜距。**
+ *
+ * 【它是保險栓，不是投彈條件】投不投由 `shouldRelease` 那條窗決定。這個
+ * 上限擋的是「數學上成立但戰術上很蠢」的解 —— 平飛在三公里外就找得到一個
+ * 落點對得上的姿態，那一趟等於遠遠丟出去，而這個戰法要的是衝進去。
+ *
+ * 【下限不在這裡】掃射的 `SHIP_BREAK_RANGE` 一到就交還瞄準點，脫離優先。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const BOMB_AIM_RANGE = 1000
+
+/**
+ * 落彈點瞄準的狀態。**由 `AiController` 持有**，與 `StrikeState` 同一個性質。
+ */
+export interface BombAimState {
+  /** 修正後的瞄準方向，單位向量。`active` 為 false 時內容沒有意義 */
+  readonly aim: Vector3
+  /** 這一步要不要放。呼叫端寫進 `Command.bombing` */
+  release: boolean
+  /** 這一拍有沒有接手瞄準點 */
+  active: boolean
+}
+
+export function createBombAim(): BombAimState {
+  return { aim: new Vector3(), release: false, active: false }
+}
+
+export function resetBombAim(s: BombAimState): void {
+  s.aim.set(0, 0, 0)
+  s.release = false
+  s.active = false
+}
+
+/** 修正量的角度上限，rad。 */
+const AIM_CLAMP = 30 * DEG
+
+/**
+ * 推進一步：算出「把落點推到船上」要往哪飛，以及現在放不放得中。
+ *
+ * ## 瞄準律
+ *
+ * 落點在自己前方 `throw` 處，而瞄準點轉 θ 會讓落點移動約 `θ × throw`。
+ * 所以要把落點移動 `err`，瞄準點就轉 `err / throw` —— 把那個小向量加到
+ * 視線的單位向量上即可。
+ *
+ * **每一拍都從視線重算，不是在上一拍的指令上疊加。** 疊加的話指令角度會
+ * 每格滾雪球（`ai/steer.ts` 的 `unloadAim` 記過那個實測：4 秒由 −27° 跑到
+ * −56°）。從視線重算讓它是當前狀態的純函數。
+ *
+ * 【俯衝是它自己長出來的，不是規則寫的】太高太平時前拋遠大於距離，落點
+ * 落在船的另一邊，修正量於是一路把機首往下壓 —— 直到前拋縮到與距離相等。
+ *
+ * @param loaded 艙裡還有東西嗎。空了就把瞄準點交還給機槍
+ * @param decide 這一步是不是決策拍。**解算只在決策拍跑**（一次 170 µs）
+ *
+ * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
+ */
+export function stepBombAim(
+  state: BombAimState, self: Aircraft, ship: Ship,
+  loaded: boolean, decide: boolean,
+): void {
+  if (!decide) return
+  state.active = false
+  state.release = false
+  if (!loaded) return
+
+  const p = self.state.position
+  const dx = ship.position.x - p.x
+  const dy = ship.position.y - p.y
+  const dz = ship.position.z - p.z
+  const slant = Math.hypot(dx, dy, dz)
+  // 【上限與下限】太遠不接手；進到拉起距離就交還 —— 脫離要背離船並爬升，
+  // 這一層若還在寫瞄準點，飛機會被拉回船上撞上去
+  if (slant > BOMB_AIM_RANGE || slant < SHIP_BREAK_RANGE || slant < MIN_ERROR) return
+
+  const v = self.state.velocity
+  START.x = p.x; START.y = p.y; START.z = p.z
+  START.vx = v.x; START.vy = v.y; START.vz = v.z
+  deckY = deckHeightOf(ship.cls)
+  if (drag <= 0 || !solveImpact(START, drag, DECK, solveDt, HIT)) return
+
+  const at = shipAt(ship, HIT.seconds, S.v[0]!)
+  const ex = at.x - HIT.x
+  const ez = at.z - HIT.z
+  const r = releaseRadiusOf(ship.cls)
+  state.release = ex * ex + ez * ez <= r * r
+
+  const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
+  const aim = state.aim.set(dx / slant, dy / slant, dz / slant)
+  if (throwRange > MIN_ERROR) {
+    // 【夾住修正量】前拋很短時（貼著船、機首朝下）除法會炸開，而一個
+    // 90° 的修正只會讓飛機翻過去。夾在 30° 之內，收斂交給下一拍
+    const scale = Math.min(1, (AIM_CLAMP * throwRange) / Math.max(Math.hypot(ex, ez), MIN_ERROR))
+    aim.x += (ex / throwRange) * scale
+    aim.z += (ez / throwRange) * scale
+    aim.normalize()
+  }
+  state.active = true
+}

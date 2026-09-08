@@ -12,9 +12,10 @@ import { loadoutOf } from '../../src/weapons/stores'
 import { blastRadiusOf } from '../../src/weapons/bomb'
 import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bomb'
 import type { BombState, Impact } from '../../src/world/bomb'
+import { A6M5 } from '../../src/specs/a6m5'
 import {
-  BOMB_PROFILE, RELEASE_BEAMS, deckHeightOf, releaseRadiusOf, setBombBallistics,
-  shipAt, shouldRelease, solveGateOf,
+  BOMB_PROFILE, RELEASE_BEAMS, createBombAim, deckHeightOf, releaseRadiusOf,
+  setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
 } from '../../src/ai/bombRun'
 import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
@@ -571,5 +572,110 @@ describe('解算平面是甲板，不是海面', () => {
     // 甲板高 4.5 m ⇒ 少掉那 4.5 m 的落程 ⇒ 前拋較短 ⇒ 要更靠近才投
     // （z 是負方向前進，所以「更靠近」是更小的 z）
     expect(deck).toBeLessThan(sea)
+  })
+})
+
+/**
+ * # 戰鬥機的掛彈掃射
+ *
+ * 轟炸機走攻擊航路（平飛、定高、通過正上方）；戰鬥機掛彈走的是**掃射**
+ * ——機首指著船持續接近，近了才把瞄準點換成落彈解、投完換回來。
+ *
+ * 【為什麼不共用攻擊航路】那一份要求平飛穩定通過船的正上方，而戰鬥機的
+ * 掛載是兩顆 60 kg：一趟丟兩顆卻要飛完整條進場、直飛、脫離的循環。
+ */
+describe('戰鬥機的落彈點瞄準', () => {
+  const K2 = bombDragK(BOMB_TERMINAL_SPEED)
+
+  function zero(y: number, z: number, gammaDeg = 0, speed = 140): Aircraft {
+    const a = new Aircraft(A6M5)
+    a.state.position.set(0, y, z)
+    const g = (gammaDeg * Math.PI) / 180
+    a.state.velocity.set(0, speed * Math.sin(g), -speed * Math.cos(g))
+    return a
+  }
+
+  /** 船在 −Z，靜止不動 —— 這一組驗的是幾何，不是前置量 */
+  const still = (): ReturnType<typeof createShip> =>
+    createShip(0, SHIP_CLASSES.essex, 'red', 0, -800, 0, 0)
+
+  /**
+   * 【落點落在船的後面就要抬頭】平飛時炸彈前拋得遠，落點會越過船；瞄準點
+   * 必須比視線更低頭才收得回來。反過來則要抬頭。
+   *
+   * 這一條守的是**修正的方向**。方向錯的話飛機會一路把落點推離船，而且
+   * 看起來只是「AI 投不準」。
+   */
+  it('落點越過船時，指令方向比視線更低頭', () => {
+    setBombBallistics(K2, DT)
+    // 【幾何要落在瞄準帶裡】斜距 hypot(500, 700) = 860 m，介於拉起的 400
+    // 與接手的 1,000 之間；淺下降讓前拋遠大於 700 m，落點於是在船的另一邊
+    const a = zero(500, 0, -5)
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -700, 0, 0)
+    const st = createBombAim()
+    stepBombAim(st, a, sh, true, true)
+    expect(st.active).toBe(true)
+    const los = new Vector3(
+      sh.position.x - a.state.position.x, -a.state.position.y, sh.position.z - a.state.position.z,
+    ).normalize()
+    // 700 m 高、平緩下降：前拋遠大於 800 m 的距離，落點在船的另一邊
+    expect(st.aim.y).toBeLessThan(los.y)
+  })
+
+  /** 【太遠不作用】遠處的解在數學上成立，但那不是這個戰法要的東西 */
+  it('超過落彈瞄準距離時不接手瞄準點', () => {
+    setBombBallistics(K2, DT)
+    const st = createBombAim()
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -4000, 0, 0)
+    stepBombAim(st, zero(700, 0, -10), sh, true, true)
+    expect(st.active).toBe(false)
+    expect(st.release).toBe(false)
+  })
+
+  /**
+   * 【拉起優先】掃射在 `SHIP_BREAK_RANGE` 轉脫離，而脫離要背離船並爬升。
+   * 這一層若還在寫瞄準點，飛機會被拉回船上撞上去。
+   */
+  it('進到拉起距離之內就交還瞄準點', () => {
+    setBombBallistics(K2, DT)
+    const st = createBombAim()
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -300, 0, 0)
+    stepBombAim(st, zero(200, 0, -30), sh, true, true)
+    expect(st.active).toBe(false)
+  })
+
+  /** 【空艙就不接手】沒有東西可投時瞄準點留給機槍 */
+  it('空艙時不接手瞄準點', () => {
+    setBombBallistics(K2, DT)
+    const st = createBombAim()
+    stepBombAim(st, zero(700, 0, -20), still(), false, true)
+    expect(st.active).toBe(false)
+    expect(st.release).toBe(false)
+  })
+
+  /**
+   * 【放手的判準與 `shouldRelease` 是同一個】兩份會漂開，而症狀是「投出去
+   * 的那一顆與判定用的那一條軌跡不是同一條」。
+   */
+  it('要不要放與 shouldRelease 一致', () => {
+    setBombBallistics(K2, DT)
+    const sh = still()
+    for (const [y, z, g] of [[700, 0, -20], [500, -200, -35], [300, -400, -45]] as const) {
+      const a = zero(y, z, g)
+      const st = createBombAim()
+      stepBombAim(st, a, sh, true, true)
+      expect(st.release).toBe(shouldRelease(a, sh, K2, DT))
+    }
+  })
+
+  /** 【只在決策拍重算】解算一次 170 µs，每個物理步跑會撞穿設計預算 */
+  it('非決策拍不重算', () => {
+    setBombBallistics(K2, DT)
+    const st = createBombAim()
+    const sh = still()
+    stepBombAim(st, zero(700, 0, -20), sh, true, true)
+    const before = st.aim.clone()
+    stepBombAim(st, zero(700, -400, -20), sh, true, false)
+    expect(st.aim.equals(before)).toBe(true)
   })
 })

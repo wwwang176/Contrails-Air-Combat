@@ -2,6 +2,8 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
+import { NO_INTERCEPT, solveLead } from '../world/lead'
+import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
@@ -55,13 +57,7 @@ export const SHIP_ATTACK_RANGE = 8000
  */
 export const SHIP_BREAK_RANGE = 400
 
-/**
- * 開火的距離，m。**比彈丸射程短** —— 遠處掃射只是浪費彈藥與暴露時間。
- * `PROJECTILE_LIFETIME × 887` 是 1,064 m，取七成。
- */
-export const SHIP_FIRE_RANGE = 750
-
-/** 機首與瞄準線的夾角小於這個才開火，rad。 */
+/** 機首與預瞄方向的夾角小於這個才開火，rad。 */
 export const SHIP_FIRE_CONE = 3 * DEG
 
 /**
@@ -179,7 +175,7 @@ export function shipAimAt(ship: Ship, gunIndex: number, out: Vector3): Vector3 {
   return gunIndex >= 0 ? gunWorld(ship, gunIndex, out) : shipAimPoint(ship, out)
 }
 
-const S = /* @__PURE__ */ makeScratch(3)
+const S = /* @__PURE__ */ makeScratch(5)
 const FWD = /* @__PURE__ */ new Vector3(0, 0, -1)
 /** 方向退化的下限，m。與 `rallyAim` 同一個手法。 */
 const MIN_ERROR = 1e-6
@@ -229,8 +225,25 @@ export function shipAttackCommand(
 
   // ── 開火 ──────────────────────────────────────────────
   //
+  // 【射程判準是彈丸飛不飛得到】與空戰的 `shouldFire` 同一條規則：解得出
+  // 攔截點，而且彈丸活得夠久飛到那裡。寫死一個距離的話，槍口初速不同的
+  // 機種共用同一個射程，而那個數字只對訂它的那一台成立。
+  //
+  // 【船的速度要進去】8 m/s 在一秒的彈道上是 8 m，比船寬小，但攔截解本來
+  // 就吃得下它 —— 少給一個已經有的量沒有好處。
+  const sv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation)
+    .multiplyScalar(ship.speed).sub(self.state.velocity)
+  // 【借用 los 那一格】它已經寫進 `out.aimWorld`，之後不再用到
+  const rel = S.v[1]!.copy(aim).sub(self.state.position)
+  const lead = S.v[4]!
+  const t = solveLead(rel, sv, self.spec.battery.sight.muzzleVelocity, lead)
+  if (t === NO_INTERCEPT || t > PROJECTILE_LIFETIME) {
+    out.firing = false
+    return
+  }
+
   // 【用機首而不是瞄準線】`aimWorld` 是**想要**的方向，機首是**現在**的
   // 方向。用前者的話飛機在掉頭途中就會開火，子彈往天空飛。
   const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
-  out.firing = range < SHIP_FIRE_RANGE && nose.dot(los) > Math.cos(SHIP_FIRE_CONE)
+  out.firing = nose.dot(lead) > Math.cos(SHIP_FIRE_CONE)
 }
