@@ -55,13 +55,26 @@ const VIEWS: readonly View[] = [
     desc: '200 m 貼地 —— 地面雜物與管線網撐不撐得住',
   },
   {
-    // 【機位要在目標南邊】yaw 0 是往 −Z 看，相機得站在目標的 +Z 那一側
-    name: 'tanks', yaw: 0, pitch: -40, alt: 700, dx: 1150, dz: 900,
-    desc: '儲槽區 700 m —— 六邊筒在這個距離看不看得出邊',
-  },
-  {
     name: 'railyard', yaw: 0, pitch: -45, alt: 800, dx: 750, dz: 1350,
     desc: '調車場 800 m —— 股道、龍門吊、堆料',
+  },
+  // 四群可炸構件。【機位要在目標南邊】yaw 0 是往 −Z 看，相機得站在目標的
+  // +Z 那一側。每一群都要看「構件與周圍的佈景是不是同一種工廠」
+  {
+    name: 'grp-hydro', yaw: 0, pitch: -22, alt: 320, dx: -850, dz: -140,
+    desc: '西北　氫化群（氫化塔 ×3，製程區）',
+  },
+  {
+    name: 'grp-power', yaw: 0, pitch: -22, alt: 320, dx: -1300, dz: 570,
+    desc: '西南　動力群（鍋爐房 ×2 ＋煙囪，公用區）',
+  },
+  {
+    name: 'grp-cool', yaw: 0, pitch: -22, alt: 320, dx: 250, dz: 600,
+    desc: '中東　汽電群（冷卻塔＋氣櫃＋煙囪，公用區）',
+  },
+  {
+    name: 'grp-tanks', yaw: 0, pitch: -22, alt: 320, dx: 1160, dz: -160,
+    desc: '東北　儲槽群（儲油槽 ×3，儲槽區）',
   },
 ]
 
