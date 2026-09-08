@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { boundingRadius, type Box } from './hit'
 import { SHIP_AA_ZONES, type ShipAAZone } from './shipAA'
 import type { BurstCycle } from '../weapons/burst'
+import type { StrikeTarget } from './strikeTarget'
 import type { Team } from './World'
 
 /**
@@ -108,10 +109,21 @@ export interface ShipGun extends BurstCycle {
   readonly box: Box
 }
 
-/** 場上的一艘船。 */
-export interface Ship {
+/**
+ * 場上的一艘船。**同時是 AI 的打擊目標**（`StrikeTarget`）：`hull`、
+ * `impactY`、`value` 三格是艦級資料的複本，建船時填一次 —— 打擊那一層
+ * 不必知道 `ShipClass`，地面目標也用同一份視圖。
+ */
+export interface Ship extends StrikeTarget {
+  readonly kind: 'ship'
   readonly index: number
   readonly team: Team
+  /** 就是 `cls.hull` */
+  readonly hull: readonly Box[]
+  /** 就是 `deckHeightOf(cls)`：船的 `position.y` 恆為 0，甲板高就是世界高度 */
+  readonly impactY: number
+  /** 就是 `cls.hp`：選目標時的價值（`ai/shipAttack.ts`） */
+  readonly value: number
   /**
    * 這一艘沉了就輸 —— 只有 `defend` 規則讀它（`battle/mission.ts` 的
    * `vitalSunk`）。由關卡的 `MissionFleet` 條目帶進來。
@@ -282,10 +294,14 @@ export function createShip(
   vital = false,
 ): Ship {
   return {
+    kind: 'ship',
     index,
     team,
     vital,
     cls,
+    hull: cls.hull,
+    impactY: deckHeightOf(cls),
+    value: cls.hp,
     position: new Vector3(x, 0, z),
     orientation: new Quaternion().setFromAxisAngle(UP, heading),
     spawn: new Vector3(x, 0, z),

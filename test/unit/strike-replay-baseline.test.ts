@@ -26,27 +26,51 @@ function wire(b: Battle): void {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
     ctl.ships = b.world.ships
+    ctl.groundTargets = b.world.groundTargets
     ctl.bombBay = c.bombBay
     ctl.bombDrag = b.world.bombDrag
     ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   }
 }
 
-function num(x: number): string { return x.toPrecision(12) }
+/** `String(x)` 是雙精度的最短往返表示 —— 逐位元，不是四捨五入 */
+function num(x: number): string { return String(x) }
 
 function strikeDigest(b: Battle): string {
   const lines: string[] = []
   for (const c of b.world.combatants) {
     const s = c.aircraft.state
-    lines.push(`a ${c.index} ${c.alive ? 1 : 0} ${num(s.position.x)} ${num(s.position.y)} ${num(s.position.z)} ${num(c.hp)}`)
+    const q = s.orientation
+    lines.push(`a ${c.index} ${c.alive ? 1 : 0} ${num(s.position.x)} ${num(s.position.y)} ${num(s.position.z)}`
+      + ` ${num(s.velocity.x)} ${num(s.velocity.y)} ${num(s.velocity.z)}`
+      + ` ${num(q.x)} ${num(q.y)} ${num(q.z)} ${num(q.w)} ${num(c.hp)}`)
     const ctl = c.controller
     if (ctl instanceof AiController) {
-      lines.push(`k ${ctl.strike.phase} ${ctl.strike.seconds.toPrecision(6)} ${ctl.strike.ship}`)
+      // 【`strike.target` 就是改名前的 `strike.ship`】摘要的字面值不變，基準才比得了
+      const k = ctl.strike
+      lines.push(`k ${k.phase} ${num(k.seconds)} ${k.target} ${k.release ? 1 : 0}`
+        + ` ${num(k.heading.x)} ${num(k.heading.z)} ${num(k.plan.lockRange)} ${num(k.plan.egressRange)}`
+        + ` ${num(k.plan.aim.x)} ${num(k.plan.aim.z)} ${ctl.shipAim.ship} ${ctl.shipAim.gun}`)
     }
-    lines.push(`b ${c.bombBay.load} ${c.bombBay.queue}`)
+    const bay = c.bombBay
+    lines.push(`b ${bay.load} ${bay.queue} ${num(bay.timer)} ${bay.reloading ? 1 : 0}`)
   }
   for (const sh of b.world.ships) {
-    lines.push(`s ${sh.index} ${sh.alive ? 1 : 0} ${num(sh.position.x)} ${num(sh.position.z)} ${num(sh.hp)}`)
+    const q = sh.orientation
+    let gunsAlive = 0
+    for (const g of sh.guns) if (g.alive) gunsAlive++
+    lines.push(`s ${sh.index} ${sh.alive ? 1 : 0} ${num(sh.position.x)} ${num(sh.position.z)}`
+      + ` ${num(sh.speed)} ${num(q.y)} ${num(q.w)} ${num(sh.hp)} ${gunsAlive}`)
+  }
+  const bombs = b.world.bombs
+  for (let i = 0; i < bombs.capacity; i++) {
+    if (bombs.active[i] === 0) continue
+    lines.push(`p ${i} ${num(bombs.x[i]!)} ${num(bombs.y[i]!)} ${num(bombs.z[i]!)} ${num(bombs.age[i]!)}`)
+  }
+  const torps = b.world.torpedoes
+  for (let i = 0; i < torps.capacity; i++) {
+    if (torps.active[i] === 0) continue
+    lines.push(`t ${i} ${num(torps.x[i]!)} ${num(torps.y[i]!)} ${num(torps.z[i]!)}`)
   }
   lines.push(`bombs ${b.world.bombs.dropped} torps ${b.world.torpedoes.dropped}`)
   return lines.join('\n')
@@ -75,10 +99,10 @@ const allies = MISSIONS.allies.find((c) => c.id === 'allies-m4') as ReadyMission
 
 describe('攻擊路徑的逐位元基準', () => {
   it('japan-m4 跑 90 秒', () => {
-    expect(hash(strikeDigest(run(japan, 90)))).toBe('1284581')
+    expect(hash(strikeDigest(run(japan, 90)))).toBe('6c51d4a8')
   }, 180_000)
 
   it('allies-m4 跑 90 秒', () => {
-    expect(hash(strikeDigest(run(allies, 90)))).toBe('17160514')
+    expect(hash(strikeDigest(run(allies, 90)))).toBe('5d5aead3')
   }, 180_000)
 })

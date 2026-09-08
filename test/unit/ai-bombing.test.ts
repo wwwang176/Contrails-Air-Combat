@@ -186,7 +186,7 @@ describe('releaseWindowOf', () => {
    * 兩倍讓 AI 願意投，投出去中不中交給彈道 —— 傷害判定一個字都不動。
    */
   it('是艦體半長半寬的 RELEASE_HULLS 倍', () => {
-    const w = releaseWindowOf(SHIP_CLASSES.fletcher)
+    const w = releaseWindowOf(SHIP_CLASSES.fletcher.hull)
     expect(w.along).toBeCloseTo(57.4 * RELEASE_HULLS, 6)
     expect(w.across).toBeCloseTo(6.04 * RELEASE_HULLS, 6)
   })
@@ -197,7 +197,7 @@ describe('releaseWindowOf', () => {
    * AI 願意投、飛得順比命中率重要。
    */
   it('沿船身的窗遠大於殺傷半徑', () => {
-    expect(releaseWindowOf(SHIP_CLASSES.fletcher).along)
+    expect(releaseWindowOf(SHIP_CLASSES.fletcher.hull).along)
       .toBeGreaterThan(blastRadiusOf(11_700))
   })
 
@@ -206,7 +206,7 @@ describe('releaseWindowOf', () => {
    * 寬 43 m。取極值會讓窗橫向放大 51%。
    */
   it('Essex 取的是艦體不是飛行甲板', () => {
-    expect(releaseWindowOf(SHIP_CLASSES.essex).across).toBeCloseTo(14.2 * RELEASE_HULLS, 6)
+    expect(releaseWindowOf(SHIP_CLASSES.essex.hull).across).toBeCloseTo(14.2 * RELEASE_HULLS, 6)
   })
 
   /** 【誤差要拆進船的體軸】船是斜的時候，世界座標的差向量沒有意義 */
@@ -308,7 +308,7 @@ describe('shouldRelease', () => {
   it('對靜止的船：投得出來，而且落點在釋放窗內', () => {
     const r = flyUntilRelease(0)
     expect(r.released).toBe(true)
-    const w = releaseWindowOf(SHIP_CLASSES.fletcher)
+    const w = releaseWindowOf(SHIP_CLASSES.fletcher.hull)
     // 艏向 0：船身沿 Z，所以 z 差比的是 along、x 差比的是 across
     expect(Math.abs(r.impact.x - r.ship.position.x)).toBeLessThanOrEqual(w.across)
     expect(Math.abs(r.impact.z - r.ship.position.z)).toBeLessThanOrEqual(w.along)
@@ -413,7 +413,7 @@ describe('攻擊航路的狀態機', () => {
     setBombBallistics(K, DT)
     stepStrike(st, plane(), sh, 3, BOMB_PROFILE, true, true, DT, out)
     expect(st.phase).toBe('run')
-    expect(st.ship).toBe(3)
+    expect(st.target).toBe(3)
   })
 
   /**

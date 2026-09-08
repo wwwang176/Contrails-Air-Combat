@@ -43,6 +43,7 @@ function wire(b: Battle): void {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
     ctl.ships = b.world.ships
+    ctl.groundTargets = b.world.groundTargets
     ctl.bombBay = c.bombBay
     ctl.bombDrag = b.world.bombDrag
     // 【剖面也要接】`main.ts` 依掛載選剖面。漏掉這一格的話掛雷的機種會用
