@@ -18,8 +18,9 @@
 `src/render/geometry/ground/glb.ts`。名字對不上遊戲載入會丟 —— 與 T-34 那
 四台同一條紀律。Blender 裡看到的顏色只是給人看的預覽。
 
-【可以手改】建出來的每一個零件都是獨立物件，依街廓分進 Collection。搬、刪、
-改尺寸都可以，改完直接 `export_plant()`。**不要改材質名**。
+【可以手改】一個街廓一顆網格（材質走多材質槽），全部掛在 `Plant` 之下。整顆
+搬、刪、進 Edit Mode 改細節都可以，改完直接 `export_plant()`。要換一組隨機
+用 `rebuild_block(seed)`。**不要改材質名**。
 
 【避讓】十二座構件、八台卡車與廠內道路上不擺佈景 —— 佈景沒有命中盒，疊上去
 會看到炸彈穿過管架在構件上爆。手動加東西時自己避開（`KEEPOUTS` 有座標）。
@@ -98,6 +99,8 @@ FIXED = {
     'LP_PlantPole': (0x5a, 0x4a, 0x38),
     'LP_PlantRail': (0x4a, 0x4f, 0x55),
     'LP_PlantPlatform': (0x7d, 0x7a, 0x72),
+    'LP_PlantSlab': (0x86, 0x82, 0x79),
+    'LP_PlantStain': (0x33, 0x30, 0x2c),
 }
 
 
@@ -146,6 +149,44 @@ def get_col(name, parent=None):
     return c
 
 
+class RectIndex:
+    """矩形的格點索引。
+
+    【不能線性掃】散佈器一個街廓要問上千次「這裡空著嗎」，而一個密的街廓有
+    上千個已佔矩形 —— 線性掃是幾百萬次比較，整片廠區會跑到分鐘等級。
+    """
+
+    CELL = 24.0
+
+    def __init__(self):
+        self.cells = {}
+
+    def _keys(self, x0, z0, x1, z1):
+        for i in range(int(math.floor(x0 / self.CELL)), int(math.floor(x1 / self.CELL)) + 1):
+            for j in range(int(math.floor(z0 / self.CELL)), int(math.floor(z1 / self.CELL)) + 1):
+                yield i, j
+
+    def add(self, dx, dz, hw, hd, height=0.0):
+        r = (dx - hw, dz - hd, dx + hw, dz + hd, height)
+        for k in self._keys(r[0], r[1], r[2], r[3]):
+            self.cells.setdefault(k, []).append(r)
+
+    def hit(self, dx, dz, hw, hd, taller_than=-1.0):
+        """有沒有比 `taller_than` 高的矩形蓋到這一塊"""
+        for k in self._keys(dx - hw, dz - hd, dx + hw, dz + hd):
+            for x0, z0, x1, z1, hgt in self.cells.get(k, ()):
+                if hgt <= taller_than:
+                    continue
+                if dx + hw > x0 and dx - hw < x1 and dz + hd > z0 and dz - hd < z1:
+                    return True
+        return False
+
+
+# 全廠的高聳物件。高空管廊在所有街廓建完之後才鋪，靠這一份繞開廠房屋頂與
+# 儲槽頂 —— 少了它，一條 2.5 km 的管廊會從十幾座廠房的屋頂穿過去。
+TALL = RectIndex()
+
+
 class Builder:
     """一個街廓的頂點與面。**零件不各自建物件** —— 一萬五千個物件會讓
     Blender 在 join 與匯出時吃爆記憶體，而且 GLB 光是 node 的 JSON 就佔掉
@@ -153,6 +194,10 @@ class Builder:
 
     材質走多材質槽：每一面記自己的 `material_index`，所以一顆網格裡仍然有
     幾十種顏色。要改個別零件就進 Edit Mode。
+
+    零件自己登記三件事，後處理的兩個填充器靠它們工作：
+    `taken` 已佔的地（散佈器避開）、`anchors` 設備的落點與半徑（地面管線
+    從這裡接出去）、`racks` 這個街廓的管廊中線（地面管線接到最近的一條）。
     """
 
     def __init__(self):
@@ -161,6 +206,17 @@ class Builder:
         self.face_mat = []
         self.mats = []
         self._mat_index = {}
+        self.taken = RectIndex()
+        self.anchors = []
+        self.racks = []
+
+    def claim(self, dx, dz, hw, hd, height=0.0):
+        self.taken.add(dx, dz, hw, hd, height)
+        if height >= 5.0:
+            TALL.add(dx, dz, hw, hd, height)
+
+    def anchor(self, dx, dz, r):
+        self.anchors.append((dx, dz, r))
 
     def _mat(self, material):
         i = self._mat_index.get(material.name)
@@ -349,44 +405,61 @@ def truss_tower(col, dx, dz, size, layers, seed):
             top * 0.25, 3)
     add_cyl(col, 'truss_vent', grime_mat(seed + 2), dx - h * 0.5, -(dz + h * 0.4), top,
             0.4, 0.4, top * 0.18, 3)
+    col.claim(dx, dz, h, h, top)
+    col.anchor(dx, dz, h)
     return n + 3
 
 
+# 筒身一律六邊。八邊在投彈高度分不出來，而儲槽區的筒是全廠數量最多的東西：
+# 一顆立式槽從 56 個三角形降到 40 個。
+TANK_SEG = 6
+
+
 def upright_tank(col, dx, dz, r, h, seed):
-    """立式槽：八邊筒加淺錐頂。外廓正好是 2r × h"""
+    """立式槽：六邊筒加淺錐頂。外廓正好是 2r × h"""
     m = grime_mat(seed)
-    add_cyl(col, 'tank', m, dx, -dz, 0.0, r, r, h * 0.92, 8)
-    add_cyl(col, 'tank_top', m, dx, -dz, h * 0.92, r, r * 0.25, h * 0.08, 8)
+    add_cyl(col, 'tank', m, dx, -dz, 0.0, r, r, h * 0.92, TANK_SEG)
+    add_cyl(col, 'tank_top', m, dx, -dz, h * 0.92, r, r * 0.25, h * 0.08, TANK_SEG)
+    col.claim(dx, dz, r, r, h)
+    col.anchor(dx, dz, r)
     return 2
 
 
 def horiz_tank(col, dx, dz, r, length, rz, seed):
-    """臥式槽：躺著的八邊筒加兩座鞍座。未轉時長軸沿遊戲的 Z"""
+    """臥式槽：躺著的六邊筒加兩座鞍座。未轉時長軸沿遊戲的 Z"""
     m = grime_mat(seed)
     frame = fixed_mat('LP_PlantSteel')
     saddle = 0.6
-    add_cyl(col, 'htank', m, dx, -dz, saddle + r, r, r, length, 8, rz, 90.0, True)
+    add_cyl(col, 'htank', m, dx, -dz, saddle + r, r, r, length, TANK_SEG, rz, 90.0, True)
     c, s = math.cos(math.radians(rz)), math.sin(math.radians(rz))
     off = length * 0.3
     for sgn in (-1, 1):
         add_box(col, 'htank_saddle', frame, dx + sgn * off * s, -(dz + sgn * off * c),
                 saddle / 2, r * 1.6, r * 0.8, saddle, rz)
+    hw = max(r, abs(length / 2 * s)) + r
+    hd = max(r, abs(length / 2 * c)) + r
+    col.claim(dx, dz, hw, hd, saddle + 2 * r)
+    col.anchor(dx, dz, max(hw, hd))
     return 3
 
 
 def sphere_tank(col, dx, dz, r, seed):
     """球罐：兩個對扣的截錐。真球在投彈高度看不出來，這樣省五倍三角形"""
     m = grime_mat(seed)
-    add_cyl(col, 'sphere', m, dx, -dz, 0.0, r * 0.5, r, r, 8)
-    add_cyl(col, 'sphere', m, dx, -dz, r, r, r * 0.5, r, 8)
+    add_cyl(col, 'sphere', m, dx, -dz, 0.0, r * 0.5, r, r, TANK_SEG)
+    add_cyl(col, 'sphere', m, dx, -dz, r, r, r * 0.5, r, TANK_SEG)
+    col.claim(dx, dz, r, r, 2 * r)
+    col.anchor(dx, dz, r)
     return 2
 
 
 def fan_stack(col, dx, dz, r, h, seed):
-    """冷卻風扇筒：八邊筒加頂上一片十字扇葉"""
-    add_cyl(col, 'fan', grime_mat(seed), dx, -dz, 0.0, r, r, h, 8)
+    """冷卻風扇筒：六邊筒加頂上一片十字扇葉"""
+    add_cyl(col, 'fan', grime_mat(seed), dx, -dz, 0.0, r, r, h, TANK_SEG)
     add_box(col, 'fan_blade', fixed_mat('LP_PlantSteel'), dx, -dz, h + 0.15,
             r * 1.8, r * 0.4, 0.3, 30.0)
+    col.claim(dx, dz, r, r, h)
+    col.anchor(dx, dz, r)
     return 2
 
 
@@ -398,6 +471,8 @@ def bund_run(col, ax, az, bx, bz, h):
     rz = math.degrees(math.atan2(bx - ax, bz - az))
     add_box(col, 'bund', fixed_mat('LP_PlantEarth'), (ax + bx) / 2, -(az + bz) / 2, h / 2,
             2.5, length, h, rz)
+    col.claim((ax + bx) / 2, (az + bz) / 2,
+              abs(bx - ax) / 2 + 2, abs(bz - az) / 2 + 2, h)
     return 1
 
 
@@ -420,6 +495,9 @@ def sawtooth_hall(col, dx, dz, w, d, h, teeth, rz, seed):
         add_box(col, 'hall_roof', roof, px, -pz, h + 0.9, w * 0.98, slab, 0.3, rz, 20.0)
         qx, qz = at(0.0, lz - pitch * 0.4)
         add_box(col, 'hall_light', glass, qx, -qz, h + 1.5, w * 0.98, 0.25, 1.6, rz)
+    hw = (abs(w * c) + abs(d * s)) / 2
+    hd = (abs(w * s) + abs(d * c)) / 2
+    col.claim(dx, dz, hw, hd, h + 2.3)
     return 1 + teeth * 2
 
 
@@ -429,6 +507,8 @@ def rail_track(col, ax, az, bx, bz):
     rz = math.degrees(math.atan2(bx - ax, bz - az))
     add_box(col, 'rail', fixed_mat('LP_PlantRail'), (ax + bx) / 2, -(az + bz) / 2, 0.2,
             3.0, length, 0.4, rz)
+    col.claim((ax + bx) / 2, (az + bz) / 2,
+              abs(bx - ax) / 2 + 2, abs(bz - az) / 2 + 2, 0.4)
     return 1
 
 
@@ -442,15 +522,25 @@ def rail_car(col, dx, dz, rz, tank, seed):
         add_cyl(col, 'car_tank', m, dx, -dz, 2.8, 1.5, 1.5, 10.5, 6, rz, 90.0, True)
     else:
         add_box(col, 'car_body', m, dx, -dz, 2.5, 3.0, 11.0, 2.4, rz)
+    c, s = abs(math.cos(math.radians(rz))), abs(math.sin(math.radians(rz)))
+    col.claim(dx, dz, (3.0 * c + 12.0 * s) / 2, (3.0 * s + 12.0 * c) / 2, 4.0)
     return 3
 
 
-RACK_BAY = 12.0
-PIPE_DIAMETERS = [1.2, 0.8, 1.0, 0.6, 0.9]
+RACK_LEG_STEP = 46.0
+RACK_DECK = 0.6
 
 
 def pipe_bridge(col, ax, az, bx, bz, h, pipes, seed):
-    """架高的管廊：每 12 m 一個門型鋼架，樑上並排三角柱的管"""
+    """架高的管廊：兩片扁長條加稀疏的立柱。
+
+    【不逐管建圓柱、不每 12 m 一副門架】投彈高度看下去，一條管廊就是地上的
+    兩條平行線 —— 舊版一條 400 m 的管廊要一千兩百多個三角形，換來的細節在
+    這一關的視距上分不出來。現在同樣一條是兩百出頭。
+
+    複雜度改由**高度分層交錯**提供：省下來的預算拿去鋪四層彼此穿越的管廊網
+    （`build_skyways`），那才是煉油廠從空中最好認的樣子。
+    """
     length = math.hypot(bx - ax, bz - az)
     if length < 1:
         return 0
@@ -459,25 +549,24 @@ def pipe_bridge(col, ax, az, bx, bz, h, pipes, seed):
     side = math.cos(math.radians(rz))
     fwd = math.sin(math.radians(rz))
     width = pipes * 1.4 + 1
+    strip = width * 0.4
+    mx, mz = (ax + bx) / 2, (az + bz) / 2
+    for k, sgn in enumerate((-1, 1)):
+        off = sgn * (width - strip) / 2
+        add_box(col, 'rack_deck', grime_mat(seed + k * 5), mx + off * side,
+                -(mz - off * fwd), h + RACK_DECK / 2, strip, length, RACK_DECK, rz)
+        n += 1
     frame = fixed_mat('LP_PlantSteel')
-    bays = max(1, int(length // RACK_BAY))
-    for k in range(bays + 1):
-        t = k / bays
+    gates = max(2, int(length // RACK_LEG_STEP) + 1)
+    for k in range(gates):
+        t = k / (gates - 1)
         px = ax + (bx - ax) * t
         pz = az + (bz - az) * t
-        ox = width / 2 * side
-        oz = -width / 2 * fwd
-        add_box(col, 'rack_leg', frame, px + ox, -(pz + oz), h / 2, 0.4, 0.4, h)
-        add_box(col, 'rack_leg', frame, px - ox, -(pz - oz), h / 2, 0.4, 0.4, h)
-        add_box(col, 'rack_beam', frame, px, -pz, h - 0.2, width + 0.6, 0.4, 0.4, rz)
-        n += 3
-    mx, mz = (ax + bx) / 2, (az + bz) / 2
-    for p in range(pipes):
-        dia = PIPE_DIAMETERS[p % len(PIPE_DIAMETERS)]
-        off = (p - (pipes - 1) / 2) * 1.4
-        add_cyl(col, 'pipe', grime_mat(seed + p), mx + off * side, -(mz - off * fwd),
-                h + dia / 2, dia / 2, dia / 2, length, 3, rz, 90.0, True)
-        n += 1
+        for sgn in (-1, 1):
+            add_box(col, 'rack_leg', frame, px + sgn * width / 2 * side,
+                    -(pz - sgn * width / 2 * fwd), h / 2, 0.45, 0.45, h)
+            n += 1
+    col.racks.append((ax, az, bx, bz))
     return n
 
 
@@ -491,6 +580,284 @@ def smoke_stack(col, dx, dz, h, seed):
     add_cyl(col, 'stack_cap', grime_mat(seed), dx, -dz, h * 0.985, r * 0.6, r * 0.6,
             h * 0.03, 6)
     return 4
+
+
+def ground_pipe(col, ax, az, bx, bz, seed):
+    """貼地的管線：一條扁長條，高 0.9 m。**不做圓柱、不做枕木**
+
+    理由同 `pipe_bridge` —— 俯視只是一條線。兩端各伸出半個寬度，L 形轉角
+    才不會缺一塊。
+    """
+    length = math.hypot(bx - ax, bz - az)
+    if length < 2:
+        return 0
+    rz = math.degrees(math.atan2(bx - ax, bz - az))
+    add_box(col, 'gpipe', grime_mat(seed), (ax + bx) / 2, -(az + bz) / 2, 0.45,
+            1.1, length + 1.1, 0.9, rz)
+    return 1
+
+
+def apron(col, dx, dz, w, d, rz, key):
+    """裝卸坪／基座：一片 0.35 m 的低板。
+
+    【不做零厚度的貼片】相機遠平面 5,000 km，投彈高度的深度精度只剩公尺級 ——
+    貼在地面上幾公分的四邊形會整片閃爍，而那在畫面上像是顯示卡壞了。厚度做
+    出來就是一塊真的水泥坪，多花十個三角形。
+    """
+    add_box(col, 'apron', fixed_mat(key), dx, -dz, 0.175, w, d, 0.35, rz)
+    col.claim(dx, dz, w / 2, d / 2, 0.35)
+    return 1
+
+
+def gantry(col, dx, dz, span, h, rz, seed):
+    """龍門吊：兩對腿、頂上一對主樑、中間一台吊車。調車場的地標"""
+    frame = fixed_mat('LP_PlantSteel')
+    c, s = math.cos(math.radians(rz)), math.sin(math.radians(rz))
+    for su in (-1, 1):
+        for sv in (-1, 1):
+            lx = dx + (su * span / 2) * c + (sv * 5.0) * s
+            lz = dz - (su * span / 2) * s + (sv * 5.0) * c
+            add_box(col, 'gantry_leg', frame, lx, -lz, h / 2, 1.0, 1.0, h)
+    for sv in (-1, 1):
+        bx = dx + (sv * 5.0) * s
+        bz = dz + (sv * 5.0) * c
+        add_box(col, 'gantry_beam', frame, bx, -bz, h + 0.7, span + 2, 1.2, 1.4, rz)
+    add_box(col, 'gantry_trolley', grime_mat(seed), dx, -dz, h + 1.9,
+            5.0, 4.0, 2.2, rz)
+    col.claim(dx, dz, abs(span / 2 * c) + 6, abs(span / 2 * s) + 6, h + 3)
+    return 7
+
+
+CLUTTER_KINDS = 9
+
+
+def clutter(col, dx, dz, kind, seed):
+    """地面雜物：油桶、木箱、閥箱、小泵房、料堆、燈桿、撬裝設備、小棚、油漬坪。
+
+    投彈高度只是「這塊地有人在用」；俯衝拉起的那兩秒才看得出是什麼。撐住
+    近距離細節的是它，而它是全廠三角形花得最多的一項 —— 密度調在
+    `CLUTTER_FILL`。
+    """
+    m = grime_mat(seed)
+    steel = fixed_mat('LP_PlantSteel')
+    if kind == 0:
+        for k in range(3):
+            a = 2.1 * k
+            add_cyl(col, 'drum', grime_mat(seed + k), dx + math.cos(a) * 0.8,
+                    -(dz + math.sin(a) * 0.8), 0.0, 0.55, 0.55, 1.3, 6)
+        return 3
+    if kind == 1:
+        add_box(col, 'crate', m, dx, -dz, 0.7, 3.2, 2.4, 1.4)
+        add_box(col, 'crate', grime_mat(seed + 1), dx + 0.5, -(dz - 0.4), 1.85,
+                2.0, 1.6, 1.5, 20.0)
+        add_box(col, 'crate', grime_mat(seed + 2), dx - 2.4, -(dz + 0.6), 0.55,
+                1.8, 1.8, 1.1, 35.0)
+        return 3
+    if kind == 2:
+        add_box(col, 'valvebox', steel, dx, -dz, 0.6, 1.6, 1.2, 1.2, 15.0)
+        return 1
+    if kind == 3:
+        add_box(col, 'pumphouse', m, dx, -dz, 1.5, 6.0, 4.5, 3.0)
+        add_box(col, 'pumphouse_roof', grime_mat(seed + 1), dx, -dz, 3.15,
+                6.4, 4.9, 0.3)
+        return 2
+    if kind == 4:
+        add_cyl(col, 'pile', fixed_mat('LP_PlantCoal'), dx, -dz, 0.0, 3.2, 0.9, 2.4, 5)
+        return 1
+    if kind == 5:
+        add_box(col, 'lamp', fixed_mat('LP_PlantPole'), dx, -dz, 4.0, 0.25, 0.25, 8.0)
+        add_box(col, 'lamp_head', steel, dx + 0.6, -dz, 7.9, 1.6, 0.4, 0.3)
+        return 2
+    if kind == 6:
+        add_box(col, 'skid', steel, dx, -dz, 0.3, 5.0, 2.6, 0.6)
+        add_cyl(col, 'skid_drum', m, dx + 0.8, -dz, 0.6, 1.0, 1.0, 2.6, 6)
+        return 2
+    if kind == 7:
+        add_box(col, 'shack', m, dx, -dz, 1.3, 4.0, 3.2, 2.6, 10.0)
+        add_box(col, 'shack_roof', fixed_mat('LP_PlantRail'), dx, -dz, 2.75, 4.6, 3.8, 0.3)
+        return 2
+    h = cell_hash(int(dx), int(dz), seed)
+    return apron(col, dx, dz, 7 + (h & 0x7), 5 + ((h >> 4) & 0x7),
+                 ((h >> 8) & 0x3) * 22.5, 'LP_PlantStain')
+
+
+# ═══════════════════════════ 後處理填充器 ═══════════════════════════
+
+GROUND_PIPE_REACH = 130.0
+
+
+def _closest_on(dx, dz, ax, az, bx, bz):
+    vx, vz = bx - ax, bz - az
+    l2 = vx * vx + vz * vz
+    t = 0.0 if l2 <= 0 else max(0.0, min(1.0, ((dx - ax) * vx + (dz - az) * vz) / l2))
+    return ax + vx * t, az + vz * t
+
+
+def weave_ground_pipes(col, seed):
+    """把每一件設備接到最近的管廊 —— L 形，兩段。
+
+    【這才是「管線複雜」的本體】散落的槽與塔各自站著、彼此沒有連結，那是
+    模型的樣子；真的煉油廠每一顆槽都有管子接出去。順帶把格點打散：管線
+    繞出來的線不照格子走。
+    """
+    if not col.racks:
+        return 0
+    n = 0
+    for idx, (dx, dz, r) in enumerate(col.anchors):
+        best, bd = None, 1e9
+        for ax, az, bx, bz in col.racks:
+            px, pz = _closest_on(dx, dz, ax, az, bx, bz)
+            d = math.hypot(px - dx, pz - dz)
+            if d < bd:
+                bd, best = d, (px, pz)
+        if best is None or bd > GROUND_PIPE_REACH or bd < r + 4:
+            continue
+        px, pz = best
+        h = cell_hash(idx, 3, seed)
+        # 兩種 L 形轉角，先試雜湊挑的那一種。第一段要長過設備半徑，否則管子
+        # 會從槽的內部長出來
+        options = [(px, dz), (dx, pz)] if (h & 1) == 0 else [(dx, pz), (px, dz)]
+        for cx, cz in options:
+            lead = math.hypot(cx - dx, cz - dz)
+            if lead < r + 4:
+                continue
+            sx = dx + (cx - dx) / lead * r
+            sz = dz + (cz - dz) / lead * r
+            if not free_rect((sx + cx) / 2, (sz + cz) / 2,
+                             abs(cx - sx) / 2 + 1, abs(cz - sz) / 2 + 1):
+                continue
+            if not free_rect((cx + px) / 2, (cz + pz) / 2,
+                             abs(px - cx) / 2 + 1, abs(pz - cz) / 2 + 1):
+                continue
+            n += ground_pipe(col, sx, sz, cx, cz, seed + idx)
+            n += ground_pipe(col, cx, cz, px, pz, seed + idx + 1)
+            break
+    return n
+
+
+EQUIP_STEP = 25.0
+
+# 每種街廓抽多少格。製程與公用區是「管廊之間全是設備」的地方
+EQUIP_FILL = {
+    'process': 0.52, 'utility': 0.52, 'halls': 0.24,
+    'railyard': 0.16, 'tankFarm': 0.12, 'open': 0.0,
+}
+
+
+def place_equipment(col, dx, dz, h, seed):
+    """一格中型設備。放不下就回 0 —— 尺寸是抽出來的，得先問空間夠不夠。
+
+    【缺的一直是中型件】只有管廊與零星大件的話，街廓中間從投彈高度看下去
+    是一片灰底加幾條線；真的製程區是管廊之間塞滿塔、槽、換熱器與加熱爐。
+    地面的小雜物補不了這一層 —— 那個尺度在一公里外就消失了。
+    """
+    kind = (h >> 24) % 8
+
+    def room(hw, hd):
+        return free_rect(dx, dz, hw + 2, hd + 2) and not col.taken.hit(dx, dz, hw + 2, hd + 2)
+
+    if kind == 0:
+        r = 2.6 + ((h >> 4) & 0x7) * 0.5
+        return upright_tank(col, dx, dz, r, 14 + ((h >> 7) & 0x7) * 2.6, seed) \
+            if room(r, r) else 0
+    if kind == 1:
+        length = 13 + ((h >> 5) & 0x7) * 2.0
+        rz = ((h >> 12) & 0x3) * 45.0
+        return horiz_tank(col, dx, dz, 2.0 + ((h >> 9) & 0x3) * 0.6, length, rz, seed) \
+            if room(length / 2, length / 2) else 0
+    if kind == 2:
+        r = 3.6 + ((h >> 6) & 0x3) * 0.8
+        return fan_stack(col, dx, dz, r, 6 + ((h >> 8) & 0x7), seed) if room(r, r) else 0
+    if kind == 3:
+        size = 10 + ((h >> 5) & 0x3) * 2.5
+        return truss_tower(col, dx, dz, size, 2 + ((h >> 9) & 0x3), seed) \
+            if room(size / 2, size / 2) else 0
+    if kind == 4:
+        rz = ((h >> 12) & 0x3) * 45.0
+        length = 12 + ((h >> 5) & 0x3) * 3
+        if not room(length / 2, length / 2):
+            return 0
+        c, s = math.cos(math.radians(rz)), math.sin(math.radians(rz))
+        n = 0
+        for k in (-1, 0, 1):
+            n += horiz_tank(col, dx + k * 4.0 * c, dz - k * 4.0 * s, 1.5, length, rz,
+                            seed + k)
+        return n
+    if kind == 5:
+        if not room(7.0, 5.5):
+            return 0
+        add_box(col, 'furnace', grime_mat(seed), dx, -dz, 4.0, 13.0, 10.0, 8.0)
+        add_cyl(col, 'furnace_stack', grime_mat(seed + 1), dx + 4.5, -(dz + 3.0), 8.0,
+                1.4, 1.1, 12.0, 6)
+        col.claim(dx, dz, 7.0, 5.5, 8.0)
+        col.anchor(dx, dz, 7.0)
+        return 2
+    if kind == 6:
+        w = 22 + ((h >> 5) & 0x3) * 4
+        d = 13 + ((h >> 9) & 0x3) * 2
+        rz = 0.0 if (h & 0x100) == 0 else 90.0
+        hw, hd = (w / 2, d / 2) if rz == 0.0 else (d / 2, w / 2)
+        return sawtooth_hall(col, dx, dz, w, d, 6 + ((h >> 11) & 0x3), 2, rz, seed) \
+            if room(hw, hd) else 0
+    r = 5 + ((h >> 6) & 0x3) * 1.0
+    return sphere_tank(col, dx, dz, r, seed) if room(r, r) else 0
+
+
+def scatter_equipment(col, blk, seed):
+    """中型設備的散佈：25 m 格點，避開已佔的地與禁區"""
+    x0, z0, x1, z1 = inner(blk)
+    n = 0
+    ni = max(1, int((x1 - x0) // EQUIP_STEP))
+    nj = max(1, int((z1 - z0) // EQUIP_STEP))
+    ox = x0 + ((x1 - x0) - ni * EQUIP_STEP) / 2 + EQUIP_STEP / 2
+    oz = z0 + ((z1 - z0) - nj * EQUIP_STEP) / 2 + EQUIP_STEP / 2
+    gate = int(EQUIP_FILL[blk[4]] * 255)
+    for j in range(nj):
+        for i in range(ni):
+            h = cell_hash(i, j, seed + 0x2c1)
+            if (h & 0xFF) >= gate:
+                continue
+            dx = ox + i * EQUIP_STEP + (((h >> 8) & 0xFF) / 255 - 0.5) * EQUIP_STEP * 0.5
+            dz = oz + j * EQUIP_STEP + (((h >> 16) & 0xFF) / 255 - 0.5) * EQUIP_STEP * 0.5
+            n += place_equipment(col, dx, dz, h, seed * 13 + i * 5 + j)
+    return n
+
+
+CLUTTER_STEP = 16.0
+
+# 每種街廓抽多少格。**留白街廓要低** —— 它的空是刻意的，護欄壓在 12% 覆蓋率
+CLUTTER_FILL = {
+    'process': 0.46, 'utility': 0.46, 'halls': 0.44,
+    'railyard': 0.34, 'tankFarm': 0.28, 'open': 0.03,
+}
+
+
+def scatter_clutter(col, blk, seed):
+    """地面雜物的散佈：16 m 格點，避開已佔的地與禁區。
+
+    【要避開已佔的地】少了 `Builder.taken`，油桶會長在儲槽裡面、木箱會穿過
+    廠房的牆 —— 那在俯視完全看不出來，貼地飛過去才會發現。
+    """
+    x0, z0, x1, z1 = inner(blk)
+    n = 0
+    ni = max(1, int((x1 - x0) // CLUTTER_STEP))
+    nj = max(1, int((z1 - z0) // CLUTTER_STEP))
+    ox = x0 + ((x1 - x0) - ni * CLUTTER_STEP) / 2 + CLUTTER_STEP / 2
+    oz = z0 + ((z1 - z0) - nj * CLUTTER_STEP) / 2 + CLUTTER_STEP / 2
+    gate = int(CLUTTER_FILL[blk[4]] * 255)
+    for j in range(nj):
+        for i in range(ni):
+            h = cell_hash(i, j, seed + 0x5b)
+            if (h & 0xFF) >= gate:
+                continue
+            dx = ox + i * CLUTTER_STEP + (((h >> 8) & 0xFF) / 255 - 0.5) * CLUTTER_STEP * 0.7
+            dz = oz + j * CLUTTER_STEP + (((h >> 16) & 0xFF) / 255 - 0.5) * CLUTTER_STEP * 0.7
+            if not free(dx, dz, 5) or col.taken.hit(dx, dz, 4.5, 4.5):
+                continue
+            kind = (h >> 24) % CLUTTER_KINDS
+            n += clutter(col, dx, dz, kind, seed * 17 + i * 7 + j)
+            col.claim(dx, dz, 4.0, 4.0, 2.0)
+    return n
 
 
 # ═══════════════════════════ 街廓 ═══════════════════════════
@@ -581,6 +948,10 @@ def inner(b):
     return b[0] + INSET, b[1] + INSET, b[2] - INSET, b[3] - INSET
 
 
+# 街廓內管廊的三個高度層。同一個街廓裡的管廊分層走，俯視才看得到交錯
+BLOCK_TIERS = [6.0, 10.0, 14.5]
+
+
 # ═══════════════════════════ 填充器 ═══════════════════════════
 
 def fill_tank_farm(col, b):
@@ -621,8 +992,18 @@ def fill_tank_farm(col, b):
             p0 = f.at(2, v)
             p1 = f.at(f.along - 2, v)
             for s in spans(p0[0], p0[1], p1[0], p1[1], 4):
-                n += pipe_bridge(col, s[0], s[1], s[2], s[3], 4 + rnd() * 2, 3, b[5] * 31 + seq)
+                n += pipe_bridge(col, s[0], s[1], s[2], s[3],
+                                 BLOCK_TIERS[j % len(BLOCK_TIERS)] + rnd(), 3,
+                                 b[5] * 31 + seq)
                 seq += 1
+    crosses = 1 + int(rnd() * 2)
+    for k in range(crosses):
+        u = f.along * ((k + 0.5) / crosses + (rnd() - 0.5) * 0.14)
+        p0, p1 = f.at(u, 2), f.at(u, f.across - 2)
+        for s in spans(p0[0], p0[1], p1[0], p1[1], 4):
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3], BLOCK_TIERS[-1] + 3 + rnd() * 2,
+                             4, b[5] * 31 + seq)
+            seq += 1
     return n
 
 
@@ -632,14 +1013,25 @@ def fill_process(col, b):
     rnd = Rand(b[5])
     f = Frame(x0, z0, x1, z1, rnd() < 0.5)
     n, seq = 0, 0
-    lanes = 4 + int(rnd() * 4)
+    lanes = 6 + int(rnd() * 4)
     for k in range(lanes):
         v = f.across * ((k + 0.5) / lanes + (rnd() - 0.5) * 0.07)
         pipes = 3 + int(rnd() * 3)
         p0, p1 = f.at(0, v), f.at(f.along, v)
         for s in spans(p0[0], p0[1], p1[0], p1[1], pipes):
-            n += pipe_bridge(col, s[0], s[1], s[2], s[3], 5.5 + rnd() * 5, pipes,
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3],
+                             BLOCK_TIERS[k % len(BLOCK_TIERS)] + rnd() * 1.4, pipes,
                              b[5] * 31 + seq)
+            seq += 1
+    # 橫過主軸的短管廊。同一個方向的平行線再多也只是一組百葉窗 —— 交錯才有
+    # 立體的層次，而扁平化之後這幾條幾乎不花錢
+    crosses = 2 + int(rnd() * 3)
+    for k in range(crosses):
+        u = f.along * ((k + 0.5) / crosses + (rnd() - 0.5) * 0.12)
+        p0, p1 = f.at(u, 0), f.at(u, f.across)
+        for s in spans(p0[0], p0[1], p1[0], p1[1], 3):
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3], BLOCK_TIERS[-1] + 2 + rnd() * 2,
+                             3, b[5] * 31 + seq)
             seq += 1
     towers = 2 + int(rnd() * 3)
     tower_v = f.across * (0.16 + rnd() * 0.2)
@@ -719,60 +1111,116 @@ def fill_halls(col, b):
         n += sawtooth_hall(col, dx, dz, length, span * 0.92, h, teeth, f.hall_rz,
                            b[5] * 31 + seq)
         seq += 1
-    v = span + gap / 2
-    p0, p1 = f.at(0, v), f.at(f.along, v)
-    for s in spans(p0[0], p0[1], p1[0], p1[1], 4):
-        n += pipe_bridge(col, s[0], s[1], s[2], s[3], 12 + rnd() * 4, 3, b[5] * 31 + seq)
-        seq += 1
+        # 廠房邊的裝卸坪：廠房區的地最空，而一排廠房中間本來就是進出貨的地方
+        av = v + span * 0.5 + gap * 0.3
+        px, pz = f.at(u, av)
+        aw = length * 0.85 if f.along_x else gap * 0.5
+        ad = gap * 0.5 if f.along_x else length * 0.85
+        if free_rect(px, pz, aw / 2, ad / 2) and not col.taken.hit(px, pz, aw / 2, ad / 2):
+            n += apron(col, px, pz, aw, ad, 0.0, 'LP_PlantSlab')
+    for t in range(2):
+        v = span + gap / 2 + t * (span + gap)
+        p0, p1 = f.at(0, v), f.at(f.along, v)
+        for s in spans(p0[0], p0[1], p1[0], p1[1], 4):
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3], 12 + t * 4 + rnd() * 3, 3,
+                             b[5] * 31 + seq)
+            seq += 1
     return n
 
 
 def fill_railyard(col, b):
-    """調車場：平行的股道、停著的車廂、一端的卸料棚"""
+    """調車場：兩組平行股道、成串的車廂、龍門吊、堆料與卸料月台。
+
+    【股道要多】三條軌道與十條軌道在投彈高度是兩種東西 —— 平行線是調車場
+    唯一的識別特徵，而一條軌道只要 12 個三角形，多鋪幾條幾乎不花錢。
+    """
     x0, z0, x1, z1 = inner(b)
     rnd = Rand(b[5])
     f = Frame(x0, z0, x1, z1, rnd() < 0.5)
     n, seq = 0, 0
-    tracks = 3 + int(rnd() * 4)
-    pitch = 8 + rnd() * 4
-    v0 = (f.across - pitch * (tracks - 1)) * (0.25 + rnd() * 0.5)
-    for k in range(tracks):
-        v = v0 + k * pitch
-        p0 = f.at(f.along * rnd() * 0.12, v)
-        p1 = f.at(f.along * (1 - rnd() * 0.18), v)
-        for s in spans(p0[0], p0[1], p1[0], p1[1], 3):
-            n += rail_track(col, s[0], s[1], s[2], s[3])
+    groups = []
+    base = 0.06 + rnd() * 0.08
+    for g in range(2):
+        tracks = 4 + int(rnd() * 5)
+        pitch = 7 + rnd() * 2.5
+        v0 = f.across * (base + g * (0.42 + rnd() * 0.12))
+        if v0 + pitch * (tracks - 1) > f.across - 20:
+            continue
+        groups.append((v0, tracks, pitch))
+        for k in range(tracks):
+            v = v0 + k * pitch
+            p0 = f.at(f.along * rnd() * 0.1, v)
+            p1 = f.at(f.along * (1 - rnd() * 0.14), v)
+            for s in spans(p0[0], p0[1], p1[0], p1[1], 3):
+                n += rail_track(col, s[0], s[1], s[2], s[3])
+                length = math.hypot(s[2] - s[0], s[3] - s[1])
+                step = 14 + rnd() * 4
+                cars = int(length / step)
+                for c in range(cars):
+                    h = cell_hash(c, k * 7 + g, b[5] + 5)
+                    if (h & 0xFF) < 40:
+                        continue
+                    t = (c + 0.5) / cars
+                    dx = s[0] + (s[2] - s[0]) * t
+                    dz = s[1] + (s[3] - s[1]) * t
+                    if not free(dx, dz, 8):
+                        continue
+                    n += rail_car(col, dx, dz, f.rz, ((h >> 8) & 1) == 0, b[5] * 31 + seq)
+                    seq += 1
+    # 龍門吊跨在其中一組股道上
+    if groups:
+        v0, tracks, pitch = groups[int(rnd() * len(groups)) % len(groups)]
+        span = pitch * (tracks - 1) + 12
+        gx, gz = f.at(f.along * (0.25 + rnd() * 0.5), v0 + pitch * (tracks - 1) / 2)
+        if free_rect(gx, gz, span / 2, span / 2):
+            n += gantry(col, gx, gz, span, 14 + rnd() * 4, f.hall_rz, b[5] * 31 + seq)
+            seq += 1
+    # 卸料月台：兩條，各自貼著一組股道的外側
+    for g, (v0, tracks, pitch) in enumerate(groups):
+        pv = v0 - 9 if g == 0 else v0 + pitch * (tracks - 1) + 9
+        q0, q1 = f.at(f.along * 0.08, pv), f.at(f.along * 0.92, pv)
+        for s in spans(q0[0], q0[1], q1[0], q1[1], 6):
             length = math.hypot(s[2] - s[0], s[3] - s[1])
-            gap = 15 + rnd() * 8
-            cars = int(length / gap)
-            for c in range(cars):
-                h = cell_hash(c, k, b[5] + 5)
-                if (h & 0xFF) < 64:
-                    continue
-                t = (c + 0.5) / cars
-                dx = s[0] + (s[2] - s[0]) * t
-                dz = s[1] + (s[3] - s[1]) * t
-                if not free(dx, dz, 8):
-                    continue
-                n += rail_car(col, dx, dz, f.rz, ((h >> 8) & 1) == 0, b[5] * 31 + seq)
-                seq += 1
+            add_box(col, 'platform', fixed_mat('LP_PlantPlatform'), (s[0] + s[2]) / 2,
+                    -(s[1] + s[3]) / 2, 0.6, length, 9.0, 1.2, f.hall_rz)
+            col.claim((s[0] + s[2]) / 2, (s[1] + s[3]) / 2,
+                      abs(s[2] - s[0]) / 2 + 5, abs(s[3] - s[1]) / 2 + 5, 1.2)
+            n += 1
+    # 卸料棚
     for k in range(1 + int(rnd() * 2)):
-        dx, dz = f.at(f.along * (0.1 + rnd() * 0.8), f.across * (0.06 + rnd() * 0.1))
+        dx, dz = f.at(f.along * (0.1 + rnd() * 0.7), f.across * (0.86 + rnd() * 0.08))
         hu = f.along * (0.08 + rnd() * 0.06)
-        hv = f.across * 0.09
+        hv = f.across * 0.055
         hw = hu if f.along_x else hv
         hd = hv if f.along_x else hu
         if not free_rect(dx, dz, hw, hd):
             continue
         n += sawtooth_hall(col, dx, dz, hu * 2, hv * 2, 8, 3, f.hall_rz, b[5] * 31 + seq)
         seq += 1
-    pv = f.across * (0.82 + rnd() * 0.12)
-    q0, q1 = f.at(0, pv), f.at(f.along, pv)
-    for s in spans(q0[0], q0[1], q1[0], q1[1], 6):
-        length = math.hypot(s[2] - s[0], s[3] - s[1])
-        add_box(col, 'platform', fixed_mat('LP_PlantPlatform'), (s[0] + s[2]) / 2,
-                -(s[1] + s[3]) / 2, 0.6, length, 10.0, 1.2, f.hall_rz)
+    # 堆料場：長條的煤堆與礦堆，填掉股道以外的空地
+    for k in range(3 + int(rnd() * 3)):
+        length = f.along * (0.1 + rnd() * 0.1)
+        pu = f.along * (0.08 + rnd() * 0.8)
+        pv = f.across * (0.78 + rnd() * 0.16)
+        dx, dz = f.at(pu, pv)
+        hu, hv = length / 2, 9.0
+        hw = hu if f.along_x else hv
+        hd = hv if f.along_x else hu
+        if not free_rect(dx, dz, hw, hd) or col.taken.hit(dx, dz, hw, hd):
+            continue
+        ph = 3 + rnd() * 2.5
+        add_box(col, 'stockpile', fixed_mat('LP_PlantCoal'), dx, -dz, ph / 2,
+                hw * 2, hd * 2, ph, 0.0)
+        col.claim(dx, dz, hw, hd, ph)
         n += 1
+    # 跨過整片股道的高架管廊 —— 煉油廠的調車場上頭一定有管線經過
+    for k in range(1 + int(rnd() * 2)):
+        u = f.along * (0.2 + rnd() * 0.6)
+        p0, p1 = f.at(u, 0), f.at(u, f.across)
+        for s in spans(p0[0], p0[1], p1[0], p1[1], 3):
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3], 17 + rnd() * 3, 3,
+                             b[5] * 31 + seq)
+            seq += 1
     return n
 
 
@@ -834,6 +1282,7 @@ def fill_utility(col, b):
                     add_box(col, 'switch_beam', frame, qx, -qz, 8.6, 0.5, 12.0, 0.5,
                             f.hall_rz)
                     n += 1
+        col.claim(sx, sz, 19, 19, 9.0)
     for k in range(1 + int(rnd() * 2)):
         length = f.along * (0.14 + rnd() * 0.1)
         dx, dz = f.at(f.along * (0.12 + rnd() * 0.7), f.across * lanes[3])
@@ -843,13 +1292,24 @@ def fill_utility(col, b):
         ph = 3 + rnd() * 2
         add_box(col, 'coal', fixed_mat('LP_PlantCoal'), dx, -dz, ph / 2, length, 22.0, ph,
                 f.hall_rz)
+        col.claim(dx, dz, hu if f.along_x else hv, hv if f.along_x else hu, ph)
         n += 1
-    bridges = 3 + int(rnd() * 3)
+    bridges = 5 + int(rnd() * 3)
     for k in range(bridges):
         v = f.across * ((k + 0.5) / bridges + (rnd() - 0.5) * 0.08)
         p0, p1 = f.at(0, v), f.at(f.along, v)
         for s in spans(p0[0], p0[1], p1[0], p1[1], 4):
-            n += pipe_bridge(col, s[0], s[1], s[2], s[3], 6 + rnd() * 5, 3, b[5] * 31 + seq)
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3],
+                             BLOCK_TIERS[k % len(BLOCK_TIERS)] + rnd() * 1.4, 3,
+                             b[5] * 31 + seq)
+            seq += 1
+    crosses = 2 + int(rnd() * 2)
+    for k in range(crosses):
+        u = f.along * ((k + 0.5) / crosses + (rnd() - 0.5) * 0.12)
+        p0, p1 = f.at(u, 0), f.at(u, f.across)
+        for s in spans(p0[0], p0[1], p1[0], p1[1], 3):
+            n += pipe_bridge(col, s[0], s[1], s[2], s[3], BLOCK_TIERS[-1] + 2 + rnd() * 2,
+                             3, b[5] * 31 + seq)
             seq += 1
     return n
 
@@ -860,6 +1320,10 @@ def fill_open(col, b):
     rnd = Rand(b[5])
     f = Frame(x0, z0, x1, z1, True)
     n, seq = 0, 0
+    # 【高空管廊不穿過留白】頭上壓著四層管廊的地，從投彈高度看就不是留白了 ——
+    # 俯視覆蓋率量得到這件事，而站在地上看不出來
+    TALL.add((b[0] + b[2]) / 2, (b[1] + b[3]) / 2,
+             (b[2] - b[0]) / 2, (b[3] - b[1]) / 2, 60.0)
     for k in range(3):
         dx, dz = f.at(f.along * (0.18 + 0.3 * k), f.across * (0.3 if k % 2 == 0 else 0.7))
         if not free(dx, dz, 16):
@@ -908,11 +1372,74 @@ def build_trunks(b):
             nj = j if horizontal else min(len(zs) - 1, j + 1 + int(rnd() * 2))
             if ni == i and nj == j:
                 break
-            for s in spans(xs[i], zs[j], xs[ni], zs[nj], pipes):
+            for s in sky_spans(xs[i], zs[j], xs[ni], zs[nj], pipes, h):
                 n += pipe_bridge(b, s[0], s[1], s[2], s[3], h, pipes, 900 + t * 10 + k)
             i, j = ni, nj
             if rnd() < 0.62:
                 horizontal = not horizontal
+    return n
+
+
+SKY_TIERS = [8.0, 12.5, 17.0, 21.5]
+SKY_MIN_RUN = 70.0
+
+
+def sky_spans(ax, az, bx, bz, hw, h):
+    """一條高空管廊扣掉禁區、以及比它高的東西之後剩下的子段。
+
+    【一定要扣掉高的東西】一條 2.5 km 的管廊會從十幾座廠房的屋頂與儲槽頂
+    穿過去 —— 那在投彈高度就是一條線壓過一片屋頂，看起來像模型破圖。
+    """
+    out = []
+    length = math.hypot(bx - ax, bz - az)
+    steps = max(2, int(math.ceil(length / 6)))
+    start = -1.0
+    for i in range(steps + 1):
+        t = i / steps
+        x = ax + (bx - ax) * t
+        z = az + (bz - az) * t
+        ok = free(x, z, hw) and not TALL.hit(x, z, hw, hw, h - 1.5)
+        if ok and start < 0:
+            start = t
+        if (not ok or i == steps) and start >= 0:
+            end = t if ok else (i - 1) / steps
+            if (end - start) * length >= SKY_MIN_RUN:
+                out.append((ax + (bx - ax) * start, az + (bz - az) * start,
+                            ax + (bx - ax) * end, az + (bz - az) * end))
+            start = -1.0
+    return out
+
+
+def build_skyways(b):
+    """高空管廊網：四個高度層長跑全廠，彼此穿越，也穿越街廓的邊界。
+
+    【要在所有街廓建完之後才鋪】它靠 `TALL` 繞開廠房屋頂與儲槽頂，而那一份
+    是街廓建的時候登記的。
+
+    【交錯是重點】同一層都是平行線，那只是一組百葉窗；四層各自轉向、高度差
+    四公尺，從投彈高度看下去才是一張立體的網 —— 煉油廠俯視最好認的特徵。
+    扁平化之後一公尺只要 0.6 個三角形，所以可以鋪到幾十公里。
+    """
+    n = 0
+    rnd = Rand(0x2f6a1b93)
+    for t, base in enumerate(SKY_TIERS):
+        horizontal = t % 2 == 0
+        count = 6 + int(rnd() * 3) if horizontal else 8 + int(rnd() * 4)
+        for k in range(count):
+            pipes = 3 + int(rnd() * 4)
+            hw = (pipes * 1.4 + 1) / 2 + 1
+            h = base + (rnd() - 0.5) * 2.0
+            if horizontal:
+                z = -PAD_HALF_Z + 50 + (PAD_HALF_Z * 2 - 100) * (
+                    (k + 0.5) / count + (rnd() - 0.5) * 0.07)
+                seg = (-PAD_HALF_X + 25 + rnd() * 420, z, PAD_HALF_X - 25 - rnd() * 420, z)
+            else:
+                x = -PAD_HALF_X + 50 + (PAD_HALF_X * 2 - 100) * (
+                    (k + 0.5) / count + (rnd() - 0.5) * 0.05)
+                seg = (x, -PAD_HALF_Z + 25 + rnd() * 210, x, PAD_HALF_Z - 25 - rnd() * 210)
+            for s in sky_spans(seg[0], seg[1], seg[2], seg[3], hw, h):
+                n += pipe_bridge(b, s[0], s[1], s[2], s[3], h, pipes,
+                                 1200 + t * 40 + k)
     return n
 
 
@@ -994,16 +1521,25 @@ def build_plant():
     零件不各自建物件：一萬五千個物件會讓 Blender 在匯出時吃爆記憶體。
     """
     clear_plant()
+    TALL.cells.clear()
     root = get_col('Plant')
     total = 0
     for blk in BLOCKS:
         b = Builder()
         total += FILLERS[blk[4]](b, blk)
+        total += scatter_equipment(b, blk, blk[5])
+        total += weave_ground_pipes(b, blk[5])
+        total += scatter_clutter(b, blk, blk[5])
         b.to_object('Plant_%s_%d' % (blk[4], blk[5]), root)
 
     tb = Builder()
     total += build_trunks(tb)
     tb.to_object('Plant_trunks', root)
+
+    # 高空管廊網要在所有街廓之後 —— 它靠街廓登記的 `TALL` 繞開屋頂與槽頂
+    yb = Builder()
+    total += build_skyways(yb)
+    yb.to_object('Plant_skyways', root)
 
     sb = Builder()
     for k, (dx, dz, h) in enumerate(STACKS):
@@ -1036,6 +1572,9 @@ def rebuild_block(seed):
         bpy.data.objects.remove(old, do_unlink=True)
     b = Builder()
     n = FILLERS[blk[4]](b, blk)
+    n += scatter_equipment(b, blk, blk[5])
+    n += weave_ground_pipes(b, blk[5])
+    n += scatter_clutter(b, blk, blk[5])
     b.to_object(name, get_col('Plant'))
     print('%s 重生：零件 %d 個' % (name, n))
 

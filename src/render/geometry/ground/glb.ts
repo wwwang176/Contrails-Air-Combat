@@ -75,6 +75,8 @@ export const PLANT_MATERIALS: Readonly<Record<string, number>> = {
   LP_PlantPole: 0x5a4a38,
   LP_PlantRail: HUE.steel,
   LP_PlantPlatform: 0x7d7a72,
+  LP_PlantSlab: 0x868279,
+  LP_PlantStain: 0x33302c,
 }
 
 const C = /* @__PURE__ */ new Color()
