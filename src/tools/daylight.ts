@@ -15,7 +15,7 @@ import type { TerrainKind } from '../world/terrainKind'
 import { createGroundModels } from '../render/groundTargets'
 import { preloadGroundModels } from '../render/geometry/ground'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
-import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT, TRUCKS } from '../world/leuna'
+import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
 
 /**
  * 時段展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -95,9 +95,6 @@ const plantTargets: GroundTarget[] = [
   )),
   ...FLAK_SITES.map((s, i) => createGroundTarget(
     PLANT_LAYOUT.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
-  )),
-  ...TRUCKS.map((t, i) => createGroundTarget(
-    PLANT_LAYOUT.length + FLAK_SITES.length + i, 'truck', 'red', t.x, t.z, t.heading,
   )),
 ]
 const plantModels = createGroundModels(plantTargets)

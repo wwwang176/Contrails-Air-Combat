@@ -86,38 +86,34 @@ export type PlantKind =
   | 'hydroTower' | 'chimney' | 'boilerHouse' | 'oilTank' | 'gasHolder' | 'coolingTower'
 
 /**
- * 十二座可炸的構件相對廠區中心的偏移與朝向。分成三個叢：西側氫化區
- * （反應塔成排、煙囪、鍋爐房）、中央動力區（鍋爐房、煙囪、冷卻塔、氣櫃）、
- * 東側油槽區（儲油槽成群）。全部在墊面內，離墊面邊至少 40 m。
+ * 十二座可炸的構件相對廠區中心的偏移與朝向。**四群各三座**，散在廠區的
+ * 四個角落，群內的三座間距 80–120 m：一趟對準的投彈帶得走一群，四群要飛
+ * 四趟，而過關只要六座 —— 兩群。
+ *
+ * 【每一群都在機能相符的街廓裡】氫化塔進製程區、鍋爐房與冷卻塔進公用區、
+ * 儲油槽進儲槽區。街廓表在 `BLOCK_KINDS`，機能不合的話周圍的佈景會是另一
+ * 種工廠 —— 反應塔站在一圈土堤圍起來的儲槽中間。
+ *
+ * 【挪動之前先確認】要在墊面內、不壓到廠內的三條道路（見 `ROADS`）、不與
+ * `PLANT_STACKS` 的佈景煙囪重疊，而且不落在巷道上。
  */
 export const PLANT_LAYOUT: readonly { kind: PlantKind; dx: number; dz: number; heading: number }[] = [
-  // 西側氫化區
-  { kind: 'hydroTower', dx: -1000, dz: -250, heading: 0 },
-  { kind: 'hydroTower', dx: -920, dz: -250, heading: 0 },
-  { kind: 'hydroTower', dx: -840, dz: -250, heading: 0 },
-  { kind: 'chimney', dx: -650, dz: -380, heading: 0 },
-  { kind: 'boilerHouse', dx: -700, dz: -120, heading: 0 },
-  // 中央動力區
-  { kind: 'boilerHouse', dx: 0, dz: -320, heading: 0 },
-  { kind: 'chimney', dx: 160, dz: -470, heading: 0 },
-  { kind: 'coolingTower', dx: 260, dz: 220, heading: 0 },
-  { kind: 'gasHolder', dx: -360, dz: 320, heading: 0 },
-  // 東側油槽區
-  { kind: 'oilTank', dx: 800, dz: 120, heading: 0 },
-  { kind: 'oilTank', dx: 900, dz: 120, heading: 0 },
-  { kind: 'oilTank', dx: 850, dz: 220, heading: 0 },
-]
-
-/** 停在廠區與道路上的卡車。是地面目標，打得掉 */
-export const TRUCKS: readonly { x: number; z: number; heading: number }[] = [
-  { x: -560, z: -7040, heading: 1.57 },
-  { x: -540, z: -7060, heading: 1.57 },
-  { x: 120, z: -6980, heading: -1.57 },
-  { x: 540, z: -6700, heading: 0.1 },
-  { x: 560, z: -6540, heading: 0 },
-  { x: 1180, z: -7020, heading: 1.5 },
-  { x: 520, z: -5200, heading: 0.05 },
-  { x: -2400, z: -6980, heading: 1.6 },
+  // 西北　氫化群（process 2010）
+  { kind: 'hydroTower', dx: -930, dz: -560, heading: 0 },
+  { kind: 'hydroTower', dx: -850, dz: -560, heading: 0 },
+  { kind: 'hydroTower', dx: -770, dz: -560, heading: 0 },
+  // 西南　動力群（utility 2002）
+  { kind: 'boilerHouse', dx: -1300, dz: 100, heading: 0 },
+  { kind: 'boilerHouse', dx: -1300, dz: 190, heading: 0 },
+  { kind: 'chimney', dx: -1180, dz: 145, heading: 0 },
+  // 中東　汽電群（utility 2042）
+  { kind: 'coolingTower', dx: 240, dz: 120, heading: 0 },
+  { kind: 'gasHolder', dx: 240, dz: 240, heading: 0 },
+  { kind: 'chimney', dx: 350, dz: 180, heading: 0 },
+  // 東北　儲槽群（tankFarm 2060）
+  { kind: 'oilTank', dx: 1120, dz: -620, heading: 0 },
+  { kind: 'oilTank', dx: 1200, dz: -620, heading: 0 },
+  { kind: 'oilTank', dx: 1160, dz: -540, heading: 0 },
 ]
 
 /**

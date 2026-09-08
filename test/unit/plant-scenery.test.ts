@@ -5,7 +5,7 @@ import {
   buildPlantScenery, PLANT_GLB_URL, preloadPlantScenery,
 } from '../../src/render/geometry/ground/plantScenery'
 import {
-  PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, ROADS, TRUCKS,
+  PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, ROADS,
 } from '../../src/world/leuna'
 import { PLANT_SIZE } from '../../src/render/geometry/ground/plant'
 import { PLANT_MATERIALS } from '../../src/render/geometry/ground/glb'
@@ -158,7 +158,7 @@ describe('廠區的佈景網格', () => {
    * 【量三角形的包圍盒，不是頂點】一根橫貫的管子可以整段穿過命中盒而兩端的
    * 頂點都在盒外 —— 只驗頂點的話它是綠的。
    */
-  it('沒有任何三角形與構件、卡車或道路的禁區相交', () => {
+  it('沒有任何三角形與構件或道路的禁區相交', () => {
     const zones: { what: string; x0: number; z0: number; x1: number; z1: number }[] = []
     for (const t of PLANT_LAYOUT) {
       const s = PLANT_SIZE[t.kind]
@@ -167,9 +167,6 @@ describe('廠區的佈景網格', () => {
         x0: PLANT_CENTER.x + t.dx - s.x / 2 - 6, x1: PLANT_CENTER.x + t.dx + s.x / 2 + 6,
         z0: PLANT_CENTER.z + t.dz - s.z / 2 - 6, z1: PLANT_CENTER.z + t.dz + s.z / 2 + 6,
       })
-    }
-    for (const t of TRUCKS) {
-      zones.push({ what: `卡車 (${t.x},${t.z})`, x0: t.x - 7, x1: t.x + 7, z0: t.z - 7, z1: t.z + 7 })
     }
     /**
      * 【只管廠內的三條】連外的兩條穿過田野，而砲位 (−3000, −7000) 本來就坐在
