@@ -4,12 +4,11 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { G4M } from '../../src/specs/g4m'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { bombDragK, BOMB_TERMINAL_SPEED } from '../../src/world/bomb'
-import { RELEASE_HULLS } from '../../src/ai/bombRun'
 import { TORPEDO_RANGE, TORPEDO_SPEED, Torpedoes } from '../../src/world/torpedo'
 import {
   ABORT_RANGE, LOCK_CONE, RANGE_MARGIN, RUN_ALTITUDE, TORPEDO_PROFILE,
-  RELEASE_RUN, hitWindowOf, makeTorpedoProfile, setTorpedoBallistics,
-  shouldRelease, waterRunSeconds,
+  RELEASE_RUN, TORPEDO_RELEASE_HULLS, hitWindowOf, makeTorpedoProfile,
+  setTorpedoBallistics, shouldRelease, waterRunSeconds,
 } from '../../src/ai/torpedoRun'
 import { TORPEDO_ENVELOPE } from '../../src/weapons/releaseEnvelope'
 import { shipAt } from '../../src/ai/bombRun'
@@ -87,18 +86,18 @@ describe('hitWindowOf', () => {
    * 的雷、取小的則正橫進場永遠不准投。
    *
    * 【與轟炸共用一份】兩種武器都是「落點落在艦體的幾倍範圍內就投」，只有
-   * 落點怎麼算不同。窗的大小是 `ai/bombRun.ts` 的 `RELEASE_HULLS`。
+   * 落點怎麼算不同。窗的大小是 `ai/bombRun.ts` 的 `TORPEDO_RELEASE_HULLS`。
    */
   it('半長遠大於半寬', () => {
     const w = hitWindowOf(SHIP_CLASSES.fletcher)
-    expect(w.along).toBeCloseTo(57.4 * RELEASE_HULLS, 6)
-    expect(w.across).toBeCloseTo(6.04 * RELEASE_HULLS, 6)
+    expect(w.along).toBeCloseTo(57.4 * TORPEDO_RELEASE_HULLS, 6)
+    expect(w.across).toBeCloseTo(6.04 * TORPEDO_RELEASE_HULLS, 6)
     expect(w.along / w.across).toBeGreaterThan(9)
   })
 
   /** 【第一個盒恆是艦體】Essex 的第二個盒是寬 43 m 的飛行甲板 */
   it('Essex 取的是艦體不是飛行甲板', () => {
-    expect(hitWindowOf(SHIP_CLASSES.essex).across).toBeCloseTo(14.2 * RELEASE_HULLS, 6)
+    expect(hitWindowOf(SHIP_CLASSES.essex).across).toBeCloseTo(14.2 * TORPEDO_RELEASE_HULLS, 6)
   })
 })
 

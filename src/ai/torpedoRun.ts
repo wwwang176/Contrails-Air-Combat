@@ -8,7 +8,7 @@ import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
 import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
-import type { Ship } from '../world/ships'
+import type { Ship, ShipClass } from '../world/ships'
 
 /**
  * # AI 的雷擊航路
@@ -98,10 +98,23 @@ export function waterRunSeconds(
 }
 
 /**
- * 釋放窗。**與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`）——
- * 兩種武器都是「落點落在艦體的幾倍範圍內就投」，只有落點怎麼算不同。
+ * 雷擊的釋放窗是艦體的幾倍。**比轟炸那一份寬**（`ai/bombRun.ts` 的
+ * `RELEASE_HULLS`）。
+ *
+ * 【為什麼可以寬】魚雷是接觸引爆，落點差一點就完全沒有傷害，不像炸彈還有
+ * 爆風。窗窄的話 AI 幾乎不投；而投出去中不中，玩起來比投不投得出來次要。
+ *
+ * **起始值，由試飛裁定。**
  */
-export { releaseWindowOf as hitWindowOf }
+export const TORPEDO_RELEASE_HULLS = 2
+
+/**
+ * 釋放窗。**幾何與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`），
+ * 只有倍率不同 —— 兩種武器都是「落點落在艦體的幾倍範圍內就投」。
+ */
+export function hitWindowOf(cls: ShipClass): { along: number, across: number } {
+  return releaseWindowOf(cls, TORPEDO_RELEASE_HULLS)
+}
 
 /**
  * 空中段的落地平面是**海面**，不是甲板。
@@ -419,7 +432,7 @@ export function shouldRelease(self: Aircraft, ship: Ship): boolean {
   const tz = SOL.ez + h.z * run
   const at = shipAt(ship, SOL.air + SOL.water, S.v[0]!)
   // 【窗與轟炸共用】誤差拆進船的體軸，窗是艦體的 `RELEASE_HULLS` 倍
-  return insideWindow(ship, tx - at.x, tz - at.z)
+  return insideWindow(ship, tx - at.x, tz - at.z, TORPEDO_RELEASE_HULLS)
 }
 
 /**
@@ -432,7 +445,7 @@ export function diagnose(self: Aircraft, ship: Ship): {
   run: number; along: number; across: number
   wAlong: number; wAcross: number; ok: boolean
 } {
-  const w = releaseWindowOf(ship.cls)
+  const w = hitWindowOf(ship.cls)
   const out = { run: NaN, along: NaN, across: NaN, wAlong: w.along, wAcross: w.across, ok: false }
   const h = new Vector3()
   if (!waterHeading(self, h) || !solve(self, ship) || SOL.water < 0) return out
