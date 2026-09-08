@@ -51,8 +51,12 @@
   落點本來就落在地形上。
 - **轟炸機砲塔的 AI 自衛**：`World.ts` 對每一架存活的機無條件跑
   `stepTurrets`，玩家的 B-17 也一樣。
-- **AI 的攻擊航路**：`ai/bombRun.ts` 的 `makeBombProfile`，日 M4 的 G4M
-  已經在用。
+- **AI 的攻擊航路**：`ai/strikeRun.ts` 的 `stepStrike` 狀態機（進場、鎖
+  航向直飛、投放、脫離）與 `ai/bombRun.ts` 的 `makeBombProfile`。日 M4 的
+  G4M 走的是同一個狀態機，但剖面是**雷擊**（`TORPEDO_PROFILE`，掛載預設
+  魚雷）；轟炸剖面目前只有掛彈零戰的掃射路徑在用。
+- **十二關裡七張已經就緒**（盟 M1、M4；德 M1、M4；日 M1、M3、M4），五張
+  目錄卡。做完這一關是八張就緒、四張目錄卡。
 - **增援波次與預警**：`MissionWave`、`byLatest`、`warnLead`。
 - **農地地形的全部**：生成器、田區著色器、樹籬、樹林、村落、遠景環。
 - **船的火與煙**（`ship-coast-and-fires`）、剛做好的爆炸碎片。
@@ -68,7 +72,7 @@
 | 「炸毀 N 座」的規則 | `MissionRules` 只有殲滅／撤離／護航／擊沉／守住 | §8.1 `destroy` |
 | 任務專用地形 | 三種地形都是程序化撒的，指不了廠區的位置 | §6 `leuna` |
 | 十一月的色彩 | 田區色盤與樹冠色是模組常數，烘進著色器與頂點色 | §6.4 季節參數 |
-| AI 對地面目標的投彈 | `pickShipTarget` 與 `bombRun.ts` 五支的第二個參數都是 `Ship` | §9 打擊目標視圖 |
+| AI 對地面目標的投彈 | `stepStrike`、`StrikeProfile.plan`／`shouldRelease`、`pickShipTarget` 與 `bombRun.ts` 的四支都吃 `Ship`；`AiController` 沒有船就早退 | §9 打擊目標 |
 | 工廠的外型 | 沒有任何地面建築的幾何 | §11 程序化構件 |
 | 地面目標的 HUD 標記 | `fillMarkers` 只掃船 | §10 |
 
@@ -97,11 +101,18 @@
 - **丘陵是手擺的清單，不撒隨機。** 每一顆寫中心、半徑、峰高、瓣的種子，
   形狀與 `archipelago.ts` 的 `ANCHORS` 同。西側幾顆較高的代表蓋澤爾谷的
   礦區土堆，其餘是平原上零星的緩丘。峰高上限沿用 `HILL_PEAK_MAX`（120）。
+  **`outerRadius` 由生成器自己算 `radius × WOBBLE_MAX`**，清單裡不寫 ——
+  `makeLobes` 信任呼叫端給的值，寫錯的話墊面保證就沒了而且不報錯。
 - **廠區墊面靠距離保證平坦，不做壓平運算。** 每一顆丘陵的膨脹圓離墊面
-  矩形至少 `PAD_CLEARANCE`（起始值 400 m）。多瓣的最大擺動是
-  `WOBBLE_MAX`，所以墊面內的高度在結構上就是 0。護欄量它（§12.1）。
+  矩形至少 `PAD_CLEARANCE`（起始值 400 m）。`bakeRelief` 只掃膨脹圓內，
+  圓外回到 `floor = 0`，所以墊面內的高度在結構上就是 0。護欄量的是
+  **圓到矩形的幾何距離**，不是只量墊面內的高度 —— 後者在丘陵挪到離墊面
+  100 m 時還是綠的（§12.1）。
 - 丘陵之間維持 `HILL_GAP`（200 m），那是 AI 避障的硬約束，理由見
-  `farmland.ts`。
+  `farmland.ts`。常數從農地匯出共用，護欄斷言最近的一對 `≥ HILL_GAP`，
+  不是只斷言不重疊。
+- 每一顆丘陵的膨脹圓都在 `HILL_LIMIT` 之內，理由同農地（外圈要接得上
+  遠景環）。
 
 ### 6.2 佈局常數
 
@@ -150,11 +161,17 @@
 
 **天色**：`DAY_PALETTES` 加一個時段 `'novemberNoon'`。太陽仰角約 25°、
 色溫偏冷、`hemiSky` 與 `skyZenith` 灰白、`fogDensity` 比正午高。卡片的
-`timeOfDay` 選它。海色欄位照抄正午，內陸用不到。
+`timeOfDay` 選它。海色欄位照抄正午，內陸用不到。它進 `TIME_OF_DAY_IDS`，
+所以 daylight／blast／torpedo 三個工具頁的時段按鈕會多一顆；遭遇戰選單
+的四筆是另一份手寫清單，**刻意不列它**。
 
-**田區**：`fields.ts` 的色盤、犁田、樹籬、凹路、樹林五個常數收成一份
-`FieldColors`，由季節決定。`FIELD_GLSL` 與 `fieldSurfaceColor` 改成吃季節
-的工廠函數。夏季那一份**逐位元不變**（§12.6 守著）。晚秋的起始值：
+**田區**：`fields.ts` 的色盤、犁田、樹籬、凹路、樹林五個常數與
+`PLOUGH_CHANCE` 收成一份 `FieldColors`，由季節決定。`FIELD_GLSL` 與
+`fieldSurfaceColor` 改成吃季節的工廠函數；`applyFields(material, season)`
+的 `customProgramCacheKey` 要帶季節（`farm-fields:${season}`），否則先看過
+夏季農地再進 leuna，three 會重用夏季的著色器，畫面還是綠的。
+`createFarmGround` 與 `createFarHorizon` 都明確收季節。夏季那一份
+**逐位元不變**（§12.6 守著）。晚秋的起始值：
 
 ```
   色盤     麥茬赭 → 冬麥苗淡綠，八階仍是一條漸層
@@ -165,8 +182,11 @@
 ```
 
 **樹**：`floraShapes.ts` 的 `BROAD_LEAF`、`CONIFER`、`BUSH_LEAF` 收成
-`FloraColors`，`createFloraGeometries(season)` 與 `POINT_COLOR` 跟著季節。
-晚秋：闊葉樹冠換成枯枝的褐灰、灌木換褐、針葉略暗。**房子的顏色不動。**
+`FloraColors`，`createFloraGeometries(season)` 與點池的樹冠色跟著季節。
+季節從 `VegetationOptions.season` 進（預設 `summer`），**不改
+`createVegetation` 的位置參數**，也不改全域的 `POINT_COLOR`。每一份植被
+自己建幾何與池、自己 dispose，兩種季節不會互相污染。晚秋：闊葉樹冠換成
+枯枝的褐灰、灌木換褐、針葉略暗。**房子的顏色不動。**
 
 季節型別 `Season = 'summer' | 'lateAutumn'` 放在 `src/render/season.ts`，
 農地與群島恆為 `summer`。所有色值都是起始值，拿眼睛校。
@@ -200,30 +220,56 @@ interface GroundTarget { index; team; cls; position; heading; hp; alive }
 | 氣櫃 | 大圓桶 | ⌀40 × 35 | 14,000 | 2 |
 | 冷卻塔 | 截錐 | ⌀30 × 40 | 14,000 | 2 |
 
-命中盒用一個或兩個軸對齊盒近似（圓柱用外接方盒），與船同一套 `Box`。
-`radius` 是包圍球的上界，護欄守（同 `ships.ts` 的規則）。
+命中盒用一個或兩個軸對齊盒近似，與船同一套 `Box`。圓柱與截錐用
+**外接方盒**，是保守近似：盒角比圓面多出一圈，炸彈落在那一圈會提前在
+盒頂引爆。煙囪的角差不到 2 m，氣櫃約 8 m，對 30 m 的爆炸半徑都不構成
+差別，**接受，不做窄相**。`radius` 是包圍球的上界，護欄守（同 `ships.ts`
+的規則）。
 
-沒有裝甲欄位：機槍打得到但傷害是 5 對 8,000，實質免疫，不必另寫規則。
+**這一版只有炸彈認得地面目標。** 機槍子彈穿過去、飛機也穿過去 —— 彈丸
+命中與撞建築都不做，理由是三架 B-17 沒有前射武器、攔截機也不會對著
+工廠開火，這一關沒有任何路徑會用到。哪一天要做，是 `resolveHits` 與
+`hitsShip` 各加一個對應版，不動這一層。
 
 ### 7.2 廠區的擺法
 
 `MissionBattle.ground?: MissionGround`，形狀照 `MissionFleet`：中心、朝向、
 相對偏移的清單。12 座構件的相對座標寫在 `leuna.ts`（`PLANT_LAYOUT`），
 卡片引用它。放置在 `setup.ts` 的 `placeGround`，與 `placeFleet` 並列。
-高度取 `groundAt`，墊面保證是 0。
+
+**高度是 0，寫死。** `createBattle` 跑的時候地形還沒注入 `World`（那是
+`main.ts` 之後才做的事），建構期讀 `groundAt` 拿到的是預設平面，看起來
+對只是巧合。墊面在結構上保證是 0（§6.1），所以構件的 `position.y = 0`
+是定義，不是查出來的；`missionConfigFrom` 要**明列透傳** `ground`，那一支
+刻意不透傳未知欄位，漏了的症狀是卡片上有廠區、場上沒有。
 
 ### 7.3 World 的接線
 
-三處，全部抄船那段的形狀：
+全部抄船那段的形狀，接在船的迴圈**之後**、不合併迭代器、不動船那段的
+運算順序 —— 那是船的路逐位元不變的前提。
 
 1. **範圍傷害**：`applyBombBlast` 多掃一圈地面目標 —— 包圍球粗篩、
    `pointBoxDistance` 對自身座標的盒、`bombBlastDamage`。
 2. **擋路**：`onBombBlocked` 把地面目標的盒也算進去。煙囪與塔有高度，
-   炸彈不該穿過去在地上爆。
-3. **摧毀**：血量歸零就 `alive = false`，並推一個落點事件。`ImpactEvents`
-   的 `kind` 加第四種 `3 = 建築`，算繪層用船命中的爆炸配方加碎片。
+   炸彈不該穿過去在地上爆。**兩個閘都要改**：`Bombs.step` 只有在
+   `ships.length > 0` 才拿得到擋路回呼，回呼裡沒有船也直接早退 —— 改成
+   「船與地面目標都空」才早退。漏一個的症狀是煙囪擋彈那條護欄紅得莫名
+   其妙，因為回呼根本沒被傳進去。擋到的是船還是建築要分開記
+   （`bombShip` 旁加 `bombGround`）。
+3. **落點事件的種類**：`ImpactEvents.kind` 加第四種 `3 = 建築`，擋路擋到
+   建築的落點用它。`emitBombBlasts` 對它用船命中的爆炸配方加碎片。
+   **`lightShipFires` 改成只認 `kind === 2`** —— 它現在只看第六格的索引
+   `≥ 0`，建築的索引會被當成船的索引，火會長到編號相同的那艘船上。
+4. **摧毀事件與落點事件分開。** 每一顆炸彈恰好推一筆落點事件；建築在
+   `alive` 由真變假的那一步另外推一筆 `groundDestroyedEvents`（座標與
+   構件索引），只推一次。合在一起的話直擊剛好炸毀時同一個爆點推兩次，
+   火球、碎片、煙全部加倍。
+5. **重設與生命週期**：`resetGroundTarget` 在 `resetBattle` 與船並列（這一
+   關有波次所以重開會重建 World，但通用的 `MissionGround` 不能靠這個
+   巧合）；模型照 `shipModels` 的 create／update／dispose 三段掛在換場的
+   同一個位置；新增的火煙池列進 `resetPools`。
 
-熱路徑不配置：地面目標最多 16 座，迴圈用索引。
+熱路徑不配置：地面目標最多 16 座，迴圈用索引，轉接物件在組場時建一次。
 
 ### 7.4 預定砲位
 
@@ -239,12 +285,21 @@ World 不知道它們存在。另一個 worktree 的 Flak 合進來時，用同�
 ```
 
 `MissionInputs` 加 `targetsDestroyed`、`targetsTotal`；`setup.ts` 的計數
-迴圈加地面版，**只算 `team !== 'blue'` 的**（與船同一條理由）。
-`stepMission` 的分支抄 `sink`：`metric = count − destroyed`、
-`metricTotal = count`，HUD 目標列印 `(2/6)`。判負維持現狀：玩家陣亡。
+迴圈加地面版，**只算 `team !== 'blue'` 的**（與船同一條理由）。那一份
+`MISSION_INPUTS` 是跨場的模組單例，兩格在初始化與**每一步掃描前**都要
+顯式歸零 —— 上一場炸毀六座之後重開，新場第一步繼承舊值直接判勝，與
+`vitalSunk` 出過的殘留是同一類錯。`resetMissionState` 對 `sink` 設
+`metric`／`metricTotal` 的那兩行也要含 `destroy`，漏了的症狀是開局目標列
+閃一下 `(6/6)`。
+
+`stepMission` 的分支逐行抄 `sink`：`metric = count − destroyed`、
+`metricTotal = count`，HUD 目標列印 `(2/6)`。**判負是藍隊全滅
+（`aliveBlue === 0`），不是玩家陣亡** —— `sink` 就是這樣寫的，玩家被擊落
+後兩秒接手友機的機制才保得住。
 
 `missionRules` 的判準是卡片有沒有 `destroyCount`，**排在 `sink` 旁邊、
-`defend` 之前**，理由同 `sink` 那段註解：進攻的規則優先。
+`defend` 之前**，理由同 `sink` 那段註解：進攻的規則優先。一張卡不得同時
+帶 `sinkCount` 與 `destroyCount`，`campaigns.test.ts` 擋。
 
 ### 8.2 卡片
 
@@ -263,10 +318,13 @@ World 不知道它們存在。另一個 worktree 的 Flak 合進來時，用同�
             ground      PLANT（12 座）  destroyCount 6
             entry       headOn
             waves       第二批 4 架 Bf 109，時鐘 90 s，從後方追上
+                        （starboard: π —— 省略的話仍沿用紅方的正面進場，
+                        會生在前方反向飛來）
 ```
 
 開場的四架 Bf 109 由 `headOn` 放在正前方，接近約 40 秒 —— 那是 1944 年
-標準的十二點鐘正面攻擊。第二批從後方來，對應突擊大隊從尾部衝進轟炸箱。
+標準的十二點鐘正面攻擊。第二批從後方來，對應突擊大隊從尾部衝進轟炸箱；
+護欄量它的出生點在藍隊後方、機首朝 −Z（§12.8）。
 **時間與架數全部是起始值，由試飛裁定。**
 
 ### 8.3 我方的座位
@@ -277,38 +335,59 @@ AI 僚機在沒有攻擊目標時走既有的編隊跟隨，有目標時走攻�
 
 ## 9. AI
 
-### 9.1 打擊目標視圖
+### 9.1 泛化的邊界：轟炸機的攻擊航路，不是整套船攻擊
 
-`pickShipTarget` 與 `bombRun.ts` 的 `releaseWindowOf` / `insideWindow` /
-`shipAt` / `shouldRelease` / `stepBombAim` 五支，第二個參數都是 `Ship`。
-收一個最小的視圖：
+**只泛化轟炸機走的那條路**：`ai/strikeRun.ts` 的 `stepStrike` 與
+`StrikeProfile.plan`／`shouldRelease`，以及它們呼叫的 `bombRun.ts` 四支
+（`insideWindow`、`shipAt`、`shouldRelease`、`stepBombAim`；
+`releaseWindowOf` 吃的是 `ShipClass`，同樣要改）。**戰鬥機的掃射
+（`shipAttackCommand`）、砲位鎖定、雷擊剖面的船專用部分一個字不動** ——
+它們讀砲位與艦體座標，地面目標沒有這些，硬套一個共用型別只會讓兩邊都
+變薄。
+
+打擊目標的視圖：
 
 ```ts
 interface StrikeTarget {
-  readonly position: Vector3     // 世界座標
-  readonly heading: number
-  readonly speed: number         // 地面目標恆 0
-  readonly hull: readonly Box[]  // 自身座標
-  readonly deckY: number         // 落點求解的平面高度
-  readonly value: number         // 選目標用，船是艦級血量，地面是構件血量
+  readonly kind: 'ship' | 'ground'
+  readonly index: number           // 在各自清單裡的位置，10 Hz 決策拍之間用它複查
+  readonly team: Team
+  readonly position: Vector3       // 世界座標
+  readonly orientation: Quaternion // 直接透傳，不從 heading 重算 —— 三角函數
+                                   // 與四元數的浮點結果不保證逐位元相同
+  readonly speed: number           // 地面目標恆 0
+  readonly hull: readonly Box[]    // 自身座標，第一個盒是主體
+  readonly impactY: number         // 落點求解的平面：世界高度，
+                                   // = position.y + max(box.center.y + box.half.y)
+  readonly value: number           // 選目標用：船是艦級血量，地面是構件血量
+  alive(): boolean                 // 讀原物件，決策拍之間死了要看得到
 }
 ```
 
-船與地面目標各給一個轉接（不複製資料，讀同一份欄位）。地面目標的
-`shipAt` 退化成常數 —— 靜止讓抽象更容易，不是更難。船那條路的行為
-**逐位元不變**（§12.5）。
+船與地面目標各一個轉接，**組場時每個實體建一次並保存**，決策拍與物理步
+上不配置。地面目標的 `shipAt` 退化成常數。船那條路的行為**逐位元不變**
+（§12.5）。
 
-### 9.2 選目標
+### 9.2 選目標與接線
 
-`pickShipTarget` 改成掃兩份清單（船、地面目標），價值優先、距離次之，
-規則不變。`AiController` 拿到的是 `StrikeTarget`，不再直接碰 `Ship`。
-砲位鎖定（`gun` 索引）只有船有，地面目標恆 −1。
+- 轟炸機的目標選擇掃兩份清單（船、地面目標），價值優先、距離次之，規則
+  照 `pickShipTarget`。鎖定存的是 `{ kind, index }`，每一步用 `alive()`
+  複查，與現在對船的做法相同。
+- `AiController.attackShip` 的早退改成「船與地面目標都空」才退；
+  `main.ts` 的 `wireTerrain` 每幀注入 `ctl.groundTargets`，整合測試的
+  `wire()` 副本也要加；`clearTerrainState` 一併清掉鎖定。漏了任何一處的
+  症狀是三架 AI B-17 一枚都不投、畫面上一切正常。
+- 戰鬥機仍走 `pickShipTarget` 的船專用路徑；掛彈零戰在這一關不存在。
 
 ### 9.3 三架 AI B-17
 
 它們有彈艙、有目標，就走 `makeBombProfile` 的攻擊航路：進場、鎖航向直飛、
-`shouldRelease` 成立就放。三架各自挑價值最高、離自己最近的構件，所以會
-分散打，而不是三架疊在同一座上。
+`shouldRelease` 成立就放。**目標分派不做**：選擇規則是價值優先，三架很
+可能同時鎖住同一座 16,000 的鍋爐房，投完才轉下一座。這是負責人裁定的
+「AI 照自己的邏輯」，要不要加決定性的分派是試飛之後的事（§13）。
+
+接戰半徑 `SHIP_ATTACK_RANGE` 是 8 km，開局離廠區 12 km，所以前四公里
+AI 走編隊跟隨，進到 8 km 才切攻擊航路。這個常數是共用的，不動。
 
 ## 10. HUD
 
@@ -324,34 +403,54 @@ interface StrikeTarget {
   最小的（box、cylinder、合併），合併時再看要不要換成那邊的 `parts.ts`。
 - 畫法照 `render/ships.ts`：少量、指定座標、一座一個 `Mesh`；毀壞後換成
   矮一截的深色殘骸網格（高度取原來的 25%）。
-- 毀壞的那一刻：船命中的爆炸配方（`blast.ts`）加剛做好的 `debris.burst`，
-  然後重用船的「起火加垂直煙」讓煙柱掛著。洛伊納被炸後的煙柱幾十公里外
-  都看得到，那個效果現成。
+- 毀壞的那一刻（讀 `groundDestroyedEvents`）：船命中的爆炸配方
+  （`blast.ts`）加剛做好的 `debris.burst`，然後點一個固定在世界座標的
+  火點，重用 `shipFires.ts` 的噴煙回呼 `FirePuffFn` 與船火同一套「起火
+  加垂直煙」的參數。**不重用船火的資料結構**：它把火點存成艦體座標、每
+  幀跟著船轉，建築不動，直接存世界座標更簡單。洛伊納被炸後的煙柱幾十
+  公里外都看得到，那個效果現成。
 - `hangar`／`blast` 工具頁列出六種構件，調色與驗尺寸用。
 
 ## 12. 護欄
 
-每一條先驗紅或做變異測試。
+每一條先驗紅或做變異測試。**兩條「逐位元不變」的基準要在重構之前先
+凍結並提交**（§12.5、§12.6），改完之後用兩次新程式互比是恆真的。
 
-1. **墊面平坦**：`leuna` 高度場在 `PLANT_PAD` 內每一格都是 0；把任一顆
-   丘陵挪進 `PAD_CLEARANCE` 之內要紅。
-2. **丘陵不出界、間隙成立**：沿用 `farmland.test.ts` 的兩條，對 leuna 跑。
-3. **地面目標吃得到範圍傷害**：直擊扣滿、30 m 外為 0、兩座相鄰只有近的
-   那一座扣血。包圍球是上界（同船的測試）。
-4. **擋路**：從煙囪正上方投的炸彈在煙囪頂引爆，不落到地面。
-5. **船那條路逐位元不變**：日 M4 的 `replayDigest` 在視圖抽出前後相同。
-6. **夏季色盤逐位元不變**：`fieldSurfaceColor('summer')` 與 `FIELD_GLSL`
-   的字串在改動前後相同；樹的頂點色同。
-7. **`destroy` 規則**：炸毀 5 座是 `fighting`、6 座是 `victory`；玩家陣亡
-   仍是 `defeat`；`metricTotal` 是 6。
-8. **卡片就緒**：`campaigns.test.ts` 認得 `allies-m2` 已經是 `ReadyMissionCard`，
-   `ground` 透傳到 `BattleConfig`。
+1. **墊面平坦**：量兩件事 —— 每一顆丘陵的膨脹圓到墊面矩形的**幾何距離**
+   `≥ PAD_CLEARANCE`，以及墊面加一格圍裙內每一格高度都是 0。只量高度的
+   話，丘陵挪到離墊面 100 m 還是綠的。變異：把一顆丘陵挪進 clearance。
+2. **丘陵不出界、間隙成立**：膨脹圓在 `HILL_LIMIT` 之內；最近的一對
+   `≥ HILL_GAP`（不是只斷言不重疊 —— 那樣 gap 改成 1 m 仍是綠的）。
+3. **地面目標吃得到範圍傷害**：**經由 World 的一顆真炸彈**驗，不是只驗
+   純函數 —— 直擊扣滿、30 m 外為 0、兩座相鄰只有近的那一座扣血、扣到
+   0 就 `alive = false` 且 `groundDestroyedEvents` 恰好一筆。包圍球是上界
+   （同船的測試）。
+4. **擋路**：**零船、一座煙囪**的 World，從煙囪正上方投的炸彈在煙囪頂
+   引爆、落點事件 `kind = 3`。零船才殺得到回呼閘那個缺陷。
+5. **船那條路逐位元不變**：現有的 `replayDigest` 不含船、炸彈池、魚雷池
+   與攻擊狀態機，30 秒時飛機姿態相同不代表投放時刻相同。重構前先寫一支
+   擴充的摘要（船的位置與血量、炸彈與魚雷池、每架的 `strike` 狀態），
+   對日 M4 與盟 M4 各跑 90 秒，把摘要**凍結成基準提交**；重構後比對。
+6. **夏季色盤逐位元不變**：重構前先提交夏季 `FIELD_GLSL` 的雜湊、
+   `fieldSurfaceColor` 的取樣表、樹的頂點色陣列雜湊；重構後比對。
+   晚秋的 GLSL 字串也要進 `glsl-compile` 的 e2e 編一次。
+7. **`destroy` 規則**：炸毀 5 座是 `fighting`、6 座是 `victory`；藍隊全滅
+   是 `defeat`，玩家陣亡但僚機還在**不是**；`metricTotal` 是 6；重設之後
+   `metric` 是 6 不是 0。
+8. **卡片就緒**：`campaigns.test.ts` 認得 `allies-m2` 已經是 `ReadyMissionCard`
+   （八張就緒、四張目錄卡）、`ground` 透傳到 `BattleConfig`、
+   `destroyCount ≤` 敵方構件數、`sinkCount` 與 `destroyCount` 不共存、
+   第二批的出生點在藍隊後方且機首朝 −Z。
 9. **AI 投得到**（整合，`beforeAll`）：headless 跑三架 AI B-17 對廠區，
-   至少一枚炸彈落在墊面內、至少一座構件掉血。這是「疊新的一層之前先量它
+   **三架的彈艙各自都減少**（只驗「至少一枚」抓不到兩架僚機因站位不投），
+   至少一枚落在墊面內、至少一座構件掉血。這是「疊新的一層之前先量它
    跑不跑得到」那條紀律。
-10. **標記池含地面目標**：敵對紅、摧毀後消失、不影響船的標記。
-11. **幾何與命中盒對得上**：每一種構件的幾何包圍盒在 `hull` 之內、腳印
-    貼 y = 0（同 `ground-units.test.ts` 的做法）。
+10. **標記池含地面目標**：敵對紅、摧毀後消失、不影響船的標記；另加一條
+    源碼接線測試守 `main.ts` 真的把 `world.groundTargets` 傳進
+    `fillMarkers`（照 `bomb-bay-wiring.test.ts` 的做法）。
+11. **幾何與命中盒對得上**：期望尺寸**獨立寫死**在測試裡，幾何包圍盒與
+    `hull` 都對著它比 —— 命中盒若直接由幾何推導，「幾何在盒內」就是
+    恆真的；腳印貼 y = 0（同 `ground-units.test.ts` 的做法）。
 
 ## 13. 開放項（負責人裁決）
 
@@ -361,3 +460,5 @@ interface StrikeTarget {
   `kind = 3`、`GroundTarget` 要不要就是砲位的載體。這一版不預設答案。
 - **試飛裁定的起始值**：兩批 Bf 109 的時間與架數、`destroyCount`、
   構件血量、`PAD_CLEARANCE`、全部色值、`novemberNoon` 的光照數字。
+- **AI B-17 的目標分派**：三架很可能疊在同一座構件上。試飛看了覺得浪費
+  再加決定性的分派，那是另一條規則。
