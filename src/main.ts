@@ -43,7 +43,7 @@ import {
 } from './render/spray'
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
-import { createDebris } from './render/debris'
+import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
@@ -605,8 +605,10 @@ function emitBombBlasts(events: ImpactEvents): void {
     // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
     const scale = blastScaleOf(d[o + 4]!)
     scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
-    emitBlast(BLAST_POOLS, SCALED_BLAST,
-      d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
+    const seed = (e * 197 + Math.round(world.time * 60)) | 0
+    emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
+    // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
+    debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
   }
 }
 
@@ -665,9 +667,11 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     const w = terrain.waterAt(x, z)
     const scale = blastScaleOf(d[o + 4]!)
     scaleBlast(TORPEDO_BLAST, scale * scale * scale, SCALED_BLAST)
-    emitBlast(BLAST_POOLS, SCALED_BLAST,
-      x, Number.isFinite(w) ? w : d[o + 1]!, z,
-      (e * 211 + Math.round(world.time * 60)) | 0)
+    const y = Number.isFinite(w) ? w : d[o + 1]!
+    const seed = (e * 211 + Math.round(world.time * 60)) | 0
+    emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+    // 碎片從水面往上拋；與擊墜共用同一個池
+    debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
   }
 }
 

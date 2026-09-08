@@ -84,8 +84,25 @@ export const DEBRIS_SPIN = Math.PI
 export const DEBRIS_LIFE_MIN = 1.5
 export const DEBRIS_LIFE_MAX = 2
 
-/** 池子大小。40 架 × 36 片 = 1,440。三角形 1,440 × 12 ≈ 17,000。 */
-export const DEBRIS_CAPACITY = 40 * DEBRIS_COUNT
+/**
+ * 炸彈與魚雷爆炸噴幾片。比擊墜少：爆點沒有一整架飛機可以拆。
+ */
+export const BLAST_DEBRIS_COUNT = 24
+
+/**
+ * 爆炸碎片的散射錐半角，軸恆是世界上方。地面與水面的爆炸把東西往上拋，
+ * 不往下鑽；打中甲板也是同一個方向。
+ */
+export const BLAST_DEBRIS_CONE = (70 * Math.PI) / 180
+
+/** 爆炸碎片的顏色：燒黑的彈殼與被掀起來的東西，不是任何一架飛機的塗裝 */
+export const BLAST_DEBRIS_COLOR = 0x3a3630
+
+/**
+ * 池子大小。40 架 × 36 片加上 16 顆炸彈與魚雷 × 24 片 = 1,824。
+ * 三角形 1,824 × 12 ≈ 22,000。
+ */
+export const DEBRIS_CAPACITY = 40 * DEBRIS_COUNT + 16 * BLAST_DEBRIS_COUNT
 
 /** 重力，m/s²。與 `physics/` 用的是同一個值。 */
 const G = -9.80665
@@ -115,6 +132,13 @@ export interface Debris {
    *                `World` 不需要知道有塗裝這回事
    */
   emit(events: KillEvents, colorOf: (index: number) => number): void
+  /**
+   * 一次爆炸（炸彈、魚雷）噴一批零件：沒有母體速度、往上半空間散射。
+   *
+   * @param seed       這一次爆炸的種子；同一個種子逐位元噴出同一組方向
+   * @param speedScale 散射速度的倍率。大炸彈給大於 1
+   */
+  burst(x: number, y: number, z: number, color: number, seed: number, speedScale?: number): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
   /**
    * @param waterAt 水面高度，**沒有水的地方回 `-Infinity`**。落地與落水
@@ -211,6 +235,56 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
     touched = true
   }
 
+  /**
+   * 從一點噴 `count` 片：母體速度 `pv` 加上沿 `axis` 的錐狀散射。擊墜與爆炸
+   * 共用這一支，差別只在錐軸、母體速度、片數與種子的起點。顏色取 `TINT`。
+   */
+  function scatter(
+    x: number, y: number, z: number,
+    pvx: number, pvy: number, pvz: number,
+    ax: number, ay: number, az: number,
+    cone: number, speed: number, count: number, seedBase: number,
+  ): void {
+    const mid = (DEBRIS_SIZE_MIN + DEBRIS_SIZE_MAX) / 2
+    for (let k = 0; k < count; k++) {
+      const i = next
+      next = next + 1 >= capacity ? 0 : next + 1
+      // 【先用舊壽命判生死，再寫新的】反過來會把一格活著的粒子誤判成
+      // 死的而重複計數
+      if (age[i]! >= lifeOf[i]!) live++
+      const seed = seedBase + k
+
+      coneDirection(ax, ay, az, cone, seed, DIR)
+      px[i] = x
+      py[i] = y
+      pz[i] = z
+      vx[i] = pvx + DIR.x * speed
+      vy[i] = pvy + DIR.y * speed
+      vz[i] = pvz + DIR.z * speed
+
+      rx[i] = (hash01(seed * 3) * 2 - 1) * DEBRIS_SPIN
+      ry[i] = (hash01(seed * 3 + 1) * 2 - 1) * DEBRIS_SPIN
+      rz[i] = (hash01(seed * 3 + 2) * 2 - 1) * DEBRIS_SPIN
+
+      // 【前幾片是大的，而且只有它們冒煙】36 條煙會糊成一片，讀不出
+      // 「零件在散開」（M8 spec §6.1）
+      const big = k < DEBRIS_SMOKE_COUNT
+      const h = hash01(seed * 5 + 4)
+      size[i] = big
+        ? mid + (DEBRIS_SIZE_MAX - mid) * h
+        : DEBRIS_SIZE_MIN + (mid - DEBRIS_SIZE_MIN) * h
+      smokes[i] = big ? 1 : 0
+      // 壽命與停煙各取一個獨立的雜湊 —— 長命的不一定冒得久
+      lifeOf[i] = DEBRIS_LIFE_MIN
+        + (DEBRIS_LIFE_MAX - DEBRIS_LIFE_MIN) * hash01(seed * 7 + 5)
+      smokeUntil[i] = DEBRIS_SMOKE_SECONDS_MIN
+        + (DEBRIS_SMOKE_SECONDS_MAX - DEBRIS_SMOKE_SECONDS_MIN) * hash01(seed * 11 + 3)
+      timer[i] = 0
+      age[i] = 0
+      object.setColorAt(i, TINT)
+    }
+  }
+
   return {
     object,
     smokeEvents,
@@ -219,12 +293,8 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
 
     emit(events: KillEvents, colorOf: (index: number) => number): void {
       const d = events.data
-      const mid = (DEBRIS_SIZE_MIN + DEBRIS_SIZE_MAX) / 2
       for (let e = 0; e < events.count; e++) {
         const o = e * KILL_STRIDE
-        const x = d[o]!
-        const y = d[o + 1]!
-        const z = d[o + 2]!
         const pvx = d[o + 3]!
         const pvy = d[o + 4]!
         const pvz = d[o + 5]!
@@ -234,47 +304,24 @@ export function createDebris(capacity: number = DEBRIS_CAPACITY): Debris {
         const fx = speed > 1e-6 ? pvx / speed : 0
         const fy = speed > 1e-6 ? pvy / speed : 0
         const fz = speed > 1e-6 ? pvz / speed : 1
-
-        for (let k = 0; k < DEBRIS_COUNT; k++) {
-          const i = next
-          next = next + 1 >= capacity ? 0 : next + 1
-          // 【先用舊壽命判生死，再寫新的】反過來會把一格活著的粒子誤判成
-          // 死的而重複計數
-          if (age[i]! >= lifeOf[i]!) live++
-          const seed = e * DEBRIS_COUNT + k
-
-          // 【沿飛行方向散射】繼承母機速度，再疊一個朝前的錐 —— 一架
-          // 150 m/s 的飛機解體，碎片的動量本來就還在（M8 spec §7）
-          coneDirection(fx, fy, fz, DEBRIS_CONE, seed, DIR)
-          px[i] = x
-          py[i] = y
-          pz[i] = z
-          vx[i] = pvx + DIR.x * DEBRIS_SPEED
-          vy[i] = pvy + DIR.y * DEBRIS_SPEED
-          vz[i] = pvz + DIR.z * DEBRIS_SPEED
-
-          rx[i] = (hash01(seed * 3) * 2 - 1) * DEBRIS_SPIN
-          ry[i] = (hash01(seed * 3 + 1) * 2 - 1) * DEBRIS_SPIN
-          rz[i] = (hash01(seed * 3 + 2) * 2 - 1) * DEBRIS_SPIN
-
-          // 【前幾片是大的，而且只有它們冒煙】36 條煙會糊成一片，讀不出
-          // 「零件在散開」（M8 spec §6.1）
-          const big = k < DEBRIS_SMOKE_COUNT
-          const h = hash01(seed * 5 + 4)
-          size[i] = big
-            ? mid + (DEBRIS_SIZE_MAX - mid) * h
-            : DEBRIS_SIZE_MIN + (mid - DEBRIS_SIZE_MIN) * h
-          smokes[i] = big ? 1 : 0
-          // 壽命與停煙各取一個獨立的雜湊 —— 長命的不一定冒得久
-          lifeOf[i] = DEBRIS_LIFE_MIN
-            + (DEBRIS_LIFE_MAX - DEBRIS_LIFE_MIN) * hash01(seed * 7 + 5)
-          smokeUntil[i] = DEBRIS_SMOKE_SECONDS_MIN
-            + (DEBRIS_SMOKE_SECONDS_MAX - DEBRIS_SMOKE_SECONDS_MIN) * hash01(seed * 11 + 3)
-          timer[i] = 0
-          age[i] = 0
-          object.setColorAt(i, TINT)
-        }
+        // 【沿飛行方向散射】繼承母機速度，再疊一個朝前的錐 —— 一架
+        // 150 m/s 的飛機解體，碎片的動量本來就還在（M8 spec §7）
+        scatter(
+          d[o]!, d[o + 1]!, d[o + 2]!, pvx, pvy, pvz,
+          fx, fy, fz, DEBRIS_CONE, DEBRIS_SPEED, DEBRIS_COUNT, e * DEBRIS_COUNT,
+        )
       }
+      if (object.instanceColor) object.instanceColor.needsUpdate = true
+    },
+
+    burst(x, y, z, color, seed, speedScale = 1): void {
+      TINT.set(color)
+      // 【種子錯開擊墜那一批】擊墜用 `e × 36 + k`，落在幾千之內；這裡從一百萬
+      // 起跳，兩個來源不會噴出同一組方向
+      scatter(
+        x, y, z, 0, 0, 0, 0, 1, 0, BLAST_DEBRIS_CONE, DEBRIS_SPEED * speedScale,
+        BLAST_DEBRIS_COUNT, (seed * BLAST_DEBRIS_COUNT + 1_000_000) | 0,
+      )
       if (object.instanceColor) object.instanceColor.needsUpdate = true
     },
 
