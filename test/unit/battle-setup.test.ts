@@ -23,6 +23,7 @@ import type { Combatant } from '../../src/world/World'
 import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast, sideCount } from '../../src/battle/order'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import type { MissionGround } from '../../src/battle/missions'
 
 class Idle implements Controller {
   update(_a: Aircraft, _dt: number, out: Command): void {
@@ -300,6 +301,45 @@ describe('勝負（M9 spec §8）', () => {
     for (const c of b.blue) c.alive = false
     stepBattle(b, DT)
     expect(b.outcome).toBe('victory')
+  })
+})
+
+describe('地面目標的放置', () => {
+  const ground: MissionGround = {
+    center: new Vector3(100, 0, -7000),
+    heading: Math.PI / 2,
+    entries: [
+      { kind: 'chimney', team: 'red', offset: new Vector3(0, 0, -50), heading: 0 },
+      { kind: 'oilTank', team: 'red', offset: new Vector3(30, 0, 0), heading: 0.3 },
+    ],
+  }
+
+  it('依 ground 放進世界：先轉朝向再加中心，高度是 0', () => {
+    const b = createBattle(new Idle(), { ...DEFAULT_BATTLE, ground })
+    expect(b.world.groundTargets).toHaveLength(2)
+    const [chimney, tank] = b.world.groundTargets
+    expect(chimney!.cls.id).toBe('chimney')
+    // 朝向 π/2：自身 −Z 轉到世界 −X
+    expect(chimney!.position.x).toBeCloseTo(100 - 50, 6)
+    expect(chimney!.position.z).toBeCloseTo(-7000, 6)
+    expect(chimney!.position.y).toBe(0)
+    expect(tank!.position.x).toBeCloseTo(100, 6)
+    expect(tank!.position.z).toBeCloseTo(-7000 - 30, 6)
+    expect(tank!.index).toBe(1)
+  })
+
+  it('省略就一座都不放', () => {
+    expect(createBattle(new Idle()).world.groundTargets).toHaveLength(0)
+  })
+
+  it('重置把炸毀的構件回滿血', () => {
+    const b = createBattle(new Idle(), { ...DEFAULT_BATTLE, ground })
+    const t = b.world.groundTargets[0]!
+    t.hp = 0
+    t.alive = false
+    resetBattle(b)
+    expect(t.hp).toBe(t.cls.hp)
+    expect(t.alive).toBe(true)
   })
 })
 

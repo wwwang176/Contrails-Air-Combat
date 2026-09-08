@@ -13,6 +13,7 @@ import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
+import type { GroundKind } from '../world/groundTargets'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
@@ -309,6 +310,17 @@ export interface MissionBattle {
    */
   readonly sinkCount?: number
   /**
+   * 這一關的地面目標。**沒有這一格的卡完全不產生地面目標**。與 `fleet`
+   * 同一個約定，也同樣要一路透傳到 `createBattle`。
+   */
+  readonly ground?: MissionGround
+  /**
+   * 要炸毀幾座。**有這一格就是炸毀關**，勝負規則變成 `{ kind: 'destroy' }`。
+   * 它必須配 `ground`，而且不得與 `sinkCount` 共存 —— `campaigns.test.ts`
+   * 守著。
+   */
+  readonly destroyCount?: number
+  /**
    * 這一關的時段。**省略 = `'noon'`。**
    *
    * 【它只影響畫面，不進 `BattleConfig`】光照與模擬無關，所以它不走
@@ -356,6 +368,29 @@ export interface FleetEntry {
    * 開著，與 `FlightPlan.player` 同一個寫法 —— 不必為每一艘補 `vital: false`。
    */
   readonly vital?: true
+}
+
+/**
+ * 這一關的地面目標。形狀照 `MissionFleet`：一個中心、一個朝向、相對偏移。
+ *
+ * 【高度是 0，寫死】`createBattle` 跑的時候地形還沒注入 `World`，建構期讀
+ * `groundAt` 拿到的是預設平面。墊面在結構上保證是 0（`world/leuna.ts`），
+ * 所以 `position.y = 0` 是定義，不是查出來的。
+ */
+export interface MissionGround {
+  readonly center: Vector3
+  /** 整個廠區的朝向，rad（繞 Y，0 = 朝 −Z） */
+  readonly heading: number
+  readonly entries: readonly GroundEntry[]
+}
+
+export interface GroundEntry {
+  readonly kind: GroundKind
+  readonly team: Team
+  /** 相對廠區中心的偏移（+X 右、−Z 前）。擺位時先轉 `heading` 再加 `center` */
+  readonly offset: Vector3
+  /** 這一座相對廠區朝向再轉多少，rad */
+  readonly heading: number
 }
 
 /** 打到一半把任務目標換成撤離。 */
@@ -866,6 +901,10 @@ export function missionRules(
   if (b.sinkCount !== undefined) {
     return { kind: 'sink', count: b.sinkCount }
   }
+  // 【炸毀與擊沉並列】同樣是「卡片上有沒有那一格」，同樣排在守住艦隊之前
+  if (b.destroyCount !== undefined) {
+    return { kind: 'destroy', count: b.destroyCount }
+  }
   // 【判準是「艦隊裡有沒有要害艦」，不是 `type`】理由同上面那一段：`type`
   // 是給玩家看的分類，用它推導的話日後多一張「殲滅」卡就會靜靜地變成
   // 守住艦隊。**排在擊沉之後** —— 進攻的規則優先，而日 M4 的艦隊一艘
@@ -957,6 +996,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    ...(b.ground === undefined ? {} : { ground: b.ground }),
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),

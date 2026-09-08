@@ -144,3 +144,29 @@ describe('擊沉任務', () => {
     }
   })
 })
+
+describe('炸毀任務', () => {
+  /** 【要求炸毀卻沒有廠區 = 永遠打不完】與擊沉同一個理由，在資料層擋 */
+  it('有 destroyCount 就一定要有 ground，而且敵方構件數量夠', () => {
+    for (const m of ALL.filter(ready)) {
+      const n = m.battle.destroyCount
+      if (n === undefined) continue
+      expect(m.battle.ground, `${m.id} 要求炸毀卻沒有廠區`).toBeDefined()
+      const hostile = m.battle.ground!.entries.filter((e) => e.team === 'red').length
+      expect(hostile, `${m.id} 目標 ${n} 座但敵方構件只有 ${hostile} 座`).toBeGreaterThanOrEqual(n)
+    }
+  })
+
+  it('沒有廠區的卡不會要求炸毀', () => {
+    for (const m of ALL.filter(ready)) {
+      if (m.battle.ground === undefined) expect(m.battle.destroyCount, m.id).toBeUndefined()
+    }
+  })
+
+  /** 【兩種進攻規則不共存】`missionRules` 先看擊沉，炸毀那一格會靜靜地被忽略 */
+  it('sinkCount 與 destroyCount 不共存', () => {
+    for (const m of ALL.filter(ready)) {
+      if (m.battle.sinkCount !== undefined) expect(m.battle.destroyCount, m.id).toBeUndefined()
+    }
+  })
+})

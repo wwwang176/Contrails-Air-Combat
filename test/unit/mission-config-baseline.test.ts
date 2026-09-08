@@ -38,7 +38,7 @@ function rules(r: BattleConfig['rules']): unknown {
       seconds: num(r.seconds),
     }
   }
-  if (r.kind === 'sink') return { kind: r.kind, count: r.count }
+  if (r.kind === 'sink' || r.kind === 'destroy') return { kind: r.kind, count: r.count }
   // 【守住艦隊沒有自己的欄位】要害艦由 `MissionFleet` 的 `vital` 指名，
   // 規則本身只有 `kind`
   if (r.kind === 'defend') return { kind: r.kind }
