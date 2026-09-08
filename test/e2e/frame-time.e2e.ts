@@ -172,6 +172,13 @@ async function pass(
     readonly dpr: number
     /** 只跑座艙纏鬥那一場。填充率消融用 —— 要比的是同一個場景 */
     readonly dogfightOnly?: boolean
+    /**
+     * 打哪一場。預設是遭遇戰（群島）。
+     *
+     * 【為什麼要能選洛伊納】遭遇戰的地形是群島，**根本不會建廠區那顆網格**
+     * —— 拿它量出來的數字裡沒有三十幾萬個三角形的佈景，而那正是要量的東西。
+     */
+    readonly scene?: 'skirmish' | 'leuna'
   },
 ): Promise<void> {
   console.log(`\n\n════ ${label} ════`)
@@ -193,8 +200,18 @@ async function pass(
 
     await page.goto(URL)
     await page.click('[data-act="start"]')
-    await page.click('[data-act="skirmish"]')
-    await page.click('#skirmish [data-act="fight"]')
+    if (opts.scene === 'leuna') {
+      await page.click('[data-act="mission"]')
+      await page.waitForTimeout(300)
+      await page.click('#campaign-cards button[data-campaign="allies"]')
+      await page.waitForTimeout(300)
+      await page.click('#route .stop[data-mission="allies-m2"]')
+      await page.waitForTimeout(200)
+      await page.click('#brief-go')
+    } else {
+      await page.click('[data-act="skirmish"]')
+      await page.click('#skirmish [data-act="fight"]')
+    }
 
     // 【暖機一定要單獨量而不是丟掉】著色器編譯、材質上傳、第一批粒子的
     // 池子配置都在開頭幾秒，而玩家**也會經歷那幾秒**。把它算進穩態會污染
@@ -334,6 +351,10 @@ async function main(): Promise<void> {
   // 幾乎不動 = CPU 吃緊。實測的答案是前者（頓挫 5.64/s → 0.08/s）
   await pass('填充率消融 DPR 0.5（解鎖 vsync）',
     { unlockVsync: true, width: 1707, height: 960, dpr: 0.5, dogfightOnly: true })
+  // 【三之二】洛伊納：三十幾萬個三角形的廠區佈景是這張圖獨有的負載，
+  // 遭遇戰那三輪一個三角形都量不到
+  await pass('洛伊納廠區上空（解鎖 vsync）',
+    { unlockVsync: true, width: 1707, height: 960, dpr: 1.5, scene: 'leuna' })
   // 【四】填充率確定是瓶頸之後，逐層歸因到「是哪一層在畫」
   await ablation()
 }
