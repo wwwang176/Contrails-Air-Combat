@@ -34,8 +34,6 @@ const PLANT_HUE = {
   concrete: 0x9a978c,
   /** 屋頂 */
   roof: 0x4a4d4a,
-  /** 殘骸的焦黑。純黑是一團洞，所以是很深的褐 */
-  ruin: 0x2e2a26,
 } as const
 
 /** 圓柱的分段。塔身 12、大桶 16 */
@@ -222,13 +220,6 @@ export function buildCoolingTower(): BufferGeometry {
     }))
   }
   return assemble(parts)
-}
-
-/** 殘骸：腳印不變、高度四分之一、焦黑。與活著的那一版共用同一份尺寸 */
-export function buildPlantRuin(kind: PlantKind): BufferGeometry {
-  const { x, y, z } = PLANT_SIZE[kind]
-  const h = y * 0.25
-  return assemble([box(x, h, z, PLANT_HUE.ruin, { y: h / 2 })])
 }
 
 export const PLANT_BUILDERS: Readonly<Record<PlantKind, () => BufferGeometry>> = {

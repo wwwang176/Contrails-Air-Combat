@@ -3,7 +3,7 @@ import { Vector3 } from 'three'
 import type { Box } from '../../../world/hit'
 import { groundGlb, preloadGroundGlbs } from './glb'
 import { buildBoxcar, buildFlatcar, buildLocomotive, buildTender } from './train'
-import { PLANT_BUILDERS, PLANT_SIZE, buildPlantRuin, type PlantKind } from './plant'
+import { PLANT_BUILDERS, PLANT_SIZE, type PlantKind } from './plant'
 
 /**
  * 地面單位的登記表。
@@ -42,12 +42,6 @@ export type GroundModel =
   }
   | {
     readonly build: () => BufferGeometry
-    /**
-     * 炸毀之後換的幾何。省略 = 不換形狀、只換材質（車輛燒黑還是那台車）。
-     * 廠房要換：命中盒死了就不擋炸彈，一根還站著的煙囪會讓炸彈穿過去在
-     * 地上爆。
-     */
-    readonly ruin?: () => BufferGeometry
   }
 
 export interface GroundUnit {
@@ -182,7 +176,7 @@ function plant(id: PlantKind, name: string, note: string): GroundUnit {
   return {
     id, name, note,
     realLength: z, realWidth: x, realHeight: y,
-    model: { build: PLANT_BUILDERS[id], ruin: () => buildPlantRuin(id) },
+    model: { build: PLANT_BUILDERS[id] },
     hull: [groundBox([-x / 2, 0, -z / 2], [x / 2, y, z / 2])],
   }
 }
