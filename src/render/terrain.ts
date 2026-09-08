@@ -13,6 +13,9 @@ import {
 } from './flora'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
+import { createLeuna } from '../world/leuna'
+import type { HeightFieldData } from '../world/heightfield'
+import type { Season } from './season'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -102,6 +105,7 @@ export interface Terrain {
  */
 export function createTerrain(kind: TerrainKind): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain()
+  if (kind === 'leuna') return createLeunaTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
 }
@@ -203,15 +207,29 @@ function createArchipelagoTerrain(): Terrain {
 }
 
 function createFarmlandTerrain(): Terrain {
-  const farm = createFarmland()
-  const horizon = createFarHorizon()
-  const ground = createFarmGround(farm.field)
+  return createInlandTerrain(createFarmland(), 'summer')
+}
+
+/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤 */
+function createLeunaTerrain(): Terrain {
+  return createInlandTerrain(createLeuna(), 'lateAutumn')
+}
+
+/**
+ * 內陸地形的共用算繪：田區、遠景環、三種散佈器。農地與洛伊納只差高度場、
+ * 丘陵與季節。
+ */
+function createInlandTerrain(
+  farm: { field: HeightFieldData; hills: IslandDesc[] }, season: Season,
+): Terrain {
+  const horizon = createFarHorizon(season)
+  const ground = createFarmGround(farm.field, season)
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
   const solid = outsideZero(farm.field)
   const flora = createVegetation(
-    [farmHedgeFlora, farmWoodFlora, farmVillageFlora], (x, z) => solid.sample(x, z),
+    [farmHedgeFlora, farmWoodFlora, farmVillageFlora], (x, z) => solid.sample(x, z), { season },
   )
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
   // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被

@@ -4,6 +4,7 @@ import { FAR_SEA_Y, gerstnerHeight } from '../../src/render/ocean'
 import { createIslands } from '../../src/render/island'
 import { createArchipelago } from '../../src/world/archipelago'
 import { createFarmland, HILL_PEAK_MAX } from '../../src/world/farmland'
+import { LEUNA_HILLS, PLANT_CENTER } from '../../src/world/leuna'
 import { landHitT, losBlocked } from '../../src/world/occlusion'
 
 describe('createTerrain（M10 spec §5.2）', () => {
@@ -333,4 +334,30 @@ describe('植被接線', () => {
     t.dispose()
     expect(disposed).toBe(11)
   })
+})
+
+describe('洛伊納', () => {
+  const t = createTerrain('leuna')
+
+  it('四個位置的契約與農地相同', () => {
+    expect(t.object.children.length).toBe(4)
+    expect(t.object.children[1]!.children.length).toBe(0)
+    expect(t.object.children[2]!.children.length).toBe(25)
+  })
+
+  it('沒有水面，場外回 0', () => {
+    expect(t.waterAt(0, 0)).toBe(-Infinity)
+    expect(t.collisionHeightAt(50_000, 50_000)).toBe(0)
+  })
+
+  it('AI 拿得到手擺的丘陵，數量與清單一致', () => {
+    expect(t.islands.length).toBe(LEUNA_HILLS.length)
+    expect(t.land!.ceiling).toBe(HILL_PEAK_MAX)
+  })
+
+  it('廠區中心的高度是 0', () => {
+    expect(t.collisionHeightAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(0)
+  })
+
+  t.dispose()
 })

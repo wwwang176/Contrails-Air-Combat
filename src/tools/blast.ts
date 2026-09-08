@@ -371,7 +371,7 @@ tabs(styleTabs, [
 const terrainTabs = document.getElementById('terrain') as HTMLElement
 tabs(terrainTabs, [
   { id: 'sea', name: '海面' }, { id: 'archipelago', name: '群島' },
-  { id: 'farmland', name: '內陸' },
+  { id: 'farmland', name: '內陸' }, { id: 'leuna', name: '洛伊納' },
 ], (id) => setTerrain(id as TerrainKind))
 
 let tod: TimeOfDay = 'noon'

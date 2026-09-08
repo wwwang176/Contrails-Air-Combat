@@ -71,7 +71,7 @@ const HILL_SLOPE = [0.06, 0.10] as const
  * 要讓丘陵連綿就得改 AI 讓它對路徑上所有重疊的丘陵取聯集。代價是地形變成
  * 平原上散布的緩丘 —— 起伏仍然在，來自每一顆丘陵自己的多瓣。
  */
-const HILL_GAP = 200
+export const HILL_GAP = 200
 
 /** 每顆丘陵除主瓣外的瓣數。與群島同一個理由：固定，不隨機 */
 const HILL_LOBES = 4
