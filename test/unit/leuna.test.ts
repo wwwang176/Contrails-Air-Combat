@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createLeuna, EGRESS, FLAK_SITES, LEUNA_HILLS, PAD_CLEARANCE, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD,
+  ROADS, TRUCKS,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -85,16 +86,49 @@ describe('leuna 地形', () => {
 })
 
 describe('leuna 的佈局常數', () => {
-  it('預定砲位環繞廠區 1.5 到 3 km', () => {
+  it('預定砲位環繞廠區 2.4 到 3.3 km', () => {
     for (const s of FLAK_SITES) {
       const d = Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)
-      expect(d, `${s.x},${s.z}`).toBeGreaterThanOrEqual(1500)
-      expect(d, `${s.x},${s.z}`).toBeLessThanOrEqual(3000)
+      expect(d, `${s.x},${s.z}`).toBeGreaterThanOrEqual(2400)
+      expect(d, `${s.x},${s.z}`).toBeLessThanOrEqual(3300)
     }
   })
 
   it('脫離方向是 −Z：投完繼續往前，不回頭', () => {
     expect(EGRESS.z).toBeLessThan(0)
     expect(EGRESS.x).toBe(0)
+  })
+})
+
+describe('leuna 的廠區', () => {
+  it('墊面是史實的 3 × 1.5 km', () => {
+    expect(PLANT_PAD.halfX * 2).toBe(3000)
+    expect(PLANT_PAD.halfZ * 2).toBe(1500)
+  })
+
+  it('卡車停在墊面內或道路旁', () => {
+    for (const t of TRUCKS) {
+      const inPad = padDistance(t.x, t.z) === 0
+      let nearRoad = false
+      for (const road of ROADS) {
+        for (let i = 0; i + 1 < road.length; i++) {
+          const a = road[i]!
+          const b = road[i + 1]!
+          const dx = b.x - a.x
+          const dz = b.z - a.z
+          const l2 = dx * dx + dz * dz
+          const u = Math.max(0, Math.min(1, ((t.x - a.x) * dx + (t.z - a.z) * dz) / l2))
+          if (Math.hypot(t.x - (a.x + dx * u), t.z - (a.z + dz * u)) < 40) nearRoad = true
+        }
+      }
+      expect(inPad || nearRoad, `${t.x},${t.z}`).toBe(true)
+    }
+  })
+
+  it('道路從墊面邊接到地圖邊緣', () => {
+    const reachesEdge = ROADS.some((r) => r.some((p) => Math.abs(p.x) >= 14000 || Math.abs(p.z) >= 14000))
+    const touchesPad = ROADS.some((r) => r.some((p) => padDistance(p.x, p.z) === 0))
+    expect(reachesEdge).toBe(true)
+    expect(touchesPad).toBe(true)
   })
 })

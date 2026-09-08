@@ -34,7 +34,7 @@ import { preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts } from './world/flak'
 import {
-  createShipFireSmoke, createSmoke, emitSmoke,
+  createShipFireSmoke, createSmoke, createSteam, emitSmoke,
   DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SPEED,
 } from './render/smoke'
 import {
@@ -482,6 +482,9 @@ ctx.scene.add(smoke.object)
  */
 const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
 ctx.scene.add(shipFireSmoke.object)
+/** 廠區的白煙：煙囪與冷卻塔頂持續冒的蒸汽（`emitPlantSteam`） */
+const steam = createSteam(undefined, smokeTexture)
+ctx.scene.add(steam.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 const vortex = createVortex()
@@ -726,8 +729,41 @@ const POOLS = [
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
-  shipFireSmoke, shipFires, groundFires,
+  shipFireSmoke, shipFires, groundFires, steam,
 ]
+
+/** 每一座冒煙的構件每秒幾顆蒸汽 */
+const STEAM_PER_SECOND = 6
+/** 蒸汽的水平初速上限，m/s。讓柱子歪一點，不是筆直的 */
+const STEAM_DRIFT = 1.5
+let steamAccum = 0
+let steamSeed = 0
+
+/**
+ * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽。炸毀就停
+ * （`alive` 為假的那一座不再放）。純裝飾，種子用計數器 —— 與 `emitFirePuff`
+ * 同一套。
+ */
+function emitPlantSteam(frameSeconds: number): void {
+  steamAccum += frameSeconds * STEAM_PER_SECOND
+  const n = Math.floor(steamAccum)
+  if (n <= 0) return
+  steamAccum -= n
+  for (const t of world.groundTargets) {
+    if (!t.alive) continue
+    const id = t.unit.id
+    if (id !== 'chimney' && id !== 'coolingTower') continue
+    for (let k = 0; k < n; k++) {
+      const s = (steamSeed = (steamSeed + 1) | 0)
+      const a = hash01(s * 3 + 1) * Math.PI * 2
+      const r = hash01(s * 3 + 2) * STEAM_DRIFT
+      // 冷卻塔的頂寬，蒸汽從整個頂面冒；煙囪從一個點
+      const spread = id === 'coolingTower' ? 8 : 1.5
+      const ox = (hash01(s * 3 + 3) * 2 - 1) * spread
+      steam.emit(t.position.x + ox, t.impactY, t.position.z, Math.cos(a) * r, 0, Math.sin(a) * r, 1)
+    }
+  }
+}
 
 function resetPools(): void {
   for (const p of POOLS) p.reset()
@@ -1690,6 +1726,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
   stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff)
   stepGroundFires(groundFires, frameSeconds, emitFirePuff)
+  emitPlantSteam(frameSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -1716,6 +1753,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   splashes.step(frameSeconds)
   fireball.step(frameSeconds)
   smoke.step(frameSeconds)
+  steam.step(frameSeconds)
   shipFireSmoke.step(frameSeconds)
   // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
   // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀

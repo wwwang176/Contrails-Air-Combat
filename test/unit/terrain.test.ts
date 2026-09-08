@@ -339,10 +339,11 @@ describe('植被接線', () => {
 describe('洛伊納', () => {
   const t = createTerrain('leuna')
 
-  it('四個位置的契約與農地相同', () => {
-    expect(t.object.children.length).toBe(4)
+  it('前四個位置的契約與農地相同，第五個是廠區的佈景', () => {
+    expect(t.object.children.length).toBe(5)
     expect(t.object.children[1]!.children.length).toBe(0)
     expect(t.object.children[2]!.children.length).toBe(25)
+    expect((t.object.children[4] as { isMesh?: boolean }).isMesh).toBe(true)
   })
 
   it('沒有水面，場外回 0', () => {
