@@ -14,7 +14,7 @@ import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
-import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT, TRUCKS } from '../world/leuna'
+import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
@@ -584,10 +584,6 @@ const LEUNA_GROUND: readonly GroundEntry[] = [
   })),
   ...FLAK_SITES.map((s): GroundEntry => ({
     unit: 'flakHeavy', team: 'red', x: s.x, z: s.z, heading: s.heading,
-  })),
-  // 停在廠區與道路上的卡車：打得掉、算進 targetsTotal，`destroyCount` 不變
-  ...TRUCKS.map((t): GroundEntry => ({
-    unit: 'truck', team: 'red', x: t.x, z: t.z, heading: t.heading,
   })),
 ]
 

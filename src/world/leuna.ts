@@ -86,38 +86,34 @@ export type PlantKind =
   | 'hydroTower' | 'chimney' | 'boilerHouse' | 'oilTank' | 'gasHolder' | 'coolingTower'
 
 /**
- * 十二座可炸的構件相對廠區中心的偏移與朝向。分成三個叢：西側氫化區
- * （反應塔成排、煙囪、鍋爐房）、中央動力區（鍋爐房、煙囪、冷卻塔、氣櫃）、
- * 東側油槽區（儲油槽成群）。全部在墊面內，離墊面邊至少 40 m。
+ * 十二座可炸的構件相對廠區中心的偏移與朝向。**四群各三座**，散在廠區的
+ * 四個角落，群內的三座間距 80–120 m：一趟對準的投彈帶得走一群，四群要飛
+ * 四趟，而過關只要六座 —— 兩群。
+ *
+ * 【每一群都在機能相符的街廓裡】氫化塔進製程區、鍋爐房與冷卻塔進公用區、
+ * 儲油槽進儲槽區。街廓表在 `BLOCK_KINDS`，機能不合的話周圍的佈景會是另一
+ * 種工廠 —— 反應塔站在一圈土堤圍起來的儲槽中間。
+ *
+ * 【挪動之前先確認】要在墊面內、不壓到廠內的三條道路（見 `ROADS`）、不與
+ * `PLANT_STACKS` 的佈景煙囪重疊，而且不落在巷道上。
  */
 export const PLANT_LAYOUT: readonly { kind: PlantKind; dx: number; dz: number; heading: number }[] = [
-  // 西側氫化區
-  { kind: 'hydroTower', dx: -1000, dz: -250, heading: 0 },
-  { kind: 'hydroTower', dx: -920, dz: -250, heading: 0 },
-  { kind: 'hydroTower', dx: -840, dz: -250, heading: 0 },
-  { kind: 'chimney', dx: -650, dz: -380, heading: 0 },
-  { kind: 'boilerHouse', dx: -700, dz: -120, heading: 0 },
-  // 中央動力區
-  { kind: 'boilerHouse', dx: 0, dz: -320, heading: 0 },
-  { kind: 'chimney', dx: 160, dz: -470, heading: 0 },
-  { kind: 'coolingTower', dx: 260, dz: 220, heading: 0 },
-  { kind: 'gasHolder', dx: -360, dz: 320, heading: 0 },
-  // 東側油槽區
-  { kind: 'oilTank', dx: 800, dz: 120, heading: 0 },
-  { kind: 'oilTank', dx: 900, dz: 120, heading: 0 },
-  { kind: 'oilTank', dx: 850, dz: 220, heading: 0 },
-]
-
-/** 停在廠區與道路上的卡車。是地面目標，打得掉 */
-export const TRUCKS: readonly { x: number; z: number; heading: number }[] = [
-  { x: -560, z: -7040, heading: 1.57 },
-  { x: -540, z: -7060, heading: 1.57 },
-  { x: 120, z: -6980, heading: -1.57 },
-  { x: 540, z: -6700, heading: 0.1 },
-  { x: 560, z: -6540, heading: 0 },
-  { x: 1180, z: -7020, heading: 1.5 },
-  { x: 520, z: -5200, heading: 0.05 },
-  { x: -2400, z: -6980, heading: 1.6 },
+  // 西北　氫化群（process 2010）
+  { kind: 'hydroTower', dx: -930, dz: -560, heading: 0 },
+  { kind: 'hydroTower', dx: -850, dz: -560, heading: 0 },
+  { kind: 'hydroTower', dx: -770, dz: -560, heading: 0 },
+  // 西南　動力群（utility 2002）
+  { kind: 'boilerHouse', dx: -1300, dz: 100, heading: 0 },
+  { kind: 'boilerHouse', dx: -1300, dz: 190, heading: 0 },
+  { kind: 'chimney', dx: -1180, dz: 145, heading: 0 },
+  // 中東　汽電群（utility 2042）
+  { kind: 'coolingTower', dx: 240, dz: 120, heading: 0 },
+  { kind: 'gasHolder', dx: 240, dz: 240, heading: 0 },
+  { kind: 'chimney', dx: 350, dz: 180, heading: 0 },
+  // 東北　儲槽群（tankFarm 2060）
+  { kind: 'oilTank', dx: 1120, dz: -620, heading: 0 },
+  { kind: 'oilTank', dx: 1200, dz: -620, heading: 0 },
+  { kind: 'oilTank', dx: 1160, dz: -540, heading: 0 },
 ]
 
 /**
@@ -145,33 +141,6 @@ export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
  * 圓管是三角柱，其餘是盒子與柱體 —— 見 `render/geometry/ground/plantScenery.ts`。
  */
 export const PLANT_SCENERY = {
-  /** 管架的折線與架高。管子並排在樑上，走廠區的主軸與橫向 */
-  pipeRacks: [
-    { height: 8, pipes: 5, points: [{ dx: -1350, dz: -150 }, { dx: 1350, dz: -150 }] },
-    { height: 6, pipes: 4, points: [{ dx: -1350, dz: 250 }, { dx: 700, dz: 250 }] },
-    { height: 7, pipes: 3, points: [{ dx: -800, dz: -650 }, { dx: -800, dz: 650 }] },
-    { height: 7, pipes: 3, points: [{ dx: -300, dz: -650 }, { dx: -300, dz: 650 }] },
-    { height: 9, pipes: 4, points: [{ dx: 100, dz: -650 }, { dx: 100, dz: 650 }] },
-    { height: 6, pipes: 3, points: [{ dx: 650, dz: -650 }, { dx: 650, dz: 650 }] },
-    { height: 6, pipes: 2, points: [{ dx: 700, dz: 250 }, { dx: 1100, dz: 250 }, { dx: 1100, dz: 600 }] },
-    { height: 8, pipes: 3, points: [{ dx: -1100, dz: -450 }, { dx: -450, dz: -450 }, { dx: -450, dz: -600 }] },
-  ],
-  /** 開放式鋼骨塔：底邊長、層數 */
-  steelTowers: [
-    { dx: -1150, dz: -450, size: 18, floors: 4 },
-    { dx: -480, dz: -560, size: 22, floors: 5 },
-    { dx: 40, dz: -600, size: 20, floors: 4 },
-    { dx: 400, dz: -520, size: 16, floors: 3 },
-    { dx: 1100, dz: -420, size: 18, floors: 4 },
-    { dx: -1200, dz: 420, size: 16, floors: 3 },
-    { dx: 420, dz: 480, size: 20, floors: 4 },
-  ],
-  /** 棚屋：小盒子加平頂 */
-  sheds: [
-    { dx: -1300, dz: 50 }, { dx: -1250, dz: 600 }, { dx: -950, dz: 500 }, { dx: -600, dz: 620 },
-    { dx: -150, dz: 80 }, { dx: 250, dz: -60 }, { dx: 620, dz: -60 }, { dx: 950, dz: -300 },
-    { dx: 1250, dz: 60 }, { dx: 1300, dz: 550 }, { dx: 1000, dz: 600 }, { dx: -100, dz: 620 },
-  ],
   /** 圍牆：沿墊面四周，門口留空。每一段 60 m */
   wall: { height: 2.5, segment: 60, gate: 24 },
   /** 沙包：砲位周圍一圈 */
@@ -179,6 +148,183 @@ export const PLANT_SCENERY = {
   /** 電線桿：沿連外道路 */
   poles: { spacing: 40, height: 8 },
 } as const
+
+/**
+ * 巷道的中心線，相對廠區中心。`x` 是縱向（沿 Z 走）的巷、`z` 是橫向的。
+ *
+ * 【與廠內道路共線】−600、500（縱向）與 0（橫向）就是 `ROADS` 那三條廠內
+ * 道路。格線另開一套的話，街廓會被道路從中間切開，填充器鋪的東西一半壓在
+ * 路上。
+ */
+export const PLANT_LANES = {
+  x: [-1100, -600, -180, 150, 500, 1000],
+  z: [-420, 0, 380],
+} as const
+
+/** 巷道寬，m。街廓從格線各退一半 */
+export const LANE_WIDTH = 16
+
+/** 街廓的機能。填充器照這個標籤決定鋪什麼 */
+export type BlockKind = 'process' | 'tankFarm' | 'halls' | 'railyard' | 'utility' | 'open'
+
+/** 一個街廓。**世界座標**，已經退掉巷道 */
+export interface PlantBlock {
+  readonly x0: number
+  readonly z0: number
+  readonly x1: number
+  readonly z1: number
+  readonly kind: BlockKind
+  readonly seed: number
+}
+
+/**
+ * 機能指派，7 欄 × 4 列，欄由西到東、列由北到南。
+ * **與 `tools/blender/build_plant.py` 是同一份表**，那邊改了這邊要跟著改。
+ *
+ * 【同機能不相鄰】相鄰同機能會被 `mergePlan` 併成一塊，而併出來的大方塊
+ * 從投彈高度看下去就是「那一整區都是油槽」。除了調車場那一對，任兩格的
+ * 鄰居都是別的機能，所以最大的街廓就是一格。
+ *
+ * 【調車場例外，而且靠南緣】它得接得到外面的鐵路，擺在廠區中間不合理。
+ * `open` 是刻意的留白 —— 沒有空地就看不出密的地方有多密。
+ */
+const BLOCK_KINDS: readonly (readonly BlockKind[])[] = [
+  ['halls', 'process', 'utility', 'railyard'], //   x −1500…−1100
+  ['process', 'tankFarm', 'process', 'railyard'], // x −1100…−600
+  ['utility', 'process', 'halls', 'process'], //    x −600…−180
+  ['tankFarm', 'utility', 'process', 'halls'], //   x −180…150
+  ['process', 'tankFarm', 'utility', 'open'], //    x 150…500
+  ['halls', 'process', 'tankFarm', 'railyard'], //  x 500…1000
+  ['tankFarm', 'utility', 'process', 'open'], //    x 1000…1500
+]
+
+/**
+ * 相鄰而且**機能相同**的兩格合併成一個大街廓。
+ *
+ * 【為什麼要合】六欄四列的格子等大又等距，從投彈高度看下去像二十四塊拼圖
+ * —— 而真正的廠區是一整片儲槽區、一整條廠房排。只合同機能的兩格，機能的
+ * 種類與配比因此不變。
+ *
+ * 【只合一次】連著合三格會出現橫跨整張圖的長條，那又是另一種一眼看得出來
+ * 的規則。
+ */
+function mergePlan(cols: number, rows: number): number[] {
+  // 每一格記自己屬於哪一個街廓；−1 表示還沒被別人吃掉
+  const owner = new Array<number>(cols * rows).fill(-1)
+  const at = (i: number, j: number): number => i * rows + j
+  let h = 0x9e3779b9
+  const roll = (): number => {
+    h = (Math.imul(h, 1664525) + 1013904223) >>> 0
+    return h / 4294967296
+  }
+  for (let i = 0; i + 1 < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      if (owner[at(i, j)] !== -1 || owner[at(i + 1, j)] !== -1) continue
+      if (BLOCK_KINDS[i]![j] !== BLOCK_KINDS[i + 1]![j]) continue
+      if (roll() > 0.85) continue
+      owner[at(i, j)] = at(i, j)
+      owner[at(i + 1, j)] = at(i, j)
+    }
+  }
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j + 1 < rows; j++) {
+      if (owner[at(i, j)] !== -1 || owner[at(i, j + 1)] !== -1) continue
+      if (BLOCK_KINDS[i]![j] !== BLOCK_KINDS[i]![j + 1]) continue
+      if (roll() > 0.8) continue
+      owner[at(i, j)] = at(i, j)
+      owner[at(i, j + 1)] = at(i, j)
+    }
+  }
+  for (let k = 0; k < owner.length; k++) if (owner[k] === -1) owner[k] = k
+  return owner
+}
+
+function buildBlocks(): PlantBlock[] {
+  const xs = [-PLANT_PAD.halfX, ...PLANT_LANES.x, PLANT_PAD.halfX]
+  const zs = [-PLANT_PAD.halfZ, ...PLANT_LANES.z, PLANT_PAD.halfZ]
+  const cols = xs.length - 1
+  const rows = zs.length - 1
+  const owner = mergePlan(cols, rows)
+  const out: PlantBlock[] = []
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      // 只有「自己就是頭」的那一格生街廓；被吃掉的那一格跳過
+      if (owner[i * rows + j] !== i * rows + j) continue
+      let i1 = i
+      let j1 = j
+      for (let k = 0; k < cols * rows; k++) {
+        const ci = Math.floor(k / rows)
+        const cj = k % rows
+        if (owner[k] !== i * rows + j) continue
+        i1 = Math.max(i1, ci)
+        j1 = Math.max(j1, cj)
+      }
+      // 【巷寬因街廓而異】每一格都留同寬的白邊，白邊本身就會排成格線
+      const seed = 2000 + i * 10 + j
+      const half = (LANE_WIDTH * (0.7 + ((seed * 37) % 7) / 10)) / 2
+      out.push({
+        x0: PLANT_CENTER.x + xs[i]! + half,
+        x1: PLANT_CENTER.x + xs[i1 + 1]! - half,
+        z0: PLANT_CENTER.z + zs[j]! + half,
+        z1: PLANT_CENTER.z + zs[j1 + 1]! - half,
+        kind: BLOCK_KINDS[i]![j]!,
+        seed,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * 街廓。六欄四列的格子合併同機能的相鄰對之後剩下的那些，大小不一。
+ * `render/geometry/ground/plantFill.ts` 逐個鋪。
+ */
+export const PLANT_BLOCKS: readonly PlantBlock[] = /* @__PURE__ */ buildBlocks()
+
+/**
+ * 佈景煙囪：打不掉，但會冒煙。**世界座標**。
+ *
+ * 【為什麼不是相對偏移】`main.ts` 的發煙迴圈每幀跑，那裡不能有換算，也不能
+ * 建物件（240 Hz 的熱路徑）。
+ *
+ * 【為什麼要有它】從進場方向看過去，煙柱是廠區唯一在遠處就標定得出自己的
+ * 東西。只有十二座可炸構件在冒煙的話，炸完六座就幾乎不冒了。
+ */
+export const PLANT_STACKS: readonly { readonly x: number; readonly z: number; readonly y: number }[] = [
+  { x: -1440, z: -7340, y: 62 },
+  { x: -1050, z: -7690, y: 55 },
+  { x: -1050, z: -7060, y: 68 },
+  { x: -560, z: -7080, y: 58 },
+  { x: -60, z: -7700, y: 64 },
+  { x: -1440, z: -6940, y: 48 },
+  { x: -560, z: -7700, y: 52 },
+  { x: -60, z: -7060, y: 60 },
+]
+
+/**
+ * 牆外的衛星設施。**相對廠區中心**：dx／dz 是中心，w／d 是寬與深。
+ *
+ * 【廠區不能只有一個盒子】主廠區是一塊被牆圍起來的方塊，牆外一片田 ——
+ * 從投彈高度看下去那條界線是整幅畫面最刺眼的東西。真的合成油廠周邊本來
+ * 就散著變電所、加壓站、倉庫與側線，它們讓「人造的地」不只有一塊。
+ *
+ * **與 `tools/blender/build_plant.py` 的 `SATELLITES` 同一份數字。**
+ *
+ * 【要避開砲位與連外道路】兩者都不在 `KEEPOUTS` 裡，位置是手挑的。挪動之前
+ * 先對照 `FLAK_SITES` 與 `OUT_ROADS`。
+ */
+export const PLANT_SATELLITES: readonly {
+  readonly dx: number; readonly dz: number
+  readonly w: number; readonly d: number
+  readonly kind: string
+}[] = [
+  { dx: -1900, dz: -250, w: 220, d: 160, kind: 'substation' },
+  { dx: 720, dz: 1080, w: 190, d: 150, kind: 'pump' },
+  { dx: -1240, dz: 1090, w: 260, d: 150, kind: 'warehouse' },
+  { dx: 1780, dz: 470, w: 320, d: 130, kind: 'siding' },
+  { dx: 1700, dz: -980, w: 210, d: 190, kind: 'stockpile' },
+  { dx: -2060, dz: 360, w: 180, d: 150, kind: 'motorpool' },
+]
 
 /** 瓣的抽法與農地相同：固定 4 瓣，半徑比在 [0.30, 0.48] */
 const HILL_LOBES = 4

@@ -595,10 +595,168 @@ export interface SiteLayout {
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */
   readonly roadWidth: number
+  /**
+   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。世界座標。
+   *
+   * 【壓在墊面之上、道路之下】次序在 `siteGlsl` 與 `siteSurfaceColor` 兩邊
+   * 要一致，否則畫面上的路被碴石蓋掉，而小地圖取樣說它是柏油。
+   */
+  readonly patches?: readonly {
+    readonly x0: number; readonly z0: number
+    readonly x1: number; readonly z1: number
+    readonly hex: number
+  }[]
+  /**
+   * 牆外衛星設施的鋪面。世界座標，形狀與 `patches` 相同。
+   *
+   * 【為什麼不能併進 `patches`】`patches` 在過渡帶之前上色，越靠外越被混回
+   * 田色 —— 而衛星設施整塊都在墊面外，併進去會被洗成一片田。這一層畫在
+   * 過渡帶之後、道路之前。
+   */
+  readonly outposts?: readonly {
+    readonly x0: number; readonly z0: number
+    readonly x1: number; readonly z1: number
+    readonly hex: number
+  }[]
 }
 
 const CONCRETE = 0x8d8a82
 const ASPHALT = 0x3f3d3a
+
+/** `siteSurfaceColor` 的暫存色。混色要兩個 Color，而它一秒可以被叫上萬次 */
+const SCRATCH = /* @__PURE__ */ new Color()
+
+/**
+ * 髒污碎花的格，m。小格是逐格的亮暗與油漬，大格是整片鋪面的深淺。
+ *
+ * 【不要再放大】投彈高度一個像素蓋到地面約 4 m，小格已經只有三個像素寬 ——
+ * 再細下去會在飛行中閃爍，而那是看得出來的雜訊不是髒。
+ */
+const GRIME_CELL = 13
+const SLAB_CELL = 40
+
+/**
+ * 一點的髒污倍率。**墊面與鋪面共用** —— 調車場的碴石與留白的裸土乘上它就
+ * 是同色系的碎花，而不是一整塊平色。
+ *
+ * 【與 `siteGlsl` 逐項對應】兩份不一致的話，小地圖與畫面上的地是兩種顏色。
+ */
+function grimeFactor(x: number, z: number): number {
+  const ph = hash2(Math.floor(x / GRIME_CELL), Math.floor(z / GRIME_CELL))
+  const sh = hash2(Math.floor(x / SLAB_CELL) + 7919, Math.floor(z / SLAB_CELL) - 104729)
+  const oh = hash1(ph)
+  const slab = 0.86 + (0.2 * ((sh >>> 8) & 0x7)) / 7
+  const stain = (oh & 0xff) < 46 ? 0.74 : 1
+  return slab * stain * (0.96 + (0.08 * (ph & 0xff)) / 255)
+}
+
+/**
+ * 廠界的兩層起伏：細的一層讓邊緣有鋸齒，粗的一層讓整條邊蜿蜒。
+ *
+ * 【只有細的那一層不夠】110 m 的格咬 130 m，放在一條 3 km 的邊上是 4% 的
+ * 相對振幅 —— 從投彈高度看仍然是一條直線加毛邊。粗的一層才把矩形變成
+ * 不規則的形狀。
+ */
+const EDGE_CELL = 110
+const EDGE_BITE = 120
+const COARSE_CELL = 450
+const COARSE_BITE = 200
+
+/**
+ * 四個角斜切掉的兩條直角邊，佔墊面寬與深的比例。
+ *
+ * 【四個角要不一樣】一樣的話切完仍然是一個對稱的八邊形，那和矩形一樣好認。
+ */
+const CORNER_CUTS: readonly (readonly [number, number])[] = [
+  [0.10, 0.20], [0.06, 0.13], [0.085, 0.175], [0.045, 0.20],
+]
+
+/**
+ * 過渡帶的寬度，m。墊面之外這麼寬的一圈是擾動地 —— 碎石、堆土、雜草。
+ *
+ * 【比最深的一咬淺是刻意的】`EDGE_BITE + COARSE_BITE` 是 320 m，所以邊緣的
+ * 街廓會有一小截設備站在帶子之外的田上。那正是廠區往外溢出去的樣子 ——
+ * 帶子拉到蓋住整條咬痕的話，廠區周圍會多一圈一眼看得出來的灰邊。
+ */
+const BAND = 170
+/** 擾動地的顏色：混凝土與田土之間 */
+const DISTURBED = 0x6a5f4c
+
+/**
+ * 起伏的深度。**兩側加起來不得吃掉整塊墊面** —— 咬得比半邊長還深的話，
+ * 小一點的墊面會整片消失，而它在畫面上只是「這一關的廠區不見了」。
+ */
+function edgeBite(pad: SiteLayout['pad']): number {
+  return Math.min(EDGE_BITE, (pad.x1 - pad.x0) * 0.08, (pad.z1 - pad.z0) * 0.08)
+}
+
+function coarseBite(pad: SiteLayout['pad']): number {
+  return Math.min(COARSE_BITE, (pad.x1 - pad.x0) * 0.11, (pad.z1 - pad.z0) * 0.11)
+}
+
+/** 一個 0…1 的格值。四條邊各用自己的鹽，否則對邊會鏡射 */
+function edgeNoise(t: number, cell: number, salt: number): number {
+  return (hash2(Math.floor(t / cell), salt) & 0xff) / 255
+}
+
+/**
+ * 一點到墊面邊界的有號距離，m —— 負的在裡面、正的在外面。
+ *
+ * 【為什麼要距離而不是布林】過渡帶、邊緣壓暗、外圈的擾動地都要知道「離邊
+ * 多遠」。取各條約束的最大違反量：軸對齊矩形的外側距離就是這樣算的，角落
+ * 會略為低估，而那正好讓斜切角的帶子寬一點。
+ *
+ * **GLSL 與 CPU 兩份要算出同一個答案** —— 分家的話畫面上的廠界與取樣到的
+ * 顏色差一整條邊，而那只有在小地圖與畫面並排時才看得出來。
+ */
+function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
+  const b = edgeBite(pad)
+  const c = coarseBite(pad)
+  const inset = (t: number, s1: number, s2: number): number =>
+    edgeNoise(t, EDGE_CELL, s1) * b + edgeNoise(t, COARSE_CELL, s2) * c
+  const w = pad.x1 - pad.x0
+  const d = pad.z1 - pad.z0
+  let out = Math.max(
+    pad.x0 + inset(z, 4517, 3313) - x,
+    x - (pad.x1 - inset(z, 2287, 6151)),
+    pad.z0 + inset(x, 9911, 8543) - z,
+    z - (pad.z1 - inset(x, 7331, 1697)),
+  )
+  for (let k = 0; k < 4; k++) {
+    const a = CORNER_CUTS[k]![0] * w
+    const e = CORNER_CUTS[k]![1] * d
+    const u = (k & 1) === 0 ? x - pad.x0 : pad.x1 - x
+    const v = k < 2 ? z - pad.z0 : pad.z1 - z
+    // 違反量換算成垂直距離：法向量 (1/a, 1/e) 的長度倒數
+    out = Math.max(out, (1 - u / a - v / e) / Math.hypot(1 / a, 1 / e))
+  }
+  return out
+}
+
+/**
+ * 廠區這一層的作用範圍：墊面加過渡帶，再併進所有衛星設施。**道路不算** ——
+ * 連外那兩條一路畫到地圖邊緣。
+ *
+ * 【為什麼要這個】墊面那一段的算式每個像素都跑，而投彈高度整片畫面有七成
+ * 是田。少了這個外接矩形，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
+ */
+function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1: number } {
+  const out = {
+    x0: site.pad.x0 - BAND, x1: site.pad.x1 + BAND,
+    z0: site.pad.z0 - BAND, z1: site.pad.z1 + BAND,
+  }
+  for (const q of site.outposts ?? []) {
+    out.x0 = Math.min(out.x0, q.x0); out.x1 = Math.max(out.x1, q.x1)
+    out.z0 = Math.min(out.z0, q.z0); out.z1 = Math.max(out.z1, q.z1)
+  }
+  return out
+}
+
+/** 過渡帶在這一點多寬。**外緣也要碎** —— 等寬的一圈只是把矩形往外推 */
+function bandWidth(x: number, z: number): number {
+  const h = hash2(Math.floor(x / 260), Math.floor(z / 260))
+  return BAND * (0.6 + (0.4 * ((h >>> 9) & 0xff)) / 255)
+}
 
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
 function segmentsOf(site: SiteLayout): { ax: number; az: number; bx: number; bz: number }[] {
@@ -629,12 +787,87 @@ function siteGlsl(site: SiteLayout): string {
   const segs = segmentsOf(site)
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
+  const B = edgeBite(site.pad).toFixed(1)
+  const C = coarseBite(site.pad).toFixed(1)
+  const pad = site.pad
+  const W = pad.x1 - pad.x0
+  const D = pad.z1 - pad.z0
+  /** 與 `padDistance` 的 `inset()` 逐項對應 */
+  const inset = (axis: string, s1: number, s2: number): string =>
+    `float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
+    + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
+  const corners = CORNER_CUTS.map(([fa, fe], k) => {
+    const a = fa * W
+    const e = fe * D
+    const u = (k & 1) === 0 ? `world.x - ${pad.x0.toFixed(1)}` : `${pad.x1.toFixed(1)} - world.x`
+    const v = k < 2 ? `world.y - ${pad.z0.toFixed(1)}` : `${pad.z1.toFixed(1)} - world.y`
+    const norm = Math.hypot(1 / a, 1 / e)
+    return `  padD = max(padD, (1.0 - (${u}) / ${a.toFixed(1)} - (${v}) / ${e.toFixed(1)})`
+      + ` / ${norm.toFixed(8)});`
+  }).join('\n')
+  /** 一組矩形＋色相攤成 GLSL 的兩張表加一個迴圈 */
+  const rectsGlsl = (
+    name: string, rs: NonNullable<SiteLayout['patches']>, assign: string,
+  ): string => rs.length === 0 ? '' : `
+  const vec4 ${name}[${rs.length}] = vec4[${rs.length}](
+${rs.map((p) => `  vec4(${p.x0.toFixed(1)}, ${p.z0.toFixed(1)}, `
+    + `${p.x1.toFixed(1)}, ${p.z1.toFixed(1)})`).join(',\n')}
+  );
+  const vec3 ${name}_HUE[${rs.length}] = vec3[${rs.length}](
+${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
+  );
+  for (int i = 0; i < ${rs.length}; i++) {
+    if (world.x >= ${name}[i].x && world.x < ${name}[i].z
+        && world.y >= ${name}[i].y && world.y < ${name}[i].w) {
+      ${assign.replace('$', `${name}_HUE[i]`)}
+    }
+  }`
+  const patchGlsl = rectsGlsl('PATCHES', site.patches ?? [],
+    'siteCol = $ * siteGrime * padDark;')
+  const outpostGlsl = rectsGlsl('OUTPOSTS', site.outposts ?? [],
+    'col = $ * siteGrime;')
+  const near = siteBounds(site)
   return `
-  // 墊面：混凝土，帶一點格狀的明暗
-  if (world.x >= ${site.pad.x0.toFixed(1)} && world.x < ${site.pad.x1.toFixed(1)}
-      && world.y >= ${site.pad.z0.toFixed(1)} && world.y < ${site.pad.z1.toFixed(1)}) {
-    uint ph = fieldHash2(int(floor(world.x / 40.0)), int(floor(world.y / 40.0)));
-    col = ${rgb(CONCRETE)} * (0.92 + 0.1 * float(ph & 0xffu) / 255.0);
+  // 【先用外接矩形擋掉】底下這一段是每個像素都跑的，而投彈高度整片畫面有
+  // 七成是田 —— 少了這個測試，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
+  // 道路留在外面：連外那兩條一路畫到地圖邊緣
+  if (world.x > ${near.x0.toFixed(1)} && world.x < ${near.x1.toFixed(1)}
+      && world.y > ${near.z0.toFixed(1)} && world.y < ${near.z1.toFixed(1)}) {
+  // 髒污：${SLAB_CELL.toFixed(0)} m 的鋪面塊疊 ${GRIME_CELL.toFixed(0)} m 的油漬與微亮暗。
+  // 墊面與鋪面共用，所以碴石與裸土也是同色系的碎花而不是一整塊平色
+  //
+  // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
+  uint sgP = fieldHash2(int(floor(world.x / ${GRIME_CELL}.0)), int(floor(world.y / ${GRIME_CELL}.0)));
+  uint sgS = fieldHash2(int(floor(world.x / ${SLAB_CELL}.0)) + 7919,
+                        int(floor(world.y / ${SLAB_CELL}.0)) - 104729);
+  uint sgO = fieldHash1(sgP);
+  float siteGrime = (0.86 + 0.2 * float((sgS >> 8) & 0x7u) / 7.0)
+    * ((sgO & 0xffu) < 46u ? 0.74 : 1.0)
+    * (0.96 + 0.08 * float(sgP & 0xffu) / 255.0);
+
+  // 【廠界不是直角矩形】兩層起伏：${EDGE_CELL.toFixed(0)} m 的格咬出鋸齒、
+  // ${COARSE_CELL.toFixed(0)} m 的格讓整條邊蜿蜒，四個角再各斜切一塊。一條直的邊在投彈
+  // 高度看下去就是一把尺，而廠區是幾十年間一塊一塊擴出來的
+  //
+  // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
+  float padD = max(
+    max(${pad.x0.toFixed(1)} + ${inset('world.y', 4517, 3313)} - world.x,
+        world.x - (${pad.x1.toFixed(1)} - (${inset('world.y', 2287, 6151)}))),
+    max(${pad.z0.toFixed(1)} + ${inset('world.x', 9911, 8543)} - world.y,
+        world.y - (${pad.z1.toFixed(1)} - (${inset('world.x', 7331, 1697)}))));
+${corners}
+
+  // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
+  // 把那一階削掉一截
+  float padDark = mix(0.90, 1.0, clamp(-padD / 150.0, 0.0, 1.0));
+  vec3 siteCol = ${rgb(CONCRETE)} * siteGrime * padDark;
+${patchGlsl}
+  // 【過渡帶】墊面外 ${BAND.toFixed(0)} m 是擾動地：碎石、堆土、雜草。廠區與田之間
+  // 不是一條線而是一條帶 —— 這是高空看下去最有效的一招，眼睛抓的是階梯
+  float bandH = float((fieldHash2(int(floor(world.x / 260.0)), int(floor(world.y / 260.0))) >> 9) & 0xffu) / 255.0;
+  float padT = clamp(padD / (${BAND.toFixed(1)} * (0.6 + 0.4 * bandH)), 0.0, 1.0);
+  col = mix(mix(siteCol, ${rgb(DISTURBED)} * siteGrime, min(1.0, padT * 2.2)), col, padT * padT);
+${outpostGlsl}
   }
   // 道路：離任一條線段小於半寬
   const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
@@ -670,8 +903,30 @@ export function siteSurfaceColor(
     for (const s of segmentsOf(site)) {
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
     }
-    const p = site.pad
-    if (x >= p.x0 && x < p.x1 && z >= p.z0 && z < p.z1) return out.setHex(CONCRETE)
+    // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
+    const near = siteBounds(site)
+    if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
+      return fieldSurfaceColor(x, z, out, season)
+    }
+    for (const q of site.outposts ?? []) {
+      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) {
+        return out.setHex(q.hex).multiplyScalar(grimeFactor(x, z))
+      }
+    }
+    const d = padDistance(x, z, site.pad)
+    const t = Math.min(1, Math.max(0, d / bandWidth(x, z)))
+    if (t < 1) {
+      // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗 → 過渡帶，次序一致
+      let hex = CONCRETE
+      for (const q of site.patches ?? []) {
+        if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) hex = q.hex
+      }
+      const g = grimeFactor(x, z)
+      const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / 150))
+      out.setHex(hex).multiplyScalar(g * dark)
+      out.lerp(SCRATCH.setHex(DISTURBED).multiplyScalar(g), Math.min(1, t * 2.2))
+      return out.lerp(fieldSurfaceColor(x, z, SCRATCH, season), t * t)
+    }
   }
   return fieldSurfaceColor(x, z, out, season)
 }
