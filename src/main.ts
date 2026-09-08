@@ -120,6 +120,7 @@ import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { PLANT_STACKS } from './world/leuna'
+import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -2326,6 +2327,9 @@ await preloadAircraftModels()
 await preloadShipModels(['essex', 'wichita', 'fletcher'])
 // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
 await preloadGroundModels()
+// 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
+// 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
+await preloadPlantScenery()
 requestAnimationFrame(frame)
 
 /**
