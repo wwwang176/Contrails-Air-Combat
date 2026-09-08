@@ -303,6 +303,30 @@ def cyl_mesh(r_bottom, r_top, h, seg):
     return v, f
 
 
+def plane_mesh(sx, sy, off=0.0):
+    """局部 XY 平面上的一片四邊形，法線 +Z。**兩個三角形**"""
+    hx, hy = sx / 2, sy / 2
+    return ([(-hx, -hy, off), (hx, -hy, off), (hx, hy, off), (-hx, hy, off)], [(0, 1, 2, 3)])
+
+
+def add_plane(b, name, mtl, cx, cy, cz, sx, sy, rz=0.0, rx=0.0, two_sided=False):
+    """一片四邊形。盒子是十二個三角形，這個是兩個。
+
+    【單面，背面會被剔除】遊戲那邊的材質是預設的 FrontSide，所以只能用在
+    「只看得到一面」的地方：樓板、斜梯、蓋板 —— 從投彈高度只看得到上面，
+    做成盒子等於為了看不見的底面多花五倍。
+
+    【`rx = 90` 之後就是立面】局部 Y 變成高度、局部 Z 變成水平法線方向。
+    `two_sided` 會在法線的反向 0.2 m 處再出一片反捲繞的 —— 圍牆兩面都看得到，
+    而兩片重疊在同一個平面上會閃爍。
+    """
+    v, f = plane_mesh(sx, sy)
+    b.add(v, f, mtl, (cx, cy, cz), rz, rx)
+    if two_sided:
+        v2, _ = plane_mesh(sx, sy, -0.2)
+        b.add(v2, [(3, 2, 1, 0)], mtl, (cx, cy, cz), rz, rx)
+
+
 def add_box(b, name, mtl, cx, cy, cz, sx, sy, sz, rz=0.0, rx=0.0):
     v, f = box_mesh(sx, sy, sz)
     b.add(v, f, mtl, (cx, cy, cz), rz, rx)
@@ -409,7 +433,17 @@ FLOOR_H = 5.0
 
 
 def truss_tower(col, dx, dz, size, layers, seed):
-    """開放式桁架塔：四根角柱、每層平台與欄杆、層間斜梯、頂上排氣管"""
+    """開放式桁架塔：四根三角柱角柱、每層一片樓板、層間一片斜梯、頂上蓋板
+    與排氣管。
+
+    【角柱是三角柱、樓板與斜梯是單片】一根方柱十二個三角形、三角柱八個；
+    一片樓板兩個、一個盒子十二個。開放式的鋼樓板本來就是格柵，從下面看得
+    穿是對的。
+
+    【沒有欄杆】0.15 m 粗、1 m 高的一道欄杆在最近的視距（200 m 貼地）也只有
+    一兩個像素，而兩道要 24 個三角形 —— 一座塔的三分之一花在看不見的東西上。
+    四層的一座因此由 268 降到 66。
+    """
     n = 0
     h = size / 2
     top = layers * FLOOR_H
@@ -417,20 +451,18 @@ def truss_tower(col, dx, dz, size, layers, seed):
     frame = fixed_mat('LP_PlantSteel')
     for sx in (-1, 1):
         for sz in (-1, 1):
-            add_box(col, 'truss_leg', frame, dx + sx * (h - 0.35), -(dz + sz * (h - 0.35)),
-                    top / 2, 0.7, 0.7, top)
+            add_cyl(col, 'truss_leg', frame, dx + sx * (h - 0.35), -(dz + sz * (h - 0.35)),
+                    0.0, 0.45, 0.45, top, 3)
             n += 1
     for f in range(1, layers + 1):
         y = f * FLOOR_H
-        add_box(col, 'truss_deck', steel, dx, -dz, y, size, size, 0.3)
-        add_box(col, 'truss_rail', frame, dx, -(dz - h), y + 0.65, size, 0.15, 1.0)
-        add_box(col, 'truss_rail', frame, dx, -(dz + h), y + 0.65, size, 0.15, 1.0)
+        add_plane(col, 'truss_deck', steel, dx, -dz, y, size, size)
         d = 1 if f % 2 == 0 else -1
         # 斜梯的下角抬 0.3 m —— 少了它整片廠區的最低點會是負的
-        add_box(col, 'truss_stair', frame, dx + d * (h - 1), -dz,
-                y - FLOOR_H / 2 + 0.3, 1.2, FLOOR_H * 1.4, 0.2, 0.0, d * 45)
-        n += 4
-    add_box(col, 'truss_top', steel, dx, -dz, top + 0.2, size * 0.8, size * 0.8, 0.4)
+        add_plane(col, 'truss_stair', frame, dx + d * (h - 1), -dz,
+                  y - FLOOR_H / 2 + 0.3, 1.2, FLOOR_H * 1.4, 0.0, d * 45)
+        n += 2
+    add_plane(col, 'truss_top', steel, dx, -dz, top + 0.2, size * 0.8, size * 0.8)
     add_cyl(col, 'truss_vent', grime_mat(seed + 1), dx + h * 0.5, -dz, top, 0.5, 0.5,
             top * 0.25, 3)
     add_cyl(col, 'truss_vent', grime_mat(seed + 2), dx - h * 0.5, -(dz + h * 0.4), top,
@@ -1549,7 +1581,7 @@ def build_wall(b):
             z = sz * (PAD_HALF_Z + push)
             if not free_rect(x, z, half, 0.4):
                 continue
-            add_box(b, 'wall', m, x, -z, 1.25, WALL_SEG - 0.5, 0.4, 2.5)
+            add_plane(b, 'wall', m, x, -z, 1.25, WALL_SEG - 0.5, 2.5, 0.0, 90.0, True)
             n += 1
         i += 1
         x += WALL_SEG
@@ -1565,7 +1597,7 @@ def build_wall(b):
             x = sx * (PAD_HALF_X + push)
             if not free_rect(x, z, 0.4, half):
                 continue
-            add_box(b, 'wall', m, x, -z, 1.25, 0.4, WALL_SEG - 0.5, 2.5)
+            add_plane(b, 'wall', m, x, -z, 1.25, WALL_SEG - 0.5, 2.5, 90.0, 90.0, True)
             n += 1
         j += 1
         z += WALL_SEG
