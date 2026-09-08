@@ -1,0 +1,345 @@
+import { describe, it, expect } from 'vitest'
+import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
+import {
+  FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  SHAKE_FREQUENCY, SHAKE_MAX_ANGLE, SHAKE_RANGE, SHAKE_SECONDS,
+  addShake, applyCameraShake, createCameraShake, shakeNoise, stepCameraShake,
+} from '../../src/camera/cameraShake'
+
+/**
+ * # 爆炸的鏡頭震動
+ *
+ * 純表現：不進判定、不影響飛行。相機每一幀由 `CameraRig` 重算，震動是疊在
+ * 那之後的一個角度偏移 —— 所以它**不會累積**回相機的狀態。
+ *
+ * 【這一支守的是什麼】三件靜靜壞掉的事：震動變成逐幀亂跳的白噪音（看起來
+ * 像掉幀而不是震動）、平均值不為零把視線永久拉歪、以及火焰那一串每 0.3 秒
+ * 的小爆炸也去搖鏡頭（畫面會整場抖個不停）。
+ */
+
+const DT = 1 / 60
+const ORIGIN = new Vector3(0, 0, 0)
+
+/** 疊上震動之後，相機轉了多少角度（弧度）。基準姿態是單位四元數 */
+function shakenAngle(trauma: number, phase: number): number {
+  const shake = createCameraShake()
+  shake.trauma = trauma
+  shake.phase = phase
+  const cam = new PerspectiveCamera(65, 16 / 9, 1, 60000)
+  applyCameraShake(shake, cam)
+  return 2 * Math.acos(Math.min(1, Math.abs(cam.quaternion.w)))
+}
+
+describe('addShake：依距離加震動', () => {
+  it('爆心給滿，範圍邊界給 0，範圍外完全不加', () => {
+    const a = createCameraShake()
+    addShake(a, 0, 0, 0, 1, ORIGIN)
+    expect(a.trauma).toBeCloseTo(1, 6)
+
+    const b = createCameraShake()
+    addShake(b, SHAKE_RANGE, 0, 0, 1, ORIGIN)
+    expect(b.trauma).toBeCloseTo(0, 6)
+
+    const c = createCameraShake()
+    addShake(c, SHAKE_RANGE * 2, 0, 0, 1, ORIGIN)
+    expect(c.trauma).toBe(0)
+  })
+
+  /** 【三個軸都要量】只算水平距離的話，正下方 300 m 的爆炸會震得像貼臉 */
+  it('距離是三維的，不是水平距離', () => {
+    const a = createCameraShake()
+    addShake(a, 0, SHAKE_RANGE * 0.5, 0, 1, ORIGIN)
+    expect(a.trauma).toBeCloseTo(0.5, 6)
+  })
+
+  /**
+   * 【範圍隨當量放大】尺度是爆炸相似律的線性倍率（1.0 = 500 lb 炸彈），
+   * 與 `scaleBlast` 吃的同一個。少了這一項的話魚雷與高砲搖起來一樣遠。
+   */
+  it('尺度放大作用範圍', () => {
+    const far = SHAKE_RANGE * 1.5
+    const small = createCameraShake()
+    addShake(small, far, 0, 0, 1, ORIGIN)
+    expect(small.trauma).toBe(0)
+
+    const big = createCameraShake()
+    addShake(big, far, 0, 0, 2, ORIGIN)
+    expect(big.trauma).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【小當量的爆炸貼臉也只加它自己的份量】只用尺度縮短範圍的話，一發 3 kg
+   * 裝藥的高砲彈在爆心與一顆 227 kg 的炸彈搖得一樣重。防空火網下每秒好幾
+   * 發近爆，每一發都把 trauma 頂回滿格 —— 畫面整段航程都在劇烈晃動。
+   */
+  it('峰值跟著當量走，不是一律給滿', () => {
+    const s = createCameraShake()
+    addShake(s, 0, 0, 0, FLAK_SHAKE, ORIGIN)
+    expect(s.trauma).toBeCloseTo(FLAK_SHAKE, 6)
+
+    const big = createCameraShake()
+    addShake(big, 0, 0, 0, 3, ORIGIN)
+    expect(big.trauma).toBe(1)
+  })
+
+  /**
+   * 【同時好幾發取最大值，不疊加】疊加的話一串連投的炸彈或一片防空火網會
+   * 把 trauma 推到滿格並停在那裡 —— 畫面上分不出「近處一顆」與「遠處
+   * 十顆」。震動的大小恆等於最近最猛的那一發。
+   *
+   * 【先大後小那一組是重點】只寫「小的加不上去」的話，`+=` 照樣通過前半段
+   * 的第一次呼叫；要驗的是小的**不會把大的推高**。
+   */
+  it('同一幀多發取最大值，不疊加', () => {
+    const s = createCameraShake()
+    for (let i = 0; i < 5; i++) addShake(s, 0, 0, 0, FLAK_SHAKE, ORIGIN)
+    expect(s.trauma).toBeCloseTo(FLAK_SHAKE, 6)
+
+    const big = createCameraShake()
+    addShake(big, 0, 0, 0, 1, ORIGIN)
+    for (let i = 0; i < 5; i++) addShake(big, 0, 0, 0, FLAK_SHAKE, ORIGIN)
+    expect(big.trauma).toBe(1)
+  })
+
+  /** 【遠處的一發蓋不掉近處的】取的是最大值，不是最後一發 */
+  it('後來的遠處爆炸不會把震動壓下去', () => {
+    const s = createCameraShake()
+    addShake(s, 0, 0, 0, 1, ORIGIN)
+    addShake(s, SHAKE_RANGE * 0.9, 0, 0, 1, ORIGIN)
+    expect(s.trauma).toBe(1)
+  })
+
+  it('相機不在原點也算得對', () => {
+    const s = createCameraShake()
+    const cam = new Vector3(1000, 200, -3000)
+    addShake(s, 1000, 200 + SHAKE_RANGE * 0.25, -3000, 1, cam)
+    expect(s.trauma).toBeCloseTo(0.75, 6)
+  })
+})
+
+describe('stepCameraShake：衰減', () => {
+  it('滿震動在 SHAKE_SECONDS 之後歸零', () => {
+    const s = createCameraShake()
+    addShake(s, 0, 0, 0, 1, ORIGIN)
+    for (let i = 0; i < SHAKE_SECONDS / DT - 2; i++) stepCameraShake(s, DT)
+    expect(s.trauma).toBeGreaterThan(0)
+    for (let i = 0; i < 4; i++) stepCameraShake(s, DT)
+    expect(s.trauma).toBe(0)
+  })
+
+  /**
+   * 【相位不隨震動停止歸零】歸零的話每一次爆炸都從噪聲的同一點開始，
+   * 連續兩次爆炸會晃出一模一樣的軌跡。
+   */
+  it('相位持續前進，震動停了也一樣', () => {
+    const s = createCameraShake()
+    for (let i = 0; i < 30; i++) stepCameraShake(s, DT)
+    expect(s.phase).toBeCloseTo(30 * DT, 6)
+  })
+
+  it('reset 清空震動與相位', () => {
+    const s = createCameraShake()
+    addShake(s, 0, 0, 0, 1, ORIGIN)
+    stepCameraShake(s, DT)
+    s.reset()
+    expect(s.trauma).toBe(0)
+    expect(s.phase).toBe(0)
+  })
+})
+
+describe('shakeNoise：平滑、有界、平均為零', () => {
+  /**
+   * 【連續性是這一條的重點】直接對每一幀取雜湊也會通過「有界」與「平均為
+   * 零」，但畫面上那是白噪音 —— 相機每一幀跳到無關的角度，看起來像掉幀。
+   * 取樣間隔取噪聲週期的百分之一，變化量必須遠小於整個振幅。
+   */
+  it('相鄰時刻的值連續', () => {
+    let worst = 0
+    for (let i = 0; i < 2000; i++) {
+      const t = i * 0.01
+      worst = Math.max(worst, Math.abs(shakeNoise(1, t) - shakeNoise(1, t + 0.01)))
+    }
+    expect(worst).toBeLessThan(0.1)
+  })
+
+  it('值落在 −1…1 而且真的有變化', () => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (let i = 0; i < 2000; i++) {
+      const v = shakeNoise(1, i * 0.05)
+      lo = Math.min(lo, v)
+      hi = Math.max(hi, v)
+    }
+    expect(lo).toBeGreaterThanOrEqual(-1)
+    expect(hi).toBeLessThanOrEqual(1)
+    expect(hi - lo).toBeGreaterThan(1)
+  })
+
+  /**
+   * 【平均要接近 0】偏一邊的話震動會把視線往某個方向推著走，而震動一停
+   * 鏡頭又彈回來 —— 那不是震動，是甩鏡。
+   */
+  it('長時間平均接近 0', () => {
+    let sum = 0
+    const n = 20_000
+    for (let i = 0; i < n; i++) sum += shakeNoise(1, i * 0.037)
+    expect(Math.abs(sum / n)).toBeLessThan(0.05)
+  })
+
+  /** 【三個軸互不相同】共用一組值的話三個軸同步，晃出來是一條斜線 */
+  it('不同軸的值不同', () => {
+    let same = 0
+    for (let i = 0; i < 200; i++) {
+      const t = i * 0.19
+      if (Math.abs(shakeNoise(1, t) - shakeNoise(2, t)) < 1e-9) same++
+    }
+    expect(same).toBe(0)
+  })
+})
+
+describe('applyCameraShake：疊在相機姿態上', () => {
+  it('沒有震動時姿態逐位元不動', () => {
+    const s = createCameraShake()
+    const cam = new PerspectiveCamera(65, 16 / 9, 1, 60000)
+    const q = new Quaternion(0.1, 0.2, 0.3, 0.927).normalize()
+    cam.quaternion.copy(q)
+    applyCameraShake(s, cam)
+    expect(cam.quaternion.x).toBe(q.x)
+    expect(cam.quaternion.y).toBe(q.y)
+    expect(cam.quaternion.z).toBe(q.z)
+    expect(cam.quaternion.w).toBe(q.w)
+  })
+
+  /**
+   * 【只轉不移】座艙視角下平移相機會穿出座艙罩，而機外視角下會把機身推出
+   * 畫面。震動只給角度。
+   */
+  it('相機位置完全不動', () => {
+    const s = createCameraShake()
+    addShake(s, 0, 0, 0, 1, ORIGIN)
+    const cam = new PerspectiveCamera(65, 16 / 9, 1, 60000)
+    cam.position.set(10, 20, 30)
+    applyCameraShake(s, cam)
+    expect(cam.position.x).toBe(10)
+    expect(cam.position.y).toBe(20)
+    expect(cam.position.z).toBe(30)
+  })
+
+  /**
+   * 【角度吃 trauma 的平方】遠處的爆炸只該給一下輕微的抖動。線性的話
+   * trauma 0.3 就有三成的振幅，整場都在晃。
+   */
+  it('角度隨 trauma 的平方成長，且不超過上限', () => {
+    // 相位取一個噪聲接近滿幅的點，比的是同一個相位下的兩個 trauma
+    const phase = 3.21
+    const full = shakenAngle(1, phase)
+    const half = shakenAngle(0.5, phase)
+    expect(full).toBeGreaterThan(0)
+    expect(half / full).toBeCloseTo(0.25, 2)
+
+    let worst = 0
+    for (let i = 0; i < 4000; i++) worst = Math.max(worst, shakenAngle(1, i * 0.011))
+    // 三個軸各自不超過 SHAKE_MAX_ANGLE，合成之後的上界是它們的和
+    expect(worst).toBeLessThanOrEqual(SHAKE_MAX_ANGLE * (2 + 1) * 1.001)
+    // 真的搖得到看得見的幅度：滿震動至少要到單軸上限的一半
+    expect(worst).toBeGreaterThan(SHAKE_MAX_ANGLE * 0.5)
+  })
+
+  /** 【一秒晃好幾下】頻率太低的話那是鏡頭在飄，不是爆炸 */
+  it('震動頻率至少每秒數次', () => {
+    expect(SHAKE_FREQUENCY).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('main.ts 的接線', () => {
+  // 【用 import.meta.glob 而不是 fs】專案沒有 `@types/node`
+  const SOURCES = import.meta.glob('../../src/main.ts', {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+  const MAIN = Object.values(SOURCES)[0]!
+
+  /** 取出某個函數的函數體（到第一個頂層 `\n}` 為止）。 */
+  function bodyOf(name: string): string {
+    const from = MAIN.indexOf(`function ${name}(`)
+    if (from < 0) throw new Error(`main.ts 裡找不到 ${name}() —— 這條測試的錨點過期了`)
+    const to = MAIN.indexOf('\n}', from)
+    if (to < 0) throw new Error(`${name}() 的結尾找不到`)
+    return MAIN.slice(from, to)
+  }
+
+  for (const fn of ['emitKillBlasts', 'emitGroundKills', 'emitBombBlasts', 'emitTorpedoBlasts']) {
+    it(`${fn} 會搖鏡頭`, () => {
+      expect(bodyOf(fn)).toContain('addShake(')
+    })
+  }
+
+  /** 高砲的引爆走 `burstEvents`，配方在 `blast.ts` 裡放，震動在 main 這一層加 */
+  it('高砲引爆會搖鏡頭', () => {
+    expect(bodyOf('shakeFlakBursts')).toContain('addShake(')
+  })
+
+  /**
+   * 【砲位被打掉也是一次性爆炸】它不走事件流，走的是 `shipModels.update`
+   * 的回呼，所以上面那一圈函數名的列舉抓不到它。
+   */
+  it('艦上砲位被打掉會搖鏡頭', () => {
+    const from = MAIN.indexOf('shipModels?.update(world.ships,')
+    expect(from).toBeGreaterThan(0)
+    const to = MAIN.indexOf('\n  })', from)
+    expect(MAIN.slice(from, to)).toContain('addShake(')
+  })
+
+  /**
+   * 【火焰要排除】燒起來的船與建築每 0.3 秒放一朵小爆炸，燒 60 秒。跟著
+   * 搖的話只要場上有一處在燒，畫面就整場抖個不停 —— 而那看起來像效能問題，
+   * 不像缺陷。
+   */
+  it('火焰的迷你爆炸不搖鏡頭', () => {
+    const from = MAIN.indexOf('const emitFirePuff')
+    expect(from).toBeGreaterThan(0)
+    const to = MAIN.indexOf('\n}', from)
+    expect(MAIN.slice(from, to)).not.toContain('addShake')
+  })
+
+  /**
+   * 【一定要排在相機算完之後】`rig.update` 與 `applyBlend` 每一幀從頭寫
+   * 相機姿態，排在它們之前的震動會被整個蓋掉，而畫面上只是「沒有震動」。
+   * 也一定要在 `renderer.render` 之前。
+   */
+  it('震動疊在 applyBlend 之後、渲染之前', () => {
+    const blend = MAIN.indexOf('applyBlend(godBlend')
+    const apply = MAIN.indexOf('applyCameraShake(cameraShake')
+    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
+    expect(blend).toBeGreaterThan(0)
+    expect(apply).toBeGreaterThan(blend)
+    expect(render).toBeGreaterThan(apply)
+  })
+
+  it('每幀推進衰減', () => {
+    expect(MAIN).toContain('stepCameraShake(cameraShake,')
+  })
+})
+
+describe('各種爆炸的當量尺度', () => {
+  /**
+   * 【高砲要明顯小於炸彈】5 吋砲彈的裝藥約 3 kg，AN-M64 是 227 kg ——
+   * 立方根律下差四倍。一樣大的話一場防空火網會把畫面搖爛。
+   */
+  it('高砲 < 砲位 < 地面目標 ≤ 擊墜', () => {
+    expect(FLAK_SHAKE).toBeLessThan(GUN_LOST_SHAKE)
+    expect(GUN_LOST_SHAKE).toBeLessThan(GROUND_KILL_SHAKE)
+    expect(GROUND_KILL_SHAKE).toBeLessThanOrEqual(KILL_SHAKE)
+    expect(FLAK_SHAKE * SHAKE_RANGE).toBeLessThan(200)
+  })
+
+  /**
+   * 【防空火網下不能一直大震】艦隊有 12 個砲區、每區 20 rpm，玩家在最前面
+   * 時多區會同時瞄他，約每秒 3.7 發引爆 —— 也就是每一幀都有近爆把 trauma
+   * 重新頂到 `FLAK_SHAKE`。取最大值之後那就是彈幕下的穩態，角度必須小到
+   * 只是細微的抖動。
+   */
+  it('高砲彈幕下的穩態震動小於單軸上限的十分之一', () => {
+    const steady = SHAKE_MAX_ANGLE * FLAK_SHAKE * FLAK_SHAKE
+    expect(steady).toBeLessThan(SHAKE_MAX_ANGLE * 0.1)
+  })
+})
