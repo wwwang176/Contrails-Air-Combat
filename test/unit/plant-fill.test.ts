@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, type BufferGeometry } from 'three'
-import { fillBlock, keepouts } from '../../src/render/geometry/ground/plantFill'
-import { PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT } from '../../src/world/leuna'
+import { fillBlock, keepouts, type Keepout } from '../../src/render/geometry/ground/plantFill'
+import { PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT, ROADS, TRUCKS } from '../../src/world/leuna'
 import { PLANT_SIZE } from '../../src/render/geometry/ground/plant'
 
 function bounds(parts: BufferGeometry[]): Box3 {
@@ -78,31 +78,73 @@ describe('街廓填充器', () => {
     }
   })
 
-  it('open 街廓是留白：覆蓋率低於 8%', () => {
+  /**
+   * 【留白也有下限】只寫上限的話，`fillOpen` 整支改成 `return []` 仍然是
+   * 綠的 —— 而那是「還沒做完」，不是「刻意的空地」。
+   */
+  it('open 街廓是留白：覆蓋率在 0.3% 到 8% 之間，而且真的有東西', () => {
     for (const { block: b, parts } of filled) {
       if (b.kind !== 'open') continue
-      expect(coverage(parts, b), `open (${b.x0},${b.z0})`).toBeLessThan(0.08)
+      const c = coverage(parts, b)
+      expect(c, `open (${b.x0},${b.z0}) 是空的`).toBeGreaterThan(0.003)
+      expect(c, `open (${b.x0},${b.z0}) 太滿`).toBeLessThan(0.08)
+      expect(parts.length, `open (${b.x0},${b.z0})`).toBeGreaterThanOrEqual(2)
     }
   })
 
   /**
-   * 【佈景不能壓在可炸構件上】佈景沒有命中盒。疊上去會看到炸彈穿過管架
-   * 在構件上爆，畫面上像是命中判定壞了。
+   * 【佈景不能壓在禁區上】佈景沒有命中盒。疊上去會看到炸彈穿過管架在構件
+   * 上爆，畫面上像是命中判定壞了。
+   *
+   * 【量三角形的包圍盒，不是頂點】一根橫貫的管子可以整段穿過命中盒而
+   * 兩端的頂點都在盒外 —— 只驗頂點的話它是綠的。
    */
-  it('避讓：沒有任何頂點落在可炸構件的腳印加 6 m 之內', () => {
+  it('避讓：沒有任何三角形與構件、卡車或道路的禁區相交', () => {
+    const named: readonly { readonly what: string; readonly k: Keepout }[] = [
+      ...PLANT_LAYOUT.map((t) => {
+        const s = PLANT_SIZE[t.kind]
+        return {
+          what: `構件 ${t.kind}`,
+          k: {
+            x0: PLANT_CENTER.x + t.dx - s.x / 2 - 6, x1: PLANT_CENTER.x + t.dx + s.x / 2 + 6,
+            z0: PLANT_CENTER.z + t.dz - s.z / 2 - 6, z1: PLANT_CENTER.z + t.dz + s.z / 2 + 6,
+          },
+        }
+      }),
+      ...TRUCKS.map((t) => ({
+        what: `卡車 (${t.x},${t.z})`,
+        k: { x0: t.x - 7, x1: t.x + 7, z0: t.z - 7, z1: t.z + 7 },
+      })),
+      ...ROADS.flatMap((road, ri) => road.slice(0, -1).map((a, si) => {
+        const b = road[si + 1]!
+        return {
+          what: `道路 ${ri} 段 ${si}`,
+          k: {
+            x0: Math.min(a.x, b.x) - 8, x1: Math.max(a.x, b.x) + 8,
+            z0: Math.min(a.z, b.z) - 8, z1: Math.max(a.z, b.z) + 8,
+          },
+        }
+      })),
+    ]
     let bad = ''
     for (const { parts } of filled) {
       for (const p of parts) {
         const pos = p.getAttribute('position')
-        for (let i = 0; i < pos.count && bad === ''; i++) {
-          const x = pos.getX(i)
-          const z = pos.getZ(i)
-          for (const t of PLANT_LAYOUT) {
-            const s = PLANT_SIZE[t.kind]
-            const cx = PLANT_CENTER.x + t.dx
-            const cz = PLANT_CENTER.z + t.dz
-            if (Math.abs(x - cx) < s.x / 2 + 6 && Math.abs(z - cz) < s.z / 2 + 6) {
-              bad = `佈景壓在 ${t.kind} 上：(${x.toFixed(1)}, ${z.toFixed(1)})`
+        for (let t = 0; t < pos.count && bad === ''; t += 3) {
+          let ax = Infinity
+          let az = Infinity
+          let bx = -Infinity
+          let bz = -Infinity
+          for (let k = 0; k < 3; k++) {
+            const X = pos.getX(t + k)
+            const Z = pos.getZ(t + k)
+            ax = Math.min(ax, X); bx = Math.max(bx, X)
+            az = Math.min(az, Z); bz = Math.max(bz, Z)
+          }
+          for (const { what, k } of named) {
+            if (bx > k.x0 + 0.01 && ax < k.x1 - 0.01 && bz > k.z0 + 0.01 && az < k.z1 - 0.01) {
+              bad = `佈景壓在${what}上：三角形 (${ax.toFixed(1)}…${bx.toFixed(1)}, `
+                + `${az.toFixed(1)}…${bz.toFixed(1)})`
               break
             }
           }
@@ -110,6 +152,11 @@ describe('街廓填充器', () => {
       }
     }
     expect(bad).toBe('')
+  })
+
+  it('避讓表的每一個禁區都對得上一個構件、卡車或道路段', () => {
+    const roadSegments = ROADS.reduce((n, r) => n + r.length - 1, 0)
+    expect(keepouts().length).toBe(PLANT_LAYOUT.length + TRUCKS.length + roadSegments)
   })
 
   it('決定性：同一個街廓鋪兩次逐位元相同', () => {
@@ -123,7 +170,4 @@ describe('街廓填充器', () => {
     }
   })
 
-  it('避讓表涵蓋十二座構件、八台卡車與每一條道路', () => {
-    expect(keepouts().length).toBeGreaterThanOrEqual(12 + 8 + 5)
-  })
 })

@@ -160,22 +160,22 @@ export function fanStack(
 }
 
 /**
- * 儲槽區的環形土堤：圍住給的矩形，外緣各外推 2 m。
+ * 儲槽區的環形土堤，**一段**。四邊各自呼叫，中間可以斷開 ——
+ * 整條矩形的版本會從卡車與構件的禁區上輾過去。
  *
- * 三角形：48。
+ * 三角形：12。
  */
-export function bundWall(
-  x0: number, z0: number, x1: number, z1: number, height: number,
+export function bundRun(
+  ax: number, az: number, bx: number, bz: number, height: number,
 ): BufferGeometry[] {
-  const hue = 0x6b5f4e
-  const w = x1 - x0
-  const d = z1 - z0
-  return [
-    box(w + 4, height, 2, hue, { x: (x0 + x1) / 2, y: height / 2, z: z0 - 1 }),
-    box(w + 4, height, 2, hue, { x: (x0 + x1) / 2, y: height / 2, z: z1 + 1 }),
-    box(2, height, d, hue, { x: x0 - 1, y: height / 2, z: (z0 + z1) / 2 }),
-    box(2, height, d, hue, { x: x1 + 1, y: height / 2, z: (z0 + z1) / 2 }),
-  ]
+  const dx = bx - ax
+  const dz = bz - az
+  const len = Math.hypot(dx, dz)
+  if (len < 1) return []
+  const ry = Math.atan2(dx, dz) / DEG
+  return [box(2.5, height, len, 0x6b5f4e, {
+    x: (ax + bx) / 2, y: height / 2, z: (az + bz) / 2, ry,
+  })]
 }
 
 /**

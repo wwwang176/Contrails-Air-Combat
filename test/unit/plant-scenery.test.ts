@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildPlantScenery } from '../../src/render/geometry/ground/plantScenery'
-import { PLANT_CENTER, PLANT_PAD } from '../../src/world/leuna'
+import { PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD } from '../../src/world/leuna'
+import { PLANT_SIZE } from '../../src/render/geometry/ground/plant'
 
 /**
  * 廠區佈景的護欄：一顆幾何、三角形在預算內、底面不陷地、有頂點色。
@@ -25,6 +26,8 @@ describe('廠區的佈景網格', () => {
    * 【俯視覆蓋率】這一關的視距重心是投彈高度的俯視，而「填滿」是可以量的：
    * 把每個三角形的 XZ 包圍盒塗進 10 m 格。**包圍盒是高估** —— 高估法都
    * 過不了門檻的話，實際只會更空。
+   *
+   * 十二座可炸構件的腳印也算進來：玩家看到的是整片廠區，不分佈景與目標。
    */
   it('墊面的俯視覆蓋率至少 35%', () => {
     const CELL = 10
@@ -33,6 +36,16 @@ describe('廠區的佈景網格', () => {
     const nx = Math.round((PLANT_PAD.halfX * 2) / CELL)
     const nz = Math.round((PLANT_PAD.halfZ * 2) / CELL)
     const grid = new Uint8Array(nx * nz)
+    for (const t of PLANT_LAYOUT) {
+      const s = PLANT_SIZE[t.kind]
+      const cx = PLANT_CENTER.x + t.dx
+      const cz = PLANT_CENTER.z + t.dz
+      const i0 = Math.max(0, Math.floor((cx - s.x / 2 - x0) / CELL))
+      const i1 = Math.min(nx - 1, Math.floor((cx + s.x / 2 - x0) / CELL))
+      const j0 = Math.max(0, Math.floor((cz - s.z / 2 - z0) / CELL))
+      const j1 = Math.min(nz - 1, Math.floor((cz + s.z / 2 - z0) / CELL))
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) grid[j * nx + i] = 1
+    }
     for (let t = 0; t < pos.count; t += 3) {
       let ax = Infinity
       let az = Infinity
@@ -67,10 +80,22 @@ describe('廠區的佈景網格', () => {
     expect(g.getAttribute('normal')).toBeDefined()
   })
 
+  /**
+   * 【要比整份，不能只比開頭】三十幾萬個三角形裡，前三千個浮點數只蓋到
+   * 最前面一兩個街廓 —— 後面任何一個填充器用了 `Math.random`，開頭那一段
+   * 仍然一模一樣。
+   */
   it('決定性：建兩次逐位元相同', () => {
+    const digest = (a: Float32Array): string => {
+      let h = 0x811c9dc5
+      for (let i = 0; i < a.length; i++) {
+        h = (h ^ ((a[i]! * 1e4) | 0)) >>> 0
+        h = Math.imul(h, 0x01000193) >>> 0
+      }
+      return h.toString(16)
+    }
     const again = buildPlantScenery().getAttribute('position')
     expect(again.count).toBe(pos.count)
-    expect(Array.from(again.array as Float32Array).slice(0, 3000))
-      .toEqual(Array.from(pos.array as Float32Array).slice(0, 3000))
+    expect(digest(again.array as Float32Array)).toBe(digest(pos.array as Float32Array))
   })
 })

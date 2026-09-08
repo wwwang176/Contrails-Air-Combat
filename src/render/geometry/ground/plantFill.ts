@@ -5,7 +5,7 @@ import {
 import { box } from './parts'
 import { PLANT_SIZE } from './plant'
 import {
-  bundWall, fanStack, grime, horizTank, pipeBridge, railCar, railTrack, sawtoothHall,
+  bundRun, fanStack, grime, horizTank, pipeBridge, railCar, railTrack, sawtoothHall,
   sphereTank, trussTower, uprightTank,
 } from './plantParts'
 
@@ -148,7 +148,19 @@ function fillTankFarm(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometr
   const out: BufferGeometry[] = []
   const a = inner(b)
   const rand = makeRand(b.seed)
-  out.push(...bundWall(a.x0 + 4, a.z0 + 4, a.x1 - 4, a.z1 - 4, 3.5))
+  // 環形土堤：四邊各自切段，遇到禁區就斷開留成出入口
+  const bx0 = a.x0 + 4
+  const bx1 = a.x1 - 4
+  const bz0 = a.z0 + 4
+  const bz1 = a.z1 - 4
+  for (const [ax, az, bx, bz] of [
+    [bx0, bz0, bx1, bz0], [bx0, bz1, bx1, bz1],
+    [bx0, bz0, bx0, bz1], [bx1, bz0, bx1, bz1],
+  ] as const) {
+    for (const s of spans(ax, az, bx, bz, 2, blocked)) {
+      out.push(...bundRun(s.ax, s.az, s.bx, s.bz, 3.5))
+    }
+  }
   const RADII = [10, 13, 16] as const
   const r = RADII[Math.floor(rand() * RADII.length)]!
   const pitch = r * 2.4

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, type BufferGeometry } from 'three'
 import {
-  bundWall, fanStack, grime, horizTank, pipeBridge, PLANT_PALETTE, railCar, railTrack,
+  bundRun, fanStack, grime, horizTank, pipeBridge, PLANT_PALETTE, railCar, railTrack,
   sawtoothHall, sphereTank, trussTower, uprightTank,
 } from '../../src/render/geometry/ground/plantParts'
 
@@ -38,7 +38,7 @@ describe('廠區零件', () => {
       { name: 'sawtoothHall', parts: sawtoothHall(0, 0, 60, 30, 10, 4, 0, 6), tris: 108 },
       { name: 'railCar', parts: railCar(0, 0, 0, true, 7), tris: 48 },
       { name: 'railTrack', parts: railTrack(0, 0, 0, 300), tris: 12 },
-      { name: 'bundWall', parts: bundWall(-100, -60, 100, 60, 4), tris: 48 },
+      { name: 'bundRun', parts: bundRun(-100, -60, 100, -60, 4), tris: 12 },
     ]
     for (const c of cases) {
       expect(c.parts.length, c.name).toBeGreaterThan(0)
@@ -65,13 +65,18 @@ describe('廠區零件', () => {
     expect(b.min.y).toBeGreaterThanOrEqual(-0.001)
   })
 
-  it('環形土堤圍住給的矩形，四邊都在', () => {
-    const b = bounds(bundWall(-100, -60, 100, 60, 4))
-    expect(b.min.x).toBeCloseTo(-102, 1)
-    expect(b.max.x).toBeCloseTo(102, 1)
-    expect(b.min.z).toBeCloseTo(-62, 1)
-    expect(b.max.z).toBeCloseTo(62, 1)
+  /**
+   * 【土堤是一段一段的】整條矩形的版本會從卡車與構件的禁區上輾過去 ——
+   * 填充器要能在中間斷開留出入口。
+   */
+  it('土堤的一段沿著給的線段，長度與高度都對', () => {
+    const b = bounds(bundRun(-100, -60, 100, -60, 4))
+    expect(b.max.x - b.min.x).toBeCloseTo(200, 1)
+    expect(b.max.z - b.min.z).toBeCloseTo(2.5, 1)
     expect(b.max.y).toBeCloseTo(4, 3)
+    // 斜的一段：長度照樣是兩端的距離
+    const d = bounds(bundRun(0, 0, 60, 80, 4))
+    expect(Math.hypot(d.max.x - d.min.x, d.max.z - d.min.z)).toBeGreaterThan(100)
   })
 
   it('軌道貼在地面上，長度等於兩端的距離', () => {
