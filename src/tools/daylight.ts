@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createTerrain, type Terrain } from '../render/terrain'
+import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import {
@@ -35,6 +36,9 @@ const ctx = createScene(canvas)
  * 目前的地形。**換地形走與 `main.ts` 的 `enterBattle` 完全相同的三步**：
  * 移除、`dispose`、重建 —— 那條路徑每一場都在走，工具照走才測得到它。
  */
+// 【廠區的佈景是 GLB】切到洛伊納要先載完，`createTerrain` 是同步的
+await preloadPlantScenery()
+
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
 

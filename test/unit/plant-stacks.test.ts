@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { fillBlock, keepouts } from '../../src/render/geometry/ground/plantFill'
-import { PLANT_BLOCKS, PLANT_STACKS } from '../../src/world/leuna'
+import type { BufferAttribute } from 'three'
+import {
+  buildPlantScenery, PLANT_GLB_URL, preloadPlantScenery,
+} from '../../src/render/geometry/ground/plantScenery'
+import { PLANT_BLOCKS, PLANT_CENTER, PLANT_STACKS } from '../../src/world/leuna'
 
 /**
  * 佈景煙囪：打不掉，但會冒煙。從進場方向看過去，煙柱是廠區唯一在遠處就
@@ -27,24 +30,60 @@ describe('佈景煙囪', () => {
   })
 
   /**
-   * 【幾何與座標表要同一份】分家的話煙會從空中冒出來，而畫面上只像是
-   * 「這根煙囪比較矮」。
+   * 【幾何與座標表要同一份】幾何在 Blender 那支腳本裡，發煙的座標在
+   * `world/leuna.ts`。分家的話煙會從空中冒出來，而畫面上只像是「這根煙囪
+   * 比較矮」。
    */
-  it('每一根煙囪在它那個街廓的佈景裡都有幾何，頂端就是發煙的高度', () => {
-    const blocked = keepouts()
-    for (const s of PLANT_STACKS) {
-      const b = PLANT_BLOCKS.find((k) => s.x >= k.x0 && s.x < k.x1 && s.z >= k.z0 && s.z < k.z1)!
-      let top = 0
-      for (const p of fillBlock(b, blocked)) {
-        const pos = p.getAttribute('position')
-        for (let i = 0; i < pos.count; i++) {
+  describe('GLB 裡真的有這幾根', () => {
+    let pos: BufferAttribute
+
+    beforeAll(async () => {
+      await preloadPlantScenery((url) => {
+        const buf = readFileSync('public' + url)
+        const ab = buf.buffer.slice(
+          buf.byteOffset, buf.byteOffset + buf.byteLength,
+        ) as ArrayBuffer
+        return Promise.resolve(ab)
+      })
+      pos = buildPlantScenery().getAttribute('position') as BufferAttribute
+    })
+
+    it('每一根的腳下都有幾何頂到發煙的高度', () => {
+      const tops = PLANT_STACKS.map(() => 0)
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        for (let k = 0; k < PLANT_STACKS.length; k++) {
+          const s = PLANT_STACKS[k]!
           // 只看煙囪腳下那一小塊：其他佈景不會這麼高
-          if (Math.abs(pos.getX(i) - s.x) > 6 || Math.abs(pos.getZ(i) - s.z) > 6) continue
-          top = Math.max(top, pos.getY(i))
+          if (Math.abs(x - s.x) > 6 || Math.abs(z - s.z) > 6) continue
+          tops[k] = Math.max(tops[k]!, pos.getY(i))
         }
       }
-      expect(top, `煙囪 (${s.x},${s.z}) 的幾何頂端`).toBeGreaterThanOrEqual(s.y - 1)
-    }
+      for (let k = 0; k < PLANT_STACKS.length; k++) {
+        const s = PLANT_STACKS[k]!
+        expect(tops[k], `煙囪 (${s.x}, ${s.z}) 的幾何頂端只有 ${tops[k]!.toFixed(1)} m`)
+          .toBeGreaterThanOrEqual(s.y - 1)
+      }
+    })
+
+    /**
+     * 【平移要驗墊面內的部分】沿連外道路的電線桿一路排到地圖邊緣，整份幾何的
+     * 包圍盒中心離廠區有十幾公里 —— 拿它比對等於量電線桿排到哪裡。
+     */
+    it('廠區的幾何以 PLANT_CENTER 為中心 —— GLB 的原點是廠區中心，載入時平移', () => {
+      let minZ = Infinity
+      let maxZ = -Infinity
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        if (Math.abs(x - PLANT_CENTER.x) > 1500 || Math.abs(z - PLANT_CENTER.z) > 750) continue
+        minZ = Math.min(minZ, z)
+        maxZ = Math.max(maxZ, z)
+      }
+      expect((minZ + maxZ) / 2).toBeCloseTo(PLANT_CENTER.z, -2)
+      expect(PLANT_GLB_URL).toContain('leuna_plant')
+    })
   })
 
   /**

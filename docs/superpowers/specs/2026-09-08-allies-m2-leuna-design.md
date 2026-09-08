@@ -706,3 +706,56 @@ CPU 對照版 `siteSurfaceColor` 同步改。**農地那條路（沒有 `site`�
   先用這組跑，試飛看了再定。
 - **要不要縮 40 萬**：15.8.9 量到幀時間之後才有依據。
 - **街廓的機能指派**：這一版按十二座構件的位置排，空拍照對照過再調。
+
+## 16. 佈景改由 Blender 產出
+
+負責人裁定：廠區的佈景改在 Blender 裡調，遊戲端只匯入 GLB。
+
+```
+  tools/blender/build_plant.py     生成腳本（街廓、填充器、零件、骨幹、圍牆）
+  tools/blender/leuna_plant.blend  可編輯的場景，一個街廓一顆網格
+  public/models/leuna_plant.glb    匯出的成品，3.01 MB、23 萬個三角形
+```
+
+`render/geometry/ground/plantScenery.ts` 由生成器變成載入層：開場
+`preloadPlantScenery()` 一次，`buildPlantScenery()` 同步回一份**複本**
+（`terrain.dispose()` 會釋放佈景的幾何，共用快取被釋放之後第二次進洛伊納
+會拿到一顆空的 GPU 緩衝，而且不報錯）。TS 那兩支生成器（`plantParts.ts`、
+`plantFill.ts`）連同它們的單元測試刪掉 —— 佈局只有一份真相。
+
+### 16.1 在 Blender 裡怎麼調
+
+```
+  exec(open('tools/blender/build_plant.py', encoding='utf-8').read())
+  build_plant()          # 重建整片
+  rebuild_block(2041)    # 只重生一個街廓
+  export_plant()         # 匯出 GLB
+```
+
+零件不各自建物件：一萬五千個物件會讓 Blender 在匯出時吃爆記憶體（實測
+當機），而 GLB 光是 node 的 JSON 就佔掉一半體積（19.7 MB → 2.85 MB）。
+一個街廓一顆網格、材質走多材質槽，要改個別零件就進 Edit Mode。
+
+### 16.2 材質是合約
+
+Blender 的材質只有名字算數，顏色在 `glb.ts` 的 `PLANT_MATERIALS`（五色
+× 四明度階，加十個固定色）。**與載具的 `GLB_MATERIALS` 分開** —— 載具那
+張表有一條「表裡不得有沒人用的名字」的護欄，廠區的三十個名字混進去會讓
+它永遠是紅的。
+
+### 16.3 護欄改成驗 GLB
+
+`plant-scenery.test.ts` 從「驗生成函式的輸出」改成「驗真正進遊戲的那顆
+GLB」：三角形 15–40 萬、俯視覆蓋率 ≥ 35%、逐街廓 ≥ 25%（`open` < 12%）、
+沒有三角形壓在構件／卡車／廠內道路上、貼地、墊面外的三角形不超過 8%、
+材質 manifest 沒過期。
+
+逐街廓那一條同時守住**兩份街廓表沒分岔** —— 佈局在 Blender 的腳本裡，
+而地面著色器的鋪面讀 `world/leuna.ts` 的 `PLANT_BLOCKS`。
+
+### 16.4 已知的取捨
+
+- 沿連外道路的電線桿一路排到地圖邊緣，整顆網格的包圍球因此有二十幾公里，
+  視錐剔除等於失效。這是既有的取捨，不是這一輪引入的。
+- 街廓的機能指派、巷道格線與合併規則在 `build_plant.py` 與 `leuna.ts` 各
+  一份。§16.3 的逐街廓覆蓋率是它們分岔時唯一會紅的地方。

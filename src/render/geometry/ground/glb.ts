@@ -20,6 +20,30 @@ import { HUE } from './parts'
  * `preloadGroundGlbs`，之後 `groundGlb` 同步從快取拿。
  */
 
+/**
+ * 廠區的髒舊色盤，五色 × 四明度階。
+ *
+ * 【為什麼是一組而不是一個】整片廠區同一個灰，從投彈高度看下去是一張印出來
+ * 的紙。階要夠粗 —— 連續的抖動在平面著色下看起來是雜訊。
+ */
+const PLANT_PALETTE = [0x6e5a4a, 0x3c3a37, 0x6b6d68, 0x554a3c, 0x8a5a3c]
+const PLANT_SHADES = [0.90, 0.97, 1.04, 1.10]
+
+function plantShades(): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (let i = 0; i < PLANT_PALETTE.length; i++) {
+    for (let j = 0; j < PLANT_SHADES.length; j++) {
+      const base = PLANT_PALETTE[i]!
+      const f = PLANT_SHADES[j]!
+      const r = Math.min(255, Math.round(((base >> 16) & 0xff) * f))
+      const g = Math.min(255, Math.round(((base >> 8) & 0xff) * f))
+      const b = Math.min(255, Math.round((base & 0xff) * f))
+      out[`LP_Plant_${i}${j}`] = (r << 16) | (g << 8) | b
+    }
+  }
+  return out
+}
+
 /** GLB 材質名 → 遊戲顏色。**名字是與 build_ground.py 的合約。** */
 export const GLB_MATERIALS: Readonly<Record<string, number>> = {
   LP_ArmorGreen: HUE.armyGreen,
@@ -30,6 +54,27 @@ export const GLB_MATERIALS: Readonly<Record<string, number>> = {
   LP_Tire: HUE.rubber,
   LP_Glass: HUE.glass,
   LP_GunGrey: HUE.sandYellow,
+}
+
+/**
+ * 洛伊納廠區的材質名 → 顏色。**名字是與 build_plant.py 的合約。**
+ *
+ * 【為什麼與載具的表分開】`ground-units` 那條護欄守的是「載具的 manifest 沒
+ * 過期」：表裡不得有沒人用的名字。廠區的三十一個名字混進去，那條就永遠是紅的
+ * —— 而它守的東西與廠區無關。
+ */
+export const PLANT_MATERIALS: Readonly<Record<string, number>> = {
+  ...plantShades(),
+  LP_PlantBrick: 0x6b4a3c,
+  LP_PlantSteel: 0x33383d,
+  LP_PlantGlass: HUE.glass,
+  LP_PlantCoal: 0x2b2723,
+  LP_PlantEarth: 0x6b5f4e,
+  LP_PlantWall: 0x9a9488,
+  LP_PlantSand: 0x8a7a58,
+  LP_PlantPole: 0x5a4a38,
+  LP_PlantRail: HUE.steel,
+  LP_PlantPlatform: 0x7d7a72,
 }
 
 const C = /* @__PURE__ */ new Color()
@@ -46,7 +91,7 @@ export async function parseGroundGlb(buf: ArrayBuffer): Promise<BufferGeometry> 
     const mesh = o as Mesh
     if (!mesh.isMesh) return
     const name = (mesh.material as Material).name
-    const hex = GLB_MATERIALS[name]
+    const hex = GLB_MATERIALS[name] ?? PLANT_MATERIALS[name]
     if (hex === undefined) throw new Error(`GLB 材質 ${name} 沒有對應的遊戲顏色`)
     seen.add(name)
 
