@@ -595,6 +595,17 @@ export interface SiteLayout {
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */
   readonly roadWidth: number
+  /**
+   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。世界座標。
+   *
+   * 【壓在墊面之上、道路之下】次序在 `siteGlsl` 與 `siteSurfaceColor` 兩邊
+   * 要一致，否則畫面上的路被碴石蓋掉，而小地圖取樣說它是柏油。
+   */
+  readonly patches?: readonly {
+    readonly x0: number; readonly z0: number
+    readonly x1: number; readonly z1: number
+    readonly hex: number
+  }[]
 }
 
 const CONCRETE = 0x8d8a82
@@ -629,13 +640,36 @@ function siteGlsl(site: SiteLayout): string {
   const segs = segmentsOf(site)
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
+  const patches = site.patches ?? []
+  const patchList = patches.map((p) =>
+    `  vec4(${p.x0.toFixed(1)}, ${p.z0.toFixed(1)}, ${p.x1.toFixed(1)}, ${p.z1.toFixed(1)})`).join(',\n')
+  const patchHues = patches.map((p) => `  ${rgb(p.hex)}`).join(',\n')
+  const patchGlsl = patches.length === 0 ? '' : `
+  const vec4 PATCHES[${patches.length}] = vec4[${patches.length}](
+${patchList}
+  );
+  const vec3 PATCH_HUE[${patches.length}] = vec3[${patches.length}](
+${patchHues}
+  );
+  for (int i = 0; i < ${patches.length}; i++) {
+    if (world.x >= PATCHES[i].x && world.x < PATCHES[i].z
+        && world.y >= PATCHES[i].y && world.y < PATCHES[i].w) {
+      col = PATCH_HUE[i];
+    }
+  }`
   return `
-  // 墊面：混凝土，帶一點格狀的明暗
+  // 墊面：混凝土。三層疊起來 —— 120 m 的鋪面塊、40 m 的油漬、40 m 的微亮暗。
+  // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
   if (world.x >= ${site.pad.x0.toFixed(1)} && world.x < ${site.pad.x1.toFixed(1)}
       && world.y >= ${site.pad.z0.toFixed(1)} && world.y < ${site.pad.z1.toFixed(1)}) {
     uint ph = fieldHash2(int(floor(world.x / 40.0)), int(floor(world.y / 40.0)));
-    col = ${rgb(CONCRETE)} * (0.92 + 0.1 * float(ph & 0xffu) / 255.0);
+    uint sh = fieldHash2(int(floor(world.x / 120.0)) + 7919, int(floor(world.y / 120.0)) - 104729);
+    uint oh = fieldHash1(ph);
+    float slab = 0.86 + 0.2 * float((sh >> 8) & 0x7u) / 7.0;
+    float stain = (oh & 0xffu) < 46u ? 0.74 : 1.0;
+    col = ${rgb(CONCRETE)} * slab * stain * (0.96 + 0.08 * float(ph & 0xffu) / 255.0);
   }
+${patchGlsl}
   // 道路：離任一條線段小於半寬
   const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
 ${list}
@@ -670,8 +704,19 @@ export function siteSurfaceColor(
     for (const s of segmentsOf(site)) {
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
     }
+    for (const q of site.patches ?? []) {
+      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) return out.setHex(q.hex)
+    }
     const p = site.pad
-    if (x >= p.x0 && x < p.x1 && z >= p.z0 && z < p.z1) return out.setHex(CONCRETE)
+    if (x >= p.x0 && x < p.x1 && z >= p.z0 && z < p.z1) {
+      // 【與 `siteGlsl` 逐項對應】兩份不一致的話，小地圖與畫面上的地是兩種顏色
+      const ph = hash2(Math.floor(x / 40), Math.floor(z / 40))
+      const sh = hash2(Math.floor(x / 120) + 7919, Math.floor(z / 120) - 104729)
+      const oh = hash1(ph)
+      const slab = 0.86 + (0.2 * ((sh >>> 8) & 0x7)) / 7
+      const stain = (oh & 0xff) < 46 ? 0.74 : 1
+      return out.setHex(CONCRETE).multiplyScalar(slab * stain * (0.96 + (0.08 * (ph & 0xff)) / 255))
+    }
   }
   return fieldSurfaceColor(x, z, out, season)
 }
