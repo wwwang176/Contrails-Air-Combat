@@ -1,19 +1,22 @@
 /**
- * **He 111 與 B-17G：GLB 路 vs 程式版，逐 byte 比對。**
+ * **He 111：GLB 路 vs 程式版，逐 byte 比對。**
  *
  * ```
  * node node_modules/vite/bin/vite.js --port 5190                          # 終端機一
  * node node_modules/vite-node/vite-node.mjs test/e2e/glb-vs-proc.e2e.ts   # 終端機二
  * ```
  *
- * 兩台 × 六個方位 × 兩個俯角 × 兩種槳狀態 = 48 張。每張回報差了幾個像素、
- * 最大差幾階；判準沿用 P-51D 搬 GLB 那次（2d9b1cd）：差的像素只該落在
- * 三角形邊緣（烘變換的 float32 尾數），色階差幾十以內、整片翻掉不可以。
+ * 六個方位 × 兩個俯角 × 兩種槳狀態 = 24 張。每張回報差了幾個像素、最大差
+ * 幾階；判準沿用 P-51D 搬 GLB 那次（2d9b1cd）：差的像素只該落在三角形邊緣
+ * （烘變換的 float32 尾數），色階差幾十以內、整片翻掉不可以。
+ *
+ * **B-17G 不在這裡** —— 它的 GLB 由 `tools/blender/build_b17.py` 對著參考模型
+ * 重建，與程式版本來就不一樣，比了必然整片紅。
  */
 import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5190/'
-const IDS = ['he111', 'b17g'] as const
+const IDS = ['he111'] as const
 const AZIMUTHS = [0, 60, 120, 180, 240, 300]
 const PITCHES = [0, -30]
 const BLURRED = [false, true]

@@ -3,7 +3,7 @@ import { makeScratch } from '../core/pool'
 import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import { TORPEDO_RANGE, TORPEDO_SPEED } from '../world/torpedo'
-import { shipAt } from './bombRun'
+import { insideWindow, releaseWindowOf, shipAt } from './bombRun'
 import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
 import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -98,20 +98,22 @@ export function waterRunSeconds(
 }
 
 /**
- * 命中窗：船體盒的**半長與半寬**，m。
+ * 雷擊的釋放窗是艦體的幾倍。**比轟炸那一份寬**（`ai/bombRun.ts` 的
+ * `RELEASE_HULLS`）。
  *
- * 【為什麼不是一個半徑】魚雷是**接觸引爆、沒有範圍傷害**，所以窗就是艦體
- * 本身，而艦體是細長的：弗萊徹半長 57.4 m、半寬 6.04 m —— 差 9.5 倍。用
- * 一個圓去近似的話，取大的會投一堆擦身而過的雷，取小的則正橫進場永遠不
- * 准投。
+ * 【為什麼可以寬】魚雷是接觸引爆，落點差一點就完全沒有傷害，不像炸彈還有
+ * 爆風。窗窄的話 AI 幾乎不投；而投出去中不中，玩起來比投不投得出來次要。
  *
- * 【第一個盒恆是艦體】與 `releaseRadiusOf` 同一條不變量：Essex 的第二個盒
- * 是寬 43 m 的飛行甲板，取極值會放大 51%。
+ * **起始值，由試飛裁定。**
  */
-export function hitWindowOf(cls: ShipClass): { along: number; across: number } {
-  const hull = cls.hull[0]
-  if (hull === undefined) return { along: 0, across: 0 }
-  return { along: hull.half.z, across: hull.half.x }
+export const TORPEDO_RELEASE_HULLS = 2
+
+/**
+ * 釋放窗。**幾何與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`），
+ * 只有倍率不同 —— 兩種武器都是「落點落在艦體的幾倍範圍內就投」。
+ */
+export function hitWindowOf(cls: ShipClass): { along: number, across: number } {
+  return releaseWindowOf(cls, TORPEDO_RELEASE_HULLS)
 }
 
 /**
@@ -429,15 +431,8 @@ export function shouldRelease(self: Aircraft, ship: Ship): boolean {
   const tx = SOL.ex + h.x * run
   const tz = SOL.ez + h.z * run
   const at = shipAt(ship, SOL.air + SOL.water, S.v[0]!)
-  // 【誤差拆進船的體軸】艦體細長（半長 57.4 對半寬 6.04），用一個圓去比
-  // 的話取大的會投一堆擦身而過的雷、取小的則永遠不准投
-  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
-  const ex = tx - at.x
-  const ez = tz - at.z
-  const along = ex * dir.x + ez * dir.z
-  const across = ex * dir.z - ez * dir.x
-  const w = hitWindowOf(ship.cls)
-  return Math.abs(along) <= w.along && Math.abs(across) <= w.across
+  // 【窗與轟炸共用】誤差拆進船的體軸，窗是艦體的 `RELEASE_HULLS` 倍
+  return insideWindow(ship, tx - at.x, tz - at.z, TORPEDO_RELEASE_HULLS)
 }
 
 /**

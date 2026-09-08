@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createHeightField, type HeightFieldData } from '../../src/world/heightfield'
 import { losBlocked, landHitT, type LandField } from '../../src/world/occlusion'
 import { createArchipelago, PEAK_MAX } from '../../src/world/archipelago'
+import { findOcclusionCase } from '../fixtures/occlusion-case'
 
 /**
  * 視線與彈丸的遮蔽。
@@ -33,39 +34,39 @@ function counted(f: HeightFieldData): { field: HeightFieldData; calls: () => num
 }
 
 const arch = createArchipelago()
-/** 錨島。`islands[0]` 是寫死的那一座，見 `archipelago.ts` 的 ANCHORS */
-const isl = arch.islands[0]!
 const LAND: LandField = { field: arch.field, ceiling: PEAK_MAX, landAbove: 0 }
 
 /**
- * spec §1.2 的考題：兩架同高，各在錨島島心兩側 500 m、相距 1 km。
+ * spec §1.2 的考題：兩架同高，連線從山頂之下穿過。
  *
- * 【座標由島心導出，不是抄下來的】錨島若被移動，這裡跟著動，而下面那三條
- * 自我驗證的斷言（離地、距離、山頂高出多少）會在幾何不再成立時直接紅 ——
- * 那比一組寫死的數字誠實。
+ * 【座標是在真的高度場上搜出來的】見 `test/fixtures/occlusion-case.ts`。
+ * 山改矮改緩這裡跟著動；下面三條自我驗證的斷言（離地、距離、山頂高出
+ * 多少）在幾何不再成立時直接紅 —— 那比一組寫死的數字誠實。
  */
-const D = 500
-const Y = 850
-const line = Math.hypot(isl.cx, isl.cz)
-const ux = isl.cx / line
-const uz = isl.cz / line
-const AX = isl.cx - ux * D
-const AZ = isl.cz - uz * D
-const BX = isl.cx + ux * D
-const BZ = isl.cz + uz * D
+const CASE = findOcclusionCase(arch.field, arch.islands)
+const D = CASE.d
+const Y = CASE.y
+const AX = CASE.ax
+const AZ = CASE.az
+const BX = CASE.bx
+const BZ = CASE.bz
 
 describe('考題本身要成立', () => {
-  it('兩架都在飛 —— 離地高於安全層的 clearance', () => {
-    expect(Y - arch.field.sample(AX, AZ)).toBeGreaterThan(120)
-    expect(Y - arch.field.sample(BX, BZ)).toBeGreaterThan(120)
+  it('兩架都在飛 —— 離地不低於安全層的 clearance', () => {
+    expect(Y - arch.field.sample(AX, AZ)).toBeGreaterThanOrEqual(120 - 1e-9)
+    expect(Y - arch.field.sample(BX, BZ)).toBeGreaterThanOrEqual(120 - 1e-9)
   })
 
   it('在有效射程之內', () => {
     expect(Math.hypot(BX - AX, BZ - AZ)).toBeCloseTo(2 * D, 6)
+    expect(2 * D).toBeLessThanOrEqual(1000)
   })
 
   it('山頂確實比兩者的連線高', () => {
-    expect(arch.field.sample(isl.cx, isl.cz)).toBeGreaterThan(Y)
+    console.log(JSON.stringify({
+      半弦: D, 高度: Y.toFixed(1), 稜線: CASE.ridge.toFixed(1), 高出: CASE.drop.toFixed(1),
+    }))
+    expect(CASE.ridge).toBeGreaterThan(Y)
   })
 })
 
@@ -81,8 +82,9 @@ describe('losBlocked', () => {
     expect(losBlocked(AX, Y, AZ, BX, Y, BZ, LAND)).toBe(true)
   })
 
-  it('兩架各抬高 60 m 就通了 —— 擋住的是山頂那 49.6 m', () => {
-    expect(losBlocked(AX, Y + 60, AZ, BX, Y + 60, BZ, LAND)).toBe(false)
+  it('兩架抬到山頂之上 20 m 就通了 —— 擋住的只是山頂高出連線的那一段', () => {
+    const up = CASE.drop + 20
+    expect(losBlocked(AX, Y + up, AZ, BX, Y + up, BZ, LAND)).toBe(false)
   })
 
   it('開闊海面上的低空視線不算被擋 —— 海床是 −8，不是陸地', () => {
@@ -91,7 +93,7 @@ describe('losBlocked', () => {
   })
 
   it('起點在山裡也不會回 NaN 式的結果', () => {
-    expect(losBlocked(isl.cx, 10, isl.cz, BX, Y, BZ, LAND)).toBe(true)
+    expect(losBlocked(CASE.cx, 10, CASE.cz, BX, Y, BZ, LAND)).toBe(true)
   })
 })
 
@@ -101,9 +103,9 @@ describe('landHitT', () => {
   })
 
   it('往山裡飛的一小段：t 落在 [0,1]，而且那一點在地形之下', () => {
-    // 從島心正上方 950 m 往下走一步（一個彈丸步長的量級）
-    const x = isl.cx
-    const z = isl.cz
+    // 從島心正上方往下走一步（一個彈丸步長的量級）
+    const x = CASE.cx
+    const z = CASE.cz
     const top = arch.field.sample(x, z)
     const t = landHitT(x, top + 3, z, x, top - 3, z, LAND)
     expect(t).toBeGreaterThanOrEqual(0)

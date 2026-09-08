@@ -27,6 +27,7 @@ export const MG15: WeaponSpec = {
   id: 'mg15',
   name: 'MG 15',
   muzzleVelocity: 765,
+  caliber: 7.92,
   roundsPerMinute: 1050,
   damage: 5,
 }

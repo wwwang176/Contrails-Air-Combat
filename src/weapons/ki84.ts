@@ -34,6 +34,7 @@ export const HO103: WeaponSpec = {
   id: 'ho103',
   name: 'ホ103 12.7mm',
   muzzleVelocity: 780,
+  caliber: 12.7,
   roundsPerMinute: 850,
   damage: 30,
 }
@@ -71,6 +72,7 @@ export const HO5: WeaponSpec = {
   id: 'ho5',
   name: 'ホ5 20mm',
   muzzleVelocity: 741,
+  caliber: 20,
   roundsPerMinute: 850,
   damage: 80,
 }

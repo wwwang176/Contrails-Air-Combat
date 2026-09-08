@@ -141,6 +141,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     battle: null,
   }
   const pause = root.querySelector('#pause') as HTMLElement
+  const confirm = root.querySelector('#confirm') as HTMLElement
   const q = (id: string): HTMLElement => root.querySelector(`#${id}`) as HTMLElement
   const el = {
     campaignCards: q('campaign-cards'),
@@ -174,6 +175,11 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === undefined) return
     if (act === 'resume') { hooks.onResume(); return }
     if (act === 'restart') { hooks.onRestart(); return }
+    // 【放棄任務要問過】確認框是暫停之上的第二層 overlay，不是畫面；
+    // 確認之後才送畫面事件 —— 回的是該陣營的任務表，`campaign` 還留著
+    if (act === 'abandon') { confirm.hidden = false; return }
+    if (act === 'abandonNo') { confirm.hidden = true; return }
+    if (act === 'abandonYes') { confirm.hidden = true; hooks.onEvent('toMission'); return }
     hooks.onEvent(act as ScreenEvent)
   })
 
@@ -377,6 +383,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     },
     setPaused(v) {
       pause.hidden = !v
+      // 關掉暫停就一併關掉確認框：「繼續」與換畫面都不該留下一個問句
+      if (!v) confirm.hidden = true
     },
     renderSetup,
   }

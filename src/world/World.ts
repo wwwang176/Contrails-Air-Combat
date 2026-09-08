@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { mountDirection } from '../weapons/types'
 import { stepCadence } from '../weapons/cadence'
+import { AIRCRAFT_ARMOUR, SHIP_GUN_ARMOUR, penetrationDamage } from '../weapons/armour'
 import {
   boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
   NO_HIT, PART_MULTIPLIER, type HitPart,
@@ -987,7 +988,7 @@ export class World {
       for (let n = 0; n < shots; n++) {
         this.projectiles.spawn(
           muzzle.x, muzzle.y, muzzle.z, v.x, v.y, v.z, mount.weapon.damage, c.index,
-          c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
+          c.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME, mount.weapon.caliber,
         )
       }
     }
@@ -1162,12 +1163,16 @@ export class World {
           -(bx - ax), -(by - ay), -(bz - az),
         )
         const dmg = p.damage[i]!
+        const cal = p.caliber[i]!
         // 【不套 PART_MULTIPLIER】那是飛機的六個部位，船沒有座艙也沒有機翼。
-        // 裝甲差異由砲位與船體各自的血量表達，不由倍率表達。
-        shipHit.hp -= dmg
+        //
+        // 【艦體吃口徑門檻，砲位不吃】機槍打不穿主力艦的裝甲帶，但甲板上的
+        // 防空砲是露天的 —— 掃射軍艦的意義正是打掉那幾座砲，而不是打沉它。
+        // 兩者問的是同一支函數，差別只在資料（`weapons/armour.ts`）。
+        shipHit.hp -= penetrationDamage(dmg, cal, shipHit.cls.armour)
         if (shipGun >= 0) {
           const g = shipHit.guns[shipGun]!
-          g.hp -= dmg
+          g.hp -= penetrationDamage(dmg, cal, SHIP_GUN_ARMOUR)
           if (g.hp <= 0) g.alive = false
         }
         this.sinkIfDead(shipHit)
@@ -1285,7 +1290,13 @@ export class World {
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子
       // 會被打進機身的彈丸塞滿。
-      this.applyDamage(victim, p.damage[i]!, part, shooter)
+      //
+      // 【飛機的裝甲是 0】口徑門檻於是恆不成立，這一條與規則出現之前逐位元
+      // 相同。留著這一句是因為規則屬於**每一次子彈結算**，哪裡咬人由資料
+      // 決定 —— 哪天有一台裝甲攻擊機，那是加一格資料，不是改這裡
+      this.applyDamage(
+        victim, penetrationDamage(p.damage[i]!, p.caliber[i]!, AIRCRAFT_ARMOUR), part, shooter,
+      )
       p.kill(i)
     }
   }

@@ -596,15 +596,15 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
 /**
  * 島上的網格間距，m。**一格最多一棵樹加一叢灌木。**
  *
- * 【上限與實得差很多】`1e6 / grid²` 是上限，但要通過高度帶（`isGrass`）、
- * 坡度與高度那幾關。16 m 的上限是 3,906，實測樹與灌木合計落在一千五上下。
+ * 【這是叢內的密度】`1e6 / grid²` 是上限，13 m 是 5,917 株/km²；叢外由
+ * `islandClump` 壓到 5%，所以整座島的總數比均勻鋪法少，叢內卻更密。
+ * 要通過高度帶（`isGrass`）、坡度、高度、叢四關才長得出來。
  *
- * 【面積密度是它的平方反比】要砍半就乘 √2 —— 11.3 → 16.0 正是這樣來的。
- *
- * 【單格的上限跟著它走】群島那一支用 `ISLAND_MAX_PER_TILE` 而不是農地的
- * 384。掃描表在 `test/tools/island-density.probe.ts`。
+ * 【面積密度是它的平方反比】改它就要回頭看 `ISLAND_MAX_PER_TILE`：一格
+ * 250 m 的 tile 放得下幾個網格由它決定。掃描表在
+ * `test/tools/island-density.probe.ts`。
  */
-export const ISLAND_GRID = 16.0
+export const ISLAND_GRID = 13.0
 
 /** tile 中心離島多遠就整格跳過，m */
 const ISLAND_MARGIN = 200
@@ -616,6 +616,63 @@ const ISLAND_MARGIN = 200
  * 高度差才讀得出來。**山頂是滿密度** —— 這一條只往下壓。
  */
 export const ISLAND_SHORE_DENSITY = 0.15
+
+/**
+ * 樹叢的尺度，m：值雜訊的格距。叢的直徑大約是它的一到兩倍。
+ *
+ * 【為什麼要成叢】逐格獨立抽樣鋪出來的是均勻的一層絨毛，整個山頭都是樹；
+ * 真的山是一撮一撮的林子夾著空地。叢是一張與 tile 無關的低頻遮罩乘在
+ * 接受率上，所以島上「哪裡有林子」是全域決定的，tile 的切法改不了它。
+ */
+export const ISLAND_CLUMP_CELL = 110
+/**
+ * 叢的門檻：值雜訊低於下界是空地、高於上界是叢內，中間平滑過渡。
+ *
+ * 兩個尺度的值雜訊相加後平均 0.5、標準差約 0.2，這一組讓四成上下的地
+ * 落在叢內、兩成在邊緣。
+ */
+const ISLAND_CLUMP_GATE = [0.42, 0.58] as const
+/**
+ * 叢外殘留的密度。不是 0 —— 空地上零星幾棵樹才像林緣，全空是草皮。
+ */
+export const ISLAND_CLUMP_FLOOR = 0.05
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**，與 tile
+ * 無關 —— 見檔頭的鐵律。
+ */
+function valueNoise(x: number, z: number, cell: number, salt: number): number {
+  const fx = x / cell
+  const fz = z / cell
+  const ix = Math.floor(fx)
+  const iz = Math.floor(fz)
+  const tx = smoothstep(0, 1, fx - ix)
+  const tz = smoothstep(0, 1, fz - iz)
+  const n00 = hash2(ix ^ salt, iz) / 4294967296
+  const n10 = hash2((ix + 1) ^ salt, iz) / 4294967296
+  const n01 = hash2(ix ^ salt, iz + 1) / 4294967296
+  const n11 = hash2((ix + 1) ^ salt, iz + 1) / 4294967296
+  const a = n00 + (n10 - n00) * tx
+  const b = n01 + (n11 - n01) * tx
+  return a + (b - a) * tz
+}
+
+/**
+ * 這一點在不在樹叢裡，`ISLAND_CLUMP_FLOOR`～1。
+ *
+ * 兩個尺度：大的定叢的位置，小的把邊緣弄毛 —— 單一尺度的叢是一顆顆圓斑。
+ */
+export function islandClump(x: number, z: number): number {
+  const n = 0.65 * valueNoise(x, z, ISLAND_CLUMP_CELL, 0x6f3a)
+    + 0.35 * valueNoise(x, z, ISLAND_CLUMP_CELL * 0.45, 0x1b9c)
+  return ISLAND_CLUMP_FLOOR
+    + (1 - ISLAND_CLUMP_FLOOR) * smoothstep(ISLAND_CLUMP_GATE[0], ISLAND_CLUMP_GATE[1], n)
+}
 
 /**
  * 灌木相對樹的接受機率。
@@ -635,8 +692,11 @@ export const ISLAND_BUSH_RATIO = 0.7
  *
  * 【高度只壓密度】山頂 1.0，海邊 `ISLAND_SHORE_DENSITY`，尺是 `h / peak`。
  *
- * 【坡度要在植株自己的位置上取】格中心離它最遠 8 m，那個距離足以把坡度與
- * 密度的相關性抹平 —— 實測抹平之後陡緩兩堆的密度比正好是 1.00。
+ * 【叢是乘上去的】高度與坡度決定「這一帶能多密」，叢決定「這一點在不在
+ * 林子裡」。乘法讓山頂的叢比山腳的叢密，而叢外到處一樣疏。
+ *
+ * 【坡度要在植株自己的位置上取】格中心離它最遠 7 m，那個距離足以把坡度與
+ * 密度的相關性抹平。
  */
 export function islandAccept(
   field: HeightFieldData, peak: number, x: number, z: number, h: number,
@@ -645,7 +705,8 @@ export function islandAccept(
   const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
   const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
   return (ISLAND_SHORE_DENSITY + (1 - ISLAND_SHORE_DENSITY)
-    * Math.min(1, Math.max(0, h / peak))) / Math.hypot(1, Math.hypot(dx, dz))
+    * Math.min(1, Math.max(0, h / peak))) * islandClump(x, z)
+    / Math.hypot(1, Math.hypot(dx, dz))
 }
 
 /**
@@ -728,7 +789,7 @@ export function createIslandFlora(
     for (let gz = h0; gz <= h1; gz++) {
       for (let gx = g0; gx <= g1; gx++) {
         // 【最近的島用格中心找】它只提供峰高（密度斜線的尺），而同一格的
-        // 兩個候選點最遠只差 8.6 m —— 找一次，兩者共用
+        // 兩個候選點最遠只差 7 m —— 找一次，兩者共用
         const cx = (gx + 0.5) * ISLAND_GRID
         const cz = (gz + 0.5) * ISLAND_GRID
         let isl = near

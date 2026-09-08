@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
+import { A6M5 } from '../../src/specs/a6m5'
+import type { AircraftSpec } from '../../src/specs/types'
 import { createCommand } from '../../src/control/Controller'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
@@ -154,10 +156,36 @@ describe('shipAttackCommand', () => {
   it('對準了但超過開火距離就不開火', () => {
     const s = ship(0, 0, 0)
     const c = cmd()
-    const a = at(0, 300, 900)
+    const a = at(0, 300, 1600)
     facing(a, s)
     shipAttackCommand(a, s, -1, c)
     expect(c.firing).toBe(false)
+  })
+
+  /**
+   * 【射程判準是彈丸飛不飛得到，不是一個常數】與空戰的 `shouldFire` 同一條
+   * 規則：解得出攔截點，而且彈丸活得夠久飛到那裡。
+   *
+   * 寫死一個距離的話，槍口初速不同的機種會共用同一個射程 —— 而那個數字
+   * 只對訂它的那一台成立。
+   */
+  it('開火距離跟著機種的槍口初速走', () => {
+    const s = ship(0, 0, 0)
+    // 靜止，讓接近速度不參與 —— 這一條要分離出來的是槍口初速
+    const still = (spec: AircraftSpec): boolean => {
+      const a = new Aircraft(spec, 300, 150)
+      a.state.position.set(0, 300, 1000)
+      a.state.velocity.set(0, 0, 0)
+      facing(a, s)
+      const c = cmd()
+      shipAttackCommand(a, s, -1, c)
+      return c.firing
+    }
+    // 斜距 1,044 m：P-51 的 .50（887 m/s）飛得到，零戰的 750 m/s 飛不到
+    expect(P51D.battery.sight.muzzleVelocity)
+      .toBeGreaterThan(A6M5.battery.sight.muzzleVelocity)
+    expect(still(P51D)).toBe(true)
+    expect(still(A6M5)).toBe(false)
   })
 
   it('射程外不開火', () => {
