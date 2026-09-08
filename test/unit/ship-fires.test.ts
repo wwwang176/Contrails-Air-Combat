@@ -302,3 +302,18 @@ describe('stepShipFires', () => {
     expect(fires.live).toBe(0)
   })
 })
+
+describe('lightShipFires：建築的事件', () => {
+  /**
+   * 【打中建築的那一筆不點船火】第六格帶的是建築的索引（`nx = 3`），拿去
+   * 查船會讓火長到編號相同的那一艘船上。
+   */
+  it('nx = 3 的事件即使索引對得上一艘船也不起火', () => {
+    const fires = createShipFires()
+    const ev = createImpacts()
+    const s = ship()
+    pushImpact(ev, 10, 5, -20, 3, 9_000, s.index)
+    lightShipFires(fires, ev, [s])
+    expect(fires.live).toBe(0)
+  })
+})
