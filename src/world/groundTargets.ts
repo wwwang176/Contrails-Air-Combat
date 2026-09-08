@@ -22,8 +22,8 @@ import type { Team } from './World'
  * 血量。**起始值，由試飛裁定。**
  *
  * 【尺是 20 mm 一發 5 傷害、炸彈爆心 `BOMB_BLAST_DAMAGE`】卡車幾十發機砲就該
- * 燒起來；戰車要炸彈才炸得掉（機槍打不穿裝甲，與船的道理相同）；砲位介於
- * 兩者之間 —— 掃射得掉，但要一整條彈道。
+ * 燒起來；砲位介於兩者之間 —— 掃射得掉，但要一整條彈道。戰車的「要炸彈才
+ * 炸得掉」不是靠血量，是靠 `GROUND_ARMOUR` 的口徑門檻。
  */
 export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   tank: 1_200,
@@ -36,10 +36,31 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   flatcar: 200,
 }
 
+/**
+ * 裝甲，mm。**與 `ShipClass.armour` 同一條規則**（`weapons/armour.ts`）：口徑
+ * 小於它的子彈只扣底線 1 點。
+ *
+ * 【只有戰車非零】T-34 的車體裝甲 45 mm 傾斜，機槍與 20 mm 機砲都打不穿，
+ * 30 mm 也打不穿 —— 所以戰車只有炸彈炸得掉，而不是靠一個很大的血量硬撐。
+ * 卡車、露天砲座、火車都是 0：掃射就該打得爛。
+ */
+export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
+  tank: 45,
+  truck: 0,
+  flakHeavy: 0,
+  flakLight: 0,
+  locomotive: 0,
+  tender: 0,
+  boxcar: 0,
+  flatcar: 0,
+}
+
 export interface GroundTarget {
   readonly index: number
   readonly team: Team
   readonly unit: GroundUnit
+  /** 裝甲，mm。見 `GROUND_ARMOUR`。 */
+  readonly armour: number
   /** 世界座標，底面中心。`y` 是地面高度。 */
   readonly position: Vector3
   /** 只有航向（繞 Y）。 */
@@ -78,6 +99,7 @@ export function createGroundTarget(
     index,
     team,
     unit,
+    armour: GROUND_ARMOUR[id],
     position: new Vector3(x, 0, z),
     orientation: new Quaternion().setFromAxisAngle(UP, heading),
     heading,
