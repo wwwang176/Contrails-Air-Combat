@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
+import type { GroundUnitId } from '../render/geometry/ground'
 import { VETERAN } from '../ai/profile'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
@@ -262,6 +263,11 @@ export interface MissionBattle {
    */
   readonly fleet?: MissionFleet
   /**
+   * 這一關的地面目標。**沒有這一格的卡完全不產生**（與 `fleet` 同一個約定），
+   * 透傳的路也相同 —— 漏一處就是進戰鬥零台，不報錯。
+   */
+  readonly ground?: readonly GroundEntry[]
+  /**
    * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
    *
    * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
@@ -307,6 +313,22 @@ export interface MissionFleet {
   /** 航速，m/s。整隊一樣。 */
   readonly speed: number
   readonly ships: readonly FleetEntry[]
+}
+
+/**
+ * 一台地面目標的擺位，**世界座標**。
+ *
+ * 【為什麼是絕對座標而不是艦隊那種「中心＋偏移」】船要排陣型、要整隊同
+ * 一個艏向；地面目標是散落在道路、調車場、砲位上的個體，各自有各自的
+ * 朝向。高度不用填 —— 落地時照地形取。
+ */
+export interface GroundEntry {
+  readonly unit: GroundUnitId
+  readonly team: Team
+  readonly x: number
+  readonly z: number
+  /** 航向，rad（繞 Y，0 = 車頭朝 −Z）。 */
+  readonly heading: number
 }
 
 export interface FleetEntry {
@@ -877,6 +899,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    ...(b.ground === undefined ? {} : { ground: b.ground }),
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),

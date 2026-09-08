@@ -43,8 +43,9 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import { createShipGuns, resetShipGuns } from '../world/shipGuns'
+import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
-import type { MissionFleet } from './missions'
+import type { GroundEntry, MissionFleet } from './missions'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -99,6 +100,8 @@ export interface BattleConfig {
    * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
    */
   readonly fleet?: MissionFleet
+  /** 這一關的地面目標。省略 = 一台都不放。 */
+  readonly ground?: readonly GroundEntry[]
   /**
    * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
    * `loadoutOf`）。
@@ -866,6 +869,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
+  placeGround(world, cfg.ground)
   const battle: Battle = {
     world,
     board,
@@ -933,6 +937,21 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
     world.ships.push(ship)
+  }
+}
+
+/**
+ * 依 `cfg.ground` 把地面目標放進世界。**省略就一台都不放。**
+ *
+ * 【高度先擺 0】這時 `world.groundAt` 還是預設值（地形在 `main.ts` 建完
+ * 戰鬥之後才注入）。落地由 `settleGroundTargets` 在那之後做。
+ */
+function placeGround(world: World, ground: readonly GroundEntry[] | undefined): void {
+  if (ground === undefined) return
+  for (const e of ground) {
+    world.groundTargets.push(
+      createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading),
+    )
   }
 }
 
@@ -1575,6 +1594,7 @@ export function resetBattle(
     resetShip(s)
     resetShipGuns(s)
   }
+  for (const t of b.world.groundTargets) resetGroundTarget(t)
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
   // 看起來像隨機的。

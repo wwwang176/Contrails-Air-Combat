@@ -29,6 +29,9 @@ import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/f
 import {
   createShipModels, preloadShipModels, shipModelTop, type ShipModels,
 } from './render/ships'
+import { createGroundModels, type GroundModels } from './render/groundTargets'
+import { preloadGroundModels } from './render/geometry/ground'
+import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, emitSmoke,
@@ -201,6 +204,7 @@ ctx.scene.add(flakBursts.object)
  * 【生命週期比照地形】每一場重建（`startWorld`），因為艦隊是設定的一部分。
  */
 let shipModels: ShipModels | null = null
+let groundModels: GroundModels | null = null
 /** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
 const GUN_LOST_DIR = new Vector3()
 
@@ -579,6 +583,21 @@ function emitKillBlasts(events: KillEvents): void {
       x, onLand ? ground : y, z, (e * 131 + Math.round(world.time * 60)) | 0,
       d[o + 3]! * inherit, d[o + 4]! * inherit, d[o + 5]! * inherit)
   }
+}
+
+/**
+ * 地面目標被摧毀：在它的位置點一團落地的火。**與墜地那一份同一個配方**
+ * （`LAND_BLAST`）—— 燒起來的卡車與撞地的飛機看起來就該是同一種土與火。
+ * 事件的 y 已經是地面高度，不必再壓。這裡自己排空。
+ */
+function emitGroundKills(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+      (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+  }
+  clearImpacts(events)
 }
 
 /**
@@ -1027,6 +1046,8 @@ function startWorld(cfg: BattleConfig): void {
   // 這一段每一場都重跑
   world.groundAt = terrain.collisionHeightAt
   world.waterAt = terrain.waterAt
+  // 【地面目標要在地形接上之後才落地】建戰鬥時 groundAt 還是 0
+  settleGroundTargets(world.groundTargets, world.groundAt)
   player = battle.player
   rebuildVisuals()
 
@@ -1040,6 +1061,16 @@ function startWorld(cfg: BattleConfig): void {
   if (world.ships.length > 0) {
     shipModels = createShipModels(world.ships)
     ctx.scene.add(shipModels.object)
+  }
+  // 地面目標與船同一個做法：每一場重建
+  if (groundModels !== null) {
+    ctx.scene.remove(groundModels.object)
+    groundModels.dispose()
+    groundModels = null
+  }
+  if (world.groundTargets.length > 0) {
+    groundModels = createGroundModels(world.groundTargets)
+    ctx.scene.add(groundModels.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -1409,6 +1440,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // ——與火花同一個理由（M7 spec §2.2）。**玩家自己被擊墜時也要有**，
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
     emitKillBlasts(world.killEvents)
+    emitGroundKills(world.groundKillEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
     // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
@@ -1657,6 +1689,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   flakBursts.step(frameSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
+  groundModels?.update(world.groundTargets)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
     for (let k = 0; k < FIREBALL_COUNT; k++) {
@@ -2195,6 +2228,8 @@ await preloadAircraftModels()
 // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
 // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
 await preloadShipModels(['essex', 'wichita', 'fletcher'])
+// 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
+await preloadGroundModels()
 requestAnimationFrame(frame)
 
 /**
