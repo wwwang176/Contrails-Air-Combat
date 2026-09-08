@@ -212,10 +212,11 @@ describe('releaseWindowOf', () => {
   /** 【誤差要拆進船的體軸】船是斜的時候，世界座標的差向量沒有意義 */
   it('窗依船的艏向擺放', () => {
     // 艏向 90°：船身沿 ±X，所以 X 方向可以差很遠、Z 方向不行
+    // 弗萊徹的窗是 86.1 × 9.06（半長半寬乘 RELEASE_HULLS）
     const s = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, Math.PI / 2, 0)
-    expect(insideWindow(s, 100, 0)).toBe(true)
-    expect(insideWindow(s, 0, 100)).toBe(false)
-    expect(insideWindow(s, 0, 10)).toBe(true)
+    expect(insideWindow(s, 80, 0)).toBe(true)
+    expect(insideWindow(s, 0, 80)).toBe(false)
+    expect(insideWindow(s, 0, 8)).toBe(true)
   })
 })
 

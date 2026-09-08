@@ -66,18 +66,21 @@ export function solveGateOf(altitude: number): number {
 export { deckHeightOf }
 
 /**
- * 釋放窗是艦體的幾倍。**這一關難度的主旋鈕，炸彈與魚雷共用。**
+ * 轟炸的釋放窗是艦體的幾倍。**這一關難度的主旋鈕。**
  *
  * 【判準是玩起來好不好玩，不是命中率】1 倍等於「算出來會打中才准投」，
- * 而彈道解算精確到近乎作弊 —— 實測魚雷幾乎彈無虛發。放寬到兩倍讓 AI 願意
- * 投，投出去中不中交給彈道。
+ * 而彈道解算精確到近乎作弊。放寬讓 AI 願意投，投出去中不中交給彈道。
+ *
+ * 【比雷擊那一份窄】放手的規則是「一進窗就投」，所以窗放寬不會讓落點分散，
+ * 而是把每一次放手都推到窗的最外緣 —— 窗越寬，每一顆就越早出手。炸彈有
+ * 爆風、落在旁邊還扣得到血，但太寬就變成整串都落在船前面。
  *
  * 【傷害判定不受影響】那是 `World` 那一側的事：炸彈量爆心到艦體盒的距離、
  * 魚雷是接觸引爆。這個窗只決定**扣不扣扳機**。
  *
  * **起始值，由試飛裁定。**
  */
-export const RELEASE_HULLS = 2
+export const RELEASE_HULLS = 1.5
 
 /**
  * 釋放窗的半長與半寬，m。**沿船身與橫過船身各一個。**
@@ -89,10 +92,12 @@ export const RELEASE_HULLS = 2
  * 【第一個盒恆是艦體】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
  * 取極值會讓窗橫向放大 51%。
  */
-export function releaseWindowOf(cls: ShipClass): { along: number, across: number } {
+export function releaseWindowOf(
+  cls: ShipClass, hulls = RELEASE_HULLS,
+): { along: number, across: number } {
   const hull = cls.hull[0]
   if (hull === undefined) return { along: 0, across: 0 }
-  return { along: hull.half.z * RELEASE_HULLS, across: hull.half.x * RELEASE_HULLS }
+  return { along: hull.half.z * hulls, across: hull.half.x * hulls }
 }
 
 /**
@@ -100,18 +105,23 @@ export function releaseWindowOf(cls: ShipClass): { along: number, across: number
  *
  * @param ex 落點 − 船屆時的位置，世界座標的 x 分量
  * @param ez 同上的 z 分量
+ * @param hulls 窗是艦體的幾倍。**轟炸與雷擊各有自己的值**
  *
  * 【為什麼要拆進體軸】船是斜的時候，世界座標的差向量沒有意義 —— 沿船身
  * 差 50 m 仍然在船上，橫過船身差 50 m 早就落海了。
  *
  * 熱路徑（決策拍）：不配置。
  */
-export function insideWindow(ship: Ship, ex: number, ez: number): boolean {
+export function insideWindow(
+  ship: Ship, ex: number, ez: number, hulls = RELEASE_HULLS,
+): boolean {
   const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
   const along = ex * dir.x + ez * dir.z
   const across = ex * dir.z - ez * dir.x
-  const w = releaseWindowOf(ship.cls)
-  return Math.abs(along) <= w.along && Math.abs(across) <= w.across
+  const hull = ship.cls.hull[0]
+  if (hull === undefined) return false
+  return Math.abs(along) <= hull.half.z * hulls
+    && Math.abs(across) <= hull.half.x * hulls
 }
 
 const S = /* @__PURE__ */ makeScratch(3)
