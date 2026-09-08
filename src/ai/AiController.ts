@@ -33,7 +33,9 @@ import {
   type WingmanConfig,
 } from './wingman'
 import { rallyCommand } from './rally'
-import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
+import {
+  createShipAim, pickGroundTarget, pickShipTarget, shipAttackCommand, SHIP_ATTACK_RANGE,
+} from './shipAttack'
 import {
   BOMB_PROFILE, createBombAim, resetBombAim, setBombBallistics, stepBombAim,
 } from './bombRun'
@@ -48,6 +50,21 @@ import type { BombBay } from '../weapons/bomb'
  */
 const DT_SOLVE = 1 / 240
 import type { Ship } from '../world/ships'
+import type { GroundTarget } from '../world/groundTargets'
+import type { StrikeTarget } from '../world/strikeTarget'
+import type { Team } from '../world/World'
+
+/**
+ * 轟炸機鎖定的打擊目標：在哪一份清單、第幾個。`index` 為 −1 = 沒有。
+ *
+ * 【為什麼是 kind + index 而不是物件參考】兩份清單都是由 `wireTerrain`
+ * 每幀重接的，存參考的話換場之後會指著上一場的船。與 `ShipAim.ship`
+ * 同一個理由。
+ */
+export interface StrikeRef {
+  kind: 'ship' | 'ground'
+  index: number
+}
 import { ACE, type DifficultyProfile } from './profile'
 import type { FlightOrder } from './command'
 import { losBlocked } from '../world/occlusion'
@@ -120,6 +137,18 @@ export class AiController implements Controller {
   ships: readonly Ship[] = []
 
   /**
+   * 這一場的地面目標。與 `ships` 同一個生命週期、同一個注入點 —— 漏接的
+   * 症狀是轟炸機在純建築的關卡一枚都不投、畫面上一切正常。
+   */
+  groundTargets: readonly GroundTarget[] = []
+
+  /**
+   * 轟炸機目前鎖定的打擊目標。船或建築，價值優先（`attackShip`）。
+   * 戰鬥機的掃射不讀它，讀的是 `shipAim`。
+   */
+  readonly strikeRef: StrikeRef = { kind: 'ship', index: -1 }
+
+  /**
    * 這一台的彈艙。**`null` = 掛不了彈**，也就是絕大多數的機種。
    *
    * 【為什麼是本體而不是容量】狀態機要知道**現在還有沒有東西可以放** ——
@@ -180,8 +209,10 @@ export class AiController implements Controller {
     // 【不看自己有沒有武器】索敵只回答「那裡有什麼值得去的東西」，
     // 開不開得了火是開火層的事。一式陸攻沒有固定槍，但它低空掠過去時
     // 側方與機腹的銃手會打砲位。
-    if (this.ships.length === 0) {
+    // 【兩份都空才早退】只看船的話，純建築的關卡轟炸機永遠選不到目標
+    if (this.ships.length === 0 && this.groundTargets.length === 0) {
       this.shipAim.ship = -1
+      this.strikeRef.index = -1
       return false
     }
     // 【陣營從板子讀】`AiController` 自己沒有這一格 —— 它只知道自己在
@@ -190,21 +221,10 @@ export class AiController implements Controller {
     const me = this.board?.candidates[this.selfIndex]
     if (me === undefined) {
       this.shipAim.ship = -1
+      this.strikeRef.index = -1
       return false
     }
     if (decide) pickShipTarget(self.state.position, me.team, this.ships, this.shipAim)
-    const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
-    // 【每一步都要複查】上一個決策拍之後它可能已經沉了，而下一次重選要
-    // 到 100 ms 後 —— 那一段時間對著一艘沉船掃射看起來就是壞掉。
-    if (ship === undefined || !ship.alive) {
-      this.shipAim.ship = -1
-      return false
-    }
-    // 【砲位也要複查】它可能在這 100 ms 之內被打掉了。掉回瞄船體，
-    // 而不是繼續瞄一個已經不存在的東西。
-    if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
-      this.shipAim.gun = -1
-    }
     const bay = this.bombBay
     const loaded = bay !== null && (bay.load > 0 || bay.queue > 0)
     if (bay !== null && bay.capacity > 0) {
@@ -217,12 +237,26 @@ export class AiController implements Controller {
       // 成一串。戰鬥機掛的是兩顆 60 kg —— 為兩顆彈飛完整條循環，換到的是
       // 一台在艦隊上空平飛的戰鬥機。
       if (self.spec.role !== 'fighter') {
+        const target = this.pickStrike(self, me.team, decide)
+        if (target === null) return false
         stepStrike(
-          this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
+          this.strike, self, target, this.strikeRef.index, this.strikeProfile,
           loaded, decide, dt, out,
         )
         return true
       }
+    }
+    const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
+    // 【每一步都要複查】上一個決策拍之後它可能已經沉了，而下一次重選要
+    // 到 100 ms 後 —— 那一段時間對著一艘沉船掃射看起來就是壞掉。
+    if (ship === undefined || !ship.alive) {
+      this.shipAim.ship = -1
+      return false
+    }
+    // 【砲位也要複查】它可能在這 100 ms 之內被打掉了。掉回瞄船體，
+    // 而不是繼續瞄一個已經不存在的東西。
+    if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
+      this.shipAim.gun = -1
     }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
     // 【掛彈的戰鬥機：近了就把瞄準點換成落彈解】投完（或還沒進到那個距離）
@@ -239,6 +273,51 @@ export class AiController implements Controller {
   }
 
   /**
+   * 轟炸機的打擊目標：船與建築裡價值最高的那一個。
+   *
+   * 【先船後建築，只有建築更值錢才換】沒有地面目標時與只掃船的版本逐位元
+   * 相同（`strike-replay-baseline.test.ts`）—— `pickShipTarget` 照舊跑，
+   * 建築那一圈是零長度。
+   *
+   * 【每一步都要複查】上一個決策拍之後它可能已經沉了或炸毀了。死了就放掉，
+   * 下一個決策拍重選。
+   *
+   * @returns 目標的視圖，沒有就 null（並把 `strikeRef.index` 設成 −1）
+   */
+  private pickStrike(self: Aircraft, team: Team, decide: boolean): StrikeTarget | null {
+    const ref = this.strikeRef
+    if (decide) {
+      const g = pickGroundTarget(self.state.position, team, this.groundTargets, SHIP_ATTACK_RANGE)
+      const ship = this.shipAim.ship >= 0 ? this.ships[this.shipAim.ship] : undefined
+      const ground = g >= 0 ? this.groundTargets[g] : undefined
+      const shipValue = ship === undefined ? -1 : ship.value
+      const groundValue = ground === undefined ? -1 : ground.value
+      // 【同價值比距離，與各自清單內的規則相同】船的距離量到船心 —— 砲位
+      // 那一層的距離只有船自己那一支在比，跨清單只需要一個粗略的量
+      const p = self.state.position
+      const takeGround = ground !== undefined && (
+        groundValue > shipValue
+        || (groundValue === shipValue && ship !== undefined
+          && p.distanceToSquared(ground.position) < p.distanceToSquared(ship.position))
+      )
+      if (takeGround) {
+        ref.kind = 'ground'
+        ref.index = g
+      } else {
+        ref.kind = 'ship'
+        ref.index = this.shipAim.ship
+      }
+    }
+    if (ref.index < 0) return null
+    const target = ref.kind === 'ship' ? this.ships[ref.index] : this.groundTargets[ref.index]
+    if (target === undefined || !target.alive) {
+      ref.index = -1
+      return null
+    }
+    return target
+  }
+
+  /**
    * 清掉地形的鎖存。**換場、換座位、重生之後都要呼叫。**
    *
    * playerAi 跨場重用，resetBattle 在玩家接手過座位之後也會建新的控制器 ——
@@ -251,6 +330,7 @@ export class AiController implements Controller {
     resetStrike(this.strike)
     resetBombAim(this.bombAim)
     this.shipAim.ship = -1
+    this.strikeRef.index = -1
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0

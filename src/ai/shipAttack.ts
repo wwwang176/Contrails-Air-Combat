@@ -7,6 +7,7 @@ import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
+import type { GroundTarget } from '../world/groundTargets'
 import type { Team } from '../world/World'
 
 /**
@@ -151,6 +152,38 @@ export function pickShipTarget(
     out.gun = gun
   }
   return out.ship >= 0
+}
+
+/**
+ * 轟炸機挑地面目標。**與 `pickShipTarget` 同一條規則**：價值優先、同價值
+ * 比距離，跳過死的與同隊的。地面目標沒有砲位，距離量到它的位置。
+ *
+ * 【與船分開一支】船那一支要掃砲位、要給戰鬥機掃射用，地面目標沒有那些。
+ * 硬併成一支會讓兩邊都多一個「這是船還是建築」的分支。
+ *
+ * @returns 目標在 `targets` 裡的索引，沒有就 −1
+ *
+ * 熱路徑（決策拍，10 Hz）：不配置。
+ */
+export function pickGroundTarget(
+  selfPos: Vector3, selfTeam: Team, targets: readonly GroundTarget[], range: number,
+): number {
+  let best = -1
+  let bestValue = -1
+  let bestSq = Infinity
+  const rangeSq = range * range
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i]!
+    if (!t.alive || t.team === selfTeam) continue
+    if (t.value < bestValue) continue
+    const d = selfPos.distanceToSquared(t.position)
+    if (d > rangeSq) continue
+    if (t.value === bestValue && d >= bestSq) continue
+    best = i
+    bestValue = t.value
+    bestSq = d
+  }
+  return best
 }
 
 /**

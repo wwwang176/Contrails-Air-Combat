@@ -7,7 +7,8 @@ import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
 import { deckHeightOf } from '../world/ships'
 import { SHIP_BREAK_RANGE } from './shipAttack'
-import type { Ship, ShipClass } from '../world/ships'
+import type { Box } from '../world/hit'
+import type { StrikeTarget } from '../world/strikeTarget'
 
 /**
  * # AI 的轟炸航路
@@ -93,9 +94,9 @@ export const RELEASE_HULLS = 1.5
  * 取極值會讓窗橫向放大 51%。
  */
 export function releaseWindowOf(
-  cls: ShipClass, hulls = RELEASE_HULLS,
+  boxes: readonly Box[], hulls = RELEASE_HULLS,
 ): { along: number, across: number } {
-  const hull = cls.hull[0]
+  const hull = boxes[0]
   if (hull === undefined) return { along: 0, across: 0 }
   return { along: hull.half.z * hulls, across: hull.half.x * hulls }
 }
@@ -113,12 +114,12 @@ export function releaseWindowOf(
  * 熱路徑（決策拍）：不配置。
  */
 export function insideWindow(
-  ship: Ship, ex: number, ez: number, hulls = RELEASE_HULLS,
+  target: StrikeTarget, ex: number, ez: number, hulls = RELEASE_HULLS,
 ): boolean {
-  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
+  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(target.orientation)
   const along = ex * dir.x + ez * dir.z
   const across = ex * dir.z - ez * dir.x
-  const hull = ship.cls.hull[0]
+  const hull = target.hull[0]
   if (hull === undefined) return false
   return Math.abs(along) <= hull.half.z * hulls
     && Math.abs(across) <= hull.half.x * hulls
@@ -139,9 +140,10 @@ const MIN_ERROR = 1e-6
  * 【它是解析的】固定艏向、等速、不閃避 —— `world/ships.ts` 的 `stepShips`
  * 就是這麼跑的，所以這裡不是近似，是同一條式子。
  */
-export function shipAt(ship: Ship, t: number, out: Vector3): Vector3 {
-  out.set(0, 0, -1).applyQuaternion(ship.orientation)
-  return out.multiplyScalar(ship.speed * t).add(ship.position)
+export function shipAt(target: StrikeTarget, t: number, out: Vector3): Vector3 {
+  // 地面目標的 speed 是 0：退化成常數，同一條式子
+  out.set(0, 0, -1).applyQuaternion(target.orientation)
+  return out.multiplyScalar(target.speed * t).add(target.position)
 }
 
 /**
@@ -169,22 +171,22 @@ const HIT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
 export function shouldRelease(
-  self: Aircraft, ship: Ship, k: number, dt: number,
+  self: Aircraft, target: StrikeTarget, k: number, dt: number,
 ): boolean {
   const p = self.state.position
   const gate = solveGateOf(p.y)
-  const dx = ship.position.x - p.x
-  const dz = ship.position.z - p.z
+  const dx = target.position.x - p.x
+  const dz = target.position.z - p.z
   if (dx * dx + dz * dz > gate * gate) return false
 
   const v = self.state.velocity
   START.x = p.x; START.y = p.y; START.z = p.z
   START.vx = v.x; START.vy = v.y; START.vz = v.z
-  deckY = deckHeightOf(ship.cls)
+  deckY = target.impactY
   if (!solveImpact(START, k, DECK, dt, HIT)) return false
 
-  const at = shipAt(ship, HIT.seconds, S.v[0]!)
-  return insideWindow(ship, HIT.x - at.x, HIT.z - at.z)
+  const at = shipAt(target, HIT.seconds, S.v[0]!)
+  return insideWindow(target, HIT.x - at.x, HIT.z - at.z)
 }
 
 /**
@@ -284,7 +286,7 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
     const v = self.state.velocity
     START.x = p.x; START.y = p.y; START.z = p.z
     START.vx = v.x; START.vy = v.y; START.vz = v.z
-    deckY = deckHeightOf(ship.cls)
+    deckY = ship.impactY
     if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
       shipAt(ship, HIT.seconds, out.aim)
       // 【放手點 ＝ 前拋距離 ＋ 船沿視線靠近的量】炸彈落在自己前方 `throw`
@@ -380,7 +382,7 @@ const AIM_CLAMP = 30 * DEG
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
 export function stepBombAim(
-  state: BombAimState, self: Aircraft, ship: Ship,
+  state: BombAimState, self: Aircraft, ship: StrikeTarget,
   loaded: boolean, decide: boolean,
 ): void {
   if (!decide) return
@@ -400,7 +402,7 @@ export function stepBombAim(
   const v = self.state.velocity
   START.x = p.x; START.y = p.y; START.z = p.z
   START.vx = v.x; START.vy = v.y; START.vz = v.z
-  deckY = deckHeightOf(ship.cls)
+  deckY = ship.impactY
   if (drag <= 0 || !solveImpact(START, drag, DECK, solveDt, HIT)) return
 
   const at = shipAt(ship, HIT.seconds, S.v[0]!)

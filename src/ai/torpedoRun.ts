@@ -8,7 +8,8 @@ import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
 import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
-import type { Ship, ShipClass } from '../world/ships'
+import type { Box } from '../world/hit'
+import type { StrikeTarget } from '../world/strikeTarget'
 
 /**
  * # AI 的雷擊航路
@@ -112,8 +113,8 @@ export const TORPEDO_RELEASE_HULLS = 2
  * 釋放窗。**幾何與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`），
  * 只有倍率不同 —— 兩種武器都是「落點落在艦體的幾倍範圍內就投」。
  */
-export function hitWindowOf(cls: ShipClass): { along: number, across: number } {
-  return releaseWindowOf(cls, TORPEDO_RELEASE_HULLS)
+export function hitWindowOf(hull: readonly Box[]): { along: number, across: number } {
+  return releaseWindowOf(hull, TORPEDO_RELEASE_HULLS)
 }
 
 /**
@@ -164,7 +165,7 @@ const SOL: Solution = { ex: 0, ez: 0, air: 0, water: -1 }
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
-function solve(self: Aircraft, ship: Ship): boolean {
+function solve(self: Aircraft, ship: StrikeTarget): boolean {
   const p = self.state.position
   const v = self.state.velocity
   START.x = p.x; START.y = p.y; START.z = p.z
@@ -419,7 +420,7 @@ export function makeTorpedoProfile(
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
-export function shouldRelease(self: Aircraft, ship: Ship): boolean {
+export function shouldRelease(self: Aircraft, ship: StrikeTarget): boolean {
   const h = S.v[2]!
   if (!waterHeading(self, h)) return false
   if (!solve(self, ship) || SOL.water < 0) return false
@@ -441,11 +442,11 @@ export function shouldRelease(self: Aircraft, ship: Ship): boolean {
  * 【為什麼不是把 `shouldRelease` 拆開】那一支是熱路徑，回一個物件就是每拍
  * 一次配置。這一支只給 `test/tools/` 呼叫，配置無所謂。
  */
-export function diagnose(self: Aircraft, ship: Ship): {
+export function diagnose(self: Aircraft, ship: StrikeTarget): {
   run: number; along: number; across: number
   wAlong: number; wAcross: number; ok: boolean
 } {
-  const w = hitWindowOf(ship.cls)
+  const w = hitWindowOf(ship.hull)
   const out = { run: NaN, along: NaN, across: NaN, wAlong: w.along, wAcross: w.across, ok: false }
   const h = new Vector3()
   if (!waterHeading(self, h) || !solve(self, ship) || SOL.water < 0) return out

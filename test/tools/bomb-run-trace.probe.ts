@@ -70,7 +70,7 @@ function run(shipSpeed: number): void {
     if (line.slice(5) !== last) console.log('  ' + line)
     last = line.slice(5)
   }
-  const win = releaseWindowOf(ship.cls)
+  const win = releaseWindowOf(ship.hull)
   console.log(
     `  投彈 ${w.bombs.dropped}、釋放窗 沿 ${win.along.toFixed(1)} × 橫 ${win.across.toFixed(1)} m`,
   )

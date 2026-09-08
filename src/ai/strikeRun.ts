@@ -4,7 +4,7 @@ import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
-import type { Ship } from '../world/ships'
+import type { StrikeTarget } from '../world/strikeTarget'
 
 /**
  * # 對艦攻擊航路的狀態機
@@ -92,9 +92,9 @@ export interface StrikeProfile {
    *
    * 轟炸瞄「船在落彈時刻的位置」、雷擊瞄「船在雷程時刻的位置」。
    */
-  plan(self: Aircraft, ship: Ship, out: StrikePlan): void
+  plan(self: Aircraft, target: StrikeTarget, out: StrikePlan): void
   /** 現在放得中嗎。熱路徑（決策拍）。 */
-  shouldRelease(self: Aircraft, ship: Ship): boolean
+  shouldRelease(self: Aircraft, target: StrikeTarget): boolean
 }
 
 /** `StrikeProfile.plan` 的輸出。就地寫入 —— 熱路徑不得配置。 */
@@ -121,8 +121,8 @@ export interface StrikeState {
   phase: StrikePhase
   /** 直飛段鎖定的航向，**水平單位向量**。 */
   readonly heading: Vector3
-  /** 直飛段鎖定的那一艘（`ships` 索引）。**中途不換。** */
-  ship: number
+  /** 直飛段鎖定的那一個目標（在它自己那份清單裡的索引）。**中途不換。** */
+  target: number
   /** 這一趟直飛已經幾秒。 */
   seconds: number
   /** 這一步要不要放。呼叫端寫進 `Command.bombing`。 */
@@ -140,7 +140,7 @@ export function createStrikeState(): StrikeState {
   return {
     phase: 'approach',
     heading: new Vector3(0, 0, -1),
-    ship: -1,
+    target: -1,
     seconds: 0,
     release: false,
     plan: { aim: new Vector3(), lockRange: 0, egressRange: 0 },
@@ -150,7 +150,7 @@ export function createStrikeState(): StrikeState {
 export function resetStrike(s: StrikeState): void {
   s.phase = 'approach'
   s.heading.set(0, 0, -1)
-  s.ship = -1
+  s.target = -1
   s.seconds = 0
   s.release = false
   s.plan.aim.set(0, 0, 0)
@@ -193,7 +193,7 @@ function flatten(v: Vector3): Vector3 | null {
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
 export function stepStrike(
-  state: StrikeState, self: Aircraft, ship: Ship, shipIndex: number,
+  state: StrikeState, self: Aircraft, ship: StrikeTarget, targetIndex: number,
   profile: StrikeProfile, loaded: boolean, decide: boolean, dt: number, out: Command,
 ): void {
   const p = self.state.position
@@ -218,7 +218,7 @@ export function stepStrike(
     // 補滿且拉開夠遠才准再進場 —— 兩個條件缺一個就會空手再衝一次
     if (loaded && range > state.plan.egressRange) {
       state.phase = 'approach'
-      state.ship = -1
+      state.target = -1
     }
     out.bombing = false
     return
@@ -241,7 +241,7 @@ export function stepStrike(
     if (nose === null || nose.dot(ideal) < Math.cos(profile.lockCone)) return
 
     state.phase = 'run'
-    state.ship = shipIndex
+    state.target = targetIndex
     state.seconds = 0
     state.heading.copy(ideal)
     return
