@@ -113,6 +113,9 @@ describe('換一場的兩個入口都要清粒子池', () => {
         // `reset()` 的簽章一樣。漏清的話上一場的火會用同一個船索引附到
         // 新一場的船上，燒滿 60 秒
         'shipFireSmoke', 'shipFires',
+        // 【地面目標的火】同一個性質：世界座標的火點，漏清就在新一場的
+        // 同一個位置燒滿 60 秒
+        'groundFires',
       ].sort(),
     )
   })
@@ -122,12 +125,15 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 會**收得到 `emit` 但一個粒子都不畫** —— 實例矩陣是在 `step` 裡寫的，
    * 從來不推就等於整池不存在，而且完全不報錯。
    *
-   * 【`shipFires` 不在此列】它不是粒子池，走的是 `stepShipFires(...)`。
+   * 【`shipFires` 與 `groundFires` 不在此列】它們不是粒子池，走的是
+   * `stepShipFires(...)` 與 `stepGroundFires(...)`，各自另有一條斷言。
    */
   it('POOLS 裡的每一個粒子池每幀都被推', () => {
     for (const pool of poolNames()) {
-      if (pool === 'shipFires') continue
+      if (pool === 'shipFires' || pool === 'groundFires') continue
       expect(MAIN, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
     }
+    expect(MAIN).toContain('stepShipFires(shipFires,')
+    expect(MAIN).toContain('stepGroundFires(groundFires,')
   })
 })
