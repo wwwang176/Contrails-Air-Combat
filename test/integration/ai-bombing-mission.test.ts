@@ -29,18 +29,16 @@ const DT = 1 / 240
 const SEED = 1234
 
 /**
- * 開一場並接好線。
+ * 把船與投彈那幾格接給每一架 AI。
  *
- * **接的欄位與 `main.ts` 的 `wireTerrain` 相同** —— 漏掉 `bombDrag` 的話
- * AI 算的落點與飛出去的那一顆會分家，而症狀只是「投不準」。
+ * **欄位與 `main.ts` 的 `wireTerrain` 相同** —— 漏掉 `bombDrag` 的話 AI 算的
+ * 落點與飛出去的那一顆會分家，而症狀只是「投不準」。
  *
- * 【但這裡只接一次，`wireTerrain` 是每幀接】增援進場時那個座位會換一個新的
- * 控制器，接一次的話它的 `ships` 是空的 —— 那一架於是永遠選不到船，
- * `shipAim.ship` 停在 −1，安安靜靜地在空中繞。要驗波次的對艦行為，得比照
- * 遊戲在每一步重接。
+ * 【必須每一步都接，與 `wireTerrain` 一樣】增援進場時那個座位會換一個新的
+ * 控制器，只接一次的話它的 `ships` 是空的 —— 那一架於是永遠選不到船，
+ * `shipAim.ship` 停在 −1，安安靜靜地在空中繞。這一關的雷擊機正是波次來的。
  */
-function mission(which: ReadyMissionCard = card): Battle {
-  const b = createBattle(IDLE, missionConfigFrom(which), SEED)
+function wire(b: Battle): void {
   for (const c of b.world.combatants) {
     const ctl = c.controller
     if (!(ctl instanceof AiController)) continue
@@ -51,6 +49,11 @@ function mission(which: ReadyMissionCard = card): Battle {
     // 轟炸剖面去飛雷擊 —— 而症狀又是「AI 好像不太會投」，沒有錯誤訊息
     ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   }
+}
+
+function mission(which: ReadyMissionCard = card): Battle {
+  const b = createBattle(IDLE, missionConfigFrom(which), SEED)
+  wire(b)
   return b
 }
 
@@ -60,7 +63,7 @@ function dropped(b: Battle): number {
 }
 
 function run(b: Battle, seconds: number): void {
-  for (let i = 0; i < seconds * 240; i++) stepBattle(b, DT)
+  for (let i = 0; i < seconds * 240; i++) { wire(b); stepBattle(b, DT) }
 }
 
 describe('japan-m4 的 AI 一式陸攻', () => {
@@ -127,9 +130,9 @@ describe('allies-m4 的 AI 零戰', () => {
     const b = mission(zeroCard)
     const hp0 = b.world.ships.map((s) => s.hp)
 
-    // 【60 秒】零戰從 5 km 外以 143 m/s 進場約 18 秒到投彈點，一趟循環
-    // 約 60 秒。八架裡一枚都沒投就是這條路斷了
-    run(b, 60)
+    // 【120 秒】要涵蓋三批零戰（0／40／80 秒）。開場那八架會被四架 F6F
+    // 攔在防空網前面，一枚都投不出來 —— 這一關的壓力靠的是分批到達
+    run(b, 120)
     expect(dropped(b)).toBeGreaterThan(0)
 
     const hurt = b.world.ships.filter((s, i) => s.hp < hp0[i]!).length

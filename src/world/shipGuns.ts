@@ -54,6 +54,13 @@ export interface ShipGunSpec {
  * 參考座標：.50 白朗寧初速 887、800 發/分、單發 18（`weapons/p51d.ts`）；
  * 零戰的 20 mm 單發 100；B-17 球形腹部砲塔一發 33.75。
  *
+ * 【火力密度靠砲區數，不靠單發】TF58 九艘船的理論火力是每秒三千點，而零戰
+ * 只有 600 血。掛彈的零戰在離目標九百到六百公尺之間才進得了投彈點，那三百
+ * 公尺是它唯一會失敗的地方 —— 單發過痛就沒有人到得了。
+ *
+ * 兩挺自動砲取上面那個座標的一半；五吋砲取四分之一，因為它單發最重，而且
+ * 黑雲是危險的招牌不是必中的判決。
+ *
  * 【5 吋砲的初速刻意訂 450，真砲是 790】射速慢、初速也慢。
  * 這不是妥協，是這一層成立的條件 —— **慢彈才有看得見的飛行時間，黑雲才會
  * 在你前方一朵一朵開出來**。代價是它對閃避中的戰鬥機幾乎打不中，而那正是
@@ -82,11 +89,11 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   //
   // 【480 就是真砲的循環射速】Oerlikon 是每分鐘 450 發上下。
   //
-  // 【單發只有 5】32 個砲區合起來每秒 256 發 —— 這一層真正的火力是單發
+  // 【單發只有 2.5】32 個砲區合起來每秒 256 發 —— 這一層真正的火力是單發
   // 乘上砲區數。要的是**視覺密度**厚，不是進去就死。
   mg: {
     muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6, caliber: 20,
-    damage: 5, hp: 300, boxHalf: 1.2, rotationRate: 60 * DEG,
+    damage: 2.5, hp: 300, boxHalf: 1.2, rotationRate: 60 * DEG,
   },
   // 40 mm Bofors，射程 880 × 3.4 ≈ 2,990 m
   //
@@ -97,12 +104,12 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 是 480。這裡一個砲區代表的是一座砲塔，取 220 是「打打停停」的實況值。
   autocannon: {
     muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4, caliber: 40,
-    damage: 18, hp: 600, boxHalf: 2.0, rotationRate: 45 * DEG,
+    damage: 9, hp: 600, boxHalf: 2.0, rotationRate: 45 * DEG,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
   flak: {
     muzzleVelocity: 450, roundsPerMinute: 20, life: 0, caliber: 127,
-    damage: 200, hp: 1000, boxHalf: 3.0, rotationRate: 20 * DEG,
+    damage: 50, hp: 1000, boxHalf: 3.0, rotationRate: 20 * DEG,
   },
 }
 

@@ -435,8 +435,13 @@ export function pincer(
   return out
 }
 
-/** 繞世界原點把一個入場位置往右舷轉。`gap` 折進 `along`。 */
-function rotateEntry(
+/**
+ * 繞世界原點把一個入場位置往右舷轉。`gap` 折進 `along`。
+ *
+ * **波次也用它**（`battle/missions.ts` 的 `waveBeat`）—— 開場的第二群與後續
+ * 的每一波要能落在同一個方位上，兩份實作會漂開。
+ */
+export function rotateEntry(
   e: SideEntry, starboard: number, entryRange: number, lateralOffset: number,
 ): SideEntry {
   const c = Math.cos(-starboard)
