@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { fillMarkers, type MarkerPool, type MarkerProject } from '../../src/hud/markerFeed'
 import { createHudFrame, HUD_MAX_MARKERS } from '../../src/hud/types'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
+import { createGroundTarget } from '../../src/world/groundTargets'
 
 /**
  * # 標記進池的規則
@@ -69,6 +70,7 @@ describe('fillMarkers', () => {
     fillMarkers(
       f,
       [ship(0, 'red')],
+      [],
       [pool([{ x: 1, y: 2, z: 3, team: 0 }]), pool([{ x: 4, y: 5, z: 6, team: 0 }])],
       0, FLAT, topOf,
     )
@@ -83,7 +85,7 @@ describe('fillMarkers', () => {
     const f = createHudFrame()
     const dead = ship(0, 'red')
     dead.alive = false
-    fillMarkers(f, [dead, ship(1, 'red'), ship(2, 'red')], [], 0, FLAT, topOf)
+    fillMarkers(f, [dead, ship(1, 'red'), ship(2, 'red')], [], [], 0, FLAT, topOf)
     expect(f.markerCount).toBe(2)
   })
 
@@ -96,6 +98,7 @@ describe('fillMarkers', () => {
     fillMarkers(
       f,
       [ship(0, 'blue', 0, 0), ship(1, 'red', 100, 0)],
+      [],
       [pool([{ x: 0, y: 0, z: 0, team: 0 }, { x: 0, y: 0, z: 0, team: 1 }])],
       0, FLAT, topOf,
     )
@@ -108,7 +111,7 @@ describe('fillMarkers', () => {
   /** 【紅方玩家的視角是反過來的】`own` 換一邊，兩種顏色跟著對調。 */
   it('玩家是紅隊時敵我對調', () => {
     const f = createHudFrame()
-    fillMarkers(f, [ship(0, 'blue'), ship(1, 'red', 100, 0)], [], 1, FLAT, topOf)
+    fillMarkers(f, [ship(0, 'blue'), ship(1, 'red', 100, 0)], [], [], 1, FLAT, topOf)
     expect(f.markers[0]!.hostile).toBe(true)
     expect(f.markers[1]!.hostile).toBe(false)
   })
@@ -123,13 +126,13 @@ describe('fillMarkers', () => {
     const s = ship(0, 'red')
     expect(s.position.y).toBe(0)
     // FLAT 把 y 原樣傳回 out.y，所以標記的 y 就是餵進投影的那個高度
-    fillMarkers(f, [s], [], 0, FLAT, topOf)
+    fillMarkers(f, [s], [], [], 0, FLAT, topOf)
     expect(f.markers[0]!.y).toBe(TOP)
   })
 
   it('相機背後的那一格 behind 是 true', () => {
     const f = createHudFrame()
-    fillMarkers(f, [ship(0, 'red')], [], 0, BEHIND, topOf)
+    fillMarkers(f, [ship(0, 'red')], [], [], 0, BEHIND, topOf)
     expect(f.markers[0]!.behind).toBe(true)
   })
 
@@ -140,9 +143,9 @@ describe('fillMarkers', () => {
    */
   it('這一幀比上一幀少時，多出來的格子關掉', () => {
     const f = createHudFrame()
-    fillMarkers(f, [ship(0, 'red'), ship(1, 'red', 100, 0), ship(2, 'red', 200, 0)], [], 0, FLAT, topOf)
+    fillMarkers(f, [ship(0, 'red'), ship(1, 'red', 100, 0), ship(2, 'red', 200, 0)], [], [], 0, FLAT, topOf)
     expect(f.markerCount).toBe(3)
-    fillMarkers(f, [ship(0, 'red')], [], 0, FLAT, topOf)
+    fillMarkers(f, [ship(0, 'red')], [], [], 0, FLAT, topOf)
     expect(f.markerCount).toBe(1)
     expect(f.markers[1]!.active).toBe(false)
     expect(f.markers[2]!.active).toBe(false)
@@ -157,7 +160,7 @@ describe('fillMarkers', () => {
     const f = createHudFrame()
     const many: Ship[] = []
     for (let i = 0; i < HUD_MAX_MARKERS + 10; i++) many.push(ship(i, 'red', i * 100, 0))
-    expect(() => fillMarkers(f, many, [], 0, FLAT, topOf)).not.toThrow()
+    expect(() => fillMarkers(f, many, [], [], 0, FLAT, topOf)).not.toThrow()
     expect(f.markerCount).toBe(HUD_MAX_MARKERS)
   })
 
@@ -166,7 +169,35 @@ describe('fillMarkers', () => {
     const f = createHudFrame()
     const p = pool([{ x: 1, y: 1, z: 1, team: 0 }])
     p.active[0] = 0
-    fillMarkers(f, [], [p], 0, FLAT, topOf)
+    fillMarkers(f, [], [], [p], 0, FLAT, topOf)
     expect(f.markerCount).toBe(0)
+  })
+})
+
+describe('fillMarkers：地面目標', () => {
+  /** 敵方的煙囪標在盒頂、紅；炸毀的不畫，也不連累後面的 */
+  it('地面目標進池、高度用盒頂、敵對紅', () => {
+    const f = createHudFrame()
+    const t = createGroundTarget(0, 'chimney', 'red', 10, 20, 0)
+    fillMarkers(f, [], [t], [], 0, FLAT, topOf)
+    expect(f.markerCount).toBe(1)
+    expect(f.markers[0]!.hostile).toBe(true)
+    expect(f.markers[0]!.y).toBe(t.impactY)
+  })
+
+  it('炸毀的不進池，而且不會連累排在它後面的', () => {
+    const f = createHudFrame()
+    const dead = createGroundTarget(0, 'chimney', 'red', 0, 0, 0)
+    dead.alive = false
+    const list = [dead, createGroundTarget(1, 'oilTank', 'red', 50, 0, 0), createGroundTarget(2, 'oilTank', 'red', 100, 0, 0)]
+    fillMarkers(f, [], list, [], 0, FLAT, topOf)
+    expect(f.markerCount).toBe(2)
+  })
+
+  it('船與地面目標都在時兩種都進池，船的標記不受影響', () => {
+    const f = createHudFrame()
+    fillMarkers(f, [ship(0, 'red')], [createGroundTarget(0, 'oilTank', 'red', 0, 0, 0)], [], 0, FLAT, topOf)
+    expect(f.markerCount).toBe(2)
+    expect(f.markers[0]!.y).toBe(TOP)
   })
 })

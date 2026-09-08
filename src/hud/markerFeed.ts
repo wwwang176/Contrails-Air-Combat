@@ -1,6 +1,7 @@
 import { HUD_MAX_MARKERS, type HudFrame } from './types'
 import { teamSlot } from '../world/World'
 import type { Ship } from '../world/ships'
+import type { GroundTarget } from '../world/groundTargets'
 
 /**
  * 一個可以長出標記的池：炸彈或魚雷。
@@ -55,6 +56,7 @@ const OUT = { x: 0, y: 0 }
 export function fillMarkers(
   f: HudFrame,
   ships: readonly Ship[],
+  groundTargets: readonly GroundTarget[],
   pools: readonly MarkerPool[],
   own: number,
   project: MarkerProject,
@@ -70,6 +72,14 @@ export function fillMarkers(
     // 砲位盒的頂都不夠 —— 桅杆比它們高兩三倍
     n = put(f, n, s.position.x, shipTop(s), s.position.z,
       teamSlot(s.team), own, project)
+  }
+  for (const t of groundTargets) {
+    // 【炸毀的不畫】與沉船同一個理由；殘骸只是佈景
+    if (!t.alive) continue
+    if (n >= HUD_MAX_MARKERS) break
+    // 【高度用盒頂】建築沒有桅杆，命中盒的頂就是模型的頂 —— 不像船要
+    // 問模型。`impactY` 已經是地面高度加盒頂
+    n = put(f, n, t.position.x, t.impactY, t.position.z, teamSlot(t.team), own, project)
   }
   for (const p of pools) {
     for (let i = 0; i < p.capacity; i++) {

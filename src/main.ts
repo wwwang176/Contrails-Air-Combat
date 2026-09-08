@@ -40,6 +40,7 @@ import {
 import {
   createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
 } from './render/shipFires'
+import { createGroundFires, lightGroundFire, stepGroundFires } from './render/groundFires'
 import { hash01 } from './render/scatter'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
@@ -491,6 +492,7 @@ ctx.scene.add(vortex.object)
  * 它與粒子池一起進 `POOLS` —— `reset()` 這個名字就是為了那份清單。
  */
 const shipFires = createShipFires()
+const groundFires = createGroundFires()
 /**
  * 魚雷的航跡。**貼著浪面的一條白帶，不是粒子** —— 粒子池畫的是團狀的東西，
  * 這是一條線（理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它
@@ -605,6 +607,11 @@ function emitGroundKills(events: ImpactEvents): void {
     const o = e * IMPACT_STRIDE
     emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
       (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數。炸彈落點的火球與碎片
+    // 由 `emitBombBlasts` 負責 —— 這裡只點火，不再放第二次爆炸
+    const t = world.groundTargets[d[o + 3]!]
+    const top = t === undefined ? 0 : t.impactY - t.position.y
+    lightGroundFire(groundFires, d[o]!, d[o + 1]! + top * 0.3, d[o + 2]!)
   }
   clearImpacts(events)
 }
@@ -620,6 +627,7 @@ function emitBombBlasts(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
+    // 0 = 陸、1 = 水、2 = 船、3 = 建築。船與建築同一套：火加碎片
     const kind = d[o + 3]!
     const recipe = kind > 1.5 ? AIR_BLAST : kind > 0.5 ? WATER_BLAST : LAND_BLAST
     // 【表現的規模跟著那一顆的傷害走】`ny` 帶的是爆心傷害，而尺度的立方
@@ -718,7 +726,7 @@ const POOLS = [
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
-  shipFireSmoke, shipFires,
+  shipFireSmoke, shipFires, groundFires,
 ]
 
 function resetPools(): void {
@@ -1681,6 +1689,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   torpedoVisuals.update(world.torpedoes)
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
   stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff)
+  stepGroundFires(groundFires, frameSeconds, emitFirePuff)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -2004,7 +2013,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   MARKER_POOLS[0] = world.bombs
   MARKER_POOLS[1] = world.torpedoes
   fillMarkers(
-    hudFrame, world.ships, MARKER_POOLS, teamSlot(player.team), projectMarker, shipMarkerTop,
+    hudFrame, world.ships, world.groundTargets, MARKER_POOLS,
+    teamSlot(player.team), projectMarker, shipMarkerTop,
   )
 
   // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。

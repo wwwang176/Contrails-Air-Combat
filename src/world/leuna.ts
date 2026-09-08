@@ -36,6 +36,9 @@ export const PLANT_PAD = { halfX: 700, halfZ: 400 } as const
  */
 export const PAD_CLEARANCE = 400
 
+/** 脫離方向：投完繼續往 −Z 飛，不回頭 —— 那是史實的脫離 */
+export const EGRESS = /* @__PURE__ */ new Vector3(0, 0, -1)
+
 /**
  * 手擺的丘陵。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`，清單不寫 ——
  * `makeLobes` 信任呼叫端給的值，寫錯的話墊面保證就沒了而且不報錯。

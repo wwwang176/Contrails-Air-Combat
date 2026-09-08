@@ -17,14 +17,33 @@
  * 玩家機器上的編譯器。與 `island-shot.e2e.ts` 同一個理由。
  */
 import { chromium } from 'playwright'
-import { FIELD_GLSL } from '../../src/render/fields'
+import { fieldGlsl } from '../../src/render/fields'
+import { SEASONS } from '../../src/render/season'
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: false })
   try {
     const page = await browser.newPage()
     await page.goto('about:blank')
-    const log = await page.evaluate((src: string) => {
+    // 【每一個季節各編一次】色值烘進字串，一個季節一份著色器；只編夏季的話
+    // 晚秋那一份壞掉要到瀏覽器裡才看得到
+    for (const season of SEASONS) {
+      const log = await compile(page, fieldGlsl(season))
+      if (log.trim() === '') {
+        console.log(`  fieldGlsl('${season}') 編譯通過`)
+        continue
+      }
+      console.error(`  fieldGlsl('${season}') 編譯失敗：`)
+      console.error(log)
+      throw new Error('GLSL 編譯失敗')
+    }
+  } finally {
+    await browser.close()
+  }
+}
+
+async function compile(page: import('playwright').Page, glsl: string): Promise<string> {
+  return page.evaluate((src: string) => {
       const gl = document.createElement('canvas').getContext('webgl2')
       if (gl === null) return 'WebGL2 拿不到 context'
       const sh = gl.createShader(gl.FRAGMENT_SHADER)
@@ -36,18 +55,7 @@ async function main(): Promise<void> {
       gl.compileShader(sh)
       if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) === true) return ''
       return gl.getShaderInfoLog(sh) ?? '（編譯失敗但沒有訊息）'
-    }, FIELD_GLSL)
-
-    if (log.trim() === '') {
-      console.log('  FIELD_GLSL 編譯通過')
-      return
-    }
-    console.error('  FIELD_GLSL 編譯失敗：')
-    console.error(log)
-    throw new Error('GLSL 編譯失敗')
-  } finally {
-    await browser.close()
-  }
+    }, glsl)
 }
 
 main().catch((e: unknown) => { console.error(e); throw e })
