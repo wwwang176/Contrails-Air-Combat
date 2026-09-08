@@ -20,7 +20,11 @@ import type { SceneContext } from './scene'
  */
 export type { TimeOfDay }
 
-export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = ['dawn', 'noon', 'dusk', 'night']
+/**
+ * 【`novemberNoon` 排最後】它進工具頁的時段按鈕，**不進遭遇戰選單** ——
+ * `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它。
+ */
+export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = ['dawn', 'noon', 'dusk', 'night', 'novemberNoon']
 
 /**
  * 一個時段的完整光照設定。
@@ -172,6 +176,33 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     sparkle: 0.18,
     foliage: 0.16,
     fogDensity: 2.2e-5,
+  },
+  /**
+   * 1944 年 11 月的正午：51°N 的太陽仰角只有二十幾度、天色灰白、遠處泛霧。
+   * 洛伊納（`world/leuna.ts`）的色盤是為它調的。海色照抄正午 —— 內陸用不到。
+   * **起始值，拿眼睛校。**
+   */
+  novemberNoon: {
+    id: 'novemberNoon',
+    name: '十一月正午',
+    skyHorizon: 0xd9d9d6,
+    skyZenith: 0x7f93a8,
+    skyPower: 0.9,
+    stars: 0,
+    // 仰角 ≈ 25°
+    sunDir: [-0.55, 0.42, 0.72],
+    sunColor: 0xfff0dc,
+    sunIntensity: 1.5,
+    hemiSky: 0xb9c2cc,
+    hemiGround: 0x3a3630,
+    hemiIntensity: 0.8,
+    ambientColor: 0xdfe3e8,
+    ambientIntensity: 0.22,
+    seaColor: SEA_COLOR,
+    seaHorizon: SEA_HORIZON_COLOR,
+    sparkle: 0.6,
+    foliage: 0.85,
+    fogDensity: FOG_DENSITY * 1.6,
   },
 }
 

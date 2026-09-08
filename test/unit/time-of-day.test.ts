@@ -20,9 +20,22 @@ import type { TimeOfDay } from '../../src/world/timeOfDay'
 const ALL = TIME_OF_DAY_IDS.map((id) => DAY_PALETTES[id])
 
 describe('DAY_PALETTES', () => {
-  it('四個時段都在，鍵與 id 一致', () => {
-    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night'])
+  it('五個時段都在，鍵與 id 一致', () => {
+    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night', 'novemberNoon'])
     for (const id of TIME_OF_DAY_IDS) expect(DAY_PALETTES[id].id).toBe(id)
+  })
+
+  it('novemberNoon：太陽仰角二十幾度、霧比正午濃、海色照抄正午', () => {
+    const n = DAY_PALETTES.novemberNoon
+    const noon = DAY_PALETTES.noon
+    const [x, y, z] = n.sunDir
+    const elevation = Math.asin(y / Math.hypot(x, y, z))
+    expect(elevation).toBeGreaterThan(20 * Math.PI / 180)
+    expect(elevation).toBeLessThan(30 * Math.PI / 180)
+    expect(n.fogDensity).toBeGreaterThan(noon.fogDensity)
+    expect(n.sunIntensity).toBeLessThan(noon.sunIntensity)
+    expect(n.seaColor).toBe(noon.seaColor)
+    expect(n.seaHorizon).toBe(noon.seaHorizon)
   })
 
   /**
