@@ -1,7 +1,6 @@
 import type { AircraftModel } from './assembly'
 import { buildBf109E, BF109_BODY_COLOR } from './bf109e'
 import { buildHe111 } from './he111'
-import { buildB17G } from './b17g'
 import { F6F5_MODEL } from './f6f5.model'
 import { P51D_MODEL } from './p51d.model'
 import { BF109K4_MODEL } from './bf109k4.model'
@@ -34,19 +33,21 @@ export type { AircraftModel, HullMetrics } from './assembly'
 const BUILDERS: Record<string, () => AircraftModel> = {
   bf109k4: buildBf109E,
   he111: buildHe111,
-  b17g: buildB17G,
 }
 
 /**
- * 由 GLB 載入的機種。**五台全部走這條**；`BUILDERS` 留著是重匯的來源。
+ * 由 GLB 載入的機種。**九台全部走這條**；`BUILDERS` 只剩兩台，留著是重匯的來源。
  *
- * 【來源都在 Blender】F6F-5 是在 Blender 裡畫的；P-51D 與 Bf 109 的底稿是
- * 程式版用 `GLTFExporter` 吐出來、再在 Blender 裡對著參考模型修過的（見各自
- * 的 `*.model.ts`）。He 111 與 B-17G 是同一支腳本吐出來、在 Blender 裡
- * 焊過重複頂點（畫面逐 byte 不變）—— 之後要修外型就在 `tools/blender/*.blend` 裡修，再匯出。
+ * 【來源都在 Blender】F6F-5 是在 Blender 裡畫的；P-51D 與 Bf 109 的底稿是程式版
+ * 用 `GLTFExporter` 吐出來、再在 Blender 裡對著參考模型修過的（見各自的
+ * `*.model.ts`）。He 111 是同一支腳本吐出來、在 Blender 裡焊過重複頂點（畫面逐
+ * byte 不變）。Ki-84／A6M5／G4M／F4F-4／B-17G 是**對著參考模型量、直接 loft**
+ * 建的，沒有程式版血緣（`tools/blender/build_*.py`）。
  *
- * 【`GLB_MODELS` 先於 `BUILDERS`】同一個 id 兩邊都有時走 GLB。程式版留著
- * 只是為了 `test/tools/procedural-export.ts` 能重匯。
+ * 要修外型就在 `tools/blender/*.blend` 或對應的 `build_*.py` 裡修，再匯出。
+ *
+ * 【`GLB_MODELS` 先於 `BUILDERS`】同一個 id 兩邊都有時走 GLB。那兩台的程式版
+ * 留著只是為了 `test/tools/procedural-export.ts` 能重匯。
  */
 export const GLB_MODELS: Record<string, GlbAircraft> = {
   p51d: P51D_MODEL,

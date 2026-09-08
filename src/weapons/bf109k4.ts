@@ -14,7 +14,7 @@ import type { Battery, WeaponSpec } from './types'
  *
  * MK 108 的 Minengeschoss 薄殼榴彈公認需要約 4 發解決單發戰鬥機、
  * 約 20 發解決四發轟炸機——250 讓兩者在本模型裡都成立
- *（B-17G 的 hp 見 b17g.ts）。
+ *（B-17G 的 hp 見 `specs/b17g.ts`）。
  *
  * 【為什麼取最低的一條】**本專案沒有彈藥模型。** MK 108 真正的代價是
  * 每門只有 65 發、約 6 秒的持續射擊時間，用完就只剩兩挺 13 mm。這個
