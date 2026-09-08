@@ -106,6 +106,16 @@ export interface MissionWave {
    * 它們仍然是那一隊的飛機。
    */
   readonly along?: number
+  /**
+   * 進場高度的覆寫，m。**絕對值，不是相對任務高度的加成。**
+   * 省略 = 沿用那一邊開局的高度。
+   *
+   * 【為什麼是絕對值】需要它的是雷擊機：投雷高度是 150 m，而它從進場點飛到
+   * 艦隊只有幾公里。太高的話飛到目標上方時還沒降完，姿態進不了投放包絡就
+   * 不准鎖航向，整趟帶著雷飛過去。那個要求是絕對的 —— 它與這一關的任務高度
+   * 訂在哪裡無關。
+   */
+  readonly altitude?: number
 }
 
 /**
@@ -597,6 +607,16 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
             warn: '雷擊機低空進場',
             warnLead: 6,
             side: 'theirs', spec: G4M, count: 4,
+            /**
+             * 【1,000 而不是任務高度的 2,000】投雷高度是 150 m，而進場點到
+             * 艦隊只有 5.5 km —— 以 130 m/s 飛只有四十二秒。從 2,000 掉下來
+             * 的話飛到航母正上方時還在 250 m，姿態進不了投放包絡就不准鎖
+             * 航向，整個第一趟帶著雷飛過去，繞回來才投得出，而那時水中航程
+             * 只剩一百多公尺 —— 雷幾乎是貼著船身入水的。
+             *
+             * **起始值，由試飛裁定。**
+             */
+            altitude: 1000,
           },
         ],
       },
@@ -889,7 +909,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
         DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
       )
-  const beats = cardBeats(card, plan)
+  const beats = cardBeats(card, plan, altitude)
   return {
     ...DEFAULT_BATTLE,
     units,
@@ -926,10 +946,12 @@ function convoyOf(card: ReadyMissionCard): AircraftSpec {
  * reinforce 的順序推的，而 `stepBeats` 依陣列順序判斷。返航不佔預留的位子，
  * 所以排哪裡都不影響行為 —— 寫死在最後只是為了讀起來一致。
  */
-function cardBeats(card: ReadyMissionCard, plan: EntryPlan): readonly Beat[] | undefined {
+function cardBeats(
+  card: ReadyMissionCard, plan: EntryPlan, altitude: number,
+): readonly Beat[] | undefined {
   const b = card.battle
   const out: Beat[] = []
-  b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan)))
+  b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
   return out.length === 0 ? undefined : out
 }
@@ -955,12 +977,18 @@ function withdrawBeat(w: MissionWithdraw): WithdrawBeat {
  * 波次會生在完全相同的一點上。橫向槽位每支差 1，任何兩支就至少差一個
  * `schwarmSpacing`。
  */
-function waveBeat(w: MissionWave, index: number, plan: EntryPlan): ReinforceBeat {
+function waveBeat(
+  w: MissionWave, index: number, plan: EntryPlan, altitude: number,
+): ReinforceBeat {
   if (!Number.isInteger(w.count) || w.count < 1 || w.count > SCHWARM_SIZE) {
     throw new Error(`波次的架數要是 1…${SCHWARM_SIZE} 的整數，收到 ${w.count}`)
   }
   const ours = w.side === 'mine'
-  const base = ours ? plan.blue : plan.red
+  const side = ours ? plan.blue : plan.red
+  // 【卡片寫絕對高度，`SideEntry` 存的是相對任務高度的加成】換算只有這一處
+  const base = w.altitude === undefined
+    ? side
+    : { ...side, climb: w.altitude - altitude }
   return {
     kind: 'reinforce',
     when: triggerToCondition(w.when),
