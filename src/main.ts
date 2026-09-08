@@ -21,7 +21,7 @@ import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
   AIR_BLAST, BLAST_PACE, FIRE_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
-  emitBlast, emitEmber, emitMist, scaleBlast,
+  emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
 } from './render/blast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
@@ -187,14 +187,6 @@ function wireTerrain(force = false): void {
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
 
-/**
- * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
- *
- * 【為什麼不是煙霧池的一部分】壽命、上升與尺寸是整池共用的建立期設定，
- * 而高砲雲要四秒、幾乎不上升、6→14 m。見 `render/flakBursts.ts`。
- */
-const flakBursts = createFlakBursts()
-ctx.scene.add(flakBursts.object)
 
 /**
  * 這一場的船。**沒有船的一場是 null**，而那是絕大多數的場次。
@@ -462,6 +454,16 @@ function syncBombLoad(): void {
  */
 const smokeTexture = new TextureLoader().load('/textures/smoke.png')
 
+/**
+ * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
+ *
+ * 【為什麼不是煙霧池的一部分】壽命、上升與尺寸是整池共用的建立期設定，
+ * 而高砲雲要四秒、幾乎不上升、6→14 m。見 `render/flakBursts.ts`。
+ * 貼圖與其他的煙同一張，畫面裡才是同一種質感。
+ */
+const flakBursts = createFlakBursts(undefined, smokeTexture)
+ctx.scene.add(flakBursts.object)
+
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
 const smoke = createSmoke()
@@ -697,6 +699,7 @@ const POOLS = [
 function resetPools(): void {
   for (const p of POOLS) p.reset()
   resetFlakBurstSeed()
+  resetFlakBlastSeed()
 }
 
 ctx.scene.add(debris.object)
@@ -1444,6 +1447,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
     // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
     emitFlakBursts(flakBursts, world.burstEvents)
+    // 爆點的閃光與小火球走爆炸那一組池；黑雲留在上面那個池
+    emitFlakBlasts(BLAST_POOLS, world.burstEvents)
     clearBursts(world.burstEvents)
     perf.endPhysics()
   })

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { createBursts, pushBurst } from '../../src/world/flak'
-import { FLAK_PUFFS, emitFlakBursts, resetFlakBurstSeed } from '../../src/render/flakBursts'
+import { MeshBasicMaterial, Texture } from 'three'
+import {
+  FLAK_PUFFS, createFlakBursts, emitFlakBursts, resetFlakBurstSeed,
+} from '../../src/render/flakBursts'
 
 /** 收下每一顆粒子的出生位置。`Particles` 本身不對外開放，所以用假的池。 */
 function spy(): { emit: (x: number, y: number, z: number, vx: number, vy: number, vz: number) => void; pts: number[][] } {
@@ -60,4 +63,17 @@ describe('emitFlakBursts', () => {
     }
   })
 
+  /**
+   * 【黑雲要吃煙的貼圖】沒有 alphaMap 的粒子走著色器裁出來的軟邊實心圓，
+   * 九顆疊起來是九個圓盤；船火與爆炸的煙都吃 `smoke.png`，高砲雲不吃的話
+   * 在同一個畫面裡是兩種質感。
+   */
+  it('createFlakBursts 把貼圖接成 alphaMap', () => {
+    const tex = new Texture()
+    const pool = createFlakBursts(16, tex)
+    const mat = pool.object.material as MeshBasicMaterial
+    expect(mat.alphaMap).toBe(tex)
+    pool.object.geometry.dispose()
+    mat.dispose()
+  })
 })
