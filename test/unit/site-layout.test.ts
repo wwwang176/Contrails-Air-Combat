@@ -4,7 +4,7 @@ import {
   fieldGlsl, fieldGlslWithSite, fieldSurfaceColor, siteSurfaceColor, type SiteLayout,
 } from '../../src/render/fields'
 import { LEUNA_SITE } from '../../src/render/terrain'
-import { PLANT_CENTER } from '../../src/world/leuna'
+import { PLANT_CENTER, PLANT_PAD } from '../../src/world/leuna'
 
 /**
  * 廠區那一層地面：墊面是混凝土、道路是柏油、其餘照田區。**沒有 site 時
@@ -86,8 +86,11 @@ describe('墊面的髒污', () => {
       const p = patches!.find((q) => q.hex === hex)
       expect(p, `沒有 ${hex.toString(16)} 的鋪面`).toBeDefined()
       const base = new Color().setHex(hex)
-      const got = siteSurfaceColor((p!.x0 + p!.x1) / 2, (p!.z0 + p!.z1) / 2, c,
-        'lateAutumn', LEUNA_SITE)
+      // 【取靠廠區中心的那一角】調車場貼著南緣，而廠界會咬進去三百多公尺 ——
+      // 取中點會取到過渡帶裡，那裡本來就混了田的顏色
+      const px = Math.min(Math.max(PLANT_CENTER.x, p!.x0 + 20), p!.x1 - 20)
+      const pz = Math.min(Math.max(PLANT_CENTER.z, p!.z0 + 20), p!.z1 - 20)
+      const got = siteSurfaceColor(px, pz, c, 'lateAutumn', LEUNA_SITE)
       // 倍率的上下界：0.86 × 0.74 × 0.96 = 0.611、1.06 × 1 × 1.04 = 1.102
       const k = got.r / base.r
       expect(k, `亮度倍率 ${k.toFixed(3)} 不在髒污的範圍內`).toBeGreaterThanOrEqual(0.61)
@@ -150,6 +153,64 @@ describe('墊面的髒污', () => {
   it('有 site 的 GLSL 帶著鋪面矩形', () => {
     const glsl = fieldGlslWithSite('lateAutumn', LEUNA_SITE)
     expect(glsl).toContain('PATCHES[')
+    expect(glsl).toContain('OUTPOSTS[')
     expect(glsl.length).toBeGreaterThan(fieldGlslWithSite('lateAutumn', site).length)
+  })
+})
+
+/**
+ * 廠區的邊界。**這一關的視距重心是投彈高度的俯視**，而一塊 3 × 1.5 km 的
+ * 淺灰矩形壓在深褐色的田上，是整幅畫面第一眼就抓到的東西。
+ */
+describe('廠界不是一個矩形', () => {
+  /** 由外往內找第一個不再是純田色的 z，回傳離墊面外緣多深 */
+  function edgeDepth(x: number): number {
+    const c = new Color()
+    const f = new Color()
+    const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
+    for (let z = z0 - 240; z < PLANT_CENTER.z; z += 5) {
+      siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE)
+      fieldSurfaceColor(x, z, f, 'lateAutumn')
+      if (c.getHex() !== f.getHex()) return z - z0
+    }
+    return PLANT_PAD.halfZ
+  }
+
+  /**
+   * 【只有細鋸齒不夠】110 m 的格咬 120 m，放在一條 3 km 的邊上是 4% 的相對
+   * 振幅 —— 從投彈高度看仍然是一條直線加毛邊。這一條守的是粗的那一層：
+   * 實測 230 m，把 `COARSE_BITE` 歸零之後只剩 120 m。
+   */
+  it('北緣的邊界在 200 m 以上的範圍內游走', () => {
+    const depths: number[] = []
+    for (let dx = -1200; dx <= 1200; dx += 40) depths.push(edgeDepth(PLANT_CENTER.x + dx))
+    const span = Math.max(...depths) - Math.min(...depths)
+    expect(span, `只游走 ${span.toFixed(0)} m`).toBeGreaterThanOrEqual(200)
+  })
+
+  /**
+   * 【衛星設施不能被過渡帶洗掉】它們整塊都在墊面外，跟著墊面那一層上色的話
+   * 會被混成一片田 —— 而畫面上只是「牆外什麼都沒有」，看不出是上色的次序
+   * 錯了。所以 `outposts` 畫在過渡帶之後。
+   */
+  it('牆外的衛星設施在墊面外，而且保住自己的鋪面色', () => {
+    const c = new Color()
+    const outposts = LEUNA_SITE.outposts
+    expect(outposts, '洛伊納沒有衛星設施').toBeDefined()
+    expect(outposts!.length).toBeGreaterThanOrEqual(4)
+    for (const q of outposts!) {
+      const x = (q.x0 + q.x1) / 2
+      const z = (q.z0 + q.z1) / 2
+      const outside = Math.abs(x - PLANT_CENTER.x) > PLANT_PAD.halfX
+        || Math.abs(z - PLANT_CENTER.z) > PLANT_PAD.halfZ
+      expect(outside, `(${x.toFixed(0)}, ${z.toFixed(0)}) 在墊面裡`).toBe(true)
+      const base = new Color().setHex(q.hex)
+      const got = siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE)
+      const k = got.r / base.r
+      expect(k, `亮度倍率 ${k.toFixed(3)}`).toBeGreaterThanOrEqual(0.61)
+      expect(k, `亮度倍率 ${k.toFixed(3)}`).toBeLessThanOrEqual(1.11)
+      expect(got.g / base.g).toBeCloseTo(k, 5)
+      expect(got.b / base.b).toBeCloseTo(k, 5)
+    }
   })
 })
