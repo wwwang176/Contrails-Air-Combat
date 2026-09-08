@@ -276,15 +276,13 @@ export const FIRE_BLAST: BlastParams = {
  * 【為什麼不出煙】與 `FIRE_BLAST` 同一個理由 —— 錐狀噴出去的煙會壓過
  * 真正要留在那裡的黑雲。
  *
- * 【尺度】火球 `fireSize` 0.5 是 1.5 → 4 m 的球塊，比船火的迷你爆燃再小；
- * 光暈反而放大到火球直徑的 1.4 倍 —— 遠處看得到的是那一下閃光，不是球。
- *
- * **起始值，待試飛。**
+ * 【尺度】火球 `fireSize` 1.0 是 3 → 8 m 的球塊，與船火的迷你爆燃同一級；
+ * 光暈放大到火球直徑的 1.4 倍 —— 遠處看得到的是那一下閃光，不是球。
  */
 export const FLAK_BLAST: BlastParams = {
   fireCount: 3,
-  fireSpeed: 9,
-  fireSize: 0.5,
+  fireSpeed: 18,
+  fireSize: 1.0,
   fireCone: Math.PI,
   smokeCount: 0,
   smokeSpeed: 0,
