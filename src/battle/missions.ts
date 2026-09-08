@@ -14,6 +14,7 @@ import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
+import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
@@ -554,21 +555,38 @@ const RETREAT_DISTANCE = 12000
 /**
  * 三條戰役各四關。
  *
- * ── 為什麼有七張是 `battle: null` ────────────────────────
+ * ── 為什麼還有四張是 `battle: null` ──────────────────────
  *
- * 它們卡在里程碑 2（地面目標與投放武器）。**編制與機種現在不填** ——
- * 填進一張還打不起來的卡，只會變成一組沒有人驗證過、卻看起來已經定案的
- * 數字。那幾關要用什麼寫在 `docs/roadmap.md` 的對照表裡。
+ * 它們要的地面目標（工廠、車站、火車、登陸艇）與陸上 Flak 的邏輯還沒有。
+ * **編制與機種現在不填** —— 填進一張還打不起來的卡，只會變成一組沒有人
+ * 驗證過、卻看起來已經定案的數字。那幾關要用什麼寫在 `docs/roadmap.md`
+ * 的對照表裡。
  *
- * ── 五張可玩的來歷 ──────────────────────────────────────
+ * ── 八張可玩的來歷 ──────────────────────────────────────
  *
  * ```
  *   盟 M1 / 德 M1   唯二有實測基礎的（掃描定值），由
  *                   `mission-config-baseline.test.ts` 逐項釘住
  *   日 M1 / 日 M3   編制照掃描過的那兩種形狀（8v6 殲滅、護送）
  *   德 M4           返航節拍的第一個使用者
+ *   盟 M4 / 日 M4   艦隊：守住與擊沉
+ *   盟 M2           地面目標：炸毀（`world/leuna.ts` 的廠區）
  * ```
  */
+/**
+ * 洛伊納的廠區與預定砲位，世界座標。佈局在 `world/leuna.ts`，這裡只把相對
+ * 偏移換成絕對座標。砲位這一版是不還手的靶（`groundTargets.ts` 檔頭）。
+ */
+const LEUNA_GROUND: readonly GroundEntry[] = [
+  ...PLANT_LAYOUT.map((p): GroundEntry => ({
+    unit: p.kind, team: 'red',
+    x: PLANT_CENTER.x + p.dx, z: PLANT_CENTER.z + p.dz, heading: PLANT_HEADING + p.heading,
+  })),
+  ...FLAK_SITES.map((s): GroundEntry => ({
+    unit: 'flakHeavy', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+]
+
 export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
   allies: [
     {
@@ -583,10 +601,35 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'allies-m2', title: '魯爾的油廠', type: '打擊',
-      summary: '駕駛第八航空軍的 B-17G，轟炸蓋爾森基興的諾德斯特恩合成油廠。',
-      place: '魯爾區　蓋爾森基興', period: '1944 年夏',
-      battle: null,
+      id: 'allies-m2', title: '梅澤堡的油廠', type: '打擊',
+      summary: '駕駛第八航空軍的 B-17G 轟炸洛伊納合成油廠，穿過德國空軍那年秋天最大的一次攔截。',
+      place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
+      battle: {
+        objective: '炸毀洛伊納油廠',
+        blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
+        // 【四架同一個小隊】玩家是小隊長，三架 AI 照自己的攻擊航路投
+        // （`ai/strikeRun.ts`）。開場四架 Bf 109 由 `headOn` 放在正前方，
+        // 接近約 40 秒 —— 1944 年標準的十二點鐘正面攻擊
+        blueCount: 4, redCount: 4,
+        convoyCount: 0, convoyPriority: 1,
+        targetDistance: 0, targetRadius: 0, seconds: Infinity,
+        entry: 'headOn',
+        terrain: 'leuna',
+        // 十一月的正午：太陽低、天色灰（`render/timeOfDay.ts`）
+        timeOfDay: 'novemberNoon',
+        ground: LEUNA_GROUND,
+        // 【炸毀任意六座】廠區十二座構件加八座砲位。**起始值，由試飛裁定**
+        destroyCount: 6,
+        waves: [{
+          when: { kind: 'clock', at: 90 },
+          warn: '警告：敵機從後方接近',
+          warnLead: 5,
+          side: 'theirs', spec: BF109K4, count: 4,
+          // 【從後方】對應突擊大隊從尾部衝進轟炸箱。省略的話沿用紅方的正面
+          // 進場，會生在前方反向飛來。**起始值**
+          starboard: Math.PI,
+        }],
+      },
     },
     {
       id: 'allies-m3', title: '諾曼第斷軌', type: '打擊',
