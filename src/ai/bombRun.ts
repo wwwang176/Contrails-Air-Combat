@@ -6,6 +6,7 @@ import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { StrikeProfile } from './strikeRun'
 import { deckHeightOf } from '../world/ships'
+import { SHIP_BREAK_RANGE } from './shipAttack'
 import type { Ship, ShipClass } from '../world/ships'
 
 /**
@@ -65,33 +66,52 @@ export function solveGateOf(altitude: number): number {
 export { deckHeightOf }
 
 /**
- * 釋放半徑是船寬的幾倍。**這一關難度的主旋鈕。**
+ * 釋放窗是艦體的幾倍。**這一關難度的主旋鈕，炸彈與魚雷共用。**
  *
- * 【它已經大過殺傷半徑】500 kg 的殺傷半徑是 39 m
- * （`blastRadiusOf(11700)`），而 3 倍船寬是弗萊徹 36.2 m、威奇塔 56.5 m、
- * 艾塞克斯 85.2 m —— 只有驅逐艦還整個落在殺傷範圍內。
+ * 【判準是玩起來好不好玩，不是命中率】1 倍等於「算出來會打中才准投」，
+ * 而彈道解算精確到近乎作弊 —— 實測魚雷幾乎彈無虛發。放寬到兩倍讓 AI 願意
+ * 投，投出去中不中交給彈道。
  *
- * 換句話說**在窗口邊緣放手的那一顆一定不會傷到船**。這是刻意的：AI 早一點
- * 投、飛得順一點比命中率重要。
+ * 【傷害判定不受影響】那是 `World` 那一側的事：炸彈量爆心到艦體盒的距離、
+ * 魚雷是接觸引爆。這個窗只決定**扣不扣扳機**。
+ *
+ * **起始值，由試飛裁定。**
  */
-export const RELEASE_BEAMS = 3
+export const RELEASE_HULLS = 2
 
 /**
- * 釋放半徑，m。**船寬 × `RELEASE_BEAMS`。**
+ * 釋放窗的半長與半寬，m。**沿船身與橫過船身各一個。**
  *
- * ```
- *                      船寬     釋放半徑
- *   Fletcher DD-445   12.08 m    36.24 m
- *   Wichita CA-45     18.82 m    56.46 m
- *   Essex CV-9        28.40 m    85.20 m
- * ```
+ * 【為什麼不是一個半徑】艦體細長：弗萊徹半長 57.4 m 對半寬 6.04 m，差
+ * 9.5 倍。用一個圓去比的話，取大的會投一堆從船頭前面擦過去的彈，取小的則
+ * 正橫進場永遠不准投。
  *
- * 【船寬取 `hull[0]`】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
- * 取極值會放大 51%。**第一個盒恆是艦體。**
+ * 【第一個盒恆是艦體】Essex 有兩個盒：主艦體寬 28.4 m、飛行甲板寬 43 m。
+ * 取極值會讓窗橫向放大 51%。
  */
-export function releaseRadiusOf(cls: ShipClass): number {
+export function releaseWindowOf(cls: ShipClass): { along: number, across: number } {
   const hull = cls.hull[0]
-  return hull === undefined ? 0 : hull.half.x * 2 * RELEASE_BEAMS
+  if (hull === undefined) return { along: 0, across: 0 }
+  return { along: hull.half.z * RELEASE_HULLS, across: hull.half.x * RELEASE_HULLS }
+}
+
+/**
+ * 落點與船的差向量在不在窗內。**炸彈與魚雷共用這一支。**
+ *
+ * @param ex 落點 − 船屆時的位置，世界座標的 x 分量
+ * @param ez 同上的 z 分量
+ *
+ * 【為什麼要拆進體軸】船是斜的時候，世界座標的差向量沒有意義 —— 沿船身
+ * 差 50 m 仍然在船上，橫過船身差 50 m 早就落海了。
+ *
+ * 熱路徑（決策拍）：不配置。
+ */
+export function insideWindow(ship: Ship, ex: number, ez: number): boolean {
+  const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(ship.orientation)
+  const along = ex * dir.x + ez * dir.z
+  const across = ex * dir.z - ez * dir.x
+  const w = releaseWindowOf(ship.cls)
+  return Math.abs(along) <= w.along && Math.abs(across) <= w.across
 }
 
 const S = /* @__PURE__ */ makeScratch(3)
@@ -154,10 +174,7 @@ export function shouldRelease(
   if (!solveImpact(START, k, DECK, dt, HIT)) return false
 
   const at = shipAt(ship, HIT.seconds, S.v[0]!)
-  const ex = HIT.x - at.x
-  const ez = HIT.z - at.z
-  const r = releaseRadiusOf(ship.cls)
-  return ex * ex + ez * ez <= r * r
+  return insideWindow(ship, HIT.x - at.x, HIT.z - at.z)
 }
 
 /**
@@ -201,44 +218,29 @@ export function setBombBallistics(k: number, dt: number): void {
 }
 
 /**
- * 轟炸剖面的起始值。**全部由試飛裁定。**
+ * 【`abortRange` 為什麼是 600】放手點隨高度變（1,000 m 平飛約在船前 1.3 km），
+ * 比它更近就代表這一趟已經錯過了。600 m 還在 20 mm 的有效射程之外一點，
+ * 來得及掉頭。**起始值，由試飛裁定。**
  *
- * 【`lockRange` 為什麼是 3,000】炸彈從 1,000 m 平飛投下的水平行程約
- * 1,260 m，所以放手點在船前約 1.3 km。3 km 開始鎖航向留下約 19 秒的
- * 穩定時間（90 m/s），足夠機身把轉彎的餘擺收乾淨。
- *
- * 【`abortRange` 為什麼是 600】比放手點（約 1,300 m）更近就代表這一趟已經
- * 錯過了。600 m 還在 20 mm 的有效射程之外一點，來得及掉頭。
- *
- * 【`egressRange` 為什麼是 5,000】補彈要 20 秒，而 90 m/s 下 20 秒是
- * 1.8 km —— 但脫離之後還要留夠長度讓下一趟的直飛穩定下來（見 `lockRange`
- * 的 3 km）。5 km 同時滿足兩者。
+ * `lockRange` 與 `egressRange` 不是常數，每個決策拍由 `plan` 推導。
  */
 /**
- * 鎖定航向之後到放手之前要留多長，m。**出貨值 0。**
+ * 鎖定航向之後到放手之前要留多長，m。
  *
- * 【它的作用不是「讓第一枚打得中」——那是航向鎖定做的】A/B 實測（一台
- * G4M、一艘不開火的威奇塔、五分鐘）：
+ * 【它是投彈窗的餘裕，不能是 0】鎖定距離的本體（到瞄點的距離）指的是窗口
+ * 的**正中央** —— 恰好那一點放手才打得中。窗口沿著航路只有正負幾十公尺寬
+ * （艦寬的函數，埃塞克斯約 ±75 m），而投彈只在直飛段判定。餘裕是 0 的話
+ * 飛機在窗口中央才轉直飛，前半個窗口整段是浪費的，而進場段任何一點偏差
+ * 都會把剩下的半個窗口也吃掉，症狀是**整趟一枚都投不出來**。
  *
- * ```
- *                        平均循環   命中(<40m)   落點
- *   脫離5000 / 直線1200    111 s      6/6       6,33,12,33
- *   脫離3000 / 直線1200     66 s      8/8       6,33,15,25
- *   脫離3000 / 直線   0     67 s      4/8       6,45,11,54
- *   脫離5000 / 直線   0    111 s      3/6       6,45, 5,49
- * ```
+ * 【它不負責讓第一枚打得中】那是航向鎖定做的。直線段只影響連投的第二枚：
+ * G4M 一趟兩枚間隔 0.35 s，機身還在轉的話第二枚會飛出去 45～54 m。
  *
- * **每一趟的第一枚，四組完全一樣（6 m）。** 直線段只影響**連投的第二枚**
- * ——G4M 一趟兩枚間隔 0.35 s，飛機還在轉的話第二枚會飛出去 45～54 m。
+ * 【代價】它同時把 `egressRange` 撐大同樣的量，一趟循環因此長一點。
  *
- * 【為什麼是 0】判準是「AI 操作玩起來好不好看」，不是命中率。直線段對
- * 循環時間沒有影響（111 vs 111、66 vs 67），但它會把
- * `lockRange` 撐大 1,200 m，連帶把脫離距離也撐大 —— 拿掉之後 G4M 在
- * 1,000 m 的脫離距離由 3,456 m 降到 2,256 m。
- *
- * 【參數保留】`makeBombProfile` 仍然收它，隨時可以調回來重測。
+ * **起始值，由試飛裁定。**
  */
-export const RUN_SETTLE = 0
+export const RUN_SETTLE = 150
 
 /**
  * 造一份轟炸剖面。
@@ -258,7 +260,8 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
   egressClimb: 12 * DEG,
 
   /**
-   * 瞄「船在落彈時刻的位置」，鎖定距離＝「前拋距離 ＋ `RUN_SETTLE`」。
+   * 瞄「船在落彈時刻的位置」，鎖定距離＝「前拋距離 ＋ 船沿視線靠近的量
+   * ＋ `RUN_SETTLE`」。
    *
    * 【為什麼不是接近時刻】航向要對準的是炸彈**最後會落到**的那一點，不是
    * 飛機會飛到的那一點。兩者差 112 m（8 m/s × 14 s），而窗只有 18.82 m。
@@ -274,8 +277,18 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
     deckY = deckHeightOf(ship.cls)
     if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
       shipAt(ship, HIT.seconds, out.aim)
-      // 前拋距離：落點離現在的水平距離
-      out.lockRange = Math.hypot(HIT.x - p.x, HIT.z - p.z) + runSettle
+      // 【放手點 ＝ 前拋距離 ＋ 船沿視線靠近的量】炸彈落在自己前方 `throw`
+      // 處，而它要落在**船的未來位置**上 —— 船迎面開來時那一點比現在的船更
+      // 近，所以該放手的距離比前拋遠一個 `lead`。少了它，投彈窗整段落在鎖定
+      // 距離之外，而投彈只在直飛段判定：整趟扣不到扳機，一枚都投不出去。
+      //
+      // 【不能直接用「到瞄點的距離」】那個量會隨著飛機接近一起縮，鎖定條件
+      // 於是永遠差一點點（同 `ai/torpedoRun.ts` 記過的那個陷阱）。前拋與
+      // `lead` 都不隨距離變，這個閘門才是一個固定的接戰距離。
+      const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
+      const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
+      const lead = range - Math.hypot(out.aim.x - p.x, out.aim.z - p.z)
+      out.lockRange = throwRange + lead + runSettle
       out.egressRange = out.lockRange + 2 * turnRadius(self)
       return
     }
@@ -294,3 +307,106 @@ export function makeBombProfile(runSettle = RUN_SETTLE): StrikeProfile {
 
 /** 目前上場的那一份。 */
 export const BOMB_PROFILE = makeBombProfile()
+
+// ── 戰鬥機的掛彈掃射 ─────────────────────────────────────────────────
+
+/**
+ * 距離多近才把瞄準點換成落彈解，m。**斜距。**
+ *
+ * 【它是保險栓，不是投彈條件】投不投由 `shouldRelease` 那條窗決定。這個
+ * 上限擋的是「數學上成立但戰術上很蠢」的解 —— 平飛在三公里外就找得到一個
+ * 落點對得上的姿態，那一趟等於遠遠丟出去，而這個戰法要的是衝進去。
+ *
+ * 【下限不在這裡】掃射的 `SHIP_BREAK_RANGE` 一到就交還瞄準點，脫離優先。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const BOMB_AIM_RANGE = 1000
+
+/**
+ * 落彈點瞄準的狀態。**由 `AiController` 持有**，與 `StrikeState` 同一個性質。
+ */
+export interface BombAimState {
+  /** 修正後的瞄準方向，單位向量。`active` 為 false 時內容沒有意義 */
+  readonly aim: Vector3
+  /** 這一步要不要放。呼叫端寫進 `Command.bombing` */
+  release: boolean
+  /** 這一拍有沒有接手瞄準點 */
+  active: boolean
+}
+
+export function createBombAim(): BombAimState {
+  return { aim: new Vector3(), release: false, active: false }
+}
+
+export function resetBombAim(s: BombAimState): void {
+  s.aim.set(0, 0, 0)
+  s.release = false
+  s.active = false
+}
+
+/** 修正量的角度上限，rad。 */
+const AIM_CLAMP = 30 * DEG
+
+/**
+ * 推進一步：算出「把落點推到船上」要往哪飛，以及現在放不放得中。
+ *
+ * ## 瞄準律
+ *
+ * 落點在自己前方 `throw` 處，而瞄準點轉 θ 會讓落點移動約 `θ × throw`。
+ * 所以要把落點移動 `err`，瞄準點就轉 `err / throw` —— 把那個小向量加到
+ * 視線的單位向量上即可。
+ *
+ * **每一拍都從視線重算，不是在上一拍的指令上疊加。** 疊加的話指令角度會
+ * 每格滾雪球（`ai/steer.ts` 的 `unloadAim` 記過那個實測：4 秒由 −27° 跑到
+ * −56°）。從視線重算讓它是當前狀態的純函數。
+ *
+ * 【俯衝是它自己長出來的，不是規則寫的】太高太平時前拋遠大於距離，落點
+ * 落在船的另一邊，修正量於是一路把機首往下壓 —— 直到前拋縮到與距離相等。
+ *
+ * @param loaded 艙裡還有東西嗎。空了就把瞄準點交還給機槍
+ * @param decide 這一步是不是決策拍。**解算只在決策拍跑**（一次 170 µs）
+ *
+ * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
+ */
+export function stepBombAim(
+  state: BombAimState, self: Aircraft, ship: Ship,
+  loaded: boolean, decide: boolean,
+): void {
+  if (!decide) return
+  state.active = false
+  state.release = false
+  if (!loaded) return
+
+  const p = self.state.position
+  const dx = ship.position.x - p.x
+  const dy = ship.position.y - p.y
+  const dz = ship.position.z - p.z
+  const slant = Math.hypot(dx, dy, dz)
+  // 【上限與下限】太遠不接手；進到拉起距離就交還 —— 脫離要背離船並爬升，
+  // 這一層若還在寫瞄準點，飛機會被拉回船上撞上去
+  if (slant > BOMB_AIM_RANGE || slant < SHIP_BREAK_RANGE || slant < MIN_ERROR) return
+
+  const v = self.state.velocity
+  START.x = p.x; START.y = p.y; START.z = p.z
+  START.vx = v.x; START.vy = v.y; START.vz = v.z
+  deckY = deckHeightOf(ship.cls)
+  if (drag <= 0 || !solveImpact(START, drag, DECK, solveDt, HIT)) return
+
+  const at = shipAt(ship, HIT.seconds, S.v[0]!)
+  const ex = at.x - HIT.x
+  const ez = at.z - HIT.z
+  state.release = insideWindow(ship, ex, ez)
+
+  const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
+  const aim = state.aim.set(dx / slant, dy / slant, dz / slant)
+  if (throwRange > MIN_ERROR) {
+    // 【夾住修正量】前拋很短時（貼著船、機首朝下）除法會炸開，而一個
+    // 90° 的修正只會讓飛機翻過去。夾在 30° 之內，收斂交給下一拍
+    const scale = Math.min(1, (AIM_CLAMP * throwRange) / Math.max(Math.hypot(ex, ez), MIN_ERROR))
+    aim.x += (ex / throwRange) * scale
+    aim.z += (ez / throwRange) * scale
+    aim.normalize()
+  }
+  state.active = true
+}

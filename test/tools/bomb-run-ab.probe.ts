@@ -4,7 +4,7 @@ import { AiController } from '../../src/ai/AiController'
 import { createTargetBoard } from '../../src/ai/target'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { G4M } from '../../src/specs/g4m'
-import { makeBombProfile } from '../../src/ai/bombRun'
+import { makeBombProfile, RUN_SETTLE } from '../../src/ai/bombRun'
 import { Vector3 } from 'three'
 import type { StrikeProfile } from '../../src/ai/strikeRun'
 
@@ -78,11 +78,13 @@ function trial(name: string, profile: StrikeProfile, shipSpeed: number): void {
 }
 
 /**
- * 【脫離距離已經是推導的，不再是變因】剩下唯一的旋鈕是直線段。
- * 四組對照的結論寫在 `bombRun.ts` 的 `RUN_SETTLE`。
+ * 【脫離距離已經是推導的，不再是變因】剩下唯一的旋鈕是直線段，它是投彈窗
+ * 的餘裕（見 `bombRun.ts` 的 `RUN_SETTLE`）。0 那一組是對照：餘裕歸零時
+ * 飛機在窗口正中央才轉直飛。
  */
 const CASES: [string, StrikeProfile][] = [
-  ['直線段 0（上場的）', makeBombProfile(0)],
+  ['直線段 0', makeBombProfile(0)],
+  [`直線段 ${RUN_SETTLE}（上場的）`, makeBombProfile(RUN_SETTLE)],
   ['直線段 1200', makeBombProfile(1200)],
 ]
 

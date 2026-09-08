@@ -7,6 +7,7 @@ import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { A6M5 } from '../../src/specs/a6m5'
 import { atmosphere } from '../../src/physics/atmosphere'
+import { THROTTLE_FLOOR } from '../../src/input/throttle'
 import { DEG, G0 } from '../../src/core/math'
 import type { TerrainSense } from '../../src/ai/terrainSense'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -615,10 +616,10 @@ describe('超速守線', () => {
     cmd.aimWorld.set(0.6, -0.5, -0.6).normalize()
     const before = cmd.aimWorld.clone()
     expect(applySafety(a, 0, cmd)).toBe('overspeed')
-    expect(cmd.throttle).toBe(0)
-    // 不煞車：停在 0.90 會留在目標上方等它爬回來；衝到 0.98 只剩 15% 權限，
-    // 跟不上目標的轉彎才是設計要的
-    expect(cmd.brake).toBe(0)
+    // 【與玩家按 S 同一組值】怠速而不是 0 —— 油門 0 是玩家按到底都到不了的
+    // 值，兩邊不同的話同一個態勢下掉速的方式不一樣
+    expect(cmd.throttle).toBe(THROTTLE_FLOOR)
+    expect(cmd.brake).toBe(1)
     expect(cmd.aimWorld.y).toBeCloseTo(0, 9)
     // 方位跟原本的瞄準點一樣 —— 繼續朝敵人轉，只是不再往下
     const hb = Math.hypot(before.x, before.z)
@@ -641,13 +642,14 @@ describe('超速守線', () => {
     expect(applySafety(a, 0, createCommand())).toBe('none')
   })
 
-  it('r = 0.88 俯衝中 → 黃線：只收油門，瞄準點不動', () => {
+  it('r = 0.88 俯衝中 → 黃線：只減速，瞄準點不動', () => {
     const a = overspeeding(0.88, -20)
     const cmd = createCommand()
     cmd.aimWorld.set(0.6, -0.5, -0.6).normalize()
     const before = cmd.aimWorld.clone()
     expect(applySafety(a, 0, cmd)).toBe('overspeed')
-    expect(cmd.throttle).toBe(0)
+    expect(cmd.throttle).toBe(THROTTLE_FLOOR)
+    expect(cmd.brake).toBe(1)
     expect(cmd.aimWorld.equals(before)).toBe(true)
   })
 

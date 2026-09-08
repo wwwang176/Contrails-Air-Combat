@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  lineAbreast, mixedLine, flightLine, assertOrderOfBattle, sideSummary, type OrderOfBattle,
+  lineAbreast, mixedLine, flightLine, pincer, assertOrderOfBattle, sideSummary,
+  type OrderOfBattle,
 } from '../../src/battle/order'
+import { DEG } from '../../src/core/math'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
 import { P51D } from '../../src/specs/p51d'
@@ -283,5 +285,67 @@ describe('flightLine', () => {
   it('count 超出 1..SCHWARM_SIZE 丟錯', () => {
     expect(() => flightLine(HEAD_ON, [{ spec: P51D, count: 5 }], full(BF109K4, 1), 0)).toThrow()
     expect(() => flightLine(HEAD_ON, [{ spec: P51D, count: 0 }], full(BF109K4, 1), 0)).toThrow()
+  })
+})
+
+/**
+ * # 兩路夾擊
+ *
+ * 【它是 `lineAbreast` 的變體，不是取代】藍隊與紅隊的第一群逐項相同，只有
+ * 紅隊的後半被繞著世界原點轉開。任務的艦隊中心就在原點（`MissionFleet.center`），
+ * 所以「繞原點轉」等於「繞艦隊轉」。
+ */
+describe('pincer', () => {
+  const R = 10000
+  const L = 1500
+  const world = (f: ReturnType<typeof pincer>[number]) => ({
+    x: f.entry.across * L,
+    z: f.entry.along * R + f.entry.gap,
+  })
+
+  it('紅隊切成兩群，藍隊與 lineAbreast 相同', () => {
+    const u = pincer(HEAD_ON, P51D, 16, BF109K4, 16, 45 * DEG, R, L)
+    const base = lineAbreast(HEAD_ON, P51D, 16, BF109K4, 16)
+    expect(blue(u)).toEqual(blue(base))
+    const entries = new Set(red(u).map((f) => f.entry))
+    expect(entries.size).toBe(2)
+  })
+
+  /**
+   * 【轉的是方位，不是距離】拉遠或拉近的話兩群不會同時到，而這一關的戰術
+   * 意義正是同時從兩個方向壓上來。
+   */
+  it('第二群繞原點轉了指定的角度，距離不變', () => {
+    const u = pincer(HEAD_ON, P51D, 16, BF109K4, 16, 45 * DEG, R, L)
+    const reds = red(u)
+    const a = world(reds[0]!)
+    const b = world(reds[reds.length - 1]!)
+    expect(Math.hypot(b.x, b.z)).toBeCloseTo(Math.hypot(a.x, a.z), 6)
+    // 方位角以艦隊艏向（−Z）為 0、右舷為正
+    const bearing = (p: { x: number, z: number }) => Math.atan2(p.x, -p.z)
+    expect((bearing(b) - bearing(a)) / DEG).toBeCloseTo(45, 6)
+  })
+
+  /** 【機首跟著轉】不轉的話第二群朝著空海面飛過去 */
+  it('第二群的機首也轉了同樣的角度', () => {
+    const u = pincer(HEAD_ON, P51D, 16, BF109K4, 16, 45 * DEG, R, L)
+    const reds = red(u)
+    const d = reds[reds.length - 1]!.entry.heading - reds[0]!.entry.heading
+    expect(d / DEG).toBeCloseTo(-45, 6)
+  })
+
+  /** 【兩群各自置中】沿用整隊的 lane 會讓第二群整個偏在一邊 */
+  it('兩群各自以自己的中央為 lane 0', () => {
+    const reds = red(pincer(HEAD_ON, P51D, 16, BF109K4, 16, 45 * DEG, R, L))
+    const half = reds.length / 2
+    expect(reds.slice(0, half).map((f) => f.lane)).toEqual([-0.5, 0.5])
+    expect(reds.slice(half).map((f) => f.lane)).toEqual([-0.5, 0.5])
+  })
+
+  /** 【單數小隊時第一群多一隊】兩群的機種與總架數不變 */
+  it('小隊數是單數時總架數仍然正確', () => {
+    const u = pincer(HEAD_ON, P51D, 16, BF109K4, 12, 45 * DEG, R, L)
+    const n = red(u).reduce((a, f) => a + f.members.length, 0)
+    expect(n).toBe(12)
   })
 })
