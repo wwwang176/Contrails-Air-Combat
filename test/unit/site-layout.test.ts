@@ -72,17 +72,69 @@ describe('墊面的髒污', () => {
     expect(seen.size, `只有 ${seen.size} 種顏色`).toBeGreaterThanOrEqual(8)
   })
 
-  it('調車場的街廓是碴石色，留白的街廓是裸土色', () => {
+  /**
+   * 【碎花是亮暗倍率，不是換色】鋪面乘上與墊面同一個 `grimeFactor`，所以
+   * 碴石仍然是碴石色、裸土仍然是裸土色，只是一格一格深淺不同。改成加色或
+   * 混色的話，調車場會慢慢變成混凝土色 —— 而那在畫面上只是「這一區怎麼
+   * 看不出來是碴石」。
+   */
+  it('調車場是碴石色、留白是裸土色 —— 只有深淺變，色相不變', () => {
     const c = new Color()
     const patches = LEUNA_SITE.patches
     expect(patches, '洛伊納沒有鋪面').toBeDefined()
     for (const hex of [0x5f5a52, 0x6b5f4e]) {
       const p = patches!.find((q) => q.hex === hex)
       expect(p, `沒有 ${hex.toString(16)} 的鋪面`).toBeDefined()
-      const x = (p!.x0 + p!.x1) / 2
-      const z = (p!.z0 + p!.z1) / 2
-      expect(siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE).getHex()).toBe(hex)
+      const base = new Color().setHex(hex)
+      const got = siteSurfaceColor((p!.x0 + p!.x1) / 2, (p!.z0 + p!.z1) / 2, c,
+        'lateAutumn', LEUNA_SITE)
+      // 倍率的上下界：0.86 × 0.74 × 0.96 = 0.611、1.06 × 1 × 1.04 = 1.102
+      const k = got.r / base.r
+      expect(k, `亮度倍率 ${k.toFixed(3)} 不在髒污的範圍內`).toBeGreaterThanOrEqual(0.61)
+      expect(k, `亮度倍率 ${k.toFixed(3)} 不在髒污的範圍內`).toBeLessThanOrEqual(1.11)
+      // 三個通道要同一個倍率，否則就是換了色相
+      expect(got.g / base.g).toBeCloseTo(k, 5)
+      expect(got.b / base.b).toBeCloseTo(k, 5)
     }
+  })
+
+  /**
+   * 【鋪面也要有碎花】少了這一條，調車場與留白街廓是一整塊平色 —— 廠區裡
+   * 最大的兩片地反而是最像白板的地方。
+   */
+  it('調車場與留白街廓的地也是一格一格的', () => {
+    const c = new Color()
+    for (const hex of [0x5f5a52, 0x6b5f4e]) {
+      const p = LEUNA_SITE.patches!.find((q) => q.hex === hex)!
+      const seen = new Set<string>()
+      for (let i = 0; i < 12; i++) {
+        for (let j = 0; j < 12; j++) {
+          const x = p.x0 + ((p.x1 - p.x0) * (i + 0.5)) / 12
+          const z = p.z0 + ((p.z1 - p.z0) * (j + 0.5)) / 12
+          seen.add(siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE).getHexString())
+        }
+      }
+      expect(seen.size, `${hex.toString(16)} 的鋪面只有 ${seen.size} 種顏色`)
+        .toBeGreaterThanOrEqual(8)
+    }
+  })
+
+  /**
+   * 【碎花的格要夠細】格子悄悄放大回去，畫面上只是「地變得比較平」——
+   * 沒有人會發現。沿一條 120 m 的線每 6 m 取一點：13 m 的格會換色八九次，
+   * 40 m 的格只有三次。
+   */
+  it('碎花的格細到 120 m 的一條線上換色至少六次', () => {
+    const c = new Color()
+    let changes = 0
+    let prev = ''
+    for (let k = 0; k <= 20; k++) {
+      const hex = siteSurfaceColor(PLANT_CENTER.x - 1200 + k * 6, PLANT_CENTER.z - 300,
+        c, 'lateAutumn', LEUNA_SITE).getHexString()
+      if (prev !== '' && hex !== prev) changes++
+      prev = hex
+    }
+    expect(changes, `只換色 ${changes} 次`).toBeGreaterThanOrEqual(6)
   })
 
   it('道路仍然壓過墊面與鋪面', () => {
