@@ -293,6 +293,38 @@ export function createShipFireSmoke(
   })
 }
 
+/** 蒸汽的容量。廠區四根煙囪與冷卻塔各每秒幾顆、活 8 秒 —— 幾百顆就夠 */
+export const STEAM_CAPACITY = 1024
+/** 蒸汽的壽命，s。比黑煙長：它是持續冒出的柱，不是一團 */
+export const STEAM_LIFE = 8
+const STEAM_COLOR = /* @__PURE__ */ new Color(0.92, 0.92, 0.9)
+
+/**
+ * 廠區的白煙：煙囪與冷卻塔頂持續冒出的蒸汽。**與黑煙同一套粒子系統的
+ * 另一份實例** —— 壽命、上升、起訖尺寸是整池共用的建立期設定，一份設定
+ * 生不出兩種煙。
+ *
+ * 白、慢慢上升、越飄越大、淡。炸毀就停（呼叫端不再 `emit`）。
+ */
+export function createSteam(capacity: number = STEAM_CAPACITY, alphaMap?: Texture): Particles {
+  return createParticles({
+    capacity,
+    alphaMap,
+    blending: NormalBlending,
+    life: STEAM_LIFE,
+    sizeFrom: 6,
+    sizeTo: 26,
+    // 終端速度 gravity / drag = 2 m/s：一根 8 秒的柱約 20 m 高，再被風感
+    // 的水平初速拉斜
+    gravity: 1.2,
+    drag: 0.6,
+    alphaFrom: 0.45,
+    lifeJitter: 0.3,
+    shadeJitter: 0.15,
+    color: (_t: number, out: Color) => { out.copy(STEAM_COLOR) },
+  })
+}
+
 export function createSmoke(capacity: number = SMOKE_CAPACITY): Particles {
   return createParticles({
     capacity,

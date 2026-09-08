@@ -580,3 +580,98 @@ vec3 fieldColorAt(vec2 world) {
 
 /** 夏季那一份。農地與群島讀它，測試與 e2e 的著色器編譯也讀它 */
 export const FIELD_GLSL = fieldGlsl('summer')
+
+/**
+ * 廠區的地面：墊面是混凝土、道路是柏油。**只有洛伊納有**；農地不給，
+ * 字串與夏季基準逐位元相同。
+ *
+ * 【為什麼畫在著色器裡而不是幾何】道路是 20 km 的帶子，幾何要跟著地形的
+ * 起伏切；著色器吃世界座標，圖案本來就釘在地上。
+ */
+export interface SiteLayout {
+  /** 墊面矩形，世界座標 */
+  readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+  /** 道路的折線，世界座標 */
+  readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
+  /** 路寬，m */
+  readonly roadWidth: number
+}
+
+const CONCRETE = 0x8d8a82
+const ASPHALT = 0x3f3d3a
+
+/** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
+function segmentsOf(site: SiteLayout): { ax: number; az: number; bx: number; bz: number }[] {
+  const out: { ax: number; az: number; bx: number; bz: number }[] = []
+  for (const road of site.roads) {
+    for (let i = 0; i + 1 < road.length; i++) {
+      out.push({ ax: road[i]!.x, az: road[i]!.z, bx: road[i + 1]!.x, bz: road[i + 1]!.z })
+    }
+  }
+  return out
+}
+
+/** 點到線段的距離 */
+function segmentDistance(x: number, z: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax
+  const dz = bz - az
+  const l2 = dx * dx + dz * dz
+  let t = l2 > 0 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0
+  t = t < 0 ? 0 : t > 1 ? 1 : t
+  return Math.hypot(x - (ax + dx * t), z - (az + dz * t))
+}
+
+/**
+ * 廠區那一層的 GLSL。接在 `fieldColorAt` 的 `return col;` 之前：先鋪墊面，
+ * 再鋪道路 —— 道路壓過墊面，墊面壓過田。
+ */
+function siteGlsl(site: SiteLayout): string {
+  const segs = segmentsOf(site)
+  const list = segs.map((s) =>
+    `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
+  return `
+  // 墊面：混凝土，帶一點格狀的明暗
+  if (world.x >= ${site.pad.x0.toFixed(1)} && world.x < ${site.pad.x1.toFixed(1)}
+      && world.y >= ${site.pad.z0.toFixed(1)} && world.y < ${site.pad.z1.toFixed(1)}) {
+    uint ph = fieldHash2(int(floor(world.x / 40.0)), int(floor(world.y / 40.0)));
+    col = ${rgb(CONCRETE)} * (0.92 + 0.1 * float(ph & 0xffu) / 255.0);
+  }
+  // 道路：離任一條線段小於半寬
+  const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
+${list}
+  );
+  float roadD = 1.0e9;
+  for (int i = 0; i < ${segs.length}; i++) {
+    vec2 a = ROADS[i].xy;
+    vec2 b = ROADS[i].zw;
+    vec2 ab = b - a;
+    float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
+    roadD = min(roadD, length(world - (a + ab * t)));
+  }
+  col = mix(col, ${rgb(ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));`
+}
+
+/** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */
+export function fieldGlslWithSite(season: Season, site?: SiteLayout): string {
+  const base = fieldGlsl(season)
+  if (site === undefined) return base
+  const at = base.lastIndexOf('  return col;')
+  return base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
+}
+
+/**
+ * `fieldSurfaceColor` 的廠區版：道路壓過墊面，墊面壓過田。`site` 省略時與
+ * `fieldSurfaceColor` 相同。
+ */
+export function siteSurfaceColor(
+  x: number, z: number, out: Color, season: Season, site?: SiteLayout,
+): Color {
+  if (site !== undefined) {
+    for (const s of segmentsOf(site)) {
+      if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
+    }
+    const p = site.pad
+    if (x >= p.x0 && x < p.x1 && z >= p.z0 && z < p.z1) return out.setHex(CONCRETE)
+  }
+  return fieldSurfaceColor(x, z, out, season)
+}

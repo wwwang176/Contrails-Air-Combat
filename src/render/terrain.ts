@@ -1,4 +1,4 @@
-import { Group, type Object3D } from 'three'
+import { Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D } from 'three'
 import { createOcean } from './ocean'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
@@ -13,9 +13,12 @@ import {
 } from './flora'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
-import { createLeuna } from '../world/leuna'
+import { createLeuna, PLANT_CENTER, PLANT_PAD, ROAD_WIDTH, ROADS } from '../world/leuna'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
+import type { SiteLayout } from './fields'
+import { excluding } from './floraExclude'
+import { buildPlantScenery } from './geometry/ground/plantScenery'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -210,33 +213,51 @@ function createFarmlandTerrain(): Terrain {
   return createInlandTerrain(createFarmland(), 'summer')
 }
 
-/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤 */
+/** 洛伊納廠區的墊面與道路，世界座標。`fields.ts` 的著色器與植被的排除都讀它 */
+export const LEUNA_SITE: SiteLayout = {
+  pad: {
+    x0: PLANT_CENTER.x - PLANT_PAD.halfX, z0: PLANT_CENTER.z - PLANT_PAD.halfZ,
+    x1: PLANT_CENTER.x + PLANT_PAD.halfX, z1: PLANT_CENTER.z + PLANT_PAD.halfZ,
+  },
+  roads: ROADS,
+  roadWidth: ROAD_WIDTH,
+}
+
+/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景 */
 function createLeunaTerrain(): Terrain {
-  return createInlandTerrain(createLeuna(), 'lateAutumn')
+  return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery)
 }
 
 /**
  * 內陸地形的共用算繪：田區、遠景環、三種散佈器。農地與洛伊納只差高度場、
- * 丘陵與季節。
+ * 丘陵與季節；洛伊納另有廠區（墊面不長樹、地面是混凝土）與一顆佈景網格。
  */
 function createInlandTerrain(
   farm: { field: HeightFieldData; hills: IslandDesc[] }, season: Season,
+  site?: SiteLayout, scenery?: () => BufferGeometry,
 ): Terrain {
-  const horizon = createFarHorizon(season)
-  const ground = createFarmGround(farm.field, season)
+  const horizon = createFarHorizon(season, site)
+  const ground = createFarmGround(farm.field, season, site)
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
   const solid = outsideZero(farm.field)
-  const flora = createVegetation(
-    [farmHedgeFlora, farmWoodFlora, farmVillageFlora], (x, z) => solid.sample(x, z), { season },
-  )
+  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變
+  const sources = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
+    .map((s) => (site === undefined ? s : excluding(s, site.pad)))
+  const flora = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
-  // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被
+  // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被；有佈景的話是第 5 個
   group.add(horizon.mesh)
   group.add(new Group())
   group.add(ground.object)
   group.add(flora.object)
+  let sceneryMesh: Mesh | null = null
+  if (scenery !== undefined) {
+    const material = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 })
+    sceneryMesh = new Mesh(scenery(), material)
+    group.add(sceneryMesh)
+  }
 
   return {
     object: group,
@@ -256,6 +277,10 @@ function createInlandTerrain(
       horizon.dispose()
       ground.dispose()
       flora.dispose()
+      if (sceneryMesh !== null) {
+        sceneryMesh.geometry.dispose()
+        ;(sceneryMesh.material as MeshStandardMaterial).dispose()
+      }
     },
   }
 }

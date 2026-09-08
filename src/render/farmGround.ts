@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
   type Object3D, type WebGLProgramParametersWithUniforms,
 } from 'three'
-import { fieldGlsl } from './fields'
+import { fieldGlslWithSite, type SiteLayout } from './fields'
 import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
 
@@ -86,8 +86,10 @@ function buildChunk(
  * `meshphysical_frag` 裡是固定存在的（vertexColors 關閉時只是空操作），
  * 所以這個 replace 一定命中。
  */
-export function applyFields(material: MeshStandardMaterial, season: Season = 'summer'): void {
-  const glsl = fieldGlsl(season)
+export function applyFields(
+  material: MeshStandardMaterial, season: Season = 'summer', site?: SiteLayout,
+): void {
+  const glsl = fieldGlslWithSite(season, site)
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
@@ -106,15 +108,16 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
   // （flatShading 等）仍然照樣進 key，所以兩個材質共用這個字串是安全的。
   // 【季節要進 key】兩個季節的 GLSL 不同。key 相同的話先看過夏季農地再進
   // 晚秋的地形，three 會重用夏季的程式 —— 畫面還是綠的，而且不報錯
-  material.customProgramCacheKey = () => 'farm-fields:' + season
+  // 【有沒有廠區也要進 key】廠區那一層是另一份字串
+  material.customProgramCacheKey = () => 'farm-fields:' + season + (site === undefined ? '' : ':site')
 }
 
 export function createFarmGround(
-  field: HeightFieldData, season: Season = 'summer',
+  field: HeightFieldData, season: Season = 'summer', site?: SiteLayout,
 ): { object: Object3D; dispose(): void } {
   const group = new Group()
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
-  applyFields(material, season)
+  applyFields(material, season, site)
 
   const n = (field.size - 1) / FARM_CHUNKS
   const geometries: BufferGeometry[] = []
