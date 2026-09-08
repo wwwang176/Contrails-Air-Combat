@@ -246,6 +246,22 @@ export function railCar(
   return out
 }
 
+/**
+ * 佈景煙囪：錐形磚身加兩圈箍。頂端是 `world/leuna.ts` 的 `PLANT_STACKS`
+ * 發白煙的地方 —— 幾何與那份座標表不同步的話，煙會從空中冒出來。
+ *
+ * 三角形：72。
+ */
+export function smokeStack(x: number, z: number, height: number, seed: number): BufferGeometry[] {
+  const r = height * 0.045
+  return [
+    cyl(r, height, 0x6b4a3c, { x, y: height / 2, z }, 6, r * 0.62),
+    cyl(r * 0.92, 0.8, FRAME, { x, y: height * 0.42, z }, 6),
+    cyl(r * 0.76, 0.8, FRAME, { x, y: height * 0.78, z }, 6),
+    cyl(r * 0.6, height * 0.03, grime(seed), { x, y: height * 0.985, z }, 6),
+  ]
+}
+
 /** 管線橋的門型鋼架間距，m */
 const RACK_BAY = 12
 /** 管徑，m。並排時大小交錯 */

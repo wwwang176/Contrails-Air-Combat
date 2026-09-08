@@ -1,11 +1,11 @@
 import type { BufferGeometry } from 'three'
 import {
-  PLANT_CENTER, ROAD_WIDTH, ROADS, TRUCKS, PLANT_LAYOUT, type PlantBlock,
+  PLANT_CENTER, PLANT_STACKS, ROAD_WIDTH, ROADS, TRUCKS, PLANT_LAYOUT, type PlantBlock,
 } from '../../../world/leuna'
 import { box } from './parts'
 import { PLANT_SIZE } from './plant'
 import {
-  bundRun, fanStack, grime, horizTank, pipeBridge, railCar, railTrack, sawtoothHall,
+  bundRun, fanStack, grime, horizTank, pipeBridge, railCar, railTrack, sawtoothHall, smokeStack,
   sphereTank, trussTower, uprightTank,
 } from './plantParts'
 
@@ -398,8 +398,28 @@ function fillOpen(b: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[] 
   return out
 }
 
+/**
+ * 落在這個街廓裡的佈景煙囪。**幾何與 `PLANT_STACKS` 是同一份座標** ——
+ * 分家的話煙會從空中冒出來。
+ */
+function fillStacks(b: PlantBlock): BufferGeometry[] {
+  const out: BufferGeometry[] = []
+  let n = 0
+  for (const s of PLANT_STACKS) {
+    if (s.x < b.x0 || s.x >= b.x1 || s.z < b.z0 || s.z >= b.z1) continue
+    out.push(...smokeStack(s.x, s.z, s.y, b.seed * 7 + n++))
+  }
+  return out
+}
+
 /** 一個街廓的佈景。`blocked` 由呼叫端算一次 */
 export function fillBlock(block: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[] {
+  const stacks = fillStacks(block)
+  if (stacks.length > 0) return [...fillOne(block, blocked), ...stacks]
+  return fillOne(block, blocked)
+}
+
+function fillOne(block: PlantBlock, blocked: readonly Keepout[]): BufferGeometry[] {
   switch (block.kind) {
     case 'tankFarm': return fillTankFarm(block, blocked)
     case 'process': return fillProcess(block, blocked)

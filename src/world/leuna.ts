@@ -220,6 +220,26 @@ function buildBlocks(): PlantBlock[] {
 /** 二十四個街廓。`render/geometry/ground/plantFill.ts` 逐個鋪 */
 export const PLANT_BLOCKS: readonly PlantBlock[] = /* @__PURE__ */ buildBlocks()
 
+/**
+ * 佈景煙囪：打不掉，但會冒煙。**世界座標**。
+ *
+ * 【為什麼不是相對偏移】`main.ts` 的發煙迴圈每幀跑，那裡不能有換算，也不能
+ * 建物件（240 Hz 的熱路徑）。
+ *
+ * 【為什麼要有它】從進場方向看過去，煙柱是廠區唯一在遠處就標定得出自己的
+ * 東西。只有十二座可炸構件在冒煙的話，炸完六座就幾乎不冒了。
+ */
+export const PLANT_STACKS: readonly { readonly x: number; readonly z: number; readonly y: number }[] = [
+  { x: -1440, z: -7340, y: 62 },
+  { x: -1050, z: -7690, y: 55 },
+  { x: -1050, z: -7060, y: 68 },
+  { x: -560, z: -7080, y: 58 },
+  { x: -60, z: -7700, y: 64 },
+  { x: -1440, z: -6940, y: 48 },
+  { x: -560, z: -7700, y: 52 },
+  { x: -60, z: -7060, y: 60 },
+]
+
 /** 瓣的抽法與農地相同：固定 4 瓣，半徑比在 [0.30, 0.48] */
 const HILL_LOBES = 4
 const HILL_LOBE_RADIUS = [0.30, 0.48] as const
