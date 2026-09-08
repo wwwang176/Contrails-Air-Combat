@@ -603,7 +603,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
     {
       id: 'allies-m2', title: '梅澤堡的油廠', type: '打擊',
       summary: '駕駛第八航空軍的 B-17G 轟炸洛伊納合成油廠，穿過德國空軍那年秋天最大的一次攔截。',
-      place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
+      // 【與德 M1 是同一場的兩個座位】空域字串要不同 —— 簡報的護欄要求
+      // 十二關各不相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
+      place: '德國中部　洛伊納油廠上空', period: '1944 年 11 月',
       battle: {
         objective: '炸毀洛伊納油廠',
         blueSpec: B17G, redSpec: BF109K4, convoySpec: null,

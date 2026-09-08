@@ -78,8 +78,8 @@
 
 ## 5. 範圍：不做的
 
-- **不做陸上 Flak 的邏輯**。砲位的瞄準、發射、被炸掉，全部在另一個
-  worktree。這裡只有佈局常數 `FLAK_SITES` 與方塊佔位，方塊不能被打。
+- **不做陸上 Flak 的邏輯**。砲位的瞄準與發射還沒接。這裡只有佈局常數
+  `FLAK_SITES`，擺的是不還手的 8.8 cm 砲位靶（§7.4）。
 - **不做 P-51 護航**。史實上護航被引開了；而且四架 B-17 加八架 Bf 109
   已經是這一關的效能預算。
 - **不做煙幕**。它是下一個難度旋鈕，等關卡跑起來再談。
@@ -124,7 +124,7 @@
   PLANT_HEADING   廠區的朝向（構件的相對偏移繞它轉）
   PLANT_PAD       墊面矩形，1,400 × 800 m
   FLAK_SITES      預定砲位，環繞廠區 1.5 到 3 km，各有座標與朝向。
-                  起始 8 座。這一版只是方塊
+                  起始 8 座。這一版是不還手的靶
   EGRESS          脫離方向，−Z 繼續往前 —— 投完不回頭，那是史實的脫離
 ```
 
@@ -198,11 +198,15 @@
 新模組 `src/world/groundTargets.ts`，照 `ships.ts` 的形狀：
 
 ```ts
-type GroundKind = 'hydroTower' | 'chimney' | 'boilerHouse'
-  | 'oilTank' | 'gasHolder' | 'coolingTower'
-interface GroundClass { id; name; hull: readonly Box[]; radius; hp }
-interface GroundTarget { index; team; cls; position; heading; hp; alive }
+type PlantKind = 'hydroTower' | 'chimney' | 'boilerHouse'
+  | 'oilTank' | 'gasHolder' | 'coolingTower'   // GroundUnitId 的一部分
+interface GroundTarget extends StrikeTarget { index; team; unit; armour; position;
+  orientation; heading; spawn; radius; hull; impactY; value; hp; alive }
 ```
+
+六種構件登記在 `render/geometry/ground` 的 `GROUND_UNITS`（與戰車、卡車、
+砲位、火車同一張表），血量與裝甲在 `world/groundTargets.ts` 的
+`GROUND_HP`／`GROUND_ARMOUR`。
 
 **不是 `Combatant`，也不是 `Ship`。** 船那份檔頭的理由（沒有飛行模型、
 不進記分板、不上接觸列表）完全適用；而且船有沉沒動畫與「`position.y`
@@ -226,22 +230,25 @@ interface GroundTarget { index; team; cls; position; heading; hp; alive }
 差別，**接受，不做窄相**。`radius` 是包圍球的上界，護欄守（同 `ships.ts`
 的規則）。
 
-**這一版只有炸彈認得地面目標。** 機槍子彈穿過去、飛機也穿過去 —— 彈丸
-命中與撞建築都不做，理由是三架 B-17 沒有前射武器、攔截機也不會對著
-工廠開火，這一關沒有任何路徑會用到。哪一天要做，是 `resolveHits` 與
-`hitsShip` 各加一個對應版，不動這一層。
+**子彈與炸彈都認得地面目標，飛機穿過去。** 地面目標是與戰車、卡車、
+砲位、火車共用的實體（`world/groundTargets.ts`，登記表在
+`render/geometry/ground`）：子彈走口徑門檻（廠房裝甲 0，但 5 對 8,000 是
+實質免疫），炸彈走範圍傷害與擋路。撞建築不做 —— 這一關沒有路徑會用到。
 
 ### 7.2 廠區的擺法
 
-`MissionBattle.ground?: MissionGround`，形狀照 `MissionFleet`：中心、朝向、
-相對偏移的清單。12 座構件的相對座標寫在 `leuna.ts`（`PLANT_LAYOUT`），
-卡片引用它。放置在 `setup.ts` 的 `placeGround`，與 `placeFleet` 並列。
+`MissionBattle.ground?: readonly GroundEntry[]`，每一座一筆**世界座標**
+（`unit`、`team`、`x`、`z`、`heading`）—— 地面目標各自有各自的位置與朝向，
+不像艦隊要排陣型。12 座構件相對廠區中心的偏移寫在 `leuna.ts`
+（`PLANT_LAYOUT`），卡片把它們換成絕對座標，砲位（`FLAK_SITES`）同。
+放置在 `setup.ts` 的 `placeGround`，與 `placeFleet` 並列。
 
-**高度是 0，寫死。** `createBattle` 跑的時候地形還沒注入 `World`（那是
-`main.ts` 之後才做的事），建構期讀 `groundAt` 拿到的是預設平面，看起來
-對只是巧合。墊面在結構上保證是 0（§6.1），所以構件的 `position.y = 0`
-是定義，不是查出來的；`missionConfigFrom` 要**明列透傳** `ground`，那一支
-刻意不透傳未知欄位，漏了的症狀是卡片上有廠區、場上沒有。
+**高度先擺 0，地形接上之後落地。** `createBattle` 跑的時候地形還沒注入
+`World`（那是 `main.ts` 之後才做的事），建構期讀 `groundAt` 拿到的是預設
+平面。`main.ts` 在接上地形之後呼叫 `settleGroundTargets` 填高度；墊面在
+結構上保證是 0（§6.1），所以廠區落地之後還是 0。`missionConfigFrom` 要
+**明列透傳** `ground`，那一支刻意不透傳未知欄位，漏了的症狀是卡片上有
+廠區、場上沒有。
 
 ### 7.3 World 的接線
 
@@ -261,7 +268,7 @@ interface GroundTarget { index; team; cls; position; heading; hp; alive }
    **`lightShipFires` 改成只認 `kind === 2`** —— 它現在只看第六格的索引
    `≥ 0`，建築的索引會被當成船的索引，火會長到編號相同的那艘船上。
 4. **摧毀事件與落點事件分開。** 每一顆炸彈恰好推一筆落點事件；建築在
-   `alive` 由真變假的那一步另外推一筆 `groundDestroyedEvents`（座標與
+   `alive` 由真變假的那一步另外推一筆 `groundKillEvents`（座標與
    構件索引），只推一次。合在一起的話直擊剛好炸毀時同一個爆點推兩次，
    火球、碎片、煙全部加倍。
 5. **重設與生命週期**：`resetGroundTarget` 在 `resetBattle` 與船並列（這一
@@ -273,8 +280,9 @@ interface GroundTarget { index; team; cls; position; heading; hp; alive }
 
 ### 7.4 預定砲位
 
-`FLAK_SITES` 只是佈局常數。算繪層在每一座放一個 6 × 6 × 3 m 的深灰方塊；
-World 不知道它們存在。另一個 worktree 的 Flak 合進來時，用同一份座標。
+`FLAK_SITES` 是佈局常數；卡片把每一座擺成一台 `flakHeavy` 地面目標
+（8.8 cm Flak 18 的 GLB，`render/geometry/ground`）。它們是不還手的靶：
+打得掉、算進炸毀的計數，但不瞄不射 —— 陸上砲位的瞄準與發射還沒接。
 
 ## 8. 規則與卡片
 
@@ -360,18 +368,19 @@ interface StrikeTarget {
   readonly impactY: number         // 落點求解的平面：世界高度，
                                    // = position.y + max(box.center.y + box.half.y)
   readonly value: number           // 選目標用：船是艦級血量，地面是構件血量
-  alive(): boolean                 // 讀原物件，決策拍之間死了要看得到
+  readonly alive: boolean          // 就是原物件的旗標，決策拍之間死了要看得到
 }
 ```
 
-船與地面目標各一個轉接，**組場時每個實體建一次並保存**，決策拍與物理步
-上不配置。地面目標的 `shipAt` 退化成常數。船那條路的行為**逐位元不變**
-（§12.5）。
+**沒有轉接物件。** `Ship` 與 `GroundTarget` 直接滿足它：船多三格艦級資料的
+複本（`hull`、`impactY`、`value`，建船時填一次），地面目標本來就有這幾格。
+決策拍與物理步上不配置。地面目標的 `shipAt` 退化成常數。船那條路的行為
+**逐位元不變**（§12.5）。
 
 ### 9.2 選目標與接線
 
 - 轟炸機的目標選擇掃兩份清單（船、地面目標），價值優先、距離次之，規則
-  照 `pickShipTarget`。鎖定存的是 `{ kind, index }`，每一步用 `alive()`
+  照 `pickShipTarget`。鎖定存的是 `{ kind, index }`，每一步用 `alive`
   複查，與現在對船的做法相同。
 - `AiController.attackShip` 的早退改成「船與地面目標都空」才退；
   `main.ts` 的 `wireTerrain` 每幀注入 `ctl.groundTargets`，整合測試的
@@ -398,12 +407,13 @@ AI 走編隊跟隨，進到 8 km 才切攻擊航路。這個常數是共用的�
 
 ## 11. 外型與毀壞
 
-- 六種構件的程序化幾何放在 `src/render/geometry/plant/`，**不碰另一個
-  worktree 的 `geometry/ground/` 目錄**，避免合併衝突。積木自己寫一份
-  最小的（box、cylinder、合併），合併時再看要不要換成那邊的 `parts.ts`。
-- 畫法照 `render/ships.ts`：少量、指定座標、一座一個 `Mesh`；毀壞後換成
-  矮一截的深色殘骸網格（高度取原來的 25%）。
-- 毀壞的那一刻（讀 `groundDestroyedEvents`）：船命中的爆炸配方
+- 六種構件的程序化幾何在 `src/render/geometry/ground/plant.ts`，用地面單位
+  共用的積木（`parts.ts` 的 box、cyl、assemble），登記進 `GROUND_UNITS`；
+  命中盒由 `PLANT_SIZE` 撐起來，不從幾何量。
+- 畫法是地面單位共用的 `render/groundTargets.ts`：一台一個 `Mesh`；炸毀後
+  換材質，有殘骸版的（廠區六種）連形狀一起換成矮一截的深色殘骸（高度取
+  原來的 25%），重開一場換回來。
+- 毀壞的那一刻（讀 `groundKillEvents`）：船命中的爆炸配方
   （`blast.ts`）加剛做好的 `debris.burst`，然後點一個固定在世界座標的
   火點，重用 `shipFires.ts` 的噴煙回呼 `FirePuffFn` 與船火同一套「起火
   加垂直煙」的參數。**不重用船火的資料結構**：它把火點存成艦體座標、每
@@ -423,7 +433,7 @@ AI 走編隊跟隨，進到 8 km 才切攻擊航路。這個常數是共用的�
    `≥ HILL_GAP`（不是只斷言不重疊 —— 那樣 gap 改成 1 m 仍是綠的）。
 3. **地面目標吃得到範圍傷害**：**經由 World 的一顆真炸彈**驗，不是只驗
    純函數 —— 直擊扣滿、30 m 外為 0、兩座相鄰只有近的那一座扣血、扣到
-   0 就 `alive = false` 且 `groundDestroyedEvents` 恰好一筆。包圍球是上界
+   0 就 `alive = false` 且 `groundKillEvents` 恰好一筆。包圍球是上界
    （同船的測試）。
 4. **擋路**：**零船、一座煙囪**的 World，從煙囪正上方投的炸彈在煙囪頂
    引爆、落點事件 `kind = 3`。零船才殺得到回呼閘那個缺陷。
@@ -461,4 +471,11 @@ AI 走編隊跟隨，進到 8 km 才切攻擊航路。這個常數是共用的�
 - **試飛裁定的起始值**：兩批 Bf 109 的時間與架數、`destroyCount`、
   構件血量、`PAD_CLEARANCE`、全部色值、`novemberNoon` 的光照數字。
 - **AI B-17 的目標分派**：三架很可能疊在同一座構件上。試飛看了覺得浪費
-  再加決定性的分派，那是另一條規則。
+  再加決定性的分派，那是另一條規則。headless 實測（`ai-bombing-leuna`）
+  三架先鎖進到 8 km 之內的砲位，進到廠區才換成鍋爐房；兩座鍋爐房各挨
+  一趟。
+- **轟炸機的存活**：headless 實測玩家席位不動時，開場四架 K-4 在 55 秒打掉
+  一架 B-17，四架到 210 秒全滅。玩家會閃、砲塔也在打，但要不要調 K-4 的
+  架數、開場距離或 B-17 的血量，是試飛之後的事。
+- **德 M1 的空域字串**：兩關是同一場的兩個座位，簡報的護欄要求十二關的
+  空域各不相同，所以盟 M2 寫「洛伊納油廠上空」、德 M1 維持「梅澤堡—洛伊納」。
