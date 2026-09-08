@@ -126,8 +126,23 @@
 `createFarmlandTerrain` 抽一個吃 `{ field, hills, season }` 的內部函數，
 農地與 leuna 各叫一次。
 
-遭遇戰選單不列 `leuna`，它是任務專用；`tools/daylight.ts` 與
-`tools/blast.ts` 的地形清單要列，那是調色用的。
+遭遇戰選單不列 `leuna`，它是任務專用。
+
+### 6.3b 展示區
+
+**不新開頁面，用現有的 `daylight.html`。** 它走的就是遊戲那條路徑
+（`createScene` + `createTerrain` + `applyTimeOfDay`），工具若自己抄一份
+光照，看到的就不是遊戲裡的東西。這一輪加進去的：
+
+- 地形清單列 `leuna`，時段清單列 `novemberNoon`。切到 leuna 時預設時段
+  跟著切成 `novemberNoon`，因為那張圖的色盤是為它調的。
+- 切到 leuna 時把 `PLANT_LAYOUT` 的 12 座構件與 `FLAK_SITES` 的方塊擺在
+  墊面上，飛機停在廠區上空 4,000 m 朝 −Z —— 那正是投彈航路上看到的畫面。
+  地形、廠區、天色三者只有同時在畫面上才判斷得出來。
+- 鏡頭沿用工具現有的自由視角，可以降到低空看丘陵的起伏與樹冠色。
+
+`tools/blast.ts` 的地形清單也列 `leuna`，那是看爆炸在深色田上的對比用的。
+六種構件各自的尺寸與調色在 `hangar.html` 看（§11）。
 
 ### 6.4 十一月的色彩
 
