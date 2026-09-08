@@ -9,8 +9,12 @@ import {
 } from '../render/timeOfDay'
 import { createShip, SHIP_CLASSES, type Ship } from '../world/ships'
 import { createShipGuns } from '../world/shipGuns'
-import { G4M } from '../specs/g4m'
+import { B17G } from '../specs/b17g'
 import type { TerrainKind } from '../world/terrainKind'
+import { createGroundModels } from '../render/groundTargets'
+import { preloadGroundModels } from '../render/geometry/ground'
+import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
+import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
 
 /**
  * 時段展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -43,15 +47,30 @@ function setTerrain(kind: TerrainKind): void {
   // 天是黃昏而海是中午的藍
   terrain.setPalette(live)
   // 內陸沒有海，船浮在田上很怪
-  shipModels.object.visible = kind !== 'farmland'
-  // 【內陸把飛機抬高】田地的丘陵最高到 HILL_PEAK_MAX，60 m 會插進山裡
-  plane.group.position.y = kind === 'farmland' ? 420 : 60
+  const inland = kind === 'farmland' || kind === 'leuna'
+  shipModels.object.visible = !inland
+  // 【洛伊納把廠區擺上去】12 座構件與 8 座砲位，就是任務裡的那一份佈局；
+  // 飛機停在投彈航路上 —— 地形、廠區、天色三者只有同時在畫面上才判斷得出來
+  plantModels.object.visible = kind === 'leuna'
+  if (kind === 'leuna') {
+    plane.group.position.set(0, 4000, -3000)
+    plane.group.quaternion.identity()
+  } else {
+    // 【內陸把飛機抬高】田地的丘陵最高到 HILL_PEAK_MAX，60 m 會插進山裡
+    plane.group.position.set(-45, kind === 'farmland' ? 420 : 60, -140)
+    plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
+  }
   placeCamera(kind)
+  // 【洛伊納的色盤是為十一月正午調的】切到它時段跟著切
+  if (kind === 'leuna') selectTod('novemberNoon')
 }
 
-/** 內陸的視野要拉遠拉高才看得到田與樹的層次。 */
+/** 內陸的視野要拉遠拉高才看得到田與樹的層次；洛伊納從廠區上空看投彈航路。 */
 function placeCamera(kind: TerrainKind): void {
-  if (kind === 'farmland') {
+  if (kind === 'leuna') {
+    ctx.camera.position.set(0, 4600, -2500)
+    controls.target.set(0, 0, -7000)
+  } else if (kind === 'farmland') {
     ctx.camera.position.set(0, 520, 900)
     controls.target.set(0, 60, -600)
   } else {
@@ -63,6 +82,21 @@ function placeCamera(kind: TerrainKind): void {
 
 await preloadShipModels(['wichita', 'fletcher'])
 await preloadAircraftModels()
+await preloadGroundModels()
+
+/** 洛伊納的廠區與砲位，照任務卡的佈局。墊面高度是 0，不必落地 */
+const plantTargets: GroundTarget[] = [
+  ...PLANT_LAYOUT.map((p, i) => createGroundTarget(
+    i, p.kind, 'red', PLANT_CENTER.x + p.dx, PLANT_CENTER.z + p.dz, PLANT_HEADING + p.heading,
+  )),
+  ...FLAK_SITES.map((s, i) => createGroundTarget(
+    PLANT_LAYOUT.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
+  )),
+]
+const plantModels = createGroundModels(plantTargets)
+plantModels.update(plantTargets)
+plantModels.object.visible = false
+ctx.scene.add(plantModels.object)
 
 /** 三艘船排成一個看得出縱深的斜列。 */
 const ships: Ship[] = [
@@ -75,8 +109,9 @@ const shipModels = createShipModels(ships)
 ctx.scene.add(shipModels.object)
 shipModels.update(ships, () => {})
 
-// 一架一式陸攻當機體受光的參照 —— 機身上的明暗才判斷得出太陽的方向對不對
-const plane = buildAircraft(G4M)
+// 一架 B-17 當機體受光的參照 —— 機身上的明暗才判斷得出太陽的方向對不對；
+// 洛伊納那一關玩家開的就是它
+const plane = buildAircraft(B17G)
 plane.group.position.set(-45, 60, -140)
 plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
 ctx.scene.add(plane.group)
