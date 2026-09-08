@@ -180,6 +180,73 @@ export const PLANT_SCENERY = {
   poles: { spacing: 40, height: 8 },
 } as const
 
+/**
+ * 巷道的中心線，相對廠區中心。`x` 是縱向（沿 Z 走）的巷、`z` 是橫向的。
+ *
+ * 【與廠內道路共線】−600、500（縱向）與 0（橫向）就是 `ROADS` 那三條廠內
+ * 道路。格線另開一套的話，街廓會被道路從中間切開，填充器鋪的東西一半壓在
+ * 路上。
+ */
+export const PLANT_LANES = {
+  x: [-1100, -600, -100, 500, 1000],
+  z: [-400, 0, 400],
+} as const
+
+/** 巷道寬，m。街廓從格線各退一半 */
+export const LANE_WIDTH = 16
+
+/** 街廓的機能。填充器照這個標籤決定鋪什麼 */
+export type BlockKind = 'process' | 'tankFarm' | 'halls' | 'railyard' | 'utility' | 'open'
+
+/** 一個街廓。**世界座標**，已經退掉巷道 */
+export interface PlantBlock {
+  readonly x0: number
+  readonly z0: number
+  readonly x1: number
+  readonly z1: number
+  readonly kind: BlockKind
+  readonly seed: number
+}
+
+/**
+ * 機能指派，6 欄 × 4 列，欄由西到東、列由北到南。
+ *
+ * 【要與十二座構件的位置相符】西側是氫化製程、中央是動力、東側是儲槽；
+ * 南緣留給調車場，接南門的連外道路。`open` 是刻意的留白 —— 沒有空地就
+ * 看不出密的地方有多密。
+ */
+const BLOCK_KINDS: readonly (readonly BlockKind[])[] = [
+  ['halls', 'process', 'utility', 'railyard'], // x −1500…−1100
+  ['process', 'process', 'halls', 'railyard'], // x −1100…−600
+  ['utility', 'process', 'utility', 'open'], //   x −600…−100
+  ['process', 'utility', 'utility', 'halls'], //  x −100…500
+  ['halls', 'tankFarm', 'tankFarm', 'railyard'], // x 500…1000
+  ['tankFarm', 'tankFarm', 'open', 'open'], //    x 1000…1500
+]
+
+function buildBlocks(): PlantBlock[] {
+  const half = LANE_WIDTH / 2
+  const xs = [-PLANT_PAD.halfX, ...PLANT_LANES.x, PLANT_PAD.halfX]
+  const zs = [-PLANT_PAD.halfZ, ...PLANT_LANES.z, PLANT_PAD.halfZ]
+  const out: PlantBlock[] = []
+  for (let i = 0; i + 1 < xs.length; i++) {
+    for (let j = 0; j + 1 < zs.length; j++) {
+      out.push({
+        x0: PLANT_CENTER.x + xs[i]! + half,
+        x1: PLANT_CENTER.x + xs[i + 1]! - half,
+        z0: PLANT_CENTER.z + zs[j]! + half,
+        z1: PLANT_CENTER.z + zs[j + 1]! - half,
+        kind: BLOCK_KINDS[i]![j]!,
+        seed: 2000 + i * 10 + j,
+      })
+    }
+  }
+  return out
+}
+
+/** 二十四個街廓。`render/geometry/ground/plantFill.ts` 逐個鋪 */
+export const PLANT_BLOCKS: readonly PlantBlock[] = /* @__PURE__ */ buildBlocks()
+
 /** 瓣的抽法與農地相同：固定 4 瓣，半徑比在 [0.30, 0.48] */
 const HILL_LOBES = 4
 const HILL_LOBE_RADIUS = [0.30, 0.48] as const

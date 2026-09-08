@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createLeuna, EGRESS, FLAK_SITES, LEUNA_HILLS, PAD_CLEARANCE, PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD,
-  ROADS, TRUCKS,
+  createLeuna, EGRESS, FLAK_SITES, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
+  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, ROADS, TRUCKS,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -130,5 +130,72 @@ describe('leuna 的廠區', () => {
     const touchesPad = ROADS.some((r) => r.some((p) => padDistance(p.x, p.z) === 0))
     expect(reachesEdge).toBe(true)
     expect(touchesPad).toBe(true)
+  })
+})
+
+/**
+ * 街廓是佈景填充的單位：巷道格線切出來，每一格掛一個機能標籤。填充器
+ * （`render/geometry/ground/plantFill.ts`）只認這張表。
+ */
+describe('廠區的街廓', () => {
+  it('24 個街廓，全部在墊面內，互不重疊', () => {
+    expect(PLANT_BLOCKS).toHaveLength(24)
+    const x0 = PLANT_CENTER.x - PLANT_PAD.halfX
+    const x1 = PLANT_CENTER.x + PLANT_PAD.halfX
+    const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
+    const z1 = PLANT_CENTER.z + PLANT_PAD.halfZ
+    for (const b of PLANT_BLOCKS) {
+      expect(b.x0).toBeGreaterThanOrEqual(x0)
+      expect(b.x1).toBeLessThanOrEqual(x1)
+      expect(b.z0).toBeGreaterThanOrEqual(z0)
+      expect(b.z1).toBeLessThanOrEqual(z1)
+      expect(b.x1 - b.x0).toBeGreaterThan(100)
+      expect(b.z1 - b.z0).toBeGreaterThan(100)
+    }
+    for (let i = 0; i < PLANT_BLOCKS.length; i++) {
+      for (let j = i + 1; j < PLANT_BLOCKS.length; j++) {
+        const a = PLANT_BLOCKS[i]!
+        const b = PLANT_BLOCKS[j]!
+        const apart = a.x1 <= b.x0 || b.x1 <= a.x0 || a.z1 <= b.z0 || b.z1 <= a.z0
+        expect(apart, `街廓 ${i} 與 ${j} 重疊`).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * 【為什麼要驗這一條】巷道是格線退出來的。退錯邊（減成加）街廓會壓在
+   * 巷道上，而畫面上只是「東西擺得比較滿」，看不出錯。
+   */
+  it('相鄰街廓之間恰好留一條 LANE_WIDTH 的巷', () => {
+    const cols = [...new Set(PLANT_BLOCKS.map((b) => b.x0))].sort((a, b) => a - b)
+    expect(cols.length).toBe(6)
+    for (let i = 0; i + 1 < cols.length; i++) {
+      const left = PLANT_BLOCKS.find((b) => b.x0 === cols[i])!
+      const right = PLANT_BLOCKS.find((b) => b.x0 === cols[i + 1])!
+      expect(right.x0 - left.x1).toBeCloseTo(LANE_WIDTH, 6)
+    }
+    const rows = [...new Set(PLANT_BLOCKS.map((b) => b.z0))].sort((a, b) => a - b)
+    expect(rows.length).toBe(4)
+    for (let j = 0; j + 1 < rows.length; j++) {
+      const north = PLANT_BLOCKS.find((b) => b.z0 === rows[j])!
+      const south = PLANT_BLOCKS.find((b) => b.z0 === rows[j + 1])!
+      expect(south.z0 - north.z1).toBeCloseTo(LANE_WIDTH, 6)
+    }
+  })
+
+  it('每一座可炸構件都落在某個街廓內，而且那個街廓不是 open', () => {
+    for (const p of PLANT_LAYOUT) {
+      const x = PLANT_CENTER.x + p.dx
+      const z = PLANT_CENTER.z + p.dz
+      const b = PLANT_BLOCKS.find((k) => x >= k.x0 && x < k.x1 && z >= k.z0 && z < k.z1)
+      expect(b, `構件 ${p.kind} (${p.dx},${p.dz}) 掉在巷道或街廓外`).toBeDefined()
+      expect(b!.kind, `構件 ${p.kind} 落在 open 街廓`).not.toBe('open')
+    }
+  })
+
+  it('機能配比：open 不超過 4 個，六種機能都有人用，種子互不相同', () => {
+    expect(PLANT_BLOCKS.filter((b) => b.kind === 'open').length).toBeLessThanOrEqual(4)
+    expect(new Set(PLANT_BLOCKS.map((b) => b.kind)).size).toBe(6)
+    expect(new Set(PLANT_BLOCKS.map((b) => b.seed)).size).toBe(24)
   })
 })
