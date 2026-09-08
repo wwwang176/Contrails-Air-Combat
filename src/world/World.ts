@@ -37,6 +37,7 @@ import { landHitT, type LandField } from './occlusion'
 import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
+import type { GroundTarget } from './groundTargets'
 import { stepShipGuns, ownerShipIndex } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
@@ -268,6 +269,20 @@ export class World {
    */
   readonly ships: Ship[] = []
 
+  /**
+   * 這一場的地面目標（`groundTargets.ts`）。與船同一個性質：不是
+   * `Combatant`，空陣列 = 這一場沒有，而且**只有炸彈認得它**。
+   */
+  readonly groundTargets: GroundTarget[] = []
+
+  /**
+   * 建築由活變死的那一步推一筆：`x,y,z` 是它的位置、`nx` 是構件索引、
+   * `ny` 是它的頂高。**與落點事件分開** —— 每一顆炸彈恰好一筆落點；合在
+   * 一起的話直擊剛好炸毀時同一個爆點推兩次，火球、碎片、煙全部加倍。
+   * 呼叫端負責排空。
+   */
+  readonly groundDestroyedEvents: ImpactEvents = createImpacts()
+
   /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
   readonly flak = createFlak()
 
@@ -347,6 +362,8 @@ export class World {
    * 要知道是誰。兩支回呼在同一個迴圈裡連續呼叫，欄位傳遞不必配置。
    */
   private bombShip: Ship | null = null
+  /** 同上，擋到的是建築時記這一格；兩格最多一格非空 */
+  private bombGround: GroundTarget | null = null
 
   /**
    * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，`ny` 是這一枚的傷害。
@@ -592,9 +609,11 @@ export class World {
     //
     // 【與彈丸分開】那個池是等速直線、無阻力、無重力（spec §2），
     // 壽命上限 1.2 s；炸彈要重力、要阻力、要飛 48 秒。
+    // 【兩份清單都空才不傳擋路回呼】只看船的話，沒有船的一關煙囪永遠擋
+    // 不到炸彈 —— 回呼根本沒被傳進去，而症狀是炸彈穿過建築在地上爆
     this.bombs.step(
       dt, this.bombDrag, this.groundAt, this.onBombImpact,
-      this.ships.length > 0 ? this.onBombBlocked : undefined,
+      this.ships.length > 0 || this.groundTargets.length > 0 ? this.onBombBlocked : undefined,
     )
 
     // 3.6 魚雷推進
@@ -617,18 +636,22 @@ export class World {
    * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
    */
   private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked, damage) => {
-    // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船。三者是三套完全不同的
-    // 表現（土／水冠／火），而判斷所需的 `waterAt` 與 `ships` 只有這一層
-    // 有。法線那三格對炸彈沒有意義 —— 恆是 (0,1,0) —— 所以借第一格。
+    // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船、3 = 建築。四者是四套
+    // 不同的表現（土／水冠／火／火加碎片），而判斷所需的 `waterAt`、
+    // `ships` 與 `groundTargets` 只有這一層有。法線那三格對炸彈沒有意義
+    // —— 恆是 (0,1,0) —— 所以借第一格。
     this.applyBombBlast(x, y, z, damage)
     // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
     // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
     const hitShip = blocked && this.bombShip !== null
-    const kind = hitShip ? 2 : this.waterAt(x, z) > -Infinity ? 1 : 0
-    // 【`nz` 帶命中的那一艘，沒中船是 −1】火災要長在船身上，而火點存的是
-    // **艦體座標**（船在動）—— 起火的那一層因此要知道是哪一艘。第六格對
-    // 炸彈本來就恆是 0，是一格現成的空位
-    pushImpact(this.bombEvents, x, y, z, kind, damage, hitShip ? this.bombShip!.index : -1)
+    const hitGround = blocked && this.bombGround !== null
+    const kind = hitShip ? 2 : hitGround ? 3 : this.waterAt(x, z) > -Infinity ? 1 : 0
+    // 【`nz` 帶命中的那一艘或那一座，沒中是 −1】火災要長在船身上，而火點存
+    // 的是**艦體座標**（船在動）—— 起火的那一層因此要知道是哪一艘。**讀這
+    // 一格的人要先看 `nx`**：船與建築的索引是兩份清單。第六格對炸彈本來就
+    // 恆是 0，是一格現成的空位
+    const index = hitShip ? this.bombShip!.index : hitGround ? this.bombGround!.index : -1
+    pushImpact(this.bombEvents, x, y, z, kind, damage, index)
   }
 
   /**
@@ -683,6 +706,33 @@ export class World {
         if (g.hp <= 0) g.alive = false
       }
       this.sinkIfDead(sh)
+    }
+
+    // 【接在船之後，不合併迴圈】船那一段的運算順序是逐位元基準的一部分
+    // （`strike-replay-baseline.test.ts`）；沒有地面目標時這一圈是零長度
+    for (let i = 0; i < this.groundTargets.length; i++) {
+      const t = this.groundTargets[i]!
+      if (!t.alive) continue
+      const reach = t.cls.radius + radius
+      if (t.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
+
+      SHIP_INV.copy(t.orientation).conjugate()
+      const local = BLAST_P.set(x, y, z).sub(t.position).applyQuaternion(SHIP_INV)
+
+      let near = Infinity
+      for (const box of t.hull) {
+        const d = pointBoxDistance(local.x, local.y, local.z, box)
+        if (d < near) near = d
+      }
+      const dmg = bombBlastDamage(near, damage)
+      if (dmg <= 0) continue
+      t.hp -= dmg
+      if (t.hp > 0) continue
+      t.alive = false
+      pushImpact(
+        this.groundDestroyedEvents,
+        t.position.x, t.position.y, t.position.z, t.index, t.impactY, 0,
+      )
     }
   }
 
@@ -1306,7 +1356,8 @@ export class World {
    */
   private readonly onBombBlocked: BombBlockFn = (x0, y0, z0, x1, y1, z1) => {
     this.bombShip = null
-    if (this.ships.length === 0) return NO_HIT
+    this.bombGround = null
+    if (this.ships.length === 0 && this.groundTargets.length === 0) return NO_HIT
     let best = NO_HIT
     // 【沉船照樣擋】理由同 `onTorpedoBlocked` —— 船體還浮在那裡。
     // 沉船的砲位全死了，所以下面那一圈只會比到船體盒
@@ -1333,6 +1384,26 @@ export class World {
         if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
         best = t
         this.bombShip = sh
+      }
+    }
+    // 【炸毀的建築不擋】與沉船相反：殘骸只剩四分之一高（`render/plant.ts`），
+    // 命中盒還是原來那一個的話，炸彈會在殘骸上方的空氣裡引爆
+    for (let i = 0; i < this.groundTargets.length; i++) {
+      const g = this.groundTargets[i]!
+      if (!g.alive) continue
+      if (segmentPointDistanceSq(
+        x0, y0, z0, x1, y1, z1, g.position.x, g.position.y, g.position.z,
+      ) > g.cls.radius * g.cls.radius) continue
+
+      SHIP_INV.copy(g.orientation).conjugate()
+      const a = S.v[0]!.set(x0, y0, z0).sub(g.position).applyQuaternion(SHIP_INV)
+      const b = S.v[1]!.set(x1, y1, z1).sub(g.position).applyQuaternion(SHIP_INV)
+      for (const box of g.hull) {
+        const t = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+        if (t === NO_HIT || (best !== NO_HIT && t >= best)) continue
+        best = t
+        this.bombGround = g
+        this.bombShip = null
       }
     }
     return best
