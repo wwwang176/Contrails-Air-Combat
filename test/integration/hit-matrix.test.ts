@@ -98,7 +98,8 @@ function run(distance: number, aspectDeg: number, targetSpeed: number, omega: nu
       for (let n = 0; n < shots; n++) {
         pool.spawn(
           muzzle.x, muzzle.y, muzzle.z,
-          bulletVel.x, bulletVel.y, bulletVel.z, mount.weapon.damage, 0, 0, PROJECTILE_LIFETIME,
+          bulletVel.x, bulletVel.y, bulletVel.z, mount.weapon.damage, 0, 0,
+          PROJECTILE_LIFETIME, mount.weapon.caliber,
         )
       }
     }

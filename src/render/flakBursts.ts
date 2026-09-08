@@ -1,4 +1,4 @@
-import { Color, NormalBlending, Vector3 } from 'three'
+import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
 import { FLAK_RADIUS, type BurstEvents } from '../world/flak'
@@ -16,8 +16,8 @@ import { FLAK_RADIUS, type BurstEvents } from '../world/flak'
  * `createParticles` 本來就吃設定物件，所以代價只是一個新的字面值。
  */
 
-/** 一朵雲幾顆。**起始值。** */
-export const FLAK_PUFFS = 9
+/** 一朵雲幾顆 */
+export const FLAK_PUFFS = 18
 
 /** 一朵雲的粒子散得多開，m。約殺傷半徑的三分之一 —— 雲比殺傷範圍小。 */
 export const FLAK_SPREAD = FLAK_RADIUS / 3
@@ -30,8 +30,8 @@ export const FLAK_SPREAD = FLAK_RADIUS / 3
  */
 export const FLAK_PUFF_SPEED = 14
 
-/** 池的容量。同時最多約 20 朵在天上 × 9 顆，取兩倍餘裕。 */
-export const FLAK_BURST_CAPACITY = 384
+/** 池的容量。同時最多約 20 朵在天上 × 18 顆，取兩倍餘裕。 */
+export const FLAK_BURST_CAPACITY = 768
 
 /**
  * 黑雲的顏色。比殘骸的煙（`0x1a1a1a`）再深一點 —— 高砲雲在照片裡幾乎是
@@ -39,12 +39,20 @@ export const FLAK_BURST_CAPACITY = 384
  */
 export const FLAK_COLOR = 0x121212
 
-export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Particles {
+/**
+ * @param alphaMap 煙團的不透明度貼圖，與船火、爆炸的煙共用同一張。不給的話
+ *                 走著色器裁的軟邊實心圓 —— 十八顆疊起來是十八個圓盤，與畫面裡
+ *                 其他的煙是兩種質感
+ */
+export function createFlakBursts(
+  capacity: number = FLAK_BURST_CAPACITY, alphaMap?: Texture,
+): Particles {
   return createParticles({
     capacity,
+    alphaMap,
     blending: NormalBlending,
     life: 4,
-    // 【壽命要抖】同一朵的九顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
+    // 【壽命要抖】同一朵的十八顆若同時消失，那朵雲會被切齊地「關掉」而不是散開
     lifeJitter: 0.3,
     sizeFrom: 9,
     sizeTo: 21,
@@ -63,7 +71,7 @@ export function createFlakBursts(capacity: number = FLAK_BURST_CAPACITY): Partic
  * 【為什麼不能用序號】`emitFireball` 是那樣寫的（`e * COUNT + k`），但擊墜
  * 很少見、火球又只活半秒，重複看不出來。高砲雲不一樣：每秒約四朵、每朵活
  * 四秒，而**大部分幀只有一次引爆，序號恆為 0** —— 於是每一朵孤立的雲都用
- * 同一組九個方向，長得一模一樣。
+ * 同一組十八個方向，長得一模一樣。
  *
  * 【為什麼不是亂數】與這個專案其他所有隨機一樣：確定性才測得起來、重播才
  * 可重現。一個單調遞增的計數器就夠了。

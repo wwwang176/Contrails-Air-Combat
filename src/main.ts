@@ -21,7 +21,7 @@ import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
   AIR_BLAST, BLAST_PACE, FIRE_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
-  emitBlast, emitEmber, emitMist, scaleBlast,
+  emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
 } from './render/blast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
@@ -46,7 +46,7 @@ import {
 } from './render/spray'
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
-import { createDebris } from './render/debris'
+import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
 import { createWrecks } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
@@ -86,7 +86,8 @@ import {
   createGodCameraState, enterGodCamera, godCameraTarget, stepGodCamera,
   type GodCameraInput,
 } from './camera/godCamera'
-import { deathCamAim } from './camera/deathCam'
+import { deathCamAim, enterDeathCam } from './camera/deathCam'
+import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
@@ -189,14 +190,6 @@ function wireTerrain(force = false): void {
 const tracers = createTracers()
 ctx.scene.add(tracers.object)
 
-/**
- * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
- *
- * 【為什麼不是煙霧池的一部分】壽命、上升與尺寸是整池共用的建立期設定，
- * 而高砲雲要四秒、幾乎不上升、6→14 m。見 `render/flakBursts.ts`。
- */
-const flakBursts = createFlakBursts()
-ctx.scene.add(flakBursts.object)
 
 /**
  * 這一場的船。**沒有船的一場是 null**，而那是絕大多數的場次。
@@ -300,6 +293,10 @@ const boardActions = boardEl.querySelector('#board-actions') as HTMLElement
 /** 結算的兩個回頭出口。依 `mode` 擇一顯示 —— 見 `stepAndDrawBattle` 尾端 */
 const backToSetup = boardActions.querySelector('[data-act="toSetup"]') as HTMLElement
 const backToMission = boardActions.querySelector('[data-act="toMission"]') as HTMLElement
+/** 暫停選單的兩個出口。依 `mode` 擇一顯示，與結算板同一個做法 */
+const pauseEl = document.getElementById('pause') as HTMLElement
+const pauseToMenu = pauseEl.querySelector('[data-act="toMenu"]') as HTMLElement
+const pauseAbandon = pauseEl.querySelector('[data-act="abandon"]') as HTMLElement
 const scoreboard = createScoreboard(boardEl)
 
 /**
@@ -461,6 +458,16 @@ function syncBombLoad(): void {
  */
 const smokeTexture = new TextureLoader().load('/textures/smoke.png')
 
+/**
+ * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。
+ *
+ * 【為什麼不是煙霧池的一部分】壽命、上升與尺寸是整池共用的建立期設定，
+ * 而高砲雲要四秒、幾乎不上升、6→14 m。見 `render/flakBursts.ts`。
+ * 貼圖與其他的煙同一張，畫面裡才是同一種質感。
+ */
+const flakBursts = createFlakBursts(undefined, smokeTexture)
+ctx.scene.add(flakBursts.object)
+
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
 const smoke = createSmoke()
@@ -617,8 +624,10 @@ function emitBombBlasts(events: ImpactEvents): void {
     // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
     const scale = blastScaleOf(d[o + 4]!)
     scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
-    emitBlast(BLAST_POOLS, SCALED_BLAST,
-      d[o]!, d[o + 1]!, d[o + 2]!, (e * 197 + Math.round(world.time * 60)) | 0)
+    const seed = (e * 197 + Math.round(world.time * 60)) | 0
+    emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
+    // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
+    debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
   }
 }
 
@@ -677,9 +686,11 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     const w = terrain.waterAt(x, z)
     const scale = blastScaleOf(d[o + 4]!)
     scaleBlast(TORPEDO_BLAST, scale * scale * scale, SCALED_BLAST)
-    emitBlast(BLAST_POOLS, SCALED_BLAST,
-      x, Number.isFinite(w) ? w : d[o + 1]!, z,
-      (e * 211 + Math.round(world.time * 60)) | 0)
+    const y = Number.isFinite(w) ? w : d[o + 1]!
+    const seed = (e * 211 + Math.round(world.time * 60)) | 0
+    emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+    // 碎片從水面往上拋；與擊墜共用同一個池
+    debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
   }
 }
 
@@ -711,6 +722,7 @@ const POOLS = [
 function resetPools(): void {
   for (const p of POOLS) p.reset()
   resetFlakBurstSeed()
+  resetFlakBlastSeed()
 }
 
 ctx.scene.add(debris.object)
@@ -733,6 +745,8 @@ const rig = new CameraRig()
 const godCam = createGodCameraState()
 /** 上一幀是否在上帝視角。進出的邊緣偵測用 */
 let wasGodView = false
+/** G 進出兩個方向共用的鏡頭過渡 */
+const godBlend = createCameraBlend()
 /**
  * 餵給 `stepGodCamera` 的輸入。**重用，不每幀配置** —— 與 `probe`、
  * `relPos` 那一組同一個做法。
@@ -957,6 +971,8 @@ function leaveGodView(): void {
   input.godView = false
   wasGodView = false
   input.playerAi = false
+  // 新的一場不該從上一場的鏡頭位置飄過來
+  godBlend.active = false
   bindings.clearHolds()
 }
 
@@ -1297,6 +1313,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【一定要排在讀 `input.playerAi` 之前】進入的那一幀就要代飛，否則會有
   // 一幀是「鏡頭已經飛走了但飛機沒人在開」
   if (input.godView !== wasGodView) {
+    // 【兩個方向都從相機現在的姿態開始過渡】這裡是幀首，相機還停在上一幀
+    // 的姿態 —— 那正是玩家眼前的畫面。下面各自算出目的姿態後由 `applyBlend`
+    // 拉回起點的比例，所以進去與回來走的是同一條路
+    startBlend(godBlend, ctx.camera)
     if (input.godView) {
       input.playerAi = true
       // 【用算繪位置而不是物理位置】這裡是幀首，算繪位置是上一幀內插的
@@ -1325,7 +1345,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (dying && !wasDying) {
     resetGEffect()
     resetDamageMarks(hudFrame.damageMarks)
+    // 視角退回機外、取消右鍵轉頭 —— 死亡鏡頭只在機外、只看擊殺者
+    enterDeathCam(input)
   }
+  // 輸入層靠它擋掉死亡鏡頭期間的右鍵與 B；接手完成的那一幀自動解除
+  input.dead = dying
   wasDying = dying
   if (input.godView) {
     // 【上帝分支排在 `dying` 之前】排在後面的話，陣亡那 2 秒 `lookX/lookY`
@@ -1459,6 +1483,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【黑雲與火花同一個約定】`World` 只推事件，排空是呼叫端的責任。
     // 傷害那一半 `World` 自己在物理步裡就吃掉了（見 `stepBursts`）。
     emitFlakBursts(flakBursts, world.burstEvents)
+    // 爆點的閃光與小火球走爆炸那一組池；黑雲留在上面那個池
+    emitFlakBlasts(BLAST_POOLS, world.burstEvents)
     clearBursts(world.burstEvents)
     perf.endPhysics()
   })
@@ -1644,6 +1670,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
       input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
     )
   }
+  // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
+  // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
+  applyBlend(godBlend, ctx.camera, frameSeconds)
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
@@ -2042,6 +2071,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // （`menu.ts` 的事件委派註解），改它等於讓一個 DOM 屬性變成隱性狀態
   backToSetup.hidden = mode !== 'skirmish'
   backToMission.hidden = mode !== 'mission'
+  pauseToMenu.hidden = mode !== 'skirmish'
+  pauseAbandon.hidden = mode !== 'mission'
   boardEl.classList.toggle('finished', finished)
 }
 

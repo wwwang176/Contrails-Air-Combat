@@ -2,10 +2,16 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   aliveCount, createBattle, playerFlight, playerWingman, resetBattle, stepBattle, DEFAULT_BATTLE,
+  OPENING_VNE_FRACTION,
 } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { A6M5 } from '../../src/specs/a6m5'
+import { F4F4 } from '../../src/specs/f4f4'
+import { F6F5 } from '../../src/specs/f6f5'
+import { atmosphere } from '../../src/physics/atmosphere'
+import type { AirData } from '../../src/physics/types'
 import { ALLIED_NAMES, AXIS_NAMES } from '../../src/battle/names'
 import { TAKEOVER_DELAY } from '../../src/battle/takeover'
 import { DEFAULT_FIRE } from '../../src/ai/fire'
@@ -312,7 +318,7 @@ describe('重置', () => {
 
   it('重置後彈丸池是空的——上一場的流彈不會打到新的一場', () => {
     const b = createBattle(new Idle())
-    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0, 0, PROJECTILE_LIFETIME)
+    b.world.projectiles.spawn(0, 4000, 0, 0, 0, -800, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     expect(b.world.projectiles.live).toBeGreaterThan(0)
     resetBattle(b)
     expect(b.world.projectiles.live).toBe(0)
@@ -808,5 +814,47 @@ describe('雙方架數與機種可設定（M10 spec §6）', () => {
       expect(b.commandUnits[i]!.position).not.toBe(c.aircraft.state.position)
       expect(b.commandUnits[i]!.velocity).not.toBe(c.aircraft.state.velocity)
     }
+  })
+})
+
+describe('開局空速不撞紅線', () => {
+  const air: AirData = { density: 0, pressure: 0, temperature: 0, soundSpeed: 0, sigma: 0 }
+  const iasRatio = (c: Combatant): number => {
+    const sigma = atmosphere(c.aircraft.state.position.y, air).sigma
+    return (c.aircraft.state.velocity.length() * Math.sqrt(sigma)) / c.aircraft.spec.limits.vne
+  }
+
+  /**
+   * 【每一架自己的 vne、自己的出生高度】`vne` 是 IAS，開局速度是 TAS。
+   * 低空 √σ 接近 1，直接拿 vne 夾 TAS 會讓 IAS 貼著 vne —— A6M5 的 vne
+   * 只有 145 m/s，任何高度都會撞上；F6F-5 在 2,000 m 的任務裡也會。
+   */
+  for (const spec of [A6M5, F4F4, F6F5, P51D, BF109K4]) {
+    for (const altitude of [600, 2000, 4000]) {
+      it(`${spec.name} @ ${altitude} m：IAS 不超過 vne 的 ${OPENING_VNE_FRACTION}`, () => {
+        const b = createBattle(new AiController(), {
+          ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, spec, 4, spec, 4), altitude,
+        })
+        for (const c of b.world.combatants) {
+          expect(iasRatio(c)).toBeLessThanOrEqual(OPENING_VNE_FRACTION + 1e-9)
+        }
+      })
+    }
+  }
+
+  it('上限只往下夾：P-51D 在 4,000 m 的開局仍是 DEFAULT_BATTLE.tas', () => {
+    const b = createBattle(new AiController(), {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 4, P51D, 4),
+    })
+    for (const c of b.world.combatants) {
+      expect(c.aircraft.state.velocity.length()).toBeCloseTo(DEFAULT_BATTLE.tas, 6)
+    }
+  })
+
+  it('被夾住的那一架不是隨便慢：IAS 貼著上限，不會低於 0.75', () => {
+    const b = createBattle(new AiController(), {
+      ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, A6M5, 4, A6M5, 4), altitude: 2000,
+    })
+    for (const c of b.world.combatants) expect(iasRatio(c)).toBeGreaterThan(0.75)
   })
 })

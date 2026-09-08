@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { deathCamAim, DEATH_LOOK_TIME } from '../../src/camera/deathCam'
+import { deathCamAim, enterDeathCam, DEATH_LOOK_TIME } from '../../src/camera/deathCam'
+import { createInputState } from '../../src/input/InputState'
 
 const DT = 1 / 60
 
@@ -91,5 +92,47 @@ describe('deathCamAim（M9 死亡鏡頭）', () => {
     const done = 1 - aim.angleTo(killer.clone().sub(from).normalize()) / total
     expect(done).toBeGreaterThan(0.55)
     expect(done).toBeLessThan(0.70)
+  })
+})
+
+describe('enterDeathCam：陣亡那一幀對輸入狀態的整理', () => {
+  it('投彈瞄具退回機外 —— 否則死亡鏡頭整段被瞄具分支蓋掉', () => {
+    const input = createInputState()
+    input.viewMode = 'bomb'
+    enterDeathCam(input)
+    expect(input.viewMode).toBe('third')
+  })
+
+  it('座艙視角也退回機外 —— 殘骸裡面沒有東西可看', () => {
+    const input = createInputState()
+    input.viewMode = 'first'
+    enterDeathCam(input)
+    expect(input.viewMode).toBe('third')
+  })
+
+  it('正按著右鍵轉頭的話，轉頭取消、偏移歸零', () => {
+    const input = createInputState()
+    input.lookActive = true
+    input.lookYaw = 0.8
+    input.lookPitch = -0.3
+    enterDeathCam(input)
+    expect(input.lookActive).toBe(false)
+    expect(input.lookYaw).toBe(0)
+    expect(input.lookPitch).toBe(0)
+  })
+
+  it('標記陣亡中，讓輸入層擋掉新的轉頭與 B', () => {
+    const input = createInputState()
+    enterDeathCam(input)
+    expect(input.dead).toBe(true)
+  })
+
+  it('不碰油門與瞄準點', () => {
+    const input = createInputState()
+    input.throttle = 0.9
+    input.aimWorld.set(1, 0, 0)
+    enterDeathCam(input)
+    expect(input.throttle).toBe(0.9)
+    expect(input.aimWorld.x).toBe(1)
   })
 })

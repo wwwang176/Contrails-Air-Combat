@@ -61,6 +61,13 @@ export interface InputState {
    */
   bombCapable: boolean
   /**
+   * 玩家正在死亡鏡頭裡（陣亡到接手之間的那 2 秒）。**由 `main.ts` 每幀寫入。**
+   *
+   * 輸入層靠它擋掉右鍵轉頭與 `B`：那 2 秒沒有飛機可以操縱，鏡頭由
+   * `deathCamAim` 接管，玩家的轉頭會把視線從擊殺者身上拉走。
+   */
+  dead: boolean
+  /**
    * 扳機是否按住（滑鼠左鍵）。
    *
    * 【為什麼不是單幀旗標】射速時鐘吃的是「這一個物理步扳機在不在」，
@@ -138,6 +145,7 @@ export function createInputState(): InputState {
     lookPitch: 0,
     viewMode: 'third',
     bombCapable: false,
+    dead: false,
     firing: false,
     braking: false,
     playerAi: false,

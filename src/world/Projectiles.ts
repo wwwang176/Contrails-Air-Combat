@@ -40,6 +40,13 @@ export class Projectiles {
   readonly age: Float32Array
   readonly damage: Float32Array
   /**
+   * 這一發的口徑，mm。**打得穿什麼由它決定**（`weapons/armour.ts`）。
+   *
+   * 【為什麼跟著彈丸走而不是回頭查射手】射手可能在彈丸落地之前就死了，
+   * 而船不是 combatant、查不到 —— 與 `team` 那一格同一個理由。
+   */
+  readonly caliber: Float32Array
+  /**
    * 射手的 combatant 索引；−1 代表空槽。判定時用它排除自傷。
    *
    * 【船的編碼在負數區】艦上的砲用 `shipGuns.ts` 的
@@ -102,6 +109,7 @@ export class Projectiles {
     this.vx = f(); this.vy = f(); this.vz = f()
     this.age = f()
     this.damage = f()
+    this.caliber = f()
     this.life = f()
     this.owner = new Int32Array(capacity).fill(-1)
     this.team = new Int8Array(capacity)
@@ -121,6 +129,7 @@ export class Projectiles {
     px: number, py: number, pz: number,
     vx: number, vy: number, vz: number,
     damage: number, owner: number, team: number, life: number,
+    caliber: number,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -131,6 +140,7 @@ export class Projectiles {
     this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz
     this.age[i] = 0
     this.damage[i] = damage
+    this.caliber[i] = caliber
     this.owner[i] = owner
     this.team[i] = team
     this.life[i] = life

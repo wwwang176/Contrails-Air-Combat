@@ -236,6 +236,12 @@
       /* 暫停 */
       #pause { gap: 14px; }
       #pause h2 { font-size: 26px; }
+      /* 放棄任務的確認：問句要有一個框，與結算板同一種面板 */
+      .ask { display: flex; flex-direction: column; align-items: center; gap: 22px;
+        min-width: 340px; padding: 26px 40px 28px;
+        background: var(--panel-thin); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
+      .ask h2 { font-size: 22px; }
+      .ask .row { display: flex; gap: 14px; }
 
       /* ── 戰報 #board ────────────────────────────────── */
       #board {
@@ -402,7 +408,20 @@
         <h2>已暫停</h2>
         <button class="go" data-act="resume">繼　續</button>
         <button class="btn" data-act="restart">重新開始</button>
+        <!-- 兩個出口依模式擇一顯示（main.ts）：遭遇戰回主選單，任務先問過
+             再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
         <button class="btn" data-act="toMenu">回主選單</button>
+        <button class="btn" data-act="abandon" hidden>放棄任務</button>
+      </section>
+      <!-- 放棄任務的確認。疊在暫停之上，menu.ts 自己開關 -->
+      <section id="confirm" class="screen" style="--v:.60" hidden>
+        <div class="ask">
+          <h2>是否放棄進度？</h2>
+          <div class="row">
+            <button class="go" data-act="abandonNo">繼續任務</button>
+            <button class="btn" data-act="abandonYes">放棄任務</button>
+          </div>
+        </div>
       </section>
     </div>
     <script type="module" src="/src/main.ts"></script>

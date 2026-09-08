@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import {
   createDebris,
+  BLAST_DEBRIS_COLOR, BLAST_DEBRIS_CONE, BLAST_DEBRIS_COUNT,
   DEBRIS_CONE, DEBRIS_COUNT, DEBRIS_LIFE_MAX, DEBRIS_LIFE_MIN,
   DEBRIS_SIZE_MAX, DEBRIS_SIZE_MIN,
   DEBRIS_SPEED,
@@ -389,5 +390,87 @@ describe('零件入水（M8 spec §7）', () => {
     for (let k = 0; k < 30; k++) d.step(1 / 60, DEEP, WET, k / 60)
     expect(m.instanceMatrix.version).toBe(idle)
     d.dispose()
+  })
+})
+
+/**
+ * 炸彈與魚雷的爆炸也要有碎片。與擊墜同一個池、同一種零件，差別是沒有
+ * 母體速度、往上半空間噴、自己的種子。
+ */
+describe('爆炸的碎片（burst）', () => {
+  it('在爆點噴 BLAST_DEBRIS_COUNT 片，第一步全部往上走', () => {
+    const d = createDebris(256)
+    d.burst(100, 5, -50, BLAST_DEBRIS_COLOR, 7)
+    expect(d.live).toBe(BLAST_DEBRIS_COUNT)
+    d.step(0.01, DEEP, DRY, 0)
+    for (let i = 0; i < BLAST_DEBRIS_COUNT; i++) {
+      const { position } = decompose(d.object as InstancedMesh, i)
+      expect(position.y).toBeGreaterThan(5)
+      expect(Math.hypot(position.x - 100, position.z + 50)).toBeLessThan(1)
+    }
+    expect(BLAST_DEBRIS_CONE).toBeLessThan(Math.PI / 2)
+    d.dispose()
+  })
+
+  it('種子不同方向就不同；同一個種子逐位元相同', () => {
+    const shot = (seed: number): string => {
+      const d = createDebris(256)
+      d.burst(0, 0, 0, BLAST_DEBRIS_COLOR, seed)
+      d.step(0.01, DEEP, DRY, 0)
+      const out: number[] = []
+      for (let i = 0; i < BLAST_DEBRIS_COUNT; i++) {
+        const { position } = decompose(d.object as InstancedMesh, i)
+        out.push(position.x, position.y, position.z)
+      }
+      d.dispose()
+      return JSON.stringify(out)
+    }
+    expect(shot(1)).not.toBe(shot(2))
+    expect(shot(3)).toBe(shot(3))
+  })
+
+  it('與擊墜的碎片方向不同 —— 兩個來源不共用同一組種子', () => {
+    const a = createDebris(256)
+    const e = createKills(4)
+    pushKill(e, 0, 0, 0, 0, 0, 0, 0)
+    a.emit(e, WHITE)
+    a.step(0.01, DEEP, DRY, 0)
+    const b = createDebris(256)
+    b.burst(0, 0, 0, BLAST_DEBRIS_COLOR, 0)
+    b.step(0.01, DEEP, DRY, 0)
+    const pa = decompose(a.object as InstancedMesh, 0).position
+    const pb = decompose(b.object as InstancedMesh, 0).position
+    expect(pa.distanceTo(pb)).toBeGreaterThan(1e-6)
+    a.dispose()
+    b.dispose()
+  })
+
+  it('前幾片拖煙 —— 碎片煙霧與擊墜的一樣', () => {
+    const d = createDebris(256)
+    d.burst(0, 50, 0, BLAST_DEBRIS_COLOR, 11)
+    let puffs = 0
+    for (let k = 0; k < 30; k++) {
+      d.step(1 / 60, DEEP, DRY, k / 60)
+      puffs += d.smokeEvents.count
+    }
+    expect(puffs).toBeGreaterThan(0)
+    d.dispose()
+  })
+
+  it('速度倍率放大散射 —— 大炸彈的碎片飛得更遠', () => {
+    const spread = (scale: number): number => {
+      const d = createDebris(256)
+      d.burst(0, 0, 0, BLAST_DEBRIS_COLOR, 5, scale)
+      d.step(0.01, DEEP, DRY, 0)
+      let sum = 0
+      for (let i = 0; i < BLAST_DEBRIS_COUNT; i++) {
+        sum += decompose(d.object as InstancedMesh, i).position.length()
+      }
+      d.dispose()
+      return sum / BLAST_DEBRIS_COUNT
+    }
+    const r = spread(2) / spread(1)
+    expect(r).toBeGreaterThan(1.9)
+    expect(r).toBeLessThan(2.1)
   })
 })

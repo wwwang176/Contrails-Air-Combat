@@ -5,6 +5,13 @@ export interface WeaponSpec {
   name: string
   /** 槍口初速，m/s */
   muzzleVelocity: number
+  /**
+   * 口徑，mm。**打得穿什麼由它決定**（`weapons/armour.ts`）。
+   *
+   * 【它不影響傷害本身】傷害是 `damage` 那一格。這一格只回答「這一發穿不穿
+   * 得過目標那個部位的裝甲」，而目前只有艦體有裝甲。
+   */
+  caliber: number
   /** 射速，發/分 */
   roundsPerMinute: number
   /** 單發傷害（倍率 1.0 的部位，即機身） */

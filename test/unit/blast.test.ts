@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import {
-  EMBER_PER_CHUNK, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  EMBER_PER_CHUNK, FIRE_BLAST, FLAK_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   blastScale, blastSmokeColor, dustColor,
-  emitBlast, emitEmber, fireGlowColor, scaleBlast,
+  emitBlast, emitEmber, emitFlakBlasts, fireGlowColor, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
 } from '../../src/render/blast'
+import { createBursts, pushBurst } from '../../src/world/flak'
 
 /** 記下每一次 emit 的假粒子池。只實作 `emitBlast` 用得到的那一支 */
 interface Shot {
@@ -452,5 +453,57 @@ describe('魚雷命中的配方', () => {
     scaleBlast(TORPEDO_BLAST, 8, out)
     expect(out.jetHeight).toBeCloseTo(TORPEDO_BLAST.jetHeight * 2, 9)
     expect(out.jetCount).toBeGreaterThan(TORPEDO_BLAST.jetCount)
+  })
+})
+
+describe('高砲爆點的小爆炸（FLAK_BLAST／emitFlakBlasts）', () => {
+  it('只有火球與光暈 —— 煙由 flakBursts 那個池出，這裡不重複', () => {
+    expect(FLAK_BLAST.fireCount).toBeGreaterThan(0)
+    expect(FLAK_BLAST.glowSize).toBeGreaterThan(0)
+    expect(FLAK_BLAST.smokeCount).toBe(0)
+    expect(FLAK_BLAST.dustCount).toBe(0)
+    expect(FLAK_BLAST.sprayCount).toBe(0)
+    expect(FLAK_BLAST.jetCount).toBe(0)
+  })
+
+  it('比船上火災的那一朵小 —— 一枚 5 吋砲彈，不是燃燒中的甲板', () => {
+    expect(FLAK_BLAST.fireSize).toBeLessThan(FIRE_BLAST.fireSize)
+    expect(FLAK_BLAST.fireCount).toBeLessThanOrEqual(FIRE_BLAST.fireCount)
+  })
+
+  it('每一個引爆事件在爆點噴 fireCount 顆', () => {
+    resetFlakBlastSeed()
+    const p = pools()
+    const ev = createBursts()
+    pushBurst(ev, 100, 1000, -50, 1)
+    pushBurst(ev, -300, 1200, 800, 1)
+    emitFlakBlasts(p, ev)
+    expect(p.shots.fireball!.length).toBe(2 * FLAK_BLAST.fireCount)
+    for (let k = 0; k < FLAK_BLAST.fireCount; k++) {
+      const s = p.shots.fireball![k]!
+      expect([s.x, s.y, s.z]).toEqual([100, 1000, -50])
+    }
+    const s = p.shots.fireball![FLAK_BLAST.fireCount]!
+    expect([s.x, s.y, s.z]).toEqual([-300, 1200, 800])
+    expect(p.shots.smoke!.length).toBe(0)
+  })
+
+  /** 與 flakBursts 同一條紀律：種子用單調計數器，不用幀內序號 */
+  it('連續兩幀各一朵，方向不同；重設種子後逐位元重現', () => {
+    resetFlakBlastSeed()
+    const a = pools()
+    const e1 = createBursts()
+    pushBurst(e1, 0, 1000, 0, 1)
+    emitFlakBlasts(a, e1)
+    const b = pools()
+    const e2 = createBursts()
+    pushBurst(e2, 0, 1000, 0, 1)
+    emitFlakBlasts(b, e2)
+    expect(JSON.stringify(a.shots.fireball)).not.toBe(JSON.stringify(b.shots.fireball))
+
+    resetFlakBlastSeed()
+    const c = pools()
+    emitFlakBlasts(c, e1)
+    expect(JSON.stringify(c.shots.fireball)).toBe(JSON.stringify(a.shots.fireball))
   })
 })

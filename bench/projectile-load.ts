@@ -64,7 +64,7 @@ function fill(state: ProjectileLoadState): void {
     const a = (i / PROJECTILE_CAPACITY) * Math.PI * 2
     p.spawn(
       Math.cos(a) * 40, LOAD_ALTITUDE + Math.sin(a) * 40, -100 - (i % 700),
-      Math.cos(a) * 20, Math.sin(a) * 20, -887, 6, 0, 0, PROJECTILE_LIFETIME,
+      Math.cos(a) * 20, Math.sin(a) * 20, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7,
     )
     // 【壽命要錯開】全部給 age 0 的話，4,000 發會在同一步一起到期、
     // 再被一起補滿，量到的是週期性的尖峰而不是穩態。
@@ -76,7 +76,7 @@ export function stepProjectileLoad(state: ProjectileLoadState): void {
   // 壽命會讓存量掉下去，所以每步補回滿載——量的是滿載成本
   const p = state.world.projectiles
   while (p.live < PROJECTILE_CAPACITY) {
-    p.spawn(0, LOAD_ALTITUDE, -200, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, LOAD_ALTITUDE, -200, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
   }
   state.world.step(LOAD_DT)
 }

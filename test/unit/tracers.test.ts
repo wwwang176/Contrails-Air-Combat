@@ -44,7 +44,7 @@ describe('createTracers', () => {
     const buffer = t.object.instanceMatrix
     expect(buffer.count).toBe(64)
     const p = new Projectiles(64)
-    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     t.update(p)
     expect(t.object.instanceMatrix).toBe(buffer)
     t.dispose()
@@ -63,7 +63,7 @@ describe('曳光彈的幾何', () => {
     // 半徑烘在幾何裡、只有長度靠縮放，所以 X/Y 的縮放必須恆為 1。
     const t = createTracers(4)
     const p = new Projectiles(4)
-    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let i = 0; i < 8; i++) p.step(1 / 240)
     t.update(p)
     const { scale } = instance(t.object, 0)
@@ -98,7 +98,7 @@ describe('曳光彈的位置與長度', () => {
   it('存活的彈丸畫成一段長度為 TRACER_LENGTH、與速度同向的實例', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
-    p.spawn(100, 200, 300, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(100, 200, 300, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     // 飛滿 14 m 以上，尾巴才會長到全長（見下一條）
     for (let i = 0; i < 8; i++) p.step(1 / 240)
     t.update(p)
@@ -119,7 +119,7 @@ describe('曳光彈的位置與長度', () => {
     // 後方——穿進自己的機身、一路拖到機尾外面，看起來像機尾在噴火。
     const t = createTracers(4)
     const p = new Projectiles(4)
-    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     const len = (): number => {
       t.update(p)
       return instance(t.object, 0).scale.z
@@ -141,7 +141,7 @@ describe('曳光彈的位置與長度', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
     const v = new Vector3(300, 200, -700)
-    p.spawn(0, 0, 0, v.x, v.y, v.z, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, v.x, v.y, v.z, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let i = 0; i < 20; i++) p.step(1 / 240)
     t.update(p)
     const { head, tail } = ends(t.object, 0)
@@ -153,7 +153,7 @@ describe('曳光彈的位置與長度', () => {
   it('空槽位縮放到 0（畫不出東西，不必另外剔除）', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
-    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     t.update(p)
     for (let i = 1; i < 4; i++) expect(instance(t.object, i).scale.z).toBe(0)
     t.dispose()
@@ -162,7 +162,7 @@ describe('曳光彈的位置與長度', () => {
   it('彈丸回收之後那一格立刻縮成 0', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
-    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let n = 0; n < 8; n++) p.step(1 / 240)
     t.update(p)
     expect(instance(t.object, 0).scale.z).toBeGreaterThan(0)
@@ -175,7 +175,7 @@ describe('曳光彈的位置與長度', () => {
   it('速度為 0 時不產生 NaN', () => {
     const t = createTracers(4)
     const p = new Projectiles(4)
-    p.spawn(1, 2, 3, 0, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(1, 2, 3, 0, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     p.step(1 / 240)
     t.update(p)
     const { position, scale } = instance(t.object, 0)
@@ -187,7 +187,7 @@ describe('曳光彈的位置與長度', () => {
   it('容量大於彈丸池時不會越界', () => {
     const t = createTracers(8)
     const p = new Projectiles(4)
-    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     expect(() => t.update(p)).not.toThrow()
     t.dispose()
   })
