@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { World } from '../../src/world/World'
-import { GROUND_CLASSES, createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
+import { GROUND_HP, createGroundTarget, type GroundTarget } from '../../src/world/groundTargets'
+import type { GroundUnitId } from '../../src/render/geometry/ground'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import { BOMB_BLAST_DAMAGE, BOMB_BLAST_RADIUS } from '../../src/weapons/bomb'
@@ -16,8 +17,8 @@ function land(): World {
   return world
 }
 
-function place(world: World, cls = GROUND_CLASSES.chimney, x = 0, z = 0): GroundTarget {
-  const t = createGroundTarget(world.groundTargets.length, cls, 'red', x, z, 0)
+function place(world: World, id: GroundUnitId = 'chimney', x = 0, z = 0): GroundTarget {
+  const t = createGroundTarget(world.groundTargets.length, id, 'red', x, z, 0)
   world.groundTargets.push(t)
   return t
 }
@@ -42,51 +43,51 @@ describe('炸彈對地面目標', () => {
     expect(d[1]).toBeCloseTo(100, 0)
     expect(d[3]).toBe(3)
     expect(d[5]).toBe(t.index)
-    expect(t.hp).toBe(t.cls.hp - BOMB_BLAST_DAMAGE)
+    expect(t.hp).toBe(GROUND_HP[t.unit.id] - BOMB_BLAST_DAMAGE)
   })
 
   it('直擊扣滿並摧毀；摧毀事件恰好一筆、落點事件也恰好一筆，再跑也不會多', () => {
     const world = land()
-    const t = place(world, GROUND_CLASSES.oilTank, 50, 50)
+    const t = place(world, 'oilTank', 50, 50)
     dropOn(world, 50, 50)
     expect(t.alive).toBe(false)
     expect(t.hp).toBeLessThanOrEqual(0)
-    expect(world.groundDestroyedEvents.count).toBe(1)
-    const g = world.groundDestroyedEvents.data
+    expect(world.groundKillEvents.count).toBe(1)
+    const g = world.groundKillEvents.data
     expect(g[0]).toBe(50)
     expect(g[2]).toBe(50)
     expect(g[3]).toBe(t.index)
-    expect(g[4]).toBeCloseTo(12, 6)
+    expect(g[4]).toBe(-1)
     expect(world.bombEvents.count).toBe(1)
     for (let i = 0; i < 240; i++) world.step(DT)
-    expect(world.groundDestroyedEvents.count).toBe(1)
+    expect(world.groundKillEvents.count).toBe(1)
   })
 
   it('第二枚打在已經炸毀的目標上不再推摧毀事件', () => {
     const world = land()
-    place(world, GROUND_CLASSES.oilTank, 50, 50)
+    place(world, 'oilTank', 50, 50)
     dropOn(world, 50, 50)
     dropOn(world, 50, 50)
-    expect(world.groundDestroyedEvents.count).toBe(1)
+    expect(world.groundKillEvents.count).toBe(1)
     expect(world.bombEvents.count).toBe(2)
   })
 
   it('半徑外為 0；兩座相鄰只有近的那一座扣血', () => {
     const world = land()
-    const near = place(world, GROUND_CLASSES.hydroTower, 0, 0)
-    const far = place(world, GROUND_CLASSES.hydroTower, BOMB_BLAST_RADIUS + 60, 0)
+    const near = place(world, 'hydroTower', 0, 0)
+    const far = place(world, 'hydroTower', BOMB_BLAST_RADIUS + 60, 0)
     dropOn(world, 12, 0)
-    expect(near.hp).toBeLessThan(near.cls.hp)
-    expect(far.hp).toBe(far.cls.hp)
+    expect(near.hp).toBeLessThan(GROUND_HP.hydroTower)
+    expect(far.hp).toBe(GROUND_HP.hydroTower)
   })
 
   it('落在盒邊 10 m 外的那一顆扣的是衰減後的量', () => {
     const world = land()
-    const t = place(world, GROUND_CLASSES.oilTank, 0, 0)
+    const t = place(world, 'oilTank', 0, 0)
     // 油槽半寬 12.5；落在 x = 22.5 離盒 10 m
     dropOn(world, 22.5, 0)
     const expected = BOMB_BLAST_DAMAGE * (1 - 10 / BOMB_BLAST_RADIUS)
-    expect(t.cls.hp - t.hp).toBeCloseTo(expected, 0)
+    expect(GROUND_HP[t.unit.id] - t.hp).toBeCloseTo(expected, 0)
   })
 
   it('炸毀的目標不再擋路，也不再扣血：落點回到地面、kind = 0', () => {
@@ -107,7 +108,7 @@ describe('炸彈對地面目標', () => {
     const ship = createShip(0, SHIP_CLASSES.fletcher, 'red', 300, 0, 0, 0)
     ship.guns = createShipGuns(ship.cls)
     world.ships.push(ship)
-    const t = place(world, GROUND_CLASSES.chimney, 0, 0)
+    const t = place(world, 'chimney', 0, 0)
     dropOn(world, 0, 0)
     dropOn(world, 300, 0)
     const d = world.bombEvents.data

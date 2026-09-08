@@ -1,92 +1,157 @@
-import { describe, expect, it } from 'vitest'
-import { boundingRadius } from '../../src/world/hit'
+import { describe, it, expect } from 'vitest'
+import { World } from '../../src/world/World'
 import {
-  GROUND_CLASSES, createGroundTarget, groundTopOf, resetGroundTarget, type GroundKind,
+  GROUND_ARMOUR, GROUND_HP, createGroundTarget, resetGroundTarget, settleGroundTargets,
+  type GroundTarget,
 } from '../../src/world/groundTargets'
+import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
+import { GROUND_UNITS } from '../../src/render/geometry/ground'
+import { boundingRadius } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE } from '../../src/weapons/bomb'
 
 /**
- * 期望尺寸**獨立寫死**：腳印 x × z、高 y（m）。命中盒與幾何
- * （`plant-geometry.test.ts`）都對著它比 —— 命中盒若直接由幾何推導，
- * 「幾何在盒內」就是恆真的。
+ * 地面目標接進 World 的護欄。
+ *
+ * 【為什麼不載 GLB】這裡測的是 `World` 的判定與事件，只用登記表的命中盒
+ * （純資料）。幾何對不對是 `ground-units.test.ts` 的事。
  */
-export const EXPECTED_SIZE: Record<GroundKind, [number, number, number]> = {
-  hydroTower: [8, 40, 8],
-  chimney: [8, 100, 8],
-  boilerHouse: [60, 18, 30],
-  oilTank: [25, 12, 25],
-  gasHolder: [40, 35, 40],
-  coolingTower: [30, 40, 30],
+
+const DT = 1 / 240
+
+/** 平地、沒有水的世界，一台紅隊卡車（沒裝甲，子彈全額扣）停在原點。 */
+function fieldWith(id: 'tank' | 'truck' = 'truck', heading = 0): { world: World; target: GroundTarget } {
+  const world = new World()
+  world.groundAt = () => 0
+  world.waterAt = () => -Infinity
+  const target = createGroundTarget(0, id, 'red', 0, 0, heading)
+  world.groundTargets.push(target)
+  return { world, target }
 }
 
-describe('地面目標的構件表', () => {
-  for (const [id, [x, y, z]] of Object.entries(EXPECTED_SIZE) as [GroundKind, [number, number, number]][]) {
-    it(`${id}：命中盒的外廓就是期望尺寸、底貼 0、頂 = 高`, () => {
-      const cls = GROUND_CLASSES[id]
-      expect(cls.id).toBe(id)
-      expect(cls.size).toEqual({ x, y, z })
-      let minY = Infinity
-      let maxY = -Infinity
-      let maxX = 0
-      let maxZ = 0
-      for (const b of cls.hull) {
-        minY = Math.min(minY, b.center.y - b.half.y)
-        maxY = Math.max(maxY, b.center.y + b.half.y)
-        maxX = Math.max(maxX, Math.abs(b.center.x) + b.half.x)
-        maxZ = Math.max(maxZ, Math.abs(b.center.z) + b.half.z)
-      }
-      expect(minY).toBe(0)
-      expect(maxY).toBeCloseTo(y, 6)
-      expect(maxX * 2).toBeCloseTo(x, 6)
-      expect(maxZ * 2).toBeCloseTo(z, 6)
-      expect(groundTopOf(cls)).toBeCloseTo(y, 6)
-    })
-  }
+/**
+ * 從 (x, 1, −40) 朝 +Z 打一發，跑到它消失或飛過為止。
+ *
+ * 【team 0 是藍隊】與 `Projectiles.team` 的編碼相同（船那一段
+ * `(sh.team === 'blue' ? 0 : 1) === ownerTeam`）。
+ *
+ * 【`owner` 不能是 −1】那是彈池的「空槽」標記，給 −1 等於沒發射。這裡沒有
+ * 飛機，隨便一個反查不到人的索引就好；兇手於是記成 −1。
+ */
+const NOBODY = 7
+function shoot(world: World, x: number, team = 0, damage = 100, caliber = 20): void {
+  world.projectiles.spawn(x, 1, -40, 0, 0, 800, damage, NOBODY, team, 0.5, caliber)
+  for (let i = 0; i < 60; i++) world.step(DT)
+}
 
-  it('包圍球是上界', () => {
-    for (const cls of Object.values(GROUND_CLASSES)) {
-      expect(cls.radius, cls.id).toBeGreaterThanOrEqual(boundingRadius(cls.hull))
+function dropOn(world: World, x: number, z: number): void {
+  world.dropBomb(x, 400, z, 0, 0, 0, BOMB_BLAST_DAMAGE, 0)
+  for (let i = 0; i < 240 * 30 && world.bombs.live > 0; i++) world.step(DT)
+}
+
+describe('地面目標的資料', () => {
+  it('每一種單位都有血量', () => {
+    for (const u of GROUND_UNITS) expect(GROUND_HP[u.id]).toBeGreaterThan(0)
+  })
+
+  it('包圍球半徑蓋得住命中盒 —— 算小了子彈只在特定角度穿過去', () => {
+    for (const u of GROUND_UNITS) {
+      const t = createGroundTarget(0, u.id, 'red', 0, 0, 0)
+      expect(t.radius).toBeGreaterThanOrEqual(boundingRadius(u.hull))
     }
   })
 
-  it('血量用幾枚炸彈訂：塔、煙囪、油槽一枚；鍋爐房、氣櫃、冷卻塔兩枚', () => {
-    for (const id of ['hydroTower', 'chimney', 'oilTank'] as const) {
-      expect(GROUND_CLASSES[id].hp, id).toBeLessThanOrEqual(BOMB_BLAST_DAMAGE)
-    }
-    for (const id of ['boilerHouse', 'gasHolder', 'coolingTower'] as const) {
-      expect(GROUND_CLASSES[id].hp, id).toBeGreaterThan(BOMB_BLAST_DAMAGE)
-      expect(GROUND_CLASSES[id].hp, id).toBeLessThanOrEqual(2 * BOMB_BLAST_DAMAGE)
-    }
+  it('落地把 y 填成地面高度，開局位置一起填', () => {
+    const t = createGroundTarget(0, 'tank', 'red', 10, 20, 0)
+    settleGroundTargets([t], (x, z) => x + z)
+    expect(t.position.y).toBe(30)
+    expect(t.spawn.y).toBe(30)
   })
 })
 
-describe('createGroundTarget / resetGroundTarget', () => {
-  it('位置 y = 0、朝向由 heading、impactY = 頂、value = 血量、速度 0、盒共用', () => {
-    const t = createGroundTarget(3, GROUND_CLASSES.chimney, 'red', 100, -200, 0.5)
-    expect(t.kind).toBe('ground')
-    expect(t.index).toBe(3)
-    expect(t.team).toBe('red')
-    expect(t.position.x).toBe(100)
-    expect(t.position.y).toBe(0)
-    expect(t.position.z).toBe(-200)
-    expect(t.speed).toBe(0)
-    expect(t.impactY).toBeCloseTo(100, 6)
-    expect(t.value).toBe(t.cls.hp)
-    expect(t.hull).toBe(t.cls.hull)
-    expect(t.alive).toBe(true)
-    // 朝向 0.5 rad：自身 −Z 轉到世界
-    const fwd = { x: 0, y: 0, z: -1 }
-    const q = t.orientation
-    const rx = 2 * (q.x * q.z + q.w * q.y) * fwd.z
-    expect(rx).toBeCloseTo(-Math.sin(0.5), 6)
+describe('子彈打地面目標', () => {
+  it('打中扣血、彈丸回收、有火花', () => {
+    const { world, target } = fieldWith()
+    const hp = target.hp
+    shoot(world, 0)
+    expect(target.hp).toBe(hp - 100)
+    expect(world.hitEvents.count).toBeGreaterThan(0)
   })
 
-  it('打死再 reset 回滿血、活著', () => {
-    const t = createGroundTarget(0, GROUND_CLASSES.oilTank, 'red', 0, 0, 0)
+  it('同隊的子彈穿過去', () => {
+    const { world, target } = fieldWith()
+    shoot(world, 0, 1)
+    expect(target.hp).toBe(GROUND_HP.truck)
+  })
+
+  it('盒子跟著航向轉 —— 轉了 90° 之後車長變成橫向', () => {
+    // 卡車寬 2.4、長 6.7：x = 2.5 在未轉時打不到，轉 90° 後車身橫過來就打得到
+    const straight = fieldWith('truck', 0)
+    shoot(straight.world, 2.5)
+    expect(straight.target.hp).toBe(GROUND_HP.truck)
+
+    const turned = fieldWith('truck', Math.PI / 2)
+    shoot(turned.world, 2.5)
+    expect(turned.target.hp).toBe(GROUND_HP.truck - 100)
+  })
+
+  /**
+   * 【戰車靠裝甲不靠血量】20 mm 打上去只扣底線 —— 與艦體同一支
+   * `penetrationDamage`。炸彈那一條路不問口徑，見下面「炸彈打地面目標」。
+   */
+  it('20 mm 打不穿 T-34，只扣底線 1 點', () => {
+    expect(GROUND_ARMOUR.tank).toBeGreaterThan(20)
+    const { world, target } = fieldWith('tank')
+    shoot(world, 0, 0, 100, 20)
+    expect(target.hp).toBe(GROUND_HP.tank - NO_PENETRATION_DAMAGE)
+  })
+
+  it('血量歸零就退場：不再擋子彈，而且推一筆擊毀事件', () => {
+    const { world, target } = fieldWith('truck')
+    target.hp = 50
+    shoot(world, 0)
+    expect(target.alive).toBe(false)
+    expect(world.groundKillEvents.count).toBe(1)
+    expect(world.groundKillEvents.data[3]).toBe(target.index)
+    expect(world.groundKillEvents.data[4]).toBe(-1)
+
+    const hits = world.hitEvents.count
+    shoot(world, 0)
+    expect(world.hitEvents.count).toBe(hits)
+    expect(world.groundKillEvents.count).toBe(1)
+  })
+})
+
+describe('炸彈打地面目標', () => {
+  it('直接命中吃爆心傷害 —— 裝甲擋不住炸彈，戰車也全額扣', () => {
+    const { world, target } = fieldWith('tank')
+    dropOn(world, 0, 0)
+    expect(target.hp).toBe(GROUND_HP.tank - BOMB_BLAST_DAMAGE)
+  })
+
+  it('落在殺傷半徑外不扣血', () => {
+    const { world, target } = fieldWith('tank')
+    dropOn(world, 200, 0)
+    expect(target.hp).toBe(GROUND_HP.tank)
+  })
+
+  it('炸掉的那一筆擊毀事件沒有兇手', () => {
+    const { world, target } = fieldWith('truck')
+    dropOn(world, 0, 0)
+    expect(target.alive).toBe(false)
+    expect(world.groundKillEvents.data[4]).toBe(-1)
+  })
+})
+
+describe('重開一場', () => {
+  it('回到開局的血量、旗標與位置', () => {
+    const t = createGroundTarget(0, 'truck', 'red', 5, 6, 0.3)
+    settleGroundTargets([t], () => 12)
     t.hp = 0
     t.alive = false
+    t.position.set(1, 2, 3)
     resetGroundTarget(t)
-    expect(t.hp).toBe(t.cls.hp)
+    expect(t.hp).toBe(GROUND_HP.truck)
     expect(t.alive).toBe(true)
+    expect([t.position.x, t.position.y, t.position.z]).toEqual([5, 12, 6])
   })
 })

@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         hangar: 'hangar.html',
+        ground: 'ground.html',
         range: 'range.html',
         propdisc: 'propdisc.html',
         damageedge: 'damageedge.html',

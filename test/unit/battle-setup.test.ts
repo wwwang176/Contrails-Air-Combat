@@ -23,7 +23,8 @@ import type { Combatant } from '../../src/world/World'
 import { HEAD_ON } from '../../src/battle/entry'
 import { lineAbreast, sideCount } from '../../src/battle/order'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
-import type { MissionGround } from '../../src/battle/missions'
+import type { GroundEntry } from '../../src/battle/missions'
+import { GROUND_HP } from '../../src/world/groundTargets'
 
 class Idle implements Controller {
   update(_a: Aircraft, _dt: number, out: Command): void {
@@ -305,26 +306,22 @@ describe('勝負（M9 spec §8）', () => {
 })
 
 describe('地面目標的放置', () => {
-  const ground: MissionGround = {
-    center: new Vector3(100, 0, -7000),
-    heading: Math.PI / 2,
-    entries: [
-      { kind: 'chimney', team: 'red', offset: new Vector3(0, 0, -50), heading: 0 },
-      { kind: 'oilTank', team: 'red', offset: new Vector3(30, 0, 0), heading: 0.3 },
-    ],
-  }
+  const ground: readonly GroundEntry[] = [
+    { unit: 'chimney', team: 'red', x: 50, z: -7000, heading: 0 },
+    { unit: 'oilTank', team: 'red', x: 100, z: -7030, heading: 0.3 },
+  ]
 
-  it('依 ground 放進世界：先轉朝向再加中心，高度是 0', () => {
+  it('依 ground 放進世界：世界座標、高度先擺 0、索引照順序', () => {
     const b = createBattle(new Idle(), { ...DEFAULT_BATTLE, ground })
     expect(b.world.groundTargets).toHaveLength(2)
     const [chimney, tank] = b.world.groundTargets
-    expect(chimney!.cls.id).toBe('chimney')
-    // 朝向 π/2：自身 −Z 轉到世界 −X
-    expect(chimney!.position.x).toBeCloseTo(100 - 50, 6)
-    expect(chimney!.position.z).toBeCloseTo(-7000, 6)
+    expect(chimney!.unit.id).toBe('chimney')
+    expect(chimney!.position.x).toBe(50)
+    expect(chimney!.position.z).toBe(-7000)
     expect(chimney!.position.y).toBe(0)
-    expect(tank!.position.x).toBeCloseTo(100, 6)
-    expect(tank!.position.z).toBeCloseTo(-7000 - 30, 6)
+    expect(tank!.position.x).toBe(100)
+    expect(tank!.position.z).toBe(-7030)
+    expect(tank!.heading).toBe(0.3)
     expect(tank!.index).toBe(1)
   })
 
@@ -338,7 +335,7 @@ describe('地面目標的放置', () => {
     t.hp = 0
     t.alive = false
     resetBattle(b)
-    expect(t.hp).toBe(t.cls.hp)
+    expect(t.hp).toBe(GROUND_HP.chimney)
     expect(t.alive).toBe(true)
   })
 })

@@ -270,18 +270,23 @@ export class World {
   readonly ships: Ship[] = []
 
   /**
-   * 這一場的地面目標（`groundTargets.ts`）。與船同一個性質：不是
-   * `Combatant`，空陣列 = 這一場沒有，而且**只有炸彈認得它**。
+   * 這一場的地面目標（戰車、卡車、砲位、火車、油廠的構件）。**與船同一個
+   * 性質**：不是 `Combatant`、不動、死了是旗標。空陣列 = 這一場沒有，
+   * 三條判定都零長度早退，既有的關逐位元不變。
    */
   readonly groundTargets: GroundTarget[] = []
 
   /**
-   * 建築由活變死的那一步推一筆：`x,y,z` 是它的位置、`nx` 是構件索引、
-   * `ny` 是它的頂高。**與落點事件分開** —— 每一顆炸彈恰好一筆落點；合在
-   * 一起的話直擊剛好炸毀時同一個爆點推兩次，火球、碎片、煙全部加倍。
-   * 呼叫端負責排空。
+   * 這一個物理步之內被摧毀的地面目標。**呼叫端負責排空**（與 `hitEvents`
+   * 同一個約定）—— 渲染層讀它在那個位置點一團火。
+   *
+   * 借 `ImpactEvents`：x, y, z 是位置，nx 是目標索引，ny 是兇手的 combatant
+   * 索引（−1 = 炸彈或無主），nz 恆 0。與 `bombEvents` 借第六格同一個手法。
+   *
+   * 【與落點事件分開】每一顆炸彈恰好一筆落點；目標由活變死的那一步另推
+   * 這一筆，只推一次。合在一起的話直擊剛好炸毀時同一個爆點推兩次。
    */
-  readonly groundDestroyedEvents: ImpactEvents = createImpacts()
+  readonly groundKillEvents: ImpactEvents = createImpacts()
 
   /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
   readonly flak = createFlak()
@@ -679,6 +684,26 @@ export class World {
       if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
     }
 
+    // 【地面目標與船同一套】量的是到盒子的距離，不是到中心：火車 13 m 長，
+    // 落在車頭前 5 m 的那一顆離車體 5 m、離中心卻有 11 m。
+    for (const t of this.groundTargets) {
+      if (!t.alive) continue
+      const reach = t.radius + radius
+      if (t.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
+      SHIP_INV.copy(t.orientation).conjugate()
+      const local = BLAST_P.set(x, y, z).sub(t.position).applyQuaternion(SHIP_INV)
+      let near = Infinity
+      for (const box of t.unit.hull) {
+        const d = pointBoxDistance(local.x, local.y, local.z, box)
+        if (d < near) near = d
+      }
+      const dmg = bombBlastDamage(near, damage)
+      if (dmg > 0) {
+        t.hp -= dmg
+        this.wreckIfDead(t, -1)
+      }
+    }
+
     for (const sh of this.ships) {
       if (!sh.alive) continue
       // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
@@ -706,33 +731,6 @@ export class World {
         if (g.hp <= 0) g.alive = false
       }
       this.sinkIfDead(sh)
-    }
-
-    // 【接在船之後，不合併迴圈】船那一段的運算順序是逐位元基準的一部分
-    // （`strike-replay-baseline.test.ts`）；沒有地面目標時這一圈是零長度
-    for (let i = 0; i < this.groundTargets.length; i++) {
-      const t = this.groundTargets[i]!
-      if (!t.alive) continue
-      const reach = t.cls.radius + radius
-      if (t.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
-
-      SHIP_INV.copy(t.orientation).conjugate()
-      const local = BLAST_P.set(x, y, z).sub(t.position).applyQuaternion(SHIP_INV)
-
-      let near = Infinity
-      for (const box of t.hull) {
-        const d = pointBoxDistance(local.x, local.y, local.z, box)
-        if (d < near) near = d
-      }
-      const dmg = bombBlastDamage(near, damage)
-      if (dmg <= 0) continue
-      t.hp -= dmg
-      if (t.hp > 0) continue
-      t.alive = false
-      pushImpact(
-        this.groundDestroyedEvents,
-        t.position.x, t.position.y, t.position.z, t.index, t.impactY, 0,
-      )
     }
   }
 
@@ -1056,6 +1054,7 @@ export class World {
     // 【在迴圈外取出】4,000 發的迴圈裡每一發讀一次屬性是白付的
     const land = this.land
     const ships = this.ships
+    const targets = this.groundTargets
 
     for (let i = 0; i < p.capacity; i++) {
       const owner = p.owner[i]!
@@ -1190,6 +1189,46 @@ export class World {
         this.sinkIfDead(shipHit)
         p.kill(i)
         continue
+      }
+
+      // ── 地面目標 ────────────────────────────────────────
+      //
+      // 【排在船之後、陸地之前，同一個理由】盒子貼在地上，彈丸一步走 3.7～
+      // 4.5 m，「先穿過戰車再入土」在同一步之內是合法命中，順序用 t 比。
+      // 一台一個盒、沒有部位、沒有砲位 —— 打中就扣。同隊過濾與船相同。
+      if (targets.length > 0) {
+        let hitTarget: GroundTarget | null = null
+        for (let k = 0; k < targets.length; k++) {
+          const t = targets[k]!
+          if (!t.alive) continue
+          if ((t.team === 'blue' ? 0 : 1) === ownerTeam) continue
+          if (segmentPointDistanceSq(
+            ax, ay, az, bx, by, bz, t.position.x, t.position.y, t.position.z,
+          ) > t.radius * t.radius) continue
+          SHIP_INV.copy(t.orientation).conjugate()
+          const a = S.v[0]!.set(ax, ay, az).sub(t.position).applyQuaternion(SHIP_INV)
+          const b = S.v[1]!.set(bx, by, bz).sub(t.position).applyQuaternion(SHIP_INV)
+          for (const box of t.unit.hull) {
+            const tt = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+            if (tt === NO_HIT || tt >= bestT) continue
+            bestT = tt
+            victim = null
+            hitTarget = t
+          }
+        }
+        if (hitTarget !== null) {
+          pushImpact(
+            this.hitEvents,
+            ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
+            -(bx - ax), -(by - ay), -(bz - az),
+          )
+          // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
+          hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
+          // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
+          this.wreckIfDead(hitTarget, owner >= 0 && owner < combatants.length ? owner : -1)
+          p.kill(i)
+          continue
+        }
       }
 
       // ── 陸地 ────────────────────────────────────────────
@@ -1344,6 +1383,20 @@ export class World {
   }
 
   /**
+   * 地面目標血量歸零就退場：不再擋子彈、不再是目標，並推一筆擊毀事件給
+   * 渲染層點火。**子彈與炸彈兩條路共用** —— 與 `sinkIfDead` 同一個理由。
+   *
+   * @param killer 打出那一發的 combatant 索引；炸彈沒有主人，傳 −1。
+   */
+  private wreckIfDead(t: GroundTarget, killer: number): void {
+    if (!t.alive || t.hp > 0) return
+    t.alive = false
+    pushImpact(
+      this.groundKillEvents, t.position.x, t.position.y, t.position.z, t.index, killer, 0,
+    )
+  }
+
+  /**
    * 炸彈這一步有沒有撞上船。**回傳線段參數 `t`，沒撞回 `NO_HIT`。**
    *
    * 【砲位與船體一起判】炸彈是面殺傷，落在砲座上與落在甲板上都是打中這艘
@@ -1386,14 +1439,15 @@ export class World {
         this.bombShip = sh
       }
     }
-    // 【炸毀的建築不擋】與沉船相反：殘骸只剩四分之一高（`render/plant.ts`），
-    // 命中盒還是原來那一個的話，炸彈會在殘骸上方的空氣裡引爆
+    // 【炸毀的不擋】與沉船相反：炸毀的構件換成矮一截的殘骸（`render/`），
+    // 命中盒還是原來那一個的話，炸彈會在殘骸上方的空氣裡引爆。子彈那一條
+    // 也是死了就不擋（`resolveHits`），兩邊一致
     for (let i = 0; i < this.groundTargets.length; i++) {
       const g = this.groundTargets[i]!
       if (!g.alive) continue
       if (segmentPointDistanceSq(
         x0, y0, z0, x1, y1, z1, g.position.x, g.position.y, g.position.z,
-      ) > g.cls.radius * g.cls.radius) continue
+      ) > g.radius * g.radius) continue
 
       SHIP_INV.copy(g.orientation).conjugate()
       const a = S.v[0]!.set(x0, y0, z0).sub(g.position).applyQuaternion(SHIP_INV)
