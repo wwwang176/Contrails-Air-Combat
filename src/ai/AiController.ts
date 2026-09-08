@@ -34,7 +34,9 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import { createShipAim, pickShipTarget, shipAttackCommand } from './shipAttack'
-import { BOMB_PROFILE, setBombBallistics } from './bombRun'
+import {
+  BOMB_PROFILE, createBombAim, resetBombAim, setBombBallistics, stepBombAim,
+} from './bombRun'
 import type { StrikeProfile } from './strikeRun'
 import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
 import { setTorpedoBallistics } from './torpedoRun'
@@ -159,6 +161,12 @@ export class AiController implements Controller {
   readonly shipAim = createShipAim()
 
   /**
+   * 掛彈戰鬥機的落彈點瞄準。**只有 `spec.role === 'fighter'` 用得到** ——
+   * 轟炸機走的是 `strike` 那一套。
+   */
+  readonly bombAim = createBombAim()
+
+  /**
    * 沒有空中目標時，試著找一艘船打。回傳 true 代表 `out` 已經寫滿。
    *
    * 【為什麼是一支私有方法而不是寫在分支裡】那一段本來就有三個 `return`
@@ -197,23 +205,36 @@ export class AiController implements Controller {
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
     }
-    // 【有彈艙的走攻擊航路】掃射與攻擊航路是兩個模式：前者對準砲位俯衝、
-    // 400 m 拉起脫離；後者是「進場→鎖航向直飛→脫離」的循環，因為投出去的
-    // 東西繼承的是速度向量，轉彎中放等於往切線丟（spec §5.1）。
     const bay = this.bombBay
+    const loaded = bay !== null && (bay.load > 0 || bay.queue > 0)
     if (bay !== null && bay.capacity > 0) {
       // 【兩份都設】剖面由 `strikeProfile` 決定，而這裡不知道是哪一份 ——
       // 兩支的參數是同一組值（阻力與步長），設漏一支的症狀只是「投不準」
       setBombBallistics(this.bombDrag, DT_SOLVE)
       setTorpedoBallistics(this.bombDrag, DT_SOLVE)
-      const loaded = bay.load > 0 || bay.queue > 0
-      stepStrike(
-        this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
-        loaded, decide, dt, out,
-      )
-      return true
+      // 【轟炸機走攻擊航路，戰鬥機走掃射】攻擊航路是「進場→鎖航向直飛→
+      // 脫離」的循環，它要求平飛穩定通過船的正上方，換來的是一整艙彈能撒
+      // 成一串。戰鬥機掛的是兩顆 60 kg —— 為兩顆彈飛完整條循環，換到的是
+      // 一台在艦隊上空平飛的戰鬥機。
+      if (self.spec.role !== 'fighter') {
+        stepStrike(
+          this.strike, self, ship, this.shipAim.ship, this.strikeProfile,
+          loaded, decide, dt, out,
+        )
+        return true
+      }
     }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
+    // 【掛彈的戰鬥機：近了就把瞄準點換成落彈解】投完（或還沒進到那個距離）
+    // 就什麼都不做，瞄準點留給機槍。**排在掃射之後** —— 它要覆寫的正是
+    // 掃射寫好的那一格
+    if (loaded) {
+      stepBombAim(this.bombAim, self, ship, loaded, decide)
+      if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
+      out.bombing = this.bombAim.release
+    } else {
+      resetBombAim(this.bombAim)
+    }
     return true
   }
 
@@ -228,6 +249,7 @@ export class AiController implements Controller {
     // 【攻擊狀態機也要清】上一場「我正在對第 3 艘做直飛」的鎖定不得帶進
     // 新的一場 —— 與地形的承諾同一個理由，也同一個呼叫點。
     resetStrike(this.strike)
+    resetBombAim(this.bombAim)
     this.shipAim.ship = -1
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
