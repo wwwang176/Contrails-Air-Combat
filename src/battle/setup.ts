@@ -46,7 +46,8 @@ import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import { createShipGuns, resetShipGuns } from '../world/shipGuns'
 import { clearBursts, clearFlak } from '../world/flak'
-import type { MissionFleet } from './missions'
+import { GROUND_CLASSES, createGroundTarget, resetGroundTarget } from '../world/groundTargets'
+import type { MissionFleet, MissionGround } from './missions'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -101,6 +102,10 @@ export interface BattleConfig {
    * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
    */
   readonly fleet?: MissionFleet
+  /**
+   * 這一場的地面目標。**省略 = 一座都不產生**。透傳的約定與 `fleet` 相同。
+   */
+  readonly ground?: MissionGround
   /**
    * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
    * `loadoutOf`）。
@@ -888,6 +893,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
+  placeGround(world, cfg.ground)
   const battle: Battle = {
     world,
     board,
@@ -955,6 +961,25 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
     world.ships.push(ship)
+  }
+}
+
+/**
+ * 依 `cfg.ground` 把地面目標放進世界。**省略就一座都不放。**
+ *
+ * 【高度是 0，寫死】此時地形還沒注入 `World`，讀 `groundAt` 拿到的是預設
+ * 平面 —— 看起來對只是巧合。墊面在結構上保證是 0（`world/leuna.ts`）。
+ */
+function placeGround(world: World, ground: MissionGround | undefined): void {
+  if (ground === undefined) return
+  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), ground.heading)
+  const p = new Vector3()
+  for (const e of ground.entries) {
+    p.copy(e.offset).applyQuaternion(q).add(ground.center)
+    world.groundTargets.push(createGroundTarget(
+      world.groundTargets.length, GROUND_CLASSES[e.kind], e.team,
+      p.x, p.z, ground.heading + e.heading,
+    ))
   }
 }
 
@@ -1386,6 +1411,8 @@ const MISSION_INPUTS: MissionInputs = {
   convoyLead: Infinity,
   shipsSunk: 0,
   shipsTotal: 0,
+  targetsDestroyed: 0,
+  targetsTotal: 0,
   vitalSunk: 0,
   redInbound: false,
 }
@@ -1553,6 +1580,15 @@ export function stepBattle(b: Battle, dt: number): void {
     inp.shipsTotal++
     if (!sh.alive) inp.shipsSunk++
   }
+  // 【地面目標同一套：只算敵方、每一步歸零】這一份是跨場的模組單例，
+  // 少了歸零就是上一場炸毀六座之後重開、新場第一步直接判勝
+  inp.targetsDestroyed = 0
+  inp.targetsTotal = 0
+  for (const t of b.world.groundTargets) {
+    if (t.team === 'blue') continue
+    inp.targetsTotal++
+    if (!t.alive) inp.targetsDestroyed++
+  }
   // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
   // 第二波永遠不來（見 `MissionInputs.redInbound`）
   inp.redInbound = false
@@ -1597,6 +1633,9 @@ export function resetBattle(
     resetShip(s)
     resetShipGuns(s)
   }
+  // 【地面目標也要】盟 M2 有波次所以重開會重建 World，但通用的
+  // `MissionGround` 不能靠這個巧合 —— 沒有波次的炸毀關走的是這一條
+  for (const t of b.world.groundTargets) resetGroundTarget(t)
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
   // 看起來像隨機的。

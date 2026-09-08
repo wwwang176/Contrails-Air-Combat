@@ -74,6 +74,16 @@ export type MissionRules =
   }
   | {
     /**
+     * 炸毀任意 `count` 座敵方地面目標（`world/groundTargets.ts`）。
+     *
+     * 與 `sink` 同一個形狀：任意幾座、不指名、藍隊全滅才敗。判準是卡片上
+     * 有沒有 `destroyCount`（`missions.ts` 的 `missionRules`）。
+     */
+    kind: 'destroy'
+    count: number
+  }
+  | {
+    /**
      * 守住我方艦隊。**勝負都寫在這一條裡。**
      *
      * ```
@@ -186,6 +196,12 @@ export interface MissionInputs {
   shipsSunk: number
   /** 敵方一共有幾艘。全部沉了但目標更高時，這一關就打不完了 —— 見 `stepMission`。 */
   shipsTotal: number
+  /**
+   * 敵方的地面目標已經炸毀幾座、一共幾座。只算 `team !== 'blue'` 的，理由
+   * 與船相同。`destroy` 以外的規則不讀它們。
+   */
+  targetsDestroyed: number
+  targetsTotal: number
   /**
    * **我方**的要害艦已經沉了幾艘（`MissionFleet` 上標了 `vital` 的那些）。
    * `defend` 以外的規則不讀它。
@@ -339,8 +355,9 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   out.secondsLeft = Infinity
   // 【擊沉的開局計量是「還差幾艘」＝全部】給 0 的話目標列會在第一幀
   // 閃一下「還差 0 艘」—— 那個數字的意思是達標了。
-  out.metric = rules.kind === 'sink' ? rules.count : 0
-  if (rules.kind === 'sink') out.metricTotal = rules.count
+  const counted = rules.kind === 'sink' || rules.kind === 'destroy'
+  out.metric = counted ? rules.count : 0
+  if (counted) out.metricTotal = rules.count
 }
 
 /**
@@ -395,6 +412,22 @@ export function stepMission(
     // 【全滅才算輸，不是「船沉光了還沒達標」】後者是關卡設計錯誤
     // （目標數大於艦隊數），應該由 `campaigns.test.ts` 那一層擋掉，
     // 而不是在戰鬥中判一個玩家看不懂的敗北。
+    if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
+  // ── 炸毀 ──────────────────────────────────────────────
+  //
+  // 逐格與擊沉相同，換的只有計數的來源。判負是藍隊全滅，不是玩家陣亡 ——
+  // 玩家被擊落後兩秒接手友機的機制（`takeover.ts`）才保得住
+  if (rules.kind === 'destroy') {
+    out.metric = Math.max(0, rules.count - inp.targetsDestroyed)
+    out.metricTotal = rules.count
+    out.remaining = -1
+    if (inp.targetsDestroyed >= rules.count) {
+      out.outcome = 'victory'
+      return
+    }
     if (inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }

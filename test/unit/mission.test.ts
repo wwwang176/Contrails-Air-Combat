@@ -15,6 +15,8 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     playerAlive: true,
     shipsSunk: 0,
     shipsTotal: 0,
+    targetsDestroyed: 0,
+    targetsTotal: 0,
     vitalSunk: 0,
     redInbound: false,
     convoyAlive: 0,
@@ -392,6 +394,78 @@ describe('stepMission：擊沉', () => {
     stepMission(rules, inputs({ shipsSunk: 3 }), DT, s)
     expect(s.outcome).toBe('victory')
     stepMission(rules, inputs({ shipsSunk: 0, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+    expect(s.metric).toBe(0)
+  })
+})
+
+describe('stepMission：炸毀', () => {
+  const rules: MissionRules = { kind: 'destroy', count: 6 }
+
+  it('炸毀 5 座是 fighting，6 座是 victory，超過也算', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 5, targetsTotal: 12 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    stepMission(rules, inputs({ targetsDestroyed: 6, targetsTotal: 12 }), DT, s)
+    expect(s.outcome).toBe('victory')
+    const s2 = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 9, targetsTotal: 12 }), DT, s2)
+    expect(s2.outcome).toBe('victory')
+  })
+
+  it('藍隊全滅就輸；玩家陣亡但僚機還在不算', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 2, aliveBlue: 3, playerAlive: false }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    stepMission(rules, inputs({ targetsDestroyed: 2, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  it('最後一座炸毀的那一步我方剛好全滅 —— 算贏', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 6, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('開局的計量是「還差全部」、分母是 6；重設之後也是', () => {
+    const s = createMissionState(rules)
+    expect(s.metric).toBe(6)
+    expect(s.metricTotal).toBe(6)
+    const s2 = createMissionState({ kind: 'annihilate' })
+    resetMissionState(rules, s2)
+    expect(s2.metric).toBe(6)
+    expect(s2.metricTotal).toBe(6)
+  })
+
+  it('重設成別種規則就沒有分母了', () => {
+    const s = createMissionState(rules)
+    resetMissionState({ kind: 'annihilate' }, s)
+    expect(s.metricTotal).toBe(-1)
+  })
+
+  it('計量是「還差幾座」、不會變成負的；第二個計量恆是 −1；沒有圓環', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 2 }), DT, s)
+    expect(s.metric).toBe(4)
+    expect(s.remaining).toBe(-1)
+    expect(s.hasTarget).toBe(false)
+    const s2 = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 9 }), DT, s2)
+    expect(s2.metric).toBe(0)
+  })
+
+  it('船的計數不影響炸毀', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 8, shipsTotal: 8, targetsDestroyed: 0 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    expect(s.metric).toBe(6)
+  })
+
+  it('分出勝負之後不再改任何欄位', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ targetsDestroyed: 6 }), DT, s)
+    expect(s.outcome).toBe('victory')
+    stepMission(rules, inputs({ targetsDestroyed: 0, aliveBlue: 0 }), DT, s)
     expect(s.outcome).toBe('victory')
     expect(s.metric).toBe(0)
   })
