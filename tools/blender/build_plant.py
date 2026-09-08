@@ -36,18 +36,27 @@ LOG = {}
 # 與 src/world/leuna.ts 同一份數字。那邊改了這邊要跟著改。
 
 PAD_HALF_X, PAD_HALF_Z = 1500.0, 750.0
-LANES_X = [-1100.0, -600.0, -100.0, 500.0, 1000.0]
-LANES_Z = [-400.0, 0.0, 400.0]
+# 【廠內那三條道路一定要落在巷道上】道路的避讓把佈景推開 20 m，一條穿過
+# 街廓中間的路等於在那一格裡挖一條空溝
+LANES_X = [-1100.0, -600.0, -180.0, 150.0, 500.0, 1000.0]
+LANES_Z = [-420.0, 0.0, 380.0]
 LANE_WIDTH = 16.0
 
-# 6 欄 × 4 列，欄由西到東、列由北到南
+# 7 欄 × 4 列，欄由西到東、列由北到南。
+#
+# 【同機能不相鄰】相鄰同機能會被 merge_plan 併成一塊 —— 舊表的儲槽區併出
+# 一個 987 × 387 m 的方塊，從投彈高度看下去整個東半邊就是一區油槽。現在
+# 除了調車場那一對，任兩格的鄰居都是別的機能，所以最大的街廓就是一格。
+#
+# 【調車場例外，而且靠南緣】它得接得到外面的鐵路，擺在廠區中間不合理。
 BLOCK_KINDS = [
     ['halls', 'process', 'utility', 'railyard'],
-    ['process', 'process', 'halls', 'railyard'],
-    ['utility', 'process', 'utility', 'open'],
-    ['process', 'utility', 'utility', 'halls'],
-    ['halls', 'tankFarm', 'tankFarm', 'railyard'],
-    ['tankFarm', 'tankFarm', 'open', 'open'],
+    ['process', 'tankFarm', 'process', 'railyard'],
+    ['utility', 'process', 'halls', 'process'],
+    ['tankFarm', 'utility', 'process', 'halls'],
+    ['process', 'tankFarm', 'utility', 'open'],
+    ['halls', 'process', 'tankFarm', 'railyard'],
+    ['tankFarm', 'utility', 'process', 'open'],
 ]
 
 # 十二座可炸構件的腳印（相對廠區中心）：dx, dz, 寬, 深
@@ -316,6 +325,19 @@ class Rand:
         return self.s / 4294967296.0
 
 
+SNAP_STEP = 45.0
+SNAP_JITTER = 10.0
+
+
+def snap_rz(h):
+    """雜物的朝向：貼齊 0 / 45 / 90 / 135 度，再抖 ±10 度。
+
+    【不用自由角度】東西各自轉一個亂數角，從投彈高度看下去是一地碎屑；
+    真的廠區裡所有東西都照建物與管線的方向擺，只有搬動過的才會歪一點。
+    """
+    return ((h >> 2) & 0x3) * SNAP_STEP + (((h >> 6) & 0xFF) / 255 - 0.5) * 2 * SNAP_JITTER
+
+
 def cell_hash(i, j, salt):
     h = ((i * 0x27d4eb2d) ^ (j * 0x85ebca6b) ^ (salt * 0x165667b1)) & 0xFFFFFFFF
     h = ((h ^ (h >> 15)) * 0x2545f491) & 0xFFFFFFFF
@@ -457,7 +479,7 @@ def fan_stack(col, dx, dz, r, h, seed):
     """冷卻風扇筒：六邊筒加頂上一片十字扇葉"""
     add_cyl(col, 'fan', grime_mat(seed), dx, -dz, 0.0, r, r, h, TANK_SEG)
     add_box(col, 'fan_blade', fixed_mat('LP_PlantSteel'), dx, -dz, h + 0.15,
-            r * 1.8, r * 0.4, 0.3, 30.0)
+            r * 1.8, r * 0.4, 0.3, 45.0)
     col.claim(dx, dz, r, r, h)
     col.anchor(dx, dz, r)
     return 2
@@ -640,6 +662,14 @@ def clutter(col, dx, dz, kind, seed):
     """
     m = grime_mat(seed)
     steel = fixed_mat('LP_PlantSteel')
+    h = cell_hash(int(dx), int(dz), seed)
+    rz = snap_rz(h)
+    c, s = math.cos(math.radians(rz)), math.sin(math.radians(rz))
+
+    def at(lx, lz):
+        """零件的局部偏移轉成相對座標。整件跟著 `rz` 轉，內部不各自歪"""
+        return dx + lx * c + lz * s, dz - lx * s + lz * c
+
     if kind == 0:
         for k in range(3):
             a = 2.1 * k
@@ -647,38 +677,43 @@ def clutter(col, dx, dz, kind, seed):
                     -(dz + math.sin(a) * 0.8), 0.0, 0.55, 0.55, 1.3, 6)
         return 3
     if kind == 1:
-        add_box(col, 'crate', m, dx, -dz, 0.7, 3.2, 2.4, 1.4)
-        add_box(col, 'crate', grime_mat(seed + 1), dx + 0.5, -(dz - 0.4), 1.85,
-                2.0, 1.6, 1.5, 20.0)
-        add_box(col, 'crate', grime_mat(seed + 2), dx - 2.4, -(dz + 0.6), 0.55,
-                1.8, 1.8, 1.1, 35.0)
+        add_box(col, 'crate', m, dx, -dz, 0.7, 3.2, 2.4, 1.4, rz)
+        px, pz = at(0.5, -0.4)
+        # 疊上去的那一箱橫著擺 —— 仍然在格上，只是差 90 度
+        add_box(col, 'crate', grime_mat(seed + 1), px, -pz, 1.85, 2.0, 1.6, 1.5, rz + 90)
+        qx, qz = at(-2.4, 0.6)
+        add_box(col, 'crate', grime_mat(seed + 2), qx, -qz, 0.55, 1.8, 1.8, 1.1, rz)
         return 3
     if kind == 2:
-        add_box(col, 'valvebox', steel, dx, -dz, 0.6, 1.6, 1.2, 1.2, 15.0)
+        add_box(col, 'valvebox', steel, dx, -dz, 0.6, 1.6, 1.2, 1.2, rz)
         return 1
     if kind == 3:
-        add_box(col, 'pumphouse', m, dx, -dz, 1.5, 6.0, 4.5, 3.0)
+        add_box(col, 'pumphouse', m, dx, -dz, 1.5, 6.0, 4.5, 3.0, rz)
         add_box(col, 'pumphouse_roof', grime_mat(seed + 1), dx, -dz, 3.15,
-                6.4, 4.9, 0.3)
+                6.4, 4.9, 0.3, rz)
         return 2
     if kind == 4:
         add_cyl(col, 'pile', fixed_mat('LP_PlantCoal'), dx, -dz, 0.0, 3.2, 0.9, 2.4, 5)
         return 1
     if kind == 5:
         add_box(col, 'lamp', fixed_mat('LP_PlantPole'), dx, -dz, 4.0, 0.25, 0.25, 8.0)
-        add_box(col, 'lamp_head', steel, dx + 0.6, -dz, 7.9, 1.6, 0.4, 0.3)
+        px, pz = at(0.6, 0.0)
+        add_box(col, 'lamp_head', steel, px, -pz, 7.9, 1.6, 0.4, 0.3, rz)
         return 2
     if kind == 6:
-        add_box(col, 'skid', steel, dx, -dz, 0.3, 5.0, 2.6, 0.6)
-        add_cyl(col, 'skid_drum', m, dx + 0.8, -dz, 0.6, 1.0, 1.0, 2.6, 6)
+        add_box(col, 'skid', steel, dx, -dz, 0.3, 5.0, 2.6, 0.6, rz)
+        px, pz = at(0.8, 0.0)
+        add_cyl(col, 'skid_drum', m, px, -pz, 0.6, 1.0, 1.0, 2.6, 6)
         return 2
     if kind == 7:
-        add_box(col, 'shack', m, dx, -dz, 1.3, 4.0, 3.2, 2.6, 10.0)
-        add_box(col, 'shack_roof', fixed_mat('LP_PlantRail'), dx, -dz, 2.75, 4.6, 3.8, 0.3)
+        add_box(col, 'shack', m, dx, -dz, 1.3, 4.0, 3.2, 2.6, rz)
+        add_box(col, 'shack_roof', fixed_mat('LP_PlantRail'), dx, -dz, 2.75,
+                4.6, 3.8, 0.3, rz)
         return 2
-    h = cell_hash(int(dx), int(dz), seed)
-    return apron(col, dx, dz, 7 + (h & 0x7), 5 + ((h >> 4) & 0x7),
-                 ((h >> 8) & 0x3) * 22.5, 'LP_PlantStain')
+    # 【尺寸要塞得進散佈器的淨空】`scatter_clutter` 只問了半徑 6 m 的空地，
+    # 而這一片是斜的 —— 9 × 7 轉 35° 的包圍盒半徑是 5.7 m。放大就會壓到
+    # 卡車與可炸構件上，而俯視看起來只是「地上有塊油漬」
+    return apron(col, dx, dz, 6 + (h & 0x3), 4 + ((h >> 4) & 0x3), rz, 'LP_PlantStain')
 
 
 # ═══════════════════════════ 後處理填充器 ═══════════════════════════
@@ -762,9 +797,8 @@ def place_equipment(col, dx, dz, h, seed):
             if room(r, r) else 0
     if kind == 1:
         length = 13 + ((h >> 5) & 0x7) * 2.0
-        rz = ((h >> 12) & 0x3) * 45.0
-        return horiz_tank(col, dx, dz, 2.0 + ((h >> 9) & 0x3) * 0.6, length, rz, seed) \
-            if room(length / 2, length / 2) else 0
+        return horiz_tank(col, dx, dz, 2.0 + ((h >> 9) & 0x3) * 0.6, length, snap_rz(h),
+                          seed) if room(length / 2, length / 2) else 0
     if kind == 2:
         r = 3.6 + ((h >> 6) & 0x3) * 0.8
         return fan_stack(col, dx, dz, r, 6 + ((h >> 8) & 0x7), seed) if room(r, r) else 0
@@ -773,7 +807,7 @@ def place_equipment(col, dx, dz, h, seed):
         return truss_tower(col, dx, dz, size, 2 + ((h >> 9) & 0x3), seed) \
             if room(size / 2, size / 2) else 0
     if kind == 4:
-        rz = ((h >> 12) & 0x3) * 45.0
+        rz = snap_rz(h)
         length = 12 + ((h >> 5) & 0x3) * 3
         if not room(length / 2, length / 2):
             return 0
@@ -852,7 +886,8 @@ def scatter_clutter(col, blk, seed):
                 continue
             dx = ox + i * CLUTTER_STEP + (((h >> 8) & 0xFF) / 255 - 0.5) * CLUTTER_STEP * 0.7
             dz = oz + j * CLUTTER_STEP + (((h >> 16) & 0xFF) / 255 - 0.5) * CLUTTER_STEP * 0.7
-            if not free(dx, dz, 5) or col.taken.hit(dx, dz, 4.5, 4.5):
+            # 【淨空要蓋得住最大的那一件】斜擺的油漬坪包圍盒半徑 5.7 m
+            if not free(dx, dz, 6) or col.taken.hit(dx, dz, 5.5, 5.5):
                 continue
             kind = (h >> 24) % CLUTTER_KINDS
             n += clutter(col, dx, dz, kind, seed * 17 + i * 7 + j)
@@ -1332,7 +1367,7 @@ def fill_open(col, b):
             add_box(col, 'shed', grime_mat(b[5] + k), dx, -dz, 1.6, 14.0, 9.0, 3.2)
             n += 1
         else:
-            n += horiz_tank(col, dx, dz, 3, 16, k * 30, b[5] * 31 + seq)
+            n += horiz_tank(col, dx, dz, 3, 16, k * SNAP_STEP, b[5] * 31 + seq)
             seq += 1
     return n
 

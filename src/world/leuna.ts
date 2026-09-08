@@ -161,8 +161,8 @@ export const PLANT_SCENERY = {
  * 路上。
  */
 export const PLANT_LANES = {
-  x: [-1100, -600, -100, 500, 1000],
-  z: [-400, 0, 400],
+  x: [-1100, -600, -180, 150, 500, 1000],
+  z: [-420, 0, 380],
 } as const
 
 /** 巷道寬，m。街廓從格線各退一半 */
@@ -182,19 +182,24 @@ export interface PlantBlock {
 }
 
 /**
- * 機能指派，6 欄 × 4 列，欄由西到東、列由北到南。
+ * 機能指派，7 欄 × 4 列，欄由西到東、列由北到南。
+ * **與 `tools/blender/build_plant.py` 是同一份表**，那邊改了這邊要跟著改。
  *
- * 【要與十二座構件的位置相符】西側是氫化製程、中央是動力、東側是儲槽；
- * 南緣留給調車場，接南門的連外道路。`open` 是刻意的留白 —— 沒有空地就
- * 看不出密的地方有多密。
+ * 【同機能不相鄰】相鄰同機能會被 `mergePlan` 併成一塊，而併出來的大方塊
+ * 從投彈高度看下去就是「那一整區都是油槽」。除了調車場那一對，任兩格的
+ * 鄰居都是別的機能，所以最大的街廓就是一格。
+ *
+ * 【調車場例外，而且靠南緣】它得接得到外面的鐵路，擺在廠區中間不合理。
+ * `open` 是刻意的留白 —— 沒有空地就看不出密的地方有多密。
  */
 const BLOCK_KINDS: readonly (readonly BlockKind[])[] = [
-  ['halls', 'process', 'utility', 'railyard'], // x −1500…−1100
-  ['process', 'process', 'halls', 'railyard'], // x −1100…−600
-  ['utility', 'process', 'utility', 'open'], //   x −600…−100
-  ['process', 'utility', 'utility', 'halls'], //  x −100…500
-  ['halls', 'tankFarm', 'tankFarm', 'railyard'], // x 500…1000
-  ['tankFarm', 'tankFarm', 'open', 'open'], //    x 1000…1500
+  ['halls', 'process', 'utility', 'railyard'], //   x −1500…−1100
+  ['process', 'tankFarm', 'process', 'railyard'], // x −1100…−600
+  ['utility', 'process', 'halls', 'process'], //    x −600…−180
+  ['tankFarm', 'utility', 'process', 'halls'], //   x −180…150
+  ['process', 'tankFarm', 'utility', 'open'], //    x 150…500
+  ['halls', 'process', 'tankFarm', 'railyard'], //  x 500…1000
+  ['tankFarm', 'utility', 'process', 'open'], //    x 1000…1500
 ]
 
 /**
