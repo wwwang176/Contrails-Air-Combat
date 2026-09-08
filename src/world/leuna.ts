@@ -145,33 +145,6 @@ export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
  * 圓管是三角柱，其餘是盒子與柱體 —— 見 `render/geometry/ground/plantScenery.ts`。
  */
 export const PLANT_SCENERY = {
-  /** 管架的折線與架高。管子並排在樑上，走廠區的主軸與橫向 */
-  pipeRacks: [
-    { height: 8, pipes: 5, points: [{ dx: -1350, dz: -150 }, { dx: 1350, dz: -150 }] },
-    { height: 6, pipes: 4, points: [{ dx: -1350, dz: 250 }, { dx: 700, dz: 250 }] },
-    { height: 7, pipes: 3, points: [{ dx: -800, dz: -650 }, { dx: -800, dz: 650 }] },
-    { height: 7, pipes: 3, points: [{ dx: -300, dz: -650 }, { dx: -300, dz: 650 }] },
-    { height: 9, pipes: 4, points: [{ dx: 100, dz: -650 }, { dx: 100, dz: 650 }] },
-    { height: 6, pipes: 3, points: [{ dx: 650, dz: -650 }, { dx: 650, dz: 650 }] },
-    { height: 6, pipes: 2, points: [{ dx: 700, dz: 250 }, { dx: 1100, dz: 250 }, { dx: 1100, dz: 600 }] },
-    { height: 8, pipes: 3, points: [{ dx: -1100, dz: -450 }, { dx: -450, dz: -450 }, { dx: -450, dz: -600 }] },
-  ],
-  /** 開放式鋼骨塔：底邊長、層數 */
-  steelTowers: [
-    { dx: -1150, dz: -450, size: 18, floors: 4 },
-    { dx: -480, dz: -560, size: 22, floors: 5 },
-    { dx: 40, dz: -600, size: 20, floors: 4 },
-    { dx: 400, dz: -520, size: 16, floors: 3 },
-    { dx: 1100, dz: -420, size: 18, floors: 4 },
-    { dx: -1200, dz: 420, size: 16, floors: 3 },
-    { dx: 420, dz: 480, size: 20, floors: 4 },
-  ],
-  /** 棚屋：小盒子加平頂 */
-  sheds: [
-    { dx: -1300, dz: 50 }, { dx: -1250, dz: 600 }, { dx: -950, dz: 500 }, { dx: -600, dz: 620 },
-    { dx: -150, dz: 80 }, { dx: 250, dz: -60 }, { dx: 620, dz: -60 }, { dx: 950, dz: -300 },
-    { dx: 1250, dz: 60 }, { dx: 1300, dz: 550 }, { dx: 1000, dz: 600 }, { dx: -100, dz: 620 },
-  ],
   /** 圍牆：沿墊面四周，門口留空。每一段 60 m */
   wall: { height: 2.5, segment: 60, gate: 24 },
   /** 沙包：砲位周圍一圈 */
