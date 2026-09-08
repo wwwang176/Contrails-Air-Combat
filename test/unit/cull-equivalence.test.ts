@@ -136,7 +136,7 @@ function scenario(seed: number, n: number, shots: number): World {
     // 而症狀是「受害者少了一半」—— 這一條就是這樣紅出來的。
     const idx = w.projectiles.spawn(
       cx - hx, cy - hy, cz - hz, 0, 0, 0, 6, shooter,
-      w.combatants[shooter]!.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME,
+      w.combatants[shooter]!.team === 'blue' ? 0 : 1, PROJECTILE_LIFETIME, 12.7,
     )
     w.projectiles.sx[idx] = cx - hx
     w.projectiles.sy[idx] = cy - hy

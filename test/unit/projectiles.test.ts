@@ -21,7 +21,7 @@ describe('Projectiles', () => {
 
   it('spawn 寫入位置、速度、傷害與射手，age 歸零', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(1, 2, 3, 10, 20, 30, 6, 2, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(1, 2, 3, 10, 20, 30, 6, 2, 0, PROJECTILE_LIFETIME, 12.7)
     expect(p.x[i]).toBeCloseTo(1, 6)
     expect(p.vy[i]).toBeCloseTo(20, 6)
     expect(p.damage[i]).toBe(6)
@@ -32,13 +32,13 @@ describe('Projectiles', () => {
 
   it('spawn 當下線段起點就是槍口 —— 第一步的判定不能從原點開始', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(1, 2, 3, 10, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(1, 2, 3, 10, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     expect([p.sx[i], p.sy[i], p.sz[i]]).toEqual([1, 2, 3])
   })
 
   it('step 以等速直線推進，無阻力也無重力（spec §2 裁決）', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(0, 0, 0, 100, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 100, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let n = 0; n < 240; n++) p.step(DT)
     expect(p.x[i]).toBeCloseTo(100, 2)
     expect(p.y[i]).toBeCloseTo(0, 9)        // 重力若沒被移除，這裡會是 −4.9
@@ -48,7 +48,7 @@ describe('Projectiles', () => {
 
   it('每步的線段起點是上一步的終點（命中判定靠這一段，不能有縫）', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     p.step(DT)
     const firstEnd = p.z[i]!
     p.step(DT)
@@ -59,7 +59,7 @@ describe('Projectiles', () => {
     // spec §5.1.1：彈丸繼承射手速度之後，能不能打到取決於攔截點而不是
     // 目前距離。這一顆走了 1500 m 才到壽命。
     const p = new Projectiles(8)
-    const i = p.spawn(0, 0, 0, 0, 0, -1250, 6, 0, 0, PROJECTILE_LIFETIME)   // 887 + 射手 363
+    const i = p.spawn(0, 0, 0, 0, 0, -1250, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)   // 887 + 射手 363
     for (let n = 0; n < 240 * 2; n++) p.step(DT)
     expect(p.owner[i]).toBe(-1)
     expect(p.live).toBe(0)
@@ -67,7 +67,7 @@ describe('Projectiles', () => {
 
   it('壽命內的最後一步仍然參與判定（不可提早一步就回收）', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(0, 0, 0, 0, 0, -100, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 0, 0, -100, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     const steps = Math.floor(PROJECTILE_LIFETIME / DT) - 1
     for (let n = 0; n < steps; n++) p.step(DT)
     expect(p.owner[i]).toBe(0)
@@ -77,10 +77,10 @@ describe('Projectiles', () => {
   it('池滿時覆寫最舊的，不是拒絕發射', () => {
     // spec §10：射擊永遠有反應，比「扣了扳機沒動靜」好——後者玩家會當成 bug。
     const p = new Projectiles(4)
-    const first = p.spawn(0, 0, 0, 0, 0, -1, 6, 7, 0, PROJECTILE_LIFETIME)
-    for (let n = 0; n < 3; n++) p.spawn(0, 0, 0, 0, 0, -1, 6, 8, 0, PROJECTILE_LIFETIME)
+    const first = p.spawn(0, 0, 0, 0, 0, -1, 6, 7, 0, PROJECTILE_LIFETIME, 12.7)
+    for (let n = 0; n < 3; n++) p.spawn(0, 0, 0, 0, 0, -1, 6, 8, 0, PROJECTILE_LIFETIME, 12.7)
     expect(p.live).toBe(4)
-    const reused = p.spawn(0, 0, 0, 0, 0, -1, 6, 9, 0, PROJECTILE_LIFETIME)
+    const reused = p.spawn(0, 0, 0, 0, 0, -1, 6, 9, 0, PROJECTILE_LIFETIME, 12.7)
     expect(reused).toBe(first)          // 覆寫的正是最舊的那一發
     expect(p.owner[first]).toBe(9)
     expect(p.live).toBe(4)              // 沒有變多，也沒有拒絕
@@ -88,17 +88,17 @@ describe('Projectiles', () => {
 
   it('回收後的槽位會被重複利用', () => {
     const p = new Projectiles(2)
-    p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME)
-    p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
+    p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let n = 0; n < 240 * 2; n++) p.step(DT)
     expect(p.live).toBe(0)
-    p.spawn(0, 0, 0, 0, 0, -1, 6, 1, 0, PROJECTILE_LIFETIME)
+    p.spawn(0, 0, 0, 0, 0, -1, 6, 1, 0, PROJECTILE_LIFETIME, 12.7)
     expect(p.live).toBe(1)
   })
 
   it('kill 立刻釋放槽位（命中之後彈丸不該繼續飛）', () => {
     const p = new Projectiles(4)
-    const i = p.spawn(0, 0, 0, 5, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 5, 0, 0, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     p.kill(i)
     expect(p.owner[i]).toBe(-1)
     expect(p.live).toBe(0)
@@ -109,14 +109,14 @@ describe('Projectiles', () => {
 
   it('clear 清空整池', () => {
     const p = new Projectiles(4)
-    for (let n = 0; n < 4; n++) p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME)
+    for (let n = 0; n < 4; n++) p.spawn(0, 0, 0, 0, 0, -1, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     p.clear()
     expect(p.live).toBe(0)
   })
 
   it('滿載推進：live 數穩定且座標保持有限', () => {
     const p = new Projectiles(PROJECTILE_CAPACITY)
-    for (let n = 0; n < PROJECTILE_CAPACITY; n++) p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME)
+    for (let n = 0; n < PROJECTILE_CAPACITY; n++) p.spawn(0, 0, 0, 0, 0, -887, 6, 0, 0, PROJECTILE_LIFETIME, 12.7)
     for (let n = 0; n < 100; n++) p.step(DT)
     expect(p.live).toBe(PROJECTILE_CAPACITY)
     for (let i = 0; i < PROJECTILE_CAPACITY; i++) expect(Number.isFinite(p.z[i]!)).toBe(true)
@@ -126,7 +126,7 @@ describe('Projectiles', () => {
 describe('Projectiles 的 team 與 life', () => {
   it('spawn 記下陣營', () => {
     const p = new Projectiles(8)
-    const i = p.spawn(0, 0, 0, 1, 0, 0, 10, 3, 1, PROJECTILE_LIFETIME)
+    const i = p.spawn(0, 0, 0, 1, 0, 0, 10, 3, 1, PROJECTILE_LIFETIME, 12.7)
     expect(p.team[i]).toBe(1)
   })
 
@@ -136,8 +136,8 @@ describe('Projectiles 的 team 與 life', () => {
    */
   it('壽命各自獨立，到期各自回收', () => {
     const p = new Projectiles(8)
-    p.spawn(0, 0, 0, 1, 0, 0, 10, 0, 0, 1.2)
-    p.spawn(0, 0, 0, 1, 0, 0, 10, 0, 0, 2.4)
+    p.spawn(0, 0, 0, 1, 0, 0, 10, 0, 0, 1.2, 12.7)
+    p.spawn(0, 0, 0, 1, 0, 0, 10, 0, 0, 2.4, 12.7)
     expect(p.live).toBe(2)
     for (let i = 0; i < 130; i++) p.step(1 / 100)   // 1.30 s
     expect(p.live).toBe(1)
@@ -147,7 +147,7 @@ describe('Projectiles 的 team 與 life', () => {
 
   it('clear 之後回到空槽', () => {
     const p = new Projectiles(4)
-    p.spawn(0, 0, 0, 1, 0, 0, 10, 2, 1, 3)
+    p.spawn(0, 0, 0, 1, 0, 0, 10, 2, 1, 3, 12.7)
     p.clear()
     expect(p.live).toBe(0)
     expect(p.owner[0]).toBe(-1)

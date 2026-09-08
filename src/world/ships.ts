@@ -60,6 +60,17 @@ export interface ShipClass {
    * ```
    */
   readonly hp: number
+  /**
+   * 艦體的裝甲，mm。**打得穿它的口徑才扣得動艦體**（`weapons/armour.ts`）。
+   *
+   * 【它只擋艦體】甲板上的砲位是露天的，那幾個盒子沒有這一格 —— 機槍照樣
+   * 打得掉防空砲，而那正是掃射軍艦在史實上的意義。
+   *
+   * 【取的是實際板厚】驅逐艦沒有裝甲帶，船殼是半吋級的鋼板；巡洋艦與航母
+   * 有真正的裝甲帶。場上最大的航空機砲是 30 mm，所以後兩者對空中的槍砲
+   * 是實質免疫 —— 機槍打不沉主力艦。
+   */
+  readonly armour: number
   readonly zones: readonly ShipAAZone[]
 }
 
@@ -206,6 +217,8 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     ],
     radius: 0,
     hp: 60_000,
+    // 機庫甲板 3 吋、舷側裝甲帶 4 吋。取薄的那一層
+    armour: 76,
     zones: SHIP_AA_ZONES.essex!,
   },
   fletcher: {
@@ -217,6 +230,8 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     ],
     radius: 0,
     hp: 20_000,
+    // 沒有裝甲帶，船殼是半吋級的鋼板 —— 20 mm 打得動它
+    armour: 13,
     zones: SHIP_AA_ZONES.fletcher!,
   },
   wichita: {
@@ -228,7 +243,9 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     ],
     radius: 0,
     hp: 40_000,
-  zones: SHIP_AA_ZONES.wichita!,
+    // 舷側裝甲帶 6 吋
+    armour: 152,
+    zones: SHIP_AA_ZONES.wichita!,
   },
 }
 

@@ -5,6 +5,7 @@ export const M2_BROWNING: WeaponSpec = {
   id: 'm2-50cal',
   name: 'M2 Browning .50 cal',
   muzzleVelocity: 887,
+  caliber: 12.7,
   roundsPerMinute: 800,
   damage: 18,
 }

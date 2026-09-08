@@ -4,6 +4,7 @@ import { World } from '../../src/world/World'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { SHIP_GUN_SPECS, createShipGuns, shipOwner } from '../../src/world/shipGuns'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { G4M } from '../../src/specs/g4m'
@@ -33,13 +34,17 @@ function fleetOf(w: World, cls = SHIP_CLASSES.fletcher, team: 'blue' | 'red' = '
  * 【為什麼要多步】彈丸一步只走 1.67 m（400 m/s ÷ 240 Hz），而判定吃的是
  * [上一步, 這一步] 這一段線段 —— 一步到不了目標。
  */
+/**
+ * @param caliber 預設 200 mm —— **打得穿場上每一種艦體**，所以這幾條驗的是
+ *   判定本身，不是口徑門檻。門檻另有一組（`weapons/armour.ts`）
+ */
 function shoot(
   w: World, from: Vector3, at: Vector3, damage: number,
-  owner = 0, team = 0,
+  owner = 0, team = 0, caliber = 200,
 ): void {
   const v = at.clone().sub(from).normalize().multiplyScalar(400)
   const i = w.projectiles.spawn(
-    from.x, from.y, from.z, v.x, v.y, v.z, damage, owner, team, PROJECTILE_LIFETIME,
+    from.x, from.y, from.z, v.x, v.y, v.z, damage, owner, team, PROJECTILE_LIFETIME, caliber,
   )
   for (let k = 0; k < 40 && w.projectiles.owner[i] !== -1; k++) {
     w.projectiles.step(DT)
@@ -60,6 +65,43 @@ describe('彈丸打船', () => {
     shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 30)
     expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp - 30)
     expect(s.hp).toBe(hp0 - 30)
+  })
+
+  /**
+   * 【口徑打不穿艦體就只扣地板值，但砲位照全額】掃射軍艦的意義是打掉甲板上
+   * 的防空砲，不是打沉它。少了這一條，十六架零戰用機槍就能把一艘航母掃沉
+   * （實測六十秒 60,032 點，正好是它的全部血量）。
+   */
+  it('步槍口徑打不動驅逐艦的艦體，砲位照樣扣', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const g = s.guns[0]!
+    const hp0 = s.hp
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 30, 0, 0, 7.7)
+    expect(g.hp).toBe(SHIP_GUN_SPECS[g.zone.tier].hp - 30)
+    expect(hp0 - s.hp).toBe(NO_PENETRATION_DAMAGE)
+  })
+
+  /** 【驅逐艦擋不住 20 mm】它沒有裝甲帶，船殼是半吋級的鋼板 */
+  it('20 mm 打得動驅逐艦的艦體', () => {
+    const w = new World()
+    const s = fleetOf(w)
+    const hp0 = s.hp
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 30, 0, 0, 20)
+    expect(hp0 - s.hp).toBe(30)
+  })
+
+  /** 【航母擋得住場上每一挺航空機砲】最大的是 30 mm，而它的裝甲是 76 mm */
+  it('30 mm 打不動航母的艦體', () => {
+    const w = new World()
+    const s = fleetOf(w, SHIP_CLASSES.essex)
+    const hp0 = s.hp
+    const p = gunAt(s, 0)
+    shoot(w, p.clone().add(new Vector3(0, 40, 0)), p, 100, 0, 0, 30)
+    expect(hp0 - s.hp).toBe(NO_PENETRATION_DAMAGE)
+    expect(s.guns[0]!.hp).toBe(SHIP_GUN_SPECS[s.guns[0]!.zone.tier].hp - 100)
   })
 
   /** 【不套部位倍率】PART_MULTIPLIER 是飛機的六個部位，船沒有座艙也沒有機翼。 */
