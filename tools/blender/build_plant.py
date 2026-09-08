@@ -387,12 +387,19 @@ def cell_hash(i, j, salt):
 
 
 # ═══════════════════════════ 避讓 ═══════════════════════════
-# 不能擺佈景的矩形（相對廠區中心）：構件腳印 +6 m、道路半寬 +2 m
+# 不能擺佈景的矩形（相對廠區中心）：構件腳印 +6 m、佈景煙囪半徑 +8 m、
+# 道路半寬 +2 m
 
 def _build_keepouts():
     out = []
     for dx, dz, w, d in PLANT_FOOTPRINTS:
         out.append((dx - w / 2 - 6, dz - d / 2 - 6, dx + w / 2 + 6, dz + d / 2 + 6))
+    # 【佈景煙囪也要避】它是佈景不是可炸構件，所以不在 PLANT_FOOTPRINTS 裡 ——
+    # 少了這一段，儲槽與廠房會直接蓋在煙囪身上（實測埋掉三支）。而煙囪是廠區
+    # 唯一在遠處就標定得出自己的東西
+    for dx, dz, h in STACKS:
+        r = h * 0.045 + 8
+        out.append((dx - r, dz - r, dx + r, dz + r))
     for ax, az, bx, bz in ROADS:
         pad = ROAD_HALF + 2
         out.append((min(ax, bx) - pad, min(az, bz) - pad, max(ax, bx) + pad, max(az, bz) + pad))
