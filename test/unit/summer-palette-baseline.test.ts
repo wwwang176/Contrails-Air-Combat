@@ -30,10 +30,10 @@ describe('夏季色盤的凍結基準', () => {
     for (let i = 0; i < 40; i++) {
       for (let j = 0; j < 40; j++) {
         fieldSurfaceColor(i * 137.3 - 2700, j * 91.7 - 1800, out)
-        rows.push(out.getHexString())
+        rows.push(`${String(out.r)} ${String(out.g)} ${String(out.b)}`)
       }
     }
-    expect(hash(rows.join(','))).toBe('122e664f')
+    expect(hash(rows.join(','))).toBe('341c7404')
   })
 
   it('樹與房子的頂點色相同', () => {
@@ -41,9 +41,9 @@ describe('夏季色盤的凍結基準', () => {
     const rows: string[] = []
     for (const k of Object.keys(g).sort()) {
       const col = g[k as keyof typeof g].getAttribute('color').array as Float32Array
-      rows.push(k + ':' + Array.from(col, (v) => v.toFixed(5)).join(','))
+      rows.push(k + ':' + Array.from(col, (v) => String(v)).join(','))
     }
     disposeFloraGeometries(g)
-    expect(hash(rows.join('\n'))).toBe('3ee6a468')
+    expect(hash(rows.join('\n'))).toBe('82ccde53')
   })
 })
