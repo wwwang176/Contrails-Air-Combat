@@ -249,6 +249,7 @@ const TERRAINS: readonly { kind: TerrainKind, name: string }[] = [
   { kind: 'sea', name: '海面' },
   { kind: 'archipelago', name: '群島' },
   { kind: 'farmland', name: '內陸' },
+  { kind: 'leuna', name: '洛伊納' },
 ]
 
 function selectTerrain(kind: TerrainKind): void {
