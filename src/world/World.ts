@@ -36,6 +36,7 @@ import { landHitT, type LandField } from './occlusion'
 import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
+import type { GroundTarget } from './groundTargets'
 import { stepShipGuns, ownerShipIndex } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
@@ -266,6 +267,22 @@ export class World {
    * 都是零長度早退，所以既有的空戰逐位元不變。
    */
   readonly ships: Ship[] = []
+
+  /**
+   * 這一場的地面目標（戰車、卡車、砲位、火車）。**與船同一個性質**：不是
+   * `Combatant`、不動、死了是旗標。空陣列 = 這一場沒有，兩條判定都零長度
+   * 早退，既有的關逐位元不變。
+   */
+  readonly groundTargets: GroundTarget[] = []
+
+  /**
+   * 這一個物理步之內被摧毀的地面目標。**呼叫端負責排空**（與 `hitEvents`
+   * 同一個約定）—— 渲染層讀它在那個位置點一團火。
+   *
+   * 借 `ImpactEvents`：x, y, z 是位置，nx 是目標索引，ny 是兇手的 combatant
+   * 索引（−1 = 炸彈或無主），nz 恆 0。與 `bombEvents` 借第六格同一個手法。
+   */
+  readonly groundKillEvents: ImpactEvents = createImpacts()
 
   /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
   readonly flak = createFlak()
@@ -655,6 +672,26 @@ export class World {
       if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
     }
 
+    // 【地面目標與船同一套】量的是到盒子的距離，不是到中心：火車 13 m 長，
+    // 落在車頭前 5 m 的那一顆離車體 5 m、離中心卻有 11 m。
+    for (const t of this.groundTargets) {
+      if (!t.alive) continue
+      const reach = t.radius + radius
+      if (t.position.distanceToSquared(BLAST_P.set(x, y, z)) > reach * reach) continue
+      SHIP_INV.copy(t.orientation).conjugate()
+      const local = BLAST_P.set(x, y, z).sub(t.position).applyQuaternion(SHIP_INV)
+      let near = Infinity
+      for (const box of t.unit.hull) {
+        const d = pointBoxDistance(local.x, local.y, local.z, box)
+        if (d < near) near = d
+      }
+      const dmg = bombBlastDamage(near, damage)
+      if (dmg > 0) {
+        t.hp -= dmg
+        this.wreckIfDead(t, -1)
+      }
+    }
+
     for (const sh of this.ships) {
       if (!sh.alive) continue
       // 【先比包圍球】半徑加上殺傷半徑之外的船一定碰不到
@@ -1005,6 +1042,7 @@ export class World {
     // 【在迴圈外取出】4,000 發的迴圈裡每一發讀一次屬性是白付的
     const land = this.land
     const ships = this.ships
+    const targets = this.groundTargets
 
     for (let i = 0; i < p.capacity; i++) {
       const owner = p.owner[i]!
@@ -1135,6 +1173,45 @@ export class World {
         this.sinkIfDead(shipHit)
         p.kill(i)
         continue
+      }
+
+      // ── 地面目標 ────────────────────────────────────────
+      //
+      // 【排在船之後、陸地之前，同一個理由】盒子貼在地上，彈丸一步走 3.7～
+      // 4.5 m，「先穿過戰車再入土」在同一步之內是合法命中，順序用 t 比。
+      // 一台一個盒、沒有部位、沒有砲位 —— 打中就扣。同隊過濾與船相同。
+      if (targets.length > 0) {
+        let hitTarget: GroundTarget | null = null
+        for (let k = 0; k < targets.length; k++) {
+          const t = targets[k]!
+          if (!t.alive) continue
+          if ((t.team === 'blue' ? 0 : 1) === ownerTeam) continue
+          if (segmentPointDistanceSq(
+            ax, ay, az, bx, by, bz, t.position.x, t.position.y, t.position.z,
+          ) > t.radius * t.radius) continue
+          SHIP_INV.copy(t.orientation).conjugate()
+          const a = S.v[0]!.set(ax, ay, az).sub(t.position).applyQuaternion(SHIP_INV)
+          const b = S.v[1]!.set(bx, by, bz).sub(t.position).applyQuaternion(SHIP_INV)
+          for (const box of t.unit.hull) {
+            const tt = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, box)
+            if (tt === NO_HIT || tt >= bestT) continue
+            bestT = tt
+            victim = null
+            hitTarget = t
+          }
+        }
+        if (hitTarget !== null) {
+          pushImpact(
+            this.hitEvents,
+            ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
+            -(bx - ax), -(by - ay), -(bz - az),
+          )
+          hitTarget.hp -= p.damage[i]!
+          // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
+          this.wreckIfDead(hitTarget, owner >= 0 && owner < combatants.length ? owner : -1)
+          p.kill(i)
+          continue
+        }
       }
 
       // ── 陸地 ────────────────────────────────────────────
@@ -1280,6 +1357,20 @@ export class World {
     if (!sh.alive || sh.hp > 0) return
     sh.alive = false
     for (const g of sh.guns) g.alive = false
+  }
+
+  /**
+   * 地面目標血量歸零就退場：不再擋子彈、不再是目標，並推一筆擊毀事件給
+   * 渲染層點火。**子彈與炸彈兩條路共用** —— 與 `sinkIfDead` 同一個理由。
+   *
+   * @param killer 打出那一發的 combatant 索引；炸彈沒有主人，傳 −1。
+   */
+  private wreckIfDead(t: GroundTarget, killer: number): void {
+    if (!t.alive || t.hp > 0) return
+    t.alive = false
+    pushImpact(
+      this.groundKillEvents, t.position.x, t.position.y, t.position.z, t.index, killer, 0,
+    )
   }
 
   /**
