@@ -45,9 +45,9 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import { createShipGuns, resetShipGuns } from '../world/shipGuns'
+import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
-import { GROUND_CLASSES, createGroundTarget, resetGroundTarget } from '../world/groundTargets'
-import type { MissionFleet, MissionGround } from './missions'
+import type { GroundEntry, MissionFleet } from './missions'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -102,10 +102,8 @@ export interface BattleConfig {
    * 就是「型別過了但進戰鬥零艘船」，而且不報錯。
    */
   readonly fleet?: MissionFleet
-  /**
-   * 這一場的地面目標。**省略 = 一座都不產生**。透傳的約定與 `fleet` 相同。
-   */
-  readonly ground?: MissionGround
+  /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
+  readonly ground?: readonly GroundEntry[]
   /**
    * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
    * `loadoutOf`）。
@@ -965,21 +963,17 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
 }
 
 /**
- * 依 `cfg.ground` 把地面目標放進世界。**省略就一座都不放。**
+ * 依 `cfg.ground` 把地面目標放進世界。**省略就一台都不放。**
  *
- * 【高度是 0，寫死】此時地形還沒注入 `World`，讀 `groundAt` 拿到的是預設
- * 平面 —— 看起來對只是巧合。墊面在結構上保證是 0（`world/leuna.ts`）。
+ * 【高度先擺 0】這時 `world.groundAt` 還是預設值（地形在 `main.ts` 建完
+ * 戰鬥之後才注入）。落地由 `settleGroundTargets` 在那之後做。
  */
-function placeGround(world: World, ground: MissionGround | undefined): void {
+function placeGround(world: World, ground: readonly GroundEntry[] | undefined): void {
   if (ground === undefined) return
-  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), ground.heading)
-  const p = new Vector3()
-  for (const e of ground.entries) {
-    p.copy(e.offset).applyQuaternion(q).add(ground.center)
-    world.groundTargets.push(createGroundTarget(
-      world.groundTargets.length, GROUND_CLASSES[e.kind], e.team,
-      p.x, p.z, ground.heading + e.heading,
-    ))
+  for (const e of ground) {
+    world.groundTargets.push(
+      createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading),
+    )
   }
 }
 
@@ -1633,8 +1627,7 @@ export function resetBattle(
     resetShip(s)
     resetShipGuns(s)
   }
-  // 【地面目標也要】盟 M2 有波次所以重開會重建 World，但通用的
-  // `MissionGround` 不能靠這個巧合 —— 沒有波次的炸毀關走的是這一條
+  // 【地面目標也要】沒有波次的關重開不重建 World，走的是這一條
   for (const t of b.world.groundTargets) resetGroundTarget(t)
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀

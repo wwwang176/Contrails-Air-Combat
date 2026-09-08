@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from './setup'
+import type { GroundUnitId } from '../render/geometry/ground'
 import { VETERAN } from '../ai/profile'
 import { DEG } from '../core/math'
 import { P51D } from '../specs/p51d'
@@ -13,7 +14,6 @@ import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
 import { convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
-import type { GroundKind } from '../world/groundTargets'
 import { SCHWARM_SIZE } from './flights'
 import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
 import type { MissionRules } from './mission'
@@ -291,6 +291,11 @@ export interface MissionBattle {
    */
   readonly fleet?: MissionFleet
   /**
+   * 這一關的地面目標。**沒有這一格的卡完全不產生**（與 `fleet` 同一個約定），
+   * 透傳的路也相同 —— 漏一處就是進戰鬥零台，不報錯。
+   */
+  readonly ground?: readonly GroundEntry[]
+  /**
    * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
    *
    * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
@@ -309,11 +314,6 @@ export interface MissionBattle {
    * 而且畫面上一切正常 —— `campaigns.test.ts` 那一層守著。
    */
   readonly sinkCount?: number
-  /**
-   * 這一關的地面目標。**沒有這一格的卡完全不產生地面目標**。與 `fleet`
-   * 同一個約定，也同樣要一路透傳到 `createBattle`。
-   */
-  readonly ground?: MissionGround
   /**
    * 要炸毀幾座。**有這一格就是炸毀關**，勝負規則變成 `{ kind: 'destroy' }`。
    * 它必須配 `ground`，而且不得與 `sinkCount` 共存 —— `campaigns.test.ts`
@@ -349,6 +349,22 @@ export interface MissionFleet {
   readonly ships: readonly FleetEntry[]
 }
 
+/**
+ * 一台地面目標的擺位，**世界座標**。
+ *
+ * 【為什麼是絕對座標而不是艦隊那種「中心＋偏移」】船要排陣型、要整隊同
+ * 一個艏向；地面目標是散落在道路、調車場、砲位上的個體，各自有各自的
+ * 朝向。高度不用填 —— 落地時照地形取。
+ */
+export interface GroundEntry {
+  readonly unit: GroundUnitId
+  readonly team: Team
+  readonly x: number
+  readonly z: number
+  /** 航向，rad（繞 Y，0 = 車頭朝 −Z）。 */
+  readonly heading: number
+}
+
 export interface FleetEntry {
   readonly cls: ShipClassId
   readonly team: Team
@@ -368,29 +384,6 @@ export interface FleetEntry {
    * 開著，與 `FlightPlan.player` 同一個寫法 —— 不必為每一艘補 `vital: false`。
    */
   readonly vital?: true
-}
-
-/**
- * 這一關的地面目標。形狀照 `MissionFleet`：一個中心、一個朝向、相對偏移。
- *
- * 【高度是 0，寫死】`createBattle` 跑的時候地形還沒注入 `World`，建構期讀
- * `groundAt` 拿到的是預設平面。墊面在結構上保證是 0（`world/leuna.ts`），
- * 所以 `position.y = 0` 是定義，不是查出來的。
- */
-export interface MissionGround {
-  readonly center: Vector3
-  /** 整個廠區的朝向，rad（繞 Y，0 = 朝 −Z） */
-  readonly heading: number
-  readonly entries: readonly GroundEntry[]
-}
-
-export interface GroundEntry {
-  readonly kind: GroundKind
-  readonly team: Team
-  /** 相對廠區中心的偏移（+X 右、−Z 前）。擺位時先轉 `heading` 再加 `center` */
-  readonly offset: Vector3
-  /** 這一座相對廠區朝向再轉多少，rad */
-  readonly heading: number
 }
 
 /** 打到一半把任務目標換成撤離。 */

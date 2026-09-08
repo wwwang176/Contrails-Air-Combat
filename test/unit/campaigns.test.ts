@@ -152,7 +152,7 @@ describe('炸毀任務', () => {
       const n = m.battle.destroyCount
       if (n === undefined) continue
       expect(m.battle.ground, `${m.id} 要求炸毀卻沒有廠區`).toBeDefined()
-      const hostile = m.battle.ground!.entries.filter((e) => e.team === 'red').length
+      const hostile = m.battle.ground!.filter((e) => e.team === 'red').length
       expect(hostile, `${m.id} 目標 ${n} 座但敵方構件只有 ${hostile} 座`).toBeGreaterThanOrEqual(n)
     }
   })
