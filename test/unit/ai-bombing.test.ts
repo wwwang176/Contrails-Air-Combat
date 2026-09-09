@@ -232,7 +232,8 @@ describe('deckHeightOf', () => {
   /** 【與釋放半徑相反，這一個取極值】甲板是船體盒的最高點。 */
   it('是船體盒的最高點', () => {
     expect(deckHeightOf(SHIP_CLASSES.fletcher)).toBeCloseTo(4.5, 6)
-    expect(deckHeightOf(SHIP_CLASSES.essex)).toBeCloseTo(14, 6)
+    // 【Essex 取的是中線上的甲板，不是艦島頂】艦島的盒不蓋住中線，炸彈落的是甲板
+    expect(deckHeightOf(SHIP_CLASSES.essex)).toBeCloseTo(18.3, 6)
   })
 })
 
