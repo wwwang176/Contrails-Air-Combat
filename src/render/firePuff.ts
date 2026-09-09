@@ -43,8 +43,9 @@ export function createFirePuff(
   const recipe: { -readonly [K in keyof BlastParams]: number } = { ...FIRE_BLAST }
   if (scale !== 1) scaleBlast(FIRE_BLAST, scale * scale * scale, recipe)
   return (x, y, z, vx = 0, vy = 0, vz = 0) => {
-    // 【火團要繼承火源的速度】不繼承的話一具高速墜落的殘骸每 0.3 秒在原地
-    // 留一團，畫面上是一串獨立的爆炸而不是一團跟著它的火
+    // 【只有火繼承火源的速度】火燒在機體上，要跟著它走 —— 不繼承的話一具
+    // 每秒掉八十公尺的殘骸每 0.3 秒在原地留一團，畫面上是一串間隔二十四
+    // 公尺的獨立爆炸。煙相反，見下面
     emitBlast(pools, recipe, x, y, z, (seed = (seed + 1) | 0), vx, vy, vz)
     for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
       // 【三個維度各自抖】方位角、半徑、上升速度全部獨立取樣。
@@ -58,11 +59,10 @@ export function createFirePuff(
       const r = Math.sqrt(hash01(s * 3 + 2)) * FIRE_SMOKE_SPREAD
       const up = SHIP_FIRE_PLUME_SPEED
         * (1 + (hash01(s * 3 + 3) * 2 - 1) * FIRE_SMOKE_RISE_JITTER)
-      // 【煙也繼承】只有火球跟著走的話，火與煙會分成兩條軌跡
-      plume.emit(
-        x, y, z,
-        vx + Math.cos(a) * r * scale, vy + up, vz + Math.sin(a) * r * scale, scale,
-      )
+      // 【煙**不**繼承火源的速度】它離開機體之後就是空氣裡的一團煙，被拋在
+      // 後面才會連成尾跡；跟著火源走的話整叢煙一起平移，柱子與尾跡都不見了。
+      // 船火也是這樣：噴煙的**源頭**每幀跟著艦體算，噴出去的每一團留在原地
+      plume.emit(x, y, z, Math.cos(a) * r * scale, up, Math.sin(a) * r * scale, scale)
     }
   }
 }

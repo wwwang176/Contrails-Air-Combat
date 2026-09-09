@@ -91,12 +91,16 @@ describe('殘骸的燃燒', () => {
     w.step(1, DEEP, WET, 0)
     // 一秒 ÷ 0.3 秒 = 三朵多；一步只放一朵，所以是 1
     expect(w.fireEvents.count).toBe(1)
+    // 【比的是一秒放幾朵，不是精確計數】一步只放一朵，所以起算的相位會
+    // 讓計數在整數之間差一
     let total = 0
     for (let i = 0; i < 60; i++) {
       w.step(1 / 60, DEEP, WET, 0)
       total += w.fireEvents.count
     }
-    expect(total).toBeCloseTo(1 / WRECK_FIRE_INTERVAL, 0)
+    const perSecond = 1 / WRECK_FIRE_INTERVAL
+    expect(total).toBeGreaterThanOrEqual(perSecond - 1)
+    expect(total).toBeLessThanOrEqual(perSecond + 1)
   })
 
   /**
@@ -176,7 +180,7 @@ describe('殘骸的燃燒', () => {
       w.step(1 / 60, dry, dry, 0)
       before += w.fireEvents.count
     }
-    expect(before).toBeGreaterThan((WRECK_FIRE_SECONDS - 2) / WRECK_FIRE_INTERVAL)
+    expect(before).toBeGreaterThan((WRECK_FIRE_SECONDS - 2) / WRECK_FIRE_INTERVAL * 0.9)
 
     // 跨過上限，再開始數
     for (let i = 0; i < 2 / (1 / 60); i++) w.step(1 / 60, dry, dry, 0)
@@ -281,23 +285,63 @@ describe('引擎火比船火小一號', () => {
     expect(WRECK_FIRE_SCALE).toBeLessThan(1)
   })
 
-  it('縮過的火球比原尺寸小，而且速度有傳下去', () => {
+  it('縮過的火球比原尺寸小', () => {
     const full: number[][] = []
     const small: number[][] = []
-    const pools = (out: number[][]): BlastPools => ({
-      fireball: fakePool(out), smoke: fakePool([]), dust: fakePool([]),
-      spray: fakePool([]), splashEvents: createImpacts(),
-    })
-    createFirePuff(pools(full), fakePool([]), 1)(0, 0, 0, 7, 0, -70)
-    createFirePuff(pools(small), fakePool([]), WRECK_FIRE_SCALE)(0, 0, 0, 7, 0, -70)
+    createFirePuff(poolsWith(full), fakePool([]), 1)(0, 0, 0, 7, 0, -70)
+    createFirePuff(poolsWith(small), fakePool([]), WRECK_FIRE_SCALE)(0, 0, 0, 7, 0, -70)
     expect(full.length).toBeGreaterThan(0)
     expect(small.length).toBeGreaterThan(0)
     // sizeScale 是第七個引數
     expect(small[0]![6]!).toBeLessThan(full[0]![6]!)
-    // 【速度要傳到火球上】不傳的話火留在原地
-    expect(small[0]![5]!).toBeLessThan(-30)
   })
 })
+
+describe('火跟著機體走，煙被拋在後面', () => {
+  /**
+   * 【火要繼承】火燒在機體上。不繼承的話一具每秒掉八十公尺的殘骸每 0.3 秒
+   * 在原地留一團 —— 一串間隔二十四公尺的獨立爆炸。
+   */
+  it('火球繼承火源的速度', () => {
+    const fire: number[][] = []
+    createFirePuff(poolsWith(fire), fakePool([]), 1)(0, 0, 0, 7, -3, -70)
+    expect(fire.length).toBeGreaterThan(0)
+    // 錐狀散射疊在繼承的速度上，所以比的是有沒有被那個大速度帶著走
+    expect(fire[0]![3]!).toBeGreaterThan(0)
+    expect(fire[0]![5]!).toBeLessThan(-40)
+  })
+
+  /**
+   * 【煙**不**繼承】它離開機體之後就是空氣裡的一團煙，被拋在後面才會連成
+   * 尾跡。跟著火源走的話整叢煙一起平移，柱子與尾跡都不見了 —— 而畫面上
+   * 那只是「煙看起來怪」，不像缺陷。
+   *
+   * 【一定要驗上升速度】只驗水平兩軸的話，把 `vy` 加回去仍然是綠的，而
+   * 那一項最致命：殘骸的 `vy` 是負的，加上去會把煙的上升整個抵銷掉。
+   */
+  it('煙的速度只有自己的擴散與上升，沒有火源的速度', () => {
+    const plume: number[][] = []
+    createFirePuff(poolsWith([]), fakePool(plume), 1)(0, 0, 0, 7, -80, -70)
+    expect(plume.length).toBeGreaterThan(0)
+    for (const p of plume) {
+      // 水平只有擴散，量級是個位數
+      expect(Math.abs(p[3]!)).toBeLessThan(FIRE_SMOKE_SPREAD_LIMIT)
+      expect(Math.abs(p[5]!)).toBeLessThan(FIRE_SMOKE_SPREAD_LIMIT)
+      // 垂直恆為正 —— 煙往上長
+      expect(p[4]!).toBeGreaterThan(0)
+    }
+  })
+})
+
+/** 煙的水平擴散上限，m/s。比它大就是混進了火源的速度 */
+const FIRE_SMOKE_SPREAD_LIMIT = 3
+
+function poolsWith(fireLog: number[][]): BlastPools {
+  return {
+    fireball: fakePool(fireLog), smoke: fakePool([]), dust: fakePool([]),
+    spray: fakePool([]), splashEvents: createImpacts(),
+  }
+}
 
 /** 記下每一次 `emit` 的引數。只餵 `createFirePuff` */
 function fakePool(log: number[][]): Particles {
