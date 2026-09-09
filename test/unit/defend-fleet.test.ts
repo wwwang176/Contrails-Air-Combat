@@ -269,3 +269,21 @@ describe('盟 M4：沖繩外海', () => {
     expect(bt.mission.outcome).toBe('defeat')
   })
 })
+
+describe('守住艦隊的目標列印航母的血量百分比', () => {
+  /**
+   * 【不印敵機數】零戰整隊重生，敵機數一直回到 16，讀不出仗打到哪裡；
+   * 玩家要盯的是航母還剩幾成。要害艦的血量比例每步從船讀，HUD 印成百分比
+   */
+  it('metric 是要害艦的血量比例，種類是 percent', () => {
+    const card = MISSIONS.allies.find((m) => m.id === 'allies-m4')!
+    const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
+    stepBattle(bt, DT)
+    expect(bt.mission.metricKind).toBe('percent')
+    expect(bt.mission.metric).toBeCloseTo(1, 6)
+    const essex = bt.world.ships.find((s) => s.vital)!
+    essex.hp = essex.cls.hp * 0.4
+    stepBattle(bt, DT)
+    expect(bt.mission.metric).toBeCloseTo(0.4, 6)
+  })
+})

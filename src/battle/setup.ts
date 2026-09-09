@@ -1574,6 +1574,7 @@ const MISSION_INPUTS: MissionInputs = {
   targetsDestroyed: 0,
   targetsTotal: 0,
   vitalSunk: 0,
+  vitalHp: 1,
   redInbound: false,
 }
 
@@ -1734,11 +1735,17 @@ export function stepBattle(b: Battle, dt: number): void {
   // 【三格都要每一步歸零】少了歸零就是上一步的值累加下去，而重開同一關時
   // 殘留的 `vitalSunk` 會讓一艘健康的航母在開場立刻判輸
   inp.vitalSunk = 0
+  // 【沒有要害艦就是滿血】目標列印它，1 讀成「100%」；有幾艘取最低的
+  inp.vitalHp = 1
   for (const sh of b.world.ships) {
     // 【我方的船只看要害艦】六艘驅逐艦沉光也不算輸 —— 它們的價值在防空
     // 火網，那已經是機制上真的（`shipGuns.ts` 每一艘都在開火）
     if (sh.team === 'blue') {
-      if (sh.vital && !sh.alive) inp.vitalSunk++
+      if (sh.vital) {
+        if (!sh.alive) inp.vitalSunk++
+        const ratio = sh.hp > 0 ? sh.hp / sh.cls.hp : 0
+        if (ratio < inp.vitalHp) inp.vitalHp = ratio
+      }
       continue
     }
     inp.shipsTotal++

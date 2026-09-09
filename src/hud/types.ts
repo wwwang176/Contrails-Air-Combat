@@ -368,8 +368,8 @@ export interface HudFrame {
   objectiveText: string
   /** 計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
   objectiveMetric: number
-  /** 計量的種類，決定 widget 怎麼格式化 */
-  objectiveMetricKind: 'count' | 'distance'
+  /** 計量的種類，決定 widget 怎麼格式化。`percent` 是 0～1 的比例 */
+  objectiveMetricKind: 'count' | 'distance' | 'percent'
   /** 計量的分母。**−1 = 沒有分母**，就印裸數字。擊沉印成 `(已沉/總數)` */
   objectiveMetricTotal: number
   /**

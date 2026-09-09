@@ -134,6 +134,7 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
       targetsDestroyed: 0,
       targetsTotal: 0,
       vitalSunk: 0,
+      vitalHp: 1,
       redInbound: false,
       convoyAlive: 4,
       convoyLead: 17000,

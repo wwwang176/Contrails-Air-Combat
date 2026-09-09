@@ -27,11 +27,13 @@ const URGENT = 30
  */
 export function formatObjectiveMetric(
   v: number,
-  kind: 'count' | 'distance',
+  kind: 'count' | 'distance' | 'percent',
   total = -1,
 ): string {
   if (!Number.isFinite(v)) return '—'
   const x = v > 0 ? v : 0
+  // 【比例印成整數百分比】守住艦隊印的是要害艦還剩幾成
+  if (kind === 'percent') return `${Math.round(x * 100)}%`
   if (kind === 'count') {
     // 【有分母就印進度】擊沉是「還差 4 艘」，而單獨一個 4 讀不出打掉幾艘。
     // 分子是**已達成數**，所以它從 0 往上走 —— 與目標列的其他數字（都在
