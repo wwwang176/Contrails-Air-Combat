@@ -211,3 +211,79 @@ describe('stepShipGuns', () => {
     expect(f.live).toBe(0)
   })
 })
+
+describe('艦隊的砲位分攤目標', () => {
+  /**
+   * 四架疊在同一條垂線上、距離不同：每一門砲的「最近」都是最低的那一架。
+   * 900 m 起算，四挺 20 mm 才全部有解（更低的話艦艏艦艉的射界錐蓋不到）。
+   */
+  function stack(): TurretCombatant[] {
+    return [target(0, 0, 900, 0), target(1, 0, 1000, 0), target(2, 0, 1100, 0), target(3, 0, 1200, 0)]
+  }
+
+  /** 兩艘各四挺 20 mm 的船，並排在同一點上 —— 八門砲看到同一組目標 */
+  function fleet(): Ship[] {
+    return [shipWith('mg'), shipWith('mg')]
+  }
+
+  function locksOf(ships: readonly Ship[], n: number): number[] {
+    const locks = new Array<number>(n).fill(0)
+    for (const s of ships) for (const g of s.guns) if (g.targetIndex >= 0) locks[g.targetIndex]!++
+    return locks
+  }
+
+  function step(ships: readonly Ship[], all: TurretCombatant[], p: Projectiles, f: FlakShells, t: number): void {
+    for (const s of ships) stepShipGuns(s, all, p, f, t, 1 / 240, ships)
+  }
+
+  /** 搜尋的冷卻逐門錯開，要走完一整個 SEARCH_INTERVAL 每一門才都挑過一次 */
+  function settle(ships: readonly Ship[], all: TurretCombatant[], from = 0): void {
+    const p = new Projectiles(64)
+    const f = createFlak()
+    for (let i = 0; i < 240; i++) step(ships, all, p, f, from + i / 240)
+  }
+
+  /**
+   * 【一架不會被整個艦隊的砲一起打】每門砲各挑最近的話，一支四機小隊壓
+   * 進來，九艘船的砲全部咬長機，長機死了下一秒全部轉到第二架 —— 四架
+   * 依序死在同一段距離上。分攤讓八門砲攤在四架身上，每架兩門。
+   */
+  it('鎖定數在整個艦隊裡攤平：八門砲、四架，每架兩門', () => {
+    const ships = fleet()
+    const all = stack()
+    settle(ships, all)
+    expect(locksOf(ships, 4)).toEqual([2, 2, 2, 2])
+  })
+
+  /** 【分攤不能讓砲位閒著】只有一架在射程內時全艦隊照打 */
+  it('只有一架時全艦隊照打', () => {
+    const ships = fleet()
+    const all = [target(0, 0, 900, 0)]
+    settle(ships, all)
+    expect(locksOf(ships, 1)[0]).toBe(8)
+  })
+
+  /** 目標死了，鎖定數跟著釋放，下一次搜尋補到其他架上、仍然攤平 */
+  it('目標死了之後其餘的砲重新攤平', () => {
+    const ships = fleet()
+    const all = stack()
+    settle(ships, all)
+    all[0]!.alive = false
+    // 下一次搜尋（SEARCH_INTERVAL 之後）
+    settle(ships, all, 1)
+    const locks = locksOf(ships, 4)
+    expect(locks[0]).toBe(0)
+    expect(Math.max(...locks) - Math.min(locks[1]!, locks[2]!, locks[3]!)).toBeLessThanOrEqual(1)
+    expect(locks[1]! + locks[2]! + locks[3]!).toBe(8)
+  })
+
+  /** 沒有給艦隊時只數自己：單艦的呼叫端（測試、探針）行為不變 */
+  it('省略艦隊參數時只數這一艘', () => {
+    const s = shipWith('mg')
+    const all = stack()
+    const p = new Projectiles(64)
+    const f = createFlak()
+    for (let i = 0; i < 240; i++) stepShipGuns(s, all, p, f, i / 240, 1 / 240)
+    expect(locksOf([s], 4)).toEqual([1, 1, 1, 1])
+  })
+})
