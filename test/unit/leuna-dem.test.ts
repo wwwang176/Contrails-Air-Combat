@@ -34,14 +34,14 @@ describe('實測高程', () => {
   })
 
   /**
-   * 【墊面一定要完全平】十二座構件與整片佈景都假設地面是 0 —— 斜的話儲槽
-   * 一半埋進土裡、一半浮在空中。
+   * 【墊面一定要完全平，而且是 0】十二座構件與整片佈景都假設廠區的地面是
+   * 0 —— 斜的話儲槽一半埋進土裡一半浮在空中，整體抬高的話整座廠埋在地下。
    *
    * 【壓平要多退一格】墊面邊界外第一圈的格點若不是平的，雙線性內插會把它
-   * 帶進墊面裡。少了那一格，實測是 0.85 m 的起伏 —— 小到只會被當成「地面
-   * 好像有點不平」。
+   * 帶進墊面裡，在墊面內留下 0.85 m 的起伏 —— 小到只會被當成「地面好像
+   * 有點不平」。
    */
-  it('墊面完全平坦', () => {
+  it('墊面完全平坦，而且高度是 0', () => {
     let lo = Infinity
     let hi = -Infinity
     for (let z = PLANT_CENTER.z - PLANT_PAD.halfZ; z <= PLANT_CENTER.z + PLANT_PAD.halfZ; z += 25) {
@@ -52,14 +52,31 @@ describe('實測高程', () => {
       }
     }
     expect(hi - lo, `墊面落差 ${(hi - lo).toFixed(3)} m`).toBeLessThan(0.001)
+    expect(Math.abs(lo), `墊面在 ${lo.toFixed(1)} m`).toBeLessThan(0.001)
   })
 
   /**
-   * 【最低點歸零】高度場的場外回 0（`outsideZero`），而真實高程在這一帶是
-   * 51–249 m。不歸零的話地圖邊緣是一圈五十公尺深的懸崖。
+   * 【邊緣一定要收到 0】高度場的場外回 0（`outsideZero`），遠景環也在 0。
+   * 這一帶的真實高程在邊上是 30–191 m —— 不收的話整片實測地形是一塊台地，
+   * 四周一圈上百公尺的懸崖。
    */
-  it('沒有負的高度', () => {
-    expect(Math.min(...grid(real))).toBeGreaterThanOrEqual(0)
+  it('地圖四邊都收到 0', () => {
+    let worst = 0
+    for (let t = -15000; t <= 15000; t += 200) {
+      for (const h of [real.sample(t, -15000), real.sample(t, 15000),
+        real.sample(-15000, t), real.sample(15000, t)]) {
+        worst = Math.max(worst, Math.abs(h))
+      }
+    }
+    expect(worst, `邊緣最高 ${worst.toFixed(1)} m`).toBeLessThan(0.01)
+  })
+
+  /**
+   * 【基準是廠區，所以會有負的】薩勒河的谷底比廠區低二十幾公尺，那是真的。
+   * 全部壓成非負的話河谷就不見了。
+   */
+  it('薩勒河那一側低於廠區', () => {
+    expect(real.sample(2860, -7100)).toBeLessThan(-10)
   })
 
   /**
@@ -67,7 +84,7 @@ describe('實測高程', () => {
    * 峰高而在質地 —— 手擺是平地放十顆孤立的丘（96% 完全平），實測是到處都在
    * 緩緩起伏（沒有一塊是平的）。
    */
-  it('起伏比手擺的大，而且沒有一塊是平的', () => {
+  it('起伏比手擺的大，而且幾乎沒有一塊是平的', () => {
     const r = grid(real)
     const h = grid(hand)
     const sd = (a: number[]): number => {
@@ -76,10 +93,26 @@ describe('實測高程', () => {
     }
     expect(sd(r), `實測標準差 ${sd(r).toFixed(1)} m`).toBeGreaterThan(sd(h) * 3)
     expect(Math.max(...r) - Math.min(...r)).toBeGreaterThan(150)
-    const flat = r.filter((e) => e < 0.5).length / r.length
-    expect(flat, `平地佔 ${(flat * 100).toFixed(0)}%`).toBeLessThan(0.02)
-    expect(h.filter((e) => e < 0.5).length / h.length, '手擺那一版本來就大半是平的')
-      .toBeGreaterThan(0.9)
+    /**
+     * 【平坦要看鄰格不看絕對高度】基準是廠區，所以「高度接近 0」的意思是
+     * 「與廠區同高」而不是「平的」。真正的平是**與旁邊一樣高**。
+     */
+    const flat = (f: { sample(x: number, z: number): number }): number => {
+      let n = 0
+      let same = 0
+      for (let z = -14000; z <= 14000; z += 200) {
+        for (let x = -14000; x <= 14000; x += 200) {
+          const a = f.sample(x, z)
+          n++
+          if (Math.abs(f.sample(x + 200, z) - a) < 0.05
+            && Math.abs(f.sample(x, z + 200) - a) < 0.05) same++
+        }
+      }
+      return same / n
+    }
+    const fr = flat(real)
+    expect(fr, `實測的平地佔 ${(fr * 100).toFixed(0)}%`).toBeLessThan(0.05)
+    expect(flat(hand), '手擺那一版本來就大半是平的').toBeGreaterThan(0.9)
   })
 
   /**
