@@ -37,8 +37,14 @@ export interface BankAttitude {
  *
  * 【為什麼是 80° 不是 90°】投放包絡擋的是 90°，而滾轉有動態過衝；留 10°
  * 讓過衝也落在包絡內。目標在正側方時 80° 的坡度照樣轉得過去，只是慢一點。
+ *
+ * 【垂直俯衝時管不到】坡度角在機首垂直時退化（`BankAttitude.authority`
+ * 趨近 0），改平沒有東西可以抓；那時投放包絡的滾轉角一樣沒有意義。掛彈的
+ * 攻擊航路俯衝角在 60° 以內，走不到那裡。
  */
 export const UPRIGHT_MAX_BANK = 80 * (Math.PI / 180)
+/** 改平的權限從上限之前這麼多開始升，到上限升滿，rad。 */
+export const UPRIGHT_LEVEL_RAMP = 15 * (Math.PI / 180)
 
 export function createBankAttitude(): BankAttitude {
   return { angle: 0, authority: 1 }
@@ -583,11 +589,16 @@ export class FlightDirector {
       dbg.rollCommand = this.rollOrPush(spec, aero, aimBody, dbg, qMin, upright)
     }
     // 【投放準備：滾轉指令不准把坡度推過上限】推頭解本身在目標接近機翼
-    // 平面時也會要到 ±90°，再加上動態過衝就超過投放包絡。剩多少坡度就只
-    // 准滾多少；已經超過的交給下面的改平滿權限收回來
+    // 平面時也會要到 ±90°，再加上動態過衝就超過投放包絡。夾的是**滾完之後
+    // 的坡度**：正的滾轉指令讓坡度角變小（`bankAttitude` 的符號），所以
+    // 滾完是 `bank − rollCommand`，夾在 ±UPRIGHT_MAX_BANK 內。往回改平的
+    // 方向因此永遠不被夾 —— 對稱夾住兩個方向的話，超限之後連收回來的指令
+    // 也被壓成零，與下面的改平在邊界上來回切換
     if (upright) {
-      const room = Math.max(0, UPRIGHT_MAX_BANK - Math.abs(bankAttitude(state.orientation, this.bank).angle))
-      dbg.rollCommand = clamp(dbg.rollCommand, -room, room)
+      const bankNow = bankAttitude(state.orientation, this.bank).angle
+      dbg.rollCommand = clamp(
+        dbg.rollCommand, bankNow - UPRIGHT_MAX_BANK, bankNow + UPRIGHT_MAX_BANK,
+      )
     }
     this.lastRollCommand = dbg.rollCommand
 
@@ -614,9 +625,15 @@ export class FlightDirector {
     // 停擺——實測上拉 30° 時 wingsLevelI 完全沒有作用，掃描表裡該組數據
     // 與關閉積分逐位元相同。那不是設計，是把兩個無關的條件混在一起。
     let levelWeight = 1 - smoothstep(g.deadZoneAngle, g.wingsLevelFadeAngle, dbg.errorAngle)
-    // 【投放準備時已經超過 90° 的坡度先收回來】改平以滿權限接手，不看瞄準
-    // 誤差 —— 進帶前翻過去的，帶內要翻得回來（`Command.upright`）
-    if (upright && Math.abs(bank.angle) > UPRIGHT_MAX_BANK) levelWeight = 1
+    // 【投放準備時逼近上限的坡度先收回來】改平的權限從上限之前
+    // UPRIGHT_LEVEL_RAMP 開始平滑升到 1，不看瞄準誤差 —— 進帶前翻過去的，
+    // 帶內要翻得回來（`Command.upright`）。硬切換會在邊界上與瞄準迴路來回
+    // 交手，與 wingsLevelFadeAngle 用 smoothstep 是同一個理由
+    if (upright) {
+      levelWeight = Math.max(levelWeight, smoothstep(
+        UPRIGHT_MAX_BANK - UPRIGHT_LEVEL_RAMP, UPRIGHT_MAX_BANK, Math.abs(bank.angle),
+      ))
+    }
     dbg.wingsLevelBlend = bank.authority * levelWeight
     // 機翼改平的積分項：比例項只讓坡度指數趨近 0，殘留的 0.2~0.5° 會被重力
     // 轉成持續的橫向瞄準誤差（見 wingsLevelI 的實測）。只在改平擁有滿權限時
