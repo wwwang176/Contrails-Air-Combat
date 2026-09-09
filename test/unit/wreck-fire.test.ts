@@ -1,9 +1,14 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { Group, Vector3 } from 'three'
-import { createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SECONDS } from '../../src/render/wrecks'
+import {
+  createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SCALE, WRECK_FIRE_SECONDS,
+} from '../../src/render/wrecks'
 import { FIRE_SECONDS } from '../../src/render/shipFires'
+import { createFirePuff } from '../../src/render/firePuff'
+import type { BlastPools } from '../../src/render/blast'
+import type { Particles } from '../../src/render/particles'
 import { buildAircraft, type AircraftModel } from '../../src/render/geometry/buildAircraft'
-import { IMPACT_STRIDE } from '../../src/world/events'
+import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
@@ -236,6 +241,25 @@ describe('殘骸的燃燒', () => {
     expect(w.fireEvents.count).toBeLessThanOrEqual(1)
   })
 
+  /**
+   * 【火團要繼承殘骸的速度】火團在自己的壽命裡是自由飛的，不掛在任何父
+   * 物件上。不帶速度的話，一具每秒掉八十公尺的殘骸每 0.3 秒在原地留一團
+   * —— 畫面上是一串間隔二十四公尺的獨立爆炸，不是一團跟著它的火。
+   */
+  it('火點事件帶著殘骸當下的速度', () => {
+    const w = createWrecks(4, () => {})
+    const m = fakeModel([new Vector3(0, 0, -3)])
+    m.group.position.set(0, 4000, 0)
+    w.adopt(m, P51D, 20, -5, -150, 0)
+    w.step(0.001, DEEP, WET, 0)
+    expect(w.fireEvents.count).toBe(1)
+    const d = w.fireEvents.data
+    // 【阻尼在第一步就吃掉一點】比的是方向與量級，不是原始輸入
+    expect(d[3]!).toBeCloseTo(20, 0)
+    expect(d[4]!).toBeCloseTo(-5, 0)
+    expect(d[5]!).toBeCloseTo(-150, 0)
+  })
+
   /** 【沒有引擎點的模型不能爆】程式版的外型可能一具槳都沒有 */
   it('模型沒有引擎點時安靜地不燒', () => {
     const w = createWrecks(4, () => {})
@@ -247,6 +271,48 @@ describe('殘骸的燃燒', () => {
   })
 })
 
+describe('引擎火比船火小一號', () => {
+  /**
+   * 【一具發動機艙不是一艘燃燒的軍艦】共用配方但縮尺寸。`scaleBlast` 吃的
+   * 是當量，尺寸正比於它的立方根，所以線性倍率要先立方回去。
+   */
+  it('WRECK_FIRE_SCALE 落在 0 到 1 之間', () => {
+    expect(WRECK_FIRE_SCALE).toBeGreaterThan(0)
+    expect(WRECK_FIRE_SCALE).toBeLessThan(1)
+  })
+
+  it('縮過的火球比原尺寸小，而且速度有傳下去', () => {
+    const full: number[][] = []
+    const small: number[][] = []
+    const pools = (out: number[][]): BlastPools => ({
+      fireball: fakePool(out), smoke: fakePool([]), dust: fakePool([]),
+      spray: fakePool([]), splashEvents: createImpacts(),
+    })
+    createFirePuff(pools(full), fakePool([]), 1)(0, 0, 0, 7, 0, -70)
+    createFirePuff(pools(small), fakePool([]), WRECK_FIRE_SCALE)(0, 0, 0, 7, 0, -70)
+    expect(full.length).toBeGreaterThan(0)
+    expect(small.length).toBeGreaterThan(0)
+    // sizeScale 是第七個引數
+    expect(small[0]![6]!).toBeLessThan(full[0]![6]!)
+    // 【速度要傳到火球上】不傳的話火留在原地
+    expect(small[0]![5]!).toBeLessThan(-30)
+  })
+})
+
+/** 記下每一次 `emit` 的引數。只餵 `createFirePuff` */
+function fakePool(log: number[][]): Particles {
+  return {
+    object: null as never,
+    live: 0,
+    emit(x, y, z, vx, vy, vz, sizeScale) {
+      log.push([x, y, z, vx, vy, vz, sizeScale ?? 1])
+    },
+    step() {},
+    reset() {},
+    dispose() {},
+  }
+}
+
 describe('main.ts 的接線', () => {
   const SOURCES = import.meta.glob('../../src/main.ts', {
     query: '?raw', import: 'default', eager: true,
@@ -257,9 +323,12 @@ describe('main.ts 的接線', () => {
    * 【要與船火走同一支】燃燒的表現只該有一份配方。`emitFirePuff` 是船火與
    * 地面火共用的那一支，殘骸也接它。
    */
-  it('殘骸的火點餵給 emitFirePuff', () => {
+  it('殘骸的火點餵給同一份配方做出來的回呼', () => {
     const from = MAIN.indexOf('wrecks.fireEvents')
     expect(from).toBeGreaterThan(0)
-    expect(MAIN.slice(from - 200, from + 300)).toContain('emitFirePuff')
+    expect(MAIN.slice(from - 300, from + 400)).toContain('emitWreckFirePuff(')
+    // 【兩支都出自 `createFirePuff`】各寫一份的話船火與飛機火會慢慢分家
+    expect(MAIN).toContain('createFirePuff(BLAST_POOLS, shipFireSmoke)')
+    expect(MAIN).toContain('createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)')
   })
 })

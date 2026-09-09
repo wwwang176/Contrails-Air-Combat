@@ -51,7 +51,7 @@ import {
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
-import { createWrecks } from './render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
   IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
@@ -666,12 +666,18 @@ function emitBombBlasts(events: ImpactEvents): void {
 }
 
 /**
- * 一朵火災的迷你爆炸。**船火、地面火與殘骸的引擎火共用這一支**
- * —— 配方在 `render/firePuff.ts`，靶場（`tools/range.ts`）接的也是它。
+ * 一朵火災的迷你爆炸。**船火與地面火共用這一支** —— 配方在
+ * `render/firePuff.ts`，靶場（`tools/range.ts`）接的也是它。
  *
  * **在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
  */
 const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
+
+/**
+ * 殘骸的引擎火。**同一份配方、小一號** —— 燒的是一具發動機艙，不是整艘
+ * 燃燒的軍艦。
+ */
+const emitWreckFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)
 
 /**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
@@ -1770,13 +1776,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
   wrecks.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   debris.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
-  // 【殘骸的引擎在燒】走船火那一支噴煙回呼 —— 燒起來的船與燒起來的飛機
-  // 看起來就該是同一種火。位置由 `wrecks` 每一步從機體座標轉成世界座標
+  // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
+  // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
   {
     const d = wrecks.fireEvents.data
     for (let e = 0; e < wrecks.fireEvents.count; e++) {
       const o = e * IMPACT_STRIDE
-      emitFirePuff(d[o]!, d[o + 1]!, d[o + 2]!)
+      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!)
     }
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)

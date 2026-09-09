@@ -1,4 +1,4 @@
-import { FIRE_BLAST, emitBlast, type BlastPools } from './blast'
+import { FIRE_BLAST, emitBlast, scaleBlast, type BlastParams, type BlastPools } from './blast'
 import { hash01 } from './scatter'
 import { SHIP_FIRE_PLUME_SPEED } from './smoke'
 import type { FirePuffFn } from './shipFires'
@@ -31,12 +31,21 @@ const FIRE_SMOKE_RISE_JITTER = 0.25
  *
  * @param pools 爆炸那一組池。`FIRE_BLAST` 只用到 `fireball` 與 `glow`
  * @param plume 煙柱的池（`createShipFireSmoke`）
+ * @param scale 線性尺寸倍率。1 = 燒起來的船那一級；一具引擎的火要小一號
  */
-export function createFirePuff(pools: BlastPools, plume: Particles): FirePuffFn {
+export function createFirePuff(
+  pools: BlastPools, plume: Particles, scale = 1,
+): FirePuffFn {
   /** 散佈序號。爆炸配方與煙的三個抖動都吃它 */
   let seed = 0
-  return (x, y, z) => {
-    emitBlast(pools, FIRE_BLAST, x, y, z, (seed = (seed + 1) | 0))
+  // 【尺寸在建的時候縮一次】`scaleBlast` 吃的是**當量**，而尺寸正比於它的
+  // 立方根（`blastScale`）—— 線性倍率要先立方回去
+  const recipe: { -readonly [K in keyof BlastParams]: number } = { ...FIRE_BLAST }
+  if (scale !== 1) scaleBlast(FIRE_BLAST, scale * scale * scale, recipe)
+  return (x, y, z, vx = 0, vy = 0, vz = 0) => {
+    // 【火團要繼承火源的速度】不繼承的話一具高速墜落的殘骸每 0.3 秒在原地
+    // 留一團，畫面上是一串獨立的爆炸而不是一團跟著它的火
+    emitBlast(pools, recipe, x, y, z, (seed = (seed + 1) | 0), vx, vy, vz)
     for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
       // 【三個維度各自抖】方位角、半徑、上升速度全部獨立取樣。
       //
@@ -49,7 +58,11 @@ export function createFirePuff(pools: BlastPools, plume: Particles): FirePuffFn 
       const r = Math.sqrt(hash01(s * 3 + 2)) * FIRE_SMOKE_SPREAD
       const up = SHIP_FIRE_PLUME_SPEED
         * (1 + (hash01(s * 3 + 3) * 2 - 1) * FIRE_SMOKE_RISE_JITTER)
-      plume.emit(x, y, z, Math.cos(a) * r, up, Math.sin(a) * r, 1)
+      // 【煙也繼承】只有火球跟著走的話，火與煙會分成兩條軌跡
+      plume.emit(
+        x, y, z,
+        vx + Math.cos(a) * r * scale, vy + up, vz + Math.sin(a) * r * scale, scale,
+      )
     }
   }
 }

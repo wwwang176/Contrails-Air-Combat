@@ -75,6 +75,12 @@ export const WRECK_FIRE_INTERVAL = FIRE_PUFF
  */
 export const WRECK_FIRE_SECONDS = FIRE_SECONDS
 
+/**
+ * 引擎火的線性尺寸倍率，相對船火。**燒的是一具發動機艙，不是整艘燃燒的
+ * 軍艦。** 呼叫端傳給 `createFirePuff`
+ */
+export const WRECK_FIRE_SCALE = 0.5
+
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
 
@@ -91,6 +97,10 @@ export interface Wrecks {
    *
    * 呼叫端把每一筆餵給船火那一支噴煙回呼（`main.ts` 的 `emitFirePuff`）
    * —— 燃燒的表現只該有一份配方。
+   *
+   * 【法線那三格借去帶殘骸的速度】火團在自己的壽命裡是自由飛的，不繼承
+   * 速度的話一具每秒掉八十公尺的殘骸會在天上留一串獨立的爆炸。這一份
+   * 事件沒有法線可言，那三格是現成的空位。
    */
   readonly fireEvents: ImpactEvents
   /** 這一次 `step` 產生的入水噴濺。同樣的生命週期 */
@@ -280,7 +290,7 @@ export function createWrecks(
             // 一團更亮的火。理由同 `stepShipFires`
             do { t += WRECK_FIRE_INTERVAL } while (t <= 0)
             FIRE_AT.copy(model.enginePoints[s.engine]!).applyQuaternion(s.quat).add(g.position)
-            pushImpact(fireEvents, FIRE_AT.x, FIRE_AT.y, FIRE_AT.z, 0, 1, 0)
+            pushImpact(fireEvents, FIRE_AT.x, FIRE_AT.y, FIRE_AT.z, s.vx, s.vy, s.vz)
           }
           s.fire = t
         }
