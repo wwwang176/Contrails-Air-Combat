@@ -1,6 +1,6 @@
 import { createHeightField, type HeightFieldData } from '../world/heightfield'
 import { FARM_CELL, FARM_SIZE } from '../world/farmland'
-import { PAD_CLEARANCE, PLANT_CENTER, PLANT_PAD } from '../world/leuna'
+import { PAD_CLEARANCE, PLANT_CENTER, PLANT_PAD, worldToPlant } from '../world/leuna'
 
 /**
  * 洛伊納一帶的**真實高程**，只給展示區並排比較用。
@@ -33,6 +33,9 @@ interface DemFile {
  * 要求同一個數字。
  */
 const PAD_BLEND = PAD_CLEARANCE
+
+/** `worldToPlant` 的暫存。`demToField` 逐格跑十四萬次，不在迴圈裡建物件 */
+const LOCAL = { x: 0, z: 0 }
 
 /** 平滑的 0→1，兩端一階導數為 0 —— 硬邊會在墊面外圍留一圈折線 */
 function smoothStep(t: number): number {
@@ -88,12 +91,15 @@ export function demToField(dem: DemFile): HeightFieldData {
     for (let i = 0; i < FARM_SIZE; i++) {
       const x = (i - half) * FARM_CELL
       const z = (j - half) * FARM_CELL
-      // 離墊面矩形多遠（矩形內為 0）
-      const dx = Math.max(0, Math.abs(x - PLANT_CENTER.x) - PLANT_PAD.halfX)
-      const dz = Math.max(0, Math.abs(z - PLANT_CENTER.z) - PLANT_PAD.halfZ)
-      // 【要多退一格】墊面邊界外第一圈的格點若不是平的，雙線性內插會把它
-      // 帶進墊面裡 —— 那會在墊面內留下 0.85 m 的起伏，而佈景假設是 0
-      const pad = smoothStep(Math.max(0, Math.hypot(dx, dz) - FARM_CELL) / PAD_BLEND)
+      // 離墊面矩形多遠（矩形內為 0）。**要先轉進廠區局部座標** —— 墊面轉了
+      // `PLANT_HEADING`，拿世界座標去比會把斜出去的兩角留在坡上
+      worldToPlant(x, z, LOCAL)
+      const dx = Math.max(0, Math.abs(LOCAL.x) - PLANT_PAD.halfX)
+      const dz = Math.max(0, Math.abs(LOCAL.z) - PLANT_PAD.halfZ)
+      // 【要多退一格半】墊面邊界外第一圈的格點若不是平的，雙線性內插會把它
+      // 帶進墊面裡 —— 那會在墊面內留下 0.85 m 的起伏，而佈景假設是 0。
+      // 墊面是斜的，格點到斜邊的最近距離最遠可以到一格的 √2 倍
+      const pad = smoothStep(Math.max(0, Math.hypot(dx, dz) - FARM_CELL * 1.5) / PAD_BLEND)
       // 邊緣往 0 收：中間一大片完全不動，只有最外圈那條帶子被拉平
       const fade = smoothStep(Math.min(edge - Math.abs(x), edge - Math.abs(z)) / EDGE_FADE)
       field.data[j * FARM_SIZE + i] = (sample(x, z) - datum) * pad * fade

@@ -589,14 +589,24 @@ export const FIELD_GLSL = fieldGlsl('summer')
  * 起伏切；著色器吃世界座標，圖案本來就釘在地上。
  */
 export interface SiteLayout {
-  /** 墊面矩形，世界座標 */
+  /**
+   * 廠區局部座標系的原點，世界座標。省略時是 (0, 0)。
+   *
+   * 【`pad`／`patches`／`outposts` 全部活在局部系裡】它們仍然是軸對齊矩形，
+   * 只是先繞 `pivot` 轉了 `heading`。`roads`／`rails` 是例外 —— 那兩組一路
+   * 畫到地圖邊緣，寫的是世界座標。
+   */
+  readonly pivot?: { readonly x: number; readonly z: number }
+  /** 局部系相對世界的旋轉，弧度。省略或 0 時局部＝世界 */
+  readonly heading?: number
+  /** 墊面矩形，廠區局部座標 */
   readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
   /** 道路的折線，世界座標 */
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */
   readonly roadWidth: number
   /**
-   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。世界座標。
+   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。廠區局部座標。
    *
    * 【壓在墊面之上、道路之下】次序在 `siteGlsl` 與 `siteSurfaceColor` 兩邊
    * 要一致，否則畫面上的路被碴石蓋掉，而小地圖取樣說它是柏油。
@@ -607,7 +617,7 @@ export interface SiteLayout {
     readonly hex: number
   }[]
   /**
-   * 牆外衛星設施的鋪面。世界座標，形狀與 `patches` 相同。
+   * 牆外衛星設施的鋪面。廠區局部座標，形狀與 `patches` 相同。
    *
    * 【為什麼不能併進 `patches`】`patches` 在過渡帶之前上色，越靠外越被混回
    * 田色 —— 而衛星設施整塊都在墊面外，併進去會被洗成一片田。這一層畫在
@@ -750,13 +760,28 @@ function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
  * 是田。少了這個外接矩形，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
  */
 function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1: number } {
-  const out = {
+  const local = {
     x0: site.pad.x0 - BAND, x1: site.pad.x1 + BAND,
     z0: site.pad.z0 - BAND, z1: site.pad.z1 + BAND,
   }
   for (const q of site.outposts ?? []) {
-    out.x0 = Math.min(out.x0, q.x0); out.x1 = Math.max(out.x1, q.x1)
-    out.z0 = Math.min(out.z0, q.z0); out.z1 = Math.max(out.z1, q.z1)
+    local.x0 = Math.min(local.x0, q.x0); local.x1 = Math.max(local.x1, q.x1)
+    local.z0 = Math.min(local.z0, q.z0); local.z1 = Math.max(local.z1, q.z1)
+  }
+  // 【轉過角度就要取四角的外接盒】早退的測試在世界座標做，直接把局部的邊界
+  // 當世界用的話，斜角那兩塊墊面會被擋在外面 —— 畫面上是廠區缺了兩個角
+  const c = Math.cos(site.heading ?? 0)
+  const s = Math.sin(site.heading ?? 0)
+  const px = site.pivot?.x ?? 0
+  const pz = site.pivot?.z ?? 0
+  const out = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity }
+  for (const [dx, dz] of [
+    [local.x0, local.z0], [local.x1, local.z0], [local.x1, local.z1], [local.x0, local.z1],
+  ] as const) {
+    const x = px + dx * c - dz * s
+    const z = pz + dx * s + dz * c
+    out.x0 = Math.min(out.x0, x); out.x1 = Math.max(out.x1, x)
+    out.z0 = Math.min(out.z0, z); out.z1 = Math.max(out.z1, z)
   }
   return out
 }
@@ -827,8 +852,8 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
   const corners = CORNER_CUTS.map(([fa, fe], k) => {
     const a = fa * W
     const e = fe * D
-    const u = (k & 1) === 0 ? `world.x - ${pad.x0.toFixed(1)}` : `${pad.x1.toFixed(1)} - world.x`
-    const v = k < 2 ? `world.y - ${pad.z0.toFixed(1)}` : `${pad.z1.toFixed(1)} - world.y`
+    const u = (k & 1) === 0 ? `local.x - ${pad.x0.toFixed(1)}` : `${pad.x1.toFixed(1)} - local.x`
+    const v = k < 2 ? `local.y - ${pad.z0.toFixed(1)}` : `${pad.z1.toFixed(1)} - local.y`
     const norm = Math.hypot(1 / a, 1 / e)
     return `  padD = max(padD, (1.0 - (${u}) / ${a.toFixed(1)} - (${v}) / ${e.toFixed(1)})`
       + ` / ${norm.toFixed(8)});`
@@ -845,8 +870,8 @@ ${rs.map((p) => `  vec4(${p.x0.toFixed(1)}, ${p.z0.toFixed(1)}, `
 ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   );
   for (int i = 0; i < ${rs.length}; i++) {
-    if (world.x >= ${name}[i].x && world.x < ${name}[i].z
-        && world.y >= ${name}[i].y && world.y < ${name}[i].w) {
+    if (local.x >= ${name}[i].x && local.x < ${name}[i].z
+        && local.y >= ${name}[i].y && local.y < ${name}[i].w) {
       ${assign.replace('$', `${name}_HUE[i]`)}
     }
   }`
@@ -861,13 +886,21 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   // 道路留在外面：連外那兩條一路畫到地圖邊緣
   if (world.x > ${near.x0.toFixed(1)} && world.x < ${near.x1.toFixed(1)}
       && world.y > ${near.z0.toFixed(1)} && world.y < ${near.z1.toFixed(1)}) {
+  // 【底下這一段全部在廠區局部座標】墊面轉了 ${((site.heading ?? 0) * 180 / Math.PI).toFixed(1)} 度，
+  // 而墊面／鋪面／衛星設施都是軸對齊矩形 —— 轉一次座標比把四個不等式改成
+  // 一般多邊形便宜得多。髒污也吃局部座標，碎花才跟著廠區的方向走
+  vec2 rel = world - vec2(${(site.pivot?.x ?? 0).toFixed(1)}, ${(site.pivot?.z ?? 0).toFixed(1)});
+  vec2 local = vec2(rel.x * ${Math.cos(site.heading ?? 0).toFixed(8)}
+                    + rel.y * ${Math.sin(site.heading ?? 0).toFixed(8)},
+                    -rel.x * ${Math.sin(site.heading ?? 0).toFixed(8)}
+                    + rel.y * ${Math.cos(site.heading ?? 0).toFixed(8)});
   // 髒污：${SLAB_CELL.toFixed(0)} m 的鋪面塊疊 ${GRIME_CELL.toFixed(0)} m 的油漬與微亮暗。
   // 墊面與鋪面共用，所以碴石與裸土也是同色系的碎花而不是一整塊平色
   //
   // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
-  uint sgP = fieldHash2(int(floor(world.x / ${GRIME_CELL}.0)), int(floor(world.y / ${GRIME_CELL}.0)));
-  uint sgS = fieldHash2(int(floor(world.x / ${SLAB_CELL}.0)) + 7919,
-                        int(floor(world.y / ${SLAB_CELL}.0)) - 104729);
+  uint sgP = fieldHash2(int(floor(local.x / ${GRIME_CELL}.0)), int(floor(local.y / ${GRIME_CELL}.0)));
+  uint sgS = fieldHash2(int(floor(local.x / ${SLAB_CELL}.0)) + 7919,
+                        int(floor(local.y / ${SLAB_CELL}.0)) - 104729);
   uint sgO = fieldHash1(sgP);
   float siteGrime = (0.86 + 0.2 * float((sgS >> 8) & 0x7u) / 7.0)
     * ((sgO & 0xffu) < 46u ? 0.74 : 1.0)
@@ -879,10 +912,10 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
   float padD = max(
-    max(${pad.x0.toFixed(1)} + ${inset('world.y', 4517, 3313)} - world.x,
-        world.x - (${pad.x1.toFixed(1)} - (${inset('world.y', 2287, 6151)}))),
-    max(${pad.z0.toFixed(1)} + ${inset('world.x', 9911, 8543)} - world.y,
-        world.y - (${pad.z1.toFixed(1)} - (${inset('world.x', 7331, 1697)}))));
+    max(${pad.x0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
+        local.x - (${pad.x1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
+    max(${pad.z0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
+        local.y - (${pad.z1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
 ${corners}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
@@ -892,7 +925,7 @@ ${corners}
 ${patchGlsl}
   // 【過渡帶】墊面外 ${BAND.toFixed(0)} m 是擾動地：碎石、堆土、雜草。廠區與田之間
   // 不是一條線而是一條帶 —— 這是高空看下去最有效的一招，眼睛抓的是階梯
-  float bandH = float((fieldHash2(int(floor(world.x / 260.0)), int(floor(world.y / 260.0))) >> 9) & 0xffu) / 255.0;
+  float bandH = float((fieldHash2(int(floor(local.x / 260.0)), int(floor(local.y / 260.0))) >> 9) & 0xffu) / 255.0;
   float padT = clamp(padD / (${BAND.toFixed(1)} * (0.6 + 0.4 * bandH)), 0.0, 1.0);
   col = mix(mix(siteCol, ${rgb(DISTURBED)} * siteGrime, min(1.0, padT * 2.2)), col, padT * padT);
 ${outpostGlsl}
@@ -942,20 +975,27 @@ export function siteSurfaceColor(
     if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
       return fieldSurfaceColor(x, z, out, season)
     }
+    // 【與 `siteGlsl` 一樣，底下全部在廠區局部座標】髒污也是
+    const c = Math.cos(site.heading ?? 0)
+    const sn = Math.sin(site.heading ?? 0)
+    const rx = x - (site.pivot?.x ?? 0)
+    const rz = z - (site.pivot?.z ?? 0)
+    const lx = rx * c + rz * sn
+    const lz = -rx * sn + rz * c
     for (const q of site.outposts ?? []) {
-      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) {
-        return out.setHex(q.hex).multiplyScalar(grimeFactor(x, z))
+      if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) {
+        return out.setHex(q.hex).multiplyScalar(grimeFactor(lx, lz))
       }
     }
-    const d = padDistance(x, z, site.pad)
-    const t = Math.min(1, Math.max(0, d / bandWidth(x, z)))
+    const d = padDistance(lx, lz, site.pad)
+    const t = Math.min(1, Math.max(0, d / bandWidth(lx, lz)))
     if (t < 1) {
       // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗 → 過渡帶，次序一致
       let hex = CONCRETE
       for (const q of site.patches ?? []) {
-        if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) hex = q.hex
+        if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) hex = q.hex
       }
-      const g = grimeFactor(x, z)
+      const g = grimeFactor(lx, lz)
       const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / 150))
       out.setHex(hex).multiplyScalar(g * dark)
       out.lerp(SCRATCH.setHex(DISTURBED).multiplyScalar(g), Math.min(1, t * 2.2))

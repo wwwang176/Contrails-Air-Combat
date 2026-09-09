@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { BufferAttribute } from 'three'
 import { demToField } from '../../src/tools/leunaDem'
 import { buildRiverWater, riverLines, type RiverFile } from '../../src/tools/leunaRiver'
-import { createLeuna, PLANT_CENTER, PLANT_PAD } from '../../src/world/leuna'
+import { createLeuna, PLANT_PAD, plantToWorld } from '../../src/world/leuna'
 import { FARM_CELL, FARM_SIZE } from '../../src/world/farmland'
 
 /**
@@ -44,9 +44,13 @@ describe('實測高程', () => {
   it('墊面完全平坦，而且高度是 0', () => {
     let lo = Infinity
     let hi = -Infinity
-    for (let z = PLANT_CENTER.z - PLANT_PAD.halfZ; z <= PLANT_CENTER.z + PLANT_PAD.halfZ; z += 25) {
-      for (let x = PLANT_CENTER.x - PLANT_PAD.halfX; x <= PLANT_CENTER.x + PLANT_PAD.halfX; x += 25) {
-        const h = real.sample(x, z)
+    // 【掃廠區局部座標】墊面轉了 `PLANT_HEADING`，用世界的軸對齊矩形掃會
+    // 掃到墊面外的坡上
+    const w = { x: 0, z: 0 }
+    for (let dz = -PLANT_PAD.halfZ; dz <= PLANT_PAD.halfZ; dz += 25) {
+      for (let dx = -PLANT_PAD.halfX; dx <= PLANT_PAD.halfX; dx += 25) {
+        plantToWorld(dx, dz, w)
+        const h = real.sample(w.x, w.z)
         lo = Math.min(lo, h)
         hi = Math.max(hi, h)
       }

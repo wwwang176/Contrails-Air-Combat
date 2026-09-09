@@ -6,7 +6,9 @@
  * ```
  *
  * 【只給展示區用】與 `fetch-leuna-dem.mjs` 同一個座標對應：北 = 遊戲的 −Z、
- * 東 = +X，廠區中心 (0, −7000) 對到真實的 (51.32, 12.00)。
+ * 東 = +X，廠區中心 (0, −7000) 對到真實的 (51.3085, 12.0048) —— OSM 上
+ * Chemiestandort Leuna 三塊廠區的面積加權形心。兩支的錨點必須一樣，否則
+ * 河會相對地形整片平移。
  *
  * 【資料來源與出處】OpenStreetMap contributors，ODbL。
  *
@@ -19,8 +21,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const PLANT_LAT = 51.32
-const PLANT_LON = 12.0
+const PLANT_LAT = 51.3085
+const PLANT_LON = 12.0048
 const PLANT_Z = -7000
 const HALF_M = ((376 - 1) / 2) * 80
 const M_PER_DEG_LAT = 111320

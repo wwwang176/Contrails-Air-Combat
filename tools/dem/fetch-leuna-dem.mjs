@@ -13,8 +13,10 @@
  * 每次 100 點、每秒 1 次、每天 1,000 次 —— 底下的節流不要拿掉。
  *
  * 【座標對應】北 = 遊戲的 −Z、東 = 遊戲的 +X，廠區中心
- * `PLANT_CENTER (0, −7000)` 對到真實的 (51.32, 12.00)。要換朝向就改
- * `NORTH_IS` 那一組，不要去動抓回來的資料。
+ * `PLANT_CENTER (0, −7000)` 對到真實的 (51.3085, 12.0048) —— OSM 上
+ * Chemiestandort Leuna 三塊廠區的面積加權形心。錨在形心而不是隨手挑的整數
+ * 經緯度，河與地形相對廠區的位置才是對的。要換朝向就改 `NORTH_IS` 那一組，
+ * 不要去動抓回來的資料。
  *
  * 【為什麼取樣 320 m 而不是高度場的 80 m】376 × 376 要十四萬點，遠超額度；
  * 而那一帶的起伏標準差是 27 m／30 km，320 m 已經比肉眼在飛行高度分得出來的
@@ -24,8 +26,8 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 /** 廠區中心的真實座標 */
-const PLANT_LAT = 51.32
-const PLANT_LON = 12.0
+const PLANT_LAT = 51.3085
+const PLANT_LON = 12.0048
 /** 廠區中心在遊戲世界的座標（`world/leuna.ts` 的 `PLANT_CENTER`） */
 const PLANT_Z = -7000
 /** 高度場的範圍：376 格 × 80 m，中心在世界原點 */
