@@ -118,6 +118,9 @@ describe('換一場的兩個入口都要清粒子池', () => {
         'groundFires',
         // 廠區的白煙
         'steam',
+        // 【鏡頭震動】同樣不是粒子池，但有跨場狀態：漏清的話上一場最後
+        // 那一顆炸彈的餘震會接在新一場的第一幀上
+        'cameraShake',
       ].sort(),
     )
   })
@@ -127,15 +130,19 @@ describe('換一場的兩個入口都要清粒子池', () => {
    * 會**收得到 `emit` 但一個粒子都不畫** —— 實例矩陣是在 `step` 裡寫的，
    * 從來不推就等於整池不存在，而且完全不報錯。
    *
-   * 【`shipFires` 與 `groundFires` 不在此列】它們不是粒子池，走的是
-   * `stepShipFires(...)` 與 `stepGroundFires(...)`，各自另有一條斷言。
+   * 【`shipFires`、`groundFires` 與 `cameraShake` 不在此列】它們不是粒子
+   * 池，走的是 `stepShipFires(...)`、`stepGroundFires(...)` 與
+   * `stepCameraShake(...)`，各自另有一條斷言。
    */
+  const NOT_PARTICLE = ['shipFires', 'groundFires', 'cameraShake']
+
   it('POOLS 裡的每一個粒子池每幀都被推', () => {
     for (const pool of poolNames()) {
-      if (pool === 'shipFires' || pool === 'groundFires') continue
+      if (NOT_PARTICLE.includes(pool)) continue
       expect(MAIN, `${pool} 沒有人每幀推它`).toContain(`${pool}.step(`)
     }
     expect(MAIN).toContain('stepShipFires(shipFires,')
     expect(MAIN).toContain('stepGroundFires(groundFires,')
+    expect(MAIN).toContain('stepCameraShake(cameraShake,')
   })
 })

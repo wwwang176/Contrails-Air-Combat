@@ -32,7 +32,7 @@ import {
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
-import { clearBursts } from './world/flak'
+import { clearBursts, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
   DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SPEED, STEAM_PLUME_SPEED,
@@ -40,7 +40,9 @@ import {
 import {
   createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
 } from './render/shipFires'
-import { createGroundFires, lightGroundFire, stepGroundFires } from './render/groundFires'
+import {
+  createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
+} from './render/groundFires'
 import { hash01 } from './render/scatter'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
@@ -89,6 +91,10 @@ import {
 } from './camera/godCamera'
 import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
+import {
+  FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  addShake, applyCameraShake, createCameraShake, stepCameraShake,
+} from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { slewAimWorld } from './input/aim'
@@ -499,6 +505,10 @@ ctx.scene.add(vortex.object)
 const shipFires = createShipFires()
 const groundFires = createGroundFires()
 /**
+ * 附近的爆炸把鏡頭搖一下。**火焰那一串小爆炸不進來**（見 `cameraShake.ts`）
+ */
+const cameraShake = createCameraShake()
+/**
  * 魚雷的航跡。**貼著浪面的一條白帶，不是粒子** —— 粒子池畫的是團狀的東西，
  * 這是一條線（理由見 `render/wake.ts`，與凝結尾同一條）。水花仍然照噴，它
  * 負責線上的閃爍。
@@ -598,6 +608,7 @@ function emitKillBlasts(events: KillEvents): void {
     emitBlast(BLAST_POOLS, onLand ? LAND_BLAST : AIR_BLAST,
       x, onLand ? ground : y, z, (e * 131 + Math.round(world.time * 60)) | 0,
       d[o + 3]! * inherit, d[o + 4]! * inherit, d[o + 5]! * inherit)
+    addShake(cameraShake, x, onLand ? ground : y, z, KILL_SHAKE, ctx.camera.position)
   }
 }
 
@@ -610,10 +621,16 @@ function emitGroundKills(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
-    emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
-      (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
-    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數。炸彈落點的火球與碎片
-    // 由 `emitBombBlasts` 負責 —— 這裡只點火，不再放第二次爆炸
+    // 【炸彈擊毀不放第二次爆炸】`ny` 是兇手：−1 = 炸彈，那一顆的落點事件
+    // 已經在 `emitBombBlasts` 放過火球與碎片；子彈擊毀沒有落點事件，這裡
+    // 才放一團
+    if (d[o + 4]! >= 0) {
+      emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+        (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+      // 【炸彈擊毀的不搖第二次】同一個理由：那一顆的落點事件已經搖過
+      addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+    }
+    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數
     const t = world.groundTargets[d[o + 3]!]
     const top = t === undefined ? 0 : t.impactY - t.position.y
     lightGroundFire(groundFires, d[o]!, d[o + 1]! + top * 0.3, d[o + 2]!)
@@ -641,6 +658,7 @@ function emitBombBlasts(events: ImpactEvents): void {
     scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
     const seed = (e * 197 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
+    addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)
     // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
     debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
   }
@@ -704,8 +722,22 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     const y = Number.isFinite(w) ? w : d[o + 1]!
     const seed = (e * 211 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
+    addShake(cameraShake, x, y, z, scale, ctx.camera.position)
     // 碎片從水面往上拋；與擊墜共用同一個池
     debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
+  }
+}
+
+/**
+ * 高砲的引爆搖鏡頭。**配方在 `emitFlakBlasts`（`blast.ts`）裡放，震動在這
+ * 一層加** —— 那一支不知道相機在哪裡，而震動一定要量到相機的距離。
+ *
+ * 呼叫端負責排空 `events`。
+ */
+function shakeFlakBursts(events: BurstEvents): void {
+  for (let e = 0; e < events.count; e++) {
+    addShake(cameraShake, events.x[e]!, events.y[e]!, events.z[e]!,
+      FLAK_SHAKE, ctx.camera.position)
   }
 }
 
@@ -732,6 +764,9 @@ const POOLS = [
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
   shipFireSmoke, shipFires, groundFires, steam,
+  // 【鏡頭震動也在這裡】跨場狀態、`reset()` 的簽章一樣。漏清的話上一場
+  // 最後那一顆炸彈的餘震會接在新一場的第一幀上
+  cameraShake,
 ]
 
 /** 每一座冒煙的構件每秒幾顆蒸汽 */
@@ -1543,6 +1578,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 【起火要排在排空之前】兩份事件都在這個物理子步裡就被清掉了；等到
     // 幀率區段才讀的話它們已經是空的，火點永遠是 0 而且不報錯
     lightShipFires(shipFires, world.bombEvents, world.ships)
+    // 【落在陸地的炸彈也留火】水上的、打中船的、打中建築的各有各的去處
+    lightGroundFires(groundFires, world.bombEvents)
     clearImpacts(world.bombEvents)
     // 【魚雷的兩條管道】引爆走水冠、入水與航跡走水花。兩者都在物理子步裡
     // 消費 —— 一枚魚雷跑 91 秒會推出 250 筆航跡，累到幀尾會滿
@@ -1556,6 +1593,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     emitFlakBursts(flakBursts, world.burstEvents)
     // 爆點的閃光與小火球走爆炸那一組池；黑雲留在上面那個池
     emitFlakBlasts(BLAST_POOLS, world.burstEvents)
+    shakeFlakBursts(world.burstEvents)
     clearBursts(world.burstEvents)
     perf.endPhysics()
   })
@@ -1744,6 +1782,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
   // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
   applyBlend(godBlend, ctx.camera, frameSeconds)
+  // 【震動疊在最後】上面每一條分支都是從頭寫相機姿態的，排在它們之前會被
+  // 整個蓋掉 —— 而畫面上只是「沒有震動」。也因為它們每幀重寫，這個偏移
+  // 不會累積回相機
+  stepCameraShake(cameraShake, frameSeconds)
+  applyCameraShake(cameraShake, ctx.camera)
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
@@ -1795,6 +1838,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   groundModels?.update(world.groundTargets)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
+    addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
     for (let k = 0; k < FIREBALL_COUNT; k++) {
       GUN_LOST_DIR.set(
         Math.cos(k * 2.39963) * 0.7, Math.abs(Math.sin(k * 1.7)) * 0.9, Math.sin(k * 2.39963) * 0.7,

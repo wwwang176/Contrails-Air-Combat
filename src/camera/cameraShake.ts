@@ -1,0 +1,169 @@
+import { Euler, Quaternion, type Camera, type Vector3 } from 'three'
+import { DEG } from '../core/math'
+import { hash01 } from '../render/scatter'
+
+/**
+ * # 爆炸的鏡頭震動
+ *
+ * 附近有東西炸開時相機抖一下。純表現：不進判定、不影響飛行，也不需要
+ * 決定性。
+ *
+ * 【為什麼是一個量而不是一串震源】同一秒裡可能有連投的一串炸彈、十幾發
+ * 高砲與一架被打爆的飛機。一人一格的話要一個池、要過期、要合成；而畫面上
+ * 的差別只有「現在抖得多大」。所以只留一個 `trauma`：隨時間衰減，角度吃
+ * 它的平方。
+ *
+ * 【同時好幾發取最大值，不疊加】疊加的話一串連投的炸彈或一片防空火網會把
+ * 它推到滿格並停在那裡 —— 而畫面上分不出「近處一顆」與「遠處十顆」。取
+ * 最大值之後震動的大小恆等於**最近最猛的那一發**。
+ *
+ * 【火焰不走這裡】燒起來的船與建築是每 0.3 秒一朵小爆炸、燒 60 秒模擬的
+ * （`shipFires`／`groundFires`）。那一串接進來的話，只要場上有一處在燒，
+ * 畫面就整場抖個不停。
+ */
+
+/**
+ * 爆炸尺度 1.0（AN-M64 500 lb，與 `scaleBlast` 的基準同一個）搖得到多遠，
+ * 公尺。**起始值，由試飛裁定。**
+ */
+export const SHAKE_RANGE = 500
+
+/** 滿震動衰減到 0 要幾秒。**起始值，由試飛裁定。** */
+export const SHAKE_SECONDS = 1.2
+
+/**
+ * 單軸的角度上限，弧度。65° 視野下 3.75° 大約是畫面高度的 6%。
+ *
+ * 【不要再大】相機每幀由 `CameraRig` 重算，震動是疊上去的偏移 —— 幅度大到
+ * 準星離開目標的話，玩家會覺得是操縱在飄而不是爆炸在震。
+ */
+export const SHAKE_MAX_ANGLE = 3.75 * DEG
+
+/** 滾轉的幅度相對於偏航／俯仰的比例。滾轉搶戲，所以小一點 */
+export const SHAKE_ROLL_RATIO = 0.6
+
+/** 噪聲的頻率，Hz。一次爆炸的 0.6 秒裡抖八下左右 */
+export const SHAKE_FREQUENCY = 14
+
+/** 擊墜一架飛機的當量尺度。燃油與彈藥一起炸，與一顆 500 lb 同級 */
+export const KILL_SHAKE = 1
+
+/** 地面目標被打爆的當量尺度 */
+export const GROUND_KILL_SHAKE = 0.8
+
+/** 艦上砲位被打掉的當量尺度。備射彈殉爆，比一發砲彈大、比一顆炸彈小 */
+export const GUN_LOST_SHAKE = 0.5
+
+/**
+ * 高砲引爆的當量尺度。5 吋砲彈的裝藥約 3 kg，對 AN-M64 的 227 kg ——
+ * 立方根律下是 0.24。
+ *
+ * 【它同時是防空火網下的震動上限】取最大值而不是疊加，所以一片彈幕搖得
+ * 再密也只到這個峰值 —— 角度吃它的平方，畫面上是持續的細微抖動。
+ */
+export const FLAK_SHAKE = 0.25
+
+export interface CameraShake {
+  /** 現在抖得多大，0…1。爆炸往上加，`stepCameraShake` 線性衰減 */
+  trauma: number
+  /**
+   * 噪聲的相位，秒。**與 `trauma` 分開，而且震動停了也照走** —— 歸零的話
+   * 每一次爆炸都從噪聲的同一點開始，連續兩次會晃出一模一樣的軌跡。
+   */
+  phase: number
+  /** 換一場全部歸零。名字是 `reset` —— `main.ts` 的 `POOLS` 對每一個成員叫它 */
+  reset(): void
+}
+
+export function createCameraShake(): CameraShake {
+  return {
+    trauma: 0,
+    phase: 0,
+    reset() {
+      this.trauma = 0
+      this.phase = 0
+    },
+  }
+}
+
+/**
+ * 一次爆炸。距離爆心越近加得越多，`SHAKE_RANGE × scale` 之外完全不加。
+ *
+ * @param scale 爆炸相似律的線性尺度，1.0 = AN-M64 500 lb。與 `scaleBlast`
+ *              吃的是同一個數 —— 炸彈與魚雷直接把 `blastScaleOf` 的結果
+ *              傳進來，固定配方的用這個檔案裡的常數。
+ * @param cam   相機**上一幀**的位置。爆炸是在物理子步裡消費的，那時這一幀
+ *              的相機還沒算 —— 在 350 m 的尺度下差一幀的位移看不出來。
+ */
+export function addShake(
+  shake: CameraShake,
+  x: number, y: number, z: number, scale: number, cam: Vector3,
+): void {
+  const range = SHAKE_RANGE * scale
+  if (range <= 0) return
+  // 【三個維度都算】只算水平距離的話，正下方的爆炸會震得像貼在臉上
+  const d = Math.hypot(cam.x - x, cam.y - y, cam.z - z)
+  if (d >= range) return
+  // 【峰值也跟著當量走，不是一律給滿】只用尺度縮短範圍的話，一發 3 kg 裝藥
+  // 的高砲彈在爆心與一顆 227 kg 的炸彈搖得一樣重
+  const peak = scale > 1 ? 1 : scale
+  // 【取最大值】見檔頭。峰值與衰減率都不超過 1，所以不必再夾上界
+  const t = peak * (1 - d / range)
+  if (t > shake.trauma) shake.trauma = t
+}
+
+/**
+ * 推進一步。
+ *
+ * @param dt **畫面時間**，不是物理子步 —— 震動是純表現。
+ */
+export function stepCameraShake(shake: CameraShake, dt: number): void {
+  shake.phase += dt
+  const t = shake.trauma - dt / SHAKE_SECONDS
+  shake.trauma = t > 0 ? t : 0
+}
+
+/**
+ * 一軸的平滑噪聲，值域 −1…1。
+ *
+ * 【為什麼不直接取雜湊】那是白噪音：相機每一幀跳到一個無關的角度，畫面上
+ * 看起來像掉幀而不是震動。這裡在整數格點上取雜湊，格點之間用 smoothstep
+ * 內插 —— 相鄰兩幀的角度因此是連續的。
+ *
+ * 【三個軸要用不同的 `channel`】共用一組值的話三軸同步，晃出來是一條斜線。
+ */
+export function shakeNoise(channel: number, t: number): number {
+  const i = Math.floor(t)
+  const f = t - i
+  const a = hash01(channel * 8191 + i) * 2 - 1
+  const b = hash01(channel * 8191 + i + 1) * 2 - 1
+  return a + (b - a) * f * f * (3 - 2 * f)
+}
+
+/** 熱路徑：每幀一次，不配置 */
+const SHAKE_Q = new Quaternion()
+const SHAKE_E = new Euler(0, 0, 0, 'YXZ')
+
+/**
+ * 把震動疊到相機姿態上。**只轉不移** —— 座艙視角下平移會穿出座艙罩，機外
+ * 視角下會把機身推出畫面。
+ *
+ * 【一定要排在 `rig.update` 與 `applyBlend` 之後】那兩支每一幀從頭寫相機
+ * 姿態，排在它們之前的震動會被整個蓋掉，而畫面上只是「沒有震動」。也因為
+ * 它們每幀重寫，這裡的偏移不會累積回相機的狀態。
+ *
+ * 【角度吃 `trauma` 的平方】線性的話 trauma 0.3 就有三成的振幅，遠處的一
+ * 聲爆炸也搖得很明顯，整場都在晃。
+ */
+export function applyCameraShake(shake: CameraShake, camera: Camera): void {
+  const a = SHAKE_MAX_ANGLE * shake.trauma * shake.trauma
+  if (a <= 0) return
+  const t = shake.phase * SHAKE_FREQUENCY
+  SHAKE_E.set(
+    a * shakeNoise(2, t),
+    a * shakeNoise(1, t),
+    a * SHAKE_ROLL_RATIO * shakeNoise(3, t),
+  )
+  // 【右乘】偏移是在相機自己的座標裡轉，得到的才是畫面的搖晃
+  camera.quaternion.multiply(SHAKE_Q.setFromEuler(SHAKE_E))
+}
