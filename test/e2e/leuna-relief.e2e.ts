@@ -50,6 +50,16 @@ const SHOTS: readonly {
     kind: 'leuna-real', tag: 'west-hills', name: '西側蓋澤爾谷的坑',
     cam: [-4000, 1400, -2000, -8000, 60, -7000],
   },
+  // 【閃爍要在高處看】遠平面 5,000 km，2–4 km 的深度解析度只剩 0.25–1 m，
+  // 水面與地面在那裡才分不開。貼地看不出來
+  {
+    kind: 'leuna-real', tag: 'zfight-2k', name: '2 km 俯瞰河（看閃爍）',
+    cam: [2400, 2000, -3800, 2860, 36, -7100],
+  },
+  {
+    kind: 'leuna-real', tag: 'zfight-4k', name: '4 km 俯瞰河（看閃爍）',
+    cam: [2400, 4000, -1800, 2860, 36, -7100],
+  },
 ]
 
 async function main(): Promise<void> {
