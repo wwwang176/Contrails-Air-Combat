@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import type { BufferAttribute } from 'three'
 import { demToField } from '../../src/tools/leunaDem'
+import { buildRiverWater, riverLines, type RiverFile } from '../../src/tools/leunaRiver'
 import { createLeuna, PLANT_CENTER, PLANT_PAD } from '../../src/world/leuna'
 import { FARM_CELL, FARM_SIZE } from '../../src/world/farmland'
 
@@ -107,5 +109,63 @@ describe('實測高程', () => {
     const cap = (demStep / 4) * 1.05
     expect(worst, `80 m 最大落差 ${worst.toFixed(1)} m，DEM 一格最大 ${demStep.toFixed(1)} m`)
       .toBeLessThanOrEqual(cap)
+  })
+})
+
+/**
+ * 薩勒河。**水面鋪在地表上不挖槽** —— 高度場一格 80 m，而河寬 50–80 m，
+ * 挖出來的槽會被相鄰格點的內插填掉，水面反而被兩岸埋住（實測只露出一條
+ * 四十公尺的縫）。理由寫在 `leunaRiver.ts` 的檔頭。
+ */
+describe('薩勒河的水面', () => {
+  const file = JSON.parse(
+    new TextDecoder().decode(readFileSync('public/data/leuna-rivers.json')),
+  ) as RiverFile
+  const lines = riverLines(real, file)
+
+  it('抓到了薩勒河，而且在廠區以東', () => {
+    const saale = lines.filter((l) => l.name === 'Saale')
+    expect(saale.length, '找不到 Saale').toBeGreaterThan(0)
+    const longest = saale.reduce((a, b) => (b.points.length > a.points.length ? b : a))
+    // 廠區中心在 x = 0。河的中位 x 要在東邊
+    const xs = longest.points.map((p) => p[0]).sort((a, b) => a - b)
+    expect(xs[Math.floor(xs.length / 2)]!, '薩勒河跑到廠區西邊了').toBeGreaterThan(500)
+  })
+
+  /**
+   * 【水面不能低於地面】它是鋪在地表上的，低一公分就整段被地面蓋掉 ——
+   * 而畫面上是一條斷斷續續的河，不是任何錯誤。
+   */
+  it('每一點都高於當地地形', () => {
+    let worst = Infinity
+    for (const l of lines) {
+      for (let i = 0; i < l.points.length; i++) {
+        worst = Math.min(worst, l.level[i]! - real.sample(l.points[i]![0], l.points[i]![1]))
+      }
+    }
+    expect(worst, `最低只高出 ${worst.toFixed(2)} m`).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【捲繞方向】帶狀網格的三角形若捲反了，法線朝下、整條河被背面剔除 ——
+   * 而畫面上是**什麼都沒有**，不是一條黑帶子。實測踩過這個坑。
+   */
+  it('每一個三角形的法線都朝上', () => {
+    const geo = buildRiverWater(lines)
+    const pos = geo.geometry.getAttribute('position') as BufferAttribute
+    const idx = geo.geometry.getIndex()!
+    let down = 0
+    for (let t = 0; t < idx.count; t += 3) {
+      const a = idx.getX(t)
+      const b = idx.getX(t + 1)
+      const c = idx.getX(t + 2)
+      const ux = pos.getX(b) - pos.getX(a)
+      const uz = pos.getZ(b) - pos.getZ(a)
+      const vx = pos.getX(c) - pos.getX(a)
+      const vz = pos.getZ(c) - pos.getZ(a)
+      // 法線的 Y 分量：u × v 的 y
+      if (uz * vx - ux * vz <= 0) down++
+    }
+    expect(down, `${down} / ${idx.count / 3} 個三角形的法線朝下`).toBe(0)
   })
 })
