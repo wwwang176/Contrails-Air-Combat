@@ -179,12 +179,12 @@ describe('殘骸的燃燒', () => {
    * 一個瞬間的訊號。一場 20v20 裡每一具都燒滿船火那個時長的話，天空會被
    * 幾十道尾跡塞住。
    *
-   * 【但也不能短到看不見】殘骸從四千公尺掉到海面要五十幾秒，火太短的話
-   * 大半段是一具無聲無息落下的機體。
+   * 【下限擋的是「短到看不見」】兩秒在 `WRECK_FIRE_INTERVAL` 之下是二十
+   * 朵火、六十團煙。低於它，一次擊墜會只留下一團無法辨認的東西。
    */
-  it('燒得比船火短，但至少十秒', () => {
+  it('燒得比船火短，但至少兩秒', () => {
     expect(WRECK_FIRE_SECONDS).toBeLessThan(FIRE_SECONDS)
-    expect(WRECK_FIRE_SECONDS).toBeGreaterThanOrEqual(10)
+    expect(WRECK_FIRE_SECONDS).toBeGreaterThanOrEqual(2)
   })
 
   /**
