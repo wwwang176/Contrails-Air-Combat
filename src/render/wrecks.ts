@@ -1,6 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
-import { FIRE_SECONDS } from './shipFires'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
 import type { Anchors } from './anchors'
 import type { AircraftSpec } from '../specs/types'
@@ -70,13 +69,17 @@ export const WRECK_GROUND_DEPTH = 3
 export const WRECK_FIRE_INTERVAL = 0.1
 
 /**
- * 引擎燒幾秒，s。**與船火同一個時長**（`shipFires.ts` 的 `FIRE_SECONDS`）。
+ * 引擎燒幾秒，s。
  *
  * 【為什麼要有上限】正常路徑是落海或落地就收掉（四千公尺掉到海面約
  * 五十八秒），但 `WRECK_MAX_LIFE` 那道保險是兩分鐘 —— 飄出海面網格、
  * 永遠碰不到水的那一具會在天上燒滿兩分鐘。
+ *
+ * 【比船火短得多】燒起來的船是一個要一直看得到的目標；被打下來的飛機是
+ * 一個瞬間的訊號，之後那道尾跡只是背景。一場 20v20 裡每一具都燒滿一分鐘
+ * 的話，天空會被幾十道尾跡塞住。
  */
-export const WRECK_FIRE_SECONDS = FIRE_SECONDS
+export const WRECK_FIRE_SECONDS = 15
 
 /**
  * 引擎火的線性尺寸倍率，相對船火。燒的是一具發動機艙，不是整艘燃燒的

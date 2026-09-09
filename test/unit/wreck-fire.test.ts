@@ -173,9 +173,17 @@ describe('殘骸的燃燒', () => {
     expect(after).toBe(0)
   })
 
-  /** 【一分鐘，與船火同一個時長】燒起來的船與燒起來的飛機該燒一樣久 */
-  it('WRECK_FIRE_SECONDS 等於船火的時長', () => {
-    expect(WRECK_FIRE_SECONDS).toBe(FIRE_SECONDS)
+  /**
+   * 【比船火短得多】燒起來的船是一個要一直看得到的目標；被打下來的飛機是
+   * 一個瞬間的訊號。一場 20v20 裡每一具都燒滿船火那個時長的話，天空會被
+   * 幾十道尾跡塞住。
+   *
+   * 【但也不能短到看不見】殘骸從四千公尺掉到海面要五十幾秒，火太短的話
+   * 大半段是一具無聲無息落下的機體。
+   */
+  it('燒得比船火短，但至少十秒', () => {
+    expect(WRECK_FIRE_SECONDS).toBeLessThan(FIRE_SECONDS)
+    expect(WRECK_FIRE_SECONDS).toBeGreaterThanOrEqual(10)
   })
 
   /**
