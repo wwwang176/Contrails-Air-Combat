@@ -223,6 +223,12 @@ export interface MissionBattle {
    */
   readonly objective: string
   /**
+   * 進場橫幅：一進地圖在畫面中央放大印出的那一句，好懂、口語、先講發生了
+   * 什麼再講要做什麼。**省略 = 用 `objective`。** 不超過 14 個字，玩家要一眼
+   * 讀完（護欄在 `missions.test.ts`）。
+   */
+  readonly banner?: string
+  /**
    * 我方（藍隊）的主力機種。**不保證是戰鬥機** —— 有幾關玩家開轟炸機。
    *
    * 【為什麼是 `AircraftSpec` 物件而不是 id 字串】id 打錯是執行期才發現
@@ -624,7 +630,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       summary: '護送第八航空軍的 B-17 深入德國本土，轟炸施韋因富特的滾珠軸承廠。',
       place: '德國　施韋因富特上空', period: '1944 年夏',
       battle: {
-        ...CONVOY, objective: '護送轟炸機抵達投彈點',
+        ...CONVOY, objective: '護送轟炸機抵達投彈點', banner: '護送 B-17 飛到投彈點',
         blueSpec: P51D, redSpec: BF109K4, convoySpec: B17G,
         blueCount: 4, redCount: 10,
         terrain: 'archipelago',
@@ -637,7 +643,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       // 十二關各不相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
       place: '德國中部　洛伊納油廠上空', period: '1944 年 11 月',
       battle: {
-        objective: '炸毀洛伊納油廠',
+        objective: '炸毀洛伊納油廠', banner: '轟炸洛伊納油廠',
         blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
         // 【四架同一個小隊】玩家是小隊長，三架 AI 照自己的攻擊航路投
         // （`ai/strikeRun.ts`）。開場四架 Bf 109 由 `headOn` 放在正前方，
@@ -682,7 +688,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
       battle: {
         ...KILL,
-        objective: '守住艦隊',
+        objective: '守住艦隊', banner: '敵機來襲，守住航母',
         blueSpec: F6F5, redSpec: A6M5,
         /**
          * 【開場十六架分兩路，被殲滅的小隊整隊重生】掛彈的零戰走的是掃射航路
@@ -765,7 +771,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       summary: '駕駛 Bf 109 K-4 撕開 P-51 的護航網，攔下飛往梅澤堡洛伊納油廠的 B-17G。',
       place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
       battle: {
-        ...CONVOY, objective: '在轟炸機抵達前擊落',
+        ...CONVOY, objective: '在轟炸機抵達前擊落', banner: '攔下 B-17，守住油廠',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
         blueCount: 10, redCount: 4,
         terrain: 'archipelago',
@@ -797,7 +803,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       summary: '駕駛 Bf 109 K-4 從巴伐利亞的野戰機場升空，迎擊掃蕩德國本土的第八航空軍 P-51D。',
       place: '德國南部　巴伐利亞上空', period: '1945 年春',
       battle: {
-        objective: '擊落全部敵機',
+        objective: '擊落全部敵機', banner: '野馬掃蕩本土，升空迎擊',
         blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
         blueCount: 8, redCount: 10,
         convoyCount: 0, convoyPriority: 1,
@@ -877,6 +883,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '臺灣　新竹外海', period: '1944 年 10 月',
       battle: {
         ...KILL,
+        banner: '艦載機空襲，擊落全部敵機',
         blueSpec: A6M5, redSpec: F6F5,
         blueCount: 8, redCount: 6,
         terrain: 'archipelago',
@@ -895,7 +902,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       summary: '駕駛 Ki-84 參加捷一號作戰，護送一式陸攻穿過 F6F 的攔截抵達投雷點。',
       place: '菲律賓　雷伊泰灣', period: '1944 年 10 月',
       battle: {
-        ...CONVOY, objective: '護送轟炸機抵達投雷點',
+        ...CONVOY, objective: '護送轟炸機抵達投雷點', banner: '護送陸攻飛到投雷點',
         blueSpec: KI84, redSpec: F6F5, convoySpec: G4M,
         blueCount: 4, redCount: 10,
         terrain: 'sea',
@@ -907,7 +914,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
       battle: {
         ...KILL,
-        objective: '擊沉任意四艘敵艦',
+        objective: '擊沉任意四艘敵艦', banner: '低空雷擊，擊沉四艘敵艦',
         // 【F4F-4 不是 F6F-5】1943 年 1 月的攔截者是企業號 VF-10 的野貓；
         // 地獄貓 1943 年 8 月才首戰，晚了七個月。
         blueSpec: G4M, redSpec: F4F4,

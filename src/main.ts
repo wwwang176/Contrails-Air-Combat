@@ -1017,6 +1017,8 @@ function leaveBattle(): void {
  * 說不通的狀態。
  */
 function restartBattle(): void {
+  // 【重開也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉
+  bannerText = ''
   // 【有波次的一場整個重建】`resetBattle` 只把飛機放回出生點：已經進場的
   // 增援會留在場上，而節拍狀態全部是 `done` —— 第二波不會再來，第二輪
   // 因此是一場從頭就滿編、什麼都不會發生的仗。
@@ -1327,6 +1329,14 @@ function leaderLabel(point: Vector3): string {
 const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
 let lastTime = performance.now()
 let elapsed = 0
+/**
+ * 目標橫幅與中央訊息的打字機時鐘：記下文字改變的那一刻，HUD 只拿到
+ * 「出現了幾秒」。用 `elapsed` 而不是牆鐘，暫停時打字也停。
+ */
+let bannerText = ''
+let bannerStart = 0
+let messageText = ''
+let messageStart = 0
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
 /**
@@ -2153,6 +2163,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
     : pendingMission?.battle.objective ?? ''
   hudFrame.objectiveMetric = m.metric
   hudFrame.objectiveMetricKind = m.metricKind
+  // 【橫幅在目標文字改變的那一刻出現】開場是卡片上那一句短句；返航節拍
+  // 換掉目標時是那一則訊息 —— 兩者走同一條。遭遇戰沒有橫幅
+  const banner = mode !== 'mission'
+    ? ''
+    : battle.objectiveText !== ''
+      ? battle.objectiveText
+      : pendingMission?.battle.banner ?? hudFrame.objectiveText
+  if (banner !== bannerText) {
+    bannerText = banner
+    bannerStart = elapsed
+  }
+  hudFrame.objectiveBanner = bannerText
+  hudFrame.objectiveBannerAge = bannerText === '' ? -1 : elapsed - bannerStart
   // 【分母由 `mission.ts` 給】只有擊沉會填總艘數，其餘任務恆是 −1
   hudFrame.objectiveMetricTotal = m.metricTotal
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
@@ -2163,6 +2186,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
   hudFrame.objectiveWorldZ = m.target.z
   // 【照抄，不在這裡判過期】`stepBeats` 已經依物理時間把過期的收掉了
   hudFrame.message = battle.message
+  // 【打字機的時鐘】訊息換了就從頭打；空字串沒有年齡
+  if (battle.message !== messageText) {
+    messageText = battle.message
+    messageStart = elapsed
+  }
+  hudFrame.messageAge = messageText === '' ? -1 : elapsed - messageStart
 
   hud.render(hudFrame, frameSeconds)
 
@@ -2273,6 +2302,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onMission(card) {
     mode = 'mission'
     pendingMission = card
+    // 【再打同一關也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉
+    bannerText = ''
   },
   onResume() {
     paused = false

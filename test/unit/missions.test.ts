@@ -275,3 +275,13 @@ describe('卡片可以複寫玩家的掛載', () => {
     }
   })
 })
+
+describe('目標橫幅', () => {
+  /** 【每一張可玩卡都要有】沒有的話進場那 3 秒是空的；要短，玩家一眼讀完 */
+  it('每一張可玩卡都有橫幅，而且不超過 14 個字', () => {
+    for (const m of playable) {
+      expect(m.battle.banner, m.id).toBeTruthy()
+      expect(m.battle.banner!.length, m.id).toBeLessThanOrEqual(14)
+    }
+  })
+})

@@ -1,4 +1,5 @@
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import { typedPrefix } from '../typewriter'
 
 /**
  * 訊息帶在畫面上的高度，**螢幕高的比例**。
@@ -35,6 +36,8 @@ export function drawMessage(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
 
+  // 【底板量整句、字打字機印】底板跟著字長的話會一格一格抖；字從整句的
+  // 左緣往右印，整句仍然置中
   const w = ctx.measureText(f.message).width
   const padX = PAD_X * L.scale
   const padY = PAD_Y * L.scale
@@ -43,5 +46,6 @@ export function drawMessage(
   ctx.fillRect(L.cx - w / 2 - padX, y - h / 2, w + padX * 2, h)
 
   ctx.fillStyle = HUD_COLORS.warn
-  ctx.fillText(f.message, L.cx, y)
+  ctx.textAlign = 'left'
+  ctx.fillText(typedPrefix(f.message, f.messageAge), L.cx - w / 2, y)
 }

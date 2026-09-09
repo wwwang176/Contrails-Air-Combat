@@ -1,4 +1,6 @@
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
+import { typedPrefix } from '../typewriter'
+import { smoothstep } from '../../core/math'
 
 /**
  * 距離改用公尺顯示的門檻，m。
@@ -80,6 +82,13 @@ export function formatCountdown(seconds: number): string {
 export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
   if (!f.objectiveActive) return
 
+  // 【橫幅還在的時候不畫目標列】橫幅滑進來之後才由這一列接手
+  const banner = bannerLayout(f.objectiveBannerAge)
+  if (banner.phase !== 'done') {
+    drawBanner(ctx, L, f, banner)
+    return
+  }
+
   const metric = formatObjectiveMetric(
     f.objectiveMetric, f.objectiveMetricKind, f.objectiveMetricTotal)
   const clock = formatCountdown(f.objectiveSeconds)
@@ -106,4 +115,74 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
   // 顏色變化，掃得到一整列。
   ctx.fillStyle = f.objectiveSeconds < URGENT ? HUD_COLORS.danger : HUD_COLORS.primary
   ctx.fillText(text, x, y)
+}
+
+// ── 進場橫幅 ─────────────────────────────────────────────────────────
+
+/** 橫幅停在畫面中央的秒數。打字機在這段裡印完 */
+export const BANNER_HOLD_SECONDS = 3
+/** 從中央滑進右上角目標列的秒數 */
+export const BANNER_SLIDE_SECONDS = 0.5
+/** 橫幅的字級，px（未乘 scale）。目標列是 14 */
+const BANNER_SIZE = 34
+/** 橫幅的縱向位置，畫面高度的比例。中央訊息在 0.30，橫幅在它上面 */
+const BANNER_Y = 0.20
+
+export interface BannerLayout {
+  /** hold＝停在中央、slide＝往右上角滑、done＝沒有橫幅（目標列照常畫） */
+  readonly phase: 'hold' | 'slide' | 'done'
+  /** 滑動的進度 0～1，hold 是 0、done 是 1 */
+  readonly k: number
+}
+
+/**
+ * 橫幅出現了幾秒 → 現在該畫在哪一段。純函數，時鐘由 `main.ts` 給。
+ *
+ * 【滑動用 smoothstep】等速的話起步與到位都是一頓，看起來像掉幀
+ */
+export function bannerLayout(age: number): BannerLayout {
+  if (age < 0) return { phase: 'done', k: 1 }
+  if (age < BANNER_HOLD_SECONDS) return { phase: 'hold', k: 0 }
+  const t = (age - BANNER_HOLD_SECONDS) / BANNER_SLIDE_SECONDS
+  if (t >= 1) return { phase: 'done', k: 1 }
+  return { phase: 'slide', k: smoothstep(0, 1, t) }
+}
+
+/**
+ * 橫幅：停在中央時打字機印出，滑動時字級、位置一起由中央內插到目標列的
+ * 右上角。底板量的是整句，字打到一半底板不會跟著長。
+ */
+function drawBanner(
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame, lay: BannerLayout,
+): void {
+  const text = f.objectiveBanner
+  if (text === '') return
+  const pad = 8 * L.scale
+  const size0 = BANNER_SIZE * L.scale
+  const size1 = 14 * L.scale
+  ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
+
+  // 兩個端點各量一次整句的寬，左緣與字級一起內插
+  ctx.font = hudFont(size0, true)
+  const w0 = ctx.measureText(text).width
+  ctx.font = hudFont(size1, true)
+  const w1 = ctx.measureText(text).width
+  const left0 = L.cx - w0 / 2
+  const top0 = L.height * BANNER_Y - size0 / 2
+  const left1 = L.width - 30 * L.scale - w1
+  const top1 = 18 * L.scale
+
+  const k = lay.k
+  const size = size0 + (size1 - size0) * k
+  const left = left0 + (left1 - left0) * k
+  const top = top0 + (top1 - top0) * k
+  const w = w0 + (w1 - w0) * k
+
+  ctx.fillStyle = HUD_COLORS.panel
+  ctx.fillRect(left - pad, top - pad * 0.5, w + pad * 2, size + pad)
+  ctx.font = hudFont(size, true)
+  ctx.fillStyle = HUD_COLORS.primary
+  const shown = lay.phase === 'hold' ? typedPrefix(text, f.objectiveBannerAge) : text
+  ctx.fillText(shown, left, top)
 }
