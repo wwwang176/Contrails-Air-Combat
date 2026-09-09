@@ -49,13 +49,19 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     wood: 0x2f3a28,
     ploughChance: 0.12,
   },
-  // 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土
+  /**
+   * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
+   *
+   * 【飽和度砍到原來的 55%】原本是 15–27%，田與薩勒河的水在明度與彩度上
+   * 都太接近 —— 河讀不出來。十一月的德國中部本來就是灰的，這一版更接近
+   * 當時的偵察照片，而且讓水與混凝土有地方站。
+   */
   lateAutumn: {
-    palette: [0x6b5a3e, 0x75634a, 0x7f6c52, 0x8a775b, 0x8f8062, 0x8d8a66, 0x83906a, 0x76946c],
-    ploughed: 0x4a3a2c,
-    hedge: 0x3a3226,
-    track: 0x7d7059,
-    wood: 0x4a4a2e,
+    palette: [0x615848, 0x6b6154, 0x756a5c, 0x7f7566, 0x857d6c, 0x84836f, 0x808773, 0x7a8b75],
+    ploughed: 0x433a33,
+    hedge: 0x36312b,
+    track: 0x756e61,
+    wood: 0x444434,
     ploughChance: 0.45,
   },
 }
