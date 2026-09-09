@@ -366,6 +366,13 @@ export interface HudFrame {
    * 常數 —— 組字串的是 widget，而 widget 走畫面頻率不是物理步。
    */
   objectiveText: string
+  /**
+   * 進場橫幅的文字：卡片上那一句好懂的短句（沒有就是 `objectiveText`）。
+   * 目標文字改變的那一刻放大到畫面中央，打字機印出、停一下、再滑進目標列。
+   */
+  objectiveBanner: string
+  /** 橫幅出現到現在幾秒；−1 = 沒有橫幅。時序見 `widgets/objective.ts` */
+  objectiveBannerAge: number
   /** 計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m */
   objectiveMetric: number
   /** 計量的種類，決定 widget 怎麼格式化。`percent` 是 0～1 的比例 */
@@ -396,6 +403,8 @@ export interface HudFrame {
    * **物理時間**的問題（與倒數同一套），widget 不持有任何計時狀態。
    */
   message: string
+  /** 訊息出現到現在幾秒，打字機用；−1 = 整句直接印 */
+  messageAge: number
 }
 
 export function createHudFrame(): HudFrame {
@@ -435,6 +444,8 @@ export function createHudFrame(): HudFrame {
     blueAlive: 0, redAlive: 0, flightAlive: 0, flightSize: 0,
     objectiveActive: false,
     objectiveText: '',
+    objectiveBanner: '',
+    objectiveBannerAge: -1,
     objectiveMetric: 0,
     objectiveMetricKind: 'count',
     objectiveMetricTotal: -1,
@@ -452,6 +463,7 @@ export function createHudFrame(): HudFrame {
     objectiveWorldX: 0,
     objectiveWorldZ: 0,
     message: '',
+    messageAge: -1,
   }
 }
 

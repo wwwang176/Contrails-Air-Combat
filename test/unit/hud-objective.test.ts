@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { formatCountdown, formatObjectiveMetric } from '../../src/hud/widgets/objective'
+import {
+  BANNER_HOLD_SECONDS, BANNER_SLIDE_SECONDS, bannerLayout, formatCountdown, formatObjectiveMetric,
+} from '../../src/hud/widgets/objective'
 
 describe('formatObjectiveMetric', () => {
   it('count 就是整數', () => {
@@ -81,5 +83,31 @@ describe('formatObjectiveMetric：percent', () => {
     expect(formatObjectiveMetric(1, 'percent')).toBe('100%')
     expect(formatObjectiveMetric(0, 'percent')).toBe('0%')
     expect(formatObjectiveMetric(-0.2, 'percent')).toBe('0%')
+  })
+})
+
+describe('目標橫幅的時序', () => {
+  /**
+   * 【進場先在畫面中央停 3 秒，再半秒滑進右上角】玩家一進地圖要先看懂
+   * 這一關要做什麼；停完滑進目標列，之後目標列照常畫。年齡 −1 = 沒有橫幅
+   */
+  it('前 3 秒停在中央、接著半秒滑動、然後結束', () => {
+    expect(bannerLayout(-1).phase).toBe('done')
+    expect(bannerLayout(0)).toEqual({ phase: 'hold', k: 0 })
+    expect(bannerLayout(BANNER_HOLD_SECONDS - 0.01).phase).toBe('hold')
+    const mid = bannerLayout(BANNER_HOLD_SECONDS + BANNER_SLIDE_SECONDS / 2)
+    expect(mid.phase).toBe('slide')
+    expect(mid.k).toBeGreaterThan(0)
+    expect(mid.k).toBeLessThan(1)
+    expect(bannerLayout(BANNER_HOLD_SECONDS + BANNER_SLIDE_SECONDS).phase).toBe('done')
+  })
+
+  it('滑動的進度單調遞增', () => {
+    let last = -1
+    for (let i = 0; i <= 10; i++) {
+      const k = bannerLayout(BANNER_HOLD_SECONDS + (BANNER_SLIDE_SECONDS * i) / 10).k
+      expect(k).toBeGreaterThanOrEqual(last)
+      last = k
+    }
   })
 })
