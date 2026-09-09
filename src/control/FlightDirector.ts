@@ -32,6 +32,14 @@ export interface BankAttitude {
   authority: number
 }
 
+/**
+ * 投放準備（`Command.upright`）時坡度的上限，rad。
+ *
+ * 【為什麼是 80° 不是 90°】投放包絡擋的是 90°，而滾轉有動態過衝；留 10°
+ * 讓過衝也落在包絡內。目標在正側方時 80° 的坡度照樣轉得過去，只是慢一點。
+ */
+export const UPRIGHT_MAX_BANK = 80 * (Math.PI / 180)
+
 export function createBankAttitude(): BankAttitude {
   return { angle: 0, authority: 1 }
 }
@@ -498,6 +506,7 @@ export class FlightDirector {
     dt: number,
     out: Controls,
     dbg: DirectorDebug,
+    upright = false,
   ): void {
     const invQ: Quaternion = S.q[0]!.copy(state.orientation).invert()
     const aimBody = S.v[0]!.copy(aimDirWorld).normalize().applyQuaternion(invQ)
@@ -571,7 +580,14 @@ export class FlightDirector {
       // 目標在機首後方」，只保留真正需要遲滯的那一極。
       dbg.rollCommand = this.lastRollCommand
     } else {
-      dbg.rollCommand = this.rollOrPush(spec, aero, aimBody, dbg, qMin)
+      dbg.rollCommand = this.rollOrPush(spec, aero, aimBody, dbg, qMin, upright)
+    }
+    // 【投放準備：滾轉指令不准把坡度推過上限】推頭解本身在目標接近機翼
+    // 平面時也會要到 ±90°，再加上動態過衝就超過投放包絡。剩多少坡度就只
+    // 准滾多少；已經超過的交給下面的改平滿權限收回來
+    if (upright) {
+      const room = Math.max(0, UPRIGHT_MAX_BANK - Math.abs(bankAttitude(state.orientation, this.bank).angle))
+      dbg.rollCommand = clamp(dbg.rollCommand, -room, room)
     }
     this.lastRollCommand = dbg.rollCommand
 
@@ -597,7 +613,10 @@ export class FlightDirector {
     // 用相乘的結果當閘門會讓飛機一進入爬升（|cos(俯仰角)| < 0.99）積分就
     // 停擺——實測上拉 30° 時 wingsLevelI 完全沒有作用，掃描表裡該組數據
     // 與關閉積分逐位元相同。那不是設計，是把兩個無關的條件混在一起。
-    const levelWeight = 1 - smoothstep(g.deadZoneAngle, g.wingsLevelFadeAngle, dbg.errorAngle)
+    let levelWeight = 1 - smoothstep(g.deadZoneAngle, g.wingsLevelFadeAngle, dbg.errorAngle)
+    // 【投放準備時已經超過 90° 的坡度先收回來】改平以滿權限接手，不看瞄準
+    // 誤差 —— 進帶前翻過去的，帶內要翻得回來（`Command.upright`）
+    if (upright && Math.abs(bank.angle) > UPRIGHT_MAX_BANK) levelWeight = 1
     dbg.wingsLevelBlend = bank.authority * levelWeight
     // 機翼改平的積分項：比例項只讓坡度指數趨近 0，殘留的 0.2~0.5° 會被重力
     // 轉成持續的橫向瞄準誤差（見 wingsLevelI 的實測）。只在改平擁有滿權限時
@@ -699,6 +718,7 @@ export class FlightDirector {
    */
   private rollOrPush(
     spec: AircraftSpec, aero: AeroState, aimBody: Vector3, dbg: DirectorDebug, qMin: number,
+    upright: boolean,
   ): number {
     const rollPull = Math.atan2(aimBody.x, aimBody.y)
     // 目標在機翼平面之上：翻轉問題不存在，拉桿永遠是對的。
@@ -708,6 +728,13 @@ export class FlightDirector {
       return rollPull
     }
     const rollPush = Math.atan2(aimBody.x, -aimBody.y)
+    // 【投放準備一律推頭】翻轉後拉再快也不能用 —— 倒著俯衝投不出彈
+    // （`Command.upright`）
+    if (upright) {
+      this.pushMode = true
+      dbg.pushMode = true
+      return rollPush
+    }
 
     const pSs = steadyRollRate(spec, aero)
     const extraRoll = Math.abs(rollPull) - Math.abs(rollPush)

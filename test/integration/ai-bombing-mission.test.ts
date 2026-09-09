@@ -141,4 +141,58 @@ describe('allies-m4 的 AI 零戰', () => {
     console.log(`船血：${b.world.ships.map((s) => Math.round(s.hp)).join(' ')}`)
     expect(hurt).toBeGreaterThan(0)
   })
+
+  /**
+   * 【掛彈的零戰整段對艦攻擊都下 upright】進場段就翻轉的話，進落彈瞄準帶時
+   * 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投。
+   * 沒掛彈的 F6F 不下。
+   */
+  it('掛彈的零戰對艦攻擊時保持正飛，F6F 不受影響', () => {
+    const b = mission(zeroCard)
+    run(b, 20)
+    let zeros = 0
+    let upright = 0
+    for (const c of b.world.combatants) {
+      if (!c.alive) continue
+      if (c.team === 'blue') { expect(c.command.upright).toBe(false); continue }
+      if (c.bombBay.load === 0) continue
+      zeros++
+      if (c.command.upright) upright++
+    }
+    expect(zeros).toBeGreaterThan(0)
+    expect(upright).toBe(zeros)
+  })
+
+  /**
+   * 【重生的那一條命也要投得出彈】重生批次從右舷 45° 進場，角度變化大，
+   * 指揮儀會翻轉後拉；倒著俯衝投不出彈，然後鑽到安全層接管。實測 240 秒
+   * 裡重生的每一條命投放都是 0。這一條守的是「側翼批次投得出」。
+   */
+  it('重生的零戰也投得出彈', () => {
+    const b = mission(zeroCard)
+    const n = b.world.combatants.length
+    const lives = new Int32Array(n)
+    const wasAlive = new Uint8Array(n).fill(1)
+    const lastLoad = new Int32Array(n)
+    for (let i = 0; i < n; i++) lastLoad[i] = b.world.combatants[i]!.bombBay.load
+    let revivedDrops = 0
+    let revivedLives = 0
+    // 【240 秒】六批重生要到三分多鐘才走完，重生的那幾條命也要有時間進場
+    for (let i = 0; i < 240 * 240; i++) {
+      wire(b)
+      stepBattle(b, DT)
+      for (let k = 0; k < n; k++) {
+        const c = b.world.combatants[k]!
+        if (c.team !== 'red' || c.aircraft.spec.role !== 'fighter') continue
+        const alive = c.alive ? 1 : 0
+        if (alive && !wasAlive[k]) { lives[k] = lives[k]! + 1; revivedLives++; lastLoad[k] = c.bombBay.load }
+        wasAlive[k] = alive
+        if (alive && lives[k]! > 0 && c.bombBay.load < lastLoad[k]!) revivedDrops += lastLoad[k]! - c.bombBay.load
+        lastLoad[k] = c.bombBay.load
+      }
+    }
+    console.log(`重生 ${revivedLives} 席、重生後投放 ${revivedDrops} 枚`)
+    expect(revivedLives).toBeGreaterThan(0)
+    expect(revivedDrops).toBeGreaterThan(0)
+  }, 300_000)
 })

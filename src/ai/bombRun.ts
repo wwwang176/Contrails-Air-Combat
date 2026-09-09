@@ -125,6 +125,37 @@ export function insideWindow(
     && Math.abs(across) <= hull.half.x * hulls
 }
 
+/**
+ * 放手判定往前多看的秒數：一個決策拍（`AI_DECISION_HZ` 的倒數，護欄在
+ * `ai-bombing.test.ts`；不直接 import 是因為 `AiController` import 本檔）。
+ *
+ * 【為什麼要掃】判定只在決策拍跑，而落點每一拍前進十幾公尺、俯衝時前拋
+ * 還跟著縮。正橫進場的窗只有 ±21 m，只看「此刻在不在窗內」會整個跳過去
+ * —— 側翼批次直飛到航母卻一枚都不放。
+ */
+export const RELEASE_SWEEP_SECONDS = 0.1
+
+/**
+ * 落點在不在窗內，**連同這一拍之內它會掃過的那一段**。落點的世界速度近似
+ * 等於飛機的水平速度，沿它在 ⅓ 與 ⅔ 拍各多採一點：相鄰兩拍的採樣點於是
+ * 相距最多 ⅓ 拍（140 m/s 是 5 m），比任何一艘的窗窄得多。放手在拍與拍之
+ * 間才對得上的情形，提前這一拍放：落點最多短 ⅔ 個掃距（約 9 m）。
+ *
+ * **`shouldRelease` 與 `stepBombAim` 共用**，兩邊的判準才是同一條。
+ *
+ * @param hx/hz 落點；ax/az 船屆時的位置；vx/vz 飛機的水平速度
+ */
+function sweptInsideWindow(
+  target: StrikeTarget, hx: number, hz: number, ax: number, az: number,
+  vx: number, vz: number,
+): boolean {
+  for (let k = 0; k <= 2; k++) {
+    const t = (k * RELEASE_SWEEP_SECONDS) / 3
+    if (insideWindow(target, hx + vx * t - ax, hz + vz * t - az)) return true
+  }
+  return false
+}
+
 const S = /* @__PURE__ */ makeScratch(3)
 
 /** 方向退化的下限。與 `shipAttack.ts` 的 `MIN_ERROR` 同一個手法。 */
@@ -186,7 +217,7 @@ export function shouldRelease(
   if (!solveImpact(START, k, DECK, dt, HIT)) return false
 
   const at = shipAt(target, HIT.seconds, S.v[0]!)
-  return insideWindow(target, HIT.x - at.x, HIT.z - at.z)
+  return sweptInsideWindow(target, HIT.x, HIT.z, at.x, at.z, v.x, v.z)
 }
 
 /**
@@ -408,7 +439,7 @@ export function stepBombAim(
   const at = shipAt(ship, HIT.seconds, S.v[0]!)
   const ex = at.x - HIT.x
   const ez = at.z - HIT.z
-  state.release = insideWindow(ship, ex, ez)
+  state.release = sweptInsideWindow(ship, HIT.x, HIT.z, at.x, at.z, v.x, v.z)
 
   const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
   const aim = state.aim.set(dx / slant, dy / slant, dz / slant)

@@ -95,6 +95,8 @@ export class CommandDelay {
     // 延遲 0.3 s 之後飛機已經走了 27 m（90 m/s），大於最小的釋放半徑
     // 12.08 m —— 每一顆都會系統性地落在船尾之後。
     out.bombing = input.bombing
+    // 【正飛的提示也直通】它描述的是 AI 自己此刻的狀態，與投彈同一個理由
+    out.upright = input.upright
     if (steps <= 0 && fireSteps <= 0) {
       out.aimWorld.copy(input.aimWorld)
       out.throttle = input.throttle

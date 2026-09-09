@@ -173,7 +173,7 @@ export class Aircraft {
    * **這裡不做 body → world 的轉換** —— 那會抵銷指揮儀內部的逆轉換，
    * 淨效果是機體固定準星，而準星是世界固定的。
    */
-  update(aimDirWorld: Vector3, throttle: number, dt: number, brake = 0): void {
+  update(aimDirWorld: Vector3, throttle: number, dt: number, brake = 0, upright = false): void {
     this.prevPosition.copy(this.state.position)
     this.prevOrientation.copy(this.state.orientation)
 
@@ -185,7 +185,7 @@ export class Aircraft {
 
     this.director.update(
       this.spec, this.state, this.diag.aero, this.diag.slatsDeployed,
-      aimDirWorld, dt, this.controls, this.dbg,
+      aimDirWorld, dt, this.controls, this.dbg, upright,
     )
 
     const es = this.specificEnergy
