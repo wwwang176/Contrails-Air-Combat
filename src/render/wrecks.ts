@@ -80,7 +80,7 @@ export const WRECK_FIRE_INTERVAL = 0.1
  * 一個瞬間的訊號，之後那道尾跡只是背景。一場 20v20 裡每一具都燒滿一分鐘
  * 的話，天空會被幾十道尾跡塞住。
  */
-export const WRECK_FIRE_SECONDS = 15
+export const WRECK_FIRE_SECONDS = 5
 
 /**
  * 引擎火的線性尺寸倍率，相對船火。燒的是一具發動機艙，不是整艘燃燒的
