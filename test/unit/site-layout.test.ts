@@ -259,6 +259,39 @@ describe('廠界不是一個矩形', () => {
   })
 
   /**
+   * 【四個角的斜切也要碎】角切是一條直線約束，過渡帶還在的時候被暈蓋住了；
+   * 邊界變硬之後，四個角就是四條乾淨的斜直線 —— 在投彈高度那比矩形還好認。
+   *
+   * 從廠區中心射線掃，量邊界半徑；沿角落那一段的相鄰取樣要常常跳。
+   */
+  it('四個角的邊界不是斜直線', () => {
+    const c = new Color()
+    const f = new Color()
+    /** 從中心往 `deg` 方向找邊界半徑，m */
+    const edgeRadius = (deg: number): number => {
+      const a = (deg * Math.PI) / 180
+      for (let r = 400; r < 2600; r += 5) {
+        const w = W(Math.sin(a) * r, -Math.cos(a) * r)
+        siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
+        fieldSurfaceColor(w.x, w.z, f, 'lateAutumn')
+        if (c.getHex() === f.getHex()) return r
+      }
+      return 2600
+    }
+    // 【區間要涵蓋斜切主導的那一段】角在 atan2(750, 1500) ≈ 26.6°，但斜切
+    // 一路管到 60° 附近 —— 只掃角尖那十幾度的話，旁邊四條邊的鋸齒會把它蓋過去
+    for (const mid of [26.6, 180 - 26.6, 180 + 26.6, 360 - 26.6]) {
+      const rs: number[] = []
+      for (let d = mid - 30; d <= mid + 30; d += 0.5) rs.push(edgeRadius(d))
+      let jumps = 0
+      for (let i = 1; i < rs.length; i++) if (Math.abs(rs[i]! - rs[i - 1]!) > 15) jumps++
+      const rate = jumps / (rs.length - 1)
+      expect(rate, `${mid.toFixed(0)}° 那個角只有 ${(rate * 100).toFixed(0)}% 的取樣在跳`)
+        .toBeGreaterThanOrEqual(0.2)
+    }
+  })
+
+  /**
    * 【只有細鋸齒不夠】110 m 的格咬 120 m，放在一條 3 km 的邊上是 4% 的相對
    * 振幅 —— 從投彈高度看仍然是一條直線加毛邊。這一條守的是粗的那一層：
    * 實測 230 m，把 `COARSE_BITE` 歸零之後只剩 120 m。
