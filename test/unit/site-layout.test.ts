@@ -44,13 +44,29 @@ describe('SiteLayout', () => {
     expect(siteSurfaceColor(0, 99, c, 'lateAutumn', site).getHexString()).toBe('3f3d3a')
   })
 
-  it('洛伊納的 site：廠區中心是混凝土，南門的路是柏油', () => {
+  it('洛伊納的 site：墊面是混凝土，廠內外的路都是柏油', () => {
     const c = new Color()
-    // 廠區中心在主軸的路上，往旁邊 300 m 才是墊面
+    // 【中心是鐵路骨幹】x = 0 那條縱貫線；往旁邊 200 m 才是墊面
     expect(isConcrete(siteSurfaceColor(
-      PLANT_CENTER.x + 300, PLANT_CENTER.z - 300, c, 'lateAutumn', LEUNA_SITE))).toBe(true)
-    expect(siteSurfaceColor(PLANT_CENTER.x, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE).getHexString()).toBe('3f3d3a')
-    expect(siteSurfaceColor(500, -4000, c, 'lateAutumn', LEUNA_SITE).getHexString()).toBe('3f3d3a')
+      PLANT_CENTER.x + 200, PLANT_CENTER.z - 300, c, 'lateAutumn', LEUNA_SITE))).toBe(true)
+    // 廠內主幹道
+    expect(siteSurfaceColor(PLANT_CENTER.x - 420, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE)
+      .getHexString()).toBe('3f3d3a')
+    // 南門的連外道路
+    expect(siteSurfaceColor(-420, -4000, c, 'lateAutumn', LEUNA_SITE).getHexString()).toBe('3f3d3a')
+  })
+
+  /**
+   * 【鐵路骨幹要畫得出來】它縱貫整片墊面，是廠區裡最長的一條線。
+   * 少了它，兩塊調車場的股道在畫面上接不到任何地方。
+   */
+  it('鐵路骨幹是碴石色，而平交道上是柏油', () => {
+    const c = new Color()
+    expect(siteSurfaceColor(PLANT_CENTER.x, PLANT_CENTER.z - 300, c, 'lateAutumn', LEUNA_SITE)
+      .getHexString(), '骨幹上不是碴石').toBe('5f5a52')
+    // 【道路壓過鐵路】x = 0 與 z = −7500 的那條橫向道路交會的地方是平交道
+    expect(siteSurfaceColor(PLANT_CENTER.x, -7500, c, 'lateAutumn', LEUNA_SITE)
+      .getHexString(), '平交道上不是柏油').toBe('3f3d3a')
   })
 })
 
@@ -132,7 +148,8 @@ describe('墊面的髒污', () => {
     let changes = 0
     let prev = ''
     for (let k = 0; k <= 20; k++) {
-      const hex = siteSurfaceColor(PLANT_CENTER.x - 1200 + k * 6, PLANT_CENTER.z - 300,
+      // 【要落在墊面內而且避開路與鐵路】墊面是 x ±750，路在 −420、鐵路在 0
+      const hex = siteSurfaceColor(PLANT_CENTER.x - 700 + k * 6, PLANT_CENTER.z - 300,
         c, 'lateAutumn', LEUNA_SITE).getHexString()
       if (prev !== '' && hex !== prev) changes++
       prev = hex
@@ -142,7 +159,7 @@ describe('墊面的髒污', () => {
 
   it('道路仍然壓過墊面與鋪面', () => {
     const c = new Color()
-    expect(siteSurfaceColor(PLANT_CENTER.x, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE)
+    expect(siteSurfaceColor(PLANT_CENTER.x - 420, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE)
       .getHexString()).toBe('3f3d3a')
   })
 

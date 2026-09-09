@@ -27,3 +27,4 @@ test-results/
 
 # Git Bash 當掉時吐的堆疊，跟專案無關
 *.stackdump
+__pycache__/

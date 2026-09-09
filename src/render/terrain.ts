@@ -15,7 +15,8 @@ import {
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
-  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_PAD, PLANT_SATELLITES, ROAD_WIDTH, ROADS,
+  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_PAD, PLANT_SATELLITES,
+  RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
@@ -237,6 +238,8 @@ export const LEUNA_SITE: SiteLayout = {
   },
   roads: ROADS,
   roadWidth: ROAD_WIDTH,
+  rails: RAILS,
+  railWidth: RAIL_WIDTH,
   patches: PLANT_BLOCKS
     .filter((b) => b.kind === 'railyard' || b.kind === 'open')
     .map((b) => ({

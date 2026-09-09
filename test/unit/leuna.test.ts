@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type BlockKind,
   createLeuna, EGRESS, FLAK_SITES, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
-  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, ROADS,
+  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, RAILS, ROADS,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -102,9 +102,42 @@ describe('leuna 的佈局常數', () => {
 })
 
 describe('leuna 的廠區', () => {
-  it('墊面是史實的 3 × 1.5 km', () => {
-    expect(PLANT_PAD.halfX * 2).toBe(3000)
-    expect(PLANT_PAD.halfZ * 2).toBe(1500)
+  /**
+   * 【長軸一定要是 Z】真實的洛伊納沿薩勒河西岸南北延伸。轉成東西向的話它在
+   * 航照上就是另一座工廠，而且投彈航路（朝 −Z）穿過廠區只剩一半的時間。
+   */
+  it('墊面是 1.5 × 3 km，長軸南北', () => {
+    expect(PLANT_PAD.halfX * 2).toBe(1500)
+    expect(PLANT_PAD.halfZ * 2).toBe(3000)
+    expect(PLANT_PAD.halfZ).toBeGreaterThan(PLANT_PAD.halfX)
+  })
+
+  /**
+   * 【鐵路骨幹貫穿廠區，兩端接出去】合成油廠的煤、氫與成品油全部靠軌道
+   * 進出。骨幹只到廠界就停的話，那些調車場是接不到任何地方的死路。
+   */
+  it('鐵路骨幹貫穿墊面而且兩端都出圖', () => {
+    const line = RAILS[0]!
+    const inside = line.filter((p) => padDistance(p.x, p.z) === 0)
+    expect(inside.length, '骨幹沒有進墊面').toBeGreaterThanOrEqual(2)
+    expect(Math.min(...line.map((p) => p.z)), '北端沒有出圖').toBeLessThanOrEqual(-14000)
+    expect(Math.max(...line.map((p) => p.z)), '南端沒有出圖').toBeGreaterThanOrEqual(14000)
+    // 【要留在薩勒河的西岸】河在廠區以東 2.8 km
+    expect(Math.max(...line.map((p) => p.x))).toBeLessThan(2000)
+  })
+
+  /**
+   * 【調車場要貼著骨幹】它們是骨幹沿線鼓起來的股道群。離骨幹遠的話那些
+   * 股道接不到主線 —— 畫面上只是「廠區裡有一塊鋪滿軌道的地」。
+   */
+  it('每一塊調車場都貼著鐵路骨幹', () => {
+    const yards = PLANT_BLOCKS.filter((b) => b.kind === 'railyard')
+    expect(yards.length).toBeGreaterThanOrEqual(2)
+    for (const b of yards) {
+      const near = RAILS[0]!.some((p) => p.x >= b.x0 - 40 && p.x <= b.x1 + 40
+        && p.z >= b.z0 - 600 && p.z <= b.z1 + 600)
+      expect(near, `調車場 ${b.seed} 離骨幹太遠`).toBe(true)
+    }
   })
 
   /**

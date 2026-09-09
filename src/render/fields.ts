@@ -618,10 +618,19 @@ export interface SiteLayout {
     readonly x1: number; readonly z1: number
     readonly hex: number
   }[]
+  /**
+   * 鐵路的折線，世界座標。畫成碴石帶，壓在道路之下 —— 平交道上看得到的是
+   * 柏油。
+   */
+  readonly rails?: readonly (readonly { readonly x: number; readonly z: number }[])[]
+  /** 碴石帶的寬，m */
+  readonly railWidth?: number
 }
 
 const CONCRETE = 0x8d8a82
 const ASPHALT = 0x3f3d3a
+/** 鐵路的碴石。與 `terrain.ts` 調車場街廓那一份同色 */
+const BALLAST = 0x5f5a52
 
 /** `siteSurfaceColor` 的暫存色。混色要兩個 Color，而它一秒可以被叫上萬次 */
 const SCRATCH = /* @__PURE__ */ new Color()
@@ -759,11 +768,13 @@ function bandWidth(x: number, z: number): number {
 }
 
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
-function segmentsOf(site: SiteLayout): { ax: number; az: number; bx: number; bz: number }[] {
+function segmentsOf(
+  lines: readonly (readonly { readonly x: number; readonly z: number }[])[],
+): { ax: number; az: number; bx: number; bz: number }[] {
   const out: { ax: number; az: number; bx: number; bz: number }[] = []
-  for (const road of site.roads) {
-    for (let i = 0; i + 1 < road.length; i++) {
-      out.push({ ax: road[i]!.x, az: road[i]!.z, bx: road[i + 1]!.x, bz: road[i + 1]!.z })
+  for (const line of lines) {
+    for (let i = 0; i + 1 < line.length; i++) {
+      out.push({ ax: line[i]!.x, az: line[i]!.z, bx: line[i + 1]!.x, bz: line[i + 1]!.z })
     }
   }
   return out
@@ -784,7 +795,24 @@ function segmentDistance(x: number, z: number, ax: number, az: number, bx: numbe
  * 再鋪道路 —— 道路壓過墊面，墊面壓過田。
  */
 function siteGlsl(site: SiteLayout): string {
-  const segs = segmentsOf(site)
+  const segs = segmentsOf(site.roads)
+  const rail = segmentsOf(site.rails ?? [])
+  const railGlsl = rail.length === 0 ? '' : `
+  // 鐵路：碴石帶。與道路同一套距離場，只是另一組線段與另一個顏色
+  const vec4 RAILS[${rail.length}] = vec4[${rail.length}](
+${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
+    + `${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')}
+  );
+  float railD = 1.0e9;
+  for (int i = 0; i < ${rail.length}; i++) {
+    vec2 a = RAILS[i].xy;
+    vec2 b = RAILS[i].zw;
+    vec2 ab = b - a;
+    float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
+    railD = min(railD, length(world - (a + ab * t)));
+  }
+  col = mix(col, ${rgb(BALLAST)},
+    bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
   const B = edgeBite(site.pad).toFixed(1)
@@ -869,7 +897,8 @@ ${patchGlsl}
   col = mix(mix(siteCol, ${rgb(DISTURBED)} * siteGrime, min(1.0, padT * 2.2)), col, padT * padT);
 ${outpostGlsl}
   }
-  // 道路：離任一條線段小於半寬
+${railGlsl}
+  // 道路：離任一條線段小於半寬。**畫在鐵路之後** —— 平交道上看得到的是柏油
   const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
 ${list}
   );
@@ -900,8 +929,13 @@ export function siteSurfaceColor(
   x: number, z: number, out: Color, season: Season, site?: SiteLayout,
 ): Color {
   if (site !== undefined) {
-    for (const s of segmentsOf(site)) {
+    for (const s of segmentsOf(site.roads)) {
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
+    }
+    for (const s of segmentsOf(site.rails ?? [])) {
+      if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < (site.railWidth ?? 24) / 2) {
+        return out.setHex(BALLAST)
+      }
     }
     // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
     const near = siteBounds(site)
