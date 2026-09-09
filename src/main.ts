@@ -51,7 +51,10 @@ import {
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
-import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_SCALE } from './render/wrecks'
+import {
+  createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_COLOR_2,
+  WRECK_FIRE_SMOKE_SCALE,
+} from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
   IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
@@ -494,7 +497,9 @@ const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
  * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
  * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
  */
-const wreckFireSmoke = createShipFireSmoke(undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR)
+const wreckFireSmoke = createShipFireSmoke(
+  undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_COLOR_2,
+)
 ctx.scene.add(wreckFireSmoke.object)
 ctx.scene.add(shipFireSmoke.object)
 /** 廠區的白煙：煙囪與冷卻塔頂持續冒的蒸汽（`emitPlantSteam`） */

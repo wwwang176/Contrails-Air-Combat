@@ -21,7 +21,10 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
 import { createDebris } from '../render/debris'
-import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_SCALE } from '../render/wrecks'
+import {
+  createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_COLOR_2,
+  WRECK_FIRE_SMOKE_SCALE,
+} from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
@@ -119,7 +122,9 @@ const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
  * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
  * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
  */
-const wreckFireSmoke = createShipFireSmoke(undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR)
+const wreckFireSmoke = createShipFireSmoke(
+  undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_COLOR_2,
+)
 ctx.scene.add(wreckFireSmoke.object)
 ctx.scene.add(shipFireSmoke.object)
 

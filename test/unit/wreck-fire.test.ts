@@ -2,9 +2,10 @@ import { beforeAll, describe, it, expect } from 'vitest'
 import { Group, Quaternion, Vector3 } from 'three'
 import {
   createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SCALE, WRECK_FIRE_SECONDS,
-  WRECK_FIRE_SMOKE_SCALE,
+  WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_COLOR_2, WRECK_FIRE_SMOKE_SCALE,
 } from '../../src/render/wrecks'
 import { FIRE_SECONDS } from '../../src/render/shipFires'
+import { smokeTone } from '../../src/render/smoke'
 import { createFirePuff } from '../../src/render/firePuff'
 import type { BlastPools } from '../../src/render/blast'
 import type { Anchors } from '../../src/render/anchors'
@@ -19,8 +20,9 @@ import { HE111 } from '../../src/specs/he111'
 /**
  * # 殘骸的引擎燃燒
  *
- * 被打爆的飛機在**一具引擎**上燒，表現與船火同一套 —— 每 0.3 秒一朵小爆炸
- * 加一叢上升的煙（`main.ts` 的 `emitFirePuff`）。多發機隨機挑一具。
+ * 被打爆的飛機在**一具引擎**上燒，配方與船火同一份 —— 一朵小爆炸加一叢
+ * 上升的煙（`render/firePuff.ts`）。多發機隨機挑一具。**殘骸的拖煙就是
+ * 這一叢**，沒有第二條通道。
  *
  * 【這一支守的是什麼】三件靜靜壞掉的事：火點沒有跟著翻滾的殘骸走（火留在
  * 半空、殘骸掉下去）、四發機每一次都燒同一具、以及火點長在重心而不是引擎上
@@ -30,7 +32,7 @@ import { HE111 } from '../../src/specs/he111'
 const DEEP = (): number => -100000
 const WET = (): number => 0
 
-/** 這一次 step 吐出來的火點，世界座標 */
+/** 這一次 step 吐出來的火點，**殘骸的機體座標** */
 function firePoints(w: { fireEvents: { data: Float32Array; count: number } }): Vector3[] {
   const out: Vector3[] = []
   for (let e = 0; e < w.fireEvents.count; e++) {
@@ -145,9 +147,8 @@ describe('殘骸的燃燒', () => {
   })
 
   /**
-   * 【燒滿一分鐘就停】與船火同一個時長。殘骸的壽命上限是兩分鐘（那是一道
-   * 保險，給飄出海面網格、永遠碰不到水的那一具），不設上限的話那一具會
-   * 在天上燒兩分鐘。
+   * 【燒完就停】殘骸的壽命上限是兩分鐘（那是一道保險，給飄出海面網格、
+   * 永遠碰不到水的那一具），不設上限的話那一具會在天上燒滿兩分鐘。
    */
   it('燒滿 WRECK_FIRE_SECONDS 之後停止，之前一直在燒', () => {
     const w = createWrecks(4, () => {})
@@ -348,6 +349,22 @@ describe('火吸附在物件上，煙不吸附', () => {
   })
 
   /**
+   * 【錨點查不到就整朵不放】火沒有錨點就無處可放；而煙若照樣放，它拿到的
+   * 是**沒有組回世界的機體座標** —— 一團煙會生在世界原點旁邊，燒滿二十秒。
+   *
+   * 這條路真的會走到：殘骸入水的那一步，火點事件先被推出去，`sunk` 在
+   * 同一步稍後才設；呼叫端消費事件時錨點已經查不到了。
+   */
+  it('錨點查不到時火與煙都不放', () => {
+    const fire: number[][] = []
+    const plume: number[][] = []
+    // 錨點 7 存在，9 不存在
+    createFirePuff(poolsWith(fire), fakePool(plume), 1, 1, anchors)(0, 0, -3, 9)
+    expect(fire).toHaveLength(0)
+    expect(plume).toHaveLength(0)
+  })
+
+  /**
    * 【煙**不**吸附】它離開之後就是空氣裡的一團煙，被拋在後面才會連成
    * 尾跡。跟著錨點走的話整叢煙一起平移，柱子與尾跡都不見了 —— 而畫面上
    * 那只是「煙看起來怪」，不像缺陷。
@@ -476,6 +493,40 @@ function fakePool(log: number[][]): Particles {
     dispose() {},
   }
 }
+
+describe('煙的兩色交錯', () => {
+  /**
+   * 【約各半】明顯偏一邊的話那不是「兩色交錯」，是「偶爾夾一顆」。
+   */
+  it('smokeTone 在兩種之間約略均分', () => {
+    let second = 0
+    const n = 4000
+    for (let i = 0; i < n; i++) if (smokeTone(i)) second++
+    expect(second / n).toBeGreaterThan(0.4)
+    expect(second / n).toBeLessThan(0.6)
+  })
+
+  /**
+   * 【相鄰的格子要挑不同色】環形緩衝是逐格填的，同一批煙落在連續的格子上。
+   * 挑色若與格號單調相關，一批煙會整批同色而下一批整批換色 —— 那是兩塊
+   * 色塊，不是交錯。
+   */
+  it('相鄰格子會換色', () => {
+    let flips = 0
+    for (let i = 0; i < 400; i++) if (smokeTone(i) !== smokeTone(i + 1)) flips++
+    expect(flips).toBeGreaterThan(120)
+  })
+
+  /** 【決定性】與專案其他隨機同一條紀律 */
+  it('同一格恆得同一色', () => {
+    expect(smokeTone(1234)).toBe(smokeTone(1234))
+  })
+
+  /** 殘骸的兩色要真的不同，否則交錯等於沒做 */
+  it('殘骸的兩個色值不同', () => {
+    expect(WRECK_FIRE_SMOKE_COLOR_2).not.toBe(WRECK_FIRE_SMOKE_COLOR)
+  })
+})
 
 describe('main.ts 的接線', () => {
   const SOURCES = import.meta.glob('../../src/main.ts', {
