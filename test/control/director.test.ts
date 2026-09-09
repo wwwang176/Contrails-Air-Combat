@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  FlightDirector, createDirectorDebug, DEFAULT_DIRECTOR_GAINS,
+  FlightDirector, createDirectorDebug, DEFAULT_DIRECTOR_GAINS, UPRIGHT_MAX_BANK,
   type DirectorDebug, type DirectorGains,
 } from '../../src/control/FlightDirector'
 import { createDiagnostics, createFlightState, stepDynamics } from '../../src/physics/dynamics'
@@ -1314,5 +1314,26 @@ describe('投放準備的正飛（Command.upright）', () => {
     const r = runDirector(P51D, 170, AIM, 120, 4, { keepHistory: true, upright: true })
     const after2s = r.dbgHistory.slice(2 * 240).map((d) => Math.abs(d.bankAngle))
     expect(Math.max(...after2s)).toBeLessThanOrEqual(90 * DEG + 1 * DEG)
+  })
+})
+
+describe('投放準備的正飛：80° 邊界不抖', () => {
+  /**
+   * 【夾制與改平不能在邊界上互相打架】對稱夾住正負滾轉會把「往回改平」的
+   * 方向也壓成零，跨過邊界又瞬間切成改平 —— 副翼在 ±1 之間切換、坡度在
+   * 80° 兩側來回。這一條數 8 秒內跨越邊界的次數。
+   */
+  it('高能量、目標在下方偏側：8 秒內跨越 80° 不超過兩次', () => {
+    const aim = new Vector3(0.5, -0.5, -1).normalize()
+    const r = runDirector(P51D, 0, aim, 200, 8, { keepHistory: true, upright: true, altitude: 6000 })
+    let crossings = 0
+    let above = false
+    for (const d of r.dbgHistory) {
+      const now = Math.abs(d.bankAngle) > UPRIGHT_MAX_BANK
+      if (now !== above) crossings++
+      above = now
+    }
+    expect(crossings).toBeLessThanOrEqual(2)
+    expect(Math.max(...r.dbgHistory.map((d) => Math.abs(d.bankAngle)))).toBeLessThan(90 * DEG)
   })
 })

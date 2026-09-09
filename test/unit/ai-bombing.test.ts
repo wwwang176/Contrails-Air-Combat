@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { createCommand } from '../../src/control/Controller'
+import { PlayerController } from '../../src/control/PlayerController'
+import { createInputState } from '../../src/input/InputState'
 import { CommandDelay } from '../../src/ai/delay'
 import { applySafety } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
@@ -798,5 +800,22 @@ describe('upright 穿過既有的指令管線', () => {
     out.upright = true
     expect(applySafety(a, 0, out)).not.toBe('none')
     expect(out.upright).toBe(false)
+  })
+})
+
+describe('玩家接手之後 AI 專用的兩格不殘留', () => {
+  /**
+   * 【`Command` 物件沿用那一席的】接手僚機時換的是控制器，不是指令物件；
+   * 上一步還是 AI 寫的。正在攻艦的僚機交到玩家手上會帶著「保持正飛」與
+   * 投彈指令 —— 玩家從此被禁止翻轉後拉，而且會投出一串炸彈
+   */
+  it('PlayerController 每步把 upright 與 bombing 清成 false', () => {
+    const pc = new PlayerController(createInputState())
+    const out = createCommand()
+    out.upright = true
+    out.bombing = true
+    pc.update(new Aircraft(A6M5), 1 / 240, out)
+    expect(out.upright).toBe(false)
+    expect(out.bombing).toBe(false)
   })
 })

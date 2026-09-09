@@ -22,5 +22,10 @@ export class PlayerController implements Controller {
     // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的
     // 子彈玩家根本看不到，而彈藥是真的在消耗。投彈由 `main.ts` 自己接
     out.firing = this.input.firing && this.input.viewMode !== 'bomb'
+    // 【AI 專用的兩格每步清掉】接手僚機時 `Command` 物件沿用那一席的，上一步
+    // 還是 AI 寫的：不清的話正在攻艦的僚機交到玩家手上會帶著「保持正飛」
+    // 與投彈指令
+    out.bombing = false
+    out.upright = false
   }
 }
