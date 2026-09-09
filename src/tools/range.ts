@@ -21,7 +21,7 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
 import { createDebris } from '../render/debris'
-import { createWrecks } from '../render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
@@ -125,8 +125,8 @@ const BLAST_POOLS: BlastPools = {
   glow: blastGlow,
 }
 
-/** 船火、地面火與殘骸引擎火共用的那一支。**在模組層建一次** */
-const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
+/** 殘骸的引擎火。與遊戲同一份配方、同一個尺寸。**在模組層建一次** */
+const emitWreckFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)
 
 /**
  * 每幀要步進、重播前要清空的爆炸池。**清單只有這一份** —— 漏掉其中一個
@@ -308,12 +308,12 @@ function frame(now: number): void {
   wrecks.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   debris.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
-  // 【殘骸的引擎在燒】與 `main.ts` 同一支回呼
+  // 【殘骸的引擎在燒】與 `main.ts` 同一支回呼。法線那三格帶的是殘骸的速度
   {
     const d = wrecks.fireEvents.data
     for (let e = 0; e < wrecks.fireEvents.count; e++) {
       const o = e * IMPACT_STRIDE
-      emitFirePuff(d[o]!, d[o + 1]!, d[o + 2]!)
+      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!)
     }
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
