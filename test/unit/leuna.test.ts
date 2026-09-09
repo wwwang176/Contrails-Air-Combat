@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   type BlockKind,
@@ -6,6 +7,22 @@ import {
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
+
+/** 兩條線段有沒有真的交叉。共線當作沒交叉 —— 河與路平行走一段不是過河 */
+function crosses(
+  a: { x: number; z: number }, b: { x: number; z: number },
+  c: readonly [number, number], d: readonly [number, number],
+): boolean {
+  const rx = b.x - a.x
+  const rz = b.z - a.z
+  const sx = d[0] - c[0]
+  const sz = d[1] - c[1]
+  const den = rx * sz - rz * sx
+  if (Math.abs(den) < 1e-9) return false
+  const t = ((c[0] - a.x) * sz - (c[1] - a.z) * sx) / den
+  const u = ((c[0] - a.x) * rz - (c[1] - a.z) * rx) / den
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1
+}
 
 /** 圓心到墊面矩形（軸對齊、中心在 PLANT_CENTER）的最近距離 */
 function padDistance(cx: number, cz: number): number {
@@ -120,8 +137,10 @@ describe('leuna 的廠區', () => {
     const line = RAILS[0]!
     const inside = line.filter((p) => padDistance(p.x, p.z) === 0)
     expect(inside.length, '骨幹沒有進墊面').toBeGreaterThanOrEqual(2)
-    expect(Math.min(...line.map((p) => p.z)), '北端沒有出圖').toBeLessThanOrEqual(-14000)
-    expect(Math.max(...line.map((p) => p.z)), '南端沒有出圖').toBeGreaterThanOrEqual(14000)
+    const offMap = (p: { x: number; z: number }): boolean =>
+      Math.abs(p.x) >= 14000 || Math.abs(p.z) >= 14000
+    expect(offMap(line[0]!), '北端沒有出圖').toBe(true)
+    expect(offMap(line[line.length - 1]!), '南端沒有出圖').toBe(true)
     // 【要留在薩勒河的西岸】河在廠區以東 2.8 km
     expect(Math.max(...line.map((p) => p.x))).toBeLessThan(2000)
   })
@@ -200,6 +219,35 @@ describe('leuna 的廠區', () => {
     const touchesPad = ROADS.some((r) => r.some((p) => padDistance(p.x, p.z) === 0))
     expect(reachesEdge).toBe(true)
     expect(touchesPad).toBe(true)
+  })
+
+  /**
+   * 【連外的線一條都不准跨薩勒河】道路與鐵路是地面著色器畫的色帶，河的水面
+   * 是一片蓋在地上的網格 —— 跨過去的那一段不是橋，是一條淹在水裡的路。
+   *
+   * 【廠區被河從東、北、南三面繞著】所以連外線全部往西展開。要往南或往東
+   * 拉一條新的線，先跑這一條看它要不要橋。
+   *
+   * 河的折線只有實測高程展示區在用（`tools/leunaRiver.ts`），但佈局得照著
+   * 它擺，否則河一進遊戲全部要重畫。
+   */
+  it('連外的道路與鐵路都不跨河', () => {
+    const data = JSON.parse(
+      new TextDecoder().decode(readFileSync('public/data/leuna-rivers.json')),
+    ) as { rivers: { name: string; points: [number, number][] }[] }
+    for (const [tag, lines] of [['道路', ROADS], ['鐵路', RAILS]] as const) {
+      for (const line of lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+          for (const river of data.rivers) {
+            for (let j = 0; j + 1 < river.points.length; j++) {
+              const hit = crosses(line[i]!, line[i + 1]!, river.points[j]!, river.points[j + 1]!)
+              expect(hit, `${tag} (${line[i]!.x},${line[i]!.z})→(${line[i + 1]!.x},`
+                + `${line[i + 1]!.z}) 跨過 ${river.name}`).toBe(false)
+            }
+          }
+        }
+      }
+    }
   })
 })
 
