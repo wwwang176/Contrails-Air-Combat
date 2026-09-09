@@ -556,6 +556,12 @@ ctx.scene.add(blastJets.object)
  * 池時才會被寫（`emitCrown` 的退路），而這裡永遠有 —— 給它一個專用的空
  * 通道比接上世界的那一條安全：`world` 要到 `startWorld()` 才存在。
  */
+// 【殘骸池要排在火焰之前】引擎火吸附在它的格子上，建回呼時就要拿到錨點
+const wrecks = createWrecks(MAX_COMBATANTS, (m) => {
+  ctx.scene.remove(m.group)
+  m.dispose()
+})
+
 const BLAST_POOLS: BlastPools = {
   fireball: blastChunks,
   smoke: blastSmoke,
@@ -678,7 +684,7 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
  * 燃燒的軍艦。
  */
 const emitWreckFirePuff = createFirePuff(
-  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE,
+  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
 
 /**
@@ -800,10 +806,6 @@ function resetPools(): void {
 }
 
 ctx.scene.add(debris.object)
-const wrecks = createWrecks(MAX_COMBATANTS, (m) => {
-  ctx.scene.remove(m.group)
-  m.dispose()
-})
 
 /** combatant 索引 → 機身色。零件用它上色 —— `World` 不需要知道有塗裝這回事。 */
 const debrisColorOf = (index: number): number =>
@@ -1783,7 +1785,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     const d = wrecks.fireEvents.data
     for (let e = 0; e < wrecks.fireEvents.count; e++) {
       const o = e * IMPACT_STRIDE
-      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!)
+      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!)
     }
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
@@ -1802,8 +1804,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
   // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
   blastJets.step(frameSeconds)
-  blastChunks.step(frameSeconds)
-  blastGlow.step(frameSeconds)
+  // 【這兩個要拿到殘骸的錨點】引擎火吸附在殘骸上，世界座標由池子每一幀
+  // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
+  blastChunks.step(frameSeconds, wrecks.anchors)
+  blastGlow.step(frameSeconds, wrecks.anchors)
   blastEmber.step(frameSeconds)
   blastSmoke.step(frameSeconds)
   blastDust.step(frameSeconds)

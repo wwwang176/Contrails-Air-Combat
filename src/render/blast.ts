@@ -798,20 +798,21 @@ const DIR = new Vector3()
 export function emitBlast(
   pools: BlastPools, p: BlastParams,
   x: number, y: number, z: number, seed: number,
-  ivx = 0, ivy = 0, ivz = 0,
+  ivx = 0, ivy = 0, ivz = 0, anchor = -1,
 ): void {
   // 【四種粒子各自從 seed 的不同段取索引】共用同一段的話，火球第 3 顆與
   // 塵土第 3 顆會朝完全相同的方向，畫面上是一條並排的雙軌
   emitCone(pools.fireball, p.fireCount, p.fireSpeed, p.fireCone, p.fireSize,
-    x, y, z, seed, ivx, ivy, ivz)
+    x, y, z, seed, ivx, ivy, ivz, anchor)
   // 【光暈與火球同一段 seed】方向必須逐顆對齊，光暈才貼在球塊上而不是
   // 散在它旁邊
+  // 【錨點也要一起給】光暈沒吸附的話，火球跟著物件走而光暈留在原地
   if (pools.glow !== undefined && p.glowSize > 0) {
     emitCone(pools.glow, p.fireCount, p.fireSpeed, p.fireCone,
-      p.fireSize * p.glowSize, x, y, z, seed, ivx, ivy, ivz)
+      p.fireSize * p.glowSize, x, y, z, seed, ivx, ivy, ivz, anchor)
   }
   emitCone(pools.smoke, p.smokeCount, p.smokeSpeed, p.smokeCone, p.smokeSize,
-    x, y, z, seed + 1013, ivx, ivy, ivz)
+    x, y, z, seed + 1013, ivx, ivy, ivz, anchor)
   emitCone(pools.dust, p.dustCount, p.dustSpeed, p.dustCone, p.dustSize,
     x, y, z, seed + 2027)
   // 【水花跟著水柱走，不是撒在爆心】見 `emitCrown`
@@ -862,14 +863,14 @@ function emitCrown(
 function emitCone(
   pool: Particles, count: number, speed: number, cone: number, size: number,
   x: number, y: number, z: number, seed: number,
-  ivx = 0, ivy = 0, ivz = 0,
+  ivx = 0, ivy = 0, ivz = 0, anchor = -1,
 ): void {
   for (let k = 0; k < count; k++) {
     coneDirection(0, 1, 0, cone, seed + k, DIR)
     pool.emit(
       x, y, z,
       ivx + DIR.x * speed, ivy + DIR.y * speed, ivz + DIR.z * speed,
-      size,
+      size, anchor,
     )
   }
 }
