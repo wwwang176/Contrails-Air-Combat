@@ -553,7 +553,9 @@ export class World {
     // 2. 全部 Aircraft 推進，接著開火（槍口用推進後的姿態）
     for (const c of this.combatants) {
       if (!c.alive) continue
-      c.aircraft.update(c.command.aimWorld, c.command.throttle, dt, c.command.brake)
+      c.aircraft.update(
+        c.command.aimWorld, c.command.throttle, dt, c.command.brake, c.command.upright,
+      )
     }
     // 【撞地要在開火之前判】撞地的那一步不該還打得出子彈。
     for (const c of this.combatants) {

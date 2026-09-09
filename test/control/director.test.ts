@@ -78,6 +78,8 @@ interface RunOptions {
   keepHistory?: boolean
   /** 覆寫指揮儀增益。用於隔離單一機制（例如關掉偏航輔助只量副翼）。 */
   gains?: Partial<DirectorGains>
+  /** 投放準備：坡度鎖在 ±90° 內（`Command.upright`） */
+  upright?: boolean
 }
 
 function runDirector(
@@ -134,7 +136,7 @@ function runDirector(
 
     director.update(
       spec, state, diag.aero, diag.slatsDeployed,
-      aimWorld, DT, controls, dbg,
+      aimWorld, DT, controls, dbg, opts.upright ?? false,
     )
     errorHistory.push(dbg.errorAngle)
     // 記實際位置而非指令：飽和度問的是「舵面真的打滿了嗎」
@@ -1283,5 +1285,34 @@ describe('指揮儀的設計不變量', () => {
     const bEarly = b.dbgHistory[Math.round(0.3 / DT)]!
     expect(Math.abs(bEarly.desiredP)).toBeLessThan(DEFAULT_DIRECTOR_GAINS.maxRollRateCommand)
     expect(Math.abs(bEarly.actualP)).toBeLessThan(Math.abs(bEarly.desiredP) * 0.6)
+  })
+})
+
+describe('投放準備的正飛（Command.upright）', () => {
+  /**
+   * 【目標在機翼平面之下偏側時，指揮儀會翻轉後拉】那是最快的，但掛彈的
+   * 飛機倒著俯衝投不出彈（投放包絡擋滾轉 90°）。`upright` 要它改走推頭，
+   * 坡度全程留在 ±90° 內，而且仍然要到得了目標。
+   */
+  const AIM = new Vector3(0.5, -0.8, -1).normalize()
+
+  it('沒有 upright：坡度會超過 90°（翻轉後拉）', () => {
+    const r = runDirector(P51D, 0, AIM, 120, 6, { keepHistory: true })
+    const maxBank = Math.max(...r.dbgHistory.map((d) => Math.abs(d.bankAngle)))
+    expect(maxBank).toBeGreaterThan(90 * DEG)
+  })
+
+  it('有 upright：坡度全程在 ±90° 內，而且到得了目標', () => {
+    const r = runDirector(P51D, 0, AIM, 120, 6, { keepHistory: true, upright: true })
+    const maxBank = Math.max(...r.dbgHistory.map((d) => Math.abs(d.bankAngle)))
+    expect(maxBank).toBeLessThanOrEqual(90 * DEG + 1 * DEG)
+    expect(r.finalError).toBeLessThan(8 * DEG)
+  })
+
+  /** 【已經倒飛時先翻回來】進帶前翻過去的，帶內要收回 90° 之內 */
+  it('起始倒飛、有 upright：兩秒內坡度收回 90° 內', () => {
+    const r = runDirector(P51D, 170, AIM, 120, 4, { keepHistory: true, upright: true })
+    const after2s = r.dbgHistory.slice(2 * 240).map((d) => Math.abs(d.bankAngle))
+    expect(Math.max(...after2s)).toBeLessThanOrEqual(90 * DEG + 1 * DEG)
   })
 })

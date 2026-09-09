@@ -259,6 +259,9 @@ export class AiController implements Controller {
       this.shipAim.gun = -1
     }
     shipAttackCommand(self, ship, this.shipAim.gun, out)
+    // 【掛著彈的整段對艦攻擊都保持正飛】進場段就翻轉的話，進落彈瞄準帶時
+    // 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投
+    out.upright = loaded
     // 【掛彈的戰鬥機：近了就把瞄準點換成落彈解】投完（或還沒進到那個距離）
     // 就什麼都不做，瞄準點留給機槍。**排在掃射之後** —— 它要覆寫的正是
     // 掃射寫好的那一格
@@ -597,6 +600,8 @@ export class AiController implements Controller {
     // 【投彈每步先歸零】`raw` 是長存物件，別的航路不寫這一格。不清的話
     // 一次釋放之後它會殘留 true，整艙會在下一次進入任何航路時倒光。
     raw.bombing = false
+    // 【正飛的提示同理】只有掛彈的對艦攻擊寫它；殘留的話空戰也會被綁成只准推頭
+    raw.upright = false
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會

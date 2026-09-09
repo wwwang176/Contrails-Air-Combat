@@ -15,9 +15,11 @@ import type { BombState, Impact } from '../../src/world/bomb'
 import { A6M5 } from '../../src/specs/a6m5'
 import {
   BOMB_PROFILE, RELEASE_HULLS, RUN_SETTLE, createBombAim, deckHeightOf, insideWindow,
+  RELEASE_SWEEP_SECONDS,
   releaseWindowOf, setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
 } from '../../src/ai/bombRun'
 import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
+import { AI_DECISION_HZ } from '../../src/ai/AiController'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import type { Controller } from '../../src/control/Controller'
 
@@ -311,7 +313,10 @@ describe('shouldRelease', () => {
     const w = releaseWindowOf(SHIP_CLASSES.fletcher.hull)
     // 艏向 0：船身沿 Z，所以 z 差比的是 along、x 差比的是 across
     expect(Math.abs(r.impact.x - r.ship.position.x)).toBeLessThanOrEqual(w.across)
-    expect(Math.abs(r.impact.z - r.ship.position.z)).toBeLessThanOrEqual(w.along)
+    // 【沿飛行方向多放 ⅔ 個掃距】掃過即放會在落點進窗的前一拍放手：90 m/s
+    // 的 G4M 一拍走 9 m，落點最多短 6 m
+    const sweep = 90 * RELEASE_SWEEP_SECONDS * (2 / 3)
+    expect(Math.abs(r.impact.z - r.ship.position.z)).toBeLessThanOrEqual(w.along + sweep)
   })
 
   /**
@@ -730,5 +735,67 @@ describe('戰鬥機的落彈點瞄準', () => {
     const before = st.aim.clone()
     stepBombAim(st, zero(700, -400, -20), sh, true, false)
     expect(st.aim.equals(before)).toBe(true)
+  })
+})
+
+describe('掃過即放', () => {
+  const K2 = bombDragK(BOMB_TERMINAL_SPEED)
+
+  /** 決策拍是 10 Hz，掃距用的秒數必須是同一個值，否則掃的不是「一拍」 */
+  it('掃距的秒數等於一個決策拍', () => {
+    expect(RELEASE_SWEEP_SECONDS).toBeCloseTo(1 / AI_DECISION_HZ, 9)
+  })
+
+  /**
+   * 【正橫進場的窗只有 42 m】Essex 橫過船身的窗是 ±21 m，而落點每一個決策拍
+   * 前進約 14 m、俯衝時前拋還會跟著縮 —— 只看「此刻落點在不在窗內」會整個
+   * 跳過去，症狀是側翼批次直飛到航母卻一枚都不放。放手判定要連同這一拍
+   * 之內落點會掃過的那一段一起看。
+   *
+   * 量法：沿 x 掃描起點，數「放手為真」的起點有幾公尺。嚴格的窗給 42 m，
+   * 掃過即放要多出至少半個掃距。
+   */
+  it('正橫進場：放手為真的路段比嚴格的窗長至少半個掃距', () => {
+    const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -800, 0, 0)
+    const speed = 140
+    const g = (-45 * Math.PI) / 180
+    let hits = 0
+    for (let x0 = -600; x0 <= 600; x0 += 1) {
+      const a = new Aircraft(A6M5)
+      a.state.position.set(x0, 300, -800)
+      a.state.velocity.set(speed * Math.cos(g), speed * Math.sin(g), 0)
+      if (shouldRelease(a, sh, K2, DT)) hits++
+    }
+    const across = releaseWindowOf(SHIP_CLASSES.essex.hull).across * 2
+    const sweep = speed * Math.cos(g) * RELEASE_SWEEP_SECONDS
+    expect(hits).toBeGreaterThanOrEqual(across + sweep * 0.5)
+    // 也不能寬到離譜：最多多一個掃距
+    expect(hits).toBeLessThanOrEqual(across + sweep + 2)
+  })
+})
+
+describe('upright 穿過既有的指令管線', () => {
+  /** 【直通】與 `bombing` 同一個理由：它描述的是 AI 自己此刻的狀態 */
+  it('有反應延遲時 upright 仍然當步送達', () => {
+    const d = new CommandDelay()
+    const input = createCommand()
+    const out = createCommand()
+    input.upright = true
+    d.push(input, 0.3, 1 / 240, out)
+    expect(out.upright).toBe(true)
+    input.upright = false
+    d.push(input, 0.3, 1 / 240, out)
+    expect(out.upright).toBe(false)
+  })
+
+  /** 【接管要最快的改出】翻轉後拉常常就是最快的，不能被正飛的提示綁住 */
+  it('撞地接管時關掉 upright', () => {
+    const a = new Aircraft(G4M)
+    a.state.position.set(0, 40, 0)
+    a.state.velocity.set(0, -60, -80)
+    const out = createCommand()
+    out.upright = true
+    expect(applySafety(a, 0, out)).not.toBe('none')
+    expect(out.upright).toBe(false)
   })
 })

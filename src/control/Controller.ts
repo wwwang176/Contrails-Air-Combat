@@ -27,11 +27,22 @@ export interface Command {
    * 兩邊都寫的話會投兩倍。
    */
   bombing: boolean
+  /**
+   * 投放準備：這一步要保持正飛，坡度留在 ±90° 內。
+   *
+   * 【為什麼需要它】指揮儀把機首壓向下方目標時會在「翻轉後拉」與「推頭」
+   * 之間挑快的；挑到翻轉的話飛機倒著俯衝，而投放包絡擋滾轉 90° —— 炸彈
+   * 倒著丟會撞到自己。掛彈的戰鬥機在對艦攻擊的整段下它。
+   *
+   * 【玩家恆為 false】玩家自己決定姿態。
+   */
+  upright: boolean
 }
 
 export function createCommand(): Command {
   return {
     aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
+    upright: false,
   }
 }
 

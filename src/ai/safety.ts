@@ -393,6 +393,8 @@ export function applySafety(
     // 【接管時一併取消投彈】航向已經被改掉，而釋放的判準是照原本那條航路
     // 算的 —— 不取消的話炸彈會在偏離解算航路之後才出去
     out.bombing = false
+    // 【正飛的提示也清掉】接管要的是最快的改出，翻轉後拉常常就是最快的
+    out.upright = false
     return action
   }
 
@@ -440,6 +442,7 @@ export function applySafety(
     out.brake = 0
     out.firing = false
     out.bombing = false
+    out.upright = false
     return 'stall'
   }
 
