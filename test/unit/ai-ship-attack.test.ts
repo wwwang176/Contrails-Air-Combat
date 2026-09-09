@@ -123,7 +123,8 @@ describe('shipAttackCommand', () => {
   it('進到脫離半徑之內就抬頭爬升', () => {
     const c = cmd()
     const s = ship(0, 0, 0)
-    const self = at(0, 120, SHIP_BREAK_RANGE - 50)
+    // 斜距要落在脫離半徑之內：高度與距離各取半徑的六成
+    const self = at(0, SHIP_BREAK_RANGE * 0.6, SHIP_BREAK_RANGE * 0.6)
     shipAttackCommand(self, s, -1, c)
     expect(c.aimWorld.y).toBeGreaterThan(0)
     expect(c.firing).toBe(false)

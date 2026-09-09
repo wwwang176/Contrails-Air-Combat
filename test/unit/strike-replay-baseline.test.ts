@@ -113,6 +113,6 @@ describe('攻擊路徑的逐位元基準', () => {
 
   it('allies-m4 跑 90 秒', () => {
     // 盟 M4 的值對應「零戰整隊重生 + 陸攻掛在第五批」的編成
-    expect(hash(strikeDigest(run(allies, 90)))).toBe('e4d9374a')
+    expect(hash(strikeDigest(run(allies, 90)))).toBe('bcf3e04a')
   }, 180_000)
 })

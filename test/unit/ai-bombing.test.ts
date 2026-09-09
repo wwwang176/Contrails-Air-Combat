@@ -695,7 +695,8 @@ describe('戰鬥機的落彈點瞄準', () => {
     setBombBallistics(K2, DT)
     const st = createBombAim()
     const sh = createShip(0, SHIP_CLASSES.essex, 'red', 0, -300, 0, 0)
-    stepBombAim(st, zero(200, 0, -30), sh, true, true)
+    // 斜距 hypot(60, 60) ≈ 85 m，在 SHIP_BREAK_RANGE 之內
+    stepBombAim(st, zero(60, -240, -30), sh, true, true)
     expect(st.active).toBe(false)
   })
 

@@ -62,10 +62,13 @@ describe('炸彈的包絡只擋退化狀態', () => {
     expect(ok(BOMB_ENVELOPE, { agl: 1e9 })).toBe(true)
   })
 
-  it('大角度俯衝／拉起才擋得住', () => {
-    expect(ok(BOMB_ENVELOPE, { pitch: 69 * DEG })).toBe(true)
-    expect(ok(BOMB_ENVELOPE, { pitch: 71 * DEG })).toBe(false)
-    expect(ok(BOMB_ENVELOPE, { pitch: -71 * DEG })).toBe(false)
+  it('垂直俯衝／拉起才擋得住', () => {
+    // 【垂直之內都放】炸彈在任何俯衝角都往機腹外落；擋的是機首越過垂直、
+    // 機腹朝天那一段
+    expect(ok(BOMB_ENVELOPE, { pitch: 89 * DEG })).toBe(true)
+    expect(ok(BOMB_ENVELOPE, { pitch: -89 * DEG })).toBe(true)
+    expect(ok(BOMB_ENVELOPE, { pitch: 91 * DEG })).toBe(false)
+    expect(ok(BOMB_ENVELOPE, { pitch: -91 * DEG })).toBe(false)
   })
 })
 
