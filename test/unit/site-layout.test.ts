@@ -292,6 +292,53 @@ describe('廠界不是一個矩形', () => {
   })
 
   /**
+   * 【角切要是切角，不是沿著長邊削一條】斜切的兩條直角邊如果差好幾倍，切掉的
+   * 就是一個很扁的三角形 —— 斜邊幾乎平行長軸，畫面上是「工廠的長邊被斜著
+   * 削掉一條」，比直角還顯眼。
+   *
+   * 【這是長寬比一改就會走樣的那種錯】直角邊寫成墊面尺寸的比例，墊面從
+   * 3000 × 1500 轉成 1500 × 3000 之後，同一組比例就把等邊三角形變成 1 : 3.6。
+   */
+  it('四個角切掉的是接近等邊的三角形', () => {
+    const c = new Color()
+    const f = new Color()
+    /**
+     * 從 (dx, dz) 沿 `(sx, sz)` 方向掃到廠區的距離。
+     *
+     * 【道路與碴石帶要跳過】它們畫在世界座標、一路鋪到地圖邊緣，掃到就停的話
+     * 量到的是「離最近一條路多遠」。兩者都是不吃髒污的定值，比對得出來。
+     */
+    const reach = (dx: number, dz: number, sx: number, sz: number): number => {
+      for (let r = 0; r < 1600; r += 4) {
+        const w = W(dx + sx * r, dz + sz * r)
+        const hex = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE).getHex()
+        if (hex === 0x3f3d3a || hex === 0x5f5a52) continue
+        if (hex !== fieldSurfaceColor(w.x, w.z, f, 'lateAutumn').getHex()) return r
+      }
+      return 1600
+    }
+    const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+    /** 西／東緣在這個 dz 的位置。咬痕振幅 285 m，所以每一個量都取三點平均 */
+    const edgeX = (sx: -1 | 1, dz: number): number =>
+      sx * (PLANT_PAD.halfX + 900 - mean([-40, 0, 40].map((o) => reach(
+        sx * (PLANT_PAD.halfX + 900), dz + o, -sx, 0))))
+    const edgeZ = (sz: -1 | 1, dx: number): number =>
+      sz * (PLANT_PAD.halfZ + 900 - mean([-40, 0, 40].map((o) => reach(
+        dx + o, sz * (PLANT_PAD.halfZ + 900), 0, -sz))))
+    for (const [sx, sz, tag] of [
+      [-1, -1, '西北'], [1, -1, '東北'], [-1, 1, '西南'], [1, 1, '東南'],
+    ] as const) {
+      // 角落被切掉多少 ＝ 那一頭的邊界相對同一條邊中段縮進來多少
+      const a = Math.abs(edgeX(sx, sz * 1400) - edgeX(sx, 0))
+      const e = Math.abs(edgeZ(sz, sx * 650) - edgeZ(sz, 0))
+      const ratio = a / e
+      const what = `${tag}角切掉 ${a.toFixed(0)} × ${e.toFixed(0)} m，比 ${ratio.toFixed(2)}`
+      expect(ratio, what).toBeGreaterThan(0.45)
+      expect(ratio, what).toBeLessThan(2.2)
+    }
+  })
+
+  /**
    * 【只有細鋸齒不夠】110 m 的格咬 120 m，放在一條 3 km 的邊上是 4% 的相對
    * 振幅 —— 從投彈高度看仍然是一條直線加毛邊。這一條守的是粗的那一層：
    * 實測 230 m，把 `COARSE_BITE` 歸零之後只剩 120 m。
