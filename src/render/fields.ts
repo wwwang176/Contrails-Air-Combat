@@ -707,6 +707,15 @@ const CORNER_CUTS: readonly (readonly [number, number])[] = [
   [0.10, 0.20], [0.06, 0.13], [0.085, 0.175], [0.045, 0.20],
 ]
 
+/** 四個角斜切各自的鹽。共用一個的話四條斜邊會咬出一樣的鋸齒 */
+const CORNER_SALT: readonly number[] = [1913, 5273, 8171, 3527]
+
+/**
+ * 斜切的早退餘裕，m。**要大於三層咬痕的總和**（285 m）—— 小了的話角落外側
+ * 那一段會被跳過，而那正是咬痕該把切線往內拉的地方。
+ */
+const CORNER_SLACK = 400
+
 /**
  * 早退的外接盒要往外留這麼寬，m。**至少要蓋過 `PAD_SKIRT`** —— 邊界最外
  * 就在墊面外 `PAD_SKIRT` 處，盒子縮進來的話那一圈會露出田色。
@@ -755,21 +764,36 @@ function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
     edgeNoise(t, FINE_CELL, s1 ^ 0x5bd1) * f
     + edgeNoise(t, EDGE_CELL, s1) * b
     + edgeNoise(t, COARSE_CELL, s2) * c
-  const w = pad.x1 - pad.x0
-  const d = pad.z1 - pad.z0
+  const sx0 = pad.x0 - PAD_SKIRT
+  const sx1 = pad.x1 + PAD_SKIRT
+  const sz0 = pad.z0 - PAD_SKIRT
+  const sz1 = pad.z1 + PAD_SKIRT
+  const w = sx1 - sx0
+  const d = sz1 - sz0
   let out = Math.max(
-    pad.x0 - PAD_SKIRT + inset(z, 4517, 3313) - x,
-    x - (pad.x1 + PAD_SKIRT - inset(z, 2287, 6151)),
-    pad.z0 - PAD_SKIRT + inset(x, 9911, 8543) - z,
-    z - (pad.z1 + PAD_SKIRT - inset(x, 7331, 1697)),
+    sx0 + inset(z, 4517, 3313) - x,
+    x - (sx1 - inset(z, 2287, 6151)),
+    sz0 + inset(x, 9911, 8543) - z,
+    z - (sz1 - inset(x, 7331, 1697)),
   )
   for (let k = 0; k < 4; k++) {
     const a = CORNER_CUTS[k]![0] * w
     const e = CORNER_CUTS[k]![1] * d
-    const u = (k & 1) === 0 ? x - pad.x0 : pad.x1 - x
-    const v = k < 2 ? z - pad.z0 : pad.z1 - z
+    // 【四個角量的是外推後的矩形】拿沒外推的邊當基準的話，外推那一圈整個
+    // 落在斜切的外側 —— 角落會被削掉四百公尺，而且削出來的是一條直線
+    const u = (k & 1) === 0 ? x - sx0 : sx1 - x
+    const v = k < 2 ? z - sz0 : sz1 - z
+    // 【離角落夠遠就不必算】斜切的違反量在那裡已經比最深的一咬更負，加不加
+    // 咬痕都不會勝出。GLSL 那邊靠這一條省掉三次 hash —— 見 `CORNER_SLACK`
+    if (u * e + v * a >= a * e + CORNER_SLACK * e) continue
     // 違反量換算成垂直距離：法向量 (1/a, 1/e) 的長度倒數
-    out = Math.max(out, (1 - u / a - v / e) / Math.hypot(1 / a, 1 / e))
+    // 斜邊也吃同一組三層咬痕，參數是沿斜邊的座標 —— 少了它，四個角是四條
+    // 乾淨的斜直線，在投彈高度比矩形還好認
+    const t = (u * e - v * a) / Math.hypot(a, e)
+    out = Math.max(
+      out,
+      (1 - u / a - v / e) / Math.hypot(1 / a, 1 / e) + inset(t, CORNER_SALT[k]!, 6473 + k),
+    )
   }
   return out
 }
@@ -860,8 +884,12 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
   const C = coarseBite(site.pad).toFixed(1)
   const F = fineBite(site.pad).toFixed(1)
   const pad = site.pad
-  const W = pad.x1 - pad.x0
-  const D = pad.z1 - pad.z0
+  const sx0 = pad.x0 - PAD_SKIRT
+  const sx1 = pad.x1 + PAD_SKIRT
+  const sz0 = pad.z0 - PAD_SKIRT
+  const sz1 = pad.z1 + PAD_SKIRT
+  const W = sx1 - sx0
+  const D = sz1 - sz0
   /** 與 `padDistance` 的 `inset()` 逐項對應 —— 三層都要，鹽也要一樣 */
   const inset = (axis: string, s1: number, s2: number): string =>
     `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
@@ -870,11 +898,16 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
   const corners = CORNER_CUTS.map(([fa, fe], k) => {
     const a = fa * W
     const e = fe * D
-    const u = (k & 1) === 0 ? `local.x - ${pad.x0.toFixed(1)}` : `${pad.x1.toFixed(1)} - local.x`
-    const v = k < 2 ? `local.y - ${pad.z0.toFixed(1)}` : `${pad.z1.toFixed(1)} - local.y`
+    const u = (k & 1) === 0 ? `local.x - ${sx0.toFixed(1)}` : `${sx1.toFixed(1)} - local.x`
+    const v = k < 2 ? `local.y - ${sz0.toFixed(1)}` : `${sz1.toFixed(1)} - local.y`
     const norm = Math.hypot(1 / a, 1 / e)
-    return `  padD = max(padD, (1.0 - (${u}) / ${a.toFixed(1)} - (${v}) / ${e.toFixed(1)})`
-      + ` / ${norm.toFixed(8)});`
+    const len = Math.hypot(a, e)
+    return `  {\n    float cu = ${u};\n    float cv = ${v};\n`
+      + `    if (cu * ${e.toFixed(4)} + cv * ${a.toFixed(4)}`
+      + ` < ${(a * e + CORNER_SLACK * e).toFixed(1)}) {\n`
+      + `      float ct = (cu * ${e.toFixed(4)} - cv * ${a.toFixed(4)}) / ${len.toFixed(6)};\n`
+      + `      padD = max(padD, (1.0 - cu / ${a.toFixed(1)} - cv / ${e.toFixed(1)})`
+      + ` / ${norm.toFixed(8)}\n        + ${inset('ct', CORNER_SALT[k]!, 6473 + k)});\n    }\n  }`
   }).join('\n')
   /** 一組矩形＋色相攤成 GLSL 的兩張表加一個迴圈 */
   const rectsGlsl = (
@@ -930,10 +963,10 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
   float padD = max(
-    max(${(pad.x0 - PAD_SKIRT).toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
-        local.x - (${(pad.x1 + PAD_SKIRT).toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
-    max(${(pad.z0 - PAD_SKIRT).toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
-        local.y - (${(pad.z1 + PAD_SKIRT).toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
+    max(${sx0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
+        local.x - (${sx1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
+    max(${sz0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
+        local.y - (${sz1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
 ${corners}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
