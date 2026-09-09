@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlantRuin, PLANT_BUILDERS, PLANT_SIZE } from '../../src/render/geometry/ground/plant'
+import { PLANT_BUILDERS, PLANT_SIZE } from '../../src/render/geometry/ground/plant'
 import { GROUND_UNITS } from '../../src/render/geometry/ground'
 
 /**
@@ -60,18 +60,6 @@ describe('廠區構件的外型', () => {
       expect(u!.realWidth, kind).toBeCloseTo(size.x, 6)
       expect(u!.realHeight, kind).toBeCloseTo(size.y, 6)
       expect(u!.realLength, kind).toBeCloseTo(size.z, 6)
-    }
-  })
-
-  it('殘骸仍然是矮一截的同一個腳印', () => {
-    for (const [kind, size] of Object.entries(EXPECTED)) {
-      const g = buildPlantRuin(kind as Kind)
-      g.computeBoundingBox()
-      const b = g.boundingBox!
-      expect(b.min.y, `${kind} 殘骸陷地`).toBeCloseTo(0, 6)
-      expect(b.max.y, kind).toBeCloseTo(size.y * 0.25, 3)
-      expect(b.max.x - b.min.x, `${kind} 殘骸的 X 腳印`).toBeCloseTo(size.x, 3)
-      expect(b.max.z - b.min.z, `${kind} 殘骸的 Z 腳印`).toBeCloseTo(size.z, 3)
     }
   })
 

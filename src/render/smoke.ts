@@ -316,10 +316,36 @@ export function createShipFireSmoke(
   })
 }
 
-/** 蒸汽的容量。廠區四根煙囪與冷卻塔各每秒幾顆、活 8 秒 —— 幾百顆就夠 */
-export const STEAM_CAPACITY = 1024
-/** 蒸汽的壽命，s。比黑煙長：它是持續冒出的柱，不是一團 */
-export const STEAM_LIFE = 8
+/**
+ * 蒸汽的容量。
+ *
+ * 【要照上界配】八根佈景煙囪加活著的構件，每座每秒 6 顆、活 `STEAM_LIFE`
+ * 秒 —— 約 (8 + 4) × 6 × 14 ≈ 1,000 顆。滿了會覆寫最舊的，而最舊的正是
+ * **柱子的頂端**：症狀是煙柱莫名其妙變矮，不是任何錯誤。
+ */
+export const STEAM_CAPACITY = 2048
+/** 蒸汽的壽命，s。柱子要留得住 —— 壽命就是柱高的另一半 */
+export const STEAM_LIFE = 14
+/**
+ * 蒸汽的阻尼，1/s。
+ *
+ * 【阻尼決定的是「噴」還是「爬」】柱高固定的話，阻尼越大 `plumeSpeed` 解出來
+ * 的初速越高、衰減越快。0.6 解出來是 **72 m/s 出口、半程就停住** —— 那是
+ * 噴射不是煙柱。0.05 是 11.9 → 5.9，與船火黑煙（0.02，12.1 → 8.1）同一種
+ * 爬升，只是尾段慢一點，蒸汽本來就會冷下來散開。
+ *
+ * 它同時決定被風吹斜多少：水平初速也吃這個阻尼，0.6 的話柱子只歪四公尺。
+ */
+export const STEAM_DRAG = 0.05
+/**
+ * 蒸汽柱的高度，m。佈景煙囪高 48–68 m，柱子要明顯高過它才讀得出是煙柱 ——
+ * 從投彈高度看，煙柱是廠區唯一在遠處就標定得出自己的東西。
+ */
+export const STEAM_PLUME_HEIGHT = 120
+/** 每一顆蒸汽出生時的上升初速，m/s。**不要寫死** —— 見 `plumeSpeed` */
+export const STEAM_PLUME_SPEED = /* @__PURE__ */ plumeSpeed(
+  STEAM_PLUME_HEIGHT, STEAM_LIFE, STEAM_DRAG,
+)
 const STEAM_COLOR = /* @__PURE__ */ new Color(0.92, 0.92, 0.9)
 
 /**
@@ -327,7 +353,7 @@ const STEAM_COLOR = /* @__PURE__ */ new Color(0.92, 0.92, 0.9)
  * 另一份實例** —— 壽命、上升、起訖尺寸是整池共用的建立期設定，一份設定
  * 生不出兩種煙。
  *
- * 白、慢慢上升、越飄越大、淡。炸毀就停（呼叫端不再 `emit`）。
+ * 白、往上衝、越飄越大、淡。炸毀就停（呼叫端不再 `emit`）。
  */
 export function createSteam(capacity: number = STEAM_CAPACITY, alphaMap?: Texture): Particles {
   return createParticles({
@@ -337,10 +363,11 @@ export function createSteam(capacity: number = STEAM_CAPACITY, alphaMap?: Textur
     life: STEAM_LIFE,
     sizeFrom: 6,
     sizeTo: 26,
-    // 終端速度 gravity / drag = 2 m/s：一根 8 秒的柱約 20 m 高，再被風感
-    // 的水平初速拉斜
-    gravity: 1.2,
-    drag: 0.6,
+    // 【浮力是 0，柱高由初速決定】與船火的煙柱同一套。靠浮力那一版的終端
+    // 速度只有 2 m/s、8 秒爬 20 m —— 疊在 60 m 的煙囪頂上，從投彈高度看
+    // 是黏了一坨白色，不是一根煙柱
+    gravity: 0,
+    drag: STEAM_DRAG,
     alphaFrom: 0.45,
     lifeJitter: 0.3,
     shadeJitter: 0.15,

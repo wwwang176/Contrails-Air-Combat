@@ -35,70 +35,89 @@ LOG = {}
 # ═══════════════════════════ 佈局資料 ═══════════════════════════
 # 與 src/world/leuna.ts 同一份數字。那邊改了這邊要跟著改。
 
-PAD_HALF_X, PAD_HALF_Z = 1500.0, 750.0
-# 【廠內那三條道路一定要落在巷道上】道路的避讓把佈景推開 20 m，一條穿過
-# 街廓中間的路等於在那一格裡挖一條空溝
-LANES_X = [-1100.0, -600.0, -180.0, 150.0, 500.0, 1000.0]
-LANES_Z = [-420.0, 0.0, 380.0]
+PAD_HALF_X, PAD_HALF_Z = 750.0, 1500.0
+# 【廠內道路與鐵路骨幹一定要落在巷道上】它們的避讓把佈景推開二三十公尺，
+# 一條穿過街廓中間的線等於在那一格裡挖一條空溝
+LANES_X = [-420.0, 0.0, 380.0]
+LANES_Z = [-1000.0, -500.0, -150.0, 180.0, 600.0, 1100.0]
 LANE_WIDTH = 16.0
 
-# 7 欄 × 4 列，欄由西到東、列由北到南。
+# 4 欄 × 7 列，一欄是一條由北到南的縱列。**與 src/world/leuna.ts 同一份表**
 #
-# 【同機能不相鄰】相鄰同機能會被 merge_plan 併成一塊 —— 舊表的儲槽區併出
-# 一個 987 × 387 m 的方塊，從投彈高度看下去整個東半邊就是一區油槽。現在
-# 除了調車場那一對，任兩格的鄰居都是別的機能，所以最大的街廓就是一格。
+# 【同機能不相鄰】相鄰同機能會被 merge_plan 併成一塊，而併出來的大方塊從
+# 投彈高度看下去就是「那一整區都是油槽」。
 #
-# 【調車場例外，而且靠南緣】它得接得到外面的鐵路，擺在廠區中間不合理。
+# 【兩塊調車場貼著鐵路骨幹】RAIL 走 x = 0，兩塊分別在它的東側北段與西側
+# 南段 —— 調車場是骨幹沿線鼓起來的股道群。
 BLOCK_KINDS = [
-    ['halls', 'process', 'utility', 'railyard'],
-    ['process', 'tankFarm', 'process', 'railyard'],
-    ['utility', 'process', 'halls', 'process'],
-    ['tankFarm', 'utility', 'process', 'halls'],
-    ['process', 'tankFarm', 'utility', 'open'],
-    ['halls', 'process', 'tankFarm', 'railyard'],
-    ['tankFarm', 'utility', 'process', 'open'],
+    ['halls', 'process', 'utility', 'tankFarm', 'process', 'halls', 'utility'],
+    ['process', 'tankFarm', 'process', 'halls', 'utility', 'railyard', 'process'],
+    ['utility', 'railyard', 'halls', 'process', 'tankFarm', 'process', 'open'],
+    ['tankFarm', 'process', 'utility', 'open', 'process', 'utility', 'tankFarm'],
 ]
 
 # 十二座可炸構件的腳印（相對廠區中心）：dx, dz, 寬, 深
 # **與 src/world/leuna.ts 的 PLANT_LAYOUT 同一份座標**，尺寸來自 PLANT_SIZE
 PLANT_FOOTPRINTS = [
-    (-930, -560, 8, 8), (-850, -560, 8, 8), (-770, -560, 8, 8),
-    (-1300, 100, 60, 30), (-1300, 190, 60, 30), (-1180, 145, 8, 8),
-    (240, 120, 30, 30), (240, 240, 40, 40), (350, 180, 8, 8),
-    (1120, -620, 25, 25), (1200, -620, 25, 25), (1160, -540, 25, 25),
+    (-290, -1250, 8, 8), (-210, -1250, 8, 8), (-130, -1250, 8, 8),
+    (520, -1300, 25, 25), (600, -1300, 25, 25), (560, -1220, 25, 25),
+    (-640, -390, 30, 30), (-640, -270, 40, 40), (-500, -330, 8, 8),
+    (530, 800, 60, 30), (530, 890, 60, 30), (650, 845, 8, 8),
 ]
 
 # 廠內道路（相對廠區中心）：兩端點。**避讓只看這三條** —— 連外的兩條在
 # 墊面外，街廓的東西本來就碰不到
-ROADS = [(-1500, 0, 1500, 0), (-600, -750, -600, 750), (500, -750, 500, 750)]
+ROADS = [(-420, -1500, -420, 1500), (-750, -500, 750, -500), (-750, 600, 750, 600)]
 ROAD_HALF = 8.0
 
-# 連外道路的折線（相對廠區中心）：南門到地圖南緣、西門到西緣。電線桿沿著它們立
+# 鐵路骨幹（相對廠區中心）：貫穿廠區的那一段。**它也要避讓** —— 骨幹上鋪的
+# 是連續股道，佈景疊上去就是管架長在軌道上
+RAIL = [(0, -1500), (0, 1500)]
+RAIL_HALF = 15.0
+
+# 廠區的朝向：長軸相對正北往西偏 12.5 度。**與 leuna.ts 的 PLANT_HEADING
+# 同一個角度**，符號在這裡是相反的 —— Blender 的 +Y 是遊戲的 −Z。
+# 匯出前整包（連外的兩顆網格除外）繞 Z 轉這個角度，GLB 的節點變換帶得過去
+PLANT_HEADING_DEG = 12.5
+
+# 連外的道路與鐵路。**座標是「世界 − 廠區中心」，不隨廠區旋轉** —— 它們
+# 一路畫到地圖邊緣，跟著轉的話兩端會甩出圖外。與 leuna.ts 的 ROADS／RAILS
+# 逐點對應（那邊寫的是世界座標，這裡減掉 z = −7,000）。
+#
+# 【兩條公路都往西出圖】薩勒河從東、北、南三面繞著廠區，往別的方向拉一定跨河
 OUT_ROADS = [
-    [(500, 750), (500, 4000), (900, 9000), (900, 21500)],
-    [(-1500, 0), (-6000, 0), (-7200, 800), (-14500, 800)],
+    [(-840, -326), (-2000, -500), (-14500, -500)],
+    [(-85, 1555), (-85, 4000), (-600, 8500), (-2600, 10000), (-14500, 10000)],
 ]
 
+OUT_RAILS = [
+    [(-1500, -7500), (-1500, -3000), (-325, -1464)],
+    [(325, 1464), (-500, 3000), (-2500, 5000), (-14500, 5000)],
+]
+
+# 連外軌道一塊薄板最長鋪多少，m
+OUT_RAIL_STEP = 200.0
+
 # 預定砲位（相對廠區中心）。沙包圍一圈
-FLAK_SITES = [(-2600, -1200), (2600, -1200), (-3000, 0), (3000, 0),
-              (-2600, 1200), (2600, 1200), (0, -2700), (0, 2700)]
+FLAK_SITES = [(-1200, -2600), (1200, -2600), (-1200, 2600), (1200, 2600),
+              (0, -3000), (0, 3000), (-2700, 0), (2700, 0)]
 
 # 牆外的衛星設施（相對廠區中心）：dx, dz, 寬, 深, 種類
 # **與 src/world/leuna.ts 的 PLANT_SATELLITES 同一份數字**。地面的鋪面由
 # `LEUNA_SITE.outposts` 上色，這裡只建上面的東西。
 # 【位置是手挑的】砲位與連外道路都不在 KEEPOUTS 裡，挪動前先自己對照
 SATELLITES = [
-    (-1900, -250, 220, 160, 'substation'),
-    (720, 1080, 190, 150, 'pump'),
-    (-1240, 1090, 260, 150, 'warehouse'),
-    (1780, 470, 320, 130, 'siding'),
-    (1700, -980, 210, 190, 'stockpile'),
-    (-2060, 360, 180, 150, 'motorpool'),
+    (-250, 1900, 160, 220, 'substation'),
+    (1080, -720, 150, 190, 'pump'),
+    (1090, 1240, 150, 260, 'warehouse'),
+    (-400, -1780, 130, 320, 'siding'),
+    (-980, -1700, 190, 210, 'stockpile'),
+    (360, 2060, 150, 180, 'motorpool'),
 ]
 
 # 佈景煙囪（相對廠區中心）：dx, dz, 高
-STACKS = [(-1440, -340, 62), (-1050, -690, 55), (-1050, -60, 68), (-560, -80, 58),
-          (-60, -700, 64), (-1440, 60, 48), (-560, -700, 52), (-60, -60, 60)]
+STACKS = [(-340, 1440, 62), (-690, 1050, 55), (-60, 1050, 68), (-80, 560, 58),
+          (-700, 60, 64), (500, 1440, 48), (-700, 560, 52), (-60, 60, 60)]
 
 # ═══════════════════════════ 材質 ═══════════════════════════
 # 髒舊色盤 5 色 × 4 明度階。**名字是與 glb.ts 的合約**
@@ -387,15 +406,24 @@ def cell_hash(i, j, salt):
 
 
 # ═══════════════════════════ 避讓 ═══════════════════════════
-# 不能擺佈景的矩形（相對廠區中心）：構件腳印 +6 m、道路半寬 +2 m
+# 不能擺佈景的矩形（相對廠區中心）：構件腳印 +6 m、佈景煙囪半徑 +8 m、
+# 道路半寬 +2 m、鐵路骨幹半寬 +2 m
 
 def _build_keepouts():
     out = []
     for dx, dz, w, d in PLANT_FOOTPRINTS:
         out.append((dx - w / 2 - 6, dz - d / 2 - 6, dx + w / 2 + 6, dz + d / 2 + 6))
+    # 【佈景煙囪也要避】它是佈景不是可炸構件，所以不在 PLANT_FOOTPRINTS 裡 ——
+    # 少了這一段，儲槽與廠房會直接蓋在煙囪身上（實測埋掉三支）。而煙囪是廠區
+    # 唯一在遠處就標定得出自己的東西
+    for dx, dz, h in STACKS:
+        r = h * 0.045 + 8
+        out.append((dx - r, dz - r, dx + r, dz + r))
     for ax, az, bx, bz in ROADS:
         pad = ROAD_HALF + 2
         out.append((min(ax, bx) - pad, min(az, bz) - pad, max(ax, bx) + pad, max(az, bz) + pad))
+    pad = RAIL_HALF + 2
+    out.append((RAIL[0][0] - pad, RAIL[0][1] - pad, RAIL[1][0] + pad, RAIL[1][1] + pad))
     return out
 
 
@@ -449,8 +477,7 @@ def truss_tower(col, dx, dz, size, layers, seed):
     穿是對的。
 
     【沒有欄杆】0.15 m 粗、1 m 高的一道欄杆在最近的視距（200 m 貼地）也只有
-    一兩個像素，而兩道要 24 個三角形 —— 一座塔的三分之一花在看不見的東西上。
-    四層的一座因此由 268 降到 66。
+    一兩個像素，而兩道要 24 個三角形 —— 四層的一座總共才 98 個。
     """
     n = 0
     h = size / 2
@@ -495,8 +522,8 @@ def truss_tower(col, dx, dz, size, layers, seed):
     return n + 3
 
 
-# 筒身一律六邊。八邊在投彈高度分不出來，而儲槽區的筒是全廠數量最多的東西：
-# 一顆立式槽從 56 個三角形降到 40 個。
+# 筒身一律六邊。八邊在投彈高度分不出來，而儲槽區的筒是全廠數量最多的東西 ——
+# 一顆立式槽是兩個柱體，每多一邊就是全廠多幾千個三角形。
 TANK_SEG = 6
 
 
@@ -600,10 +627,9 @@ def rail_track(col, ax, az, bx, bz):
 def rail_car(col, dx, dz, rz, tank, seed):
     """車廂：底架、車身（罐車是六邊臥筒、敞車是盒子）。
 
-    【底架與轉向架合成一個盒子】原本是兩個：0.8–1.3 m 的底架加 0–0.7 m 的
-    轉向架。轉向架在俯視完全看不到，側面在 200 m 也只是一條暗邊 —— 全廠
-    幾百節車廂，一節省 12 個三角形。合成之後底架直接落地，車身的下緣位置
-    不變。
+    【底架直接落地，不另做轉向架】轉向架在俯視完全看不到，側面在 200 m 也
+    只是一條暗邊，而全廠有 770 節車廂 —— 一節多一個盒子就是全廠多九千個
+    三角形。底架的上緣要停在 1.4 m，車身的下緣才接得上。
     """
     m = grime_mat(seed)
     frame = fixed_mat('LP_PlantSteel')
@@ -625,10 +651,10 @@ def pipe_bridge(col, ax, az, bx, bz, h, pipes, seed):
     """架高的管廊：兩片扁長條加稀疏的立柱。
 
     【不逐管建圓柱、不每 12 m 一副門架】投彈高度看下去，一條管廊就是地上的
-    兩條平行線 —— 舊版一條 400 m 的管廊要一千兩百多個三角形，換來的細節在
-    這一關的視距上分不出來。現在同樣一條是兩百出頭。
+    兩條平行線；逐管的細節在這一關的視距上分不出來，而一條 400 m 的管廊會
+    因此從兩百出頭漲到一千兩百個三角形。
 
-    複雜度改由**高度分層交錯**提供：省下來的預算拿去鋪四層彼此穿越的管廊網
+    複雜度由**高度分層交錯**提供：省下來的預算鋪成四層彼此穿越的管廊網
     （`build_skyways`），那才是煉油廠從空中最好認的樣子。
     """
     length = math.hypot(bx - ax, bz - az)
@@ -1239,7 +1265,9 @@ def fill_railyard(col, b):
     """
     x0, z0, x1, z1 = inner(b)
     rnd = Rand(b[5])
-    f = Frame(x0, z0, x1, z1, rnd() < 0.5)
+    # 【主軸鎖死沿 Z】股道要與 `RAIL` 的骨幹平行。隨機挑主軸的話，兩塊調車場
+    # 的股道會互相垂直，而且都接不到那條貫穿廠區的主線
+    f = Frame(x0, z0, x1, z1, False)
     n, seq = 0, 0
     groups = []
     base = 0.06 + rnd() * 0.08
@@ -1564,6 +1592,120 @@ def _wall_run(i, salt):
     return (h & 0xFF) >= int(WALL_DROP * 255), (((h >> 8) & 0xFF) / 255) * WALL_PUSH
 
 
+def _out_road_segments():
+    """連外道路的線段（世界 − 廠區中心）"""
+    out = []
+    for line in OUT_ROADS:
+        for s in range(len(line) - 1):
+            out.append((line[s][0], line[s][1], line[s + 1][0], line[s + 1][1]))
+    return out
+
+
+OUT_ROAD_SEGMENTS = _out_road_segments()
+
+# 平交道的半寬：道路避讓帶再加 3 m，讓軌枕的包圍盒完全退出路面
+CROSSING_HALF = ROAD_HALF + 3.0
+
+
+def on_road(x, z, roads):
+    """這一點在不在任何一條道路的平交道範圍內。
+
+    【道路清單要跟軌道同一個座標系】廠內的骨幹配 `ROADS`（廠區局部）、連外
+    的軌道配 `OUT_ROAD_SEGMENTS`（世界 − 中心）—— 混用的話平交道會斷在
+    離路好幾百公尺的地方，而畫面上只是「這段軌道怎麼缺一塊」。
+    """
+    for ax, az, bx, bz in roads:
+        vx, vz = bx - ax, bz - az
+        L = vx * vx + vz * vz
+        t = 0.0 if L == 0 else max(0.0, min(1.0, ((x - ax) * vx + (z - az) * vz) / L))
+        if math.hypot(x - (ax + vx * t), z - (az + vz * t)) < CROSSING_HALF:
+            return True
+    return False
+
+
+def _rail_spans(ax, az, bx, bz, roads):
+    """一段軌道扣掉平交道之後剩下的子段。不足 12 m 的碎段丟掉"""
+    out = []
+    length = math.hypot(bx - ax, bz - az)
+    steps = max(2, int(math.ceil(length / 4)))
+    start = -1.0
+    for i in range(steps + 1):
+        t = i / steps
+        ok = not on_road(ax + (bx - ax) * t, az + (bz - az) * t, roads)
+        if ok and start < 0:
+            start = t
+        if (not ok or i == steps) and start >= 0:
+            end = t if ok else (i - 1) / steps
+            if (end - start) * length >= 12:
+                out.append((ax + (bx - ax) * start, az + (bz - az) * start,
+                            ax + (bx - ax) * end, az + (bz - az) * end))
+            start = -1.0
+    return out
+
+
+def lay_rail(b, ax, az, bx, bz, roads):
+    """鋪一條軌道：斷開平交道，再把每一段切到 `OUT_RAIL_STEP` 以下。
+
+    【長薄板要切開】一塊 2 km 的斜薄板，它每一個三角形的包圍盒都橫跨整條線
+    —— 道路的避讓檢查量的是包圍盒，一段沒切的斜軌會在離道路兩公里外被判成
+    壓在路上。
+    """
+    n = 0
+    for cx, cz, dx, dz in _rail_spans(ax, az, bx, bz, roads):
+        steps = max(1, int(math.ceil(math.hypot(dx - cx, dz - cz) / OUT_RAIL_STEP)))
+        for k in range(steps):
+            t0, t1 = k / steps, (k + 1) / steps
+            n += rail_track(b, cx + (dx - cx) * t0, cz + (dz - cz) * t0,
+                            cx + (dx - cx) * t1, cz + (dz - cz) * t1)
+    return n
+
+
+def build_mainline(b):
+    """鐵路骨幹：貫穿廠區的那一段，廠區局部座標，跟著廠區轉。
+
+    【它是調車場接得到的那條線】兩塊調車場的股道都平行於它、貼著它展開。
+    少了骨幹，那些股道在畫面上是兩片接不到任何地方的軌道。
+
+    【廠內鋪三股】主線是複線，站內多一條到發線。
+
+    【平交道要斷開】道路橫過軌道的地方不鋪軌。地面著色器是先鋪碴石再鋪柏油，
+    股道連續鋪過去的話，軌枕會浮在路面上。
+    """
+    n = 0
+    for k, off in enumerate((-6.0, 0.0, 6.0)):
+        x = RAIL[0][0] + off
+        n += lay_rail(b, x, RAIL[0][1], x, RAIL[1][1], ROADS)
+        # 骨幹上零星停幾節車，看得出它在用。車長 12 m，兩端都要離開平交道
+        for i in range(9):
+            h = cell_hash(i, k, 0x2b17)
+            if (h & 0xFF) < 150:
+                continue
+            dz = RAIL[0][1] + (i + 0.5) * (RAIL[1][1] - RAIL[0][1]) / 9
+            if on_road(x, dz - 8, ROADS) or on_road(x, dz + 8, ROADS):
+                continue
+            n += rail_car(b, x, dz, 0.0, ((h >> 8) & 1) == 0, 0x2b17 + i)
+    return n
+
+
+def build_outrail(b):
+    """連外的鐵路：兩股複線，**世界座標，不隨廠區旋轉**。
+
+    【複線要往線段的法線推，不是往 x 推】連外線有東西向的長段，只推 x 的話
+    兩股會完全重疊，畫面上只剩一股。
+    """
+    n = 0
+    for line in OUT_RAILS:
+        for s in range(len(line) - 1):
+            ax, az = line[s]
+            bx, bz = line[s + 1]
+            L = math.hypot(bx - ax, bz - az)
+            nx, nz = -(bz - az) / L, (bx - ax) / L
+            for off in (-4.0, 4.0):
+                n += lay_rail(b, ax + nx * off, az + nz * off,
+                              bx + nx * off, bz + nz * off, OUT_ROAD_SEGMENTS)
+    return n
+
+
 def build_wall(b):
     """圍牆：沿墊面四周，道路穿過的地方留門，四個角不接起來。
 
@@ -1578,10 +1720,11 @@ def build_wall(b):
     n = 0
     m = fixed_mat('LP_PlantWall')
     gate = 34.0
-    # 連外的兩座門：南門在 z = +750 的 x = 500、西門在 x = −1500 的 z = 0。
+    # 門：南邊 z = +1500 有公路（x = −420）與鐵路（x = 0）兩個開口、北邊
+    # z = −1500 有鐵路（x = 0）、西邊 x = −750 有公路（z = −500）。
     # 【只比沿邊的那一個座標】牆會往外推，拿兩點距離比會讓門被推出去的那一段補上
-    h_gates = {1: (500.0,)}
-    v_gates = {-1: (0.0,)}
+    h_gates = {1: (-420.0, 0.0), -1: (0.0,)}
+    v_gates = {-1: (-500.0,)}
     half = (WALL_SEG - 0.5) / 2
 
     def corner_skip(along, span, salt):
@@ -1698,13 +1841,8 @@ def build_satellites(b):
     return n
 
 
-def build_outskirts(b):
-    """墊面外的佈景：砲位的沙包、沿連外道路的電線桿。
-
-    【它們讓包圍球變得很大】電線桿一路排到地圖邊緣，整顆網格的包圍球因此
-    有二十幾公里 —— 視錐剔除等於失效。這是既有的取捨：少了它們，連外道路
-    在空中看起來是兩條畫在地上的線。
-    """
+def build_flak(b):
+    """砲位的沙包圈。**廠區局部座標，跟著廠區轉** —— 砲位是廠區的防空陣地"""
     n = 0
     sand = fixed_mat('LP_PlantSand')
     for fx, fz in FLAK_SITES:
@@ -1713,6 +1851,17 @@ def build_outskirts(b):
             add_box(b, 'sandbag', sand, fx + math.cos(a) * 6, -(fz + math.sin(a) * 6),
                     0.3, 1.0, 0.5, 0.6, -math.degrees(a))
             n += 1
+    return n
+
+
+def build_outskirts(b):
+    """沿連外道路的電線桿。**世界座標，不隨廠區旋轉**。
+
+    【它們讓包圍球變得很大】電線桿一路排到地圖邊緣，整顆網格的包圍球因此
+    有二十幾公里 —— 視錐剔除等於失效。這是既有的取捨：少了它們，連外道路
+    在空中看起來是兩條畫在地上的線。
+    """
+    n = 0
     pole = fixed_mat('LP_PlantPole')
     for road in OUT_ROADS:
         for s in range(len(road) - 1):
@@ -1730,6 +1879,25 @@ def build_outskirts(b):
                 add_box(b, 'pole', pole, x, -z, 4.0, 0.3, 0.3, 8.0)
                 n += 1
     return n
+
+
+# 這兩顆的座標已經是世界的，不轉
+UNROTATED = {'Plant_outskirts', 'Plant_outrail'}
+
+
+def _apply_heading(col):
+    """把廠區的朝向套到物件的變換上。
+
+    【設 rotation_euler 就好，不要 apply】glTF 匯出會把節點變換寫進去，而
+    遊戲端 `parseGroundGlb` 會 `applyMatrix4(matrixWorld)` 烘平。留著變換，
+    在 Blender 裡才看得出哪些東西是廠區的、哪些是連外的。
+
+    【連外的兩顆不轉】它們的座標已經是「世界 − 廠區中心」了，再轉一次會把
+    兩端甩出地圖。
+    """
+    for ob in col.objects:
+        ob.rotation_euler[2] = 0.0 if ob.name in UNROTATED \
+            else math.radians(PLANT_HEADING_DEG)
 
 
 def build_plant():
@@ -1774,7 +1942,18 @@ def build_plant():
 
     stb = Builder()
     total += build_satellites(stb)
+    total += build_flak(stb)
     stb.to_object('Plant_satellites', root)
+
+    mb = Builder()
+    total += build_mainline(mb)
+    mb.to_object('Plant_mainline', root)
+
+    rb = Builder()
+    total += build_outrail(rb)
+    rb.to_object('Plant_outrail', root)
+
+    _apply_heading(root)
 
     LOG['parts'] = total
     LOG['blocks'] = len(BLOCKS)
@@ -1798,6 +1977,8 @@ def rebuild_block(seed):
     n += weave_ground_pipes(b, blk[5])
     n += scatter_clutter(b, blk, blk[5])
     b.to_object(name, get_col('Plant'))
+    # 重生出來的物件沒有廠區的朝向，不補的話它會自己一塊躺平
+    bpy.data.objects[name].rotation_euler[2] = math.radians(PLANT_HEADING_DEG)
     print('%s 重生：零件 %d 個' % (name, n))
 
 

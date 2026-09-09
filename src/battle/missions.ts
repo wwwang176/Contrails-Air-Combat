@@ -14,7 +14,7 @@ import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId, type SideEntry } from './entry'
 import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
-import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
+import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
 import { SCHWARM_SIZE } from './flights'
 import type {
   Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat,
@@ -609,9 +609,8 @@ const RETREAT_DISTANCE = 12000
  * 偏移換成絕對座標。砲位是不還手的靶（`groundTargets.ts` 檔頭）。
  */
 const LEUNA_GROUND: readonly GroundEntry[] = [
-  ...PLANT_LAYOUT.map((p): GroundEntry => ({
-    unit: p.kind, team: 'red',
-    x: PLANT_CENTER.x + p.dx, z: PLANT_CENTER.z + p.dz, heading: PLANT_HEADING + p.heading,
+  ...PLANT_TARGETS.map((p): GroundEntry => ({
+    unit: p.kind, team: 'red', x: p.x, z: p.z, heading: p.heading,
   })),
   ...FLAK_SITES.map((s): GroundEntry => ({
     unit: 'flakHeavy', team: 'red', x: s.x, z: s.z, heading: s.heading,
