@@ -1,5 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
+import { hash01 } from '../render/scatter'
 import { resetBurst, stepBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'
@@ -136,6 +137,16 @@ export function ownerShipIndex(owner: number): number {
 
 /** 搖晃振幅，rad。**起始值。** 比飛機砲塔的 1.0° 大 —— 要的是玩家有機會。 */
 export const SHIP_WOBBLE_AMPLITUDE = 1.2 * DEG
+/**
+ * 5 吋砲引信秒數的相對誤差，±。
+ *
+ * 【為什麼要有誤差】攔截時間是精確解，殺傷半徑 50 m 在 2 km 上等於每一朵
+ * 時機對的雲都扣得到血 —— 黑雲該是危險的招牌，不是必中的判決。±6% 在
+ * 2 km（4.4 秒）上是 ±0.27 秒、沿彈道 ±120 m，雲於是開在目標前後。
+ *
+ * 【逐發的確定性擾動】種子是那一門砲的累計發射數，同一場同種子逐位元相同。
+ */
+export const FLAK_FUSE_ERROR = 0.06
 /** 搖晃頻率，rad/s。與飛機砲塔同一個值。 */
 export const SHIP_WOBBLE_OMEGA = 2 * Math.PI * 0.7
 
@@ -168,7 +179,7 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
       zone,
       aim: axis.clone(),
       axis,
-      phase: 0, targetIndex: -1, searchCooldown: 0,
+      phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
       burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
       flash: 0,
       hp: spec.hp,
@@ -200,6 +211,7 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     const g = guns[i]!
     g.aim.copy(g.axis)
     g.targetIndex = -1
+    g.fired = 0
     g.flash = 0
     g.hp = SHIP_GUN_SPECS[g.zone.tier].hp
     g.alive = true
@@ -314,8 +326,15 @@ export function stepShipGuns(
       if (o === undefined) continue
       P.copy(o.aircraft.state.position).sub(MUZZLE)
       V.copy(o.aircraft.state.velocity)
-      const fuse = solveLead(P, V, spec.muzzleVelocity, LEAD)
-      if (fuse === NO_INTERCEPT || fuse > FLAK_MAX_FUSE) continue
+      const exact = solveLead(P, V, spec.muzzleVelocity, LEAD)
+      if (exact === NO_INTERCEPT || exact > FLAK_MAX_FUSE) continue
+      // 【誤差在上限檢查之後套】上限守的是「打不打得到」，誤差只是雲開在
+      // 前面還是後面；讓誤差把一發合法的射擊擋掉沒有道理
+      // 【種子含船、砲區與累計發射數】只用發射數的話九艘船的第一門砲會抽到
+      // 同一串誤差
+      const k = ((ship.index * MAX_SHIP_GUNS + i) * 0x100000 + g.fired) | 0
+      g.fired++
+      const fuse = exact * (1 + FLAK_FUSE_ERROR * (2 * hash01(k) - 1))
       applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)

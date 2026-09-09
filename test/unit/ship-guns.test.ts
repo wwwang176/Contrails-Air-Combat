@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import {
-  SHIP_GUN_SPECS, SHIP_OWNER_BASE, createShipGuns, ownerShipIndex, shipOwner, stepShipGuns,
+  FLAK_FUSE_ERROR, SHIP_GUN_SPECS, SHIP_OWNER_BASE, createShipGuns, ownerShipIndex, shipOwner,
+  stepShipGuns,
 } from '../../src/world/shipGuns'
 import { Projectiles } from '../../src/world/Projectiles'
 import { createFlak, type FlakShells } from '../../src/world/flak'
@@ -201,7 +202,47 @@ describe('stepShipGuns', () => {
       i = f.team.findIndex((t) => t !== -1)
     }
     expect(i).toBeGreaterThanOrEqual(0)
-    expect(f.fuse[i]!).toBeCloseTo(2000 / SHIP_GUN_SPECS.flak.muzzleVelocity, 1)
+    const exact = 2000 / SHIP_GUN_SPECS.flak.muzzleVelocity
+    expect(f.fuse[i]!).toBeGreaterThanOrEqual(exact * (1 - FLAK_FUSE_ERROR))
+    expect(f.fuse[i]!).toBeLessThanOrEqual(exact * (1 + FLAK_FUSE_ERROR))
+  })
+
+  /**
+   * 【引信帶誤差，雲才會開在目標前後】解出來的攔截時間是精確的，殺傷半徑
+   * 50 m 在 2 km 上等於每一朵時機對的雲都扣得到血。誤差是逐發的確定性
+   * 擾動：同一場同種子逐位元相同，但同一門砲連續幾發不會開在同一點。
+   */
+  it('引信誤差在 ±FLAK_FUSE_ERROR 之內、逐發不同、而且可重現', () => {
+    function fuses(): number[] {
+      const s = shipWith('flak')
+      const p = new Projectiles(64)
+      const f = createFlak()
+      const dt = 1 / 240
+      const out: number[] = []
+      for (let k = 0; k < 60 * 240; k++) {
+        stepShipGuns(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+        for (let i = 0; i < f.fuse.length; i++) {
+          if (f.team[i] === -1) continue
+          out.push(f.fuse[i]!)
+          f.team[i] = -1
+        }
+      }
+      return out
+    }
+    const a = fuses()
+    expect(a.length).toBeGreaterThan(10)
+    // 【多 1% 是槍口位置】攔截時間從砲區的位置解，不是從船的重心；砲區
+    // 離重心最多幾十公尺，在 2 km 上不到 1%
+    const exact = 2000 / SHIP_GUN_SPECS.flak.muzzleVelocity
+    for (const x of a) {
+      expect(x).toBeGreaterThanOrEqual(exact * (1 - FLAK_FUSE_ERROR - 0.01))
+      expect(x).toBeLessThanOrEqual(exact * (1 + FLAK_FUSE_ERROR + 0.01))
+    }
+    // 兩端都用得到：不是一個縮在中間的小抖動
+    const mean = a.reduce((s, x) => s + x, 0) / a.length
+    expect(Math.min(...a)).toBeLessThan(mean * (1 - FLAK_FUSE_ERROR * 0.5))
+    expect(Math.max(...a)).toBeGreaterThan(mean * (1 + FLAK_FUSE_ERROR * 0.5))
+    expect(fuses()).toEqual(a)
   })
 
   /** 【超過引信上限就不開火】450 × 11 = 4,950 m 之外。 */

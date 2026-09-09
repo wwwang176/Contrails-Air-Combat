@@ -95,6 +95,8 @@ export interface ShipGun extends BurstCycle {
   targetIndex: number
   /** 距離下一次重新搜尋還有幾秒。 */
   searchCooldown: number
+  /** 累計發射的引信砲彈數。引信誤差的種子：逐發不同、同一場可重現。 */
+  fired: number
   /** 槍焰剩餘秒數。 */
   flash: number
   hp: number
