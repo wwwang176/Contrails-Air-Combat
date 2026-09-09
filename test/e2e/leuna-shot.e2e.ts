@@ -58,6 +58,10 @@ const VIEWS: readonly View[] = [
     name: 'railyard', yaw: 0, pitch: -45, alt: 800, dx: 190, dz: 50,
     desc: '調車場 800 m —— 骨幹、股道、龍門吊、堆料',
   },
+  {
+    name: 'crossing', yaw: 0, pitch: -35, alt: 400, dx: -420, dz: 3750,
+    desc: '廠外平交道 400 m —— 南門公路與連外鐵路交會',
+  },
   // 四群可炸構件。【機位要在目標南邊】yaw 0 是往 −Z 看，相機得站在目標的
   // +Z 那一側。每一群都要看「構件與周圍的佈景是不是同一種工廠」
   {

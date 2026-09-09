@@ -1587,27 +1587,67 @@ def _wall_run(i, salt):
     return (h & 0xFF) >= int(WALL_DROP * 255), (((h >> 8) & 0xFF) / 255) * WALL_PUSH
 
 
-def _level_crossings():
-    """骨幹被廠內道路橫斷的 z 區間。半寬比道路避讓帶再寬 3 m，讓軌枕的
-    包圍盒完全退出路面"""
-    out = []
-    for ax, az, bx, bz in ROADS:
-        if min(ax, bx) - ROAD_HALF > 8 or max(ax, bx) + ROAD_HALF < -8:
-            continue
-        out.append((min(az, bz) - ROAD_HALF - 3, max(az, bz) + ROAD_HALF + 3))
-    return sorted(out)
-
-
-def _mainline_spans():
-    """骨幹扣掉平交道之後剩下的股道區段"""
-    out = []
-    z = RAIL[0][1]
-    for z0, z1 in _level_crossings():
-        if z0 > z:
-            out.append((z, z0))
-        z = max(z, z1)
-    out.append((z, RAIL[1][1]))
+def _all_road_segments():
+    """廠內三條加連外兩條的所有道路線段（相對廠區中心）"""
+    out = [tuple(r) for r in ROADS]
+    for line in OUT_ROADS:
+        for s in range(len(line) - 1):
+            out.append((line[s][0], line[s][1], line[s + 1][0], line[s + 1][1]))
     return out
+
+
+ALL_ROADS = _all_road_segments()
+
+# 平交道的半寬：道路避讓帶再加 3 m，讓軌枕的包圍盒完全退出路面
+CROSSING_HALF = ROAD_HALF + 3.0
+
+
+def on_road(x, z):
+    """這一點在不在任何一條道路的平交道範圍內"""
+    for ax, az, bx, bz in ALL_ROADS:
+        vx, vz = bx - ax, bz - az
+        L = vx * vx + vz * vz
+        t = 0.0 if L == 0 else max(0.0, min(1.0, ((x - ax) * vx + (z - az) * vz) / L))
+        if math.hypot(x - (ax + vx * t), z - (az + vz * t)) < CROSSING_HALF:
+            return True
+    return False
+
+
+def _rail_spans(ax, az, bx, bz):
+    """一段軌道扣掉平交道之後剩下的子段。不足 12 m 的碎段丟掉"""
+    out = []
+    length = math.hypot(bx - ax, bz - az)
+    steps = max(2, int(math.ceil(length / 4)))
+    start = -1.0
+    for i in range(steps + 1):
+        t = i / steps
+        ok = not on_road(ax + (bx - ax) * t, az + (bz - az) * t)
+        if ok and start < 0:
+            start = t
+        if (not ok or i == steps) and start >= 0:
+            end = t if ok else (i - 1) / steps
+            if (end - start) * length >= 12:
+                out.append((ax + (bx - ax) * start, az + (bz - az) * start,
+                            ax + (bx - ax) * end, az + (bz - az) * end))
+            start = -1.0
+    return out
+
+
+def lay_rail(b, ax, az, bx, bz):
+    """鋪一條軌道：斷開平交道，再把每一段切到 `OUT_RAIL_STEP` 以下。
+
+    【長薄板要切開】一塊 2 km 的斜薄板，它每一個三角形的包圍盒都橫跨整條線
+    —— 道路的避讓檢查量的是包圍盒，一段沒切的斜軌會在離道路兩公里外被判成
+    壓在路上。
+    """
+    n = 0
+    for cx, cz, dx, dz in _rail_spans(ax, az, bx, bz):
+        steps = max(1, int(math.ceil(math.hypot(dx - cx, dz - cz) / OUT_RAIL_STEP)))
+        for k in range(steps):
+            t0, t1 = k / steps, (k + 1) / steps
+            n += rail_track(b, cx + (dx - cx) * t0, cz + (dz - cz) * t0,
+                            cx + (dx - cx) * t1, cz + (dz - cz) * t1)
+    return n
 
 
 def build_mainline(b):
@@ -1618,36 +1658,32 @@ def build_mainline(b):
 
     【廠內鋪三股、廠外兩股】主線是複線，站內多一條到發線。
 
-    【平交道要斷開】道路橫過骨幹的地方不鋪軌。地面著色器是先鋪碴石再鋪
-    柏油，股道連續鋪過去的話，軌枕會浮在路面上。
+    【平交道要斷開】道路橫過軌道的地方不鋪軌，廠內廠外一視同仁。地面著色器
+    是先鋪碴石再鋪柏油，股道連續鋪過去的話，軌枕會浮在路面上。
     """
     n = 0
-    spans = _mainline_spans()
     for k, off in enumerate((-6.0, 0.0, 6.0)):
-        for z0, z1 in spans:
-            n += rail_track(b, RAIL[0][0] + off, z0, RAIL[0][0] + off, z1)
-        # 骨幹上零星停幾節車，看得出它在用
+        x = RAIL[0][0] + off
+        n += lay_rail(b, x, RAIL[0][1], x, RAIL[1][1])
+        # 骨幹上零星停幾節車，看得出它在用。車長 12 m，兩端都要離開平交道
         for i in range(9):
             h = cell_hash(i, k, 0x2b17)
             if (h & 0xFF) < 150:
                 continue
             dz = RAIL[0][1] + (i + 0.5) * (RAIL[1][1] - RAIL[0][1]) / 9
-            if not any(z0 + 8 <= dz <= z1 - 8 for z0, z1 in spans):
+            if on_road(x, dz - 8) or on_road(x, dz + 8):
                 continue
-            n += rail_car(b, RAIL[0][0] + off, dz, 0.0, ((h >> 8) & 1) == 0, 0x2b17 + i)
-    # 【連外的斜段要切開】一塊 2 km 的斜薄板，它每一個三角形的包圍盒都橫跨
-    # 整條線 —— 廠內道路的避讓檢查量的是包圍盒，一段沒切的斜軌會在離道路
-    # 兩公里外被判成壓在路上
+            n += rail_car(b, x, dz, 0.0, ((h >> 8) & 1) == 0, 0x2b17 + i)
+    # 【複線要往線段的法線推，不是往 x 推】連外線有東西向的長段，只推 x 的話
+    # 兩股會完全重疊，畫面上只剩一股
     for line in OUT_RAILS:
         for s in range(len(line) - 1):
             ax, az = line[s]
             bx, bz = line[s + 1]
-            steps = max(1, int(math.ceil(math.hypot(bx - ax, bz - az) / OUT_RAIL_STEP)))
-            for k in range(steps):
-                t0, t1 = k / steps, (k + 1) / steps
-                for off in (-4.0, 4.0):
-                    n += rail_track(b, ax + (bx - ax) * t0 + off, az + (bz - az) * t0,
-                                    ax + (bx - ax) * t1 + off, az + (bz - az) * t1)
+            L = math.hypot(bx - ax, bz - az)
+            nx, nz = -(bz - az) / L, (bx - ax) / L
+            for off in (-4.0, 4.0):
+                n += lay_rail(b, ax + nx * off, az + nz * off, bx + nx * off, bz + nz * off)
     return n
 
 

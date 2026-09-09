@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { BufferAttribute } from 'three'
+import { Color, type BufferAttribute } from 'three'
 import {
   buildPlantScenery, PLANT_GLB_URL, preloadPlantScenery,
 } from '../../src/render/geometry/ground/plantScenery'
@@ -59,11 +59,13 @@ function ratio(grid: Uint8Array): number {
 
 describe('廠區的佈景網格', () => {
   let pos: BufferAttribute
+  let col: BufferAttribute
 
   beforeAll(async () => {
     await preloadPlantScenery(readGlb)
     const g = buildPlantScenery()
     pos = g.getAttribute('position') as BufferAttribute
+    col = g.getAttribute('color') as BufferAttribute
   })
 
   it('一顆幾何、有頂點色與法線、沒有共用頂點', () => {
@@ -205,6 +207,44 @@ describe('廠區的佈景網格', () => {
           bad = `佈景壓在${z.what}上：(${ax.toFixed(1)}…${bx.toFixed(1)}, `
             + `${az.toFixed(1)}…${bz.toFixed(1)})`
           break
+        }
+      }
+    }
+    expect(bad).toBe('')
+  })
+
+  /**
+   * 【平交道上不准有軌道】廠內廠外都一樣。地面著色器是先鋪碴石再鋪柏油，
+   * 路面壓在碴石上；軌道的薄板連續鋪過去的話，軌枕會浮在路面上 —— 而那在
+   * 畫面上只是「這段路的顏色怪怪的」。
+   *
+   * 只挑軌道色的三角形：連外道路旁邊本來就有電線桿與砲位的沙包。
+   */
+  it('沒有一塊軌道壓在道路上，連外的也算', () => {
+    const rail = PLANT_MATERIALS['LP_PlantRail']!
+    const same = Object.entries(PLANT_MATERIALS).filter(([, hex]) => hex === rail)
+    expect(same.map(([n]) => n), '軌道色不是軌道專用的').toEqual(['LP_PlantRail'])
+    const c = new Color(rail)
+    /** 點到線段的距離 */
+    const near = (x: number, z: number, a: { x: number; z: number }, b: { x: number; z: number }): number => {
+      const vx = b.x - a.x
+      const vz = b.z - a.z
+      const L = vx * vx + vz * vz
+      const t = L === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / L))
+      return Math.hypot(x - (a.x + vx * t), z - (a.z + vz * t))
+    }
+    let bad = ''
+    for (let t = 0; t < pos.count && bad === ''; t += 3) {
+      if (Math.abs(col.getX(t) - c.r) > 1e-3 || Math.abs(col.getZ(t) - c.b) > 1e-3) continue
+      const x = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3
+      const z = (pos.getZ(t) + pos.getZ(t + 1) + pos.getZ(t + 2)) / 3
+      for (const road of ROADS) {
+        for (let s = 0; s + 1 < road.length; s++) {
+          if (near(x, z, road[s]!, road[s + 1]!) < 8) {
+            bad = `軌道壓在道路 (${road[s]!.x},${road[s]!.z})→(${road[s + 1]!.x},`
+              + `${road[s + 1]!.z}) 上：(${x.toFixed(0)}, ${z.toFixed(0)})`
+            break
+          }
         }
       }
     }
