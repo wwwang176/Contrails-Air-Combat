@@ -294,9 +294,16 @@ function createInlandTerrain(
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
   const solid = outsideZero(farm.field)
-  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變
+  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變。
+  // 墊面是廠區局部座標，樞紐與朝向要一起傳
   const base = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
-    .map((s) => (site === undefined ? s : excluding(s, site.pad)))
+    .map((s) => (site === undefined
+      ? s
+      : excluding(s, {
+        ...site.pad,
+        ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
+        ...(site.heading === undefined ? {} : { heading: site.heading }),
+      })))
   const sources = flora === undefined ? base : flora(base)
   const vegetation = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、

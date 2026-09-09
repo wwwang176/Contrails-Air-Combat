@@ -15,13 +15,38 @@ export interface ExcludeRect {
   readonly z0: number
   readonly x1: number
   readonly z1: number
+  /**
+   * 矩形所在座標系的原點與旋轉（世界座標／弧度）。省略時矩形就是世界矩形。
+   *
+   * 【廠區的墊面一定要給】墊面轉了 `PLANT_HEADING`，`x0…x1` 是**廠區局部**
+   * 座標 —— 不給的話排除的是地圖原點旁邊的一塊空地，樹照長在廠房上。
+   */
+  readonly pivot?: { readonly x: number; readonly z: number }
+  readonly heading?: number
 }
 
 export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
   let scratch: FloraBuffer | null = null
+  const c = Math.cos(rect.heading ?? 0)
+  const s = Math.sin(rect.heading ?? 0)
+  const px = rect.pivot?.x ?? 0
+  const pz = rect.pivot?.z ?? 0
+  // 早退用的世界外接盒：局部矩形四角轉到世界之後的 AABB
+  let ax = Infinity
+  let az = Infinity
+  let bx = -Infinity
+  let bz = -Infinity
+  for (const [lx, lz] of [
+    [rect.x0, rect.z0], [rect.x1, rect.z0], [rect.x1, rect.z1], [rect.x0, rect.z1],
+  ] as const) {
+    const wx = px + lx * c - lz * s
+    const wz = pz + lx * s + lz * c
+    ax = Math.min(ax, wx); bx = Math.max(bx, wx)
+    az = Math.min(az, wz); bz = Math.max(bz, wz)
+  }
   return (x0, z0, x1, z1, heightAt, out) => {
-    // 格子整個在矩形外就不必過濾 —— 絕大多數的格子走這一條
-    if (x1 <= rect.x0 || x0 >= rect.x1 || z1 <= rect.z0 || z0 >= rect.z1) {
+    // 格子整個在外接盒外就不必過濾 —— 絕大多數的格子走這一條
+    if (x1 <= ax || x0 >= bx || z1 <= az || z0 >= bz) {
       source(x0, z0, x1, z1, heightAt, out)
       return
     }
@@ -31,8 +56,10 @@ export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
     source(x0, z0, x1, z1, heightAt, scratch)
     for (let i = 0; i < scratch.count; i++) {
       const o = i * FLORA_STRIDE
-      const x = scratch.data[o]!
-      const z = scratch.data[o + 2]!
+      const rx = scratch.data[o]! - px
+      const rz = scratch.data[o + 2]! - pz
+      const x = rx * c + rz * s
+      const z = -rx * s + rz * c
       if (x >= rect.x0 && x < rect.x1 && z >= rect.z0 && z < rect.z1) continue
       if (out.count >= out.capacity) { out.dropped++; continue }
       const d = out.count * FLORA_STRIDE
