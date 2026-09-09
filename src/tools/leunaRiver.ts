@@ -38,10 +38,13 @@ const CHANNEL_HALF = 45
 /**
  * 水面高出當地地形多少，m。
  *
- * 【不能是 0】地面網格是三角形，水面是另一組三角形；兩者同高會互相穿插成
- * 一片閃爍的花。也不能大 —— 一公尺以上就看得出河浮在田上。
+ * 【0.4 m 不夠】相機遠平面 5,000 km，2 km 高度的深度解析度已經是 0.25 m、
+ * 4 km 是 1 m —— 水面與地面在深度上分不開，整條河會閃爍。真正的解法是
+ * 材質上的 `polygonOffset`（見下），這個值只是再多一點保險。
+ *
+ * 【也不能大】兩公尺以上，低空飛過去看得出河浮在田上。
  */
-const CLEARANCE = 0.4
+const CLEARANCE = 1.2
 /** 折線重新取樣的間距，m。要比高度場的一格細，否則彎道會切角 */
 const STEP = 60
 /** 縱剖面的平滑窗，取樣數。河面不該跟著地形的雜訊上下抖 */
@@ -177,6 +180,10 @@ export function buildRiverWater(lines: readonly WaterLine[]): Mesh {
   geo.computeVertexNormals()
   const mesh = new Mesh(geo, new MeshStandardMaterial({
     color: WATER, roughness: 0.22, metalness: 0.12,
+    // 【深度上朝相機偏】水面貼著地面走，而遠平面 5,000 km 讓 2–4 km 高度的
+    // 深度解析度只剩 0.25–1 m —— 靠抬高度治不了（抬到看得出河浮在田上還在
+    // 閃）。`polygonOffset` 只動深度不動世界座標，這正是它存在的用途
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
   }))
   mesh.name = 'leunaRiverWater'
   return mesh
