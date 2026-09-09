@@ -699,12 +699,16 @@ const COARSE_BITE = 150
 const PAD_SKIRT = 180
 
 /**
- * 四個角斜切掉的兩條直角邊，佔墊面寬與深的比例。
+ * 四個角斜切掉的兩條直角邊，m。次序是西北、東北、西南、東南。
+ *
+ * 【是長度不是比例】寫成墊面尺寸的比例會隨長寬比走樣：3000 × 1500 的墊面
+ * 轉成 1500 × 3000 之後，同一組比例把等邊三角形變成 1 : 4.4 的扁三角形 ——
+ * 斜邊幾乎平行長軸，畫面上是「工廠的長邊被斜著削掉一條」，比直角還顯眼。
  *
  * 【四個角要不一樣】一樣的話切完仍然是一個對稱的八邊形，那和矩形一樣好認。
  */
 const CORNER_CUTS: readonly (readonly [number, number])[] = [
-  [0.10, 0.20], [0.06, 0.13], [0.085, 0.175], [0.045, 0.20],
+  [300, 300], [180, 195], [255, 260], [135, 300],
 ]
 
 /** 四個角斜切各自的鹽。共用一個的話四條斜邊會咬出一樣的鋸齒 */
@@ -777,8 +781,9 @@ function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
     z - (sz1 - inset(x, 7331, 1697)),
   )
   for (let k = 0; k < 4; k++) {
-    const a = CORNER_CUTS[k]![0] * w
-    const e = CORNER_CUTS[k]![1] * d
+    // 【夾住】兩個角的切在小墊面上會重疊，重疊之後整條邊都不見了
+    const a = Math.min(CORNER_CUTS[k]![0], w * 0.3)
+    const e = Math.min(CORNER_CUTS[k]![1], d * 0.3)
     // 【四個角量的是外推後的矩形】拿沒外推的邊當基準的話，外推那一圈整個
     // 落在斜切的外側 —— 角落會被削掉四百公尺，而且削出來的是一條直線
     const u = (k & 1) === 0 ? x - sx0 : sx1 - x
@@ -895,9 +900,10 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
     `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
     + ` + float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
     + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
-  const corners = CORNER_CUTS.map(([fa, fe], k) => {
-    const a = fa * W
-    const e = fe * D
+  const corners = CORNER_CUTS.map(([ca, ce], k) => {
+    // 【與 padDistance 的夾住逐項對應】
+    const a = Math.min(ca, W * 0.3)
+    const e = Math.min(ce, D * 0.3)
     const u = (k & 1) === 0 ? `local.x - ${sx0.toFixed(1)}` : `${sx1.toFixed(1)} - local.x`
     const v = k < 2 ? `local.y - ${sz0.toFixed(1)}` : `${sz1.toFixed(1)} - local.y`
     const norm = Math.hypot(1 / a, 1 / e)
