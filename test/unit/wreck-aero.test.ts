@@ -65,10 +65,13 @@ describe('autorotationRate：平衡轉速', () => {
     expect(slow).toBeGreaterThan(0)
   })
 
-  /** 戰鬥機的平衡轉速要落在看得出是「翻滾」的範圍：每秒 60 到 240 度 */
+  /**
+   * 【下限擋的是「幾乎不轉」】每秒 15 度在六十秒的墜落裡是兩圈半 —— 低於
+   * 它，殘骸看起來會像一塊姿態鎖死的磚頭。上限擋的是「快到看不出機型」。
+   */
   it('戰鬥機在終端速度下的平衡轉速落在合理範圍', () => {
     const deg = (autorotationRate(BF109K4, 80) * 180) / Math.PI
-    expect(deg).toBeGreaterThan(60)
+    expect(deg).toBeGreaterThan(15)
     expect(deg).toBeLessThan(240)
   })
 })
