@@ -255,6 +255,17 @@ function createLeunaTerrain(): Terrain {
 }
 
 /**
+ * 洛伊納，但高度場由外面給。**只有展示區在用**（`tools/leunaDem.ts` 的實測
+ * 高程）—— 遊戲的 `createTerrain('leuna')` 走的仍然是手擺丘陵那一條。
+ *
+ * 【丘陵清單給空的】`createInlandTerrain` 只讀 `field`；`hills` 是給 AI 避障
+ * 與世界層用的，而展示區沒有 AI。
+ */
+export function createLeunaTerrainWithField(field: HeightFieldData): Terrain {
+  return createInlandTerrain({ field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery)
+}
+
+/**
  * 內陸地形的共用算繪：田區、遠景環、三種散佈器。農地與洛伊納只差高度場、
  * 丘陵與季節；洛伊納另有廠區（墊面不長樹、地面是混凝土）與一顆佈景網格。
  */
