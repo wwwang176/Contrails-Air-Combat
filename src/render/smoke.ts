@@ -270,10 +270,13 @@ export const SHIP_FIRE_SMOKE_CAPACITY = 16384
  *                 會把煙縮成一個小核。柱子是全場疊得最厚的一叢粒子，正是
  *                 「一堆同心圓看得出是圓形」最明顯的地方，而貼圖版還會逐顆
  *                 轉 UV 破掉那個重複感
+ * @param hex      煙的顏色，**sRGB 十六進位**。顏色是逐池的，不是逐顆 ——
+ *                 要兩種顏色就開兩份池子。省略即船火那個深灰
  */
 export function createShipFireSmoke(
   capacity: number = SHIP_FIRE_SMOKE_CAPACITY,
   alphaMap?: Texture,
+  hex: number = SMOKE_COLOR,
 ): Particles {
   return createParticles({
     capacity,
@@ -289,7 +292,9 @@ export function createShipFireSmoke(
     alphaFrom: SMOKE_ALPHA,
     lifeJitter: SMOKE_LIFE_JITTER,
     shadeJitter: SHIP_FIRE_SMOKE_SHADE,
-    color: smokeColor,
+    // 【`setHex` 不是 `setRGB`】理由見 `smokeColor`：`setRGB` 寫的是線性值，
+    // 深灰會被輸出成比海面還亮的中灰
+    color: (_t, out) => { out.setHex(hex) },
   })
 }
 

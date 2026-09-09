@@ -51,7 +51,7 @@ import {
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
-import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE } from './render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_SCALE } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
   IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
@@ -490,6 +490,12 @@ ctx.scene.add(smoke.object)
  * 投彈高度上看不見。
  */
 const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
+/**
+ * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
+ * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
+ */
+const wreckFireSmoke = createShipFireSmoke(undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR)
+ctx.scene.add(wreckFireSmoke.object)
 ctx.scene.add(shipFireSmoke.object)
 /** 廠區的白煙：煙囪與冷卻塔頂持續冒的蒸汽（`emitPlantSteam`） */
 const steam = createSteam(undefined, smokeTexture)
@@ -684,7 +690,7 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
  * 燃燒的軍艦。
  */
 const emitWreckFirePuff = createFirePuff(
-  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
+  BLAST_POOLS, wreckFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
 
 /**
@@ -746,7 +752,7 @@ const POOLS = [
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
-  shipFireSmoke, shipFires, groundFires, steam,
+  shipFireSmoke, wreckFireSmoke, shipFires, groundFires, steam,
   // 【鏡頭震動也在這裡】跨場狀態、`reset()` 的簽章一樣。漏清的話上一場
   // 最後那一顆炸彈的餘震會接在新一場的第一幀上
   cameraShake,
@@ -1801,6 +1807,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   smoke.step(frameSeconds)
   steam.step(frameSeconds)
   shipFireSmoke.step(frameSeconds)
+  wreckFireSmoke.step(frameSeconds)
   // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
   // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
   blastJets.step(frameSeconds)

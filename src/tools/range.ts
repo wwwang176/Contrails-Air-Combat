@@ -21,7 +21,7 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
 import { createDebris } from '../render/debris'
-import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE } from '../render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_COLOR, WRECK_FIRE_SMOKE_SCALE } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
@@ -115,6 +115,12 @@ ctx.scene.add(blastSmoke.object)
 const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastDust.object)
 const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
+/**
+ * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
+ * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
+ */
+const wreckFireSmoke = createShipFireSmoke(undefined, smokeTexture, WRECK_FIRE_SMOKE_COLOR)
+ctx.scene.add(wreckFireSmoke.object)
 ctx.scene.add(shipFireSmoke.object)
 
 /**
@@ -133,7 +139,7 @@ const BLAST_POOLS: BlastPools = {
 
 /** 殘骸的引擎火。與遊戲同一份配方、同一組倍率。**在模組層建一次** */
 const emitWreckFirePuff = createFirePuff(
-  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
+  BLAST_POOLS, wreckFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
 
 /**
@@ -141,7 +147,7 @@ const emitWreckFirePuff = createFirePuff(
  * 的症狀是「收得到 emit 但一顆粒子都不畫」（實例矩陣在 `step` 裡寫），
  * 或者上一次的火留在畫面上被當成新的。
  */
-const BLAST_STEPPED = [blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, shipFireSmoke]
+const BLAST_STEPPED = [blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, shipFireSmoke, wreckFireSmoke]
 const debris = createDebris()
 ctx.scene.add(debris.object)
 

@@ -1,6 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
+import { SMOKE_COLOR } from './smoke'
 import type { Anchors } from './anchors'
 import type { AircraftSpec } from '../specs/types'
 import { lowestPoint } from '../world/hit'
@@ -95,6 +96,15 @@ export const WRECK_FIRE_SCALE = 0.125
  * 跟著火球一起縮的話那道尾跡會細到看不見。
  */
 export const WRECK_FIRE_SMOKE_SCALE = 2
+
+/**
+ * 引擎火冒的煙是什麼顏色，**sRGB 十六進位**。呼叫端用它建一份自己的煙池
+ * （`createShipFireSmoke` 的第三個引數）。
+ *
+ * 【為什麼要跟船火分開】顏色是逐池的，不是逐顆 —— 燒的東西不一樣（航空
+ * 燃油對重油），要調就得有自己的池子。
+ */
+export const WRECK_FIRE_SMOKE_COLOR = SMOKE_COLOR
 
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
