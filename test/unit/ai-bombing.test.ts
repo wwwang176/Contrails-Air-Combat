@@ -16,7 +16,8 @@ import { bombDragK, BOMB_TERMINAL_SPEED, solveImpact } from '../../src/world/bom
 import type { BombState, Impact } from '../../src/world/bomb'
 import { A6M5 } from '../../src/specs/a6m5'
 import {
-  BOMB_PROFILE, RELEASE_HULLS, RUN_SETTLE, createBombAim, deckHeightOf, insideWindow,
+  BOMB_PROFILE, RELEASE_ACROSS_HULLS, RELEASE_HULLS, RUN_SETTLE, createBombAim, deckHeightOf,
+  insideWindow,
   RELEASE_SWEEP_SECONDS,
   releaseWindowOf, setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
 } from '../../src/ai/bombRun'
@@ -189,10 +190,13 @@ describe('releaseWindowOf', () => {
    * 【為什麼是艦體的兩倍】判準是**玩起來好不好玩**，不是命中率。放寬到
    * 兩倍讓 AI 願意投，投出去中不中交給彈道 —— 傷害判定一個字都不動。
    */
-  it('是艦體半長半寬的 RELEASE_HULLS 倍', () => {
+  it('沿船身是半長的 RELEASE_HULLS 倍、橫過船身是半寬的 RELEASE_ACROSS_HULLS 倍', () => {
+    // 【橫向比縱向寬】正橫進場的落點是掃過船身的短邊，窗只有幾十公尺；
+    // 縱向已經有幾百公尺，放寬只會讓每一顆更早出手
     const w = releaseWindowOf(SHIP_CLASSES.fletcher.hull)
     expect(w.along).toBeCloseTo(57.4 * RELEASE_HULLS, 6)
-    expect(w.across).toBeCloseTo(6.04 * RELEASE_HULLS, 6)
+    expect(w.across).toBeCloseTo(6.04 * RELEASE_ACROSS_HULLS, 6)
+    expect(RELEASE_ACROSS_HULLS).toBeGreaterThan(RELEASE_HULLS)
   })
 
   /**
@@ -210,13 +214,13 @@ describe('releaseWindowOf', () => {
    * 寬 43 m。取極值會讓窗橫向放大 51%。
    */
   it('Essex 取的是艦體不是飛行甲板', () => {
-    expect(releaseWindowOf(SHIP_CLASSES.essex.hull).across).toBeCloseTo(14.2 * RELEASE_HULLS, 6)
+    expect(releaseWindowOf(SHIP_CLASSES.essex.hull).across).toBeCloseTo(14.2 * RELEASE_ACROSS_HULLS, 6)
   })
 
   /** 【誤差要拆進船的體軸】船是斜的時候，世界座標的差向量沒有意義 */
   it('窗依船的艏向擺放', () => {
     // 艏向 90°：船身沿 ±X，所以 X 方向可以差很遠、Z 方向不行
-    // 弗萊徹的窗是 86.1 × 9.06（半長半寬乘 RELEASE_HULLS）
+    // 弗萊徹的窗是 86.1 × 12.08（半長乘 RELEASE_HULLS、半寬乘 RELEASE_ACROSS_HULLS）
     const s = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, 0, Math.PI / 2, 0)
     expect(insideWindow(s, 80, 0)).toBe(true)
     expect(insideWindow(s, 0, 80)).toBe(false)

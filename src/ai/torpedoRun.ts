@@ -114,7 +114,8 @@ export const TORPEDO_RELEASE_HULLS = 2
  * 只有倍率不同 —— 兩種武器都是「落點落在艦體的幾倍範圍內就投」。
  */
 export function hitWindowOf(hull: readonly Box[]): { along: number, across: number } {
-  return releaseWindowOf(hull, TORPEDO_RELEASE_HULLS)
+  // 【兩軸同一個倍率】魚雷是接觸引爆，橫向沒有「落在旁邊還扣得到血」
+  return releaseWindowOf(hull, TORPEDO_RELEASE_HULLS, TORPEDO_RELEASE_HULLS)
 }
 
 /**
@@ -433,7 +434,7 @@ export function shouldRelease(self: Aircraft, ship: StrikeTarget): boolean {
   const tz = SOL.ez + h.z * run
   const at = shipAt(ship, SOL.air + SOL.water, S.v[0]!)
   // 【窗與轟炸共用】誤差拆進船的體軸，窗是艦體的 `RELEASE_HULLS` 倍
-  return insideWindow(ship, tx - at.x, tz - at.z, TORPEDO_RELEASE_HULLS)
+  return insideWindow(ship, tx - at.x, tz - at.z, TORPEDO_RELEASE_HULLS, TORPEDO_RELEASE_HULLS)
 }
 
 /**

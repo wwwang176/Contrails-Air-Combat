@@ -3,7 +3,9 @@ import { Vector3 } from 'three'
 import { pickGroundTarget, SHIP_ATTACK_RANGE } from '../../src/ai/shipAttack'
 import { SHIP_CLASSES, createShip, deckHeightOf } from '../../src/world/ships'
 import { GROUND_HP, createGroundTarget, settleGroundTargets } from '../../src/world/groundTargets'
-import { insideWindow, releaseWindowOf, RELEASE_HULLS, shipAt } from '../../src/ai/bombRun'
+import {
+  insideWindow, releaseWindowOf, RELEASE_ACROSS_HULLS, RELEASE_HULLS, shipAt,
+} from '../../src/ai/bombRun'
 
 /**
  * 打擊目標的視圖：船與地面目標都滿足它，`bombRun.ts` 那幾支只讀視圖。
@@ -28,7 +30,7 @@ describe('地面目標是打擊目標', () => {
     const out = new Vector3()
     expect(shipAt(t, 14, out)).toEqual(t.position)
     // 鍋爐房 60 × 18 × 30：沿 −Z 的半長 15、橫的半寬 30
-    expect(releaseWindowOf(t.hull)).toEqual({ along: 15 * RELEASE_HULLS, across: 30 * RELEASE_HULLS })
+    expect(releaseWindowOf(t.hull)).toEqual({ along: 15 * RELEASE_HULLS, across: 30 * RELEASE_ACROSS_HULLS })
     expect(insideWindow(t, 5, 5)).toBe(true)
     expect(insideWindow(t, 0, 40)).toBe(false)
     expect(t.impactY).toBe(18)
