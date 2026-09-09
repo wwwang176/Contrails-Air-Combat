@@ -1081,6 +1081,9 @@ function leaveGodView(): void {
  * 新的 `combatants` 建的（M10 spec §5.3、§5.5）。
  */
 function enterBattle(): void {
+  // 【再打一場也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉；
+  // 結算的「再打一場」走的是這裡，不是 `restartBattle`
+  bannerText = ''
   // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
   releaseVisuals()
 
