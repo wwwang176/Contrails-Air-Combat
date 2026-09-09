@@ -231,6 +231,10 @@ const INV_Q = /* @__PURE__ */ new Quaternion()
  *
  * 【槍焰的遞減不在這裡】與飛機砲塔同一個約定：由 `World.step` 那個掃過
  * 所有船的迴圈做，這樣「被打掉那一瞬間亮著的槍焰」不會永遠停在那裡。
+ *
+ * @param fleet 目標分攤要數的全部船。**`World` 一定要傳整個艦隊** ——
+ *   省略時只數這一艘，那是單艦呼叫端（測試、探針）的退路，九艘船各自
+ *   只數自己就回到「全部咬長機」。
  */
 export function stepShipGuns(
   ship: Ship,
@@ -239,6 +243,7 @@ export function stepShipGuns(
   flak: FlakShells,
   time: number,
   dt: number,
+  fleet: readonly Ship[] = (SOLO[0] = ship, SOLO),
 ): void {
   const guns = ship.guns
   // 【沉了的船一門砲都不動】與「砲位死了完全不動」同一條規則，只是整艘。
@@ -247,6 +252,18 @@ export function stepShipGuns(
   const q = ship.orientation
   // 【一艘只算一次逆姿態】每個砲位各算一次就是 8 倍的四元數共軛
   INV_Q.copy(q).conjugate()
+
+  // 【鎖定數每艘每步從整個艦隊重數】維護增減要求每一條退場路徑都配一次
+  // 更新，漏掉一條就留下永遠不消失的幽靈鎖定；重數是 O(艦隊砲位數)，
+  // 九艘船不到一百門，而且自我修復
+  if (LOCKS.length < all.length) LOCKS = new Int32Array(all.length)
+  LOCKS.fill(0, 0, all.length)
+  for (const s of fleet) {
+    if (!s.alive) continue
+    for (const g of s.guns) {
+      if (g.alive && g.targetIndex >= 0 && g.targetIndex < all.length) LOCKS[g.targetIndex]!++
+    }
+  }
 
   for (let i = 0; i < guns.length; i++) {
     const g = guns[i]!
@@ -262,7 +279,10 @@ export function stepShipGuns(
     // 選目標。搜尋一律受冷卻節流，**與現在有沒有目標無關**
     g.searchCooldown -= dt
     if (g.searchCooldown <= 0) {
+      // 【自己的舊鎖定先放掉】否則重挑時自己那一票會把原目標算成滿的
+      if (g.targetIndex >= 0 && g.targetIndex < all.length) LOCKS[g.targetIndex]!--
       g.targetIndex = pickTarget(ship, all, g, spec)
+      if (g.targetIndex >= 0) LOCKS[g.targetIndex]!++
       g.searchCooldown += SEARCH_INTERVAL
     } else if (g.targetIndex >= 0) {
       const o = all[g.targetIndex]
@@ -356,7 +376,24 @@ function rangeSeconds(g: ShipGun, spec: ShipGunSpec): number {
 }
 
 /**
- * 挑目標：敵隊、存活、有解、在射界內，取**離槍口**最近的。
+ * 整個艦隊此刻每一架敵機被幾門砲鎖定，依 combatant 索引。`stepShipGuns`
+ * 每艘每步從整個艦隊重數，搜尋當步就地增減。長度跟著參戰架數走，只在
+ * 架數超過時重配 —— 那發生在場景組裝期。
+ */
+let LOCKS = new Int32Array(64)
+
+/** `stepShipGuns` 沒給艦隊時的單艦清單。不配置 */
+const SOLO: Ship[] = []
+
+/**
+ * 挑目標：敵隊、存活、有解、在射界內，取**全艦隊鎖定數最少**的；鎖定數
+ * 相同時取離槍口最近的。
+ *
+ * 【為什麼不是「最近的」】每門砲各挑最近的話，一支四機小隊壓進來時九艘
+ * 船的砲全部咬長機，長機死了下一秒全部轉到第二架 —— 四架依序死在同一段
+ * 距離上，一支小隊永遠走不到投彈點。搜尋是逐門依序做的，「最少」於是
+ * 自然輪流：第一門挑最近的，第二門挑鎖定數還是零的下一架，繞完一輪再從
+ * 最近的疊第二層。只有一架在射程內時全艦隊照打，砲位不閒著。
  *
  * 【便宜的拒絕放在 solveLead 之前】與 `turrets.ts` 的 `pickTarget` 同一個
  * 理由：多數候選在遠處，先用距離平方擋掉。
@@ -370,12 +407,16 @@ function pickTarget(
   const reachSq = reach * reach
   let best = -1
   let bestDist = Infinity
+  let bestLocks = Infinity
   for (let k = 0; k < all.length; k++) {
     const o = all[k]!
     if (!o.alive || o.team === ship.team) continue
     const d = o.aircraft.state.position.distanceToSquared(MUZZLE)
-    if (d > reachSq || d >= bestDist) continue
+    if (d > reachSq) continue
+    const locks = LOCKS[o.index]!
+    if (locks > bestLocks || (locks === bestLocks && d >= bestDist)) continue
     if (!leadInBody(o, g, spec, BEST_WANT)) continue
+    bestLocks = locks
     bestDist = d
     best = o.index
   }

@@ -591,7 +591,8 @@ export class World {
         const v = g.flash - dt
         g.flash = v > 0 ? v : 0
       }
-      stepShipGuns(s, this.combatants, this.projectiles, this.flak, this.time, dt)
+      // 【傳整個艦隊】目標分攤數的是全艦隊的鎖定，不是這一艘的
+      stepShipGuns(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
     }
     // 【兩份緩衝】傷害吃 `stepBursts`（每步清空、World 自己排空），
     // 渲染讀 `burstEvents`（呼叫端排空）。共用一份的話，沒有排空的呼叫端

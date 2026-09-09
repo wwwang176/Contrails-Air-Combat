@@ -108,11 +108,11 @@ const allies = MISSIONS.allies.find((c) => c.id === 'allies-m4') as ReadyMission
 
 describe('攻擊路徑的逐位元基準', () => {
   it('japan-m4 跑 90 秒', () => {
-    expect(hash(strikeDigest(run(japan, 90)))).toBe('6316b833')
+    expect(hash(strikeDigest(run(japan, 90)))).toBe('83a2df44')
   }, 180_000)
 
   it('allies-m4 跑 90 秒', () => {
     // 盟 M4 的值對應「零戰整隊重生 + 陸攻掛在第五批」的編成
-    expect(hash(strikeDigest(run(allies, 90)))).toBe('48ee1aa7')
+    expect(hash(strikeDigest(run(allies, 90)))).toBe('d8acd14b')
   }, 180_000)
 })
