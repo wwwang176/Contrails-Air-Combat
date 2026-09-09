@@ -1,6 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { Group, Vector3 } from 'three'
-import { createWrecks, WRECK_FIRE_INTERVAL } from '../../src/render/wrecks'
+import { createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SECONDS } from '../../src/render/wrecks'
+import { FIRE_SECONDS } from '../../src/render/shipFires'
 import { buildAircraft, type AircraftModel } from '../../src/render/geometry/buildAircraft'
 import { IMPACT_STRIDE } from '../../src/world/events'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
@@ -151,6 +152,62 @@ describe('殘骸的燃燒', () => {
       for (const p of firePoints(w)) xs.add(Math.round(p.x))
     }
     expect(xs.size).toBe(1)
+  })
+
+  /**
+   * 【燒滿一分鐘就停】與船火同一個時長。殘骸的壽命上限是兩分鐘（那是一道
+   * 保險，給飄出海面網格、永遠碰不到水的那一具），不設上限的話那一具會
+   * 在天上燒兩分鐘。
+   */
+  it('燒滿 WRECK_FIRE_SECONDS 之後停止，之前一直在燒', () => {
+    const w = createWrecks(4, () => {})
+    const m = fakeModel([new Vector3(0, 0, -3)])
+    m.group.position.set(0, 40000, 0)
+    w.adopt(m, P51D, 0, 0, -150, 0)
+    // 【高得碰不到水】要驗的是時間上限，不是落海
+    const dry = (): number => -1e9
+    let before = 0
+    for (let i = 0; i < (WRECK_FIRE_SECONDS - 1) / (1 / 60); i++) {
+      w.step(1 / 60, dry, dry, 0)
+      before += w.fireEvents.count
+    }
+    expect(before).toBeGreaterThan((WRECK_FIRE_SECONDS - 2) / WRECK_FIRE_INTERVAL)
+
+    // 跨過上限，再開始數
+    for (let i = 0; i < 2 / (1 / 60); i++) w.step(1 / 60, dry, dry, 0)
+    let after = 0
+    for (let i = 0; i < 300; i++) {
+      w.step(1 / 60, dry, dry, 0)
+      after += w.fireEvents.count
+    }
+    expect(after).toBe(0)
+  })
+
+  /** 【一分鐘，與船火同一個時長】燒起來的船與燒起來的飛機該燒一樣久 */
+  it('WRECK_FIRE_SECONDS 等於船火的時長', () => {
+    expect(WRECK_FIRE_SECONDS).toBe(FIRE_SECONDS)
+  })
+
+  /**
+   * 【殘骸被回收就不燒】火點是從殘骸的格子推出來的，格子還給呼叫端之後
+   * 自然停 —— 這一條把那件事釘住，免得哪天火改成自己的池子而漏了這一半。
+   */
+  it('殘骸撞地被回收之後不再吐火點', () => {
+    const released: unknown[] = []
+    const w = createWrecks(4, (m) => { released.push(m) })
+    const m = fakeModel([new Vector3(0, 0, -3)])
+    m.group.position.set(0, 30, 0)
+    // 【地面在 0、沒有水】撞地那一條路
+    w.adopt(m, P51D, 0, 0, 0, 0)
+    for (let i = 0; i < 600; i++) w.step(1 / 60, () => 0, () => -Infinity, 0)
+    expect(released).toHaveLength(1)
+    expect(w.live).toBe(0)
+    let after = 0
+    for (let i = 0; i < 120; i++) {
+      w.step(1 / 60, () => 0, () => -Infinity, 0)
+      after += w.fireEvents.count
+    }
+    expect(after).toBe(0)
   })
 
   /** 【沉下去就不燒】水面下看不見，繼續放只是浪費池子 */
