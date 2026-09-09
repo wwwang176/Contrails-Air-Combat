@@ -84,6 +84,15 @@ export const PLANT_PAD = { halfX: 750, halfZ: 1500 } as const
 export const PLANT_PAD_RADIUS = /* @__PURE__ */ Math.hypot(PLANT_PAD.halfX, PLANT_PAD.halfZ)
 
 /**
+ * 墊面之外還要這麼寬的一圈不長樹，m。
+ *
+ * 【為什麼不是零】廠界最深咬進 355 m，樹貼著墊面長的話，咬進來的缺口裡會
+ * 站著一叢樹籬 —— 從投彈高度看是「工廠裡有樹」。而且真的廠區外圍是一圈
+ * 空地與圍牆外的空曠帶，不是農田直接貼到牆上。
+ */
+export const PLANT_TREE_CLEAR = 400
+
+/**
  * 丘陵的膨脹圓離墊面矩形至少這麼遠，m。
  *
  * 【為什麼是距離不是壓平】`bakeRelief` 只掃膨脹圓內，圓外回到 `floor = 0`；

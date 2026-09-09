@@ -16,7 +16,7 @@ import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../worl
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
   createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
-  RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
+  PLANT_TREE_CLEAR, RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
@@ -238,6 +238,7 @@ export const LEUNA_SITE: SiteLayout = {
     x0: -PLANT_PAD.halfX, z0: -PLANT_PAD.halfZ,
     x1: PLANT_PAD.halfX, z1: PLANT_PAD.halfZ,
   },
+  treeClear: PLANT_TREE_CLEAR,
   roads: ROADS,
   roadWidth: ROAD_WIDTH,
   rails: RAILS,
@@ -300,7 +301,8 @@ function createInlandTerrain(
     .map((s) => (site === undefined
       ? s
       : excluding(s, {
-        ...site.pad,
+        x0: site.pad.x0 - (site.treeClear ?? 0), x1: site.pad.x1 + (site.treeClear ?? 0),
+        z0: site.pad.z0 - (site.treeClear ?? 0), z1: site.pad.z1 + (site.treeClear ?? 0),
         ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
         ...(site.heading === undefined ? {} : { heading: site.heading }),
       })))

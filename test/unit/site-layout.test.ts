@@ -163,8 +163,9 @@ describe('墊面的髒污', () => {
     let changes = 0
     let prev = ''
     for (let k = 0; k <= 20; k++) {
-      // 【要落在墊面內而且避開路與鐵路】墊面是局部 x ±750，路在 −420、鐵路在 0
-      const w = W(-700 + k * 6, -300)
+      // 【要落在墊面內而且避開路與鐵路】墊面是局部 x ±750，路在 −420、鐵路在 0。
+      // 不能貼著西緣走 —— 廠界最深咬進 355 m，那一段常常已經是田
+      const w = W(-300 + k * 6, -300)
       const hex = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE).getHexString()
       if (prev !== '' && hex !== prev) changes++
       prev = hex
@@ -211,6 +212,51 @@ describe('廠界不是一個矩形', () => {
     }
     return PLANT_PAD.halfZ
   }
+
+  /**
+   * 【邊界是硬的，不是一條漸層帶】墊面外一圈把混凝土混回田色的過渡帶，從
+   * 投彈高度看是「一半工廠一半田」的暈 —— 廠區與田之間是圍牆，不是霧。
+   * 這一條掃過邊界，每一點要嘛是墊面色系（混凝土乘髒污），要嘛與純田色
+   * 逐位元相同；混色會兩邊都不是。
+   */
+  it('跨過廠界沒有混色的過渡帶', () => {
+    const c = new Color()
+    const f = new Color()
+    // 混凝土、碴石、裸土、衛星設施的鋪面、柏油。髒污是三個通道同一個倍率，
+    // 所以純色系的取樣點對其中一個基色的三個比值會一致；混色不會
+    const bases = [0x8d8a82, 0x5f5a52, 0x6b5f4e, 0x807d76, 0x3f3d3a].map((h) => new Color(h))
+    let blended = 0
+    for (let dx = -600; dx <= 600; dx += 37) {
+      for (let dz = -PLANT_PAD.halfZ - 400; dz <= -PLANT_PAD.halfZ + 200; dz += 3) {
+        const w = W(dx, dz)
+        const got = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
+        if (got.getHex() === fieldSurfaceColor(w.x, w.z, f, 'lateAutumn').getHex()) continue
+        const pure = bases.some((b) => {
+          const k = got.r / b.r
+          return Math.abs(got.g / b.g - k) < 2e-3 && Math.abs(got.b / b.b - k) < 2e-3
+        })
+        if (!pure) blended++
+      }
+    }
+    expect(blended, `有 ${blended} 個取樣點既不是墊面也不是田`).toBe(0)
+  })
+
+  /**
+   * 【鋸齒要細到看得出是鋸齒】粗的那一層讓整條邊蜿蜒，但週期 450 m 的起伏
+   * 在投彈高度是一條平滑的曲線。細的那一層負責「這不是畫出來的線」——
+   * 沿邊每 10 m 取一點，相鄰兩點的深度差要常常跳超過 15 m。
+   */
+  it('邊界的鋸齒是 20 到 50 m 的尺度', () => {
+    const depths: number[] = []
+    for (let dx = -600; dx <= 600; dx += 10) depths.push(edgeDepth(dx))
+    let jumps = 0
+    for (let i = 1; i < depths.length; i++) {
+      if (Math.abs(depths[i]! - depths[i - 1]!) > 15) jumps++
+    }
+    const rate = jumps / (depths.length - 1)
+    expect(rate, `只有 ${(rate * 100).toFixed(0)}% 的相鄰取樣跳超過 15 m`)
+      .toBeGreaterThanOrEqual(0.2)
+  })
 
   /**
    * 【只有細鋸齒不夠】110 m 的格咬 120 m，放在一條 3 km 的邊上是 4% 的相對
