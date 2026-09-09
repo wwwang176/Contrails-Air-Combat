@@ -43,8 +43,8 @@ export interface ReleaseEnvelope {
  */
 export const BOMB_ENVELOPE: ReleaseEnvelope = {
   maxRoll: 90 * DEG,
-  minPitch: -70 * DEG,
-  maxPitch: 70 * DEG,
+  minPitch: -90 * DEG,
+  maxPitch: 90 * DEG,
   minAgl: 60,
   maxAgl: Infinity,
   minTas: 0,

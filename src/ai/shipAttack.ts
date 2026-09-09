@@ -53,10 +53,12 @@ export const SHIP_ATTACK_RANGE = 8000
  * 【它守的是撞船】撞船現在是致命的（`World.hitsShip`），而俯衝掃射的 AI
  * 沒有任何東西會叫它拉桿 —— `applySafety` 看的是地形與海面，不是船。
  *
- * 【400 m 怎麼來】400 m/s 俯衝下是一秒。P-51D 拉起來要不到那麼久，而
- * 再近就進入 20 mm 的近迫火網最密的那一段。**起始值，由試飛裁定。**
+ * 【它同時是落彈瞄準的下限】`bombRun.ts` 在這個斜距交還瞄準點，掛彈的
+ * 戰鬥機能壓到多近才放手由它決定。100 m 讓側翼進場的零戰投得出彈；盟 M4
+ * 無頭跑 240 秒，撞船與落海都是 0 —— 安全層在那之前就把機首拉起來了。
+ * **起始值，由試飛裁定。**
  */
-export const SHIP_BREAK_RANGE = 400
+export const SHIP_BREAK_RANGE = 100
 
 /** 機首與預瞄方向的夾角小於這個才開火，rad。 */
 export const SHIP_FIRE_CONE = 3 * DEG
