@@ -51,7 +51,7 @@ import {
 import { createVortex } from './render/vortex'
 import { createOrderMarkers } from './render/orderMarkers'
 import { BLAST_DEBRIS_COLOR, createDebris } from './render/debris'
-import { createWrecks, WRECK_FIRE_SCALE } from './render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE } from './render/wrecks'
 import { bodyColorOf } from './render/geometry/buildAircraft'
 import {
   IMPACT_STRIDE, clearImpacts, createImpacts, type ImpactEvents,
@@ -677,7 +677,9 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
  * 殘骸的引擎火。**同一份配方、小一號** —— 燒的是一具發動機艙，不是整艘
  * 燃燒的軍艦。
  */
-const emitWreckFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)
+const emitWreckFirePuff = createFirePuff(
+  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE,
+)
 
 /**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。

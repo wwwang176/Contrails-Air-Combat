@@ -31,10 +31,13 @@ const FIRE_SMOKE_RISE_JITTER = 0.25
  *
  * @param pools 爆炸那一組池。`FIRE_BLAST` 只用到 `fireball` 與 `glow`
  * @param plume 煙柱的池（`createShipFireSmoke`）
- * @param scale 線性尺寸倍率。1 = 燒起來的船那一級；一具引擎的火要小一號
+ * @param scale 火球的線性尺寸倍率。1 = 燒起來的船那一級
+ * @param smokeScale 煙的線性尺寸倍率，**與火球分開**。省略即跟著 `scale`。
+ *                   一具引擎的火苗很小，但拖在後面的煙要遠遠看得到 ——
+ *                   共用一個倍率的話，火縮到看得順眼時煙也跟著細到消失
  */
 export function createFirePuff(
-  pools: BlastPools, plume: Particles, scale = 1,
+  pools: BlastPools, plume: Particles, scale = 1, smokeScale = scale,
 ): FirePuffFn {
   /** 散佈序號。爆炸配方與煙的三個抖動都吃它 */
   let seed = 0
@@ -62,7 +65,12 @@ export function createFirePuff(
       // 【煙**不**繼承火源的速度】它離開機體之後就是空氣裡的一團煙，被拋在
       // 後面才會連成尾跡；跟著火源走的話整叢煙一起平移，柱子與尾跡都不見了。
       // 船火也是這樣：噴煙的**源頭**每幀跟著艦體算，噴出去的每一團留在原地
-      plume.emit(x, y, z, Math.cos(a) * r * scale, up, Math.sin(a) * r * scale, scale)
+      //
+      // 【水平擴散跟著煙的倍率，不是火的】柱子要跟著它自己的粗細長寬
+      plume.emit(
+        x, y, z,
+        Math.cos(a) * r * smokeScale, up, Math.sin(a) * r * smokeScale, smokeScale,
+      )
     }
   }
 }

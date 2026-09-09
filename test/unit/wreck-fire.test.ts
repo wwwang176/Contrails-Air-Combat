@@ -2,6 +2,7 @@ import { beforeAll, describe, it, expect } from 'vitest'
 import { Group, Vector3 } from 'three'
 import {
   createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SCALE, WRECK_FIRE_SECONDS,
+  WRECK_FIRE_SMOKE_SCALE,
 } from '../../src/render/wrecks'
 import { FIRE_SECONDS } from '../../src/render/shipFires'
 import { createFirePuff } from '../../src/render/firePuff'
@@ -333,8 +334,47 @@ describe('火跟著機體走，煙被拋在後面', () => {
   })
 })
 
-/** 煙的水平擴散上限，m/s。比它大就是混進了火源的速度 */
+/** 煙的水平擴散上限，m/s，在倍率 1 之下。比它大就是混進了火源的速度 */
 const FIRE_SMOKE_SPREAD_LIMIT = 3
+
+describe('火與煙的尺寸各有各的倍率', () => {
+  /**
+   * 【一定要能分開調】一具引擎的火苗很小，但拖在後面的煙要在幾公里外看得
+   * 出「有一架掉下去了」。共用一個倍率的話，火縮到看得順眼時煙也跟著細到
+   * 消失 —— 而畫面上那只是「煙不夠」，不像缺陷。
+   */
+  it('只改煙的倍率時，火球的尺寸不動', () => {
+    const fireA: number[][] = []
+    const fireB: number[][] = []
+    createFirePuff(poolsWith(fireA), fakePool([]), 0.25, 0.25)(0, 0, 0)
+    createFirePuff(poolsWith(fireB), fakePool([]), 0.25, 4)(0, 0, 0)
+    expect(fireA[0]![6]!).toBe(fireB[0]![6]!)
+  })
+
+  it('煙的尺寸與水平擴散都跟著煙的倍率走', () => {
+    const small: number[][] = []
+    const big: number[][] = []
+    createFirePuff(poolsWith([]), fakePool(small), 0.25, 1)(0, 0, 0)
+    createFirePuff(poolsWith([]), fakePool(big), 0.25, 4)(0, 0, 0)
+    expect(big[0]![6]!).toBeGreaterThan(small[0]![6]!)
+    // 水平擴散：同一個種子，只差倍率
+    expect(Math.abs(big[0]![3]!)).toBeCloseTo(Math.abs(small[0]![3]!) * 4, 5)
+  })
+
+  /** 省略煙的倍率時跟著火走 —— 船火與地面火兩者都是 1 */
+  it('省略煙的倍率時與火同值', () => {
+    const a: number[][] = []
+    const b: number[][] = []
+    createFirePuff(poolsWith([]), fakePool(a), 0.6)(0, 0, 0)
+    createFirePuff(poolsWith([]), fakePool(b), 0.6, 0.6)(0, 0, 0)
+    expect(a[0]![6]!).toBe(b[0]![6]!)
+  })
+
+  /** 殘骸的煙要比火大 —— 它是唯一的拖煙來源 */
+  it('殘骸的煙倍率大於火倍率', () => {
+    expect(WRECK_FIRE_SMOKE_SCALE).toBeGreaterThan(WRECK_FIRE_SCALE)
+  })
+})
 
 function poolsWith(fireLog: number[][]): BlastPools {
   return {
@@ -372,7 +412,7 @@ describe('main.ts 的接線', () => {
     expect(from).toBeGreaterThan(0)
     expect(MAIN.slice(from - 300, from + 400)).toContain('emitWreckFirePuff(')
     // 【兩支都出自 `createFirePuff`】各寫一份的話船火與飛機火會慢慢分家
-    expect(MAIN).toContain('createFirePuff(BLAST_POOLS, shipFireSmoke)')
-    expect(MAIN).toContain('createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)')
+    expect(MAIN.match(/createFirePuff\(/g) ?? []).toHaveLength(2)
+    expect(MAIN).toContain('WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE')
   })
 })

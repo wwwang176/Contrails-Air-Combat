@@ -83,6 +83,15 @@ export const WRECK_FIRE_SECONDS = FIRE_SECONDS
  */
 export const WRECK_FIRE_SCALE = 0.25
 
+/**
+ * 引擎火的**煙**的線性尺寸倍率，相對船火。**與火球分開**（見
+ * `createFirePuff`）。
+ *
+ * 這是殘骸唯一的煙來源，而它要在幾公里外看得出「有一架掉下去了」——
+ * 跟著火球一起縮的話那道尾跡會細到看不見。
+ */
+export const WRECK_FIRE_SMOKE_SCALE = 2
+
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
 

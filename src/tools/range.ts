@@ -21,14 +21,11 @@ import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
 import { createDebris } from '../render/debris'
-import { createWrecks, WRECK_FIRE_SCALE } from '../render/wrecks'
+import { createWrecks, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
 import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
 import { clearKills, KILL_STRIDE } from '../world/kills'
-
-/** 空中擊墜的爆炸繼承多少母機速度。與 `main.ts` 同一個值 */
-const KILL_BLAST_INHERIT = 0.5
 import { Aircraft } from '../aircraft/Aircraft'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
@@ -49,6 +46,9 @@ import type { Command, Controller } from '../control/Controller'
  *
  * 進入方式：`npm run dev` 之後開 /range.html。
  */
+
+/** 空中擊墜的爆炸繼承多少母機速度。與 `main.ts` 同一個值 */
+const KILL_BLAST_INHERIT = 0.5
 
 const SPECS: AircraftSpec[] = [P51D, BF109K4]
 let specIndex = 0
@@ -125,8 +125,10 @@ const BLAST_POOLS: BlastPools = {
   glow: blastGlow,
 }
 
-/** 殘骸的引擎火。與遊戲同一份配方、同一個尺寸。**在模組層建一次** */
-const emitWreckFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE)
+/** 殘骸的引擎火。與遊戲同一份配方、同一組倍率。**在模組層建一次** */
+const emitWreckFirePuff = createFirePuff(
+  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE,
+)
 
 /**
  * 每幀要步進、重播前要清空的爆炸池。**清單只有這一份** —— 漏掉其中一個
