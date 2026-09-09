@@ -2,6 +2,7 @@ import type { Vector3 } from 'three'
 import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
 import type { FlightPlan } from './order'
+import type { SideEntry } from './entry'
 
 /**
  * # 節拍 —— 一場仗中途會發生的事
@@ -44,6 +45,13 @@ export type BeatCondition =
     readonly atMost: number
     readonly byLatest: number
   }
+  /**
+   * 重生節拍已經預警的批數達到 `at`。
+   *
+   * 【沒有 `byLatest`】批數只增不減，而每一批的殲滅是防空砲保證的；到不了
+   * `at` 的情形只有藍方全滅或要害艦沉沒，那兩條都已經判輸。
+   */
+  | { readonly kind: 'batch'; readonly at: number }
 
 /** 一支增援進場。條件成立後先顯示 `warn`，過 `warnLead` 秒才真的來。 */
 export interface ReinforceBeat {
@@ -67,7 +75,28 @@ export interface WithdrawBeat {
   readonly seconds: number
 }
 
-export type Beat = ReinforceBeat | WithdrawBeat
+/**
+ * 開場的小隊被殲滅之後整隊重生。**席位回收，不佔預留。**
+ *
+ * 【為什麼是整隊而不是補半隊】`compactFlights` 會把復活的席位編回原小隊，
+ * 補半隊的話新機會成為還活著那兩架的僚機，而那兩架已經在敵陣裡 —— 新機
+ * 從進場點跨越幾公里去歸隊。
+ *
+ * 【`batches` 是預警的次數上限】用完之後小隊死光就死光，勝負判定才收得了尾。
+ */
+export interface RecycleBeat {
+  readonly kind: 'recycle'
+  readonly team: Team
+  /** 只回收這個角色的小隊（看 roster 第一席）。省略 = 該隊全部 */
+  readonly role?: AircraftSpec['role']
+  readonly batches: number
+  readonly warn: string
+  readonly warnLead: number
+  /** 重生的進場座標框，同 `ReinforceBeat.flight.entry` */
+  readonly entry: SideEntry
+}
+
+export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat
 
 /** 一個節拍走到哪裡。**執行狀態放這裡，不放 `MissionCard`** —— 見下。 */
 export type BeatPhase = 'waiting' | 'warned' | 'done'
@@ -109,11 +138,14 @@ export function createBeatStates(beats: readonly Beat[]): BeatState[] {
  *
  * @param aliveOf 指定隊伍（與角色）的存活數。呼叫端**在套用任何效果之前**
  *   數好一次 —— 見 `stepBeats` 的「先判斷後套效果」。
+ * @param batches 重生節拍已經預警的批數。只有 `batch` 條件讀它
  */
 export function conditionMet(
   when: BeatCondition, time: number, aliveOf: (team: Team, role?: AircraftSpec['role']) => number,
+  batches = 0,
 ): boolean {
   if (when.kind === 'clock') return time >= when.at
+  if (when.kind === 'batch') return batches >= when.at
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }

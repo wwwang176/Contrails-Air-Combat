@@ -6,11 +6,11 @@ import { PRESSURE_RANGE, createTargetBoard, teamSlot, type TargetBoard } from '.
 import { ACE, type DifficultyProfile } from '../ai/profile'
 import { resetBombBay } from '../weapons/bomb'
 import {
-  STATION_REFERENCE, compactFlights, createFlights, stationReferenceOf,
+  STATION_REFERENCE, compactFlights, createFlights, flightWiped, stationReferenceOf,
   type Flight, type FlightIndex,
 } from './flights'
 import {
-  assertOrderOfBattle, lineAbreast, type FlightPlan, type OrderOfBattle,
+  WAVE_LANE, assertOrderOfBattle, lineAbreast, type FlightPlan, type OrderOfBattle,
 } from './order'
 import { STATION_OFFSETS, stationPoint } from '../ai/station'
 import {
@@ -22,7 +22,7 @@ import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import {
-  conditionMet, createBeatStates, type Beat, type BeatState,
+  conditionMet, createBeatStates, type Beat, type BeatState, type RecycleBeat,
 } from './beats'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
@@ -437,6 +437,24 @@ export interface Battle {
   readonly roster: Roster
   /** 名字用的隨機種子。記下來就能重現同一場的名單 */
   seed: number
+  /**
+   * 依分隊索引：這一支重生的世界時間；−1 = 沒有在等重生。
+   *
+   * 【依分隊而不是依節拍】兩支小隊可以在同一個 `warnLead` 之內先後被殲滅，
+   * 各自要在自己的時刻重生。建構期配好，長度是 `flights.flights.length`。
+   */
+  readonly reviveAt: Float64Array
+  /** 重生節拍已經預警的批數。`batch` 條件讀它 */
+  batches: number
+  /**
+   * `drainKills` 記到哪一個擊墜流水號（`KillEvents.total`）。
+   *
+   * 【為什麼要游標】呼叫端不排空緩衝時（headless）同一筆事件每步重掃。
+   * 復活之前靠 `recordKill` 的「已陣亡就略過」把重掃變成空操作；席位復活
+   * 之後那一筆會被當成第二次陣亡 —— 陣亡數與兇手的擊墜各多記一次，而且
+   * 復活的人立刻又被標成死亡。流水號不隨排空歸零，所以不會與新的一批錯位。
+   */
+  killsSeen: number
 }
 
 const UP = new Vector3(0, 1, 0)
@@ -614,9 +632,7 @@ function spawnMember(
   //
   // 鏡射是自動的：`stationPoint` 由**參考機的速度方向**建座標框，
   // 而紅隊朝 +Z，所以 `across = +200` 在世界座標是 −X。
-  const ref = STATION_REFERENCE[k]!
-  if (ref < 0) SPAWN.set(frame.leadX, frame.leadY, frame.z)
-  else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, SPAWN)
+  placeMember(frame, k, made, SPAWN)
 
   // 排在出生點之後：IAS 的換算吃的是這一架真正的出生高度
   const tas = openingTas(base, frame.nominalTas, cruise, SPAWN.y)
@@ -639,6 +655,37 @@ function spawnMember(
 
 /** 生成用的暫存。`createBattle` 不是熱路徑，但沒有理由每架配一個 */
 const SPAWN = new Vector3()
+
+/**
+ * 第 `k` 席的出生點。長機在座標框的長機點，其餘由站位幾何從參考機推。
+ *
+ * **`spawnMember` 與 `reviveFlight` 共用**：出生位置就是站位，兩份幾何就是
+ * 只有一份會被修好的那種危險。
+ *
+ * @param made 這一隊已經擺好的飛機，`STATION_REFERENCE[k]` 索引它
+ */
+function placeMember(
+  frame: UnitFrame, k: number, made: readonly Aircraft[], out: Vector3,
+): void {
+  const ref = STATION_REFERENCE[k]!
+  if (ref < 0) out.set(frame.leadX, frame.leadY, frame.z)
+  else stationPoint(made[ref]!, STATION_OFFSETS[k]!, 0, out)
+}
+
+/**
+ * 把一架放到某個點、朝某個方向、以某個空速平飛。`prev*` 一併設成同一值，
+ * 否則畫面會從舊位置內插出一條橫跨半個地圖的殘影。
+ *
+ * **`resetBattle` 與 `reviveFlight` 共用。**
+ */
+function settle(c: Combatant, pos: Vector3, q: Quaternion, tas: number): void {
+  const a = c.aircraft
+  a.state.position.copy(pos)
+  a.prevPosition.copy(pos)
+  a.state.orientation.copy(q)
+  a.prevOrientation.copy(q)
+  a.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(tas)
+}
 
 /**
  * 造一場 N vs N。
@@ -932,6 +979,9 @@ export function createBattle(
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
+    reviveAt: new Float64Array(flights.flights.length).fill(-1),
+    batches: 0,
+    killsSeen: world.killEvents.total,
   }
   wireStations(battle)
   return battle
@@ -1054,8 +1104,14 @@ function stepBeats(b: Battle): void {
     const beat = beats[i]!
     const st = b.beatStates[i]!
     if (st.phase === 'done') continue
+    // 【重生節拍自己管每一支小隊的時刻】它不是「一個條件、一次效果」，
+    // 而是同一場裡反覆發生的事，狀態依分隊放在 `reviveAt`
+    if (beat.kind === 'recycle') {
+      stepRecycle(b, beat, st, now)
+      continue
+    }
     if (st.phase === 'waiting') {
-      if (!conditionMet(beat.when, now, aliveOf)) continue
+      if (!conditionMet(beat.when, now, aliveOf, b.batches)) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       b.message = beat.kind === 'reinforce' ? beat.warn : beat.message
@@ -1168,6 +1224,116 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   }
   b.reserveUsed++
   return seats
+}
+
+/**
+ * 這一支小隊歸不歸重生節拍管：同隊、角色相符、不是玩家釘住的那一支。
+ *
+ * 【角色看 roster 第一席】小隊不混編角色（`assertOrderOfBattle`）。第一席
+ * 不存在的是還沒進場的預留小隊，一律不管。
+ */
+function recyclable(b: Battle, flight: Flight, beat: RecycleBeat): boolean {
+  if (flight.team !== beat.team) return false
+  const lead = b.world.combatants[flight.roster[0]!]
+  if (lead === undefined) return false
+  if (beat.role !== undefined && lead.aircraft.spec.role !== beat.role) return false
+  const pinned = b.flights.pinned
+  if (pinned >= 0) {
+    for (let r = 0; r < flight.roster.length; r++) if (flight.roster[r] === pinned) return false
+  }
+  return true
+}
+
+/**
+ * 重生節拍的一步：被殲滅的小隊排進預警，到時的小隊整隊重生。
+ *
+ * 批數用完而且沒有任何一支在等，節拍才算走完 —— 走完之前 `beatsLeft`
+ * 不歸零，`stepBeats` 每步都會來。
+ *
+ * 熱路徑：O(分隊數)，不配置。
+ */
+function stepRecycle(b: Battle, beat: RecycleBeat, st: BeatState, now: number): void {
+  const flights = b.flights.flights
+  const cs = b.world.combatants
+  let pending = false
+  for (let f = 0; f < flights.length; f++) {
+    if (!recyclable(b, flights[f]!, beat)) continue
+    let due = b.reviveAt[f]!
+    if (due < 0 && b.batches < beat.batches && flightWiped(b.flights, f, cs)) {
+      due = now + beat.warnLead
+      b.reviveAt[f] = due
+      b.batches++
+      b.message = beat.warn
+      b.messageUntil = due + MESSAGE_SECONDS
+    }
+    if (due < 0) continue
+    // 【落下來而不是等下一步】與增援的 0 秒預警同一條理由
+    if (now >= due) {
+      reviveFlight(b, f, beat)
+      b.reviveAt[f] = -1
+    } else pending = true
+  }
+  if (b.batches >= beat.batches && !pending) {
+    st.phase = 'done'
+    b.beatsLeft--
+  }
+}
+
+/** 重生時擺站位用的參考機清單。一次一支小隊，不是熱路徑 */
+const REVIVED: Aircraft[] = []
+
+/**
+ * 讓第 `f` 支開場的小隊在 `beat.entry` 的進場框整隊復活。
+ *
+ * **回收席位，不動容量**：`World.respawn` 就地清血量、冷卻、砲塔、彈艙與
+ * 傷害紀錄，`killEvents` 與 `damageTime` 的參考不變。
+ *
+ * 【控制器換新】上一條命的目標、模式與計時器不能帶過來；接法與
+ * `reinforce` 相同。
+ *
+ * 【出生點不動】`c.spawnPosition` 是「再打一場」要回去的地方，重生的位置
+ * 只寫進飛機的狀態。
+ *
+ * 【橫向槽位依這一支在同隊同角色小隊裡的序號】兩支同時殲滅、同時重生時
+ * 各有自己的一條，不會生在同一點上。
+ *
+ * 【編制不在這裡接】與 `reinforce` 相同：下一個物理步的 `compactFlights`
+ * 依存活旗標把它們編回原小隊。
+ */
+export function reviveFlight(b: Battle, f: number, beat: RecycleBeat): void {
+  const unit = b.cfg.units[f]
+  if (unit === undefined) throw new Error(`第 ${f} 支不是開場的小隊，不能重生`)
+  const flight = b.flights.flights[f]!
+  let slot = 0
+  for (let g = 0; g < f; g++) if (recyclable(b, b.flights.flights[g]!, beat)) slot++
+  let waves = 0
+  for (const x of b.cfg.beats ?? []) if (x.kind === 'reinforce') waves++
+  const plan: FlightPlan = {
+    team: unit.team, members: unit.members, entry: beat.entry, duty: unit.duty,
+    lane: WAVE_LANE + waves + slot, tier: b.batches,
+  }
+  const frame = unitFrame(b.cfg, plan)
+  REVIVED.length = 0
+  for (let k = 0; k < flight.roster.length; k++) {
+    const c = b.world.combatants[flight.roster[k]!]!
+    const base = unit.members[k]!
+    placeMember(frame, k, REVIVED, SPAWN)
+    const tas = openingTas(base, frame.nominalTas, b.cruises.get(base) ?? 0, SPAWN.y)
+    b.world.respawn(c)
+    settle(c, SPAWN, frame.orientation, tas)
+    REVIVED.push(c.aircraft)
+    const ai = new AiController()
+    ai.board = b.board
+    ai.selfIndex = c.index
+    ai.profile = b.cfg.aiProfile
+    ai.setDecisionPhase(c.index / b.board.assignments.length)
+    c.controller = ai
+    b.board.assignments[c.index] = -1
+    // 【同一列、同一個名字】記分板的一列是一個席位的戰績：擊墜總和 = 陣亡
+    // 總和這條守恆律靠它成立。換名字或清戰績都會讓兇手記到一次沒有人
+    // 陣亡的擊墜
+    b.roster.pilots[c.index]!.alive = true
+  }
 }
 
 /**
@@ -1419,15 +1585,19 @@ const MISSION_INPUTS: MissionInputs = {
  * 接手的身分互換與擊墜的記錄可以保證在同一個地方、同一個順序
  * （M9 spec §4.3、§7.1）。
  *
- * 【為什麼每次都從 0 掃】`main.ts` 每個子步排空這個緩衝，headless 的測試
- * 不排 —— 於是同一筆事件會被重掃。這裡不記游標，靠的是 `recordKill` 的
- * 「已陣亡就略過」讓重掃變成空操作。用游標反而危險：呼叫端排空之後
- * `count` 歸零，任何「處理到哪裡」的記錄都會與新的一批事件錯位。
+ * 【每一筆只記一次，靠流水號】`main.ts` 每幀排空這個緩衝，headless 的測試
+ * 不排 —— 同一筆事件會被重掃。游標記的是 `KillEvents.total`（不隨排空
+ * 歸零），所以排空之後新的一批不會與它錯位；而重掃到的舊事件流水號小於
+ * 游標，直接跳過。理由見 `Battle.killsSeen`。
  */
 function drainKills(b: Battle): void {
   const ke = b.world.killEvents
   const w = b.world
+  const first = ke.total - ke.count
+  const seen = b.killsSeen
+  b.killsSeen = ke.total
   for (let e = 0; e < ke.count; e++) {
+    if (first + e < seen) continue
     const o = e * KILL_STRIDE
     const victim = ke.data[o + 6]!
     const killer = ke.data[o + 7]!
@@ -1592,6 +1762,12 @@ export function stepBattle(b: Battle, dt: number): void {
     if (beat.kind !== 'reinforce' || beat.flight.team !== 'red') continue
     if (b.beatStates[i]!.phase === 'warned') { inp.redInbound = true; break }
   }
+  // 【等重生的紅方小隊也算在路上】最後一支殲滅到重生之間紅方是零，少了
+  // 這一段會在那幾秒判勝
+  const reviveAt = b.reviveAt
+  for (let f = 0; f < reviveAt.length && !inp.redInbound; f++) {
+    if (reviveAt[f]! >= 0 && b.flights.flights[f]!.team === 'red') inp.redInbound = true
+  }
   // 【讀 `b.rules` 而不是 `b.cfg.rules`】返航節拍會換掉這一場的規則
   stepMission(b.rules, inp, dt, b.mission)
   // 【誰是權威】`b.mission.outcome`。這一行是複本，見 `Battle.mission` 的註解。
@@ -1639,11 +1815,14 @@ export function resetBattle(
     b.world.respawn(c)
     // 【方位與速度要另外抄回去】`World.respawn` 走的是 `Aircraft.reset`，
     // 它重建的是一個「朝預設方向平飛」的狀態，不知道紅隊該朝 +Z。
-    const q = b.spawnOrientations[i]!
-    c.aircraft.state.orientation.copy(q)
-    c.aircraft.prevOrientation.copy(q)
-    c.aircraft.state.velocity.copy(FWD).applyQuaternion(q).multiplyScalar(c.spawnTas)
+    settle(c, c.spawnPosition, b.spawnOrientations[i]!, c.spawnTas)
   }
+  // 【等重生的小隊也要忘掉】不清的話上一場排好的重生會在新場的開頭發生，
+  // 而那一支此刻活得好好的
+  b.reviveAt.fill(-1)
+  b.batches = 0
+  // 【上一場還沒排空的擊墜不記進新場】游標跳到現在的流水號
+  b.killsSeen = b.world.killEvents.total
 
   // 【被接手過的座位要還給 AI】接手時那顆 AiController 被丟掉了。少了這一段，
   // 重開之後戰場上會有一架永遠不動的飛機 —— 玩家的控制器同時裝在兩個座位上，

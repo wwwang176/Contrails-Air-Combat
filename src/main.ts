@@ -323,11 +323,10 @@ const scoreboard = createScoreboard(boardEl)
  */
 interface Visual {
   /**
-   * 【M10 起是 readonly】M9 以前 `C` 可以中途換機種，那時這一格會被換掉。
-   * 現在模型從 `attachVisual` 建出來到 `releaseVisual` 釋放為止恆是同一具，
-   * 所以 `renderPositions` 那些參考不需要任何附帶條件就恆有效。
+   * 這一席目前的模型。**只在整隊重生時換**：舊模型已經交給殘骸池，復活的
+   * 席位拿一具新的。`renderPositions` 參考的是 `position`，不受影響。
    */
-  readonly model: AircraftModel
+  model: AircraftModel
   readonly position: Vector3
   readonly quaternion: Quaternion
   /**
@@ -1610,8 +1609,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   propRotation += frameSeconds * (8 + input.throttle * 60)
   for (const c of world.combatants) {
     const v = visuals.get(c)!
-    // 模型已經交給殘骸池，位置與旋轉從此由它寫
-    if (v.wrecked) continue
+    if (v.wrecked) {
+      // 模型已經交給殘骸池，位置與旋轉從此由它寫
+      if (!c.alive) continue
+      // 【整隊重生的席位拿一具新模型】舊的那具由殘骸池在落海或被覆蓋時
+      // 釋放。配置只發生在復活那一刻
+      v.model = buildAircraft(c.aircraft.spec)
+      ctx.scene.add(v.model.group)
+      v.wrecked = false
+    }
 
     v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
     v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
@@ -2631,6 +2637,9 @@ const GFX_HIDDEN_LAYER = 31
      * 會靜靜發生的失敗（環每一幀照常更新位置與半徑，就是不在場景裡）。
      */
     ring: objectiveRing.object.parent !== null,
+    /** 整隊重生已經預警的批數，與場上活著的紅方架數。試飛用來看重生有沒有發生 */
+    batches: battle.batches,
+    redAlive: world.combatants.reduce((n, c) => n + (c.team === 'red' && c.alive ? 1 : 0), 0),
     /** 這一場有沒有終點。`ring` 的對照 —— 兩者必須一致 */
     tgtOn: battle.mission.hasTarget,
     /**

@@ -11,12 +11,14 @@ import { B17G } from '../specs/b17g'
 import { KI84 } from '../specs/ki84'
 import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
-import { ENTRY_PLANS, type EntryPlan, type EntryPlanId } from './entry'
-import { convoyLine, lineAbreast, pincer, rotateEntry } from './order'
+import { ENTRY_PLANS, type EntryPlan, type EntryPlanId, type SideEntry } from './entry'
+import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry } from './order'
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
 import { SCHWARM_SIZE } from './flights'
-import type { Beat, BeatCondition, ReinforceBeat, WithdrawBeat } from './beats'
+import type {
+  Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat,
+} from './beats'
 import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
@@ -58,6 +60,11 @@ export type MissionTrigger =
     readonly atMost: number
     readonly byLatest: number
   }
+  /**
+   * 這一關的重生（`MissionBattle.recycle`）已經預警第 `at` 批。
+   * **沒有重生的卡不能用它** —— 批數永遠是 0，那一波永遠不來。
+   */
+  | { readonly kind: 'batch'; readonly at: number }
 
 /**
  * 卡片上的一個波次。**一個波次就是一支小隊**（1 … `SCHWARM_SIZE` 架）。
@@ -127,6 +134,26 @@ export interface MissionWave {
    *
    * 【原點就是艦隊中心】有艦隊的關卡才有意義（`MissionFleet.center`）。
    */
+  readonly starboard?: number
+}
+
+/**
+ * 開場的小隊被殲滅之後整隊重生。**回收席位，不佔預留** —— 同時在場的架數
+ * 不超過開場，`MAX_SIDE` 不必動。
+ *
+ * 【整隊，不補半隊】理由見 `beats.ts` 的 `RecycleBeat`。
+ */
+export interface MissionRecycle {
+  readonly side: MissionSide
+  /** 只回收這個角色的小隊。省略 = 那一邊全部 */
+  readonly role?: AircraftSpec['role']
+  /** 最多預警幾批。用完之後小隊死光就死光 */
+  readonly batches: number
+  /** 畫面中心的預警文字。同 `MissionWave.warn`，不宣稱方位 */
+  readonly warn: string
+  /** 預警到重生之間的秒數 */
+  readonly warnLead: number
+  /** 重生的進場方位，同 `MissionWave.starboard` */
   readonly starboard?: number
 }
 
@@ -276,6 +303,10 @@ export interface MissionBattle {
    * 完全不產生 `beats`，而 `stepBeats` 第一行就早退。
    */
   readonly waves?: readonly MissionWave[]
+  /**
+   * 這一關的整隊重生。**沒有的卡不寫這一格**（與 `waves` 同一個約定）。
+   */
+  readonly recycle?: MissionRecycle
   /**
    * 這一關的返航節拍：打到一半任務目標換成「飛回基地」。
    *
@@ -655,7 +686,7 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         objective: '守住艦隊',
         blueSpec: F6F5, redSpec: A6M5,
         /**
-         * 【開場十六架分兩路，另外八架分兩批】掛彈的零戰走的是掃射航路
+         * 【開場十六架分兩路，被殲滅的小隊整隊重生】掛彈的零戰走的是掃射航路
          * （`ai/bombRun.ts` 的落彈點瞄準）：機首指著艦隊一路壓下去、投彈、
          * 再拉起。那條航路把自己送進近迫火網。
          *
@@ -665,7 +696,8 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
          * 突得進去（十枚）。
          *
          * 分兩路的用意也是分散火力：艦隊的防空要同時顧兩個方位，四架 F6F
-         * 也只攔得住其中一路。後面兩批讓畫面上一直有東西在進場。
+         * 也只攔得住其中一路。重生讓畫面上一直有東西在進場，而席位維持
+         * 16 + 4 —— 同時在場的架數不比開場多。
          */
         blueCount: 4, redCount: 16,
         redStarboard: 45 * DEG,
@@ -678,52 +710,38 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
          */
         altitude: 2000,
         /**
-         * 【零戰那兩批要疊上來，不是排隊等】掛彈的零戰是被**防空砲**打掉的，
-         * 不是被 F6F 攔掉的：實測一架活到離航母 936 m、剛切進落彈點瞄準，
-         * 零點三秒後陣亡。所以下一批的條件是「場上的戰鬥機掉到一半」或
-         * 「時間到」，誰先到算誰 —— 前一批還在吸引火力時後一批就進場。
+         * 【哪一支小隊被殲滅，那一支就整隊重生】掛彈的零戰是被**防空砲**打掉
+         * 的，不是被 F6F 攔掉的：一架活到離航母 936 m、剛切進落彈點瞄準，
+         * 零點三秒後陣亡。四支小隊各自在防空網前面死光、各自重生，場上於是
+         * 一直有零戰在進場，而同時在場的不超過十六架。
          *
-         * 【第三批的門檻要比第二批低】兩批的條件在同一步一起成立的話，
-         * 兩批會一次到場，分批就沒有意義了。
-         *
-         * 【陸攻用時鐘】它是轟炸機，不算進上面那個戰鬥機存活數；用存活數的
-         * 話它會在零戰之間的空檔提早成立 —— 實測讓它與第三批零戰同時到場。
-         * 115 秒排在第三批的時間兜底（80 秒）之後半分鐘。
+         * 【六批】開場 16 加重生 24，共 40 架次零戰。
          *
          * 【`warnLead` 那幾秒不會被判成勝利】`MissionInputs.redInbound`
-         * 擋著（`defend` 的勝利條件讀它）。少了那一格，紅方在預警期間歸零
-         * 會先判勝、下一波永遠不來。
+         * 擋著（`defend` 的勝利條件讀它），等重生的小隊也算在路上。少了那
+         * 一格，紅方在預警期間歸零會先判勝、下一批永遠不來。
          *
          * 全部的數字都是**起始值，由試飛裁定**。
          */
+        recycle: {
+          side: 'theirs', role: 'fighter', batches: 6,
+          // 【不宣稱方位】重生的橫向槽位把它推到開場那兩路之外，實際方位
+          // 因此不等於這裡設的 45°。寫「發生了什麼」，不要寫「在哪裡」
+          //
+          // 【寫成無線電通報，不寫批數】玩家不知道也不該知道自己在打第幾批
+          // —— 那是設定檔的內部結構。1945 年的第 58 特遣艦隊有戰鬥機管制台，
+          // 雷達通報就是這一則訊息的來源
+          warn: '雷達發現更多零戰',
+          warnLead: 5,
+          starboard: 45 * DEG,
+        },
+        /**
+         * 【陸攻跟著第五批重生進場】它與零戰的節奏綁在一起：玩家打得越快，
+         * 雷擊來得越早。批數只增不減，所以不必兜底。
+         */
         waves: [
           {
-            when: {
-              kind: 'alive', side: 'theirs', role: 'fighter',
-              atMost: 8, byLatest: 45,
-            },
-            // 【不宣稱方位】波次的橫向槽位把它推到開場那兩路之外，實際方位
-            // 因此不等於這裡設的 45°。寫「發生了什麼」，不要寫「在哪裡」
-            //
-            // 【寫成無線電通報，不寫波次編號】玩家不知道也不該知道自己在打
-            // 第幾批 —— 那是設定檔的內部結構。1945 年的第 58 特遣艦隊有
-            // 戰鬥機管制台，雷達通報就是這一則訊息的來源
-            warn: '雷達發現更多零戰',
-            warnLead: 5,
-            side: 'theirs', spec: A6M5, count: 4,
-            starboard: 45 * DEG,
-          },
-          {
-            when: {
-              kind: 'alive', side: 'theirs', role: 'fighter',
-              atMost: 4, byLatest: 85,
-            },
-            warn: '零戰還在增援',
-            warnLead: 5,
-            side: 'theirs', spec: A6M5, count: 4,
-          },
-          {
-            when: { kind: 'clock', at: 115 },
+            when: { kind: 'batch', at: 5 },
             warn: '低空發現雷擊機',
             warnLead: 6,
             side: 'theirs', spec: G4M, count: 4,
@@ -1076,6 +1094,9 @@ function cardBeats(
 ): readonly Beat[] | undefined {
   const b = card.battle
   const out: Beat[] = []
+  // 【重生排在波次前面】掛在 `batch` 條件上的波次讀的是同一步剛加上的批數，
+  // 排在後面會晚一個物理步預警，而兩則預警本該同一刻
+  if (b.recycle !== undefined) out.push(recycleBeat(b.recycle, plan))
   b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
   return out.length === 0 ? undefined : out
@@ -1109,14 +1130,7 @@ function waveBeat(
     throw new Error(`波次的架數要是 1…${SCHWARM_SIZE} 的整數，收到 ${w.count}`)
   }
   const ours = w.side === 'mine'
-  const side = ours ? plan.blue : plan.red
-  // 【方位先轉，高度與縱深後套】旋轉是繞原點的幾何，改的是 across／along／
-  // heading；另外兩格是獨立的覆寫，順序因此不影響結果
-  const turned = w.starboard === undefined
-    ? side
-    : rotateEntry(
-      side, w.starboard, DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
-    )
+  const turned = turnedEntry(plan, w.side, w.starboard)
   // 【卡片寫絕對高度，`SideEntry` 存的是相對任務高度的加成】換算只有這一處
   const base = w.altitude === undefined
     ? turned
@@ -1140,18 +1154,39 @@ function waveBeat(
 }
 
 /**
- * 波次的橫向槽位起點，單位是 `schwarmSpacing`。
+ * 那一邊開局的擺法，依卡片指定的方位轉過去。
  *
- * 【為什麼不是 0】開場的分隊佔的是 −2…+2（一隊最多 5 個小隊，
- * `lane = f − (flights−1)/2`），而波次沿用**同一個 `entry`**。用 0 的話，
- * 一個開場就成立的波次會生在開場某一隊身上 —— 那兩架會在同一點上重疊，
- * 而且不會有任何錯誤。3 是比最寬的開場槽位再外一格。
+ * 【方位先轉，高度與縱深後套】旋轉是繞原點的幾何，改的是 across／along／
+ * heading；呼叫端另外覆寫的那兩格是獨立的，順序因此不影響結果。
  */
-const WAVE_LANE = 3
+function turnedEntry(plan: EntryPlan, side: MissionSide, starboard?: number): SideEntry {
+  const base = side === 'mine' ? plan.blue : plan.red
+  if (starboard === undefined) return base
+  return rotateEntry(
+    base, starboard, DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
+  )
+}
+
+/** 卡片的重生 → 重生節拍 */
+function recycleBeat(r: MissionRecycle, plan: EntryPlan): RecycleBeat {
+  if (!Number.isInteger(r.batches) || r.batches < 1) {
+    throw new Error(`重生的批數要是正整數，收到 ${r.batches}`)
+  }
+  return {
+    kind: 'recycle',
+    team: r.side === 'mine' ? 'blue' : 'red',
+    ...(r.role === undefined ? {} : { role: r.role }),
+    batches: r.batches,
+    warn: r.warn,
+    warnLead: r.warnLead,
+    entry: turnedEntry(plan, r.side, r.starboard),
+  }
+}
 
 /** 卡片的說法 → 引擎的說法。`mine`／`theirs` 在這裡才變成藍／紅 */
 function triggerToCondition(t: MissionTrigger): BeatCondition {
   if (t.kind === 'clock') return { kind: 'clock', at: t.at }
+  if (t.kind === 'batch') return { kind: 'batch', at: t.at }
   return {
     kind: 'alive',
     team: t.side === 'mine' ? 'blue' : 'red',

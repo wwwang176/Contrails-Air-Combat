@@ -97,4 +97,29 @@ describe('節拍的條件', () => {
     ])
     expect(st.map((s) => s.slot)).toEqual([-1, 0, -1, 1])
   })
+
+  it('批數：已預警的重生批數到了才成立', () => {
+    // 【盟 M4 的陸攻掛在第五批重生上】批數只增不減，所以沒有 byLatest
+    const when: BeatCondition = { kind: 'batch', at: 5 }
+    expect(conditionMet(when, 300, NONE, 4)).toBe(false)
+    expect(conditionMet(when, 0, NONE, 5)).toBe(true)
+    expect(conditionMet(when, 0, NONE, 6)).toBe(true)
+  })
+
+  it('重生節拍不佔預留的序號', () => {
+    // 【為什麼】重生用的是開場小隊的席位，`createBattle` 的 `reserve` 只由
+    // reinforce 推。重生節拍若推進 slot，後面那支增援會等一支不存在的預留
+    const flight = {
+      team: 'red' as const, members: [BF109K4], entry: HEAD_ON.red,
+      duty: 'combat' as const, lane: 0, tier: 0,
+    }
+    const st = createBeatStates([
+      {
+        kind: 'recycle', team: 'red', role: 'fighter', batches: 6,
+        warn: 'r', warnLead: 5, entry: HEAD_ON.red,
+      },
+      { kind: 'reinforce', when: { kind: 'batch', at: 5 }, warn: 'x', warnLead: 0, flight },
+    ])
+    expect(st.map((s) => s.slot)).toEqual([-1, 0])
+  })
 })

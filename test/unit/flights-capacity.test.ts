@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { createFlights, compactFlights, type FlightMember } from '../../src/battle/flights'
+import {
+  createFlights, compactFlights, flightWiped, type FlightMember,
+} from '../../src/battle/flights'
 import type { Team } from '../../src/world/World'
 
 /**
@@ -87,5 +89,29 @@ describe('預留分隊', () => {
   it('capacity 小於成員數是錯的', () => {
     const all = roster(4, 4)
     expect(() => createFlights(all, -1, [4], 4, TEAMS)).toThrow()
+  })
+})
+
+describe('小隊殲滅的判準', () => {
+  // 【它只給重生用】重生節拍每步問一次「這一支能不能重生」。判準是 roster
+  // 的每一席都在場而且都死了 —— 預留還沒進場的小隊 roster 指向不存在的
+  // 席位，那不是殲滅，是還沒來
+  it('全員陣亡才算殲滅', () => {
+    const all = roster(4, 4)
+    const fi = createFlights(all, -1, [4, 4, 4], 12, TEAMS)
+    expect(flightWiped(fi, 1, all)).toBe(false)
+    for (let i = 4; i < 7; i++) all[i]!.alive = false
+    expect(flightWiped(fi, 1, all)).toBe(false)
+    all[7]!.alive = false
+    expect(flightWiped(fi, 1, all)).toBe(true)
+  })
+
+  it('預留還沒進場的小隊不算殲滅', () => {
+    const all = roster(4, 4)
+    const fi = createFlights(all, -1, [4, 4, 4], 12, TEAMS)
+    expect(flightWiped(fi, 2, all)).toBe(false)
+    // 進場之後再死光才算
+    for (let i = 0; i < 4; i++) all.push(member(all.length, 'red', false))
+    expect(flightWiped(fi, 2, all)).toBe(true)
   })
 })

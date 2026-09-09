@@ -144,51 +144,32 @@ describe('盟 M4：沖繩外海', () => {
     expect(ships.find((s) => s.vital === true)!.cls).toBe('essex')
   })
 
-  /** 陸攻那一波。零戰的兩批走時鐘，這一支要的是最後那一波 */
+  /** 陸攻那一波 —— 唯一的波次 */
   const torpedoWave = () => b.waves!.find((w) => w.spec.id === 'g4m')!
 
   /**
-   * 【四波全部用時鐘】零戰分批之後，場上隨時可能只剩四架而後面還有人要進
-   * 場，存活數那種觸發於是會提早成立 —— 實測「敵方戰鬥機剩四架」讓陸攻在
-   * 85 秒與第三批零戰同時到場，整個攻擊節奏擠成一團。
+   * 【零戰是回收席位的，不是波次】開場四支小隊，哪一支被殲滅就整隊重生，
+   * 最多六批。紅方席位因此維持 16 + 4，不碰 `MAX_SIDE`。
    */
-  it('陸攻用時鐘，而且排在零戰的時間兜底之後', () => {
-    const t = torpedoWave().when
-    expect(t.kind).toBe('clock')
-    if (t.kind !== 'clock') throw new Error('應為 clock')
-    const zeros = b.waves!.filter((w) => w.spec.id === 'a6m5')
-    for (const w of zeros) {
-      if (w.when.kind !== 'alive') throw new Error('應為 alive')
-      expect(w.when.byLatest).toBeLessThan(t.at)
-    }
+  it('零戰整隊殲滅後整隊重生，最多六批', () => {
+    const r = b.recycle!
+    expect(r.side).toBe('theirs')
+    expect(r.role).toBe('fighter')
+    expect(r.batches).toBe(6)
+    expect(r.warnLead).toBeGreaterThan(0)
+    expect(b.waves!.filter((w) => w.spec.id === 'a6m5')).toHaveLength(0)
   })
 
   /**
-   * 【零戰分批到達】四架 F6F 一次處理不完，而且畫面上一直有東西在進場。
-   *
-   * 【為什麼零戰那兩批用時鐘】分批之後場上隨時可能只剩四架，只是後面還有人
-   * 要進場 —— 用存活數的話會與陸攻那一波的條件互相干擾，陸攻可能插進零戰
-   * 中間。時鐘讓兩者互不相干。
+   * 【陸攻掛在第五批重生上】它與零戰的節奏綁在一起，不看時鐘；玩家打得越快
+   * 它來得越早。
    */
-  it('零戰分兩批，條件是上一批掉一半或時間到，而且兩批不會同時成立', () => {
-    const zeros = b.waves!.filter((w) => w.spec.id === 'a6m5')
-    expect(zeros.length).toBe(2)
-    const at: number[] = []
-    const most: number[] = []
-    for (const w of zeros) {
-      expect(w.when.kind).toBe('alive')
-      if (w.when.kind !== 'alive') throw new Error('應為 alive')
-      expect(w.when.side).toBe('theirs')
-      expect(w.when.role).toBe('fighter')
-      at.push(w.when.byLatest)
-      most.push(w.when.atMost)
-    }
-    // 時間兜底一前一後
-    expect(at[0]).toBeLessThan(at[1]!)
-    // 【門檻要遞減】一樣的話兩批會在同一步一起成立，分批就沒有意義了
-    expect(most[1]).toBeLessThan(most[0]!)
-    // 第一批的門檻是開場架數的一半
-    expect(most[0]).toBe(b.redCount / 2)
+  it('陸攻跟著第五批重生進場', () => {
+    const t = torpedoWave().when
+    expect(t.kind).toBe('batch')
+    if (t.kind !== 'batch') throw new Error('應為 batch')
+    expect(t.at).toBe(5)
+    expect(t.at).toBeLessThanOrEqual(b.recycle!.batches)
   })
 
   /**
@@ -196,32 +177,34 @@ describe('盟 M4：沖繩外海', () => {
    * 在 900 m 附近就開始被防空砲打掉。實測開場八架時一枚都投不出來 ——
    * 每一架都死在那三百公尺裡。這一條守的是「開場那一批夠厚」。
    */
-  it('開場十六架，另外兩批各四架', () => {
+  it('開場十六架，波次只有四架陸攻', () => {
     expect(b.redCount).toBe(16)
-    const zeros = b.waves!.filter((w) => w.spec.id === 'a6m5')
-    for (const w of zeros) expect(w.count).toBe(4)
-  })
-
-  /** 【透傳】艦隊原樣、波次轉成等價的 beats */
-  it('走完 missionConfigFrom 之後艦隊與波次都在', () => {
-    const cfg = missionConfigFrom(card as ReadyMissionCard)
-    expect(cfg.fleet).toBe(b.fleet)
-    expect(cfg.beats?.length).toBe(b.waves!.length)
-    for (const beat of cfg.beats!) expect(beat.kind).toBe('reinforce')
+    expect(b.waves).toHaveLength(1)
+    expect(torpedoWave().count).toBe(4)
   })
 
   /**
-   * 【波次也要能指定方位】少了它，後面每一批都從同一個方位來，夾擊只有
-   * 開場那一瞬間成立。
+   * 【透傳】艦隊原樣、重生排在波次前面。
+   *
+   * 【為什麼重生在前】陸攻的 `batch` 條件讀的是同一步剛加上去的批數，
+   * 排在後面的話陸攻會晚一個物理步預警，而兩則預警本該同一刻
    */
-  it('右舷那一批零戰的進場方位真的轉過去了', () => {
+  it('走完 missionConfigFrom 之後艦隊、重生與波次都在', () => {
     const cfg = missionConfigFrom(card as ReadyMissionCard)
-    const beats = cfg.beats!.filter((x) => x.kind === 'reinforce')
-    const turned = beats.find((x) => x.flight.members[0]!.id === 'a6m5'
-      && x.flight.entry.across > 1)
-    expect(turned).toBeDefined()
+    expect(cfg.fleet).toBe(b.fleet)
+    expect(cfg.beats!.map((x) => x.kind)).toEqual(['recycle', 'reinforce'])
+  })
+
+  /**
+   * 【重生也要能指定方位】少了它，每一批都從艦隊正前方來，夾擊只有開場那
+   * 一瞬間成立。
+   */
+  it('重生的零戰從右舷進場', () => {
+    const cfg = missionConfigFrom(card as ReadyMissionCard)
+    const r = cfg.beats!.find((x) => x.kind === 'recycle')!
+    if (r.kind !== 'recycle') throw new Error('應為 recycle')
     // 開場的紅隊擺法是 across 0.5；轉 45° 之後橫向會拉開好幾倍
-    expect(turned!.flight.entry.across).toBeGreaterThan(2)
+    expect(r.entry.across).toBeGreaterThan(2)
   })
 
   /**
