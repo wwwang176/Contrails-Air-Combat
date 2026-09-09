@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
-import { FIRE_PUFF } from './shipFires'
+import { FIRE_PUFF, FIRE_SECONDS } from './shipFires'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
 import { WRECK_SMOKE_INTERVAL, WRECK_SMOKE_SECONDS, smokePuffs, smokeTimer } from './smoke'
 import type { AircraftSpec } from '../specs/types'
@@ -65,6 +65,15 @@ export const WRECK_GROUND_DEPTH = 3
  * `FIRE_PUFF`）—— 燒起來的船與燒起來的飛機看起來就該是同一種火。
  */
 export const WRECK_FIRE_INTERVAL = FIRE_PUFF
+
+/**
+ * 引擎燒幾秒，s。**與船火同一個時長**（`shipFires.ts` 的 `FIRE_SECONDS`）。
+ *
+ * 【為什麼要有上限，殘骸不是本來就會消失嗎】正常路徑是落海或落地就收掉
+ * （四千公尺掉到海面約五十八秒），但 `WRECK_MAX_LIFE` 那道保險是兩分鐘
+ * —— 飄出海面網格、永遠碰不到水的那一具會在天上燒滿兩分鐘。
+ */
+export const WRECK_FIRE_SECONDS = FIRE_SECONDS
 
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
@@ -262,8 +271,9 @@ export function createWrecks(
 
         // 【引擎在燒】火點是引擎在**世界座標**的位置，每一步從機體座標轉
         // 過來 —— 存世界座標放著不動的話，火會留在爆炸那一點而殘骸掉下去。
-        // 【沉下去就不放】水面不透明，那一段沒有觀察者
-        if (s.engine >= 0 && !s.sunk) {
+        // 【沉下去就不放】水面不透明，那一段沒有觀察者。殘骸被回收時
+        // 這一格連同整個 slot 一起沒了，所以「飛機不見火也不見」是免費的
+        if (s.engine >= 0 && !s.sunk && s.age < WRECK_FIRE_SECONDS) {
           let t = s.fire - dt
           if (t <= 0) {
             // 【一步只放一朵】掉幀時補放沒有意義 —— 同一個位置疊三朵只是
