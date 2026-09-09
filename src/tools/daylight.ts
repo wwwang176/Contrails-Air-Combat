@@ -1,7 +1,8 @@
 import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
-import { createTerrain, type Terrain } from '../render/terrain'
+import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
+import { loadLeunaDem } from './leunaDem'
 import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
@@ -39,24 +40,38 @@ const ctx = createScene(canvas)
 // 【廠區的佈景是 GLB】切到洛伊納要先載完，`createTerrain` 是同步的
 await preloadPlantScenery()
 
+/**
+ * 展示區自己的地形清單：遊戲的四種，加一種只有這裡有的。
+ *
+ * 【`leuna-real` 不是 `TerrainKind`】把它加進那個聯集會讓遭遇戰、關卡卡片、
+ * 存檔全部看得到一個遊戲裡不存在的地形。展示區的分頁是展示區的事。
+ */
+type DemoTerrain = TerrainKind | 'leuna-real'
+
+// 【實測高程先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
+const leunaRealField = await loadLeunaDem()
+
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
 
-function setTerrain(kind: TerrainKind): void {
+function setTerrain(kind: DemoTerrain): void {
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain(kind)
+  terrain = kind === 'leuna-real'
+    ? createLeunaTerrainWithField(leunaRealField)
+    : createTerrain(kind)
   ctx.scene.add(terrain.object)
   // 【新的地形不知道現在是幾點】它剛建出來是正午 —— 少了這一行，切完地形
   // 天是黃昏而海是中午的藍
   terrain.setPalette(live)
+  const leuna = kind === 'leuna' || kind === 'leuna-real'
   // 內陸沒有海，船浮在田上很怪
-  const inland = kind === 'farmland' || kind === 'leuna'
+  const inland = kind === 'farmland' || leuna
   shipModels.object.visible = !inland
   // 【洛伊納把廠區擺上去】12 座構件與 8 座砲位，就是任務裡的那一份佈局；
   // 飛機停在投彈航路上 —— 地形、廠區、天色三者只有同時在畫面上才判斷得出來
-  plantModels.object.visible = kind === 'leuna'
-  if (kind === 'leuna') {
+  plantModels.object.visible = leuna
+  if (leuna) {
     plane.group.position.set(0, 4000, -3000)
     plane.group.quaternion.identity()
   } else {
@@ -66,12 +81,12 @@ function setTerrain(kind: TerrainKind): void {
   }
   placeCamera(kind)
   // 【洛伊納的色盤是為十一月正午調的】切到它時段跟著切
-  if (kind === 'leuna') selectTod('novemberNoon')
+  if (leuna) selectTod('novemberNoon')
 }
 
 /** 內陸的視野要拉遠拉高才看得到田與樹的層次；洛伊納從廠區上空看投彈航路。 */
-function placeCamera(kind: TerrainKind): void {
-  if (kind === 'leuna') {
+function placeCamera(kind: DemoTerrain): void {
+  if (kind === 'leuna' || kind === 'leuna-real') {
     ctx.camera.position.set(0, 4600, -2500)
     controls.target.set(0, 0, -7000)
   } else if (kind === 'farmland') {
@@ -284,14 +299,15 @@ function dump(): void {
 
 const terrainTabs = document.getElementById('terrain') as HTMLElement
 
-const TERRAINS: readonly { kind: TerrainKind, name: string }[] = [
+const TERRAINS: readonly { kind: DemoTerrain, name: string }[] = [
   { kind: 'sea', name: '海面' },
   { kind: 'archipelago', name: '群島' },
   { kind: 'farmland', name: '內陸' },
   { kind: 'leuna', name: '洛伊納' },
+  { kind: 'leuna-real', name: '洛伊納（實測高程）' },
 ]
 
-function selectTerrain(kind: TerrainKind): void {
+function selectTerrain(kind: DemoTerrain): void {
   setTerrain(kind)
   for (const b of Array.from(terrainTabs.children)) {
     b.classList.toggle('on', b.id === 'k-' + kind)
