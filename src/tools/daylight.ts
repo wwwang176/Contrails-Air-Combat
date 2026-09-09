@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
 import { loadLeunaDem } from './leunaDem'
+import { buildRiverWater, loadLeunaRivers, riverLines } from './leunaRiver'
 import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
@@ -48,8 +49,12 @@ await preloadPlantScenery()
  */
 type DemoTerrain = TerrainKind | 'leuna-real'
 
-// 【實測高程先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
+// 【實測高程與河道先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
 const leunaRealField = await loadLeunaDem()
+const leunaWater = buildRiverWater(riverLines(leunaRealField, await loadLeunaRivers()))
+
+leunaWater.visible = false
+ctx.scene.add(leunaWater)
 
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
@@ -65,6 +70,9 @@ function setTerrain(kind: DemoTerrain): void {
   // 天是黃昏而海是中午的藍
   terrain.setPalette(live)
   const leuna = kind === 'leuna' || kind === 'leuna-real'
+  // 【水面掛在場景不掛在地形群組】地形群組的四個 child 位置是明文契約
+  // （`__gfx` 的消融表與另外兩支工具共用），塞第五個進去會動到那份契約
+  leunaWater.visible = kind === 'leuna-real'
   // 內陸沒有海，船浮在田上很怪
   const inland = kind === 'farmland' || leuna
   shipModels.object.visible = !inland
@@ -98,6 +106,21 @@ function placeCamera(kind: DemoTerrain): void {
   }
   controls.update()
 }
+
+/**
+ * 定格機位，給截圖用（`test/e2e/leuna-relief.e2e.ts`）。與 `main.ts` 的
+ * `__still` 同一個用途 —— 沒有它，展示區只能靠拖曳，兩張圖就沒得比。
+ */
+;(window as unknown as Record<string, unknown>)['__cam'] = (
+  x: number, y: number, z: number, tx: number, ty: number, tz: number,
+) => {
+  ctx.camera.position.set(x, y, z)
+  controls.target.set(tx, ty, tz)
+  controls.update()
+}
+
+/** 場景的檢查出口，給截圖腳本除錯用 */
+;(window as unknown as Record<string, unknown>)['__scene'] = () => ctx.scene
 
 await preloadShipModels(['wichita', 'fletcher'])
 await preloadAircraftModels()
