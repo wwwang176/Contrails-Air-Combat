@@ -334,7 +334,8 @@ export function stepShipGuns(
       // 同一串誤差
       const k = ((ship.index * MAX_SHIP_GUNS + i) * 0x100000 + g.fired) | 0
       g.fired++
-      const fuse = exact * (1 + FLAK_FUSE_ERROR * (2 * hash01(k) - 1))
+      // 【夾在上限之內】誤差往後偏的那一半不能把射程推過 FLAK_MAX_FUSE
+      const fuse = Math.min(FLAK_MAX_FUSE, exact * (1 + FLAK_FUSE_ERROR * (2 * hash01(k) - 1)))
       applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
