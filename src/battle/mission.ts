@@ -208,6 +208,12 @@ export interface MissionInputs {
    */
   vitalSunk: number
   /**
+   * **我方**要害艦剩餘血量的比例，0～1；有幾艘取最低的那一艘。沒有要害艦
+   * 恆為 1。`defend` 的目標列印它 —— 敵機整隊重生之後敵機數讀不出仗打到
+   * 哪裡，玩家要盯的是航母還剩幾成。
+   */
+  vitalHp: number
+  /**
    * 還有敵機正在進場的路上 —— **已經預警、還沒生出來**。
    *
    * 【為什麼勝利要看它】`stepBeats` 在觸發那一步先把節拍轉成 `warned`，
@@ -238,8 +244,13 @@ export interface MissionState {
   targetRadius: number
   /** 剩餘秒數。無時限時是 `Infinity` */
   secondsLeft: number
-  /** HUD 的計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m，擊沉＝還差幾艘 */
+  /**
+   * HUD 的計量。殲滅＝剩餘敵機數，撤離與護送＝到終點的距離 m，擊沉＝還差幾艘，
+   * 守住艦隊＝要害艦剩餘血量的比例 0～1
+   */
   metric: number
+  /** `metric` 怎麼印。由規則決定（`resetMissionState`），HUD 照抄 */
+  metricKind: 'count' | 'distance' | 'percent'
   /**
    * `metric` 的分母。**−1 = 這一關沒有分母**，目標列就印裸數字。
    *
@@ -304,6 +315,7 @@ export function createMissionState(rules: MissionRules): MissionState {
     targetRadius: 0,
     secondsLeft: Infinity,
     metric: 0,
+    metricKind: 'count',
     metricTotal: -1,
     remaining: -1,
   }
@@ -326,6 +338,11 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   out.outcome = 'fighting'
   // 【只有擊沉會覆寫它】其餘三種在下面都不碰，所以一律先關掉分母
   out.metricTotal = -1
+  // 【計量怎麼印由規則決定】有終點的印距離、守住艦隊印要害艦的血量比例，
+  // 其餘印架數
+  out.metricKind = rules.kind === 'defend'
+    ? 'percent'
+    : rules.kind === 'convoy' || rules.kind === 'evacuate' ? 'distance' : 'count'
   if (rules.kind === 'convoy') {
     out.target.copy(rules.point)
     out.hasTarget = true
@@ -390,7 +407,7 @@ export function stepMission(
   // 【`redInbound` 也擋在勝利那一條上】預警期間紅方歸零不算贏 —— 那一批
   // 還在路上。
   if (rules.kind === 'defend') {
-    out.metric = inp.aliveRed
+    out.metric = inp.vitalHp
     if (inp.vitalSunk > 0) out.outcome = 'defeat'
     else if (inp.aliveRed === 0 && !inp.redInbound) out.outcome = 'victory'
     else if (inp.aliveBlue === 0) out.outcome = 'defeat'

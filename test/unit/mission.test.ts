@@ -18,6 +18,7 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     targetsDestroyed: 0,
     targetsTotal: 0,
     vitalSunk: 0,
+    vitalHp: 1,
     redInbound: false,
     convoyAlive: 0,
     convoyLead: Infinity,
@@ -483,11 +484,14 @@ const DEFEND: MissionRules = { kind: 'defend' }
  * 寫「任務成功」。
  */
 describe('stepMission：守住艦隊', () => {
-  it('雙方都活著時是 fighting，metric 是剩餘敵機數', () => {
+  it('雙方都活著時是 fighting，metric 是要害艦的血量比例、印成百分比', () => {
+    // 【不印敵機數】零戰整隊重生，敵機數一直回到 16，讀不出仗打到哪裡；
+    // 玩家要盯的是航母還剩幾成
     const s = createMissionState(DEFEND)
-    stepMission(DEFEND, inputs(), DT, s)
+    stepMission(DEFEND, inputs({ vitalHp: 0.73 }), DT, s)
     expect(s.outcome).toBe('fighting')
-    expect(s.metric).toBe(16)
+    expect(s.metric).toBeCloseTo(0.73, 9)
+    expect(s.metricKind).toBe('percent')
   })
 
   it('敵方全滅 = victory', () => {
@@ -546,11 +550,12 @@ describe('stepMission：守住艦隊', () => {
   })
 
   /**
-   * 【沒有要害艦時自然退化成殲滅】沒有另寫一條 fallback —— `vitalSunk` 恆為
-   * 0 時那一條分支本來就不影響結果。這一條比的是**整個 `MissionState`**，
-   * 不是只比 `outcome`。
+   * 【沒有要害艦時勝負自然退化成殲滅】沒有另寫一條 fallback —— `vitalSunk`
+   * 恆為 0 時那一條分支本來就不影響結果。比的是 `metric`／`metricKind` 以外
+   * 的**整個 `MissionState`**：計量兩邊印的東西本來就不同（殲滅印敵機數、
+   * 守住艦隊印要害艦血量），其餘每一格都要相同。
    */
-  it('沒有要害艦、沒有增援在路上時，與殲滅逐格相同', () => {
+  it('沒有要害艦、沒有增援在路上時，勝負與殲滅逐格相同', () => {
     for (const over of [
       {}, { aliveRed: 0 }, { aliveBlue: 0 }, { aliveRed: 0, aliveBlue: 0 },
       { aliveRed: 3, aliveBlue: 1 },
@@ -559,7 +564,9 @@ describe('stepMission：守住艦隊', () => {
       const d = createMissionState(DEFEND)
       stepMission(ANNIHILATE, inputs(over), DT, a)
       stepMission(DEFEND, inputs(over), DT, d)
-      expect(d, JSON.stringify(over)).toEqual(a)
+      const { metric: _am, metricKind: _ak, ...restA } = a
+      const { metric: _dm, metricKind: _dk, ...restD } = d
+      expect(restD, JSON.stringify(over)).toEqual(restA)
     }
   })
 })

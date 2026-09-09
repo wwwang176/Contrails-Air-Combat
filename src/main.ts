@@ -2152,7 +2152,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     ? battle.objectiveText
     : pendingMission?.battle.objective ?? ''
   hudFrame.objectiveMetric = m.metric
-  hudFrame.objectiveMetricKind = m.hasTarget ? 'distance' : 'count'
+  hudFrame.objectiveMetricKind = m.metricKind
   // 【分母由 `mission.ts` 給】只有擊沉會填總艘數，其餘任務恆是 −1
   hudFrame.objectiveMetricTotal = m.metricTotal
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1

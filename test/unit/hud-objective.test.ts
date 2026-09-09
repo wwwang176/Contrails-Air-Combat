@@ -73,3 +73,13 @@ describe('formatCountdown', () => {
     expect(formatCountdown(NaN)).toBe('')
   })
 })
+
+describe('formatObjectiveMetric：percent', () => {
+  /** 守住艦隊印的是要害艦的血量比例，玩家要看的是「還剩幾成」 */
+  it('0～1 的比例印成整數百分比', () => {
+    expect(formatObjectiveMetric(0.734, 'percent')).toBe('73%')
+    expect(formatObjectiveMetric(1, 'percent')).toBe('100%')
+    expect(formatObjectiveMetric(0, 'percent')).toBe('0%')
+    expect(formatObjectiveMetric(-0.2, 'percent')).toBe('0%')
+  })
+})
