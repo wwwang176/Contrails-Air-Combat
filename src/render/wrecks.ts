@@ -82,7 +82,7 @@ export const WRECK_FIRE_SECONDS = FIRE_SECONDS
  * 引擎火的線性尺寸倍率，相對船火。燒的是一具發動機艙，不是整艘燃燒的
  * 軍艦。呼叫端傳給 `createFirePuff`
  */
-export const WRECK_FIRE_SCALE = 0.25
+export const WRECK_FIRE_SCALE = 0.125
 
 /**
  * 引擎火的**煙**的線性尺寸倍率，相對船火。**與火球分開**（見
