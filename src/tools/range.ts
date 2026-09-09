@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three'
+import { Quaternion, TextureLoader, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { FixedStepAccumulator } from '../core/loop'
 import { createScene } from '../render/scene'
@@ -7,8 +7,16 @@ import { createTracers } from '../render/tracers'
 import { createMuzzles } from '../render/muzzle'
 import { createSparks } from '../render/sparks'
 import { createSplashes } from '../render/splash'
-import { createFireball, emitFireball } from '../render/fireball'
-import { createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE } from '../render/smoke'
+import { createFireball } from '../render/fireball'
+import {
+  createShipFireSmoke, createSmoke, emitKillSmoke, emitSmoke, DEBRIS_SMOKE_SIZE,
+} from '../render/smoke'
+import {
+  AIR_BLAST, BLAST_PACE, createBlastSmoke, createDust, createEmberSmoke,
+  createFireGlow, emitBlast, emitEmber, type BlastPools,
+} from '../render/blast'
+import { createFireChunks } from '../render/chunks'
+import { createFirePuff } from '../render/firePuff'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
 } from '../render/spray'
@@ -16,8 +24,11 @@ import { createDebris } from '../render/debris'
 import { createWrecks } from '../render/wrecks'
 import { buildAircraft, bodyColorOf, preloadAircraftModels, type AircraftModel } from '../render/geometry/buildAircraft'
 import { World, type Combatant } from '../world/World'
-import { clearImpacts } from '../world/events'
-import { clearKills } from '../world/kills'
+import { clearImpacts, createImpacts, IMPACT_STRIDE } from '../world/events'
+import { clearKills, KILL_STRIDE } from '../world/kills'
+
+/** 空中擊墜的爆炸繼承多少母機速度。與 `main.ts` 同一個值 */
+const KILL_BLAST_INHERIT = 0.5
 import { Aircraft } from '../aircraft/Aircraft'
 import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
@@ -78,6 +89,51 @@ const smoke = createSmoke()
 ctx.scene.add(smoke.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
+
+// ── 爆炸與火焰 ──────────────────────────────────────────
+//
+// 【與 `main.ts` 同一組配方】擊墜的球塊火球（`AIR_BLAST`）與殘骸的引擎火
+// （`createFirePuff`）在遊戲裡長什麼樣，靶場就要長什麼樣 —— 這一頁是它們
+// 的驗收處。配方本身在 `render/blast.ts`，`/blast.html` 是那一份的調校台。
+const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
+  emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
+})
+ctx.scene.add(blastChunks.object)
+const blastGlow = createFireGlow(undefined, BLAST_PACE)
+ctx.scene.add(blastGlow.object)
+const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastEmber.object)
+const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastSmoke.object)
+const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
+ctx.scene.add(blastDust.object)
+const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
+ctx.scene.add(shipFireSmoke.object)
+
+/**
+ * 【沒有水冠那一組】靶場只放擊墜（`AIR_BLAST`）與火焰（`FIRE_BLAST`），
+ * 兩份配方的 `jetCount` 都是 0。省略 `jets` 時水柱退回 `splashEvents`，
+ * 而那一格在這裡不會有東西進去。
+ */
+const BLAST_POOLS: BlastPools = {
+  fireball: blastChunks,
+  smoke: blastSmoke,
+  dust: blastDust,
+  spray,
+  splashEvents: createImpacts(),
+  glow: blastGlow,
+}
+
+/** 船火、地面火與殘骸引擎火共用的那一支。**在模組層建一次** */
+const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
+
+/**
+ * 每幀要步進、重播前要清空的爆炸池。**清單只有這一份** —— 漏掉其中一個
+ * 的症狀是「收得到 emit 但一顆粒子都不畫」（實例矩陣在 `step` 裡寫），
+ * 或者上一次的火留在畫面上被當成新的。
+ */
+const BLAST_STEPPED = [blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, shipFireSmoke]
 const debris = createDebris()
 ctx.scene.add(debris.object)
 
@@ -118,6 +174,7 @@ function reset(): void {
   fireball.step(999)
   smoke.step(999)
   spray.step(999)
+  for (const p of BLAST_STEPPED) p.step(999)
   debris.step(999, () => -1e9, () => -1e9, 0)
   splashes.step(999)
 
@@ -209,7 +266,20 @@ function frame(now: number): void {
     splashes.emit(world.splashEvents, ocean.heightAt, elapsed)
     clearImpacts(world.hitEvents)
     clearImpacts(world.splashEvents)
-    emitFireball(fireball, world.killEvents)
+    // 【擊墜走球塊火球，與 `main.ts` 同一份】靶場一律在海上，而海面的
+    // `waterAt` 是有限值 —— 那一支的分支在這裡恆為空爆，所以只留 `AIR_BLAST`
+    {
+      const d = world.killEvents.data
+      for (let e = 0; e < world.killEvents.count; e++) {
+        const o = e * KILL_STRIDE
+        // 【繼承母機速度】火球完全靜止的話，一架 150 m/s 的飛機在半秒的
+        // 壽命內會飛出 75 m —— 畫面上是「爆炸發生在飛機後面」
+        emitBlast(BLAST_POOLS, AIR_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+          (e * 131 + Math.round(world.time * 60)) | 0,
+          d[o + 3]! * KILL_BLAST_INHERIT, d[o + 4]! * KILL_BLAST_INHERIT,
+          d[o + 5]! * KILL_BLAST_INHERIT)
+      }
+    }
     emitKillSmoke(smoke, world.killEvents)
     debris.emit(world.killEvents, () => bodyColorOf(subject.aircraft.spec))
     clearKills(world.killEvents)
@@ -227,7 +297,7 @@ function frame(now: number): void {
     } else {
       wrecked = true
       const v = a.state.velocity
-      wrecks.adopt(model, a.spec.hitBoxes, v.x, v.y, v.z, 0)
+      wrecks.adopt(model, a.spec, v.x, v.y, v.z, 0)
     }
   }
 
@@ -238,6 +308,14 @@ function frame(now: number): void {
   wrecks.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   debris.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
+  // 【殘骸的引擎在燒】與 `main.ts` 同一支回呼
+  {
+    const d = wrecks.fireEvents.data
+    for (let e = 0; e < wrecks.fireEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitFirePuff(d[o]!, d[o + 1]!, d[o + 2]!)
+    }
+  }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
@@ -247,6 +325,7 @@ function frame(now: number): void {
   fireball.step(dt)
   smoke.step(dt)
   spray.step(dt)
+  for (const p of BLAST_STEPPED) p.step(dt)
 
   // 鏡頭跟隨的目標：還沒爆就是飛機，爆了就是殘骸
   subjectPos.copy(wrecked ? model.group.position : renderPositions[0]!)

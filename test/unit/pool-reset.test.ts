@@ -118,7 +118,7 @@ describe('殘骸池的歸零', () => {
     const released: unknown[] = []
     const w = createWrecks(4, (m) => { released.push(m); m.dispose() })
     for (let i = 0; i < 2; i++) {
-      w.adopt(buildAircraft(P51D), P51D.hitBoxes, 10, 0, -100, i)
+      w.adopt(buildAircraft(P51D), P51D, 10, 0, -100, i)
     }
     expect(w.live).toBe(0) // live 由 step 更新，adopt 之後還沒算
     w.reset()
@@ -130,9 +130,9 @@ describe('殘骸池的歸零', () => {
   it('reset 之後還能正常再用', () => {
     const released: unknown[] = []
     const w = createWrecks(4, (m) => { released.push(m); m.dispose() })
-    w.adopt(buildAircraft(P51D), P51D.hitBoxes, 0, 0, 0, 0)
+    w.adopt(buildAircraft(P51D), P51D, 0, 0, 0, 0)
     w.reset()
-    w.adopt(buildAircraft(P51D), P51D.hitBoxes, 0, 0, 0, 0)
+    w.adopt(buildAircraft(P51D), P51D, 0, 0, 0, 0)
     w.step(1 / 60, FLAT, WET, 0)
     expect(w.live).toBe(1)
   })

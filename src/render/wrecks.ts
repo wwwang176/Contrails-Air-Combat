@@ -1,7 +1,9 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
-import { tumble } from './tumble'
+import { FIRE_PUFF } from './shipFires'
+import { seedWreckSpin, stepWreckSpin } from './wreckAero'
 import { WRECK_SMOKE_INTERVAL, WRECK_SMOKE_SECONDS, smokePuffs, smokeTimer } from './smoke'
+import type { AircraftSpec } from '../specs/types'
 import { lowestPoint } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
 import type { HitBox } from '../world/hit'
@@ -32,9 +34,6 @@ export const WRECK_TERMINAL = 80
  */
 export const WRECK_DRAG = -G / WRECK_TERMINAL
 
-/** 三軸角速度的上限，rad/s。±120°/s。 */
-export const WRECK_SPIN = (120 * Math.PI) / 180
-
 /**
  * 壽命上限，s。
  *
@@ -61,6 +60,12 @@ export const WRECK_SINK_DEPTH = 25
  */
 export const WRECK_GROUND_DEPTH = 3
 
+/**
+ * 引擎燃燒每幾秒一朵，s。**與船火同一個節奏**（`shipFires.ts` 的
+ * `FIRE_PUFF`）—— 燒起來的船與燒起來的飛機看起來就該是同一種火。
+ */
+export const WRECK_FIRE_INTERVAL = FIRE_PUFF
+
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
 
@@ -72,6 +77,13 @@ export interface Wrecks {
   readonly live: number
   /** 這一次 `step` 產生的冒煙位置。**每次 `step` 開頭排空** */
   readonly smokeEvents: ImpactEvents
+  /**
+   * 這一次 `step` 產生的燃燒位置，**世界座標**。同樣的生命週期。
+   *
+   * 呼叫端把每一筆餵給船火那一支噴煙回呼（`main.ts` 的 `emitFirePuff`）
+   * —— 燃燒的表現只該有一份配方。
+   */
+  readonly fireEvents: ImpactEvents
   /** 這一次 `step` 產生的入水噴濺。同樣的生命週期 */
   readonly sprayEvents: ImpactEvents
   /** 這一次 `step` 產生的水柱位置。同樣的生命週期 */
@@ -82,11 +94,12 @@ export interface Wrecks {
    * **初始位置與旋轉直接讀 `model.group`** —— 那是內插後的姿態。用擊墜事件
    * 裡的子步位置會讓殘骸在誕生的那一幀跳最多 0.83 m（M8 spec §3.1）。
    *
-   * @param boxes 那架飛機的 `spec.hitBoxes`，入水判定用
-   * @param seed  決定翻滾方向的索引。同一個 seed 恆得同一種翻法
+   * @param spec 那架飛機的機種資料。入水判定讀 `hitBoxes`，翻滾讀慣性矩、
+   *             翼面幾何與角速率阻尼（見 `wreckAero.ts`）
+   * @param seed 決定翻滾方向的索引。同一個 seed 恆得同一種翻法
    */
   adopt(
-    model: AircraftModel, boxes: readonly HitBox[],
+    model: AircraftModel, spec: AircraftSpec,
     vx: number, vy: number, vz: number, seed: number,
   ): void
   /** 積分一幀。**在渲染幀率呼叫，不在物理步。** */
@@ -108,14 +121,24 @@ export interface Wrecks {
 /** 模組私有的暫存。每幀每具殘骸重用：不配置。 */
 const LOWEST = new Vector3()
 const BEST = new Vector3()
-const ROT = new Quaternion()
+const FIRE_AT = new Vector3()
 
 interface Slot {
   model: AircraftModel | null
   boxes: readonly HitBox[]
-  base: Quaternion
+  spec: AircraftSpec | null
+  /** 姿態。**逐幀積分，不是年齡的純函數** —— 轉速自己找平衡 */
+  quat: Quaternion
   vx: number; vy: number; vz: number
-  rx: number; ry: number; rz: number
+  /** 角速度，機體座標，rad/s */
+  spin: Vector3
+  /**
+   * 燒的是第幾具引擎。**接管時挑一次，之後不換** —— 每一朵各挑一具的話
+   * 火會在機翼之間跳。`−1` = 這個模型沒有引擎點
+   */
+  engine: number
+  /** 距離下一朵火還有幾秒 */
+  fire: number
   age: number
   timer: number
   sunk: boolean
@@ -142,8 +165,9 @@ export function createWrecks(
   const slots: Slot[] = []
   for (let i = 0; i < capacity; i++) {
     slots.push({
-      model: null, boxes: [], base: new Quaternion(),
-      vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0,
+      model: null, boxes: [], spec: null, quat: new Quaternion(),
+      vx: 0, vy: 0, vz: 0, spin: new Vector3(),
+      engine: -1, fire: 0,
       age: 0, timer: 0, sunk: false, hideY: -Infinity,
     })
   }
@@ -151,6 +175,8 @@ export function createWrecks(
   let live = 0
 
   const smokeEvents = createImpacts(capacity * 8)
+  // 【一步一具最多一朵】容量給參戰架數就夠
+  const fireEvents = createImpacts(capacity)
   const sprayEvents = createImpacts(capacity)
   const splashEvents = createImpacts(capacity * WRECK_SPLASH_COLUMNS)
 
@@ -162,11 +188,12 @@ export function createWrecks(
 
   return {
     smokeEvents,
+    fireEvents,
     sprayEvents,
     splashEvents,
     get live() { return live },
 
-    adopt(model, boxes, vx, vy, vz, seed): void {
+    adopt(model, spec, vx, vy, vz, seed): void {
       const s = slots[next]!
       next = next + 1 >= capacity ? 0 : next + 1
       // 【滿了就回收最舊的】容量等於參戰架數，所以這在一場戰鬥之內不會發生；
@@ -175,14 +202,21 @@ export function createWrecks(
       if (s.model) free(s)
 
       s.model = model
-      s.boxes = boxes
-      s.base.copy(model.group.quaternion)
+      s.boxes = spec.hitBoxes
+      s.spec = spec
+      s.quat.copy(model.group.quaternion)
       s.vx = vx
       s.vy = vy
       s.vz = vz
-      s.rx = (hash01(seed * 3) * 2 - 1) * WRECK_SPIN
-      s.ry = (hash01(seed * 3 + 1) * 2 - 1) * WRECK_SPIN
-      s.rz = (hash01(seed * 3 + 2) * 2 - 1) * WRECK_SPIN
+      // 【爆炸那一下的角衝量】大小以這個尺寸機體的平衡轉速為尺度，所以
+      // 轟炸機被踢得比戰鬥機慢 —— 見 `wreckAero.ts`
+      seedWreckSpin(spec, Math.hypot(vx, vy, vz), seed, s.spin)
+      // 【多發機隨機挑一具，之後不換】用與翻滾不同的雜湊段，否則兩者
+      // 在同一個種子上相關 —— 往同一邊翻的殘骸永遠燒同一邊的引擎
+      const engines = model.enginePoints.length
+      s.engine = engines === 0 ? -1 : Math.min(engines - 1, Math.floor(hash01(seed * 3 + 7919) * engines))
+      // 【第一朵立刻放】與船火同一個做法：爆炸那一刻就看得到火
+      s.fire = 0
       s.age = 0
       s.timer = 0
       s.sunk = false
@@ -196,6 +230,7 @@ export function createWrecks(
 
     step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void {
       clearImpacts(smokeEvents)
+      clearImpacts(fireEvents)
       clearImpacts(sprayEvents)
       clearImpacts(splashEvents)
       const damp = Math.exp(-WRECK_DRAG * dt)
@@ -220,8 +255,25 @@ export function createWrecks(
         g.position.y += s.vy * dt
         g.position.z += s.vz * dt
 
-        tumble(s.rx, s.ry, s.rz, s.age, s.base, ROT)
-        g.quaternion.copy(ROT)
+        // 【角向走氣動，平移不變】失去操縱與動力的機體怎麼翻，由慣性矩、
+        // 翼面幾何與角速率阻尼決定 —— B-17 因此翻得比 Bf 109 慢得多
+        stepWreckSpin(s.spec!, s.vx, s.vy, s.vz, g.position.y, s.quat, s.spin, dt)
+        g.quaternion.copy(s.quat)
+
+        // 【引擎在燒】火點是引擎在**世界座標**的位置，每一步從機體座標轉
+        // 過來 —— 存世界座標放著不動的話，火會留在爆炸那一點而殘骸掉下去。
+        // 【沉下去就不放】水面不透明，那一段沒有觀察者
+        if (s.engine >= 0 && !s.sunk) {
+          let t = s.fire - dt
+          if (t <= 0) {
+            // 【一步只放一朵】掉幀時補放沒有意義 —— 同一個位置疊三朵只是
+            // 一團更亮的火。理由同 `stepShipFires`
+            do { t += WRECK_FIRE_INTERVAL } while (t <= 0)
+            FIRE_AT.copy(model.enginePoints[s.engine]!).applyQuaternion(s.quat).add(g.position)
+            pushImpact(fireEvents, FIRE_AT.x, FIRE_AT.y, FIRE_AT.z, 0, 1, 0)
+          }
+          s.fire = t
+        }
 
         if (s.sunk) {
           // 【水下不模擬】運動完全不變 —— 海面不透明，這段沒有觀察者，

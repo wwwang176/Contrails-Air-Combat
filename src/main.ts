@@ -17,9 +17,10 @@ import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
 import { createBombs, createTorpedoes } from './render/bombs'
 import { createFireChunks } from './render/chunks'
+import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, FIRE_BLAST, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -35,10 +36,10 @@ import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
-  DEBRIS_SMOKE_SIZE, SHIP_FIRE_PLUME_SPEED,
+  DEBRIS_SMOKE_SIZE,
 } from './render/smoke'
 import {
-  createShipFires, lightShipFires, stepShipFires, type FirePuffFn,
+  createShipFires, lightShipFires, stepShipFires,
 } from './render/shipFires'
 import {
   createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
@@ -665,44 +666,12 @@ function emitBombBlasts(events: ImpactEvents): void {
 }
 
 /**
- * 一朵火災的迷你爆炸：一團小爆燃 ＋ 幾團垂直上升的煙。
+ * 一朵火災的迷你爆炸。**船火、地面火與殘骸的引擎火共用這一支**
+ * —— 配方在 `render/firePuff.ts`，靶場（`tools/range.ts`）接的也是它。
  *
- * **綁在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
- *
- * 【煙一律往上，不走錐狀噴射】`FIRE_BLAST` 的 `smokeCount` 是 0，這裡的
- * 每一團都給一個**朝上**的初速，只在水平方向抖一點寬度。
- *
- * 【柱高固定 200 m】每一艘都一樣。初速由 `plumeSpeed` 從那個高度反解 ——
- * 兩者之間隔著阻尼，寫死一個看起來差不多的速度的話，改了壽命或阻尼之後
- * 就不對了。
- *
- * 【一次三團】0.3 秒一次，一團的話那是一串珠子不是一道柱子。
+ * **在模組層建一次** —— 幀迴圈裡宣告閉包是每幀一次配置。
  */
-const FIRE_SMOKE_PER_PUFF = 3
-/** 水平散開的最大速度，m/s。柱子的粗細 */
-const FIRE_SMOKE_SPREAD = 1.6
-/** 上升速度的抖動幅度，比例。0.25 = 落在 0.75×～1.25× 之間 */
-const FIRE_SMOKE_RISE_JITTER = 0.25
-
-const emitFirePuff: FirePuffFn = (x, y, z) => {
-  emitBlast(BLAST_POOLS, FIRE_BLAST, x, y, z, (fireSeed = (fireSeed + 1) | 0))
-  for (let k = 0; k < FIRE_SMOKE_PER_PUFF; k++) {
-    // 【三個維度各自抖】方位角、半徑、上升速度全部獨立取樣。
-    //
-    // 只抖方位角、而且用等角度分佈（黃金角 × 序號）的話，等速上升會把
-    // 連續幾朵串成一條**規則的螺旋線** —— 畫面上是兩三股麻花而不是一叢煙。
-    // 半徑固定會讓它們貼在同一個圓柱面上；上升速度一致則讓同一朵的三顆
-    // 永遠共面。
-    const s = fireSeed * FIRE_SMOKE_PER_PUFF + k
-    const a = hash01(s * 3 + 1) * Math.PI * 2
-    const r = Math.sqrt(hash01(s * 3 + 2)) * FIRE_SMOKE_SPREAD
-    const up = SHIP_FIRE_PLUME_SPEED
-      * (1 + (hash01(s * 3 + 3) * 2 - 1) * FIRE_SMOKE_RISE_JITTER)
-    shipFireSmoke.emit(x, y, z, Math.cos(a) * r, up, Math.sin(a) * r, 1)
-  }
-}
-/** `emitFirePuff` 的散佈序號。爆炸配方與煙的三個抖動都吃它 */
-let fireSeed = 0
+const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
 
 /**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
@@ -1637,7 +1606,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
       v.wrecked = true
       const vel = c.aircraft.state.velocity
-      wrecks.adopt(v.model, c.aircraft.spec.hitBoxes, vel.x, vel.y, vel.z, c.index)
+      wrecks.adopt(v.model, c.aircraft.spec, vel.x, vel.y, vel.z, c.index)
       continue
     }
 
@@ -1801,6 +1770,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   wrecks.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   debris.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   emitSmoke(smoke, wrecks.smokeEvents)
+  // 【殘骸的引擎在燒】走船火那一支噴煙回呼 —— 燒起來的船與燒起來的飛機
+  // 看起來就該是同一種火。位置由 `wrecks` 每一步從機體座標轉成世界座標
+  {
+    const d = wrecks.fireEvents.data
+    for (let e = 0; e < wrecks.fireEvents.count; e++) {
+      const o = e * IMPACT_STRIDE
+      emitFirePuff(d[o]!, d[o + 1]!, d[o + 2]!)
+    }
+  }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
   emitSpray(spray, wrecks.sprayEvents, WRECK_SPRAY_COUNT)
   emitSpray(spray, debris.sprayEvents, DEBRIS_SPRAY_COUNT)
