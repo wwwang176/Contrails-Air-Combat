@@ -307,7 +307,6 @@ function frame(now: number): void {
   // 【靶場一律是海】所以水面就是海面
   wrecks.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
   debris.step(dt, ocean.heightAt, (x, z) => ocean.heightAt(x, z, elapsed), elapsed)
-  emitSmoke(smoke, wrecks.smokeEvents)
   // 【殘骸的引擎在燒】與 `main.ts` 同一支回呼。法線那三格帶的是殘骸的速度
   {
     const d = wrecks.fireEvents.data

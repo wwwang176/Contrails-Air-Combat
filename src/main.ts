@@ -1775,7 +1775,6 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
   wrecks.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   debris.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  emitSmoke(smoke, wrecks.smokeEvents)
   // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
   // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
   {

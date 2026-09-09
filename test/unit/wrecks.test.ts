@@ -6,7 +6,6 @@ import {
   WRECK_SPLASH_RADIUS, WRECK_TERMINAL,
 } from '../../src/render/wrecks'
 import type { AircraftModel } from '../../src/render/geometry/buildAircraft'
-import { WRECK_SMOKE_SECONDS } from '../../src/render/smoke'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 
@@ -156,14 +155,6 @@ describe('殘骸的運動（M8 spec §8.2）', () => {
       .toBeLessThan(fighter.model.group.quaternion.angleTo(zero))
   })
 
-  it('持續冒煙', () => {
-    const w = createWrecks(4, () => {})
-    const f = fakeModel()
-    f.model.group.position.set(0, 4000, 0)
-    w.adopt(f.model, P51D, 0, 0, 0, 0)
-    w.step(0.5, DEEP, WET, 0)
-    expect(w.smokeEvents.count).toBeGreaterThan(3)
-  })
 })
 
 describe('殘骸入水（M8 spec §9）', () => {
@@ -255,18 +246,6 @@ describe('殘骸入水（M8 spec §9）', () => {
     expect(w.sprayEvents.count).toBe(0)
   })
 
-  it('入水之後停止冒煙', () => {
-    const w = createWrecks(4, () => {})
-    const f = fakeModel()
-    f.model.group.position.set(0, 0.5, 0)
-    w.adopt(f.model, P51D, 0, -50, 0, 0)
-    w.step(0.5, FLAT, WET, 0)
-    // 接觸的那一幀仍然冒了煙（冒煙排在接觸判定之前），下一幀起就停
-    expect(w.smokeEvents.count).toBeGreaterThan(0)
-    w.step(0.5, FLAT, WET, 0)
-    expect(w.smokeEvents.count).toBe(0)
-  })
-
   it('沉到夠深就釋放模型', () => {
     // 【為什麼看不見還要沉】海面是不透明的（ocean.ts:52），沉下去就被水
     // 擋住 —— 這個深度門檻純粹是回收用的（M8 spec §9.3）。
@@ -318,34 +297,15 @@ describe('殘骸入水（M8 spec §9）', () => {
   })
 })
 
-describe('冒煙的時間上限（人工驗收裁決）', () => {
-  it('超過 WRECK_SMOKE_SECONDS 之後就不再冒煙，即使還在空中', () => {
-    // 【為什麼要有上限】殘骸的壽命是 120 s（WRECK_MAX_LIFE），從 4,000 m
-    // 掉到海面要三十秒以上。整段都冒煙的話，一場 20v20 的天空最後會被
-    // 一堆長得看不到頭的煙柱塞滿，而那不是「剛被打下來」的訊號 ——
-    // 最多 4 秒。
-    const w = createWrecks(4, () => {})
-    const f = fakeModel()
-    f.model.group.position.set(0, 4000, 0)
-    w.adopt(f.model, P51D, 0, 0, 0, 0)
-
-    // DEEP 讓它永遠碰不到水 —— 這一條要驗的是時間上限，不是入水
-    let emitted = 0
-    for (let t = 0; t < WRECK_SMOKE_SECONDS - 0.5; t += 0.5) {
-      w.step(0.5, DEEP, WET, 0)
-      emitted += w.smokeEvents.count
-    }
-    expect(emitted).toBeGreaterThan(0)
-
-    // 跨過上限之後
-    w.step(1, DEEP, WET, 0)
-    w.step(0.5, DEEP, WET, 0)
-    expect(w.smokeEvents.count).toBe(0)
-    w.step(5, DEEP, WET, 0)
-    expect(w.smokeEvents.count).toBe(0)
-  })
-
-  it('上限是 4 秒', () => {
-    expect(WRECK_SMOKE_SECONDS).toBe(4)
+describe('殘骸的煙全部出自引擎火', () => {
+  /**
+   * 【殘骸沒有自己的煙通道】拖煙就是引擎火帶的那三團往上長的煙
+   * （`firePuff.ts`）。多開一條的話同一具殘骸會有兩道煙，而且兩道的
+   * 起點、密度與壽命都不一樣 —— 畫面上只是「煙很怪」。
+   */
+  it('Wrecks 沒有 smokeEvents 這個通道', () => {
+    const w = createWrecks(1, () => {})
+    expect('smokeEvents' in w).toBe(false)
+    expect('fireEvents' in w).toBe(true)
   })
 })

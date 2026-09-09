@@ -1,8 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
-import { FIRE_PUFF, FIRE_SECONDS } from './shipFires'
+import { FIRE_SECONDS } from './shipFires'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
-import { WRECK_SMOKE_INTERVAL, WRECK_SMOKE_SECONDS, smokePuffs, smokeTimer } from './smoke'
 import type { AircraftSpec } from '../specs/types'
 import { lowestPoint } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
@@ -61,25 +60,28 @@ export const WRECK_SINK_DEPTH = 25
 export const WRECK_GROUND_DEPTH = 3
 
 /**
- * 引擎燃燒每幾秒一朵，s。**與船火同一個節奏**（`shipFires.ts` 的
- * `FIRE_PUFF`）—— 燒起來的船與燒起來的飛機看起來就該是同一種火。
+ * 引擎燃燒每幾秒一朵，s。
+ *
+ * 【比船火密】它同時是殘骸的拖煙來源 —— 每一朵帶三團煙（`firePuff.ts`），
+ * 而殘骸每秒掉八十公尺。間隔拉大到船火那一級的話，煙變成一串分得開的
+ * 圓球而不是一道尾跡。
  */
-export const WRECK_FIRE_INTERVAL = FIRE_PUFF
+export const WRECK_FIRE_INTERVAL = 0.1
 
 /**
  * 引擎燒幾秒，s。**與船火同一個時長**（`shipFires.ts` 的 `FIRE_SECONDS`）。
  *
- * 【為什麼要有上限，殘骸不是本來就會消失嗎】正常路徑是落海或落地就收掉
- * （四千公尺掉到海面約五十八秒），但 `WRECK_MAX_LIFE` 那道保險是兩分鐘
- * —— 飄出海面網格、永遠碰不到水的那一具會在天上燒滿兩分鐘。
+ * 【為什麼要有上限】正常路徑是落海或落地就收掉（四千公尺掉到海面約
+ * 五十八秒），但 `WRECK_MAX_LIFE` 那道保險是兩分鐘 —— 飄出海面網格、
+ * 永遠碰不到水的那一具會在天上燒滿兩分鐘。
  */
 export const WRECK_FIRE_SECONDS = FIRE_SECONDS
 
 /**
- * 引擎火的線性尺寸倍率，相對船火。**燒的是一具發動機艙，不是整艘燃燒的
- * 軍艦。** 呼叫端傳給 `createFirePuff`
+ * 引擎火的線性尺寸倍率，相對船火。燒的是一具發動機艙，不是整艘燃燒的
+ * 軍艦。呼叫端傳給 `createFirePuff`
  */
-export const WRECK_FIRE_SCALE = 0.5
+export const WRECK_FIRE_SCALE = 0.25
 
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10
@@ -90,13 +92,12 @@ export const WRECK_SPLASH_RADIUS = 6
 export interface Wrecks {
   /** 目前有幾具在場。測試與 telemetry 用 */
   readonly live: number
-  /** 這一次 `step` 產生的冒煙位置。**每次 `step` 開頭排空** */
-  readonly smokeEvents: ImpactEvents
   /**
-   * 這一次 `step` 產生的燃燒位置，**世界座標**。同樣的生命週期。
+   * 這一次 `step` 產生的燃燒位置，**世界座標**。**每次 `step` 開頭排空**。
    *
    * 呼叫端把每一筆餵給船火那一支噴煙回呼（`main.ts` 的 `emitFirePuff`）
-   * —— 燃燒的表現只該有一份配方。
+   * —— 燃燒的表現只該有一份配方。**殘骸的煙也全部出自這裡**：每一朵火
+   * 帶三團往上長的煙，那就是拖煙。
    *
    * 【法線那三格借去帶殘骸的速度】火團在自己的壽命裡是自由飛的，不繼承
    * 速度的話一具每秒掉八十公尺的殘骸會在天上留一串獨立的爆炸。這一份
@@ -159,7 +160,6 @@ interface Slot {
   /** 距離下一朵火還有幾秒 */
   fire: number
   age: number
-  timer: number
   sunk: boolean
   hideY: number
 }
@@ -187,13 +187,12 @@ export function createWrecks(
       model: null, boxes: [], spec: null, quat: new Quaternion(),
       vx: 0, vy: 0, vz: 0, spin: new Vector3(),
       engine: -1, fire: 0,
-      age: 0, timer: 0, sunk: false, hideY: -Infinity,
+      age: 0, sunk: false, hideY: -Infinity,
     })
   }
   let next = 0
   let live = 0
 
-  const smokeEvents = createImpacts(capacity * 8)
   // 【一步一具最多一朵】容量給參戰架數就夠
   const fireEvents = createImpacts(capacity)
   const sprayEvents = createImpacts(capacity)
@@ -206,7 +205,6 @@ export function createWrecks(
   }
 
   return {
-    smokeEvents,
     fireEvents,
     sprayEvents,
     splashEvents,
@@ -237,7 +235,6 @@ export function createWrecks(
       // 【第一朵立刻放】與船火同一個做法：爆炸那一刻就看得到火
       s.fire = 0
       s.age = 0
-      s.timer = 0
       s.sunk = false
       s.hideY = -Infinity
       // 陣亡那一幀 main.ts 可能已經把它藏起來了
@@ -248,7 +245,6 @@ export function createWrecks(
     },
 
     step(dt: number, heightAt: HeightField, waterAt: WaterField, time: number): void {
-      clearImpacts(smokeEvents)
       clearImpacts(fireEvents)
       clearImpacts(sprayEvents)
       clearImpacts(splashEvents)
@@ -305,19 +301,6 @@ export function createWrecks(
 
         live++
 
-        // 【冒煙只在水面上】沉下去之後看不見，繼續發射只是白費池子
-        //
-        // 【而且只在前 WRECK_SMOKE_SECONDS 秒】殘骸活 120 s、從 4,000 m
-        // 掉到海面要三十秒以上 —— 整段都冒的話天空最後會被一堆看不到頭的
-        // 煙柱塞滿，那已經不是「剛剛有人被打下來」的訊號了
-        if (s.age < WRECK_SMOKE_SECONDS) {
-          const puffs = smokePuffs(s.timer, dt, WRECK_SMOKE_INTERVAL)
-          s.timer = smokeTimer(s.timer, dt, WRECK_SMOKE_INTERVAL)
-          for (let k = 0; k < puffs; k++) {
-            pushImpact(smokeEvents, g.position.x, g.position.y, g.position.z, 0, 1, 0)
-          }
-        }
-
         // 【入水判定用 hitBox 的角點】殘骸是翻滾的，翼尖會比重心早很多碰到
         // 水；用重心判定會讓水花晚一整個翼展才出現（M8 spec §9.1）
         let lowY = Infinity
@@ -359,7 +342,7 @@ export function createWrecks(
       for (let i = 0; i < capacity; i++) free(slots[i]!)
       next = 0
       live = 0
-      clearImpacts(smokeEvents)
+      clearImpacts(fireEvents)
       clearImpacts(sprayEvents)
       clearImpacts(splashEvents)
     },
