@@ -26,7 +26,7 @@ describe('掛載表', () => {
    */
   it('零戰掛得了兩顆 60 kg，其餘戰鬥機掛不了', () => {
     expect(loadoutOf('a6m5')).toEqual({
-      kind: 'bomb', count: 2, damage: 2_300, reloadSeconds: 20,
+      kind: 'bomb', count: 2, damage: 1_000, reloadSeconds: 20,
     })
     for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84']) {
       expect(loadoutOf(id), id).toBeNull()
