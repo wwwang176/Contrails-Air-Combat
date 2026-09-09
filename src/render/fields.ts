@@ -601,6 +601,12 @@ export interface SiteLayout {
   readonly heading?: number
   /** 墊面矩形，廠區局部座標 */
   readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+  /**
+   * 墊面之外還要這麼寬的一圈不長樹，m。省略時樹貼著墊面長。
+   *
+   * 【著色器不看它】只有散佈器用 —— 這一圈仍然是田色，只是沒有樹籬與樹林。
+   */
+  readonly treeClear?: number
   /** 道路的折線，世界座標 */
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */
@@ -642,9 +648,6 @@ const ASPHALT = 0x3f3d3a
 /** 鐵路的碴石。與 `terrain.ts` 調車場街廓那一份同色 */
 const BALLAST = 0x5f5a52
 
-/** `siteSurfaceColor` 的暫存色。混色要兩個 Color，而它一秒可以被叫上萬次 */
-const SCRATCH = /* @__PURE__ */ new Color()
-
 /**
  * 髒污碎花的格，m。小格是逐格的亮暗與油漬，大格是整片鋪面的深淺。
  *
@@ -670,16 +673,30 @@ function grimeFactor(x: number, z: number): number {
 }
 
 /**
- * 廠界的兩層起伏：細的一層讓邊緣有鋸齒，粗的一層讓整條邊蜿蜒。
+ * 廠界的三層起伏。**邊界本身是硬的**，不規則靠的是這三個尺度疊起來。
  *
- * 【只有細的那一層不夠】110 m 的格咬 130 m，放在一條 3 km 的邊上是 4% 的
- * 相對振幅 —— 從投彈高度看仍然是一條直線加毛邊。粗的一層才把矩形變成
- * 不規則的形狀。
+ * - 細（22 m 的格咬 45 m）：鋸齒。這一層決定「這不是畫出來的線」
+ * - 中（110 m 咬 90 m）：一段一段的凹凸
+ * - 粗（450 m 咬 150 m）：整條邊蜿蜒，把矩形變成不規則的形狀
+ *
+ * 【三層都要】只有粗的話從投彈高度看是一條平滑的曲線；只有細的話，放在
+ * 一條 3 km 的邊上是 1.5% 的相對振幅 —— 仍然是一條直線加毛邊。
  */
+const FINE_CELL = 22
+const FINE_BITE = 45
 const EDGE_CELL = 110
-const EDGE_BITE = 120
+const EDGE_BITE = 90
 const COARSE_CELL = 450
-const COARSE_BITE = 200
+const COARSE_BITE = 150
+
+/**
+ * 咬痕的基線比墊面往外推這麼多，m。
+ *
+ * 【沒有它，邊緣的街廓會裸露在田上】三層咬痕加起來最深 285 m，而最外圈的
+ * 街廓離墊面邊只有 100 m —— 從墊面邊往內咬的話，整排廠房會站在田色的地上。
+ * 往外推之後咬痕在墊面外那一圈裡起伏，平均落在墊面外 40 m 左右。
+ */
+const PAD_SKIRT = 180
 
 /**
  * 四個角斜切掉的兩條直角邊，佔墊面寬與深的比例。
@@ -691,15 +708,13 @@ const CORNER_CUTS: readonly (readonly [number, number])[] = [
 ]
 
 /**
- * 過渡帶的寬度，m。墊面之外這麼寬的一圈是擾動地 —— 碎石、堆土、雜草。
+ * 早退的外接盒要往外留這麼寬，m。**至少要蓋過 `PAD_SKIRT`** —— 邊界最外
+ * 就在墊面外 `PAD_SKIRT` 處，盒子縮進來的話那一圈會露出田色。
  *
- * 【比最深的一咬淺是刻意的】`EDGE_BITE + COARSE_BITE` 是 320 m，所以邊緣的
- * 街廓會有一小截設備站在帶子之外的田上。那正是廠區往外溢出去的樣子 ——
- * 帶子拉到蓋住整條咬痕的話，廠區周圍會多一圈一眼看得出來的灰邊。
+ * 【不要放大】盒內每個像素都跑墊面那一整段算式。放到 400 量到 4 km 俯視的
+ * frame 由 0.9 ms 變 1.8 ms。
  */
-const BAND = 170
-/** 擾動地的顏色：混凝土與田土之間 */
-const DISTURBED = 0x6a5f4c
+const BAND = 220
 
 /**
  * 起伏的深度。**兩側加起來不得吃掉整塊墊面** —— 咬得比半邊長還深的話，
@@ -713,6 +728,10 @@ function coarseBite(pad: SiteLayout['pad']): number {
   return Math.min(COARSE_BITE, (pad.x1 - pad.x0) * 0.11, (pad.z1 - pad.z0) * 0.11)
 }
 
+function fineBite(pad: SiteLayout['pad']): number {
+  return Math.min(FINE_BITE, (pad.x1 - pad.x0) * 0.05, (pad.z1 - pad.z0) * 0.05)
+}
+
 /** 一個 0…1 的格值。四條邊各用自己的鹽，否則對邊會鏡射 */
 function edgeNoise(t: number, cell: number, salt: number): number {
   return (hash2(Math.floor(t / cell), salt) & 0xff) / 255
@@ -721,9 +740,9 @@ function edgeNoise(t: number, cell: number, salt: number): number {
 /**
  * 一點到墊面邊界的有號距離，m —— 負的在裡面、正的在外面。
  *
- * 【為什麼要距離而不是布林】過渡帶、邊緣壓暗、外圈的擾動地都要知道「離邊
- * 多遠」。取各條約束的最大違反量：軸對齊矩形的外側距離就是這樣算的，角落
- * 會略為低估，而那正好讓斜切角的帶子寬一點。
+ * 【為什麼要距離而不是布林】邊緣壓暗與抗鋸齒都要知道「離邊多遠」。取各條
+ * 約束的最大違反量：軸對齊矩形的外側距離就是這樣算的，角落會略為低估，
+ * 而那正好讓斜切角的邊柔一點。
  *
  * **GLSL 與 CPU 兩份要算出同一個答案** —— 分家的話畫面上的廠界與取樣到的
  * 顏色差一整條邊，而那只有在小地圖與畫面並排時才看得出來。
@@ -731,15 +750,18 @@ function edgeNoise(t: number, cell: number, salt: number): number {
 function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
   const b = edgeBite(pad)
   const c = coarseBite(pad)
+  const f = fineBite(pad)
   const inset = (t: number, s1: number, s2: number): number =>
-    edgeNoise(t, EDGE_CELL, s1) * b + edgeNoise(t, COARSE_CELL, s2) * c
+    edgeNoise(t, FINE_CELL, s1 ^ 0x5bd1) * f
+    + edgeNoise(t, EDGE_CELL, s1) * b
+    + edgeNoise(t, COARSE_CELL, s2) * c
   const w = pad.x1 - pad.x0
   const d = pad.z1 - pad.z0
   let out = Math.max(
-    pad.x0 + inset(z, 4517, 3313) - x,
-    x - (pad.x1 - inset(z, 2287, 6151)),
-    pad.z0 + inset(x, 9911, 8543) - z,
-    z - (pad.z1 - inset(x, 7331, 1697)),
+    pad.x0 - PAD_SKIRT + inset(z, 4517, 3313) - x,
+    x - (pad.x1 + PAD_SKIRT - inset(z, 2287, 6151)),
+    pad.z0 - PAD_SKIRT + inset(x, 9911, 8543) - z,
+    z - (pad.z1 + PAD_SKIRT - inset(x, 7331, 1697)),
   )
   for (let k = 0; k < 4; k++) {
     const a = CORNER_CUTS[k]![0] * w
@@ -784,12 +806,6 @@ function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1:
     out.z0 = Math.min(out.z0, z); out.z1 = Math.max(out.z1, z)
   }
   return out
-}
-
-/** 過渡帶在這一點多寬。**外緣也要碎** —— 等寬的一圈只是把矩形往外推 */
-function bandWidth(x: number, z: number): number {
-  const h = hash2(Math.floor(x / 260), Math.floor(z / 260))
-  return BAND * (0.6 + (0.4 * ((h >>> 9) & 0xff)) / 255)
 }
 
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
@@ -842,12 +858,14 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
   const B = edgeBite(site.pad).toFixed(1)
   const C = coarseBite(site.pad).toFixed(1)
+  const F = fineBite(site.pad).toFixed(1)
   const pad = site.pad
   const W = pad.x1 - pad.x0
   const D = pad.z1 - pad.z0
-  /** 與 `padDistance` 的 `inset()` 逐項對應 */
+  /** 與 `padDistance` 的 `inset()` 逐項對應 —— 三層都要，鹽也要一樣 */
   const inset = (axis: string, s1: number, s2: number): string =>
-    `float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
+    `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
+    + ` + float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
     + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
   const corners = CORNER_CUTS.map(([fa, fe], k) => {
     const a = fa * W
@@ -912,22 +930,23 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
   float padD = max(
-    max(${pad.x0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
-        local.x - (${pad.x1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
-    max(${pad.z0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
-        local.y - (${pad.z1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
+    max(${(pad.x0 - PAD_SKIRT).toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
+        local.x - (${(pad.x1 + PAD_SKIRT).toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
+    max(${(pad.z0 - PAD_SKIRT).toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
+        local.y - (${(pad.z1 + PAD_SKIRT).toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
 ${corners}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
   // 把那一階削掉一截
-  float padDark = mix(0.90, 1.0, clamp(-padD / 150.0, 0.0, 1.0));
+  float padDark = mix(0.90, 1.0, clamp(-padD / ${(PAD_SKIRT * 2).toFixed(1)}, 0.0, 1.0));
   vec3 siteCol = ${rgb(CONCRETE)} * siteGrime * padDark;
 ${patchGlsl}
-  // 【過渡帶】墊面外 ${BAND.toFixed(0)} m 是擾動地：碎石、堆土、雜草。廠區與田之間
-  // 不是一條線而是一條帶 —— 這是高空看下去最有效的一招，眼睛抓的是階梯
-  float bandH = float((fieldHash2(int(floor(local.x / 260.0)), int(floor(local.y / 260.0))) >> 9) & 0xffu) / 255.0;
-  float padT = clamp(padD / (${BAND.toFixed(1)} * (0.6 + 0.4 * bandH)), 0.0, 1.0);
-  col = mix(mix(siteCol, ${rgb(DISTURBED)} * siteGrime, min(1.0, padT * 2.2)), col, padT * padT);
+  // 【邊界是硬的】墊面外沒有過渡帶：一圈把混凝土混回田色的帶子，從投彈高度
+  // 看是「一半工廠一半田」的暈。不規則靠的是 padD 裡疊的三層咬痕，不是混色。
+  //
+  // 【這一像素的柔化只為了抗鋸齒】寬度就是像素在地面上的足跡 —— 拉寬就變回
+  // 過渡帶了
+  col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
 ${outpostGlsl}
   }
 ${railGlsl}
@@ -987,19 +1006,17 @@ export function siteSurfaceColor(
         return out.setHex(q.hex).multiplyScalar(grimeFactor(lx, lz))
       }
     }
+    // 【邊界是硬的】著色器那邊只有一像素的柔化，而它是為了抗鋸齒；取樣沒有
+    // 像素，直接切
     const d = padDistance(lx, lz, site.pad)
-    const t = Math.min(1, Math.max(0, d / bandWidth(lx, lz)))
-    if (t < 1) {
-      // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗 → 過渡帶，次序一致
+    if (d < 0) {
+      // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗，次序一致
       let hex = CONCRETE
       for (const q of site.patches ?? []) {
         if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) hex = q.hex
       }
-      const g = grimeFactor(lx, lz)
-      const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / 150))
-      out.setHex(hex).multiplyScalar(g * dark)
-      out.lerp(SCRATCH.setHex(DISTURBED).multiplyScalar(g), Math.min(1, t * 2.2))
-      return out.lerp(fieldSurfaceColor(x, z, SCRATCH, season), t * t)
+      const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / (PAD_SKIRT * 2)))
+      return out.setHex(hex).multiplyScalar(grimeFactor(lx, lz) * dark)
     }
   }
   return fieldSurfaceColor(x, z, out, season)
