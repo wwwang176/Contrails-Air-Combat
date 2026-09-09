@@ -49,8 +49,12 @@ export interface ParticleConfig {
    * 【為什麼是回呼而不是兩個顏色常數】火球要走白 → 橘 → 暗紅三段，兩點
    * 線性內插到中段會變成脫色的土黃。煙與噴濺則是常數色 —— 一個回呼同時
    * 容得下這兩種需求，而且各自的曲線在各自的模組裡被測試。
+   *
+   * @param slot 池格索引。**要逐顆不同的顏色時用它當種子** —— 與
+   *             `particleLife`、`particleShade` 同一條紀律：純函數才測得
+   *             起來，重播也才可重現。多數配方用不到它。
    */
-  color(t: number, out: Color): void
+  color(t: number, out: Color, slot: number): void
   /**
    * 可選的**不透明度貼圖**。灰階圖，讀 `.g` 通道。
    *
@@ -447,7 +451,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
 
         // 【顏色與 alpha 走各自的壽命比例】長命的那幾團淡得慢，那才是
         // 「壽命不同」在畫面上的意思
-        cfg.color(na / lf, TINT)
+        cfg.color(na / lf, TINT, i)
         // 兩層明暗：隨機（重疊處分前後）× 高度（上亮下暗）
         let shade = shadeJitter > 0 ? particleShade(i, shadeJitter) : 1
         if (riseSpan > 0) shade *= particleRiseShade(ny - birthY[i]!, riseSpan, riseRange)

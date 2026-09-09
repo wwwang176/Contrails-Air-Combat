@@ -157,7 +157,13 @@ export interface ChunkConfig {
   /** 指數阻尼，s⁻¹ */
   drag: number
   /** 年齡比例 → 顏色 */
-  color(t: number, out: Color): void
+  /**
+   * 年齡比例 → 顏色。
+   *
+   * @param slot 池格索引。要逐顆不同的顏色時用它當種子 —— 與
+   *             `chunkSpin`、`chunkColorRate` 同一條紀律
+   */
+  color(t: number, out: Color, slot: number): void
   /**
    * 一塊**開始淡出**時呼叫一次，帶著它當下的位置、速度與直徑。
    *
@@ -345,7 +351,7 @@ export function createChunks(cfg: ChunkConfig): Particles {
         object.setMatrixAt(i, M)
 
         // 【顏色走自己的速度】見 `chunkColorRate`
-        cfg.color(Math.min(1, t * chunkColorRate(i)), TINT)
+        cfg.color(Math.min(1, t * chunkColorRate(i)), TINT, i)
         object.setColorAt(i, TINT)
         a[i] = chunkAlpha(t)
 

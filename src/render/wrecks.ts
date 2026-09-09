@@ -98,13 +98,15 @@ export const WRECK_FIRE_SCALE = 0.125
 export const WRECK_FIRE_SMOKE_SCALE = 2
 
 /**
- * 引擎火冒的煙是什麼顏色，**sRGB 十六進位**。呼叫端用它建一份自己的煙池
- * （`createShipFireSmoke` 的第三個引數）。
+ * 引擎火冒的煙是什麼顏色，**sRGB 十六進位**。兩色逐顆隨機交錯 —— 燒得
+ * 均勻的一整條同色煙讀起來是一塊平的剪影。呼叫端用它們建一份自己的煙池
+ * （`createShipFireSmoke` 的第三、四個引數）。
  *
- * 【為什麼要跟船火分開】顏色是逐池的，不是逐顆 —— 燒的東西不一樣（航空
- * 燃油對重油），要調就得有自己的池子。
+ * 【為什麼要跟船火分開一份池子】顏色是逐池的，不是逐顆。
  */
 export const WRECK_FIRE_SMOKE_COLOR = SMOKE_COLOR
+/** 交錯的第二色。比第一色淺一階的深灰 */
+export const WRECK_FIRE_SMOKE_COLOR_2 = 0x3a3a3a
 
 /** 入水時在接觸點周圍生幾根水柱。用數量換規模，`splash.ts` 不用改。 */
 export const WRECK_SPLASH_COLUMNS = 10

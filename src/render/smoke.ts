@@ -1,6 +1,6 @@
 import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
-import { coneDirection } from './scatter'
+import { coneDirection, hash01 } from './scatter'
 import { IMPACT_STRIDE, type ImpactEvents } from '../world/events'
 import { KILL_STRIDE, type KillEvents } from '../world/kills'
 
@@ -151,6 +151,16 @@ export function smokeColor(_t: number, out: Color): void {
 }
 
 /**
+ * 這一格挑兩色中的哪一種：`false` = 第一色、`true` = 第二色。約各半。
+ *
+ * 【為什麼用格號的雜湊而不是 `Math.random`】與 `particleLife`、
+ * `particleShade` 同一條紀律：純函數才測得起來，重播也才可重現。
+ */
+export function smokeTone(slot: number): boolean {
+  return hash01(slot * 0x2545f491) < 0.5
+}
+
+/**
  * 這一幀該生幾團。`timer` 是上一幀留下的餘數。
  *
  * 【為什麼低幀率要一次補足】0.5 s 的長幀若只生一團，150 m/s 的殘骸會在煙帶
@@ -270,13 +280,20 @@ export const SHIP_FIRE_SMOKE_CAPACITY = 16384
  *                 會把煙縮成一個小核。柱子是全場疊得最厚的一叢粒子，正是
  *                 「一堆同心圓看得出是圓形」最明顯的地方，而貼圖版還會逐顆
  *                 轉 UV 破掉那個重複感
- * @param hex      煙的顏色，**sRGB 十六進位**。顏色是逐池的，不是逐顆 ——
- *                 要兩種顏色就開兩份池子。省略即船火那個深灰
+ * @param hex      煙的顏色，**sRGB 十六進位**。省略即船火那個深灰
+ * @param hex2     第二種顏色。給了就**逐顆隨機在兩色之間挑一種**（依格號
+ *                 的雜湊，所以重播可重現）。省略即整池同色。
+ *
+ *                 【為什麼兩色不是漸層】煙的消失靠 alpha 不靠顏色，隨年齡
+ *                 變色的方向在亮天空上是反的（見 `smokeColor`）。兩種底色
+ *                 隨機混著出，讀起來是燒得不勻的煙，而逐顆亮度抖動
+ *                 （`shadeJitter`）只會往暗走、做不出這件事。
  */
 export function createShipFireSmoke(
   capacity: number = SHIP_FIRE_SMOKE_CAPACITY,
   alphaMap?: Texture,
   hex: number = SMOKE_COLOR,
+  hex2: number = hex,
 ): Particles {
   return createParticles({
     capacity,
@@ -294,7 +311,8 @@ export function createShipFireSmoke(
     shadeJitter: SHIP_FIRE_SMOKE_SHADE,
     // 【`setHex` 不是 `setRGB`】理由見 `smokeColor`：`setRGB` 寫的是線性值，
     // 深灰會被輸出成比海面還亮的中灰
-    color: (_t, out) => { out.setHex(hex) },
+    // 【由格號決定挑哪一色】同一批煙裡兩色交錯；純函數，重播可重現
+    color: (_t, out, slot) => { out.setHex(smokeTone(slot) ? hex2 : hex) },
   })
 }
 

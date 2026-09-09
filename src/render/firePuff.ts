@@ -64,6 +64,15 @@ export function createFirePuff(
     recipe.fireSpeed = FIRE_BLAST.fireSpeed * scale
   }
   return (x, y, z, anchor = -1) => {
+    // 【錨點查不到就整朵不放】火沒有錨點無處可放；而煙拿到的是還沒組回
+    // 世界的區域座標 —— 一團煙會生在世界原點旁邊，燒滿它的整條壽命。
+    //
+    // 這條路真的會走到：殘骸入水的那一步先推火點事件，`sunk` 在同一步
+    // 稍後才設，呼叫端消費事件時錨點已經沒了
+    const held = anchor >= 0 && plumeAnchors !== undefined
+      && plumeAnchors.frame(anchor, ANCHOR_POS, ANCHOR_QUAT)
+    if (anchor >= 0 && !held) return
+
     // 【火吸附在錨點上】火燒在物件上，整段跟著它的位置與姿態走。給了錨點
     // 時 `x/y/z` 是那個錨點的區域座標
     emitBlast(pools, recipe, x, y, z, (seed = (seed + 1) | 0), 0, 0, 0, anchor)
@@ -83,12 +92,10 @@ export function createFirePuff(
       // 尾跡；跟著錨點走的話整叢煙一起平移，柱子與尾跡都不見了。船火也是
       // 這樣：噴煙的**源頭**每幀跟著艦體算，噴出去的每一團留在原地
       //
-      // 【所以要自己組世界座標】`x/y/z` 在有錨點時是區域座標
+      // 【所以要自己組世界座標】`x/y/z` 在有錨點時是區域座標。錨點的變換
+      // 上面查過並留在 `ANCHOR_*` 裡
       SMOKE_AT.set(x, y, z)
-      if (anchor >= 0 && plumeAnchors !== undefined
-        && plumeAnchors.frame(anchor, ANCHOR_POS, ANCHOR_QUAT)) {
-        SMOKE_AT.applyQuaternion(ANCHOR_QUAT).add(ANCHOR_POS)
-      }
+      if (held) SMOKE_AT.applyQuaternion(ANCHOR_QUAT).add(ANCHOR_POS)
       // 【水平擴散跟著煙的倍率，不是火的】柱子要跟著它自己的粗細長寬
       plume.emit(
         SMOKE_AT.x, SMOKE_AT.y, SMOKE_AT.z,
