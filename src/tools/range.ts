@@ -90,6 +90,12 @@ ctx.scene.add(smoke.object)
 const spray = createSpray(WATER_COLOR)
 ctx.scene.add(spray.object)
 
+// 【殘骸池要排在火焰之前】引擎火吸附在它的格子上，建回呼時就要拿到錨點
+const wrecks = createWrecks(4, (m) => {
+  ctx.scene.remove(m.group)
+  m.dispose()
+})
+
 // ── 爆炸與火焰 ──────────────────────────────────────────
 //
 // 【與 `main.ts` 同一組配方】擊墜的球塊火球（`AIR_BLAST`）與殘骸的引擎火
@@ -127,7 +133,7 @@ const BLAST_POOLS: BlastPools = {
 
 /** 殘骸的引擎火。與遊戲同一份配方、同一組倍率。**在模組層建一次** */
 const emitWreckFirePuff = createFirePuff(
-  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE,
+  BLAST_POOLS, shipFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
 
 /**
@@ -148,11 +154,6 @@ ctx.scene.add(muzzles.object)
 
 const renderPositions: Vector3[] = [new Vector3()]
 const renderQuaternions: Quaternion[] = [new Quaternion()]
-
-const wrecks = createWrecks(4, (m) => {
-  ctx.scene.remove(m.group)
-  m.dispose()
-})
 
 const altSlider = document.getElementById('alt') as HTMLInputElement
 const tasSlider = document.getElementById('tas') as HTMLInputElement
@@ -314,7 +315,7 @@ function frame(now: number): void {
     const d = wrecks.fireEvents.data
     for (let e = 0; e < wrecks.fireEvents.count; e++) {
       const o = e * IMPACT_STRIDE
-      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!)
+      emitWreckFirePuff(d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!)
     }
   }
   emitSmoke(smoke, debris.smokeEvents, DEBRIS_SMOKE_SIZE)
@@ -326,7 +327,8 @@ function frame(now: number): void {
   fireball.step(dt)
   smoke.step(dt)
   spray.step(dt)
-  for (const p of BLAST_STEPPED) p.step(dt)
+  // 【要拿到殘骸的錨點】引擎火吸附在殘骸上，不給的話那些火當場收掉
+  for (const p of BLAST_STEPPED) p.step(dt, wrecks.anchors)
 
   // 鏡頭跟隨的目標：還沒爆就是飛機，爆了就是殘骸
   subjectPos.copy(wrecked ? model.group.position : renderPositions[0]!)

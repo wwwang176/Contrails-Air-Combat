@@ -34,16 +34,17 @@ export const FIRE_PUFF = 0.3
 export const SHIP_FIRE_CAPACITY = 64
 
 /**
- * 一朵迷你爆炸要放在哪。世界座標。
+ * 一朵迷你爆炸要放在哪。
  *
- * 【`v*` 是火源當下的速度，省略即靜止】火團在自己的壽命裡是自由飛的，不
- * 掛在任何父物件上。不給速度的話，一具每秒掉八十公尺的殘骸每 0.3 秒在原地
- * 留一團 —— 畫面上是一串間隔二十四公尺的獨立爆炸，不是一團跟著它的火。
- * 船與地面目標慢到不必給。
+ * 【`anchor` 決定 `x/y/z` 是哪一套座標】省略（或 −1）時是世界座標，火團在
+ * 自己的壽命裡自由飛 —— 船與地面目標走這一條，它們不動或動得很慢。給了
+ * 錨點就變成**那個錨點的區域座標**，火整段吸附在它身上（見 `anchors.ts`）：
+ * 掛在翻滾的殘骸引擎上的火要這一條，否則會被轉動甩到機翼外面。
+ *
+ * **煙一律不吸附** —— 它離開之後就是空氣裡的一團，被拋在後面才會連成尾跡。
  */
 export type FirePuffFn = (
-  x: number, y: number, z: number,
-  vx?: number, vy?: number, vz?: number,
+  x: number, y: number, z: number, anchor?: number,
 ) => void
 
 export interface ShipFires {

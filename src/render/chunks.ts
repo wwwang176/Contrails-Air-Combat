@@ -4,6 +4,7 @@ import {
 } from 'three'
 import { hash01 } from './scatter'
 import type { Particles } from './particles'
+import type { Anchors } from './anchors'
 
 /**
  * 不透明的低面數球塊 —— 廣告板圓片的替代品，同一個 `Particles` 介面。
@@ -194,6 +195,9 @@ const ROT = new Quaternion()
 const AXIS = new Vector3()
 const TINT = new Color()
 const ZERO = new Vector3(0, 0, 0)
+/** 錨點的變換。熱路徑：每幀每顆吸附的球塊一次 */
+const ANCHOR_POS = new Vector3()
+const ANCHOR_QUAT = new Quaternion()
 
 export function createChunks(cfg: ChunkConfig): Particles {
   const { capacity, life } = cfg
@@ -209,6 +213,12 @@ export function createChunks(cfg: ChunkConfig): Particles {
   const zeroed = new Uint8Array(capacity).fill(1)
   /** 這一格的 `onFade` 已經叫過了。每一塊只交棒一次 */
   const faded = new Uint8Array(capacity).fill(1)
+  /**
+   * 這一格吸附在哪一個錨點上，−1 = 自由飛（見 `anchors.ts`）。
+   *
+   * 吸附時 `px/py/pz` 與 `vx/vy/vz` 存的是**錨點的區域座標**。
+   */
+  const anchor = new Int32Array(capacity).fill(-1)
   let next = 0
   let live = 0
 
@@ -252,12 +262,15 @@ export function createChunks(cfg: ChunkConfig): Particles {
     object,
     get live() { return live },
 
-    emit(x, y, z, evx, evy, evz, sizeScale = 1): void {
+    emit(x, y, z, evx, evy, evz, sizeScale = 1, attach = -1): void {
       const i = next
       next = next + 1 >= capacity ? 0 : next + 1
       if (age[i]! >= life) live++
       zeroed[i] = 0
       faded[i] = 0
+      // 【每一次發射都要寫】環形緩衝繞回同一格時不寫的話，新的自由球塊會
+      // 繼承上一顆的錨點，然後跟著一個毫不相干的物件跑
+      anchor[i] = attach
       px[i] = x
       py[i] = y
       pz[i] = z
@@ -268,13 +281,23 @@ export function createChunks(cfg: ChunkConfig): Particles {
       age[i] = 0
     },
 
-    step(dt: number): void {
+    step(dt: number, anchors?: Anchors): void {
       const damp = Math.exp(-cfg.drag * dt)
       const a = alphas.array as Float32Array
       live = 0
       let touched = false
       for (let i = 0; i < capacity; i++) {
-        const old = age[i]!
+        let old = age[i]!
+        const at = anchor[i]!
+        // 【錨點不在了就當場收掉】不收的話球塊會掛在最後那個變換上燒完
+        // 剩下的壽命 —— 畫面上是空中一團無主的火。
+        // 【查得到的錨點在這裡就寫進 ANCHOR_*】下面組世界座標時直接用
+        const held = at >= 0 && old < life
+          && anchors !== undefined && anchors.frame(at, ANCHOR_POS, ANCHOR_QUAT)
+        if (at >= 0 && !held) {
+          old = Infinity
+          age[i] = Infinity
+        }
         if (old >= life) {
           if (zeroed[i] === 1) continue
           M.compose(ZERO, ROT.identity(), ZERO)
@@ -314,6 +337,9 @@ export function createChunks(cfg: ChunkConfig): Particles {
         const s = cfg.size * sizeMul[i]! * chunkScale(t)
         const rate = chunkSpin(i, AXIS)
         POS.set(nx, ny, nz)
+        // 【吸附的球塊在這裡才組回世界座標】上面那一段積分走的是錨點的
+        // 區域座標，所以噴出的方向會跟著錨點轉
+        if (held) POS.applyQuaternion(ANCHOR_QUAT).add(ANCHOR_POS)
         SCALE.set(s, s, s)
         M.compose(POS, ROT.setFromAxisAngle(AXIS, na * rate), SCALE)
         object.setMatrixAt(i, M)

@@ -1,5 +1,5 @@
 import { beforeAll, describe, it, expect } from 'vitest'
-import { Group, Vector3 } from 'three'
+import { Group, Quaternion, Vector3 } from 'three'
 import {
   createWrecks, WRECK_FIRE_INTERVAL, WRECK_FIRE_SCALE, WRECK_FIRE_SECONDS,
   WRECK_FIRE_SMOKE_SCALE,
@@ -7,6 +7,7 @@ import {
 import { FIRE_SECONDS } from '../../src/render/shipFires'
 import { createFirePuff } from '../../src/render/firePuff'
 import type { BlastPools } from '../../src/render/blast'
+import type { Anchors } from '../../src/render/anchors'
 import type { Particles } from '../../src/render/particles'
 import { buildAircraft, type AircraftModel } from '../../src/render/geometry/buildAircraft'
 import { createImpacts, IMPACT_STRIDE } from '../../src/world/events'
@@ -105,25 +106,6 @@ describe('殘骸的燃燒', () => {
   })
 
   /**
-   * 【火點要跟著殘骸走】存世界座標放著不動的話，火會留在爆炸那一點而殘骸
-   * 掉下去 —— 畫面上是「空中有一團火」，不像缺陷。
-   */
-  it('火點是引擎在世界座標的位置，跟著位置與姿態走', () => {
-    const w = createWrecks(4, () => {})
-    const m = fakeModel([new Vector3(0, 0, -3)])
-    m.group.position.set(100, 4000, -200)
-    // 繞 Y 轉 90°：機體 −Z 指向世界 −X
-    m.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
-    w.adopt(m, P51D, 0, 0, 0, 0)
-    w.step(0.001, DEEP, WET, 0)
-    const p = firePoints(w)[0]!
-    const want = new Vector3(0, 0, -3).applyQuaternion(m.group.quaternion).add(m.group.position)
-    expect(p.x).toBeCloseTo(want.x, 2)
-    expect(p.y).toBeCloseTo(want.y, 2)
-    expect(p.z).toBeCloseTo(want.z, 2)
-  })
-
-  /**
    * 【多發機要挑得散】每一次都挑第 0 具的話，四發轟炸機永遠燒同一邊的
    * 內側引擎。
    */
@@ -139,9 +121,7 @@ describe('殘骸的燃燒', () => {
       m.group.position.set(0, 4000, 0)
       w.adopt(m, B17G, 0, 0, -150, seed)
       w.step(0.001, DEEP, WET, 0)
-      // 【轉回機體座標再比】火點是世界座標，而殘骸在放火之前已經轉過一步
       const local = firePoints(w)[0]!
-        .sub(m.group.position).applyQuaternion(m.group.quaternion.clone().invert())
       picked.add(engines.findIndex((e) => e.distanceTo(local) < 1e-3))
     }
     expect(picked.size).toBe(4)
@@ -251,18 +231,47 @@ describe('殘骸的燃燒', () => {
    * 物件上。不帶速度的話，一具每秒掉八十公尺的殘骸每 0.3 秒在原地留一團
    * —— 畫面上是一串間隔二十四公尺的獨立爆炸，不是一團跟著它的火。
    */
-  it('火點事件帶著殘骸當下的速度', () => {
+  /**
+   * 【推的是機體座標與格號，不是世界座標】火吸附在殘骸的格子上，世界座標
+   * 由粒子池每一幀自己組。推世界座標的話火只會停在推的那一刻的位置。
+   */
+  it('火點事件帶的是引擎的機體座標與錨點格號', () => {
     const w = createWrecks(4, () => {})
-    const m = fakeModel([new Vector3(0, 0, -3)])
-    m.group.position.set(0, 4000, 0)
+    const m = fakeModel([new Vector3(0.5, -0.2, -3)])
+    m.group.position.set(1000, 4000, -2000)
     w.adopt(m, P51D, 20, -5, -150, 0)
     w.step(0.001, DEEP, WET, 0)
     expect(w.fireEvents.count).toBe(1)
     const d = w.fireEvents.data
-    // 【阻尼在第一步就吃掉一點】比的是方向與量級，不是原始輸入
-    expect(d[3]!).toBeCloseTo(20, 0)
-    expect(d[4]!).toBeCloseTo(-5, 0)
-    expect(d[5]!).toBeCloseTo(-150, 0)
+    expect(d[0]!).toBeCloseTo(0.5, 5)
+    expect(d[1]!).toBeCloseTo(-0.2, 5)
+    expect(d[2]!).toBeCloseTo(-3, 5)
+    // 第一具殘骸落在第 0 格
+    expect(d[3]!).toBe(0)
+  })
+
+  /**
+   * 【錨點查得到這一格的變換】火的世界座標全靠它。查不到的話火當場收掉，
+   * 症狀是「飛機不燒了」。
+   */
+  it('anchors 回報殘骸當下的位置與姿態，格子空了就回 false', () => {
+    const w = createWrecks(4, () => {})
+    const m = fakeModel([new Vector3(0, 0, -3)])
+    m.group.position.set(1000, 4000, -2000)
+    w.adopt(m, P51D, 0, 0, -150, 0)
+    w.step(1 / 60, DEEP, WET, 0)
+
+    const at = new Vector3()
+    const q = new Quaternion()
+    expect(w.anchors.frame(0, at, q)).toBe(true)
+    expect(at.x).toBeCloseTo(m.group.position.x, 5)
+    expect(at.y).toBeCloseTo(m.group.position.y, 5)
+    expect(q.angleTo(m.group.quaternion)).toBeCloseTo(0, 6)
+
+    // 沒有殘骸的格子
+    expect(w.anchors.frame(3, at, q)).toBe(false)
+    // 超出範圍的格號
+    expect(w.anchors.frame(99, at, q)).toBe(false)
   })
 
   /** 【沒有引擎點的模型不能爆】程式版的外型可能一具槳都沒有 */
@@ -289,8 +298,8 @@ describe('引擎火比船火小一號', () => {
   it('縮過的火球比原尺寸小', () => {
     const full: number[][] = []
     const small: number[][] = []
-    createFirePuff(poolsWith(full), fakePool([]), 1)(0, 0, 0, 7, 0, -70)
-    createFirePuff(poolsWith(small), fakePool([]), WRECK_FIRE_SCALE)(0, 0, 0, 7, 0, -70)
+    createFirePuff(poolsWith(full), fakePool([]), 1)(0, 0, 0)
+    createFirePuff(poolsWith(small), fakePool([]), WRECK_FIRE_SCALE)(0, 0, 0)
     expect(full.length).toBeGreaterThan(0)
     expect(small.length).toBeGreaterThan(0)
     // sizeScale 是第七個引數
@@ -298,37 +307,68 @@ describe('引擎火比船火小一號', () => {
   })
 })
 
-describe('火跟著機體走，煙被拋在後面', () => {
+describe('火吸附在物件上，煙不吸附', () => {
+  /** 錨點 7 在 (100, 200, 300)，沒有旋轉 */
+  const anchors: Anchors = {
+    frame(id, outPos, outQuat) {
+      if (id !== 7) return false
+      outPos.set(100, 200, 300)
+      outQuat.identity()
+      return true
+    },
+  }
+
   /**
-   * 【火要繼承】火燒在機體上。不繼承的話一具每秒掉八十公尺的殘骸每 0.3 秒
-   * 在原地留一團 —— 一串間隔二十四公尺的獨立爆炸。
+   * 【火要帶著錨點編號進池子】火燒在物件上，整段跟著它的位置與姿態走。
+   * 只在出生時繼承速度的話，翻滾的殘骸會把火甩到機翼外面。
    */
-  it('火球繼承火源的速度', () => {
+  it('火球帶著錨點編號，位置照傳的區域座標', () => {
     const fire: number[][] = []
-    createFirePuff(poolsWith(fire), fakePool([]), 1)(0, 0, 0, 7, -3, -70)
+    createFirePuff(poolsWith(fire), fakePool([]), 1, 1, anchors)(0, 0, -3, 7)
     expect(fire.length).toBeGreaterThan(0)
-    // 錐狀散射疊在繼承的速度上，所以比的是有沒有被那個大速度帶著走
-    expect(fire[0]![3]!).toBeGreaterThan(0)
-    expect(fire[0]![5]!).toBeLessThan(-40)
+    // anchor 是第八個引數
+    expect(fire[0]![7]!).toBe(7)
+    expect(fire[0]![2]!).toBe(-3)
+  })
+
+  /** 沒給錨點時是世界座標、自由飛 —— 船火與地面火走這一條 */
+  it('省略錨點時火球不吸附', () => {
+    const fire: number[][] = []
+    createFirePuff(poolsWith(fire), fakePool([]), 1)(10, 20, 30)
+    expect(fire[0]![7]!).toBe(-1)
+    expect(fire[0]![0]!).toBe(10)
   })
 
   /**
-   * 【煙**不**繼承】它離開機體之後就是空氣裡的一團煙，被拋在後面才會連成
-   * 尾跡。跟著火源走的話整叢煙一起平移，柱子與尾跡都不見了 —— 而畫面上
+   * 【煙**不**吸附】它離開之後就是空氣裡的一團煙，被拋在後面才會連成
+   * 尾跡。跟著錨點走的話整叢煙一起平移，柱子與尾跡都不見了 —— 而畫面上
    * 那只是「煙看起來怪」，不像缺陷。
-   *
-   * 【一定要驗上升速度】只驗水平兩軸的話，把 `vy` 加回去仍然是綠的，而
-   * 那一項最致命：殘骸的 `vy` 是負的，加上去會把煙的上升整個抵銷掉。
    */
-  it('煙的速度只有自己的擴散與上升，沒有火源的速度', () => {
+  it('煙不帶錨點，而且出生點被組回世界座標', () => {
     const plume: number[][] = []
-    createFirePuff(poolsWith([]), fakePool(plume), 1)(0, 0, 0, 7, -80, -70)
+    createFirePuff(poolsWith([]), fakePool(plume), 1, 1, anchors)(0, 0, -3, 7)
     expect(plume.length).toBeGreaterThan(0)
     for (const p of plume) {
-      // 水平只有擴散，量級是個位數
+      expect(p[7]!).toBe(-1)
+      // 錨點在 (100, 200, 300)，區域 −3 落在世界 297
+      expect(p[0]!).toBeCloseTo(100, 5)
+      expect(p[2]!).toBeCloseTo(297, 5)
+    }
+  })
+
+  /**
+   * 【煙的速度只有自己的擴散與上升】吸附的火跟著錨點走，煙不跟；煙若也
+   * 拿到錨點的速度，尾跡就不見了。
+   *
+   * 【一定要驗上升速度】只驗水平兩軸的話，把垂直分量加回去仍然是綠的，
+   * 而那一項最致命：殘骸的垂直速度是負的，會把煙的上升整個抵銷掉。
+   */
+  it('煙的速度只有自己的擴散與上升', () => {
+    const plume: number[][] = []
+    createFirePuff(poolsWith([]), fakePool(plume), 1, 1, anchors)(0, 0, -3, 7)
+    for (const p of plume) {
       expect(Math.abs(p[3]!)).toBeLessThan(FIRE_SMOKE_SPREAD_LIMIT)
       expect(Math.abs(p[5]!)).toBeLessThan(FIRE_SMOKE_SPREAD_LIMIT)
-      // 垂直恆為正 —— 煙往上長
       expect(p[4]!).toBeGreaterThan(0)
     }
   })
@@ -374,6 +414,38 @@ describe('火與煙的尺寸各有各的倍率', () => {
   it('殘骸的煙倍率大於火倍率', () => {
     expect(WRECK_FIRE_SMOKE_SCALE).toBeGreaterThan(WRECK_FIRE_SCALE)
   })
+
+  /**
+   * 【火球的噴出速度要跟著尺寸縮】`scaleBlast` 刻意不動速度 —— 爆炸相似律
+   * 下噴出速度與裝藥量無關。但這一份不是爆炸，是掛在引擎上的一團火：原速
+   * 每秒十一公尺、活零點八五秒會散開七公尺，而縮到四分之一的球只有一點
+   * 七五公尺寬。散開量是球徑的四倍，畫面上就成了一顆顆飄在空中的球，而
+   * 不是燒在螺旋槳上的火。
+   */
+  it('火球的噴出速度跟著火的倍率縮，煙的倍率不影響它', () => {
+    const full: number[][] = []
+    const quarter: number[][] = []
+    const bigSmoke: number[][] = []
+    createFirePuff(poolsWith(full), fakePool([]), 1)(0, 0, 0)
+    createFirePuff(poolsWith(quarter), fakePool([]), 0.25)(0, 0, 0)
+    createFirePuff(poolsWith(bigSmoke), fakePool([]), 0.25, 8)(0, 0, 0)
+
+    const speed = (p: number[]): number => Math.hypot(p[3]!, p[4]!, p[5]!)
+    expect(speed(quarter[0]!)).toBeCloseTo(speed(full[0]!) * 0.25, 5)
+    expect(speed(bigSmoke[0]!)).toBeCloseTo(speed(quarter[0]!), 5)
+  })
+
+  /**
+   * 【倍率 1 要逐位元不變】船火與地面火走的是同一支。速度那一項套下去
+   * 之後它們一個字都不該變。
+   */
+  it('倍率 1 時火球的速度與尺寸都不變', () => {
+    const a: number[][] = []
+    const b: number[][] = []
+    createFirePuff(poolsWith(a), fakePool([]), 1)(0, 0, 0)
+    createFirePuff(poolsWith(b), fakePool([]))(0, 0, 0)
+    expect(a[0]).toEqual(b[0])
+  })
 })
 
 function poolsWith(fireLog: number[][]): BlastPools {
@@ -388,8 +460,8 @@ function fakePool(log: number[][]): Particles {
   return {
     object: null as never,
     live: 0,
-    emit(x, y, z, vx, vy, vz, sizeScale) {
-      log.push([x, y, z, vx, vy, vz, sizeScale ?? 1])
+    emit(x, y, z, vx, vy, vz, sizeScale, anchor) {
+      log.push([x, y, z, vx, vy, vz, sizeScale ?? 1, anchor ?? -1])
     },
     step() {},
     reset() {},

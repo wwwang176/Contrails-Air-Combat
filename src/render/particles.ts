@@ -4,6 +4,7 @@ import {
   type Blending,
 } from 'three'
 import { hash01 } from './scatter'
+import type { Anchors } from './anchors'
 
 export interface ParticleConfig {
   capacity: number
@@ -71,13 +72,21 @@ export interface Particles {
    *
    * @param sizeScale 這一顆的尺寸倍率。同一個池子要出兩種大小時用它 ——
    *                  例如 0.4 m 的碎片冒的煙不該跟整架殘骸冒的一樣大
+   * @param anchor    吸附在哪一個錨點上（見 `anchors.ts`）。**給了它，
+   *                  `x/y/z` 與 `vx/vy/vz` 就是那個錨點的區域座標**，每一幀
+   *                  由它當下的變換組回世界。省略（或 −1）即自由飛。
    */
   emit(
     x: number, y: number, z: number,
-    vx: number, vy: number, vz: number, sizeScale?: number,
+    vx: number, vy: number, vz: number, sizeScale?: number, anchor?: number,
   ): void
-  /** 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。** */
-  step(dt: number): void
+  /**
+   * 積分一幀並寫入實例矩陣。**在渲染幀率呼叫，不在物理步。**
+   *
+   * @param anchors 有吸附的粒子時必須給。省略時那些粒子當場收掉 ——
+   *                掛在一個查不到的錨點上，位置無從得知
+   */
+  step(dt: number, anchors?: Anchors): void
   /**
    * 全部歸零。**換一場戰鬥時呼叫** —— 上一場的煙不該飄在新的一場裡。
    *
@@ -237,6 +246,9 @@ const SCALE = new Vector3()
 const ROT = new Quaternion()
 const TINT = new Color()
 const ZERO = new Vector3(0, 0, 0)
+/** 錨點的變換。熱路徑：每幀每顆吸附的粒子一次 */
+const ANCHOR_POS = new Vector3()
+const ANCHOR_QUAT = new Quaternion()
 
 /**
  * 廣告板粒子池 —— **單一** `InstancedMesh` 的環形緩衝。
@@ -289,6 +301,12 @@ export function createParticles(cfg: ParticleConfig): Particles {
    * 容量，加大池子才不用付代價。
    */
   const zeroed = new Uint8Array(capacity).fill(1)
+  /**
+   * 這一格吸附在哪一個錨點上，−1 = 自由飛（見 `anchors.ts`）。
+   *
+   * 吸附時 `px/py/pz` 與 `vx/vy/vz` 存的是**錨點的區域座標**。
+   */
+  const anchor = new Int32Array(capacity).fill(-1)
   let next = 0
   let live = 0
 
@@ -335,7 +353,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
     object,
     get live() { return live },
 
-    emit(x, y, z, evx, evy, evz, sizeScale = 1): void {
+    emit(x, y, z, evx, evy, evz, sizeScale = 1, attach = -1): void {
       const i = next
       next = next + 1 >= capacity ? 0 : next + 1
       // 【滿了覆蓋最舊的】最舊的正好是最淡的那一顆，覆蓋看不出來；丟棄新的
@@ -353,17 +371,30 @@ export function createParticles(cfg: ParticleConfig): Particles {
       vy[i] = evy
       vz[i] = evz
       sizeMul[i] = sizeScale
+      // 【每一次發射都要寫】環形緩衝繞回同一格時不寫的話，新的自由粒子會
+      // 繼承上一顆的錨點，然後跟著一個毫不相干的物件跑
+      anchor[i] = attach
       age[i] = 0
     },
 
-    step(dt: number): void {
+    step(dt: number, anchors?: Anchors): void {
       const damp = Math.exp(-cfg.drag * dt)
       const a = alphas.array as Float32Array
       live = 0
       let touched = false
       for (let i = 0; i < capacity; i++) {
-        const old = age[i]!
+        let old = age[i]!
         const lf = lifeOf[i]!
+        const at = anchor[i]!
+        // 【錨點不在了就當場收掉】不收的話粒子會掛在最後那個變換上燒完
+        // 剩下的壽命 —— 畫面上是空中一團無主的火。
+        // 【查得到的錨點在這裡就寫進 ANCHOR_*】下面組世界座標時直接用
+        const held = at >= 0 && old < lf
+          && anchors !== undefined && anchors.frame(at, ANCHOR_POS, ANCHOR_QUAT)
+        if (at >= 0 && !held) {
+          old = Infinity
+          age[i] = Infinity
+        }
         if (old >= lf) {
           // 【已經歸零的死格子直接跳過】把 0 重複寫成 0 會佔掉這個迴圈
           // 九成的工作量
@@ -405,6 +436,9 @@ export function createParticles(cfg: ParticleConfig): Particles {
 
         const s = particleSize(na, lf, cfg.sizeFrom, cfg.sizeTo) * sizeMul[i]!
         POS.set(nx, ny, nz)
+        // 【吸附的粒子在這裡才組回世界座標】上面那一段積分走的是錨點的
+        // 區域座標，所以噴出的方向會跟著錨點轉
+        if (held) POS.applyQuaternion(ANCHOR_QUAT).add(ANCHOR_POS)
         // 【不寫旋轉】朝向由著色器在視圖空間決定；寫進矩陣會讓著色器取到的
         // length(instanceMatrix[0].xyz) 不再是直徑。
         SCALE.set(s, s, s)

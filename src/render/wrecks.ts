@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { hash01 } from './scatter'
 import { FIRE_SECONDS } from './shipFires'
 import { seedWreckSpin, stepWreckSpin } from './wreckAero'
+import type { Anchors } from './anchors'
 import type { AircraftSpec } from '../specs/types'
 import { lowestPoint } from '../world/hit'
 import { clearImpacts, createImpacts, pushImpact, type ImpactEvents } from '../world/events'
@@ -102,17 +103,25 @@ export interface Wrecks {
   /** 目前有幾具在場。測試與 telemetry 用 */
   readonly live: number
   /**
-   * 這一次 `step` 產生的燃燒位置，**世界座標**。**每次 `step` 開頭排空**。
+   * 這一次 `step` 產生的燃燒位置，**殘骸的機體座標**。**每次 `step` 開頭
+   * 排空**。
    *
    * 呼叫端把每一筆餵給船火那一支噴煙回呼（`main.ts` 的 `emitFirePuff`）
    * —— 燃燒的表現只該有一份配方。**殘骸的煙也全部出自這裡**：每一朵火
    * 帶三團往上長的煙，那就是拖煙。
    *
-   * 【法線那三格借去帶殘骸的速度】火團在自己的壽命裡是自由飛的，不繼承
-   * 速度的話一具每秒掉八十公尺的殘骸會在天上留一串獨立的爆炸。這一份
-   * 事件沒有法線可言，那三格是現成的空位。
+   * 【`nx` 是錨點編號，就是這一具在池子裡的格號】火吸附在那一格上
+   * （`anchors.ts`），世界座標由粒子池每一幀自己組。這一份事件沒有法線
+   * 可言，那三格是現成的空位。
    */
   readonly fireEvents: ImpactEvents
+  /**
+   * 每一格殘骸當下的世界變換。**把它交給裝著吸附火的粒子池的 `step`。**
+   *
+   * 格號就是 `fireEvents` 的 `nx`。格子空了就回 `false`，掛在上面的火
+   * 當場收掉。
+   */
+  readonly anchors: Anchors
   /** 這一次 `step` 產生的入水噴濺。同樣的生命週期 */
   readonly sprayEvents: ImpactEvents
   /** 這一次 `step` 產生的水柱位置。同樣的生命週期 */
@@ -150,7 +159,6 @@ export interface Wrecks {
 /** 模組私有的暫存。每幀每具殘骸重用：不配置。 */
 const LOWEST = new Vector3()
 const BEST = new Vector3()
-const FIRE_AT = new Vector3()
 
 interface Slot {
   model: AircraftModel | null
@@ -215,6 +223,17 @@ export function createWrecks(
 
   return {
     fireEvents,
+    anchors: {
+      frame(id, outPos, outQuat) {
+        const s = slots[id]
+        // 【沉下去的也算不在了】水面不透明，火在水下燒完剩下的壽命只是
+        // 白費池子
+        if (s === undefined || s.model === null || s.sunk) return false
+        outPos.copy(s.model.group.position)
+        outQuat.copy(s.quat)
+        return true
+      },
+    },
     sprayEvents,
     splashEvents,
     get live() { return live },
@@ -294,8 +313,10 @@ export function createWrecks(
             // 【一步只放一朵】掉幀時補放沒有意義 —— 同一個位置疊三朵只是
             // 一團更亮的火。理由同 `stepShipFires`
             do { t += WRECK_FIRE_INTERVAL } while (t <= 0)
-            FIRE_AT.copy(model.enginePoints[s.engine]!).applyQuaternion(s.quat).add(g.position)
-            pushImpact(fireEvents, FIRE_AT.x, FIRE_AT.y, FIRE_AT.z, s.vx, s.vy, s.vz)
+            // 【推的是機體座標與格號，不是世界座標】火吸附在這一格上
+            // （`anchors.ts`），每一幀由殘骸當下的變換組回世界
+            const e = model.enginePoints[s.engine]!
+            pushImpact(fireEvents, e.x, e.y, e.z, i, 0, 0)
           }
           s.fire = t
         }
