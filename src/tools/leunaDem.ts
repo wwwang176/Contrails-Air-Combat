@@ -41,10 +41,21 @@ function smoothStep(t: number): number {
 }
 
 /**
+ * 邊緣收攏帶的寬度，m。
+ *
+ * 【一定要收到 0】高度場的場外回 0（`outsideZero`），遠景環也在 0。這一帶
+ * 的真實高程在邊上是 30–191 m，不收的話整片實測地形是一塊台地，四周一圈
+ * 幾十到上百公尺的懸崖。
+ */
+const EDGE_FADE = 2600
+
+/**
  * 把 DEM 內插成遊戲的高度場。
  *
- * 【最低點歸零】高度場的場外回 0（`outsideZero`），而真實高程在這一帶是
- * 51–249 m —— 不歸零的話地圖邊緣會出現一圈五十公尺深的懸崖。
+ * 【基準是廠區不是最低點】佈景與十二座構件都假設廠區的地面是 0。以最低點
+ * 為基準的話墊面會在 59 m，而那些東西全部埋在地下 —— 不會報錯，只是廠區
+ * 憑空消失。以廠區為 0 之後薩勒河的谷底是 −22 m，那是對的：它本來就比
+ * 廠區低。
  *
  * 【雙線性內插】DEM 的取樣是 320 m，高度場是 80 m。最近鄰會在飛行中看到
  * 320 m 見方的階梯。
@@ -52,15 +63,13 @@ function smoothStep(t: number): number {
 export function demToField(dem: DemFile): HeightFieldData {
   const field = createHeightField(FARM_SIZE, FARM_CELL)
   const half = (FARM_SIZE - 1) / 2
-  let min = Infinity
-  for (const e of dem.elevation) if (e < min) min = e
 
-  const at = (i: number, j: number): number => {
+  const raw = (i: number, j: number): number => {
     const ci = i < 0 ? 0 : i > dem.size - 1 ? dem.size - 1 : i
     const cj = j < 0 ? 0 : j > dem.size - 1 ? dem.size - 1 : j
-    return dem.elevation[cj * dem.size + ci]! - min
+    return dem.elevation[cj * dem.size + ci]!
   }
-  /** 世界座標 → 內插後的高度 */
+  /** 世界座標 → 內插後的原始高程，m */
   const sample = (x: number, z: number): number => {
     const gx = (x + dem.halfMetres) / dem.step
     const gz = (z + dem.halfMetres) / dem.step
@@ -68,12 +77,13 @@ export function demToField(dem: DemFile): HeightFieldData {
     const j = Math.floor(gz)
     const fx = gx - i
     const fz = gz - j
-    const a = at(i, j) * (1 - fx) + at(i + 1, j) * fx
-    const b = at(i, j + 1) * (1 - fx) + at(i + 1, j + 1) * fx
+    const a = raw(i, j) * (1 - fx) + raw(i + 1, j) * fx
+    const b = raw(i, j + 1) * (1 - fx) + raw(i + 1, j + 1) * fx
     return a * (1 - fz) + b * fz
   }
 
-  const padH = sample(PLANT_CENTER.x, PLANT_CENTER.z)
+  const datum = sample(PLANT_CENTER.x, PLANT_CENTER.z)
+  const edge = half * FARM_CELL
   for (let j = 0; j < FARM_SIZE; j++) {
     for (let i = 0; i < FARM_SIZE; i++) {
       const x = (i - half) * FARM_CELL
@@ -82,10 +92,11 @@ export function demToField(dem: DemFile): HeightFieldData {
       const dx = Math.max(0, Math.abs(x - PLANT_CENTER.x) - PLANT_PAD.halfX)
       const dz = Math.max(0, Math.abs(z - PLANT_CENTER.z) - PLANT_PAD.halfZ)
       // 【要多退一格】墊面邊界外第一圈的格點若不是平的，雙線性內插會把它
-      // 帶進墊面裡 —— 實測會在墊面內留下 0.85 m 的起伏，而佈景假設是 0
-      const d = Math.max(0, Math.hypot(dx, dz) - FARM_CELL)
-      const t = smoothStep(d / PAD_BLEND)
-      field.data[j * FARM_SIZE + i] = padH * (1 - t) + sample(x, z) * t
+      // 帶進墊面裡 —— 那會在墊面內留下 0.85 m 的起伏，而佈景假設是 0
+      const pad = smoothStep(Math.max(0, Math.hypot(dx, dz) - FARM_CELL) / PAD_BLEND)
+      // 邊緣往 0 收：中間一大片完全不動，只有最外圈那條帶子被拉平
+      const fade = smoothStep(Math.min(edge - Math.abs(x), edge - Math.abs(z)) / EDGE_FADE)
+      field.data[j * FARM_SIZE + i] = (sample(x, z) - datum) * pad * fade
     }
   }
   return field
