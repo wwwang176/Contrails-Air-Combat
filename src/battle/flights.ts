@@ -235,6 +235,24 @@ export function compactFlights(fi: FlightIndex, all: readonly FlightMember[]): v
 }
 
 /**
+ * 第 `f` 支小隊是否被殲滅：roster 的每一席都在場而且都死了。
+ *
+ * 【預留還沒進場的小隊不算】它的 roster 指向不存在的座位，那是「還沒來」。
+ * 算成殲滅的話重生節拍會把一支還沒進場的預留小隊當成死光的來重生 ——
+ * 對不存在的座位寫入，而且不報錯。
+ *
+ * 熱路徑：不配置。
+ */
+export function flightWiped(fi: FlightIndex, f: number, all: readonly FlightMember[]): boolean {
+  const roster = fi.flights[f]!.roster
+  for (let r = 0; r < roster.length; r++) {
+    const m = all[roster[r]!]
+    if (m === undefined || m.alive) return false
+  }
+  return true
+}
+
+/**
  * 第 `index` 架的站位參考機（`World.combatants` 的索引）；−1 = 沒有站位。
  *
  * 沒有站位的三種情形：Schwarm 長機、已退場、分隊只剩它一架。三者都退化成

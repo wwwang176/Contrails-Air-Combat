@@ -41,6 +41,19 @@ function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionC
 }
 
 describe('關卡資料', () => {
+  it('掛在批數上的波次，那張卡一定有重生，而且批數到得了', () => {
+    // 【為什麼這條非有不可】沒有重生的卡批數永遠是 0，`batch` 的波次永遠
+    // 不來；`at` 大於 `batches` 同理 —— 兩種都不報錯，那一關只是打不完
+    for (const m of playable) {
+      for (const w of m.battle.waves ?? []) {
+        if (w.when.kind !== 'batch') continue
+        expect(m.battle.recycle, m.id).toBeDefined()
+        expect(w.when.at, m.id).toBeLessThanOrEqual(m.battle.recycle!.batches)
+        expect(w.when.at, m.id).toBeGreaterThanOrEqual(1)
+      }
+    }
+  })
+
   it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數', () => {
     // 【為什麼這條非有不可】`missionConfigFrom` 刻意不夾制架數（來源是本檔的
     // 常數表，夾制只會把寫錯的關卡藏起來）。而大於 MAX_SIDE 不會拋 ——

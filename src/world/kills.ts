@@ -33,6 +33,14 @@ export interface KillEvents {
    * 唯一目的就是讓那條斷言寫得出來（M8 spec §14.1.1）。
    */
   dropped: number
+  /**
+   * 累計推進的筆數。**不會被 `clearKills` 歸零。**
+   *
+   * 緩衝裡第 e 筆的流水號是 `total − count + e`。消費者記自己處理到哪一個
+   * 流水號，同一筆事件就不會在呼叫端沒排空時被處理第二次 —— 而排空也不會
+   * 讓那個記錄與新的一批錯位。
+   */
+  total: number
 }
 
 export function createKills(capacity: number): KillEvents {
@@ -41,6 +49,7 @@ export function createKills(capacity: number): KillEvents {
     data: new Float32Array(capacity * KILL_STRIDE),
     count: 0,
     dropped: 0,
+    total: 0,
   }
 }
 
@@ -73,6 +82,7 @@ export function pushKill(
   d[o + 6] = index
   d[o + 7] = killer
   e.count++
+  e.total++
 }
 
 /** 排空。不動 `dropped` —— 見它的註解。 */
