@@ -75,19 +75,24 @@ ROAD_HALF = 8.0
 RAIL = [(0, -1500), (0, 1500)]
 RAIL_HALF = 15.0
 
-# 連外道路的折線（相對廠區中心）：東門繞到北緣、南門到南緣。電線桿沿著它們立。
-# 【東門那條要留在薩勒河的西岸】往東走會橫渡河
-# 連外的道路（相對廠區中心）。**兩條都往西出圖** —— 薩勒河從東、北、南
-# 三面繞著廠區，往別的方向拉一定跨河。要跟 leuna.ts 的 ROADS 同形
+# 廠區的朝向：長軸相對正北往西偏 12.5 度。**與 leuna.ts 的 PLANT_HEADING
+# 同一個角度**，符號在這裡是相反的 —— Blender 的 +Y 是遊戲的 −Z。
+# 匯出前整包（連外的兩顆網格除外）繞 Z 轉這個角度，GLB 的節點變換帶得過去
+PLANT_HEADING_DEG = 12.5
+
+# 連外的道路與鐵路。**座標是「世界 − 廠區中心」，不隨廠區旋轉** —— 它們
+# 一路畫到地圖邊緣，跟著轉的話兩端會甩出圖外。與 leuna.ts 的 ROADS／RAILS
+# 逐點對應（那邊寫的是世界座標，這裡減掉 z = −7,000）。
+#
+# 【兩條公路都往西出圖】薩勒河從東、北、南三面繞著廠區，往別的方向拉一定跨河
 OUT_ROADS = [
-    [(-750, -500), (-1800, -500), (-3000, -1200), (-14500, -1200)],
-    [(-420, 1500), (-420, 4000), (-800, 9000), (-2600, 10400), (-14500, 10400)],
+    [(-840, -326), (-2000, -500), (-14500, -500)],
+    [(-85, 1555), (-85, 4000), (-600, 8500), (-2600, 10000), (-14500, 10000)],
 ]
 
-# 連外的鐵路（相對廠區中心）：骨幹的南北兩段延伸，兩端都繞開河
 OUT_RAILS = [
-    [(0, -1500), (-1400, -3200), (-1400, -7500)],
-    [(0, 1500), (-500, 3500), (-3000, 5500), (-14500, 5500)],
+    [(-1500, -7500), (-1500, -3000), (-325, -1464)],
+    [(325, 1464), (-500, 3000), (-2500, 5000), (-14500, 5000)],
 ]
 
 # 連外軌道一塊薄板最長鋪多少，m
@@ -1587,24 +1592,29 @@ def _wall_run(i, salt):
     return (h & 0xFF) >= int(WALL_DROP * 255), (((h >> 8) & 0xFF) / 255) * WALL_PUSH
 
 
-def _all_road_segments():
-    """廠內三條加連外兩條的所有道路線段（相對廠區中心）"""
-    out = [tuple(r) for r in ROADS]
+def _out_road_segments():
+    """連外道路的線段（世界 − 廠區中心）"""
+    out = []
     for line in OUT_ROADS:
         for s in range(len(line) - 1):
             out.append((line[s][0], line[s][1], line[s + 1][0], line[s + 1][1]))
     return out
 
 
-ALL_ROADS = _all_road_segments()
+OUT_ROAD_SEGMENTS = _out_road_segments()
 
 # 平交道的半寬：道路避讓帶再加 3 m，讓軌枕的包圍盒完全退出路面
 CROSSING_HALF = ROAD_HALF + 3.0
 
 
-def on_road(x, z):
-    """這一點在不在任何一條道路的平交道範圍內"""
-    for ax, az, bx, bz in ALL_ROADS:
+def on_road(x, z, roads):
+    """這一點在不在任何一條道路的平交道範圍內。
+
+    【道路清單要跟軌道同一個座標系】廠內的骨幹配 `ROADS`（廠區局部）、連外
+    的軌道配 `OUT_ROAD_SEGMENTS`（世界 − 中心）—— 混用的話平交道會斷在
+    離路好幾百公尺的地方，而畫面上只是「這段軌道怎麼缺一塊」。
+    """
+    for ax, az, bx, bz in roads:
         vx, vz = bx - ax, bz - az
         L = vx * vx + vz * vz
         t = 0.0 if L == 0 else max(0.0, min(1.0, ((x - ax) * vx + (z - az) * vz) / L))
@@ -1613,7 +1623,7 @@ def on_road(x, z):
     return False
 
 
-def _rail_spans(ax, az, bx, bz):
+def _rail_spans(ax, az, bx, bz, roads):
     """一段軌道扣掉平交道之後剩下的子段。不足 12 m 的碎段丟掉"""
     out = []
     length = math.hypot(bx - ax, bz - az)
@@ -1621,7 +1631,7 @@ def _rail_spans(ax, az, bx, bz):
     start = -1.0
     for i in range(steps + 1):
         t = i / steps
-        ok = not on_road(ax + (bx - ax) * t, az + (bz - az) * t)
+        ok = not on_road(ax + (bx - ax) * t, az + (bz - az) * t, roads)
         if ok and start < 0:
             start = t
         if (not ok or i == steps) and start >= 0:
@@ -1633,7 +1643,7 @@ def _rail_spans(ax, az, bx, bz):
     return out
 
 
-def lay_rail(b, ax, az, bx, bz):
+def lay_rail(b, ax, az, bx, bz, roads):
     """鋪一條軌道：斷開平交道，再把每一段切到 `OUT_RAIL_STEP` 以下。
 
     【長薄板要切開】一塊 2 km 的斜薄板，它每一個三角形的包圍盒都橫跨整條線
@@ -1641,7 +1651,7 @@ def lay_rail(b, ax, az, bx, bz):
     壓在路上。
     """
     n = 0
-    for cx, cz, dx, dz in _rail_spans(ax, az, bx, bz):
+    for cx, cz, dx, dz in _rail_spans(ax, az, bx, bz, roads):
         steps = max(1, int(math.ceil(math.hypot(dx - cx, dz - cz) / OUT_RAIL_STEP)))
         for k in range(steps):
             t0, t1 = k / steps, (k + 1) / steps
@@ -1651,31 +1661,39 @@ def lay_rail(b, ax, az, bx, bz):
 
 
 def build_mainline(b):
-    """鐵路骨幹：貫穿廠區的連續股道，加上南北兩段連外的線。
+    """鐵路骨幹：貫穿廠區的那一段，廠區局部座標，跟著廠區轉。
 
     【它是調車場接得到的那條線】兩塊調車場的股道都平行於它、貼著它展開。
     少了骨幹，那些股道在畫面上是兩片接不到任何地方的軌道。
 
-    【廠內鋪三股、廠外兩股】主線是複線，站內多一條到發線。
+    【廠內鋪三股】主線是複線，站內多一條到發線。
 
-    【平交道要斷開】道路橫過軌道的地方不鋪軌，廠內廠外一視同仁。地面著色器
-    是先鋪碴石再鋪柏油，股道連續鋪過去的話，軌枕會浮在路面上。
+    【平交道要斷開】道路橫過軌道的地方不鋪軌。地面著色器是先鋪碴石再鋪柏油，
+    股道連續鋪過去的話，軌枕會浮在路面上。
     """
     n = 0
     for k, off in enumerate((-6.0, 0.0, 6.0)):
         x = RAIL[0][0] + off
-        n += lay_rail(b, x, RAIL[0][1], x, RAIL[1][1])
+        n += lay_rail(b, x, RAIL[0][1], x, RAIL[1][1], ROADS)
         # 骨幹上零星停幾節車，看得出它在用。車長 12 m，兩端都要離開平交道
         for i in range(9):
             h = cell_hash(i, k, 0x2b17)
             if (h & 0xFF) < 150:
                 continue
             dz = RAIL[0][1] + (i + 0.5) * (RAIL[1][1] - RAIL[0][1]) / 9
-            if on_road(x, dz - 8) or on_road(x, dz + 8):
+            if on_road(x, dz - 8, ROADS) or on_road(x, dz + 8, ROADS):
                 continue
             n += rail_car(b, x, dz, 0.0, ((h >> 8) & 1) == 0, 0x2b17 + i)
-    # 【複線要往線段的法線推，不是往 x 推】連外線有東西向的長段，只推 x 的話
-    # 兩股會完全重疊，畫面上只剩一股
+    return n
+
+
+def build_outrail(b):
+    """連外的鐵路：兩股複線，**世界座標，不隨廠區旋轉**。
+
+    【複線要往線段的法線推，不是往 x 推】連外線有東西向的長段，只推 x 的話
+    兩股會完全重疊，畫面上只剩一股。
+    """
+    n = 0
     for line in OUT_RAILS:
         for s in range(len(line) - 1):
             ax, az = line[s]
@@ -1683,7 +1701,8 @@ def build_mainline(b):
             L = math.hypot(bx - ax, bz - az)
             nx, nz = -(bz - az) / L, (bx - ax) / L
             for off in (-4.0, 4.0):
-                n += lay_rail(b, ax + nx * off, az + nz * off, bx + nx * off, bz + nz * off)
+                n += lay_rail(b, ax + nx * off, az + nz * off,
+                              bx + nx * off, bz + nz * off, OUT_ROAD_SEGMENTS)
     return n
 
 
@@ -1822,13 +1841,8 @@ def build_satellites(b):
     return n
 
 
-def build_outskirts(b):
-    """墊面外的佈景：砲位的沙包、沿連外道路的電線桿。
-
-    【它們讓包圍球變得很大】電線桿一路排到地圖邊緣，整顆網格的包圍球因此
-    有二十幾公里 —— 視錐剔除等於失效。這是既有的取捨：少了它們，連外道路
-    在空中看起來是兩條畫在地上的線。
-    """
+def build_flak(b):
+    """砲位的沙包圈。**廠區局部座標，跟著廠區轉** —— 砲位是廠區的防空陣地"""
     n = 0
     sand = fixed_mat('LP_PlantSand')
     for fx, fz in FLAK_SITES:
@@ -1837,6 +1851,17 @@ def build_outskirts(b):
             add_box(b, 'sandbag', sand, fx + math.cos(a) * 6, -(fz + math.sin(a) * 6),
                     0.3, 1.0, 0.5, 0.6, -math.degrees(a))
             n += 1
+    return n
+
+
+def build_outskirts(b):
+    """沿連外道路的電線桿。**世界座標，不隨廠區旋轉**。
+
+    【它們讓包圍球變得很大】電線桿一路排到地圖邊緣，整顆網格的包圍球因此
+    有二十幾公里 —— 視錐剔除等於失效。這是既有的取捨：少了它們，連外道路
+    在空中看起來是兩條畫在地上的線。
+    """
+    n = 0
     pole = fixed_mat('LP_PlantPole')
     for road in OUT_ROADS:
         for s in range(len(road) - 1):
@@ -1854,6 +1879,25 @@ def build_outskirts(b):
                 add_box(b, 'pole', pole, x, -z, 4.0, 0.3, 0.3, 8.0)
                 n += 1
     return n
+
+
+# 這兩顆的座標已經是世界的，不轉
+UNROTATED = {'Plant_outskirts', 'Plant_outrail'}
+
+
+def _apply_heading(col):
+    """把廠區的朝向套到物件的變換上。
+
+    【設 rotation_euler 就好，不要 apply】glTF 匯出會把節點變換寫進去，而
+    遊戲端 `parseGroundGlb` 會 `applyMatrix4(matrixWorld)` 烘平。留著變換，
+    在 Blender 裡才看得出哪些東西是廠區的、哪些是連外的。
+
+    【連外的兩顆不轉】它們的座標已經是「世界 − 廠區中心」了，再轉一次會把
+    兩端甩出地圖。
+    """
+    for ob in col.objects:
+        ob.rotation_euler[2] = 0.0 if ob.name in UNROTATED \
+            else math.radians(PLANT_HEADING_DEG)
 
 
 def build_plant():
@@ -1898,11 +1942,18 @@ def build_plant():
 
     stb = Builder()
     total += build_satellites(stb)
+    total += build_flak(stb)
     stb.to_object('Plant_satellites', root)
 
     mb = Builder()
     total += build_mainline(mb)
     mb.to_object('Plant_mainline', root)
+
+    rb = Builder()
+    total += build_outrail(rb)
+    rb.to_object('Plant_outrail', root)
+
+    _apply_heading(root)
 
     LOG['parts'] = total
     LOG['blocks'] = len(BLOCKS)
@@ -1926,6 +1977,8 @@ def rebuild_block(seed):
     n += weave_ground_pipes(b, blk[5])
     n += scatter_clutter(b, blk, blk[5])
     b.to_object(name, get_col('Plant'))
+    # 重生出來的物件沒有廠區的朝向，不補的話它會自己一塊躺平
+    bpy.data.objects[name].rotation_euler[2] = math.radians(PLANT_HEADING_DEG)
     print('%s 重生：零件 %d 個' % (name, n))
 
 

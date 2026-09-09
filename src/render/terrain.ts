@@ -15,7 +15,7 @@ import {
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
-  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_PAD, PLANT_SATELLITES,
+  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
   RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
 import type { HeightFieldData } from '../world/heightfield'
@@ -232,9 +232,11 @@ const OUTPOST_SLAB = 0x807d76
  * 混凝土不同，整片廠區才不是一張均質的灰。
  */
 export const LEUNA_SITE: SiteLayout = {
+  pivot: { x: PLANT_CENTER.x, z: PLANT_CENTER.z },
+  heading: PLANT_HEADING,
   pad: {
-    x0: PLANT_CENTER.x - PLANT_PAD.halfX, z0: PLANT_CENTER.z - PLANT_PAD.halfZ,
-    x1: PLANT_CENTER.x + PLANT_PAD.halfX, z1: PLANT_CENTER.z + PLANT_PAD.halfZ,
+    x0: -PLANT_PAD.halfX, z0: -PLANT_PAD.halfZ,
+    x1: PLANT_PAD.halfX, z1: PLANT_PAD.halfZ,
   },
   roads: ROADS,
   roadWidth: ROAD_WIDTH,
@@ -247,8 +249,8 @@ export const LEUNA_SITE: SiteLayout = {
       hex: b.kind === 'railyard' ? BALLAST : BARE_EARTH,
     })),
   outposts: PLANT_SATELLITES.map((s) => ({
-    x0: PLANT_CENTER.x + s.dx - s.w / 2, x1: PLANT_CENTER.x + s.dx + s.w / 2,
-    z0: PLANT_CENTER.z + s.dz - s.d / 2, z1: PLANT_CENTER.z + s.dz + s.d / 2,
+    x0: s.dx - s.w / 2, x1: s.dx + s.w / 2,
+    z0: s.dz - s.d / 2, z1: s.dz + s.d / 2,
     hex: OUTPOST_SLAB,
   })),
 }

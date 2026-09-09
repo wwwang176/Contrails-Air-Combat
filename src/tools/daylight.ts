@@ -19,7 +19,7 @@ import type { TerrainKind } from '../world/terrainKind'
 import { createGroundModels } from '../render/groundTargets'
 import { preloadGroundModels } from '../render/geometry/ground'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
-import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
+import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
 
 /**
  * 時段展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -138,11 +138,9 @@ await preloadGroundModels()
 
 /** 洛伊納的廠區與砲位，照任務卡的佈局。墊面高度是 0，不必落地 */
 const plantTargets: GroundTarget[] = [
-  ...PLANT_LAYOUT.map((p, i) => createGroundTarget(
-    i, p.kind, 'red', PLANT_CENTER.x + p.dx, PLANT_CENTER.z + p.dz, PLANT_HEADING + p.heading,
-  )),
+  ...PLANT_TARGETS.map((p, i) => createGroundTarget(i, p.kind, 'red', p.x, p.z, p.heading)),
   ...FLAK_SITES.map((s, i) => createGroundTarget(
-    PLANT_LAYOUT.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
+    PLANT_TARGETS.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
   )),
 ]
 const plantModels = createGroundModels(plantTargets)

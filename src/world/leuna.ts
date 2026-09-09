@@ -24,11 +24,49 @@ import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 /** 廠區中心。藍隊開局在 z ≈ +5,000 朝 −Z（`headOn`），投彈航路 12 km */
 export const PLANT_CENTER = /* @__PURE__ */ new Vector3(0, 0, -7000)
 /**
- * 廠區的朝向。**必須是 0** —— 墊面、巷道、街廓與地面著色器全是軸對齊的
- * 矩形，只有十二座構件吃這個角度。給了非零值只會讓建築歪斜地站在自己的
- * 水泥上，而不會轉動廠區。
+ * 廠區的朝向，弧度。長軸相對正北往**西**偏 12.5°（NNW–SSE）。
+ *
+ * 【這個數字是量出來的】OSM 上 Chemiestandort Leuna 三塊廠區，各自量落在
+ * 自己範圍內的鐵路方位加權分佈，峰值都落在 −15…−10°（佔 51% / 40% / 100%）。
+ * 廠區外框的最小外接矩形給的是 +6.9°，但那被兩塊網格拼接的形狀帶偏 ——
+ * 從投彈高度看到的紋理方向是鐵路與廠房的方向，不是外框。
+ *
+ * 【墊面／巷道／街廓／鋪面全部改讀廠區局部座標】它們仍然是軸對齊矩形，
+ * 只是活在轉過的座標系裡 —— 見 `plantToWorld` / `worldToPlant`，以及
+ * `render/fields.ts` 的 `SiteLayout.heading`。道路與鐵路的折線是例外：
+ * 它們一路畫到地圖邊緣，直接寫世界座標。
  */
-export const PLANT_HEADING = 0
+export const PLANT_HEADING = (-12.5 * Math.PI) / 180
+
+const HEAD_COS = /* @__PURE__ */ Math.cos(PLANT_HEADING)
+const HEAD_SIN = /* @__PURE__ */ Math.sin(PLANT_HEADING)
+
+/**
+ * 廠區局部座標 → 世界座標。局部的 +X 是廠區的「東」、+Z 是「南」，原點在
+ * `PLANT_CENTER`。
+ *
+ * 【不配置記憶體】呼叫端給 `out`。這支在載入期跑，但 `worldToPlant` 的孿生
+ * 版本在小地圖取樣的路徑上，兩支要對稱。
+ */
+export function plantToWorld(dx: number, dz: number, out: { x: number; z: number }): void {
+  out.x = PLANT_CENTER.x + dx * HEAD_COS - dz * HEAD_SIN
+  out.z = PLANT_CENTER.z + dx * HEAD_SIN + dz * HEAD_COS
+}
+
+/** 世界座標 → 廠區局部座標。`plantToWorld` 的反向 */
+export function worldToPlant(x: number, z: number, out: { x: number; z: number }): void {
+  const rx = x - PLANT_CENTER.x
+  const rz = z - PLANT_CENTER.z
+  out.x = rx * HEAD_COS + rz * HEAD_SIN
+  out.z = -rx * HEAD_SIN + rz * HEAD_COS
+}
+
+/** `plantToWorld` 的一次性版本。表格常數用，不在熱路徑上 */
+function at(dx: number, dz: number): { x: number; z: number } {
+  const out = { x: 0, z: 0 }
+  plantToWorld(dx, dz, out)
+  return out
+}
 
 /**
  * 墊面矩形的半邊長，m。墊面內保證高度為 0。
@@ -41,6 +79,9 @@ export const PLANT_HEADING = 0
  * （管架、鋼骨塔、棚屋），可炸的只有十二座構件。
  */
 export const PLANT_PAD = { halfX: 750, halfZ: 1500 } as const
+
+/** 墊面的外接圓半徑，m。轉過角度之後「離廠區多遠」只剩這一個軸對齊的量 */
+export const PLANT_PAD_RADIUS = /* @__PURE__ */ Math.hypot(PLANT_PAD.halfX, PLANT_PAD.halfZ)
 
 /**
  * 丘陵的膨脹圓離墊面矩形至少這麼遠，m。
@@ -78,17 +119,21 @@ export const LEUNA_HILLS = [
 /**
  * 預定砲位。**是不還手的靶**：打得掉、算進炸毀的計數，但不瞄不射。
  * 環繞廠區 2.4 到 3.2 km，全部在墊面外。
+ *
+ * 【擺位是廠區局部座標】它們是廠區的防空陣地，跟著廠區一起轉 —— 不轉的話
+ * 南北那四座會被轉過來的廠區吃進墊面裡。
  */
-export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] = [
-  { x: -1200, z: -9600, heading: 0.6 },
-  { x: 1200, z: -9600, heading: -0.6 },
-  { x: -1200, z: -4400, heading: 2.5 },
-  { x: 1200, z: -4400, heading: -2.5 },
-  { x: 0, z: -10000, heading: 0 },
-  { x: 0, z: -4000, heading: Math.PI },
-  { x: -2700, z: -7000, heading: 1.5 },
-  { x: 2700, z: -7000, heading: -1.5 },
-]
+export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
+  /* @__PURE__ */ ([
+    { dx: -1200, dz: -2600, heading: 0.6 },
+    { dx: 1200, dz: -2600, heading: -0.6 },
+    { dx: -1200, dz: 2600, heading: 2.5 },
+    { dx: 1200, dz: 2600, heading: -2.5 },
+    { dx: 0, dz: -3000, heading: 0 },
+    { dx: 0, dz: 3000, heading: Math.PI },
+    { dx: -2700, dz: 0, heading: 1.5 },
+    { dx: 2700, dz: 0, heading: -1.5 },
+  ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: s.heading + PLANT_HEADING }))
 
 /** 構件的種類。與 `groundTargets.ts` 的 `GroundKind` 相同的字面值 */
 export type PlantKind =
@@ -126,26 +171,41 @@ export const PLANT_LAYOUT: readonly { kind: PlantKind; dx: number; dz: number; h
 ]
 
 /**
- * 道路的折線，世界座標。畫在地面著色器裡（`fields.ts` 的 `SiteLayout`），
+ * 十二座構件的**世界**座標與朝向。`PLANT_LAYOUT` 的局部表轉過來，朝向已經
+ * 含 `PLANT_HEADING`。
+ *
+ * 【使用端拿這一份】任務卡（`battle/missions.ts`）與展示區都不自己做換算 ——
+ * 少加一次旋轉，構件會整群站在墊面外，而墊面是著色器畫的、構件是模型，
+ * 兩者對不齊在畫面上只是「這些塔怎麼蓋在田裡」。
+ */
+export const PLANT_TARGETS: readonly { kind: PlantKind; x: number; z: number; heading: number }[] =
+  /* @__PURE__ */ PLANT_LAYOUT.map((p) => ({
+    kind: p.kind, ...at(p.dx, p.dz), heading: PLANT_HEADING + p.heading,
+  }))
+
+/**
+ * 道路的折線，**世界座標**。畫在地面著色器裡（`fields.ts` 的 `SiteLayout`），
  * 不是幾何。
  *
- * 廠內一條南北向的主軸（`x = −420`，與鐵路骨幹平行）與兩條東西向的橫向；
+ * 【廠內段是算出來的、連外段是手擺的】廠內三條跟著廠區轉（`at()` 把巷道的
+ * 局部座標轉成世界）；連外那兩條一路畫到地圖邊緣，直接寫世界座標。
+ *
  * 連外的兩條都往西出圖 —— 薩勒河從東、北、南三面繞著廠區，往別的方向拉
  * 一定會跨河，而水面是一片蓋在地上的網格，跨過去的那一段是淹在水裡的路。
  */
 export const ROAD_WIDTH = 12
 export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
   // 廠內主軸（縱貫，與鐵路骨幹平行）
-  [{ x: -420, z: -8500 }, { x: -420, z: -5500 }],
+  [at(-420, -1500), at(-420, 1500)],
   // 廠內橫向
-  [{ x: -750, z: -7500 }, { x: 750, z: -7500 }],
-  [{ x: -750, z: -6400 }, { x: 750, z: -6400 }],
+  [at(-750, -500), at(750, -500)],
+  [at(-750, 600), at(750, 600)],
   // 西門到地圖西緣（梅澤堡方向）
-  [{ x: -750, z: -7500 }, { x: -1800, z: -7500 }, { x: -3000, z: -8200 }, { x: -14500, z: -8200 }],
-  // 南門，沿開場的航路往南 5 km 之後折向西緣
+  [at(-750, -500), { x: -2000, z: -7500 }, { x: -14500, z: -7500 }],
+  // 南門，沿開場的航路往南 2.4 km 之後折向西緣
   [
-    { x: -420, z: -5500 }, { x: -420, z: -3000 }, { x: -800, z: 2000 },
-    { x: -2600, z: 3400 }, { x: -14500, z: 3400 },
+    at(-420, 1500), { x: -85, z: -3000 }, { x: -600, z: 1500 },
+    { x: -2600, z: 3000 }, { x: -14500, z: 3000 },
   ],
 ]
 
@@ -157,16 +217,16 @@ export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
  * 【要落在巷道上】它與廠內道路同一條規則：不在巷道上的話會把街廓從中間
  * 切開，填充器鋪的東西一半壓在軌道上。
  *
- * 【出廠之後要留在河的西岸】東邊 2.8 km 就是薩勒河，而它在廠區北邊轉向西、
- * 一路沿 x ≈ 0 往北出圖 —— 北段要先斜到 x = −1400 才閃得開。南端也不能直接
- * 往南出圖（河在 z ≈ 3,500 橫過 x = 0），折向西緣。
+ * 【出廠之後要留在河的西岸】東邊 3.2 km 就是薩勒河，而它在廠區北邊轉向西、
+ * 一路沿 x ≈ 0 往北出圖 —— 北段要先斜到 x = −1500 才閃得開。南端也不能直接
+ * 往南出圖（河在 z ≈ 2,000 橫過 x = 0），折向西緣。
  */
 export const RAIL_WIDTH = 26
 export const RAILS: readonly (readonly { x: number; z: number }[])[] = [
   [
-    { x: -1400, z: -14500 }, { x: -1400, z: -10200 }, { x: 0, z: -8500 },
-    { x: 0, z: -5500 }, { x: -500, z: -3500 }, { x: -3000, z: -1500 },
-    { x: -14500, z: -1500 },
+    { x: -1500, z: -14500 }, { x: -1500, z: -10000 }, at(0, -1500),
+    at(0, 1500), { x: -500, z: -4000 }, { x: -2500, z: -2000 },
+    { x: -14500, z: -2000 },
   ],
 ]
 
@@ -201,7 +261,13 @@ export const LANE_WIDTH = 16
 /** 街廓的機能。填充器照這個標籤決定鋪什麼 */
 export type BlockKind = 'process' | 'tankFarm' | 'halls' | 'railyard' | 'utility' | 'open'
 
-/** 一個街廓。**世界座標**，已經退掉巷道 */
+/**
+ * 一個街廓。**廠區局部座標**（見 `plantToWorld`），已經退掉巷道。
+ *
+ * 【為什麼不是世界座標】廠區轉了 `PLANT_HEADING`，轉過的矩形不再軸對齊 ——
+ * 而地面著色器的鋪面判斷是四個不等式。留在局部系裡它仍然是矩形，著色器
+ * 只在入口轉一次座標。
+ */
 export interface PlantBlock {
   readonly x0: number
   readonly z0: number
@@ -297,10 +363,10 @@ function buildBlocks(): PlantBlock[] {
       const seed = 2000 + i * 10 + j
       const half = (LANE_WIDTH * (0.7 + ((seed * 37) % 7) / 10)) / 2
       out.push({
-        x0: PLANT_CENTER.x + xs[i]! + half,
-        x1: PLANT_CENTER.x + xs[i1 + 1]! - half,
-        z0: PLANT_CENTER.z + zs[j]! + half,
-        z1: PLANT_CENTER.z + zs[j1 + 1]! - half,
+        x0: xs[i]! + half,
+        x1: xs[i1 + 1]! - half,
+        z0: zs[j]! + half,
+        z1: zs[j1 + 1]! - half,
         kind: BLOCK_KINDS[i]![j]!,
         seed,
       })
@@ -316,24 +382,26 @@ function buildBlocks(): PlantBlock[] {
 export const PLANT_BLOCKS: readonly PlantBlock[] = /* @__PURE__ */ buildBlocks()
 
 /**
- * 佈景煙囪：打不掉，但會冒煙。**世界座標**。
+ * 佈景煙囪：打不掉，但會冒煙。**匯出的是世界座標**，表裡寫的是廠區局部
+ * 偏移（跟著 `PLANT_HEADING` 轉）。
  *
- * 【為什麼不是相對偏移】`main.ts` 的發煙迴圈每幀跑，那裡不能有換算，也不能
+ * 【為什麼匯出世界座標】`main.ts` 的發煙迴圈每幀跑，那裡不能有換算，也不能
  * 建物件（240 Hz 的熱路徑）。
  *
  * 【為什麼要有它】從進場方向看過去，煙柱是廠區唯一在遠處就標定得出自己的
  * 東西。只有十二座可炸構件在冒煙的話，炸完六座就幾乎不冒了。
  */
-export const PLANT_STACKS: readonly { readonly x: number; readonly z: number; readonly y: number }[] = [
-  { x: -340, z: -5560, y: 62 },
-  { x: -690, z: -5950, y: 55 },
-  { x: -60, z: -5950, y: 68 },
-  { x: -80, z: -6440, y: 58 },
-  { x: -700, z: -6940, y: 64 },
-  { x: 500, z: -5560, y: 48 },
-  { x: -700, z: -6440, y: 52 },
-  { x: -60, z: -6940, y: 60 },
-]
+export const PLANT_STACKS: readonly { readonly x: number; readonly z: number; readonly y: number }[] =
+  /* @__PURE__ */ ([
+    { dx: -340, dz: 1440, y: 62 },
+    { dx: -690, dz: 1050, y: 55 },
+    { dx: -60, dz: 1050, y: 68 },
+    { dx: -80, dz: 560, y: 58 },
+    { dx: -700, dz: 60, y: 64 },
+    { dx: 500, dz: 1440, y: 48 },
+    { dx: -700, dz: 560, y: 52 },
+    { dx: -60, dz: 60, y: 60 },
+  ] as const).map((s) => ({ ...at(s.dx, s.dz), y: s.y }))
 
 /**
  * 牆外的衛星設施。**相對廠區中心**：dx／dz 是中心，w／d 是寬與深。

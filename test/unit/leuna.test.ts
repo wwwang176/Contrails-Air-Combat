@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type BlockKind,
   createLeuna, EGRESS, FLAK_SITES, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
-  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, RAILS, ROADS,
+  PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, plantToWorld, RAILS, ROADS, worldToPlant,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -24,10 +24,12 @@ function crosses(
   return t >= 0 && t <= 1 && u >= 0 && u <= 1
 }
 
-/** 圓心到墊面矩形（軸對齊、中心在 PLANT_CENTER）的最近距離 */
+/** 圓心到墊面矩形的最近距離。**先轉進廠區局部座標** —— 墊面不是軸對齊的 */
+const LOCAL = { x: 0, z: 0 }
 function padDistance(cx: number, cz: number): number {
-  const dx = Math.max(0, Math.abs(cx - PLANT_CENTER.x) - PLANT_PAD.halfX)
-  const dz = Math.max(0, Math.abs(cz - PLANT_CENTER.z) - PLANT_PAD.halfZ)
+  worldToPlant(cx, cz, LOCAL)
+  const dx = Math.max(0, Math.abs(LOCAL.x) - PLANT_PAD.halfX)
+  const dz = Math.max(0, Math.abs(LOCAL.z) - PLANT_PAD.halfZ)
   return Math.hypot(dx, dz)
 }
 
@@ -130,18 +132,47 @@ describe('leuna 的廠區', () => {
   })
 
   /**
+   * 【長軸往西偏 12.5 度】實測值：OSM 上 Chemiestandort Leuna 三塊廠區，各自
+   * 量落在自己範圍內的鐵路方位分佈，峰值都在 −15…−10°。
+   *
+   * 【往東偏是錯的】符號寫反的話廠區與薩勒河的夾角變成兩倍，而畫面上只是
+   * 「工廠有點斜」—— 看不出方向反了。北端要往**西**移。
+   */
+  it('廠區長軸相對正北往西偏 10 到 15 度', () => {
+    const north = { x: 0, z: 0 }
+    plantToWorld(0, -PLANT_PAD.halfZ, north)
+    const deg = (Math.atan2(north.x - PLANT_CENTER.x, PLANT_CENTER.z - north.z) * 180) / Math.PI
+    expect(deg, `北端偏了 ${deg.toFixed(1)}°`).toBeLessThan(-10)
+    expect(deg).toBeGreaterThan(-15)
+    expect(north.x).toBeLessThan(PLANT_CENTER.x)
+  })
+
+  /** 兩支轉換必須互為反函式 —— 分家的話墊面與佈景會差一整個廠區的位移 */
+  it('plantToWorld 與 worldToPlant 是一對', () => {
+    const w = { x: 0, z: 0 }
+    const l = { x: 0, z: 0 }
+    for (const [dx, dz] of [[0, 0], [750, 1500], [-750, -1500], [123, -456]] as const) {
+      plantToWorld(dx, dz, w)
+      worldToPlant(w.x, w.z, l)
+      expect(l.x).toBeCloseTo(dx, 6)
+      expect(l.z).toBeCloseTo(dz, 6)
+    }
+  })
+
+  /**
    * 【鐵路骨幹貫穿廠區，兩端接出去】合成油廠的煤、氫與成品油全部靠軌道
    * 進出。骨幹只到廠界就停的話，那些調車場是接不到任何地方的死路。
    */
   it('鐵路骨幹貫穿墊面而且兩端都出圖', () => {
     const line = RAILS[0]!
-    const inside = line.filter((p) => padDistance(p.x, p.z) === 0)
+    // 【容 1 m】兩個門就在墊面邊上，而它們是旋轉算出來的
+    const inside = line.filter((p) => padDistance(p.x, p.z) < 1)
     expect(inside.length, '骨幹沒有進墊面').toBeGreaterThanOrEqual(2)
     const offMap = (p: { x: number; z: number }): boolean =>
       Math.abs(p.x) >= 14000 || Math.abs(p.z) >= 14000
     expect(offMap(line[0]!), '北端沒有出圖').toBe(true)
     expect(offMap(line[line.length - 1]!), '南端沒有出圖').toBe(true)
-    // 【要留在薩勒河的西岸】河在廠區以東 2.8 km
+    // 【要留在薩勒河的西岸】河在廠區以東 3.2 km
     expect(Math.max(...line.map((p) => p.x))).toBeLessThan(2000)
   })
 
@@ -152,8 +183,14 @@ describe('leuna 的廠區', () => {
   it('每一塊調車場都貼著鐵路骨幹', () => {
     const yards = PLANT_BLOCKS.filter((b) => b.kind === 'railyard')
     expect(yards.length).toBeGreaterThanOrEqual(2)
+    // 街廓是廠區局部座標、骨幹是世界座標 —— 轉到同一個系再比
+    const rail = RAILS[0]!.map((p) => {
+      const q = { x: 0, z: 0 }
+      worldToPlant(p.x, p.z, q)
+      return q
+    })
     for (const b of yards) {
-      const near = RAILS[0]!.some((p) => p.x >= b.x0 - 40 && p.x <= b.x1 + 40
+      const near = rail.some((p) => p.x >= b.x0 - 40 && p.x <= b.x1 + 40
         && p.z >= b.z0 - 600 && p.z <= b.z1 + 600)
       expect(near, `調車場 ${b.seed} 離骨幹太遠`).toBe(true)
     }
@@ -171,9 +208,9 @@ describe('leuna 的廠區', () => {
       gasHolder: ['utility'], oilTank: ['tankFarm'],
     }
     for (const t of PLANT_LAYOUT) {
-      const x = PLANT_CENTER.x + t.dx
-      const z = PLANT_CENTER.z + t.dz
-      const b = PLANT_BLOCKS.find((k) => x >= k.x0 && x < k.x1 && z >= k.z0 && z < k.z1)
+      // 構件的 dx/dz 與街廓都已經是廠區局部座標
+      const b = PLANT_BLOCKS.find(
+        (k) => t.dx >= k.x0 && t.dx < k.x1 && t.dz >= k.z0 && t.dz < k.z1)
       expect(b, `${t.kind} (${t.dx}, ${t.dz}) 落在巷道上`).toBeDefined()
       expect(want[t.kind], `${t.kind} 沒有登記機能`).toBeDefined()
       expect(want[t.kind]!, `${t.kind} (${t.dx}, ${t.dz}) 在 ${b!.kind} 街廓裡`)
@@ -260,10 +297,11 @@ describe('廠區的街廓', () => {
     // 七欄四列＝二十八格，扣掉調車場那一對合併之後是二十七個
     expect(PLANT_BLOCKS.length).toBeGreaterThanOrEqual(24)
     expect(PLANT_BLOCKS.length).toBeLessThanOrEqual(28)
-    const x0 = PLANT_CENTER.x - PLANT_PAD.halfX
-    const x1 = PLANT_CENTER.x + PLANT_PAD.halfX
-    const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
-    const z1 = PLANT_CENTER.z + PLANT_PAD.halfZ
+    // 街廓是廠區局部座標，墊面在那個系裡就是 ±half
+    const x0 = -PLANT_PAD.halfX
+    const x1 = PLANT_PAD.halfX
+    const z0 = -PLANT_PAD.halfZ
+    const z1 = PLANT_PAD.halfZ
     for (const b of PLANT_BLOCKS) {
       expect(b.x0).toBeGreaterThanOrEqual(x0)
       expect(b.x1).toBeLessThanOrEqual(x1)
@@ -319,9 +357,8 @@ describe('廠區的街廓', () => {
 
   it('每一座可炸構件都落在某個街廓內，而且那個街廓不是 open', () => {
     for (const p of PLANT_LAYOUT) {
-      const x = PLANT_CENTER.x + p.dx
-      const z = PLANT_CENTER.z + p.dz
-      const b = PLANT_BLOCKS.find((k) => x >= k.x0 && x < k.x1 && z >= k.z0 && z < k.z1)
+      const b = PLANT_BLOCKS.find(
+        (k) => p.dx >= k.x0 && p.dx < k.x1 && p.dz >= k.z0 && p.dz < k.z1)
       expect(b, `構件 ${p.kind} (${p.dx},${p.dz}) 掉在巷道或街廓外`).toBeDefined()
       expect(b!.kind, `構件 ${p.kind} 落在 open 街廓`).not.toBe('open')
     }

@@ -4,7 +4,9 @@ import type { BufferAttribute } from 'three'
 import {
   buildPlantScenery, PLANT_GLB_URL, preloadPlantScenery,
 } from '../../src/render/geometry/ground/plantScenery'
-import { PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT, PLANT_STACKS } from '../../src/world/leuna'
+import {
+  PLANT_BLOCKS, PLANT_CENTER, PLANT_LAYOUT, PLANT_STACKS, worldToPlant,
+} from '../../src/world/leuna'
 import {
   STEAM_CAPACITY, STEAM_DRAG, STEAM_LIFE, STEAM_PLUME_HEIGHT, STEAM_PLUME_SPEED,
 } from '../../src/render/smoke'
@@ -71,11 +73,14 @@ describe('蒸汽的柱高', () => {
 describe('佈景煙囪', () => {
   it('至少六根，全部落在非 open 的街廓內，高度 40 m 以上', () => {
     expect(PLANT_STACKS.length).toBeGreaterThanOrEqual(6)
+    // 煙囪的表匯出的是世界座標，街廓是廠區局部座標 —— 轉到同一個系再比
+    const q = { x: 0, z: 0 }
     for (const s of PLANT_STACKS) {
       expect(s.y, `(${s.x},${s.z})`).toBeGreaterThanOrEqual(40)
-      const b = PLANT_BLOCKS.find((k) => s.x >= k.x0 && s.x < k.x1 && s.z >= k.z0 && s.z < k.z1)
-      expect(b, `煙囪 (${s.x},${s.z}) 不在任何街廓內`).toBeDefined()
-      expect(b!.kind, `煙囪 (${s.x},${s.z})`).not.toBe('open')
+      worldToPlant(s.x, s.z, q)
+      const b = PLANT_BLOCKS.find((k) => q.x >= k.x0 && q.x < k.x1 && q.z >= k.z0 && q.z < k.z1)
+      expect(b, `煙囪 (${s.x.toFixed(0)},${s.z.toFixed(0)}) 不在任何街廓內`).toBeDefined()
+      expect(b!.kind, `煙囪 (${s.x.toFixed(0)},${s.z.toFixed(0)})`).not.toBe('open')
     }
   })
 
@@ -94,6 +99,10 @@ describe('佈景煙囪', () => {
    */
   describe('GLB 裡真的有這幾根', () => {
     let pos: BufferAttribute
+    /** 頂點的廠區局部座標，[x, z] 交錯。廠區是斜的，包圍盒只有在這個系裡才緊 */
+    let loc: Float32Array
+    /** 煙囪的廠區局部座標 */
+    let stacks: { x: number; z: number; y: number }[]
 
     beforeAll(async () => {
       await preloadPlantScenery((url) => {
@@ -104,24 +113,35 @@ describe('佈景煙囪', () => {
         return Promise.resolve(ab)
       })
       pos = buildPlantScenery().getAttribute('position') as BufferAttribute
+      loc = new Float32Array(pos.count * 2)
+      const q = { x: 0, z: 0 }
+      for (let i = 0; i < pos.count; i++) {
+        worldToPlant(pos.getX(i), pos.getZ(i), q)
+        loc[i * 2] = q.x
+        loc[i * 2 + 1] = q.z
+      }
+      stacks = PLANT_STACKS.map((s) => {
+        worldToPlant(s.x, s.z, q)
+        return { x: q.x, z: q.z, y: s.y }
+      })
     })
 
     it('每一根的腳下都有幾何頂到發煙的高度', () => {
-      const tops = PLANT_STACKS.map(() => 0)
+      const tops = stacks.map(() => 0)
       for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i)
-        const z = pos.getZ(i)
-        for (let k = 0; k < PLANT_STACKS.length; k++) {
-          const s = PLANT_STACKS[k]!
+        const x = loc[i * 2]!
+        const z = loc[i * 2 + 1]!
+        for (let k = 0; k < stacks.length; k++) {
+          const s = stacks[k]!
           // 只看煙囪腳下那一小塊：其他佈景不會這麼高
           if (Math.abs(x - s.x) > 6 || Math.abs(z - s.z) > 6) continue
           tops[k] = Math.max(tops[k]!, pos.getY(i))
         }
       }
-      for (let k = 0; k < PLANT_STACKS.length; k++) {
-        const s = PLANT_STACKS[k]!
-        expect(tops[k], `煙囪 (${s.x}, ${s.z}) 的幾何頂端只有 ${tops[k]!.toFixed(1)} m`)
-          .toBeGreaterThanOrEqual(s.y - 1)
+      for (let k = 0; k < stacks.length; k++) {
+        const s = stacks[k]!
+        expect(tops[k], `煙囪 (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`
+          + ` 的幾何頂端只有 ${tops[k]!.toFixed(1)} m`).toBeGreaterThanOrEqual(s.y - 1)
       }
     })
 
@@ -137,7 +157,7 @@ describe('佈景煙囪', () => {
      */
     it('沒有別的佈景蓋在煙囪上', () => {
       const bad: string[] = []
-      for (const s of PLANT_STACKS) {
+      for (const s of stacks) {
         const r = s.y * 0.045
         for (let t = 0; t < pos.count; t += 3) {
           let ax = Infinity
@@ -146,8 +166,8 @@ describe('佈景煙囪', () => {
           let bz = -Infinity
           let top = -Infinity
           for (let k = 0; k < 3; k++) {
-            const X = pos.getX(t + k)
-            const Z = pos.getZ(t + k)
+            const X = loc[(t + k) * 2]!
+            const Z = loc[(t + k) * 2 + 1]!
             ax = Math.min(ax, X); bx = Math.max(bx, X)
             az = Math.min(az, Z); bz = Math.max(bz, Z)
             top = Math.max(top, pos.getY(t + k))
@@ -155,7 +175,8 @@ describe('佈景煙囪', () => {
           if (bx - ax < 12 && bz - az < 12) continue
           if (top < 4 || top > s.y) continue
           if (ax > s.x - r || bx < s.x + r || az > s.z - r || bz < s.z + r) continue
-          bad.push(`煙囪 (${s.x}, ${s.z}) 被一個高 ${top.toFixed(0)} m 的東西蓋住`)
+          bad.push(`煙囪 (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`
+            + ` 被一個高 ${top.toFixed(0)} m 的東西蓋住`)
           break
         }
       }

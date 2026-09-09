@@ -4,7 +4,18 @@ import {
   fieldGlsl, fieldGlslWithSite, fieldSurfaceColor, siteSurfaceColor, type SiteLayout,
 } from '../../src/render/fields'
 import { LEUNA_SITE } from '../../src/render/terrain'
-import { PLANT_CENTER, PLANT_PAD } from '../../src/world/leuna'
+import { PLANT_PAD, plantToWorld } from '../../src/world/leuna'
+
+/**
+ * 廠區局部座標 → 世界座標。**洛伊納的探針一律經過它** —— `LEUNA_SITE` 的
+ * 墊面、鋪面、衛星設施都活在轉過 `PLANT_HEADING` 的座標系裡，直接拿
+ * `PLANT_CENTER ± 幾百公尺` 當探針會取到墊面外的田。
+ */
+function W(dx: number, dz: number): { x: number; z: number } {
+  const out = { x: 0, z: 0 }
+  plantToWorld(dx, dz, out)
+  return out
+}
 
 /**
  * 廠區那一層地面：墊面是混凝土、道路是柏油、其餘照田區。**沒有 site 時
@@ -46,14 +57,16 @@ describe('SiteLayout', () => {
 
   it('洛伊納的 site：墊面是混凝土，廠內外的路都是柏油', () => {
     const c = new Color()
-    // 【中心是鐵路骨幹】x = 0 那條縱貫線；往旁邊 200 m 才是墊面
+    // 【中心是鐵路骨幹】局部 x = 0 那條縱貫線；往旁邊 200 m 才是墊面
+    const slab = W(200, -300)
     expect(isConcrete(siteSurfaceColor(
-      PLANT_CENTER.x + 200, PLANT_CENTER.z - 300, c, 'lateAutumn', LEUNA_SITE))).toBe(true)
+      slab.x, slab.z, c, 'lateAutumn', LEUNA_SITE))).toBe(true)
     // 廠內主幹道
-    expect(siteSurfaceColor(PLANT_CENTER.x - 420, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE)
+    const main = W(-420, 0)
+    expect(siteSurfaceColor(main.x, main.z, c, 'lateAutumn', LEUNA_SITE)
       .getHexString()).toBe('3f3d3a')
-    // 南門的連外道路
-    expect(siteSurfaceColor(-420, -4000, c, 'lateAutumn', LEUNA_SITE).getHexString()).toBe('3f3d3a')
+    // 南門的連外道路（世界座標，不跟著廠區轉）
+    expect(siteSurfaceColor(-85, -4000, c, 'lateAutumn', LEUNA_SITE).getHexString()).toBe('3f3d3a')
   })
 
   /**
@@ -62,10 +75,12 @@ describe('SiteLayout', () => {
    */
   it('鐵路骨幹是碴石色，而平交道上是柏油', () => {
     const c = new Color()
-    expect(siteSurfaceColor(PLANT_CENTER.x, PLANT_CENTER.z - 300, c, 'lateAutumn', LEUNA_SITE)
+    const spine = W(0, -300)
+    expect(siteSurfaceColor(spine.x, spine.z, c, 'lateAutumn', LEUNA_SITE)
       .getHexString(), '骨幹上不是碴石').toBe('5f5a52')
-    // 【道路壓過鐵路】x = 0 與 z = −7500 的那條橫向道路交會的地方是平交道
-    expect(siteSurfaceColor(PLANT_CENTER.x, -7500, c, 'lateAutumn', LEUNA_SITE)
+    // 【道路壓過鐵路】骨幹（局部 x = 0）與橫向道路（局部 z = −500）交會處是平交道
+    const cross = W(0, -500)
+    expect(siteSurfaceColor(cross.x, cross.z, c, 'lateAutumn', LEUNA_SITE)
       .getHexString(), '平交道上不是柏油').toBe('3f3d3a')
   })
 })
@@ -80,9 +95,8 @@ describe('墊面的髒污', () => {
     const seen = new Set<string>()
     for (let i = 0; i < 10; i++) {
       for (let j = 0; j < 10; j++) {
-        const x = PLANT_CENTER.x - 1400 + i * 280
-        const z = PLANT_CENTER.z - 700 + j * 140
-        seen.add(siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE).getHexString())
+        const p = W(-700 + i * 140, -1400 + j * 280)
+        seen.add(siteSurfaceColor(p.x, p.z, c, 'lateAutumn', LEUNA_SITE).getHexString())
       }
     }
     expect(seen.size, `只有 ${seen.size} 種顏色`).toBeGreaterThanOrEqual(8)
@@ -102,11 +116,12 @@ describe('墊面的髒污', () => {
       const p = patches!.find((q) => q.hex === hex)
       expect(p, `沒有 ${hex.toString(16)} 的鋪面`).toBeDefined()
       const base = new Color().setHex(hex)
-      // 【取靠廠區中心的那一角】調車場貼著南緣，而廠界會咬進去三百多公尺 ——
-      // 取中點會取到過渡帶裡，那裡本來就混了田的顏色
-      const px = Math.min(Math.max(PLANT_CENTER.x, p!.x0 + 20), p!.x1 - 20)
-      const pz = Math.min(Math.max(PLANT_CENTER.z, p!.z0 + 20), p!.z1 - 20)
-      const got = siteSurfaceColor(px, pz, c, 'lateAutumn', LEUNA_SITE)
+      // 【取靠廠區中心的那一角】鋪面可能貼著廠界，而廠界會咬進去三百多公尺
+      // —— 取中點會取到過渡帶裡，那裡本來就混了田的顏色
+      const px = Math.min(Math.max(0, p!.x0 + 20), p!.x1 - 20)
+      const pz = Math.min(Math.max(0, p!.z0 + 20), p!.z1 - 20)
+      const w = W(px, pz)
+      const got = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
       // 倍率的上下界：0.86 × 0.74 × 0.96 = 0.611、1.06 × 1 × 1.04 = 1.102
       const k = got.r / base.r
       expect(k, `亮度倍率 ${k.toFixed(3)} 不在髒污的範圍內`).toBeGreaterThanOrEqual(0.61)
@@ -128,9 +143,9 @@ describe('墊面的髒污', () => {
       const seen = new Set<string>()
       for (let i = 0; i < 12; i++) {
         for (let j = 0; j < 12; j++) {
-          const x = p.x0 + ((p.x1 - p.x0) * (i + 0.5)) / 12
-          const z = p.z0 + ((p.z1 - p.z0) * (j + 0.5)) / 12
-          seen.add(siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE).getHexString())
+          const w = W(p.x0 + ((p.x1 - p.x0) * (i + 0.5)) / 12,
+            p.z0 + ((p.z1 - p.z0) * (j + 0.5)) / 12)
+          seen.add(siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE).getHexString())
         }
       }
       expect(seen.size, `${hex.toString(16)} 的鋪面只有 ${seen.size} 種顏色`)
@@ -148,9 +163,9 @@ describe('墊面的髒污', () => {
     let changes = 0
     let prev = ''
     for (let k = 0; k <= 20; k++) {
-      // 【要落在墊面內而且避開路與鐵路】墊面是 x ±750，路在 −420、鐵路在 0
-      const hex = siteSurfaceColor(PLANT_CENTER.x - 700 + k * 6, PLANT_CENTER.z - 300,
-        c, 'lateAutumn', LEUNA_SITE).getHexString()
+      // 【要落在墊面內而且避開路與鐵路】墊面是局部 x ±750，路在 −420、鐵路在 0
+      const w = W(-700 + k * 6, -300)
+      const hex = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE).getHexString()
       if (prev !== '' && hex !== prev) changes++
       prev = hex
     }
@@ -159,7 +174,8 @@ describe('墊面的髒污', () => {
 
   it('道路仍然壓過墊面與鋪面', () => {
     const c = new Color()
-    expect(siteSurfaceColor(PLANT_CENTER.x - 420, PLANT_CENTER.z, c, 'lateAutumn', LEUNA_SITE)
+    const w = W(-420, 0)
+    expect(siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
       .getHexString()).toBe('3f3d3a')
   })
 
@@ -180,15 +196,18 @@ describe('墊面的髒污', () => {
  * 淺灰矩形壓在深褐色的田上，是整幅畫面第一眼就抓到的東西。
  */
 describe('廠界不是一個矩形', () => {
-  /** 由外往內找第一個不再是純田色的 z，回傳離墊面外緣多深 */
-  function edgeDepth(x: number): number {
+  /**
+   * 由外往內找第一個不再是純田色的點，回傳離墊面北緣多深。
+   * **沿廠區局部座標的 z 走** —— 墊面是斜的，垂直往下量會斜切過邊界。
+   */
+  function edgeDepth(dx: number): number {
     const c = new Color()
     const f = new Color()
-    const z0 = PLANT_CENTER.z - PLANT_PAD.halfZ
-    for (let z = z0 - 240; z < PLANT_CENTER.z; z += 5) {
-      siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE)
-      fieldSurfaceColor(x, z, f, 'lateAutumn')
-      if (c.getHex() !== f.getHex()) return z - z0
+    for (let dz = -PLANT_PAD.halfZ - 240; dz < 0; dz += 5) {
+      const w = W(dx, dz)
+      siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
+      fieldSurfaceColor(w.x, w.z, f, 'lateAutumn')
+      if (c.getHex() !== f.getHex()) return dz + PLANT_PAD.halfZ + 240
     }
     return PLANT_PAD.halfZ
   }
@@ -200,7 +219,7 @@ describe('廠界不是一個矩形', () => {
    */
   it('北緣的邊界在 200 m 以上的範圍內游走', () => {
     const depths: number[] = []
-    for (let dx = -1200; dx <= 1200; dx += 40) depths.push(edgeDepth(PLANT_CENTER.x + dx))
+    for (let dx = -600; dx <= 600; dx += 20) depths.push(edgeDepth(dx))
     const span = Math.max(...depths) - Math.min(...depths)
     expect(span, `只游走 ${span.toFixed(0)} m`).toBeGreaterThanOrEqual(200)
   })
@@ -216,13 +235,14 @@ describe('廠界不是一個矩形', () => {
     expect(outposts, '洛伊納沒有衛星設施').toBeDefined()
     expect(outposts!.length).toBeGreaterThanOrEqual(4)
     for (const q of outposts!) {
-      const x = (q.x0 + q.x1) / 2
-      const z = (q.z0 + q.z1) / 2
-      const outside = Math.abs(x - PLANT_CENTER.x) > PLANT_PAD.halfX
-        || Math.abs(z - PLANT_CENTER.z) > PLANT_PAD.halfZ
-      expect(outside, `(${x.toFixed(0)}, ${z.toFixed(0)}) 在墊面裡`).toBe(true)
+      // 衛星設施與墊面都是廠區局部座標，直接比
+      const dx = (q.x0 + q.x1) / 2
+      const dz = (q.z0 + q.z1) / 2
+      const outside = Math.abs(dx) > PLANT_PAD.halfX || Math.abs(dz) > PLANT_PAD.halfZ
+      expect(outside, `(${dx.toFixed(0)}, ${dz.toFixed(0)}) 在墊面裡`).toBe(true)
       const base = new Color().setHex(q.hex)
-      const got = siteSurfaceColor(x, z, c, 'lateAutumn', LEUNA_SITE)
+      const w = W(dx, dz)
+      const got = siteSurfaceColor(w.x, w.z, c, 'lateAutumn', LEUNA_SITE)
       const k = got.r / base.r
       expect(k, `亮度倍率 ${k.toFixed(3)}`).toBeGreaterThanOrEqual(0.61)
       expect(k, `亮度倍率 ${k.toFixed(3)}`).toBeLessThanOrEqual(1.11)
