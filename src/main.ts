@@ -36,7 +36,7 @@ import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
-  DEBRIS_SMOKE_SIZE,
+  DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
 } from './render/smoke'
 import {
   createShipFires, lightShipFires, stepShipFires,
@@ -764,8 +764,15 @@ const POOLS = [
 
 /** 每一座冒煙的構件每秒幾顆蒸汽 */
 const STEAM_PER_SECOND = 6
-/** 蒸汽的水平初速上限，m/s。讓柱子歪一點，不是筆直的 */
-const STEAM_DRIFT = 1.5
+/**
+ * 蒸汽被吹斜的水平速度，m/s，與抖動的幅度。
+ *
+ * 【風向要固定】每一顆各抽一個方向的話，柱子是往四面散開的一叢；真的煙囪
+ * 是整片往同一邊斜。八根煙囪的斜度一致，才有「同一片天空」的感覺。
+ */
+const STEAM_WIND_X = 2.6
+const STEAM_WIND_Z = -1.4
+const STEAM_GUST = 0.7
 let steamAccum = 0
 let steamSeed = 0
 
@@ -786,10 +793,11 @@ function emitPlantSteam(frameSeconds: number): void {
     for (const p of PLANT_STACKS) {
       for (let k = 0; k < n; k++) {
         const s = (steamSeed = (steamSeed + 1) | 0)
-        const a = hash01(s * 3 + 1) * Math.PI * 2
-        const r = hash01(s * 3 + 2) * STEAM_DRIFT
+        const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
+        const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
         const ox = (hash01(s * 3 + 3) * 2 - 1) * 1.5
-        steam.emit(p.x + ox, p.y, p.z, Math.cos(a) * r, 0, Math.sin(a) * r, 1)
+        steam.emit(p.x + ox, p.y, p.z,
+          STEAM_WIND_X + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z + gz, 1)
       }
     }
   }
@@ -799,12 +807,13 @@ function emitPlantSteam(frameSeconds: number): void {
     if (id !== 'chimney' && id !== 'coolingTower') continue
     for (let k = 0; k < n; k++) {
       const s = (steamSeed = (steamSeed + 1) | 0)
-      const a = hash01(s * 3 + 1) * Math.PI * 2
-      const r = hash01(s * 3 + 2) * STEAM_DRIFT
+      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
+      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
       // 冷卻塔的頂寬，蒸汽從整個頂面冒；煙囪從一個點
       const spread = id === 'coolingTower' ? 8 : 1.5
       const ox = (hash01(s * 3 + 3) * 2 - 1) * spread
-      steam.emit(t.position.x + ox, t.impactY, t.position.z, Math.cos(a) * r, 0, Math.sin(a) * r, 1)
+      steam.emit(t.position.x + ox, t.impactY, t.position.z,
+        STEAM_WIND_X + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z + gz, 1)
     }
   }
 }

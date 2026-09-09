@@ -1,7 +1,11 @@
 import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
-import { createTerrain, type Terrain } from '../render/terrain'
+import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
+import { loadLeunaDem } from './leunaDem'
+import { buildRiverWater, loadLeunaRivers, riverLines } from './leunaRiver'
+import { buildBankGround, excludingCorridor, riverBankFlora } from './leunaBank'
+import type { FloraSource } from '../render/flora'
 import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
@@ -15,7 +19,7 @@ import type { TerrainKind } from '../world/terrainKind'
 import { createGroundModels } from '../render/groundTargets'
 import { preloadGroundModels } from '../render/geometry/ground'
 import { createGroundTarget, type GroundTarget } from '../world/groundTargets'
-import { FLAK_SITES, PLANT_CENTER, PLANT_HEADING, PLANT_LAYOUT } from '../world/leuna'
+import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
 
 /**
  * 時段展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -39,24 +43,53 @@ const ctx = createScene(canvas)
 // 【廠區的佈景是 GLB】切到洛伊納要先載完，`createTerrain` 是同步的
 await preloadPlantScenery()
 
+/**
+ * 展示區自己的地形清單：遊戲的四種，加一種只有這裡有的。
+ *
+ * 【`leuna-real` 不是 `TerrainKind`】把它加進那個聯集會讓遭遇戰、關卡卡片、
+ * 存檔全部看得到一個遊戲裡不存在的地形。展示區的分頁是展示區的事。
+ */
+type DemoTerrain = TerrainKind | 'leuna-real'
+
+// 【實測高程與河道先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
+const leunaRealField = await loadLeunaDem()
+const leunaLines = riverLines(leunaRealField, await loadLeunaRivers())
+const leunaWater = buildRiverWater(leunaLines)
+const leunaBank = buildBankGround(leunaRealField, leunaLines)
+/** 河廊：田的樹籬擋在河邊之外，再補一排河岸林 */
+const leunaFlora = (base: FloraSource[]): FloraSource[] =>
+  [...base.map((s) => excludingCorridor(s, leunaLines)), riverBankFlora(leunaLines)]
+
+leunaWater.visible = false
+leunaBank.visible = false
+ctx.scene.add(leunaBank)
+ctx.scene.add(leunaWater)
+
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
 
-function setTerrain(kind: TerrainKind): void {
+function setTerrain(kind: DemoTerrain): void {
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain(kind)
+  terrain = kind === 'leuna-real'
+    ? createLeunaTerrainWithField(leunaRealField, leunaFlora)
+    : createTerrain(kind)
   ctx.scene.add(terrain.object)
   // 【新的地形不知道現在是幾點】它剛建出來是正午 —— 少了這一行，切完地形
   // 天是黃昏而海是中午的藍
   terrain.setPalette(live)
+  const leuna = kind === 'leuna' || kind === 'leuna-real'
+  // 【水面掛在場景不掛在地形群組】地形群組的四個 child 位置是明文契約
+  // （`__gfx` 的消融表與另外兩支工具共用），塞第五個進去會動到那份契約
+  leunaWater.visible = kind === 'leuna-real'
+  leunaBank.visible = kind === 'leuna-real'
   // 內陸沒有海，船浮在田上很怪
-  const inland = kind === 'farmland' || kind === 'leuna'
+  const inland = kind === 'farmland' || leuna
   shipModels.object.visible = !inland
   // 【洛伊納把廠區擺上去】12 座構件與 8 座砲位，就是任務裡的那一份佈局；
   // 飛機停在投彈航路上 —— 地形、廠區、天色三者只有同時在畫面上才判斷得出來
-  plantModels.object.visible = kind === 'leuna'
-  if (kind === 'leuna') {
+  plantModels.object.visible = leuna
+  if (leuna) {
     plane.group.position.set(0, 4000, -3000)
     plane.group.quaternion.identity()
   } else {
@@ -65,13 +98,13 @@ function setTerrain(kind: TerrainKind): void {
     plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
   }
   placeCamera(kind)
-  // 【洛伊納的色盤是為十一月正午調的】切到它時段跟著切
-  if (kind === 'leuna') selectTod('novemberNoon')
+  // 【洛伊納的色盤是為深秋正午調的】切到它時段跟著切
+  if (leuna) selectTod('novemberNoon')
 }
 
 /** 內陸的視野要拉遠拉高才看得到田與樹的層次；洛伊納從廠區上空看投彈航路。 */
-function placeCamera(kind: TerrainKind): void {
-  if (kind === 'leuna') {
+function placeCamera(kind: DemoTerrain): void {
+  if (kind === 'leuna' || kind === 'leuna-real') {
     ctx.camera.position.set(0, 4600, -2500)
     controls.target.set(0, 0, -7000)
   } else if (kind === 'farmland') {
@@ -84,17 +117,30 @@ function placeCamera(kind: TerrainKind): void {
   controls.update()
 }
 
+/**
+ * 定格機位，給截圖用（`test/e2e/leuna-relief.e2e.ts`）。與 `main.ts` 的
+ * `__still` 同一個用途 —— 沒有它，展示區只能靠拖曳，兩張圖就沒得比。
+ */
+;(window as unknown as Record<string, unknown>)['__cam'] = (
+  x: number, y: number, z: number, tx: number, ty: number, tz: number,
+) => {
+  ctx.camera.position.set(x, y, z)
+  controls.target.set(tx, ty, tz)
+  controls.update()
+}
+
+/** 場景的檢查出口，給截圖腳本除錯用 */
+;(window as unknown as Record<string, unknown>)['__scene'] = () => ctx.scene
+
 await preloadShipModels(['wichita', 'fletcher'])
 await preloadAircraftModels()
 await preloadGroundModels()
 
 /** 洛伊納的廠區與砲位，照任務卡的佈局。墊面高度是 0，不必落地 */
 const plantTargets: GroundTarget[] = [
-  ...PLANT_LAYOUT.map((p, i) => createGroundTarget(
-    i, p.kind, 'red', PLANT_CENTER.x + p.dx, PLANT_CENTER.z + p.dz, PLANT_HEADING + p.heading,
-  )),
+  ...PLANT_TARGETS.map((p, i) => createGroundTarget(i, p.kind, 'red', p.x, p.z, p.heading)),
   ...FLAK_SITES.map((s, i) => createGroundTarget(
-    PLANT_LAYOUT.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
+    PLANT_TARGETS.length + i, 'flakHeavy', 'red', s.x, s.z, s.heading,
   )),
 ]
 const plantModels = createGroundModels(plantTargets)
@@ -284,14 +330,15 @@ function dump(): void {
 
 const terrainTabs = document.getElementById('terrain') as HTMLElement
 
-const TERRAINS: readonly { kind: TerrainKind, name: string }[] = [
+const TERRAINS: readonly { kind: DemoTerrain, name: string }[] = [
   { kind: 'sea', name: '海面' },
   { kind: 'archipelago', name: '群島' },
   { kind: 'farmland', name: '內陸' },
   { kind: 'leuna', name: '洛伊納' },
+  { kind: 'leuna-real', name: '洛伊納（實測高程）' },
 ]
 
-function selectTerrain(kind: TerrainKind): void {
+function selectTerrain(kind: DemoTerrain): void {
   setTerrain(kind)
   for (const b of Array.from(terrainTabs.children)) {
     b.classList.toggle('on', b.id === 'k-' + kind)

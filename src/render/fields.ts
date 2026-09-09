@@ -589,14 +589,30 @@ export const FIELD_GLSL = fieldGlsl('summer')
  * 起伏切；著色器吃世界座標，圖案本來就釘在地上。
  */
 export interface SiteLayout {
-  /** 墊面矩形，世界座標 */
+  /**
+   * 廠區局部座標系的原點，世界座標。省略時是 (0, 0)。
+   *
+   * 【`pad`／`patches`／`outposts` 全部活在局部系裡】它們仍然是軸對齊矩形，
+   * 只是先繞 `pivot` 轉了 `heading`。`roads`／`rails` 是例外 —— 那兩組一路
+   * 畫到地圖邊緣，寫的是世界座標。
+   */
+  readonly pivot?: { readonly x: number; readonly z: number }
+  /** 局部系相對世界的旋轉，弧度。省略或 0 時局部＝世界 */
+  readonly heading?: number
+  /** 墊面矩形，廠區局部座標 */
   readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+  /**
+   * 墊面之外還要這麼寬的一圈不長樹，m。省略時樹貼著墊面長。
+   *
+   * 【著色器不看它】只有散佈器用 —— 這一圈仍然是田色，只是沒有樹籬與樹林。
+   */
+  readonly treeClear?: number
   /** 道路的折線，世界座標 */
   readonly roads: readonly (readonly { readonly x: number; readonly z: number }[])[]
   /** 路寬，m */
   readonly roadWidth: number
   /**
-   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。世界座標。
+   * 換掉鋪面的矩形：調車場的碴石、留白街廓的裸土。廠區局部座標。
    *
    * 【壓在墊面之上、道路之下】次序在 `siteGlsl` 與 `siteSurfaceColor` 兩邊
    * 要一致，否則畫面上的路被碴石蓋掉，而小地圖取樣說它是柏油。
@@ -607,7 +623,7 @@ export interface SiteLayout {
     readonly hex: number
   }[]
   /**
-   * 牆外衛星設施的鋪面。世界座標，形狀與 `patches` 相同。
+   * 牆外衛星設施的鋪面。廠區局部座標，形狀與 `patches` 相同。
    *
    * 【為什麼不能併進 `patches`】`patches` 在過渡帶之前上色，越靠外越被混回
    * 田色 —— 而衛星設施整塊都在墊面外，併進去會被洗成一片田。這一層畫在
@@ -618,13 +634,19 @@ export interface SiteLayout {
     readonly x1: number; readonly z1: number
     readonly hex: number
   }[]
+  /**
+   * 鐵路的折線，世界座標。畫成碴石帶，壓在道路之下 —— 平交道上看得到的是
+   * 柏油。
+   */
+  readonly rails?: readonly (readonly { readonly x: number; readonly z: number }[])[]
+  /** 碴石帶的寬，m */
+  readonly railWidth?: number
 }
 
 const CONCRETE = 0x8d8a82
 const ASPHALT = 0x3f3d3a
-
-/** `siteSurfaceColor` 的暫存色。混色要兩個 Color，而它一秒可以被叫上萬次 */
-const SCRATCH = /* @__PURE__ */ new Color()
+/** 鐵路的碴石。與 `terrain.ts` 調車場街廓那一份同色 */
+const BALLAST = 0x5f5a52
 
 /**
  * 髒污碎花的格，m。小格是逐格的亮暗與油漬，大格是整片鋪面的深淺。
@@ -651,36 +673,61 @@ function grimeFactor(x: number, z: number): number {
 }
 
 /**
- * 廠界的兩層起伏：細的一層讓邊緣有鋸齒，粗的一層讓整條邊蜿蜒。
+ * 廠界的三層起伏。**邊界本身是硬的**，不規則靠的是這三個尺度疊起來。
  *
- * 【只有細的那一層不夠】110 m 的格咬 130 m，放在一條 3 km 的邊上是 4% 的
- * 相對振幅 —— 從投彈高度看仍然是一條直線加毛邊。粗的一層才把矩形變成
- * 不規則的形狀。
+ * - 細（22 m 的格咬 45 m）：鋸齒。這一層決定「這不是畫出來的線」
+ * - 中（110 m 咬 90 m）：一段一段的凹凸
+ * - 粗（450 m 咬 150 m）：整條邊蜿蜒，把矩形變成不規則的形狀
+ *
+ * 【三層都要】只有粗的話從投彈高度看是一條平滑的曲線；只有細的話，放在
+ * 一條 3 km 的邊上是 1.5% 的相對振幅 —— 仍然是一條直線加毛邊。
  */
+const FINE_CELL = 22
+const FINE_BITE = 45
 const EDGE_CELL = 110
-const EDGE_BITE = 120
+const EDGE_BITE = 90
 const COARSE_CELL = 450
-const COARSE_BITE = 200
+const COARSE_BITE = 150
 
 /**
- * 四個角斜切掉的兩條直角邊，佔墊面寬與深的比例。
+ * 咬痕的基線比墊面往外推這麼多，m。
+ *
+ * 【沒有它，邊緣的街廓會裸露在田上】三層咬痕加起來最深 285 m，而最外圈的
+ * 街廓離墊面邊只有 100 m —— 從墊面邊往內咬的話，整排廠房會站在田色的地上。
+ * 往外推之後咬痕在墊面外那一圈裡起伏，平均落在墊面外 40 m 左右。
+ */
+const PAD_SKIRT = 180
+
+/**
+ * 四個角斜切掉的兩條直角邊，m。次序是西北、東北、西南、東南。
+ *
+ * 【是長度不是比例】寫成墊面尺寸的比例會隨長寬比走樣：3000 × 1500 的墊面
+ * 轉成 1500 × 3000 之後，同一組比例把等邊三角形變成 1 : 4.4 的扁三角形 ——
+ * 斜邊幾乎平行長軸，畫面上是「工廠的長邊被斜著削掉一條」，比直角還顯眼。
  *
  * 【四個角要不一樣】一樣的話切完仍然是一個對稱的八邊形，那和矩形一樣好認。
  */
 const CORNER_CUTS: readonly (readonly [number, number])[] = [
-  [0.10, 0.20], [0.06, 0.13], [0.085, 0.175], [0.045, 0.20],
+  [300, 300], [180, 195], [255, 260], [135, 300],
 ]
 
+/** 四個角斜切各自的鹽。共用一個的話四條斜邊會咬出一樣的鋸齒 */
+const CORNER_SALT: readonly number[] = [1913, 5273, 8171, 3527]
+
 /**
- * 過渡帶的寬度，m。墊面之外這麼寬的一圈是擾動地 —— 碎石、堆土、雜草。
- *
- * 【比最深的一咬淺是刻意的】`EDGE_BITE + COARSE_BITE` 是 320 m，所以邊緣的
- * 街廓會有一小截設備站在帶子之外的田上。那正是廠區往外溢出去的樣子 ——
- * 帶子拉到蓋住整條咬痕的話，廠區周圍會多一圈一眼看得出來的灰邊。
+ * 斜切的早退餘裕，m。**要大於三層咬痕的總和**（285 m）—— 小了的話角落外側
+ * 那一段會被跳過，而那正是咬痕該把切線往內拉的地方。
  */
-const BAND = 170
-/** 擾動地的顏色：混凝土與田土之間 */
-const DISTURBED = 0x6a5f4c
+const CORNER_SLACK = 400
+
+/**
+ * 早退的外接盒要往外留這麼寬，m。**至少要蓋過 `PAD_SKIRT`** —— 邊界最外
+ * 就在墊面外 `PAD_SKIRT` 處，盒子縮進來的話那一圈會露出田色。
+ *
+ * 【不要放大】盒內每個像素都跑墊面那一整段算式。放到 400 量到 4 km 俯視的
+ * frame 由 0.9 ms 變 1.8 ms。
+ */
+const BAND = 220
 
 /**
  * 起伏的深度。**兩側加起來不得吃掉整塊墊面** —— 咬得比半邊長還深的話，
@@ -694,6 +741,10 @@ function coarseBite(pad: SiteLayout['pad']): number {
   return Math.min(COARSE_BITE, (pad.x1 - pad.x0) * 0.11, (pad.z1 - pad.z0) * 0.11)
 }
 
+function fineBite(pad: SiteLayout['pad']): number {
+  return Math.min(FINE_BITE, (pad.x1 - pad.x0) * 0.05, (pad.z1 - pad.z0) * 0.05)
+}
+
 /** 一個 0…1 的格值。四條邊各用自己的鹽，否則對邊會鏡射 */
 function edgeNoise(t: number, cell: number, salt: number): number {
   return (hash2(Math.floor(t / cell), salt) & 0xff) / 255
@@ -702,9 +753,9 @@ function edgeNoise(t: number, cell: number, salt: number): number {
 /**
  * 一點到墊面邊界的有號距離，m —— 負的在裡面、正的在外面。
  *
- * 【為什麼要距離而不是布林】過渡帶、邊緣壓暗、外圈的擾動地都要知道「離邊
- * 多遠」。取各條約束的最大違反量：軸對齊矩形的外側距離就是這樣算的，角落
- * 會略為低估，而那正好讓斜切角的帶子寬一點。
+ * 【為什麼要距離而不是布林】邊緣壓暗與抗鋸齒都要知道「離邊多遠」。取各條
+ * 約束的最大違反量：軸對齊矩形的外側距離就是這樣算的，角落會略為低估，
+ * 而那正好讓斜切角的邊柔一點。
  *
  * **GLSL 與 CPU 兩份要算出同一個答案** —— 分家的話畫面上的廠界與取樣到的
  * 顏色差一整條邊，而那只有在小地圖與畫面並排時才看得出來。
@@ -712,23 +763,42 @@ function edgeNoise(t: number, cell: number, salt: number): number {
 function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
   const b = edgeBite(pad)
   const c = coarseBite(pad)
+  const f = fineBite(pad)
   const inset = (t: number, s1: number, s2: number): number =>
-    edgeNoise(t, EDGE_CELL, s1) * b + edgeNoise(t, COARSE_CELL, s2) * c
-  const w = pad.x1 - pad.x0
-  const d = pad.z1 - pad.z0
+    edgeNoise(t, FINE_CELL, s1 ^ 0x5bd1) * f
+    + edgeNoise(t, EDGE_CELL, s1) * b
+    + edgeNoise(t, COARSE_CELL, s2) * c
+  const sx0 = pad.x0 - PAD_SKIRT
+  const sx1 = pad.x1 + PAD_SKIRT
+  const sz0 = pad.z0 - PAD_SKIRT
+  const sz1 = pad.z1 + PAD_SKIRT
+  const w = sx1 - sx0
+  const d = sz1 - sz0
   let out = Math.max(
-    pad.x0 + inset(z, 4517, 3313) - x,
-    x - (pad.x1 - inset(z, 2287, 6151)),
-    pad.z0 + inset(x, 9911, 8543) - z,
-    z - (pad.z1 - inset(x, 7331, 1697)),
+    sx0 + inset(z, 4517, 3313) - x,
+    x - (sx1 - inset(z, 2287, 6151)),
+    sz0 + inset(x, 9911, 8543) - z,
+    z - (sz1 - inset(x, 7331, 1697)),
   )
   for (let k = 0; k < 4; k++) {
-    const a = CORNER_CUTS[k]![0] * w
-    const e = CORNER_CUTS[k]![1] * d
-    const u = (k & 1) === 0 ? x - pad.x0 : pad.x1 - x
-    const v = k < 2 ? z - pad.z0 : pad.z1 - z
+    // 【夾住】兩個角的切在小墊面上會重疊，重疊之後整條邊都不見了
+    const a = Math.min(CORNER_CUTS[k]![0], w * 0.3)
+    const e = Math.min(CORNER_CUTS[k]![1], d * 0.3)
+    // 【四個角量的是外推後的矩形】拿沒外推的邊當基準的話，外推那一圈整個
+    // 落在斜切的外側 —— 角落會被削掉四百公尺，而且削出來的是一條直線
+    const u = (k & 1) === 0 ? x - sx0 : sx1 - x
+    const v = k < 2 ? z - sz0 : sz1 - z
+    // 【離角落夠遠就不必算】斜切的違反量在那裡已經比最深的一咬更負，加不加
+    // 咬痕都不會勝出。GLSL 那邊靠這一條省掉三次 hash —— 見 `CORNER_SLACK`
+    if (u * e + v * a >= a * e + CORNER_SLACK * e) continue
     // 違反量換算成垂直距離：法向量 (1/a, 1/e) 的長度倒數
-    out = Math.max(out, (1 - u / a - v / e) / Math.hypot(1 / a, 1 / e))
+    // 斜邊也吃同一組三層咬痕，參數是沿斜邊的座標 —— 少了它，四個角是四條
+    // 乾淨的斜直線，在投彈高度比矩形還好認
+    const t = (u * e - v * a) / Math.hypot(a, e)
+    out = Math.max(
+      out,
+      (1 - u / a - v / e) / Math.hypot(1 / a, 1 / e) + inset(t, CORNER_SALT[k]!, 6473 + k),
+    )
   }
   return out
 }
@@ -741,29 +811,40 @@ function padDistance(x: number, z: number, pad: SiteLayout['pad']): number {
  * 是田。少了這個外接矩形，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
  */
 function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1: number } {
-  const out = {
+  const local = {
     x0: site.pad.x0 - BAND, x1: site.pad.x1 + BAND,
     z0: site.pad.z0 - BAND, z1: site.pad.z1 + BAND,
   }
   for (const q of site.outposts ?? []) {
-    out.x0 = Math.min(out.x0, q.x0); out.x1 = Math.max(out.x1, q.x1)
-    out.z0 = Math.min(out.z0, q.z0); out.z1 = Math.max(out.z1, q.z1)
+    local.x0 = Math.min(local.x0, q.x0); local.x1 = Math.max(local.x1, q.x1)
+    local.z0 = Math.min(local.z0, q.z0); local.z1 = Math.max(local.z1, q.z1)
+  }
+  // 【轉過角度就要取四角的外接盒】早退的測試在世界座標做，直接把局部的邊界
+  // 當世界用的話，斜角那兩塊墊面會被擋在外面 —— 畫面上是廠區缺了兩個角
+  const c = Math.cos(site.heading ?? 0)
+  const s = Math.sin(site.heading ?? 0)
+  const px = site.pivot?.x ?? 0
+  const pz = site.pivot?.z ?? 0
+  const out = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity }
+  for (const [dx, dz] of [
+    [local.x0, local.z0], [local.x1, local.z0], [local.x1, local.z1], [local.x0, local.z1],
+  ] as const) {
+    const x = px + dx * c - dz * s
+    const z = pz + dx * s + dz * c
+    out.x0 = Math.min(out.x0, x); out.x1 = Math.max(out.x1, x)
+    out.z0 = Math.min(out.z0, z); out.z1 = Math.max(out.z1, z)
   }
   return out
 }
 
-/** 過渡帶在這一點多寬。**外緣也要碎** —— 等寬的一圈只是把矩形往外推 */
-function bandWidth(x: number, z: number): number {
-  const h = hash2(Math.floor(x / 260), Math.floor(z / 260))
-  return BAND * (0.6 + (0.4 * ((h >>> 9) & 0xff)) / 255)
-}
-
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
-function segmentsOf(site: SiteLayout): { ax: number; az: number; bx: number; bz: number }[] {
+function segmentsOf(
+  lines: readonly (readonly { readonly x: number; readonly z: number }[])[],
+): { ax: number; az: number; bx: number; bz: number }[] {
   const out: { ax: number; az: number; bx: number; bz: number }[] = []
-  for (const road of site.roads) {
-    for (let i = 0; i + 1 < road.length; i++) {
-      out.push({ ax: road[i]!.x, az: road[i]!.z, bx: road[i + 1]!.x, bz: road[i + 1]!.z })
+  for (const line of lines) {
+    for (let i = 0; i + 1 < line.length; i++) {
+      out.push({ ax: line[i]!.x, az: line[i]!.z, bx: line[i + 1]!.x, bz: line[i + 1]!.z })
     }
   }
   return out
@@ -784,26 +865,55 @@ function segmentDistance(x: number, z: number, ax: number, az: number, bx: numbe
  * 再鋪道路 —— 道路壓過墊面，墊面壓過田。
  */
 function siteGlsl(site: SiteLayout): string {
-  const segs = segmentsOf(site)
+  const segs = segmentsOf(site.roads)
+  const rail = segmentsOf(site.rails ?? [])
+  const railGlsl = rail.length === 0 ? '' : `
+  // 鐵路：碴石帶。與道路同一套距離場，只是另一組線段與另一個顏色
+  const vec4 RAILS[${rail.length}] = vec4[${rail.length}](
+${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
+    + `${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')}
+  );
+  float railD = 1.0e9;
+  for (int i = 0; i < ${rail.length}; i++) {
+    vec2 a = RAILS[i].xy;
+    vec2 b = RAILS[i].zw;
+    vec2 ab = b - a;
+    float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
+    railD = min(railD, length(world - (a + ab * t)));
+  }
+  col = mix(col, ${rgb(BALLAST)},
+    bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
   const B = edgeBite(site.pad).toFixed(1)
   const C = coarseBite(site.pad).toFixed(1)
+  const F = fineBite(site.pad).toFixed(1)
   const pad = site.pad
-  const W = pad.x1 - pad.x0
-  const D = pad.z1 - pad.z0
-  /** 與 `padDistance` 的 `inset()` 逐項對應 */
+  const sx0 = pad.x0 - PAD_SKIRT
+  const sx1 = pad.x1 + PAD_SKIRT
+  const sz0 = pad.z0 - PAD_SKIRT
+  const sz1 = pad.z1 + PAD_SKIRT
+  const W = sx1 - sx0
+  const D = sz1 - sz0
+  /** 與 `padDistance` 的 `inset()` 逐項對應 —— 三層都要，鹽也要一樣 */
   const inset = (axis: string, s1: number, s2: number): string =>
-    `float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
+    `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
+    + ` + float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
     + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
-  const corners = CORNER_CUTS.map(([fa, fe], k) => {
-    const a = fa * W
-    const e = fe * D
-    const u = (k & 1) === 0 ? `world.x - ${pad.x0.toFixed(1)}` : `${pad.x1.toFixed(1)} - world.x`
-    const v = k < 2 ? `world.y - ${pad.z0.toFixed(1)}` : `${pad.z1.toFixed(1)} - world.y`
+  const corners = CORNER_CUTS.map(([ca, ce], k) => {
+    // 【與 padDistance 的夾住逐項對應】
+    const a = Math.min(ca, W * 0.3)
+    const e = Math.min(ce, D * 0.3)
+    const u = (k & 1) === 0 ? `local.x - ${sx0.toFixed(1)}` : `${sx1.toFixed(1)} - local.x`
+    const v = k < 2 ? `local.y - ${sz0.toFixed(1)}` : `${sz1.toFixed(1)} - local.y`
     const norm = Math.hypot(1 / a, 1 / e)
-    return `  padD = max(padD, (1.0 - (${u}) / ${a.toFixed(1)} - (${v}) / ${e.toFixed(1)})`
-      + ` / ${norm.toFixed(8)});`
+    const len = Math.hypot(a, e)
+    return `  {\n    float cu = ${u};\n    float cv = ${v};\n`
+      + `    if (cu * ${e.toFixed(4)} + cv * ${a.toFixed(4)}`
+      + ` < ${(a * e + CORNER_SLACK * e).toFixed(1)}) {\n`
+      + `      float ct = (cu * ${e.toFixed(4)} - cv * ${a.toFixed(4)}) / ${len.toFixed(6)};\n`
+      + `      padD = max(padD, (1.0 - cu / ${a.toFixed(1)} - cv / ${e.toFixed(1)})`
+      + ` / ${norm.toFixed(8)}\n        + ${inset('ct', CORNER_SALT[k]!, 6473 + k)});\n    }\n  }`
   }).join('\n')
   /** 一組矩形＋色相攤成 GLSL 的兩張表加一個迴圈 */
   const rectsGlsl = (
@@ -817,8 +927,8 @@ ${rs.map((p) => `  vec4(${p.x0.toFixed(1)}, ${p.z0.toFixed(1)}, `
 ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   );
   for (int i = 0; i < ${rs.length}; i++) {
-    if (world.x >= ${name}[i].x && world.x < ${name}[i].z
-        && world.y >= ${name}[i].y && world.y < ${name}[i].w) {
+    if (local.x >= ${name}[i].x && local.x < ${name}[i].z
+        && local.y >= ${name}[i].y && local.y < ${name}[i].w) {
       ${assign.replace('$', `${name}_HUE[i]`)}
     }
   }`
@@ -833,13 +943,21 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   // 道路留在外面：連外那兩條一路畫到地圖邊緣
   if (world.x > ${near.x0.toFixed(1)} && world.x < ${near.x1.toFixed(1)}
       && world.y > ${near.z0.toFixed(1)} && world.y < ${near.z1.toFixed(1)}) {
+  // 【底下這一段全部在廠區局部座標】墊面轉了 ${((site.heading ?? 0) * 180 / Math.PI).toFixed(1)} 度，
+  // 而墊面／鋪面／衛星設施都是軸對齊矩形 —— 轉一次座標比把四個不等式改成
+  // 一般多邊形便宜得多。髒污也吃局部座標，碎花才跟著廠區的方向走
+  vec2 rel = world - vec2(${(site.pivot?.x ?? 0).toFixed(1)}, ${(site.pivot?.z ?? 0).toFixed(1)});
+  vec2 local = vec2(rel.x * ${Math.cos(site.heading ?? 0).toFixed(8)}
+                    + rel.y * ${Math.sin(site.heading ?? 0).toFixed(8)},
+                    -rel.x * ${Math.sin(site.heading ?? 0).toFixed(8)}
+                    + rel.y * ${Math.cos(site.heading ?? 0).toFixed(8)});
   // 髒污：${SLAB_CELL.toFixed(0)} m 的鋪面塊疊 ${GRIME_CELL.toFixed(0)} m 的油漬與微亮暗。
   // 墊面與鋪面共用，所以碴石與裸土也是同色系的碎花而不是一整塊平色
   //
   // 【油漬要是塊狀的】邊界不平滑是刻意的：低多邊形的髒就是一塊一塊的
-  uint sgP = fieldHash2(int(floor(world.x / ${GRIME_CELL}.0)), int(floor(world.y / ${GRIME_CELL}.0)));
-  uint sgS = fieldHash2(int(floor(world.x / ${SLAB_CELL}.0)) + 7919,
-                        int(floor(world.y / ${SLAB_CELL}.0)) - 104729);
+  uint sgP = fieldHash2(int(floor(local.x / ${GRIME_CELL}.0)), int(floor(local.y / ${GRIME_CELL}.0)));
+  uint sgS = fieldHash2(int(floor(local.x / ${SLAB_CELL}.0)) + 7919,
+                        int(floor(local.y / ${SLAB_CELL}.0)) - 104729);
   uint sgO = fieldHash1(sgP);
   float siteGrime = (0.86 + 0.2 * float((sgS >> 8) & 0x7u) / 7.0)
     * ((sgO & 0xffu) < 46u ? 0.74 : 1.0)
@@ -851,25 +969,27 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
   float padD = max(
-    max(${pad.x0.toFixed(1)} + ${inset('world.y', 4517, 3313)} - world.x,
-        world.x - (${pad.x1.toFixed(1)} - (${inset('world.y', 2287, 6151)}))),
-    max(${pad.z0.toFixed(1)} + ${inset('world.x', 9911, 8543)} - world.y,
-        world.y - (${pad.z1.toFixed(1)} - (${inset('world.x', 7331, 1697)}))));
+    max(${sx0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
+        local.x - (${sx1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
+    max(${sz0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
+        local.y - (${sz1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
 ${corners}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
   // 把那一階削掉一截
-  float padDark = mix(0.90, 1.0, clamp(-padD / 150.0, 0.0, 1.0));
+  float padDark = mix(0.90, 1.0, clamp(-padD / ${(PAD_SKIRT * 2).toFixed(1)}, 0.0, 1.0));
   vec3 siteCol = ${rgb(CONCRETE)} * siteGrime * padDark;
 ${patchGlsl}
-  // 【過渡帶】墊面外 ${BAND.toFixed(0)} m 是擾動地：碎石、堆土、雜草。廠區與田之間
-  // 不是一條線而是一條帶 —— 這是高空看下去最有效的一招，眼睛抓的是階梯
-  float bandH = float((fieldHash2(int(floor(world.x / 260.0)), int(floor(world.y / 260.0))) >> 9) & 0xffu) / 255.0;
-  float padT = clamp(padD / (${BAND.toFixed(1)} * (0.6 + 0.4 * bandH)), 0.0, 1.0);
-  col = mix(mix(siteCol, ${rgb(DISTURBED)} * siteGrime, min(1.0, padT * 2.2)), col, padT * padT);
+  // 【邊界是硬的】墊面外沒有過渡帶：一圈把混凝土混回田色的帶子，從投彈高度
+  // 看是「一半工廠一半田」的暈。不規則靠的是 padD 裡疊的三層咬痕，不是混色。
+  //
+  // 【這一像素的柔化只為了抗鋸齒】寬度就是像素在地面上的足跡 —— 拉寬就變回
+  // 過渡帶了
+  col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
 ${outpostGlsl}
   }
-  // 道路：離任一條線段小於半寬
+${railGlsl}
+  // 道路：離任一條線段小於半寬。**畫在鐵路之後** —— 平交道上看得到的是柏油
   const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
 ${list}
   );
@@ -900,32 +1020,42 @@ export function siteSurfaceColor(
   x: number, z: number, out: Color, season: Season, site?: SiteLayout,
 ): Color {
   if (site !== undefined) {
-    for (const s of segmentsOf(site)) {
+    for (const s of segmentsOf(site.roads)) {
       if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < site.roadWidth / 2) return out.setHex(ASPHALT)
+    }
+    for (const s of segmentsOf(site.rails ?? [])) {
+      if (segmentDistance(x, z, s.ax, s.az, s.bx, s.bz) < (site.railWidth ?? 24) / 2) {
+        return out.setHex(BALLAST)
+      }
     }
     // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
     const near = siteBounds(site)
     if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
       return fieldSurfaceColor(x, z, out, season)
     }
+    // 【與 `siteGlsl` 一樣，底下全部在廠區局部座標】髒污也是
+    const c = Math.cos(site.heading ?? 0)
+    const sn = Math.sin(site.heading ?? 0)
+    const rx = x - (site.pivot?.x ?? 0)
+    const rz = z - (site.pivot?.z ?? 0)
+    const lx = rx * c + rz * sn
+    const lz = -rx * sn + rz * c
     for (const q of site.outposts ?? []) {
-      if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) {
-        return out.setHex(q.hex).multiplyScalar(grimeFactor(x, z))
+      if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) {
+        return out.setHex(q.hex).multiplyScalar(grimeFactor(lx, lz))
       }
     }
-    const d = padDistance(x, z, site.pad)
-    const t = Math.min(1, Math.max(0, d / bandWidth(x, z)))
-    if (t < 1) {
-      // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗 → 過渡帶，次序一致
+    // 【邊界是硬的】著色器那邊只有一像素的柔化，而它是為了抗鋸齒；取樣沒有
+    // 像素，直接切
+    const d = padDistance(lx, lz, site.pad)
+    if (d < 0) {
+      // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗，次序一致
       let hex = CONCRETE
       for (const q of site.patches ?? []) {
-        if (x >= q.x0 && x < q.x1 && z >= q.z0 && z < q.z1) hex = q.hex
+        if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) hex = q.hex
       }
-      const g = grimeFactor(x, z)
-      const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / 150))
-      out.setHex(hex).multiplyScalar(g * dark)
-      out.lerp(SCRATCH.setHex(DISTURBED).multiplyScalar(g), Math.min(1, t * 2.2))
-      return out.lerp(fieldSurfaceColor(x, z, SCRATCH, season), t * t)
+      const dark = 0.9 + 0.1 * Math.min(1, Math.max(0, -d / (PAD_SKIRT * 2)))
+      return out.setHex(hex).multiplyScalar(grimeFactor(lx, lz) * dark)
     }
   }
   return fieldSurfaceColor(x, z, out, season)

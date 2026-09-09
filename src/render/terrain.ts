@@ -10,11 +10,13 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora, islandCanopyCover,
+  type FloraSource,
 } from './flora'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
-  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_PAD, PLANT_SATELLITES, ROAD_WIDTH, ROADS,
+  createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
+  PLANT_TREE_CLEAR, RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
@@ -230,12 +232,17 @@ const OUTPOST_SLAB = 0x807d76
  * 混凝土不同，整片廠區才不是一張均質的灰。
  */
 export const LEUNA_SITE: SiteLayout = {
+  pivot: { x: PLANT_CENTER.x, z: PLANT_CENTER.z },
+  heading: PLANT_HEADING,
   pad: {
-    x0: PLANT_CENTER.x - PLANT_PAD.halfX, z0: PLANT_CENTER.z - PLANT_PAD.halfZ,
-    x1: PLANT_CENTER.x + PLANT_PAD.halfX, z1: PLANT_CENTER.z + PLANT_PAD.halfZ,
+    x0: -PLANT_PAD.halfX, z0: -PLANT_PAD.halfZ,
+    x1: PLANT_PAD.halfX, z1: PLANT_PAD.halfZ,
   },
+  treeClear: PLANT_TREE_CLEAR,
   roads: ROADS,
   roadWidth: ROAD_WIDTH,
+  rails: RAILS,
+  railWidth: RAIL_WIDTH,
   patches: PLANT_BLOCKS
     .filter((b) => b.kind === 'railyard' || b.kind === 'open')
     .map((b) => ({
@@ -243,8 +250,8 @@ export const LEUNA_SITE: SiteLayout = {
       hex: b.kind === 'railyard' ? BALLAST : BARE_EARTH,
     })),
   outposts: PLANT_SATELLITES.map((s) => ({
-    x0: PLANT_CENTER.x + s.dx - s.w / 2, x1: PLANT_CENTER.x + s.dx + s.w / 2,
-    z0: PLANT_CENTER.z + s.dz - s.d / 2, z1: PLANT_CENTER.z + s.dz + s.d / 2,
+    x0: s.dx - s.w / 2, x1: s.dx + s.w / 2,
+    z0: s.dz - s.d / 2, z1: s.dz + s.d / 2,
     hex: OUTPOST_SLAB,
   })),
 }
@@ -255,12 +262,32 @@ function createLeunaTerrain(): Terrain {
 }
 
 /**
+ * 洛伊納，但高度場由外面給。**只有展示區在用**（`tools/leunaDem.ts` 的實測
+ * 高程）—— 遊戲的 `createTerrain('leuna')` 走的仍然是手擺丘陵那一條。
+ *
+ * 【丘陵清單給空的】`createInlandTerrain` 只讀 `field`；`hills` 是給 AI 避障
+ * 與世界層用的，而展示區沒有 AI。
+ */
+export function createLeunaTerrainWithField(
+  field: HeightFieldData, flora?: (base: FloraSource[]) => FloraSource[],
+): Terrain {
+  return createInlandTerrain(
+    { field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery, flora,
+  )
+}
+
+/**
  * 內陸地形的共用算繪：田區、遠景環、三種散佈器。農地與洛伊納只差高度場、
  * 丘陵與季節；洛伊納另有廠區（墊面不長樹、地面是混凝土）與一顆佈景網格。
  */
 function createInlandTerrain(
   farm: { field: HeightFieldData; hills: IslandDesc[] }, season: Season,
   site?: SiteLayout, scenery?: () => BufferGeometry,
+  /**
+   * 改寫散佈器的清單。**只有展示區在用**（河廊要擋掉樹籬、再加一排河岸林）
+   * —— 遊戲那三條路徑都不給，行為逐字不變。
+   */
+  flora?: (base: FloraSource[]) => FloraSource[],
 ): Terrain {
   const horizon = createFarHorizon(season, site)
   const ground = createFarmGround(farm.field, season, site)
@@ -268,16 +295,25 @@ function createInlandTerrain(
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
   const solid = outsideZero(farm.field)
-  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變
-  const sources = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
-    .map((s) => (site === undefined ? s : excluding(s, site.pad)))
-  const flora = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
+  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變。
+  // 墊面是廠區局部座標，樞紐與朝向要一起傳
+  const base = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
+    .map((s) => (site === undefined
+      ? s
+      : excluding(s, {
+        x0: site.pad.x0 - (site.treeClear ?? 0), x1: site.pad.x1 + (site.treeClear ?? 0),
+        z0: site.pad.z0 - (site.treeClear ?? 0), z1: site.pad.z1 + (site.treeClear ?? 0),
+        ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
+        ...(site.heading === undefined ? {} : { heading: site.heading }),
+      })))
+  const sources = flora === undefined ? base : flora(base)
+  const vegetation = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
   // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被；有佈景的話是第 5 個
   group.add(horizon.mesh)
   group.add(new Group())
   group.add(ground.object)
-  group.add(flora.object)
+  group.add(vegetation.object)
   let sceneryMesh: Mesh | null = null
   if (scenery !== undefined) {
     const material = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 })
@@ -293,16 +329,16 @@ function createInlandTerrain(
     waterAt: () => -Infinity,
     // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就
     // 變暗；要補的只有吃不到光的點池
-    setPalette(p) { flora.setPointLight(p.foliage) },
+    setPalette(p) { vegetation.setPointLight(p.foliage) },
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
     // 【遠景環與地面是固定的】只有植被要跟著鏡頭補格
-    update(_time, centerX, centerZ) { flora.update(centerX, centerZ) },
-    settle() { flora.settle() },
+    update(_time, centerX, centerZ) { vegetation.update(centerX, centerZ) },
+    settle() { vegetation.settle() },
     dispose() {
       horizon.dispose()
       ground.dispose()
-      flora.dispose()
+      vegetation.dispose()
       if (sceneryMesh !== null) {
         sceneryMesh.geometry.dispose()
         ;(sceneryMesh.material as MeshStandardMaterial).dispose()

@@ -14,7 +14,7 @@
  * 軟體算圖，不是玩家機器上的編譯器）；飛機與粒子關掉。
  */
 import { chromium, type Page } from 'playwright'
-import { PLANT_CENTER } from '../../src/world/leuna'
+import { PLANT_HEADING, plantToWorld } from '../../src/world/leuna'
 
 /** 【要與上面那一行的 --port 對上】vite 在指定埠被佔時會自己往上找 */
 const URL = 'http://localhost:5190/'
@@ -24,12 +24,18 @@ const ROOT = 'C:/Users/weiwe/AppData/Local/Temp/claude/'
 
 interface View {
   readonly name: string
+  /** 相對廠區長軸的偏航，度。0 = 沿著廠區往北看 */
   readonly yaw: number
   readonly pitch: number
   readonly alt: number
-  /** 相對廠區中心的偏移，m */
+  /**
+   * 機位。預設是**廠區局部座標**（跟著 `PLANT_HEADING` 轉）—— 構件、街廓、
+   * 墊面都活在那個系裡，用世界偏移擺鏡位會隨著朝向改變而全部失準。
+   */
   readonly dx: number
   readonly dz: number
+  /** 機位改吃世界座標。給墊面外的東西用，那些不跟著廠區轉 */
+  readonly world?: true
   readonly desc: string
 }
 
@@ -55,25 +61,29 @@ const VIEWS: readonly View[] = [
     desc: '200 m 貼地 —— 地面雜物與管線網撐不撐得住',
   },
   {
-    name: 'railyard', yaw: 0, pitch: -45, alt: 800, dx: 750, dz: 1350,
-    desc: '調車場 800 m —— 股道、龍門吊、堆料',
+    name: 'railyard', yaw: 0, pitch: -45, alt: 800, dx: 190, dz: 50,
+    desc: '調車場 800 m —— 骨幹、股道、龍門吊、堆料',
+  },
+  {
+    name: 'crossing', yaw: 0, pitch: -35, alt: 400, dx: -85, dz: -4200, world: true,
+    desc: '廠外平交道 400 m —— 南門公路與連外鐵路交會',
   },
   // 四群可炸構件。【機位要在目標南邊】yaw 0 是往 −Z 看，相機得站在目標的
   // +Z 那一側。每一群都要看「構件與周圍的佈景是不是同一種工廠」
   {
-    name: 'grp-hydro', yaw: 0, pitch: -22, alt: 320, dx: -850, dz: -140,
-    desc: '西北　氫化群（氫化塔 ×3，製程區）',
+    name: 'grp-hydro', yaw: 0, pitch: -22, alt: 320, dx: -210, dz: -460,
+    desc: '北　　氫化群（氫化塔 ×3，製程區）',
   },
   {
-    name: 'grp-power', yaw: 0, pitch: -22, alt: 320, dx: -1300, dz: 570,
-    desc: '西南　動力群（鍋爐房 ×2 ＋煙囪，公用區）',
+    name: 'grp-power', yaw: 0, pitch: -22, alt: 320, dx: 580, dz: 1635,
+    desc: '東南　動力群（鍋爐房 ×2 ＋煙囪，公用區）',
   },
   {
-    name: 'grp-cool', yaw: 0, pitch: -22, alt: 320, dx: 250, dz: 600,
-    desc: '中東　汽電群（冷卻塔＋氣櫃＋煙囪，公用區）',
+    name: 'grp-cool', yaw: 0, pitch: -22, alt: 320, dx: -590, dz: 460,
+    desc: '西中　汽電群（冷卻塔＋氣櫃＋煙囪，公用區）',
   },
   {
-    name: 'grp-tanks', yaw: 0, pitch: -22, alt: 320, dx: 1160, dz: -160,
+    name: 'grp-tanks', yaw: 0, pitch: -22, alt: 320, dx: 560, dz: -485,
     desc: '東北　儲槽群（儲油槽 ×3，儲槽區）',
   },
 ]
@@ -105,10 +115,19 @@ async function main(): Promise<void> {
       (window as unknown as Record<string, (p: Record<string, boolean>) => unknown>)['__gfx']!(
         { aircraft: false, particles: false, tracers: false, propDisc: false, vortex: false }))
 
+    const at = { x: 0, z: 0 }
     for (const v of VIEWS) {
+      if (v.world === true) {
+        at.x = v.dx
+        at.z = v.dz
+      } else {
+        plantToWorld(v.dx, v.dz, at)
+      }
+      // 【yaw 要扣掉廠區的朝向】yaw 正是往西轉，而廠區的北端偏西
+      const yaw = v.yaw - (PLANT_HEADING * 180) / Math.PI
       await page.evaluate((q: readonly number[]) =>
         (window as unknown as Record<string, (...r: number[]) => unknown>)['__still']!(...q),
-      [v.yaw, v.pitch, v.alt, 12, PLANT_CENTER.x + v.dx, PLANT_CENTER.z + v.dz])
+      [yaw, v.pitch, v.alt, 12, at.x, at.z])
       await page.waitForTimeout(1500)
       await page.screenshot({ path: `${ROOT}/leuna-${v.name}.png` })
       console.log(`  ${v.name.padEnd(10)} ${v.desc}`)

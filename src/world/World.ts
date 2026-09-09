@@ -1442,9 +1442,12 @@ export class World {
         this.bombShip = sh
       }
     }
-    // 【炸毀的不擋】與沉船相反：炸毀的構件換成矮一截的殘骸（`render/`），
-    // 命中盒還是原來那一個的話，炸彈會在殘骸上方的空氣裡引爆。子彈那一條
-    // 也是死了就不擋（`resolveHits`），兩邊一致
+    // 【炸毀的不擋】與沉船相反。子彈那一條也是死了就不擋（`resolveHits`），
+    // 兩邊一致。
+    //
+    // **代價**：炸毀的構件不換模型（`render/groundTargets.ts`），所以一根
+    // 燒黑的煙囪還立在那裡而後續的炸彈會穿過去在地上爆。要改的話是把這裡
+    // 的 `alive` 判斷拿掉，代價是投在死目標上的彈會白白引爆
     for (let i = 0; i < this.groundTargets.length; i++) {
       const g = this.groundTargets[i]!
       if (!g.alive) continue
