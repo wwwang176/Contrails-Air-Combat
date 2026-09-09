@@ -108,6 +108,8 @@ export interface GlbTemplate {
   wingTip: Vector3
   /** 見 `GlbAircraft.bombPoint`。`null` = 這一台掛不了彈 */
   bombPoint: Vector3 | null
+  /** 每一具槳轂的位置，機體座標。見 `AircraftModel.enginePoints` */
+  enginePoints: Vector3[]
   /** 樣板自己持有的 GPU 資源。整局結束才需要放。 */
   dispose(): void
 }
@@ -278,8 +280,24 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     eyePoint: def.eyePoint.clone(),
     wingTip: def.wingTip.clone(),
     bombPoint: def.bombPoint === null ? null : def.bombPoint.clone(),
+    // 【從場景圖量，不從 `def` 抄】槳轂掛在 `hull` 底下，而 `hull` 相對
+    // `group` 帶著重心位移。抄 `def.hubZ` 會少掉那一段，火點就偏了。
+    // 【在樣板上量一次】每一架複本的槳轂位置都相同，逐架重算是白費
+    enginePoints: hubPoints(group),
     dispose() { for (const d of owned) d.dispose() },
   }
+}
+
+/**
+ * 場景圖裡每一個螺旋槳轉軸的位置，**`group` 的區域座標**。
+ * 呼叫端要先 `group.updateMatrixWorld(true)`。
+ */
+function hubPoints(group: Group): Vector3[] {
+  const out: Vector3[] = []
+  group.traverse((o) => {
+    if (o.userData['propHub']) out.push(group.worldToLocal(o.getWorldPosition(new Vector3())))
+  })
+  return out
 }
 
 /**
@@ -355,6 +373,8 @@ export function buildFromTemplate(t: GlbTemplate): AircraftModel {
     eyePoint: t.eyePoint.clone(),
     wingTip: t.wingTip.clone(),
     bombPoint: t.bombPoint === null ? null : t.bombPoint.clone(),
+    // 【複製而不是共用】殘骸那一層只讀不寫，但共用一份可變向量是等著出事
+    enginePoints: t.enginePoints.map((p) => p.clone()),
     setPropSpin(r, b) {
       for (const p of props) {
         p.hub.rotation.z = r

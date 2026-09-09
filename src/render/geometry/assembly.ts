@@ -70,6 +70,14 @@ export interface AircraftModel {
    * 重匯來源。
    */
   bombPoint: Vector3 | null
+  /**
+   * 每一具引擎的位置，**機體座標**。單發機一個、四發機四個，順序即
+   * `props` 的順序。
+   *
+   * 【取的是槳轂】引擎本體在整流罩裡，模型上標得出來的只有槳轂 —— 差幾十
+   * 公分，對一團火來說沒有分別。殘骸的燃燒（`render/wrecks.ts`）長在這裡。
+   */
+  enginePoints: readonly Vector3[]
   /** rotation 為累積弧度；blurred 為 true 時切換為半透明圓盤 */
   setPropSpin(rotation: number, blurred: boolean): void
   dispose(): void
@@ -751,6 +759,7 @@ export function createHull(spec: HullSpec) {
         // 【程式版一律掛不了彈】三台轟炸機都走 GLB（`GLB_MODELS` 先於
         // `BUILDERS`），這條路只是重匯來源
         bombPoint: null,
+        enginePoints: props.map((p) => group.worldToLocal(p.hub.getWorldPosition(new Vector3()))),
         metrics: {
           realLength: spec.realLength, noseZ,
           noseY: (noseLo + noseHi) / 2,
