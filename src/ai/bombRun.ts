@@ -82,9 +82,19 @@ export { deckHeightOf }
  * **起始值，由試飛裁定。**
  */
 export const RELEASE_HULLS = 1.5
+/**
+ * 橫過船身那一軸的倍率，**比沿船身寬**。
+ *
+ * 【為什麼橫向要更寬】正橫進場的落點掃過的是船身的短邊：Essex 半寬 14 m，
+ * 1.5 倍只有 ±21 m，落點一拍走十幾公尺，側翼批次常常整趟扣不到扳機。
+ * 沿船身那一軸有幾百公尺，放寬只會讓每一顆更早出手。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const RELEASE_ACROSS_HULLS = 2
 
 /**
- * 釋放窗的半長與半寬，m。**沿船身與橫過船身各一個。**
+ * 釋放窗的半長與半寬，m。**沿船身與橫過船身各一個倍率。**
  *
  * 【為什麼不是一個半徑】艦體細長：弗萊徹半長 57.4 m 對半寬 6.04 m，差
  * 9.5 倍。用一個圓去比的話，取大的會投一堆從船頭前面擦過去的彈，取小的則
@@ -94,11 +104,11 @@ export const RELEASE_HULLS = 1.5
  * 取極值會讓窗橫向放大 51%。
  */
 export function releaseWindowOf(
-  boxes: readonly Box[], hulls = RELEASE_HULLS,
+  boxes: readonly Box[], along = RELEASE_HULLS, across = RELEASE_ACROSS_HULLS,
 ): { along: number, across: number } {
   const hull = boxes[0]
   if (hull === undefined) return { along: 0, across: 0 }
-  return { along: hull.half.z * hulls, across: hull.half.x * hulls }
+  return { along: hull.half.z * along, across: hull.half.x * across }
 }
 
 /**
@@ -106,7 +116,8 @@ export function releaseWindowOf(
  *
  * @param ex 落點 − 船屆時的位置，世界座標的 x 分量
  * @param ez 同上的 z 分量
- * @param hulls 窗是艦體的幾倍。**轟炸與雷擊各有自己的值**
+ * @param alongHulls 沿船身的窗是艦體的幾倍。**轟炸與雷擊各有自己的值**
+ * @param acrossHulls 橫過船身的窗是艦體的幾倍。轟炸比沿船身寬，雷擊兩軸相同
  *
  * 【為什麼要拆進體軸】船是斜的時候，世界座標的差向量沒有意義 —— 沿船身
  * 差 50 m 仍然在船上，橫過船身差 50 m 早就落海了。
@@ -114,15 +125,16 @@ export function releaseWindowOf(
  * 熱路徑（決策拍）：不配置。
  */
 export function insideWindow(
-  target: StrikeTarget, ex: number, ez: number, hulls = RELEASE_HULLS,
+  target: StrikeTarget, ex: number, ez: number,
+  alongHulls = RELEASE_HULLS, acrossHulls = RELEASE_ACROSS_HULLS,
 ): boolean {
   const dir = S.v[1]!.set(0, 0, -1).applyQuaternion(target.orientation)
   const along = ex * dir.x + ez * dir.z
   const across = ex * dir.z - ez * dir.x
   const hull = target.hull[0]
   if (hull === undefined) return false
-  return Math.abs(along) <= hull.half.z * hulls
-    && Math.abs(across) <= hull.half.x * hulls
+  return Math.abs(along) <= hull.half.z * alongHulls
+    && Math.abs(across) <= hull.half.x * acrossHulls
 }
 
 /**
