@@ -178,13 +178,15 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     fogDensity: 2.2e-5,
   },
   /**
-   * 1944 年 11 月的正午：51°N 的太陽仰角只有二十幾度、天色灰白、遠處泛霧。
+   * 深秋的正午：51°N 的十一月，太陽仰角只有二十幾度、天色灰白、遠處泛霧。
    * 洛伊納（`world/leuna.ts`）的色盤是為它調的。海色照抄正午 —— 內陸用不到。
    * **起始值，拿眼睛校。**
+   *
+   * 【`name` 與其他四個時段一樣是四個字以內】展示區的分頁窄，更長的會直排。
    */
   novemberNoon: {
     id: 'novemberNoon',
-    name: '十一月正午',
+    name: '秋天正午',
     skyHorizon: 0xd9d9d6,
     skyZenith: 0x7f93a8,
     skyPower: 0.9,

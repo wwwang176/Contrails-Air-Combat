@@ -98,7 +98,7 @@ function setTerrain(kind: DemoTerrain): void {
     plane.group.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), 0.55)
   }
   placeCamera(kind)
-  // 【洛伊納的色盤是為十一月正午調的】切到它時段跟著切
+  // 【洛伊納的色盤是為深秋正午調的】切到它時段跟著切
   if (leuna) selectTod('novemberNoon')
 }
 
