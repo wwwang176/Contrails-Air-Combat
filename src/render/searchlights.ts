@@ -37,13 +37,6 @@ export const SEARCHLIGHT_RANGE = GROUND_FLAK_SPEC.muzzleVelocity * GROUND_FLAK_S
 const SLEW_RATE = 40 * Math.PI / 180
 /** 圓柱的分段 —— 光柱不需要圓，八段就夠 */
 const SEGMENTS = 8
-/**
- * 眩光：光束掃到鏡頭時燈座上炸開的十字白光。角度差在 `GLARE_FULL` 內全亮、
- * 到 `GLARE_OFF` 淡到 0（rad）。光柱的張角只有 0.28°，眩光要寬得多，
- * 掃過去才看得到它閃一下。
- */
-const GLARE_FULL = 0.6 * Math.PI / 180
-const GLARE_OFF = 5 * Math.PI / 180
 /** 眩光在畫面上的視角大小，rad：貼圖的邊長 = 距離 × 它 */
 const GLARE_ANGULAR_SIZE = 0.16
 
@@ -59,13 +52,21 @@ export function aimAngles(
   out.pitch = Math.atan2(dy, Math.hypot(dx, dz))
 }
 
-/** 光束方向與「燈到鏡頭」方向的夾角餘弦 → 眩光強度 0…1 */
-export function glareStrength(cosAngle: number): number {
-  const a = Math.acos(Math.min(1, Math.max(-1, cosAngle)))
-  if (a <= GLARE_FULL) return 1
-  if (a >= GLARE_OFF) return 0
-  const t = (a - GLARE_FULL) / (GLARE_OFF - GLARE_FULL)
-  return 1 - t * t
+/** 光柱在離燈座 `axial` 公尺處的半徑：底 `BEAM_BOTTOM`、頂 `BEAM_TOP` 之間線性 */
+export function beamRadiusAt(axial: number): number {
+  return BEAM_BOTTOM + (BEAM_TOP - BEAM_BOTTOM) * (axial / BEAM_LENGTH)
+}
+
+/**
+ * 眩光強度 0…1：**鏡頭在光柱裡才有**。`axial` 是鏡頭沿光束軸的距離、
+ * `radial` 是離軸的垂直距離；出了光柱的長度或半徑就是 0，靠近柱壁略暗。
+ */
+export function glareStrength(axial: number, radial: number): number {
+  if (axial <= 0 || axial > BEAM_LENGTH) return 0
+  const r = beamRadiusAt(axial)
+  if (radial >= r) return 0
+  const t = radial / r
+  return 1 - t * t * t * t
 }
 
 /**
@@ -233,12 +234,13 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
         // 方位 0 = 朝 −Z，與 `aimAngles` 同一個慣例
         E.set(b.pitch - Math.PI / 2, b.yaw, 0, 'YXZ')
         b.mesh.quaternion.setFromEuler(E)
-        // 【眩光】光束方向與「燈到鏡頭」方向夾角小就亮。貼圖的邊長隨距離
-        // 放大，畫面上的視角大小才固定
+        // 【眩光】鏡頭在光柱裡才亮。貼圖的邊長隨距離放大，畫面上的視角大小才固定
         DIR.set(0, 1, 0).applyQuaternion(b.mesh.quaternion)
         TO_CAMERA.copy(camera).sub(b.mesh.position)
         const dist = TO_CAMERA.length()
-        const strength = dist > 1 ? glareStrength(DIR.dot(TO_CAMERA) / dist) : 0
+        const axial = DIR.dot(TO_CAMERA)
+        const radial = Math.sqrt(Math.max(0, dist * dist - axial * axial))
+        const strength = glareStrength(axial, radial)
         const glare = b.glare
         if (strength <= 0) {
           glare.visible = false

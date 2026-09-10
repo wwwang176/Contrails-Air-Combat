@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Mesh, Sprite, SpriteMaterial, Texture, Vector3 } from 'three'
 import {
-  aimAngles, BEAM_LENGTH, createSearchlights, glareStrength, SEARCHLIGHT_RANGE, type SearchTarget,
+  aimAngles, BEAM_LENGTH, beamRadiusAt, createSearchlights, glareStrength, SEARCHLIGHT_RANGE,
+  type SearchTarget,
 } from '../../src/render/searchlights'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../../src/world/shipGuns'
@@ -119,34 +120,39 @@ describe('探照燈', () => {
 })
 
 describe('探照燈的眩光', () => {
-  it('夾角小於 0.6° 全亮、大於 5° 熄、中間漸變', () => {
-    expect(glareStrength(1)).toBe(1)
-    expect(glareStrength(Math.cos(0.5 * Math.PI / 180))).toBe(1)
-    expect(glareStrength(Math.cos(6 * Math.PI / 180))).toBe(0)
-    const mid = glareStrength(Math.cos(2.5 * Math.PI / 180))
-    expect(mid).toBeGreaterThan(0)
-    expect(mid).toBeLessThan(1)
-    expect(glareStrength(-1)).toBe(0)
+  it('鏡頭在光柱裡才有：軸上全亮、柱壁外是 0、超過光束長度是 0', () => {
+    expect(glareStrength(2000, 0)).toBe(1)
+    const r = beamRadiusAt(2000)
+    expect(r).toBeGreaterThan(1.5)
+    expect(r).toBeLessThan(24)
+    expect(glareStrength(2000, r * 0.5)).toBeGreaterThan(0.9)
+    expect(glareStrength(2000, r)).toBe(0)
+    expect(glareStrength(2000, 100)).toBe(0)
+    expect(glareStrength(BEAM_LENGTH + 1, 0)).toBe(0)
+    expect(glareStrength(-10, 0)).toBe(0)
   })
 
-  it('光束掃到鏡頭時燈座上的十字亮起、大小隨距離放大；掃開就熄', () => {
+  it('鏡頭站進光柱時燈座上的十字亮起、大小隨距離放大；站到柱外就熄', () => {
     const base = createGroundTarget(0, 'searchlight', 'red', 0, -7000, 0)
     const s = createSearchlights([base], new Texture())
+    const m = s.object.children[0] as Mesh
     const sprites: Sprite[] = []
     s.object.traverse((o) => { if ((o as Sprite).isSprite) sprites.push(o as Sprite) })
     expect(sprites).toHaveLength(1)
     const glare = sprites[0]!
-    // 飛機在正北 3 km、1,500 m 高；鏡頭就放在飛機上 —— 光束追到它就是照著鏡頭
     const list = [plane('blue', 0, 1500, -10000)]
-    const onAxis = new Vector3(0, 1500, -10000)
-    for (let t = 0; t < 10; t += 1 / 60) s.update(t, list, onAxis)
+    for (let t = 0; t < 10; t += 1 / 60) s.update(t, list, CAM)
+    // 沿此刻的光束軸走 2,000 m 就是柱心
+    const axis = beamDir(m)
+    const onAxis = m.position.clone().addScaledVector(axis, 2000)
+    s.update(10.02, list, onAxis)
     expect(glare.visible).toBe(true)
     expect((glare.material as SpriteMaterial).opacity).toBeGreaterThan(0.9)
-    const dist = onAxis.distanceTo(glare.position)
-    expect(glare.scale.x).toBeCloseTo(dist * 0.16, 3)
-    // 鏡頭挪到光束的側面 30°：熄
-    const offAxis = new Vector3(3000, 1500, -8000)
-    s.update(10.1, list, offAxis)
+    expect(glare.scale.x).toBeCloseTo(2000 * 0.16, 1)
+    // 離軸 50 m：光柱在那裡只有十公尺寬，熄
+    const side = new Vector3(1, 0, 0).cross(axis).normalize()
+    const offAxis = onAxis.clone().addScaledVector(side, 50)
+    s.update(10.04, list, offAxis)
     expect(glare.visible).toBe(false)
   })
 })
