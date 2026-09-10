@@ -3,22 +3,20 @@
 
     "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b -P tools/blender/build_lod.py -- b17g
 
-讀 `public/models/<id>.glb`，做兩件事，另存 `public/models/<id>_lod2.glb`：
+讀 `public/models/<id>.glb`，做三件事，另存 `public/models/<id>_lod2.glb`：
 
-  一、刪掉在 LOD 距離上看不到的物件（機身內裝、窗框、小於 1.2 m 的凸起）
-  二、對 loft 出來的殼體**每隔一圈抽掉一圈腰線**
+  一、刪掉在 LOD 距離上看不到的物件（機身內裝、窗框、玻璃分格）
+  二、把 loft 出來的殼體**每隔一圈抽掉一圈腰線**
+  三、把每一圈的剖面節點**抽稀到 `RING_POINTS` 個**
 
-【出貨的 GLB 才是母本】`build_b17.py` 產出之後負責人還手動美化過，所以重跑
-建構腳本會把那些調整丟掉 —— 實測重跑與出貨版的剪影差 5.5%。這裡一律從
-`public/models/` 的成品出發，建構腳本一個字都不碰。
+【出貨的 GLB 才是母本】機種的建構腳本產出之後還會手動美化，重跑它會把那些
+調整丟掉 —— 實測重跑與出貨版的剪影差 5.5%。這裡一律從 `public/models/` 的
+成品衍生，建構腳本一個字都不碰。
 
-【為什麼不用減面器】實測過：通用的塌陷減面（QEM）在守住輪廓的前提下只砍得掉
-24%；放寬到砍一半時，主翼的**翼弦**塌成三角形、發動機艙垮成幾條線 —— 它對
-所有頂點一視同仁，而定義輪廓的頂點往往只有一兩個，最先被合併掉。
-
-【抽腰線為什麼安全】loft 出來的殼是一圈圈剖面。溶掉一整圈之後，剩下的剖面
-**逐點原封不動**，只有相鄰兩圈之間的表面由兩段變成一段 —— 側視的外緣少了
-一個轉折，而那個轉折在 25 px 上是次像素。QEM 則是把剖面本身抽掉。
+【為什麼是自己接面而不是套減面器】通用的減面器對所有頂點一視同仁，而定義
+輪廓的頂點往往只有一兩個（翼尖、機首、剖面的最寬處），會最先被合併掉 ——
+症狀是翼展縮水或翼弦塌成三角形，而面數的帳面很漂亮。這裡的做法是把殼拆回
+它自己的剖面、抽稀、再接回去：留下來的剖面**逐點原封不動**。
 
 【頭尾兩圈不能抽】機首與機尾那兩圈就是輪廓的端點。
 
@@ -60,6 +58,8 @@ MIN_RING = 5
 RING_STRIDE = 2
 # 同一圈的座標容差，m
 RING_TOL = 0.02
+# 【剖面抽到幾個節點】原本機身一圈 18 個。25 px 的剖面上一個點不到一個像素
+RING_POINTS = 10
 # 焊接容差，m。GLB 的頂點是每面拆開的，位置完全相同，1e-4 綽綽有餘
 WELD_DIST = 1e-4
 # 【診斷用】只焊不抽。見 main 的 `weld-only`
@@ -148,21 +148,46 @@ def pick_victims(keys, groups, axis):
     return victims
 
 
-def ordered_ring(verts, axis, others):
+def ordered_ring(verts, axis, others, points):
     """
-    把一圈的頂點依繞軸的角度排序，回座標串。
+    把一圈的頂點依繞軸的角度排序，**並抽稀到 `points` 個**，回座標串。
 
     【為什麼要重排】原本的頂點次序是匯入時的順序，跟繞圈的次序無關。要自己
     接面就得知道「這一圈的下一個是誰」，而剖面對自己的形心是星狀的，用角度
     排就是正確的繞圈次序。
+
+    【為什麼連剖面的節點也要抽】只抽腰線的話，機身的**環向**解析度原封不動
+    —— 一圈 18 個點畫一個 25 px 的剖面，一個點不到一個像素。抽到 10 個之後
+    剖面仍然是凸的十邊形，而三角形少一半。
+
+    【四個極值點一定要留】剖面的最寬、最窄、最高、最低就是側視與前視的輪廓。
+    先把它們選進來，剩下的名額才按角度平分 —— 只按角度均分的話，最寬的那個
+    點會被跳過，前視的機身就窄一圈。
+
+    【抽稀後每一圈的點數相同】於是 `bridge` 退化成乾淨的四邊形帶，接不出
+    自交的面。點數不齊正是先前機身破面的來源之一。
     """
     import math
     cu = sum(v.co[others[0]] for v in verts) / len(verts)
     cv = sum(v.co[others[1]] for v in verts) / len(verts)
+
     def ang(v):
         return math.atan2(v.co[others[1]] - cv, v.co[others[0]] - cu)
+
     ring = sorted(verts, key=ang)
-    return [tuple(v.co) for v in ring]
+    n = len(ring)
+    if points <= 0 or n <= points:
+        return [tuple(v.co) for v in ring]
+
+    keep = set()
+    for k in others:
+        cs = [v.co[k] for v in ring]
+        keep.add(cs.index(max(cs)))
+        keep.add(cs.index(min(cs)))
+    for i in range(points - len(keep)):
+        idx = round(i * n / max(1, points - len(keep))) % n
+        keep.add(idx)
+    return [tuple(ring[i].co) for i in sorted(keep)]
 
 
 def bridge(bm, a, b) -> None:
@@ -200,12 +225,13 @@ def build_loft(me, loops, axis) -> None:
     """
     由一串剖面重建殼：相鄰兩圈接成四邊形，頭尾各補一個扇形蓋。
 
-    【為什麼要自己接面】四種現成的減面手段都試過：QEM 塌陷把翼弦壓扁、
-    Planar 只砍得掉 7%、逐圈 `dissolve_verts` 讓機身變空心、Un-Subdivide
-    對三角網格是 no-op。自己接的話拓樸是我決定的，不會有自交的 n-gon。
+    【拓樸自己決定，才不會有自交的面】在既有的三角網格上動刀時，一整圈頂點
+    同時消失會讓相鄰的面併成自交的 n-gon，切出來有一半朝內 —— 背面剔除之後
+    畫面上是**空心的機身**，而面數、包圍盒、甚至剪影的百分比都還在「看起來
+    合理」的範圍。從剖面重接就沒有這條路。
 
-    【繞向要對】接完之後拿第一個面的法線跟「由軸心指向該面」比一次，反了就
-    整批翻面。錯了的症狀是整顆被背面剔除掉 —— 畫面上那架飛機直接不見。
+    【繞向要對】`recalc_face_normals` 收尾。錯了的症狀是整顆被背面剔除掉，
+    畫面上那架飛機直接不見。
     """
     import bmesh as _bm
     from mathutils import Vector as _V
@@ -229,21 +255,20 @@ def build_loft(me, loops, axis) -> None:
 
 def thin_rings(o) -> int:
     """
-    沿最長軸把頂點分群成腰線，每 `RING_STRIDE` 圈溶掉一圈。回溶掉幾圈。
+    沿最長軸把頂點分群成剖面，抽掉一部分之後重接。回抽掉幾圈。
 
-    【一定要先焊接】平面著色的 GLB 每個三角形帶自己的頂點 —— 實測機身是
-    4,942 個頂點對 1,294 個實際位置（3.8 倍）。不焊的話「一圈」在拓樸上
-    根本不相連，`dissolve_verts` 就退化成刪三角形，殼會破成一條細片，而
-    面數的帳面看起來很漂亮。焊接之後機身正好是 69 圈 x 18 個頂點，與
-    `build_b17.py` 的「每側 8 級 ＋ 頂底兩尖」逐項對得上。
+    【一定要先焊接】平面著色的 GLB 每個三角形帶自己的頂點 —— 機身是 4,942 個
+    頂點對 1,294 個實際位置（3.8 倍）。不焊的話「一圈」在拓樸上根本不相連，
+    分群出來的是散亂的頂點集，接出來的殼會破成一條細片，而面數看起來很正常。
+    焊接之後機身是 69 圈 x 18 個頂點，與 `build_b17.py` 的「每側 8 級 ＋
+    頂底兩尖」逐項對得上。
 
-    【焊完要壓回平面著色】焊接讓相鄰面共用頂點，法線會被平均掉，外型看起來
-    就從硬稜變成圓滑。把每一面設成 flat，glTF 匯出時會自己再拆開頂點。
+    【焊完要壓回平面著色】焊接讓相鄰面共用頂點，法線會被平均掉，硬稜變圓滑。
+    把每一面設成 flat，glTF 匯出時會自己再拆開頂點。
 
-    【用 dissolve_verts 而不是刪頂點】刪頂點會連帶刪掉相鄰的面，殼上會破一圈
-    洞。溶解是把那一圈的邊界重新接起來 —— 相鄰兩圈直接相連，殼仍然是封閉的。
-
-    【頭尾兩圈不能抽】機首與機尾那兩圈就是輪廓的端點。
+    【剖面的節點數不齊是正常的】窗與艙門的布林運算在某些圈上加了頂點：機身
+    18 佔 29 圈、19 佔 24 圈，另外還有 20／21／23／25 與幾個 5–7。抽稀到
+    `RING_POINTS` 之後就齊了，`bridge` 因此退化成乾淨的四邊形帶。
     """
     me = o.data
     bm = bmesh.new()
@@ -284,7 +309,7 @@ def thin_rings(o) -> int:
         return 0
 
     others = [i for i in range(3) if i != axis]
-    loops = [ordered_ring(groups[k], axis, others) for k in kept]
+    loops = [ordered_ring(groups[k], axis, others, RING_POINTS) for k in kept]
     bm.free()
     build_loft(me, loops, axis)
     for p in me.polygons:
