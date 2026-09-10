@@ -53,12 +53,12 @@ describe('照明彈節拍', () => {
     expect(b.world.flares.count).toBe(0)
   })
 
-  it('德 M2 的卡帶六枚照明彈，沒有 flares 的卡不產生節拍', () => {
+  it('德 M2 的卡帶三枚照明彈，沒有 flares 的卡不產生節拍', () => {
     const m2 = MISSIONS.germany.find((m) => m.id === 'germany-m2') as ReadyMissionCard
     const beats = missionConfigFrom(m2).beats ?? []
     const flare = beats.filter((x) => x.kind === 'flare')
     expect(flare).toHaveLength(1)
-    expect((flare[0] as FlareBeat).points).toHaveLength(6)
+    expect((flare[0] as FlareBeat).points).toHaveLength(3)
     const m1 = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
     expect((missionConfigFrom(m1).beats ?? []).some((x) => x.kind === 'flare')).toBe(false)
   })

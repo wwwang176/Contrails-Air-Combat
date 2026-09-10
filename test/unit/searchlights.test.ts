@@ -76,7 +76,7 @@ describe('探照燈', () => {
     expect(beams[1]!.visible).toBe(true)
   })
 
-  it('光束長 BEAM_LENGTH、跟著座走', () => {
+  it('光束長 BEAM_LENGTH、跟著座走、尾端的頂點色淡到 0', () => {
     const base = createGroundTarget(0, 'searchlight', 'red', 300, -7000, 0)
     const s = createSearchlights([base])
     const m = s.object.children[0] as Mesh
@@ -86,5 +86,31 @@ describe('探照燈', () => {
     expect(bb.max.y - bb.min.y).toBeCloseTo(BEAM_LENGTH, 3)
     expect(m.position.x).toBe(300)
     expect(m.position.z).toBe(-7000)
+    const pos = m.geometry.getAttribute('position')
+    const col = m.geometry.getAttribute('color')
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i)
+      if (y < 1) expect(col.getX(i)).toBeCloseTo(1, 6)
+      if (y > BEAM_LENGTH - 1) expect(col.getX(i)).toBeCloseTo(0, 6)
+    }
+  })
+
+  it('鎖定之後微晃：方向隨時間變，但一直在飛機的一度之內', () => {
+    const base = createGroundTarget(0, 'searchlight', 'red', 0, -7000, 0)
+    const s = createSearchlights([base])
+    const m = s.object.children[0] as Mesh
+    const list = [plane('blue', 0, 1500, -4000)]
+    for (let t = 0; t < 10; t += 1 / 60) s.update(t, list)
+    const want = new Vector3(0, 1500 - 2, 3000).normalize()
+    let minDot = 1
+    const seen = new Set<string>()
+    for (let t = 10; t < 20; t += 1 / 60) {
+      s.update(t, list)
+      const d = beamDir(m)
+      minDot = Math.min(minDot, d.dot(want))
+      seen.add(d.x.toFixed(5) + '/' + d.y.toFixed(5))
+    }
+    expect(minDot).toBeGreaterThan(Math.cos(1 * Math.PI / 180))
+    expect(seen.size).toBeGreaterThan(50)
   })
 })

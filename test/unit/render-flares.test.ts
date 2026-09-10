@@ -6,7 +6,7 @@ import {
 import { createFlares, FLARE_BURN, spawnFlare } from '../../src/world/flares'
 
 describe('照明彈的光', () => {
-  it('四盞點光源開場就在、池空時強度 0', () => {
+  it('FLARE_LIGHT_COUNT 盞點光源開場就在、池空時強度 0', () => {
     const lights = createFlareLights(new Texture())
     const found: PointLight[] = []
     lights.object.traverse((o) => { if ((o as PointLight).isPointLight) found.push(o as PointLight) })
@@ -41,10 +41,11 @@ describe('照明彈的光', () => {
     expect(flareFlicker(3, 4.4)).toBe(flareFlicker(3, 4.4))
   })
 
-  it('亮著的枚數超過四時，燒最久的先熄、最新的四枚有光', () => {
+  it('亮著的枚數超過燈數時，燒最久的先熄、最新的幾枚有光', () => {
     const lights = createFlareLights(new Texture())
     const f = createFlares()
-    for (let k = 0; k < 6; k++) {
+    const n = FLARE_LIGHT_COUNT + 2
+    for (let k = 0; k < n; k++) {
       spawnFlare(f, k * 100, 1000, 0, 0)
       f.age[k] = 100 - k * 10
     }
@@ -54,7 +55,9 @@ describe('照明彈的光', () => {
       const l = o as PointLight
       if (l.isPointLight && l.intensity > 0) lit.push(l.position.x)
     })
-    expect(lit.sort((a, b) => a - b)).toEqual([200, 300, 400, 500])
+    const want: number[] = []
+    for (let k = 2; k < n; k++) want.push(k * 100)
+    expect(lit.sort((a, b) => a - b)).toEqual(want)
   })
 
   it('亮度最後 30 秒衰減到 0', () => {

@@ -4,6 +4,7 @@ import {
   LIGHT_FLAK_SITES, PARKED_ROWS, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
+import { FLARE_LIGHT_COUNT } from '../../src/render/flares'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'
 
 /**
@@ -112,11 +113,12 @@ describe('poltava 的佈局', () => {
   })
 
   it('照明彈沿跑道排開、一枚一枚點、高度各不相同', () => {
-    expect(FLARE_LINE).toHaveLength(6)
+    // 一枚一盞燈：枚數不得超過點光源的數量
+    expect(FLARE_LINE).toHaveLength(FLARE_LIGHT_COUNT)
     for (const p of FLARE_LINE) expect(inRect(p.x, p.z, RUNWAY)).toBe(true)
     for (let i = 1; i < FLARE_LINE.length; i++) {
       expect(FLARE_LINE[i]!.delay).toBeGreaterThan(FLARE_LINE[i - 1]!.delay)
     }
-    expect(new Set(FLARE_LINE.map((p) => p.altitude)).size).toBe(6)
+    expect(new Set(FLARE_LINE.map((p) => p.altitude)).size).toBe(FLARE_LINE.length)
   })
 })

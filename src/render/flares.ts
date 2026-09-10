@@ -6,17 +6,18 @@ import { FLARE_BURN, type Flares } from '../world/flares'
 /**
  * # 照明彈的光
  *
- * 每一枚一個加法混色的光暈 sprite；**點光源固定四盞、開場就掛進場景**，
- * 對應池裡最新的四枚（燒最久的先熄）。
+ * 每一枚一個加法混色的光暈 sprite；**點光源固定 `FLARE_LIGHT_COUNT` 盞、
+ * 開場就掛進場景**，對應池裡最新的那幾枚（燒最久的先熄）。德 M2 一次
+ * 點三枚，正好一枚一盞。
  *
  * 【為什麼不能動態增減燈】`MeshStandardMaterial` 的著色器是依光源數編的：
  * 場景裡多一盞燈，**每一個材質都重編一次** —— 幾百毫秒的卡頓，而且會在
- * 照明彈點燃的那一刻發生。四盞一直在，沒在用的強度 0。
+ * 照明彈點燃的那一刻發生。燈一直在，沒在用的強度 0。
  *
- * 【四盞的代價】每個片元多四次光照，地面那一顆網格最大。太卡就把
+ * 【燈的代價】每個片元多一次光照，地面那一顆網格最大。太卡就把
  * `FLARE_LIGHT_COUNT` 降到 2。
  */
-export const FLARE_LIGHT_COUNT = 4
+export const FLARE_LIGHT_COUNT = 3
 /**
  * 光源的照射距離，m。**它決定地上亮的那一圈有多大**：1,200 m 高的燈，
  * 2,000 m 的截止在地面是半徑 1,600 m 的圓 —— 機場亮、周圍的田暗。
@@ -27,7 +28,7 @@ export const FLARE_LIGHT_DISTANCE = 2000
  * 夜間的太陽是 0.38 —— 要在地面看得出亮暗差，強度得是幾十萬的量級。
  * **起始值，拿眼睛校。**
  */
-const FLARE_LIGHT_INTENSITY = 6e5
+const FLARE_LIGHT_INTENSITY = 4.5e5
 const FLARE_COLOR = 0xfff2d0
 /** 光暈 sprite 的直徑，m */
 const GLOW_SIZE = 40

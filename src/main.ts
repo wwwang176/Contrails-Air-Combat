@@ -486,7 +486,7 @@ const smokeTexture = new TextureLoader().load('/textures/smoke.png')
  */
 const flakBursts = createFlakBursts(undefined, smokeTexture)
 ctx.scene.add(flakBursts.object)
-// 【照明彈的四盞燈開場就掛】光源數變動會讓每一個材質重編著色器 —— 見 `render/flares.ts`
+// 【照明彈的燈開場就掛】光源數變動會讓每一個材質重編著色器 —— 見 `render/flares.ts`
 const flareLights = createFlareLights(smokeTexture)
 ctx.scene.add(flareLights.object)
 
