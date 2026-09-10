@@ -5,7 +5,7 @@ import {
   AIRFIELD_GLB_URL, buildAirfieldScenery, preloadAirfieldScenery,
 } from '../../src/render/geometry/ground/airfieldScenery'
 import {
-  DUMPS, FIELD_CENTER, FIELD_PAD, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, PAVED,
+  DUMPS, FIELD_BOUNDS, FIELD_CENTER, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, PAVED,
   SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 
@@ -26,7 +26,7 @@ describe('波爾塔瓦機場的佈景', () => {
     // 【包住機場中心，而且沒有遠到別的地方去】電線桿沿連外道路往北走 2.5 km，
     // 所以不比包圍盒的中心，比「中心在盒內、盒不超過幾公里」
     expect(bb.containsPoint(new Vector3(FIELD_CENTER.x, 1, FIELD_CENTER.z))).toBe(true)
-    expect(bb.max.x - bb.min.x).toBeLessThan(FIELD_PAD.x1 - FIELD_PAD.x0 + 200)
+    expect(bb.max.x - bb.min.x).toBeLessThan(FIELD_BOUNDS.x1 - FIELD_BOUNDS.x0 + 400)
     expect(bb.max.z - bb.min.z).toBeLessThan(4000)
     expect(readFileSync(`public${AIRFIELD_GLB_URL}`).byteLength).toBeLessThan(8 * 1048576)
   })

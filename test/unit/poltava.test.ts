@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HEAVY_FLAK_SITES,
-  LIGHT_FLAK_SITES, PARKED_ROWS, PAVED, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, STAND_LANES, STAND_PADS,
-  TAXI_LINKS, TAXIWAY, worldToField, type FieldRect,
+  createPoltava, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_LOBES, FIELD_PAD, FLARE_DROPS,
+  HEAVY_FLAK_SITES, inField, LIGHT_FLAK_SITES, PARKED_ROWS, PAVED, POLTAVA_HILLS, RUNWAY,
+  SEARCHLIGHT_SITES, STAND_LANES, STAND_PADS, TAXI_LINKS, TAXIWAY, worldToField, type FieldRect,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FLARE_LANES } from '../../src/world/flares'
@@ -17,13 +17,18 @@ function inRect(x: number, z: number, r: { x0: number; z0: number; x1: number; z
   worldToField(x, z, L)
   return L.x >= r.x0 && L.x <= r.x1 && L.z >= r.z0 && L.z <= r.z1
 }
+/** 到墊面外接矩形的距離 —— 丘陵與重砲要離整個機場遠，不只離主墊面 */
 function padDistance(cx: number, cz: number): number {
   worldToField(cx, cz, L)
-  const dx = Math.max(0, FIELD_PAD.x0 - L.x, L.x - FIELD_PAD.x1)
-  const dz = Math.max(0, FIELD_PAD.z0 - L.z, L.z - FIELD_PAD.z1)
+  const dx = Math.max(0, FIELD_BOUNDS.x0 - L.x, L.x - FIELD_BOUNDS.x1)
+  const dz = Math.max(0, FIELD_BOUNDS.z0 - L.z, L.z - FIELD_BOUNDS.z1)
   return Math.hypot(dx, dz)
 }
-const PAD = FIELD_PAD
+/** 世界座標的這一點在墊面的聯集裡 */
+function inFieldW(x: number, z: number): boolean {
+  worldToField(x, z, L)
+  return inField(L.x, L.z)
+}
 
 describe('poltava 地形', () => {
   const { field, hills } = createPoltava()
@@ -35,12 +40,12 @@ describe('poltava 地形', () => {
     }
   })
 
-  it('墊面加一格圍裙內每一格都是 0', () => {
+  it('墊面的外接矩形加一格圍裙內每一格都是 0', () => {
     const apron = FARM_CELL
-    const x0 = FIELD_CENTER.x + FIELD_PAD.x0 - apron
-    const x1 = FIELD_CENTER.x + FIELD_PAD.x1 + apron
-    const z0 = FIELD_CENTER.z + FIELD_PAD.z0 - apron
-    const z1 = FIELD_CENTER.z + FIELD_PAD.z1 + apron
+    const x0 = FIELD_CENTER.x + FIELD_BOUNDS.x0 - apron
+    const x1 = FIELD_CENTER.x + FIELD_BOUNDS.x1 + apron
+    const z0 = FIELD_CENTER.z + FIELD_BOUNDS.z0 - apron
+    const z1 = FIELD_CENTER.z + FIELD_BOUNDS.z1 + apron
     for (let x = x0; x <= x1; x += FARM_CELL / 2) {
       for (let z = z0; z <= z1; z += FARM_CELL / 2) {
         expect(field.sample(x, z), `${x},${z}`).toBe(0)
@@ -75,26 +80,33 @@ function clearOfPaving(x: number, z: number, margin: number): boolean {
 }
 
 describe('poltava 的佈局', () => {
-  it('墊面只比鋪面外擴 150 到 500 m —— 機場不像工廠，草地不該遠遠大過設施', () => {
+  it('墊面貼著鋪面走：每一塊鋪面的四個角都在墊面的聯集裡，外接矩形只比鋪面多不到 100 m', () => {
+    // 附加的墊面要與主墊面相接，跨兩塊的支線中段才有草
+    for (const l of FIELD_LOBES) {
+      const overlaps = l.x0 <= FIELD_PAD.x1 && l.x1 >= FIELD_PAD.x0 && l.z0 <= FIELD_PAD.z1 && l.z1 >= FIELD_PAD.z0
+      expect(overlaps, `${l.x0},${l.z0}`).toBe(true)
+    }
+    for (const r of PAVED) {
+      for (const [x, z] of [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]] as const) {
+        expect(inField(x, z), `${x},${z}`).toBe(true)
+      }
+    }
     let x0 = Infinity; let z0 = Infinity; let x1 = -Infinity; let z1 = -Infinity
     for (const r of PAVED) {
       x0 = Math.min(x0, r.x0); z0 = Math.min(z0, r.z0); x1 = Math.max(x1, r.x1); z1 = Math.max(z1, r.z1)
     }
+    // 裙邊（fields.ts 的 PAD_SKIRT，180 m）之外矩形本身不要再放大 —— 草地才貼著設施
     for (const [pad, paved, sign] of [
-      [PAD.x0, x0, -1], [PAD.z0, z0, -1], [PAD.x1, x1, 1], [PAD.z1, z1, 1],
+      [FIELD_BOUNDS.x0, x0, -1], [FIELD_BOUNDS.z0, z0, -1], [FIELD_BOUNDS.x1, x1, 1], [FIELD_BOUNDS.z1, z1, 1],
     ] as const) {
       const margin = (pad - paved) * sign
-      expect(margin).toBeGreaterThanOrEqual(150)
-      expect(margin).toBeLessThanOrEqual(500)
+      expect(margin).toBeGreaterThanOrEqual(0)
+      expect(margin).toBeLessThanOrEqual(100)
     }
   })
 
-  it('鋪面都在墊面內；跑道與滑行道平行、不重疊；支線接得上', () => {
+  it('鋪面都是正的矩形；跑道與滑行道平行、不重疊；支線接得上', () => {
     for (const r of PAVED) {
-      expect(r.x0).toBeGreaterThanOrEqual(PAD.x0)
-      expect(r.x1).toBeLessThanOrEqual(PAD.x1)
-      expect(r.z0).toBeGreaterThanOrEqual(PAD.z0)
-      expect(r.z1).toBeLessThanOrEqual(PAD.z1)
       expect(r.x1).toBeGreaterThan(r.x0)
       expect(r.z1).toBeGreaterThan(r.z0)
     }
@@ -126,7 +138,7 @@ describe('poltava 的佈局', () => {
     expect(PARKED_ROWS).toHaveLength(24)
     expect(STAND_PADS).toHaveLength(24)
     for (const p of PARKED_ROWS) {
-      expect(inRect(p.x, p.z, PAD), `${p.x},${p.z}`).toBe(true)
+      expect(inFieldW(p.x, p.z), `${p.x},${p.z}`).toBe(true)
       expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
       expect(inRect(p.x, p.z, TAXIWAY), `${p.x},${p.z}`).toBe(false)
     }
@@ -147,7 +159,7 @@ describe('poltava 的佈局', () => {
   it('三堆都在墊面內、離鋪面 20 m 以上', () => {
     expect(DUMPS.map((d) => d.kind).sort()).toEqual(['bombDump', 'fuelDump', 'fuelDump'])
     for (const d of DUMPS) {
-      expect(inRect(d.x, d.z, PAD)).toBe(true)
+      expect(inFieldW(d.x, d.z), `${d.x},${d.z}`).toBe(true)
       expect(clearOfPaving(d.x, d.z, 20), `${d.x},${d.z}`).toBe(true)
     }
   })
@@ -169,7 +181,8 @@ describe('poltava 的佈局', () => {
     const n = FLARE_DROPS.length
     // 輪替：清單要比燈位多，換位置才有意義
     expect(n).toBeGreaterThan(FLARE_LANES)
-    for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, PAD)).toBe(true)
+    // 照明彈掛在空中，照的是整個機場；位置在墊面的外接矩形內就好
+    for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, FIELD_BOUNDS)).toBe(true)
     // 同時亮著的是清單裡相鄰的三個（循環），那三個彼此要拉開
     for (let i = 0; i < n; i++) {
       for (let d = 1; d < FLARE_LANES; d++) {

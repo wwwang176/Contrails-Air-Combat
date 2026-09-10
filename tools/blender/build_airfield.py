@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-波爾塔瓦機場的佈景：營舍、塔台、散桶、圍籬、電線桿、跑道頭的邊界板。
+波爾塔瓦機場的佈景：營舍、塔台、散桶、電線桿、跑道頭的邊界板。
 **純佈景** —— 停放的 B-17、油桶堆、彈藥堆、砲位、探照燈都是地面目標，
 不在這裡（它們各自有命中盒與殘骸）。
 
@@ -32,8 +32,8 @@ OUT_DIR = os.path.join(ROOT, 'public', 'models')
 # ═══════════════════════════ 佈局資料 ═══════════════════════════
 # **與 src/world/poltava.ts 同一份數字**（遊戲局部座標：x 橫向、z 往南為正）
 
-# 墊面：只比鋪面外擴約 200 m（x0, z0, x1, z1）
-PAD = (-1450.0, -620.0, 1450.0, 860.0)
+# 主墊面：跑道加滑行道那一條帶子（x0, z0, x1, z1）；魚骨各自的附加墊面在 src/world/poltava.ts
+PAD = (-1270.0, -50.0, 1270.0, 312.0)
 # 鋪面：主跑道、平行滑行道、三條聯絡道、兩條分散支線（x0, z0, x1, z1）
 RUNWAY = (-1250.0, -30.0, 1250.0, 30.0)
 TAXIWAY = (-1250.0, 268.0, 1250.0, 292.0)
@@ -52,14 +52,14 @@ STAND_LANES = [((min(f, x), z - 6, max(f, x), z + 6) if a == 'x'
                for x, z, a, f in STANDS]
 PAVED = [RUNWAY, TAXIWAY] + TAXI_LINKS + STAND_LANES + STAND_PADS
 PARKED = [(x, z) for x, z, _, _ in STANDS]
-DUMPS = [(-1300, 400, 16, 11), (-1240, 400, 16, 11), (1300, -500, 12, 7)]   # dx, dz, 半寬, 半深
+DUMPS = [(-1150, 150, 16, 11), (-1090, 150, 16, 11), (1160, 500, 12, 7)]   # dx, dz, 半寬, 半深
 LIGHT_FLAK = [(-500, -450), (0, -480), (500, -450), (-700, -150), (-800, 200), (800, -200),
               (-450, 450), (150, 480), (1300, 0), (919, 919), (0, 1300), (-919, 919),
               (-1300, 0), (-919, -919), (0, -1300), (919, -919)]
 HEAVY_FLAK = [(2300, 0), (1150, 1992), (-1150, 1992), (-2300, 0), (-1150, -1992), (1150, -1992)]
 SEARCHLIGHTS = [(950, -150), (475, 823), (-475, 823), (-1100, 150), (-475, -823), (475, -823)]
 # 連外道路：從墊面北緣往北出圖（遊戲 z 越負越北）
-ROAD = [(-200, -620), (-200, -2500)]
+ROAD = [(-200, -50), (-200, -2500)]
 
 # ═══════════════════════════ 材質 ═══════════════════════════
 
@@ -244,7 +244,7 @@ def free(dx, dz, hw, hd):
 # ═══════════════════════════ 區塊 ═══════════════════════════
 
 def build_camp(b):
-    """營舍區：墊面西南角，油桶堆的南邊。帳篷成排、木屋幾座、幾輛卡車"""
+    """營舍區：主墊面南緣的西段、滑行道南邊。帳篷成排、木屋幾座、幾輛卡車"""
     n = 0
     tent = mat('LP_PlantSand')
     hut = mat('LP_PlantPole')
@@ -253,23 +253,23 @@ def build_camp(b):
     # 帳篷 4 排 × 6 座，斜頂，長軸南北
     for row in range(4):
         for k in range(6):
-            dx = -1430 + k * 14
-            dz = 560 + row * 12
+            dx = -1130 + k * 14
+            dz = 340 + row * 12
             if not free(dx, dz, 4, 3):
                 continue
             add_prism(b, tent, dx, dz, 6, 4, 1.4, 2.6, rz=(rand() - 0.5) * 6)
             n += 1
     # 木屋一列在帳篷北邊
     for k in range(4):
-        dx = -1410 + k * 30
-        dz = 510
+        dx = -1000 + k * 30
+        dz = 350
         if free(dx, dz, 6, 4):
             add_prism(b, hut, dx, dz, 10, 6, 2.4, 3.6)
             n += 1
     # 卡車三輛停在木屋前
     for k in range(3):
-        dx = -1350 + k * 12
-        dz = 490
+        dx = -880 + k * 12
+        dz = 400
         if free(dx, dz, 3, 2):
             add_box(b, truck, dx, dz, 0.0, 2.4, 6, 2.5, rz=(rand() - 0.5) * 20)
             n += 1
@@ -293,41 +293,12 @@ def build_drums(b):
     steel = mat('LP_PlantSteel')
     rand = Rand(47)
     for _ in range(150):
-        dx = -1450 + rand() * 100
-        dz = 300 + rand() * 180
+        dx = -1180 + rand() * 120
+        dz = 180 + rand() * 50
         if not free(dx, dz, 0.4, 0.4):
             continue
         add_cyl(b, steel, dx, dz, 0.0, 0.3, 0.9, 6)
         n += 1
-    return n
-
-
-def build_fence(b):
-    """圍籬：沿墊面四周，木樁每 20 m 一根、之間一片薄板；南邊留 30 m 的門"""
-    n = 0
-    pole = mat('LP_PlantPole')
-    step = 20.0
-    px0, pz0, px1, pz1 = PAD
-    corners = [(px0, pz0), (px1, pz0), (px1, pz1), (px0, pz1)]
-    for i in range(4):
-        ax, az = corners[i]
-        bx, bz = corners[(i + 1) % 4]
-        length = math.hypot(bx - ax, bz - az)
-        ux, uz = (bx - ax) / length, (bz - az) / length
-        rz = math.degrees(math.atan2(-uz, ux))
-        k = 0
-        while k * step < length:
-            px, pz = ax + ux * k * step, az + uz * k * step
-            # 南邊正中留門
-            gate = i == 2 and abs(px) < 15
-            if not gate and free(px, pz, 0.3, 0.3):
-                add_box(b, pole, px, pz, 0.0, 0.3, 0.3, 2.0)
-                n += 1
-            mx, mz = px + ux * step / 2, pz + uz * step / 2
-            if not gate and k * step + step <= length and free(mx, mz, 1, 1):
-                add_box(b, pole, mx, mz, 1.2, step - 0.6, 0.1, 0.4, rz=rz)
-                n += 1
-            k += 1
     return n
 
 
@@ -374,7 +345,7 @@ def build_airfield():
     root = get_col('Airfield')
     total = 0
     for name, fn in (('camp', build_camp), ('tower', build_tower), ('drums', build_drums),
-                     ('fence', build_fence), ('poles', build_poles), ('heads', build_runway_heads)):
+                     ('poles', build_poles), ('heads', build_runway_heads)):
         b = Builder()
         total += fn(b)
         b.to_object('Airfield_%s' % name, root)
