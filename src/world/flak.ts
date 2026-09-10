@@ -15,11 +15,13 @@
 /**
  * 池的容量。
  *
- * 【怎麼算的】6 個 5 吋砲區 × 20 發/分 = 每秒 2 發，乘上引信上限 11 秒 ≈ 22
- * 發同時在空中。256 是十倍餘裕 —— 而且與 `Projectiles` 不同，這裡**滿了就
- * 拒絕發射**（見 `spawnFlak`）。
+ * 【怎麼算的】洛伊納是最吃緊的一關：48 座陸上高砲 × 30 發/分 = 每秒 24 發，
+ * 乘上引信上限 8.2 秒 = 197 發同時在空中。（日 M4 的 6 個 5 吋砲區只要 22。）
+ *
+ * 【滿了就拒絕發射】與 `Projectiles` 覆寫最舊的相反 —— 見 `spawnFlak`。
+ * 所以估太小的症狀是**整場的射速被池上限壓住**，而且不報錯。
  */
-export const FLAK_CAPACITY = 256
+export const FLAK_CAPACITY = 512
 
 /**
  * 引信秒數上限。射程 = 初速 450 × 11 ≈ 4,950 m。
@@ -43,6 +45,26 @@ export const FLAK_RADIUS = 50
  */
 export const FLAK_DAMAGE = 200
 
+/**
+ * 一朵雲的鏡頭震動當量尺度。**5 吋艦砲那一發的值**，與
+ * `camera/cameraShake.ts` 的 `FLAK_SHAKE` 同值（護欄釘住）。
+ *
+ * 【為什麼住在這裡而不是相機層】它是彈藥的屬性，逐發跟著砲彈走；相機層
+ * 只是那個數字的消費者。
+ */
+export const FLAK_SHAKE = 0.25
+
+/**
+ * 黑雲的散佈半徑，m。**5 吋艦砲那一發的值。**
+ *
+ * 【雲比殺傷範圍小】看得見的那一團不等於危險範圍 —— 陸上的 88 殺傷 75 m，
+ * 而雲仍然是這個大小。兩者是獨立的一格，不是同一個數字的兩種用法。
+ */
+export const FLAK_SMOKE = 16.7
+
+/** 空中閃光與火球的線性尺度。1 = `render/blast.ts` 的 `FLAK_BLAST` 原配方 */
+export const FLAK_BLAST_SCALE = 1
+
 /** 事件緩衝的預設容量。一步之內同時引爆超過這個數就丟棄並記數。 */
 export const BURST_CAPACITY = 64
 
@@ -64,6 +86,30 @@ export interface FlakShells {
   readonly fuse: Float32Array
   /** 發射方：0 = blue、1 = red、**−1 = 空槽**。 */
   readonly team: Int8Array
+  /**
+   * 殺傷半徑與爆心傷害，**逐發帶著走**。
+   *
+   * 【為什麼不是模組常數】5 吋艦砲與陸上的 88 mm 是兩種砲：一個守航母、
+   * 一個守油廠，強度要分開調。做成常數的話調洛伊納會連帶動到日 M4 的
+   * 第 58 特遣艦隊 —— 而那一關的平衡是另外試飛出來的。
+   */
+  readonly radius: Float32Array
+  readonly damage: Float32Array
+  /**
+   * 表現的三個尺度，**每一個都是規格表上獨立的一格**，不從殺傷半徑推導。
+   *
+   * ```
+   *   smoke  黑雲的散佈半徑，m（`render/flakBursts.ts`）
+   *   blast  空中閃光與火球的線性尺度，1 = `FLAK_BLAST` 原配方
+   *   shake  鏡頭震動的當量尺度（`camera/cameraShake.ts` 的 `addShake`）
+   * ```
+   *
+   * 【為什麼不從 `radius` 算】它們是手感。雲小一號、搖一樣重、閃光大一點都
+   * 是合法的選擇 —— 綁成公式之後，調任何一個都會動到另外兩個。
+   */
+  readonly smoke: Float32Array
+  readonly blast: Float32Array
+  readonly shake: Float32Array
   live: number
 }
 
@@ -79,6 +125,15 @@ export interface BurstEvents {
   readonly y: Float32Array
   readonly z: Float32Array
   readonly team: Int8Array
+  /**
+   * 那一發的殺傷半徑與爆心傷害（`World` 算範圍傷害用）、以及表現的三個
+   * 尺度（黑雲、閃光、震動）。四個消費者各讀各的那一格 —— 見 `FlakShells`。
+   */
+  readonly radius: Float32Array
+  readonly damage: Float32Array
+  readonly smoke: Float32Array
+  readonly blast: Float32Array
+  readonly shake: Float32Array
   count: number
   /**
    * 因為滿了而丟掉幾筆。
@@ -98,13 +153,18 @@ export function createFlak(capacity: number = FLAK_CAPACITY): FlakShells {
     vx: f(), vy: f(), vz: f(),
     fuse: f(),
     team: new Int8Array(capacity).fill(-1),
+    radius: f(), damage: f(), smoke: f(), blast: f(), shake: f(),
     live: 0,
   }
 }
 
 export function createBursts(capacity: number = BURST_CAPACITY): BurstEvents {
   const f = (): Float32Array => new Float32Array(capacity)
-  return { capacity, x: f(), y: f(), z: f(), team: new Int8Array(capacity), count: 0, dropped: 0 }
+  return {
+    capacity, x: f(), y: f(), z: f(), team: new Int8Array(capacity),
+    radius: f(), damage: f(), smoke: f(), blast: f(), shake: f(),
+    count: 0, dropped: 0,
+  }
 }
 
 export function clearBursts(e: BurstEvents): void {
@@ -129,6 +189,9 @@ export function spawnFlak(
   px: number, py: number, pz: number,
   vx: number, vy: number, vz: number,
   fuse: number, team: number,
+  radius: number = FLAK_RADIUS, damage: number = FLAK_DAMAGE,
+  smoke: number = FLAK_SMOKE, blast: number = FLAK_BLAST_SCALE,
+  shake: number = FLAK_SHAKE,
 ): number {
   for (let i = 0; i < f.capacity; i++) {
     if (f.team[i] !== -1) continue
@@ -136,6 +199,8 @@ export function spawnFlak(
     f.vx[i] = vx; f.vy[i] = vy; f.vz[i] = vz
     f.fuse[i] = fuse
     f.team[i] = team
+    f.radius[i] = radius; f.damage[i] = damage
+    f.smoke[i] = smoke; f.blast[i] = blast; f.shake[i] = shake
     f.live++
     return i
   }
@@ -162,13 +227,19 @@ export function stepFlak(f: FlakShells, dt: number, out: BurstEvents): void {
       continue
     }
 
-    pushBurst(out, f.x[i]!, f.y[i]!, f.z[i]!, f.team[i]!)
+    pushBurst(out, f.x[i]!, f.y[i]!, f.z[i]!, f.team[i]!,
+      f.radius[i]!, f.damage[i]!, f.smoke[i]!, f.blast[i]!, f.shake[i]!)
     f.team[i] = -1
     f.live--
   }
 }
 
-export function pushBurst(e: BurstEvents, x: number, y: number, z: number, team: number): void {
+export function pushBurst(
+  e: BurstEvents, x: number, y: number, z: number, team: number,
+  radius: number = FLAK_RADIUS, damage: number = FLAK_DAMAGE,
+  smoke: number = FLAK_SMOKE, blast: number = FLAK_BLAST_SCALE,
+  shake: number = FLAK_SHAKE,
+): void {
   if (e.count >= e.capacity) {
     e.dropped++
     return
@@ -176,15 +247,22 @@ export function pushBurst(e: BurstEvents, x: number, y: number, z: number, team:
   const i = e.count++
   e.x[i] = x; e.y[i] = y; e.z[i] = z
   e.team[i] = team
+  e.radius[i] = radius; e.damage[i] = damage
+  e.smoke[i] = smoke; e.blast[i] = blast; e.shake[i] = shake
 }
 
 /**
  * 離爆心 `distance` 公尺處扣多少血。線性衰減，半徑外為 0。
  *
+ * 【半徑與爆心傷害逐發帶】艦砲與陸砲的強度是兩份表；用模組常數的話調一邊
+ * 會動到另一邊。
+ *
  * 【半徑外一定要夾成 0】不夾的話公式會給出負數 —— 遠方的飛機會被「治療」，
  * 而且那個錯誤在畫面上完全看不出來。
  */
-export function flakDamage(distance: number): number {
-  if (distance >= FLAK_RADIUS) return 0
-  return FLAK_DAMAGE * (1 - distance / FLAK_RADIUS)
+export function flakDamage(
+  distance: number, radius: number = FLAK_RADIUS, damage: number = FLAK_DAMAGE,
+): number {
+  if (distance >= radius) return 0
+  return damage * (1 - distance / radius)
 }

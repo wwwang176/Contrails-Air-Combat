@@ -1,7 +1,6 @@
 import { BufferAttribute, BufferGeometry, Mesh, MeshStandardMaterial } from 'three'
 import { applyFields } from './farmGround'
 import type { Season } from './season'
-import type { SiteLayout } from './fields'
 import { FARM_EXTENT } from '../world/farmland'
 
 /**
@@ -60,7 +59,17 @@ export interface FarHorizon {
   dispose(): void
 }
 
-export function createFarHorizon(season: Season = 'summer', site?: SiteLayout): FarHorizon {
+/**
+ * **不吃 `site`。** 廠區那一層的 GLSL（墊面、鋪面、鐵路、道路）是每個像素都跑
+ * 的，而道路那一段還刻意留在外接矩形判斷之外 —— 連外道路要畫到圖邊。但環
+ * 中央挖掉的洞就是細節地形那 30 km 見方，廠區與所有連外線段都在洞裡，環上
+ * 一個像素都畫不到它們。餵進來只會讓 1,000 km 的環每個像素白跑十五段點線
+ * 距離，畫面完全不變。
+ *
+ * 【前提由測試守著】`far-horizon.test.ts` 有一條在驗那些線段真的都在 ±15 km
+ * 以內。有人把連外道路拉出去而這裡沒跟著改的話，環上會少畫一截 —— 不報錯。
+ */
+export function createFarHorizon(season: Season = 'summer'): FarHorizon {
   const half = FARM_EXTENT / 2
   const xs = axis(half)
   const n = xs.length
@@ -103,7 +112,7 @@ export function createFarHorizon(season: Season = 'summer', site?: SiteLayout): 
   // 【平的東西不必 flatShading】法線全部是 +Y，兩種著色結果相同，而關掉
   // 少一個 shader 變體
   const material = new MeshStandardMaterial({ flatShading: false, roughness: ROUGHNESS })
-  applyFields(material, season, site)
+  applyFields(material, season)
 
   const mesh = new Mesh(geometry, material)
   mesh.frustumCulled = false

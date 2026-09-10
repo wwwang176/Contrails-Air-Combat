@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from 'three'
 import { boundingRadius, type Box } from './hit'
 import { SHIP_AA_ZONES, type ShipAAZone } from './shipAA'
 import type { BurstCycle } from '../weapons/burst'
+import type { ShipGunSpec } from './shipGuns'
 import type { StrikeTarget } from './strikeTarget'
 import type { Team } from './World'
 
@@ -86,6 +87,11 @@ export interface ShipClass {
  */
 export interface ShipGun extends BurstCycle {
   readonly zone: ShipAAZone
+  /**
+   * 這一門砲的規格。**掛在砲身上而不是查層別的表** —— 陸上的 88 mm 與艦上
+   * 的 5 吋同屬 `flak` 層，但強度是兩份（`GROUND_FLAK_SPEC`）。
+   */
+  readonly spec: ShipGunSpec
   /** 目前指向，**艦體座標**單位向量。初值 = 該層射界錐的軸。 */
   readonly aim: Vector3
   /** 射界錐的軸，艦體座標。`aim` 沒有目標時回歸到它。 */

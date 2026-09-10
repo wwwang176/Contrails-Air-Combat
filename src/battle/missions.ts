@@ -12,9 +12,10 @@ import { KI84 } from '../specs/ki84'
 import { A6M5 } from '../specs/a6m5'
 import { G4M } from '../specs/g4m'
 import { ENTRY_PLANS, type EntryPlan, type EntryPlanId, type SideEntry } from './entry'
-import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry } from './order'
+import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry } from './order'
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
+import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
 import { SCHWARM_SIZE } from './flights'
 import type {
   Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat,
@@ -259,6 +260,21 @@ export interface MissionBattle {
    */
   readonly blueCount: number
   readonly redCount: number
+  /**
+   * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
+   *
+   * `flakHeavy` 在五關都出現，直接改那份通用規格會把另外四關一起改掉。
+   * 寫成 `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
+   */
+  readonly flakSpec?: ShipGunSpec
+  /**
+   * 藍隊**分層擺位**：小隊前後拉開、左右錯開、高度分層，玩家在中間那一隊
+   * （`order.ts` 的 `stackedEntry`）。**省略 = 橫隊。**
+   *
+   * **只是開場站位，不是編隊** —— 沒有隊形維持，起飛之後每一架照自己的
+   * 攻擊航路飛。
+   */
+  readonly blueStacked?: true
   /**
    * 紅隊分兩路夾擊：後半繞著艦隊往右舷轉這麼多，rad。**省略 = 一路壓上來。**
    *
@@ -645,10 +661,20 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       battle: {
         objective: '炸毀洛伊納油廠', banner: '轟炸洛伊納油廠',
         blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
-        // 【四架同一個小隊】玩家是小隊長，三架 AI 照自己的攻擊航路投
-        // （`ai/strikeRun.ts`）。開場四架 Bf 109 由 `headOn` 放在正前方，
-        // 接近約 40 秒 —— 1944 年標準的十二點鐘正面攻擊
-        blueCount: 4, redCount: 4,
+        /**
+         * 【十二架分三個小隊擺開】玩家在中間那一隊當長機，前後各一隊
+         * （`order.ts` 的 `stackedEntry`：前後 500 m、左右錯半個身位、高度分層）。
+         * **只是開場站位，不編隊** —— 十一架 AI 照自己的攻擊航路投
+         * （`ai/strikeRun.ts`）。
+         *
+         * 【為什麼不是四架】史實這一場第八航空軍出動六百多架；四架在畫面上
+         * 是一支巡邏隊，不是一次轟炸。**起始值，由試飛裁定。**
+         *
+         * 開場四架 Bf 109 由 `headOn` 放在正前方，接近約 40 秒 —— 1944 年
+         * 標準的十二點鐘正面攻擊
+         */
+        blueCount: 12, redCount: 4,
+        blueStacked: true,
         convoyCount: 0, convoyPriority: 1,
         targetDistance: 0, targetRadius: 0, seconds: Infinity,
         entry: 'headOn',
@@ -662,7 +688,15 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
          */
         altitude: 1500,
         ground: LEUNA_GROUND,
-        // 【炸毀任意六座】計數的池是廠區十二座構件與八座砲位 —— 全部都是
+        /**
+         * 【這一關的高砲射速是通用值的兩倍】洛伊納是德國本土最密的火網之一，
+         * 而 `GROUND_FLAK_SPEC` 的 15 發/分是路邊一座砲位的值。
+         *
+         * 30 發/分超出 88 的持續射速（史實約 20），與 5 吋砲初速訂 450（真砲
+         * 790）同一個性質：那一層的存在條件是手感。**起始值，由試飛裁定。**
+         */
+        flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 30 },
+        // 【炸毀任意六座】計數的池是廠區十二座構件與四十八座砲位 —— 全部都是
         // 敵方的地面目標。**起始值**
         destroyCount: 6,
         waves: [{
@@ -1051,12 +1085,14 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       bomber: rules.owner === 'red' ? convoyOf(card) : null,
       bombers: b.convoyCount,
     })
-    : b.redStarboard === undefined
-      ? lineAbreast(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
-      : pincer(
-        plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
-        DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
-      )
+    : b.blueStacked === true
+      ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
+      : b.redStarboard === undefined
+        ? lineAbreast(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
+        : pincer(
+          plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
+          DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
+        )
   const beats = cardBeats(card, plan, altitude)
   return {
     ...DEFAULT_BATTLE,
@@ -1070,6 +1106,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     ...(beats === undefined ? {} : { beats }),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
     ...(b.ground === undefined ? {} : { ground: b.ground }),
+    ...(b.flakSpec === undefined ? {} : { flakSpec: b.flakSpec }),
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),

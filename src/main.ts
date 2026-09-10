@@ -96,7 +96,7 @@ import {
 import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
-  FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
   addShake, applyCameraShake, createCameraShake, stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
@@ -729,8 +729,9 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
  */
 function shakeFlakBursts(events: BurstEvents): void {
   for (let e = 0; e < events.count; e++) {
+    // 【尺度逐發帶】艦砲與陸砲各有自己的 `burstShake`，要分開調就改那一格
     addShake(cameraShake, events.x[e]!, events.y[e]!, events.z[e]!,
-      FLAK_SHAKE, ctx.camera.position)
+      events.shake[e]!, ctx.camera.position)
   }
 }
 

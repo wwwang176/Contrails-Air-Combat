@@ -289,7 +289,7 @@ function createInlandTerrain(
    */
   flora?: (base: FloraSource[]) => FloraSource[],
 ): Terrain {
-  const horizon = createFarHorizon(season, site)
+  const horizon = createFarHorizon(season)
   const ground = createFarmGround(farm.field, season, site)
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的

@@ -62,6 +62,17 @@ export interface FlightPlan {
    */
   readonly tier: number
   /**
+   * 沿 Z 的縱深偏移，**公尺**。省略 = 0，也就是整隊排在同一條線上。
+   *
+   * 【為什麼這一個是絕對公尺而不是序號】`lane`／`tier` 有對應的尺標可以被
+   * 探針覆寫（`schwarmSpacing`／`altitudeSpread`），縱深沒有 —— 而借
+   * `entryRange` 會讓「小隊之間差 400 m」變成「差 4% 的進場距離」，那兩件事
+   * 在探針把 `entryRange` 調成三倍時的意思完全不同。
+   *
+   * 藍隊的分層擺位靠它（`stackedEntry`）。
+   */
+  readonly depth?: number
+  /**
    * 玩家開這一小隊的長機（`members[0]`）。
    *
    * **整張表恰好一筆為 true，而且必須在藍隊**（`assertOrderOfBattle`）。
@@ -116,6 +127,58 @@ export function lineAbreast(
       out.push(blueSide && f === playerFlight
         ? { team, members, entry, duty: 'combat', lane, tier: f, player: true }
         : { team, members, entry, duty: 'combat', lane, tier: f })
+    }
+  }
+  return out
+}
+
+/** 分層擺位時相鄰兩個小隊的縱深間距，m。**起始值，由試飛裁定** */
+export const STACK_DEPTH = 500
+
+/** 相鄰兩個小隊的橫向錯開，以 `schwarmSpacing` 為單位 */
+const STACK_LANE_STEP = 0.6
+
+/**
+ * 藍隊**分層擺位**：小隊前後拉開、左右錯半個身位、高度分層。
+ * 紅隊照 `lineAbreast` 的橫隊擺。
+ *
+ * **它只決定開場站在哪裡，不改變任何行為。** 沒有隊形維持、沒有僚機跟隨 ——
+ * 起飛之後每一架照自己的攻擊航路飛（`ai/strikeRun.ts`），與橫隊時逐字相同。
+ *
+ * 【為什麼要前後拉開】十二架排成一條橫線在畫面上是一排並肩的飛機。前後 +
+ * 左右 + 高低錯開之後，玩家從中間那一隊看出去，前面有一隊、後面有一隊 ——
+ * 那是一次轟炸的樣子。
+ *
+ * 【玩家在中間那一隊】沿用 `lineAbreast` 的 `playerFlight`。
+ *
+ * 【`lineAbreast` 不能改成呼叫這一支】`test/fixtures/spawn-baseline.ts` 把
+ * 它產出的每一個座標釘死到浮點位元，而那份基準的運算序列不能動。
+ */
+export function stackedEntry(
+  plan: EntryPlan,
+  blueSpec: AircraftSpec, blueCount: number,
+  redSpec: AircraftSpec, redCount: number,
+): OrderOfBattle {
+  const out: FlightPlan[] = []
+  const playerFlight = Math.floor(Math.ceil(blueCount / SCHWARM_SIZE) / 2)
+  for (const team of ['blue', 'red'] as const) {
+    const blueSide = team === 'blue'
+    const count = blueSide ? blueCount : redCount
+    const spec = blueSide ? blueSpec : redSpec
+    const entry = blueSide ? plan.blue : plan.red
+    const flights = Math.ceil(count / SCHWARM_SIZE)
+    for (let f = 0; f < flights; f++) {
+      const size = Math.min(SCHWARM_SIZE, count - f * SCHWARM_SIZE)
+      const members: AircraftSpec[] = []
+      for (let k = 0; k < size; k++) members.push(spec)
+      const step = f - (flights - 1) / 2
+      // 【只有藍隊分層】紅隊是攔截機，橫隊迎面壓上來才對
+      const lane = blueSide ? step * STACK_LANE_STEP : step
+      // 【+ 是落後】藍隊機首朝 −Z，所以 z 大的在後面
+      const depth = blueSide ? step * STACK_DEPTH : 0
+      out.push(blueSide && f === playerFlight
+        ? { team, members, entry, duty: 'combat', lane, tier: f, depth, player: true }
+        : { team, members, entry, duty: 'combat', lane, tier: f, depth })
     }
   }
   return out
