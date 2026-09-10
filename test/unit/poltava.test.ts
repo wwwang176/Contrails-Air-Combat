@@ -93,25 +93,27 @@ describe('poltava 的佈局', () => {
       const touchesTaxiway = l.z0 <= TAXIWAY.z1 && l.z1 >= TAXIWAY.z0
       expect(touchesRunway || touchesTaxiway, `${l.x0},${l.z0}`).toBe(true)
     }
-    // 每一個停機位貼著一條支線
+    // 【沒有孤島】每一個停機位都與滑行道或支線共邊（矩形相碰）
+    const roads = [TAXIWAY, ...TAXI_LINKS]
     for (const h of HARDSTANDS) {
-      const near = TAXI_LINKS.some((l) => h.z1 >= l.z0 && h.z0 <= l.z1
-        && (Math.abs(h.x1 - l.x0) <= 40 || Math.abs(h.x0 - l.x1) <= 40))
-      expect(near, `${h.x0},${h.z0}`).toBe(true)
+      const touching = roads.some((r) =>
+        h.x0 <= r.x1 && h.x1 >= r.x0 && h.z0 <= r.z1 && h.z1 >= r.z0)
+      expect(touching, `${h.x0},${h.z0}`).toBe(true)
     }
   })
 
-  it('24 架 B-17 分三群、都在墊面內、不在跑道與滑行道上、彼此不重疊', () => {
+  it('24 架 B-17 各在自己的停機位末端、不在跑道與滑行道上、彼此不重疊', () => {
     expect(PARKED_ROWS).toHaveLength(24)
+    expect(HARDSTANDS).toHaveLength(24)
     for (const p of PARKED_ROWS) {
       expect(inRect(p.x, p.z, PAD), `${p.x},${p.z}`).toBe(true)
       expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
       expect(inRect(p.x, p.z, TAXIWAY), `${p.x},${p.z}`).toBe(false)
     }
-    // 停機位上的每一架都在自己的方塊裡
-    let onStand = 0
-    for (const p of PARKED_ROWS) if (HARDSTANDS.some((h) => inRect(p.x, p.z, h))) onStand++
-    expect(onStand).toBe(HARDSTANDS.length)
+    // 每一架都在某一個停機位裡
+    for (const p of PARKED_ROWS) {
+      expect(HARDSTANDS.some((h) => inRect(p.x, p.z, h)), `${p.x},${p.z}`).toBe(true)
+    }
     for (let i = 0; i < PARKED_ROWS.length; i++) {
       for (let j = i + 1; j < PARKED_ROWS.length; j++) {
         const a = PARKED_ROWS[i]!

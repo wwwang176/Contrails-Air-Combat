@@ -63,38 +63,54 @@ export const TAXI_LINKS: readonly FieldRect[] = [
 ]
 
 /**
- * 分散停機位：支線兩側各四個，44 m 見方的水泥方塊，一位一架。西北組沿
- * 北向支線、東南組沿南向支線。
+ * 停機位：**每一個都是從路邊伸出去的一條水泥短枝**，飛機停在枝的末端 ——
+ * 沒有孤島。西北支線兩側各四個、東南支線兩側各四個，機首朝支線；滑行道
+ * 南側八個，機首朝北對著滑行道。
+ *
+ * `dx`／`dz` 是飛機的位置；枝從 `from`（路的邊緣）伸到飛機外側 22 m。
  */
-const DISPERSAL_SPOTS: readonly { dx: number; dz: number }[] = [
-  { dx: -960, dz: -120 }, { dx: -816, dz: -120 }, { dx: -960, dz: -250 }, { dx: -816, dz: -250 },
-  { dx: -960, dz: -380 }, { dx: -816, dz: -380 }, { dx: -960, dz: -510 }, { dx: -816, dz: -510 },
-  { dx: 640, dz: 360 }, { dx: 784, dz: 360 }, { dx: 640, dz: 480 }, { dx: 784, dz: 480 },
-  { dx: 640, dz: 600 }, { dx: 784, dz: 600 }, { dx: 640, dz: 720 }, { dx: 784, dz: 720 },
-]
 const SPOT_HALF = 22
-export const HARDSTANDS: readonly FieldRect[] = /* @__PURE__ */ DISPERSAL_SPOTS.map((s) => ({
-  x0: s.dx - SPOT_HALF, z0: s.dz - SPOT_HALF, x1: s.dx + SPOT_HALF, z1: s.dz + SPOT_HALF,
-}))
+interface Stand {
+  readonly dx: number
+  readonly dz: number
+  /** 枝沿哪一軸伸出去、從路邊的哪一個座標開始 */
+  readonly axis: 'x' | 'z'
+  readonly from: number
+  readonly heading: number
+}
+const STANDS: readonly Stand[] = /* @__PURE__ */ (() => {
+  const out: Stand[] = []
+  // 西北支線 x −900…−876：西側的飛機機首朝東（−π/2）、東側朝西（+π/2）
+  for (const dz of [-120, -250, -380, -510]) {
+    out.push({ dx: -960, dz, axis: 'x', from: -900, heading: -Math.PI / 2 })
+    out.push({ dx: -816, dz, axis: 'x', from: -876, heading: Math.PI / 2 })
+  }
+  // 東南支線 x 700…724
+  for (const dz of [360, 480, 600, 720]) {
+    out.push({ dx: 640, dz, axis: 'x', from: 700, heading: -Math.PI / 2 })
+    out.push({ dx: 784, dz, axis: 'x', from: 724, heading: Math.PI / 2 })
+  }
+  // 滑行道南緣 z 292，往南伸
+  for (let k = 0; k < 8; k++) out.push({ dx: -1050 + k * 200, dz: 340, axis: 'z', from: 292, heading: 0 })
+  return out
+})()
+
+export const HARDSTANDS: readonly FieldRect[] = /* @__PURE__ */ STANDS.map((s) => (s.axis === 'x'
+  ? {
+    x0: Math.min(s.from, s.dx - SPOT_HALF), x1: Math.max(s.from, s.dx + SPOT_HALF),
+    z0: s.dz - SPOT_HALF, z1: s.dz + SPOT_HALF,
+  }
+  : {
+    x0: s.dx - SPOT_HALF, x1: s.dx + SPOT_HALF,
+    z0: Math.min(s.from, s.dz - SPOT_HALF), z1: Math.max(s.from, s.dz + SPOT_HALF),
+  }))
 
 /** 全部的鋪面。著色器鋪水泥色、佈景與砲位避開它們 */
 export const PAVED: readonly FieldRect[] = /* @__PURE__ */ [RUNWAY, TAXIWAY, ...TAXI_LINKS, ...HARDSTANDS]
 
-/**
- * 停放的 B-17 三群：西北停機位 8 架、東南停機位 8 架、沿滑行道南側 8 架
- * （翼尖距 200 m，機首朝北對著滑行道）。停機位上的機首朝支線。
- */
+/** 停放的 B-17：24 架，各在自己的停機位末端 */
 export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
-  /* @__PURE__ */ (() => {
-    const out: { x: number; z: number; heading: number }[] = []
-    for (const s of DISPERSAL_SPOTS) {
-      // 支線在兩排停機位中間：西邊那一排機首朝東（−π/2）、東邊朝西（+π/2）
-      const spurX = s.dz < 0 ? -888 : 712
-      out.push({ ...at(s.dx, s.dz), heading: s.dx < spurX ? -Math.PI / 2 : Math.PI / 2 })
-    }
-    for (let k = 0; k < 8; k++) out.push({ ...at(-1050 + k * 200, 340), heading: 0 })
-    return out
-  })()
+  /* @__PURE__ */ STANDS.map((s) => ({ ...at(s.dx, s.dz), heading: s.heading }))
 
 /** 油桶堆兩塊在西南角、彈藥堆一塊在東北角。全部在墊面內、避開鋪面 */
 export const DUMPS: readonly { kind: 'fuelDump' | 'bombDump'; x: number; z: number; heading: number }[] = [
