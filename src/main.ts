@@ -2576,6 +2576,58 @@ const GFX_HIDDEN_LAYER = 31
  * 【代飛要另外按】與遊戲相同：`KeyI`。e2e 腳本在呼叫本函式的同一個 tick
  * dispatch —— `leaveGodView` 會在開戰時把 `input.playerAi` 清掉，先按無效。
  */
+/**
+ * 觀察者鏡頭的直接定位。**要先按 `G` 進上帝視角**，否則寫進去的姿態下一幀
+ * 就被飛行鏡頭蓋掉。
+ *
+ * 【為什麼不用鍵盤飛過去】按著 `W` 數秒鐘的位移取決於那幾秒跑了幾幀 ——
+ * 量測本身會改變它，兩輪停的地方不一樣，而「同一個機位」正是 A/B 的前提。
+ */
+;(window as unknown as Record<string, unknown>)['__godcam'] = (
+  x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
+) => {
+  godCam.position.set(x, y, z)
+  godCam.yaw = (yawDeg * Math.PI) / 180
+  godCam.pitch = (pitchDeg * Math.PI) / 180
+  return { x, y, z, yawDeg, pitchDeg }
+}
+
+/**
+ * 打一片彈幕：`n` 顆落在 (`cx`, `cz`) 附近 `spread` 公尺內，走的是與炸彈
+ * 落地**逐字相同**的那一支 `emitBlast(LAND_BLAST)`。省略座標時以地面目標
+ * 的形心為準。
+ */
+;(window as unknown as Record<string, unknown>)['__bombs'] = (
+  n = 48, spread = 700, fires = false, cx?: number, cz?: number,
+) => {
+  if (fires) {
+    for (const t of world.groundTargets) {
+      const top = t.impactY - t.position.y
+      lightGroundFire(groundFires, t.position.x, t.position.y + top * 0.3, t.position.z)
+    }
+  }
+  let ax = 0
+  let az = 0
+  for (const t of world.groundTargets) { ax += t.position.x; az += t.position.z }
+  const m = Math.max(1, world.groundTargets.length)
+  const ox = cx ?? ax / m
+  const oz = cz ?? az / m
+  for (let k = 0; k < n; k++) {
+    const bx = ox + (hash01(k * 7919 + 1) * 2 - 1) * spread
+    const bz = oz + (hash01(k * 7919 + 2) * 2 - 1) * spread
+    emitBlast(BLAST_POOLS, LAND_BLAST, bx, world.groundAt(bx, bz), bz, k * 97, 0, 0, 0)
+  }
+  return {
+    at: { x: +ox.toFixed(0), z: +oz.toFixed(0) },
+    smoke: blastSmoke.live,
+    dust: blastDust.live,
+    glow: blastGlow.live,
+    // 【地面火的煙走另一個池】容量 16384，是彈幕煙池的八倍 —— 煙牆真要堆
+    // 得起來只可能在這裡
+    fireSmoke: shipFireSmoke.live,
+  }
+}
+
 ;(window as unknown as Record<string, unknown>)['__drill'] = (altitude = 5000) => {
   drillConfig = {
     units: lineAbreast(HEAD_ON, BF109K4, 1, P51D, 1),
