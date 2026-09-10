@@ -34,7 +34,7 @@ function target(index: number, x: number, y: number, z: number): TurretCombatant
 describe('輕型陸砲', () => {
   it('掛的是 autocannon 那一層：彈丸進池、不進高砲彈、彈丸真的在飛', () => {
     const t = createGroundTarget(3, 'flakLight', 'red', 0, 0, 0)
-    t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', 37)
+    t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
     const p = new Projectiles(512)
     const flak = createFlak()
     const dt = 1 / 240
@@ -43,7 +43,7 @@ describe('輕型陸砲', () => {
     }
     expect(p.live).toBeGreaterThan(0)
     expect(flak.live).toBe(0)
-    expect(t.guns[0]!.zone.calibreMm).toBe(37)
+    expect(t.guns[0]!.zone.calibreMm).toBe(GROUND_LIGHT_FLAK_SPEC.caliber)
     expect(t.guns[0]!.hp).toBe(GROUND_LIGHT_FLAK_SPEC.hp)
     // 【不只數 live】owner 寫錯成 −1 的話 live 照加，但彈丸不推進也不畫
     let k = -1
@@ -51,7 +51,7 @@ describe('輕型陸砲', () => {
     expect(k).toBeGreaterThanOrEqual(0)
     expect(p.owner[k]).toBe(shipOwner(3))
     expect(p.team[k]).toBe(1)
-    expect(p.caliber[k]).toBe(37)
+    expect(p.caliber[k]).toBe(GROUND_LIGHT_FLAK_SPEC.caliber)
     const y0 = p.y[k]!
     p.step(dt)
     expect(p.y[k]).not.toBe(y0)
@@ -59,9 +59,9 @@ describe('輕型陸砲', () => {
 
   it('射程約 2.6 km：2,400 m 開火、3,000 m 不開', () => {
     const near = createGroundTarget(0, 'flakLight', 'red', 0, 0, 0)
-    near.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', 37)
+    near.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
     const far = createGroundTarget(1, 'flakLight', 'red', 0, 0, 0)
-    far.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', 37)
+    far.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
     const dt = 1 / 240
     const pn = new Projectiles(512)
     const pf = new Projectiles(512)

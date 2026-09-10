@@ -201,14 +201,14 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
 }
 
 /**
- * 陸上的輕型防空砲：蘇軍 37 mm 61-K 的樣子（`flakLight` 的模型是 2 cm
- * 四聯，剪影差不多）。**走彈丸池、有曳光** —— 夜空裡那一片曳光彈就是它。
+ * 陸上的輕型防空砲：2 cm 四聯（`flakLight` 的模型）。**走彈丸池、有曳光**
+ * —— 夜空裡那一片曳光彈就是它。
  *
  * ```
  *   初速 880        沿用 40 mm 艦砲
- *   射速 160 發/分  61-K 的實際循環射速
+ *   射速 480 發/分  與 20 mm 艦砲同 —— 高射速、單發輕，要的是曳光的密度
  *   壽命 3.0 s      射程 2,640 m —— 1,500 m 的投彈高度打得到
- *   單發 7          40 mm 艦砲是 9
+ *   單發 2.5        與 20 mm 艦砲同
  * ```
  *
  * 【射界是天頂 ± 65°】陸上砲位的砲區在中線上，`axisOf` 對中線給的是天頂
@@ -219,8 +219,8 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
  * 裁定。** `boxHalf` 用不到（命中判定走 `GroundTarget.hull`）。
  */
 export const GROUND_LIGHT_FLAK_SPEC: ShipGunSpec = {
-  muzzleVelocity: 880, roundsPerMinute: 160, life: 3.0, caliber: 37,
-  damage: 7, hp: 160, boxHalf: 1.0, rotationRate: 60 * DEG,
+  muzzleVelocity: 880, roundsPerMinute: 480, life: 3.0, caliber: 20,
+  damage: 2.5, hp: 160, boxHalf: 1.0, rotationRate: 60 * DEG,
   ...NOT_FLAK,
 }
 
