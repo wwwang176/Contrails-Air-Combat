@@ -148,7 +148,7 @@ describe('探照燈的眩光', () => {
     s.update(10.02, list, onAxis)
     expect(glare.visible).toBe(true)
     expect((glare.material as SpriteMaterial).opacity).toBeGreaterThan(0.9)
-    expect(glare.scale.x).toBeCloseTo(2000 * 0.16, 1)
+    expect(glare.scale.x).toBeCloseTo(2000 * 0.08, 1)
     // 離軸 50 m：光柱在那裡只有十公尺寬，熄
     const side = new Vector3(1, 0, 0).cross(axis).normalize()
     const offAxis = onAxis.clone().addScaledVector(side, 50)

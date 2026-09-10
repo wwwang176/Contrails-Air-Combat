@@ -39,7 +39,7 @@ const SLEW_RATE = 40 * Math.PI / 180
 /** 圓柱的分段 —— 光柱不需要圓，八段就夠 */
 const SEGMENTS = 8
 /** 眩光在畫面上的視角大小，rad：貼圖的邊長 = 距離 × 它 */
-const GLARE_ANGULAR_SIZE = 0.16
+const GLARE_ANGULAR_SIZE = 0.08
 
 /** 從光束底座指向目標的方位與仰角。`yaw` 繞 Y（0 = 朝 −Z）、`pitch` 是仰角 */
 export function aimAngles(
