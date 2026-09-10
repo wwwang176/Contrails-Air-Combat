@@ -133,6 +133,7 @@ import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { PLANT_STACKS } from './world/leuna'
 import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
+import { preloadAirfieldScenery } from './render/geometry/ground/airfieldScenery'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -2474,6 +2475,8 @@ await preloadGroundModels()
 // 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
 // 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
 await preloadPlantScenery()
+// 【機場的佈景同一條規則】沒載到的症狀是德 M2 進不去
+await preloadAirfieldScenery()
 requestAnimationFrame(frame)
 
 /**

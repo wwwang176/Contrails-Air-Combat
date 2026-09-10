@@ -28,6 +28,7 @@ import type { Season } from './season'
 import type { SiteLayout } from './fields'
 import { excluding } from './floraExclude'
 import { buildPlantScenery } from './geometry/ground/plantScenery'
+import { buildAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -283,9 +284,9 @@ export const POLTAVA_SITE: SiteLayout = {
   ],
 }
 
-/** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面 */
+/** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
 function createPoltavaTerrain(): Terrain {
-  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE)
+  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery)
 }
 
 /**
