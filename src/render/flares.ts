@@ -17,26 +17,48 @@ import { FLARE_BURN, type Flares } from '../world/flares'
  * `FLARE_LIGHT_COUNT` 降到 2。
  */
 export const FLARE_LIGHT_COUNT = 4
-/** 光源的照射距離，m */
-export const FLARE_LIGHT_DISTANCE = 2500
-const FLARE_LIGHT_INTENSITY = 6
+/**
+ * 光源的照射距離，m。**它決定地上亮的那一圈有多大**：1,200 m 高的燈，
+ * 2,000 m 的截止在地面是半徑 1,600 m 的圓 —— 機場亮、周圍的田暗。
+ */
+export const FLARE_LIGHT_DISTANCE = 2000
+/**
+ * 燭光。three 的點光源是 1/d² 衰減：1,200 m 正下方的照度是 I / 1.44e6，
+ * 夜間的太陽是 0.38 —— 要在地面看得出亮暗差，強度得是幾十萬的量級。
+ * **起始值，拿眼睛校。**
+ */
+const FLARE_LIGHT_INTENSITY = 6e5
 const FLARE_COLOR = 0xfff2d0
 /** 光暈 sprite 的直徑，m */
 const GLOW_SIZE = 40
 /** 最後這幾秒亮度線性衰到 0 */
 const FADE_SECONDS = 30
+/** 閃爍的深度：亮度在 1 − FLICKER … 1 之間晃 */
+const FLICKER = 0.18
 
+/** 還沒點燃的是 0，最後幾秒衰到 0 */
 export function flareBrightness(age: number): number {
+  if (age < 0) return 0
   const left = FLARE_BURN - age
   if (left <= 0) return 0
   if (left >= FADE_SECONDS) return 1
   return left / FADE_SECONDS
 }
 
+/**
+ * 隨機的閃爍。三個互質頻率的正弦相乘，每一枚的相位不同 —— 看起來是不
+ * 規則的，但是時間的純函數（不配置、可重現）。
+ */
+export function flareFlicker(index: number, seconds: number): number {
+  const p = index * 1.7
+  const s = Math.sin(seconds * 23 + p) * Math.sin(seconds * 7.3 + p * 2) * Math.sin(seconds * 3.1 + p * 0.5)
+  return 1 - FLICKER * (0.5 + 0.5 * s)
+}
+
 export interface FlareLights {
   readonly object: Group
-  /** 每一渲染幀呼叫 */
-  update(f: Flares): void
+  /** 每一渲染幀呼叫；`seconds` 是畫面時間，只拿來閃爍 */
+  update(f: Flares, seconds: number): void
   dispose(): void
 }
 
@@ -58,7 +80,7 @@ export function createFlareLights(glow: Texture): FlareLights {
 
   return {
     object,
-    update(f) {
+    update(f, seconds) {
       if (f.capacity > ORDER.length) throw new Error(`照明彈池 ${f.capacity} 格，排序緩衝只有 ${ORDER.length}`)
       // sprite 的數量跟池的容量走，第一次看到才建
       while (sprites.length < f.capacity) {
@@ -67,10 +89,10 @@ export function createFlareLights(glow: Texture): FlareLights {
         object.add(s)
         sprites.push(s)
       }
-      // 亮著的依年齡由小到大排（插入排序，最多 16 個）
+      // 點燃的依年齡由小到大排（插入排序，最多 16 個）。還沒點燃的不算
       let n = 0
       for (let i = 0; i < f.capacity; i++) {
-        if (f.live[i] === 0) continue
+        if (f.live[i] === 0 || f.age[i]! < 0) continue
         let j = n
         while (j > 0 && f.age[ORDER[j - 1]!]! > f.age[i]!) {
           ORDER[j] = ORDER[j - 1]!
@@ -82,7 +104,7 @@ export function createFlareLights(glow: Texture): FlareLights {
       for (let i = 0; i < f.capacity; i++) sprites[i]!.visible = false
       for (let k = 0; k < n; k++) {
         const i = ORDER[k]!
-        const b = flareBrightness(f.age[i]!)
+        const b = flareBrightness(f.age[i]!) * flareFlicker(i, seconds)
         const s = sprites[i]!
         s.visible = true
         s.position.set(f.x[i]!, f.y[i]!, f.z[i]!)

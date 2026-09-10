@@ -96,17 +96,24 @@ export interface RecycleBeat {
   readonly entry: SideEntry
 }
 
+/** 一枚照明彈：世界座標、點燃高度、比節拍晚幾秒點燃 */
+export interface FlarePoint {
+  readonly x: number
+  readonly z: number
+  /** 點燃的高度，m。每一枚不同，地上的光照角度才不同 */
+  readonly altitude: number
+  /** 節拍生效之後幾秒點燃。照明機是一枚一枚投的，不是同一刻全亮 */
+  readonly delay: number
+}
+
 /**
  * 在幾個點上點照明彈。**沒有預警、沒有訊息** —— 照明機飛過去投下，玩家看到
- * 的就是天上亮起來。條件到了就生效，同一步。
+ * 的就是天上亮起來。條件到了就生效，同一步；各枚的時間差由 `delay` 給。
  */
 export interface FlareBeat {
   readonly kind: 'flare'
   readonly when: BeatCondition
-  /** 世界座標的 (x, z)，每一點一枚 */
-  readonly points: readonly { readonly x: number; readonly z: number }[]
-  /** 點燃的高度，m */
-  readonly altitude: number
+  readonly points: readonly FlarePoint[]
 }
 
 export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat

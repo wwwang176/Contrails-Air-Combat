@@ -849,7 +849,8 @@ function emitFlareSmoke(frameSeconds: number): void {
   if (n <= 0) return
   flareSmokeAccum -= n
   for (let i = 0; i < fl.capacity; i++) {
-    if (fl.live[i] === 0) continue
+    // 還沒點燃的不冒煙
+    if (fl.live[i] === 0 || fl.age[i]! < 0) continue
     for (let k = 0; k < n; k++) {
       const s = (steamSeed = (steamSeed + 1) | 0)
       const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
@@ -1902,11 +1903,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   blastDust.step(frameSeconds)
   blastMist.step(frameSeconds)
   flakBursts.step(frameSeconds)
-  flareLights.update(world.flares)
+  flareLights.update(world.flares, elapsed)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets)
-  searchlights?.update(elapsed)
+  searchlights?.update(elapsed, world.combatants)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
     addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)

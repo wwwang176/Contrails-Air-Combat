@@ -13,7 +13,10 @@ const DT = 1 / 240
 
 const BEAT: FlareBeat = {
   kind: 'flare', when: { kind: 'clock', at: 2 },
-  points: [{ x: -100, z: -7000 }, { x: 100, z: -7000 }], altitude: 1200,
+  points: [
+    { x: -100, z: -7000, altitude: 1200, delay: 0 },
+    { x: 100, z: -7000, altitude: 1000, delay: 5 },
+  ],
 }
 
 function cfg(): BattleConfig {
@@ -32,6 +35,9 @@ describe('照明彈節拍', () => {
     expect(b.world.flares.y[0]).toBeCloseTo(1200, 0)
     // 生成點是卡片給的；`x` 從第一步起就含搖晃
     expect(b.world.flares.ox[1]).toBe(100)
+    // 第二枚晚 5 秒：進池了但還沒點燃（年齡是負的）、掛在自己的高度
+    expect(b.world.flares.age[1]).toBeLessThan(0)
+    expect(b.world.flares.y[1]).toBe(1000)
     expect(b.message).toBe('')
     expect(b.beatsLeft).toBe(0)
   })

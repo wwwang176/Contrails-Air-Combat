@@ -28,6 +28,18 @@ describe('照明彈池', () => {
     expect(f.count).toBe(0)
   })
 
+  it('延遲點燃：時間到之前掛在原點、不亮、不下墜', () => {
+    const f = createFlares()
+    spawnFlare(f, 0, 1200, 0, 0, 10)
+    for (let i = 0; i < 9 * 240; i++) stepFlares(f, DT, FLAT)
+    expect(f.age[0]).toBeLessThan(0)
+    expect(f.y[0]).toBe(1200)
+    expect(f.x[0]).toBe(0)
+    for (let i = 0; i < 2 * 240; i++) stepFlares(f, DT, FLAT)
+    expect(f.age[0]).toBeCloseTo(1, 6)
+    expect(f.y[0]).toBeCloseTo(1200 - FLARE_DESCENT, 3)
+  })
+
   it('落到地面就熄', () => {
     const f = createFlares()
     spawnFlare(f, 0, 5, 0, 0)

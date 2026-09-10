@@ -22,7 +22,7 @@ import { HE111 } from '../specs/he111'
 import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
 import { SCHWARM_SIZE } from './flights'
 import type {
-  Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat,
+  Beat, BeatCondition, FlarePoint, RecycleBeat, ReinforceBeat, WithdrawBeat,
 } from './beats'
 import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
@@ -151,9 +151,8 @@ export interface MissionWave {
 /** 這一關的照明彈。**沒有的卡不寫這一格**（與 `waves` 同一個約定） */
 export interface MissionFlares {
   readonly when: MissionTrigger
-  readonly points: readonly { readonly x: number; readonly z: number }[]
-  /** 點燃高度，m */
-  readonly altitude: number
+  /** 每一枚的位置、高度、比節拍晚幾秒點燃 */
+  readonly points: readonly FlarePoint[]
 }
 
 export interface MissionRecycle {
@@ -879,10 +878,11 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 12 },
         /**
          * 【80 秒】He 111 約 85 m/s 從 12 km 外進場，80 秒時離機場約 5 km；
-         * 照明彈燒到 380 秒，整個投彈段都亮著。點燃高度 1,200 m，比投彈高度
-         * 低 —— 光在飛機下面，照的是地。**起始值，由試玩裁定。**
+         * 照明彈燒到 380 秒，整個投彈段都亮著。各枚的高度與時間差在
+         * `FLARE_LINE`，都在投彈高度之下 —— 光在飛機下面，照的是地。
+         * **起始值，由試玩裁定。**
          */
-        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_LINE, altitude: 1200 },
+        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_LINE },
       },
     },
     {
@@ -1189,10 +1189,7 @@ function cardBeats(
   if (b.recycle !== undefined) out.push(recycleBeat(b.recycle, plan))
   b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
   if (b.flares !== undefined) {
-    out.push({
-      kind: 'flare', when: triggerToCondition(b.flares.when),
-      points: b.flares.points, altitude: b.flares.altitude,
-    })
+    out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
   }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
   return out.length === 0 ? undefined : out
