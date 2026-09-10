@@ -34,10 +34,29 @@ export function worldToField(x: number, z: number, out: { x: number; z: number }
 export interface FieldRect { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
 
 /**
- * 墊面：草地，內部高度保證 0。**只比鋪面（跑道、滑行道、魚骨）外擴約
- * 200 m** —— 機場不像工廠，草地不該遠遠大過設施。機場局部座標。
+ * 墊面：草地，內部高度保證 0。**貼著鋪面走，不是一個大矩形** —— 主體是
+ * 跑道加滑行道那一條帶子，每一組魚骨各自一塊（`FIELD_LOBES`），著色器取
+ * 聯集；每一塊再外推 180 m 的裙邊（`fields.ts` 的 `PAD_SKIRT`）。機場局部
+ * 座標。
  */
-export const FIELD_PAD: FieldRect = { x0: -1450, z0: -620, x1: 1450, z1: 860 }
+export const FIELD_PAD: FieldRect = { x0: -1270, z0: -50, x1: 1270, z1: 312 }
+/** 附加的墊面：西北魚骨一塊、東南兩組魚骨一塊。**都與主墊面相接**，支線才不會跨過一條草縫 */
+export const FIELD_LOBES: readonly FieldRect[] = [
+  { x0: -1010, z0: -420, x1: -766, z1: -30 },
+  { x0: 590, z0: 300, x1: 1200, z1: 650 },
+]
+/** 主墊面與附加墊面的外接矩形。護欄、佈景、圍籬用 */
+export const FIELD_BOUNDS: FieldRect = /* @__PURE__ */ [FIELD_PAD, ...FIELD_LOBES].reduce((b, r) => ({
+  x0: Math.min(b.x0, r.x0), z0: Math.min(b.z0, r.z0), x1: Math.max(b.x1, r.x1), z1: Math.max(b.z1, r.z1),
+}))
+
+/** 這一點在墊面（主體或任何一塊附加）的矩形裡；不含裙邊 */
+export function inField(dx: number, dz: number): boolean {
+  for (const r of [FIELD_PAD, ...FIELD_LOBES]) {
+    if (dx >= r.x0 && dx <= r.x1 && dz >= r.z0 && dz <= r.z1) return true
+  }
+  return false
+}
 /** 墊面外一圈不長樹；機場周邊本來就是空曠的草原 */
 export const FIELD_TREE_CLEAR = 300
 
@@ -129,11 +148,11 @@ export const PAVED: readonly FieldRect[] = /* @__PURE__ */ [RUNWAY, TAXIWAY, ...
 export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ STANDS.map((s) => ({ ...at(s.dx, s.dz), heading: s.heading }))
 
-/** 油桶堆兩塊在西南角、彈藥堆一塊在東北角。全部在墊面內、避開鋪面 */
+/** 油桶堆兩塊在跑道與滑行道之間的西端、彈藥堆在東南魚骨的東邊。全部在墊面內、避開鋪面 */
 export const DUMPS: readonly { kind: 'fuelDump' | 'bombDump'; x: number; z: number; heading: number }[] = [
-  { kind: 'fuelDump', ...at(-1300, 400), heading: 0 },
-  { kind: 'fuelDump', ...at(-1240, 400), heading: 0 },
-  { kind: 'bombDump', ...at(1300, -500), heading: 0 },
+  { kind: 'fuelDump', ...at(-1150, 150), heading: 0 },
+  { kind: 'fuelDump', ...at(-1090, 150), heading: 0 },
+  { kind: 'bombDump', ...at(1160, 500), heading: 0 },
 ]
 
 /**
@@ -178,7 +197,7 @@ export const FLARE_DROPS: readonly { x: number; z: number; altitude: number; del
     { dx: 0, dz: 300, altitude: 1050, delay: 7 },
     { dx: 800, dz: -300, altitude: 1250, delay: 14 },
     { dx: -800, dz: 250, altitude: 1150, delay: 0 },
-    { dx: 0, dz: -500, altitude: 1350, delay: 0 },
+    { dx: 0, dz: -380, altitude: 1350, delay: 0 },
     { dx: 800, dz: 450, altitude: 1100, delay: 0 },
     { dx: -800, dz: -100, altitude: 1300, delay: 0 },
     { dx: 0, dz: 50, altitude: 1200, delay: 0 },
