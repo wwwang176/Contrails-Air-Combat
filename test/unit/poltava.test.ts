@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  APRON, createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HEAVY_FLAK_SITES,
-  LIGHT_FLAK_SITES, PARKED_ROWS, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, worldToField,
+  createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HARDSTANDS, HEAVY_FLAK_SITES,
+  LIGHT_FLAK_SITES, PARKED_ROWS, PAVED, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, TAXI_LINKS, TAXIWAY,
+  worldToField,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FLARE_LANES } from '../../src/world/flares'
@@ -64,50 +65,80 @@ describe('poltava 地形', () => {
   })
 })
 
+/** 這一點離任何鋪面（跑道、滑行道、停機位）至少 `margin` 公尺 */
+function clearOfPaving(x: number, z: number, margin: number): boolean {
+  worldToField(x, z, L)
+  for (const r of PAVED) {
+    if (L.x >= r.x0 - margin && L.x <= r.x1 + margin && L.z >= r.z0 - margin && L.z <= r.z1 + margin) return false
+  }
+  return true
+}
+
 describe('poltava 的佈局', () => {
-  it('跑道與停機坪都在墊面內，而且不重疊', () => {
-    for (const r of [RUNWAY, APRON]) {
+  it('鋪面都在墊面內；跑道與滑行道平行、不重疊；支線接得上', () => {
+    for (const r of PAVED) {
       expect(r.x0).toBeGreaterThanOrEqual(PAD.x0)
       expect(r.x1).toBeLessThanOrEqual(PAD.x1)
       expect(r.z0).toBeGreaterThanOrEqual(PAD.z0)
       expect(r.z1).toBeLessThanOrEqual(PAD.z1)
+      expect(r.x1).toBeGreaterThan(r.x0)
+      expect(r.z1).toBeGreaterThan(r.z0)
     }
-    const apart = RUNWAY.x1 <= APRON.x0 || APRON.x1 <= RUNWAY.x0
-      || RUNWAY.z1 <= APRON.z0 || APRON.z1 <= RUNWAY.z0
-    expect(apart).toBe(true)
+    expect(TAXIWAY.z0).toBeGreaterThan(RUNWAY.z1)
+    expect(TAXIWAY.x0).toBe(RUNWAY.x0)
+    expect(TAXIWAY.x1).toBe(RUNWAY.x1)
+    // 每一條聯絡道／支線至少碰到跑道或滑行道
+    for (const l of TAXI_LINKS) {
+      const touchesRunway = l.z0 <= RUNWAY.z1 && l.z1 >= RUNWAY.z0
+      const touchesTaxiway = l.z0 <= TAXIWAY.z1 && l.z1 >= TAXIWAY.z0
+      expect(touchesRunway || touchesTaxiway, `${l.x0},${l.z0}`).toBe(true)
+    }
+    // 每一個停機位貼著一條支線
+    for (const h of HARDSTANDS) {
+      const near = TAXI_LINKS.some((l) => h.z1 >= l.z0 && h.z0 <= l.z1
+        && (Math.abs(h.x1 - l.x0) <= 40 || Math.abs(h.x0 - l.x1) <= 40))
+      expect(near, `${h.x0},${h.z0}`).toBe(true)
+    }
   })
 
-  it('24 架 B-17 全在停機坪內、翼尖距至少 34 m、排距至少 50 m', () => {
+  it('24 架 B-17 分三群、都在墊面內、不在跑道與滑行道上、彼此不重疊', () => {
     expect(PARKED_ROWS).toHaveLength(24)
-    for (const p of PARKED_ROWS) expect(inRect(p.x, p.z, APRON), `${p.x},${p.z}`).toBe(true)
+    for (const p of PARKED_ROWS) {
+      expect(inRect(p.x, p.z, PAD), `${p.x},${p.z}`).toBe(true)
+      expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
+      expect(inRect(p.x, p.z, TAXIWAY), `${p.x},${p.z}`).toBe(false)
+    }
+    // 停機位上的每一架都在自己的方塊裡
+    let onStand = 0
+    for (const p of PARKED_ROWS) if (HARDSTANDS.some((h) => inRect(p.x, p.z, h))) onStand++
+    expect(onStand).toBe(HARDSTANDS.length)
     for (let i = 0; i < PARKED_ROWS.length; i++) {
       for (let j = i + 1; j < PARKED_ROWS.length; j++) {
         const a = PARKED_ROWS[i]!
         const b = PARKED_ROWS[j]!
-        const dx = Math.abs(a.x - b.x)
-        const dz = Math.abs(a.z - b.z)
-        // 同一排：橫向翼尖距；不同排：縱向排距
-        expect(dz < 1 ? dx >= 34 : dz >= 50, `${i},${j}`).toBe(true)
+        // 命中盒 32 × 23：橫向拉開翼展、或縱向拉開全長
+        expect(Math.abs(a.x - b.x) >= 34 || Math.abs(a.z - b.z) >= 26, `${i},${j}`).toBe(true)
       }
     }
   })
 
-  it('三堆都在墊面內、不在跑道與停機坪上', () => {
+  it('三堆都在墊面內、離鋪面 20 m 以上', () => {
     expect(DUMPS.map((d) => d.kind).sort()).toEqual(['bombDump', 'fuelDump', 'fuelDump'])
     for (const d of DUMPS) {
       expect(inRect(d.x, d.z, PAD)).toBe(true)
-      expect(inRect(d.x, d.z, RUNWAY)).toBe(false)
-      expect(inRect(d.x, d.z, APRON)).toBe(false)
+      expect(clearOfPaving(d.x, d.z, 20), `${d.x},${d.z}`).toBe(true)
     }
   })
 
-  it('砲位與探照燈都不在跑道與停機坪上，重高砲在墊面外', () => {
+  it('砲位與探照燈都離鋪面 20 m 以上、離停放的 B-17 40 m 以上，重高砲在墊面外', () => {
     expect(LIGHT_FLAK_SITES).toHaveLength(16)
     expect(HEAVY_FLAK_SITES).toHaveLength(6)
     expect(SEARCHLIGHT_SITES).toHaveLength(6)
     for (const s of [...LIGHT_FLAK_SITES, ...HEAVY_FLAK_SITES, ...SEARCHLIGHT_SITES]) {
-      expect(inRect(s.x, s.z, RUNWAY), `${s.x},${s.z}`).toBe(false)
-      expect(inRect(s.x, s.z, APRON), `${s.x},${s.z}`).toBe(false)
+      expect(clearOfPaving(s.x, s.z, 20), `${s.x},${s.z}`).toBe(true)
+      for (const p of PARKED_ROWS) {
+        expect(Math.hypot(s.x - p.x, s.z - p.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
+      }
     }
     for (const s of HEAVY_FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(500)
   })
