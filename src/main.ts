@@ -32,6 +32,7 @@ import {
   createShipModels, preloadShipModels, shipModelTop, type ShipModels,
 } from './render/ships'
 import { createGroundModels, type GroundModels } from './render/groundTargets'
+import { createSearchlights, type Searchlights } from './render/searchlights'
 import { preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts, type BurstEvents } from './world/flak'
@@ -214,6 +215,8 @@ ctx.scene.add(tracers.object)
  */
 let shipModels: ShipModels | null = null
 let groundModels: GroundModels | null = null
+/** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
+let searchlights: Searchlights | null = null
 /** 砲位陣亡時噴火球用的暫存。熱路徑之外，但仍不配置。 */
 const GUN_LOST_DIR = new Vector3()
 
@@ -1221,9 +1224,16 @@ function startWorld(cfg: BattleConfig): void {
     groundModels.dispose()
     groundModels = null
   }
+  if (searchlights !== null) {
+    ctx.scene.remove(searchlights.object)
+    searchlights.dispose()
+    searchlights = null
+  }
   if (world.groundTargets.length > 0) {
     groundModels = createGroundModels(world.groundTargets)
     ctx.scene.add(groundModels.object)
+    searchlights = createSearchlights(world.groundTargets)
+    ctx.scene.add(searchlights.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -1895,6 +1905,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets)
+  searchlights?.update(elapsed)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
     addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
