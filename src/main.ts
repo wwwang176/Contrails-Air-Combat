@@ -791,32 +791,6 @@ const STEAM_WIND_Z = -1.4
 const STEAM_GUST = 0.7
 let steamAccum = 0
 let steamSeed = 0
-/** 每一枚亮著的照明彈每秒幾顆白煙 */
-const FLARE_SMOKE_PER_SECOND = 4
-let flareSmokeAccum = 0
-
-/**
- * 照明彈的白煙：傘降的煙是往上拖的。借 `steam` 池（與廠區的蒸汽同一個），
- * 種子用同一個計數器。每幀跑，不配置。
- */
-function emitFlareSmoke(frameSeconds: number): void {
-  const fl = world.flares
-  if (fl.count === 0) return
-  flareSmokeAccum += frameSeconds * FLARE_SMOKE_PER_SECOND
-  const n = Math.floor(flareSmokeAccum)
-  if (n <= 0) return
-  flareSmokeAccum -= n
-  for (let i = 0; i < fl.capacity; i++) {
-    if (fl.live[i] === 0) continue
-    for (let k = 0; k < n; k++) {
-      const s = (steamSeed = (steamSeed + 1) | 0)
-      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
-      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
-      steam.emit(fl.x[i]!, fl.y[i]!, fl.z[i]!, STEAM_WIND_X * 0.5 + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z * 0.5 + gz, 1.5)
-    }
-  }
-}
-
 /**
  * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽，加上佈景的
  * 八根煙囪（打不掉，所以炸完六座構件之後廠區仍在冒煙）。純裝飾，種子用
@@ -855,6 +829,32 @@ function emitPlantSteam(frameSeconds: number): void {
       const ox = (hash01(s * 3 + 3) * 2 - 1) * spread
       steam.emit(t.position.x + ox, t.impactY, t.position.z,
         STEAM_WIND_X + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z + gz, 1)
+    }
+  }
+}
+
+/** 每一枚亮著的照明彈每秒幾顆白煙 */
+const FLARE_SMOKE_PER_SECOND = 4
+let flareSmokeAccum = 0
+
+/**
+ * 照明彈的白煙：傘降的煙是往上拖的。借 `steam` 池（與廠區的蒸汽同一個），
+ * 種子用同一個計數器。每幀跑，不配置。
+ */
+function emitFlareSmoke(frameSeconds: number): void {
+  const fl = world.flares
+  if (fl.count === 0) return
+  flareSmokeAccum += frameSeconds * FLARE_SMOKE_PER_SECOND
+  const n = Math.floor(flareSmokeAccum)
+  if (n <= 0) return
+  flareSmokeAccum -= n
+  for (let i = 0; i < fl.capacity; i++) {
+    if (fl.live[i] === 0) continue
+    for (let k = 0; k < n; k++) {
+      const s = (steamSeed = (steamSeed + 1) | 0)
+      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
+      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
+      steam.emit(fl.x[i]!, fl.y[i]!, fl.z[i]!, STEAM_WIND_X * 0.5 + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z * 0.5 + gz, 1.5)
     }
   }
 }

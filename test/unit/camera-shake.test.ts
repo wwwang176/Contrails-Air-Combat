@@ -305,9 +305,11 @@ describe('main.ts 的接線', () => {
    * 不像缺陷。
    */
   it('火焰的迷你爆炸不搖鏡頭', () => {
+    // `emitFirePuff` 是一行的 `createFirePuff(...)`；只看那一行，不切到
+    // 下一個 `}` —— 那會把後面整支別的函式掃進來
     const from = MAIN.indexOf('const emitFirePuff')
     expect(from).toBeGreaterThan(0)
-    const to = MAIN.indexOf('\n}', from)
+    const to = MAIN.indexOf('\n', from)
     expect(MAIN.slice(from, to)).not.toContain('addShake')
   })
 
