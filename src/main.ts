@@ -647,10 +647,17 @@ function emitGroundKills(events: ImpactEvents): void {
       // 【炸彈擊毀的不搖第二次】同一個理由：那一顆的落點事件已經搖過
       addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
     }
-    // 【原地掛一根煙柱】燒 60 秒，與船火同一套參數
+    // 【原地掛煙柱】燒 60 秒，與船火同一套參數
     const t = world.groundTargets[d[o + 3]!]
     const top = t === undefined ? 0 : t.impactY - t.position.y
-    lightGroundFire(groundFires, d[o]!, d[o + 1]! + top * 0.3, d[o + 2]!)
+    // 【油桶堆整片燒】一個火點在 28 × 18 m 的堆上只是一角冒煙；其餘一個
+    const n = t !== undefined && t.unit.id === 'fuelDump' ? 6 : 1
+    // 【散在腳印上】六個火點沿黃金角撒在半徑 8 m 內 —— 純裝飾
+    for (let k = 0; k < n; k++) {
+      const r = n === 1 ? 0 : 8 * Math.sqrt((k + 0.5) / n)
+      const a = k * 2.39996
+      lightGroundFire(groundFires, d[o]! + Math.cos(a) * r, d[o + 1]! + top * 0.3, d[o + 2]! + Math.sin(a) * r)
+    }
   }
   clearImpacts(events)
 }

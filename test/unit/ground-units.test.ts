@@ -6,6 +6,7 @@ import {
   GROUND_UNITS, TRAIN_CONSIST, groundGeometry, preloadGroundModels, type GroundUnit,
 } from '../../src/render/geometry/ground'
 import { GLB_MATERIALS } from '../../src/render/geometry/ground/glb'
+import { loadGlbTemplatesForNode } from '../fixtures/glb'
 
 /**
  * 地面單位的外形與命中盒護欄。
@@ -33,6 +34,8 @@ async function readPublic(url: string): Promise<ArrayBuffer> {
 const built = new Map<GroundUnit, BufferGeometry>()
 
 beforeAll(async () => {
+  // 停放的 B-17 從機種的 GLB 樣板烘，樣板要先進來
+  await loadGlbTemplatesForNode()
   await preloadGroundModels(readPublic)
   for (const u of GROUND_UNITS) built.set(u, groundGeometry(u))
 })

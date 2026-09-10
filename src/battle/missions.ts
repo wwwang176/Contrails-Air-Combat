@@ -15,6 +15,10 @@ import { ENTRY_PLANS, type EntryPlan, type EntryPlanId, type SideEntry } from '.
 import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry } from './order'
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
+import {
+  DUMPS, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
+} from '../world/poltava'
+import { HE111 } from '../specs/he111'
 import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
 import { SCHWARM_SIZE } from './flights'
 import type {
@@ -639,6 +643,28 @@ const LEUNA_GROUND: readonly GroundEntry[] = [
   })),
 ]
 
+/**
+ * 波爾塔瓦機場：24 架停放的 B-17、油桶堆兩塊、彈藥堆一塊、輕砲 16、重砲 6、
+ * 探照燈 6。全部是紅方的地面目標，全部算進炸毀的池。佈局在 `world/poltava.ts`。
+ */
+const POLTAVA_GROUND: readonly GroundEntry[] = [
+  ...PARKED_ROWS.map((p): GroundEntry => ({
+    unit: 'parkedB17', team: 'red', x: p.x, z: p.z, heading: p.heading,
+  })),
+  ...DUMPS.map((d): GroundEntry => ({
+    unit: d.kind, team: 'red', x: d.x, z: d.z, heading: d.heading,
+  })),
+  ...LIGHT_FLAK_SITES.map((s): GroundEntry => ({
+    unit: 'flakLight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+  ...HEAVY_FLAK_SITES.map((s): GroundEntry => ({
+    unit: 'flakHeavy', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+  ...SEARCHLIGHT_SITES.map((s): GroundEntry => ({
+    unit: 'searchlight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+]
+
 export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
   allies: [
     {
@@ -815,10 +841,33 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'germany-m2', title: '庫班的鐵路', type: '打擊',
-      summary: '駕駛第 55 轟炸航空團的 He 111，炸掉庫班橋頭堡後方的克羅波特金車站。',
-      place: '北高加索　克羅波特金', period: '1943 年春',
-      battle: null,
+      id: 'germany-m2', title: '波爾塔瓦之夜', type: '打擊',
+      summary: '駕駛 KG 55 的 He 111 夜襲波爾塔瓦機場，炸掉穿梭轟炸落地的 B-17。',
+      place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
+      battle: {
+        objective: '炸毀停放的 B-17', banner: '夜襲機場，炸毀 B-17',
+        blueSpec: HE111, redSpec: P51D, convoySpec: null,
+        // 【沒有敵機】史實上蘇軍夜戰機沒有攔到任何一架；壓力全在地面的防空。
+        // `redSpec` 只是型別要填：野馬就在皮里亞廷，沒起飛
+        blueCount: 8, redCount: 0,
+        blueStacked: true,
+        convoyCount: 0, convoyPriority: 1,
+        targetDistance: 0, targetRadius: 0, seconds: Infinity,
+        entry: 'headOn',
+        terrain: 'poltava',
+        timeOfDay: 'night',
+        /**
+         * 【1,500 m】輕型砲射程 2,640 m 打得到、重砲也打得到；爬到 3,000 以上
+         * 輕砲搆不著但瞄準變難 —— 那是這一關的取捨。**起始值，由試玩裁定。**
+         */
+        altitude: 1500,
+        ground: POLTAVA_GROUND,
+        // 【炸毀任意十二座】池是 24 架 B-17、3 堆、22 座砲位、6 座探照燈。
+        // 8 架 × 8 枚 = 64 枚。**起始值**
+        destroyCount: 12,
+        // 蘇軍的 85 mm：射速比 88 慢
+        flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 12 },
+      },
     },
     {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
