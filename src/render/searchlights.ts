@@ -26,9 +26,10 @@ const BEAM_BOTTOM = 1.5
 const BEAM_TOP = 24
 /**
  * 鎖定之後的微晃，rad。兩個慢頻率的正弦 —— 操作手在追，不是伺服在追。
- * **要小於光柱的張角**（24 / 5,000 ≈ 0.28°）的兩倍以內，飛機才一直在光裡。
+ * **要小於光柱的張角**（24 / 5,000 ≈ 0.28°），飛機與鏡頭才一直在光裡；
+ * 大過張角的話光束會掃過去而不是罩著，眩光一閃一閃。
  */
-const WOBBLE_AMPLITUDE = 0.35 * Math.PI / 180
+const WOBBLE_AMPLITUDE = 0.05 * Math.PI / 180
 const BEAM_OPACITY = 0.06
 const BEAM_COLOR = 0xdfe8ff
 /** 偵測距離，m：重砲射程（初速 × 引信上限）再多四分之一 */
