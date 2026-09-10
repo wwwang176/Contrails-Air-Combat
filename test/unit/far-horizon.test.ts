@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { MeshStandardMaterial, type BufferAttribute } from 'three'
 import { createFarHorizon, FAR_GROUND_REACH } from '../../src/render/farHorizon'
+import { applyFields } from '../../src/render/farmGround'
+import { LEUNA_SITE } from '../../src/render/terrain'
 import { FARM_EXTENT } from '../../src/world/farmland'
 
 describe('遠景環', () => {
@@ -98,5 +100,63 @@ describe('遠景環', () => {
     mat.addEventListener('dispose', () => { pending.delete(mat) })
     g.dispose()
     expect(pending.size).toBe(0)
+  })
+})
+
+/**
+ * 遠景環要不要帶廠區那一層。
+ *
+ * 【為什麼可以不帶】廠區那一層的 GLSL（墊面、鋪面、鐵路、道路）是**每個
+ * 像素都跑**的，而道路那一段還刻意留在外接矩形判斷之外 —— 連外道路要一路
+ * 畫到圖邊。但環的中央挖掉的洞就是細節地形那 30 km 見方：只要廠區與所有
+ * 連外線段都落在洞裡，環上就一個像素都畫不到它們，那一整段是純白工。
+ *
+ * 【所以這兩條要一起看】下面那一條是前提，上面那一條是結論。前提破了
+ * （有人把連外道路拉出 ±15 km）而結論還留著的話，環上會少畫一截路 ——
+ * 而且不報錯。
+ */
+describe('遠景環不帶廠區那一層', () => {
+  function fragmentOf(mat: MeshStandardMaterial): string {
+    const shader = {
+      vertexShader: '#include <common>\n#include <begin_vertex>',
+      fragmentShader: '#include <common>\n#include <color_fragment>',
+      uniforms: {},
+    }
+    mat.onBeforeCompile(shader as never, null as never)
+    return shader.fragmentShader
+  }
+
+  it('環的著色器裡沒有道路與鐵路的線段表', () => {
+    const ring = createFarHorizon('summer')
+    const src = fragmentOf(ring.mesh.material as MeshStandardMaterial)
+    expect(src).not.toContain('ROADS[')
+    expect(src).not.toContain('RAILS[')
+    ring.dispose()
+  })
+
+  it('細節地形那一份仍然有 —— 這一層是它在畫的', () => {
+    const mat = new MeshStandardMaterial()
+    applyFields(mat, 'summer', LEUNA_SITE)
+    const src = fragmentOf(mat)
+    expect(src).toContain('ROADS[')
+    expect(src).toContain('RAILS[')
+  })
+
+  it('廠區與所有連外線段都落在環的洞裡', () => {
+    const half = FARM_EXTENT / 2
+    const worst = (lines: readonly (readonly { x: number; z: number }[])[]): number => {
+      let w = 0
+      for (const line of lines) {
+        for (const p of line) w = Math.max(w, Math.abs(p.x), Math.abs(p.z))
+      }
+      return w
+    }
+    expect(worst(LEUNA_SITE.roads)).toBeLessThan(half)
+    expect(worst(LEUNA_SITE.rails ?? [])).toBeLessThan(half)
+    const pivot = LEUNA_SITE.pivot ?? { x: 0, z: 0 }
+    const pad = LEUNA_SITE.pad
+    const reach = Math.hypot(pivot.x, pivot.z)
+      + Math.max(Math.abs(pad.x0), Math.abs(pad.x1), Math.abs(pad.z0), Math.abs(pad.z1))
+    expect(reach).toBeLessThan(half)
   })
 })

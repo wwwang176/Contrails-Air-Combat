@@ -289,3 +289,72 @@ describe('injectBillboard：貼圖那一條分支', () => {
     expect(s.fragmentShader).toContain('texture2D( alphaMap, vSpunUv )')
   })
 })
+
+/**
+ * 【為什麼要盯上傳範圍】`needsUpdate = true` 而 `updateRanges` 是空的時候，
+ * three 走的是**整條緩衝**那個分支 —— 池子開多大就傳多大，與活著幾顆無關。
+ * 蒸汽池容量 2048、常態活著約 1,000 顆，實測那一下每幀 6.25 ms。
+ *
+ * 症狀是「幀率低」，不是任何錯誤 —— 所以要有這一條盯著。
+ */
+describe('上傳範圍只涵蓋這一輪動過的格子', () => {
+  /**
+   * `updateRanges` 涵蓋幾格（換算回實例數）。
+   *
+   * 【一定要先確認範圍存在】空陣列 `reduce` 回 0，而 0 小於任何上界 ——
+   * 少了這一行，「根本沒記範圍」與「範圍很小」在斷言上長得一模一樣，
+   * 護欄會在功能沒做的情況下變綠。
+   */
+  function coveredInstances(p: ReturnType<typeof createParticles>): number {
+    const m = p.object.instanceMatrix
+    expect(m.updateRanges.length).toBeGreaterThan(0)
+    return m.updateRanges.reduce((a, r) => a + r.count, 0) / 16
+  }
+
+  it('大池子裡只有幾顆活著時，不整條重傳', () => {
+    const p = createParticles({ ...CFG, capacity: 512 })
+    p.object.instanceMatrix.clearUpdateRanges()
+    for (let k = 0; k < 4; k++) p.emit(k, 0, 0, 0, 0, 0)
+    p.step(0.1)
+    expect(p.live).toBe(4)
+    expect(coveredInstances(p)).toBeLessThanOrEqual(16)
+  })
+
+  it('環形緩衝繞回頭時，兩段各自涵蓋，不會退回整條', () => {
+    const p = createParticles({ ...CFG, capacity: 512 })
+    // 先把游標推到尾端附近，再發射跨過接縫的一批
+    for (let k = 0; k < 508; k++) p.emit(0, 0, 0, 0, 0, 0)
+    p.step(2)                       // 壽命 1 s —— 整批死透，游標留在 508
+    p.object.instanceMatrix.clearUpdateRanges()
+    for (let k = 0; k < 8; k++) p.emit(k, 0, 0, 0, 0, 0)
+    p.step(0.1)
+    expect(p.live).toBe(8)
+    expect(coveredInstances(p)).toBeLessThanOrEqual(32)
+  })
+
+  it('全池都活著時照樣傳得到最後一格', () => {
+    const p = createParticles({ ...CFG, capacity: 64 })
+    for (let k = 0; k < 64; k++) p.emit(k, 0, 0, 0, 0, 0)
+    p.object.instanceMatrix.clearUpdateRanges()
+    p.step(0.1)
+    const m = p.object.instanceMatrix
+    const covers = (i: number) => m.updateRanges.some(
+      (r) => i * 16 >= r.start && i * 16 < r.start + r.count)
+    expect(covers(0)).toBe(true)
+    expect(covers(63)).toBe(true)
+  })
+
+  /**
+   * 【`needsUpdate` 讀不回來】three 的 `BufferAttribute` 只給 setter，讀到的是
+   * `undefined`。要驗「有沒有標記重傳」只能看 `version` 有沒有往上跳。
+   */
+  it('reset 之後要整條重傳 —— 殘留的範圍會讓歸零只傳一半', () => {
+    const p = createParticles({ ...CFG, capacity: 64 })
+    for (let k = 0; k < 4; k++) p.emit(k, 0, 0, 0, 0, 0)
+    p.step(0.1)
+    const before = p.object.instanceMatrix.version
+    p.reset()
+    expect(p.object.instanceMatrix.updateRanges).toHaveLength(0)
+    expect(p.object.instanceMatrix.version).toBeGreaterThan(before)
+  })
+})
