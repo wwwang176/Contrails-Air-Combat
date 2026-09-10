@@ -27,6 +27,7 @@ import {
 } from './render/blast'
 import { createFireball, FIREBALL_COUNT, FIREBALL_SPEED } from './render/fireball'
 import { createFlakBursts, emitFlakBursts, resetFlakBurstSeed } from './render/flakBursts'
+import { createFlareLights } from './render/flares'
 import {
   createShipModels, preloadShipModels, shipModelTop, type ShipModels,
 } from './render/ships'
@@ -481,6 +482,9 @@ const smokeTexture = new TextureLoader().load('/textures/smoke.png')
  */
 const flakBursts = createFlakBursts(undefined, smokeTexture)
 ctx.scene.add(flakBursts.object)
+// 【照明彈的四盞燈開場就掛】光源數變動會讓每一個材質重編著色器 —— 見 `render/flares.ts`
+const flareLights = createFlareLights(smokeTexture)
+ctx.scene.add(flareLights.object)
 
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
@@ -783,6 +787,31 @@ const STEAM_WIND_Z = -1.4
 const STEAM_GUST = 0.7
 let steamAccum = 0
 let steamSeed = 0
+/** 每一枚亮著的照明彈每秒幾顆白煙 */
+const FLARE_SMOKE_PER_SECOND = 4
+let flareSmokeAccum = 0
+
+/**
+ * 照明彈的白煙：傘降的煙是往上拖的。借 `steam` 池（與廠區的蒸汽同一個），
+ * 種子用同一個計數器。每幀跑，不配置。
+ */
+function emitFlareSmoke(frameSeconds: number): void {
+  const fl = world.flares
+  if (fl.count === 0) return
+  flareSmokeAccum += frameSeconds * FLARE_SMOKE_PER_SECOND
+  const n = Math.floor(flareSmokeAccum)
+  if (n <= 0) return
+  flareSmokeAccum -= n
+  for (let i = 0; i < fl.capacity; i++) {
+    if (fl.live[i] === 0) continue
+    for (let k = 0; k < n; k++) {
+      const s = (steamSeed = (steamSeed + 1) | 0)
+      const gx = (hash01(s * 3 + 1) * 2 - 1) * STEAM_GUST
+      const gz = (hash01(s * 3 + 2) * 2 - 1) * STEAM_GUST
+      steam.emit(fl.x[i]!, fl.y[i]!, fl.z[i]!, STEAM_WIND_X * 0.5 + gx, STEAM_PLUME_SPEED, STEAM_WIND_Z * 0.5 + gz, 1.5)
+    }
+  }
+}
 
 /**
  * 廠區的白煙：每一座**活著的**煙囪與冷卻塔在頂端持續冒蒸汽，加上佈景的
@@ -1812,6 +1841,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff)
   stepGroundFires(groundFires, frameSeconds, emitFirePuff)
   emitPlantSteam(frameSeconds)
+  emitFlareSmoke(frameSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -1861,6 +1891,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   blastDust.step(frameSeconds)
   blastMist.step(frameSeconds)
   flakBursts.step(frameSeconds)
+  flareLights.update(world.flares)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets)

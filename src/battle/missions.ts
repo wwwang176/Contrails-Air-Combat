@@ -16,7 +16,7 @@ import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry }
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
 import {
-  DUMPS, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
+  DUMPS, FLARE_LINE, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
 } from '../world/poltava'
 import { HE111 } from '../specs/he111'
 import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
@@ -148,6 +148,14 @@ export interface MissionWave {
  *
  * 【整隊，不補半隊】理由見 `beats.ts` 的 `RecycleBeat`。
  */
+/** 這一關的照明彈。**沒有的卡不寫這一格**（與 `waves` 同一個約定） */
+export interface MissionFlares {
+  readonly when: MissionTrigger
+  readonly points: readonly { readonly x: number; readonly z: number }[]
+  /** 點燃高度，m */
+  readonly altitude: number
+}
+
 export interface MissionRecycle {
   readonly side: MissionSide
   /** 只回收這個角色的小隊。省略 = 那一邊全部 */
@@ -333,6 +341,8 @@ export interface MissionBattle {
    * 這一關的整隊重生。**沒有的卡不寫這一格**（與 `waves` 同一個約定）。
    */
   readonly recycle?: MissionRecycle
+  /** 這一關的照明彈。**沒有的卡不寫這一格**（與 `waves` 同一個約定）。 */
+  readonly flares?: MissionFlares
   /**
    * 這一關的返航節拍：打到一半任務目標換成「飛回基地」。
    *
@@ -867,6 +877,12 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         destroyCount: 12,
         // 蘇軍的 85 mm：射速比 88 慢
         flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 12 },
+        /**
+         * 【80 秒】He 111 約 85 m/s 從 12 km 外進場，80 秒時離機場約 5 km；
+         * 照明彈燒到 380 秒，整個投彈段都亮著。點燃高度 1,200 m，比投彈高度
+         * 低 —— 光在飛機下面，照的是地。**起始值，由試玩裁定。**
+         */
+        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_LINE, altitude: 1200 },
       },
     },
     {
@@ -1172,6 +1188,12 @@ function cardBeats(
   // 排在後面會晚一個物理步預警，而兩則預警本該同一刻
   if (b.recycle !== undefined) out.push(recycleBeat(b.recycle, plan))
   b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
+  if (b.flares !== undefined) {
+    out.push({
+      kind: 'flare', when: triggerToCondition(b.flares.when),
+      points: b.flares.points, altitude: b.flares.altitude,
+    })
+  }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
   return out.length === 0 ? undefined : out
 }

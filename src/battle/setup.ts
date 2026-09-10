@@ -22,7 +22,7 @@ import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import {
-  conditionMet, createBeatStates, type Beat, type BeatState, type RecycleBeat,
+  conditionMet, createBeatStates, type Beat, type BeatState, type FlareBeat, type RecycleBeat,
 } from './beats'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
@@ -49,6 +49,7 @@ import {
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
+import { clearFlares, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
 import type { Loadout } from '../weapons/stores'
 
@@ -1139,8 +1140,10 @@ function stepBeats(b: Battle): void {
       if (!conditionMet(beat.when, now, aliveOf, b.batches)) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
-      b.message = beat.kind === 'reinforce' ? beat.warn : beat.message
-      b.messageUntil = st.dueAt + MESSAGE_SECONDS
+      // 【照明彈沒有訊息】天亮起來就是通知
+      if (beat.kind === 'reinforce') b.message = beat.warn
+      else if (beat.kind === 'withdraw') b.message = beat.message
+      if (beat.kind !== 'flare') b.messageUntil = st.dueAt + MESSAGE_SECONDS
     }
     // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
@@ -1153,6 +1156,7 @@ function stepBeats(b: Battle): void {
     st.phase = 'done'
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
+    else if (beat.kind === 'flare') dropFlares(b, beat)
     else {
       // 【規則與狀態兩個都要換】`stepMission` 是依規則分支的：只換狀態的話
       // 倒數永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
@@ -1166,6 +1170,17 @@ function stepBeats(b: Battle): void {
       // 那一句 —— 兩者搭起來會指向一個不存在的任務
       b.objectiveText = beat.message
     }
+  }
+}
+
+/**
+ * 在每一個點上點一枚。相位由點的序號給 —— 決定性，而且六枚不會同步搖。
+ * 池滿就少點幾枚（`spawnFlare` 回 −1），不拋：那是容量估錯，不該炸掉一場仗。
+ */
+function dropFlares(b: Battle, beat: FlareBeat): void {
+  for (let k = 0; k < beat.points.length; k++) {
+    const p = beat.points[k]!
+    spawnFlare(b.world.flares, p.x, beat.altitude, p.z, k * 1.1)
   }
 }
 
@@ -1830,6 +1845,7 @@ export function resetBattle(
   // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——
   // 全程不報錯。
   clearFlak(b.world.flak)
+  clearFlares(b.world.flares)
   clearBursts(b.world.burstEvents)
   for (const s of b.world.ships) {
     resetShip(s)
