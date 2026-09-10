@@ -49,7 +49,7 @@ import {
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
-import { clearFlares, spawnFlare } from '../world/flares'
+import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
 import type { Loadout } from '../weapons/stores'
 
@@ -396,6 +396,18 @@ export interface Battle {
   readonly reserve: readonly { readonly team: Team; readonly count: number }[]
   /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
   readonly beatStates: BeatState[]
+  /**
+   * 照明彈的輪替：`flare` 節拍生效之後，`FLARE_LANES` 個燈位各自一枚，熄了
+   * 隔 `FLARE_RELIGHT_DELAY` 秒在清單的下一個位置點新的一枚，一直輪下去。
+   * **null = 這一場沒有照明彈**。
+   */
+  flareRotation: FlareBeat | null
+  /** 每一個燈位現在是池裡哪一格。−1 = 空著（熄了、等重點） */
+  readonly flareLane: Int32Array
+  /** 每一個燈位幾秒重點。−1 = 不在等 */
+  readonly flareDue: Float64Array
+  /** 清單走到第幾個位置 */
+  flareCursor: number
   /**
    * 還有幾個節拍沒走完。
    *
@@ -991,6 +1003,10 @@ export function createBattle(
     reserve,
     beatStates: createBeatStates(cfg.beats ?? []),
     beatsLeft: cfg.beats?.length ?? 0,
+    flareRotation: null,
+    flareLane: new Int32Array(FLARE_LANES).fill(-1),
+    flareDue: new Float64Array(FLARE_LANES).fill(-1),
+    flareCursor: 0,
     message: '',
     messageUntil: 0,
     objectiveText: '',
@@ -1174,13 +1190,44 @@ function stepBeats(b: Battle): void {
 }
 
 /**
- * 在每一個點上點一枚。相位由點的序號給 —— 決定性，而且六枚不會同步搖。
+ * 開始輪替：清單的前 `FLARE_LANES` 個位置各點一枚（各帶自己的延遲），之後
+ * 由 `stepFlareRotation` 接手。相位由序號給 —— 決定性，各枚不會同步搖。
  * 池滿就少點幾枚（`spawnFlare` 回 −1），不拋：那是容量估錯，不該炸掉一場仗。
  */
 function dropFlares(b: Battle, beat: FlareBeat): void {
-  for (let k = 0; k < beat.points.length; k++) {
+  b.flareRotation = beat
+  b.flareCursor = 0
+  for (let k = 0; k < FLARE_LANES && k < beat.points.length; k++) {
     const p = beat.points[k]!
-    spawnFlare(b.world.flares, p.x, p.altitude, p.z, k * 1.1, p.delay)
+    b.flareLane[k] = spawnFlare(b.world.flares, p.x, p.altitude, p.z, k * 1.1, p.delay)
+    b.flareDue[k] = -1
+    b.flareCursor++
+  }
+}
+
+/**
+ * 輪替：燈位上的那一枚熄了就排重點，時間到了在清單的下一個位置點新的一枚。
+ * 清單走完從頭再來。每個物理步跑，沒有輪替時一次比較就早退。
+ */
+function stepFlareRotation(b: Battle): void {
+  const rot = b.flareRotation
+  if (rot === null) return
+  const now = b.world.time
+  const pool = b.world.flares
+  for (let k = 0; k < FLARE_LANES; k++) {
+    const slot = b.flareLane[k]!
+    if (slot >= 0) {
+      if (pool.live[slot] !== 0) continue
+      b.flareLane[k] = -1
+      b.flareDue[k] = now + FLARE_RELIGHT_DELAY
+      continue
+    }
+    const due = b.flareDue[k]!
+    if (due < 0 || now < due) continue
+    const p = rot.points[b.flareCursor % rot.points.length]!
+    b.flareLane[k] = spawnFlare(pool, p.x, p.altitude, p.z, b.flareCursor * 1.1, 0)
+    b.flareCursor++
+    b.flareDue[k] = -1
   }
 }
 
@@ -1729,6 +1776,7 @@ export function stepBattle(b: Battle, dt: number): void {
   // ——排在勝負判定之後就來不及，那一步已經判成「一方全滅」了。而排在
   // `compactFlights` 之前，新分隊在下一次 `World.step` 之前就完成編制與接線
   stepBeats(b)
+  stepFlareRotation(b)
 
   compactFlights(b.flights, cs)
   wireStations(b)
@@ -1846,6 +1894,11 @@ export function resetBattle(
   // 全程不報錯。
   clearFlak(b.world.flak)
   clearFlares(b.world.flares)
+  // 【輪替也停】節拍不重播（見 `battle-restart.test.ts`），輪替跟著節拍走
+  b.flareRotation = null
+  b.flareLane.fill(-1)
+  b.flareDue.fill(-1)
+  b.flareCursor = 0
   clearBursts(b.world.burstEvents)
   for (const s of b.world.ships) {
     resetShip(s)

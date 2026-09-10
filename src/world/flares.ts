@@ -10,8 +10,15 @@
 export const FLARE_CAPACITY = 16
 /** 下墜速率，m/s。傘降照明彈的量級 */
 export const FLARE_DESCENT = 2.5
-/** 燃燒秒數。LC 50 是 5 到 6 分鐘 */
-export const FLARE_BURN = 300
+/**
+ * 燃燒秒數。兩分鐘掉 300 m，從 1,000 m 以上點的都不會落地 —— 燒完就熄，
+ * 換下一枚在別的位置點。（LC 50 真的燒 5 到 6 分鐘；這裡要的是光一直在換位置。）
+ */
+export const FLARE_BURN = 120
+/** 同時亮著的燈位數。渲染層的點光源數跟它走，一枚一盞 */
+export const FLARE_LANES = 3
+/** 一枚熄了之後幾秒在下一個位置點新的一枚 */
+export const FLARE_RELIGHT_DELAY = 2.5
 /** 橫向搖晃的振幅，m，與週期，s */
 export const FLARE_SWAY = 3
 export const FLARE_SWAY_PERIOD = 6

@@ -60,10 +60,12 @@ describe('照明彈的光', () => {
     expect(lit.sort((a, b) => a - b)).toEqual(want)
   })
 
-  it('亮度最後 30 秒衰減到 0', () => {
-    expect(flareBrightness(0)).toBe(1)
-    expect(flareBrightness(FLARE_BURN - 30)).toBe(1)
-    expect(flareBrightness(FLARE_BURN - 15)).toBeCloseTo(0.5, 6)
+  it('亮度：點燃後兩秒漸亮到 1、最後 15 秒衰減到 0', () => {
+    expect(flareBrightness(0)).toBe(0)
+    expect(flareBrightness(1)).toBeCloseTo(0.5, 6)
+    expect(flareBrightness(2)).toBe(1)
+    expect(flareBrightness(FLARE_BURN - 15)).toBe(1)
+    expect(flareBrightness(FLARE_BURN - 7.5)).toBeCloseTo(0.5, 6)
     expect(flareBrightness(FLARE_BURN)).toBe(0)
   })
 })
