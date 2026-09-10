@@ -29,7 +29,7 @@ const BEAM_TOP = 24
  * **要小於光柱的張角**（24 / 5,000 ≈ 0.28°），飛機與鏡頭才一直在光裡；
  * 大過張角的話光束會掃過去而不是罩著，眩光一閃一閃。
  */
-const WOBBLE_AMPLITUDE = 0.05 * Math.PI / 180
+const WOBBLE_AMPLITUDE = 0.125 * Math.PI / 180
 const BEAM_OPACITY = 0.06
 const BEAM_COLOR = 0xdfe8ff
 /** 偵測距離，m：重砲射程（初速 × 引信上限）再多四分之一 */
