@@ -435,8 +435,8 @@ describe('墊面的顏色', () => {
     siteSurfaceColor(0, 0, c, 'summer', site)
     // 取樣把髒污與壓暗乘進去，只比色相：綠比紅高就是草不是混凝土
     expect(c.g).toBeGreaterThan(c.r)
-    // `fields.ts` 的 `rgb()` 印四位小數：0x55663f = (85, 102, 63) / 255
-    expect(fieldGlslWithSite('summer', site)).toContain('vec3(0.3333, 0.4000, 0.2471)')
+    // `rgb()` 走 `Color.setHex`，sRGB 轉成線性再印四位小數
+    expect(fieldGlslWithSite('summer', site)).toContain('vec3(0.0908, 0.1329, 0.0497)')
     const bare = { ...site, padHex: undefined }
     siteSurfaceColor(0, 0, c, 'summer', bare)
     expect(Math.abs(c.g - c.r)).toBeLessThan(0.03)

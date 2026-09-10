@@ -505,7 +505,12 @@ function makeRand(seed: number): () => number {
   }
 }
 
-function drawLobes(rand: () => number): LobeDraw[] {
+/**
+ * 手擺丘陵的瓣：一顆種子抽一組。洛伊納與波爾塔瓦（`poltava.ts`）兩張手擺的
+ * 圖都用它 —— 同一個種子在兩張圖上抽到同一個形狀。
+ */
+export function drawHillLobes(seed: number): LobeDraw[] {
+  const rand = makeRand(seed)
   const out: LobeDraw[] = []
   for (let k = 0; k < HILL_LOBES; k++) {
     out.push({
@@ -528,7 +533,7 @@ export function createLeuna(): { field: HeightFieldData; hills: IslandDesc[] } {
     const peak = Math.min(HILL_PEAK_MAX, h.peak)
     hills.push({
       cx: h.cx, cz: h.cz, radius: h.radius, outerRadius, peak,
-      lobes: makeLobes(h.cx, h.cz, h.radius, outerRadius, peak, h.pa, h.pb, drawLobes(makeRand(h.seed))),
+      lobes: makeLobes(h.cx, h.cz, h.radius, outerRadius, peak, h.pa, h.pb, drawHillLobes(h.seed)),
     })
   }
   // 基準面是 0：內陸沒有海

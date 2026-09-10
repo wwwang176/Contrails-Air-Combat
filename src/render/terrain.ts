@@ -18,6 +18,11 @@ import {
   createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
   PLANT_TREE_CLEAR, RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
+import {
+  APRON, createPoltava, FIELD_CENTER, FIELD_PAD, FIELD_TREE_CLEAR, PAD_GRASS, PSP_STEEL,
+  RAIL_WIDTH as POLTAVA_RAIL_WIDTH, RAILS as POLTAVA_RAILS,
+  ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY,
+} from '../world/poltava'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
@@ -113,6 +118,7 @@ export interface Terrain {
 export function createTerrain(kind: TerrainKind): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain()
   if (kind === 'leuna') return createLeunaTerrain()
+  if (kind === 'poltava') return createPoltavaTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
 }
@@ -259,6 +265,27 @@ export const LEUNA_SITE: SiteLayout = {
 /** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景 */
 function createLeunaTerrain(): Terrain {
   return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery)
+}
+
+/** 波爾塔瓦機場的墊面（草）、跑道與停機坪（鋼板）、連外道路與鐵路 */
+export const POLTAVA_SITE: SiteLayout = {
+  pivot: { x: FIELD_CENTER.x, z: FIELD_CENTER.z },
+  pad: { x0: -FIELD_PAD.halfX, z0: -FIELD_PAD.halfZ, x1: FIELD_PAD.halfX, z1: FIELD_PAD.halfZ },
+  padHex: PAD_GRASS,
+  treeClear: FIELD_TREE_CLEAR,
+  roads: POLTAVA_ROADS,
+  roadWidth: POLTAVA_ROAD_WIDTH,
+  rails: POLTAVA_RAILS,
+  railWidth: POLTAVA_RAIL_WIDTH,
+  patches: [
+    { ...RUNWAY, hex: PSP_STEEL },
+    { ...APRON, hex: PSP_STEEL },
+  ],
+}
+
+/** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面 */
+function createPoltavaTerrain(): Terrain {
+  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE)
 }
 
 /**
