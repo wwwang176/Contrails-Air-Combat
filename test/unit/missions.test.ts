@@ -54,16 +54,18 @@ describe('關卡資料', () => {
     }
   })
 
-  it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數', () => {
+  it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數（敵方可以是 0）', () => {
     // 【為什麼這條非有不可】`missionConfigFrom` 刻意不夾制架數（來源是本檔的
     // 常數表，夾制只會把寫錯的關卡藏起來）。而大於 MAX_SIDE 不會拋 ——
     // 只會建一個超出特效池容量假設的超大戰場
+    //
+    // 【敵方的下限是 0】對手全是地面的關沒有敵機（德 M2）
     for (const m of playable) {
-      for (const [k, v] of [
-        ['blue', m.battle.blueCount], ['red', m.battle.redCount],
+      for (const [k, v, min] of [
+        ['blue', m.battle.blueCount, MIN_SIDE], ['red', m.battle.redCount, 0],
       ] as const) {
         expect(Number.isInteger(v), `${m.id} ${k}`).toBe(true)
-        expect(v, `${m.id} ${k}`).toBeGreaterThanOrEqual(MIN_SIDE)
+        expect(v, `${m.id} ${k}`).toBeGreaterThanOrEqual(min)
         expect(v, `${m.id} ${k}`).toBeLessThanOrEqual(MAX_SIDE)
       }
       const total = m.battle.blueCount + m.battle.redCount + m.battle.convoyCount

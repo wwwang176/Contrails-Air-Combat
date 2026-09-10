@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, missionConfigFrom } from '../../src/battle/missions'
 import { ALL_SPECS } from '../../src/battle/skirmish'
+import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
 
 /**
@@ -33,13 +34,11 @@ describe('三條戰役', () => {
     for (const m of ALL) expect(m.summary.length, m.id).toBeGreaterThan(0)
   })
 
-  it('八張打得起來，一張是目錄卡', () => {
-    const playable = ALL.filter(ready)
-    expect(playable.map((m) => m.id).sort()).toEqual([
-      'allies-m1', 'allies-m2', 'allies-m4', 'germany-m1', 'germany-m4',
+  it('九張全部打得起來', () => {
+    expect(ALL.filter(ready).map((m) => m.id).sort()).toEqual([
+      'allies-m1', 'allies-m2', 'allies-m4', 'germany-m1', 'germany-m2', 'germany-m4',
       'japan-m1', 'japan-m3', 'japan-m4',
     ])
-    expect(ALL.length - playable.length).toBe(1)
   })
 })
 
@@ -87,18 +86,39 @@ describe('可玩卡的戰鬥設定', () => {
   })
 })
 
-describe('目錄卡', () => {
-  it('沒做的那一張仍然有完整的目錄資料', () => {
-    // 【原本這裡還斷言「battle 是 null」，那是恆真的】篩選用的 `ready` 的
-    // 定義就是 `battle !== null`。真正有內容的是「哪幾張
-    // 是 ready」那一條，以及這裡：**目錄那一半不准跟著空掉** ——
-    // 一張沒有標題的卡在選單上是一塊點不下去的空白
-    const locked = ALL.filter((m) => !ready(m))
-    expect(locked).toHaveLength(1)
-    for (const m of locked) {
-      expect(m.title.length, m.id).toBeGreaterThan(0)
-      expect(m.summary.length, m.id).toBeGreaterThan(0)
-    }
+describe('德 M2 波爾塔瓦', () => {
+  const card = MISSIONS.germany.find((m) => m.id === 'germany-m2') as ReadyMissionCard
+
+  it('沒有敵機、8 架 He 111、夜間、波爾塔瓦地形、1,500 m', () => {
+    const b = card.battle
+    expect(b.redCount).toBe(0)
+    expect(b.blueCount).toBe(8)
+    expect(b.blueSpec.id).toBe('he111')
+    expect(b.timeOfDay).toBe('night')
+    expect(b.terrain).toBe('poltava')
+    expect(b.altitude).toBe(1500)
+  })
+
+  it('24 架停放的 B-17、3 堆、16 輕砲、6 重砲、6 探照燈；炸毀 12 座', () => {
+    const units = card.battle.ground!.map((e) => e.unit)
+    const count = (id: string) => units.filter((u) => u === id).length
+    expect(count('parkedB17')).toBe(24)
+    expect(count('fuelDump')).toBe(2)
+    expect(count('bombDump')).toBe(1)
+    expect(count('flakLight')).toBe(16)
+    expect(count('flakHeavy')).toBe(6)
+    expect(count('searchlight')).toBe(6)
+    expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
+    expect(card.battle.destroyCount).toBe(12)
+  })
+
+  it('照這張卡建得起來、跑一秒不炸', () => {
+    // 【走真正的路】missionConfigFrom → stackedEntry → ground，不是自己組的編組表
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+    // 這一步只有重高砲掛砲；輕砲在下一輪接
+    expect(b.world.groundTargets.filter((t) => t.guns.length > 0).length).toBeGreaterThanOrEqual(6)
   })
 })
 

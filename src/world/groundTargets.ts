@@ -51,6 +51,12 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   oilTank: 6_000,
   gasHolder: 14_000,
   coolingTower: 14_000,
+  // 【停放的 B-17 一枚炸毀】9,300 的彈 30 m 線性衰減，落在 20 m 內就掉到 0
+  parkedB17: 3_000,
+  fuelDump: 6_000,
+  bombDump: 6_000,
+  // 一條彈道打得掉
+  searchlight: 200,
 }
 
 /**
@@ -76,6 +82,10 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   oilTank: 0,
   gasHolder: 0,
   coolingTower: 0,
+  parkedB17: 0,
+  fuelDump: 0,
+  bombDump: 0,
+  searchlight: 0,
 }
 
 export interface GroundTarget extends StrikeTarget {
