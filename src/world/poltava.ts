@@ -8,8 +8,9 @@ import { drawHillLobes } from './leuna'
  * # 波爾塔瓦：德 M2 專用的地形
  *
  * 烏克蘭中部的草原：幾乎全平，遠處幾顆極緩的丘。機場是一片草地墊面，
- * 跑道與停機坪鋪穿孔鋼板（著色器的鋪面矩形），停放的 B-17 排在東端的
- * 停機坪上。**整張圖的佈局都在這個檔案**，卡片與佈景引用這裡的常數。
+ * 跑道、滑行道、分散停機位鋪淺色水泥（著色器的鋪面矩形），停放的 B-17
+ * 分三群在停機位與滑行道旁。**整張圖的佈局都在這個檔案**，卡片與佈景引用
+ * 這裡的常數。
  *
  * 【跑道東西向、不轉】藍隊從南邊（+Z）來、橫切跑道。機場局部座標就是世界
  * 座標減去 `FIELD_CENTER` —— 沒有旋轉，`SiteLayout` 也不給 `heading`。
@@ -29,68 +30,104 @@ export function worldToField(x: number, z: number, out: { x: number; z: number }
   out.z = z - FIELD_CENTER.z
 }
 
-/** 墊面：1.8 × 1.2 km 的草地，內部高度保證 0 */
-export const FIELD_PAD = { halfX: 900, halfZ: 600 } as const
+/** 墊面：3 × 1.6 km 的草地，內部高度保證 0 */
+export const FIELD_PAD = { halfX: 1500, halfZ: 800 } as const
 /** 墊面外一圈不長樹；機場周邊本來就是空曠的草原 */
 export const FIELD_TREE_CLEAR = 300
 
-/** 草地墊面的顏色。跑道與停機坪另外鋪鋼板色 */
+/** 草地墊面的顏色。鋪面另外鋪水泥色 */
 export const PAD_GRASS = 0x55663f
-/** 穿孔鋼板的顏色：深灰帶一點鏽 */
-export const PSP_STEEL = 0x4a4a46
+/** 跑道、滑行道、停機位的淺色水泥 */
+export const RUNWAY_CONCRETE = 0x9a9890
 
-/** 跑道：東西向 1,500 × 60 m，機場局部座標 */
-export const RUNWAY = { x0: -750, z0: -30, x1: 750, z1: 30 } as const
-/** 停機坪：機場東端、跑道南側，500 × 300 m */
-export const APRON = { x0: 350, z0: 60, x1: 850, z1: 360 } as const
+/** 軸對齊的矩形，機場局部座標 */
+export interface FieldRect { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
 
 /**
- * 停放的 B-17：3 排 × 8 架，翼尖距 36 m（翼展 31.6）、排距 100 m，機首朝南
- * （+Z，朝來襲方向）。全部在停機坪內 —— 史實就是翼尖對翼尖排整齊。
+ * 鋪面照今天的波爾塔瓦空軍基地排：一條東西向的主跑道，南側一條平行滑行道，
+ * 兩端與中段各一條聯絡道，西北與東南各一條枝狀的分散停機位支線。
+ */
+/** 主跑道：東西向 2,500 × 60 m */
+export const RUNWAY: FieldRect = { x0: -1250, z0: -30, x1: 1250, z1: 30 }
+/** 平行滑行道：跑道南側 270 m，25 m 寬 */
+export const TAXIWAY: FieldRect = { x0: -1250, z0: 268, x1: 1250, z1: 292 }
+/** 聯絡道與兩條分散支線 */
+export const TAXI_LINKS: readonly FieldRect[] = [
+  { x0: -1250, z0: 30, x1: -1226, z1: 268 },
+  { x0: -12, z0: 30, x1: 12, z1: 268 },
+  { x0: 1226, z0: 30, x1: 1250, z1: 268 },
+  // 西北支線：從跑道西段往北
+  { x0: -900, z0: -560, x1: -876, z1: -30 },
+  // 東南支線：從滑行道東段往南
+  { x0: 700, z0: 292, x1: 724, z1: 740 },
+]
+
+/**
+ * 分散停機位：支線兩側各四個，44 m 見方的水泥方塊，一位一架。西北組沿
+ * 北向支線、東南組沿南向支線。
+ */
+const DISPERSAL_SPOTS: readonly { dx: number; dz: number }[] = [
+  { dx: -960, dz: -120 }, { dx: -816, dz: -120 }, { dx: -960, dz: -250 }, { dx: -816, dz: -250 },
+  { dx: -960, dz: -380 }, { dx: -816, dz: -380 }, { dx: -960, dz: -510 }, { dx: -816, dz: -510 },
+  { dx: 640, dz: 360 }, { dx: 784, dz: 360 }, { dx: 640, dz: 480 }, { dx: 784, dz: 480 },
+  { dx: 640, dz: 600 }, { dx: 784, dz: 600 }, { dx: 640, dz: 720 }, { dx: 784, dz: 720 },
+]
+const SPOT_HALF = 22
+export const HARDSTANDS: readonly FieldRect[] = /* @__PURE__ */ DISPERSAL_SPOTS.map((s) => ({
+  x0: s.dx - SPOT_HALF, z0: s.dz - SPOT_HALF, x1: s.dx + SPOT_HALF, z1: s.dz + SPOT_HALF,
+}))
+
+/** 全部的鋪面。著色器鋪水泥色、佈景與砲位避開它們 */
+export const PAVED: readonly FieldRect[] = /* @__PURE__ */ [RUNWAY, TAXIWAY, ...TAXI_LINKS, ...HARDSTANDS]
+
+/**
+ * 停放的 B-17 三群：西北停機位 8 架、東南停機位 8 架、沿滑行道南側 8 架
+ * （翼尖距 200 m，機首朝北對著滑行道）。停機位上的機首朝支線。
  */
 export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ (() => {
     const out: { x: number; z: number; heading: number }[] = []
-    for (let r = 0; r < 3; r++) {
-      for (let k = 0; k < 8; k++) {
-        out.push({ ...at(396 + k * 36, 110 + r * 100), heading: Math.PI })
-      }
+    for (const s of DISPERSAL_SPOTS) {
+      // 支線在兩排停機位中間：西邊那一排機首朝東（−π/2）、東邊朝西（+π/2）
+      const spurX = s.dz < 0 ? -888 : 712
+      out.push({ ...at(s.dx, s.dz), heading: s.dx < spurX ? -Math.PI / 2 : Math.PI / 2 })
     }
+    for (let k = 0; k < 8; k++) out.push({ ...at(-1050 + k * 200, 340), heading: 0 })
     return out
   })()
 
-/** 油桶堆兩塊在西北角、彈藥堆一塊在東南角。全部在墊面內、避開跑道與停機坪 */
+/** 油桶堆兩塊在西南角、彈藥堆一塊在東北角。全部在墊面內、避開鋪面 */
 export const DUMPS: readonly { kind: 'fuelDump' | 'bombDump'; x: number; z: number; heading: number }[] = [
-  { kind: 'fuelDump', ...at(-700, -450), heading: 0 },
-  { kind: 'fuelDump', ...at(-640, -450), heading: 0 },
-  { kind: 'bombDump', ...at(700, 500), heading: 0 },
+  { kind: 'fuelDump', ...at(-1300, 400), heading: 0 },
+  { kind: 'fuelDump', ...at(-1240, 400), heading: 0 },
+  { kind: 'bombDump', ...at(1300, -500), heading: 0 },
 ]
 
 /**
- * 輕型防空砲 16 座：內圈 8 座手擺在墊面內（避開跑道與停機坪），外圈 8 座
+ * 輕型防空砲 16 座：內圈 8 座手擺在墊面內（避開鋪面與停機位），外圈 8 座
  * 1,300 m 一圈。史實的蘇軍防空是多而輕。**座數由試玩裁定**
  */
 export const LIGHT_FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
     { dx: -500, dz: -450 }, { dx: 0, dz: -480 }, { dx: 500, dz: -450 },
-    { dx: -800, dz: -150 }, { dx: -800, dz: 200 }, { dx: 800, dz: -200 },
+    { dx: -700, dz: -150 }, { dx: -800, dz: 200 }, { dx: 800, dz: -200 },
     { dx: -450, dz: 450 }, { dx: 150, dz: 480 },
     { dx: 1300, dz: 0 }, { dx: 919, dz: 919 }, { dx: 0, dz: 1300 }, { dx: -919, dz: 919 },
     { dx: -1300, dz: 0 }, { dx: -919, dz: -919 }, { dx: 0, dz: -1300 }, { dx: 919, dz: -919 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: Math.atan2(s.dx, -s.dz) }))
 
-/** 重高砲 6 座，2 km 一圈 —— 投彈高度也不安全 */
+/** 重高砲 6 座，2.3 km 一圈 —— 投彈高度也不安全 */
 export const HEAVY_FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
-    { dx: 2000, dz: 0 }, { dx: 1000, dz: 1732 }, { dx: -1000, dz: 1732 },
-    { dx: -2000, dz: 0 }, { dx: -1000, dz: -1732 }, { dx: 1000, dz: -1732 },
+    { dx: 2300, dz: 0 }, { dx: 1150, dz: 1992 }, { dx: -1150, dz: 1992 },
+    { dx: -2300, dz: 0 }, { dx: -1150, dz: -1992 }, { dx: 1150, dz: -1992 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: Math.atan2(s.dx, -s.dz) }))
 
-/** 探照燈 6 座，950 m 一圈，與內圈砲位錯開 */
+/** 探照燈 6 座，環繞機場約 1 km，避開跑道與支線 */
 export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
-    { dx: 950, dz: 0 }, { dx: 475, dz: 823 }, { dx: -475, dz: 823 },
-    { dx: -950, dz: 0 }, { dx: -475, dz: -823 }, { dx: 475, dz: -823 },
+    { dx: 950, dz: -150 }, { dx: 475, dz: 823 }, { dx: -475, dz: 823 },
+    { dx: -1100, dz: 150 }, { dx: -475, dz: -823 }, { dx: 475, dz: -823 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: 0 }))
 
 /**
@@ -129,7 +166,7 @@ export const POLTAVA_HILLS = [
 /** 連外道路往北出圖；鐵路東西向橫過機場南邊 —— 波爾塔瓦是鐵路樞紐 */
 export const ROAD_WIDTH = 10
 export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
-  [at(-200, -600), { x: -200, z: -9000 }, { x: -200, z: -14500 }],
+  [at(-200, -800), { x: -200, z: -9000 }, { x: -200, z: -14500 }],
 ]
 export const RAIL_WIDTH = 26
 export const RAILS: readonly (readonly { x: number; z: number }[])[] = [

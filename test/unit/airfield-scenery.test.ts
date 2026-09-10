@@ -5,7 +5,7 @@ import {
   AIRFIELD_GLB_URL, buildAirfieldScenery, preloadAirfieldScenery,
 } from '../../src/render/geometry/ground/airfieldScenery'
 import {
-  APRON, DUMPS, FIELD_CENTER, FIELD_PAD, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, RUNWAY,
+  DUMPS, FIELD_CENTER, FIELD_PAD, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, PAVED,
   SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 
@@ -31,15 +31,16 @@ describe('波爾塔瓦機場的佈景', () => {
     expect(readFileSync(`public${AIRFIELD_GLB_URL}`).byteLength).toBeLessThan(8 * 1048576)
   })
 
-  it('沒有任何頂點落在跑道、停機坪、或目標的腳印上', () => {
+  it('沒有任何頂點落在鋪面（跑道、滑行道、停機位）或目標的腳印上', () => {
     const g = buildAirfieldScenery()
     const pos = g.getAttribute('position')
     const L = { x: 0, z: 0 }
     let bad = 0
     for (let i = 0; i < pos.count; i++) {
       worldToField(pos.getX(i), pos.getZ(i), L)
-      if (L.x >= RUNWAY.x0 && L.x <= RUNWAY.x1 && L.z >= RUNWAY.z0 && L.z <= RUNWAY.z1) bad++
-      if (L.x >= APRON.x0 && L.x <= APRON.x1 && L.z >= APRON.z0 && L.z <= APRON.z1) bad++
+      for (const r of PAVED) {
+        if (L.x >= r.x0 && L.x <= r.x1 && L.z >= r.z0 && L.z <= r.z1) { bad++; break }
+      }
     }
     expect(bad).toBe(0)
     // 【每一種避讓都驗】腳本的 KEEPOUTS 漏了哪一組，就是那一組的頂點會冒出來。
