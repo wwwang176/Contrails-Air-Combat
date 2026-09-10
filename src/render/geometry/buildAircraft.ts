@@ -55,6 +55,29 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
   bf109k4: BF109K4_MODEL,
   he111: HE111_MODEL,
   b17g: B17G_MODEL,
+  /**
+   * 停放的 B-17 用的低模。**只有地面單位在用**（`geometry/ground/index.ts`），
+   * 飛行中的那批仍然是 `b17g`。
+   *
+   * 【為什麼共用 `B17G_MODEL` 的量測值】`eyePoint`／`wingTip`／`bombPoint` 都是
+   * 寫死的機體座標，不是從節點推的；低模只是少了幾顆看不到的物件與幾圈腰線，
+   * 那些點的位置一個都沒動。
+   */
+  b17g_lod2: {
+    ...B17G_MODEL,
+    url: '/models/b17g_lod2.glb',
+    /**
+     * 【材質表要跟著縮】`parseGlbTemplate` 對表上的每一個材質都要求 GLB 裡
+     * 真的有，找不到就丟「manifest 過期了」。低模刪掉了座艙、窗框與內裝，
+     * 那三個材質也就跟著不見 —— 照抄整份表會讓整個 `main.ts` 在預載那一步
+     * 就死掉，症狀是 `__gfx` 之類的出口全部 undefined。
+     */
+    materials: {
+      B17_Body: 'body',
+      B17_Accent: 'accent',
+      B17_Glass: 'glass',
+    },
+  },
   ki84: KI84_MODEL,
   a6m5: A6M5_MODEL,
   g4m: G4M_MODEL,

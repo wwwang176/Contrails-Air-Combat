@@ -183,7 +183,24 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     // 【命中盒是手寫的】`boxOf` 在模組載入時就要幾何，而樣板那時還沒載。
     // 數字是烘好的幾何量的（x ±15.81、y 0…5.41、z ±11.22），各留不到 5 cm ——
     // `ground-units.test.ts` 兩邊都守：蓋住全部頂點、又不伸出包圍盒 5 cm
-    model: { build: () => bakeParkedAircraft('b17g') },
+    /**
+     * **用低模。** 機場上停 24 架，正式模型一架 13,251 個三角形 —— 實測那一批
+     * 在投彈高度值 1.90 ms（一幀 16 ms 的 12%）、佔全場三角形的 61%，而一架
+     * 在畫面上只有 25 x 15 px。低模 7,688 個三角形，實測省 0.46 ms。
+     *
+     * 【畫面沒有變】`check_lod_silhouette.py` 在 25 px（就是投彈高度上的實際
+     * 大小）拍六個方位逐像素比對，**差異 0 個像素**；放大到 256 px 才出現
+     * 0.43%。低模由 `tools/blender/build_lod.py` 從出貨的 GLB 產。
+     *
+     * 【`__PARKED_LOD = false` 換回正式模型】給 `poltava-lod.e2e.ts` 做 A/B。
+     */
+    model: {
+      build: () => bakeParkedAircraft(
+        (globalThis as Record<string, unknown>)['__PARKED_LOD'] === false
+          ? 'b17g'
+          : 'b17g_lod2',
+      ),
+    },
     hull: [groundBox([-15.85, 0.00, -11.25], [15.85, 5.45, 11.25])],
   },
   {
