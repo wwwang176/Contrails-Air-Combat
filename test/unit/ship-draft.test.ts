@@ -36,13 +36,13 @@ describe('艦體盒有水下的部分', () => {
   })
 
   /**
-   * 【飛行甲板不是艦體】Essex 的第二個盒是甲板，底在 12 —— 它跟著艦體
-   * 一起往下拉的話，甲板會變成一塊 20 m 厚的實心板。
+   * 【飛行甲板不是艦體】Essex 的第二個盒是甲板，一片薄板貼在真甲板的高度
+   * —— 它跟著艦體一起往下拉的話，甲板會變成一塊實心板。
    */
-  it('Essex 的飛行甲板還在原處', () => {
+  it('Essex 的飛行甲板是貼在 18.3 的薄板', () => {
     const deck = SHIP_CLASSES.essex.hull[1]!
-    expect(bottom(deck)).toBeCloseTo(12.0, 9)
-    expect(top(deck)).toBeCloseTo(14.0, 9)
+    expect(bottom(deck)).toBeCloseTo(17.7, 9)
+    expect(top(deck)).toBeCloseTo(18.3, 9)
   })
 
   it('每個艦級都有一個伸到水線下的盒', () => {

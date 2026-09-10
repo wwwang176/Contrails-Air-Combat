@@ -21,7 +21,7 @@ const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 /**
  * 一張撤離卡。**自己建，不從 `MISSIONS` 找。**
  *
- * 【為什麼】12 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4 的返航節拍。
+ * 【為什麼】9 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4 的返航節拍。
  * 但撤離的**判定**還在，而且正是德 M4 靠的那一條，所以它的幾何仍然要驗。
  * 從卡表找的話，這一份會跟著關卡設計一起漂。
  */
@@ -54,16 +54,18 @@ describe('關卡資料', () => {
     }
   })
 
-  it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數', () => {
+  it('每一張可玩卡的架數都是 1~MAX_SIDE 的整數（敵方可以是 0）', () => {
     // 【為什麼這條非有不可】`missionConfigFrom` 刻意不夾制架數（來源是本檔的
     // 常數表，夾制只會把寫錯的關卡藏起來）。而大於 MAX_SIDE 不會拋 ——
     // 只會建一個超出特效池容量假設的超大戰場
+    //
+    // 【敵方的下限是 0】對手全是地面的關沒有敵機（德 M2）
     for (const m of playable) {
-      for (const [k, v] of [
-        ['blue', m.battle.blueCount], ['red', m.battle.redCount],
+      for (const [k, v, min] of [
+        ['blue', m.battle.blueCount, MIN_SIDE], ['red', m.battle.redCount, 0],
       ] as const) {
         expect(Number.isInteger(v), `${m.id} ${k}`).toBe(true)
-        expect(v, `${m.id} ${k}`).toBeGreaterThanOrEqual(MIN_SIDE)
+        expect(v, `${m.id} ${k}`).toBeGreaterThanOrEqual(min)
         expect(v, `${m.id} ${k}`).toBeLessThanOrEqual(MAX_SIDE)
       }
       const total = m.battle.blueCount + m.battle.redCount + m.battle.convoyCount
@@ -221,7 +223,7 @@ describe('艦隊', () => {
 
 describe('開場高度', () => {
   /**
-   * 【為什麼這一條值得存在】在 `MissionBattle.altitude` 之前，十二關的開場
+   * 【為什麼這一條值得存在】在 `MissionBattle.altitude` 之前，每一關的開場
    * 高度全部寫死成 `DEFAULT_BATTLE.altitude`。倫內爾島是**低空**雷擊，
    * 用 4,000 m 的話玩家開場在 3,850 m 而艦隊在 3.85 km 正下方 ——
    * **不低頭看不到船**，而那一關的第一印象本來就該是海面上的艦隊。

@@ -57,28 +57,53 @@ describe('SHIP_CLASSES', () => {
     }
   })
 
-  /** 【盒頂要低於最低的砲位】上一條的等價說法，但失敗訊息看得到差多少。 */
-  it('船體盒的最高點低於最低的砲位', () => {
+  /**
+   * 【砲位也不得在任何盒的正下方】從上方來的子彈是垂直穿過盒子的柱體
+   * 打下來的：砲位在盒的腳印裡、又比盒頂低，子彈一樣先被盒吃掉。Essex 的
+   * 甲板盒因此只鋪中央那一條（|x| ≤ 12），砲廊上的砲位全在它旁邊。
+   */
+  it('沒有任何砲位在船體盒的正下方', () => {
     for (const cls of Object.values(SHIP_CLASSES)) {
-      const top = Math.max(...cls.hull.map((b) => b.center.y + b.half.y))
-      const gunLow = Math.min(...cls.zones.map((z) => z.position.y))
-      expect(top).toBeLessThan(gunLow)
+      for (const z of cls.zones) {
+        for (const b of cls.hull) {
+          const under = Math.abs(z.position.x - b.center.x) <= b.half.x
+            && Math.abs(z.position.z - b.center.z) <= b.half.z
+            && z.position.y < b.center.y + b.half.y
+          expect(`${cls.id}/${z.id} 在盒下=${under}`).toBe(`${cls.id}/${z.id} 在盒下=false`)
+        }
+      }
     }
+  })
+
+  /**
+   * 【Essex 的盒照 GLB】飛行甲板在 18.3、艦島到 41.6。甲板盒抬到真甲板之後
+   * 炸彈才開在甲板上而不是甲板底下；艦島有盒飛機才撞得到。
+   */
+  it('Essex 的甲板在 18.3、艦島有盒', () => {
+    const essex = SHIP_CLASSES.essex
+    expect(deckHeightOf(essex)).toBeCloseTo(18.3, 6)
+    const island = essex.hull.filter((b) => b.center.x - b.half.x >= 9)
+    expect(island.length).toBeGreaterThanOrEqual(3)
+    expect(Math.max(...island.map((b) => b.center.y + b.half.y))).toBeGreaterThan(40)
   })
 })
 
 describe('deckHeightOf', () => {
   /**
-   * 【它是甲板，不是「船有多高」】船體盒**一律止於主甲板**（`ships.ts` 的
-   * 硬性不變量），桅杆與上層建築全在盒外。這一條把那件事釘住：拿它當
-   * 「整艘船的最高點」用的話，標記會插在艦橋中間。真正的最高點問的是模型
-   * —— `render/ships.ts` 的 `shipModelTop`，量到的是這裡的兩到三倍。
+   * 【它是甲板，不是「船有多高」】它取的是**蓋住中線的盒**裡最高的盒頂：
+   * 驅逐艦與巡洋艦的船體盒止於主甲板，Essex 的艦島雖然有盒、但不蓋中線，
+   * 所以取到的是甲板。拿它當「整艘船的最高點」用的話，標記會插在艦橋中間。
+   * 真正的最高點問的是模型 —— `render/ships.ts` 的 `shipModelTop`。
    */
-  it('比最低的砲位還低 —— 盒頂止於主甲板', () => {
+  it('取蓋住中線的盒頂，艦島不算', () => {
     for (const id of ['fletcher', 'wichita', 'essex'] as const) {
       const cls = SHIP_CLASSES[id]
-      const lowestGun = Math.min(...cls.zones.map((z) => z.position.y))
-      expect(deckHeightOf(cls), id).toBeLessThan(lowestGun)
+      const all = Math.max(...cls.hull.map((b) => b.center.y + b.half.y))
+      const centre = Math.max(...cls.hull
+        .filter((b) => Math.abs(b.center.x) <= b.half.x)
+        .map((b) => b.center.y + b.half.y))
+      expect(deckHeightOf(cls), id).toBeCloseTo(centre, 9)
+      if (id === 'essex') expect(all).toBeGreaterThan(centre)
     }
   })
 })

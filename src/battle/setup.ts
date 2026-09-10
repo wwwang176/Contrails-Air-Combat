@@ -22,7 +22,7 @@ import { atmosphere } from '../physics/atmosphere'
 import type { AirData } from '../physics/types'
 import { manoeuvreSpeed } from '../ai/doctrine'
 import {
-  conditionMet, createBeatStates, type Beat, type BeatState, type RecycleBeat,
+  conditionMet, createBeatStates, type Beat, type BeatState, type FlareBeat, type RecycleBeat,
 } from './beats'
 import { KILL_STRIDE } from '../world/kills'
 import { assistCredits } from '../world/assists'
@@ -45,10 +45,11 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
-  createGroundBattery, createShipGuns, resetShipGuns, type ShipGunSpec,
+  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
+import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
 import type { Loadout } from '../weapons/stores'
 
@@ -109,9 +110,9 @@ export interface BattleConfig {
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
-   * 【為什麼要逐關複寫】`flakHeavy` 在五關都出現（盟 M2 M3、德 M2 M3、
-   * 日 M4）。洛伊納是德國本土最密的火網，那一關的彈幕該比路邊的一座砲位
-   * 猛得多 —— 直接改 `GROUND_FLAK_SPEC` 會把另外四關一起改掉。
+   * 【為什麼要逐關複寫】`flakHeavy` 在盟 M2、德 M2、日 M4 都出現。洛伊納是
+   * 德國本土最密的火網，那一關的彈幕該比路邊的一座砲位猛得多 —— 直接改
+   * `GROUND_FLAK_SPEC` 會把另外兩關一起改掉。
    *
    * 【為什麼是整份而不是 `Partial`】與 `loadout` 同一個理由：部分複寫要
    * 定義「沒填的欄位從哪來」，而那條規則沒有人會記得。卡片端寫
@@ -395,6 +396,18 @@ export interface Battle {
   readonly reserve: readonly { readonly team: Team; readonly count: number }[]
   /** 每一個節拍走到哪裡。**執行狀態在這裡，不在 `MissionCard` 上** */
   readonly beatStates: BeatState[]
+  /**
+   * 照明彈的輪替：`flare` 節拍生效之後，`FLARE_LANES` 個燈位各自一枚，熄了
+   * 隔 `FLARE_RELIGHT_DELAY` 秒在清單的下一個位置點新的一枚，一直輪下去。
+   * **null = 這一場沒有照明彈**。
+   */
+  flareRotation: FlareBeat | null
+  /** 每一個燈位現在是池裡哪一格。−1 = 空著（熄了、等重點） */
+  readonly flareLane: Int32Array
+  /** 每一個燈位幾秒重點。−1 = 不在等 */
+  readonly flareDue: Float64Array
+  /** 清單走到第幾個位置 */
+  flareCursor: number
   /**
    * 還有幾個節拍沒走完。
    *
@@ -944,7 +957,10 @@ export function createBattle(
   // 【名字依陣營而不是隊伍顏色】M10 讓玩家選陣營之後藍隊可能飛 Bf109，
   // 那時德文名要跟著機種走（M9 spec §6.1）。這裡讀每一隊實際的機種。
   const blueNames = pilotNames(seed, blue[0]!.aircraft.spec.faction, blue.length)
-  const redNames = pilotNames(seed, red[0]!.aircraft.spec.faction, red.length)
+  // 【紅隊可以是空的】德 M2 沒有敵機；`red[0]` 那時是 undefined
+  const redNames = red.length === 0
+    ? []
+    : pilotNames(seed, red[0]!.aircraft.spec.faction, red.length)
   let bi = 0
   let ri = 0
   const roster = createRoster(
@@ -987,6 +1003,10 @@ export function createBattle(
     reserve,
     beatStates: createBeatStates(cfg.beats ?? []),
     beatsLeft: cfg.beats?.length ?? 0,
+    flareRotation: null,
+    flareLane: new Int32Array(FLARE_LANES).fill(-1),
+    flareDue: new Float64Array(FLARE_LANES).fill(-1),
+    flareCursor: 0,
     message: '',
     messageUntil: 0,
     objectiveText: '',
@@ -1042,6 +1062,11 @@ function placeGround(
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
+    // 【輕型砲也還手】走直射彈那一層，曳光看得見。只有德 M2 有輕砲，規格
+    // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
+    else if (e.unit === 'flakLight') {
+      t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+    }
     world.groundTargets.push(t)
   }
 }
@@ -1133,8 +1158,10 @@ function stepBeats(b: Battle): void {
       if (!conditionMet(beat.when, now, aliveOf, b.batches)) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
-      b.message = beat.kind === 'reinforce' ? beat.warn : beat.message
-      b.messageUntil = st.dueAt + MESSAGE_SECONDS
+      // 【照明彈沒有訊息】天亮起來就是通知
+      if (beat.kind === 'reinforce') b.message = beat.warn
+      else if (beat.kind === 'withdraw') b.message = beat.message
+      if (beat.kind !== 'flare') b.messageUntil = st.dueAt + MESSAGE_SECONDS
     }
     // 【落下來而不是 continue】`warnLead` 為 0 的節拍，預警與生效是同一刻。
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
@@ -1147,6 +1174,7 @@ function stepBeats(b: Battle): void {
     st.phase = 'done'
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
+    else if (beat.kind === 'flare') dropFlares(b, beat)
     else {
       // 【規則與狀態兩個都要換】`stepMission` 是依規則分支的：只換狀態的話
       // 倒數永遠停在原值、計量顯示的是敵機數，飛進撤離圈也不會判勝
@@ -1160,6 +1188,48 @@ function stepBeats(b: Battle): void {
       // 那一句 —— 兩者搭起來會指向一個不存在的任務
       b.objectiveText = beat.message
     }
+  }
+}
+
+/**
+ * 開始輪替：清單的前 `FLARE_LANES` 個位置各點一枚（各帶自己的延遲），之後
+ * 由 `stepFlareRotation` 接手。相位由序號給 —— 決定性，各枚不會同步搖。
+ * 池滿就少點幾枚（`spawnFlare` 回 −1），不拋：那是容量估錯，不該炸掉一場仗。
+ */
+function dropFlares(b: Battle, beat: FlareBeat): void {
+  b.flareRotation = beat
+  b.flareCursor = 0
+  for (let k = 0; k < FLARE_LANES && k < beat.points.length; k++) {
+    const p = beat.points[k]!
+    b.flareLane[k] = spawnFlare(b.world.flares, p.x, p.altitude, p.z, k * 1.1, p.delay)
+    b.flareDue[k] = -1
+    b.flareCursor++
+  }
+}
+
+/**
+ * 輪替：燈位上的那一枚熄了就排重點，時間到了在清單的下一個位置點新的一枚。
+ * 清單走完從頭再來。每個物理步跑，沒有輪替時一次比較就早退。
+ */
+function stepFlareRotation(b: Battle): void {
+  const rot = b.flareRotation
+  if (rot === null) return
+  const now = b.world.time
+  const pool = b.world.flares
+  for (let k = 0; k < FLARE_LANES; k++) {
+    const slot = b.flareLane[k]!
+    if (slot >= 0) {
+      if (pool.live[slot] !== 0) continue
+      b.flareLane[k] = -1
+      b.flareDue[k] = now + FLARE_RELIGHT_DELAY
+      continue
+    }
+    const due = b.flareDue[k]!
+    if (due < 0 || now < due) continue
+    const p = rot.points[b.flareCursor % rot.points.length]!
+    b.flareLane[k] = spawnFlare(pool, p.x, p.altitude, p.z, b.flareCursor * 1.1, 0)
+    b.flareCursor++
+    b.flareDue[k] = -1
   }
 }
 
@@ -1708,6 +1778,7 @@ export function stepBattle(b: Battle, dt: number): void {
   // ——排在勝負判定之後就來不及，那一步已經判成「一方全滅」了。而排在
   // `compactFlights` 之前，新分隊在下一次 `World.step` 之前就完成編制與接線
   stepBeats(b)
+  stepFlareRotation(b)
 
   compactFlights(b.flights, cs)
   wireStations(b)
@@ -1824,6 +1895,12 @@ export function resetBattle(
   // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——
   // 全程不報錯。
   clearFlak(b.world.flak)
+  clearFlares(b.world.flares)
+  // 【輪替也停】節拍不重播（見 `battle-restart.test.ts`），輪替跟著節拍走
+  b.flareRotation = null
+  b.flareLane.fill(-1)
+  b.flareDue.fill(-1)
+  b.flareCursor = 0
   clearBursts(b.world.burstEvents)
   for (const s of b.world.ships) {
     resetShip(s)
@@ -1877,7 +1954,10 @@ export function resetBattle(
   // 【名字重抽】再打一場的名字重新隨機
   b.seed = seed
   const blueNames = pilotNames(seed, b.blue[0]!.aircraft.spec.faction, b.blue.length)
-  const redNames = pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)
+  // 【紅隊可以是空的】與 `createBattle` 同一條規則
+  const redNames = b.red.length === 0
+    ? []
+    : pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)
   let bi = 0
   let ri = 0
   for (let i = 0; i < combatants.length; i++) {

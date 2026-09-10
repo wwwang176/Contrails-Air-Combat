@@ -16,8 +16,8 @@
  *
  * ── 哪些是斷言、哪些是給人看的 ──
  *
- * **是斷言**（會 throw）：三張陣營卡、每條線四站、準備中的站沒有出擊鈕、
- * 可玩的站右欄有目標與雙方編制、五關都進得了戰鬥、目標列的像素、圓環的
+ * **是斷言**（會 throw）：三張陣營卡、每條線三站、準備中的站沒有出擊鈕、
+ * 可玩的站右欄有目標與編制、九關都進得了戰鬥、目標列的像素、圓環的
  * 場景歸屬、結算兩顆出口的顯示、console 錯誤、遭遇戰的反證。
  *
  * **給人看的**：截圖。
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     }
     await page.screenshot({ path: SHOTS + 'mission-0-campaign.png' })
 
-    // ── 2. 每條線四站；準備中的站點得動但沒有出擊鈕 ────────
+    // ── 2. 每條線三站；準備中的站點得動但沒有出擊鈕 ────────
     const ready: { campaign: string; id: string; title: string }[] = []
     for (const c of campaigns) {
       await toCampaign(c.id)
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
             soon: b.classList.contains('soon'),
           })))
       console.log(`[任務] ${c.id}：`)
-      if (stops.length !== 4) fail(`${c.id} 應該有四站，實得 ${stops.length}`)
+      if (stops.length !== 3) fail(`${c.id} 應該有三站，實得 ${stops.length}`)
       for (const s of stops) {
         await page.click(`#route .stop[data-mission="${s.id}"]`)
         await page.waitForTimeout(80)
@@ -141,7 +141,8 @@ async function main(): Promise<void> {
         } else {
           if (!pane.go) fail(`「${s.title}」可玩卻沒有出擊鈕`)
           if (pane.obj === '') fail(`「${s.title}」右欄沒有目標`)
-          if (pane.units < 2) fail(`「${s.title}」右欄的編制少於兩列（我方＋敵方）`)
+          // 【至少一列】沒有敵機的關只有我方那一列
+          if (pane.units < 1) fail(`「${s.title}」右欄的編制一列都沒有`)
           // 【恰好兩列】簡報只留空域與時期，時限／增援／
           // 中途變更／撤離點都拿掉了（出擊前不會知道的事不寫在簡報上）
           if (pane.facts !== 2) fail(`「${s.title}」右欄應該恰好兩列（空域、時期），實得 ${pane.facts}`)
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
       }
     }
     console.log(`[任務] 打得起來的：${ready.length} 關`)
-    if (ready.length !== 5) fail(`應該有五關打得起來，實得 ${ready.length}`)
+    if (ready.length !== 9) fail(`應該有九關打得起來，實得 ${ready.length}`)
     await page.screenshot({ path: SHOTS + 'mission-1-brief.png' })
 
     // ── 3. 每一關都真的進得了戰鬥，而且目標列出現 ──────────

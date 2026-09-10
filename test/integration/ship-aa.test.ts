@@ -4,6 +4,7 @@ import { World } from '../../src/world/World'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { SHIP_GUN_SPECS, createShipGuns, shipOwner } from '../../src/world/shipGuns'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
+import { FLAK_DAMAGE, FLAK_RADIUS } from '../../src/world/flak'
 import { NO_PENETRATION_DAMAGE } from '../../src/weapons/armour'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
@@ -255,6 +256,9 @@ describe('高砲的範圍傷害', () => {
     w.flak.vx[0] = 0; w.flak.vy[0] = 0; w.flak.vz[0] = 0
     w.flak.fuse[0] = DT / 2
     w.flak.team[0] = 1
+    // 殺傷半徑與爆心傷害逐發帶著走，直接填槽位就要自己填
+    w.flak.radius[0] = FLAK_RADIUS
+    w.flak.damage[0] = FLAK_DAMAGE
     w.flak.live = 1
     w.step(DT)
     expect(foe.hp).toBeLessThan(hp0)
