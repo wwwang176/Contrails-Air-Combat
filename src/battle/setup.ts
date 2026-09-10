@@ -1180,7 +1180,7 @@ function stepBeats(b: Battle): void {
 function dropFlares(b: Battle, beat: FlareBeat): void {
   for (let k = 0; k < beat.points.length; k++) {
     const p = beat.points[k]!
-    spawnFlare(b.world.flares, p.x, beat.altitude, p.z, k * 1.1)
+    spawnFlare(b.world.flares, p.x, p.altitude, p.z, k * 1.1, p.delay)
   }
 }
 

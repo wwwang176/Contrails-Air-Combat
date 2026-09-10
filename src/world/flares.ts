@@ -27,8 +27,11 @@ export interface Flares {
   readonly oy: Float32Array
   readonly oz: Float32Array
   /**
-   * 已燒幾秒。**float64** —— 1/240 用 float32 累加五分鐘，誤差會讓熄滅提早
-   * 好幾步、高度偏掉半公尺；位置全部由它絕對算，不做逐步積分
+   * 已燒幾秒。**負值 = 還沒點燃**（照明機還沒飛到那一點），那時不亮、不
+   * 下墜；渲染層與白煙都只認 `age >= 0`。
+   *
+   * **float64** —— 1/240 用 float32 累加五分鐘，誤差會讓熄滅提早好幾步、
+   * 高度偏掉半公尺；位置全部由它絕對算，不做逐步積分
    */
   readonly age: Float64Array
   /** 搖晃的相位，rad。生成時給，之後不變 */
@@ -48,13 +51,20 @@ export function createFlares(capacity: number = FLARE_CAPACITY): Flares {
   }
 }
 
-/** 點一枚。回槽位；**滿了回 −1**（與高砲彈同一條規則：滿了代表別處出錯） */
-export function spawnFlare(f: Flares, x: number, y: number, z: number, phase: number): number {
+/**
+ * 點一枚。回槽位；**滿了回 −1**（與高砲彈同一條規則：滿了代表別處出錯）。
+ *
+ * @param delay 幾秒之後才點燃。一排照明彈是照明機沿跑道一枚一枚投的，
+ *   不是同一刻全亮；點燃前它掛在原點不動、不亮
+ */
+export function spawnFlare(
+  f: Flares, x: number, y: number, z: number, phase: number, delay = 0,
+): number {
   for (let i = 0; i < f.capacity; i++) {
     if (f.live[i] !== 0) continue
     f.x[i] = x; f.y[i] = y; f.z[i] = z
     f.ox[i] = x; f.oy[i] = y; f.oz[i] = z
-    f.age[i] = 0
+    f.age[i] = -delay
     f.phase[i] = phase
     f.live[i] = 1
     f.count++
@@ -74,6 +84,8 @@ export function stepFlares(f: Flares, dt: number, groundAt: (x: number, z: numbe
     if (f.live[i] === 0) continue
     const age = f.age[i]! + dt
     f.age[i] = age
+    // 【還沒點燃就掛在原點】`age` 負的那一段不下墜也不搖
+    if (age < 0) continue
     const y = f.oy[i]! - FLARE_DESCENT * age
     f.y[i] = y
     const t = age * (TWO_PI / FLARE_SWAY_PERIOD) + f.phase[i]!

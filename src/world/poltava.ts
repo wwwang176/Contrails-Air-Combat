@@ -93,9 +93,20 @@ export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number
     { dx: -950, dz: 0 }, { dx: -475, dz: -823 }, { dx: 475, dz: -823 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: 0 }))
 
-/** 照明彈沿跑道從西到東六枚 */
-export const FLARE_LINE: readonly { x: number; z: number }[] =
-  /* @__PURE__ */ [-625, -375, -125, 125, 375, 625].map((dx) => at(dx, 0))
+/**
+ * 照明彈沿跑道從西到東六枚。**高度各不相同、一枚一枚點**：照明機以約
+ * 70 m/s 沿跑道飛，250 m 一枚是 3.5 秒；高度在 1,000 到 1,400 之間錯開，
+ * 地上每一處的光照角度才不一樣，停機坪的影子才有方向。
+ */
+export const FLARE_LINE: readonly { x: number; z: number; altitude: number; delay: number }[] =
+  /* @__PURE__ */ ([
+    { dx: -625, altitude: 1400, delay: 0 },
+    { dx: -375, altitude: 1150, delay: 3.5 },
+    { dx: -125, altitude: 1300, delay: 7 },
+    { dx: 125, altitude: 1000, delay: 10.5 },
+    { dx: 375, altitude: 1350, delay: 14 },
+    { dx: 625, altitude: 1100, delay: 17.5 },
+  ] as const).map((p) => ({ ...at(p.dx, 0), altitude: p.altitude, delay: p.delay }))
 
 /**
  * 手擺的丘陵：極緩，全在 3 km 外。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`
