@@ -263,7 +263,7 @@ export interface MissionBattle {
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
-   * `flakHeavy` 在五關都出現，直接改那份通用規格會把另外四關一起改掉。
+   * `flakHeavy` 在盟 M2、德 M2、日 M4 都出現，直接改那份通用規格會把另外兩關一起改掉。
    * 寫成 `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
    */
   readonly flakSpec?: ShipGunSpec
@@ -711,12 +711,6 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'allies-m3', title: '諾曼第斷軌', type: '打擊',
-      summary: '掃射法國北部的機車與調車場，切斷德軍開往諾曼第的鐵路增援。',
-      place: '法國北部　塞納河以北', period: '1944 年春',
-      battle: null,
-    },
-    {
       id: 'allies-m4', title: '沖繩外海', type: '殲滅',
       summary: '駕駛 F6F-5 守住沖繩外海的第 58 特遣艦隊，攔下零戰與低空進場的一式陸攻。',
       place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
@@ -827,12 +821,6 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       battle: null,
     },
     {
-      id: 'germany-m3', title: '奧博揚公路', type: '打擊',
-      summary: '駕駛掛彈的 Bf 109 G 參加堡壘行動，低空攻擊奧博揚公路上的蘇軍戰車。',
-      place: '庫斯克南面　奧博揚公路', period: '1943 年 7 月',
-      battle: null,
-    },
-    {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
       summary: '駕駛 Bf 109 K-4 從巴伐利亞的野戰機場升空，迎擊掃蕩德國本土的第八航空軍 P-51D。',
       place: '德國南部　巴伐利亞上空', period: '1945 年春',
@@ -924,12 +912,6 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【清晨】1944 年 10 月 12 日第 38 特遣艦隊的首波在天亮時到新竹上空
         timeOfDay: 'dawn',
       },
-    },
-    {
-      id: 'japan-m2', title: '讀谷灘頭', type: '殲滅',
-      summary: '駕駛零戰攔下沖繩上空的艦載機，再回頭掃射讀谷灘頭的登陸艇。',
-      place: '沖繩　讀谷灘頭', period: '1945 年 4 月',
-      battle: null,
     },
     {
       id: 'japan-m3', title: '雷伊泰的投雷點', type: '護航',

@@ -115,7 +115,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'flakHeavy',
     name: '8.8 cm Flak 18',
-    note: '重型防空砲 — 盟 M2 M3、德 M2 M3、日 M4',
+    note: '重型防空砲 — 盟 M2、德 M2、日 M4',
     // 長 Z 是十字砲座後臂（2.63）加水平砲管到砲口（3.85）
     realLength: 6.48, realWidth: 5.26, realHeight: 2.50,
     model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'] },
@@ -124,7 +124,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'flakLight',
     name: '2 cm Flakvierling 38',
-    note: '輕型四聯防空砲 — 同上五關',
+    note: '輕型四聯防空砲 — 德 M2',
     realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
     model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] },
     hull: [groundBox([-0.95, 0.00, -0.76], [0.95, 1.59, 1.06])],
