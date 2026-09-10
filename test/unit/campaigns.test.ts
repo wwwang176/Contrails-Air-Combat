@@ -75,13 +75,14 @@ describe('可玩卡的戰鬥設定', () => {
     expect(new Set(playable.map((m) => m.battle.terrain)).size).toBeGreaterThan(1)
   })
 
-  it('架數都是正整數', () => {
+  it('我方架數是正整數、敵方架數是非負整數', () => {
     for (const m of playable) {
       const b = m.battle
-      for (const [k, v] of [['blue', b.blueCount], ['red', b.redCount]] as const) {
-        expect(Number.isInteger(v), `${m.id} ${k}`).toBe(true)
-        expect(v, `${m.id} ${k}`).toBeGreaterThan(0)
-      }
+      expect(Number.isInteger(b.blueCount), `${m.id} blue`).toBe(true)
+      expect(b.blueCount, `${m.id} blue`).toBeGreaterThan(0)
+      expect(Number.isInteger(b.redCount), `${m.id} red`).toBe(true)
+      // 【0 是合法的】對手全是地面的關沒有敵機
+      expect(b.redCount, `${m.id} red`).toBeGreaterThanOrEqual(0)
     }
   })
 })

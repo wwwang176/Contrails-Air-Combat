@@ -944,7 +944,10 @@ export function createBattle(
   // 【名字依陣營而不是隊伍顏色】M10 讓玩家選陣營之後藍隊可能飛 Bf109，
   // 那時德文名要跟著機種走（M9 spec §6.1）。這裡讀每一隊實際的機種。
   const blueNames = pilotNames(seed, blue[0]!.aircraft.spec.faction, blue.length)
-  const redNames = pilotNames(seed, red[0]!.aircraft.spec.faction, red.length)
+  // 【紅隊可以是空的】德 M2 沒有敵機；`red[0]` 那時是 undefined
+  const redNames = red.length === 0
+    ? []
+    : pilotNames(seed, red[0]!.aircraft.spec.faction, red.length)
   let bi = 0
   let ri = 0
   const roster = createRoster(
@@ -1877,7 +1880,10 @@ export function resetBattle(
   // 【名字重抽】再打一場的名字重新隨機
   b.seed = seed
   const blueNames = pilotNames(seed, b.blue[0]!.aircraft.spec.faction, b.blue.length)
-  const redNames = pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)
+  // 【紅隊可以是空的】與 `createBattle` 同一條規則
+  const redNames = b.red.length === 0
+    ? []
+    : pilotNames(seed, b.red[0]!.aircraft.spec.faction, b.red.length)
   let bi = 0
   let ri = 0
   for (let i = 0; i < combatants.length; i++) {

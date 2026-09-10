@@ -63,7 +63,10 @@ export const shortName = (spec: AircraftSpec): string => SHORT_NAME[spec.id] ?? 
 function readyBriefing(card: ReadyMissionCard): Briefing {
   const b = card.battle
   const mine: BriefingUnit[] = [{ name: shortName(b.blueSpec), role: b.blueSpec.role, count: b.blueCount }]
-  const foe: BriefingUnit[] = [{ name: shortName(b.redSpec), role: b.redSpec.role, count: b.redCount }]
+  // 【沒有敵機就不列】零架的那一列是「一支根本沒起飛的敵軍」
+  const foe: BriefingUnit[] = b.redCount === 0
+    ? []
+    : [{ name: shortName(b.redSpec), role: b.redSpec.role, count: b.redCount }]
 
   // 【護送／攔截由規則的 owner 決定】`missions.ts` 就是用它決定 convoy 放哪一隊
   // （護送 `owner: 'blue'`、攔截 `owner: 'red'`）。不另寫一套判斷。

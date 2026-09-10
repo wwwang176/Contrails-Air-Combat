@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { briefingOf, type Briefing } from '../../src/ui/briefing'
 import { MISSIONS, type MissionCard } from '../../src/battle/missions'
-import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
+import { cardWith, readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * 簡報頁右欄的資料（選單重做 spec §2.4）。**純資料，沒有 DOM。**
@@ -102,6 +102,12 @@ describe('briefingOf —— 其他', () => {
     const b = briefingOf(readyCard(KILL_CARD))
     expect(b.mine).toEqual([{ name: 'A6M5', role: 'fighter', count: 8 }])
     expect(b.foe).toEqual([{ name: 'F6F-5', role: 'fighter', count: 6 }])
+  })
+
+  it('沒有敵機的卡，簡報不列敵軍那一列', () => {
+    const b = briefingOf(cardWith('japan-m1', { redCount: 0 }))
+    expect(b.foe).toEqual([])
+    expect(b.mine).toHaveLength(1)
   })
 
   it('準備中的卡只帶標題、類型、說明', () => {
