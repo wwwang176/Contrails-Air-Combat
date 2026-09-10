@@ -45,7 +45,7 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
-  createGroundBattery, createShipGuns, resetShipGuns, type ShipGunSpec,
+  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
@@ -1045,6 +1045,9 @@ function placeGround(
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
+    // 【輕型砲也還手】走直射彈那一層，曳光看得見。只有德 M2 有輕砲，規格
+    // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
+    else if (e.unit === 'flakLight') t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', 37)
     world.groundTargets.push(t)
   }
 }
