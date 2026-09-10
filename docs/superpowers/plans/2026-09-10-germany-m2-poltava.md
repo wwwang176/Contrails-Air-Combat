@@ -301,7 +301,7 @@ git commit -m "feat(battle): 編組表可以沒有紅隊 —— 對手全是地�
   - `PARKED_ROWS: readonly { x, z, heading }[]`（世界座標，24 筆）
   - `DUMPS: readonly { kind: 'fuelDump' | 'bombDump', x, z, heading }[]`（世界座標，3 筆）
   - `LIGHT_FLAK_SITES`、`HEAVY_FLAK_SITES`、`SEARCHLIGHT_SITES: readonly { x, z, heading }[]`（世界座標，16／6／6 筆）
-  - `FLARE_LINE: readonly { x, z }[]`（世界座標，6 筆）
+  - `FLARE_DROPS: readonly { x, z }[]`（世界座標，6 筆）
   - `POLTAVA_HILLS`、`ROADS`、`ROAD_WIDTH`、`RAILS`、`RAIL_WIDTH`、`PAD_GRASS = 0x55663f`
   - `createPoltava(): { field: HeightFieldData; hills: IslandDesc[] }`
 - Produces（`src/render/fields.ts`）：`SiteLayout.padHex?: number`，省略 = 混凝土。
@@ -314,7 +314,7 @@ git commit -m "feat(battle): 編組表可以沒有紅隊 —— 對手全是地�
 ```ts
 import { describe, expect, it } from 'vitest'
 import {
-  APRON, createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_LINE, HEAVY_FLAK_SITES,
+  APRON, createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HEAVY_FLAK_SITES,
   LIGHT_FLAK_SITES, PARKED_ROWS, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
@@ -417,8 +417,8 @@ describe('poltava 的佈局', () => {
   })
 
   it('照明彈沿跑道排開', () => {
-    expect(FLARE_LINE).toHaveLength(6)
-    for (const p of FLARE_LINE) expect(inRect(p.x, p.z, RUNWAY)).toBe(true)
+    expect(FLARE_DROPS).toHaveLength(6)
+    for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, RUNWAY)).toBe(true)
   })
 })
 ```
@@ -565,7 +565,7 @@ export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: 0 }))
 
 /** 照明彈沿跑道從西到東六枚 */
-export const FLARE_LINE: readonly { x: number; z: number }[] =
+export const FLARE_DROPS: readonly { x: number; z: number }[] =
   /* @__PURE__ */ [-625, -375, -125, 125, 375, 625].map((dx) => at(dx, 0))
 
 /** 手擺的丘陵：極緩，全在 3 km 外。`outerRadius` 由生成器算 */
@@ -1068,7 +1068,7 @@ export type GroundUnitId =
 
 ```ts
 import {
-  DUMPS, FLARE_LINE, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
+  DUMPS, FLARE_DROPS, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
 } from '../world/poltava'
 import { HE111 } from '../specs/he111'
 ```
@@ -1089,7 +1089,7 @@ const POLTAVA_GROUND: readonly GroundEntry[] = [
 ]
 ```
 
-`germany-m2` 換成（`FLARE_LINE` 這一輪先 import 不用，Task 6 接 `flares`；為免 tsc 未使用的 import 變紅，Task 6 再加那一個 import）：
+`germany-m2` 換成（`FLARE_DROPS` 這一輪先 import 不用，Task 6 接 `flares`；為免 tsc 未使用的 import 變紅，Task 6 再加那一個 import）：
 
 ```ts
     {
@@ -1693,7 +1693,7 @@ export interface MissionFlares {
          * 照明彈燒到 380 秒，整個投彈段都亮著。點燃高度 1,200 m，比投彈高度
          * 低 —— 光在飛機下面，照的是地。**起始值，由試飛裁定。**
          */
-        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_LINE, altitude: 1200 },
+        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_DROPS, altitude: 1200 },
 ```
 
 - [ ] **Step 5: 跑，確認綠**

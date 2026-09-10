@@ -16,7 +16,7 @@ import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry }
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
 import {
-  DUMPS, FLARE_LINE, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
+  DUMPS, FLARE_DROPS, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
 } from '../world/poltava'
 import { HE111 } from '../specs/he111'
 import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
@@ -879,10 +879,10 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         /**
          * 【80 秒】He 111 約 85 m/s 從 12 km 外進場，80 秒時離機場約 5 km；
          * 照明彈燒到 380 秒，整個投彈段都亮著。各枚的高度與時間差在
-         * `FLARE_LINE`，都在投彈高度之下 —— 光在飛機下面，照的是地。
+         * `FLARE_DROPS`，都在投彈高度之下 —— 光在飛機下面，照的是地。
          * **起始值，由試玩裁定。**
          */
-        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_LINE },
+        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_DROPS },
       },
     },
     {
