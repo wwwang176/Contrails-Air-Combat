@@ -38,6 +38,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import type { GroundTarget } from './groundTargets'
+import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform, ownerShipIndex } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
@@ -290,6 +291,9 @@ export class World {
 
   /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
   readonly flak = createFlak()
+
+  /** 照明彈。沒有判定讀它，但它在物理步裡推進 —— 見 `flares.ts` */
+  readonly flares = createFlares()
 
   /**
    * 這一個物理步的高砲引爆事件。**呼叫端負責排空**（與 `hitEvents` 同一個
@@ -614,6 +618,8 @@ export class World {
     // 會讓同一朵雲每步都再扣一次血。
     clearBursts(this.stepBursts)
     stepFlak(this.flak, dt, this.stepBursts)
+    // 池空時十六格全部早退，既有的關逐位元不變
+    stepFlares(this.flares, dt, this.groundAt)
     this.applyBursts()
     for (let k = 0; k < this.stepBursts.count; k++) {
       // 【四個尺度一定要一起抄】漏掉的話 `pushBurst` 會補上 5 吋艦砲的預設
