@@ -2638,6 +2638,33 @@ const GFX_HIDDEN_LAYER = 31
  * 【為什麼不用鍵盤飛過去】按著 `W` 數秒鐘的位移取決於那幾秒跑了幾幀 ——
  * 量測本身會改變它，兩輪停的地方不一樣，而「同一個機位」正是 A/B 的前提。
  */
+/**
+ * 依單位種類隱藏地面目標，用來把幀時間歸因到某一種實體。給 `id` 就只藏那
+ * 一種，省略則全部顯示。
+ *
+ * 【為什麼不放進 `__gfx`】那一份的目標是**繪製層**（海、天、粒子、曳光彈），
+ * 而這裡要的是「同一層裡的某一批物件」—— 波爾塔瓦機場上停放的 24 架 B-17
+ * 與 22 個砲位走的是同一顆材質、同一個 Group。
+ *
+ * 【`groundModels` 的孩子與 `world.groundTargets` 同序】`createGroundModels`
+ * 是照那個陣列一路 `add` 的，兩邊靠索引對齊。
+ */
+;(window as unknown as Record<string, unknown>)['__hideGround'] = (id?: string) => {
+  const g = groundModels?.object
+  if (g === undefined) return { hidden: 0, kinds: [] as string[] }
+  const list = world.groundTargets
+  const kinds = new Set<string>()
+  let hidden = 0
+  for (let k = 0; k < list.length && k < g.children.length; k++) {
+    const t = list[k]!
+    kinds.add(t.unit.id)
+    const on = id === undefined || t.unit.id !== id
+    g.children[k]!.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    if (!on) hidden++
+  }
+  return { hidden, kinds: [...kinds] }
+}
+
 ;(window as unknown as Record<string, unknown>)['__godcam'] = (
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
 ) => {
