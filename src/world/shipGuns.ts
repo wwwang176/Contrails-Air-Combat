@@ -333,7 +333,7 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  * 這一門砲不是獨立的可打目標；`alive` 由砲位本身的存活決定。
  *
  * @param spec 這一關的規格。**省略 = `GROUND_FLAK_SPEC`** —— `flakHeavy` 在
- *   五關都出現，逐關複寫走 `BattleConfig.flakSpec`。
+ *   盟 M2、德 M2、日 M4 都出現，逐關複寫走 `BattleConfig.flakSpec`。
  */
 export function createGroundBattery(spec: ShipGunSpec = GROUND_FLAK_SPEC): ShipGun[] {
   const zone: ShipAAZone = {
