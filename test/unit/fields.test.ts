@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import {
-  edgeAt, fieldAt, fieldSurfaceColor, isWoodField, regionAt, regionParams,
-  regionSeed, splitCut, EDGE_JITTER, FIELD_ANISO,
+  edgeAt, fieldAt, fieldGlslWithSite, fieldSurfaceColor, isWoodField, regionAt, regionParams,
+  regionSeed, roadBounds, splitCut, EDGE_JITTER, FIELD_ANISO,
   FIELD_GLSL, FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH,
   REGION_SPACING, SPLIT_CHANCE, TRACK_WIDTH, WOOD_CHANCE,
   type FieldSample, type RegionSample, type SplitCut,
 } from '../../src/render/fields'
+import { LEUNA_SITE } from '../../src/render/terrain'
+import { FARM_EXTENT } from '../../src/world/farmland'
 
 const reg: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
@@ -616,5 +618,53 @@ describe('犁溝與作物條紋', () => {
       checked++
     }
     expect(checked).toBeGreaterThan(500)
+  })
+})
+
+/**
+ * 道路與鐵路那兩個迴圈的早退。
+ *
+ * 【為什麼要早退】十五段點線距離是**每個像素**都跑的，而投彈高度整片畫面
+ * 有七成是田。墊面那個外接矩形擋不了它們 —— 連外道路一路畫到圖邊，用墊面
+ * 的矩形擋會把連外那幾條整段砍掉。
+ *
+ * 【矩形太小的症狀】路的外緣沿著矩形邊被削掉一條直線，而且只在特定視角
+ * 出現 —— 不報錯。所以下面那一條在驗每一段連同抗鋸齒帶都還在矩形裡。
+ */
+describe('道路與鐵路的外接矩形', () => {
+  const b = roadBounds(LEUNA_SITE)
+
+  it('每一個端點連同半寬都在矩形內', () => {
+    const half = Math.max(LEUNA_SITE.roadWidth, LEUNA_SITE.railWidth ?? 0) / 2
+    let checked = 0
+    for (const lines of [LEUNA_SITE.roads, LEUNA_SITE.rails ?? []]) {
+      for (const line of lines) {
+        for (const p of line) {
+          checked++
+          expect(p.x - half).toBeGreaterThan(b.x0)
+          expect(p.x + half).toBeLessThan(b.x1)
+          expect(p.z - half).toBeGreaterThan(b.z0)
+          expect(p.z + half).toBeLessThan(b.z1)
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(10)
+  })
+
+  /**
+   * 【為什麼要有這一條】矩形若大到蓋住整片細節地形，早退就等於沒有 ——
+   * 而且測試照樣全綠。
+   */
+  it('矩形要真的擋掉一大片 —— 蓋滿全圖的話早退等於沒有', () => {
+    const area = (b.x1 - b.x0) * (b.z1 - b.z0)
+    expect(area / (FARM_EXTENT * FARM_EXTENT)).toBeLessThan(0.45)
+  })
+
+  it('廠區的 GLSL 裡道路與鐵路都被矩形包住', () => {
+    const src = fieldGlslWithSite('summer', LEUNA_SITE)
+    const guard = src.indexOf(`world.x > ${b.x0.toFixed(1)}`)
+    expect(guard).toBeGreaterThan(-1)
+    expect(src.indexOf('RAILS[')).toBeGreaterThan(guard)
+    expect(src.indexOf('ROADS[')).toBeGreaterThan(guard)
   })
 })

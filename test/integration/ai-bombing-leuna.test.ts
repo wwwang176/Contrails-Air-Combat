@@ -57,6 +57,10 @@ interface Run {
    * 「波次要生在藍隊後方」的門檻只會更嚴。
    */
   blueZAtWave: number
+  /** 全程射出過幾發高砲彈。引信到期會清空槽位，所以看的是增量 */
+  flakFired: number
+  /** 有幾個物理步至少有一座砲位鎖著目標 */
+  flakLocked: number
 }
 
 function simulate(cfg: BattleConfig, noEnemies: boolean): Run {
@@ -64,11 +68,25 @@ function simulate(cfg: BattleConfig, noEnemies: boolean): Run {
   if (noEnemies) {
     for (const c of b.world.combatants) if (c.team === 'red') b.world.applyDamage(c, 1e9, 'fuselage')
   }
-  const run: Run = { b, minLoad: new Map(), impacts: [], lateSpawn: [], blueZAtWave: NaN }
+  const run: Run = {
+    b, minLoad: new Map(), impacts: [], lateSpawn: [], blueZAtWave: NaN,
+    flakFired: 0, flakLocked: 0,
+  }
   const opening = b.world.combatants.length
+  let live = 0
   for (let i = 0; i < SECONDS * 240; i++) {
     wire(b)
     stepBattle(b, DT)
+    {
+      const f = b.world.flak
+      let now = 0
+      for (let k = 0; k < f.capacity; k++) if (f.team[k] !== -1) now++
+      if (now > live) run.flakFired += now - live
+      live = now
+      for (const t of b.world.groundTargets) {
+        if (t.guns.some((g) => g.targetIndex >= 0)) { run.flakLocked++; break }
+      }
+    }
     for (const c of b.world.combatants) {
       if (c.team !== 'blue') continue
       const load = c.bombBay.load + c.bombBay.queue
@@ -119,9 +137,11 @@ describe('盟 M2：無攔截時三架 AI B-17 各自都炸得到廠區', () => {
     r = simulate(quiet, true)
   }, 600_000)
 
-  it('三架 AI 的彈艙全程各自都減少過', () => {
+  it('每一架 AI 的彈艙全程各自都減少過', () => {
     const ai = r.b.world.combatants.filter((c) => c.team === 'blue' && c.controller instanceof AiController)
-    expect(ai).toHaveLength(3)
+    // 【玩家那一架不算】席位是 blueCount − 1
+    expect(ai).toHaveLength(r.b.cfg.units.filter((u) => u.team === 'blue')
+      .reduce((n, u) => n + u.members.length, 0) - 1)
     for (const c of ai) expect(r.minLoad.get(c.index), `#${c.index} 全程最小艙量`).toBeLessThan(10)
   })
 
@@ -155,5 +175,47 @@ describe('盟 M2：完整卡片', () => {
       expect(s.z).toBeGreaterThan(r.blueZAtWave)
       expect(s.forwardZ).toBeLessThan(0)
     }
+  })
+})
+
+/**
+ * # 廠區的高砲有接上線
+ *
+ * 那些砲位以前是不還手的靶：射控綁在 `Ship` 上，這一關沒有船，所以整段接近
+ * 航路上一發都不打。接線漏一處（`placeGround` 沒掛砲、`World` 沒跑那個迴圈）
+ * 的症狀是「這一關很輕鬆」——**不會報錯**。
+ *
+ * 【只驗接線】88 砲的規格（引信、射程、射速、分攤）在
+ * `test/unit/ground-flak.test.ts`；**「一趟下來打掉幾架」是遊戲性，由試飛
+ * 裁定，不寫進護欄** —— 寫了的話每一次調數值都要跟著改門檻。
+ *
+ * 【跑無攔截的情境】戰鬥機打下來的傷害會混進去，分不出是誰造成的。
+ */
+describe('洛伊納的高砲', () => {
+  // 【放 beforeAll 而不是 describe 本體】reporter 只算 it 與 hook 的時間，
+  // 本體裡的四分鐘模擬會憑空消失
+  let run: Run
+  beforeAll(() => { run = simulate(missionConfigFrom(card), true) }, 600_000)
+
+  it('四十八個砲位都掛了砲，其餘地面目標沒有', () => {
+    let armed = 0
+    for (const t of run.b.world.groundTargets) {
+      if (t.unit.id === 'flakHeavy') {
+        expect(t.guns.length, '砲位沒掛砲').toBe(1)
+        armed++
+      } else {
+        expect(t.guns.length, `${t.unit.id} 不該掛砲`).toBe(0)
+      }
+    }
+    expect(armed).toBe(48)
+  })
+
+  it('接近航路上射得出高砲彈', () => {
+    expect(run.flakFired, '整場一發高砲彈都沒有').toBeGreaterThan(0)
+  })
+
+  /** 【砲位有選到目標】射得出來但目標永遠是 −1 的話，那是別的東西在射 */
+  it('砲位鎖得到 B-17', () => {
+    expect(run.flakLocked, '沒有任何一座砲位鎖上過目標').toBeGreaterThan(0)
   })
 })

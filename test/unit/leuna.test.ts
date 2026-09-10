@@ -94,24 +94,46 @@ describe('leuna 地形', () => {
     expect(Array.from(again.field.data)).toEqual(Array.from(field.data))
   })
 
-  it('12 座構件在墊面內、8 座砲位在墊面外', () => {
+  it('12 座構件在墊面內、48 座砲位在墊面外', () => {
     expect(PLANT_LAYOUT).toHaveLength(12)
     for (const p of PLANT_LAYOUT) {
       expect(Math.abs(p.dx)).toBeLessThanOrEqual(PLANT_PAD.halfX - 40)
       expect(Math.abs(p.dz)).toBeLessThanOrEqual(PLANT_PAD.halfZ - 40)
     }
-    expect(FLAK_SITES).toHaveLength(8)
+    expect(FLAK_SITES).toHaveLength(48)
     for (const s of FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(800)
   })
 })
 
 describe('leuna 的佈局常數', () => {
-  it('預定砲位環繞廠區 2.4 到 3.3 km', () => {
+  /**
+   * 【三圈都要在射程能構成連續彈幕的範圍內】外圈的用意是把彈幕往接近航路上
+   * 推：88 的射程是 4.9 km，相鄰兩圈拉開超過那個距離的話，中間會出現一段
+   * 誰都打不到的空白 —— 玩家會發現「飛到某個距離忽然安靜了」。
+   *
+   * 【越外圈越密】周長跟著半徑長，座數不加的話彈幕在外圈會稀掉。
+   */
+  it('砲位分三圈，內 8 中 16 外 24，相鄰兩圈不超過射程', () => {
+    const rings = new Map<number, number[]>()
     for (const s of FLAK_SITES) {
       const d = Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)
-      expect(d, `${s.x},${s.z}`).toBeGreaterThanOrEqual(2400)
-      expect(d, `${s.x},${s.z}`).toBeLessThanOrEqual(3300)
+      const key = d < 3300 ? 0 : d < 4500 ? 1 : 2
+      const list = rings.get(key) ?? []
+      list.push(d)
+      rings.set(key, list)
     }
+    expect(rings.get(0), '內圈').toHaveLength(8)
+    expect(rings.get(1), '中圈').toHaveLength(16)
+    expect(rings.get(2), '外圈').toHaveLength(24)
+    const radii = [0, 1, 2].map((k) => {
+      const list = rings.get(k)!
+      return list.reduce((a, b) => a + b, 0) / list.length
+    })
+    for (let k = 1; k < radii.length; k++) {
+      expect(radii[k]! - radii[k - 1]!, `第 ${k} 圈離前一圈太遠`).toBeLessThan(4900)
+    }
+    expect(radii[0]).toBeGreaterThan(2400)
+    expect(radii[2]).toBeLessThan(5600)
   })
 
   it('脫離方向是 −Z：投完繼續往前，不回頭', () => {

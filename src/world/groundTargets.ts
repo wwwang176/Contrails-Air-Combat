@@ -2,6 +2,8 @@ import { Quaternion, Vector3 } from 'three'
 import { boundingRadius, type Box } from './hit'
 import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../render/geometry/ground'
 import type { StrikeTarget } from './strikeTarget'
+import { resetGroundBattery } from './shipGuns'
+import type { ShipGun } from './ships'
 import type { Team } from './World'
 
 /**
@@ -109,6 +111,15 @@ export interface GroundTarget extends StrikeTarget {
    * 陣列移除 —— `index` 是事件裡指認它的鍵。
    */
   alive: boolean
+  /**
+   * 這一台身上的防空砲。**空陣列 = 不還手** —— 戰車、卡車、火車、廠房都是
+   * 空的；只有重高砲位由 `createGroundBattery()` 掛上一門。
+   *
+   * 掛上之後它就滿足 `GunPlatform`，跟一艘船一樣走 `stepGunPlatform`。
+   */
+  guns: ShipGun[]
+  /** 射速時鐘，一門砲一格。`GunPlatform` 的約定 */
+  readonly gunCooldowns: Float32Array
 }
 
 const UP = /* @__PURE__ */ new Vector3(0, 1, 0)
@@ -155,6 +166,10 @@ export function createGroundTarget(
     value: GROUND_HP[id],
     hp: GROUND_HP[id],
     alive: true,
+    // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個
+    // `flakHeavy` 在別的關卡可以只是佈景
+    guns: [],
+    gunCooldowns: new Float32Array(1),
   }
 }
 
@@ -179,4 +194,7 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.position.copy(t.spawn)
   t.hp = GROUND_HP[t.unit.id]
   t.alive = true
+  // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
+  // 一個已經不存在的索引開火
+  if (t.guns.length > 0) resetGroundBattery(t)
 }

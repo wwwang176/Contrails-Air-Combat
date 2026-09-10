@@ -1,7 +1,7 @@
 import { Color, NormalBlending, Vector3, type Texture } from 'three'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
-import { FLAK_RADIUS, type BurstEvents } from '../world/flak'
+import { FLAK_SMOKE, type BurstEvents } from '../world/flak'
 
 /**
  * # 高砲的黑雲
@@ -19,8 +19,14 @@ import { FLAK_RADIUS, type BurstEvents } from '../world/flak'
 /** 一朵雲幾顆 */
 export const FLAK_PUFFS = 18
 
-/** 一朵雲的粒子散得多開，m。約殺傷半徑的三分之一 —— 雲比殺傷範圍小。 */
-export const FLAK_SPREAD = FLAK_RADIUS / 3
+/**
+ * 一朵雲的粒子散得多開，m。**5 吋艦砲那一發的值**，與 `world/flak.ts` 的
+ * `FLAK_SMOKE` 同值。
+ *
+ * 【實際用的是逐發帶的那一格】每一發自己帶著 `smoke`（`ShipGunSpec.burstSmoke`）
+ * —— 這個常數只是預設值與護欄的參考點。
+ */
+export const FLAK_SPREAD = FLAK_SMOKE
 
 /**
  * 粒子的初速，m/s。
@@ -30,8 +36,16 @@ export const FLAK_SPREAD = FLAK_RADIUS / 3
  */
 export const FLAK_PUFF_SPEED = 14
 
-/** 池的容量。同時最多約 20 朵在天上 × 18 顆，取兩倍餘裕。 */
-export const FLAK_BURST_CAPACITY = 768
+/**
+ * 池的容量。
+ *
+ * 【怎麼算的】洛伊納是最吃緊的一關：48 座 × 30 發/分 = 每秒 24 發，乘上雲的
+ * 壽命 4 秒 = 同時 96 朵 × 18 顆 = 1,728 顆。取兩倍餘裕。
+ *
+ * 【池滿了會覆寫最舊的，不是丟棄】所以估太小的症狀是「雲還沒淡完就消失」
+ * —— 畫面上是彈幕變稀，不會有任何錯誤。
+ */
+export const FLAK_BURST_CAPACITY = 3584
 
 /**
  * 黑雲的顏色。比殘骸的煙（`0x1a1a1a`）再深一點 —— 高砲雲在照片裡幾乎是
@@ -94,14 +108,17 @@ export function emitFlakBursts(pool: Particles, events: BurstEvents): void {
     const x = events.x[e]!
     const y = events.y[e]!
     const z = events.z[e]!
+    // 【雲的大小是那一發自己帶的一格】不從殺傷半徑推 —— 「看起來多大」與
+    // 「打得到多遠」是兩件可以分開調的事（`ShipGunSpec.burstSmoke`）
+    const spread = events.smoke[e]!
     const seed = burstSeed++ * FLAK_PUFFS
     for (let k = 0; k < FLAK_PUFFS; k++) {
       // 半角 π = 等向。軸取 +Y 只是給錐一個參考，等向下不影響結果
       coneDirection(0, 1, 0, Math.PI, seed + k, DIR)
       pool.emit(
-        x + DIR.x * FLAK_SPREAD,
-        y + DIR.y * FLAK_SPREAD,
-        z + DIR.z * FLAK_SPREAD,
+        x + DIR.x * spread,
+        y + DIR.y * spread,
+        z + DIR.z * spread,
         DIR.x * FLAK_PUFF_SPEED,
         DIR.y * FLAK_PUFF_SPEED,
         DIR.z * FLAK_PUFF_SPEED,

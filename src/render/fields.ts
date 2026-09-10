@@ -837,6 +837,41 @@ function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1:
   return out
 }
 
+/**
+ * 道路與鐵路的外接矩形往外再留多少，m。
+ *
+ * 【為什麼不能剛好貼著半寬】`bandCoverage(d, halfW, px)` 的抗鋸齒帶一路延到
+ * `d = halfW + px`，而 `px` 是那一像素在地面上的足跡 —— 掠角看過去可以到
+ * 好幾十公尺。留得不夠的話，路的外緣會沿著矩形邊被削掉一條直線，而且只在
+ * 特定視角出現。矩形本身有十幾公里寬，多留這幾百公尺不花錢。
+ */
+const ROAD_BOUNDS_SLACK = 400
+
+/**
+ * 道路與鐵路的世界座標外接矩形。
+ *
+ * 【為什麼要獨立於 `siteBounds`】連外道路與鐵路一路畫到圖邊，遠在墊面那個
+ * 矩形之外 —— 拿墊面的矩形擋它們會把連外那幾條整段砍掉。但完全不擋的話，
+ * 那十五段點線距離是**每個像素**都跑，包含畫面上七成的田。
+ */
+export function roadBounds(site: SiteLayout): {
+  x0: number; z0: number; x1: number; z1: number
+} {
+  const out = { x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity }
+  for (const lines of [site.roads, site.rails ?? []]) {
+    for (const line of lines) {
+      for (const p of line) {
+        out.x0 = Math.min(out.x0, p.x); out.x1 = Math.max(out.x1, p.x)
+        out.z0 = Math.min(out.z0, p.z); out.z1 = Math.max(out.z1, p.z)
+      }
+    }
+  }
+  const margin = Math.max(site.roadWidth, site.railWidth ?? 0) / 2 + ROAD_BOUNDS_SLACK
+  out.x0 -= margin; out.x1 += margin
+  out.z0 -= margin; out.z1 += margin
+  return out
+}
+
 /** 一條折線攤成線段清單，GLSL 與 CPU 共用 */
 function segmentsOf(
   lines: readonly (readonly { readonly x: number; readonly z: number }[])[],
@@ -937,6 +972,7 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   const outpostGlsl = rectsGlsl('OUTPOSTS', site.outposts ?? [],
     'col = $ * siteGrime;')
   const near = siteBounds(site)
+  const rb = roadBounds(site)
   return `
   // 【先用外接矩形擋掉】底下這一段是每個像素都跑的，而投彈高度整片畫面有
   // 七成是田 —— 少了這個測試，4 km 俯視的幀時間從 0.8 ms 變成 2.2 ms。
@@ -988,6 +1024,12 @@ ${patchGlsl}
   col = mix(siteCol, col, clamp(padD / max(px, 0.25) * 0.5 + 0.5, 0.0, 1.0));
 ${outpostGlsl}
   }
+  // 【道路與鐵路自己一個外接矩形】底下這 ${rail.length + segs.length} 段點線距離是每個像素都跑的，
+  // 而連外道路一路畫到圖邊 —— 墊面那個矩形擋不住它們，得自己算一個。
+  // 見 roadBounds()：留的邊界要蓋得住抗鋸齒帶，否則路的外緣會沿著矩形邊
+  // 被削掉一條直線，而且只在掠角出現
+  if (world.x > ${rb.x0.toFixed(1)} && world.x < ${rb.x1.toFixed(1)}
+      && world.y > ${rb.z0.toFixed(1)} && world.y < ${rb.z1.toFixed(1)}) {
 ${railGlsl}
   // 道路：離任一條線段小於半寬。**畫在鐵路之後** —— 平交道上看得到的是柏油
   const vec4 ROADS[${segs.length}] = vec4[${segs.length}](
@@ -1001,7 +1043,8 @@ ${list}
     float t = clamp(dot(world - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
     roadD = min(roadD, length(world - (a + ab * t)));
   }
-  col = mix(col, ${rgb(ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));`
+  col = mix(col, ${rgb(ASPHALT)}, bandCoverage(roadD, ${(site.roadWidth / 2).toFixed(1)}, px));
+  }`
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */

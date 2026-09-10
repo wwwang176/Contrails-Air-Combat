@@ -314,6 +314,48 @@ export function createParticles(cfg: ParticleConfig): Particles {
   let next = 0
   let live = 0
 
+  /**
+   * 這一輪 `step` 真的寫過哪幾格。**上傳範圍靠它算出來。**
+   *
+   * 【為什麼非有不可】`needsUpdate = true` 而 `updateRanges` 是空的時候，
+   * three 走的是整條緩衝那個分支 —— 容量開多大就傳多大，與活著幾顆無關。
+   * 蒸汽池容量 2048、常態活著約一半，整條傳實測每幀 6.25 ms，而且**不報錯**，
+   * 症狀只是幀率低。
+   *
+   * 【為什麼記兩段】環形緩衝繞過接縫時活著的那一批是「尾巴一段 ＋ 頭上一段」，
+   * 只記 min…max 的話涵蓋範圍會是整條，等於沒改。超過兩段就退回一整段涵蓋
+   * —— 那是超集合，正確但省得少。
+   *
+   * 【在池的生命週期裡宣告，不在 step 裡】`mark` 每池只建一次；放進 `step`
+   * 等於每幀每池配置一個閉包。
+   */
+  let runFirst = -1
+  let runLast = -1
+  let runFirstEnd = -1
+  let runSecond = -1
+  let runBreaks = 0
+
+  /** 記下第 `i` 格被寫過。**呼叫端必須依索引遞增呼叫** —— 分段靠這個前提 */
+  function mark(i: number): void {
+    if (runFirst < 0) runFirst = i
+    else if (i > runLast + 1) {
+      runBreaks++
+      if (runBreaks === 1) {
+        runFirstEnd = runLast
+        runSecond = i
+      }
+    }
+    runLast = i
+  }
+
+  /** 把 `lo…hi`（含）這一段登記進三條屬性，各自換算成自己的元素數 */
+  function addRange(lo: number, hi: number): void {
+    const n = hi - lo + 1
+    object.instanceMatrix.addUpdateRange(lo * 16, n * 16)
+    if (object.instanceColor) object.instanceColor.addUpdateRange(lo * 3, n * 3)
+    alphas.addUpdateRange(lo, n)
+  }
+
   // 四邊形的頂點落在 [-0.5, 0.5]，所以縮放值就是直徑（見著色器的 rEdge）
   const geometry = new PlaneGeometry(1, 1)
   const alphas = new InstancedBufferAttribute(new Float32Array(capacity), 1)
@@ -385,7 +427,11 @@ export function createParticles(cfg: ParticleConfig): Particles {
       const damp = Math.exp(-cfg.drag * dt)
       const a = alphas.array as Float32Array
       live = 0
-      let touched = false
+      runFirst = -1
+      runLast = -1
+      runFirstEnd = -1
+      runSecond = -1
+      runBreaks = 0
       for (let i = 0; i < capacity; i++) {
         let old = age[i]!
         const lf = lifeOf[i]!
@@ -408,7 +454,7 @@ export function createParticles(cfg: ParticleConfig): Particles {
           object.setColorAt(i, TINT.setRGB(0, 0, 0))
           a[i] = 0
           zeroed[i] = 1
-          touched = true
+          mark(i)
           continue
         }
         const na = old + dt
@@ -419,11 +465,11 @@ export function createParticles(cfg: ParticleConfig): Particles {
           object.setColorAt(i, TINT.setRGB(0, 0, 0))
           a[i] = 0
           zeroed[i] = 1
-          touched = true
+          mark(i)
           continue
         }
         live++
-        touched = true
+        mark(i)
 
         const nvx = vx[i]! * damp
         const nvy = vy[i]! * damp + cfg.gravity * dt
@@ -461,11 +507,19 @@ export function createParticles(cfg: ParticleConfig): Particles {
       }
       // 【沒有任何格子被動到就不必上傳】整池全死時省下一次完整的
       // buffer 上傳
-      if (touched) {
-        object.instanceMatrix.needsUpdate = true
-        alphas.needsUpdate = true
-        if (object.instanceColor) object.instanceColor.needsUpdate = true
+      if (runFirst < 0) return
+      // 【範圍要在標記重傳之前登記】`needsUpdate` 的 setter 只是把 version 加一，
+      // 真正決定傳多少的是上傳當下 `updateRanges` 裡有什麼
+      if (runBreaks === 1) {
+        addRange(runFirst, runFirstEnd)
+        addRange(runSecond, runLast)
+      } else {
+        // 零段就是一整段；兩段以上退回整段涵蓋 —— 超集合，正確但省得少
+        addRange(runFirst, runLast)
       }
+      object.instanceMatrix.needsUpdate = true
+      alphas.needsUpdate = true
+      if (object.instanceColor) object.instanceColor.needsUpdate = true
     },
 
     reset(): void {
@@ -482,6 +536,12 @@ export function createParticles(cfg: ParticleConfig): Particles {
         a[i] = 0
         zeroed[i] = 1
       }
+      // 【一定要清掉殘留的範圍】`updateRanges` 非空時 three 只傳那幾段，
+      // 於是「整池歸零」會變成只歸零上一輪動過的那一段，其餘留在畫面上。
+      // 清空之後 three 走整條緩衝那個分支，那正是歸零要的
+      object.instanceMatrix.clearUpdateRanges()
+      object.instanceColor?.clearUpdateRanges()
+      alphas.clearUpdateRanges()
       object.instanceMatrix.needsUpdate = true
       if (object.instanceColor) object.instanceColor.needsUpdate = true
       alphas.needsUpdate = true

@@ -3,14 +3,14 @@ import { Quaternion, Vector3 } from 'three'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import {
   FLAK_FUSE_ERROR, SHIP_GUN_SPECS, SHIP_OWNER_BASE, createShipGuns, ownerShipIndex, shipOwner,
-  stepShipGuns,
+  stepGunPlatform,
 } from '../../src/world/shipGuns'
 import { Projectiles } from '../../src/world/Projectiles'
 import { createFlak, type FlakShells } from '../../src/world/flak'
 import type { ShipAATier } from '../../src/world/shipAA'
 import type { TurretCombatant } from '../../src/world/turrets'
 
-/** 一架不會動的假飛機。只填 `stepShipGuns` 讀得到的欄位。 */
+/** 一架不會動的假飛機。只填 `stepGunPlatform` 讀得到的欄位。 */
 function target(index: number, x: number, y: number, z: number, team = 'blue'): TurretCombatant {
   return {
     index, team, alive: true, hp: 100,
@@ -40,7 +40,7 @@ function run(
 ): Projectiles {
   const p = new Projectiles(4096)
   const dt = 1 / 240
-  for (let i = 0; i < seconds * 240; i++) stepShipGuns(ship, all, p, flak, i * dt, dt)
+  for (let i = 0; i < seconds * 240; i++) stepGunPlatform(ship, all, p, flak, i * dt, dt)
   return p
 }
 
@@ -91,7 +91,7 @@ describe('createShipGuns', () => {
   })
 })
 
-describe('stepShipGuns', () => {
+describe('stepGunPlatform', () => {
   it('沒有目標時一發都不打', () => {
     expect(run(shipWith('mg'), [], 3).live).toBe(0)
   })
@@ -170,7 +170,7 @@ describe('stepShipGuns', () => {
     let fired = 0
     let prev = 0
     for (let i = 0; i < 4 * 240; i++) {
-      stepShipGuns(s, [target(0, 0, 600, 0)], p, createFlak(), i * dt, dt)
+      stepGunPlatform(s, [target(0, 0, 600, 0)], p, createFlak(), i * dt, dt)
       const now = p.writeCursor
       fired += now - prev
       prev = now
@@ -198,7 +198,7 @@ describe('stepShipGuns', () => {
     // 所以不是「跑一秒就有」——一出現就停，那一刻的引信才是發射時的值。
     let i = -1
     for (let k = 0; k < 10 * 240 && i < 0; k++) {
-      stepShipGuns(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+      stepGunPlatform(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
       i = f.team.findIndex((t) => t !== -1)
     }
     expect(i).toBeGreaterThanOrEqual(0)
@@ -220,7 +220,7 @@ describe('stepShipGuns', () => {
       const dt = 1 / 240
       const out: number[] = []
       for (let k = 0; k < 60 * 240; k++) {
-        stepShipGuns(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
+        stepGunPlatform(s, [target(0, 0, 2000, 0)], p, f, k * dt, dt)
         for (let i = 0; i < f.fuse.length; i++) {
           if (f.team[i] === -1) continue
           out.push(f.fuse[i]!)
@@ -274,7 +274,7 @@ describe('艦隊的砲位分攤目標', () => {
   }
 
   function step(ships: readonly Ship[], all: TurretCombatant[], p: Projectiles, f: FlakShells, t: number): void {
-    for (const s of ships) stepShipGuns(s, all, p, f, t, 1 / 240, ships)
+    for (const s of ships) stepGunPlatform(s, all, p, f, t, 1 / 240, ships)
   }
 
   /** 搜尋的冷卻逐門錯開，要走完一整個 SEARCH_INTERVAL 每一門才都挑過一次 */
@@ -324,7 +324,7 @@ describe('艦隊的砲位分攤目標', () => {
     const all = stack()
     const p = new Projectiles(64)
     const f = createFlak()
-    for (let i = 0; i < 240; i++) stepShipGuns(s, all, p, f, i / 240, 1 / 240)
+    for (let i = 0; i < 240; i++) stepGunPlatform(s, all, p, f, i / 240, 1 / 240)
     expect(locksOf([s], 4)).toEqual([1, 1, 1, 1])
   })
 })
