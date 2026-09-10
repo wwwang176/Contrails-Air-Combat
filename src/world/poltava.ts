@@ -61,14 +61,15 @@ export const TAXI_LINKS: readonly FieldRect[] = [
   { x0: 1226, z0: 30, x1: 1250, z1: 268 },
   // 西北支線：從跑道西段往北
   { x0: -900, z0: -400, x1: -876, z1: -30 },
-  // 東南支線：從滑行道東段往南
+  // 東南兩條支線：從滑行道東段往南
   { x0: 700, z0: 292, x1: 724, z1: 640 },
+  { x0: 1000, z0: 292, x1: 1024, z1: 640 },
 ]
 
 /**
  * 停機位：**每一個都從路邊伸出一條窄巷，末端才是停機坪** —— 魚骨狀，
- * 越往外越窄，沒有孤島。西北支線兩側各四個、東南支線兩側各四個，機首朝
- * 支線；滑行道南側八個，機首朝北對著滑行道。
+ * 越往外越窄，沒有孤島。三組魚骨：西北一條支線、東南兩條支線，每一條
+ * 兩側各四個，機首朝支線。
  *
  * `dx`／`dz` 是飛機的位置；巷從 `from`（路的邊緣）伸到停機坪，停機坪以
  * 飛機為中心。
@@ -92,13 +93,13 @@ const STANDS: readonly Stand[] = /* @__PURE__ */ (() => {
     out.push({ dx: -970, dz, axis: 'x', from: -900, heading: -Math.PI / 2 })
     out.push({ dx: -806, dz, axis: 'x', from: -876, heading: Math.PI / 2 })
   }
-  // 東南支線 x 700…724
+  // 東南兩條支線 x 700…724、1000…1024
   for (const dz of [360, 430, 500, 570]) {
     out.push({ dx: 630, dz, axis: 'x', from: 700, heading: -Math.PI / 2 })
     out.push({ dx: 794, dz, axis: 'x', from: 724, heading: Math.PI / 2 })
+    out.push({ dx: 930, dz, axis: 'x', from: 1000, heading: -Math.PI / 2 })
+    out.push({ dx: 1094, dz, axis: 'x', from: 1024, heading: Math.PI / 2 })
   }
-  // 滑行道南緣 z 292，往南伸；骨距 100 m
-  for (let k = 0; k < 8; k++) out.push({ dx: -850 + k * 100, dz: 350, axis: 'z', from: 292, heading: 0 })
   return out
 })()
 
