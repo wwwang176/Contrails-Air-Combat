@@ -117,8 +117,8 @@ describe('德 M2 波爾塔瓦', () => {
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
-    // 這一步只有重高砲掛砲；輕砲在下一輪接
-    expect(b.world.groundTargets.filter((t) => t.guns.length > 0).length).toBeGreaterThanOrEqual(6)
+    // 16 座輕砲 + 6 座重砲都掛了砲
+    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(22)
   })
 })
 

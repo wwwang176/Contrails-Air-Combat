@@ -201,6 +201,30 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
 }
 
 /**
+ * 陸上的輕型防空砲：蘇軍 37 mm 61-K 的樣子（`flakLight` 的模型是 2 cm
+ * 四聯，剪影差不多）。**走彈丸池、有曳光** —— 夜空裡那一片曳光彈就是它。
+ *
+ * ```
+ *   初速 880        沿用 40 mm 艦砲
+ *   射速 160 發/分  61-K 的實際循環射速
+ *   壽命 3.0 s      射程 2,640 m —— 1,500 m 的投彈高度打得到
+ *   單發 7          40 mm 艦砲是 9
+ * ```
+ *
+ * 【射界是天頂 ± 65°】陸上砲位的砲區在中線上，`axisOf` 對中線給的是天頂
+ * 軸，射界錐是 `SHIP_AA_ARC_DEFAULTS.autocannon.halfAngleDeg`；仰角低於 25°
+ * 的目標打不到 —— 貼地掠過的飛機是安全的，那正是掃射該有的樣子。
+ *
+ * 【壓力靠座數不靠單發】與洛伊納的重砲同一條哲學。**全部是起始值，由試玩
+ * 裁定。** `boxHalf` 用不到（命中判定走 `GroundTarget.hull`）。
+ */
+export const GROUND_LIGHT_FLAK_SPEC: ShipGunSpec = {
+  muzzleVelocity: 880, roundsPerMinute: 160, life: 3.0, caliber: 37,
+  damage: 7, hp: 160, boxHalf: 1.0, rotationRate: 60 * DEG,
+  ...NOT_FLAK,
+}
+
+/**
  * 陸上的 8.8 cm Flak 36/37。**與 5 吋艦砲分開的一份表** —— 一個守航母、
  * 一個守油廠，強度各自試飛。
  *
@@ -334,12 +358,17 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  *
  * @param spec 這一關的規格。**省略 = `GROUND_FLAK_SPEC`** —— `flakHeavy` 在
  *   盟 M2、德 M2、日 M4 都出現，逐關複寫走 `BattleConfig.flakSpec`。
+ * @param tier 走哪一層射控：`flak` 是時間引信（不進彈丸池）、`autocannon`／
+ *   `mg` 是直射彈（進池、有曳光）。射界錐照 `SHIP_AA_ARC_DEFAULTS[tier]`
+ * @param calibreMm 口徑，只進 `ShipAAZone`（穿甲門檻在 `spec.caliber`）
  */
-export function createGroundBattery(spec: ShipGunSpec = GROUND_FLAK_SPEC): ShipGun[] {
+export function createGroundBattery(
+  spec: ShipGunSpec = GROUND_FLAK_SPEC, tier: ShipAATier = 'flak', calibreMm = 88,
+): ShipGun[] {
   const zone: ShipAAZone = {
     id: 'flak_c1',
-    tier: 'flak',
-    calibreMm: 88,
+    tier,
+    calibreMm,
     position: new Vector3(0, GROUND_FLAK_MUZZLE_Y, 0),
     guns: 1,
     mountsInZone: 1,
@@ -393,7 +422,9 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     g.targetIndex = -1
     g.fired = 0
     g.flash = 0
-    g.hp = SHIP_GUN_SPECS[g.zone.tier].hp
+    // 【讀自己的規格】船的 `spec` 就是表裡那一份；陸砲帶自己的，重設之後
+    // 才不會變回艦砲的血量
+    g.hp = g.spec.hp
     g.alive = true
     const k = shipIndex * MAX_SHIP_GUNS + i
     g.phase = wobblePhase(shipIndex, i)
