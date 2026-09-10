@@ -1,7 +1,7 @@
 import {
   AdditiveBlending, Group, PointLight, Sprite, SpriteMaterial, type Texture,
 } from 'three'
-import { FLARE_BURN, type Flares } from '../world/flares'
+import { FLARE_BURN, FLARE_LANES, type Flares } from '../world/flares'
 
 /**
  * # 照明彈的光
@@ -17,7 +17,7 @@ import { FLARE_BURN, type Flares } from '../world/flares'
  * 【燈的代價】每個片元多一次光照，地面那一顆網格最大。太卡就把
  * `FLARE_LIGHT_COUNT` 降到 2。
  */
-export const FLARE_LIGHT_COUNT = 3
+export const FLARE_LIGHT_COUNT = FLARE_LANES
 /**
  * 光源的照射距離，m。**它決定地上亮的那一圈有多大**：1,200 m 高的燈，
  * 2,000 m 的截止在地面是半徑 1,600 m 的圓 —— 機場亮、周圍的田暗。
@@ -32,18 +32,21 @@ const FLARE_LIGHT_INTENSITY = 4.5e5
 const FLARE_COLOR = 0xfff2d0
 /** 光暈 sprite 的直徑，m */
 const GLOW_SIZE = 40
+/** 點燃後這幾秒亮度從 0 升到 1 */
+const RISE_SECONDS = 2
 /** 最後這幾秒亮度線性衰到 0 */
-const FADE_SECONDS = 30
+const FADE_SECONDS = 15
 /** 閃爍的深度：亮度在 1 − FLICKER … 1 之間晃 */
 const FLICKER = 0.18
 
-/** 還沒點燃的是 0，最後幾秒衰到 0 */
+/** 還沒點燃的是 0；點燃後幾秒漸亮；最後幾秒衰到 0 */
 export function flareBrightness(age: number): number {
   if (age < 0) return 0
   const left = FLARE_BURN - age
   if (left <= 0) return 0
-  if (left >= FADE_SECONDS) return 1
-  return left / FADE_SECONDS
+  const rise = age < RISE_SECONDS ? age / RISE_SECONDS : 1
+  const fade = left < FADE_SECONDS ? left / FADE_SECONDS : 1
+  return rise < fade ? rise : fade
 }
 
 /**

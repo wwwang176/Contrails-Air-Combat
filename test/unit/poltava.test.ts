@@ -4,7 +4,7 @@ import {
   LIGHT_FLAK_SITES, PARKED_ROWS, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
-import { FLARE_LIGHT_COUNT } from '../../src/render/flares'
+import { FLARE_LANES } from '../../src/world/flares'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'
 
 /**
@@ -112,21 +112,23 @@ describe('poltava 的佈局', () => {
     for (const s of HEAVY_FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(500)
   })
 
-  it('照明彈散在墊面內、彼此至少 800 m、一枚一枚點、高度各不相同', () => {
-    // 一枚一盞燈：枚數不得超過點光源的數量
-    expect(FLARE_DROPS).toHaveLength(FLARE_LIGHT_COUNT)
+  it('照明彈的清單：都在墊面內、相鄰三個彼此至少 800 m、前三個依序點、高度各不相同', () => {
+    const n = FLARE_DROPS.length
+    // 輪替：清單要比燈位多，換位置才有意義
+    expect(n).toBeGreaterThan(FLARE_LANES)
     for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, PAD)).toBe(true)
-    for (let i = 0; i < FLARE_DROPS.length; i++) {
-      for (let j = i + 1; j < FLARE_DROPS.length; j++) {
+    // 同時亮著的是清單裡相鄰的三個（循環），那三個彼此要拉開
+    for (let i = 0; i < n; i++) {
+      for (let d = 1; d < FLARE_LANES; d++) {
         const a = FLARE_DROPS[i]!
-        const b = FLARE_DROPS[j]!
-        expect(Math.hypot(a.x - b.x, a.z - b.z), `${i},${j}`).toBeGreaterThanOrEqual(800)
+        const b = FLARE_DROPS[(i + d) % n]!
+        expect(Math.hypot(a.x - b.x, a.z - b.z), `${i},${(i + d) % n}`).toBeGreaterThanOrEqual(800)
       }
     }
-    for (let i = 1; i < FLARE_DROPS.length; i++) {
+    for (let i = 1; i < FLARE_LANES; i++) {
       expect(FLARE_DROPS[i]!.delay).toBeGreaterThan(FLARE_DROPS[i - 1]!.delay)
     }
-    expect(new Set(FLARE_DROPS.map((p) => p.altitude)).size).toBe(FLARE_DROPS.length)
-    expect(new Set(FLARE_DROPS.map((p) => p.z)).size).toBe(FLARE_DROPS.length)
+    expect(new Set(FLARE_DROPS.map((p) => p.altitude)).size).toBe(n)
+    expect(new Set(FLARE_DROPS.map((p) => p.z)).size).toBe(n)
   })
 })

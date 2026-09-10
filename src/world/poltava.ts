@@ -94,16 +94,25 @@ export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: 0 }))
 
 /**
- * 照明彈三枚，**散在機場四周而不是排成一線**：前後左右各不相同、彼此至少
- * 800 m，高度在 1,000 到 1,400 之間錯開 —— 地上每一處的光照角度才不一樣，
- * 停機坪的影子才有方向。**每一枚一盞點光源**（`render/flares.ts` 的
- * `FLARE_LIGHT_COUNT`）。一枚一枚點：照明機斜切機場，7 秒一枚。
+ * 照明彈的位置清單，**散在機場四周而不是排成一線**。
+ *
+ * 同時亮 `FLARE_LANES`（3）枚、一枚一盞燈：前三個先點（照明機斜切機場，
+ * 7 秒一枚），之後哪一枚熄了就在清單的下一個位置點新的，走完從頭。所以
+ * **同時亮著的永遠是清單裡相鄰的三個** —— 清單照西、中、東輪流排，任三個
+ * 相鄰的就各佔一區、彼此至少 800 m；南北與高度各不相同，地上每一處的光照
+ * 角度才不一樣。後面幾個的 `delay` 用不到，填 0。
  */
 export const FLARE_DROPS: readonly { x: number; z: number; altitude: number; delay: number }[] =
   /* @__PURE__ */ ([
-    { dx: -700, dz: -350, altitude: 1400, delay: 0 },
-    { dx: 150, dz: 300, altitude: 1050, delay: 7 },
-    { dx: 750, dz: -300, altitude: 1250, delay: 14 },
+    { dx: -800, dz: -350, altitude: 1400, delay: 0 },
+    { dx: 0, dz: 300, altitude: 1050, delay: 7 },
+    { dx: 800, dz: -300, altitude: 1250, delay: 14 },
+    { dx: -800, dz: 250, altitude: 1150, delay: 0 },
+    { dx: 0, dz: -500, altitude: 1350, delay: 0 },
+    { dx: 800, dz: 450, altitude: 1100, delay: 0 },
+    { dx: -800, dz: -100, altitude: 1300, delay: 0 },
+    { dx: 0, dz: 50, altitude: 1200, delay: 0 },
+    { dx: 800, dz: 100, altitude: 1000, delay: 0 },
   ] as const).map((p) => ({ ...at(p.dx, p.dz), altitude: p.altitude, delay: p.delay }))
 
 /**
