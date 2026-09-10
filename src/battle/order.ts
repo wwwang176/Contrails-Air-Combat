@@ -401,6 +401,9 @@ export function convoyLine(plan: EntryPlan, blue: SideOrder, red: SideOrder): Or
  * `player` 的症狀是「玩家的控制器同時裝在兩個座位上，其中一個永遠收不到
  * 輸入」（`resetBattle` 的註解記過同一個症狀），而畫面上只是有一架飛機
  * 呆呆地平飛。
+ *
+ * 【可以沒有紅隊】對手全是地面的關（德 M2）編組表只有藍隊。「藍隊必須排在
+ * 紅隊之前」仍然守著 —— 那是 `compactFlights` 的前提。
  */
 export function assertOrderOfBattle(units: OrderOfBattle): void {
   if (units.length === 0) throw new Error('編組表是空的')
@@ -436,7 +439,6 @@ export function assertOrderOfBattle(units: OrderOfBattle): void {
   }
   if (players !== 1) throw new Error(`編組表必須恰好有一筆 player，收到 ${players}`)
   if (!units.some((u) => u.team === 'blue')) throw new Error('編組表裡沒有藍隊')
-  if (!seenRed) throw new Error('編組表裡沒有紅隊')
 }
 
 /** 一隊的總架數。 */
