@@ -88,6 +88,17 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   searchlight: 0,
 }
 
+/**
+ * 攻擊機挑目標時的價值，**沒列的就用血量**。
+ *
+ * 【停放的 B-17 是關卡的目標本身】它的血量比油桶堆低，照血量挑的話 AI 會
+ * 先去炸油桶堆、砲位 —— 而卡片寫的是「炸毀停放的 B-17」。給它比其他任何
+ * 地面單位都高的價值，同價值再比距離。
+ */
+export const GROUND_VALUE: Readonly<Partial<Record<GroundUnitId, number>>> = {
+  parkedB17: 20_000,
+}
+
 export interface GroundTarget extends StrikeTarget {
   readonly kind: 'ground'
   readonly index: number
@@ -113,7 +124,7 @@ export interface GroundTarget extends StrikeTarget {
   readonly speed: 0
   /** 落點求解的平面：地面高度加命中盒的頂，世界高度 */
   readonly impactY: number
-  /** 選目標用：就是血量上限 */
+  /** 選目標用：血量上限，或 `GROUND_VALUE` 另外給的值 */
   readonly value: number
   hp: number
   /**
@@ -173,7 +184,7 @@ export function createGroundTarget(
     speed: 0,
     // 【getter 而不是常數】`position.y` 由 `settleGroundTargets` 之後才填
     get impactY() { return position.y + top },
-    value: GROUND_HP[id],
+    value: GROUND_VALUE[id] ?? GROUND_HP[id],
     hp: GROUND_HP[id],
     alive: true,
     // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個

@@ -57,6 +57,23 @@ describe('pickGroundTarget', () => {
     expect(pickGroundTarget(me, 'blue', list, SHIP_ATTACK_RANGE)).toBe(0)
   })
 
+  /**
+   * 【停放的 B-17 是關卡的目標本身】它的血量比油桶堆低，照血量挑會先去炸
+   * 油桶堆、砲位 —— 而卡片寫的是「炸毀停放的 B-17」。價值與血量分開。
+   */
+  it('停放的 B-17 比較近的油桶堆與砲位都優先，即使它比較遠', () => {
+    const list = [
+      createGroundTarget(0, 'fuelDump', 'red', 0, -100, 0),
+      createGroundTarget(1, 'flakLight', 'red', 0, -150, 0),
+      createGroundTarget(2, 'searchlight', 'red', 0, -200, 0),
+      createGroundTarget(3, 'parkedB17', 'red', 0, -900, 0),
+    ]
+    expect(GROUND_HP.fuelDump).toBeGreaterThan(GROUND_HP.parkedB17)
+    expect(pickGroundTarget(me, 'blue', list, SHIP_ATTACK_RANGE)).toBe(3)
+    list[3]!.alive = false
+    expect(pickGroundTarget(me, 'blue', list, SHIP_ATTACK_RANGE)).toBe(0)
+  })
+
   it('超出接戰半徑回 −1；空清單回 −1', () => {
     const list = [createGroundTarget(0, 'oilTank', 'red', 0, -20000, 0)]
     expect(pickGroundTarget(me, 'blue', list, SHIP_ATTACK_RANGE)).toBe(-1)
