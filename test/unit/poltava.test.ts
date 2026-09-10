@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  APRON, createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_LINE, HEAVY_FLAK_SITES,
+  APRON, createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HEAVY_FLAK_SITES,
   LIGHT_FLAK_SITES, PARKED_ROWS, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, worldToField,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
@@ -112,13 +112,21 @@ describe('poltava 的佈局', () => {
     for (const s of HEAVY_FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(500)
   })
 
-  it('照明彈沿跑道排開、一枚一枚點、高度各不相同', () => {
+  it('照明彈散在墊面內、彼此至少 800 m、一枚一枚點、高度各不相同', () => {
     // 一枚一盞燈：枚數不得超過點光源的數量
-    expect(FLARE_LINE).toHaveLength(FLARE_LIGHT_COUNT)
-    for (const p of FLARE_LINE) expect(inRect(p.x, p.z, RUNWAY)).toBe(true)
-    for (let i = 1; i < FLARE_LINE.length; i++) {
-      expect(FLARE_LINE[i]!.delay).toBeGreaterThan(FLARE_LINE[i - 1]!.delay)
+    expect(FLARE_DROPS).toHaveLength(FLARE_LIGHT_COUNT)
+    for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, PAD)).toBe(true)
+    for (let i = 0; i < FLARE_DROPS.length; i++) {
+      for (let j = i + 1; j < FLARE_DROPS.length; j++) {
+        const a = FLARE_DROPS[i]!
+        const b = FLARE_DROPS[j]!
+        expect(Math.hypot(a.x - b.x, a.z - b.z), `${i},${j}`).toBeGreaterThanOrEqual(800)
+      }
     }
-    expect(new Set(FLARE_LINE.map((p) => p.altitude)).size).toBe(FLARE_LINE.length)
+    for (let i = 1; i < FLARE_DROPS.length; i++) {
+      expect(FLARE_DROPS[i]!.delay).toBeGreaterThan(FLARE_DROPS[i - 1]!.delay)
+    }
+    expect(new Set(FLARE_DROPS.map((p) => p.altitude)).size).toBe(FLARE_DROPS.length)
+    expect(new Set(FLARE_DROPS.map((p) => p.z)).size).toBe(FLARE_DROPS.length)
   })
 })

@@ -94,17 +94,17 @@ export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: 0 }))
 
 /**
- * 照明彈沿跑道從西到東三枚，**每一枚一盞點光源**（`render/flares.ts` 的
- * `FLARE_LIGHT_COUNT`）。**高度各不相同、一枚一枚點**：照明機以約 70 m/s
- * 沿跑道飛，500 m 一枚是 7 秒；高度在 1,000 到 1,400 之間錯開，地上每一處
- * 的光照角度才不一樣，停機坪的影子才有方向。
+ * 照明彈三枚，**散在機場四周而不是排成一線**：前後左右各不相同、彼此至少
+ * 800 m，高度在 1,000 到 1,400 之間錯開 —— 地上每一處的光照角度才不一樣，
+ * 停機坪的影子才有方向。**每一枚一盞點光源**（`render/flares.ts` 的
+ * `FLARE_LIGHT_COUNT`）。一枚一枚點：照明機斜切機場，7 秒一枚。
  */
-export const FLARE_LINE: readonly { x: number; z: number; altitude: number; delay: number }[] =
+export const FLARE_DROPS: readonly { x: number; z: number; altitude: number; delay: number }[] =
   /* @__PURE__ */ ([
-    { dx: -500, altitude: 1400, delay: 0 },
-    { dx: 0, altitude: 1050, delay: 7 },
-    { dx: 500, altitude: 1250, delay: 14 },
-  ] as const).map((p) => ({ ...at(p.dx, 0), altitude: p.altitude, delay: p.delay }))
+    { dx: -700, dz: -350, altitude: 1400, delay: 0 },
+    { dx: 150, dz: 300, altitude: 1050, delay: 7 },
+    { dx: 750, dz: -300, altitude: 1250, delay: 14 },
+  ] as const).map((p) => ({ ...at(p.dx, p.dz), altitude: p.altitude, delay: p.delay }))
 
 /**
  * 手擺的丘陵：極緩，全在 3 km 外。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`
