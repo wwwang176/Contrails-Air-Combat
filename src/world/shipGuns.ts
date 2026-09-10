@@ -5,17 +5,24 @@ import { resetBurst, stepBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'
 import type { Arc } from '../weapons/turret'
-import { FLAK_MAX_FUSE, spawnFlak } from './flak'
+import {
+  FLAK_BLAST_SCALE, FLAK_DAMAGE, FLAK_MAX_FUSE, FLAK_RADIUS, FLAK_SHAKE, FLAK_SMOKE, spawnFlak,
+} from './flak'
 import { NO_INTERCEPT, solveLead } from './lead'
-import { SHIP_AA_ARC_DEFAULTS, type ShipAATier } from './shipAA'
+import { SHIP_AA_ARC_DEFAULTS, type ShipAATier, type ShipAAZone } from './shipAA'
 import { FIRE_THRESHOLD, SEARCH_INTERVAL, TURRET_FLASH_SECONDS } from './turrets'
 import type { Ship, ShipClass, ShipGun } from './ships'
 import type { FlakShells } from './flak'
 import type { Projectiles } from './Projectiles'
 import type { TurretCombatant } from './turrets'
+import type { Team } from './World'
 
 /**
- * # 艦上防空砲位的瞄準與開火
+ * # 防空砲位的瞄準與開火
+ *
+ * **船與陸上的砲位共用這一支。** 射控只讀砲台的那幾格（見 `GunPlatform`）——
+ * 陸上的重高砲位是 `GroundTarget`，掛上 `createGroundBattery()` 之後就跟一艘
+ * 船一樣走這裡。
  *
  * 骨架照 `world/turrets.ts` 的 `stepTurrets`，**但有五處不一樣**（見
  * spec §3.3）：
@@ -30,6 +37,33 @@ import type { TurretCombatant } from './turrets'
  * 瞄準本身完全借用 `weapons/turret.ts` 與 `weapons/burst.ts` 的純函數：
  * 那一層不認識飛機，本來就借得到。
  */
+
+/**
+ * 一座砲台。**射控只讀這幾格** —— `Ship` 天生滿足，`GroundTarget` 掛上
+ * `guns` 之後也滿足。
+ *
+ * 【為什麼不直接收 `Ship`】陸上的重高砲位沒有船殼、沒有航速、不會沉。射控
+ * 收 `Ship` 的話「會開火」與「是一艘船」就綁死了，沒有船的關卡一發都打不出來。
+ */
+export interface GunPlatform {
+  readonly guns: readonly ShipGun[]
+  /** 世界座標。砲口是 `zone.position` 經 `orientation` 轉過來再加它 */
+  readonly position: Vector3
+  readonly orientation: Quaternion
+  readonly team: Team
+  /** 沉了／炸了就一門砲都不動 */
+  readonly alive: boolean
+  /**
+   * 這一座在自己那一組裡的編號。**同組不得重複** —— 它進的是引信誤差與
+   * 搖晃相位的種子，撞號的兩座會抽到同一串亂數，彈幕於是同步。
+   */
+  readonly index: number
+  /**
+   * 射速時鐘，一門砲一格。`stepCadence` 收的是 `Float32Array + index`，
+   * 所以住在砲台身上而不是砲身上。
+   */
+  readonly gunCooldowns: Float32Array
+}
 
 /** 一層砲位的規格。**每一個數字都是起始值，由試飛裁定。** */
 export interface ShipGunSpec {
@@ -47,6 +81,33 @@ export interface ShipGunSpec {
   readonly boxHalf: number
   /** 轉速上限，rad/s。 */
   readonly rotationRate: number
+  /**
+   * 引信秒數上限。**只有 `flak` 那一層讀**，其餘層的射程是 `life`。
+   * 射程 = `muzzleVelocity × maxFuse`。
+   */
+  readonly maxFuse: number
+  /**
+   * 引信秒數的相對誤差，±。**只有 `flak` 那一層讀。** 見 `FLAK_FUSE_ERROR`。
+   */
+  readonly fuseError: number
+  /** 一朵雲的殺傷半徑與爆心傷害。**只有 `flak` 那一層讀**，逐發帶進彈池 */
+  readonly burstRadius: number
+  readonly burstDamage: number
+  /**
+   * 表現的三個尺度。**只有 `flak` 那一層讀**，逐發帶進彈池。
+   *
+   * ```
+   *   burstSmoke  黑雲的散佈半徑，m
+   *   burstBlast  空中閃光與火球的線性尺度，1 = FLAK_BLAST 原配方
+   *   burstShake  鏡頭震動的當量尺度
+   * ```
+   *
+   * 【三格互相獨立，也不從 `burstRadius` 推】它們是手感：雲小一號、搖一樣
+   * 重、閃光大一點都是合法的選擇。綁成公式之後，調任何一個都會動到另外兩個。
+   */
+  readonly burstSmoke: number
+  readonly burstBlast: number
+  readonly burstShake: number
 }
 
 /**
@@ -85,6 +146,26 @@ export interface ShipGunSpec {
  *
  * 護欄在 `test/unit/ships.test.ts`。**起始值，由試飛裁定。**
  */
+/**
+ * 引信秒數的相對誤差，±。**艦砲與陸砲同值。**
+ *
+ * 【為什麼要有誤差】攔截時間是精確解，一朵雲的殺傷半徑在 2 km 上等於每一朵
+ * 時機對的雲都扣得到血 —— 黑雲該是危險的招牌，不是必中的判決。±6% 在
+ * 2 km（4.4 秒）上是 ±0.27 秒、沿彈道 ±120 m，雲於是開在目標前後。
+ *
+ * 【逐發的確定性擾動】種子是那一門砲的累計發射數，同一場同種子逐位元相同。
+ *
+ * 【它宣告在規格表之前】兩份表都引用它 —— 放在後面的話模組求值會撞上 TDZ，
+ * 而那是載入期就整個炸掉。
+ */
+export const FLAK_FUSE_ERROR = 0.06
+
+/** 不走引信那一層的填法。`maxFuse` 是 0 表示「射程看 `life`」 */
+const NOT_FLAK = {
+  maxFuse: 0, fuseError: 0, burstRadius: 0, burstDamage: 0,
+  burstSmoke: 0, burstBlast: 0, burstShake: 0,
+} as const
+
 export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   // 20 mm Oerlikon，射程 830 × 1.6 ≈ 1,330 m
   //
@@ -95,6 +176,7 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   mg: {
     muzzleVelocity: 830, roundsPerMinute: 480, life: 1.6, caliber: 20,
     damage: 2.5, hp: 300, boxHalf: 1.2, rotationRate: 60 * DEG,
+    ...NOT_FLAK,
   },
   // 40 mm Bofors，射程 880 × 3.4 ≈ 2,990 m
   //
@@ -106,12 +188,60 @@ export const SHIP_GUN_SPECS: Readonly<Record<ShipAATier, ShipGunSpec>> = {
   autocannon: {
     muzzleVelocity: 880, roundsPerMinute: 220, life: 3.4, caliber: 40,
     damage: 9, hp: 600, boxHalf: 2.0, rotationRate: 45 * DEG,
+    ...NOT_FLAK,
   },
   // 5"/38 兩用砲，射程 450 × 11（引信上限）≈ 4,950 m
   flak: {
     muzzleVelocity: 450, roundsPerMinute: 20, life: 0, caliber: 127,
     damage: 50, hp: 1000, boxHalf: 3.0, rotationRate: 20 * DEG,
+    maxFuse: FLAK_MAX_FUSE, fuseError: FLAK_FUSE_ERROR, burstRadius: FLAK_RADIUS,
+    burstDamage: FLAK_DAMAGE,
+    burstSmoke: FLAK_SMOKE, burstBlast: FLAK_BLAST_SCALE, burstShake: FLAK_SHAKE,
   },
+}
+
+/**
+ * 陸上的 8.8 cm Flak 36/37。**與 5 吋艦砲分開的一份表** —— 一個守航母、
+ * 一個守油廠，強度各自試飛。
+ *
+ * ## 史實
+ *
+ * 初速約 820 m/s、射速 15–20 發/分、有效射高約 8,000 m、彈重 9.4 kg。用的是
+ * **時間引信**（Zeitzünder）而不是近炸引信。擊落一架四發轟炸機平均要數千發
+ * —— 高砲真正的作用是累積損傷與心理壓力，不是單發致命。
+ *
+ * ## 遊戲值（**起始值，由試飛裁定**）
+ *
+ * ```
+ *   初速 600        比 5 吋的 450 快（88 本來就是高初速砲），但仍遠低於史實
+ *   射速 15 發/分   史實下限。艦砲有揚彈機，陸砲是人力裝填
+ *   引信上限 8.2 s  射程 600 × 8.2 ≈ 4,900 m，與艦砲同一個射程
+ *   引信誤差 ±6%    與 5 吋艦砲同值
+ *   殺傷 75 m／120  **範圍大、單發輕**（艦砲是 50 m／200）
+ *   震動 0.55       艦砲的兩倍多 —— 見下面那一格的理由
+ * ```
+ *
+ * 【範圍大單發輕是刻意的】洛伊納的恐怖是累積損傷，不是單發致命：一朵雲對
+ * B-17G 的爆心傷害只有血量的 2.1%（120 ÷ 防護 1.15 ÷ 5,000），但 75 m 的
+ * 範圍讓「被打到」變成常態。史實上擊落一架四發轟炸機平均要數千發 88。
+ *
+ * 【射速在卡片上複寫】洛伊納那一關是 30 發/分（`MissionBattle.flakSpec`）——
+ * `flakHeavy` 另外四關也在用，這裡的 15 是通用值。
+ *
+ * 【`damage`／`life` 填 0】那兩格是彈丸池用的，`flak` 這一層走引信不進池。
+ */
+export const GROUND_FLAK_SPEC: ShipGunSpec = {
+  muzzleVelocity: 600, roundsPerMinute: 15, life: 0, caliber: 88,
+  damage: 0, hp: 400, boxHalf: 3.0, rotationRate: 15 * DEG,
+  maxFuse: 8.2, fuseError: FLAK_FUSE_ERROR, burstRadius: 75, burstDamage: 120,
+  /*
+   * 表現的三格。雲與閃光與艦砲同大小，**震動是艦砲的兩倍多**。
+   *
+   * 【震動 0.55 不是 0.25】角度吃 `trauma` 的平方（`camera/cameraShake.ts`）
+   * —— 0.25 在爆心只有 0.23 度，65 度視野下是三個像素，玩家感覺不到自己
+   * 正在挨打。0.55 是 1.13 度，而震動範圍也從 125 m 拉到 275 m。
+   */
+  burstSmoke: FLAK_SMOKE, burstBlast: FLAK_BLAST_SCALE, burstShake: 0.55,
 }
 
 /**
@@ -137,16 +267,6 @@ export function ownerShipIndex(owner: number): number {
 
 /** 搖晃振幅，rad。**起始值。** 比飛機砲塔的 1.0° 大 —— 要的是玩家有機會。 */
 export const SHIP_WOBBLE_AMPLITUDE = 1.2 * DEG
-/**
- * 5 吋砲引信秒數的相對誤差，±。
- *
- * 【為什麼要有誤差】攔截時間是精確解，殺傷半徑 50 m 在 2 km 上等於每一朵
- * 時機對的雲都扣得到血 —— 黑雲該是危險的招牌，不是必中的判決。±6% 在
- * 2 km（4.4 秒）上是 ±0.27 秒、沿彈道 ±120 m，雲於是開在目標前後。
- *
- * 【逐發的確定性擾動】種子是那一門砲的累計發射數，同一場同種子逐位元相同。
- */
-export const FLAK_FUSE_ERROR = 0.06
 /** 搖晃頻率，rad/s。與飛機砲塔同一個值。 */
 export const SHIP_WOBBLE_OMEGA = 2 * Math.PI * 0.7
 
@@ -177,6 +297,7 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
     const axis = axisOf(zone.position.x, zone.tier, new Vector3())
     out.push({
       zone,
+      spec,
       aim: axis.clone(),
       axis,
       phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
@@ -192,6 +313,65 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
   }
   resetGuns(out)
   return out
+}
+
+/**
+ * 陸上重高砲位的砲口高度，m。88 mm Flak 的砲耳大約在這裡。
+ *
+ * 【不是 0】槍焰與彈道都從這裡出發；貼地的話砲彈會從沙包裡冒出來。
+ */
+export const GROUND_FLAK_MUZZLE_Y = 2.2
+
+/**
+ * 一座陸上重高砲位的砲。**一個砲位一門**，走 `flak` 那一層（近炸引信、
+ * 不進彈丸池）。
+ *
+ * 【射界朝正上】`axisOf` 靠 `zone.position.x` 判斷舷別，中線上的朝天頂 ——
+ * 陸上砲位就該是這樣：它守的是頭上那一塊天，不是某一側。
+ *
+ * 【`hp` 與 `box` 用不到但要填】陸上砲位的命中判定走 `GroundTarget.hull`，
+ * 這一門砲不是獨立的可打目標；`alive` 由砲位本身的存活決定。
+ *
+ * @param spec 這一關的規格。**省略 = `GROUND_FLAK_SPEC`** —— `flakHeavy` 在
+ *   五關都出現，逐關複寫走 `BattleConfig.flakSpec`。
+ */
+export function createGroundBattery(spec: ShipGunSpec = GROUND_FLAK_SPEC): ShipGun[] {
+  const zone: ShipAAZone = {
+    id: 'flak_c1',
+    tier: 'flak',
+    calibreMm: 88,
+    position: new Vector3(0, GROUND_FLAK_MUZZLE_Y, 0),
+    guns: 1,
+    mountsInZone: 1,
+    representative: 'flak_c1',
+  }
+  const axis = axisOf(zone.position.x, zone.tier, new Vector3())
+  const out: ShipGun[] = [{
+    zone,
+    spec,
+    aim: axis.clone(),
+    axis,
+    phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
+    burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+    flash: 0,
+    hp: spec.hp,
+    alive: true,
+    box: {
+      center: zone.position,
+      half: new Vector3(spec.boxHalf, spec.boxHalf, spec.boxHalf),
+    },
+  }]
+  resetGuns(out)
+  return out
+}
+
+/**
+ * 陸上砲位就地重設。**不配置任何物件** —— 與 `resetShipGuns` 同一件事，
+ * 只是種子用地面目標的索引。
+ */
+export function resetGroundBattery(t: GunPlatform): void {
+  resetGuns(t.guns as ShipGun[], t.index)
+  t.gunCooldowns.fill(0)
 }
 
 /**
@@ -244,21 +424,24 @@ const INV_Q = /* @__PURE__ */ new Quaternion()
  * 【槍焰的遞減不在這裡】與飛機砲塔同一個約定：由 `World.step` 那個掃過
  * 所有船的迴圈做，這樣「被打掉那一瞬間亮著的槍焰」不會永遠停在那裡。
  *
- * @param fleet 目標分攤要數的全部船。**`World` 一定要傳整個艦隊** ——
- *   省略時只數這一艘，那是單艦呼叫端（測試、探針）的退路，九艘船各自
- *   只數自己就回到「全部咬長機」。
+ * @param fleet 目標分攤要數的全部砲台。**`World` 一定要傳整組** —— 艦隊傳
+ *   整支艦隊、陸上砲位傳全部砲位。省略時只數這一座，那是單台呼叫端（測試、
+ *   探針）的退路；各自只數自己就回到「全部咬同一架」。
+ *
+ *   【陸上與海上分開數】兩者不會同場，而且混在一起要先把兩種砲台併成一個
+ *   陣列 —— 那是每步一次配置。
  */
-export function stepShipGuns(
-  ship: Ship,
+export function stepGunPlatform(
+  ship: GunPlatform,
   all: readonly TurretCombatant[],
   projectiles: Projectiles,
   flak: FlakShells,
   time: number,
   dt: number,
-  fleet: readonly Ship[] = (SOLO[0] = ship, SOLO),
+  fleet: readonly GunPlatform[] = (SOLO[0] = ship, SOLO),
 ): void {
   const guns = ship.guns
-  // 【沉了的船一門砲都不動】與「砲位死了完全不動」同一條規則，只是整艘。
+  // 【沉了的砲台一門砲都不動】與「砲位死了完全不動」同一條規則，只是整座。
   if (!ship.alive || guns.length === 0) return
 
   const q = ship.orientation
@@ -281,7 +464,8 @@ export function stepShipGuns(
     const g = guns[i]!
     // 【死掉的砲位完全不動】不搜尋、不轉、不開火，連射速時鐘都不走
     if (!g.alive) continue
-    const spec = SHIP_GUN_SPECS[g.zone.tier]
+    // 【讀砲身上的那一份】同屬 flak 層的艦砲與陸砲強度不同
+    const spec = g.spec
     const firingWindow = stepBurst(g, dt)
 
     // 槍口的世界位置。**預瞄從這裡解，不是從船的重心** —— 艦艏與艦艉的
@@ -334,14 +518,16 @@ export function stepShipGuns(
       // 同一串誤差
       const k = ((ship.index * MAX_SHIP_GUNS + i) * 0x100000 + g.fired) | 0
       g.fired++
-      // 【夾在上限之內】誤差往後偏的那一半不能把射程推過 FLAK_MAX_FUSE
-      const fuse = Math.min(FLAK_MAX_FUSE, exact * (1 + FLAK_FUSE_ERROR * (2 * hash01(k) - 1)))
+      // 【夾在上限之內】誤差往後偏的那一半不能把射程推過引信上限
+      const fuse = Math.min(spec.maxFuse, exact * (1 + spec.fuseError * (2 * hash01(k) - 1)))
       applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
       spawnFlak(
         flak, MUZZLE.x, MUZZLE.y, MUZZLE.z, VEL.x, VEL.y, VEL.z,
         fuse, ship.team === 'blue' ? 0 : 1,
+        spec.burstRadius, spec.burstDamage,
+        spec.burstSmoke, spec.burstBlast, spec.burstShake,
       )
       continue
     }
@@ -392,7 +578,7 @@ const ARC: Arc = { axis: UP, halfAngle: 0 }
 /** 這一層的飛行時間上限，秒。 */
 function rangeSeconds(g: ShipGun, spec: ShipGunSpec): number {
   // flak 的 life 是 0（不進彈丸池），它的射程上限是引信秒數
-  return g.zone.tier === 'flak' ? FLAK_MAX_FUSE : spec.life
+  return g.zone.tier === 'flak' ? spec.maxFuse : spec.life
 }
 
 /**
@@ -403,7 +589,7 @@ function rangeSeconds(g: ShipGun, spec: ShipGunSpec): number {
 let LOCKS = new Int32Array(64)
 
 /** `stepShipGuns` 沒給艦隊時的單艦清單。不配置 */
-const SOLO: Ship[] = []
+const SOLO: GunPlatform[] = []
 
 /**
  * 挑目標：敵隊、存活、有解、在射界內，取**全艦隊鎖定數最少**的；鎖定數
@@ -421,7 +607,7 @@ const SOLO: Ship[] = []
  * 【用 BEST_WANT 而不是 WANT】搜尋不能污染外層正在用的 `WANT`。
  */
 function pickTarget(
-  ship: Ship, all: readonly TurretCombatant[], g: ShipGun, spec: ShipGunSpec,
+  ship: GunPlatform, all: readonly TurretCombatant[], g: ShipGun, spec: ShipGunSpec,
 ): number {
   const reach = (spec.muzzleVelocity + MAX_CLOSING_SPEED) * rangeSeconds(g, spec)
   const reachSq = reach * reach

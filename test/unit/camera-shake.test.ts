@@ -1,10 +1,20 @@
 import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
-  FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  FLAK_SHAKE as CAMERA_FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
   SHAKE_FREQUENCY, SHAKE_MAX_ANGLE, SHAKE_RANGE, SHAKE_SECONDS,
   addShake, applyCameraShake, createCameraShake, shakeNoise, stepCameraShake,
 } from '../../src/camera/cameraShake'
+import { FLAK_RADIUS, FLAK_SHAKE, FLAK_SMOKE } from '../../src/world/flak'
+import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
+
+/** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
+const CONSUMERS = import.meta.glob(
+  ['../../src/main.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts'],
+  { query: '?raw', import: 'default', eager: true },
+) as Record<string, string>
+const srcOf = (name: string): string =>
+  Object.entries(CONSUMERS).find(([k]) => k.endsWith(name))![1]
 
 /**
  * # 爆炸的鏡頭震動
@@ -341,5 +351,61 @@ describe('各種爆炸的當量尺度', () => {
   it('高砲彈幕下的穩態震動小於單軸上限的十分之一', () => {
     const steady = SHAKE_MAX_ANGLE * FLAK_SHAKE * FLAK_SHAKE
     expect(steady).toBeLessThan(SHAKE_MAX_ANGLE * 0.1)
+  })
+})
+
+/**
+ * # 黑雲的三個表現尺度是三個獨立的旋鈕
+ *
+ * 一朵雲有四個數字：殺傷半徑（傷害）、黑煙大小、閃光大小、震動。**它們互相
+ * 獨立，也不從殺傷半徑推導** —— 雲小一號、搖一樣重、閃光大一點都是合法的
+ * 選擇，綁成公式之後調任何一個都會動到另外三個。
+ *
+ * 兩份表：`SHIP_GUN_SPECS.flak`（5 吋艦砲）與 `GROUND_FLAK_SPEC`（陸上 88）。
+ */
+describe('高砲雲的表現尺度', () => {
+  it('艦砲那一份與 flak.ts 的預設常數對齊', () => {
+    const s = SHIP_GUN_SPECS.flak
+    expect(s.burstRadius).toBe(FLAK_RADIUS)
+    expect(s.burstSmoke).toBe(FLAK_SMOKE)
+    expect(s.burstShake).toBe(FLAK_SHAKE)
+    // 【相機層的那一份不得漂掉】兩處都寫著 0.25，改一邊忘一邊不會報錯
+    expect(FLAK_SHAKE).toBe(CAMERA_FLAK_SHAKE)
+  })
+
+  /**
+   * 【四格互相獨立】陸砲的殺傷半徑比艦砲大、爆心傷害比艦砲小、震動比艦砲重，
+   * 而雲與閃光一樣大 —— 那個組合只有在四格各自是一格時才寫得出來。哪天有人
+   * 把它們綁回同一個公式（例如 `burstSmoke = burstRadius / 3`），這一條會紅。
+   */
+  it('陸砲與艦砲的四格各自獨立', () => {
+    const ground = GROUND_FLAK_SPEC
+    const ship = SHIP_GUN_SPECS.flak
+    expect(ground.burstRadius).not.toBe(ship.burstRadius)
+    expect(ground.burstDamage).not.toBe(ship.burstDamage)
+    expect(ground.burstShake).not.toBe(ship.burstShake)
+    expect(ground.burstSmoke).toBe(ship.burstSmoke)
+    expect(ground.burstBlast).toBe(ship.burstBlast)
+    // 【雲比殺傷範圍小得多】75 m 的殺傷配 16.7 m 的雲 —— 看得見的那一團
+    // 不等於危險範圍
+    expect(ground.burstSmoke).toBeLessThan(ground.burstRadius)
+  })
+
+  /**
+   * 【震動要看得見】角度吃 `trauma` 的平方，所以 0.25 在爆心只有 0.23 度 ——
+   * 65 度視野、900 px 下是三個像素，等於沒有。陸砲的彈幕是這一關唯一告訴
+   * 玩家「你正在挨打」的回饋。
+   */
+  it('陸砲在爆心的震動角度看得見', () => {
+    const deg = (SHAKE_MAX_ANGLE * GROUND_FLAK_SPEC.burstShake ** 2 * 180) / Math.PI
+    const px = deg * (900 / 65)
+    expect(px, `爆心只有 ${px.toFixed(1)} px`).toBeGreaterThan(8)
+  })
+
+  /** 【三個消費端都要讀逐發的那一格】寫死常數的話這一條會紅 */
+  it('震動、黑煙、閃光都讀那一發自己帶的尺度', () => {
+    expect(srcOf('main.ts'), '震動').toContain('events.shake[e]!')
+    expect(srcOf('flakBursts.ts'), '黑煙').toContain('events.smoke[e]!')
+    expect(srcOf('blast.ts'), '閃光').toContain('events.blast[e]!')
   })
 })
