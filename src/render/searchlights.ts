@@ -1,6 +1,6 @@
 import {
-  AdditiveBlending, BufferAttribute, CylinderGeometry, DoubleSide, Euler, Group, Mesh, MeshBasicMaterial,
-  type Vector3,
+  AdditiveBlending, BufferAttribute, CanvasTexture, CylinderGeometry, DoubleSide, Euler, Group, Mesh,
+  MeshBasicMaterial, Sprite, SpriteMaterial, Texture, Vector3,
 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
@@ -37,6 +37,15 @@ export const SEARCHLIGHT_RANGE = GROUND_FLAK_SPEC.muzzleVelocity * GROUND_FLAK_S
 const SLEW_RATE = 40 * Math.PI / 180
 /** 圓柱的分段 —— 光柱不需要圓，八段就夠 */
 const SEGMENTS = 8
+/**
+ * 眩光：光束掃到鏡頭時燈座上炸開的十字白光。角度差在 `GLARE_FULL` 內全亮、
+ * 到 `GLARE_OFF` 淡到 0（rad）。光柱的張角只有 0.28°，眩光要寬得多，
+ * 掃過去才看得到它閃一下。
+ */
+const GLARE_FULL = 0.6 * Math.PI / 180
+const GLARE_OFF = 5 * Math.PI / 180
+/** 眩光在畫面上的視角大小，rad：貼圖的邊長 = 距離 × 它 */
+const GLARE_ANGULAR_SIZE = 0.16
 
 /** 從光束底座指向目標的方位與仰角。`yaw` 繞 Y（0 = 朝 −Z）、`pitch` 是仰角 */
 export function aimAngles(
@@ -50,6 +59,49 @@ export function aimAngles(
   out.pitch = Math.atan2(dy, Math.hypot(dx, dz))
 }
 
+/** 光束方向與「燈到鏡頭」方向的夾角餘弦 → 眩光強度 0…1 */
+export function glareStrength(cosAngle: number): number {
+  const a = Math.acos(Math.min(1, Math.max(-1, cosAngle)))
+  if (a <= GLARE_FULL) return 1
+  if (a >= GLARE_OFF) return 0
+  const t = (a - GLARE_FULL) / (GLARE_OFF - GLARE_FULL)
+  return 1 - t * t
+}
+
+/**
+ * 十字狀的眩光貼圖：兩道細長的光芒加中央的光暈，畫在 canvas 上。
+ * **只在瀏覽器裡叫**（node 測試傳一張空的 `Texture`）。
+ */
+export function makeGlareTexture(size = 256): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const c = size / 2
+  ctx.clearRect(0, 0, size, size)
+  // 中央光暈
+  const core = ctx.createRadialGradient(c, c, 0, c, c, size * 0.18)
+  core.addColorStop(0, 'rgba(255,255,255,1)')
+  core.addColorStop(0.4, 'rgba(255,250,235,0.55)')
+  core.addColorStop(1, 'rgba(255,250,235,0)')
+  ctx.fillStyle = core
+  ctx.fillRect(0, 0, size, size)
+  // 兩道光芒：沿長軸從中心往兩端淡出，橫向極窄
+  for (const [w, h] of [[size, size * 0.05], [size * 0.05, size]] as const) {
+    const g = w > h
+      ? ctx.createLinearGradient(0, c, size, c)
+      : ctx.createLinearGradient(c, 0, c, size)
+    g.addColorStop(0, 'rgba(255,255,255,0)')
+    g.addColorStop(0.5, 'rgba(255,255,255,0.9)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(c - w / 2, c - h / 2, w, h)
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
 /** 探照燈要認的目標：隊伍、活著、位置 —— `Combatant` 就滿足 */
 export interface SearchTarget {
   readonly team: Team
@@ -59,13 +111,18 @@ export interface SearchTarget {
 
 export interface Searchlights {
   readonly object: Group
-  /** 每一渲染幀呼叫。`seconds` 是畫面時間（轉速由它的差算） */
-  update(seconds: number, targets: readonly SearchTarget[]): void
+  /**
+   * 每一渲染幀呼叫。`seconds` 是畫面時間（轉速由它的差算）；`camera` 是鏡頭
+   * 的世界座標，眩光看它
+   */
+  update(seconds: number, targets: readonly SearchTarget[], camera: Vector3): void
   dispose(): void
 }
 
 interface Beam {
   readonly mesh: Mesh
+  /** 燈座上的眩光，光束掃到鏡頭才亮 */
+  readonly glare: Sprite
   readonly base: GroundTarget
   /** 微晃的相位，每座不同 */
   readonly phase: number
@@ -75,6 +132,8 @@ interface Beam {
 
 const WANT = { yaw: 0, pitch: 0 }
 const E = /* @__PURE__ */ new Euler()
+const DIR = /* @__PURE__ */ new Vector3()
+const TO_CAMERA = /* @__PURE__ */ new Vector3()
 const TWO_PI = Math.PI * 2
 
 /** 朝目標角度轉，一步最多轉 `maxStep`；方位角走短的那一邊 */
@@ -86,7 +145,11 @@ function slewTo(now: number, want: number, maxStep: number, wrap: boolean): numb
   return now + d
 }
 
-export function createSearchlights(targets: readonly GroundTarget[]): Searchlights {
+/**
+ * @param glareTexture 眩光的貼圖，瀏覽器用 `makeGlareTexture()`。**由呼叫端
+ *   持有**，這裡不 dispose —— 每一場重建光束時貼圖不必重畫
+ */
+export function createSearchlights(targets: readonly GroundTarget[], glareTexture: Texture): Searchlights {
   const object = new Group()
   // 圓柱的軸沿 Y，底在 0、頂在 BEAM_LENGTH —— 姿態用 Euler 轉
   const geometry = new CylinderGeometry(BEAM_TOP, BEAM_BOTTOM, BEAM_LENGTH, SEGMENTS, 1, true)
@@ -104,20 +167,30 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
     color: BEAM_COLOR, vertexColors: true, transparent: true, opacity: BEAM_OPACITY,
     blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
   })
+  // 【不做深度測試】眩光是鏡頭裡的現象，不是場景裡的物體 —— 機翼擋在前面
+  // 它也該炸開在機翼上
+  const glareMaterial = new SpriteMaterial({
+    map: glareTexture, color: 0xffffff, blending: AdditiveBlending, transparent: true,
+    depthWrite: false, depthTest: false,
+  })
   const beams: Beam[] = []
   for (const t of targets) {
     if (t.unit.id !== 'searchlight') continue
     const mesh = new Mesh(geometry, material)
     mesh.visible = false
     object.add(mesh)
+    const glare = new Sprite(glareMaterial.clone())
+    glare.visible = false
+    object.add(glare)
     // 開場朝天：第一次亮起來是從正上方掃下來
-    beams.push({ mesh, base: t, phase: beams.length * 1.9, yaw: 0, pitch: Math.PI / 2 })
+    beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, yaw: 0, pitch: Math.PI / 2 })
   }
+  glareMaterial.dispose()
   let last = -1
 
   return {
     object,
-    update(seconds, list) {
+    update(seconds, list, camera) {
       const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, seconds - last))
       last = seconds
       const maxStep = SLEW_RATE * dt
@@ -126,6 +199,7 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
         const base = b.base
         if (!base.alive) {
           b.mesh.visible = false
+          b.glare.visible = false
           continue
         }
         // 最近的一架活著的藍方，在偵測距離內
@@ -142,6 +216,7 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
         }
         if (best === null) {
           b.mesh.visible = false
+          b.glare.visible = false
           continue
         }
         const p = best.aircraft.state.position
@@ -158,11 +233,28 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
         // 方位 0 = 朝 −Z，與 `aimAngles` 同一個慣例
         E.set(b.pitch - Math.PI / 2, b.yaw, 0, 'YXZ')
         b.mesh.quaternion.setFromEuler(E)
+        // 【眩光】光束方向與「燈到鏡頭」方向夾角小就亮。貼圖的邊長隨距離
+        // 放大，畫面上的視角大小才固定
+        DIR.set(0, 1, 0).applyQuaternion(b.mesh.quaternion)
+        TO_CAMERA.copy(camera).sub(b.mesh.position)
+        const dist = TO_CAMERA.length()
+        const strength = dist > 1 ? glareStrength(DIR.dot(TO_CAMERA) / dist) : 0
+        const glare = b.glare
+        if (strength <= 0) {
+          glare.visible = false
+        } else {
+          glare.visible = true
+          glare.position.copy(b.mesh.position)
+          const size = dist * GLARE_ANGULAR_SIZE
+          glare.scale.set(size, size, 1)
+          ;(glare.material as SpriteMaterial).opacity = strength
+        }
       }
     },
     dispose() {
       geometry.dispose()
       material.dispose()
+      for (const b of beams) (b.glare.material as SpriteMaterial).dispose()
     },
   }
 }
