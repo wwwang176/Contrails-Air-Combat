@@ -271,7 +271,7 @@ function createLeunaTerrain(): Terrain {
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
 export const POLTAVA_SITE: SiteLayout = {
   pivot: { x: FIELD_CENTER.x, z: FIELD_CENTER.z },
-  pad: { x0: -FIELD_PAD.halfX, z0: -FIELD_PAD.halfZ, x1: FIELD_PAD.halfX, z1: FIELD_PAD.halfZ },
+  pad: FIELD_PAD,
   padHex: PAD_GRASS,
   treeClear: FIELD_TREE_CLEAR,
   roads: POLTAVA_ROADS,
