@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HARDSTANDS, HEAVY_FLAK_SITES,
-  LIGHT_FLAK_SITES, PARKED_ROWS, PAVED, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, TAXI_LINKS, TAXIWAY,
-  worldToField,
+  createPoltava, DUMPS, FIELD_CENTER, FIELD_PAD, FLARE_DROPS, HEAVY_FLAK_SITES,
+  LIGHT_FLAK_SITES, PARKED_ROWS, PAVED, POLTAVA_HILLS, RUNWAY, SEARCHLIGHT_SITES, STAND_LANES, STAND_PADS,
+  TAXI_LINKS, TAXIWAY, worldToField, type FieldRect,
 } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FLARE_LANES } from '../../src/world/flares'
@@ -19,11 +19,11 @@ function inRect(x: number, z: number, r: { x0: number; z0: number; x1: number; z
 }
 function padDistance(cx: number, cz: number): number {
   worldToField(cx, cz, L)
-  const dx = Math.max(0, Math.abs(L.x) - FIELD_PAD.halfX)
-  const dz = Math.max(0, Math.abs(L.z) - FIELD_PAD.halfZ)
+  const dx = Math.max(0, FIELD_PAD.x0 - L.x, L.x - FIELD_PAD.x1)
+  const dz = Math.max(0, FIELD_PAD.z0 - L.z, L.z - FIELD_PAD.z1)
   return Math.hypot(dx, dz)
 }
-const PAD = { x0: -FIELD_PAD.halfX, z0: -FIELD_PAD.halfZ, x1: FIELD_PAD.halfX, z1: FIELD_PAD.halfZ }
+const PAD = FIELD_PAD
 
 describe('poltava 地形', () => {
   const { field, hills } = createPoltava()
@@ -37,10 +37,10 @@ describe('poltava 地形', () => {
 
   it('墊面加一格圍裙內每一格都是 0', () => {
     const apron = FARM_CELL
-    const x0 = FIELD_CENTER.x - FIELD_PAD.halfX - apron
-    const x1 = FIELD_CENTER.x + FIELD_PAD.halfX + apron
-    const z0 = FIELD_CENTER.z - FIELD_PAD.halfZ - apron
-    const z1 = FIELD_CENTER.z + FIELD_PAD.halfZ + apron
+    const x0 = FIELD_CENTER.x + FIELD_PAD.x0 - apron
+    const x1 = FIELD_CENTER.x + FIELD_PAD.x1 + apron
+    const z0 = FIELD_CENTER.z + FIELD_PAD.z0 - apron
+    const z1 = FIELD_CENTER.z + FIELD_PAD.z1 + apron
     for (let x = x0; x <= x1; x += FARM_CELL / 2) {
       for (let z = z0; z <= z1; z += FARM_CELL / 2) {
         expect(field.sample(x, z), `${x},${z}`).toBe(0)
@@ -75,6 +75,20 @@ function clearOfPaving(x: number, z: number, margin: number): boolean {
 }
 
 describe('poltava 的佈局', () => {
+  it('墊面只比鋪面外擴 150 到 500 m —— 機場不像工廠，草地不該遠遠大過設施', () => {
+    let x0 = Infinity; let z0 = Infinity; let x1 = -Infinity; let z1 = -Infinity
+    for (const r of PAVED) {
+      x0 = Math.min(x0, r.x0); z0 = Math.min(z0, r.z0); x1 = Math.max(x1, r.x1); z1 = Math.max(z1, r.z1)
+    }
+    for (const [pad, paved, sign] of [
+      [PAD.x0, x0, -1], [PAD.z0, z0, -1], [PAD.x1, x1, 1], [PAD.z1, z1, 1],
+    ] as const) {
+      const margin = (pad - paved) * sign
+      expect(margin).toBeGreaterThanOrEqual(150)
+      expect(margin).toBeLessThanOrEqual(500)
+    }
+  })
+
   it('鋪面都在墊面內；跑道與滑行道平行、不重疊；支線接得上', () => {
     for (const r of PAVED) {
       expect(r.x0).toBeGreaterThanOrEqual(PAD.x0)
@@ -93,26 +107,32 @@ describe('poltava 的佈局', () => {
       const touchesTaxiway = l.z0 <= TAXIWAY.z1 && l.z1 >= TAXIWAY.z0
       expect(touchesRunway || touchesTaxiway, `${l.x0},${l.z0}`).toBe(true)
     }
-    // 【沒有孤島】每一個停機位都與滑行道或支線共邊（矩形相碰）
+    // 【沒有孤島，而且越外越窄】每一條窄巷與滑行道或支線共邊、比支線窄；
+    // 每一塊停機坪與一條窄巷共邊
+    const touches = (a: FieldRect, b: FieldRect): boolean =>
+      a.x0 <= b.x1 && a.x1 >= b.x0 && a.z0 <= b.z1 && a.z1 >= b.z0
     const roads = [TAXIWAY, ...TAXI_LINKS]
-    for (const h of HARDSTANDS) {
-      const touching = roads.some((r) =>
-        h.x0 <= r.x1 && h.x1 >= r.x0 && h.z0 <= r.z1 && h.z1 >= r.z0)
-      expect(touching, `${h.x0},${h.z0}`).toBe(true)
+    const spurWidth = TAXI_LINKS[0]!.x1 - TAXI_LINKS[0]!.x0
+    for (const l of STAND_LANES) {
+      expect(roads.some((r) => touches(l, r)), `${l.x0},${l.z0}`).toBe(true)
+      expect(Math.min(l.x1 - l.x0, l.z1 - l.z0)).toBeLessThan(spurWidth)
+    }
+    for (const p of STAND_PADS) {
+      expect(STAND_LANES.some((l) => touches(p, l)), `${p.x0},${p.z0}`).toBe(true)
     }
   })
 
-  it('24 架 B-17 各在自己的停機位末端、不在跑道與滑行道上、彼此不重疊', () => {
+  it('24 架 B-17 各在自己的停機坪上、不在跑道與滑行道上、彼此不重疊', () => {
     expect(PARKED_ROWS).toHaveLength(24)
-    expect(HARDSTANDS).toHaveLength(24)
+    expect(STAND_PADS).toHaveLength(24)
     for (const p of PARKED_ROWS) {
       expect(inRect(p.x, p.z, PAD), `${p.x},${p.z}`).toBe(true)
       expect(inRect(p.x, p.z, RUNWAY), `${p.x},${p.z}`).toBe(false)
       expect(inRect(p.x, p.z, TAXIWAY), `${p.x},${p.z}`).toBe(false)
     }
-    // 每一架都在某一個停機位裡
+    // 每一架都在某一塊停機坪裡
     for (const p of PARKED_ROWS) {
-      expect(HARDSTANDS.some((h) => inRect(p.x, p.z, h)), `${p.x},${p.z}`).toBe(true)
+      expect(STAND_PADS.some((h) => inRect(p.x, p.z, h)), `${p.x},${p.z}`).toBe(true)
     }
     for (let i = 0; i < PARKED_ROWS.length; i++) {
       for (let j = i + 1; j < PARKED_ROWS.length; j++) {

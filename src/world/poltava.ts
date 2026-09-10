@@ -30,8 +30,14 @@ export function worldToField(x: number, z: number, out: { x: number; z: number }
   out.z = z - FIELD_CENTER.z
 }
 
-/** 墊面：3 × 1.6 km 的草地，內部高度保證 0 */
-export const FIELD_PAD = { halfX: 1500, halfZ: 800 } as const
+/** 軸對齊的矩形，機場局部座標 */
+export interface FieldRect { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+
+/**
+ * 墊面：草地，內部高度保證 0。**只比鋪面（跑道、滑行道、魚骨）外擴約
+ * 200 m** —— 機場不像工廠，草地不該遠遠大過設施。機場局部座標。
+ */
+export const FIELD_PAD: FieldRect = { x0: -1450, z0: -620, x1: 1450, z1: 860 }
 /** 墊面外一圈不長樹；機場周邊本來就是空曠的草原 */
 export const FIELD_TREE_CLEAR = 300
 
@@ -39,9 +45,6 @@ export const FIELD_TREE_CLEAR = 300
 export const PAD_GRASS = 0x55663f
 /** 跑道、滑行道、停機位的淺色水泥 */
 export const RUNWAY_CONCRETE = 0x9a9890
-
-/** 軸對齊的矩形，機場局部座標 */
-export interface FieldRect { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
 
 /**
  * 鋪面照今天的波爾塔瓦空軍基地排：一條東西向的主跑道，南側一條平行滑行道，
@@ -57,53 +60,66 @@ export const TAXI_LINKS: readonly FieldRect[] = [
   { x0: -12, z0: 30, x1: 12, z1: 268 },
   { x0: 1226, z0: 30, x1: 1250, z1: 268 },
   // 西北支線：從跑道西段往北
-  { x0: -900, z0: -560, x1: -876, z1: -30 },
+  { x0: -900, z0: -400, x1: -876, z1: -30 },
   // 東南支線：從滑行道東段往南
-  { x0: 700, z0: 292, x1: 724, z1: 740 },
+  { x0: 700, z0: 292, x1: 724, z1: 640 },
 ]
 
 /**
- * 停機位：**每一個都是從路邊伸出去的一條水泥短枝**，飛機停在枝的末端 ——
- * 沒有孤島。西北支線兩側各四個、東南支線兩側各四個，機首朝支線；滑行道
- * 南側八個，機首朝北對著滑行道。
+ * 停機位：**每一個都從路邊伸出一條窄巷，末端才是停機坪** —— 魚骨狀，
+ * 越往外越窄，沒有孤島。西北支線兩側各四個、東南支線兩側各四個，機首朝
+ * 支線；滑行道南側八個，機首朝北對著滑行道。
  *
- * `dx`／`dz` 是飛機的位置；枝從 `from`（路的邊緣）伸到飛機外側 22 m。
+ * `dx`／`dz` 是飛機的位置；巷從 `from`（路的邊緣）伸到停機坪，停機坪以
+ * 飛機為中心。
  */
-const SPOT_HALF = 22
+/** 停機坪的半邊，m：40 m 見方，翼展 31.6 的 B-17 剛好停得下 */
+const PAD_HALF = 20
+/** 窄巷的半寬，m */
+const LANE_HALF = 6
 interface Stand {
   readonly dx: number
   readonly dz: number
-  /** 枝沿哪一軸伸出去、從路邊的哪一個座標開始 */
+  /** 巷沿哪一軸伸出去、從路邊的哪一個座標開始 */
   readonly axis: 'x' | 'z'
   readonly from: number
   readonly heading: number
 }
 const STANDS: readonly Stand[] = /* @__PURE__ */ (() => {
   const out: Stand[] = []
-  // 西北支線 x −900…−876：西側的飛機機首朝東（−π/2）、東側朝西（+π/2）
-  for (const dz of [-120, -250, -380, -510]) {
-    out.push({ dx: -960, dz, axis: 'x', from: -900, heading: -Math.PI / 2 })
-    out.push({ dx: -816, dz, axis: 'x', from: -876, heading: Math.PI / 2 })
+  // 西北支線 x −900…−876：西側的飛機機首朝東（−π/2）、東側朝西（+π/2）。骨距 70 m
+  for (const dz of [-100, -170, -240, -310]) {
+    out.push({ dx: -970, dz, axis: 'x', from: -900, heading: -Math.PI / 2 })
+    out.push({ dx: -806, dz, axis: 'x', from: -876, heading: Math.PI / 2 })
   }
   // 東南支線 x 700…724
-  for (const dz of [360, 480, 600, 720]) {
-    out.push({ dx: 640, dz, axis: 'x', from: 700, heading: -Math.PI / 2 })
-    out.push({ dx: 784, dz, axis: 'x', from: 724, heading: Math.PI / 2 })
+  for (const dz of [360, 430, 500, 570]) {
+    out.push({ dx: 630, dz, axis: 'x', from: 700, heading: -Math.PI / 2 })
+    out.push({ dx: 794, dz, axis: 'x', from: 724, heading: Math.PI / 2 })
   }
-  // 滑行道南緣 z 292，往南伸
-  for (let k = 0; k < 8; k++) out.push({ dx: -1050 + k * 200, dz: 340, axis: 'z', from: 292, heading: 0 })
+  // 滑行道南緣 z 292，往南伸；骨距 100 m
+  for (let k = 0; k < 8; k++) out.push({ dx: -850 + k * 100, dz: 350, axis: 'z', from: 292, heading: 0 })
   return out
 })()
 
-export const HARDSTANDS: readonly FieldRect[] = /* @__PURE__ */ STANDS.map((s) => (s.axis === 'x'
+/** 停機坪：飛機腳下那一塊 */
+export const STAND_PADS: readonly FieldRect[] = /* @__PURE__ */ STANDS.map((s) => ({
+  x0: s.dx - PAD_HALF, x1: s.dx + PAD_HALF, z0: s.dz - PAD_HALF, z1: s.dz + PAD_HALF,
+}))
+
+/** 窄巷：從路邊到停機坪 */
+export const STAND_LANES: readonly FieldRect[] = /* @__PURE__ */ STANDS.map((s) => (s.axis === 'x'
   ? {
-    x0: Math.min(s.from, s.dx - SPOT_HALF), x1: Math.max(s.from, s.dx + SPOT_HALF),
-    z0: s.dz - SPOT_HALF, z1: s.dz + SPOT_HALF,
+    x0: Math.min(s.from, s.dx), x1: Math.max(s.from, s.dx),
+    z0: s.dz - LANE_HALF, z1: s.dz + LANE_HALF,
   }
   : {
-    x0: s.dx - SPOT_HALF, x1: s.dx + SPOT_HALF,
-    z0: Math.min(s.from, s.dz - SPOT_HALF), z1: Math.max(s.from, s.dz + SPOT_HALF),
+    x0: s.dx - LANE_HALF, x1: s.dx + LANE_HALF,
+    z0: Math.min(s.from, s.dz), z1: Math.max(s.from, s.dz),
   }))
+
+/** 停機位的全部鋪面：巷與坪 */
+export const HARDSTANDS: readonly FieldRect[] = /* @__PURE__ */ [...STAND_LANES, ...STAND_PADS]
 
 /** 全部的鋪面。著色器鋪水泥色、佈景與砲位避開它們 */
 export const PAVED: readonly FieldRect[] = /* @__PURE__ */ [RUNWAY, TAXIWAY, ...TAXI_LINKS, ...HARDSTANDS]
@@ -182,7 +198,7 @@ export const POLTAVA_HILLS = [
 /** 連外道路往北出圖；鐵路東西向橫過機場南邊 —— 波爾塔瓦是鐵路樞紐 */
 export const ROAD_WIDTH = 10
 export const ROADS: readonly (readonly { x: number; z: number }[])[] = [
-  [at(-200, -800), { x: -200, z: -9000 }, { x: -200, z: -14500 }],
+  [at(-200, FIELD_PAD.z0), { x: -200, z: -9000 }, { x: -200, z: -14500 }],
 ]
 export const RAIL_WIDTH = 26
 export const RAILS: readonly (readonly { x: number; z: number }[])[] = [

@@ -32,22 +32,24 @@ OUT_DIR = os.path.join(ROOT, 'public', 'models')
 # ═══════════════════════════ 佈局資料 ═══════════════════════════
 # **與 src/world/poltava.ts 同一份數字**（遊戲局部座標：x 橫向、z 往南為正）
 
-PAD_HALF_X, PAD_HALF_Z = 1500.0, 800.0
+# 墊面：只比鋪面外擴約 200 m（x0, z0, x1, z1）
+PAD = (-1450.0, -620.0, 1450.0, 860.0)
 # 鋪面：主跑道、平行滑行道、三條聯絡道、兩條分散支線（x0, z0, x1, z1）
 RUNWAY = (-1250.0, -30.0, 1250.0, 30.0)
 TAXIWAY = (-1250.0, 268.0, 1250.0, 292.0)
 TAXI_LINKS = [(-1250, 30, -1226, 268), (-12, 30, 12, 268), (1226, 30, 1250, 268),
-              (-900, -560, -876, -30), (700, 292, 724, 740)]
-# 停機位：從路邊伸出去的短枝，飛機在末端。(dx, dz, axis, from)
-STANDS = ([(-960, dz, 'x', -900) for dz in (-120, -250, -380, -510)]
-          + [(-816, dz, 'x', -876) for dz in (-120, -250, -380, -510)]
-          + [(640, dz, 'x', 700) for dz in (360, 480, 600, 720)]
-          + [(784, dz, 'x', 724) for dz in (360, 480, 600, 720)]
-          + [(-1050 + k * 200, 340, 'z', 292) for k in range(8)])
-HARDSTANDS = [((min(f, x - 22), z - 22, max(f, x + 22), z + 22) if a == 'x'
-               else (x - 22, min(f, z - 22), x + 22, max(f, z + 22)))
-              for x, z, a, f in STANDS]
-PAVED = [RUNWAY, TAXIWAY] + TAXI_LINKS + HARDSTANDS
+              (-900, -400, -876, -30), (700, 292, 724, 640)]
+# 停機位：從路邊伸出一條窄巷（12 m），末端是 40 m 見方的停機坪。(dx, dz, axis, from)
+STANDS = ([(-970, dz, 'x', -900) for dz in (-100, -170, -240, -310)]
+          + [(-806, dz, 'x', -876) for dz in (-100, -170, -240, -310)]
+          + [(630, dz, 'x', 700) for dz in (360, 430, 500, 570)]
+          + [(794, dz, 'x', 724) for dz in (360, 430, 500, 570)]
+          + [(-850 + k * 100, 350, 'z', 292) for k in range(8)])
+STAND_PADS = [(x - 20, z - 20, x + 20, z + 20) for x, z, _, _ in STANDS]
+STAND_LANES = [((min(f, x), z - 6, max(f, x), z + 6) if a == 'x'
+                else (x - 6, min(f, z), x + 6, max(f, z)))
+               for x, z, a, f in STANDS]
+PAVED = [RUNWAY, TAXIWAY] + TAXI_LINKS + STAND_LANES + STAND_PADS
 PARKED = [(x, z) for x, z, _, _ in STANDS]
 DUMPS = [(-1300, 400, 16, 11), (-1240, 400, 16, 11), (1300, -500, 12, 7)]   # dx, dz, 半寬, 半深
 LIGHT_FLAK = [(-500, -450), (0, -480), (500, -450), (-700, -150), (-800, 200), (800, -200),
@@ -56,7 +58,7 @@ LIGHT_FLAK = [(-500, -450), (0, -480), (500, -450), (-700, -150), (-800, 200), (
 HEAVY_FLAK = [(2300, 0), (1150, 1992), (-1150, 1992), (-2300, 0), (-1150, -1992), (1150, -1992)]
 SEARCHLIGHTS = [(950, -150), (475, 823), (-475, 823), (-1100, 150), (-475, -823), (475, -823)]
 # 連外道路：從墊面北緣往北出圖（遊戲 z 越負越北）
-ROAD = [(-200, -800), (-200, -2500)]
+ROAD = [(-200, -620), (-200, -2500)]
 
 # ═══════════════════════════ 材質 ═══════════════════════════
 
@@ -304,8 +306,8 @@ def build_fence(b):
     n = 0
     pole = mat('LP_PlantPole')
     step = 20.0
-    corners = [(-PAD_HALF_X, -PAD_HALF_Z), (PAD_HALF_X, -PAD_HALF_Z),
-               (PAD_HALF_X, PAD_HALF_Z), (-PAD_HALF_X, PAD_HALF_Z)]
+    px0, pz0, px1, pz1 = PAD
+    corners = [(px0, pz0), (px1, pz0), (px1, pz1), (px0, pz1)]
     for i in range(4):
         ax, az = corners[i]
         bx, bz = corners[(i + 1) % 4]
