@@ -1,5 +1,6 @@
 import {
-  AdditiveBlending, CylinderGeometry, DoubleSide, Euler, Group, Mesh, MeshBasicMaterial, type Vector3,
+  AdditiveBlending, BufferAttribute, CylinderGeometry, DoubleSide, Euler, Group, Mesh, MeshBasicMaterial,
+  type Vector3,
 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
@@ -19,9 +20,15 @@ import type { Team } from '../world/World'
  * 【加法混色不用管排序】透明物件的排序錯誤在加法下看不出來 —— 兩根光柱
  * 交疊只是更亮。
  */
-export const BEAM_LENGTH = 2500
+export const BEAM_LENGTH = 5000
 const BEAM_BOTTOM = 1.5
-const BEAM_TOP = 12
+/** 頂端半徑：張角與長度一起放大，光柱不變細 */
+const BEAM_TOP = 24
+/**
+ * 鎖定之後的微晃，rad。兩個慢頻率的正弦 —— 操作手在追，不是伺服在追。
+ * **要小於光柱的張角**（24 / 5,000 ≈ 0.28°）的兩倍以內，飛機才一直在光裡。
+ */
+const WOBBLE_AMPLITUDE = 0.35 * Math.PI / 180
 const BEAM_OPACITY = 0.06
 const BEAM_COLOR = 0xdfe8ff
 /** 偵測距離，m：重砲射程（初速 × 引信上限）再多四分之一 */
@@ -60,6 +67,8 @@ export interface Searchlights {
 interface Beam {
   readonly mesh: Mesh
   readonly base: GroundTarget
+  /** 微晃的相位，每座不同 */
+  readonly phase: number
   yaw: number
   pitch: number
 }
@@ -82,8 +91,17 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
   // 圓柱的軸沿 Y，底在 0、頂在 BEAM_LENGTH —— 姿態用 Euler 轉
   const geometry = new CylinderGeometry(BEAM_TOP, BEAM_BOTTOM, BEAM_LENGTH, SEGMENTS, 1, true)
   geometry.translate(0, BEAM_LENGTH / 2, 0)
+  // 【尾端漸層消失】頂點色從底的 1 淡到頂的 0；加法混色下黑就是「沒有光」，
+  // 光柱的末端於是沒有一條硬邊
+  const pos = geometry.getAttribute('position')
+  const col = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const v = 1 - pos.getY(i) / BEAM_LENGTH
+    col[i * 3] = v; col[i * 3 + 1] = v; col[i * 3 + 2] = v
+  }
+  geometry.setAttribute('color', new BufferAttribute(col, 3))
   const material = new MeshBasicMaterial({
-    color: BEAM_COLOR, transparent: true, opacity: BEAM_OPACITY,
+    color: BEAM_COLOR, vertexColors: true, transparent: true, opacity: BEAM_OPACITY,
     blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
   })
   const beams: Beam[] = []
@@ -93,7 +111,7 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
     mesh.visible = false
     object.add(mesh)
     // 開場朝天：第一次亮起來是從正上方掃下來
-    beams.push({ mesh, base: t, yaw: 0, pitch: Math.PI / 2 })
+    beams.push({ mesh, base: t, phase: beams.length * 1.9, yaw: 0, pitch: Math.PI / 2 })
   }
   let last = -1
 
@@ -128,6 +146,10 @@ export function createSearchlights(targets: readonly GroundTarget[]): Searchligh
         }
         const p = best.aircraft.state.position
         aimAngles(base.position.x, base.position.y + 2, base.position.z, p.x, p.y, p.z, WANT)
+        // 【追的是「目標附近」】瞄準點加一個慢慢繞的偏差，光柱才不會像釘死的
+        const w = b.phase
+        WANT.yaw += WOBBLE_AMPLITUDE * Math.sin(seconds * 2.7 + w)
+        WANT.pitch += WOBBLE_AMPLITUDE * Math.sin(seconds * 1.9 + w * 1.6)
         b.yaw = slewTo(b.yaw, WANT.yaw, maxStep, true)
         b.pitch = slewTo(b.pitch, WANT.pitch, maxStep, false)
         b.mesh.visible = true
