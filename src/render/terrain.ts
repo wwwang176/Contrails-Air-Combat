@@ -18,11 +18,17 @@ import {
   createLeuna, PLANT_BLOCKS, PLANT_CENTER, PLANT_HEADING, PLANT_PAD, PLANT_SATELLITES,
   PLANT_TREE_CLEAR, RAIL_WIDTH, RAILS, ROAD_WIDTH, ROADS,
 } from '../world/leuna'
+import {
+  createPoltava, FIELD_CENTER, FIELD_LOBES, FIELD_PAD, FIELD_TREE_CLEAR, PAD_GRASS, PAVED,
+  RAIL_WIDTH as POLTAVA_RAIL_WIDTH, RAILS as POLTAVA_RAILS,
+  ROAD_WIDTH as POLTAVA_ROAD_WIDTH, ROADS as POLTAVA_ROADS, RUNWAY_CONCRETE,
+} from '../world/poltava'
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
 import { excluding } from './floraExclude'
 import { buildPlantScenery } from './geometry/ground/plantScenery'
+import { buildAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -113,6 +119,7 @@ export interface Terrain {
 export function createTerrain(kind: TerrainKind): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain()
   if (kind === 'leuna') return createLeunaTerrain()
+  if (kind === 'poltava') return createPoltavaTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
 }
@@ -261,6 +268,25 @@ function createLeunaTerrain(): Terrain {
   return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery)
 }
 
+/** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
+export const POLTAVA_SITE: SiteLayout = {
+  pivot: { x: FIELD_CENTER.x, z: FIELD_CENTER.z },
+  pad: FIELD_PAD,
+  padLobes: FIELD_LOBES,
+  padHex: PAD_GRASS,
+  treeClear: FIELD_TREE_CLEAR,
+  roads: POLTAVA_ROADS,
+  roadWidth: POLTAVA_ROAD_WIDTH,
+  rails: POLTAVA_RAILS,
+  railWidth: POLTAVA_RAIL_WIDTH,
+  patches: PAVED.map((r) => ({ ...r, hex: RUNWAY_CONCRETE })),
+}
+
+/** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
+function createPoltavaTerrain(): Terrain {
+  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery)
+}
+
 /**
  * 洛伊納，但高度場由外面給。**只有展示區在用**（`tools/leunaDem.ts` 的實測
  * 高程）—— 遊戲的 `createTerrain('leuna')` 走的仍然是手擺丘陵那一條。
@@ -295,17 +321,18 @@ function createInlandTerrain(
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
   const solid = outsideZero(farm.field)
-  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除；農地不包，行為不變。
-  // 墊面是廠區局部座標，樞紐與朝向要一起傳
+  // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除，主墊面與每一塊附加的
+  // 墊面各包一層；農地不包，行為不變。墊面是廠區局部座標，樞紐與朝向要一起傳
+  const clear = site?.treeClear ?? 0
   const base = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
     .map((s) => (site === undefined
       ? s
-      : excluding(s, {
-        x0: site.pad.x0 - (site.treeClear ?? 0), x1: site.pad.x1 + (site.treeClear ?? 0),
-        z0: site.pad.z0 - (site.treeClear ?? 0), z1: site.pad.z1 + (site.treeClear ?? 0),
+      : [site.pad, ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
+        x0: r.x0 - clear, x1: r.x1 + clear,
+        z0: r.z0 - clear, z1: r.z1 + clear,
         ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
         ...(site.heading === undefined ? {} : { heading: site.heading }),
-      })))
+      }), s)))
   const sources = flora === undefined ? base : flora(base)
   const vegetation = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、

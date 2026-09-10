@@ -4,6 +4,8 @@ import type { Box } from '../../../world/hit'
 import { groundGlb, preloadGroundGlbs } from './glb'
 import { buildBoxcar, buildFlatcar, buildLocomotive, buildTender } from './train'
 import { PLANT_BUILDERS, PLANT_SIZE, type PlantKind } from './plant'
+import { buildBombDump, buildFuelDump, buildSearchlight, DUMP_SIZE } from './dump'
+import { bakeParkedAircraft } from './parked'
 
 /**
  * 地面單位的登記表。
@@ -29,6 +31,7 @@ export type GroundUnitId =
   | 'flakHeavy' | 'flakLight'
   | 'locomotive' | 'tender' | 'boxcar' | 'flatcar'
   | PlantKind
+  | 'parkedB17' | 'fuelDump' | 'bombDump' | 'searchlight'
 
 /** 幾何的來源：GLB 的路徑，或程式化的建構函數。 */
 export type GroundModel =
@@ -115,7 +118,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'flakHeavy',
     name: '8.8 cm Flak 18',
-    note: '重型防空砲 — 盟 M2 M3、德 M2 M3、日 M4',
+    note: '重型防空砲 — 盟 M2、德 M2、日 M4',
     // 長 Z 是十字砲座後臂（2.63）加水平砲管到砲口（3.85）
     realLength: 6.48, realWidth: 5.26, realHeight: 2.50,
     model: { glb: '/models/flak18.glb', barrelNodes: ['F18_Barrel'] },
@@ -124,7 +127,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   {
     id: 'flakLight',
     name: '2 cm Flakvierling 38',
-    note: '輕型四聯防空砲 — 同上五關',
+    note: '輕型四聯防空砲 — 德 M2',
     realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
     model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] },
     hull: [groundBox([-0.95, 0.00, -0.76], [0.95, 1.59, 1.06])],
@@ -169,6 +172,44 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
   plant('oilTank', '儲油槽', '成品油槽，成群 — 盟 M2'),
   plant('gasHolder', '氣櫃', '煤氣櫃，大圓桶 — 盟 M2'),
   plant('coolingTower', '冷卻塔', '截錐 — 盟 M2'),
+  // 波爾塔瓦機場的四種
+  {
+    id: 'parkedB17',
+    name: '停放的 B-17G',
+    note: '停在停機坪上的轟炸機 — 德 M2',
+    // 【高是停放的高，不是史實的 5.82】GLB 沒有起落架，機尾下沉 10° 之後
+    // 量出來是 5.41；`ground-units.test.ts` 對 `real*` 的容差是 5%
+    realLength: 22.44, realWidth: 31.62, realHeight: 5.41,
+    // 【命中盒是手寫的】`boxOf` 在模組載入時就要幾何，而樣板那時還沒載。
+    // 數字是烘好的幾何量的（x ±15.81、y 0…5.41、z ±11.22），各留不到 5 cm ——
+    // `ground-units.test.ts` 兩邊都守：蓋住全部頂點、又不伸出包圍盒 5 cm
+    model: { build: () => bakeParkedAircraft('b17g') },
+    hull: [groundBox([-15.85, 0.00, -11.25], [15.85, 5.45, 11.25])],
+  },
+  {
+    id: 'fuelDump',
+    name: '油桶堆',
+    note: '露天堆放的航空汽油桶 — 德 M2',
+    realLength: DUMP_SIZE.fuelDump.z, realWidth: DUMP_SIZE.fuelDump.x, realHeight: DUMP_SIZE.fuelDump.y,
+    model: { build: buildFuelDump },
+    hull: [boxOf(buildFuelDump)],
+  },
+  {
+    id: 'bombDump',
+    name: '彈藥堆',
+    note: '露天堆放的炸彈 — 德 M2',
+    realLength: DUMP_SIZE.bombDump.z, realWidth: DUMP_SIZE.bombDump.x, realHeight: DUMP_SIZE.bombDump.y,
+    model: { build: buildBombDump },
+    hull: [boxOf(buildBombDump)],
+  },
+  {
+    id: 'searchlight',
+    name: '探照燈',
+    note: '防空探照燈 — 德 M2。光束由渲染層畫',
+    realLength: DUMP_SIZE.searchlight.z, realWidth: DUMP_SIZE.searchlight.x, realHeight: DUMP_SIZE.searchlight.y,
+    model: { build: buildSearchlight },
+    hull: [boxOf(buildSearchlight)],
+  },
 ]
 
 function plant(id: PlantKind, name: string, note: string): GroundUnit {

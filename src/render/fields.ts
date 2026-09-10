@@ -602,6 +602,17 @@ export interface SiteLayout {
   /** 墊面矩形，廠區局部座標 */
   readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
   /**
+   * 墊面的顏色。**省略 = 混凝土**（廠區）。機場的墊面是草地，只有跑道與
+   * 停機坪是鋼板 —— 那兩塊走 `patches`。
+   */
+  readonly padHex?: number
+  /**
+   * 附加的墊面矩形，與 `pad` 取**聯集**。機場的草地要貼著跑道與魚骨走，
+   * 一個大矩形會多出一大片草 —— 主體是跑道那一條帶子，每一組魚骨各一塊。
+   * 每一塊都有自己的咬痕與斜切角，接縫處是兩塊的聯集。
+   */
+  readonly padLobes?: readonly { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }[]
+  /**
    * 墊面之外還要這麼寬的一圈不長樹，m。省略時樹貼著墊面長。
    *
    * 【著色器不看它】只有散佈器用 —— 這一圈仍然是田色，只是沒有樹籬與樹林。
@@ -815,6 +826,10 @@ function siteBounds(site: SiteLayout): { x0: number; z0: number; x1: number; z1:
     x0: site.pad.x0 - BAND, x1: site.pad.x1 + BAND,
     z0: site.pad.z0 - BAND, z1: site.pad.z1 + BAND,
   }
+  for (const l of site.padLobes ?? []) {
+    local.x0 = Math.min(local.x0, l.x0 - BAND); local.x1 = Math.max(local.x1, l.x1 + BAND)
+    local.z0 = Math.min(local.z0, l.z0 - BAND); local.z1 = Math.max(local.z1, l.z1 + BAND)
+  }
   for (const q of site.outposts ?? []) {
     local.x0 = Math.min(local.x0, q.x0); local.x1 = Math.max(local.x1, q.x1)
     local.z0 = Math.min(local.z0, q.z0); local.z1 = Math.max(local.z1, q.z1)
@@ -920,36 +935,51 @@ ${rail.map((s) => `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, `
     bandCoverage(railD, ${((site.railWidth ?? 24) / 2).toFixed(1)}, px));`
   const list = segs.map((s) =>
     `  vec4(${s.ax.toFixed(1)}, ${s.az.toFixed(1)}, ${s.bx.toFixed(1)}, ${s.bz.toFixed(1)})`).join(',\n')
-  const B = edgeBite(site.pad).toFixed(1)
-  const C = coarseBite(site.pad).toFixed(1)
-  const F = fineBite(site.pad).toFixed(1)
-  const pad = site.pad
-  const sx0 = pad.x0 - PAD_SKIRT
-  const sx1 = pad.x1 + PAD_SKIRT
-  const sz0 = pad.z0 - PAD_SKIRT
-  const sz1 = pad.z1 + PAD_SKIRT
-  const W = sx1 - sx0
-  const D = sz1 - sz0
-  /** 與 `padDistance` 的 `inset()` 逐項對應 —— 三層都要，鹽也要一樣 */
-  const inset = (axis: string, s1: number, s2: number): string =>
-    `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
-    + ` + float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
-    + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
-  const corners = CORNER_CUTS.map(([ca, ce], k) => {
-    // 【與 padDistance 的夾住逐項對應】
-    const a = Math.min(ca, W * 0.3)
-    const e = Math.min(ce, D * 0.3)
-    const u = (k & 1) === 0 ? `local.x - ${sx0.toFixed(1)}` : `${sx1.toFixed(1)} - local.x`
-    const v = k < 2 ? `local.y - ${sz0.toFixed(1)}` : `${sz1.toFixed(1)} - local.y`
-    const norm = Math.hypot(1 / a, 1 / e)
-    const len = Math.hypot(a, e)
-    return `  {\n    float cu = ${u};\n    float cv = ${v};\n`
-      + `    if (cu * ${e.toFixed(4)} + cv * ${a.toFixed(4)}`
-      + ` < ${(a * e + CORNER_SLACK * e).toFixed(1)}) {\n`
-      + `      float ct = (cu * ${e.toFixed(4)} - cv * ${a.toFixed(4)}) / ${len.toFixed(6)};\n`
-      + `      padD = max(padD, (1.0 - cu / ${a.toFixed(1)} - cv / ${e.toFixed(1)})`
-      + ` / ${norm.toFixed(8)}\n        + ${inset('ct', CORNER_SALT[k]!, 6473 + k)});\n    }\n  }`
-  }).join('\n')
+  /**
+   * 一個墊面矩形到邊界的有號距離，寫進名為 `name` 的變數。**與 `padDistance`
+   * 逐項對應**：三層咬痕、四個斜切角、外推的裙邊。主墊面與每一塊附加的
+   * 墊面（`padLobes`）各叫一次。
+   */
+  const padBlock = (rect: SiteLayout['pad'], name: string): string => {
+    const B = edgeBite(rect).toFixed(1)
+    const C = coarseBite(rect).toFixed(1)
+    const F = fineBite(rect).toFixed(1)
+    const sx0 = rect.x0 - PAD_SKIRT
+    const sx1 = rect.x1 + PAD_SKIRT
+    const sz0 = rect.z0 - PAD_SKIRT
+    const sz1 = rect.z1 + PAD_SKIRT
+    const W = sx1 - sx0
+    const D = sz1 - sz0
+    /** 與 `padDistance` 的 `inset()` 逐項對應 —— 三層都要，鹽也要一樣 */
+    const inset = (axis: string, s1: number, s2: number): string =>
+      `float(fieldHash2(int(floor(${axis} / ${FINE_CELL}.0)), ${s1 ^ 0x5bd1}) & 0xffu) / 255.0 * ${F}`
+      + ` + float(fieldHash2(int(floor(${axis} / ${EDGE_CELL}.0)), ${s1}) & 0xffu) / 255.0 * ${B}`
+      + ` + float(fieldHash2(int(floor(${axis} / ${COARSE_CELL}.0)), ${s2}) & 0xffu) / 255.0 * ${C}`
+    const corners = CORNER_CUTS.map(([ca, ce], k) => {
+      // 【與 padDistance 的夾住逐項對應】
+      const a = Math.min(ca, W * 0.3)
+      const e = Math.min(ce, D * 0.3)
+      const u = (k & 1) === 0 ? `local.x - ${sx0.toFixed(1)}` : `${sx1.toFixed(1)} - local.x`
+      const v = k < 2 ? `local.y - ${sz0.toFixed(1)}` : `${sz1.toFixed(1)} - local.y`
+      const norm = Math.hypot(1 / a, 1 / e)
+      const len = Math.hypot(a, e)
+      return `  {\n    float cu = ${u};\n    float cv = ${v};\n`
+        + `    if (cu * ${e.toFixed(4)} + cv * ${a.toFixed(4)}`
+        + ` < ${(a * e + CORNER_SLACK * e).toFixed(1)}) {\n`
+        + `      float ct = (cu * ${e.toFixed(4)} - cv * ${a.toFixed(4)}) / ${len.toFixed(6)};\n`
+        + `      ${name} = max(${name}, (1.0 - cu / ${a.toFixed(1)} - cv / ${e.toFixed(1)})`
+        + ` / ${norm.toFixed(8)}\n        + ${inset('ct', CORNER_SALT[k]!, 6473 + k)});\n    }\n  }`
+    }).join('\n')
+    return `  float ${name} = max(
+    max(${sx0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
+        local.x - (${sx1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
+    max(${sz0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
+        local.y - (${sz1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
+${corners}`
+  }
+  // 【附加的墊面是聯集】每一塊自己算一個距離，取最小的 —— 負的在任何一塊裡面
+  const lobes = (site.padLobes ?? []).map((l) =>
+    `  {\n${padBlock(l, 'lobeD')}\n    padD = min(padD, lobeD);\n  }`).join('\n')
   /** 一組矩形＋色相攤成 GLSL 的兩張表加一個迴圈 */
   const rectsGlsl = (
     name: string, rs: NonNullable<SiteLayout['patches']>, assign: string,
@@ -1004,17 +1034,13 @@ ${rs.map((p) => `  ${rgb(p.hex)}`).join(',\n')}
   // 高度看下去就是一把尺，而廠區是幾十年間一塊一塊擴出來的
   //
   // 【與 padDistance() 逐項對應】負的在墊面內、正的在外面
-  float padD = max(
-    max(${sx0.toFixed(1)} + ${inset('local.y', 4517, 3313)} - local.x,
-        local.x - (${sx1.toFixed(1)} - (${inset('local.y', 2287, 6151)}))),
-    max(${sz0.toFixed(1)} + ${inset('local.x', 9911, 8543)} - local.y,
-        local.y - (${sz1.toFixed(1)} - (${inset('local.x', 7331, 1697)}))));
-${corners}
+${padBlock(site.pad, 'padD')}
+${lobes}
 
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
   // 把那一階削掉一截
   float padDark = mix(0.90, 1.0, clamp(-padD / ${(PAD_SKIRT * 2).toFixed(1)}, 0.0, 1.0));
-  vec3 siteCol = ${rgb(CONCRETE)} * siteGrime * padDark;
+  vec3 siteCol = ${rgb(site.padHex ?? CONCRETE)} * siteGrime * padDark;
 ${patchGlsl}
   // 【邊界是硬的】墊面外沒有過渡帶：一圈把混凝土混回田色的帶子，從投彈高度
   // 看是「一半工廠一半田」的暈。不規則靠的是 padD 裡疊的三層咬痕，不是混色。
@@ -1090,10 +1116,11 @@ export function siteSurfaceColor(
     }
     // 【邊界是硬的】著色器那邊只有一像素的柔化，而它是為了抗鋸齒；取樣沒有
     // 像素，直接切
-    const d = padDistance(lx, lz, site.pad)
+    let d = padDistance(lx, lz, site.pad)
+    for (const l of site.padLobes ?? []) d = Math.min(d, padDistance(lx, lz, l))
     if (d < 0) {
       // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗，次序一致
-      let hex = CONCRETE
+      let hex = site.padHex ?? CONCRETE
       for (const q of site.patches ?? []) {
         if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) hex = q.hex
       }

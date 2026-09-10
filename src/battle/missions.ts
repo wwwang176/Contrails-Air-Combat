@@ -15,10 +15,14 @@ import { ENTRY_PLANS, type EntryPlan, type EntryPlanId, type SideEntry } from '.
 import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry } from './order'
 import type { ShipClassId } from '../world/ships'
 import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
+import {
+  DUMPS, FLARE_DROPS, HEAVY_FLAK_SITES, LIGHT_FLAK_SITES, PARKED_ROWS, SEARCHLIGHT_SITES,
+} from '../world/poltava'
+import { HE111 } from '../specs/he111'
 import { GROUND_FLAK_SPEC, type ShipGunSpec } from '../world/shipGuns'
 import { SCHWARM_SIZE } from './flights'
 import type {
-  Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat,
+  Beat, BeatCondition, FlarePoint, RecycleBeat, ReinforceBeat, WithdrawBeat,
 } from './beats'
 import type { MissionRules } from './mission'
 import type { AircraftSpec } from '../specs/types'
@@ -144,6 +148,13 @@ export interface MissionWave {
  *
  * 【整隊，不補半隊】理由見 `beats.ts` 的 `RecycleBeat`。
  */
+/** 這一關的照明彈。**沒有的卡不寫這一格**（與 `waves` 同一個約定） */
+export interface MissionFlares {
+  readonly when: MissionTrigger
+  /** 每一枚的位置、高度、比節拍晚幾秒點燃 */
+  readonly points: readonly FlarePoint[]
+}
+
 export interface MissionRecycle {
   readonly side: MissionSide
   /** 只回收這個角色的小隊。省略 = 那一邊全部 */
@@ -263,7 +274,7 @@ export interface MissionBattle {
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
-   * `flakHeavy` 在五關都出現，直接改那份通用規格會把另外四關一起改掉。
+   * `flakHeavy` 在盟 M2、德 M2、日 M4 都出現，直接改那份通用規格會把另外兩關一起改掉。
    * 寫成 `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
    */
   readonly flakSpec?: ShipGunSpec
@@ -329,6 +340,8 @@ export interface MissionBattle {
    * 這一關的整隊重生。**沒有的卡不寫這一格**（與 `waves` 同一個約定）。
    */
   readonly recycle?: MissionRecycle
+  /** 這一關的照明彈。**沒有的卡不寫這一格**（與 `waves` 同一個約定）。 */
+  readonly flares?: MissionFlares
   /**
    * 這一關的返航節拍：打到一半任務目標換成「飛回基地」。
    *
@@ -639,6 +652,28 @@ const LEUNA_GROUND: readonly GroundEntry[] = [
   })),
 ]
 
+/**
+ * 波爾塔瓦機場：24 架停放的 B-17、油桶堆兩塊、彈藥堆一塊、輕砲 16、重砲 6、
+ * 探照燈 6。全部是紅方的地面目標，全部算進炸毀的池。佈局在 `world/poltava.ts`。
+ */
+const POLTAVA_GROUND: readonly GroundEntry[] = [
+  ...PARKED_ROWS.map((p): GroundEntry => ({
+    unit: 'parkedB17', team: 'red', x: p.x, z: p.z, heading: p.heading,
+  })),
+  ...DUMPS.map((d): GroundEntry => ({
+    unit: d.kind, team: 'red', x: d.x, z: d.z, heading: d.heading,
+  })),
+  ...LIGHT_FLAK_SITES.map((s): GroundEntry => ({
+    unit: 'flakLight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+  ...HEAVY_FLAK_SITES.map((s): GroundEntry => ({
+    unit: 'flakHeavy', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+  ...SEARCHLIGHT_SITES.map((s): GroundEntry => ({
+    unit: 'searchlight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+]
+
 export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
   allies: [
     {
@@ -709,12 +744,6 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
           starboard: Math.PI,
         }],
       },
-    },
-    {
-      id: 'allies-m3', title: '諾曼第斷軌', type: '打擊',
-      summary: '掃射法國北部的機車與調車場，切斷德軍開往諾曼第的鐵路增援。',
-      place: '法國北部　塞納河以北', period: '1944 年春',
-      battle: null,
     },
     {
       id: 'allies-m4', title: '沖繩外海', type: '殲滅',
@@ -821,16 +850,41 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
       },
     },
     {
-      id: 'germany-m2', title: '庫班的鐵路', type: '打擊',
-      summary: '駕駛第 55 轟炸航空團的 He 111，炸掉庫班橋頭堡後方的克羅波特金車站。',
-      place: '北高加索　克羅波特金', period: '1943 年春',
-      battle: null,
-    },
-    {
-      id: 'germany-m3', title: '奧博揚公路', type: '打擊',
-      summary: '駕駛掛彈的 Bf 109 G 參加堡壘行動，低空攻擊奧博揚公路上的蘇軍戰車。',
-      place: '庫斯克南面　奧博揚公路', period: '1943 年 7 月',
-      battle: null,
+      id: 'germany-m2', title: '波爾塔瓦之夜', type: '打擊',
+      summary: '駕駛 KG 55 的 He 111 夜襲波爾塔瓦機場，炸掉穿梭轟炸落地的 B-17。',
+      place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
+      battle: {
+        objective: '炸毀停放的 B-17', banner: '夜襲機場，炸毀 B-17',
+        blueSpec: HE111, redSpec: P51D, convoySpec: null,
+        // 【沒有敵機】史實上蘇軍夜戰機沒有攔到任何一架；壓力全在地面的防空。
+        // `redSpec` 只是型別要填：野馬就在皮里亞廷，沒起飛
+        blueCount: 8, redCount: 0,
+        blueStacked: true,
+        convoyCount: 0, convoyPriority: 1,
+        targetDistance: 0, targetRadius: 0, seconds: Infinity,
+        entry: 'headOn',
+        terrain: 'poltava',
+        timeOfDay: 'night',
+        /**
+         * 【1,500 m】輕型砲射程 2,640 m 打得到、重砲也打得到；爬到 3,000 以上
+         * 輕砲搆不著但瞄準變難 —— 那是這一關的取捨。**起始值，由試玩裁定。**
+         */
+        altitude: 1500,
+        ground: POLTAVA_GROUND,
+        // 【炸毀任意十二座】池是 24 架 B-17、3 堆、22 座砲位、6 座探照燈。
+        // 8 架 × 8 枚 = 64 枚。**起始值**
+        destroyCount: 12,
+        // 【重砲照 5 吋艦砲的路數】高射速、小範圍、單發輕 —— 與盟 M4 的艦隊
+        // 防空同一種壓力：黑雲多而不致命
+        flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 20, burstRadius: 50, burstDamage: 100 },
+        /**
+         * 【80 秒】He 111 約 85 m/s 從 12 km 外進場，80 秒時離機場約 5 km；
+         * 照明彈燒到 380 秒，整個投彈段都亮著。各枚的高度與時間差在
+         * `FLARE_DROPS`，都在投彈高度之下 —— 光在飛機下面，照的是地。
+         * **起始值，由試玩裁定。**
+         */
+        flares: { when: { kind: 'clock', at: 80 }, points: FLARE_DROPS },
+      },
     },
     {
       id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
@@ -924,12 +978,6 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【清晨】1944 年 10 月 12 日第 38 特遣艦隊的首波在天亮時到新竹上空
         timeOfDay: 'dawn',
       },
-    },
-    {
-      id: 'japan-m2', title: '讀谷灘頭', type: '殲滅',
-      summary: '駕駛零戰攔下沖繩上空的艦載機，再回頭掃射讀谷灘頭的登陸艇。',
-      place: '沖繩　讀谷灘頭', period: '1945 年 4 月',
-      battle: null,
     },
     {
       id: 'japan-m3', title: '雷伊泰的投雷點', type: '護航',
@@ -1141,6 +1189,9 @@ function cardBeats(
   // 排在後面會晚一個物理步預警，而兩則預警本該同一刻
   if (b.recycle !== undefined) out.push(recycleBeat(b.recycle, plan))
   b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
+  if (b.flares !== undefined) {
+    out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
+  }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
   return out.length === 0 ? undefined : out
 }

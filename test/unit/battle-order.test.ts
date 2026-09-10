@@ -130,8 +130,8 @@ describe('assertOrderOfBattle', () => {
     expect(() => assertOrderOfBattle(bad)).toThrow(/順序/)
   })
 
-  it('一隊都沒有 → 拋', () => {
-    expect(() => assertOrderOfBattle(blue(ok))).toThrow(/紅隊/)
+  it('只有藍隊 → 合法（對手全是地面的關沒有敵機）', () => {
+    expect(() => assertOrderOfBattle(blue(ok))).not.toThrow()
   })
 })
 

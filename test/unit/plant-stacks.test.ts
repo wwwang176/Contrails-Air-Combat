@@ -223,7 +223,8 @@ describe('佈景煙囪', () => {
       // 迴圈與函式尾之間要有一次 emit
       const emits: number[] = []
       for (let i = 0; i < SRC.length; i++) if (SRC[i]!.includes('steam.emit(')) emits.push(i)
-      expect(emits.length, 'steam.emit 應該有兩處：佈景煙囪與活著的構件').toBe(2)
+      // 第三處是照明彈的白煙（`emitFlareSmoke`），同一個池
+      expect(emits.length, 'steam.emit 應該有三處：佈景煙囪、活著的構件、照明彈').toBe(3)
       expect(emits[0]).toBeGreaterThan(loop)
     })
 
@@ -232,7 +233,7 @@ describe('佈景煙囪', () => {
      * 疊在 60 m 的煙囪頂上，從投彈高度看是黏了一坨白色，不是一根煙柱。
      * 這一條讀原始碼，因為柱高由**呼叫端傳的初速**決定，粒子池只負責積分。
      */
-    it('兩處 steam.emit 的垂直初速都是 STEAM_PLUME_SPEED', () => {
+    it('三處 steam.emit 的垂直初速都是 STEAM_PLUME_SPEED', () => {
       let found = 0
       for (let i = 0; i < SRC.length; i++) {
         if (!SRC[i]!.includes('steam.emit(')) continue
@@ -240,7 +241,7 @@ describe('佈景煙囪', () => {
         expect(SRC.slice(i, i + 3).join(' '), `第 ${i + 1} 行的 steam.emit`)
           .toContain('STEAM_PLUME_SPEED')
       }
-      expect(found, 'steam.emit 應該有兩處').toBe(2)
+      expect(found, 'steam.emit 應該有三處').toBe(3)
     })
 
     /**

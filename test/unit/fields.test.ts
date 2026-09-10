@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Color } from 'three'
 import {
   edgeAt, fieldAt, fieldGlslWithSite, fieldSurfaceColor, isWoodField, regionAt, regionParams,
-  regionSeed, roadBounds, splitCut, EDGE_JITTER, FIELD_ANISO,
+  regionSeed, roadBounds, siteSurfaceColor, splitCut, EDGE_JITTER, FIELD_ANISO,
   FIELD_GLSL, FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH,
   REGION_SPACING, SPLIT_CHANCE, TRACK_WIDTH, WOOD_CHANCE,
   type FieldSample, type RegionSample, type SplitCut,
@@ -666,5 +666,22 @@ describe('道路與鐵路的外接矩形', () => {
     expect(guard).toBeGreaterThan(-1)
     expect(src.indexOf('RAILS[')).toBeGreaterThan(guard)
     expect(src.indexOf('ROADS[')).toBeGreaterThan(guard)
+  })
+})
+
+describe('墊面的顏色', () => {
+  it('padHex 省略時是混凝土，給了就用那一色，取樣與 GLSL 一致', () => {
+    const site = {
+      pad: { x0: -100, z0: -100, x1: 100, z1: 100 }, roads: [], roadWidth: 8, padHex: 0x55663f,
+    }
+    const c = new Color()
+    siteSurfaceColor(0, 0, c, 'summer', site)
+    // 取樣把髒污與壓暗乘進去，只比色相：綠比紅高就是草不是混凝土
+    expect(c.g).toBeGreaterThan(c.r)
+    // `rgb()` 走 `Color.setHex`，sRGB 轉成線性再印四位小數
+    expect(fieldGlslWithSite('summer', site)).toContain('vec3(0.0908, 0.1329, 0.0497)')
+    const bare = { pad: site.pad, roads: [], roadWidth: 8 }
+    siteSurfaceColor(0, 0, c, 'summer', bare)
+    expect(Math.abs(c.g - c.r)).toBeLessThan(0.03)
   })
 })

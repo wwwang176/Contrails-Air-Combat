@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { briefingOf, type Briefing } from '../../src/ui/briefing'
-import { MISSIONS } from '../../src/battle/missions'
-import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
+import { MISSIONS, type MissionCard } from '../../src/battle/missions'
+import { cardWith, readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * 簡報頁右欄的資料（選單重做 spec §2.4）。**純資料，沒有 DOM。**
@@ -104,8 +104,18 @@ describe('briefingOf —— 其他', () => {
     expect(b.foe).toEqual([{ name: 'F6F-5', role: 'fighter', count: 6 }])
   })
 
+  it('沒有敵機的卡，簡報不列敵軍那一列', () => {
+    const b = briefingOf(cardWith('japan-m1', { redCount: 0 }))
+    expect(b.foe).toEqual([])
+    expect(b.mine).toHaveLength(1)
+  })
+
   it('準備中的卡只帶標題、類型、說明', () => {
-    const card = MISSIONS.allies.find((m) => m.battle === null)!
+    // 【自己組，不從 MISSIONS 找】卡表裡的目錄卡會隨著關卡做完而消失
+    const card: MissionCard = {
+      id: 'test-m0', title: '還沒做的一關', type: '打擊',
+      summary: '這一張只有目錄。', place: '無', period: '無', battle: null,
+    }
     const b = briefingOf(card)
     expect(b.ready).toBe(false)
     expect(b.title).toBe(card.title)
@@ -125,8 +135,8 @@ describe('briefingOf —— 其他', () => {
     }
   })
 
-  it('十二張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
+  it('九張卡的空域各不相同 —— 每一關取材自不同的地方', () => {
     const all = Object.values(MISSIONS).flat()
-    expect(new Set(all.map((c) => c.place)).size).toBe(12)
+    expect(new Set(all.map((c) => c.place)).size).toBe(9)
   })
 })
