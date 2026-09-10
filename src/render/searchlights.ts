@@ -128,6 +128,8 @@ interface Beam {
   readonly base: GroundTarget
   /** 微晃的相位，每座不同 */
   readonly phase: number
+  /** 現在照的是 `targets` 裡第幾架。−1 = 沒有 */
+  target: number
   yaw: number
   pitch: number
 }
@@ -185,10 +187,12 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
     glare.visible = false
     object.add(glare)
     // 開場朝天：第一次亮起來是從正上方掃下來
-    beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, yaw: 0, pitch: Math.PI / 2 })
+    beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, target: -1, yaw: 0, pitch: Math.PI / 2 })
   }
   glareMaterial.dispose()
   let last = -1
+  /** 每一架身上有幾盞燈。長度跟著目標清單走，只在清單變長時重配 */
+  let loads = new Int32Array(0)
 
   return {
     object,
@@ -197,6 +201,10 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
       last = seconds
       const maxStep = SLEW_RATE * dt
       const range2 = SEARCHLIGHT_RANGE * SEARCHLIGHT_RANGE
+      // 【每一架身上有幾盞燈】從上一幀的鎖定數起來，這一幀換鎖時就地增減
+      if (loads.length < list.length) loads = new Int32Array(list.length)
+      loads.fill(0)
+      for (const b of beams) if (b.target >= 0 && b.target < list.length) loads[b.target]!++
       for (const b of beams) {
         const base = b.base
         if (!base.alive) {
@@ -204,24 +212,42 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
           b.glare.visible = false
           continue
         }
-        // 最近的一架活著的藍方，在偵測距離內
-        let best: SearchTarget | null = null
+        // 【分攤】挑「燈最少的那一架」，同數再比距離 —— 第一架進來時全部照它，
+        // 第二架進來就有燈換過去。自己現在照的那一架只要不比別架多超過一盞
+        // 就不換，否則兩座燈會每一幀互相換來換去
+        let best = -1
+        let bestLoad = Infinity
         let bestD2 = range2
-        for (const c of list) {
+        let keepD2 = -1
+        for (let i = 0; i < list.length; i++) {
+          const c = list[i]!
           if (!c.alive || c.team !== 'blue') continue
           const p = c.aircraft.state.position
           const dx = p.x - base.position.x
           const dy = p.y - base.position.y
           const dz = p.z - base.position.z
           const d2 = dx * dx + dy * dy + dz * dz
-          if (d2 < bestD2) { bestD2 = d2; best = c }
+          if (d2 >= range2) continue
+          if (i === b.target) keepD2 = d2
+          const load = loads[i]! - (i === b.target ? 1 : 0)
+          if (load < bestLoad || (load === bestLoad && d2 < bestD2)) {
+            best = i; bestLoad = load; bestD2 = d2
+          }
         }
-        if (best === null) {
+        if (best < 0) {
+          if (b.target >= 0 && b.target < loads.length) loads[b.target]!--
+          b.target = -1
           b.mesh.visible = false
           b.glare.visible = false
           continue
         }
-        const p = best.aircraft.state.position
+        if (keepD2 >= 0 && loads[b.target]! - 1 <= bestLoad) best = b.target
+        if (best !== b.target) {
+          if (b.target >= 0 && b.target < loads.length) loads[b.target]!--
+          loads[best]!++
+          b.target = best
+        }
+        const p = list[best]!.aircraft.state.position
         aimAngles(base.position.x, base.position.y + 2, base.position.z, p.x, p.y, p.z, WANT)
         // 【追的是「目標附近」】瞄準點加一個慢慢繞的偏差，光柱才不會像釘死的
         const w = b.phase

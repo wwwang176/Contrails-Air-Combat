@@ -1064,7 +1064,9 @@ function placeGround(
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
     // 【輕型砲也還手】走直射彈那一層，曳光看得見。只有德 M2 有輕砲，規格
     // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
-    else if (e.unit === 'flakLight') t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', 37)
+    else if (e.unit === 'flakLight') {
+      t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+    }
     world.groundTargets.push(t)
   }
 }

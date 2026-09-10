@@ -156,3 +156,38 @@ describe('探照燈的眩光', () => {
     expect(glare.visible).toBe(false)
   })
 })
+
+describe('探照燈分攤目標', () => {
+  it('第一架進來全部照它；第二架進來就有燈換過去，各照一架，而且不會每幀互換', () => {
+    const bases = [
+      createGroundTarget(0, 'searchlight', 'red', -500, -7000, 0),
+      createGroundTarget(1, 'searchlight', 'red', 500, -7000, 0),
+    ]
+    const s = createSearchlights(bases, new Texture())
+    const beams: Mesh[] = []
+    s.object.traverse((o) => { if ((o as Mesh).isMesh) beams.push(o as Mesh) })
+    const a = plane('blue', 0, 1500, -4000)
+    const b = plane('blue', 0, 1500, -7000 + SEARCHLIGHT_RANGE + 2000)
+    const list = [a, b]
+    for (let t = 0; t < 5; t += 1 / 60) s.update(t, list, CAM)
+    // 兩座都追 a：方向都朝 a
+    const toA = (m: Mesh) => beamDir(m).dot(new Vector3(0, 1500, -4000).sub(m.position).normalize())
+    expect(toA(beams[0]!)).toBeGreaterThan(0.999)
+    expect(toA(beams[1]!)).toBeGreaterThan(0.999)
+    // b 進到距離內：兩座各照一架
+    b.aircraft.state.position.set(0, 1500, -3000)
+    for (let t = 5; t < 15; t += 1 / 60) s.update(t, list, CAM)
+    const toB = (m: Mesh) => beamDir(m).dot(new Vector3(0, 1500, -3000).sub(m.position).normalize())
+    const onA = beams.filter((m) => toA(m) > 0.999).length
+    const onB = beams.filter((m) => toB(m) > 0.999).length
+    expect(onA).toBe(1)
+    expect(onB).toBe(1)
+    // 之後六十幀不再互換：方向每一幀都留在自己那一架附近（兩架從燈座看只差
+    // 六度，門檻要比那個緊）
+    for (let t = 15; t < 16; t += 1 / 60) {
+      s.update(t, list, CAM)
+      expect(beams.filter((m) => toA(m) > 0.999).length).toBe(1)
+      expect(beams.filter((m) => toB(m) > 0.999).length).toBe(1)
+    }
+  })
+})

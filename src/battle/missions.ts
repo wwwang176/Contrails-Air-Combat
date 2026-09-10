@@ -874,8 +874,9 @@ export const MISSIONS: Record<Campaign, readonly MissionCard[]> = {
         // 【炸毀任意十二座】池是 24 架 B-17、3 堆、22 座砲位、6 座探照燈。
         // 8 架 × 8 枚 = 64 枚。**起始值**
         destroyCount: 12,
-        // 蘇軍的 85 mm：射速比 88 慢
-        flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 12 },
+        // 【重砲照 5 吋艦砲的路數】高射速、小範圍、單發輕 —— 與盟 M4 的艦隊
+        // 防空同一種壓力：黑雲多而不致命
+        flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 20, burstRadius: 50, burstDamage: 100 },
         /**
          * 【80 秒】He 111 約 85 m/s 從 12 km 外進場，80 秒時離機場約 5 km；
          * 照明彈燒到 380 秒，整個投彈段都亮著。各枚的高度與時間差在
