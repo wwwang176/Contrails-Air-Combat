@@ -336,6 +336,7 @@ const TERRAINS: readonly { kind: DemoTerrain, name: string }[] = [
   { kind: 'farmland', name: '內陸' },
   { kind: 'leuna', name: '洛伊納' },
   { kind: 'leuna-real', name: '洛伊納（實測高程）' },
+  { kind: 'poltava', name: '波爾塔瓦' },
 ]
 
 function selectTerrain(kind: DemoTerrain): void {

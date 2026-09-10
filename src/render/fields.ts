@@ -602,6 +602,11 @@ export interface SiteLayout {
   /** 墊面矩形，廠區局部座標 */
   readonly pad: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
   /**
+   * 墊面的顏色。**省略 = 混凝土**（廠區）。機場的墊面是草地，只有跑道與
+   * 停機坪是鋼板 —— 那兩塊走 `patches`。
+   */
+  readonly padHex?: number
+  /**
    * 墊面之外還要這麼寬的一圈不長樹，m。省略時樹貼著墊面長。
    *
    * 【著色器不看它】只有散佈器用 —— 這一圈仍然是田色，只是沒有樹籬與樹林。
@@ -1014,7 +1019,7 @@ ${corners}
   // 【靠邊處壓暗】高空最刺眼的是水泥與田的亮度階梯。越靠外越髒越舊，順便
   // 把那一階削掉一截
   float padDark = mix(0.90, 1.0, clamp(-padD / ${(PAD_SKIRT * 2).toFixed(1)}, 0.0, 1.0));
-  vec3 siteCol = ${rgb(CONCRETE)} * siteGrime * padDark;
+  vec3 siteCol = ${rgb(site.padHex ?? CONCRETE)} * siteGrime * padDark;
 ${patchGlsl}
   // 【邊界是硬的】墊面外沒有過渡帶：一圈把混凝土混回田色的帶子，從投彈高度
   // 看是「一半工廠一半田」的暈。不規則靠的是 padD 裡疊的三層咬痕，不是混色。
@@ -1093,7 +1098,7 @@ export function siteSurfaceColor(
     const d = padDistance(lx, lz, site.pad)
     if (d < 0) {
       // 【與 `siteGlsl` 逐項對應】墊面 → 鋪面 → 壓暗，次序一致
-      let hex = CONCRETE
+      let hex = site.padHex ?? CONCRETE
       for (const q of site.patches ?? []) {
         if (lx >= q.x0 && lx < q.x1 && lz >= q.z0 && lz < q.z1) hex = q.hex
       }

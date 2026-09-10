@@ -12,7 +12,8 @@
  * 【還沒做的一種】大島海岸線。資料結構長得到 —— 它只是另一張 heightmap ——
  * 但還沒生成。
  *
- * 【`leuna` 是任務專用】盟 M2 的洛伊納（`world/leuna.ts`）：農地的機制、
- * 手擺的丘陵。遭遇戰選單不列它。
+ * 【`leuna` 與 `poltava` 是任務專用】盟 M2 的洛伊納（`world/leuna.ts`）、
+ * 德 M2 的波爾塔瓦機場（`world/poltava.ts`）：農地的機制、手擺的丘陵。
+ * 遭遇戰選單不列它們。
  */
-export type TerrainKind = 'sea' | 'archipelago' | 'farmland' | 'leuna'
+export type TerrainKind = 'sea' | 'archipelago' | 'farmland' | 'leuna' | 'poltava'
