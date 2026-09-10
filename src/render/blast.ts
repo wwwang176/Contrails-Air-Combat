@@ -323,10 +323,22 @@ export function resetFlakBlastSeed(): void {
  */
 export function emitFlakBlasts(pools: BlastPools, events: BurstEvents): void {
   for (let e = 0; e < events.count; e++) {
-    emitBlast(pools, FLAK_BLAST, events.x[e]!, events.y[e]!, events.z[e]!,
+    // 【尺度是那一發自己帶的一格】`ShipGunSpec.burstBlast`：1 = 原配方。
+    // `scaleBlast` 吃的是**當量比**，而尺度是它的立方根，所以這裡要立方
+    const s = events.blast[e]!
+    if (s === 1) {
+      emitBlast(pools, FLAK_BLAST, events.x[e]!, events.y[e]!, events.z[e]!,
+        (flakBlastSeed = (flakBlastSeed + 1) | 0))
+      continue
+    }
+    scaleBlast(FLAK_BLAST, s * s * s, SCALED_FLAK)
+    emitBlast(pools, SCALED_FLAK, events.x[e]!, events.y[e]!, events.z[e]!,
       (flakBlastSeed = (flakBlastSeed + 1) | 0))
   }
 }
+
+/** `emitFlakBlasts` 的暫存配方。**每幀可能上百朵，不在迴圈裡配置** */
+const SCALED_FLAK: { -readonly [K in keyof BlastParams]: number } = { ...FLAK_BLAST }
 
 /**
  * 當量 → **線性尺度倍率**。`LAND_BLAST`／`WATER_BLAST` 的基準是 1

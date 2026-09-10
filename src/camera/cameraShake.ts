@@ -60,6 +60,10 @@ export const GUN_LOST_SHAKE = 0.5
  *
  * 【它同時是防空火網下的震動上限】取最大值而不是疊加，所以一片彈幕搖得
  * 再密也只到這個峰值 —— 角度吃它的平方，畫面上是持續的細微抖動。
+ *
+ * 【逐發的那一份在 `world/flak.ts`】每一發砲彈自己帶著 `shake`，因為艦砲
+ * 與陸砲可以分開調（`ShipGunSpec.burstShake`）。這裡這個是 5 吋砲的值，
+ * 護欄釘住兩者相等。
  */
 export const FLAK_SHAKE = 0.25
 

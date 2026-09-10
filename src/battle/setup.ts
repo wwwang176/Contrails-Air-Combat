@@ -44,7 +44,9 @@ import {
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
-import { createShipGuns, resetShipGuns } from '../world/shipGuns'
+import {
+  createGroundBattery, createShipGuns, resetShipGuns, type ShipGunSpec,
+} from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
 import type { GroundEntry, MissionFleet } from './missions'
@@ -104,6 +106,18 @@ export interface BattleConfig {
   readonly fleet?: MissionFleet
   /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
   readonly ground?: readonly GroundEntry[]
+  /**
+   * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
+   *
+   * 【為什麼要逐關複寫】`flakHeavy` 在五關都出現（盟 M2 M3、德 M2 M3、
+   * 日 M4）。洛伊納是德國本土最密的火網，那一關的彈幕該比路邊的一座砲位
+   * 猛得多 —— 直接改 `GROUND_FLAK_SPEC` 會把另外四關一起改掉。
+   *
+   * 【為什麼是整份而不是 `Partial`】與 `loadout` 同一個理由：部分複寫要
+   * 定義「沒填的欄位從哪來」，而那條規則沒有人會記得。卡片端寫
+   * `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
+   */
+  readonly flakSpec?: ShipGunSpec
   /**
    * 複寫玩家的掛載。**省略 = 用機種的預設**（`weapons/stores.ts` 的
    * `loadoutOf`）。
@@ -570,7 +584,8 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
   // 【`along`／`across` 是係數、`gap` 是絕對公尺】理由見 `SideEntry`：
   // 探針靠覆寫 `entryRange`／`lateralOffset` 換場景，寫死絕對座標會讓
   // 那些覆寫靜靜失效
-  const z = entry.along * cfg.entryRange + entry.gap
+  // 【縱深是絕對公尺】見 `FlightPlan.depth`。省略時逐位元與舊行為相同
+  const z = entry.along * cfg.entryRange + entry.gap + (unit.depth ?? 0)
   const orientation = new Quaternion().setFromAxisAngle(UP, entry.heading)
   // 【方向逐小隊，速率逐架】速率由 `openingTas` 逐機種決定，而同一個
   // 分隊可以是混編的
@@ -938,7 +953,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
-  placeGround(world, cfg.ground)
+  placeGround(world, cfg.ground, cfg.flakSpec)
   const battle: Battle = {
     world,
     board,
@@ -1018,12 +1033,16 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
  * 【高度先擺 0】這時 `world.groundAt` 還是預設值（地形在 `main.ts` 建完
  * 戰鬥之後才注入）。落地由 `settleGroundTargets` 在那之後做。
  */
-function placeGround(world: World, ground: readonly GroundEntry[] | undefined): void {
+function placeGround(
+  world: World, ground: readonly GroundEntry[] | undefined, flakSpec?: ShipGunSpec,
+): void {
   if (ground === undefined) return
   for (const e of ground) {
-    world.groundTargets.push(
-      createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading),
-    )
+    const t = createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading)
+    // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
+    // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
+    if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
+    world.groundTargets.push(t)
   }
 }
 

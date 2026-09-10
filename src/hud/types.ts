@@ -101,12 +101,16 @@ export interface HudMarker {
 }
 
 /**
- * 標記池的容量。炸彈 64 ＋ 魚雷 8 ＋ 艦隊，加餘裕。
+ * 標記池的容量。地面目標 ＋ 艦隊 ＋ 空中的炸彈與魚雷，加餘裕。
+ *
+ * 【地面目標是持續佔用的那一半】洛伊納一關就有 12 座構件加 48 個砲位 ——
+ * `fillMarkers` 依「船 → 地面目標 → 彈」的次序填，滿了就截斷，所以池太小的
+ * 症狀是**玩家自己投的炸彈沒有標記**（排在最後），而且不報錯。
  *
  * 【為什麼是固定長度的池】與 `HUD_MAX_CONTACTS` 逐字同一條：每幀 new 一個
  * 陣列就是每幀一次配置。
  */
-export const HUD_MAX_MARKERS = 96
+export const HUD_MAX_MARKERS = 200
 
 export function createHudMarker(): HudMarker {
   return { active: false, x: 0, y: 0, behind: false, hostile: true }

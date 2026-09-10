@@ -38,7 +38,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import type { GroundTarget } from './groundTargets'
-import { stepShipGuns, ownerShipIndex } from './shipGuns'
+import { stepGunPlatform, ownerShipIndex } from './shipGuns'
 import {
   createBursts, createFlak, clearBursts, flakDamage, pushBurst, stepFlak, FLAK_CAPACITY,
 } from './flak'
@@ -594,7 +594,20 @@ export class World {
         g.flash = v > 0 ? v : 0
       }
       // 【傳整個艦隊】目標分攤數的是全艦隊的鎖定，不是這一艘的
-      stepShipGuns(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
+      stepGunPlatform(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
+    }
+    // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
+    // **傳整組地面目標當「艦隊」** —— 目標分攤要跨全部砲位數，各自只數自己
+    // 的話八門砲會一起咬同一架
+    for (const t of this.groundTargets) {
+      if (t.guns.length === 0) continue
+      for (const g of t.guns) {
+        const v = g.flash - dt
+        g.flash = v > 0 ? v : 0
+      }
+      stepGunPlatform(
+        t, this.combatants, this.projectiles, this.flak, this.time, dt, this.groundTargets,
+      )
     }
     // 【兩份緩衝】傷害吃 `stepBursts`（每步清空、World 自己排空），
     // 渲染讀 `burstEvents`（呼叫端排空）。共用一份的話，沒有排空的呼叫端
@@ -603,10 +616,14 @@ export class World {
     stepFlak(this.flak, dt, this.stepBursts)
     this.applyBursts()
     for (let k = 0; k < this.stepBursts.count; k++) {
+      // 【四個尺度一定要一起抄】漏掉的話 `pushBurst` 會補上 5 吋艦砲的預設
+      // 值，於是陸砲的雲、閃光與震動全部照艦砲畫 —— 而且不報錯
       pushBurst(
         this.burstEvents,
         this.stepBursts.x[k]!, this.stepBursts.y[k]!, this.stepBursts.z[k]!,
         this.stepBursts.team[k]!,
+        this.stepBursts.radius[k]!, this.stepBursts.damage[k]!,
+        this.stepBursts.smoke[k]!, this.stepBursts.blast[k]!, this.stepBursts.shake[k]!,
       )
     }
 
@@ -1331,12 +1348,14 @@ export class World {
     for (let k = 0; k < e.count; k++) {
       const team = e.team[k]!
       const x = e.x[k]!, y = e.y[k]!, z = e.z[k]!
+      // 【半徑與傷害讀那一發自己的】艦砲與陸砲不同強度
+      const radius = e.radius[k]!, damage = e.damage[k]!
       for (const c of this.combatants) {
         if (!c.alive) continue
         if ((c.team === 'blue' ? 0 : 1) === team) continue
         const pos = c.aircraft.state.position
         const d = Math.hypot(pos.x - x, pos.y - y, pos.z - z)
-        const dmg = flakDamage(d)
+        const dmg = flakDamage(d, radius, damage)
         if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
       }
     }

@@ -175,10 +175,10 @@ describe('盟 M2 的卡片', () => {
   const m2 = ALL.find((m) => m.id === 'allies-m2') as ReadyMissionCard
 
   /** 【釘住精確的資料】通用的護欄只擋「有廠區才要求炸毀」；這裡釘的是這一關本身 */
-  it('十二座構件、八座砲位；炸毀六座；洛伊納、十一月正午、1,500 m', () => {
+  it('十二座構件、四十八座砲位；炸毀六座；洛伊納、十一月正午、1,500 m', () => {
     const b = m2.battle
     const units = b.ground!.map((e) => e.unit)
-    expect(units.filter((u) => u === 'flakHeavy')).toHaveLength(8)
+    expect(units.filter((u) => u === 'flakHeavy')).toHaveLength(48)
     const plant = units.filter((u) => u !== 'flakHeavy')
     expect(plant).toHaveLength(12)
     expect(b.ground!.every((e) => e.team === 'red')).toBe(true)
@@ -186,7 +186,7 @@ describe('盟 M2 的卡片', () => {
     expect(b.terrain).toBe('leuna')
     expect(b.timeOfDay).toBe('novemberNoon')
     expect(b.blueSpec.id).toBe('b17g')
-    expect(b.blueCount).toBe(4)
+    expect(b.blueCount).toBe(12)
     // 【高度要釘住】它是這一關唯一覆寫預設的飛行參數，掉回 4,000 不會報錯
     expect(b.altitude).toBe(1500)
   })

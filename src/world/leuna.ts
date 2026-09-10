@@ -126,22 +126,76 @@ export const LEUNA_HILLS = [
 ] as const
 
 /**
- * 預定砲位。**是不還手的靶**：打得掉、算進炸毀的計數，但不瞄不射。
- * 環繞廠區 2.4 到 3.2 km，全部在墊面外。
+ * 8.8 cm 重高砲位。**會還手**：`battle/setup.ts` 給每一座掛一門
+ * `GROUND_FLAK_SPEC` 的砲，走艦砲那一套射控（`world/shipGuns.ts`）。
+ * 打得掉，也算進炸毀的計數。
+ *
+ * 【四十八座，三圈】內圈 8 座 2.7 km、中圈 16 座 3.9 km、外圈 24 座 5.1 km，
+ * 每一圈的相位錯開。史實的洛伊納周圍有數百門重高砲，恐怖的是滿天黑雲而不是
+ * 單發致命 —— 所以砲位多、每發輕（見 `GROUND_FLAK_SPEC`）。
+ *
+ * 【越外圈越密】外圈的周長是內圈的兩倍，座數不跟著加的話彈幕會在接近航路上
+ * 稀掉。而接近航路的前半段正是最需要壓力的地方 —— 射程 4.9 km，只有內圈的話
+ * 玩家要飛到 2 km 內才挨打。
+ *
+ * 【`heading` 只影響模型朝向】射控自己轉砲，砲口朝廠區外側純粹是為了畫面。
  *
  * 【擺位是廠區局部座標】它們是廠區的防空陣地，跟著廠區一起轉 —— 不轉的話
- * 南北那四座會被轉過來的廠區吃進墊面裡。
+ * 南北那幾座會被轉過來的廠區吃進墊面裡。
  */
 export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
-    { dx: -1200, dz: -2600, heading: 0.6 },
-    { dx: 1200, dz: -2600, heading: -0.6 },
-    { dx: -1200, dz: 2600, heading: 2.5 },
-    { dx: 1200, dz: 2600, heading: -2.5 },
-    { dx: 0, dz: -3000, heading: 0 },
-    { dx: 0, dz: 3000, heading: Math.PI },
-    { dx: -2700, dz: 0, heading: 1.5 },
-    { dx: 2700, dz: 0, heading: -1.5 },
+    // 內圈 8 座，約 2.7 km
+    { dx: 0, dz: -2700, heading: 0.0 },
+    { dx: 1900, dz: -1900, heading: 0.79 },
+    { dx: 2700, dz: 0, heading: 1.57 },
+    { dx: 1900, dz: 1900, heading: 2.36 },
+    { dx: 0, dz: 2700, heading: 3.14 },
+    { dx: -1900, dz: 1900, heading: -2.36 },
+    { dx: -2700, dz: 0, heading: -1.57 },
+    { dx: -1900, dz: -1900, heading: -0.79 },
+    // 中圈 16 座，約 3.9 km
+    { dx: 750, dz: -3850, heading: 0.19 },
+    { dx: 2150, dz: -3250, heading: 0.58 },
+    { dx: 3250, dz: -2150, heading: 0.99 },
+    { dx: 3850, dz: -750, heading: 1.38 },
+    { dx: 3850, dz: 750, heading: 1.76 },
+    { dx: 3250, dz: 2150, heading: 2.16 },
+    { dx: 2150, dz: 3250, heading: 2.56 },
+    { dx: 750, dz: 3850, heading: 2.95 },
+    { dx: -750, dz: 3850, heading: -2.95 },
+    { dx: -2150, dz: 3250, heading: -2.56 },
+    { dx: -3250, dz: 2150, heading: -2.16 },
+    { dx: -3850, dz: 750, heading: -1.76 },
+    { dx: -3850, dz: -750, heading: -1.38 },
+    { dx: -3250, dz: -2150, heading: -0.99 },
+    { dx: -2150, dz: -3250, heading: -0.58 },
+    { dx: -750, dz: -3850, heading: -0.19 },
+    // 外圈 24 座，約 5.1 km
+    { dx: 350, dz: -5100, heading: 0.07 },
+    { dx: 1650, dz: -4850, heading: 0.33 },
+    { dx: 2850, dz: -4250, heading: 0.59 },
+    { dx: 3850, dz: -3350, heading: 0.85 },
+    { dx: 4550, dz: -2250, heading: 1.11 },
+    { dx: 5000, dz: -1000, heading: 1.37 },
+    { dx: 5100, dz: 350, heading: 1.64 },
+    { dx: 4850, dz: 1650, heading: 1.9 },
+    { dx: 4250, dz: 2850, heading: 2.16 },
+    { dx: 3350, dz: 3850, heading: 2.43 },
+    { dx: 2250, dz: 4550, heading: 2.68 },
+    { dx: 1000, dz: 5000, heading: 2.94 },
+    { dx: -350, dz: 5100, heading: -3.07 },
+    { dx: -1650, dz: 4850, heading: -2.81 },
+    { dx: -2850, dz: 4250, heading: -2.55 },
+    { dx: -3850, dz: 3350, heading: -2.29 },
+    { dx: -4550, dz: 2250, heading: -2.03 },
+    { dx: -5000, dz: 1000, heading: -1.77 },
+    { dx: -5100, dz: -350, heading: -1.5 },
+    { dx: -4850, dz: -1650, heading: -1.24 },
+    { dx: -4250, dz: -2850, heading: -0.98 },
+    { dx: -3350, dz: -3850, heading: -0.72 },
+    { dx: -2250, dz: -4550, heading: -0.46 },
+    { dx: -1000, dz: -5000, heading: -0.2 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: s.heading + PLANT_HEADING }))
 
 /** 構件的種類。與 `groundTargets.ts` 的 `GroundKind` 相同的字面值 */
