@@ -60,15 +60,16 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
    * 飛行中的那批仍然是 `b17g`。
    *
    * 【為什麼共用 `B17G_MODEL` 的量測值】`eyePoint`／`wingTip`／`bombPoint` 都是
-   * 寫死的機體座標，不是從節點推的；低模只是少了幾顆看不到的物件與幾圈腰線，
-   * 那些點的位置一個都沒動。
+   * 寫死的機體座標，不是從節點推的。低模是**對出貨的 GLB 逐件重量、重新 loft**
+   * 的（`tools/blender/build_b17g_lod.py`），翼尖、機首、彈艙的位置都照著量
+   * 出來的走，那三個點一個都沒動。
    */
   b17g_lod2: {
     ...B17G_MODEL,
     url: '/models/b17g_lod2.glb',
     /**
      * 【材質表要跟著縮】`parseGlbTemplate` 對表上的每一個材質都要求 GLB 裡
-     * 真的有，找不到就丟「manifest 過期了」。低模刪掉了座艙、窗框與內裝，
+     * 真的有，找不到就丟「manifest 過期了」。低模沒有座艙、窗框與內裝，
      * 那三個材質也就跟著不見 —— 照抄整份表會讓整個 `main.ts` 在預載那一步
      * 就死掉，症狀是 `__gfx` 之類的出口全部 undefined。
      */
