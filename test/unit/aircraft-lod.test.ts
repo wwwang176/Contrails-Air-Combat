@@ -11,24 +11,23 @@ const d2 = (m: number): number => m * m
 
 describe('飛機的距離 LOD', () => {
   const OUT = AIRCRAFT_LOD_DIST + AIRCRAFT_LOD_HYSTERESIS
-  const IN = AIRCRAFT_LOD_DIST - AIRCRAFT_LOD_HYSTERESIS
 
   it('近的用正式模型，遠的用低模', () => {
     expect(useAircraftLod(d2(OUT - 1), false)).toBe(false)
     expect(useAircraftLod(d2(OUT + 1), false)).toBe(true)
   })
 
-  it('切回來要再近 2 倍遲滯 —— 停在門檻上不會逐幀換', () => {
-    // 已經在低模：走到 IN 之外都還是低模
-    expect(useAircraftLod(d2(IN + 1), true)).toBe(true)
-    expect(useAircraftLod(d2(IN - 1), true)).toBe(false)
-    // 門檻正中央：答案取決於上一幀，這就是遲滯帶
-    expect(useAircraftLod(d2(AIRCRAFT_LOD_DIST), false)).toBe(false)
-    expect(useAircraftLod(d2(AIRCRAFT_LOD_DIST), true)).toBe(true)
+  it('低模不會出現在門檻以內 —— 遲滯只往外', () => {
+    expect(useAircraftLod(d2(AIRCRAFT_LOD_DIST - 1), true)).toBe(false)
+    expect(useAircraftLod(d2(AIRCRAFT_LOD_DIST + 1), true)).toBe(true)
   })
 
-  it('遲滯帶有寬度 —— 兩個門檻不能重合', () => {
-    expect(OUT - IN).toBeGreaterThan(0)
+  it('遲滯帶有寬度 —— 停在門檻上不會逐幀換', () => {
+    expect(OUT - AIRCRAFT_LOD_DIST).toBeGreaterThan(0)
+    // 帶子裡：答案取決於上一幀
+    const mid = (AIRCRAFT_LOD_DIST + OUT) / 2
+    expect(useAircraftLod(d2(mid), false)).toBe(false)
+    expect(useAircraftLod(d2(mid), true)).toBe(true)
   })
 })
 

@@ -124,15 +124,20 @@ const AIRCRAFT_LOD: Record<string, string> = {
  * 機身的多邊形。而戰鬥機開火的距離（100～200 m）剛好讓被打的那一架跳回正式
  * 模型。
  *
- * 【遲滯】與 `vegetation.ts` 的 `lodFor` 同一個理由：距離停在門檻上時會逐幀
- * 換模型，而換模型是整架閃一下。
+ * 【遲滯只往外】切過去要走到 `+HYSTERESIS`，切回來走到 `DIST` 就換 ——
+ * **低模因此永遠不會出現在 `DIST` 以內**。對稱的遲滯會讓一架正在接近的
+ * 飛機一路低模到 175 m，比驗過的距離還近。
+ *
+ * 【那為什麼還要留 25 m】完全不留的話，停在門檻上的目標（編隊裡保持隊形的
+ * 僚機、機場上空盤旋的鏡頭）會因為距離的抖動逐幀換模型。切換本身在 200 m
+ * 看不出來，逐幀反覆換看得出來。
  */
 export const AIRCRAFT_LOD_DIST = 200
 export const AIRCRAFT_LOD_HYSTERESIS = 25
 
 /** 這一架該用低模嗎。`prev` 是上一幀的答案。吃距離平方，熱路徑上不開根號。 */
 export function useAircraftLod(dist2: number, prev: boolean): boolean {
-  const t = AIRCRAFT_LOD_DIST + (prev ? -AIRCRAFT_LOD_HYSTERESIS : AIRCRAFT_LOD_HYSTERESIS)
+  const t = prev ? AIRCRAFT_LOD_DIST : AIRCRAFT_LOD_DIST + AIRCRAFT_LOD_HYSTERESIS
   return dist2 > t * t
 }
 
