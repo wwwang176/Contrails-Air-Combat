@@ -42,6 +42,21 @@
       #hud[hidden] { display: none; }
 
       /* ── 共用 ────────────────────────────────────────── */
+      /* 【捲軸也是這張桌子的一部分】任務列表、機庫的卷宗架、結算名單都在捲，
+         而作業系統那條亮灰捲軸貼在暗桌面上像一塊沒收拾乾淨的東西。
+         兩套屬性都寫：`scrollbar-*` 是標準的，`::-webkit-scrollbar` 讓舊版
+         WebKit 也吃得到，少了它在那些瀏覽器上會退回系統樣式 */
+      * { scrollbar-width: thin; scrollbar-color: var(--bd) transparent; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: rgba(0,0,0,.22); }
+      ::-webkit-scrollbar-thumb { background: var(--btn-hi); border: 1px solid var(--bd); }
+      ::-webkit-scrollbar-thumb:hover { background: var(--bd2); }
+      ::-webkit-scrollbar-corner { background: transparent; }
+      /* 紙上的捲軸要用紙的色階 —— 暗的那一條壓在紙上像一道裂縫 */
+      .paperbit { scrollbar-color: var(--paper-tab) rgba(47,39,28,.10); }
+      .paperbit::-webkit-scrollbar-track { background: rgba(47,39,28,.10); }
+      .paperbit::-webkit-scrollbar-thumb { background: var(--paper-tab); border-color: #8d7c56; }
+      .paperbit::-webkit-scrollbar-thumb:hover { background: var(--paper-dim); }
       #ui, #board { font: 14px/1.65 var(--f-body); color: var(--ink); }
       #ui button, #board button { font: inherit; color: inherit; cursor: pointer; }
       #ui button:disabled, #board button:disabled { opacity: .38; cursor: default; }
@@ -153,7 +168,10 @@
       /* 【條上要印真值】只比長短的話，讀者分不出「差一點」與「差一倍」 */
       .bars .v { text-align: right; font-weight: 700; font-size: 12px; }
       .bars .track { height: 9px; background: rgba(47,39,28,.14); border: 1px solid rgba(47,39,28,.3); }
-      .bars .track i { display: block; height: 100%; background: var(--go-bg); }
+      /* 【寬度由 menu.ts 在下一幀才寫】以 0 進 DOM、下一幀推到目標，換機種
+         時四條一起長出來；轉場曲線尾端慢，讀得到「停在哪裡」 */
+      .bars .track i { display: block; height: 100%; width: 0; background: var(--go-bg);
+        transition: width .5s cubic-bezier(.22,.7,.25,1); }
       .sheet .facts { display: grid; grid-template-columns: 1fr; gap: 5px;
         margin-top: 17px; padding-top: 13px; border-top: 1px solid rgba(47,39,28,.24); }
       .sheet .fact { display: grid; grid-template-columns: 62px 1fr; font-size: 12px; }

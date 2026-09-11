@@ -296,11 +296,22 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       + `<p class="story">${escapeHtml(d.story)}</p>`
       + `<div class="bars">${d.bars.map((b) =>
         `<div class="stat"><span class="k">${escapeHtml(b.label)}</span>`
-        + `<span class="track"><i style="width:${(b.fill * 100).toFixed(1)}%"></i></span>`
+        + `<span class="track"><i data-fill="${(b.fill * 100).toFixed(1)}"></i></span>`
         + `<span class="v">${escapeHtml(b.text)}</span></div>`).join('')}</div>`
       + `<div class="facts">${d.facts.map((f) =>
         `<div class="fact"><span class="lbl">${escapeHtml(f.label)}</span>`
         + `<span class="v">${escapeHtml(f.value)}</span></div>`).join('')}</div>`
+
+    // 【條的寬度要在下一幀才寫】`innerHTML` 換上的是新元素，而 CSS 轉場
+    // 對「一生下來就是那個寬度」不會動。先讓它以 0 進 DOM，下一幀再推到
+    // 目標值，換機種時四條就會一起長出來。
+    requestAnimationFrame(() => {
+      el.sheet.querySelectorAll('.bars i').forEach((node) => {
+        const bar = node as HTMLElement
+        const fill = bar.dataset['fill']
+        if (fill !== undefined) bar.style.width = `${fill}%`
+      })
+    })
 
     hooks.onAircraft(spec)
   }
