@@ -60,6 +60,13 @@ export interface GroundUnit {
   /** 真車全高，m。 */
   realHeight: number
   model: GroundModel
+  /**
+   * 遠處用的低模。**省略即這一種沒有 LOD**，一律走 `model`。
+   *
+   * 【`real*` 與 `hull` 一律對著 `model` 量】低模只在遠處出現，而那兩項是
+   * 尺寸與命中判定 —— 拿低模去對就會隨著低模的精簡程度漂。
+   */
+  lodModel?: GroundModel
   /** 命中盒，遊戲座標。 */
   hull: readonly Box[]
 }
@@ -183,7 +190,31 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     // 【命中盒是手寫的】`boxOf` 在模組載入時就要幾何，而樣板那時還沒載。
     // 數字是烘好的幾何量的（x ±15.81、y 0…5.41、z ±11.22），各留不到 5 cm ——
     // `ground-units.test.ts` 兩邊都守：蓋住全部頂點、又不伸出包圍盒 5 cm
+    /**
+     * **遠處用低模。** 機場上停 24 架，正式模型一架 13,251 個三角形 —— 實測
+     * 那一批在投彈高度值 1.90 ms（一幀 16 ms 的 12%）、佔全場三角形的 61%，
+     * 而一架在畫面上只有 25 x 15 px（每個像素 35 個三角形）。低模一架 2,200
+     * 個三角形，24 架由 318,024 降到 52,800。
+     *
+     * 【畫面沒有變】`check_lod_silhouette.py` 在 25 px（就是投彈高度上的實際
+     * 大小）拍六個方位逐像素比對，428 個覆蓋像素裡**差 4 個**；放大到 256 px
+     * 才出現 1.56%。低模由 `tools/blender/build_b17g_lod.py` 從出貨的 GLB
+     * **逐件**重建 —— 趴在機身上的（機背甲板、三座砲塔、觀測罩、尾艙罩）各自
+     * 一件，15 片平面窗原封不動搬過來。
+     *
+     * 【剩下的成本不是幾何】換上低模之後這 24 架**仍然值 1 ms 以上**（幾輪
+     * 落在 1.2…1.8 ms，而基準自己就漂 4…6%，別把那個區間當成一個數字），
+     * 而它們只剩全場 8% 的三角形。那是 24 個 draw call 與填充率 —— 再減面
+     * 拿不到東西，下一步是把 24 架併成一批。
+     *
+     * 【近了就換回正式模型】上帝視角飛得到停機坪旁邊，門檻與飛行中那批
+     * 共用（`buildAircraft.ts` 的 `AIRCRAFT_LOD_DIST`）。
+     *
+     * 【`__PARKED_LOD = false` 整場一律正式模型】進場前在主控台設，拿來做
+     * A/B。飛行中那批的對應開關是 `__FLYING_LOD`，切到哪裡看 `__lod()`。
+     */
     model: { build: () => bakeParkedAircraft('b17g') },
+    lodModel: { build: () => bakeParkedAircraft('b17g_lod2') },
     hull: [groundBox([-15.85, 0.00, -11.25], [15.85, 5.45, 11.25])],
   },
   {
@@ -244,4 +275,16 @@ export async function preloadGroundModels(
  */
 export function groundGeometry(unit: GroundUnit): BufferGeometry {
   return 'glb' in unit.model ? groundGlb(unit.model.glb) : unit.model.build()
+}
+
+/**
+ * 這台遠處用的幾何。沒有低模就回 `null`。
+ *
+ * 【`__PARKED_LOD = false` 一律回 null】那一場就完全不會有低模，A/B 才乾淨。
+ */
+export function groundLodGeometry(unit: GroundUnit): BufferGeometry | null {
+  const m = unit.lodModel
+  if (m === undefined) return null
+  if ((globalThis as Record<string, unknown>)['__PARKED_LOD'] === false) return null
+  return 'glb' in m ? groundGlb(m.glb) : m.build()
 }

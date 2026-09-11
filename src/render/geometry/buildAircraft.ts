@@ -55,6 +55,46 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
   bf109k4: BF109K4_MODEL,
   he111: HE111_MODEL,
   b17g: B17G_MODEL,
+  /**
+   * 停放的 B-17 用的低模。**只有地面單位在用**（`geometry/ground/index.ts`），
+   * 飛行中的那批仍然是 `b17g`。
+   *
+   * 【為什麼共用 `B17G_MODEL` 的量測值】`eyePoint`／`wingTip`／`bombPoint` 都是
+   * 寫死的機體座標，不是從節點推的。低模是**對出貨的 GLB 逐件重量、重新 loft**
+   * 的（`tools/blender/build_b17g_lod.py`），翼尖、機首、彈艙的位置都照著量
+   * 出來的走，那三個點一個都沒動。
+   */
+  b17g_lod2: {
+    ...B17G_MODEL,
+    url: '/models/b17g_lod2.glb',
+    /**
+     * 【材質表要跟著縮】`parseGlbTemplate` 對表上的每一個材質都要求 GLB 裡
+     * 真的有，找不到就丟「manifest 過期了」。低模沒有座艙、窗框與內裝，
+     * 那三個材質也就跟著不見 —— 照抄整份表會讓整個 `main.ts` 在預載那一步
+     * 就死掉，症狀是 `__gfx` 之類的出口全部 undefined。
+     */
+    materials: {
+      B17_Body: 'body',
+      B17_Accent: 'accent',
+      B17_Glass: 'glass',
+    },
+  },
+  /**
+   * He 111 的低模。與 `b17g_lod2` 同一條路（`tools/blender/build_he111_lod.py`），
+   * 12,658 → 1,438 個三角形。
+   *
+   * 【材質表要跟著縮】低模沒有座艙內裝、機首窗框與進氣口內壁 —— 那三種光是
+   * 三角形就佔 2,272 個，而它們由外面一個都看不到。
+   */
+  he111_lod2: {
+    ...HE111_MODEL,
+    url: '/models/he111_lod2.glb',
+    materials: {
+      HE111_Body: 'body',
+      HE111_Accent: 'accent',
+      HE111_Glass: 'glass',
+    },
+  },
   ki84: KI84_MODEL,
   a6m5: A6M5_MODEL,
   g4m: G4M_MODEL,
@@ -82,6 +122,60 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
   const build = BUILDERS[spec.id]
   if (!build) throw new Error(`未定義機種外型：${spec.id}`)
   return build()
+}
+
+/**
+ * 機種 id → 遠處用的低模 id。**沒列在這裡的機種就沒有 LOD**，`buildAircraftLod`
+ * 回 `null`，呼叫端一路走正式模型。
+ */
+const AIRCRAFT_LOD: Record<string, string> = {
+  b17g: 'b17g_lod2',
+  he111: 'he111_lod2',
+}
+
+/**
+ * 切到低模的距離，m。
+ *
+ * 【為什麼是 200】那個距離下 B-17 只有 89 px 寬、He 111 77 px，**兩台都在
+ * `/lod.html` 上實地比對過，到這裡就分不出低模與正式模型**。50 m（360 px）的
+ * 並排算圖也還看不出差別，26 m 的追尾相機（687 px）才看得出機身的多邊形。
+ * 而戰鬥機開火的距離（100～200 m）剛好讓被打的那一架跳回正式模型。
+ *
+ * 【全機種共用一個數字】`useAircraftLod` 不分機種，地面單位（`groundTargets.ts`）
+ * 也讀同一個 —— 兩邊用不同距離會出現「地上那架先變、天上那架還沒變」。
+ * 之後某一台驗出來需要更近才換，那是**那一台的低模不夠好**，不是門檻要分家。
+ *
+ * 【遲滯只往外】切過去要走到 `+HYSTERESIS`，切回來走到 `DIST` 就換 ——
+ * **低模因此永遠不會出現在 `DIST` 以內**。對稱的遲滯會讓一架正在接近的
+ * 飛機一路低模到 175 m，比驗過的距離還近。
+ *
+ * 【那為什麼還要留 25 m】完全不留的話，停在門檻上的目標（編隊裡保持隊形的
+ * 僚機、機場上空盤旋的鏡頭）會因為距離的抖動逐幀換模型。切換本身在 200 m
+ * 看不出來，逐幀反覆換看得出來。
+ */
+export const AIRCRAFT_LOD_DIST = 200
+export const AIRCRAFT_LOD_HYSTERESIS = 25
+
+/** 這一架該用低模嗎。`prev` 是上一幀的答案。吃距離平方，熱路徑上不開根號。 */
+export function useAircraftLod(dist2: number, prev: boolean): boolean {
+  const t = prev ? AIRCRAFT_LOD_DIST : AIRCRAFT_LOD_DIST + AIRCRAFT_LOD_HYSTERESIS
+  return dist2 > t * t
+}
+
+/**
+ * 這個機種遠處用的模型。沒有低模就回 `null`。
+ *
+ * 【量測值與正式模型相同】低模的 manifest 是 `...B17G_MODEL` 展開來的，
+ * `eyePoint`／`wingTip`／`bombPoint` 逐項相同，所以呼叫端讀哪一具都一樣。
+ */
+export function buildAircraftLod(id: string): AircraftModel | null {
+  // `__FLYING_LOD = false` 讓整場一路走正式模型，進場前在主控台設，拿來做 A/B
+  if ((globalThis as Record<string, unknown>)['__FLYING_LOD'] === false) return null
+  const lodId = AIRCRAFT_LOD[id]
+  if (lodId === undefined) return null
+  const t = glbTemplate(lodId)
+  if (!t) throw new Error(`低模 ${lodId} 還沒載入 —— 少了 preloadAircraftModels()`)
+  return buildFromTemplate(t)
 }
 
 /**
