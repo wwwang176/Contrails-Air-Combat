@@ -4,6 +4,7 @@ import {
 } from '../../src/render/geometry/buildAircraft'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 import { B17G } from '../../src/specs/b17g'
+import { HE111 } from '../../src/specs/he111'
 import { P51D } from '../../src/specs/p51d'
 
 /** 距離平方 —— `useAircraftLod` 吃的是平方，熱路徑上不開根號 */
@@ -36,20 +37,22 @@ describe('低模的量測值與正式模型一致', () => {
     await loadGlbTemplatesForNode()
   })
 
-  it('B-17G 有低模，而且翼尖／眼點／投彈點逐項相同', () => {
-    // 【為什麼要守】`main.ts` 只讀 `v.model` 的這幾個點（凝結尾、瞄具、
-    // 座艙眼點），不分現在顯示的是哪一具。兩邊漂掉的話症狀是尾跡與投彈
-    // 從機身旁邊冒出來，而畫面上看不出模型換過
-    const full = buildAircraft(B17G)
-    const lod = buildAircraftLod(B17G.id)
-    expect(lod).not.toBeNull()
-    expect(lod!.wingTip.toArray()).toEqual(full.wingTip.toArray())
-    expect(lod!.eyePoint.toArray()).toEqual(full.eyePoint.toArray())
-    expect(lod!.bombPoint!.toArray()).toEqual(full.bombPoint!.toArray())
-    expect(lod!.enginePoints.length).toBe(full.enginePoints.length)
-    full.dispose()
-    lod!.dispose()
-  })
+  // 【為什麼要守】`main.ts` 只讀 `v.model` 的這幾個點（凝結尾、瞄具、座艙
+  // 眼點），不分現在顯示的是哪一具。兩邊漂掉的話症狀是尾跡與投彈從機身旁邊
+  // 冒出來，而畫面上看不出模型換過
+  for (const spec of [B17G, HE111]) {
+    it(`${spec.id} 有低模，而且翼尖／眼點／投彈點逐項相同`, () => {
+      const full = buildAircraft(spec)
+      const lod = buildAircraftLod(spec.id)
+      expect(lod).not.toBeNull()
+      expect(lod!.wingTip.toArray()).toEqual(full.wingTip.toArray())
+      expect(lod!.eyePoint.toArray()).toEqual(full.eyePoint.toArray())
+      expect(lod!.bombPoint!.toArray()).toEqual(full.bombPoint!.toArray())
+      expect(lod!.enginePoints.length).toBe(full.enginePoints.length)
+      full.dispose()
+      lod!.dispose()
+    })
+  }
 
   it('沒列在表上的機種回 null', () => {
     expect(buildAircraftLod(P51D.id)).toBeNull()

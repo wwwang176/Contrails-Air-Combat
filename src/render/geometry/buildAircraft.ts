@@ -79,6 +79,22 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
       B17_Glass: 'glass',
     },
   },
+  /**
+   * He 111 的低模。與 `b17g_lod2` 同一條路（`tools/blender/build_he111_lod.py`），
+   * 12,658 → 1,438 個三角形。
+   *
+   * 【材質表要跟著縮】低模沒有座艙內裝、機首窗框與進氣口內壁 —— 那三種光是
+   * 三角形就佔 2,272 個，而它們由外面一個都看不到。
+   */
+  he111_lod2: {
+    ...HE111_MODEL,
+    url: '/models/he111_lod2.glb',
+    materials: {
+      HE111_Body: 'body',
+      HE111_Accent: 'accent',
+      HE111_Glass: 'glass',
+    },
+  },
   ki84: KI84_MODEL,
   a6m5: A6M5_MODEL,
   g4m: G4M_MODEL,
@@ -114,6 +130,7 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
  */
 const AIRCRAFT_LOD: Record<string, string> = {
   b17g: 'b17g_lod2',
+  he111: 'he111_lod2',
 }
 
 /**
