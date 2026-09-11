@@ -63,7 +63,9 @@ import {
 } from './world/events'
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
-import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
+import {
+  buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
+} from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
@@ -334,6 +336,15 @@ interface Visual {
    * 席位拿一具新的。`renderPositions` 參考的是 `position`，不受影響。
    */
   model: AircraftModel
+  /**
+   * 遠處用的低模。**沒有低模的機種是 `null`**，那一席一路走 `model`。
+   *
+   * 【兩具都掛在場景上，靠 `visible` 切】換的是哪一個 group 在畫，不是重建
+   * 幾何 —— 每幀重建一架 B-17 是不可能的成本。
+   */
+  lod: AircraftModel | null
+  /** 這一幀顯示的是低模嗎。`useAircraftLod` 的遲滯要讀上一幀的答案。 */
+  far: boolean
   readonly position: Vector3
   readonly quaternion: Quaternion
   /**
@@ -345,15 +356,28 @@ interface Visual {
   wrecked: boolean
 }
 
+/** 配這一席的低模並掛上場景（沒有低模的機種是 no-op）。復活時也走這裡。 */
+function attachLod(v: Visual, id: string): void {
+  v.lod = buildAircraftLod(id)
+  if (v.lod !== null) {
+    v.lod.group.visible = false
+    ctx.scene.add(v.lod.group)
+  }
+  v.far = false
+}
+
 const visuals = new Map<Combatant, Visual>()
 function attachVisual(c: Combatant): Visual {
   const v: Visual = {
     model: buildAircraft(c.aircraft.spec),
+    lod: null,
+    far: false,
     position: new Vector3(),
     quaternion: new Quaternion(),
     wrecked: false,
   }
   ctx.scene.add(v.model.group)
+  attachLod(v, c.aircraft.spec.id)
   visuals.set(c, v)
   return v
 }
@@ -960,6 +984,11 @@ function respawnPlayer() {
 function releaseVisual(v: Visual): void {
   ctx.scene.remove(v.model.group)
   v.model.dispose()
+  if (v.lod !== null) {
+    ctx.scene.remove(v.lod.group)
+    v.lod.dispose()
+    v.lod = null
+  }
 }
 
 /**
@@ -1689,11 +1718,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 釋放。配置只發生在復活那一刻
       v.model = buildAircraft(c.aircraft.spec)
       ctx.scene.add(v.model.group)
+      attachLod(v, c.aircraft.spec.id)
       v.wrecked = false
     }
 
     v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
     v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
+    // 【距離 LOD】兩具的姿態都要寫 —— 只寫顯示中的那一具，換過去的那一幀
+    // 會看到它還停在上一次顯示時的位置。
+    if (v.lod !== null) {
+      v.far = useAircraftLod(v.position.distanceToSquared(ctx.camera.position), v.far)
+      v.lod.group.position.copy(v.position)
+      v.lod.group.quaternion.copy(v.quaternion)
+    }
     v.model.group.position.copy(v.position)
     v.model.group.quaternion.copy(v.quaternion)
 
@@ -1705,13 +1742,27 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 【為什麼先內插再接管】殘骸的起始姿態必須接在畫面上最後看到的位置。
       // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
       v.wrecked = true
+      // 【殘骸接手目前顯示的那一具，另一具在這裡放掉】殘骸池只收一個 group，
+      // 而墜落的殘骸會一路掉到眼前 —— 交低模過去的話近看是多邊形的機身。
+      if (v.lod !== null) {
+        ctx.scene.remove(v.lod.group)
+        v.lod.dispose()
+        v.lod = null
+        v.far = false
+      }
       const vel = c.aircraft.state.velocity
       wrecks.adopt(v.model, c.aircraft.spec, vel.x, vel.y, vel.z, c.index)
       continue
     }
 
-    v.model.group.visible = true
-    v.model.setPropSpin(propRotation, c.command.throttle > 0.15)
+    const shown = v.far && v.lod !== null ? v.lod : v.model
+    if (v.lod !== null) {
+      v.model.group.visible = !v.far
+      v.lod.group.visible = v.far
+    } else {
+      v.model.group.visible = true
+    }
+    shown.setPropSpin(propRotation, c.command.throttle > 0.15)
 
     // 【翼尖凝結尾】接線點在 `v.wrecked` 與 `!c.alive` 的 continue 之後 ——
     // 翻滾的殘骸沒有升力，本來就不該冒尾跡，那是免費得到的。
@@ -2568,7 +2619,9 @@ const GFX_HIDDEN_LAYER = 31
     particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
     tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
     vortex: () => [vortex.object],
-    aircraft: () => [...visuals.values()].map((v) => v.model.group),
+    // 【低模那一具也要收進來】只關正式模型的話，200 m 外那幾架照畫不誤
+    aircraft: () => [...visuals.values()]
+      .flatMap((v) => (v.lod === null ? [v.model.group] : [v.model.group, v.lod.group])),
     // 【戰況相依的雜項】砲塔管、編隊標記、碎片、目標環。它們的位置取決於
     // 這一場打成什麼樣，兩次執行不會一樣 —— 逐像素比對要把它們一起關掉，
     // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
@@ -2664,6 +2717,40 @@ const GFX_HIDDEN_LAYER = 31
   }
   return { hidden, kinds: [...kinds] }
 }
+
+/**
+ * **量測出口**：場上每一席的機種與位置。
+ *
+ * 【為什麼需要它】對著某一群飛機量幀時間時，鏡頭要擺在它們身上，而它們一路
+ * 在飛 —— 寫死座標的話量到一半整隊已經飛出畫面。
+ */
+/**
+ * **量測出口**：距離 LOD 現在切到哪裡。
+ *
+ * 【為什麼需要它】切換沒有生效時畫面上**看不出來** —— 兩具模型長得幾乎一樣，
+ * 症狀只有「省下來的幀時間是零」，而幀時間本來就會漂。
+ */
+;(window as unknown as Record<string, unknown>)['__lod'] = () => {
+  let withLod = 0
+  let far = 0
+  let nearest = Infinity
+  for (const v of visuals.values()) {
+    if (v.lod === null) continue
+    withLod++
+    if (v.far) far++
+    nearest = Math.min(nearest, v.position.distanceTo(ctx.camera.position))
+  }
+  return { seats: visuals.size, withLod, far, nearest: Math.round(nearest) }
+}
+
+;(window as unknown as Record<string, unknown>)['__seats'] = () =>
+  world.combatants.map((c) => ({
+    id: c.aircraft.spec.id,
+    alive: c.alive,
+    x: c.aircraft.state.position.x,
+    y: c.aircraft.state.position.y,
+    z: c.aircraft.state.position.z,
+  }))
 
 ;(window as unknown as Record<string, unknown>)['__godcam'] = (
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,

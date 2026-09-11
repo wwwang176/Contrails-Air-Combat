@@ -109,6 +109,50 @@ export function buildAircraft(spec: AircraftSpec): AircraftModel {
 }
 
 /**
+ * 機種 id → 遠處用的低模 id。**沒列在這裡的機種就沒有 LOD**，`buildAircraftLod`
+ * 回 `null`，呼叫端一路走正式模型。
+ */
+const AIRCRAFT_LOD: Record<string, string> = {
+  b17g: 'b17g_lod2',
+}
+
+/**
+ * 切到低模的距離，m。
+ *
+ * 【為什麼是 200】那個距離下一架只有 89 px 寬，實地比對到這裡就分不出兩台；
+ * 50 m（360 px）的並排算圖也還看不出差別，26 m 的追尾相機（687 px）才看得出
+ * 機身的多邊形。而戰鬥機開火的距離（100～200 m）剛好讓被打的那一架跳回正式
+ * 模型。
+ *
+ * 【遲滯】與 `vegetation.ts` 的 `lodFor` 同一個理由：距離停在門檻上時會逐幀
+ * 換模型，而換模型是整架閃一下。
+ */
+export const AIRCRAFT_LOD_DIST = 200
+export const AIRCRAFT_LOD_HYSTERESIS = 25
+
+/** 這一架該用低模嗎。`prev` 是上一幀的答案。吃距離平方，熱路徑上不開根號。 */
+export function useAircraftLod(dist2: number, prev: boolean): boolean {
+  const t = AIRCRAFT_LOD_DIST + (prev ? -AIRCRAFT_LOD_HYSTERESIS : AIRCRAFT_LOD_HYSTERESIS)
+  return dist2 > t * t
+}
+
+/**
+ * 這個機種遠處用的模型。沒有低模就回 `null`。
+ *
+ * 【量測值與正式模型相同】低模的 manifest 是 `...B17G_MODEL` 展開來的，
+ * `eyePoint`／`wingTip`／`bombPoint` 逐項相同，所以呼叫端讀哪一具都一樣。
+ */
+export function buildAircraftLod(id: string): AircraftModel | null {
+  // `__FLYING_LOD = false` 讓整場一路走正式模型，給 e2e 做 A/B
+  if ((globalThis as Record<string, unknown>)['__FLYING_LOD'] === false) return null
+  const lodId = AIRCRAFT_LOD[id]
+  if (lodId === undefined) return null
+  const t = glbTemplate(lodId)
+  if (!t) throw new Error(`低模 ${lodId} 還沒載入 —— 少了 preloadAircraftModels()`)
+  return buildFromTemplate(t)
+}
+
+/**
  * 機種 id → 機身色。與 `BUILDERS` 同一把鑰匙。
  *
  * 【為什麼在這裡而不是 `AircraftSpec` 裡】`specs/` 放的是飛行與武裝的物理
