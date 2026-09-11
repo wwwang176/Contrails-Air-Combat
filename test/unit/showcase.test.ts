@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
-  createFlightPose, showcaseCamera, showcaseFlight, showcaseQuaternion,
-  SHOWCASE_ALTITUDE, SHOWCASE_DISTANCE_SPANS, SHOWCASE_PITCH_LIMIT, SHOWCASE_RADIUS,
+  createFlightPose, showcaseCamera, showcaseDistance, showcaseFlight, showcaseQuaternion,
+  SHOWCASE_ALTITUDE, SHOWCASE_MAX_DISTANCE, SHOWCASE_PITCH_LIMIT, SHOWCASE_RADIUS,
 } from '../../src/app/showcase'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 
@@ -14,8 +14,7 @@ import { ALL_SPECS } from '../../src/battle/skirmish'
 const NOSE = (yaw: number): Vector3 =>
   new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
 
-/** 場上最大的翼展，決定相機最遠會離飛機多遠 */
-const MAX_DISTANCE = Math.max(...ALL_SPECS.map((s) => s.wing.span)) * SHOWCASE_DISTANCE_SPANS
+const MAX_DISTANCE = SHOWCASE_MAX_DISTANCE
 
 describe('showcaseFlight', () => {
   it('高度鎖死 —— 飛十分鐘一公分都不掉', () => {
@@ -59,6 +58,41 @@ describe('showcaseFlight', () => {
       // 機頂往哪一邊倒：只看水平分量，與「圓心在哪一邊」比對
       toCentre.set(-pose.position.x, 0, -pose.position.z).normalize()
       expect(up.x * toCentre.x + up.z * toCentre.z).toBeGreaterThan(0)
+    }
+  })
+})
+
+/**
+ * 鏡頭距離。**同一類裡固定** —— 照翼展各配一個的話每台都剛好塞滿畫面，
+ * 體型差就消失了（見 `FIGHTER_DISTANCE` 的註解）。
+ */
+describe('showcaseDistance', () => {
+  it('同一類的九台只有兩個值，而且轟炸機比較遠', () => {
+    const byRole = new Map<string, Set<number>>()
+    for (const s of ALL_SPECS) {
+      const set = byRole.get(s.role) ?? new Set<number>()
+      set.add(showcaseDistance(s.role))
+      byRole.set(s.role, set)
+    }
+    expect(byRole.get('fighter')!.size).toBe(1)
+    expect(byRole.get('bomber')!.size).toBe(1)
+    expect(showcaseDistance('bomber')).toBeGreaterThan(showcaseDistance('fighter'))
+  })
+
+  it('沒有一台超過護欄掃描用的上界', () => {
+    for (const s of ALL_SPECS) {
+      expect(showcaseDistance(s.role), s.id).toBeLessThanOrEqual(SHOWCASE_MAX_DISTANCE)
+    }
+  })
+
+  /**
+   * 【為什麼要這一條】距離固定之後，畫面上的大小就是翼展比。最大的那一台
+   * 仍然要留得下邊 —— 距離小於翼展的話它會兩端出畫面。
+   */
+  it('每一類最大的那一台仍然放得進畫面', () => {
+    for (const role of ['fighter', 'bomber'] as const) {
+      const widest = Math.max(...ALL_SPECS.filter((s) => s.role === role).map((s) => s.wing.span))
+      expect(showcaseDistance(role)).toBeGreaterThan(widest * 1.4)
     }
   })
 })

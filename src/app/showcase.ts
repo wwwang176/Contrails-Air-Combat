@@ -4,6 +4,7 @@ import { createTracers, type Tracers } from '../render/tracers'
 import { createMuzzles, type MuzzleSource, type Muzzles } from '../render/muzzle'
 import { createBombs, createTorpedoes, type BombVisuals } from '../render/bombs'
 import { Bombs, BOMB_TERMINAL_SPEED, bombDragK } from '../world/bomb'
+import { BOMB_SALVO_INTERVAL } from '../weapons/bomb'
 import { Projectiles, PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { FLASH_SECONDS } from '../world/World'
 import { mountDirection } from '../weapons/types'
@@ -50,12 +51,27 @@ export const SHOWCASE_SPEED = 100
  */
 export const SHOWCASE_PITCH_LIMIT = 70 * DEG
 /**
- * 鏡頭距離 = 翼展 × 這個數。
+ * 鏡頭距離，m。**戰鬥機一個、轟炸機一個，同一類裡不隨機種變。**
  *
- * 【為什麼綁翼展而不是固定距離】B-17 的翼展是 P-51 的 2.8 倍。固定距離下
- * 兩台一台塞滿畫面、一台是個小點。
+ * 【為什麼不照翼展各配一個】那樣每一台都剛好塞滿畫面，於是**看不出誰大誰
+ * 小** —— 零戰與地獄貓差 2.1 m 翼展，在畫面上會一樣大。固定值之下同一類
+ * 裡的體型差直接讀得出來。
+ *
+ * 【為什麼兩類不共用一個】翼展從 9.9 m 到 31.6 m 是 3.2 倍。共用一個距離
+ * 的話，要嘛戰鬥機小成一個點，要嘛 B-17 兩端都出畫面。跨類的大小本來就
+ * 不是這一頁要回答的問題 —— 翼展寫在事實列裡。
+ *
+ * 【定值怎麼來】取該類最大的那一台（F6F-5 的 13.1 m、B-17G 的 31.6 m）
+ * 乘 1.6，也就是它剛好在畫面裡留點邊。
  */
-export const SHOWCASE_DISTANCE_SPANS = 1.6
+export const FIGHTER_DISTANCE = 21
+export const BOMBER_DISTANCE = 50
+
+/** 相機最遠會離飛機多遠。護欄用它掃「相機會不會鑽進海裡」 */
+export const SHOWCASE_MAX_DISTANCE = BOMBER_DISTANCE
+
+export const showcaseDistance = (role: AircraftSpec['role']): number =>
+  (role === 'bomber' ? BOMBER_DISTANCE : FIGHTER_DISTANCE)
 
 /** 展示機的姿態。角度單位 rad */
 export interface FlightPose {
@@ -147,19 +163,42 @@ const DEFAULT_ORBIT_YAW = Math.PI + 40 * DEG
 const DEFAULT_ORBIT_PITCH = 12 * DEG
 /** 拖曳靈敏度，rad/px */
 const DRAG_RATE = 0.006
+/**
+ * 視角追上拖曳的速率，1/s。
+ *
+ * 【為什麼要跟丟一點】滑鼠的位移是一格一格跳的，直接寫進角度時，畫面會
+ * 跟著滑鼠的抖動一起抖。追過去的寫法是 `1 - exp(-k·dt)` 而不是固定比例
+ * ——固定比例在不同幀率下的手感不一樣（144 Hz 的機器會轉得比 60 Hz 快
+ * 一倍多）。
+ *
+ * 12 /s ≈ 追到一半要 58 ms：拖起來仍然跟手，放手時會輕輕滑一下停住。
+ */
+const ORBIT_FOLLOW = 12
 
 /** 連射週期與長度，秒。中間要有夠長的空檔，否則整頁都在閃 */
 const BURST_PERIOD = 5
 const BURST_SECONDS = 0.8
-/** 投彈間隔，秒 */
+/**
+ * 投完一整串之後歇多久，秒。
+ *
+ * 【整串投完才算一輪】B-17G 掛十枚，一次只丟一枚看起來像故障。串內的
+ * 間隔用戰鬥裡的 `BOMB_SALVO_INTERVAL`，不另外定一個 —— 彈著間距是那一個
+ * 數字決定的，展示場跟著它才是同一台飛機。
+ */
 const BOMB_PERIOD = 6
 /** 螺旋槳轉速，rad/s。與戰鬥裡全油門同一個量級（`main.ts` 的 `propRotation`） */
 const PROP_SPIN = 55
 
 /** 彈丸池只放這一架自己的連射。0.8 秒 × 六挺 × 13 發/秒 ＝ 63 發 */
 const SHOWCASE_PROJECTILES = 128
-/** 炸彈池：投彈間隔 6 秒、從 300 m 落到海面約 8 秒，同時在空中的最多兩顆 */
-const SHOWCASE_BOMBS = 4
+/**
+ * 炸彈池。
+ *
+ * 【要放得下整串】B-17G 一串十枚、0.35 秒一枚共 3.2 秒撒完，而從 300 m
+ * 落到海面要 8 秒 —— 十枚會同時在空中。池子小於這個數的話環狀指標會繞回來
+ * 覆寫最舊的那一枚，症狀是**串頭那幾枚在半空中憑空消失**。
+ */
+const SHOWCASE_BOMBS = 16
 
 /**
  * 投彈點，機體座標。
@@ -227,13 +266,18 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
   const sources: MuzzleSource[] = []
 
   let elapsed = 0
+  /** 拖曳寫的是這一組，畫面上的鏡頭每幀追過去（見 `ORBIT_FOLLOW`） */
+  let wantYaw = DEFAULT_ORBIT_YAW
+  let wantPitch = DEFAULT_ORBIT_PITCH
   let orbitYaw = DEFAULT_ORBIT_YAW
   let orbitPitch = DEFAULT_ORBIT_PITCH
-  let distance = 20
+  let distance = FIGHTER_DISTANCE
   let propRotation = 0
   let burstTimer = 1.5
   let burstLeft = 0
   let bombTimer = 2
+  /** 這一串還剩幾枚沒投。歸零就歇 `BOMB_PERIOD` 再排下一串 */
+  let stickLeft = 0
 
   function clearShots(): void {
     projectiles.clear()
@@ -253,7 +297,7 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     spec = next
     model = buildAircraft(next)
     group.add(model.group)
-    distance = next.wing.span * SHOWCASE_DISTANCE_SPANS
+    distance = showcaseDistance(next.role)
     cooldowns = new Float32Array(next.battery.mounts.length)
     muzzleFlash = new Float32Array(next.battery.mounts.length)
     sources[0] = { index: 0, alive: true, muzzleFlash, aircraft: { spec: { battery: next.battery } } }
@@ -262,6 +306,7 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     burstLeft = 0
     burstTimer = 1.5
     bombTimer = 2
+    stickLeft = load?.count ?? 0
     clearShots()
   }
 
@@ -314,13 +359,20 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     if (load !== undefined && spec.role === 'bomber') {
       bombTimer -= dt
       if (bombTimer <= 0) {
-        bombTimer = BOMB_PERIOD
         SCRATCH_POS.copy(BOMB_RELEASE).applyQuaternion(quaternion).add(flight.position)
         bombs.spawn(
           SCRATCH_POS.x, SCRATCH_POS.y, SCRATCH_POS.z,
           -Math.sin(flight.yaw) * SHOWCASE_SPEED, 0, -Math.cos(flight.yaw) * SHOWCASE_SPEED,
           load.damage,
         )
+        // 【串投完才重排下一串】掛十枚就要看到十枚一枚接一枚掉出去
+        stickLeft -= 1
+        if (stickLeft > 0) {
+          bombTimer = BOMB_SALVO_INTERVAL
+        } else {
+          bombTimer = BOMB_PERIOD
+          stickLeft = load.count
+        }
       }
     }
     bombs.step(dt, bombDrag, seaLevel, noImpact)
@@ -340,9 +392,9 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
   }
   function onPointerMove(e: PointerEvent): void {
     if (!dragging) return
-    orbitYaw -= e.movementX * DRAG_RATE
-    const pitch = orbitPitch + e.movementY * DRAG_RATE
-    orbitPitch = pitch > SHOWCASE_PITCH_LIMIT ? SHOWCASE_PITCH_LIMIT
+    wantYaw -= e.movementX * DRAG_RATE
+    const pitch = wantPitch + e.movementY * DRAG_RATE
+    wantPitch = pitch > SHOWCASE_PITCH_LIMIT ? SHOWCASE_PITCH_LIMIT
       : pitch < -SHOWCASE_PITCH_LIMIT ? -SHOWCASE_PITCH_LIMIT : pitch
   }
   function onPointerUp(): void {
@@ -358,6 +410,10 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
 
     update(frameSeconds: number, camera: PerspectiveCamera): void {
       elapsed += frameSeconds
+      // 【追上拖曳】指數逼近，與幀率無關，見 `ORBIT_FOLLOW`
+      const follow = 1 - Math.exp(-ORBIT_FOLLOW * frameSeconds)
+      orbitYaw += (wantYaw - orbitYaw) * follow
+      orbitPitch += (wantPitch - orbitPitch) * follow
       showcaseFlight(elapsed, flight)
       showcaseQuaternion(flight, quaternion)
       positions[0]!.copy(flight.position)
