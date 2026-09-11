@@ -12,7 +12,7 @@
  */
 import { chromium } from 'playwright'
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 
 interface Angles {
   model: number; barrels: number; arcs: number

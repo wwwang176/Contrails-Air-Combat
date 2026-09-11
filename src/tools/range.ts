@@ -47,7 +47,7 @@ import type { Command, Controller } from '../control/Controller'
  * 這裡走的是與 `main.ts` 完全相同的路徑 —— `world.destroy()` 推事件、
  * 子步排空、渲染層接管模型。
  *
- * 進入方式：`npm run dev` 之後開 /range.html。
+ * 進入方式：`npm run dev` 之後開 /tools/range.html。
  */
 
 /** 空中擊墜的爆炸繼承多少母機速度。與 `main.ts` 同一個值 */
@@ -103,7 +103,7 @@ const wrecks = createWrecks(4, (m) => {
 //
 // 【與 `main.ts` 同一組配方】擊墜的球塊火球（`AIR_BLAST`）與殘骸的引擎火
 // （`createFirePuff`）在遊戲裡長什麼樣，靶場就要長什麼樣 —— 這一頁是它們
-// 的驗收處。配方本身在 `render/blast.ts`，`/blast.html` 是那一份的調校台。
+// 的驗收處。配方本身在 `render/blast.ts`，`/tools/blast.html` 是那一份的調校台。
 const smokeTexture = new TextureLoader().load('/textures/smoke.png')
 const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
   emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)

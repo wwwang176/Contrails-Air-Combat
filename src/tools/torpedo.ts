@@ -40,7 +40,7 @@ import { loadoutOf } from '../weapons/stores'
  * 事件由 `torpedoEvents` / `torpedoWakeEvents` 出來 —— 與 `main.ts` 讀的是
  * 同一批。工具自己抄一份彈道的話，看到的就不是遊戲裡的東西。
  *
- * 進入方式：`npm run dev` 之後開 /torpedo.html。
+ * 進入方式：`npm run dev` 之後開 /tools/torpedo.html。
  */
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement

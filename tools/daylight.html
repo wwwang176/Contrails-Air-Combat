@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>時段展示區 — Contrails Air: Combat</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 288px; padding: 12px 14px;
+        background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      #tabs, #terrain { display: flex; gap: 6px; margin-bottom: 8px; }
+      #tabs button, #terrain button { flex: 1; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+      .row label { flex: 0 0 64px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row input[type=color] { flex: 1; min-width: 0; height: 20px; padding: 0;
+        background: none; border: 1px solid #2b3f52; border-radius: 3px; cursor: pointer; }
+      .row .val { flex: 0 0 62px; text-align: right; color: #e6f0f8; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 4px 9px; cursor: pointer;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; }
+      #dump {
+        position: fixed; right: 12px; bottom: 12px; width: 268px; padding: 10px 12px;
+        background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #dump .head { display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 8px; color: #8fb8d8; }
+      #out { margin: 0; font-size: 11px; line-height: 1.45; color: #a9c4dc;
+        white-space: pre; overflow-x: auto; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>時段展示區</h1>
+      <div id="tabs"></div>
+      <div id="terrain"></div>
+      <div id="rows"></div>
+    </div>
+    <div id="dump">
+      <div class="head"><span>timeOfDay.ts</span><button id="copy">複製設定</button></div>
+      <pre id="out"></pre>
+    </div>
+    <div id="hint">左鍵拖曳旋轉　滾輪縮放　右鍵平移</div>
+    <script type="module" src="/src/tools/daylight.ts"></script>
+  </body>
+</html>

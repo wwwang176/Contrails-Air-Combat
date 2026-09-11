@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>地面展示區 — Contrails Air: Combat</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 268px; padding: 12px 14px;
+        background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+      #list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; }
+      #stats { margin-top: 10px; padding-top: 9px; border-top: 1px solid #2b3f52;
+        color: #8ea6bb; white-space: pre; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>地面展示區</h1>
+      <div id="list"></div>
+      <div class="row">
+        <button id="vSide">側視</button>
+        <button id="vTop">俯視</button>
+        <button id="vFront">前視</button>
+      </div>
+      <div class="row">
+        <button id="wire">線框</button>
+        <button id="lit">打光</button>
+        <button id="axes">軸向</button>
+        <button id="grid">收網格</button>
+        <button id="hit">命中盒</button>
+      </div>
+      <div id="stats"></div>
+    </div>
+    <div id="hint">左鍵拖曳旋轉　滾輪縮放　右鍵平移　　空白鍵：自動旋轉　　網格 = 1 m</div>
+    <script type="module" src="/src/tools/ground.ts"></script>
+  </body>
+</html>

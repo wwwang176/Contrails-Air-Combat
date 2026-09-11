@@ -22,7 +22,7 @@ import {
  * 看起來像在驗證正式的東西。要再調參數就改
  * `damageMarks.ts` / `damageEdge.ts` 的常數。
  *
- * 進入方式：`npm run dev` 之後開 /damageedge.html。
+ * 進入方式：`npm run dev` 之後開 /tools/damageedge.html。
  */
 
 // ── 3D 背景：只是為了判斷紅色在天空與海面上讀不讀得出來 ────────────────

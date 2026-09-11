@@ -22,7 +22,7 @@ import { P51D } from '../specs/p51d'
  * `buildAircraft(P51D)` 建出來的那一個、曳光彈是 `createTracers()` 那一個、
  * 彈丸走的是 `Projectiles.step`。**三個模式只改材質旗標，不改任何遊戲程式。**
  *
- * 進入方式：`npm run dev` 之後開 /propdisc.html。
+ * 進入方式：`npm run dev` 之後開 /tools/propdisc.html。
  */
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement

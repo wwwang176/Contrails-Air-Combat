@@ -16,7 +16,7 @@
 import { chromium, type Page } from 'playwright'
 import { writeFileSync } from 'node:fs'
 
-const URL = 'http://localhost:5175/blast.html'
+const URL = 'http://localhost:5175/tools/blast.html'
 const ROOT = 'C:/Users/weiwe/AppData/Local/Temp/claude/C--projects-grok-aircraft2/'
   + '48a01b5a-7c87-4eb0-b508-ce8741c327da/scratchpad'
 

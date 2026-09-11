@@ -30,7 +30,7 @@ import { FLAK_SITES, PLANT_TARGETS } from '../world/leuna'
  * 【它走的是遊戲的那條路徑】`createScene` + `createTerrain` + `applyTimeOfDay`，
  * 與 `main.ts` 完全相同。工具若自己抄一份光照，看到的就不是遊戲裡的東西。
  *
- * 進入方式：`npm run dev` 之後開 /daylight.html。
+ * 進入方式：`npm run dev` 之後開 /tools/daylight.html。
  */
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement

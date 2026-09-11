@@ -13,7 +13,7 @@
  */
 import { chromium, type Page } from 'playwright'
 
-const URL = 'http://localhost:5190/daylight.html'
+const URL = 'http://localhost:5190/tools/daylight.html'
 const ROOT = 'C:/Users/weiwe/AppData/Local/Temp/claude/'
   + 'C--Users-weiwe-orca-workspaces-grok-aircraft2-lenua-build/'
   + '151d84f5-5f66-4442-a023-415b01783c86/scratchpad'
