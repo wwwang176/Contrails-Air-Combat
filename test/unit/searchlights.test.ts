@@ -61,6 +61,24 @@ describe('探照燈', () => {
     expect(beamDir(m).dot(want)).toBeLessThan(0.99)
   })
 
+  it('轉向走最短弧線：從天頂掃向低仰角的目標，中途一直在天頂與目標的大圓面上', () => {
+    const base = createGroundTarget(0, 'searchlight', 'red', 0, -7000, 0)
+    const s = createSearchlights([base], new Texture())
+    const m = s.object.children[0] as Mesh
+    // 目標在正 +X 方向：大圓面是 XY 平面，方向的 z 分量全程要是 0。
+    // 分軸轉的話會先朝 −Z 倒下來再繞過去，中途 z 明顯不是 0
+    const list = [plane('blue', 3000, 500, -7000)]
+    s.update(0, list, CAM)
+    let maxZ = 0
+    for (let t = 1 / 60; t < 3; t += 1 / 60) {
+      s.update(t, list, CAM)
+      maxZ = Math.max(maxZ, Math.abs(beamDir(m).z))
+    }
+    expect(maxZ).toBeLessThan(0.01)
+    const want = new Vector3(3000, 500 - 2, 0).normalize()
+    expect(beamDir(m).dot(want)).toBeGreaterThan(0.999)
+  })
+
   it('只對探照燈建光束；座被炸掉就不亮', () => {
     const targets = [
       createGroundTarget(0, 'searchlight', 'red', 0, -7000, 0),
