@@ -146,16 +146,28 @@
          紙下面是天空與海，不壓的話返回鍵與卷宗邊緣在亮海上會讀不出來 */
       /* 【靠左靠的是 align-items】`.screen` 是直向的 flex —— justify-content 在
          這裡管的是上下，拿它靠左只會把整頁推到畫面頂端 */
+      /* 【只有這一頁不是整片遮罩】右邊要看得到天空。由左到右一路淡開，
+         沒有任何一條邊界 —— 有邊界的話，內容帶在寬螢幕上置中之後，畫面
+         左側會出現一道與版面無關的直線 */
       #ui .screen#hangar {
-        align-items: flex-start; justify-content: center; padding-left: 44px;
-        background: linear-gradient(90deg, rgba(var(--veil), .62) 0 30%, rgba(var(--veil), 0) 62%);
+        background: linear-gradient(90deg, rgba(var(--veil), .6) 0%, rgba(var(--veil), 0) 100%);
       }
       /* 【滿版而不是只佔右半】拖曳要能從畫面上任何一處開始；卷宗蓋在它上面，
          所以拖在紙上不會轉鏡頭 */
       #hangar-view { position: absolute; inset: 0; cursor: grab; }
       #hangar-view:active { cursor: grabbing; }
+      /* 【整頁是一條有上限的內容帶】不設上限的話，卷宗貼著視窗左緣、飛機
+         貼著右緣 —— 螢幕愈寬兩者離愈遠，中間空一大片。飛機的位置由
+         `.stage` 這個空格子決定（`showcase.ts` 量它的中心），所以它跟著
+         內容帶走，不是跟著視窗走 */
+      /* 【帶子本身不吃指標事件】它是一個橫跨整條的 flex 容器，蓋在
+         #hangar-view 上面 —— 不關掉的話，飛機那半邊的按下與拖曳全都停在
+         這一層，拖不動視角。要點的東西各自開回來 */
       .pane.hangar { z-index: 1; display: flex; align-items: stretch; gap: 12px;
-        max-height: calc(100vh - 150px); }
+        width: min(1280px, 100%); max-height: calc(100vh - 150px); pointer-events: none; }
+      .pane.hangar > .rack, .pane.hangar > .sheet, .pane.hangar > .back { pointer-events: auto; }
+      /* 飛機站的地方。只是一個量得到的空格子，不畫任何東西 */
+      .stage { flex: 1; min-width: 0; }
       .rack { display: flex; flex-direction: column; gap: 5px; width: 136px; overflow-y: auto; }
       /* 【機種也是一份份的卷宗】與任務那一疊同一種東西，所以照用 .stop */
       .rack .stop { margin-bottom: 0; }
@@ -429,6 +441,7 @@
           <button class="back" data-act="back">主選單</button>
           <div class="rack" id="hangar-rack"></div>
           <div class="sheet paperbit" id="hangar-sheet"></div>
+          <div class="stage" id="hangar-stage"></div>
         </div>
       </section>
 

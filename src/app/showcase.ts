@@ -9,6 +9,7 @@ import { Projectiles, PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { FLASH_SECONDS } from '../world/World'
 import { mountDirection } from '../weapons/types'
 import { LOADOUT_BY_AIRCRAFT } from '../weapons/stores'
+import { maxRollRate } from '../analysis/envelope'
 import { DEG } from '../core/math'
 import type { AircraftSpec } from '../specs/types'
 
@@ -61,11 +62,12 @@ export const SHOWCASE_PITCH_LIMIT = 70 * DEG
  * 的話，要嘛戰鬥機小成一個點，要嘛 B-17 兩端都出畫面。跨類的大小本來就
  * 不是這一頁要回答的問題 —— 翼展寫在事實列裡。
  *
- * 【定值怎麼來】取該類最大的那一台（F6F-5 的 13.1 m、B-17G 的 31.6 m）
- * 乘 1.6，也就是它剛好在畫面裡留點邊。
+ * 【定值怎麼來】該類最大的那一台（F6F-5 的 13.1 m、B-17G 的 31.6 m）在
+ * 4:3 的窄螢幕上仍然只佔畫面寬的一半 —— 兩端都留得下邊，而該類最小的那一台
+ * 也還看得清楚。`showcase.test.ts` 守這條。
  */
-export const FIGHTER_DISTANCE = 21
-export const BOMBER_DISTANCE = 50
+export const FIGHTER_DISTANCE = 17
+export const BOMBER_DISTANCE = 40
 
 /** 相機最遠會離飛機多遠。護欄用它掃「相機會不會鑽進海裡」 */
 export const SHOWCASE_MAX_DISTANCE = BOMBER_DISTANCE
@@ -75,7 +77,15 @@ export const showcaseDistance = (role: AircraftSpec['role']): number =>
 
 /** 展示機的姿態。角度單位 rad */
 export interface FlightPose {
+  /** 飛機真正在哪 —— 平均航跡加上起伏與左右的偏移 */
   readonly position: Vector3
+  /**
+   * 平均航跡上的那一點：那個圓、平均高度、沒有任何偏移。
+   *
+   * 【相機看的是它，不是 `position`】相機若盯著飛機，飛機的每一個偏移都
+   * 會被相機同步跟掉 —— 起伏與左右擺就完全看不到（見 `ALT_WOBBLE`）。
+   */
+  readonly centre: Vector3
   /** 機首方向：(−sin yaw, 0, −cos yaw)，與 `world/` 同一套約定 */
   yaw: number
   /** 正值 = 左翼下沉（轉彎那一側） */
@@ -84,7 +94,7 @@ export interface FlightPose {
 }
 
 export function createFlightPose(): FlightPose {
-  return { position: new Vector3(), yaw: 0, bank: 0, pitch: 0 }
+  return { position: new Vector3(), centre: new Vector3(), yaw: 0, bank: 0, pitch: 0 }
 }
 
 /**
@@ -94,28 +104,118 @@ export function createFlightPose(): FlightPose {
  * 而那個錯誤在慢速繞圈時只差幾度，看不出來也說不出哪裡怪。
  */
 const TURN_BANK = Math.atan((SHOWCASE_SPEED * SHOWCASE_SPEED) / (SHOWCASE_RADIUS * 9.81))
-/** 呼吸用的擺動。兩個週期互質，合起來不會有明顯的節拍 */
-const BANK_WOBBLE = 1.6 * DEG
-const PITCH_WOBBLE = 0.7 * DEG
+/** 左右晃的幅度。整體的傾角因此在 `TURN_BANK ± ROLL_WOBBLE` 之間走 */
+export const ROLL_WOBBLE = 5 * DEG
+
+/**
+ * 上下起伏的**上界**（m）與基頻（rad/s）。
+ *
+ * 【它是看得見的那一個】相機的注視高度釘在 `SHOWCASE_ALTITUDE`（不是跟著
+ * 飛機跑），所以這一段是飛機在畫面裡真的上下移動。相機若跟著飛機一起上下，
+ * 這一項會被完全抵消，畫面上什麼都看不到。
+ */
+export const ALT_WOBBLE = 0.375
+const ALT_RATE = 1.14
+
+/**
+ * 左右飄移的**上界**（m）與基頻（rad/s）。與起伏同一種波形，只是換一個
+ * 方向、換一組頻率與相位。
+ *
+ * 【為什麼比起伏大一倍】畫面的寬是高的兩倍左右，同樣的公尺數橫著看只有
+ * 一半的視覺量。0.75 m 與 0.375 m 的起伏在畫面上大約等量。
+ */
+export const DRIFT_WOBBLE = 0.75
+const DRIFT_RATE = 0.82
+const DRIFT_PHASE = 0.9
+
+/**
+ * 黃金比例。起伏是三條正弦相加，頻率照它遞增。
+ *
+ * 【為什麼要三條而不是一條】單一正弦有固定週期，看久了會發現它在數拍子。
+ * 頻率比是無理數時三條永遠對不回同一個相位，合起來讀起來就是「風裡的
+ * 起伏」而不是一台節拍器 —— 而它仍然是純函數，沒有亂數種子要管。
+ *
+ * 【除以 `BOB_NORM`】三條的振幅和，用它正規化之後合成值必定落在 ±1，
+ * `ALT_WOBBLE` 才真的是上界。
+ */
+const PHI = 1.618033988749895
+const WAVE_NORM = 1 + 0.6 + 0.35
+/** 三條的起始相位。不錯開的話，開頭幾秒三條同時過零，看起來就是一條 */
+const WAVE_PHASE_2 = 1.7
+const WAVE_PHASE_3 = 4.1
+/** 上下起伏與左右擺動各用一條，錯開相位 —— 同步的話兩者會像同一個動作 */
+const ROLL_PHASE = 2.4
+
+/** 三條頻率成黃金比例的正弦相加。**值域 ±1**，所以振幅由呼叫端全權決定 */
+function goldenWave(x: number, phase: number): number {
+  return (
+    Math.sin(x + phase)
+    + 0.6 * Math.sin(x * PHI + phase + WAVE_PHASE_2)
+    + 0.35 * Math.sin(x * PHI * PHI + phase + WAVE_PHASE_3)
+  ) / WAVE_NORM
+}
+
+/** `goldenWave` 對 x 的導數。上下起伏要用它算機首的俯仰 */
+function goldenWaveSlope(x: number, phase: number): number {
+  return (
+    Math.cos(x + phase)
+    + 0.6 * PHI * Math.cos(x * PHI + phase + WAVE_PHASE_2)
+    + 0.35 * PHI * PHI * Math.cos(x * PHI * PHI + phase + WAVE_PHASE_3)
+  ) / WAVE_NORM
+}
+
+/**
+ * 這一台左右擺動的基頻，rad/s。**每台不一樣** —— 零戰晃得比 B-17 快。
+ *
+ * 【為什麼取平方根而不是照比例】滿舵滾轉率在展示場的條件下（300 m、100 m/s）
+ * 從 B-17G 的 11°/s 到 A6M5 的 89°/s，差 8 倍。照比例配的話 B-17 是 100 秒
+ * 一個來回，畫面上讀起來像停著。平方根把 8 倍壓成 2.8 倍（基頻週期 4.5 秒
+ * 對 12.6 秒），**順序一格都沒變** —— 而那個順序才是「每台的滾轉速度不同」
+ * 要傳達的東西。
+ *
+ * 【`ROLL_OMEGA_GAIN` 的單位】它吸收了平方根留下的單位，數值由「最快的那台
+ * 約 4.5 秒一個來回」定出來。
+ */
+const ROLL_OMEGA_GAIN = 1.12
+export function showcaseRollOmega(spec: AircraftSpec): number {
+  return ROLL_OMEGA_GAIN * Math.sqrt(maxRollRate(spec, SHOWCASE_ALTITUDE, SHOWCASE_SPEED))
+}
 
 /**
  * 展示機這一刻在哪、什麼姿態。**純函數。**
  *
- * 【高度是常數】這一行就是「飛機不會掉進海裡」的全部實作。
+ * 【高度只在 `SHOWCASE_ALTITUDE` 上下 `ALT_WOBBLE` 之間走】它是一條正弦，
+ * 不是模擬出來的 —— 所以飛機不可能愈掉愈低，也就不必有任何保護。
  */
-export function showcaseFlight(elapsed: number, out: FlightPose): void {
+export function showcaseFlight(elapsed: number, rollOmega: number, out: FlightPose): void {
   const theta = (elapsed * SHOWCASE_SPEED) / SHOWCASE_RADIUS
-  out.position.set(
-    Math.sin(theta) * SHOWCASE_RADIUS,
-    SHOWCASE_ALTITUDE,
-    Math.cos(theta) * SHOWCASE_RADIUS,
-  )
+  const bob = elapsed * ALT_RATE
+  const height = goldenWave(bob, 0)
+  /** 高度對**時間**的變化率，m/s per ALT_WOBBLE */
+  const rate = goldenWaveSlope(bob, 0) * ALT_RATE
+  const drift = elapsed * DRIFT_RATE
+  const side = goldenWave(drift, DRIFT_PHASE)
+  const sideRate = goldenWaveSlope(drift, DRIFT_PHASE) * DRIFT_RATE
+
   // 【yaw = θ − π/2】圓上的速度方向是 (cos θ, 0, −sin θ)，而機首方向的
   // 定義是 (−sin yaw, 0, −cos yaw)；兩者相等就解出這一項。差 π/2 的話飛機
   // 會側著飛，而且因為它仍然在動，讀起來像「飄移」而不像「轉錯」。
-  out.yaw = theta - Math.PI / 2
-  out.bank = TURN_BANK + Math.sin(elapsed * 0.29) * BANK_WOBBLE
-  out.pitch = Math.sin(elapsed * 0.17) * PITCH_WOBBLE
+  const base = theta - Math.PI / 2
+  out.centre.set(Math.sin(theta) * SHOWCASE_RADIUS, SHOWCASE_ALTITUDE, Math.cos(theta) * SHOWCASE_RADIUS)
+  // 【右方向】機首 × 上 = (cos yaw, 0, −sin yaw)。左右的偏移沿著它走
+  out.position.set(
+    out.centre.x + Math.cos(base) * side * DRIFT_WOBBLE,
+    out.centre.y + height * ALT_WOBBLE,
+    out.centre.z - Math.sin(base) * side * DRIFT_WOBBLE,
+  )
+  // 【機首也跟著往那一邊帶】側向的速度除以空速就是航跡偏了幾度。不帶的話
+  // 飛機是平移的 —— 機頭朝前、身體往旁邊滑，那是側滑不是飄移。
+  // **減號**：yaw 變大是往左轉（見上面的機首定義），而正的偏移是往右
+  out.yaw = base - Math.asin((DRIFT_WOBBLE * sideRate) / SHOWCASE_SPEED)
+  out.bank = TURN_BANK + goldenWave(elapsed * rollOmega, ROLL_PHASE) * ROLL_WOBBLE
+  // 【機首跟著起伏抬頭低頭】爬升率就是高度那條曲線的導數，除以空速得到
+  // 航跡角。機首朝向與上下的動向分家的話，看起來會像被一隻手托著平移
+  out.pitch = Math.asin((ALT_WOBBLE * rate) / SHOWCASE_SPEED)
 }
 
 /**
@@ -139,16 +239,19 @@ export function showcaseCamera(
 ): void {
   const yaw = flight.yaw + orbitYaw
   const flat = Math.cos(orbitPitch) * distance
-  out.target.copy(flight.position)
+  // 【看的是平均航跡，不是飛機本身】盯著飛機的話，起伏與左右飄移都會被
+  // 相機同步跟掉，畫面上一動也不動（見 `ALT_WOBBLE`）。而平均航跡仍然
+  // 繞著那個圓走，所以飛機不會飛出畫面
+  out.target.copy(flight.centre)
   out.position.set(
-    flight.position.x + Math.sin(yaw) * flat,
-    flight.position.y + Math.sin(orbitPitch) * distance,
-    flight.position.z + Math.cos(yaw) * flat,
+    out.target.x + Math.sin(yaw) * flat,
+    out.target.y + Math.sin(orbitPitch) * distance,
+    out.target.z + Math.cos(yaw) * flat,
   )
 }
 
 /**
- * 主體在畫面上的水平位置，0.5 = 正中央。
+ * 主體在畫面上的水平位置，0.5 = 正中央。**量不到版面時的落點。**
  *
  * 【為什麼不是置中】左半邊是卷宗。相機看的是飛機，所以飛機預設就落在畫面
  * 正中央 —— 也就是紙的背面，整頁看起來像沒有飛機。
@@ -156,7 +259,19 @@ export function showcaseCamera(
  * 【為什麼是平移相機而不是挪注視點】挪注視點會讓相機轉一個角度，那等於
  * 偷偷改掉玩家拖出來的視角；平移是純位移，角度一格都不動。
  */
-const SUBJECT_X = 0.7
+const DEFAULT_SUBJECT_X = 0.7
+
+/**
+ * 鏡頭自己繞的角速度，rad/s。**86 秒一圈**，也就是 4.2°/s。
+ *
+ * 【為什麼要一直轉】停著不動的話，同一台飛機永遠只有一個角度看得到；轉起來
+ * 才會輪流露出機背、機腹與側面。慢到「看得出在動、但讀資料時不會分心」是
+ * 這個數字的全部要求。
+ *
+ * 【拖曳時停】拖到一半時視角還自己爬的話，手放著不動畫面卻在走，會覺得
+ * 是自己拖歪了。
+ */
+const AUTO_SPIN = (Math.PI * 2) / 86
 
 /** 進場時的視角：機首左前方 40°、略高一點 */
 const DEFAULT_ORBIT_YAW = Math.PI + 40 * DEG
@@ -250,9 +365,12 @@ export interface Showcase {
 }
 
 /**
- * @param view 吃拖曳的那一塊 DOM。展示場自己掛監聽器，也自己拆
+ * @param view  吃拖曳的那一塊 DOM。展示場自己掛監聽器，也自己拆
+ * @param stage 飛機要站在哪 —— 版面上留給它的那個空格子，只量不畫。
+ *              **給它而不是給一個比例**：版面有最大寬度，寬螢幕上整條
+ *              內容帶會置中，飛機得跟著帶子走而不是跟著視窗走
  */
-export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
+export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLElement): Showcase {
   const group = new Group()
   scene.add(group)
 
@@ -299,12 +417,32 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
   /** 拉到一半時畫面上的距離；`wantDistance` 是這一台該停在哪 */
   let distance = FIGHTER_DISTANCE
   let wantDistance = FIGHTER_DISTANCE
+  /** 這一台的左右擺動有多快。每台不同，見 `showcaseRollOmega` */
+  let rollOmega = 0.5
   let propRotation = 0
   let burstTimer = 1.5
   let burstLeft = 0
   let bombTimer = 2
   /** 這一串還剩幾枚沒投。歸零就歇 `BOMB_PERIOD` 再排下一串 */
   let stickLeft = 0
+
+  /**
+   * 飛機落在畫面寬度的第幾成。
+   *
+   * 【為什麼快取而不是每幀量】`getBoundingClientRect` 會逼瀏覽器把版面算完；
+   * 一幀一次不貴，但它只在視窗尺寸或卷宗寬度變了才會變。
+   *
+   * 【量到 0 就不動】畫面藏起來的時候元素沒有盒子，rect 全是 0 —— 寫進去
+   * 的話飛機會被推到畫面最左邊，而那一幀正好是回到機庫的第一幀。
+   */
+  let subjectX = DEFAULT_SUBJECT_X
+  function measureStage(): void {
+    const rect = stage.getBoundingClientRect()
+    if (rect.width <= 0 || window.innerWidth <= 0) return
+    subjectX = (rect.left + rect.width / 2) / window.innerWidth
+  }
+  measureStage()
+  window.addEventListener('resize', measureStage)
 
   function clearShots(): void {
     projectiles.clear()
@@ -329,6 +467,10 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     group.add(model.group)
     wantDistance = showcaseDistance(next.role)
     if (first) distance = wantDistance
+    rollOmega = showcaseRollOmega(next)
+    // 【換機種也量一次】卷宗的內容長度會變，而它撐著版面 —— 建立時量的那
+    // 一次是上一台的版面
+    measureStage()
     cooldowns = new Float32Array(next.battery.mounts.length)
     muzzleFlash = new Float32Array(next.battery.mounts.length)
     sources[0] = { index: 0, alive: true, muzzleFlash, aircraft: { spec: { battery: next.battery } } }
@@ -442,6 +584,9 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     update(frameSeconds: number, camera: PerspectiveCamera): void {
       elapsed += frameSeconds
       // 【追上拖曳】指數逼近，與幀率無關，見 `ORBIT_FOLLOW`
+      // 【自轉寫進 `wantYaw`】拖曳寫的是同一個值，所以兩者自然疊加，
+      // 而且都吃同一條平滑
+      if (!dragging) wantYaw += AUTO_SPIN * frameSeconds
       // 【夾過的 dt】見 `FOLLOW_DT_CAP`：換機種那一幀很長，不夾就跳過去
       const followDt = frameSeconds > FOLLOW_DT_CAP ? FOLLOW_DT_CAP : frameSeconds
       const follow = 1 - Math.exp(-ORBIT_FOLLOW * followDt)
@@ -449,7 +594,7 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
       orbitPitch += (wantPitch - orbitPitch) * follow
       // 【換一類時鏡頭是拉的不是跳的】見 `DISTANCE_FOLLOW`
       distance += (wantDistance - distance) * (1 - Math.exp(-DISTANCE_FOLLOW * followDt))
-      showcaseFlight(elapsed, flight)
+      showcaseFlight(elapsed, rollOmega, flight)
       showcaseQuaternion(flight, quaternion)
       positions[0]!.copy(flight.position)
 
@@ -473,10 +618,11 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
       // 【先看好再平移】`translateX` 走的是相機自己的右方向，所以這一行只
       // 改位置不改朝向。半寬要用相機當下的 fov 與長寬比算，換視窗大小才跟著變
       const halfWidth = Math.tan(camera.fov * DEG * 0.5) * distance * camera.aspect
-      camera.translateX(-(SUBJECT_X - 0.5) * 2 * halfWidth)
+      camera.translateX(-(subjectX - 0.5) * 2 * halfWidth)
     },
 
     dispose(): void {
+      window.removeEventListener('resize', measureStage)
       view.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
