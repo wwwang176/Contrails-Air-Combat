@@ -191,7 +191,7 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
      *
      * 【畫面沒有變】`check_lod_silhouette.py` 在 25 px（就是投彈高度上的實際
      * 大小）拍六個方位逐像素比對，428 個覆蓋像素裡**差 4 個**；放大到 256 px
-     * 才出現 1.79%。低模由 `tools/blender/build_b17g_lod.py` 從出貨的 GLB
+     * 才出現 1.56%。低模由 `tools/blender/build_b17g_lod.py` 從出貨的 GLB
      * **逐件**重建 —— 趴在機身上的（機背甲板、三座砲塔、觀測罩、尾艙罩）各自
      * 一件，15 片平面窗原封不動搬過來。
      *

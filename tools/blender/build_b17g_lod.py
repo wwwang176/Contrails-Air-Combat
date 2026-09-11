@@ -538,8 +538,12 @@ build_panel('B17_Fin', fin_probe, fin_mk,
 # 一樣用星狀射線量，只是環細一點（8 點）。
 NAC_SEG = 8
 NAC_ANG = [2 * math.pi * i / NAC_SEG for i in range(NAC_SEG)]
-# 由艙首往後的比例。前段密：整流罩的唇口是圓的，後段是一路收的整流尾
-NAC_F = (0.02, 0.10, 0.24, 0.45, 0.72, 0.98)
+# 由艙首往後的比例。前段密：整流罩的唇口是圓的，後段是一路收的整流尾。
+#
+# 【第一站要貼著艙首】出貨版的整流罩開口就落在艙首那一站（內艙 y 3.18、
+# 外艙 2.78），而槳轂的底環在它後面 0.04 —— 第一站退太多，槳轂會浮在罩子
+# 前面。又不能取 0：射線在 y 正好等於封蓋平面時是掠射，讀不到。
+NAC_F = (0.005, 0.10, 0.24, 0.45, 0.72, 0.98)
 
 
 def build_nacelle(name):
@@ -560,9 +564,11 @@ def build_nacelle(name):
         raise SystemExit('%s 量不到足夠的剖面' % name)
     bm = bmesh.new()
     vs, _ = loft(bm, rings)
-    cap(bm, list(reversed(vs[0])))
+    # 整流罩的進氣開口是暗色的。出貨版在這一件上塗 Accent 的就只有艙首那一片
+    for f in cap(bm, list(reversed(vs[0]))):
+        f.material_index = 1
     cap(bm, vs[-1])
-    return new_object(name, bm, [M_BODY])
+    return new_object(name, bm, [M_BODY, M_ACC])
 
 
 for _n in ('B17_NacIL', 'B17_NacIR', 'B17_NacOL', 'B17_NacOR'):
