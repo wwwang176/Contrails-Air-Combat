@@ -20,7 +20,8 @@ describe('dossierOf —— 九台都要有檔案', () => {
       const d = dossierOf(spec)
       expect(SIDE_OF[spec.id], spec.id).toBeDefined()
       expect(d.story.length, spec.id).toBeGreaterThan(20)
-      expect(d.bars.map((b) => b.label), spec.id).toEqual(['極速', '爬升', '迴旋', '滾轉'])
+      expect(d.bars.map((b) => b.label), spec.id)
+        .toEqual(['極速', '爬升', '迴旋', '滾轉', '攻擊', '防禦'])
     }
   })
 
