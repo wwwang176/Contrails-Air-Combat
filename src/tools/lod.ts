@@ -11,7 +11,7 @@ import { DAY_PALETTES, type TimeOfDay } from '../render/timeOfDay'
 /**
  * 低模驗收 —— 純檢視用的開發工具，不屬於遊戲。
  *
- * 進入方式：`npm run dev` 之後開 /lod.html。**不在 `vite.config.ts` 的建置
+ * 進入方式：`npm run dev` 之後開 /tools/lod.html。**不在 `vite.config.ts` 的建置
  * 清單裡**，所以它不會進正式版。
  *
  * 【為什麼要有這一頁】剪影比對（`tools/blender/check_lod_silhouette.py`）拍的是

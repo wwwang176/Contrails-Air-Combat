@@ -19,7 +19,7 @@
  */
 import { chromium, type Page } from 'playwright'
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 
 interface RadialResult {
   axis: string

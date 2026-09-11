@@ -35,7 +35,7 @@ import type { AircraftSpec } from '../specs/types'
  * 東西，這個工具反而會製造錯誤的信心。任何幾何調整都應該改
  * `src/render/geometry/`，機庫自動跟著變。
  *
- * 進入方式：`npm run dev` 之後開 /hangar.html。
+ * 進入方式：`npm run dev` 之後開 /tools/hangar.html。
  */
 
 const SPECS: AircraftSpec[] = [P51D, BF109K4, F6F5, F4F4, KI84, A6M5, HE111, B17G, G4M]

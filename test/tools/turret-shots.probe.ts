@@ -22,7 +22,7 @@
  */
 import { chromium, type Page } from 'playwright'
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 const SHOTS = '.shots/'
 
 /** 一張近照：相機位置與看向的機體座標點。 */

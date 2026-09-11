@@ -19,7 +19,7 @@ import type { Extent, Radial } from './hangar-hooks'
 
 declare const process: { argv: readonly string[] }
 const PORT = process.argv[2] ?? '5191'
-const URL = `http://localhost:${PORT}/hangar.html`
+const URL = `http://localhost:${PORT}/tools/hangar.html`
 
 const n = (x: number, w = 7, d = 3): string =>
   (Number.isFinite(x) ? x.toFixed(d) : '—').padStart(w)

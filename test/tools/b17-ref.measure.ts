@@ -34,7 +34,7 @@ import type { Align, Extent, Probe, Radial } from './hangar-hooks'
  */
 declare const process: { argv: readonly string[] }
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 const GLB = '/ref/1943_boeing_b-17g-60-ve_flying_fortress.glb'
 const SHOTS = '.shots/'
 

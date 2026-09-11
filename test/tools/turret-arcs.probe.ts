@@ -5,7 +5,7 @@
  */
 import { chromium } from 'playwright'
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 const SHOTS = '.shots/'
 
 const VIEWS: readonly [string, number, number, number][] = [

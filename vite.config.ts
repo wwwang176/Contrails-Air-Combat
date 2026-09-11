@@ -10,18 +10,19 @@ export default defineConfig({
     rollupOptions: {
       // 多頁面：不列進來的話 build 只會產出 index.html，機庫在正式建置中
       // 會靜靜消失（dev server 照樣能開，所以很容易到上線前才發現）。
+      // 開發用的展示區都放在 tools/，網址是 /tools/xxx.html。
       // 用相對路徑字串而非 node:path + __dirname——專案沒有 @types/node，
       // 那兩者會讓 tsc --noEmit 直接失敗，而 build 腳本第一步就是 tsc。
       input: {
         main: 'index.html',
-        hangar: 'hangar.html',
-        ground: 'ground.html',
-        range: 'range.html',
-        propdisc: 'propdisc.html',
-        damageedge: 'damageedge.html',
-        daylight: 'daylight.html',
-        blast: 'blast.html',
-        torpedo: 'torpedo.html',
+        hangar: 'tools/hangar.html',
+        ground: 'tools/ground.html',
+        range: 'tools/range.html',
+        propdisc: 'tools/propdisc.html',
+        damageedge: 'tools/damageedge.html',
+        daylight: 'tools/daylight.html',
+        blast: 'tools/blast.html',
+        torpedo: 'tools/torpedo.html',
       },
     },
   },

@@ -24,7 +24,7 @@ import { HUE, assemble, box } from '../render/geometry/ground/parts'
  * 高的戰車與 4.4 m 高的機車在空鏡頭裡看起來一樣大。判斷尺寸對不對要看
  * 面板那三行「模型 / 真車」，網格是 1 m 一格。
  *
- * 進入方式：`npm run dev` 之後開 /ground.html。
+ * 進入方式：`npm run dev` 之後開 /tools/ground.html。
  */
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement

@@ -569,7 +569,7 @@ const debris = createDebris()
 // ── 爆炸 ────────────────────────────────────────────────
 //
 // 【七個池一組】球塊火球、光暈、交棒煙、爆炸煙柱、揚塵、水冠、水霧。
-// 配方在 `render/blast.ts`，`/blast.html` 是它的調校台。
+// 配方在 `render/blast.ts`，`/tools/blast.html` 是它的調校台。
 const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
   emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
 })

@@ -10,7 +10,7 @@
 import { chromium } from 'playwright'
 import type {} from './hangar-hooks'
 
-const URL = 'http://localhost:5178/hangar.html'
+const URL = 'http://localhost:5178/tools/hangar.html'
 const SHOTS = '.shots/'
 
 /** 六個方向。相機位置 + 看向點固定在機身中段 */

@@ -34,7 +34,7 @@ import type { TerrainKind } from '../world/terrainKind'
  * 【爆炸還沒接進遊戲】`World.onBombImpact` 目前只推水柱。這裡調出來的配方
  * 之後才會接上去。
  *
- * 進入方式：`npm run dev` 之後開 /blast.html。
+ * 進入方式：`npm run dev` 之後開 /tools/blast.html。
  */
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
