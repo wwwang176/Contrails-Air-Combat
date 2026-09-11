@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { Mesh, Sprite, SpriteMaterial, Texture, Vector3 } from 'three'
+import { Mesh, ShaderMaterial, Sprite, SpriteMaterial, Texture, Vector3 } from 'three'
 import {
   aimAngles, BEAM_LENGTH, beamRadiusAt, createSearchlights, glareStrength, SEARCHLIGHT_RANGE,
-  type SearchTarget,
+  VEIL_OPACITY, type SearchTarget,
 } from '../../src/render/searchlights'
 import { createGroundTarget } from '../../src/world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../../src/world/shipGuns'
@@ -87,7 +87,7 @@ describe('探照燈', () => {
     ]
     const s = createSearchlights(targets, new Texture())
     const beams: Mesh[] = []
-    s.object.traverse((o) => { if ((o as Mesh).isMesh) beams.push(o as Mesh) })
+    s.object.traverse((o) => { if (o.name === 'beam') beams.push(o as Mesh) })
     expect(beams).toHaveLength(2)
     const list = [plane('blue', 0, 1500, -5000)]
     s.update(0, list, CAM)
@@ -173,6 +173,30 @@ describe('探照燈的眩光', () => {
     s.update(10.04, list, offAxis)
     expect(glare.visible).toBe(false)
   })
+
+  it('鏡頭在光柱裡整個畫面泛白：白紗的強度跟著 glareStrength，柱外就不畫', () => {
+    const base = createGroundTarget(0, 'searchlight', 'red', 0, -7000, 0)
+    const s = createSearchlights([base], new Texture())
+    const m = s.object.children[0] as Mesh
+    const veil = s.object.getObjectByName('veil') as Mesh
+    expect(veil).toBeDefined()
+    // 【不做視錐剔除】頂點直接落在裁剪空間，包圍盒對 three 沒有意義；
+    // 被剔掉的話效果無聲消失
+    expect(veil.frustumCulled).toBe(false)
+    const list = [plane('blue', 0, 1500, -10000)]
+    for (let t = 0; t < 10; t += 1 / 60) s.update(t, list, CAM)
+    expect(veil.visible).toBe(false)
+    const axis = beamDir(m)
+    const onAxis = m.position.clone().addScaledVector(axis, 2000)
+    s.update(10.02, list, onAxis)
+    expect(veil.visible).toBe(true)
+    const u = (veil.material as ShaderMaterial).uniforms['strength']!.value as number
+    expect(u).toBeGreaterThan(VEIL_OPACITY * 0.9)
+    expect(u).toBeLessThanOrEqual(VEIL_OPACITY)
+    const side = new Vector3(1, 0, 0).cross(axis).normalize()
+    s.update(10.04, list, onAxis.clone().addScaledVector(side, 50))
+    expect(veil.visible).toBe(false)
+  })
 })
 
 describe('探照燈分攤目標', () => {
@@ -183,7 +207,7 @@ describe('探照燈分攤目標', () => {
     ]
     const s = createSearchlights(bases, new Texture())
     const beams: Mesh[] = []
-    s.object.traverse((o) => { if ((o as Mesh).isMesh) beams.push(o as Mesh) })
+    s.object.traverse((o) => { if (o.name === 'beam') beams.push(o as Mesh) })
     const a = plane('blue', 0, 1500, -4000)
     const b = plane('blue', 0, 1500, -7000 + SEARCHLIGHT_RANGE + 2000)
     const list = [a, b]

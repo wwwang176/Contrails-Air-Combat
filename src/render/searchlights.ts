@@ -1,6 +1,6 @@
 import {
-  AdditiveBlending, BufferAttribute, CanvasTexture, CylinderGeometry, DoubleSide, Group, Mesh,
-  MeshBasicMaterial, Quaternion, Sprite, SpriteMaterial, Texture, Vector3,
+  AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CylinderGeometry, DoubleSide,
+  Group, Mesh, MeshBasicMaterial, Quaternion, ShaderMaterial, Sprite, SpriteMaterial, Texture, Vector3,
 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
@@ -44,6 +44,26 @@ const SLEW_RATE = 40 * Math.PI / 180
 const SEGMENTS = 8
 /** 眩光在畫面上的視角大小，rad：貼圖的邊長 = 距離 × 它 */
 const GLARE_ANGULAR_SIZE = 0.08
+/**
+ * 鏡頭在光柱裡時整個畫面加上去的白，0…1。光柱的薄壁從裡面看只剩遠壁一層，
+ * 亮度攤在整個視野上幾乎看不見，「被照到」的感覺靠這一層
+ */
+export const VEIL_OPACITY = 0.25
+const VEIL_COLOR = /* @__PURE__ */ new Color(BEAM_COLOR)
+
+/** 白紗的頂點直接落在裁剪空間，不吃相機矩陣，FOV 怎麼變都蓋滿畫面 */
+const VEIL_VERTEX = /* glsl */ `
+void main() {
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`
+const VEIL_FRAGMENT = /* glsl */ `
+uniform vec3 color;
+uniform float strength;
+void main() {
+  gl_FragColor = vec4(color, strength);
+}
+`
 
 /** 從光束底座指向目標的方位與仰角。`yaw` 繞 Y（0 = 朝 −Z）、`pitch` 是仰角 */
 export function aimAngles(
@@ -194,6 +214,7 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
   for (const t of targets) {
     if (t.unit.id !== 'searchlight') continue
     const mesh = new Mesh(geometry, material)
+    mesh.name = 'beam'
     mesh.visible = false
     object.add(mesh)
     const glare = new Sprite(glareMaterial.clone())
@@ -203,6 +224,25 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
     beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, target: -1, dir: new Vector3(0, 1, 0) })
   }
   glareMaterial.dispose()
+  // 【全畫面白紗】兩個三角形蓋滿裁剪空間，加法混色、最後畫、不測深度。
+  // 只有一座燈也建，沒有探照燈的場就沒有這個群組
+  const veilGeometry = new BufferGeometry()
+  veilGeometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    -1, -1, 0, 1, -1, 0, 1, 1, 0,
+    -1, -1, 0, 1, 1, 0, -1, 1, 0,
+  ]), 3))
+  const veilMaterial = new ShaderMaterial({
+    vertexShader: VEIL_VERTEX, fragmentShader: VEIL_FRAGMENT,
+    uniforms: { color: { value: VEIL_COLOR }, strength: { value: 0 } },
+    blending: AdditiveBlending, transparent: true, depthTest: false, depthWrite: false,
+  })
+  const veil = new Mesh(veilGeometry, veilMaterial)
+  veil.name = 'veil'
+  // 頂點不經相機矩陣，包圍盒對剔除沒有意義 —— 剔掉了效果就無聲消失
+  veil.frustumCulled = false
+  veil.renderOrder = 1000
+  veil.visible = false
+  object.add(veil)
   let last = -1
   /** 每一架身上有幾盞燈。長度跟著目標清單走，只在清單變長時重配 */
   let loads = new Int32Array(0)
@@ -218,6 +258,8 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
       if (loads.length < list.length) loads = new Int32Array(list.length)
       loads.fill(0)
       for (const b of beams) if (b.target >= 0 && b.target < list.length) loads[b.target]!++
+      /** 這一幀鏡頭被照到的最強一束；取最大不取總和，兩束交疊不會白到爆 */
+      let veilStrength = 0
       for (const b of beams) {
         const base = b.base
         if (!base.alive) {
@@ -289,12 +331,17 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
           const size = dist * GLARE_ANGULAR_SIZE
           glare.scale.set(size, size, 1)
           ;(glare.material as SpriteMaterial).opacity = strength
+          if (strength > veilStrength) veilStrength = strength
         }
       }
+      veil.visible = veilStrength > 0
+      veilMaterial.uniforms['strength']!.value = VEIL_OPACITY * veilStrength
     },
     dispose() {
       geometry.dispose()
       material.dispose()
+      veilGeometry.dispose()
+      veilMaterial.dispose()
       for (const b of beams) (b.glare.material as SpriteMaterial).dispose()
     },
   }
