@@ -124,6 +124,40 @@
       #campaign .tallcard { width: 300px; }
       #campaign .tallcard .photo { height: 400px; }
 
+      .photo .ph { display: block; width: 100%; height: 100%; }
+
+      /* ①d 機庫 */
+      /* 【只有這一頁不是整片遮罩】右半要看得到飛機。左邊那一段仍然要壓暗 ——
+         紙下面是天空與海，不壓的話返回鍵與卷宗邊緣在亮海上會讀不出來 */
+      /* 【靠左靠的是 align-items】`.screen` 是直向的 flex —— justify-content 在
+         這裡管的是上下，拿它靠左只會把整頁推到畫面頂端 */
+      #ui .screen#hangar {
+        align-items: flex-start; justify-content: center; padding-left: 44px;
+        background: linear-gradient(90deg, rgba(var(--veil), .62) 0 30%, rgba(var(--veil), 0) 62%);
+      }
+      /* 【滿版而不是只佔右半】拖曳要能從畫面上任何一處開始；卷宗蓋在它上面，
+         所以拖在紙上不會轉鏡頭 */
+      #hangar-view { position: absolute; inset: 0; cursor: grab; }
+      #hangar-view:active { cursor: grabbing; }
+      .pane.hangar { z-index: 1; display: flex; align-items: stretch; gap: 12px;
+        max-height: calc(100vh - 150px); }
+      .rack { display: flex; flex-direction: column; gap: 5px; width: 136px; overflow-y: auto; }
+      /* 【機種也是一份份的卷宗】與任務那一疊同一種東西，所以照用 .stop */
+      .rack .stop { margin-bottom: 0; }
+      .sheet { width: 386px; padding: 20px 22px 22px; overflow-y: auto; }
+      .sheet h2 { font-size: 22px; }
+      .sheet .story { margin: 13px 0 17px; font-size: 13px; }
+      .bars { display: flex; flex-direction: column; gap: 8px; }
+      .bars .stat { display: grid; grid-template-columns: 34px 1fr 76px; align-items: center; gap: 10px; }
+      .bars .k { font-size: 11.5px; }
+      /* 【條上要印真值】只比長短的話，讀者分不出「差一點」與「差一倍」 */
+      .bars .v { text-align: right; font-weight: 700; font-size: 12px; }
+      .bars .track { height: 9px; background: rgba(47,39,28,.14); border: 1px solid rgba(47,39,28,.3); }
+      .bars .track i { display: block; height: 100%; background: var(--go-bg); }
+      .sheet .facts { display: grid; grid-template-columns: 1fr; gap: 5px;
+        margin-top: 17px; padding-top: 13px; border-top: 1px solid rgba(47,39,28,.24); }
+      .sheet .fact { display: grid; grid-template-columns: 62px 1fr; font-size: 12px; }
+
       /* ② 簡報 */
       .brief { display: grid; grid-template-columns: 300px 1fr; width: min(1120px, 96vw);
         background: var(--panel); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
@@ -350,6 +384,33 @@
             <span class="t">遭遇戰</span>
             <span class="d">自己編雙方兵力、選戰場與開場高度，打一場殲滅戰。</span>
           </button>
+          <!-- 【這一張還沒有照片】另外兩張的 /ui/*.jpg 是生成的，這一張等著生。
+               先放剪影而不是先接一個不存在的檔案 —— 404 會在卡片上留一個破圖 -->
+          <button class="tallcard paperbit" data-act="hangar">
+            <span class="photo"><i class="tape tl"></i>
+              <svg class="ph" viewBox="0 0 160 146" aria-hidden="true">
+                <rect width="160" height="146" fill="#241e18"/>
+                <g fill="#8d8069" transform="translate(80 73) scale(2.4) translate(-23 -10)">
+                  <rect x="21" y="1" width="4" height="17" rx="2"/>
+                  <path d="M2 9h42v3H2z"/><path d="M18 15h10v2H18z"/>
+                </g>
+              </svg>
+            </span>
+            <span class="t">機庫</span>
+            <span class="d">把每一架都叫到眼前：來歷、性能，還有它飛起來的樣子。</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ①d 機庫：不上遮罩，右半整片留給飛機。左欄自己帶一層由深到透的底 -->
+      <section id="hangar" class="screen" style="--v:0" hidden>
+        <!-- 拖曳轉視角吃在這一塊上（src/app/showcase.ts 自己掛監聽器）。
+             它在卷宗底下，所以拖到紙上不會轉鏡頭 -->
+        <div id="hangar-view"></div>
+        <div class="pane hangar">
+          <button class="back" data-act="back">主選單</button>
+          <div class="rack" id="hangar-rack"></div>
+          <div class="sheet paperbit" id="hangar-sheet"></div>
         </div>
       </section>
 

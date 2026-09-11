@@ -3,7 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>機庫 — Contrails Air: Combat</title>
+    <!-- 【叫量測台不叫機庫】遊戲裡的「機庫」是玩家看飛機的那一頁
+         （`src/app/showcase.ts`）。兩個都叫機庫的話，講「機庫壞了」會分不出
+         是哪一個 —— 這一頁是開發用的量測台，玩家永遠到不了 -->
+    <title>量測台 — Contrails Air: Combat</title>
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
         font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
@@ -35,7 +38,7 @@
   <body>
     <canvas id="scene"></canvas>
     <div id="panel">
-      <h1>機庫</h1>
+      <h1>量測台</h1>
       <div class="row" id="specRow"></div>
       <div class="row" id="shipRow"></div>
       <div class="row">

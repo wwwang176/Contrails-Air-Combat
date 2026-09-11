@@ -6,6 +6,7 @@ import {
   type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { briefingOf, shortName, type Briefing } from './briefing'
+import { dossierOf, SIDE_OF } from './dossier'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
@@ -34,6 +35,13 @@ export interface MenuHooks {
    * 【先送這個，再送 `fight`】呼叫端要先知道打哪一關，才建得出戰鬥。
    */
   onMission(card: ReadyMissionCard): void
+  /**
+   * 機庫換了一架，或剛進機庫。
+   *
+   * 【與 `onMission` 同一類】畫面事件帶不了「哪一架」。呼叫端收到之後把
+   * 展示場換成這一台 —— 進機庫時也會送一次，所以呼叫端不必自己記得初值。
+   */
+  onAircraft(spec: AircraftSpec): void
 }
 
 export interface Menu {
@@ -52,18 +60,6 @@ export interface Menu {
  * 只加型別而漏了這裡，卡片會**永遠畫不出來而且照樣編譯**。
  */
 const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '美軍', germany: '德軍', japan: '日軍' }
-/**
- * 機種是哪一邊的 —— 機種選單上「美軍　P-51D」的前綴。
- *
- * 【為什麼在這裡而不是 `AircraftSpec`】spec 是模擬用的係數，一架飛機飛在
- * 哪一邊是戰役的設定不是機體的性質（同一台 P-51D 在遭遇戰裡兩邊都能派）。
- * 這張表只服務顯示。
- */
-const SIDE_OF: Record<string, Campaign> = {
-  p51d: 'allies', b17g: 'allies', f6f5: 'allies', f4f4: 'allies',
-  bf109k4: 'germany', he111: 'germany',
-  a6m5: 'japan', ki84: 'japan', g4m: 'japan',
-}
 const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string }> = {
   allies: { line: '歐洲的護航與打擊，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5' },
   germany: { line: '東線到本土：地面打擊，攔截轟炸機流。', planes: 'Bf 109 K-4 · He 111' },
@@ -137,6 +133,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     campaign: root.querySelector('#campaign'),
     mission: root.querySelector('#mission'),
     skirmish: root.querySelector('#skirmish'),
+    hangar: root.querySelector('#hangar'),
     // 戰鬥沒有自己的 section —— 它就是「全部都藏起來」
     battle: null,
   }
@@ -155,12 +152,16 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
     tod: q('sk-tod'),
+    rack: q('hangar-rack'),
+    sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
   }
 
   /** 任務線的狀態：哪一條、選了第幾關 */
   let campaign: Campaign = 'allies'
   const picked: Record<Campaign, number> = { allies: 0, germany: 0, japan: 0 }
+  /** 機庫攤開的是 `ALL_SPECS` 的第幾架 */
+  let hangarPick = 0
   /** 編組頁的機種選單有沒有展開（每側各自） */
   const paletteOpen = { blue: false, red: false }
 
@@ -260,6 +261,48 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       el.route.appendChild(b)
     })
     renderBrief(list[k]!)
+  }
+
+  // ── 機庫：左邊一疊機種卷宗，攤開的那一份在右邊 ───────
+  /**
+   * 【為什麼重畫整頁而不是只換選中的那一格】這一頁的狀態只有「第幾架」一個
+   * 數字，而 `dossierOf` 是純函數。少一條「上一個選中的是誰」的鏡射狀態，
+   * 就少一個會忘記清掉的地方（與 `renderMission` 同一條理由）。
+   */
+  function renderHangar(): void {
+    const spec = ALL_SPECS[hangarPick] ?? ALL_SPECS[0]!
+    el.rack.innerHTML = ''
+    ALL_SPECS.forEach((s, i) => {
+      const b = document.createElement('button')
+      b.className = `stop paperbit${i === hangarPick ? ' on' : ''}`
+      // 【e2e 用 id 選機】顯示名會改，id 不會
+      b.dataset['aircraft'] = s.id
+      b.innerHTML = `<div class="k">${CAMPAIGN_LABEL[SIDE_OF[s.id] ?? 'allies']}　${ROLE_WORD[s.role]}</div>`
+        + `<div class="n">${escapeHtml(shortName(s))}</div>`
+      b.addEventListener('click', () => {
+        hangarPick = i
+        renderHangar()
+      })
+      el.rack.appendChild(b)
+    })
+
+    const d = dossierOf(spec)
+    // 【Bf 109 K-4 沒有副名】`fullName` 回空字串，不濾掉的話副標會以一個
+    // 全形空白開頭
+    const sub = [fullName(spec), CAMPAIGN_LABEL[d.side], ROLE_WORD[d.role]]
+      .filter((s) => s !== '').join('　')
+    el.sheet.innerHTML = `<h2>${escapeHtml(shortName(spec))}</h2>`
+      + `<div class="lbl" style="margin-top:5px">${escapeHtml(sub)}</div>`
+      + `<p class="story">${escapeHtml(d.story)}</p>`
+      + `<div class="bars">${d.bars.map((b) =>
+        `<div class="stat"><span class="k">${escapeHtml(b.label)}</span>`
+        + `<span class="track"><i style="width:${(b.fill * 100).toFixed(1)}%"></i></span>`
+        + `<span class="v">${escapeHtml(b.text)}</span></div>`).join('')}</div>`
+      + `<div class="facts">${d.facts.map((f) =>
+        `<div class="fact"><span class="lbl">${escapeHtml(f.label)}</span>`
+        + `<span class="v">${escapeHtml(f.value)}</span></div>`).join('')}</div>`
+
+    hooks.onAircraft(spec)
   }
 
   // ── 編組頁 ───────────────────────────────────────────
@@ -380,6 +423,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
         if (s) s.hidden = name !== screen
       }
       if (screen === 'mission') renderMission()
+      // 【進機庫要重畫一次】它同時是「把展示場換成目前這一架」的那一次
+      // 通知（`renderHangar` 尾巴的 `onAircraft`）
+      if (screen === 'hangar') renderHangar()
     },
     setPaused(v) {
       pause.hidden = !v

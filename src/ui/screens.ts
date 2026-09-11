@@ -1,15 +1,19 @@
 /**
- * 六個畫面。`battle` 之上另有暫停與結算兩種 overlay，它們不是畫面。
+ * 七個畫面。`battle` 之上另有暫停與結算兩種 overlay，它們不是畫面。
  *
  * 【`campaign` 是一頁，不是分頁】「站哪一邊」用三張照片講；簡報頁**沒有**
  * 陣營分頁，換陣營要退回來 —— 一個地方只做一件事。
+ *
+ * 【`hangar` 不通往戰鬥】它只是看飛機的地方。要出擊得退回主選單走任務或
+ * 遭遇戰 —— 機庫裡沒有「選這一台」這回事，那是編組頁的工作。
  */
-export type Screen = 'landing' | 'menu' | 'campaign' | 'mission' | 'skirmish' | 'battle'
+export type Screen = 'landing' | 'menu' | 'campaign' | 'mission' | 'skirmish' | 'battle' | 'hangar'
 
 export type ScreenEvent =
   | 'start'      // landing 的開始按鈕
   | 'mission'    // 主選單：任務模式（先到陣營頁）；陣營頁：點一張卡進簡報
   | 'skirmish'   // 主選單：遭遇戰
+  | 'hangar'     // 主選單：機庫
   | 'back'       // 子畫面的返回
   | 'fight'      // 開始戰鬥／再打一場
   | 'toMenu'     // 暫停選單：回主選單
@@ -27,7 +31,7 @@ export type ScreenEvent =
  */
 const TABLE: Record<Screen, Partial<Record<ScreenEvent, Screen>>> = {
   landing: { start: 'menu' },
-  menu: { mission: 'campaign', skirmish: 'skirmish' },
+  menu: { mission: 'campaign', skirmish: 'skirmish', hangar: 'hangar' },
   campaign: { mission: 'mission', back: 'menu' },
   // 【M10 時這裡只有 back】那時卡片全部 disabled，任務列表是一個看得到
   // 打不了的櫥窗。殲滅與撤離做出來之後它才是一個入口。
@@ -41,6 +45,8 @@ const TABLE: Record<Screen, Partial<Record<ScreenEvent, Screen>>> = {
   // —— 陣營沒變）。**用兩個事件而不是一個「回上一頁」**：狀態機不該記得
   // 歷史，那會讓同一個轉移在不同的來路下有不同的結果 —— 也就不再是一張表。
   battle: { fight: 'battle', toMenu: 'menu', toSetup: 'skirmish', toMission: 'mission' },
+  // 【只有一條出口】機庫不通往戰鬥，見 `Screen` 的說明
+  hangar: { back: 'menu' },
 }
 
 export function nextScreen(current: Screen, event: ScreenEvent): Screen {

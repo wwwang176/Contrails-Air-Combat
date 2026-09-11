@@ -28,7 +28,11 @@ import { F4F4 } from '../specs/f4f4'
 import type { AircraftSpec } from '../specs/types'
 
 /**
- * 機庫 —— 純檢視用的開發工具，不屬於遊戲。
+ * 量測台 —— 純檢視用的開發工具，不屬於遊戲。
+ *
+ * 【它不是遊戲裡的「機庫」】那一頁是玩家看飛機的地方（`src/app/showcase.ts`
+ * 與 `src/ui/dossier.ts`）：海上飛行、拖曳轉視角、左邊一份機種檔案。這一支
+ * 是三視圖、剖面、正交投影那一類的量測工具，玩家到不了。
  *
  * 【為什麼直接 import buildAircraft】機庫的唯一價值是「讓人用眼睛驗收
  * 實際會飛的那架飛機」。若在這裡另外複製一份幾何，看到的就不是遊戲裡的

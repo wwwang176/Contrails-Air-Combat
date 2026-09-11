@@ -133,6 +133,7 @@ import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
+import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
 import { preloadAirfieldScenery } from './render/geometry/ground/airfieldScenery'
@@ -2357,6 +2358,21 @@ function grabPointer(): void {
 
 const MENU_POSE = { position: new Vector3(), target: new Vector3() }
 
+/**
+ * 機庫的展示場。**只在機庫那一頁存在** —— 離開就整個丟掉。
+ *
+ * 【為什麼不常駐】它掛著一架完整的機體幾何與四個實例池。玩家大多數時候
+ * 不在機庫，那些東西不該一直佔著場景與顯示卡的記憶體。
+ */
+let showcase: Showcase | null = null
+
+/** 機庫的一幀：展示場自己擺相機，地形跟著相機捲動 */
+function drawHangar(frameSeconds: number, show: Showcase): void {
+  show.update(frameSeconds, ctx.camera)
+  terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
+  ctx.renderer.render(ctx.scene, ctx.camera)
+}
+
 /** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
 function drawMenuBackground(): void {
   menuCameraPose(elapsed, MENU_POSE)
@@ -2396,6 +2412,12 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       paused = false
       leaveBattle()
     }
+    // 【離開機庫也要清場】展示機與它的彈留在場景裡的話，主選單的海上會
+    // 有一架飛機在遠處繞圈
+    if (from === 'hangar' && screen !== 'hangar' && showcase !== null) {
+      showcase.dispose()
+      showcase = null
+    }
     menu.show(screen)
     menu.setPaused(false)
   },
@@ -2407,6 +2429,17 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
    * 【`menu.ts` 保證這個先於 `onEvent('fight')`】所以 `enterBattle` 讀得到
    * 這一關。雙方飛什麼、打在哪一種地形，卡片自己說。
    */
+  /**
+   * 【為什麼在這裡建展示場而不是在 `onEvent`】選單進機庫時會先送這一個
+   * （`renderHangar` 的尾巴），順序因此比畫面事件更早也更可靠 —— 而且
+   * 「換一架」走的是同一條路。
+   */
+  onAircraft(spec) {
+    if (showcase === null) {
+      showcase = createShowcase(ctx.scene, document.getElementById('hangar-view') as HTMLElement)
+    }
+    showcase.setAircraft(spec)
+  },
   onMission(card) {
     mode = 'mission'
     pendingMission = card
@@ -2510,7 +2543,10 @@ function frame(now: number) {
     }
   } else {
     elapsed += frameSeconds
-    drawMenuBackground()
+    // 【展示場還沒建好就照畫海天】進機庫的第一幀有可能落在 `onAircraft`
+    // 之前，那一幀畫成黑的會閃一下
+    if (screen === 'hangar' && showcase !== null) drawHangar(frameSeconds, showcase)
+    else drawMenuBackground()
   }
 
   perf.endFrame(loop.lastSubstepCount)
