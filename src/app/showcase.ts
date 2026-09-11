@@ -175,6 +175,31 @@ const DRAG_RATE = 0.006
  */
 const ORBIT_FOLLOW = 12
 
+/**
+ * 鏡頭拉遠拉近的速率，1/s。**兩類的體型差就是靠它讀出來的。**
+ *
+ * 【為什麼不瞬間換距離】戰鬥機與轟炸機各有一個固定距離，直接跳的話兩張
+ * 畫面上的飛機一樣大，換過去只覺得「換了一台」，看不出 B-17 比零戰大三倍。
+ * 保持前一台的距離再拉過去，轟炸機就會先塞滿畫面、鏡頭再退開 —— 退開這
+ * 件事本身就是「這台大到要退這麼遠才裝得下」。
+ *
+ * 比視角慢一截（4 /s ≈ 追到一半 173 ms、九成 580 ms）：拉得太快就又變成
+ * 瞬間跳了。
+ */
+const DISTANCE_FOLLOW = 4
+
+/**
+ * 餵給追隨的 dt 上限，秒。
+ *
+ * 【為什麼要夾】換機種那一幀要建整台幾何、還要填一次轉彎率的高度表，實測
+ * 40…90 ms；分頁被瀏覽器節流時更是一秒一幀。不夾的話**那一幀就把整段轉場
+ * 走完** —— 而換機種正是唯一要看到轉場的時候，玩家看到的會是跳過去。
+ *
+ * 只夾追隨這一項：飛行本身仍然吃真正的時間，否則卡一下之後飛機的位置會
+ * 與海面的捲動對不上。
+ */
+const FOLLOW_DT_CAP = 1 / 30
+
 /** 連射週期與長度，秒。中間要有夠長的空檔，否則整頁都在閃 */
 const BURST_PERIOD = 5
 const BURST_SECONDS = 0.8
@@ -271,7 +296,9 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
   let wantPitch = DEFAULT_ORBIT_PITCH
   let orbitYaw = DEFAULT_ORBIT_YAW
   let orbitPitch = DEFAULT_ORBIT_PITCH
+  /** 拉到一半時畫面上的距離；`wantDistance` 是這一台該停在哪 */
   let distance = FIGHTER_DISTANCE
+  let wantDistance = FIGHTER_DISTANCE
   let propRotation = 0
   let burstTimer = 1.5
   let burstLeft = 0
@@ -290,6 +317,9 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
   }
 
   function setAircraft(next: AircraftSpec): void {
+    // 【第一台不拉】進機庫的第一幀沒有「前一台」可以對比，從預設距離拉
+    // 過去只是開場莫名其妙推一次鏡頭
+    const first = spec === null
     if (model !== null) {
       group.remove(model.group)
       model.dispose()
@@ -297,7 +327,8 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     spec = next
     model = buildAircraft(next)
     group.add(model.group)
-    distance = showcaseDistance(next.role)
+    wantDistance = showcaseDistance(next.role)
+    if (first) distance = wantDistance
     cooldowns = new Float32Array(next.battery.mounts.length)
     muzzleFlash = new Float32Array(next.battery.mounts.length)
     sources[0] = { index: 0, alive: true, muzzleFlash, aircraft: { spec: { battery: next.battery } } }
@@ -411,9 +442,13 @@ export function createShowcase(scene: Scene, view: HTMLElement): Showcase {
     update(frameSeconds: number, camera: PerspectiveCamera): void {
       elapsed += frameSeconds
       // 【追上拖曳】指數逼近，與幀率無關，見 `ORBIT_FOLLOW`
-      const follow = 1 - Math.exp(-ORBIT_FOLLOW * frameSeconds)
+      // 【夾過的 dt】見 `FOLLOW_DT_CAP`：換機種那一幀很長，不夾就跳過去
+      const followDt = frameSeconds > FOLLOW_DT_CAP ? FOLLOW_DT_CAP : frameSeconds
+      const follow = 1 - Math.exp(-ORBIT_FOLLOW * followDt)
       orbitYaw += (wantYaw - orbitYaw) * follow
       orbitPitch += (wantPitch - orbitPitch) * follow
+      // 【換一類時鏡頭是拉的不是跳的】見 `DISTANCE_FOLLOW`
+      distance += (wantDistance - distance) * (1 - Math.exp(-DISTANCE_FOLLOW * followDt))
       showcaseFlight(elapsed, flight)
       showcaseQuaternion(flight, quaternion)
       positions[0]!.copy(flight.position)
