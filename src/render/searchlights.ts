@@ -1,6 +1,6 @@
 import {
-  AdditiveBlending, BufferAttribute, CanvasTexture, CylinderGeometry, DoubleSide, Euler, Group, Mesh,
-  MeshBasicMaterial, Sprite, SpriteMaterial, Texture, Vector3,
+  AdditiveBlending, BufferAttribute, CanvasTexture, CylinderGeometry, DoubleSide, Group, Mesh,
+  MeshBasicMaterial, Quaternion, Sprite, SpriteMaterial, Texture, Vector3,
 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
 import { GROUND_FLAK_SPEC } from '../world/shipGuns'
@@ -11,8 +11,12 @@ import type { Team } from '../world/World'
  *
  * 每一座 `searchlight` 地面目標一根圓錐柱：加法混色、雙面、不寫深度，
  * 從裡面看出去和從外面看都有光柱。**有敵機進到偵測距離才亮**，亮了就
- * 追最近的那一架，追的速度有上限（機械式的搖擺）；沒有目標就關。
+ * 追燈最少的那一架，追的速度有上限；沒有目標就關。
  * 純畫面 —— 不接砲火、不改砲的散布。
+ *
+ * 【沿大圓弧轉】光束的方向是一個向量，每幀朝目標方向繞兩者的叉積軸轉，
+ * 一步最多 `SLEW_RATE × dt`，俯仰與方位同時到。分軸各自限速的話，從天頂
+ * 掃下來會先倒到仰角、再繞水平掃過去，看起來像兩段動作。
  *
  * 【偵測距離比重砲的射程遠】砲打得到的那一刻燈已經照著了；反過來的話
  * 玩家會先挨砲才看到燈。
@@ -130,23 +134,32 @@ interface Beam {
   readonly phase: number
   /** 現在照的是 `targets` 裡第幾架。−1 = 沒有 */
   target: number
-  yaw: number
-  pitch: number
+  /** 光束此刻的方向，單位向量 */
+  readonly dir: Vector3
 }
 
 const WANT = { yaw: 0, pitch: 0 }
-const E = /* @__PURE__ */ new Euler()
-const DIR = /* @__PURE__ */ new Vector3()
+const UP = /* @__PURE__ */ new Vector3(0, 1, 0)
+const WANT_DIR = /* @__PURE__ */ new Vector3()
+const AXIS = /* @__PURE__ */ new Vector3()
+const Q = /* @__PURE__ */ new Quaternion()
 const TO_CAMERA = /* @__PURE__ */ new Vector3()
-const TWO_PI = Math.PI * 2
 
-/** 朝目標角度轉，一步最多轉 `maxStep`；方位角走短的那一邊 */
-function slewTo(now: number, want: number, maxStep: number, wrap: boolean): number {
-  let d = want - now
-  if (wrap) d = ((d + Math.PI) % TWO_PI + TWO_PI) % TWO_PI - Math.PI
-  if (d > maxStep) d = maxStep
-  else if (d < -maxStep) d = -maxStep
-  return now + d
+/**
+ * 把 `dir` 朝 `want` 沿大圓弧轉，一步最多 `maxStep` rad；兩者反向時繞 +X
+ * 轉（哪一邊都是最短）。轉完仍是單位向量。
+ */
+function slewDir(dir: Vector3, want: Vector3, maxStep: number): void {
+  const angle = Math.acos(Math.min(1, Math.max(-1, dir.dot(want))))
+  if (angle <= maxStep) {
+    dir.copy(want)
+    return
+  }
+  AXIS.crossVectors(dir, want)
+  if (AXIS.lengthSq() < 1e-12) AXIS.set(1, 0, 0)
+  else AXIS.normalize()
+  Q.setFromAxisAngle(AXIS, maxStep)
+  dir.applyQuaternion(Q).normalize()
 }
 
 /**
@@ -187,7 +200,7 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
     glare.visible = false
     object.add(glare)
     // 開場朝天：第一次亮起來是從正上方掃下來
-    beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, target: -1, yaw: 0, pitch: Math.PI / 2 })
+    beams.push({ mesh, glare, base: t, phase: beams.length * 1.9, target: -1, dir: new Vector3(0, 1, 0) })
   }
   glareMaterial.dispose()
   let last = -1
@@ -253,19 +266,18 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
         const w = b.phase
         WANT.yaw += WOBBLE_AMPLITUDE * Math.sin(seconds * 2.7 + w)
         WANT.pitch += WOBBLE_AMPLITUDE * Math.sin(seconds * 1.9 + w * 1.6)
-        b.yaw = slewTo(b.yaw, WANT.yaw, maxStep, true)
-        b.pitch = slewTo(b.pitch, WANT.pitch, maxStep, false)
+        // 方位 0 = 朝 −Z，與 `aimAngles` 同一個慣例
+        const ch = Math.cos(WANT.pitch)
+        WANT_DIR.set(-Math.sin(WANT.yaw) * ch, Math.sin(WANT.pitch), -Math.cos(WANT.yaw) * ch)
+        slewDir(b.dir, WANT_DIR, maxStep)
         b.mesh.visible = true
         b.mesh.position.set(base.position.x, base.position.y + 2, base.position.z)
-        // 先把軸從 +Y 往 −Z 倒成仰角（繞 X 負轉），再繞 Y 轉方位 ——
-        // 方位 0 = 朝 −Z，與 `aimAngles` 同一個慣例
-        E.set(b.pitch - Math.PI / 2, b.yaw, 0, 'YXZ')
-        b.mesh.quaternion.setFromEuler(E)
+        // 圓柱的軸是 +Y；八段對稱，繞軸的滾轉角無所謂
+        b.mesh.quaternion.setFromUnitVectors(UP, b.dir)
         // 【眩光】鏡頭在光柱裡才亮。貼圖的邊長隨距離放大，畫面上的視角大小才固定
-        DIR.set(0, 1, 0).applyQuaternion(b.mesh.quaternion)
         TO_CAMERA.copy(camera).sub(b.mesh.position)
         const dist = TO_CAMERA.length()
-        const axial = DIR.dot(TO_CAMERA)
+        const axial = b.dir.dot(TO_CAMERA)
         const radial = Math.sqrt(Math.max(0, dist * dist - axial * axial))
         const strength = glareStrength(axial, radial)
         const glare = b.glare
