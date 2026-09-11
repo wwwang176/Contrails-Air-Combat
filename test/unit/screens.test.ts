@@ -36,9 +36,9 @@ describe('nextScreen（M10 spec §3、§4）', () => {
 
   it('不合法的組合維持原狀，不丟例外', () => {
     // 【為什麼不丟例外】選單上一個按不到的按鈕不該讓整個遊戲當掉。
-    const all: Screen[] = ['landing', 'menu', 'campaign', 'mission', 'skirmish', 'battle']
+    const all: Screen[] = ['landing', 'menu', 'campaign', 'mission', 'skirmish', 'battle', 'hangar']
     const events: ScreenEvent[] = [
-      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
+      'start', 'mission', 'skirmish', 'hangar', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
     ]
     for (const s of all) {
       for (const e of events) {
@@ -51,9 +51,9 @@ describe('nextScreen（M10 spec §3、§4）', () => {
   })
 
   it('回不去 landing —— 那是一次性的開場', () => {
-    const all: Screen[] = ['menu', 'campaign', 'mission', 'skirmish', 'battle']
+    const all: Screen[] = ['menu', 'campaign', 'mission', 'skirmish', 'battle', 'hangar']
     const events: ScreenEvent[] = [
-      'start', 'mission', 'skirmish', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
+      'start', 'mission', 'skirmish', 'hangar', 'back', 'fight', 'toMenu', 'toSetup', 'toMission',
     ]
     for (const s of all) {
       for (const e of events) expect(nextScreen(s, e)).not.toBe('landing')
@@ -110,5 +110,31 @@ describe('陣營頁', () => {
 
   it('結算回任務列表是回簡報頁（同一條線），不是陣營頁', () => {
     expect(nextScreen('battle', 'toMission')).toBe('mission')
+  })
+})
+
+/**
+ * 機庫。**它是死路** —— 進去看飛機，出來只有回主選單一條。
+ *
+ * 【為什麼不讓它直接開打】「選這一台出擊」是編組頁的工作。機庫多開一條
+ * 進戰鬥的路，就多一個必須先呼叫 `enterBattle()` 的地方（見 `main.ts` 的
+ * `battle` 那個不變式），而漏掉的症狀是整頁當掉。
+ */
+describe('機庫', () => {
+  it('主選單進得去，返回回主選單', () => {
+    expect(nextScreen('menu', 'hangar')).toBe('hangar')
+    expect(nextScreen('hangar', 'back')).toBe('menu')
+  })
+
+  it('機庫開不了打，也吃不到結算的三個出口', () => {
+    expect(nextScreen('hangar', 'fight')).toBe('hangar')
+    expect(nextScreen('hangar', 'toMenu')).toBe('hangar')
+    expect(nextScreen('hangar', 'toSetup')).toBe('hangar')
+    expect(nextScreen('hangar', 'toMission')).toBe('hangar')
+  })
+
+  it('只有主選單去得了機庫', () => {
+    const others: Screen[] = ['landing', 'campaign', 'mission', 'skirmish', 'battle']
+    for (const s of others) expect(nextScreen(s, 'hangar')).toBe(s)
   })
 })

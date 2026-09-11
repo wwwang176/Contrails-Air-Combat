@@ -2,7 +2,7 @@ import {
   AdditiveBlending, BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage,
   InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, Vector3,
 } from 'three'
-import { MAX_MOUNTS, mountDirection } from '../weapons/types'
+import { MAX_MOUNTS, mountDirection, type Battery } from '../weapons/types'
 import { MAX_TURRETS, turretMuzzle, wobbleBasis } from '../weapons/turret'
 import { BARREL_SPACING, TURRET_FLASH_SECONDS } from '../world/turrets'
 import { FLASH_SECONDS } from '../world/World'
@@ -38,7 +38,23 @@ export const MUZZLE_HALF_WIDTH = 0.45
  */
 const MUZZLE_ROOT_RATIO = 0.15
 
-export interface Muzzles {
+/**
+ * 固定槍的槍焰畫出來只要這四格。**`Combatant` 天生滿足它。**
+ *
+ * 【為什麼要這個型別】機庫展示的那一架不是 combatant —— 它沒有控制器、沒有
+ * 血量、不在任何一場戰鬥裡。要它去湊一個完整的 `Combatant` 只為了借用這個
+ * 池，等於把戰鬥的資料結構搬進選單。反過來把需求縮到最小，兩邊共用同一份
+ * 幾何與同一份材質。
+ */
+export interface MuzzleSource {
+  readonly index: number
+  readonly alive: boolean
+  /** 每個掛架的槍焰剩餘秒數，對 `FLASH_SECONDS` 正規化成亮度 */
+  readonly muzzleFlash: Float32Array
+  readonly aircraft: { readonly spec: { readonly battery: Battery } }
+}
+
+export interface Muzzles<T = Combatant> {
   object: InstancedMesh
   /**
    * 寫入這一幀的實例矩陣。
@@ -47,7 +63,7 @@ export interface Muzzles {
    * @param quaternions 依 `c.index` 索引的**內插後**姿態
    */
   update(
-    combatants: readonly Combatant[],
+    combatants: readonly T[],
     positions: readonly Vector3[],
     quaternions: readonly Quaternion[],
   ): void
@@ -114,7 +130,7 @@ const E2 = new Vector3()
  *
  * @param aircraftCapacity 最多幾架飛機。實例數是它乘上 `MAX_MOUNTS`
  */
-export function createMuzzles(aircraftCapacity: number): Muzzles {
+export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
   const geometry = crossFlare()
 
   const material = new MeshBasicMaterial({
