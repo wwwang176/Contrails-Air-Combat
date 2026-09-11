@@ -113,6 +113,14 @@ def cast(T, origin, direction, length):
     return T.ray_cast(Vector(origin), Vector(direction).normalized(), length)[0]
 
 
+def cast_hit(T, origin, direction, length):
+    """連法線一起回。**法線朝哪邊分得出「打到外皮」與「從開口穿進去打到背面」**
+    —— 只看有沒有命中的話，蒙皮缺口那幾站會讀到對面的內壁，而那個數字看起來
+    完全正常。"""
+    r = T.ray_cast(Vector(origin), Vector(direction).normalized(), length)
+    return r[0], r[1]
+
+
 def bounds(objs):
     lo = Vector((1e9,) * 3)
     hi = Vector((-1e9,) * 3)
