@@ -200,14 +200,22 @@ def offset(ring, d):
 # 剖面中心打，取最外面那個交點）讀到的是這一堆的聯集輪廓，而聯集對中心是
 # 星狀的，所以等角取樣不會自交。
 #
-# 【機背甲板與砲塔不能併進來】它們與機身之間有**折線**：甲板的側緣落在
-# 仰角 66° —— 正好卡在 60° 與 90° 兩個取樣角中間。剖面中心沿機身抖個幾公分，
-# 60° 那一發就在「打到甲板側壁」與「打到機身肩線」之間來回跳，側視於是長出
-# 一條鋸齒。折線要嘛取樣點壓在它上面，要嘛把那一件分開做；分開做才與來源
-# 的構造一致。
+# 【趴在機身上的東西一律分開做】機背甲板、三座砲塔、天文觀測罩、尾艙罩，
+# 它們與機身之間都有**折線**：甲板的側緣落在仰角 66° —— 正好卡在 60° 與 90°
+# 兩個取樣角中間。剖面中心沿機身抖個幾公分，60° 那一發就在「打到甲板側壁」與
+# 「打到機身肩線」之間來回跳，側視於是長出一條鋸齒。凸起也一樣：0.8 m 長的
+# 觀測罩被 12 個等角取樣吃進去之後不是一顆圓頂，是橫跨整個機背的一片楔形
+# 折面；尾艙罩更嚴重，它把尾段的剖面中心整個往上拉 0.27，整條尾錐跟著摺起來。
+# 折線要嘛取樣點壓在它上面，要嘛把那一件分開做；分開做才與來源的構造一致。
+#
+# 【窗片一定要一起量】蒙皮上每一片平面窗都是布林挖出來的**洞**，而窗片是獨立
+# 的物件。只量蒙皮的話射線會從窗口穿進機艙、打到裡面的東西，那一站的半寬直接
+# 塌掉 —— 左舷領航窗（y 4.11…4.54）讀到的是 0.71 與 0.12，前後兩站是 1.06 與
+# 0.90。窗片本來就貼齊蒙皮（角點在外 3…25 mm），補進來洞就堵住了。
 #
 # 【機首罩最後 0.3 m 收得很急】那一段站位要密，不然機首變成一個鈍頭。
-FUS_SHELL = ['B17_Fuselage', 'B17_Glass', 'B17_Hood', 'B17_Astro']
+FUS_SHELL = (['B17_Fuselage', 'B17_Glass']
+             + sorted(n for n in O if n.startswith('B17_Pane')))
 FUS_Y = [6.29, 6.15, 5.90, 5.50, 4.90, 4.20, 3.60, 3.00, 2.30, 1.60, 0.80, 0.00,
          -1.00, -2.10, -3.20, -4.40, -5.60, -7.00, -8.80, -10.80, -12.60,
          -14.20, -15.30, -16.26]
@@ -277,10 +285,11 @@ new_object('B17_Fuselage', _bm, [M_BODY, M_GLASS])
 # 座艙頂到無線電艙的那一塊抬高的甲板，是一片蓋在圓機身上的蓋子。低模做成
 # 一根斷面像倒 U 的短管：頂面照量測的橫斷面走，兩側壁往下**埋進機身裡**
 # —— 兩件重疊的部分都是機身色，看不出來，而分開做就沒有折線取樣的問題。
-DOR_Y = [3.38, 3.10, 2.60, 1.80, 0.60, -0.80, -2.20, -3.30, -4.05]
+DOR_Y = [3.30, 3.10, 2.60, 1.80, 0.60, -0.80, -2.20, -3.30, -4.00]
 DOR_FX = (-0.99, -0.60, 0.0, 0.60, 0.99)
 DOR_BURY = 0.15                   # 側壁底緣比機身冠線再低這麼多
-DORSAL = bvh(['B17_Dorsal'])
+# 甲板上的無線電艙頂窗與開放槍位也是挖出來的洞，同樣要把玻璃補回來
+DORSAL = bvh(['B17_Dorsal', 'B17_Glass'])
 
 
 def dorsal_ring(y):
@@ -312,6 +321,12 @@ def dorsal_ring(y):
 _rings = [r for r in (dorsal_ring(_y) for _y in DOR_Y) if r is not None]
 if len(_rings) < 3:
     raise SystemExit('機背甲板量不到足夠的剖面')
+# 【兩端各補一個收口環】甲板前後都收成一個尖，最外那一站量不到寬度（掃過去
+# 只剩幾個取樣點）就會被丟掉，前緣於是短掉 0.3 m —— 座艙頂的前沿整個往後退。
+# 端點照來源的實際長度補，形狀由最外那一站往形心縮。
+_dlo, _dhi = bounds(['B17_Dorsal'])
+_rings = ([offset(shrink(_rings[0], 0.30), (0, _dhi.y - DOR_Y[0], 0))] + _rings
+          + [offset(shrink(_rings[-1], 0.30), (0, _dlo.y - DOR_Y[-1], 0))])
 _bm = bmesh.new()
 _vs, _ = loft(_bm, _rings)
 cap(_bm, list(reversed(_vs[0])))
@@ -319,14 +334,14 @@ cap(_bm, _vs[-1])
 new_object('B17_Dorsal', _bm, [M_BODY])
 
 
-# ═══════════════════════ 3. 砲塔 ═══════════════════════
+# ═══════════════════════ 3. 砲塔與觀測罩 ═══════════════════════
 #
-# 頂／下頷／球形三座。各做成一顆由來源件外接盒定出來的橢球，埋一半在機身裡。
+# 三座砲塔與天文觀測罩。各做成一顆由來源件外接盒定出來的橢球，埋一半在機身裡。
 TUR_SEG = 8
 TUR_RINGS = 3
 
 
-def build_turret(name):
+def build_turret(name, material=None):
     lo, hi = bounds([name])
     c = (lo + hi) * 0.5
     a = (hi - lo) * 0.5
@@ -342,11 +357,53 @@ def build_turret(name):
     vs, _ = loft(bm, rings)
     fan(bm, vs[0], (c.x, hi.y, c.z))
     fan(bm, list(reversed(vs[-1])), (c.x, lo.y, c.z))
-    return new_object(name, bm, [M_ACC])
+    return new_object(name, bm, [material or M_ACC])
 
 
 for _n in ('B17_TopTurret', 'B17_ChinTurret', 'B17_BallTurret'):
     build_turret(_n)
+build_turret('B17_Astro', M_BODY)
+
+
+# —— 尾艙罩：趴在尾錐上的一個方塊 ——
+#
+# 【為什麼不照剖面 loft】它本來就是方的（見出貨版）。分四站是為了留住斜的
+# 前緣與收下去的尾端；一顆外接盒方塊會把前緣切平、頂線整段抬到 1.97。
+#
+# 【底面要埋進尾錐】量到的罩底 1.20…1.32 本來就在機身冠線 1.30…1.59 之下，
+# 再往下壓一點保險 —— 露出來的話尾巴底下會多一片浮著的板子。
+HOOD_Y = (-13.85, -14.60, -15.30, -15.95)
+HOOD_BURY = 0.06
+HOOD = bvh(['B17_Hood'])
+
+
+def hood_ring(y):
+    top = cast(HOOD, (0, y, 9), (0, 0, -1), 18)
+    bot = cast(HOOD, (0, y, -9), (0, 0, 1), 18)
+    crown = cast(FUS_SKIN, (0, y, 9), (0, 0, -1), 18)
+    if top is None or bot is None or crown is None:
+        return None
+    side = cast(HOOD, (4, y, (top.z + bot.z) * 0.5), (-1, 0, 0), 8)
+    if side is None:
+        return None
+    hw = abs(side.x)
+    zb = min(bot.z, crown.z) - HOOD_BURY
+    return [(-hw, y, zb), (hw, y, zb), (hw, y, top.z), (-hw, y, top.z)]
+
+
+_rings = [r for r in (hood_ring(_y) for _y in HOOD_Y) if r is not None]
+if len(_rings) < 3:
+    raise SystemExit('尾艙罩量不到足夠的剖面')
+_bm = bmesh.new()
+_vs, _hf = loft(_bm, _rings)
+_hf += cap(_bm, list(reversed(_vs[0]))) + cap(_bm, _vs[-1])
+# 玻璃由左繞過屁股到右，頂面是蒙皮；底面埋著，塗哪一種都看不到。
+# 【法線要先自己算】`BMFace.normal` 在 `recalc_face_normals` 之前是零向量，
+# 直接讀會把整顆罩子判成玻璃
+for _f in _hf:
+    _f.normal_update()
+    _f.material_index = 0 if abs(_f.normal.z) > 0.7 else 1
+new_object('B17_Hood', _bm, [M_BODY, M_GLASS])
 
 
 # ═══════════════════════ 4. 翼面 ═══════════════════════
@@ -565,6 +622,40 @@ for _i in range(1, 5):
     build_spinner('B17_Spinner%d' % _i)
     for _suf in ('', '.001', '.002'):
         build_blade('B17_Prop%d%s' % (_i, _suf), HUB[_i])
+
+
+# ═══════════════════════ 7. 窗片 ═══════════════════════
+#
+# 16 片平面窗**原封不動搬過來**，一片 12 個三角形。它們本來就是「四角壓平的
+# 平板沿法線外推 2.5 cm」，沒有剖面可以簡化，而少了它們整台的側面就是一片
+# 空白的鐵皮。
+#
+# 【材質要重指到低模這三顆】來源的材質在匯入時被改名成 `Ref_*`（見開頭），
+# 照抄過來的話 GLB 裡會出現 `Ref_B17_Glass`，`parseGlbTemplate` 對表上沒有的
+# 材質是直接拒載。
+#
+# 【變換烘進網格】其餘每一件都是在世界座標建的、物件變換是單位矩陣；搬過來
+# 的這幾片跟著烘平，整份 GLB 的節點就一致。
+MAT_BY_SRC = {'B17_Body': M_BODY, 'B17_Accent': M_ACC, 'B17_Glass': M_GLASS}
+
+
+def copy_part(name):
+    src = O[name]
+    me = src.data.copy()
+    me.name = name
+    me.transform(src.matrix_world)
+    for i, m in enumerate(me.materials):
+        base = m.name[4:] if m is not None and m.name.startswith('Ref_') else ''
+        me.materials[i] = MAT_BY_SRC.get(base, M_BODY)
+    for p in me.polygons:
+        p.use_smooth = False
+    ob = bpy.data.objects.new(name, me)
+    OUT.objects.link(ob)
+    return ob
+
+
+for _n in sorted(n for n in O if n.startswith('B17_Pane')):
+    copy_part(_n)
 
 
 # ═══════════════════════ 收尾 ═══════════════════════
