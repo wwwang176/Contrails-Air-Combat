@@ -2436,7 +2436,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
    */
   onAircraft(spec) {
     if (showcase === null) {
-      showcase = createShowcase(ctx.scene, document.getElementById('hangar-view') as HTMLElement)
+      showcase = createShowcase(
+        ctx.scene,
+        document.getElementById('hangar-view') as HTMLElement,
+        document.getElementById('hangar-stage') as HTMLElement,
+      )
     }
     showcase.setAircraft(spec)
   },
