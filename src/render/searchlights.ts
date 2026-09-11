@@ -48,7 +48,7 @@ const GLARE_ANGULAR_SIZE = 0.08
  * 鏡頭在光柱裡時整個畫面加上去的白，0…1。光柱的薄壁從裡面看只剩遠壁一層，
  * 亮度攤在整個視野上幾乎看不見，「被照到」的感覺靠這一層
  */
-export const VEIL_OPACITY = 0.25
+export const VEIL_OPACITY = 0.17
 const VEIL_COLOR = /* @__PURE__ */ new Color(BEAM_COLOR)
 
 /** 白紗的頂點直接落在裁剪空間，不吃相機矩陣，FOV 怎麼變都蓋滿畫面 */
