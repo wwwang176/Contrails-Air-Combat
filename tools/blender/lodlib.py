@@ -55,10 +55,14 @@ def new_collection(name):
     return c
 
 
-def new_object(coll, name, bm, mats):
-    """焊點、統一法線、平面著色，然後掛進集合。`bm` 在這裡被吃掉。"""
+def new_object(coll, name, bm, mats, recalc=True):
+    """焊點、統一法線、平面著色，然後掛進集合。`bm` 在這裡被吃掉。
+
+    【開口的片要 `recalc=False`】`recalc_face_normals` 對沒有內外之分的殼只能
+    任選一邊，選錯就整片被背面剔除。呼叫端自己定好朝向的話別讓它再翻一次。"""
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    if recalc:
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
@@ -210,13 +214,15 @@ def tube(T, ys, angles, cx=0.0, reach=14.0, zc_of=None):
 
 
 # ───────────────────────── 造形 ─────────────────────────
-def loft(bm, rings):
-    """一串等長的環接成管。回傳每一環的頂點與新增的面。"""
+def loft(bm, rings, closed=True):
+    """一串等長的環接成管。`closed=False` 接成開口的片（艙罩、窗帶那種殼）。
+
+    回傳每一環的頂點與新增的面。"""
     vs = [[bm.verts.new(p) for p in r] for r in rings]
     n = len(rings[0])
     faces = []
     for a, b in zip(vs, vs[1:]):
-        for j in range(n):
+        for j in (range(n) if closed else range(n - 1)):
             k = (j + 1) % n
             q = [a[j], a[k], b[k], b[j]]
             if len(set(q)) < 4:
