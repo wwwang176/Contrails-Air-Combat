@@ -72,6 +72,23 @@ def new_object(coll, name, bm, mats):
     return ob
 
 
+def push_out(ob, dist, axis_z=0.0):
+    """把一件沿「離開機身中軸」的方向整體往外推 `dist`。
+
+    【為什麼是整體推、不是只推沉下去的那幾個點】只推一部分會在交界處折出
+    稜線。整體推的話埋在機身裡的那一半也往外同樣多 —— 形狀不變，該露出來的
+    多露 `dist`，該埋著的少埋 `dist`。
+
+    【呼叫端要先確認埋著的那一半還夠深】推太多會在邊緣掀起一圈唇。"""
+    for v in ob.data.vertices:
+        d = Vector((v.co.x, 0.0, v.co.z - axis_z))
+        if d.length < 1e-6:
+            continue
+        d.normalize()
+        v.co.x += d.x * dist
+        v.co.z += d.z * dist
+
+
 def copy_part(coll, src, name, remap, default):
     """把來源件原封不動搬過來，只重指材質、把變換烘進網格。
 

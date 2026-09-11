@@ -204,7 +204,15 @@ KEEP = [
     ('Mesh_25', 'HE111_Spinner2'),
 ]
 for _src, _name in KEEP:
-    L.copy_part(OUT, O[_src], _name, REMAP, M_BODY)
+    _ob = L.copy_part(OUT, O[_src], _name, REMAP, M_BODY)
+    # 【座艙罩要整體往外推一點】它後段的側窗（x ±0.75、y −4.1）貼在機身最寬
+    # 的那一圈上，而低模的 12 邊形在兩個取樣角之間往外鼓 —— 實測 204 個面
+    # 裡有 23 個被蒙皮吃掉，最深 3.9 cm。推 4.5 cm 全部清空。
+    #
+    # 【只推這一件】腹艙與腹側小窗沉下去的那幾面是它們的**內側**，本來就
+    # 該埋著；跟著推會把內壁翻出來。
+    if _name == 'HE111_Canopy':
+        L.push_out(_ob, 0.045, 0.25)
 for _n in sorted(n for n in O if n.startswith('HE111_Prop')):
     L.copy_part(OUT, O[_n], _n, REMAP, M_ACC)
 
