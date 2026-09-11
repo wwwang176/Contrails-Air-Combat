@@ -1959,7 +1959,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   flareLights.update(world.flares, elapsed)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  groundModels?.update(world.groundTargets)
+  groundModels?.update(world.groundTargets, ctx.camera.position)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
@@ -2740,7 +2740,10 @@ const GFX_HIDDEN_LAYER = 31
     if (v.far) far++
     nearest = Math.min(nearest, v.position.distanceTo(ctx.camera.position))
   }
-  return { seats: visuals.size, withLod, far, nearest: Math.round(nearest) }
+  return {
+    seats: visuals.size, withLod, far, nearest: Math.round(nearest),
+    ground: groundModels?.lodState() ?? null,
+  }
 }
 
 ;(window as unknown as Record<string, unknown>)['__seats'] = () =>
