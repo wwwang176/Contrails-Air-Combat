@@ -63,7 +63,9 @@ import {
 } from './world/events'
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
-import { buildAircraft, preloadAircraftModels, type AircraftModel } from './render/geometry/buildAircraft'
+import {
+  buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
+} from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
@@ -334,6 +336,15 @@ interface Visual {
    * 席位拿一具新的。`renderPositions` 參考的是 `position`，不受影響。
    */
   model: AircraftModel
+  /**
+   * 遠處用的低模。**沒有低模的機種是 `null`**，那一席一路走 `model`。
+   *
+   * 【兩具都掛在場景上，靠 `visible` 切】換的是哪一個 group 在畫，不是重建
+   * 幾何 —— 每幀重建一架 B-17 是不可能的成本。
+   */
+  lod: AircraftModel | null
+  /** 這一幀顯示的是低模嗎。`useAircraftLod` 的遲滯要讀上一幀的答案。 */
+  far: boolean
   readonly position: Vector3
   readonly quaternion: Quaternion
   /**
@@ -345,15 +356,28 @@ interface Visual {
   wrecked: boolean
 }
 
+/** 配這一席的低模並掛上場景（沒有低模的機種是 no-op）。復活時也走這裡。 */
+function attachLod(v: Visual, id: string): void {
+  v.lod = buildAircraftLod(id)
+  if (v.lod !== null) {
+    v.lod.group.visible = false
+    ctx.scene.add(v.lod.group)
+  }
+  v.far = false
+}
+
 const visuals = new Map<Combatant, Visual>()
 function attachVisual(c: Combatant): Visual {
   const v: Visual = {
     model: buildAircraft(c.aircraft.spec),
+    lod: null,
+    far: false,
     position: new Vector3(),
     quaternion: new Quaternion(),
     wrecked: false,
   }
   ctx.scene.add(v.model.group)
+  attachLod(v, c.aircraft.spec.id)
   visuals.set(c, v)
   return v
 }
@@ -960,6 +984,11 @@ function respawnPlayer() {
 function releaseVisual(v: Visual): void {
   ctx.scene.remove(v.model.group)
   v.model.dispose()
+  if (v.lod !== null) {
+    ctx.scene.remove(v.lod.group)
+    v.lod.dispose()
+    v.lod = null
+  }
 }
 
 /**
@@ -1689,11 +1718,19 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 釋放。配置只發生在復活那一刻
       v.model = buildAircraft(c.aircraft.spec)
       ctx.scene.add(v.model.group)
+      attachLod(v, c.aircraft.spec.id)
       v.wrecked = false
     }
 
     v.position.lerpVectors(c.aircraft.prevPosition, c.aircraft.state.position, alpha)
     v.quaternion.slerpQuaternions(c.aircraft.prevOrientation, c.aircraft.state.orientation, alpha)
+    // 【距離 LOD】兩具的姿態都要寫 —— 只寫顯示中的那一具，換過去的那一幀
+    // 會看到它還停在上一次顯示時的位置。
+    if (v.lod !== null) {
+      v.far = useAircraftLod(v.position.distanceToSquared(ctx.camera.position), v.far)
+      v.lod.group.position.copy(v.position)
+      v.lod.group.quaternion.copy(v.quaternion)
+    }
     v.model.group.position.copy(v.position)
     v.model.group.quaternion.copy(v.quaternion)
 
@@ -1705,13 +1742,27 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 【為什麼先內插再接管】殘骸的起始姿態必須接在畫面上最後看到的位置。
       // 用擊墜事件裡的子步位置會跳最多 0.83 m（M8 spec §3.1）。
       v.wrecked = true
+      // 【殘骸接手目前顯示的那一具，另一具在這裡放掉】殘骸池只收一個 group，
+      // 而墜落的殘骸會一路掉到眼前 —— 交低模過去的話近看是多邊形的機身。
+      if (v.lod !== null) {
+        ctx.scene.remove(v.lod.group)
+        v.lod.dispose()
+        v.lod = null
+        v.far = false
+      }
       const vel = c.aircraft.state.velocity
       wrecks.adopt(v.model, c.aircraft.spec, vel.x, vel.y, vel.z, c.index)
       continue
     }
 
-    v.model.group.visible = true
-    v.model.setPropSpin(propRotation, c.command.throttle > 0.15)
+    const shown = v.far && v.lod !== null ? v.lod : v.model
+    if (v.lod !== null) {
+      v.model.group.visible = !v.far
+      v.lod.group.visible = v.far
+    } else {
+      v.model.group.visible = true
+    }
+    shown.setPropSpin(propRotation, c.command.throttle > 0.15)
 
     // 【翼尖凝結尾】接線點在 `v.wrecked` 與 `!c.alive` 的 continue 之後 ——
     // 翻滾的殘骸沒有升力，本來就不該冒尾跡，那是免費得到的。
@@ -1908,7 +1959,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   flareLights.update(world.flares, elapsed)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  groundModels?.update(world.groundTargets)
+  groundModels?.update(world.groundTargets, ctx.camera.position)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
@@ -2568,7 +2619,9 @@ const GFX_HIDDEN_LAYER = 31
     particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
     tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
     vortex: () => [vortex.object],
-    aircraft: () => [...visuals.values()].map((v) => v.model.group),
+    // 【低模那一具也要收進來】只關正式模型的話，200 m 外那幾架照畫不誤
+    aircraft: () => [...visuals.values()]
+      .flatMap((v) => (v.lod === null ? [v.model.group] : [v.model.group, v.lod.group])),
     // 【戰況相依的雜項】砲塔管、編隊標記、碎片、目標環。它們的位置取決於
     // 這一場打成什麼樣，兩次執行不會一樣 —— 逐像素比對要把它們一起關掉，
     // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
@@ -2631,6 +2684,122 @@ const GFX_HIDDEN_LAYER = 31
  * 【代飛要另外按】與遊戲相同：`KeyI`。e2e 腳本在呼叫本函式的同一個 tick
  * dispatch —— `leaveGodView` 會在開戰時把 `input.playerAi` 清掉，先按無效。
  */
+/**
+ * 觀察者鏡頭的直接定位。**要先按 `G` 進上帝視角**，否則寫進去的姿態下一幀
+ * 就被飛行鏡頭蓋掉。
+ *
+ * 【為什麼不用鍵盤飛過去】按著 `W` 數秒鐘的位移取決於那幾秒跑了幾幀 ——
+ * 量測本身會改變它，兩輪停的地方不一樣，而「同一個機位」正是 A/B 的前提。
+ */
+/**
+ * 依單位種類隱藏地面目標，用來把幀時間歸因到某一種實體。給 `id` 就只藏那
+ * 一種，省略則全部顯示。
+ *
+ * 【為什麼不放進 `__gfx`】那一份的目標是**繪製層**（海、天、粒子、曳光彈），
+ * 而這裡要的是「同一層裡的某一批物件」—— 波爾塔瓦機場上停放的 24 架 B-17
+ * 與 22 個砲位走的是同一顆材質、同一個 Group。
+ *
+ * 【`groundModels` 的孩子與 `world.groundTargets` 同序】`createGroundModels`
+ * 是照那個陣列一路 `add` 的，兩邊靠索引對齊。
+ */
+;(window as unknown as Record<string, unknown>)['__hideGround'] = (id?: string) => {
+  const g = groundModels?.object
+  if (g === undefined) return { hidden: 0, kinds: [] as string[] }
+  const list = world.groundTargets
+  const kinds = new Set<string>()
+  let hidden = 0
+  for (let k = 0; k < list.length && k < g.children.length; k++) {
+    const t = list[k]!
+    kinds.add(t.unit.id)
+    const on = id === undefined || t.unit.id !== id
+    g.children[k]!.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    if (!on) hidden++
+  }
+  return { hidden, kinds: [...kinds] }
+}
+
+/**
+ * **量測出口**：場上每一席的機種與位置。
+ *
+ * 【為什麼需要它】對著某一群飛機量幀時間時，鏡頭要擺在它們身上，而它們一路
+ * 在飛 —— 寫死座標的話量到一半整隊已經飛出畫面。
+ */
+/**
+ * **量測出口**：距離 LOD 現在切到哪裡。
+ *
+ * 【為什麼需要它】切換沒有生效時畫面上**看不出來** —— 兩具模型長得幾乎一樣，
+ * 症狀只有「省下來的幀時間是零」，而幀時間本來就會漂。
+ */
+;(window as unknown as Record<string, unknown>)['__lod'] = () => {
+  let withLod = 0
+  let far = 0
+  let nearest = Infinity
+  for (const v of visuals.values()) {
+    if (v.lod === null) continue
+    withLod++
+    if (v.far) far++
+    nearest = Math.min(nearest, v.position.distanceTo(ctx.camera.position))
+  }
+  return {
+    seats: visuals.size, withLod, far, nearest: Math.round(nearest),
+    ground: groundModels?.lodState() ?? null,
+  }
+}
+
+;(window as unknown as Record<string, unknown>)['__seats'] = () =>
+  world.combatants.map((c) => ({
+    id: c.aircraft.spec.id,
+    alive: c.alive,
+    x: c.aircraft.state.position.x,
+    y: c.aircraft.state.position.y,
+    z: c.aircraft.state.position.z,
+  }))
+
+;(window as unknown as Record<string, unknown>)['__godcam'] = (
+  x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
+) => {
+  godCam.position.set(x, y, z)
+  godCam.yaw = (yawDeg * Math.PI) / 180
+  godCam.pitch = (pitchDeg * Math.PI) / 180
+  return { x, y, z, yawDeg, pitchDeg }
+}
+
+/**
+ * 打一片彈幕：`n` 顆落在 (`cx`, `cz`) 附近 `spread` 公尺內，走的是與炸彈
+ * 落地**逐字相同**的那一支 `emitBlast(LAND_BLAST)`。省略座標時以地面目標
+ * 的形心為準。
+ */
+;(window as unknown as Record<string, unknown>)['__bombs'] = (
+  n = 48, spread = 700, fires = false, cx?: number, cz?: number,
+) => {
+  if (fires) {
+    for (const t of world.groundTargets) {
+      const top = t.impactY - t.position.y
+      lightGroundFire(groundFires, t.position.x, t.position.y + top * 0.3, t.position.z)
+    }
+  }
+  let ax = 0
+  let az = 0
+  for (const t of world.groundTargets) { ax += t.position.x; az += t.position.z }
+  const m = Math.max(1, world.groundTargets.length)
+  const ox = cx ?? ax / m
+  const oz = cz ?? az / m
+  for (let k = 0; k < n; k++) {
+    const bx = ox + (hash01(k * 7919 + 1) * 2 - 1) * spread
+    const bz = oz + (hash01(k * 7919 + 2) * 2 - 1) * spread
+    emitBlast(BLAST_POOLS, LAND_BLAST, bx, world.groundAt(bx, bz), bz, k * 97, 0, 0, 0)
+  }
+  return {
+    at: { x: +ox.toFixed(0), z: +oz.toFixed(0) },
+    smoke: blastSmoke.live,
+    dust: blastDust.live,
+    glow: blastGlow.live,
+    // 【地面火的煙走另一個池】容量 16384，是彈幕煙池的八倍 —— 煙牆真要堆
+    // 得起來只可能在這裡
+    fireSmoke: shipFireSmoke.live,
+  }
+}
+
 ;(window as unknown as Record<string, unknown>)['__drill'] = (altitude = 5000) => {
   drillConfig = {
     units: lineAbreast(HEAD_ON, BF109K4, 1, P51D, 1),

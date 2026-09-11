@@ -144,7 +144,7 @@ const plantTargets: GroundTarget[] = [
   )),
 ]
 const plantModels = createGroundModels(plantTargets)
-plantModels.update(plantTargets)
+plantModels.update(plantTargets, ctx.camera.position)
 plantModels.object.visible = false
 ctx.scene.add(plantModels.object)
 
