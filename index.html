@@ -139,8 +139,6 @@
       #campaign .tallcard { width: 300px; }
       #campaign .tallcard .photo { height: 400px; }
 
-      .photo .ph { display: block; width: 100%; height: 100%; }
-
       /* ①d 機庫 */
       /* 【只有這一頁不是整片遮罩】右半要看得到飛機。左邊那一段仍然要壓暗 ——
          紙下面是天空與海，不壓的話返回鍵與卷宗邊緣在亮海上會讀不出來 */
@@ -414,18 +412,8 @@
             <span class="t">遭遇戰</span>
             <span class="d">自己編雙方兵力、選戰場與開場高度，打一場殲滅戰。</span>
           </button>
-          <!-- 【這一張還沒有照片】另外兩張的 /ui/*.jpg 是生成的，這一張等著生。
-               先放剪影而不是先接一個不存在的檔案 —— 404 會在卡片上留一個破圖 -->
           <button class="tallcard paperbit" data-act="hangar">
-            <span class="photo"><i class="tape tl"></i>
-              <svg class="ph" viewBox="0 0 160 146" aria-hidden="true">
-                <rect width="160" height="146" fill="#241e18"/>
-                <g fill="#8d8069" transform="translate(80 73) scale(2.4) translate(-23 -10)">
-                  <rect x="21" y="1" width="4" height="17" rx="2"/>
-                  <path d="M2 9h42v3H2z"/><path d="M18 15h10v2H18z"/>
-                </g>
-              </svg>
-            </span>
+            <span class="photo"><i class="tape tl"></i><img src="/ui/hangar.jpg" alt=""></span>
             <span class="t">機庫</span>
             <span class="d">把每一架都叫到眼前：來歷、性能，還有它飛起來的樣子。</span>
           </button>
