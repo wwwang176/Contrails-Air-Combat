@@ -1,4 +1,7 @@
-import { HISTORICAL, topSpeedKmh } from '../battle/skirmish'
+import { ALL_SPECS, HISTORICAL, topSpeedKmh } from '../battle/skirmish'
+import { batteryDps } from '../weapons/types'
+import { TURRET_DAMAGE_SCALE } from '../weapons/turret'
+import { PART_MULTIPLIER, type HitPart } from '../world/hit'
 import type { Campaign } from '../battle/missions'
 import { bestSustainedTurnRateCached, maxRollRate } from '../analysis/envelope'
 import { LOADOUT_BY_AIRCRAFT } from '../weapons/stores'
@@ -50,6 +53,40 @@ export const SIDE_OF: Record<string, Campaign> = {
 }
 
 /**
+ * 機庫裡的排列：**陣營（美 德 日）→ 機種（戰鬥機在前）→ 第一次出現在
+ * 任務裡的先後。**
+ *
+ * ```
+ *   美軍   P-51D（盟 M1）、F6F-5（盟 M4）、F4F-4（日 M4 當敵人）｜B-17G（盟 M1）
+ *   德軍   Bf 109 K-4（盟 M1 敵方）｜He 111（德 M2）
+ *   日軍   A6M5（盟 M4 敵方）、Ki-84（日 M3）｜G4M（日 M3 被護送）
+ * ```
+ *
+ * 【為什麼是一張寫定的表而不是掃任務資料】掃出來的東西要挑「算不算出場」
+ * （敵方算嗎？被護送的算嗎？），而那幾個判斷沒有一個是這一頁的問題。
+ * 這張表就是上面那份對照，改關卡時照著改。
+ *
+ * 【為什麼不照 `ALL_SPECS`】那一份是全部戰鬥機在前、全部轟炸機在後，服務的
+ * 是編組頁的機種選單。機庫是一排卷宗，玩家找的是「美軍有哪幾台」。
+ *
+ * 【漏填的排到最後】新機種沒加進這張表不會出錯，只會掉到隊尾。
+ */
+export const HANGAR_ORDER: readonly string[] = [
+  'p51d', 'f6f5', 'f4f4', 'b17g',
+  'bf109k4', 'he111',
+  'a6m5', 'ki84', 'g4m',
+]
+
+/** 照 `HANGAR_ORDER` 排。表上沒有的排在最後，並列時維持傳入的順序 */
+export function sortForHangar(specs: readonly AircraftSpec[]): readonly AircraftSpec[] {
+  const rank = (s: AircraftSpec): number => {
+    const at = HANGAR_ORDER.indexOf(s.id)
+    return at < 0 ? HANGAR_ORDER.length : at
+  }
+  return [...specs].sort((a, b) => rank(a) - rank(b) || specs.indexOf(a) - specs.indexOf(b))
+}
+
+/**
  * 數值條的評估條件。
  *
  * 【為什麼九台用同一組條件而不是各取各的最佳點】條要能互相比較。各取各的
@@ -79,6 +116,92 @@ const SPEED_SCALE = 800
 const CLIMB_SCALE = 25
 const TURN_SCALE = 20
 const ROLL_SCALE = 100
+
+/**
+ * 全機武裝的理論每秒傷害：**固定武裝加上自衛砲塔**。射速已經在裡面
+ * （`batteryDps` 是 Σ 射速/60 × 單發傷害）。
+ *
+ * 【為什麼砲塔要算進來】三台轟炸機的 `battery.mounts` 是空的（它們沒有
+ * 前射武裝），只算固定武裝的話那三條會是零 —— 而 B-17G 身上有八座砲塔。
+ *
+ * 【砲塔那半要照戰鬥裡的算法】一次擊發是**整座**一起響（`t.guns` 根管子），
+ * 而且全部轟炸機的自衛火力統一乘 `TURRET_DAMAGE_SCALE`。少乘 `guns` 會
+ * 低估雙聯砲塔，少乘倍率會高估一倍 —— 兩者都讓這一條與玩家實際挨的打分家。
+ *
+ * 【沒有「準確度」這一項】這個模型裡固定槍沒有散佈，打不打得中取決於射手
+ * （AI 的瞄準誤差、玩家自己的準頭）與匯聚距離，不是機體的屬性。所以這一條
+ * 是**理論值**：全部命中時每秒能打出多少。
+ */
+function firepowerOf(spec: AircraftSpec): number {
+  let dps = batteryDps(spec.battery)
+  for (const t of spec.turrets) {
+    dps += (t.weapon.roundsPerMinute / 60) * t.weapon.damage * t.guns * TURRET_DAMAGE_SCALE
+  }
+  return dps
+}
+
+/**
+ * 這一台的**等效耐打**：血量折算成「全部部位都是基準防護」時的血量。
+ *
+ * ── 算法 ─────────────────────────────────────────────
+ *
+ * 戰鬥裡的扣血是（`world/hit.ts` 與 `AircraftSpec.protection`）：
+ *
+ * ```
+ *   實際扣血 = 單發傷害 × PART_MULTIPLIER[部位] ÷ protection[部位]
+ * ```
+ *
+ * 假設命中**平均分布在六個部位**，平均每發扣的血相對於「protection 全是
+ * 1」的基準就是 `Σ(mul ÷ prot) ÷ Σ mul`，所以
+ *
+ * ```
+ *   等效耐打 = hp × Σ mul ÷ Σ(mul ÷ prot)
+ * ```
+ *
+ * 【為什麼假設平均分布，而不是用實測的傷害佔比】`AircraftSpec.protection`
+ * 的註解裡有一組實測佔比（機翼＋尾段 72%、機身 7.7%、引擎 5.4%），但那組
+ * 數字不在程式裡。把它抄進這裡等於多一個沒有人維護的常數，而它改變的幅度
+ * 只有 −8.5% 到 +5.0%。部位倍率本身就在 `hit.ts`，跟著它走不會過期。
+ *
+ * 【加了護甲之後誰動了】只有零戰。它是唯一一台六個部位全部低於基準的
+ * （史實上沒有裝甲鋼板、沒有防彈玻璃、沒有自封油箱），防禦條因此由 12%
+ * 掉到 8%；其餘八台都在 ±4 個百分點內。
+ *
+ * ```
+ *   機種        只看血量   加護甲   護甲倍率
+ *   B-17G         100%     100%      1.14
+ *   He 111         60%      51%      0.96
+ *   F6F-5          25%      26%      1.17
+ *   P-51D          20%      17%      0.97
+ *   A6M5           12%       8%      0.78
+ * ```
+ *
+ * 【改了 protection 或加新機種要怎麼重算】什麼都不必做 —— 這一支與
+ * `MAX_TOUGHNESS` 都從 `ALL_SPECS` 現算。上面那張表是當下的結果，改完對
+ * 一次就知道有沒有動到不該動的機種。
+ */
+const HIT_PARTS = Object.keys(PART_MULTIPLIER) as HitPart[]
+const PART_WEIGHT_SUM = HIT_PARTS.reduce((sum, p) => sum + PART_MULTIPLIER[p], 0)
+
+function toughnessOf(spec: AircraftSpec): number {
+  let taken = 0
+  for (const part of HIT_PARTS) taken += PART_MULTIPLIER[part] / spec.protection[part]
+  return (spec.hp * PART_WEIGHT_SUM) / taken
+}
+
+/**
+ * 攻擊與防禦這兩條的滿格＝**九台裡最強的那一台**，其餘照比例。
+ *
+ * 【為什麼這兩條是相對的，而上面四條是絕對刻度】極速、爬升、迴旋、滾轉
+ * 都有玩家讀得懂的單位（km/h、m/s、°/s），絕對刻度因此有意義。傷害與耐打
+ * 沒有 —— 「每秒 1,440 點」只在這個遊戲自己的算術裡成立，印出來玩家也
+ * 無從判斷是高是低。能回答的只有「跟最強的那一台比是幾成」。
+ *
+ * 【防禦短的那幾台不是算錯】血量正比於質量（見 `AircraftSpec.hp`），所以
+ * 這一條讀起來很像體型：B-17G 能吃下的傷害是零戰的十幾倍，那是事實。
+ */
+const MAX_FIREPOWER = Math.max(...ALL_SPECS.map(firepowerOf))
+const MAX_TOUGHNESS = Math.max(...ALL_SPECS.map(toughnessOf))
 
 const DEG_PER_RAD = 180 / Math.PI
 
@@ -169,11 +292,16 @@ function barsOf(spec: AircraftSpec): readonly Bar[] {
   const speed = topSpeedKmh(spec.id)
   const turn = bestSustainedTurnRateCached(spec, BAR_ALTITUDE) * DEG_PER_RAD
   const roll = maxRollRate(spec, BAR_ALTITUDE, BAR_ROLL_SPEED) * DEG_PER_RAD
+  const attack = clamp01(firepowerOf(spec) / MAX_FIREPOWER)
+  const guard = clamp01(toughnessOf(spec) / MAX_TOUGHNESS)
   return [
     { label: '極速', text: `${speed} km/h`, fill: clamp01(speed / SPEED_SCALE) },
     { label: '爬升', text: `${climb.toFixed(1)} m/s`, fill: clamp01(climb / CLIMB_SCALE) },
     { label: '迴旋', text: `${turn.toFixed(1)} °/s`, fill: clamp01(turn / TURN_SCALE) },
     { label: '滾轉', text: `${roll.toFixed(0)} °/s`, fill: clamp01(roll / ROLL_SCALE) },
+    // 【這兩條印百分比】它們比的是九台之間，不是一個有單位的量，見 `MAX_FIREPOWER`
+    { label: '攻擊', text: `${Math.round(attack * 100)}%`, fill: attack },
+    { label: '防禦', text: `${Math.round(guard * 100)}%`, fill: guard },
   ]
 }
 

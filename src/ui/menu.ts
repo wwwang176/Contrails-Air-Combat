@@ -6,7 +6,7 @@ import {
   type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { briefingOf, shortName, type Briefing } from './briefing'
-import { dossierOf, SIDE_OF } from './dossier'
+import { dossierOf, sortForHangar, SIDE_OF } from './dossier'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
@@ -108,6 +108,9 @@ const SIL: Record<AircraftSpec['role'], string> = {
 }
 const ROLE_WORD: Record<AircraftSpec['role'], string> = { fighter: '戰鬥機', bomber: '轟炸機' }
 
+/** 機庫的卷宗架順序。**與編組頁的機種選單不同一份**，見 `sortForHangar` */
+const HANGAR_SPECS = sortForHangar(ALL_SPECS)
+
 /** 機種副名：全名去掉短名之後剩下的那截（「P-51D Mustang」→「Mustang」） */
 function fullName(spec: AircraftSpec): string {
   const s = shortName(spec)
@@ -160,7 +163,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   /** 任務線的狀態：哪一條、選了第幾關 */
   let campaign: Campaign = 'allies'
   const picked: Record<Campaign, number> = { allies: 0, germany: 0, japan: 0 }
-  /** 機庫攤開的是 `ALL_SPECS` 的第幾架 */
+  /** 機庫攤開的是 `HANGAR_SPECS` 的第幾架 */
   let hangarPick = 0
   /** 編組頁的機種選單有沒有展開（每側各自） */
   const paletteOpen = { blue: false, red: false }
@@ -270,9 +273,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 就少一個會忘記清掉的地方（與 `renderMission` 同一條理由）。
    */
   function renderHangar(): void {
-    const spec = ALL_SPECS[hangarPick] ?? ALL_SPECS[0]!
+    const spec = HANGAR_SPECS[hangarPick] ?? HANGAR_SPECS[0]!
     el.rack.innerHTML = ''
-    ALL_SPECS.forEach((s, i) => {
+    HANGAR_SPECS.forEach((s, i) => {
       const b = document.createElement('button')
       b.className = `stop paperbit${i === hangarPick ? ' on' : ''}`
       // 【e2e 用 id 選機】顯示名會改，id 不會
@@ -280,6 +283,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.innerHTML = `<div class="k">${CAMPAIGN_LABEL[SIDE_OF[s.id] ?? 'allies']}　${ROLE_WORD[s.role]}</div>`
         + `<div class="n">${escapeHtml(shortName(s))}</div>`
       b.addEventListener('click', () => {
+        // 【點已經攤開的那一份不重畫】重畫會把數值條打回 0 再長一次、
+        // 把展示機整台重建、鏡頭也重拉一遍 —— 而畫面上什麼都沒換
+        if (i === hangarPick) return
         hangarPick = i
         renderHangar()
       })
