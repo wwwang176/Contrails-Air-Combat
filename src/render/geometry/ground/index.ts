@@ -210,7 +210,8 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
      * 【近了就換回正式模型】上帝視角飛得到停機坪旁邊，門檻與飛行中那批
      * 共用（`buildAircraft.ts` 的 `AIRCRAFT_LOD_DIST`）。
      *
-     * 【`__PARKED_LOD = false` 整場一律正式模型】給 `poltava-lod.e2e.ts` 做 A/B。
+     * 【`__PARKED_LOD = false` 整場一律正式模型】進場前在主控台設，拿來做
+     * A/B。飛行中那批的對應開關是 `__FLYING_LOD`，切到哪裡看 `__lod()`。
      */
     model: { build: () => bakeParkedAircraft('b17g') },
     lodModel: { build: () => bakeParkedAircraft('b17g_lod2') },

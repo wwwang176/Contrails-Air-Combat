@@ -169,7 +169,7 @@ export function useAircraftLod(dist2: number, prev: boolean): boolean {
  * `eyePoint`／`wingTip`／`bombPoint` 逐項相同，所以呼叫端讀哪一具都一樣。
  */
 export function buildAircraftLod(id: string): AircraftModel | null {
-  // `__FLYING_LOD = false` 讓整場一路走正式模型，給 e2e 做 A/B
+  // `__FLYING_LOD = false` 讓整場一路走正式模型，進場前在主控台設，拿來做 A/B
   if ((globalThis as Record<string, unknown>)['__FLYING_LOD'] === false) return null
   const lodId = AIRCRAFT_LOD[id]
   if (lodId === undefined) return null
