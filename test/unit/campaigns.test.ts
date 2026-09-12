@@ -184,10 +184,37 @@ describe('炸毀任務', () => {
     }
   })
 
-  /** 【兩種進攻規則不共存】`missionRules` 先看擊沉，炸毀那一格會靜靜地被忽略 */
-  it('sinkCount 與 destroyCount 不共存', () => {
+  /**
+   * 【三種進攻規則不共存】`missionRules` 依序看擊沉、炸毀、擊落，落選的那
+   * 幾格會靜靜地被忽略 —— 而它們在卡片上看起來完全正常。
+   */
+  it('sinkCount、destroyCount、huntCount 三者只能有一個', () => {
     for (const m of ALL.filter(ready)) {
-      if (m.battle.sinkCount !== undefined) expect(m.battle.destroyCount, m.id).toBeUndefined()
+      const counts = [m.battle.sinkCount, m.battle.destroyCount, m.battle.huntCount]
+      expect(counts.filter((c) => c !== undefined).length, m.id).toBeLessThanOrEqual(1)
+    }
+  })
+
+  /**
+   * 【`huntRole` 不能單獨出現】只寫角色不寫數量的話 `missionRules` 根本走不到
+   * 擊落那一條，那一格就是一句沒有人讀的話。
+   */
+  it('有 huntRole 就一定要有 huntCount', () => {
+    for (const m of ALL.filter(ready)) {
+      if (m.battle.huntRole !== undefined) expect(m.battle.huntCount, m.id).toBeDefined()
+    }
+  })
+
+  /**
+   * 【`need` 只有護送與攔截讀得到】寫在別種卡上不會報錯，但它不會有任何
+   * 效果 —— 而卡片上看起來像是設了一個門檻。
+   */
+  it('need 只出現在護航與攔截的卡上，而且不超過被護送的架數', () => {
+    for (const m of ALL.filter(ready)) {
+      if (m.battle.need === undefined) continue
+      expect(m.type === '護航' || m.type === '攔截', m.id).toBe(true)
+      expect(m.battle.need, m.id).toBeGreaterThan(0)
+      expect(m.battle.need, m.id).toBeLessThanOrEqual(m.battle.convoyCount)
     }
   })
 })
