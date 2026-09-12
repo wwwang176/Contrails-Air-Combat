@@ -234,6 +234,32 @@ export function shipAttackCommand(
   self: Aircraft, ship: Ship, gunIndex: number, out: Command,
 ): void {
   const aim = shipAimAt(ship, gunIndex, S.v[0]!)
+  const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
+  strafeCommand(self, aim, tv.x, tv.y, tv.z, out)
+}
+
+/**
+ * 掃射一個地面目標。與 `shipAttackCommand` 同一支掃射核心，目標不動。
+ *
+ * 【瞄命中盒的半高】瞄地面高度的話彈道打在停放機腳下的土裡。
+ *
+ * **呼叫端仍然要在之後套 `applySafety`** —— 俯衝掃射追到地面的風險由安全層擋。
+ */
+export function groundAttackCommand(self: Aircraft, target: GroundTarget, out: Command): void {
+  const p = target.position
+  const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
+  strafeCommand(self, aim, 0, 0, 0, out)
+}
+
+/**
+ * 掃射的核心：遠了就飛過去、對準了就開火、太近就拉起來。
+ *
+ * @param aim 瞄點，世界座標。**不可以是 `S.v[1]`…`S.v[4]`** —— 那幾格在這裡改寫
+ * @param tvx 目標速度，m/s
+ */
+function strafeCommand(
+  self: Aircraft, aim: Vector3, tvx: number, tvy: number, tvz: number, out: Command,
+): void {
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const range = los.length()
 
@@ -264,10 +290,9 @@ export function shipAttackCommand(
   // 攔截點，而且彈丸活得夠久飛到那裡。寫死一個距離的話，槍口初速不同的
   // 機種共用同一個射程，而那個數字只對訂它的那一台成立。
   //
-  // 【船的速度要進去】8 m/s 在一秒的彈道上是 8 m，比船寬小，但攔截解本來
-  // 就吃得下它 —— 少給一個已經有的量沒有好處。
-  const sv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation)
-    .multiplyScalar(ship.speed).sub(self.state.velocity)
+  // 【目標的速度要進去】船 8 m/s 在一秒的彈道上是 8 m，比船寬小，但攔截解
+  // 本來就吃得下它 —— 少給一個已經有的量沒有好處。地面目標給 0
+  const sv = S.v[3]!.set(tvx, tvy, tvz).sub(self.state.velocity)
   // 【借用 los 那一格】它已經寫進 `out.aimWorld`，之後不再用到
   const rel = S.v[1]!.copy(aim).sub(self.state.position)
   const lead = S.v[4]!

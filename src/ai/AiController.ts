@@ -34,7 +34,8 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import {
-  createShipAim, pickGroundTarget, pickShipTarget, shipAttackCommand, SHIP_ATTACK_RANGE,
+  createShipAim, groundAttackCommand, pickGroundTarget, pickShipTarget, shipAttackCommand,
+  SHIP_ATTACK_RANGE,
 } from './shipAttack'
 import {
   BOMB_PROFILE, createBombAim, resetBombAim, setBombBallistics, stepBombAim,
@@ -194,6 +195,46 @@ export class AiController implements Controller {
    * 轟炸機走的是 `strike` 那一套。
    */
   readonly bombAim = createBombAim()
+
+  /**
+   * 戰鬥機掃射的地面目標，`groundTargets` 的索引；−1 = 沒有。只在決策拍重選。
+   * 轟炸機不讀它（走 `strikeRef`）。
+   */
+  private groundAim = -1
+
+  /**
+   * 沒有空中目標時，戰鬥機掃射敵方的地面目標。回傳 true 代表 `out` 已經寫滿。
+   *
+   * 【長機與僚機都打】排在站位之前 —— 地面目標就是那一關的目標，僚機飛回站位
+   * 的話整隊只有長機在打。
+   *
+   * 【只給戰鬥機】轟炸機走 `attackShip` 的攻擊航路。沒有地面目標的關卡是一次
+   * 早退，對艦與空戰的路徑一個位元都不動。
+   *
+   * 【撞地不靠不去打來避】`emit` 裡的 `applySafety` 與地形感知照樣最後接手。
+   */
+  private strafeGround(self: Aircraft, decide: boolean, out: Command): boolean {
+    if (this.groundTargets.length === 0 || self.spec.role !== 'fighter') {
+      this.groundAim = -1
+      return false
+    }
+    const me = this.board?.candidates[this.selfIndex]
+    if (me === undefined) {
+      this.groundAim = -1
+      return false
+    }
+    if (decide) {
+      this.groundAim = pickGroundTarget(self.state.position, me.team, this.groundTargets, SHIP_ATTACK_RANGE)
+    }
+    const t = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
+    // 【每一步都要複查】上一個決策拍之後它可能已經被打掉或起飛離場
+    if (t === undefined || !t.alive) {
+      this.groundAim = -1
+      return false
+    }
+    groundAttackCommand(self, t, out)
+    return true
+  }
 
   /**
    * 沒有空中目標時，試著找一艘船打。回傳 true 代表 `out` 已經寫滿。
@@ -714,7 +755,9 @@ export class AiController implements Controller {
       this.band.kind = 'off'
       this.band.hold = 0
 
-      if (reference) {
+      if (this.strafeGround(self, decide, raw)) {
+        // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
+      } else if (reference) {
         // 【隊形保持就在這一格】沒有值得打的敵人時飛回站位。
         //
         // 它**不進** `arbitrate` 的優先序：engage / merge / approach 全都

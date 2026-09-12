@@ -9,6 +9,7 @@ import {
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
 import { flatSeaCrashPolicy } from '../../src/world/seaCrash'
+import { createTargetState, DEFAULT_TARGET, selectTarget } from '../../src/ai/target'
 import { readyCard, KILL_CARD } from '../fixtures/mission'
 import type { Aircraft as AircraftT } from '../../src/aircraft/Aircraft'
 import type { Command, Controller } from '../../src/control/Controller'
@@ -300,13 +301,13 @@ describe('滾行中的那一架', () => {
     expect(b.mission.outcome).toBe('fighting')
   })
 
-  it('腳本期間 AI 不指派，交還之後倍率回到 1', () => {
-    const { b, seats } = rollingBattle()
-    stepBattle(b, DT)
-    for (const s of seats) expect(b.board.priority[s]).toBe(0)
-    while (b.world.combatants[seats.at(-1)!]!.takeoff !== null) stepBattle(b, DT)
+  it('滑行與滾行期間 AI 照常可以選它當目標', () => {
+    // 【場上的紅機只有這兩架】藍隊的自由獵手選得到的就只有它們
+    const { b, seats } = rollingBattle({ redCount: 0 })
     stepBattle(b, DT)
     for (const s of seats) expect(b.board.priority[s]).toBe(1)
+    const got = selectTarget(createTargetState(), b.board, b.player.index, 0.1, DEFAULT_TARGET)
+    expect(seats.map((s) => b.world.combatants[s]!.aircraft)).toContain(got)
   })
 
   it('交還時速度是連續的，不是歸零也不是開局速度', () => {
