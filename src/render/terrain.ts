@@ -123,6 +123,7 @@ export interface Terrain {
  */
 export function createTerrain(kind: TerrainKind): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain()
+  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain()
   if (kind === 'leuna') return createLeunaTerrain()
   if (kind === 'poltava') return createPoltavaTerrain()
   if (kind === 'asch') return createAschTerrain()
@@ -272,6 +273,14 @@ export const LEUNA_SITE: SiteLayout = {
 /** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景 */
 function createLeunaTerrain(): Terrain {
   return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery)
+}
+
+/**
+ * 晚秋的內陸：農地的高度場，洛伊納的晚秋色盤。**沒有廠區的墊面與佈景** ——
+ * 德 M1 在路途上攔截，地上不該有工廠。
+ */
+function createAutumnFarmlandTerrain(): Terrain {
+  return createInlandTerrain(createFarmland(), 'lateAutumn')
 }
 
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */

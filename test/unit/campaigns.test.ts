@@ -158,7 +158,8 @@ describe('德 M1 梅澤堡上空', () => {
     expect(b.redCount).toBe(0)
     expect(b.targetDistance).toBeGreaterThan(0)
     expect(b.targetRadius).toBeGreaterThan(0)
-    expect(b.terrain).toBe('leuna')
+    // 【不是洛伊納】`leuna` 會把廠區的墊面與佈景烤進地形，這一關地上不該有工廠
+    expect(b.terrain).toBe('autumnFarmland')
     expect(b.timeOfDay).toBe('novemberNoon')
   })
 
