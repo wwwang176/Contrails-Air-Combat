@@ -2,11 +2,11 @@ import { CAMPAIGNS, MISSIONS } from '../battle/missions'
 import type { Campaign, MissionCard, ReadyMissionCard } from '../battle/missions'
 import {
   ALL_SPECS, specOf, addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
-  topSpeedKmh, PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS,
+  PRESETS, ALTITUDES, MAX_SIDE, MAX_FLIGHTS,
   type SkirmishSetup, type Flight, type PresetKey,
 } from '../battle/skirmish'
 import { briefingOf, shortName, type Briefing } from './briefing'
-import { dossierOf, sortForHangar, SIDE_OF } from './dossier'
+import { dossierOf, sortForHangar, strengthOf, SIDE_OF } from './dossier'
 import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
@@ -101,14 +101,64 @@ const TIMES: readonly { label: string; hint: string; value: TimeOfDay; sil: stri
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#0a1018"/><rect width="56" height="18" fill="#16233a"/><circle cx="38" cy="7" r="4" fill="#c8d6ee"/><circle cx="12" cy="6" r="1" fill="#dce6f6"/><circle cx="20" cy="12" r="1" fill="#dce6f6"/><circle cx="7" cy="13" r="1" fill="#dce6f6"/></svg>' },
 ]
 
-/** 剪影：戰鬥機一種、轟炸機一種 */
-const SIL: Record<AircraftSpec['role'], string> = {
-  fighter: '<svg width="46" height="20" viewBox="0 0 46 20"><rect x="21" y="1" width="4" height="17" rx="2"/><path d="M2 9h42v3H2z"/><path d="M18 15h10v2H18z"/></svg>',
-  bomber: '<svg width="46" height="20" viewBox="0 0 46 20"><rect x="20" y="0" width="6" height="19" rx="3"/><path d="M0 8h46v4H0z"/><path d="M15 14h16v2.5H15z"/><circle cx="12" cy="10" r="2"/><circle cx="34" cy="10" r="2"/></svg>',
+/**
+ * 陣營章：墊在側影後面的國籍標誌，**照三面標誌本來的樣子畫，不加底盤**。
+ *
+ * 美軍是 1943 年九月起的 star-and-bar：藍圓加白星，兩側各一條純白槓，外面
+ * 一圈藍邊。槓長是藍圓直徑的一半（規範值），**槓高比規範再窄三成** ——
+ * 徽章只有 21 px 高，按規範的厚度畫出來是一條粗帶，看不出它是槓。槓裡面
+ * 那條紅線是 1947 年以後的事，這幾關的機種身上不會有。
+ *
+ * 日軍是日之丸，紅圓外面一道窄白邊。
+ *
+ * 德軍是 1940 年以後的 Balkenkreuz，比例照規範走：十字臂寬 1/4 W、兩側白邊
+ * 各 1/8 W、最外的黑框 1/32 W，由內而外是黑、白、黑。**四個臂端不封黑**，
+ * 白與黑框都是順著臂的兩側走到端點，端點看到的是白。
+ *
+ * 【三個的外框比例不一樣】星條徽是橫的（寬是高的兩倍），另外兩個是方的。
+ * 三個的高度由 `.sil .mk` 統一，寬度讓 SVG 自己照 viewBox 算 —— 星條徽
+ * 因此是另外兩個的兩倍寬，放大它的高度時要留意 68 px 的徽章框放不放得下。
+ *
+ * 【顏色寫死在這裡】這是三面標誌的本色，不跟著介面的色票走；白的那一階
+ * 取的是紙的米白而不是純白，純白在這塊深色紙上會跳出來。
+ */
+const INSIGNIA_WHITE = '#e6dcc4'
+/** 【比面板再深一階】跟面板同深度的黑會整個消失，鐵十字就只剩下白框 */
+const INSIGNIA_BLACK = '#12100b'
+
+const MARK: Record<Campaign, string> = {
+  allies: '<svg class="mk" viewBox="0 0 64 32">'
+    + '<path fill="#35506e" d="M3.4 10h57.2v12H3.4z"/><circle cx="32" cy="16" r="15" fill="#35506e"/>'
+    + `<path fill="${INSIGNIA_WHITE}" d="M4.8 11.4h54.4v9.2H4.8z"/>`
+    + '<circle cx="32" cy="16" r="13.6" fill="#35506e"/>'
+    + `<path fill="${INSIGNIA_WHITE}" d="M32 5l2.59 7.44 7.87.16-6.28 4.76 2.29 7.54L32 20.4l-6.47 4.5`
+    + ' 2.29-7.54-6.28-4.76 7.87-.16z"/></svg>',
+  germany: '<svg class="mk" viewBox="0 0 32 32">'
+    + `<path fill="${INSIGNIA_BLACK}" d="M7 0H25V7H32V25H25V32H7V25H0V7H7Z"/>`
+    + `<path fill="${INSIGNIA_WHITE}" d="M8 0H24V8H32V24H24V32H8V24H0V8H8Z"/>`
+    + `<path fill="${INSIGNIA_BLACK}" d="M12 0H20V12H32V20H20V32H12V20H0V12H12Z"/></svg>`,
+  japan: `<svg class="mk" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="${INSIGNIA_WHITE}"/>`
+    + '<circle cx="16" cy="16" r="13.2" fill="#b23a33"/></svg>',
+}
+
+/**
+ * 機種徽章：陣營章打底，機身側影壓在上面。
+ *
+ * 側影是 `public/ui/sil/<id>.png`，由 `tools/blender/render_silhouettes.py`
+ * 從同一份 GLB 拍出來 —— 玩家在機庫看到的就是這個外型。**圖是靠
+ * `mask-image` 上色的**，所以檔案本身只有 alpha 有意義；換成 `<img>` 的話
+ * 兩個畫面就沒辦法各用各的顏色。
+ *
+ * 新機種要記得跑一次那支腳本，否則這裡只剩下陣營章（`silhouette` 測試會紅）。
+ */
+function silBadge(id: string): string {
+  const side = SIDE_OF[id]
+  return `<span class="sil" style="--ac:url(/ui/sil/${id}.png)">`
+    + `${side === undefined ? '' : MARK[side]}<i></i></span>`
 }
 const ROLE_WORD: Record<AircraftSpec['role'], string> = { fighter: '戰鬥機', bomber: '轟炸機' }
 
-/** 機庫的卷宗架順序。**與編組頁的機種選單不同一份**，見 `sortForHangar` */
+/** 機種在畫面上的排列：機庫的卷宗架與編組頁的機種選單共用這一份 */
 const HANGAR_SPECS = sortForHangar(ALL_SPECS)
 
 /** 機種副名：全名去掉短名之後剩下的那截（「P-51D Mustang」→「Mustang」） */
@@ -210,7 +260,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
 
   // ── 簡報頁：左欄路線、右欄簡報 ───────────────────────
   function unitRow(u: Briefing['mine'] extends readonly (infer U)[] | undefined ? U : never): string {
-    return `<div class="unit"><span class="sil">${SIL[u.role]}</span>`
+    return `<div class="unit">${silBadge(u.id)}`
       + `<span><span class="nm">${escapeHtml(u.name)}</span> <span class="qty">× ${u.count}</span></span></div>`
   }
 
@@ -280,8 +330,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.className = `stop paperbit${i === hangarPick ? ' on' : ''}`
       // 【e2e 用 id 選機】顯示名會改，id 不會
       b.dataset['aircraft'] = s.id
-      b.innerHTML = `<div class="k">${CAMPAIGN_LABEL[SIDE_OF[s.id] ?? 'allies']}　${ROLE_WORD[s.role]}</div>`
-        + `<div class="n">${escapeHtml(shortName(s))}</div>`
+      b.innerHTML = `${silBadge(s.id)}<div><div class="k">`
+        + `${CAMPAIGN_LABEL[SIDE_OF[s.id] ?? 'allies']}　${ROLE_WORD[s.role]}</div>`
+        + `<div class="n">${escapeHtml(shortName(s))}</div></div>`
       b.addEventListener('click', () => {
         // 【點已經攤開的那一份不重畫】重畫會把數值條打回 0 再長一次、
         // 把展示機整台重建、鏡頭也重拉一遍 —— 而畫面上什麼都沒換
@@ -331,7 +382,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     row.innerHTML =
       (team === 'blue' ? '<button class="pick" title="我帶這一隊"></button>' : '<span></span>')
       + `<div class="who"><div class="nm">${escapeHtml(shortName(spec))} <span class="full">${escapeHtml(fullName(spec))}</span></div>`
-      + `<div class="meta">${ROLE_WORD[spec.role]}　${topSpeedKmh(spec.id)} km/h　耐受 ${spec.hp}</div></div>`
+      + `<div class="meta">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
       + `<div class="dots">${[1, 2, 3, 4].map((n) => `<i class="${n <= f.count ? 'on' : ''}"></i>`).join('')}</div>`
       + `<div class="qty"><button class="btn tiny minus">−</button><span class="n">${f.count}</span>`
       + `<button class="btn tiny plus">＋</button><button class="btn tiny rm">✕</button></div>`
@@ -363,17 +414,17 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const pal = document.createElement('div')
     pal.className = 'palette'
     pal.hidden = !paletteOpen[team] || add.disabled
-    for (const spec of ALL_SPECS) {
+    for (const spec of HANGAR_SPECS) {
       const b = document.createElement('button')
       b.className = 'plane'
       // 【國家在前、類型在下】例如「盟軍 P-51」，類型排在下面。全名讓位給
       // 這兩項 —— 選單是兩欄的窄卡，`North American P-51D Mustang` 在那裡
       // 一定折行
       const side = SIDE_OF[spec.id]
-      b.innerHTML = `<span class="sil">${SIL[spec.role]}</span><span>`
-        + `<span class="nm">${side === undefined ? '' : `<i>${CAMPAIGN_LABEL[side]}</i>　`}`
-        + `${escapeHtml(shortName(spec))}</span><br>`
-        + `<span class="st">${ROLE_WORD[spec.role]}　${topSpeedKmh(spec.id)} km/h</span></span>`
+      b.innerHTML = `${silBadge(spec.id)}<div>`
+        + `<div class="nm">${side === undefined ? '' : `<i>${CAMPAIGN_LABEL[side]}</i>　`}`
+        + `${escapeHtml(shortName(spec))}</div>`
+        + `<div class="st">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
       b.addEventListener('click', () => {
         paletteOpen[team] = false
         hooks.onSetup(addFlight(setup, team, spec.id))

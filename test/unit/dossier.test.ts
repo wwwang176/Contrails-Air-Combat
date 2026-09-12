@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dossierOf, SIDE_OF, type Dossier } from '../../src/ui/dossier'
+import { dossierOf, strengthOf, SIDE_OF, type Dossier } from '../../src/ui/dossier'
 import { ALL_SPECS, specOf, topSpeedKmh } from '../../src/battle/skirmish'
 
 /**
@@ -33,6 +33,10 @@ describe('dossierOf —— 九台都要有檔案', () => {
         expect(b.text, `${spec.id} ${b.label}`).not.toBe('')
       }
     }
+  })
+
+  it('每一台都有一句長處', () => {
+    for (const spec of ALL_SPECS) expect(strengthOf(spec.id), spec.id).not.toBe('')
   })
 
   it('極速印的數字與編組頁同一個來源', () => {

@@ -11,6 +11,8 @@ import type { AircraftSpec } from '../specs/types'
  * `menu.ts` 沒有測試（要 DOM），這裡有。
  */
 export interface BriefingUnit {
+  /** 機種 id。畫面用它挑側影圖與陣營章，`name` 是給人看的 */
+  readonly id: string
   readonly name: string
   readonly role: AircraftSpec['role']
   readonly count: number
@@ -62,18 +64,21 @@ export const shortName = (spec: AircraftSpec): string => SHORT_NAME[spec.id] ?? 
 
 function readyBriefing(card: ReadyMissionCard): Briefing {
   const b = card.battle
-  const mine: BriefingUnit[] = [{ name: shortName(b.blueSpec), role: b.blueSpec.role, count: b.blueCount }]
+  const mine: BriefingUnit[] = [
+    { id: b.blueSpec.id, name: shortName(b.blueSpec), role: b.blueSpec.role, count: b.blueCount },
+  ]
   // 【沒有敵機就不列】零架的那一列是「一支根本沒起飛的敵軍」
   const foe: BriefingUnit[] = b.redCount === 0
     ? []
-    : [{ name: shortName(b.redSpec), role: b.redSpec.role, count: b.redCount }]
+    : [{ id: b.redSpec.id, name: shortName(b.redSpec), role: b.redSpec.role, count: b.redCount }]
 
   // 【護送／攔截由規則的 owner 決定】`missions.ts` 就是用它決定 convoy 放哪一隊
   // （護送 `owner: 'blue'`、攔截 `owner: 'red'`）。不另寫一套判斷。
   const rules = missionConfigFrom(card).rules
   if (b.convoySpec !== null && rules.kind === 'convoy') {
     const unit: BriefingUnit = {
-      name: shortName(b.convoySpec), role: b.convoySpec.role, count: b.convoyCount,
+      id: b.convoySpec.id, name: shortName(b.convoySpec),
+      role: b.convoySpec.role, count: b.convoyCount,
     }
     if (rules.owner === 'blue') mine.push(unit)
     else foe.push(unit)
