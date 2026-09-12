@@ -271,7 +271,7 @@ const DEFAULT_SUBJECT_X = 0.7
  * 【拖曳時停】拖到一半時視角還自己爬的話，手放著不動畫面卻在走，會覺得
  * 是自己拖歪了。
  */
-const AUTO_SPIN = (Math.PI * 2) / 86
+export const AUTO_SPIN = (Math.PI * 2) / 86
 
 /** 進場時的視角：機首左前方 40°、略高一點 */
 const DEFAULT_ORBIT_YAW = Math.PI + 40 * DEG
@@ -307,13 +307,58 @@ const DISTANCE_FOLLOW = 4
  * 餵給追隨的 dt 上限，秒。
  *
  * 【為什麼要夾】換機種那一幀要建整台幾何、還要填一次轉彎率的高度表，實測
- * 40…90 ms；分頁被瀏覽器節流時更是一秒一幀。不夾的話**那一幀就把整段轉場
- * 走完** —— 而換機種正是唯一要看到轉場的時候，玩家看到的會是跳過去。
+ * 40…90 ms。不夾的話**那一幀就把整段轉場走完** —— 而換機種正是唯一要看到
+ * 轉場的時候，玩家看到的會是跳過去。
  *
- * 只夾追隨這一項：飛行本身仍然吃真正的時間，否則卡一下之後飛機的位置會
- * 與海面的捲動對不上。
+ * 【分頁切回來那一幀】`main.ts` 在源頭就把幀夾到 `MAX_FRAME_SECONDS`，送到
+ * 這裡的最長是 0.25 秒；這個上限再把鏡頭壓到 1/30，轉場才不會被那 0.25 秒
+ * 一次走掉九成五。自轉與追隨都吃它，理由見 `stepOrbit`。
+ *
+ * 只壓鏡頭：飛行本身吃 `main.ts` 給的時間 —— 海面吃的也是那一個，飛行另外
+ * 壓到 1/30 的話，卡一下之後飛機的位置會與海面的捲動對不上。
  */
-const FOLLOW_DT_CAP = 1 / 30
+export const FOLLOW_DT_CAP = 1 / 30
+
+/** 機庫鏡頭的角度與距離。拖曳寫 `want*`，畫面上的鏡頭每幀追過去 */
+export interface OrbitState {
+  wantYaw: number
+  wantPitch: number
+  orbitYaw: number
+  orbitPitch: number
+  /** 拉到一半時畫面上的距離；`wantDistance` 是這一台該停在哪 */
+  distance: number
+  wantDistance: number
+}
+
+export function createOrbitState(): OrbitState {
+  return {
+    wantYaw: DEFAULT_ORBIT_YAW,
+    wantPitch: DEFAULT_ORBIT_PITCH,
+    orbitYaw: DEFAULT_ORBIT_YAW,
+    orbitPitch: DEFAULT_ORBIT_PITCH,
+    distance: FIGHTER_DISTANCE,
+    wantDistance: FIGHTER_DISTANCE,
+  }
+}
+
+/**
+ * 鏡頭的一幀：自轉，然後追上拖曳與距離。
+ *
+ * 【自轉寫進 `wantYaw`】拖曳寫的是同一個值，所以兩者自然疊加，而且都吃
+ * 同一條平滑。
+ *
+ * 【自轉也要吃夾過的 dt】只夾平滑不夾自轉的話，一幀很長時 `wantYaw` 會先衝
+ * 出去，而夾過的平滑接著花好幾幀把它追完 —— 畫面上是鏡頭在快速轉。`main.ts`
+ * 已經把幀夾到 `MAX_FRAME_SECONDS`，但這支不靠呼叫端夾也要成立。
+ */
+export function stepOrbit(s: OrbitState, frameSeconds: number, dragging: boolean): void {
+  const followDt = frameSeconds > FOLLOW_DT_CAP ? FOLLOW_DT_CAP : frameSeconds
+  if (!dragging) s.wantYaw += AUTO_SPIN * followDt
+  const follow = 1 - Math.exp(-ORBIT_FOLLOW * followDt)
+  s.orbitYaw += (s.wantYaw - s.orbitYaw) * follow
+  s.orbitPitch += (s.wantPitch - s.orbitPitch) * follow
+  s.distance += (s.wantDistance - s.distance) * (1 - Math.exp(-DISTANCE_FOLLOW * followDt))
+}
 
 /** 連射週期與長度，秒。中間要有夠長的空檔，否則整頁都在閃 */
 const BURST_PERIOD = 5
@@ -409,14 +454,8 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
   const sources: MuzzleSource[] = []
 
   let elapsed = 0
-  /** 拖曳寫的是這一組，畫面上的鏡頭每幀追過去（見 `ORBIT_FOLLOW`） */
-  let wantYaw = DEFAULT_ORBIT_YAW
-  let wantPitch = DEFAULT_ORBIT_PITCH
-  let orbitYaw = DEFAULT_ORBIT_YAW
-  let orbitPitch = DEFAULT_ORBIT_PITCH
-  /** 拉到一半時畫面上的距離；`wantDistance` 是這一台該停在哪 */
-  let distance = FIGHTER_DISTANCE
-  let wantDistance = FIGHTER_DISTANCE
+  /** 拖曳寫 `want*`，畫面上的鏡頭每幀追過去（見 `stepOrbit`） */
+  const orbit = createOrbitState()
   /** 這一台的左右擺動有多快。每台不同，見 `showcaseRollOmega` */
   let rollOmega = 0.5
   let propRotation = 0
@@ -465,8 +504,8 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
     spec = next
     model = buildAircraft(next)
     group.add(model.group)
-    wantDistance = showcaseDistance(next.role)
-    if (first) distance = wantDistance
+    orbit.wantDistance = showcaseDistance(next.role)
+    if (first) orbit.distance = orbit.wantDistance
     rollOmega = showcaseRollOmega(next)
     // 【換機種也量一次】卷宗的內容長度會變，而它撐著版面 —— 建立時量的那
     // 一次是上一台的版面
@@ -565,9 +604,9 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
   }
   function onPointerMove(e: PointerEvent): void {
     if (!dragging) return
-    wantYaw -= e.movementX * DRAG_RATE
-    const pitch = wantPitch + e.movementY * DRAG_RATE
-    wantPitch = pitch > SHOWCASE_PITCH_LIMIT ? SHOWCASE_PITCH_LIMIT
+    orbit.wantYaw -= e.movementX * DRAG_RATE
+    const pitch = orbit.wantPitch + e.movementY * DRAG_RATE
+    orbit.wantPitch = pitch > SHOWCASE_PITCH_LIMIT ? SHOWCASE_PITCH_LIMIT
       : pitch < -SHOWCASE_PITCH_LIMIT ? -SHOWCASE_PITCH_LIMIT : pitch
   }
   function onPointerUp(): void {
@@ -583,17 +622,7 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
 
     update(frameSeconds: number, camera: PerspectiveCamera): void {
       elapsed += frameSeconds
-      // 【追上拖曳】指數逼近，與幀率無關，見 `ORBIT_FOLLOW`
-      // 【自轉寫進 `wantYaw`】拖曳寫的是同一個值，所以兩者自然疊加，
-      // 而且都吃同一條平滑
-      if (!dragging) wantYaw += AUTO_SPIN * frameSeconds
-      // 【夾過的 dt】見 `FOLLOW_DT_CAP`：換機種那一幀很長，不夾就跳過去
-      const followDt = frameSeconds > FOLLOW_DT_CAP ? FOLLOW_DT_CAP : frameSeconds
-      const follow = 1 - Math.exp(-ORBIT_FOLLOW * followDt)
-      orbitYaw += (wantYaw - orbitYaw) * follow
-      orbitPitch += (wantPitch - orbitPitch) * follow
-      // 【換一類時鏡頭是拉的不是跳的】見 `DISTANCE_FOLLOW`
-      distance += (wantDistance - distance) * (1 - Math.exp(-DISTANCE_FOLLOW * followDt))
+      stepOrbit(orbit, frameSeconds, dragging)
       showcaseFlight(elapsed, rollOmega, flight)
       showcaseQuaternion(flight, quaternion)
       positions[0]!.copy(flight.position)
@@ -611,13 +640,13 @@ export function createShowcase(scene: Scene, view: HTMLElement, stage: HTMLEleme
       muzzles.update(sources, positions, quaternions)
       stepOrdnance(frameSeconds)
 
-      showcaseCamera(flight, orbitYaw, orbitPitch, distance, CAMERA_POSE)
+      showcaseCamera(flight, orbit.orbitYaw, orbit.orbitPitch, orbit.distance, CAMERA_POSE)
       camera.position.copy(CAMERA_POSE.position)
       camera.up.set(0, 1, 0)
       camera.lookAt(CAMERA_POSE.target)
       // 【先看好再平移】`translateX` 走的是相機自己的右方向，所以這一行只
       // 改位置不改朝向。半寬要用相機當下的 fov 與長寬比算，換視窗大小才跟著變
-      const halfWidth = Math.tan(camera.fov * DEG * 0.5) * distance * camera.aspect
+      const halfWidth = Math.tan(camera.fov * DEG * 0.5) * orbit.distance * camera.aspect
       camera.translateX(-(subjectX - 0.5) * 2 * halfWidth)
     },
 

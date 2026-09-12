@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
-  createFlightPose, showcaseCamera, showcaseDistance, showcaseFlight, showcaseQuaternion,
-  ALT_WOBBLE, DRIFT_WOBBLE,
+  createFlightPose, createOrbitState, showcaseCamera, showcaseDistance, showcaseFlight,
+  showcaseQuaternion, stepOrbit,
+  ALT_WOBBLE, AUTO_SPIN, DRIFT_WOBBLE, FOLLOW_DT_CAP,
   SHOWCASE_ALTITUDE, SHOWCASE_MAX_DISTANCE, SHOWCASE_PITCH_LIMIT, SHOWCASE_RADIUS,
 } from '../../src/app/showcase'
 import { ALL_SPECS } from '../../src/battle/skirmish'
@@ -153,5 +154,42 @@ describe('showcaseCamera', () => {
     showcaseCamera(pose, Math.PI, 0, 30, out)
     const ahead = out.position.clone().sub(out.target).normalize()
     expect(ahead.dot(NOSE(pose.yaw))).toBeCloseTo(1, 6)
+  })
+})
+
+describe('stepOrbit', () => {
+  /**
+   * 【分頁切回來那一幀】背景分頁的 requestAnimationFrame 是整個暫停，回來的
+   * 第一幀帶著整段離開的秒數。自轉照單全收的話 `wantYaw` 一口氣往前跳好幾
+   * 圈，而平滑會在接下來半秒把那幾圈追完 —— 畫面上就是飛機在快速旋轉。
+   */
+  it('一幀 300 秒，自轉最多只前進一個上限的量', () => {
+    const s = createOrbitState()
+    const before = s.wantYaw
+    stepOrbit(s, 300, false)
+    expect(s.wantYaw - before).toBeLessThanOrEqual(AUTO_SPIN * FOLLOW_DT_CAP + 1e-12)
+  })
+
+  it('長幀之後鏡頭不會在接下來幾幀追轉好幾圈', () => {
+    const s = createOrbitState()
+    stepOrbit(s, 300, false)
+    const start = s.orbitYaw
+    for (let i = 0; i < 60; i++) stepOrbit(s, 1 / 60, false)
+    // 正常一秒的自轉是 AUTO_SPIN；留一個平滑的餘裕，但絕不是幾圈
+    expect(Math.abs(s.orbitYaw - start)).toBeLessThan(AUTO_SPIN * 2)
+  })
+
+  it('拖曳時不自轉', () => {
+    const s = createOrbitState()
+    const before = s.wantYaw
+    stepOrbit(s, 1, true)
+    expect(s.wantYaw).toBe(before)
+  })
+
+  it('正常幀率下自轉照原本的速度走', () => {
+    const s = createOrbitState()
+    const before = s.wantYaw
+    for (let i = 0; i < 60; i++) stepOrbit(s, 1 / 60, false)
+    expect(s.wantYaw - before).toBeCloseTo(AUTO_SPIN, 9)
   })
 })
