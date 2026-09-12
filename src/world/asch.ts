@@ -96,7 +96,7 @@ export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
 
 /**
  * 起飛線：跑道南端的中線，機首朝北（−Z）。滾行腳本從這裡出發 —— 跑到離地
- * 加上初期爬升約 700 m，跑道北端還在前方。
+ * 加上初期爬升約 500 m，交還時還在跑道上空。
  */
 export const TAKEOFF_LINE: { readonly x: number; readonly z: number; readonly heading: number } =
   /* @__PURE__ */ { ...at(0, 650), heading: 0 }

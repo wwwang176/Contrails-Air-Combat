@@ -536,6 +536,10 @@ export interface TargetBoard {
    * 上完全打不到的目標。
    *
    * 【它是每一關自己的旋鈕】值由 `BattleConfig.tuning` 給，見那裡。
+   *
+   * 【0 = 不指派】`selectTarget` 跳過它，現任目標變成 0 也立刻放掉。那一架
+   * 仍然打得到，只是沒有 AI 會去追 —— 滾行起飛中的飛機（`battle/setup.ts`）。
+   * 乘法做不到這件事：候選只剩它時再小的分數也會被選中。
    */
   readonly priority: Float64Array
   /**
@@ -733,7 +737,7 @@ export function selectTarget(
   // 【立即重選就是靠這裡】現任失效時把記憶清成「沒有現任」，下面的
   // `current < 0` 分支就會直接接受最佳解，完全繞過最小停留。
   const held = state.current >= 0 ? candidates[state.current] : undefined
-  if (held === undefined || !held.alive || held.team === self.team) {
+  if (held === undefined || !held.alive || held.team === self.team || priority[state.current]! === 0) {
     state.current = -1
     state.dwell = 0
   }
@@ -742,7 +746,7 @@ export function selectTarget(
   let bestScore = -1
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i]!
-    if (!c.alive || c.team === self.team) continue
+    if (!c.alive || c.team === self.team || priority[i]! === 0) continue
     const locks = countLocks(board, self.team, selfIndex, i)
     const s = targetScore(self.aircraft, c.aircraft, locks, cfg, priority[i]!)
     if (s > bestScore) {

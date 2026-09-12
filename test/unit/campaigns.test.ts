@@ -195,6 +195,18 @@ describe('德 M3 底板行動', () => {
     expect(b.redSpec.id).toBe('p51d')
     expect(b.redCount).toBe(0)
     expect(b.destroyCount).toBe(8)
+    expect(b.destroyUnit).toBe('parkedP51')
+  })
+
+  it('打掉油桶與砲位不算，打掉八架停放的 P-51 才算', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    for (const t of b.world.groundTargets) if (t.unit.id !== 'parkedP51') t.alive = false
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+    const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
+    for (const t of parked.slice(0, 8)) t.alive = false
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('victory')
   })
 
   it('12 架停放的 P-51、2 堆油桶、6 座輕砲，全部是敵方的', () => {
@@ -219,6 +231,7 @@ describe('德 M3 底板行動', () => {
       expect(w.count).toBe(2)
       expect(w.side).toBe('theirs')
       expect(w.takeoff).toBeDefined()
+      expect(w.departs).toBe('parkedP51')
     }
   })
 
@@ -357,7 +370,9 @@ describe('炸毀任務', () => {
       const n = m.battle.destroyCount
       if (n === undefined) continue
       expect(m.battle.ground, `${m.id} 要求炸毀卻沒有廠區`).toBeDefined()
-      const hostile = m.battle.ground!.filter((e) => e.team === 'red').length
+      const unit = m.battle.destroyUnit
+      const hostile = m.battle.ground!
+        .filter((e) => e.team === 'red' && (unit === undefined || e.unit === unit)).length
       expect(hostile, `${m.id} 目標 ${n} 座但敵方構件只有 ${hostile} 座`).toBeGreaterThanOrEqual(n)
     }
   })

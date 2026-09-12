@@ -73,7 +73,10 @@ export function missionRules(
   }
   // 【炸毀與擊沉並列】同樣是「卡片上有沒有那一格」，同樣排在守住艦隊之前
   if (b.destroyCount !== undefined) {
-    return { kind: 'destroy', count: b.destroyCount }
+    // 【單位省略時連鍵都不放】理由同下面的 `huntRole`
+    return b.destroyUnit === undefined
+      ? { kind: 'destroy', count: b.destroyCount }
+      : { kind: 'destroy', count: b.destroyCount, unit: b.destroyUnit }
   }
   // 【擊落也並列】三者是同一種形狀：「數到幾個就贏」。`huntRole` 省略時
   // 連鍵都不放 —— `exactOptionalPropertyTypes` 下 `role: undefined` 與
@@ -291,6 +294,7 @@ function waveBeat(
       lane: WAVE_LANE + index,
       tier: index,
       ...(w.takeoff === undefined ? {} : { takeoff: w.takeoff }),
+      ...(w.departs === undefined ? {} : { departs: w.departs }),
     },
   }
 }

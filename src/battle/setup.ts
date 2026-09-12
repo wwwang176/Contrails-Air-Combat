@@ -47,7 +47,8 @@ import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
   createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
 } from '../world/shipGuns'
-import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
+import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
+import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
@@ -1207,11 +1208,11 @@ function stepBeats(b: Battle): void {
       else aliveCounts.redFighter++
     }
   }
-  // 【與 `stepMission` 同一個數法：非藍隊、已摧毀】不能借 `MISSION_INPUTS` ——
-  // 那一份在這一步之後才填，讀到的是上一步、甚至上一場的殘留
+  // 【與 `stepMission` 同一個池】不能借 `MISSION_INPUTS` —— 那一份在這一步
+  // 之後才填，讀到的是上一步、甚至上一場的殘留
   let destroyed = 0
   for (const t of b.world.groundTargets) {
-    if (t.team !== 'blue' && !t.alive) destroyed++
+    if (inDestroyPool(t, b.rules) && !t.alive) destroyed++
   }
 
   for (let i = 0; i < beats.length; i++) {
@@ -1237,10 +1238,11 @@ function stepBeats(b: Battle): void {
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
     // 多出一條沒有人會預期的語意
     if (now < st.dueAt) continue
-    // 【預留是一個佇列】第二個波次的條件先成立時它要等 —— 座位是依序附加到
-    // 世界尾端的，而每一支預留的分隊在建構期就綁死了自己的座位與隊伍。硬插
-    // 隊的話那幾架會落進前一支預留的分隊，也就是**別隊**裡（見 `BeatState.slot`）
-    if (beat.kind === 'reinforce' && st.slot !== b.reserveUsed) continue
+    // 【預留依形狀取用】座位依序附加到世界尾端，每一支預留的分隊在建構期就
+    // 綁死了自己的座位範圍、隊伍與架數。輪到的那一支隊伍或架數不同就要等 ——
+    // 硬塞的話那幾架會落進別隊的分隊裡。形狀相同就直接用：前一個波次的條件
+    // 可能永遠不成立（`ground`），照陣列順序排隊的話後面那一個永遠不會來
+    if (beat.kind === 'reinforce' && !fitsNextReserve(b, beat.flight)) continue
     st.phase = 'done'
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
@@ -1306,6 +1308,22 @@ function stepFlareRotation(b: Battle): void {
 /** 畫面中心訊息從生效那一刻起再顯示幾秒 */
 const MESSAGE_SECONDS = 4
 
+/** 下一支預留的分隊與這支編組同隊、同架數 */
+function fitsNextReserve(b: Battle, plan: FlightPlan): boolean {
+  const r = b.reserve[b.reserveUsed]
+  return r !== undefined && r.team === plan.team && r.count === plan.members.length
+}
+
+/**
+ * 這一台算不算進炸毀的池：敵方、沒有起飛離場、合乎規則指定的單位。
+ * **`stepMission` 的計數與 `ground` 節拍條件共用** —— 兩邊數法不同的話，
+ * 目標列說還差三架時起飛的條件已經以為夠了。
+ */
+function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
+  if (t.team === 'blue' || t.departed) return false
+  return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
+}
+
 /**
  * `stepBeats` 的當步快照。模組級，不配置。
  *
@@ -1366,7 +1384,7 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
-    if (plan.takeoff !== undefined) startTakeoff(b, c, plan.takeoff, k)
+    if (plan.takeoff !== undefined) startTakeoff(b, c, plan.takeoff, k, plan.departs)
     seats.push(c.index)
     ;(plan.team === 'blue' ? b.blue : b.red).push(c)
     b.spawnOrientations.push(c.aircraft.state.orientation.clone())
@@ -1391,16 +1409,21 @@ const TAKEOFF_ABREAST = 8
 /** 後一對排在前一對後方多遠，m */
 const TAKEOFF_TRAIL = 40
 /**
- * 滾行中那一架在 AI 目標評分裡的倍率。**打得到，但 AI 不主動去追** ——
- * 僚機為了追一架在地上的飛機會一路壓到撞地。
+ * 滾行中那一架在 AI 目標評分裡的倍率。**0 = 不指派**（`ai/target.ts` 的
+ * `selectTarget` 跳過它）：打得到，但沒有 AI 會去追 —— 僚機為了追一架在地上
+ * 的飛機會一路壓到撞地。
  */
-export const TAKEOFF_PRIORITY = 0.01
+export const TAKEOFF_PRIORITY = 0
 
 /**
  * 把剛生成的第 `k` 架擺到起飛線上、掛上滾行腳本。兩架一對並排，後一對
  * 往後排。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，那時地形已經接上。
+ *
+ * @param departs 地上同隊的這種停放單位少一台（見 `departParked`）
  */
-function startTakeoff(b: Battle, c: Combatant, line: TakeoffLine, k: number): void {
+function startTakeoff(
+  b: Battle, c: Combatant, line: TakeoffLine, k: number, departs: GroundUnitId | undefined,
+): void {
   const side = k % 2 === 0 ? -TAKEOFF_ABREAST : TAKEOFF_ABREAST
   const back = Math.floor(k / 2) * TAKEOFF_TRAIL
   const sin = Math.sin(line.heading)
@@ -1419,6 +1442,32 @@ function startTakeoff(b: Battle, c: Combatant, line: TakeoffLine, k: number): vo
   a.prevOrientation.copy(a.state.orientation)
   b.board.priority[c.index] = TAKEOFF_PRIORITY
   b.takeoffSeats.push(c.index)
+  if (departs !== undefined) departParked(b, departs, c.team, x, z)
+}
+
+/**
+ * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場。**不是摧毀**：不推擊毀事件，
+ * 炸毀的池也跳過它（`inDestroyPool`）。一台都不剩就什麼都不做。
+ *
+ * 【為什麼一定要少一台】少了這一步，停機墊上那一架與正在滾行的那一架是同一架
+ * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
+ */
+function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: number): void {
+  let best: GroundTarget | null = null
+  let bestSq = Infinity
+  for (const t of b.world.groundTargets) {
+    if (!t.alive || t.team !== team || t.unit.id !== unit) continue
+    const dx = t.position.x - x
+    const dz = t.position.z - z
+    const d = dx * dx + dz * dz
+    if (d < bestSq) {
+      bestSq = d
+      best = t
+    }
+  }
+  if (best === null) return
+  best.alive = false
+  best.departed = true
 }
 
 /** 滾行交還之後把目標評分還原。熱路徑：起飛的座位只有幾個，不配置 */
@@ -1990,7 +2039,7 @@ export function stepBattle(b: Battle, dt: number): void {
   inp.targetsDestroyed = 0
   inp.targetsTotal = 0
   for (const t of b.world.groundTargets) {
-    if (t.team === 'blue') continue
+    if (!inDestroyPool(t, b.rules)) continue
     inp.targetsTotal++
     if (!t.alive) inp.targetsDestroyed++
   }
