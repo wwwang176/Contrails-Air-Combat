@@ -535,11 +535,6 @@ export interface Battle {
   redKilled: number
   /** 上面那些裡面機體角色是轟炸機的。`hunt.role` 限定時要分得出來 */
   redKilledBombers: number
-  /**
-   * 從跑道起飛的座位。滾行期間它們在 `board.priority` 裡是
-   * `TAKEOFF_PRIORITY`，交還之後由 `restoreTakeoffPriority` 還原成 1。
-   */
-  readonly takeoffSeats: number[]
 }
 
 /**
@@ -1114,7 +1109,6 @@ export function createBattle(
     killsSeen: world.killEvents.total,
     redKilled: 0,
     redKilledBombers: 0,
-    takeoffSeats: [],
   }
   wireStations(battle)
   return battle
@@ -1473,13 +1467,6 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
 }
 
 /**
- * 滾行中那一架在 AI 目標評分裡的倍率。**0 = 不指派**（`ai/target.ts` 的
- * `selectTarget` 跳過它）：打得到，但沒有 AI 會去追 —— 僚機為了追一架在地上
- * 的飛機會一路壓到撞地。
- */
-export const TAKEOFF_PRIORITY = 0
-
-/**
  * 掛上起飛腳本，回傳它。**同一小隊單列排在中線上**：第 `slot` 架排在起飛線後方
  * `slot × TAKEOFF_TRAIL`。起步時刻由 `reinforce` 在整批生成完之後填。
  *
@@ -1508,8 +1495,8 @@ function startTakeoff(
   a.state.angularVelocity.set(0, 0, 0)
   a.prevPosition.copy(a.state.position)
   a.prevOrientation.copy(a.state.orientation)
-  b.board.priority[c.index] = TAKEOFF_PRIORITY
-  b.takeoffSeats.push(c.index)
+  // 【AI 照常可以選它】滑行與滾行中的飛機是一般的敵機。追到地面的風險交給
+  // 安全層（`applySafety` 的拉平、`terrainSense`），不靠不選它來避
   return roll
 }
 
@@ -1577,16 +1564,6 @@ function stepConveyor(b: Battle): void {
     ai.setDecisionPhase(seat / b.board.assignments.length)
     c.controller = ai
     b.board.assignments[seat] = -1
-  }
-}
-
-/** 滾行交還之後把目標評分還原。熱路徑：起飛的座位只有幾個，不配置 */
-function restoreTakeoffPriority(b: Battle): void {
-  const seats = b.takeoffSeats
-  const cs = b.world.combatants
-  for (let i = 0; i < seats.length; i++) {
-    const s = seats[i]!
-    if (b.board.priority[s] === TAKEOFF_PRIORITY && cs[s]!.takeoff === null) b.board.priority[s] = 1
   }
 }
 
@@ -2041,7 +2018,6 @@ function completeTakeover(b: Battle): void {
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
   drainKills(b)
-  restoreTakeoffPriority(b)
 
   // 【退場的飛機要放掉它自己的指派】`World.step` 跳過退場者的控制器，所以
   // `selectTarget` 永遠沒機會替它把槽位歸 −1（M5 spec §7）。不清的話那筆
@@ -2290,9 +2266,6 @@ export function resetBattle(
   // 不留上一場的傷害紀錄」這個意圖自己成立，不倚賴迴圈涵蓋了每一個座位。
   b.world.clearDamageLog()
   b.board.assignments.fill(-1)
-  // 【起飛座位的評分還原】`World.respawn` 已經解開滾行腳本，倍率留在
-  // `TAKEOFF_PRIORITY` 的話那幾架整場沒有人打
-  for (const s of b.takeoffSeats) b.board.priority[s] = 1
   b.board.pressure.fill(0)
   b.pressureTimer = 0
   compactFlights(b.flights, combatants)
