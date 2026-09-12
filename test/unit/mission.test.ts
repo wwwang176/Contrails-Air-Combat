@@ -10,6 +10,7 @@ const DT = 1 / 240
 function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
   return {
     aliveBlue: 4,
+    aliveBlueFighters: 4,
     aliveRed: 16,
     playerPos: new Vector3(0, 4000, 5000),
     playerAlive: true,
@@ -328,6 +329,38 @@ describe('stepMission：擊沉', () => {
     const s = createMissionState(rules)
     stepMission(rules, inputs({ shipsSunk: 1, aliveBlue: 0 }), DT, s)
     expect(s.outcome).toBe('defeat')
+  })
+
+  /**
+   * 【有護衛編制時，護衛全滅就輸】日 M1 的目標是掩護雷擊隊。零戰全滅而
+   * 陸攻還活著，若只看 `aliveBlue`，玩家會接手陸攻把仗打完。
+   */
+  it('有護衛編制：戰鬥機全滅、轟炸機還活著 —— 輸', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 1, aliveBlue: 8, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  it('有護衛編制：還有一架戰鬥機就繼續打', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 1, aliveBlue: 9, aliveBlueFighters: 1 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+  })
+
+  it('有護衛編制：最後一艘沉的那一步護衛剛好全滅 —— 算贏', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 3, aliveBlue: 8, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /** 【沒有護衛編制的關不受影響】日 M3 倫內爾島藍隊全是陸攻，戰鬥機恆為 0 */
+  it('沒有護衛編制：戰鬥機是 0 而轟炸機還活著 —— 繼續打', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 1, aliveBlue: 11, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('fighting')
   })
 
   /** 【同一步同時滿足時算贏】與撤離那一條同一個裁決。 */

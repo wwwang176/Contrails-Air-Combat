@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MISSIONS, CAMPAIGNS, missionConfigFrom } from '../../src/battle/missions'
-import { ALL_SPECS } from '../../src/battle/skirmish'
+import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
 
@@ -267,13 +267,15 @@ describe('missionConfigFrom', () => {
 describe('日 M1 瓜達康納爾上空', () => {
   const card = MISSIONS.japan.find((m) => m.id === 'japan-m1') as ReadyMissionCard
 
-  it('A6M5 ×8 掩護 G4M ×8，對上 F4F-4 ×8；群島；擊沉三艘', () => {
+  it('A6M5 ×12 掩護 G4M ×8，對上 F4F-4 ×8；群島；擊沉三艘', () => {
     const b = card.battle
     expect(b.blueSpec.id).toBe('a6m5')
-    expect(b.blueCount).toBe(8)
+    expect(b.blueCount).toBe(12)
     expect(b.convoySpec?.id).toBe('g4m')
     expect(b.convoyCount).toBe(8)
     expect(b.convoyDuty).toBe('strike')
+    // 【零戰加陸攻都在藍隊】`blueCount` 不含攻擊隊，兩者相加才是藍隊的席位
+    expect(b.blueCount + b.convoyCount).toBeLessThanOrEqual(MAX_SIDE)
     expect(b.redSpec.id).toBe('f4f4')
     expect(b.redCount).toBe(8)
     expect(b.terrain).toBe('archipelago')
@@ -288,7 +290,31 @@ describe('日 M1 瓜達康納爾上空', () => {
       expect(s.team).toBe('red')
       expect(s.vital).toBeUndefined()
     }
-    expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 3 })
+    expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 3, escorts: true })
+  })
+
+  /**
+   * 【零戰全滅就是任務失敗】這一關的目標是掩護。走真正的 `stepBattle`，
+   * 守的是 `setup.ts` 真的把「藍隊存活的戰鬥機」填進判定。
+   */
+  it('零戰全滅、陸攻還活著 —— 判敗', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    for (const c of b.world.combatants) {
+      if (c.team === 'blue' && c.aircraft.spec.role === 'fighter') c.alive = false
+    }
+    stepBattle(b, 1 / 240)
+    const g4mAlive = b.world.combatants.filter((c) => c.alive && c.aircraft.spec.id === 'g4m')
+    expect(g4mAlive).toHaveLength(8)
+    expect(b.mission.outcome).toBe('defeat')
+  })
+
+  it('還剩一架零戰就不判敗', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const fighters = b.world.combatants.filter(
+      (c) => c.team === 'blue' && c.aircraft.spec.role === 'fighter')
+    for (const c of fighters.slice(1)) c.alive = false
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
   })
 
   it('F4F 整隊重生，陸攻不重生', () => {
@@ -311,6 +337,23 @@ describe('日 M1 瓜達康納爾上空', () => {
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
     expect(b.convoy).toBeNull()
+  })
+})
+
+describe('日 M3 倫內爾島不受護衛條件影響', () => {
+  const card = MISSIONS.japan.find((m) => m.id === 'japan-m4') as ReadyMissionCard
+
+  it('規則沒有護衛編制', () => {
+    expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 4 })
+  })
+
+  /** 【藍隊一架戰鬥機都沒有】護衛條件若無條件套用，這一關開場第一步就判敗 */
+  it('藍隊全是陸攻，跑一秒仍在打', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    expect(b.world.combatants.some((c) => c.team === 'blue' && c.aircraft.spec.role === 'fighter'))
+      .toBe(false)
+    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
   })
 })
 

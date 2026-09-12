@@ -52,7 +52,9 @@ export const JAPAN: readonly MissionCard[] = [
       // 【零戰與陸攻，不是 21 型】遊戲每個陣營只有一台戰鬥機模型，卡片寫戰役
       // 不寫次型號
       blueSpec: A6M5, redSpec: F4F4,
-      blueCount: 8, redCount: 8,
+      // 【12 + 8 = 20 席，藍隊用滿】陸攻活幾架決定沉幾艘，那是這一關的骨架，
+      // 所以加的是零戰。敵方維持 8 架加重生，一次只動一邊。**起始值。**
+      blueCount: 12, redCount: 8,
       // 【攻擊隊是 strike】陸攻照常走雷擊航路、照常閃彈，擊沉數由它們達成。
       // 誤成 transit 的話它們會直飛到一個不存在的終點
       convoySpec: G4M, convoyCount: 8, convoyDuty: 'strike',
