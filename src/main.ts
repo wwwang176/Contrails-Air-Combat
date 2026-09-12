@@ -101,7 +101,7 @@ import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
-  addShake, applyCameraShake, createCameraShake, stepCameraShake,
+  addShake, applyCameraShake, createCameraShake, overspeedShake, stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -1899,6 +1899,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【震動疊在最後】上面每一條分支都是從頭寫相機姿態的，排在它們之前會被
   // 整個蓋掉 —— 而畫面上只是「沒有震動」。也因為它們每幀重寫，這個偏移
   // 不會累積回相機
+  // 【超速的持續搖晃】每幀由速度直接算、不衰減，與爆炸取最大值。上帝視角時
+  // 鏡頭不在飛機上，不搖
+  const shakeAero = player.aircraft
+  cameraShake.sustained = input.godView ? 0 : overspeedShake(
+    indicatedAirspeed(shakeAero.diag.aero.tas, shakeAero.diag.air.sigma)
+      / shakeAero.spec.limits.vne,
+  )
   stepCameraShake(cameraShake, frameSeconds)
   applyCameraShake(cameraShake, ctx.camera)
 
