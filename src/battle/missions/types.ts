@@ -317,12 +317,15 @@ export interface MissionBattle {
    * ```
    *   transit  被護送：飛向終點、不交戰。只在護航／攔截的規則下成立
    *   strike   我方的攻擊隊：combat 職務，照常走攻擊航路，不需要護送規則
+   *   stream   敵方的轟炸機流：transit 職務、飛向終點，到了就從起點重新進場
+   *            （`conveyor` 節拍）。終點不判勝負，勝負由卡片自己的規則決定
    * ```
    *
-   * `strike` 一律排進藍隊。勝負由卡片自己的規則決定（例如 `sinkCount`）；
-   * 它們不是被護送者，`convoyPriority` 不作用在它們身上。
+   * `strike` 一律排進藍隊、`stream` 一律排進紅隊。勝負由卡片自己的規則決定
+   * （例如 `sinkCount`、`huntCount`）。`stream` 的終點照攔截的算法放在
+   * `targetDistance`／`targetRadius`。
    */
-  readonly convoyDuty?: 'transit' | 'strike'
+  readonly convoyDuty?: 'transit' | 'strike' | 'stream'
   /**
    * 被護送的那幾架在**敵方**目標挑選裡值幾倍。**1 = 沒有偏置。**
    *

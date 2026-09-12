@@ -145,6 +145,12 @@ export interface Combatant {
    * 加速的飛機要成立。腳本走完由 `step` 設回 null，之後照常飛。
    */
   takeoff: TakeoffRoll | null
+  /**
+   * 這個席位整場不進場（`battle/setup.ts` 的 `reinforce`：起飛時停機線上已經
+   * 沒有對應的那一架）。**`alive` 同時為 false**，但不是被擊落 —— 不推擊墜、
+   * 畫面不畫、不留殘骸。預留的座位範圍是建構期綁死的，所以席位留著、不進場。
+   */
+  retired: boolean
   readonly spawnPosition: Vector3
   spawnAltitude: number
   spawnTas: number
@@ -478,6 +484,7 @@ export class World {
       hitsDealt: 0,
       respawnOnDestroy: false,
       takeoff: null,
+      retired: false,
       spawnPosition: spawnPosition.clone(),
       spawnAltitude,
       spawnTas,
@@ -1589,6 +1596,7 @@ export class World {
     c.alive = true
     // 【重生在空中】上一條命還在滾行的話，不解開座標鎖它會被拉回跑道
     c.takeoff = null
+    c.retired = false
     // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條
     // 命的攻擊者算進助攻（M9 spec §5.2）
     const n = this.damageStride

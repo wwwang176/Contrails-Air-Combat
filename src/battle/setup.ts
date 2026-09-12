@@ -52,7 +52,9 @@ import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
-import { createTakeoffRoll, GEAR_CLEARANCE, type TakeoffLine } from '../control/takeoffRoll'
+import {
+  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_STAGGER, TAKEOFF_TRAIL, type TakeoffLine,
+} from '../control/takeoffRoll'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -98,6 +100,14 @@ export interface BattleConfig {
    * 坑。`reserve` 留給測試當低階的逃生口：兩者都給時以 `reserve` 為準。
    */
   readonly beats?: readonly Beat[]
+  /**
+   * transit 那幾架的終點，**不參與勝負判定**。規則是 `convoy` 時終點由規則給，
+   * 這一格不讀。**省略 = 沒有這種終點**，那時有 transit 卻不是護送規則就拋錯。
+   *
+   * 【為什麼要與規則拆開】「有終點可飛」與「勝負由抵達判定」是兩件事。轟炸機流
+   * （德 M1）要前者、不要後者 —— 勝負是 `hunt`。
+   */
+  readonly route?: TransitRoute
   /**
    * 這一場的艦隊。**省略 = 一艘船都不產生**，而 `World` 那三段推進都是
    * 零長度早退，所以既有的空戰逐位元不變。
@@ -222,6 +232,13 @@ export interface BattleConfig {
   tuning: MissionTuning
 }
 
+/** transit 那一隊飛向哪裡。形狀與 `MissionRules` 的 convoy 相同，但不判勝負 */
+export interface TransitRoute {
+  readonly owner: Team
+  readonly point: Vector3
+  readonly radius: number
+}
+
 export const DEFAULT_BATTLE: BattleConfig = {
   // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
   units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
@@ -297,6 +314,12 @@ export interface ConvoyIndex {
    * 代價由這個旗標擋住：抵達之後就不再納入存活與距離的掃描。
    */
   readonly arrived: boolean[]
+  /**
+   * 抵達判不判勝負。**規則是 `convoy` 時為 true**；終點來自
+   * `BattleConfig.route` 時為 false —— 那時規則不讀抵達數，抵達的那一架由
+   * `conveyor` 節拍拉回起點。
+   */
+  readonly judged: boolean
 }
 
 export interface Battle {
@@ -944,11 +967,14 @@ export function createBattle(
   //
   // 【兩個方向都要擋】少了任何一邊，症狀都是「這一關永遠打不完」而畫面上
   // 一切正常：沒有 transit 的護送任務，勝利條件從第一幀起就不可能成立；
-  // 有 transit 卻不是護送規則的話，那幾架沒有地方可去，會照一般空戰打。
+  // 有 transit 卻既不是護送規則、也沒有 `route` 的話，那幾架沒有地方可去，
+  // 會照一般空戰打。
+  //
+  // 【終點與勝負拆開】護送規則的終點判勝負；`route` 的終點只給 transit 飛
   const convoyOrders: (FlightOrder | null)[] = flights.flights.map(() => null)
   let convoy: ConvoyIndex | null = null
-  if (cfg.rules.kind === 'convoy') {
-    const rules = cfg.rules
+  const rules = cfg.rules.kind === 'convoy' ? cfg.rules : cfg.route
+  if (rules !== undefined) {
     const points: Vector3[] = []
     let owned = 0
     for (let t = 0; t < convoySeats.length; t++) {
@@ -989,9 +1015,15 @@ export function createBattle(
       orders: convoyOrders,
       radius: rules.radius,
       arrived: convoySeats.map(() => false),
+      judged: cfg.rules.kind === 'convoy',
     }
   } else if (convoySeats.length > 0) {
-    throw new Error('編組表裡有 transit 的小隊，但這一場的規則不是護送／攔截——它們沒有終點可飛')
+    throw new Error('編組表裡有 transit 的小隊，但這一場既不是護送／攔截規則、也沒有 route——它們沒有終點可飛')
+  }
+  // 【傳送帶只接不判勝負的終點】判勝負的護送裡，抵達的那一架被拉回起點的話
+  // 抵達的閂永遠閂不上，那一關打不完
+  if ((cfg.beats ?? []).some((x) => x.kind === 'conveyor') && (convoy === null || convoy.judged)) {
+    throw new Error('conveyor 節拍要配 BattleConfig.route 的終點，不能配護送規則')
   }
 
   const blueFlightIndices: number[] = []
@@ -1225,8 +1257,17 @@ function stepBeats(b: Battle): void {
       stepRecycle(b, beat, st, now)
       continue
     }
+    if (beat.kind === 'conveyor') {
+      stepConveyor(b)
+      continue
+    }
+    // 【起飛的那一批要地上還有飛機】一架都不剩時不預警、不進場 —— 條件成立
+    // 也一樣。等下去是對的：它不會再成立，而同形狀的下一批照樣可以用那個預留
+    const grounded = beat.kind === 'reinforce' && beat.flight.departs !== undefined
+      && parkedLeft(b, beat.flight.departs, beat.flight.team) === 0
     if (st.phase === 'waiting') {
       if (!conditionMet(beat.when, now, aliveOf, b.batches, destroyed)) continue
+      if (grounded) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       // 【照明彈沒有訊息】天亮起來就是通知
@@ -1238,6 +1279,12 @@ function stepBeats(b: Battle): void {
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
     // 多出一條沒有人會預期的語意
     if (now < st.dueAt) continue
+    // 【預警之後地上的飛機被打光】這一批作罷，預留留給同形狀的下一批
+    if (grounded) {
+      st.phase = 'done'
+      b.beatsLeft--
+      continue
+    }
     // 【預留依形狀取用】座位依序附加到世界尾端，每一支預留的分隊在建構期就
     // 綁死了自己的座位範圍、隊伍與架數。輪到的那一支隊伍或架數不同就要等 ——
     // 硬塞的話那幾架會落進別隊的分隊裡。形狀相同就直接用：前一個波次的條件
@@ -1381,16 +1428,28 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   const seats: number[] = []
   const names = pilotNames(
     b.seed + slot + 1, plan.members[0]!.faction, plan.members.length)
+  /** 真的上了跑道的架數。單列的位置與起步時差照它排，作廢的席位不佔位 */
+  let launched = 0
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
-    if (plan.takeoff !== undefined) startTakeoff(b, c, plan.takeoff, k, plan.departs)
+    if (plan.takeoff !== undefined) {
+      // 【停機線上沒有對應的那一架就不進場】起飛的是地上那一架，地上沒有了
+      // 就不能憑空多一架。席位已經在建構期綁死，所以留著、標成作廢
+      if (plan.departs === undefined
+        || departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)) {
+        startTakeoff(b, c, plan.takeoff, launched++)
+      } else {
+        c.alive = false
+        c.retired = true
+      }
+    }
     seats.push(c.index)
     ;(plan.team === 'blue' ? b.blue : b.red).push(c)
     b.spawnOrientations.push(c.aircraft.state.orientation.clone())
     b.commandUnits.push(makeCommandUnit(c, b.ceilings))
     b.roster.pilots.push({
-      name: names[k]!, kills: 0, deaths: 0, assists: 0, alive: true, isPlayer: false,
+      name: names[k]!, kills: 0, deaths: 0, assists: 0, alive: c.alive, isPlayer: false,
     })
     const ai = c.controller as AiController
     ai.board = b.board
@@ -1404,10 +1463,6 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   return seats
 }
 
-/** 並排兩架的橫向偏移，m。P-51 翼展 11.3 m、跑道寬 36 m，翼尖之間留約 5 m */
-const TAKEOFF_ABREAST = 8
-/** 後一對排在前一對後方多遠，m */
-const TAKEOFF_TRAIL = 40
 /**
  * 滾行中那一架在 AI 目標評分裡的倍率。**0 = 不指派**（`ai/target.ts` 的
  * `selectTarget` 跳過它）：打得到，但沒有 AI 會去追 —— 僚機為了追一架在地上
@@ -1416,23 +1471,17 @@ const TAKEOFF_TRAIL = 40
 export const TAKEOFF_PRIORITY = 0
 
 /**
- * 把剛生成的第 `k` 架擺到起飛線上、掛上滾行腳本。兩架一對並排，後一對
- * 往後排。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，那時地形已經接上。
- *
- * @param departs 地上同隊的這種停放單位少一台（見 `departParked`）
+ * 把剛生成的一架擺到起飛線上、掛上滾行腳本。**同一小隊單列排在中線上**：
+ * 第 `slot` 架在起飛線後方 `slot × TAKEOFF_TRAIL`，晚 `slot × TAKEOFF_STAGGER`
+ * 秒起步。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，那時地形已經接上。
  */
-function startTakeoff(
-  b: Battle, c: Combatant, line: TakeoffLine, k: number, departs: GroundUnitId | undefined,
-): void {
-  const side = k % 2 === 0 ? -TAKEOFF_ABREAST : TAKEOFF_ABREAST
-  const back = Math.floor(k / 2) * TAKEOFF_TRAIL
-  const sin = Math.sin(line.heading)
-  const cos = Math.cos(line.heading)
-  // 機首是 (−sin, 0, −cos)、右翼是 (cos, 0, −sin)
-  const x = line.x + cos * side + sin * back
-  const z = line.z - sin * side + cos * back
+function startTakeoff(b: Battle, c: Combatant, line: TakeoffLine, slot: number): void {
+  const back = slot * TAKEOFF_TRAIL
+  // 機首是 (−sin, 0, −cos)，後方是它的反向
+  const x = line.x + Math.sin(line.heading) * back
+  const z = line.z + Math.cos(line.heading) * back
   const groundY = b.world.groundAt(x, z)
-  c.takeoff = createTakeoffRoll(x, z, line.heading, groundY)
+  c.takeoff = createTakeoffRoll(x, z, line.heading, groundY, slot * TAKEOFF_STAGGER)
   const a = c.aircraft
   a.state.position.set(x, groundY + GEAR_CLEARANCE, z)
   a.state.orientation.setFromAxisAngle(UP, line.heading)
@@ -1442,17 +1491,25 @@ function startTakeoff(
   a.prevOrientation.copy(a.state.orientation)
   b.board.priority[c.index] = TAKEOFF_PRIORITY
   b.takeoffSeats.push(c.index)
-  if (departs !== undefined) departParked(b, departs, c.team, x, z)
+}
+
+/** 地上還在的同隊 `unit` 有幾台 */
+function parkedLeft(b: Battle, unit: GroundUnitId, team: Team): number {
+  let n = 0
+  for (const t of b.world.groundTargets) {
+    if (t.alive && t.team === team && t.unit.id === unit) n++
+  }
+  return n
 }
 
 /**
- * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場。**不是摧毀**：不推擊毀事件，
- * 炸毀的池也跳過它（`inDestroyPool`）。一台都不剩就什麼都不做。
+ * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳有沒有找到。**不是摧毀**：
+ * 不推擊毀事件，炸毀的池也跳過它（`inDestroyPool`）。
  *
  * 【為什麼一定要少一台】少了這一步，停機墊上那一架與正在滾行的那一架是同一架
  * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
  */
-function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: number): void {
+function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: number): boolean {
   let best: GroundTarget | null = null
   let bestSq = Infinity
   for (const t of b.world.groundTargets) {
@@ -1465,9 +1522,40 @@ function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: n
       best = t
     }
   }
-  if (best === null) return
+  if (best === null) return false
   best.alive = false
   best.departed = true
+  return true
+}
+
+/**
+ * 傳送帶的一步：還活著、進了終點圈的 transit 就地回到自己的出生點重新進場。
+ *
+ * 【同一個席位、同一個名字】離場與進場在同一步，席位不空出來 —— 容量、編制、
+ * 記分板的那一列都不動。被擊落的不在這裡補。
+ *
+ * 熱路徑：只掃 transit 的座位，不配置（進場那一刻換一顆 `AiController`）。
+ */
+function stepConveyor(b: Battle): void {
+  const cv = b.convoy
+  if (cv === null) return
+  const cs = b.world.combatants
+  for (let t = 0; t < cv.seats.length; t++) {
+    const seat = cv.seats[t]!
+    const c = cs[seat]!
+    if (!c.alive) continue
+    if (!arrivedAt(c.aircraft.state.position.distanceTo(cv.goal), cv.radius)) continue
+    // 【`World.respawn` 不推擊墜】`destroy` 會推，`hunt` 的擊落數就平白多一架
+    b.world.respawn(c)
+    settle(c, c.spawnPosition, b.spawnOrientations[seat]!, c.spawnTas)
+    const ai = new AiController()
+    ai.board = b.board
+    ai.selfIndex = seat
+    ai.profile = b.cfg.aiProfile
+    ai.setDecisionPhase(seat / b.board.assignments.length)
+    c.controller = ai
+    b.board.assignments[seat] = -1
+  }
 }
 
 /** 滾行交還之後把目標評分還原。熱路徑：起飛的座位只有幾個，不配置 */

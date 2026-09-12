@@ -76,7 +76,9 @@ describe('可玩卡的戰鬥設定', () => {
       const b = m.battle
       if (b.convoySpec === null) continue
       const convoy = missionConfigFrom(m).rules.kind === 'convoy'
-      expect(convoy, `${m.id} 的 convoyDuty`).toBe(b.convoyDuty !== 'strike')
+      expect(convoy, `${m.id} 的 convoyDuty`).toBe(b.convoyDuty === undefined || b.convoyDuty === 'transit')
+      // 【轟炸機流的終點不判勝負】那一關要有自己的勝負 —— 擊落
+      if (b.convoyDuty === 'stream') expect(b.huntCount, m.id).toBeDefined()
       if (b.convoyDuty === 'strike') {
         expect(b.sinkCount !== undefined || b.destroyCount !== undefined, m.id).toBe(true)
       }
@@ -144,27 +146,28 @@ describe('德 M2 波爾塔瓦', () => {
 describe('德 M1 梅澤堡上空', () => {
   const card = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
 
-  it('擊落 6 架轟炸機；8 架 K-4 對 8 架 B-17；洛伊納、十一月正午', () => {
+  it('擊落 6 架轟炸機；8 架 K-4 攔 8 架 B-17 的轟炸機流；洛伊納、十一月正午', () => {
     const b = card.battle
     expect(b.huntCount).toBe(6)
     expect(b.huntRole).toBe('bomber')
     expect(b.blueSpec.id).toBe('bf109k4')
     expect(b.blueCount).toBe(8)
-    expect(b.redSpec.id).toBe('b17g')
-    expect(b.redCount).toBe(8)
-    expect(b.convoySpec).toBeNull()
+    expect(b.convoySpec?.id).toBe('b17g')
+    expect(b.convoyCount).toBe(8)
+    expect(b.convoyDuty).toBe('stream')
+    expect(b.redCount).toBe(0)
+    expect(b.targetDistance).toBeGreaterThan(0)
+    expect(b.targetRadius).toBeGreaterThan(0)
     expect(b.terrain).toBe('leuna')
     expect(b.timeOfDay).toBe('novemberNoon')
   })
 
-  it('廠區與砲位是我方的 —— 紅方的轟炸機才會去炸它', () => {
-    const g = card.battle.ground!
-    expect(g.filter((e) => e.unit === 'flakHeavy')).toHaveLength(48)
-    expect(g.filter((e) => e.unit !== 'flakHeavy')).toHaveLength(12)
-    expect(g.every((e) => e.team === 'blue')).toBe(true)
+  it('在路途上攔截：沒有地面目標、沒有整隊重生', () => {
+    expect(card.battle.ground).toBeUndefined()
+    expect(card.battle.recycle).toBeUndefined()
   })
 
-  it('護航機兩批各四架 P-51，轟炸機整隊重生三批', () => {
+  it('護航機兩批各四架 P-51', () => {
     const waves = card.battle.waves!
     expect(waves).toHaveLength(2)
     for (const w of waves) {
@@ -172,11 +175,17 @@ describe('德 M1 梅澤堡上空', () => {
       expect(w.spec.id).toBe('p51d')
       expect(w.count).toBe(4)
     }
-    expect(card.battle.recycle).toMatchObject({ side: 'theirs', role: 'bomber', batches: 3 })
   })
 
-  it('照這張卡建得起來、規則是 hunt、跑一秒不炸', () => {
-    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+  it('照這張卡建得起來、規則是 hunt、B-17 在紅隊而且是 transit、跑一秒不炸', () => {
+    const cfg = missionConfigFrom(card)
+    const bombers = cfg.units.filter((u) => u.members[0]!.id === 'b17g')
+    expect(bombers).toHaveLength(8)
+    for (const u of bombers) {
+      expect(u.team).toBe('red')
+      expect(u.duty).toBe('transit')
+    }
+    const b = createBattle({ update() {} }, cfg, 1)
     expect(b.cfg.rules).toEqual({ kind: 'hunt', count: 6, role: 'bomber' })
     for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
@@ -219,20 +228,21 @@ describe('德 M3 底板行動', () => {
     expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
   })
 
-  it('巡邏隊四架在 2,000 m；兩批各兩架從跑道起飛，讀地面戰果、門檻與時間遞增', () => {
-    const [patrol, first, second] = card.battle.waves!
+  it('巡邏隊四架在 2,000 m；起飛的每一批是一個小隊，席位加起來等於停機線', () => {
+    const [patrol, ...takeoff] = card.battle.waves!
     expect(patrol!.when).toEqual({ kind: 'clock', at: 0 })
     expect(patrol!.count).toBe(4)
     expect(patrol!.altitude).toBe(2000)
     expect(patrol!.takeoff).toBeUndefined()
-    expect(first!.when).toEqual({ kind: 'ground', below: 6, byLatest: 40 })
-    expect(second!.when).toEqual({ kind: 'ground', below: 10, byLatest: 80 })
-    for (const w of [first!, second!]) {
-      expect(w.count).toBe(2)
+    for (const w of takeoff) {
+      expect(w.count).toBe(4)
       expect(w.side).toBe('theirs')
       expect(w.takeoff).toBeDefined()
       expect(w.departs).toBe('parkedP51')
     }
+    // 【停機線上的每一架最後都起得來】起飛的席位少於停放的架數，剩下的永遠在地上
+    const parked = card.battle.ground!.filter((e) => e.unit === 'parkedP51').length
+    expect(takeoff.reduce((s, w) => s + w.count, 0)).toBe(parked)
   })
 
   it('照這張卡建得起來、開場每一架離地 100 m 以上、跑一秒不炸', () => {

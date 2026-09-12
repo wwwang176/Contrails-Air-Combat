@@ -1735,6 +1735,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
     v.model.group.position.copy(v.position)
     v.model.group.quaternion.copy(v.quaternion)
 
+    // 【整場不進場的席位不畫、不留殘骸】它從來沒有飛過
+    if (c.retired) {
+      v.model.group.visible = false
+      if (v.lod !== null) v.lod.group.visible = false
+      continue
+    }
     if (!c.alive) {
       // 【殘骸的判準是「還有沒有人要用這個模型」，不是「這是不是玩家」】
       // M9 起玩家陣亡改為接手僚機，他的 alive 維持 false —— 這一段一個字
