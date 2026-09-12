@@ -40,7 +40,9 @@ export const GERMANY: readonly MissionCard[] = [
        * 到了終點就從進場點重新進場（`conveyor` 節拍），轟炸機流因此不斷。
        * 終點不判勝負 —— 數的是累計擊落，攔下哪一批不重要。
        *
-       * 【沒有地面目標】廠區屬於盟 M2；地形留洛伊納是因為薩勒河平原本來就對。
+       * 【沒有地面目標、沒有廠區】廠區屬於盟 M2。地形是晚秋的內陸（農地的高度場
+       * 配洛伊納的色盤）—— `leuna` 會把廠區的墊面與佈景烤進地形，拿掉 `ground`
+       * 之後靜態的工廠仍然在。
        *
        * 【開場沒有戰鬥機】護航的 P-51 全部由波次給，`redSpec` 是它們的機種。
        */
@@ -49,7 +51,7 @@ export const GERMANY: readonly MissionCard[] = [
       // 【終點在我方後方 12 km】紅方從 z = −5,000 出發，一趟 17 km。**起始值**
       targetDistance: 12000, targetRadius: 1000, seconds: Infinity,
       entry: 'headOn',
-      terrain: 'leuna',
+      terrain: 'autumnFarmland',
       timeOfDay: 'novemberNoon',
       // 【只算轟炸機】打護航機過不了關。**起始值，由試飛裁定**
       huntCount: 6, huntRole: 'bomber',
