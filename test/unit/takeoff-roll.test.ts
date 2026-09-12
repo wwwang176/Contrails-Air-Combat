@@ -4,6 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
+  TAKEOFF_STAGGER, TAKEOFF_TRAIL,
 } from '../../src/control/takeoffRoll'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
@@ -92,28 +93,48 @@ function card(patch: Partial<MissionBattle>): ReadyMissionCard {
 }
 
 /** 開場 0.5 秒，兩架 P-51 在 (0, −3000) 起飛線上滾行 */
+/** 起飛線 (0, −3000) 機首朝 −Z 的波次 */
+function takeoffWave(count: number, departs?: 'parkedP51') {
+  return {
+    when: { kind: 'clock' as const, at: 0.5 }, warn: 'x', warnLead: 0,
+    side: 'theirs' as const, spec: P51D, count,
+    takeoff: { x: 0, z: -3000, heading: 0 },
+    ...(departs === undefined ? {} : { departs }),
+  }
+}
+
+/** 開場 0.5 秒，`count` 架 P-51 在 (0, −3000) 起飛線上滾行 */
 function rollingBattle(
-  extra: Partial<MissionBattle> = {}, departs?: 'parkedP51',
+  extra: Partial<MissionBattle> = {}, departs?: 'parkedP51', count = 2,
 ): { b: Battle; seats: number[] } {
-  const c = card({
-    ...extra,
-    waves: [{
-      when: { kind: 'clock', at: 0.5 }, warn: 'x', warnLead: 0,
-      side: 'theirs', spec: P51D, count: 2,
-      takeoff: { x: 0, z: -3000, heading: 0 },
-      ...(departs === undefined ? {} : { departs }),
-    }],
-  })
+  const c = card({ ...extra, waves: [takeoffWave(count, departs)] })
   const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
   // 遊戲裡的撞地判定：地面 + 2 m。滾行段那 1.5 m 在這條線之下
   b.world.crashPolicy = flatSeaCrashPolicy(() => 0)
   const before = b.world.combatants.length
   while (b.world.combatants.length === before) stepBattle(b, DT)
-  return { b, seats: [before, before + 1] }
+  return { b, seats: Array.from({ length: count }, (_, k) => before + k) }
 }
 
+describe('延遲起步', () => {
+  it('延遲期間停在起飛線上不動，之後照同一條剖面走', () => {
+    const a = new Aircraft(P51D, 0, 0)
+    const roll = createTakeoffRoll(100, -300, 0, 12, 2)
+    let steps = 0
+    while (stepTakeoff(roll, a.state, DT)) {
+      steps++
+      if ((steps + 0.5) * DT < 2) {
+        expect(a.state.position.z).toBe(-300)
+        expect(a.state.position.y).toBe(12 + GEAR_CLEARANCE)
+        expect(a.state.velocity.length()).toBe(0)
+      }
+    }
+    expect((steps + 1) * DT).toBeCloseTo(2 + ROLL_SECONDS + CLIMB_SECONDS, 1)
+  })
+})
+
 describe('滾行中的那一架', () => {
-  it('生在起飛線上、兩架並排不重疊、貼地而且活著', () => {
+  it('生在起飛線上、單列前後排開、貼地而且活著', () => {
     const { b, seats } = rollingBattle()
     for (let i = 0; i < 240; i++) stepBattle(b, DT)
     const [p, q] = seats.map((s) => b.world.combatants[s]!)
@@ -121,9 +142,44 @@ describe('滾行中的那一架', () => {
       expect(c.alive).toBe(true)
       expect(c.takeoff).not.toBeNull()
       expect(c.aircraft.state.position.y).toBeCloseTo(GEAR_CLEARANCE, 6)
-      expect(Math.abs(c.aircraft.state.position.x)).toBeLessThan(18)
+      expect(c.aircraft.state.position.x).toBe(0)
     }
-    expect(Math.abs(p!.aircraft.state.position.x - q!.aircraft.state.position.x)).toBeGreaterThan(P51D.wing.span)
+    expect(q!.aircraft.state.position.z - p!.aircraft.state.position.z).toBeGreaterThan(TAKEOFF_TRAIL / 2)
+  })
+
+  it('一個小隊四架排在中線上，前後相隔 TAKEOFF_TRAIL，每一架晚 TAKEOFF_STAGGER 秒起步', () => {
+    const { b, seats } = rollingBattle({}, undefined, 4)
+    seats.forEach((s, k) => {
+      const roll = b.world.combatants[s]!.takeoff!
+      expect(roll.x).toBe(0)
+      expect(roll.z).toBe(-3000 + k * TAKEOFF_TRAIL)
+      expect(roll.delay).toBe(k * TAKEOFF_STAGGER)
+    })
+  })
+
+  it('停機線上剩的比小隊少：起得來的照樣起飛，其餘席位不進場、不推擊墜', () => {
+    const ground = [0, 1].map((i) => ({
+      unit: 'parkedP51' as const, team: 'red' as const, x: -100, z: -3000 + i * 50, heading: 0,
+    }))
+    const { b, seats } = rollingBattle({ ground }, 'parkedP51', 4)
+    const cs = seats.map((s) => b.world.combatants[s]!)
+    expect(cs.map((c) => c.alive)).toEqual([true, true, false, false])
+    expect(cs.map((c) => c.takeoff !== null)).toEqual([true, true, false, false])
+    expect(b.roster.pilots[seats[3]!]!.alive).toBe(false)
+    expect(b.world.killEvents.total).toBe(0)
+  })
+
+  it('停機線上一架都不剩時那一批不來', () => {
+    const c = card({
+      ground: [{ unit: 'parkedP51', team: 'red', x: -100, z: -3000, heading: 0 }],
+      waves: [takeoffWave(4, 'parkedP51')],
+    })
+    const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+    b.world.groundTargets[0]!.alive = false
+    const before = b.world.combatants.length
+    while (b.world.time < 1) stepBattle(b, DT)
+    expect(b.world.combatants.length).toBe(before)
+    expect(b.message).toBe('')
   })
 
   it('腳本期間打得到', () => {
@@ -154,7 +210,7 @@ describe('滾行中的那一架', () => {
     const { b, seats } = rollingBattle()
     stepBattle(b, DT)
     for (const s of seats) expect(b.board.priority[s]).toBe(0)
-    while (b.world.combatants[seats[0]!]!.takeoff !== null) stepBattle(b, DT)
+    while (b.world.combatants[seats.at(-1)!]!.takeoff !== null) stepBattle(b, DT)
     stepBattle(b, DT)
     for (const s of seats) expect(b.board.priority[s]).toBe(1)
   })

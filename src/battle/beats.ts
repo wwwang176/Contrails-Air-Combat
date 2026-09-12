@@ -127,7 +127,19 @@ export interface FlareBeat {
   readonly points: readonly FlarePoint[]
 }
 
-export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat
+/**
+ * 轟炸機流的傳送帶：transit 的那幾架飛到終點（`BattleConfig.route`）就離場，
+ * 同一個席位在自己的出生點重新進場。**沒有條件、沒有預警，整場都在跑。**
+ *
+ * 【不是 `recycle`】那一個是整隊被殲滅才回來；這一個只管抵達的。被擊落的不補。
+ *
+ * 【離場不走 `World.destroy`】那會推一筆擊墜事件，`hunt` 的擊落數就平白多一架。
+ */
+export interface ConveyorBeat {
+  readonly kind: 'conveyor'
+}
+
+export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat
 
 /** 一個節拍走到哪裡。**執行狀態放這裡，不放 `MissionCard`** —— 見下。 */
 export type BeatPhase = 'waiting' | 'warned' | 'done'

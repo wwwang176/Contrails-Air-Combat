@@ -12,7 +12,7 @@ import { ALLIES } from './allies'
 import { GERMANY } from './germany'
 import { JAPAN } from './japan'
 import type {
-  Campaign, MissionCard, MissionRecycle, MissionSide, MissionTrigger, MissionWave,
+  Campaign, MissionBattle, MissionCard, MissionRecycle, MissionSide, MissionTrigger, MissionWave,
   MissionWithdraw, ReadyMissionCard,
 } from './types'
 
@@ -105,17 +105,7 @@ export function missionRules(
     // 【護航是我方的轟炸機、攔截是敵方的】這一行就是兩張卡的**全部**差別，
     // 判定那一側是同一條規則（見 `mission.ts` 的 convoy）
     const owner: Team = card.type === '護航' ? 'blue' : 'red'
-    // 【方向跟著那一隊的機首】藍隊開局朝 −Z、紅隊朝 +Z。所以護送的終點在
-    // 敵人後方（要打穿出去，理由同撤離），而攔截的終點在**我方**後方 ——
-    // 那正是「別讓它飛過去」的意思
-    const z = owner === 'blue' ? -b.targetDistance : b.targetDistance
-    // 【圈要放在那一隊自己的航道上，不是 x = 0】兩隊對頭時各自橫向偏
-    // `across × lateralOffset`（起始值 ∓750 m）—— 那是為了不對撞。判定圈釘在
-    // 0 的話，最外側那一架到圈心是 750 + 300 = 1,050 m，**永遠判不到**，而
-    // 症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」（`test/tools/
-    // convoy.probe.ts` 表三）。
-    const x = ENTRY_PLANS[b.entry][owner].across * lateralOffset
-    const point = new Vector3(x, altitude, z)
+    const point = routePoint(b, owner, altitude, lateralOffset)
     // 【門檻省略時連鍵都不放】理由同 `huntRole`：`need: undefined` 與「沒有
     // need」在基準快照上看得出差別，而不寫 `need` 的四張卡一個位元都不該動
     return b.need === undefined
@@ -123,6 +113,26 @@ export function missionRules(
       : { kind: 'convoy', owner, point, radius: b.targetRadius, need: b.need }
   }
   return { kind: 'annihilate' }
+}
+
+/**
+ * transit 那一隊的終點。**護送、攔截與轟炸機流共用。**
+ *
+ * 【方向跟著那一隊的機首】藍隊開局朝 −Z、紅隊朝 +Z。所以護送的終點在敵人後方
+ * （要打穿出去，理由同撤離），而攔截的終點在**我方**後方 —— 那正是「別讓它
+ * 飛過去」的意思。
+ *
+ * 【圈要放在那一隊自己的航道上，不是 x = 0】兩隊對頭時各自橫向偏
+ * `across × lateralOffset`（起始值 ∓750 m）—— 那是為了不對撞。判定圈釘在 0 的
+ * 話，最外側那一架到圈心是 750 + 300 = 1,050 m，**永遠判不到**，而症狀是「轟炸
+ * 機從圈旁邊飛過去，任務永遠不結束」（`test/tools/convoy.probe.ts` 表三）。
+ */
+function routePoint(
+  b: MissionBattle, owner: Team, altitude: number, lateralOffset: number,
+): Vector3 {
+  const z = owner === 'blue' ? -b.targetDistance : b.targetDistance
+  const x = ENTRY_PLANS[b.entry][owner].across * lateralOffset
+  return new Vector3(x, altitude, z)
 }
 
 /**
@@ -183,6 +193,19 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         bomber: null,
         bombers: 0,
       })
+    // 【轟炸機流排進紅隊，職務是 transit】終點由下面的 `route` 給
+    : b.convoyDuty === 'stream'
+      ? convoyLine(plan, {
+        fighter: b.blueSpec,
+        fighters: b.blueCount,
+        bomber: null,
+        bombers: 0,
+      }, {
+        fighter: b.redSpec,
+        fighters: b.redCount,
+        bomber: convoyOf(card),
+        bombers: b.convoyCount,
+      })
     : b.blueStacked === true
       ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
       : b.redStarboard === undefined
@@ -202,6 +225,16 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
     tuning: { convoyPriority: b.convoyPriority },
     ...(beats === undefined ? {} : { beats }),
+    // 【轟炸機流的終點】不判勝負，只給 transit 的那幾架一個飛去的點
+    ...(b.convoyDuty === 'stream'
+      ? {
+        route: {
+          owner: 'red' as const,
+          point: routePoint(b, 'red', altitude, DEFAULT_BATTLE.lateralOffset),
+          radius: b.targetRadius,
+        },
+      }
+      : {}),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
     ...(b.ground === undefined ? {} : { ground: b.ground }),
     ...(b.flakSpec === undefined ? {} : { flakSpec: b.flakSpec }),
@@ -243,6 +276,7 @@ function cardBeats(
     out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
   }
   if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
+  if (b.convoyDuty === 'stream') out.push({ kind: 'conveyor' })
   return out.length === 0 ? undefined : out
 }
 
