@@ -569,6 +569,44 @@ export const BOUNCE: EntryPlan = {
 ⚠️ **A 與 B 都改 `order.ts` 的 `pushSide`，E 與 F 都改 `setup.ts`。**
 那兩組要嘛同一個 agent 做，要嘛排先後。其餘六項互不重疊。
 
+### 實際切成三個 worktree
+
+把機制與它唯一的消費者綁在一起，每個 worktree 各自獨佔一個卡片檔：
+
+```
+  allies-berlin        A 箱型幾何                → allies.ts 的盟 M1
+  japan-pacific        B convoyDuty、C BOUNCE、船團 → japan.ts 的日 M1、日 M2
+  germany-bodenplatte  D Y-29 機場、E 滾行腳本、F ground 條件
+                                                 → germany.ts 的德 M1、德 M3
+```
+
+重疊只剩兩處，都是同一檔的不同函數：
+
+```
+  order.ts 的 pushSide   allies-berlin 與 japan-pacific 都碰
+  setup.ts               allies-berlin（transit 終點）與
+                         germany-bodenplatte（生成路徑）都碰
+```
+
+**合併順序：`allies-berlin` 先進** —— 它對 `order.ts` 與 `setup.ts` 動得最深，
+另外兩個 rebase 上去比反過來容易。
+
+### ⚠️ node_modules 是 junction，移除 worktree 的順序不能反
+
+每個 worktree 的 `node_modules` 是指回 `C:\projects\grok-aircraft2\node_modules`
+的 junction（省 142 MB／個；被追蹤的檔案只有 8.9 MB，`ref/` 與 `dist/` 都在
+`.gitignore` 裡不會跟著走）。
+
+**`git worktree remove` 會順著 junction 把主目錄的 node_modules 一起刪掉。**
+症狀是之後 `npx tsc` 說 `not the tsc command` —— `.bin` 整個沒了。所以：
+
+```
+  cmd /c rmdir "<worktree>\node_modules"     ← 先拆 junction
+  orca worktree rm ...                       ← 再移除
+```
+
+收工用 `git stash` 而不是移除 worktree，也可以完全避開這件事。
+
 `npx tsc --noEmit` 有一批既存錯誤（`test/tools/` 的探針與 e2e 的 `process`）。
 **每一個 agent 開工前先量一次行數當基準**，改完比對有沒有增加。2026-09-13 量到
 的是 **24 行**。
