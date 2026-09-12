@@ -3,19 +3,20 @@ import { DEG } from '../core/math'
 import { hash01 } from '../render/scatter'
 
 /**
- * # 爆炸的鏡頭震動
+ * # 鏡頭震動
  *
- * 附近有東西炸開時相機抖一下。純表現：不進判定、不影響飛行，也不需要
- * 決定性。
+ * 附近有東西炸開時相機抖一下；超速時持續抖。純表現：不進判定、不影響飛行，
+ * 也不需要決定性。
  *
- * 【為什麼是一個量而不是一串震源】同一秒裡可能有連投的一串炸彈、十幾發
+ * 【為什麼爆炸只有一個量而不是一串震源】同一秒裡可能有連投的一串炸彈、十幾發
  * 高砲與一架被打爆的飛機。一人一格的話要一個池、要過期、要合成；而畫面上
- * 的差別只有「現在抖得多大」。所以只留一個 `trauma`：隨時間衰減，角度吃
+ * 的差別只有「現在抖得多大」。所以爆炸只留一個 `trauma`：隨時間衰減，角度吃
  * 它的平方。
  *
  * 【同時好幾發取最大值，不疊加】疊加的話一串連投的炸彈或一片防空火網會把
  * 它推到滿格並停在那裡 —— 而畫面上分不出「近處一顆」與「遠處十顆」。取
- * 最大值之後震動的大小恆等於**最近最猛的那一發**。
+ * 最大值之後震動的大小恆等於**最近最猛的那一發**。超速的 `sustained` 也照
+ * 這條與 `trauma` 取最大值。
  *
  * 【火焰不走這裡】燒起來的船與建築是每 0.3 秒一朵小爆炸、燒 60 秒模擬的
  * （`shipFires`／`groundFires`）。那一串接進來的話，只要場上有一處在燒，
@@ -67,9 +68,35 @@ export const GUN_LOST_SHAKE = 0.5
  */
 export const FLAK_SHAKE = 0.25
 
+/**
+ * 超速搖晃開始的 `vneRatio`。**與 HUD 亮 OVERSPEED 的門檻同一個**
+ * （`hud/widgets/energy.ts`）—— 字還沒亮就先搖，玩家會找不到原因。
+ */
+export const OVERSPEED_ONSET = 0.85
+
+/**
+ * 超速搖晃升到上限的 `vneRatio`。**與 HUD 的 OVERSPEED 轉紅同一個門檻**
+ * —— 過了之後不再增加，紅字與黃字頂端搖得一樣。
+ */
+export const OVERSPEED_FULL = 0.95
+
+/**
+ * 超速搖晃的上限，與 `trauma` 同一個尺度。角度吃平方，0.25 是 0.23°，與
+ * 高砲彈幕下的穩態抖動（`FLAK_SHAKE`）同級。
+ *
+ * 【比爆炸小很多】它會一直持續。幅度大到準星離開目標的話，玩家會覺得是
+ * 操縱在飄 —— 見 `SHAKE_MAX_ANGLE`。
+ */
+export const OVERSPEED_SHAKE = 0.25
+
 export interface CameraShake {
-  /** 現在抖得多大，0…1。爆炸往上加，`stepCameraShake` 線性衰減 */
+  /** 爆炸的震動，0…1。爆炸往上加，`stepCameraShake` 線性衰減 */
   trauma: number
+  /**
+   * 持續的震動，0…1。**呼叫端每幀直接寫入，不衰減** —— 衰減的話穩定超速時
+   * 搖晃會一閃一閃，而減速之後還會多晃 `SHAKE_SECONDS` 才停。
+   */
+  sustained: number
   /**
    * 噪聲的相位，秒。**與 `trauma` 分開，而且震動停了也照走** —— 歸零的話
    * 每一次爆炸都從噪聲的同一點開始，連續兩次會晃出一模一樣的軌跡。
@@ -82,9 +109,11 @@ export interface CameraShake {
 export function createCameraShake(): CameraShake {
   return {
     trauma: 0,
+    sustained: 0,
     phase: 0,
     reset() {
       this.trauma = 0
+      this.sustained = 0
       this.phase = 0
     },
   }
@@ -117,7 +146,19 @@ export function addShake(
 }
 
 /**
- * 推進一步。
+ * 超速時的持續震動量，寫進 `CameraShake.sustained`。
+ *
+ * `OVERSPEED_ONSET` 以下是 0，到 `OVERSPEED_FULL` 線性升到 `OVERSPEED_SHAKE`，
+ * 再往上不增加。角度吃平方，所以剛過門檻時幾乎感覺不到。
+ */
+export function overspeedShake(vneRatio: number): number {
+  if (vneRatio <= OVERSPEED_ONSET) return 0
+  if (vneRatio >= OVERSPEED_FULL) return OVERSPEED_SHAKE
+  return OVERSPEED_SHAKE * (vneRatio - OVERSPEED_ONSET) / (OVERSPEED_FULL - OVERSPEED_ONSET)
+}
+
+/**
+ * 推進一步。**只衰減 `trauma`**，`sustained` 由呼叫端每幀寫。
  *
  * @param dt **畫面時間**，不是物理子步 —— 震動是純表現。
  */
@@ -156,11 +197,12 @@ const SHAKE_E = new Euler(0, 0, 0, 'YXZ')
  * 姿態，排在它們之前的震動會被整個蓋掉，而畫面上只是「沒有震動」。也因為
  * 它們每幀重寫，這裡的偏移不會累積回相機的狀態。
  *
- * 【角度吃 `trauma` 的平方】線性的話 trauma 0.3 就有三成的振幅，遠處的一
- * 聲爆炸也搖得很明顯，整場都在晃。
+ * 【角度吃震動量的平方】線性的話 0.3 就有三成的振幅，遠處的一聲爆炸也搖得
+ * 很明顯，整場都在晃。
  */
 export function applyCameraShake(shake: CameraShake, camera: Camera): void {
-  const a = SHAKE_MAX_ANGLE * shake.trauma * shake.trauma
+  const s = shake.trauma > shake.sustained ? shake.trauma : shake.sustained
+  const a = SHAKE_MAX_ANGLE * s * s
   if (a <= 0) return
   const t = shake.phase * SHAKE_FREQUENCY
   SHAKE_E.set(
