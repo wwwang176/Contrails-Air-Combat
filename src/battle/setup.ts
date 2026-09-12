@@ -1818,6 +1818,7 @@ const ASSISTS: number[] = []
  */
 const MISSION_INPUTS: MissionInputs = {
   aliveBlue: 0,
+  aliveBlueFighters: 0,
   aliveRed: 0,
   playerPos: new Vector3(),
   playerAlive: true,
@@ -1977,6 +1978,11 @@ export function stepBattle(b: Battle, dt: number): void {
   // 「玩家死在圓環裡、僚機還活著」判成撤離成功（見 `mission.ts`）。
   const inp = MISSION_INPUTS
   inp.aliveBlue = aliveCount(b.blue)
+  inp.aliveBlueFighters = 0
+  for (let i = 0; i < b.blue.length; i++) {
+    const c = b.blue[i]!
+    if (c.alive && c.aircraft.spec.role !== 'bomber') inp.aliveBlueFighters++
+  }
   inp.aliveRed = aliveCount(b.red)
   inp.playerPos.copy(b.player.aircraft.state.position)
   inp.playerAlive = b.player.alive

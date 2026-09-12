@@ -436,16 +436,17 @@ export const BOUNCE: EntryPlan = {
 ### 8.4 日 M1　瓜達康納爾上空
 
 ```
-  blueSpec    A6M5   blueCount    8
+  blueSpec    A6M5   blueCount    12
   convoySpec  G4M    convoyCount  8     convoyDuty: 'strike'   ← §7.3
   redSpec     F4F4   redCount     8
   entry       headOn        terrain  archipelago
   fleet       瓜島外海的美軍船團（新的 MissionFleet，沒有 vital）
-  rules       sink { count: 3 }
+  rules       sink { count: 3, escorts: true }
   blueLoadout 不覆寫 —— G4M 保留預設的魚雷
 ```
 
-藍隊席位 8 + 8 = 16 ≤ 20 ✓。
+藍隊席位 12 + 8 = 20 ≤ 20 ✓（用滿）。陸攻活幾架決定沉幾艘，那是這一關的骨架，
+所以陸攻維持 8 架、加的是零戰；敵方 F4F 維持 8 架加重生，一次只動一邊。
 
 ```
   全程   重生   side: theirs, role: 'fighter', batches 3
@@ -455,12 +456,22 @@ export const BOUNCE: EntryPlan = {
 目標：**掩護雷擊隊擊沉 3 艘**。正常打下來玩家一顆魚雷都不投；陸攻被 F4F 咬掉
 幾架，就沉不了幾艘。**這一關玩家的動詞是九關裡唯一的：勝利條件由別人達成。**
 
-【八架零戰全滅之後玩家會接手陸攻】那是刻意留著的。`b.convoy` 只在護送規則下
-才建，所以這一關沒有接手的排除名單 —— 攻擊隊在名單裡。**不要把它排除掉**：
-那會讓玩家變成旁觀者，而接手機制存在的理由正是要避免「你死了，現在看著」。
-上面那句話講的是這一關正常的打法，不是一條不變量；零戰全滅是玩家已經徹底失敗
-的退化狀態，那時談動詞的純粹性沒有意義。開 G4M 投雷也不是新表面 —— 日 M3
-倫內爾島本來就是那個玩法。
+**零戰全滅就是任務失敗。** 這一關的目標是掩護，護衛全滅即使陸攻還活著、船還沒
+沉夠也判敗 —— 玩家不會改開被護的對象把仗打完。
+
+```
+  勝   擊沉 3 艘（與敗同一步時算勝）
+  敗   藍隊的戰鬥機全滅（sink 的 escorts 旗標）
+  敗   藍隊全滅
+```
+
+- **判準是「這一關有沒有護衛編制」**：`missionRules` 只在卡片有 `convoyDuty:
+  'strike'` 的攻擊隊時加上 `escorts: true`。日 M3 倫內爾島藍隊全是陸攻、沒有
+  攻擊隊，戰鬥機數恆為 0，那一張不帶這個旗標。
+- **護衛就是藍隊的戰鬥機**：攻擊隊恆是轟炸機，所以數 `role === 'fighter'` 的
+  存活數（`MissionInputs.aliveBlueFighters`）。
+- 接手機制不動：零戰還活著時玩家死了照常接手僚機；最後一架零戰掉下來的那一步
+  任務已經定案。
 
 ### 8.5 日 M2　漢口上空
 
@@ -521,7 +532,7 @@ export const BOUNCE: EntryPlan = {
   盟 M1   need 8 / convoyPriority 3 / 重生 3 批 / 兩個波次的秒數 / 箱型的三個偏移
   德 M1   hunt count 6 / 重生 3 批 / 兩批護航的秒數
   德 M3   destroyCount 8 / 停放機 12 架 / 兩次 ground 條件的門檻與秒數 / 滾行 12 秒
-  日 M1   sink count 3 / G4M 8 架 / 重生 3 批 / 船團的艦數與陣型
+  日 M1   sink count 3 / A6M5 12 架 / G4M 8 架 / F4F 8 架 / 重生 3 批 / 船團的艦數與陣型
   日 M2   高度差 1,000 m / 8 對 10
 ```
 

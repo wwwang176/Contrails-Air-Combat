@@ -100,7 +100,7 @@ describe('briefingOf —— 其他', () => {
   it('攻擊隊（日 M1）列在我方：零戰之後是要掩護的陸攻', () => {
     const b = briefingOf(readyCard('japan-m1'))
     expect(b.mine).toEqual([
-      { id: 'a6m5', name: 'A6M5', role: 'fighter', count: 8 },
+      { id: 'a6m5', name: 'A6M5', role: 'fighter', count: 12 },
       { id: 'g4m', name: 'G4M', role: 'bomber', count: 8 },
     ])
     expect(b.foe).toEqual([{ id: 'f4f4', name: 'F4F-4', role: 'fighter', count: 8 }])
