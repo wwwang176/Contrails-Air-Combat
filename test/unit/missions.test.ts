@@ -164,7 +164,8 @@ describe('missionConfigFrom', () => {
 
   it('只有護送／攔截偏離中性的 convoyPriority', () => {
     for (const m of playable) {
-      const wants = m.type === '護航' || m.type === '攔截'
+      // 【擊落關不算】德 M1 是攔截，但規則是 hunt，沒有被護送者可以加權
+      const wants = (m.type === '護航' || m.type === '攔截') && m.battle.huntCount === undefined
       expect(missionConfigFrom(m).tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(wants)
     }
   })

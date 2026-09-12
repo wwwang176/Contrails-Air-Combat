@@ -9,6 +9,7 @@ import type { Team } from '../../world/World'
 import type { TerrainKind } from '../../world/terrainKind'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { Loadout } from '../../weapons/stores'
+import type { TakeoffLine } from '../../control/takeoffRoll'
 
 /**
  * # 任務卡的型別
@@ -63,6 +64,11 @@ export type MissionTrigger =
    * **沒有重生的卡不能用它** —— 批數永遠是 0，那一波永遠不來。
    */
   | { readonly kind: 'batch'; readonly at: number }
+  /**
+   * 到了 `byLatest` 秒，敵方地面目標的摧毀數不到 `below` 才成立。
+   * **沒有 `ground` 的卡不能用它** —— 摧毀數永遠是 0，條件退化成時鐘。
+   */
+  | { readonly kind: 'ground'; readonly below: number; readonly byLatest: number }
 
 /**
  * 卡片上的一個波次。**一個波次就是一支小隊**（1 … `SCHWARM_SIZE` 架）。
@@ -133,6 +139,11 @@ export interface MissionWave {
    * 【原點就是艦隊中心】有艦隊的關卡才有意義（`MissionFleet.center`）。
    */
   readonly starboard?: number
+  /**
+   * 從跑道滾行起飛，而不是在進場框的空中生成。**省略 = 空中生成。**
+   * 設了它之後 `along`／`altitude`／`starboard` 不影響位置。
+   */
+  readonly takeoff?: TakeoffLine
 }
 
 /**

@@ -17,7 +17,7 @@ import { missionConfigFrom } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
-import { readyCard } from '../fixtures/mission'
+import { readyCard, INTERCEPT_CARD } from '../fixtures/mission'
 
 const DT = 1 / 240
 const SEED = 20260821
@@ -123,7 +123,7 @@ function run(
 
 const CARDS: Array<[string, string]> = [
   ['護送 B-17（盟 M1）', 'allies-m1'],
-  ['攔截 B-17（德 M1）', 'germany-m1'],
+  ['攔截 B-17（測試卡）', INTERCEPT_CARD],
   ['護送 G4M（日 M3）', 'japan-m3'],
 ]
 
@@ -162,7 +162,7 @@ console.log('── 表三：攔截的消融（玩家由 AI 代飛）───�
 console.log('護航機  終點距離   結局      秒數   轟炸機剩  轟炸機血量（各架 %）')
 for (const escorts of [0, 2, 4]) {
   for (const dist of [12000, 20000]) {
-    const base = readyCard('germany-m1')
+    const base = readyCard(INTERCEPT_CARD)
     const card = { ...base, redCount: escorts, targetDistance: dist }
     const cfg = missionConfigFrom(card)
     const b = createBattle(new AiController(), cfg, SEED)
@@ -199,7 +199,7 @@ console.log('── 表四：火力夠不夠（0 護航機、12 km、AI 代飛�
 console.log('攔截機  轟炸機   結局      秒數   轟炸機剩   血量（各架 %）')
 for (const fighters of [4, 8, 12]) {
   for (const bombers of [1, 2, 4]) {
-    const base = readyCard('germany-m1')
+    const base = readyCard(INTERCEPT_CARD)
     const card = { ...base, blueCount: fighters, redCount: 0, convoyCount: bombers }
     const cfg = missionConfigFrom(card)
     const b = createBattle(new AiController(), cfg, SEED)
@@ -239,7 +239,7 @@ console.log('── 表五：convoyPriority 掃描（AI 代飛）─────
 console.log('偏置   卡片              結局      秒數   轟炸機剩   血量（各架 %）')
 for (const bias of [1, 2, 3, 5]) {
   for (const [label, id] of [
-    ['攔截', 'germany-m1'],
+    ['攔截', INTERCEPT_CARD],
     ['護送', 'allies-m1'],
   ] as const) {
     const base = readyCard(id)
