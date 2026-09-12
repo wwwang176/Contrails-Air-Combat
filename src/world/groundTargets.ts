@@ -138,6 +138,11 @@ export interface GroundTarget extends StrikeTarget {
    */
   alive: boolean
   /**
+   * 起飛離場了（`battle/setup.ts` 的 `departParked`）。**`alive` 同時為 false**：
+   * 不擋子彈、不是目標；但不是被摧毀 —— 炸毀的計數與總數都跳過它，畫面上不畫。
+   */
+  departed: boolean
+  /**
    * 這一台身上的防空砲。**空陣列 = 不還手** —— 戰車、卡車、火車、廠房都是
    * 空的；只有重高砲位由 `createGroundBattery()` 掛上一門。
    *
@@ -192,6 +197,7 @@ export function createGroundTarget(
     value: GROUND_VALUE[id] ?? GROUND_HP[id],
     hp: GROUND_HP[id],
     alive: true,
+    departed: false,
     // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個
     // `flakHeavy` 在別的關卡可以只是佈景
     guns: [],
@@ -220,6 +226,7 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.position.copy(t.spawn)
   t.hp = GROUND_HP[t.unit.id]
   t.alive = true
+  t.departed = false
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
   // 一個已經不存在的索引開火
   if (t.guns.length > 0) resetGroundBattery(t)
