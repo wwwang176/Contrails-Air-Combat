@@ -103,6 +103,14 @@ export type MissionRules =
      */
     kind: 'sink'
     count: number
+    /**
+     * 這一關有護衛編制：藍隊的戰鬥機是護衛，轟炸機是攻擊隊。**護衛全滅就判敗**，
+     * 即使攻擊隊還活著、船還沒沉夠。省略 = 只有藍隊全滅才敗。
+     *
+     * 藍隊全是轟炸機的關（日 M3）戰鬥機數恆為 0，帶了這一格就會開場判敗 ——
+     * 只有卡片有攻擊隊時 `missionRules` 才加上它。
+     */
+    escorts?: true
   }
   | {
     /**
@@ -195,6 +203,13 @@ export const NEUTRAL_TUNING: MissionTuning = { convoyPriority: 1 }
  */
 export interface MissionInputs {
   aliveBlue: number
+  /**
+   * 藍隊還活著的戰鬥機（`role !== 'bomber'`）。`sink` 的 `escorts` 讀它。
+   *
+   * 【依機體角色而不是 duty】攻擊隊與護衛的 duty 都是 `combat`，分得開它們的
+   * 只有機種：攻擊隊恆是 `convoySpec` 的轟炸機。
+   */
+  aliveBlueFighters: number
   aliveRed: number
   /** 玩家目前那一架的位置 */
   playerPos: Vector3
@@ -523,7 +538,11 @@ export function stepMission(
     // 【全滅才算輸，不是「船沉光了還沒達標」】後者是關卡設計錯誤
     // （目標數大於艦隊數），應該由 `campaigns.test.ts` 那一層擋掉，
     // 而不是在戰鬥中判一個玩家看不懂的敗北。
-    if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    //
+    // 【有護衛編制時，護衛全滅也算全滅】那一關的目標是掩護，攻擊隊還活著不算數
+    if (inp.aliveBlue === 0 || (rules.escorts === true && inp.aliveBlueFighters === 0)) {
+      out.outcome = 'defeat'
+    }
     return
   }
 
