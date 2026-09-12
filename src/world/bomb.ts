@@ -211,9 +211,13 @@ export const BOMBS_CAPACITY = 64
  * @param blocked 撞上的是**擋路的東西**（船）而不是地面。落點的 `y` 因此
  *                是撞擊高度，不是地形高度。
  */
+/**
+ * @param owner   投放者的 combatant 索引；−1 = 沒有主人。戰果歸屬讀它 ——
+ *                少了這一格，炸彈炸掉的東西不屬於任何人
+ */
 export type BombImpactFn = (
   x: number, y: number, z: number, speed: number, blocked: boolean,
-  damage: number,
+  damage: number, owner: number,
 ) => void
 
 /**
@@ -259,6 +263,14 @@ export class Bombs {
    * 【模擬完全不讀它】炸彈對誰都有傷害 —— 這一格純粹是給畫面用的。
    */
   readonly team: Int8Array
+  /**
+   * 投放者的 combatant 索引；−1 = 沒有主人。
+   *
+   * 【為什麼隊別不夠】戰果通報要回答「這是誰炸掉的」，而一隊有二十架。
+   * 少了它，炸彈打掉的地面目標與炸沉的船在戰績上不屬於任何人 ——
+   * 而洛伊納那一關玩家主要就是投彈。
+   */
+  readonly owner: Int32Array
   readonly active: Uint8Array
 
   /** 環狀寫入指標。池滿時它自然會走到最舊的那一顆身上 */
@@ -282,6 +294,7 @@ export class Bombs {
     this.age = f()
     this.damage = f()
     this.team = new Int8Array(capacity)
+    this.owner = new Int32Array(capacity)
     this.active = new Uint8Array(capacity)
   }
 
@@ -295,10 +308,11 @@ export class Bombs {
    *               **這一層有預設值，`World.dropBomb` 那一層沒有** —— 進得了
    *               遊戲的路徑只有後者，強制在那裡；這一層是資料結構，彈道
    *               測試不該為了一個顏色欄位每一行都多帶一個 0
+   * @param owner  投放者的 combatant 索引。預設 −1（沒有主人）的理由同上
    */
   spawn(
     x: number, y: number, z: number,
-    vx: number, vy: number, vz: number, damage: number, team = 0,
+    vx: number, vy: number, vz: number, damage: number, team = 0, owner = -1,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -309,6 +323,7 @@ export class Bombs {
     // 【一定要寫，不能靠 clear】`clear` 只清 `active`，資料陣列留著上一場的
     // 值；環狀指標繞回來時這一格會沿用前一顆的隊別
     this.team[i] = team
+    this.owner[i] = owner
     this.age[i] = 0
     this.active[i] = 1
     this.dropped++
@@ -369,7 +384,7 @@ export class Bombs {
           this.liveCount--
           onImpact(
             px + (s.x - px) * bt, py + (s.y - py) * bt, pz + (s.z - pz) * bt,
-            speed, true, this.damage[i]!,
+            speed, true, this.damage[i]!, this.owner[i]!,
           )
           continue
         }
@@ -385,7 +400,7 @@ export class Bombs {
       this.liveCount--
       onImpact(
         px + (s.x - px) * t, g, pz + (s.z - pz) * t,
-        speed, false, this.damage[i]!,
+        speed, false, this.damage[i]!, this.owner[i]!,
       )
     }
   }

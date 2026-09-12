@@ -1,3 +1,4 @@
+import { createBattleReport, type BattleReport } from './battleReport'
 import { createDamageMarks, type DamageMark } from './damageMarks'
 import { ARENA_COUNTDOWN } from '../world/arena'
 import type { OrdnanceKind } from '../weapons/stores'
@@ -289,6 +290,17 @@ export interface HudFrame {
   /** 命中回饋的剩餘秒數。> 0 時機首十字周圍畫 X（spec §8：0.15 s） */
   hitFlash: number
   /**
+   * 玩家自己的戰果通報。`stepBattle` 推入與淘汰，widget 只讀。
+   *
+   * 【為什麼是參考而不是複製一份】池是固定長度的，而複製要嘛配置、要嘛
+   * 逐欄抄四行 —— 兩者都是為了一個沒有人會寫的寫入而付的代價。
+   *
+   * 【為什麼要 `reportTime`】行的年齡吃的是**物理時間**（`World.time`），
+   * 而 widget 手上只有畫面時間。少了它，暫停時通報會繼續淡出。
+   */
+  report: BattleReport
+  reportTime: number
+  /**
    * 受擊方向痕跡。`main.ts` 推入與步進，widget 只讀。
    *
    * 【為什麼與 `hitFlash` 分開】那個是**我打中人**（讀 `player.hitsDealt`），
@@ -433,6 +445,8 @@ export function createHudFrame(): HudFrame {
     markers: Array.from({ length: HUD_MAX_MARKERS }, createHudMarker),
     markerCount: 0,
     hitFlash: 0,
+    report: createBattleReport(),
+    reportTime: 0,
     damageMarks: createDamageMarks(),
     hp: 1000, hpMax: 1000,
     aiFlying: false,

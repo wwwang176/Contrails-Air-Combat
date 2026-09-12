@@ -37,6 +37,16 @@ export interface ImpactEvents {
    * 溢位會在下一次排空時被抹掉，於是永遠測不到。
    */
   dropped: number
+  /**
+   * 累計推進的筆數。**不會被 `clearImpacts` 歸零。**
+   *
+   * 緩衝裡第 e 筆的流水號是 `total − count + e`。消費者記自己處理到哪一個
+   * 流水號，同一筆事件就不會在呼叫端沒排空時被處理第二次 —— 與
+   * `KillEvents.total` 逐字同一個理由。**有兩個消費者的緩衝一定要靠它**：
+   * `groundKillEvents` 由 `main.ts` 點火、由 `stepBattle` 生通報，而 headless
+   * 的測試根本不排空。
+   */
+  total: number
 }
 
 export function createImpacts(capacity: number = IMPACT_CAPACITY): ImpactEvents {
@@ -45,6 +55,7 @@ export function createImpacts(capacity: number = IMPACT_CAPACITY): ImpactEvents 
     data: new Float32Array(capacity * IMPACT_STRIDE),
     count: 0,
     dropped: 0,
+    total: 0,
   }
 }
 
@@ -75,6 +86,9 @@ export function pushImpact(
   d[o + 4] = ny
   d[o + 5] = nz
   e.count++
+  // 【丟掉的不算進流水號】算進去的話，「第 e 筆的流水號是 total − count + e」
+  // 就不成立，消費者的游標會整批錯位。與 `pushKill` 同一條。
+  e.total++
 }
 
 /** 排空。不動 `dropped` —— 見它的註解。 */

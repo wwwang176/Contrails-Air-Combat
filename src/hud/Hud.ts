@@ -1,4 +1,5 @@
 import { drawArena } from './widgets/arena'
+import { drawBattleReport } from './widgets/battleReport'
 import { drawContacts } from './widgets/contacts'
 import { drawDamageEdge } from './widgets/damageEdge'
 import { drawDials } from './widgets/dials'
@@ -24,7 +25,7 @@ export type HudWidget =
   | 'gEffect' | 'damageEdge' | 'markers' | 'contacts' | 'reticle' | 'tape'
   | 'dials' | 'minimap' | 'health' | 'energy' | 'roster' | 'hints'
   | 'godMarkers' | 'objective' | 'arena' | 'message'
-  | 'torpedoLine' | 'bombsight' | 'bombBay' | 'bombVignette'
+  | 'torpedoLine' | 'bombsight' | 'bombBay' | 'bombVignette' | 'battleReport'
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
@@ -41,6 +42,9 @@ export const FULL: readonly HudWidget[] = [
   'bombsight', 'bombBay',
   'tape',
   'dials', 'minimap', 'health', 'energy', 'roster', 'hints',
+  // 【在儀表之後、預警之前】它是回饋，蓋得過儀表；但一則「敵方護航機！」
+  // 的預警比「剛剛那架算我的」重要，疊到時該讓路的是通報
+  'battleReport',
   // 【界的警告排在 objective 之前】兩者都是「這一場的規則」而不是儀表，
   // 但目標壓最上層
   'arena',
@@ -79,8 +83,13 @@ export const FULL: readonly HudWidget[] = [
 // 【`markers` 也在這裡】它不是座艙儀表，是**世界疊加層**：彈、雷、船在
 // 哪裡與鏡頭在哪裡無關。上帝視角更是最需要它的地方 —— 那裡沒有目標框，
 // 整片海上只剩幾個灰色小點
+// 【`battleReport` 也在這裡】它不是座艙儀表 —— 裡面只有**玩家自己的**戰果，
+// 與鏡頭在哪裡無關。而投完魚雷切到上帝視角看它跑正是最常見的用法：不畫的話
+// 命中與擊沉都在那三秒裡發生完，切回座艙時已經消失
 const GOD: readonly HudWidget[] = [
-  'markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective',
+  // 【排在 `objective` 之前】那一個壓最上層，兩種視角都是
+  'markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message',
+  'battleReport', 'objective',
 ]
 
 /**
@@ -148,6 +157,7 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   bombBay: (ctx, L, f) => drawBombBay(ctx, L, f),
   bombVignette: (ctx, L, f) => drawBombVignette(ctx, L, f),
   message: (ctx, L, f) => drawMessage(ctx, L, f),
+  battleReport: (ctx, L, f) => drawBattleReport(ctx, L, f),
 }
 
 export class Hud {

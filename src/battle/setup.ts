@@ -25,6 +25,11 @@ import {
   conditionMet, createBeatStates, type Beat, type BeatState, type FlareBeat, type RecycleBeat,
 } from './beats'
 import { KILL_STRIDE } from '../world/kills'
+import { IMPACT_STRIDE, clearImpacts, type ImpactEvents } from '../world/events'
+import {
+  createBattleReport, queueReport, resetBattleReport, stepBattleReport,
+  type BattleReport, type ReportKind,
+} from '../hud/battleReport'
 import { assistCredits } from '../world/assists'
 import { pilotNames } from './names'
 import { createRoster, recordKill, swapPilots, type Roster } from './pilots'
@@ -482,6 +487,22 @@ export interface Battle {
    * 復活的人立刻又被標成死亡。流水號不隨排空歸零，所以不會與新的一批錯位。
    */
   killsSeen: number
+  /**
+   * `drainReports` 記到哪一個地面目標擊毀流水號，理由與 `killsSeen` 逐字
+   * 相同。
+   *
+   * 【為什麼只有這一個游標】船的兩條緩衝由 `drainReports` 獨佔並就地排空，
+   * 不會被重掃；地面目標那一條由 `main.ts` 排空（它要在那裡點火），所以
+   * 這一層只能靠流水號。
+   */
+  groundKillsSeen: number
+  /**
+   * 玩家自己的戰果通報。**只有玩家的**，見 `hud/battleReport.ts`。
+   *
+   * 【為什麼住在 `Battle` 而不是 `World`】它要分辨「誰是玩家」，而那一層
+   * 連隊伍都只知道藍紅（見 `damageEvents` 的說明）。與 `roster` 同一層。
+   */
+  readonly report: BattleReport
 }
 
 const UP = new Vector3(0, 1, 0)
@@ -1017,6 +1038,8 @@ export function createBattle(
     reviveAt: new Float64Array(flights.flights.length).fill(-1),
     batches: 0,
     killsSeen: world.killEvents.total,
+    groundKillsSeen: world.groundKillEvents.total,
+    report: createBattleReport(),
   }
   wireStations(battle)
   return battle
@@ -1722,7 +1745,73 @@ function drainKills(b: Battle): void {
       ASSISTS.length = 0
     }
     recordKill(b.roster, victim, killer, ASSISTS)
+
+    // 【排在 `recordKill` 之後】通報與記分板必須說同一件事。尤其接手那一段
+    // 已經把身分搬過座位了 —— 兩邊讀的是同一份 `roster`，就不可能分岔
+    if (b.roster.pilots[killer]?.isPlayer === true) {
+      const name = w.combatants[victim]?.aircraft.spec.name
+      if (name !== undefined) queueReport(b.report, 'air', name)
+    }
   }
+}
+
+/**
+ * 一種借 `ImpactEvents` 傳的戰果，排進通報。
+ *
+ * 【為什麼三種共用一支】三個緩衝的格式逐格相同（位置、目標索引、兇手），
+ * 差別只在拿索引去查哪一張表。抄三份就是只有一份會被修好的那種危險。
+ *
+ * 【為什麼不收一個「查名字」的回呼】那會在每個物理步配置一個閉包，而這裡
+ * 在 `stepBattle` 裡面。名字的查法因此收在 `reportName` 的 switch。
+ *
+ * @returns 新的游標
+ */
+function drainReportBuffer(
+  b: Battle, e: ImpactEvents, kind: ReportKind, seen: number,
+): number {
+  const first = e.total - e.count
+  for (let i = 0; i < e.count; i++) {
+    if (first + i < seen) continue
+    const o = i * IMPACT_STRIDE
+    // 【兇手在第五格】與 `groundKillEvents` 的註解逐格對應
+    const killer = e.data[o + 4]!
+    if (b.roster.pilots[killer]?.isPlayer !== true) continue
+    const name = reportName(b, kind, e.data[o + 3]!)
+    if (name !== undefined) queueReport(b.report, kind, name)
+  }
+  return e.total
+}
+
+/** 目標索引 → 顯示名。查不到回 `undefined`，那一筆就不通報 */
+function reportName(b: Battle, kind: ReportKind, index: number): string | undefined {
+  if (kind === 'ground') return b.world.groundTargets[index]?.unit.name
+  // 擊沉與雷擊命中查的是同一張表
+  return b.world.ships[index]?.cls.name
+}
+
+/**
+ * 船與地面目標的戰果，以及過期通報的淘汰。
+ *
+ * 【飛機那一類不在這裡】它走 `drainKills` —— 那裡才有受害者座位、兇手座位
+ * 與接手的身分互換，而且已經有一個游標。
+ *
+ * 【淘汰排在推進之後】反過來的話這一步剛推的那一則會先被量一次年齡，
+ * 而它的年齡是 0 —— 行為相同但讀起來像在防一件不會發生的事。
+ */
+function drainReports(b: Battle): void {
+  const w = b.world
+  // 【只有這一條要游標】它有兩個消費者：`main.ts` 點火、這裡生通報，而
+  // 排空的是前者。另外兩條這裡獨佔，掃完就清 —— 不清的話 headless 跑久了
+  // 緩衝會滿，而滿了之後的擊沉就靜靜地不通報
+  b.groundKillsSeen = drainReportBuffer(b, w.groundKillEvents, 'ground', b.groundKillsSeen)
+  // 【命中一定要排在擊沉之前】打沉船的那一枚，兩筆落在同一個物理步裡，
+  // 而跨緩衝的先後**只由這兩行的次序決定** —— 反過來的話畫面上會是
+  // 「擊沉」在下、「雷擊命中」在上，而玩家看到的兩拍是先中再沉
+  drainReportBuffer(b, w.shipHitEvents, 'torpedo', 0)
+  clearImpacts(w.shipHitEvents)
+  drainReportBuffer(b, w.shipKillEvents, 'ship', 0)
+  clearImpacts(w.shipKillEvents)
+  stepBattleReport(b.report, w.time)
 }
 
 /**
@@ -1753,6 +1842,7 @@ function completeTakeover(b: Battle): void {
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
   drainKills(b)
+  drainReports(b)
 
   // 【退場的飛機要放掉它自己的指派】`World.step` 跳過退場者的控制器，所以
   // `selectTarget` 永遠沒機會替它把槽位歸 −1（M5 spec §7）。不清的話那筆
@@ -1926,6 +2016,14 @@ export function resetBattle(
   b.batches = 0
   // 【上一場還沒排空的擊墜不記進新場】游標跳到現在的流水號
   b.killsSeen = b.world.killEvents.total
+  b.groundKillsSeen = b.world.groundKillEvents.total
+  // 【上一場沒排空的也要丟掉】那兩條由 `drainReports` 獨佔並就地排空，
+  // 但重開之前的最後一步可能剛推進去 —— 留著的話新場第一步就會通報它
+  clearImpacts(b.world.shipKillEvents)
+  clearImpacts(b.world.shipHitEvents)
+  // 【通報也要清】不清的話新的一場開場那三秒還掛著上一場的最後幾則，
+  // 而佇列裡沒出場的會一條一條慢慢冒出來
+  resetBattleReport(b.report)
 
   // 【被接手過的座位要還給 AI】接手時那顆 AiController 被丟掉了。少了這一段，
   // 重開之後戰場上會有一架永遠不動的飛機 —— 玩家的控制器同時裝在兩個座位上，

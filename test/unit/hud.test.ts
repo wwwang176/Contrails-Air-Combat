@@ -421,10 +421,22 @@ describe('上帝視角的 HUD', () => {
    * 繪製**順序**也在這個回傳值裡，所以既有的分層註解（黑視最底、準星
    * 壓在接觸點之上）不會被這次改動悄悄弄丟。
    */
-  it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標、中央訊息', () => {
-    expect(hudWidgets(true)).toEqual(
-      ['markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message', 'objective'],
-    )
+  it('上帝視角畫分隊標示、小地圖、名冊、提示、界的警告、任務目標、中央訊息、戰果通報', () => {
+    expect(hudWidgets(true)).toEqual([
+      'markers', 'godMarkers', 'minimap', 'roster', 'hints', 'arena', 'message',
+      'battleReport', 'objective',
+    ])
+  })
+
+  /**
+   * 【為什麼戰果通報也要兩種視角都畫】它裡面只有**玩家自己的**戰果，與鏡頭
+   * 在哪裡無關。而投完魚雷切到上帝視角看它跑正是最常見的用法 —— 不畫的話
+   * 命中與擊沉都在那三秒裡發生完，切回座艙時已經消失。
+   */
+  it('戰果通報兩種視角都畫', () => {
+    for (const godView of [false, true]) {
+      expect(hudWidgets(godView)).toContain('battleReport')
+    }
   })
 
   /**

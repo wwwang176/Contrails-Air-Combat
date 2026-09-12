@@ -282,12 +282,39 @@ export class World {
    * 同一個約定）—— 渲染層讀它在那個位置點一團火。
    *
    * 借 `ImpactEvents`：x, y, z 是位置，nx 是目標索引，ny 是兇手的 combatant
-   * 索引（−1 = 炸彈或無主），nz 恆 0。與 `bombEvents` 借第六格同一個手法。
+   * 索引（−1 = 無主），nz 是「爆風打的」旗標（1 = 是）。與 `bombEvents`
+   * 借第六格同一個手法。
+   *
+   * 【兇手與爆風旗標一定要分成兩格】合成一格（用 −1 兼表「炸彈」）的話，
+   * 玩家投的彈會同時是「有兇手」與「是炸彈」—— 而渲染層靠後者決定放不放
+   * 第二團火，症狀是同一個地方爆兩次、鏡頭震兩次，不會報錯。
    *
    * 【與落點事件分開】每一顆炸彈恰好一筆落點；目標由活變死的那一步另推
    * 這一筆，只推一次。合在一起的話直擊剛好炸毀時同一個爆點推兩次。
    */
   readonly groundKillEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 沉沒事件。**一艘船一筆**，由活變死的那一步推。
+   *
+   * 借 `ImpactEvents`：x, y, z 是位置，nx 是 `Ship.index`，ny 是兇手的
+   * combatant 索引（−1 = 無主），nz 恆 0 —— 與 `groundKillEvents` 逐格相同。
+   *
+   * 【為什麼需要事件】船的死活渲染層自己看得到（`sh.alive`），但**誰打沉的**
+   * 只有這一步知道：血量歸零的那一發是子彈、炸彈還是魚雷，三條路各自把
+   * 兇手帶到這裡。
+   */
+  readonly shipKillEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 雷擊命中事件。**只有魚雷推** —— 子彈與炸彈打中船不推。
+   *
+   * 借 `ImpactEvents`：格式與 `shipKillEvents` 逐格相同。
+   *
+   * 【為什麼只有魚雷值得一則通報】雷擊要壓到三十公尺、對齊艦身、算提前量，
+   * 打得中本身就是戰果；而機槍掃在艦體上是常態。
+   */
+  readonly shipHitEvents: ImpactEvents = createImpacts()
 
   /** 空中的高砲彈。它不進彈丸池 —— 飛行途中不做命中判定。 */
   readonly flak = createFlak()
@@ -666,12 +693,14 @@ export class World {
    * 炸彈落地。**綁在實例上建一次，不在 `step` 裡寫成箭頭函數** —— 那樣會
    * 每個物理步配置一個閉包（240 Hz × 每場），而這一層的紀律是熱路徑零配置。
    */
-  private readonly onBombImpact: BombImpactFn = (x, y, z, _speed, blocked, damage) => {
+  private readonly onBombImpact: BombImpactFn = (
+    x, y, z, _speed, blocked, damage, owner,
+  ) => {
     // 【`nx` 是落點的種類】0 = 陸、1 = 水、2 = 船、3 = 建築。四者是四套
     // 不同的表現（土／水冠／火／火加碎片），而判斷所需的 `waterAt`、
     // `ships` 與 `groundTargets` 只有這一層有。法線那三格對炸彈沒有意義
     // —— 恆是 (0,1,0) —— 所以借第一格。
-    this.applyBombBlast(x, y, z, damage)
+    this.applyBombBlast(x, y, z, damage, owner)
     // 【`ny` 帶爆心傷害】表現的規模由它推導（`blastScaleOf`），而
     // `ImpactEvents` 的法線那三格對炸彈沒有意義 —— `nx` 已經借去當種類
     const hitShip = blocked && this.bombShip !== null
@@ -698,8 +727,13 @@ export class World {
    *
    * 【不分敵我】炸彈沒有敵我識別。目前只有玩家投得了彈，而 4,000 m 投下來
    * 的那一顆落在地面時，僚機不會在 30 m 之內。
+   *
+   * @param owner 投放者的 combatant 索引；−1 = 沒有主人。**只影響戰果歸屬，
+   *              不影響傷害** —— 炸到誰是幾何決定的
    */
-  private applyBombBlast(x: number, y: number, z: number, damage: number): void {
+  private applyBombBlast(
+    x: number, y: number, z: number, damage: number, owner: number,
+  ): void {
     const radius = blastRadiusOf(damage)
     for (const c of this.combatants) {
       if (!c.alive) continue
@@ -707,7 +741,14 @@ export class World {
       const dmg = bombBlastDamage(Math.hypot(p.x - x, p.y - y, p.z - z), damage)
       // 【飛機用質心】一架 12 m 的飛機在 30 m 的半徑下，質心與機翼尖的
       // 差別小於衰減曲線本身的精度
-      if (dmg > 0) this.applyDamage(c, dmg, 'fuselage')
+      if (dmg <= 0) continue
+      // 【只有敵機算兇手的戰果】炸彈不分敵我（見上面），而記分板不分 ——
+      // 照樣傳 shooter 的話，炸到自己僚機會替投彈的人記一次擊墜
+      const shooter = this.combatants[owner]
+      this.applyDamage(
+        c, dmg, 'fuselage',
+        shooter !== undefined && shooter.team !== c.team ? shooter : undefined,
+      )
     }
 
     // 【地面目標與船同一套】量的是到盒子的距離，不是到中心：火車 13 m 長，
@@ -726,7 +767,7 @@ export class World {
       const dmg = bombBlastDamage(near, damage)
       if (dmg > 0) {
         t.hp -= dmg
-        this.wreckIfDead(t, -1)
+        this.wreckIfDead(t, owner, true)
       }
     }
 
@@ -756,7 +797,7 @@ export class World {
         g.hp -= gd
         if (g.hp <= 0) g.alive = false
       }
-      this.sinkIfDead(sh)
+      this.sinkIfDead(sh, owner)
     }
   }
 
@@ -777,7 +818,7 @@ export class World {
    * 【沒有範圍傷害，也不掃飛機】真實魚雷是接觸引信，而「水下
    * 爆炸炸傷了空中的飛機」講不通。所以這一支與 `applyBombBlast` 不共用。
    */
-  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage, team) => {
+  private readonly onTorpedoEnd: TorpedoEndFn = (x, y, z, kind, damage, team, owner) => {
     const sh = this.torpedoShip
     // 【同隊的船擋得住雷，但雷對它無效】船是實體，不是空氣 —— 友軍艦擋在
     // 航路上時雷撞上去就沒了。但它**不扣血、也不推爆炸事件**：畫面上不該
@@ -786,8 +827,11 @@ export class World {
     // 【沉船只擋，不再扣血】`sinkIfDead` 對已經沉的船本來就早退，這一行的
     // `sh.alive` 是讓意圖看得出來
     if (kind === 1 && sh !== null && sh.alive) {
+      // 【推在扣血之前】沉沒事件由 `sinkIfDead` 推進另一個緩衝，兩者的
+      // 先後由消費端的排空次序決定（`drainReports`），不是這裡
+      pushImpact(this.shipHitEvents, x, y, z, sh.index, owner, 0)
       sh.hp -= damage
-      this.sinkIfDead(sh)
+      this.sinkIfDead(sh, owner)
     }
     // 【`nz` 帶命中的那一艘，撞岸是 −1】與炸彈同一個約定，見 `onBombImpact`
     pushImpact(
@@ -859,11 +903,13 @@ export class World {
    *                    那種退化情況用得到 —— **不能從退化的速度反推**
    * @param team        投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
    *                    **沒有預設值** —— 漏傳會靜靜地把雷標成藍色
+   * @param owner       投放者的 combatant 索引。**戰果歸屬讀它** —— 漏傳
+   *                    的話雷擊命中與擊沉都不屬於任何人，而那不會報錯
    */
   dropTorpedo(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
-    headX: number, headZ: number, team: number,
+    headX: number, headZ: number, team: number, owner = -1,
   ): void {
     // 【散佈與炸彈同一組】由累計投放序號決定（可重播），不是亂數。瞄具解的
     // 是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 —— 把散佈也
@@ -875,17 +921,21 @@ export class World {
       BOMB_VEL,
     )
     this.torpedoes.spawn(
-      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ, team,
+      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, headX, headZ,
+      team, owner,
     )
   }
 
   /**
-   * @param team 投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
-   *             **沒有預設值** —— 漏傳會靜靜地把彈標成藍色
+   * @param team  投放者的隊別，`teamSlot`。只有 HUD 標記讀它。
+   *              **沒有預設值** —— 漏傳會靜靜地把彈標成藍色
+   * @param owner 投放者的 combatant 索引。**戰果歸屬讀它** —— 漏傳的話
+   *              炸掉的東西不屬於任何人，而那不會報錯
    */
   dropBomb(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number, team: number,
+    owner = -1,
   ): void {
     spreadPair(this.bombs.dropped, BOMB_PAIR)
     spreadDirection(
@@ -893,7 +943,9 @@ export class World {
       BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
       BOMB_VEL,
     )
-    this.bombs.spawn(x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, team)
+    this.bombs.spawn(
+      x, y, z, BOMB_VEL.vx, BOMB_VEL.vy, BOMB_VEL.vz, damage, team, owner,
+    )
   }
 
   /**
@@ -962,10 +1014,10 @@ export class World {
       n.y = 0
       if (n.lengthSq() < 1e-12) n.set(0, 0, -1)
       else n.normalize()
-      this.dropTorpedo(p.x, p.y, p.z, v.x, v.y, v.z, damage, n.x, n.z, team)
+      this.dropTorpedo(p.x, p.y, p.z, v.x, v.y, v.z, damage, n.x, n.z, team, c.index)
       return
     }
-    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, damage, team)
+    this.dropBomb(p.x, p.y, p.z, v.x, v.y, v.z, damage, team, c.index)
   }
 
   /**
@@ -1212,7 +1264,11 @@ export class World {
           g.hp -= penetrationDamage(dmg, cal, SHIP_GUN_ARMOUR)
           if (g.hp <= 0) g.alive = false
         }
-        this.sinkIfDead(shipHit)
+        // 【要夾】船砲彈的 `owner` 在負數區（見 `ships.ts` 的 `index`），
+        // 不是 combatant —— 與底下地面目標那一行同一條
+        this.sinkIfDead(
+          shipHit, owner >= 0 && owner < combatants.length ? owner : -1,
+        )
         p.kill(i)
         continue
       }
@@ -1251,7 +1307,9 @@ export class World {
           // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
           hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
           // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
-          this.wreckIfDead(hitTarget, owner >= 0 && owner < combatants.length ? owner : -1)
+          this.wreckIfDead(
+            hitTarget, owner >= 0 && owner < combatants.length ? owner : -1, false,
+          )
           p.kill(i)
           continue
         }
@@ -1404,23 +1462,32 @@ export class World {
    * 【為什麼抽出來】子彈與炸彈兩條路都會打沉船。兩份長得很像的副本就是只有
    * 一份會被修好的那種危險。
    */
-  private sinkIfDead(sh: Ship): void {
+  private sinkIfDead(sh: Ship, killer: number): void {
     if (!sh.alive || sh.hp > 0) return
     sh.alive = false
     for (const g of sh.guns) g.alive = false
+    pushImpact(
+      this.shipKillEvents, sh.position.x, sh.position.y, sh.position.z,
+      sh.index, killer, 0,
+    )
   }
 
   /**
    * 地面目標血量歸零就退場：不再擋子彈、不再是目標，並推一筆擊毀事件給
    * 渲染層點火。**子彈與炸彈兩條路共用** —— 與 `sinkIfDead` 同一個理由。
    *
-   * @param killer 打出那一發的 combatant 索引；炸彈沒有主人，傳 −1。
+   * @param killer    打出那一發、或投下那一顆的 combatant 索引；−1 = 無主
+   *                  （船砲彈打的，或投放時沒帶主人）
+   * @param fromBlast 這一筆是炸彈的爆風造成的嗎。**渲染層靠它決定放不放
+   *                  第二團火**：那一顆已經有自己的落點事件，再放一團就是
+   *                  同一個地方爆兩次、鏡頭震兩次
    */
-  private wreckIfDead(t: GroundTarget, killer: number): void {
+  private wreckIfDead(t: GroundTarget, killer: number, fromBlast: boolean): void {
     if (!t.alive || t.hp > 0) return
     t.alive = false
     pushImpact(
-      this.groundKillEvents, t.position.x, t.position.y, t.position.z, t.index, killer, 0,
+      this.groundKillEvents, t.position.x, t.position.y, t.position.z,
+      t.index, killer, fromBlast ? 1 : 0,
     )
   }
 
