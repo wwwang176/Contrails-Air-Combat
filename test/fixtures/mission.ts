@@ -37,4 +37,4 @@ export const ESCORT_CARD = 'allies-m1'
 /** 一張現成的攔截卡（紅隊帶轟炸機，藍隊要在它抵達前打光） */
 export const INTERCEPT_CARD = 'germany-m1'
 /** 一張現成的殲滅卡 */
-export const KILL_CARD = 'japan-m1'
+export const KILL_CARD = 'japan-m3'

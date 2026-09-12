@@ -238,7 +238,7 @@ describe('沒有被護送者的場次一個字都沒變', () => {
   })
 
   it('殲滅任務：規則仍然是 annihilate，沒有圓環', () => {
-    for (const id of ['japan-m1', 'germany-m4'] as const) {
+    for (const id of ['japan-m3', 'germany-m4'] as const) {
       const b = battleFor(id)
       expect(b.convoy).toBeNull()
       expect(b.cfg.rules.kind).toBe('annihilate')
