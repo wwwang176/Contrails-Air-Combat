@@ -59,7 +59,8 @@ describe('可玩卡的戰鬥設定', () => {
 
   it('護送與攔截有被護送的機種，其餘沒有', () => {
     for (const m of playable) {
-      const wants = m.type === '護航' || m.type === '攔截'
+      // 【擊落關不算】德 M1 是攔截，但規則是 hunt —— 轟炸機是一般的敵機
+      const wants = (m.type === '護航' || m.type === '攔截') && m.battle.huntCount === undefined
       expect(m.battle.convoySpec !== null, `${m.id}／${m.type}`).toBe(wants)
       expect(m.battle.convoyCount > 0, `${m.id}／${m.type}`).toBe(wants)
     }
@@ -70,7 +71,7 @@ describe('可玩卡的戰鬥設定', () => {
     // 「地形是合法的一種」，而日 M3 仍然開在群島上
     const of = (id: string) => playable.find((m) => m.id === id)!.battle.terrain
     expect(of('japan-m3')).toBe('sea')
-    expect(of('germany-m4')).toBe('farmland')
+    expect(of('germany-m4')).toBe('asch')
     expect(new Set(playable.map((m) => m.battle.terrain)).size).toBeGreaterThan(1)
   })
 
@@ -119,6 +120,96 @@ describe('德 M2 波爾塔瓦', () => {
     expect(b.mission.outcome).toBe('fighting')
     // 16 座輕砲 + 6 座重砲都掛了砲
     expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(22)
+  })
+})
+
+describe('德 M1 梅澤堡上空', () => {
+  const card = MISSIONS.germany.find((m) => m.id === 'germany-m1') as ReadyMissionCard
+
+  it('擊落 6 架轟炸機；8 架 K-4 對 8 架 B-17；洛伊納、十一月正午', () => {
+    const b = card.battle
+    expect(b.huntCount).toBe(6)
+    expect(b.huntRole).toBe('bomber')
+    expect(b.blueSpec.id).toBe('bf109k4')
+    expect(b.blueCount).toBe(8)
+    expect(b.redSpec.id).toBe('b17g')
+    expect(b.redCount).toBe(8)
+    expect(b.convoySpec).toBeNull()
+    expect(b.terrain).toBe('leuna')
+    expect(b.timeOfDay).toBe('novemberNoon')
+  })
+
+  it('廠區與砲位是我方的 —— 紅方的轟炸機才會去炸它', () => {
+    const g = card.battle.ground!
+    expect(g.filter((e) => e.unit === 'flakHeavy')).toHaveLength(48)
+    expect(g.filter((e) => e.unit !== 'flakHeavy')).toHaveLength(12)
+    expect(g.every((e) => e.team === 'blue')).toBe(true)
+  })
+
+  it('護航機兩批各四架 P-51，轟炸機整隊重生三批', () => {
+    const waves = card.battle.waves!
+    expect(waves).toHaveLength(2)
+    for (const w of waves) {
+      expect(w.side).toBe('theirs')
+      expect(w.spec.id).toBe('p51d')
+      expect(w.count).toBe(4)
+    }
+    expect(card.battle.recycle).toMatchObject({ side: 'theirs', role: 'bomber', batches: 3 })
+  })
+
+  it('照這張卡建得起來、規則是 hunt、跑一秒不炸', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    expect(b.cfg.rules).toEqual({ kind: 'hunt', count: 6, role: 'bomber' })
+    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+  })
+})
+
+describe('德 M3 底板行動', () => {
+  const card = MISSIONS.germany.find((m) => m.id === 'germany-m4') as ReadyMissionCard
+
+  it('Y-29、拂曉、8 架 K-4、開場沒有敵機在前方；炸毀 8 座', () => {
+    const b = card.battle
+    expect(b.terrain).toBe('asch')
+    expect(b.timeOfDay).toBe('dawn')
+    expect(b.blueSpec.id).toBe('bf109k4')
+    expect(b.blueCount).toBe(8)
+    expect(b.redSpec.id).toBe('p51d')
+    expect(b.redCount).toBe(0)
+    expect(b.destroyCount).toBe(8)
+  })
+
+  it('12 架停放的 P-51、2 堆油桶、6 座輕砲，全部是敵方的', () => {
+    const units = card.battle.ground!.map((e) => e.unit)
+    const count = (id: string) => units.filter((u) => u === id).length
+    expect(count('parkedP51')).toBe(12)
+    expect(count('fuelDump')).toBe(2)
+    expect(count('flakLight')).toBe(6)
+    expect(units).toHaveLength(20)
+    expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
+  })
+
+  it('巡邏隊四架在 2,000 m；兩批各兩架從跑道起飛，讀地面戰果、門檻與時間遞增', () => {
+    const [patrol, first, second] = card.battle.waves!
+    expect(patrol!.when).toEqual({ kind: 'clock', at: 0 })
+    expect(patrol!.count).toBe(4)
+    expect(patrol!.altitude).toBe(2000)
+    expect(patrol!.takeoff).toBeUndefined()
+    expect(first!.when).toEqual({ kind: 'ground', below: 6, byLatest: 40 })
+    expect(second!.when).toEqual({ kind: 'ground', below: 10, byLatest: 80 })
+    for (const w of [first!, second!]) {
+      expect(w.count).toBe(2)
+      expect(w.side).toBe('theirs')
+      expect(w.takeoff).toBeDefined()
+    }
+  })
+
+  it('照這張卡建得起來、開場每一架離地 100 m 以上、跑一秒不炸', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    for (const c of b.world.combatants) expect(c.aircraft.state.position.y, `${c.index}`).toBeGreaterThan(100)
+    for (let i = 0; i < 240; i++) stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+    expect(b.world.groundTargets.filter((t) => t.guns.length > 0)).toHaveLength(6)
   })
 })
 

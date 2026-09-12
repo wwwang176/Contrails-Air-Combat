@@ -51,6 +51,7 @@ import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
+import { createTakeoffRoll, GEAR_CLEARANCE, type TakeoffLine } from '../control/takeoffRoll'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -508,6 +509,11 @@ export interface Battle {
   redKilled: number
   /** 上面那些裡面機體角色是轟炸機的。`hunt.role` 限定時要分得出來 */
   redKilledBombers: number
+  /**
+   * 從跑道起飛的座位。滾行期間它們在 `board.priority` 裡是
+   * `TAKEOFF_PRIORITY`，交還之後由 `restoreTakeoffPriority` 還原成 1。
+   */
+  readonly takeoffSeats: number[]
 }
 
 /**
@@ -1064,6 +1070,7 @@ export function createBattle(
     killsSeen: world.killEvents.total,
     redKilled: 0,
     redKilledBombers: 0,
+    takeoffSeats: [],
   }
   wireStations(battle)
   return battle
@@ -1190,6 +1197,12 @@ function stepBeats(b: Battle): void {
       else aliveCounts.redFighter++
     }
   }
+  // 【與 `stepMission` 同一個數法：非藍隊、已摧毀】不能借 `MISSION_INPUTS` ——
+  // 那一份在這一步之後才填，讀到的是上一步、甚至上一場的殘留
+  let destroyed = 0
+  for (const t of b.world.groundTargets) {
+    if (t.team !== 'blue' && !t.alive) destroyed++
+  }
 
   for (let i = 0; i < beats.length; i++) {
     const beat = beats[i]!
@@ -1202,7 +1215,7 @@ function stepBeats(b: Battle): void {
       continue
     }
     if (st.phase === 'waiting') {
-      if (!conditionMet(beat.when, now, aliveOf, b.batches)) continue
+      if (!conditionMet(beat.when, now, aliveOf, b.batches, destroyed)) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       // 【照明彈沒有訊息】天亮起來就是通知
@@ -1343,6 +1356,7 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
+    if (plan.takeoff !== undefined) startTakeoff(b, c, plan.takeoff, k)
     seats.push(c.index)
     ;(plan.team === 'blue' ? b.blue : b.red).push(c)
     b.spawnOrientations.push(c.aircraft.state.orientation.clone())
@@ -1360,6 +1374,51 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   }
   b.reserveUsed++
   return seats
+}
+
+/** 並排兩架的橫向偏移，m。P-51 翼展 11.3 m、跑道寬 36 m，翼尖之間留約 5 m */
+const TAKEOFF_ABREAST = 8
+/** 後一對排在前一對後方多遠，m */
+const TAKEOFF_TRAIL = 40
+/**
+ * 滾行中那一架在 AI 目標評分裡的倍率。**打得到，但 AI 不主動去追** ——
+ * 僚機為了追一架在地上的飛機會一路壓到撞地。
+ */
+export const TAKEOFF_PRIORITY = 0.01
+
+/**
+ * 把剛生成的第 `k` 架擺到起飛線上、掛上滾行腳本。兩架一對並排，後一對
+ * 往後排。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，那時地形已經接上。
+ */
+function startTakeoff(b: Battle, c: Combatant, line: TakeoffLine, k: number): void {
+  const side = k % 2 === 0 ? -TAKEOFF_ABREAST : TAKEOFF_ABREAST
+  const back = Math.floor(k / 2) * TAKEOFF_TRAIL
+  const sin = Math.sin(line.heading)
+  const cos = Math.cos(line.heading)
+  // 機首是 (−sin, 0, −cos)、右翼是 (cos, 0, −sin)
+  const x = line.x + cos * side + sin * back
+  const z = line.z - sin * side + cos * back
+  const groundY = b.world.groundAt(x, z)
+  c.takeoff = createTakeoffRoll(x, z, line.heading, groundY)
+  const a = c.aircraft
+  a.state.position.set(x, groundY + GEAR_CLEARANCE, z)
+  a.state.orientation.setFromAxisAngle(UP, line.heading)
+  a.state.velocity.set(0, 0, 0)
+  a.state.angularVelocity.set(0, 0, 0)
+  a.prevPosition.copy(a.state.position)
+  a.prevOrientation.copy(a.state.orientation)
+  b.board.priority[c.index] = TAKEOFF_PRIORITY
+  b.takeoffSeats.push(c.index)
+}
+
+/** 滾行交還之後把目標評分還原。熱路徑：起飛的座位只有幾個，不配置 */
+function restoreTakeoffPriority(b: Battle): void {
+  const seats = b.takeoffSeats
+  const cs = b.world.combatants
+  for (let i = 0; i < seats.length; i++) {
+    const s = seats[i]!
+    if (b.board.priority[s] === TAKEOFF_PRIORITY && cs[s]!.takeoff === null) b.board.priority[s] = 1
+  }
 }
 
 /**
@@ -1812,6 +1871,7 @@ function completeTakeover(b: Battle): void {
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
   drainKills(b)
+  restoreTakeoffPriority(b)
 
   // 【退場的飛機要放掉它自己的指派】`World.step` 跳過退場者的控制器，所以
   // `selectTarget` 永遠沒機會替它把槽位歸 −1（M5 spec §7）。不清的話那筆
@@ -2055,6 +2115,9 @@ export function resetBattle(
   // 不留上一場的傷害紀錄」這個意圖自己成立，不倚賴迴圈涵蓋了每一個座位。
   b.world.clearDamageLog()
   b.board.assignments.fill(-1)
+  // 【起飛座位的評分還原】`World.respawn` 已經解開滾行腳本，倍率留在
+  // `TAKEOFF_PRIORITY` 的話那幾架整場沒有人打
+  for (const s of b.takeoffSeats) b.board.priority[s] = 1
   b.board.pressure.fill(0)
   b.pressureTimer = 0
   compactFlights(b.flights, combatants)
