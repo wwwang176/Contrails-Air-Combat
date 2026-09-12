@@ -243,7 +243,10 @@ describe('開場高度', () => {
       const cfg = missionConfigFrom(m)
       const r = cfg.rules
       // 【`defend` 也沒有點】它與殲滅同一種形狀：沒有終點、沒有半徑
-      if (r.kind === 'annihilate' || r.kind === 'sink' || r.kind === 'destroy' || r.kind === 'defend') continue
+      if (
+        r.kind === 'annihilate' || r.kind === 'sink' || r.kind === 'destroy'
+        || r.kind === 'defend' || r.kind === 'hunt'
+      ) continue
       expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
     }
   })

@@ -75,6 +75,9 @@ function rules(r: BattleConfig['rules']): unknown {
     }
   }
   if (r.kind === 'sink' || r.kind === 'destroy') return { kind: r.kind, count: r.count }
+  // 【擊落要連 role 一起記】少了它，把 `huntRole` 從轟炸機改成戰鬥機不會
+  // 動到基準，而那是換掉整關的內容
+  if (r.kind === 'hunt') return { kind: r.kind, count: r.count, role: r.role }
   // 【守住艦隊沒有自己的欄位】要害艦由 `MissionFleet` 的 `vital` 指名
   if (r.kind === 'defend') return { kind: r.kind }
   return {

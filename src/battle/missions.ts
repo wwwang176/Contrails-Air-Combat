@@ -388,6 +388,30 @@ export interface MissionBattle {
    */
   readonly destroyCount?: number
   /**
+   * 要擊落幾架。**有這一格就是擊落關**，勝負規則變成 `{ kind: 'hunt' }` ——
+   * 沒有判定圈、沒有抵達，累積擊落數到了就贏。
+   *
+   * 【它與 `sinkCount`／`destroyCount` 不得共存】三者都是「這一關要數什麼」，
+   * 同時存在時只有一個會生效，而落選的那個在卡片上看起來完全正常。
+   * `campaigns.test.ts` 守著。
+   */
+  readonly huntCount?: number
+  /**
+   * 只算這個角色的擊落。**省略 = 全部都算。**
+   *
+   * 【為什麼需要它】德 M1 要數的是轟炸機，而場上同時有護航的戰鬥機。
+   * 不限定的話打護航機也能過關 —— 那一關的內容就整個變了，而畫面上一切正常。
+   */
+  readonly huntRole?: AircraftSpec['role']
+  /**
+   * 護送要送到幾架才算達成。**省略 = 1，也就是任一架抵達就定案。**
+   *
+   * 【它同時帶進一個新的敗北條件】還活著的加上已經送到的湊不到這個數時，
+   * 當場判定 —— 16 架剩 7 架還在飛的那一關已經結束了，不必再飛兩分鐘。
+   * 逐格語意見 `mission.ts` 的 `MissionRules.convoy`。
+   */
+  readonly need?: number
+  /**
    * 這一關的時段。**省略 = `'noon'`。**
    *
    * 【它只影響畫面，不進 `BattleConfig`】光照與模擬無關，所以它不走
@@ -1060,6 +1084,14 @@ export function missionRules(
   if (b.destroyCount !== undefined) {
     return { kind: 'destroy', count: b.destroyCount }
   }
+  // 【擊落也並列】三者是同一種形狀：「數到幾個就贏」。`huntRole` 省略時
+  // 連鍵都不放 —— `exactOptionalPropertyTypes` 下 `role: undefined` 與
+  // 「沒有 role」是兩件事，而基準快照會看得出差別
+  if (b.huntCount !== undefined) {
+    return b.huntRole === undefined
+      ? { kind: 'hunt', count: b.huntCount }
+      : { kind: 'hunt', count: b.huntCount, role: b.huntRole }
+  }
   // 【判準是「艦隊裡有沒有要害艦」，不是 `type`】理由同上面那一段：`type`
   // 是給玩家看的分類，用它推導的話日後多一張「殲滅」卡就會靜靜地變成
   // 守住艦隊。**排在擊沉之後** —— 進攻的規則優先，而日 M4 的艦隊一艘
@@ -1089,7 +1121,12 @@ export function missionRules(
     // 症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」（`test/tools/
     // convoy.probe.ts` 表三）。
     const x = ENTRY_PLANS[b.entry][owner].across * lateralOffset
-    return { kind: 'convoy', owner, point: new Vector3(x, altitude, z), radius: b.targetRadius }
+    const point = new Vector3(x, altitude, z)
+    // 【門檻省略時連鍵都不放】理由同 `huntRole`：`need: undefined` 與「沒有
+    // need」在基準快照上看得出差別，而不寫 `need` 的四張卡一個位元都不該動
+    return b.need === undefined
+      ? { kind: 'convoy', owner, point, radius: b.targetRadius }
+      : { kind: 'convoy', owner, point, radius: b.targetRadius, need: b.need }
   }
   return { kind: 'annihilate' }
 }

@@ -166,8 +166,9 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 因為被護送的那幾架完全不迴避（`AiController.transit`）
     const { b, t } = outcomeOf('allies-m1', {}, 'red')
     expect(b.outcome).toBe('victory')
-    // 判定的那一刻，至少一架在圈內
-    expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
+    // 【看抵達的閂，不看領頭距離】`convoyLead` 只算**還在路上**的那幾架，
+    // 所以定案那一刻它指的是下一架、不是剛進圈的那一架
+    expect(b.convoy?.arrived.some((x) => x)).toBe(true)
     expect(b.mission.remaining).toBeGreaterThan(0)
     // 【它守的是「真的飛過去」】下界擋「規則接反、開局就判贏」：終點在
     // `NEAR_GOAL` 外，轟炸機全速約 128 m/s，物理上不可能在 20 秒內到。
@@ -198,7 +199,8 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 弄紅一條與難度無關的測試」。修的是測試的自變數，不是門檻
     const { b } = outcomeOf('germany-m1', {}, 'blue')
     expect(b.outcome).toBe('defeat')
-    expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
+    // 理由同上面那一條護送：看的是抵達的閂，不是領頭距離
+    expect(b.convoy?.arrived.some((x) => x)).toBe(true)
   }, 120_000)
 
   it('攔截 —— 敵轟炸機全部被擊落就贏（護航的戰鬥機忽略）', () => {
