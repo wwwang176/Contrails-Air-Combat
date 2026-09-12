@@ -139,8 +139,9 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 500,
       ground: ASCH_GROUND,
-      // 【炸毀任意八座】池是 12 架 P-51、2 堆、6 座輕砲。**起始值**
-      destroyCount: 8,
+      // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡 ——
+      // 兩批都起飛之後地上只剩八架。**起始值**
+      destroyCount: 8, destroyUnit: 'parkedP51',
       waves: [
         {
           when: { kind: 'clock', at: 0 },
@@ -154,13 +155,13 @@ export const GERMANY: readonly MissionCard[] = [
           when: { kind: 'ground', below: 6, byLatest: 40 },
           warn: '跑道上的野馬開始滾行',
           warnLead: 0,
-          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE,
+          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
           when: { kind: 'ground', below: 10, byLatest: 80 },
           warn: '又有兩架野馬起飛',
           warnLead: 0,
-          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE,
+          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
       ],
     },

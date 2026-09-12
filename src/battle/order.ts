@@ -3,6 +3,7 @@ import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
 import type { TakeoffLine } from '../control/takeoffRoll'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * 一個小隊的編成。**外層是小隊、內層是那個小隊的每一架。**
@@ -78,6 +79,11 @@ export interface FlightPlan {
    * （`setup.ts` 的 `reinforce`）：每一架擺到起飛線上、掛上滾行腳本。
    */
   readonly takeoff?: TakeoffLine
+  /**
+   * 起飛時地上同隊的這種停放單位每一架少一台（離起飛線最近、還在的）。
+   * **只在 `takeoff` 有值時讀。** 省略 = 地上不少任何東西。
+   */
+  readonly departs?: GroundUnitId
   /**
    * 玩家開這一小隊的長機（`members[0]`）。
    *

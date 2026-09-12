@@ -144,6 +144,11 @@ export interface MissionWave {
    * 設了它之後 `along`／`altitude`／`starboard` 不影響位置。
    */
   readonly takeoff?: TakeoffLine
+  /**
+   * 起飛的每一架讓地上一台這種停放單位離場。**配 `takeoff` 用**；省略的話
+   * 停機墊上那一架與正在滾行的那一架是同一架飛機的兩份。
+   */
+  readonly departs?: GroundUnitId
 }
 
 /**
@@ -391,6 +396,13 @@ export interface MissionBattle {
    * 守著。
    */
   readonly destroyCount?: number
+  /**
+   * 只算這一種地面單位。**省略 = 敵方地面目標全部都算。**
+   *
+   * 【為什麼需要它】德 M3 要的是停放的 P-51，而油桶堆與輕高砲也是敵方目標。
+   * 不限定的話打掉八座砲位與油桶就過關 —— 目標列寫的「P-51」一架都沒動。
+   */
+  readonly destroyUnit?: GroundUnitId
   /**
    * 要擊落幾架。**有這一格就是擊落關**，勝負規則變成 `{ kind: 'hunt' }` ——
    * 沒有判定圈、沒有抵達，累積擊落數到了就贏。
