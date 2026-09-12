@@ -2,6 +2,7 @@ import { SCHWARM_SIZE } from './flights'
 import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
+import type { TakeoffLine } from '../control/takeoffRoll'
 
 /**
  * 一個小隊的編成。**外層是小隊、內層是那個小隊的每一架。**
@@ -82,6 +83,11 @@ export interface FlightPlan {
    * 箱子飛到終點還是同一個箱子。
    */
   readonly rise?: number
+  /**
+   * 從跑道滾行起飛。**省略 = 在進場框的空中生成。** 只有增援讀它
+   * （`setup.ts` 的 `reinforce`）：每一架擺到起飛線上、掛上滾行腳本。
+   */
+  readonly takeoff?: TakeoffLine
   /**
    * 玩家開這一小隊的長機（`members[0]`）。
    *

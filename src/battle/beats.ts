@@ -52,6 +52,17 @@ export type BeatCondition =
    * `at` 的情形只有藍方全滅或要害艦沉沒，那兩條都已經判輸。
    */
   | { readonly kind: 'batch'; readonly at: number }
+  /**
+   * 敵方（紅隊）地面目標的摧毀數。**到了 `byLatest` 秒才判斷**，那一刻
+   * 摧毀數不到 `below` 就成立。
+   *
+   * 【之前一律不成立】開場摧毀數是 0，「不到 below」從第一步就為真 ——
+   * 不擋時間的話條件在開場那一步就成立。
+   *
+   * 【摧毀數追上之後永遠不成立】摧毀數只增不減。玩家在時限前打掉夠多，
+   * 那一批就不會來 —— 這是這個條件存在的理由。
+   */
+  | { readonly kind: 'ground'; readonly below: number; readonly byLatest: number }
 
 /** 一支增援進場。條件成立後先顯示 `warn`，過 `warnLead` 秒才真的來。 */
 export interface ReinforceBeat {
@@ -159,13 +170,15 @@ export function createBeatStates(beats: readonly Beat[]): BeatState[] {
  * @param aliveOf 指定隊伍（與角色）的存活數。呼叫端**在套用任何效果之前**
  *   數好一次 —— 見 `stepBeats` 的「先判斷後套效果」。
  * @param batches 重生節拍已經預警的批數。只有 `batch` 條件讀它
+ * @param destroyed 敵方地面目標已摧毀的數量。只有 `ground` 條件讀它
  */
 export function conditionMet(
   when: BeatCondition, time: number, aliveOf: (team: Team, role?: AircraftSpec['role']) => number,
-  batches = 0,
+  batches = 0, destroyed = 0,
 ): boolean {
   if (when.kind === 'clock') return time >= when.at
   if (when.kind === 'batch') return batches >= when.at
+  if (when.kind === 'ground') return time >= when.byLatest && destroyed < when.below
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }

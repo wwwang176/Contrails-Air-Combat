@@ -32,6 +32,7 @@ export type GroundUnitId =
   | 'locomotive' | 'tender' | 'boxcar' | 'flatcar'
   | PlantKind
   | 'parkedB17' | 'fuelDump' | 'bombDump' | 'searchlight'
+  | 'parkedP51'
 
 /** 幾何的來源：GLB 的路徑，或程式化的建構函數。 */
 export type GroundModel =
@@ -240,6 +241,17 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     realLength: DUMP_SIZE.searchlight.z, realWidth: DUMP_SIZE.searchlight.x, realHeight: DUMP_SIZE.searchlight.y,
     model: { build: buildSearchlight },
     hull: [boxOf(buildSearchlight)],
+  },
+  {
+    id: 'parkedP51',
+    name: '停放的 P-51D',
+    note: '停在停機墊上的戰鬥機 — 德 M3 Y-29',
+    // 【高是停放的高】與 `parkedB17` 同一套烘法：沒有起落架，機尾下沉 10°
+    realLength: 9.79, realWidth: 11.28, realHeight: 3.50,
+    // 【命中盒是手寫的】理由同 `parkedB17`。烘好的幾何量到 x ±5.64、
+    // y 0…3.50、z ±4.90，各留不到 5 cm。一架 3,011 個三角形，不需要低模
+    model: { build: () => bakeParkedAircraft('p51d') },
+    hull: [groundBox([-5.66, 0.00, -4.92], [5.66, 3.52, 4.92])],
   },
 ]
 
