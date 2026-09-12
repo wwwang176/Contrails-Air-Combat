@@ -64,9 +64,8 @@ describe('briefingOf —— 擊落（德 M1）', () => {
     expect(b.foe).toEqual([{ id: 'b17g', name: 'B-17G', role: 'bomber', count: 8 }])
   })
 
-  it('這一關有護航機的波次與轟炸機的重生，但簡報一個字都不提', () => {
+  it('這一關有護航機的波次，但簡報一個字都不提', () => {
     expect(readyCard('germany-m1').battle.waves?.length).toBeGreaterThan(0)
-    expect(readyCard('germany-m1').battle.recycle).toBeDefined()
     expect(noSecrets(b)).toEqual([])
   })
 })

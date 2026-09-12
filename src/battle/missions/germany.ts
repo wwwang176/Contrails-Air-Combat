@@ -7,15 +7,8 @@ import {
   DUMPS as ASCH_DUMPS, LIGHT_FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
 } from '../../world/asch'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
-import { LEUNA_GROUND, POLTAVA_GROUND } from './shared'
+import { POLTAVA_GROUND } from './shared'
 import type { GroundEntry, MissionCard } from './types'
-
-/**
- * 洛伊納的廠區與砲位，**德軍的**。佈局與盟 M2 那一份（`LEUNA_GROUND`）相同，
- * 隊伍換成藍 —— AI 轟炸機只挑敵隊的地面目標、高砲只打敵隊的飛機。沿用紅隊
- * 的話 B-17 不會去炸它，而廠區的砲會對著玩家開火。
- */
-const LEUNA_DEFENDED: readonly GroundEntry[] = LEUNA_GROUND.map((e) => ({ ...e, team: 'blue' }))
 
 /**
  * Y-29 的地面目標：12 架停放的 P-51、兩堆油桶、6 座輕高砲，全部是紅方的。
@@ -37,33 +30,29 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 export const GERMANY: readonly MissionCard[] = [
   {
     id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
-    summary: '駕駛 Bf 109 K-4 衝進飛往洛伊納油廠的 B-17 轟炸機流，把它們的損失推上去。',
+    summary: '駕駛 Bf 109 K-4 在薩勒河平原上空攔截飛往洛伊納的 B-17 轟炸機流，把它們的損失推上去。',
     place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
     battle: {
-      objective: '擊落 B-17', banner: '衝進轟炸機流，擊落 B-17',
-      blueSpec: BF109K4, redSpec: B17G, convoySpec: null,
+      objective: '擊落 B-17', banner: '攔截轟炸機流，擊落 B-17',
+      blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
       /**
-       * 【B-17 是一般的 combat 轟炸機】不是 transit：它們照 `ai/strikeRun.ts`
-       * 的攻擊航路去炸廠區，沒攔住的話廠區真的會燒起來。沒有判定圈，攔下
-       * 哪一批不重要 —— 數的是累計擊落。
+       * 【在路途上攔截】B-17 是 transit：從進場點直飛終點、不迴轉、不投彈。
+       * 到了終點就從進場點重新進場（`conveyor` 節拍），轟炸機流因此不斷。
+       * 終點不判勝負 —— 數的是累計擊落，攔下哪一批不重要。
        *
-       * 【轟炸機一開場就回頭】紅方從 z = −5,000 朝 +Z 進場，廠區在 z = −7,000，
-       * 在 `SHIP_ATTACK_RANGE`（8 km）之內。攔截因此發生在廠區上空。
+       * 【沒有地面目標】廠區屬於盟 M2；地形留洛伊納是因為薩勒河平原本來就對。
+       *
+       * 【開場沒有戰鬥機】護航的 P-51 全部由波次給，`redSpec` 是它們的機種。
        */
-      blueCount: 8, redCount: 8,
-      convoyCount: 0, convoyPriority: 1,
-      targetDistance: 0, targetRadius: 0, seconds: Infinity,
+      blueCount: 8, redCount: 0,
+      convoyCount: 8, convoyDuty: 'stream', convoyPriority: 1,
+      // 【終點在我方後方 12 km】紅方從 z = −5,000 出發，一趟 17 km。**起始值**
+      targetDistance: 12000, targetRadius: 1000, seconds: Infinity,
       entry: 'headOn',
       terrain: 'leuna',
       timeOfDay: 'novemberNoon',
-      ground: LEUNA_DEFENDED,
       // 【只算轟炸機】打護航機過不了關。**起始值，由試飛裁定**
       huntCount: 6, huntRole: 'bomber',
-      // 【轟炸機流不斷】被打光的轟炸機小隊整隊重生，最多三批
-      recycle: {
-        side: 'theirs', role: 'bomber', batches: 3,
-        warn: '下一批轟炸機進場', warnLead: 5,
-      },
       // 紅隊席位 8 + 4 + 4 = 16
       waves: [
         {
@@ -126,7 +115,7 @@ export const GERMANY: readonly MissionCard[] = [
       objective: '摧毀地面上的 P-51', banner: '掃射機場，打掉野馬',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
       // 【開場沒有敵機在我方前方】巡邏隊與起飛的野馬全部由波次給。
-      // 紅隊席位 4 + 2 + 2 = 8
+      // 紅隊席位：巡邏 4 + 停機線 12（三個小隊）= 16
       blueCount: 8, redCount: 0,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
@@ -139,9 +128,15 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 500,
       ground: ASCH_GROUND,
-      // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡 ——
-      // 兩批都起飛之後地上只剩八架。**起始值**
+      // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡。
+      // **起始值**
       destroyCount: 8, destroyUnit: 'parkedP51',
+      /**
+       * 【停機線上的每一架最後都起得來】三批各一個小隊、席位合計 12，等於停機線。
+       * 被打掉的起不來：那一批地上剩幾架就上幾架（`setup.ts` 的 `reinforce`），
+       * 一架都不剩就不來。打得慢就全部升空 —— 那正是這一關的壓力。
+       * 秒數與第一批的門檻是**起始值，由試飛裁定**。
+       */
       waves: [
         {
           when: { kind: 'clock', at: 0 },
@@ -151,17 +146,23 @@ export const GERMANY: readonly MissionCard[] = [
           side: 'theirs', spec: P51D, count: 4, altitude: 2000,
         },
         {
-          // 【打掉夠多就沒人上來】40 秒時地上的摧毀數不到 6，兩架開始滾行
+          // 【打得快就沒人上來】40 秒時地上的摧毀數不到 6，第一個小隊開始滾行
           when: { kind: 'ground', below: 6, byLatest: 40 },
           warn: '跑道上的野馬開始滾行',
           warnLead: 0,
-          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
+          side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
-          when: { kind: 'ground', below: 10, byLatest: 80 },
-          warn: '又有兩架野馬起飛',
+          when: { kind: 'clock', at: 80 },
+          warn: '又一個小隊的野馬起飛',
           warnLead: 0,
-          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
+          side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
+        },
+        {
+          when: { kind: 'clock', at: 120 },
+          warn: '停機線上的野馬全部升空',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
       ],
     },
