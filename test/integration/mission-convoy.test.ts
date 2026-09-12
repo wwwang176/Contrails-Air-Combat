@@ -259,6 +259,19 @@ describe('護送與攔截：一條規則的兩側', () => {
     expect(b.mission.remaining).toBe(0)
   }, 120_000)
 
+  it('護送 —— 湊不到門檻就提早判輸，不等全滅', () => {
+    // 【這一條量的是真的一場仗裡門檻有沒有接上】規則本身由
+    // `battle-convoy.test.ts` 的 need 那一組證明；這裡證明 `setup.ts` 餵進去的
+    // 已抵達與存活數讓它在半路就定案。
+    //
+    // 【四架、門檻三】打掉兩架就湊不到。`remaining > 0` 是重點：還有轟炸機在
+    // 飛就判敗，才是提早定案而不是等到全滅。偏置與敵機數覆寫的理由同上一條
+    const { b } = outcomeOf(
+      'allies-m1', { redCount: 20, convoyCount: 4, need: 3, convoyPriority: 5 })
+    expect(b.outcome).toBe('defeat')
+    expect(b.mission.remaining).toBeGreaterThan(0)
+  }, 120_000)
+
   it('攔截 —— 同一件事（敵轟炸機抵達）判成輸', () => {
     // 【把我方的槍拆掉】與上面那條護送的 disarm 完全對稱：要量的是抵達
     // 那一刻的判定，不是十架 P-51 追不追得完四架 He 111。
