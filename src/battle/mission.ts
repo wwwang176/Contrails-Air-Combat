@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * 一場戰鬥的結果。`victory` = 任務達成，`defeat` = 任務失敗。
@@ -112,6 +113,11 @@ export type MissionRules =
      */
     kind: 'destroy'
     count: number
+    /**
+     * 只算這一種地面單位。**省略 = 敵方地面目標全部都算。** 過濾在
+     * `setup.ts` 的 `inDestroyPool`，這一支只讀已經數好的 `targetsDestroyed`。
+     */
+    unit?: GroundUnitId
   }
   | {
     /**

@@ -92,12 +92,16 @@ function card(patch: Partial<MissionBattle>): ReadyMissionCard {
 }
 
 /** 開場 0.5 秒，兩架 P-51 在 (0, −3000) 起飛線上滾行 */
-function rollingBattle(): { b: Battle; seats: number[] } {
+function rollingBattle(
+  extra: Partial<MissionBattle> = {}, departs?: 'parkedP51',
+): { b: Battle; seats: number[] } {
   const c = card({
+    ...extra,
     waves: [{
       when: { kind: 'clock', at: 0.5 }, warn: 'x', warnLead: 0,
       side: 'theirs', spec: P51D, count: 2,
       takeoff: { x: 0, z: -3000, heading: 0 },
+      ...(departs === undefined ? {} : { departs }),
     }],
   })
   const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
@@ -133,10 +137,23 @@ describe('滾行中的那一架', () => {
     expect(c.hp).toBeLessThan(hp)
   })
 
-  it('腳本期間 AI 評分極低，交還之後回到 1', () => {
+  it('起飛的每一架讓地上最近的一架停放 P-51 離場，離場不算摧毀', () => {
+    // 三架停在起飛線旁，離 (0, −3000) 由近到遠
+    const ground = [0, 1, 2].map((i) => ({
+      unit: 'parkedP51' as const, team: 'red' as const, x: -100, z: -3000 + i * 50, heading: 0,
+    }))
+    const { b } = rollingBattle({ ground, destroyCount: 1, destroyUnit: 'parkedP51' }, 'parkedP51')
+    const gt = b.world.groundTargets
+    expect(gt.map((t) => t.departed)).toEqual([true, true, false])
+    expect(gt.map((t) => t.alive)).toEqual([false, false, true])
+    stepBattle(b, DT)
+    expect(b.mission.outcome).toBe('fighting')
+  })
+
+  it('腳本期間 AI 不指派，交還之後倍率回到 1', () => {
     const { b, seats } = rollingBattle()
     stepBattle(b, DT)
-    for (const s of seats) expect(b.board.priority[s]).toBeLessThan(0.1)
+    for (const s of seats) expect(b.board.priority[s]).toBe(0)
     while (b.world.combatants[seats[0]!]!.takeoff !== null) stepBattle(b, DT)
     stepBattle(b, DT)
     for (const s of seats) expect(b.board.priority[s]).toBe(1)

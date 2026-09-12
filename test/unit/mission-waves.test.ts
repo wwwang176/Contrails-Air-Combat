@@ -229,6 +229,25 @@ describe('波次的翻譯', () => {
     expect(run(2)).toBe(0)
   })
 
+  it('形狀相同的預留可以互換 —— 前一個波次永遠不來，後一個照樣進場', () => {
+    const c = card({
+      ground: [{ unit: 'fuelDump', team: 'red', x: 0, z: -3000, heading: 0 }],
+      waves: [
+        { when: { kind: 'ground', below: 1, byLatest: 0.5 }, warn: '甲', warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2 },
+        { when: { kind: 'clock', at: 1 }, warn: '乙', warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2 },
+      ],
+    })
+    const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+    const before = b.world.combatants.length
+    b.world.groundTargets[0]!.alive = false
+    while (b.world.time < 1.5) stepBattle(b, 1 / 240)
+    expect(b.beatStates[0]!.phase).toBe('waiting')
+    expect(b.beatStates[1]!.phase).toBe('done')
+    expect(b.world.combatants.length - before).toBe(2)
+  })
+
   it('一個波次是一支小隊 —— 超過或是 0 都拋錯', () => {
     for (const count of [0, SCHWARM_SIZE + 1]) {
       const c = card({

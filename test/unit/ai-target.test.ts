@@ -63,6 +63,24 @@ describe('targetScore 的機會項', () => {
   })
 })
 
+describe('倍率 0 = 不指派', () => {
+  it('候選只剩倍率 0 的那一架時不選它，現任目標變成 0 也立刻放掉', () => {
+    const me = place(0, 4000, 0, 0)
+    const foe = place(0, 4000, -500, 0)
+    const candidates: TargetCandidate[] = [
+      { index: 0, aircraft: me, team: 'blue', alive: true },
+      { index: 1, aircraft: foe, team: 'red', alive: true },
+    ]
+    const priority = new Float64Array([1, 1])
+    const board = createTargetBoard(candidates, undefined, priority)
+    const st = createTargetState()
+    expect(selectTarget(st, board, 0, 0.1, DEFAULT_TARGET)).toBe(foe)
+    priority[1] = 0
+    expect(selectTarget(st, board, 0, 0.1, DEFAULT_TARGET)).toBeNull()
+    expect(board.assignments[0]).toBe(-1)
+  })
+})
+
 describe('targetScore 的底價', () => {
   /**
    * 【沒有它會發生什麼】開局雙方相距 10 km，前 25 秒敵機都在 THREAT_RANGE

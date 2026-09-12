@@ -143,25 +143,10 @@ export interface BeatState {
   phase: BeatPhase
   /** 預警之後，到了這個世界時間就生效。`waiting` 時無意義 */
   dueAt: number
-  /**
-   * 這個節拍用第幾支預留的分隊。**返航節拍是 −1。**
-   *
-   * 【為什麼要記】增援的座位是依序附加到 `world.combatants` 尾端的，而每一支
-   * 預留的分隊在建構期就綁死了自己的座位範圍與隊伍。所以**預留是一個佇列**：
-   * 第 n 支只能在第 n−1 支之後進場。第二個波次的條件先成立時，`stepBeats`
-   * 靠這一格認出「還沒輪到」而讓它等 —— 沒有它，那幾架會落進前一支預留的
-   * 座位，也就是**別隊**的分隊裡。
-   */
-  readonly slot: number
 }
 
 export function createBeatStates(beats: readonly Beat[]): BeatState[] {
-  let slot = 0
-  return beats.map((b) => ({
-    phase: 'waiting' as BeatPhase,
-    dueAt: 0,
-    slot: b.kind === 'reinforce' ? slot++ : -1,
-  }))
+  return beats.map(() => ({ phase: 'waiting' as BeatPhase, dueAt: 0 }))
 }
 
 /**
