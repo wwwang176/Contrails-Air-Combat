@@ -391,6 +391,10 @@ export interface HudFrame {
    * 完全看不出來，所以兩個都畫。
    */
   objectiveRemaining: number
+  /** 護送已經送到幾架。**−1 = 這一關沒有門檻**，目標列不畫進度 */
+  objectiveArrived: number
+  /** 護送的門檻，進度的分母。只在 `objectiveArrived ≥ 0` 時讀 */
+  objectiveNeed: number
   /** 剩餘秒數。`Infinity` 時不畫倒數 */
   objectiveSeconds: number
   /** 撤離點的世界平面座標，供小地圖。false 時下面兩格無意義 */
@@ -454,6 +458,8 @@ export function createHudFrame(): HudFrame {
     objectiveMetricKind: 'count',
     objectiveMetricTotal: -1,
     objectiveRemaining: -1,
+    objectiveArrived: -1,
+    objectiveNeed: -1,
     // 【為什麼是 0 而不是 Infinity】既有護欄「初始值不含 NaN」實際斷言的是
     // `Number.isFinite`（`test/unit/hud.test.ts:71-78`），而 `Infinity` 過不了。
     // 重新定值那條護欄是負責人的決定。
