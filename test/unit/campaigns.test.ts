@@ -219,6 +219,29 @@ describe('德 M3 底板行動', () => {
     expect(b.mission.outcome).toBe('victory')
   })
 
+  it('每一架只算一次、不管死在哪裡：停機墊上打掉的加上起飛後被打掉的湊到 8 就判勝', () => {
+    const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
+    // 停機墊上先打掉 5 架
+    for (const t of parked.slice(0, 5)) t.alive = false
+    const before = b.world.combatants.length
+    // 第一批在第 0 秒開始滑行：剩下的 7 格裡 4 格離場
+    stepBattle(b, 1 / 240)
+    const flight = b.world.combatants.slice(before)
+    expect(flight).toHaveLength(4)
+    expect(parked.filter((t) => t.departed)).toHaveLength(4)
+    // 【離場的那一格不算摧毀】它還活著，只是在滑行道上
+    expect(b.mission.metric).toBe(3)
+    b.world.destroy(flight[0]!)
+    b.world.destroy(flight[1]!)
+    stepBattle(b, 1 / 240)
+    expect(b.mission.metric).toBe(1)
+    expect(b.mission.outcome).toBe('fighting')
+    b.world.destroy(flight[2]!)
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('victory')
+  })
+
   it('12 架停放的 P-51、2 堆油桶、6 座輕砲，全部是敵方的', () => {
     const units = card.battle.ground!.map((e) => e.unit)
     const count = (id: string) => units.filter((u) => u === id).length

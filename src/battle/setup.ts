@@ -1239,7 +1239,7 @@ function stepBeats(b: Battle): void {
   // 之後才填，讀到的是上一步、甚至上一場的殘留
   let destroyed = 0
   for (const t of b.world.groundTargets) {
-    if (inDestroyPool(t, b.rules) && !t.alive) destroyed++
+    if (inDestroyPool(t, b.rules) && destroyedInPool(t, b.world.combatants)) destroyed++
   }
 
   for (let i = 0; i < beats.length; i++) {
@@ -1357,13 +1357,31 @@ function fitsNextReserve(b: Battle, plan: FlightPlan): boolean {
 }
 
 /**
- * 這一台算不算進炸毀的池：敵方、沒有起飛離場、合乎規則指定的單位。
- * **`stepMission` 的計數與 `ground` 節拍條件共用** —— 兩邊數法不同的話，
- * 目標列說還差三架時起飛的條件已經以為夠了。
+ * 這一台算不算進炸毀的池：敵方、合乎規則指定的單位。**起飛離場的仍然在池裡**
+ * —— 分母是停機線原本那幾架，不因為起飛而縮水。
+ *
+ * **`stepMission` 的計數與 `ground` 節拍條件共用**（連同 `destroyedInPool`）——
+ * 兩邊數法不同的話，目標列說還差三架時起飛的條件已經以為夠了。
  */
 function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
-  if (t.team === 'blue' || t.departed) return false
+  if (t.team === 'blue') return false
   return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
+}
+
+/**
+ * 池裡的這一台算不算已摧毀。**每一架飛機只算一次，不管死在哪裡。**
+ *
+ * ```
+ *   沒有離場   停機墊上的那一台打掉了沒有
+ *   已經離場   從它起飛的那一架還活不活著（滑行、滾行、升空後被打掉都算）
+ * ```
+ *
+ * 【離場的那一格不能看自己的 `alive`】離場時它就設成 false 了 —— 看它的話
+ * 起飛的那一刻就算成摧毀，同一架飛機之後被擊落又不會多算，數字全錯。
+ */
+function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+  if (!t.departed) return !t.alive
+  return !cs[t.departedAs]!.alive
 }
 
 /**
@@ -1436,6 +1454,8 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
         : departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)
       if (plan.departs === undefined || stand !== null) {
         rolls.push(startTakeoff(b, c, plan.takeoff, rolls.length, stand))
+        // 【停機墊對回起飛的那一架】炸毀的計數從此看這一架（`destroyedInPool`）
+        if (stand !== null) stand.departedAs = c.index
       } else {
         c.alive = false
         c.retired = true
@@ -1511,7 +1531,8 @@ function parkedLeft(b: Battle, unit: GroundUnitId, team: Team): number {
 
 /**
  * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳它；一台都不剩回 `null`。
- * **不是摧毀**：不推擊毀事件，炸毀的池也跳過它（`inDestroyPool`）。
+ * **不是摧毀**：不推擊毀事件。它仍在炸毀的池裡，摧毀與否由呼叫端接上的
+ * `departedAs` 那一架決定（`destroyedInPool`）。
  *
  * 【開始滑行那一刻就離場】少了這一步，停機墊上那一架與正在滑行的那一架是同一架
  * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
@@ -2133,7 +2154,7 @@ export function stepBattle(b: Battle, dt: number): void {
   for (const t of b.world.groundTargets) {
     if (!inDestroyPool(t, b.rules)) continue
     inp.targetsTotal++
-    if (!t.alive) inp.targetsDestroyed++
+    if (destroyedInPool(t, cs)) inp.targetsDestroyed++
   }
   // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
   // 第二波永遠不來（見 `MissionInputs.redInbound`）
