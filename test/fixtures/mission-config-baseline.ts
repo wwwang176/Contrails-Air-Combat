@@ -1,11 +1,18 @@
 /**
- * 「三條戰役」那一輪之前，兩張有實測基礎的卡產出的設定。
+ * 護送卡與攔截卡產出的設定。**九關改版（2026-09-13）之後的現況。**
  *
  * **重新產生**：見 `test/tools/mission-config-baseline.probe.ts` 的檔頭。
  * **不要手改這裡的數字** —— 手改一個位數就等於悄悄放寬了一條護欄。
  *
- * 【為什麼只有這兩張】它們是唯二有實測基礎的關卡（護送／攔截的幾何、偏置與
- * 編制是掃描定的）。改寫成新形狀之後產出的設定必須一模一樣。
+ * 【這一份不再是掃描的結果】上一版釘的是三條戰役那一輪之前掃描定出來的幾何、
+ * 偏置與編制。九關改版把盟 M1 換成柏林的十六架箱型、德 M1 換成擊落規則，
+ * **那次掃描就是這一輪刻意丟掉的東西** —— 現在的每一個數字都是起始值，
+ * 待試飛裁定。它守的因此不再是「別把掃描結果弄丟」，而是
+ * 「別在沒有人打算改卡片的時候讓設定悄悄漂移」。
+ *
+ * 【攔截那一張是合成卡】出貨的九關沒有攔截卡了（德 M1 的規則是 hunt）。
+ * `INTERCEPT_CARD` 由 `test/fixtures/mission.ts` 從護送卡鏡像出來，
+ * 所以它跟著護送卡動 —— 改盟 M1 會讓兩張都要重產。
  */
 export const MISSION_CONFIG_BASELINE = {
   "allies-escort": {
@@ -45,7 +52,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": -0.375,
+        "lane": -0.3125,
         "tier": 0,
         "player": false
       },
@@ -63,7 +70,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": -0.125,
+        "lane": -0.1875,
         "tier": 0,
         "player": false
       },
@@ -81,7 +88,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": 0.125,
+        "lane": -0.0625,
         "tier": 0,
         "player": false
       },
@@ -99,7 +106,223 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": 0.375,
+        "lane": 0.0625,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.1875,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.3125,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.0625,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.1875,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.3125,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.4375,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": 0.5625,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": -0.0625,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": -0.1875,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": -0.3125,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": -0.4375,
+        "tier": 0,
+        "player": false
+      },
+      {
+        "team": "blue",
+        "members": [
+          "b17g"
+        ],
+        "entry": {
+          "along": 0.5,
+          "across": -0.5,
+          "gap": 0,
+          "climb": 0,
+          "heading": 0,
+          "speed": 1
+        },
+        "duty": "transit",
+        "lane": -0.5625,
         "tier": 0,
         "player": false
       },
@@ -188,7 +411,7 @@ export const MISSION_CONFIG_BASELINE = {
       "radius": 1000
     },
     "tuning": {
-      "convoyPriority": 5
+      "convoyPriority": 3
     }
   },
   "axis-intercept": {
@@ -289,7 +512,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": -0.375,
+        "lane": -0.0625,
         "tier": 0,
         "player": false
       },
@@ -307,7 +530,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": -0.125,
+        "lane": 0.0625,
         "tier": 0,
         "player": false
       },
@@ -325,7 +548,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": 0.125,
+        "lane": 0.0625,
         "tier": 0,
         "player": false
       },
@@ -343,7 +566,7 @@ export const MISSION_CONFIG_BASELINE = {
           "speed": 1
         },
         "duty": "transit",
-        "lane": 0.375,
+        "lane": -0.0625,
         "tier": 0,
         "player": false
       }
@@ -371,7 +594,7 @@ export const MISSION_CONFIG_BASELINE = {
       "radius": 1000
     },
     "tuning": {
-      "convoyPriority": 5
+      "convoyPriority": 3
     }
   }
 } as const
