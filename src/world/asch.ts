@@ -3,6 +3,7 @@ import { createHeightField, type HeightFieldData } from './heightfield'
 import { bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc } from './archipelago'
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
+import { TAKEOFF_TRAIL, type TakeoffLine, type TaxiPoint } from '../control/takeoffRoll'
 
 /**
  * # Y-29（比利時 Asch）：德 M3 專用的地形
@@ -95,12 +96,43 @@ export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ STAND_ZS.map((dz) => ({ ...at(STAND_X, dz), heading: -Math.PI / 2 }))
 
 /**
- * 起飛線：跑道南段的中線，機首朝北（−Z）。一個小隊四架單列排在它後方
- * （`TAKEOFF_TRAIL`），最後一架離跑道南端還有 20 m；滾行加上初期爬升約 500 m，
- * 交還時還在跑道上空。
+ * 第一個排隊位置在跑道中線上的局部 z。一個小隊四架單列往南排（`TAKEOFF_TRAIL`），
+ * 最後一架在 640，仍在滑行帶南段接口（647.5）的北邊 —— 滑上跑道之後只往北走。
  */
-export const TAKEOFF_LINE: { readonly x: number; readonly z: number; readonly heading: number } =
-  /* @__PURE__ */ { ...at(0, 560), heading: 0 }
+const LINE_Z = 520
+
+/**
+ * 起飛線：跑道南段的中線，機首朝北（−Z）。停機墊上的 P-51 沿 `taxiRoute` 滑到
+ * 自己的排隊位置；滾行加上初期爬升約 500 m，交還時還在跑道上空。
+ */
+export const TAKEOFF_LINE: TakeoffLine = /* @__PURE__ */ { ...at(0, LINE_Z), heading: 0, route: taxiRoute }
+
+/**
+ * 從停在 (x, z) 的那一格滑到第 `slot` 個排隊位置，世界座標的折線：
+ *
+ * ```
+ *   停機墊中心 → 沿窄巷往東到滑行帶西段中線 → 沿西段往南到南段中線
+ *   → 沿南段往東到跑道中線 → 沿中線往北到排隊位置
+ * ```
+ *
+ * 【停機墊一定在西段外側、窄巷與它同一個 z】`STANDS` 就是這樣排的。每一段都
+ * 走在鋪面的中線上，護欄在 `asch.test.ts` 逐公尺檢查。
+ */
+export function taxiRoute(x: number, z: number, slot: number): readonly TaxiPoint[] {
+  const lz = z - FIELD_CENTER.z
+  const leg = TAXI_LOOP[1]!
+  const south = TAXI_LOOP[2]!
+  const legX = (leg.x0 + leg.x1) / 2
+  const southZ = (south.z0 + south.z1) / 2
+  const runX = (RUNWAY.x0 + RUNWAY.x1) / 2
+  return [
+    { x, z },
+    at(legX, lz),
+    at(legX, southZ),
+    at(runX, southZ),
+    at(runX, LINE_Z + slot * TAKEOFF_TRAIL),
+  ]
+}
 
 /** 油桶堆兩塊，在滑行帶環內、離跑道與滑行帶各約 90 m */
 export const DUMPS: readonly { kind: 'fuelDump'; x: number; z: number; heading: number }[] = [

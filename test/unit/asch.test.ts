@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ASCH_HILLS, createAsch, DUMPS, FIELD_BOUNDS, FIELD_CENTER, FIELD_PAD, inField, LIGHT_FLAK_SITES,
   PARKED_ROWS, PAVED, PSP_STEEL, RUNWAY, STAND_LANES, STAND_PADS, TAKEOFF_LINE, TAXI_LOOP,
-  worldToField, type FieldRect,
+  taxiRoute, worldToField, type FieldRect,
 } from '../../src/world/asch'
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
@@ -154,6 +154,45 @@ describe('asch 的佈局', () => {
 
   it('一個小隊四架單列排在起飛線後方，最後一架還在跑道上', () => {
     expect(inRect(TAKEOFF_LINE.x, TAKEOFF_LINE.z + (SCHWARM_SIZE - 1) * TAKEOFF_TRAIL, RUNWAY)).toBe(true)
+  })
+
+  it('每一個排隊位置都在滑行帶南段接口的北邊 —— 滑上跑道之後不必往回走', () => {
+    const south = TAXI_LOOP[2]!
+    const last = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z + (SCHWARM_SIZE - 1) * TAKEOFF_TRAIL)
+    expect(last.z).toBeLessThanOrEqual((south.z0 + south.z1) / 2)
+  })
+
+  it('起飛線的滑行路徑就是 taxiRoute', () => {
+    expect(TAKEOFF_LINE.route).toBe(taxiRoute)
+  })
+
+  it('每一格停機墊到四個排隊位置：起點是那一格、終點在跑道中線上、途中每一點都在鋪面上', () => {
+    const onPaving = (x: number, z: number): boolean =>
+      PAVED.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)
+    const line = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z)
+    for (const p of PARKED_ROWS) {
+      for (let slot = 0; slot < SCHWARM_SIZE; slot++) {
+        const path = taxiRoute(p.x, p.z, slot)
+        const tag = `${p.x},${p.z} 第 ${slot} 位`
+        expect(path[0], tag).toEqual({ x: p.x, z: p.z })
+        const end = local(path.at(-1)!.x, path.at(-1)!.z)
+        expect(end.x, tag).toBe((RUNWAY.x0 + RUNWAY.x1) / 2)
+        expect(end.z, tag).toBe(line.z + slot * TAKEOFF_TRAIL)
+        for (let i = 1; i < path.length; i++) {
+          const a = local(path[i - 1]!.x, path[i - 1]!.z)
+          const b = local(path[i]!.x, path[i]!.z)
+          // 【沿著滑行道走】每一段都是南北或東西向
+          expect(a.x === b.x || a.z === b.z, `${tag} 第 ${i} 段`).toBe(true)
+          const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z))
+          for (let k = 0; k <= n; k++) {
+            const f = n === 0 ? 0 : k / n
+            const x = a.x + (b.x - a.x) * f
+            const z = a.z + (b.z - a.z) * f
+            expect(onPaving(x, z), `${tag} 第 ${i} 段 (${x.toFixed(1)}, ${z.toFixed(1)})`).toBe(true)
+          }
+        }
+      }
+    }
   })
 
   it('起飛線在跑道一端的中線上，機首朝跑道的另一端', () => {

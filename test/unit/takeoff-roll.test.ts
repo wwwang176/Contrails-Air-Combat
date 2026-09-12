@@ -4,7 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
-  TAKEOFF_STAGGER, TAKEOFF_TRAIL,
+  TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RATE, taxiSeconds,
 } from '../../src/control/takeoffRoll'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
@@ -115,6 +115,100 @@ function rollingBattle(
   while (b.world.combatants.length === before) stepBattle(b, DT)
   return { b, seats: Array.from({ length: count }, (_, k) => before + k) }
 }
+
+describe('滑行', () => {
+  /** L 形：往 +X 50 m，再往 −Z 80 m。起點機首朝 +X（−π/2），終點機首朝 −Z（0） */
+  const path = [{ x: 0, z: 0 }, { x: 50, z: 0 }, { x: 50, z: -80 }] as const
+  const start = -Math.PI / 2
+
+  it('滑行時間 = 路長 ÷ 滑行速度 + 轉彎角 ÷ 轉向率', () => {
+    expect(taxiSeconds(path, start, 0)).toBeCloseTo(130 / TAXI_SPEED + (Math.PI / 2) / TAXI_TURN_RATE, 9)
+    // 滑行速度照真的滑行：每小時二、三十公里
+    expect(TAXI_SPEED * 3.6).toBeGreaterThanOrEqual(20)
+    expect(TAXI_SPEED * 3.6).toBeLessThanOrEqual(30)
+  })
+
+  it('從起點出發、途中每一點都在折線上、速度不超過滑行速度，滑到終點原地等，時間到才滾行', () => {
+    const a = new Aircraft(P51D, 0, 0)
+    const taxi = taxiSeconds(path, start, 0)
+    const roll = createTakeoffRoll(50, -80, 0, 12, taxi + 3, { path, startHeading: start })
+    let steps = 0
+    let rolled = false
+    while (stepTakeoff(roll, a.state, DT)) {
+      steps++
+      const t = steps * DT
+      const p = a.state.position
+      if (steps === 1) {
+        expect(p.x).toBeLessThan(0.1)
+        expect(p.z).toBe(0)
+      }
+      if (t < taxi + 3) {
+        expect(p.y).toBe(12 + GEAR_CLEARANCE)
+        const onFirst = p.z === 0 && p.x >= 0 && p.x <= 50
+        const onSecond = p.x === 50 && p.z <= 0 && p.z >= -80
+        expect(onFirst || onSecond, `${t.toFixed(3)} s (${p.x}, ${p.z})`).toBe(true)
+        expect(a.state.velocity.length()).toBeLessThanOrEqual(TAXI_SPEED + 1e-9)
+      }
+      if (t > taxi + 0.01 && t < taxi + 3 - 0.01) {
+        expect(p.x).toBe(50)
+        expect(p.z).toBe(-80)
+        expect(a.state.velocity.length()).toBe(0)
+      }
+      if (t > taxi + 3 + 1) rolled = true
+      if (steps > 240 * 120) throw new Error('腳本沒有結束')
+    }
+    expect(rolled).toBe(true)
+    expect(a.state.position.z).toBeLessThan(-80 - 100)
+  })
+})
+
+describe('從停機墊滑到跑道', () => {
+  /** 起飛線 (0, −3000)；路徑往東接到中線，再往北到排隊位置 */
+  const route = (x: number, z: number, slot: number) =>
+    [{ x, z }, { x: 0, z }, { x: 0, z: -3000 + slot * TAKEOFF_TRAIL }]
+  const line = { x: 0, z: -3000, heading: 0, route }
+  /** 兩格停機墊在起飛線南邊的西側，機首朝 +X */
+  const ground = [0, 1].map((i) => ({
+    unit: 'parkedP51' as const, team: 'red' as const, x: -100, z: -2900 + i * 60, heading: -Math.PI / 2,
+  }))
+
+  function taxiBattle(): { b: Battle; seats: number[] } {
+    const c = card({
+      ground,
+      waves: [{
+        when: { kind: 'clock', at: 0.5 }, warn: 'x', warnLead: 0,
+        side: 'theirs', spec: P51D, count: 2, takeoff: line, departs: 'parkedP51',
+      }],
+    })
+    const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+    b.world.crashPolicy = flatSeaCrashPolicy(() => 0)
+    const before = b.world.combatants.length
+    while (b.world.combatants.length === before) stepBattle(b, DT)
+    return { b, seats: [before, before + 1] }
+  }
+
+  it('開始滑行那一刻停機墊就空出來，飛機從那一格出發、機首照停放的方向', () => {
+    const { b, seats } = taxiBattle()
+    const gt = b.world.groundTargets
+    expect(gt.map((t) => t.departed)).toEqual([true, true])
+    seats.forEach((s, k) => {
+      const a = b.world.combatants[s]!.aircraft
+      expect(Math.hypot(a.state.position.x - gt[k]!.position.x, a.state.position.z - gt[k]!.position.z)).toBeLessThan(1)
+      expect(noseOf(a).x).toBeCloseTo(1, 6)
+    })
+  })
+
+  it('同一小隊等最慢那一架排好隊才起步，每架再晚 TAKEOFF_STAGGER 秒', () => {
+    const { b, seats } = taxiBattle()
+    const rolls = seats.map((s) => b.world.combatants[s]!.takeoff!)
+    const taxis = rolls.map((r) => taxiSeconds(r.taxi!.path, r.taxi!.startHeading, r.heading))
+    const slowest = Math.max(...taxis)
+    rolls.forEach((r, k) => {
+      expect(r.delay).toBeCloseTo(slowest + k * TAKEOFF_STAGGER, 9)
+      expect(r.delay).toBeGreaterThanOrEqual(taxis[k]!)
+    })
+  })
+})
 
 describe('延遲起步', () => {
   it('延遲期間停在起飛線上不動，之後照同一條剖面走', () => {

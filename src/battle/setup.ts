@@ -53,7 +53,8 @@ import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
 import {
-  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_STAGGER, TAKEOFF_TRAIL, type TakeoffLine,
+  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
+  type TakeoffLine, type TakeoffRoll,
 } from '../control/takeoffRoll'
 import type { Loadout } from '../weapons/stores'
 
@@ -1428,17 +1429,19 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   const seats: number[] = []
   const names = pilotNames(
     b.seed + slot + 1, plan.members[0]!.faction, plan.members.length)
-  /** 真的上了跑道的架數。單列的位置與起步時差照它排，作廢的席位不佔位 */
-  let launched = 0
+  /** 這一批真的上了跑道的腳本，依排隊位置。單列的位置照它排，作廢的席位不佔位 */
+  const rolls: TakeoffRoll[] = []
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
     if (plan.takeoff !== undefined) {
       // 【停機線上沒有對應的那一架就不進場】起飛的是地上那一架，地上沒有了
       // 就不能憑空多一架。席位已經在建構期綁死，所以留著、標成作廢
-      if (plan.departs === undefined
-        || departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)) {
-        startTakeoff(b, c, plan.takeoff, launched++)
+      const stand = plan.departs === undefined
+        ? null
+        : departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)
+      if (plan.departs === undefined || stand !== null) {
+        rolls.push(startTakeoff(b, c, plan.takeoff, rolls.length, stand))
       } else {
         c.alive = false
         c.retired = true
@@ -1459,6 +1462,12 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
     // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
     ai.setDecisionPhase(c.index / b.board.assignments.length)
   }
+  // 【小隊到齊才起步】最慢那一架滑到位的時刻，再每架晚 `TAKEOFF_STAGGER` 秒。
+  // 在生成這一刻就算定：前面那一架在滑行途中被打掉，後面的也不會等一架永遠到
+  // 不了的飛機
+  let ready = 0
+  for (const r of rolls) ready = Math.max(ready, r.taxiTime)
+  for (let s = 0; s < rolls.length; s++) rolls[s]!.delay = ready + s * TAKEOFF_STAGGER
   b.reserveUsed++
   return seats
 }
@@ -1471,26 +1480,37 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
 export const TAKEOFF_PRIORITY = 0
 
 /**
- * 把剛生成的一架擺到起飛線上、掛上滾行腳本。**同一小隊單列排在中線上**：
- * 第 `slot` 架在起飛線後方 `slot × TAKEOFF_TRAIL`，晚 `slot × TAKEOFF_STAGGER`
- * 秒起步。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，那時地形已經接上。
+ * 掛上起飛腳本，回傳它。**同一小隊單列排在中線上**：第 `slot` 架排在起飛線後方
+ * `slot × TAKEOFF_TRAIL`。起步時刻由 `reinforce` 在整批生成完之後填。
+ *
+ * 【有滑行路徑、也有停機墊時從停機墊出發】飛機擺在那一格、機首照停放的方向；
+ * 否則直接擺在排隊位置上。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，
+ * 那時地形已經接上。
  */
-function startTakeoff(b: Battle, c: Combatant, line: TakeoffLine, slot: number): void {
+function startTakeoff(
+  b: Battle, c: Combatant, line: TakeoffLine, slot: number, stand: GroundTarget | null,
+): TakeoffRoll {
   const back = slot * TAKEOFF_TRAIL
   // 機首是 (−sin, 0, −cos)，後方是它的反向
   const x = line.x + Math.sin(line.heading) * back
   const z = line.z + Math.cos(line.heading) * back
   const groundY = b.world.groundAt(x, z)
-  c.takeoff = createTakeoffRoll(x, z, line.heading, groundY, slot * TAKEOFF_STAGGER)
+  const taxi = line.route !== undefined && stand !== null
+    ? { path: line.route(stand.position.x, stand.position.z, slot), startHeading: stand.heading }
+    : null
+  const roll = createTakeoffRoll(x, z, line.heading, groundY, 0, taxi)
+  c.takeoff = roll
   const a = c.aircraft
-  a.state.position.set(x, groundY + GEAR_CLEARANCE, z)
-  a.state.orientation.setFromAxisAngle(UP, line.heading)
+  const from = taxi === null ? { x, z } : taxi.path[0]!
+  a.state.position.set(from.x, groundY + GEAR_CLEARANCE, from.z)
+  a.state.orientation.setFromAxisAngle(UP, taxi === null ? line.heading : taxi.startHeading)
   a.state.velocity.set(0, 0, 0)
   a.state.angularVelocity.set(0, 0, 0)
   a.prevPosition.copy(a.state.position)
   a.prevOrientation.copy(a.state.orientation)
   b.board.priority[c.index] = TAKEOFF_PRIORITY
   b.takeoffSeats.push(c.index)
+  return roll
 }
 
 /** 地上還在的同隊 `unit` 有幾台 */
@@ -1503,13 +1523,15 @@ function parkedLeft(b: Battle, unit: GroundUnitId, team: Team): number {
 }
 
 /**
- * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳有沒有找到。**不是摧毀**：
- * 不推擊毀事件，炸毀的池也跳過它（`inDestroyPool`）。
+ * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳它；一台都不剩回 `null`。
+ * **不是摧毀**：不推擊毀事件，炸毀的池也跳過它（`inDestroyPool`）。
  *
- * 【為什麼一定要少一台】少了這一步，停機墊上那一架與正在滾行的那一架是同一架
+ * 【開始滑行那一刻就離場】少了這一步，停機墊上那一架與正在滑行的那一架是同一架
  * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
  */
-function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: number): boolean {
+function departParked(
+  b: Battle, unit: GroundUnitId, team: Team, x: number, z: number,
+): GroundTarget | null {
   let best: GroundTarget | null = null
   let bestSq = Infinity
   for (const t of b.world.groundTargets) {
@@ -1522,10 +1544,10 @@ function departParked(b: Battle, unit: GroundUnitId, team: Team, x: number, z: n
       best = t
     }
   }
-  if (best === null) return false
+  if (best === null) return null
   best.alive = false
   best.departed = true
-  return true
+  return best
 }
 
 /**

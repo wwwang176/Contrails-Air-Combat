@@ -116,8 +116,8 @@ export const GERMANY: readonly MissionCard[] = [
     battle: {
       objective: '摧毀地面上的 P-51', banner: '掃射機場，打掉野馬',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
-      // 【開場沒有敵機在我方前方】巡邏隊與起飛的野馬全部由波次給。
-      // 紅隊席位：巡邏 4 + 停機線 12（三個小隊）= 16
+      // 【敵機全部從地上來】沒有空中巡邏，起飛的野馬全部由波次給。
+      // 紅隊席位：停機線 12（三個小隊）
       blueCount: 8, redCount: 0,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
@@ -137,32 +137,28 @@ export const GERMANY: readonly MissionCard[] = [
        * 【停機線上的每一架最後都起得來】三批各一個小隊、席位合計 12，等於停機線。
        * 被打掉的起不來：那一批地上剩幾架就上幾架（`setup.ts` 的 `reinforce`），
        * 一架都不剩就不來。打得慢就全部升空 —— 那正是這一關的壓力。
-       * 秒數與第一批的門檻是**起始值，由試飛裁定**。
+       *
+       * 【從停機墊滑出去】每一架沿滑行帶滑到跑道上排隊（`world/asch.ts` 的
+       * `taxiRoute`），小隊到齊才依序滾行。第一個小隊開場就開始滑：最近的四格
+       * 約 90 秒才排好隊，玩家約 37 秒到場時看得到它們在滑行道上。
+       * 三批的秒數是**起始值，由試飛裁定**。
        */
       waves: [
         {
           when: { kind: 'clock', at: 0 },
-          // 第 366 大隊的 P-47 已經在空中；由 P-51 代打
-          warn: '上空有 P-51 巡邏',
-          warnLead: 0,
-          side: 'theirs', spec: P51D, count: 4, altitude: 2000,
-        },
-        {
-          // 【打得快就沒人上來】40 秒時地上的摧毀數不到 6，第一個小隊開始滾行
-          when: { kind: 'ground', below: 6, byLatest: 40 },
-          warn: '跑道上的野馬開始滾行',
+          warn: '跑道上的野馬開始滑行',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
-          when: { kind: 'clock', at: 80 },
-          warn: '又一個小隊的野馬起飛',
+          when: { kind: 'clock', at: 45 },
+          warn: '又一個小隊的野馬滑出來',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
-          when: { kind: 'clock', at: 120 },
-          warn: '停機線上的野馬全部升空',
+          when: { kind: 'clock', at: 90 },
+          warn: '停機線上的野馬全部出動',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
