@@ -120,6 +120,22 @@
       h1, h2, h3 { margin: 0; font-family: var(--f-body); color: var(--strong); }
       h1 { font: 700 44px/1.15 var(--f-title); letter-spacing: .02em; }
       h2 { font-size: 17px; font-weight: 700; }
+      /* 機種徽章：陣營章打底，機身側影壓在上面（簡報的編組列、編組頁的機種
+         選單、機庫的卷宗架）。
+         【側影用 mask 不用 img】圖檔只有 alpha，顏色由 `color` 決定 —— 同一份
+         檔案在簡報頁是 currentColor、在機種選單是米白。
+         【章在上、機身在下，框要裝得下兩個】章不跟機身同高才看得見（置中的話
+         整枚埋在機身底下）。框高 = 機身 28 + 章露出來的 5 —— 框比內容矮的話
+         外面那一層 `align-items: center` 會把整枚徽章對得偏上。
+         【側影要 z-index】章是有顏色的實心圖形，不指定層次的話 SVG 會蓋在機身
+         的座艙罩與垂尾上，飛機就變成只剩下半截 */
+      .sil { position: relative; flex: none; width: 68px; height: 33px; }
+      /* 【寬度讓 SVG 自己算】三面標誌的外框比例不一樣，寫死寬度會把星條徽壓扁 */
+      .sil .mk { position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+        height: 20px; width: auto; opacity: .92; }
+      .sil i { position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+        z-index: 1; background: currentColor;
+        -webkit-mask: var(--ac) center/contain no-repeat; mask: var(--ac) center/contain no-repeat; }
 
       /* ① 開場 */
       .cover { position: relative; padding: 26px 60px 22px; text-align: center; }
@@ -166,9 +182,11 @@
       .pane.hangar > .rack, .pane.hangar > .sheet, .pane.hangar > .back { pointer-events: auto; }
       /* 飛機站的地方。只是一個量得到的空格子，不畫任何東西 */
       .stage { flex: 1; min-width: 0; }
-      .rack { display: flex; flex-direction: column; gap: 5px; width: 136px; overflow-y: auto; }
+      .rack { display: flex; flex-direction: column; gap: 5px; width: 200px; overflow-y: auto; }
       /* 【機種也是一份份的卷宗】與任務那一疊同一種東西，所以照用 .stop */
-      .rack .stop { margin-bottom: 0; }
+      /* 徽章在左、名字在右 —— 與編組頁的機種選單同一種排法 */
+      .rack .stop { margin-bottom: 0; display: grid; grid-template-columns: 68px 1fr;
+        gap: 9px; align-items: center; }
       .sheet { width: 386px; padding: 20px 22px 22px; overflow-y: auto; }
       .sheet h2 { font-size: 22px; }
       .sheet .story { margin: 13px 0 17px; font-size: 13px; }
@@ -218,7 +236,6 @@
         padding: 14px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
       .forces .vs { align-self: center; text-align: center; color: var(--dim); font-weight: 700; }
       .unit { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
-      .unit .sil { width: 46px; fill: currentColor; opacity: .72; }
       .unit .nm { font-weight: 700; color: var(--strong); }
       .unit .qty { font-size: 12px; color: var(--dim); }
       .facts { display: flex; gap: 26px; margin-top: 14px; flex-wrap: wrap; }
@@ -268,14 +285,16 @@
       .flight.lead .rm { color: var(--go-bg); border-color: #a08066; }
       .palette { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
       .palette[hidden] { display: none; }
-      .plane { display: grid; grid-template-columns: 46px 1fr; gap: 9px; align-items: center;
+      .plane { display: grid; grid-template-columns: 68px 1fr; gap: 9px; align-items: center;
         padding: 7px 9px; text-align: left; background: #2a2219; border: 1px solid var(--bd); }
       .plane:hover { border-color: var(--sel); background: #342c20; }
-      .plane .sil { height: 22px; fill: #b0a28a; }
-      .plane .nm { font-weight: 700; font-size: 13px; color: var(--strong); }
+      .plane .sil { color: #b0a28a; }
+      /* 【兩列各自是一個 div】用 `<br>` 的話兩列共用行高，字級差一半的兩行
+         中間會撐出一道空白 */
+      .plane .nm { font-weight: 700; font-size: 13px; line-height: 1.3; color: var(--strong); }
       /* 國家前綴：認得出是誰的機，但不跟機種名搶 */
       .plane .nm i { font-style: normal; font-weight: 400; color: var(--dim); }
-      .plane .st { font-size: 10.5px; color: var(--dim); }
+      .plane .st { font-size: 10.5px; line-height: 1.3; color: var(--dim); margin-top: 2px; }
       .versus { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 42px; }
       .versus .vs { font: 700 15px/1 var(--f-body); color: var(--dim); }
       .versus .bar { width: 14px; height: 190px; background: #2a2219; border: 1px solid var(--bd); position: relative; }
@@ -365,6 +384,9 @@
       .paperbit .lbl, .paperbit .d, .paperbit .m, .paperbit .s, .paperbit .k,
       .paperbit .full, .paperbit .meta { color: var(--paper-dim); }
       .paperbit .t, .paperbit .n, .paperbit .v, .paperbit .nm { color: #221c12; }
+      /* 【紙上的機身要是墨色】側影吃 `currentColor`，落在紙上還用暗底的米白
+         就等於白紙上寫白字 */
+      .paperbit .sil { color: var(--paper-ink); }
     </style>
   </head>
   <body>

@@ -41,10 +41,10 @@ describe('briefingOf —— 護送（盟 M1）', () => {
     // 【沒有「↑ 要護送的」那一列小字】那一列讀起來很怪，移除了
     // —— 誰是要護送的，目標列已經說了
     expect(b.mine).toEqual([
-      { name: 'P-51D', role: 'fighter', count: 4 },
-      { name: 'B-17G', role: 'bomber', count: 4 },
+      { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
+      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 4 },
     ])
-    expect(b.foe).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
+    expect(b.foe).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
 
   it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
@@ -60,10 +60,10 @@ describe('briefingOf —— 攔截（德 M1）', () => {
   const b = briefingOf(readyCard(INTERCEPT_CARD))
 
   it('敵方多一列要攔下的 B-17G ×4', () => {
-    expect(b.mine).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
+    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
     expect(b.foe).toEqual([
-      { name: 'P-51D', role: 'fighter', count: 4 },
-      { name: 'B-17G', role: 'bomber', count: 4 },
+      { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
+      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 4 },
     ])
   })
 
@@ -89,7 +89,7 @@ describe('briefingOf —— 殲滅＋返航（德 M4）', () => {
   it('空域與時期', () => {
     expect(fact(b, '空域')).toBe('德國南部　巴伐利亞上空')
     expect(fact(b, '時期')).toBe('1945 年春')
-    expect(b.mine).toEqual([{ name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
+    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
   })
 })
 
@@ -100,8 +100,8 @@ describe('briefingOf —— 其他', () => {
 
   it('殲滅卡（日 M1）沒有護送列', () => {
     const b = briefingOf(readyCard(KILL_CARD))
-    expect(b.mine).toEqual([{ name: 'A6M5', role: 'fighter', count: 8 }])
-    expect(b.foe).toEqual([{ name: 'F6F-5', role: 'fighter', count: 6 }])
+    expect(b.mine).toEqual([{ id: 'a6m5', name: 'A6M5', role: 'fighter', count: 8 }])
+    expect(b.foe).toEqual([{ id: 'f6f5', name: 'F6F-5', role: 'fighter', count: 6 }])
   })
 
   it('沒有敵機的卡，簡報不列敵軍那一列', () => {
