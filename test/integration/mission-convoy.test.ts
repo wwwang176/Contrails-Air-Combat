@@ -323,7 +323,9 @@ describe('沒有被護送者的場次一個字都沒變', () => {
   })
 
   it('殲滅任務：規則仍然是 annihilate，沒有圓環', () => {
-    for (const id of ['japan-m1'] as const) {
+    // 【九關裡只剩日 M3 是殲滅】日 M1 換成 sink、德 M1 換成 hunt、
+    // 德 M4 換成 destroy —— 這一條的樣本要跟著走
+    for (const id of ['japan-m3'] as const) {
       const b = battleFor(readyCard(id))
       expect(b.convoy).toBeNull()
       expect(b.cfg.rules.kind).toBe('annihilate')

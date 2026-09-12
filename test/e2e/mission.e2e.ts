@@ -184,7 +184,7 @@ async function main(): Promise<void> {
       })
     }
     const convoy = await ringOf({ campaign: 'allies', id: 'allies-m1' })
-    const kill = await ringOf({ campaign: 'japan', id: 'japan-m1' })
+    const kill = await ringOf({ campaign: 'japan', id: 'japan-m3' })
     console.log(`[任務] 圓環：護送 ring=${convoy?.ring}/target=${convoy?.tgtOn}`
       + `、殲滅 ring=${kill?.ring}/target=${kill?.tgtOn}`)
     if (convoy === null || kill === null) fail('__probe 回了 null —— 不在戰鬥裡？')

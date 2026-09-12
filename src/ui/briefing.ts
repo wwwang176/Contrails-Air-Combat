@@ -74,13 +74,16 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
 
   // 【護送／攔截由規則的 owner 決定】`missions.ts` 就是用它決定 convoy 放哪一隊
   // （護送 `owner: 'blue'`、攔截 `owner: 'red'`）。不另寫一套判斷。
+  //
+  // 【攻擊隊恆在我方】`convoyDuty: 'strike'` 的規則不是護送，沒有 owner 可讀；
+  // `missionConfigFrom` 一律把它們排進藍隊
   const rules = missionConfigFrom(card).rules
-  if (b.convoySpec !== null && rules.kind === 'convoy') {
+  if (b.convoySpec !== null && (rules.kind === 'convoy' || b.convoyDuty === 'strike')) {
     const unit: BriefingUnit = {
       id: b.convoySpec.id, name: shortName(b.convoySpec),
       role: b.convoySpec.role, count: b.convoyCount,
     }
-    if (rules.owner === 'blue') mine.push(unit)
+    if (rules.kind !== 'convoy' || rules.owner === 'blue') mine.push(unit)
     else foe.push(unit)
   }
 

@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { createBattle, resetBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { ScriptedController } from '../../src/control/ScriptedController'
-import { ENTRY_PLANS, HEAD_ON, PURSUIT, type EntryPlan } from '../../src/battle/entry'
+import { BOUNCE, ENTRY_PLANS, HEAD_ON, PURSUIT, type EntryPlan } from '../../src/battle/entry'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import { lineAbreast } from '../../src/battle/order'
@@ -258,6 +258,35 @@ describe('開局擺法（entry.ts 的表）', () => {
         ...DEFAULT_BATTLE, units: lineAbreast(PURSUIT, P51D, 4, BF109K4, 16),
       })
       expect(read(w.red).y - read(w.blue).y).toBeCloseTo(PURSUIT.red.climb, 6)
+    })
+  })
+
+  describe('高度劣勢的對頭', () => {
+    it('藍隊的位置與對頭完全相同 —— 任務高度仍然是玩家開場的高度', () => {
+      const b = read(even(BOUNCE).blue)
+      const h = read(even(HEAD_ON).blue)
+      expect(b.x).toBeCloseTo(h.x, 6)
+      expect(b.y).toBeCloseTo(h.y, 6)
+      expect(b.z).toBeCloseTo(h.z, 6)
+    })
+
+    it('紅隊的水平位置與對頭相同，只高出表上的 climb', () => {
+      const b = read(even(BOUNCE).red)
+      const h = read(even(HEAD_ON).red)
+      expect(b.x).toBeCloseTo(h.x, 6)
+      expect(b.z).toBeCloseTo(h.z, 6)
+      expect(b.y - h.y).toBeCloseTo(BOUNCE.red.climb, 6)
+    })
+
+    it('高度差是 1,000 m，而且在紅方那一側', () => {
+      const w = even(BOUNCE)
+      expect(read(w.red).y - read(w.blue).y).toBeCloseTo(1000, 6)
+    })
+
+    it('兩隊對飛：藍朝 −Z、紅朝 +Z', () => {
+      const w = even(BOUNCE)
+      expect(read(w.blue).vz).toBeLessThan(0)
+      expect(read(w.red).vz).toBeGreaterThan(0)
     })
   })
 })
