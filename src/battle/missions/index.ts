@@ -69,7 +69,11 @@ export function missionRules(
   // 也可能是雷擊。用 type 推導的話，日後多一張「打擊」卡就會靜靜地變成
   // 擊沉任務。
   if (b.sinkCount !== undefined) {
-    return { kind: 'sink', count: b.sinkCount }
+    // 【有攻擊隊才有護衛編制】其餘藍隊飛機就是護衛，全滅判敗。沒有攻擊隊的
+    // 擊沉關（日 M3 全是陸攻）連鍵都不放，否則戰鬥機數恆為 0 會開場判敗
+    return b.convoyDuty === 'strike'
+      ? { kind: 'sink', count: b.sinkCount, escorts: true }
+      : { kind: 'sink', count: b.sinkCount }
   }
   // 【炸毀與擊沉並列】同樣是「卡片上有沒有那一格」，同樣排在守住艦隊之前
   if (b.destroyCount !== undefined) {

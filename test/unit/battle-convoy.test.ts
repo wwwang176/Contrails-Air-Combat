@@ -222,6 +222,7 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
   function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     return {
       aliveBlue: 8,
+      aliveBlueFighters: 4,
       aliveRed: 10,
       playerPos: new Vector3(0, 4000, 5000),
       playerAlive: true,
@@ -365,6 +366,7 @@ describe('stepMission：護送的門檻 need', () => {
   function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     return {
       aliveBlue: 20,
+      aliveBlueFighters: 4,
       aliveRed: 10,
       playerPos: new Vector3(0, 4000, 5000),
       playerAlive: true,
