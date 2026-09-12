@@ -28,29 +28,29 @@ describe('briefingOf —— 護送（盟 M1）', () => {
 
   it('標題、類型、說明照卡', () => {
     expect(b.ready).toBe(true)
-    expect(b.title).toBe('護送堡壘')
+    expect(b.title).toBe('柏林上空')
     expect(b.kind).toBe('護航')
-    expect(b.summary).toContain('施韋因富特')
+    expect(b.summary).toContain('柏林')
   })
 
   it('目標照卡', () => {
-    expect(b.objective).toBe('護送轟炸機抵達投彈點')
+    expect(b.objective).toBe('送 8 架轟炸機抵達柏林')
   })
 
-  it('我方兩列：P-51D ×4，加上要護送的 B-17G ×4；敵方 Bf 109 K-4 ×10', () => {
+  it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×10', () => {
     // 【沒有「↑ 要護送的」那一列小字】那一列讀起來很怪，移除了
     // —— 誰是要護送的，目標列已經說了
     expect(b.mine).toEqual([
       { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
-      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 4 },
+      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 16 },
     ])
     expect(b.foe).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
   })
 
   it('兩列：空域在前、時期第二，而且沒有任何出擊前不該知道的欄位', () => {
     expect(b.facts).toEqual([
-      { label: '空域', value: '德國　施韋因富特上空' },
-      { label: '時期', value: '1944 年夏' },
+      { label: '空域', value: '德國　柏林上空' },
+      { label: '時期', value: '1944 年 3 月' },
     ])
     expect(noSecrets(b)).toEqual([])
   })

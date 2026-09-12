@@ -149,17 +149,21 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   // 【擺法是生成器的第一個參數】`entry` 仍然是 `ENTRY_PLANS` 的鍵，那張表
   // 一個字不動
   const plan = ENTRY_PLANS[b.entry]
+  // 【省略時連鍵都不放】理由同 `need`：沒寫 `convoyBox` 的卡一個位元都不該動
+  const box = b.convoyBox === true ? { box: true } as const : {}
   const units = rules.kind === 'convoy'
     ? convoyLine(plan, {
       fighter: b.blueSpec,
       fighters: b.blueCount,
       bomber: rules.owner === 'blue' ? convoyOf(card) : null,
       bombers: b.convoyCount,
+      ...box,
     }, {
       fighter: b.redSpec,
       fighters: b.redCount,
       bomber: rules.owner === 'red' ? convoyOf(card) : null,
       bombers: b.convoyCount,
+      ...box,
     })
     : b.blueStacked === true
       ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)

@@ -261,7 +261,8 @@ export interface ConvoyIndex {
   readonly goal: Vector3
   /**
    * 與 `seats` 對齊：**那一架自己要飛的點**。x 取它的出生 x，所以每一架
-   * 飛的是一條**與 Z 軸平行**的直線。
+   * 飛的是一條**與 Z 軸平行**的直線；y 與 z 是圈心加上那一架的
+   * `FlightPlan.rise` 與 `depth`，箱型因此一路維持到終點。
    *
    * 【為什麼不是全部瞄同一個點】每台轟炸機各有自己的前方集合點，既排除
    * 滾轉又讓整隊平行飛。共用一個點的話整隊會沿途向內收攏 —— 起始值下只有
@@ -645,7 +646,9 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
   // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
   // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
   const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+  // 【`rise` 排在最後】省略時加的是 0，逐位元與舊行為相同
   const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
+    + (unit.rise ?? 0)
   return { z, orientation, heading, nominalTas: cfg.tas * entry.speed, leadX, leadY }
 }
 
@@ -784,6 +787,9 @@ export function createBattle(
   /** `duty === 'transit'` 的座位索引與它們各自的出生 x（見 `ConvoyIndex`） */
   const convoySeats: number[] = []
   const convoyX: number[] = []
+  /** 那幾架的 `FlightPlan.rise` 與 `depth`，終點帶著同樣的偏移 */
+  const convoyRise: number[] = []
+  const convoyDepth: number[] = []
   /** 那幾架各自的**分隊**索引。編制依 `cfg.units` 的順序建，所以就是單位序號 */
   const convoyFlights: number[] = []
   /**
@@ -842,6 +848,8 @@ export function createBattle(
         // across × lateralOffset` 再算一次，而那條式子的浮點順序是被
         // `test/fixtures/spawn-baseline.ts` 釘住的。抄現成的值不可能算錯
         convoyX.push(c.spawnPosition.x)
+        convoyRise.push(unit.rise ?? 0)
+        convoyDepth.push(unit.depth ?? 0)
         convoyFlights.push(sizes.length)
       }
     }
@@ -939,17 +947,19 @@ export function createBattle(
     for (let t = 0; t < convoySeats.length; t++) {
       const seat = convoySeats[t]!
       if (world.combatants[seat]!.team === rules.owner) owned++
-      // 【x 是自己的、y 與 z 是共用的】平行直線的定義
-      const point = new Vector3(convoyX[t]!, rules.point.y, rules.point.z)
-      // 【整隊必須落得進判定圈】每一架飛的是 (自己的 x, 終點的 y, 終點的 z)，
-      // 所以它抵達時離圈心恰好是這個橫向偏移。大於半徑的那幾架**永遠判不到**,
-      // 而畫面上的症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」。
-      // 實測踩過一次：圈釘在 x = 0 而整隊偏 −750，最外側 1,050 > 1,000
-      const off = Math.abs(point.x - rules.point.x)
+      // 【x 是自己的出生 x，y 與 z 是圈心加上自己的 rise 與 depth】平行直線，
+      // 而箱型飛到終點還是同一個箱子。沒有偏移的卡加的是 0，終點與圈心同高同 z
+      const point = new Vector3(
+        convoyX[t]!, rules.point.y + convoyRise[t]!, rules.point.z + convoyDepth[t]!)
+      // 【整隊必須落得進判定圈，量三維】每一架飛到自己的終點時離圈心恰好是
+      // 這個距離。大於半徑的那幾架**永遠判不到**，而畫面上的症狀是「轟炸機從
+      // 圈旁邊飛過去，任務永遠不結束」。只量 x 會放過一個被縱深或高度推出圈外
+      // 的擺法
+      const off = point.distanceTo(rules.point)
       if (!(off < rules.radius)) {
         throw new Error(
           `被護送的第 ${t} 架離判定圈心 ${off.toFixed(0)} m，不小於抵達半徑 ${rules.radius} m`
-          + '——它永遠判不到。把編隊收窄（order.ts 的 CONVOY_LANE）或把半徑放大',
+          + '——它永遠判不到。把編隊收窄（order.ts 的 CONVOY_LANE／BOX_*）或把半徑放大',
         )
       }
       points.push(point)
