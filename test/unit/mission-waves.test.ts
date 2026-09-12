@@ -45,12 +45,15 @@ const withdraws = (c: ReturnType<typeof missionConfigFrom>): readonly WithdrawBe
   (c.beats ?? []).filter((b): b is WithdrawBeat => b.kind === 'withdraw')
 
 describe('波次的翻譯', () => {
-  it('沒有波次、返航、照明彈的卡不產生任何節拍', () => {
+  it('沒有波次、重生、返航、照明彈的卡不產生任何節拍', () => {
     for (const c of CAMPAIGNS) {
       for (const m of MISSIONS[c]) {
         if (m.battle === null) continue
         const b = m.battle
-        if (b.waves !== undefined || b.withdraw !== undefined || b.flares !== undefined) continue
+        if (
+          b.waves !== undefined || b.recycle !== undefined
+          || b.withdraw !== undefined || b.flares !== undefined
+        ) continue
         expect(missionConfigFrom(m as ReadyMissionCard).beats, m.id).toBeUndefined()
       }
     }

@@ -345,6 +345,19 @@ export interface SideOrder {
   readonly bomber: AircraftSpec | null
   /** 那個機種幾架。**每一架自成一個小隊**，`bomber` 為 null 時無意義 */
   readonly bombers: number
+  /**
+   * 那幾架轟炸機的職務。**省略 = `transit`。**
+   *
+   * ```
+   *   transit  被護送的：飛向終點、不交戰、不閃彈。必須配護送／攔截的規則
+   *   strike   攻擊隊：`combat` 職務，照常掛載、照常走攻擊航路與閃彈
+   * ```
+   *
+   * 兩者的擺位（一架一隊、`CONVOY_LANE`、`CONVOY_TIER`）相同，差別只在
+   * `FlightPlan.duty`。攻擊隊若誤成 `transit`，在沒有終點的規則下
+   * `createBattle` 會拋「沒有終點可飛」。
+   */
+  readonly bomberDuty?: 'transit' | 'strike'
 }
 
 /** `convoyLine` 的內部：把一隊排進 `out`。 */
@@ -365,10 +378,11 @@ function pushSide(
 
   const bomber = side.bomber
   if (bomber === null) return
+  const duty = side.bomberDuty === 'strike' ? 'combat' : 'transit'
   for (let i = 0; i < side.bombers; i++) {
     const lane = (i - (side.bombers - 1) / 2) * CONVOY_LANE
     // 【一架一個小隊】理由見 `assertOrderOfBattle` 的 transit 檢查
-    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER })
+    out.push({ team, members: [bomber], entry, duty, lane, tier: CONVOY_TIER })
   }
 }
 

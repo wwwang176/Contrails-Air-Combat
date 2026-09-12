@@ -94,18 +94,27 @@ describe('briefingOf —— 殲滅＋返航（德 M4）', () => {
 })
 
 describe('briefingOf —— 其他', () => {
-  it('日 M3 的空域是雷伊泰灣', () => {
-    expect(fact(briefingOf(readyCard('japan-m3')), '空域')).toBe('菲律賓　雷伊泰灣')
+  it('日 M2 的空域是漢口', () => {
+    expect(fact(briefingOf(readyCard('japan-m3')), '空域')).toBe('中國　漢口上空')
   })
 
-  it('殲滅卡（日 M1）沒有護送列', () => {
+  it('殲滅卡（日 M2）沒有護送列', () => {
     const b = briefingOf(readyCard(KILL_CARD))
-    expect(b.mine).toEqual([{ id: 'a6m5', name: 'A6M5', role: 'fighter', count: 8 }])
-    expect(b.foe).toEqual([{ id: 'f6f5', name: 'F6F-5', role: 'fighter', count: 6 }])
+    expect(b.mine).toEqual([{ id: 'ki84', name: 'Ki-84', role: 'fighter', count: 8 }])
+    expect(b.foe).toEqual([{ id: 'p51d', name: 'P-51D', role: 'fighter', count: 10 }])
+  })
+
+  it('攻擊隊（日 M1）列在我方：零戰之後是要掩護的陸攻', () => {
+    const b = briefingOf(readyCard('japan-m1'))
+    expect(b.mine).toEqual([
+      { id: 'a6m5', name: 'A6M5', role: 'fighter', count: 8 },
+      { id: 'g4m', name: 'G4M', role: 'bomber', count: 8 },
+    ])
+    expect(b.foe).toEqual([{ id: 'f4f4', name: 'F4F-4', role: 'fighter', count: 8 }])
   })
 
   it('沒有敵機的卡，簡報不列敵軍那一列', () => {
-    const b = briefingOf(cardWith('japan-m1', { redCount: 0 }))
+    const b = briefingOf(cardWith(KILL_CARD, { redCount: 0 }))
     expect(b.foe).toEqual([])
     expect(b.mine).toHaveLength(1)
   })

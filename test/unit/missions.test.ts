@@ -162,10 +162,12 @@ describe('missionConfigFrom', () => {
     expect(cfg.tas).toBe(DEFAULT_BATTLE.tas)
   })
 
-  it('只有護送／攔截偏離中性的 convoyPriority', () => {
+  it('只有護送規則偏離中性的 convoyPriority', () => {
+    // 【看規則不看 type】攻擊隊的卡也可以是「護航」，但那幾架不是被護送者，
+    // 偏置不作用在它們身上 —— 寫了大於 1 的值只是一個沒有人讀的數字
     for (const m of playable) {
-      const wants = m.type === '護航' || m.type === '攔截'
-      expect(missionConfigFrom(m).tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(wants)
+      const cfg = missionConfigFrom(m)
+      expect(cfg.tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(cfg.rules.kind === 'convoy')
     }
   })
 

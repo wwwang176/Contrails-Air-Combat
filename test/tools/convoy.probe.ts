@@ -124,7 +124,6 @@ function run(
 const CARDS: Array<[string, string]> = [
   ['護送 B-17（盟 M1）', 'allies-m1'],
   ['攔截 B-17（德 M1）', 'germany-m1'],
-  ['護送 G4M（日 M3）', 'japan-m3'],
 ]
 
 function table(title: string, aiPlayer: boolean): void {
@@ -277,7 +276,7 @@ console.log('── 表二：沒有被護送者的場次 ───────�
     + `   下令端分隊 ${b.blueOrderFlights.length} + ${b.redOrderFlights.length}`
     + `   全部分隊 ${b.flights.flights.length}`)
 }
-for (const id of ['japan-m1'] as const) {
+for (const id of ['japan-m3'] as const) {
   const card = readyCard(id)
   const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
   console.log(`${card.title.padEnd(12)} convoy = ${b.convoy === null ? 'null' : '不是 null（錯）'}`

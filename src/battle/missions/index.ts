@@ -161,6 +161,21 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       bomber: rules.owner === 'red' ? convoyOf(card) : null,
       bombers: b.convoyCount,
     })
+    // 【攻擊隊走同一支編組，職務換成 combat】少了這一條，`convoySpec` 那幾架
+    // 根本不會被生出來，而卡片與簡報看起來一切正常
+    : b.convoyDuty === 'strike'
+      ? convoyLine(plan, {
+        fighter: b.blueSpec,
+        fighters: b.blueCount,
+        bomber: convoyOf(card),
+        bombers: b.convoyCount,
+        bomberDuty: 'strike',
+      }, {
+        fighter: b.redSpec,
+        fighters: b.redCount,
+        bomber: null,
+        bombers: 0,
+      })
     : b.blueStacked === true
       ? stackedEntry(plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount)
       : b.redStarboard === undefined
