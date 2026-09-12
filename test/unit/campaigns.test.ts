@@ -229,16 +229,13 @@ describe('德 M3 底板行動', () => {
     expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
   })
 
-  it('巡邏隊四架在 2,000 m；起飛的每一批是一個小隊，席位加起來等於停機線', () => {
-    const [patrol, ...takeoff] = card.battle.waves!
-    expect(patrol!.when).toEqual({ kind: 'clock', at: 0 })
-    expect(patrol!.count).toBe(4)
-    expect(patrol!.altitude).toBe(2000)
-    expect(patrol!.takeoff).toBeUndefined()
+  it('敵機全部從地上來：每一批是一個小隊從停機墊滑出去，席位加起來等於停機線', () => {
+    const takeoff = card.battle.waves!
+    expect(takeoff).toHaveLength(3)
     for (const w of takeoff) {
       expect(w.count).toBe(4)
       expect(w.side).toBe('theirs')
-      expect(w.takeoff).toBeDefined()
+      expect(w.takeoff?.route).toBeDefined()
       expect(w.departs).toBe('parkedP51')
     }
     // 【停機線上的每一架最後都起得來】起飛的席位少於停放的架數，剩下的永遠在地上

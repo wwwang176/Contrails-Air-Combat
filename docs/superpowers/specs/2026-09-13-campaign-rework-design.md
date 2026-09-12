@@ -530,8 +530,9 @@ export const BOUNCE: EntryPlan = {
 
 ```
   盟 M1   need 8 / convoyPriority 3 / 重生 3 批 / 兩個波次的秒數 / 箱型的三個偏移
-  德 M1   hunt count 6 / 重生 3 批 / 兩批護航的秒數
-  德 M3   destroyCount 8 / 停放機 12 架 / 兩次 ground 條件的門檻與秒數 / 滾行 12 秒
+  德 M1   hunt count 6 / 轟炸機流 8 架、終點 12 km / 兩批護航的秒數
+  德 M3   destroyCount 8 / 停放機 12 架 / 三批起飛的秒數（0、45、90） / 滾行 12 秒
+          滑行 8 m/s（約 29 km/h）、原地轉向 90°/s / 排隊間距 40 m、起步時差 1 秒
   日 M1   sink count 3 / A6M5 12 架 / G4M 8 架 / F4F 8 架 / 重生 3 批 / 船團的艦數與陣型
   日 M2   高度差 1,000 m / 8 對 10
 ```
