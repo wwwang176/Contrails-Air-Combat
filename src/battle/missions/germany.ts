@@ -3,30 +3,82 @@ import { BF109K4 } from '../../specs/bf109k4'
 import { B17G } from '../../specs/b17g'
 import { HE111 } from '../../specs/he111'
 import { FLARE_DROPS } from '../../world/poltava'
+import {
+  DUMPS as ASCH_DUMPS, LIGHT_FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
+} from '../../world/asch'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
-import { CONVOY, CONVOY_RADIUS, POLTAVA_GROUND, RETREAT_DISTANCE } from './shared'
-import type { MissionCard } from './types'
+import { LEUNA_GROUND, POLTAVA_GROUND } from './shared'
+import type { GroundEntry, MissionCard } from './types'
+
+/**
+ * 洛伊納的廠區與砲位，**德軍的**。佈局與盟 M2 那一份（`LEUNA_GROUND`）相同，
+ * 隊伍換成藍 —— AI 轟炸機只挑敵隊的地面目標、高砲只打敵隊的飛機。沿用紅隊
+ * 的話 B-17 不會去炸它，而廠區的砲會對著玩家開火。
+ */
+const LEUNA_DEFENDED: readonly GroundEntry[] = LEUNA_GROUND.map((e) => ({ ...e, team: 'blue' }))
+
+/**
+ * Y-29 的地面目標：12 架停放的 P-51、兩堆油桶、6 座輕高砲，全部是紅方的。
+ * 佈局在 `world/asch.ts`。
+ */
+const ASCH_GROUND: readonly GroundEntry[] = [
+  ...ASCH_PARKED.map((p): GroundEntry => ({
+    unit: 'parkedP51', team: 'red', x: p.x, z: p.z, heading: p.heading,
+  })),
+  ...ASCH_DUMPS.map((d): GroundEntry => ({
+    unit: d.kind, team: 'red', x: d.x, z: d.z, heading: d.heading,
+  })),
+  ...ASCH_FLAK.map((s): GroundEntry => ({
+    unit: 'flakLight', team: 'red', x: s.x, z: s.z, heading: s.heading,
+  })),
+]
 
 /** 德軍線的三關。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
   {
     id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
-    summary: '駕駛 Bf 109 K-4 撕開 P-51 的護航網，攔下飛往梅澤堡洛伊納油廠的 B-17G。',
+    summary: '駕駛 Bf 109 K-4 衝進飛往洛伊納油廠的 B-17 轟炸機流，把它們的損失推上去。',
     place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
     battle: {
-      ...CONVOY, objective: '在轟炸機抵達前擊落', banner: '攔下 B-17，守住油廠',
-      blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
-      blueCount: 10, redCount: 4,
-      terrain: 'archipelago',
-      // 【用時鐘不用存活數】這一關的 `convoyPriority` 是 5，我方一心衝
-      // 轟炸機 —— 實測一整場 145 s 護航機一架都沒掉，而勝負 145.5 s 就
-      // 定了。「敵方戰鬥機剩不多」那個條件的節奏在這裡不可靠
-      waves: [{
-        when: { kind: 'clock', at: 60 },
-        warn: '警告：敵方護航機接近中',
-        warnLead: 4,
-        side: 'theirs', spec: P51D, count: 4,
-      }],
+      objective: '擊落 B-17', banner: '衝進轟炸機流，擊落 B-17',
+      blueSpec: BF109K4, redSpec: B17G, convoySpec: null,
+      /**
+       * 【B-17 是一般的 combat 轟炸機】不是 transit：它們照 `ai/strikeRun.ts`
+       * 的攻擊航路去炸廠區，沒攔住的話廠區真的會燒起來。沒有判定圈，攔下
+       * 哪一批不重要 —— 數的是累計擊落。
+       *
+       * 【轟炸機一開場就回頭】紅方從 z = −5,000 朝 +Z 進場，廠區在 z = −7,000，
+       * 在 `SHIP_ATTACK_RANGE`（8 km）之內。攔截因此發生在廠區上空。
+       */
+      blueCount: 8, redCount: 8,
+      convoyCount: 0, convoyPriority: 1,
+      targetDistance: 0, targetRadius: 0, seconds: Infinity,
+      entry: 'headOn',
+      terrain: 'leuna',
+      timeOfDay: 'novemberNoon',
+      ground: LEUNA_DEFENDED,
+      // 【只算轟炸機】打護航機過不了關。**起始值，由試飛裁定**
+      huntCount: 6, huntRole: 'bomber',
+      // 【轟炸機流不斷】被打光的轟炸機小隊整隊重生，最多三批
+      recycle: {
+        side: 'theirs', role: 'bomber', batches: 3,
+        warn: '下一批轟炸機進場', warnLead: 5,
+      },
+      // 紅隊席位 8 + 4 + 4 = 16
+      waves: [
+        {
+          when: { kind: 'clock', at: 0 },
+          warn: '前方轟炸機群，P-51 護航',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 4,
+        },
+        {
+          when: { kind: 'clock', at: 60 },
+          warn: '警告：敵方護航機接近中',
+          warnLead: 4,
+          side: 'theirs', spec: P51D, count: 4,
+        },
+      ],
     },
   },
   {
@@ -67,78 +119,48 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m4', title: '帝國最後防線', type: '殲滅',
-    summary: '駕駛 Bf 109 K-4 從巴伐利亞的野戰機場升空，迎擊掃蕩德國本土的第八航空軍 P-51D。',
-    place: '德國南部　巴伐利亞上空', period: '1945 年春',
+    id: 'germany-m4', title: '底板行動', type: '打擊',
+    summary: '駕駛 Bf 109 K-4 貼著樹梢撲向 Y-29 前進機場，趁野馬還在跑道上把它們打掉。',
+    place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
     battle: {
-      objective: '擊落全部敵機', banner: '野馬掃蕩本土，升空迎擊',
+      objective: '摧毀地面上的 P-51', banner: '掃射機場，打掉野馬',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
-      blueCount: 8, redCount: 10,
+      // 【開場沒有敵機在我方前方】巡邏隊與起飛的野馬全部由波次給。
+      // 紅隊席位 4 + 2 + 2 = 8
+      blueCount: 8, redCount: 0,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
-      terrain: 'farmland',
-      // 【拂曉】野戰機場的攔截隊天亮就升空 —— 停在地面上等於被掃射
+      terrain: 'asch',
       timeOfDay: 'dawn',
       /**
-       * 【`byLatest` 必須早於「打得完敵軍」的那一刻】開場規則是
-       * `annihilate`，紅隊歸零就**直接判勝**，之後返航節拍再也沒有機會
-       * 接管規則 —— 那一關設計好的下半場就整段跳過了。
-       *
-       * 【40 秒是怎麼來的】它要滿足兩件事：
-       *
-       * ```
-       *   早於第二批進場（49 s）  →  第二批因此變成「擋在逃生路上」，
-       *                              而不是「還在纏鬥時多來四架」
-       *   早到打不完 14 架        →  開場 10 架＋第一批 4 架。離線探針裡
-       *                              AI 400 秒才掉 2 架；人快得多，但
-       *                              40 秒清 14 架不是一個能穩定做到的事
-       * ```
-       *
-       * 【`atMost: 4` 仍然有用】玩家撐不住時它會**更早**觸發，那才是這一關
-       * 的敘述：友軍逐漸減少 → 任務更新。兩個是「誰先到算誰」。
-       *
-       * ⚑ 兩個數字都是起始值，待試飛。
+       * 【500 m】分隊的高度層是任務高度 ±`altitudeSpread`（300 m），最低那一隊
+       * 生在 200 m。再低的話最低那一隊開場就在撞地判定之下。**起始值，由試飛裁定。**
        */
-      withdraw: {
-        when: { kind: 'alive', side: 'mine', atMost: 4, byLatest: 40 },
-        message: '返航',
-        distance: RETREAT_DISTANCE, radius: CONVOY_RADIUS,
-        /**
-         * **無時限** —— 撤離不倒數。
-         *
-         * 【為什麼倒數是多的】這一關的壓力來源是**擋在路上的兩批攔截機**，
-         * 不是碼表。再壓一個倒數上去，玩家要同時應付「打穿出去」與「來不
-         * 來得及」兩件事，而後者他無從估計 —— 他不知道還有幾批。
-         *
-         * 【`Infinity` 不是特例】`stepMission` 的撤離分支本來就走得到它：
-         * `Infinity − dt` 仍是 `Infinity`、`Infinity <= 0` 是 false，
-         * HUD 的 `formatCountdown` 對非有限值回空字串。
-         */
-        seconds: Infinity,
-      },
-      /**
-       * 【敵人從斜前方分批來，不是在後面追】撤離點在 −Z，紅方的進場點
-       * 也在 −Z —— 波次生在玩家**前方**，玩家必須打穿出去。從後面追的
-       * 擺法會遇到「追不到」，這一種沒有人在追。
-       *
-       * 【第二批要往前挪】玩家從 z≈0 跑到紅方開局點只要 28 秒。第二批不
-       * 覆寫縱深的話會生在他背後 —— 見 `MissionWave.along`。
-       */
+      altitude: 500,
+      ground: ASCH_GROUND,
+      // 【炸毀任意八座】池是 12 架 P-51、2 堆、6 座輕砲。**起始值**
+      destroyCount: 8,
       waves: [
         {
           when: { kind: 'clock', at: 0 },
-          // 【這一則說得出方位】它在開場那一刻顯示，那時玩家一定還朝著
-          // 機首方向 —— 而波次就生在那裡
-          warn: '前方有攔截機',
-          warnLead: 4,
-          side: 'theirs', spec: P51D, count: 4,
+          // 第 366 大隊的 P-47 已經在空中；由 P-51 代打
+          warn: '上空有 P-51 巡邏',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 4, altitude: 2000,
         },
         {
-          when: { kind: 'clock', at: 45 },
-          warn: '警告：敵方援軍加入戰鬥',
-          warnLead: 4,
-          side: 'theirs', spec: P51D, count: 4, along: -1.0,
+          // 【打掉夠多就沒人上來】40 秒時地上的摧毀數不到 6，兩架開始滾行
+          when: { kind: 'ground', below: 6, byLatest: 40 },
+          warn: '跑道上的野馬開始滾行',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE,
+        },
+        {
+          when: { kind: 'ground', below: 10, byLatest: 80 },
+          warn: '又有兩架野馬起飛',
+          warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2, takeoff: TAKEOFF_LINE,
         },
       ],
     },

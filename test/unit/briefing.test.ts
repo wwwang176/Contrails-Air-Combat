@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { briefingOf, type Briefing } from '../../src/ui/briefing'
 import { MISSIONS, type MissionCard } from '../../src/battle/missions'
-import { cardWith, readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
+import { cardWith, readyCard, ESCORT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * 簡報頁右欄的資料（選單重做 spec §2.4）。**純資料，沒有 DOM。**
@@ -56,39 +56,32 @@ describe('briefingOf —— 護送（盟 M1）', () => {
   })
 })
 
-describe('briefingOf —— 攔截（德 M1）', () => {
-  const b = briefingOf(readyCard(INTERCEPT_CARD))
+describe('briefingOf —— 擊落（德 M1）', () => {
+  const b = briefingOf(readyCard('germany-m1'))
 
-  it('敵方多一列要攔下的 B-17G ×4', () => {
-    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 10 }])
-    expect(b.foe).toEqual([
-      { id: 'p51d', name: 'P-51D', role: 'fighter', count: 4 },
-      { id: 'b17g', name: 'B-17G', role: 'bomber', count: 4 },
-    ])
+  it('我方 Bf 109 K-4 ×8，敵方是 B-17G ×8', () => {
+    expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
+    expect(b.foe).toEqual([{ id: 'b17g', name: 'B-17G', role: 'bomber', count: 8 }])
   })
 
-  it('這一關有增援（第 64 秒），但簡報一個字都不提', () => {
-    expect(readyCard(INTERCEPT_CARD).battle.waves?.length).toBeGreaterThan(0)
+  it('這一關有護航機的波次與轟炸機的重生，但簡報一個字都不提', () => {
+    expect(readyCard('germany-m1').battle.waves?.length).toBeGreaterThan(0)
+    expect(readyCard('germany-m1').battle.recycle).toBeDefined()
     expect(noSecrets(b)).toEqual([])
   })
 })
 
-describe('briefingOf —— 殲滅＋返航（德 M4）', () => {
+describe('briefingOf —— 打擊（德 M3）', () => {
   const b = briefingOf(readyCard('germany-m4'))
 
-  it('目標帶返航', () => {
-    expect(b.objective).toBe('擊落全部敵機 → 返航')
-  })
-
-  it('撤退只寫在目標列，不另外列中途變更與撤離點', () => {
-    // 資料還在（`withdraw` 驅動戰鬥），只是不上簡報
-    expect(readyCard('germany-m4').battle.withdraw).toBeDefined()
+  it('目標照卡，起飛的波次不上簡報', () => {
+    expect(b.objective).toBe('摧毀地面上的 P-51')
     expect(noSecrets(b)).toEqual([])
   })
 
   it('空域與時期', () => {
-    expect(fact(b, '空域')).toBe('德國南部　巴伐利亞上空')
-    expect(fact(b, '時期')).toBe('1945 年春')
+    expect(fact(b, '空域')).toBe('比利時　阿什 Y-29 機場')
+    expect(fact(b, '時期')).toBe('1945 年 1 月')
     expect(b.mine).toEqual([{ id: 'bf109k4', name: 'Bf 109 K-4', role: 'fighter', count: 8 }])
   })
 })

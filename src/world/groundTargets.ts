@@ -57,6 +57,8 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   bombDump: 6_000,
   // 一條彈道打得掉
   searchlight: 200,
+  // 【停放的 P-51 掃射得掉】與輕型砲位同一個量級：一次通場的機砲就夠
+  parkedP51: 250,
 }
 
 /**
@@ -86,6 +88,7 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   fuelDump: 0,
   bombDump: 0,
   searchlight: 0,
+  parkedP51: 0,
 }
 
 /**
@@ -97,6 +100,8 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
  */
 export const GROUND_VALUE: Readonly<Partial<Record<GroundUnitId, number>>> = {
   parkedB17: 20_000,
+  // 同一個理由：德 M3 的目標就是它，血量卻比油桶堆低
+  parkedP51: 20_000,
 }
 
 export interface GroundTarget extends StrikeTarget {

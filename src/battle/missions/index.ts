@@ -271,6 +271,7 @@ function waveBeat(
       duty: 'combat',
       lane: WAVE_LANE + index,
       tier: index,
+      ...(w.takeoff === undefined ? {} : { takeoff: w.takeoff }),
     },
   }
 }
@@ -309,6 +310,7 @@ function recycleBeat(r: MissionRecycle, plan: EntryPlan): RecycleBeat {
 function triggerToCondition(t: MissionTrigger): BeatCondition {
   if (t.kind === 'clock') return { kind: 'clock', at: t.at }
   if (t.kind === 'batch') return { kind: 'batch', at: t.at }
+  if (t.kind === 'ground') return { kind: 'ground', below: t.below, byLatest: t.byLatest }
   return {
     kind: 'alive',
     team: t.side === 'mine' ? 'blue' : 'red',

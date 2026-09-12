@@ -106,6 +106,21 @@ describe('節拍的條件', () => {
     expect(conditionMet(when, 0, NONE, 6)).toBe(true)
   })
 
+  it('地面戰果：到了 byLatest 那一刻，摧毀數不到 below 才成立', () => {
+    const when: BeatCondition = { kind: 'ground', below: 6, byLatest: 40 }
+    // 時間沒到，摧毀數再低也不成立 —— 開場摧毀數是 0，否則第一步就起飛
+    expect(conditionMet(when, 39.9, NONE, 0, 0)).toBe(false)
+    expect(conditionMet(when, 40, NONE, 0, 5)).toBe(true)
+    expect(conditionMet(when, 40, NONE, 0, 6)).toBe(false)
+    expect(conditionMet(when, 300, NONE, 0, 2)).toBe(true)
+  })
+
+  it('地面戰果：目標全毀時永遠不成立', () => {
+    const when: BeatCondition = { kind: 'ground', below: 10, byLatest: 80 }
+    expect(conditionMet(when, 80, NONE, 0, 12)).toBe(false)
+    expect(conditionMet(when, 9999, NONE, 0, 12)).toBe(false)
+  })
+
   it('重生節拍不佔預留的序號', () => {
     // 【為什麼】重生用的是開場小隊的席位，`createBattle` 的 `reserve` 只由
     // reinforce 推。重生節拍若推進 slot，後面那支增援會等一支不存在的預留
