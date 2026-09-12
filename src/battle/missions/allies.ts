@@ -12,14 +12,58 @@ import type { MissionCard } from './types'
 /** 盟軍線的三關。**這一條線的卡片只住在這裡。** */
 export const ALLIES: readonly MissionCard[] = [
   {
-    id: 'allies-m1', title: '護送堡壘', type: '護航',
-    summary: '護送第八航空軍的 B-17 深入德國本土，轟炸施韋因富特的滾珠軸承廠。',
-    place: '德國　施韋因富特上空', period: '1944 年夏',
+    id: 'allies-m1', title: '柏林上空', type: '護航',
+    summary: '駕駛 P-51D 護送第八航空軍第一次白天轟炸柏林 —— 只有野馬飛得到最後那一段。',
+    place: '德國　柏林上空', period: '1944 年 3 月',
     battle: {
-      ...CONVOY, objective: '護送轟炸機抵達投彈點', banner: '護送 B-17 飛到投彈點',
+      ...CONVOY, objective: '送 8 架轟炸機抵達柏林', banner: '護送 B-17 轟炸柏林',
       blueSpec: P51D, redSpec: BF109K4, convoySpec: B17G,
+      /**
+       * 【藍隊 20 席用滿】4 架 P-51 加 16 架 B-17，沒有我方增援的空間。
+       * 16 架排成三中隊箱型（`order.ts` 的 `pushBox`），一條橫線會超出抵達半徑。
+       */
       blueCount: 4, redCount: 10,
-      terrain: 'archipelago',
+      convoyCount: 16, convoyBox: true,
+      // 【送到一半才算贏】湊不到 8 架時當場判敗（`mission.ts` 的 convoy）
+      need: 8,
+      /**
+       * 【3 而不是 `CONVOY` 的 5】**起始值，要重新掃描**：`docs/backlog.md`
+       * §1.3 的量測是 4 架轟炸機，16 架箱型的砲塔數是那時的四倍。
+       */
+      convoyPriority: 3,
+      terrain: 'farmland',
+      /**
+       * 【航程約 2 分 50 秒】終點在 z = −12,000、轟炸機出生在 z ≈ +5,000，
+       * 以 B-17G 的開局巡航 355 km/h 飛 17 km。兩個波次與重生填滿那三分鐘。
+       *
+       * 紅隊席位 10 + 4 + 4 = 18 ≤ 20；重生回收席位，不另外佔。
+       * 全部的秒數與架數都是**起始值，由試飛裁定。**
+       */
+      recycle: {
+        side: 'theirs', batches: 3,
+        warn: '更多攔截機升空',
+        warnLead: 5,
+      },
+      waves: [
+        {
+          when: { kind: 'clock', at: 60 },
+          // 【不宣稱方位】預警在戰鬥中顯示，玩家那時可能朝任何方向
+          warn: '警告：更多敵機接近',
+          warnLead: 5,
+          side: 'theirs', spec: BF109K4, count: 4,
+          // 【從後方】省略的話沿用紅方的正面進場
+          starboard: Math.PI,
+        },
+        {
+          when: { kind: 'clock', at: 110 },
+          warn: '警告：敵機加入攔截',
+          warnLead: 5,
+          side: 'theirs', spec: BF109K4, count: 4,
+          starboard: 90 * DEG,
+          // 【高出任務高度 1,000 m】從箱子與護航機的上方壓下來
+          altitude: 5000,
+        },
+      ],
     },
   },
   {

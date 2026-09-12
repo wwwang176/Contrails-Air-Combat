@@ -9,7 +9,7 @@ import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
-import { arrivedAt } from '../../src/battle/setup'
+import { DEFAULT_BATTLE, arrivedAt } from '../../src/battle/setup'
 import { pickTakeover } from '../../src/battle/takeover'
 import { createFlights } from '../../src/battle/flights'
 import { HEAD_ON } from '../../src/battle/entry'
@@ -97,6 +97,78 @@ describe('convoyLine', () => {
     const seats = u.flatMap((f) => f.members.map(() => ({ alive: true, team: f.team })))
       .map((s, index) => ({ ...s, index }))
     expect(() => createFlights(seats, 0, sizes)).not.toThrow()
+  })
+})
+
+/**
+ * 三中隊箱型。數字照 spec §7.4 的表，**以公尺寫**，不 import 常數 ——
+ * 常數改壞時測試跟著變，兩邊一起錯還是全綠。
+ */
+describe('convoyLine：箱型', () => {
+  const SPACING = DEFAULT_BATTLE.schwarmSpacing
+  const BLUE_BOX: SideOrder = { fighter: P51D, fighters: 4, bomber: B17G, bombers: 16, box: true }
+
+  function squadron(u: OrderOfBattle, rise: number) {
+    return u.filter((f) => f.duty === 'transit' && f.rise === rise)
+  }
+
+  it('16 架分成 6 / 5 / 5，每一架仍自成一個小隊', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    const transit = u.filter((f) => f.duty === 'transit')
+    expect(transit).toHaveLength(16)
+    for (const f of transit) expect(f.members).toHaveLength(1)
+    expect(squadron(u, 0)).toHaveLength(6)
+    expect(squadron(u, 250)).toHaveLength(5)
+    expect(squadron(u, -250)).toHaveLength(5)
+  })
+
+  it('lead 在 −250…+250、同高、不落後，間隔 100 m', () => {
+    const lead = squadron(convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN), 0)
+    for (const [i, f] of lead.entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(-250 + 100 * i, 9)
+      expect(f.depth).toBe(0)
+    }
+  })
+
+  it('high 在 +50…+450、高 250、後 500；low 左右與高度鏡射', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    for (const [k, f] of squadron(u, 250).entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(50 + 100 * k, 9)
+      // 【+ 是落後】藍隊機首朝 −Z
+      expect(f.depth).toBe(500)
+    }
+    for (const [k, f] of squadron(u, -250).entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(-50 - 100 * k, 9)
+      expect(f.depth).toBe(500)
+    }
+  })
+
+  it('紅隊的箱型落後在 −Z —— 它的機首朝 +Z', () => {
+    const red: SideOrder = { ...RED_CONVOY, bombers: 16, box: true }
+    const u = convoyLine(HEAD_ON, BLUE_PLAIN, red)
+    for (const f of u.filter((x) => x.duty === 'transit' && x.rise !== 0)) {
+      expect(f.depth).toBe(-500)
+    }
+  })
+
+  it('護航機不受箱型影響', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    for (const f of u.filter((x) => x.duty === 'combat')) {
+      expect('rise' in f).toBe(false)
+      expect('depth' in f).toBe(false)
+    }
+  })
+
+  /** 【退化】沒開箱型的卡，產出的表一個鍵都不多 */
+  it('不開箱型時 transit 身上沒有 rise 與 depth', () => {
+    for (const f of convoyLine(HEAD_ON, BLUE_ESCORT, RED_CONVOY)) {
+      expect('rise' in f).toBe(false)
+      expect('depth' in f).toBe(false)
+    }
+  })
+
+  it('產出的表通得過 assertOrderOfBattle', () => {
+    expect(() => assertOrderOfBattle(convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN))).not.toThrow()
   })
 })
 
