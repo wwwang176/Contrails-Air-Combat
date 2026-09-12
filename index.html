@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Noto+Serif+TC:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
       /* ══════════════════════════════════════════════════════════
-         甲′「桌上的紙」（2026-09-04 選單重做 spec §4）
+         甲′「桌上的紙」（選單重做 spec §4）
          大面積是暗桌面，紙只給手拿得起來的東西（.paperbit）。
          全部元件只引用這些變數；換皮只動這一段。
          ══════════════════════════════════════════════════════════ */
@@ -74,7 +74,7 @@
       }
       .lbl { font-size: 11px; letter-spacing: .06em; color: var(--dim); }
       /* 【返回一律在紙的左上角外側】不屬於任何一張紙，屬於這一頁；每頁同一個位置，
-         標籤寫回到哪裡，不寫「返回」（專案負責人 2026-09-04） */
+         標籤寫回到哪裡，不寫「返回」 */
       .pane { position: relative; }
       .back {
         position: absolute; top: -54px; left: 0; z-index: 3;
@@ -85,10 +85,8 @@
       .back::before { content: '‹'; font-size: 20px; line-height: 0; position: relative; top: -1px; }
       .back:hover { background: var(--btn-hi); border-color: var(--sel); }
       /* 【照片】來源不管是 Grok 生的還是引擎截的，過了這一層都是夾在卷宗裡的當年照片。
-         **原檔是彩色的**（負責人 2026-09-04：「我想讓這些圖都有顏色，只是用 CSS
-         做成黑白，然後 HOVER 的時候帶出顏色回來」）—— 黑白是這一行做的，不是圖
-         做的；滑過去 `grayscale` 放到 .70，也就是還 30%（負責人：「顏色可以再
-         多一點 改30%」）*/
+         **原檔是彩色的** —— 黑白是這一層 filter 做的，不是圖做的；滑過去
+         `grayscale` 放到 .70，也就是還三成顏色回來 */
       .photo { position: relative; overflow: hidden; background: #1b1610; display: block; }
       .photo img { display: block; width: 100%; height: 100%; object-fit: cover;
         filter: grayscale(1) sepia(.26) contrast(1.06) brightness(.92);
@@ -108,8 +106,8 @@
       /* ── 畫面 ────────────────────────────────────────── */
       #ui { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
       /* 【每頁自己的遮罩濃度】--v 由 section 的 style 給：開場 .30、主選單 .50、其餘 .70。
-         分界線是那一頁有沒有要讀的小字。第一版不上 backdrop-filter —— 它是每幀
-         全螢幕模糊，選單期間 3D 還在跑；先量再決定 */
+         分界線是那一頁有沒有要讀的小字。不上 backdrop-filter —— 它是每幀全螢幕
+         模糊，而選單期間 3D 還在跑 */
       #ui .screen {
         position: absolute; inset: 0; pointer-events: auto;
         display: flex; flex-direction: column; align-items: center; justify-content: safe center;
@@ -208,16 +206,15 @@
       .brief { display: grid; grid-template-columns: 300px 1fr; width: min(1120px, 96vw);
         background: var(--panel); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
       .brief > .left { padding: 18px; border-right: 1px solid var(--rule); }
-      /* 【右欄是直向的 flex】「出擊」要釘在右下角（負責人 2026-09-04：「類似遭遇戰」），
-         靠的是 `.actions { margin-top: auto }` —— 內容短的時候它照樣沉到底 */
+      /* 【右欄是直向的 flex】「出擊」釘在右下角，靠的是 `.actions { margin-top: auto }`
+         —— 內容短的時候它照樣沉到底 */
       .brief > .right { position: relative; display: flex; flex-direction: column;
         padding: 20px 24px; min-height: 470px; }
       .camphead { margin: 2px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
       .camphead .cn { font: 700 24px/1.2 var(--f-body); color: var(--strong); }
-      /* 【一疊文件，不是時間軸】專案負責人 2026-09-04：「點點跟虛線可以移除，
-         頁籤就像文件的頁籤就好，任務像多份文件重疊」。所以圓點與虛線整條拿掉，
-         四關就是四份紙；每一份左緣那一條是它的頁籤，**選中的那一關轉紅**。
-         幾何完全不動 —— 負責人：「沒選到的頁籤不用比較短，選到的也不用左滑到齊」 */
+      /* 【一疊文件，不是時間軸】沒有圓點也沒有虛線，三關就是三份紙；每一份左緣
+         那一條是它的頁籤，**選中的那一關轉紅**。三份的幾何一樣 —— 沒選到的不縮
+         短，選到的也不左滑 */
       .route { position: relative; }
       .stop { position: relative; width: 100%; text-align: left;
         padding: 9px 12px 9px 18px; margin-bottom: 5px; }
@@ -261,7 +258,7 @@
       .flight { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 10px; align-items: center;
         padding: 9px 11px; background: var(--card); border: 1px solid var(--bd2); box-shadow: 1px 3px 5px rgba(0,0,0,.42); }
       /* 【我帶的那一隊是紙】它是我手上那張卡 —— 整頁只有這一塊亮面。
-         不轉角度：負責人 2026-09-04「遊戲內的文字歪斜好像都沒必要」 */
+         不轉角度：遊戲裡的文字一律不歪斜 */
       .flight .pick { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--dim);
         background: transparent; padding: 0; display: grid; place-items: center; }
       .flight.lead .pick { border-color: var(--sel); }
@@ -346,8 +343,8 @@
       #aar-me .stat { text-align: center; }
       #aar-me .stat .v { font: 700 26px/1 var(--f-body); }
       #aar-me .stat .k { font-size: 10.5px; margin-top: 3px; }
-      /* 【橫的，不是三行】原本是 a|k|b 的三列網格，光這一塊就吃掉 80 px 高，
-         而戰報下面還有玩家卡與完整名單。三組數字並排成一列 */
+      /* 【橫的，不是三行】三組數字並排成一列。排成 a|k|b 的三列網格光這一塊就要
+         80 px 高，而戰報下面還有玩家卡與完整名單 */
       #aar-tally { display: flex; justify-content: space-around; align-items: baseline;
         flex-wrap: wrap; gap: 10px 26px; padding: 9px 0;
         border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
@@ -355,8 +352,8 @@
       #aar-tally .a { font-weight: 700; color: var(--mine); }
       #aar-tally .b { font-weight: 700; color: var(--foe); }
       #aar-tally .k { font-size: 11px; color: var(--dim); }
-      /* 【名單不收合】專案負責人 2026-09-04：「完整名單（18 架）就不需要有收合了」
-         —— 戰報就是要看這張表，把它藏在一個要再點一下的開關後面沒有道理 */
+      /* 【名單不收合】戰報就是要看這張表（雙方全部機體逐架列出），把它藏在一個
+         要再點一下的開關後面沒有道理 */
       #aar-details { margin-top: 14px; }
       #aar-details .cap { font-size: 12.5px; color: var(--dim); }
       /* 【按住 TAB 的即時看板】沒有戰報的其餘區塊，連標題都不用 */
@@ -415,7 +412,7 @@
     </div>
 
     <div id="ui">
-      <!-- ① 開場：遮罩 30%。獨立一頁（專案負責人裁定，不合併進主選單） -->
+      <!-- ① 開場：遮罩 30%。獨立一頁，不併進主選單 -->
       <section id="landing" class="screen" style="--v:.30">
         <div class="cover paperbit"><h1>CONTRAILS AIR: COMBAT</h1></div>
         <button class="go" data-act="start" style="padding:14px 54px">開始遊戲</button>
