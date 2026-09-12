@@ -172,6 +172,29 @@ describe('convoyLine：箱型', () => {
   })
 })
 
+describe('convoyLine：攻擊隊（bomberDuty = strike）', () => {
+  const STRIKE: SideOrder = { ...BLUE_ESCORT, bomberDuty: 'strike' }
+
+  it('轟炸機是 combat，一架 transit 都不產', () => {
+    const u = convoyLine(HEAD_ON, STRIKE, RED_PLAIN)
+    expect(u.filter((f) => f.duty === 'transit')).toHaveLength(0)
+    const bombers = u.filter((f) => f.members[0] === B17G)
+    expect(bombers).toHaveLength(4)
+    for (const f of bombers) expect(f.duty).toBe('combat')
+  })
+
+  it('擺位與被護送者逐項相同，差別只有 duty', () => {
+    const strike = convoyLine(HEAD_ON, STRIKE, RED_PLAIN)
+    const escort = convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN)
+    expect(strike.map((f) => ({ ...f, duty: 'x' }))).toEqual(escort.map((f) => ({ ...f, duty: 'x' })))
+  })
+
+  it('明寫 transit 與省略相同', () => {
+    expect(convoyLine(HEAD_ON, { ...BLUE_ESCORT, bomberDuty: 'transit' }, RED_PLAIN))
+      .toEqual(convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN))
+  })
+})
+
 describe('assertOrderOfBattle：被護送者的兩條新規則', () => {
   const base = convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN)
 

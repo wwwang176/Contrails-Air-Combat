@@ -307,6 +307,18 @@ export interface MissionBattle {
    */
   readonly convoyBox?: true
   /**
+   * `convoySpec` 那幾架的職務。**省略 = `transit`。**
+   *
+   * ```
+   *   transit  被護送：飛向終點、不交戰。只在護航／攔截的規則下成立
+   *   strike   我方的攻擊隊：combat 職務，照常走攻擊航路，不需要護送規則
+   * ```
+   *
+   * `strike` 一律排進藍隊。勝負由卡片自己的規則決定（例如 `sinkCount`）；
+   * 它們不是被護送者，`convoyPriority` 不作用在它們身上。
+   */
+  readonly convoyDuty?: 'transit' | 'strike'
+  /**
    * 被護送的那幾架在**敵方**目標挑選裡值幾倍。**1 = 沒有偏置。**
    *
    * 【為什麼在卡片上而不是一個全域常數】護送與攔截要的量不一定一樣 —— 護送

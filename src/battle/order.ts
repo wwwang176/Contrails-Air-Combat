@@ -378,6 +378,19 @@ export interface SideOrder {
   readonly bombers: number
   /** 被護送的排成三中隊箱型（`pushBox`）。**省略 = 一條橫線，間隔 `CONVOY_LANE`** */
   readonly box?: true
+  /**
+   * 那幾架轟炸機的職務。**省略 = `transit`。**
+   *
+   * ```
+   *   transit  被護送的：飛向終點、不交戰、不閃彈。必須配護送／攔截的規則
+   *   strike   攻擊隊：`combat` 職務，照常掛載、照常走攻擊航路與閃彈
+   * ```
+   *
+   * 兩者的擺位（一架一隊、`CONVOY_LANE`、`CONVOY_TIER`）相同，差別只在
+   * `FlightPlan.duty`。攻擊隊若誤成 `transit`，在沒有終點的規則下
+   * `createBattle` 會拋「沒有終點可飛」。
+   */
+  readonly bomberDuty?: 'transit' | 'strike'
 }
 
 /** `convoyLine` 的內部：把一隊排進 `out`。 */
@@ -398,6 +411,10 @@ function pushSide(
 
   const bomber = side.bomber
   if (bomber === null) return
+  const duty = side.bomberDuty === 'strike' ? 'combat' : 'transit'
+  // 【箱型只給被護送的】`pushBox` 產的一律是 transit —— 箱子的存在理由就是
+  // 讓整隊落得進同一個判定圈，而攻擊隊沒有判定圈。兩個同時開的話那幾架會是
+  // transit 卻沒有終點，`createBattle` 當場拋「沒有終點可飛」；沒有卡片這樣寫
   if (side.box === true) {
     pushBox(out, team, entry, bomber, side.bombers)
     return
@@ -405,7 +422,7 @@ function pushSide(
   for (let i = 0; i < side.bombers; i++) {
     const lane = (i - (side.bombers - 1) / 2) * CONVOY_LANE
     // 【一架一個小隊】理由見 `assertOrderOfBattle` 的 transit 檢查
-    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER })
+    out.push({ team, members: [bomber], entry, duty, lane, tier: CONVOY_TIER })
   }
 }
 
