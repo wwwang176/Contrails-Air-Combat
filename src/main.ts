@@ -673,10 +673,12 @@ function emitGroundKills(events: ImpactEvents): void {
   const d = events.data
   for (let e = 0; e < events.count; e++) {
     const o = e * IMPACT_STRIDE
-    // 【炸彈擊毀不放第二次爆炸】`ny` 是兇手：−1 = 炸彈，那一顆的落點事件
-    // 已經在 `emitBombBlasts` 放過火球與碎片；子彈擊毀沒有落點事件，這裡
-    // 才放一團
-    if (d[o + 4]! >= 0) {
+    // 【炸彈擊毀不放第二次爆炸】`nz` = 1 表示這一筆是爆風打的，那一顆的
+    // 落點事件已經在 `emitBombBlasts` 放過火球與碎片；子彈擊毀沒有落點
+    // 事件，這裡才放一團
+    //
+    // 【不能改看 `ny`】那一格是兇手的座位索引，玩家投的彈也是非負的
+    if (d[o + 5]! === 0) {
       emitBlast(BLAST_POOLS, LAND_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
         (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
       // 【炸彈擊毀的不搖第二次】同一個理由：那一顆的落點事件已經搖過
@@ -1832,12 +1834,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
         noseHorizontal(renderQuat, NOSE_H)
         world.dropTorpedo(
           BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
-          NOSE_H.x, NOSE_H.z, teamSlot(player.team),
+          NOSE_H.x, NOSE_H.z, teamSlot(player.team), player.index,
         )
       } else {
         world.dropBomb(
           BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
-          teamSlot(player.team),
+          teamSlot(player.team), player.index,
         )
       }
     })
@@ -2255,6 +2257,10 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【一幀一次，不是一個子步一次】淡出走的是畫面時間。在子步裡步進的話，
   // 一幀跑幾個子步就淡幾倍快 —— 而子步數會隨幀率變動。
   stepDamageMarks(hudFrame.damageMarks, frameSeconds)
+  // 【通報接參考，不抄】池與淘汰都在 `stepBattle` 那一側。時間也一起送 ——
+  // 行的年齡吃的是物理時間，用畫面時間量的話暫停時通報會繼續淡出
+  hudFrame.report = battle.report
+  hudFrame.reportTime = world.time
 
   // ── 任務目標 ──────────────────────────────────────────
   //

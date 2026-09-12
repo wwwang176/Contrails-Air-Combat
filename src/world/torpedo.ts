@@ -129,8 +129,12 @@ export const TORPEDOES_CAPACITY = 8
  *
  * @param kind 0 = 撞岸，1 = 撞船。射程用盡是無聲回收，不會走到這裡
  */
+/**
+ * @param owner 投放者的 combatant 索引；−1 = 沒有主人。雷擊命中的通報讀它
+ */
 export type TorpedoEndFn = (
   x: number, y: number, z: number, kind: 0 | 1, damage: number, team: number,
+  owner: number,
 ) => void
 
 /**
@@ -203,6 +207,11 @@ export class Torpedoes {
    * 被擋下來（船是實體），但不扣血、也不爆（`World.onTorpedoEnd`）。
    */
   readonly team: Int8Array
+  /**
+   * 投放者的 combatant 索引；−1 = 沒有主人。理由同 `Bombs.owner` ——
+   * 雷擊命中的通報要知道是誰打中的，而隊別分不出一隊裡的二十架。
+   */
+  readonly owner: Int32Array
   /** 0 = 空中，1 = 水中 */
   readonly phase: Uint8Array
   readonly active: Uint8Array
@@ -236,6 +245,7 @@ export class Torpedoes {
     this.headX = f(); this.headZ = f()
     this.serial = f()
     this.team = new Int8Array(capacity)
+    this.owner = new Int32Array(capacity)
     this.phase = new Uint8Array(capacity)
     this.active = new Uint8Array(capacity)
   }
@@ -249,11 +259,12 @@ export class Torpedoes {
    * @param team        投放者的隊別，0 = 藍、1 = 紅。只有 HUD 標記讀它。
    *                    **這一層有預設值，`World.dropTorpedo` 那一層沒有** ——
    *                    理由同 `Bombs.spawn`
+   * @param owner       投放者的 combatant 索引。預設 −1 的理由同上
    */
   spawn(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number, damage: number,
-    headX: number, headZ: number, team = 0,
+    headX: number, headZ: number, team = 0, owner = -1,
   ): number {
     const i = this.cursor
     this.cursor = (i + 1) % this.capacity
@@ -265,6 +276,7 @@ export class Torpedoes {
     // 【一定要寫，不能靠 clear】`clear` 只清 `active` 與 `serial`；環狀指標
     // 繞回來時這一格會沿用前一枚的隊別
     this.team[i] = team
+    this.owner[i] = owner
     this.age[i] = 0
     this.run[i] = 0
     this.phase[i] = AIR
@@ -371,7 +383,7 @@ export class Torpedoes {
     if (!torpedoEntersWater(groundAt(ix, iz), waterAt(ix, iz))) {
       this.active[i] = 0
       this.liveCount--
-      onEnd(ix, g, iz, 0, this.damage[i]!, this.team[i]!)
+      onEnd(ix, g, iz, 0, this.damage[i]!, this.team[i]!, this.owner[i]!)
       return
     }
 
@@ -421,7 +433,7 @@ export class Torpedoes {
         this.liveCount--
         onEnd(
           px + (nx - px) * bt, py, pz + (nz - pz) * bt,
-          1, this.damage[i]!, this.team[i]!,
+          1, this.damage[i]!, this.team[i]!, this.owner[i]!,
         )
         return
       }
@@ -435,7 +447,7 @@ export class Torpedoes {
     if (groundAt(nx, nz) > 0) {
       this.active[i] = 0
       this.liveCount--
-      onEnd(nx, py, nz, 0, this.damage[i]!, this.team[i]!)
+      onEnd(nx, py, nz, 0, this.damage[i]!, this.team[i]!, this.owner[i]!)
       return
     }
 

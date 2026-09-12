@@ -8,9 +8,16 @@
 /** 每一個字出現的間隔，秒。十個字半秒打完 */
 export const TYPE_SECONDS_PER_CHAR = 0.05
 
-/** 到這個年齡為止該印出的前綴。第 0 秒就有第一個字，不然開頭會閃一下空白 */
-export function typedPrefix(text: string, age: number): string {
+/**
+ * 到這個年齡為止該印出的前綴。第 0 秒就有第一個字，不然開頭會閃一下空白。
+ *
+ * @param secondsPerChar 每個字的間隔。**戰果通報用自己的速度** ——
+ *                       它是回饋不是預警，見 `REPORT_SECONDS_PER_CHAR`
+ */
+export function typedPrefix(
+  text: string, age: number, secondsPerChar: number = TYPE_SECONDS_PER_CHAR,
+): string {
   if (age < 0) return text
-  const n = Math.floor(age / TYPE_SECONDS_PER_CHAR) + 1
+  const n = Math.floor(age / secondsPerChar) + 1
   return n >= text.length ? text : text.slice(0, n)
 }
