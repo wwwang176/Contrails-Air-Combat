@@ -95,11 +95,12 @@ export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ STAND_ZS.map((dz) => ({ ...at(STAND_X, dz), heading: -Math.PI / 2 }))
 
 /**
- * 起飛線：跑道南端的中線，機首朝北（−Z）。滾行腳本從這裡出發 —— 跑到離地
- * 加上初期爬升約 500 m，交還時還在跑道上空。
+ * 起飛線：跑道南段的中線，機首朝北（−Z）。一個小隊四架單列排在它後方
+ * （`TAKEOFF_TRAIL`），最後一架離跑道南端還有 20 m；滾行加上初期爬升約 500 m，
+ * 交還時還在跑道上空。
  */
 export const TAKEOFF_LINE: { readonly x: number; readonly z: number; readonly heading: number } =
-  /* @__PURE__ */ { ...at(0, 650), heading: 0 }
+  /* @__PURE__ */ { ...at(0, 560), heading: 0 }
 
 /** 油桶堆兩塊，在滑行帶環內、離跑道與滑行帶各約 90 m */
 export const DUMPS: readonly { kind: 'fuelDump'; x: number; z: number; heading: number }[] = [

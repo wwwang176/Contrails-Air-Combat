@@ -31,6 +31,13 @@ export const CLIMB_SECONDS = 3.5
  * 陷進跑道面。
  */
 export const GEAR_CLEARANCE = 1.5
+/**
+ * 同一小隊單列排在跑道上，後一架在前一架後方多遠，m。P-51 全長 9.8 m；
+ * 後一架晚 `TAKEOFF_STAGGER` 秒起步時前一架只走了 ½at²（約 2 m），不會追撞。
+ */
+export const TAKEOFF_TRAIL = 40
+/** 後一架比前一架晚幾秒開始滾行 */
+export const TAKEOFF_STAGGER = 1
 
 /** 起飛線：世界座標、機首航向（rad，0 = 朝 −Z） */
 export interface TakeoffLine {
@@ -45,12 +52,16 @@ export interface TakeoffRoll {
   readonly heading: number
   /** 起飛線上的跑道面高度，m */
   readonly groundY: number
-  /** 腳本開始後經過的秒數 */
+  /** 腳本開始後停在原地幾秒才起步 */
+  readonly delay: number
+  /** 腳本開始後經過的秒數，含 `delay` */
   elapsed: number
 }
 
-export function createTakeoffRoll(x: number, z: number, heading: number, groundY: number): TakeoffRoll {
-  return { x, z, heading, groundY, elapsed: 0 }
+export function createTakeoffRoll(
+  x: number, z: number, heading: number, groundY: number, delay = 0,
+): TakeoffRoll {
+  return { x, z, heading, groundY, delay, elapsed: 0 }
 }
 
 /** 滾行段的加速度，m/s²。整段等加速 */
@@ -63,8 +74,8 @@ const QP = /* @__PURE__ */ new Quaternion()
 /**
  * 推進一步，就地寫 `state`。回傳 **false = 這一步走完了**，呼叫端解開座標鎖。
  *
- * 滾行段的位置取解析解（`½at²`），高度釘在跑道面上方 `GEAR_CLEARANCE`；
- * 離地之後沿速度積分。
+ * `delay` 之內停在起飛線上、速度為零。滾行段的位置取解析解（`½at²`），高度釘在
+ * 跑道面上方 `GEAR_CLEARANCE`；離地之後沿速度積分。
  */
 export function stepTakeoff(
   roll: TakeoffRoll,
@@ -72,7 +83,14 @@ export function stepTakeoff(
   dt: number,
 ): boolean {
   roll.elapsed += dt
-  const t = roll.elapsed
+  const t = roll.elapsed - roll.delay
+  if (t <= 0) {
+    state.orientation.setFromAxisAngle(UP, roll.heading)
+    state.velocity.set(0, 0, 0)
+    state.angularVelocity.set(0, 0, 0)
+    state.position.set(roll.x, roll.groundY + GEAR_CLEARANCE, roll.z)
+    return true
+  }
   const lift = t - ROLL_SECONDS
   const pitch = lift <= 0 ? 0 : ROTATE_PITCH * Math.min(1, lift / ROTATE_SECONDS)
   state.orientation.setFromAxisAngle(UP, roll.heading).multiply(QP.setFromAxisAngle(RIGHT, pitch))

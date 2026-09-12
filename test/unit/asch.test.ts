@@ -7,6 +7,8 @@ import {
 import { RUNWAY_CONCRETE } from '../../src/world/poltava'
 import { PAD_CLEARANCE } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT } from '../../src/world/farmland'
+import { SCHWARM_SIZE } from '../../src/battle/flights'
+import { TAKEOFF_TRAIL } from '../../src/control/takeoffRoll'
 
 /**
  * Y-29（比利時 Asch）前進降落場的地形與佈局。守的是**空間關係**：墊面平、
@@ -148,6 +150,10 @@ describe('asch 的佈局', () => {
         expect(Math.hypot(s.x - p.x, s.z - p.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
       }
     }
+  })
+
+  it('一個小隊四架單列排在起飛線後方，最後一架還在跑道上', () => {
+    expect(inRect(TAKEOFF_LINE.x, TAKEOFF_LINE.z + (SCHWARM_SIZE - 1) * TAKEOFF_TRAIL, RUNWAY)).toBe(true)
   })
 
   it('起飛線在跑道一端的中線上，機首朝跑道的另一端', () => {

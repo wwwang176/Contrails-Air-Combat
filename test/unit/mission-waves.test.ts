@@ -317,7 +317,7 @@ describe('德軍兩張卡的席位', () => {
   it('德 M3 的起飛波次把起飛線帶到分隊上', () => {
     const cfg = missionConfigFrom(readyCard('germany-m4'))
     const takeoff = reinforces(cfg).filter((b) => b.flight.takeoff !== undefined)
-    expect(takeoff).toHaveLength(2)
-    for (const b of takeoff) expect(b.when.kind).toBe('ground')
+    expect(takeoff).toHaveLength(3)
+    for (const b of takeoff) expect(b.flight.departs).toBe('parkedP51')
   })
 })
