@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { FixedStepAccumulator } from '../../src/core/loop'
+import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from '../../src/core/loop'
 
 function makeLoop(overrides: Partial<{ stepHz: number; maxSubsteps: number; maxFrameSeconds: number }> = {}) {
   return new FixedStepAccumulator({
@@ -80,5 +80,32 @@ describe('FixedStepAccumulator', () => {
     let count = 0
     loop.advance(1 / 120, () => count++)
     expect(count).toBe(1) // 若未清空 accumulator 會變成 2
+  })
+})
+
+describe('clampFrameSeconds', () => {
+  /**
+   * 【分頁切回來那一幀】背景分頁的 requestAnimationFrame 整個暫停，回來的
+   * 第一幀帶著整段離開的秒數。沒夾的話機庫的開火、拋彈、搖晃與鏡頭會一口氣
+   * 走完那段時間。
+   */
+  it('分頁切回來那一幀被夾到上限', () => {
+    expect(clampFrameSeconds(300)).toBe(MAX_FRAME_SECONDS)
+  })
+
+  it('正常的一幀原封不動', () => {
+    expect(clampFrameSeconds(1 / 60)).toBe(1 / 60)
+  })
+
+  /**
+   * 換機種那一幀要建整台幾何，實測 40…90 ms。夾到它的話機庫在換機種時會
+   * 整頁慢動作一下。
+   */
+  it('換機種那種 90 ms 的長幀不夾', () => {
+    expect(clampFrameSeconds(0.09)).toBe(0.09)
+  })
+
+  it('可以指定自己的上限', () => {
+    expect(clampFrameSeconds(1, 0.5)).toBe(0.5)
   })
 })

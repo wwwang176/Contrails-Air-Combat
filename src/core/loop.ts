@@ -1,9 +1,33 @@
+/**
+ * 單幀經過時間的上限，秒。**整個遊戲共用這一個數。**
+ *
+ * 【為什麼要夾】分頁在背景時 requestAnimationFrame 整個暫停，回來的第一幀帶著
+ * 整段離開的秒數。不夾的話戰鬥的物理會想一次補完那段時間，機庫的開火、拋彈、
+ * 搖晃與鏡頭則會一口氣走完 —— 整串炸彈在半空中憑空消失、鏡頭快速轉圈。
+ *
+ * 【為什麼是 0.25】要比換機種那一幀長（實測 40…90 ms），否則機庫每次換機種都
+ * 會整頁慢動作一下；又要短到分頁切回來時看不出跳動。
+ */
+export const MAX_FRAME_SECONDS = 0.25
+
+/**
+ * 把一幀的經過時間夾到上限，超過的部分當作沒有發生。
+ *
+ * 戰鬥的步進與 `main.ts` 的幀迴圈都吃這一支 —— 兩邊各寫一份的話，改了一邊
+ * 另一邊不會跟著動，而且不會報錯。
+ */
+export function clampFrameSeconds(
+  frameSeconds: number, max: number = MAX_FRAME_SECONDS,
+): number {
+  return frameSeconds > max ? max : frameSeconds
+}
+
 export interface FixedStepOptions {
   /** 物理步頻率，Hz。專案預設 240。 */
   stepHz: number
   /** 每幀最多執行的子步數。超過即丟棄剩餘 accumulator，避免螺旋死亡。 */
   maxSubsteps: number
-  /** 單幀經過時間上限，秒。防止分頁切回時的巨大 dt。 */
+  /** 單幀經過時間上限，秒。防止分頁切回時的巨大 dt。專案預設 `MAX_FRAME_SECONDS`。 */
   maxFrameSeconds: number
 }
 
@@ -37,8 +61,7 @@ export class FixedStepAccumulator {
    * @returns 內插係數 alpha ∈ [0, 1)，供渲染端內插 position/quaternion。
    */
   advance(frameSeconds: number, step: (dt: number) => void): number {
-    const clamped = frameSeconds > this.maxFrameSeconds ? this.maxFrameSeconds : frameSeconds
-    this.accumulator += clamped
+    this.accumulator += clampFrameSeconds(frameSeconds, this.maxFrameSeconds)
 
     let n = 0
     const epsilon = 1e-10

@@ -1,5 +1,5 @@
 import { Euler, Quaternion, Vector3, type Object3D } from 'three'
-import { FixedStepAccumulator } from './core/loop'
+import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
@@ -1412,7 +1412,7 @@ function leaderLabel(point: Vector3): string {
   return '長機 全滅'
 }
 
-const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: 0.25 })
+const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSeconds: MAX_FRAME_SECONDS })
 let lastTime = performance.now()
 let elapsed = 0
 /**
@@ -2502,7 +2502,9 @@ function afterAction(): AfterAction {
 }
 
 function frame(now: number) {
-  const frameSeconds = (now - lastTime) / 1000
+  // 【在源頭夾】戰鬥、機庫與選單吃的都是這一個值，理由見 `MAX_FRAME_SECONDS`。
+  // 各處自己夾的話，機庫的飛機與海面會吃到不同長度的時間而對不上
+  const frameSeconds = clampFrameSeconds((now - lastTime) / 1000)
   lastTime = now
   perf.begin()
   bindings.tick(frameSeconds)
