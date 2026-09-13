@@ -298,6 +298,16 @@ describe('applySafety', () => {
     expect(applySafety(a, 0, cmd)).toBe('none')
   })
 
+  /**
+   * Worker 的物理預演只能把同步護欄提早，不能蓋掉或降低它。這一格刻意選在
+   * 解析式尚不介入的高度，再注入較大的預演門檻，釘住正式接線的方向。
+   */
+  it('物理預演門檻較高時提早介入', () => {
+    const a = diving(4000, 200, -60)
+    clean()
+    expect(applySafety(a, 0, cmd, undefined, undefined, 4500)).toBe('ground')
+  })
+
   it('低空陡俯衝 → 介入', () => {
     const a = diving(200, 250, -60)
     clean()
