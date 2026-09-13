@@ -307,6 +307,7 @@ export function applySafety(
   out: Command,
   cfg: SafetyConfig = DEFAULT_SAFETY,
   sense?: TerrainSense,
+  rolloutNeeded = 0,
 ): SafetyAction {
   const vel = self.state.velocity
   const tas = vel.length()
@@ -333,7 +334,12 @@ export function applySafety(
     ? Math.max(-Math.PI / 2, gamma + flightPathRate(self) * cfg.lookahead)
     : gamma
   const worst = Math.min(gamma, predicted)
-  const needed = recoveryAltitude(tas, worst, nMax) * cfg.factor + cfg.clearance
+  // Worker 的完整物理預演只能把接管提早；取最大值保證 Worker 無論回什麼，
+  // 都不會削弱這條每步同步執行的既有護欄。
+  const needed = Math.max(
+    recoveryAltitude(tas, worst, nMax) * cfg.factor + cfg.clearance,
+    rolloutNeeded,
+  )
   const margin = self.state.position.y - seaHeight
 
   // ── 撞地硬接管 ──────────────────────────────────────────

@@ -21,6 +21,9 @@ import {
 } from './target'
 import { applySafety, type SafetyAction } from './safety'
 import {
+  createRecoveryAssist, resetRecoveryAssist, updateRecoveryAssist,
+} from './recoveryWorkerClient'
+import {
   createSense, resetSense, senseTerrain, SENSE_INTERVAL,
   type TerrainSense, type TerrainSource,
 } from './terrainSense'
@@ -104,6 +107,9 @@ const FWD = new Vector3(0, 0, -1)
  * 都是純函數（spec §4.3）——這是 L4 的對戰矩陣能在 node 裡跑幾百場的前提。
  */
 export class AiController implements Controller {
+  /** 完整物理防墜預演的固定快照與非同步狀態；每架 AI 只配置一次。 */
+  private readonly recoveryAssist = createRecoveryAssist()
+  private recoveryClock = 0
   /**
    * 交戰對象。`board` 為 null 時由 `main.ts` 或測試設定；否則由
    * `selectTarget` 在每個決策節拍改寫。
@@ -379,6 +385,8 @@ export class AiController implements Controller {
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0
     this.senseTick = -this.sensePhase
+    this.recoveryClock = 0
+    resetRecoveryAssist(this.recoveryAssist)
   }
 
   /** 地形感知的結果與鎖存狀態 */
@@ -1059,7 +1067,11 @@ export class AiController implements Controller {
       if (this.sense.floor > floor) floor = this.sense.floor
       sense = this.sense
     }
-    this.safetyAction = applySafety(self, floor, out, undefined, sense)
+    this.recoveryClock += dt
+    const rolloutNeeded = updateRecoveryAssist(
+      this.recoveryAssist, self, floor, sense?.turn ?? 0, this.recoveryClock,
+    )
+    this.safetyAction = applySafety(self, floor, out, undefined, sense, rolloutNeeded)
     this.safetyActive = this.safetyAction !== 'none'
     // 【守線的油門走與玩家同一個速率】玩家的油門是按住鍵以 THROTTLE_RATE
     // 推的，AI 直接寫值等於瞬間收滿 —— 守線那一格看起來像引擎被關掉。

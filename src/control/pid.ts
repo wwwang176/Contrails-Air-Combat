@@ -55,6 +55,29 @@ export class Pid {
     this.hasPrev = false
   }
 
+  /** 複製控制器的動態狀態，供不影響本體的預演分支使用。增益由接收者保留。 */
+  copyStateFrom(source: Pid): void {
+    this.integral = source.integral
+    this.prevError = source.prevError
+    this.hasPrev = source.hasPrev
+  }
+
+  /** 把預演需要的動態狀態寫入固定長度數值快照，回傳下一個索引。 */
+  writeState(out: Float64Array, offset: number): number {
+    out[offset++] = this.integral
+    out[offset++] = this.prevError
+    out[offset++] = this.hasPrev ? 1 : 0
+    return offset
+  }
+
+  /** 從 `writeState` 的快照還原動態狀態，回傳下一個索引。 */
+  readState(source: Float64Array, offset: number): number {
+    this.integral = source[offset++]!
+    this.prevError = source[offset++]!
+    this.hasPrev = source[offset++]! !== 0
+    return offset
+  }
+
   update(error: number, dt: number): number {
     const g = this.gains
     let out = g.kp * error
