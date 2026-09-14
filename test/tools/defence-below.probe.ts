@@ -8,6 +8,7 @@ import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { AiController } from '../../src/ai/AiController'
+import { extendReason } from '../../src/ai/rules'
 import { createTargetBoard } from '../../src/ai/target'
 import { threatFactor } from '../../src/ai/assess'
 import { P51D } from '../../src/specs/p51d'
@@ -61,7 +62,7 @@ for (let s = 0; s < 30 * 240; s++) {
     ? redBAi.sit.floorGap.toFixed(0).padStart(7) : '     ∞'
   const tf = threatFactor(redB, blue) > 0 ? '有' : '—'
   console.log(
-    `${t}  ${redBAi.intent.padEnd(8)} ${(redBAi.extendReason ?? '—').padEnd(6)}`
+    `${t}  ${redBAi.intent.padEnd(8)} ${extendReason(redBAi.rules).padEnd(6)}`
     + ` ${dy}  ${fg}     ${tf}    ${blueAi.intent}`,
   )
 }

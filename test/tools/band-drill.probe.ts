@@ -216,6 +216,10 @@ interface Row {
   lx: number, ly: number, lz: number
   /** 取樣窗內的最小失速餘裕。1.0 = 貼著 CLmax，1.15 = unload 閘門線 */
   sm: number
+  /** 角點速度比；低於 1 代表能量不足。 */
+  cr: number
+  /** 脫離時固定的轉向側。 */
+  es: number
 }
 
 function run(key: string): void {

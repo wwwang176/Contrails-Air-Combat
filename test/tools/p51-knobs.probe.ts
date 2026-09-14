@@ -58,7 +58,7 @@ for (const s of [P51D, BF109K4]) {
   const a = atmosphere(0, { density: 0, pressure: 0, temperature: 0, sigma: 0, soundSpeed: 0 } as never)
   const p = enginePower(s, a, 0, 1.1)
   console.log(`  ${s.name.padEnd(14)} 解析極限 ${(s.prop.etaMax * p / s.prop.vRef / 1000).toFixed(3)} kN`
-    + `   實際 ${(propThrust(s, a, 0.5, 1.1) / 1000).toFixed(3)} kN`)
+    + `   實際 ${(propThrust(s, p, 0.5, a) / 1000).toFixed(3)} kN`)
 }
 
 console.log('── vRef：夾制餘裕 vs 爬升（出力已修正，1,780 hp）──')
