@@ -57,6 +57,8 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   bombDump: 6_000,
   // 一條彈道打得掉
   searchlight: 200,
+  // 【停放的 P-51 掃射得掉】與輕型砲位同一個量級：一次通場的機砲就夠
+  parkedP51: 250,
 }
 
 /**
@@ -86,6 +88,7 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   fuelDump: 0,
   bombDump: 0,
   searchlight: 0,
+  parkedP51: 0,
 }
 
 /**
@@ -97,6 +100,8 @@ export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
  */
 export const GROUND_VALUE: Readonly<Partial<Record<GroundUnitId, number>>> = {
   parkedB17: 20_000,
+  // 同一個理由：德 M3 的目標就是它，血量卻比油桶堆低
+  parkedP51: 20_000,
 }
 
 export interface GroundTarget extends StrikeTarget {
@@ -132,6 +137,19 @@ export interface GroundTarget extends StrikeTarget {
    * 陣列移除 —— `index` 是事件裡指認它的鍵。
    */
   alive: boolean
+  /**
+   * 起飛離場了（`battle/setup.ts` 的 `departParked`）。**`alive` 同時為 false**：
+   * 不擋子彈、不是目標、畫面上不畫。它仍然在炸毀的池裡 —— 算不算摧毀看
+   * `departedAs` 那一架。
+   */
+  departed: boolean
+  /**
+   * 從這一格起飛的那一架，`World.combatants` 的索引。沒有離場時是 −1。
+   *
+   * 【同一架飛機只算一次】離場之後停機墊這一格不再被打到，它的摧毀與否就是
+   * 那一架還活不活著 —— 滑行、滾行、升空後被打掉都算。
+   */
+  departedAs: number
   /**
    * 這一台身上的防空砲。**空陣列 = 不還手** —— 戰車、卡車、火車、廠房都是
    * 空的；只有重高砲位由 `createGroundBattery()` 掛上一門。
@@ -187,6 +205,8 @@ export function createGroundTarget(
     value: GROUND_VALUE[id] ?? GROUND_HP[id],
     hp: GROUND_HP[id],
     alive: true,
+    departed: false,
+    departedAs: -1,
     // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個
     // `flakHeavy` 在別的關卡可以只是佈景
     guns: [],
@@ -215,6 +235,8 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.position.copy(t.spawn)
   t.hp = GROUND_HP[t.unit.id]
   t.alive = true
+  t.departed = false
+  t.departedAs = -1
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
   // 一個已經不存在的索引開火
   if (t.guns.length > 0) resetGroundBattery(t)

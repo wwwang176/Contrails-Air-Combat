@@ -14,7 +14,7 @@
  * 那一支還有第二個毛病：它下的是**水平**瞄準方向，而 `extend` 在低速時
  * `extendPitchAngle` 是**負的**（低頭換速度）。轉彎與俯衝疊在一起是另一
  * 回事，不能拿水平轉彎的數字代替。這一支照抄 `steerCommand` 的 `extend`
- * 那條路徑：`unloadAim` → `shrinkTowardNose` → `applyFloor`，只換航向。
+ * 那條路徑：`unloadAim` → `shrinkTowardNose`，只換航向。
  *
  * ## 場景
  *
@@ -57,9 +57,7 @@ import { applyFeel, GAME_FEEL } from '../../src/specs/feel'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { manoeuvreSpeed, energyPull, DEFAULT_DOCTRINE } from '../../src/ai/doctrine'
-import {
-  shrinkTowardNose, applyFloor, extendPitchAngle, floorPitchAngle, DEFAULT_STEER,
-} from '../../src/ai/steer'
+import { shrinkTowardNose, extendPitchAngle, DEFAULT_STEER } from '../../src/ai/steer'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { WEP_THROTTLE } from '../../src/physics/propulsion'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -169,7 +167,6 @@ function fly(spec: AircraftSpec, alt: number, bias: number): Row {
       const clearance = p.y
       unloadAt(here + err * pull, extendPitchAngle(r, 0, clearance, DEFAULT_STEER), aim)
       shrinkTowardNose(self, energyPull(r, DEFAULT_DOCTRINE), aim)
-      applyFloor(self, floorPitchAngle(clearance, DEFAULT_STEER), aim)
     }
     self.update(aim, WEP_THROTTLE, DT, 0)
 

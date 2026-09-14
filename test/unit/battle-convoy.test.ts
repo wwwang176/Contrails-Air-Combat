@@ -9,6 +9,7 @@ import {
   createMissionState, resetMissionState, stepMission,
   type MissionInputs, type MissionRules,
 } from '../../src/battle/mission'
+import { DEFAULT_BATTLE, arrivedAt } from '../../src/battle/setup'
 import { pickTakeover } from '../../src/battle/takeover'
 import { createFlights } from '../../src/battle/flights'
 import { HEAD_ON } from '../../src/battle/entry'
@@ -99,6 +100,101 @@ describe('convoyLine', () => {
   })
 })
 
+/**
+ * 三中隊箱型。數字照 spec §7.4 的表，**以公尺寫**，不 import 常數 ——
+ * 常數改壞時測試跟著變，兩邊一起錯還是全綠。
+ */
+describe('convoyLine：箱型', () => {
+  const SPACING = DEFAULT_BATTLE.schwarmSpacing
+  const BLUE_BOX: SideOrder = { fighter: P51D, fighters: 4, bomber: B17G, bombers: 16, box: true }
+
+  function squadron(u: OrderOfBattle, rise: number) {
+    return u.filter((f) => f.duty === 'transit' && f.rise === rise)
+  }
+
+  it('16 架分成 6 / 5 / 5，每一架仍自成一個小隊', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    const transit = u.filter((f) => f.duty === 'transit')
+    expect(transit).toHaveLength(16)
+    for (const f of transit) expect(f.members).toHaveLength(1)
+    expect(squadron(u, 0)).toHaveLength(6)
+    expect(squadron(u, 250)).toHaveLength(5)
+    expect(squadron(u, -250)).toHaveLength(5)
+  })
+
+  it('lead 在 −250…+250、同高、不落後，間隔 100 m', () => {
+    const lead = squadron(convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN), 0)
+    for (const [i, f] of lead.entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(-250 + 100 * i, 9)
+      expect(f.depth).toBe(0)
+    }
+  })
+
+  it('high 在 +50…+450、高 250、後 500；low 左右與高度鏡射', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    for (const [k, f] of squadron(u, 250).entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(50 + 100 * k, 9)
+      // 【+ 是落後】藍隊機首朝 −Z
+      expect(f.depth).toBe(500)
+    }
+    for (const [k, f] of squadron(u, -250).entries()) {
+      expect(f.lane * SPACING).toBeCloseTo(-50 - 100 * k, 9)
+      expect(f.depth).toBe(500)
+    }
+  })
+
+  it('紅隊的箱型落後在 −Z —— 它的機首朝 +Z', () => {
+    const red: SideOrder = { ...RED_CONVOY, bombers: 16, box: true }
+    const u = convoyLine(HEAD_ON, BLUE_PLAIN, red)
+    for (const f of u.filter((x) => x.duty === 'transit' && x.rise !== 0)) {
+      expect(f.depth).toBe(-500)
+    }
+  })
+
+  it('護航機不受箱型影響', () => {
+    const u = convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN)
+    for (const f of u.filter((x) => x.duty === 'combat')) {
+      expect('rise' in f).toBe(false)
+      expect('depth' in f).toBe(false)
+    }
+  })
+
+  /** 【退化】沒開箱型的卡，產出的表一個鍵都不多 */
+  it('不開箱型時 transit 身上沒有 rise 與 depth', () => {
+    for (const f of convoyLine(HEAD_ON, BLUE_ESCORT, RED_CONVOY)) {
+      expect('rise' in f).toBe(false)
+      expect('depth' in f).toBe(false)
+    }
+  })
+
+  it('產出的表通得過 assertOrderOfBattle', () => {
+    expect(() => assertOrderOfBattle(convoyLine(HEAD_ON, BLUE_BOX, RED_PLAIN))).not.toThrow()
+  })
+})
+
+describe('convoyLine：攻擊隊（bomberDuty = strike）', () => {
+  const STRIKE: SideOrder = { ...BLUE_ESCORT, bomberDuty: 'strike' }
+
+  it('轟炸機是 combat，一架 transit 都不產', () => {
+    const u = convoyLine(HEAD_ON, STRIKE, RED_PLAIN)
+    expect(u.filter((f) => f.duty === 'transit')).toHaveLength(0)
+    const bombers = u.filter((f) => f.members[0] === B17G)
+    expect(bombers).toHaveLength(4)
+    for (const f of bombers) expect(f.duty).toBe('combat')
+  })
+
+  it('擺位與被護送者逐項相同，差別只有 duty', () => {
+    const strike = convoyLine(HEAD_ON, STRIKE, RED_PLAIN)
+    const escort = convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN)
+    expect(strike.map((f) => ({ ...f, duty: 'x' }))).toEqual(escort.map((f) => ({ ...f, duty: 'x' })))
+  })
+
+  it('明寫 transit 與省略相同', () => {
+    expect(convoyLine(HEAD_ON, { ...BLUE_ESCORT, bomberDuty: 'transit' }, RED_PLAIN))
+      .toEqual(convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN))
+  })
+})
+
 describe('assertOrderOfBattle：被護送者的兩條新規則', () => {
   const base = convoyLine(HEAD_ON, BLUE_ESCORT, RED_PLAIN)
 
@@ -126,6 +222,7 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
   function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     return {
       aliveBlue: 8,
+      aliveBlueFighters: 4,
       aliveRed: 10,
       playerPos: new Vector3(0, 4000, 5000),
       playerAlive: true,
@@ -138,6 +235,9 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
       redInbound: false,
       convoyAlive: 4,
       convoyLead: 17000,
+      convoyArrived: 0,
+      redKilled: 0,
+      redKilledBombers: 0,
       ...over,
     }
   }
@@ -155,7 +255,7 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
   it('護送：抵達就贏、全滅就輸', () => {
     const r = rules('blue')
     const a = createMissionState(r)
-    stepMission(r, inputs({ convoyLead: 999 }), DT, a)
+    stepMission(r, inputs({ convoyArrived: 1, convoyAlive: 3 }), DT, a)
     expect(a.outcome).toBe('victory')
 
     const b = createMissionState(r)
@@ -166,7 +266,7 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
   it('攔截：同樣兩件事，勝負互換', () => {
     const r = rules('red')
     const a = createMissionState(r)
-    stepMission(r, inputs({ convoyLead: 999 }), DT, a)
+    stepMission(r, inputs({ convoyArrived: 1, convoyAlive: 3 }), DT, a)
     expect(a.outcome).toBe('defeat')
 
     const b = createMissionState(r)
@@ -174,11 +274,17 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
     expect(b.outcome).toBe('victory')
   })
 
-  it('抵達判定用的是嚴格小於半徑', () => {
+  /**
+   * 【為什麼不再用 `convoyLead` 判抵達】「進過圈」是跨步累積的，而
+   * `stepMission` 只看當步快照 —— 從距離推的話，一架在圈裡待一秒會被算成
+   * 兩百多架抵達。半徑與 NaN 的防線因此搬到 `arrivedAt`，見下面那一組。
+   */
+  it('領頭距離只餵目標列，不參與判定', () => {
     const r = rules('blue')
-    const on = createMissionState(r)
-    stepMission(r, inputs({ convoyLead: 1000 }), DT, on)
-    expect(on.outcome).toBe('fighting')
+    const s = createMissionState(r)
+    stepMission(r, inputs({ convoyLead: 1, convoyArrived: 0 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    expect(s.metric).toBe(1)
   })
 
   it('攔截時我方全滅算輸 —— 上面兩條都涵蓋不到', () => {
@@ -203,17 +309,10 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
     expect(s.remaining).toBe(2)
   })
 
-  it('位置壞掉（NaN）不會誤判成抵達', () => {
-    const r = rules('blue')
-    const s = createMissionState(r)
-    stepMission(r, inputs({ convoyLead: NaN }), DT, s)
-    expect(s.outcome).toBe('fighting')
-  })
-
   it('定案之後不再改任何欄位', () => {
     const r = rules('blue')
     const s = createMissionState(r)
-    stepMission(r, inputs({ convoyLead: 10 }), DT, s)
+    stepMission(r, inputs({ convoyArrived: 1, convoyAlive: 4 }), DT, s)
     expect(s.outcome).toBe('victory')
     stepMission(r, inputs({ convoyAlive: 0, convoyLead: Infinity }), DT, s)
     expect(s.outcome).toBe('victory')
@@ -227,6 +326,148 @@ describe('stepMission：護送與攔截共用的一條規則', () => {
     resetMissionState({ kind: 'annihilate' }, s)
     expect(s.remaining).toBe(-1)
     expect(s.hasTarget).toBe(false)
+  })
+})
+
+/**
+ * 抵達的兩條防線。**規則不再自己判距離**（見上面那一組的註解），這兩件事
+ * 因此搬到 `setup.ts` 每步掃描時呼叫的這一支。
+ */
+describe('arrivedAt：進圈的判定', () => {
+  it('圈內算、圈外不算', () => {
+    expect(arrivedAt(999, 1000)).toBe(true)
+    expect(arrivedAt(1001, 1000)).toBe(false)
+  })
+
+  it('剛好在半徑上不算 —— 嚴格小於', () => {
+    expect(arrivedAt(1000, 1000)).toBe(false)
+  })
+
+  /**
+   * 【代價很大所以要釘死】位置壞掉時誤判成抵達的話，任務會在玩家還在半路
+   * 時突然結束，而畫面上沒有任何異常。
+   */
+  it('距離是 NaN 時不算', () => {
+    expect(arrivedAt(NaN, 1000)).toBe(false)
+  })
+
+  it('一架都不剩時的 Infinity 也不算', () => {
+    expect(arrivedAt(Infinity, 1000)).toBe(false)
+  })
+})
+
+describe('stepMission：護送的門檻 need', () => {
+  const goal = new Vector3(-750, 4000, -12000)
+  function rules(owner: Team, need?: number): MissionRules {
+    return need === undefined
+      ? { kind: 'convoy', owner, point: goal, radius: 1000 }
+      : { kind: 'convoy', owner, point: goal, radius: 1000, need }
+  }
+  function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
+    return {
+      aliveBlue: 20,
+      aliveBlueFighters: 4,
+      aliveRed: 10,
+      playerPos: new Vector3(0, 4000, 5000),
+      playerAlive: true,
+      shipsSunk: 0,
+      shipsTotal: 0,
+      targetsDestroyed: 0,
+      targetsTotal: 0,
+      vitalSunk: 0,
+      vitalHp: 1,
+      redInbound: false,
+      convoyAlive: 16,
+      convoyLead: 17000,
+      convoyArrived: 0,
+      redKilled: 0,
+      redKilledBombers: 0,
+      ...over,
+    }
+  }
+
+  /**
+   * 【最重要的一條】沒寫 `need` 的卡一個位元都不該動。這一條一紅，代表
+   * 改版把既有的四張卡也一起改了。
+   */
+  it('省略 need 時逐字等於「任一架抵達就定案」', () => {
+    const r = rules('blue')
+    const one = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 1, convoyAlive: 15 }), DT, one)
+    expect(one.outcome).toBe('victory')
+
+    const none = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 0, convoyAlive: 0 }), DT, none)
+    expect(none.outcome).toBe('defeat')
+  })
+
+  it('送到門檻才算贏，差一架還在打', () => {
+    const r = rules('blue', 8)
+    const near = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 7, convoyAlive: 9 }), DT, near)
+    expect(near.outcome).toBe('fighting')
+
+    const done = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 8, convoyAlive: 8 }), DT, done)
+    expect(done.outcome).toBe('victory')
+  })
+
+  it('送超過門檻也算贏', () => {
+    const r = rules('blue', 8)
+    const s = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 11, convoyAlive: 5 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /**
+   * 【這是門檻帶來的新敗北條件】沒有它，16 架剩 7 架的玩家還要再飛兩分鐘
+   * 才知道自己輸了 —— 而那兩分鐘裡每一個數字都正常。
+   */
+  it('湊不到門檻就當場判敗，不等全滅', () => {
+    const r = rules('blue', 8)
+    const s = createMissionState(r)
+    // 送到 3 架、路上還剩 4 架 —— 最多只到 7，門檻是 8
+    stepMission(r, inputs({ convoyArrived: 3, convoyAlive: 4 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+    expect(s.remaining).toBe(4)
+  })
+
+  it('剛好還湊得到就繼續打', () => {
+    const r = rules('blue', 8)
+    const s = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 3, convoyAlive: 5 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+  })
+
+  it('攔截側：放過去門檻那麼多架就輸，湊不到就贏', () => {
+    const r = rules('red', 8)
+    const through = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 8, convoyAlive: 8 }), DT, through)
+    expect(through.outcome).toBe('defeat')
+
+    const stopped = createMissionState(r)
+    stepMission(r, inputs({ convoyArrived: 3, convoyAlive: 4 }), DT, stopped)
+    expect(stopped.outcome).toBe('victory')
+  })
+
+  it('有門檻才寫 arrived，沒門檻恆是 −1', () => {
+    const withNeed = createMissionState(rules('blue', 8))
+    // 開局就是 0：「還沒送到任何一架」是實話
+    expect(withNeed.arrived).toBe(0)
+    stepMission(rules('blue', 8), inputs({ convoyArrived: 3, convoyAlive: 13 }), DT, withNeed)
+    expect(withNeed.arrived).toBe(3)
+
+    const plain = createMissionState(rules('blue'))
+    expect(plain.arrived).toBe(-1)
+    stepMission(rules('blue'), inputs({ convoyArrived: 0, convoyAlive: 4 }), DT, plain)
+    expect(plain.arrived).toBe(-1)
+  })
+
+  it('換到別種規則時 arrived 要歸 −1', () => {
+    const s = createMissionState(rules('blue', 8))
+    expect(s.arrived).toBe(0)
+    resetMissionState({ kind: 'annihilate' }, s)
+    expect(s.arrived).toBe(-1)
   })
 })
 

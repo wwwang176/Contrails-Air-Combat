@@ -1,7 +1,63 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BANNER_HOLD_SECONDS, BANNER_SLIDE_SECONDS, bannerLayout, formatCountdown, formatObjectiveMetric,
+  BANNER_HOLD_SECONDS, BANNER_SLIDE_SECONDS, bannerLayout, formatConvoyCounts, formatCountdown,
+  formatObjectiveLine, formatObjectiveMetric,
 } from '../../src/hud/widgets/objective'
+import { createHudFrame, type HudFrame } from '../../src/hud/types'
+
+describe('formatConvoyCounts', () => {
+  it('有門檻：已抵達帶分母、還在飛的帶標籤', () => {
+    expect(formatConvoyCounts(3, 8, 11)).toBe('已抵達 3/8　在途 11 架')
+    expect(formatConvoyCounts(0, 8, 16)).toBe('已抵達 0/8　在途 16 架')
+  })
+
+  /** 【退化】沒有門檻的護送卡維持原本的裸架數 */
+  it('arrived 是 −1 時只印架數', () => {
+    expect(formatConvoyCounts(-1, 1, 16)).toBe('16 架')
+    expect(formatConvoyCounts(-1, -1, 4)).toBe('4 架')
+  })
+
+  it('兩個都是 −1 時回空字串', () => {
+    expect(formatConvoyCounts(-1, -1, -1)).toBe('')
+  })
+})
+
+describe('formatObjectiveLine', () => {
+  function frame(over: Partial<HudFrame>): HudFrame {
+    return {
+      ...createHudFrame(),
+      objectiveMetric: 13900,
+      objectiveMetricKind: 'distance',
+      objectiveSeconds: Infinity,
+      ...over,
+    }
+  }
+
+  it('有門檻的護送：文字、進度、在途、距離依序排開', () => {
+    const f = frame({
+      objectiveText: '送 8 架轟炸機抵達柏林',
+      objectiveArrived: 3, objectiveNeed: 8, objectiveRemaining: 11,
+    })
+    expect(formatObjectiveLine(f)).toBe('送 8 架轟炸機抵達柏林　已抵達 3/8　在途 11 架　13.9 km')
+  })
+
+  /** 【退化】沒有門檻時逐字等於原本那一列，不多出一段空的 */
+  it('沒有門檻的護送維持現狀', () => {
+    const f = frame({
+      objectiveText: '護送轟炸機',
+      objectiveArrived: -1, objectiveNeed: 1, objectiveRemaining: 16,
+    })
+    expect(formatObjectiveLine(f)).toBe('護送轟炸機　16 架　13.9 km')
+  })
+
+  it('沒有架數的任務只有文字、計量與倒數', () => {
+    const f = frame({
+      objectiveText: '撤離', objectiveArrived: -1, objectiveNeed: -1, objectiveRemaining: -1,
+      objectiveSeconds: 125,
+    })
+    expect(formatObjectiveLine(f)).toBe('撤離　13.9 km　2:05')
+  })
+})
 
 describe('formatObjectiveMetric', () => {
   it('count 就是整數', () => {

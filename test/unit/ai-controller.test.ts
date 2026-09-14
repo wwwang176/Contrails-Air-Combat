@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
-import { AiController, AI_DECISION_HZ } from '../../src/ai/AiController'
+import {
+  AiController, AI_DECISION_HZ, stepGroundReleaseCapture,
+  type GroundCaptureState, type GroundReleaseGate,
+} from '../../src/ai/AiController'
 import { createTargetBoard, type TargetCandidate } from '../../src/ai/target'
 import { STATION_OFFSETS, stationPoint } from '../../src/ai/station'
 import { ACE, VETERAN } from '../../src/ai/profile'
@@ -14,6 +17,33 @@ import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 
 const DT = 1 / 240
+
+describe('對地捕獲的 Worker 解除閘門', () => {
+  const capture = (): GroundCaptureState => ({ active: false, armed: false })
+  const gate = (): GroundReleaseGate => ({ safeSince: -1, sequence: -1 })
+
+  it('候選低頭命令要連續安全 0.5 秒且下降收住才交還', () => {
+    const c = capture()
+    const g = gate()
+    expect(stepGroundReleaseCapture(c, g, true, true, -20, -1, 0, 'pending')).toBe(false)
+    expect(c.active).toBe(true)
+    expect(stepGroundReleaseCapture(c, g, false, true, 0, 1, 1, 'safe')).toBe(true)
+    expect(stepGroundReleaseCapture(c, g, false, true, 0, 2, 1.25, 'safe')).toBe(true)
+    expect(stepGroundReleaseCapture(c, g, false, true, 0, 3, 1.5, 'safe')).toBe(false)
+    expect(c.active).toBe(false)
+  })
+
+  it('中途出現不安全結果會重新累計，仍快速下降也不交還', () => {
+    const c: GroundCaptureState = { active: true, armed: false }
+    const g = gate()
+    expect(stepGroundReleaseCapture(c, g, false, true, 0, 1, 1, 'safe')).toBe(true)
+    expect(stepGroundReleaseCapture(c, g, false, true, 0, 2, 1.25, 'unsafe')).toBe(true)
+    expect(g.safeSince).toBe(-1)
+    expect(stepGroundReleaseCapture(c, g, false, true, -3, 3, 2, 'safe')).toBe(true)
+    expect(stepGroundReleaseCapture(c, g, false, true, -3, 4, 2.5, 'safe')).toBe(true)
+    expect(c.active).toBe(true)
+  })
+})
 
 describe('DifficultyProfile', () => {
   it('M4 交付的是天花板：零延遲、零瞄準誤差', () => {

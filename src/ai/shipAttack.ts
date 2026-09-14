@@ -4,11 +4,13 @@ import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
+import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { Team } from '../world/World'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * # AI 的對艦索敵與掃射
@@ -63,6 +65,9 @@ export const SHIP_BREAK_RANGE = 100
 /** 機首與預瞄方向的夾角小於這個才開火，rad。 */
 export const SHIP_FIRE_CONE = 3 * DEG
 
+/** 對地掃射脫離時的固定爬升角。它只作用在已飛越目標的離場段，不是低空偏好。 */
+export const GROUND_STRAFE_EGRESS_CLIMB = 6 * DEG
+
 /**
  * 船體瞄點比水線高多少，m。
  *
@@ -79,6 +84,46 @@ export const SHIP_AIM_HEIGHT = 12
 export interface ShipAim {
   ship: number
   gun: number
+}
+
+export type GroundStrafePhase = 'approach' | 'egress'
+
+/**
+ * 戰鬥機的一次對地掃射航次。
+ *
+ * `armed` 代表這一趟曾把目標帶進武器射程；只有它成立後目標跑到身後，才算
+ * 真正飛越。這可避免 AI 一開始就在近距離背對目標時，誤把「尚未進場」當成
+ * 「已經飛越」。`target` 用物件身分防止換目標時沿用上一趟的離場承諾。
+ */
+export interface GroundStrafeState {
+  phase: GroundStrafePhase
+  armed: boolean
+  target: GroundTarget | Aircraft | null
+  readonly egressHeading: Vector3
+  /** 本決策拍算出的回頭門檻，m；Infinity = 當下還做不出可持續迴轉。 */
+  reattackRange: number
+  /** 當前對地預瞄解的飛行時間，s；離場或無解時為 NO_INTERCEPT。 */
+  interceptTime: number
+}
+
+export function createGroundStrafeState(): GroundStrafeState {
+  return {
+    phase: 'approach',
+    armed: false,
+    target: null,
+    egressHeading: new Vector3(0, 0, -1),
+    reattackRange: 0,
+    interceptTime: NO_INTERCEPT,
+  }
+}
+
+export function resetGroundStrafe(state: GroundStrafeState): void {
+  state.phase = 'approach'
+  state.armed = false
+  state.target = null
+  state.egressHeading.set(0, 0, -1)
+  state.reattackRange = 0
+  state.interceptTime = NO_INTERCEPT
 }
 
 export function createShipAim(): ShipAim {
@@ -169,6 +214,7 @@ export function pickShipTarget(
  */
 export function pickGroundTarget(
   selfPos: Vector3, selfTeam: Team, targets: readonly GroundTarget[], range: number,
+  onlyUnit: GroundUnitId | null = null,
 ): number {
   let best = -1
   let bestValue = -1
@@ -177,6 +223,7 @@ export function pickGroundTarget(
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i]!
     if (!t.alive || t.team === selfTeam) continue
+    if (onlyUnit !== null && t.unit.id !== onlyUnit) continue
     if (t.value < bestValue) continue
     const d = selfPos.distanceToSquared(t.position)
     if (d > rangeSq) continue
@@ -234,6 +281,162 @@ export function shipAttackCommand(
   self: Aircraft, ship: Ship, gunIndex: number, out: Command,
 ): void {
   const aim = shipAimAt(ship, gunIndex, S.v[0]!)
+  const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
+  strafeCommand(self, aim, tv.x, tv.y, tv.z, out)
+}
+
+/**
+ * 掃射一個地面目標。與 `shipAttackCommand` 同一支掃射核心，目標不動。
+ *
+ * 【瞄命中盒的半高】瞄地面高度的話彈道打在停放機腳下的土裡。
+ *
+ * **呼叫端仍然要在之後套 `applySafety`** —— 俯衝掃射追到地面的風險由安全層擋。
+ */
+export function groundAttackCommand(
+  state: GroundStrafeState, self: Aircraft, target: GroundTarget, replan: boolean, out: Command,
+): void {
+  const p = target.position
+  const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
+  groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out)
+}
+
+/**
+ * 掃射仍由起飛腳本控制的飛機。它在 `TargetBoard` 裡是 Aircraft，但飛行方式仍是
+ * 地面滑行／滾行，所以要走有近距脫離的掃射核心，不能用會一路追尾的空戰控制。
+ */
+export function groundedAircraftAttackCommand(
+  state: GroundStrafeState, self: Aircraft, target: Aircraft, replan: boolean, out: Command,
+): void {
+  const p = target.state.position
+  const v = target.state.velocity
+  groundStrafeCommand(state, target, self, p, v.x, v.y, v.z, replan, out)
+}
+
+/**
+ * 這架機在目前高度與速度下，完成下一次對地進場至少要拉開的水平距離。
+ *
+ * 槍的準備距離取「槍口初速＋飛機前進速度」在彈丸壽命內能覆蓋的距離；其後
+ * 再加一個 180° 持續迴轉的直徑。回傳 Infinity 不是錯誤，而是此速度下連
+ * 1 g 都無法維持或沒有可持續轉彎解，必須先沿離場方向消耗速度。
+ */
+export function groundStrafeReattackRange(self: Aircraft): number {
+  const tas = self.state.velocity.length()
+  const omega = sustainedTurnRate(self.spec, self.state.position.y, tas)
+  if (!(omega > 0)) return Infinity
+  const weaponPreparation = (
+    self.spec.battery.sight.muzzleVelocity + tas
+  ) * PROJECTILE_LIFETIME
+  return weaponPreparation + 2 * tas / omega
+}
+
+function enterGroundEgress(state: GroundStrafeState, self: Aircraft): void {
+  state.phase = 'egress'
+  state.armed = false
+  state.interceptTime = NO_INTERCEPT
+  const heading = state.egressHeading.copy(self.state.velocity)
+  heading.y = 0
+  if (heading.lengthSq() < MIN_ERROR) {
+    heading.copy(FWD).applyQuaternion(self.state.orientation)
+    heading.y = 0
+  }
+  if (heading.lengthSq() < MIN_ERROR) heading.set(0, 0, -1)
+  else heading.normalize()
+  state.reattackRange = groundStrafeReattackRange(self)
+}
+
+function commandGroundEgress(state: GroundStrafeState, out: Command): void {
+  const h = state.egressHeading
+  const c = Math.cos(GROUND_STRAFE_EGRESS_CLIMB)
+  out.aimWorld.set(h.x * c, Math.sin(GROUND_STRAFE_EGRESS_CLIMB), h.z * c)
+  out.throttle = WEP_THROTTLE
+  out.brake = 0
+  out.firing = false
+}
+
+/**
+ * 地面物件專用的掃射航次。船仍走原本的近距離拉起，避免把對艦既有行為與
+ * 掛彈瞄準一起改掉。
+ */
+function groundStrafeCommand(
+  state: GroundStrafeState,
+  target: GroundTarget | Aircraft,
+  self: Aircraft,
+  aim: Vector3,
+  tvx: number,
+  tvy: number,
+  tvz: number,
+  replan: boolean,
+  out: Command,
+): void {
+  if (state.target !== target) {
+    resetGroundStrafe(state)
+    state.target = target
+  }
+
+  const los = S.v[1]!.copy(aim).sub(self.state.position)
+  const horizontalRange = Math.hypot(los.x, los.z)
+
+  if (state.phase === 'egress') {
+    if (replan || !(state.reattackRange > 0)) {
+      state.reattackRange = groundStrafeReattackRange(self)
+    }
+    if (horizontalRange < state.reattackRange) {
+      commandGroundEgress(state, out)
+      return
+    }
+    state.phase = 'approach'
+    state.armed = false
+    state.reattackRange = 0
+  }
+
+  const range = los.length()
+  if (range < SHIP_BREAK_RANGE || range < MIN_ERROR) {
+    enterGroundEgress(state, self)
+    commandGroundEgress(state, out)
+    return
+  }
+
+  // 目標在速度向量前方才有資格把本航次上膛；一開始背對近距離目標仍應回頭
+  // 進場，而不是誤判為剛飛越。目標移動量一併算進閉合速度。
+  const relVelocity = S.v[3]!.set(tvx, tvy, tvz).sub(self.state.velocity)
+  const closing = -relVelocity.dot(los) / range
+  const wasArmed = state.armed
+
+  const lead = S.v[4]!
+  const t = solveLead(los, relVelocity, self.spec.battery.sight.muzzleVelocity, lead)
+  state.interceptTime = t
+  const weaponReach = t !== NO_INTERCEPT && t <= PROJECTILE_LIFETIME
+  if (weaponReach && closing > 0) state.armed = true
+
+  // 曾進入射程後閉合速度翻成負值，就是實際飛過最近點。即使 Worker 為了
+  // 地形提早把航線抬開、沒有鑽進 100 m，也要在此鎖住離場，不能下一格回瞄。
+  if (wasArmed && closing <= 0) {
+    enterGroundEgress(state, self)
+    commandGroundEgress(state, out)
+    return
+  }
+
+  los.divideScalar(range)
+  out.aimWorld.copy(los)
+  out.throttle = WEP_THROTTLE
+  out.brake = 0
+  if (!weaponReach) {
+    out.firing = false
+    return
+  }
+  const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
+  out.firing = nose.dot(lead) > Math.cos(SHIP_FIRE_CONE)
+}
+
+/**
+ * 掃射的核心：遠了就飛過去、對準了就開火、太近就拉起來。
+ *
+ * @param aim 瞄點，世界座標。**不可以是 `S.v[1]`…`S.v[4]`** —— 那幾格在這裡改寫
+ * @param tvx 目標速度，m/s
+ */
+function strafeCommand(
+  self: Aircraft, aim: Vector3, tvx: number, tvy: number, tvz: number, out: Command,
+): void {
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const range = los.length()
 
@@ -264,10 +467,9 @@ export function shipAttackCommand(
   // 攔截點，而且彈丸活得夠久飛到那裡。寫死一個距離的話，槍口初速不同的
   // 機種共用同一個射程，而那個數字只對訂它的那一台成立。
   //
-  // 【船的速度要進去】8 m/s 在一秒的彈道上是 8 m，比船寬小，但攔截解本來
-  // 就吃得下它 —— 少給一個已經有的量沒有好處。
-  const sv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation)
-    .multiplyScalar(ship.speed).sub(self.state.velocity)
+  // 【目標的速度要進去】船 8 m/s 在一秒的彈道上是 8 m，比船寬小，但攔截解
+  // 本來就吃得下它 —— 少給一個已經有的量沒有好處。地面目標給 0
+  const sv = S.v[3]!.set(tvx, tvy, tvz).sub(self.state.velocity)
   // 【借用 los 那一格】它已經寫進 `out.aimWorld`，之後不再用到
   const rel = S.v[1]!.copy(aim).sub(self.state.position)
   const lead = S.v[4]!

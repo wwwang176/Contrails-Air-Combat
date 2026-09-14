@@ -375,3 +375,28 @@ describe('洛伊納', () => {
     expect(t.collisionHeightAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(0)
   })
 })
+
+describe('晚秋的內陸', () => {
+  // 【不必載 GLB】這一種沒有廠區的佈景，同步組裝就拿得到
+  let t: ReturnType<typeof createTerrain>
+  let farm: ReturnType<typeof createTerrain>
+  beforeAll(() => {
+    t = createTerrain('autumnFarmland')
+    farm = createTerrain('farmland')
+  })
+  afterAll(() => {
+    t.dispose()
+    farm.dispose()
+  })
+
+  it('只有前四個位置，沒有廠區的佈景網格', () => {
+    expect(t.object.children.length).toBe(4)
+  })
+
+  it('高度場與丘陵和內陸逐點相同', () => {
+    for (const [x, z] of [[0, 0], [PLANT_CENTER.x, PLANT_CENTER.z], [-6000, 3000], [5000, -9000]] as const) {
+      expect(t.collisionHeightAt(x, z), `${x},${z}`).toBe(farm.collisionHeightAt(x, z))
+    }
+    expect(t.islands.length).toBe(farm.islands.length)
+  })
+})

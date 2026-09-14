@@ -1,15 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
 import { AiController } from '../../src/ai/AiController'
-import { recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
+import { recoveryAltitude, recoveryClearance, DEFAULT_SAFETY } from '../../src/ai/safety'
 import { maxLoadFactorAero, stallSpeed } from '../../src/analysis/envelope'
 import { PILOT_G_POSITIVE } from '../../src/control/limiters'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
 import type { AircraftSpec } from '../../src/specs/types'
 import { DEG } from '../../src/core/math'
+import { installRecoveryWorkerPortForTest } from '../../src/ai/recoveryWorkerClient'
+import { runRecoveryRollout } from '../../src/ai/recoveryRollout'
+import { createSense } from '../../src/ai/terrainSense'
+import { RecoveryEngineTestPort } from '../helpers/recoveryEngineTestPort'
+
+beforeAll(() => { installRecoveryWorkerPortForTest(new RecoveryEngineTestPort()) })
+afterAll(() => { installRecoveryWorkerPortForTest(null) })
 
 const DT = 1 / 240
 const SIM_SECONDS = 20
@@ -95,11 +102,33 @@ function fly(
  * 6.5 g。實際轉彎率只有理想值的 65%。
  */
 function withinContract(
-  spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number,
+  spec: AircraftSpec, altitude: number, tas: number, gammaDeg: number, bankDeg: number,
 ): boolean {
   const nMax = Math.min(maxLoadFactorAero(spec, altitude, tas), PILOT_G_POSITIVE)
-  const needed = recoveryAltitude(tas, gammaDeg * DEG, nMax) * DEFAULT_SAFETY.factor
-    + DEFAULT_SAFETY.clearance
+  const analyticNeeded = recoveryAltitude(tas, gammaDeg * DEG, nMax)
+    * DEFAULT_SAFETY.factor + recoveryClearance(spec)
+
+  // 正式安全層的契約包含 Worker，而不是只有解析式。極端矩陣會把飛機直接
+  // 瞬移進某些第一幀就已經無解的倒飛俯衝；Worker 回 recovered=false 時，
+  // 不應把那種題目誤標成「安全系統承諾救得回」。正常連續飛行會更早介入。
+  const self = new Aircraft(spec, altitude, tas)
+  const g = gammaDeg * DEG
+  const dir = new Vector3(0, Math.sin(g), -Math.cos(g))
+  self.state.position.set(0, altitude, 0)
+  self.state.velocity.copy(dir).multiplyScalar(tas)
+  self.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), dir)
+  const roll = self.state.orientation.clone()
+  self.state.orientation.multiply(
+    roll.setFromAxisAngle(new Vector3(0, 0, -1), bankDeg * DEG),
+  )
+  self.prevPosition.copy(self.state.position)
+  self.prevOrientation.copy(self.state.orientation)
+  const rollout = { drop: 0, seconds: 0, recovered: false }
+  runRecoveryRollout(self, createCommand(), createSense(), rollout)
+  const rolloutNeeded = rollout.recovered
+    ? rollout.drop + recoveryClearance(spec)
+    : Infinity
+  const needed = Math.max(analyticNeeded, rolloutNeeded)
   return altitude > needed
 }
 
@@ -133,7 +162,7 @@ describe('L4-A 安全矩陣 —— 契約內永不觸海', () => {
       for (const tas of SPEEDS) {
         for (const dive of DIVES) {
           for (const bank of BANKS) {
-            const inContract = withinContract(spec, alt, tas, dive)
+            const inContract = withinContract(spec, alt, tas, dive, bank)
             const label = `${name} / ${alt} m / ${tas} m/s / ${dive}° / 坡度 ${bank}°`
             it(`${label}${inContract ? '' : '（契約外：出發時已經來不及）'}`, () => {
               const r = fly(spec, alt, tas, dive, bank)
@@ -158,7 +187,7 @@ describe('L4-A 安全矩陣 —— 契約內永不觸海', () => {
         for (const tas of SPEEDS) {
           for (const dive of DIVES) {
             for (const _bank of BANKS) {
-              if (withinContract(spec, alt, tas, dive)) n++
+              if (withinContract(spec, alt, tas, dive, _bank)) n++
             }
           }
         }
@@ -207,7 +236,7 @@ describe('L4-A 安全矩陣 —— 低速改出（兩段式的新分支）', () 
       for (const load of LOW_LOADS) {
         for (const dive of LOW_DIVES) {
           const tas = speedFor(spec, alt, load)
-          const inContract = withinContract(spec, alt, tas, dive)
+          const inContract = withinContract(spec, alt, tas, dive, 0)
           const label = `${name} / ${alt} m / nMax≈${load} / ${dive}°`
           it(`${label}${inContract ? '' : '（契約外）'}`, () => {
             const r = fly(spec, alt, tas, dive, 0)
@@ -245,7 +274,7 @@ describe('L4-A 安全矩陣 —— 低速改出（兩段式的新分支）', () 
           for (const dive of LOW_DIVES) {
             total++
             const tas = speedFor(spec, alt, load)
-            if (withinContract(spec, alt, tas, dive)) inContract++
+            if (withinContract(spec, alt, tas, dive, 0)) inContract++
             const nMax = Math.min(maxLoadFactorAero(spec, alt, tas), PILOT_G_POSITIVE)
             if (nMax < nStarOf(dive)) newBranch++
           }

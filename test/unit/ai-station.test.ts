@@ -3,7 +3,7 @@ import { Quaternion, Vector3 } from 'three'
 import {
   DEFAULT_STATION, STATION_OFFSETS, stationCommand, stationPoint,
 } from '../../src/ai/station'
-import { DEFAULT_SAFETY } from '../../src/ai/safety'
+import { recoveryClearance } from '../../src/ai/safety'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import { createCommand } from '../../src/control/Controller'
@@ -105,13 +105,13 @@ describe('退化與夾制', () => {
     // 下降、安全層命令拉起，每一格互相抵銷。
     const lead = craft(new Vector3(0, 30, 0), new Vector3(0, 0, -200))
     stationPoint(lead, { along: 0, across: 0, up: -100 }, 0, OUT)
-    expect(OUT.y).toBeCloseTo(DEFAULT_SAFETY.clearance, 6)
+    expect(OUT.y).toBeCloseTo(recoveryClearance(P51D), 6)
   })
 
   it('海面不是 0 時夾制跟著抬高', () => {
-    const lead = craft(new Vector3(0, 100, 0), new Vector3(0, 0, -200))
+    const lead = craft(new Vector3(0, 0, 0), new Vector3(0, 0, -200))
     stationPoint(lead, { along: 0, across: 0, up: 0 }, 50, OUT)
-    expect(OUT.y).toBeCloseTo(50 + DEFAULT_SAFETY.clearance, 6)
+    expect(OUT.y).toBeCloseTo(50 + recoveryClearance(P51D), 6)
   })
 })
 

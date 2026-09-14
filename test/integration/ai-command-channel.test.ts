@@ -3,7 +3,7 @@ import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_COMMAND } from '../../src/ai/command'
 import { DEFAULT_WINGMAN } from '../../src/ai/wingman'
-import { DEFAULT_SAFETY } from '../../src/ai/safety'
+import { recoveryClearance } from '../../src/ai/safety'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
@@ -230,7 +230,7 @@ function observe(commanders = true): Observed {
 
     for (const c of b.world.combatants) {
       if (!c.alive) continue
-      if (c.aircraft.state.position.y < DEFAULT_SAFETY.clearance) o.belowClearance++
+      if (c.aircraft.state.position.y < recoveryClearance(c.aircraft.spec)) o.belowClearance++
       const ai = c.controller
       if (!(ai instanceof AiController)) continue
       o.aliveSamples++

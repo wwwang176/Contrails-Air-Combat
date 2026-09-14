@@ -38,6 +38,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import type { GroundTarget } from './groundTargets'
+import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform, ownerShipIndex } from './shipGuns'
 import {
@@ -138,6 +139,18 @@ export interface Combatant {
   hitsDealt: number
   /** 靶機為真：被打爆就滿血重生。玩家為假（M2 沒有東西打得到玩家）。 */
   respawnOnDestroy: boolean
+  /**
+   * 滾行起飛腳本。**非 null 時位置由腳本驅動**：控制器不跑、物理積分與撞地
+   * 判定跳過。它仍然在 `combatants` 裡、命中判定照打 —— 在跑道上打掉正在
+   * 加速的飛機要成立。腳本走完由 `step` 設回 null，之後照常飛。
+   */
+  takeoff: TakeoffRoll | null
+  /**
+   * 這個席位整場不進場（`battle/setup.ts` 的 `reinforce`：起飛時停機線上已經
+   * 沒有對應的那一架）。**`alive` 同時為 false**，但不是被擊落 —— 不推擊墜、
+   * 畫面不畫、不留殘骸。預留的座位範圍是建構期綁死的，所以席位留著、不進場。
+   */
+  retired: boolean
   readonly spawnPosition: Vector3
   spawnAltitude: number
   spawnTas: number
@@ -497,6 +510,8 @@ export class World {
       alive: true,
       hitsDealt: 0,
       respawnOnDestroy: false,
+      takeoff: null,
+      retired: false,
       spawnPosition: spawnPosition.clone(),
       spawnAltitude,
       spawnTas,
@@ -578,12 +593,25 @@ export class World {
         st.flash = v > 0 ? v : 0
       }
       if (!c.alive) continue
+      // 【滾行中不開火、不投彈】指令停在這兩格為假，控制器交還之後才接手
+      if (c.takeoff !== null) {
+        c.command.firing = false
+        c.command.bombing = false
+        continue
+      }
       c.controller.update(c.aircraft, dt, c.command)
     }
 
     // 2. 全部 Aircraft 推進，接著開火（槍口用推進後的姿態）
     for (const c of this.combatants) {
       if (!c.alive) continue
+      if (c.takeoff !== null) {
+        const a = c.aircraft
+        a.prevPosition.copy(a.state.position)
+        a.prevOrientation.copy(a.state.orientation)
+        if (!stepTakeoff(c.takeoff, a.state, dt)) c.takeoff = null
+        continue
+      }
       c.aircraft.update(
         c.command.aimWorld, c.command.throttle, dt, c.command.brake, c.command.upright,
       )
@@ -591,6 +619,8 @@ export class World {
     // 【撞地要在開火之前判】撞地的那一步不該還打得出子彈。
     for (const c of this.combatants) {
       if (!c.alive) continue
+      // 【滾行中不判撞地】機體原點在跑道面上方 1.5 m，低於撞地的離地餘裕
+      if (c.takeoff !== null) continue
       if (this.crashPolicy(c)) this.destroy(c)
     }
     // 【撞船與撞地同一個位置、同一個理由】不擋的話飛機會直接穿過巡洋艦。
@@ -1631,6 +1661,9 @@ export class World {
     resetBombBay(c.bombBay, c.loadout)
     c.hitsDealt = 0
     c.alive = true
+    // 【重生在空中】上一條命還在滾行的話，不解開座標鎖它會被拉回跑道
+    c.takeoff = null
+    c.retired = false
     // 【上一條命的傷害紀錄要作廢】不清的話，重生後的第一次擊墜會把上一條
     // 命的攻擊者算進助攻（M9 spec §5.2）
     const n = this.damageStride

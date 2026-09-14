@@ -52,10 +52,15 @@ import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
   createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
 } from '../world/shipGuns'
-import { createGroundTarget, resetGroundTarget } from '../world/groundTargets'
+import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
+import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
+import {
+  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
+  type TakeoffLine, type TakeoffRoll,
+} from '../control/takeoffRoll'
 import type { Loadout } from '../weapons/stores'
 
 /**
@@ -101,6 +106,14 @@ export interface BattleConfig {
    * 坑。`reserve` 留給測試當低階的逃生口：兩者都給時以 `reserve` 為準。
    */
   readonly beats?: readonly Beat[]
+  /**
+   * transit 那幾架的終點，**不參與勝負判定**。規則是 `convoy` 時終點由規則給，
+   * 這一格不讀。**省略 = 沒有這種終點**，那時有 transit 卻不是護送規則就拋錯。
+   *
+   * 【為什麼要與規則拆開】「有終點可飛」與「勝負由抵達判定」是兩件事。轟炸機流
+   * （德 M1）要前者、不要後者 —— 勝負是 `hunt`。
+   */
+  readonly route?: TransitRoute
   /**
    * 這一場的艦隊。**省略 = 一艘船都不產生**，而 `World` 那三段推進都是
    * 零長度早退，所以既有的空戰逐位元不變。
@@ -225,6 +238,13 @@ export interface BattleConfig {
   tuning: MissionTuning
 }
 
+/** transit 那一隊飛向哪裡。形狀與 `MissionRules` 的 convoy 相同，但不判勝負 */
+export interface TransitRoute {
+  readonly owner: Team
+  readonly point: Vector3
+  readonly radius: number
+}
+
 export const DEFAULT_BATTLE: BattleConfig = {
   // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
   units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
@@ -266,7 +286,8 @@ export interface ConvoyIndex {
   readonly goal: Vector3
   /**
    * 與 `seats` 對齊：**那一架自己要飛的點**。x 取它的出生 x，所以每一架
-   * 飛的是一條**與 Z 軸平行**的直線。
+   * 飛的是一條**與 Z 軸平行**的直線；y 與 z 是圈心加上那一架的
+   * `FlightPlan.rise` 與 `depth`，箱型因此一路維持到終點。
    *
    * 【為什麼不是全部瞄同一個點】每台轟炸機各有自己的前方集合點，既排除
    * 滾轉又讓整隊平行飛。共用一個點的話整隊會沿途向內收攏 —— 起始值下只有
@@ -285,6 +306,26 @@ export interface ConvoyIndex {
    * 分隊（見 `blueOrderFlights`），改由 `stepCommandLayer` 直接發這一張。
    */
   readonly orders: readonly (FlightOrder | null)[]
+  /** 抵達半徑，m。與 `MissionRules` 的 convoy 是同一個值 —— 抵達由這一層判 */
+  readonly radius: number
+  /**
+   * 與 `seats` 對齊：那一架**進過判定圈沒有**。一旦是 true 就不會變回去。
+   *
+   * 【為什麼抵達要記在這裡而不是讓規則自己算】「進過圈」是跨步累積的狀態，
+   * 而 `stepMission` 是只看當步快照的純函數。讓它從距離推的話，同一架在圈裡
+   * 待一秒就會被算成兩百多架抵達（240 Hz）。
+   *
+   * 【抵達的那幾架不退場】它們繼續往前飛。整隊是一起到的，所以從第一架進圈
+   * 到定案只有幾秒 —— 為了那幾秒讓一架轟炸機在玩家眼前憑空消失不划算。
+   * 代價由這個旗標擋住：抵達之後就不再納入存活與距離的掃描。
+   */
+  readonly arrived: boolean[]
+  /**
+   * 抵達判不判勝負。**規則是 `convoy` 時為 true**；終點來自
+   * `BattleConfig.route` 時為 false —— 那時規則不讀抵達數，抵達的那一架由
+   * `conveyor` 節拍拉回起點。
+   */
+  readonly judged: boolean
 }
 
 export interface Battle {
@@ -503,6 +544,30 @@ export interface Battle {
    * 連隊伍都只知道藍紅（見 `damageEvents` 的說明）。與 `roster` 同一層。
    */
   readonly report: BattleReport
+  /**
+   * 紅方**累計**被擊落的架數。`hunt` 規則讀它。
+   *
+   * 【為什麼記在這裡而不是從存活數推】有重生的關「開場架數減存活數」會隨著
+   * 重生退回去 —— 打光一整隊再讓它回來，進度就歸零了。而擊落是已經發生的事。
+   *
+   * 【在 `drainKills` 裡累加】那裡本來就逐筆走擊墜事件，而且有 `killsSeen`
+   * 游標擋著重掃。自己另外掃存活數的話，同一件事會有第二個實作。
+   */
+  redKilled: number
+  /** 上面那些裡面機體角色是轟炸機的。`hunt.role` 限定時要分得出來 */
+  redKilledBombers: number
+}
+
+/**
+ * 這一架算不算進了判定圈。
+ *
+ * 【為什麼是一支函數而不是一行 `<`】它守著兩件事：半徑是**嚴格**小於，
+ * 而且距離是 NaN 時一定要回 false。後者的代價很大 —— 位置壞掉時誤判成抵達
+ * 的話，任務會在玩家還在半路時突然結束，而畫面上沒有任何異常。兩件事都要
+ * 能單獨被殺死，而寫在 `stepBattle` 裡面就只能靠開一場仗才碰得到。
+ */
+export function arrivedAt(distance: number, radius: number): boolean {
+  return distance < radius
 }
 
 const UP = new Vector3(0, 1, 0)
@@ -628,7 +693,9 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
   // `(f − (n−1)/2) × schwarmSpacing + across × lateralOffset`，
   // 而 `lane` 就是那個括號裡的中間值。浮點加法不可交換，順序不能換。
   const leadX = unit.lane * cfg.schwarmSpacing + entry.across * cfg.lateralOffset
+  // 【`rise` 排在最後】省略時加的是 0，逐位元與舊行為相同
   const leadY = cfg.altitude + entry.climb + altitudeOffset(unit.tier, cfg.altitudeSpread)
+    + (unit.rise ?? 0)
   return { z, orientation, heading, nominalTas: cfg.tas * entry.speed, leadX, leadY }
 }
 
@@ -767,6 +834,9 @@ export function createBattle(
   /** `duty === 'transit'` 的座位索引與它們各自的出生 x（見 `ConvoyIndex`） */
   const convoySeats: number[] = []
   const convoyX: number[] = []
+  /** 那幾架的 `FlightPlan.rise` 與 `depth`，終點帶著同樣的偏移 */
+  const convoyRise: number[] = []
+  const convoyDepth: number[] = []
   /** 那幾架各自的**分隊**索引。編制依 `cfg.units` 的順序建，所以就是單位序號 */
   const convoyFlights: number[] = []
   /**
@@ -825,6 +895,8 @@ export function createBattle(
         // across × lateralOffset` 再算一次，而那條式子的浮點順序是被
         // `test/fixtures/spawn-baseline.ts` 釘住的。抄現成的值不可能算錯
         convoyX.push(c.spawnPosition.x)
+        convoyRise.push(unit.rise ?? 0)
+        convoyDepth.push(unit.depth ?? 0)
         convoyFlights.push(sizes.length)
       }
     }
@@ -912,27 +984,32 @@ export function createBattle(
   //
   // 【兩個方向都要擋】少了任何一邊，症狀都是「這一關永遠打不完」而畫面上
   // 一切正常：沒有 transit 的護送任務，勝利條件從第一幀起就不可能成立；
-  // 有 transit 卻不是護送規則的話，那幾架沒有地方可去，會照一般空戰打。
+  // 有 transit 卻既不是護送規則、也沒有 `route` 的話，那幾架沒有地方可去，
+  // 會照一般空戰打。
+  //
+  // 【終點與勝負拆開】護送規則的終點判勝負；`route` 的終點只給 transit 飛
   const convoyOrders: (FlightOrder | null)[] = flights.flights.map(() => null)
   let convoy: ConvoyIndex | null = null
-  if (cfg.rules.kind === 'convoy') {
-    const rules = cfg.rules
+  const rules = cfg.rules.kind === 'convoy' ? cfg.rules : cfg.route
+  if (rules !== undefined) {
     const points: Vector3[] = []
     let owned = 0
     for (let t = 0; t < convoySeats.length; t++) {
       const seat = convoySeats[t]!
       if (world.combatants[seat]!.team === rules.owner) owned++
-      // 【x 是自己的、y 與 z 是共用的】平行直線的定義
-      const point = new Vector3(convoyX[t]!, rules.point.y, rules.point.z)
-      // 【整隊必須落得進判定圈】每一架飛的是 (自己的 x, 終點的 y, 終點的 z)，
-      // 所以它抵達時離圈心恰好是這個橫向偏移。大於半徑的那幾架**永遠判不到**,
-      // 而畫面上的症狀是「轟炸機從圈旁邊飛過去，任務永遠不結束」。
-      // 實測踩過一次：圈釘在 x = 0 而整隊偏 −750，最外側 1,050 > 1,000
-      const off = Math.abs(point.x - rules.point.x)
+      // 【x 是自己的出生 x，y 與 z 是圈心加上自己的 rise 與 depth】平行直線，
+      // 而箱型飛到終點還是同一個箱子。沒有偏移的卡加的是 0，終點與圈心同高同 z
+      const point = new Vector3(
+        convoyX[t]!, rules.point.y + convoyRise[t]!, rules.point.z + convoyDepth[t]!)
+      // 【整隊必須落得進判定圈，量三維】每一架飛到自己的終點時離圈心恰好是
+      // 這個距離。大於半徑的那幾架**永遠判不到**，而畫面上的症狀是「轟炸機從
+      // 圈旁邊飛過去，任務永遠不結束」。只量 x 會放過一個被縱深或高度推出圈外
+      // 的擺法
+      const off = point.distanceTo(rules.point)
       if (!(off < rules.radius)) {
         throw new Error(
           `被護送的第 ${t} 架離判定圈心 ${off.toFixed(0)} m，不小於抵達半徑 ${rules.radius} m`
-          + '——它永遠判不到。把編隊收窄（order.ts 的 CONVOY_LANE）或把半徑放大',
+          + '——它永遠判不到。把編隊收窄（order.ts 的 CONVOY_LANE／BOX_*）或把半徑放大',
         )
       }
       points.push(point)
@@ -948,9 +1025,22 @@ export function createBattle(
     if (owned === 0) {
       throw new Error(`護送／攔截的規則說目標在 ${rules.owner} 隊，但編組表裡那一隊沒有任何 transit`)
     }
-    convoy = { seats: convoySeats, goal: rules.point, points, orders: convoyOrders }
+    convoy = {
+      seats: convoySeats,
+      goal: rules.point,
+      points,
+      orders: convoyOrders,
+      radius: rules.radius,
+      arrived: convoySeats.map(() => false),
+      judged: cfg.rules.kind === 'convoy',
+    }
   } else if (convoySeats.length > 0) {
-    throw new Error('編組表裡有 transit 的小隊，但這一場的規則不是護送／攔截——它們沒有終點可飛')
+    throw new Error('編組表裡有 transit 的小隊，但這一場既不是護送／攔截規則、也沒有 route——它們沒有終點可飛')
+  }
+  // 【傳送帶只接不判勝負的終點】判勝負的護送裡，抵達的那一架被拉回起點的話
+  // 抵達的閂永遠閂不上，那一關打不完
+  if ((cfg.beats ?? []).some((x) => x.kind === 'conveyor') && (convoy === null || convoy.judged)) {
+    throw new Error('conveyor 節拍要配 BattleConfig.route 的終點，不能配護送規則')
   }
 
   const blueFlightIndices: number[] = []
@@ -971,6 +1061,7 @@ export function createBattle(
     ai.board = board
     ai.selfIndex = c.index
     ai.profile = cfg.aiProfile
+    ai.priorityGroundUnit = c.team === 'blue' ? cfg.tuning.priorityGroundUnit ?? null : null
     // 【相位依索引攤平】40 架的包絡查詢因此不會擠在同一個物理步
     ai.setDecisionPhase(c.index / world.combatants.length)
   }
@@ -1040,6 +1131,8 @@ export function createBattle(
     killsSeen: world.killEvents.total,
     groundKillsSeen: world.groundKillEvents.total,
     report: createBattleReport(),
+    redKilled: 0,
+    redKilledBombers: 0,
   }
   wireStations(battle)
   return battle
@@ -1166,6 +1259,12 @@ function stepBeats(b: Battle): void {
       else aliveCounts.redFighter++
     }
   }
+  // 【與 `stepMission` 同一個池】不能借 `MISSION_INPUTS` —— 那一份在這一步
+  // 之後才填，讀到的是上一步、甚至上一場的殘留
+  let destroyed = 0
+  for (const t of b.world.groundTargets) {
+    if (inDestroyPool(t, b.rules) && destroyedInPool(t, b.world.combatants)) destroyed++
+  }
 
   for (let i = 0; i < beats.length; i++) {
     const beat = beats[i]!
@@ -1177,8 +1276,17 @@ function stepBeats(b: Battle): void {
       stepRecycle(b, beat, st, now)
       continue
     }
+    if (beat.kind === 'conveyor') {
+      stepConveyor(b)
+      continue
+    }
+    // 【起飛的那一批要地上還有飛機】一架都不剩時不預警、不進場 —— 條件成立
+    // 也一樣。等下去是對的：它不會再成立，而同形狀的下一批照樣可以用那個預留
+    const grounded = beat.kind === 'reinforce' && beat.flight.departs !== undefined
+      && parkedLeft(b, beat.flight.departs, beat.flight.team) === 0
     if (st.phase === 'waiting') {
-      if (!conditionMet(beat.when, now, aliveOf, b.batches)) continue
+      if (!conditionMet(beat.when, now, aliveOf, b.batches, destroyed)) continue
+      if (grounded) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
       // 【照明彈沒有訊息】天亮起來就是通知
@@ -1190,10 +1298,17 @@ function stepBeats(b: Battle): void {
     // 中間硬隔一個物理步的話，那 4 ms 看不出來，卻讓「0 秒預警」這個寫法
     // 多出一條沒有人會預期的語意
     if (now < st.dueAt) continue
-    // 【預留是一個佇列】第二個波次的條件先成立時它要等 —— 座位是依序附加到
-    // 世界尾端的，而每一支預留的分隊在建構期就綁死了自己的座位與隊伍。硬插
-    // 隊的話那幾架會落進前一支預留的分隊，也就是**別隊**裡（見 `BeatState.slot`）
-    if (beat.kind === 'reinforce' && st.slot !== b.reserveUsed) continue
+    // 【預警之後地上的飛機被打光】這一批作罷，預留留給同形狀的下一批
+    if (grounded) {
+      st.phase = 'done'
+      b.beatsLeft--
+      continue
+    }
+    // 【預留依形狀取用】座位依序附加到世界尾端，每一支預留的分隊在建構期就
+    // 綁死了自己的座位範圍、隊伍與架數。輪到的那一支隊伍或架數不同就要等 ——
+    // 硬塞的話那幾架會落進別隊的分隊裡。形狀相同就直接用：前一個波次的條件
+    // 可能永遠不成立（`ground`），照陣列順序排隊的話後面那一個永遠不會來
+    if (beat.kind === 'reinforce' && !fitsNextReserve(b, beat.flight)) continue
     st.phase = 'done'
     b.beatsLeft--
     if (beat.kind === 'reinforce') reinforce(b, beat.flight)
@@ -1259,6 +1374,40 @@ function stepFlareRotation(b: Battle): void {
 /** 畫面中心訊息從生效那一刻起再顯示幾秒 */
 const MESSAGE_SECONDS = 4
 
+/** 下一支預留的分隊與這支編組同隊、同架數 */
+function fitsNextReserve(b: Battle, plan: FlightPlan): boolean {
+  const r = b.reserve[b.reserveUsed]
+  return r !== undefined && r.team === plan.team && r.count === plan.members.length
+}
+
+/**
+ * 這一台算不算進炸毀的池：敵方、合乎規則指定的單位。**起飛離場的仍然在池裡**
+ * —— 分母是停機線原本那幾架，不因為起飛而縮水。
+ *
+ * **`stepMission` 的計數與 `ground` 節拍條件共用**（連同 `destroyedInPool`）——
+ * 兩邊數法不同的話，目標列說還差三架時起飛的條件已經以為夠了。
+ */
+function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
+  if (t.team === 'blue') return false
+  return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
+}
+
+/**
+ * 池裡的這一台算不算已摧毀。**每一架飛機只算一次，不管死在哪裡。**
+ *
+ * ```
+ *   沒有離場   停機墊上的那一台打掉了沒有
+ *   已經離場   從它起飛的那一架還活不活著（滑行、滾行、升空後被打掉都算）
+ * ```
+ *
+ * 【離場的那一格不能看自己的 `alive`】離場時它就設成 false 了 —— 看它的話
+ * 起飛的那一刻就算成摧毀，同一架飛機之後被擊落又不會多算，數字全錯。
+ */
+function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+  if (!t.departed) return !t.alive
+  return !cs[t.departedAs]!.alive
+}
+
 /**
  * `stepBeats` 的當步快照。模組級，不配置。
  *
@@ -1316,26 +1465,154 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
   const seats: number[] = []
   const names = pilotNames(
     b.seed + slot + 1, plan.members[0]!.faction, plan.members.length)
+  /** 這一批真的上了跑道的腳本，依排隊位置。單列的位置照它排，作廢的席位不佔位 */
+  const rolls: TakeoffRoll[] = []
   for (let k = 0; k < plan.members.length; k++) {
     const c = spawnMember(
       b.world, b.cfg, plan, frame, k, made, b.feeled, b.cruises, new AiController())
+    if (plan.takeoff !== undefined) {
+      // 【停機線上沒有對應的那一架就不進場】起飛的是地上那一架，地上沒有了
+      // 就不能憑空多一架。席位已經在建構期綁死，所以留著、標成作廢
+      const stand = plan.departs === undefined
+        ? null
+        : departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)
+      if (plan.departs === undefined || stand !== null) {
+        rolls.push(startTakeoff(b, c, plan.takeoff, rolls.length, stand))
+        // 【停機墊對回起飛的那一架】炸毀的計數從此看這一架（`destroyedInPool`）
+        if (stand !== null) stand.departedAs = c.index
+      } else {
+        c.alive = false
+        c.retired = true
+      }
+    }
     seats.push(c.index)
     ;(plan.team === 'blue' ? b.blue : b.red).push(c)
     b.spawnOrientations.push(c.aircraft.state.orientation.clone())
     b.commandUnits.push(makeCommandUnit(c, b.ceilings))
     b.roster.pilots.push({
-      name: names[k]!, kills: 0, deaths: 0, assists: 0, alive: true, isPlayer: false,
+      name: names[k]!, kills: 0, deaths: 0, assists: 0, alive: c.alive, isPlayer: false,
     })
     const ai = c.controller as AiController
     ai.board = b.board
     ai.selfIndex = c.index
     ai.profile = b.cfg.aiProfile
+    ai.priorityGroundUnit = c.team === 'blue'
+      ? b.cfg.tuning.priorityGroundUnit ?? null
+      : null
     // 【相位照最終容量攤平，不照當下架數】用當下架數的話同一波的值會全部
     // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
     ai.setDecisionPhase(c.index / b.board.assignments.length)
   }
+  // 【小隊到齊才起步】最慢那一架滑到位的時刻，再每架晚 `TAKEOFF_STAGGER` 秒。
+  // 在生成這一刻就算定：前面那一架在滑行途中被打掉，後面的也不會等一架永遠到
+  // 不了的飛機
+  let ready = 0
+  for (const r of rolls) ready = Math.max(ready, r.taxiTime)
+  for (let s = 0; s < rolls.length; s++) rolls[s]!.delay = ready + s * TAKEOFF_STAGGER
   b.reserveUsed++
   return seats
+}
+
+/**
+ * 掛上起飛腳本，回傳它。**同一小隊單列排在中線上**：第 `slot` 架排在起飛線後方
+ * `slot × TAKEOFF_TRAIL`。起步時刻由 `reinforce` 在整批生成完之後填。
+ *
+ * 【有滑行路徑、也有停機墊時從停機墊出發】飛機擺在那一格、機首照停放的方向；
+ * 否則直接擺在排隊位置上。地面高度讀 `world.groundAt` —— 增援在戰鬥中生成，
+ * 那時地形已經接上。
+ */
+function startTakeoff(
+  b: Battle, c: Combatant, line: TakeoffLine, slot: number, stand: GroundTarget | null,
+): TakeoffRoll {
+  const back = slot * TAKEOFF_TRAIL
+  // 機首是 (−sin, 0, −cos)，後方是它的反向
+  const x = line.x + Math.sin(line.heading) * back
+  const z = line.z + Math.cos(line.heading) * back
+  const groundY = b.world.groundAt(x, z)
+  const taxi = line.route !== undefined && stand !== null
+    ? { path: line.route(stand.position.x, stand.position.z, slot), startHeading: stand.heading }
+    : null
+  const roll = createTakeoffRoll(x, z, line.heading, groundY, 0, taxi)
+  c.takeoff = roll
+  const a = c.aircraft
+  const from = taxi === null ? { x, z } : taxi.path[0]!
+  a.state.position.set(from.x, groundY + GEAR_CLEARANCE, from.z)
+  a.state.orientation.setFromAxisAngle(UP, taxi === null ? line.heading : taxi.startHeading)
+  a.state.velocity.set(0, 0, 0)
+  a.state.angularVelocity.set(0, 0, 0)
+  a.prevPosition.copy(a.state.position)
+  a.prevOrientation.copy(a.state.orientation)
+  // 【AI 照常可以選它】滑行與滾行中的飛機是一般的敵機。追到地面的風險交給
+  // 安全層（`applySafety` 的拉平、`terrainSense`），不靠不選它來避
+  return roll
+}
+
+/** 地上還在的同隊 `unit` 有幾台 */
+function parkedLeft(b: Battle, unit: GroundUnitId, team: Team): number {
+  let n = 0
+  for (const t of b.world.groundTargets) {
+    if (t.alive && t.team === team && t.unit.id === unit) n++
+  }
+  return n
+}
+
+/**
+ * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳它；一台都不剩回 `null`。
+ * **不是摧毀**：不推擊毀事件。它仍在炸毀的池裡，摧毀與否由呼叫端接上的
+ * `departedAs` 那一架決定（`destroyedInPool`）。
+ *
+ * 【開始滑行那一刻就離場】少了這一步，停機墊上那一架與正在滑行的那一架是同一架
+ * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
+ */
+function departParked(
+  b: Battle, unit: GroundUnitId, team: Team, x: number, z: number,
+): GroundTarget | null {
+  let best: GroundTarget | null = null
+  let bestSq = Infinity
+  for (const t of b.world.groundTargets) {
+    if (!t.alive || t.team !== team || t.unit.id !== unit) continue
+    const dx = t.position.x - x
+    const dz = t.position.z - z
+    const d = dx * dx + dz * dz
+    if (d < bestSq) {
+      bestSq = d
+      best = t
+    }
+  }
+  if (best === null) return null
+  best.alive = false
+  best.departed = true
+  return best
+}
+
+/**
+ * 傳送帶的一步：還活著、進了終點圈的 transit 就地回到自己的出生點重新進場。
+ *
+ * 【同一個席位、同一個名字】離場與進場在同一步，席位不空出來 —— 容量、編制、
+ * 記分板的那一列都不動。被擊落的不在這裡補。
+ *
+ * 熱路徑：只掃 transit 的座位，不配置（進場那一刻換一顆 `AiController`）。
+ */
+function stepConveyor(b: Battle): void {
+  const cv = b.convoy
+  if (cv === null) return
+  const cs = b.world.combatants
+  for (let t = 0; t < cv.seats.length; t++) {
+    const seat = cv.seats[t]!
+    const c = cs[seat]!
+    if (!c.alive) continue
+    if (!arrivedAt(c.aircraft.state.position.distanceTo(cv.goal), cv.radius)) continue
+    // 【`World.respawn` 不推擊墜】`destroy` 會推，`hunt` 的擊落數就平白多一架
+    b.world.respawn(c)
+    settle(c, c.spawnPosition, b.spawnOrientations[seat]!, c.spawnTas)
+    const ai = new AiController()
+    ai.board = b.board
+    ai.selfIndex = seat
+    ai.profile = b.cfg.aiProfile
+    ai.setDecisionPhase(seat / b.board.assignments.length)
+    c.controller = ai
+    b.board.assignments[seat] = -1
+  }
 }
 
 /**
@@ -1676,11 +1953,15 @@ const ASSISTS: number[] = []
  */
 const MISSION_INPUTS: MissionInputs = {
   aliveBlue: 0,
+  aliveBlueFighters: 0,
   aliveRed: 0,
   playerPos: new Vector3(),
   playerAlive: true,
   convoyAlive: 0,
   convoyLead: Infinity,
+  convoyArrived: 0,
+  redKilled: 0,
+  redKilledBombers: 0,
   shipsSunk: 0,
   shipsTotal: 0,
   targetsDestroyed: 0,
@@ -1714,6 +1995,15 @@ function drainKills(b: Battle): void {
     const o = e * KILL_STRIDE
     const victim = ke.data[o + 6]!
     const killer = ke.data[o + 7]!
+
+    // 【擊落的累計掛在這裡】這個迴圈已經有 `killsSeen` 游標擋著重掃，而且
+    // 每一次陣亡恰好推一筆事件 —— 重生的席位再死一次會再推一筆，那正是
+    // `hunt` 要數的。自摔也算：`killer` 是 −1，但那一架確實不在了。
+    const v = w.combatants[victim]
+    if (v !== undefined && v.team === 'red') {
+      b.redKilled++
+      if (v.aircraft.spec.role === 'bomber') b.redKilledBombers++
+    }
     // 【互換必須在記錄之前】反過來的話這次陣亡與兇手的擊墜對象都會記到
     // 玩家頭上，交換只是把它搬給 AI —— 一個順序解決兩件事（M9 spec §7.1）。
     //
@@ -1889,25 +2179,45 @@ export function stepBattle(b: Battle, dt: number): void {
   // 「玩家死在圓環裡、僚機還活著」判成撤離成功（見 `mission.ts`）。
   const inp = MISSION_INPUTS
   inp.aliveBlue = aliveCount(b.blue)
+  inp.aliveBlueFighters = 0
+  for (let i = 0; i < b.blue.length; i++) {
+    const c = b.blue[i]!
+    if (c.alive && c.aircraft.spec.role !== 'bomber') inp.aliveBlueFighters++
+  }
   inp.aliveRed = aliveCount(b.red)
   inp.playerPos.copy(b.player.aircraft.state.position)
   inp.playerAlive = b.player.alive
-  // 【只掃被護送的那幾架，而且只掃活著的】兩者的理由見 `MissionInputs`。
-  // 起始值下最多 4 架，遭遇戰是 0 架 —— 這一段的成本與架數無關
+  // 【只掃被護送的那幾架，而且抵達與陣亡的都不再計入】三者的理由見
+  // `MissionInputs`。最多 16 架，遭遇戰是 0 架 —— 這一段的成本與架數無關
   inp.convoyAlive = 0
+  inp.convoyArrived = 0
   inp.convoyLead = Infinity
   const cv = b.convoy
   if (cv !== null) {
     for (let t = 0; t < cv.seats.length; t++) {
+      // 【抵達是一個閂】記住之後就不再看它的位置 —— 它還在往前飛
+      if (cv.arrived[t] === true) {
+        inp.convoyArrived++
+        continue
+      }
       const c = cs[cv.seats[t]!]!
       if (!c.alive) continue
-      inp.convoyAlive++
       // 【量到判定點，不是量到它自己那條平行線的終點】圓環只有一個，
       // 而玩家看到的圈就必須是判定用的那一個
       const d = c.aircraft.state.position.distanceTo(cv.goal)
+      // 【NaN 走這條】`arrivedAt` 對 NaN 回 false，位置壞掉時不會誤判抵達
+      // —— 那一架會留在「還在路上」那一邊，而那一邊的兩條判定都不讀位置
+      if (arrivedAt(d, cv.radius)) {
+        cv.arrived[t] = true
+        inp.convoyArrived++
+        continue
+      }
+      inp.convoyAlive++
       if (d < inp.convoyLead) inp.convoyLead = d
     }
   }
+  inp.redKilled = b.redKilled
+  inp.redKilledBombers = b.redKilledBombers
   // 【只算敵方的船】友軍的船要等 `allies-m4` 那種「守住艦隊」的規則。
   // 八艘的迴圈，每個物理步跑一次 —— 與 convoy 那一段同一個量級。
   inp.shipsSunk = 0
@@ -1936,9 +2246,9 @@ export function stepBattle(b: Battle, dt: number): void {
   inp.targetsDestroyed = 0
   inp.targetsTotal = 0
   for (const t of b.world.groundTargets) {
-    if (t.team === 'blue') continue
+    if (!inDestroyPool(t, b.rules)) continue
     inp.targetsTotal++
-    if (!t.alive) inp.targetsDestroyed++
+    if (destroyedInPool(t, cs)) inp.targetsDestroyed++
   }
   // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
   // 第二波永遠不來（見 `MissionInputs.redInbound`）
@@ -2024,6 +2334,12 @@ export function resetBattle(
   // 【通報也要清】不清的話新的一場開場那三秒還掛著上一場的最後幾則，
   // 而佇列裡沒出場的會一條一條慢慢冒出來
   resetBattleReport(b.report)
+  // 【擊落的累計與抵達的閂都要歸零】它們是跨步累積的，不歸零的話第二局
+  // 開場就帶著上一局的進度 —— `hunt` 可能第一幀就判勝，護送可能第一幀就
+  // 判定送到了，而畫面上一切正常
+  b.redKilled = 0
+  b.redKilledBombers = 0
+  if (b.convoy !== null) b.convoy.arrived.fill(false)
 
   // 【被接手過的座位要還給 AI】接手時那顆 AiController 被丟掉了。少了這一段，
   // 重開之後戰場上會有一架永遠不動的飛機 —— 玩家的控制器同時裝在兩個座位上，

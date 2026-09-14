@@ -52,6 +52,17 @@ export type BeatCondition =
    * `at` 的情形只有藍方全滅或要害艦沉沒，那兩條都已經判輸。
    */
   | { readonly kind: 'batch'; readonly at: number }
+  /**
+   * 敵方（紅隊）地面目標的摧毀數。**到了 `byLatest` 秒才判斷**，那一刻
+   * 摧毀數不到 `below` 就成立。
+   *
+   * 【之前一律不成立】開場摧毀數是 0，「不到 below」從第一步就為真 ——
+   * 不擋時間的話條件在開場那一步就成立。
+   *
+   * 【摧毀數追上之後永遠不成立】摧毀數只增不減。玩家在時限前打掉夠多，
+   * 那一批就不會來 —— 這是這個條件存在的理由。
+   */
+  | { readonly kind: 'ground'; readonly below: number; readonly byLatest: number }
 
 /** 一支增援進場。條件成立後先顯示 `warn`，過 `warnLead` 秒才真的來。 */
 export interface ReinforceBeat {
@@ -116,7 +127,19 @@ export interface FlareBeat {
   readonly points: readonly FlarePoint[]
 }
 
-export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat
+/**
+ * 轟炸機流的傳送帶：transit 的那幾架飛到終點（`BattleConfig.route`）就離場，
+ * 同一個席位在自己的出生點重新進場。**沒有條件、沒有預警，整場都在跑。**
+ *
+ * 【不是 `recycle`】那一個是整隊被殲滅才回來；這一個只管抵達的。被擊落的不補。
+ *
+ * 【離場不走 `World.destroy`】那會推一筆擊墜事件，`hunt` 的擊落數就平白多一架。
+ */
+export interface ConveyorBeat {
+  readonly kind: 'conveyor'
+}
+
+export type Beat = ReinforceBeat | WithdrawBeat | RecycleBeat | FlareBeat | ConveyorBeat
 
 /** 一個節拍走到哪裡。**執行狀態放這裡，不放 `MissionCard`** —— 見下。 */
 export type BeatPhase = 'waiting' | 'warned' | 'done'
@@ -132,25 +155,10 @@ export interface BeatState {
   phase: BeatPhase
   /** 預警之後，到了這個世界時間就生效。`waiting` 時無意義 */
   dueAt: number
-  /**
-   * 這個節拍用第幾支預留的分隊。**返航節拍是 −1。**
-   *
-   * 【為什麼要記】增援的座位是依序附加到 `world.combatants` 尾端的，而每一支
-   * 預留的分隊在建構期就綁死了自己的座位範圍與隊伍。所以**預留是一個佇列**：
-   * 第 n 支只能在第 n−1 支之後進場。第二個波次的條件先成立時，`stepBeats`
-   * 靠這一格認出「還沒輪到」而讓它等 —— 沒有它，那幾架會落進前一支預留的
-   * 座位，也就是**別隊**的分隊裡。
-   */
-  readonly slot: number
 }
 
 export function createBeatStates(beats: readonly Beat[]): BeatState[] {
-  let slot = 0
-  return beats.map((b) => ({
-    phase: 'waiting' as BeatPhase,
-    dueAt: 0,
-    slot: b.kind === 'reinforce' ? slot++ : -1,
-  }))
+  return beats.map(() => ({ phase: 'waiting' as BeatPhase, dueAt: 0 }))
 }
 
 /**
@@ -159,13 +167,15 @@ export function createBeatStates(beats: readonly Beat[]): BeatState[] {
  * @param aliveOf 指定隊伍（與角色）的存活數。呼叫端**在套用任何效果之前**
  *   數好一次 —— 見 `stepBeats` 的「先判斷後套效果」。
  * @param batches 重生節拍已經預警的批數。只有 `batch` 條件讀它
+ * @param destroyed 敵方地面目標已摧毀的數量。只有 `ground` 條件讀它
  */
 export function conditionMet(
   when: BeatCondition, time: number, aliveOf: (team: Team, role?: AircraftSpec['role']) => number,
-  batches = 0,
+  batches = 0, destroyed = 0,
 ): boolean {
   if (when.kind === 'clock') return time >= when.at
   if (when.kind === 'batch') return batches >= when.at
+  if (when.kind === 'ground') return time >= when.byLatest && destroyed < when.below
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }
