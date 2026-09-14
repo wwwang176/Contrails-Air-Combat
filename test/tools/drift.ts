@@ -19,7 +19,7 @@
  *
  * 【`minAlt` 與 `floorShare` 是安全否決用的】`AiController.safetyAction` 記的
  * 是 `applySafety`（瞄準點層之後的那一層），**看不到 `steerCommand` 裡的
- * `applyFloor`**。壓機頭的參數在低空可能整段被地板接住 —— 那時 `safety` 不會
+ * 低空柔性高度偏好。壓機頭的參數在低空可能被部分抵銷 —— 那時 `safety` 不會
  * 漲，表面上「很安全」，實際上是地板在替 AI 飛。`floorShare` 就是為了問出
  * 這件事。
  *
@@ -67,7 +67,7 @@ export interface DriftRow {
   floorShare: number
   extendShare: number
   engageShare: number
-  /** `applySafety` 有動作的取樣佔比。**不含 `applyFloor`** */
+  /** `applySafety` 有動作的取樣佔比。**不含柔性高度偏好** */
   safety: number
   damage: number
   aliveBlue: number

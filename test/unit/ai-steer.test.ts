@@ -5,7 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, floorPitchAngle, applyFloor, unloadPull, applyPitchBias,
+  createDefendState, stepDefend, defendAim, floorPitchAngle, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
   createTrackState, stepTrack, type TrackState, repositionKnobs,
@@ -1138,16 +1138,9 @@ describe('extend 的俯仰是連續量', () => {
     // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
     steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, createDefendState(), null, cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-    // 【為什麼要取 max】離地底限（floorPitchAngle）上線後，吃
-    // groundClearance 的層變成兩個，`steerCommand` 的輸出是兩者的較高者 ——
-    // 這正是「只抬不壓」的設計買到的東西（見 applyFloor 的註解）。這一格
-    // 剛好把它逼出來：cornerRatio 0.6、餘裕 100 m 時 extendPitchAngle 的
-    // 速度項與高度項恰好抵消成 0，而底限給 16°。
-    //
-    // 這條測試要守的性質沒有變 —— 若 steerCommand 誤用 position.y（4000）
-    // 而不是 position.y − seaHeight（100），兩層都會給高空的答案，這個等式
-    // 立刻紅。判別力完全保留。
-    const expected = Math.max(extendPitchAngle(0.6, NO_FOE_DEFICIT, 100), floorPitchAngle(100))
+    // 全域硬底限移除後，extend 自己仍須使用離地餘裕。這一格在 100 m 時
+    // 高度項恰好抵銷速度項；若誤用世界高度 4000 m，結果會變成負俯仰。
+    const expected = extendPitchAngle(0.6, NO_FOE_DEFICIT, 100)
     expect(commanded).toBeCloseTo(expected, 9)
     expect(commanded).toBeGreaterThan(extendPitchAngle(0.6, NO_FOE_DEFICIT, 4000))
   })
@@ -1461,22 +1454,11 @@ describe('破防軸號誌的生命週期', () => {
   })
 })
 
-describe('離地底限', () => {
+describe('低空柔性高度偏好', () => {
   const cfg = DEFAULT_STEER
 
-  /** 造一架在 4000 m、機首朝 −Z、機翼水平的飛機 */
-  function level(): Aircraft {
-    const a = new Aircraft(P51D, 4000, 200)
-    a.state.position.set(0, 4000, 0)
-    a.state.velocity.set(0, 0, -200)
-    a.state.orientation.identity()
-    return a
-  }
-
   /**
-   * 【這一條是 spec §4.4 的否決條件之一】餘裕夠時必須是**嚴格**的 0，
-   * 不是「很小的值」。整層之所以能無條件套用在所有意圖與所有 mode 上，
-   * 前提就是它在高空完全不存在。
+   * 餘裕夠時必須是嚴格的 0，不是「很小的值」，確保高空空戰不受影響。
    */
   it('餘裕 >= clearanceScale 時嚴格回傳 0', () => {
     expect(floorPitchAngle(cfg.clearanceScale, cfg)).toBe(0)
@@ -1484,7 +1466,7 @@ describe('離地底限', () => {
     expect(floorPitchAngle(4000, cfg)).toBe(0)
   })
 
-  it('貼地時給滿 floorPitch，再低也不超過', () => {
+  it('貼地時給滿柔性偏好，再低也不超過', () => {
     expect(floorPitchAngle(0, cfg)).toBeCloseTo(cfg.floorPitch, 12)
     // 負餘裕（已經在地面下）不得外插出更大的值
     expect(floorPitchAngle(-500, cfg)).toBeCloseTo(cfg.floorPitch, 12)
@@ -1500,83 +1482,6 @@ describe('離地底限', () => {
     expect(inside).toBeLessThan(1e-6)
   })
 
-  /** 由單位向量取航跡角（相對地平線），rad */
-  function pitchOf(v: Vector3): number {
-    return Math.asin(v.y / v.length())
-  }
-  /** 由單位向量取水平方位角，rad */
-  function bearingOf(v: Vector3): number {
-    return Math.atan2(v.x, v.z)
-  }
-
-  it('把朝下的瞄準點抬到底限，水平方位不變', () => {
-    const self = level()
-    // 朝下 40°、方位偏 +30°
-    const down = -40 * DEG
-    const bear = 30 * DEG
-    const aim = new Vector3(
-      Math.sin(bear) * Math.cos(down), Math.sin(down), Math.cos(bear) * Math.cos(down),
-    )
-    const before = bearingOf(aim)
-    applyFloor(self, 20 * DEG, aim)
-
-    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
-    expect(bearingOf(aim)).toBeCloseTo(before, 9)
-    expect(aim.length()).toBeCloseTo(1, 9)
-  })
-
-  /**
-   * 【只抬不壓】這是整層能無條件套用的另一半前提。已經在爬升的瞄準點
-   * 被壓下來的話，`extend` 的 `extendPitchAngle` 與這一層就會互相打架。
-   */
-  it('已經高於底限時逐位元不動', () => {
-    const self = level()
-    const aim = new Vector3(0, Math.sin(50 * DEG), -Math.cos(50 * DEG))
-    const copy = aim.clone()
-    applyFloor(self, 20 * DEG, aim)
-    expect(aim.x).toBe(copy.x)
-    expect(aim.y).toBe(copy.y)
-    expect(aim.z).toBe(copy.z)
-  })
-
-  it('底限為 0 時逐位元不動 —— 高空無操作', () => {
-    const self = level()
-    const aim = new Vector3(0, -Math.sin(60 * DEG), -Math.cos(60 * DEG))
-    const copy = aim.clone()
-    applyFloor(self, 0, aim)
-    expect(aim.x).toBe(copy.x)
-    expect(aim.y).toBe(copy.y)
-    expect(aim.z).toBe(copy.z)
-  })
-
-  /**
-   * 【垂直朝下是最危險也最容易寫錯的一格】水平分量退化，「保持方位」沒有
-   * 定義。此時**必須**仍然抬起來 —— 直接 return 等於在垂直俯衝時放棄拉桿。
-   * 退化路徑與 `unloadAim` 一致：改用機首的水平投影。
-   */
-  it('垂直朝下時仍然抬得起來，用機首的水平投影當方位', () => {
-    const self = level()   // 機首朝 −Z
-    const aim = new Vector3(0, -1, 0)
-    applyFloor(self, 20 * DEG, aim)
-
-    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
-    expect(aim.length()).toBeCloseTo(1, 9)
-    // 機首朝 −Z，所以水平分量應該落在 −Z
-    expect(aim.z).toBeLessThan(0)
-    expect(Math.abs(aim.x)).toBeLessThan(1e-9)
-  })
-
-  it('瞄準點與機首都鉛直時不產生 NaN', () => {
-    const self = level()
-    // 機首朝正上方
-    self.state.orientation.setFromUnitVectors(new Vector3(0, 0, -1), new Vector3(0, 1, 0))
-    const aim = new Vector3(0, -1, 0)
-    applyFloor(self, 20 * DEG, aim)
-
-    expect(Number.isNaN(aim.x + aim.y + aim.z)).toBe(false)
-    expect(aim.length()).toBeCloseTo(1, 9)
-    expect(pitchOf(aim)).toBeCloseTo(20 * DEG, 9)
-  })
 })
 
 describe('rally 意圖', () => {
@@ -1630,10 +1535,10 @@ describe('rally 意圖', () => {
   })
 
   /**
-   * 【離地底限照樣套】spec §5.2。task #136 的那一層在意圖分支之後，對所有
-   * 意圖生效 —— 命令不是例外。
+   * 墜地保護已移到每步解析護欄與物理 Worker；戰術導引不能再於 500 m 邊界
+   * 覆寫明確的航路點，否則接近低空目標時會反覆點頭。
    */
-  it('低空時離地底限仍然把航跡角抬起來', () => {
+  it('低空集合仍直接朝航路點，不受 500 m 硬底限覆寫', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
@@ -1650,7 +1555,28 @@ describe('rally 意圖', () => {
     steerCommand(
       'rally', 'normal', sit, basis, self, 3900, knobs, createDefendState(), point, cmd,
     )
-    expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(floorPitchAngle(100), 9)
+    expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(-Math.PI / 4, 9)
+  })
+
+  it('遠距接戰只疊加連續的柔性高度偏好，不把下瞄硬夾成固定角度', () => {
+    const basis = createEngageBasis()
+    const sit = createSituation()
+    const cmd = createCommand()
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
+    const self = flyer()
+    const target = flyer()
+    place(self, [0, 4000, 0], [0, 0, -180])
+    place(target, [0, 3900, -5000], [0, 0, -180])
+    evaluateGeometry(self, target, sit)
+    buildEngageBasis(self, target, basis)
+    basis.interceptTime = NO_INTERCEPT
+
+    steerCommand(
+      'approach', 'normal', sit, basis, self, 3900,
+      knobs, createDefendState(), null, cmd,
+    )
+    const direct = Math.atan2(-100, 5000)
+    expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(direct + floorPitchAngle(100), 9)
   })
 })
 
@@ -1722,7 +1648,7 @@ describe('steerCommand：拉桿紀律', () => {
    *
    * 【量的是機體座標的滾轉方位，不是世界水平方位】指揮儀讀的是
    * `atan2(aimBody.x, aimBody.y)`。沿大圓往機首收**本來就會**改世界方位
-   * （誤差角變小了），改不得的是「往哪邊滾」。`applyFloor` 保的才是世界
+   * （誤差角變小了），改不得的是「往哪邊滾」。`applyPitchBias` 保的是世界
    * 水平方位 —— 兩個不同的「方位」，別搞混。
    */
   it('滾轉方位不動', () => {
@@ -1766,9 +1692,8 @@ describe('steerCommand：拉桿紀律', () => {
 /**
  * 甜蜜區偏置（`Situation.sweetPitch`，見 `ai/doctrine.ts`）。
  *
- * 【與 `applyFloor` 的分工】`applyFloor` 只抬不壓（那是它能無條件疊加的
- * 理由），甜蜜區需要雙向，所以是它的姊妹函式。兩者保的都是**世界水平
- * 方位** —— 與 `shrinkTowardNose` 保的「機體滾轉方位」不是同一個東西。
+ * 甜蜜區與低空柔性高度偏好共用這個函式。它保的是**世界水平方位**，與
+ * `shrinkTowardNose` 保的「機體滾轉方位」不是同一個東西。
  */
 describe('applyPitchBias', () => {
   const pitchOf = (v: Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z))
@@ -1869,17 +1794,17 @@ describe('steerCommand：甜蜜區偏置', () => {
     expect(cmd.aimWorld.z).toBe(without.z)
   })
 
-  /** 【底限的優先序最高】「想低頭換速度」不能贏過「快撞海了」。 */
-  it('撞地底限壓過甜蜜區的低頭', () => {
+  /** 可射擊時甜蜜區與柔性高度偏好都讓位，瞄準線不可留下偏移。 */
+  it('低空且已有射擊解時柔性高度偏好完全讓位', () => {
     scene()
     sit.sweetPitch = -20 * DEG
+    basis.interceptTime = 0.5
     // 地表抬到離自機只剩 50 m
     steerCommand(
       'engage', 'normal', sit, basis, self, self.state.position.y - 50,
       k, createDefendState(), null, cmd,
     )
-    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(floorPitchAngle(50), 9)
-    expect(pitchOf(cmd.aimWorld)).toBeGreaterThan(0)
+    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(0, 9)
   })
 })
 
@@ -1959,8 +1884,7 @@ describe('sweetYield —— 甜蜜區偏置的射擊讓位係數', () => {
   /**
    * 【出貨值錨在哪】`shouldFire` 的第一條就是
    * `interceptTime > PROJECTILE_LIFETIME → 不開火`。共用同一個數字，不新增
-   * 第二套尺度 —— 與 `applyFloor` 和 `extendPitchAngle` 共用 `clearanceScale`
-   * 同一個手法。
+   * 第二套時間尺度。
    */
   it('出貨的時間尺度就是彈丸壽命', () => {
     expect(DEFAULT_STEER.sweetYieldTime).toBe(PROJECTILE_LIFETIME)
