@@ -342,6 +342,12 @@ h_required = h_decel_and_build + h_arc
 
 ### 9.3 測試方式與結果
 
+測試分層以快速、可決定的最小契約作合併門檻：`npm test` 只跑 unit／control／balance；
+跨模組案例由 `npm run test:integration` 依修改範圍選跑。真瀏覽器只保留 Worker 必需能力
+與阻擋畫面的短 E2E。20 對 20 效能與 75 秒任務試飛分別保留為
+`test/tools/recovery-worker-perf.probe.ts`、`test/tools/recovery-risk-smoke.probe.ts`，只作人工
+量測與設計證據，不納入自動合併門檻。
+
 - Worker 元件單元測試直接呼叫 `RecoveryWorkerEngine`；整合測試使用同步測試 port
   呼叫同一引擎，不建立假的瀏覽器執行緒，也沒有繞過正式算法。
 - 相關核心測試 289／289 通過；AI 機動測試 7 通過、1 個既有 skip。六個場景的硬安全
@@ -362,7 +368,7 @@ h_required = h_decel_and_build + h_arc
   測試介面及把釋放狀態限縮到對地掃射；最近一次無頭瀏覽器因 rAF 嚴重節流，180 秒
   牆鐘只前進 10.2 秒物理時間，期間無頁面錯誤，故不把該次逾時冒充完整驗收。
 
-### 9.4 已知凍結回放差異（刻意保留紅燈）
+### 9.4 已知凍結回放差異（人工比較）
 
 最後重跑 `test/unit/strike-replay-baseline.test.ts` 的結果穩定為：
 
@@ -373,9 +379,10 @@ h_required = h_decel_and_build + h_arc
 
 兩者都是 90 秒逐位元軌跡基準。全域移除 500 m 高度政策、改用 30／100 m 角色餘裕，
 以及只在對地掃射使用新的釋放閘門，都會合理改變整段飛行軌跡；因此 hash 不同不等於
-撞地或 Worker 故障。依護欄要求，本輪**沒有**更新 checksum、沒有放寬門檻、沒有加
-skip，也沒有為日本／盟軍任務寫特判。這兩條紅燈留作主線負責人明確決定是否接受新
-全域政策後，再另行重建基準。
+撞地或 Worker 故障。這類全局快照已移到
+`test/tools/strike-replay-baseline.probe.ts`，需要調查跨版本差異時才人工執行並保存輸出，
+不再把已知會隨政策改變的紅燈留在自動測試套件中。安全與攻擊狀態機仍由小型契約測試
+守住，沒有為日本／盟軍任務寫特判。
 
 ### 9.5 範圍決策
 

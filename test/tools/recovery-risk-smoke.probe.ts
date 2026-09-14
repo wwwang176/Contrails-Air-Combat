@@ -1,6 +1,9 @@
 /**
- * 德軍第三個可玩關卡（資料 id `germany-m4`）的真瀏覽器 Worker 冒煙測試。
- * 驗證單一 Worker 確實完成預演，並留下玩家代飛的風險／射擊／硬接管摘要。
+ * 德軍第三個可玩關卡（資料 id `germany-m4`）的人工長時間試飛 probe。
+ * 它留下 Worker 風險／射擊／硬接管摘要，但不屬於 E2E 或自動合併門檻；相同算法
+ * 的必要契約由 recovery-worker、recovery-rollout 與 ground-strafe 小型測試負責。
+ *
+ * `$env:URL='http://127.0.0.1:5187/'; npx vite-node test/tools/recovery-risk-smoke.probe.ts`
  */
 import { chromium } from 'playwright'
 
@@ -33,7 +36,7 @@ interface Probe {
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({
-    headless: env['HEADLESS'] === '1',
+    headless: env['HEADLESS'] !== '0',
     args: [
       '--disable-background-timer-throttling',
       '--disable-renderer-backgrounding',

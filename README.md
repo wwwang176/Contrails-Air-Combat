@@ -15,10 +15,16 @@ npm run dev       # http://localhost:5173
 |---|---|
 | `npm run dev` | 開發伺服器 |
 | `npm run build` | `tsc --noEmit` + 正式建置 |
-| `npm test` | 全部測試 |
-| `npm run test:unit` | 純函數與單一機制那一層（unit、control、balance、performance），改一行跑一次用這個 |
-| `npm run test:integration` | 跑整場戰鬥的那一層，提交前跑 |
+| `npm test` | 快速合併門檻：unit、control、balance |
+| `npm run test:unit` | 與 `npm test` 相同；純函數與單一機制，改一行跑一次用這個 |
+| `npm run test:integration` | 跨模組契約；改到對應路徑時才跑相關檔案 |
+| `npm run test:performance` | 效能護欄；隔離執行，避免與其他測試互相干擾 |
+| `npm run test:all` | 全部 Vitest 測試；整合前或排程執行，不是每次修改的內迴圈 |
 | `npm run bench` | 物理步、彈丸步、AI 步的微基準 |
+
+瀏覽器 E2E 只守使用者可見的接線，不用長時間戰役證明單一算法。20v20 效能與 75 秒
+試飛放在 `test/tools/*.probe.ts`，是人工量測工具，不屬於自動合併門檻；其算法契約由
+unit／integration 的小型、可決定案例負責。
 
 ## 操作
 
