@@ -107,6 +107,7 @@ src/
 
 | | |
 |---|---|
+| AI 墜地感知、Worker 改出與對地掃射 | `docs/ai-ground-collision-recovery.md` |
 | M0+M1 設計規格 | `docs/superpowers/specs/2026-07-31-m0-m1-flight-model-design.md` |
 | M0+M1 實作計畫 | `docs/superpowers/plans/2026-07-31-m0-m1-flight-model.md` |
 | M2 設計規格 | `docs/superpowers/specs/2026-08-02-m2-weapons-design.md` |
