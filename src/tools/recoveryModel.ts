@@ -10,7 +10,9 @@ import { DEFAULT_DIRECTOR_GAINS } from '../control/FlightDirector'
 import {
   ALPHA_MARGIN, PILOT_G_NEGATIVE, QMAX_FLOOR, gLoadFromOrientation,
 } from '../control/limiters'
-import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '../ai/safety'
+import {
+  applySafety, flightPathRate, recoveryAltitude, recoveryClearance, DEFAULT_SAFETY,
+} from '../ai/safety'
 import { cornerSpeed, maxLoadFactorAero, maxRollRate, thrustAt } from '../analysis/envelope'
 import {
   controlEffectiveness, dragCoefficient, inducedDragFactor, liftCoefficient,
@@ -38,7 +40,7 @@ export const RECOVERY_V2_COEFFS: RecoveryCoeffs = { eta: 0.840992, c1: 1.14964 }
 
 /** 固定餘裕，m。 */
 export function fixedMargin(spec: AircraftSpec): number {
-  return spec.role === 'fighter' ? 30 : 100
+  return recoveryClearance(spec)
 }
 
 export type RecoveryDirection = 'velocity' | 'lift-horizontal'
@@ -620,7 +622,7 @@ export function simulateTrial(
     if (model === 'current') {
       const nMax = Math.min(maxLoadFactorAero(s.spec, pos.y, tas), s.spec.limits.gPositive)
       needed = recoveryAltitude(tas, worstGamma(a), nMax) * DEFAULT_SAFETY.factor
-        + DEFAULT_SAFETY.clearance
+        + recoveryClearance(s.spec)
       const action = applySafety(a, s.ground, cmd)
       takeover = action === 'ground' || action === 'terrain'
     } else {

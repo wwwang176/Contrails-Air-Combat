@@ -18,7 +18,7 @@ import { B17G } from '../../src/specs/b17g'
 import { HE111 } from '../../src/specs/he111'
 import { G4M } from '../../src/specs/g4m'
 import { maxLoadFactorAero, stallSpeed } from '../../src/analysis/envelope'
-import { DEFAULT_SAFETY, recoveryAltitude } from '../../src/ai/safety'
+import { DEFAULT_SAFETY, recoveryAltitude, recoveryClearance } from '../../src/ai/safety'
 import {
   RECOVERY_V2_COEFFS, bankFromUpright, createRecoveryFeatures, fixedMargin,
   predictFromFeatures, predictRecovery, predictRecoveryRollout, recoveryFeatures,
@@ -139,7 +139,7 @@ function currentStart(base: Scenario): number {
       maxLoadFactorAero(base.spec, probe.state.position.y, tas), base.spec.limits.gPositive,
     )
     const need = recoveryAltitude(tas, worstGamma(probe), nMax) * DEFAULT_SAFETY.factor
-      + DEFAULT_SAFETY.clearance
+      + recoveryClearance(base.spec)
     agl = Math.max(need + buffer, 140)
   }
   return agl

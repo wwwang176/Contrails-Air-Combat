@@ -1,4 +1,4 @@
-import { DEFAULT_SAFETY, type SafetyConfig } from './safety'
+import { DEFAULT_SAFETY, recoveryClearance, type SafetyConfig } from './safety'
 import { maxLoadFactorAero } from '../analysis/envelope'
 import { G0 } from '../core/math'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -314,7 +314,8 @@ function findThreat(
 const climb = { ok: true, floor: 0 }
 function checkClimb(
   y0: number, isl: IslandDesc,
-  px: number, pz: number, dx: number, dz: number, cfg: SafetyConfig,
+  px: number, pz: number, dx: number, dz: number,
+  cfg: SafetyConfig, clearance: number,
 ): void {
   const tanP = Math.tan(cfg.recoveryPitch)
   climb.ok = true
@@ -323,7 +324,7 @@ function checkClimb(
     if (s < 0 || s > SENSE_RANGE) return
     const h = terrainCeiling(isl, px + dx * s, pz + dz * s)
     if (h > climb.floor) climb.floor = h
-    if (y0 + s * tanP < h + cfg.clearance) climb.ok = false
+    if (y0 + s * tanP < h + clearance) climb.ok = false
   }
   /**
    * 【腳下那一點只進地板，不進「爬不爬得過」】等距取樣由 s = 150 起，所以
@@ -358,7 +359,7 @@ function checkClimb(
  */
 function pathBlocked(
   self: Aircraft, px: number, pz: number, dx: number, dz: number, turn: number,
-  islands: readonly IslandDesc[], margin: number, cfg: SafetyConfig,
+  islands: readonly IslandDesc[], margin: number, cfg: SafetyConfig, clearance: number,
 ): boolean {
   const radius = turnRadius(self)
   if (radius >= STRAIGHT_R) return true
@@ -376,7 +377,7 @@ function pathBlocked(
     // 判成 blocked，於是 pickTurn 回 0，而那是「最該全力轉開的時候不轉」。
     if (Math.hypot(isl.cx - px, isl.cz - pz) < r) continue
     if (arcMinDistance(px, pz, dx, dz, radius, sign, isl.cx, isl.cz, arcLen) < r) {
-      if (reach < isl.peak + cfg.clearance) return true
+      if (reach < isl.peak + clearance) return true
     }
   }
   if (arcLen >= SENSE_RANGE) return false
@@ -401,7 +402,7 @@ function pathBlocked(
     const r = isl.outerRadius + margin
     if (Math.hypot(isl.cx - px, isl.cz - pz) < r) continue
     if (arcMinDistance(ex, ez, nx, nz, STRAIGHT_R, 1, isl.cx, isl.cz, rest) < r) {
-      if (reach < isl.peak + cfg.clearance) return true
+      if (reach < isl.peak + clearance) return true
     }
   }
   return false
@@ -429,12 +430,13 @@ function turnMagnitude(centre: number, perp: number, need: number): number {
  */
 function pickTurn(
   self: Aircraft, px: number, pz: number, dx: number, dz: number, sign: number,
-  islands: readonly IslandDesc[], margin: number, cfg: SafetyConfig, want: number,
+  islands: readonly IslandDesc[], margin: number, cfg: SafetyConfig,
+  clearance: number, want: number,
 ): number {
   for (const step of TURN_STEPS) {
     if (step < want) continue
     const turn = step * sign
-    if (!pathBlocked(self, px, pz, dx, dz, turn, islands, margin, cfg)) return turn
+    if (!pathBlocked(self, px, pz, dx, dz, turn, islands, margin, cfg, clearance)) return turn
   }
   return 0
 }
@@ -457,6 +459,7 @@ export function senseTerrain(
   dz /= speed
 
   const margin = self.spec.wing.span / 2 + BODY_MARGIN
+  const clearance = recoveryClearance(self.spec, cfg)
   const islands = src.islands
 
   // ── 鎖存中 ──────────────────────────────────────────────────────────
@@ -468,7 +471,7 @@ export function senseTerrain(
     const perp = dx * oz - dz * ox
     const centre = Math.hypot(ox, oz)
 
-    checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
+    checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg, clearance)
     out.floor = climb.floor
 
     /**
@@ -498,7 +501,9 @@ export function senseTerrain(
     const sign = out.side !== 0 ? out.side : perp >= 0 ? -1 : 1
     out.side = sign
     const want = turnMagnitude(centre, perp, r)
-    out.turn = pickTurn(self, pos.x, pos.z, dx, dz, sign, islands, margin, cfg, want)
+    out.turn = pickTurn(
+      self, pos.x, pos.z, dx, dz, sign, islands, margin, cfg, clearance, want,
+    )
     // turn 為 0 表示這一刻無處可去 —— 交給安全層全力拉起。
     // **side 保留**，下一次不會因此翻面
     return
@@ -514,7 +519,7 @@ export function senseTerrain(
   const isl = islands[idx]!
   const perp = hit.perp
   const centre = hit.centre
-  checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg)
+  checkClimb(pos.y, isl, pos.x, pos.z, dx, dz, cfg, clearance)
   out.floor = climb.floor
 
   if (climb.ok) {
@@ -530,11 +535,15 @@ export function senseTerrain(
   const first = perp >= 0 ? -1 : 1
   const need = isl.outerRadius + margin
   const want = turnMagnitude(centre, perp, need)
-  let turn = pickTurn(self, pos.x, pos.z, dx, dz, first, islands, margin, cfg, want)
+  let turn = pickTurn(
+    self, pos.x, pos.z, dx, dz, first, islands, margin, cfg, clearance, want,
+  )
   let side: -1 | 0 | 1 = first
   if (turn === 0) {
     const other = (first === 1 ? -1 : 1) as -1 | 1
-    turn = pickTurn(self, pos.x, pos.z, dx, dz, other, islands, margin, cfg, want)
+    turn = pickTurn(
+      self, pos.x, pos.z, dx, dz, other, islands, margin, cfg, clearance, want,
+    )
     if (turn !== 0) side = other
   }
 

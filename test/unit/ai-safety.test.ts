@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
-import { applySafety, flightPathRate, recoveryAltitude, DEFAULT_SAFETY } from '../../src/ai/safety'
+import {
+  applySafety, flightPathRate, recoveryAltitude, recoveryClearance, DEFAULT_SAFETY,
+} from '../../src/ai/safety'
 import { DEFAULT_STEER } from '../../src/ai/steer'
 import { P51D } from '../../src/specs/p51d'
 import { A6M5 } from '../../src/specs/a6m5'
+import { B17G } from '../../src/specs/b17g'
 import { atmosphere } from '../../src/physics/atmosphere'
 import { THROTTLE_FLOOR } from '../../src/input/throttle'
 import { DEG, G0 } from '../../src/core/math'
@@ -268,6 +271,13 @@ describe('flightPathRate', () => {
   })
 })
 
+describe('機型級固定改出餘裕', () => {
+  it('戰鬥機 30 m、轟炸機 100 m', () => {
+    expect(recoveryClearance(P51D)).toBe(30)
+    expect(recoveryClearance(B17G)).toBe(100)
+  })
+})
+
 describe('applySafety', () => {
   const cmd = createCommand()
 
@@ -306,6 +316,16 @@ describe('applySafety', () => {
     const a = diving(4000, 200, -60)
     clean()
     expect(applySafety(a, 0, cmd, undefined, undefined, 4500)).toBe('ground')
+  })
+
+  it('有效 Worker 結果使用戰鬥機 30 m、轟炸機 100 m 餘裕', () => {
+    const fighter = divingSpec(P51D, 80, 120, 0)
+    clean()
+    expect(applySafety(fighter, 0, cmd, undefined, undefined, 0)).toBe('none')
+
+    const bomber = divingSpec(B17G, 80, 120, 0)
+    clean()
+    expect(applySafety(bomber, 0, cmd, undefined, undefined, 0)).toBe('ground')
   })
 
   it('低空陡俯衝 → 介入', () => {

@@ -288,6 +288,11 @@ export interface MissionBattle {
    */
   readonly flakSpec?: ShipGunSpec
   /**
+   * 戰鬥機優先掃射的地面單位。省略時空中目標仍優先；設定後只有遭到敵機
+   * 直接瞄準時會先自衛。這是任務目標提示，不改掃射或防墜模型。
+   */
+  readonly priorityGroundUnit?: GroundUnitId
+  /**
    * 藍隊**分層擺位**：小隊前後拉開、左右錯開、高度分層，玩家在中間那一隊
    * （`order.ts` 的 `stackedEntry`）。**省略 = 橫隊。**
    *

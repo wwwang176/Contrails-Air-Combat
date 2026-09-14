@@ -206,6 +206,18 @@ describe('德 M3 底板行動', () => {
     expect(b.redCount).toBe(0)
     expect(b.destroyCount).toBe(8)
     expect(b.destroyUnit).toBe('parkedP51')
+    expect(b.priorityGroundUnit).toBe('parkedP51')
+    expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
+  })
+
+  it('地面 P-51 優先權只在德國第三張任務卡啟用', () => {
+    for (const campaign of CAMPAIGNS) {
+      for (const mission of MISSIONS[campaign]) {
+        if (!ready(mission)) continue
+        const expected = mission.id === 'germany-m4' ? 'parkedP51' : undefined
+        expect(missionConfigFrom(mission).tuning.priorityGroundUnit, mission.id).toBe(expected)
+      }
+    }
   })
 
   it('打掉油桶與砲位不算，打掉八架停放的 P-51 才算', () => {

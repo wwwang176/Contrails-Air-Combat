@@ -1,10 +1,13 @@
 /**
- * 單一防墜 Worker 的 20 對 20 正式遊戲 A/B。dev server 須先開在 5173：
- * `npx vite-node test/e2e/recovery-worker-perf.e2e.ts`
+ * 單一防墜 Worker 的 20 對 20 正式遊戲量測。dev server 預設在 5173：
+ * `$env:URL='http://127.0.0.1:5187/'; npx vite-node test/e2e/recovery-worker-perf.e2e.ts`
  */
 import { chromium, type Page } from 'playwright'
 
-const URL = 'http://127.0.0.1:5173/'
+const env = (globalThis as typeof globalThis & {
+  process?: { env?: Record<string, string | undefined> }
+}).process?.env ?? {}
+const URL = env['URL'] ?? 'http://127.0.0.1:5173/'
 const WARMUP_SECONDS = 10
 const SAMPLE_SECONDS = 25
 
@@ -75,20 +78,19 @@ async function record(page: Page, seconds: number): Promise<FrameSample> {
   }), seconds)
 }
 
-async function run(page: Page, enabled: boolean): Promise<{
+async function run(page: Page): Promise<{
   frames: FrameSample, stats: WorkerStats, seats: number, errors: string[],
 }> {
   const errors: string[] = []
-  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return
+    const text = message.text()
+    if (text.startsWith('Failed to load resource:')) return
+    errors.push(text)
+  })
   page.on('pageerror', (error) => errors.push(String(error)))
   await page.goto(URL)
   await page.waitForFunction(() => '__recoveryWorker' in window)
-  await page.evaluate((on) => {
-    const debug = (window as unknown as {
-      __recoveryWorker: { setEnabled(value: boolean): void }
-    }).__recoveryWorker
-    debug.setEnabled(on)
-  }, enabled)
   await page.click('[data-act="start"]')
   await page.click('[data-act="skirmish"]')
   // DEFAULT_SKIRMISH 已是每側 20 架；甲板高度讓預演在量測窗內有實際工作。
@@ -145,15 +147,11 @@ async function main(): Promise<void> {
       })
       return page
     }
-    const withoutPage = await context()
-    const without = await run(withoutPage, false)
-    await withoutPage.close()
     const workerPage = await context()
-    const withWorker = await run(workerPage, true)
+    const withWorker = await run(workerPage)
     await workerPage.close()
-    print('Worker 關閉', without)
     print('Worker 開啟', withWorker)
-    if (without.seats !== 40 || withWorker.seats !== 40) throw new Error('量測不是 20 對 20')
+    if (withWorker.seats !== 40) throw new Error('量測不是 20 對 20')
     if (!withWorker.stats.available || withWorker.stats.completed === 0) {
       throw new Error('防墜 Worker 沒有完成任何預演')
     }

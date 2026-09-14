@@ -25,7 +25,35 @@ export class RecoveryWorkerEngine {
 
       readRecoverySnapshot(this.aircraft, request.snapshot)
       this.sense.turn = request.terrainTurn
+      const startY = this.aircraft.state.position.y
+      let minY = startY
+      const trialSeconds = request.trialSeconds ?? 0
+      if (trialSeconds > 0) {
+        this.command.aimWorld.set(
+          request.trialAimX ?? 0,
+          request.trialAimY ?? 0,
+          request.trialAimZ ?? -1,
+        ).normalize()
+        this.command.throttle = request.trialThrottle ?? 1
+        this.command.brake = request.trialBrake ?? 0
+        this.command.upright = request.trialUpright ?? false
+        const steps = Math.ceil(trialSeconds * 60)
+        const dt = trialSeconds / steps
+        for (let i = 0; i < steps; i++) {
+          this.aircraft.update(
+            this.command.aimWorld, this.command.throttle, dt,
+            this.command.brake, this.command.upright,
+          )
+          if (this.aircraft.state.position.y < minY) minY = this.aircraft.state.position.y
+        }
+      }
+      const recoveryStartY = this.aircraft.state.position.y
       runRecoveryRollout(this.aircraft, this.command, this.sense, this.result)
+      // `runRecoveryRollout` 的 drop 從影子飛行終點起算；回覆必須量回原始快照，
+      // 才能與主線當下的離地高度比較。
+      const recoveryMinY = recoveryStartY - this.result.drop
+      if (recoveryMinY < minY) minY = recoveryMinY
+      this.result.drop = startY - minY
       return {
         id: request.id,
         sequence: request.sequence,

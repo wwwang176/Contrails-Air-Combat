@@ -14,6 +14,14 @@ export interface RecoveryRequest {
   /** 同一控制器首次送出或換機種時才附上。 */
   spec: AircraftSpec | undefined
   snapshot: Float64Array
+  /** > 0 時先照候選命令飛這麼久，再執行完整改出；供解除接管前的影子預演。 */
+  trialSeconds?: number
+  trialAimX?: number
+  trialAimY?: number
+  trialAimZ?: number
+  trialThrottle?: number
+  trialBrake?: number
+  trialUpright?: boolean
 }
 
 export interface RecoveryResponse {

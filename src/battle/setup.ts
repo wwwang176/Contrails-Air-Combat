@@ -1040,6 +1040,7 @@ export function createBattle(
     ai.board = board
     ai.selfIndex = c.index
     ai.profile = cfg.aiProfile
+    ai.priorityGroundUnit = c.team === 'blue' ? cfg.tuning.priorityGroundUnit ?? null : null
     // 【相位依索引攤平】40 架的包絡查詢因此不會擠在同一個物理步
     ai.setDecisionPhase(c.index / world.combatants.length)
   }
@@ -1472,6 +1473,9 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
     ai.board = b.board
     ai.selfIndex = c.index
     ai.profile = b.cfg.aiProfile
+    ai.priorityGroundUnit = c.team === 'blue'
+      ? b.cfg.tuning.priorityGroundUnit ?? null
+      : null
     // 【相位照最終容量攤平，不照當下架數】用當下架數的話同一波的值會全部
     // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
     ai.setDecisionPhase(c.index / b.board.assignments.length)

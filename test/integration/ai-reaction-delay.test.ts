@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { World } from '../../src/world/World'
 import { Aircraft } from '../../src/aircraft/Aircraft'
@@ -10,6 +10,11 @@ import { P51D } from '../../src/specs/p51d'
 import { DEG } from '../../src/core/math'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Battery } from '../../src/weapons/types'
+import { installRecoveryWorkerPortForTest } from '../../src/ai/recoveryWorkerClient'
+import { RecoveryEngineTestPort } from '../helpers/recoveryEngineTestPort'
+
+beforeAll(() => { installRecoveryWorkerPortForTest(new RecoveryEngineTestPort()) })
+afterAll(() => { installRecoveryWorkerPortForTest(null) })
 
 const DT = 1 / 240
 

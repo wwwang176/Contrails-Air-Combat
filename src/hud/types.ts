@@ -325,6 +325,8 @@ export interface HudFrame {
   aiIntent: string
   aiMode: string
   aiPhase: string
+  /** 暫時覆寫原意圖控制命令的安全層行為；`off` = 沒有接管。 */
+  aiOverride: string
   /**
    * 意圖是 `extend` 時，**是哪一個閂鎖把它推過去的**：能量／迴旋／見底。
    * 其餘意圖時是空字串。
@@ -443,6 +445,7 @@ export function createHudFrame(): HudFrame {
     aiIntent: '',
     aiMode: '',
     aiPhase: '',
+    aiOverride: '',
     aiExtendWhy: '',
     godView: false,
     arenaShow: false,

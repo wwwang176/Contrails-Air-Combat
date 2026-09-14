@@ -64,10 +64,12 @@ export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
  * 但「相位是 off 時不該印出一個空格子」這種事會壞。
  */
 export function aiStateLine(f: HudFrame): string {
-  // 【理由緊跟在意圖後面】它修飾的是意圖，不是另一項讀數
-  const why = f.aiExtendWhy ? `（${f.aiExtendWhy}）` : ''
-  const parts = [`意圖 ${f.aiIntent || '—'}${why}`, `模式 ${f.aiMode || '—'}`]
-  // 【`off` 不印】那是「戰術層沒有參與」，印出來只會讓人以為它是一個動作
-  if (f.aiPhase && f.aiPhase !== 'off') parts.push(`戰術 ${f.aiPhase}`)
+  // 理由與戰術階段都修飾原意圖，合併在同一組括號內；安全層接管則是另一件事。
+  const details: string[] = []
+  if (f.aiExtendWhy) details.push(f.aiExtendWhy)
+  if (f.aiPhase && f.aiPhase !== 'off') details.push(f.aiPhase)
+  const detail = details.length > 0 ? `（${details.join('／')}）` : ''
+  const parts = [`意圖 ${f.aiIntent || '—'}${detail}`, `模式 ${f.aiMode || '—'}`]
+  if (f.aiOverride && f.aiOverride !== 'off') parts.push(`介入 ${f.aiOverride}`)
   return parts.join('   ')
 }

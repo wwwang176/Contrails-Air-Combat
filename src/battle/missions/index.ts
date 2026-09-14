@@ -227,7 +227,12 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     rules,
     // 【只有護送／攔截會偏離中性值】其餘卡片的 `convoyPriority` 是 1，
     // 那時這一份與 `NEUTRAL_TUNING` 的行為逐字相同
-    tuning: { convoyPriority: b.convoyPriority },
+    tuning: {
+      convoyPriority: b.convoyPriority,
+      ...(b.priorityGroundUnit === undefined
+        ? {}
+        : { priorityGroundUnit: b.priorityGroundUnit }),
+    },
     ...(beats === undefined ? {} : { beats }),
     // 【轟炸機流的終點】不判勝負，只給 transit 的那幾架一個飛去的點
     ...(b.convoyDuty === 'stream'

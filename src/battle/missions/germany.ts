@@ -130,6 +130,9 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 500,
       ground: ASCH_GROUND,
+      // 【第三張任務卡限定】先完成機場掃射；已升空的 P-51 只有形成直接射擊威脅
+      // 時才插隊。AI 核心只看單位 id，不知道 germany-m4，也不污染其他關卡。
+      priorityGroundUnit: 'parkedP51',
       // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡。
       // **起始值**
       destroyCount: 8, destroyUnit: 'parkedP51',
