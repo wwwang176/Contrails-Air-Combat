@@ -12,7 +12,9 @@ async function main(): Promise<void> {
     const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
     await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await page.waitForFunction(() => (
-      (window as unknown as { __recoveryWorker?: unknown }).__recoveryWorker !== undefined
+      (window as unknown as { __recoveryWorker?: unknown, __seats?: unknown })
+        .__recoveryWorker !== undefined
+      && (window as unknown as { __seats?: unknown }).__seats !== undefined
     ))
     const initiallyBlocked = await page.locator('#recovery-worker-blocker').count()
     if (initiallyBlocked !== 0) throw new Error('可用 Worker 卻在啟動時被阻擋')
