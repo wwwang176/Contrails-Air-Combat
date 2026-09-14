@@ -6,7 +6,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
   createSense, resetSense, senseTerrain, SENSE_RANGE, terrainCeiling,
-  type TerrainSense, type TerrainSource,
+  type TerrainSource,
 } from '../../src/ai/terrainSense'
 import { createArchipelago, type IslandDesc } from '../../src/world/archipelago'
 
@@ -47,16 +47,6 @@ function flyer(altitude: number, tasKmh: number): Aircraft {
 }
 
 const src = (...islands: IslandDesc[]): TerrainSource => ({ islands })
-
-/** 跑 n 次感知，回傳每一次的 turn */
-function run(self: Aircraft, s: TerrainSource, out: TerrainSense, n: number): number[] {
-  const seen: number[] = []
-  for (let i = 0; i < n; i++) {
-    senseTerrain(self, s, out)
-    seen.push(out.turn)
-  }
-  return seen
-}
 
 describe('senseTerrain', () => {
   it('前方無島 —— 不介入，地板是海面', () => {
