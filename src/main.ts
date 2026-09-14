@@ -111,6 +111,7 @@ import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
 import { PlayerController } from './control/PlayerController'
 import { AiController } from './ai/AiController'
+import { recoveryWorkerFailure } from './ai/recoveryWorkerClient'
 import { VETERAN } from './ai/profile'
 import { HEAD_ON } from './battle/entry'
 import { NEUTRAL_TUNING } from './battle/mission'
@@ -141,6 +142,22 @@ import { preloadAirfieldScenery } from './render/geometry/ground/airfieldScenery
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
+
+/** 防墜 Worker 是正式安全系統；失去它時凍結遊戲並清楚告知，不做靜默降級。 */
+function blockForRecoveryWorker(message: string): void {
+  if (document.getElementById('recovery-worker-blocker') !== null) return
+  void document.exitPointerLock?.()
+  const blocker = document.createElement('section')
+  blocker.id = 'recovery-worker-blocker'
+  blocker.setAttribute('role', 'alert')
+  blocker.setAttribute('aria-live', 'assertive')
+  const title = document.createElement('h1')
+  title.textContent = '無法啟動飛行'
+  const detail = document.createElement('p')
+  detail.textContent = `${message} 為避免 AI 在缺少防墜預演時繼續飛行，遊戲已停止。請重新整理；若仍出現，請改用支援 Web Worker 的瀏覽器。`
+  blocker.append(title, detail)
+  document.body.appendChild(blocker)
+}
 
 /**
  * 目前的地形。**一律經過這個變數存取** —— 撞地判定、水柱、殘骸與零件
@@ -184,6 +201,10 @@ function wireTerrain(force = false): void {
     // 控制器要換掉、重生也會建新的。分開兩個迴圈只會多一個會漏掉的地方。
     ctl.ships = world.ships
     ctl.groundTargets = world.groundTargets
+    // 重生可能換一顆控制器；任務優先權與地形一樣必須在這個唯一接線點補上。
+    ctl.priorityGroundUnit = c.team === 'blue'
+      ? battle.cfg.tuning.priorityGroundUnit ?? null
+      : null
     // 【投彈那兩格跟著一起接】理由與船完全相同，而且它們也是每一場、每一次
     // 重生都要重接：`bombBay` 隨機種變（換裝、接手僚機），`bombDrag` 必須
     // 與 `World` 是同一個值，否則 AI 算的落點與飛出去的那一顆分家。
@@ -1294,6 +1315,9 @@ function startWorld(cfg: BattleConfig): void {
    * 一邊低 697 m，而我一度以為那是混沌。
    */
   playerAi.profile = cfg.aiProfile
+  // 【任務目標也要給代飛】玩家座位的手動控制器不經過 createBattle 的 AI 接線。
+  // 省略時寫回 null，避免跨關沿用上一張卡的地面優先目標。
+  playerAi.priorityGroundUnit = cfg.tuning.priorityGroundUnit ?? null
   // 【戰術狀態也要清】`playerAi` 是跨關卡重用的同一顆。少了這一行，上一場
   // 【重現一場戰鬥的鑰匙】種子是 `Math.random()` 抽的，不印出來就永遠
   // 找不回這一場。（設定, 種子, 秒數, 座位）四樣湊齊，無頭環境就能把
@@ -2136,6 +2160,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (input.playerAi) {
     hudFrame.aiIntent = playerAi.intent
     hudFrame.aiMode = playerAi.mode
+    hudFrame.aiPhase = playerAi.hudPhase
+    hudFrame.aiOverride = playerAi.hudOverride
     hudFrame.aiExtendWhy = playerAi.intent === 'extend'
       ? extendReason(playerAi.rules) : ''
   }
@@ -2505,6 +2531,11 @@ function afterAction(): AfterAction {
 }
 
 function frame(now: number) {
+  const recoveryFailure = recoveryWorkerFailure()
+  if (recoveryFailure !== null) {
+    blockForRecoveryWorker(recoveryFailure)
+    return
+  }
   const frameSeconds = (now - lastTime) / 1000
   lastTime = now
   perf.begin()
@@ -2568,19 +2599,24 @@ function frame(now: number) {
 
 // 【GLB 機種要在進迴圈前載完】`buildAircraft` 是同步的（`main.ts`、四個工具
 // 頁、node 單元測試都同步呼叫它），所以非同步只能關在這一行。
-await preloadAircraftModels()
-// 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
-// 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
-// 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
-await preloadShipModels(['essex', 'wichita', 'fletcher'])
-// 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
-await preloadGroundModels()
-// 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
-// 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
-await preloadPlantScenery()
-// 【機場的佈景同一條規則】沒載到的症狀是德 M2 進不去
-await preloadAirfieldScenery()
-requestAnimationFrame(frame)
+const initialRecoveryFailure = recoveryWorkerFailure()
+if (initialRecoveryFailure !== null) {
+  blockForRecoveryWorker(initialRecoveryFailure)
+} else {
+  await preloadAircraftModels()
+  // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
+  // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
+  // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
+  await preloadShipModels(['essex', 'wichita', 'fletcher'])
+  // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
+  await preloadGroundModels()
+  // 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
+  // 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
+  await preloadPlantScenery()
+  // 【機場的佈景同一條規則】沒載到的症狀是德 M2 進不去
+  await preloadAirfieldScenery()
+  requestAnimationFrame(frame)
+}
 
 /**
  * **凍結畫面的量測出口**：暫停、把鏡頭釘在指定的姿態、把世界時間釘死。
@@ -2912,6 +2948,8 @@ const GFX_HIDDEN_LAYER = 31
     bn++
   }
   const tgt = playerAi.target
+  const groundTgt = playerAi.groundTarget
+  const groundedAircraftTgt = playerAi.groundedAircraftTarget
   return {
     /**
      * **物理時鐘**，秒。用 `world.time` 而不是 `elapsed` —— 後者累加的是
@@ -2932,12 +2970,29 @@ const GFX_HIDDEN_LAYER = 31
     cmd: +(Math.atan2(aim.y, Math.hypot(aim.x, aim.z)) * 180 / Math.PI).toFixed(2),
     intent: playerAi.intent,
     mode: playerAi.mode,
+    phase: playerAi.hudPhase,
+    override: playerAi.hudOverride,
+    /** Worker 改出風險與最後安全動作；供低空攻擊的 e2e 護欄判讀。 */
+    ru: +playerAi.recoveryUrgency.toFixed(3),
+    capture: playerAi.recoveryCapture,
+    firing: player.command.firing,
+    safety: playerAi.safetyAction,
     // 迴轉平面的俯仰偏置，度。正 = 拉高迴旋、負 = 俯衝迴旋、0 = 水平
     tpb: +(playerAi.sit.turnPitch * 180 / Math.PI).toFixed(2),
     asp: +(playerAi.sit.aspectAngle * 180 / Math.PI).toFixed(1),
     // 被護送單位的平均高度；全滅或非護航關時 NaN
     by: bn > 0 ? +(by / bn).toFixed(1) : Number.NaN,
     tr: tgt !== null ? +tgt.state.position.distanceTo(pos).toFixed(1) : -1,
+    /** 這一格實際正在掃射的地面單位與距離；空字串／−1 = 沒有。 */
+    gt: groundTgt?.unit.id ?? '',
+    gr: groundTgt !== null ? +groundTgt.position.distanceTo(pos).toFixed(1) : -1,
+    /** true = 任務優先目標是仍在滑行／滾行的飛機。 */
+    gta: groundedAircraftTgt !== null,
+    /** 對地掃射航次：approach = 進場，egress = 已飛越、正在拉開。 */
+    gsp: playerAi.groundStrafePhase,
+    /** 這次離場算出的回頭門檻；−1 = 此速度暫時沒有可持續迴轉解。 */
+    grr: Number.isFinite(playerAi.groundStrafeReattackRange)
+      ? +playerAi.groundStrafeReattackRange.toFixed(1) : -1,
     // 掉幀會讓固定步長迴圈丟時間，軌跡就與離線探針分家 —— 要看得到
     sub: loop.lastSubstepCount,
     /**

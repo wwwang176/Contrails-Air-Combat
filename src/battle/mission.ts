@@ -190,6 +190,14 @@ export interface MissionTuning {
    * 【起始值，待掃描】見 `missions.ts` 的 `CONVOY_PRIORITY`。
    */
   convoyPriority: number
+  /**
+   * 戰鬥機要優先掃射的地面單位。**省略 = 不覆寫空戰優先序。**
+   *
+   * 這不是另一套 AI：卡片只負責說明任務目標，實際掃射、立即自衛與防墜仍走
+   * `AiController` 的共用行為。用單位 id 而不是關卡 id，核心層因此不知道自己
+   * 正在哪一關。
+   */
+  readonly priorityGroundUnit?: GroundUnitId
 }
 
 /** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */

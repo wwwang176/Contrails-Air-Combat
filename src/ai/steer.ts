@@ -631,12 +631,6 @@ export interface SteerConfig {
    * 也就是**完全不管敵人在上面還是下面**。
    */
   altitudeGapScale: number
-  /**
-   * 低空柔性偏好的最大加角，rad。它是疊加量，不是最低航跡角；因此仍可
-   * 下瞄，也不會在 500 m 兩側把同一目標切成「猛俯衝／抬頭」。進入可射擊
-   * 時由 `sweetYield` 淡為 0，瞄準線不受偏移。撞地安全不靠這個值。
-   */
-  floorPitch: number
   /** defend 的偏轉角，rad */
   defendOffset: number
   /**
@@ -919,7 +913,6 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   altitudeGapScale: ALTITUDE_GAP_SCALE,
-  floorPitch: 6 * (Math.PI / 180),
   defendOffset: 75 * (Math.PI / 180),
   // ## defendTilt 的定值
   //
@@ -1610,28 +1603,6 @@ function rotateHeading(v: Vector3, yaw: number): void {
   v.z = z
 }
 
-
-/**
- * 這個離地餘裕下，柔性高度偏好要加多少航跡角，rad。永遠 ≥ 0。
- *
- * 形狀與 `extendPitchAngle` 的 `altitudeDeficit` 同構，刻意復用同一個特徵
- * 高度 `clearanceScale`，但回傳值只供 `applyPitchBias` 疊加，不是最低角度。
- *
- * 【`deficit <= 0` 直接回傳 0，不是回傳一個很小的數】高於作用範圍時偏好
- * 必須嚴格不存在，避免高空空戰被無意改變。
- *
- * @param groundClearance 離地（海面）高度，m。可以是負的
- */
-export function floorPitchAngle(
-  groundClearance: number,
-  cfg: SteerConfig = DEFAULT_STEER,
-): number {
-  let deficit = 1 - groundClearance / cfg.clearanceScale
-  if (deficit <= 0) return 0
-  if (deficit > 1) deficit = 1
-  return cfg.floorPitch * deficit
-}
-
 /** 超前修正的固定旋鈕：全後置 + 全高 yo-yo。 */
 const OVERSHOOT_KNOBS: Knobs = { leadLag: -1, vertical: 1, diveIas: 0 }
 
@@ -2072,20 +2043,8 @@ export function steerCommand(
     )
   }
 
-  // 【低空是偏好，不是底限】固定的 500 m 最低俯仰角會在門檻兩側反覆把
-  // 同一個地面目標切成俯衝與抬頭。現在只在遠距接戰疊一個最多 6° 的連續
-  // 偏置；進入武器可達時間後完全讓位，正式防撞留給 emit 的兩層護欄。
-  // 放在空層鎖後面是刻意的：偏好要能稍微修正低空遠距空層，但只能相加，
-  // 不能像舊底限那樣把方向整個覆寫。
-  if (
-    mode !== 'speedRecover'
-    && (intent === 'engage' || intent === 'approach' || intent === 'merge')
-  ) {
-    const bias = floorPitchAngle(self.state.position.y - seaHeight, cfg)
-      * sweetYield(basis.interceptTime, cfg)
-    applyPitchBias(bias, out.aimWorld)
-  }
-
+  // 【這裡不再預防性抬頭】Worker 可以提前計算，但它的風險數值不改寫
+  // 戰鬥 AI 的瞄準方向。只有真正跨過改出線時，emit 的安全層才接管。
   // ── 油門與減速（spec §7.4）────────────────────────────
   //
   // 【`overshoot` 不可以有自己的一支油門／減速板】`throttle = THROTTLE_FLOOR`

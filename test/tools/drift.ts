@@ -18,10 +18,8 @@
  * 這一輪的主判準，量錯就整個計畫失去判準。
  *
  * 【`minAlt` 與 `floorShare` 是安全否決用的】`AiController.safetyAction` 記的
- * 是 `applySafety`（瞄準點層之後的那一層），**看不到 `steerCommand` 裡的
- * 低空柔性高度偏好。壓機頭的參數在低空可能被部分抵銷 —— 那時 `safety` 不會
- * 漲，表面上「很安全」，實際上是地板在替 AI 飛。`floorShare` 就是為了問出
- * 這件事。
+ * 是硬接管。`recoveryUrgency` 現在只是 Worker 預演風險的觀測值，不再改寫
+ * `steerCommand`。`floorShare` 保留原欄名以相容既有報表。
  *
  * 【觀察窗 420 秒】`steer.ts` 記載的教訓：30 秒的窗看不到高度問題，高度要
  * 120 秒以上才看得出來。
@@ -32,7 +30,6 @@
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { battleConfigFrom, DEFAULT_SKIRMISH } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
-import { floorPitchAngle } from '../../src/ai/steer'
 import type { Combatant } from '../../src/world/World'
 
 const DT = 1 / 240
@@ -63,7 +60,7 @@ export interface DriftRow {
   drawdown: number
   /** 全程所有存活機的最低高度，m。低空安全否決用 */
   minAlt: number
-  /** `floorPitchAngle > 0`（地板正在介入）的取樣佔比 */
+  /** `recoveryUrgency > 0`（Worker 預演風險存在）的取樣佔比 */
   floorShare: number
   extendShare: number
   engageShare: number
@@ -127,7 +124,7 @@ export function measureDrift(opening: Opening): DriftRow {
       if (ai.intent === 'engage') engageN++
       if (ai.safetyAction !== 'none') safetyN++
       const y = c.aircraft.state.position.y
-      if (floorPitchAngle(y - ai.seaHeight) > 0) floorN++
+      if (ai.recoveryUrgency > 0) floorN++
       if (y < minAlt) minAlt = y
       live.push(y)
       window.push(y)

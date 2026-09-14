@@ -3,6 +3,7 @@ import { makeScratch } from '../core/pool'
 import { threatFactor, trackAngle, turnTime } from './assess'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Team } from '../world/World'
+import type { TakeoffRoll } from '../control/takeoffRoll'
 
 export interface TargetConfig {
   /**
@@ -500,6 +501,12 @@ export interface TargetCandidate {
   readonly aircraft: Aircraft
   readonly team: Team
   alive: boolean
+  /**
+   * `Combatant` 提供的起飛腳本。省略或 null = 正常飛行；非 null = 仍由地面
+   * 滑行／滾行腳本控制。一般索敵不讀，任務地面優先權用它分清「還在地面」
+   * 與「已經升空」。測試用的最小候選可以省略。
+   */
+  readonly takeoff?: TakeoffRoll | null
 }
 
 /** 全場共享的目標指派板（M5 spec §6.3）。 */

@@ -28,10 +28,12 @@ function ground(x: number, z: number): number {
   const h = arch.field.sample(x, z)
   return Number.isFinite(h) && h > 0 ? h : 0
 }
-const BASE = DEFAULT_SAFETY.clearance
+const BASE_FIGHTER = DEFAULT_SAFETY.fighterClearance
+const BASE_BOMBER = DEFAULT_SAFETY.bomberClearance
 
 for (const clearance of [120, 160, 200, 260, 320]) {
-  ;(DEFAULT_SAFETY as { clearance: number }).clearance = clearance
+  DEFAULT_SAFETY.fighterClearance = clearance
+  DEFAULT_SAFETY.bomberClearance = clearance
   const b = createBattle(new Idle(), {
     ...DEFAULT_BATTLE, altitude: 600, units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
   }, 20260805)
@@ -68,4 +70,5 @@ for (const clearance of [120, 160, 200, 260, 320]) {
     '| 陸上最低餘裕', minMargin.toFixed(0), 'm',
     '| 存活', b.world.combatants.filter((c) => c.alive).length)
 }
-;(DEFAULT_SAFETY as { clearance: number }).clearance = BASE
+DEFAULT_SAFETY.fighterClearance = BASE_FIGHTER
+DEFAULT_SAFETY.bomberClearance = BASE_BOMBER

@@ -1,6 +1,7 @@
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { AircraftSpec } from '../specs/types'
-import { DEFAULT_SAFETY } from './safety'
+import type { Command } from '../control/Controller'
+import { recoveryClearance } from './safety'
 import {
   RECOVERY_SNAPSHOT_SIZE, writeRecoverySnapshot,
 } from './recoverySnapshot'
@@ -10,6 +11,7 @@ import type { RecoveryRequest, RecoveryResponse } from './recoveryProtocol'
 export const RECOVERY_REQUEST_HZ = 4
 const REQUEST_PERIOD = 1 / RECOVERY_REQUEST_HZ
 const RESULT_MAX_AGE = 0.75
+const TRIAL_RESULT_MAX_AGE = 0.5
 const FIGHTER_HORIZON = 11
 const BOMBER_HORIZON = 17
 const SPEC_KEYS = new WeakMap<AircraftSpec, string>()
@@ -62,6 +64,8 @@ export interface RecoveryAssistState {
   resultSequence: number
   drop: number
   recovered: boolean
+  /** 0 = 改出餘裕充足，1 = 已碰到最低改出高度；僅供觀測。 */
+  urgency: number
   resultSentAt: number
   resultTerrainTurn: number
   nextRequestAt: number
@@ -90,6 +94,7 @@ export function createRecoveryAssistState(id: number): RecoveryAssistState {
     resultSequence: -1,
     drop: 0,
     recovered: false,
+    urgency: 0,
     resultSentAt: 0,
     resultTerrainTurn: 0,
     nextRequestAt: 0,
@@ -142,6 +147,8 @@ export class RecoveryWorkerCoordinator {
     terrainTurn: number,
     clock: number,
     priority: number,
+    trial: Command | null = null,
+    trialSeconds = 0,
   ): void {
     if (!this.stats.enabled || !this.stats.available) return
     if (!this.states.includes(state)) this.states.push(state)
@@ -154,6 +161,15 @@ export class RecoveryWorkerCoordinator {
     state.message.sequence = state.sequence
     state.message.sentAt = clock
     state.message.terrainTurn = terrainTurn
+    state.message.trialSeconds = trial === null ? 0 : trialSeconds
+    if (trial !== null) {
+      state.message.trialAimX = trial.aimWorld.x
+      state.message.trialAimY = trial.aimWorld.y
+      state.message.trialAimZ = trial.aimWorld.z
+      state.message.trialThrottle = trial.throttle
+      state.message.trialBrake = trial.brake
+      state.message.trialUpright = trial.upright
+    }
     state.priority = priority
     if (!state.queued) {
       state.queued = true
@@ -167,6 +183,7 @@ export class RecoveryWorkerCoordinator {
     state.resultSequence = -1
     state.drop = 0
     state.recovered = false
+    state.urgency = 0
     state.active = false
     state.nextRequestAt = 0
     state.staleCountedSequence = -1
@@ -186,6 +203,7 @@ export class RecoveryWorkerCoordinator {
         this.stats.queued--
       }
       state.active = false
+      state.urgency = 0
       state.resultSequence = -1
       state.minimumValidSequence = state.sequence + 1
     }
@@ -233,15 +251,13 @@ export class RecoveryWorkerCoordinator {
 
     if (response.error !== undefined) {
       this.stats.failures++
+      state.resultSequence = -1
+      state.urgency = 0
       this.registeredSpecKeys.delete(state.inFlightSpecKey)
-      // 同一個 spec 的待送訊息可能已省略 spec；丟棄後讓下個 4 Hz 週期重新註冊。
-      for (const candidate of this.states) {
-        if (candidate.queued && candidate.message.specKey === state.inFlightSpecKey
-          && candidate.message.spec === undefined) {
-          candidate.queued = false
-          this.stats.queued--
-        }
-      }
+      // 預演錯誤代表安全承諾已經不存在。正式遊戲會在下一幀讀到 unavailable
+      // 並整體停止；不要悄悄重試後讓玩家在空窗內繼續飛。
+      this.disableAfterFailure()
+      return
     } else if (
       response.id === state.id
       && response.sequence === state.inFlightSequence
@@ -264,8 +280,12 @@ export class RecoveryWorkerCoordinator {
   }
 
   private fail(): void {
-    this.stats.available = false
     this.stats.failures++
+    this.disableAfterFailure()
+  }
+
+  private disableAfterFailure(): void {
+    this.stats.available = false
     if (this.inFlight !== null) this.inFlight.pending = false
     this.inFlight = null
     this.stats.inFlight = 0
@@ -273,6 +293,7 @@ export class RecoveryWorkerCoordinator {
       if (state.queued) state.queued = false
       state.resultSequence = -1
       state.active = false
+      state.urgency = 0
     }
     this.stats.queued = 0
     this.states.length = 0
@@ -281,6 +302,7 @@ export class RecoveryWorkerCoordinator {
 
 let nextId = 1
 let coordinator: RecoveryWorkerCoordinator | null = null
+let startupFailure = ''
 
 if (typeof Worker !== 'undefined') {
   try {
@@ -289,9 +311,34 @@ if (typeof Worker !== 'undefined') {
       name: 'ai-recovery',
     })
     coordinator = new RecoveryWorkerCoordinator(worker)
-  } catch {
+  } catch (error) {
     coordinator = null
+    startupFailure = error instanceof Error ? error.message : String(error)
   }
+} else if (typeof window !== 'undefined') {
+  startupFailure = '這個瀏覽器不支援 Web Worker。'
+}
+
+/**
+ * 正式瀏覽器是否失去必要的防墜 Worker。Node 測試不被當成可玩的瀏覽器，
+ * 必須自行注入測試 Worker；遊戲主迴圈則以這個狀態決定是否阻擋。
+ */
+export function recoveryWorkerFailure(): string | null {
+  if (typeof window === 'undefined') return null
+  if (coordinator === null) {
+    return startupFailure || '防墜 Worker 無法建立。'
+  }
+  if (!coordinator.stats.enabled) return '防墜 Worker 已停用。'
+  if (!coordinator.stats.available) return '防墜 Worker 執行失敗。'
+  return null
+}
+
+/** 僅供 Node 物理測試安裝同步 Worker；正式瀏覽器永遠使用上面的單一 Worker。 */
+export function installRecoveryWorkerPortForTest(port: RecoveryWorkerPort | null): void {
+  if (typeof window !== 'undefined') {
+    throw new Error('瀏覽器不可替換正式防墜 Worker')
+  }
+  coordinator = port === null ? null : new RecoveryWorkerCoordinator(port)
 }
 
 export function createRecoveryAssist(): RecoveryAssistState {
@@ -304,13 +351,29 @@ export function resetRecoveryAssist(state: RecoveryAssistState): void {
     state.resultSequence = -1
     state.drop = 0
     state.active = false
+    state.urgency = 0
     state.nextRequestAt = 0
   }
 }
 
 /**
- * 回傳可餵給 `applySafety` 的額外門檻。無 Worker／無有效結果時為 0，既有
- * 同步護欄因此完整保留。
+ * 把「現有離地高度」相對於「Worker 算出的最低改出高度」轉成連續風險。
+ *
+ * `margin >= 2 × needed` 時完全不干擾瞄準；由那裡線性增加，到
+ * `margin <= needed` 時為 1、交給硬安全層接管。斜坡寬度跟著每架飛機實際
+ * 的改出需求走，所以戰鬥機與轟炸機不需要機種或任務特判。
+ */
+export function recoveryUrgency(margin: number, needed: number): number {
+  if (needed === Infinity) return 1
+  if (!(needed > 0) || !Number.isFinite(needed) || Number.isNaN(margin)) return 0
+  if (margin <= needed) return 1
+  if (margin >= 2 * needed) return 0
+  return 2 - margin / needed
+}
+
+/**
+ * 回傳可餵給 `applySafety` 的額外門檻。無有效結果時為 0；正式遊戲會在
+ * Worker 不可用時整體停止，不允許以這條解析式單獨降級繼續遊玩。
  */
 export function updateRecoveryAssist(
   state: RecoveryAssistState,
@@ -321,12 +384,15 @@ export function updateRecoveryAssist(
 ): number {
   const velocity = aircraft.state.velocity
   if (state.active) {
+    state.urgency = 1
     if (velocity.y < 0) return Infinity
     state.active = false
     state.resultSequence = -1
+    state.urgency = 0
   }
 
   let needed = 0
+  state.urgency = 0
   if (state.resultSequence >= 0 && state.resultTerrainTurn !== terrainTurn) {
     state.resultSequence = -1
   }
@@ -334,9 +400,11 @@ export function updateRecoveryAssist(
     const age = clock - state.resultSentAt
     if (age >= 0 && age <= RESULT_MAX_AGE) {
       needed = state.recovered
-        ? state.drop + DEFAULT_SAFETY.clearance + velocity.length() * age
+        ? state.drop + recoveryClearance(aircraft.spec) + velocity.length() * age
         : Infinity
-      if (aircraft.state.position.y - floor <= needed) {
+      const margin = aircraft.state.position.y - floor
+      state.urgency = recoveryUrgency(margin, needed)
+      if (margin <= needed) {
         state.active = true
         if (coordinator !== null) coordinator.stats.takeovers++
         return Infinity
@@ -358,6 +426,45 @@ export function updateRecoveryAssist(
     }
   }
   return needed
+}
+
+export type RecoveryTrialStatus = 'pending' | 'safe' | 'unsafe'
+
+/**
+ * 在接管解除前，請同一個 Worker 先執行候選命令，再立刻做完整改出。
+ * `safe` 代表「現在交還 trialSeconds，之後仍來得及以機種餘裕改出」。
+ */
+export function updateRecoveryTrialAssist(
+  state: RecoveryAssistState,
+  aircraft: Aircraft,
+  floor: number,
+  terrainTurn: number,
+  clock: number,
+  trial: Command,
+  trialSeconds: number,
+): RecoveryTrialStatus {
+  let status: RecoveryTrialStatus = 'pending'
+  if (state.resultSequence >= 0 && state.resultTerrainTurn !== terrainTurn) {
+    state.resultSequence = -1
+  }
+  if (state.resultSequence >= 0) {
+    const age = clock - state.resultSentAt
+    if (age >= 0 && age <= TRIAL_RESULT_MAX_AGE) {
+      const needed = state.recovered
+        ? state.drop + recoveryClearance(aircraft.spec) + aircraft.state.velocity.length() * age
+        : Infinity
+      status = aircraft.state.position.y - floor > needed ? 'safe' : 'unsafe'
+    }
+  }
+
+  if (coordinator !== null && clock >= state.nextRequestAt) {
+    const speed = aircraft.state.velocity.length()
+    const proposedSink = Math.max(1, -trial.aimWorld.y * speed)
+    const priority = (aircraft.state.position.y - floor) / proposedSink
+    coordinator.request(state, aircraft, floor, terrainTurn, clock, priority, trial, trialSeconds)
+    state.nextRequestAt = clock + REQUEST_PERIOD
+  }
+  return status
 }
 
 export interface RecoveryWorkerDebug {

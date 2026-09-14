@@ -5,7 +5,7 @@ import { createSituation, evaluateGeometry } from '../../src/ai/assess'
 import {
   aimFromKnobs, buildEngageBasis, createEngageBasis, engageKnobs, extendPitchAngle,
   geometryGate, steerCommand, DEFAULT_STEER, type Knobs,
-  createDefendState, stepDefend, defendAim, floorPitchAngle, unloadPull, applyPitchBias,
+  createDefendState, stepDefend, defendAim, unloadPull, applyPitchBias,
   sweetYield, type SteerConfig,
   headingErrorTo, extendHeadingBias, stepExtendSide,
   createTrackState, stepTrack, type TrackState, repositionKnobs,
@@ -1454,36 +1454,6 @@ describe('破防軸號誌的生命週期', () => {
   })
 })
 
-describe('低空柔性高度偏好', () => {
-  const cfg = DEFAULT_STEER
-
-  /**
-   * 餘裕夠時必須是嚴格的 0，不是「很小的值」，確保高空空戰不受影響。
-   */
-  it('餘裕 >= clearanceScale 時嚴格回傳 0', () => {
-    expect(floorPitchAngle(cfg.clearanceScale, cfg)).toBe(0)
-    expect(floorPitchAngle(cfg.clearanceScale + 1, cfg)).toBe(0)
-    expect(floorPitchAngle(4000, cfg)).toBe(0)
-  })
-
-  it('貼地時給滿柔性偏好，再低也不超過', () => {
-    expect(floorPitchAngle(0, cfg)).toBeCloseTo(cfg.floorPitch, 12)
-    // 負餘裕（已經在地面下）不得外插出更大的值
-    expect(floorPitchAngle(-500, cfg)).toBeCloseTo(cfg.floorPitch, 12)
-  })
-
-  it('中間是線性連續，沒有跳階', () => {
-    expect(floorPitchAngle(cfg.clearanceScale / 2, cfg)).toBeCloseTo(cfg.floorPitch / 2, 12)
-    expect(floorPitchAngle(cfg.clearanceScale / 4, cfg)).toBeCloseTo(cfg.floorPitch * 0.75, 12)
-    // 門檻上下相鄰取樣不得出現階躍
-    const eps = 1e-6
-    const inside = floorPitchAngle(cfg.clearanceScale - eps, cfg)
-    expect(inside).toBeGreaterThan(0)
-    expect(inside).toBeLessThan(1e-6)
-  })
-
-})
-
 describe('rally 意圖', () => {
   it('瞄準點指向集合點', () => {
     const basis = createEngageBasis()
@@ -1558,7 +1528,7 @@ describe('rally 意圖', () => {
     expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(-Math.PI / 4, 9)
   })
 
-  it('遠距接戰只疊加連續的柔性高度偏好，不把下瞄硬夾成固定角度', () => {
+  it('低空接戰仍完整照目標線，轉向層不預防性抬頭', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
@@ -1576,7 +1546,7 @@ describe('rally 意圖', () => {
       knobs, createDefendState(), null, cmd,
     )
     const direct = Math.atan2(-100, 5000)
-    expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(direct + floorPitchAngle(100), 9)
+    expect(Math.asin(cmd.aimWorld.y)).toBeCloseTo(direct, 9)
   })
 })
 
@@ -1692,7 +1662,7 @@ describe('steerCommand：拉桿紀律', () => {
 /**
  * 甜蜜區偏置（`Situation.sweetPitch`，見 `ai/doctrine.ts`）。
  *
- * 甜蜜區與低空柔性高度偏好共用這個函式。它保的是**世界水平方位**，與
+ * 它保的是**世界水平方位**，與
  * `shrinkTowardNose` 保的「機體滾轉方位」不是同一個東西。
  */
 describe('applyPitchBias', () => {

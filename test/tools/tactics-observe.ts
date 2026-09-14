@@ -18,7 +18,7 @@ import { Vector3 } from 'three'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_COMMAND, FLANK_RANGE, type FlightOrder } from '../../src/ai/command'
-import { DEFAULT_SAFETY } from '../../src/ai/safety'
+import { recoveryClearance } from '../../src/ai/safety'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
@@ -295,7 +295,7 @@ export function observe(
     // ── 觀測 ──────────────────────────────────────────
     for (const c of b.world.combatants) {
       if (!c.alive) continue
-      if (c.aircraft.state.position.y < DEFAULT_SAFETY.clearance) o.belowClearance++
+      if (c.aircraft.state.position.y < recoveryClearance(c.aircraft.spec)) o.belowClearance++
       // 【這裡配置 Vector3 是可以的】它在測試檔裡，不在 `src/` 的熱路徑上。
       // 品質指標只在量測時算
       if (c.command.firing) {

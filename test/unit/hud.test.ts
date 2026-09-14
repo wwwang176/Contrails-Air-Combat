@@ -573,12 +573,23 @@ describe('上帝視角的 HUD', () => {
     expect(aiStateLine(f)).not.toContain('（')
   })
 
-  it('戰術相位不是 off 時才多印一格', () => {
+  it('戰術相位不是 off 時放在意圖後的括號', () => {
     const f = createHudFrame()
     f.aiIntent = 'engage'
     f.aiMode = 'normal'
     f.aiPhase = 'perch'
-    expect(aiStateLine(f)).toContain('perch')
+    expect(aiStateLine(f)).toContain('意圖 engage（perch）')
+  })
+
+  it('對地航次修飾原意圖，防墜另列為介入', () => {
+    const f = createHudFrame()
+    f.aiIntent = 'approach'
+    f.aiMode = 'normal'
+    f.aiPhase = '對地進場'
+    f.aiOverride = '防墜補高'
+    const line = aiStateLine(f)
+    expect(line).toContain('意圖 approach（對地進場）')
+    expect(line).toContain('介入 防墜補高')
   })
 
   it('欄位是空的時候不印出空格子', () => {

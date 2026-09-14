@@ -7,7 +7,7 @@ import { lineAbreast } from '../../src/battle/order'
 import { HEAD_ON } from '../../src/battle/entry'
 import { AiController } from '../../src/ai/AiController'
 import { isCrashed } from '../../src/aircraft/crash'
-import { DEFAULT_SAFETY } from '../../src/ai/safety'
+import { recoveryClearance } from '../../src/ai/safety'
 import { ALTITUDES } from '../../src/battle/skirmish'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
@@ -259,8 +259,8 @@ describe('地形進得了場', () => {
 
   /**
    * 【為什麼不是「撞山 0」】實測有一架撞了：滿血的 P-51D 俯衝追人，2.5 秒
-   * 掉 240 m，而**腳下的地形同時升了 85 m**。安全層的 `clearance` 是 120 m，
-   * 那個常數是照**平的海面**訂的 —— 地形會自己迎上來這件事不在它的模型裡。
+   * 掉 240 m，而**腳下的地形同時升了 85 m**。安全層的戰鬥機固定餘裕是 30 m，
+   * 而那個常數不包含「地形正在迎上來」——這部分由地形感知另外處理。
    *
    * 把它提高到 160 m 確實歸零，但那是全域 AI 常數：同一場 20v20 的存活
    * 從 34 變 27 —— 對戰矩陣、六場機動、命令通道全部要重錄。
@@ -281,7 +281,7 @@ describe('地形進得了場', () => {
    * **不把觀測值抄成門檻，換一個說得出理由的判準。**
    */
   it('甲板高度：撞山只能是來不及的那一種', () => {
-    const limit = DEFAULT_SAFETY.clearance / RECOVERY_SECONDS
+    const limit = recoveryClearance(P51D) / RECOVERY_SECONDS
     console.log(JSON.stringify({
       hitLand: deck.hitLand,
       fellOnLand: deck.fellOnLand,
@@ -315,7 +315,7 @@ describe('地形進得了場', () => {
    */
   it('甲板高度：沒有人生在山裡', () => {
     console.log(JSON.stringify({ spawnClear: deck.spawnClear.toFixed(0) }))
-    expect(deck.spawnClear).toBeGreaterThan(DEFAULT_SAFETY.clearance)
+    expect(deck.spawnClear).toBeGreaterThan(recoveryClearance(P51D))
   })
 })
 
