@@ -486,7 +486,7 @@ export function planFlightOrder(
   foe.divideScalar(e)
 
   // ── 方向：由敵群指向小隊，取水平分量 ────────────────────
-  // 退化階梯與 `stationPoint`、`unloadAim`、`applyFloor` 一致：
+  // 退化階梯與 `stationPoint`、`unloadAim` 一致：
   // 首選 → 次選 → 固定方向。**不 return、不留 NaN。**
   const dir = P.v[3]!.set(own.x - foe.x, 0, own.z - foe.z)
   let len = dir.length()

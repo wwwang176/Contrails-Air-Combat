@@ -614,8 +614,8 @@ export interface SteerConfig {
    * —— **`extend` 一次都沒出現**。不是進不去那個高度，是進去的時候不在
    * `extend`。
    *
-   * 【它不是低空的主要防線】低空的高度管理由 `floorPitch` 那一層承擔，而那
-   * 一層對**所有意圖**生效。這一項只是 `extend` 專用的一個補償項。
+   * 【它不是低空的主要防線】真正的撞地判斷由同步護欄與物理 Worker 承擔；
+   * 這一項只是 `extend` 專用的戰術補償。
    *
    * 【要量它需要什麼】一個「AI 在低空、而且處於 `extend`」的場景 ——
    * 例如讓受測 AI 在低空被逼到速度見底而觸發 `extendFloorLatch`。那個場景
@@ -632,45 +632,9 @@ export interface SteerConfig {
    */
   altitudeGapScale: number
   /**
-   * 離地底限的最大抬角，rad。餘裕歸零時要求的航跡角。
-   *
-   * 【為什麼需要這一層】`extend` 有 `extendPitchAngle` 會隨離地餘裕抬頭，
-   * 而 `engage` / `approach` / `merge` / `defend` **一個都沒有** —— 唯一的
-   * 防線是 `safety.ts` 的 120 m 硬限制，那是最後一道不是政策。
-   *
-   * 【實測的因果鏈】水平面破防成功甩開射手 → AI 換目標改追
-   * 射手 → 射手是沒有高度意識的腳本、一路往下 → AI 在 `approach` 60% /
-   * `engage` 30% 的狀態跟著追，低空 90% 的時間仍在下沉。**低於 500 m 時
-   * AI 幾乎不在破防（0.0% / 0.9%）**，所以這不是破防的能量問題。
-   *
-   * 【20° 是掃出來的】三機、180 秒、兩場會撞地的場景（1000 尾追、800 橫越），
-   * 觀察窗延長到腳本射手死後仍繼續跑，才量得到 AI 真正的最低點：
-   *
-   * ```
-   * 抬角   1000尾追最低   800橫越最低   安全層介入率
-   *  0°        113            51        1.52% / 3.34%
-   * 10°        280           398        0.00% / 0.00%
-   * 20°        309           398        0.00% / 0.00%   ← 選定
-   * 30°        332           398        0.00% / 0.00%
-   * 40°        352           398        0.00% / 0.00%
-   * 60°        382           398        0.00% / 0.00%
-   * 80°        403           398        0.00% / 0.00%
-   * ```
-   *
-   * 【判準是安全層的介入率，不是最低高度】最低高度在 10° 之後就飽和了 ——
-   * 800 橫越那一場由 10° 一路到 80° 都是 398 m。**底部由飛機在那個速度與
-   * 姿態下的拉起能力決定，不由指令角度決定**，再大的抬角只是讓指令更早
-   * 打到能力上限。真正達成的目的是把硬限制擠掉：安全層介入率
-   * 1.52% / 3.34% → 0.00%，政策層完全接手（spec §3「政策先動，硬限制只在
-   * 政策失效時動」）。
-   *
-   * 【為什麼在飽和區裡取 20° 而不是 10°】兩者的安全層介入率都是 0，但 10°
-   * 在 1000 尾追那一場只到 280 m，離安全層的 120 m 硬限制少了 160 m 餘裕；
-   * 20° 有 189 m 且與 `speedRecoverPitch`、安全層的 `recoveryPitch` 一致 ——
-   * 這個專案的三處抬頭／壓頭幅度都是 20°。再往上換不到東西。
-   *
-   * 【高空是零，逐位元驗過】700 / 900 兩場（最低只到 3951 m）的
-   * `shootableShare` 在 0° 與 20° 下完全相同：6.3% / 5.5%。
+   * 低空柔性偏好的最大加角，rad。它是疊加量，不是最低航跡角；因此仍可
+   * 下瞄，也不會在 500 m 兩側把同一目標切成「猛俯衝／抬頭」。進入可射擊
+   * 時由 `sweetYield` 淡為 0，瞄準線不受偏移。撞地安全不靠這個值。
    */
   floorPitch: number
   /** defend 的偏轉角，rad */
@@ -763,8 +727,8 @@ export interface SteerConfig {
    * 永遠停在 10°、進不了 5°、閘門永遠不開。閘門必須掛在**偏置控制不到**的量
    * 上，`interceptTime` 由雙方位置與速度決定，當格不讀 `aimWorld` 也不讀機首。
    *
-   * 【為什麼是 `PROJECTILE_LIFETIME`】不新增第二套尺度 —— 與 `applyFloor`
-   * 和 `extendPitchAngle` 共用 `clearanceScale` 同一個手法。
+   * 【為什麼是 `PROJECTILE_LIFETIME`】不新增第二套時間尺度，直接沿用武器
+   * 是否仍可命中的既有判準。
    *
    * 【尺度感】800 m 同速尾追的 `interceptTime ≈ 0.90 s`（`ai-steer.test.ts`
    * 的場景註解），低於 `span` —— 整個尾追射程內偏置都是 0。要拿回滿偏得等
@@ -955,7 +919,7 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   altitudeGapScale: ALTITUDE_GAP_SCALE,
-  floorPitch: 20 * (Math.PI / 180),
+  floorPitch: 6 * (Math.PI / 180),
   defendOffset: 75 * (Math.PI / 180),
   // ## defendTilt 的定值
   //
@@ -1648,14 +1612,13 @@ function rotateHeading(v: Vector3, yaw: number): void {
 
 
 /**
- * 這個離地餘裕下，瞄準方向的航跡角至少要多少，rad。永遠 ≥ 0。
+ * 這個離地餘裕下，柔性高度偏好要加多少航跡角，rad。永遠 ≥ 0。
  *
- * 形狀與 `extendPitchAngle` 的 `altitudeDeficit` 同構，**刻意復用同一個特徵
- * 高度 `clearanceScale`**，不新增第二套幾何 —— 兩層在同一個高度開始作用。
+ * 形狀與 `extendPitchAngle` 的 `altitudeDeficit` 同構，刻意復用同一個特徵
+ * 高度 `clearanceScale`，但回傳值只供 `applyPitchBias` 疊加，不是最低角度。
  *
- * 【`deficit <= 0` 直接回傳 0，不是回傳一個很小的數】離地底限之所以能無條件
- * 套用在所有意圖與所有 `SteerMode` 上，前提就是它在高空是**嚴格**的無操作。
- * 有一條單元測試把這件事釘住。
+ * 【`deficit <= 0` 直接回傳 0，不是回傳一個很小的數】高於作用範圍時偏好
+ * 必須嚴格不存在，避免高空空戰被無意改變。
  *
  * @param groundClearance 離地（海面）高度，m。可以是負的
  */
@@ -1741,47 +1704,6 @@ export function shrinkTowardNose(self: Aircraft, factor: number, aim: Vector3): 
 }
 
 /**
- * 把 `aim` 的**航跡角**抬到不低於 `minPitch`，水平方位不變。就地修改。
- * 已經高於底限、或 `minPitch <= 0` 時逐位元不動。
- *
- * 【為什麼是航跡角而不是加一個偏置】見 `unloadAim` 的註解：偏置加在**當前**
- * 方向上會每格滾雪球，實測 `extend` 4 秒內由 −27° 跑到 −56°（垂直俯衝）。
- * 相對地平線的航跡角是一個**穩定的**目標。
- *
- * 【為什麼方位必須不動】見 `shrinkTowardNose` 的註解：指揮儀把瞄準誤差的
- * 方位讀成滾轉需求，動到方位會讓副翼打到滿舵。
- *
- * 【只抬不壓】所以它可以無條件疊在任何意圖與任何 `SteerMode` 的輸出上，
- * 包括 `extend`（`extendPitchAngle` 與這一層自然取較高者）。
- *
- * 假設 `aim` 是單位向量 —— `steerCommand` 的每一條路徑都保證這件事。
- */
-export function applyFloor(self: Aircraft, minPitch: number, aim: Vector3): void {
-  if (minPitch <= 0) return
-  const s = Math.sin(minPitch)
-  if (aim.y >= s) return
-
-  let hx = aim.x
-  let hz = aim.z
-  let h = Math.hypot(hx, hz)
-  if (h < 1e-6) {
-    // 垂直（朝下）：方位沒有定義。與 unloadAim 走同一條退化路徑 —— 機首的
-    // 水平投影。直接 return 等於在垂直俯衝時放棄拉桿，那正是要防的情況。
-    const nose = U.v[0]!.copy(FWD).applyQuaternion(self.state.orientation)
-    hx = nose.x
-    hz = nose.z
-    h = Math.hypot(hx, hz)
-    if (h < 1e-6) {
-      // 機首也鉛直：任何水平方位都一樣好。重點是抬起來而且不是 NaN
-      aim.set(0, s, -Math.cos(minPitch))
-      return
-    }
-  }
-  const c = Math.cos(minPitch) / h
-  aim.set(hx * c, s, hz * c)
-}
-
-/**
  * `applyPitchBias` 的角度上界，rad。
  *
  * 【為什麼直接寫算式而不 import `DEG`】這個檔案裡的角度常數一律如此
@@ -1792,27 +1714,20 @@ const PITCH_BIAS_LIMIT = 80 * (Math.PI / 180)
 /**
  * 把 `aim` 的**航跡角**加上 `deltaPitch`，水平方位不變。就地修改。
  *
- * 【與 `applyFloor` 的關係】`applyFloor` 只抬不壓（那是它能無條件疊加的
- * 理由），甜蜜區的偏置需要雙向，所以是它的姊妹函式而不是它本身。兩者共用
- * 同一個「改航跡角、不改方位」的作法 —— 見 `applyFloor` 與 `shrinkTowardNose`
- * 的註解為什麼方位不能動（動了會被指揮儀讀成滾轉需求，副翼打到滿舵）。
+ * 它同時服務甜蜜區與低空柔性偏好；兩者都只改航跡角、不改水平方位，避免
+ * 被指揮儀誤讀成額外的滾轉需求。
  *
  * 【夾在 ±80°】超過就變成垂直，而俯仰偏置的用途是「偏一點」不是「翻過去」。
  *
- * 【它必須排在 `applyFloor` 之前】撞地底限的優先序最高，必須有最後決定權
- * ——「想低頭換速度」不能贏過「快撞海了」。
- *
- * 【為什麼不吃 `self`】姊妹函式 `applyFloor` 需要它，因為鉛直退化時要拿
- * 機首的水平投影當方位（那一層非動不可）。這一層在同樣的退化情況直接
- * 放棄 —— 它只是偏好，所以簽名裡不需要飛機。
+ * 【為什麼不吃 `self`】這只是偏好；鉛直退化、沒有可保留的水平方位時直接
+ * 放棄即可，所以簽名不需要飛機。
  *
  * `deltaPitch === 0` 時逐位元不動。假設 `aim` 是單位向量。
  */
 export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
   if (deltaPitch === 0) return
   const horiz = Math.hypot(aim.x, aim.z)
-  // 【已經鉛直：方位沒有定義】與 `applyFloor` 走同一條退化路徑的理由相反
-  // —— 那一層非動不可（不動就撞地），這一層只是偏好，放棄是安全的。
+  // 已經鉛直時方位沒有定義；這一層只是偏好，放棄是安全的。
   if (horiz < 1e-9) return
   const pitch = Math.atan2(aim.y, horiz)
   let next = pitch + deltaPitch
@@ -1830,8 +1745,8 @@ export function applyPitchBias(deltaPitch: number, aim: Vector3): void {
  * **完全由 `pitch` 決定**。空層鎖需要的正是後者 —— 「保持 5000 m」不是「比
  * 追擊想飛的高一點」。
  *
- * 【為什麼方位不能動】與 `applyFloor`、`applyPitchBias`、`shrinkTowardNose`
- * 同一個理由：動了會被指揮儀讀成滾轉需求，副翼打到滿舵。
+ * 【為什麼方位不能動】與 `applyPitchBias`、`shrinkTowardNose` 同一個理由：
+ * 動了會被指揮儀讀成滾轉需求，副翼打到滿舵。
  *
  * `weight <= 0` 時逐位元不動。假設 `aim` 是單位向量。
  */
@@ -2109,9 +2024,6 @@ export function steerCommand(
   shrinkTowardNose(self, pull, out.aimWorld)
 
   // ── 甜蜜區：把航跡角偏向自己佔優的高度／速度，方位不動 ──
-  // 【為什麼排在撞地底限之前】底限的優先序最高，必須有最後決定權 ——
-  // 「想低頭換速度」不能贏過「快撞海了」。
-  //
   // 【為什麼 rally 排除】指揮層的位階比戰術偏好高。「我想飛高一點」不該
   // 蓋過「去那個點集合」。拉桿紀律則相反，連早退路徑都涵蓋 —— 沒有任何
   // 命令的內容是「把自己拉爆」。見 spec §4.4。
@@ -2148,7 +2060,8 @@ export function steerCommand(
   // 迴轉平面的偏置在鎖定期間自然被蓋掉，順帶補足甜蜜點偏移；`hold` 淡出
   // 時它們平滑回來。
   //
-  // 【離地底限仍然排在它後面】優先序不變：快撞海了贏過任何空層。
+  // 真正的撞地判斷由 `AiController.emit` 最後執行的同步護欄與物理 Worker
+  // 負責；這裡只處理戰術空層，不再用固定高度覆寫目標方向。
   if (
     band !== null && band.kind !== 'off' && mode !== 'speedRecover'
     && (intent === 'engage' || intent === 'approach' || intent === 'merge')
@@ -2159,16 +2072,19 @@ export function steerCommand(
     )
   }
 
-  // ── 離地底限：快撞地時把航跡角抬起來，方位不動 ──────────
-  // 【為什麼無條件套，連 speedRecover 與 overshoot 都套】它只抬不壓，而且
-  // 餘裕 ≥ clearanceScale 時 floorPitchAngle 嚴格回傳 0 —— 高空完全不存在。
-  // 「沒速度」（speedRecover 主動壓機頭 20°）與「快撞地」同時發生時撞地
-  // 優先，那本來就是安全層與瞄準點層的既有順序；overshoot 刻意消耗能量，
-  // 但撞地比讓對方跑掉嚴重。
-  //
-  // 【為什麼 extend 不需要特例】extendPitchAngle 已經吃了 groundClearance，
-  // 兩者自然取較高者 —— 這正是「只抬不壓」買到的東西。
-  applyFloor(self, floorPitchAngle(self.state.position.y - seaHeight, cfg), out.aimWorld)
+  // 【低空是偏好，不是底限】固定的 500 m 最低俯仰角會在門檻兩側反覆把
+  // 同一個地面目標切成俯衝與抬頭。現在只在遠距接戰疊一個最多 6° 的連續
+  // 偏置；進入武器可達時間後完全讓位，正式防撞留給 emit 的兩層護欄。
+  // 放在空層鎖後面是刻意的：偏好要能稍微修正低空遠距空層，但只能相加，
+  // 不能像舊底限那樣把方向整個覆寫。
+  if (
+    mode !== 'speedRecover'
+    && (intent === 'engage' || intent === 'approach' || intent === 'merge')
+  ) {
+    const bias = floorPitchAngle(self.state.position.y - seaHeight, cfg)
+      * sweetYield(basis.interceptTime, cfg)
+    applyPitchBias(bias, out.aimWorld)
+  }
 
   // ── 油門與減速（spec §7.4）────────────────────────────
   //
