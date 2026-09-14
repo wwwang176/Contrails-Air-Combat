@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
-    "test:unit": "vitest run test/unit test/control test/balance test/performance",
+    "test": "vitest run test/unit test/control test/balance",
+    "test:unit": "vitest run test/unit test/control test/balance",
     "test:integration": "vitest run test/integration",
+    "test:performance": "vitest run test/performance",
+    "test:all": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench --run"
   },

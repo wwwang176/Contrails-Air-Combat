@@ -6,6 +6,7 @@ import { RHO0 } from '../physics/atmosphere'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
+import type { AircraftSpec } from '../specs/types'
 import type { Command } from '../control/Controller'
 import type { TerrainSense } from './terrainSense'
 
@@ -143,8 +144,10 @@ export function recoveryAltitude(tas: number, gamma: number, nMax: number): numb
 export interface SafetyConfig {
   /** 所需脫離高度的安全倍率 */
   factor: number
-  /** 額外的固定餘裕，m。水平飛行時它就是最低容許高度 */
-  clearance: number
+  /** 戰鬥機的額外固定餘裕，m。水平飛行時它就是最低容許高度 */
+  fighterClearance: number
+  /** 轟炸機的額外固定餘裕，m。水平飛行時它就是最低容許高度 */
+  bomberClearance: number
   /** 硬接管時的爬升角，rad */
   recoveryPitch: number
   /**
@@ -230,15 +233,17 @@ export interface SafetyConfig {
 }
 
 /**
- * `factor`、`clearance`、`recoveryPitch` 仍是起始值。
+ * `factor`、兩種 `clearance`、`recoveryPitch` 仍是起始值。
  * `stallMargin`、`stallRecoveryPitch` 是失速硬介入的兩個門檻，見各欄位註解。
  *
  * `factor` 取 1.5 是因為閉式解假設立刻拉到 nMax，而實際上指揮儀要花時間
- * 滾平與建立過載。`clearance` 取 120 m 是「就算完全水平也不准比這更低」。
+ * 滾平與建立過載。固定餘裕與改出展示模型共用：戰鬥機 30 m、轟炸機 100 m。
+ * 轟炸機較重、建立過載較慢，所以保留較大的機型級餘裕；這不是任務特判。
  */
 export const DEFAULT_SAFETY: SafetyConfig = {
   factor: 1.5,
-  clearance: 120,
+  fighterClearance: 30,
+  bomberClearance: 100,
   recoveryPitch: 20 * (Math.PI / 180),
   // 【必須低於瞄準點層的 speedRecoverMargin（1.25）】瞄準點層是技巧、這一層
   // 是硬限制，硬限制只在技巧失效時才動。有一條單元測試把這個關係釘住。
@@ -253,6 +258,13 @@ export const DEFAULT_SAFETY: SafetyConfig = {
   lookahead: 0.25,
   overspeedRatio: 0.90,
   overspeedThrottleRatio: 0.85,
+}
+
+/** 與展示模型相同的機型級固定改出餘裕。 */
+export function recoveryClearance(
+  spec: AircraftSpec, cfg: SafetyConfig = DEFAULT_SAFETY,
+): number {
+  return spec.role === 'fighter' ? cfg.fighterClearance : cfg.bomberClearance
 }
 
 /**
@@ -307,6 +319,7 @@ export function applySafety(
   out: Command,
   cfg: SafetyConfig = DEFAULT_SAFETY,
   sense?: TerrainSense,
+  rolloutNeeded = 0,
 ): SafetyAction {
   const vel = self.state.velocity
   const tas = vel.length()
@@ -333,7 +346,13 @@ export function applySafety(
     ? Math.max(-Math.PI / 2, gamma + flightPathRate(self) * cfg.lookahead)
     : gamma
   const worst = Math.min(gamma, predicted)
-  const needed = recoveryAltitude(tas, worst, nMax) * cfg.factor + cfg.clearance
+  // Worker 的完整物理預演只能把接管提早；取最大值保證 Worker 無論回什麼，
+  // 都不會削弱這條每步同步執行的解析護欄。
+  const clearance = recoveryClearance(self.spec, cfg)
+  const needed = Math.max(
+    recoveryAltitude(tas, worst, nMax) * cfg.factor + clearance,
+    rolloutNeeded,
+  )
   const margin = self.state.position.y - seaHeight
 
   // ── 撞地硬接管 ──────────────────────────────────────────

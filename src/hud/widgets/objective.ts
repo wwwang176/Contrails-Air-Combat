@@ -48,6 +48,41 @@ export function formatObjectiveMetric(
 }
 
 /**
+ * 護送的架數。**進度與本錢分開印，各自帶標籤。**
+ *
+ * ```
+ *   有門檻（arrived ≥ 0）   已抵達 3/8　在途 11 架
+ *   沒有門檻（arrived −1）  16 架
+ *   沒有架數（兩者 −1）      空字串
+ * ```
+ *
+ * 分母是門檻不是總架數：玩家在追的是「還差幾架過關」。在途只算還沒抵達、
+ * 還活著的（`MissionState.remaining`），所以兩個數字加起來會隨損失變小。
+ *
+ * @param arrived   已抵達幾架，−1 = 這一關沒有門檻
+ * @param need      門檻；只在 `arrived ≥ 0` 時讀
+ * @param remaining 還在路上幾架，−1 = 這一關沒有這個數字
+ */
+export function formatConvoyCounts(arrived: number, need: number, remaining: number): string {
+  const left = remaining >= 0 ? Math.round(remaining) : -1
+  if (arrived < 0) return left >= 0 ? `${left} 架` : ''
+  const progress = `已抵達 ${Math.round(arrived)}/${Math.round(need)}`
+  return left >= 0 ? `${progress}　在途 ${left} 架` : progress
+}
+
+/**
+ * 目標列的整行文字：目標、架數、計量、倒數，空的段落不留分隔。
+ */
+export function formatObjectiveLine(f: HudFrame): string {
+  const metric = formatObjectiveMetric(
+    f.objectiveMetric, f.objectiveMetricKind, f.objectiveMetricTotal)
+  const clock = formatCountdown(f.objectiveSeconds)
+  // 【架數排在距離之前】它是勝負的直接量，距離只說還要多久
+  const counts = formatConvoyCounts(f.objectiveArrived, f.objectiveNeed, f.objectiveRemaining)
+  return [f.objectiveText, counts, metric, clock].filter((s) => s !== '').join('　')
+}
+
+/**
  * 倒數。`Infinity` 回空字串 —— 無時限時整段不畫。
  *
  * 【為什麼用 `ceil` 而不是 `floor`】倒數顯示 0 的那一刻應該是真的到了，
@@ -89,13 +124,7 @@ export function drawObjective(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hu
     return
   }
 
-  const metric = formatObjectiveMetric(
-    f.objectiveMetric, f.objectiveMetricKind, f.objectiveMetricTotal)
-  const clock = formatCountdown(f.objectiveSeconds)
-  // 【剩餘架數排在距離之前】它是勝負的直接量：護送輸在「全部被擊落」，
-  // 而距離只說還要多久。−1 的意思是這一關沒有這個數字
-  const left = f.objectiveRemaining >= 0 ? `${Math.round(f.objectiveRemaining)} 架` : ''
-  const text = [f.objectiveText, left, metric, clock].filter((s) => s !== '').join('　')
+  const text = formatObjectiveLine(f)
 
   const size = Math.round(14 * L.scale)
   const pad = 8 * L.scale

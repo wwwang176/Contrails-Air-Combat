@@ -45,12 +45,15 @@ const withdraws = (c: ReturnType<typeof missionConfigFrom>): readonly WithdrawBe
   (c.beats ?? []).filter((b): b is WithdrawBeat => b.kind === 'withdraw')
 
 describe('波次的翻譯', () => {
-  it('沒有波次、返航、照明彈的卡不產生任何節拍', () => {
+  it('沒有波次、重生、返航、照明彈的卡不產生任何節拍', () => {
     for (const c of CAMPAIGNS) {
       for (const m of MISSIONS[c]) {
         if (m.battle === null) continue
         const b = m.battle
-        if (b.waves !== undefined || b.withdraw !== undefined || b.flares !== undefined) continue
+        if (
+          b.waves !== undefined || b.recycle !== undefined
+          || b.withdraw !== undefined || b.flares !== undefined
+        ) continue
         expect(missionConfigFrom(m as ReadyMissionCard).beats, m.id).toBeUndefined()
       }
     }
@@ -197,6 +200,57 @@ describe('波次的翻譯', () => {
     expect(seats[4]!.team).toBe('blue')
   })
 
+  it('地面戰果的條件原樣帶過去', () => {
+    const c = card({
+      waves: [{
+        when: { kind: 'ground', below: 6, byLatest: 40 }, warn: 'x', warnLead: 0,
+        side: 'theirs', spec: P51D, count: 2,
+      }],
+    })
+    expect(reinforces(missionConfigFrom(c))[0]!.when).toEqual({ kind: 'ground', below: 6, byLatest: 40 })
+  })
+
+  it('地面戰果的條件在戰場上讀的是敵方地面目標的摧毀數', () => {
+    const ground = [0, 1, 2].map((i) => ({
+      unit: 'fuelDump' as const, team: 'red' as const, x: i * 100, z: -3000, heading: 0,
+    }))
+    const c = card({
+      ground,
+      waves: [{
+        when: { kind: 'ground', below: 2, byLatest: 1 }, warn: 'x', warnLead: 0,
+        side: 'theirs', spec: P51D, count: 2,
+      }],
+    })
+    const run = (kill: number): number => {
+      const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+      const before = b.world.combatants.length
+      for (let i = 0; i < kill; i++) b.world.groundTargets[i]!.alive = false
+      while (b.world.time < 2) stepBattle(b, 1 / 240)
+      return b.world.combatants.length - before
+    }
+    expect(run(1)).toBe(2)
+    expect(run(2)).toBe(0)
+  })
+
+  it('形狀相同的預留可以互換 —— 前一個波次永遠不來，後一個照樣進場', () => {
+    const c = card({
+      ground: [{ unit: 'fuelDump', team: 'red', x: 0, z: -3000, heading: 0 }],
+      waves: [
+        { when: { kind: 'ground', below: 1, byLatest: 0.5 }, warn: '甲', warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2 },
+        { when: { kind: 'clock', at: 1 }, warn: '乙', warnLead: 0,
+          side: 'theirs', spec: P51D, count: 2 },
+      ],
+    })
+    const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+    const before = b.world.combatants.length
+    b.world.groundTargets[0]!.alive = false
+    while (b.world.time < 1.5) stepBattle(b, 1 / 240)
+    expect(b.beatStates[0]!.phase).toBe('waiting')
+    expect(b.beatStates[1]!.phase).toBe('done')
+    expect(b.world.combatants.length - before).toBe(2)
+  })
+
   it('一個波次是一支小隊 —— 超過或是 0 都拋錯', () => {
     for (const count of [0, SCHWARM_SIZE + 1]) {
       const c = card({
@@ -246,100 +300,24 @@ describe('返航的翻譯', () => {
   })
 })
 
-describe('攔截轟炸機群的第二批護航機', () => {
-  const m1 = readyCard('germany-m1')
-
-  it('這張卡真的掛了一個波次', () => {
-    // 【為什麼要這一條】設定基準（`mission-config-baseline.test.ts`）刻意把
-    // `beats` 排除在快照之外 —— 德 M1 多一個波次是這一輪刻意的新增，不該讓
-    // 基準紅。代價是**波次被刪掉那一份基準仍然全綠**。
-    // 這一條補上那個缺口
-    expect(m1.battle.waves).toHaveLength(1)
-  })
-
-  it('來的是敵方的 P-51D 四架，用時鐘不是存活數', () => {
-    const w = m1.battle.waves![0]!
-    expect(w.side).toBe('theirs')
-    expect(w.spec).toBe(P51D)
-    expect(w.count).toBe(4)
-    // 【為什麼是時鐘】這一關的 convoyPriority 是 5，我方一心衝轟炸機 ——
-    // 實測一整場 145 s 護航機一架都沒掉，而勝負 145.5 s 就定了。
-    // 「敵方戰鬥機剩不多」那個條件的節奏在這裡不可靠
-    if (w.when.kind !== 'clock') throw new Error('應該用時鐘')
-    expect(w.when.at).toBeGreaterThan(0)
-    expect(w.warnLead).toBeGreaterThan(0)
-  })
-
-  it('波次來得及在勝負定下來之前發生', () => {
-    // 【擋的是「波次排在關卡結束之後」】轟炸機飛 12 km 大約 145 s；
-    // 波次若排在那之後，玩家永遠看不到它
-    const w = m1.battle.waves![0]!
-    if (w.when.kind !== 'clock') throw new Error('應該用時鐘')
-    expect(w.when.at + w.warnLead).toBeLessThan(120)
-  })
-})
-
-describe('帝國最後防線的兩批攔截機', () => {
-  const m4 = readyCard('germany-m4')
-
-  it('返航的兜底時限早於第二批進場 —— 否則那一關的下半場會被跳過', () => {
-    // 【這是一個真的會發生的路徑】開場規則是 annihilate，紅隊歸零就**直接
-    // 判勝**，之後返航節拍再也沒有機會接管規則。實測：讓紅隊在 t=4.1 s 歸零
-    // 而藍隊還有 8 架，結果是 victory、withdraw 還停在 waiting
-    //
-    // 所以兜底時限要早於「打得完敵軍」的那一刻。這裡守的是可以量的那一半：
-    // 它早於第二批進場，第二批因此是擋在逃生路上，而不是還在纏鬥時多來四架
-    const w = m4.battle.withdraw!
-    if (w.when.kind !== 'alive') throw new Error('應該用存活數')
-    const second = m4.battle.waves![1]!
-    if (second.when.kind !== 'clock') throw new Error('第二批應該用時鐘')
-    expect(w.when.byLatest).toBeLessThan(second.when.at + second.warnLead)
-  })
-
-  it('撤離段不倒數', () => {
-    // 【為什麼無時限】這一關的壓力來源是擋在路上的兩批
-    // 攔截機，不是碼表。再壓一個倒數上去，玩家要同時應付「打穿出去」與
-    // 「來不來得及」，而後者他無從估計 —— 他不知道還有幾批
-    expect(m4.battle.withdraw!.seconds).toBe(Infinity)
-  })
-
-  it('返航綁我方存活數，不是時鐘', () => {
-    // 【為什麼非這樣不可】開場規則是 annihilate，紅隊歸零就直接判勝。
-    // 用時鐘的話玩家提前清光敵軍，返航段永遠不會發生
-    const w = m4.battle.withdraw!
-    if (w.when.kind !== 'alive') throw new Error('應該用存活數，不是時鐘')
-    expect(w.when.side).toBe('mine')
-    expect(Number.isFinite(w.when.byLatest)).toBe(true)
-  })
-
-  it('兩批都從敵方那一側來，第二批往前挪', () => {
-    const waves = m4.battle.waves!
-    expect(waves).toHaveLength(2)
-    for (const w of waves) expect(w.side).toBe('theirs')
-    expect(waves[0]!.along).toBeUndefined()
-    expect(waves[1]!.along).toBeLessThan(-0.5)
-  })
-
-  it('波次生在玩家前方，而且在撤離點之前', () => {
-    // 【這是這一關的整個幾何】撤離點在 −Z，波次也在 −Z ——
-    // 玩家必須打穿出去。舊撤離卡的「追不到」從根本消失，因為沒有人在追
-    const cfg = missionConfigFrom(m4)
-    const z = reinforces(cfg).map((b) => b.flight.entry.along * cfg.entryRange)
-    const target = -m4.battle.withdraw!.distance
-    for (const v of z) {
-      expect(v, `波次 z=${v}`).toBeLessThan(0)
-      expect(v, `波次 z=${v} 應在撤離點之前`).toBeGreaterThan(target)
+describe('德軍兩張卡的席位', () => {
+  it('加上波次之後兩隊都還在上限內', () => {
+    for (const id of ['germany-m1', 'germany-m4']) {
+      const m = readyCard(id)
+      const cfg = missionConfigFrom(m)
+      const extra = (m.battle.waves ?? []).reduce((s, w) => s + w.count, 0)
+      const red = sideCount(cfg.units, 'red') + extra
+      const blue = sideCount(cfg.units, 'blue')
+      expect(red, id).toBeLessThanOrEqual(MAX_SIDE)
+      expect(blue, id).toBeLessThanOrEqual(MAX_SIDE)
+      expect(red + blue, id).toBeLessThanOrEqual(MAX_COMBATANTS)
     }
-    expect(z[1]).toBeLessThan(z[0]!)
   })
 
-  it('加上兩批之後兩隊都還在上限內', () => {
-    const cfg = missionConfigFrom(m4)
-    const extra = m4.battle.waves!.reduce((s, w) => s + w.count, 0)
-    const red = sideCount(cfg.units, 'red') + extra
-    const blue = sideCount(cfg.units, 'blue')
-    expect(red).toBeLessThanOrEqual(MAX_SIDE)
-    expect(blue).toBeLessThanOrEqual(MAX_SIDE)
-    expect(red + blue).toBeLessThanOrEqual(MAX_COMBATANTS)
+  it('德 M3 的起飛波次把起飛線帶到分隊上', () => {
+    const cfg = missionConfigFrom(readyCard('germany-m4'))
+    const takeoff = reinforces(cfg).filter((b) => b.flight.takeoff !== undefined)
+    expect(takeoff).toHaveLength(3)
+    for (const b of takeoff) expect(b.flight.departs).toBe('parkedP51')
   })
 })

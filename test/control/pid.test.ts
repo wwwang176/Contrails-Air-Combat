@@ -57,4 +57,14 @@ describe('Pid', () => {
     p.gains.kp = 2
     expect(p.update(0.5, 0.01)).toBeCloseTo(1, 10)
   })
+
+  it('copyStateFrom 讓預演分支延續相同的積分與微分歷史', () => {
+    const g = { kp: 0.7, ki: 0.4, kd: 0.1, integralLimit: 10, outputLimit: 10 }
+    const source = new Pid({ ...g })
+    const branch = new Pid({ ...g })
+    source.update(0.8, 0.1)
+    source.update(0.5, 0.1)
+    branch.copyStateFrom(source)
+    expect(branch.update(0.2, 0.1)).toBeCloseTo(source.update(0.2, 0.1), 12)
+  })
 })

@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
-import { missionConfigFrom, type MissionBattle } from '../../src/battle/missions'
+import { createBattle, stepBattle, DEFAULT_BATTLE, type BattleConfig } from '../../src/battle/setup'
+import {
+  missionConfigFrom, type MissionBattle, type ReadyMissionCard,
+} from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Battery } from '../../src/weapons/types'
 import type { Team } from '../../src/world/World'
-import { readyCard } from '../fixtures/mission'
+import { cardWith, readyCard, INTERCEPT_CARD } from '../fixtures/mission'
 
 /**
  * 讓一支槍不痛。
@@ -31,8 +33,8 @@ class Idle implements Controller {
   }
 }
 
-function battleFor(id: string) {
-  return createBattle(new Idle(), missionConfigFrom(readyCard(id)), SEED)
+function battleFor(card: ReadyMissionCard) {
+  return createBattle(new Idle(), missionConfigFrom(card), SEED)
 }
 
 /** 由四元數求滾轉角，度。取機體右翼在世界座標的 y 分量 */
@@ -44,7 +46,7 @@ function rollDeg(a: Aircraft): number {
 
 describe('護送：被護送的那幾架平行飛向終點', () => {
   it('接觸之前滾轉恆為零 —— 一台一個小隊真的消掉了僚機走位', () => {
-    const b = battleFor('allies-m1')
+    const b = battleFor(readyCard('allies-m1'))
     const cv = b.convoy
     expect(cv).not.toBeNull()
     let maxRoll = 0
@@ -62,7 +64,7 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('每一架各自沿一條平行線走 —— 橫向位置不變、縱向朝終點', () => {
-    const b = battleFor('allies-m1')
+    const b = battleFor(readyCard('allies-m1'))
     const cv = b.convoy!
     const x0 = cv.seats.map((s) => b.world.combatants[s]!.aircraft.state.position.x)
     const z0 = cv.seats.map((s) => b.world.combatants[s]!.aircraft.state.position.z)
@@ -77,24 +79,25 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
   })
 
   it('整隊都落得進判定圈 —— 否則最外側那幾架永遠判不到', () => {
-    const b = battleFor('allies-m1')
+    const b = battleFor(readyCard('allies-m1'))
     const cv = b.convoy!
+    // 【量三維】箱型的上下中隊有高度與縱深偏移，只量 x 會放過它們
     for (const p of cv.points) {
-      expect(Math.abs(p.x - cv.goal.x)).toBeLessThan(b.mission.targetRadius)
+      expect(p.distanceTo(cv.goal)).toBeLessThan(b.mission.targetRadius)
     }
   })
 
   it('被護送的小隊不進指揮官的下令清單，但仍在對手的 foe 清單裡', () => {
-    const b = battleFor('allies-m1')
-    // 藍隊 5 支小隊（1 支戰鬥機 + 4 支單機），下令端只剩 1 支
-    expect(b.blueFlightIndices).toHaveLength(5)
+    const b = battleFor(readyCard('allies-m1'))
+    // 藍隊 1 支戰鬥機小隊 + 每架被護送的各一支單機小隊，下令端只剩 1 支
+    expect(b.blueFlightIndices).toHaveLength(1 + b.convoy!.seats.length)
     expect(b.blueOrderFlights).toHaveLength(1)
     // 紅隊沒有被護送者，兩份一樣
     expect(b.redOrderFlights).toEqual(b.redFlightIndices)
   })
 
   it('被護送的那幾架拿到的是集合令，而且永遠不解除', () => {
-    const b = battleFor('allies-m1')
+    const b = battleFor(readyCard('allies-m1'))
     const cv = b.convoy!
     for (let i = 0; i < Math.round(60 / DT); i++) stepBattle(b, DT)
     for (const seat of cv.seats) {
@@ -106,6 +109,67 @@ describe('護送：被護送的那幾架平行飛向終點', () => {
       expect(order).not.toBeNull()
       expect(order!.kind).toBe('rally')
     }
+  })
+})
+
+/**
+ * 箱型的終點。**卡片由 `cardWith` 開箱型**，所以這一組量的是機制，不隨盟 M1
+ * 的架數或偏移移動。
+ */
+describe('箱型：每一架的終點帶著自己的高度與縱深', () => {
+  function boxBattle(patch: (cfg: BattleConfig) => BattleConfig = (c) => c) {
+    const cfg = missionConfigFrom(cardWith('allies-m1', { convoyBox: true, convoyCount: 16 }))
+    return createBattle(new Idle(), patch(cfg), SEED)
+  }
+  const transitOf = (cfg: BattleConfig) => cfg.units.filter((u) => u.duty === 'transit')
+
+  it('終點的 y、z 偏移就是那一架的 rise 與 depth', () => {
+    const b = boxBattle()
+    const cv = b.convoy!
+    const transit = transitOf(b.cfg)
+    expect(cv.points).toHaveLength(transit.length)
+    // 【對照組】箱型真的有三個高度、兩個縱深，否則下面逐項相等是同義反覆
+    expect(new Set(transit.map((u) => u.rise)).size).toBe(3)
+    expect(new Set(transit.map((u) => u.depth)).size).toBe(2)
+    for (const [t, p] of cv.points.entries()) {
+      expect(p.y).toBe(cv.goal.y + (transit[t]!.rise ?? 0))
+      expect(p.z).toBe(cv.goal.z + (transit[t]!.depth ?? 0))
+    }
+  })
+
+  it('出生高度到終點高度的差整隊相同 —— 飛到終點還是同一個箱子', () => {
+    const b = boxBattle()
+    const cv = b.convoy!
+    const drops = cv.seats.map((s, t) => b.world.combatants[s]!.spawnPosition.y - cv.points[t]!.y)
+    for (const d of drops) expect(d).toBeCloseTo(drops[0]!, 6)
+    // 出生時的高度確實分成三層
+    const ys = new Set(cv.seats.map((s) => Math.round(b.world.combatants[s]!.spawnPosition.y)))
+    expect(ys.size).toBe(3)
+  })
+
+  it('每一架的終點離圈心的三維距離都小於半徑', () => {
+    const b = boxBattle()
+    const cv = b.convoy!
+    for (const p of cv.points) expect(p.distanceTo(cv.goal)).toBeLessThan(cv.radius)
+  })
+
+  /**
+   * 【擋的是只量 x】橫向在圈內、縱深把它推出圈外的那一架，飛到自己的終點時
+   * 仍然不在圈裡 —— 它永遠判不到，而畫面上只是從圈後面飛過去。
+   */
+  it('縱深把一架推出圈外時拋錯，即使橫向在圈內', () => {
+    const far = (cfg: BattleConfig): BattleConfig => {
+      let first = true
+      return {
+        ...cfg,
+        units: cfg.units.map((u) => {
+          if (u.duty !== 'transit' || !first) return u
+          first = false
+          return { ...u, depth: 2000 }
+        }),
+      }
+    }
+    expect(() => boxBattle(far)).toThrow(/永遠判不到/)
   })
 })
 
@@ -131,10 +195,9 @@ describe('護送與攔截：一條規則的兩側', () => {
   const NEAR_GOAL = 3000
 
   function outcomeOf(
-    id: string,
+    card: ReadyMissionCard,
     over: Partial<MissionBattle> = {}, disarm: Team | null = null,
   ) {
-    const card = readyCard(id)
     const cfg = missionConfigFrom({
       ...card, battle: { ...card.battle, targetDistance: NEAR_GOAL, ...over },
     })
@@ -164,10 +227,11 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【為什麼不是「把敵機減到很少」】試過 `redCount: 1`：仍然打掉三架
     // B-17，剩下那一架只有 24% 血。「少到打不動」在這個局面下不存在，
     // 因為被護送的那幾架完全不迴避（`AiController.transit`）
-    const { b, t } = outcomeOf('allies-m1', {}, 'red')
+    const { b, t } = outcomeOf(readyCard('allies-m1'), {}, 'red')
     expect(b.outcome).toBe('victory')
-    // 判定的那一刻，至少一架在圈內
-    expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
+    // 【看抵達的閂，不看領頭距離】`convoyLead` 只算**還在路上**的那幾架，
+    // 所以定案那一刻它指的是下一架、不是剛進圈的那一架
+    expect(b.convoy?.arrived.some((x) => x)).toBe(true)
     expect(b.mission.remaining).toBeGreaterThan(0)
     // 【它守的是「真的飛過去」】下界擋「規則接反、開局就判贏」：終點在
     // `NEAR_GOAL` 外，轟炸機全速約 128 m/s，物理上不可能在 20 秒內到。
@@ -183,9 +247,31 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【為什麼要減架數】20 架敵機在 12 km 的航程裡打不完四架 B-17 ——
     // 打掉兩架、剩下兩架帶傷抵達，判成 `victory`。減的是**要被打光的那個
     // 數量**，也就是這條測試自己的自變數；門檻（「全滅就輸」）沒有動。
-    const { b } = outcomeOf('allies-m1', { redCount: 20, convoyCount: 2 })
+    //
+    // 【`need: 1`】這一條走的是「全滅」那一條分支。卡片的門檻大於兩架時，
+    // 開局就湊不到門檻、當場判敗，量到的是另一條規則
+    //
+    // 【把藍隊的槍拆掉、偏置釘在 5】兩架轟炸機活不活得到終點，否則就綁在
+    // 卡片的 `convoyPriority` 與護航機的火力上 —— 那是平衡，會隨試飛移動。
+    // 卡片的偏置 3 時，拆了槍仍有一架抵達
+    const { b } = outcomeOf(
+      readyCard('allies-m1'),
+      { redCount: 20, convoyCount: 2, need: 1, convoyPriority: 5 }, 'blue')
     expect(b.outcome).toBe('defeat')
     expect(b.mission.remaining).toBe(0)
+  }, 120_000)
+
+  it('護送 —— 湊不到門檻就提早判輸，不等全滅', () => {
+    // 【這一條量的是真的一場仗裡門檻有沒有接上】規則本身由
+    // `battle-convoy.test.ts` 的 need 那一組證明；這裡證明 `setup.ts` 餵進去的
+    // 已抵達與存活數讓它在半路就定案。
+    //
+    // 【四架、門檻三】打掉兩架就湊不到。`remaining > 0` 是重點：還有轟炸機在
+    // 飛就判敗，才是提早定案而不是等到全滅。偏置與敵機數覆寫的理由同上一條
+    const { b } = outcomeOf(
+      readyCard('allies-m1'), { redCount: 20, convoyCount: 4, need: 3, convoyPriority: 5 })
+    expect(b.outcome).toBe('defeat')
+    expect(b.mission.remaining).toBeGreaterThan(0)
   }, 120_000)
 
   it('攔截 —— 同一件事（敵轟炸機抵達）判成輸', () => {
@@ -196,9 +282,10 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 10 架之後這條就紅了 —— 轟炸機在抵達前先被打光，`victory` 而不是
     // `defeat`。那正是這個 describe 開頭警告過的事：「每一次調難度都會
     // 弄紅一條與難度無關的測試」。修的是測試的自變數，不是門檻
-    const { b } = outcomeOf('germany-m1', {}, 'blue')
+    const { b } = outcomeOf(readyCard(INTERCEPT_CARD), {}, 'blue')
     expect(b.outcome).toBe('defeat')
-    expect(b.mission.metric).toBeLessThan(b.mission.targetRadius)
+    // 理由同上面那一條護送：看的是抵達的閂，不是領頭距離
+    expect(b.convoy?.arrived.some((x) => x)).toBe(true)
   }, 120_000)
 
   it('攔截 —— 敵轟炸機全部被擊落就贏（護航的戰鬥機忽略）', () => {
@@ -210,7 +297,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 另一架在 145 秒抵達終點，判成 `defeat`。一架護航時兩架轟炸機都在
     // 49 秒前掉下來，而那架護航機**一滴血都沒掉** —— 「忽略護航」這句話
     // 要有這個差距才量得到
-    const { b } = outcomeOf('germany-m1', { blueCount: 20, redCount: 1, convoyCount: 2 })
+    const { b } = outcomeOf(readyCard(INTERCEPT_CARD), { blueCount: 20, redCount: 1, convoyCount: 2 })
     expect(b.outcome).toBe('victory')
     expect(b.mission.remaining).toBe(0)
     // 紅隊沒有全滅，贏的判準只看轟炸機
@@ -218,10 +305,10 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('攔截的終點在 +Z —— 方向跟著轟炸機那一隊的機首走', () => {
-    const b = battleFor('germany-m1')
+    const b = battleFor(readyCard(INTERCEPT_CARD))
     expect(b.cfg.rules.kind).toBe('convoy')
     expect(b.mission.target.z).toBeGreaterThan(0)
-    const e = battleFor('allies-m1')
+    const e = battleFor(readyCard('allies-m1'))
     expect(e.mission.target.z).toBeLessThan(0)
   })
 })
@@ -236,8 +323,10 @@ describe('沒有被護送者的場次一個字都沒變', () => {
   })
 
   it('殲滅任務：規則仍然是 annihilate，沒有圓環', () => {
-    for (const id of ['japan-m1', 'germany-m4'] as const) {
-      const b = battleFor(id)
+    // 【九關裡只剩日 M3 是殲滅】日 M1 換成 sink、德 M1 換成 hunt、
+    // 德 M4 換成 destroy —— 這一條的樣本要跟著走
+    for (const id of ['japan-m3'] as const) {
+      const b = battleFor(readyCard(id))
       expect(b.convoy).toBeNull()
       expect(b.cfg.rules.kind).toBe('annihilate')
       expect(b.mission.hasTarget).toBe(false)

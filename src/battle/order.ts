@@ -2,6 +2,8 @@ import { SCHWARM_SIZE } from './flights'
 import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
+import type { TakeoffLine } from '../control/takeoffRoll'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * 一個小隊的編成。**外層是小隊、內層是那個小隊的每一架。**
@@ -69,9 +71,29 @@ export interface FlightPlan {
    * `entryRange` 會讓「小隊之間差 400 m」變成「差 4% 的進場距離」，那兩件事
    * 在探針把 `entryRange` 調成三倍時的意思完全不同。
    *
-   * 藍隊的分層擺位靠它（`stackedEntry`）。
+   * 藍隊的分層擺位（`stackedEntry`）與被護送者的箱型（`pushBox`）靠它。
    */
   readonly depth?: number
+  /**
+   * 疊在 `tier` 之上的高度偏移，**公尺**。省略 = 0。
+   *
+   * `tier` 的鋸齒相鄰兩層只差 `altitudeSpread / 2`，而被護送的那一群恆在
+   * `CONVOY_TIER`；箱型上下兩個中隊要的是一個與 `altitudeSpread` 無關的固定差。
+   *
+   * transit 的終點帶著同一個偏移（`setup.ts` 的 `ConvoyIndex.points`），所以
+   * 箱子飛到終點還是同一個箱子。
+   */
+  readonly rise?: number
+  /**
+   * 從跑道滾行起飛。**省略 = 在進場框的空中生成。** 只有增援讀它
+   * （`setup.ts` 的 `reinforce`）：每一架擺到起飛線上、掛上滾行腳本。
+   */
+  readonly takeoff?: TakeoffLine
+  /**
+   * 起飛時地上同隊的這種停放單位每一架少一台（離起飛線最近、還在的）。
+   * **只在 `takeoff` 有值時讀。** 省略 = 地上不少任何東西。
+   */
+  readonly departs?: GroundUnitId
   /**
    * 玩家開這一小隊的長機（`members[0]`）。
    *
@@ -320,6 +342,21 @@ export const ESCORT_TIER = 4
 export const CONVOY_LANE = 0.25
 
 /**
+ * 箱型裡相鄰兩架的橫向間隔，**以 `schwarmSpacing` 為單位**（起始值 800 m → 100 m）。
+ *
+ * 【整隊必須落得進判定圈】最外側一架離圈心
+ * `√(450² + BOX_RISE² + BOX_DEPTH²)` = 718 m，抵達半徑 1,000。三個數字任一個
+ * 放大到超過半徑，`createBattle` 會拋錯（見 `setup.ts` 的終點檢查）。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const BOX_LANE = 0.125
+/** 箱型上下兩個中隊相對 lead 的高度差，m。**起始值，由試飛裁定** */
+export const BOX_RISE = 250
+/** 箱型上下兩個中隊落後 lead 的距離，m。**起始值，由試飛裁定** */
+export const BOX_DEPTH = 500
+
+/**
  * 波次與重生的橫向槽位起點，單位是 `schwarmSpacing`。
  *
  * 【為什麼不是 0】開場的分隊佔的是 −2…+2（一隊最多 5 個小隊，
@@ -345,6 +382,21 @@ export interface SideOrder {
   readonly bomber: AircraftSpec | null
   /** 那個機種幾架。**每一架自成一個小隊**，`bomber` 為 null 時無意義 */
   readonly bombers: number
+  /** 被護送的排成三中隊箱型（`pushBox`）。**省略 = 一條橫線，間隔 `CONVOY_LANE`** */
+  readonly box?: true
+  /**
+   * 那幾架轟炸機的職務。**省略 = `transit`。**
+   *
+   * ```
+   *   transit  被護送的：飛向終點、不交戰、不閃彈。必須配護送／攔截的規則
+   *   strike   攻擊隊：`combat` 職務，照常掛載、照常走攻擊航路與閃彈
+   * ```
+   *
+   * 兩者的擺位（一架一隊、`CONVOY_LANE`、`CONVOY_TIER`）相同，差別只在
+   * `FlightPlan.duty`。攻擊隊若誤成 `transit`，在沒有終點的規則下
+   * `createBattle` 會拋「沒有終點可飛」。
+   */
+  readonly bomberDuty?: 'transit' | 'strike'
 }
 
 /** `convoyLine` 的內部：把一隊排進 `out`。 */
@@ -365,10 +417,54 @@ function pushSide(
 
   const bomber = side.bomber
   if (bomber === null) return
+  const duty = side.bomberDuty === 'strike' ? 'combat' : 'transit'
+  // 【箱型只給被護送的】`pushBox` 產的一律是 transit —— 箱子的存在理由就是
+  // 讓整隊落得進同一個判定圈，而攻擊隊沒有判定圈。兩個同時開的話那幾架會是
+  // transit 卻沒有終點，`createBattle` 當場拋「沒有終點可飛」；沒有卡片這樣寫
+  if (side.box === true) {
+    pushBox(out, team, entry, bomber, side.bombers)
+    return
+  }
   for (let i = 0; i < side.bombers; i++) {
     const lane = (i - (side.bombers - 1) / 2) * CONVOY_LANE
     // 【一架一個小隊】理由見 `assertOrderOfBattle` 的 transit 檢查
-    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER })
+    out.push({ team, members: [bomber], entry, duty, lane, tier: CONVOY_TIER })
+  }
+}
+
+/**
+ * 被護送的那一群排成三中隊箱型。`n` 架分成 lead `n − 2⌊n/3⌋`、high 與 low
+ * 各 `⌊n/3⌋`（16 架 → 6 / 5 / 5）：
+ *
+ * ```
+ *   中隊   橫向（16 架）     高度          縱深
+ *   lead   −250 … +250      0             0
+ *   high    +50 … +450      +BOX_RISE     落後 BOX_DEPTH
+ *   low    −450 …  −50      −BOX_RISE     落後 BOX_DEPTH
+ * ```
+ *
+ * 【落後的正負號跟著隊伍】`depth` 是世界座標的 z。藍隊機首朝 −Z，落後是 +Z；
+ * 紅隊反過來。
+ *
+ * 每一架仍然自成一個小隊，理由同 `pushSide`。
+ */
+function pushBox(
+  out: FlightPlan[], team: Team, entry: SideEntry, bomber: AircraftSpec, n: number,
+): void {
+  const wing = Math.floor(n / 3)
+  const lead = n - 2 * wing
+  const behind = team === 'blue' ? BOX_DEPTH : -BOX_DEPTH
+  for (let i = 0; i < lead; i++) {
+    const lane = (i - (lead - 1) / 2) * BOX_LANE
+    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER, rise: 0, depth: 0 })
+  }
+  for (let k = 0; k < wing; k++) {
+    const lane = (k + 0.5) * BOX_LANE
+    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER, rise: BOX_RISE, depth: behind })
+  }
+  for (let k = 0; k < wing; k++) {
+    const lane = -(k + 0.5) * BOX_LANE
+    out.push({ team, members: [bomber], entry, duty: 'transit', lane, tier: CONVOY_TIER, rise: -BOX_RISE, depth: behind })
   }
 }
 

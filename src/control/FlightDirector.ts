@@ -491,6 +491,44 @@ export class FlightDirector {
     this.yawIntegral = 0
   }
 
+  /** 複製指揮儀的動態狀態，供物理預演從與本體完全相同的控制歷史分岔。 */
+  copyStateFrom(source: FlightDirector): void {
+    this.rollPid.copyStateFrom(source.rollPid)
+    this.pitchPid.copyStateFrom(source.pitchPid)
+    this.yawPid.copyStateFrom(source.yawPid)
+    this.lastRollCommand = source.lastRollCommand
+    this.pushMode = source.pushMode
+    this.pitchIntegral = source.pitchIntegral
+    this.levelIntegral = source.levelIntegral
+    this.yawIntegral = source.yawIntegral
+  }
+
+  /** 把 PID、遲滯與外環積分寫入數值快照，回傳下一個索引。 */
+  writeState(out: Float64Array, offset: number): number {
+    offset = this.rollPid.writeState(out, offset)
+    offset = this.pitchPid.writeState(out, offset)
+    offset = this.yawPid.writeState(out, offset)
+    out[offset++] = this.lastRollCommand
+    out[offset++] = this.pushMode ? 1 : 0
+    out[offset++] = this.pitchIntegral
+    out[offset++] = this.levelIntegral
+    out[offset++] = this.yawIntegral
+    return offset
+  }
+
+  /** 從 `writeState` 的快照還原預演分支的控制器狀態。 */
+  readState(source: Float64Array, offset: number): number {
+    offset = this.rollPid.readState(source, offset)
+    offset = this.pitchPid.readState(source, offset)
+    offset = this.yawPid.readState(source, offset)
+    this.lastRollCommand = source[offset++]!
+    this.pushMode = source[offset++]! !== 0
+    this.pitchIntegral = source[offset++]!
+    this.levelIntegral = source[offset++]!
+    this.yawIntegral = source[offset++]!
+    return offset
+  }
+
   /**
    * 由滑鼠指向的世界空間目標方向產生舵面指令。
    * 不修改 out.throttle——油門由玩家直接控制。

@@ -93,6 +93,8 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
         // 回來的話畫面留著焦黑。參考比較，每幀跑也不配置
         const want = t.alive ? live : wreck
         if (m.material !== want) m.material = want
+        // 【起飛離場的不畫】它已經是空中那一架了，留著會是一具不存在的殘骸
+        m.visible = !t.departed
       }
     },
     lodState() {

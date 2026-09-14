@@ -1,5 +1,7 @@
 import { Vector3 } from 'three'
 import type { Team } from '../world/World'
+import type { AircraftSpec } from '../specs/types'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * 一場戰鬥的結果。`victory` = 任務達成，`defeat` = 任務失敗。
@@ -57,6 +59,36 @@ export type MissionRules =
     point: Vector3
     /** 抵達半徑，m。**也就是圓環的半徑** */
     radius: number
+    /**
+     * 要**幾架**抵達，那一隊才算達成。**省略 = 1，也就是任一架抵達就定案。**
+     *
+     * 【為什麼不是「剩幾架」】它數的是**累計進過圈的架數**，不是當下還活著
+     * 的。兩者在整隊一起到的時候很接近，但「進過圈又飛出去」只有前者說得對
+     * ——而那正是抵達之後會發生的事（`setup.ts` 不讓抵達的那幾架退場，它們
+     * 會繼續往前飛）。
+     *
+     * 【它同時給出一個新的敗北條件】`convoyAlive + convoyArrived < need` 時
+     * 已經湊不到門檻了，當場判定。少了那一條，16 架剩 7 架的玩家還要再飛
+     * 兩分鐘才知道自己輸了。
+     */
+    need?: number
+  }
+  | {
+    /**
+     * 擊落 `count` 架敵機。**累計，不是把場上打空。**
+     *
+     * 【為什麼不是 `annihilate`】有重生的關「場上歸零」永遠不會發生，而德軍
+     * 攔截隊真正的作戰目標本來就是「把損失率推到讓對方停飛」，不是攔下特定
+     * 的某一批。沒有判定圈、沒有抵達。
+     *
+     * 【`role` 是必要的，不是裝飾】德 M1 的目標是**轟炸機**，而場上同時有
+     * 護航的戰鬥機。少了這一格，玩家打護航機也能過關 —— 那一關的內容就整個
+     * 變了，而畫面上一切正常。
+     */
+    kind: 'hunt'
+    count: number
+    /** 只算這個角色的擊落。省略 = 全部 */
+    role?: AircraftSpec['role']
   }
   | {
     /**
@@ -71,6 +103,14 @@ export type MissionRules =
      */
     kind: 'sink'
     count: number
+    /**
+     * 這一關有護衛編制：藍隊的戰鬥機是護衛，轟炸機是攻擊隊。**護衛全滅就判敗**，
+     * 即使攻擊隊還活著、船還沒沉夠。省略 = 只有藍隊全滅才敗。
+     *
+     * 藍隊全是轟炸機的關（日 M3）戰鬥機數恆為 0，帶了這一格就會開場判敗 ——
+     * 只有卡片有攻擊隊時 `missionRules` 才加上它。
+     */
+    escorts?: true
   }
   | {
     /**
@@ -81,6 +121,11 @@ export type MissionRules =
      */
     kind: 'destroy'
     count: number
+    /**
+     * 只算這一種地面單位。**省略 = 敵方地面目標全部都算。** 過濾在
+     * `setup.ts` 的 `inDestroyPool`，這一支只讀已經數好的 `targetsDestroyed`。
+     */
+    unit?: GroundUnitId
   }
   | {
     /**
@@ -145,6 +190,14 @@ export interface MissionTuning {
    * 【起始值，待掃描】見 `missions.ts` 的 `CONVOY_PRIORITY`。
    */
   convoyPriority: number
+  /**
+   * 戰鬥機要優先掃射的地面單位。**省略 = 不覆寫空戰優先序。**
+   *
+   * 這不是另一套 AI：卡片只負責說明任務目標，實際掃射、立即自衛與防墜仍走
+   * `AiController` 的共用行為。用單位 id 而不是關卡 id，核心層因此不知道自己
+   * 正在哪一關。
+   */
+  readonly priorityGroundUnit?: GroundUnitId
 }
 
 /** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */
@@ -158,6 +211,13 @@ export const NEUTRAL_TUNING: MissionTuning = { convoyPriority: 1 }
  */
 export interface MissionInputs {
   aliveBlue: number
+  /**
+   * 藍隊還活著的戰鬥機（`role !== 'bomber'`）。`sink` 的 `escorts` 讀它。
+   *
+   * 【依機體角色而不是 duty】攻擊隊與護衛的 duty 都是 `combat`，分得開它們的
+   * 只有機種：攻擊隊恆是 `convoySpec` 的轟炸機。
+   */
+  aliveBlueFighters: number
   aliveRed: number
   /** 玩家目前那一架的位置 */
   playerPos: Vector3
@@ -171,7 +231,11 @@ export interface MissionInputs {
    */
   playerAlive: boolean
   /**
-   * 編組表上 `duty === 'transit'` 的那些飛機**還活著幾架**。
+   * 編組表上 `duty === 'transit'` 的那些飛機**還活著、而且還沒抵達的有幾架**。
+   *
+   * 【為什麼抵達的不算在裡面】它與 `convoyArrived` 加起來要等於「還有機會
+   * 湊到門檻的架數」。抵達的若兩邊都算，那個和就會超過實際架數，而敗北條件
+   * （湊不到 `need`）就永遠不成立。
    *
    * 【為什麼是 duty 而不是 `spec.role === 'bomber'`】遭遇戰選 B-17 時整隊
    * 都是轟炸機，那時這一關的規則是殲滅、根本不讀這個欄位；但用 role 推導
@@ -180,13 +244,37 @@ export interface MissionInputs {
    */
   convoyAlive: number
   /**
-   * 那幾架**還活著的**裡面，離終點最近的距離，m。全滅時 `Infinity`。
+   * 那幾架**還活著、而且還沒抵達的**裡面，離終點最近的距離，m。
+   * 一架都不剩時 `Infinity`。
    *
    * 【為什麼只算活著的】把死掉的算進來會讓「最後一架在圈裡被打下來」同時
    * 滿足抵達與全滅兩個條件 —— 那時判定的順序就決定勝負，而任何一種順序
    * 都說得出道理。只算活著的之後兩者**互斥**，順序不再影響結果。
+   *
+   * 【它只餵目標列，不參與判定】抵達與否由 `convoyArrived` 說了算。
    */
   convoyLead: number
+  /**
+   * 那幾架裡面**累計進過判定圈的有幾架**。只增不減。
+   *
+   * 【為什麼判定不能自己算】「進過圈」是**跨步累積的狀態**，而 `stepMission`
+   * 是一個只看當步快照的純函數。讓它自己從距離推的話，同一架會被每一步重算
+   * 一次 —— 一架在圈裡待三秒就會被當成七百多架抵達。
+   *
+   * 【半徑與 NaN 的防線因此搬到呼叫端】`setup.ts` 逐座位比 `< radius`，
+   * `NaN < radius` 是 false，位置壞掉時不會誤判抵達。
+   */
+  convoyArrived: number
+  /**
+   * **紅方**累計被擊落的架數。只增不減，`hunt` 規則讀它。
+   *
+   * 【為什麼不是「開場架數減存活數」】有重生的關兩者不相等 —— 重生會把存活
+   * 數補回去，而擊落是已經發生的事。用補數算的話，打掉一整隊再讓它重生，
+   * 進度就退回去了。
+   */
+  redKilled: number
+  /** 上面那些裡面，機體角色是轟炸機的有幾架。`hunt.role` 限定時要分得出來 */
+  redKilledBombers: number
   /**
    * **敵方**已經被擊沉幾艘。
    *
@@ -271,6 +359,14 @@ export interface MissionState {
    * 壞掉的值印成 0 是同一條理由。
    */
   remaining: number
+  /**
+   * 護送已經送到幾架。**−1 = 這一關沒有門檻**（`need` 是 1 或不是護送），
+   * 目標列就不畫它。
+   *
+   * 【為什麼門檻是 1 時也給 −1】那時「已抵達 1」與「贏了」是同一件事，印出來
+   * 只會是一個恆為 0 的數字。有門檻才有進度可看。
+   */
+  arrived: number
 }
 
 /**
@@ -318,6 +414,7 @@ export function createMissionState(rules: MissionRules): MissionState {
     metricKind: 'count',
     metricTotal: -1,
     remaining: -1,
+    arrived: -1,
   }
   resetMissionState(rules, s)
   return s
@@ -336,8 +433,10 @@ export function createMissionState(rules: MissionRules): MissionState {
  */
 export function resetMissionState(rules: MissionRules, out: MissionState): void {
   out.outcome = 'fighting'
-  // 【只有擊沉會覆寫它】其餘三種在下面都不碰，所以一律先關掉分母
+  // 【只有數數量的那幾種會覆寫它】其餘在下面都不碰，所以一律先關掉分母
   out.metricTotal = -1
+  // 【只有帶門檻的護送會覆寫它】同上，先關掉
+  out.arrived = -1
   // 【計量怎麼印由規則決定】有終點的印距離、守住艦隊印要害艦的血量比例，
   // 其餘印架數
   out.metricKind = rules.kind === 'defend'
@@ -353,6 +452,9 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
     // 意思是「全滅」，也就是輸
     out.metric = 0
     out.remaining = -1
+    // 【有門檻才給 0】0 在這一格的意思是「還沒送到任何一架」，那是開局的
+    // 實話；沒有門檻時它不該出現在畫面上，所以維持 −1
+    if ((rules.need ?? 1) > 1) out.arrived = 0
     return
   }
   out.remaining = -1
@@ -370,11 +472,26 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   out.hasTarget = false
   out.targetRadius = 0
   out.secondsLeft = Infinity
-  // 【擊沉的開局計量是「還差幾艘」＝全部】給 0 的話目標列會在第一幀
+  // 【數數量的那幾種，開局計量是「還差全部」】給 0 的話目標列會在第一幀
   // 閃一下「還差 0 艘」—— 那個數字的意思是達標了。
-  const counted = rules.kind === 'sink' || rules.kind === 'destroy'
+  const counted = rules.kind === 'sink' || rules.kind === 'destroy' || rules.kind === 'hunt'
   out.metric = counted ? rules.count : 0
   if (counted) out.metricTotal = rules.count
+}
+
+/**
+ * `hunt` 這一關要數的是哪一格。
+ *
+ * 【為什麼戰鬥機是減出來的，不是自己一格】`role` 只有兩個值，開第三格等於
+ * 多一個「總數 = 戰鬥機 + 轟炸機」的不變式，而那個不變式沒有任何東西在守。
+ * 減出來就不可能對不起來。
+ */
+function killedOfRole(
+  role: AircraftSpec['role'] | undefined, inp: MissionInputs,
+): number {
+  if (role === 'bomber') return inp.redKilledBombers
+  if (role === 'fighter') return inp.redKilled - inp.redKilledBombers
+  return inp.redKilled
 }
 
 /**
@@ -429,7 +546,11 @@ export function stepMission(
     // 【全滅才算輸，不是「船沉光了還沒達標」】後者是關卡設計錯誤
     // （目標數大於艦隊數），應該由 `campaigns.test.ts` 那一層擋掉，
     // 而不是在戰鬥中判一個玩家看不懂的敗北。
-    if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    //
+    // 【有護衛編制時，護衛全滅也算全滅】那一關的目標是掩護，攻擊隊還活著不算數
+    if (inp.aliveBlue === 0 || (rules.escorts === true && inp.aliveBlueFighters === 0)) {
+      out.outcome = 'defeat'
+    }
     return
   }
 
@@ -449,26 +570,47 @@ export function stepMission(
     return
   }
 
+  // ── 擊落 ──────────────────────────────────────────────
+  //
+  // 逐格與擊沉相同，換的只有計數的來源與那一格要不要依角色過濾。
+  if (rules.kind === 'hunt') {
+    const killed = killedOfRole(rules.role, inp)
+    out.metric = Math.max(0, rules.count - killed)
+    out.metricTotal = rules.count
+    out.remaining = -1
+    if (killed >= rules.count) {
+      out.outcome = 'victory'
+      return
+    }
+    if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
   // ── 護送／攔截 ────────────────────────────────────────
   //
-  // 【一條規則，兩張卡】**某一隊的轟炸機：抵達終點，那一隊贏；全部被擊落，
-  // 那一隊輸。** `owner` 說那一隊是誰，而玩家恆在藍隊，所以 `good` 就是
-  // 「那一隊是不是我方」。護送是 `owner: 'blue'`，攔截是 `owner: 'red'`，
-  // 兩者共用下面每一行 —— 包含邊界與 NaN 的行為。
+  // 【一條規則，兩張卡】**某一隊的轟炸機：送到 `need` 架，那一隊贏；再也湊
+  // 不到 `need` 架，那一隊輸。** `owner` 說那一隊是誰，而玩家恆在藍隊，所以
+  // `good` 就是「那一隊是不是我方」。護送是 `owner: 'blue'`，攔截是
+  // `owner: 'red'`，兩者共用下面每一行 —— 包含邊界的行為。
   //
-  // 【兩個條件互斥，所以順序不影響結果】`convoyLead` 只算活著
-  // 的那幾架（見 `MissionInputs`），全滅時它是 `Infinity`。
+  // 【兩個條件互斥，所以順序不影響結果】抵達的只算進 `convoyArrived`、
+  // 還在路上的只算進 `convoyAlive`（見 `MissionInputs`），同一架不會同時
+  // 落在兩邊。
   if (rules.kind === 'convoy') {
     const good = rules.owner === 'blue'
+    const need = rules.need ?? 1
     out.metric = inp.convoyLead
     out.remaining = inp.convoyAlive
+    out.arrived = need > 1 ? inp.convoyArrived : -1
 
-    // 【NaN 走這條】`NaN < radius` 是 false，位置壞掉時不會誤判抵達
-    if (inp.convoyLead < rules.radius) {
+    if (inp.convoyArrived >= need) {
       out.outcome = good ? 'victory' : 'defeat'
       return
     }
-    if (inp.convoyAlive === 0) {
+    // 【湊不到門檻就當場定案，不等全滅】`need` 是 1 時它退化成「全部被擊落」
+    // ——兩者逐字等價，所以沒有第二條路徑。門檻大於 1 時它才是新的：16 架
+    // 只剩 7 架還有機會時，這一關已經結束了，不必再飛兩分鐘。
+    if (inp.convoyAlive + inp.convoyArrived < need) {
       out.outcome = good ? 'defeat' : 'victory'
       return
     }

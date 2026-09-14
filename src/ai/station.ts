@@ -1,6 +1,6 @@
 import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
-import { DEFAULT_SAFETY } from './safety'
+import { recoveryClearance } from './safety'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { THROTTLE_FLOOR } from '../input/throttle'
 import type { Aircraft } from '../aircraft/Aircraft'
@@ -65,7 +65,7 @@ const MIN_GROUND_SPEED = 1e-3
 /**
  * 算出站位點的世界座標，寫進 `out`。不修改 `reference`。
  *
- * 高度夾在 `seaHeight + DEFAULT_SAFETY.clearance` 之上 —— 不夾的話僚機會
+ * 高度夾在 `seaHeight + recoveryClearance(reference.spec)` 之上 —— 不夾的話僚機會
  * 與自己的安全層打架：站位控制器命令下降、安全層命令拉起，每一格互相
  * 抵銷（M6 spec §6.3）。
  *
@@ -110,7 +110,7 @@ export function stationPoint(
     p.z + fz * offset.along + rz * offset.across,
   )
 
-  const floor = seaHeight + DEFAULT_SAFETY.clearance
+  const floor = seaHeight + recoveryClearance(reference.spec)
   if (out.y < floor) out.y = floor
 }
 

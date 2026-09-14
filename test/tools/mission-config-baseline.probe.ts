@@ -75,6 +75,9 @@ function rules(r: BattleConfig['rules']): unknown {
     }
   }
   if (r.kind === 'sink' || r.kind === 'destroy') return { kind: r.kind, count: r.count }
+  // 【擊落要連 role 一起記】少了它，把 `huntRole` 從轟炸機改成戰鬥機不會
+  // 動到基準，而那是換掉整關的內容
+  if (r.kind === 'hunt') return { kind: r.kind, count: r.count, role: r.role }
   // 【守住艦隊沒有自己的欄位】要害艦由 `MissionFleet` 的 `vital` 指名
   if (r.kind === 'defend') return { kind: r.kind }
   return {
@@ -89,13 +92,20 @@ const escort = readyCard(ESCORT_CARD)
 const intercept = readyCard(INTERCEPT_CARD)
 
 console.log(`/**
- * 「三條戰役」那一輪之前，兩張有實測基礎的卡產出的設定。
+ * 護送卡與攔截卡產出的設定。**九關改版（2026-09-13）之後的現況。**
  *
  * **重新產生**：見 \`test/tools/mission-config-baseline.probe.ts\` 的檔頭。
  * **不要手改這裡的數字** —— 手改一個位數就等於悄悄放寬了一條護欄。
  *
- * 【為什麼只有這兩張】它們是唯二有實測基礎的關卡（護送／攔截的幾何、偏置與
- * 編制是掃描定的）。改寫成新形狀之後產出的設定必須一模一樣。
+ * 【這一份不再是掃描的結果】上一版釘的是三條戰役那一輪之前掃描定出來的幾何、
+ * 偏置與編制。九關改版把盟 M1 換成柏林的十六架箱型、德 M1 換成擊落規則，
+ * **那次掃描就是這一輪刻意丟掉的東西** —— 現在的每一個數字都是起始值，
+ * 待試飛裁定。它守的因此不再是「別把掃描結果弄丟」，而是
+ * 「別在沒有人打算改卡片的時候讓設定悄悄漂移」。
+ *
+ * 【攔截那一張是合成卡】出貨的九關沒有攔截卡了（德 M1 的規則是 hunt）。
+ * \`INTERCEPT_CARD\` 由 \`test/fixtures/mission.ts\` 從護送卡鏡像出來，
+ * 所以它跟著護送卡動 —— 改盟 M1 會讓兩張都要重產。
  */
 export const MISSION_CONFIG_BASELINE = ${JSON.stringify(
   { 'allies-escort': snapshot(missionConfigFrom(escort)),

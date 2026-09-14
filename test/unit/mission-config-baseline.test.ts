@@ -5,11 +5,16 @@ import { MISSION_CONFIG_BASELINE } from '../fixtures/mission-config-baseline'
 import type { BattleConfig } from '../../src/battle/setup'
 
 /**
- * # 兩張有實測基礎的卡，改寫前後產出的設定必須相同
+ * # 護送卡與攔截卡產出的設定不會悄悄漂移
  *
- * 三條戰役那一輪把 `missionConfigFrom` 從「陣營 → 兩台飛機」改成「卡片直接
- * 指名機種」。護送與攔截的幾何、偏置與編制是掃描定出來的，
- * **重新調數值等於把那次掃描的結果丟掉**。
+ * 【它守的東西在九關改版之後換了】上一版釘的是三條戰役那一輪掃描定出來的
+ * 幾何、偏置與編制 —— 那時的理由是「重新調數值等於把那次掃描的結果丟掉」。
+ * 九關改版把盟 M1 換成柏林的十六架箱型、德 M1 換成擊落規則，**那次掃描就是
+ * 這一輪刻意丟掉的東西**。現在的每一個數字都是起始值、待試飛裁定，所以這一份
+ * 守的是「沒有人打算改卡片的時候，設定不該變」。
+ *
+ * 【攔截那一張是合成卡】出貨的九關沒有攔截卡了（德 M1 的規則是 hunt）。
+ * 它由 `test/fixtures/mission.ts` 從護送卡鏡像出來 —— 改盟 M1 會讓兩張一起動。
  *
  * 【為什麼比的是正規化的純量快照】`BattleConfig` 是一張物件圖，含新建的
  * `Vector3`、共用的 `AircraftSpec` 參考與 `Infinity`。兩次**正確**生成也不會
@@ -39,6 +44,9 @@ function rules(r: BattleConfig['rules']): unknown {
     }
   }
   if (r.kind === 'sink' || r.kind === 'destroy') return { kind: r.kind, count: r.count }
+  // 【擊落要連 role 一起記】少了它，把 `huntRole` 從轟炸機改成戰鬥機不會
+  // 動到基準，而那是換掉整關的內容
+  if (r.kind === 'hunt') return { kind: r.kind, count: r.count, role: r.role }
   // 【守住艦隊沒有自己的欄位】要害艦由 `MissionFleet` 的 `vital` 指名，
   // 規則本身只有 `kind`
   if (r.kind === 'defend') return { kind: r.kind }

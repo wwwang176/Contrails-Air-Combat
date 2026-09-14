@@ -158,7 +158,9 @@ describe('senseTerrain', () => {
    */
   it('安全層輸出的航向確實背離島心 —— 不只是符號相反', () => {
     const out = createSense()
-    const self = flyer(200, 600)
+    // 戰鬥機固定餘裕已改為 30 m；把 fixture 壓到 100 m，讓「爬不過、必須
+    // 橫向繞」的前提仍成立。測試守的是轉向符號，不是舊 120 m 門檻。
+    const self = flyer(100, 600)
     const isl = island(-300, -1600, 900, 900)
     senseTerrain(self, src(isl), out)
     expect(out.turn).not.toBe(0)

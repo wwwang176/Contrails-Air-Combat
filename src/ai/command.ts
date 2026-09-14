@@ -486,7 +486,7 @@ export function planFlightOrder(
   foe.divideScalar(e)
 
   // ── 方向：由敵群指向小隊，取水平分量 ────────────────────
-  // 退化階梯與 `stationPoint`、`unloadAim`、`applyFloor` 一致：
+  // 退化階梯與 `stationPoint`、`unloadAim` 一致：
   // 首選 → 次選 → 固定方向。**不 return、不留 NaN。**
   const dir = P.v[3]!.set(own.x - foe.x, 0, own.z - foe.z)
   let len = dir.length()
@@ -662,7 +662,7 @@ const F = makeScratch(5)
  *
  * 【為什麼是平方反比核而不是「半徑內的計數」】計數需要一個半徑門檻，而門檻
  * 會讓分數在邊界上跳。連續核在相鄰輸入上連續 —— 與 `targetScore` 的三個
- * 折扣項、`floorPitchAngle` 的連續斜坡同一條紀律（spec §7.5 的否決條件）。
+ * 折扣項、`alarmRamp` 的連續斜坡同一條紀律（spec §7.5 的否決條件）。
  *
  * 【為什麼不算目標分隊自己】側翼點本來就該靠近它。把它算進去等於懲罰
  * 「靠近要打的人」—— 呼叫端傳進來的 `others` 已經排除了目標分隊。

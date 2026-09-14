@@ -162,10 +162,14 @@ describe('missionConfigFrom', () => {
     expect(cfg.tas).toBe(DEFAULT_BATTLE.tas)
   })
 
-  it('只有護送／攔截偏離中性的 convoyPriority', () => {
+  it('只有護送規則偏離中性的 convoyPriority', () => {
+    // 【看規則不看 type】攻擊隊的卡也可以是「護航」，但那幾架不是被護送者，
+    // 偏置不作用在它們身上 —— 寫了大於 1 的值只是一個沒有人讀的數字
     for (const m of playable) {
-      const wants = m.type === '護航' || m.type === '攔截'
-      expect(missionConfigFrom(m).tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(wants)
+      // 【判準是規則不是 type】德 M1 的 type 是攔截，規則卻是 hunt —— 沒有
+      // 被護送者可以加權。用 type 推導的話那一張會被要求有偏置
+      const cfg = missionConfigFrom(m)
+      expect(cfg.tuning.convoyPriority > 1, `${m.id}／${m.type}`).toBe(cfg.rules.kind === 'convoy')
     }
   })
 
@@ -243,7 +247,10 @@ describe('開場高度', () => {
       const cfg = missionConfigFrom(m)
       const r = cfg.rules
       // 【`defend` 也沒有點】它與殲滅同一種形狀：沒有終點、沒有半徑
-      if (r.kind === 'annihilate' || r.kind === 'sink' || r.kind === 'destroy' || r.kind === 'defend') continue
+      if (
+        r.kind === 'annihilate' || r.kind === 'sink' || r.kind === 'destroy'
+        || r.kind === 'defend' || r.kind === 'hunt'
+      ) continue
       expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
     }
   })

@@ -10,6 +10,7 @@ const DT = 1 / 240
 function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
   return {
     aliveBlue: 4,
+    aliveBlueFighters: 4,
     aliveRed: 16,
     playerPos: new Vector3(0, 4000, 5000),
     playerAlive: true,
@@ -22,6 +23,9 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     redInbound: false,
     convoyAlive: 0,
     convoyLead: Infinity,
+    convoyArrived: 0,
+    redKilled: 0,
+    redKilledBombers: 0,
     ...over,
   }
 }
@@ -327,6 +331,38 @@ describe('stepMission：擊沉', () => {
     expect(s.outcome).toBe('defeat')
   })
 
+  /**
+   * 【有護衛編制時，護衛全滅就輸】日 M1 的目標是掩護雷擊隊。零戰全滅而
+   * 陸攻還活著，若只看 `aliveBlue`，玩家會接手陸攻把仗打完。
+   */
+  it('有護衛編制：戰鬥機全滅、轟炸機還活著 —— 輸', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 1, aliveBlue: 8, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  it('有護衛編制：還有一架戰鬥機就繼續打', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 1, aliveBlue: 9, aliveBlueFighters: 1 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+  })
+
+  it('有護衛編制：最後一艘沉的那一步護衛剛好全滅 —— 算贏', () => {
+    const escorted: MissionRules = { kind: 'sink', count: 3, escorts: true }
+    const s = createMissionState(escorted)
+    stepMission(escorted, inputs({ shipsSunk: 3, aliveBlue: 8, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /** 【沒有護衛編制的關不受影響】日 M3 倫內爾島藍隊全是陸攻，戰鬥機恆為 0 */
+  it('沒有護衛編制：戰鬥機是 0 而轟炸機還活著 —— 繼續打', () => {
+    const s = createMissionState(rules)
+    stepMission(rules, inputs({ shipsSunk: 1, aliveBlue: 11, aliveBlueFighters: 0 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+  })
+
   /** 【同一步同時滿足時算贏】與撤離那一條同一個裁決。 */
   it('最後一艘沉的那一步我方剛好全滅 —— 算贏', () => {
     const s = createMissionState(rules)
@@ -568,5 +604,125 @@ describe('stepMission：守住艦隊', () => {
       const { metric: _dm, metricKind: _dk, ...restD } = d
       expect(restD, JSON.stringify(over)).toEqual(restA)
     }
+  })
+})
+
+/**
+ * 擊落。**德 M1 用它**：轟炸機流持續進場，累積擊落數，沒有判定圈。
+ *
+ * 【這裡守什麼】計數的來源對不對（角色過濾），以及它是**累計**而不是
+ * 「開場架數減存活數」—— 後者在有重生的關會隨著重生退回去，而進度倒退
+ * 不會有任何東西報錯。
+ */
+describe('stepMission：擊落', () => {
+  const HUNT: MissionRules = { kind: 'hunt', count: 6 }
+  const HUNT_BOMBERS: MissionRules = { kind: 'hunt', count: 6, role: 'bomber' }
+
+  it('打夠數量就贏', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 5 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    stepMission(HUNT, inputs({ redKilled: 6 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('打超過也算贏', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 9 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('我方全滅就輸', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 2, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('defeat')
+  })
+
+  it('最後一架打下來的那一步我方剛好全滅 —— 算贏', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 6, aliveBlue: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /**
+   * 【少了角色過濾，這一關的內容就整個變了】德 M1 的目標是轟炸機，而場上
+   * 同時有護航的戰鬥機 —— 不過濾的話打護航機也能過關，而畫面上一切正常。
+   */
+  it('限定轟炸機時，打下護航的戰鬥機不算數', () => {
+    const s = createMissionState(HUNT_BOMBERS)
+    stepMission(HUNT_BOMBERS, inputs({ redKilled: 9, redKilledBombers: 2 }), DT, s)
+    expect(s.outcome).toBe('fighting')
+    expect(s.metric).toBe(4)
+  })
+
+  it('限定轟炸機時，數的就是轟炸機那一格', () => {
+    const s = createMissionState(HUNT_BOMBERS)
+    stepMission(HUNT_BOMBERS, inputs({ redKilled: 20, redKilledBombers: 6 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('限定戰鬥機時是「總數減轟炸機」', () => {
+    const r: MissionRules = { kind: 'hunt', count: 6, role: 'fighter' }
+    const s = createMissionState(r)
+    stepMission(r, inputs({ redKilled: 8, redKilledBombers: 3 }), DT, s)
+    expect(s.metric).toBe(1)
+    expect(s.outcome).toBe('fighting')
+    stepMission(r, inputs({ redKilled: 9, redKilledBombers: 3 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('省略角色時全部都算', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 6, redKilledBombers: 0 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  /**
+   * 【這一條釘的就是「累計」】重生把存活數補回去，但打下來的已經打下來了。
+   * 用「開場架數減存活數」實作的話這一條會紅。
+   */
+  it('敵方存活數不影響進度 —— 重生不讓進度倒退', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 6, aliveRed: 16 }), DT, s)
+    expect(s.outcome).toBe('victory')
+  })
+
+  it('開局的計量是「還差全部」、分母是總數', () => {
+    const s = createMissionState(HUNT)
+    expect(s.metric).toBe(6)
+    expect(s.metricTotal).toBe(6)
+    expect(s.metricKind).toBe('count')
+  })
+
+  it('計量是「還差幾架」，而且不會變成負的', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 2 }), DT, s)
+    expect(s.metric).toBe(4)
+    const over = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 99 }), DT, over)
+    expect(over.metric).toBe(0)
+  })
+
+  it('第二個計量恆是 −1，也沒有終點圓環', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 1 }), DT, s)
+    expect(s.remaining).toBe(-1)
+    expect(s.arrived).toBe(-1)
+    expect(s.hasTarget).toBe(false)
+    expect(s.targetRadius).toBe(0)
+  })
+
+  it('重設成別種規則就沒有分母了', () => {
+    const s = createMissionState(HUNT)
+    resetMissionState(ANNIHILATE, s)
+    expect(s.metricTotal).toBe(-1)
+  })
+
+  it('分出勝負之後不再改任何欄位', () => {
+    const s = createMissionState(HUNT)
+    stepMission(HUNT, inputs({ redKilled: 6 }), DT, s)
+    const frozen = { ...s }
+    stepMission(HUNT, inputs({ redKilled: 0, aliveBlue: 0 }), DT, s)
+    expect({ ...s }).toEqual(frozen)
   })
 })

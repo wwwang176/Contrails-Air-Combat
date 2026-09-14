@@ -115,6 +115,15 @@
         background: rgba(var(--veil), var(--v, .7));
       }
       #ui .screen[hidden] { display: none; }
+      #recovery-worker-blocker {
+        position: fixed; inset: 0; z-index: 10000; box-sizing: border-box;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 18px; padding: 32px; text-align: center; color: var(--ink);
+        background: rgba(20, 16, 11, .97); font: 16px/1.7 var(--f-body);
+        pointer-events: auto;
+      }
+      #recovery-worker-blocker h1 { color: var(--sel); }
+      #recovery-worker-blocker p { max-width: 680px; margin: 0; }
       h1, h2, h3 { margin: 0; font-family: var(--f-body); color: var(--strong); }
       h1 { font: 700 44px/1.15 var(--f-title); letter-spacing: .02em; }
       h2 { font-size: 17px; font-weight: 700; }

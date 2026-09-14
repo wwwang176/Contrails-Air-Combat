@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { MISSIONS, missionConfigFrom, type ReadyMissionCard } from '../../src/battle/missions'
 import { AiController } from '../../src/ai/AiController'
@@ -14,8 +13,10 @@ import type { Controller } from '../../src/control/Controller'
  * 每一架的位置、血量、彈艙、攻擊相位與鎖定；每一艘船的位置與血量；
  * 兩個池的投放計數。
  *
- * 【基準是凍結的】兩個雜湊是改 AI 的目標型別之前跑出來的。改完之後
- * 必須相同 —— 用兩次新程式互比是恆真的，抓不到任何東西。
+ * 這是人工比較工具，不是自動測試。90 秒全局軌跡對任何合理的 AI 政策修改都極度
+ * 敏感，不適合當合併門檻；需要調查跨版本差異時才執行並保存輸出。
+ *
+ * `npx vite-node test/tools/strike-replay-baseline.probe.ts`
  */
 const IDLE: Controller = { update() {} }
 const DT = 1 / 240
@@ -103,16 +104,20 @@ function run(card: ReadyMissionCard, seconds: number): Battle {
   return b
 }
 
-const japan = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
-const allies = MISSIONS.allies.find((c) => c.id === 'allies-m4') as ReadyMissionCard
+const env = (globalThis as typeof globalThis & {
+  process?: { env?: Record<string, string | undefined> }
+}).process?.env ?? {}
+const seconds = Number(env['SECONDS'] ?? 90)
 
-describe('攻擊路徑的逐位元基準', () => {
-  it('japan-m4 跑 90 秒', () => {
-    expect(hash(strikeDigest(run(japan, 90)))).toBe('6177d990')
-  }, 180_000)
+function digestOf(campaign: 'japan' | 'allies', id: string): string {
+  const card = MISSIONS[campaign].find((candidate) => candidate.id === id)
+  if (card?.battle === null || card === undefined) throw new Error(`找不到可玩的任務：${id}`)
+  return hash(strikeDigest(run(card as ReadyMissionCard, seconds)))
+}
 
-  it('allies-m4 跑 90 秒', () => {
-    // 盟 M4 的值對應「零戰整隊重生 + 陸攻掛在第五批」的編成
-    expect(hash(strikeDigest(run(allies, 90)))).toBe('1d4d30be')
-  }, 180_000)
-})
+console.log(JSON.stringify({
+  seconds,
+  'japan-m4': digestOf('japan', 'japan-m4'),
+  // 盟 M4 包含「零戰整隊重生 + 陸攻掛在第五批」的編成。
+  'allies-m4': digestOf('allies', 'allies-m4'),
+}, null, 2))

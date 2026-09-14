@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { afterAll, describe, it, expect, beforeAll } from 'vitest'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { battleConfigFrom, uniform } from '../../src/battle/skirmish'
 import { AiController } from '../../src/ai/AiController'
 import type { Combatant } from '../../src/world/World'
+import { installRecoveryWorkerPortForTest } from '../../src/ai/recoveryWorkerClient'
+import { RecoveryEngineTestPort } from '../helpers/recoveryEngineTestPort'
 
 /**
  * 紅線：F4F 對 A6M。
@@ -72,7 +74,11 @@ function measure(): Redline {
 
 describe('紅線：F4F 對 A6M', () => {
   let s: Redline
-  beforeAll(() => { s = measure() }, 900_000)
+  beforeAll(() => {
+    installRecoveryWorkerPortForTest(new RecoveryEngineTestPort())
+    s = measure()
+  }, 900_000)
+  afterAll(() => { installRecoveryWorkerPortForTest(null) })
 
   it('F4F 規則 3 的俯衝真的在換速度 —— 過了零戰放手的速度', () => {
     // 0.67 × 700 km/h = 469，剛好是 A6M5 的 0.9 vne（471）。關掉俯衝目標只到 0.54

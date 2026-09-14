@@ -4,7 +4,6 @@ import { BF109K4 } from '../../src/specs/bf109k4'
 import { HEAD_ON } from '../../src/battle/entry'
 import type { Team } from '../../src/world/World'
 import type { AircraftSpec } from '../../src/specs/types'
-import { Vector3 } from 'three'
 
 /**
  * # 節拍的條件 —— 純函數那一半
@@ -76,28 +75,6 @@ describe('節拍的條件', () => {
     expect(st[0]).not.toBe(st[1])
   })
 
-  it('預留的序號只數增援 —— 中間夾著返航也不會錯位', () => {
-    // 【為什麼這一條非有不可】`slot` 是「用第幾支預留的分隊」，而
-    // `createBattle` 的 `reserve` 是把 beats 濾成 reinforce 之後依序推的。
-    // 兩邊只要有一邊改成數全部的 beats，夾著返航的卡就會拿到錯位的預留 ——
-    // 那幾架會落進**別隊**的分隊裡，而且不會有任何錯誤
-    const flight = {
-      team: 'red' as const, members: [BF109K4], entry: HEAD_ON.red,
-      duty: 'combat' as const, lane: 0, tier: 0,
-    }
-    const withdraw = {
-      kind: 'withdraw' as const, when: { kind: 'clock' as const, at: 1 },
-      message: 'RTB', point: new Vector3(0, 4000, -12000), radius: 1000, seconds: 100,
-    }
-    const st = createBeatStates([
-      withdraw,
-      { kind: 'reinforce', when: { kind: 'clock', at: 10 }, warn: 'x', warnLead: 0, flight },
-      withdraw,
-      { kind: 'reinforce', when: { kind: 'clock', at: 20 }, warn: 'y', warnLead: 0, flight },
-    ])
-    expect(st.map((s) => s.slot)).toEqual([-1, 0, -1, 1])
-  })
-
   it('批數：已預警的重生批數到了才成立', () => {
     // 【盟 M4 的陸攻掛在第五批重生上】批數只增不減，所以沒有 byLatest
     const when: BeatCondition = { kind: 'batch', at: 5 }
@@ -106,20 +83,19 @@ describe('節拍的條件', () => {
     expect(conditionMet(when, 0, NONE, 6)).toBe(true)
   })
 
-  it('重生節拍不佔預留的序號', () => {
-    // 【為什麼】重生用的是開場小隊的席位，`createBattle` 的 `reserve` 只由
-    // reinforce 推。重生節拍若推進 slot，後面那支增援會等一支不存在的預留
-    const flight = {
-      team: 'red' as const, members: [BF109K4], entry: HEAD_ON.red,
-      duty: 'combat' as const, lane: 0, tier: 0,
-    }
-    const st = createBeatStates([
-      {
-        kind: 'recycle', team: 'red', role: 'fighter', batches: 6,
-        warn: 'r', warnLead: 5, entry: HEAD_ON.red,
-      },
-      { kind: 'reinforce', when: { kind: 'batch', at: 5 }, warn: 'x', warnLead: 0, flight },
-    ])
-    expect(st.map((s) => s.slot)).toEqual([-1, 0])
+  it('地面戰果：到了 byLatest 那一刻，摧毀數不到 below 才成立', () => {
+    const when: BeatCondition = { kind: 'ground', below: 6, byLatest: 40 }
+    // 時間沒到，摧毀數再低也不成立 —— 開場摧毀數是 0，否則第一步就起飛
+    expect(conditionMet(when, 39.9, NONE, 0, 0)).toBe(false)
+    expect(conditionMet(when, 40, NONE, 0, 5)).toBe(true)
+    expect(conditionMet(when, 40, NONE, 0, 6)).toBe(false)
+    expect(conditionMet(when, 300, NONE, 0, 2)).toBe(true)
   })
+
+  it('地面戰果：目標全毀時永遠不成立', () => {
+    const when: BeatCondition = { kind: 'ground', below: 10, byLatest: 80 }
+    expect(conditionMet(when, 80, NONE, 0, 12)).toBe(false)
+    expect(conditionMet(when, 9999, NONE, 0, 12)).toBe(false)
+  })
+
 })

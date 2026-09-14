@@ -23,6 +23,7 @@ export default defineConfig({
         daylight: 'tools/daylight.html',
         blast: 'tools/blast.html',
         torpedo: 'tools/torpedo.html',
+        recovery: 'tools/recovery.html',
       },
     },
   },

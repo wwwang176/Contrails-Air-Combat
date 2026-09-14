@@ -127,6 +127,21 @@ export const PURSUIT: EntryPlan = {
 }
 
 /**
+ * 高度劣勢的對頭：擺位與 `HEAD_ON` 相同，紅隊高 1,000 m。
+ *
+ * 斜距的大部分是高度，紅隊開場就能俯衝換速度 —— `PURSUIT` 註解裡要避開的
+ * 那個效果，這裡正是要它，只是方向反過來。
+ *
+ * 藍隊一格都不動：高度差只加在紅隊，任務的 `altitude` 仍然是玩家開場的
+ * 高度。**1,000 m 是起始值，由試飛裁定。**
+ */
+export const BOUNCE: EntryPlan = {
+  id: 'bounce',
+  blue: { ...NEUTRAL, along: 0.5, across: -0.5 },
+  red: { ...NEUTRAL, along: -0.5, across: 0.5, heading: Math.PI, climb: 1000 },
+}
+
+/**
  * 全部的擺法。**每一張任務卡指定一個鍵。**
  *
  * 加一種擺法：這裡多一個字面值，卡片改一個字串。`createBattle` 不用動。
@@ -134,6 +149,7 @@ export const PURSUIT: EntryPlan = {
 export const ENTRY_PLANS = {
   headOn: HEAD_ON,
   pursuit: PURSUIT,
+  bounce: BOUNCE,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS
