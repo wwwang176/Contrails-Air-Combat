@@ -6,7 +6,12 @@
 規則與 `docs/backlog.md` 相同：**每一條都要有出處**（`檔案:行號`、或一句可以
 重跑的 `grep`），否則下一個人無從判斷它還成不成立。沒有出處的條目視為過期。
 
-最後更新：2026-09-08（**盟 M2 上線，改題為梅澤堡–洛伊納**；地面目標實體
+最後更新：2026-09-15（**戰役砍成每陣營三關、共 9 關，九關改版換上五張新卡**；
+陸上砲位還手、照明彈與探照燈、兩座機場地形、滑行與滾行起飛、戰果通報、進場
+橫幅、機庫、機種徽章、AI 防墜 Worker 與對地掃射航次；spec
+`docs/superpowers/specs/2026-09-13-campaign-rework-design.md`）
+
+前一版：2026-09-08（**盟 M2 上線，改題為梅澤堡–洛伊納**；地面目標實體
 與炸毀規則；任務專用地形 `leuna` 與晚秋色盤；spec
 `docs/superpowers/specs/2026-09-08-allies-m2-leuna-design.md`）
 
@@ -23,36 +28,50 @@ M3 護航／M4 反艦；增援預警要做、音效排最後）
 
 ## 目標
 
-三條 Campaign（盟軍／德軍／日本）各 4 關，共 12 關。飛機池 3 陣營 × 3 種：
+三條 Campaign（盟軍／德軍／日本）各 3 關，共 9 關，**九關全部可玩**
+（`test/unit/campaigns.test.ts:20`「三條線各 3 關」；三個卡片檔裡沒有
+`battle: null`：`grep -n "battle: null" src/battle/missions/*.ts` → 零筆）。
+
+~~各 4 關、共 12 關~~ —— 2026-09-10 砍掉盟 M3、德 M3、日 M2 三張目錄卡
+（commit `10588f7`；spec `2026-09-10-germany-m2-poltava-design.md` §1 第 6 條）。
+
+飛機池九台（`src/battle/skirmish.ts:114` 的 `ALL_SPECS`）：
 
 ```
-             戰鬥機         轟炸／攻擊機      第三架
-  盟軍       P-51D  ✅      B-17G  ✅        F6F-5  ✅
-  德軍       Bf 109 ✅      He 111 ✅        Bf 109（同機）
-  日本       A6M5   ✅      G4M    ✅        Ki-84 疾風 ✅
+             戰鬥機              轟炸／攻擊機      第三架
+  盟軍       P-51D  ✅           B-17G  ✅        F6F-5  ✅   ＋ F4F-4 ✅（只當敵機）
+  德軍       Bf 109 K-4 ✅       He 111 ✅        Bf 109（同機）
+  日本       A6M5   ✅           G4M    ✅        Ki-84 疾風 ✅
 ```
 
-**九台全部進遊戲了**（2026-09-03）。外型、spec、武裝、命中盒、防護力、
-史實校準、登記表都走完，遭遇戰編得到、任務卡指名得到。
+**F4F-4 沒有玩家座位**，在日 M1、日 M3 當敵機（spec `2026-09-13-campaign-rework-design.md`
+§2 第 8 條；`src/battle/missions/japan.ts:54`、`:98`）。GLB 在 commit `1be868a`。
 
 **日本第三架是 Ki-84，不是 B6N**（2026-09-01 裁定，理由見末段「已裁定」）。
 
-12 關的內容見本檔末的對照表。
+9 關的內容見本檔末的對照表。
 
 ---
 
 ## 現況盤點（已經有的，不要重做）
 
 ```
-  ✅  五種飛機、逐部位命中盒與防護力、史實性能校準
-  ✅  砲塔（He 111 / B-17G），AI 驅動 —— 玩家開轟炸機時不必再做
-  ✅  三條任務規則：annihilate / evacuate / convoy   src/battle/mission.ts:21
-  ✅  進場幾何：SideEntry 的 along/across/gap/climb/heading/speed
-                其中 climb 只有 pursuit 用過、speed 從來沒人用過  src/battle/entry.ts:56
+  ✅  九種飛機、逐部位命中盒與防護力、史實性能校準     src/battle/skirmish.ts:114
+  ✅  砲塔（He 111 / B-17G / G4M），AI 驅動 —— 玩家開轟炸機時不必再做
+  ✅  七條任務規則：annihilate / evacuate / convoy（可帶 need）/ hunt / sink /
+                    destroy / defend                    src/battle/mission.ts:23
+                    evacuate 目前沒有卡片用（grep "type: '撤離'" src/battle/missions → 零筆）
+  ✅  節拍：reinforce / withdraw / recycle / flare / conveyor   src/battle/beats.ts:142
+      條件：clock / alive / batch / ground                       src/battle/beats.ts:29
+  ✅  進場擺法：headOn / pursuit / bounce               src/battle/entry.ts:67、:123、:138
+  ✅  地形：sea / archipelago / farmland / autumnFarmland / leuna / poltava / asch
+                                                        src/world/terrainKind.ts:21
+  ✅  時段：dawn / noon / dusk / night / novemberNoon   src/world/timeOfDay.ts:15
   ✅  海陸環境：ocean、island、terrain、farmGround、fields、flora、vegetation
   ✅  特效：fireball、debris、smoke、splash、sparks、wrecks
   ✅  目標圈 objectiveRing、目標距離 HUD src/hud/widgets/objective.ts
-  ✅  任務選擇畫面 Screen = 'mission'   src/ui/screens.ts:2
+  ✅  畫面：landing / menu / campaign / mission / skirmish / battle / hangar
+                                                        src/ui/screens.ts:10
   ✅  World 的成長路徑：cull.ensure、killEvents 重建、damageTime 重配
                         src/world/cull.ts:48、src/world/World.ts:297
 ```
@@ -64,20 +83,25 @@ M3 護航／M4 反艦；增援預警要做、音效排最後）
 分成三類。**第一類是硬阻塞**——沒有它我做不下去；後兩類我可以先量、先做，
 但值與判斷是你的。
 
-### 一、⚑ 要放進 `ref/` 的參考模型 —— **總共 5 個**
+### 一、⚑ 要放進 `ref/` 的參考模型 —— **總共 5 個，全部到位**
 
 現有的 `ref/*.glb` 都是你提供的（`bf109e.ts` 檔頭：「專案負責人提供的參考
-模型是 E-4」）。還缺這五個，**做完一個就打勾**：
+模型是 E-4」）。
 
 - [x] ⚑ ~~**G4M 一式陸攻**~~ —— 參考模型已提供，外型已完成（2026-09-03）
 - [x] ⚑ ~~**A6M5 零戰**~~ —— 同上
 - [x] ⚑ ~~**Ki-84 疾風**~~ —— 同上
-- [ ] ⚑ **美軍航空母艦** —— 里程碑 2。盟 M4 要守得住、日 M4 要打得沉。
-      兩關的主角
-- [ ] ⚑ **美軍驅逐艦** —— 里程碑 2。盟 M4、日 M4 的護衛艦
+- [x] ⚑ ~~**美軍航空母艦**~~ —— `ref/uss_essex_cv-9.glb` → `public/models/essex.glb`
+      （commit `360df0d`，2026-09-03）
+- [x] ⚑ ~~**美軍驅逐艦**~~ —— `ref/uss_fletcher.glb` → `public/models/fletcher.glb`
+      （commit `0104bfa`，2026-09-03）
+
+清單外另有兩個也到位了：重巡 `ref/uss_wichita_wows.glb` → `wichita.glb`
+（commit `fcc637b`）、F4F-4 `ref/f4f4-ref.glb` → `f4f4.glb`（commit `1be868a`）。
 
 **其餘地面目標我自己程序化生成，不必你找**（2026-09-01 裁定乙案）：
-Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車場、機場。
+Flak 砲位、火車頭與車廂、卡車、戰車、~~登陸艇~~、工廠、調車場、機場。
+（登陸艇只服務日 M2 讀谷灘頭，那一關已被砍，見里程碑 2.2。）
 
 > 找模型的要求與現有的 `ref/` 一致：**比例可信比面數低重要**。外型我會照
 > `aircraft-from-reference` 那套流程重做成低多邊形，參考模型只當量尺用。
@@ -96,17 +120,25 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
       （2026-09-03：「飛起來 OK，記錄起來不再問」）。線索記在
       `docs/backlog.md` §1.2，不是待辦
 - [x] ~~⚑ **三台日本機飛起來對不對**~~ —— 2026-09-03 試飛通過
-- [ ] ⚑ **增援預警提前幾秒** —— 手感問題，只能試飛
-- [ ] ⚑ **要不要做 Bf 109 E-4 spec** —— 目前唯一還開著的待裁定
+- [ ] ⚑ **增援預警提前幾秒** —— 手感問題，只能試飛。現值 0～6 秒，逐張卡寫在
+      `warnLead`（例：`src/battle/missions/allies.ts:45`、`:192`）
+- [ ] ⚑ **要不要做 Bf 109 E-4 spec** —— 仍未裁定（`ls src/specs/` 沒有 E-4）
 - [ ] ⚑ **史實資料表衝突時信哪一份** —— He 111 的質量就是這樣裁的
       （12,500 → 13,727）
+- [ ] ⚑ **`altitudeSpread` 要不要逐卡覆寫**（盟 M1 想把護航機拉到箱子上方
+      1,000 m）—— spec `2026-09-13-campaign-rework-design.md` §12 記為未定
 
 ### 三、⚑ 試飛：只有你判斷得了的
 
 「玩起來合不合理」不是我量得出來的東西。**每一關做完都要一次。**
 
-- [ ] ⚑ 新關卡的節奏、難度、第二波來得太早或太晚
+- [ ] ⚑ 新關卡的節奏、難度、第二波來得太早或太晚 —— 九關改版的起始值清單在
+      spec `2026-09-13-campaign-rework-design.md` §10
+- [ ] ⚑ 盟 M1 的 `convoyPriority` 3 要重新掃描（`src/battle/missions/allies.ts:30`：
+      `docs/backlog.md` §1.3 量的是 4 架轟炸機，16 架箱型的砲塔數是那時的四倍）
 - [ ] ⚑ 新機種飛起來對不對
+- [x] ~~⚑ AI 防墜與對地掃射在德 M3 的體感~~ —— 玩家試飛確認可定案
+      （`docs/ai-ground-collision-recovery.md` §9.5）
 
 ---
 
@@ -142,23 +174,34 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 同一套條件判斷，接的卻不是增援。
 
 **沒有做成「條件 × 效果」的矩陣。**交叉出來的組合大半沒有合法語意
-（「時鐘到了把 convoy 規則換成任意其他規則」）。實際需求兩類，就寫兩個
-具名節拍：`ReinforceBeat` 與 `WithdrawBeat`（`src/battle/beats.ts`）。
+（「時鐘到了把 convoy 規則換成任意其他規則」）。實際需求幾類，就寫幾個
+具名節拍（`src/battle/beats.ts:142`）。
 
-**條件（第一版做兩種）**
+**條件**
 
 - [x] 時鐘 —— 第 N 秒
 - [x] 存活數 + **選擇器** —— 「紅隊的**戰鬥機**剩 ≤ 2 架」
       選擇器一開始就要有：盟 M4 是「打退戰鬥機之後魚雷機才來」，
       不是「紅隊剩幾架」。之後補會很痛
+- [x] 重生批數 `batch`（`beats.ts:54`）—— 盟 M3 沖繩外海的陸攻掛在第五批
+      （`src/battle/missions/allies.ts:191`，commit `7c4ae4c`）
+- [x] 地面戰果 `ground`（`beats.ts:65`）—— 敵方地面目標被摧毀數不到門檻才成立，
+      二元（spec `2026-09-13-campaign-rework-design.md` §7.6）
 - [ ] ~~位置~~ —— 等里程碑 2，現在沒有東西可以指
 - [ ] ~~事件~~ —— 同上
 
-**效果（第一版做兩種）**
+**效果**
 
 - [x] 增援登場 —— 先預警，過 `warnLead` 秒才真的進場
-- [x] 任務目標變更（`annihilate` → `evacuate`），目標文字一起換
+- [x] 任務目標變更（`annihilate` → `evacuate`），目標文字一起換。**目前沒有卡片
+      用返航**（`grep -n "withdraw:" src/battle/missions/*.ts` → 零筆）
 - [x] 通報訊息 —— 畫面中心單一訊息槽，後來者覆蓋（`hud/widgets/message.ts`）
+- [x] 整隊重生 `recycle`（`beats.ts:99`）—— 被殲滅的小隊整隊回來，席位回收
+- [x] 照明彈 `flare`（`beats.ts:125`）—— 德 M2（`src/battle/missions/germany.ts:109`）
+- [x] 轟炸機流 `conveyor`（`beats.ts:139`）—— 抵達終點的 transit 從進場點重新
+      進場，德 M1 用（`germany.ts:39`）
+- [x] 從地面起飛的增援 —— 波次帶 `takeoff`／`departs`，那一批地上剩幾架就上幾架、
+      一架都不剩就不來（`germany.ts:140`；`src/battle/setup.ts:1285`、`:1473`）
 
 **其他**
 
@@ -170,45 +213,67 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
       （`spec`）。第一版寫成「敵方的戰鬥機」那種相對描述，三條戰役上線時
       改掉了：相對寫法表達不出**第三架**飛機，而日本線有兩台戰鬥機。
       `side` 留著 —— 它決定隊伍，不決定機種
+- [x] 預警文字寫成無線電通報、不寫批數（commit `eed8615`；例
+      `allies.ts:181`「雷達發現更多零戰」）
 
 ---
 
 ## 里程碑 2 —— 非飛機目標與投放武器
 
-**已解鎖**：盟 M4 沖繩外海、日 M4 倫內爾島（艦隊）、盟 M2 梅澤堡的油廠
-（地面目標）。**還剩 4 關**：盟 M3 諾曼第斷軌、德 M2 庫班的鐵路、
-德 M3 奧博揚公路、日 M2 讀谷灘頭。那四張現在是 `battle: null` 的
-**目錄卡** —— 標題與文案在，編制不填（填進一張打不起來的卡只會變成一組
-沒人驗證過、卻看起來已經定案的數字）。
+**需要這一層的關全部上線**：盟 M2 梅澤堡的油廠、盟 M3 沖繩外海、德 M2 波爾塔瓦
+之夜、德 M3 底板行動、日 M1 瓜達康納爾上空、日 M3 倫內爾島。
+
+~~還剩 4 關：盟 M3 諾曼第斷軌、德 M2 庫班的鐵路、德 M3 奧博揚公路、日 M2 讀谷
+灘頭~~ —— 三張被砍（commit `10588f7`）；德 M2 題目換成波爾塔瓦之夜（不補蘇軍
+陣營，spec `2026-09-10-germany-m2-poltava-design.md` §1），commit `a841121` 上線。
 
 ### 2.1 可被攻擊的非飛機實體
 
 - [x] 船：`src/world/ships.ts`（不是 `Combatant`）
 - [x] 地面目標：`src/world/groundTargets.ts` —— 戰車、卡車、砲位、火車、
-      油廠構件共用一個實體；子彈（口徑門檻）、炸彈（範圍傷害、擋路）、
-      擊毀事件
+      油廠構件、停放的 B-17／P-51、油桶堆、探照燈共用一個實體；子彈（口徑門檻）、
+      炸彈（範圍傷害、擋路）、擊毀事件
 - [x] AI 認得它：轟炸機的攻擊航路吃 `StrikeTarget` 視圖
       （`src/world/strikeTarget.ts`），船與地面目標都滿足它
 - [x] 勝負判定認得它（見 2.4）
-- [ ] 砲位還手 —— 陸上 Flak 的瞄準與發射還沒接（`src/world/shipGuns.ts`
-      綁死在 `Ship` 上）
+- [x] 砲位還手 —— 陸上輕型防空砲走直射彈、有曳光（commit `8475f4a`，
+      `src/world/shipGuns.ts:204`）；重砲 88 mm Flak 18（commit `a8dc91e`），
+      逐關複寫射速與引爆尺度（`allies.ts:112`、`germany.ts:102`）
+- [x] AI 對地掃射航次 —— 動態離場／再進場、防墜釋放閘門只作用於對地掃射
+      （commit `e3bd6f5`，`docs/ai-ground-collision-recovery.md` §9.2）；德 M3 指定
+      停放與滑行中的 P-51 為優先目標（`germany.ts:135`，commit `a436efc`）
 
-### 2.2 實體清單（依被幾關需要排序）
+### 2.2 實體清單
 
-- [x] Flak 陣地的外型（`public/models/flak18.glb`、`flak38.glb`）—— 還不會還手
-- [x] 航空母艦、驅逐艦、重巡（盟 M4、日 M4）
+- [x] Flak 陣地的外型（`public/models/flak18.glb`、`flak38.glb`）—— 會還手（見 2.1）
+- [x] 航空母艦、驅逐艦、重巡（盟 M3、日 M1、日 M3）
 - [x] 油廠的六種構件 —— 盟 M2（`src/render/geometry/ground/plant.ts`）。
       **是一片廠區的構件，不是一片城市**
-- [ ] 工廠／調車場的建築 —— 德 M2
-- [x] 火車（車頭 + 車廂）的外型 —— 盟 M3 還要調車場與掃射的關卡
-- [x] 卡車／戰車的外型 —— 德 M3 還要關卡
-- [ ] 登陸艇 —— 1 關（日 M2）
-- [ ] 機場（守備目標）—— 1 關（日 M2）
+- [x] 停放的 B-17 —— 德 M2（`src/world/groundTargets.ts:55`，低模
+      `public/models/b17g_lod2.glb`）
+- [x] 停放的 P-51 —— 德 M3（`groundTargets.ts:61`，佈局 `src/world/asch.ts:95`）
+- [x] 油桶堆 `fuelDump`、彈藥堆 `bombDump` —— 德 M2 兩堆油桶一堆彈藥
+      （`src/world/poltava.ts:152`）、德 M3 兩堆油桶（`germany.ts:14`）
+      （`groundTargets.ts:56`、`:57`）
+- [x] 探照燈 —— 德 M2（`groundTargets.ts:59`、`src/render/searchlights.ts`，
+      commit `d7abb89`）
+- [x] 照明彈 —— 德 M2（`src/world/flares.ts`，commit `5210a26`、`9737046`）
+- [x] 機場地形 `poltava`（`src/world/poltava.ts`，commit `38ab092`；佈景
+      `public/models/poltava_airfield.glb`，commit `b075a1b`）
+- [x] 機場地形 `asch`（Y-29）與滑行／滾行起飛（`src/world/asch.ts:121` 的
+      `taxiRoute`、`src/control/takeoffRoll.ts`；commit `7f21eff`、`ad27eeb`）
+- [ ] ~~工廠／調車場的建築~~ —— 只服務德 M2 庫班的鐵路；德 M2 題目換成波爾塔瓦
+- [x] 火車（車頭 + 車廂）的外型 —— ~~盟 M3 還要調車場與掃射的關卡~~（盟 M3 被砍）
+- [x] 卡車／戰車的外型（`public/models/zis150.glb`、`t34.glb`）——
+      ~~德 M3 還要關卡~~（德 M3 奧博揚公路被砍）
+- [ ] ~~登陸艇~~ —— 只服務日 M2 讀谷灘頭，那一關被砍
+- [ ] ~~機場（守備目標）~~ —— 只服務日 M2 讀谷灘頭，那一關被砍
 
 ### 2.2b 不做：都市地形（2026-09-01 裁定，之後再考慮）
 
-**地面目標 ≠ 都市地形。**12 關裡 **11 關要的是「可攻擊的建築物」**——一座
-工廠、一個調車場、一個機場、幾門 Flak——那些擺在現有的農地或群島上就成立。
+**地面目標 ≠ 都市地形。**九關裡有地面目標的三關要的是「可攻擊的東西」——
+一座油廠、兩座機場上的停放機與砲位——那些擺在任務專用地形上就成立
+（`leuna`、`poltava`、`asch`）。
 
 現有的「聚落」是**農村**，不是城市（`docs/backlog.md` §11）：
 
@@ -226,33 +291,34 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 
 ### 2.3 武器
 
-`WeaponSpec` 現在只有四個欄位：`id`、`name`、`muzzleVelocity`、
-`roundsPerMinute`、`damage`（`src/weapons/types.ts:3`）。一種彈道機槍，
-沒有掛載點、沒有投放。
-
 - [x] 掛載點與投放（`src/weapons/stores.ts`、`src/weapons/bomb.ts`）
 - [x] 炸彈：自由落體、爆炸範圍傷害（`src/world/bomb.ts`、`World.applyBombBlast`）
 - [x] 魚雷：入水、定深、直線航行、**航跡**、命中船
 - [x] 對地掃射 —— 子彈打得到地面目標（`World.resolveHits`）
-- [x] Flak：艦上的 5 吋砲（`src/world/flak.ts`、`shipGuns.ts`）；陸上砲位還不會還手
+- [x] Flak：艦上的 5 吋砲（`src/world/flak.ts`、`shipGuns.ts`）與陸上砲位
 - [x] 彈艙與連投（`src/weapons/bomb.ts` 的 `stepBombBay`）
 - [x] 投彈瞄具（`src/camera/bombsight.ts`、`src/hud/widgets/bombsight.ts`）
-- [ ] 掛載改變飛行性能（德 M3 的「投彈前後手感差異」是那一關的賣點）
+- [ ] ~~掛載改變飛行性能（德 M3 的「投彈前後手感差異」是那一關的賣點）~~ ——
+      德 M3 奧博揚公路被砍。現況：掛載不進飛行質量
+      （`grep -rn "mass" src/physics src/weapons | grep -i "store\|load\|bomb"` → 零筆）
 
 ### 2.4 新的勝利條件
 
-`MissionRules` 現在是三個成員的 union（`src/battle/mission.ts:21`），
-`annihilate` 讀的是 `aliveBlue` / `aliveRed`（`mission.ts:286`）。
-
-- [x] 「摧毀 N 個地面目標」（`destroy`，與 `sink` 同一個形狀）
-- [ ] 「至少 N% 的被護送者抵達」
-      —— 現在 `convoy` 是**任一架**抵達就贏、全滅才輸
+- [x] 「摧毀 N 個地面目標」（`destroy`，與 `sink` 同一個形狀；可限定單位，
+      `germany.ts:138`）
+- [x] 「至少 N 架被護送者抵達」—— `convoy.need`，湊不到門檻當場判敗
+      （`src/battle/mission.ts:74`；盟 M1 `allies.ts:28`；commit `2d81b6b`）
+- [x] 「累計擊落 N 架」（`hunt`，可限定角色；`mission.ts:88`；德 M1 `germany.ts:57`）
+- [x] 「守住艦隊」（`defend`，讀要害艦；`mission.ts:153`）
+- [x] 擊沉帶護衛：攻擊隊之外的藍隊戰鬥機全滅判敗（`src/battle/missions/index.ts:74`；
+      日 M1）
 
 ---
 
 ## 里程碑 3 —— 日本機體　✅ **2026-09-03 完成**
 
 **解鎖：日 M1（只要 A6M5）、日 M3（再加 G4M 與 Ki-84）** —— 兩關都已上線。
+（九關改版後三架的座位：A6M5 日 M1、Ki-84 日 M2、G4M 日 M3；見附錄。）
 
 **日 M1 與日 M3 兩關不需要里程碑 1、2、4 中的任何一個**——飛機做出來就能玩。
 日 M3 的勝利條件是「G4M 飛抵投雷點」，那正好是現有 `convoy` 規則的語意
@@ -291,30 +357,31 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 - [x] ⚑ ~~**找到可信的參考模型**~~ —— 三架都到位了
 - [x] ~~外型~~ —— 三架都走完 `aircraft-from-reference`（2026-09-03）：
       `a6m5.glb`／`g4m.glb`／`ki84.glb` 與各自的 `*.model.ts`
-- [ ] **進登記表** —— `GLB_MODELS`、`BODY_COLORS`、`ALL_SPECS`。
-      三張表的鑰匙都是 `spec.id`，少一格是那一架第一次出現在畫面上才拋錯
-      （`test/unit/debris.test.ts` 的全表掃描守這件事）
-- [ ] 逐部位命中盒（`test/tools/hitbox-emit.probe.ts`）
-- [ ] 防護力與血量（正比於質量，見 `specs/types.ts` 的 `hp`）
-- [ ] 史實表與氣動係數校準（五項 L2 驗收）
-- [ ] 武器配置（G4M 另需砲塔）
-- [ ] `feel.ts` 的手感輪廓要不要另開一組
+- [x] **進登記表** —— `GLB_MODELS`（`src/render/geometry/buildAircraft.ts:98`）、
+      `BODY_COLORS`（`buildAircraft.ts:193`）、`ALL_SPECS`（`src/battle/skirmish.ts:114`）
+- [x] 逐部位命中盒（`src/specs/ki84.ts:314`、`src/specs/g4m.ts:270`，由
+      `test/tools/hitbox-emit.probe.ts` 產生）
+- [x] 防護力與血量（`src/specs/ki84.ts:276` 等，值見上表）
+- [x] 史實表與氣動係數校準（上表的史實驗收）
+- [x] 武器配置（`src/weapons/ki84.ts`、`a6m5.ts`、`g4m.ts`；G4M 砲塔
+      `src/weapons/g4m.ts:3`）
+- [x] ~~`feel.ts` 的手感輪廓要不要另開一組~~ —— 沒有另開：`feelFor` 只依
+      `role` 分戰鬥機與轟炸機兩組（`src/specs/feel.ts:409`）
 
 ---
 
-## 里程碑 4 —— 玩家開轟炸機　✅ **2026-09-08 兩關都上線**
+## 里程碑 4 —— 玩家開轟炸機　✅ **三關都上線**
 
-**盟 M2（B-17G）、日 M4（G4M）都是玩家開轟炸機。** 玩家是 `combat` 小隊的
-長機，不必動 `order.ts`；砲塔本來就是 AI 驅動。
+**盟 M2（B-17G）、德 M2（He 111）、日 M3（G4M）都是玩家開轟炸機。** 玩家是
+`combat` 小隊的長機，砲塔本來就是 AI 驅動。
 
-（日 M3 原本也在這裡，改成護航之後玩家開的是 Ki-84，不再需要這一項。）
-
-- [ ] `player` 旗標目前只掛在 `duty: 'combat'` 的小隊長機上
-      （`src/battle/order.ts:118`）
-- [ ] `transit` 的語意是 `AiController` **無條件**飛向目標點、
-      連閃躲都不讓位（`src/ai/AiController.ts:186`）——
-      玩家坐進去要嘛拿不到那個行為，要嘛整套 transit 要重寫
-- [ ] `transit` 現在的語意是專案負責人裁定過的，改它會連帶動到護送任務的判定
+- [x] `player` 旗標掛在 `duty: 'combat'` 的小隊長機上 —— 轟炸機分層擺位也一樣
+      （`src/battle/order.ts:202` 的 `stackedEntry`；盟 M2 `allies.ts:91`、德 M2
+      `germany.ts:85`）
+- [x] `transit` 不必動 —— 玩家那一隊是 `combat`、走攻擊航路（`ai/strikeRun.ts`），
+      不經 `transit`（`src/ai/AiController.ts:661` 的語意維持原樣）
+- [x] 護送任務的判定沒有被牽動 —— `transit` 只剩被護送的轟炸機與德 M1 的轟炸機流
+      （`src/battle/missions/index.ts:171`、`:201`）
 
 > 砲塔已經是 AI 驅動，所以「玩家不能操作機槍、AI 自動防禦」這個設定
 > **不必開發**，它是現況。
@@ -325,20 +392,37 @@ Flak 砲位、火車頭與車廂、卡車、戰車、登陸艇、工廠、調車
 
 ### 5.1 通報訊息
 
-HUD 有目標距離（`objective.ts`）與按鍵提示（`hints.ts`），但**沒有事件訊息的
-位置**——「敵方護航機！」「美軍登陸部隊接近」這類。
-
 **增援一律先給預警，位置在畫面中心**（2026-09-01 裁定）。
 
-- [ ] 畫面中心的文字提示 —— 里程碑 1 的第三種「效果」要用，
-      而且增援登場一定會用到，所以它跟里程碑 1 是綁在一起的
-- [ ] 顯示時長、淡入淡出、多則訊息連續進來時怎麼排隊
+- [x] 畫面中心的文字提示 —— `src/hud/widgets/message.ts`，畫面高 0.30 那一帶，
+      打字機逐字印出（commit `2aecbed`）
+- [x] 顯示時長、淡入淡出、多則訊息連續進來時怎麼排隊 —— 由 `main.ts` 依物理時間
+      決定、不做淡入淡出（`message.ts:25`）；後來者覆蓋（`src/hud/types.ts:422`）
+- [x] 進場橫幅 —— 任務目標在畫面中央打字機印出、停 3 秒再滑進右上角目標列；
+      卡片的 `banner` 欄位（commit `2aecbed`、`ebf049e`；`src/hud/widgets/objective.ts:121`）
+- [x] 戰果通報 —— 玩家打爆東西時堆疊一行字、舊的往下推並淡出
+      （commit `d1aeb49`；`src/hud/widgets/battleReport.ts:29`）
 
 ### 5.2 音效 —— **整個專案的最後一項**（2026-09-01 裁定）
 
-`src/audio` 不存在，整個專案沒有音訊系統。**所有其他項目做完之前不碰。**
+`src/audio` 不存在，整個專案沒有音訊系統（`ls src/audio` → 不存在）。
+**所有其他項目做完之前不碰。**
 
 - [ ] 是否要做、做到什麼程度 —— 等其餘全部收尾之後再談
+
+### 5.3 選單與機庫
+
+- [x] 機庫 —— 左邊機種卷宗、右邊那一架飛在海上（commit `79dc162`；
+      `src/ui/dossier.ts`、`src/app/showcase.ts`、`src/ui/screens.ts:10` 的 `hangar`）
+- [x] 機種徽章 —— 九台 GLB 的正交側影配國籍標誌，用在簡報編組列、編組頁與機庫
+      （commit `3570b5e`；`public/ui/sil/*.png`）
+
+### 5.4 AI 防墜
+
+- [x] 單一 Web Worker 以正式飛行物理預演改出掉高，4 Hz 排程；Worker 失敗時阻擋
+      遊戲並顯示錯誤（commit `8f7d1e1`、`e3bd6f5`；`docs/ai-ground-collision-recovery.md`
+      §9.1）
+- [x] 移除 500 m 空戰高度限制（commit `582a194`；同文件 §9.2）
 
 ---
 
@@ -349,10 +433,12 @@ HUD 有目標距離（`objective.ts`）與按鍵提示（`hints.ts`），但**�
 > 攻擊；那個位置改給 Ki-84，日本線四關才有四個動詞。
 
 - [ ] Bf 109G —— 可用 K-4 換皮（機鼻、座艙、材質、飛行參數），成本最低
+      （`ls src/specs/` 沒有 109G）
 - [ ] 戰役進度／解鎖／存檔
-      —— `grep -rln "campaign\|progress\|unlock\|localStorage" src/` → **零個檔案**
+      —— `grep -rln "localStorage" src/` → **零個檔案**
 - [ ] 難度曲線對到既有旋鈕（`aiProfile` 的 ACE / VETERAN、編制、幾何）
-      —— **星等已經移除**（2026-09-03 裁定）：關卡內容差太多，一個 1~5 的
+      —— 九張卡一律 `VETERAN`（`src/battle/missions/index.ts:226`）。
+      **星等已經移除**（2026-09-03 裁定）：關卡內容差太多，一個 1~5 的
       數字沒有客觀意義
 
 ---
@@ -373,6 +459,10 @@ HUD 有目標距離（`objective.ts`）與按鍵提示（`hints.ts`），但**�
       被這個決定一起否掉的兩條：
       - 做 Spitfire 來打 1940 的英倫 —— 全新機體，只服務一關
       - 都市地形 —— 見里程碑 2 的「不做」那一段
+
+      之後：德 M2 仍在東線，題目由庫班的鐵路換成波爾塔瓦之夜（1944 年 6 月，
+      spec `2026-09-10-germany-m2-poltava-design.md` §1）；德軍線現為
+      1944/6 波爾塔瓦 → 1944/11 梅澤堡 → 1945/1 底板行動（`germany.ts:34`、`:78`、`:115`）。
 
 - [ ] **要不要做 Bf 109 E-4 spec** —— 與年代**無關**，這兩件事一直被綁在
       一起談但沒有關係。
@@ -411,68 +501,77 @@ HUD 有目標距離（`objective.ts`）與按鍵提示（`hints.ts`），但**�
       （`GAME_FEEL` 的 power ×1.572、cd0 ×1.636、mass ×0.8）已經把高度懲罰
       抹掉了。要拿回那個體驗得動手感層的高度行為，那會影響全部五架飛機與
       全部既有護欄——是一個獨立決定，不該被一關拖著走。
+
+      之後：九關改版（負責人 2026-09-13 裁定，spec
+      `2026-09-13-campaign-rework-design.md` §2）把 Ki-84 那一關換成漢口上空的
+      殲滅戰、護航改由日 M1 瓜達康納爾（A6M5 掩護 G4M）承擔；德 M1 也不再與
+      盟 M1 互為護送／攔截的鏡像。
 - [x] ~~**增援預警**~~ —— **要做，畫面中心的文字提示**（2026-09-01 裁定）。
-      見 5.1。它與里程碑 1 綁在一起：增援登場一定會用到
+      見 5.1
 - [x] ~~**音效**~~ —— **排到最後**（2026-09-01 裁定）。見 5.2
 
 ---
 
-## 附錄：12 關的現況
+## 附錄：9 關的現況
 
-**卡片在 `src/battle/missions.ts` 的 `MISSIONS`。**`battle: null` = 目錄卡。
+**卡片在 `src/battle/missions/{allies,germany,japan}.ts`**，由
+`src/battle/missions/index.ts:33` 的 `MISSIONS` 組成一張表。
+
+**編號**：選單印的是「第 N 關」，N 是那張卡在陣營清單裡的順序
+（`src/ui/menu.ts:308`）。本文件的「盟 M3」「德 M3」「日 M2」等指的就是這個
+順序，**不是卡片 id** —— 砍掉三張後 id 沒有重編（spec
+`2026-09-13-campaign-rework-design.md` §3）。
+
+| 關 | id | 標題 | 類型 | 我方（玩家機） | 敵方 | 被護送／攻擊隊 | 地形・時段・高度 | 勝利條件 | 節拍 | 出處 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 盟 M1 | `allies-m1` | 柏林上空 | 護航 | P-51D ×4 | Bf 109 K-4 ×10 | B-17G ×16，三中隊箱型 | farmland | `convoy`，8 架抵達 | 60 s 後方 Bf 109 ×4、110 s 側上方 ×4（5,000 m）；開場那批重生 3 批 | `allies.ts:15` |
+| 盟 M2 | `allies-m2` | 梅澤堡的油廠 | 打擊 | B-17G ×12，分層 | Bf 109 K-4 ×4 正面 | — | leuna・novemberNoon・1,500 m | `destroy` 6（廠區 12 構件＋48 砲位；重砲 30 發/分） | 90 s 後方 Bf 109 ×4 | `allies.ts:70` |
+| 盟 M3 | `allies-m4` | 沖繩外海 | 殲滅 | F6F-5 ×4 | A6M5 ×16 分兩路；G4M ×4 | — | sea・TF58（Essex 要害＋Wichita ×2＋Fletcher ×6）・2,000 m | `defend` | 零戰整隊重生 6 批；第 5 批時 G4M ×4（1,000 m） | `allies.ts:128`、`shared.ts:126` |
+| 德 M1 | `germany-m1` | 梅澤堡上空 | 攔截 | Bf 109 K-4 ×8 | P-51D（只由波次給） | 敵方 B-17G ×8 轟炸機流 | autumnFarmland・novemberNoon | `hunt` 6，只算轟炸機 | 0 s P-51 ×4、60 s P-51 ×4；轟炸機流不斷（conveyor） | `germany.ts:32` |
+| 德 M2 | `germany-m2` | 波爾塔瓦之夜 | 打擊 | He 111 ×8，分層 | 沒有敵機 | — | poltava・night・1,500 m | `destroy` 12（24 架停放 B-17、3 堆、16 輕砲、6 重砲、6 探照燈） | 80 s 照明彈 | `germany.ts:76`、`campaigns.test.ts:123` |
+| 德 M3 | `germany-m4` | 底板行動 | 打擊 | Bf 109 K-4 ×8 | P-51D，全部從停機線滑出起飛 | — | asch・dawn・500 m | `destroy` 8 架停放的 P-51（油桶堆與輕砲不算） | 0／45／90 s 各一個小隊滑行起飛，地上剩幾架上幾架 | `germany.ts:113` |
+| 日 M1 | `japan-m1` | 瓜達康納爾上空 | 護航 | A6M5 ×12 | F4F-4 ×8 | 我方 G4M ×8 攻擊隊（`strike`） | archipelago・Wichita ×2＋Fletcher ×6（敵方）・1,000 m | `sink` 3；零戰全滅判敗 | F4F 重生 3 批 | `japan.ts:46`、`japan.ts:27` |
+| 日 M2 | `japan-m3` | 漢口上空 | 殲滅 | Ki-84 ×8 | P-51D ×10，高 1,000 m（`bounce`） | — | farmland | `annihilate` | 無（刻意） | `japan.ts:75` |
+| 日 M3 | `japan-m4` | 倫內爾島 | 打擊 | G4M ×11 | F4F-4 ×8 | — | sea・dusk・Wichita ×4＋Fletcher ×4・1,000 m | `sink` 4 | 無 | `japan.ts:90`、`shared.ts:146` |
+
+**九關改版換掉的五張**（spec `2026-09-13-campaign-rework-design.md` §1）：盟 M1、
+德 M1、德 M3、日 M1、日 M2；commit `774bf1e`、`7f21eff`、`15e25a8`、`534d109`、
+`ad27eeb`、`2ead2b8`、`aec79f8`。**不動的四張**：盟 M2、盟 M3、德 M2、日 M3。
+
+**被砍掉的三關**（commit `10588f7`，每陣營砍成三關；三張都是 `battle: null` 的目錄卡）：
+
+- ~~盟 M3 諾曼第斷軌（P-51D 掃射機車與調車場）~~ —— 被砍
+- ~~德 M3 奧博揚公路（掛彈的 Bf 109 G 打戰車）~~ —— 被砍
+- ~~日 M2 讀谷灘頭（A6M5 攔截 F6F 再掃射登陸艇）~~ —— 被砍
+
+隨之失去目的的待辦：登陸艇、日 M2 的機場守備（2.2）；德 M3 的掛彈手感（2.3）；
+調車場與掃射關（2.2 火車那一條）；卡車／戰車的關卡（2.2）。
+
+> ⚑ **九關的數字全部是起始值，待試飛。** 清單在 spec
+> `2026-09-13-campaign-rework-design.md` §10，逐張卡的註解也都標著「起始值，
+> 由試飛裁定」。
+> ~~德 M4：返航條件「我方剩 ≤4 架或最遲 40 秒」、撤離點 12 km、時限 158 秒、
+> 兩批各 4 架~~ —— 帝國最後防線那張卡換成底板行動（commit `7f21eff`），
+> 現在沒有卡片用返航。
+
+### 日本線三關（2026-09-13 定案）
 
 ```
-  關卡                     我方    敵方    被護送  地形      節拍           狀態
-  ────────────────────────────────────────────────────────────────────────────
-  盟 M1  護送堡壘          P-51D   Bf109   B-17G  群島      —              ✅
-  盟 M2  梅澤堡的油廠      B-17G   Bf109   —      洛伊納    90 s 波次      ✅
-  盟 M3  諾曼第斷軌        —       —       —      —         —              里程碑 2
-  盟 M4  沖繩外海          F6F-5   A6M5    —      純海面    三批波次       ✅
-  ────────────────────────────────────────────────────────────────────────────
-  德 M1  梅澤堡上空        Bf109   P-51D   B-17G  群島      60 s 波次      ✅
-  德 M2  庫班的鐵路        —       —       —      —         —              里程碑 2、4
-  德 M3  奧博揚公路        —       —       —      —         —              里程碑 2
-  德 M4  帝國最後防線      Bf109   P-51D   —      內陸      返航＋兩批     ✅
-  ────────────────────────────────────────────────────────────────────────────
-  日 M1  臺灣沖航空戰      A6M5    F6F-5   —      群島      —              ✅
-  日 M2  讀谷灘頭          —       —       —      —         —              里程碑 2
-  日 M3  雷伊泰的投雷點    Ki-84   F6F-5   G4M    純海面    —              ✅
-  日 M4  倫內爾島          G4M     F4F-4   —      純海面    —              ✅
+  M1  掩護雷擊隊    A6M5    擋住 F4F，擊沉由陸攻達成         japan.ts:46
+  M2  戰鬥機對決    Ki-84   把高空俯衝下來的 P-51 拖進纏鬥   japan.ts:75
+  M3  反艦           G4M     黃昏低空雷擊                     japan.ts:90
 ```
 
-**四張目錄卡的機種現在不填** —— 填進一張打不起來的卡，只會變成一組沒有人
-驗證過、卻看起來已經定案的數字。它們要用什麼記在下面的設計段落裡：
-德 M2 玩家開 He 111、盟 M3 玩家開 P-51D、德 M3 玩家開掛彈的 Bf 109、
-日 M2 玩家開 A6M5。
-
-> 盟 M2 改題：從魯爾的蓋爾森基興換成梅澤堡–洛伊納（1944 年 11 月 2 日），
-> 與德 M1 是同一場的兩個座位，而 Bf 109 K-4 的年代才對得上。廠區 12 座
-> 構件加 8 座砲位，炸毀任意 6 座算贏；砲位這一版不還手。
-
-> ⚑ **五關的節拍數字全部是起始值，待試飛。**
-> 德 M1：波次在第 60 秒、預警 4 秒、敵方 P-51D 四架。
-> 德 M4：返航條件「我方剩 ≤4 架或最遲 40 秒」、撤離點 12 km、時限 158 秒、
-> 兩批各 4 架（第二批在 45 秒、縱深 `along: -1.0`）。
-
-### 日本線四關四個動詞（2026-09-01 定案）
-
-```
-  M1  純空戰        A6M5    對 F6F，讓飛機性能本身當關卡內容
-  M2  守備 + 對地   A6M5    攔截 F6F → 掃射登陸艇 → 第二波 F6F
-  M3  護航           Ki-84   護送 G4M 飛到投雷點，F6F 來攔
-  M4  反艦           G4M     黃昏／夜襲，低空穿過防空火網投雷
-```
-
-**M3 的勝利條件是「G4M 飛抵投雷點」，不判定魚雷命中**（2026-09-01
-裁定）。那正好是現有 `convoy` 規則的語意，所以這一關**不需要里程碑 1、2、4
-中的任何一個** —— 兩架飛機做出來就能玩。美軍艦隊是背景，不是判定對象。
-
-護航關的核心壓力是「我擋不擋得住 F6F」，魚雷命中率是 M4 的主題。
-
-M3 與 M4 是同一支艦隊、同一張海圖的兩個座位——先護送別人進去，再輪到
-自己飛進去。用**時段**拉開：M3 白天、M4 黃昏／夜襲。
+~~2026-09-01 的「四關四個動詞」~~ —— M2 守備＋對地（讀谷灘頭）被砍；M3 由
+「Ki-84 護送 G4M 到投雷點」換成漢口上空的殲滅戰（負責人 2026-09-13 裁定，
+spec `2026-09-13-campaign-rework-design.md` §2 第 3、7 條）。
 
 ### 共用資產
 
-盟 M1 與德 M1 是同一批模型、同一張地圖的兩面；盟 M4 與日 M3／M4 是同一支
-艦隊、同一張海圖。表面 12 關，實際約 6～8 個場景。
+- 盟 M2 與德 M1 是同一場（1944 年 11 月，梅澤堡–洛伊納）的兩個座位，但德 M1 的
+  地形是晚秋的內陸、地上沒有廠區（`germany.ts:43`，commit `aec79f8`）。
+- 盟 M3、日 M1、日 M3 共用 Essex／Fletcher／Wichita 三個艦級，但三份艦隊各自
+  一份（`shared.ts:126` 的 `TF58_GROUP`、`shared.ts:146` 的 `RENNELL_FLEET`、
+  `japan.ts:27` 的 `GUADALCANAL_FLEET`）。
+- 德 M2 與德 M3 都是機場，佈局各自一份、不共用地圖（`world/poltava.ts`、
+  `world/asch.ts`；spec `2026-09-13-campaign-rework-design.md` §3）。
