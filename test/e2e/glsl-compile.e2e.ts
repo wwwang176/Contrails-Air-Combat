@@ -47,6 +47,14 @@ async function main(): Promise<void> {
       throw new Error('GLSL 編譯失敗')
     }
     console.log('  洛伊納的 fieldGlslWithSite 編譯通過')
+    // 【查候選表的那一份】多了 usampler2D 與整數位元運算，細節地形用的是它
+    const candLog = await compile(page, fieldGlslWithSite('lateAutumn', LEUNA_SITE, true))
+    if (candLog.trim() !== '') {
+      console.error('  查候選表的 fieldGlslWithSite 編譯失敗：')
+      console.error(candLog)
+      throw new Error('GLSL 編譯失敗')
+    }
+    console.log('  查候選表的 fieldGlslWithSite 編譯通過')
   } finally {
     await browser.close()
   }
