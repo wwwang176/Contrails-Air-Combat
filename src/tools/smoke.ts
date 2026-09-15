@@ -22,6 +22,7 @@ import {
   useLowResTransparency,
   type TransparencyScale,
 } from '../render/lowResTransparency'
+import { addSmokeLighting } from '../render/smokeLighting'
 
 const FIRE_COUNT = 12
 const FIRE_SPACING = 24
@@ -59,6 +60,9 @@ const qualityButtons = Array.from(
 const depthButtons = Array.from(
   document.querySelectorAll<HTMLButtonElement>('[data-depth]'),
 )
+const lightingButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('[data-lighting]'),
+)
 
 const ctx = createScene(canvas, 'noon')
 await preloadPlantScenery()
@@ -67,6 +71,12 @@ ctx.scene.add(terrain.object)
 
 const smokeTexture = await new TextureLoader().loadAsync('/textures/smoke.png')
 const smoke = createShipFireSmoke(16384, smokeTexture)
+const smokeLighting = addSmokeLighting(
+  smoke,
+  ctx.lights.sun.position,
+  ctx.lights.sun.color,
+  ctx.lights.sun.intensity,
+)
 useLowResTransparency(smoke.object)
 ctx.scene.add(smoke.object)
 
@@ -167,6 +177,22 @@ for (const button of depthButtons) {
   })
 }
 
+function setLighting(enabled: boolean): void {
+  smokeLighting.setEnabled(enabled)
+  for (const button of lightingButtons) {
+    button.classList.toggle(
+      'on',
+      (button.dataset.lighting === 'true') === enabled,
+    )
+  }
+}
+
+for (const button of lightingButtons) {
+  button.addEventListener('click', () => {
+    setLighting(button.dataset.lighting === 'true')
+  })
+}
+
 function emitPuff(): void {
   for (let i = 0; i < FIRE_COUNT; i++) {
     const x = (i - (FIRE_COUNT - 1) / 2) * FIRE_SPACING
@@ -231,7 +257,8 @@ function frame(now: number): void {
   statsInfo.textContent =
     `煙霧　${smoke.live} 顆\n` +
     `煙霧緩衝　${resolution}\n` +
-    `放大方式　${pass.depthAware ? '深度感知' : '普通雙線性'}`
+    `放大方式　${pass.depthAware ? '深度感知' : '普通雙線性'}\n` +
+    `煙霧光照　${smokeLighting.enabled ? '日照＋自遮蔽' : '原始顏色'}`
 
   requestAnimationFrame(frame)
 }
@@ -239,6 +266,7 @@ function frame(now: number): void {
 ;(window as unknown as Record<string, unknown>)['__smokeDemo'] = {
   setScale,
   setDepthAware,
+  setLighting,
   get state() {
     return {
       scale: pass.scale,
@@ -246,6 +274,7 @@ function frame(now: number): void {
       width: pass.width,
       height: pass.height,
       smoke: smoke.live,
+      lighting: smokeLighting.enabled,
       autoFly,
     }
   },
