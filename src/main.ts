@@ -40,9 +40,6 @@ import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
   DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
 } from './render/smoke'
-import {
-  createLowResTransparencyPass, useLowResTransparency,
-} from './render/lowResTransparency'
 import { addSmokeLighting } from './render/smokeLighting'
 import {
   createShipFires, lightShipFires, stepShipFires,
@@ -656,35 +653,11 @@ const blastJets = createWaterJets({
 })
 ctx.scene.add(blastJets.object)
 
-// 煙的世界範圍與粒子數完全不動，只把昂貴的透明像素降成半邊長（四分之一
-// 像素）；深度感知放大負責保住飛機與地景輪廓。煙池集中列在這裡，避免新增
-// 一種煙時漏接成全解析度。
-const lowResSmokeEffects = [
-  flakBursts,
-  smoke,
-  shipFireSmoke,
-  wreckFireSmoke,
-  steam,
-  blastEmber,
-  blastSmoke,
-  blastDust,
-  blastMist,
-]
-for (const effect of lowResSmokeEffects) useLowResTransparency(effect.object)
-
-/**
- * 低解析度煙這一幀有沒有活著的粒子。**沒有的話煙霧通道直接畫到畫布上。**
- *
- * 【為什麼值得問】離屏 4× MSAA、深度解析、複製與合成在 Iris Xe 上每幀十毫秒
- * 上下，而沒有煙的那幾幀它們什麼都沒合成。每幀都問，不配置。
- */
-function lowResSmokeLive(): boolean {
-  for (let i = 0; i < lowResSmokeEffects.length; i++) {
-    if (lowResSmokeEffects[i]!.live > 0) return true
-  }
-  return false
-}
-const smokeRenderPass = createLowResTransparencyPass(ctx.renderer, 0.5)
+// 【煙以全解析度直接畫在主場景，不走 `render/lowResTransparency.ts` 的半解析度
+// 通道】那條通道要先把整個場景畫進 4× MSAA 離屏圖、解析顏色與深度、再複製回
+// 畫布合成：Iris Xe 上每幀固定多花約 13 ms（深度解析就佔約 5 ms），航母大火與
+// 油廠集火實測全解析度都快一倍。而且離屏的 sRGB 圖在線性空間做抗鋸齒混色，
+// 遠方細碎的地面會整片變亮，與直接畫到畫布的顏色對不上。
 
 /**
  * 給 `emitBlast` 的那一組。每幀都是同一個物件 —— 熱路徑不配置。
@@ -2131,7 +2104,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  smokeRenderPass.render(ctx.scene, ctx.camera, lowResSmokeLive())
+  ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -2671,7 +2644,7 @@ function frame(now: number) {
         logTelemetry()
       }
     } else {
-      smokeRenderPass.render(ctx.scene, ctx.camera, lowResSmokeLive())
+      ctx.renderer.render(ctx.scene, ctx.camera)
     }
   } else {
     elapsed += frameSeconds
@@ -2815,8 +2788,6 @@ const GFX_HIDDEN_LAYER = 31
     // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
     // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
     for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
-    // 通用煙平常在半解析度層；粒子消融 off → on 後要搬回去，不能留在第 0 層。
-    if (name === 'particles' && on) useLowResTransparency(smoke.object)
     applied.push(`${name}=${on ? 'on' : 'off'}`)
   }
   return { applied, known: Object.keys(targets) }
