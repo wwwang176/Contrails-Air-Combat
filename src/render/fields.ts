@@ -243,6 +243,142 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   out.r2 = r2
 }
 
+/** 候選表一小格的邊長，m。一格區塊切成 16 × 16 小格 */
+export const REGION_CANDIDATE_CELL = 200
+/** 一格區塊每一邊有幾個小格 */
+export const REGION_CANDIDATE_SUB = REGION_SPACING / REGION_CANDIDATE_CELL
+
+/**
+ * 每個小格可能成為最近或次近種子的那幾顆（3×3 裡的索引 `(dj+1)*3+(di+1)`）。
+ *
+ * `data` 每個小格 4 位元組、8 個 nibble：第 0 個是候選數，1…7 是索引，
+ * 由小到大 —— 也就是完整搜尋的走訪順序，平手時取到的是同一顆。候選數
+ * 15 表示這一格不剪枝、走完整搜尋。貼圖座標 `(x, y)` 對應 `(小格欄, 小格列)`。
+ */
+export interface RegionCandidates {
+  /** 表左下角那一格區塊的索引 */
+  gx0: number
+  gz0: number
+  blocksX: number
+  blocksZ: number
+  cols: number
+  rows: number
+  data: Uint8Array
+}
+
+/**
+ * 剪枝的安全邊界，m。
+ *
+ * 【為什麼要留】GPU 用 float32 算距離、算小格索引，誤差在公分以下。
+ * 不留的話兩顆種子距離幾乎相同的小格可能剪掉真正的次近種子 —— 樹籬的位置
+ * 就在那裡跳一格，而且只在 GPU 上發生。
+ */
+const CANDIDATE_MARGIN = 1
+
+/**
+ * 建候選表。`x0`、`z0` 必須是 `REGION_SPACING` 的整數倍，`cols`、`rows`
+ * 必須是 `REGION_CANDIDATE_SUB` 的整數倍 —— 小格不得跨區塊格，否則同一個
+ * 小格會對應兩組不同的 3×3。進關卡時建一次。
+ */
+export function buildRegionCandidates(
+  x0: number, z0: number, cols: number, rows: number,
+): RegionCandidates {
+  const gx0 = Math.round(x0 / REGION_SPACING)
+  const gz0 = Math.round(z0 / REGION_SPACING)
+  const blocksX = cols / REGION_CANDIDATE_SUB
+  const blocksZ = rows / REGION_CANDIDATE_SUB
+  if (gx0 * REGION_SPACING !== x0 || gz0 * REGION_SPACING !== z0
+    || !Number.isInteger(blocksX) || !Number.isInteger(blocksZ)) {
+    throw new Error('候選表必須對齊區塊格')
+  }
+  const data = new Uint8Array(cols * rows * 4)
+  const sx = new Float64Array(9)
+  const sz = new Float64Array(9)
+  const dMin = new Float64Array(9)
+  const seed: Vec2 = { x: 0, z: 0 }
+  for (let bz = 0; bz < blocksZ; bz++) {
+    for (let bx = 0; bx < blocksX; bx++) {
+      const gx = gx0 + bx
+      const gz = gz0 + bz
+      for (let k = 0; k < 9; k++) {
+        regionSeed(gx + (k % 3) - 1, gz + ((k / 3) | 0) - 1, seed)
+        sx[k] = seed.x
+        sz[k] = seed.z
+      }
+      for (let sj = 0; sj < REGION_CANDIDATE_SUB; sj++) {
+        for (let si = 0; si < REGION_CANDIDATE_SUB; si++) {
+          const ax = gx * REGION_SPACING + si * REGION_CANDIDATE_CELL - CANDIDATE_MARGIN
+          const bxw = ax + REGION_CANDIDATE_CELL + 2 * CANDIDATE_MARGIN
+          const az = gz * REGION_SPACING + sj * REGION_CANDIDATE_CELL - CANDIDATE_MARGIN
+          const bzw = az + REGION_CANDIDATE_CELL + 2 * CANDIDATE_MARGIN
+          let max1 = Infinity
+          let max2 = Infinity
+          for (let k = 0; k < 9; k++) {
+            const nx = Math.max(ax - sx[k]!, 0, sx[k]! - bxw)
+            const nz = Math.max(az - sz[k]!, 0, sz[k]! - bzw)
+            dMin[k] = Math.sqrt(nx * nx + nz * nz)
+            const fx = Math.max(Math.abs(sx[k]! - ax), Math.abs(sx[k]! - bxw))
+            const fz = Math.max(Math.abs(sz[k]! - az), Math.abs(sz[k]! - bzw))
+            const dMax = Math.sqrt(fx * fx + fz * fz)
+            if (dMax < max1) { max2 = max1; max1 = dMax } else if (dMax < max2) max2 = dMax
+          }
+          const o = ((bz * REGION_CANDIDATE_SUB + sj) * cols + bx * REGION_CANDIDATE_SUB + si) * 4
+          let n = 0
+          for (let k = 0; k < 9; k++) {
+            // 比兩顆種子的最遠距離還遠，這一格裡不可能是最近或次近
+            if (dMin[k]! > max2 + CANDIDATE_MARGIN) continue
+            n++
+            if (n <= 7) data[o + (n >> 1)] = data[o + (n >> 1)]! | (k << ((n & 1) * 4))
+          }
+          if (n > 7) { data[o] = 15; data[o + 1] = 0; data[o + 2] = 0; data[o + 3] = 0 } else data[o] = data[o]! | n
+        }
+      }
+    }
+  }
+  return { gx0, gz0, blocksX, blocksZ, cols, rows, data }
+}
+
+/**
+ * `regionAt` 的查表版，結果與它相同。**它是 GLSL 查表那一段的 CPU 對照**
+ * —— 小格索引由區塊格推出來，走訪次序與完整搜尋相同。
+ */
+export function regionAtPruned(
+  x: number, z: number, table: RegionCandidates, out: RegionSample,
+): void {
+  const gx = Math.floor(x / REGION_SPACING)
+  const gz = Math.floor(z / REGION_SPACING)
+  const bx = gx - table.gx0
+  const bz = gz - table.gz0
+  if (bx < 0 || bz < 0 || bx >= table.blocksX || bz >= table.blocksZ) {
+    regionAt(x, z, out)
+    return
+  }
+  const last = REGION_CANDIDATE_SUB - 1
+  const si = Math.min(Math.max(Math.floor((x - gx * REGION_SPACING) / REGION_CANDIDATE_CELL), 0), last)
+  const sj = Math.min(Math.max(Math.floor((z - gz * REGION_SPACING) / REGION_CANDIDATE_CELL), 0), last)
+  const o = ((bz * REGION_CANDIDATE_SUB + sj) * table.cols + bx * REGION_CANDIDATE_SUB + si) * 4
+  const d0 = table.data
+  const n = d0[o]! & 15
+  if (n === 15) {
+    regionAt(x, z, out)
+    return
+  }
+  let r1 = Infinity
+  let r2 = Infinity
+  let id = 0
+  for (let s = 1; s <= n; s++) {
+    const k = (d0[o + (s >> 1)]! >> ((s & 1) * 4)) & 15
+    const h = regionSeed(gx + (k % 3) - 1, gz + ((k / 3) | 0) - 1, SEED)
+    const dx = x - SEED.x
+    const dz = z - SEED.z
+    const d = Math.sqrt(dx * dx + dz * dz)
+    if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
+  }
+  regionParams(id, out)
+  out.r1 = r1
+  out.r2 = r2
+}
+
 /**
  * 第 `(c, r)` 格有沒有被對切；有的話把那條線寫進 `out`。
  *
@@ -394,6 +530,46 @@ const rgb = (hex: number): string => {
   return `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
 }
 
+/** 查候選表時多出來的宣告。uniform 由 `farmGround.ts` 的 `applyFields` 提供 */
+const CANDIDATE_DECL_GLSL = `
+const float REGION_CANDIDATE_CELL = ${REGION_CANDIDATE_CELL.toFixed(1)};
+const int REGION_CANDIDATE_SUB = ${REGION_CANDIDATE_SUB};
+uniform highp usampler2D uRegionCand;
+// 表左下角的區塊格 (x, z) 與區塊格數 (x, z)
+uniform ivec4 uRegionCandRect;`
+
+/**
+ * 區塊搜尋的查表版，接在 `r1`、`r2`、`rid` 宣告之後；候選數 15 或在表外時
+ * 落進後面原封不動的完整搜尋。與 `regionAtPruned` 同一套索引。
+ *
+ * 【小格索引由 rgx、rgz 推】不另外由世界座標直接算，否則在區塊格邊上兩個
+ * floor 可能各落一邊，查到的是另一格區塊的候選。
+ */
+const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
+  uvec4 cand = uvec4(0u);
+  ivec2 candBlock = ivec2(int(rgx), int(rgz)) - uRegionCandRect.xy;
+  if (all(greaterThanEqual(candBlock, ivec2(0))) && all(lessThan(candBlock, uRegionCandRect.zw))) {
+    vec2 local = world - vec2(rgx, rgz) * REGION_SPACING;
+    ivec2 sub = clamp(ivec2(floor(local / REGION_CANDIDATE_CELL)), ivec2(0), ivec2(REGION_CANDIDATE_SUB - 1));
+    cand = texelFetch(uRegionCand, candBlock * REGION_CANDIDATE_SUB + sub, 0);
+    candN = cand.r & 15u;
+  }
+  if (candN < 15u) {
+    for (uint s = 1u; s <= candN; s++) {
+      uint k = (cand[int(s >> 1u)] >> ((s & 1u) * 4u)) & 15u;
+      int i = int(rgx) + int(k % 3u) - 1;
+      int j = int(rgz) + int(k / 3u) - 1;
+      uint h = fieldHash2(i, j);
+      float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 0.76;
+      float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
+      vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
+      float d = distance(world, seed);
+      if (d < r1) { r2 = r1; r1 = d; rid = h; }
+      else if (d < r2) { r2 = d; }
+    }
+  } else {
+`
+
 /**
  * 上面那一切的 GLSL。提供 `vec3 fieldColorAt(vec2 world)`。
  *
@@ -406,8 +582,11 @@ const rgb = (hex: number): string => {
  *
  * 【吃季節】色值烘進字串，所以一個季節一份字串；圖案的常數兩份相同。
  * 呼叫端換了字串就要換材質的 `customProgramCacheKey`（`farmGround.ts`）。
+ *
+ * `candidates` 為真時多一段查候選表（`buildRegionCandidates`）的剪枝，
+ * 材質要提供 `uRegionCand` 與 `uRegionCandRect` 兩個 uniform。
  */
-export function fieldGlsl(season: Season): string {
+export function fieldGlsl(season: Season, candidates = false): string {
   const c = FIELD_COLORS[season]
   const glslPalette = c.palette.map((h) => '  ' + rgb(h)).join(',\n')
   return `
@@ -415,7 +594,7 @@ const float FIELD_SPACING = ${FIELD_SPACING.toFixed(1)};
 const float FIELD_ANISO = ${FIELD_ANISO.toFixed(3)};
 const float EDGE_JITTER = ${EDGE_JITTER.toFixed(3)};
 const float SPLIT_CHANCE = ${SPLIT_CHANCE.toFixed(3)};
-const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};
+const float REGION_SPACING = ${REGION_SPACING.toFixed(1)};${candidates ? CANDIDATE_DECL_GLSL : ''}
 const float HEDGE_WIDTH = ${HEDGE_WIDTH.toFixed(1)};
 const float HEDGE_CHANCE = ${HEDGE_CHANCE.toFixed(3)};
 const float TRACK_WIDTH = ${TRACK_WIDTH.toFixed(1)};
@@ -493,7 +672,7 @@ vec3 fieldColorAt(vec2 world) {
   float r1 = 1e20;
   float r2 = 1e20;
   uint rid = 0u;
-  for (int dj = -1; dj <= 1; dj++) {
+${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
     for (int di = -1; di <= 1; di++) {
       int i = int(rgx) + di;
       int j = int(rgz) + dj;
@@ -506,7 +685,7 @@ vec3 fieldColorAt(vec2 world) {
       else if (d < r2) { r2 = d; }
     }
   }
-  uint rh = fieldHash1(rid);
+${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   float angle = (float(rh & 0xffffu) / 65536.0) * 3.14159265;
   float scale = SPACING_VAR_LO
     + (float(rh >> 16u) / 65536.0) * (SPACING_VAR_HI - SPACING_VAR_LO);
@@ -1078,8 +1257,8 @@ ${list}
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */
-export function fieldGlslWithSite(season: Season, site?: SiteLayout): string {
-  const base = fieldGlsl(season)
+export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false): string {
+  const base = fieldGlsl(season, candidates)
   if (site === undefined) return base
   const at = base.lastIndexOf('  return col;')
   return base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)

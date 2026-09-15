@@ -1,8 +1,12 @@
 import {
-  BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
+  BufferAttribute, BufferGeometry, DataTexture, Group, Mesh, MeshStandardMaterial,
+  NearestFilter, RGBAIntegerFormat, UnsignedByteType, Vector4,
   type Object3D, type WebGLProgramParametersWithUniforms,
 } from 'three'
-import { fieldGlslWithSite, type SiteLayout } from './fields'
+import {
+  buildRegionCandidates, fieldGlslWithSite, REGION_CANDIDATE_SUB, REGION_SPACING,
+  type RegionCandidates, type SiteLayout,
+} from './fields'
 import type { Season } from './season'
 import type { HeightFieldData } from '../world/heightfield'
 
@@ -88,9 +92,15 @@ function buildChunk(
  */
 export function applyFields(
   material: MeshStandardMaterial, season: Season = 'summer', site?: SiteLayout,
+  candidates?: { texture: DataTexture; table: RegionCandidates },
 ): void {
-  const glsl = fieldGlslWithSite(season, site)
+  const glsl = fieldGlslWithSite(season, site, candidates !== undefined)
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+    if (candidates !== undefined) {
+      const t = candidates.table
+      shader.uniforms['uRegionCand'] = { value: candidates.texture }
+      shader.uniforms['uRegionCandRect'] = { value: new Vector4(t.gx0, t.gz0, t.blocksX, t.blocksZ) }
+    }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 varying vec3 vFarmWorld;`)
@@ -108,8 +118,9 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
   // （flatShading 等）仍然照樣進 key，所以兩個材質共用這個字串是安全的。
   // 【季節要進 key】兩個季節的 GLSL 不同。key 相同的話先看過夏季農地再進
   // 晚秋的地形，three 會重用夏季的程式 —— 畫面還是綠的，而且不報錯
-  // 【有沒有廠區也要進 key】廠區那一層是另一份字串
-  material.customProgramCacheKey = () => 'farm-fields:' + season + (site === undefined ? '' : ':site')
+  // 【有沒有廠區、查不查候選表也要進 key】兩者都是另一份字串
+  material.customProgramCacheKey = () => 'farm-fields:' + season
+    + (site === undefined ? '' : ':site') + (candidates === undefined ? '' : ':cand')
 }
 
 export function createFarmGround(
@@ -117,7 +128,21 @@ export function createFarmGround(
 ): { object: Object3D; dispose(): void } {
   const group = new Group()
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
-  applyFields(material, season, site)
+  // 【區塊候選表進關卡時建】田區著色器每個片段原本要比九顆區塊種子；查表後
+  // 平均只比三四顆，答案相同（`field-region-candidates.test.ts`）。範圍取蓋住
+  // 整片地的區塊格，場外的片段落回完整搜尋。遠景環不查表，走完整搜尋
+  const half = ((field.size - 1) / 2) * field.cell
+  const gx0 = Math.floor(-half / REGION_SPACING)
+  const gx1 = Math.floor(half / REGION_SPACING)
+  const side = (gx1 - gx0 + 1) * REGION_CANDIDATE_SUB
+  const table = buildRegionCandidates(gx0 * REGION_SPACING, gx0 * REGION_SPACING, side, side)
+  const texture = new DataTexture(table.data, side, side, RGBAIntegerFormat, UnsignedByteType)
+  texture.internalFormat = 'RGBA8UI'
+  texture.minFilter = NearestFilter
+  texture.magFilter = NearestFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+  applyFields(material, season, site, { texture, table })
 
   const n = (field.size - 1) / FARM_CHUNKS
   const geometries: BufferGeometry[] = []
@@ -134,6 +159,7 @@ export function createFarmGround(
     dispose() {
       for (const g of geometries) g.dispose()
       material.dispose()
+      texture.dispose()
     },
   }
 }

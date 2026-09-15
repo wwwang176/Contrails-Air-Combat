@@ -100,11 +100,12 @@ describe('農地的切塊 mesh', () => {
     const m = meshes[0]!
     const mat = (Array.isArray(m.material) ? m.material[0]! : m.material) as unknown as {
       flatShading: boolean
-      onBeforeCompile: (s: { vertexShader: string; fragmentShader: string }) => void
+      onBeforeCompile: (s: { vertexShader: string; fragmentShader: string; uniforms: object }) => void
     }
     expect(mat.flatShading).toBe(true)
     // onBeforeCompile 在 headless 不會被呼叫 —— 手動餵一個假 shader 物件
     const shader = {
+      uniforms: {},
       vertexShader: '#include <common>\n#include <begin_vertex>',
       fragmentShader: '#include <common>\n#include <color_fragment>',
     }
