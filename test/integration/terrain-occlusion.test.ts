@@ -22,7 +22,7 @@ import { findOcclusionCase } from '../fixtures/occlusion-case'
  * ── 考題怎麼來的 ────────────────────────────────────────
  *
  * `test/fixtures/occlusion-case.ts` 在真的高度場上搜一條弦：兩架同高、
- * 離地 120 m（安全層的 clearance）、相距 ≤ 1 km，取山頂高出連線最多的
+ * 離地 120 m、相距 ≤ 1 km，取山頂高出連線最多的
  * 那一組 —— 高出越多，兩架接近時遮蔽維持得越久。
  *
  * 座標是搜出來而不是抄下來的 —— 山改矮改緩這裡跟著動，而下面「考題本身
@@ -64,7 +64,7 @@ function place(a: Aircraft, pos: Vector3, look: Vector3): void {
 }
 
 describe('考題本身要成立', () => {
-  it('兩架都在飛 —— 離地不低於安全層的 clearance', () => {
+  it('兩架都在飛 —— 離地不低於考題的 120 m', () => {
     expect(A.y - arch.field.sample(A.x, A.z)).toBeGreaterThanOrEqual(120 - 1e-9)
     expect(B.y - arch.field.sample(B.x, B.z)).toBeGreaterThanOrEqual(120 - 1e-9)
   })

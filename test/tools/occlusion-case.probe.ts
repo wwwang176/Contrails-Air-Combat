@@ -29,7 +29,7 @@ function sink(ax: number, ay: number, az: number, bx: number, by: number, bz: nu
   return worst
 }
 
-/** 兩架都至少離地這麼高才算「在正常飛」，m。安全層的 clearance 是 120 */
+/** 兩架都至少離地這麼高才算「在正常飛」，m */
 const MIN_CLEAR = 120
 const isl = arch.islands[0]!
 console.log('錨島', JSON.stringify({

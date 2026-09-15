@@ -1138,7 +1138,7 @@ describe('extend 的俯仰是連續量', () => {
     // 地表抬到 3900 m → 離地只剩 100 m，高度項該主導
     steerCommand('extend', 'normal', sit, basis, self, 3900, knobs, createDefendState(), null, cmd)
     const commanded = Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
-    // 全域硬底限移除後，extend 自己仍須使用離地餘裕。這一格在 100 m 時
+    // extend 讀的是離地餘裕，不是世界高度。這一格在 100 m 時
     // 高度項恰好抵銷速度項；若誤用世界高度 4000 m，結果會變成負俯仰。
     const expected = extendPitchAngle(0.6, NO_FOE_DEFICIT, 100)
     expect(commanded).toBeCloseTo(expected, 9)
@@ -1505,10 +1505,10 @@ describe('rally 意圖', () => {
   })
 
   /**
-   * 墜地保護已移到每步解析護欄與物理 Worker；戰術導引不能再於 500 m 邊界
-   * 覆寫明確的航路點，否則接近低空目標時會反覆點頭。
+   * 墜地保護由每步解析護欄與物理 Worker 負責；戰術導引按離地高度覆寫
+   * 明確的航路點的話，接近低空目標時會在門檻兩側反覆點頭。
    */
-  it('低空集合仍直接朝航路點，不受 500 m 硬底限覆寫', () => {
+  it('低空集合仍直接朝航路點', () => {
     const basis = createEngageBasis()
     const sit = createSituation()
     const cmd = createCommand()
@@ -1762,19 +1762,6 @@ describe('steerCommand：甜蜜區偏置', () => {
     expect(cmd.aimWorld.x).toBe(without.x)
     expect(cmd.aimWorld.y).toBe(without.y)
     expect(cmd.aimWorld.z).toBe(without.z)
-  })
-
-  /** 可射擊時甜蜜區與柔性高度偏好都讓位，瞄準線不可留下偏移。 */
-  it('低空且已有射擊解時柔性高度偏好完全讓位', () => {
-    scene()
-    sit.sweetPitch = -20 * DEG
-    basis.interceptTime = 0.5
-    // 地表抬到離自機只剩 50 m
-    steerCommand(
-      'engage', 'normal', sit, basis, self, self.state.position.y - 50,
-      k, createDefendState(), null, cmd,
-    )
-    expect(pitchOf(cmd.aimWorld)).toBeCloseTo(0, 9)
   })
 })
 

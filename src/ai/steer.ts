@@ -622,7 +622,10 @@ export interface SteerConfig {
    * 目前不存在，造一個是另一份的事。
    */
   pitchAltitudeGain: number
-  /** 高度赤字的特徵離地高度，m。約為安全層 clearance（120 m）的四倍 */
+  /**
+   * 低空的特徵離地高度，m。`extend` 的離地補償在這個高度以下開始作用；
+   * 撤退與側翼的集合點也不低於它。撞地接管不讀這個值。
+   */
   clearanceScale: number
   /**
    * 比敵人低多少公尺算「滿偏爬升」。`extendPitchAngle` 的高度項尺標。
@@ -1685,7 +1688,7 @@ const PITCH_BIAS_LIMIT = 80 * (Math.PI / 180)
 /**
  * 把 `aim` 的**航跡角**加上 `deltaPitch`，水平方位不變。就地修改。
  *
- * 它同時服務甜蜜區與低空柔性偏好；兩者都只改航跡角、不改水平方位，避免
+ * 它服務甜蜜區與迴轉平面的俯仰偏置；兩者都只改航跡角、不改水平方位，避免
  * 被指揮儀誤讀成額外的滾轉需求。
  *
  * 【夾在 ±80°】超過就變成垂直，而俯仰偏置的用途是「偏一點」不是「翻過去」。
@@ -2032,7 +2035,7 @@ export function steerCommand(
   // 時它們平滑回來。
   //
   // 真正的撞地判斷由 `AiController.emit` 最後執行的同步護欄與物理 Worker
-  // 負責；這裡只處理戰術空層，不再用固定高度覆寫目標方向。
+  // 負責；這裡只處理戰術空層，不按離地高度改寫目標方向。
   if (
     band !== null && band.kind !== 'off' && mode !== 'speedRecover'
     && (intent === 'engage' || intent === 'approach' || intent === 'merge')
@@ -2043,8 +2046,6 @@ export function steerCommand(
     )
   }
 
-  // 【這裡不再預防性抬頭】Worker 可以提前計算，但它的風險數值不改寫
-  // 戰鬥 AI 的瞄準方向。只有真正跨過改出線時，emit 的安全層才接管。
   // ── 油門與減速（spec §7.4）────────────────────────────
   //
   // 【`overshoot` 不可以有自己的一支油門／減速板】`throttle = THROTTLE_FLOOR`
