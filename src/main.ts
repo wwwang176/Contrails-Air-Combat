@@ -619,8 +619,8 @@ const blastJets = createWaterJets({
 ctx.scene.add(blastJets.object)
 
 // 煙的世界範圍與粒子數完全不動，只把昂貴的透明像素降成半邊長（四分之一
-// 像素）；深度感知放大負責保住飛機與地景輪廓。清單同時供下方的啟用門檻
-// 使用，避免新增一個煙池時只接了渲染、卻漏算存活數。
+// 像素）；深度感知放大負責保住飛機與地景輪廓。煙池集中列在這裡，避免新增
+// 一種煙時漏接成全解析度。
 const lowResSmokeEffects = [
   flakBursts,
   smoke,
@@ -634,20 +634,6 @@ const lowResSmokeEffects = [
 ]
 for (const effect of lowResSmokeEffects) useLowResTransparency(effect.object)
 const smokeRenderPass = createLowResTransparencyPass(ctx.renderer, 0.5)
-
-/** 少於這個數量時，全螢幕合成成本比省下的煙霧填充還高，直接照原路徑畫。 */
-const LOW_RES_SMOKE_THRESHOLD = 512
-
-function lowResSmokeLive(): number {
-  let live = 0
-  for (const effect of lowResSmokeEffects) live += effect.live
-  return live
-}
-
-function renderBattleScene(): void {
-  smokeRenderPass.setEnabled(lowResSmokeLive() >= LOW_RES_SMOKE_THRESHOLD)
-  smokeRenderPass.render(ctx.scene, ctx.camera)
-}
 
 /**
  * 給 `emitBlast` 的那一組。每幀都是同一個物件 —— 熱路徑不配置。
@@ -2092,7 +2078,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  renderBattleScene()
+  smokeRenderPass.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -2632,7 +2618,7 @@ function frame(now: number) {
         logTelemetry()
       }
     } else {
-      renderBattleScene()
+      smokeRenderPass.render(ctx.scene, ctx.camera)
     }
   } else {
     elapsed += frameSeconds

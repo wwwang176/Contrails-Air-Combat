@@ -24,12 +24,10 @@ export const LOW_RES_TRANSPARENCY_LAYER = 1
 export type TransparencyScale = 1 | 0.5 | 0.25
 
 export interface LowResTransparencyPass {
-  readonly enabled: boolean
   readonly scale: TransparencyScale
   readonly depthAware: boolean
   readonly width: number
   readonly height: number
-  setEnabled(enabled: boolean): void
   setScale(scale: TransparencyScale): void
   setDepthAware(enabled: boolean): void
   render(scene: Scene, camera: Camera): void
@@ -243,7 +241,6 @@ export function createLowResTransparencyPass(
   const drawingSize = new Vector2()
   const savedClear = new Color()
   let scale = initialScale
-  let enabled = true
   let depthAware = true
   let width = 1
   let height = 1
@@ -272,14 +269,10 @@ export function createLowResTransparencyPass(
   }
 
   return {
-    get enabled() { return enabled },
     get scale() { return scale },
     get depthAware() { return depthAware },
     get width() { return width },
     get height() { return height },
-    setEnabled(next) {
-      enabled = next
-    },
     setScale(next) {
       scale = next
       resizeTargets()
@@ -298,7 +291,7 @@ export function createLowResTransparencyPass(
       try {
         renderer.autoClear = false
 
-        if (!enabled || scale === 1) {
+        if (scale === 1) {
           camera.layers.enable(LOW_RES_TRANSPARENCY_LAYER)
           renderer.setRenderTarget(savedTarget)
           renderer.clear(true, true, true)
