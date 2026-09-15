@@ -64,7 +64,7 @@ export interface DriftRow {
   floorShare: number
   extendShare: number
   engageShare: number
-  /** `applySafety` 有動作的取樣佔比。**不含柔性高度偏好** */
+  /** `applySafety` 有動作的取樣佔比 */
   safety: number
   damage: number
   aliveBlue: number

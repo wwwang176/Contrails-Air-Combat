@@ -52,7 +52,7 @@ const BX = CASE.bx
 const BZ = CASE.bz
 
 describe('考題本身要成立', () => {
-  it('兩架都在飛 —— 離地不低於安全層的 clearance', () => {
+  it('兩架都在飛 —— 離地不低於考題的 120 m', () => {
     expect(Y - arch.field.sample(AX, AZ)).toBeGreaterThanOrEqual(120 - 1e-9)
     expect(Y - arch.field.sample(BX, BZ)).toBeGreaterThanOrEqual(120 - 1e-9)
   })
