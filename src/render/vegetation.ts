@@ -1,6 +1,6 @@
 import {
   BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Group,
-  InstancedBufferAttribute, InstancedMesh, Matrix4, MeshStandardMaterial, Points,
+  InstancedBufferAttribute, InstancedMesh, MeshStandardMaterial, Points,
   PointsMaterial, Sphere, Vector3, type Object3D,
 } from 'three'
 import {
@@ -162,12 +162,13 @@ const REBUILD_IDLE = 120
  * 重建一幀最多走過幾筆 tile 資料。**重建因此分好幾幀做完。**
  *
  * 農地圈內約二十六萬筆，一次寫完是 20–50 ms 的 JS 尖峰（德 M3 底板行動
- * 實測，每 1.3 s 一次）。實測一筆約 0.08 µs，四萬筆是 3 ms 上下、七幀
- * 做完 —— 150 m/s 下換級最多晚 35 m，而換級的顆粒是 250 m 的一格。
+ * 實測，每 1.3 s 一次）。Iris Xe 上實測一片四萬筆最長 6.2 ms、約 0.15 µs 一筆，
+ * 所以一萬筆約 1.5 ms、二十六片左右做完 —— 期間補格與換級暫停，換級最多晚
+ * 半秒上下，而換級的顆粒是 250 m 的一格。
  *
  * 分幀期間畫面上掛的是上一份完整的內容，見 `job`。
  */
-export const REBUILD_BUDGET = 40000
+export const REBUILD_BUDGET = 10000
 
 /**
  * 單一 tile 最多幾株。**預設值，逐圖可以覆寫。**
@@ -320,6 +321,28 @@ const POOL_NAMES: readonly PoolName[] = [
 const IS_POINT: Record<PoolName, boolean> =
   Object.fromEntries(POOL_NAMES.map((n) => [n, POINT_POOLS.includes(n)])) as Record<PoolName, boolean>
 
+/**
+ * 「種類 × 級數 × 灌木旗標」→ 池在 `POOL_NAMES` 裡的索引，`-1` = 這一級不畫。
+ *
+ * **每一格都由 `poolOf` 算出**，兩者不可能分家。重建每一筆查一次表，不經過
+ * 字串與物件屬性 —— 每筆好幾次以池名查屬性，是重建一片跑到 10 ms 以上的原因。
+ *
+ * 索引是 `kind × 10 + (lod + 1) × 2 + bush`：`kind` 是 Uint8Array 的值，
+ * `lod` 涵蓋 `slotLod` 可能的 −1 到 3。
+ */
+const POOL_LUT: Int8Array = (() => {
+  const lut = new Int8Array(256 * 10)
+  for (let kind = 0; kind < 256; kind++) {
+    for (let lod = -1; lod <= 3; lod++) {
+      for (let bush = 0; bush < 2; bush++) {
+        const name = poolOf(kind, lod, bush === 1)
+        lut[kind * 10 + (lod + 1) * 2 + bush] = name === null ? -1 : POOL_NAMES.indexOf(name)
+      }
+    }
+  }
+  return lut
+})()
+
 export interface Vegetation {
   readonly object: Object3D
   /**
@@ -375,7 +398,6 @@ export interface Vegetation {
   debugTiles(): { i: number, j: number, lod: number }[]
 }
 
-const M = new Matrix4()
 const TINT = new Color()
 
 /**
@@ -911,12 +933,37 @@ export function createVegetation(
   /** 下一個要寫的槽位 */
   let jobSlot = 0
   let jobOverflow = 0
-  /** 這一次要寫的池 —— 開始時由 `poolDirty` 搬過來 */
-  const jobDirty: Record<PoolName, boolean> =
-    Object.fromEntries(POOL_NAMES.map((n) => [n, false])) as Record<PoolName, boolean>
+  // 【以下都以池在 `POOL_NAMES` 的索引存取】重建的迴圈每筆都要讀，不經過池名
+  const poolCount = POOL_NAMES.length
+  /** 這一次要寫的池（1 = 要寫）—— 開始時由 `poolDirty` 搬過來 */
+  const jobDirty = new Uint8Array(poolCount)
   /** 各池已經寫了幾筆。完成時才發布到 `counts` */
-  const jobCounts: Record<PoolName, number> =
-    Object.fromEntries(POOL_NAMES.map((n) => [n, 0])) as Record<PoolName, number>
+  const jobCounts = new Int32Array(poolCount)
+  const capOf = new Int32Array(poolCount)
+  const isPointOf = new Uint8Array(poolCount)
+  /** 點池：樹冠垂直中心、點的邊長、`pointBase` 的三個分量，都是逐株乘上縮放前的常數 */
+  const pointYOf = new Float64Array(poolCount)
+  const pointSizeOf = new Float64Array(poolCount)
+  const pointR = new Float64Array(poolCount)
+  const pointG = new Float64Array(poolCount)
+  const pointB = new Float64Array(poolCount)
+  for (let p = 0; p < poolCount; p++) {
+    const name = POOL_NAMES[p]!
+    capOf[p] = cap[name]
+    if (!IS_POINT[name]) continue
+    isPointOf[p] = 1
+    pointYOf[p] = POINT_Y[name as PointPool]
+    pointSizeOf[p] = POINT_SIZE[name as PointPool]
+    pointR[p] = pointBase[name]!.r
+    pointG[p] = pointBase[name]!.g
+    pointB[p] = pointBase[name]!.b
+  }
+  /** 這一次寫進去的那一份（沒掛上的那一側）的陣列。開始時解析好 */
+  const jobMatrix: (Float32Array | null)[] = new Array<Float32Array | null>(poolCount).fill(null)
+  const jobTint: (Float32Array | null)[] = new Array<Float32Array | null>(poolCount).fill(null)
+  const jobPosition: (Float32Array | null)[] = new Array<Float32Array | null>(poolCount).fill(null)
+  const jobColor: (Float32Array | null)[] = new Array<Float32Array | null>(poolCount).fill(null)
+  const jobSize: (Float32Array | null)[] = new Array<Float32Array | null>(poolCount).fill(null)
 
   /**
    * 開始一次重建。
@@ -925,10 +972,22 @@ export function createVegetation(
    * 重寫一遍再上傳只是把 GPU 逼去等。
    */
   function startRebuild(): void {
-    for (const name of POOL_NAMES) {
-      jobDirty[name] = poolDirty[name]
+    for (let p = 0; p < poolCount; p++) {
+      const name = POOL_NAMES[p]!
+      jobDirty[p] = poolDirty[name] ? 1 : 0
       poolDirty[name] = false
-      jobCounts[name] = 0
+      jobCounts[p] = 0
+      // 【寫另一份】掛著的那一份在完成前都還在畫
+      const next = side[name]! ^ 1
+      if (isPointOf[p] === 1) {
+        const a = altPt[name]![next]!
+        jobPosition[p] = a[0]!.array as Float32Array
+        jobColor[p] = a[1]!.array as Float32Array
+        jobSize[p] = a[2]!.array as Float32Array
+      } else {
+        jobMatrix[p] = altMat[name]![next]!.array as Float32Array
+        jobTint[p] = altCol[name]![next]!.array as Float32Array
+      }
     }
     jobSlot = 0
     jobOverflow = 0
@@ -946,54 +1005,54 @@ export function createVegetation(
       if (slotUsed[s] === 0) continue
       const buf = slotBuf[s] ?? null
       if (buf === null) continue
-      work += buf.count
-      const lod = slotLod[s]!
-      const bush = slotBush[s] === 1
-      for (let k = 0; k < buf.count; k++) {
-        const name = poolOf(buf.kind[k]!, lod, bush)
-        if (name === null || !jobDirty[name]) continue
-        const at = jobCounts[name]
-        if (at >= cap[name]) {
+      const n = buf.count
+      work += n
+      const data = buf.data
+      const kinds = buf.kind
+      const row = (slotLod[s]! + 1) * 2 + slotBush[s]!
+      for (let k = 0; k < n; k++) {
+        const p = POOL_LUT[kinds[k]! * 10 + row]!
+        if (p < 0 || jobDirty[p] === 0) continue
+        const at = jobCounts[p]!
+        if (at >= capOf[p]!) {
           jobOverflow++
           continue
         }
-        // 【寫另一份】掛著的那一份在完成前都還在畫
-        const next = side[name] ^ 1
         const o = k * FLORA_STRIDE
-        const scale = buf.data[o + 4]!
+        const scale = data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
-        const t = 0.86 + buf.data[o + 5]! * 0.28
-        if (IS_POINT[name]) {
-          const a = altPt[name]![next]!
-          const pos = a[0]!.array as Float32Array
-          const col = a[1]!.array as Float32Array
-          pos[at * 3] = buf.data[o]!
+        const t = 0.86 + data[o + 5]! * 0.28
+        if (isPointOf[p] === 1) {
+          const pos = jobPosition[p]!
+          const col = jobColor[p]!
+          const a3 = at * 3
+          pos[a3] = data[o]!
           // 【點的中心放樹冠的垂直中心】見 `POINT_Y`
-          pos[at * 3 + 1] = buf.data[o + 1]! + POINT_Y[name as PointPool] * scale
-          pos[at * 3 + 2] = buf.data[o + 2]!
-          const base = pointBase[name]!
-          col[at * 3] = base.r * t
-          col[at * 3 + 1] = base.g * t
-          col[at * 3 + 2] = base.b * t
-          ;(a[2]!.array as Float32Array)[at] = POINT_SIZE[name as PointPool] * scale
-          jobCounts[name] = at + 1
+          pos[a3 + 1] = data[o + 1]! + pointYOf[p]! * scale
+          pos[a3 + 2] = data[o + 2]!
+          col[a3] = pointR[p]! * t
+          col[a3 + 1] = pointG[p]! * t
+          col[a3 + 2] = pointB[p]! * t
+          jobSize[p]![at] = pointSizeOf[p]! * scale
+          jobCounts[p] = at + 1
           continue
         }
-        const rot = buf.data[o + 3]!
-        // 【就地寫矩陣，不用 compose】只有繞 Y 的旋轉與等比縮放，
-        // 四元數那一趟省下來
+        const rot = data[o + 3]!
+        // 【就地寫矩陣】只有繞 Y 的旋轉與等比縮放。欄主序，與 `Matrix4.set` 之後
+        // `toArray` 寫出的十六個值逐一相同（第 2 格是 −sn、第 8 格是 sn）
         const c = Math.cos(rot) * scale
         const sn = Math.sin(rot) * scale
-        M.set(
-          c, 0, sn, buf.data[o]!,
-          0, scale, 0, buf.data[o + 1]!,
-          -sn, 0, c, buf.data[o + 2]!,
-          0, 0, 0, 1,
-        )
-        // 與 `setMatrixAt`／`setColorAt` 寫的是同一組值，只是寫進沒掛上的那一份
-        M.toArray(altMat[name]![next]!.array as Float32Array, at * 16)
-        TINT.setRGB(t, t, t).toArray(altCol[name]![next]!.array as Float32Array, at * 3)
-        jobCounts[name] = at + 1
+        const m = jobMatrix[p]!
+        const a16 = at * 16
+        m[a16] = c; m[a16 + 1] = 0; m[a16 + 2] = -sn; m[a16 + 3] = 0
+        m[a16 + 4] = 0; m[a16 + 5] = scale; m[a16 + 6] = 0; m[a16 + 7] = 0
+        m[a16 + 8] = sn; m[a16 + 9] = 0; m[a16 + 10] = c; m[a16 + 11] = 0
+        m[a16 + 12] = data[o]!; m[a16 + 13] = data[o + 1]!; m[a16 + 14] = data[o + 2]!; m[a16 + 15] = 1
+        // 【明度三通道相同】與 `Color.setRGB(t, t, t)` 在工作色彩空間下寫出的值相同
+        const tint = jobTint[p]!
+        const a3 = at * 3
+        tint[a3] = t; tint[a3 + 1] = t; tint[a3 + 2] = t
+        jobCounts[p] = at + 1
       }
     }
     if (jobSlot >= tileCache) finishRebuild()
@@ -1001,10 +1060,11 @@ export function createVegetation(
 
   /** 換上寫好的那一份、發布實例數、標上傳 */
   function finishRebuild(): void {
-    for (const name of POOL_NAMES) {
-      if (!jobDirty[name]) continue
+    for (let p = 0; p < poolCount; p++) {
+      if (jobDirty[p] === 0) continue
+      const name = POOL_NAMES[p]!
       side[name] ^= 1
-      const used = jobCounts[name]
+      const used = jobCounts[p]!
       counts[name] = used
       if (IS_POINT[name]) {
         // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
