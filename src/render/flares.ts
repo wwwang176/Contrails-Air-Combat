@@ -74,6 +74,10 @@ export function createFlareLights(glow: Texture): FlareLights {
   const lights: PointLight[] = []
   for (let k = 0; k < FLARE_LIGHT_COUNT; k++) {
     const l = new PointLight(FLARE_COLOR, 0, FLARE_LIGHT_DISTANCE, 2)
+    // 【燈在每一個圖層都亮】three 只收 `light.layers.test(camera.layers)` 的燈，
+    // 而且不看強度。低解析度煙那一趟只開第 1 層；燈只在第 0 層的話，有煙的
+    // 每一幀兩趟的點光源數不同，每個吃光照的材質每幀重算 shader program
+    l.layers.enableAll()
     object.add(l)
     lights.push(l)
   }
