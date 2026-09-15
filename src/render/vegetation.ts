@@ -159,6 +159,17 @@ export const REBUILD_MOVE = 200
 const REBUILD_IDLE = 120
 
 /**
+ * 重建一幀最多走過幾筆 tile 資料。**重建因此分好幾幀做完。**
+ *
+ * 農地圈內約二十六萬筆，一次寫完是 20–50 ms 的 JS 尖峰（德 M3 底板行動
+ * 實測，每 1.3 s 一次）。實測一筆約 0.08 µs，四萬筆是 3 ms 上下、七幀
+ * 做完 —— 150 m/s 下換級最多晚 35 m，而換級的顆粒是 250 m 的一格。
+ *
+ * 分幀期間畫面上掛的是上一份完整的內容，見 `job`。
+ */
+export const REBUILD_BUDGET = 40000
+
+/**
  * 單一 tile 最多幾株。**預設值，逐圖可以覆寫。**
  *
  * 農地實測最密的一格是 351 株（整格都是樹林的那種），384 留了一成的餘裕。
@@ -219,15 +230,15 @@ const LOD_STEP = [LOD_NEAR, POINT_NEAR, FLORA_RADIUS] as const
  * 鏡頭停在門檻上時整格 tile 每幀換級。
  */
 export function lodFor(dist: number, prev: number, outer: number = FLORA_RADIUS): number {
-  const step = (k: number): number => (k === 2 ? outer : LOD_STEP[k]!)
+  // 【門檻直接內聯，不建閉包】`relevel` 每幀每格呼叫一次，閉包每次都是一次配置
   if (prev < 0) {
     let lod = 0
-    while (lod < 3 && dist > step(lod)) lod++
+    while (lod < 3 && dist > (lod === 2 ? outer : LOD_STEP[lod]!)) lod++
     return lod
   }
   let lod = prev
-  while (lod < 3 && dist > step(lod) + LOD_HYSTERESIS) lod++
-  while (lod > 0 && dist < step(lod - 1) - LOD_HYSTERESIS) lod--
+  while (lod < 3 && dist > (lod === 2 ? outer : LOD_STEP[lod]!) + LOD_HYSTERESIS) lod++
+  while (lod > 0 && dist < (lod === 3 ? outer : LOD_STEP[lod - 1]!) - LOD_HYSTERESIS) lod--
   return lod
 }
 
@@ -465,6 +476,8 @@ export interface VegetationOptions {
   tileCache?: number
   /** 每幀最多生幾格 —— 見 `TILES_PER_FRAME` */
   tilesPerFrame?: number
+  /** 重建一幀最多走過幾筆 —— 見 `REBUILD_BUDGET`。測試傳小值讓分幀看得見 */
+  rebuildBudget?: number
   /** 樹冠色的季節。省略 = 夏季。每一份植被自己建幾何與池，兩個季節互不污染 */
   season?: Season
 }
@@ -485,6 +498,7 @@ export function createVegetation(
     ((Math.PI * radius * radius) / (TILE_SIZE * TILE_SIZE)) * 1.16,
   )
   const tilesPerFrame = opts.tilesPerFrame ?? TILES_PER_FRAME
+  const rebuildBudget = opts.rebuildBudget ?? REBUILD_BUDGET
   const season = opts.season ?? 'summer'
   const geometries = createFloraGeometries(season)
   const material = new MeshStandardMaterial({
@@ -698,7 +712,9 @@ export function createVegetation(
   function takeSlot(): number {
     const s = freeSlots.pop()
     if (s !== undefined) return s
-    // 【滿了就丟最舊的】圈內的格數恆小於快取，正常不會走到這裡
+    // 【滿了就丟最舊的】圈內的格數恆小於快取，正常不會走到這裡。丟掉的可能是
+    // 內圈的格，`fill` 的內圈捷徑因此要作廢
+    fillDone = false
     freeSlot(0)
     return freeSlots.pop()!
   }
@@ -805,11 +821,37 @@ export function createVegetation(
     return { di, dj }
   })()
 
+  /**
+   * 內圈的終點：`ring` 裡由這個索引起，格才可能落在圈外。
+   *
+   * 鏡頭在中心格內任何位置時，偏移 `r` 格的那一格格心離鏡頭至多
+   * `r × TILE_SIZE + TILE_SIZE × √½`。這個值不超過半徑的格恆在圈內 ——
+   * 中心格沒換的期間 `evict` 不會放掉它，補齊過一次之後就不必再看。
+   */
+  const innerEnd = ((): number => {
+    let k = 0
+    while (k < ring.di.length) {
+      const r = Math.sqrt(ring.di[k]! * ring.di[k]! + ring.dj[k]! * ring.dj[k]!)
+      if (r * TILE_SIZE + TILE_SIZE * Math.SQRT1_2 > radius) break
+      k++
+    }
+    return k
+  })()
+  /** 上一趟 `fill` 在這個中心格上已經補齊了 —— 內圈可以跳過 */
+  let fillDone = false
+  let fillDoneI = 0
+  let fillDoneJ = 0
+
+  /**
+   * 【中心格沒換而且補齊過就從內圈邊界開始掃】6 km 圈的格環有兩千項，選單
+   * 在 120 fps 下每幀整條掃一次是實測 CPU 的 6%。
+   */
   function fill(budget: number): number {
     const ci = Math.floor(centerX / TILE_SIZE)
     const cj = Math.floor(centerZ / TILE_SIZE)
     let made = 0
-    for (let k = 0; k < ring.di.length && made < budget; k++) {
+    const start = fillDone && ci === fillDoneI && cj === fillDoneJ ? innerEnd : 0
+    for (let k = start; k < ring.di.length && made < budget; k++) {
       stats.scanned++
       const i = ci + ring.di[k]!
       const j = cj + ring.dj[k]!
@@ -818,6 +860,10 @@ export function createVegetation(
       makeTile(i, j)
       made++
     }
+    // 【沒用完預算就是補齊了】圈內每一個候選都已經在快取裡
+    fillDone = made < budget
+    fillDoneI = ci
+    fillDoneJ = cj
     return made
   }
 
@@ -829,7 +875,11 @@ export function createVegetation(
       live++
       const cx = slotI[s]! * TILE_SIZE + TILE_SIZE / 2
       const cz = slotJ[s]! * TILE_SIZE + TILE_SIZE / 2
-      const d = Math.hypot(cx - centerX, cz - centerZ)
+      // 【手寫開根號，不用 Math.hypot】V8 的 hypot 每次呼叫都會配置，而這裡
+      // 每幀每格一次
+      const dx = cx - centerX
+      const dz = cz - centerZ
+      const d = Math.sqrt(dx * dx + dz * dz)
       const lod = lodFor(d, slotLod[s]!, slotOuter[s]!)
       const bush = d <= BUSH_RANGE + (slotBush[s] === 1 ? LOD_HYSTERESIS : 0) ? 1 : 0
       if (lod !== slotLod[s]) {
@@ -849,51 +899,72 @@ export function createVegetation(
   }
 
   /**
-   * 把所有活著的 tile 寫進池。
+   * 進行中的重建。**寫的是沒掛上的那一份，全部寫完才一起換上去。**
+   *
+   * 【進行中不補格、不放格、不換級】放掉的 tile 緩衝會被新的格借走，寫到
+   * 一半的重建就會讀到另一格的資料；級數中途變了則前後半段用的是兩套級數。
+   * 暫停到完成為止，寫出來的就等於「開始那一幀一次寫完」的內容。
+   *
+   * 狀態全部開場配好，重建不配置。
+   */
+  let job = false
+  /** 下一個要寫的槽位 */
+  let jobSlot = 0
+  let jobOverflow = 0
+  /** 這一次要寫的池 —— 開始時由 `poolDirty` 搬過來 */
+  const jobDirty: Record<PoolName, boolean> =
+    Object.fromEntries(POOL_NAMES.map((n) => [n, false])) as Record<PoolName, boolean>
+  /** 各池已經寫了幾筆。完成時才發布到 `counts` */
+  const jobCounts: Record<PoolName, number> =
+    Object.fromEntries(POOL_NAMES.map((n) => [n, 0])) as Record<PoolName, number>
+
+  /**
+   * 開始一次重建。
    *
    * 【只碰髒的池】沒變的池連寫都不寫 —— 它掛著的那份屬性已經是對的，而
-   * 重寫一遍再上傳只是把 GPU 逼去等。`counts` 也因此只對髒的池歸零。
+   * 重寫一遍再上傳只是把 GPU 逼去等。
    */
-  function rebuild(): void {
+  function startRebuild(): void {
     for (const name of POOL_NAMES) {
-      if (!poolDirty[name]) continue
-      counts[name] = 0
-      // 【換到另一份再寫】寫的永遠是上一幀沒在畫的那一份
-      side[name] ^= 1
-      if (IS_POINT[name]) {
-        // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
-        const a = altPt[name]![side[name]!]!
-        const geo = (pools[name] as Points).geometry
-        geo.setAttribute('position', a[0]!)
-        geo.setAttribute('color', a[1]!)
-        geo.setAttribute('aSize', a[2]!)
-        continue
-      }
-      const mesh = pools[name] as InstancedMesh
-      mesh.instanceMatrix = altMat[name]![side[name]!]!
-      mesh.instanceColor = altCol[name]![side[name]!]!
+      jobDirty[name] = poolDirty[name]
+      poolDirty[name] = false
+      jobCounts[name] = 0
     }
-    stats.overflow = 0
-    for (let s = 0; s < tileCache; s++) {
+    jobSlot = 0
+    jobOverflow = 0
+    job = true
+    dirty = false
+    lastBuildX = centerX
+    lastBuildZ = centerZ
+  }
+
+  /** 往下寫，走過至少 `budget` 筆就停；寫完最後一格就換上去 */
+  function stepRebuild(budget: number): void {
+    let work = 0
+    while (jobSlot < tileCache && work < budget) {
+      const s = jobSlot++
       if (slotUsed[s] === 0) continue
       const buf = slotBuf[s] ?? null
       if (buf === null) continue
+      work += buf.count
       const lod = slotLod[s]!
       const bush = slotBush[s] === 1
       for (let k = 0; k < buf.count; k++) {
         const name = poolOf(buf.kind[k]!, lod, bush)
-        if (name === null || !poolDirty[name]) continue
-        const at = counts[name]
+        if (name === null || !jobDirty[name]) continue
+        const at = jobCounts[name]
         if (at >= cap[name]) {
-          stats.overflow++
+          jobOverflow++
           continue
         }
+        // 【寫另一份】掛著的那一份在完成前都還在畫
+        const next = side[name] ^ 1
         const o = k * FLORA_STRIDE
         const scale = buf.data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
         const t = 0.86 + buf.data[o + 5]! * 0.28
         if (IS_POINT[name]) {
-          const a = altPt[name]![side[name]!]!
+          const a = altPt[name]![next]!
           const pos = a[0]!.array as Float32Array
           const col = a[1]!.array as Float32Array
           pos[at * 3] = buf.data[o]!
@@ -905,7 +976,7 @@ export function createVegetation(
           col[at * 3 + 1] = base.g * t
           col[at * 3 + 2] = base.b * t
           ;(a[2]!.array as Float32Array)[at] = POINT_SIZE[name as PointPool] * scale
-          counts[name] = at + 1
+          jobCounts[name] = at + 1
           continue
         }
         const rot = buf.data[o + 3]!
@@ -919,26 +990,42 @@ export function createVegetation(
           -sn, 0, c, buf.data[o + 2]!,
           0, 0, 0, 1,
         )
-        const mesh = pools[name] as InstancedMesh
-        mesh.setMatrixAt(at, M)
-        mesh.setColorAt(at, TINT.setRGB(t, t, t))
-        counts[name] = at + 1
+        // 與 `setMatrixAt`／`setColorAt` 寫的是同一組值，只是寫進沒掛上的那一份
+        M.toArray(altMat[name]![next]!.array as Float32Array, at * 16)
+        TINT.setRGB(t, t, t).toArray(altCol[name]![next]!.array as Float32Array, at * 3)
+        jobCounts[name] = at + 1
       }
     }
+    if (jobSlot >= tileCache) finishRebuild()
+  }
+
+  /** 換上寫好的那一份、發布實例數、標上傳 */
+  function finishRebuild(): void {
     for (const name of POOL_NAMES) {
-      if (!poolDirty[name]) continue
-      poolDirty[name] = false
-      const used = counts[name]
+      if (!jobDirty[name]) continue
+      side[name] ^= 1
+      const used = jobCounts[name]
+      counts[name] = used
       if (IS_POINT[name]) {
+        // 【三條要一起換到同一側】換一半的話位置與顏色會對不上株
         const a = altPt[name]![side[name]!]!
-        for (const [attr, size] of [[a[0]!, 3], [a[1]!, 3], [a[2]!, 1]] as const) {
-          attr.addUpdateRange(0, used * size)
-          attr.needsUpdate = true
-        }
-        ;(pools[name] as Points).geometry.setDrawRange(0, used)
+        const geo = (pools[name] as Points).geometry
+        geo.setAttribute('position', a[0]!)
+        geo.setAttribute('color', a[1]!)
+        geo.setAttribute('aSize', a[2]!)
+        // 【逐條寫，不走 `[[attr, size], …]` 的迴圈】那種寫法每次重建都配一組臨時陣列
+        a[0]!.addUpdateRange(0, used * 3)
+        a[0]!.needsUpdate = true
+        a[1]!.addUpdateRange(0, used * 3)
+        a[1]!.needsUpdate = true
+        a[2]!.addUpdateRange(0, used)
+        a[2]!.needsUpdate = true
+        geo.setDrawRange(0, used)
         continue
       }
       const mesh = pools[name] as InstancedMesh
+      mesh.instanceMatrix = altMat[name]![side[name]!]!
+      mesh.instanceColor = altCol[name]![side[name]!]!
       mesh.count = used
       // 【只上傳用到的那一段】容量是實測最大值的兩倍，整條傳等於白傳一倍
       mesh.instanceMatrix.addUpdateRange(0, used * 16)
@@ -946,10 +1033,9 @@ export function createVegetation(
       mesh.instanceColor!.addUpdateRange(0, used * 3)
       mesh.instanceColor!.needsUpdate = true
     }
-    dirty = false
+    stats.overflow = jobOverflow
+    job = false
     sinceRebuild = 0
-    lastBuildX = centerX
-    lastBuildZ = centerZ
     stats.rebuilds++
   }
 
@@ -959,6 +1045,11 @@ export function createVegetation(
     centerX = cx
     centerZ = cz
     started = true
+    // 【重建進行中只往下寫】tile 與級數凍住到寫完，見 `job`
+    if (job) {
+      stepRebuild(rebuildBudget)
+      return
+    }
     evict()
     fill(tilesPerFrame)
     relevel()
@@ -966,16 +1057,23 @@ export function createVegetation(
     // 【三道閘】還在補格的期間不重建；兩次重建至少隔 REBUILD_EVERY 幀；
     // 而且鏡頭要移動 REBUILD_MOVE 公尺（或停著超過 REBUILD_IDLE 幀）。
     // 第三道才是關鍵 —— 見那兩個常數的說明
-    const moved = Math.hypot(centerX - lastBuildX, centerZ - lastBuildZ)
+    const mx = centerX - lastBuildX
+    const mz = centerZ - lastBuildZ
+    const moved = Math.sqrt(mx * mx + mz * mz)
     // 【補格期間照樣重建】在 `made !== 0` 時禁止重建的話 —— 6 km 圈有 1,812
     // 格，冷啟動與傳送之後那是好幾秒的空白。上傳本身不是同步點，真正的
     // 同步點是別處每幀的空傳，見 `render/debris.ts`
     if (dirty && sinceRebuild >= REBUILD_EVERY
-      && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) rebuild()
+      && (moved >= REBUILD_MOVE || sinceRebuild >= REBUILD_IDLE)) {
+      startRebuild()
+      stepRebuild(rebuildBudget)
+    }
   }
 
   function settle(force?: boolean): void {
     if (!started) update(centerX, centerZ)
+    // 【進行中的重建先寫完】它寫的是開始那一幀的狀態；之後照常補格、換級
+    if (job) stepRebuild(Infinity)
     if (force === true) {
       for (const name of POOL_NAMES) poolDirty[name] = true
       dirty = true
@@ -985,8 +1083,11 @@ export function createVegetation(
     for (let n = 0; n < 4; n++) if (fill(tileCache) === 0) break
     evict()
     relevel()
-    // 【settle 不受節流】定格截圖要的是「現在就對」
-    if (dirty) rebuild()
+    // 【settle 不受節流也不分幀】定格截圖要的是「現在就對」
+    if (dirty) {
+      startRebuild()
+      stepRebuild(Infinity)
+    }
   }
 
   return {

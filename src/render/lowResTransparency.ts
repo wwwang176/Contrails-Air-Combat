@@ -30,7 +30,12 @@ export interface LowResTransparencyPass {
   readonly height: number
   setScale(scale: TransparencyScale): void
   setDepthAware(enabled: boolean): void
-  render(scene: Scene, camera: Camera): void
+  /**
+   * `transparent` 為 false 表示低解析度層這一幀沒有東西可畫：整個場景直接畫到
+   * 目前的目標上，離屏 MSAA、深度解析、複製與合成全部省掉。畫出來的像素與
+   * 走完整條通道相同 —— 沒有煙可以合成。
+   */
+  render(scene: Scene, camera: Camera, transparent?: boolean): void
   dispose(): void
 }
 
@@ -282,17 +287,18 @@ export function createLowResTransparencyPass(
       depthAware = next
       compositeMaterial.uniforms.depthAware!.value = next
     },
-    render(scene, camera) {
+    render(scene, camera, transparent = true) {
       const savedTarget = renderer.getRenderTarget()
       const savedAutoClear = renderer.autoClear
       const savedLayers = camera.layers.mask
+      const savedAutoUpdate = scene.matrixWorldAutoUpdate
       const savedAlpha = renderer.getClearAlpha()
       renderer.getClearColor(savedClear)
 
       try {
         renderer.autoClear = false
 
-        if (scale === 1) {
+        if (scale === 1 || !transparent) {
           camera.layers.enable(LOW_RES_TRANSPARENCY_LAYER)
           renderer.setRenderTarget(savedTarget)
           renderer.clear(true, true, true)
@@ -315,8 +321,11 @@ export function createLowResTransparencyPass(
         renderer.render(depthScene, fullscreenCamera)
 
         // Render just smoke against the conservative low-resolution depth.
+        // 世界矩陣剛在上一趟更新過，這一趟不再走一次整棵樹
         camera.layers.set(LOW_RES_TRANSPARENCY_LAYER)
+        scene.matrixWorldAutoUpdate = false
         renderer.render(scene, camera)
+        scene.matrixWorldAutoUpdate = savedAutoUpdate
 
         // Restore the full-resolution scene, then blend the upsampled smoke over it.
         renderer.setRenderTarget(savedTarget)
@@ -329,6 +338,7 @@ export function createLowResTransparencyPass(
         renderer.render(compositeScene, fullscreenCamera)
       } finally {
         camera.layers.mask = savedLayers
+        scene.matrixWorldAutoUpdate = savedAutoUpdate
         renderer.setClearColor(savedClear, savedAlpha)
         renderer.autoClear = savedAutoClear
         renderer.setRenderTarget(savedTarget)

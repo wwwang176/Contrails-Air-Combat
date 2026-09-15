@@ -200,9 +200,12 @@ export function createSearchlights(targets: readonly GroundTarget[], glareTextur
     col[i * 3] = v; col[i * 3 + 1] = v; col[i * 3 + 2] = v
   }
   geometry.setAttribute('color', new BufferAttribute(col, 3))
+  // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
+  // 加法混色與順序無關，一趟畫出來的像素相同
   const material = new MeshBasicMaterial({
     color: BEAM_COLOR, vertexColors: true, transparent: true, opacity: BEAM_OPACITY,
     blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
+    forceSinglePass: true,
   })
   // 【不做深度測試】眩光是鏡頭裡的現象，不是場景裡的物體 —— 機翼擋在前面
   // 它也該炸開在機翼上

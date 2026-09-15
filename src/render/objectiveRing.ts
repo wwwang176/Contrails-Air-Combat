@@ -55,6 +55,9 @@ export function createObjectiveRing(): ObjectiveRing {
     // 【雙面】billboard 理論上永遠正面朝相機，但更新與渲染之間差一個
     // 相機移動就會露出背面 —— 那一幀環會整個消失
     side: DoubleSide,
+    // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
+    // 環是平的，正反面不會疊在同一個像素上，一趟畫出來的像素相同
+    forceSinglePass: true,
     transparent: true,
     opacity: 0.9,
     // 【不用加法混色】加法在**亮天空**背景上會洗白（把綠推向白）——
