@@ -22,6 +22,7 @@ export default defineConfig({
         damageedge: 'tools/damageedge.html',
         daylight: 'tools/daylight.html',
         blast: 'tools/blast.html',
+        smoke: 'tools/smoke.html',
         torpedo: 'tools/torpedo.html',
         recovery: 'tools/recovery.html',
       },

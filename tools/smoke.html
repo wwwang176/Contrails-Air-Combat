@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>煙霧效能展示區 — Contrails Air: Combat</title>
+    <style>
+      html, body {
+        margin: 0; height: 100%; overflow: hidden; background: #101923;
+        color: #dce8f2; font: 13px/1.5 ui-monospace, Consolas, monospace;
+      }
+      canvas { display: block; }
+      #panel, #stats, #legend {
+        position: fixed; padding: 12px 14px; border: 1px solid #375067;
+        border-radius: 6px; background: rgba(10, 18, 26, .86);
+        backdrop-filter: blur(4px);
+      }
+      #panel { top: 12px; left: 12px; width: 310px; }
+      #panel h1 { margin: 0 0 4px; font-size: 14px; color: #9fc8e5; }
+      #panel p { margin: 0 0 10px; color: #8ea7ba; }
+      #quality { display: grid; grid-template-columns: 1fr; gap: 6px; }
+      #upsample { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+      button {
+        padding: 7px 9px; color: #dce8f2; background: #172a3c;
+        border: 1px solid #375067; border-radius: 4px; cursor: pointer;
+        font: inherit; text-align: left;
+      }
+      button:hover { background: #203b53; }
+      button.on { background: #2f628e; border-color: #6ba6d1; }
+      #fly { width: 100%; margin-top: 10px; text-align: center; }
+      #stats { top: 12px; right: 12px; min-width: 210px; text-align: right; }
+      #legend { left: 12px; bottom: 12px; color: #91a9bb; }
+      .swatch {
+        display: inline-block; width: 10px; height: 10px; margin: 0 5px 0 10px;
+        border-radius: 2px;
+      }
+      .swatch:first-child { margin-left: 0; }
+      .front { background: #27d3d0; }
+      .back { background: #ffd34d; }
+      #hint {
+        position: fixed; right: 12px; bottom: 12px; color: #69869b;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <section id="panel">
+      <h1>煙霧牆效能比較</h1>
+      <p>12 個橫向火源，使用遊戲實際的煙霧材質與粒子設定。</p>
+      <div id="quality">
+        <button data-scale="1">原始解析度（100% 像素）</button>
+        <button data-scale="0.5" class="on">半邊長（25% 像素）</button>
+        <button data-scale="0.25">四分之一邊長（6.25% 像素）</button>
+      </div>
+      <div id="upsample">
+        <button data-depth="false">普通雙線性</button>
+        <button data-depth="true" class="on">深度感知</button>
+      </div>
+      <button id="fly" class="on">停止自動穿越</button>
+    </section>
+    <div id="stats"></div>
+    <div id="legend">
+      <span class="swatch front"></span>青色：煙牆前景
+      <span class="swatch back"></span>黃色：煙牆後景
+    </div>
+    <div id="hint">拖曳旋轉 · 滾輪縮放 · 操作鏡頭會暫停自動穿越</div>
+    <script type="module" src="/src/tools/smoke.ts"></script>
+  </body>
+</html>
