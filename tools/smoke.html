@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>煙霧效能展示區 — Contrails Air: Combat</title>
+    <title>火焰與煙霧展示區 — Contrails Air: Combat</title>
     <style>
       html, body {
         margin: 0; height: 100%; overflow: hidden; background: #101923;
@@ -15,13 +15,20 @@
         border-radius: 6px; background: rgba(10, 18, 26, .86);
         backdrop-filter: blur(4px);
       }
-      #panel { top: 12px; left: 12px; width: 310px; }
+      #panel { top: 12px; left: 12px; width: 330px; }
       #panel h1 { margin: 0 0 4px; font-size: 14px; color: #9fc8e5; }
       #panel p { margin: 0 0 10px; color: #8ea7ba; }
       #quality { display: grid; grid-template-columns: 1fr; gap: 6px; }
-      #upsample, #lighting {
+      #tabs, #upsample, #lighting {
         display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px;
       }
+      #tabs { margin: 0 0 10px; }
+      #time {
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+        margin-bottom: 10px;
+      }
+      .label { margin: 9px 0 5px; color: #7896ab; }
+      [hidden] { display: none !important; }
       button {
         padding: 7px 9px; color: #dce8f2; background: #172a3c;
         border: 1px solid #375067; border-radius: 4px; cursor: pointer;
@@ -29,7 +36,7 @@
       }
       button:hover { background: #203b53; }
       button.on { background: #2f628e; border-color: #6ba6d1; }
-      #fly { width: 100%; margin-top: 10px; text-align: center; }
+      #fly, #reblast { width: 100%; margin-top: 10px; text-align: center; }
       #stats { top: 12px; right: 12px; min-width: 210px; text-align: right; }
       #legend { left: 12px; bottom: 12px; color: #91a9bb; }
       .swatch {
@@ -48,8 +55,21 @@
   <body>
     <canvas id="scene"></canvas>
     <section id="panel">
-      <h1>煙霧牆效能比較</h1>
-      <p>12 個橫向火源，使用遊戲實際的煙霧材質與粒子設定。</p>
+      <h1>火焰與煙霧展示區</h1>
+      <div id="tabs">
+        <button data-tab="stress" class="on">煙霧牆壓力測試</button>
+        <button data-tab="blast">航空炸彈＋持續燃燒</button>
+      </div>
+      <p id="description">12 個橫向火源，保留原有的 14,000 顆煙霧 FPS 壓力測試。</p>
+      <div class="label">時段</div>
+      <div id="time">
+        <button data-time="dawn">黎明</button>
+        <button data-time="noon" class="on">正午</button>
+        <button data-time="dusk">黃昏</button>
+        <button data-time="night">夜間</button>
+        <button data-time="novemberNoon">十一月正午</button>
+      </div>
+      <div class="label">煙霧解析度</div>
       <div id="quality">
         <button data-scale="1">原始解析度（100% 像素）</button>
         <button data-scale="0.5" class="on">半邊長（25% 像素）</button>
@@ -63,7 +83,12 @@
         <button data-lighting="false">原始顏色</button>
         <button data-lighting="true" class="on">日照＋自遮蔽</button>
       </div>
-      <button id="fly" class="on">停止自動穿越</button>
+      <div id="stress-actions">
+        <button id="fly" class="on">停止自動穿越</button>
+      </div>
+      <div id="blast-actions" hidden>
+        <button id="reblast">重新引爆</button>
+      </div>
     </section>
     <div id="stats"></div>
     <div id="legend">

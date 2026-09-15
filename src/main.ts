@@ -43,6 +43,7 @@ import {
 import {
   createLowResTransparencyPass, useLowResTransparency,
 } from './render/lowResTransparency'
+import { addSmokeLighting } from './render/smokeLighting'
 import {
   createShipFires, lightShipFires, stepShipFires,
 } from './render/shipFires'
@@ -551,6 +552,12 @@ ctx.scene.add(smoke.object)
  * 投彈高度上看不見。
  */
 const shipFireSmoke = createShipFireSmoke(undefined, smokeTexture)
+const shipFireSmokeLighting = addSmokeLighting(
+  shipFireSmoke,
+  ctx.lights.sun.position,
+  ctx.lights.sun.color,
+  ctx.lights.sun.intensity,
+)
 /**
  * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
  * 不一樣就要有自己的一份（見 `WRECK_FIRE_SMOKE_COLOR`）。
@@ -605,6 +612,37 @@ const blastEmber = createEmberSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastEmber.object)
 const blastSmoke = createBlastSmoke(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastSmoke.object)
+// 爆炸煙保留黑 → 深灰的年齡曲線，所以只做乘法式迎／背光與核心遮蔽，
+// 不額外加入固定亮色。否則剛從火球交棒的黑煙會在那一幀突然變亮。
+const blastEmberLighting = addSmokeLighting(
+  blastEmber,
+  ctx.lights.sun.position,
+  ctx.lights.sun.color,
+  ctx.lights.sun.intensity,
+  0,
+)
+const blastSmokeLighting = addSmokeLighting(
+  blastSmoke,
+  ctx.lights.sun.position,
+  ctx.lights.sun.color,
+  ctx.lights.sun.intensity,
+  0,
+)
+const fireSmokeLighting = [
+  shipFireSmokeLighting,
+  blastEmberLighting,
+  blastSmokeLighting,
+]
+
+function syncFireSmokeLighting(): void {
+  for (const lighting of fireSmokeLighting) {
+    lighting.setLight(
+      ctx.lights.sun.position,
+      ctx.lights.sun.color,
+      ctx.lights.sun.intensity,
+    )
+  }
+}
 const blastDust = createDust(undefined, BLAST_PACE, smokeTexture)
 ctx.scene.add(blastDust.object)
 const blastMist = createWaterMist(undefined, BLAST_PACE, smokeTexture)
@@ -1226,6 +1264,8 @@ function enterBattle(): void {
   applyTimeOfDay(ctx, terrain, mode === 'mission' && pendingMission !== null
     ? pendingMission.battle.timeOfDay ?? 'noon'
     : setup.timeOfDay)
+  // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
+  syncFireSmokeLighting()
   resetArena()
 
   // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
