@@ -230,7 +230,11 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   for (let dj = -1; dj <= 1; dj++) {
     for (let di = -1; di <= 1; di++) {
       const h = regionSeed(gx + di, gz + dj, SEED)
-      const d = Math.hypot(x - SEED.x, z - SEED.z)
+      // 【手寫開根號】V8 的 Math.hypot 每次呼叫都會配置，而生格時每一株
+      // 都要問一次這裡
+      const dx = x - SEED.x
+      const dz = z - SEED.z
+      const d = Math.sqrt(dx * dx + dz * dz)
       if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
     }
   }

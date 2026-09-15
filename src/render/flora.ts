@@ -187,10 +187,15 @@ function candidateRegions(x0: number, z0: number, x1: number, z1: number): void 
       const h = regionSeed(gx + di, gz + dj, SEED)
       const cx = Math.max(x0, Math.min(x1, SEED.x))
       const cz = Math.max(z0, Math.min(z1, SEED.z))
-      dMin[k] = Math.hypot(SEED.x - cx, SEED.z - cz)
+      // 【手寫開根號】V8 的 Math.hypot 每次呼叫都會配置
+      const nx = SEED.x - cx
+      const nz = SEED.z - cz
+      dMin[k] = Math.sqrt(nx * nx + nz * nz)
       const fx = SEED.x - x0 > x1 - SEED.x ? x0 : x1
       const fz = SEED.z - z0 > z1 - SEED.z ? z0 : z1
-      const dMax = Math.hypot(SEED.x - fx, SEED.z - fz)
+      const ux = SEED.x - fx
+      const uz = SEED.z - fz
+      const dMax = Math.sqrt(ux * ux + uz * uz)
       if (dMax < minOfMax) minOfMax = dMax
       ids[k] = h | 0
       k++

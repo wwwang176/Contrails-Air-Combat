@@ -671,6 +671,19 @@ const lowResSmokeEffects = [
   blastMist,
 ]
 for (const effect of lowResSmokeEffects) useLowResTransparency(effect.object)
+
+/**
+ * 低解析度煙這一幀有沒有活著的粒子。**沒有的話煙霧通道直接畫到畫布上。**
+ *
+ * 【為什麼值得問】離屏 4× MSAA、深度解析、複製與合成在 Iris Xe 上每幀十毫秒
+ * 上下，而沒有煙的那幾幀它們什麼都沒合成。每幀都問，不配置。
+ */
+function lowResSmokeLive(): boolean {
+  for (let i = 0; i < lowResSmokeEffects.length; i++) {
+    if (lowResSmokeEffects[i]!.live > 0) return true
+  }
+  return false
+}
 const smokeRenderPass = createLowResTransparencyPass(ctx.renderer, 0.5)
 
 /**
@@ -2118,7 +2131,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  smokeRenderPass.render(ctx.scene, ctx.camera)
+  smokeRenderPass.render(ctx.scene, ctx.camera, lowResSmokeLive())
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -2613,7 +2626,7 @@ function frame(now: number) {
   // 各處自己夾的話，機庫的飛機與海面會吃到不同長度的時間而對不上
   const frameSeconds = clampFrameSeconds((now - lastTime) / 1000)
   lastTime = now
-  perf.begin()
+  perf.begin(now)
   bindings.tick(frameSeconds)
   hudCanvas.hidden = screen !== 'battle'
 
@@ -2658,7 +2671,7 @@ function frame(now: number) {
         logTelemetry()
       }
     } else {
-      smokeRenderPass.render(ctx.scene, ctx.camera)
+      smokeRenderPass.render(ctx.scene, ctx.camera, lowResSmokeLive())
     }
   } else {
     elapsed += frameSeconds
@@ -2755,6 +2768,12 @@ if (initialRecoveryFailure !== null) {
  * 【目標在呼叫的當下才解析】飛機與模糊圓盤是每一場動態生出來的，抓一次
  * 存起來會在下一場指到上一場的屍體。
  */
+/**
+ * 覆蓋層此刻顯示的 FPS。**量測出口**：探針拿它與自己由 rAF 時間戳量到的
+ * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
+ */
+;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
+
 const GFX_HIDDEN_LAYER = 31
 ;(window as unknown as Record<string, unknown>)['__gfx'] = (
   patch: Record<string, boolean>,

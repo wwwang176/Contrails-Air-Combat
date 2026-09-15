@@ -156,9 +156,10 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     color: 0x9fd4e8, flatShading: true, transparent: true, opacity: 0.45,
     roughness: 0.2, depthWrite: false,
   })
+  // 【forceSinglePass】見 assembly.ts 的 `blur`
   const blur = new MeshStandardMaterial({
     color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
-    depthWrite: false, side: DoubleSide,
+    depthWrite: false, side: DoubleSide, forceSinglePass: true,
   })
   const cockpit = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
   // 與 assembly.ts 的 `bothSides`、`darkBothSides` 逐項相同，見 GlbMaterialKind

@@ -133,9 +133,11 @@ const E2 = new Vector3()
 export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
   const geometry = crossFlare()
 
+  // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
+  // 加法混色與順序無關，一趟畫出來的像素相同
   const material = new MeshBasicMaterial({
     color: 0xffffff, transparent: true, opacity: 0.95,
-    depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
+    depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
   })
 
   const capacity = aircraftCapacity * MAX_MOUNTS
@@ -268,9 +270,11 @@ export function createMuzzles(aircraftCapacity: number): Muzzles<MuzzleSource> {
 export function createTurretMuzzles(aircraftCapacity: number): Muzzles {
   const geometry = crossFlare()
 
+  // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
+  // 加法混色與順序無關，一趟畫出來的像素相同
   const material = new MeshBasicMaterial({
     color: 0xffffff, transparent: true, opacity: 0.95,
-    depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
+    depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
   })
 
   const capacity = aircraftCapacity * MAX_TURRETS

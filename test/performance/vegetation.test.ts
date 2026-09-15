@@ -417,6 +417,61 @@ describe('植被引擎', () => {
     v.dispose()
   })
 
+  /**
+   * 【重建分幀】一次寫完全部實例是德 M3 每 1.3 s 一次 20–50 ms 的 JS 尖峰。
+   * 分幀期間池子掛著的必須仍是上一份完整的內容 —— 寫到一半就掛上去的話，
+   * 那幾幀會有整片樹消失，而 counts 仍然對得起來。
+   */
+  it('重建分幀：完成前掛著的是上一份，而且真的跨了好幾幀', () => {
+    const v = createVegetation([SIX], FLAT, { rebuildBudget: 500 })
+    v.settle()
+    const ms = meshes(v)
+    const attrs0 = ms.map((m) => poolAttrs(m)[0]!)
+    const counts0 = ms.map((m) => poolCount(m))
+    const before = v.stats.rebuilds
+    const X = REBUILD_MOVE + 300
+    let frames = 0
+    while (v.stats.rebuilds === before && frames < 400) {
+      for (let i = 0; i < ms.length; i++) {
+        expect([POOLS[i], poolAttrs(ms[i]!)[0] === attrs0[i]]).toEqual([POOLS[i], true])
+        expect([POOLS[i], poolCount(ms[i]!)]).toEqual([POOLS[i], counts0[i]])
+      }
+      v.update(X, 0)
+      frames++
+    }
+    console.log(JSON.stringify({ 預算: 500, 由移動到換上新的一份: frames }))
+    expect(v.stats.rebuilds).toBe(before + 1)
+    // 一幀做完的話 frames 恰好是 REBUILD_EVERY
+    expect(frames).toBeGreaterThan(REBUILD_EVERY + 3)
+    v.dispose()
+  })
+
+  /** 【分幀不得弄錯內容】同「飛過一段之後」那一條，但每幀只准寫 500 筆 */
+  it('重建分幀：飛過一段之後內容與強制重建一致，屬性只在兩份之間輪換', () => {
+    const v = createVegetation([SIX], FLAT, { rebuildBudget: 500 })
+    v.settle()
+    const ms = meshes(v)
+    const seen = ms.map(() => new Set<object>())
+    for (let k = 1; k <= 600; k++) {
+      v.update((k / 600) * 3000, 0)
+      for (let i = 0; i < ms.length; i++) seen[i]!.add(poolAttrs(ms[i]!)[0]!.array)
+    }
+    v.settle()
+    const snap = ms.map((m) => ({
+      count: poolCount(m),
+      buf: (poolAttrs(m)[0]!.array as Float32Array).slice(0, poolCount(m) * poolStride(m)),
+    }))
+    v.settle(true)
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i]!
+      const now = (poolAttrs(m)[0]!.array as Float32Array).slice(0, poolCount(m) * poolStride(m))
+      expect([POOLS[i], poolCount(m)]).toEqual([POOLS[i], snap[i]!.count])
+      expect([POOLS[i], [...now]]).toEqual([POOLS[i], [...snap[i]!.buf]])
+      expect([POOLS[i], seen[i]!.size]).toEqual([POOLS[i], 2])
+    }
+    v.dispose()
+  }, 120000)
+
   it('傳送：移動超過半徑會把還沒生的丟掉重排', () => {
     let calls = 0
     const counted: FloraSource = (...a) => { calls++; SIX(...a) }

@@ -92,7 +92,13 @@ export function createScene(
   // 【燈的定義在 `lighting.ts`】遠處的植被走 gl.POINTS，亮度是烘進頂點色的，
   // 而那個係數要拿真正的光照去校 —— 兩處各配一組燈的話係數會是錯的
   const lights = createLights()
-  for (const l of lights.all) scene.add(l)
+  // 【燈在每一個圖層都亮】three 只收 `light.layers.test(camera.layers)` 的燈。
+  // 低解析度煙那一趟只開第 1 層，燈若只在第 0 層，兩趟的燈數就不同 ——
+  // `lights.state.version` 每幀變，每個吃光照的材質每幀重算一次 shader program
+  for (const l of lights.all) {
+    l.layers.enableAll()
+    scene.add(l)
+  }
 
   const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR)
 

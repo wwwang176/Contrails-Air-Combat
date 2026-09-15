@@ -119,9 +119,11 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
   const capacity = Math.max(1, ships.length * MAX_SHIP_GUNS)
   const flashes = new InstancedMesh(
     flareGeometry(),
+    // 【forceSinglePass】透明雙面預設分兩趟、每次繪製重算兩次 shader program。
+    // 加法混色與順序無關，一趟畫出來的像素相同
     new MeshBasicMaterial({
       color: 0xffe6b0, transparent: true, opacity: 0.95,
-      depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
+      depthWrite: false, blending: AdditiveBlending, side: DoubleSide, forceSinglePass: true,
     }),
     capacity,
   )

@@ -269,9 +269,15 @@ export function createHull(spec: HullSpec) {
    * 座艙相機永遠在圓盤後方，所以這個缺陷從 M1 活到上帝視角才被看見 ——
    * 那是第一個會從機頭方向看自己飛機的視角。
    */
+  /*
+   * 【`forceSinglePass` 非開不可】three 對「透明＋雙面」預設分背面、正面兩趟
+   * 畫，每一趟都把材質標髒，每次繪製重算兩次 shader program —— 20 架飛機
+   * 就是每幀 40 次。圓盤是平的，任何角度都不會有正反面疊在同一個像素上，
+   * 所以一趟畫出來的像素與兩趟相同。
+   */
   const blur = new MeshStandardMaterial({
     color: 0xc8d0d8, transparent: true, opacity: 0.22, roughness: 0.5,
-    depthWrite: false, side: DoubleSide,
+    depthWrite: false, side: DoubleSide, forceSinglePass: true,
   })
   /** 座艙內裝：機身開口下方的暗色內殼，見 buildCockpitTub。 */
   const cockpitMat = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95 })
