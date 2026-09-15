@@ -132,7 +132,8 @@ export function createLowResTransparencyPass(
       }
     `,
     colorWrite: false,
-    depthTest: false,
+    // WebGL only updates the depth buffer while the depth test is enabled.
+    depthTest: true,
     depthWrite: true,
     toneMapped: false,
   })
