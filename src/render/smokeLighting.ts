@@ -10,6 +10,7 @@ interface SmokeLightingShader {
 export interface SmokeLightingControl {
   readonly enabled: boolean
   setEnabled(enabled: boolean): void
+  setLight(direction: Vector3, color: Color, intensity: number): void
 }
 
 /**
@@ -39,6 +40,8 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
       'varying vec2 vSpunUv;',
       `varying vec2 vSpunUv;
        uniform vec3 uSmokeSunColor;
+       uniform float uSmokeSunAmount;
+       uniform float uSmokeScatterStrength;
        uniform float uSmokeLightingEnabled;
        varying vec3 vSmokeSunDirectionView;`,
     )
@@ -59,10 +62,13 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        float sideShade = mix(0.58, 1.0, directLight);
        float densityShade = 1.0 - coreDensity * mix(0.32, 0.12, directLight);
        float volumeShade = sideShade * densityShade;
+       float lightWeight = uSmokeLightingEnabled * mix(0.25, 1.0, uSmokeSunAmount);
 
        // 薄的迎光處補少量帶太陽色的散射，避免只把原本已很黑的 0x1a 放大。
-       float scatter = directLight * (1.0 - coreDensity * 0.45) * 0.018;
-       diffuseColor.rgb *= mix(1.0, volumeShade, uSmokeLightingEnabled);
+       // 爆炸煙把此值設為 0：它的黑→灰年齡曲線不能被固定亮色蓋掉。
+       float scatter = directLight * (1.0 - coreDensity * 0.45)
+         * uSmokeScatterStrength;
+       diffuseColor.rgb *= mix(1.0, volumeShade, lightWeight);
        diffuseColor.rgb += uSmokeSunColor * scatter * uSmokeLightingEnabled;`,
     )
 }
@@ -76,12 +82,16 @@ export function addSmokeLighting(
   sunDirection: Vector3,
   sunColor: Color,
   sunIntensity = 1,
+  // 黑煙只補一點迎光散射；再高會在正午讀成灰白蒸汽。
+  scatterStrength = 0.012,
 ): SmokeLightingControl {
   const material = particles.object.material as MeshBasicMaterial
   const baseCompile = material.onBeforeCompile
   const enabledUniform = { value: 1 }
   const directionUniform = { value: sunDirection.clone().normalize() }
   const colorUniform = { value: sunColor.clone().multiplyScalar(sunIntensity) }
+  const amountUniform = { value: Math.min(Math.max(sunIntensity / 2.2, 0), 1) }
+  const scatterUniform = { value: Math.max(scatterStrength, 0) }
 
   material.onBeforeCompile = (shader, renderer): void => {
     baseCompile(shader, renderer)
@@ -89,6 +99,8 @@ export function addSmokeLighting(
     shader.uniforms.uSmokeLightingEnabled = enabledUniform
     shader.uniforms.uSmokeSunDirection = directionUniform
     shader.uniforms.uSmokeSunColor = colorUniform
+    shader.uniforms.uSmokeSunAmount = amountUniform
+    shader.uniforms.uSmokeScatterStrength = scatterUniform
   }
   // onBeforeCompile 的閉包內容不會進 three 的預設 cache key；明確區隔實驗材質。
   const baseCacheKey = material.customProgramCacheKey.bind(material)
@@ -98,5 +110,10 @@ export function addSmokeLighting(
   return {
     get enabled() { return enabledUniform.value > 0.5 },
     setEnabled(enabled) { enabledUniform.value = enabled ? 1 : 0 },
+    setLight(direction, color, intensity) {
+      directionUniform.value.copy(direction).normalize()
+      colorUniform.value.copy(color).multiplyScalar(intensity)
+      amountUniform.value = Math.min(Math.max(intensity / 2.2, 0), 1)
+    },
   }
 }
