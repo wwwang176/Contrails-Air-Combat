@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PointLight, Texture } from 'three'
+import { LOW_RES_TRANSPARENCY_LAYER } from '../../src/render/lowResTransparency'
 import {
   createFlareLights, FLARE_LIGHT_COUNT, flareBrightness, flareFlicker,
 } from '../../src/render/flares'
@@ -13,6 +14,22 @@ describe('照明彈的光', () => {
     expect(found).toHaveLength(FLARE_LIGHT_COUNT)
     lights.update(createFlares(), 0)
     for (const l of found) expect(l.intensity).toBe(0)
+  })
+
+  /**
+   * 【燈要在每一個圖層都亮】three 只收 `light.layers.test(camera.layers)` 的燈。
+   * 低解析度煙那一趟只開第 1 層；燈只在第 0 層的話，有煙的每一幀兩趟燈數不同，
+   * `lights.state.version` 每幀變，每個吃光照的材質每幀重算 shader program。
+   */
+  it('每一盞點光源在第 0 層與低解析度煙那一層都啟用', () => {
+    const lights = createFlareLights(new Texture())
+    const found: PointLight[] = []
+    lights.object.traverse((o) => { if ((o as PointLight).isPointLight) found.push(o as PointLight) })
+    expect(found.length).toBeGreaterThan(0)
+    for (const l of found) {
+      expect(l.layers.isEnabled(0)).toBe(true)
+      expect(l.layers.isEnabled(LOW_RES_TRANSPARENCY_LAYER)).toBe(true)
+    }
   })
 
   it('還沒點燃的不亮', () => {
