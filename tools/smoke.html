@@ -19,7 +19,9 @@
       #panel h1 { margin: 0 0 4px; font-size: 14px; color: #9fc8e5; }
       #panel p { margin: 0 0 10px; color: #8ea7ba; }
       #quality { display: grid; grid-template-columns: 1fr; gap: 6px; }
-      #upsample { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+      #upsample, #lighting {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px;
+      }
       button {
         padding: 7px 9px; color: #dce8f2; background: #172a3c;
         border: 1px solid #375067; border-radius: 4px; cursor: pointer;
@@ -56,6 +58,10 @@
       <div id="upsample">
         <button data-depth="false">普通雙線性</button>
         <button data-depth="true" class="on">深度感知</button>
+      </div>
+      <div id="lighting">
+        <button data-lighting="false">原始顏色</button>
+        <button data-lighting="true" class="on">日照＋自遮蔽</button>
       </div>
       <button id="fly" class="on">停止自動穿越</button>
     </section>
