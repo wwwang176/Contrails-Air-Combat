@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { scaledTransparencySize } from '../../src/render/lowResTransparency'
+import { Group, Object3D } from 'three'
+import {
+  LOW_RES_TRANSPARENCY_LAYER,
+  scaledTransparencySize,
+  useLowResTransparency,
+} from '../../src/render/lowResTransparency'
 
 describe('scaledTransparencySize', () => {
   it('半邊長只保留四分之一像素', () => {
@@ -21,5 +26,20 @@ describe('scaledTransparencySize', () => {
       width: 640,
       height: 360,
     })
+  })
+
+  it('透明效果的整棵物件樹都移到低解析度圖層', () => {
+    const root = new Group()
+    const child = new Object3D()
+    const grandchild = new Object3D()
+    root.add(child)
+    child.add(grandchild)
+
+    useLowResTransparency(root)
+
+    expect(root.layers.isEnabled(LOW_RES_TRANSPARENCY_LAYER)).toBe(true)
+    expect(child.layers.isEnabled(LOW_RES_TRANSPARENCY_LAYER)).toBe(true)
+    expect(grandchild.layers.isEnabled(LOW_RES_TRANSPARENCY_LAYER)).toBe(true)
+    expect(root.layers.isEnabled(0)).toBe(false)
   })
 })

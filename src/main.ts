@@ -41,6 +41,9 @@ import {
   DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
 } from './render/smoke'
 import {
+  createLowResTransparencyPass, useLowResTransparency,
+} from './render/lowResTransparency'
+import {
   createShipFires, lightShipFires, stepShipFires,
 } from './render/shipFires'
 import {
@@ -614,6 +617,37 @@ const blastJets = createWaterJets({
   },
 })
 ctx.scene.add(blastJets.object)
+
+// 煙的世界範圍與粒子數完全不動，只把昂貴的透明像素降成半邊長（四分之一
+// 像素）；深度感知放大負責保住飛機與地景輪廓。清單同時供下方的啟用門檻
+// 使用，避免新增一個煙池時只接了渲染、卻漏算存活數。
+const lowResSmokeEffects = [
+  flakBursts,
+  smoke,
+  shipFireSmoke,
+  wreckFireSmoke,
+  steam,
+  blastEmber,
+  blastSmoke,
+  blastDust,
+  blastMist,
+]
+for (const effect of lowResSmokeEffects) useLowResTransparency(effect.object)
+const smokeRenderPass = createLowResTransparencyPass(ctx.renderer, 0.5)
+
+/** 少於這個數量時，全螢幕合成成本比省下的煙霧填充還高，直接照原路徑畫。 */
+const LOW_RES_SMOKE_THRESHOLD = 512
+
+function lowResSmokeLive(): number {
+  let live = 0
+  for (const effect of lowResSmokeEffects) live += effect.live
+  return live
+}
+
+function renderBattleScene(): void {
+  smokeRenderPass.setEnabled(lowResSmokeLive() >= LOW_RES_SMOKE_THRESHOLD)
+  smokeRenderPass.render(ctx.scene, ctx.camera)
+}
 
 /**
  * 給 `emitBlast` 的那一組。每幀都是同一個物件 —— 熱路徑不配置。
@@ -2058,7 +2092,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  ctx.renderer.render(ctx.scene, ctx.camera)
+  renderBattleScene()
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
   // 就是指揮儀正在追的角度誤差，而不是被相機視差污染過的東西。
@@ -2598,7 +2632,7 @@ function frame(now: number) {
         logTelemetry()
       }
     } else {
-      ctx.renderer.render(ctx.scene, ctx.camera)
+      renderBattleScene()
     }
   } else {
     elapsed += frameSeconds
@@ -2736,6 +2770,8 @@ const GFX_HIDDEN_LAYER = 31
     // 圖層，而且不論父物件通不通過都照樣遞迴下去 —— 圖層不繼承。只設群組
     // 的話（飛機模型、粒子池若是 Group）子網格照畫不誤。
     for (const root of pick()) root.traverse((o) => { o.layers.set(on ? 0 : GFX_HIDDEN_LAYER) })
+    // 通用煙平常在半解析度層；粒子消融 off → on 後要搬回去，不能留在第 0 層。
+    if (name === 'particles' && on) useLowResTransparency(smoke.object)
     applied.push(`${name}=${on ? 'on' : 'off'}`)
   }
   return { applied, known: Object.keys(targets) }

@@ -24,10 +24,12 @@ export const LOW_RES_TRANSPARENCY_LAYER = 1
 export type TransparencyScale = 1 | 0.5 | 0.25
 
 export interface LowResTransparencyPass {
+  readonly enabled: boolean
   readonly scale: TransparencyScale
   readonly depthAware: boolean
   readonly width: number
   readonly height: number
+  setEnabled(enabled: boolean): void
   setScale(scale: TransparencyScale): void
   setDepthAware(enabled: boolean): void
   render(scene: Scene, camera: Camera): void
@@ -50,62 +52,114 @@ export function scaledTransparencySize(
   }
 }
 
+const FULLSCREEN_VERTEX = `
+  varying vec2 vUv;
+
+  void main() {
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`
+
 /**
- * Render ordinary geometry at full resolution and transparent effects at a lower
- * resolution. The optional depth-aware upsampler uses the full-resolution opaque
- * depth buffer to avoid blending smoke across object silhouettes.
+ * Render ordinary geometry once at full resolution, downsample its depth, then
+ * render transparent effects at a lower resolution. Depth-aware upsampling keeps
+ * smoke from bleeding across full-resolution object silhouettes.
  */
 export function createLowResTransparencyPass(
   renderer: WebGLRenderer,
   initialScale: TransparencyScale = 0.5,
 ): LowResTransparencyPass {
-  const target = new WebGLRenderTarget(1, 1, {
+  const smokeTarget = new WebGLRenderTarget(1, 1, {
     depthBuffer: true,
     stencilBuffer: false,
     type: HalfFloatType,
   })
-  target.texture.name = 'low-res-transparency'
-  target.texture.minFilter = LinearFilter
-  target.texture.magFilter = LinearFilter
-  target.texture.generateMipmaps = false
-  target.depthTexture = new DepthTexture(1, 1, UnsignedIntType)
-  target.depthTexture.format = DepthFormat
+  smokeTarget.texture.name = 'low-res-transparency'
+  smokeTarget.texture.minFilter = LinearFilter
+  smokeTarget.texture.magFilter = LinearFilter
+  smokeTarget.texture.generateMipmaps = false
+  smokeTarget.depthTexture = new DepthTexture(1, 1, UnsignedIntType)
+  smokeTarget.depthTexture.format = DepthFormat
 
-  const fullDepthTarget = new WebGLRenderTarget(1, 1, {
+  // Keep the original scene antialiasing when it is redirected offscreen. Three
+  // resolves both color and depth before the following fullscreen passes sample it.
+  const opaqueTarget = new WebGLRenderTarget(1, 1, {
     depthBuffer: true,
     stencilBuffer: false,
+    samples: Math.min(4, renderer.capabilities.maxSamples),
   })
-  fullDepthTarget.texture.name = 'full-resolution-depth'
-  fullDepthTarget.texture.generateMipmaps = false
-  fullDepthTarget.depthTexture = new DepthTexture(1, 1, UnsignedIntType)
-  fullDepthTarget.depthTexture.format = DepthFormat
+  opaqueTarget.texture.name = 'full-resolution-scene'
+  opaqueTarget.texture.minFilter = LinearFilter
+  opaqueTarget.texture.magFilter = LinearFilter
+  opaqueTarget.texture.generateMipmaps = false
+  opaqueTarget.texture.colorSpace = renderer.outputColorSpace
+  opaqueTarget.depthTexture = new DepthTexture(1, 1, UnsignedIntType)
+  opaqueTarget.depthTexture.format = DepthFormat
 
-  const depthOnly = new MeshBasicMaterial({
+  const fullSize = new Vector2(1, 1)
+  const lowSize = new Vector2(1, 1)
+  const depthDownsampleMaterial = new ShaderMaterial({
+    uniforms: {
+      fullDepthMap: { value: opaqueTarget.depthTexture },
+      fullSize: { value: fullSize },
+      lowSize: { value: lowSize },
+    },
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `
+      uniform sampler2D fullDepthMap;
+      uniform vec2 fullSize;
+      uniform vec2 lowSize;
+      varying vec2 vUv;
+
+      float atOffset(vec2 offset) {
+        return texture2D(fullDepthMap, clamp(vUv + offset, vec2(0.0), vec2(1.0))).x;
+      }
+
+      void main() {
+        // Conservatively keep the nearest opaque sample covered by this low-res
+        // pixel. Nine taps also work for the quarter-edge-size comparison mode.
+        vec2 radius = max(vec2(0.0), 0.5 / lowSize - 0.5 / fullSize);
+        float depth = atOffset(vec2(0.0));
+        depth = min(depth, atOffset(vec2(-radius.x, -radius.y)));
+        depth = min(depth, atOffset(vec2(0.0, -radius.y)));
+        depth = min(depth, atOffset(vec2(radius.x, -radius.y)));
+        depth = min(depth, atOffset(vec2(-radius.x, 0.0)));
+        depth = min(depth, atOffset(vec2(radius.x, 0.0)));
+        depth = min(depth, atOffset(vec2(-radius.x, radius.y)));
+        depth = min(depth, atOffset(vec2(0.0, radius.y)));
+        depth = min(depth, atOffset(vec2(radius.x, radius.y)));
+        gl_FragDepth = depth;
+        gl_FragColor = vec4(0.0);
+      }
+    `,
     colorWrite: false,
-    depthTest: true,
+    depthTest: false,
     depthWrite: true,
+    toneMapped: false,
+  })
+
+  const copyMaterial = new MeshBasicMaterial({
+    map: opaqueTarget.texture,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+    fog: false,
   })
 
   // The smoke target contains premultiplied alpha. Convert to straight alpha
   // before Three.js performs output conversion and premultiplies it again.
   const compositeMaterial = new ShaderMaterial({
     uniforms: {
-      smokeMap: { value: target.texture },
-      lowDepthMap: { value: target.depthTexture },
-      fullDepthMap: { value: fullDepthTarget.depthTexture },
-      lowSize: { value: new Vector2(1, 1) },
+      smokeMap: { value: smokeTarget.texture },
+      lowDepthMap: { value: smokeTarget.depthTexture },
+      fullDepthMap: { value: opaqueTarget.depthTexture },
+      lowSize: { value: lowSize },
       cameraNear: { value: 1 },
       cameraFar: { value: 1_000_000 },
       depthAware: { value: true },
     },
-    vertexShader: `
-      varying vec2 vUv;
-
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `,
+    vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
       uniform sampler2D smokeMap;
       uniform sampler2D lowDepthMap;
@@ -149,7 +203,6 @@ export function createLowResTransparencyPass(
         float total = dot(weight, vec4(1.0));
         // A horizon can fall between every low-resolution depth sample. Returning
         // transparent here exposes a one-pixel strip of the bright opaque scene.
-        // Fall back to the ordinary filtered smoke instead of punching a hole.
         if (total < 0.00001) return texture2D(smokeMap, vUv);
 
         return (
@@ -177,14 +230,20 @@ export function createLowResTransparencyPass(
     depthWrite: false,
     toneMapped: false,
   })
+
+  const fullscreenCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
+  const quadGeometry = new PlaneGeometry(2, 2)
+  const depthScene = new Scene()
+  depthScene.add(new Mesh(quadGeometry, depthDownsampleMaterial))
+  const copyScene = new Scene()
+  copyScene.add(new Mesh(quadGeometry, copyMaterial))
   const compositeScene = new Scene()
-  const compositeCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  const compositeQuad = new Mesh(new PlaneGeometry(2, 2), compositeMaterial)
-  compositeScene.add(compositeQuad)
+  compositeScene.add(new Mesh(quadGeometry, compositeMaterial))
 
   const drawingSize = new Vector2()
   const savedClear = new Color()
   let scale = initialScale
+  let enabled = true
   let depthAware = true
   let width = 1
   let height = 1
@@ -200,34 +259,38 @@ export function createLowResTransparencyPass(
     if (next.width !== width || next.height !== height) {
       width = next.width
       height = next.height
-      target.setSize(width, height)
-      compositeMaterial.uniforms.lowSize!.value.set(width, height)
+      smokeTarget.setSize(width, height)
+      lowSize.set(width, height)
     }
 
     if (nextFullWidth !== fullWidth || nextFullHeight !== fullHeight) {
       fullWidth = nextFullWidth
       fullHeight = nextFullHeight
-      fullDepthTarget.setSize(fullWidth, fullHeight)
+      opaqueTarget.setSize(fullWidth, fullHeight)
+      fullSize.set(fullWidth, fullHeight)
     }
   }
 
   return {
+    get enabled() { return enabled },
     get scale() { return scale },
     get depthAware() { return depthAware },
     get width() { return width },
     get height() { return height },
+    setEnabled(next) {
+      enabled = next
+    },
     setScale(next) {
       scale = next
       resizeTargets()
     },
-    setDepthAware(enabled) {
-      depthAware = enabled
-      compositeMaterial.uniforms.depthAware!.value = enabled
+    setDepthAware(next) {
+      depthAware = next
+      compositeMaterial.uniforms.depthAware!.value = next
     },
     render(scene, camera) {
       const savedTarget = renderer.getRenderTarget()
       const savedAutoClear = renderer.autoClear
-      const savedOverride = scene.overrideMaterial
       const savedLayers = camera.layers.mask
       const savedAlpha = renderer.getClearAlpha()
       renderer.getClearColor(savedClear)
@@ -235,7 +298,7 @@ export function createLowResTransparencyPass(
       try {
         renderer.autoClear = false
 
-        if (scale === 1) {
+        if (!enabled || scale === 1) {
           camera.layers.enable(LOW_RES_TRANSPARENCY_LAYER)
           renderer.setRenderTarget(savedTarget)
           renderer.clear(true, true, true)
@@ -245,55 +308,45 @@ export function createLowResTransparencyPass(
 
         resizeTargets()
 
-        // Draw the opaque scene normally at full resolution.
+        // Draw the full-resolution scene exactly once and retain its real depth.
         camera.layers.set(0)
-        renderer.setRenderTarget(savedTarget)
+        renderer.setRenderTarget(opaqueTarget)
         renderer.clear(true, true, true)
         renderer.render(scene, camera)
 
-        // Capture a full-resolution opaque depth reference only when requested.
-        if (depthAware) {
-          renderer.setRenderTarget(fullDepthTarget)
-          renderer.setClearColor(0x000000, 0)
-          renderer.clear(true, true, true)
-          scene.overrideMaterial = depthOnly
-          renderer.render(scene, camera)
-          scene.overrideMaterial = savedOverride
-        }
-
-        // Fill the low-resolution opaque depth buffer without writing color.
-        renderer.setRenderTarget(target)
+        // Seed the low-resolution hardware depth buffer from full-resolution depth.
+        renderer.setRenderTarget(smokeTarget)
         renderer.setClearColor(0x000000, 0)
         renderer.clear(true, true, true)
-        scene.overrideMaterial = depthOnly
-        renderer.render(scene, camera)
-        scene.overrideMaterial = savedOverride
-        renderer.clear(true, false, false)
+        renderer.render(depthScene, fullscreenCamera)
 
-        // Render just the transparent layer against the preserved depth buffer.
+        // Render just smoke against the conservative low-resolution depth.
         camera.layers.set(LOW_RES_TRANSPARENCY_LAYER)
         renderer.render(scene, camera)
 
-        // Composite smoke over the already-rendered full-resolution scene.
+        // Restore the full-resolution scene, then blend the upsampled smoke over it.
         renderer.setRenderTarget(savedTarget)
+        renderer.setClearColor(savedClear, savedAlpha)
+        renderer.clear(true, true, true)
+        renderer.render(copyScene, fullscreenCamera)
         const perspective = camera as Camera & { near?: number; far?: number }
         compositeMaterial.uniforms.cameraNear!.value = perspective.near ?? 1
         compositeMaterial.uniforms.cameraFar!.value = perspective.far ?? 1_000_000
-        renderer.render(compositeScene, compositeCamera)
+        renderer.render(compositeScene, fullscreenCamera)
       } finally {
         camera.layers.mask = savedLayers
-        scene.overrideMaterial = savedOverride
         renderer.setClearColor(savedClear, savedAlpha)
         renderer.autoClear = savedAutoClear
         renderer.setRenderTarget(savedTarget)
       }
     },
     dispose() {
-      target.dispose()
-      fullDepthTarget.dispose()
-      depthOnly.dispose()
-      compositeQuad.geometry.dispose()
+      smokeTarget.dispose()
+      opaqueTarget.dispose()
+      depthDownsampleMaterial.dispose()
+      copyMaterial.dispose()
       compositeMaterial.dispose()
+      quadGeometry.dispose()
     },
   }
 }
