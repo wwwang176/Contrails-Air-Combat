@@ -58,30 +58,106 @@ function tickLabel(
   ctx.fillText(text, cx + Math.sin(angle) * radius, cy - Math.cos(angle) * radius)
 }
 
-/** 空速表：指示空速，km/h。 */
-function drawAirspeed(
-  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
-  cx: number, cy: number, r: number,
-): void {
-  face(ctx, L, cx, cy, r)
-  const toAngle = (v: number) => -ASI_SWEEP / 2 + ASI_SWEEP * clamp(v / ASI_MAX, 0, 1)
-
+/** 刻度與刻度數字的畫筆狀態。之後的指針與讀數沿用其中的對齊方式 */
+function tickState(ctx: CanvasRenderingContext2D, L: HudLayout): void {
   ctx.strokeStyle = HUD_COLORS.dim
   ctx.lineWidth = 1
   ctx.fillStyle = HUD_COLORS.dim
   ctx.font = hudFont(10 * L.scale)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
+}
+
+type DialFace = (ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number) => void
+
+interface FaceCache {
+  canvas: HTMLCanvasElement | null
+  cx: number
+  cy: number
+  r: number
+  dpr: number
+  scale: number
+  /** 貼回主畫布的裝置像素位置 */
+  x: number
+  y: number
+}
+
+const newFaceCache = (): FaceCache => ({ canvas: null, cx: NaN, cy: NaN, r: NaN, dpr: NaN, scale: NaN, x: 0, y: 0 })
+const ASI_FACE = newFaceCache()
+const ALT_FACE = newFaceCache()
+
+/**
+ * 盤面、刻度、刻度數字畫進一張離屏點陣，每幀以裝置像素 1:1 貼回。
+ *
+ * 【為什麼】它們只由版面決定，而 HUD 的繪圖指令每幀在 GPU 行程點陣化 ——
+ * 兩個錶的一百條刻度與二十個數字，實測佔錶盤那 1 ms 的大半。
+ *
+ * 【像素對齊】離屏的原點落在向下取整的裝置像素上、變換保留小數位移，抗鋸齒
+ * 因此落在與直接畫同一格。半透明的底色先在離屏合成再疊上來，數學上與直接
+ * 依序畫相同，8-bit 預乘 alpha 的捨入可能差 1/255。
+ *
+ * 【dpr 必須與 `Hud.resize` 相同】那裡把變換設成 `min(devicePixelRatio, 2)`。
+ *
+ * 【沒有 document 時直接畫】node 裡的測試用假 ctx 攔繪圖呼叫。
+ */
+function drawFace(
+  ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number,
+  draw: DialFace, cache: FaceCache,
+): void {
+  if (typeof document === 'undefined') {
+    draw(ctx, L, cx, cy, r)
+    return
+  }
+  const dpr = Math.min(window.devicePixelRatio, 2)
+  if (cache.canvas === null || cache.cx !== cx || cache.cy !== cy || cache.r !== r
+    || cache.dpr !== dpr || cache.scale !== L.scale) {
+    const pad = r + 1.5 * L.scale + 2
+    const x = Math.floor((cx - pad) * dpr)
+    const y = Math.floor((cy - pad) * dpr)
+    const canvas = cache.canvas ?? document.createElement('canvas')
+    canvas.width = Math.ceil((cx + pad) * dpr) - x
+    canvas.height = Math.ceil((cy + pad) * dpr) - y
+    const c = canvas.getContext('2d')!
+    c.setTransform(dpr, 0, 0, dpr, -x, -y)
+    draw(c, L, cx, cy, r)
+    cache.canvas = canvas
+    cache.cx = cx; cache.cy = cy; cache.r = r; cache.dpr = dpr; cache.scale = L.scale
+    cache.x = x; cache.y = y
+  }
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(cache.canvas, cache.x, cache.y)
+  ctx.restore()
+  tickState(ctx, L)
+}
+
+/** 空速表：指示空速，km/h。 */
+const asiAngle = (v: number): number => -ASI_SWEEP / 2 + ASI_SWEEP * clamp(v / ASI_MAX, 0, 1)
+
+/** 空速表不隨讀數變的部分：盤面、刻度、刻度數字 */
+function airspeedFace(
+  ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number,
+): void {
+  face(ctx, L, cx, cy, r)
+  tickState(ctx, L)
   for (let v = 0; v <= ASI_MAX; v += 50) {
-    const a = toAngle(v)
+    const a = asiAngle(v)
     const major = v % 100 === 0
     tick(ctx, cx, cy, a, r * 0.94, r * (major ? 0.78 : 0.86))
     // 標到百位：0 2 4 6 8，與高度表的 0..9 同一套讀法
     if (v % 200 === 0) tickLabel(ctx, cx, cy, a, r * 0.62, String(v / 100))
   }
+}
+
+function drawAirspeed(
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
+  cx: number, cy: number, r: number,
+): void {
+  drawFace(ctx, L, cx, cy, r, airspeedFace, ASI_FACE)
 
   const kmh = f.ias * 3.6
-  needle(ctx, cx, cy, toAngle(kmh), r * 0.80, 2 * L.scale, HUD_COLORS.primary)
+  needle(ctx, cx, cy, asiAngle(kmh), r * 0.80, 2 * L.scale, HUD_COLORS.primary)
 
   ctx.fillStyle = HUD_COLORS.primary
   ctx.font = hudFont(12 * L.scale)
@@ -145,25 +221,26 @@ const toCanvasAngle = (a: number): number => a - Math.PI / 2
 const BAND_R = 0.71
 const BAND_W = 3
 
-/** 高度表：長針一圈 1000 m、短針一圈 10000 m。 */
-function drawAltimeter(
-  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
-  cx: number, cy: number, r: number,
+/** 高度表不隨讀數變的部分：盤面、刻度、刻度數字 */
+function altimeterFace(
+  ctx: CanvasRenderingContext2D, L: HudLayout, cx: number, cy: number, r: number,
 ): void {
   face(ctx, L, cx, cy, r)
-
-  ctx.strokeStyle = HUD_COLORS.dim
-  ctx.lineWidth = 1
-  ctx.fillStyle = HUD_COLORS.dim
-  ctx.font = hudFont(10 * L.scale)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
+  tickState(ctx, L)
   for (let i = 0; i < 50; i++) {
     const a = (i / 50) * 360 * DEG
     const major = i % 5 === 0
     tick(ctx, cx, cy, a, r * 0.94, r * (major ? 0.78 : 0.88))
     if (major) tickLabel(ctx, cx, cy, a, r * 0.62, String(i / 5))
   }
+}
+
+/** 高度表：長針一圈 1000 m、短針一圈 10000 m。 */
+function drawAltimeter(
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
+  cx: number, cy: number, r: number,
+): void {
+  drawFace(ctx, L, cx, cy, r, altimeterFace, ALT_FACE)
 
   // 【可投高度弧排在指針之前】指針必須壓在它上面 —— 讀的是指針落在弧裡沒有
   const band = f.ordnance === 'torpedo' && f.releaseEnv !== null
