@@ -11,7 +11,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
-import { QUALITY_LEVELS } from '../render/quality'
+import { ANTIALIAS_LEVELS, QUALITY_LEVELS } from '../render/quality'
 
 export interface MenuHooks {
   /** 使用者送出一個畫面事件 */
@@ -49,6 +49,13 @@ export interface MenuHooks {
    * 【與 `onResume` 同一類】overlay 上的動作，不換畫面。呼叫端負責套用與記住。
    */
   onQuality(scale: number): void
+  /**
+   * 設定裡換了抗鋸齒。
+   *
+   * 【呼叫端要自己處理「何時生效」】它是建立 WebGL context 的參數，換不了；
+   * 不在戰鬥中就重新載入，戰鬥中只能記下來等下次載入。
+   */
+  onAntialias(on: boolean): void
 }
 
 export interface Menu {
@@ -65,6 +72,11 @@ export interface Menu {
    * `main.ts` 持有（它還要負責記住），這裡只負責畫。
    */
   renderQuality(scale: number): void
+  /**
+   * 重畫抗鋸齒那一列。`pending` 為真時顯示「下次載入才生效」——
+   * 戰鬥中改的話不能重載，否則整場就沒了。
+   */
+  renderAntialias(on: boolean, pending: boolean): void
 }
 
 /**
@@ -232,6 +244,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     alt: q('sk-alt'),
     tod: q('sk-tod'),
     quality: q('set-quality'),
+    antialias: q('set-aa'),
+    antialiasNote: q('set-aa-note'),
+    antialiasConfirm: q('set-aa-confirm'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -260,6 +275,21 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     // 確認之後才送畫面事件 —— 回的是該陣營的任務表，`campaign` 還留著
     // 【設定是 overlay，不是畫面】與暫停、確認同一類，見 ui/screens.ts
     if (act === 'settings') { settings.hidden = false; return }
+    // 抗鋸齒要重新載入，先問過才套用
+    if (act === 'aaYes') {
+      const v = aaAsking
+      el.antialiasConfirm.hidden = true
+      aaAsking = null
+      if (v !== null) hooks.onAntialias(v)
+      return
+    }
+    if (act === 'aaNo') {
+      el.antialiasConfirm.hidden = true
+      aaAsking = null
+      // 【把按鈕標回目前值】取消之後選中狀態不該停在沒有生效的那一顆
+      renderAntialias(aaOn, aaPending)
+      return
+    }
     if (act === 'settingsClose') { settings.hidden = true; return }
     if (act === 'abandon') { confirm.hidden = false; return }
     if (act === 'abandonNo') { confirm.hidden = true; return }
@@ -498,6 +528,34 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       scale, (v) => hooks.onQuality(v))
   }
 
+  /**
+   * 目前的抗鋸齒，以及「換了要不要先問」。
+   *
+   * 【為什麼戰鬥中不問】那時呼叫端不會重新載入（重載等於丟掉整場），只會標示
+   * 下次載入生效 —— 沒有東西會被清掉，就沒有要問的事。
+   */
+  let aaOn = true
+  let aaPending = false
+  /** 等待確認的那個選擇。`null` 表示沒有待確認的變更 */
+  let aaAsking: boolean | null = null
+
+  function renderAntialias(on: boolean, pending: boolean): void {
+    aaOn = on
+    aaPending = pending
+    aaAsking = null
+    el.antialiasConfirm.hidden = true
+    optRow(el.antialias,
+      ANTIALIAS_LEVELS.map((lv) => ({ label: lv.label, hint: lv.hint, value: lv.value, sil: '' })),
+      on, (v) => {
+        // 【選同一個就什麼都不做】重載一次只為了換成一樣的值是很糟的體驗
+        if (v === aaOn) { el.antialiasConfirm.hidden = true; aaAsking = null; return }
+        if (aaPending) { hooks.onAntialias(v); return }
+        aaAsking = v
+        el.antialiasConfirm.hidden = false
+      })
+    el.antialiasNote.hidden = !pending
+  }
+
   function renderSetup(setup: SkirmishSetup): void {
     el.presets.innerHTML = ''
     for (const key of Object.keys(PRESETS) as PresetKey[]) {
@@ -539,6 +597,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     },
     renderSetup,
     renderQuality,
+    renderAntialias,
   }
 }
 

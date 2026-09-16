@@ -558,6 +558,18 @@
             <!-- 只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，維持原生清晰度 -->
             <div class="opt narrow" id="set-quality"></div>
           </div>
+          <div>
+            <div class="lbl" style="margin-bottom:7px">抗鋸齒</div>
+            <!-- 建立 WebGL context 時才決定得了，所以改它要重新載入 -->
+            <div class="opt narrow" id="set-aa"></div>
+            <div class="lbl" id="set-aa-note" style="margin-top:7px" hidden>戰鬥結束後重新載入才會生效</div>
+            <!-- 換抗鋸齒要重新載入，先問過 —— 沒問就重載會把玩家正在做的事清掉 -->
+            <div class="row" id="set-aa-confirm" style="margin-top:9px; align-items:center" hidden>
+              <span class="lbl">需要重新載入才會生效，未儲存的設定會清掉</span>
+              <button class="btn tiny" data-act="aaYes">重新載入</button>
+              <button class="btn tiny" data-act="aaNo">取消</button>
+            </div>
+          </div>
           <button class="go" data-act="settingsClose">關　閉</button>
         </div>
       </section>
