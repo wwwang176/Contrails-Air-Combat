@@ -72,18 +72,21 @@ export const GROUND_STRAFE_EGRESS_CLIMB = 6 * DEG
  * 船體瞄點比水線高多少，m。
  *
  * 【為什麼不是 0】艦體盒的原點在**水線**上（與 `shipAA.ts` 同一套座標），
- * 瞄它等於瞄海面。**只有砲位全打光時才會用到** —— 平常瞄的是砲位本身。
+ * 瞄它等於瞄海面。**只在砲位全打光、而且艦級沒有瞄點（或還沒挑）時用到**
+ * —— 平常瞄的是砲位本身，砲位打光後瞄 `ShipClass.aimPoints`。
  */
 export const SHIP_AIM_HEIGHT = 12
 
 /**
  * 鎖定的東西：哪一艘船的哪一個砲位。
  *
- * `gun` 為 −1 代表「這艘船的砲位都打光了，瞄船體」。
+ * `gun` 為 −1 代表「這艘船的砲位都打光了，瞄船體」—— 那時 `point` 是
+ * `ShipClass.aimPoints` 的索引，−1 = 還沒挑（瞄船心）。
  */
 export interface ShipAim {
   ship: number
   gun: number
+  point: number
 }
 
 export type GroundStrafePhase = 'approach' | 'egress'
@@ -127,7 +130,7 @@ export function resetGroundStrafe(state: GroundStrafeState): void {
 }
 
 export function createShipAim(): ShipAim {
-  return { ship: -1, gun: -1 }
+  return { ship: -1, gun: -1, point: -1 }
 }
 
 /**
@@ -164,9 +167,13 @@ const P0 = /* @__PURE__ */ new Vector3()
  */
 export function pickShipTarget(
   selfPos: Vector3, selfTeam: Team, ships: readonly Ship[], out: ShipAim,
+  selfVel: Vector3 | null = null,
 ): boolean {
+  const heldShip = out.ship
+  const heldPoint = out.point
   out.ship = -1
   out.gun = -1
+  out.point = -1
   const rangeSq = SHIP_ATTACK_RANGE * SHIP_ATTACK_RANGE
   let bestValue = -1
   let bestSq = Infinity
@@ -188,7 +195,11 @@ export function pickShipTarget(
       const d = selfPos.distanceToSquared(gunWorld(s, g, P0))
       if (d < nearSq) { nearSq = d; gun = g }
     }
-    if (gun < 0) nearSq = selfPos.distanceToSquared(shipAimPoint(s, P0))
+    let point = -1
+    if (gun < 0) {
+      point = pickHullPoint(s, selfPos, selfVel, i === heldShip ? heldPoint : -1)
+      nearSq = selfPos.distanceToSquared(shipAimAt(s, -1, P0, point))
+    }
 
     if (nearSq > rangeSq) continue
     // 同價值時才比距離
@@ -197,8 +208,47 @@ export function pickShipTarget(
     bestSq = nearSq
     out.ship = i
     out.gun = gun
+    out.point = point
   }
   return out.ship >= 0
+}
+
+const P1 = /* @__PURE__ */ new Vector3()
+
+/**
+ * 砲位打光的船上挑一個掃射瞄點（`ShipClass.aimPoints` 的索引）。
+ *
+ * 【一趟之內不換點】上一拍挑的點還在機首前方、而且在脫離半徑之外，就留著 ——
+ * 點與點相隔 50 m 以內，每拍改取最近的話瞄點會在兩點之間來回跳。
+ *
+ * 【飛越之後換前方的下一點】前方（速度方向）脫離半徑之外最近的那一點；前方
+ * 沒有點（正在離場）就取最近的，繞回來時再照前方重挑。沒給速度時不分前後。
+ *
+ * 熱路徑（決策拍，10 Hz）：不配置。
+ */
+function pickHullPoint(ship: Ship, pos: Vector3, vel: Vector3 | null, held: number): number {
+  const n = ship.cls.aimPoints.length
+  if (n === 0) return -1
+  const breakSq = SHIP_BREAK_RANGE * SHIP_BREAK_RANGE
+  if (held >= 0 && held < n) {
+    const p = hullAimWorld(ship, held, P1)
+    const ahead = vel === null
+      || (p.x - pos.x) * vel.x + (p.y - pos.y) * vel.y + (p.z - pos.z) * vel.z > 0
+    if (ahead && pos.distanceToSquared(p) > breakSq) return held
+  }
+  let front = -1
+  let frontSq = Infinity
+  let nearest = -1
+  let nearestSq = Infinity
+  for (let k = 0; k < n; k++) {
+    const p = hullAimWorld(ship, k, P1)
+    const d = pos.distanceToSquared(p)
+    if (d < nearestSq) { nearestSq = d; nearest = k }
+    const ahead = vel === null
+      || (p.x - pos.x) * vel.x + (p.y - pos.y) * vel.y + (p.z - pos.z) * vel.z > 0
+    if (ahead && d > breakSq && d < frontSq) { frontSq = d; front = k }
+  }
+  return front >= 0 ? front : nearest
 }
 
 /**
@@ -252,9 +302,17 @@ export function shipAimPoint(ship: Ship, out: Vector3): Vector3 {
   return out.set(ship.position.x, ship.position.y + SHIP_AIM_HEIGHT, ship.position.z)
 }
 
-/** 鎖到砲位就瞄砲位，否則瞄船體。 */
-export function shipAimAt(ship: Ship, gunIndex: number, out: Vector3): Vector3 {
-  return gunIndex >= 0 ? gunWorld(ship, gunIndex, out) : shipAimPoint(ship, out)
+/** 艦級的第 `k` 個掃射瞄點，世界座標。索引無效時退回船心的瞄點。 */
+export function hullAimWorld(ship: Ship, k: number, out: Vector3): Vector3 {
+  const p = ship.cls.aimPoints[k]
+  if (p === undefined) return shipAimPoint(ship, out)
+  return out.copy(p).applyQuaternion(ship.orientation).add(ship.position)
+}
+
+/** 鎖到砲位就瞄砲位；砲位打光瞄 `point` 那個船體瞄點，還沒挑就瞄船心。 */
+export function shipAimAt(ship: Ship, gunIndex: number, out: Vector3, point = -1): Vector3 {
+  if (gunIndex >= 0) return gunWorld(ship, gunIndex, out)
+  return point >= 0 ? hullAimWorld(ship, point, out) : shipAimPoint(ship, out)
 }
 
 const S = /* @__PURE__ */ makeScratch(5)
@@ -278,9 +336,9 @@ const MIN_ERROR = 1e-6
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
 export function shipAttackCommand(
-  self: Aircraft, ship: Ship, gunIndex: number, out: Command,
+  self: Aircraft, ship: Ship, gunIndex: number, out: Command, point = -1,
 ): void {
-  const aim = shipAimAt(ship, gunIndex, S.v[0]!)
+  const aim = shipAimAt(ship, gunIndex, S.v[0]!, point)
   const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
   strafeCommand(self, aim, tv.x, tv.y, tv.z, out)
 }

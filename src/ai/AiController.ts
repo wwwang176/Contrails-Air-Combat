@@ -456,7 +456,9 @@ export class AiController implements Controller {
       this.strikeRef.index = -1
       return false
     }
-    if (decide) pickShipTarget(self.state.position, me.team, this.ships, this.shipAim)
+    if (decide) {
+      pickShipTarget(self.state.position, me.team, this.ships, this.shipAim, self.state.velocity)
+    }
     const bay = this.bombBay
     const loaded = bay !== null && (bay.load > 0 || bay.queue > 0)
     if (bay !== null && bay.capacity > 0) {
@@ -490,7 +492,7 @@ export class AiController implements Controller {
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
     }
-    shipAttackCommand(self, ship, this.shipAim.gun, out)
+    shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point)
     // 【掛著彈的整段對艦攻擊都保持正飛】進場段就翻轉的話，進落彈瞄準帶時
     // 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投
     out.upright = loaded
