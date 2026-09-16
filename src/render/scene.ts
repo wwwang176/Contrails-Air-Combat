@@ -10,6 +10,7 @@ import { applyLightPalette, createLights, type Lights } from './lighting'
 import { applySkyPalette, createSky } from './sky'
 import { createFog } from './fog'
 import { setOceanRenderer } from './ocean'
+import { DEFAULT_QUALITY, pixelRatioFor } from './quality'
 import { DAY_PALETTES, paletteSkyColorAt, type DayPalette, type TimeOfDay } from './timeOfDay'
 
 /** 近平面，m。**沒有動過** —— 深度精度幾乎全由它決定。 */
@@ -63,6 +64,13 @@ export interface SceneContext {
    */
   setPalette(p: DayPalette): void
   resize(): void
+  /**
+   * 換繪圖解析度的檔位（`render/quality.ts` 的 `scale`）。
+   *
+   * 【只動 3D 那張畫布】HUD 是另一張 2D 畫布，尺寸吃 `devicePixelRatio`，
+   * 所以降檔位時儀表與文字仍然是原生清晰度。
+   */
+  setQuality(scale: number): void
 }
 
 /** 給 `setPalette` 用的暫存。模組私有，禁止跨模組共用。 */
@@ -80,7 +88,8 @@ export function createScene(
   // 【要排在建地形之前】海面的逐面量表需要一個 renderer 才畫得出來，而
   // 沒登記時近海會退回逐片段自己算（畫面相同，只是比較慢）
   setOceanRenderer(renderer)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  let qualityScale = DEFAULT_QUALITY
+  renderer.setPixelRatio(pixelRatioFor(qualityScale, window.devicePixelRatio))
   renderer.shadowMap.enabled = false // M1 不啟用陰影，見 spec §15
 
   const scene = new Scene()
@@ -137,5 +146,15 @@ export function createScene(
   // 這一行對 `'noon'` 是恆等 —— 「建立時設一次」與「事後換」因此不會分家
   setPalette(DAY_PALETTES[timeOfDay])
 
-  return { renderer, scene, camera, sky, lights, setPalette, resize }
+  /**
+   * 【要跟著 resize】`setPixelRatio` 只記下比例，真正換緩衝區尺寸的是
+   * `setSize` —— 少了這一行，檔位換了畫面卻還是舊的像素數。
+   */
+  const setQuality = (scale: number): void => {
+    qualityScale = scale
+    renderer.setPixelRatio(pixelRatioFor(qualityScale, window.devicePixelRatio))
+    resize()
+  }
+
+  return { renderer, scene, camera, sky, lights, setPalette, resize, setQuality }
 }
