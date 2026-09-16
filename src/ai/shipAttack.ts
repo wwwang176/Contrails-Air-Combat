@@ -80,8 +80,9 @@ export const SHIP_AIM_HEIGHT = 12
 /**
  * 鎖定的東西：哪一艘船的哪一個砲位。
  *
- * `gun` 為 −1 代表「這艘船的砲位都打光了，瞄船體」—— 那時 `point` 是
- * `ShipClass.aimPoints` 的索引，−1 = 還沒挑（瞄船心）。
+ * `gun` 為 −1 代表「這艘船的砲位都打光了，機槍改瞄船體」。`point` 是
+ * `ShipClass.aimPoints` 的索引，**一律會挑**：砲位打光後機槍瞄它，掛彈的
+ * 戰鬥機落彈也瞄它。−1 = 還沒挑（瞄船心）。
  */
 export interface ShipAim {
   ship: number
@@ -195,11 +196,9 @@ export function pickShipTarget(
       const d = selfPos.distanceToSquared(gunWorld(s, g, P0))
       if (d < nearSq) { nearSq = d; gun = g }
     }
-    let point = -1
-    if (gun < 0) {
-      point = pickHullPoint(s, selfPos, selfVel, i === heldShip ? heldPoint : -1)
-      nearSq = selfPos.distanceToSquared(shipAimAt(s, -1, P0, point))
-    }
+    // 【瞄點一律挑】機槍有砲位就打砲位，但掛彈戰鬥機的落彈瞄的是這一點
+    const point = pickHullPoint(s, selfPos, selfVel, i === heldShip ? heldPoint : -1)
+    if (gun < 0) nearSq = selfPos.distanceToSquared(shipAimAt(s, -1, P0, point))
 
     if (nearSq > rangeSq) continue
     // 同價值時才比距離

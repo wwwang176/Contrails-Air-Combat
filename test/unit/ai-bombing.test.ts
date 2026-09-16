@@ -778,6 +778,41 @@ describe('戰鬥機的落彈點瞄準', () => {
     }
   })
 
+  /**
+   * 【瞄船身上的瞄點，不是船心】`aimPoint` 是艦體座標；放手的窗跟著它走。
+   * 先找一個瞄船心會放的位置，同一個位置瞄 400 m 外的一點就不該放。
+   */
+  it('給了瞄點時，放手的窗以瞄點為中心', () => {
+    setBombBallistics(K2, DT)
+    const sh = still()
+    let found: Aircraft | null = null
+    for (const y of [500, 400, 300]) {
+      for (let z = 0; z >= -500 && found === null; z -= 10) {
+        for (const g of [-20, -35, -45]) {
+          const a = zero(y, z, g)
+          const st = createBombAim()
+          stepBombAim(st, a, sh, true, true)
+          if (st.release) { found = a; break }
+        }
+      }
+      if (found !== null) break
+    }
+    expect(found).not.toBeNull()
+    const st = createBombAim()
+    stepBombAim(st, found!, sh, true, true, new Vector3(0, 18.3, 400))
+    expect(st.release).toBe(false)
+  })
+
+  it('給了瞄點時，瞄準方向跟著瞄點變', () => {
+    setBombBallistics(K2, DT)
+    const center = createBombAim()
+    const stern = createBombAim()
+    stepBombAim(center, zero(500, 0, -20), still(), true, true)
+    stepBombAim(stern, zero(500, 0, -20), still(), true, true, new Vector3(0, 18.3, 108))
+    expect(center.active && stern.active).toBe(true)
+    expect(stern.aim.distanceTo(center.aim)).toBeGreaterThan(1e-3)
+  })
+
   /** 【只在決策拍重算】解算一次 170 µs，每個物理步跑會撞穿設計預算 */
   it('非決策拍不重算', () => {
     setBombBallistics(K2, DT)

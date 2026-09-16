@@ -354,11 +354,12 @@ describe('砲位全滅之後瞄船體上的瞄點', () => {
     expect(worldZ(s, aim.point)).toBeCloseTo(38.27, 1)
   })
 
-  it('砲位還活著時不挑瞄點', () => {
+  /** 【炸彈也要瞄點】機槍先打砲位，但掛彈的戰鬥機落彈瞄的是船身上的瞄點 */
+  it('砲位還活著時機槍瞄砲位，瞄點照挑', () => {
     const aim = createShipAim()
     pickShipTarget(new Vector3(0, 300, -600), 'blue', [ship(0, 0, 0)], aim, new Vector3(0, 0, 150))
     expect(aim.gun).toBeGreaterThanOrEqual(0)
-    expect(aim.point).toBe(-1)
+    expect(aim.point).toBeGreaterThanOrEqual(0)
   })
 
   it('掃射指令朝那一點飛', () => {
