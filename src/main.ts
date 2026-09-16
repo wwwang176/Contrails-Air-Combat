@@ -3,6 +3,7 @@ import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './co
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
+import { DEFAULT_QUALITY } from './render/quality'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -2485,6 +2486,27 @@ let drillConfig: BattleConfig | null = null
 /** 演練場的靶機。每幀把血量釘回去（「打不死」的全部意思） */
 let drillDrone: Combatant | null = null
 
+/**
+ * 畫質檔位存在瀏覽器裡。**讀寫都包 try** —— 無痕視窗與封鎖第三方儲存的設定
+ * 會讓 `localStorage` 直接拋，那時只是不記得選擇，不該讓遊戲開不起來。
+ */
+const QUALITY_KEY = 'gfx.quality'
+
+function readQuality(): number {
+  try {
+    const v = Number(localStorage.getItem(QUALITY_KEY))
+    return Number.isFinite(v) && v > 0 ? Math.min(v, 1) : DEFAULT_QUALITY
+  } catch {
+    return DEFAULT_QUALITY
+  }
+}
+
+function saveQuality(scale: number): void {
+  try {
+    localStorage.setItem(QUALITY_KEY, String(scale))
+  } catch { /* 存不了就算了，見上面 */ }
+}
+
 const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onEvent(event) {
     const from = screen
@@ -2555,7 +2577,17 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     menu.setPaused(false)
     grabPointer()
   },
+  onQuality(scale) {
+    ctx.setQuality(scale)
+    saveQuality(scale)
+    // 【自己重畫】選單不記得目前的檔位，按鈕的選中狀態要由這裡再餵一次
+    menu.renderQuality(scale)
+  },
 })
+// 【先套用再畫選單】兩邊讀同一個值，按鈕標的才是畫面實際用的檔位
+const startQuality = readQuality()
+ctx.setQuality(startQuality)
+menu.renderQuality(startQuality)
 menu.renderSetup(setup)
 menu.show(screen)
 

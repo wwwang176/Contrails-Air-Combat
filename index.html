@@ -520,6 +520,9 @@
              再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
         <button class="btn" data-act="toMenu">回主選單</button>
         <button class="btn" data-act="abandon" hidden>放棄任務</button>
+        <!-- 畫質只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，不受影響 -->
+        <div class="lbl" style="margin-top:6px">畫質</div>
+        <div class="opt narrow" id="pause-quality"></div>
       </section>
       <!-- 放棄任務的確認。疊在暫停之上，menu.ts 自己開關 -->
       <section id="confirm" class="screen" style="--v:.60" hidden>

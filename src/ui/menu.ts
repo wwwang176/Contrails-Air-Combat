@@ -11,6 +11,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
+import { QUALITY_LEVELS } from '../render/quality'
 
 export interface MenuHooks {
   /** 使用者送出一個畫面事件 */
@@ -42,6 +43,12 @@ export interface MenuHooks {
    * 展示場換成這一台 —— 進機庫時也會送一次，所以呼叫端不必自己記得初值。
    */
   onAircraft(spec: AircraftSpec): void
+  /**
+   * 暫停選單裡換了繪圖解析度的檔位（`render/quality.ts` 的 `scale`）。
+   *
+   * 【與 `onResume` 同一類】overlay 上的動作，不換畫面。呼叫端負責套用與記住。
+   */
+  onQuality(scale: number): void
 }
 
 export interface Menu {
@@ -51,6 +58,13 @@ export interface Menu {
   setPaused(v: boolean): void
   /** 依目前的設定重畫編組那一頁 */
   renderSetup(setup: SkirmishSetup): void
+  /**
+   * 重畫暫停選單裡的畫質那一列，標出目前的檔位。
+   *
+   * 【呼叫端要在開場叫一次】選單自己不知道目前是哪一檔 —— 那個值由
+   * `main.ts` 持有（它還要負責記住），這裡只負責畫。
+   */
+  renderQuality(scale: number): void
 }
 
 /**
@@ -205,6 +219,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
     tod: q('sk-tod'),
+    quality: q('pause-quality'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -461,6 +476,13 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     }
   }
 
+  /** 【沒有小圖示】畫質是抽象的，畫不出剪影；`.opt` 的樣式對只有文字的按鈕照樣成立 */
+  function renderQuality(scale: number): void {
+    optRow(el.quality,
+      QUALITY_LEVELS.map((lv) => ({ label: lv.label, hint: lv.hint, value: lv.scale, sil: '' })),
+      scale, (v) => hooks.onQuality(v))
+  }
+
   function renderSetup(setup: SkirmishSetup): void {
     el.presets.innerHTML = ''
     for (const key of Object.keys(PRESETS) as PresetKey[]) {
@@ -501,6 +523,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       if (!v) confirm.hidden = true
     },
     renderSetup,
+    renderQuality,
   }
 }
 
