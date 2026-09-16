@@ -562,15 +562,24 @@
             <div class="lbl" style="margin-bottom:7px">抗鋸齒</div>
             <!-- 建立 WebGL context 時才決定得了，所以改它要重新載入 -->
             <div class="opt narrow" id="set-aa"></div>
-            <div class="lbl" id="set-aa-note" style="margin-top:7px" hidden>戰鬥結束後重新載入才會生效</div>
-            <!-- 換抗鋸齒要重新載入，先問過 —— 沒問就重載會把玩家正在做的事清掉 -->
-            <div class="row" id="set-aa-confirm" style="margin-top:9px; align-items:center" hidden>
-              <span class="lbl">需要重新載入才會生效，未儲存的設定會清掉</span>
-              <button class="btn tiny" data-act="aaYes">重新載入</button>
-              <button class="btn tiny" data-act="aaNo">取消</button>
-            </div>
           </div>
-          <button class="go" data-act="settingsClose">關　閉</button>
+          <!-- 【選了不算數，按確定才套用】要重新載入的項目得先問過；
+               改一下就立刻重整會讓玩家在毫無預期之下丟掉進行中的戰鬥 -->
+          <div class="row">
+            <button class="go" data-act="settingsApply">確　定</button>
+            <button class="btn" data-act="settingsCancel">取　消</button>
+          </div>
+        </div>
+      </section>
+      <!-- 需要重新載入才生效的設定，套用前的最後一問。疊在設定之上 -->
+      <section id="reload-ask" class="screen" style="--v:.60" hidden>
+        <div class="ask">
+          <h2>需要重新載入</h2>
+          <div class="lbl">抗鋸齒要重新載入才會生效，進行中的戰鬥會遺失。</div>
+          <div class="row">
+            <button class="go" data-act="reloadYes">儲存並重新載入</button>
+            <button class="btn" data-act="reloadNo">取消</button>
+          </div>
         </div>
       </section>
     </div>

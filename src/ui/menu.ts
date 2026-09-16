@@ -11,7 +11,9 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
-import { ANTIALIAS_LEVELS, QUALITY_LEVELS } from '../render/quality'
+import {
+  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
+} from '../render/quality'
 
 export interface MenuHooks {
   /** 使用者送出一個畫面事件 */
@@ -50,10 +52,10 @@ export interface MenuHooks {
    */
   onQuality(scale: number): void
   /**
-   * 設定裡換了抗鋸齒。
+   * 設定裡換了抗鋸齒，而且玩家**已經在警告框上確認過**。
    *
-   * 【呼叫端要自己處理「何時生效」】它是建立 WebGL context 的參數，換不了；
-   * 不在戰鬥中就重新載入，戰鬥中只能記下來等下次載入。
+   * 【呼叫端要存檔並重新載入】它是建立 WebGL context 的參數，換不了。選單只在
+   * 玩家按下「儲存並重新載入」之後才送這個事件，所以呼叫端不必再問一次。
    */
   onAntialias(on: boolean): void
 }
@@ -66,17 +68,14 @@ export interface Menu {
   /** 依目前的設定重畫編組那一頁 */
   renderSetup(setup: SkirmishSetup): void
   /**
-   * 重畫暫停選單裡的畫質那一列，標出目前的檔位。
+   * 設定裡的畫質現在是哪一檔。**這是「已生效」的值**，不是玩家正在挑的那一顆
+   * —— 設定頁上的選擇要按「確定」才送得出來，在那之前只存在選單內部。
    *
-   * 【呼叫端要在開場叫一次】選單自己不知道目前是哪一檔 —— 那個值由
-   * `main.ts` 持有（它還要負責記住），這裡只負責畫。
+   * 【呼叫端要在開場叫一次】選單不負責記住設定，它只知道畫面上該標哪一顆。
    */
   renderQuality(scale: number): void
-  /**
-   * 重畫抗鋸齒那一列。`pending` 為真時顯示「下次載入才生效」——
-   * 戰鬥中改的話不能重載，否則整場就沒了。
-   */
-  renderAntialias(on: boolean, pending: boolean): void
+  /** 同上，抗鋸齒目前**已生效**的值 */
+  renderAntialias(on: boolean): void
 }
 
 /**
@@ -219,6 +218,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const pause = root.querySelector('#pause') as HTMLElement
   const confirm = root.querySelector('#confirm') as HTMLElement
   const settings = root.querySelector('#settings') as HTMLElement
+  const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
   /**
    * 【飛行中把齒輪藏起來】指標鎖定時所有點擊都送給遊戲，畫面上的按鈕收不到 ——
@@ -245,8 +245,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     tod: q('sk-tod'),
     quality: q('set-quality'),
     antialias: q('set-aa'),
-    antialiasNote: q('set-aa-note'),
-    antialiasConfirm: q('set-aa-confirm'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -274,23 +272,19 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     // 【放棄任務要問過】確認框是暫停之上的第二層 overlay，不是畫面；
     // 確認之後才送畫面事件 —— 回的是該陣營的任務表，`campaign` 還留著
     // 【設定是 overlay，不是畫面】與暫停、確認同一類，見 ui/screens.ts
-    if (act === 'settings') { settings.hidden = false; return }
-    // 抗鋸齒要重新載入，先問過才套用
-    if (act === 'aaYes') {
-      const v = aaAsking
-      el.antialiasConfirm.hidden = true
-      aaAsking = null
-      if (v !== null) hooks.onAntialias(v)
+    if (act === 'settings') { openSettings(); return }
+    if (act === 'settingsApply') { applySettings(); return }
+    // 【取消就整批丟掉】選擇只存在選單內部，沒有任何東西套用過，所以不必還原畫面
+    if (act === 'settingsCancel') { settings.hidden = true; return }
+    // 要重新載入的設定，套用前的最後一問
+    if (act === 'reloadYes') { commitReload(); return }
+    if (act === 'reloadNo') {
+      // 【放棄這一項變更】按鈕要標回已生效的值，否則選中狀態會停在沒生效的那一顆
+      reloadAsk.hidden = true
+      draftAa = appliedAa
+      drawSettingRows()
       return
     }
-    if (act === 'aaNo') {
-      el.antialiasConfirm.hidden = true
-      aaAsking = null
-      // 【把按鈕標回目前值】取消之後選中狀態不該停在沒有生效的那一顆
-      renderAntialias(aaOn, aaPending)
-      return
-    }
-    if (act === 'settingsClose') { settings.hidden = true; return }
     if (act === 'abandon') { confirm.hidden = false; return }
     if (act === 'abandonNo') { confirm.hidden = true; return }
     if (act === 'abandonYes') { confirm.hidden = true; hooks.onEvent('toMission'); return }
@@ -515,45 +509,79 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     for (const it of items) {
       const b = document.createElement('button')
       b.className = it.value === current ? 'on' : ''
-      b.innerHTML = `${it.sil}<span>${escapeHtml(it.label)}</span><small>${escapeHtml(it.hint)}</small>`
+      // 【空的說明就不要那一行】畫質與抗鋸齒沒有副標，留一個空的 `<small>`
+      // 會在字底下撐出一條空隙，那一列看起來就像少印了字
+      const small = it.hint === '' ? '' : `<small>${escapeHtml(it.hint)}</small>`
+      b.innerHTML = `${it.sil}<span>${escapeHtml(it.label)}</span>${small}`
       b.addEventListener('click', () => onPick(it.value))
       host.appendChild(b)
     }
   }
 
-  /** 【沒有小圖示】畫質是抽象的，畫不出剪影；`.opt` 的樣式對只有文字的按鈕照樣成立 */
-  function renderQuality(scale: number): void {
+  /**
+   * 設定頁的兩組值：**已經生效的**，與**玩家正在挑的**。
+   *
+   * 【為什麼要分兩份】按鈕按下去只改「正在挑的」，按確定才送出去。合成一份就
+   * 回不到原值了 —— 而「取消」的意思正是回到原值。
+   *
+   * 【已生效的那一份由 `main.ts` 餵進來】選單不負責記住設定，見 `renderQuality`。
+   */
+  let appliedQuality = DEFAULT_QUALITY
+  let appliedAa = DEFAULT_ANTIALIAS
+  let draftQuality = appliedQuality
+  let draftAa = appliedAa
+
+  /** 【沒有小圖示】畫質與抗鋸齒都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
+  function drawSettingRows(): void {
     optRow(el.quality,
-      QUALITY_LEVELS.map((lv) => ({ label: lv.label, hint: lv.hint, value: lv.scale, sil: '' })),
-      scale, (v) => hooks.onQuality(v))
+      QUALITY_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.scale, sil: '' })),
+      draftQuality, (v) => { draftQuality = v; drawSettingRows() })
+    optRow(el.antialias,
+      ANTIALIAS_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.value, sil: '' })),
+      draftAa, (v) => { draftAa = v; drawSettingRows() })
+  }
+
+  /** 【每次打開都從已生效的值重來】上一次按取消留下的挑選不該跟著回來 */
+  function openSettings(): void {
+    draftQuality = appliedQuality
+    draftAa = appliedAa
+    drawSettingRows()
+    reloadAsk.hidden = true
+    settings.hidden = false
   }
 
   /**
-   * 目前的抗鋸齒，以及「換了要不要先問」。
-   *
-   * 【為什麼戰鬥中不問】那時呼叫端不會重新載入（重載等於丟掉整場），只會標示
-   * 下次載入生效 —— 沒有東西會被清掉，就沒有要問的事。
+   * 按下確定。**動到要重新載入的項目就先問過再套用** —— 沒問就重整會讓玩家
+   * 在毫無預期之下丟掉進行中的戰鬥。
    */
-  let aaOn = true
-  let aaPending = false
-  /** 等待確認的那個選擇。`null` 表示沒有待確認的變更 */
-  let aaAsking: boolean | null = null
+  function applySettings(): void {
+    if (draftAa !== appliedAa) { reloadAsk.hidden = false; return }
+    if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
+    settings.hidden = true
+  }
 
-  function renderAntialias(on: boolean, pending: boolean): void {
-    aaOn = on
-    aaPending = pending
-    aaAsking = null
-    el.antialiasConfirm.hidden = true
-    optRow(el.antialias,
-      ANTIALIAS_LEVELS.map((lv) => ({ label: lv.label, hint: lv.hint, value: lv.value, sil: '' })),
-      on, (v) => {
-        // 【選同一個就什麼都不做】重載一次只為了換成一樣的值是很糟的體驗
-        if (v === aaOn) { el.antialiasConfirm.hidden = true; aaAsking = null; return }
-        if (aaPending) { hooks.onAntialias(v); return }
-        aaAsking = v
-        el.antialiasConfirm.hidden = false
-      })
-    el.antialiasNote.hidden = !pending
+  /**
+   * 警告框上按了「儲存並重新載入」。
+   *
+   * 【畫質要先送】`onAntialias` 會重新載入，它之後的程式碼不保證跑得到；漏送的話
+   * 玩家同時改的畫質會在重整後消失，而那看起來像是「確定沒有生效」。
+   */
+  function commitReload(): void {
+    reloadAsk.hidden = true
+    if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
+    hooks.onAntialias(draftAa)
+  }
+
+  function renderQuality(scale: number): void {
+    appliedQuality = scale
+    draftQuality = scale
+    drawSettingRows()
+  }
+
+  function renderAntialias(on: boolean): void {
+    appliedAa = on
+    draftAa = on
+    drawSettingRows()
   }
 
   function renderSetup(setup: SkirmishSetup): void {
@@ -593,7 +621,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     setPaused(v) {
       pause.hidden = !v
       // 關掉暫停就一併關掉確認框與設定：「繼續」與換畫面都不該留下一層覆蓋
-      if (!v) { confirm.hidden = true; settings.hidden = true }
+      if (!v) { confirm.hidden = true; settings.hidden = true; reloadAsk.hidden = true }
     },
     renderSetup,
     renderQuality,

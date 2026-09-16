@@ -2563,12 +2563,10 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     menu.renderQuality(scale)
   },
   onAntialias(on) {
+    // 【選單已經問過了】它只在玩家按下「儲存並重新載入」之後才送這個事件。
+    // antialias 是建立 context 的參數，換不了，所以只能整個重來一次
     saveAntialias(on)
-    // 【戰鬥中不能重載】那會丟掉整場；只標示下次載入生效。
-    // 不在戰鬥中就直接重載 —— antialias 是建立 context 的參數，換不了
-    const pending = screen === 'battle'
-    menu.renderAntialias(on, pending)
-    if (!pending) location.reload()
+    location.reload()
   },
 })
 // 【先套用再畫選單】兩邊讀同一個值，按鈕標的才是畫面實際用的檔位
@@ -2576,7 +2574,7 @@ const startQuality = readQuality()
 ctx.setQuality(startQuality)
 menu.renderQuality(startQuality)
 // 抗鋸齒在 `createScene` 就讀過並套用了，這裡只是把按鈕標成同一個值
-menu.renderAntialias(readAntialias(), false)
+menu.renderAntialias(readAntialias())
 menu.renderSetup(setup)
 menu.show(screen)
 

@@ -12,16 +12,20 @@
  */
 export interface QualityLevel {
   readonly label: string
-  readonly hint: string
   /** 原生解析度的幾成 */
   readonly scale: number
 }
 
-/** 順序即按鈕順序。**由清晰到流暢** */
+/**
+ * 順序即按鈕順序。**由清晰到流暢**。
+ *
+ * 【標籤只寫感受，不寫比例】「八成」「六成五」是這裡的實作細節，玩家要選的是
+ * 畫面清楚還是順，不是解析度乘數 —— 而且那個數字在不同螢幕上的意義並不相同。
+ */
 export const QUALITY_LEVELS: readonly QualityLevel[] = [
-  { label: '清晰', hint: '原生', scale: 1 },
-  { label: '平衡', hint: '八成', scale: 0.8 },
-  { label: '流暢', hint: '六成五', scale: 0.65 },
+  { label: '清晰', scale: 1 },
+  { label: '平衡', scale: 0.8 },
+  { label: '流暢', scale: 0.65 },
 ]
 
 /** 沒有設定過時用的檔位 —— 與這個選項上線前的行為逐字相同 */
@@ -52,9 +56,9 @@ export function pixelRatioFor(scale: number, devicePixelRatio: number): number {
  * 【為什麼換它要重新載入】同一個理由：context 建好就換不了，換它等於重建
  * 整個 renderer，而場景、材質、貼圖全掛在舊的 context 上。
  */
-export const ANTIALIAS_LEVELS: readonly { label: string; hint: string; value: boolean }[] = [
-  { label: '開啟', hint: '邊緣平滑', value: true },
-  { label: '關閉', hint: '較快', value: false },
+export const ANTIALIAS_LEVELS: readonly { label: string; value: boolean }[] = [
+  { label: '開啟', value: true },
+  { label: '關閉', value: false },
 ]
 
 /** 沒有設定過時的抗鋸齒 —— 與這個選項上線前逐字相同 */
