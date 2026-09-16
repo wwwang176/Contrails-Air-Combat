@@ -1,5 +1,9 @@
 import { contactColor, HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 import { ARENA_RADIUS } from '../../world/arena'
+import { drawCachedLayer, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
+
+/** 方框內那一塊，低頻重畫 */
+const MAP_LAYER = newLayerCache()
 
 /** 地圖半徑，公尺。 */
 const RANGE = 4000
@@ -58,7 +62,25 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   const cy = y + size / 2
   /** 每公尺的像素數 */
   const px = size / (2 * RANGE)
+  /**
+   * 貼邊用的半邊長。**接觸點與 N 標記共用同一個值** —— 各自算一份的話，
+   * 同一個方位的兩個標記會落在不同半徑上。
+   */
+  const edge = size / 2 - SYMBOL_MARGIN * L.scale
 
+  // 【只有方框內那一塊降頻】格線、戰區圈、幾十個接觸符號的成本都在框內。
+  // 框外的邊框、N 標記、中心符號與座標很便宜，每幀照畫 —— N 標記貼著框邊
+  // 繞，停在舊航向上一眼就看得出來
+  drawCachedLayer(ctx, L, MAP_LAYER, { x, y, w: size, h: size }, LOW_RATE, LOW_RATE_PHASE.minimap,
+    (c) => mapInterior(c, L, f, x, y, size, cx, cy, px, edge))
+  mapChrome(ctx, L, f, x, y, size, cx, cy, edge)
+}
+
+/** 方框內：地圖本體。自機恆在中心，轉的是地圖，所以這裡每一樣東西都吃 `f.heading` */
+function mapInterior(
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
+  x: number, y: number, size: number, cx: number, cy: number, px: number, edge: number,
+): void {
   ctx.fillStyle = HUD_COLORS.panel
   ctx.fillRect(x, y, size, size)
 
@@ -105,7 +127,6 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
   // 形狀不能轉——倒三角轉了就讀不出「他在我下面」。
   const cosH = Math.cos(f.heading)
   const sinH = Math.sin(f.heading)
-  const edge = size / 2 - SYMBOL_MARGIN * L.scale
   for (let i = 0; i < f.contactCount; i++) {
     const c = f.contacts[i]!
     if (!c.active) continue
@@ -182,7 +203,13 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     ctx.restore()
   }
   ctx.restore()
+}
 
+/** 方框外：邊框、N 標記、中心符號、比例尺與座標。**每幀畫** */
+function mapChrome(
+  ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame,
+  x: number, y: number, size: number, cx: number, cy: number, edge: number,
+): void {
   ctx.strokeStyle = HUD_COLORS.dim
   ctx.lineWidth = 1
   ctx.strokeRect(x, y, size, size)
