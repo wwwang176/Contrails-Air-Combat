@@ -92,10 +92,13 @@ export function lightGroundFires(fires: GroundFires, events: ImpactEvents): void
 /**
  * 推進一步，把這一步該放的迷你爆炸吐給呼叫端。
  *
- * @param dt   **畫面時間**，不是物理子步
- * @param puff 每一朵呼叫一次，世界座標
+ * @param dt    **畫面時間**，不是物理子步
+ * @param puff  每一朵呼叫一次，世界座標
+ * @param crowd 逐格的出煙間隔倍率（`render/fireCrowd.ts`）。省略即照原速率
  */
-export function stepGroundFires(fires: GroundFires, dt: number, puff: FirePuffFn): void {
+export function stepGroundFires(
+  fires: GroundFires, dt: number, puff: FirePuffFn, crowd?: Float32Array,
+): void {
   const f = fires as Mutable
   for (let i = 0; i < f.capacity; i++) {
     if (f.live[i] === 0) continue
@@ -107,8 +110,12 @@ export function stepGroundFires(fires: GroundFires, dt: number, puff: FirePuffFn
     f.left[i] = left
     let t = f.puff[i]! - dt
     if (t > 0) { f.puff[i] = t; continue }
+    // 【倍率必須 ≥ 1】0、負數或 NaN 會讓下面的補放迴圈永遠跳不出去 ——
+    // 那是整個分頁卡死，不是畫面瑕疵。NaN 過不了這個比較，自動退回原間隔
+    const m = crowd === undefined ? 1 : crowd[i]!
+    const gap = m >= 1 ? FIRE_PUFF * m : FIRE_PUFF
     // 【一步只放一朵】理由同 `stepShipFires`
-    do { t += FIRE_PUFF } while (t <= 0)
+    do { t += gap } while (t <= 0)
     f.puff[i] = t
     puff(f.x[i]!, f.y[i]!, f.z[i]!)
   }

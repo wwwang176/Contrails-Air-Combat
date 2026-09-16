@@ -159,7 +159,7 @@ export function lightShipFires(
  * @param puff 每一朵迷你爆炸呼叫一次，世界座標
  */
 export function stepShipFires(
-  fires: ShipFires, ships: readonly Ship[], dt: number, puff: FirePuffFn,
+  fires: ShipFires, ships: readonly Ship[], dt: number, puff: FirePuffFn, crowd?: Float32Array,
 ): void {
   const f = fires as Mutable
   for (let i = 0; i < f.capacity; i++) {
@@ -183,9 +183,13 @@ export function stepShipFires(
 
     // 艦體 → 世界
     P.set(f.x[i]!, f.y[i]!, f.z[i]!).applyQuaternion(s.orientation).add(s.position)
+    // 【倍率必須 ≥ 1】0、負數或 NaN 會讓下面的補放迴圈永遠跳不出去 ——
+    // 那是整個分頁卡死，不是畫面瑕疵。NaN 過不了這個比較，自動退回原間隔
+    const m = crowd === undefined ? 1 : crowd[i]!
+    const gap = m >= 1 ? FIRE_PUFF * m : FIRE_PUFF
     // 【一步只放一朵】dt 大於 FIRE_PUFF 時（掉幀）補放沒有意義 —— 那一幀
     // 的畫面只會出現一次，多放的幾朵疊在同一個位置
-    do { t += FIRE_PUFF } while (t <= 0)
+    do { t += gap } while (t <= 0)
     f.puff[i] = t
     puff(P.x, P.y, P.z)
   }

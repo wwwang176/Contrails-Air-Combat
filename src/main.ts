@@ -48,6 +48,7 @@ import {
 import {
   createGroundFires, lightGroundFire, lightGroundFires, stepGroundFires,
 } from './render/groundFires'
+import { createFireCrowd, updateFireCrowd } from './render/fireCrowd'
 import { hash01 } from './render/scatter'
 import {
   createSpray, emitSpray, DEBRIS_SPRAY_COUNT, WATER_COLOR, WRECK_SPRAY_COUNT,
@@ -579,6 +580,8 @@ ctx.scene.add(vortex.object)
  */
 const shipFires = createShipFires()
 const groundFires = createGroundFires()
+/** 擠在一起的火少冒一點煙。**兩個池合在一起算**，見 `render/fireCrowd.ts` */
+const fireCrowd = createFireCrowd(groundFires, shipFires)
 /**
  * 附近的爆炸把鏡頭搖一下。**火焰那一串小爆炸不進來**（見 `cameraShake.ts`）
  */
@@ -1990,8 +1993,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   bombVisuals.update(world.bombs)
   torpedoVisuals.update(world.torpedoes)
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
-  stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff)
-  stepGroundFires(groundFires, frameSeconds, emitFirePuff)
+  // 【排在兩支 step 之前】這一幀的間隔倍率要先算好，否則兩支火用到的是
+  // 上一幀的值；剛熄掉的格子也會慢一幀才歸位
+  updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, frameSeconds)
+  stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff, fireCrowd.ship)
+  stepGroundFires(groundFires, frameSeconds, emitFirePuff, fireCrowd.ground)
   emitPlantSteam(frameSeconds)
   emitFlareSmoke(frameSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
