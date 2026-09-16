@@ -39,6 +39,19 @@ const PHYSICS_CEILING = 8
 const MAX_INTERVAL_MS = 1000
 
 /**
+ * **恆亮的 FPS 那一格**多久推一格，ms。F3 打開的三格不受這個影響 —— 那是開發
+ * 資訊，打開就是要看每一幀。
+ *
+ * 【為什麼不是每幀】這一格玩家一直都在付錢：165 Hz 下每秒刷掉一百多格，
+ * 七十四格的圖只剩半秒歷史，數字也跳到讀不了，而每幀一次 `fillText` 是這塊
+ * 面板最貴的一筆。
+ *
+ * 【推的是這段期間**最差**的那一幀，不是當下那一幀】隔半秒取一個瞬間值等於
+ * 八十幀裡只看一幀，尖峰幾乎一定漏掉 —— 而曲線存在的理由就是讓尖峰看得見。
+ */
+const PANEL_INTERVAL_MS = 500
+
+/**
  * 左上角的效能面板。
  *
  * 【FPS 量的是幀間隔，不是 `frame()` 花了多久】相鄰兩次 rAF 時間戳的差
@@ -96,6 +109,9 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   let frameStart = 0
   let physicsStart = 0
   let physicsAccum = 0
+  /** FPS 那一格上一次推格的時刻，以及這段期間最差的值。`-1` 表示還沒推過 */
+  let panelAt = -1
+  let worstFps = Infinity
 
   const avg = (arr: Float64Array, n: number): number => {
     if (n === 0) return 0
@@ -141,8 +157,13 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       intervals[intervalAt] = interval
       intervalAt = (intervalAt + 1) % SAMPLE_WINDOW
       if (intervalCount < SAMPLE_WINDOW) intervalCount++
-      // 【曲線吃這一幀的值，不是平均】它存在的理由就是讓尖峰看得見
-      fpsPanel.update(1000 / interval, FPS_CEILING)
+      // 【曲線吃這段期間最差的那一幀，不是平均】它存在的理由就是讓尖峰看得見
+      worstFps = Math.min(worstFps, 1000 / interval)
+      if (panelAt < 0) panelAt = now
+      if (now - panelAt < PANEL_INTERVAL_MS) return
+      panelAt = now
+      fpsPanel.update(worstFps, FPS_CEILING)
+      worstFps = Infinity
     },
     beginPhysics() {
       physicsStart = performance.now()
@@ -151,12 +172,15 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       physicsAccum += performance.now() - physicsStart
     },
     endFrame(substeps: number) {
-      const frameMs = performance.now() - frameStart
+      const end = performance.now()
+      const frameMs = end - frameStart
       frameTimes[sampleAt] = frameMs
       physicsTimes[sampleAt] = physicsAccum
       sampleAt = (sampleAt + 1) % SAMPLE_WINDOW
       if (sampleCount < SAMPLE_WINDOW) sampleCount++
 
+      // 【F3 這三格維持逐幀】它們是開發資訊，打開就是要看每一幀長什麼樣；
+      // 節流過的曲線讀不出單幀的形狀。要省的是恆亮的那一格，見 PANEL_INTERVAL_MS
       if (!visible) return
       framePanel.update(frameMs, FRAME_CEILING)
       physicsPanel.update(physicsAccum, PHYSICS_CEILING)
