@@ -29,13 +29,13 @@ export const SPARK_DRAG = 6
  * 超過這個距離的命中事件不發射，m。
  *
  * 【推導】1920 px、65° 視野下每像素 5.9e-4 rad（見 `tracers.ts`），
- * 800 m 上 1 px = 0.47 m，而火星只有 0.3 m 長 —— **0.64 px，次像素**。
- * 模擬看不見的粒子是純浪費（M7 spec §6.4）。
+ * 800 m 上 1 px = 0.47 m，而火星只有 0.6 m 長、0.04 m 粗 —— 長約 1.3 px、
+ * 粗遠低於一個像素，幾乎看不見。模擬看不見的粒子是純浪費（M7 spec §6.4）。
  */
 export const SPARK_CULL = 800
 
 /** 火星拉長的長度與半徑，m。與曳光彈同一種幾何。 */
-export const SPARK_LENGTH = 0.3
+export const SPARK_LENGTH = 0.6
 export const SPARK_RADIUS = 0.02
 
 /**
