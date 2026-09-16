@@ -1,5 +1,8 @@
-import { Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D } from 'three'
+import {
+  Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D, type WebGLRenderer,
+} from 'three'
 import { createOcean } from './ocean'
+import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
@@ -40,6 +43,27 @@ import type { TerrainKind } from '../world/terrainKind'
 // 【聯集本身住在 world/】見 `world/terrainKind.ts`。這裡再匯出，
 // 既有的 import 站點不用動
 export type { TerrainKind }
+
+/**
+ * 有 GPU 可用時給 `createTerrain` 的東西。**省略就是純算式的地面**，headless
+ * 的測試與不畫圖的工具走那一條。
+ */
+export interface TerrainGfx {
+  readonly renderer: WebGLRenderer
+  /** 鏡頭周圍多少公尺內的田色仍逐像素算，m。見 `render/quality.ts` 的 `fieldInner` */
+  readonly fieldInner: number
+}
+
+/**
+ * 田色 clipmap 的兩層。近圖 2 m 一格蓋 4 km，遠圖 7.3 m 一格蓋 30 km。
+ *
+ * 【尺寸是量出來的】近圖 4096 每幀多花 1 ms 在取樣上而畫質看不出差；遠圖
+ * 14.6 m 一格在 1 km 高度看 2.5 km 外明顯偏軟。**兩張 4096² 帶 mipmap 同時
+ * 存在會讓 ANGLE D3D11 報記憶體不足並丟掉整個 WebGL context** —— 改尺寸前
+ * 先讀 `docs/superpowers/specs/2026-09-17-field-clipmap-showcase-design.md`。
+ */
+export const FIELD_CLIP_NEAR: ClipLevelSpec = { size: 2048, metersPerTexel: 2 }
+export const FIELD_CLIP_FAR: ClipLevelSpec = { size: 4096, metersPerTexel: 30000 / 4096 }
 
 export interface Terrain {
   /** 加進場景的那個節點。換地形時整個移除 */
@@ -101,6 +125,11 @@ export interface Terrain {
    */
   readonly land: LandField | null
   /**
+   * 田色 clipmap。**只有內陸而且建地形時給了 `TerrainGfx` 才有**，否則 `null`。
+   * 畫質換檔位時經它調內圈半徑；量測出口經它讀挪窗統計。
+   */
+  readonly fieldClip: FieldClipmap | null
+  /**
    * 換時段。**海的那一半**（陸地與植被的顏色這一期不跟著換，見
    * `timeOfDay.ts`）。
    */
@@ -121,12 +150,12 @@ export interface Terrain {
  * 【三條互不相干的頂層分支】重整之前是「先建好群島與海面，再判斷是不是
  * `'sea'`」—— 那樣加第三種地形會憑空多出兩個 child，而且洩漏 ocean 的資源。
  */
-export function createTerrain(kind: TerrainKind): Terrain {
-  if (kind === 'farmland') return createFarmlandTerrain()
-  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain()
-  if (kind === 'leuna') return createLeunaTerrain()
-  if (kind === 'poltava') return createPoltavaTerrain()
-  if (kind === 'asch') return createAschTerrain()
+export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
+  if (kind === 'farmland') return createFarmlandTerrain(gfx)
+  if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx)
+  if (kind === 'leuna') return createLeunaTerrain(gfx)
+  if (kind === 'poltava') return createPoltavaTerrain(gfx)
+  if (kind === 'asch') return createAschTerrain(gfx)
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
 }
@@ -151,6 +180,7 @@ function createSeaTerrain(): Terrain {
     waterAt: (x, z) => ocean.heightAt(x, z, 0),
     islands: [],
     land: null,
+    fieldClip: null,
     setPalette(p) { ocean.setPalette(p) },
     update(time, centerX, centerZ) { ocean.update(time, centerX, centerZ) },
     dispose() { ocean.dispose() },
@@ -210,6 +240,8 @@ function createArchipelagoTerrain(): Terrain {
     // 高於它的彈丸一定碰不到陸地。用實測值要多掃一次全圖，而且會讓
     // 「動了地形就要重算」多一條沒有人記得的規則
     land: { field, ceiling: PEAK_MAX, landAbove: 0 },
+    // 【群島的地色是頂點色】沒有田色算式可以烘
+    fieldClip: null,
     setPalette(p) {
       ocean.setPalette(p)
       flora.setPointLight(p.foliage)
@@ -227,8 +259,8 @@ function createArchipelagoTerrain(): Terrain {
   }
 }
 
-function createFarmlandTerrain(): Terrain {
-  return createInlandTerrain(createFarmland(), 'summer')
+function createFarmlandTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createFarmland(), 'summer', undefined, undefined, undefined, gfx)
 }
 
 /** 碴石：調車場的街廓 */
@@ -271,16 +303,16 @@ export const LEUNA_SITE: SiteLayout = {
 }
 
 /** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景 */
-function createLeunaTerrain(): Terrain {
-  return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery)
+function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery, undefined, gfx)
 }
 
 /**
  * 晚秋的內陸：農地的高度場，洛伊納的晚秋色盤。**沒有廠區的墊面與佈景** ——
  * 德 M1 在路途上攔截，地上不該有工廠。
  */
-function createAutumnFarmlandTerrain(): Terrain {
-  return createInlandTerrain(createFarmland(), 'lateAutumn')
+function createAutumnFarmlandTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createFarmland(), 'lateAutumn', undefined, undefined, undefined, gfx)
 }
 
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
@@ -298,8 +330,8 @@ export const POLTAVA_SITE: SiteLayout = {
 }
 
 /** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
-function createPoltavaTerrain(): Terrain {
-  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery)
+function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, undefined, gfx)
 }
 
 /** Y-29 的墊面（草）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
@@ -314,8 +346,8 @@ export const ASCH_SITE: SiteLayout = {
 }
 
 /** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、沒有佈景 */
-function createAschTerrain(): Terrain {
-  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE)
+function createAschTerrain(gfx?: TerrainGfx): Terrain {
+  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, undefined, gfx)
 }
 
 /**
@@ -345,9 +377,20 @@ function createInlandTerrain(
    * —— 遊戲那三條路徑都不給，行為逐字不變。
    */
   flora?: (base: FloraSource[]) => FloraSource[],
+  gfx?: TerrainGfx,
 ): Terrain {
   const horizon = createFarHorizon(season)
   const ground = createFarmGround(farm.field, season, site)
+  // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
+  // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
+  const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
+    season, candidates: ground.candidates, ...(site === undefined ? {} : { site }),
+    near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, innerRadius: gfx.fieldInner,
+  })
+  if (clipmap !== null) {
+    horizon.mesh.material = clipmap.material
+    for (const o of ground.object.children) (o as Mesh).material = clipmap.material
+  }
   const group = new Group()
   // 【場外回 0，不是 −Infinity】內陸沒有海可以退回去。遮蔽層與植被拿到的
   // 也是這一份 —— 見 `outsideZero`
@@ -390,13 +433,18 @@ function createInlandTerrain(
     setPalette(p) { vegetation.setPointLight(p.foliage) },
     islands: farm.hills,
     land: { field: solid, ceiling: HILL_PEAK_MAX, landAbove: -Infinity },
-    // 【遠景環與地面是固定的】只有植被要跟著鏡頭補格
-    update(_time, centerX, centerZ) { vegetation.update(centerX, centerZ) },
+    fieldClip: clipmap,
+    // 【遠景環與地面是固定的】植被跟著鏡頭補格，田色貼圖跟著鏡頭挪窗
+    update(_time, centerX, centerZ) {
+      vegetation.update(centerX, centerZ)
+      clipmap?.update(centerX, centerZ)
+    },
     settle() { vegetation.settle() },
     dispose() {
       horizon.dispose()
       ground.dispose()
       vegetation.dispose()
+      clipmap?.dispose()
       if (sceneryMesh !== null) {
         sceneryMesh.geometry.dispose()
         ;(sceneryMesh.material as MeshStandardMaterial).dispose()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, pixelRatioFor,
+  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, fieldInnerFor, pixelRatioFor,
 } from '../../src/render/quality'
 
 /**
@@ -35,6 +35,18 @@ describe('畫質檔位', () => {
     for (const bad of [1.5, 2, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(pixelRatioFor(bad, 1.5)).toBe(1.5)
     }
+  })
+
+  /**
+   * 田色的內圈：清晰留一圈算式，其餘純貼圖。**查不到的檔位回到清晰** ——
+   * 手改過的存檔不該讓貼地的畫面變軟而沒有人選過。
+   */
+  it('清晰留內圈算式、平衡與流暢純貼圖，查不到的檔位回到清晰', () => {
+    expect(fieldInnerFor(1)).toBe(500)
+    expect(fieldInnerFor(0.8)).toBe(0)
+    expect(fieldInnerFor(0.65)).toBe(0)
+    expect(fieldInnerFor(0.7)).toBe(fieldInnerFor(DEFAULT_QUALITY))
+    for (const lv of QUALITY_LEVELS) expect(lv.fieldInner).toBeGreaterThanOrEqual(0)
   })
 
   /** 【由清晰到流暢】順序即按鈕順序；亂序的話選單看起來像壞了 */

@@ -125,7 +125,12 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
 
 export function createFarmGround(
   field: HeightFieldData, season: Season = 'summer', site?: SiteLayout,
-): { object: Object3D; dispose(): void } {
+): {
+  object: Object3D
+  /** 區塊候選表。田色 clipmap 烘圖與內圈的算式共用它，才不必再建一份 */
+  candidates: { texture: DataTexture; table: RegionCandidates }
+  dispose(): void
+} {
   const group = new Group()
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   // 【區塊候選表進關卡時建】田區著色器每個片段原本要比九顆區塊種子；查表後
@@ -156,6 +161,7 @@ export function createFarmGround(
 
   return {
     object: group,
+    candidates: { texture, table },
     dispose() {
       for (const g of geometries) g.dispose()
       material.dispose()

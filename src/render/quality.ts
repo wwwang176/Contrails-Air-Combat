@@ -14,6 +14,14 @@ export interface QualityLevel {
   readonly label: string
   /** 原生解析度的幾成 */
   readonly scale: number
+  /**
+   * 鏡頭周圍多少公尺內的田色仍逐像素算，m；0 = 全部查貼圖。
+   *
+   * 【為什麼清晰檔要留一圈】貼圖是 2 m 一格，貼地 100 m 以下田埂的邊緣會軟；
+   * 算式在那一圈裡與貼圖上線前的畫面逐位元相同。代價只在貼地飛時付 ——
+   * 平飛與投彈時那一圈是畫面很小的一塊。見 `render/fieldClipmap.ts`。
+   */
+  readonly fieldInner: number
 }
 
 /**
@@ -23,13 +31,23 @@ export interface QualityLevel {
  * 畫面清楚還是順，不是解析度乘數 —— 而且那個數字在不同螢幕上的意義並不相同。
  */
 export const QUALITY_LEVELS: readonly QualityLevel[] = [
-  { label: '清晰', scale: 1 },
-  { label: '平衡', scale: 0.8 },
-  { label: '流暢', scale: 0.65 },
+  { label: '清晰', scale: 1, fieldInner: 500 },
+  { label: '平衡', scale: 0.8, fieldInner: 0 },
+  { label: '流暢', scale: 0.65, fieldInner: 0 },
 ]
 
 /** 沒有設定過時用的檔位 —— 與這個選項上線前的行為逐字相同 */
 export const DEFAULT_QUALITY = 1
+
+/**
+ * 檔位的田色內圈半徑。**存的是 `scale`，查表拿另一個欄位** —— 設定只記一個
+ * 數字，其餘都由它查出來。對不上任何檔位（手改過的存檔）回到清晰那一檔：
+ * 寧可多算一圈，也不要讓貼地的畫面變軟而沒有人選過。
+ */
+export function fieldInnerFor(scale: number): number {
+  const lv = QUALITY_LEVELS.find((q) => q.scale === scale)
+  return (lv ?? QUALITY_LEVELS[0]!).fieldInner
+}
 
 /**
  * 檔位換算成要給 renderer 的 pixel ratio。
