@@ -3,11 +3,11 @@ import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './co
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
-import { readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
+import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
-import { createTerrain } from './render/terrain'
+import { createTerrain, type TerrainGfx } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
 import { createTracers } from './render/tracers'
@@ -174,7 +174,12 @@ function blockForRecoveryWorker(message: string): void {
  * 重跑」的鑰匙的一部分，而有波次的「重新開始」不重建地形卻要重印那一行。
  */
 let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
-let terrain = createTerrain(terrainKind)
+/**
+ * 建地形時給的 GPU 資源。**每次建都重讀檔位** —— 內圈半徑跟著玩家目前選的
+ * 畫質走，換檔位時另由 `onQuality` 直接調現有地形的
+ */
+const terrainGfx = (): TerrainGfx => ({ renderer: ctx.renderer, fieldInner: fieldInnerFor(readQuality()) })
+let terrain = createTerrain(terrainKind, terrainGfx())
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
@@ -1246,7 +1251,7 @@ function enterBattle(): void {
     : setup.terrain
   ctx.scene.remove(terrain.object)
   terrain.dispose()
-  terrain = createTerrain(terrainKind)
+  terrain = createTerrain(terrainKind, terrainGfx())
   ctx.scene.add(terrain.object)
   // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
   // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
@@ -2565,6 +2570,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onQuality(scale) {
     ctx.setQuality(scale)
     saveQuality(scale)
+    // 【田色的內圈跟著檔位】清晰留一圈算式，其餘純貼圖；純海面沒有這一項
+    terrain.fieldClip?.setInnerRadius(fieldInnerFor(scale))
     // 【自己重畫】選單不記得目前的檔位，按鈕的選中狀態要由這裡再餵一次
     menu.renderQuality(scale)
   },
@@ -2771,6 +2778,17 @@ if (initialRecoveryFailure !== null) {
  * 真實幀率比對，兩者對不上就是覆蓋層量錯了東西。
  */
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
+
+/**
+ * **量測出口**：改田色 clipmap 的內圈半徑，回挪窗統計。同頁 A/B 用 ——
+ * 半徑給得極大就等於整片地面走算式，而兩邊是同一個 program。純海面回 `null`。
+ */
+;(window as unknown as Record<string, unknown>)['__fieldClip'] = (inner?: number) => {
+  const c = terrain.fieldClip
+  if (c === null) return null
+  if (inner !== undefined) c.setInnerRadius(inner)
+  return { ...c.stats }
+}
 
 const GFX_HIDDEN_LAYER = 31
 ;(window as unknown as Record<string, unknown>)['__gfx'] = (

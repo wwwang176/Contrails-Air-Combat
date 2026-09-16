@@ -1,9 +1,8 @@
-import { Vector3, type Mesh } from 'three'
+import { Vector3 } from 'three'
 import { createScene } from '../render/scene'
-import { createTerrain, LEUNA_SITE, type Terrain } from '../render/terrain'
+import { createTerrain, type Terrain } from '../render/terrain'
 import { applyTimeOfDay } from '../render/timeOfDay'
 import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
-import { createFieldClipmap } from '../render/fieldClipmap'
 import {
   createGodCameraState, godCameraTarget, stepGodCamera, DEFAULT_GOD_CAMERA,
   type GodCameraInput, type GodCameraOptions,
@@ -14,9 +13,9 @@ import Stats from 'three/addons/libs/stats.module.js'
 /**
  * 田色 clipmap 展示區 —— 純檢視用的開發工具，不屬於遊戲。
  *
- * 【它走的是遊戲的那條路徑】`createScene` ＋ `createTerrain('leuna')` ＋
- * `applyTimeOfDay`，與 `main.ts` 相同；建完只把地面與遠景環的材質換成
- * `fieldClipmap.ts` 的那一份。遊戲本身不知道這個模組存在。
+ * 【它走的是遊戲的那條路徑】`createScene` ＋ `createTerrain('leuna', gfx)` ＋
+ * `applyTimeOfDay`，與 `main.ts` 相同 —— 地形自己建 clipmap、自己換材質，
+ * 這裡只拿 `terrain.fieldClip` 來切模式與讀統計。
  *
  * 【三個模式是同一個 program】算式／純貼圖／內圈算式＋貼圖差的只有兩個
  * uniform，切換不重編譯、不換材質，A/B 看到的差就是那兩個 uniform 的差。
@@ -30,24 +29,11 @@ const ctx = createScene(canvas)
 // 【廠區的佈景是 GLB】`createTerrain` 是同步的，要先載完
 await preloadPlantScenery()
 
-const terrain: Terrain = createTerrain('leuna')
+const terrain: Terrain = createTerrain('leuna', { renderer: ctx.renderer, fieldInner: 500 })
 ctx.scene.add(terrain.object)
 applyTimeOfDay(ctx, terrain, 'novemberNoon')
-
-/** 近 2048 格 × 2 m 蓋 4 km、遠 4096 格 × 7.3 m 蓋 30 km —— POC 選定的那一組 */
-const clipmap = createFieldClipmap(ctx.renderer, {
-  season: 'lateAutumn',
-  site: LEUNA_SITE,
-  near: { size: 2048, metersPerTexel: 2 },
-  far: { size: 4096, metersPerTexel: 30000 / 4096 },
-  innerRadius: 500,
-})
-
-// 【地面 25 塊與遠景環一起換】兩者本來共用同一支田色算式，只換地面的話
-// 15 km 外那一圈會與地面接不上
-const ring = terrain.object.children[0] as Mesh
-ring.material = clipmap.material
-for (const o of terrain.object.children[2]!.children) (o as Mesh).material = clipmap.material
+if (terrain.fieldClip === null) throw new Error('洛伊納給了 renderer 卻沒有田色 clipmap')
+const clipmap = terrain.fieldClip
 
 // ── 鏡頭 ──
 const CAM: GodCameraOptions = {
@@ -187,7 +173,7 @@ function frame(now: number): void {
   input.lookY = 0
   ctx.camera.position.copy(cam.position)
   ctx.camera.lookAt(godCameraTarget(cam, TARGET))
-  clipmap.update(cam.position.x, cam.position.z)
+  // 【挪窗在 terrain.update 裡】與遊戲同一條路徑
   terrain.update(elapsed, cam.position.x, cam.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
   stats.update()

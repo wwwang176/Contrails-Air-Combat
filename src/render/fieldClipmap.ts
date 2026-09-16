@@ -1,9 +1,9 @@
 import {
   LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
-  PlaneGeometry, Scene, ShaderMaterial, Vector2, WebGLRenderTarget,
-  type WebGLProgramParametersWithUniforms, type WebGLRenderer,
+  PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
+  type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
-import { fieldGlslWithSite, type SiteLayout } from './fields'
+import { fieldGlslWithSite, type RegionCandidates, type SiteLayout } from './fields'
 import type { Season } from './season'
 
 /**
@@ -133,6 +133,11 @@ export interface FieldClipmapOptions {
   readonly site?: SiteLayout
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
+  /**
+   * 區塊候選表（`farmGround.ts` 建的那一份）。給了的話烘圖與內圈的算式都查表，
+   * 每個片段少比五六顆種子；沒給就走完整的 3×3，答案相同
+   */
+  readonly candidates?: { texture: DataTexture; table: RegionCandidates }
   /** 鏡頭周圍走算式的半徑，m。0 = 純貼圖 */
   readonly innerRadius?: number
   /** 內圈往外漸變到貼圖的寬度，m */
@@ -176,7 +181,13 @@ const ROUGHNESS = 0.95
 let instances = 0
 
 export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOptions): FieldClipmap {
-  const glsl = fieldGlslWithSite(opts.season, opts.site, false)
+  const cand = opts.candidates
+  const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined)
+  /** 候選表的兩個 uniform；烘圖材質與地面材質各掛一份同樣的 */
+  const candUniforms = (): Record<string, { value: unknown }> => (cand === undefined ? {} : {
+    uRegionCand: { value: cand.texture },
+    uRegionCandRect: { value: new Vector4(cand.table.gx0, cand.table.gz0, cand.table.blocksX, cand.table.blocksZ) },
+  })
   const anisotropy = renderer.capabilities.getMaxAnisotropy()
   const level = (spec: ClipLevelSpec): Level => {
     const rt = new WebGLRenderTarget(spec.size, spec.size, {
@@ -194,7 +205,10 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
 
   // ── 烘圖 ──
   const bakeMat = new ShaderMaterial({
-    uniforms: { uCell0: { value: new Vector2() }, uCells: { value: new Vector2() }, uMetres: { value: 1 } },
+    uniforms: {
+      uCell0: { value: new Vector2() }, uCells: { value: new Vector2() }, uMetres: { value: 1 },
+      ...candUniforms(),
+    },
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres; varying vec2 vWorld;
 void main() { vWorld = (uCell0 + uv * uCells) * uMetres; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: `varying vec2 vWorld;
@@ -264,7 +278,7 @@ void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 1.0); }`,
   }
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-    Object.assign(shader.uniforms, U)
+    Object.assign(shader.uniforms, U, candUniforms())
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vFarmWorld;')
       .replace('#include <begin_vertex>',
@@ -305,7 +319,7 @@ ${glsl}`)
   }
   const id = instances++
   material.customProgramCacheKey = () =>
-    `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${id}`
+    `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}:${id}`
 
   return {
     material,
