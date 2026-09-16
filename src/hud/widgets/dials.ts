@@ -2,6 +2,7 @@ import { DEG, clamp } from '../../core/math'
 import type { ReleaseEnvelope } from '../../weapons/releaseEnvelope'
 import { HUD_COLORS, hudFont, type HudFrame, type HudLayout } from '../types'
 import { drawAttitude } from './attitude'
+import { drawCachedLayer, LAYER_ORIGIN, LOW_RATE, LOW_RATE_PHASE, newLayerCache } from './layerCache'
 
 /** 空速表滿刻度，km/h。P-51D 俯衝的指示空速摸得到 700 出頭。 */
 const ASI_MAX = 800
@@ -86,6 +87,9 @@ const newFaceCache = (): FaceCache => ({ canvas: null, cx: NaN, cy: NaN, r: NaN,
 const ASI_FACE = newFaceCache()
 const ALT_FACE = newFaceCache()
 
+/** 三個表加上底下的讀數，整塊低頻重畫 */
+const DIAL_LAYER = newLayerCache()
+
 /**
  * 盤面、刻度、刻度數字畫進一張離屏點陣，每幀以裝置像素 1:1 貼回。
  *
@@ -127,7 +131,10 @@ function drawFace(
   ctx.save()
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.imageSmoothingEnabled = false
-  ctx.drawImage(cache.canvas, cache.x, cache.y)
+  // 【要扣掉離屏層的原點】identity 變換下的座標是**主畫布**的裝置像素，
+  // 而這裡的 ctx 可能是某個離屏層（`LAYER_ORIGIN`），它的左上角不在主畫布的
+  // 左上角。不扣的話盤面會整個偏移出去。兩者都是整數，相減沒有精度損失
+  ctx.drawImage(cache.canvas, cache.x - LAYER_ORIGIN.x, cache.y - LAYER_ORIGIN.y)
   ctx.restore()
   tickState(ctx, L)
 }
@@ -280,28 +287,41 @@ export function drawDials(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFra
   const attX = altX - 2 * r - gap
   const asiX = attX - 2 * r - gap
 
-  drawAirspeed(ctx, L, f, asiX, cy, r)
-  drawAttitude(ctx, L, f, attX, cy, r)
-  drawAltimeter(ctx, L, f, altX, cy, r)
-
   // 表名與兩個沒有指針的附屬讀數
   const labelY = cy + r + 11 * L.scale
   const subY = labelY + 12 * L.scale
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.font = hudFont(10 * L.scale)
 
-  ctx.fillStyle = HUD_COLORS.dim
-  ctx.fillText('IAS km/h', asiX, labelY)
-  ctx.fillText('ALT m', altX, labelY)
-  // 【紅線警告與失速警告同一組門檻】0.85 是操縱面開始變重的點，0.95 剩 22%
-  ctx.fillStyle = f.vneRatio > 0.95 ? HUD_COLORS.danger
-    : f.vneRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.dim
-  ctx.fillText(`TAS ${(f.tas * 3.6).toFixed(0)}   M ${f.mach.toFixed(2)}`, asiX, subY)
+  // 【範圍含外圈的線寬】與 `drawFace` 的 pad 同一式。
+  // 【左右多留一點】視窗很扁時底下那行 `TAS … M …` 會比表身寬，切掉的話
+  // 那一行字會少一截，而且只在某些視窗比例下才看得出來
+  const pad = r + 1.5 * L.scale + 2
+  const padX = pad + 8 * L.scale
+  drawCachedLayer(ctx, L, DIAL_LAYER, {
+    x: asiX - padX,
+    y: cy - pad,
+    w: altX - asiX + 2 * padX,
+    h: subY + 9 * L.scale - (cy - pad),
+  }, LOW_RATE, LOW_RATE_PHASE.dials, (c) => {
+    drawAirspeed(c, L, f, asiX, cy, r)
+    drawAttitude(c, L, f, attX, cy, r)
+    drawAltimeter(c, L, f, altX, cy, r)
 
-  ctx.fillStyle = f.verticalSpeed >= 0 ? HUD_COLORS.primary : HUD_COLORS.warn
-  ctx.fillText(
-    `VS ${f.verticalSpeed >= 0 ? '+' : ''}${f.verticalSpeed.toFixed(1)} m/s`,
-    altX, subY,
-  )
+    c.textAlign = 'center'
+    c.textBaseline = 'middle'
+    c.font = hudFont(10 * L.scale)
+
+    c.fillStyle = HUD_COLORS.dim
+    c.fillText('IAS km/h', asiX, labelY)
+    c.fillText('ALT m', altX, labelY)
+    // 【紅線警告與失速警告同一組門檻】0.85 是操縱面開始變重的點，0.95 剩 22%
+    c.fillStyle = f.vneRatio > 0.95 ? HUD_COLORS.danger
+      : f.vneRatio > 0.85 ? HUD_COLORS.warn : HUD_COLORS.dim
+    c.fillText(`TAS ${(f.tas * 3.6).toFixed(0)}   M ${f.mach.toFixed(2)}`, asiX, subY)
+
+    c.fillStyle = f.verticalSpeed >= 0 ? HUD_COLORS.primary : HUD_COLORS.warn
+    c.fillText(
+      `VS ${f.verticalSpeed >= 0 ? '+' : ''}${f.verticalSpeed.toFixed(1)} m/s`,
+      altX, subY,
+    )
+  })
 }
