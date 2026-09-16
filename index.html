@@ -115,6 +115,15 @@
         background: rgba(var(--veil), var(--v, .7));
       }
       #ui .screen[hidden] { display: none; }
+      /* 【齒輪要自己開啟點擊】`#ui` 是 pointer-events: none，只有 .screen 例外 */
+      .gear {
+        position: fixed; top: 16px; right: 16px; z-index: 4; pointer-events: auto;
+        display: flex; align-items: center; justify-content: center;
+        width: 38px; height: 38px; padding: 0; color: var(--ink);
+        background: var(--btn); border: 1px solid var(--bd2); box-shadow: 0 3px 8px rgba(0,0,0,.5);
+      }
+      .gear:hover { background: var(--btn-hi); color: var(--strong); }
+      .gear[hidden] { display: none; }
       #recovery-worker-blocker {
         position: fixed; inset: 0; z-index: 10000; box-sizing: border-box;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -428,6 +437,14 @@
       </section>
 
       <!-- ①b 主選單：遮罩 50%。狀態行由 menu.ts 算出來填 -->
+      <!-- 設定的入口。固定在右上角，所有畫面共用一顆；飛行中指標被鎖定、
+           點不到任何按鈕，那時由 menu.ts 自己藏起來 -->
+      <button id="gear" class="gear" data-act="settings" title="設定" aria-label="設定">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6L17 17M7 7L5.4 5.4"/>
+        </svg>
+      </button>
       <section id="menu" class="screen" style="--v:.50" hidden>
         <div class="cards">
           <button class="tallcard paperbit" data-act="mission">
@@ -520,9 +537,6 @@
              再回該陣營的任務表。理由與結算板相同：不逐幀改 data-act -->
         <button class="btn" data-act="toMenu">回主選單</button>
         <button class="btn" data-act="abandon" hidden>放棄任務</button>
-        <!-- 畫質只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，不受影響 -->
-        <div class="lbl" style="margin-top:6px">畫質</div>
-        <div class="opt narrow" id="pause-quality"></div>
       </section>
       <!-- 放棄任務的確認。疊在暫停之上，menu.ts 自己開關 -->
       <section id="confirm" class="screen" style="--v:.60" hidden>
@@ -532,6 +546,19 @@
             <button class="go" data-act="abandonNo">繼續任務</button>
             <button class="btn" data-act="abandonYes">放棄任務</button>
           </div>
+        </div>
+      </section>
+      <!-- 設定。與暫停、確認同一類：overlay，不是畫面（見 ui/screens.ts）。
+           齒輪在右上角固定位置，任何畫面都按得到 -->
+      <section id="settings" class="screen" style="--v:.60" hidden>
+        <div class="ask">
+          <h2>設定</h2>
+          <div>
+            <div class="lbl" style="margin-bottom:7px">畫質</div>
+            <!-- 只調 3D 那張畫布的解析度；HUD 是另一張 2D 畫布，維持原生清晰度 -->
+            <div class="opt narrow" id="set-quality"></div>
+          </div>
+          <button class="go" data-act="settingsClose">關　閉</button>
         </div>
       </section>
     </div>

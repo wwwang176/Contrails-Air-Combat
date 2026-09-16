@@ -206,6 +206,18 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   }
   const pause = root.querySelector('#pause') as HTMLElement
   const confirm = root.querySelector('#confirm') as HTMLElement
+  const settings = root.querySelector('#settings') as HTMLElement
+  const gear = root.querySelector('#gear') as HTMLElement
+  /**
+   * 【飛行中把齒輪藏起來】指標鎖定時所有點擊都送給遊戲，畫面上的按鈕收不到 ——
+   * 留一顆點不到的按鈕會被當成壞掉。解除鎖定（Esc）之後它就回來。
+   *
+   * 【為什麼在這裡聽而不是讓 main.ts 推】鎖定與否是 DOM 的事實，UI 自己讀得到；
+   * 多一條對外 API 就多一個會忘記呼叫的地方。
+   */
+  const syncGear = (): void => { gear.hidden = document.pointerLockElement !== null }
+  document.addEventListener('pointerlockchange', syncGear)
+  syncGear()
   const q = (id: string): HTMLElement => root.querySelector(`#${id}`) as HTMLElement
   const el = {
     campaignCards: q('campaign-cards'),
@@ -219,7 +231,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     terrain: q('sk-terrain'),
     alt: q('sk-alt'),
     tod: q('sk-tod'),
-    quality: q('pause-quality'),
+    quality: q('set-quality'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -246,6 +258,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'restart') { hooks.onRestart(); return }
     // 【放棄任務要問過】確認框是暫停之上的第二層 overlay，不是畫面；
     // 確認之後才送畫面事件 —— 回的是該陣營的任務表，`campaign` 還留著
+    // 【設定是 overlay，不是畫面】與暫停、確認同一類，見 ui/screens.ts
+    if (act === 'settings') { settings.hidden = false; return }
+    if (act === 'settingsClose') { settings.hidden = true; return }
     if (act === 'abandon') { confirm.hidden = false; return }
     if (act === 'abandonNo') { confirm.hidden = true; return }
     if (act === 'abandonYes') { confirm.hidden = true; hooks.onEvent('toMission'); return }
@@ -519,8 +534,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     },
     setPaused(v) {
       pause.hidden = !v
-      // 關掉暫停就一併關掉確認框：「繼續」與換畫面都不該留下一個問句
-      if (!v) confirm.hidden = true
+      // 關掉暫停就一併關掉確認框與設定：「繼續」與換畫面都不該留下一層覆蓋
+      if (!v) { confirm.hidden = true; settings.hidden = true }
     },
     renderSetup,
     renderQuality,
