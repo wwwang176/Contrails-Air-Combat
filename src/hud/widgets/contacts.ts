@@ -32,6 +32,11 @@ export function edgeIndicatorPosition(
   return { x: dx * s, y: dy * s, angle: Math.atan2(dy, dx) }
 }
 
+/** 目標框底下的距離讀數：一律 km、小數一位（`0.9 km`、`0.0 km`） */
+export function contactRangeLabel(range: number): string {
+  return `${(range / 1000).toFixed(1)} km`
+}
+
 /**
  * 目標框與預瞄環。
  *
@@ -65,7 +70,7 @@ export function drawContacts(ctx: CanvasRenderingContext2D, L: HudLayout, f: Hud
       ctx.font = hudFont(10 * L.scale)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(`${Math.round(c.range)}`, x, y + r + 3 * L.scale)
+      ctx.fillText(contactRangeLabel(c.range), x, y + r + 3 * L.scale)
     } else {
       // 畫面外指示：**畫全部**，無距離門檻（spec §8）
       const e = edgeIndicatorPosition(c.x, c.y, c.behind, aspect)

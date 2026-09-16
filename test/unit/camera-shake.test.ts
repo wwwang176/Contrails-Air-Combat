@@ -3,8 +3,10 @@ import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
   FLAK_SHAKE as CAMERA_FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
   SHAKE_FREQUENCY, SHAKE_MAX_ANGLE, SHAKE_RANGE, SHAKE_SECONDS,
-  addShake, applyCameraShake, createCameraShake, shakeNoise, stepCameraShake,
+  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, shakeNoise, stepCameraShake,
 } from '../../src/camera/cameraShake'
+import { blastScaleOf } from '../../src/weapons/bomb'
+import { LOADOUT_BY_AIRCRAFT } from '../../src/weapons/stores'
 import { FLAK_RADIUS, FLAK_SHAKE, FLAK_SMOKE } from '../../src/world/flak'
 import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
@@ -409,5 +411,44 @@ describe('高砲雲的表現尺度', () => {
     expect(srcOf('main.ts'), '震動').toContain('events.shake[e]!')
     expect(srcOf('flakBursts.ts'), '黑煙').toContain('events.smoke[e]!')
     expect(srcOf('blast.ts'), '閃光').toContain('events.blast[e]!')
+  })
+})
+
+/**
+ * 投下來的炸彈與魚雷的震動尺度。
+ *
+ * 【小當量要放大】A6M5 的 60 kg 彈尺度 0.11：照原值搖，範圍 55 m、爆心峰值
+ * 0.11，角度吃平方只剩 0.05°，飛離爆點一點就完全不搖。
+ */
+describe('ordnanceShakeScale：炸彈與魚雷的震動尺度', () => {
+  it('小當量非線性放大，而且保持單調', () => {
+    const a6m = blastScaleOf(LOADOUT_BY_AIRCRAFT['a6m5']!.damage)
+    expect(ordnanceShakeScale(a6m)).toBeGreaterThan(a6m * 3)
+    expect(ordnanceShakeScale(0.1)).toBeLessThan(ordnanceShakeScale(0.5))
+    expect(ordnanceShakeScale(0.5)).toBeLessThan(ordnanceShakeScale(0.9))
+  })
+
+  it('基準彈以上不變：B-17、He 111 與魚雷搖得和以前一樣', () => {
+    expect(ordnanceShakeScale(1)).toBe(1)
+    for (const id of ['b17g', 'he111', 'g4m']) {
+      const s = blastScaleOf(LOADOUT_BY_AIRCRAFT[id]!.damage)
+      expect(ordnanceShakeScale(s), id).toBe(s)
+    }
+  })
+
+  it('沒有當量就不搖', () => {
+    expect(ordnanceShakeScale(0)).toBe(0)
+  })
+
+  /** 【炸彈與魚雷兩個消費端都要經過它】只接一個的話另一種照舊搖不動 */
+  it('main.ts 的炸彈與魚雷爆炸都經過它，高砲不經過', () => {
+    const main = srcOf('main.ts')
+    expect(main).toContain('ordnanceShakeScale(')
+    const bombs = main.slice(main.indexOf('function emitBombBlasts'), main.indexOf('const emitFirePuff'))
+    expect(bombs).toContain('ordnanceShakeScale(')
+    const torpedoes = main.slice(main.indexOf('function emitTorpedoBlasts'), main.indexOf('function shakeFlakBursts'))
+    expect(torpedoes).toContain('ordnanceShakeScale(')
+    const flak = main.slice(main.indexOf('function shakeFlakBursts'))
+    expect(flak.slice(0, flak.indexOf('\n}\n'))).not.toContain('ordnanceShakeScale')
   })
 })

@@ -146,6 +146,27 @@ export function addShake(
 }
 
 /**
+ * 小當量彈藥震動尺度的指數。越小，小彈越接近基準彈。**起始值，由試飛裁定。**
+ *
+ * 1/8 時 A6M5 的 60 kg 彈 0.11 → 0.76：範圍 380 m、爆心 2.2°、150 m 外 0.8°。
+ */
+export const ORDNANCE_SHAKE_EXPONENT = 1 / 8
+
+/**
+ * 投下的炸彈與魚雷交給 `addShake` 的尺度。
+ *
+ * 基準彈（尺度 1）以上原樣；以下取 `ORDNANCE_SHAKE_EXPONENT` 次方。照原值的話
+ * 60 kg 彈範圍只有 55 m、角度吃平方剩 0.05°，投完彈拉起來就完全不搖。
+ *
+ * 【只給投下的彈藥】高砲、擊墜與砲位殉爆不走這裡 —— `FLAK_SHAKE` 放大之後
+ * 防空火網下整段航程都會晃。
+ */
+export function ordnanceShakeScale(scale: number): number {
+  if (!(scale > 0)) return 0
+  return scale >= 1 ? scale : Math.pow(scale, ORDNANCE_SHAKE_EXPONENT)
+}
+
+/**
  * 超速時的持續震動量，寫進 `CameraShake.sustained`。
  *
  * `OVERSPEED_ONSET` 以下是 0，到 `OVERSPEED_FULL` 線性升到 `OVERSPEED_SHAKE`，

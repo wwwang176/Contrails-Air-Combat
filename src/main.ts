@@ -104,7 +104,8 @@ import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
-  addShake, applyCameraShake, createCameraShake, overspeedShake, stepCameraShake,
+  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
+  stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -793,7 +794,7 @@ function emitBombBlasts(events: ImpactEvents): void {
     scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
     const seed = (e * 197 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
-    addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)
+    addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, ordnanceShakeScale(scale), ctx.camera.position)
     // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
     debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
   }
@@ -833,7 +834,7 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     const y = Number.isFinite(w) ? w : d[o + 1]!
     const seed = (e * 211 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
-    addShake(cameraShake, x, y, z, scale, ctx.camera.position)
+    addShake(cameraShake, x, y, z, ordnanceShakeScale(scale), ctx.camera.position)
     // 碎片從水面往上拋；與擊墜共用同一個池
     debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
   }

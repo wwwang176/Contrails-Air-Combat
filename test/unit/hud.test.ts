@@ -14,7 +14,7 @@ import { advanceGEffect, resetGEffect } from '../../src/hud/widgets/gEffect'
 import { PILOT_G_NEGATIVE } from '../../src/control/limiters'
 import { TORPEDO_RUN_SAMPLES } from '../../src/world/torpedo'
 import { P51D } from '../../src/specs/p51d'
-import { edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
+import { contactRangeLabel, edgeIndicatorPosition, EDGE_INSET } from '../../src/hud/widgets/contacts'
 import { edgeClamp, edgeReach, minimapSymbol, MINIMAP_LEVEL_BAND } from '../../src/hud/widgets/minimap'
 import { flightLabel } from '../../src/hud/widgets/roster'
 import { hudWidgets, WIDGET_DRAW } from '../../src/hud/Hud'
@@ -918,5 +918,22 @@ describe('drawGodMarkers', () => {
 describe('接觸點池的容量', () => {
   it('裝得下整場最大架數', () => {
     expect(HUD_MAX_CONTACTS).toBeGreaterThanOrEqual(MAX_COMBATANTS)
+  })
+})
+
+describe('目標框的距離讀數', () => {
+  it('一律以 km 顯示到小數一位', () => {
+    expect(contactRangeLabel(1234)).toBe('1.2 km')
+    expect(contactRangeLabel(12_345)).toBe('12.3 km')
+  })
+
+  it('不到 1 km 也用 km：0.9 km，而不是公尺', () => {
+    expect(contactRangeLabel(900)).toBe('0.9 km')
+    expect(contactRangeLabel(349)).toBe('0.3 km')
+  })
+
+  it('不到 0.05 km 顯示 0.0 km', () => {
+    expect(contactRangeLabel(40)).toBe('0.0 km')
+    expect(contactRangeLabel(0)).toBe('0.0 km')
   })
 })
