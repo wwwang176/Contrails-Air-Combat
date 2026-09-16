@@ -21,7 +21,9 @@ import {
   RELEASE_SWEEP_SECONDS,
   releaseWindowOf, setBombBallistics, shipAt, shouldRelease, solveGateOf, stepBombAim,
 } from '../../src/ai/bombRun'
-import { createStrikeState, stepStrike, RUN_TRIM } from '../../src/ai/strikeRun'
+import {
+  createStrikeState, stepStrike, RUN_TRIM, type StrikeProfile,
+} from '../../src/ai/strikeRun'
 import { AI_DECISION_HZ } from '../../src/ai/AiController'
 import { SHIP_CLASSES, createShip } from '../../src/world/ships'
 import type { Controller } from '../../src/control/Controller'
@@ -364,6 +366,48 @@ describe('shouldRelease', () => {
     a.state.position.set(0, 1000, 0)
     a.state.velocity.set(0, 0, -90)
     expect(shouldRelease(a, ship, K, DT)).toBe(false)
+  })
+})
+
+describe('攻擊航路：每一趟進場挑一次瞄點偏移', () => {
+  function plane(): Aircraft {
+    const a = new Aircraft(G4M)
+    a.state.position.set(0, 1000, 0)
+    a.state.velocity.set(0, 0, -90)
+    return a
+  }
+
+  it('進場時挑、途中不換；重新進場或換船才重挑', () => {
+    let picks = 0
+    const profile: StrikeProfile = {
+      ...BOMB_PROFILE,
+      plan(_self, _target, out) {
+        out.aim.set(0, 0, -100_000)
+        out.lockRange = 0
+        out.egressRange = 10
+      },
+      shouldRelease: () => false,
+      pickAlong: () => ++picks,
+    }
+    const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -3000, 0, 8)
+    const st = createStrikeState()
+    const out = createCommand()
+
+    stepStrike(st, plane(), sh, 0, profile, true, true, DT, out)
+    expect(st.plan.along).toBe(1)
+    stepStrike(st, plane(), sh, 0, profile, true, true, DT, out)
+    expect(st.plan.along).toBe(1)
+
+    // 脫離且拉得夠遠 → 回到進場，下一步重挑
+    st.phase = 'egress'
+    stepStrike(st, plane(), sh, 0, profile, true, true, DT, out)
+    expect(st.phase).toBe('approach')
+    stepStrike(st, plane(), sh, 0, profile, true, true, DT, out)
+    expect(st.plan.along).toBe(2)
+
+    // 進場途中換了目標
+    stepStrike(st, plane(), sh, 1, profile, true, true, DT, out)
+    expect(st.plan.along).toBe(3)
   })
 })
 

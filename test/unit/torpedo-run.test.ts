@@ -8,7 +8,7 @@ import { TORPEDO_RANGE, TORPEDO_SPEED, Torpedoes } from '../../src/world/torpedo
 import {
   ABORT_RANGE, LOCK_CONE, RANGE_MARGIN, RUN_ALTITUDE, TORPEDO_PROFILE,
   RELEASE_RUN, TORPEDO_RELEASE_HULLS, hitWindowOf, makeTorpedoProfile,
-  setTorpedoBallistics, shouldRelease, waterRunSeconds,
+  setTorpedoBallistics, shouldRelease, torpedoAimAlong, waterRunSeconds,
 } from '../../src/ai/torpedoRun'
 import { TORPEDO_ENVELOPE } from '../../src/weapons/releaseEnvelope'
 import { shipAt } from '../../src/ai/bombRun'
@@ -283,6 +283,52 @@ describe('shouldRelease', () => {
     expect(base).toBeGreaterThan(0)
     // 船艏 −Z：橫向是 X。偏 30 m（半寬 6.04）應該就掉出窗外
     expect(shouldRelease(bomber(30, base), target(8))).toBe(false)
+  })
+})
+
+/**
+ * 每一趟瞄船身上的一段，不是永遠瞄船心 —— 刻意讓命中位置有變化。
+ *
+ * 驅逐艦長 114.8 m：候選段的中心沿艏向是 −38.27、0、+38.27 m。
+ */
+describe('雷擊瞄點沿船身偏移', () => {
+  const along = (x: number, z: number): number =>
+    torpedoAimAlong(SHIP_CLASSES.fletcher.hull, x, z)
+
+  it('偏移量是沿艦體每 50 m 一格的格心之一', () => {
+    const allowed = [-38.27, 0, 38.27]
+    for (let i = 0; i < 40; i++) {
+      const a = along(i * 37.3 - 700, i * 91.1 + 1200)
+      expect(allowed.some((v) => Math.abs(a - v) < 0.05), String(a)).toBe(true)
+    }
+  })
+
+  it('從不同位置進場會瞄到不同的段', () => {
+    const seen = new Set<number>()
+    for (let i = 0; i < 40; i++) seen.add(Math.round(along(i * 37.3 - 700, i * 91.1 + 1200)))
+    expect(seen.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it('plan 的瞄點沿艏向平移 along', () => {
+    setTorpedoBallistics(K, DT)
+    const ship = target(8)
+    const center = { aim: new Vector3(), lockRange: 0, egressRange: 0 }
+    const shifted = { aim: new Vector3(), lockRange: 0, egressRange: 0, along: 30 }
+    TORPEDO_PROFILE.plan(bomber(0, 1500), ship, center)
+    TORPEDO_PROFILE.plan(bomber(0, 1500), ship, shifted)
+    const dir = new Vector3(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(30)
+    expect(shifted.aim.clone().sub(center.aim).distanceTo(dir)).toBeLessThan(1e-6)
+  })
+
+  it('放手的窗跟著偏移走', () => {
+    setTorpedoBallistics(K, DT)
+    let base = -1
+    for (let z = 2200; z > 200; z -= 5) {
+      if (shouldRelease(bomber(0, z), target(8))) { base = z; break }
+    }
+    expect(base).toBeGreaterThan(0)
+    // 窗沿船身是兩個艦身長（±115 m），偏 400 m 一定在窗外
+    expect(shouldRelease(bomber(0, base), target(8), 400)).toBe(false)
   })
 })
 
