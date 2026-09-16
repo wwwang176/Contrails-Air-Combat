@@ -46,8 +46,10 @@ const MAX_INTERVAL_MS = 1000
  * 七十四格的圖只剩半秒歷史，數字也跳到讀不了，而每幀一次 `fillText` 是這塊
  * 面板最貴的一筆。
  *
- * 【推的是這段期間**最差**的那一幀，不是當下那一幀】隔半秒取一個瞬間值等於
- * 八十幀裡只看一幀，尖峰幾乎一定漏掉 —— 而曲線存在的理由就是讓尖峰看得見。
+ * 【推的是這段期間的**平均**，不是當下那一幀、也不是最差的那一幀】隔半秒取一個
+ * 瞬間值等於八十幀裡只看一幀；取最差值則讓數字長期偏低，玩家拿它比兩個設定
+ * 會看不出差。平均值與 F3 面板的 `fps` 同一個定義，兩邊對得起來；單幀的尖峰
+ * 要看 F3 那一排逐幀推的曲線。
  */
 const PANEL_INTERVAL_MS = 500
 
@@ -109,9 +111,9 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   let frameStart = 0
   let physicsStart = 0
   let physicsAccum = 0
-  /** FPS 那一格上一次推格的時刻，以及這段期間最差的值。`-1` 表示還沒推過 */
+  /** FPS 那一格上一次推格的時刻，以及這段期間累積的幀數。`-1` 表示還沒推過 */
   let panelAt = -1
-  let worstFps = Infinity
+  let panelFrames = 0
 
   const avg = (arr: Float64Array, n: number): number => {
     if (n === 0) return 0
@@ -157,13 +159,14 @@ export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
       intervals[intervalAt] = interval
       intervalAt = (intervalAt + 1) % SAMPLE_WINDOW
       if (intervalCount < SAMPLE_WINDOW) intervalCount++
-      // 【曲線吃這段期間最差的那一幀，不是平均】它存在的理由就是讓尖峰看得見
-      worstFps = Math.min(worstFps, 1000 / interval)
-      if (panelAt < 0) panelAt = now
-      if (now - panelAt < PANEL_INTERVAL_MS) return
+      // 【曲線吃這段期間的平均】幀數除以經過的時間，見 PANEL_INTERVAL_MS
+      if (panelAt < 0) { panelAt = now; return }
+      panelFrames++
+      const span = now - panelAt
+      if (span < PANEL_INTERVAL_MS) return
+      fpsPanel.update((panelFrames * 1000) / span, FPS_CEILING)
       panelAt = now
-      fpsPanel.update(worstFps, FPS_CEILING)
-      worstFps = Infinity
+      panelFrames = 0
     },
     beginPhysics() {
       physicsStart = performance.now()
