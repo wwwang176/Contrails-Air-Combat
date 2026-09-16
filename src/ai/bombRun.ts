@@ -199,6 +199,8 @@ const DECK = (): number => deckY
 /** 解算用的暫存。模組私有，禁止跨模組共用。 */
 const START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const HIT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
+/** `stepBombAim` 的瞄點偏移，世界座標。不與 `S` 的索引共用 */
+const AIM_OFFSET = /* @__PURE__ */ new Vector3()
 
 /**
  * 現在投得中嗎。
@@ -426,17 +428,22 @@ const AIM_CLAMP = 30 * DEG
  */
 export function stepBombAim(
   state: BombAimState, self: Aircraft, ship: StrikeTarget,
-  loaded: boolean, decide: boolean,
+  loaded: boolean, decide: boolean, aimPoint: Vector3 | null = null,
 ): void {
   if (!decide) return
   state.active = false
   state.release = false
   if (!loaded) return
 
+  // 【瞄船身上的那一點】`aimPoint` 是艦體座標（`ShipClass.aimPoints`），轉進
+  // 世界之後瞄準、落彈面與放手的窗都以它為準；沒給就是船心與甲板
+  const off = aimPoint === null
+    ? AIM_OFFSET.set(0, 0, 0)
+    : AIM_OFFSET.copy(aimPoint).applyQuaternion(ship.orientation)
   const p = self.state.position
-  const dx = ship.position.x - p.x
-  const dy = ship.position.y - p.y
-  const dz = ship.position.z - p.z
+  const dx = ship.position.x + off.x - p.x
+  const dy = ship.position.y + off.y - p.y
+  const dz = ship.position.z + off.z - p.z
   const slant = Math.hypot(dx, dy, dz)
   // 【上限與下限】太遠不接手；進到拉起距離就交還 —— 脫離要背離船並爬升，
   // 這一層若還在寫瞄準點，飛機會被拉回船上撞上去
@@ -445,10 +452,12 @@ export function stepBombAim(
   const v = self.state.velocity
   START.x = p.x; START.y = p.y; START.z = p.z
   START.vx = v.x; START.vy = v.y; START.vz = v.z
-  deckY = ship.impactY
+  deckY = aimPoint === null ? ship.impactY : ship.position.y + off.y
   if (drag <= 0 || !solveImpact(START, drag, DECK, solveDt, HIT)) return
 
   const at = shipAt(ship, HIT.seconds, S.v[0]!)
+  at.x += off.x
+  at.z += off.z
   const ex = at.x - HIT.x
   const ez = at.z - HIT.z
   state.release = sweptInsideWindow(ship, HIT.x, HIT.z, at.x, at.z, v.x, v.z)

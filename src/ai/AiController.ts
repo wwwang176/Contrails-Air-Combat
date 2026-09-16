@@ -500,7 +500,9 @@ export class AiController implements Controller {
     // 就什麼都不做，瞄準點留給機槍。**排在掃射之後** —— 它要覆寫的正是
     // 掃射寫好的那一格
     if (loaded) {
-      stepBombAim(this.bombAim, self, ship, loaded, decide)
+      stepBombAim(
+        this.bombAim, self, ship, loaded, decide, ship.cls.aimPoints[this.shipAim.point] ?? null,
+      )
       if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
       out.bombing = this.bombAim.release
     } else {
