@@ -50,6 +50,11 @@ export interface ShipClass {
    */
   readonly radius: number
   /**
+   * 砲位打光之後戰鬥機掃射船體的瞄點，**艦體座標**。由 `hull` 自動產生
+   * （`hullAimPoints`），載入時算一次。
+   */
+  readonly aimPoints: readonly Vector3[]
+  /**
    * 船體血量。
    *
    * 【它是用「幾枚魚雷」訂的，不是用機槍】機槍機砲打不沉軍艦：20 mm 一發
@@ -247,6 +252,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
       box([11.0, 34.5, -10.5], [14.5, 41.6, -3.0]),
     ],
     radius: 0,
+    aimPoints: [],
     hp: 60_000,
     // 機庫甲板 3 吋、舷側裝甲帶 4 吋。取薄的那一層
     armour: 76,
@@ -260,6 +266,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
       box([-6.04, -4.0, -57.4], [6.04, 4.5, 57.4]),
     ],
     radius: 0,
+    aimPoints: [],
     hp: 20_000,
     // 沒有裝甲帶，船殼是半吋級的鋼板 —— 20 mm 打得動它
     armour: 13,
@@ -273,6 +280,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
       box([-9.41, -6.5, -92.7], [9.41, 7.0, 92.7]),
     ],
     radius: 0,
+    aimPoints: [],
     hp: 40_000,
     // 舷側裝甲帶 6 吋
     armour: 152,
@@ -280,9 +288,49 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
   },
 }
 
-// 【半徑就地補上】寫在字面值裡的話 `hull` 與 `zones` 還沒成形。
+/**
+ * 掃射瞄點的間距上限，m。盒頂面的長、寬各切成 `ceil(邊長 / 間距)` 格，所以
+ * 越大的船點越多。**起始值，由試飛裁定。**
+ */
+export const HULL_AIM_SPACING = 50
+
+/**
+ * 由命中盒產生掃射瞄點，**艦體座標**：每個盒的頂面切格、格心放一點；正上方
+ * 還有別的盒蓋著的點拿掉。
+ *
+ * 【只鋪頂面】盒從吃水線以下開始，立體網格會把點放進水裡與船殼裡面 ——
+ * 飛機會對著海面打。
+ *
+ * 【蓋住的拿掉】Essex 的船體盒整條頂面在飛行甲板底下、艦島下層在上層底下；
+ * 瞄那些點等於瞄一塊看不到的鋼板。
+ */
+export function hullAimPoints(hull: readonly Box[], spacing = HULL_AIM_SPACING): Vector3[] {
+  const out: Vector3[] = []
+  for (const b of hull) {
+    const top = b.center.y + b.half.y
+    const nx = Math.max(1, Math.ceil((2 * b.half.x) / spacing))
+    const nz = Math.max(1, Math.ceil((2 * b.half.z) / spacing))
+    for (let i = 0; i < nx; i++) {
+      const x = b.center.x - b.half.x + (2 * b.half.x * (i + 0.5)) / nx
+      for (let k = 0; k < nz; k++) {
+        const z = b.center.z - b.half.z + (2 * b.half.z * (k + 0.5)) / nz
+        let covered = false
+        for (const o of hull) {
+          if (o === b) continue
+          if (Math.abs(x - o.center.x) > o.half.x || Math.abs(z - o.center.z) > o.half.z) continue
+          if (o.center.y - o.half.y >= top - 1e-6) { covered = true; break }
+        }
+        if (!covered) out.push(new Vector3(x, top, z))
+      }
+    }
+  }
+  return out
+}
+
+// 【半徑與瞄點就地補上】寫在字面值裡的話 `hull` 與 `zones` 還沒成形。
 for (const cls of Object.values(SHIP_CLASSES)) {
   (cls as { radius: number }).radius = radiusOf(cls.hull, cls.zones)
+  ;(cls as { aimPoints: readonly Vector3[] }).aimPoints = hullAimPoints(cls.hull)
 }
 
 /**

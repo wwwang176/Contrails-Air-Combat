@@ -8,7 +8,7 @@ import { createCommand } from '../../src/control/Controller'
 import { SHIP_CLASSES, createShip, type Ship } from '../../src/world/ships'
 import { createShipGuns } from '../../src/world/shipGuns'
 import {
-  SHIP_ATTACK_RANGE, SHIP_BREAK_RANGE, createShipAim, gunWorld,
+  SHIP_ATTACK_RANGE, SHIP_BREAK_RANGE, createShipAim, gunWorld, hullAimWorld,
   pickShipTarget, shipAttackCommand, shipAimPoint,
 } from '../../src/ai/shipAttack'
 
@@ -301,5 +301,72 @@ describe('pickShipTarget：價值優先，同價值才比距離', () => {
       expect(p.distanceToSquared(gunWorld(ships[0]!, g, new Vector3())))
         .toBeGreaterThanOrEqual(chosen - 1e-6)
     }
+  })
+})
+
+/**
+ * 砲位打光之後掃射船體：瞄的是艦級命中盒產生的瞄點，不是船心。
+ *
+ * 驅逐艦停在原點、艏向 0：三個瞄點在甲板上 z ≈ −38.3、0、+38.3。
+ */
+describe('砲位全滅之後瞄船體上的瞄點', () => {
+  const gunless = (): Ship => {
+    const s = ship(0, 0, 0)
+    for (const g of s.guns) g.alive = false
+    return s
+  }
+  const worldZ = (s: Ship, k: number): number => hullAimWorld(s, k, new Vector3()).z
+
+  it('挑的是前方最近的那一點，不是船心', () => {
+    const s = gunless()
+    const aim = createShipAim()
+    pickShipTarget(new Vector3(0, 300, -600), 'blue', [s], aim, new Vector3(0, 0, 150))
+    expect(aim.gun).toBe(-1)
+    expect(aim.point).toBeGreaterThanOrEqual(0)
+    expect(worldZ(s, aim.point)).toBeCloseTo(-38.27, 1)
+  })
+
+  /** 【一趟之內不換點】點之間隔 50 m 以內，每個決策拍取最近的話瞄點會來回跳 */
+  it('還在前方就維持同一點，即使別的點變得比較近', () => {
+    const s = gunless()
+    const aim = createShipAim()
+    const vel = new Vector3(150, 0, 0)
+    pickShipTarget(new Vector3(-400, 300, -60), 'blue', [s], aim, vel)
+    const first = aim.point
+    expect(worldZ(s, first)).toBeCloseTo(-38.27, 1)
+    pickShipTarget(new Vector3(-400, 300, 60), 'blue', [s], aim, vel)
+    expect(aim.point).toBe(first)
+  })
+
+  it('飛越之後換成前方的下一點', () => {
+    const s = gunless()
+    const aim = createShipAim()
+    const vel = new Vector3(0, 0, 150)
+    pickShipTarget(new Vector3(0, 300, -600), 'blue', [s], aim, vel)
+    pickShipTarget(new Vector3(0, 300, 20), 'blue', [s], aim, vel)
+    expect(worldZ(s, aim.point)).toBeCloseTo(38.27, 1)
+  })
+
+  it('前方一個點都沒有時取最近的', () => {
+    const s = gunless()
+    const aim = createShipAim()
+    pickShipTarget(new Vector3(0, 300, 400), 'blue', [s], aim, new Vector3(0, 0, 150))
+    expect(worldZ(s, aim.point)).toBeCloseTo(38.27, 1)
+  })
+
+  it('砲位還活著時不挑瞄點', () => {
+    const aim = createShipAim()
+    pickShipTarget(new Vector3(0, 300, -600), 'blue', [ship(0, 0, 0)], aim, new Vector3(0, 0, 150))
+    expect(aim.gun).toBeGreaterThanOrEqual(0)
+    expect(aim.point).toBe(-1)
+  })
+
+  it('掃射指令朝那一點飛', () => {
+    const s = gunless()
+    const self = at(0, 800, 3000)
+    const c = createCommand()
+    shipAttackCommand(self, s, -1, c, 2)
+    const want = hullAimWorld(s, 2, new Vector3()).sub(self.state.position).normalize()
+    expect(c.aimWorld.distanceTo(want)).toBeLessThan(1e-6)
   })
 })
