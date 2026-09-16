@@ -9,6 +9,7 @@ import {
 import { applyLightPalette, createLights, type Lights } from './lighting'
 import { applySkyPalette, createSky } from './sky'
 import { createFog } from './fog'
+import { setOceanRenderer } from './ocean'
 import { DAY_PALETTES, paletteSkyColorAt, type DayPalette, type TimeOfDay } from './timeOfDay'
 
 /** 近平面，m。**沒有動過** —— 深度精度幾乎全由它決定。 */
@@ -76,6 +77,9 @@ export function createScene(
   timeOfDay: TimeOfDay = 'noon',
 ): SceneContext {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
+  // 【要排在建地形之前】海面的逐面量表需要一個 renderer 才畫得出來，而
+  // 沒登記時近海會退回逐片段自己算（畫面相同，只是比較慢）
+  setOceanRenderer(renderer)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = false // M1 不啟用陰影，見 spec §15
 

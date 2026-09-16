@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { LessDepth, type DataTexture, type Mesh, type MeshStandardMaterial } from 'three'
 import {
-  createOcean, FACE_FRAGMENT, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
+  createOcean, FACE_FRAGMENT, FACE_FRAGMENT_TABLE, FACE_TABLE_FRAGMENT,
+  FACE_TABLE_HEIGHT, FACE_TABLE_WIDTH, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
   OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
   OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
   SHORE_DENSITY, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_DENSITY,
@@ -571,5 +572,66 @@ describe('靠岸的浪花', () => {
     const o = createOcean(shore)
     expect(compile(near(o)).fragmentShader).toContain('min(p, uPMax)')
     o.dispose()
+  })
+})
+
+/**
+ * 近海的逐面量每幀先畫進一張浮點貼圖，片段查表。
+ *
+ * 【為什麼要用字串比對】沒有 renderer 的環境（這裡）建不出那張貼圖，所以
+ * 走的是逐片段那條路，從材質上看不到查表那一版。這幾條盯的是**兩份算式
+ * 必須一起改**：預繪那一支與 `FACE_FRAGMENT` 漂開的話，畫出來的表就不是
+ * 片段要的那一格的答案，而那不會壞任何數字。
+ */
+describe('逐面量的每幀預繪表', () => {
+  /**
+   * 【表要比環大一圈】片段的格號是由**內插出來的座標**取整數推得的，格子邊上
+   * 的像素會落到相鄰那一格。沒有多留的話那些像素查到範圍外，海面邊緣會出現
+   * 一圈錯格的色塊。
+   */
+  it('每一層的分頁比整個環多留邊界，四層排成 2 × 2、兩個三角形各一半', () => {
+    const tile = FACE_TABLE_HEIGHT / 2
+    expect(FACE_TABLE_WIDTH).toBe(tile * 4)
+    expect(tile).toBeGreaterThan(OCEAN_RING_SEGMENTS)
+    // 環的兩側各留得下至少一格
+    expect((tile - OCEAN_RING_SEGMENTS) / 2).toBeGreaterThanOrEqual(1)
+  })
+
+  /** 【重心與雜湊要與 FACE_FRAGMENT 同一式】兩份漂開＝白點與色塊落在別的地方 */
+  it('預繪那一支用的是同一組重心、波高與閃爍算式', () => {
+    expect(FACE_TABLE_FRAGMENT).toContain('mix(vec2(0.3333333), vec2(0.6666667), tri)')
+    expect(FACE_TABLE_FRAGMENT).toMatch(/faceH = oceanWaveHeight\(faceCen/)
+    expect(FACE_TABLE_FRAGMENT).toContain(
+      'float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));')
+    expect(FACE_TABLE_FRAGMENT).toContain('faceOut = vec4(faceH, roll, env, faceId);')
+  })
+
+  /**
+   * 【四個量都要真的改成查表】漏掉任何一個就是「查了表還照算一次」——
+   * 畫面一樣，但省下的工全部還回去，而沒有數字會壞。
+   */
+  it('查表版把四個逐面量都改成讀表，而且不再逐片段算波高', () => {
+    expect(FACE_FRAGMENT_TABLE).toContain('texelFetch(uFaceTable, faceTexel, 0)')
+    expect(FACE_FRAGMENT_TABLE).toContain('float faceH = faceRow.x;')
+    expect(FACE_FRAGMENT_TABLE).toContain('float roll = faceRow.y;')
+    expect(FACE_FRAGMENT_TABLE).toContain('float lit = on * faceRow.z;')
+    expect(FACE_FRAGMENT_TABLE).toContain('float faceId = faceRow.w;')
+    expect(FACE_FRAGMENT_TABLE).not.toMatch(/oceanWaveHeight\(faceCen/)
+  })
+
+  /**
+   * 【岸圖取樣留在片段】它吃的是重心座標與一張帶 mip 的貼圖，不在表裡；
+   * 搬進表會讓「在重心取樣」那一條（見上面）失去對象。
+   */
+  it('岸圖仍在片段用重心取樣', () => {
+    const line = FACE_FRAGMENT_TABLE.split(/\r?\n/).filter((l) => l.includes('uShoreMap,')).join('')
+    expect(line).toContain('faceCen')
+    expect(line).not.toContain('vOceanWorld')
+  })
+
+  /** 【遠海那一份不准碰】它的面是虛擬的、格距封頂到 480 m，列不進任何表 */
+  it('遠海用的那一份沒有查表', () => {
+    expect(FACE_FRAGMENT).not.toContain('uFaceTable')
+    expect(FACE_FRAGMENT).toMatch(/faceH = oceanWaveHeight\(faceCen/)
   })
 })
