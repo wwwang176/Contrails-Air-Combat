@@ -4,6 +4,8 @@ import {
   ClampToEdgeWrapping,
   Color,
   DataTexture,
+  FloatType,
+  GLSL3,
   Group,
   Mesh,
   LessDepth,
@@ -11,13 +13,20 @@ import {
   LinearMipmapLinearFilter,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
+  NearestFilter,
+  OrthographicCamera,
   PlaneGeometry,
   RedFormat,
+  RGBAFormat,
+  Scene,
+  ShaderMaterial,
   Sphere,
   UnsignedByteType,
   Vector2,
   Vector3,
+  WebGLRenderTarget,
   type WebGLProgramParametersWithUniforms,
+  type WebGLRenderer,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
 // 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
@@ -1210,6 +1219,141 @@ export const FACE_FRAGMENT = /* glsl */ `
 `
 
 /**
+ * 算逐面量的那個 renderer。**`createScene` 建好 renderer 就登記**，而
+ * `createOcean` 在那之後才跑（每個會建地形的頁面都是這個次序）。
+ *
+ * 【沒有登記時走逐片段那條】headless 的測試與任何沒有 renderer 的呼叫端
+ * 因此完全不受影響 —— 畫面相同，只是每個片段自己算。
+ */
+let oceanRenderer: WebGLRenderer | null = null
+
+export function setOceanRenderer(r: WebGLRenderer): void {
+  oceanRenderer = r
+}
+
+/**
+ * 逐面量的表為每一層多留幾格。
+ *
+ * 【為什麼非留不可】片段推得的格號是由**內插出來的座標**取整數來的，格子
+ * 邊上的像素可能落到相鄰那一格。留了邊界，那些像素照樣查得到值；沒留的話
+ * 就得在著色器裡加一段「查不到就自己算」，而那個分支在 D3D 上會被攤平成
+ * 兩邊都算，省下的工全部還回去。
+ */
+const TABLE_MARGIN = 2
+
+/** 一層在表上佔的邊長，格 */
+const TABLE_TILE = OCEAN_RING_SEGMENTS + 2 * TABLE_MARGIN
+
+/** 格號換算成表上的位置時要加的偏移（中心那一格在正中間） */
+const TABLE_BIAS = OCEAN_RING_SEGMENTS / 2 + TABLE_MARGIN
+
+/** 四層排成 2 × 2；左右兩半分別是格子裡的兩個三角形 */
+export const FACE_TABLE_WIDTH = TABLE_TILE * 4
+export const FACE_TABLE_HEIGHT = TABLE_TILE * 2
+
+/**
+ * 每幀把每一格兩個三角形的逐面量畫進一張浮點貼圖：重心波高、閃爍骰值、
+ * 閃爍包絡、面 id。**算式與 `FACE_FRAGMENT` 逐字相同**，只是把格號從
+ * 「像素自己推」換成「由表上的位置推」。
+ *
+ * 【發亮的是另一批面，那是預期內的】閃爍骰子的雜湊輸入是
+ * `格號 + vec2(3.1, 7.7) + 三角形`，兩次加法 —— 浮點加法不滿足結合律，
+ * 兩支程式可以用不同的順序結合而差一個最低位，雜湊再把它放大成完全不同的
+ * 值。**機率、密度、閃爍節奏一個字都沒改**，換的只是骰子本身；換一張顯卡
+ * 也會有同樣的效果。
+ *
+ * 代價是海面不能再用「截圖逐像素相同」驗回歸：那條路對這一版本來就不成立。
+ * 波高與面 id 的輸入只有一次加法，實測逐位元相同。
+ *
+ * 【為什麼這樣畫面不會變】片段那邊「我屬於哪一格」的判斷一個字都沒動，
+ * 換掉的只是那一格的答案從哪裡來。存的是 32 位元浮點，所以查到的值與
+ * 當場算出來的逐位元相同。
+ *
+ * 【岸邊浪花不在表裡】它留在片段著色器，見 `FACE_FRAGMENT` 的取樣那一段。
+ */
+export const FACE_TABLE_FRAGMENT = /* glsl */ `
+  // 【要自己宣告輸出】three 的 ShaderMaterial 在 GLSL3 下不補 gl_FragColor，
+  // 少了這一行整支編不過，而症狀是近海查到一張空貼圖
+  layout(location = 0) out vec4 faceOut;
+
+  void main() {
+    int tx = int(gl_FragCoord.x);
+    int ty = int(gl_FragCoord.y);
+    float tri = float(tx / ${TABLE_TILE * 2});
+    int lx = tx - (tx / ${TABLE_TILE * 2}) * ${TABLE_TILE * 2};
+    int level = lx / ${TABLE_TILE} + (ty / ${TABLE_TILE}) * 2;
+    int ix = lx - (lx / ${TABLE_TILE}) * ${TABLE_TILE};
+    int iy = ty - (ty / ${TABLE_TILE}) * ${TABLE_TILE};
+    float cell = uBaseCell * exp2(float(level));
+    vec2 originCel = floor(uOrigin / cell + 0.5);
+    vec2 cel = originCel + vec2(float(ix), float(iy)) - ${TABLE_BIAS.toFixed(1)};
+
+    vec2 faceCen = (cel + mix(vec2(0.3333333), vec2(0.6666667), tri)) * cell;
+    float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));
+    float faceId = oceanHash(cel + tri * 0.5);
+    float twPhase = oceanHash(cel + vec2(3.1, 7.7) + tri);
+    float twRate = 0.6 + 0.8 * oceanHash(cel + vec2(17.3, 5.1) + tri);
+    float cycle = twPhase + uTime * uTwinkle * twRate;
+    float k = floor(cycle);
+    float u = fract(cycle);
+    float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));
+    float env = pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);
+    faceOut = vec4(faceH, roll, env, faceId);
+  }
+`
+
+/** 預繪那一趟的頂點段：一個蓋滿的四邊形。`vOceanWorld` 只是為了對上宣告 */
+const FACE_TABLE_VERTEX = /* glsl */ `
+  void main() {
+    vOceanWorld = vec3(0.0);
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`
+
+/** 換掉 `src` 裡恰好一處 `from`；沒找到或不只一處就拋錯 —— 靜默 no-op 會讓近海悄悄走回逐片段 */
+function swapOnce(src: string, from: string, to: string): string {
+  const at = src.indexOf(from)
+  if (at < 0 || src.indexOf(from, at + 1) >= 0) {
+    throw new Error(`FACE_FRAGMENT 找不到唯一的一段：${from}`)
+  }
+  return src.slice(0, at) + to + src.slice(at + from.length)
+}
+
+/**
+ * 近海的逐面片段段：與 `FACE_FRAGMENT` 相同，只把逐面不變的四個量改成查
+ * `FACE_TABLE_FRAGMENT` 畫好的那張表。**選層、格號、重心、岸圖取樣一個字
+ * 都沒動** —— 逐面量以外的一切因此不變。
+ */
+export const FACE_FRAGMENT_TABLE = ([
+  [`    float faceCell = uBaseCell
+      * exp2(min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg))))));`,
+  `    float faceLevel = min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg)))));
+    float faceCell = uBaseCell * exp2(faceLevel);`],
+  ['    float faceId = oceanHash(faceCel + faceTri * 0.5);',
+    `    // 這一格的逐面量每幀先畫進 uFaceTable，見 FACE_TABLE_FRAGMENT
+    int faceLv = int(faceLevel);
+    vec2 faceOrigCel = floor(uOrigin / faceCell + 0.5);
+    ivec2 faceTexel = ivec2(faceCel - faceOrigCel) + ${TABLE_BIAS}
+      + ivec2(int(faceTri) * ${TABLE_TILE * 2}
+          + (faceLv - (faceLv / 2) * 2) * ${TABLE_TILE},
+        (faceLv / 2) * ${TABLE_TILE});
+    vec4 faceRow = texelFetch(uFaceTable, faceTexel, 0);
+    float faceId = faceRow.w;`],
+  ['    float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));',
+    '    float faceH = faceRow.x;'],
+  [`      float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
+      float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
+      float cycle = twPhase + uTime * uTwinkle * twRate;
+      float k = floor(cycle);
+      float u = fract(cycle);
+      float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));`,
+  '      float roll = faceRow.y;'],
+  ['      float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);',
+    '      float lit = on * faceRow.z;'],
+] as const).reduce((src, [from, to]) => swapOnce(src, from, to), FACE_FRAGMENT)
+
+
+/**
  * 疊在 `opaque_fragment` 之後（線性空間）。**兩個材質都用這一段**，而且
  * 逐面那一段兩邊也都插進去 —— 遠海的面是虛擬的，見 `FACE_FRAGMENT`。
  *
@@ -1511,6 +1655,51 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
   }
 
   /**
+   * 逐面量的表。沒有登記 renderer（headless、單元測試）時是 `null`，近海就
+   * 走逐片段那條。
+   */
+  // 【浮點 render target 不是每張卡都有】沒有 EXT_color_buffer_float 就建不出
+  // 這張表，而建失敗的症狀是整片近海壞掉。偵測不到就走逐片段那條 —— 那是
+  // 原本的算法，每個片段自己算，只是比較慢
+  const useTable = oceanRenderer !== null
+    && oceanRenderer.extensions.has('EXT_color_buffer_float')
+  const tableTarget = useTable
+    ? new WebGLRenderTarget(FACE_TABLE_WIDTH, FACE_TABLE_HEIGHT, {
+      depthBuffer: false,
+      stencilBuffer: false,
+      // 【非 32 位元浮點不可】閃爍骰值與 `p` 的比較吃得住的精度就是它 ——
+      // 半精度在 1.0 附近的階距是 1e-3，白面會整片跟著換
+      type: FloatType,
+      format: RGBAFormat,
+      minFilter: NearestFilter,
+      magFilter: NearestFilter,
+      generateMipmaps: false,
+    })
+    : null
+  const tableScene = new Scene()
+  const tableCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
+  const tableMaterial = tableTarget === null ? null : new ShaderMaterial({
+    // 【非 GLSL3 不可】`SPARKLE_COMMON` 用了 uint 與位移
+    glslVersion: GLSL3,
+    uniforms: {
+      uTime,
+      uOrigin,
+      ...sparkle,
+    },
+    vertexShader: `${SPARKLE_COMMON}\n${FACE_TABLE_VERTEX}`,
+    fragmentShader: `${SPARKLE_COMMON}\n${FACE_TABLE_FRAGMENT}`,
+    depthTest: false,
+    depthWrite: false,
+  })
+  const tableQuad = tableMaterial === null
+    ? null
+    : new Mesh(new PlaneGeometry(2, 2), tableMaterial)
+  if (tableQuad !== null) {
+    tableQuad.frustumCulled = false
+    tableScene.add(tableQuad)
+  }
+
+  /**
    * 把碎光接上一個材質。`displace` 決定要不要同時做頂點位移 —— 遠海是平的，
    * 不位移，但**照樣算真實的波法線**（著色只吃世界座標，與幾何平不平無關）。
    */
@@ -1519,10 +1708,14 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
     displace: boolean,
     cacheKey: string,
   ): void => {
+    // 【只有近海查表】遠海的面是虛擬的，格距一路放大到 480 m 封頂，覆蓋的
+    // 範圍是整個地球，列不進一張表
+    const wantTable = displace && tableTarget !== null
     m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
       shader.uniforms.uTime = uTime
       shader.uniforms.uOrigin = uOrigin
       Object.assign(shader.uniforms, sparkle)
+      if (wantTable) shader.uniforms['uFaceTable'] = { value: tableTarget.texture }
 
       shader.vertexShader = shader.vertexShader
         .replace(
@@ -1567,7 +1760,8 @@ ${SPARKLE_COMMON}`,
         )
 
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\n${SPARKLE_COMMON}`)
+        .replace('#include <common>', `#include <common>\n${SPARKLE_COMMON}${
+          wantTable ? '\n  uniform highp sampler2D uFaceTable;' : ''}`)
         // 【順序非有不可】基色那一段宣告了碎光要用的視線量，見
         // SEA_DIM_FRAGMENT。color_fragment 在 opaque_fragment 之前展開。
         .replace(
@@ -1577,7 +1771,8 @@ ${SPARKLE_COMMON}`,
         // 【兩個材質都套逐面那一段】見 FACE_FRAGMENT 的「遠海的面是虛擬的」。
         .replace(
           '#include <opaque_fragment>',
-          `#include <opaque_fragment>\n${sparkleFragment(FACE_FRAGMENT)}`,
+          `#include <opaque_fragment>\n${sparkleFragment(
+            wantTable ? FACE_FRAGMENT_TABLE : FACE_FRAGMENT)}`,
         )
     }
     /**
@@ -1589,7 +1784,9 @@ ${SPARKLE_COMMON}`,
     m.customProgramCacheKey = () => cacheKey
   }
 
-  applySparkle(material, true, 'ocean-near-waves')
+  // 【查表與不查表要分開的 program】兩份字串不同，共用 key 會讓後建的那一份
+  // 拿到前一份的程式 —— 症狀是整片近海查一張沒有綁上去的貼圖
+  applySparkle(material, true, useTable ? 'ocean-near-waves-table' : 'ocean-near-waves')
 
   const mesh = new Group()
   for (const g of levelGeometries) {
@@ -1715,6 +1912,16 @@ ${SPARKLE_COMMON}`,
       // 【遠海不吸附】吸附是為了避免頂點在格點之間滑動造成面的形狀逐幀改變，
       // 而遠海是平的、沒有面可言。精確跟著相機走，才不會在極端座標下累積偏差。
       farMesh.position.set(centerX, FAR_SEA_Y, centerZ)
+
+      // 【表在這裡重畫，不在算繪迴圈裡】它只吃 uTime 與 uOrigin，而這兩個
+      // 就是上面剛寫的 —— 換句話說「輸入變了」與「表重畫」是同一件事。
+      // 沒有呼叫 update 的那些幀（暫停）輸入沒變，舊表仍然是對的
+      if (tableTarget !== null && oceanRenderer !== null) {
+        const prev = oceanRenderer.getRenderTarget()
+        oceanRenderer.setRenderTarget(tableTarget)
+        oceanRenderer.render(tableScene, tableCamera)
+        oceanRenderer.setRenderTarget(prev)
+      }
     },
     heightAt: gerstnerHeight,
     dispose() {
@@ -1724,6 +1931,9 @@ ${SPARKLE_COMMON}`,
       farMaterial.dispose()
       // 【貼圖要自己收】material.dispose() 不會去收 uniform 裡的貼圖
       shoreTexture.dispose()
+      tableTarget?.dispose()
+      tableMaterial?.dispose()
+      tableQuad?.geometry.dispose()
     },
   }
 }
