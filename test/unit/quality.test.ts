@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_QUALITY, QUALITY_LEVELS, pixelRatioFor } from '../../src/render/quality'
+import {
+  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, pixelRatioFor,
+} from '../../src/render/quality'
 
 /**
  * 繪圖解析度的檔位。**只有換算那一支是邏輯**，其餘是資料 —— 所以這裡守的是
@@ -48,5 +50,16 @@ describe('畫質檔位', () => {
     }
     // 第一檔就是預設 —— 沒設定過的人看到的選中狀態要落在第一顆
     expect(QUALITY_LEVELS[0]!.scale).toBe(DEFAULT_QUALITY)
+  })
+
+  /**
+   * 【抗鋸齒只有開與關】WebGL 不讓呼叫端指定樣本數，所以這一列不該長出第三個
+   * 選項；預設必須是開，與這個選項上線前逐字相同。
+   */
+  it('抗鋸齒是兩個選項，預設開啟且排在第一顆', () => {
+    expect(ANTIALIAS_LEVELS.map((lv) => lv.value)).toEqual([true, false])
+    expect(DEFAULT_ANTIALIAS).toBe(true)
+    expect(ANTIALIAS_LEVELS[0]!.value).toBe(DEFAULT_ANTIALIAS)
+    for (const lv of ANTIALIAS_LEVELS) expect(lv.label.length).toBeGreaterThan(0)
   })
 })

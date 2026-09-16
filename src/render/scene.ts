@@ -10,7 +10,7 @@ import { applyLightPalette, createLights, type Lights } from './lighting'
 import { applySkyPalette, createSky } from './sky'
 import { createFog } from './fog'
 import { setOceanRenderer } from './ocean'
-import { DEFAULT_QUALITY, pixelRatioFor } from './quality'
+import { DEFAULT_QUALITY, pixelRatioFor, readAntialias } from './quality'
 import { DAY_PALETTES, paletteSkyColorAt, type DayPalette, type TimeOfDay } from './timeOfDay'
 
 /** 近平面，m。**沒有動過** —— 深度精度幾乎全由它決定。 */
@@ -84,7 +84,9 @@ export function createScene(
   canvas: HTMLCanvasElement,
   timeOfDay: TimeOfDay = 'noon',
 ): SceneContext {
-  const renderer = new WebGLRenderer({ canvas, antialias: true })
+  // 【抗鋸齒只能在這裡決定】它是建立 context 的參數，事後換不了 —— 設定改了
+  // 之後要重新載入才生效，見 `render/quality.ts` 與 `ui/menu.ts` 的設定列
+  const renderer = new WebGLRenderer({ canvas, antialias: readAntialias() })
   // 【要排在建地形之前】海面的逐面量表需要一個 renderer 才畫得出來，而
   // 沒登記時近海會退回逐片段自己算（畫面相同，只是比較慢）
   setOceanRenderer(renderer)
