@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>田色 clipmap 展示區 — Contrails Air: Combat</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1620;
+        font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cfe0ef; }
+      canvas { display: block; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 300px; padding: 12px 14px;
+        background: rgba(10,18,26,0.82); border: 1px solid #2b3f52; border-radius: 6px;
+        backdrop-filter: blur(4px);
+      }
+      #panel h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; color: #8fb8d8; }
+      #modes, #poses { display: flex; gap: 6px; margin-bottom: 8px; }
+      #modes button, #poses button { flex: 1; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+      .row label { flex: 0 0 72px; color: #8ea6bb; }
+      .row input[type=range] { flex: 1; min-width: 0; }
+      .row .val { flex: 0 0 62px; text-align: right; color: #e6f0f8; }
+      button {
+        font: inherit; color: #cfe0ef; background: #16283a; border: 1px solid #2b3f52;
+        border-radius: 4px; padding: 4px 9px; cursor: pointer;
+      }
+      button:hover { background: #1e364c; }
+      button.on { background: #2d5a86; border-color: #4f8ec0; }
+      #stats { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: #a9c4dc; white-space: pre; }
+      #hint { position: fixed; bottom: 12px; left: 12px; color: #5f7e99; }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="panel">
+      <h1>田色 clipmap 展示區</h1>
+      <div id="modes"></div>
+      <div id="poses"></div>
+      <div id="rows"></div>
+      <pre id="stats"></pre>
+    </div>
+    <div id="hint">WASD 平移　Q/E 升降　Shift 加速　左鍵拖曳轉頭</div>
+    <script type="module" src="/src/tools/clipmap.ts"></script>
+  </body>
+</html>

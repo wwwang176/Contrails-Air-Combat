@@ -25,6 +25,7 @@ export default defineConfig({
         smoke: 'tools/smoke.html',
         torpedo: 'tools/torpedo.html',
         recovery: 'tools/recovery.html',
+        clipmap: 'tools/clipmap.html',
       },
     },
   },
