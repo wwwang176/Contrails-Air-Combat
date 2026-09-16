@@ -117,7 +117,9 @@
       #ui .screen[hidden] { display: none; }
       /* 【齒輪要自己開啟點擊】`#ui` 是 pointer-events: none，只有 .screen 例外 */
       .gear {
-        position: fixed; top: 16px; right: 16px; z-index: 4; pointer-events: auto;
+        /* 【層級】齒輪是彈窗的入口：壓在暫停那一段（10）之上，但在它自己打開的
+           彈窗（50 起跳，兩個值都在 ui/menu.ts）之下 */
+        position: fixed; top: 16px; right: 16px; z-index: 20; pointer-events: auto;
         display: flex; align-items: center; justify-content: center;
         width: 38px; height: 38px; padding: 0; color: var(--ink);
         background: var(--btn); border: 1px solid var(--bd2); box-shadow: 0 3px 8px rgba(0,0,0,.5);
