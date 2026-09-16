@@ -3,6 +3,7 @@ import { makeScratch } from '../core/pool'
 import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import { TORPEDO_RANGE, TORPEDO_SPEED } from '../world/torpedo'
+import { HULL_AIM_SPACING } from '../world/ships'
 import { insideWindow, releaseWindowOf, shipAt } from './bombRun'
 import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
 import { sustainedTurnRate } from '../analysis/envelope'
@@ -108,6 +109,36 @@ export function waterRunSeconds(
  * **起始值，由試飛裁定。**
  */
 export const TORPEDO_RELEASE_HULLS = 2
+
+/** `shiftAlong` 的暫存。獨立一格，不與 `S` 的索引打架。 */
+const ALONG_DIR = /* @__PURE__ */ new Vector3()
+
+/** 把 `out` 沿目標的艏向平移 `along` 公尺，回傳 `out`。不配置。 */
+function shiftAlong(target: StrikeTarget, along: number, out: Vector3): Vector3 {
+  if (along === 0) return out
+  return out.addScaledVector(ALONG_DIR.set(0, 0, -1).applyQuaternion(target.orientation), along)
+}
+
+/**
+ * 這一趟雷瞄船身上的哪一段：沿艏向的偏移，m。**刻意讓命中位置有變化**，
+ * 不是每一枚都打在船心。
+ *
+ * 候選段與掃射瞄點同一個間距（`HULL_AIM_SPACING`）：艦體盒沿長度切成
+ * `ceil(艦長 / 間距)` 段，取段的中心。驅逐艦三段、重巡四段、航母六段。
+ *
+ * 【用進場那一刻的位置挑，不用 `Math.random`】模擬要逐位元重播。位置取整
+ * 公尺後雜湊：同一趟的不同飛機、同一架的不同趟都會不一樣。
+ */
+export function torpedoAimAlong(hull: readonly Box[], x: number, z: number): number {
+  const b = hull[0]
+  if (b === undefined) return 0
+  const length = 2 * b.half.z
+  const n = Math.max(1, Math.ceil(length / HULL_AIM_SPACING))
+  const h = Math.imul(Math.round(x) ^ Math.imul(Math.round(z), 0x9e3779b1), 0x85ebca6b) >>> 0
+  const k = h % n
+  // 艦體座標 +Z 朝艦尾，沿艏向的偏移要反號
+  return -(b.center.z - b.half.z + (length * (k + 0.5)) / n)
+}
 
 /**
  * 釋放窗。**幾何與轟炸共用一份**（`ai/bombRun.ts` 的 `releaseWindowOf`），
@@ -384,6 +415,7 @@ export function makeTorpedoProfile(
       const ready = established(self, runAltitude)
       if (solve(self, ship) && SOL.water >= 0) {
         shipAt(ship, SOL.air + SOL.water, out.aim)
+        shiftAlong(ship, out.along ?? 0, out.aim)
         // 【水中航程要夾在射程之內】從 8 km 外解出來的航程是好幾公里，而雷
         // 只跑得了 2 km。不夾的話 `lockRange` 跟著距離一起長，飛機會在 5 km
         // 外就鎖死航向 —— 鎖了之後不能修正，等飛到投放點時解早就漂掉了；
@@ -402,12 +434,17 @@ export function makeTorpedoProfile(
       const speed = Math.hypot(v.x, v.z)
       const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
       shipAt(ship, speed > MIN_ERROR ? range / speed : 0, out.aim)
+      shiftAlong(ship, out.along ?? 0, out.aim)
       out.lockRange = 0
       out.egressRange = 2 * turnRadius(self)
     },
 
-    shouldRelease(self, ship) {
-      return shouldRelease(self, ship)
+    shouldRelease(self, ship, plan) {
+      return shouldRelease(self, ship, plan?.along ?? 0)
+    },
+
+    pickAlong(self, ship) {
+      return torpedoAimAlong(ship.hull, self.state.position.x, self.state.position.z)
     },
   }
 }
@@ -421,7 +458,7 @@ export function makeTorpedoProfile(
  *
  * 熱路徑（決策拍，10 Hz）：不配置。
  */
-export function shouldRelease(self: Aircraft, ship: StrikeTarget): boolean {
+export function shouldRelease(self: Aircraft, ship: StrikeTarget, along = 0): boolean {
   const h = S.v[2]!
   if (!waterHeading(self, h)) return false
   if (!solve(self, ship) || SOL.water < 0) return false
@@ -432,7 +469,8 @@ export function shouldRelease(self: Aircraft, ship: StrikeTarget): boolean {
   // 雷實際會走到的點：入水點沿著水平航向走完水中航程
   const tx = SOL.ex + h.x * run
   const tz = SOL.ez + h.z * run
-  const at = shipAt(ship, SOL.air + SOL.water, S.v[0]!)
+  // 【窗的中心是這一趟瞄的那一段】`along` 沿艏向平移，與 `plan` 同一個量
+  const at = shiftAlong(ship, along, shipAt(ship, SOL.air + SOL.water, S.v[0]!))
   // 【窗與轟炸共用】誤差拆進船的體軸，窗是艦體的 `RELEASE_HULLS` 倍
   return insideWindow(ship, tx - at.x, tz - at.z, TORPEDO_RELEASE_HULLS, TORPEDO_RELEASE_HULLS)
 }

@@ -93,8 +93,13 @@ export interface StrikeProfile {
    * 轟炸瞄「船在落彈時刻的位置」、雷擊瞄「船在雷程時刻的位置」。
    */
   plan(self: Aircraft, target: StrikeTarget, out: StrikePlan): void
-  /** 現在放得中嗎。熱路徑（決策拍）。 */
-  shouldRelease(self: Aircraft, target: StrikeTarget): boolean
+  /** 現在放得中嗎。熱路徑（決策拍）。`plan` 帶著這一趟的瞄點偏移。 */
+  shouldRelease(self: Aircraft, target: StrikeTarget, plan?: StrikePlan): boolean
+  /**
+   * 這一趟瞄目標上哪一段：沿艏向的偏移，m，寫進 `StrikePlan.along`。
+   * **每一趟進場挑一次**（進場開始、或進場途中換了目標）。省略 = 瞄正中。
+   */
+  pickAlong?(self: Aircraft, target: StrikeTarget): number
 }
 
 /** `StrikeProfile.plan` 的輸出。就地寫入 —— 熱路徑不得配置。 */
@@ -112,6 +117,11 @@ export interface StrikePlan {
    * （實測循環 111 s vs 66 s）。
    */
   egressRange: number
+  /**
+   * 這一趟瞄目標沿艏向偏多少，m，0 = 正中。由 `StrikeProfile.pickAlong` 在
+   * 進場時寫入；沒有那一支的剖面恆為 0。
+   */
+  along?: number
 }
 
 /**
@@ -134,6 +144,10 @@ export interface StrikeState {
    * 240 Hz × 170 µs = 每架 40 ms/s，直接撞穿設計預算。
    */
   readonly plan: StrikePlan
+  /** 下一次進場的那一步要重挑 `plan.along`。進場開始與脫離回到進場時設。 */
+  pickAlong: boolean
+  /** `plan.along` 是對哪一個目標挑的。進場途中換了目標就重挑。 */
+  alongFor: number
 }
 
 export function createStrikeState(): StrikeState {
@@ -143,7 +157,9 @@ export function createStrikeState(): StrikeState {
     target: -1,
     seconds: 0,
     release: false,
-    plan: { aim: new Vector3(), lockRange: 0, egressRange: 0 },
+    plan: { aim: new Vector3(), lockRange: 0, egressRange: 0, along: 0 },
+    pickAlong: true,
+    alongFor: -1,
   }
 }
 
@@ -156,6 +172,9 @@ export function resetStrike(s: StrikeState): void {
   s.plan.aim.set(0, 0, 0)
   s.plan.lockRange = 0
   s.plan.egressRange = 0
+  s.plan.along = 0
+  s.pickAlong = true
+  s.alongFor = -1
 }
 
 /**
@@ -206,6 +225,14 @@ export function stepStrike(
   out.firing = false
   state.release = false
 
+  // 【每一趟進場挑一次瞄點偏移】排在 `plan` 之前 —— 這一拍的瞄點就要用它。
+  // 進場途中換了目標也重挑：上一艘的偏移量對這一艘可能超出艦身
+  if (state.phase === 'approach' && (state.pickAlong || state.alongFor !== targetIndex)) {
+    state.plan.along = profile.pickAlong?.(self, ship) ?? 0
+    state.pickAlong = false
+    state.alongFor = targetIndex
+  }
+
   // 【三個幾何量只在決策拍重算】見 `StrikeState.plan`。**排在相位分支之前**
   // —— 脫離段也要用得到 `egressRange`，而那一段直接 return
   if (decide) profile.plan(self, ship, state.plan)
@@ -219,6 +246,7 @@ export function stepStrike(
     if (loaded && range > state.plan.egressRange) {
       state.phase = 'approach'
       state.target = -1
+      state.pickAlong = true
     }
     out.bombing = false
     return
@@ -271,7 +299,7 @@ export function stepStrike(
     return
   }
 
-  if (decide) state.release = profile.shouldRelease(self, ship)
+  if (decide) state.release = profile.shouldRelease(self, ship, state.plan)
   out.bombing = state.release
 }
 
