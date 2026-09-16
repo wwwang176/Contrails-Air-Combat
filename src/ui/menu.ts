@@ -230,6 +230,51 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const syncGear = (): void => { gear.hidden = document.pointerLockElement !== null }
   document.addEventListener('pointerlockchange', syncGear)
   syncGear()
+
+  /**
+   * 彈窗的層級。**後開的壓在先開的上面** —— 「彈窗的彈窗」（設定之上的重新載入
+   * 警告、暫停之上的放棄確認）不靠文件順序，靠開啟順序。
+   *
+   * 【為什麼不能靠文件順序】`#ui .screen` 沒有 z-index，彼此只按文件順序疊。
+   * 但畫面內容一旦自己設了 z-index（機庫左欄的 `.pane.hangar` 就是 1），由於
+   * `.screen` 沒有建立堆疊脈絡，那一層是直接參與 `#ui` 的堆疊脈絡，於是壓過
+   * **所有** z-index 為 auto 的兄弟 —— 設定因此被機庫的左欄蓋住。
+   *
+   * 【基準值】`#ui` 裡畫面內容目前最高是 1；留一大段空間給日後的內容。
+   */
+  const OVERLAY_BASE = 50
+  /**
+   * 暫停自成一段，**比齒輪低**。
+   *
+   * 【為什麼不跟彈窗同一段】齒輪是彈窗的入口：暫停的時候它必須還按得到，
+   * 進了設定之後又必須沉到背後（否則在設定裡挑到一半誤點它，`openSettings`
+   * 會把草稿重設回原值，而畫面上看不出發生了什麼）。
+   * 齒輪的值寫在 index.html 的 `.gear`，夾在這兩段中間。
+   */
+  const PAUSE_BASE = 10
+  const overlayStack: HTMLElement[] = []
+
+  function restackOverlays(): void {
+    overlayStack.forEach((e, i) => {
+      e.style.zIndex = String((e === pause ? PAUSE_BASE : OVERLAY_BASE) + i)
+    })
+  }
+
+  function openOverlay(e: HTMLElement): void {
+    // 【已經開著就不重複推】重複推會讓它在自己上面再疊一層，計數就對不上了
+    if (!overlayStack.includes(e)) overlayStack.push(e)
+    restackOverlays()
+    e.hidden = false
+  }
+
+  function closeOverlay(e: HTMLElement): void {
+    const i = overlayStack.indexOf(e)
+    if (i >= 0) overlayStack.splice(i, 1)
+    e.hidden = true
+    // 【要清掉】留著舊的層級值，下次它在別的順序下打開就會疊錯
+    e.style.zIndex = ''
+    restackOverlays()
+  }
   const q = (id: string): HTMLElement => root.querySelector(`#${id}`) as HTMLElement
   const el = {
     campaignCards: q('campaign-cards'),
@@ -275,19 +320,19 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'settings') { openSettings(); return }
     if (act === 'settingsApply') { applySettings(); return }
     // 【取消就整批丟掉】選擇只存在選單內部，沒有任何東西套用過，所以不必還原畫面
-    if (act === 'settingsCancel') { settings.hidden = true; return }
+    if (act === 'settingsCancel') { closeOverlay(settings); return }
     // 要重新載入的設定，套用前的最後一問
     if (act === 'reloadYes') { commitReload(); return }
     if (act === 'reloadNo') {
       // 【放棄這一項變更】按鈕要標回已生效的值，否則選中狀態會停在沒生效的那一顆
-      reloadAsk.hidden = true
+      closeOverlay(reloadAsk)
       draftAa = appliedAa
       drawSettingRows()
       return
     }
-    if (act === 'abandon') { confirm.hidden = false; return }
-    if (act === 'abandonNo') { confirm.hidden = true; return }
-    if (act === 'abandonYes') { confirm.hidden = true; hooks.onEvent('toMission'); return }
+    if (act === 'abandon') { openOverlay(confirm); return }
+    if (act === 'abandonNo') { closeOverlay(confirm); return }
+    if (act === 'abandonYes') { closeOverlay(confirm); hooks.onEvent('toMission'); return }
     hooks.onEvent(act as ScreenEvent)
   })
 
@@ -546,8 +591,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     draftQuality = appliedQuality
     draftAa = appliedAa
     drawSettingRows()
-    reloadAsk.hidden = true
-    settings.hidden = false
+    closeOverlay(reloadAsk)
+    openOverlay(settings)
   }
 
   /**
@@ -555,9 +600,9 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 在毫無預期之下丟掉進行中的戰鬥。
    */
   function applySettings(): void {
-    if (draftAa !== appliedAa) { reloadAsk.hidden = false; return }
+    if (draftAa !== appliedAa) { openOverlay(reloadAsk); return }
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
-    settings.hidden = true
+    closeOverlay(settings)
   }
 
   /**
@@ -567,7 +612,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
    * 玩家同時改的畫質會在重整後消失，而那看起來像是「確定沒有生效」。
    */
   function commitReload(): void {
-    reloadAsk.hidden = true
+    closeOverlay(reloadAsk)
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     hooks.onAntialias(draftAa)
   }
@@ -619,9 +664,13 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       if (screen === 'hangar') renderHangar()
     },
     setPaused(v) {
-      pause.hidden = !v
-      // 關掉暫停就一併關掉確認框與設定：「繼續」與換畫面都不該留下一層覆蓋
-      if (!v) { confirm.hidden = true; settings.hidden = true; reloadAsk.hidden = true }
+      if (v) { openOverlay(pause); return }
+      // 【關掉暫停就一併關掉疊在上面的那幾層】「繼續」與換畫面都不該留下一層覆蓋。
+      // 由上而下關，層級表才不會中途留下空洞
+      closeOverlay(reloadAsk)
+      closeOverlay(settings)
+      closeOverlay(confirm)
+      closeOverlay(pause)
     },
     renderSetup,
     renderQuality,
