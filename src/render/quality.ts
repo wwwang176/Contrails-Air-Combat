@@ -36,8 +36,8 @@ export const QUALITY_LEVELS: readonly QualityLevel[] = [
   { label: '流暢', scale: 0.65, fieldInner: 0 },
 ]
 
-/** 沒有設定過時用的檔位 —— 與這個選項上線前的行為逐字相同 */
-export const DEFAULT_QUALITY = 1
+/** 沒有設定過時用的檔位：平衡 */
+export const DEFAULT_QUALITY = 0.8
 
 /**
  * 檔位的田色內圈半徑。**存的是 `scale`，查表拿另一個欄位** —— 設定只記一個
@@ -55,8 +55,9 @@ export function fieldInnerFor(scale: number): number {
  * 【上限 2 是既有行為】`createScene` 原本就是 `min(devicePixelRatio, 2)`，
  * 這裡保留它：4K 筆電的 dpr 可以到 3，全開會讓像素數多出一倍以上。
  *
- * 【不接受超過 1 的檔位】那是超取樣，比原生更慢，不在這個選單提供的範圍內；
- * 壞掉的輸入（NaN、0、負數）一律回到預設，寧可清晰也不要黑畫面。
+ * 【不接受超過 1 的檔位】那是超取樣，比原生更慢，不在這個選單提供的範圍內，
+ * 夾到 1；壞掉的輸入（NaN、無限大、0、負數）一律回到預設 —— 0 像素的畫布是
+ * 黑畫面，而且不會報錯。
  */
 export function pixelRatioFor(scale: number, devicePixelRatio: number): number {
   const base = Math.min(devicePixelRatio, 2)
@@ -79,7 +80,7 @@ export const ANTIALIAS_LEVELS: readonly { label: string; value: boolean }[] = [
   { label: '關閉', value: false },
 ]
 
-/** 沒有設定過時的抗鋸齒 —— 與這個選項上線前逐字相同 */
+/** 沒有設定過時的抗鋸齒：開啟 */
 export const DEFAULT_ANTIALIAS = true
 
 const QUALITY_KEY = 'gfx.quality'
