@@ -36,6 +36,16 @@ describe('煙霧 billboard 的方向光與假自遮蔽', () => {
     expect(s.fragmentShader.match(/texture2D\( alphaMap, vSpunUv \)/g)).toHaveLength(1)
   })
 
+  /** 【爆炸的閃光也照得到煙】三盞固定的燈，逐顆粒子依離爆心的距離加亮 */
+  it('爆炸閃光以固定三盞的 uniform 陣列照亮煙', () => {
+    const s = shader()
+    injectSmokeLighting(s)
+    expect(s.vertexShader).toContain('vSmokeWorldCenter')
+    expect(s.fragmentShader).toContain('uniform vec3 uBlastLightPos[3]')
+    expect(s.fragmentShader).toContain('uniform vec3 uBlastLightColor[3]')
+    expect(s.fragmentShader).toContain('uniform float uBlastLightRadius[3]')
+  })
+
   it('光照可用 uniform 即時切換', () => {
     const s = shader()
     injectSmokeLighting(s)

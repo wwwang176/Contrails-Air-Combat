@@ -42,6 +42,8 @@ import {
   DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
 } from './render/smoke'
 import { addSmokeLighting } from './render/smokeLighting'
+import { createBlastLights } from './render/blastLights'
+import { battleLights } from './battle/battleLights'
 import {
   createShipFires, lightShipFires, stepShipFires,
 } from './render/shipFires'
@@ -543,9 +545,16 @@ const smokeTexture = new TextureLoader().load('/textures/smoke.png')
  */
 const flakBursts = createFlakBursts(undefined, smokeTexture)
 ctx.scene.add(flakBursts.object)
-// 【照明彈的燈開場就掛】光源數變動會讓每一個材質重編著色器 —— 見 `render/flares.ts`
+// 【照明彈的燈由開戰時決定掛不掛】光源數變動會讓每一個材質重編著色器，所以只在
+// `startWorld` 依 `battleLights` 掛上或拿掉 —— 卡頓留在載入那一刻，戰鬥中燈數不變。
+// 燈就算強度 0 也照算，用不到就不掛。
 const flareLights = createFlareLights(smokeTexture)
-ctx.scene.add(flareLights.object)
+/**
+ * 爆炸的閃光：炸彈、魚雷、擊墜、地面目標、艦上砲位、高射砲。**開場就掛、恆掛**
+ * —— 擊墜與高砲每一關都有。煙池建在它之後，煙的著色器讀它的 uniform。
+ */
+const blastLights = createBlastLights()
+ctx.scene.add(blastLights.object)
 
 const fireball = createFireball()
 ctx.scene.add(fireball.object)
@@ -562,6 +571,8 @@ const shipFireSmokeLighting = addSmokeLighting(
   ctx.lights.sun.position,
   ctx.lights.sun.color,
   ctx.lights.sun.intensity,
+  undefined,
+  blastLights.smokeUniforms,
 )
 /**
  * 殘骸的引擎火冒的煙。**與船火分開一份池子** —— 顏色是逐池的，燒的東西
@@ -627,6 +638,7 @@ const blastEmberLighting = addSmokeLighting(
   ctx.lights.sun.color,
   ctx.lights.sun.intensity,
   0,
+  blastLights.smokeUniforms,
 )
 const blastSmokeLighting = addSmokeLighting(
   blastSmoke,
@@ -634,6 +646,7 @@ const blastSmokeLighting = addSmokeLighting(
   ctx.lights.sun.color,
   ctx.lights.sun.intensity,
   0,
+  blastLights.smokeUniforms,
 )
 const fireSmokeLighting = [
   shipFireSmokeLighting,
@@ -736,6 +749,7 @@ function emitKillBlasts(events: KillEvents): void {
       x, onLand ? ground : y, z, (e * 131 + Math.round(world.time * 60)) | 0,
       d[o + 3]! * inherit, d[o + 4]! * inherit, d[o + 5]! * inherit)
     addShake(cameraShake, x, onLand ? ground : y, z, KILL_SHAKE, ctx.camera.position)
+    blastLights.flash(x, onLand ? ground : y, z, KILL_SHAKE, ctx.camera.position)
   }
 }
 
@@ -758,6 +772,7 @@ function emitGroundKills(events: ImpactEvents): void {
         (e * 97 + Math.round(world.time * 60)) | 0, 0, 0, 0)
       // 【炸彈擊毀的不搖第二次】同一個理由：那一顆的落點事件已經搖過
       addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+      blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
     }
     // 【原地掛煙柱】燒 60 秒，與船火同一套參數
     const t = world.groundTargets[d[o + 3]!]
@@ -795,6 +810,7 @@ function emitBombBlasts(events: ImpactEvents): void {
     const seed = (e * 197 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
     addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, ordnanceShakeScale(scale), ctx.camera.position)
+    blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)
     // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
     debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
   }
@@ -835,6 +851,7 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     const seed = (e * 211 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, x, y, z, seed)
     addShake(cameraShake, x, y, z, ordnanceShakeScale(scale), ctx.camera.position)
+    blastLights.flash(x, y, z, scale, ctx.camera.position)
     // 碎片從水面往上拋；與擊墜共用同一個池
     debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
   }
@@ -851,6 +868,9 @@ function shakeFlakBursts(events: BurstEvents): void {
     // 【尺度逐發帶】艦砲與陸砲各有自己的 `burstShake`，要分開調就改那一格
     addShake(cameraShake, events.x[e]!, events.y[e]!, events.z[e]!,
       events.shake[e]!, ctx.camera.position)
+    // 【不放大】火網下每秒好幾發；照原始尺度亮一下，比正在亮的燈暗就不搶
+    blastLights.flash(events.x[e]!, events.y[e]!, events.z[e]!,
+      events.shake[e]!, ctx.camera.position, false)
   }
 }
 
@@ -1283,6 +1303,11 @@ function startWorld(cfg: BattleConfig): void {
   // 【在 createBattle 之前】那一支會走到 `syncBombLoad`，而它讀這個值
   missionLoadout = cfg.blueLoadout ?? null
   battle = createBattle(playerController, cfg)
+  // 【點光源在開場掛好，整場不變】見 `battle/battleLights.ts`。`add` 對已經掛著
+  // 的物件是冪等的，`remove` 對沒掛的也是
+  if (battleLights(cfg).flares) ctx.scene.add(flareLights.object)
+  else ctx.scene.remove(flareLights.object)
+  blastLights.reset()
   battleStartedAt = elapsed
   battleEndedAt = -1
   aarDrawn = false
@@ -2056,6 +2081,8 @@ function stepAndDrawBattle(frameSeconds: number): void {
   blastMist.step(frameSeconds)
   flakBursts.step(frameSeconds)
   flareLights.update(world.flares, elapsed)
+  // 【畫面時間】閃光是純表現，與火花、火球同一條
+  blastLights.step(frameSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position)
@@ -2063,6 +2090,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
     addShake(cameraShake, x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
+    blastLights.flash(x, y, z, GUN_LOST_SHAKE, ctx.camera.position)
     for (let k = 0; k < FIREBALL_COUNT; k++) {
       GUN_LOST_DIR.set(
         Math.cos(k * 2.39963) * 0.7, Math.abs(Math.sin(k * 1.7)) * 0.9, Math.sin(k * 2.39963) * 0.7,
