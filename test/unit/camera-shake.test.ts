@@ -6,7 +6,7 @@ import {
   addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, shakeNoise, stepCameraShake,
 } from '../../src/camera/cameraShake'
 import { blastScaleOf } from '../../src/weapons/bomb'
-import { LOADOUT_BY_AIRCRAFT } from '../../src/weapons/stores'
+import { A6M5_BOMB_LOADOUT, LOADOUT_BY_AIRCRAFT } from '../../src/weapons/stores'
 import { FLAK_RADIUS, FLAK_SHAKE, FLAK_SMOKE } from '../../src/world/flak'
 import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
@@ -422,7 +422,7 @@ describe('高砲雲的表現尺度', () => {
  */
 describe('ordnanceShakeScale：炸彈與魚雷的震動尺度', () => {
   it('小當量非線性放大，而且保持單調', () => {
-    const a6m = blastScaleOf(LOADOUT_BY_AIRCRAFT['a6m5']!.damage)
+    const a6m = blastScaleOf(A6M5_BOMB_LOADOUT.damage)
     expect(ordnanceShakeScale(a6m)).toBeGreaterThan(a6m * 3)
     expect(ordnanceShakeScale(0.1)).toBeLessThan(ordnanceShakeScale(0.5))
     expect(ordnanceShakeScale(0.5)).toBeLessThan(ordnanceShakeScale(0.9))

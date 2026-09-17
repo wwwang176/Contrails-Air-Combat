@@ -250,6 +250,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),
+    ...(b.loadouts === undefined ? {} : { loadouts: b.loadouts }),
   }
 }
 
