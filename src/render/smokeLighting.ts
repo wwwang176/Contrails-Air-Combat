@@ -1,5 +1,6 @@
 import { Color, MeshBasicMaterial, Vector3 } from 'three'
 import type { Particles } from './particles'
+import { createBlastLightUniforms, type BlastLightUniforms } from './blastLights'
 
 interface SmokeLightingShader {
   vertexShader: string
@@ -26,13 +27,16 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
       'varying vec2 vSpunUv;',
       `varying vec2 vSpunUv;
        uniform vec3 uSmokeSunDirection;
-       varying vec3 vSmokeSunDirectionView;`,
+       varying vec3 vSmokeSunDirectionView;
+       varying vec3 vSmokeWorldCenter;`,
     )
     .replace(
       'vOffset = position.xy;',
       `vOffset = position.xy;
        // 太陽方向存世界座標；viewMatrix 讓同一套光照跟著鏡頭正確投影到 billboard。
-       vSmokeSunDirectionView = normalize(mat3(viewMatrix) * uSmokeSunDirection);`,
+       vSmokeSunDirectionView = normalize(mat3(viewMatrix) * uSmokeSunDirection);
+       // 爆炸閃光逐顆煙算一次距離：用這一顆的中心，不逐片元重算
+       vSmokeWorldCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;`,
     )
 
   shader.fragmentShader = shader.fragmentShader
@@ -43,7 +47,11 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        uniform float uSmokeSunAmount;
        uniform float uSmokeScatterStrength;
        uniform float uSmokeLightingEnabled;
-       varying vec3 vSmokeSunDirectionView;`,
+       uniform vec3 uBlastLightPos[3];
+       uniform vec3 uBlastLightColor[3];
+       uniform float uBlastLightRadius[3];
+       varying vec3 vSmokeSunDirectionView;
+       varying vec3 vSmokeWorldCenter;`,
     )
     .replace(
       'diffuseColor.a *= texture2D( alphaMap, vSpunUv ).g;',
@@ -69,9 +77,30 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        float scatter = directLight * (1.0 - coreDensity * 0.45)
          * uSmokeScatterStrength;
        diffuseColor.rgb *= mix(1.0, volumeShade, lightWeight);
-       diffuseColor.rgb += uSmokeSunColor * scatter * uSmokeLightingEnabled;`,
+       diffuseColor.rgb += uSmokeSunColor * scatter * uSmokeLightingEnabled;
+
+       // 3. 爆炸閃光：固定三盞（\`render/blastLights.ts\`），依這一顆煙的中心離
+       //    燈的距離平滑衰減到半徑邊緣為 0。熄著的燈顏色是零，整項加 0。
+       //    不看 uSmokeLightingEnabled —— 那一格關的是太陽的假體積光。
+       vec3 blastLight = vec3(0.0);
+       for (int i = 0; i < 3; i++) {
+         float r = max(uBlastLightRadius[i], 1.0);
+         vec3 toLight = vSmokeWorldCenter - uBlastLightPos[i];
+         float k = clamp(1.0 - dot(toLight, toLight) / (r * r), 0.0, 1.0);
+         blastLight += uBlastLightColor[i] * (k * k);
+       }
+       diffuseColor.rgb += blastLight * (1.0 - coreDensity * 0.5) * ${BLAST_SMOKE_GAIN.toFixed(3)};`,
     )
 }
+
+/**
+ * 爆炸閃光照在煙上的增益。燈色 × 亮度比例 × 閃光尺度之後再乘這個數加到煙色上
+ * —— 1 的話爆心旁的黑煙會整團變成燈色。**起始值，由試飛裁定。**
+ */
+export const BLAST_SMOKE_GAIN = 0.9
+
+/** 沒接爆炸燈的煙共用這一份：三盞都是熄的 */
+const NO_BLAST_LIGHTS = createBlastLightUniforms()
 
 /**
  * 只替指定煙池開啟實驗性光照。必須在它第一次 render 前呼叫。
@@ -84,6 +113,8 @@ export function addSmokeLighting(
   sunIntensity = 1,
   // 黑煙只補一點迎光散射；再高會在正午讀成灰白蒸汽。
   scatterStrength = 0.012,
+  // 【與地面同一盞光】傳 `BlastLights.smokeUniforms`；省略就是三盞都熄
+  blast: BlastLightUniforms = NO_BLAST_LIGHTS,
 ): SmokeLightingControl {
   const material = particles.object.material as MeshBasicMaterial
   const baseCompile = material.onBeforeCompile
@@ -101,10 +132,13 @@ export function addSmokeLighting(
     shader.uniforms.uSmokeSunColor = colorUniform
     shader.uniforms.uSmokeSunAmount = amountUniform
     shader.uniforms.uSmokeScatterStrength = scatterUniform
+    shader.uniforms.uBlastLightPos = blast.uBlastLightPos
+    shader.uniforms.uBlastLightColor = blast.uBlastLightColor
+    shader.uniforms.uBlastLightRadius = blast.uBlastLightRadius
   }
   // onBeforeCompile 的閉包內容不會進 three 的預設 cache key；明確區隔實驗材質。
   const baseCacheKey = material.customProgramCacheKey.bind(material)
-  material.customProgramCacheKey = (): string => `${baseCacheKey()}|smoke-volume-light-v1`
+  material.customProgramCacheKey = (): string => `${baseCacheKey()}|smoke-volume-light-v2`
   material.needsUpdate = true
 
   return {
