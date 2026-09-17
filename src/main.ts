@@ -138,6 +138,7 @@ import {
 } from './battle/skirmish'
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
+import { createLoadingScreen } from './ui/loading'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { createShowcase, type Showcase } from './app/showcase'
@@ -297,6 +298,13 @@ let pendingMission: ReadyMissionCard | null = null
  * 進入戰鬥的路徑，那條路徑也必須先呼叫 `enterBattle()`。
  */
 let battle!: Battle
+/** 蓋住畫面的載入進度（`index.html` 的 `#loading`）。開場就蓋著 */
+const loading = createLoadingScreen()
+/**
+ * 正在非同步建一場戰鬥（`loadBattle`）。**為真時 `frame` 不推進、不畫戰鬥** ——
+ * 第一場的 `battle` 那時還不存在。
+ */
+let loadingBattle = false
 let world!: World
 /**
  * 玩家目前開的那一架。
@@ -1258,10 +1266,45 @@ function enterBattle(): void {
   bannerText = ''
   // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
   releaseVisuals()
-
   // 2. 其餘的池子歸零
   resetPools()
+  buildBattleTerrain()
+  startWorld(battleConfig())
+}
 
+/**
+ * 同一件事的非同步版本：**每一段之間蓋著載入畫面、讓瀏覽器畫一次進度**，最後
+ * 先把整個場景的著色器編好，第一幀就不會再卡一下。
+ *
+ * 【為什麼 `loadingBattle` 要蓋整段】`frame` 在載入期間照樣每幀跑，而第一場
+ * 的 `battle` 要到 `startWorld` 才存在 —— 沒擋的話那幾幀會對 undefined 推進戰鬥。
+ */
+async function loadBattle(): Promise<void> {
+  loadingBattle = true
+  loading.show()
+  try {
+    await loading.hold()
+    await loading.step('整理戰場', 0.05)
+    // 與 `enterBattle` 同樣的第 1、2 段
+    bannerText = ''
+    releaseVisuals()
+    resetPools()
+    await loading.step('鋪設地形', 0.2)
+    buildBattleTerrain()
+    await loading.step('編組部隊', 0.5)
+    startWorld(battleConfig())
+    await loading.step('編譯著色器', 0.75)
+    // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
+    await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
+    await loading.finish('出擊')
+  } finally {
+    loadingBattle = false
+    loading.hide()
+  }
+}
+
+/** 建場的第 3 段：地形、時段與界 */
+function buildBattleTerrain(): void {
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
   //
@@ -1284,14 +1327,19 @@ function enterBattle(): void {
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
+}
 
-  // 4. 新的世界。【兩條路各自有唯一的設定入口】遭遇戰走 `battleConfigFrom`、
-  //    任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個函數裡套
-  startWorld(drillConfig !== null
+/**
+ * 建場的第 4 段要的設定。【兩條路各自有唯一的設定入口】遭遇戰走
+ * `battleConfigFrom`、任務走 `missionConfigFrom` —— 難度 VETERAN 都在那兩個
+ * 函數裡套
+ */
+function battleConfig(): BattleConfig {
+  return drillConfig !== null
     ? drillConfig
     : mode === 'mission' && pendingMission !== null
       ? missionConfigFrom(pendingMission)
-      : battleConfigFrom(setup))
+      : battleConfigFrom(setup)
 }
 
 /**
@@ -2539,9 +2587,10 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     }
     // 【`fight` 一律重建】不管是從設定頁進來還是結算的「再打一場」
     if (event === 'fight' && screen === 'battle') {
-      enterBattle()
-      paused = false
+      // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
       grabPointer()
+      paused = false
+      void loadBattle()
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
@@ -2663,14 +2712,17 @@ function frame(now: number) {
   lastTime = now
   perf.begin(now)
   bindings.tick(frameSeconds)
-  hudCanvas.hidden = screen !== 'battle'
+  hudCanvas.hidden = screen !== 'battle' || loadingBattle
 
   // 【演練場的靶機打不死】血量每幀釘回滿 —— 幀內的彈著扣不到 0，就永遠
   // 不會走進擊墜路徑。轉向已由 `__drill` 換上直飛控制器，這裡只管活著。
   if (drillDrone !== null && screen === 'battle') {
     drillDrone.hp = drillDrone.aircraft.spec.hp * 1e6
   }
-  if (screen === 'battle') {
+  if (loadingBattle) {
+    // 【載入中什麼都不推進、不畫】載入畫面蓋著整個畫面，而場景正被一段一段
+    // 換掉；第一場的 `battle` 也還不存在
+  } else if (screen === 'battle') {
     // 【暫停時所有模擬時間都不前進】只停飛機的話，畫面上是一批定格的
     // 飛機浮在繼續起伏的海上 —— 那看起來像當掉（M10 spec §8.1）
     if (input.pointerLockLost) {
@@ -2726,18 +2778,27 @@ const initialRecoveryFailure = recoveryWorkerFailure()
 if (initialRecoveryFailure !== null) {
   blockForRecoveryWorker(initialRecoveryFailure)
 } else {
+  // 【載入畫面在 HTML 裡就蓋著】每載完一類推一格，全部載完才收 —— 在那之前
+  // 選單點不到，出擊不會撞上還沒載好的樣板
+  await loading.hold()
+  await loading.step('載入機體', 0.05)
   await preloadAircraftModels()
   // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
   // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
   // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
+  await loading.step('載入艦艇', 0.45)
   await preloadShipModels(['essex', 'wichita', 'fletcher'])
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
+  await loading.step('載入地面單位', 0.65)
   await preloadGroundModels()
   // 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
   // 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
+  await loading.step('載入廠區', 0.8)
   await preloadPlantScenery()
   // 【機場的佈景同一條規則】沒載到的症狀是德 M2 進不去
+  await loading.step('載入機場', 0.9)
   await preloadAirfieldScenery()
+  await loading.finish('完成')
   requestAnimationFrame(frame)
 }
 

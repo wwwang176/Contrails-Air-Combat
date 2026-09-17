@@ -404,11 +404,54 @@
       /* 【紙上的機身要是墨色】側影吃 `currentColor`，落在紙上還用暗底的米白
          就等於白紙上寫白字 */
       .paperbit .sil { color: var(--paper-ink); }
+
+      /* ══ 載入畫面 ══ 暗桌面上一張整備單。開場就蓋著（模型預載完才收），進關卡時
+         再叫出來（`ui/loading.ts`）。層級在所有選單與設定彈窗之上、Worker 失效的
+         阻擋畫面之下 */
+      #loading {
+        position: fixed; inset: 0; z-index: 9000; box-sizing: border-box;
+        display: flex; align-items: center; justify-content: center; padding: 24px;
+        background: rgb(var(--veil));
+        background-image: radial-gradient(ellipse at 50% 42%, rgba(70, 58, 40, .45), transparent 70%);
+        font: 14px/1.65 var(--f-body); pointer-events: auto;
+      }
+      #loading[hidden] { display: none; }
+      /* 【只有進度條與狀態】紙片只是底，不放標題與章 */
+      .load-sheet {
+        position: relative; width: min(340px, 100%); box-sizing: border-box;
+        padding: 16px 20px 12px; transform: rotate(-.6deg);
+      }
+      /* 墨色的進度條，底下每一成一道刻度 —— 像填表格時的量尺 */
+      .load-bar {
+        position: relative; height: 10px; border: 1px solid var(--paper-ink);
+        background: repeating-linear-gradient(90deg,
+          transparent 0 calc(10% - 1px), rgba(47, 39, 28, .28) calc(10% - 1px) 10%);
+      }
+      /* 【過渡要比停留短】頭尾各停 0.1 秒，比它長的話條還沒長滿畫面就收了 */
+      #loading-fill {
+        display: block; height: 100%; width: 0;
+        background: repeating-linear-gradient(135deg, var(--paper-ink) 0 5px, #3d3325 5px 10px);
+        transition: width .08s ease;
+      }
+      .load-row {
+        display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+        margin-top: 8px; font: 11px/1.4 var(--f-title); letter-spacing: .08em; color: var(--paper-dim);
+      }
+      #loading-pct { color: var(--sel); font-weight: 700; }
     </style>
   </head>
   <body>
     <canvas id="scene"></canvas>
     <canvas id="hud"></canvas>
+
+    <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒
+         載完時選單不能點 -->
+    <div id="loading" role="status" aria-live="polite">
+      <div class="load-sheet paperbit">
+        <div class="load-bar"><i id="loading-fill"></i></div>
+        <div class="load-row"><span id="loading-step">準備中</span><span id="loading-pct">0%</span></div>
+      </div>
+    </div>
 
     <div id="board" hidden>
       <div class="aar">
@@ -547,6 +590,16 @@
           <div class="row">
             <button class="go" data-act="abandonNo">繼續任務</button>
             <button class="btn" data-act="abandonYes">放棄任務</button>
+          </div>
+        </div>
+      </section>
+      <!-- 重新開始的確認。與放棄任務同一類：疊在暫停之上，menu.ts 自己開關 -->
+      <section id="restart-confirm" class="screen" style="--v:.60" hidden>
+        <div class="ask">
+          <h2>要重新開始這一場嗎？</h2>
+          <div class="row">
+            <button class="go" data-act="restartNo">繼　續</button>
+            <button class="btn" data-act="restartYes">重新開始</button>
           </div>
         </div>
       </section>
