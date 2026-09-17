@@ -77,10 +77,10 @@ export const ALLIES: readonly MissionCard[] = [
       objective: '炸毀洛伊納油廠', banner: '轟炸洛伊納油廠',
       blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
       /**
-       * 【十二架分三個小隊擺開】玩家在中間那一隊當長機，前後各一隊
+       * 【十二架分三群擺開】玩家在中間那一群的前頭，前後各一群
        * （`order.ts` 的 `stackedEntry`：前後 500 m、左右錯半個身位、高度分層）。
-       * **只是開場站位，不編隊** —— 十一架 AI 照自己的攻擊航路投
-       * （`ai/strikeRun.ts`）。
+       * **只是開場站位，不編隊** —— 每一架自成一個小隊（`soloBombers`），
+       * 十一架 AI 照自己的攻擊航路投（`ai/strikeRun.ts`）。
        *
        * 【為什麼不是四架】史實這一場第八航空軍出動六百多架；四架在畫面上
        * 是一支巡邏隊，不是一次轟炸。**起始值，由試飛裁定。**

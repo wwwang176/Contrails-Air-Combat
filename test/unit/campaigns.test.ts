@@ -3,6 +3,8 @@ import { MISSIONS, CAMPAIGNS, missionConfigFrom } from '../../src/battle/mission
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
+import { BOMBS_CAPACITY } from '../../src/world/bomb'
+import { loadoutOf } from '../../src/weapons/stores'
 
 /**
  * # 三條戰役與 9 張卡
@@ -530,5 +532,64 @@ describe('盟 M2 的卡片', () => {
     expect(waves[0]!.count).toBe(4)
     expect(waves[0]!.spec.id).toBe('bf109k4')
     expect(waves[0]!.starboard).toBe(Math.PI)
+  })
+})
+
+/** 【轟炸機不編隊】每一關的開場編組與增援波次，轟炸機都是一架一個小隊 */
+describe('任務的轟炸機一架一個小隊', () => {
+  it('開場與波次都沒有兩架以上的轟炸機小隊', () => {
+    for (const card of Object.values(MISSIONS).flat()) {
+      if (card.battle === null) continue
+      const cfg = missionConfigFrom(card as ReadyMissionCard)
+      const flights = [
+        ...cfg.units,
+        ...(cfg.beats ?? []).flatMap((x) => (x.kind === 'reinforce' ? [x.flight] : [])),
+      ]
+      for (const f of flights) {
+        if (f.members.some((m) => m.role === 'bomber')) {
+          expect(f.members.length, card.id).toBe(1)
+        }
+      }
+    }
+  })
+})
+
+/**
+ * 【炸彈池裝得下每一關】池是環狀寫入，滿了就把還在空中的炸彈蓋掉 —— 那幾顆
+ * 從空中消失，不爆也不報錯。上限取「開場每一架掛滿 + 每一個增援波次掛滿」。
+ *
+ * 【transit 不算】被護送／被攔截的轟炸機不挑目標，掛著彈也不會投。
+ */
+describe('炸彈池裝得下每一關同時掛著的炸彈', () => {
+  it('每一關會投彈的飛機掛彈總數不超過 BOMBS_CAPACITY', () => {
+    for (const card of Object.values(MISSIONS).flat()) {
+      if (card.battle === null) continue
+      const cfg = missionConfigFrom(card as ReadyMissionCard)
+      const flights = [
+        ...cfg.units,
+        ...(cfg.beats ?? []).flatMap((x) => (x.kind === 'reinforce' ? [x.flight] : [])),
+      ]
+      let bombs = 0
+      for (const f of flights) {
+        if (f.duty === 'transit') continue
+        for (const m of f.members) {
+          const l = (f.team === 'blue' ? cfg.blueLoadout : undefined)
+            ?? cfg.loadouts?.[m.id] ?? loadoutOf(m.id)
+          if (l?.kind === 'bomb') bombs += l.count
+        }
+      }
+      expect(bombs, card.id).toBeLessThanOrEqual(BOMBS_CAPACITY)
+    }
+  })
+
+  it('盟 M2 的 B-17 一輪齊投（120 顆）裝得下', () => {
+    const m2 = MISSIONS.allies.find((m) => m.id === 'allies-m2') as ReadyMissionCard
+    const cfg = missionConfigFrom(m2)
+    let bombs = 0
+    for (const f of cfg.units) {
+      for (const m of f.members) if (m.id === 'b17g') bombs += loadoutOf('b17g')!.count
+    }
+    expect(bombs).toBe(120)
+    expect(BOMBS_CAPACITY).toBeGreaterThanOrEqual(bombs)
   })
 })
