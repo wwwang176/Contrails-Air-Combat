@@ -2,7 +2,9 @@ import { Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from '../setup'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
-import { WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, stackedEntry } from '../order'
+import {
+  WAVE_LANE, convoyLine, lineAbreast, pincer, rotateEntry, soloBombers, stackedEntry,
+} from '../order'
 import { SCHWARM_SIZE } from '../flights'
 import type { Beat, BeatCondition, RecycleBeat, ReinforceBeat, WithdrawBeat } from '../beats'
 import type { MissionRules } from '../mission'
@@ -168,7 +170,8 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
   const plan = ENTRY_PLANS[b.entry]
   // 【省略時連鍵都不放】理由同 `need`：沒寫 `convoyBox` 的卡一個位元都不該動
   const box = b.convoyBox === true ? { box: true } as const : {}
-  const units = rules.kind === 'convoy'
+  // 【轟炸機一架一隊】見 `soloBombers`。波次在 `cardBeats` 過同一支
+  const units = soloBombers(rules.kind === 'convoy'
     ? convoyLine(plan, {
       fighter: b.blueSpec,
       fighters: b.blueCount,
@@ -217,7 +220,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
         : pincer(
           plan, b.blueSpec, b.blueCount, b.redSpec, b.redCount, b.redStarboard,
           DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset,
-        )
+        ), DEFAULT_BATTLE.schwarmSpacing)
   const beats = cardBeats(card, plan, altitude)
   return {
     ...DEFAULT_BATTLE,
@@ -281,7 +284,14 @@ function cardBeats(
   // 【重生排在波次前面】掛在 `batch` 條件上的波次讀的是同一步剛加上的批數，
   // 排在後面會晚一個物理步預警，而兩則預警本該同一刻
   if (b.recycle !== undefined) out.push(recycleBeat(b.recycle, plan))
-  b.waves?.forEach((w, i) => out.push(waveBeat(w, i, plan, altitude)))
+  // 【轟炸機的波次拆成幾個同時生效的節拍】一個增援節拍帶一個小隊，而轟炸機
+  // 一架一隊（`soloBombers`）。同一個條件、同一則預警，同一步一起進場
+  b.waves?.forEach((w, i) => {
+    const wave = waveBeat(w, i, plan, altitude)
+    for (const flight of soloBombers([wave.flight], DEFAULT_BATTLE.schwarmSpacing)) {
+      out.push({ ...wave, flight })
+    }
+  })
   if (b.flares !== undefined) {
     out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
   }

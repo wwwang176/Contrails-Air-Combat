@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   lineAbreast, mixedLine, flightLine, pincer, assertOrderOfBattle, sideSummary,
-  type OrderOfBattle,
+  soloBombers, stackedEntry, type OrderOfBattle,
 } from '../../src/battle/order'
+import { createBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { DEG } from '../../src/core/math'
 import { HEAD_ON, PURSUIT } from '../../src/battle/entry'
 import { SCHWARM_SIZE } from '../../src/battle/flights'
@@ -347,5 +348,46 @@ describe('pincer', () => {
     const u = pincer(HEAD_ON, P51D, 16, BF109K4, 12, 45 * DEG, R, L)
     const n = red(u).reduce((a, f) => a + f.members.length, 0)
     expect(n).toBe(12)
+  })
+})
+
+/**
+ * 轟炸機一架一個小隊。
+ *
+ * 【它在防什麼】多機的轟炸機小隊裡僚機會為了站位大滾轉；拆開時出生點要與
+ * 原本的站位幾何相同，否則開場的隊形會整個跑掉而不報錯。
+ */
+describe('soloBombers', () => {
+  const idle = { update() {} }
+
+  it('整隊轟炸機拆成單機小隊，玩家留在原本的長機；戰鬥機小隊不動', () => {
+    const u = soloBombers(stackedEntry(HEAD_ON, B17G, 12, BF109K4, 4), DEFAULT_BATTLE.schwarmSpacing)
+    for (const f of blue(u)) expect(f.members).toEqual([B17G])
+    expect(blue(u).length).toBe(12)
+    expect(red(u).map((f) => f.members.length)).toEqual([4])
+    assertOrderOfBattle(u)
+    const before = stackedEntry(HEAD_ON, B17G, 12, BF109K4, 4)
+    expect(blue(u).findIndex((f) => f.player === true))
+      .toBe(blue(before).findIndex((f) => f.player === true) * SCHWARM_SIZE)
+  })
+
+  it('出生點與拆開前的站位相同，轉過方位的入場也一樣', () => {
+    for (const units of [
+      stackedEntry(HEAD_ON, B17G, 12, BF109K4, 4),
+      pincer(HEAD_ON, P51D, 4, B17G, 8, 45 * DEG, DEFAULT_BATTLE.entryRange, DEFAULT_BATTLE.lateralOffset),
+    ]) {
+      const a = createBattle(idle, { ...DEFAULT_BATTLE, units }, 1)
+      const solo = soloBombers(units, DEFAULT_BATTLE.schwarmSpacing)
+      const b = createBattle(idle, { ...DEFAULT_BATTLE, units: solo }, 1)
+      expect(b.world.combatants.length).toBe(a.world.combatants.length)
+      expect(b.flights.flights.length).toBeGreaterThan(a.flights.flights.length)
+      for (let i = 0; i < a.world.combatants.length; i++) {
+        const p = a.world.combatants[i]!.aircraft.state.position
+        const q = b.world.combatants[i]!.aircraft.state.position
+        expect(q.x, `x ${i}`).toBeCloseTo(p.x, 6)
+        expect(q.y, `y ${i}`).toBeCloseTo(p.y, 6)
+        expect(q.z, `z ${i}`).toBeCloseTo(p.z, 6)
+      }
+    }
   })
 })

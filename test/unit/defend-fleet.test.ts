@@ -192,7 +192,9 @@ describe('盟 M4：沖繩外海', () => {
   it('走完 missionConfigFrom 之後艦隊、重生與波次都在', () => {
     const cfg = missionConfigFrom(card as ReadyMissionCard)
     expect(cfg.fleet).toBe(b.fleet)
-    expect(cfg.beats!.map((x) => x.kind)).toEqual(['recycle', 'reinforce'])
+    // 四架陸攻一架一隊：一個波次拆成四個同條件的增援節拍
+    expect(cfg.beats!.map((x) => x.kind)).toEqual(
+      ['recycle', 'reinforce', 'reinforce', 'reinforce', 'reinforce'])
   })
 
   /**

@@ -1,4 +1,5 @@
-import { SCHWARM_SIZE } from './flights'
+import { SCHWARM_SIZE, STATION_REFERENCE } from './flights'
+import { STATION_OFFSETS } from '../ai/station'
 import type { EntryPlan, SideEntry } from './entry'
 import type { AircraftSpec } from '../specs/types'
 import type { Team } from '../world/World'
@@ -535,6 +536,64 @@ export function assertOrderOfBattle(units: OrderOfBattle): void {
   }
   if (players !== 1) throw new Error(`編組表必須恰好有一筆 player，收到 ${players}`)
   if (!units.some((u) => u.team === 'blue')) throw new Error('編組表裡沒有藍隊')
+}
+
+/**
+ * 轟炸機一架一個小隊：整隊都是轟炸機的多機小隊，拆成同樣位置上的單機小隊。
+ * **任務的編組表與波次都過這一支**（`missions/index.ts`）。
+ *
+ * 【為什麼】兩架以上的小隊裡僚機走 `stationCommand` 維持相對位置，為了修橫向
+ * 誤差會下大滾轉，轟炸機因此一路互相追著滾（理由同 `assertOrderOfBattle` 的
+ * transit 檢查）。單機小隊沒有參考機，每一架照自己的攻擊航路飛。
+ *
+ * 【出生點不變】第 k 架放在原本站位幾何算出的位置：`STATION_OFFSETS` 沿
+ * `STATION_REFERENCE` 累加，在機首的水平框裡轉成世界的 x／z，再折進
+ * `lane`（除以 `schwarmSpacing`）、`depth` 與 `rise`。與 `stationPoint` 同一組
+ * 轉換 —— 開場速度就是機首方向，所以航跡框等於機首框。
+ *
+ * 【混編小隊不拆】護航與轟炸機同隊是刻意的編成，不是這一條要管的。
+ */
+export function soloBombers(units: OrderOfBattle, schwarmSpacing: number): OrderOfBattle {
+  const out: FlightPlan[] = []
+  const dx = [0, 0, 0, 0]
+  const dy = [0, 0, 0, 0]
+  const dz = [0, 0, 0, 0]
+  for (const u of units) {
+    const n = u.members.length
+    if (n === 1 || !u.members.every((m) => m.role === 'bomber')) {
+      out.push(u)
+      continue
+    }
+    // 機首朝 −Z 繞 Y 轉 `heading`；右手側是 (−fz, fx)，與 `stationPoint` 相同
+    const fx = -Math.sin(u.entry.heading)
+    const fz = -Math.cos(u.entry.heading)
+    const rx = -fz
+    const rz = fx
+    for (let k = 0; k < n; k++) {
+      const ref = STATION_REFERENCE[k]!
+      if (ref < 0) {
+        dx[k] = 0; dy[k] = 0; dz[k] = 0
+      } else {
+        const o = STATION_OFFSETS[k]!
+        dx[k] = dx[ref]! + fx * o.along + rx * o.across
+        dy[k] = dy[ref]! + o.up
+        dz[k] = dz[ref]! + fz * o.along + rz * o.across
+      }
+      if (k === 0) {
+        out.push({ ...u, members: [u.members[0]!] })
+        continue
+      }
+      const { player: _player, ...rest } = u
+      out.push({
+        ...rest,
+        members: [u.members[k]!],
+        lane: u.lane + dx[k]! / schwarmSpacing,
+        depth: (u.depth ?? 0) + dz[k]!,
+        rise: (u.rise ?? 0) + dy[k]!,
+      })
+    }
+  }
+  return out
 }
 
 /** 一隊的總架數。 */
