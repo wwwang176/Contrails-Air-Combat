@@ -14,13 +14,12 @@ type V3 = Vector3
  * 燈，每一個受光材質都重編一次，幾百毫秒的卡頓會落在爆炸那一刻。燈開場就
  * 掛著、沒在用的強度 0。
  *
- * 【很多顆同時爆】燈不會變多。新的爆炸搶**目前最暗**的那一盞 —— 通常是最早
- * 炸的那顆，衰減得差不多了，被搶走時看不出光突然消失。一串連投的炸彈於是是
- * 一道沿落彈線往前滾的閃光。最暗的那盞都比新的一發亮時就不點：高砲的小閃光
- * 蓋不掉正在亮的炸彈閃光。
+ * 【很多顆同時爆】燈不會變多。新的爆炸先用熄著的燈，全亮著就搶**最早點的**
+ * 那一盞，不比亮暗 —— 最新的爆炸一定有光。一串連投的炸彈於是是一道沿落彈線
+ * 往前滾的閃光。
  */
 
-export const BLAST_LIGHT_COUNT = 3
+export const BLAST_LIGHT_COUNT = 2
 /** 最小當量的閃光秒數 */
 export const BLAST_LIGHT_SECONDS_MIN = 0.1
 /** 基準彈（尺度 1）以上的閃光秒數 */
@@ -119,6 +118,9 @@ export function createBlastLights(): BlastLights {
   const age = new Float32Array(BLAST_LIGHT_COUNT)
   const seconds = new Float32Array(BLAST_LIGHT_COUNT)
   const size = new Float32Array(BLAST_LIGHT_COUNT)
+  /** 每一盞是第幾次點的，越小越早 */
+  const born = new Float64Array(BLAST_LIGHT_COUNT)
+  let serial = 0
 
   function apply(k: number): void {
     const l = lights[k]!
@@ -142,13 +144,14 @@ export function createBlastLights(): BlastLights {
       const dy = y - cam.y
       const dz = z - cam.z
       if (dx * dx + dy * dy + dz * dz > BLAST_LIGHT_CULL * BLAST_LIGHT_CULL) return
+      // 熄著的燈先用；全亮著就搶最早點的那盞。先後看序號不看年齡 —— 同一幀
+      // 點的幾盞年齡都是 0，比年齡會一直搶同一盞
       let k = 0
       for (let i = 1; i < BLAST_LIGHT_COUNT; i++) {
-        if (lights[i]!.intensity < lights[k]!.intensity) k = i
+        if (size[k]! <= 0) break
+        if (size[i]! <= 0 || born[i]! < born[k]!) k = i
       }
-      // 【小閃光不蓋掉大閃光】最暗的那盞都比這一發亮的話就不點 —— 高砲一發
-      // 不能把正在亮的炸彈或擊墜閃光搶走
-      if (lights[k]!.intensity > BLAST_LIGHT_INTENSITY * s) return
+      born[k] = ++serial
       lights[k]!.position.set(x, y + BLAST_LIGHT_LIFT, z)
       age[k] = 0
       seconds[k] = blastLightSeconds(scale)

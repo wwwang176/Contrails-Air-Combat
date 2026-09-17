@@ -185,17 +185,17 @@ export const SEARCHLIGHT_SITES: readonly { x: number; z: number; heading: number
 /**
  * 照明彈的位置清單，**散在機場四周而不是排成一線**。
  *
- * 同時亮 `FLARE_LANES`（3）枚、一枚一盞燈：前三個先點（照明機斜切機場，
+ * 同時亮 `FLARE_LANES`（2）枚、一枚一盞燈：前兩個先點（照明機斜切機場，
  * 7 秒一枚），之後哪一枚熄了就在清單的下一個位置點新的，走完從頭。所以
- * **同時亮著的永遠是清單裡相鄰的三個** —— 清單照西、中、東輪流排，任三個
- * 相鄰的就各佔一區、彼此至少 800 m；南北與高度各不相同，地上每一處的光照
- * 角度才不一樣。後面幾個的 `delay` 用不到，填 0。
+ * **同時亮著的永遠是清單裡相鄰的兩個** —— 清單照西、中、東輪流排，任兩個
+ * 相鄰的就各在不同區、彼此至少 800 m；南北與高度各不相同，地上每一處的光照
+ * 角度才不一樣。第三個之後的 `delay` 用不到。
  */
 export const FLARE_DROPS: readonly { x: number; z: number; altitude: number; delay: number }[] =
   /* @__PURE__ */ ([
     { dx: -800, dz: -350, altitude: 1400, delay: 0 },
     { dx: 0, dz: 300, altitude: 1050, delay: 7 },
-    { dx: 800, dz: -300, altitude: 1250, delay: 14 },
+    { dx: 800, dz: -300, altitude: 1250, delay: 0 },
     { dx: -800, dz: 250, altitude: 1150, delay: 0 },
     { dx: 0, dz: -380, altitude: 1350, delay: 0 },
     { dx: 800, dz: 450, altitude: 1100, delay: 0 },

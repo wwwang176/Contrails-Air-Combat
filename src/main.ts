@@ -877,7 +877,7 @@ function shakeFlakBursts(events: BurstEvents): void {
     // 【尺度逐發帶】艦砲與陸砲各有自己的 `burstShake`，要分開調就改那一格
     addShake(cameraShake, events.x[e]!, events.y[e]!, events.z[e]!,
       events.shake[e]!, ctx.camera.position)
-    // 【不放大】火網下每秒好幾發；照原始尺度亮一下，比正在亮的燈暗就不搶
+    // 【不放大】火網下每秒好幾發；照原始尺度亮一下
     blastLights.flash(events.x[e]!, events.y[e]!, events.z[e]!,
       events.shake[e]!, ctx.camera.position, false)
   }

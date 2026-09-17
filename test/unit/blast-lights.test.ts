@@ -93,17 +93,17 @@ describe('createBlastLights：固定幾盞的燈池', () => {
     expect(l.intensity).toBeGreaterThan(BLAST_LIGHT_INTENSITY * 0.5)
   })
 
-  /** 【很多顆同時爆】燈不會變多；新的搶最暗的那一盞 */
-  it('燈滿了之後，新的爆炸搶最暗的那一盞', () => {
+  /** 【很多顆同時爆】燈不會變多；熄著的先用，全亮著就搶最早點的那一盞 */
+  it('燈滿了之後，新的爆炸搶最早點的那一盞', () => {
     const b = createBlastLights()
     b.flash(0, 0, 0, 1, CAM)
     b.step(0.2)
-    b.flash(50, 0, 0, 1, CAM)
-    b.flash(100, 0, 0, 1, CAM)
-    b.flash(150, 0, 0, 1, CAM)
+    // 再來 BLAST_LIGHT_COUNT 顆：先填空的燈，最後一顆搶走衰減中的第一盞
+    const later = Array.from({ length: BLAST_LIGHT_COUNT }, (_, i) => 50 * (i + 1))
+    for (const x of later) b.flash(x, 0, 0, 1, CAM)
     expect(lit(b)).toHaveLength(BLAST_LIGHT_COUNT)
     const xs = lit(b).map((l) => Math.round(l.position.x)).sort((p, q) => p - q)
-    expect(xs).toEqual([50, 100, 150])
+    expect(xs).toEqual(later)
   })
 
   /** 【高射砲不放大】火網下每秒好幾發，套小當量放大曲線的話整片一直大亮 */
@@ -113,15 +113,18 @@ describe('createBlastLights：固定幾盞的燈池', () => {
     expect(lit(b)[0]!.intensity).toBeCloseTo(BLAST_LIGHT_INTENSITY * 0.25, 0)
   })
 
-  /** 【小閃光不蓋掉大閃光】高射砲的一發不能把正在亮的炸彈閃光搶走 */
-  it('燈滿了而新閃光比最暗的那盞還暗時，不搶', () => {
+  /**
+   * 【只看先後不看亮暗】最新的爆炸一定有光：暗的高射砲閃光照樣搶走最早點的
+   * 那盞。同一幀點滿的幾盞年齡都是 0，先後要靠點燈的次序分，不能靠年齡。
+   */
+  it('燈滿了之後，暗的新閃光也搶最早點的那一盞；同一幀點的也分得出先後', () => {
     const b = createBlastLights()
-    b.flash(0, 0, 0, 1, CAM)
-    b.flash(50, 0, 0, 1, CAM)
-    b.flash(100, 0, 0, 1, CAM)
-    b.flash(150, 0, 0, 0.25, CAM, false)
+    const full = Array.from({ length: BLAST_LIGHT_COUNT }, (_, i) => 50 * i)
+    for (const x of full) b.flash(x, 0, 0, 1, CAM)
+    const extra = [50 * BLAST_LIGHT_COUNT, 50 * (BLAST_LIGHT_COUNT + 1)]
+    for (const x of extra) b.flash(x, 0, 0, 0.25, CAM, false)
     const xs = lit(b).map((l) => Math.round(l.position.x)).sort((p, q) => p - q)
-    expect(xs).toEqual([0, 50, 100])
+    expect(xs).toEqual([...full, ...extra].slice(-BLAST_LIGHT_COUNT))
   })
 
   it('離鏡頭太遠的爆炸不點燈', () => {

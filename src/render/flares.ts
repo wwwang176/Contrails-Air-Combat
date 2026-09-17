@@ -7,15 +7,14 @@ import { FLARE_BURN, FLARE_LANES, type Flares } from '../world/flares'
  * # 照明彈的光
  *
  * 每一枚一個加法混色的光暈 sprite；**點光源固定 `FLARE_LIGHT_COUNT` 盞**，
- * 對應池裡最新的那幾枚（燒最久的先熄）。德 M2 一次點三枚，正好一枚一盞。
- * 只有帶照明彈節拍的戰鬥在開戰時掛進場景（`battle/battleLights.ts`）。
+ * 對應池裡最新的那幾枚（燒最久的先熄）。德 M2 同時亮 `FLARE_LANES` 枚，正好
+ * 一枚一盞。只有帶照明彈節拍的戰鬥在開戰時掛進場景（`battle/battleLights.ts`）。
  *
  * 【為什麼不能動態增減燈】`MeshStandardMaterial` 的著色器是依光源數編的：
  * 場景裡多一盞燈，**每一個材質都重編一次** —— 幾百毫秒的卡頓，而且會在
  * 照明彈點燃的那一刻發生。燈一直在，沒在用的強度 0。
  *
- * 【燈的代價】每個片元多一次光照，地面那一顆網格最大。太卡就把
- * `FLARE_LIGHT_COUNT` 降到 2。
+ * 【燈的代價】每一盞燈是每個受光片元多一次光照，地面那一顆網格最大。
  */
 export const FLARE_LIGHT_COUNT = FLARE_LANES
 /**

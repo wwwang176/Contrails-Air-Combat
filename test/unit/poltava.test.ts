@@ -177,13 +177,13 @@ describe('poltava 的佈局', () => {
     for (const s of HEAVY_FLAK_SITES) expect(padDistance(s.x, s.z)).toBeGreaterThan(500)
   })
 
-  it('照明彈的清單：都在墊面內、相鄰三個彼此至少 800 m、前三個依序點、高度各不相同', () => {
+  it('照明彈的清單：都在墊面內、同時亮的相鄰幾個彼此至少 800 m、開場幾個依序點、高度各不相同', () => {
     const n = FLARE_DROPS.length
     // 輪替：清單要比燈位多，換位置才有意義
     expect(n).toBeGreaterThan(FLARE_LANES)
     // 照明彈掛在空中，照的是整個機場；位置在墊面的外接矩形內就好
     for (const p of FLARE_DROPS) expect(inRect(p.x, p.z, FIELD_BOUNDS)).toBe(true)
-    // 同時亮著的是清單裡相鄰的三個（循環），那三個彼此要拉開
+    // 同時亮著的是清單裡相鄰的 FLARE_LANES 個（循環），彼此要拉開
     for (let i = 0; i < n; i++) {
       for (let d = 1; d < FLARE_LANES; d++) {
         const a = FLARE_DROPS[i]!
