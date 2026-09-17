@@ -28,6 +28,7 @@ import {
 } from '../world/bomb'
 import { canRelease, TORPEDO_ENVELOPE } from '../weapons/releaseEnvelope'
 import { loadoutOf } from '../weapons/stores'
+import { assetUrl } from '../core/asset'
 
 /**
  * 魚雷展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -49,7 +50,7 @@ const ctx = createScene(canvas)
 const terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
 
-const smokeTex = await new TextureLoader().loadAsync('/textures/smoke.png')
+const smokeTex = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
 await preloadShipModels(['fletcher'])
 
 // ── 世界 ────────────────────────────────────────────────

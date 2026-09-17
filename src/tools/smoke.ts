@@ -43,6 +43,7 @@ import {
   type TransparencyScale,
 } from '../render/lowResTransparency'
 import { addSmokeLighting } from '../render/smokeLighting'
+import { assetUrl } from '../core/asset'
 
 const FIRE_COUNT = 12
 const FIRE_SPACING = 24
@@ -110,7 +111,7 @@ ctx.scene.add(terrain.object)
 // 火球轉煙的短短一秒；壓力測試仍保留完整場景作為真實負載。
 const terrainVegetation = terrain.object.children[3]!
 
-const smokeTexture = await new TextureLoader().loadAsync('/textures/smoke.png')
+const smokeTexture = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
 const smoke = createShipFireSmoke(16384, smokeTexture)
 const smokeLighting = addSmokeLighting(
   smoke,

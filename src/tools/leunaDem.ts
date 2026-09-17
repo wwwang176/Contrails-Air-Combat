@@ -1,6 +1,7 @@
 import { createHeightField, type HeightFieldData } from '../world/heightfield'
 import { FARM_CELL, FARM_SIZE } from '../world/farmland'
 import { PAD_CLEARANCE, PLANT_CENTER, PLANT_PAD, worldToPlant } from '../world/leuna'
+import { assetUrl } from '../core/asset'
 
 /**
  * 洛伊納一帶的**真實高程**，只給展示區並排比較用。
@@ -111,7 +112,7 @@ export function demToField(dem: DemFile): HeightFieldData {
 /** 抓 JSON、內插成高度場。展示區在切到「洛伊納（實測）」時叫一次就快取 */
 export async function loadLeunaDem(
   fetcher: (url: string) => Promise<DemFile> =
-  async (u) => (await fetch(u)).json() as Promise<DemFile>,
+  async (u) => (await fetch(assetUrl(u))).json() as Promise<DemFile>,
 ): Promise<HeightFieldData> {
   return demToField(await fetcher(LEUNA_DEM_URL))
 }

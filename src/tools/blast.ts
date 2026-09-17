@@ -19,6 +19,7 @@ import {
   DAY_PALETTES, TIME_OF_DAY_IDS, applyTimeOfDay, type TimeOfDay,
 } from '../render/timeOfDay'
 import type { TerrainKind } from '../world/terrainKind'
+import { assetUrl } from '../core/asset'
 
 /**
  * 爆炸展示區 —— 純調校用的開發工具，不屬於遊戲。
@@ -71,7 +72,7 @@ const paced = (): number => pace * blastScale(yieldRatio)
  * 【為什麼要它】沒有貼圖時每一顆都是一個乾淨的軟邊圓，十幾顆疊起來仍然是
  * 一團均勻的灰 —— 那就是「太平面」。這張圖自帶 noise，每一顆的內部就有明暗。
  */
-const smokeTex = await new TextureLoader().loadAsync('/textures/smoke.png')
+const smokeTex = await new TextureLoader().loadAsync(assetUrl('/textures/smoke.png'))
 /** 貼圖版 / 純圓片版。開關留著才比得出它值不值得 */
 let textured = true
 const tex = (): Texture | undefined => (textured ? smokeTex : undefined)
