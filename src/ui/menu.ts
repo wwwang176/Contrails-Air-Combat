@@ -218,6 +218,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   }
   const pause = root.querySelector('#pause') as HTMLElement
   const confirm = root.querySelector('#confirm') as HTMLElement
+  const restartAsk = root.querySelector('#restart-confirm') as HTMLElement
   const settings = root.querySelector('#settings') as HTMLElement
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
@@ -314,7 +315,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const act = b.dataset['act']
     if (act === undefined) return
     if (act === 'resume') { hooks.onResume(); return }
-    if (act === 'restart') { hooks.onRestart(); return }
+    // 【重新開始也要問過】整場重來，誤按就回不去 —— 與放棄任務同一類 overlay
+    if (act === 'restart') { openOverlay(restartAsk); return }
+    if (act === 'restartNo') { closeOverlay(restartAsk); return }
+    if (act === 'restartYes') { closeOverlay(restartAsk); hooks.onRestart(); return }
     // 【放棄任務要問過】確認框是暫停之上的第二層 overlay，不是畫面；
     // 確認之後才送畫面事件 —— 回的是該陣營的任務表，`campaign` 還留著
     // 【設定是 overlay，不是畫面】與暫停、確認同一類，見 ui/screens.ts
@@ -670,6 +674,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 由上而下關，層級表才不會中途留下空洞
       closeOverlay(reloadAsk)
       closeOverlay(settings)
+      closeOverlay(restartAsk)
       closeOverlay(confirm)
       closeOverlay(pause)
     },
