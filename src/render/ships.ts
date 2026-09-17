@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
+import { assetUrl } from '../core/asset'
 
 /**
  * # 船的渲染
@@ -66,7 +67,7 @@ export async function preloadShipModels(ids: readonly ShipClassId[]): Promise<vo
   const loader = new GLTFLoader()
   await Promise.all([...new Set(ids)].map(async (id) => {
     if (templates.has(id)) return
-    const gltf = await loader.loadAsync(SHIP_CLASSES[id].url)
+    const gltf = await loader.loadAsync(assetUrl(SHIP_CLASSES[id].url))
     // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
     gltf.scene.updateMatrixWorld(true)
     modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)

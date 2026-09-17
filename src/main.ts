@@ -144,6 +144,7 @@ import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
 import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
 import { preloadAirfieldScenery } from './render/geometry/ground/airfieldScenery'
+import { assetUrl } from './core/asset'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
@@ -534,7 +535,7 @@ function syncBombLoad(): void {
  * 爆炸離開場有好幾秒，貼圖早就在了；真的沒到的話 alphaMap 是空的，那一批
  * 粒子透明 —— 不會壞，只是看不見。
  */
-const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+const smokeTexture = new TextureLoader().load(assetUrl('/textures/smoke.png'))
 
 /**
  * 高砲的黑雲。**跨場重用的池**，與火球、煙同一個生命週期。

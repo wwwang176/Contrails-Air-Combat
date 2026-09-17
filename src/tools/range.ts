@@ -34,6 +34,7 @@ import { P51D } from '../specs/p51d'
 import { BF109K4 } from '../specs/bf109k4'
 import type { AircraftSpec } from '../specs/types'
 import type { Command, Controller } from '../control/Controller'
+import { assetUrl } from '../core/asset'
 
 /**
  * 擊墜試驗場 —— 純驗收用的開發工具，不屬於遊戲。
@@ -104,7 +105,7 @@ const wrecks = createWrecks(4, (m) => {
 // 【與 `main.ts` 同一組配方】擊墜的球塊火球（`AIR_BLAST`）與殘骸的引擎火
 // （`createFirePuff`）在遊戲裡長什麼樣，靶場就要長什麼樣 —— 這一頁是它們
 // 的驗收處。配方本身在 `render/blast.ts`，`/tools/blast.html` 是那一份的調校台。
-const smokeTexture = new TextureLoader().load('/textures/smoke.png')
+const smokeTexture = new TextureLoader().load(assetUrl('/textures/smoke.png'))
 const blastChunks = createFireChunks(undefined, BLAST_PACE, (x, y, z, vx, vy, vz, d, slot) => {
   emitEmber(blastEmber, slot, x, y, z, vx, vy, vz, d)
 })

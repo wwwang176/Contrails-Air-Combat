@@ -1,6 +1,7 @@
 import type { BufferGeometry } from 'three'
 import { FIELD_CENTER } from '../../../world/poltava'
 import { parseGroundGlb } from './glb'
+import { assetUrl } from '../../../core/asset'
 
 /**
  * # 波爾塔瓦機場的佈景
@@ -26,7 +27,7 @@ export const AIRFIELD_GLB_URL = '/models/poltava_airfield.glb'
 let cache: BufferGeometry | null = null
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url)
+  const res = await fetch(assetUrl(url))
   if (!res.ok) throw new Error(`載入 ${url} 失敗：HTTP ${res.status}`)
   return res.arrayBuffer()
 }

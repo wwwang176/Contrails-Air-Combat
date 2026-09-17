@@ -2,6 +2,7 @@ import {
   BufferAttribute, BufferGeometry, Mesh, MeshStandardMaterial,
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
+import { assetUrl } from '../core/asset'
 
 /**
  * 洛伊納一帶的河道，只給展示區用。
@@ -191,7 +192,7 @@ export function buildRiverWater(lines: readonly WaterLine[]): Mesh {
 /** 抓 JSON。展示區在切到「洛伊納（實測）」時叫一次 */
 export async function loadLeunaRivers(
   fetcher: (url: string) => Promise<RiverFile> =
-  async (u) => (await fetch(u)).json() as Promise<RiverFile>,
+  async (u) => (await fetch(assetUrl(u))).json() as Promise<RiverFile>,
 ): Promise<RiverFile> {
   return fetcher(LEUNA_RIVERS_URL)
 }

@@ -1,6 +1,7 @@
 import type { BufferGeometry } from 'three'
 import { PLANT_CENTER } from '../../../world/leuna'
 import { parseGroundGlb } from './glb'
+import { assetUrl } from '../../../core/asset'
 
 /**
  * # 洛伊納廠區的佈景
@@ -31,7 +32,7 @@ export const PLANT_GLB_URL = '/models/leuna_plant.glb'
 let cache: BufferGeometry | null = null
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url)
+  const res = await fetch(assetUrl(url))
   if (!res.ok) throw new Error(`載入 ${url} 失敗：HTTP ${res.status}`)
   return res.arrayBuffer()
 }

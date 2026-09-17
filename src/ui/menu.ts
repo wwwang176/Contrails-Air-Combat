@@ -1,4 +1,5 @@
 import { CAMPAIGNS, MISSIONS } from '../battle/missions'
+import { assetUrl } from '../core/asset'
 import type { Campaign, MissionCard, ReadyMissionCard } from '../battle/missions'
 import {
   ALL_SPECS, specOf, addFlight, setCount, removeFlight, setLead, applyPreset, flightsTotal,
@@ -178,7 +179,7 @@ const MARK: Record<Campaign, string> = {
  */
 function silBadge(id: string): string {
   const side = SIDE_OF[id]
-  return `<span class="sil" style="--ac:url(/ui/sil/${id}.png)">`
+  return `<span class="sil" style="--ac:url(${assetUrl(`/ui/sil/${id}.png`)})">`
     + `${side === undefined ? '' : MARK[side]}<i></i></span>`
 }
 const ROLE_WORD: Record<AircraftSpec['role'], string> = { fighter: '戰鬥機', bomber: '轟炸機' }
@@ -344,7 +345,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.className = 'tallcard paperbit'
       b.dataset['campaign'] = c
       const blurb = CAMPAIGN_BLURB[c]
-      b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="/ui/${c}.jpg" alt=""></span>`
+      b.innerHTML = `<span class="photo"><i class="tape tl"></i><img src="${assetUrl(`/ui/${c}.jpg`)}" alt=""></span>`
         + `<span class="t">${CAMPAIGN_LABEL[c]}</span><span class="d">${escapeHtml(blurb.line)}</span>`
         + `<span class="m">${escapeHtml(blurb.planes)}　　<b>可出擊 ${readyCount(MISSIONS[c])}</b> / ${MISSIONS[c].length} 關</span>`
       // 【卡片用自己的監聽器而不是 data-act】`data-act` 只帶得了一個字串，

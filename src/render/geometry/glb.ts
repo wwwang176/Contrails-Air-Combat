@@ -4,6 +4,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PROP_DISC_RENDER_ORDER, type AircraftModel, type HullMetrics } from './assembly'
+import { assetUrl } from '../../core/asset'
 
 /**
  * 由 GLB 載入的機種外型。
@@ -122,7 +123,7 @@ export function glbTemplate(id: string): GlbTemplate | undefined {
 
 /** 預設的取檔方式。node 測試自己讀檔再呼叫 `parseGlbTemplate`。 */
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url)
+  const res = await fetch(assetUrl(url))
   if (!res.ok) throw new Error(`載入 ${url} 失敗：HTTP ${res.status}`)
   return res.arrayBuffer()
 }

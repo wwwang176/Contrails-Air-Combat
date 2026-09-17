@@ -1,6 +1,18 @@
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  /**
+   * 網站掛在哪一層路徑底下。
+   *
+   * 【建置時是 `/Contrails-Air-Combat/`】GitHub Pages 的專案頁網址是
+   * `https://<user>.github.io/<repo>/`，資源從那一層開始找。`vite build` 會把
+   * HTML 與 import 進來的資源改寫到這裡；程式裡寫死的 `/models/…` 那種字串
+   * 不會被改寫，所以發出請求的地方一律經過 `core/asset.ts` 的 `assetUrl`。
+   *
+   * 【開發與測試維持 `/`】`npm run dev` 與 vitest 都是 serve，不帶子路徑。
+   * 部署到別的地方時用環境變數 `BASE_PATH` 覆寫（例如 `/`）。
+   */
+  base: command === 'build' ? process.env['BASE_PATH'] ?? '/Contrails-Air-Combat/' : '/',
   build: {
     // 【非設不可】`main.ts` 與五個工具頁都用 top-level await（模型與貼圖要
     // 在建場景之前載完）。vite 的預設 target 是 es2020 —— 那個版本沒有
@@ -35,4 +47,4 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     benchmark: { include: ['bench/**/*.bench.ts'] },
   },
-})
+}))

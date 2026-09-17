@@ -2,6 +2,7 @@ import { BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D } from
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { HUE } from './parts'
+import { assetUrl } from '../../../core/asset'
 
 /**
  * 由 GLB 載入的地面單位。來源是 `tools/blender/build_ground.py`。
@@ -130,7 +131,7 @@ const cache = new Map<string, BufferGeometry>()
 
 /** 預設的取檔方式。node 測試自己讀檔、傳自己的 fetcher。 */
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url)
+  const res = await fetch(assetUrl(url))
   if (!res.ok) throw new Error(`載入 ${url} 失敗：HTTP ${res.status}`)
   return res.arrayBuffer()
 }

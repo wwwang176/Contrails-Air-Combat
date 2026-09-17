@@ -26,6 +26,7 @@ import { G4M } from '../specs/g4m'
 import { F6F5 } from '../specs/f6f5'
 import { F4F4 } from '../specs/f4f4'
 import type { AircraftSpec } from '../specs/types'
+import { assetUrl } from '../core/asset'
 
 /**
  * 量測台 —— 純檢視用的開發工具，不屬於遊戲。
@@ -539,7 +540,7 @@ function rebuildShip(id: string): void {
     `20 mm     ${n['mg'] ?? 0} 門 → 近距曳光
 ` +
     `射界是起始值，由試飛裁定`
-  new GLTFLoader().load(cfg.url, (gltf) => {
+  new GLTFLoader().load(assetUrl(cfg.url), (gltf) => {
     if (shipId !== id) return          // 載入期間又切走了
     g.add(gltf.scene)
     const box = new Box3().setFromObject(gltf.scene)
