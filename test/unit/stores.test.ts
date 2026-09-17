@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LOADOUT_BY_AIRCRAFT, loadoutOf } from '../../src/weapons/stores'
+import { A6M5_BOMB_LOADOUT, LOADOUT_BY_AIRCRAFT, loadoutOf } from '../../src/weapons/stores'
 import { ALL_SPECS } from '../../src/battle/skirmish'
 
 /**
@@ -21,16 +21,19 @@ describe('掛載表', () => {
   })
 
   /**
-   * 【零戰是例外，而且是史實的】翼下兩個掛架各一顆 60 kg —— 爆戦。
-   * 其餘四台戰鬥機掛不了東西，按 `B` 沒有作用。
+   * 【戰鬥機預設都不掛】零戰也一樣 —— 護航瓜島那一天掛的是副油箱。掛彈的
+   * 爆戦只在需要它的任務卡上掛（盟 M3，`MissionBattle.loadouts`）。
    */
-  it('零戰掛得了兩顆 60 kg，其餘戰鬥機掛不了', () => {
-    expect(loadoutOf('a6m5')).toEqual({
-      kind: 'bomb', count: 2, damage: 1_000, reloadSeconds: 20,
-    })
-    for (const id of ['p51d', 'bf109k4', 'f6f5', 'ki84']) {
+  it('五台戰鬥機預設都掛不了東西，零戰也一樣', () => {
+    for (const id of ['a6m5', 'p51d', 'bf109k4', 'f6f5', 'ki84']) {
       expect(loadoutOf(id), id).toBeNull()
     }
+  })
+
+  it('零戰的爆戦掛載是兩顆 60 kg', () => {
+    expect(A6M5_BOMB_LOADOUT).toEqual({
+      kind: 'bomb', count: 2, damage: 1_000, reloadSeconds: 20,
+    })
   })
 
   it('不存在的代號也回 null，不丟例外', () => {

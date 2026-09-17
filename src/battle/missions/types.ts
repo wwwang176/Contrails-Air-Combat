@@ -264,6 +264,11 @@ export interface MissionBattle {
    * 那一台該掛炸彈。機種與掛載本來就是兩件事。
    */
   readonly blueLoadout?: Loadout
+  /**
+   * 依機種複寫掛載，鍵是 `spec.id`，**不分隊伍**。盟 M3 用它讓零戰掛爆戦 ——
+   * 那一關的紅隊還有掛雷的陸攻，整隊複寫的話魚雷會被換掉。
+   */
+  readonly loadouts?: Readonly<Record<string, Loadout>>
   /** 敵方（紅隊）的主力機種 */
   readonly redSpec: AircraftSpec
   /**

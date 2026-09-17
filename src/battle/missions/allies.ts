@@ -6,6 +6,7 @@ import { B17G } from '../../specs/b17g'
 import { A6M5 } from '../../specs/a6m5'
 import { G4M } from '../../specs/g4m'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
+import { A6M5_BOMB_LOADOUT } from '../../weapons/stores'
 import { CONVOY, KILL, LEUNA_GROUND, TF58_GROUP } from './shared'
 import type { MissionCard } from './types'
 
@@ -132,6 +133,9 @@ export const ALLIES: readonly MissionCard[] = [
       ...KILL,
       objective: '守住艦隊', banner: '敵機來襲，守住航母',
       blueSpec: F6F5, redSpec: A6M5,
+      // 【零戰掛爆戦】1945 年 4 月的沖繩，零戰掛彈攻擊第 58 特遣艦隊。A6M5 預設
+      // 不掛彈，只有這一關指定；依機種複寫，第五批陸攻的魚雷不受影響
+      loadouts: { a6m5: A6M5_BOMB_LOADOUT },
       /**
        * 【開場十六架分兩路，被殲滅的小隊整隊重生】掛彈的零戰走的是掃射航路
        * （`ai/bombRun.ts` 的落彈點瞄準）：機首指著艦隊一路壓下去、投彈、

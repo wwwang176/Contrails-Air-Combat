@@ -6,6 +6,7 @@ import { MAX_SIDE, MIN_SIDE } from '../../src/battle/skirmish'
 import { ENTRY_PLANS } from '../../src/battle/entry'
 import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 import type { ReadyMissionCard } from '../../src/battle/missions'
+import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
 
 /**
  * # 卡片 → 規則／設定
@@ -282,6 +283,26 @@ describe('卡片可以複寫玩家的掛載', () => {
       if (m.battle.blueLoadout !== undefined) continue
       expect(missionConfigFrom(m).blueLoadout, m.id).toBeUndefined()
     }
+  })
+})
+
+/**
+ * 依機種複寫掛載。**與 `blueLoadout` 同一條理由要明列透傳**，而且它不分
+ * 隊伍：盟 M3 的紅隊有零戰也有陸攻，整隊複寫的話陸攻的魚雷會被換掉。
+ */
+describe('卡片可以依機種複寫掛載', () => {
+  it('卡片上有就傳得到 BattleConfig', () => {
+    const card = readyCard(KILL_CARD)
+    const loadouts = { a6m5: A6M5_BOMB_LOADOUT }
+    const withLoadouts: ReadyMissionCard = { ...card, battle: { ...card.battle, loadouts } }
+    expect(missionConfigFrom(withLoadouts).loadouts).toEqual(loadouts)
+  })
+
+  /** 【爆戦只在盟 M3】沖繩外海的零戰掛彈攻艦隊；其他關的零戰是空手的 */
+  it('盟 M3 的零戰掛爆戦，日 M1 的零戰不掛', () => {
+    const byId = (id: string) => playable.find((m) => m.id === id)!
+    expect(missionConfigFrom(byId('allies-m4')).loadouts).toEqual({ a6m5: A6M5_BOMB_LOADOUT })
+    expect(missionConfigFrom(byId('japan-m1')).loadouts).toBeUndefined()
   })
 })
 

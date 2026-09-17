@@ -376,6 +376,20 @@ export class World {
   land: LandField | null = null
 
   /**
+   * 這一場依機種複寫的掛載，鍵是 `spec.id`。**進場（`add`）與換機種（`setSpec`）
+   * 都讀它**，沒列到的照預設表（`loadoutOf`）。
+   *
+   * 【為什麼存在 World 而不是開場套一次】增援與整隊重生都走 `add`／`setSpec`，
+   * 只在開場套的話，重生的那一架靜靜地換回預設掛載。
+   */
+  loadoutOverrides: Readonly<Record<string, Loadout>> = {}
+
+  /** 這一架該掛什麼：先看這一場的複寫，再看預設表 */
+  private loadoutFor(specId: string): Loadout | null {
+    return this.loadoutOverrides[specId] ?? loadoutOf(specId)
+  }
+
+  /**
    * 這一個物理步之內的命中事件。**呼叫端負責排空**（M7 spec §2.2）。
    *
    * 【為什麼是呼叫端排空而不是 World 自己在 step 開頭清】一幀可能跑好幾
@@ -499,8 +513,8 @@ export class World {
       controller,
       command: createCommand(),
       cooldowns: new Float32Array(aircraft.spec.battery.mounts.length),
-      loadout: loadoutOf(aircraft.spec.id),
-      bombBay: createBombBay(loadoutOf(aircraft.spec.id)),
+      loadout: this.loadoutFor(aircraft.spec.id),
+      bombBay: createBombBay(this.loadoutFor(aircraft.spec.id)),
       muzzleFlash: new Float32Array(aircraft.spec.battery.mounts.length),
       turretStates: createTurretStates(aircraft.spec, this.combatants.length),
       turretCooldowns: new Float32Array(aircraft.spec.turrets.length),
@@ -1012,7 +1026,7 @@ export class World {
     }
     // 【彈艙是第四個】與上面三個「換機種會變」的東西同一段 —— 分開寫就是
     // 只有一份會被修好的那種危險。換完立刻滿艙、取消回補計時。
-    c.loadout = loadoutOf(spec.id)
+    c.loadout = this.loadoutFor(spec.id)
     resetBombBay(c.bombBay, c.loadout)
     c.hp = spec.hp
     c.hitRadius = boundingRadius(spec.hitBoxes)

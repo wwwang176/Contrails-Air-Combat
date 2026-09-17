@@ -149,6 +149,11 @@ export interface BattleConfig {
    * 不進這裡（見 `missions.ts` 的說明）。
    */
   readonly blueLoadout?: Loadout
+  /**
+   * 依機種複寫掛載，鍵是 `spec.id`。**不分隊伍**，而且進場、增援、重生都照它
+   * （存進 `World.loadoutOverrides`）。省略 = 全部照預設表。
+   */
+  readonly loadouts?: Readonly<Record<string, Loadout>>
   altitude: number
   tas: number
   /**
@@ -821,6 +826,8 @@ export function createBattle(
   assertOrderOfBattle(cfg.units)
 
   const world = new World()
+  // 【排在任何一架進場之前】`add` 與 `setSpec` 都讀它
+  world.loadoutOverrides = cfg.loadouts ?? {}
   const blue: Combatant[] = []
   const red: Combatant[] = []
   let player: Combatant | null = null
