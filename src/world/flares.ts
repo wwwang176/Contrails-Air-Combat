@@ -16,7 +16,7 @@ export const FLARE_DESCENT = 2.5
  */
 export const FLARE_BURN = 120
 /** 同時亮著的燈位數。渲染層的點光源數跟它走，一枚一盞 */
-export const FLARE_LANES = 3
+export const FLARE_LANES = 2
 /** 一枚熄了之後幾秒在下一個位置點新的一枚 */
 export const FLARE_RELIGHT_DELAY = 2.5
 /** 橫向搖晃的振幅，m，與週期，s */

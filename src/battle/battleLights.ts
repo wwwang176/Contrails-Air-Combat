@@ -13,7 +13,7 @@ export interface BattleLights {
  * 光照；燈數一變又要全部重編著色器。所以用不到的那一組就不掛，而掛不掛在
  * 開場決定 —— 重編的卡頓留在載入那一刻，不會落在戰鬥中。
  *
- * 【爆炸的閃光不在這裡】擊墜與高砲每一關都有，那三盞燈恆掛（`main.ts`）。
+ * 【爆炸的閃光不在這裡】擊墜與高砲每一關都有，那一組燈恆掛（`main.ts`）。
  */
 export function battleLights(cfg: BattleConfig): BattleLights {
   let flares = false

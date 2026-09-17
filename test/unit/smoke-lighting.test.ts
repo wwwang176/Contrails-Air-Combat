@@ -3,6 +3,7 @@ import { Color, MeshBasicMaterial, ShaderLib, Texture, Vector3 } from 'three'
 import { injectBillboard } from '../../src/render/particles'
 import { createShipFireSmoke } from '../../src/render/smoke'
 import { addSmokeLighting, injectSmokeLighting } from '../../src/render/smokeLighting'
+import { BLAST_LIGHT_COUNT } from '../../src/render/blastLights'
 
 describe('煙霧 billboard 的方向光與假自遮蔽', () => {
   function shader(): {
@@ -36,14 +37,20 @@ describe('煙霧 billboard 的方向光與假自遮蔽', () => {
     expect(s.fragmentShader.match(/texture2D\( alphaMap, vSpunUv \)/g)).toHaveLength(1)
   })
 
-  /** 【爆炸的閃光也照得到煙】三盞固定的燈，逐顆粒子依離爆心的距離加亮 */
-  it('爆炸閃光以固定三盞的 uniform 陣列照亮煙', () => {
+  /**
+   * 【爆炸的閃光也照得到煙】固定盞數的燈，逐顆粒子依離爆心的距離加亮。
+   * 陣列長度與迴圈上限要等於 `BLAST_LIGHT_COUNT` —— 比 uniform 陣列長的迴圈讀到
+   * 未定義的值，短的則有燈照不到煙，兩種都不會報錯。
+   */
+  it('爆炸閃光以 BLAST_LIGHT_COUNT 長的 uniform 陣列照亮煙', () => {
     const s = shader()
     injectSmokeLighting(s)
+    const n = BLAST_LIGHT_COUNT
     expect(s.vertexShader).toContain('vSmokeWorldCenter')
-    expect(s.fragmentShader).toContain('uniform vec3 uBlastLightPos[3]')
-    expect(s.fragmentShader).toContain('uniform vec3 uBlastLightColor[3]')
-    expect(s.fragmentShader).toContain('uniform float uBlastLightRadius[3]')
+    expect(s.fragmentShader).toContain(`uniform vec3 uBlastLightPos[${n}]`)
+    expect(s.fragmentShader).toContain(`uniform vec3 uBlastLightColor[${n}]`)
+    expect(s.fragmentShader).toContain(`uniform float uBlastLightRadius[${n}]`)
+    expect(s.fragmentShader).toContain(`for (int i = 0; i < ${n}; i++)`)
   })
 
   it('光照可用 uniform 即時切換', () => {

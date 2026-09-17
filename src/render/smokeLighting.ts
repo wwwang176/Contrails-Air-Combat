@@ -1,6 +1,6 @@
 import { Color, MeshBasicMaterial, Vector3 } from 'three'
 import type { Particles } from './particles'
-import { createBlastLightUniforms, type BlastLightUniforms } from './blastLights'
+import { BLAST_LIGHT_COUNT, createBlastLightUniforms, type BlastLightUniforms } from './blastLights'
 
 interface SmokeLightingShader {
   vertexShader: string
@@ -47,9 +47,9 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        uniform float uSmokeSunAmount;
        uniform float uSmokeScatterStrength;
        uniform float uSmokeLightingEnabled;
-       uniform vec3 uBlastLightPos[3];
-       uniform vec3 uBlastLightColor[3];
-       uniform float uBlastLightRadius[3];
+       uniform vec3 uBlastLightPos[${BLAST_LIGHT_COUNT}];
+       uniform vec3 uBlastLightColor[${BLAST_LIGHT_COUNT}];
+       uniform float uBlastLightRadius[${BLAST_LIGHT_COUNT}];
        varying vec3 vSmokeSunDirectionView;
        varying vec3 vSmokeWorldCenter;`,
     )
@@ -79,11 +79,11 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
        diffuseColor.rgb *= mix(1.0, volumeShade, lightWeight);
        diffuseColor.rgb += uSmokeSunColor * scatter * uSmokeLightingEnabled;
 
-       // 3. 爆炸閃光：固定三盞（\`render/blastLights.ts\`），依這一顆煙的中心離
+       // 3. 爆炸閃光：固定 ${BLAST_LIGHT_COUNT} 盞（\`render/blastLights.ts\`），依這一顆煙的中心離
        //    燈的距離平滑衰減到半徑邊緣為 0。熄著的燈顏色是零，整項加 0。
        //    不看 uSmokeLightingEnabled —— 那一格關的是太陽的假體積光。
        vec3 blastLight = vec3(0.0);
-       for (int i = 0; i < 3; i++) {
+       for (int i = 0; i < ${BLAST_LIGHT_COUNT}; i++) {
          float r = max(uBlastLightRadius[i], 1.0);
          vec3 toLight = vSmokeWorldCenter - uBlastLightPos[i];
          float k = clamp(1.0 - dot(toLight, toLight) / (r * r), 0.0, 1.0);
@@ -99,7 +99,7 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
  */
 export const BLAST_SMOKE_GAIN = 0.9
 
-/** 沒接爆炸燈的煙共用這一份：三盞都是熄的 */
+/** 沒接爆炸燈的煙共用這一份：每一盞都是熄的 */
 const NO_BLAST_LIGHTS = createBlastLightUniforms()
 
 /**
@@ -113,7 +113,7 @@ export function addSmokeLighting(
   sunIntensity = 1,
   // 黑煙只補一點迎光散射；再高會在正午讀成灰白蒸汽。
   scatterStrength = 0.012,
-  // 【與地面同一盞光】傳 `BlastLights.smokeUniforms`；省略就是三盞都熄
+  // 【與地面同一盞光】傳 `BlastLights.smokeUniforms`；省略就是全部熄著
   blast: BlastLightUniforms = NO_BLAST_LIGHTS,
 ): SmokeLightingControl {
   const material = particles.object.material as MeshBasicMaterial
