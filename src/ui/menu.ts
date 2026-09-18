@@ -12,6 +12,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
+import type { Tutorial } from './tutorials'
 import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
 } from '../render/quality'
@@ -59,9 +60,13 @@ export interface MenuHooks {
    * 玩家按下「儲存並重新載入」之後才送這個事件，所以呼叫端不必再問一次。
    */
   onAntialias(on: boolean): void
+  /** 進場教學按了「了解」。呼叫端解除暫停、重新鎖定指標 */
+  onTutorialDone(): void
 }
 
 export interface Menu {
+  /** 彈出進場教學。按「了解」之後送 `onTutorialDone` */
+  showTutorial(t: Tutorial): void
   /** 顯示指定畫面，其餘隱藏 */
   show(screen: Screen): void
   /** 暫停 overlay */
@@ -220,6 +225,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const confirm = root.querySelector('#confirm') as HTMLElement
   const restartAsk = root.querySelector('#restart-confirm') as HTMLElement
   const menuAsk = root.querySelector('#menu-confirm') as HTMLElement
+  const tutorial = root.querySelector('#tutorial') as HTMLElement
   const settings = root.querySelector('#settings') as HTMLElement
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
@@ -336,6 +342,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       drawSettingRows()
       return
     }
+    if (act === 'tutorialOk') { closeOverlay(tutorial); hooks.onTutorialDone(); return }
     // 【回主選單也要問過】遭遇戰的出口，按下去這一場就沒了 —— 與放棄任務同一類
     if (act === 'toMenu') { openOverlay(menuAsk); return }
     if (act === 'toMenuNo') { closeOverlay(menuAsk); return }
@@ -344,6 +351,14 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (act === 'abandonNo') { closeOverlay(confirm); return }
     if (act === 'abandonYes') { closeOverlay(confirm); hooks.onEvent('toMission'); return }
     hooks.onEvent(act as ScreenEvent)
+  })
+
+  // 【教學卡也收 Enter／空白鍵】手已經在鍵盤上，不必為了一顆按鈕去找滑鼠
+  root.ownerDocument.addEventListener('keydown', (e) => {
+    if (tutorial.hidden || (e.code !== 'Enter' && e.code !== 'Space')) return
+    e.preventDefault()
+    closeOverlay(tutorial)
+    hooks.onTutorialDone()
   })
 
   // ── 陣營頁：三張海報卡 ────────────────────────────────
@@ -673,6 +688,16 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 通知（`renderHangar` 尾巴的 `onAircraft`）
       if (screen === 'hangar') renderHangar()
     },
+    showTutorial(t) {
+      q('tut-title').textContent = t.title
+      q('tut-panels').innerHTML = t.panels.map((p) =>
+        `<li class="tut-panel"><figure class="tut-fig">`
+        + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(p.alt)}">`
+        + p.tags.map((g) =>
+          `<span class="tut-tag" style="left:${g.x}%;top:${g.y}%">${escapeHtml(g.text)}</span>`).join('')
+        + `</figure><div class="tut-cap">${escapeHtml(p.caption)}</div></li>`).join('')
+      openOverlay(tutorial)
+    },
     setPaused(v) {
       if (v) { openOverlay(pause); return }
       // 【關掉暫停就一併關掉疊在上面的那幾層】「繼續」與換畫面都不該留下一層覆蓋。
@@ -682,6 +707,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       closeOverlay(restartAsk)
       closeOverlay(menuAsk)
       closeOverlay(confirm)
+      closeOverlay(tutorial)
       closeOverlay(pause)
     },
     renderSetup,
