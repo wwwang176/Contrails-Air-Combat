@@ -6,6 +6,11 @@ import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
+import { SINGLE_FILES, engineFile, fireFile, turretFile } from './audio/catalog'
+import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
+import { nearestN } from './audio/nearest'
+import { nearMiss } from './audio/nearMiss'
+import { engineRate, shakeGainDb, shakeInterval, shakeStrength, windParams } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -108,7 +113,7 @@ import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
-  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
+  OVERSPEED_SHAKE, addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
   stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
@@ -1205,6 +1210,8 @@ function fitCameraToPlayer(): void {
 /** 離開戰鬥：清場並收掉記分板。 */
 function leaveBattle(): void {
   audio.stopAll()
+  clearCues(cues)
+  resetAudioState()
   tutorialPending = []
   tutorialOpen = false
   ignoreNextUnlock = false
@@ -1235,6 +1242,10 @@ function leaveBattle(): void {
 function restartBattle(): void {
   // 【重開也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉
   bannerText = ''
+  // 【上一場的聲音不帶過來】爆炸的尾巴、延遲中的遠方爆炸、裝填的邊緣都清掉
+  audio.stopAll()
+  clearCues(cues)
+  resetAudioState()
   // 【有波次的一場整個重建】`resetBattle` 只把飛機放回出生點：已經進場的
   // 增援會留在場上，而節拍狀態全部是 `done` —— 第二波不會再來，第二輪
   // 因此是一場從頭就滿編、什麼都不會發生的仗。
@@ -1415,6 +1426,7 @@ function battleConfig(): BattleConfig {
  * 重開一場不換地形，而換場才需要重建它。
  */
 function startWorld(cfg: BattleConfig): void {
+  resetAudioState()
   // 【在 createBattle 之前】那一支會走到 `syncBombLoad`，而它讀這個值
   missionLoadout = cfg.blueLoadout ?? null
   battle = createBattle(playerController, cfg)
@@ -1698,6 +1710,275 @@ function trackPlayerOrder(): void {
   if (now !== null) orderCount++
 }
 
+// ── 音效 ─────────────────────────────────────────────────────────────
+//
+// 【子步只記、每幀才播】世界的事件在物理子步裡就被清掉，所以要在子步裡讀；
+// 但 240 Hz 裡不碰 Web Audio —— `queueAudioCues` 只寫四個數字進佇列，
+// `updateAudio` 每一幀在鏡頭定位之後才播（距離、延遲、低通都量到鏡頭）。
+
+/** 一幀最多 8 步、每步幾類事件 —— 512 筆夠寬，滿了丟新的 */
+const cues = createCueQueue(512)
+/** 自己被子彈打中時，另外播一下機身受創的機率 */
+const HIT_DAMAGE_CHANCE = 0.35
+/** 空爆超過這個距離不記，m */
+const FLAK_AUDIO_RANGE = 5000
+/** 高射砲、艦砲開火聲的距離上限，m */
+const CANNON_AUDIO_RANGE = 6000
+/** 爆炸離鏡頭這麼近時另外播一陣機身晃動，m */
+const NEAR_BLAST = 200
+/** 敵彈擦過的判定半徑，m；兩次擦過聲之間至少隔幾秒 */
+const FLYBY_RADIUS = 20
+const FLYBY_GAP = 0.12
+/** 炸彈呼嘯：離自己多近、正在下落才播，m */
+const WHISTLE_RANGE = 400
+/** 一幀掉超過這個比例的 HP 算重擊（高射砲、機砲） */
+const HEAVY_HIT = 0.08
+
+const ENGINE_KEYS = new Int32Array(8)
+const FIRE_KEYS = new Int32Array(6)
+const TURRET_KEYS = new Int32Array(6)
+const AUDIO_POS: Vector3[] = []
+const AUDIO_VALID = new Uint8Array(64)
+const GUN_POS = new Vector3()
+const WIND = { cutoffHz: 0, gainDb: 0 }
+/** 上一幀每一門砲的 flash —— 由 0 變正就是剛開火。依平台、砲位的順序排 */
+const prevGunFlash = new Float32Array(1024)
+/** 炸彈呼嘯：每個炸彈槽播過沒有、上一幀的 age（age 變小代表槽被重用） */
+const whistled = new Uint8Array(512)
+const prevBombAge = new Float64Array(512)
+let prevPlayerHp = -1
+let prevReloading = false
+let rattleTimer = 0
+let lastFlyby = -Infinity
+
+/**
+ * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
+ * 上一架正在裝填、新的這一架沒有，會誤播「裝填完成」。
+ */
+function resetAudioState(): void {
+  prevGunFlash.fill(0)
+  whistled.fill(0)
+  prevBombAge.fill(0)
+  prevPlayerHp = -1
+  prevReloading = false
+  rattleTimer = 0
+  lastFlyby = -Infinity
+}
+
+/** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
+function queueAudioCues(): void {
+  const k = world.killEvents
+  for (let e = 0; e < k.count; e++) {
+    const o = e * KILL_STRIDE
+    const x = k.data[o]!, y = k.data[o + 1]!, z = k.data[o + 2]!
+    pushCue(cues, CUE.Explosion, x, y, z)
+    // 【落水才加水花】`onLand` 為假的也包括空中爆炸
+    const w = terrain.waterAt(x, z)
+    if (w > -Infinity && y - w <= CRASH_BLAST_HEIGHT) pushCue(cues, CUE.Splash, x, w, z)
+  }
+  // 【炸彈擊毀的不另外響】那一顆的落點事件已經響過（與 `emitGroundKills` 同一條）
+  const g = world.groundKillEvents
+  for (let e = 0; e < g.count; e++) {
+    const o = e * IMPACT_STRIDE
+    if (g.data[o + 5]! === 0) pushCue(cues, CUE.Explosion, g.data[o]!, g.data[o + 1]!, g.data[o + 2]!)
+  }
+  const b = world.bombEvents
+  for (let e = 0; e < b.count; e++) {
+    const o = e * IMPACT_STRIDE
+    const x = b.data[o]!, y = b.data[o + 1]!, z = b.data[o + 2]!
+    const kind = b.data[o + 3]!
+    if (kind > 0.5 && kind < 1.5) {
+      pushCue(cues, CUE.Splash, x, y, z)
+      pushCue(cues, CUE.SplashBoom, x, y, z)
+    } else {
+      pushCue(cues, CUE.Explosion, x, y, z)
+    }
+  }
+  const t = world.torpedoEvents
+  for (let e = 0; e < t.count; e++) {
+    const o = e * IMPACT_STRIDE
+    const x = t.data[o]!, z = t.data[o + 2]!
+    const w = terrain.waterAt(x, z)
+    const y = Number.isFinite(w) ? w : t.data[o + 1]!
+    pushCue(cues, CUE.Explosion, x, y, z)
+    pushCue(cues, CUE.Splash, x, y, z)
+  }
+  const f = world.burstEvents
+  const cam = ctx.camera.position
+  for (let i = 0; i < f.count; i++) {
+    const dx = f.x[i]! - cam.x, dy = f.y[i]! - cam.y, dz = f.z[i]! - cam.z
+    if (dx * dx + dy * dy + dz * dz < FLAK_AUDIO_RANGE * FLAK_AUDIO_RANGE) {
+      pushCue(cues, CUE.FlakBurst, f.x[i]!, f.y[i]!, f.z[i]!)
+    }
+  }
+  const dmg = world.damageEvents
+  for (let i = 0; i < dmg.count; i++) {
+    if (dmg.data[i * DAMAGE_STRIDE]! !== player.index) continue
+    pushCue(cues, CUE.HitSelf, 0, 0, 0)
+    if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, 0, 0, 0)
+  }
+}
+
+function playCues(): void {
+  const cam = ctx.camera.position
+  for (let i = 0; i < cues.count; i++) {
+    const o = i * 4
+    const x = cues.data[o + 1]!, y = cues.data[o + 2]!, z = cues.data[o + 3]!
+    switch (cues.data[o]!) {
+      case CUE.Explosion:
+        audio.playPool('explosion', 'explosion', x, y, z, true)
+        if (Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
+          audio.playPool('rattle', 'rattle', 0, 0, 0, false, -6)
+        }
+        break
+      case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true); break
+      case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, -12); break
+      case CUE.FlakBurst: audio.playFile(SINGLE_FILES.flakBurst, 'flakBurst', x, y, z, true); break
+      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false); break
+      case CUE.Damage: audio.playPool('damage', 'damage', 0, 0, 0, false); break
+    }
+  }
+}
+
+/** 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下 */
+function playCannons(): void {
+  const cam = ctx.camera.position
+  let slot = 0
+  const platforms = [world.ships, world.groundTargets] as const
+  for (const list of platforms) {
+    for (const p of list) {
+      for (const gun of p.guns) {
+        if (slot >= prevGunFlash.length) return
+        const was = prevGunFlash[slot]!
+        prevGunFlash[slot++] = gun.flash
+        if (!(gun.flash > 0 && was <= 0) || gun.zone.tier !== 'flak' || !p.alive) continue
+        GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
+        if (GUN_POS.distanceTo(cam) < CANNON_AUDIO_RANGE) {
+          audio.playPool('cannon', 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true)
+        }
+      }
+    }
+  }
+}
+
+function anyFlash(a: Float32Array): boolean {
+  for (let i = 0; i < a.length; i++) if (a[i]! > 0) return true
+  return false
+}
+
+/**
+ * 每一幀、鏡頭定位之後呼叫：播佇列、引擎、開火、砲塔、艦砲、擦過、呼嘯、
+ * 受創、晃動、風切、警告、裝填。
+ */
+function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
+  playCues()
+  clearCues(cues)
+  if (hitsThisFrame > 0) audio.playPool('hit', 'hitDealt', 0, 0, 0, false)
+  playCannons()
+
+  const me = player
+  const flying = me.alive && !input.godView
+  const cam = ctx.camera.position
+  const all = world.combatants
+  const n = Math.min(all.length, AUDIO_VALID.length)
+  for (let i = 0; i < n; i++) AUDIO_POS[i] = visuals.get(all[i]!)!.position
+
+  audio.beginFrame()
+  // 引擎：自己不定位；上帝視角時自己也進定位池
+  for (let i = 0; i < n; i++) {
+    const c = all[i]!
+    AUDIO_VALID[i] = c.alive && !c.retired && (c !== me || !flying) ? 1 : 0
+  }
+  let m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, ENGINE_KEYS)
+  for (let j = 0; j < m; j++) {
+    const c = all[ENGINE_KEYS[j]!]!
+    const p = AUDIO_POS[c.index]!
+    audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z, engineRate(c.command.throttle))
+  }
+  // 其他戰鬥機開火
+  for (let i = 0; i < n; i++) {
+    const c = all[i]!
+    AUDIO_VALID[i] = c.alive && c !== me && fireFile(c.aircraft.spec.id) !== null && anyFlash(c.muzzleFlash) ? 1 : 0
+  }
+  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, FIRE_KEYS)
+  for (let j = 0; j < m; j++) {
+    const c = all[FIRE_KEYS[j]!]!
+    const p = AUDIO_POS[c.index]!
+    audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z, 1)
+  }
+  // 砲塔：每架轟炸機挑正在開火、管數最多的那一座
+  for (let i = 0; i < n; i++) {
+    const c = all[i]!
+    let firing = false
+    for (const s of c.turretStates) if (s.flash > 0) { firing = true; break }
+    AUDIO_VALID[i] = c.alive && firing ? 1 : 0
+  }
+  m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
+  for (let j = 0; j < m; j++) {
+    const c = all[TURRET_KEYS[j]!]!
+    const turrets = c.aircraft.spec.turrets
+    let best = -1
+    for (let i = 0; i < turrets.length; i++) {
+      if (c.turretStates[i]!.flash > 0 && (best < 0 || turrets[i]!.guns > turrets[best]!.guns)) best = i
+    }
+    if (best < 0) continue
+    const p = AUDIO_POS[c.index]!
+    audio.assign('turret', c.index, turretFile(turrets[best]!.weapon.id, turrets[best]!.guns), p.x, p.y, p.z, 1)
+  }
+  audio.endFrame()
+
+  // 自己身上的循環
+  const spec = me.aircraft.spec
+  audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
+  const fire = flying && anyFlash(me.muzzleFlash) ? fireFile(spec.id) : null
+  audio.selfLoop('fire', fire, 1, 0)
+  const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
+  windParams(vneRatio, WIND)
+  audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
+  audio.selfLoop('warn', flying && hudFrame.arenaShow && arena.outside ? SINGLE_FILES.warn : null, 1, 0)
+
+  if (!flying) {
+    prevPlayerHp = -1
+    return
+  }
+  const pos = me.aircraft.state.position
+  // 敵彈擦過
+  if (elapsed - lastFlyby >= FLYBY_GAP && nearMiss(world.projectiles, teamSlot(me.team), pos.x, pos.y, pos.z, FLYBY_RADIUS)) {
+    lastFlyby = elapsed
+    audio.playPool('flyby', 'flyby', 0, 0, 0, false)
+  }
+  // 附近有炸彈落下（自己投的不算）
+  const bombs = world.bombs
+  const cap = Math.min(bombs.capacity, whistled.length)
+  for (let i = 0; i < cap; i++) {
+    if (bombs.age[i]! < prevBombAge[i]!) whistled[i] = 0
+    prevBombAge[i] = bombs.age[i]!
+    if (!bombs.active[i] || whistled[i] || bombs.owner[i] === me.index || bombs.vy[i]! >= 0) continue
+    const dx = bombs.x[i]! - pos.x, dy = bombs.y[i]! - pos.y, dz = bombs.z[i]! - pos.z
+    if (dx * dx + dy * dy + dz * dz > WHISTLE_RANGE * WHISTLE_RANGE) continue
+    whistled[i] = 1
+    audio.playFile(SINGLE_FILES.whistle, 'whistle', bombs.x[i]!, bombs.y[i]!, bombs.z[i]!, true)
+  }
+  // 重擊：HP 一幀掉很多（高射砲、機砲）
+  if (prevPlayerHp >= 0 && prevPlayerHp - me.hp > spec.hp * HEAVY_HIT) audio.playPool('damage', 'damage', 0, 0, 0, false)
+  prevPlayerHp = me.hp
+  // 機身晃動：超速或重傷
+  const k = shakeStrength(overspeedShake(vneRatio) / OVERSPEED_SHAKE, me.hp / spec.hp)
+  if (k > 0) {
+    rattleTimer -= worldSeconds
+    if (rattleTimer <= 0) {
+      audio.playPool('rattle', 'rattle', 0, 0, 0, false, shakeGainDb(k))
+      rattleTimer = shakeInterval(k, Math.random)
+    }
+  } else {
+    rattleTimer = 0
+  }
+  // 彈艙補滿
+  const reloading = playerBay().reloading
+  if (prevReloading && !reloading) audio.playFile(SINGLE_FILES.reload, 'reload', 0, 0, 0, false)
+  prevReloading = reloading
+}
+
 /**
  * 戰鬥中的一幀：推進、內插、特效、HUD、記分板。
  *
@@ -1851,6 +2132,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     const pp = player.aircraft.state.position
     stepArena(arena, pp.x, pp.y, pp.z, dt)
     hitsThisFrame += player.hitsDealt
+    // 【排在所有事件清除之前】見 `queueAudioCues`
+    queueAudioCues()
     // 【事件必須在回呼裡排空】與上面 hitsDealt 同一個理由：World 在每個
     // 物理步產生事件，而一幀可能跑好幾步。在幀尾才讀的話，最後一步以外
     // 的火花與水柱全部漏掉（M7 spec §2.2）。
@@ -1937,6 +2220,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     resetGEffect()
     // 打死上一架的那些方向不屬於新的這一架
     resetDamageMarks(hudFrame.damageMarks)
+    // 上一架的 HP、裝填狀態不屬於新的這一架
+    resetAudioState()
   }
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
@@ -2078,6 +2363,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
           teamSlot(player.team), player.index,
         )
       }
+      audio.playPool('release', 'release', 0, 0, 0, false)
     })
   }
   // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成
@@ -2144,6 +2430,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   )
   stepCameraShake(cameraShake, worldSeconds)
   applyCameraShake(cameraShake, ctx.camera)
+  // 【鏡頭定位之後】距離、音速延遲、低通都量到這一幀的鏡頭
+  updateAudio(worldSeconds, hitsThisFrame)
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)
@@ -2559,6 +2847,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   if (battle.message !== messageText) {
     messageText = battle.message
     messageStart = elapsed
+    // 【增援預警配無線電】訊息消失（換成空字串）時不響
+    if (messageText !== '') audio.playPool('radio', 'radio', 0, 0, 0, false)
   }
   hudFrame.messageAge = messageText === '' ? -1 : elapsed - messageStart
 
@@ -2850,6 +3140,8 @@ function frame(now: number) {
       // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解。
       // 低於 30 fps 時物理丟時間，它也丟同樣多（`worldSeconds`）
       const sim = frameSeconds * timeScale(battle.outcome)
+      // 聲音也跟著慢
+      audio.setTimeScale(timeScale(battle.outcome))
       const world = loop.worldSeconds(sim)
       elapsed += world
       stepAndDrawBattle(sim, world)
