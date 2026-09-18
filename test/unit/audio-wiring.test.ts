@@ -50,8 +50,74 @@ describe('音效的生命週期接線', () => {
     expect(body('async function loadBattle(')).toContain('await audio.load()')
   })
 
+  it('離開戰鬥清空佇列、重設邊緣偵測的狀態', () => {
+    const fn = body('function leaveBattle(')
+    expect(fn).toContain('clearCues(cues)')
+    expect(fn).toContain('resetAudioState()')
+  })
+
+  /** 【接手僚機也要重設】上一架正在裝填、新的這架沒有，會誤播「裝填完成」 */
+  it('接手僚機時重設邊緣偵測的狀態', () => {
+    const at = lines('if (battle.player !== player) {')[0]!
+    expect(SRC.slice(at, at + 30).join('\n')).toContain('resetAudioState()')
+  })
+
   it('設定頁改音量會套用到音訊', () => {
     const at = lines('onVolume(db) {')[0]!
     expect(SRC.slice(at, at + 5).join('\n')).toContain('audio.setVolume(db)')
+  })
+})
+
+describe('音效的戰鬥事件接線', () => {
+  const advance = lines('loop.advance(frameSeconds, (dt) => {')[0]!
+  const endPhysics = lines('perf.endPhysics()')[0]!
+  const inStep = (i: number): boolean => i > advance && i < endPhysics
+
+  /**
+   * 【讀在清之前】世界的事件在物理子步裡就被清掉。記錄的那一行排在清除之後，
+   * 讀到的永遠是空的 —— 一個聲音都沒有，而且不報錯。
+   */
+  it('子步裡記事件，排在每一種事件的清除之前', () => {
+    const q = lines('queueAudioCues()').filter(inStep)
+    expect(q).toHaveLength(1)
+    for (const clear of ['clearDamage(dmg)', 'emitGroundKills(world.groundKillEvents)', 'clearKills(world.killEvents)',
+      'clearImpacts(world.bombEvents)', 'clearImpacts(world.torpedoEvents)', 'clearBursts(world.burstEvents)']) {
+      const c = lines(clear).filter(inStep)
+      expect(c, clear).toHaveLength(1)
+      expect(q[0]!, clear).toBeLessThan(c[0]!)
+    }
+  })
+
+  it('記錄擊落、空爆、自己被打', () => {
+    const fn = body('function queueAudioCues(')
+    for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
+  })
+
+  /** 【子步不碰 Web Audio】240 Hz 裡建音源會每步配置 */
+  it('子步裡沒有直接播放', () => {
+    for (const call of ['audio.playPool(', 'audio.playFile(', 'audio.selfLoop(', 'audio.assign(']) {
+      expect(lines(call).filter(inStep), call).toHaveLength(0)
+    }
+  })
+
+  /** 【鏡頭更新完才播】距離、延遲、低通都量到鏡頭；用上一幀的鏡頭會差一幀 */
+  it('每一幀在鏡頭定位之後播放並清空佇列', () => {
+    const cam = lines('applyCameraShake(cameraShake, ctx.camera)')[0]!
+    const call = lines('updateAudio(').filter((i) => !SRC[i]!.includes('function'))
+    expect(call).toHaveLength(1)
+    expect(call[0]!).toBeGreaterThan(cam)
+    const fn = body('function updateAudio(')
+    expect(fn).toContain('playCues()')
+    expect(fn).toContain('clearCues(cues)')
+  })
+
+  it('投彈投雷在投放回呼裡', () => {
+    const bay = lines('stepBombBay(playerBay()')[0]!
+    expect(SRC.slice(bay, bay + 30).join('\n')).toContain("audio.playPool('release'")
+  })
+
+  it('增援預警換新時播無線電', () => {
+    const at = lines('messageText = battle.message')[0]!
+    expect(SRC.slice(at - 3, at + 6).join('\n')).toContain("audio.playPool('radio'")
   })
 })
