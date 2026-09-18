@@ -21,7 +21,7 @@ import sys
 from mathutils import Vector
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODELS = os.path.join(REPO, 'public', 'models')
+MODELS = os.path.join(REPO, 'models-src')
 OUT = os.path.join(REPO, '.shots', 'lod')
 
 # 【橫跨幾個像素】25 px 是波爾塔瓦投彈高度實測的樣子；128 是遠比實際嚴格的

@@ -7,7 +7,7 @@
 用法（Blender 5.x，MCP 或文字編輯器都可以）：
     exec(open(r'tools/blender/build_airfield.py', encoding='utf-8').read())
     build_airfield()      # 建整片，每個區塊一個物件
-    export_airfield()     # 匯出 public/models/poltava_airfield.glb
+    export_airfield()     # 匯出 models-src/poltava_airfield.glb
 
 【座標】Blender 系 X 橫向、+Y 前、Z 上，**原點就是機場中心**（遊戲世界的
 (0, −7000)）。遊戲端載入後平移過去。
@@ -27,7 +27,7 @@ import bpy, math, os
 # 還沒存檔時退回這台機器的簽出
 ROOT = (os.path.abspath(os.path.join(os.path.dirname(bpy.data.filepath), '..', '..'))
         if bpy.data.filepath else r'C:\projects\grok-aircraft2')
-OUT_DIR = os.path.join(ROOT, 'public', 'models')
+OUT_DIR = os.path.join(ROOT, 'models-src')
 
 # ═══════════════════════════ 佈局資料 ═══════════════════════════
 # **與 src/world/poltava.ts 同一份數字**（遊戲局部座標：x 橫向、z 往南為正）
@@ -364,7 +364,7 @@ def count_triangles():
 
 
 def export_airfield():
-    """匯出 public/models/poltava_airfield.glb。**只匯出 Airfield 底下的網格**"""
+    """匯出 models-src/poltava_airfield.glb。**只匯出 Airfield 底下的網格**"""
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, 'poltava_airfield.glb')
     bpy.ops.object.select_all(action='DESELECT')

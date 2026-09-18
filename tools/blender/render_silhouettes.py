@@ -24,7 +24,7 @@ import sys
 from mathutils import Vector
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODELS = os.path.join(REPO, 'public', 'models')
+MODELS = os.path.join(REPO, 'models-src')
 OUT = os.path.join(REPO, '.shots', 'sil', 'raw')
 
 AIRCRAFT = ('p51d', 'f4f4', 'f6f5', 'b17g', 'bf109k4', 'he111', 'a6m5', 'ki84', 'g4m')

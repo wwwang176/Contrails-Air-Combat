@@ -7,7 +7,7 @@
 用法（Blender 5.x，MCP 或文字編輯器都可以）：
     exec(open(r'tools/blender/build_plant.py', encoding='utf-8').read())
     build_plant()      # 建整片，每個街廓一個 Collection
-    export_plant()     # 匯出 public/models/leuna_plant.glb
+    export_plant()     # 匯出 models-src/leuna_plant.glb
 
 【座標】Blender 系 X 橫向、+Y 前、Z 上，**原點就是廠區中心**（遊戲世界的
 (0, −7000)）。遊戲端載入後平移過去。
@@ -29,7 +29,7 @@ import bpy, math, os
 from mathutils import Vector
 
 ROOT = r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\lenua-build"
-OUT_DIR = os.path.join(ROOT, "public", "models")
+OUT_DIR = os.path.join(ROOT, "models-src")
 LOG = {}
 
 # ═══════════════════════════ 佈局資料 ═══════════════════════════
@@ -2006,7 +2006,7 @@ def count_triangles():
 
 
 def export_plant():
-    """匯出 public/models/leuna_plant.glb。**只匯出 Plant 底下的網格**"""
+    """匯出 models-src/leuna_plant.glb。**只匯出 Plant 底下的網格**"""
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.join(OUT_DIR, 'leuna_plant.glb')
     bpy.ops.object.select_all(action='DESELECT')

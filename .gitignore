@@ -28,3 +28,6 @@ test-results/
 # Git Bash 當掉時吐的堆疊，跟專案無關
 *.stackdump
 __pycache__/
+
+# 由 scripts/compress-models.mjs 從 models-src/ 產出，npm run dev／build 前自動重做
+public/models/

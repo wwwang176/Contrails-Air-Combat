@@ -20,7 +20,7 @@ import type { GlbAircraft } from './glb'
  *
  * 幾何全部在 Blender 裡建（來源 `tools/blender/f6f5.blend`；建模腳本
  * `tools/blender/build_f6f2.py` 是它的出處），直接匯出
- * `public/models/f6f5.glb`，3,178 個三角形（P-51D 是 2,703、F4F-4 是 4,602）。所以這裡沒有
+ * `models-src/f6f5.glb`，3,178 個三角形（P-51D 是 2,703、F4F-4 是 4,602）。所以這裡沒有
  * `.hull.ts` 錨點表 —— GLB 就是那份資料。
  *
  * 【GLB 的座標系正好就是機體座標】Blender 匯出 glTF 時 +Y up、−Z forward，

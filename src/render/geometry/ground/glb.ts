@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color, Material, Mesh, Object3D } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from '../gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { HUE } from './parts'
 import { assetUrl } from '../../../core/asset'
@@ -84,7 +84,7 @@ const C = /* @__PURE__ */ new Color()
 
 export async function parseGroundGlb(buf: ArrayBuffer): Promise<BufferGeometry> {
   const scene = await new Promise<Object3D>((res, rej) => {
-    new GLTFLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)
+    createGltfLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)
   })
   scene.updateMatrixWorld(true)
 

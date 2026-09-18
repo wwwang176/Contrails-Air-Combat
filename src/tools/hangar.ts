@@ -6,7 +6,7 @@ import {
   PerspectiveCamera,
   PMREMGenerator, Scene, Vector3, WebGLRenderer,
 } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from '../render/geometry/gltfLoader'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { DEG } from '../core/math'
@@ -540,7 +540,7 @@ function rebuildShip(id: string): void {
     `20 mm     ${n['mg'] ?? 0} 門 → 近距曳光
 ` +
     `射界是起始值，由試飛裁定`
-  new GLTFLoader().load(assetUrl(cfg.url), (gltf) => {
+  createGltfLoader().load(assetUrl(cfg.url), (gltf) => {
     if (shipId !== id) return          // 載入期間又切走了
     g.add(gltf.scene)
     const box = new Box3().setFromObject(gltf.scene)
@@ -937,7 +937,7 @@ function syncRef(): void {
   const cfg = REFS[id]
   if (!cfg) return
   refCache[id] = null                 // 佔位，避免連點時重複載入
-  new GLTFLoader().load(cfg.url, (gltf) => {
+  createGltfLoader().load(cfg.url, (gltf) => {
     applyRefMaterial(gltf.scene)
     // 包一層 Group：內層做機首朝向的翻轉、外層做世界軸的俯仰與定位
     const wrapper = new Group()
@@ -1167,7 +1167,7 @@ function applyRefMaterial(root: Object3D): void {
       url: string,
       align?: { yaw: number; pitch: number; scale: number },
     ) => new Promise((resolve, reject) => {
-      new GLTFLoader().load(url, (gltf) => {
+      createGltfLoader().load(url, (gltf) => {
         // 【要在量之前套】節點的位移／旋轉／縮放都在矩陣上，不套的話量到的
         // 是各 mesh 自己的區域座標 —— 而那正是「原始包圍盒讀起來很怪」的
         // 成因（有的模型把整台的縮放放在節點上，accessor 正規化到 ±1）

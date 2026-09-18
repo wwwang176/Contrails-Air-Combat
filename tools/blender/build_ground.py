@@ -5,7 +5,7 @@
 
 用法（Blender 5.x，MCP 或文字編輯器都可以）：
     exec(open(r'tools/blender/build_ground.py', encoding='utf-8').read())
-建完呼叫 `export_all()` 匯出四支 GLB 到 public/models/，`LOG` 裡有三角形數、
+建完呼叫 `export_all()` 匯出四支 GLB 到 models-src/，`LOG` 裡有三角形數、
 尺寸與遊戲座標的命中盒。
 
 座標：Blender 系 X 橫向、**+Y 車頭／砲口**、Z 上、底面 z = 0、中線 x = 0。
@@ -31,7 +31,7 @@ import bpy, math, os
 from mathutils import Vector
 
 ROOT = r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\model-building-2"
-OUT_DIR = os.path.join(ROOT, "public", "models")
+OUT_DIR = os.path.join(ROOT, "models-src")
 LOG = {}
 
 # ═══════════════════════════ 工具 ═══════════════════════════

@@ -234,7 +234,7 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     id: 'essex',
     name: 'USS Essex CV-9',
     url: '/models/essex.glb',
-    // 艦體 → 飛行甲板 → 艦島。數字照 GLB 量的（`public/models/essex.glb` 的
+    // 艦體 → 飛行甲板 → 艦島。數字照 GLB 量的（`models-src/essex.glb` 的
     // 頂點包圍盒）：甲板面 18.3、艦島 x 9.5…16.5、z −28…+7、頂 41.6（煙囪）
     hull: [
       // 艦體。頂 12.0 在最低的砲位（14.18）之下

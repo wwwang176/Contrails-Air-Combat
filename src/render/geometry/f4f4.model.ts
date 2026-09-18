@@ -5,7 +5,7 @@ import type { GlbAircraft } from './glb'
  * F4F-4 Wildcat 的外型 —— 在 Blender 裡對著參考模型直接量、直接 loft。
  *
  * 幾何全部在 Blender 裡建（來源 `tools/blender/f4f4.blend`；建模腳本
- * `tools/blender/build_f4f4.py` 是它的出處），直接匯出 `public/models/f4f4.glb`，
+ * `tools/blender/build_f4f4.py` 是它的出處），直接匯出 `models-src/f4f4.glb`，
  * 4,602 個三角形（F6F-5 是 2,992、Ki-84 是 4,180 級）。
  *
  * 【機身與機背是兩件】`F4F_Fuselage` 是子彈狀的機身本體，`F4F_Dorsal` 是**風擋

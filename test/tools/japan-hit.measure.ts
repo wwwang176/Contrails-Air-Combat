@@ -17,7 +17,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { Mesh, Vector3 } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 
 declare const process: { env: Record<string, string | undefined> }
 
@@ -25,7 +25,7 @@ const ID = process.env['ID'] ?? 'ki84'
 const buf = readFileSync(`public/models/${ID}.glb`)
 const bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
 const scene = await new Promise<import('three').Group>((res, rej) => {
-  new GLTFLoader().parse(bytes, '', (g) => res(g.scene), rej)
+  createGltfLoader().parse(bytes, '', (g) => res(g.scene), rej)
 })
 scene.updateMatrixWorld(true)
 

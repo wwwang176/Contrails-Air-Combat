@@ -1,5 +1,5 @@
 /**
- * 把程式化建構的機種用 `GLTFExporter` 吐成 `public/models/<id>.glb` —— 搬到
+ * 把程式化建構的機種用 `GLTFExporter` 吐成 `models-src/<id>.glb` —— 搬到
  * GLB 路的第一步。之後匯進 Blender 存成 `tools/blender/<id>.blend`，再由
  * Blender 匯出正式的 GLB；程式版留著當重匯來源。
  *
@@ -56,7 +56,8 @@ const id = process.argv[2] ?? ''
 const entry = SOURCES[id]
 if (!entry) throw new Error(`不認得的機種 ${id}；可用：${Object.keys(SOURCES).join(', ')}`)
 const { build, def } = entry
-const OUT = `public${def.url}`
+// 【寫進原檔目錄】`/models/x.glb` → `models-src/x.glb`；public/models 是壓縮產物
+const OUT = `models-src${def.url.slice('/models'.length)}`
 
 const NAME_OF: Record<string, string> = {}
 for (const [name, kind] of Object.entries(def.materials)) NAME_OF[kind] = name

@@ -1,7 +1,7 @@
 import {
   CircleGeometry, DoubleSide, Group, Material, Mesh, MeshStandardMaterial, Object3D, Vector3,
 } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from './gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PROP_DISC_RENDER_ORDER, type AircraftModel, type HullMetrics } from './assembly'
 import { assetUrl } from '../../core/asset'
@@ -143,7 +143,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   // 【`parse` 是非同步的】它的 onLoad 走 Promise，不是同步回呼。照
   // 「GLB 沒有外部資源就會同步完成」寫，拿到的是 null。
   const scene = await new Promise<Group>((res, rej) => {
-    new GLTFLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)
+    createGltfLoader().parse(buf, '', (gltf) => res(gltf.scene), rej)
   })
 
   const body = new MeshStandardMaterial({

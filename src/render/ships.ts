@@ -2,7 +2,7 @@ import {
   AdditiveBlending, Box3, DoubleSide, DynamicDrawUsage, Group, InstancedMesh,
   Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3,
 } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from './geometry/gltfLoader'
 import { SHIP_CLASSES, type Ship, type ShipClassId } from '../world/ships'
 import { MAX_SHIP_GUNS } from '../world/shipGuns'
 import { TURRET_FLASH_SECONDS } from '../world/turrets'
@@ -64,7 +64,7 @@ export function shipModelTop(id: ShipClassId): number {
  * 三艘等於為了一關沒出現的航母多下載一份 GLB。
  */
 export async function preloadShipModels(ids: readonly ShipClassId[]): Promise<void> {
-  const loader = new GLTFLoader()
+  const loader = createGltfLoader()
   await Promise.all([...new Set(ids)].map(async (id) => {
     if (templates.has(id)) return
     const gltf = await loader.loadAsync(assetUrl(SHIP_CLASSES[id].url))

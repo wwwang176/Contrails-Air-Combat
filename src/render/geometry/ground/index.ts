@@ -11,7 +11,7 @@ import { bakeParkedAircraft } from './parked'
  * 地面單位的登記表。
  *
  * 兩種來源：**車輛與防空砲**由 `tools/blender/build_ground.py` 對著參考模型
- * 建、匯成 `public/models/*.glb`；**火車**還沒有參考模型，仍是 `train.ts` 的
+ * 建、匯成 `models-src/*.glb`；**火車**還沒有參考模型，仍是 `train.ts` 的
  * 盒子與圓柱。兩條路的產物相同（一顆不共用頂點、帶頂點色的幾何），呼叫端
  * 用 `groundGeometry` 拿，不必分辨。
  *

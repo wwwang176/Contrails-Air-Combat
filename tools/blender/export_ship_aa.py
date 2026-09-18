@@ -123,7 +123,7 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  * # 軍艦的防空砲位 —— **位置是量出來的，射界與血量不是**
  *
  * 這一份由 `tools/blender/export_ship_aa.py` 從 `build_*.py` 直接產生，
- * 不要手改：座標與 `public/models/*.glb` 是同一份來源，手抄一份的話，改了
+ * 不要手改：座標與 `models-src/*.glb` 是同一份來源，手抄一份的話，改了
  * 建模腳本而忘了改表，砲口就會離開砲塔而**沒有任何測試會紅**。
  *
  * ## 三層，行為不一樣

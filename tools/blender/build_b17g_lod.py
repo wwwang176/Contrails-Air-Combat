@@ -3,7 +3,7 @@
 
     "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b -P tools/blender/build_b17g_lod.py
 
-產物 `public/models/b17g_lod2.glb`。驗收走
+產物 `models-src/b17g_lod2.glb`。驗收走
 `tools/blender/check_lod_silhouette.py` 與 `/lod.html`。共用的工具在 `lodlib.py`。
 
 【為什麼是重建而不是減面】減面動的是既有的三角網：焊點、抽環、塌邊都會在
@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lodlib as L                                                  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODELS = os.path.join(REPO, 'public', 'models')
+MODELS = os.path.join(REPO, 'models-src')
 
 O, SRC = L.prepare_source(os.path.join(MODELS, 'b17g.glb'))
 BEFORE = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in SRC)
