@@ -31,6 +31,14 @@ describe('音量設定', () => {
     expect(readVolume()).toBe(DEFAULT_VOLUME_DB)
   })
 
+  /** 【空字串不是 0】Number('') 是 0，會被當成「高」 —— 最大聲開場 */
+  it('空字串、空白、十六進位都當成沒設定', () => {
+    for (const v of ['', '  ', '0x0']) {
+      store.set('audio.volume', v)
+      expect(readVolume(), JSON.stringify(v)).toBe(DEFAULT_VOLUME_DB)
+    }
+  })
+
   it('localStorage 拋例外照樣能跑', () => {
     ;(globalThis as Record<string, unknown>)['localStorage'] = {
       getItem: () => { throw new Error('blocked') },

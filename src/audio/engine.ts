@@ -72,7 +72,8 @@ interface LoopVoice {
 
 interface SelfVoice {
   audio: Audio
-  filter: BiquadFilterNode
+  /** 只有風切有：截止頻率隨空速變 */
+  filter: BiquadFilterNode | null
   file: string | null
   /** 換檔或停止的淡出期間，要換成的檔（null = 停）。undefined = 沒在切換 */
   next: string | null | undefined
@@ -136,15 +137,22 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   for (const slot of ['engine', 'fire', 'wind', 'warn'] as SelfSlot[]) {
     const audio = new Audio(listener)
     audio.setLoop(true)
-    const filter = lowpass()
-    audio.setFilter(filter)
+    const filter = slot === 'wind' ? lowpass() : null
+    if (filter !== null) audio.setFilter(filter)
     selves[slot] = { audio, filter, file: null, next: undefined, switchAt: 0, gain: 0 }
   }
 
+  /**
+   * 【排隊依序做】`resume()` 回來之前 `ctx.state` 還是 suspended —— 那時切走分頁，
+   * 只看當下狀態的話會跳過 `suspend()`，等 `resume()` 完成聲音又出來。
+   * 每一步都在前一步完成之後，重新看一次現在該停還是該播。
+   */
+  let runChain: Promise<void> = Promise.resolve()
   function applyRunState(): void {
-    const run = unlocked && !muted && !paused
-    if (run && ctx.state !== 'running') void ctx.resume().catch(() => {})
-    else if (!run && ctx.state === 'running') void ctx.suspend().catch(() => {})
+    runChain = runChain.then(() => {
+      const run = unlocked && !muted && !paused
+      return run ? ctx.resume() : ctx.suspend()
+    }).catch(() => {})
   }
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
@@ -158,7 +166,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
 
   function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean, extraDb = 0): void {
     const buffer = buffers.get(file)
-    if (buffer === undefined || ctx.state !== 'running') return
+    if (buffer === undefined || muted || ctx.state !== 'running') return
     const spec = CATEGORY[cat]
     const loc = positioned && spec.ref > 0
     const d = loc ? camDistance(x, y, z) : 0
@@ -207,9 +215,15 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   function selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void {
     const s = selves[slot]
     const now = ctx.currentTime
-    const target = file !== null && buffers.has(file) ? file : null
+    const target = file !== null && buffers.has(file) && !muted ? file : null
     s.gain = target === null ? 0 : gainOf(target, SELF_CATEGORY[slot], gainDb)
 
+    // 【換檔中目標又變了】回到原本那個就取消換檔；換成別的就改目標 ——
+    // 不改的話會先播一下已經過時的那一個，再淡出換一次
+    if (s.next !== undefined && target !== s.next) {
+      if (target === s.file) s.next = undefined
+      else s.next = target
+    }
     // 【換檔：淡出 → 換 buffer → 淡入】一個 Audio 同時只能播一個來源，做不了交叉淡化
     if (target !== s.file && s.next === undefined) {
       if (s.audio.isPlaying) {
@@ -237,7 +251,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     if (s.audio.isPlaying) {
       if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, 0.05)
       s.audio.setPlaybackRate(rate * timeScale)
-      s.filter.frequency.setTargetAtTime(cutoffHz ?? FULL_BAND, now, 0.05)
+      s.filter?.frequency.setTargetAtTime(cutoffHz ?? FULL_BAND, now, 0.05)
     }
   }
 
@@ -247,7 +261,11 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
 
   function assign(pool: LoopPool, key: number, file: string, x: number, y: number, z: number, rate: number): void {
     const buffer = buffers.get(file)
-    if (buffer === undefined) return
+    if (buffer === undefined || muted) return
+    const cat = LOOP_CATEGORY[pool]
+    const d = camDistance(x, y, z)
+    // 【超過上限就不指派】這一幀沒被指派的，`endFrame` 會淡出放掉
+    if (d > CATEGORY[cat].max) return
     const list = loops[pool]
     let v = list.find((l) => l.key === key)
     if (v === undefined) {
@@ -257,8 +275,6 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       v.file = ''
     }
     const now = ctx.currentTime
-    const cat = LOOP_CATEGORY[pool]
-    const d = camDistance(x, y, z)
     v.assigned = true
     v.releaseAt = -1
     v.audio.position.set(x, y, z)
@@ -344,6 +360,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       applyRunState()
     },
     setVolume(db) {
+      // 【關閉就停掉所有聲音】只 suspend 的話，延遲中的遠方爆炸會凍在那裡，
+      // 一分鐘後再打開音量才冒出來。循環聲下一幀由呼叫端依當下狀態重建
+      if (db === null && !muted) stopAll()
       muted = db === null
       if (db !== null) listener.setMasterVolume(dbToGain(db))
       applyRunState()

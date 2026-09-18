@@ -11,15 +11,17 @@ const KEY = 'audio.volume'
 
 /**
  * 讀寫都包 try —— 無痕視窗與封鎖站台資料會讓 localStorage 直接拋，
- * 那時只是不記得選擇，遊戲照樣能玩。不在檔位裡的值當成沒設定。
+ * 那時只是不記得選擇，遊戲照樣能玩。
+ *
+ * 【只認存進去的那幾個字串】`Number('')` 是 0 —— 用數字比對的話，被清空的值
+ * 會變成「高」，以最大聲開場。
  */
 export function readVolume(): number | null {
   try {
     const v = localStorage.getItem(KEY)
-    if (v === null) return DEFAULT_VOLUME_DB
     if (v === 'off') return null
-    const n = Number(v)
-    return VOLUME_LEVELS.some((l) => l.db === n) ? n : DEFAULT_VOLUME_DB
+    const hit = VOLUME_LEVELS.find((l) => l.db !== null && String(l.db) === v)
+    return hit === undefined ? DEFAULT_VOLUME_DB : hit.db
   } catch {
     return DEFAULT_VOLUME_DB
   }
