@@ -1733,6 +1733,13 @@ const FLYBY_GAP = 0.12
 const WHISTLE_RANGE = 400
 /** 一幀掉超過這個比例的 HP 算重擊（高射砲、機砲） */
 const HEAVY_HIT = 0.08
+/**
+ * 最近這麼多秒內開過火就算「還在開火」，s。
+ *
+ * 【為什麼要保持】槍口閃光一發只亮 0.03 s，發與發之間有好幾幀是 0 ——
+ * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。
+ */
+const FIRE_HOLD = 0.25
 
 const ENGINE_KEYS = new Int32Array(8)
 const FIRE_KEYS = new Int32Array(6)
@@ -1746,6 +1753,9 @@ const prevGunFlash = new Float32Array(1024)
 /** 炸彈呼嘯：每個炸彈槽播過沒有、上一幀的 age（age 變小代表槽被重用） */
 const whistled = new Uint8Array(512)
 const prevBombAge = new Float64Array(512)
+/** 每架飛機前射武器、砲塔最近一次開火的時間（`elapsed`），依座位索引 */
+const lastGunFire = new Float64Array(64)
+const lastTurretFire = new Float64Array(64)
 let prevPlayerHp = -1
 let prevReloading = false
 let rattleTimer = 0
@@ -1759,6 +1769,8 @@ function resetAudioState(): void {
   prevGunFlash.fill(0)
   whistled.fill(0)
   prevBombAge.fill(0)
+  lastGunFire.fill(-Infinity)
+  lastTurretFire.fill(-Infinity)
   prevPlayerHp = -1
   prevReloading = false
   rattleTimer = 0
@@ -1867,6 +1879,17 @@ function anyFlash(a: Float32Array): boolean {
 }
 
 /**
+ * 砲塔循環用哪個檔：**每架固定取管數最多的那一座**。
+ * 依「正在開火的那一座」挑的話，單管、雙聯輪流被選到，每換一次檔就從頭播。
+ */
+function turretFileOf(c: Combatant): string | null {
+  const turrets = c.aircraft.spec.turrets
+  let best = -1
+  for (let i = 0; i < turrets.length; i++) if (best < 0 || turrets[i]!.guns > turrets[best]!.guns) best = i
+  return best < 0 ? null : turretFile(turrets[best]!.weapon.id, turrets[best]!.guns)
+}
+
+/**
  * 每一幀、鏡頭定位之後呼叫：播佇列、引擎、開火、砲塔、艦砲、擦過、呼嘯、
  * 受創、晃動、風切、警告、裝填。
  */
@@ -1895,10 +1918,17 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     const p = AUDIO_POS[c.index]!
     audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z, engineRate(c.command.throttle))
   }
+  // 開火的保持：最近 FIRE_HOLD 秒內開過火就算還在開火
+  for (let i = 0; i < n; i++) {
+    const c = all[i]!
+    if (anyFlash(c.muzzleFlash)) lastGunFire[i] = elapsed
+    for (const s of c.turretStates) if (s.flash > 0) { lastTurretFire[i] = elapsed; break }
+  }
   // 其他戰鬥機開火
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    AUDIO_VALID[i] = c.alive && c !== me && fireFile(c.aircraft.spec.id) !== null && anyFlash(c.muzzleFlash) ? 1 : 0
+    AUDIO_VALID[i] = c.alive && c !== me && fireFile(c.aircraft.spec.id) !== null
+      && elapsed - lastGunFire[i]! < FIRE_HOLD ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, FIRE_KEYS)
   for (let j = 0; j < m; j++) {
@@ -1906,31 +1936,23 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     const p = AUDIO_POS[c.index]!
     audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z, 1)
   }
-  // 砲塔：每架轟炸機挑正在開火、管數最多的那一座
+  // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    let firing = false
-    for (const s of c.turretStates) if (s.flash > 0) { firing = true; break }
-    AUDIO_VALID[i] = c.alive && firing ? 1 : 0
+    AUDIO_VALID[i] = c.alive && c.aircraft.spec.turrets.length > 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
   for (let j = 0; j < m; j++) {
     const c = all[TURRET_KEYS[j]!]!
-    const turrets = c.aircraft.spec.turrets
-    let best = -1
-    for (let i = 0; i < turrets.length; i++) {
-      if (c.turretStates[i]!.flash > 0 && (best < 0 || turrets[i]!.guns > turrets[best]!.guns)) best = i
-    }
-    if (best < 0) continue
     const p = AUDIO_POS[c.index]!
-    audio.assign('turret', c.index, turretFile(turrets[best]!.weapon.id, turrets[best]!.guns), p.x, p.y, p.z, 1)
+    audio.assign('turret', c.index, turretFileOf(c)!, p.x, p.y, p.z, 1)
   }
   audio.endFrame()
 
   // 自己身上的循環
   const spec = me.aircraft.spec
   audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
-  const fire = flying && anyFlash(me.muzzleFlash) ? fireFile(spec.id) : null
+  const fire = flying && elapsed - lastGunFire[me.index]! < FIRE_HOLD ? fireFile(spec.id) : null
   audio.selfLoop('fire', fire, 1, 0)
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)
