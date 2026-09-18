@@ -158,7 +158,7 @@ export function createScoreboard(root: HTMLElement): Scoreboard {
     if (p === null) return ''
     const stat = (v: string, k: string) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`
     return `<div class="who"><div class="n">${escapeHtml(p.name)}　${escapeHtml(x.playerSpec)}</div>`
-      + `<div class="s">我方第 ${x.playerFlight} 分隊長機　·　${p.alive ? '全程存活' : '被擊落'}</div></div>`
+      + `<div class="s">我方第 ${x.playerFlight} 小隊長機　·　${p.alive ? '全程存活' : '被擊落'}</div></div>`
       + stat(String(p.kills), '擊落') + stat(String(p.deaths), '被擊落') + stat(String(p.assists), '助攻')
       + stat(`${Math.round(x.playerHp01 * 100)}%`, '剩餘結構')
   }

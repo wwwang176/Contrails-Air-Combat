@@ -4,8 +4,8 @@ const KEYS = 'W/S 油門   V 視角   右鍵 自由視角   I 自機AI   G 上�
 const GOD_KEYS = '滑鼠 轉鏡頭   WASD 平移   Q/E 升降   Shift 加速   Tab 記分板   G 離開   ESC 暫停'
 
 /** 自機交給 AI 時的橫幅。 */
-const AI_BANNER = 'AI 接管中 —— 左鍵失效，右鍵自由視角照常，再按 I 收回'
-const GOD_BANNER = '上帝視角 —— 自機由 AI 代飛，指揮官管得到你這一支分隊，再按 G 回座艙'
+const AI_BANNER = 'AI 代飛中，按 I 收回操控'
+const GOD_BANNER = '上帝視角，AI 代飛中，按 G 回座艙'
 
 /**
  * 這一幀要顯示哪一行按鍵提示。

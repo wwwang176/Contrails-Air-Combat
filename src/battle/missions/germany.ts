@@ -30,10 +30,10 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 export const GERMANY: readonly MissionCard[] = [
   {
     id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
-    summary: '駕駛 Bf 109 K-4 在薩勒河平原上空攔截飛往洛伊納的 B-17 轟炸機流，把它們的損失推上去。',
+    summary: '駕駛 Bf 109 K-4 衝進 B-17 轟炸機群，甩開護航的野馬，把轟炸機打下來。',
     place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
     battle: {
-      objective: '擊落 B-17', banner: '攔截轟炸機流，擊落 B-17',
+      objective: '擊落 B-17', banner: '轟炸機群來了，攔住它們',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
       /**
        * 【在路途上攔截】B-17 是 transit：從進場點直飛終點、不迴轉、不投彈。
@@ -74,10 +74,10 @@ export const GERMANY: readonly MissionCard[] = [
   },
   {
     id: 'germany-m2', title: '波爾塔瓦之夜', type: '打擊',
-    summary: '駕駛 KG 55 的 He 111 夜襲波爾塔瓦機場，炸掉穿梭轟炸落地的 B-17。',
+    summary: '駕駛 He 111 趁夜飛到波爾塔瓦機場，炸毀停在地上的 B-17。',
     place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
     battle: {
-      objective: '炸毀停放的 B-17', banner: '夜襲機場，炸毀 B-17',
+      objective: '炸毀停放的 B-17', banner: '機場就在前方，準備投彈',
       blueSpec: HE111, redSpec: P51D, convoySpec: null,
       // 【沒有敵機】史實上蘇軍夜戰機沒有攔到任何一架；壓力全在地面的防空。
       // `redSpec` 只是型別要填：野馬就在皮里亞廷，沒起飛
@@ -111,10 +111,10 @@ export const GERMANY: readonly MissionCard[] = [
   },
   {
     id: 'germany-m4', title: '底板行動', type: '打擊',
-    summary: '駕駛 Bf 109 K-4 貼著樹梢撲向 Y-29 前進機場，趁野馬還在跑道上把它們打掉。',
+    summary: '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
     place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
     battle: {
-      objective: '摧毀地面上的 P-51', banner: '掃射機場，打掉野馬',
+      objective: '打掉停機坪上的野馬', banner: '野馬還在地上，快衝進去',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
       // 【敵機全部從地上來】沒有空中巡邏，起飛的野馬全部由波次給。
       // 紅隊席位：停機線 12（三個小隊）
@@ -149,19 +149,19 @@ export const GERMANY: readonly MissionCard[] = [
       waves: [
         {
           when: { kind: 'clock', at: 0 },
-          warn: '跑道上的野馬開始滑行',
+          warn: '野馬開始滑向跑道',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
           when: { kind: 'clock', at: 45 },
-          warn: '又一個小隊的野馬滑出來',
+          warn: '更多野馬準備起飛',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
           when: { kind: 'clock', at: 90 },
-          warn: '停機線上的野馬全部出動',
+          warn: '剩下的野馬全部出動',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },

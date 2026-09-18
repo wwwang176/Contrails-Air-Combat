@@ -434,8 +434,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (!b.ready) {
       el.brief.innerHTML = head
         + `<p style="color:var(--dim)">${escapeHtml(b.summary)}</p>`
-        + '<div class="soonbox"><b>準備中</b><br>這一關要打的是地面與海上目標（工廠、列車、艦船），'
-        + '還要投彈與雷擊 —— 那一整套還沒做好。</div>'
+        + '<div class="soonbox"><b>準備中</b><br>這一關還在製作中。</div>'
       return
     }
     el.brief.innerHTML = head
@@ -544,7 +543,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     const row = document.createElement('div')
     row.className = `flight${lead ? ' lead paperbit' : ''}`
     row.innerHTML =
-      (team === 'blue' ? '<button class="pick" title="我帶這一隊"></button>' : '<span></span>')
+      (team === 'blue' ? '<button class="pick" title="我的小隊"></button>' : '<span></span>')
       + `<div class="who"><div class="nm">${escapeHtml(shortName(spec))} <span class="full">${escapeHtml(fullName(spec))}</span></div>`
       + `<div class="meta">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
       + `<div class="dots">${[1, 2, 3, 4].map((n) => `<i class="${n <= f.count ? 'on' : ''}"></i>`).join('')}</div>`
@@ -566,7 +565,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
 
     const add = document.createElement('button')
     add.className = 'btn add'
-    add.textContent = '＋ 加一個分隊'
+    add.textContent = '＋ 加一個小隊'
     // 【滿了就禁用，不是點了沒反應】看起來可點卻沒反應才是真的壞掉
     add.disabled = list.length >= MAX_FLIGHTS || flightsTotal(list) >= MAX_SIDE
     add.addEventListener('click', () => {
