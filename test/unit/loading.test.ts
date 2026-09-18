@@ -85,6 +85,19 @@ describe('載入畫面的接線', () => {
     expect(frame.slice(0, frame.indexOf('stepAndDrawBattle('))).toContain('loadingBattle')
   })
 
+  /**
+   * 【載入中動滑鼠不算數】指標在出擊時就鎖了，位移照樣累加；不清掉的話
+   * 第一幀一次套上去，一進場就轉一個大彎。
+   */
+  it('載入中每一幀都丟掉滑鼠的準星位移', () => {
+    const main = srcOf('main.ts')
+    const frame = main.slice(main.indexOf('function frame(now: number)'))
+    const at = frame.indexOf('if (loadingBattle) {')
+    const branch = frame.slice(at, frame.indexOf('} else if (screen === \'battle\')', at))
+    expect(branch).toContain('input.aimDeltaX = 0')
+    expect(branch).toContain('input.aimDeltaY = 0')
+  })
+
   /** 【頭尾各停一下】太快的載入一閃而過，看不出是載入 */
   it('開場預載先停在 0%、逐項回報、載完停在 100% 才收', () => {
     const main = srcOf('main.ts')
