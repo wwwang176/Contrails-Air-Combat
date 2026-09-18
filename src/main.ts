@@ -308,6 +308,14 @@ let loadingBattle = false
 let tutorialPending: Tutorial | null = null
 /** 教學卡開著：暫停中，放開指標不算玩家按了暫停 */
 let tutorialOpen = false
+/**
+ * 下一次「指標鎖掉了」是教學卡自己放開的，不是玩家按了 Esc。
+ *
+ * 【光靠 `tutorialOpen` 擋不住】`exitPointerLock` 是非同步的，放開要過一會兒
+ * 才真的發生。玩家在那之前就按掉卡片的話，`tutorialOpen` 已經是 false，
+ * 遲到的那一次放開會被讀成按了 Esc —— 暫停選單蓋上來，遊戲卡在第一幀。
+ */
+let ignoreNextUnlock = false
 let world!: World
 /**
  * 玩家目前開的那一架。
@@ -1179,6 +1187,7 @@ function fitCameraToPlayer(): void {
 function leaveBattle(): void {
   tutorialPending = null
   tutorialOpen = false
+  ignoreNextUnlock = false
   releaseVisuals()
   // 【圓環要移出場景】不移的話回到主選單，那個環還浮在選單的背景海上
   ctx.scene.remove(objectiveRing.object)
@@ -2761,9 +2770,11 @@ function frame(now: number) {
     if (input.pointerLockLost) {
       input.pointerLockLost = false
       // 分出勝負之後不再暫停 —— 結算板本身就是出口
-      // 【教學卡開著時不疊暫停選單】放開指標是教學自己做的，卡上的「了解」
-      // 就是出口
-      if (battle.outcome === 'fighting' && !tutorialOpen) {
+      // 【教學卡自己放開的那一次不算】見 `ignoreNextUnlock`；卡開著時卡上的
+      // 「了解」就是出口，也不疊暫停選單
+      if (ignoreNextUnlock) {
+        ignoreNextUnlock = false
+      } else if (battle.outcome === 'fighting' && !tutorialOpen) {
         paused = true
         menu.setPaused(true)
         // 【暫停時記分板一定要收掉】`stepAndDrawBattle` 不跑，記分板的
@@ -2796,7 +2807,10 @@ function frame(now: number) {
         menu.showTutorial(tutorialPending)
         tutorialPending = null
         // 【放開指標】卡上的按鈕要點得到；「了解」再鎖回來
-        if (document.pointerLockElement === canvas) document.exitPointerLock()
+        if (document.pointerLockElement === canvas) {
+          ignoreNextUnlock = true
+          document.exitPointerLock()
+        }
       }
       if (elapsed >= telemetryAt) {
         telemetryAt = elapsed + TELEMETRY_PERIOD

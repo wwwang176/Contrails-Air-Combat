@@ -74,6 +74,21 @@ describe('教學卡的接線', () => {
     expect(restart).not.toContain('tutorial')
   })
 
+  /**
+   * 【遲到的放開也不算】`exitPointerLock` 是非同步的：卡片一出現就按掉的話，
+   * 放開發生在卡片關掉之後，只靠 `tutorialOpen` 擋不住 —— 暫停選單蓋上來，
+   * 遊戲停在第一幀。教學放開之前先記一筆，那一次放開照記號略過。
+   */
+  it('教學自己放開的那一次指標不算玩家按了 Esc', () => {
+    const main = srcOf('main.ts')
+    const open = main.indexOf('menu.showTutorial(tutorialPending)')
+    const exit = main.indexOf('document.exitPointerLock()', open)
+    expect(main.slice(open, exit)).toContain('ignoreNextUnlock = true')
+    const at = main.indexOf('if (input.pointerLockLost) {')
+    const block = main.slice(at, main.indexOf('menu.setPaused(true)', at))
+    expect(block).toContain('if (ignoreNextUnlock)')
+  })
+
   /** 【教學自己放開指標】放開那一下不能被當成玩家按了 Esc，否則暫停選單會疊在卡上 */
   it('教學卡開著時，放開指標不彈暫停選單', () => {
     const main = srcOf('main.ts')

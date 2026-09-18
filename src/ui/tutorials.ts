@@ -46,12 +46,12 @@ export const TORPEDO_TUTORIAL: Tutorial = {
     },
     {
       image: '/ui/tutorial/torpedo-2.jpg', alt: '落水點的圓圈與往前延伸的航跡線',
-      tags: [{ text: '落水點', x: 50, y: 85 }, { text: '路線', x: 74, y: 22 }],
+      tags: [{ text: '落水點', x: 49, y: 89 }, { text: '路線', x: 70, y: 40 }],
       caption: '圈是魚雷會落下的地方，線是它接著跑的路線。綠圈表示可以投雷，紅圈表示高度或角度不對。',
     },
     {
       image: '/ui/tutorial/torpedo-3.jpg', alt: '畫面下方的坡度、俯仰、高度三格',
-      tags: [{ text: '高度・角度', x: 50, y: 70 }],
+      tags: [{ text: '高度・角度', x: 50, y: 66 }],
       caption: '下面三格是高度和角度，變紅的那一格就是要調整的，全部變綠才能投。',
     },
   ],
@@ -71,7 +71,7 @@ export const BOMB_TUTORIAL: Tutorial = {
     },
     {
       image: '/ui/tutorial/bomb-3.jpg', alt: '畫面下方的彈艙格子',
-      tags: [{ text: '彈艙', x: 50, y: 74 }],
+      tags: [{ text: '彈艙', x: 50, y: 64 }],
       caption: '下面這排是彈艙，亮著的是還有的炸彈。',
     },
   ],
