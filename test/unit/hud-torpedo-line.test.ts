@@ -4,6 +4,7 @@ import {
   drawTorpedoLine, runFrontCount, torpedoLineVisible,
 } from '../../src/hud/widgets/torpedoLine'
 import { TORPEDO_RANGE, TORPEDO_RUN_SAMPLES } from '../../src/world/torpedo'
+import { bombsightColor } from '../../src/hud/widgets/bombsight'
 
 const LAYOUT: HudLayout = {
   width: 1280, height: 720, cx: 640, cy: 360, unit: 360, scale: 1,
@@ -106,10 +107,11 @@ describe('torpedoLineVisible', () => {
     expect(torpedoLineVisible(torpedoFrame())).toBe(true)
   })
 
-  it('一般飛行不畫 —— 負責人裁決', () => {
+  /** 【一般飛行也要讀得到投雷的距離】不必切投彈模式 */
+  it('一般飛行照樣畫', () => {
     const f = torpedoFrame()
     f.bombing = false
-    expect(torpedoLineVisible(f)).toBe(false)
+    expect(torpedoLineVisible(f)).toBe(true)
   })
 
   it('掛炸彈不畫', () => {
@@ -144,10 +146,26 @@ describe('drawTorpedoLine', () => {
   it('不該畫的時候一筆都不畫', () => {
     const { ctx, paths, texts } = fakeCtx()
     const f = torpedoFrame()
-    f.bombing = false
+    f.ordnance = 'bomb'
     drawTorpedoLine(ctx, LAYOUT, f)
     expect(paths).toEqual([])
     expect(texts).toEqual([])
+  })
+
+  /** 【一般飛行用暗圈的色】與同一幀的落點暗圈一致，不壓過機槍準星 */
+  it('一般飛行時線、刻度與射程數字都是暗圈的色', () => {
+    for (const [releaseOk, want] of [
+      [true, bombsightColor('faint', true)], [false, bombsightColor('faint', false)],
+    ] as const) {
+      const { ctx, paths, texts } = fakeCtx()
+      const f = torpedoFrame()
+      f.bombing = false
+      f.releaseOk = releaseOk
+      drawTorpedoLine(ctx, LAYOUT, f)
+      expect(paths.length).toBeGreaterThan(0)
+      for (const p of paths) expect(p.color, `releaseOk=${releaseOk}`).toBe(want)
+      for (const t of texts) expect(t.color).toBe(want)
+    }
   })
 
   /**

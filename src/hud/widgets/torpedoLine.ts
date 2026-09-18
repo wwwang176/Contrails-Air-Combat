@@ -41,7 +41,8 @@ export function runFrontCount(z: ArrayLike<number>, n: number): number {
 }
 
 /**
- * 這一幀畫不畫航跡線。
+ * 這一幀畫不畫航跡線。**一般飛行也畫**，與落點圈同一個道理：投雷的距離是
+ * 飛行狀態的函數，進場時不必切投彈模式也要讀得到。
  *
  * 【`bombVisible` 不進判準】那一格額外要求**落點圈**落在畫面內，而線的起點
  * 滑出畫面時線本身還有一大段在畫面裡。
@@ -51,14 +52,14 @@ export function runFrontCount(z: ArrayLike<number>, n: number): number {
  * 根本沒有水中段。那一條在 `main.ts` 判（與 `stepAir` 同一個判準）。
  */
 export function torpedoLineVisible(f: HudFrame): boolean {
-  return f.bombing
-    && f.ordnance === 'torpedo'
+  return f.ordnance === 'torpedo'
     && f.bombState === 'solved'
     && f.runCount >= 2
 }
 
 /**
- * 魚雷的水中航跡線。**投彈模式限定。**
+ * 魚雷的水中航跡線。顏色跟著落點圈：投彈模式是實線圈的色，一般飛行是暗圈
+ * 的色（`bombsightColor`）。
  *
  * 從入水點（＝落點圈的圓心）沿水中航向畫到射程為止，每
  * `TORPEDO_RUN_STEP` 公尺一個刻度。**圈是線的起點**，兩者組成一組：圈說
@@ -82,7 +83,7 @@ export function drawTorpedoLine(
   if (!torpedoLineVisible(f)) return
 
   const n = f.runCount
-  const color = bombsightColor('ring', f.releaseOk)
+  const color = bombsightColor(f.bombing ? 'ring' : 'faint', f.releaseOk)
   // 【先換算進預先配置的緩衝】每幀畫一次，寫成兩個區域閉包就是每幀兩個
   // 配置；順帶讓每一點的換算只做一次
   for (let k = 0; k < n; k++) {
