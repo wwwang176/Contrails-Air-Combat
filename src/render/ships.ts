@@ -62,16 +62,23 @@ export function shipModelTop(id: ShipClassId): number {
  *
  * 【為什麼要指定要哪幾艘】`japan-m4` 只用 Wichita 與 Fletcher。無條件載
  * 三艘等於為了一關沒出現的航母多下載一份 GLB。
+ *
+ * @param onLoaded 每一個艦級好了呼叫一次（已經載過的也算），次數是 `ids` 去重後的
+ *   數量（載入進度用）
  */
-export async function preloadShipModels(ids: readonly ShipClassId[]): Promise<void> {
+export async function preloadShipModels(
+  ids: readonly ShipClassId[], onLoaded: () => void = () => {},
+): Promise<void> {
   const loader = createGltfLoader()
   await Promise.all([...new Set(ids)].map(async (id) => {
-    if (templates.has(id)) return
-    const gltf = await loader.loadAsync(assetUrl(SHIP_CLASSES[id].url))
-    // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
-    gltf.scene.updateMatrixWorld(true)
-    modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
-    templates.set(id, gltf.scene)
+    if (!templates.has(id)) {
+      const gltf = await loader.loadAsync(assetUrl(SHIP_CLASSES[id].url))
+      // 【量一次就好】包圍盒與船在哪無關，而 `setFromObject` 要走遍整棵樹
+      gltf.scene.updateMatrixWorld(true)
+      modelTops.set(id, BOX.setFromObject(gltf.scene).max.y)
+      templates.set(id, gltf.scene)
+    }
+    onLoaded()
   }))
 }
 

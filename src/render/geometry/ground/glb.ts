@@ -136,14 +136,19 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   return res.arrayBuffer()
 }
 
-/** 開場 await 一次。重複呼叫是 no-op。 */
+/**
+ * 開場 await 一次。重複呼叫是 no-op。
+ *
+ * @param onLoaded 每一支好了呼叫一次（已經載過的也算），次數是 `urls` 去重後的數量
+ */
 export async function preloadGroundGlbs(
   urls: readonly string[],
   fetcher: (url: string) => Promise<ArrayBuffer> = fetchBuffer,
+  onLoaded: () => void = () => {},
 ): Promise<void> {
   await Promise.all([...new Set(urls)].map(async (url) => {
-    if (cache.has(url)) return
-    cache.set(url, await parseGroundGlb(await fetcher(url)))
+    if (!cache.has(url)) cache.set(url, await parseGroundGlb(await fetcher(url)))
+    onLoaded()
   }))
 }
 

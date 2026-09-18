@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { Box3, Vector3, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D } from 'three'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
-  GROUND_UNITS, TRAIN_CONSIST, groundGeometry, preloadGroundModels, type GroundUnit,
+  GROUND_UNITS, TRAIN_CONSIST, groundGeometry, groundModelUrls, preloadGroundModels,
+  type GroundUnit,
 } from '../../src/render/geometry/ground'
 import { GLB_MATERIALS } from '../../src/render/geometry/ground/glb'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
@@ -165,4 +166,14 @@ describe('地面單位', () => {
       })
     })
   }
+})
+
+/** 【載入進度】每一支 GLB 回報一次，已經載過的也算 —— 次數要等於開場算的總數 */
+describe('preloadGroundModels 的逐檔回報', () => {
+  it('回報次數等於 groundModelUrls 的支數', async () => {
+    let n = 0
+    await preloadGroundModels(readPublic, () => { n++ })
+    expect(n).toBe(groundModelUrls().length)
+    expect(n).toBeGreaterThan(0)
+  })
 })

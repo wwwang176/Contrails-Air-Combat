@@ -270,15 +270,26 @@ export const TRAIN_CONSIST: readonly GroundUnitId[] = [
   'locomotive', 'tender', 'boxcar', 'boxcar', 'flatcar',
 ]
 
-/** 開場 await 一次，之後 `groundGeometry` 是同步的。node 測試傳自己的 fetcher。 */
+/** `preloadGroundModels` 要載的 GLB，去重 */
+export function groundModelUrls(): string[] {
+  const urls = new Set<string>()
+  for (const u of GROUND_UNITS) {
+    if ('glb' in u.model) urls.add(u.model.glb)
+  }
+  return [...urls]
+}
+
+/**
+ * 開場 await 一次，之後 `groundGeometry` 是同步的。node 測試傳自己的 fetcher。
+ *
+ * @param onLoaded 每一支 GLB 好了呼叫一次，共 `groundModelUrls().length` 次
+ *   （載入進度用）
+ */
 export async function preloadGroundModels(
   fetcher?: (url: string) => Promise<ArrayBuffer>,
+  onLoaded?: () => void,
 ): Promise<void> {
-  const urls: string[] = []
-  for (const u of GROUND_UNITS) {
-    if ('glb' in u.model) urls.push(u.model.glb)
-  }
-  await preloadGroundGlbs(urls, fetcher)
+  await preloadGroundGlbs(groundModelUrls(), fetcher, onLoaded)
 }
 
 /**

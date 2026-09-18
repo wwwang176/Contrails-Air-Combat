@@ -106,12 +106,17 @@ export const GLB_MODELS: Record<string, GlbAircraft> = {
  *
  * 【為什麼不讓 buildAircraft 變非同步】它被 `main.ts`、四個工具頁、以及跑在
  * node 環境的單元測試同步呼叫。把非同步關在這個函式裡，下游一行都不用改。
+ *
+ * @param onLoaded 每載完一支 GLB 呼叫一次，共 `AIRCRAFT_MODEL_COUNT` 次（載入進度用）
  */
-export async function preloadAircraftModels(): Promise<void> {
+export async function preloadAircraftModels(onLoaded: () => void = () => {}): Promise<void> {
   await Promise.all(
-    Object.entries(GLB_MODELS).map(([id, def]) => loadGlbTemplate(id, def)),
+    Object.entries(GLB_MODELS).map(([id, def]) => loadGlbTemplate(id, def).then(onLoaded)),
   )
 }
+
+/** `preloadAircraftModels` 要載的 GLB 支數 */
+export const AIRCRAFT_MODEL_COUNT = Object.keys(GLB_MODELS).length
 
 export function buildAircraft(spec: AircraftSpec): AircraftModel {
   if (GLB_MODELS[spec.id]) {
