@@ -24,19 +24,23 @@ const LAYOUT: HudLayout = {
 function fakeCtx(): {
   ctx: CanvasRenderingContext2D
   texts: { text: string; x: number; color: string }[]
+  shapes: { filled: boolean; color: string }[]
 } {
   const texts: { text: string; x: number; color: string }[] = []
+  const shapes: { filled: boolean; color: string }[] = []
   const ctx = {
     font: '', textAlign: '', textBaseline: '',
     strokeStyle: '', fillStyle: '', lineWidth: 0,
-    fillRect(): void {},
-    strokeRect(): void {},
+    beginPath(): void {}, moveTo(): void {}, lineTo(): void {},
+    ellipse(): void {}, closePath(): void {},
+    fill(): void { shapes.push({ filled: true, color: String(ctx.fillStyle) }) },
+    stroke(): void { shapes.push({ filled: false, color: String(ctx.strokeStyle) }) },
     // 【顏色要在呼叫的當下抄下來】`fillStyle` 會被下一格覆寫
     fillText(text: string, x: number): void {
       texts.push({ text, x, color: String(ctx.fillStyle) })
     },
-  } as unknown as CanvasRenderingContext2D & { fillStyle: string }
-  return { ctx, texts }
+  } as unknown as CanvasRenderingContext2D & { fillStyle: string; strokeStyle: string }
+  return { ctx, texts, shapes }
 }
 
 /** 掛一枚魚雷、平飛 100 m、姿態全在包絡內 */
@@ -227,6 +231,39 @@ describe('drawBombBay 畫出來的閘門', () => {
   })
 
   /**
+   * 【紅的那一格要指出往哪邊修】只說「不行」的話玩家不知道該拉還是該推。
+   * 箭頭是修正方向：高度與俯仰 ▲▼，坡度指往水平壓回去的那一邊。
+   */
+  it('界內三格都沒有箭頭', () => {
+    for (const t of gateTexts(torpedoFrame())) expect(t.text, t.text).not.toMatch(/[▲▼◀▶]/)
+  })
+
+  it('太高 ▼、太低 ▲', () => {
+    const f = torpedoFrame()
+    f.releaseAgl = TORPEDO_ENVELOPE.maxAgl * 2
+    expect(gateTexts(f)[2]!.text).toMatch(/▼$/)
+    f.releaseAgl = TORPEDO_ENVELOPE.minAgl / 2
+    expect(gateTexts(f)[2]!.text).toMatch(/▲$/)
+  })
+
+  it('機頭太高 ▼、太低 ▲', () => {
+    const f = torpedoFrame()
+    f.pitch = OUT_PITCH
+    expect(gateTexts(f)[1]!.text).toMatch(/▼$/)
+    f.pitch = -OUT_PITCH
+    expect(gateTexts(f)[1]!.text).toMatch(/▲$/)
+  })
+
+  /** 【右滾為正】右滾過頭要往左壓回水平 */
+  it('右滾過頭 ◀、左滾過頭 ▶', () => {
+    const f = torpedoFrame()
+    f.roll = OUT_ROLL
+    expect(gateTexts(f)[0]!.text).toMatch(/◀$/)
+    f.roll = -OUT_ROLL
+    expect(gateTexts(f)[0]!.text).toMatch(/▶$/)
+  })
+
+  /**
    * 【二擇一】這一條殺的是「兩個都畫」。
    */
   it('裝填中時畫得出「裝填中」，而且完全沒有閘門的三段', () => {
@@ -246,6 +283,23 @@ describe('drawBombBay 畫出來的閘門', () => {
     f.ordnance = 'bomb'
     f.releaseEnv = BOMB_ENVELOPE
     expect(gateTexts(f)).toEqual([])
+  })
+
+  /**
+   * 【彈艙一格一個剪影】滿艙幾格就畫幾個；還有的實心、投掉的空心。
+   * 這一條殺的是「照剩餘彈數畫」（投彈時整排縮短）與實心空心對調。
+   */
+  it('滿艙十格、剩七枚：七個實心、三個空心', () => {
+    const f = torpedoFrame()
+    f.ordnance = 'bomb'
+    f.releaseEnv = BOMB_ENVELOPE
+    f.bombBayCapacity = 10
+    f.bombLoad = 7
+    const { ctx, shapes } = fakeCtx()
+    drawBombBay(ctx, LAYOUT, f)
+    expect(shapes.filter((s) => s.filled)).toHaveLength(7)
+    expect(shapes.filter((s) => !s.filled)).toHaveLength(3)
+    for (const s of shapes) expect(s.color).toBe(s.filled ? HUD_COLORS.primary : HUD_COLORS.dim)
   })
 
   /** 【炸彈的「裝填中」是既有行為，不得回歸】 */
