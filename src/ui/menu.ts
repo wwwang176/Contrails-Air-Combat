@@ -219,6 +219,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const pause = root.querySelector('#pause') as HTMLElement
   const confirm = root.querySelector('#confirm') as HTMLElement
   const restartAsk = root.querySelector('#restart-confirm') as HTMLElement
+  const menuAsk = root.querySelector('#menu-confirm') as HTMLElement
   const settings = root.querySelector('#settings') as HTMLElement
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
@@ -335,6 +336,10 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       drawSettingRows()
       return
     }
+    // 【回主選單也要問過】遭遇戰的出口，按下去這一場就沒了 —— 與放棄任務同一類
+    if (act === 'toMenu') { openOverlay(menuAsk); return }
+    if (act === 'toMenuNo') { closeOverlay(menuAsk); return }
+    if (act === 'toMenuYes') { closeOverlay(menuAsk); hooks.onEvent('toMenu'); return }
     if (act === 'abandon') { openOverlay(confirm); return }
     if (act === 'abandonNo') { closeOverlay(confirm); return }
     if (act === 'abandonYes') { closeOverlay(confirm); hooks.onEvent('toMission'); return }
@@ -675,6 +680,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       closeOverlay(reloadAsk)
       closeOverlay(settings)
       closeOverlay(restartAsk)
+      closeOverlay(menuAsk)
       closeOverlay(confirm)
       closeOverlay(pause)
     },

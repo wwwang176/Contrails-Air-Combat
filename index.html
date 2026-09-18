@@ -603,6 +603,16 @@
           </div>
         </div>
       </section>
+      <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->
+      <section id="menu-confirm" class="screen" style="--v:.60" hidden>
+        <div class="ask">
+          <h2>要離開這一場回主選單嗎？</h2>
+          <div class="row">
+            <button class="go" data-act="toMenuNo">繼　續</button>
+            <button class="btn" data-act="toMenuYes">回主選單</button>
+          </div>
+        </div>
+      </section>
       <!-- 設定。與暫停、確認同一類：overlay，不是畫面（見 ui/screens.ts）。
            齒輪在右上角固定位置，任何畫面都按得到 -->
       <section id="settings" class="screen" style="--v:.60" hidden>
