@@ -14,10 +14,10 @@ import type { MissionCard } from './types'
 export const ALLIES: readonly MissionCard[] = [
   {
     id: 'allies-m1', title: '柏林上空', type: '護航',
-    summary: '駕駛 P-51D 護送第八航空軍第一次白天轟炸柏林 —— 只有野馬飛得到最後那一段。',
+    summary: '駕駛 P-51D，護送 B-17 第一次在白天轟炸柏林。',
     place: '德國　柏林上空', period: '1944 年 3 月',
     battle: {
-      ...CONVOY, objective: '送 8 架轟炸機抵達柏林', banner: '護送 B-17 轟炸柏林',
+      ...CONVOY, objective: '護送 B-17 抵達柏林', banner: '敵機來了，護住轟炸機',
       blueSpec: P51D, redSpec: BF109K4, convoySpec: B17G,
       /**
        * 【藍隊 20 席用滿】4 架 P-51 加 16 架 B-17，沒有我方增援的空間。
@@ -69,12 +69,12 @@ export const ALLIES: readonly MissionCard[] = [
   },
   {
     id: 'allies-m2', title: '梅澤堡的油廠', type: '打擊',
-    summary: '駕駛第八航空軍的 B-17G 轟炸洛伊納合成油廠，穿過德國空軍那年秋天最大的一次攔截。',
+    summary: '駕駛 B-17G，頂著敵機與高射砲，炸毀洛伊納油廠。',
     // 【與德 M1 是同一場的兩個座位】空域字串要不同 —— 簡報的護欄要求
     // 各關互不相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
     place: '德國中部　洛伊納油廠上空', period: '1944 年 11 月',
     battle: {
-      objective: '炸毀洛伊納油廠', banner: '轟炸洛伊納油廠',
+      objective: '炸毀洛伊納油廠', banner: '撐過攔截，把炸彈投進油廠',
       blueSpec: B17G, redSpec: BF109K4, convoySpec: null,
       /**
        * 【十二架分三群擺開】玩家在中間那一群的前頭，前後各一群
@@ -127,11 +127,11 @@ export const ALLIES: readonly MissionCard[] = [
   },
   {
     id: 'allies-m4', title: '沖繩外海', type: '殲滅',
-    summary: '駕駛 F6F-5 守住沖繩外海的第 58 特遣艦隊，攔下零戰與低空進場的一式陸攻。',
+    summary: '駕駛 F6F-5 守護航母，擋下俯衝的零戰和貼著海面來的雷擊機。',
     place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
     battle: {
       ...KILL,
-      objective: '守住艦隊', banner: '敵機來襲，守住航母',
+      objective: '守住航母', banner: '零戰來了，別讓它們靠近航母',
       blueSpec: F6F5, redSpec: A6M5,
       // 【零戰掛爆戦】1945 年 4 月的沖繩，零戰掛彈攻擊第 58 特遣艦隊。A6M5 預設
       // 不掛彈，只有這一關指定；依機種複寫，第五批陸攻的魚雷不受影響

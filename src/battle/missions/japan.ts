@@ -44,11 +44,11 @@ const GUADALCANAL_FLEET: MissionFleet = {
 export const JAPAN: readonly MissionCard[] = [
   {
     id: 'japan-m1', title: '瓜達康納爾上空', type: '護航',
-    summary: '駕駛 A6M5 從拉包爾飛 1,040 公里，掩護一式陸攻雷擊瓜島外海的登陸船團護衛艦隊。',
+    summary: '駕駛零戰護送一式陸攻，擋下美軍戰鬥機，讓陸攻用魚雷擊沉敵艦。',
     place: '所羅門　瓜達康納爾外海', period: '1942 年 8 月',
     battle: {
       ...KILL,
-      objective: '掩護陸攻擊沉三艘敵艦', banner: '掩護雷擊隊，擊沉三艘',
+      objective: '讓陸攻擊沉敵艦', banner: '野貓來了，保護好陸攻',
       // 【零戰與陸攻，不是 21 型】遊戲每個陣營只有一台戰鬥機模型，卡片寫戰役
       // 不寫次型號
       blueSpec: A6M5, redSpec: F4F4,
@@ -73,11 +73,11 @@ export const JAPAN: readonly MissionCard[] = [
   },
   {
     id: 'japan-m3', title: '漢口上空', type: '殲滅',
-    summary: '駕駛飛行第 22 戰隊剛到手的四式戰疾風，把從高空俯衝下來的 P-51 拖進中低空纏鬥。',
+    summary: '駕駛疾風迎擊從高空撲下來的野馬，把它們拖進低空纏鬥。',
     place: '中國　漢口上空', period: '1944 年 8 月',
     battle: {
       ...KILL,
-      banner: '野馬在頭上，全部擊落',
+      banner: '野馬從上方俯衝下來了',
       blueSpec: KI84, redSpec: P51D,
       // 【8 對 10、紅方高 1,000 m】壓力只來自這兩件事。**刻意不加波次** ——
       // 這是九關裡唯一一場沒有第二階段的戰鬥機對決
@@ -88,11 +88,11 @@ export const JAPAN: readonly MissionCard[] = [
   },
   {
     id: 'japan-m4', title: '倫內爾島', type: '打擊',
-    summary: '駕駛第 705 海軍航空隊的一式陸攻，在黃昏低空雷擊倫內爾島外的第 18 特遣艦隊。',
+    summary: '駕駛一式陸攻趁著黃昏貼海飛行，用魚雷擊沉美軍艦隊。',
     place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
     battle: {
       ...KILL,
-      objective: '擊沉任意四艘敵艦', banner: '低空雷擊，擊沉四艘敵艦',
+      objective: '擊沉敵艦', banner: '壓低高度，衝向艦隊',
       // 【F4F-4 不是 F6F-5】1943 年 1 月的攔截者是企業號 VF-10 的野貓；
       // 地獄貓 1943 年 8 月才首戰，晚了七個月。
       blueSpec: G4M, redSpec: F4F4,
@@ -102,15 +102,14 @@ export const JAPAN: readonly MissionCard[] = [
       blueCount: 11, redCount: 8,
       terrain: 'sea',
       fleet: RENNELL_FLEET,
-      // 【低空】卡片寫的是「低空雷擊」。用預設的 4,000 m 的話，開場時
+      // 【低空】卡片寫的是「貼海飛行」。用預設的 4,000 m 的話，開場時
       // 艦隊在 6.3 km 外、3.85 km 正下方 —— 不低頭看不到船。**起始值。**
       altitude: 1000,
       // 【擊沉任意四艘】八艘裡挑四艘，玩家自己決定打哪幾艘 —— 那本來
       // 就是雷擊機該做的決定。
       sinkCount: 4,
-      // 【沒有 `blueLoadout`】掛魚雷，照 G4M 的預設。卡片文案是「低空
-      // 雷擊」，而 AI 的雷擊剖面在 `ai/torpedoRun.ts`
-      // 【卡片文案就寫黃昏】「在黃昏低空雷擊」
+      // 【沒有 `blueLoadout`】掛魚雷，照 G4M 的預設。AI 的雷擊剖面在 `ai/torpedoRun.ts`
+      // 【卡片文案就寫黃昏】「趁著黃昏貼海飛行」
       timeOfDay: 'dusk',
     },
   },

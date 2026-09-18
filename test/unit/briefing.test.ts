@@ -34,7 +34,7 @@ describe('briefingOf —— 護送（盟 M1）', () => {
   })
 
   it('目標照卡', () => {
-    expect(b.objective).toBe('送 8 架轟炸機抵達柏林')
+    expect(b.objective).toBe('護送 B-17 抵達柏林')
   })
 
   it('我方兩列：P-51D ×4，加上要護送的 B-17G ×16；敵方 Bf 109 K-4 ×10', () => {
@@ -74,7 +74,7 @@ describe('briefingOf —— 打擊（德 M3）', () => {
   const b = briefingOf(readyCard('germany-m4'))
 
   it('目標照卡，起飛的波次不上簡報', () => {
-    expect(b.objective).toBe('摧毀地面上的 P-51')
+    expect(b.objective).toBe('打掉停機坪上的野馬')
     expect(noSecrets(b)).toEqual([])
   })
 
