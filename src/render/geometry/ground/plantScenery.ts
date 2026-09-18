@@ -22,9 +22,9 @@ import { assetUrl } from '../../../core/asset'
  * 之後，第二次進洛伊納會拿到一顆空的 GPU 緩衝 —— 畫面上是整片廠區消失，
  * 而且不報錯。
  *
- * 【為什麼載入是非同步、取用是同步】與飛機、船、地面單位相同：開場
- * `await preloadPlantScenery()` 一次，之後 `buildPlantScenery()` 同步從
- * 快取拿。地形的組裝是同步的。
+ * 【為什麼載入是非同步、取用是同步】進洛伊納之前 `await preloadPlantScenery()`
+ * 一次（`render/terrain.ts` 的 `preloadTerrainScenery`），之後
+ * `buildPlantScenery()` 同步從快取拿。地形的組裝是同步的。
  */
 
 export const PLANT_GLB_URL = '/models/leuna_plant.glb'
@@ -37,7 +37,7 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   return res.arrayBuffer()
 }
 
-/** 開場 await 一次。重複呼叫是 no-op。node 測試傳自己的 fetcher */
+/** 用到之前 await 一次。重複呼叫是 no-op。node 測試傳自己的 fetcher */
 export async function preloadPlantScenery(
   fetcher: (url: string) => Promise<ArrayBuffer> = fetchBuffer,
 ): Promise<void> {

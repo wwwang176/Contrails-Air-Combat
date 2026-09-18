@@ -35,8 +35,8 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
 import { excluding } from './floraExclude'
-import { buildPlantScenery } from './geometry/ground/plantScenery'
-import { buildAirfieldScenery } from './geometry/ground/airfieldScenery'
+import { buildPlantScenery, preloadPlantScenery } from './geometry/ground/plantScenery'
+import { buildAirfieldScenery, preloadAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { LandField } from '../world/occlusion'
 import type { TerrainKind } from '../world/terrainKind'
 
@@ -150,6 +150,19 @@ export interface Terrain {
  * 【三條互不相干的頂層分支】重整之前是「先建好群島與海面，再判斷是不是
  * `'sea'`」—— 那樣加第三種地形會憑空多出兩個 child，而且洩漏 ocean 的資源。
  */
+/**
+ * 這種地形要的佈景 GLB。**`createTerrain` 之前 await**，重複呼叫是 no-op。
+ *
+ * 【不在開場預載】廠區的 GLB 1.5 MB，只有洛伊納的關卡用得到；開場一起載的話
+ * 每個玩家都要先等它。進場時才載，等的只有要打那一關的人。
+ *
+ * 少了這一步的症狀是 `createTerrain` 當場丟「還沒載入」—— 那一關進不去。
+ */
+export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
+  if (kind === 'leuna') await preloadPlantScenery()
+  else if (kind === 'poltava') await preloadAirfieldScenery()
+}
+
 export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
   if (kind === 'farmland') return createFarmlandTerrain(gfx)
   if (kind === 'autumnFarmland') return createAutumnFarmlandTerrain(gfx)

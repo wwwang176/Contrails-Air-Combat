@@ -76,13 +76,30 @@ describe('載入畫面的接線', () => {
   it('開場預載先停在 0%、逐項回報、載完停在 100% 才收', () => {
     const main = srcOf('main.ts')
     const start = main.slice(main.indexOf('const initialRecoveryFailure'))
-    for (const fn of ['preloadAircraftModels', 'preloadShipModels', 'preloadGroundModels',
-      'preloadPlantScenery', 'preloadAirfieldScenery']) {
+    for (const fn of ['preloadAircraftModels', 'preloadShipModels', 'preloadGroundModels']) {
       expect(start, fn).toContain(fn)
     }
     expect(start).toContain('loading.step(')
     expect(start.indexOf('loading.hold()')).toBeLessThan(start.indexOf('preloadAircraftModels'))
-    expect(start.indexOf('loading.finish(')).toBeGreaterThan(start.indexOf('preloadAirfieldScenery'))
+    expect(start.indexOf('loading.finish(')).toBeGreaterThan(start.indexOf('preloadGroundModels()'))
+  })
+
+  /**
+   * 【佈景 GLB 進場才載】廠區 1.5 MB 只有洛伊納用得到，開場不能等它；而進場
+   * 時少了這一步，那一關的地形組裝當場丟「還沒載入」。
+   */
+  it('開場不載佈景；進關卡在鋪地形之前先載', () => {
+    const main = srcOf('main.ts')
+    const start = main.slice(main.indexOf('const initialRecoveryFailure'))
+    const startCode = start.slice(0, start.indexOf('requestAnimationFrame(frame)'))
+    for (const fn of ['preloadPlantScenery(', 'preloadAirfieldScenery(', 'preloadTerrainScenery(']) {
+      expect(startCode, fn).not.toContain(fn)
+    }
+    const head = 'async function loadBattle(): Promise<void> {'
+    const from = main.indexOf(head)
+    const body = main.slice(from + head.length, main.indexOf('\n}', from))
+    expect(body).toContain('await preloadTerrainScenery(battleTerrainKind())')
+    expect(body.indexOf('preloadTerrainScenery(')).toBeLessThan(body.indexOf('buildBattleTerrain()'))
   })
 
   it('進關卡同樣頭尾各停一下', () => {

@@ -7,7 +7,7 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
-import { createTerrain, type TerrainGfx } from './render/terrain'
+import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
 import { createObjectiveRing } from './render/objectiveRing'
 import { timeScale } from './battle/mission'
 import { createTracers } from './render/tracers'
@@ -143,8 +143,6 @@ import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { createShowcase, type Showcase } from './app/showcase'
 import { PLANT_STACKS } from './world/leuna'
-import { preloadPlantScenery } from './render/geometry/ground/plantScenery'
-import { preloadAirfieldScenery } from './render/geometry/ground/airfieldScenery'
 import { assetUrl } from './core/asset'
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -1291,6 +1289,10 @@ async function loadBattle(): Promise<void> {
     bannerText = ''
     releaseVisuals()
     resetPools()
+    // 【佈景 GLB 進場才載】見 `preloadTerrainScenery`。只有洛伊納與波爾塔瓦
+    // 要等，其餘地形是 no-op
+    await loading.step('載入佈景', 0.1)
+    await preloadTerrainScenery(battleTerrainKind())
     await loading.step('鋪設地形', 0.2)
     buildBattleTerrain()
     await loading.step('編組部隊', 0.5)
@@ -1305,17 +1307,30 @@ async function loadBattle(): Promise<void> {
   }
 }
 
-/** 建場的第 3 段：地形、時段與界 */
+/**
+ * 這一場的地形種類。
+ *
+ * 【任務的地形是關卡設計的一部分】它寫在卡片上：太平洋那幾關要海面、帝國本土
+ * 那一關要內陸。共用遭遇戰那一個「上一次選了什麼」的話，打完一場純海面遭遇戰
+ * 再點任務卡，任務會靜靜地變成海面
+ */
+function battleTerrainKind(): TerrainKind {
+  return mode === 'mission' && pendingMission !== null
+    ? pendingMission.battle.terrain
+    : setup.terrain
+}
+
+/**
+ * 建場的第 3 段：地形、時段與界。
+ *
+ * 【佈景 GLB 要先載好】洛伊納與波爾塔瓦的地形同步地從快取拿佈景；`loadBattle`
+ * 先 await `preloadTerrainScenery`。同步的 `enterBattle`（只有 `__drill` 在用）
+ * 沒有那一步，換成那兩種地形會當場丟「還沒載入」。
+ */
 function buildBattleTerrain(): void {
   // 3. 地形重建。種類沒變也重建 —— 那條路徑因此每一場都在走，不是一條
   //    等著被第一次使用的死碼（M10 spec §5.3）
-  //
-  //    【任務的地形是關卡設計的一部分】它寫在卡片上：太平洋那幾關要海面、
-  //    帝國本土那一關要內陸。共用遭遇戰那一個「上一次選了什麼」的話，打完
-  //    一場純海面遭遇戰再點任務卡，任務會靜靜地變成海面
-  terrainKind = mode === 'mission' && pendingMission !== null
-    ? pendingMission.battle.terrain
-    : setup.terrain
+  terrainKind = battleTerrainKind()
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = createTerrain(terrainKind, terrainGfx())
@@ -2792,15 +2807,9 @@ if (initialRecoveryFailure !== null) {
   await loading.step('載入艦艇', 0.45)
   await preloadShipModels(['essex', 'wichita', 'fletcher'])
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
-  await loading.step('載入地面單位', 0.65)
+  await loading.step('載入地面單位', 0.8)
   await preloadGroundModels()
-  // 【廠區的佈景也是 GLB】`createTerrain('leuna')` 是同步的。沒載到的症狀是
-  // 盟 M2 進不去 —— 那一關的地形組裝當場丟例外
-  await loading.step('載入廠區', 0.8)
-  await preloadPlantScenery()
-  // 【機場的佈景同一條規則】沒載到的症狀是德 M2 進不去
-  await loading.step('載入機場', 0.9)
-  await preloadAirfieldScenery()
+  // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
   await loading.finish('完成')
   requestAnimationFrame(frame)
 }

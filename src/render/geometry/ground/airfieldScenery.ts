@@ -18,8 +18,9 @@ import { assetUrl } from '../../../core/asset'
  * 【回的是複本】`terrain.dispose()` 會 dispose 佈景的幾何；共用快取被釋放
  * 之後第二次進場會拿到一顆空的 GPU 緩衝 —— 與廠區的佈景同一條規則。
  *
- * 【為什麼載入是非同步、取用是同步】開場 `await preloadAirfieldScenery()`
- * 一次，之後 `buildAirfieldScenery()` 同步從快取拿。地形的組裝是同步的。
+ * 【為什麼載入是非同步、取用是同步】進波爾塔瓦之前 `await preloadAirfieldScenery()`
+ * 一次（`render/terrain.ts` 的 `preloadTerrainScenery`），之後
+ * `buildAirfieldScenery()` 同步從快取拿。地形的組裝是同步的。
  */
 
 export const AIRFIELD_GLB_URL = '/models/poltava_airfield.glb'
@@ -32,7 +33,7 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   return res.arrayBuffer()
 }
 
-/** 開場 await 一次。重複呼叫是 no-op。node 測試傳自己的 fetcher */
+/** 用到之前 await 一次。重複呼叫是 no-op。node 測試傳自己的 fetcher */
 export async function preloadAirfieldScenery(
   fetcher: (url: string) => Promise<ArrayBuffer> = fetchBuffer,
 ): Promise<void> {
