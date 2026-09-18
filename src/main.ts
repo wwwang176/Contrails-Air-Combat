@@ -139,6 +139,7 @@ import {
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { createLoadingScreen, fileFraction } from './ui/loading'
+import { tutorialFor, tutorialOnFight, type Tutorial } from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { createShowcase, type Showcase } from './app/showcase'
@@ -303,6 +304,10 @@ const loading = createLoadingScreen()
  * 第一場的 `battle` 那時還不存在。
  */
 let loadingBattle = false
+/** 載入完、第一幀畫完之後要彈的教學卡。見 `ui/tutorials.ts` */
+let tutorialPending: Tutorial | null = null
+/** 教學卡開著：暫停中，放開指標不算玩家按了暫停 */
+let tutorialOpen = false
 let world!: World
 /**
  * 玩家目前開的那一架。
@@ -1172,6 +1177,8 @@ function fitCameraToPlayer(): void {
 
 /** 離開戰鬥：清場並收掉記分板。 */
 function leaveBattle(): void {
+  tutorialPending = null
+  tutorialOpen = false
   releaseVisuals()
   // 【圓環要移出場景】不移的話回到主選單，那個環還浮在選單的背景海上
   ctx.scene.remove(objectiveRing.object)
@@ -1279,8 +1286,9 @@ function enterBattle(): void {
  * 【為什麼 `loadingBattle` 要蓋整段】`frame` 在載入期間照樣每幀跑，而第一場
  * 的 `battle` 要到 `startWorld` 才存在 —— 沒擋的話那幾幀會對 undefined 推進戰鬥。
  */
-async function loadBattle(): Promise<void> {
+async function loadBattle(withTutorial: boolean): Promise<void> {
   loadingBattle = true
+  tutorialPending = null
   loading.show()
   try {
     await loading.hold()
@@ -1297,6 +1305,8 @@ async function loadBattle(): Promise<void> {
     buildBattleTerrain()
     await loading.step('編組部隊', 0.5)
     startWorld(battleConfig())
+    // 【掛載在 startWorld 之後才知道】教學卡依玩家這一場掛什麼挑
+    if (withTutorial) tutorialPending = tutorialFor(playerLoadout?.kind ?? null)
     await loading.step('編譯著色器', 0.75)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
@@ -2608,7 +2618,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
       grabPointer()
       paused = false
-      void loadBattle()
+      void loadBattle(tutorialOnFight(from))
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
@@ -2662,6 +2672,11 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     restartBattle()
     paused = false
     menu.setPaused(false)
+    grabPointer()
+  },
+  onTutorialDone() {
+    tutorialOpen = false
+    paused = false
     grabPointer()
   },
   onQuality(scale) {
@@ -2746,7 +2761,9 @@ function frame(now: number) {
     if (input.pointerLockLost) {
       input.pointerLockLost = false
       // 分出勝負之後不再暫停 —— 結算板本身就是出口
-      if (battle.outcome === 'fighting') {
+      // 【教學卡開著時不疊暫停選單】放開指標是教學自己做的，卡上的「了解」
+      // 就是出口
+      if (battle.outcome === 'fighting' && !tutorialOpen) {
         paused = true
         menu.setPaused(true)
         // 【暫停時記分板一定要收掉】`stepAndDrawBattle` 不跑，記分板的
@@ -2771,6 +2788,16 @@ function frame(now: number) {
       const sim = frameSeconds * timeScale(battle.outcome)
       elapsed += sim
       stepAndDrawBattle(sim)
+      // 【第一幀畫完才彈教學】鏡頭與 HUD 要先就位，卡片後面才是這一場的戰場，
+      // 不是上一個畫面。暫停之後主迴圈只重畫這一幀
+      if (tutorialPending !== null) {
+        paused = true
+        tutorialOpen = true
+        menu.showTutorial(tutorialPending)
+        tutorialPending = null
+        // 【放開指標】卡上的按鈕要點得到；「了解」再鎖回來
+        if (document.pointerLockElement === canvas) document.exitPointerLock()
+      }
       if (elapsed >= telemetryAt) {
         telemetryAt = elapsed + TELEMETRY_PERIOD
         logTelemetry()
@@ -3199,6 +3226,18 @@ const GFX_HIDDEN_LAYER = 31
     mode: playerAi.mode,
     phase: playerAi.hudPhase,
     override: playerAi.hudOverride,
+    /**
+     * 瞄具：狀態、投不投得出去、是否在投彈模式、落點圈與航跡末端的 NDC、
+     * 航跡取樣數。教學截圖靠它挑時機、擺標註。
+     */
+    sight: {
+      state: hudFrame.bombState, ok: hudFrame.releaseOk, bombing: hudFrame.bombing,
+      vis: hudFrame.bombVisible, bx: +hudFrame.bombX.toFixed(4), by: +hudFrame.bombY.toFixed(4),
+      run: hudFrame.runCount,
+      rx: hudFrame.runCount > 0 ? +hudFrame.runX[hudFrame.runCount - 1]!.toFixed(4) : 0,
+      ry: hudFrame.runCount > 0 ? +hudFrame.runY[hudFrame.runCount - 1]!.toFixed(4) : 0,
+      agl: +hudFrame.releaseAgl.toFixed(0),
+    },
     /** Worker 改出風險與最後安全動作；供低空攻擊的 e2e 護欄判讀。 */
     ru: +playerAi.recoveryUrgency.toFixed(3),
     capture: playerAi.recoveryCapture,

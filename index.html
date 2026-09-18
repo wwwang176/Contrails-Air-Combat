@@ -340,6 +340,23 @@
         background: var(--panel-thin); border: 1px solid var(--bd); box-shadow: 0 16px 34px rgba(0,0,0,.6); }
       .ask h2 { font-size: 22px; }
       .ask .row { display: flex; gap: 14px; }
+      /* 進場教學：截圖在左、說明在右；窄螢幕上下疊 */
+      /* 【厚底】卡片後面是剛開場的戰場，任務橫幅正打到一半 —— 薄底會讓那幾個字透到標題上 */
+      .ask.tut { width: min(820px, 94vw); align-items: stretch; gap: 16px; padding: 22px 26px 24px;
+        background: var(--panel); }
+      .ask.tut h2 { text-align: center; }
+      .ask.tut .go { align-self: center; }
+      /* 一排幾格：圖在上、一句話在下 */
+      .tut-panels { list-style: none; margin: 0; padding: 0; display: flex; gap: 16px; justify-content: center; }
+      .tut-panel { flex: 1 1 0; max-width: 240px; display: flex; flex-direction: column; gap: 10px; }
+      /* 【標籤以圖的百分比定位】圖縮放時跟著走 */
+      .tut-fig { position: relative; margin: 0; border: 1px solid var(--bd); }
+      .tut-fig img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; }
+      .tut-tag { position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
+        padding: 2px 8px; font: 700 12px/1.4 var(--f-ui); color: var(--go-ink); background: var(--sel);
+        box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+      .tut-cap { font-size: 14px; line-height: 1.6; color: var(--strong); }
+      @media (max-width: 720px) { .tut-panels { flex-direction: column; align-items: center; } }
 
       /* ── 戰報 #board ────────────────────────────────── */
       #board {
@@ -601,6 +618,14 @@
             <button class="go" data-act="restartNo">繼　續</button>
             <button class="btn" data-act="restartYes">重新開始</button>
           </div>
+        </div>
+      </section>
+      <!-- 進場教學。出擊後第一幀畫完就暫停彈出；內容由 menu.ts 依 ui/tutorials.ts 填 -->
+      <section id="tutorial" class="screen" style="--v:.55" hidden>
+        <div class="ask tut">
+          <h2 id="tut-title"></h2>
+          <ol id="tut-panels" class="tut-panels"></ol>
+          <button class="go" data-act="tutorialOk">了　解</button>
         </div>
       </section>
       <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->
