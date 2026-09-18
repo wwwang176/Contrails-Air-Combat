@@ -1414,9 +1414,8 @@ function startWorld(cfg: BattleConfig): void {
    * 不會撞海」。20v20 裡總有人會被打到失控——不補的話會出現在海面下
    * 繼續飛的飛機（M5 spec §1.1）。
    *
-   * 波參數與海面著色器共用（見 aircraft/crash.ts），而 `elapsed` 在幀首
-   * 更新、與 `terrain.update` 餵給 shader 的是同一個時間 —— 玩家看到的
-   * 浪頭就是撞得到的浪頭。
+   * 判定高度讀 `terrain.collisionHeightAt`：海面是平的、**不吃時間**，浪只是
+   * 視覺。所以撞海與幀率、海浪動畫都無關。
    */
   const seaCrash = flatSeaCrashPolicy(terrain.collisionHeightAt)
   world.crashPolicy = (c) => {
@@ -1684,8 +1683,13 @@ function trackPlayerOrder(): void {
  * 【為什麼抽出來】選單期間這一整段都不該跑（沒有 `Battle`）。抽成函數
  * 之後 `frame` 只剩下一個分支，而搬家本身沒有改任何一行內容 ——
  * `main.ts` 沒有測試護著，這一步必須看得出來只是搬家。
+ *
+ * @param frameSeconds 這一幀的時間。餵物理迴圈、上帝視角的移動與 HUD
+ * @param worldSeconds 這一幀世界前進的時間（`loop.worldSeconds`）。煙、火、
+ *   爆炸、殘骸、尾流、螺旋槳與鏡頭吃這個 —— 低於 30 fps 時世界變慢，它們
+ *   要一起慢，否則在慢的電腦上特效比世界快
  */
-function stepAndDrawBattle(frameSeconds: number): void {
+function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   trackPlayerOrder()
   // 世界固定瞄準點：滑鼠位移繞相機的右／上軸旋轉它。不夾制——相機跟著瞄準點
   // 走，準星恆在畫面正中央，「準星不能離開畫面」那個前提不存在了（見 input/aim.ts）。
@@ -1761,7 +1765,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
       // 兇手在這 2 秒裡也可能死掉；那時他的位置停在自己的墜落點，
       // 鏡頭看過去仍然是對的畫面
       killerSeat >= 0 ? world.combatants[killerSeat]!.aircraft.state.position : null,
-      frameSeconds,
+      worldSeconds,
     )
     input.firing = false
   } else if (aiFlying) {
@@ -1807,10 +1811,15 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
   // 漏掉——連射時 X 標記會閃爍不定。
   let hitsThisFrame = 0
+  // 這一幀真的跑過的物理時間，s。玩家的彈艙吃它 —— 物理每幀最多補 8 步，
+  // 低於 30 fps 時世界變慢，彈艙要跟世界與 AI 的彈艙一起慢，否則慢的電腦上
+  // 裝填期間世界過的時間比較短
+  let physicsSeconds = 0
   // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
   // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
   wireTerrain()
   const alpha = loop.advance(frameSeconds, (dt) => {
+    physicsSeconds += dt
     perf.beginPhysics()
     stepBattle(battle, dt)
     // 【緊接在物理步之後】增援是 `stepBattle` 裡的節拍加進去的，而幀尾的
@@ -1911,7 +1920,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
 
   // reset 會把 prevPosition 一併設為新位置，因此重置不會被內插成一條
   // 橫跨半個地圖的殘影。
-  propRotation += frameSeconds * (8 + input.throttle * 60)
+  propRotation += worldSeconds * (8 + input.throttle * 60)
   for (const c of world.combatants) {
     const v = visuals.get(c)!
     if (v.wrecked) {
@@ -2031,7 +2040,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
   if (bp !== null) {
     BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
     const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
-    stepBombBay(playerBay(), frameSeconds, press, releaseOk, () => {
+    stepBombBay(playerBay(), physicsSeconds, press, releaseOk, () => {
       const v = player.aircraft.state.velocity
       const damage = playerLoadout?.damage ?? 0
       if (playerLoadout?.kind === 'torpedo') {
@@ -2096,12 +2105,12 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 相機看的是**瞄準方向**而不是機首方向：準星釘在畫面中央，跟不上的是飛機
     rig.update(
       ctx.camera, renderPos, renderQuat, input.aimWorld, aircraft.diag.aero.tas,
-      input.viewMode, input.lookYaw, input.lookPitch, frameSeconds, bombTarget,
+      input.viewMode, input.lookYaw, input.lookPitch, worldSeconds, bombTarget,
     )
   }
   // 【排在兩個分支之後】上面算出來的是這一幀的目的姿態，過渡把它往按 G
   // 那一刻的姿態拉回一部分；過渡結束後這一行什麼都不做
-  applyBlend(godBlend, ctx.camera, frameSeconds)
+  applyBlend(godBlend, ctx.camera, worldSeconds)
   // 【震動疊在最後】上面每一條分支都是從頭寫相機姿態的，排在它們之前會被
   // 整個蓋掉 —— 而畫面上只是「沒有震動」。也因為它們每幀重寫，這個偏移
   // 不會累積回相機
@@ -2112,7 +2121,7 @@ function stepAndDrawBattle(frameSeconds: number): void {
     indicatedAirspeed(shakeAero.diag.aero.tas, shakeAero.diag.air.sigma)
       / shakeAero.spec.limits.vne,
   )
-  stepCameraShake(cameraShake, frameSeconds)
+  stepCameraShake(cameraShake, worldSeconds)
   applyCameraShake(cameraShake, ctx.camera)
 
   tracers.update(world.projectiles)
@@ -2121,11 +2130,11 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 【火災走畫面時間，不是物理子步】它是純裝飾 —— 與 `sparks.step` 同一條
   // 【排在兩支 step 之前】這一幀的間隔倍率要先算好，否則兩支火用到的是
   // 上一幀的值；剛熄掉的格子也會慢一幀才歸位
-  updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, frameSeconds)
-  stepShipFires(shipFires, world.ships, frameSeconds, emitFirePuff, fireCrowd.ship)
-  stepGroundFires(groundFires, frameSeconds, emitFirePuff, fireCrowd.ground)
-  emitPlantSteam(frameSeconds)
-  emitFlareSmoke(frameSeconds)
+  updateFireCrowd(fireCrowd, groundFires, shipFires, world.ships, worldSeconds)
+  stepShipFires(shipFires, world.ships, worldSeconds, emitFirePuff, fireCrowd.ship)
+  stepGroundFires(groundFires, worldSeconds, emitFirePuff, fireCrowd.ground)
+  emitPlantSteam(worldSeconds)
+  emitFlareSmoke(worldSeconds)
   // 【槍焰用內插姿態】它是一個狀態而不是一個瞬間，所以位置在這裡重算 ——
   // 用物理位置的話槍焰會相對機身抖動一個子步的位移（M7 spec §2.1）
   muzzles.update(world.combatants, renderPositions, renderQuaternions)
@@ -2133,13 +2142,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
   turretBarrels.update(world.combatants, renderPositions, renderQuaternions)
   turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
   // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
-  sparks.step(frameSeconds)
+  sparks.step(worldSeconds)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
   // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
   // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
   // `waterAt` 決定「那是水嗎」。共用一支的話摔在島上會噴水柱
-  wrecks.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
-  debris.step(frameSeconds, terrain.heightAt, terrain.waterAt, elapsed)
+  wrecks.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
+  debris.step(worldSeconds, terrain.heightAt, terrain.waterAt, elapsed)
   // 【殘骸的引擎在燒】走船火那一份配方，小一號。位置由 `wrecks` 每一步從
   // 機體座標轉成世界座標，法線那三格帶的是殘骸的速度 —— 火團要繼承它
   {
@@ -2157,27 +2166,27 @@ function stepAndDrawBattle(frameSeconds: number): void {
   // 零件入水各濺一根小水柱。與噴濺讀同一份事件：同一次入水的兩個表現，
   // 位置相同。高低粗細由 splashSize 依格子隨機
   splashes.emit(debris.sprayEvents, terrain.heightAt, elapsed)
-  splashes.step(frameSeconds)
-  fireball.step(frameSeconds)
-  smoke.step(frameSeconds)
-  steam.step(frameSeconds)
-  shipFireSmoke.step(frameSeconds)
-  wreckFireSmoke.step(frameSeconds)
+  splashes.step(worldSeconds)
+  fireball.step(worldSeconds)
+  smoke.step(worldSeconds)
+  steam.step(worldSeconds)
+  shipFireSmoke.step(worldSeconds)
+  wreckFireSmoke.step(worldSeconds)
   // 【爆炸那一組】水冠要在水霧之前 —— 它的 `onFade` 會往水霧池發射，
   // 同一幀生的那幾團才不會被水霧自己的 `step` 漏掉一幀
-  blastJets.step(frameSeconds)
+  blastJets.step(worldSeconds)
   // 【這兩個要拿到殘骸的錨點】引擎火吸附在殘骸上，世界座標由池子每一幀
   // 自己組。不給的話那些火當場收掉 —— 畫面上是「飛機不燒了」
-  blastChunks.step(frameSeconds, wrecks.anchors)
-  blastGlow.step(frameSeconds, wrecks.anchors)
-  blastEmber.step(frameSeconds)
-  blastSmoke.step(frameSeconds)
-  blastDust.step(frameSeconds)
-  blastMist.step(frameSeconds)
-  flakBursts.step(frameSeconds)
+  blastChunks.step(worldSeconds, wrecks.anchors)
+  blastGlow.step(worldSeconds, wrecks.anchors)
+  blastEmber.step(worldSeconds)
+  blastSmoke.step(worldSeconds)
+  blastDust.step(worldSeconds)
+  blastMist.step(worldSeconds)
+  flakBursts.step(worldSeconds)
   flareLights.update(world.flares, elapsed)
   // 【畫面時間】閃光是純表現，與火花、火球同一條
-  blastLights.step(frameSeconds)
+  blastLights.step(worldSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position)
@@ -2211,9 +2220,9 @@ function stepAndDrawBattle(frameSeconds: number): void {
     }
   }
   // 【高度交給它自己每幀問】帶子要跟著看得見的浪起伏，否則會被浪蓋掉
-  wakes.step(frameSeconds, elapsed, terrain.heightAt)
-  vortex.step(frameSeconds)
-  spray.step(frameSeconds)
+  wakes.step(worldSeconds, elapsed, terrain.heightAt)
+  vortex.step(worldSeconds)
+  spray.step(worldSeconds)
 
   // ── 集合點的可視化（`O`）───────────────────────────────
   // 【觀測工具，不進任何模擬】只讀指揮層的狀態，不寫。
@@ -2809,10 +2818,12 @@ function frame(now: number) {
       // 由 `battle.outcome` 推導不必維護任何東西（與 `stepCommandLayer` 用
       // `instanceof` 推導、編制每步重算是同一條紀律）。
       //
-      // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解
+      // 【`elapsed` 也要一起慢】海浪與地形讀的就是它，見 `timeScale` 的註解。
+      // 低於 30 fps 時物理丟時間，它也丟同樣多（`worldSeconds`）
       const sim = frameSeconds * timeScale(battle.outcome)
-      elapsed += sim
-      stepAndDrawBattle(sim)
+      const world = loop.worldSeconds(sim)
+      elapsed += world
+      stepAndDrawBattle(sim, world)
       // 【第一幀畫完才彈教學】鏡頭與 HUD 要先就位，卡片後面才是這一場的戰場，
       // 不是上一個畫面。暫停之後主迴圈只重畫這一幀
       if (tutorialPending.length > 0) {

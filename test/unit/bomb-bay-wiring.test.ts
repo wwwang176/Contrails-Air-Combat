@@ -44,6 +44,20 @@ describe('彈艙的接線：不得被關進任何視角分支', () => {
     expect(bay - eye).toBeLessThan(6)
   })
 
+  /**
+   * 【吃這一幀真的跑過的物理時間，不吃畫面時間】物理每幀最多補 8 步，低於
+   * 30 fps 時世界變慢。吃畫面時間的話裝填照現實時鐘走，慢的電腦上裝填期間
+   * 世界過的時間比較短 —— AI 的彈艙在 `World` 裡吃物理 dt，兩邊就不公平
+   */
+  it('吃這一幀累加的物理時間，與 AI 的彈艙同一個時鐘', () => {
+    expect(SRC[bay]!).toContain('physicsSeconds')
+    expect(SRC[bay]!).not.toContain('frameSeconds')
+    const advance = only('loop.advance(frameSeconds, (dt) => {')
+    const add = only('physicsSeconds += dt')
+    expect(add).toBeGreaterThan(advance)
+    expect(add).toBeLessThan(bay)
+  })
+
   it('包住它的條件只看「掛不掛得了彈」，不看視角', () => {
     // 往上找最近的一行 `if (`
     let i = bay
@@ -116,11 +130,38 @@ describe('火災的接線：起火必須排在事件排空之前', () => {
     }
   })
 
-  /** 【燃燒走畫面時間】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
-  it('stepShipFires 吃的是 frameSeconds', () => {
+  /** 【燃燒一幀推一次】它是純裝飾。塞進物理子步的話一幀會燒好幾次。 */
+  it('stepShipFires 吃的是 worldSeconds', () => {
     const step = lines('stepShipFires(')
     expect(step).toHaveLength(1)
-    expect(SRC[step[0]!]!).toContain('frameSeconds')
+    expect(SRC[step[0]!]!).toContain('worldSeconds')
+  })
+})
+
+/**
+ * # 畫面那一側的時鐘 —— 同樣讀 `main.ts` 的原始碼
+ *
+ * 低於 30 fps 時物理丟時間、世界變慢。特效、螺旋槳與鏡頭吃畫面時間的話會比
+ * 世界快，慢的電腦上看起來像兩個速度。它們要吃 `worldSeconds`。
+ */
+describe('特效、螺旋槳與鏡頭跟世界同一個時鐘', () => {
+  const all = SRC.join('\n')
+
+  it('特效沒有任何一支還吃 frameSeconds', () => {
+    expect(all).not.toMatch(/\.step\(frameSeconds/)
+  })
+
+  it('螺旋槳、座艙鏡頭、過渡與震動吃 worldSeconds', () => {
+    expect(all).toContain('propRotation += worldSeconds')
+    expect(all).toContain('input.lookPitch, worldSeconds')
+    expect(all).toContain('applyBlend(godBlend, ctx.camera, worldSeconds)')
+    expect(all).toContain('stepCameraShake(cameraShake, worldSeconds)')
+  })
+
+  it('海浪與地形讀的 elapsed 也只前進世界的時間', () => {
+    expect(all).toContain('const world = loop.worldSeconds(sim)')
+    expect(all).toContain('elapsed += world')
+    expect(all).not.toContain('elapsed += sim')
   })
 })
 
