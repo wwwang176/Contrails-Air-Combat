@@ -1,7 +1,36 @@
-import { Quaternion, Vector3 } from 'three'
+import { Matrix4, Quaternion, Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 
-const S = makeScratch(2, 1)
+const S = makeScratch(4, 1)
+const BASIS = new Matrix4()
+
+/**
+ * 投彈模式下滑鼠位移的倍率，相對一般飛行。玩家還能微調航向與俯仰，但同樣的
+ * 滑鼠位移只轉四分之一 —— 瞄準中不會一推就把落點甩走。
+ */
+export const BOMB_AIM_SCALE = 0.25
+
+/**
+ * 以瞄準方向本身建的水平座標系：−Z 是瞄準方向，右軸是水平的，上軸靠世界上方。
+ * 給 `slewAimWorld` 當 `cameraOrientation` 用。
+ *
+ * 【投彈模式要用它，不能用相機】投彈相機朝下看、螢幕上方是機首，拿它的右／上
+ * 軸去轉瞄準點的話，「滑鼠往上」變成繞一條斜的軸轉，飛機會跟著滾。這個座標系
+ * 與一般飛行的相機基準（無滾轉、朝瞄準方向）同義：滑鼠左右是偏航、上下是俯仰。
+ *
+ * 瞄準方向接近垂直時水平右軸退化，改用世界 +X。熱路徑：不配置。
+ */
+export function levelAimBasis(aim: Vector3, out: Quaternion): Quaternion {
+  const f = S.v[2]!.copy(aim).normalize()
+  // 右 = 前 × 世界上。朝 −Z 時是 +X
+  const right = S.v[3]!.set(-f.z, 0, f.x)
+  if (right.lengthSq() < 1e-8) right.set(1, 0, 0)
+  right.normalize()
+  const up = S.v[0]!.crossVectors(right, f)
+  const back = S.v[1]!.copy(f).negate()
+  BASIS.makeBasis(right, up, back)
+  return out.setFromRotationMatrix(BASIS)
+}
 
 /**
  * 依滑鼠位移旋轉「世界座標」的瞄準點。就地修改並回傳（熱路徑零配置）。

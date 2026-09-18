@@ -111,7 +111,7 @@ import {
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
-import { slewAimWorld } from './input/aim'
+import { BOMB_AIM_SCALE, levelAimBasis, slewAimWorld } from './input/aim'
 import { teamSlot, type Combatant, type World } from './world/World'
 import { solveLead, NO_INTERCEPT } from './world/lead'
 import { PROJECTILE_LIFETIME } from './world/Projectiles'
@@ -447,6 +447,8 @@ ctx.scene.add(torpedoVisuals.object)
 const BOMB_IMPACT: Impact = { x: 0, y: 0, z: 0, seconds: 0, speed: 0 }
 const BOMB_START: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 const BOMB_EYE = new Vector3()
+/** 投彈模式下滑鼠旋轉瞄準點用的座標系，見 `levelAimBasis` */
+const BOMB_AIM_BASIS = new Quaternion()
 const BOMB_POINT = new Vector3()
 const BOMB_NDC = new Vector3()
 /**
@@ -1724,12 +1726,13 @@ function stepAndDrawBattle(frameSeconds: number): void {
     // 左鍵失效：開火完全由 AI 的開火紀律決定
     input.firing = false
   } else if (input.viewMode === 'bomb') {
-    // 【投彈模式凍結瞄準點】瞄準點就是飛行指令，而 `slewAimWorld` 的旋轉軸
-    // 取自相機 —— 相機一朝下，滑鼠的語意就變了。凍結它、指揮儀照舊追它，
-    // 等於「保持航向與姿態」。什麼都不做就是凍結。
-    //
-    // 下面照舊歸零 `aimDelta`：不歸零的話位移會累積到離開投彈模式的那一幀，
-    // 鏡頭一次噴過去
+    // 【投彈模式只能微調】位移乘 `BOMB_AIM_SCALE`，旋轉軸取瞄準方向自己的
+    // 水平座標系，不取相機 —— 投彈相機朝下看，拿它的軸滑鼠的語意就變了
+    // （見 `levelAimBasis`）。不動滑鼠就是保持航向與姿態
+    slewAimWorld(
+      input.aimWorld, input.aimDeltaX * BOMB_AIM_SCALE, input.aimDeltaY * BOMB_AIM_SCALE,
+      levelAimBasis(input.aimWorld, BOMB_AIM_BASIS), ctx.camera.fov * DEG,
+    )
   } else {
     slewAimWorld(
       input.aimWorld, input.aimDeltaX, input.aimDeltaY,

@@ -4,7 +4,7 @@ import { bombsightColor, bombsightStyle } from '../../src/hud/widgets/bombsight'
 import { HUD_COLORS } from '../../src/hud/types'
 
 describe('投彈模式的 HUD 清單', () => {
-  it('不含 reticle —— 瞄準點是凍結的，畫出來是誤導', () => {
+  it('不含 reticle —— 投彈模式不開槍，畫出來是誤導', () => {
     expect(BOMB).not.toContain('reticle')
   })
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
-import { slewAimWorld } from '../../src/input/aim'
+import { BOMB_AIM_SCALE, levelAimBasis, slewAimWorld } from '../../src/input/aim'
 import { CRUISE_THROTTLE, createInputState } from '../../src/input/InputState'
 import {
   applyThrottleRate, THROTTLE_RATE, THROTTLE_FLOOR,
@@ -224,5 +224,51 @@ describe('applyThrottleRate', () => {
     const measuredSeconds = steps * dt
     const expectedSeconds = (WEP_THROTTLE - CRUISE_THROTTLE) / THROTTLE_RATE
     expect(measuredSeconds).toBeCloseTo(expectedSeconds, 6)
+  })
+})
+
+/**
+ * 投彈模式的滑鼠：以瞄準方向自己的水平座標系旋轉，位移打四分之一折。
+ *
+ * 【它在防什麼】投彈相機朝下看，拿它的軸轉的話滑鼠的上下左右會變成斜的旋轉，
+ * 飛機跟著滾。
+ */
+describe('levelAimBasis', () => {
+  const aimOf = (x: number, y: number, z: number) => new Vector3(x, y, z).normalize()
+
+  it('朝 −Z 時就是單位姿態：右是 +X、上是 +Y', () => {
+    const q = levelAimBasis(aimOf(0, 0, -1), new Quaternion())
+    expect(new Vector3(1, 0, 0).applyQuaternion(q).distanceTo(new Vector3(1, 0, 0))).toBeLessThan(1e-9)
+    expect(new Vector3(0, 1, 0).applyQuaternion(q).distanceTo(new Vector3(0, 1, 0))).toBeLessThan(1e-9)
+  })
+
+  it('右軸恆水平、前軸就是瞄準方向（帶俯仰與方位也一樣）', () => {
+    for (const aim of [aimOf(1, -0.3, -1), aimOf(-0.4, 0.2, 1), aimOf(0.7, -0.6, 0)]) {
+      const q = levelAimBasis(aim, new Quaternion())
+      expect(new Vector3(1, 0, 0).applyQuaternion(q).y).toBeCloseTo(0, 9)
+      expect(new Vector3(0, 0, -1).applyQuaternion(q).distanceTo(aim)).toBeLessThan(1e-9)
+      expect(new Vector3(0, 1, 0).applyQuaternion(q).y).toBeGreaterThan(0)
+    }
+  })
+
+  it('滑鼠往右，瞄準點往水平的右邊走，不往上下走', () => {
+    const aim = aimOf(0.3, -0.2, -1)
+    const q = levelAimBasis(aim, new Quaternion())
+    const right = new Vector3(1, 0, 0).applyQuaternion(q)
+    const up = new Vector3(0, 1, 0).applyQuaternion(q)
+    const before = aim.clone()
+    slewAimWorld(aim, 0.01, 0, q, FOV)
+    const d = aim.clone().sub(before)
+    expect(d.dot(right)).toBeGreaterThan(0)
+    expect(Math.abs(d.dot(up))).toBeLessThan(1e-3 * d.dot(right))
+  })
+
+  it('垂直的瞄準方向不產生 NaN', () => {
+    const q = levelAimBasis(aimOf(0, -1, 0), new Quaternion())
+    expect(Number.isFinite(q.x + q.y + q.z + q.w)).toBe(true)
+  })
+
+  it('投彈模式的倍率是四分之一', () => {
+    expect(BOMB_AIM_SCALE).toBe(0.25)
   })
 })
