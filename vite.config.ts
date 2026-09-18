@@ -1,6 +1,26 @@
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig(({ command }) => ({
+/**
+ * 工具頁（開發用的展示區），網址是 /tools/xxx.html。
+ *
+ * 用相對路徑字串而非 node:path + __dirname——專案沒有 @types/node，
+ * 那兩者會讓 tsc --noEmit 直接失敗，而 build 腳本第一步就是 tsc。
+ */
+const TOOLS = {
+  hangar: 'tools/hangar.html',
+  ground: 'tools/ground.html',
+  range: 'tools/range.html',
+  propdisc: 'tools/propdisc.html',
+  damageedge: 'tools/damageedge.html',
+  daylight: 'tools/daylight.html',
+  blast: 'tools/blast.html',
+  smoke: 'tools/smoke.html',
+  torpedo: 'tools/torpedo.html',
+  recovery: 'tools/recovery.html',
+  clipmap: 'tools/clipmap.html',
+}
+
+export default defineConfig(({ command, mode }) => ({
   /**
    * 網站掛在哪一層路徑底下。
    *
@@ -17,28 +37,18 @@ export default defineConfig(({ command }) => ({
     // 【非設不可】`main.ts` 與五個工具頁都用 top-level await（模型與貼圖要
     // 在建場景之前載完）。vite 的預設 target 是 es2020 —— 那個版本沒有
     // top-level await，所以 `vite build` 會直接失敗，而 **dev server 照樣
-    // 能開**：與上面那條「機庫在正式建置中靜靜消失」是同一種失效。
+    // 能開**：與下面那條「工具頁在正式建置中靜靜消失」是同一種失效。
     target: 'es2022',
+    // 【工具頁那一趟不清目錄】它疊在遊戲那一趟的輸出上，清掉的話遊戲就沒了
+    emptyOutDir: mode !== 'tools',
     rollupOptions: {
-      // 多頁面：不列進來的話 build 只會產出 index.html，機庫在正式建置中
-      // 會靜靜消失（dev server 照樣能開，所以很容易到上線前才發現）。
-      // 開發用的展示區都放在 tools/，網址是 /tools/xxx.html。
-      // 用相對路徑字串而非 node:path + __dirname——專案沒有 @types/node，
-      // 那兩者會讓 tsc --noEmit 直接失敗，而 build 腳本第一步就是 tsc。
-      input: {
-        main: 'index.html',
-        hangar: 'tools/hangar.html',
-        ground: 'tools/ground.html',
-        range: 'tools/range.html',
-        propdisc: 'tools/propdisc.html',
-        damageedge: 'tools/damageedge.html',
-        daylight: 'tools/daylight.html',
-        blast: 'tools/blast.html',
-        smoke: 'tools/smoke.html',
-        torpedo: 'tools/torpedo.html',
-        recovery: 'tools/recovery.html',
-        clipmap: 'tools/clipmap.html',
-      },
+      // 【遊戲與工具頁分兩趟建】`npm run build` 先建遊戲、再以 `--mode tools`
+      // 建工具頁到同一個 dist。同一趟建的話多個入口共用的模組會被切成共用
+      // chunk，遊戲首頁要抓三十幾個 JS；遊戲單獨一趟就是一整包。
+      //
+      // 【工具頁一定要建】不列進來的話它們在正式建置中會靜靜消失（dev server
+      // 照樣能開，所以很容易到上線前才發現）。
+      input: mode === 'tools' ? TOOLS : { main: 'index.html' },
     },
   },
   test: {
