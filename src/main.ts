@@ -1756,6 +1756,8 @@ const prevBombAge = new Float64Array(512)
 /** 每架飛機前射武器、砲塔最近一次開火的時間（`elapsed`），依座位索引 */
 const lastGunFire = new Float64Array(64)
 const lastTurretFire = new Float64Array(64)
+/** 每架轟炸機的砲塔循環用第幾座的聲音；−1 = 還沒挑。見 `noteTurretFire` */
+const turretPick = new Int16Array(64)
 let prevPlayerHp = -1
 let prevReloading = false
 let rattleTimer = 0
@@ -1771,6 +1773,7 @@ function resetAudioState(): void {
   prevBombAge.fill(0)
   lastGunFire.fill(-Infinity)
   lastTurretFire.fill(-Infinity)
+  turretPick.fill(-1)
   prevPlayerHp = -1
   prevReloading = false
   rattleTimer = 0
@@ -1879,14 +1882,23 @@ function anyFlash(a: Float32Array): boolean {
 }
 
 /**
- * 砲塔循環用哪個檔：**每架固定取管數最多的那一座**。
- * 依「正在開火的那一座」挑的話，單管、雙聯輪流被選到，每換一次檔就從頭播。
+ * 記下這架轟炸機的砲塔循環用哪一座的聲音：**最近在開火、管數最多的那一座**。
+ *
+ * 【只往大的換】閃光一幀一幀在不同砲塔之間跳；每一幀都挑「現在亮著的」的話，
+ * 單管、雙聯輪流被選到，每換一次檔就從頭播。停火超過 FIRE_HOLD 才重新挑。
+ * 呼叫時 `lastTurretFire` 還是上一次開火的時間。
  */
-function turretFileOf(c: Combatant): string | null {
+function noteTurretFire(c: Combatant): void {
   const turrets = c.aircraft.spec.turrets
-  let best = -1
-  for (let i = 0; i < turrets.length; i++) if (best < 0 || turrets[i]!.guns > turrets[best]!.guns) best = i
-  return best < 0 ? null : turretFile(turrets[best]!.weapon.id, turrets[best]!.guns)
+  let cand = -1
+  for (let i = 0; i < turrets.length; i++) {
+    if (c.turretStates[i]!.flash > 0 && (cand < 0 || turrets[i]!.guns > turrets[cand]!.guns)) cand = i
+  }
+  if (cand < 0) return
+  const i = c.index
+  const cur = turretPick[i]!
+  if (cur < 0 || elapsed - lastTurretFire[i]! >= FIRE_HOLD || turrets[cand]!.guns > turrets[cur]!.guns) turretPick[i] = cand
+  lastTurretFire[i] = elapsed
 }
 
 /**
@@ -1922,7 +1934,7 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   for (let i = 0; i < n; i++) {
     const c = all[i]!
     if (anyFlash(c.muzzleFlash)) lastGunFire[i] = elapsed
-    for (const s of c.turretStates) if (s.flash > 0) { lastTurretFire[i] = elapsed; break }
+    noteTurretFire(c)
   }
   // 其他戰鬥機開火
   for (let i = 0; i < n; i++) {
@@ -1939,13 +1951,14 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    AUDIO_VALID[i] = c.alive && c.aircraft.spec.turrets.length > 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD ? 1 : 0
+    AUDIO_VALID[i] = c.alive && turretPick[i]! >= 0 && elapsed - lastTurretFire[i]! < FIRE_HOLD ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, TURRET_KEYS)
   for (let j = 0; j < m; j++) {
     const c = all[TURRET_KEYS[j]!]!
+    const t = c.aircraft.spec.turrets[turretPick[c.index]!]!
     const p = AUDIO_POS[c.index]!
-    audio.assign('turret', c.index, turretFileOf(c)!, p.x, p.y, p.z, 1)
+    audio.assign('turret', c.index, turretFile(t.weapon.id, t.guns), p.x, p.y, p.z, 1)
   }
   audio.endFrame()
 
