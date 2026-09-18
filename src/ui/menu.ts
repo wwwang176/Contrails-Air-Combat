@@ -12,7 +12,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
-import type { Tutorial } from './tutorials'
+import { markTutorialSeen, type Tutorial } from './tutorials'
 import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
 } from '../render/quality'
@@ -60,13 +60,18 @@ export interface MenuHooks {
    * 玩家按下「儲存並重新載入」之後才送這個事件，所以呼叫端不必再問一次。
    */
   onAntialias(on: boolean): void
-  /** 進場教學按了「了解」。呼叫端解除暫停、重新鎖定指標 */
-  onTutorialDone(): void
+  /** 暫停中按了右上角的「教學」按鈕。呼叫端挑這架飛機的卡交給 `showTutorials` */
+  onHelp(): void
 }
 
 export interface Menu {
-  /** 彈出進場教學。按「了解」之後送 `onTutorialDone` */
-  showTutorial(t: Tutorial): void
+  /**
+   * 依序彈出幾張教學卡。每張按「了解」就記成看過、換下一張；最後一張按完
+   * 呼叫 `done`。空清單直接呼叫 `done`。
+   */
+  showTutorials(list: readonly Tutorial[], done: () => void): void
+  /** 這一場有沒有教學卡可看 —— 決定暫停時右上角的「教學」按鈕出不出現 */
+  setTutorialHelp(available: boolean): void
   /** 顯示指定畫面，其餘隱藏 */
   show(screen: Screen): void
   /** 暫停 overlay */
@@ -230,6 +235,16 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
   /**
+   * 暫停時齒輪旁邊的「教學」按鈕：重看這架飛機的教學卡。**只在暫停選單開著、而且
+   * 這一場有卡可看時出現**（`setTutorialHelp`）。
+   */
+  const help = root.querySelector('#help') as HTMLElement
+  let helpAvailable = false
+  /** 正在看的那一串卡，與看完要做的事 */
+  let tutorialQueue: readonly Tutorial[] = []
+  let tutorialAt = 0
+  let tutorialDone: () => void = () => {}
+  /**
    * 【飛行中把齒輪藏起來】指標鎖定時所有點擊都送給遊戲，畫面上的按鈕收不到 ——
    * 留一顆點不到的按鈕會被當成壞掉。解除鎖定（Esc）之後它就回來。
    *
@@ -342,7 +357,8 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       drawSettingRows()
       return
     }
-    if (act === 'tutorialOk') { closeOverlay(tutorial); hooks.onTutorialDone(); return }
+    if (act === 'tutorialOk') { nextTutorial(); return }
+    if (act === 'help') { hooks.onHelp(); return }
     // 【回主選單也要問過】遭遇戰的出口，按下去這一場就沒了 —— 與放棄任務同一類
     if (act === 'toMenu') { openOverlay(menuAsk); return }
     if (act === 'toMenuNo') { closeOverlay(menuAsk); return }
@@ -357,9 +373,33 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   root.ownerDocument.addEventListener('keydown', (e) => {
     if (tutorial.hidden || (e.code !== 'Enter' && e.code !== 'Space')) return
     e.preventDefault()
-    closeOverlay(tutorial)
-    hooks.onTutorialDone()
+    nextTutorial()
   })
+
+  /** 把第 `tutorialAt` 張畫進卡片 */
+  function drawTutorial(): void {
+    const t = tutorialQueue[tutorialAt]!
+    q('tut-title').textContent = t.title
+    q('tut-panels').innerHTML = t.panels.map((p) =>
+      `<li class="tut-panel"><figure class="tut-fig">`
+      + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(p.alt)}">`
+      + p.tags.map((g) =>
+        `<span class="tut-tag" style="left:${g.x}%;top:${g.y}%">${escapeHtml(g.text)}</span>`).join('')
+      + `</figure><div class="tut-cap">${escapeHtml(p.caption)}</div></li>`).join('')
+  }
+
+  /** 「了解」：這一張記成看過；還有下一張就換上，沒有就收起來並呼叫 `done` */
+  function nextTutorial(): void {
+    const t = tutorialQueue[tutorialAt]
+    if (t !== undefined) markTutorialSeen(t.id)
+    tutorialAt++
+    if (tutorialAt < tutorialQueue.length) { drawTutorial(); return }
+    closeOverlay(tutorial)
+    tutorialQueue = []
+    const done = tutorialDone
+    tutorialDone = () => {}
+    done()
+  }
 
   // ── 陣營頁：三張海報卡 ────────────────────────────────
   function renderCampaign(): void {
@@ -688,18 +728,24 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       // 通知（`renderHangar` 尾巴的 `onAircraft`）
       if (screen === 'hangar') renderHangar()
     },
-    showTutorial(t) {
-      q('tut-title').textContent = t.title
-      q('tut-panels').innerHTML = t.panels.map((p) =>
-        `<li class="tut-panel"><figure class="tut-fig">`
-        + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(p.alt)}">`
-        + p.tags.map((g) =>
-          `<span class="tut-tag" style="left:${g.x}%;top:${g.y}%">${escapeHtml(g.text)}</span>`).join('')
-        + `</figure><div class="tut-cap">${escapeHtml(p.caption)}</div></li>`).join('')
+    showTutorials(list, done) {
+      if (list.length === 0) { done(); return }
+      tutorialQueue = list
+      tutorialAt = 0
+      tutorialDone = done
+      drawTutorial()
       openOverlay(tutorial)
     },
+    setTutorialHelp(available) {
+      helpAvailable = available
+    },
     setPaused(v) {
-      if (v) { openOverlay(pause); return }
+      if (v) {
+        openOverlay(pause)
+        help.hidden = !helpAvailable
+        return
+      }
+      help.hidden = true
       // 【關掉暫停就一併關掉疊在上面的那幾層】「繼續」與換畫面都不該留下一層覆蓋。
       // 由上而下關，層級表才不會中途留下空洞
       closeOverlay(reloadAsk)

@@ -71,7 +71,7 @@ describe('載入畫面的接線', () => {
    */
   it('loadBattle 呼叫 resetPools()，不直接清單一的池', () => {
     const main = srcOf('main.ts')
-    const head = 'async function loadBattle(withTutorial: boolean): Promise<void> {'
+    const head = 'async function loadBattle(): Promise<void> {'
     const from = main.indexOf(head)
     expect(from).toBeGreaterThanOrEqual(0)
     const body = main.slice(from + head.length, main.indexOf('\n}', from))
@@ -138,7 +138,7 @@ describe('載入畫面的接線', () => {
     for (const fn of ['preloadPlantScenery(', 'preloadAirfieldScenery(', 'preloadTerrainScenery(']) {
       expect(startCode, fn).not.toContain(fn)
     }
-    const head = 'async function loadBattle(withTutorial: boolean): Promise<void> {'
+    const head = 'async function loadBattle(): Promise<void> {'
     const from = main.indexOf(head)
     const body = main.slice(from + head.length, main.indexOf('\n}', from))
     expect(body).toContain('await preloadTerrainScenery(battleTerrainKind())')
@@ -147,7 +147,7 @@ describe('載入畫面的接線', () => {
 
   it('進關卡同樣頭尾各停一下', () => {
     const main = srcOf('main.ts')
-    const head = 'async function loadBattle(withTutorial: boolean): Promise<void> {'
+    const head = 'async function loadBattle(): Promise<void> {'
     const from = main.indexOf(head)
     const body = main.slice(from + head.length, main.indexOf('\n}', from))
     expect(body.indexOf('loading.hold()')).toBeGreaterThan(body.indexOf('loading.show('))

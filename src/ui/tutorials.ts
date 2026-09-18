@@ -1,17 +1,20 @@
 import type { OrdnanceKind } from '../weapons/stores'
-import type { Screen } from './screens'
+import type { AircraftSpec } from '../specs/types'
 
 /**
- * # 進場教學
+ * # 教學卡
  *
- * 出擊之後、第一幀畫完就暫停，彈出一張卡：一排幾格，每格一張遊戲截圖配一句
- * 話。按「了解」才開始飛。
+ * 一張卡是一排幾格，每格一張遊戲截圖配一句話。
+ *
+ * 【每張只自動出現一次】出擊之後、第一幀畫完，這架飛機還沒看過的卡依序彈出，
+ * 按「了解」記下來，之後不再自動彈。戰鬥中按 Esc，右上角的「教學」按鈕可以把這架
+ * 飛機的卡全部重看一次。
  *
  * 【只講玩家非知道不可的】操作流程與畫面上怎麼判讀，白話、一格一句。數值與
  * 原理不寫 —— 玩家飛一次就知道了。
  *
- * 【依掛載，不依關卡】掛魚雷就是投雷的卡、掛炸彈就是投彈的卡 —— 任務與
- * 遭遇戰都一樣，換一台掛同樣東西的飛機不必再登記一次。
+ * 【依機種與掛載，不依關卡】戰鬥機看空戰的卡；掛魚雷、掛炸彈各一張卡。任務與
+ * 遭遇戰都一樣，換一台同類的飛機不必再登記一次。
  *
  * 【標籤是 HTML，不畫在圖上】疊在截圖上、以圖的百分比定位，字跟著介面的
  * 字型與配色走；換字不必重拍圖。
@@ -33,11 +36,36 @@ export interface TutorialPanel {
 }
 
 export interface Tutorial {
+  /** 記「看過了」用的鍵。**改了等於所有玩家重看一次** */
+  readonly id: string
   readonly title: string
   readonly panels: readonly TutorialPanel[]
 }
 
+export const FIGHTER_TUTORIAL: Tutorial = {
+  id: 'fighter',
+  title: '空戰',
+  panels: [
+    {
+      image: '/ui/tutorial/fighter-1.jpg', alt: '轉彎中，圓圈與十字分開、中間有一條連線',
+      tags: [{ text: '圓圈', x: 39, y: 29 }, { text: '機頭', x: 83, y: 18 }],
+      caption: '移動滑鼠控制圓圈，飛機會朝圓圈飛過去。',
+    },
+    {
+      image: '/ui/tutorial/fighter-2.jpg', alt: '十字壓在敵機上開火',
+      tags: [{ text: '機槍', x: 24, y: 42 }],
+      caption: '十字是機槍打的方向，按住左鍵開火。',
+    },
+    {
+      image: '/ui/tutorial/fighter-3.jpg', alt: '敵機的目標框、前方的預瞄小圈與連線',
+      tags: [{ text: '敵機', x: 66, y: 58 }, { text: '預瞄點', x: 41, y: 20 }],
+      caption: '敵機會一直移動，把十字對準前面的小圈再開火。',
+    },
+  ],
+}
+
 export const TORPEDO_TUTORIAL: Tutorial = {
+  id: 'torpedo',
   title: '投雷',
   panels: [
     {
@@ -58,6 +86,7 @@ export const TORPEDO_TUTORIAL: Tutorial = {
 }
 
 export const BOMB_TUTORIAL: Tutorial = {
+  id: 'bomb',
   title: '投彈',
   panels: [
     {
@@ -77,20 +106,45 @@ export const BOMB_TUTORIAL: Tutorial = {
   ],
 }
 
-/** 這一場該看哪一張卡。沒有掛載就沒有卡 */
-export function tutorialFor(ordnance: OrdnanceKind | null): Tutorial | null {
-  if (ordnance === 'torpedo') return TORPEDO_TUTORIAL
-  if (ordnance === 'bomb') return BOMB_TUTORIAL
-  return null
+/**
+ * 這架飛機的全部教學卡，依序。戰鬥機先看空戰；有掛載再看那一種的卡。
+ * 轟炸機只看投彈或投雷 —— 它不靠前射機槍打仗。
+ */
+export function tutorialsFor(
+  role: AircraftSpec['role'], ordnance: OrdnanceKind | null,
+): Tutorial[] {
+  const out: Tutorial[] = []
+  if (role === 'fighter') out.push(FIGHTER_TUTORIAL)
+  if (ordnance === 'torpedo') out.push(TORPEDO_TUTORIAL)
+  else if (ordnance === 'bomb') out.push(BOMB_TUTORIAL)
+  return out
 }
 
+const SEEN_KEY = 'tutorial.seen'
+
 /**
- * 這一次出擊要不要彈教學。
- *
- * 【從選單進來才彈】遭遇戰的設定頁、任務的簡報按出擊是 `from` 為那一頁；
- * 結算板的「再打一場」是從 `battle` 自己出擊 —— 同一場剛看過，不再彈。
- * 暫停選單的「重新開始」根本不走出擊（`onRestart`），也不彈。
+ * 看過的卡。**讀寫都包 try** —— 無痕視窗與封鎖站台資料的設定會讓
+ * `localStorage` 直接拋，那時每一場都重彈一次，遊戲照樣能玩。
+ * 壞掉的存檔（不是字串陣列）當成都沒看過。
  */
-export function tutorialOnFight(from: Screen): boolean {
-  return from !== 'battle'
+export function readSeenTutorials(): Set<string> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+export function markTutorialSeen(id: string): void {
+  try {
+    const seen = readSeenTutorials()
+    seen.add(id)
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...seen]))
+  } catch { /* 存不了就算了，見上面 */ }
+}
+
+/** 這一場要自動彈的卡：這架飛機的卡裡還沒看過的，依序 */
+export function unseenTutorials(all: readonly Tutorial[], seen: ReadonlySet<string>): Tutorial[] {
+  return all.filter((t) => !seen.has(t.id))
 }
