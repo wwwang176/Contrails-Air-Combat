@@ -5,6 +5,7 @@ import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
+import { createAudioEngine } from './audio/engine'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -152,6 +153,8 @@ import { assetUrl } from './core/asset'
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
+const audio = createAudioEngine(ctx.camera, ctx.scene)
+audio.setVolume(readVolume())
 
 /** 防墜 Worker 是正式安全系統；失去它時凍結遊戲並清楚告知，不做靜默降級。 */
 function blockForRecoveryWorker(message: string): void {
@@ -269,8 +272,21 @@ const playerController = new PlayerController(input)
 
 /** 目前的畫面。與 `ui/screens.ts` 的狀態機是同一組值 */
 let screen: Screen = 'landing'
-/** 戰鬥是否暫停。只有 `screen === 'battle'` 時才有意義 */
+/** 戰鬥是否暫停。只有 `screen === 'battle'` 時才有意義。**只經由 `setPausedState` 改** */
 let paused = false
+
+/**
+ * 暫停與繼續的唯一入口：同時改 `paused` 並通知音訊。
+ *
+ * 【為什麼要一個入口】寫入點散在 Esc、教學卡、重新開始、換畫面好幾處；
+ * 漏掉任何一處，那條路徑上的聲音就不會停（`audio-wiring.test.ts` 守這一條）。
+ * 分頁藏起來時也算暫停。
+ */
+function setPausedState(v: boolean): void {
+  paused = v
+  audio.setPaused(v || document.hidden)
+}
+document.addEventListener('visibilitychange', () => audio.setPaused(paused || document.hidden))
 /** 遭遇戰的設定。設定頁改它，「開始戰鬥」與「再打一場」都讀它 */
 let setup: SkirmishSetup = { ...DEFAULT_SKIRMISH }
 
@@ -1188,6 +1204,7 @@ function fitCameraToPlayer(): void {
 
 /** 離開戰鬥：清場並收掉記分板。 */
 function leaveBattle(): void {
+  audio.stopAll()
   tutorialPending = []
   tutorialOpen = false
   ignoreNextUnlock = false
@@ -1326,6 +1343,9 @@ async function loadBattle(): Promise<void> {
     // 「教學」按鈕看不看得到也在這時決定
     tutorialPending = unseenTutorials(playerTutorials(), readSeenTutorials())
     menu.setTutorialHelp(playerTutorials().length > 0)
+    // 【音效在開場就開始背景下載】大多數時候這裡已經載完，等一下就過
+    await loading.step('載入音效', 0.7)
+    await audio.load()
     await loading.step('編譯著色器', 0.75)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
@@ -2593,6 +2613,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
  * `requestPointerLock()` 回傳 `void`，直接 `.catch` 會炸。
  */
 function grabPointer(): void {
+  // 【在手勢裡解鎖音訊】瀏覽器要使用者手勢才肯出聲；這裡就是出擊、繼續的那一下
+  audio.unlock()
   void Promise.resolve(canvas.requestPointerLock()).catch(() => {})
 }
 
@@ -2645,12 +2667,12 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     if (event === 'fight' && screen === 'battle') {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
       grabPointer()
-      paused = false
+      setPausedState(false)
       void loadBattle()
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
-      paused = false
+      setPausedState(false)
       leaveBattle()
     }
     // 【離開機庫也要清場】展示機與它的彈留在場景裡的話，主選單的海上會
@@ -2692,13 +2714,13 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     bannerText = ''
   },
   onResume() {
-    paused = false
+    setPausedState(false)
     menu.setPaused(false)
     grabPointer()
   },
   onRestart() {
     restartBattle()
-    paused = false
+    setPausedState(false)
     menu.setPaused(false)
     grabPointer()
   },
@@ -2722,6 +2744,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     location.reload()
   },
   onVolume(db) {
+    audio.setVolume(db)
     saveVolume(db)
     menu.renderVolume(db)
   },
@@ -2804,7 +2827,7 @@ function frame(now: number) {
       if (ignoreNextUnlock) {
         ignoreNextUnlock = false
       } else if (battle.outcome === 'fighting' && !tutorialOpen) {
-        paused = true
+        setPausedState(true)
         menu.setPaused(true)
         // 【暫停時記分板一定要收掉】`stepAndDrawBattle` 不跑，記分板的
         // 顯示狀態就凍結在按下暫停前的那一刻 —— 玩家若正按著 TAB，
@@ -2833,12 +2856,12 @@ function frame(now: number) {
       // 【第一幀畫完才彈教學】鏡頭與 HUD 要先就位，卡片後面才是這一場的戰場，
       // 不是上一個畫面。暫停之後主迴圈只重畫這一幀
       if (tutorialPending.length > 0) {
-        paused = true
+        setPausedState(true)
         tutorialOpen = true
         // 【看完才放行】最後一張按「了解」才解除暫停、把指標鎖回來
         menu.showTutorials(tutorialPending, () => {
           tutorialOpen = false
-          paused = false
+          setPausedState(false)
           grabPointer()
         })
         tutorialPending = []
@@ -2902,6 +2925,8 @@ if (initialRecoveryFailure !== null) {
   await preloadGroundModels(undefined, fileLoaded)
   // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
   await loading.finish('完成')
+  // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它
+  void audio.load()
   requestAnimationFrame(frame)
 }
 
@@ -2933,7 +2958,7 @@ if (initialRecoveryFailure !== null) {
 ;(window as unknown as Record<string, unknown>)['__still'] = (
   yawDeg = 0, pitchDeg = 0, altitude = 3000, time = 0, x = 0, z = 0,
 ) => {
-  paused = true
+  setPausedState(true)
   elapsed = time
   ctx.camera.position.set(x, altitude, z)
   // YXZ：先繞 Y 偏航、再繞 X 俯仰，與飛行姿態同一個慣例
@@ -3207,7 +3232,7 @@ const GFX_HIDDEN_LAYER = 31
     pendingMission = null
     screen = 'battle'
     enterBattle()
-    paused = false
+    setPausedState(false)
     menu.show(screen)
   } finally {
     // 【一場一次】離開演練再開新戰鬥要拿到正常設定
