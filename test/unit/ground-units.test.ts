@@ -1,7 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { Box3, Vector3, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
   GROUND_UNITS, TRAIN_CONSIST, groundGeometry, preloadGroundModels, type GroundUnit,
 } from '../../src/render/geometry/ground'
@@ -65,7 +65,7 @@ async function meshesOf(u: GroundUnit): Promise<{ node: string; pos: BufferAttri
   }
   const { glb, barrelNodes } = u.model
   const scene = await new Promise<Object3D>((res, rej) => {
-    readPublic(glb).then((buf) => new GLTFLoader().parse(buf, '', (g) => res(g.scene), rej), rej)
+    readPublic(glb).then((buf) => createGltfLoader().parse(buf, '', (g) => res(g.scene), rej), rej)
   })
   scene.updateMatrixWorld(true)
   const out: { node: string; pos: BufferAttribute }[] = []

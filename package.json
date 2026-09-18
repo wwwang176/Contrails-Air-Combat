@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/compress-models.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/compress-models.mjs",
     "build": "tsc --noEmit && vite build && vite build --mode tools",
     "test": "vitest run test/unit test/control test/balance",
     "test:unit": "vitest run test/unit test/control test/balance",
@@ -18,8 +20,11 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
     "@types/node": "^26.5.1",
     "@types/three": "^0.180.0",
+    "meshoptimizer": "^1.2.0",
     "playwright": "^1.62.1",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",

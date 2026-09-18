@@ -55,6 +55,8 @@ export default defineConfig(({ command, mode }) => ({
     globals: true,
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // 【先產出 public/models】見 test/setup/models.mjs
+    globalSetup: ['test/setup/models.mjs'],
     benchmark: { include: ['bench/**/*.bench.ts'] },
   },
 }))
