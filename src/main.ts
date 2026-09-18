@@ -4,6 +4,7 @@ import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
+import { readVolume, saveVolume } from './audio/volume'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -2720,6 +2721,10 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveAntialias(on)
     location.reload()
   },
+  onVolume(db) {
+    saveVolume(db)
+    menu.renderVolume(db)
+  },
 })
 // 【先套用再畫選單】兩邊讀同一個值，按鈕標的才是畫面實際用的檔位
 const startQuality = readQuality()
@@ -2727,6 +2732,7 @@ ctx.setQuality(startQuality)
 menu.renderQuality(startQuality)
 // 抗鋸齒在 `createScene` 就讀過並套用了，這裡只是把按鈕標成同一個值
 menu.renderAntialias(readAntialias())
+menu.renderVolume(readVolume())
 menu.renderSetup(setup)
 menu.show(screen)
 
