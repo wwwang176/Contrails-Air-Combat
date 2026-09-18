@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LOADING_HOLD_SECONDS, loadingPercent } from '../../src/ui/loading'
+import { LOADING_HOLD_SECONDS, fileFraction, loadingPercent } from '../../src/ui/loading'
 
 /** 【用 import.meta.glob 而不是 fs】與 `camera-shake.test.ts` 讀接線同一個做法 */
 const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts'], {
@@ -8,6 +8,19 @@ const SOURCES = import.meta.glob(['../../index.html', '../../src/main.ts'], {
 // 【換行統一成 LF】工作區在 Windows 上是 CRLF，照 `\n` 切段會找不到結尾而切到檔尾
 const srcOf = (name: string): string =>
   Object.entries(SOURCES).find(([k]) => k.endsWith(name))![1].replace(/\r\n/g, '\n')
+
+describe('fileFraction：已載完的檔數換成進度', () => {
+  it('照檔數比例，夾在 0–1', () => {
+    expect(fileFraction(0, 18)).toBe(0)
+    expect(fileFraction(9, 18)).toBe(0.5)
+    expect(fileFraction(18, 18)).toBe(1)
+    expect(fileFraction(20, 18)).toBe(1)
+  })
+
+  it('沒東西要載就是載完了，不是 NaN', () => {
+    expect(fileFraction(0, 0)).toBe(1)
+  })
+})
 
 describe('loadingPercent：進度換成百分比字樣', () => {
   it('四捨五入到整數，夾在 0–100%', () => {
@@ -82,6 +95,23 @@ describe('載入畫面的接線', () => {
     expect(start).toContain('loading.step(')
     expect(start.indexOf('loading.hold()')).toBeLessThan(start.indexOf('preloadAircraftModels'))
     expect(start.indexOf('loading.finish(')).toBeGreaterThan(start.indexOf('preloadGroundModels()'))
+  })
+
+  /**
+   * 【進度跟著檔數走】三類預載都要把逐檔回報接上，總數也要把三類都算進去 ——
+   * 漏接一類的話那一段進度條不動，漏算一類的話會衝過 100%（被夾住，停在滿格
+   * 等剩下的檔）。
+   */
+  it('開場三類預載都接上逐檔回報，總數三類都算', () => {
+    const main = srcOf('main.ts')
+    const start = main.slice(main.indexOf('const initialRecoveryFailure'))
+    expect(start).toContain('preloadAircraftModels(fileLoaded)')
+    expect(start).toContain('preloadShipModels(shipIds, fileLoaded)')
+    expect(start).toContain('preloadGroundModels(undefined, fileLoaded)')
+    const total = start.slice(start.indexOf('const fileTotal'), start.indexOf('\n', start.indexOf('const fileTotal')))
+    for (const part of ['AIRCRAFT_MODEL_COUNT', 'shipIds.length', 'groundModelUrls().length']) {
+      expect(total, part).toContain(part)
+    }
   })
 
   /**

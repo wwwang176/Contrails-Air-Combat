@@ -34,7 +34,7 @@ import {
 } from './render/ships'
 import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
-import { preloadGroundModels } from './render/geometry/ground'
+import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
 import { clearBursts, type BurstEvents } from './world/flak'
 import {
@@ -69,7 +69,7 @@ import {
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import {
-  buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
+  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
 } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
@@ -138,7 +138,7 @@ import {
 } from './battle/skirmish'
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
-import { createLoadingScreen } from './ui/loading'
+import { createLoadingScreen, fileFraction } from './ui/loading'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { createShowcase, type Showcase } from './app/showcase'
@@ -2796,19 +2796,33 @@ const initialRecoveryFailure = recoveryWorkerFailure()
 if (initialRecoveryFailure !== null) {
   blockForRecoveryWorker(initialRecoveryFailure)
 } else {
-  // 【載入畫面在 HTML 裡就蓋著】每載完一類推一格，全部載完才收 —— 在那之前
-  // 選單點不到，出擊不會撞上還沒載好的樣板
+  // 【載入畫面在 HTML 裡就蓋著】全部載完才收 —— 在那之前選單點不到，出擊不會
+  // 撞上還沒載好的樣板
+  //
+  // 【進度是檔數】每載完一支 GLB 推一格，三類加起來是 100%。字寫目前在載哪一類
+  const shipIds = ['essex', 'wichita', 'fletcher'] as const
+  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length
+  let filesDone = 0
+  let fileLabel = ''
+  const fileLoaded = (): void => {
+    filesDone++
+    loading.set(fileLabel, fileFraction(filesDone, fileTotal))
+  }
+  const loadGroup = (label: string): Promise<void> => {
+    fileLabel = label
+    return loading.step(label, fileFraction(filesDone, fileTotal))
+  }
   await loading.hold()
-  await loading.step('載入機體', 0.05)
-  await preloadAircraftModels()
+  await loadGroup('載入機體')
+  await preloadAircraftModels(fileLoaded)
   // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
   // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
   // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
-  await loading.step('載入艦艇', 0.45)
-  await preloadShipModels(['essex', 'wichita', 'fletcher'])
+  await loadGroup('載入艦艇')
+  await preloadShipModels(shipIds, fileLoaded)
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
-  await loading.step('載入地面單位', 0.8)
-  await preloadGroundModels()
+  await loadGroup('載入地面單位')
+  await preloadGroundModels(undefined, fileLoaded)
   // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
   await loading.finish('完成')
   requestAnimationFrame(frame)

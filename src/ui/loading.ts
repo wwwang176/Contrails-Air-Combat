@@ -16,6 +16,15 @@ export function loadingPercent(fraction: number): string {
 }
 
 /**
+ * 已載完的檔數 → 進度（0…1）。總數 0 算已完成 —— 沒東西要載就是載完了，
+ * 不是 NaN。
+ */
+export function fileFraction(done: number, total: number): number {
+  if (!(total > 0)) return 1
+  return done <= 0 ? 0 : done >= total ? 1 : done / total
+}
+
+/**
  * 開頭在 0%、結尾在 100% 各停多久，秒。
  *
  * 【為什麼要停】模型有快取或場景很小時，整段載入不到一幀 —— 畫面一閃而過，
@@ -30,6 +39,11 @@ export interface LoadingScreen {
   hold(): Promise<void>
   /** 換成這一步並推進度，**等瀏覽器畫出去才回來** */
   step(label: string, fraction: number): Promise<void>
+  /**
+   * 只改字與進度，不等繪製。給下載中的回呼用：檔案一支支到，瀏覽器本來就
+   * 在畫，下一幀自然會帶出去
+   */
+  set(label: string, fraction: number): void
   /** 推到 100%、停 `LOADING_HOLD_SECONDS`，再收起 */
   finish(label: string): Promise<void>
   hide(): void
@@ -82,6 +96,7 @@ export function createLoadingScreen(doc: Document = document): LoadingScreen {
       set(label, fraction)
       await nextPaint()
     },
+    set,
     async finish(label) {
       set(label, 1)
       await nextPaint()
