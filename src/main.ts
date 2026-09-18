@@ -139,7 +139,9 @@ import {
 import { missionConfigFrom, type ReadyMissionCard } from './battle/missions'
 import { createMenu } from './ui/menu'
 import { createLoadingScreen, fileFraction } from './ui/loading'
-import { tutorialFor, tutorialOnFight, type Tutorial } from './ui/tutorials'
+import {
+  readSeenTutorials, tutorialsFor, unseenTutorials, type Tutorial,
+} from './ui/tutorials'
 import { nextScreen, type Screen } from './ui/screens'
 import { menuCameraPose } from './app/menuCamera'
 import { createShowcase, type Showcase } from './app/showcase'
@@ -304,8 +306,8 @@ const loading = createLoadingScreen()
  * 第一場的 `battle` 那時還不存在。
  */
 let loadingBattle = false
-/** 載入完、第一幀畫完之後要彈的教學卡。見 `ui/tutorials.ts` */
-let tutorialPending: Tutorial | null = null
+/** 載入完、第一幀畫完之後要依序彈的教學卡。空 = 不彈。見 `ui/tutorials.ts` */
+let tutorialPending: Tutorial[] = []
 /** 教學卡開著：暫停中，放開指標不算玩家按了暫停 */
 let tutorialOpen = false
 /**
@@ -1185,7 +1187,7 @@ function fitCameraToPlayer(): void {
 
 /** 離開戰鬥：清場並收掉記分板。 */
 function leaveBattle(): void {
-  tutorialPending = null
+  tutorialPending = []
   tutorialOpen = false
   ignoreNextUnlock = false
   releaseVisuals()
@@ -1295,9 +1297,14 @@ function enterBattle(): void {
  * 【為什麼 `loadingBattle` 要蓋整段】`frame` 在載入期間照樣每幀跑，而第一場
  * 的 `battle` 要到 `startWorld` 才存在 —— 沒擋的話那幾幀會對 undefined 推進戰鬥。
  */
-async function loadBattle(withTutorial: boolean): Promise<void> {
+/** 這一場玩家那架飛機的全部教學卡。機種與掛載在 `startWorld` 之後才定 */
+function playerTutorials(): Tutorial[] {
+  return tutorialsFor(player.aircraft.spec.role, playerLoadout?.kind ?? null)
+}
+
+async function loadBattle(): Promise<void> {
   loadingBattle = true
-  tutorialPending = null
+  tutorialPending = []
   loading.show()
   try {
     await loading.hold()
@@ -1314,8 +1321,10 @@ async function loadBattle(withTutorial: boolean): Promise<void> {
     buildBattleTerrain()
     await loading.step('編組部隊', 0.5)
     startWorld(battleConfig())
-    // 【掛載在 startWorld 之後才知道】教學卡依玩家這一場掛什麼挑
-    if (withTutorial) tutorialPending = tutorialFor(playerLoadout?.kind ?? null)
+    // 【機種與掛載在 startWorld 之後才知道】這架飛機還沒看過的卡；暫停時的
+    // 「教學」按鈕看不看得到也在這時決定
+    tutorialPending = unseenTutorials(playerTutorials(), readSeenTutorials())
+    menu.setTutorialHelp(playerTutorials().length > 0)
     await loading.step('編譯著色器', 0.75)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
@@ -2627,7 +2636,7 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
       // 【先鎖指標再載入】瀏覽器只准在點擊的當下要指標鎖定；等載入完再要會被拒絕
       grabPointer()
       paused = false
-      void loadBattle(tutorialOnFight(from))
+      void loadBattle()
     }
     // 【離開戰鬥要清場】不清的話回到主選單還看得到上一場的戰場
     if (from === 'battle' && screen !== 'battle') {
@@ -2683,10 +2692,10 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     menu.setPaused(false)
     grabPointer()
   },
-  onTutorialDone() {
-    tutorialOpen = false
-    paused = false
-    grabPointer()
+  onHelp() {
+    // 【暫停中重看，看完回到暫停選單】不解除暫停、不鎖指標；全部重看，
+    // 不管看過沒有
+    menu.showTutorials(playerTutorials(), () => {})
   },
   onQuality(scale) {
     ctx.setQuality(scale)
@@ -2806,11 +2815,16 @@ function frame(now: number) {
       stepAndDrawBattle(sim)
       // 【第一幀畫完才彈教學】鏡頭與 HUD 要先就位，卡片後面才是這一場的戰場，
       // 不是上一個畫面。暫停之後主迴圈只重畫這一幀
-      if (tutorialPending !== null) {
+      if (tutorialPending.length > 0) {
         paused = true
         tutorialOpen = true
-        menu.showTutorial(tutorialPending)
-        tutorialPending = null
+        // 【看完才放行】最後一張按「了解」才解除暫停、把指標鎖回來
+        menu.showTutorials(tutorialPending, () => {
+          tutorialOpen = false
+          paused = false
+          grabPointer()
+        })
+        tutorialPending = []
         // 【放開指標】卡上的按鈕要點得到；「了解」再鎖回來
         if (document.pointerLockElement === canvas) {
           ignoreNextUnlock = true
@@ -3202,6 +3216,21 @@ const GFX_HIDDEN_LAYER = 31
   return { seat: player.index, drone: drone?.index ?? -1 }
 }
 
+/** `__probe` 的 `lead`：最近一架在畫面前方、預瞄環也在前方的敵機 */
+function probeLead(): { x: number; y: number; r: number; lx: number; ly: number; range: number } | null {
+  let best: (typeof hudFrame.contacts)[number] | null = null
+  for (let i = 0; i < hudFrame.contactCount; i++) {
+    const c = hudFrame.contacts[i]!
+    if (!c.active || !c.hostile || c.behind || !c.leadValid || c.leadBehind) continue
+    if (best === null || c.range < best.range) best = c
+  }
+  if (best === null) return null
+  return {
+    x: +best.x.toFixed(4), y: +best.y.toFixed(4), r: +best.radius.toFixed(4),
+    lx: +best.leadX.toFixed(4), ly: +best.leadY.toFixed(4), range: +best.range.toFixed(0),
+  }
+}
+
 ;(window as unknown as Record<string, unknown>)['__probe'] = () => {
   if (screen !== 'battle') return null
   const a = player.aircraft
@@ -3257,6 +3286,16 @@ const GFX_HIDDEN_LAYER = 31
       ry: hudFrame.runCount > 0 ? +hudFrame.runY[hudFrame.runCount - 1]!.toFixed(4) : 0,
       agl: +hudFrame.releaseAgl.toFixed(0),
     },
+    /** 準星：滑鼠圓圈（螢幕半高單位）與機頭十字（NDC）。教學截圖挑兩者分開的時機 */
+    reticle: {
+      ax: +hudFrame.aimX.toFixed(4), ay: +hudFrame.aimY.toFixed(4),
+      nx: +hudFrame.noseX.toFixed(4), ny: +hudFrame.noseY.toFixed(4),
+    },
+    /**
+     * 最近一架有預瞄環的敵機：目標框中心、半徑與預瞄環（螢幕半高單位）、距離 m。
+     * 沒有就是 null。教學截圖拿它擺標籤
+     */
+    lead: probeLead(),
     /** Worker 改出風險與最後安全動作；供低空攻擊的 e2e 護欄判讀。 */
     ru: +playerAi.recoveryUrgency.toFixed(3),
     capture: playerAi.recoveryCapture,

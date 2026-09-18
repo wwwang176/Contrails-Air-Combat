@@ -125,6 +125,8 @@
         background: var(--btn); border: 1px solid var(--bd2); box-shadow: 0 3px 8px rgba(0,0,0,.5);
       }
       .gear:hover { background: var(--btn-hi); color: var(--strong); }
+      /* 暫停時的「教學」排在齒輪左邊，同一種按鈕；寬度跟著字 */
+      .gear.help { right: 62px; width: auto; padding: 0 14px; font: 14px/1 var(--f-body); letter-spacing: .1em; }
       .gear[hidden] { display: none; }
       #recovery-worker-blocker {
         position: fixed; inset: 0; z-index: 10000; box-sizing: border-box;
@@ -507,6 +509,8 @@
           <path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6L17 17M7 7L5.4 5.4"/>
         </svg>
       </button>
+      <!-- 暫停時重看教學。只在暫停選單開著、這一場有卡可看時出現（ui/menu.ts） -->
+      <button id="help" class="gear help" data-act="help" hidden>教學</button>
       <section id="menu" class="screen" style="--v:.50" hidden>
         <div class="cards">
           <button class="tallcard paperbit" data-act="mission">
