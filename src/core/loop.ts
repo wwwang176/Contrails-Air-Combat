@@ -50,6 +50,21 @@ export class FixedStepAccumulator {
     return this.step_
   }
 
+  /**
+   * 這一幀世界前進了多少秒，給畫面那一側（煙、火、鏡頭、海浪）用，s。
+   *
+   * 跟得上時就是這一幀；跟不上時只給子步上限那麼多 —— 與 `advance` 丟掉的
+   * 時間一樣多，特效才會跟世界一起慢。長時間累計與物理實際跑過的差不到一步。
+   *
+   * 【為什麼不直接用物理子步的 dt 加總】那是一步一步跳的：144 Hz 螢幕上每幀
+   * 輪流是 1 步與 2 步，螺旋槳與鏡頭會跟著抖。這個值是平滑的。
+   */
+  worldSeconds(frameSeconds: number): number {
+    const f = clampFrameSeconds(frameSeconds, this.maxFrameSeconds)
+    const cap = this.maxSubsteps * this.step_
+    return f > cap ? cap : f
+  }
+
   /** 變更步長。會清空 accumulator，避免以舊步長累積的餘數被新步長誤讀。 */
   setStepHz(hz: number): void {
     this.step_ = 1 / hz

@@ -72,6 +72,32 @@ describe('FixedStepAccumulator', () => {
     expect(loop.lastSubstepCount).toBe(4)
   })
 
+  /**
+   * 【畫面那一側跟世界一起慢】煙、火、鏡頭、海浪吃這個值。低於 30 fps 時
+   * 物理丟時間，畫面也要丟同樣多，否則特效比世界快
+   */
+  it('worldSeconds：跟得上時等於這一幀，跟不上時只給子步上限那麼多', () => {
+    const loop = makeLoop({ maxSubsteps: 8 })
+    expect(loop.worldSeconds(1 / 60)).toBe(1 / 60)
+    expect(loop.worldSeconds(1 / 144)).toBe(1 / 144)
+    expect(loop.worldSeconds(1 / 20)).toBeCloseTo(8 / 240, 12)
+    expect(loop.worldSeconds(10)).toBeCloseTo(8 / 240, 12)
+  })
+
+  /** 【長時間平均要與物理一致】差了就是特效與世界的速度又分家 */
+  it('worldSeconds 的累計與物理實際跑過的時間一致', () => {
+    for (const fps of [20, 30, 60, 144]) {
+      const loop = makeLoop({ maxSubsteps: 8 })
+      let physics = 0
+      let world = 0
+      for (let i = 0; i < 600; i++) {
+        world += loop.worldSeconds(1 / fps)
+        loop.advance(1 / fps, (dt) => { physics += dt })
+      }
+      expect(Math.abs(world - physics), `${fps} fps`).toBeLessThan(1 / 240 + 1e-9)
+    }
+  })
+
   it('setStepHz 變更步長並清空 accumulator', () => {
     const loop = makeLoop()
     loop.advance(0.003, () => {}) // 不足一步，留下餘數
