@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pickNoRepeat, randomRate } from '../../src/audio/pick'
+import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from '../../src/audio/pick'
 
 function seq(values: number[]): () => number {
   let i = 0
@@ -28,6 +28,20 @@ describe('音效庫挑選', () => {
       last = k
     }
     expect(seen.size).toBe(5)
+  })
+
+  /** 【疊第二層】小 6 dB 當陪襯、晚 0–30 ms，兩個聲音才融成一團而不是兩次爆炸 */
+  it('第二層小 6 dB、延遲 0–30 ms', () => {
+    expect(LAYER_DB).toBe(-6)
+    expect(layerDelay(() => 0)).toBe(0)
+    expect(layerDelay(() => 0.999999)).toBeCloseTo(0.03, 5)
+  })
+
+  it('第二層與第一層不同', () => {
+    for (let i = 0; i < 200; i++) {
+      const first = pickNoRepeat(5, -1, Math.random)
+      expect(pickNoRepeat(5, first, Math.random)).not.toBe(first)
+    }
   })
 
   it('隨機音高在 ±8%', () => {

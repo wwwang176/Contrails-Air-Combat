@@ -2,7 +2,7 @@ import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scen
 import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
 import { dbToGain, distanceCutoffHz, soundDelay } from './curves'
-import { pickNoRepeat, randomRate } from './pick'
+import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
 /**
  * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
@@ -32,8 +32,15 @@ export interface AudioEngine {
   setPaused(paused: boolean): void
   /** 結算後的慢動作：所有播放速度乘上這個比例。呼叫端一律傳未縮放的速度 */
   setTimeScale(scale: number): void
-  playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean, extraDb?: number): void
-  playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean, extraDb?: number): void
+  /**
+   * 從音效庫挑一個播。`layered` 為真時再挑一個不同的疊上去（小 `LAYER_DB`、
+   * 晚 0–30 ms），同一庫幾個檔就疊得出好幾倍的組合
+   */
+  playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
+    extraDb?: number, layered?: boolean): void
+  /** `extraDelay` 加在音速延遲之上，s */
+  playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
+    extraDb?: number, extraDelay?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
   selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void
   beginFrame(): void
@@ -164,7 +171,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     return Math.hypot(x - p.x, y - p.y, z - p.z)
   }
 
-  function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean, extraDb = 0): void {
+  function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
+    extraDb = 0, extraDelay = 0): void {
     const buffer = buffers.get(file)
     if (buffer === undefined || muted || ctx.state !== 'running') return
     const spec = CATEGORY[cat]
@@ -202,14 +210,18 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
     a.gain.gain.setValueAtTime(gainOf(file, cat, extraDb), ctx.currentTime)
     a.setPlaybackRate(randomRate(Math.random) * timeScale)
-    a.play(loc ? soundDelay(d) : 0)
+    a.play((loc ? soundDelay(d) : 0) + extraDelay)
   }
 
-  function playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean, extraDb = 0): void {
+  function playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
+    extraDb = 0, layered = false): void {
     const members = POOLS[pool]
     const k = pickNoRepeat(members.length, lastPick[pool] ?? -1, Math.random)
     lastPick[pool] = k
     playFile(members[k]!, cat, x, y, z, positioned, extraDb)
+    if (!layered || members.length < 2) return
+    const k2 = pickNoRepeat(members.length, k, Math.random)
+    playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random))
   }
 
   function selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void {
