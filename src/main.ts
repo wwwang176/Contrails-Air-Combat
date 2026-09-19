@@ -10,6 +10,7 @@ import { SINGLE_FILES, engineFile, fireFile, turretFile } from './audio/catalog'
 import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
+import { LAYER_DB } from './audio/pick'
 import { engineRate, shakeGainDb, shakeInterval, shakeStrength, windParams } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
@@ -1840,19 +1841,26 @@ function playCues(): void {
     const o = i * 4
     const x = cues.data[o + 1]!, y = cues.data[o + 2]!, z = cues.data[o + 3]!
     switch (cues.data[o]!) {
+      // 【疊兩層】爆炸、水花、自己被打一次挑兩個不同的疊（見 `playPool` 的 layered）
       case CUE.Explosion:
-        audio.playPool('explosion', 'explosion', x, y, z, true)
+        audio.playPool('explosion', 'explosion', x, y, z, true, 0, true)
         if (Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
           audio.playPool('rattle', 'rattle', 0, 0, 0, false, -6)
         }
         break
-      case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true); break
+      case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, 0, true); break
       case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, -12); break
       case CUE.FlakBurst: audio.playFile(SINGLE_FILES.flakBurst, 'flakBurst', x, y, z, true); break
-      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false); break
-      case CUE.Damage: audio.playPool('damage', 'damage', 0, 0, 0, false); break
+      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
+      case CUE.Damage: playHeavyHit(); break
     }
   }
+}
+
+/** 自己受重擊：一下結構的悶響，疊一下小一截的金屬命中 */
+function playHeavyHit(): void {
+  audio.playPool('damage', 'damage', 0, 0, 0, false)
+  audio.playPool('hit', 'hitSelf', 0, 0, 0, false, LAYER_DB)
 }
 
 /** 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下 */
@@ -1995,7 +2003,7 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     audio.playFile(SINGLE_FILES.whistle, 'whistle', bombs.x[i]!, bombs.y[i]!, bombs.z[i]!, true)
   }
   // 重擊：HP 一幀掉很多（高射砲、機砲）
-  if (prevPlayerHp >= 0 && prevPlayerHp - me.hp > spec.hp * HEAVY_HIT) audio.playPool('damage', 'damage', 0, 0, 0, false)
+  if (prevPlayerHp >= 0 && prevPlayerHp - me.hp > spec.hp * HEAVY_HIT) playHeavyHit()
   prevPlayerHp = me.hp
   // 機身晃動：超速或重傷
   const k = shakeStrength(overspeedShake(vneRatio) / OVERSPEED_SHAKE, me.hp / spec.hp)

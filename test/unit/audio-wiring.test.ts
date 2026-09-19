@@ -111,6 +111,25 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('clearCues(cues)')
   })
 
+  /**
+   * 【哪幾類疊兩層】爆炸、水花、自己被打一次挑兩個不同的疊；受創疊一下命中。
+   * 打中敵機、砲擊、空爆、擦過不疊 —— 太密集，聲道會被吃光。
+   */
+  it('爆炸、水花、自己被打疊兩層；受創疊命中', () => {
+    const fn = body('function playCues(')
+    expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, 0, true)")
+    expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, 0, true)")
+    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true)")
+    expect(fn).toContain('playHeavyHit()')
+    const heavy = body('function playHeavyHit(')
+    expect(heavy).toContain("audio.playPool('damage'")
+    expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, LAYER_DB)")
+  })
+
+  it('打中敵機不疊', () => {
+    expect(body('function updateAudio(')).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false)")
+  })
+
   it('投彈投雷在投放回呼裡', () => {
     const bay = lines('stepBombBay(playerBay()')[0]!
     expect(SRC.slice(bay, bay + 30).join('\n')).toContain("audio.playPool('release'")
