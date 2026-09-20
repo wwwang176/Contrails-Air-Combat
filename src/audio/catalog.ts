@@ -7,7 +7,7 @@
  * 數值是起始值，由試玩決定。
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
-  | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle' | 'release'
+  | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
   | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind'
 
 export interface CategorySpec {
@@ -42,7 +42,6 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   flyby: { gainDb: -4, ref: 20, max: 200 },
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
-  release: { gainDb: -6, ref: 0, max: 0 },
   reload: { gainDb: -8, ref: 0, max: 0 },
   whistle: { gainDb: -4, ref: 60, max: 1500 },
   radio: { gainDb: -10, ref: 0, max: 0 },
@@ -66,7 +65,6 @@ export const POOLS = {
   flyby: range('flyby', 20),
   damage: range('damage', 10),
   rattle: range('rattle', 15),
-  release: range('release', 4),
   radio: range('radio', 4),
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
