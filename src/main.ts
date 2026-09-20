@@ -104,6 +104,7 @@ import {
   aglOk, canRelease, envelopeFor, pitchOk, rollOk,
 } from './weapons/releaseEnvelope'
 import { type Loadout, loadoutOf } from './weapons/stores'
+import { fireInterval } from './weapons/types'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
@@ -1749,10 +1750,14 @@ const HIT_DEALT_GAP = 0.1
 /** 找不到正在打的那架時，回饋用這個距離，m */
 const HIT_DEALT_FALLBACK = 300
 /**
- * 最近這麼多秒內開過火就算「還在開火」，s。
+ * 別人的槍：最近這麼多秒內開過火就算「還在開火」，s。
  *
  * 【為什麼要保持】槍口閃光一發只亮 0.03 s，發與發之間有好幾幀是 0 ——
- * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。
+ * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。砲塔更嚴重：
+ * 不保持的話 60 秒內重啟一千多次。
+ *
+ * 【自己的槍不用這個】它是不定位的、又比別人大 11 dB，點放一次會被聽成連續掃射。
+ * 自己那一挺保持到「這一發打完」為止，見 `fireInterval`。
  */
 const FIRE_HOLD = 0.25
 
@@ -2031,7 +2036,9 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   // 自己身上的循環
   const spec = me.aircraft.spec
   audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
-  const fire = flying && elapsed - lastGunFire[me.index]! < FIRE_HOLD ? fireFile(spec.id) : null
+  // 【自己的槍只保持到這一發打完】開火素材是連續掃射，保持多久就聽到幾發
+  const fire = flying && elapsed - lastGunFire[me.index]! < fireInterval(spec.battery)
+    ? fireFile(spec.id) : null
   audio.selfLoop('fire', fire, 1, 0)
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)

@@ -48,6 +48,18 @@ export interface Battery {
   sight: WeaponSpec
 }
 
+/**
+ * 兩次擊發之間隔幾秒，取**最慢的那一挺** —— 只要還有一挺在循環，槍聲就沒停。
+ *
+ * 【開火聲用它決定要響多久】開火音效是一段連續掃射的循環，開著就一直響。
+ * 保持時間拿一個固定秒數的話，點放一次也會播成好幾發。
+ */
+export function fireInterval(b: Battery): number {
+  let slowest = 0
+  for (const m of b.mounts) slowest = Math.max(slowest, 60 / m.weapon.roundsPerMinute)
+  return slowest
+}
+
 /** 理論每秒傷害（機身部位）：Σ 射速/60 × 單發傷害。 */
 export function batteryDps(b: Battery): number {
   let dps = 0

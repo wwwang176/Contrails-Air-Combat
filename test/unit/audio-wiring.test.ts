@@ -174,6 +174,19 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('OVERSPEED_FULL')
   })
 
+  /**
+   * 【自己的槍與別人的槍保持時間不同】開火素材是連續掃射，保持多久就聽到幾發。
+   * 自己那一挺是不定位的、又比別人大 11 dB，用 `FIRE_HOLD` 的話點放一次會聽成
+   * 五次齊射；別人的槍與砲塔反而非 `FIRE_HOLD` 不可，不然聲道一直釋放又重播。
+   */
+  it('自己的開火循環保持一個射擊間隔，別人的用 FIRE_HOLD', () => {
+    const fn = body('function updateAudio(')
+    const self = fn.slice(fn.indexOf("audio.selfLoop('fire'") - 220, fn.indexOf("audio.selfLoop('fire'"))
+    expect(self).toContain('fireInterval(spec.battery)')
+    expect(self).not.toContain('FIRE_HOLD')
+    expect(fn).toContain('FIRE_HOLD')
+  })
+
   it('按 B 切換投彈視角時響一下彈艙', () => {
     const fn = body('function updateAudio(')
     expect(fn).toContain('prevViewMode')
@@ -253,6 +266,16 @@ describe('單次音效的聲道池', () => {
   it('搶聲道時把等音波的聲道算成佔用中', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
     expect(fn).toContain('!v.audio.isPlaying && v.waitingSince < 0')
+  })
+
+  /** 【開火的淡出要比別的短】素材是連續掃射，淡出多久就多聽到幾發 */
+  it('開火自身循環的淡出比其他自身循環短', () => {
+    const at = ENGINE.indexOf('const SELF_FADE')
+    const line = ENGINE.slice(at, ENGINE.indexOf('\n', at))
+    const fade = Object.fromEntries(
+      [...line.matchAll(/(\w+): ([\d.]+)/g)].map(([, k, v]) => [k, Number(v)]))
+    expect(fade.fire).toBeLessThan(fade.engine!)
+    expect(fade.fire).toBeLessThan(fade.wind!)
   })
 
   /** 【聲道不夠就先別疊】疊第二層是好聽，發得出聲才是必要 */
