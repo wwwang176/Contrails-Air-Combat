@@ -14,6 +14,12 @@ describe('音效目錄', () => {
     for (const [k, v] of Object.entries(POOLS)) expect(v.length, k).toBeGreaterThan(0)
   })
 
+  /** 【空爆要短】高射砲一秒炸四次，長尾巴的爆炸會把聲道佔滿 */
+  it('空爆庫有三個，而且都比爆炸庫短', () => {
+    expect(POOLS.flakBurst).toHaveLength(3)
+    for (const f of POOLS.flakBurst) expect(manifest[f], f).toBeDefined()
+  })
+
   it('每個機種都有引擎聲；有前射武器的才有開火聲', () => {
     for (const s of ALL_SPECS) {
       expect(manifest[engineFile(s.id)], s.id).toBeDefined()

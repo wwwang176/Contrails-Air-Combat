@@ -120,6 +120,7 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, 0, true)")
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, 0, true)")
     expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true)")
+    expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
     expect(fn).toContain('playHeavyHit()')
     const heavy = body('function playHeavyHit(')
     expect(heavy).toContain("audio.playPool('damage'")
