@@ -1,7 +1,7 @@
 import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
-import { dbToGain, distanceCutoffHz, soundDelay } from './curves'
+import { absorptionDb, dbToGain, distanceCutoffHz, soundDelay } from './curves'
 import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
 /**
@@ -12,7 +12,8 @@ import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
  * - **定位循環**：引擎 8、開火 6、砲塔 6 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
- * - **距離**：定位的聲音接一個低通濾波（遠處只剩低頻），單次音效再延後
+ * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
+ *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效再延後
  *   `距離 ÷ 音速` 才開始播。
  *
  * 【暫停與音量關閉是兩個旗標】任一個成立就 suspend；兩個都不成立、而且使用者
@@ -62,14 +63,14 @@ const FULL_BAND = 22000
 
 interface Voice {
   audio: PositionalAudio
-  filter: BiquadFilterNode
+  filters: BiquadFilterNode[]
   /** 開始播時離鏡頭多遠；不定位的是 0。池滿時丟最遠的 */
   distance: number
 }
 
 interface LoopVoice {
   audio: PositionalAudio
-  filter: BiquadFilterNode
+  filters: BiquadFilterNode[]
   key: number
   file: string
   assigned: boolean
@@ -113,14 +114,25 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     return f
   }
 
-  function positional(): { audio: PositionalAudio; filter: BiquadFilterNode } {
+  /**
+   * 定位的聲道。**兩級低通串接**（24 dB/八度）—— 真實的空氣吸收在高頻掉得很陡
+   * （1 km 外的 8 kHz 掉 78 dB），一級只有 12 dB/八度，遠處的爆炸還會留著脆度。
+   */
+  function positional(): { audio: PositionalAudio; filters: BiquadFilterNode[] } {
     const audio = new PositionalAudio(listener)
     audio.panner.panningModel = 'equalpower'
     audio.setDistanceModel('inverse')
     audio.setRolloffFactor(1)
-    const filter = lowpass()
-    audio.setFilter(filter)
-    return { audio, filter }
+    const filters = [lowpass(), lowpass()]
+    audio.setFilters(filters)
+    return { audio, filters }
+  }
+
+  function setCutoff(filters: BiquadFilterNode[], hz: number, now: number, ramp: number): void {
+    for (const f of filters) {
+      if (ramp > 0) f.frequency.setTargetAtTime(hz, now, ramp)
+      else f.frequency.setValueAtTime(hz, now)
+    }
   }
 
   const voices: Voice[] = []
@@ -196,19 +208,19 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       a.position.set(x, y, z)
       a.setRefDistance(spec.ref)
       a.setRolloffFactor(1)
-      pick.filter.frequency.setValueAtTime(distanceCutoffHz(d), ctx.currentTime)
+      setCutoff(pick.filters, distanceCutoffHz(d), ctx.currentTime, 0)
     } else {
       // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
       if (a.parent !== camera) camera.add(a)
       a.position.set(0, 0, 0)
       a.setRefDistance(1)
       a.setRolloffFactor(0)
-      pick.filter.frequency.setValueAtTime(cutoffHz, ctx.currentTime)
+      setCutoff(pick.filters, cutoffHz, ctx.currentTime, 0)
     }
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
-    a.gain.gain.setValueAtTime(gainOf(file, cat, extraDb), ctx.currentTime)
+    a.gain.gain.setValueAtTime(gainOf(file, cat, extraDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
     a.setPlaybackRate(randomRate(Math.random) * timeScale)
     a.play((loc ? soundDelay(d) : 0) + extraDelay)
   }
@@ -293,7 +305,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     v.releaseAt = -1
     v.audio.position.set(x, y, z)
     v.audio.setRefDistance(CATEGORY[cat].ref)
-    v.filter.frequency.setTargetAtTime(distanceCutoffHz(d), now, 0.1)
+    setCutoff(v.filters, distanceCutoffHz(d), now, 0.1)
     if (v.file !== file) {
       if (v.audio.isPlaying) v.audio.stop()
       v.file = file
@@ -303,7 +315,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       v.audio.offset = Math.random() * buffer.duration * 0.9
       v.audio.play()
     }
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, 0), now, 0.1)
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d)), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
   }
 
