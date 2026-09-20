@@ -47,9 +47,17 @@ export function damageGainDb(severity: number): number {
 
 export const SPEED_OF_SOUND = 343
 
-/** 聲音從 distance 公尺外傳過來要幾秒 —— 遠處的爆炸先看到火光才聽到 */
-export function soundDelay(distance: number): number {
-  return Math.max(0, distance) / SPEED_OF_SOUND
+/**
+ * 從發聲到現在過了 `sinceEmit` 秒，音波傳到 `distance` 公尺外的耳朵了沒 ——
+ * 遠處的爆炸先看到火光才聽到。
+ *
+ * 【每一幀用當下的距離重問】音波是從發聲點往外擴的球面，迎上去就早一點穿過它 ——
+ * 延遲從 `d / c` 變成 `d / (c + 接近速度)`。起播時算好一個固定的延遲再排進
+ * `start()` 的話，玩家朝爆炸點俯衝也要等滿原本的秒數：3 km 外以 168 m/s
+ * （P-51D 的海平面極速）衝過去是 5.9 s 而不是 8.7 s，差了將近三秒。
+ */
+export function soundArrived(sinceEmit: number, distance: number): boolean {
+  return SPEED_OF_SOUND * sinceEmit >= Math.max(0, distance)
 }
 
 /**

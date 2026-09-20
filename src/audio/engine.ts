@@ -1,7 +1,7 @@
 import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
-import { absorptionDb, dbToGain, distanceCutoffHz, soundDelay, voiceLoudnessDb } from './curves'
+import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
 import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
 /**
@@ -13,9 +13,9 @@ import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
  * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
- *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效再延後
- *   `距離 ÷ 音速` 才開始播。播放中每一幀重算 —— 聲音長達好幾秒，
- *   這期間鏡頭會飛掉好幾百公尺。
+ *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效要等音波傳到才開始播。
+ *   等待中與播放中都是每一幀用當下的距離重算 —— 遠方的爆炸要好幾秒才傳到、
+ *   聲音本身又有好幾秒，這期間鏡頭會飛掉好幾百公尺。
  *
  * 【暫停與音量關閉是兩個旗標】任一個成立就 suspend；兩個都不成立、而且使用者
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
@@ -79,6 +79,13 @@ interface Voice {
   ref: number
   /** 估計到耳朵有多響，dB。搶聲道比這個 */
   loudness: number
+  /** 在等音波傳到：發聲的 context 時間。−1 = 沒在等 */
+  waitingSince: number
+  /** 等到了才套上去的那幾項 */
+  waitDelay: number
+  waitRate: number
+  /** 等的過程中飛出這個距離就放棄 —— 鏡頭切換會讓距離瞬間跳掉 */
+  waitMax: number
 }
 
 interface LoopVoice {
@@ -143,6 +150,30 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     return { audio, filters }
   }
 
+  /**
+   * 把聲源座標直接寫進 panner。**每次開始播之前都要做。**
+   *
+   * 【three 只在播放中同步位置】`PositionalAudio.updateMatrixWorld` 在
+   * `isPlaying === false` 時直接返回，所以等音波的期間 panner 停在上一個聲音那裡；
+   * 而它同步時是用一幀長度的漸變，起音那一下會從舊位置滑過來 —— 方向與距離都錯。
+   */
+  function placePanner(v: Voice): void {
+    // 定位的掛在 root（原點、無旋轉），區域座標就是世界座標；不定位的掛在鏡頭上
+    const p = v.positioned ? v.audio.position : camera.position
+    const q = v.audio.panner
+    const now = ctx.currentTime
+    if (q.positionX !== undefined) {
+      q.positionX.cancelScheduledValues(now)
+      q.positionY.cancelScheduledValues(now)
+      q.positionZ.cancelScheduledValues(now)
+      q.positionX.setValueAtTime(p.x, now)
+      q.positionY.setValueAtTime(p.y, now)
+      q.positionZ.setValueAtTime(p.z, now)
+    } else {
+      q.setPosition(p.x, p.y, p.z)
+    }
+  }
+
   function setCutoff(filters: BiquadFilterNode[], hz: number, now: number, ramp: number): void {
     for (const f of filters) {
       if (ramp > 0) f.frequency.setTargetAtTime(hz, now, ramp)
@@ -154,7 +185,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   for (let i = 0; i < ONE_SHOT_VOICES; i++) {
     const v = positional()
     root.add(v.audio)
-    voices.push({ ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, loudness: -Infinity })
+    voices.push({
+      ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, loudness: -Infinity,
+      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0,
+    })
   }
 
   const loops: Record<LoopPool, LoopVoice[]> = { engine: [], fire: [], turret: [] }
@@ -212,14 +246,21 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
     const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d)
     let pick: Voice | null = null
+    let pickBusy = true
     let free = 0
     for (const v of voices) {
-      if (!v.audio.isPlaying) { free++; if (pick === null || pick.audio.isPlaying) pick = v; continue }
+      // 【在等音波的也算佔著】它已經排好要響，被搶走就整個沒聲音
+      if (!v.audio.isPlaying && v.waitingSince < 0) {
+        free++
+        if (pickBusy) { pick = v; pickBusy = false }
+        continue
+      }
       if (pick === null) { pick = v; continue }
-      if (pick.audio.isPlaying && v.loudness < pick.loudness) pick = v
+      if (pickBusy && v.loudness < pick.loudness) pick = v
     }
-    if (pick === null || (pick.audio.isPlaying && pick.loudness >= loud)) return
+    if (pick === null || (pickBusy && pick.loudness >= loud)) return
     if (pick.audio.isPlaying) pick.audio.stop()
+    pick.waitingSince = -1
 
     const a = pick.audio
     pick.distance = d
@@ -246,8 +287,18 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
     a.gain.gain.setValueAtTime(dbToGain(baseDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
-    a.setPlaybackRate(randomRate(Math.random) * timeScale)
-    a.play((loc ? soundDelay(d) : 0) + extraDelay)
+    const rate = randomRate(Math.random)
+    a.setPlaybackRate(rate * timeScale)
+    // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依鏡頭移動提前或延後
+    if (loc && d > 0) {
+      pick.waitingSince = ctx.currentTime
+      pick.waitDelay = extraDelay
+      pick.waitRate = rate
+      pick.waitMax = spec.max
+    } else {
+      placePanner(pick)
+      a.play(extraDelay)
+    }
   }
 
   function playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
@@ -315,13 +366,21 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   function updateVoices(): void {
     const now = ctx.currentTime
     for (const v of voices) {
-      if (!v.positioned || !v.audio.isPlaying) continue
+      if (!v.positioned || (!v.audio.isPlaying && v.waitingSince < 0)) continue
       const p = v.audio.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d)
       setCutoff(v.filters, distanceCutoffHz(d), now, 0.05)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
+      if (v.waitingSince < 0) continue
+      // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
+      if (d > v.waitMax) { v.waitingSince = -1; continue }
+      if (!soundArrived(now - v.waitingSince, d)) continue
+      v.waitingSince = -1
+      v.audio.setPlaybackRate(v.waitRate * timeScale)
+      placePanner(v)
+      v.audio.play(v.waitDelay)
     }
   }
 
@@ -383,7 +442,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   }
 
   function stopAll(): void {
-    for (const v of voices) if (v.audio.isPlaying) v.audio.stop()
+    for (const v of voices) {
+      if (v.audio.isPlaying) v.audio.stop()
+      v.waitingSince = -1
+    }
     for (const pool of Object.keys(loops) as LoopPool[]) {
       for (const v of loops[pool]) {
         if (v.audio.isPlaying) v.audio.stop()

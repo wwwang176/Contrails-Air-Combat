@@ -225,6 +225,36 @@ describe('單次音效的聲道池', () => {
     expect(fn).toContain('pick.loudness >= loud')
   })
 
+  /**
+   * 【延遲不能排進 start()】`AudioBufferSourceNode.start()` 一旦排下去就改不了。
+   * 起播時算好一個固定延遲的話，朝爆炸點衝過去也要等滿原本的秒數。
+   */
+  it('定位的單次音效等音波傳到才播，每一幀用當下距離重問', () => {
+    const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(play).toContain('pick.waitingSince = ctx.currentTime')
+    const update = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
+    expect(update).toContain('soundArrived(now - v.waitingSince, d)')
+    expect(update).toContain('v.audio.play(v.waitDelay)')
+  })
+
+  /**
+   * 【three 只在播放中同步 panner】`updateMatrixWorld` 在 `isPlaying === false`
+   * 時直接返回，而它同步時是一幀長度的漸變 —— 少了這一步，起音會從上一個聲音的
+   * 位置滑過來，方向與距離都錯。
+   */
+  it('每次開始播之前把座標直接寫進 panner', () => {
+    const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(play).toMatch(/placePanner\(pick\)\n\s*a\.play\(/)
+    const update = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
+    expect(update).toMatch(/placePanner\(v\)\n\s*v\.audio\.play\(/)
+  })
+
+  /** 【等待中的聲道也佔著】它已經排好要響，被搶走就整個沒聲音 */
+  it('搶聲道時把等音波的聲道算成佔用中', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(fn).toContain('!v.audio.isPlaying && v.waitingSince < 0')
+  })
+
   /** 【聲道不夠就先別疊】疊第二層是好聽，發得出聲才是必要 */
   it('空聲道不足時不疊第二層', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function playPool('), ENGINE.indexOf('function selfLoop('))

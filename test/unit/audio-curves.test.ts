@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundDelay, distanceCutoffHz,
+  engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb,
 } from '../../src/audio/curves'
 
@@ -53,9 +53,19 @@ describe('機身晃動', () => {
 })
 
 describe('距離', () => {
-  it('音速延遲：1 km 約 2.9 s', () => {
-    expect(soundDelay(1000)).toBeCloseTo(2.915, 2)
-    expect(soundDelay(0)).toBe(0)
+  it('音速：1 km 要 2.9 s 才傳到，0 m 立刻到', () => {
+    expect(soundArrived(2.9, 1000)).toBe(false)
+    expect(soundArrived(2.92, 1000)).toBe(true)
+    expect(soundArrived(0, 0)).toBe(true)
+  })
+
+  /**
+   * 【迎上去會提前聽到】音波是從爆炸點往外擴的球面，衝過去就早一點穿過它。
+   * 起播時算好一個固定延遲的話，玩家俯衝進爆炸點也要等滿原本的秒數。
+   */
+  it('距離縮短時提前傳到', () => {
+    expect(soundArrived(1.5, 1000)).toBe(false)
+    expect(soundArrived(1.5, 500)).toBe(true)
   })
   /**
    * 【對照 ISO 9613-1】真實的大氣吸收與距離成正比、與頻率平方成正比。
