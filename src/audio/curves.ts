@@ -26,8 +26,9 @@ export function shakeInterval(k: number, rand: () => number): number {
   return (1.6 - 1.2 * clamp(k, 0, 1)) * (0.75 + 0.5 * rand())
 }
 
+/** 【晃動是背景】它在超速、重傷期間一直在響，蓋過引擎與開火就太吵 */
 export function shakeGainDb(k: number): number {
-  return -12 + 10 * clamp(k, 0, 1)
+  return -24 + 12 * clamp(k, 0, 1)
 }
 
 export function dbToGain(db: number): number {

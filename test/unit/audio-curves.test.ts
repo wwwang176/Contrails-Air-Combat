@@ -41,9 +41,10 @@ describe('機身晃動', () => {
     expect(shakeInterval(0, () => 0.5)).toBeCloseTo(1.6)
     expect(shakeInterval(1, () => 0)).toBeCloseTo(0.3)
   })
-  it('音量 −12 → −2 dB', () => {
-    expect(shakeGainDb(0)).toBe(-12)
-    expect(shakeGainDb(1)).toBe(-2)
+  /** 【晃動是背景】它一直在響，蓋過引擎與開火就太吵 */
+  it('音量 −24 → −12 dB', () => {
+    expect(shakeGainDb(0)).toBe(-24)
+    expect(shakeGainDb(1)).toBe(-12)
   })
   it('dB 換倍率', () => {
     expect(dbToGain(0)).toBe(1)
