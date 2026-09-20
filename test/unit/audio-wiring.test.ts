@@ -131,14 +131,29 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('爆炸、水花、自己被打疊兩層；受創疊命中', () => {
     const fn = body('function playCues(')
-    expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, 0, true)")
-    expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, 0, true)")
+    expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, db, true, rate)")
+    expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true)")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
     expect(fn).toContain('playHeavyHit(x)')
     const heavy = body('function playHeavyHit(')
     expect(heavy).toContain("audio.playPool('damage'")
     expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)")
+  })
+
+  /**
+   * 【爆炸聲跟著當量走】零戰的 60 kg 彈當量尺度 0.11、陸攻的魚雷 1.67，差 15 倍。
+   * 不帶當量的話兩者一模一樣響 —— 不報錯，只是聽不出打的是什麼。
+   * 當量與畫面那一套同一個來源（`blastScaleOf`），兩邊才不會各說各話。
+   */
+  it('炸彈與魚雷的爆炸、水花帶當量', () => {
+    const fn = body('function queueAudioCues(')
+    // 炸彈的爆炸／水花／落水悶響，加魚雷的爆炸／水花
+    expect(fn.match(/blastScaleOf\(/g) ?? []).toHaveLength(2)
+    expect(fn.match(/pushCue\(cues, CUE\.\w+, [^)]*, scale\)/g) ?? []).toHaveLength(5)
+    const play = body('function playCues(')
+    expect(play).toContain('blastGainDb(scale)')
+    expect(play).toContain('blastRate(scale)')
   })
 
   /**
@@ -149,7 +164,7 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function playHitDealt(')
     expect(fn).toContain('HIT_DEALT_GAP')
     expect(fn).toContain('hitFeedback(')
-    expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, HIT_FB.cutoffHz)")
+    expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, 1, HIT_FB.cutoffHz)")
   })
 
   /** 【投彈時飛機本身不出聲】每一顆炸彈自己的呼嘯就是回饋，包括自己投的 */

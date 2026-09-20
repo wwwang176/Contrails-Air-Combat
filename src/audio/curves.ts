@@ -45,6 +45,28 @@ export function damageGainDb(severity: number): number {
   return -10 + 16 * clamp(severity, 0, 1)
 }
 
+/**
+ * 爆炸的當量 → 音量，dB。`scale` 是殺傷半徑的倍率（`weapons/bomb.ts` 的
+ * `blastScaleOf`），當量正比於它的立方。
+ *
+ * 【為什麼是 20·log10(scale)】固定距離下爆震的壓力正比於當量的立方根，
+ * 也就是正比於 scale。遊戲裡零戰的 60 kg 彈是 0.11、魚雷是 1.67，
+ * 照實算差 23 dB —— 夾住免得小彈整個聽不見。
+ */
+export function blastGainDb(scale: number): number {
+  return clamp(20 * Math.log10(Math.max(1e-3, scale)), -12, 6)
+}
+
+/**
+ * 爆炸的當量 → 播放速度。**大的低沉而拖得長，小的是一聲脆響。**
+ *
+ * 【為什麼不照實】爆震的持續時間也正比於當量的立方根，照實算 60 kg 彈要快
+ * 2.2 倍（高一個八度多），聽起來像鞭炮。取 0.35 次方再夾在 0.8–1.4。
+ */
+export function blastRate(scale: number): number {
+  return clamp(Math.pow(Math.max(1e-3, scale), -0.35), 0.8, 1.4)
+}
+
 export const SPEED_OF_SOUND = 343
 
 /**

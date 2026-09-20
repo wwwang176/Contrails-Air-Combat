@@ -1,8 +1,8 @@
 /**
  * 物理子步寫、每一幀讀的音效事件。
  *
- * 【子步裡不碰 Web Audio】240 Hz 的子步只在這裡寫四個數字（種類、x、y、z），
- * 每一幀再交給音訊層。滿了丟新的 —— 覆蓋舊的會讓先發生的聲音消失。
+ * 【子步裡不碰 Web Audio】240 Hz 的子步只在這裡寫五個數字（種類、x、y、z、
+ * 當量尺度），每一幀再交給音訊層。滿了丟新的 —— 覆蓋舊的會讓先發生的聲音消失。
  */
 export const CUE = {
   Explosion: 0,
@@ -23,22 +23,27 @@ export const CUE = {
 } as const
 export type Cue = typeof CUE[keyof typeof CUE]
 
+/** 每筆佔幾個 float：種類、x、y、z、當量尺度 */
+export const CUE_STRIDE = 5
+
 export interface CueQueue {
   readonly data: Float32Array
   count: number
 }
 
 export function createCueQueue(capacity: number): CueQueue {
-  return { data: new Float32Array(capacity * 4), count: 0 }
+  return { data: new Float32Array(capacity * CUE_STRIDE), count: 0 }
 }
 
-export function pushCue(q: CueQueue, cue: Cue, x: number, y: number, z: number): void {
-  if (q.count * 4 >= q.data.length) return
-  const o = q.count * 4
+/** `scale` 是爆炸的當量尺度（`blastScaleOf`）；沒有當量可言的事件用預設的 1 */
+export function pushCue(q: CueQueue, cue: Cue, x: number, y: number, z: number, scale = 1): void {
+  if ((q.count + 1) * CUE_STRIDE > q.data.length) return
+  const o = q.count * CUE_STRIDE
   q.data[o] = cue
   q.data[o + 1] = x
   q.data[o + 2] = y
   q.data[o + 3] = z
+  q.data[o + 4] = scale
   q.count++
 }
 
