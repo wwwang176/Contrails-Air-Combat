@@ -12,8 +12,8 @@ import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
 import {
-  blastGainDb, blastRate, damageGainDb, engineRate, hitFeedback, shakeGainDb, shakeInterval,
-  shakeStrength, windParams,
+  blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
+  shakeInterval, shakeStrength, windParams,
 } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
@@ -1787,6 +1787,21 @@ const turretPick = new Int16Array(64)
 const volleyGroups: { mount: number; pool: Pool }[] = []
 /** 分組代表掛架上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
 const prevVolleyFlash = new Float32Array(8)
+/** 多普勒要聽者的速度。鏡頭沒有速度這個量，只能逐幀相減 */
+const prevCamPos = new Vector3()
+const camVel = new Vector3()
+const CAM_STEP = new Vector3()
+let camPosValid = false
+/**
+ * 單幀位移換算超過這個速度就當成鏡頭瞬移，速度歸零，m/s。
+ *
+ * 【瞬移不是速度】切視角、重生、換場會讓鏡頭一幀跳幾百公尺，相減出來是
+ * 幾千 m/s —— 那一幀所有引擎聲會整片變調。比最快的飛機（225 m/s）大得多，
+ * 正常飛行不會誤判。
+ */
+const CAM_TELEPORT_SPEED = 400
+/** 鏡頭速度的平滑時間常數，s —— 鏡頭晃動不該變成音高抖動 */
+const CAM_VEL_TAU = 0.05
 const HIT_FB = { gainDb: 0, cutoffHz: 0 }
 let prevPlayerHp = -1
 let prevReloading = false
@@ -1801,6 +1816,8 @@ let lastHitDealt = -Infinity
  */
 function resetAudioState(): void {
   prevGunFlash.fill(0)
+  camPosValid = false
+  camVel.set(0, 0, 0)
   whistled.fill(0)
   prevBombAge.fill(0)
   lastGunFire.fill(-Infinity)
@@ -1821,6 +1838,24 @@ function resetAudioState(): void {
 function setPlayer(c: Combatant): void {
   player = c
   rebuildVolleyGroups()
+}
+
+/** 逐幀相減得到鏡頭速度，寫進 `camVel`。每一幀在鏡頭定位之後呼叫一次 */
+function trackCameraVelocity(dt: number): void {
+  const cam = ctx.camera.position
+  if (!camPosValid || dt <= 0) {
+    prevCamPos.copy(cam)
+    camVel.set(0, 0, 0)
+    camPosValid = true
+    return
+  }
+  CAM_STEP.subVectors(cam, prevCamPos)
+  prevCamPos.copy(cam)
+  if (CAM_STEP.length() / dt > CAM_TELEPORT_SPEED) {
+    camVel.set(0, 0, 0)
+    return
+  }
+  camVel.lerp(CAM_STEP.divideScalar(dt), 1 - Math.exp(-dt / CAM_VEL_TAU))
 }
 
 /** 自己這架的前射武器依武器種類分組 */
@@ -2031,6 +2066,7 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
   // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
   audio.beginFrame()
+  trackCameraVelocity(worldSeconds)
   playCues()
   clearCues(cues)
   if (hitsThisFrame > 0 && flying) playHitDealt()
@@ -2050,7 +2086,10 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   for (let j = 0; j < m; j++) {
     const c = all[ENGINE_KEYS[j]!]!
     const p = AUDIO_POS[c.index]!
-    audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z, engineRate(c.command.throttle))
+    // 【循環音才有多普勒】單次音效的音源是靜止的（爆炸），沒有升降調可言
+    const doppler = dopplerRate(p, c.aircraft.state.velocity, cam, camVel)
+    audio.assign('engine', c.index, engineFile(c.aircraft.spec.id), p.x, p.y, p.z,
+      engineRate(c.command.throttle) * doppler)
   }
   // 開火的保持：最近 FIRE_HOLD 秒內開過火就算還在開火
   for (let i = 0; i < n; i++) {
@@ -2069,7 +2108,8 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   for (let j = 0; j < m; j++) {
     const c = all[FIRE_KEYS[j]!]!
     const p = AUDIO_POS[c.index]!
-    audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z, 1)
+    audio.assign('fire', c.index, fireFile(c.aircraft.spec.id)!, p.x, p.y, p.z,
+      dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
   }
   // 砲塔（自己的轟炸機也算 —— 砲塔由 AI 操作）
   for (let i = 0; i < n; i++) {
@@ -2081,7 +2121,8 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     const c = all[TURRET_KEYS[j]!]!
     const t = c.aircraft.spec.turrets[turretPick[c.index]!]!
     const p = AUDIO_POS[c.index]!
-    audio.assign('turret', c.index, turretFile(t.weapon.id, t.guns), p.x, p.y, p.z, 1)
+    audio.assign('turret', c.index, turretFile(t.weapon.id, t.guns), p.x, p.y, p.z,
+      dopplerRate(p, c.aircraft.state.velocity, cam, camVel))
   }
   audio.endFrame()
 

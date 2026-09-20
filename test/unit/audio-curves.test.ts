@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
-  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate,
+  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -107,6 +107,51 @@ describe('聲道搶佔用的估計響度', () => {
   /** 遠處的大爆炸仍可能比近處的小聲音重要 */
   it('1 km 外的爆炸比 20 m 外的擦過響', () => {
     expect(voiceLoudnessDb(6, 150, 1000)).toBeGreaterThan(voiceLoudnessDb(-16, 20, 20))
+  })
+})
+
+describe('多普勒', () => {
+  const at = (x: number, y = 0, z = 0): { x: number; y: number; z: number } => ({ x, y, z })
+  const ZERO = at(0)
+  /** 音源在原點、聽者在 +x 1 km 外 */
+  const SP = at(0), LP = at(1000)
+
+  it('都不動就是 1', () => {
+    expect(dopplerRate(SP, ZERO, LP, ZERO)).toBeCloseTo(1)
+  })
+
+  it('音源接近 50 m/s → 1.17；遠離 50 m/s → 0.87', () => {
+    expect(dopplerRate(SP, at(50), LP, ZERO)).toBeCloseTo(343 / 293, 4)
+    expect(dopplerRate(SP, at(-50), LP, ZERO)).toBeCloseTo(343 / 393, 4)
+  })
+
+  it('聽者接近 50 m/s → 0.85 的倒數那一邊：升調', () => {
+    expect(dopplerRate(SP, ZERO, LP, at(-50))).toBeCloseTo(393 / 343, 4)
+  })
+
+  /** 【同速同向沒有多普勒】僚機編隊飛行時不該一直升調 */
+  it('音源與聽者同速同向 → 1', () => {
+    expect(dopplerRate(SP, at(100), LP, at(100))).toBeCloseTo(1)
+  })
+
+  /** 【只看連線方向的分量】側向掠過的那一瞬間沒有升降調 */
+  it('速度垂直連線 → 1', () => {
+    expect(dopplerRate(SP, at(0, 0, 200), LP, ZERO)).toBeCloseTo(1)
+  })
+
+  /**
+   * 【一定要夾住】正面對進時徑向分量等於合速：兩架 150 m/s 對頭是 300 m/s，
+   * 不夾的話係數衝到 8 倍，變成尖嘯。
+   */
+  it('夾在 0.75–1.25', () => {
+    expect(dopplerRate(SP, at(150), LP, at(-150))).toBe(1.25)
+    expect(dopplerRate(SP, at(-150), LP, at(150))).toBe(0.75)
+    // 音源比音速還快（不會發生，但分母會變號）
+    expect(dopplerRate(SP, at(400), LP, ZERO)).toBe(0.75)
+  })
+
+  it('距離為零時不算（避免除以零）', () => {
+    expect(dopplerRate(SP, at(100), SP, ZERO)).toBe(1)
   })
 })
 
