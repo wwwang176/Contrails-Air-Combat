@@ -126,8 +126,15 @@ describe('音效的戰鬥事件接線', () => {
     expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, LAYER_DB)")
   })
 
-  it('打中敵機不疊', () => {
-    expect(body('function updateAudio(')).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false)")
+  /**
+   * 【打中敵機要限頻率】掃到敵機時幾乎每一幀都有命中，而命中聲平均長 0.65 s；
+   * 不限的話 60 fps 會疊將近 40 層，比單獨一次大 16 dB，還會把 24 個聲道佔滿。
+   */
+  it('打中敵機不疊、限制頻率、依距離衰減與變悶', () => {
+    const fn = body('function playHitDealt(')
+    expect(fn).toContain('HIT_DEALT_GAP')
+    expect(fn).toContain('hitFeedback(')
+    expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, HIT_FB.cutoffHz)")
   })
 
   it('投彈投雷在投放回呼裡', () => {

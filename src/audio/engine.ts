@@ -37,10 +37,10 @@ export interface AudioEngine {
    * 晚 0–30 ms），同一庫幾個檔就疊得出好幾倍的組合
    */
   playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb?: number, layered?: boolean): void
-  /** `extraDelay` 加在音速延遲之上，s */
+    extraDb?: number, layered?: boolean, cutoffHz?: number): void
+  /** `extraDelay` 加在音速延遲之上，s；`cutoffHz` 只對不定位的聲音有用（定位的依距離算） */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb?: number, extraDelay?: number): void
+    extraDb?: number, extraDelay?: number, cutoffHz?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
   selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void
   beginFrame(): void
@@ -172,7 +172,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   }
 
   function playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb = 0, extraDelay = 0): void {
+    extraDb = 0, extraDelay = 0, cutoffHz = FULL_BAND): void {
     const buffer = buffers.get(file)
     if (buffer === undefined || muted || ctx.state !== 'running') return
     const spec = CATEGORY[cat]
@@ -203,7 +203,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       a.position.set(0, 0, 0)
       a.setRefDistance(1)
       a.setRolloffFactor(0)
-      pick.filter.frequency.setValueAtTime(FULL_BAND, ctx.currentTime)
+      pick.filter.frequency.setValueAtTime(cutoffHz, ctx.currentTime)
     }
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
@@ -214,14 +214,14 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   }
 
   function playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
-    extraDb = 0, layered = false): void {
+    extraDb = 0, layered = false, cutoffHz = FULL_BAND): void {
     const members = POOLS[pool]
     const k = pickNoRepeat(members.length, lastPick[pool] ?? -1, Math.random)
     lastPick[pool] = k
-    playFile(members[k]!, cat, x, y, z, positioned, extraDb)
+    playFile(members[k]!, cat, x, y, z, positioned, extraDb, 0, cutoffHz)
     if (!layered || members.length < 2) return
     const k2 = pickNoRepeat(members.length, k, Math.random)
-    playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random))
+    playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random), cutoffHz)
   }
 
   function selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void {
