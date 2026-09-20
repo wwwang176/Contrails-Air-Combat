@@ -407,6 +407,90 @@
   "loop": true,
   "makeupDb": 0.0
  },
+ "volley-ho103x2-1": {
+  "loop": false,
+  "makeupDb": 1.5
+ },
+ "volley-ho103x2-2": {
+  "loop": false,
+  "makeupDb": 2.3
+ },
+ "volley-ho103x2-3": {
+  "loop": false,
+  "makeupDb": 0.7
+ },
+ "volley-ho5x2-1": {
+  "loop": false,
+  "makeupDb": 1.4
+ },
+ "volley-ho5x2-2": {
+  "loop": false,
+  "makeupDb": 0.7
+ },
+ "volley-ho5x2-3": {
+  "loop": false,
+  "makeupDb": 0.6
+ },
+ "volley-m2-50calx6-1": {
+  "loop": false,
+  "makeupDb": 2.2
+ },
+ "volley-m2-50calx6-2": {
+  "loop": false,
+  "makeupDb": 2.7
+ },
+ "volley-m2-50calx6-3": {
+  "loop": false,
+  "makeupDb": 2.2
+ },
+ "volley-mg131x2-1": {
+  "loop": false,
+  "makeupDb": 1.2
+ },
+ "volley-mg131x2-2": {
+  "loop": false,
+  "makeupDb": 1.5
+ },
+ "volley-mg131x2-3": {
+  "loop": false,
+  "makeupDb": 1.0
+ },
+ "volley-mk108x1-1": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "volley-mk108x1-2": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "volley-mk108x1-3": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "volley-type97x2-1": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "volley-type97x2-2": {
+  "loop": false,
+  "makeupDb": 0.4
+ },
+ "volley-type97x2-3": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "volley-type99-2x2-1": {
+  "loop": false,
+  "makeupDb": 1.3
+ },
+ "volley-type99-2x2-2": {
+  "loop": false,
+  "makeupDb": 0.8
+ },
+ "volley-type99-2x2-3": {
+  "loop": false,
+  "makeupDb": 1.2
+ },
  "warn-1": {
   "loop": true,
   "makeupDb": 0.0

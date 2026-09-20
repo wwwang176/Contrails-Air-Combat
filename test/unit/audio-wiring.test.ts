@@ -175,16 +175,36 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   /**
-   * 【自己的槍與別人的槍保持時間不同】開火素材是連續掃射，保持多久就聽到幾發。
-   * 自己那一挺是不定位的、又比別人大 11 dB，用 `FIRE_HOLD` 的話點放一次會聽成
-   * 五次齊射；別人的槍與砲塔反而非 `FIRE_HOLD` 不可，不然聲道一直釋放又重播。
+   * 【自己的槍不播循環】循環是連續掃射，播多久就聽到幾發 —— 點放一次會被聽成
+   * 好幾發，停的時候又一定切在某一發中間。自己那架改成一次擊發播一個齊射
+   * one-shot；別人的槍與砲塔仍用循環加 `FIRE_HOLD`，不然聲道一直釋放又重播。
    */
-  it('自己的開火循環保持一個射擊間隔，別人的用 FIRE_HOLD', () => {
-    const fn = body('function updateAudio(')
-    const self = fn.slice(fn.indexOf("audio.selfLoop('fire'") - 220, fn.indexOf("audio.selfLoop('fire'"))
-    expect(self).toContain('fireInterval(spec.battery)')
-    expect(self).not.toContain('FIRE_HOLD')
-    expect(fn).toContain('FIRE_HOLD')
+  it('自己的槍用齊射 one-shot，別人的才用開火循環', () => {
+    expect(ALL).not.toContain("audio.selfLoop('fire'")
+    expect(body('function playCues(')).toContain("audio.playPool(volleyGroups[x]!.pool, 'fireSelf'")
+    expect(body('function updateAudio(')).toContain("audio.assign('fire'")
+  })
+
+  /**
+   * 【擊發要在子步裡記】槍焰只亮 0.03 s，而世界時鐘一幀最多走 8/240 = 33.3 ms，
+   * 每一幀才看一次的話整次擊發會被跳過 —— 不報錯，只是偶爾沒聲音。
+   */
+  it('自己開火在子步裡做邊緣偵測', () => {
+    const fn = body('function queueAudioCues(')
+    expect(fn).toContain('pushCue(cues, CUE.SelfVolley')
+    expect(fn).toContain('prevVolleyFlash')
+    expect(fn).toContain('input.godView')
+  })
+
+  /**
+   * 【換機要重算分組】掛架與武器種類都變了，沿用上一架的分組會播錯庫或整組沒聲音。
+   * `player` 的寫入點有三處（開場、換場、接手僚機），漏掉任何一處都不會報錯。
+   */
+  it('player 只在 setPlayer 裡寫，而它同時重算齊射分組', () => {
+    const fn = body('function setPlayer(')
+    expect(fn).toContain('rebuildVolleyGroups()')
+    const outside = ALL.replace(fn, '').replace('let player!: Combatant', '')
+    expect(outside).not.toMatch(/(^|[^.\w])player = /m)
   })
 
   it('按 B 切換投彈視角時響一下彈艙', () => {
@@ -266,16 +286,6 @@ describe('單次音效的聲道池', () => {
   it('搶聲道時把等音波的聲道算成佔用中', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
     expect(fn).toContain('!v.audio.isPlaying && v.waitingSince < 0')
-  })
-
-  /** 【開火的淡出要比別的短】素材是連續掃射，淡出多久就多聽到幾發 */
-  it('開火自身循環的淡出比其他自身循環短', () => {
-    const at = ENGINE.indexOf('const SELF_FADE')
-    const line = ENGINE.slice(at, ENGINE.indexOf('\n', at))
-    const fade = Object.fromEntries(
-      [...line.matchAll(/(\w+): ([\d.]+)/g)].map(([, k, v]) => [k, Number(v)]))
-    expect(fade.fire).toBeLessThan(fade.engine!)
-    expect(fade.fire).toBeLessThan(fade.wind!)
   })
 
   /** 【聲道不夠就先別疊】疊第二層是好聽，發得出聲才是必要 */

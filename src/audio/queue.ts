@@ -12,6 +12,14 @@ export const CUE = {
   FlakBurst: 3,
   HitSelf: 4,
   Damage: 5,
+  /**
+   * 自己的槍擊發一次。**x 帶的是齊射庫的序號**，不是座標 —— 這個聲音不定位。
+   *
+   * 【為什麼要記在子步】槍焰只亮 0.03 s，而世界時鐘一幀最多走 8/240 = 33.3 ms，
+   * 每一幀才看一次的話整次擊發會被跳過。反過來，最快的機首槍 900 發/分
+   * 每 66.7 ms 才一發，所以一幀之內同一座槍最多記一次。
+   */
+  SelfVolley: 6,
 } as const
 export type Cue = typeof CUE[keyof typeof CUE]
 

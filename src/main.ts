@@ -6,7 +6,7 @@ import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
-import { SINGLE_FILES, engineFile, fireFile, turretFile } from './audio/catalog'
+import { SINGLE_FILES, engineFile, fireFile, turretFile, volleyPool, type Pool } from './audio/catalog'
 import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -104,7 +104,6 @@ import {
   aglOk, canRelease, envelopeFor, pitchOk, rollOk,
 } from './weapons/releaseEnvelope'
 import { type Loadout, loadoutOf } from './weapons/stores'
-import { fireInterval } from './weapons/types'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
@@ -1272,7 +1271,7 @@ function restartBattle(): void {
   // 水柱（~2.1 s）會飄在舊位置上等自己過期。殘骸不在其中 —— 下面的
   // `rebuildVisuals` 會把殘骸池持有的模型還回去。
   resetPools()
-  player = battle.player
+  setPlayer(battle.player)
   // 【模型整批重建】只把 `wrecked` 旗標清掉是不夠的 —— 見 `rebuildVisuals`
   rebuildVisuals()
   leaveGodView()
@@ -1473,7 +1472,7 @@ function startWorld(cfg: BattleConfig): void {
   world.waterAt = terrain.waterAt
   // 【地面目標要在地形接上之後才落地】建戰鬥時 groundAt 還是 0
   settleGroundTargets(world.groundTargets, world.groundAt)
-  player = battle.player
+  setPlayer(battle.player)
   rebuildVisuals()
 
   // 【船的模型每一場重建】艦隊是設定的一部分 —— 沿用上一場的話，換一張
@@ -1756,8 +1755,8 @@ const HIT_DEALT_FALLBACK = 300
  * 直接看閃光的話，開火的循環一幀開、一幀關，聲道一直釋放又重播。砲塔更嚴重：
  * 不保持的話 60 秒內重啟一千多次。
  *
- * 【自己的槍不用這個】它是不定位的、又比別人大 11 dB，點放一次會被聽成連續掃射。
- * 自己那一挺保持到「這一發打完」為止，見 `fireInterval`。
+ * 【自己的槍不用這個】自己那架不播循環 —— 每次擊發播一個齊射 one-shot，
+ * 見 `CUE.SelfVolley` 與 `volleyPool`。
  */
 const FIRE_HOLD = 0.25
 
@@ -1778,6 +1777,15 @@ const lastGunFire = new Float64Array(64)
 const lastTurretFire = new Float64Array(64)
 /** 每架轟炸機的砲塔循環用第幾座的聲音；−1 = 還沒挑。見 `noteTurretFire` */
 const turretPick = new Int16Array(64)
+/**
+ * 自己那架的前射武器分組：同一種槍算一組，每組記一個代表掛架與它的齊射庫。
+ *
+ * 【為什麼同一種槍只記一個掛架】`stepCadence` 讓同型槍共用一份射速時鐘，
+ * 六挺是一起擊發的；素材也是照這樣疊出來的，一組播一次就好。
+ */
+const volleyGroups: { mount: number; pool: Pool }[] = []
+/** 分組代表掛架上一個子步的槍焰 —— 由 0 變正就是剛擊發 */
+const prevVolleyFlash = new Float32Array(8)
 const HIT_FB = { gainDb: 0, cutoffHz: 0 }
 let prevPlayerHp = -1
 let prevReloading = false
@@ -1806,6 +1814,32 @@ function resetAudioState(): void {
 }
 
 /**
+ * `player` 的唯一寫入點。**齊射分組與槍焰的邊緣狀態跟著換** —— 新的這一架武裝不同，
+ * 沿用上一架的分組會播錯庫，或者整組沒聲音，而且兩種都不會報錯。
+ */
+function setPlayer(c: Combatant): void {
+  player = c
+  rebuildVolleyGroups()
+}
+
+/** 自己這架的前射武器依武器種類分組 */
+function rebuildVolleyGroups(): void {
+  volleyGroups.length = 0
+  prevVolleyFlash.fill(0)
+  const mounts = player.aircraft.spec.battery.mounts
+  const seen = new Map<string, number>()
+  for (let i = 0; i < mounts.length; i++) {
+    const id = mounts[i]!.weapon.id
+    if (seen.has(id)) continue
+    seen.set(id, i)
+    let guns = 0
+    for (const m of mounts) if (m.weapon.id === id) guns++
+    const pool = volleyPool(id, guns)
+    if (pool !== null && volleyGroups.length < prevVolleyFlash.length) volleyGroups.push({ mount: i, pool })
+  }
+}
+
+/**
  * 打中敵機的回饋。**不定位、但依那架有多遠給一點衰減與變悶**（見 `hitFeedback`）：
  * 打遠的聽起來悶而小聲，打近的清脆，兩者都還聽得見。
  *
@@ -1826,6 +1860,14 @@ function playHitDealt(): void {
 
 /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
 function queueAudioCues(): void {
+  // 自己開火：每一組同型槍擊發一次記一筆。上帝視角時自己那架改走定位的開火循環
+  const flash = player.muzzleFlash
+  for (let i = 0; i < volleyGroups.length; i++) {
+    const now = flash[volleyGroups[i]!.mount] ?? 0
+    const was = prevVolleyFlash[i]!
+    prevVolleyFlash[i] = now
+    if (now > 0 && was <= 0 && player.alive && !input.godView) pushCue(cues, CUE.SelfVolley, i, 0, 0)
+  }
   const k = world.killEvents
   for (let e = 0; e < k.count; e++) {
     const o = e * KILL_STRIDE
@@ -1909,6 +1951,8 @@ function playCues(): void {
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
       case CUE.Damage: playHeavyHit(x); break
+      // 【自己開火的 x 帶的是分組序號】不是座標
+      case CUE.SelfVolley: audio.playPool(volleyGroups[x]!.pool, 'fireSelf', 0, 0, 0, false); break
     }
   }
 }
@@ -2036,10 +2080,6 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   // 自己身上的循環
   const spec = me.aircraft.spec
   audio.selfLoop('engine', flying ? engineFile(spec.id) : null, engineRate(me.command.throttle), 0)
-  // 【自己的槍只保持到這一發打完】開火素材是連續掃射，保持多久就聽到幾發
-  const fire = flying && elapsed - lastGunFire[me.index]! < fireInterval(spec.battery)
-    ? fireFile(spec.id) : null
-  audio.selfLoop('fire', fire, 1, 0)
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)
   audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
@@ -2322,7 +2362,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 舊機體於是像所有人一樣被殘骸池接管 —— M8 spec §10 預告的那件事現在
   // 自動成立了。
   if (battle.player !== player) {
-    player = battle.player
+    setPlayer(battle.player)
     playerAi.selfIndex = player.index
     playerAi.setDecisionPhase(player.index / world.combatants.length)
     // 換了機體就換了位置，上一個座位的地形承諾不再適用
