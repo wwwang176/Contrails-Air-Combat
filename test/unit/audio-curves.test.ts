@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundDelay, distanceCutoffHz,
-  hitFeedback,
+  hitFeedback, damageGainDb,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -64,6 +64,16 @@ describe('距離', () => {
   })
   it('距離越遠截止越低', () => {
     expect(distanceCutoffHz(3000)).toBeLessThan(distanceCutoffHz(2000))
+  })
+})
+
+describe('機身受創的輕重', () => {
+  it('擦到一點是 −16 dB，重擊是 0 dB，超過就夾住', () => {
+    expect(damageGainDb(0)).toBe(-16)
+    expect(damageGainDb(0.5)).toBe(-8)
+    expect(damageGainDb(1)).toBe(0)
+    expect(damageGainDb(3)).toBe(0)
+    expect(damageGainDb(-1)).toBe(-16)
   })
 })
 

@@ -11,7 +11,9 @@ import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
-import { engineRate, hitFeedback, shakeGainDb, shakeInterval, shakeStrength, windParams } from './audio/curves'
+import {
+  damageGainDb, engineRate, hitFeedback, shakeGainDb, shakeInterval, shakeStrength, windParams,
+} from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -44,7 +46,7 @@ import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
-import { clearBursts, type BurstEvents } from './world/flak'
+import { clearBursts, flakDamage, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
   DEBRIS_SMOKE_SIZE, STEAM_PLUME_SPEED,
@@ -1722,6 +1724,8 @@ function trackPlayerOrder(): void {
 const cues = createCueQueue(512)
 /** 自己被子彈打中時，另外播一下機身受創的機率 */
 const HIT_DAMAGE_CHANCE = 0.35
+/** 子彈打中自己時，機身受創的輕重（0–1）。子彈沒有逐發的傷害事件，取一個中間偏輕的值 */
+const BULLET_SEVERITY = 0.35
 /** 空爆超過這個距離不記，m */
 const FLAK_AUDIO_RANGE = 5000
 /** 高射砲、艦砲開火聲的距離上限，m */
@@ -1862,16 +1866,17 @@ function queueAudioCues(): void {
       pushCue(cues, CUE.FlakBurst, f.x[i]!, f.y[i]!, f.z[i]!)
     }
     // 【炸在自己身上就是受創】爆風的傷害不走子彈那條事件（`World.applyBursts`
-    // 自己吃掉），只能照爆炸半徑自己判
+    // 自己吃掉），這裡用同一支 `flakDamage` 算，聲音的輕重才跟實際傷害一致
+    if (!player.alive) continue
     const ex = f.x[i]! - me.x, ey = f.y[i]! - me.y, ez = f.z[i]! - me.z
-    const r = f.radius[i]!
-    if (player.alive && ex * ex + ey * ey + ez * ez < r * r) pushCue(cues, CUE.Damage, 0, 0, 0)
+    const dmg = flakDamage(Math.sqrt(ex * ex + ey * ey + ez * ez), f.radius[i]!, f.damage[i]!)
+    if (dmg > 0) pushCue(cues, CUE.Damage, Math.min(1, dmg / (player.aircraft.spec.hp * HEAVY_HIT)), 0, 0)
   }
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count; i++) {
     if (dmg.data[i * DAMAGE_STRIDE]! !== player.index) continue
     pushCue(cues, CUE.HitSelf, 0, 0, 0)
-    if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, 0, 0, 0)
+    if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, BULLET_SEVERITY, 0, 0)
   }
 }
 
@@ -1892,15 +1897,17 @@ function playCues(): void {
       case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, -12); break
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
-      case CUE.Damage: playHeavyHit(); break
+      // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
+      case CUE.Damage: playHeavyHit(x); break
     }
   }
 }
 
-/** 自己受重擊：一下結構的悶響，疊一下小一截的金屬命中 */
-function playHeavyHit(): void {
-  audio.playPool('damage', 'damage', 0, 0, 0, false)
-  audio.playPool('hit', 'hitSelf', 0, 0, 0, false, LAYER_DB)
+/** 自己受創：一下結構的悶響，疊一下小一截的金屬命中。音量跟著輕重走 */
+function playHeavyHit(severity: number): void {
+  const db = damageGainDb(severity)
+  audio.playPool('damage', 'damage', 0, 0, 0, false, db)
+  audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)
 }
 
 /** 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下 */
@@ -2049,7 +2056,8 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     audio.playFile(SINGLE_FILES.whistle, 'whistle', bombs.x[i]!, bombs.y[i]!, bombs.z[i]!, true)
   }
   // 重擊：HP 一幀掉很多（高射砲、機砲）
-  if (prevPlayerHp >= 0 && prevPlayerHp - me.hp > spec.hp * HEAVY_HIT) playHeavyHit()
+  const drop = prevPlayerHp >= 0 ? prevPlayerHp - me.hp : 0
+  if (drop > spec.hp * HEAVY_HIT) playHeavyHit(Math.min(1, drop / (spec.hp * HEAVY_HIT * 2)))
   prevPlayerHp = me.hp
   // 機身晃動：超速或重傷
   const k = shakeStrength(overspeedShake(vneRatio) / OVERSPEED_SHAKE, me.hp / spec.hp)
@@ -2064,12 +2072,12 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   }
   // 彈艙補滿
   const reloading = playerBay().reloading
-  if (prevReloading && !reloading) audio.playFile(SINGLE_FILES.reload, 'reload', 0, 0, 0, false)
+  if (prevReloading && !reloading) audio.playFile(SINGLE_FILES.reloadDone, 'reload', 0, 0, 0, false)
   prevReloading = reloading
   // 進出投彈瞄準視角：彈艙的機械聲
   if (input.viewMode !== prevViewMode) {
     if (input.viewMode === 'bomb' || prevViewMode === 'bomb') {
-      audio.playFile(SINGLE_FILES.reload, 'reload', 0, 0, 0, false)
+      audio.playFile(SINGLE_FILES.bayToggle, 'reload', 0, 0, 0, false)
     }
     prevViewMode = input.viewMode
   }
