@@ -143,11 +143,11 @@ describe('多普勒', () => {
    * 【一定要夾住】正面對進時徑向分量等於合速：兩架 150 m/s 對頭是 300 m/s，
    * 不夾的話係數衝到 8 倍，變成尖嘯。
    */
-  it('夾在 0.75–1.25', () => {
-    expect(dopplerRate(SP, at(150), LP, at(-150))).toBe(1.25)
-    expect(dopplerRate(SP, at(-150), LP, at(150))).toBe(0.75)
+  it('夾在 0.5–1.5', () => {
+    expect(dopplerRate(SP, at(150), LP, at(-150))).toBe(1.5)
+    expect(dopplerRate(SP, at(-150), LP, at(150))).toBe(0.5)
     // 音源比音速還快（不會發生，但分母會變號）
-    expect(dopplerRate(SP, at(400), LP, ZERO)).toBe(0.75)
+    expect(dopplerRate(SP, at(400), LP, ZERO)).toBe(0.5)
   })
 
   it('距離為零時不算（避免除以零）', () => {
