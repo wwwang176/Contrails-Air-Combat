@@ -261,7 +261,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       }
     }
     if (s.audio.isPlaying) {
-      if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, 0.05)
+      // 【開火的漸入要快】0.05 s 的時間常數要 150 ms 才到滿，而點放只有 200 ms
+      // —— 整段平均會少 2 dB，聽起來就比連續開火的砲塔小聲
+      if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, slot === 'fire' ? 0.01 : 0.05)
       s.audio.setPlaybackRate(rate * timeScale)
       s.filter?.frequency.setTargetAtTime(cutoffHz ?? FULL_BAND, now, 0.05)
     }

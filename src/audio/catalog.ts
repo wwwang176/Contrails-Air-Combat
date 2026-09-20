@@ -21,8 +21,9 @@ export interface CategorySpec {
 export const CATEGORY: Record<Category, CategorySpec> = {
   engineSelf: { gainDb: 0, ref: 0, max: 0 },
   engine: { gainDb: 0, ref: 60, max: 3000 },
-  fireSelf: { gainDb: 2, ref: 0, max: 0 },
-  fire: { gainDb: 0, ref: 80, max: 2500 },
+  // 【自己開火要壓得過引擎與風切】它是操作回饋，扣扳機就該聽得很清楚
+  fireSelf: { gainDb: 8, ref: 0, max: 0 },
+  fire: { gainDb: 3, ref: 80, max: 2500 },
   turret: { gainDb: 0, ref: 80, max: 2500 },
   explosion: { gainDb: 6, ref: 150, max: 8000 },
   splash: { gainDb: 0, ref: 80, max: 3000 },
