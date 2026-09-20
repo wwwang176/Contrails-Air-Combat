@@ -2016,10 +2016,14 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
     return
   }
   const pos = me.aircraft.state.position
-  // 敵彈擦過
-  if (elapsed - lastFlyby >= FLYBY_GAP && nearMiss(world.projectiles, teamSlot(me.team), pos.x, pos.y, pos.z, FLYBY_RADIUS)) {
-    lastFlyby = elapsed
-    audio.playPool('flyby', 'flyby', 0, 0, 0, false)
+  // 敵彈擦過：播在那一發的位置，聽得出從哪一邊掠過
+  if (elapsed - lastFlyby >= FLYBY_GAP) {
+    const k = nearMiss(world.projectiles, teamSlot(me.team), pos.x, pos.y, pos.z, FLYBY_RADIUS)
+    if (k >= 0) {
+      lastFlyby = elapsed
+      const p = world.projectiles
+      audio.playPool('flyby', 'flyby', p.x[k]!, p.y[k]!, p.z[k]!, true)
+    }
   }
   // 附近有炸彈落下（自己投的不算）
   const bombs = world.bombs
