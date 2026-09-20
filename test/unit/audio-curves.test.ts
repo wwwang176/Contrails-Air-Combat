@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
-  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb,
+  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -107,6 +107,35 @@ describe('聲道搶佔用的估計響度', () => {
   /** 遠處的大爆炸仍可能比近處的小聲音重要 */
   it('1 km 外的爆炸比 20 m 外的擦過響', () => {
     expect(voiceLoudnessDb(6, 150, 1000)).toBeGreaterThan(voiceLoudnessDb(-16, 20, 20))
+  })
+})
+
+describe('爆炸的當量', () => {
+  // 遊戲裡的四種：零戰 60 kg 彈 0.11、B-17 的 1.00、He 111 的 1.03、魚雷 1.67
+  /** 【大的比較大聲】固定距離下爆震的壓力正比於當量的立方根，也就是正比於尺度 */
+  it('音量 20·log10(尺度)，夾在 −12…+6 dB', () => {
+    expect(blastGainDb(1)).toBeCloseTo(0)
+    expect(blastGainDb(1.667)).toBeCloseTo(4.44, 2)
+    expect(blastGainDb(1.9)).toBeCloseTo(5.58, 2)
+    expect(blastGainDb(4)).toBe(6)
+    expect(blastGainDb(0.11)).toBe(-12)
+    expect(blastGainDb(0)).toBe(-12)
+  })
+
+  /**
+   * 【大的比較低沉、拖得比較長】爆震的持續時間也正比於當量的立方根。
+   * 完全照實的話 60 kg 彈會快兩倍多（高八度），取 0.35 次方再夾住。
+   */
+  it('播放速度：大的變慢變低，小的變快變脆', () => {
+    expect(blastRate(1)).toBeCloseTo(1)
+    expect(blastRate(1.667)).toBeCloseTo(0.836, 3)
+    expect(blastRate(0.11)).toBe(1.4)
+    expect(blastRate(5)).toBe(0.8)
+  })
+
+  it('越大越慢，越大越大聲', () => {
+    expect(blastRate(1.5)).toBeLessThan(blastRate(0.5))
+    expect(blastGainDb(1.5)).toBeGreaterThan(blastGainDb(0.5))
   })
 })
 

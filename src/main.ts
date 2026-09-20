@@ -7,12 +7,13 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import { SINGLE_FILES, engineFile, fireFile, turretFile, volleyPool, type Pool } from './audio/catalog'
-import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
+import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
 import {
-  damageGainDb, engineRate, hitFeedback, shakeGainDb, shakeInterval, shakeStrength, windParams,
+  blastGainDb, blastRate, damageGainDb, engineRate, hitFeedback, shakeGainDb, shakeInterval,
+  shakeStrength, windParams,
 } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
@@ -1855,7 +1856,7 @@ function playHitDealt(): void {
     if (c.range < range) range = c.range
   }
   hitFeedback(range, HIT_FB)
-  audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, HIT_FB.cutoffHz)
+  audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, 1, HIT_FB.cutoffHz)
 }
 
 /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
@@ -1888,11 +1889,13 @@ function queueAudioCues(): void {
     const o = e * IMPACT_STRIDE
     const x = b.data[o]!, y = b.data[o + 1]!, z = b.data[o + 2]!
     const kind = b.data[o + 3]!
+    // 【當量】與畫面那一套同一個來源：`ny` 帶的是爆心傷害
+    const scale = blastScaleOf(b.data[o + 4]!)
     if (kind > 0.5 && kind < 1.5) {
-      pushCue(cues, CUE.Splash, x, y, z)
-      pushCue(cues, CUE.SplashBoom, x, y, z)
+      pushCue(cues, CUE.Splash, x, y, z, scale)
+      pushCue(cues, CUE.SplashBoom, x, y, z, scale)
     } else {
-      pushCue(cues, CUE.Explosion, x, y, z)
+      pushCue(cues, CUE.Explosion, x, y, z, scale)
     }
   }
   const t = world.torpedoEvents
@@ -1901,8 +1904,9 @@ function queueAudioCues(): void {
     const x = t.data[o]!, z = t.data[o + 2]!
     const w = terrain.waterAt(x, z)
     const y = Number.isFinite(w) ? w : t.data[o + 1]!
-    pushCue(cues, CUE.Explosion, x, y, z)
-    pushCue(cues, CUE.Splash, x, y, z)
+    const scale = blastScaleOf(t.data[o + 4]!)
+    pushCue(cues, CUE.Explosion, x, y, z, scale)
+    pushCue(cues, CUE.Splash, x, y, z, scale)
   }
   const f = world.burstEvents
   const cam = ctx.camera.position
@@ -1935,18 +1939,22 @@ function queueAudioCues(): void {
 function playCues(): void {
   const cam = ctx.camera.position
   for (let i = 0; i < cues.count; i++) {
-    const o = i * 4
+    const o = i * CUE_STRIDE
     const x = cues.data[o + 1]!, y = cues.data[o + 2]!, z = cues.data[o + 3]!
+    // 【當量決定大小聲與低沉／脆】零戰的 60 kg 彈是 0.11、陸攻的魚雷是 1.67
+    const scale = cues.data[o + 4]!
+    const db = blastGainDb(scale)
+    const rate = blastRate(scale)
     switch (cues.data[o]!) {
       // 【疊兩層】爆炸、水花、自己被打一次挑兩個不同的疊（見 `playPool` 的 layered）
       case CUE.Explosion:
-        audio.playPool('explosion', 'explosion', x, y, z, true, 0, true)
+        audio.playPool('explosion', 'explosion', x, y, z, true, db, true, rate)
         if (Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
           audio.playPool('rattle', 'rattle', 0, 0, 0, false, -6)
         }
         break
-      case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, 0, true); break
-      case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, -12); break
+      case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, db, true, rate); break
+      case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, db - 12, false, rate); break
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
