@@ -21,7 +21,7 @@ import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
  */
 
-export type SelfSlot = 'engine' | 'fire' | 'wind' | 'warn'
+export type SelfSlot = 'engine' | 'wind' | 'warn'
 export type LoopPool = 'engine' | 'fire' | 'turret'
 
 export interface AudioEngine {
@@ -62,14 +62,9 @@ const ONE_SHOT_VOICES = 40
 const LAYER_MIN_FREE = 10
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
-const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', fire: 'fireSelf', wind: 'wind', warn: 'warn' }
-/**
- * 換檔、停止時的淡出，s。
- *
- * 【開火的要短】開火素材是連續掃射，淡出多久就多聽到幾發 ——
- * 點放一次的槍時間只有一個射擊間隔（P-51D 是 75 ms），0.1 s 的尾巴會再補上兩發。
- */
-const SELF_FADE: Record<SelfSlot, number> = { engine: 0.1, fire: 0.03, wind: 0.1, warn: 0.1 }
+const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 'wind', warn: 'warn' }
+/** 換檔、停止時的淡出，s */
+const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
 
@@ -207,7 +202,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   }
 
   const selves = {} as Record<SelfSlot, SelfVoice>
-  for (const slot of ['engine', 'fire', 'wind', 'warn'] as SelfSlot[]) {
+  for (const slot of ['engine', 'wind', 'warn'] as SelfSlot[]) {
     const audio = new Audio(listener)
     audio.setLoop(true)
     const filter = slot === 'wind' ? lowpass() : null
@@ -332,10 +327,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【換檔：淡出 → 換 buffer → 淡入】一個 Audio 同時只能播一個來源，做不了交叉淡化
     if (target !== s.file && s.next === undefined) {
       if (s.audio.isPlaying) {
-        const fade = SELF_FADE[slot]
         s.next = target
-        s.switchAt = now + fade
-        s.audio.gain.gain.setTargetAtTime(0, now, fade / 3)
+        s.switchAt = now + SELF_FADE
+        s.audio.gain.gain.setTargetAtTime(0, now, SELF_FADE / 3)
       } else {
         s.file = target
         if (target !== null) {
@@ -355,9 +349,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       }
     }
     if (s.audio.isPlaying) {
-      // 【開火的漸入要快】0.05 s 的時間常數要 150 ms 才到滿，而點放只有 200 ms
-      // —— 整段平均會少 2 dB，聽起來就比連續開火的砲塔小聲
-      if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, slot === 'fire' ? 0.01 : 0.05)
+      if (s.next === undefined) s.audio.gain.gain.setTargetAtTime(s.gain, now, 0.05)
       s.audio.setPlaybackRate(rate * timeScale)
       s.filter?.frequency.setTargetAtTime(cutoffHz ?? FULL_BAND, now, 0.05)
     }

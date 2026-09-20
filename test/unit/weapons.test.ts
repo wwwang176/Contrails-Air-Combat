@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { batteryDps, fireInterval, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
+import { batteryDps, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
 import { stepCadence } from '../../src/weapons/cadence'
 import { M2_BROWNING, P51D_BATTERY } from '../../src/weapons/p51d'
 import { BF109K4_BATTERY, MG131, MK108 } from '../../src/weapons/bf109k4'
 import { F6F5_BATTERY } from '../../src/weapons/f6f5'
+import { F4F4_BATTERY } from '../../src/weapons/f4f4'
+import { A6M5_BATTERY } from '../../src/weapons/a6m5'
+import { KI84_BATTERY } from '../../src/weapons/ki84'
+import { volleyPool } from '../../src/audio/catalog'
 // 跨模組：MK 108 的單發傷害是拿 hp 校準的，所以要讀機體資料。
 // 與 hitbox.test.ts 守「槍口在機翼命中盒內」是同一個模式。
 import { BF109K4 } from '../../src/specs/bf109k4'
@@ -155,17 +159,28 @@ describe('L3 火力平衡的相對關係', () => {
 })
 
 /**
- * 【開火聲用它決定要響多久】一次齊射的「槍時間」就是一個射擊間隔。
- * 拿一個固定秒數當保持時間的話，點放一次也會播成連續掃射。
+ * 【齊射庫要對得上武裝】自己開火是一組同型槍播一個 one-shot，素材是照
+ * 「武器 id ×挺數」疊出來的。武裝改了而庫沒補，那一組就整個沒聲音 —— 不會報錯。
  */
-describe('fireInterval（射擊間隔）', () => {
-  it('P-51D 六挺同型 800 rpm：75 ms', () => {
-    expect(fireInterval(P51D_BATTERY)).toBeCloseTo(0.075, 6)
+describe('自己開火的齊射庫涵蓋所有可駕駛戰鬥機', () => {
+  it('每一種前射武器都有對應的庫', () => {
+    for (const b of [P51D_BATTERY, BF109K4_BATTERY, F6F5_BATTERY, F4F4_BATTERY, A6M5_BATTERY, KI84_BATTERY]) {
+      const count = new Map<string, number>()
+      for (const m of b.mounts) count.set(m.weapon.id, (count.get(m.weapon.id) ?? 0) + 1)
+      for (const [id, n] of count) expect(volleyPool(id, n), `${id} ×${n}`).not.toBeNull()
+    }
   })
 
-  /** 【混合武裝取最慢的】只要還有一挺在循環，槍聲就沒停 */
-  it('K-4 的 MK 108 650 rpm 比 MG 131 900 rpm 慢，取 92 ms', () => {
-    expect(fireInterval(BF109K4_BATTERY)).toBeCloseTo(60 / 650, 6)
+  /** 同一種槍的幾挺是一起擊發的（`stepCadence` 共用射速），所以一組只播一次 */
+  it('同型槍共用一個射速', () => {
+    for (const b of [P51D_BATTERY, BF109K4_BATTERY, A6M5_BATTERY, KI84_BATTERY]) {
+      const rpm = new Map<string, number>()
+      for (const m of b.mounts) {
+        const seen = rpm.get(m.weapon.id)
+        if (seen !== undefined) expect(m.weapon.roundsPerMinute).toBe(seen)
+        rpm.set(m.weapon.id, m.weapon.roundsPerMinute)
+      }
+    }
   })
 })
 

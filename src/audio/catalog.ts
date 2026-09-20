@@ -67,6 +67,14 @@ export const POOLS = {
   damage: range('damage', 10),
   rattle: range('rattle', 15),
   radio: range('radio', 4),
+  // 自己的槍：一次擊發一個 one-shot。命名與砲塔同一套（武器 id ×挺數）
+  'volley-m2-50calx6': range('volley-m2-50calx6', 3),
+  'volley-mk108x1': range('volley-mk108x1', 3),
+  'volley-mg131x2': range('volley-mg131x2', 3),
+  'volley-type97x2': range('volley-type97x2', 3),
+  'volley-type99-2x2': range('volley-type99-2x2', 3),
+  'volley-ho103x2': range('volley-ho103x2', 3),
+  'volley-ho5x2': range('volley-ho5x2', 3),
 } as const satisfies Record<string, readonly string[]>
 export type Pool = keyof typeof POOLS
 
@@ -88,6 +96,18 @@ export function fireFile(specId: string): string | null {
 /** 砲塔：武器 id（與 src/weapons/ 相同）與管數 → 檔。雙聯以上一律用雙聯 */
 export function turretFile(weaponId: string, guns: number): string {
   return `turret-${weaponId}x${guns >= 2 ? 2 : 1}`
+}
+
+/**
+ * 自己的槍：武器 id 與挺數 → 齊射庫。沒有對應的庫回 null（轟炸機、還沒做的武器）。
+ *
+ * 【為什麼自己的槍不用循環】循環是一段連續掃射，播多久就聽到幾發 —— 點放一次
+ * 扳機會被聽成好幾發，而且停的時候一定切在某一發中間。一次擊發播一個 one-shot
+ * 的話，長度由素材自己的衰減決定，射速由 `roundsPerMinute` 決定，每台飛機都對。
+ */
+export function volleyPool(weaponId: string, guns: number): Pool | null {
+  const id = `volley-${weaponId}x${guns}`
+  return id in POOLS ? id as Pool : null
 }
 
 export const SINGLE_FILES = {
