@@ -99,8 +99,8 @@ interface Vec3 {
  * 照實算係數會衝到 8 倍 —— 那是尖嘯不是引擎聲。夾住之後交會仍然聽得出
  * 「咻——嗡」，但不會爆掉。分母變號（音源超過音速）也由夾制接住。
  */
-const DOPPLER_MIN = 0.75
-const DOPPLER_MAX = 1.25
+const DOPPLER_MIN = 0.5
+const DOPPLER_MAX = 1.5
 
 export function dopplerRate(sp: Vec3, sv: Vec3, lp: Vec3, lv: Vec3): number {
   let dx = lp.x - sp.x, dy = lp.y - sp.y, dz = lp.z - sp.z
