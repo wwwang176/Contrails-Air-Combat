@@ -43,7 +43,8 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
   reload: { gainDb: -8, ref: 0, max: 0 },
-  whistle: { gainDb: -4, ref: 60, max: 1500 },
+  // 【壓低】投一艙就是八顆，八次呼嘯同時響；它是氛圍，不是回饋
+  whistle: { gainDb: -16, ref: 60, max: 1500 },
   radio: { gainDb: -10, ref: 0, max: 0 },
   warn: { gainDb: -10, ref: 0, max: 0 },
   wind: { gainDb: -6, ref: 0, max: 0 },
@@ -90,7 +91,10 @@ export function turretFile(weaponId: string, guns: number): string {
 }
 
 export const SINGLE_FILES = {
-  reload: 'reload-1',
+  /** 進出投彈瞄準視角：彈艙的機械聲 */
+  bayToggle: 'reload-1',
+  /** 彈艙補滿：掛鉤扣上的「喀」加一下悶響 */
+  reloadDone: 'reload-2',
   whistle: 'whistle-1',
   warn: 'warn-1',
   wind: 'wind-1',

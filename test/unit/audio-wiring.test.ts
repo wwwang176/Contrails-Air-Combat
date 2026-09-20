@@ -121,10 +121,10 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, 0, true)")
     expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true)")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
-    expect(fn).toContain('playHeavyHit()')
+    expect(fn).toContain('playHeavyHit(x)')
     const heavy = body('function playHeavyHit(')
     expect(heavy).toContain("audio.playPool('damage'")
-    expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, LAYER_DB)")
+    expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)")
   })
 
   /**
@@ -163,7 +163,7 @@ describe('音效的戰鬥事件接線', () => {
   it('按 B 切換投彈視角時響一下彈艙', () => {
     const fn = body('function updateAudio(')
     expect(fn).toContain('prevViewMode')
-    expect(fn).toContain("audio.playFile(SINGLE_FILES.reload")
+    expect(fn).toContain("audio.playFile(SINGLE_FILES.bayToggle")
   })
 
   it('增援預警換新時播無線電', () => {

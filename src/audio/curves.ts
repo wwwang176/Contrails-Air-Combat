@@ -35,6 +35,16 @@ export function dbToGain(db: number): number {
   return Math.pow(10, db / 20)
 }
 
+/**
+ * 機身受創的輕重 → 音量。`severity` 0 = 擦到一點、1 = 重擊。
+ *
+ * 【為什麼要分輕重】高射砲的爆風從邊緣到正中央差很多倍，一律同一個音量的話，
+ * 玩家分不出「被掃到一下」與「正中一發」。
+ */
+export function damageGainDb(severity: number): number {
+  return -16 + 16 * clamp(severity, 0, 1)
+}
+
 export const SPEED_OF_SOUND = 343
 
 /** 聲音從 distance 公尺外傳過來要幾秒 —— 遠處的爆炸先看到火光才聽到 */

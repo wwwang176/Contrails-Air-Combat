@@ -359,6 +359,10 @@
   "loop": false,
   "makeupDb": 5.5
  },
+ "reload-2": {
+  "loop": false,
+  "makeupDb": 3.8
+ },
  "splash-1": {
   "loop": false,
   "makeupDb": 1.5
