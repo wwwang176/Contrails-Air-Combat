@@ -29,7 +29,8 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   cannon: { gainDb: -2, ref: 150, max: 6000 },
   flakBurst: { gainDb: -4, ref: 120, max: 5000 },
   hitSelf: { gainDb: 2, ref: 0, max: 0 },
-  hitDealt: { gainDb: -8, ref: 0, max: 0 },
+  // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
+  hitDealt: { gainDb: -14, ref: 0, max: 0 },
   flyby: { gainDb: -4, ref: 0, max: 0 },
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },

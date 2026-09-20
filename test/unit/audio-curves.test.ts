@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundDelay, distanceCutoffHz,
+  hitFeedback,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -62,5 +63,32 @@ describe('距離', () => {
   })
   it('距離越遠截止越低', () => {
     expect(distanceCutoffHz(3000)).toBeLessThan(distanceCutoffHz(2000))
+  })
+})
+
+describe('打中敵機的回饋', () => {
+  const o = { gainDb: 0, cutoffHz: 0 }
+
+  /** 【近距離不衰減】它是「打中了」的回饋，200 m 內要保持乾脆 */
+  it('200 m 內不衰減', () => {
+    hitFeedback(0, o)
+    expect(o.gainDb).toBeCloseTo(0)
+    hitFeedback(200, o)
+    expect(o.gainDb).toBeCloseTo(0)
+  })
+
+  /** 【衰減只做真實的一半】完全照距離衰減的話，遠距離命中幾乎聽不到，回饋就沒了 */
+  it('600 m 衰減約 5 dB（真實的一半），1500 m 約 9 dB', () => {
+    hitFeedback(600, o)
+    expect(o.gainDb).toBeCloseTo(-4.77, 2)
+    hitFeedback(1500, o)
+    expect(o.gainDb).toBeCloseTo(-8.75, 2)
+  })
+
+  it('越遠越悶', () => {
+    hitFeedback(100, o)
+    const near = o.cutoffHz
+    hitFeedback(1500, o)
+    expect(o.cutoffHz).toBeLessThan(near / 2)
   })
 })

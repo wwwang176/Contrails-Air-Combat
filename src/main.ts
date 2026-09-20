@@ -11,7 +11,7 @@ import { CUE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
-import { engineRate, shakeGainDb, shakeInterval, shakeStrength, windParams } from './audio/curves'
+import { engineRate, hitFeedback, shakeGainDb, shakeInterval, shakeStrength, windParams } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
@@ -1735,6 +1735,15 @@ const WHISTLE_RANGE = 400
 /** 一幀掉超過這個比例的 HP 算重擊（高射砲、機砲） */
 const HEAVY_HIT = 0.08
 /**
+ * 打中敵機的回饋至少隔這麼久才再響一次，s。
+ *
+ * 【為什麼要限】掃到敵機時幾乎每一幀都有命中，而命中聲平均 0.65 s —— 不限的話
+ * 60 fps 疊將近 40 層，比單獨一次大 16 dB，還會把 24 個單次聲道佔滿。
+ */
+const HIT_DEALT_GAP = 0.1
+/** 找不到正在打的那架時，回饋用這個距離，m */
+const HIT_DEALT_FALLBACK = 300
+/**
  * 最近這麼多秒內開過火就算「還在開火」，s。
  *
  * 【為什麼要保持】槍口閃光一發只亮 0.03 s，發與發之間有好幾幀是 0 ——
@@ -1759,10 +1768,12 @@ const lastGunFire = new Float64Array(64)
 const lastTurretFire = new Float64Array(64)
 /** 每架轟炸機的砲塔循環用第幾座的聲音；−1 = 還沒挑。見 `noteTurretFire` */
 const turretPick = new Int16Array(64)
+const HIT_FB = { gainDb: 0, cutoffHz: 0 }
 let prevPlayerHp = -1
 let prevReloading = false
 let rattleTimer = 0
 let lastFlyby = -Infinity
+let lastHitDealt = -Infinity
 
 /**
  * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
@@ -1779,6 +1790,26 @@ function resetAudioState(): void {
   prevReloading = false
   rattleTimer = 0
   lastFlyby = -Infinity
+  lastHitDealt = -Infinity
+}
+
+/**
+ * 打中敵機的回饋。**不定位、但依那架有多遠給一點衰減與變悶**（見 `hitFeedback`）：
+ * 打遠的聽起來悶而小聲，打近的清脆，兩者都還聽得見。
+ *
+ * 距離取畫面上最近的那架敵機 —— HUD 的接觸表已經算好，與前置量小圈是同一份資料。
+ */
+function playHitDealt(): void {
+  if (elapsed - lastHitDealt < HIT_DEALT_GAP) return
+  lastHitDealt = elapsed
+  let range = HIT_DEALT_FALLBACK
+  for (let i = 0; i < hudFrame.contactCount; i++) {
+    const c = hudFrame.contacts[i]!
+    if (!c.active || !c.hostile || c.behind) continue
+    if (c.range < range) range = c.range
+  }
+  hitFeedback(range, HIT_FB)
+  audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, HIT_FB.cutoffHz)
 }
 
 /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
@@ -1916,7 +1947,7 @@ function noteTurretFire(c: Combatant): void {
 function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   playCues()
   clearCues(cues)
-  if (hitsThisFrame > 0) audio.playPool('hit', 'hitDealt', 0, 0, 0, false)
+  if (hitsThisFrame > 0) playHitDealt()
   playCannons()
 
   const me = player

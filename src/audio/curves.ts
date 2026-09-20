@@ -45,3 +45,20 @@ export function soundDelay(distance: number): number {
 export function distanceCutoffHz(distance: number): number {
   return 22000 / (1 + Math.max(0, distance) / 200)
 }
+
+/** 打中敵機的回饋在這個距離內不衰減，m */
+const HIT_REF = 200
+
+/**
+ * 打中敵機：依打的那架有多遠，給一點衰減與變悶。**相對值，疊在類別的音量之上。**
+ *
+ * 【為什麼不照真實距離衰減】它是「打中了」的回饋，與畫面上的 X 標記同一件事。
+ * 照實衰減的話，800 m 外的命中幾乎聽不到，回饋就沒了。取真實衰減的一半：
+ * 遠的目標小聲而悶，近的清脆，但兩者都聽得見。
+ */
+export function hitFeedback(distance: number, out: { gainDb: number; cutoffHz: number }): void {
+  const d = Math.max(0, distance)
+  const full = 20 * Math.log10(HIT_REF / (HIT_REF + Math.max(0, d - HIT_REF)))
+  out.gainDb = 0.5 * full
+  out.cutoffHz = distanceCutoffHz(d * 0.5)
+}
