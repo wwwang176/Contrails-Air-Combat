@@ -1867,7 +1867,10 @@ function queueAudioCues(): void {
     }
     // 【炸在自己身上就是受創】爆風的傷害不走子彈那條事件（`World.applyBursts`
     // 自己吃掉），這裡用同一支 `flakDamage` 算，聲音的輕重才跟實際傷害一致
-    if (!player.alive) continue
+    //
+    // 【上帝視角不記】身上的聲音是不定位的，那時鏡頭在世界裡、離自機很遠，
+    // 貼在鏡頭上播等於「在耳邊」，與畫面對不上
+    if (!player.alive || input.godView) continue
     const ex = f.x[i]! - me.x, ey = f.y[i]! - me.y, ez = f.z[i]! - me.z
     // 【輕重看炸得多近，不看血量】同一發打在 B-17 與 P-51 身上，玩家聽到的該是
     // 同一聲；除以血量的話，血厚的機種永遠只聽到擦邊
@@ -1875,7 +1878,7 @@ function queueAudioCues(): void {
     if (dmg > 0) pushCue(cues, CUE.Damage, dmg / f.damage[i]!, 0, 0)
   }
   const dmg = world.damageEvents
-  for (let i = 0; i < dmg.count; i++) {
+  for (let i = 0; i < dmg.count && !input.godView; i++) {
     if (dmg.data[i * DAMAGE_STRIDE]! !== player.index) continue
     pushCue(cues, CUE.HitSelf, 0, 0, 0)
     if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, BULLET_SEVERITY, 0, 0)
@@ -1963,13 +1966,14 @@ function noteTurretFire(c: Combatant): void {
  * 受創、晃動、風切、警告、裝填。
  */
 function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
+  const me = player
+  // 【坐在座艙裡才有身上的聲音】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」
+  const flying = me.alive && !input.godView
   playCues()
   clearCues(cues)
-  if (hitsThisFrame > 0) playHitDealt()
+  if (hitsThisFrame > 0 && flying) playHitDealt()
   playCannons()
 
-  const me = player
-  const flying = me.alive && !input.godView
   const cam = ctx.camera.position
   const all = world.combatants
   const n = Math.min(all.length, AUDIO_VALID.length)
@@ -1996,7 +2000,8 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   // 其他戰鬥機開火
   for (let i = 0; i < n; i++) {
     const c = all[i]!
-    AUDIO_VALID[i] = c.alive && c !== me && fireFile(c.aircraft.spec.id) !== null
+    // 【上帝視角時自己也算一架】那時自機在畫面裡，開火聲該從它身上來
+    AUDIO_VALID[i] = c.alive && (c !== me || !flying) && fireFile(c.aircraft.spec.id) !== null
       && elapsed - lastGunFire[i]! < FIRE_HOLD ? 1 : 0
   }
   m = nearestN(AUDIO_POS, AUDIO_VALID, n, cam.x, cam.y, cam.z, FIRE_KEYS)
