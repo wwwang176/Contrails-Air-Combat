@@ -127,6 +127,14 @@
   "loop": false,
   "makeupDb": 0.0
  },
+ "flak-burst-2": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "flak-burst-3": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
  "flyby-1": {
   "loop": false,
   "makeupDb": 0.0

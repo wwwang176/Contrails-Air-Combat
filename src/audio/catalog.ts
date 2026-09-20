@@ -49,6 +49,11 @@ const range = (prefix: string, n: number): string[] => Array.from({ length: n },
 /** 同一種事件從庫裡隨機挑（`pick.ts` 的 pickNoRepeat） */
 export const POOLS = {
   explosion: range('explosion', 5),
+  /**
+   * 空爆：爆炸庫的三個各剪成 2.2 s。
+   * 【要短】高射砲一秒炸四次；用 4–7 s 的原版會同時有三十幾個聲音在播
+   */
+  flakBurst: ['flak-burst-1', 'flak-burst-2', 'flak-burst-3'],
   splash: range('splash', 4),
   cannon: range('cannon', 3),
   hit: range('hit', 16),
@@ -81,7 +86,6 @@ export function turretFile(weaponId: string, guns: number): string {
 }
 
 export const SINGLE_FILES = {
-  flakBurst: 'flak-burst-1',
   reload: 'reload-1',
   whistle: 'whistle-1',
   warn: 'warn-1',

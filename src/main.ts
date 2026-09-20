@@ -1881,7 +1881,7 @@ function playCues(): void {
         break
       case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, 0, true); break
       case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, -12); break
-      case CUE.FlakBurst: audio.playFile(SINGLE_FILES.flakBurst, 'flakBurst', x, y, z, true); break
+      case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
       case CUE.Damage: playHeavyHit(); break
     }
