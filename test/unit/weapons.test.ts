@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { batteryDps, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
+import { batteryDps, fireInterval, mountDirection, MAX_MOUNTS } from '../../src/weapons/types'
 import { stepCadence } from '../../src/weapons/cadence'
 import { M2_BROWNING, P51D_BATTERY } from '../../src/weapons/p51d'
 import { BF109K4_BATTERY, MG131, MK108 } from '../../src/weapons/bf109k4'
@@ -151,6 +151,21 @@ describe('L3 火力平衡的相對關係', () => {
     // 那一段。spec §6.3 的表已被這次裁決取代。
     expect(batteryDps(P51D_BATTERY)).toBeCloseTo(1440, 0)
     expect(batteryDps(BF109K4_BATTERY)).toBeCloseTo(3608.33, 1)
+  })
+})
+
+/**
+ * 【開火聲用它決定要響多久】一次齊射的「槍時間」就是一個射擊間隔。
+ * 拿一個固定秒數當保持時間的話，點放一次也會播成連續掃射。
+ */
+describe('fireInterval（射擊間隔）', () => {
+  it('P-51D 六挺同型 800 rpm：75 ms', () => {
+    expect(fireInterval(P51D_BATTERY)).toBeCloseTo(0.075, 6)
+  })
+
+  /** 【混合武裝取最慢的】只要還有一挺在循環，槍聲就沒停 */
+  it('K-4 的 MK 108 650 rpm 比 MG 131 900 rpm 慢，取 92 ms', () => {
+    expect(fireInterval(BF109K4_BATTERY)).toBeCloseTo(60 / 650, 6)
   })
 })
 
