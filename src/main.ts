@@ -1771,6 +1771,7 @@ const turretPick = new Int16Array(64)
 const HIT_FB = { gainDb: 0, cutoffHz: 0 }
 let prevPlayerHp = -1
 let prevReloading = false
+let prevViewMode: typeof input.viewMode = 'third'
 let rattleTimer = 0
 let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
@@ -1791,6 +1792,7 @@ function resetAudioState(): void {
   rattleTimer = 0
   lastFlyby = -Infinity
   lastHitDealt = -Infinity
+  prevViewMode = input.viewMode
 }
 
 /**
@@ -1852,11 +1854,17 @@ function queueAudioCues(): void {
   }
   const f = world.burstEvents
   const cam = ctx.camera.position
+  const me = player.aircraft.state.position
   for (let i = 0; i < f.count; i++) {
     const dx = f.x[i]! - cam.x, dy = f.y[i]! - cam.y, dz = f.z[i]! - cam.z
     if (dx * dx + dy * dy + dz * dz < FLAK_AUDIO_RANGE * FLAK_AUDIO_RANGE) {
       pushCue(cues, CUE.FlakBurst, f.x[i]!, f.y[i]!, f.z[i]!)
     }
+    // 【炸在自己身上就是受創】爆風的傷害不走子彈那條事件（`World.applyBursts`
+    // 自己吃掉），只能照爆炸半徑自己判
+    const ex = f.x[i]! - me.x, ey = f.y[i]! - me.y, ez = f.z[i]! - me.z
+    const r = f.radius[i]!
+    if (player.alive && ex * ex + ey * ey + ez * ez < r * r) pushCue(cues, CUE.Damage, 0, 0, 0)
   }
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count; i++) {
@@ -2025,13 +2033,13 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
       audio.playPool('flyby', 'flyby', p.x[k]!, p.y[k]!, p.z[k]!, true)
     }
   }
-  // 附近有炸彈落下（自己投的不算）
+  // 附近有炸彈落下 —— **自己投的也算**，那就是投彈的回饋
   const bombs = world.bombs
   const cap = Math.min(bombs.capacity, whistled.length)
   for (let i = 0; i < cap; i++) {
     if (bombs.age[i]! < prevBombAge[i]!) whistled[i] = 0
     prevBombAge[i] = bombs.age[i]!
-    if (!bombs.active[i] || whistled[i] || bombs.owner[i] === me.index || bombs.vy[i]! >= 0) continue
+    if (!bombs.active[i] || whistled[i] || bombs.vy[i]! >= 0) continue
     const dx = bombs.x[i]! - pos.x, dy = bombs.y[i]! - pos.y, dz = bombs.z[i]! - pos.z
     if (dx * dx + dy * dy + dz * dz > WHISTLE_RANGE * WHISTLE_RANGE) continue
     whistled[i] = 1
@@ -2055,6 +2063,13 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   const reloading = playerBay().reloading
   if (prevReloading && !reloading) audio.playFile(SINGLE_FILES.reload, 'reload', 0, 0, 0, false)
   prevReloading = reloading
+  // 進出投彈瞄準視角：彈艙的機械聲
+  if (input.viewMode !== prevViewMode) {
+    if (input.viewMode === 'bomb' || prevViewMode === 'bomb') {
+      audio.playFile(SINGLE_FILES.reload, 'reload', 0, 0, 0, false)
+    }
+    prevViewMode = input.viewMode
+  }
 }
 
 /**
@@ -2441,7 +2456,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
           teamSlot(player.team), player.index,
         )
       }
-      audio.playPool('release', 'release', 0, 0, 0, false)
+      // 【投放不另外出聲】每一顆炸彈自己的呼嘯就是回饋，見 `updateAudio`
     })
   }
   // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成

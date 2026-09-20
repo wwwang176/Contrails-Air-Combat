@@ -138,9 +138,25 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, HIT_FB.cutoffHz)")
   })
 
-  it('投彈投雷在投放回呼裡', () => {
-    const bay = lines('stepBombBay(playerBay()')[0]!
-    expect(SRC.slice(bay, bay + 30).join('\n')).toContain("audio.playPool('release'")
+  /** 【投彈時飛機本身不出聲】每一顆炸彈自己的呼嘯就是回饋，包括自己投的 */
+  it('投彈投雷不另外出聲，自己投的炸彈也會呼嘯', () => {
+    expect(ALL).not.toContain("audio.playPool('release'")
+    const fn = body('function updateAudio(')
+    expect(fn).toContain('audio.playFile(SINGLE_FILES.whistle')
+    expect(fn).not.toContain('bombs.owner[i] === me.index')
+  })
+
+  /** 【被高射砲炸到也要有感覺】爆風的傷害不走子彈那條事件，只能自己判 */
+  it('高射砲的爆風打到自己時記一筆機身受創', () => {
+    const fn = body('function queueAudioCues(')
+    expect(fn).toContain('pushCue(cues, CUE.Damage')
+    expect(fn).toContain('f.radius[i]')
+  })
+
+  it('按 B 切換投彈視角時響一下彈艙', () => {
+    const fn = body('function updateAudio(')
+    expect(fn).toContain('prevViewMode')
+    expect(fn).toContain("audio.playFile(SINGLE_FILES.reload")
   })
 
   it('增援預警換新時播無線電', () => {

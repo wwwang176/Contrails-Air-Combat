@@ -355,22 +355,6 @@
   "loop": false,
   "makeupDb": 2.0
  },
- "release-1": {
-  "loop": false,
-  "makeupDb": 4.6
- },
- "release-2": {
-  "loop": false,
-  "makeupDb": 3.6
- },
- "release-3": {
-  "loop": false,
-  "makeupDb": 7.1
- },
- "release-4": {
-  "loop": false,
-  "makeupDb": 3.8
- },
  "reload-1": {
   "loop": false,
   "makeupDb": 5.5
