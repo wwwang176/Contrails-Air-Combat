@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundDelay, distanceCutoffHz,
-  hitFeedback, damageGainDb, absorptionDb,
+  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -75,6 +75,28 @@ describe('距離', () => {
     expect(absorptionDb(0)).toBeCloseTo(0, 10)
     expect(absorptionDb(1000)).toBeCloseTo(-2.8, 5)
     expect(absorptionDb(3000)).toBeCloseTo(-8.4, 5)
+  })
+})
+
+describe('聲道搶佔用的估計響度', () => {
+  /** 【搶聲道要看響度，不是只看距離】不然近處的爆炸會被遠處的小聲音卡住 */
+  it('同距離時音量大的比較響', () => {
+    expect(voiceLoudnessDb(6, 150, 500)).toBeGreaterThan(voiceLoudnessDb(-16, 150, 500))
+  })
+
+  it('同音量時近的比較響', () => {
+    expect(voiceLoudnessDb(0, 150, 100)).toBeGreaterThan(voiceLoudnessDb(0, 150, 2000))
+  })
+
+  /** 參考距離內沒有距離衰減，只剩空氣吸收那一點 */
+  it('參考距離內只剩空氣吸收', () => {
+    expect(voiceLoudnessDb(0, 150, 0)).toBeCloseTo(0)
+    expect(voiceLoudnessDb(0, 150, 150)).toBeCloseTo(absorptionDb(150), 5)
+  })
+
+  /** 遠處的大爆炸仍可能比近處的小聲音重要 */
+  it('1 km 外的爆炸比 20 m 外的擦過響', () => {
+    expect(voiceLoudnessDb(6, 150, 1000)).toBeGreaterThan(voiceLoudnessDb(-16, 20, 20))
   })
 })
 

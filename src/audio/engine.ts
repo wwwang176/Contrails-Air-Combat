@@ -1,20 +1,21 @@
 import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
-import { absorptionDb, dbToGain, distanceCutoffHz, soundDelay } from './curves'
+import { absorptionDb, dbToGain, distanceCutoffHz, soundDelay, voiceLoudnessDb } from './curves'
 import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
 /**
  * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
  *
- * - **單次音效**：一個 24 聲道的池，全部是 `PositionalAudio`。要定位的放在世界座標；
- *   不定位的（自己身上的聲音）掛在鏡頭上，跟著鏡頭走、永遠在正中間。池滿丟最遠的。
+ * - **單次音效**：一個聲道池，全部是 `PositionalAudio`。要定位的放在世界座標；
+ *   不定位的（自己身上的聲音）掛在鏡頭上，跟著鏡頭走、永遠在正中間。池滿丟最不響的。
  * - **定位循環**：引擎 8、開火 6、砲塔 6 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
  * - **距離**：定位的聲音接兩級低通（遠處只剩低頻）並依距離再減一點音量
  *   （空氣吸收，見 `curves.ts` 的 `absorptionDb`）；單次音效再延後
- *   `距離 ÷ 音速` 才開始播。
+ *   `距離 ÷ 音速` 才開始播。播放中每一幀重算 —— 聲音長達好幾秒，
+ *   這期間鏡頭會飛掉好幾百公尺。
  *
  * 【暫停與音量關閉是兩個旗標】任一個成立就 suspend；兩個都不成立、而且使用者
  * 已經有過手勢，才 resume。只看一個的話，暫停中切音量會把聲音叫醒。
@@ -52,7 +53,13 @@ export interface AudioEngine {
   stopAll(): void
 }
 
-const ONE_SHOT_VOICES = 24
+/**
+ * 【要撐得住一波投彈】一組 B-17 齊投有幾十顆炸彈，每一顆有呼嘯與落地爆炸，
+ * 爆炸又疊兩層，而爆炸聲長達兩三秒 —— 聲道不夠時後面的炸彈整個沒聲音。
+ */
+const ONE_SHOT_VOICES = 40
+/** 空聲道少於這個數就不疊第二層 —— 先保證每一件事都發得出聲 */
+const LAYER_MIN_FREE = 10
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
 const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', fire: 'fireSelf', wind: 'wind', warn: 'warn' }
@@ -64,8 +71,14 @@ const FULL_BAND = 22000
 interface Voice {
   audio: PositionalAudio
   filters: BiquadFilterNode[]
-  /** 開始播時離鏡頭多遠；不定位的是 0。池滿時丟最遠的 */
+  /** 離鏡頭多遠；不定位的是 0 */
   distance: number
+  /** 類別音量＋補償＋額外，不含距離的那幾項。播放中每幀重算用 */
+  baseDb: number
+  positioned: boolean
+  ref: number
+  /** 估計到耳朵有多響，dB。搶聲道比這個 */
+  loudness: number
 }
 
 interface LoopVoice {
@@ -105,6 +118,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   let muted = false
   let paused = false
   let timeScale = 1
+  /** 上一次挑聲道時有幾個是空的。疊第二層之前看它 */
+  let lastFreeVoices = ONE_SHOT_VOICES
 
   function lowpass(): BiquadFilterNode {
     const f = ctx.createBiquadFilter()
@@ -139,7 +154,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   for (let i = 0; i < ONE_SHOT_VOICES; i++) {
     const v = positional()
     root.add(v.audio)
-    voices.push({ ...v, distance: 0 })
+    voices.push({ ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, loudness: -Infinity })
   }
 
   const loops: Record<LoopPool, LoopVoice[]> = { engine: [], fire: [], turret: [] }
@@ -192,17 +207,27 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const d = loc ? camDistance(x, y, z) : 0
     if (loc && d > spec.max) return
 
-    // 空的聲道優先；沒有就丟最遠的 —— 比新的這一個還近的話，新的不播
+    // 空的聲道優先；沒有就搶最不響的那一個 —— 新的比它還小聲就不播。
+    // 【比響度不比距離】一波投彈同時有幾十聲，只比距離的話遠處一聲呼嘯會卡住近處的爆炸
+    const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
+    const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d)
     let pick: Voice | null = null
+    let free = 0
     for (const v of voices) {
-      if (!v.audio.isPlaying) { pick = v; break }
-      if (pick === null || v.distance > pick.distance) pick = v
+      if (!v.audio.isPlaying) { free++; if (pick === null || pick.audio.isPlaying) pick = v; continue }
+      if (pick === null) { pick = v; continue }
+      if (pick.audio.isPlaying && v.loudness < pick.loudness) pick = v
     }
-    if (pick === null || (pick.audio.isPlaying && pick.distance <= d)) return
+    if (pick === null || (pick.audio.isPlaying && pick.loudness >= loud)) return
     if (pick.audio.isPlaying) pick.audio.stop()
 
     const a = pick.audio
     pick.distance = d
+    pick.baseDb = baseDb
+    pick.positioned = loc
+    pick.ref = loc ? spec.ref : 0
+    pick.loudness = loud
+    lastFreeVoices = free
     if (loc) {
       if (a.parent !== root) root.add(a)
       a.position.set(x, y, z)
@@ -220,7 +245,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
-    a.gain.gain.setValueAtTime(gainOf(file, cat, extraDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
+    a.gain.gain.setValueAtTime(dbToGain(baseDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
     a.setPlaybackRate(randomRate(Math.random) * timeScale)
     a.play((loc ? soundDelay(d) : 0) + extraDelay)
   }
@@ -231,7 +256,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const k = pickNoRepeat(members.length, lastPick[pool] ?? -1, Math.random)
     lastPick[pool] = k
     playFile(members[k]!, cat, x, y, z, positioned, extraDb, 0, cutoffHz)
-    if (!layered || members.length < 2) return
+    if (!layered || members.length < 2 || lastFreeVoices < LAYER_MIN_FREE) return
     const k2 = pickNoRepeat(members.length, k, Math.random)
     playFile(members[k2]!, cat, x, y, z, positioned, extraDb + LAYER_DB, layerDelay(Math.random), cutoffHz)
   }
@@ -281,7 +306,27 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     }
   }
 
+  /**
+   * 播放中的定位單次音效：依現在的距離重算低通與空氣吸收。
+   *
+   * 【為什麼不能只在起播時算一次】爆炸、呼嘯都有兩三秒，那段時間玩家可能已經
+   * 俯衝進去了 —— 凍住的話會聽到近在眼前卻悶悶的爆炸，而且怎麼靠近都不會變清晰。
+   */
+  function updateVoices(): void {
+    const now = ctx.currentTime
+    for (const v of voices) {
+      if (!v.positioned || !v.audio.isPlaying) continue
+      const p = v.audio.position
+      const d = camDistance(p.x, p.y, p.z)
+      v.distance = d
+      v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d)
+      setCutoff(v.filters, distanceCutoffHz(d), now, 0.05)
+      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
+    }
+  }
+
   function beginFrame(): void {
+    updateVoices()
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
 

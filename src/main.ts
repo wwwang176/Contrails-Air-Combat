@@ -1969,6 +1969,11 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   const me = player
   // 【坐在座艙裡才有身上的聲音】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」
   const flying = me.alive && !input.godView
+  // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
+  // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
+  // 【先更新聲道再播】搶聲道是比估計響度。不先把播放中的聲道更新到這一幀的距離，
+  // 新的聲音拿本幀距離去跟上一幀的舊值比，明明比較響也會被擋掉
+  audio.beginFrame()
   playCues()
   clearCues(cues)
   if (hitsThisFrame > 0 && flying) playHitDealt()
@@ -1979,7 +1984,6 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   const n = Math.min(all.length, AUDIO_VALID.length)
   for (let i = 0; i < n; i++) AUDIO_POS[i] = visuals.get(all[i]!)!.position
 
-  audio.beginFrame()
   // 引擎：自己不定位；上帝視角時自己也進定位池
   for (let i = 0; i < n; i++) {
     const c = all[i]!

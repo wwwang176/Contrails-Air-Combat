@@ -112,6 +112,20 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   /**
+   * 【先更新聲道再播單次音效】搶聲道比的是估計響度。順序反過來的話，新的聲音
+   * 拿這一幀的距離去跟播放中聲道上一幀的舊值比，明明比較響也會被擋掉。
+   */
+  it('beginFrame 排在所有單次音效之前', () => {
+    const fn = body('function updateAudio(')
+    expect(fn.indexOf('audio.beginFrame()')).toBeGreaterThan(0)
+    for (const call of ['playCues()', 'playHitDealt()', 'playCannons()']) {
+      expect(fn.indexOf('audio.beginFrame()'), call).toBeLessThan(fn.indexOf(call))
+    }
+    expect(fn.indexOf('audio.beginFrame()')).toBeLessThan(fn.indexOf('audio.assign('))
+    expect(fn.indexOf('audio.assign(')).toBeLessThan(fn.indexOf('audio.endFrame()'))
+  })
+
+  /**
    * 【哪幾類疊兩層】爆炸、水花、自己被打一次挑兩個不同的疊；受創疊一下命中。
    * 打中敵機、砲擊、空爆、擦過不疊 —— 太密集，聲道會被吃光。
    */
@@ -129,7 +143,7 @@ describe('音效的戰鬥事件接線', () => {
 
   /**
    * 【打中敵機要限頻率】掃到敵機時幾乎每一幀都有命中，而命中聲平均長 0.65 s；
-   * 不限的話 60 fps 會疊將近 40 層，比單獨一次大 16 dB，還會把 24 個聲道佔滿。
+   * 不限的話 60 fps 會疊將近 40 層，比單獨一次大 16 dB，還會把聲道池佔滿。
    */
   it('打中敵機不疊、限制頻率、依距離衰減與變悶', () => {
     const fn = body('function playHitDealt(')
@@ -181,5 +195,39 @@ describe('音效的戰鬥事件接線', () => {
   it('增援預警換新時播無線電', () => {
     const at = lines('messageText = battle.message')[0]!
     expect(SRC.slice(at - 3, at + 6).join('\n')).toContain("audio.playPool('radio'")
+  })
+})
+
+describe('單次音效的聲道池', () => {
+  const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
+
+  /**
+   * 【每一幀重算距離】聲音長達兩三秒，這期間鏡頭會飛掉好幾百公尺。
+   * 只在起播時算一次的話，俯衝進爆炸點也不會變清晰 —— 不報錯，只是怎麼靠近都悶悶的。
+   */
+  it('每一幀更新播放中定位聲道的低通與音量', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
+    expect(fn).toContain('camDistance(')
+    expect(fn).toContain('setCutoff(')
+    expect(fn).toContain('absorptionDb(d)')
+    expect(fn).toContain('voiceLoudnessDb(')
+    const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
+    expect(begin).toContain('updateVoices()')
+  })
+
+  /**
+   * 【搶聲道比響度】一波投彈幾十聲同時發生。只比距離的話，
+   * 遠處一聲不重要的呼嘯會佔著聲道，近處的爆炸就整個沒聲音。
+   */
+  it('池滿時搶最不響的，而且新的更小聲就不播', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
+    expect(fn).toContain('v.loudness < pick.loudness')
+    expect(fn).toContain('pick.loudness >= loud')
+  })
+
+  /** 【聲道不夠就先別疊】疊第二層是好聽，發得出聲才是必要 */
+  it('空聲道不足時不疊第二層', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playPool('), ENGINE.indexOf('function selfLoop('))
+    expect(fn).toContain('lastFreeVoices < LAYER_MIN_FREE')
   })
 })
