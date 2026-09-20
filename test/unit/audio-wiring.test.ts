@@ -166,6 +166,18 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain("audio.playFile(SINGLE_FILES.bayToggle")
   })
 
+  /**
+   * 【上帝視角不播身上的聲音】那時鏡頭在世界裡、離自機很遠，而這些聲音是不定位的
+   * —— 貼在鏡頭上播等於「在耳邊」，與畫面完全對不上。
+   */
+  it('上帝視角時不記、不播自己身上的單次音效', () => {
+    expect(body('function queueAudioCues(')).toContain('input.godView')
+    const fn = body('function updateAudio(')
+    const at = fn.indexOf('playHitDealt()')
+    expect(at).toBeGreaterThan(0)
+    expect(fn.slice(Math.max(0, at - 120), at)).toContain('flying')
+  })
+
   it('增援預警換新時播無線電', () => {
     const at = lines('messageText = battle.message')[0]!
     expect(SRC.slice(at - 3, at + 6).join('\n')).toContain("audio.playPool('radio'")
