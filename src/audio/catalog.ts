@@ -31,7 +31,9 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   hitSelf: { gainDb: 2, ref: 0, max: 0 },
   // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
   hitDealt: { gainDb: -14, ref: 0, max: 0 },
-  flyby: { gainDb: -4, ref: 0, max: 0 },
+  // 【定位但不衰減】判定半徑 20 m，`ref` 也是 20 —— 範圍內都是原音量，
+  // 要的只是左右方向：聽得出子彈從哪一邊掠過
+  flyby: { gainDb: -4, ref: 20, max: 200 },
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
   release: { gainDb: -6, ref: 0, max: 0 },
