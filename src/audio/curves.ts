@@ -52,9 +52,24 @@ export function soundDelay(distance: number): number {
   return Math.max(0, distance) / SPEED_OF_SOUND
 }
 
-/** 空氣先吸收高頻：距離越遠、低通截止越低（100 m 約 14.7 kHz，8 km 約 540 Hz） */
+/**
+ * 空氣吸收：**高頻先消失**，低通的截止頻率隨距離下降。
+ * 100 m 約 3.9 kHz、1 km 約 1.9 kHz、3 km 約 1.1 kHz、8 km 約 690 Hz。
+ *
+ * 【為什麼是 1/√距離】真實的吸收量（dB）與距離成正比、與頻率平方成正比
+ * （ISO 9613-1），所以「掉 3 dB 的那個頻率」隨距離以 1/√距離 下降。
+ * 這條曲線配上兩級二階低通與 `absorptionDb`，在 250 Hz–8 kHz、0.2–8 km
+ * 之間與標準值的平均誤差約 4 dB。
+ */
 export function distanceCutoffHz(distance: number): number {
-  return 22000 / (1 + Math.max(0, distance) / 200)
+  return 8000 / Math.sqrt(1 + Math.max(0, distance) / 60)
+}
+
+/** 空氣吸收在中頻的那一份：整體再小這麼多 dB（20 °C、70% 濕度下 500 Hz 的值） */
+const ABSORPTION_DB_PER_KM = 2.8
+
+export function absorptionDb(distance: number): number {
+  return -ABSORPTION_DB_PER_KM * Math.max(0, distance) / 1000
 }
 
 /** 打中敵機的回饋在這個距離內不衰減，m */

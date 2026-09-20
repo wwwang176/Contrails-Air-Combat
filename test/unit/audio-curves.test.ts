@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundDelay, distanceCutoffHz,
-  hitFeedback, damageGainDb,
+  hitFeedback, damageGainDb, absorptionDb,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -57,13 +57,24 @@ describe('距離', () => {
     expect(soundDelay(1000)).toBeCloseTo(2.915, 2)
     expect(soundDelay(0)).toBe(0)
   })
-  it('遠處只剩低頻：100 m、1 km、8 km', () => {
-    expect(distanceCutoffHz(100)).toBeCloseTo(14667, -1)
-    expect(distanceCutoffHz(1000)).toBeCloseTo(3667, -1)
-    expect(distanceCutoffHz(8000)).toBeCloseTo(537, 0)
+  /**
+   * 【對照 ISO 9613-1】真實的大氣吸收與距離成正比、與頻率平方成正比。
+   * 這條曲線加上 `absorptionDb` 與兩級低通之後，250 Hz–8 kHz、0.2–8 km 的
+   * 平均誤差約 4 dB。
+   */
+  it('遠處只剩低頻：100 m、1 km、3 km、8 km', () => {
+    expect(distanceCutoffHz(100)).toBeCloseTo(4899, 0)
+    expect(distanceCutoffHz(1000)).toBeCloseTo(1903, 0)
+    expect(distanceCutoffHz(3000)).toBeCloseTo(1120, 0)
+    expect(distanceCutoffHz(8000)).toBeCloseTo(690, 0)
   })
   it('距離越遠截止越低', () => {
     expect(distanceCutoffHz(3000)).toBeLessThan(distanceCutoffHz(2000))
+  })
+  it('空氣吸收：每公里 2.8 dB，近處幾乎沒有', () => {
+    expect(absorptionDb(0)).toBeCloseTo(0, 10)
+    expect(absorptionDb(1000)).toBeCloseTo(-2.8, 5)
+    expect(absorptionDb(3000)).toBeCloseTo(-8.4, 5)
   })
 })
 
