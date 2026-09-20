@@ -65,6 +65,19 @@ export function distanceCutoffHz(distance: number): number {
   return 8000 / Math.sqrt(1 + Math.max(0, distance) / 60)
 }
 
+/**
+ * 這個聲音到耳朵大概多響，dB。**搶聲道用**。
+ *
+ * 【為什麼不是只看距離】一波投彈同時有幾十顆炸彈的呼嘯與爆炸，只比距離的話，
+ * 遠處一聲不重要的呼嘯會卡住近處的爆炸。這裡把類別的音量、距離衰減
+ * （three 的 inverse 模型）與空氣吸收一起算進來。
+ */
+export function voiceLoudnessDb(gainDb: number, ref: number, distance: number): number {
+  const d = Math.max(0, distance)
+  const spread = ref > 0 ? 20 * Math.log10(ref / (ref + Math.max(0, d - ref))) : 0
+  return gainDb + spread + absorptionDb(d)
+}
+
 /** 空氣吸收在中頻的那一份：整體再小這麼多 dB（20 °C、70% 濕度下 500 Hz 的值） */
 const ABSORPTION_DB_PER_KM = 2.8
 
