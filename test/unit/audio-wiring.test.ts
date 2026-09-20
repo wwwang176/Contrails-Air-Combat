@@ -142,6 +142,36 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   /**
+   * 【多普勒只給循環音】Web Audio 沒有內建的 Doppler，自己乘在播放速度上。
+   * 三個循環池都要乘 —— 只給引擎的話，同一架飛機的引擎升調而機槍不動。
+   */
+  it('三個定位循環都乘上多普勒', () => {
+    const fn = body('function updateAudio(')
+    for (const pool of ["audio.assign('engine'", "audio.assign('fire'", "audio.assign('turret'"]) {
+      const at = fn.indexOf(pool)
+      expect(at, pool).toBeGreaterThan(0)
+      // 引擎那一行的係數先算在上一行，其他兩個寫在參數裡 —— 前後都看
+      expect(fn.slice(Math.max(0, at - 180), at + 260), pool)
+        .toContain('dopplerRate(p, c.aircraft.state.velocity, cam, camVel)')
+    }
+  })
+
+  /**
+   * 【鏡頭瞬移不是速度】切視角、重生、換場會讓鏡頭一幀跳幾百公尺，
+   * 相減出來是幾千 m/s —— 那一幀所有引擎聲會整片變調。
+   */
+  it('鏡頭速度逐幀相減，擋掉瞬移，而且每一幀更新一次', () => {
+    const fn = body('function trackCameraVelocity(')
+    expect(fn).toContain('CAM_TELEPORT_SPEED')
+    expect(fn).toContain('camVel.set(0, 0, 0)')
+    const call = lines('trackCameraVelocity(').filter((i) => !SRC[i]!.includes('function'))
+    expect(call).toHaveLength(1)
+    const upd = body('function updateAudio(')
+    expect(upd.indexOf('trackCameraVelocity(')).toBeLessThan(upd.indexOf("audio.assign('engine'"))
+    expect(body('function resetAudioState(')).toContain('camPosValid = false')
+  })
+
+  /**
    * 【爆炸聲跟著當量走】零戰的 60 kg 彈當量尺度 0.11、陸攻的魚雷 1.67，差 15 倍。
    * 不帶當量的話兩者一模一樣響 —— 不報錯，只是聽不出打的是什麼。
    * 當量與畫面那一套同一個來源（`blastScaleOf`），兩邊才不會各說各話。

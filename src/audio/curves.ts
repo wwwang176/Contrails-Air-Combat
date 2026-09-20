@@ -82,6 +82,37 @@ export function soundArrived(sinceEmit: number, distance: number): boolean {
   return SPEED_OF_SOUND * sinceEmit >= Math.max(0, distance)
 }
 
+/** 只讀座標的最小介面 —— 這一支不相依 three */
+interface Vec3 {
+  readonly x: number
+  readonly y: number
+  readonly z: number
+}
+
+/**
+ * 多普勒係數：沿著連線互相接近就升調，遠離就降調。乘在播放速度上。
+ *
+ * 【為什麼要自己算】Web Audio 早就把 Doppler 從 `PannerNode` 拿掉了 ——
+ * `setVelocity`、`dopplerFactor`、`speedOfSound` 在現在的瀏覽器與 three 裡都不存在。
+ *
+ * 【為什麼要夾住】正面對進時徑向分量等於合速，兩架 150 m/s 對頭就是 300 m/s，
+ * 照實算係數會衝到 8 倍 —— 那是尖嘯不是引擎聲。夾住之後交會仍然聽得出
+ * 「咻——嗡」，但不會爆掉。分母變號（音源超過音速）也由夾制接住。
+ */
+const DOPPLER_MIN = 0.75
+const DOPPLER_MAX = 1.25
+
+export function dopplerRate(sp: Vec3, sv: Vec3, lp: Vec3, lv: Vec3): number {
+  let dx = lp.x - sp.x, dy = lp.y - sp.y, dz = lp.z - sp.z
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  if (d < 1e-3) return 1
+  dx /= d; dy /= d; dz /= d
+  // 沿著連線、朝對方的速度分量。正的是接近
+  const toward = sv.x * dx + sv.y * dy + sv.z * dz
+  const back = -(lv.x * dx + lv.y * dy + lv.z * dz)
+  return clamp((SPEED_OF_SOUND + back) / (SPEED_OF_SOUND - toward), DOPPLER_MIN, DOPPLER_MAX)
+}
+
 /**
  * 空氣吸收：**高頻先消失**，低通的截止頻率隨距離下降。
  * 100 m 約 3.9 kHz、1 km 約 1.9 kHz、3 km 約 1.1 kHz、8 km 約 690 Hz。
