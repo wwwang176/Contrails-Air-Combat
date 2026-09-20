@@ -18,17 +18,22 @@ export interface CategorySpec {
   max: number
 }
 
+/**
+ * 【爆炸是天花板】檔案的峰值壓在 −1 dBFS，音量設「高」時總音量是 0 dB ——
+ * 爆炸的 +6 已經接近破音。要讓爆炸更突出就把別的往下壓，不是把爆炸往上加。
+ */
 export const CATEGORY: Record<Category, CategorySpec> = {
-  engineSelf: { gainDb: 0, ref: 0, max: 0 },
-  engine: { gainDb: 0, ref: 60, max: 3000 },
+  engineSelf: { gainDb: -8, ref: 0, max: 0 },
+  engine: { gainDb: -8, ref: 60, max: 3000 },
   // 【自己開火要壓得過引擎與風切】它是操作回饋，扣扳機就該聽得很清楚
   fireSelf: { gainDb: 8, ref: 0, max: 0 },
   fire: { gainDb: 3, ref: 80, max: 2500 },
-  turret: { gainDb: 0, ref: 80, max: 2500 },
+  turret: { gainDb: -2, ref: 80, max: 2500 },
   explosion: { gainDb: 6, ref: 150, max: 8000 },
-  splash: { gainDb: 0, ref: 80, max: 3000 },
-  cannon: { gainDb: -2, ref: 150, max: 6000 },
-  flakBurst: { gainDb: -4, ref: 120, max: 5000 },
+  splash: { gainDb: 2, ref: 80, max: 3000 },
+  cannon: { gainDb: 1, ref: 150, max: 6000 },
+  // 5 吋艦砲、88 砲在空中炸開：就在你附近，要聽得出壓力
+  flakBurst: { gainDb: 2, ref: 120, max: 5000 },
   hitSelf: { gainDb: 2, ref: 0, max: 0 },
   // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
   hitDealt: { gainDb: -14, ref: 0, max: 0 },
@@ -42,7 +47,7 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   whistle: { gainDb: -4, ref: 60, max: 1500 },
   radio: { gainDb: -10, ref: 0, max: 0 },
   warn: { gainDb: -10, ref: 0, max: 0 },
-  wind: { gainDb: 0, ref: 0, max: 0 },
+  wind: { gainDb: -6, ref: 0, max: 0 },
 }
 
 const range = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`)
