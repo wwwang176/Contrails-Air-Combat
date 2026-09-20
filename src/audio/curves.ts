@@ -42,7 +42,7 @@ export function dbToGain(db: number): number {
  * 玩家分不出「被掃到一下」與「正中一發」。
  */
 export function damageGainDb(severity: number): number {
-  return -16 + 16 * clamp(severity, 0, 1)
+  return -10 + 16 * clamp(severity, 0, 1)
 }
 
 export const SPEED_OF_SOUND = 343

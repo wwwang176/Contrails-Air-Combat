@@ -1869,8 +1869,10 @@ function queueAudioCues(): void {
     // 自己吃掉），這裡用同一支 `flakDamage` 算，聲音的輕重才跟實際傷害一致
     if (!player.alive) continue
     const ex = f.x[i]! - me.x, ey = f.y[i]! - me.y, ez = f.z[i]! - me.z
+    // 【輕重看炸得多近，不看血量】同一發打在 B-17 與 P-51 身上，玩家聽到的該是
+    // 同一聲；除以血量的話，血厚的機種永遠只聽到擦邊
     const dmg = flakDamage(Math.sqrt(ex * ex + ey * ey + ez * ez), f.radius[i]!, f.damage[i]!)
-    if (dmg > 0) pushCue(cues, CUE.Damage, Math.min(1, dmg / (player.aircraft.spec.hp * HEAVY_HIT)), 0, 0)
+    if (dmg > 0) pushCue(cues, CUE.Damage, dmg / f.damage[i]!, 0, 0)
   }
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count; i++) {

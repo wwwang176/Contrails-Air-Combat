@@ -68,12 +68,12 @@ describe('距離', () => {
 })
 
 describe('機身受創的輕重', () => {
-  it('擦到一點是 −16 dB，重擊是 0 dB，超過就夾住', () => {
-    expect(damageGainDb(0)).toBe(-16)
-    expect(damageGainDb(0.5)).toBe(-8)
-    expect(damageGainDb(1)).toBe(0)
-    expect(damageGainDb(3)).toBe(0)
-    expect(damageGainDb(-1)).toBe(-16)
+  it('擦到一點是 −10 dB，正中一發是 +6 dB，超過就夾住', () => {
+    expect(damageGainDb(0)).toBe(-10)
+    expect(damageGainDb(0.5)).toBe(-2)
+    expect(damageGainDb(1)).toBe(6)
+    expect(damageGainDb(3)).toBe(6)
+    expect(damageGainDb(-1)).toBe(-10)
   })
 })
 
