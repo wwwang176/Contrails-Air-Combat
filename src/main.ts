@@ -114,7 +114,8 @@ import { deathCamAim, enterDeathCam } from './camera/deathCam'
 import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
-  OVERSPEED_SHAKE, addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
+  OVERSPEED_FULL, OVERSPEED_SHAKE,
+  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
   stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
@@ -2017,7 +2018,9 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   const vneRatio = indicatedAirspeed(me.aircraft.diag.aero.tas, me.aircraft.diag.air.sigma) / spec.limits.vne
   windParams(vneRatio, WIND)
   audio.selfLoop('wind', flying ? SINGLE_FILES.wind : null, 1, WIND.gainDb, WIND.cutoffHz)
-  audio.selfLoop('warn', flying && hudFrame.arenaShow && arena.outside ? SINGLE_FILES.warn : null, 1, 0)
+  // 警告蜂鳴：飛出邊界，或速度進了紅線（與 HUD 的紅線警告同一個門檻）
+  const warn = flying && ((hudFrame.arenaShow && arena.outside) || vneRatio >= OVERSPEED_FULL)
+  audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
 
   if (!flying) {
     prevPlayerHp = -1

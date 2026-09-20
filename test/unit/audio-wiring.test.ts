@@ -153,6 +153,13 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn).toContain('f.radius[i]')
   })
 
+  /** 【超速也要警告】原本只有飛出邊界會響；超速是另一種「再這樣下去會出事」 */
+  it('飛出邊界或超速時警告蜂鳴', () => {
+    const fn = body('function updateAudio(')
+    expect(fn).toContain('arena.outside')
+    expect(fn).toContain('OVERSPEED_FULL')
+  })
+
   it('按 B 切換投彈視角時響一下彈艙', () => {
     const fn = body('function updateAudio(')
     expect(fn).toContain('prevViewMode')
