@@ -20,6 +20,8 @@ export const CUE = {
    * 每 66.7 ms 才一發，所以一幀之內同一座槍最多記一次。
    */
   SelfVolley: 6,
+  /** 子彈打在飛機以外的東西上。**第五格帶的是材質**（`world/material.ts`） */
+  MaterialHit: 7,
 } as const
 export type Cue = typeof CUE[keyof typeof CUE]
 
@@ -35,7 +37,10 @@ export function createCueQueue(capacity: number): CueQueue {
   return { data: new Float32Array(capacity * CUE_STRIDE), count: 0 }
 }
 
-/** `scale` 是爆炸的當量尺度（`blastScaleOf`）；沒有當量可言的事件用預設的 1 */
+/**
+ * 第五格是**附帶值**，每一種事件自己解讀：爆炸與水花是當量尺度
+ * （`blastScaleOf`）、撞擊是材質。用不到的事件留預設的 1。
+ */
 export function pushCue(q: CueQueue, cue: Cue, x: number, y: number, z: number, scale = 1): void {
   if ((q.count + 1) * CUE_STRIDE > q.data.length) return
   const o = q.count * CUE_STRIDE

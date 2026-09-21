@@ -137,6 +137,22 @@ describe('音效的戰鬥事件接線', () => {
     expect(fn.indexOf('nearMiss(')).toBeLessThan(fn.indexOf('if (!flying) {'))
   })
 
+  /**
+   * 【打在飛機以外的東西上要有聲音】船殼、建築各有自己的材質；查不到的走預設，
+   * 不會整個沒聲音。**一定要限頻率** —— 對船掃射每秒命中幾十發，不限的話
+   * 光這一項就把事件佇列灌滿，爆炸與擊落全被擠掉。
+   */
+  it('子彈打到船殼、建築有定位的撞擊聲，而且限頻率', () => {
+    const q = body('function queueAudioCues(')
+    expect(q).toContain('world.materialHits')
+    expect(q).toContain('MATERIAL_HIT_GAP')
+    expect(q).toContain('pushCue(cues, CUE.MaterialHit')
+    expect(q).toContain('clearImpacts(mh)')
+    const fn = body('function playCues(')
+    expect(fn).toContain('const m = impactSound(scale)')
+    expect(fn).toContain("audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate)")
+  })
+
   it('記錄擊落、空爆、自己被打', () => {
     const fn = body('function queueAudioCues(')
     for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
