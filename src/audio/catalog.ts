@@ -65,7 +65,9 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   cannon: { gainDb: 5, ref: 150, max: 6000 },
   // 5 吋艦砲、88 砲在空中炸開：就在你附近，要聽得出壓力
   flakBurst: { gainDb: 2, ref: 120, max: 8000, rolloff: 0.45 },
-  hitSelf: { gainDb: -7.4, ref: 0, max: 0 },
+  // 自己被打中的金屬聲。**單獨響（機槍命中）與疊在受創悶響上都是這一類**；
+  // 只有機槍那一條另外壓了一截，見 `main.ts` 的 `BULLET_HIT_DB`
+  hitSelf: { gainDb: -6, ref: 0, max: 0 },
   // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
   hitDealt: { gainDb: -14, ref: 0, max: 0 },
   // 【定位但不衰減】判定半徑 20 m，`ref` 也是 20 —— 範圍內都是原音量，

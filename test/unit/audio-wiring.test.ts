@@ -99,7 +99,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('自己被打中的播放速度依機體質量與部位護甲', () => {
     expect(body('function queueAudioCues(')).toContain('pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!')
-    expect(body('function playCues(')).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
+    expect(body('function playCues(')).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(x))")
     const fn = body('function selfHitRate(')
     expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(partIndex)])')
     expect(body('function partOf(')).toContain('HIT_PARTS[partIndex]')
@@ -228,12 +228,22 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function playCues(')
     expect(fn).toContain("x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, db, true, rate)")
-    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
+    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(x))")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
     expect(fn).toContain('playHeavyHit(x)')
     const heavy = body('function playHeavyHit(')
     expect(heavy).toContain("audio.playPool('damage'")
     expect(heavy).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)")
+  })
+
+  /**
+   * 【只有機槍命中吃那一截】受創的悶響與疊在它上面的金屬聲共用 `hitSelf` 這一類，
+   * 五吋砲空爆造成的受創走的就是那一條。把 `BULLET_HIT_DB` 挪去改類別增益、
+   * 或多加在受創那一層，空爆的受創聲會跟著變小而沒有任何測試變紅。
+   */
+  it('機槍命中的額外增益只出現在那一條', () => {
+    expect(ALL.match(/BULLET_HIT_DB/g) ?? []).toHaveLength(2)
+    expect(body('function playHeavyHit(')).not.toContain('BULLET_HIT_DB')
   })
 
   /**
