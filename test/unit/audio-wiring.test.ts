@@ -101,8 +101,24 @@ describe('音效的戰鬥事件接線', () => {
     expect(body('function queueAudioCues(')).toContain('pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!')
     expect(body('function playCues(')).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
     const fn = body('function selfHitRate(')
-    expect(fn).toContain('HIT_PARTS[partIndex]')
-    expect(fn).toContain('hitRate(spec.mass, spec.protection[part])')
+    expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(partIndex)])')
+    expect(body('function partOf(')).toContain('HIT_PARTS[partIndex]')
+  })
+
+  /**
+   * 【打中敵機走同一條曲線】只是換成看對方那架。打中 B-17 與打中零戰要分得出來。
+   * 射手索引由受擊事件帶過來，不然聽到的會是僚機打中的那一下。
+   */
+  it('打中敵機的播放速度依對方的質量與部位護甲', () => {
+    const q = body('function queueAudioCues(')
+    expect(q).toContain('dmg.data[o + 5]! === player.index')
+    expect(q).toContain('lastDealtVictim = dmg.data[o]!')
+    expect(q).toContain('lastDealtPart = dmg.data[o + 4]!')
+    const fn = body('function playHitDealt(')
+    expect(fn).toContain('world.combatants[lastDealtVictim]')
+    expect(fn).toContain('hitRate(victim.aircraft.spec.mass, victim.aircraft.spec.protection[partOf(lastDealtPart)])')
+    expect(fn).toContain('false, rate, HIT_FB.cutoffHz)')
+    expect(body('function resetAudioState(')).toContain('lastDealtVictim = -1')
   })
 
   it('記錄擊落、空爆、自己被打', () => {
@@ -211,7 +227,7 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function playHitDealt(')
     expect(fn).toContain('HIT_DEALT_GAP')
     expect(fn).toContain('hitFeedback(')
-    expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, 1, HIT_FB.cutoffHz)")
+    expect(fn).toContain("audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)")
   })
 
   /** 【投彈時飛機本身不出聲】每一顆炸彈自己的呼嘯就是回饋，包括自己投的 */
