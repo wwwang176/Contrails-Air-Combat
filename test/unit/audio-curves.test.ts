@@ -120,13 +120,24 @@ describe('多普勒', () => {
     expect(dopplerRate(SP, ZERO, LP, ZERO)).toBeCloseTo(1)
   })
 
+  /** 【夾制之內就是物理值】不縮放、不誇張 */
   it('音源接近 50 m/s → 1.17；遠離 50 m/s → 0.87', () => {
     expect(dopplerRate(SP, at(50), LP, ZERO)).toBeCloseTo(343 / 293, 4)
     expect(dopplerRate(SP, at(-50), LP, ZERO)).toBeCloseTo(343 / 393, 4)
+    expect(dopplerRate(SP, ZERO, LP, at(-50))).toBeCloseTo(393 / 343, 4)
   })
 
-  it('聽者接近 50 m/s → 0.85 的倒數那一邊：升調', () => {
-    expect(dopplerRate(SP, ZERO, LP, at(-50))).toBeCloseTo(393 / 343, 4)
+  /**
+   * 【接近側比遠離側強得多，這是真的】一次 150 m/s 的掠過落差 16 個半音，
+   * 三分之二在接近時。上限 1.8 就是為了讓這一側進得來。
+   */
+  it('150 m/s 掠過：接近 +9.9 個半音、遠離 −6.3 個半音，都沒被夾', () => {
+    const near = dopplerRate(SP, at(150), LP, ZERO)
+    const far = dopplerRate(SP, at(-150), LP, ZERO)
+    expect(near).toBeCloseTo(343 / 193, 4)
+    expect(far).toBeCloseTo(343 / 493, 4)
+    expect(12 * Math.log2(near)).toBeCloseTo(9.95, 1)
+    expect(12 * Math.log2(far)).toBeCloseTo(-6.28, 1)
   })
 
   /** 【同速同向沒有多普勒】僚機編隊飛行時不該一直升調 */
@@ -143,8 +154,12 @@ describe('多普勒', () => {
    * 【一定要夾住】正面對進時徑向分量等於合速：兩架 150 m/s 對頭是 300 m/s，
    * 不夾的話係數衝到 8 倍，變成尖嘯。
    */
-  it('夾在 0.5–1.5', () => {
-    expect(dopplerRate(SP, at(150), LP, at(-150))).toBe(1.5)
+  /**
+   * 【夾制是最後一道防線】正面對進時徑向分量等於合速，兩架 150 m/s 對頭是
+   * 300 m/s，照實算係數衝到 8 倍。鏡頭瞬移算出來的怪值也由它接住。
+   */
+  it('夾在 0.5–1.8', () => {
+    expect(dopplerRate(SP, at(150), LP, at(-150))).toBe(1.8)
     expect(dopplerRate(SP, at(-150), LP, at(150))).toBe(0.5)
     // 音源比音速還快（不會發生，但分母會變號）
     expect(dopplerRate(SP, at(400), LP, ZERO)).toBe(0.5)
