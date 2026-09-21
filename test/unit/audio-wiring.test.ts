@@ -93,6 +93,18 @@ describe('音效的戰鬥事件接線', () => {
     }
   })
 
+  /**
+   * 【被打中要分機體與部位】不分的話 B-17 與零戰被打中一模一樣。部位由受擊事件
+   * 帶過來（`DAMAGE_STRIDE` 的第 5 格），質量與護甲讀自己那架的 spec。
+   */
+  it('自己被打中的播放速度依機體質量與部位護甲', () => {
+    expect(body('function queueAudioCues(')).toContain('pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!')
+    expect(body('function playCues(')).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
+    const fn = body('function selfHitRate(')
+    expect(fn).toContain('HIT_PARTS[partIndex]')
+    expect(fn).toContain('hitRate(spec.mass, spec.protection[part])')
+  })
+
   it('記錄擊落、空爆、自己被打', () => {
     const fn = body('function queueAudioCues(')
     for (const cue of ['CUE.Explosion', 'CUE.FlakBurst', 'CUE.HitSelf']) expect(fn).toContain(`pushCue(cues, ${cue}`)
@@ -138,7 +150,7 @@ describe('音效的戰鬥事件接線', () => {
     const fn = body('function playCues(')
     expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, db, true, rate)")
-    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true)")
+    expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
     expect(fn).toContain('playHeavyHit(x)')
     const heavy = body('function playHeavyHit(')

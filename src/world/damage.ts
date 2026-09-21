@@ -12,11 +12,17 @@ import { IMPACT_CAPACITY } from './events'
  *
  * 與 `hitEvents` 一樣由**呼叫端**排空。
  */
-export const DAMAGE_STRIDE = 4
+export const DAMAGE_STRIDE = 5
 
 export interface DamageEvents {
   readonly capacity: number
-  /** 每筆 `DAMAGE_STRIDE` 個 float：受害者索引, dx, dy, dz（來彈方向，世界座標單位向量） */
+  /**
+   * 每筆 `DAMAGE_STRIDE` 個 float：受害者索引, dx, dy, dz（來彈方向，世界座標
+   * 單位向量）, 部位序號（`HIT_PARTS` 的索引）。
+   *
+   * 【部位是給音效用的】打在護甲厚的部位要比較低沉，見 `audio/curves.ts`
+   * 的 `hitRate`。受擊方向指示器只讀方向那三個。
+   */
   readonly data: Float32Array
   /** 這一個子步累積了幾筆。`clearDamage` 歸零 */
   count: number
@@ -44,7 +50,7 @@ export function createDamageEvents(capacity: number = IMPACT_CAPACITY): DamageEv
 
 /** 追加一筆。滿了就丟棄並計數。熱路徑：不配置。 */
 export function pushDamage(
-  e: DamageEvents, victim: number, dx: number, dy: number, dz: number,
+  e: DamageEvents, victim: number, dx: number, dy: number, dz: number, part: number,
 ): void {
   if (e.count >= e.capacity) {
     e.dropped++
@@ -56,6 +62,7 @@ export function pushDamage(
   d[o + 1] = dx
   d[o + 2] = dy
   d[o + 3] = dz
+  d[o + 4] = part
   e.count++
 }
 
