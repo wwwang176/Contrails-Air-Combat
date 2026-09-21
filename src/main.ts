@@ -1359,10 +1359,13 @@ async function loadBattle(): Promise<void> {
     // 「教學」按鈕看不看得到也在這時決定
     tutorialPending = unseenTutorials(playerTutorials(), readSeenTutorials())
     menu.setTutorialHelp(playerTutorials().length > 0)
-    // 【音效在開場就開始背景下載】大多數時候這裡已經載完，等一下就過
+    // 【音效在開場就開始背景下載】大多數時候這裡已經載完，等一下就過。
+    // 沒載完時這是唯一還要連網的一步，所以進度條給它一整段，每載完一支推一格
     await loading.step('載入音效', 0.7)
-    await audio.load()
-    await loading.step('編譯著色器', 0.75)
+    await audio.load((done, total) => {
+      loading.set('載入音效', 0.7 + 0.15 * fileFraction(done, total))
+    })
+    await loading.step('編譯著色器', 0.85)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
     await loading.finish('出擊')
