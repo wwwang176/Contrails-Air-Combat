@@ -45,9 +45,14 @@ describe('音效的生命週期接線', () => {
     expect(body('function leaveBattle(')).toContain('audio.stopAll()')
   })
 
-  /** 【背景下載】音效不擋開場；進戰鬥時才等它 */
-  it('進戰鬥前等音效載完', () => {
-    expect(body('async function loadBattle(')).toContain('await audio.load()')
+  /**
+   * 【背景下載】音效不擋開場；進戰鬥時才等它。
+   * 沒載完時這是唯一還要連網的一步 —— 不掛進度的話載入畫面會卡在一個數字不動。
+   */
+  it('進戰鬥前等音效載完，而且把進度掛上載入畫面', () => {
+    const fn = body('async function loadBattle(')
+    expect(fn).toContain('await audio.load((done, total) =>')
+    expect(fn).toContain("loading.set('載入音效', 0.7 + 0.15 * fileFraction(done, total))")
   })
 
   it('離開戰鬥清空佇列、重設邊緣偵測的狀態', () => {

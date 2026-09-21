@@ -25,8 +25,14 @@ export type SelfSlot = 'engine' | 'wind' | 'warn'
 export type LoopPool = 'engine' | 'fire' | 'turret'
 
 export interface AudioEngine {
-  /** 下載並解碼全部音效。重複呼叫回同一個 Promise；失敗的檔案略過 */
-  load(): Promise<void>
+  /**
+   * 下載並解碼全部音效。重複呼叫回同一個 Promise；失敗的檔案略過。
+   *
+   * `onProgress` 每載完一支回報一次。**中途接上也會先收到當下的進度** ——
+   * 開場就在背景下載了，進戰鬥時才掛上載入畫面。清單還沒到（總數未知）
+   * 之前不回報，免得進度條先跳到底再彈回來。
+   */
+  load(onProgress?: (done: number, total: number) => void): Promise<void>
   /** 在使用者手勢裡呼叫 —— 瀏覽器要手勢才肯出聲 */
   unlock(): void
   /** null 是關閉 */
@@ -124,6 +130,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   const makeup = new Map<string, number>()
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
+  /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
+  let filesDone = 0
+  let fileTotal = 0
+  let onProgress: ((done: number, total: number) => void) | null = null
   let unlocked = false
   let muted = false
   let paused = false
@@ -468,6 +478,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const manifest = await res.json() as Record<string, { loop: boolean; makeupDb: number }>
     const ids = Object.keys(manifest)
     for (const id of ids) makeup.set(id, manifest[id]!.makeupDb)
+    fileTotal = ids.length
+    onProgress?.(filesDone, fileTotal)
     let next = 0
     // 【最多 6 個並行】全部同時開會把瀏覽器的連線數吃滿，模型那邊的下載就卡住
     async function worker(): Promise<void> {
@@ -479,15 +491,28 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
         } catch (e) {
           console.warn(`音效載入失敗：${id}`, e)
         }
+        // 【失敗的也要推一格】否則少一支檔，進度條就永遠停在 99%
+        filesDone++
+        onProgress?.(filesDone, fileTotal)
       }
     }
     await Promise.all(Array.from({ length: 6 }, worker))
   }
 
   return {
-    load() {
+    async load(cb) {
+      // 【中途接上也要先報一次】開場已經在背景下載，進戰鬥才掛上載入畫面 ——
+      // 不先報的話，進度條要等下一支檔載完才動，已經載完時則永遠不動
+      if (cb !== undefined) {
+        onProgress = cb
+        if (fileTotal > 0) cb(filesDone, fileTotal)
+      }
       loading ??= loadAll().catch((e) => { console.warn('音效清單載入失敗', e) })
-      return loading
+      try {
+        await loading
+      } finally {
+        if (onProgress === cb) onProgress = null
+      }
     },
     unlock() {
       unlocked = true
