@@ -8,7 +8,7 @@
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact'
 
 export interface CategorySpec {
   gainDb: number
@@ -61,6 +61,12 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   radio: { gainDb: -10, ref: 0, max: 0 },
   warn: { gainDb: -10, ref: 0, max: 0 },
   wind: { gainDb: -6, ref: 0, max: 0 },
+  /**
+   * 子彈打在船殼、建築上。**定位音源** —— 掃射時聽得出打在哪裡。
+   *
+   * 【射程比擦過遠、比爆炸近】它是一連串小撞擊，1.2 km 之外就只是雜訊了
+   */
+  impact: { gainDb: -4, ref: 60, max: 1200 },
 }
 
 const range = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`)
@@ -109,6 +115,34 @@ export function fireFile(specId: string): string | null {
 /** 砲塔：武器 id（與 src/weapons/ 相同）與管數 → 檔。雙聯以上一律用雙聯 */
 export function turretFile(weaponId: string, guns: number): string {
   return `turret-${weaponId}x${guns >= 2 ? 2 : 1}`
+}
+
+/**
+ * 子彈打在飛機以外的東西上，該播什麼。**索引是 `world/material.ts` 的 `MATERIAL`。**
+ *
+ * 【為什麼有預設】新加的目標忘了定材質、或材質新增了而這張表沒跟上時，
+ * 走 `IMPACT_DEFAULT` —— 會有聲音，只是不特別。整個沒聲音才是難查的那種壞法。
+ *
+ * 【目前都用命中庫，只差音高】沒有各材質的獨立素材。厚鋼板比薄鋁殼低沉，
+ * 所以船的播放速度低；要換成獨立的庫時改這張表就好。
+ */
+export interface ImpactSound {
+  pool: Pool
+  gainDb: number
+  rate: number
+}
+
+const IMPACT_DEFAULT: ImpactSound = { pool: 'hit', gainDb: 0, rate: 1 }
+
+const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
+  /** 艦體：厚鋼板，低沉而響 */
+  { pool: 'hit', gainDb: 2, rate: 0.72 },
+  /** 地面目標：建築、車輛 */
+  { pool: 'hit', gainDb: 0, rate: 0.88 },
+]
+
+export function impactSound(material: number): ImpactSound {
+  return IMPACT_BY_MATERIAL[material] ?? IMPACT_DEFAULT
 }
 
 /**

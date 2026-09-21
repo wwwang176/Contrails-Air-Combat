@@ -1,4 +1,31 @@
 import { describe, it, expect } from 'vitest'
+import { impactSound } from '../../src/audio/catalog'
+import { MATERIAL } from '../../src/world/material'
+
+/**
+ * 【查不到材質要有預設】新目標忘了定材質、或材質加了而表沒跟上時，
+ * 整個沒聲音是最難查的壞法 —— 不報錯、不當掉，只是那個東西打起來悶不吭聲。
+ */
+describe('撞擊材質', () => {
+  it('每一種材質都有定義', () => {
+    for (const [name, m] of Object.entries(MATERIAL)) {
+      expect(impactSound(m).pool, name).toBeTruthy()
+    }
+  })
+
+  /** 厚鋼板比建築低沉 */
+  it('船比地面目標低沉', () => {
+    expect(impactSound(MATERIAL.ship).rate).toBeLessThan(impactSound(MATERIAL.ground).rate)
+  })
+
+  it('沒定義的材質走預設，不是沒聲音', () => {
+    for (const bad of [99, -1, 1.5, NaN]) {
+      expect(impactSound(bad).pool, String(bad)).toBe('hit')
+      expect(impactSound(bad).rate, String(bad)).toBe(1)
+    }
+  })
+})
+
 import { readFileSync } from 'node:fs'
 import { ALL_FILES, POOLS, engineFile, fireFile, turretFile } from '../../src/audio/catalog'
 import { ALL_SPECS } from '../../src/battle/skirmish'

@@ -6,7 +6,9 @@ import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
-import { SINGLE_FILES, engineFile, fireFile, turretFile, volleyPool, type Pool } from './audio/catalog'
+import {
+  SINGLE_FILES, engineFile, fireFile, impactSound, turretFile, volleyPool, type Pool,
+} from './audio/catalog'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -1751,6 +1753,8 @@ const HEAVY_HIT = 0.08
  * 60 fps 疊將近 40 層，比單獨一次大 16 dB，還會把 24 個單次聲道佔滿。
  */
 const HIT_DEALT_GAP = 0.1
+/** 子彈打在船殼、建築上最密多久一次，s */
+const MATERIAL_HIT_GAP = 0.07
 /** 找不到正在打的那架時，回饋用這個距離，m */
 /**
  * 別人的槍：最近這麼多秒內開過火就算「還在開火」，s。
@@ -1812,6 +1816,8 @@ let prevViewMode: typeof input.viewMode = 'third'
 let rattleTimer = 0
 let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
+/** 上一次播子彈打在船殼、建築上的世界時間 */
+let lastMaterialHit = -Infinity
 /** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
 let lastDealtVictim = -1
 let lastDealtPart = 0
@@ -1836,6 +1842,7 @@ function resetAudioState(): void {
   rattleTimer = 0
   lastFlyby = -Infinity
   lastHitDealt = -Infinity
+  lastMaterialHit = -Infinity
   lastDealtVictim = -1
   prevViewMode = input.viewMode
 }
@@ -1971,6 +1978,16 @@ function queueAudioCues(): void {
     const dmg = flakDamage(Math.sqrt(ex * ex + ey * ey + ez * ez), f.radius[i]!, f.damage[i]!)
     if (dmg > 0) pushCue(cues, CUE.Damage, dmg / f.damage[i]!, 0, 0)
   }
+  // 子彈打在船殼、建築上。【要限頻率】對船掃射時六挺每秒命中幾十發，
+  // 不限的話光這一項就把事件佇列灌滿，爆炸與擊落會被擠掉
+  const mh = world.materialHits
+  for (let e = 0; e < mh.count; e++) {
+    if (world.time - lastMaterialHit < MATERIAL_HIT_GAP) break
+    lastMaterialHit = world.time
+    const o = e * IMPACT_STRIDE
+    pushCue(cues, CUE.MaterialHit, mh.data[o]!, mh.data[o + 1]!, mh.data[o + 2]!, mh.data[o + 3]!)
+  }
+  clearImpacts(mh)
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count && !input.godView; i++) {
     const o = i * DAMAGE_STRIDE
@@ -2010,6 +2027,12 @@ function playCues(): void {
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       // 【x 帶的是被打中的部位序號】不是座標
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x)); break
+      // 【第五格帶的是材質】查不到的材質走預設，不會沒聲音
+      case CUE.MaterialHit: {
+        const m = impactSound(scale)
+        audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate)
+        break
+      }
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
       case CUE.Damage: playHeavyHit(x); break
       // 【自己開火的 x 帶的是分組序號】不是座標

@@ -38,6 +38,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import type { GroundTarget } from './groundTargets'
+import { MATERIAL } from './material'
 import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform, ownerShipIndex } from './shipGuns'
@@ -405,6 +406,18 @@ export class World {
    * 想這樣用的人要知道。傷害仍然只走 `damageEvents`。
    */
   readonly hitEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 子彈打在**飛機以外**的東西上：x, y, z, 材質（`ImpactMaterial`）, 0, 0。
+   * 法線那三格不用 —— 音效只要位置。
+   *
+   * 【為什麼不共用 `hitEvents`】那一條同時收飛機、船、地面目標與山壁，而飛機
+   * 那些已經有自己的聲音（`hitSelf`／`hitDealt`）。沒有欄位分得出來，整批播就
+   * 會與飛機那一套重複一次。
+   *
+   * **呼叫端負責排空**（與 `hitEvents` 同一個理由）。
+   */
+  readonly materialHits: ImpactEvents = createImpacts()
 
   /**
    * 這一個物理步之內的入海事件。法線恆為 `(0, 1, 0)` —— 水柱就是「法線
@@ -1290,11 +1303,9 @@ export class World {
       if (shipHit !== null) {
         // 【火花與打到飛機同一組】`hitEvents` 的消費者是 `sparks.emit`。
         // **不推 `damageEvents`** —— 那一條要一個 combatant 索引，船不是飛機。
-        pushImpact(
-          this.hitEvents,
-          ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
-          -(bx - ax), -(by - ay), -(bz - az),
-        )
+        const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
+        pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
+        pushImpact(this.materialHits, hx, hy, hz, MATERIAL.ship, 0, 0)
         const dmg = p.damage[i]!
         const cal = p.caliber[i]!
         // 【不套 PART_MULTIPLIER】那是飛機的六個部位，船沒有座艙也沒有機翼。
@@ -1343,11 +1354,9 @@ export class World {
           }
         }
         if (hitTarget !== null) {
-          pushImpact(
-            this.hitEvents,
-            ax + (bx - ax) * bestT, ay + (by - ay) * bestT, az + (bz - az) * bestT,
-            -(bx - ax), -(by - ay), -(bz - az),
-          )
+          const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
+          pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
+          pushImpact(this.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
           // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
           hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
           // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
