@@ -38,10 +38,10 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 砲塔。**自己機上的與別架的共用這一個** —— 砲塔一律是定位音源，自己那架
    * 的就掛在幾公尺外，在參考距離之內等於全音量。
    *
-   * 【為什麼要 +5 這麼高】開轟炸機時砲塔就是玩家的槍，要與戰鬥機的
-   * 「槍比引擎高 10 dB」對齊。代價是遠處的轟炸機編隊也跟著大一截。
+   * 【為什麼比戰鬥機的槍小】開轟炸機時砲塔就是玩家的槍，但它同時是滿天
+   * 轟炸機編隊的還擊聲 —— 拉到與戰鬥機同樣的比例，盟 M2 那種場面會太吵。
    */
-  turret: { gainDb: 5, ref: 80, max: 2500 },
+  turret: { gainDb: 2, ref: 80, max: 2500 },
   explosion: { gainDb: 6, ref: 150, max: 8000 },
   splash: { gainDb: 2, ref: 80, max: 3000 },
   cannon: { gainDb: 1, ref: 150, max: 6000 },
