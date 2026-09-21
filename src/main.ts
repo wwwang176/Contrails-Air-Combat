@@ -79,7 +79,7 @@ import {
 } from './world/events'
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
-import { HIT_PARTS } from './world/hit'
+import { HIT_PARTS, type HitPart } from './world/hit'
 import {
   AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
 } from './render/geometry/buildAircraft'
@@ -1813,6 +1813,9 @@ let prevViewMode: typeof input.viewMode = 'third'
 let rattleTimer = 0
 let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
+/** 這一幀最後一次打中的是誰的哪個部位。−1 = 這一幀還沒打中任何人 */
+let lastDealtVictim = -1
+let lastDealtPart = 0
 
 /**
  * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
@@ -1832,6 +1835,7 @@ function resetAudioState(): void {
   rattleTimer = 0
   lastFlyby = -Infinity
   lastHitDealt = -Infinity
+  lastDealtVictim = -1
   prevViewMode = input.viewMode
 }
 
@@ -1895,7 +1899,11 @@ function playHitDealt(): void {
     if (c.range < range) range = c.range
   }
   hitFeedback(range, HIT_FB)
-  audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, 1, HIT_FB.cutoffHz)
+  // 【與自己被打中同一條曲線】只是換成看對方那架：大台的、護甲厚的部位比較低沉
+  const victim = world.combatants[lastDealtVictim]
+  const rate = victim === undefined ? 1
+    : hitRate(victim.aircraft.spec.mass, victim.aircraft.spec.protection[partOf(lastDealtPart)])
+  audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)
 }
 
 /** 物理子步裡呼叫，排在所有事件清除之前。只寫佇列 */
@@ -1970,6 +1978,12 @@ function queueAudioCues(): void {
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count && !input.godView; i++) {
     const o = i * DAMAGE_STRIDE
+    // 【打中敵機記在這裡】`playHitDealt` 每一幀才播一次，它需要「剛剛打中的是
+    // 誰的哪個部位」 —— 那個資訊只有子步裡有
+    if (dmg.data[o + 5]! === player.index && dmg.data[o]! !== player.index) {
+      lastDealtVictim = dmg.data[o]!
+      lastDealtPart = dmg.data[o + 4]!
+    }
     if (dmg.data[o]! !== player.index) continue
     // 【x 帶的是被打中的部位序號】不是座標；護甲厚的部位聽起來比較低沉
     pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!, 0, 0)
@@ -2013,8 +2027,12 @@ function playCues(): void {
  */
 function selfHitRate(partIndex: number): number {
   const spec = player.aircraft.spec
-  const part = HIT_PARTS[partIndex] ?? 'fuselage'
-  return hitRate(spec.mass, spec.protection[part])
+  return hitRate(spec.mass, spec.protection[partOf(partIndex)])
+}
+
+/** 部位序號 → 部位。認不得的當機身 —— 音效不該因為一個序號就整個不播 */
+function partOf(partIndex: number): HitPart {
+  return HIT_PARTS[partIndex] ?? 'fuselage'
 }
 
 /** 自己受創：一下結構的悶響，疊一下小一截的金屬命中。音量跟著輕重走 */

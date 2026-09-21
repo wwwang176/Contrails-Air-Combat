@@ -10,8 +10,8 @@ import type { Command, Controller } from '../../src/control/Controller'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 
 describe('DamageEvents', () => {
-  it('每筆五個 float：受害者索引 + 來彈方向 + 部位序號', () => {
-    expect(DAMAGE_STRIDE).toBe(5)
+  it('每筆六個 float：受害者索引 + 來彈方向 + 部位序號 + 射手索引', () => {
+    expect(DAMAGE_STRIDE).toBe(6)
     const e = createDamageEvents(4)
     expect(e.data.length).toBe(4 * DAMAGE_STRIDE)
     expect(e.count).toBe(0)
@@ -24,24 +24,24 @@ describe('DamageEvents', () => {
 
   it('追加一筆，欄位依序寫入', () => {
     const e = createDamageEvents(4)
-    pushDamage(e, 7, 1, 0, 0, 3)
+    pushDamage(e, 7, 1, 0, 0, 3, 9)
     expect(e.count).toBe(1)
-    expect(Array.from(e.data.slice(0, DAMAGE_STRIDE))).toEqual([7, 1, 0, 0, 3])
+    expect(Array.from(e.data.slice(0, DAMAGE_STRIDE))).toEqual([7, 1, 0, 0, 3, 9])
   })
 
   it('索引存進 float32 仍然精確', () => {
     // 【為什麼要測】float32 對 2^24 以內的整數精確，而參戰架數是 40。
     // 這條把那個推導釘住，免得日後有人把 victim 換成別的東西。
     const e = createDamageEvents(64)
-    for (let i = 0; i < 64; i++) pushDamage(e, i, 0, 0, 1, 0)
+    for (let i = 0; i < 64; i++) pushDamage(e, i, 0, 0, 1, 0, -1)
     for (let i = 0; i < 64; i++) expect(e.data[i * DAMAGE_STRIDE]).toBe(i)
   })
 
   it('滿了就丟棄並計數', () => {
     const e = createDamageEvents(2)
-    pushDamage(e, 0, 0, 0, 1, 0)
-    pushDamage(e, 1, 0, 0, 1, 0)
-    pushDamage(e, 2, 0, 0, 1, 0)
+    pushDamage(e, 0, 0, 0, 1, 0, -1)
+    pushDamage(e, 1, 0, 0, 1, 0, -1)
+    pushDamage(e, 2, 0, 0, 1, 0, -1)
     expect(e.count).toBe(2)
     expect(e.dropped).toBe(1)
   })
@@ -50,8 +50,8 @@ describe('DamageEvents', () => {
     // 【為什麼 dropped 是累計的】它是給整合測試斷言「從未溢位」用的。
     // 每次排空都歸零的話，溢位會在下一次排空時被抹掉，於是永遠測不到。
     const e = createDamageEvents(1)
-    pushDamage(e, 0, 0, 0, 1, 0)
-    pushDamage(e, 1, 0, 0, 1, 0)
+    pushDamage(e, 0, 0, 0, 1, 0, -1)
+    pushDamage(e, 1, 0, 0, 1, 0, -1)
     clearDamage(e)
     expect(e.count).toBe(0)
     expect(e.dropped).toBe(1)
