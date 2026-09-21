@@ -106,19 +106,35 @@ describe('音效的戰鬥事件接線', () => {
   })
 
   /**
-   * 【打中敵機走同一條曲線】只是換成看對方那架。打中 B-17 與打中零戰要分得出來。
-   * 射手索引由受擊事件帶過來，不然聽到的會是僚機打中的那一下。
+   * 【打中誰都播，走同一條曲線】不分射手 —— 僚機打中的也聽得到，太遠的由距離
+   * 衰減擋掉。所以距離要量**真正被打中的那一架**，不能拿「最近的敵機」來估。
    */
-  it('打中敵機的播放速度依對方的質量與部位護甲', () => {
+  it('有飛機被打中就播，速度與距離都看被打中的那一架', () => {
     const q = body('function queueAudioCues(')
-    expect(q).toContain('dmg.data[o + 5]! === player.index')
     expect(q).toContain('lastDealtVictim = dmg.data[o]!')
     expect(q).toContain('lastDealtPart = dmg.data[o + 4]!')
+    expect(q).toContain('hitDealtPending = true')
     const fn = body('function playHitDealt(')
     expect(fn).toContain('world.combatants[lastDealtVictim]')
-    expect(fn).toContain('hitRate(victim.aircraft.spec.mass, victim.aircraft.spec.protection[partOf(lastDealtPart)])')
+    expect(fn).toContain('hitFeedback(victim.aircraft.state.position.distanceTo(ctx.camera.position), HIT_FB)')
+    expect(fn).toContain('hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])')
     expect(fn).toContain('false, rate, HIT_FB.cutoffHz)')
+    const upd = body('function updateAudio(')
+    expect(upd).toContain('if (hitDealtPending && flying) playHitDealt()')
+    expect(upd).toContain('hitDealtPending = false')
     expect(body('function resetAudioState(')).toContain('lastDealtVictim = -1')
+  })
+
+  /**
+   * 【擦過看鏡頭不看機身】上帝視角時鏡頭在世界裡自由飛，從它旁邊掠過的子彈
+   * 一樣該有聲音；那時也不屬於任何一邊，兩邊的子彈都算（隊伍傳 −1）。
+   */
+  it('擦過判定用鏡頭位置，上帝視角時兩邊的子彈都算', () => {
+    const fn = body('function updateAudio(')
+    expect(fn).toContain('nearMiss(world.projectiles, team, eye.x, eye.y, eye.z, FLYBY_RADIUS)')
+    expect(fn).toContain('const team = input.godView ? -1 : teamSlot(me.team)')
+    // 擦過排在「沒坐在座艙裡就提前結束」之前
+    expect(fn.indexOf('nearMiss(')).toBeLessThan(fn.indexOf('if (!flying) {'))
   })
 
   it('記錄擊落、空爆、自己被打', () => {
