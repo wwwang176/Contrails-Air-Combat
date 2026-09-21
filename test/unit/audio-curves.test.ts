@@ -98,6 +98,17 @@ describe('聲道搶佔用的估計響度', () => {
     expect(voiceLoudnessDb(0, 150, 150)).toBeCloseTo(absorptionDb(150), 5)
   })
 
+  /**
+   * 【衰減率小於 1 就傳得更遠】軍火的爆炸用 0.45 —— 3 km 外比 1 大 6.4 dB。
+   * 搶聲道的估計也要吃它，不然遠處的大爆炸會被當成小聲音丟掉。
+   */
+  it('衰減率越小，遠處越響', () => {
+    expect(voiceLoudnessDb(6, 150, 3000, 0.45)).toBeGreaterThan(voiceLoudnessDb(6, 150, 3000))
+    expect(voiceLoudnessDb(6, 150, 3000, 0.45) - voiceLoudnessDb(6, 150, 3000)).toBeCloseTo(6.42, 1)
+    // 參考距離之內不受影響
+    expect(voiceLoudnessDb(0, 150, 100, 0.45)).toBeCloseTo(voiceLoudnessDb(0, 150, 100))
+  })
+
   /** 遠處的大爆炸仍可能比近處的小聲音重要 */
   it('1 km 外的爆炸比 20 m 外的擦過響', () => {
     expect(voiceLoudnessDb(6, 150, 1000)).toBeGreaterThan(voiceLoudnessDb(-16, 20, 20))

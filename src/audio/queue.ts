@@ -20,6 +20,11 @@ export const CUE = {
    * 每 66.7 ms 才一發，所以一幀之內同一座槍最多記一次。
    */
   SelfVolley: 6,
+  /**
+   * 炸彈、魚雷、地面目標炸毀。**與飛機爆炸分開是為了傳得更遠** ——
+   * 幾百公斤的裝藥在地面炸開與一架飛機解體不是同一回事，見 `CATEGORY.blast`。
+   */
+  Blast: 8,
   /** 子彈打在飛機以外的東西上。**第五格帶的是材質**（`world/material.ts`） */
   MaterialHit: 7,
 } as const

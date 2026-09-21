@@ -210,7 +210,7 @@ describe('音效的戰鬥事件接線', () => {
    */
   it('爆炸、水花、自己被打疊兩層；受創疊命中', () => {
     const fn = body('function playCues(')
-    expect(fn).toContain("audio.playPool('explosion', 'explosion', x, y, z, true, db, true, rate)")
+    expect(fn).toContain("x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('splash', 'splash', x, y, z, true, db, true, rate)")
     expect(fn).toContain("audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x))")
     expect(fn).toContain("audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true)")
@@ -255,6 +255,22 @@ describe('音效的戰鬥事件接線', () => {
    * 不帶當量的話兩者一模一樣響 —— 不報錯，只是聽不出打的是什麼。
    * 當量與畫面那一套同一個來源（`blastScaleOf`），兩邊才不會各說各話。
    */
+  /**
+   * 【軍火的爆炸與飛機解體分開】幾百公斤的裝藥在地面炸開，幾公里外聽得到才對；
+   * 飛機爆炸傳那麼遠的話，空戰時滿天都是，會變成持續的隆隆聲。
+   * 兩者共用爆炸庫，差別只在類別（`CATEGORY.blast` 的 `rolloff`）。
+   */
+  it('炸彈、魚雷、地面目標走 blast 類別，飛機擊落走 explosion', () => {
+    const q = body('function queueAudioCues(')
+    // 擊落的那一筆仍然是 CUE.Explosion
+    expect(q).toContain('pushCue(cues, CUE.Explosion, x, y, z)')
+    // 炸彈（陸）、魚雷、地面目標炸毀三處都是 CUE.Blast
+    expect(q.match(/pushCue\(cues, CUE\.Blast/g) ?? []).toHaveLength(3)
+    const fn = body('function playCues(')
+    expect(fn).toContain("cues.data[o]! === CUE.Blast ? 'blast' : 'explosion'")
+    expect(fn).toContain("audio.playPool('explosion', 'blast', x, y, z, true, db - 12")
+  })
+
   it('炸彈與魚雷的爆炸、水花帶當量', () => {
     const fn = body('function queueAudioCues(')
     // 炸彈的爆炸／水花／落水悶響，加魚雷的爆炸／水花

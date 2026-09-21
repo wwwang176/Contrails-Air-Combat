@@ -87,11 +87,23 @@ export function injectSmokeLighting(shader: SmokeLightingShader): void {
          float r = max(uBlastLightRadius[i], 1.0);
          vec3 toLight = vSmokeWorldCenter - uBlastLightPos[i];
          float k = clamp(1.0 - dot(toLight, toLight) / (r * r), 0.0, 1.0);
-         blastLight += uBlastLightColor[i] * (k * k);
+         blastLight += uBlastLightColor[i] * pow(k, ${BLAST_SMOKE_FALLOFF.toFixed(1)});
        }
        diffuseColor.rgb += blastLight * (1.0 - coreDensity * 0.5) * ${BLAST_SMOKE_GAIN.toFixed(3)};`,
     )
 }
+
+/**
+ * 爆炸閃光照在煙上的衰減次方。**越大，遠一點的煙就越暗。**
+ *
+ * 【為什麼不是 2】`k = 1 − (d/r)²` 在半徑之內掉得很慢：次方 2 時，半徑一半處
+ * 還有 56% 的亮度。爆炸的照射半徑 400 m 起跳（大當量更遠），於是幾百公尺外
+ * 整片煙會一起亮。次方 4 時半徑一半剩 32%、四分之三處剩 3.7%。
+ *
+ * 照在地形與飛機上的是 `PointLight`，走物理的 1/d²；這一條是煙專用的近似，
+ * 次方拉高等於往那個行為靠。**起始值，由試飛裁定。**
+ */
+export const BLAST_SMOKE_FALLOFF = 4
 
 /**
  * 爆炸閃光照在煙上的增益。燈色 × 亮度比例 × 閃光尺度之後再乘這個數加到煙色上
