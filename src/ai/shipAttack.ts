@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
+import type { FireAim } from './fire'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { sustainedTurnRate } from '../analysis/envelope'
@@ -64,6 +65,18 @@ export const SHIP_BREAK_RANGE = 100
 
 /** 機首與預瞄方向的夾角小於這個才開火，rad。 */
 export const SHIP_FIRE_CONE = 3 * DEG
+
+/**
+ * 在錐內就開火，順手把夾角寫進 `aim`。
+ *
+ * 【為什麼要回報夾角】掃射也吃點放的工作週期（`ai/fire.ts` 的 `burstDuty`）——
+ * 瞄得準就咬住，瞄得爛只點兩下，與打飛機同一條規則。不回報的話呼叫端得再算
+ * 一次 acos，而這是每個物理步都跑的路徑。
+ */
+function fireWithinCone(dot: number, aim: FireAim | undefined): boolean {
+  if (aim !== undefined) aim.error = Math.acos(Math.min(1, Math.max(-1, dot)))
+  return dot > Math.cos(SHIP_FIRE_CONE)
+}
 
 /** 對地掃射脫離時的固定爬升角。它只作用在已飛越目標的離場段，不是低空偏好。 */
 export const GROUND_STRAFE_EGRESS_CLIMB = 6 * DEG
@@ -335,11 +348,11 @@ const MIN_ERROR = 1e-6
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
 export function shipAttackCommand(
-  self: Aircraft, ship: Ship, gunIndex: number, out: Command, point = -1,
+  self: Aircraft, ship: Ship, gunIndex: number, out: Command, point = -1, fireAim?: FireAim,
 ): void {
   const aim = shipAimAt(ship, gunIndex, S.v[0]!, point)
   const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(ship.orientation).multiplyScalar(ship.speed)
-  strafeCommand(self, aim, tv.x, tv.y, tv.z, out)
+  strafeCommand(self, aim, tv.x, tv.y, tv.z, out, fireAim)
 }
 
 /**
@@ -351,10 +364,11 @@ export function shipAttackCommand(
  */
 export function groundAttackCommand(
   state: GroundStrafeState, self: Aircraft, target: GroundTarget, replan: boolean, out: Command,
+  fireAim?: FireAim,
 ): void {
   const p = target.position
   const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
-  groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out)
+  groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim)
 }
 
 /**
@@ -424,6 +438,7 @@ function groundStrafeCommand(
   tvz: number,
   replan: boolean,
   out: Command,
+  fireAim?: FireAim,
 ): void {
   if (state.target !== target) {
     resetGroundStrafe(state)
@@ -482,7 +497,7 @@ function groundStrafeCommand(
     return
   }
   const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
-  out.firing = nose.dot(lead) > Math.cos(SHIP_FIRE_CONE)
+  out.firing = fireWithinCone(nose.dot(lead), fireAim)
 }
 
 /**
@@ -493,6 +508,7 @@ function groundStrafeCommand(
  */
 function strafeCommand(
   self: Aircraft, aim: Vector3, tvx: number, tvy: number, tvz: number, out: Command,
+  fireAim?: FireAim,
 ): void {
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const range = los.length()
@@ -539,5 +555,5 @@ function strafeCommand(
   // 【用機首而不是瞄準線】`aimWorld` 是**想要**的方向，機首是**現在**的
   // 方向。用前者的話飛機在掉頭途中就會開火，子彈往天空飛。
   const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
-  out.firing = nose.dot(lead) > Math.cos(SHIP_FIRE_CONE)
+  out.firing = fireWithinCone(nose.dot(lead), fireAim)
 }
