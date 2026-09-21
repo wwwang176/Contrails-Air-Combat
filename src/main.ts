@@ -1752,7 +1752,6 @@ const HEAVY_HIT = 0.08
  */
 const HIT_DEALT_GAP = 0.1
 /** 找不到正在打的那架時，回饋用這個距離，m */
-const HIT_DEALT_FALLBACK = 300
 /**
  * 別人的槍：最近這麼多秒內開過火就算「還在開火」，s。
  *
@@ -1813,9 +1812,11 @@ let prevViewMode: typeof input.viewMode = 'third'
 let rattleTimer = 0
 let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
-/** 這一幀最後一次打中的是誰的哪個部位。−1 = 這一幀還沒打中任何人 */
+/** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
 let lastDealtVictim = -1
 let lastDealtPart = 0
+/** 這一幀有飛機被打中（自己以外）。子步裡寫、`updateAudio` 讀完歸零 */
+let hitDealtPending = false
 
 /**
  * 上一幀的狀態全部歸零。開戰、離開、接手僚機時呼叫 —— 不歸零的話，
@@ -1891,18 +1892,13 @@ function rebuildVolleyGroups(): void {
  */
 function playHitDealt(): void {
   if (elapsed - lastHitDealt < HIT_DEALT_GAP) return
-  lastHitDealt = elapsed
-  let range = HIT_DEALT_FALLBACK
-  for (let i = 0; i < hudFrame.contactCount; i++) {
-    const c = hudFrame.contacts[i]!
-    if (!c.active || !c.hostile || c.behind) continue
-    if (c.range < range) range = c.range
-  }
-  hitFeedback(range, HIT_FB)
-  // 【與自己被打中同一條曲線】只是換成看對方那架：大台的、護甲厚的部位比較低沉
   const victim = world.combatants[lastDealtVictim]
-  const rate = victim === undefined ? 1
-    : hitRate(victim.aircraft.spec.mass, victim.aircraft.spec.protection[partOf(lastDealtPart)])
+  if (victim === undefined) return
+  lastHitDealt = elapsed
+  hitFeedback(victim.aircraft.state.position.distanceTo(ctx.camera.position), HIT_FB)
+  // 【與自己被打中同一條曲線】只是換成看對方那架：大台的、護甲厚的部位比較低沉
+  const spec = victim.aircraft.spec
+  const rate = hitRate(spec.mass, spec.protection[partOf(lastDealtPart)])
   audio.playPool('hit', 'hitDealt', 0, 0, 0, false, HIT_FB.gainDb, false, rate, HIT_FB.cutoffHz)
 }
 
@@ -1978,11 +1974,12 @@ function queueAudioCues(): void {
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count && !input.godView; i++) {
     const o = i * DAMAGE_STRIDE
-    // 【打中敵機記在這裡】`playHitDealt` 每一幀才播一次，它需要「剛剛打中的是
-    // 誰的哪個部位」 —— 那個資訊只有子步裡有
-    if (dmg.data[o + 5]! === player.index && dmg.data[o]! !== player.index) {
+    // 【誰打中誰都算】不分射手 —— 僚機打中的也聽得到。太遠的由距離衰減擋掉，
+    // 而距離要量**真正被打中的那一架**，所以這裡記下是誰
+    if (dmg.data[o]! !== player.index) {
       lastDealtVictim = dmg.data[o]!
       lastDealtPart = dmg.data[o + 4]!
+      hitDealtPending = true
     }
     if (dmg.data[o]! !== player.index) continue
     // 【x 帶的是被打中的部位序號】不是座標；護甲厚的部位聽起來比較低沉
@@ -2092,7 +2089,7 @@ function noteTurretFire(c: Combatant): void {
  * 每一幀、鏡頭定位之後呼叫：播佇列、引擎、開火、砲塔、艦砲、擦過、呼嘯、
  * 受創、晃動、風切、警告、裝填。
  */
-function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
+function updateAudio(worldSeconds: number): void {
   const me = player
   // 【坐在座艙裡才有身上的聲音】上帝視角時鏡頭在世界裡，不定位的聲音會變成「在耳邊」
   const flying = me.alive && !input.godView
@@ -2104,7 +2101,9 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   trackCameraVelocity(worldSeconds)
   playCues()
   clearCues(cues)
-  if (hitsThisFrame > 0 && flying) playHitDealt()
+  // 【誰打中誰都播】僚機打中的也算。太遠的由距離衰減擋掉
+  if (hitDealtPending && flying) playHitDealt()
+  hitDealtPending = false
   playCannons()
 
   const cam = ctx.camera.position
@@ -2171,20 +2170,24 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   const warn = flying && ((hudFrame.arenaShow && arena.outside) || vneRatio >= OVERSPEED_FULL)
   audio.selfLoop('warn', warn ? SINGLE_FILES.warn : null, 1, 0)
 
-  if (!flying) {
-    prevPlayerHp = -1
-    return
-  }
-  const pos = me.aircraft.state.position
-  // 敵彈擦過：播在那一發的位置，聽得出從哪一邊掠過
+  // 【擦過看的是鏡頭，不是機身】上帝視角時鏡頭在世界裡自由飛，從它旁邊掠過的
+  // 子彈一樣該有聲音。坐在座艙裡時鏡頭就在機身上，兩者等價
+  const eye = ctx.camera.position
   if (elapsed - lastFlyby >= FLYBY_GAP) {
-    const k = nearMiss(world.projectiles, teamSlot(me.team), pos.x, pos.y, pos.z, FLYBY_RADIUS)
+    const team = input.godView ? -1 : teamSlot(me.team)
+    const k = nearMiss(world.projectiles, team, eye.x, eye.y, eye.z, FLYBY_RADIUS)
     if (k >= 0) {
       lastFlyby = elapsed
       const p = world.projectiles
       audio.playPool('flyby', 'flyby', p.x[k]!, p.y[k]!, p.z[k]!, true)
     }
   }
+
+  if (!flying) {
+    prevPlayerHp = -1
+    return
+  }
+  const pos = me.aircraft.state.position
   // 附近有炸彈落下 —— **自己投的也算**，那就是投彈的回饋
   const bombs = world.bombs
   const cap = Math.min(bombs.capacity, whistled.length)
@@ -2677,7 +2680,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   stepCameraShake(cameraShake, worldSeconds)
   applyCameraShake(cameraShake, ctx.camera)
   // 【鏡頭定位之後】距離、音速延遲、低通都量到這一幀的鏡頭
-  updateAudio(worldSeconds, hitsThisFrame)
+  updateAudio(worldSeconds)
 
   tracers.update(world.projectiles)
   bombVisuals.update(world.bombs)

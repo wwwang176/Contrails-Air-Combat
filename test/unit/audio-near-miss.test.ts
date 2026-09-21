@@ -44,4 +44,14 @@ describe('敵彈擦過', () => {
     expect(nearMiss(p, 0, 0, 0, 0, 20)).toBe(-1)
     expect(nearMiss(new Projectiles(8), 0, 0, 0, 0, 20)).toBe(-1)
   })
+
+  /**
+   * 【上帝視角用 −1 當隊伍】那時鏡頭不屬於任何一邊，兩邊的子彈從旁邊掠過
+   * 都該有聲音。隊伍只有 0 與 1，−1 於是誰都不跳過。
+   */
+  it('隊伍 −1 時兩邊的子彈都算', () => {
+    const p = new Projectiles(8)
+    shot(p, 0, 0, [8, 10, 0], [800, 0, 0])
+    expect(nearMiss(p, -1, 0, 0, 0, 20)).toBe(0)
+  })
 })
