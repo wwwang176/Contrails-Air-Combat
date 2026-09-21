@@ -107,6 +107,17 @@ const M = /* @__PURE__ */ new Matrix4()
 const P = /* @__PURE__ */ new Vector3()
 const Q = /* @__PURE__ */ new Quaternion()
 const ONE = /* @__PURE__ */ new Vector3(1, 1, 1)
+
+/**
+ * 槍焰的大小倍率，由口徑決定。20 mm 是 1 倍，五吋（127 mm）是 3.6 倍。
+ *
+ * 【為什麼要分】三層砲原本共用同一個大小，五吋砲看起來與 20 mm 一樣一點 ——
+ * 那一聲巨響於是沒有對應的畫面。加上聲音本來就有音速延遲（200 m 外就是
+ * 半秒多），看起來就像慢半拍，其實是視覺少了那一下。
+ */
+export function flashScale(calibreMm: number): number {
+  return Math.pow(Math.max(1, calibreMm) / 20, 0.7)
+}
 /** 槍焰的尺寸。每幀每砲寫一次 —— 用 clone() 的話那是每秒上千次配置。 */
 const SCALE = /* @__PURE__ */ new Vector3()
 
@@ -178,7 +189,7 @@ export function createShipModels(ships: readonly Ship[]): ShipModels {
           P.copy(gun.zone.position).applyQuaternion(s.orientation).add(s.position)
           // 亮度隨剩餘時間衰減，用尺寸表達（實例沒有逐格 opacity）
           const f = gun.flash / TURRET_FLASH_SECONDS
-          M.compose(P, Q.identity(), SCALE.copy(ONE).multiplyScalar(f))
+          M.compose(P, Q.identity(), SCALE.copy(ONE).multiplyScalar(f * flashScale(gun.zone.calibreMm)))
           flashes.setMatrixAt(slot, M)
           slot++
         }

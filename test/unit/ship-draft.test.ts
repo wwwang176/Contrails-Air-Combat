@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { SHIP_CLASSES } from '../../src/world/ships'
+import { flashScale } from '../../src/render/ships'
 import { pointBoxDistance, type Box } from '../../src/world/hit'
 import { BOMB_BLAST_DAMAGE, bombBlastDamage } from '../../src/weapons/bomb'
 
@@ -107,5 +108,22 @@ describe('把盒底往下拉，對炸彈是零影響', () => {
     const b = bombBlastDamage(pointBoxDistance(0, -2, 0, box), damage)
     expect(a).not.toBe(b)
     expect(b).toBeGreaterThan(a)
+  })
+})
+
+/**
+ * 【五吋砲的火光要比 20 mm 大】三層砲原本共用同一個大小。那一聲巨響沒有對應的
+ * 畫面，而聲音本來就有音速延遲（200 m 外半秒多）—— 看起來就像慢半拍。
+ */
+describe('艦砲槍焰的大小', () => {
+  it('口徑越大火光越大：20 mm 是 1 倍，五吋約 3.6 倍', () => {
+    expect(flashScale(20)).toBeCloseTo(1, 6)
+    expect(flashScale(40)).toBeCloseTo(1.62, 2)
+    expect(flashScale(127)).toBeCloseTo(3.65, 2)
+  })
+
+  it('口徑為零也不會變成零或負的', () => {
+    expect(flashScale(0)).toBeGreaterThan(0)
+    expect(Number.isFinite(flashScale(-5))).toBe(true)
   })
 })
