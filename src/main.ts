@@ -1820,6 +1820,11 @@ let lastHitDealt = -Infinity
 let lastMaterialHit = -Infinity
 /** 每一層砲上一次開火出聲的時間（`elapsed`）。層的名字見 `world/shipAA.ts` */
 const lastGunTier = new Map<string, number>()
+/**
+ * 這一幀每一層最近的那一座剛開火的砲。**值就地改寫，不在幀迴圈裡配置** ——
+ * 只有第一次見到某一層時才建一個。
+ */
+const gunPick = new Map<string, { dist: number; x: number; y: number; z: number }>()
 /** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
 let lastDealtVictim = -1
 let lastDealtPart = 0
@@ -1846,6 +1851,7 @@ function resetAudioState(): void {
   lastHitDealt = -Infinity
   lastMaterialHit = -Infinity
   lastGunTier.clear()
+  gunPick.clear()
   lastDealtVictim = -1
   prevViewMode = input.viewMode
 }
@@ -2068,31 +2074,54 @@ function playHeavyHit(severity: number): void {
   audio.playPool('hit', 'hitSelf', 0, 0, 0, false, db + LAYER_DB)
 }
 
-/** 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下 */
+/**
+ * 高射砲、艦砲開火：flash 由 0 變正的那一幀響一下。
+ *
+ * 【每一層各自限頻率，而且只響最近的那一座】20 mm 一座每秒八發、一艘船八個
+ * 砲位 —— 不限的話光它就把聲道吃光，五吋砲與爆炸反而聽不見。但那個時段是
+ * **整個戰場共用一個**，取第一個輪到的等於隨機挑：貼著一座砲飛時，聽到的
+ * 常常是八百公尺外那一門在響，而旁邊這門悶不吭聲。所以先掃一趟挑最近的。
+ */
 function playCannons(): void {
   const cam = ctx.camera.position
+  for (const e of gunPick.values()) e.dist = Infinity
+
+  // 第一趟：邊緣偵測，每一層留下離鏡頭最近的那一座
   let slot = 0
   const platforms = [world.ships, world.groundTargets] as const
   for (const list of platforms) {
     for (const p of list) {
       for (const gun of p.guns) {
-        if (slot >= prevGunFlash.length) return
+        // 【滿了只停止記錄，不能整支返回】第二趟還沒跑，返回等於這一幀全啞
+        if (slot >= prevGunFlash.length) break
         const was = prevGunFlash[slot]!
         prevGunFlash[slot++] = gun.flash
         if (!(gun.flash > 0 && was <= 0) || !p.alive) continue
-        // 【每一層各自限頻率】20 mm 一座每秒八發、一艘船八個砲位 —— 不限的話
-        // 光它就把聲道吃光，五吋砲與爆炸反而聽不見
-        const g = gunSound(gun.zone.tier)
-        const last = lastGunTier.get(gun.zone.tier) ?? -Infinity
-        if (elapsed - last < g.gap) continue
         GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
-        if (GUN_POS.distanceTo(cam) < CANNON_AUDIO_RANGE) {
-          lastGunTier.set(gun.zone.tier, elapsed)
-          audio.playPool('cannon', 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true,
-            g.gainDb, false, g.rate, g.cutoffHz)
+        const d = GUN_POS.distanceTo(cam)
+        if (d >= CANNON_AUDIO_RANGE) continue
+        let best = gunPick.get(gun.zone.tier)
+        if (best === undefined) {
+          best = { dist: Infinity, x: 0, y: 0, z: 0 }
+          gunPick.set(gun.zone.tier, best)
         }
+        if (d >= best.dist) continue
+        best.dist = d
+        best.x = GUN_POS.x
+        best.y = GUN_POS.y
+        best.z = GUN_POS.z
       }
     }
+  }
+
+  // 第二趟：每一層在自己的時段裡響一次，位置取剛才挑到的那一座
+  for (const [tier, best] of gunPick) {
+    if (best.dist === Infinity) continue
+    const g = gunSound(tier)
+    if (elapsed - (lastGunTier.get(tier) ?? -Infinity) < g.gap) continue
+    lastGunTier.set(tier, elapsed)
+    audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,
+      g.gainDb, false, g.rate, g.cutoffHz)
   }
 }
 
