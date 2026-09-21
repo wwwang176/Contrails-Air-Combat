@@ -13,7 +13,7 @@ import {
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
-import { DEFAULT_AI_BURST, shouldFire, type BurstConfig } from './fire'
+import { DEFAULT_AI_BURST, DEFAULT_FIRE, burstDuty, shouldFire, type BurstConfig, type FireAim } from './fire'
 import { resetBurst, stepBurst } from '../weapons/burst'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET,
@@ -821,6 +821,14 @@ export class AiController implements Controller {
   burstFiring = true
   burstTimer = DEFAULT_AI_BURST.on
   burstScale = 1
+
+  /**
+   * 上一個物理步瞄得多準，`shouldFire` 寫進來。**點放的工作週期讀它。**
+   *
+   * 【為什麼存在實例上】`stepBurst` 排在 `shouldFire` 之前（節拍要先算），
+   * 所以用的一定是上一步的值 —— 差一個 4 ms 的子步，看不出也聽不出。
+   */
+  readonly aim: FireAim = { error: DEFAULT_FIRE.trackingCone }
   /**
    * 點放的節奏。**與 `targetConfig`、`wingmanConfig` 同一類：可注入。**
    * `{ on: 任意, off: 0 }` 等於關掉這一層 —— 消融用。
@@ -869,9 +877,15 @@ export class AiController implements Controller {
       // 「單機測試」的場景，沒有要錯開的對象
       resetBurst(this, Math.max(this.selfIndex, 0), burst.on, burst.off)
     }
+    // 【工作週期跟著上一步瞄得多準】週期長度不變、只變開火與停火的比例，
+    // 所以節奏感留著而火力密度跟著準度走（`burstDuty`）。
+    //
     // 【`off === 0` 就是沒有這一層】`stepBurst` 在停火段的長度為 0 時會在
-    // 同一步立刻翻回開火段（while 迴圈），所以恆為 true —— 消融不必另開分支
-    const burstOpen = stepBurst(this, dt, burst.on, burst.off)
+    // 同一步立刻翻回開火段（while 迴圈），所以恆為 true —— 消融不必另開分支。
+    // 那時工作週期恆為 1，這一層照樣是關掉的
+    const cycle = burst.on + burst.off
+    const duty = burst.off > 0 ? burstDuty(this.aim.error, DEFAULT_FIRE.trackingCone) : 1
+    const burstOpen = stepBurst(this, dt, cycle * duty, cycle * (1 - duty))
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
     // 決定 —— 否則沒有目標時計時器不會前進，board 一設上去就會變成每個
@@ -1291,7 +1305,7 @@ export class AiController implements Controller {
     raw.firing = burstOpen
       && (this.intent === 'rally'
         ? false
-        : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null))
+        : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null, this.aim))
 
     this.emit(self, dt, out)
   }

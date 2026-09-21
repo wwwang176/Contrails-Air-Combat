@@ -101,6 +101,28 @@ export interface BurstConfig {
  */
 export const DEFAULT_AI_BURST: BurstConfig = { on: 0.9, off: 0.15 }
 
+/** 機首完全對準預瞄方向時，一個週期裡開火佔多少 */
+export const BURST_DUTY_AIMED = 0.9
+/** 瞄到追蹤錐邊緣時的工作週期 */
+export const BURST_DUTY_EDGE = 0.1
+
+/**
+ * 瞄準品質 → 點放的工作週期。`aimError` 是機首與預瞄方向的夾角，
+ * `cone` 是 `FireConfig.trackingCone`。
+ *
+ * 【為什麼錐內也要分】`trackingCone` 是硬門檻：錐外一發不打、錐內一律同一個
+ * 節奏。於是「勉強壓在 2.9°」與「正中預瞄點」的火力完全相同 —— 看起來 AI
+ * 不管瞄得多爛都一樣猛。接上之後，瞄得準就咬住不放，瞄得爛只點兩下。
+ *
+ * **週期長度不變**，變的只有開火與停火的比例（見 `AiController` 的
+ * `stepBurst` 呼叫）—— 節奏感留著，火力密度跟著準度走。
+ */
+export function burstDuty(aimError: number, cone: number): number {
+  if (!(cone > 0)) return BURST_DUTY_AIMED
+  const t = Math.min(1, Math.max(0, aimError / cone))
+  return BURST_DUTY_AIMED + (BURST_DUTY_EDGE - BURST_DUTY_AIMED) * t
+}
+
 /**
  * 開火紀律。四個條件**全部**成立才扣扳機。
  *
@@ -108,13 +130,29 @@ export const DEFAULT_AI_BURST: BurstConfig = { on: 0.9, off: 0.15 }
  * 扣扳機」。無限彈藥所以不必省彈，但濫射有兩個實際壞處：AI 看起來很笨，
  * 而且曳光彈會蓋滿畫面讓玩家看不到自己在打哪（spec §8）。
  */
+/**
+ * `shouldFire` 回報瞄得多準。**點放的工作週期讀它**（`burstDuty`）。
+ *
+ * 【為什麼用 out 參數】那個夾角要一次 normalize 加一次 acos，而 `shouldFire`
+ * 是每個物理步都跑的路徑 —— 讓呼叫端自己再算一次等於算兩次。
+ */
+export interface FireAim {
+  /** 機首與預瞄方向的夾角，rad。0 = 完全對準 */
+  error: number
+}
+
 export function shouldFire(
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
   cfg: FireConfig = DEFAULT_FIRE,
   land: LandField | null = null,
+  aim?: FireAim,
 ): boolean {
+  // 【算不到夾角時當作最差】前四條擋下來時根本沒開火，但點放的計時器照樣在走
+  // —— 留著上一次的好成績會讓下一次進錐時立刻是高工作週期
+  if (aim !== undefined) aim.error = cfg.trackingCone
+
   // 一：有攔截解，且彈丸活得夠久飛到攔截點。
   // 【與玩家的預瞄環是同一個條件】M2 spec §5.1.1：回收條件與顯示條件用
   // 同一個數字。AI 用同一條規則，才不會出現「AI 打得到但玩家看不到環」。
@@ -135,7 +173,9 @@ export function shouldFire(
 
   // 用第二格 scratch 而不是 FWD.clone()——這是每個物理步都跑的路徑
   const nose = S.v[1]!.copy(FWD).applyQuaternion(self.state.orientation)
-  if (nose.angleTo(lead) > cfg.trackingCone) return false
+  const error = nose.angleTo(lead)
+  if (aim !== undefined) aim.error = error
+  if (error > cfg.trackingCone) return false
 
   // 五：中間沒有山。
   //
