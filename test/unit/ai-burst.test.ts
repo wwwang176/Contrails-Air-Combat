@@ -160,3 +160,24 @@ describe('點放的工作週期跟著瞄準品質走', () => {
     expect(src).toContain('burst.off > 0 ? burstDuty(this.aim.error, DEFAULT_FIRE.trackingCone) : 1')
   })
 })
+
+/**
+ * 【掃射也要吃點放】戰鬥機掃射船艦與地面目標走的是另一條路徑
+ * （`ai/shipAttack.ts`），`strafeGround` 寫完指令就直接 emit —— 原本整個
+ * 跳過點放那一關，對準就一路扣著扳機。
+ */
+describe('掃射的點放接線', () => {
+  const src = new TextDecoder().decode(readFileSync('src/ai/AiController.ts'))
+
+  it('對船與對地兩條路徑都乘上點放', () => {
+    expect(src.match(/out\.firing = out\.firing && this\.burstOpen/g) ?? []).toHaveLength(2)
+  })
+
+  /** 【夾角要回報】沒有它工作週期永遠停在最差那一端，掃射就變成零星點放 */
+  it('兩條路徑都把瞄準夾角回報給工作週期', () => {
+    expect(src).toContain('groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim)')
+    expect(src).toContain('shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point, this.aim)')
+    const strafe = new TextDecoder().decode(readFileSync('src/ai/shipAttack.ts'))
+    expect(strafe.match(/fireWithinCone\(nose\.dot\(lead\), fireAim\)/g) ?? []).toHaveLength(2)
+  })
+})

@@ -421,7 +421,9 @@ export class AiController implements Controller {
       resetGroundStrafe(this.groundStrafe)
       return false
     }
-    groundAttackCommand(this.groundStrafe, self, t, decide, out)
+    groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim)
+    // 【掃射也吃點放】瞄得準就咬住，瞄得爛只點兩下 —— 與打飛機同一條規則
+    out.firing = out.firing && this.burstOpen
     this.groundAttackActive = true
     this.groundStrafeActive = true
     return true
@@ -492,7 +494,9 @@ export class AiController implements Controller {
     if (this.shipAim.gun >= 0 && !(ship.guns[this.shipAim.gun]?.alive ?? false)) {
       this.shipAim.gun = -1
     }
-    shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point)
+    shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point, this.aim)
+    // 【掃射也吃點放】理由見 `strafeGround`
+    out.firing = out.firing && this.burstOpen
     // 【掛著彈的整段對艦攻擊都保持正飛】進場段就翻轉的話，進落彈瞄準帶時
     // 已經倒飛，帶內來不及翻回來 —— 投放包絡擋掉，整條命一枚都不投
     out.upright = loaded
@@ -829,6 +833,9 @@ export class AiController implements Controller {
    * 所以用的一定是上一步的值 —— 差一個 4 ms 的子步，看不出也聽不出。
    */
   readonly aim: FireAim = { error: DEFAULT_FIRE.trackingCone }
+
+  /** 這一步點放開著嗎。`update` 每步寫一次，掃射那條路徑讀它 */
+  private burstOpen = false
   /**
    * 點放的節奏。**與 `targetConfig`、`wingmanConfig` 同一類：可注入。**
    * `{ on: 任意, off: 0 }` 等於關掉這一層 —— 消融用。
@@ -885,7 +892,10 @@ export class AiController implements Controller {
     // 那時工作週期恆為 1，這一層照樣是關掉的
     const cycle = burst.on + burst.off
     const duty = burst.off > 0 ? burstDuty(this.aim.error, DEFAULT_FIRE.trackingCone) : 1
-    const burstOpen = stepBurst(this, dt, cycle * duty, cycle * (1 - duty))
+    // 【掃射那條路徑也要讀它】`strafeGround` 寫完 `raw` 就直接 emit 回去，
+    // 拿不到這個區域變數 —— 存成欄位，兩條路徑才是同一根扳機
+    this.burstOpen = stepBurst(this, dt, cycle * duty, cycle * (1 - duty))
+    const burstOpen = this.burstOpen
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
     // 決定 —— 否則沒有目標時計時器不會前進，board 一設上去就會變成每個
