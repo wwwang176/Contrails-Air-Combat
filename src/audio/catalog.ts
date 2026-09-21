@@ -86,6 +86,8 @@ export const POOLS = {
   damage: range('damage', 10),
   rattle: range('rattle', 15),
   radio: range('radio', 4),
+  /** 子彈打在地面、建築上：一下撞擊加碎屑散落 */
+  debris: range('debris', 4),
   // 自己的槍：一次擊發一個 one-shot。命名與砲塔同一套（武器 id ×挺數）
   'volley-m2-50calx6': range('volley-m2-50calx6', 3),
   'volley-mk108x1': range('volley-mk108x1', 3),
@@ -123,8 +125,9 @@ export function turretFile(weaponId: string, guns: number): string {
  * 【為什麼有預設】新加的目標忘了定材質、或材質新增了而這張表沒跟上時，
  * 走 `IMPACT_DEFAULT` —— 會有聲音，只是不特別。整個沒聲音才是難查的那種壞法。
  *
- * 【目前都用命中庫，只差音高】沒有各材質的獨立素材。厚鋼板比薄鋁殼低沉，
- * 所以船的播放速度低；要換成獨立的庫時改這張表就好。
+ * 【艦體用命中庫、其餘用碎屑庫】打在厚鋼板上是金屬悶響（命中庫，音高壓低）；
+ * 打在地面、建築上會濺起碎屑，那是另一種聲音。**預設也是碎屑庫** —— 沒定
+ * 材質的東西多半不是鋼板。
  */
 export interface ImpactSound {
   pool: Pool
@@ -132,13 +135,13 @@ export interface ImpactSound {
   rate: number
 }
 
-const IMPACT_DEFAULT: ImpactSound = { pool: 'hit', gainDb: 0, rate: 1 }
+const IMPACT_DEFAULT: ImpactSound = { pool: 'debris', gainDb: 0, rate: 1 }
 
 const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
   /** 艦體：厚鋼板，低沉而響 */
   { pool: 'hit', gainDb: 2, rate: 0.72 },
   /** 地面目標：建築、車輛 */
-  { pool: 'hit', gainDb: 0, rate: 0.88 },
+  { pool: 'debris', gainDb: 0, rate: 1 },
 ]
 
 export function impactSound(material: number): ImpactSound {

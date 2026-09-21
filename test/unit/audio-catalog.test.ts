@@ -13,14 +13,17 @@ describe('撞擊材質', () => {
     }
   })
 
-  /** 厚鋼板比建築低沉 */
-  it('船比地面目標低沉', () => {
-    expect(impactSound(MATERIAL.ship).rate).toBeLessThan(impactSound(MATERIAL.ground).rate)
+  /** 【鋼板與地面是兩種聲音】船是金屬悶響、地面是撞擊加碎屑 */
+  it('船用命中庫且低沉，地面目標用碎屑庫', () => {
+    expect(impactSound(MATERIAL.ship).pool).toBe('hit')
+    expect(impactSound(MATERIAL.ship).rate).toBeLessThan(1)
+    expect(impactSound(MATERIAL.ground).pool).toBe('debris')
   })
 
+  /** 【預設跟著地面走】沒定材質的東西多半不是鋼板 */
   it('沒定義的材質走預設，不是沒聲音', () => {
     for (const bad of [99, -1, 1.5, NaN]) {
-      expect(impactSound(bad).pool, String(bad)).toBe('hit')
+      expect(impactSound(bad).pool, String(bad)).toBe('debris')
       expect(impactSound(bad).rate, String(bad)).toBe(1)
     }
   })
