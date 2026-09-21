@@ -36,10 +36,10 @@
 
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0e14; }
       canvas { display: block; }
-      #hud { position: fixed; inset: 0; pointer-events: none; }
+      #hud, #hud-mask { position: fixed; inset: 0; pointer-events: none; }
       /* 【非有不可】上面那條 `canvas { display: block }` 是作者樣式，
          會壓過 [hidden] 的 UA 樣式 —— 少了這一行，選單期間 HUD 藏不起來 */
-      #hud[hidden] { display: none; }
+      #hud[hidden], #hud-mask[hidden] { display: none; }
 
       /* ── 共用 ────────────────────────────────────────── */
       /* 【捲軸也是這張桌子的一部分】任務列表、機庫的卷宗架、結算名單都在捲，
@@ -461,6 +461,10 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
+    <!-- 壓在世界上的滿版遮罩（投彈暗角、黑視／紅視）。【要與 #hud 分開】整張
+         #hud 會跟著鏡頭震動平移旋轉，而畫布只有自己那一塊點陣 —— 移開之後
+         邊上就沒有像素可以蓋，會露出一道沒壓暗的世界。這一張不震 -->
+    <canvas id="hud-mask"></canvas>
     <canvas id="hud"></canvas>
 
     <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒

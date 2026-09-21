@@ -610,3 +610,47 @@ describe('HUD 的搖晃', () => {
     expect(main).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
   })
 })
+
+
+/**
+ * 【滿版的遮罩畫在不震的那一張畫布上】投彈暗角與黑視是壓在世界上的滿版填充。
+ * 跟著 HUD 震的話，畫布一移開，邊上就露出一道沒壓暗的世界 —— 而且**往外多填
+ * 補不了**：超出點陣的部分會被畫布裁掉。
+ *
+ * 【為什麼用掃原始碼】這是「畫面上多了一道亮邊」，在 node 環境驗不到，而且
+ * 只在震動的那零點幾秒出現 —— 試玩很容易錯過。
+ */
+describe('滿版的遮罩不跟著震', () => {
+  const hud = srcOf('Hud.ts')
+
+  it('遮罩清單就是暗角與黑視，而且走另一個 context', () => {
+    expect(hud).toContain("const MASK: readonly HudWidget[] = ['gEffect', 'bombVignette']")
+    expect(hud).toContain('WIDGET_DRAW[w](MASK.includes(w) ? maskCtx : ctx, L, f, dt)')
+  })
+
+  /** 【只有 #hud 吃變換】遮罩那一張跟著動的話，這一整件事就白做了 */
+  it('CSS 變換只寫在 #hud 上', () => {
+    expect(hud.match(/\.style\.transform\s*=/g) ?? []).toHaveLength(1)
+    expect(hud).toContain('this.canvas.style.transform = css')
+  })
+
+  /**
+   * 【順序要靠排序維持】遮罩那一張疊在 `#hud` 底下，所以清單裡凡是走遮罩的
+   * 都必須排在會震的前面 —— 不然畫出來的層次與清單寫的不一樣，而那不會報錯。
+   */
+  it('每一份清單裡，不震的都排在會震的前面', async () => {
+    const { hudWidgets } = await import('../../src/hud/Hud')
+    const mask = ['gEffect', 'bombVignette']
+    for (const [god, bombing] of [[false, false], [false, true], [true, false]] as const) {
+      const list = hudWidgets(god, bombing)
+      const last = list.reduce((k, w, i) => (mask.includes(w) ? i : k), -1)
+      const first = list.findIndex((w) => !mask.includes(w))
+      if (last >= 0 && first >= 0) expect(last, `${god}/${bombing}`).toBeLessThan(first)
+    }
+  })
+
+  /** 【兩張一起藏】遮罩那一張留著的話，選單上會蓋著最後一幀的暗角 */
+  it('main.ts 兩張畫布一起藏', () => {
+    expect(srcOf('main.ts')).toContain('hudMaskCanvas.hidden = hudCanvas.hidden')
+  })
+})

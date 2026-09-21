@@ -170,16 +170,35 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
 const SHAKE_STEP = 0.01 * Math.PI / 180
 const SHIFT_STEP = 1e-4
 
+/**
+ * 畫在**不跟著震動**的那一張畫布上的 widget。
+ *
+ * 【為什麼要分兩張】它們是壓在世界上的滿版遮罩。整張 HUD 會跟著鏡頭震動平移
+ * 旋轉，而畫布只有自己那一塊點陣 —— 往外多填是填不進去的（超出點陣就被裁掉），
+ * 所以畫布一移開，邊上就沒有像素可以蓋，露出一道沒壓暗的世界。
+ *
+ * 【順序仍然成立】這兩個在 `FULL`／`BOMB` 裡都排在最前面，而這張畫布疊在
+ * `#hud` 底下 —— 兩件事合起來等於它們仍然是最底層。`hudWidgets` 的護欄
+ * 釘住「不震的一律排在會震的前面」。
+ */
+const MASK: readonly HudWidget[] = ['gEffect', 'bombVignette']
+
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D
+  private readonly maskCtx: CanvasRenderingContext2D
   private readonly layout: HudLayout = { width: 0, height: 0, cx: 0, cy: 0, unit: 0, scale: 1 }
   /** 上一次寫進 style 的搖晃，已量化 */
   private shakeWritten = ''
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly maskCanvas: HTMLCanvasElement,
+  ) {
     const c = canvas.getContext('2d')
-    if (!c) throw new Error('無法取得 HUD 的 2D context')
+    const m = maskCanvas.getContext('2d')
+    if (!c || !m) throw new Error('無法取得 HUD 的 2D context')
     this.ctx = c
+    this.maskCtx = m
     this.resize()
     window.addEventListener('resize', () => this.resize())
   }
@@ -188,11 +207,15 @@ export class Hud {
     const dpr = Math.min(window.devicePixelRatio, 2)
     const w = window.innerWidth
     const h = window.innerHeight
-    this.canvas.width = Math.round(w * dpr)
-    this.canvas.height = Math.round(h * dpr)
-    this.canvas.style.width = `${w}px`
-    this.canvas.style.height = `${h}px`
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    for (const [canvas, ctx] of [
+      [this.canvas, this.ctx], [this.maskCanvas, this.maskCtx],
+    ] as const) {
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
+      canvas.style.width = `${w}px`
+      canvas.style.height = `${h}px`
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
 
     const L = this.layout
     L.width = w
@@ -204,10 +227,11 @@ export class Hud {
   }
 
   render(f: HudFrame, dt: number): void {
-    const { ctx, layout: L } = this
+    const { ctx, maskCtx, layout: L } = this
     ctx.clearRect(0, 0, L.width, L.height)
+    maskCtx.clearRect(0, 0, L.width, L.height)
     for (const w of hudWidgets(f.godView, f.bombing)) {
-      WIDGET_DRAW[w](ctx, L, f, dt)
+      WIDGET_DRAW[w](MASK.includes(w) ? maskCtx : ctx, L, f, dt)
     }
     this.applyShake(f.shakeAngle, f.shakeX, f.shakeY)
   }
@@ -220,6 +244,8 @@ export class Hud {
    * 轉軸是元素的中心，也就是畫面中央 —— `#hud` 是 `position: fixed; inset: 0`，
    * 而 `transform-origin` 的預設就是中心。位移的百分比也是對元素自己的
    * 寬高，所以左右吃畫面寬、上下吃畫面高。
+   *
+   * 【只動 `#hud`】滿版的遮罩在另一張畫布上，那一張不能動，見 `MASK`。
    */
   private applyShake(angle: number, shiftX: number, shiftY: number): void {
     const a = Math.round(angle / SHAKE_STEP) * SHAKE_STEP
