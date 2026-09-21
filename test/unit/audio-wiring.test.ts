@@ -160,11 +160,27 @@ describe('音效的戰鬥事件接線', () => {
   it('艦砲三層都出聲，各層各自限頻率', () => {
     const fn = body('function playCannons(')
     expect(fn).not.toContain("gun.zone.tier !== 'flak'")
-    expect(fn).toContain('const g = gunSound(gun.zone.tier)')
-    expect(fn).toContain('lastGunTier.get(gun.zone.tier)')
-    expect(fn).toContain('if (elapsed - last < g.gap) continue')
+    expect(fn).toContain('const g = gunSound(tier)')
+    expect(fn).toContain('lastGunTier.get(tier)')
     expect(fn).toContain('g.gainDb, false, g.rate, g.cutoffHz')
     expect(body('function resetAudioState(')).toContain('lastGunTier.clear()')
+  })
+
+  /**
+   * 【時段是整個戰場共用的，所以要挑最近的】取第一個輪到的等於隨機挑：
+   * 貼著一座砲飛時，聽到的常常是八百公尺外那一門在響，旁邊這門悶不吭聲。
+   */
+  it('每一層只響離鏡頭最近的那一座', () => {
+    const fn = body('function playCannons(')
+    // 第一趟挑最近的
+    expect(fn).toContain('if (d >= best.dist) continue')
+    expect(fn).toContain('best.dist = d')
+    // 第二趟才播，位置用挑到的那一座
+    expect(fn).toContain("audio.playPool('cannon', 'cannon', best.x, best.y, best.z, true,")
+    // 【滿了只停止記錄】返回的話第二趟不會跑，那一幀整個啞掉
+    expect(fn).toContain('if (slot >= prevGunFlash.length) break')
+    expect(fn).not.toContain('if (slot >= prevGunFlash.length) return')
+    expect(body('function resetAudioState(')).toContain('gunPick.clear()')
   })
 
   it('記錄擊落、空爆、自己被打', () => {
