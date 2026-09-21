@@ -145,9 +145,11 @@ export function distanceCutoffHz(distance: number): number {
  * 遠處一聲不重要的呼嘯會卡住近處的爆炸。這裡把類別的音量、距離衰減
  * （three 的 inverse 模型）與空氣吸收一起算進來。
  */
-export function voiceLoudnessDb(gainDb: number, ref: number, distance: number): number {
+export function voiceLoudnessDb(
+  gainDb: number, ref: number, distance: number, rolloff = 1,
+): number {
   const d = Math.max(0, distance)
-  const spread = ref > 0 ? 20 * Math.log10(ref / (ref + Math.max(0, d - ref))) : 0
+  const spread = ref > 0 ? 20 * Math.log10(ref / (ref + rolloff * Math.max(0, d - ref))) : 0
   return gainDb + spread + absorptionDb(d)
 }
 

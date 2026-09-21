@@ -87,6 +87,7 @@ interface Voice {
   baseDb: number
   positioned: boolean
   ref: number
+  rolloff: number
   /** 估計到耳朵有多響，dB。搶聲道比這個 */
   loudness: number
   /** 在等音波傳到：發聲的 context 時間。−1 = 沒在等 */
@@ -207,7 +208,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const v = positional()
     root.add(v.audio)
     voices.push({
-      ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, loudness: -Infinity,
+      ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
       waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
     })
   }
@@ -265,7 +266,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 空的聲道優先；沒有就搶最不響的那一個 —— 新的比它還小聲就不播。
     // 【比響度不比距離】一波投彈同時有幾十聲，只比距離的話遠處一聲呼嘯會卡住近處的爆炸
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
-    const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d)
+    const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d, spec.rolloff ?? 1)
     let pick: Voice | null = null
     let pickBusy = true
     let free = 0
@@ -288,6 +289,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     pick.baseDb = baseDb
     pick.positioned = loc
     pick.ref = loc ? spec.ref : 0
+    pick.rolloff = spec.rolloff ?? 1
     pick.loudness = loud
     pick.maxCutoff = cutoffHz
     lastFreeVoices = free
@@ -295,7 +297,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       if (a.parent !== root) root.add(a)
       a.position.set(x, y, z)
       a.setRefDistance(spec.ref)
-      a.setRolloffFactor(1)
+      a.setRolloffFactor(spec.rolloff ?? 1)
       setCutoff(pick.filters, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
     } else {
       // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
@@ -390,7 +392,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       const p = v.audio.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
-      v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d)
+      v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
       setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
       if (v.waitingSince < 0) continue

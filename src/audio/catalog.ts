@@ -7,7 +7,7 @@
  * 數值是起始值，由試玩決定。
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
-  | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
+  | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
   | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact'
 
 export interface CategorySpec {
@@ -16,6 +16,14 @@ export interface CategorySpec {
   ref: number
   /** 超過就不播（單次）或靜音（循環），m */
   max: number
+  /**
+   * 距離衰減的快慢，省略 = 1（three 的 inverse 模型原樣）。
+   * **小於 1 就傳得更遠** —— 0.45 時 3 km 外比 1 大 6.4 dB。
+   *
+   * 【為什麼不是調 ref】把 ref 拉大等於「這個距離內都一樣響」，近處就分不出
+   * 遠近了。改衰減率只讓尾巴拖長，近處的層次不變。
+   */
+  rolloff?: number
 }
 
 /**
@@ -42,11 +50,17 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 轟炸機編隊的還擊聲 —— 拉到與戰鬥機同樣的比例，盟 M2 那種場面會太吵。
    */
   turret: { gainDb: 2, ref: 80, max: 2500 },
+  /** 飛機被打爆。**不要再遠了** —— 空戰時滿天都是，傳太遠會變成持續的隆隆聲 */
   explosion: { gainDb: 6, ref: 150, max: 8000 },
+  /**
+   * 炸彈、魚雷、地面目標炸毀。**比飛機爆炸傳得遠得多** —— 幾百公斤的裝藥
+   * 在地面炸開，幾公里外聽得到才對。
+   */
+  blast: { gainDb: 6, ref: 150, max: 8000, rolloff: 0.45 },
   splash: { gainDb: 2, ref: 80, max: 3000 },
   cannon: { gainDb: 1, ref: 150, max: 6000 },
   // 5 吋艦砲、88 砲在空中炸開：就在你附近，要聽得出壓力
-  flakBurst: { gainDb: 2, ref: 120, max: 5000 },
+  flakBurst: { gainDb: 2, ref: 120, max: 8000, rolloff: 0.45 },
   hitSelf: { gainDb: -6, ref: 0, max: 0 },
   // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
   hitDealt: { gainDb: -14, ref: 0, max: 0 },

@@ -1935,7 +1935,7 @@ function queueAudioCues(): void {
   const g = world.groundKillEvents
   for (let e = 0; e < g.count; e++) {
     const o = e * IMPACT_STRIDE
-    if (g.data[o + 5]! === 0) pushCue(cues, CUE.Explosion, g.data[o]!, g.data[o + 1]!, g.data[o + 2]!)
+    if (g.data[o + 5]! === 0) pushCue(cues, CUE.Blast, g.data[o]!, g.data[o + 1]!, g.data[o + 2]!)
   }
   const b = world.bombEvents
   for (let e = 0; e < b.count; e++) {
@@ -1948,7 +1948,7 @@ function queueAudioCues(): void {
       pushCue(cues, CUE.Splash, x, y, z, scale)
       pushCue(cues, CUE.SplashBoom, x, y, z, scale)
     } else {
-      pushCue(cues, CUE.Explosion, x, y, z, scale)
+      pushCue(cues, CUE.Blast, x, y, z, scale)
     }
   }
   const t = world.torpedoEvents
@@ -1958,7 +1958,7 @@ function queueAudioCues(): void {
     const w = terrain.waterAt(x, z)
     const y = Number.isFinite(w) ? w : t.data[o + 1]!
     const scale = blastScaleOf(t.data[o + 4]!)
-    pushCue(cues, CUE.Explosion, x, y, z, scale)
+    pushCue(cues, CUE.Blast, x, y, z, scale)
     pushCue(cues, CUE.Splash, x, y, z, scale)
   }
   const f = world.burstEvents
@@ -2020,13 +2020,16 @@ function playCues(): void {
     switch (cues.data[o]!) {
       // 【疊兩層】爆炸、水花、自己被打一次挑兩個不同的疊（見 `playPool` 的 layered）
       case CUE.Explosion:
-        audio.playPool('explosion', 'explosion', x, y, z, true, db, true, rate)
+      case CUE.Blast:
+        // 【同一個庫、不同的類別】差別只在傳多遠，見 `CATEGORY.blast`
+        audio.playPool('explosion', cues.data[o]! === CUE.Blast ? 'blast' : 'explosion',
+          x, y, z, true, db, true, rate)
         if (Math.hypot(x - cam.x, y - cam.y, z - cam.z) < NEAR_BLAST) {
           audio.playPool('rattle', 'rattle', 0, 0, 0, false, -6)
         }
         break
       case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, db, true, rate); break
-      case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, db - 12, false, rate); break
+      case CUE.SplashBoom: audio.playPool('explosion', 'blast', x, y, z, true, db - 12, false, rate); break
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       // 【x 帶的是被打中的部位序號】不是座標
       case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x)); break
