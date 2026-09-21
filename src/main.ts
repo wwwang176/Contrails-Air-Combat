@@ -7,7 +7,7 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, impactSound, turretFile, volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile, volleyPool, type Pool,
 } from './audio/catalog'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
@@ -1818,6 +1818,8 @@ let lastFlyby = -Infinity
 let lastHitDealt = -Infinity
 /** 上一次播子彈打在船殼、建築上的世界時間 */
 let lastMaterialHit = -Infinity
+/** 每一層砲上一次開火出聲的時間（`elapsed`）。層的名字見 `world/shipAA.ts` */
+const lastGunTier = new Map<string, number>()
 /** 最後一次有飛機被打中，是誰的哪個部位。−1 = 這一場還沒有過 */
 let lastDealtVictim = -1
 let lastDealtPart = 0
@@ -1843,6 +1845,7 @@ function resetAudioState(): void {
   lastFlyby = -Infinity
   lastHitDealt = -Infinity
   lastMaterialHit = -Infinity
+  lastGunTier.clear()
   lastDealtVictim = -1
   prevViewMode = input.viewMode
 }
@@ -2030,7 +2033,7 @@ function playCues(): void {
       // 【第五格帶的是材質】查不到的材質走預設，不會沒聲音
       case CUE.MaterialHit: {
         const m = impactSound(scale)
-        audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate)
+        audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate, m.cutoffHz)
         break
       }
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
@@ -2073,10 +2076,17 @@ function playCannons(): void {
         if (slot >= prevGunFlash.length) return
         const was = prevGunFlash[slot]!
         prevGunFlash[slot++] = gun.flash
-        if (!(gun.flash > 0 && was <= 0) || gun.zone.tier !== 'flak' || !p.alive) continue
+        if (!(gun.flash > 0 && was <= 0) || !p.alive) continue
+        // 【每一層各自限頻率】20 mm 一座每秒八發、一艘船八個砲位 —— 不限的話
+        // 光它就把聲道吃光，五吋砲與爆炸反而聽不見
+        const g = gunSound(gun.zone.tier)
+        const last = lastGunTier.get(gun.zone.tier) ?? -Infinity
+        if (elapsed - last < g.gap) continue
         GUN_POS.copy(gun.zone.position).applyQuaternion(p.orientation).add(p.position)
         if (GUN_POS.distanceTo(cam) < CANNON_AUDIO_RANGE) {
-          audio.playPool('cannon', 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true)
+          lastGunTier.set(gun.zone.tier, elapsed)
+          audio.playPool('cannon', 'cannon', GUN_POS.x, GUN_POS.y, GUN_POS.z, true,
+            g.gainDb, false, g.rate, g.cutoffHz)
         }
       }
     }

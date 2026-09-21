@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest'
-import { impactSound } from '../../src/audio/catalog'
+import { gunSound, impactSound } from '../../src/audio/catalog'
+import { SHIP_AA_TIERS } from '../../src/world/shipAA'
+
+/**
+ * 【每一層砲要分得出來】五吋砲、40 mm、20 mm 的射速差 24 倍，
+ * 聲音一樣的話聽起來就是一片砲火，分不出船上發生什麼事。
+ */
+describe('艦砲各層的聲音', () => {
+  it('每一層都有定義', () => {
+    for (const tier of SHIP_AA_TIERS) expect(gunSound(tier).gap, tier).toBeGreaterThan(0)
+  })
+
+  /** 口徑越小越短越脆、越小聲，而且限頻率限得越緊 */
+  it('口徑越小音高越高、越小聲、限得越緊', () => {
+    const flak = gunSound('flak'), auto = gunSound('autocannon'), mg = gunSound('mg')
+    expect(flak.rate).toBeLessThan(auto.rate)
+    expect(auto.rate).toBeLessThan(mg.rate)
+    expect(flak.gainDb).toBeGreaterThan(auto.gainDb)
+    expect(auto.gainDb).toBeGreaterThan(mg.gainDb)
+    expect(mg.gap).toBeLessThan(flak.gap)
+  })
+
+  it('沒定義的層走預設，不是沒聲音', () => {
+    expect(gunSound('what').gap).toBeGreaterThan(0)
+  })
+})
+
 import { MATERIAL } from '../../src/world/material'
 
 /**
