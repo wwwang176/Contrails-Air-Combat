@@ -13,7 +13,7 @@ import { nearMiss } from './audio/nearMiss'
 import { LAYER_DB } from './audio/pick'
 import {
   blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
-  shakeInterval, shakeStrength, windParams,
+  hitRate, shakeInterval, windParams,
 } from './audio/curves'
 import { applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
@@ -79,6 +79,7 @@ import {
 } from './world/events'
 import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
+import { HIT_PARTS } from './world/hit'
 import {
   AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
 } from './render/geometry/buildAircraft'
@@ -1968,8 +1969,10 @@ function queueAudioCues(): void {
   }
   const dmg = world.damageEvents
   for (let i = 0; i < dmg.count && !input.godView; i++) {
-    if (dmg.data[i * DAMAGE_STRIDE]! !== player.index) continue
-    pushCue(cues, CUE.HitSelf, 0, 0, 0)
+    const o = i * DAMAGE_STRIDE
+    if (dmg.data[o]! !== player.index) continue
+    // 【x 帶的是被打中的部位序號】不是座標；護甲厚的部位聽起來比較低沉
+    pushCue(cues, CUE.HitSelf, dmg.data[o + 4]!, 0, 0)
     if (Math.random() < HIT_DAMAGE_CHANCE) pushCue(cues, CUE.Damage, BULLET_SEVERITY, 0, 0)
   }
 }
@@ -1994,13 +1997,24 @@ function playCues(): void {
       case CUE.Splash: audio.playPool('splash', 'splash', x, y, z, true, db, true, rate); break
       case CUE.SplashBoom: audio.playPool('explosion', 'explosion', x, y, z, true, db - 12, false, rate); break
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
-      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true); break
+      // 【x 帶的是被打中的部位序號】不是座標
+      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x)); break
       // 【受創的 x 帶的是輕重】0 = 擦到一點、1 = 重擊，見 `damageGainDb`
       case CUE.Damage: playHeavyHit(x); break
       // 【自己開火的 x 帶的是分組序號】不是座標
       case CUE.SelfVolley: audio.playPool(volleyGroups[x]!.pool, 'fireSelf', 0, 0, 0, false); break
     }
   }
+}
+
+/**
+ * 自己被打中的播放速度：**越大台、被打中的部位護甲越厚就越低沉**。
+ * 部位序號是 `HIT_PARTS` 的索引，由受擊事件帶過來。
+ */
+function selfHitRate(partIndex: number): number {
+  const spec = player.aircraft.spec
+  const part = HIT_PARTS[partIndex] ?? 'fuselage'
+  return hitRate(spec.mass, spec.protection[part])
 }
 
 /** 自己受創：一下結構的悶響，疊一下小一截的金屬命中。音量跟著輕重走 */
@@ -2170,7 +2184,7 @@ function updateAudio(worldSeconds: number, hitsThisFrame: number): void {
   if (drop > spec.hp * HEAVY_HIT) playHeavyHit(Math.min(1, drop / (spec.hp * HEAVY_HIT * 2)))
   prevPlayerHp = me.hp
   // 機身晃動：超速或重傷
-  const k = shakeStrength(overspeedShake(vneRatio) / OVERSPEED_SHAKE, me.hp / spec.hp)
+  const k = Math.min(1, overspeedShake(vneRatio) / OVERSPEED_SHAKE)
   if (k > 0) {
     rattleTimer -= worldSeconds
     if (rattleTimer <= 0) {

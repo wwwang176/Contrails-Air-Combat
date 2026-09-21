@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  engineRate, windParams, shakeStrength, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
-  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate,
+  engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
+  hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
 } from '../../src/audio/curves'
 
 describe('引擎播放速度', () => {
@@ -30,12 +30,6 @@ describe('風切', () => {
 })
 
 describe('機身晃動', () => {
-  it('強度取超速與受損較大者；HP 一半以上不算受損', () => {
-    expect(shakeStrength(0, 1)).toBe(0)
-    expect(shakeStrength(0, 0.5)).toBe(0)
-    expect(shakeStrength(0, 0.25)).toBeCloseTo(0.5)
-    expect(shakeStrength(0.8, 0.25)).toBeCloseTo(0.8)
-  })
   it('越強越密：k=1 約 0.4 s，k=0 約 1.6 s，±25% 隨機', () => {
     expect(shakeInterval(1, () => 0.5)).toBeCloseTo(0.4)
     expect(shakeInterval(0, () => 0.5)).toBeCloseTo(1.6)
@@ -151,10 +145,6 @@ describe('多普勒', () => {
   })
 
   /**
-   * 【一定要夾住】正面對進時徑向分量等於合速：兩架 150 m/s 對頭是 300 m/s，
-   * 不夾的話係數衝到 8 倍，變成尖嘯。
-   */
-  /**
    * 【夾制是最後一道防線】正面對進時徑向分量等於合速，兩架 150 m/s 對頭是
    * 300 m/s，照實算係數衝到 8 倍。鏡頭瞬移算出來的怪值也由它接住。
    */
@@ -199,13 +189,48 @@ describe('爆炸的當量', () => {
   })
 })
 
+describe('被打中的低沉度', () => {
+  const P51 = 4427, B17 = 22000, A6M5 = 2733
+
+  it('基準質量、基準護甲就是 1', () => {
+    expect(hitRate(4500, 1)).toBeCloseTo(1, 3)
+  })
+
+  /** 【大台的比較低沉】B-17 比 P-51 低 5 個半音左右 */
+  it('越大台越低沉：B-17 < P-51 < 零戰', () => {
+    const b = hitRate(B17, 1), p = hitRate(P51, 1), a = hitRate(A6M5, 1)
+    expect(b).toBeLessThan(p)
+    expect(p).toBeLessThan(a)
+    expect(12 * Math.log2(b / p)).toBeCloseTo(-5.0, 0)
+  })
+
+  /** 【護甲厚的比較低沉】同一台飛機，打中引擎比打中機翼悶 */
+  it('護甲越高越低沉', () => {
+    expect(hitRate(P51, 1.3)).toBeLessThan(hitRate(P51, 0.7))
+  })
+
+  /**
+   * 【差距不能過大】夾在 0.7–1.2，也就是 −6.2 到 +3.2 個半音。
+   * 不夾的話大飛機會整台變成低音。
+   */
+  it('夾在 0.7–1.2', () => {
+    expect(hitRate(1e6, 2)).toBe(0.7)
+    expect(hitRate(100, 0.1)).toBe(1.2)
+  })
+
+  it('質量或護甲為零時不炸', () => {
+    expect(hitRate(0, 0)).toBe(1.2)
+    expect(Number.isFinite(hitRate(-5, -1))).toBe(true)
+  })
+})
+
 describe('機身受創的輕重', () => {
-  it('擦到一點是 −10 dB，正中一發是 +6 dB，超過就夾住', () => {
-    expect(damageGainDb(0)).toBe(-10)
-    expect(damageGainDb(0.5)).toBe(-2)
-    expect(damageGainDb(1)).toBe(6)
-    expect(damageGainDb(3)).toBe(6)
-    expect(damageGainDb(-1)).toBe(-10)
+  it('擦到一點是 −7.7 dB，正中一發是 +8.3 dB，超過就夾住', () => {
+    expect(damageGainDb(0)).toBeCloseTo(-7.7)
+    expect(damageGainDb(0.5)).toBeCloseTo(0.3)
+    expect(damageGainDb(1)).toBeCloseTo(8.3)
+    expect(damageGainDb(3)).toBeCloseTo(8.3)
+    expect(damageGainDb(-1)).toBeCloseTo(-7.7)
   })
 })
 

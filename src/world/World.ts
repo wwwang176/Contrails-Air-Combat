@@ -5,7 +5,7 @@ import { stepCadence } from '../weapons/cadence'
 import { AIRCRAFT_ARMOUR, SHIP_GUN_ARMOUR, penetrationDamage } from '../weapons/armour'
 import {
   boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
-  NO_HIT, PART_MULTIPLIER, type HitPart,
+  NO_HIT, PART_INDEX, PART_MULTIPLIER, type HitPart,
   pointBoxDistance,
 } from './hit'
 import { Projectiles } from './Projectiles'
@@ -1425,7 +1425,7 @@ export class World {
       const vs = Math.hypot(vx, vy, vz)
       // 靜止的彈丸不存在，但除以 0 會把 NaN 一路餵進 HUD —— 擋在源頭
       if (vs > 1e-6) {
-        pushDamage(this.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs)
+        pushDamage(this.damageEvents, victim.index, -vx / vs, -vy / vs, -vz / vs, PART_INDEX[part])
       }
 
       // 【命中即回收】不回收的話同一發會在後續每一步繼續扣血，而且池子

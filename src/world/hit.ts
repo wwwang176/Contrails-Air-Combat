@@ -7,6 +7,15 @@ export const HIT_PARTS: readonly HitPart[] = [
   'cockpit', 'engine', 'tail', 'fuselage', 'wingLeft', 'wingRight',
 ]
 
+/**
+ * 部位 → `HIT_PARTS` 裡的序號。**要把部位塞進 Float32Array 的事件緩衝時用。**
+ *
+ * 【為什麼不用 indexOf】那是每一發子彈都會走的路（240 Hz），查表是常數時間。
+ */
+export const PART_INDEX: Readonly<Record<HitPart, number>> = {
+  cockpit: 0, engine: 1, tail: 2, fuselage: 3, wingLeft: 4, wingRight: 5,
+}
+
 /** spec §6.2。 */
 export const PART_MULTIPLIER: Readonly<Record<HitPart, number>> = {
   cockpit: 2.5,

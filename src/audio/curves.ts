@@ -15,13 +15,12 @@ export function windParams(vneRatio: number, out: { cutoffHz: number; gainDb: nu
   out.gainDb = -24 + 24 * s
 }
 
-/** 機身晃動的強度 0–1：超速（0–1）與受損取大者。HP 一半以上不算受損 */
-export function shakeStrength(overspeed: number, hpFraction: number): number {
-  const damage = clamp((0.5 - hpFraction) / 0.5, 0, 1)
-  return Math.max(clamp(overspeed, 0, 1), damage)
-}
-
-/** 下一陣晃動在幾秒後。越強越密；±25% 隨機，免得聽出固定節拍 */
+/**
+ * 下一陣晃動在幾秒後。越強越密；±25% 隨機，免得聽出固定節拍。
+ *
+ * 【只有超速會晃】血量過半之後的持續抖動拿掉了 —— 受創那一下已經有
+ * `damageGainDb` 的結構悶響，之後一直抖只是噪音。
+ */
 export function shakeInterval(k: number, rand: () => number): number {
   return (1.6 - 1.2 * clamp(k, 0, 1)) * (0.75 + 0.5 * rand())
 }
@@ -42,7 +41,7 @@ export function dbToGain(db: number): number {
  * 玩家分不出「被掃到一下」與「正中一發」。
  */
 export function damageGainDb(severity: number): number {
-  return -10 + 16 * clamp(severity, 0, 1)
+  return -7.7 + 16 * clamp(severity, 0, 1)
 }
 
 /**
@@ -157,6 +156,32 @@ const ABSORPTION_DB_PER_KM = 2.8
 
 export function absorptionDb(distance: number): number {
   return -ABSORPTION_DB_PER_KM * Math.max(0, distance) / 1000
+}
+
+/** 被打中的基準：單發戰鬥機的量級，kg。這個質量、護甲 1.0 時倍率是 1 */
+const HIT_REF_MASS = 4500
+const HIT_MASS_EXP = 0.18
+const HIT_ARMOUR_EXP = 0.4
+const HIT_RATE_MIN = 0.7
+const HIT_RATE_MAX = 1.2
+
+/**
+ * 被打中的播放速度倍率：**越大台、護甲越厚的部位越低沉**。
+ * 慢下來的同時音高降低、尾音拉長，那就是「打在厚鐵皮上」的感覺。
+ *
+ * 【為什麼要分】不分的話 B-17 與零戰被打中一模一樣。遊戲裡質量差 8 倍
+ * （2,733 kg 到 22,000 kg），護甲差兩倍（0.65 到 1.30）。
+ *
+ * 【夾在 0.7–1.2】也就是 −6.2 到 +3.2 個半音。照質量比例硬算的話大飛機會
+ * 整台變成低音，聽不出是子彈。B-17 大約低 5 個半音、零戰高 1.5 個。
+ */
+export function hitRate(massKg: number, protection: number): number {
+  const m = Math.max(1, massKg)
+  const p = Math.max(0.05, protection)
+  return clamp(
+    Math.pow(HIT_REF_MASS / m, HIT_MASS_EXP) / Math.pow(p, HIT_ARMOUR_EXP),
+    HIT_RATE_MIN, HIT_RATE_MAX,
+  )
 }
 
 /** 打中敵機的回饋在這個距離內不衰減，m */
