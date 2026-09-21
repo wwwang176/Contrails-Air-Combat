@@ -1,6 +1,6 @@
 import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
 import { assetUrl } from '../core/asset'
-import { CATEGORY, POOLS, type Category, type Pool } from './catalog'
+import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
 import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
@@ -53,6 +53,13 @@ export interface AudioEngine {
    */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
     extraDb?: number, extraDelay?: number, rate?: number, cutoffHz?: number): void
+  /**
+   * 選單按鈕。**不吃暫停，也不吃結算的慢動作** —— 暫停選單上那幾顆按鈕
+   * 本來就是暫停時唯一還能按的東西，跟著一起靜音等於它們沒有聲音。
+   *
+   * 走自己的 AudioContext（見 `uiCtx`），所以不受主 context 的 suspend 影響。
+   */
+  playUi(file: string, extraDb?: number): void
   /** 自己身上的循環。file 為 null 表示停。每一幀都呼叫 */
   selfLoop(slot: SelfSlot, file: string | null, rate: number, gainDb: number, cutoffHz?: number): void
   beginFrame(): void
@@ -147,6 +154,18 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   let muted = false
   let paused = false
   let timeScale = 1
+  /**
+   * 選單按鈕專用的 context。**不能與世界共用** —— 暫停時主 context 整個
+   * suspend（連排程中的聲音一起凍住，那是刻意的），而暫停選單上那幾顆按鈕
+   * 是當下唯一按得到的東西。
+   *
+   * 【第一次要用才建】一載入就建的話，瀏覽器會記一個沒有手勢就開的 context
+   * 並在主控台留警告。解碼好的 AudioBuffer 不綁 context，可以直接拿來用。
+   */
+  let uiCtx: AudioContext | null = null
+  let uiGain: GainNode | null = null
+  /** 主音量，dB；null = 關閉。UI 那一條自己乘，它不走 `AudioListener` */
+  let masterDb: number | null = 0
   /** 上一次挑聲道時有幾個是空的。疊第二層之前看它 */
   let lastFreeVoices = ONE_SHOT_VOICES
 
@@ -247,6 +266,31 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
     return dbToGain(CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb)
+  }
+
+  /**
+   * 選單按鈕：自己的 context、一條固定的增益、播完就丟。
+   *
+   * 【為什麼不共用聲道池】那個池的挑選會搶佔、會依距離算響度，而這一條既不
+   * 定位也不該被戰場的聲音擠掉。按鈕一次只響一下，直接開一個來源最簡單。
+   */
+  function playUi(file: string, extraDb = 0): void {
+    const buf = buffers.get(file)
+    if (buf === undefined) return
+    if (uiCtx === null) {
+      uiCtx = new AudioContext()
+      uiGain = uiCtx.createGain()
+      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb)
+      uiGain.connect(uiCtx.destination)
+    }
+    // 【每次都叫 resume】分頁切回來時瀏覽器會把它擱在 suspended
+    void uiCtx.resume().catch(() => {})
+    const src = uiCtx.createBufferSource()
+    src.buffer = buf
+    const g = uiCtx.createGain()
+    g.gain.value = gainOf(file, 'ui', extraDb)
+    src.connect(g).connect(uiGain!)
+    src.start()
   }
 
   function camDistance(x: number, y: number, z: number): number {
@@ -487,7 +531,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   async function loadAll(): Promise<void> {
     const res = await fetch(assetUrl('/audio/manifest.json'))
     const manifest = await res.json() as Record<string, { loop: boolean; makeupDb: number }>
+    // 【選單的按鈕音插隊】見 `FIRST_FILES`。sort 是穩定的，其餘的順序不變
+    const first = new Set<string>(FIRST_FILES)
     const ids = Object.keys(manifest)
+      .sort((a, b) => Number(first.has(b)) - Number(first.has(a)))
     for (const id of ids) makeup.set(id, manifest[id]!.makeupDb)
     fileTotal = ids.length
     onProgress?.(filesDone, fileTotal)
@@ -534,7 +581,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       // 一分鐘後再打開音量才冒出來。循環聲下一幀由呼叫端依當下狀態重建
       if (db === null && !muted) stopAll()
       muted = db === null
+      masterDb = db
       if (db !== null) listener.setMasterVolume(dbToGain(db))
+      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db)
       applyRunState()
     },
     setPaused(p) {
@@ -546,6 +595,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     },
     playPool,
     playFile,
+    playUi,
     selfLoop,
     beginFrame,
     assign,

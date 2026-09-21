@@ -8,7 +8,7 @@
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui'
 
 export interface CategorySpec {
   gainDb: number
@@ -76,6 +76,11 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
   reload: { gainDb: -8, ref: 0, max: 0 },
+  /**
+   * 選單按鈕。**選單裡只有它在響** —— 不像戰場上要跟引擎與槍聲擠，
+   * 所以它與戰場上那些的相對大小沒有意義，只看按起來舒不舒服。
+   */
+  ui: { gainDb: -8, ref: 0, max: 0 },
   // 【壓低】投一艙就是八顆，八次呼嘯同時響；它是氛圍，不是回饋
   whistle: { gainDb: -16, ref: 60, max: 1500 },
   radio: { gainDb: -10, ref: 0, max: 0 },
@@ -229,7 +234,19 @@ export const SINGLE_FILES = {
   whistle: 'whistle-1',
   warn: 'warn-1',
   wind: 'wind-1',
+  /** 選單的一般按鈕：機械式的一下 */
+  uiClick: 'ui-1',
+  /** 返回、關閉：按下與彈起兩下 */
+  uiBack: 'ui-2',
 } as const
+
+/**
+ * 這幾支排在下載佇列的最前面。
+ *
+ * 【為什麼】選單的按鈕音在主選單就會被按到，而那時整包音效還在背景下載。
+ * 照清單原本的順序（字母序）它們排在最後 —— 開場那幾下按鈕會是靜音的。
+ */
+export const FIRST_FILES: readonly string[] = [SINGLE_FILES.uiClick, SINGLE_FILES.uiBack]
 
 export const ALL_FILES: readonly string[] = [
   ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'g4m', 'b17g'].map(engineFile),

@@ -1847,6 +1847,9 @@ let hitDealtPending = false
  * 上一架正在裝填、新的這一架沒有，會誤播「裝填完成」。
  */
 function resetAudioState(): void {
+  // 【流速要收回 1】分出勝負那段是超級慢動作，離場時不收的話選單的按鈕
+  // 音會用戰場最後的流速播 —— 聽起來像壞掉的按鈕
+  audio.setTimeScale(1)
   prevGunFlash.fill(0)
   camPosValid = false
   camVel.set(0, 0, 0)
@@ -3272,6 +3275,39 @@ function drawMenuBackground(): void {
 let drillConfig: BattleConfig | null = null
 /** 演練場的靶機。每幀把血量釘回去（「打不死」的全部意思） */
 let drillDrone: Combatant | null = null
+
+/**
+ * 按下去會播「返回／關閉」那一顆的 `data-act`。其餘的按鈕都是一般的機械聲。
+ *
+ * 【為什麼用 act 而不是按鈕上的字】字會改、會翻譯；`data-act` 是選單那一層
+ * 唯一的協定（見 `ui/menu.ts` 的事件委派）。
+ *
+ * 【沒有 act 的按鈕算一般的】陣營卡、任務卡、機種卡都自己掛監聽器，它們是
+ * 「往前走」不是「退回來」。
+ */
+const BACK_ACTS = new Set([
+  'back', 'toSetup', 'toMission', 'toMenu', 'resume', 'tutorialOk',
+  'restartNo', 'abandonNo', 'toMenuNo', 'settingsCancel', 'reloadNo',
+])
+
+/**
+ * 選單按鈕的聲音。**自己掛一個事件委派，不走 `menu.ts` 的那一個** —— 那一支
+ * 是畫面轉換的協定，聲音掛進去等於把音訊接進 UI 層；兩個監聽器互不影響。
+ *
+ * 【在這裡解鎖音訊】瀏覽器要使用者手勢才肯出聲，而第一次點按鈕通常遠早於
+ * 出擊那一下。少了它，整個選單在第一次出擊之前都是靜音的。
+ *
+ * 【走 `playUi` 而不是 `playFile`】暫停選單上那幾顆是暫停時唯一按得到的
+ * 東西，而暫停會把世界那個 context 整個 suspend。
+ */
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('button')
+  if (b === null || b.disabled) return
+  audio.unlock()
+  const act = b.dataset['act']
+  audio.playUi(act !== undefined && BACK_ACTS.has(act)
+    ? SINGLE_FILES.uiBack : SINGLE_FILES.uiClick)
+})
 
 const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onEvent(event) {
