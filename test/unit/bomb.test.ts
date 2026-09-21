@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { BOMB_BLAST_DAMAGE as D } from '../../src/weapons/bomb'
 import { G0 } from '../../src/core/math'
 import {
-  BOMB_MAX_SECONDS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  BOMB_MAX_SECONDS, BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED, TORPEDO_SPREAD_RAD,
   BOMBS_CAPACITY, Bombs, bombDragK, stepBomb, solveImpact, spreadDirection, spreadPair,
   type BombState, type Impact,
 } from '../../src/world/bomb'
@@ -188,11 +188,13 @@ describe('spreadDirection：投彈的離散', () => {
     const s0 = Math.hypot(30, -5, -80)
     spreadDirection(30, -5, -80, BOMB_SPREAD_RAD, -BOMB_SPREAD_RAD, o)
     const s1 = Math.hypot(o.vx, o.vy, o.vz)
-    // 小角度近似之下 |v| 只長 θ²/2 ≈ 1.5e-6 的相對量
-    expect(s1 / s0).toBeCloseTo(1, 5)
+    // 【上界由常數推出來，不寫死位數】小角度近似下 |v| 長 (θu² + θv²)/2 的
+    // 相對量，兩軸同幅時就是 θ²。寫死位數的話，調大離散會讓這一條假紅
+    expect(s1 / s0 - 1).toBeGreaterThan(0)
+    expect(s1 / s0 - 1).toBeLessThan(BOMB_SPREAD_RAD * BOMB_SPREAD_RAD * 1.01)
   })
 
-  it('偏角不超過 ±0.1 度的合成量', () => {
+  it('偏角不超過單軸上限的合成量', () => {
     const o = vec()
     const max = BOMB_SPREAD_RAD * Math.SQRT2 * 1.01
     for (const [ax, ay] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [0, 1]] as const) {
@@ -289,5 +291,32 @@ describe('落地事件的水陸之分', () => {
 
   it('World 不再自己推水柱 —— 那條路會讓內陸地圖每一顆都噴水', () => {
     expect(runToImpact(() => 0).splashEvents.count).toBe(0)
+  })
+})
+
+/**
+ * 【炸彈與魚雷的離散幅度各自獨立】兩者共用同一組序號與同一支 `spreadDirection`，
+ * 幅度卻是兩個常數。合成一個的話，調落彈散佈會靜靜地把雷擊的命中率一起改掉
+ * —— 而雷擊看的是提前量，投出去那一刻的偏角直接變成整段航程的橫向誤差。
+ */
+describe('投彈與投雷的離散幅度分開', () => {
+  /** 投放速度與輸入方向的夾角，rad */
+  function deviation(vx: number, vy: number, vz: number): number {
+    const c = (vz * -90) / (90 * Math.hypot(vx, vy, vz))
+    return Math.acos(Math.min(1, c))
+  }
+
+  it('同一個序號下，炸彈的偏角是魚雷的 BOMB/TORPEDO 倍', () => {
+    const w = new World()
+    // 【兩邊都是第一枚】序號各自從 0 起跳，所以 `spreadPair` 給的是同一組
+    // u、v —— 兩者的差別只剩幅度這一個常數
+    w.dropBomb(0, 4000, 0, 0, 0, -90, 500, 0)
+    w.dropTorpedo(0, 50, 0, 0, 0, -90, 500, 0, -1, 0)
+    const b = deviation(w.bombs.vx[0]!, w.bombs.vy[0]!, w.bombs.vz[0]!)
+    const t = deviation(w.torpedoes.vx[0]!, w.torpedoes.vy[0]!, w.torpedoes.vz[0]!)
+    // 【這一組 u、v 不能恰好是 0】是的話兩邊都不偏，比值沒有意義
+    expect(t).toBeGreaterThan(1e-9)
+    // 【4 位】`spreadDirection` 走小角度近似，比值本身帶 1e-6 量級的誤差
+    expect(b / t).toBeCloseTo(BOMB_SPREAD_RAD / TORPEDO_SPREAD_RAD, 4)
   })
 })

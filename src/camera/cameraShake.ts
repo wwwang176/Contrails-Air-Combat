@@ -46,6 +46,34 @@ export const SHAKE_ROLL_RATIO = 0.6
 /** 噪聲的頻率，Hz。一次爆炸的 0.6 秒裡抖八下左右 */
 export const SHAKE_FREQUENCY = 14
 
+/**
+ * HUD 跟著搖的角度上限，弧度。以**畫面中央**為軸旋轉。
+ *
+ * 【為什麼 HUD 也要搖】HUD 是釘在座艙上的一層玻璃，鏡頭震而它紋風不動的話，
+ * 畫面讀起來像世界在抖而儀表浮在外面。
+ *
+ * 【不要超過鏡頭】3.75° 的鏡頭震動轉的是整個世界；HUD 比它還晃的話，畫面
+ * 讀起來會變成儀表自己在甩。
+ */
+export const HUD_SHAKE_MAX_ANGLE = 3 * DEG
+
+/**
+ * HUD 跟著搖的位移上限，**佔畫面寬／高的比例**（左右吃寬、上下吃高）。
+ *
+ * 【位移比旋轉讀得出來】轉 3° 時畫面中央幾乎不動，看得出來的只有角落；
+ * 位移是整張一起平移，準星與數字都在動。主要的份量放在這裡。
+ *
+ * 【上限在哪】貼邊的儀表（速度帶、小地圖）會被推出畫面一角 —— 再大就不是
+ * 震動而是版面在跑。
+ */
+export const HUD_SHAKE_MAX_SHIFT = 0.045
+
+/**
+ * HUD 搖晃的頻率，Hz。**刻意與 `SHAKE_FREQUENCY` 不同** —— 同頻又同相的話
+ * 兩者一起動，看起來像 HUD 黏死在世界上，整個效果就消失了。
+ */
+export const HUD_SHAKE_FREQUENCY = 9
+
 /** 擊墜一架飛機的當量尺度。燃油與彈藥一起炸，與一顆 500 lb 同級 */
 export const KILL_SHAKE = 1
 
@@ -204,6 +232,34 @@ export function shakeNoise(channel: number, t: number): number {
   const a = hash01(channel * 8191 + i) * 2 - 1
   const b = hash01(channel * 8191 + i + 1) * 2 - 1
   return a + (b - a) * f * f * (3 - 2 * f)
+}
+
+/**
+ * HUD 這一幀的噪聲，−1…1。與鏡頭同一個震動量（爆炸與超速取最大值）、同樣
+ * 吃平方，但走自己的頻率與噪聲通道 —— 見 `HUD_SHAKE_FREQUENCY`。
+ *
+ * 【通道不能與鏡頭的三軸重覆】1、2、3 是鏡頭在用的；共用的話 HUD 會與
+ * 某一軸完全同步。三個通道自己之間也要分開，否則位移會走成一條斜線。
+ */
+function hudNoise(shake: CameraShake, channel: number): number {
+  const s = shake.trauma > shake.sustained ? shake.trauma : shake.sustained
+  if (s <= 0) return 0
+  return s * s * shakeNoise(channel, shake.phase * HUD_SHAKE_FREQUENCY)
+}
+
+/** HUD 這一幀要轉多少，弧度。**正負都有**，值域 ±`HUD_SHAKE_MAX_ANGLE` */
+export function hudShakeAngle(shake: CameraShake): number {
+  return HUD_SHAKE_MAX_ANGLE * hudNoise(shake, 4)
+}
+
+/** HUD 這一幀往左右移多少，佔畫面寬的比例。值域 ±`HUD_SHAKE_MAX_SHIFT` */
+export function hudShakeShiftX(shake: CameraShake): number {
+  return HUD_SHAKE_MAX_SHIFT * hudNoise(shake, 5)
+}
+
+/** HUD 這一幀往上下移多少，佔畫面高的比例。值域 ±`HUD_SHAKE_MAX_SHIFT` */
+export function hudShakeShiftY(shake: CameraShake): number {
+  return HUD_SHAKE_MAX_SHIFT * hudNoise(shake, 6)
 }
 
 /** 熱路徑：每幀一次，不配置 */

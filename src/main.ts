@@ -34,7 +34,7 @@ import { createFireChunks } from './render/chunks'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -121,8 +121,8 @@ import { applyBlend, createCameraBlend, startBlend } from './camera/cameraBlend'
 import {
   GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
   OVERSPEED_FULL, OVERSPEED_SHAKE,
-  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, overspeedShake,
-  stepCameraShake,
+  addShake, applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
+  hudShakeShiftY, ordnanceShakeScale, overspeedShake, stepCameraShake,
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
@@ -860,7 +860,9 @@ function emitBombBlasts(events: ImpactEvents): void {
     // 【表現的規模跟著那一顆的傷害走】`ny` 帶的是爆心傷害，而尺度的立方
     // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
     const scale = blastScaleOf(d[o + 4]!)
-    scaleBlast(recipe, scale * scale * scale, SCALED_BLAST)
+    // 【只有火球、煙、塵吃放大】底下的光、震動、碎片一律用原尺度，見 `BOMB_BLAST_SIZE`
+    const vis = scale * BOMB_BLAST_SIZE
+    scaleBlast(recipe, vis * vis * vis, SCALED_BLAST)
     const seed = (e * 197 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
     addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, ordnanceShakeScale(scale), ctx.camera.position)
@@ -2994,6 +2996,11 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       ? extendReason(playerAi.rules) : ''
   }
   hudFrame.godView = input.godView
+  // 【`stepCameraShake` 之後】這一幀的震動量與相位在那裡才定案；排在它之前
+  // 的話 HUD 會慢鏡頭一幀，兩者對不起來
+  hudFrame.shakeAngle = hudShakeAngle(cameraShake)
+  hudFrame.shakeX = hudShakeShiftX(cameraShake)
+  hudFrame.shakeY = hudShakeShiftY(cameraShake)
   hudFrame.controlAuthority = aircraft.diag.controlAuthority
   hudFrame.blueAlive = aliveCount(battle.blue)
   hudFrame.redAlive = aliveCount(battle.red)

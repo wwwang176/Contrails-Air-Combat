@@ -507,3 +507,32 @@ describe('高砲爆點的小爆炸（FLAK_BLAST／emitFlakBlasts）', () => {
     expect(JSON.stringify(c.shots.fireball)).toBe(JSON.stringify(a.shots.fireball))
   })
 })
+
+/**
+ * 【放大只給火球、煙、塵】`BOMB_BLAST_SIZE` 乘在交給 `scaleBlast` 的尺度上。
+ * 一起乘進動態光源、鏡頭震動或碎片散射的話，遠處的一顆炸彈會把整片天照亮、
+ * 或是把鏡頭搖到準星離開目標 —— 那不是「爆炸大一點」。
+ */
+describe('投下的炸彈另外放大表現尺度', () => {
+  const MAIN = import.meta.glob('../../src/main.ts', { query: '?raw', import: 'default', eager: true })
+  const src = Object.values(MAIN)[0] as string
+  const body = src.slice(src.indexOf('function emitBombBlasts'), src.indexOf('const emitFirePuff'))
+
+  it('只有 scaleBlast 吃放大過的尺度', () => {
+    expect(body).toContain('const vis = scale * BOMB_BLAST_SIZE')
+    expect(body).toContain('scaleBlast(recipe, vis * vis * vis, SCALED_BLAST)')
+  })
+
+  it('光、震動、碎片都用原尺度', () => {
+    expect(body).toContain('blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)')
+    expect(body).toContain('ordnanceShakeScale(scale)')
+    expect(body).toContain('BLAST_DEBRIS_COLOR, seed, scale)')
+  })
+
+  /** 【魚雷不吃】它另有自己的水冠配方，`vis` 不得漏到那一支 */
+  it('魚雷那一支沒有被一起放大', () => {
+    const torp = src.slice(src.indexOf('function emitTorpedoBlasts'), src.indexOf('function shakeFlakBursts'))
+    expect(torp).not.toContain('BOMB_BLAST_SIZE')
+    expect(torp).toContain('scaleBlast(TORPEDO_BLAST, scale * scale * scale, SCALED_BLAST)')
+  })
+})

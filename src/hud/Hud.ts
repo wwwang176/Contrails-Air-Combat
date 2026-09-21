@@ -161,9 +161,20 @@ export const WIDGET_DRAW: Record<HudWidget, WidgetDraw> = {
   battleReport: (ctx, L, f) => drawBattleReport(ctx, L, f),
 }
 
+/**
+ * 寫進 `style.transform` 之前先量化：角度到 0.01°、位移到萬分之一個畫面。
+ *
+ * 【為什麼要量化】每幀寫一個新字串會觸發一次樣式重算與合成層更新；量化之後
+ * 靜止時寫的是同一個值，就跳過了。兩個步進都遠在看得出來的門檻以下。
+ */
+const SHAKE_STEP = 0.01 * Math.PI / 180
+const SHIFT_STEP = 1e-4
+
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D
   private readonly layout: HudLayout = { width: 0, height: 0, cx: 0, cy: 0, unit: 0, scale: 1 }
+  /** 上一次寫進 style 的搖晃，已量化 */
+  private shakeWritten = ''
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const c = canvas.getContext('2d')
@@ -198,5 +209,27 @@ export class Hud {
     for (const w of hudWidgets(f.godView, f.bombing)) {
       WIDGET_DRAW[w](ctx, L, f, dt)
     }
+    this.applyShake(f.shakeAngle, f.shakeX, f.shakeY)
+  }
+
+  /**
+   * 整張 HUD 平移一點、再繞畫面中央轉一點。**用 CSS 而不是 canvas 的變換**
+   * —— 儀表與盤面走離屏快取，貼回來時 `setTransform` 成 identity，疊在
+   * context 上的變換它們吃不到（見 `widgets/layerCache.ts`）。
+   *
+   * 轉軸是元素的中心，也就是畫面中央 —— `#hud` 是 `position: fixed; inset: 0`，
+   * 而 `transform-origin` 的預設就是中心。位移的百分比也是對元素自己的
+   * 寬高，所以左右吃畫面寬、上下吃畫面高。
+   */
+  private applyShake(angle: number, shiftX: number, shiftY: number): void {
+    const a = Math.round(angle / SHAKE_STEP) * SHAKE_STEP
+    const x = Math.round(shiftX / SHIFT_STEP) * SHIFT_STEP
+    const y = Math.round(shiftY / SHIFT_STEP) * SHIFT_STEP
+    const css = a === 0 && x === 0 && y === 0
+      ? ''
+      : `translate(${(x * 100).toFixed(2)}%, ${(y * 100).toFixed(2)}%) rotate(${a}rad)`
+    if (css === this.shakeWritten) return
+    this.shakeWritten = css
+    this.canvas.style.transform = css
   }
 }
