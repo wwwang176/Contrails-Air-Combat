@@ -58,15 +58,19 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    */
   blast: { gainDb: 6, ref: 150, max: 8000, rolloff: 0.45 },
   splash: { gainDb: 2, ref: 80, max: 3000 },
-  cannon: { gainDb: 1, ref: 150, max: 6000 },
+  /**
+   * 艦砲、陸砲開火。**這一類已經比爆炸低不了多少** —— 要再大聲的話得先把
+   * 別的往下壓，見上面那段。各口徑之間的差距在 `GUN_BY_TIER`。
+   */
+  cannon: { gainDb: 5, ref: 150, max: 6000 },
   // 5 吋艦砲、88 砲在空中炸開：就在你附近，要聽得出壓力
   flakBurst: { gainDb: 2, ref: 120, max: 8000, rolloff: 0.45 },
-  hitSelf: { gainDb: -6, ref: 0, max: 0 },
+  hitSelf: { gainDb: -7.4, ref: 0, max: 0 },
   // 【比自己被打小得多】連續掃射時它一直在響；音量與頻率上限見 `playHitDealt`
   hitDealt: { gainDb: -14, ref: 0, max: 0 },
   // 【定位但不衰減】判定半徑 20 m，`ref` 也是 20 —— 範圍內都是原音量，
   // 要的只是左右方向：聽得出子彈從哪一邊掠過
-  flyby: { gainDb: -4, ref: 20, max: 200 },
+  flyby: { gainDb: -5.4, ref: 20, max: 200 },
   damage: { gainDb: 0, ref: 0, max: 0 },
   rattle: { gainDb: 0, ref: 0, max: 0 },
   reload: { gainDb: -8, ref: 0, max: 0 },
@@ -193,8 +197,8 @@ export interface GunSound {
 
 const GUN_BY_TIER: Record<string, GunSound> = {
   flak: { gainDb: 0, rate: 1, cutoffHz: 22000, gap: 0.12 },
-  autocannon: { gainDb: -7, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
-  mg: { gainDb: -13, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
+  autocannon: { gainDb: -6, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
+  mg: { gainDb: -10, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
 }
 
 const GUN_DEFAULT: GunSound = { gainDb: -6, rate: 1.3, cutoffHz: 22000, gap: 0.1 }
