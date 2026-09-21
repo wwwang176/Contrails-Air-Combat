@@ -59,6 +59,9 @@ import { Vector3 } from 'three'
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
 
+/** 三層的清單。**音效那邊逐一檢查每一層都有聲音**，漏掉的不會報錯只會沒聲音 */
+export const SHIP_AA_TIERS: readonly ShipAATier[] = ['flak', 'autocannon', 'mg']
+
 export interface ShipEmplacement {
   /** 穩定 id：`<tier>_<舷><序號>`，舷是 p 左／s 右／c 中線。 */
   id: string

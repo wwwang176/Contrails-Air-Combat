@@ -133,19 +133,60 @@ export interface ImpactSound {
   pool: Pool
   gainDb: number
   rate: number
+  /** 音色上限，Hz。厚的東西悶，薄的清脆 */
+  cutoffHz: number
 }
 
-const IMPACT_DEFAULT: ImpactSound = { pool: 'debris', gainDb: 0, rate: 1 }
+const IMPACT_DEFAULT: ImpactSound = { pool: 'debris', gainDb: 0, rate: 1, cutoffHz: 22000 }
 
 const IMPACT_BY_MATERIAL: readonly ImpactSound[] = [
-  /** 艦體：厚鋼板，低沉而響 */
-  { pool: 'hit', gainDb: 2, rate: 0.72 },
+  /**
+   * 艦體：幾公分厚的裝甲鋼板。**又低又悶。**
+   *
+   * 【光降音高不夠】只壓音高的話高頻殘響還在，聽起來像打鋁罐。
+   * 1 kHz 的低通把那串殘響切掉，剩下的才是「咚」。
+   */
+  { pool: 'hit', gainDb: 3, rate: 0.5, cutoffHz: 1000 },
   /** 地面目標：建築、車輛 */
-  { pool: 'debris', gainDb: 0, rate: 1 },
+  { pool: 'debris', gainDb: 0, rate: 1, cutoffHz: 22000 },
 ]
 
 export function impactSound(material: number): ImpactSound {
   return IMPACT_BY_MATERIAL[material] ?? IMPACT_DEFAULT
+}
+
+/**
+ * 艦砲、陸砲開火：**每一層各有自己的聲音。**
+ *
+ * ```
+ *   flak        127 mm 五吋砲     20 發/分    一聲大砲
+ *   autocannon   40 mm 機砲      220 發/分    砰、砰、砰
+ *   mg           20 mm 機砲      480 發/分    急促的噠噠
+ * ```
+ *
+ * 【共用砲擊庫、只改音高與音色】口徑越小聲音越短越脆。沒有各口徑的獨立素材，
+ * 要換成獨立的庫時改這張表就好。
+ *
+ * 【`gap` 是每一層各自的上限】20 mm 一座每秒八發，一艘船八個砲位 —— 不限的話
+ * 光它就把聲道吃光。同一層在 `gap` 秒內只播一次，聽起來仍然是連續的。
+ */
+export interface GunSound {
+  gainDb: number
+  rate: number
+  cutoffHz: number
+  gap: number
+}
+
+const GUN_BY_TIER: Record<string, GunSound> = {
+  flak: { gainDb: 0, rate: 1, cutoffHz: 22000, gap: 0.12 },
+  autocannon: { gainDb: -7, rate: 1.6, cutoffHz: 7000, gap: 0.1 },
+  mg: { gainDb: -13, rate: 2.2, cutoffHz: 9000, gap: 0.07 },
+}
+
+const GUN_DEFAULT: GunSound = { gainDb: -6, rate: 1.3, cutoffHz: 22000, gap: 0.1 }
+
+export function gunSound(tier: string): GunSound {
+  return GUN_BY_TIER[tier] ?? GUN_DEFAULT
 }
 
 /**

@@ -150,7 +150,21 @@ describe('音效的戰鬥事件接線', () => {
     expect(q).toContain('clearImpacts(mh)')
     const fn = body('function playCues(')
     expect(fn).toContain('const m = impactSound(scale)')
-    expect(fn).toContain("audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate)")
+    expect(fn).toContain("audio.playPool(m.pool, 'impact', x, y, z, true, m.gainDb, false, m.rate, m.cutoffHz)")
+  })
+
+  /**
+   * 【三層砲都要響】原本只有五吋砲出聲，40 mm 與 20 mm 完全沒聲音。
+   * 而三層的射速差 24 倍，不各自限頻率的話 20 mm 會把聲道吃光。
+   */
+  it('艦砲三層都出聲，各層各自限頻率', () => {
+    const fn = body('function playCannons(')
+    expect(fn).not.toContain("gun.zone.tier !== 'flak'")
+    expect(fn).toContain('const g = gunSound(gun.zone.tier)')
+    expect(fn).toContain('lastGunTier.get(gun.zone.tier)')
+    expect(fn).toContain('if (elapsed - last < g.gap) continue')
+    expect(fn).toContain('g.gainDb, false, g.rate, g.cutoffHz')
+    expect(body('function resetAudioState(')).toContain('lastGunTier.clear()')
   })
 
   it('記錄擊落、空爆、自己被打', () => {

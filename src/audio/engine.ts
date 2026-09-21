@@ -47,7 +47,8 @@ export interface AudioEngine {
   playPool(pool: Pool, cat: Category, x: number, y: number, z: number, positioned: boolean,
     extraDb?: number, layered?: boolean, rate?: number, cutoffHz?: number): void
   /**
-   * `extraDelay` 加在音速延遲之上，s；`cutoffHz` 只對不定位的聲音有用（定位的依距離算）。
+   * `extraDelay` 加在音速延遲之上，s；`cutoffHz` 是這個聲音自己的音色上限，
+   * 定位的取它與距離算出來的較低者。
    * `rate` 是播放速度的倍率，疊在每次播放的 ±8% 隨機之上 —— 慢的同時變低沉、變長。
    */
   playFile(file: string, cat: Category, x: number, y: number, z: number, positioned: boolean,
@@ -95,6 +96,13 @@ interface Voice {
   waitRate: number
   /** 等的過程中飛出這個距離就放棄 —— 鏡頭切換會讓距離瞬間跳掉 */
   waitMax: number
+  /**
+   * 這個聲音自己的截止頻率上限，Hz。**定位的聲音取它與距離算出來的較低者。**
+   *
+   * 【為什麼定位的也要吃】材質決定音色：打在厚鋼板上就該是悶響，不管離多遠。
+   * 只看距離的話，貼著船打會是清脆的金屬聲 —— 像打鋁罐。
+   */
+  maxCutoff: number
 }
 
 interface LoopVoice {
@@ -200,7 +208,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     root.add(v.audio)
     voices.push({
       ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, loudness: -Infinity,
-      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0,
+      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
     })
   }
 
@@ -281,13 +289,14 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     pick.positioned = loc
     pick.ref = loc ? spec.ref : 0
     pick.loudness = loud
+    pick.maxCutoff = cutoffHz
     lastFreeVoices = free
     if (loc) {
       if (a.parent !== root) root.add(a)
       a.position.set(x, y, z)
       a.setRefDistance(spec.ref)
       a.setRolloffFactor(1)
-      setCutoff(pick.filters, distanceCutoffHz(d), ctx.currentTime, 0)
+      setCutoff(pick.filters, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
     } else {
       // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
       if (a.parent !== camera) camera.add(a)
@@ -382,7 +391,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d)
-      setCutoff(v.filters, distanceCutoffHz(d), now, 0.05)
+      setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
       if (v.waitingSince < 0) continue
       // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
