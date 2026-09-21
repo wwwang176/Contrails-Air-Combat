@@ -23,9 +23,9 @@ export interface CategorySpec {
  * 爆炸的 +6 已經接近破音。要讓爆炸更突出就把別的往下壓，不是把爆炸往上加。
  */
 export const CATEGORY: Record<Category, CategorySpec> = {
-  /** 【自己的引擎比別人的大聲】它是持續底噪，但坐在裡面就該聽得到 */
+  /** 【自己的與別人的一樣大聲】差別交給距離衰減，`ref` 之外每遠一倍就小 6 dB */
   engineSelf: { gainDb: -5, ref: 0, max: 0 },
-  engine: { gainDb: -8, ref: 60, max: 3000 },
+  engine: { gainDb: -5, ref: 60, max: 3000 },
   /**
    * 自己的槍。**一次擊發一個 one-shot，不是循環。**
    *
