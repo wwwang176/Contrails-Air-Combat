@@ -460,3 +460,73 @@ describe('單次音效的聲道池', () => {
     expect(fn).toContain('lastFreeVoices < LAYER_MIN_FREE')
   })
 })
+
+/**
+ * # 選單按鈕的聲音
+ *
+ * 【這一支守的是什麼】三件靜靜壞掉的事：暫停選單上的按鈕沒聲音（世界那個
+ * context 被 suspend 了）、返回與一般按鈕用同一個音（兩者的差別就是這件事的
+ * 全部）、以及回到選單之後按鈕用戰場最後的流速播。
+ */
+describe('選單按鈕的聲音', () => {
+  const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
+
+  it('每一顆按鈕都響，返回與關閉那幾顆用另一個音', () => {
+    expect(ALL).toContain("const b = (e.target as HTMLElement).closest('button')")
+    expect(ALL).toContain('if (b === null || b.disabled) return')
+    expect(ALL).toContain('audio.playUi(act !== undefined && BACK_ACTS.has(act)')
+    expect(ALL).toContain('? SINGLE_FILES.uiBack : SINGLE_FILES.uiClick)')
+  })
+
+  /**
+   * 【每一顆退回去的都要在名單裡】漏掉一顆就是那一顆用錯音效，而畫面上
+   * 完全看不出來。取的是 `data-act` —— 選單那一層唯一的協定。
+   */
+  it('返回名單蓋住所有退回與關閉的動作', () => {
+    const set = ALL.slice(ALL.indexOf('const BACK_ACTS = new Set(['))
+    const list = set.slice(0, set.indexOf('])'))
+    for (const act of [
+      'back', 'toSetup', 'toMission', 'toMenu', 'resume', 'tutorialOk',
+      'restartNo', 'abandonNo', 'toMenuNo', 'settingsCancel', 'reloadNo',
+    ]) expect(list, act).toContain(`'${act}'`)
+    // 往前走的那幾顆不能混進來
+    for (const act of ['start', 'fight', 'mission', 'skirmish', 'hangar', 'settingsApply']) {
+      expect(list, act).not.toContain(`'${act}'`)
+    }
+  })
+
+  /**
+   * 【UI 走自己的 context】暫停時主 context 整個 suspend（連排程中的聲音一起
+   * 凍住，那是刻意的）。共用的話，暫停選單上那幾顆唯一按得到的按鈕反而沒聲音。
+   */
+  it('playUi 不走主 context，而且吃主音量', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
+    expect(fn).toContain('uiCtx = new AudioContext()')
+    expect(fn).not.toContain('ctx.create')
+    expect(fn).toContain('dbToGain(masterDb)')
+    const vol = ENGINE.slice(ENGINE.indexOf('setVolume(db) {'), ENGINE.indexOf('setPaused(p) {'))
+    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db)')
+  })
+
+  /** 【沒載到就不要開 context】一個沒有聲音的 context 會留在那裡佔著硬體 */
+  it('沒有那個檔就整個不做', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
+    expect(fn.indexOf('if (buf === undefined) return')).toBeLessThan(fn.indexOf('new AudioContext()'))
+  })
+
+  /**
+   * 【按鈕音要插隊下載】整包音效在背景載，照字母序它們排在最後 —— 開場
+   * 那幾下按鈕會是靜音的，而那是玩家聽到的第一個聲音。
+   */
+  it('按鈕音排在下載佇列最前面', async () => {
+    const { FIRST_FILES, SINGLE_FILES } = await import('../../src/audio/catalog')
+    expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiBack])
+    expect(ENGINE).toContain('const first = new Set<string>(FIRST_FILES)')
+    expect(ENGINE).toContain('.sort((a, b) => Number(first.has(b)) - Number(first.has(a)))')
+  })
+
+  /** 【離場要把流速收回 1】不然選單的按鈕音用戰場最後的慢動作播 */
+  it('離開戰鬥時流速歸 1', () => {
+    expect(body('function resetAudioState(')).toContain('audio.setTimeScale(1)')
+  })
+})
