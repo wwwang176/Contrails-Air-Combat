@@ -39,7 +39,8 @@ export interface GodCameraOptions {
  * - `moveSpeed` 300 —— 略高於巡航 TAS（`DEFAULT_BATTLE.tas` 200），追得上
  *   一團正在移動的纏鬥。低於它就永遠在後面追。
  * - `boostFactor` 4 —— 1200 m/s，橫越幾公里的戰場約幾秒。
- * - `minAltitude` 50 —— 高於浪。撞地判定見 `aircraft/crash.ts`。
+ * - `minAltitude` 20 —— 高於浪，而且貼得近到看得清甲板上在發生什麼。
+ *   撞地判定見 `aircraft/crash.ts`。
  * - `maxAltitude` 12000 —— P-51D 的升限量級。
  * - `pitchLimit` 85° —— 不夾的話鏡頭會翻過天頂，而「上」的定義在那一瞬
  *   反過來，之後每一個滑鼠位移都是反的。
@@ -55,7 +56,7 @@ export interface GodCameraOptions {
 export const DEFAULT_GOD_CAMERA: GodCameraOptions = {
   moveSpeed: 300,
   boostFactor: 4,
-  minAltitude: 50,
+  minAltitude: 20,
   maxAltitude: 12000,
   pitchLimit: 85 * (Math.PI / 180),
   entryHeight: 800,
