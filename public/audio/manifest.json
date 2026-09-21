@@ -51,6 +51,22 @@
   "loop": false,
   "makeupDb": 0.0
  },
+ "debris-1": {
+  "loop": false,
+  "makeupDb": 2.6
+ },
+ "debris-2": {
+  "loop": false,
+  "makeupDb": 2.8
+ },
+ "debris-3": {
+  "loop": false,
+  "makeupDb": 3.0
+ },
+ "debris-4": {
+  "loop": false,
+  "makeupDb": 3.3
+ },
  "engine-a6m5": {
   "loop": true,
   "makeupDb": 0.0
