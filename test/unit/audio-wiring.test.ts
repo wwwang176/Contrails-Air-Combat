@@ -471,27 +471,45 @@ describe('單次音效的聲道池', () => {
 describe('選單按鈕的聲音', () => {
   const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
 
-  it('每一顆按鈕都響，返回與關閉那幾顆用另一個音', () => {
+  it('每一顆按鈕都響', () => {
     expect(ALL).toContain("const b = (e.target as HTMLElement).closest('button')")
     expect(ALL).toContain('if (b === null || b.disabled) return')
-    expect(ALL).toContain('audio.playUi(act !== undefined && BACK_ACTS.has(act)')
-    expect(ALL).toContain('? SINGLE_FILES.uiBack : SINGLE_FILES.uiClick)')
+    expect(ALL).toContain("audio.playUi(uiSound(b.dataset['act']))")
   })
 
   /**
-   * 【每一顆退回去的都要在名單裡】漏掉一顆就是那一顆用錯音效，而畫面上
-   * 完全看不出來。取的是 `data-act` —— 選單那一層唯一的協定。
+   * 【三份名單各自分得清楚】漏掉一顆就是那一顆用錯音效，而畫面上完全看不
+   * 出來。取的是 `data-act` —— 選單那一層唯一的協定。
+   *
+   * 【退回與關閉是兩件事】換一頁是退回；把疊在上面的暫停、確認框、設定、
+   * 教學卡收掉是關閉。兩者用同一支的話，分家就白做了。
    */
-  it('返回名單蓋住所有退回與關閉的動作', () => {
-    const set = ALL.slice(ALL.indexOf('const BACK_ACTS = new Set(['))
-    const list = set.slice(0, set.indexOf('])'))
-    for (const act of [
-      'back', 'toSetup', 'toMission', 'toMenu', 'resume', 'tutorialOk',
-      'restartNo', 'abandonNo', 'toMenuNo', 'settingsCancel', 'reloadNo',
-    ]) expect(list, act).toContain(`'${act}'`)
-    // 往前走的那幾顆不能混進來
-    for (const act of ['start', 'fight', 'mission', 'skirmish', 'hangar', 'settingsApply']) {
-      expect(list, act).not.toContain(`'${act}'`)
+  it('退回、關閉、一般三份名單各自分得清楚', async () => {
+    const { SINGLE_FILES } = await import('../../src/audio/catalog')
+    const fn = body('function uiSound(')
+    expect(fn).toContain('if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack')
+    expect(fn).toContain('if (CLOSE_ACTS.has(act)) return SINGLE_FILES.uiClose')
+    const listOf = (head: string): string => {
+      const at = ALL.indexOf(head)
+      expect(at, head).toBeGreaterThan(0)
+      return ALL.slice(at, ALL.indexOf('])', at))
+    }
+    const back = listOf('const BACK_ACTS = new Set([')
+    const close = listOf('const CLOSE_ACTS = new Set([')
+    const pick = (act: string): string =>
+      back.includes(`'${act}'`) ? SINGLE_FILES.uiBack
+        : close.includes(`'${act}'`) ? SINGLE_FILES.uiClose : SINGLE_FILES.uiClick
+    for (const act of ['back', 'toSetup', 'toMission', 'toMenu']) {
+      expect(pick(act), act).toBe(SINGLE_FILES.uiBack)
+    }
+    for (const act of ['resume', 'tutorialOk', 'restartNo', 'abandonNo', 'toMenuNo',
+      'settingsCancel', 'reloadNo']) {
+      expect(pick(act), act).toBe(SINGLE_FILES.uiClose)
+    }
+    for (const act of ['start', 'fight', 'mission', 'skirmish', 'hangar', 'settings',
+      'settingsApply', 'restart', 'abandon', 'restartYes', 'abandonYes', 'toMenuYes',
+      'reloadYes', 'help']) {
+      expect(pick(act), act).toBe(SINGLE_FILES.uiClick)
     }
   })
 
@@ -520,7 +538,7 @@ describe('選單按鈕的聲音', () => {
    */
   it('按鈕音排在下載佇列最前面', async () => {
     const { FIRST_FILES, SINGLE_FILES } = await import('../../src/audio/catalog')
-    expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiBack])
+    expect([...FIRST_FILES]).toEqual([SINGLE_FILES.uiClick, SINGLE_FILES.uiBack, SINGLE_FILES.uiClose])
     expect(ENGINE).toContain('const first = new Set<string>(FIRST_FILES)')
     expect(ENGINE).toContain('.sort((a, b) => Number(first.has(b)) - Number(first.has(a)))')
   })

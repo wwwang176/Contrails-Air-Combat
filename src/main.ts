@@ -3277,7 +3277,8 @@ let drillConfig: BattleConfig | null = null
 let drillDrone: Combatant | null = null
 
 /**
- * 按下去會播「返回／關閉」那一顆的 `data-act`。其餘的按鈕都是一般的機械聲。
+ * 按鈕音分三種，依 `data-act` 分：**退回上一頁**、**收起疊在上面的東西**、
+ * 其餘都是一般的機械聲。
  *
  * 【為什麼用 act 而不是按鈕上的字】字會改、會翻譯；`data-act` 是選單那一層
  * 唯一的協定（見 `ui/menu.ts` 的事件委派）。
@@ -3285,10 +3286,20 @@ let drillDrone: Combatant | null = null
  * 【沒有 act 的按鈕算一般的】陣營卡、任務卡、機種卡都自己掛監聽器，它們是
  * 「往前走」不是「退回來」。
  */
-const BACK_ACTS = new Set([
-  'back', 'toSetup', 'toMission', 'toMenu', 'resume', 'tutorialOk',
-  'restartNo', 'abandonNo', 'toMenuNo', 'settingsCancel', 'reloadNo',
+const BACK_ACTS = new Set(['back', 'toSetup', 'toMission', 'toMenu'])
+/** 收起 overlay 的那幾顆：暫停、確認框、設定、教學卡 */
+const CLOSE_ACTS = new Set([
+  'resume', 'tutorialOk', 'restartNo', 'abandonNo', 'toMenuNo',
+  'settingsCancel', 'reloadNo',
 ])
+
+/** `data-act` → 要播哪一支。認不得的一律一般按鈕 */
+function uiSound(act: string | undefined): string {
+  if (act === undefined) return SINGLE_FILES.uiClick
+  if (BACK_ACTS.has(act)) return SINGLE_FILES.uiBack
+  if (CLOSE_ACTS.has(act)) return SINGLE_FILES.uiClose
+  return SINGLE_FILES.uiClick
+}
 
 /**
  * 選單按鈕的聲音。**自己掛一個事件委派，不走 `menu.ts` 的那一個** —— 那一支
@@ -3304,9 +3315,7 @@ document.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('button')
   if (b === null || b.disabled) return
   audio.unlock()
-  const act = b.dataset['act']
-  audio.playUi(act !== undefined && BACK_ACTS.has(act)
-    ? SINGLE_FILES.uiBack : SINGLE_FILES.uiClick)
+  audio.playUi(uiSound(b.dataset['act']))
 })
 
 const menu = createMenu(document.getElementById('ui') as HTMLElement, {
