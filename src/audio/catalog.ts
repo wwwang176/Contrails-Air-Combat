@@ -236,8 +236,10 @@ export const SINGLE_FILES = {
   wind: 'wind-1',
   /** 選單的一般按鈕：機械式的一下 */
   uiClick: 'ui-1',
-  /** 返回、關閉：按下與彈起兩下 */
+  /** 退回上一頁：按下與彈起兩下 */
   uiBack: 'ui-2',
+  /** 關閉面板、收起確認框：闔上的一下 */
+  uiClose: 'ui-3',
 } as const
 
 /**
@@ -246,7 +248,8 @@ export const SINGLE_FILES = {
  * 【為什麼】選單的按鈕音在主選單就會被按到，而那時整包音效還在背景下載。
  * 照清單原本的順序（字母序）它們排在最後 —— 開場那幾下按鈕會是靜音的。
  */
-export const FIRST_FILES: readonly string[] = [SINGLE_FILES.uiClick, SINGLE_FILES.uiBack]
+export const FIRST_FILES: readonly string[] =
+  [SINGLE_FILES.uiClick, SINGLE_FILES.uiBack, SINGLE_FILES.uiClose]
 
 export const ALL_FILES: readonly string[] = [
   ...['p51d', 'bf109k4', 'f4f4', 'f6f5', 'a6m5', 'ki84', 'he111', 'g4m', 'b17g'].map(engineFile),

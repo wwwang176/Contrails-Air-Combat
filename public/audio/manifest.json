@@ -431,6 +431,10 @@
   "loop": false,
   "makeupDb": 9.0
  },
+ "ui-3": {
+  "loop": false,
+  "makeupDb": 9.0
+ },
  "volley-ho103x2-1": {
   "loop": false,
   "makeupDb": 1.5
