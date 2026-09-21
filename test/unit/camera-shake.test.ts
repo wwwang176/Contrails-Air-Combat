@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import {
   FLAK_SHAKE as CAMERA_FLAK_SHAKE, GROUND_KILL_SHAKE, GUN_LOST_SHAKE, KILL_SHAKE,
+  HUD_SHAKE_FREQUENCY, HUD_SHAKE_MAX_ANGLE, HUD_SHAKE_MAX_SHIFT,
   SHAKE_FREQUENCY, SHAKE_MAX_ANGLE, SHAKE_RANGE, SHAKE_SECONDS,
-  addShake, applyCameraShake, createCameraShake, ordnanceShakeScale, shakeNoise, stepCameraShake,
+  addShake, applyCameraShake, createCameraShake, hudShakeAngle, hudShakeShiftX,
+  hudShakeShiftY, ordnanceShakeScale, shakeNoise, stepCameraShake,
 } from '../../src/camera/cameraShake'
 import { blastScaleOf } from '../../src/weapons/bomb'
 import { A6M5_BOMB_LOADOUT, LOADOUT_BY_AIRCRAFT } from '../../src/weapons/stores'
@@ -12,7 +14,8 @@ import { GROUND_FLAK_SPEC, SHIP_GUN_SPECS } from '../../src/world/shipGuns'
 
 /** 【用 import.meta.glob 而不是 fs】與這個檔案裡「main.ts 的接線」同一個做法 */
 const CONSUMERS = import.meta.glob(
-  ['../../src/main.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts'],
+  ['../../src/main.ts', '../../src/render/flakBursts.ts', '../../src/render/blast.ts',
+    '../../src/hud/Hud.ts'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
 const srcOf = (name: string): string =>
@@ -450,5 +453,160 @@ describe('ordnanceShakeScale：炸彈與魚雷的震動尺度', () => {
     expect(torpedoes).toContain('ordnanceShakeScale(')
     const flak = main.slice(main.indexOf('function shakeFlakBursts'))
     expect(flak.slice(0, flak.indexOf('\n}\n'))).not.toContain('ordnanceShakeScale')
+  })
+})
+
+/**
+ * # HUD 跟著搖
+ *
+ * HUD 是釘在座艙上的一層玻璃。鏡頭震而它紋風不動的話，畫面讀起來像世界在抖
+ * 而儀表浮在外面。
+ *
+ * 【這一支守的是什麼】三件靜靜壞掉的事：HUD 與鏡頭同頻同相（看起來像 HUD
+ * 黏死在世界上，等於沒有這個效果）、不震的時候角度不是零（HUD 永遠歪著）、
+ * 以及幅度大到讀不出數字。
+ */
+describe('HUD 的搖晃', () => {
+  it('不震的時候三個量恰好都是 0 —— 不是很小的數', () => {
+    const s = createCameraShake()
+    for (const f of [hudShakeAngle, hudShakeShiftX, hudShakeShiftY]) {
+      expect(f(s)).toBe(0)
+      s.phase = 3.7
+      expect(f(s)).toBe(0)
+    }
+  })
+
+  /**
+   * 【位移是主角】轉 3° 時畫面中央幾乎不動，看得出來的只有角落；位移是整張
+   * 一起平移，準星與數字都在動。兩個量各自有上限，但位移那一份要讀得出來。
+   */
+  it('位移在正負之間走滿，而且不超過上限', () => {
+    const s = createCameraShake()
+    s.trauma = 1
+    for (const f of [hudShakeShiftX, hudShakeShiftY]) {
+      let lo = Infinity
+      let hi = -Infinity
+      for (let k = 0; k < 4000; k++) {
+        s.phase = k * 0.01
+        const v = f(s)
+        if (v < lo) lo = v
+        if (v > hi) hi = v
+        expect(Math.abs(v)).toBeLessThanOrEqual(HUD_SHAKE_MAX_SHIFT)
+      }
+      expect(lo).toBeLessThan(-HUD_SHAKE_MAX_SHIFT * 0.5)
+      expect(hi).toBeGreaterThan(HUD_SHAKE_MAX_SHIFT * 0.5)
+    }
+  })
+
+  /** 【兩個軸不能同步】共用一組值的話位移走的是一條 45° 斜線，不是晃 */
+  it('左右與上下互不相同', () => {
+    const s = createCameraShake()
+    s.trauma = 1
+    let same = 0
+    for (let k = 0; k < 500; k++) {
+      s.phase = k * 0.019
+      if (Math.abs(hudShakeShiftX(s) - hudShakeShiftY(s)) < 1e-12) same++
+    }
+    expect(same).toBe(0)
+  })
+
+  it('正負都有而且不超過上限', () => {
+    const s = createCameraShake()
+    s.trauma = 1
+    let lo = Infinity
+    let hi = -Infinity
+    for (let k = 0; k < 4000; k++) {
+      s.phase = k * 0.01
+      const a = hudShakeAngle(s)
+      if (a < lo) lo = a
+      if (a > hi) hi = a
+      expect(Math.abs(a)).toBeLessThanOrEqual(HUD_SHAKE_MAX_ANGLE)
+    }
+    expect(lo).toBeLessThan(0)
+    expect(hi).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【平均值要接近 0】不為零的話一震起來 HUD 會整個偏到一邊，而那看起來
+   * 像「HUD 裝歪了」不像震動 —— 與鏡頭那三軸同一條理由。
+   */
+  it('平均值接近 0', () => {
+    const s = createCameraShake()
+    s.trauma = 1
+    let sum = 0
+    const n = 20000
+    // 【取樣間隔照上面 `shakeNoise` 那一條】噪聲時間裡走 0.037 一步。太細的
+    // 話會與整數格點共振，量到的是取樣的偏差而不是噪聲的
+    for (let k = 0; k < n; k++) {
+      s.phase = (k * 0.037) / HUD_SHAKE_FREQUENCY
+      sum += hudShakeAngle(s)
+    }
+    expect(Math.abs(sum / n)).toBeLessThan(HUD_SHAKE_MAX_ANGLE * 0.05)
+  })
+
+  /**
+   * 【頻率要與鏡頭不同】同頻的話兩者一起動，HUD 看起來黏死在世界上。
+   * 噪聲通道也不能與鏡頭的三軸（1、2、3）重覆 —— 共用會完全同步。
+   */
+  it('頻率與鏡頭不同，噪聲通道也不重覆', () => {
+    expect(HUD_SHAKE_FREQUENCY).not.toBe(SHAKE_FREQUENCY)
+    const s = createCameraShake()
+    s.trauma = 1
+    let same = 0
+    for (let k = 0; k < 500; k++) {
+      s.phase = k * 0.02
+      const t = s.phase * SHAKE_FREQUENCY
+      const cam = [shakeNoise(1, t), shakeNoise(2, t), shakeNoise(3, t)]
+      const hud = hudShakeAngle(s) / (HUD_SHAKE_MAX_ANGLE * s.trauma * s.trauma)
+      if (cam.some((c) => Math.abs(c - hud) < 1e-12)) same++
+    }
+    expect(same).toBe(0)
+  })
+
+  /** 【不超過鏡頭】HUD 比世界還晃的話，讀起來變成儀表自己在甩 */
+  it('角度不超過鏡頭的角度上限', () => {
+    expect(HUD_SHAKE_MAX_ANGLE).toBeLessThan(SHAKE_MAX_ANGLE)
+  })
+
+  /**
+   * 【超速的持續搖晃也要帶到】只看 `trauma` 的話，超速時鏡頭在搖而 HUD 不動。
+   * 與 `applyCameraShake` 取同一個最大值。
+   */
+  it('超速的持續震動也會讓 HUD 搖', () => {
+    const s = createCameraShake()
+    s.sustained = 1
+    s.phase = 0.37
+    expect(Math.abs(hudShakeAngle(s))).toBeGreaterThan(0)
+    expect(Math.abs(hudShakeShiftX(s))).toBeGreaterThan(0)
+    expect(Math.abs(hudShakeShiftY(s))).toBeGreaterThan(0)
+  })
+
+  /**
+   * 【HUD 不用 canvas 的變換】儀表與盤面走離屏快取，貼回來時 `setTransform`
+   * 成 identity —— 疊在 context 上的旋轉它們吃不到，畫面上會變成「除了儀表
+   * 以外都在轉」。所以走的是元素的 CSS transform。
+   */
+  it('Hud.ts 用 CSS transform 轉與移，不用 ctx 的變換', () => {
+    const hud = srcOf('Hud.ts')
+    expect(hud).toContain('this.canvas.style.transform')
+    expect(hud).toContain('translate(${(x * 100).toFixed(2)}%, ${(y * 100).toFixed(2)}%) rotate(${a}rad)')
+    expect(hud).not.toContain('ctx.rotate(')
+    expect(hud).not.toContain('ctx.translate(')
+  })
+
+  /**
+   * 【要排在 `stepCameraShake` 之後】排在它之前的話 HUD 慢鏡頭一幀，
+   * 兩者對不起來 —— 而畫面上只是「搖得怪怪的」。
+   */
+  it('main.ts 在推進震動之後才算 HUD 的角度', () => {
+    const main = srcOf('main.ts')
+    const step = main.indexOf('stepCameraShake(cameraShake')
+    const hud = main.indexOf('hudFrame.shakeAngle = hudShakeAngle(cameraShake)')
+    expect(step).toBeGreaterThan(0)
+    expect(hud).toBeGreaterThan(step)
+    expect(main.indexOf('hud.render(hudFrame')).toBeGreaterThan(hud)
+    // 【三個量都要接上】只接角度的話位移永遠是 0，而那正是要的主要份量
+    expect(main).toContain('hudFrame.shakeX = hudShakeShiftX(cameraShake)')
+    expect(main).toContain('hudFrame.shakeY = hudShakeShiftY(cameraShake)')
   })
 })

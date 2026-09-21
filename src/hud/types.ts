@@ -357,6 +357,17 @@ export interface HudFrame {
    */
   godView: boolean
   /**
+   * HUD 這一幀要轉多少，弧度，以畫面中央為軸（`hudShakeAngle`）。
+   *
+   * 【它不進 canvas 的變換】整張 HUD 是用 CSS 轉的 —— 儀表與盤面走離屏
+   * 快取，貼回來時用的是 identity 變換，疊在 context 上的旋轉它們吃不到，
+   * 結果會是「除了儀表以外都在轉」。
+   */
+  shakeAngle: number
+  /** HUD 這一幀的位移，佔畫面寬／高的比例（`hudShakeShiftX`／`Y`） */
+  shakeX: number
+  shakeY: number
+  /**
    * 雙方存活架數。
    *
    * 【為什麼顯示數量而不顯示各機血量】與 §8 一致：你看不出對方的
@@ -462,6 +473,7 @@ export function createHudFrame(): HudFrame {
     aiOverride: '',
     aiExtendWhy: '',
     godView: false,
+    shakeAngle: 0, shakeX: 0, shakeY: 0,
     arenaShow: false,
     arenaOutside: false,
     arenaRemaining: ARENA_COUNTDOWN,

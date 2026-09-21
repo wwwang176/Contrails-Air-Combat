@@ -11,7 +11,7 @@ import {
 import { Projectiles } from './Projectiles'
 import { createImpacts, pushImpact, type ImpactEvents } from './events'
 import {
-  BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED,
+  BOMB_SPREAD_RAD, BOMB_TERMINAL_SPEED, TORPEDO_SPREAD_RAD,
   type BombBlockFn,
   Bombs, bombDragK, spreadDirection, spreadPair,
   type BombImpactFn, type BombState,
@@ -968,13 +968,14 @@ export class World {
     vx: number, vy: number, vz: number, damage: number,
     headX: number, headZ: number, team: number, owner = -1,
   ): void {
-    // 【散佈與炸彈同一組】由累計投放序號決定（可重播），不是亂數。瞄具解的
-    // 是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 —— 把散佈也
-    // 套進瞄具的話，散佈就變成免費的情報，等於沒有散佈
+    // 【散佈的序號與炸彈同一組做法】由累計投放序號決定（可重播），不是亂數。
+    // 瞄具解的是散佈**之前**的彈道，所以圈畫的是中心而不是這一枚的落點 ——
+    // 把散佈也套進瞄具的話，散佈就變成免費的情報，等於沒有散佈。
+    // 【幅度是魚雷自己的】見 `TORPEDO_SPREAD_RAD`
     spreadPair(this.torpedoes.dropped, BOMB_PAIR)
     spreadDirection(
       vx, vy, vz,
-      BOMB_PAIR.u * BOMB_SPREAD_RAD, BOMB_PAIR.v * BOMB_SPREAD_RAD,
+      BOMB_PAIR.u * TORPEDO_SPREAD_RAD, BOMB_PAIR.v * TORPEDO_SPREAD_RAD,
       BOMB_VEL,
     )
     this.torpedoes.spawn(
