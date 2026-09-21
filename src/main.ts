@@ -387,9 +387,13 @@ function resetArena(): void {
   hudFrame.arenaShow = mode === 'skirmish'
 }
 
-/** 【選單期間要藏起來】`stepAndDrawBattle` 不跑，HUD 畫布會停在最後一幀 */
+/**
+ * 【選單期間要藏起來】`stepAndDrawBattle` 不跑，HUD 畫布會停在最後一幀。
+ * **兩張都要藏** —— 遮罩那一張留著的話，選單上會蓋著最後一幀的暗角。
+ */
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement
-const hud = new Hud(hudCanvas)
+const hudMaskCanvas = document.getElementById('hud-mask') as HTMLCanvasElement
+const hud = new Hud(hudCanvas, hudMaskCanvas)
 const hudFrame = createHudFrame()
 /**
  * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
@@ -3418,6 +3422,7 @@ function frame(now: number) {
   perf.begin(now)
   bindings.tick(frameSeconds)
   hudCanvas.hidden = screen !== 'battle' || loadingBattle
+  hudMaskCanvas.hidden = hudCanvas.hidden
 
   // 【演練場的靶機打不死】血量每幀釘回滿 —— 幀內的彈著扣不到 0，就永遠
   // 不會走進擊墜路徑。轉向已由 `__drill` 換上直飛控制器，這裡只管活著。
