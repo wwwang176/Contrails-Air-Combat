@@ -1731,6 +1731,11 @@ function trackPlayerOrder(): void {
 const cues = createCueQueue(512)
 /** 自己被子彈打中時，另外播一下機身受創的機率 */
 const HIT_DAMAGE_CHANCE = 0.35
+/**
+ * 機槍打在自己機身上的額外增益，dB。**只作用在這一條** —— 受創的悶響、
+ * 以及疊在它上面的那一層金屬聲不吃這個值，五吋砲空爆造成的受創聲維持原樣。
+ */
+const BULLET_HIT_DB = -1.4
 /** 子彈打中自己時，機身受創的輕重（0–1）。子彈沒有逐發的傷害事件，取一個中間偏輕的值 */
 const BULLET_SEVERITY = 0.35
 /** 空爆超過這個距離不記，m */
@@ -2038,7 +2043,7 @@ function playCues(): void {
       case CUE.SplashBoom: audio.playPool('explosion', 'blast', x, y, z, true, db - 12, false, rate); break
       case CUE.FlakBurst: audio.playPool('flakBurst', 'flakBurst', x, y, z, true, 0, true); break
       // 【x 帶的是被打中的部位序號】不是座標
-      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, 0, true, selfHitRate(x)); break
+      case CUE.HitSelf: audio.playPool('hit', 'hitSelf', 0, 0, 0, false, BULLET_HIT_DB, true, selfHitRate(x)); break
       // 【第五格帶的是材質】查不到的材質走預設，不會沒聲音
       case CUE.MaterialHit: {
         const m = impactSound(scale)
