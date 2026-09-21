@@ -26,7 +26,13 @@ export const CATEGORY: Record<Category, CategorySpec> = {
   engineSelf: { gainDb: -8, ref: 0, max: 0 },
   engine: { gainDb: -8, ref: 60, max: 3000 },
   // 【自己開火要壓得過引擎與風切】它是操作回饋，扣扳機就該聽得很清楚
-  fireSelf: { gainDb: 8, ref: 0, max: 0 },
+  /**
+   * 自己的槍。**一次擊發一個 one-shot，不是循環。**
+   *
+   * 【比循環要小聲】350 ms 的尾音配上 13.3 發/秒，全速連射時同時有將近五層
+   * 在響 —— 同一個數字底下比循環大 5.7 dB。
+   */
+  fireSelf: { gainDb: 2, ref: 0, max: 0 },
   fire: { gainDb: 3, ref: 80, max: 2500 },
   turret: { gainDb: -2, ref: 80, max: 2500 },
   explosion: { gainDb: 6, ref: 150, max: 8000 },
