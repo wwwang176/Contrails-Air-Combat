@@ -104,7 +104,7 @@ import {
 import { pushDamageMark, resetDamageMarks, stepDamageMarks } from './hud/damageMarks'
 import { CameraRig, DEFAULT_CAMERA_OPTIONS, thirdPersonFor } from './camera/CameraRig'
 import { solveImpact, type BombState, type Impact } from './world/bomb'
-import { blastScaleOf, resetBombBay, stepBombBay, type BombBay } from './weapons/bomb'
+import { blastScaleOf, resetBombBay, type BombBay } from './weapons/bomb'
 import {
   aglOk, canRelease, envelopeFor, pitchOk, rollOk,
 } from './weapons/releaseEnvelope'
@@ -545,8 +545,8 @@ const RUN_Z = new Float64Array(TORPEDO_RUN_SAMPLES)
  * `Combatant.bombBay`。這裡若自己再開一個，玩家投完按 `I` 代飛時 AI 會拿
  * 另一個滿艙再投一次 —— 而且代飛不會停掉既有的連投佇列，兩條路會同時投。
  *
- * 【投放本身仍然在幀迴圈】搬進物理步的話就沒有 `bombPoint` 與內插後的
- * 算繪位置，準星與彈著會分家。**共用的是庫存，不是路徑。**
+ * 【投放也與 AI 同一條路】`World.releaseBombs` 從質心投，與 `bombPoint` 差
+ * 兩三公尺，落在殺傷半徑的雜訊裡。
  */
 function playerBay(): BombBay {
   return player.bombBay
@@ -565,13 +565,6 @@ let playerLoadout: Loadout | null = null
  * 沒有 `BattleConfig`。`startWorld` 每一場設一次。
  */
 let missionLoadout: Loadout | null = null
-/**
- * 上一幀左鍵按著沒有。
- *
- * 【為什麼要邊緣】`firing` 是持續按著的布林，而彈艙吃的是「剛按下」。
- * 直接餵 `firing` 的話按著不放會被讀成每一幀都重新扣一次扳機。
- */
-let bombWasFiring = false
 
 /**
  * 玩家換了一台飛機：重算掛彈量與瞄具眼點。
@@ -586,7 +579,6 @@ function syncBombLoad(): void {
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
   resetBombBay(player.bombBay, playerLoadout)
-  bombWasFiring = false
 }
 
 // 【擊墜表現：+4 個 draw call】火球、黑煙、噴濺、零件。殘骸接管既有的
@@ -2485,15 +2477,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 而一幀可能跑好幾步。若在幀尾才讀 player.hitsDealt，最後一步沒命中就整幀
   // 漏掉——連射時 X 標記會閃爍不定。
   let hitsThisFrame = 0
-  // 這一幀真的跑過的物理時間，s。玩家的彈艙吃它 —— 物理每幀最多補 8 步，
-  // 低於 30 fps 時世界變慢，彈艙要跟世界與 AI 的彈艙一起慢，否則慢的電腦上
-  // 裝填期間世界過的時間比較短
-  let physicsSeconds = 0
   // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
   // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
   wireTerrain()
   const alpha = loop.advance(frameSeconds, (dt) => {
-    physicsSeconds += dt
     perf.beginPhysics()
     stepBattle(battle, dt)
     // 【緊接在物理步之後】增援是 `stepBattle` 裡的節拍加進去的，而幀尾的
@@ -2692,17 +2679,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   const alphaCrit = aircraft.spec.lift.alphaCrit +
     (aircraft.diag.slatsDeployed ? aircraft.spec.lift.slatAlphaBonus : 0)
 
-  // ── 彈艙 ──────────────────────────────────────────────
+  // ── 投彈的準星與包絡 ──────────────────────────────────
   //
-  // 【**必須在所有視角分支之外**】彈艙是機械，與鏡頭在哪裡無關：關進任何一個
-  // 視角分支，回補與連投節拍就會在那個視角之外凍住。`bomb-bay-wiring.test.ts`
-  // 守這一條。
+  // 【彈艙不在這裡推進】玩家的彈艙與 AI 一樣只由 `World.releaseBombs` 在物理步
+  // 推進與投放；扣扳機是 `PlayerController` 寫進 `command.bombing`。這裡再推進
+  // 一次的話，玩家的回補與連投間隔會快一倍。
   //
-  // 【扣扳機不必另外擋】上帝視角與代飛在上面已經把 `input.firing` 設成 false，
-  // 所以 `press` 恆為 false —— 那兩個模式由 `playerAi` 經 `World.releaseBombs`
-  // 投彈，與友軍 AI 同一條路；這裡只讓連投剩下的幾枚照節奏投完、回補照走。
-  //
-  // 【投彈點每幀都算】連投中途換視角時，剩下那幾枚要從當下的位置出去。
   // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
   const att = attitudeFromOrientation(renderQuat)
   const agl = renderPos.y - terrain.collisionHeightAt(renderPos.x, renderPos.z)
@@ -2715,32 +2697,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   )
 
   const bp = visuals.get(player)!.model.bombPoint
-  if (bp !== null) {
-    BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
-    const press = input.viewMode === 'bomb' && input.firing && !bombWasFiring
-    stepBombBay(playerBay(), physicsSeconds, press, releaseOk, () => {
-      const v = player.aircraft.state.velocity
-      const damage = playerLoadout?.damage ?? 0
-      if (playerLoadout?.kind === 'torpedo') {
-        // 【機首的水平方向要一起送】垂直入水那種退化情況沿用它，而那件事
-        // **不能從退化的速度反推**
-        noseHorizontal(renderQuat, NOSE_H)
-        world.dropTorpedo(
-          BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
-          NOSE_H.x, NOSE_H.z, teamSlot(player.team), player.index,
-        )
-      } else {
-        world.dropBomb(
-          BOMB_EYE.x, BOMB_EYE.y, BOMB_EYE.z, v.x, v.y, v.z, damage,
-          teamSlot(player.team), player.index,
-        )
-      }
-      // 【投放不另外出聲】每一顆炸彈自己的呼嘯就是回饋，見 `updateAudio`
-    })
-  }
-  // 【離開投彈模式就清掉邊緣】不清的話回到投彈模式時，按著的那一下會被讀成
-  // 一次新的扣扳機
-  bombWasFiring = input.viewMode === 'bomb' && input.firing
+  if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
 
   let bombTarget: Vector3 | null = null
   let bombState: 'off' | 'solved' | 'none' = 'off'

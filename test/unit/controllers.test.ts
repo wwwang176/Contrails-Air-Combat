@@ -49,6 +49,34 @@ describe('PlayerController', () => {
     cmd.aimWorld.set(1, 0, 0)
     expect(input.aimWorld.toArray()).toEqual([0, 0, -1])
   })
+
+  /** 【剛按下才投】持續按著的話，每一次回補完成都會自動再倒一整艙 */
+  it('投彈視角下剛按下的那一步寫 bombing，按著不放不再寫', () => {
+    const input = createInputState()
+    input.viewMode = 'bomb'
+    const c = new PlayerController(input)
+    const cmd = createCommand()
+    const a = new Aircraft(P51D)
+    const seq: boolean[] = []
+    for (const down of [false, true, true, true, false, true]) {
+      input.firing = down
+      c.update(a, DT, cmd)
+      seq.push(cmd.bombing)
+      expect(cmd.firing).toBe(false)
+    }
+    expect(seq).toEqual([false, true, false, false, false, true])
+  })
+
+  it('不在投彈視角時左鍵是機槍，不投彈', () => {
+    const input = createInputState()
+    input.viewMode = 'third'
+    input.firing = true
+    const c = new PlayerController(input)
+    const cmd = createCommand()
+    c.update(new Aircraft(P51D), DT, cmd)
+    expect(cmd.bombing).toBe(false)
+    expect(cmd.firing).toBe(true)
+  })
 })
 
 describe('ScriptedController', () => {
