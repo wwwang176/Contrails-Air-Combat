@@ -5,7 +5,10 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
 import { PlayerController } from '../../src/control/PlayerController'
 import { AiController } from '../../src/ai/AiController'
-import { DEFAULT_AI_BURST as AI_BURST, DEFAULT_FIRE, BURST_DUTY_EDGE, burstDuty } from '../../src/ai/fire'
+import {
+  DEFAULT_AI_BURST as AI_BURST, DEFAULT_FIRE, BURST_DUTY_EDGE, BURST_LENGTH_MAX, BURST_LENGTH_MIN, burstDuty,
+} from '../../src/ai/fire'
+import { burstDraw01, stepRandomBurst, type RandomBurstCycle } from '../../src/weapons/burst'
 import { createInputState } from '../../src/input/InputState'
 import { P51D } from '../../src/specs/p51d'
 import { BF109K4 } from '../../src/specs/bf109k4'
@@ -41,7 +44,8 @@ describe('AI 戰鬥機的點放', () => {
     const { self, ai } = flying(0)
     // 【先暖機】`resetBurst` 用設定值排相位，第一段的長度還是設定值
     for (let k = 0; k < Math.round(3 / DT); k++) ai.update(self, DT, cmd)
-    const steps = Math.round((AI_BURST.on + AI_BURST.off) * 40 / DT)
+    // 【取 400 個週期】開火段長度是隨機的，40 個週期的平均還會飄半個百分點
+    const steps = Math.round((AI_BURST.on + AI_BURST.off) * 400 / DT)
     let open = 0
     for (let k = 0; k < steps; k++) {
       ai.update(self, DT, cmd)
@@ -125,37 +129,37 @@ describe('AI 戰鬥機的點放', () => {
 describe('點放的工作週期跟著瞄準品質走', () => {
   const CONE = DEFAULT_FIRE.trackingCone
 
-  it('完全對準 90% 開火，錐邊緣 10%', () => {
-    expect(burstDuty(0, CONE)).toBeCloseTo(0.9, 6)
-    expect(burstDuty(CONE, CONE)).toBeCloseTo(0.1, 6)
+  it('完全對準 80% 開火，錐邊緣 20%', () => {
+    expect(burstDuty(0, CONE)).toBeCloseTo(0.8, 6)
+    expect(burstDuty(CONE, CONE)).toBeCloseTo(0.2, 6)
   })
 
   it('中間是線性的', () => {
     expect(burstDuty(CONE / 2, CONE)).toBeCloseTo(0.5, 6)
-    expect(burstDuty(CONE / 4, CONE)).toBeCloseTo(0.7, 6)
+    expect(burstDuty(CONE / 4, CONE)).toBeCloseTo(0.65, 6)
   })
 
   /** 錐外本來就不開火（`shouldFire` 擋掉），但週期不該變成負的 */
   it('超出錐與負角度都夾住', () => {
-    expect(burstDuty(CONE * 3, CONE)).toBeCloseTo(0.1, 6)
-    expect(burstDuty(-1, CONE)).toBeCloseTo(0.9, 6)
+    expect(burstDuty(CONE * 3, CONE)).toBeCloseTo(0.2, 6)
+    expect(burstDuty(-1, CONE)).toBeCloseTo(0.8, 6)
   })
 
   /** 【錐為零時不能除以零】消融或壞資料時回最好的那一端，不是 NaN */
   it('錐為零時不炸', () => {
-    expect(burstDuty(0.5, 0)).toBeCloseTo(0.9, 6)
+    expect(burstDuty(0.5, 0)).toBeCloseTo(0.8, 6)
     expect(Number.isFinite(burstDuty(0.5, -1))).toBe(true)
   })
 
   /**
-   * 【週期長度不能跟著變】只改比例、不改週期，節奏感才留得住。
+   * 【平均週期不能跟著準度變】準度只改比例，週期的平均固定是 `on + off`。
    * 拿工作週期去乘 `on` 而不是乘整個週期的話，瞄得爛時整個節奏會慢下來 ——
    * 那是另一種行為，而且不會有任何測試變紅。
    */
-  it('接線：開火段與停火段各是整個週期乘上比例', () => {
+  it('接線：每一輪的長度隨機，開火與停火照比例切', () => {
     const src = new TextDecoder().decode(readFileSync('src/ai/AiController.ts'))
     expect(src).toContain('const cycle = burst.on + burst.off')
-    expect(src).toContain('stepBurst(this, dt, cycle * duty, cycle * (1 - duty))')
+    expect(src).toMatch(/stepRandomBurst\(\s*this, dt, cycle, duty, Math\.max\(this\.selfIndex, 0\), BURST_LENGTH_MIN, BURST_LENGTH_MAX,\s*\)/)
     // 消融旋鈕：off = 0 時工作週期恆為 1，這一層照樣關得掉
     expect(src).toContain('burst.off > 0 ? burstDuty(this.aim.error, DEFAULT_FIRE.trackingCone) : 1')
   })
@@ -179,5 +183,73 @@ describe('掃射的點放接線', () => {
     expect(src).toContain('shipAttackCommand(self, ship, this.shipAim.gun, out, this.shipAim.point, this.aim)')
     const strafe = new TextDecoder().decode(readFileSync('src/ai/shipAttack.ts'))
     expect(strafe.match(/fireWithinCone\(nose\.dot\(lead\), fireAim\)/g) ?? []).toHaveLength(2)
+  })
+})
+
+/**
+ * 【每次扣扳機多久是隨機的】固定週期時正中目標就是「射 0.84 s、停 0.21 s」
+ * 一直重複。每次進入開火段時抽一次長度；平均不變，所以長期開火比例不變。
+ */
+describe('隨機長度的點放', () => {
+  function run(duty: number, seconds: number, k = 5): { share: number, bursts: number[], gaps: number[] } {
+    const s: RandomBurstCycle = {
+      burstFiring: true, burstTimer: 0.5, burstScale: 1, burstDraw: 0, burstLength: 1,
+    }
+    const cycle = AI_BURST.on + AI_BURST.off
+    let open = 0
+    const steps = Math.round(seconds / DT)
+    const bursts: number[] = []
+    const gaps: number[] = []
+    let lastDraw = 0
+    let off = 0
+    for (let i = 0; i < steps; i++) {
+      const firing = stepRandomBurst(s, DT, cycle, duty, k, BURST_LENGTH_MIN, BURST_LENGTH_MAX)
+      if (firing) {
+        open++
+        if (off > 0) { gaps.push(off * DT); off = 0 }
+      } else off++
+      if (s.burstDraw !== lastDraw) { lastDraw = s.burstDraw; bursts.push(s.burstLength) }
+    }
+    return { share: open / steps, bursts, gaps }
+  }
+
+  /**
+   * 【停火段不能跟著縮】整輪一起隨機時，抽到短的那一輪停火只剩 0.03 s ——
+   * 比機槍兩發之間還短，畫面上就是一直連發。
+   */
+  it('停火段固定是 週期 ×（1 − 工作週期），不隨開火段變短', () => {
+    const cycle = AI_BURST.on + AI_BURST.off
+    const { gaps } = run(0.9, 120)
+    expect(gaps.length).toBeGreaterThan(50)
+    for (const g of gaps) expect(Math.abs(g - cycle * 0.1)).toBeLessThanOrEqual(DT + 1e-9)
+  })
+
+  it('長期的開火比例等於工作週期', () => {
+    for (const duty of [0.9, 0.5, 0.1]) {
+      expect(run(duty, 600).share, `duty ${duty}`).toBeCloseTo(duty, 1)
+    }
+  })
+
+  it('每次開火段的長度不一樣，落在固定開火段的 BURST_LENGTH_MIN…MAX 倍之間', () => {
+    const on = (AI_BURST.on + AI_BURST.off) * 0.9
+    const { bursts } = run(0.9, 120)
+    expect(bursts.length).toBeGreaterThan(50)
+    for (const b of bursts) {
+      expect(b).toBeGreaterThanOrEqual(on * BURST_LENGTH_MIN - 1e-9)
+      expect(b).toBeLessThanOrEqual(on * BURST_LENGTH_MAX + 1e-9)
+    }
+    const min = Math.min(...bursts), max = Math.max(...bursts)
+    expect(min).toBeLessThan(on * 0.5)
+    expect(max).toBeGreaterThan(on * 1.5)
+    const mean = bursts.reduce((a, b) => a + b, 0) / bursts.length
+    expect(mean / on).toBeGreaterThan(0.85)
+    expect(mean / on).toBeLessThan(1.15)
+  })
+
+  /** 【確定性】逐位元重播要求同一架、同一輪抽到同一個長度 */
+  it('同一架同一輪抽到同一個值；不同架不同', () => {
+    expect(burstDraw01(3, 7)).toBe(burstDraw01(3, 7))
+    expect(burstDraw01(3, 7)).not.toBe(burstDraw01(4, 7))
+    expect(burstDraw01(3, 7)).not.toBe(burstDraw01(3, 8))
   })
 })
