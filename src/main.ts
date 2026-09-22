@@ -1345,6 +1345,9 @@ function playerTutorials(): Tutorial[] {
   return tutorialsFor(player.aircraft.spec.role, playerLoadout?.kind ?? null)
 }
 
+/** 進戰鬥、重新開始時世界的聲音從靜音淡入的長度，s */
+const BATTLE_FADE_IN = 2
+
 async function loadBattle(): Promise<void> {
   loadingBattle = true
   tutorialPending = []
@@ -1382,6 +1385,9 @@ async function loadBattle(): Promise<void> {
     loadingBattle = false
     loading.hide()
   }
+  // 【載入畫面收掉才淡入】載入期間 context 開著；在前面淡的話，戰場出現時
+  // 淡入已經走完，引擎聲還是一下子衝出來
+  audio.fadeIn(BATTLE_FADE_IN)
 }
 
 /**
@@ -3386,6 +3392,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onRestart() {
     restartBattle()
     setPausedState(false)
+    // 【排在 setPausedState(false) 之後】那一下會排一段恢復用的短淡入，後叫的才算數
+    audio.fadeIn(BATTLE_FADE_IN)
     menu.setPaused(false)
     grabPointer()
   },

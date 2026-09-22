@@ -1,7 +1,7 @@
 import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
-import { absorptionDb, dbToGain, distanceCutoffHz, soundArrived, voiceLoudnessDb } from './curves'
+import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
 import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
 
 /**
@@ -40,6 +40,13 @@ export interface AudioEngine {
   setPaused(paused: boolean): void
   /** 結算後的慢動作：所有播放速度乘上這個比例。呼叫端一律傳未縮放的速度 */
   setTimeScale(scale: number): void
+  /**
+   * 世界的聲音從靜音淡入，秒。後叫的蓋掉前面還沒走完的那一段。
+   *
+   * 暫停、切分頁、關音量之後恢復時，引擎自己會淡入（`RESUME_FADE_IN`）；
+   * 這一支給進戰鬥用 —— 那時 context 本來就開著，沒有「停 → 播」可以觸發。
+   */
+  fadeIn(seconds: number): void
   /**
    * 從音效庫挑一個播。`layered` 為真時再挑一個不同的疊上去（小 `LAYER_DB`、
    * 晚 0–30 ms），同一庫幾個檔就疊得出好幾倍的組合
@@ -84,6 +91,10 @@ const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 
 const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
+/** 暫停、切分頁、關音量之後恢復的淡入，s */
+const RESUME_FADE_IN = 0.8
+/** 淡入曲線的點數。曲線點之間是線性內插，32 點已經聽不出折角 */
+const FADE_POINTS = 32
 
 interface Voice {
   audio: PositionalAudio
@@ -138,6 +149,15 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   const listener = new AudioListener()
   camera.add(listener)
   const ctx = listener.context
+  /**
+   * 世界聲音的最後一段：`listener.gain`（主音量）→ `fade` → 喇叭。
+   * 每一個世界聲道都經過 `listener.gain`，所以淡入插在這裡就管得到全部。
+   */
+  const fade = ctx.createGain()
+  listener.gain.disconnect()
+  listener.gain.connect(fade)
+  fade.connect(ctx.destination)
+  const fadeCurve = fadeInCurve(FADE_POINTS)
   const root = new Object3D()
   root.name = 'audio'
   scene.add(root)
@@ -257,11 +277,31 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 每一步都在前一步完成之後，重新看一次現在該停還是該播。
    */
   let runChain: Promise<void> = Promise.resolve()
+  /** 上一次 `applyRunState` 決定的是播還是停 */
+  let running = false
   function applyRunState(): void {
+    // 【從停到播才淡入】已經在播時再叫一次 setPaused(false)，聲音不能被拉回 0。
+    // suspend 中 `currentTime` 不走，排下去的曲線等 resume 之後才開始
+    const run = unlocked && !muted && !paused
+    if (run && !running) fadeIn(RESUME_FADE_IN)
+    running = run
     runChain = runChain.then(() => {
       const run = unlocked && !muted && !paused
       return run ? ctx.resume() : ctx.suspend()
     }).catch(() => {})
+  }
+
+  function fadeIn(seconds: number): void {
+    const g = fade.gain
+    const now = ctx.currentTime
+    // 【先清掉還沒走完的那一段】曲線與曲線重疊時 setValueCurveAtTime 會丟例外
+    g.cancelScheduledValues(now)
+    try {
+      g.setValueCurveAtTime(fadeCurve, now, seconds)
+    } catch {
+      // 排不進去就直接全開 —— 停在 0 的話整場都沒有聲音，而且不會報錯
+      g.value = 1
+    }
   }
 
   function gainOf(file: string, cat: Category, extraDb: number): number {
@@ -593,6 +633,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     setTimeScale(s) {
       timeScale = s
     },
+    fadeIn,
     playPool,
     playFile,
     playUi,
