@@ -180,3 +180,20 @@ describe('標記的接線：地面目標必須傳進 `fillMarkers`', () => {
     expect(call).toContain('world.groundTargets')
   })
 })
+
+/**
+ * 代飛（按 I、上帝視角）的那一顆 `playerAi` 要看得到玩家那一架的彈艙 ——
+ * 否則它只會掃射，與同一關的友軍 AI 行為不同。不會報錯。
+ */
+describe('代飛接上玩家的彈艙', () => {
+  const ALL = SRC.join('\n')
+
+  it('playerAi.bombBay 接的是玩家那一架的彈艙', () => {
+    expect(ALL).toContain('playerAi.bombBay = player.bombBay')
+    expect(ALL).not.toMatch(/playerAi\.bombBay = null/)
+  })
+
+  it('雷擊或投彈的航路跟著玩家的掛載', () => {
+    expect(ALL).toMatch(/playerAi\.strikeProfile = player\.loadout\?\.kind === 'torpedo'/)
+  })
+})

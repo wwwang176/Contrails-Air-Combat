@@ -1079,8 +1079,9 @@ export class World {
   }
 
   /**
-   * AI 的投彈。**玩家不走這裡** —— 它的 `command.bombing` 恆為 false，
-   * 投彈由 `main.ts` 的幀迴圈發動（那裡才有內插後的算繪位置與 `bombPoint`）。
+   * AI 的投彈，包括代飛中的玩家座位。**玩家自己操縱時不從這裡發動** ——
+   * 手動控制器的 `command.bombing` 恆為 false，扣扳機由 `main.ts` 的幀迴圈
+   * 處理（那裡才有內插後的算繪位置與 `bombPoint`）。
    *
    * 【為什麼不是 `World` 認出玩家】這一層不知道誰是玩家（見 `damageEvents`
    * 的說明），也不該知道。差別做在控制器那一端。

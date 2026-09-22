@@ -251,9 +251,12 @@ function wireTerrain(force = false): void {
   }
   playerAi.ships = world.ships
   playerAi.groundTargets = world.groundTargets
-  // 【代飛的那一架不投彈】`playerAi` 只在玩家交出操縱時接手，而投彈仍然
-  // 由玩家的幀迴圈發動（見 `playerBay`）。給 null 就讓它走掃射那一支。
-  playerAi.bombBay = null
+  // 【代飛與友軍 AI 投彈的方式相同】接的是玩家那一架的彈艙（`playerBay` 就是
+  // 它），發動走 `World.releaseBombs` 讀 `command.bombing` —— 與友軍 AI 同一條
+  // 路。給 null 的話代飛看不到彈艙，只會掃射。在迴圈之外寫：代飛不在座位上
+  // 時迴圈走不到它，而接手僚機會換掉 `player`
+  playerAi.bombBay = player.bombBay
+  playerAi.strikeProfile = player.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   playerAi.bombDrag = world.bombDrag
   if (force || playerAi.terrain !== terrain) {
     playerAi.terrain = terrain
@@ -2696,8 +2699,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 守這一條。
   //
   // 【扣扳機不必另外擋】上帝視角與代飛在上面已經把 `input.firing` 設成 false，
-  // 所以 `press` 恆為 false —— 那兩個模式投不出彈，但連投剩下的幾枚照節奏
-  // 投完、回補照走。
+  // 所以 `press` 恆為 false —— 那兩個模式由 `playerAi` 經 `World.releaseBombs`
+  // 投彈，與友軍 AI 同一條路；這裡只讓連投剩下的幾枚照節奏投完、回補照走。
   //
   // 【投彈點每幀都算】連投中途換視角時，剩下那幾枚要從當下的位置出去。
   // 【包絡每幀都算】它是準星的顏色，而準星在一般飛行時也畫
