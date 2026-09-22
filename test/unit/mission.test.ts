@@ -356,7 +356,7 @@ describe('stepMission：擊沉', () => {
     expect(s.outcome).toBe('victory')
   })
 
-  /** 【沒有護衛編制的關不受影響】日 M3 倫內爾島藍隊全是陸攻，戰鬥機恆為 0 */
+  /** 【沒有護衛編制的關不受影響】日 M2 倫內爾島藍隊全是陸攻，戰鬥機恆為 0 */
   it('沒有護衛編制：戰鬥機是 0 而轟炸機還活著 —— 繼續打', () => {
     const s = createMissionState(rules)
     stepMission(rules, inputs({ shipsSunk: 1, aliveBlue: 11, aliveBlueFighters: 0 }), DT, s)

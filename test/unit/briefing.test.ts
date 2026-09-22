@@ -71,7 +71,7 @@ describe('briefingOf —— 擊落（德 M1）', () => {
 })
 
 describe('briefingOf —— 打擊（德 M3）', () => {
-  const b = briefingOf(readyCard('germany-m4'))
+  const b = briefingOf(readyCard('germany-m3'))
 
   it('目標照卡，起飛的波次不上簡報', () => {
     expect(b.objective).toBe('打掉停機坪上的野馬')
@@ -87,7 +87,7 @@ describe('briefingOf —— 打擊（德 M3）', () => {
 
 describe('briefingOf —— 其他', () => {
   it('日 M2 的空域是漢口', () => {
-    expect(fact(briefingOf(readyCard('japan-m3')), '空域')).toBe('中國　漢口上空')
+    expect(fact(briefingOf(readyCard('japan-m2')), '空域')).toBe('中國　漢口上空')
   })
 
   it('殲滅卡（日 M2）沒有護送列', () => {

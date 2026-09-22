@@ -83,7 +83,7 @@ describe('守住艦隊：`vitalSunk` 只算我方的要害艦', () => {
     expect(b.mission.outcome).toBe('fighting')
   })
 
-  /** 【保護日 M4】紅方的船沉掉與 `vitalSunk` 無關 */
+  /** 【保護日 M3】紅方的船沉掉與 `vitalSunk` 無關 */
   it('敵方的船沉掉不算輸', () => {
     const b = battle()
     sink(b, 2)
@@ -114,13 +114,13 @@ describe('守住艦隊：`vitalSunk` 只算我方的要害艦', () => {
 })
 
 /**
- * 盟 M4「沖繩外海」的卡片。
+ * 盟 M3「沖繩外海」的卡片。
  *
  * 【為什麼卡片自己要有測試】`missionConfigFrom` 是**明列欄位、不透傳未知
  * 資料**，而漏抄一格的症狀是「型別過了但進戰鬥少了東西」，不報錯。
  */
-describe('盟 M4：沖繩外海', () => {
-  const card = MISSIONS.allies.find((m) => m.id === 'allies-m4')!
+describe('盟 M3：沖繩外海', () => {
+  const card = MISSIONS.allies.find((m) => m.id === 'allies-m3')!
   const b = card.battle!
 
   it('打得起來了', () => {
@@ -300,7 +300,7 @@ describe('守住艦隊的目標列印航母的血量百分比', () => {
    * 玩家要盯的是航母還剩幾成。要害艦的血量比例每步從船讀，HUD 印成百分比
    */
   it('metric 是要害艦的血量比例，種類是 percent', () => {
-    const card = MISSIONS.allies.find((m) => m.id === 'allies-m4')!
+    const card = MISSIONS.allies.find((m) => m.id === 'allies-m3')!
     const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
     stepBattle(bt, DT)
     expect(bt.mission.metricKind).toBe('percent')

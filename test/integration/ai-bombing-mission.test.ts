@@ -19,8 +19,8 @@ import { TORPEDO_PROFILE } from '../../src/ai/torpedoRun'
  * **這種缺陷不會有任何錯誤訊息**，只會表現成「AI 好像不太會炸船」。
  */
 
-const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
-const zeroCard = MISSIONS.allies.find((c) => c.id === 'allies-m4') as ReadyMissionCard
+const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
+const zeroCard = MISSIONS.allies.find((c) => c.id === 'allies-m3') as ReadyMissionCard
 
 /** 玩家席位由它佔著不動 —— 這一支驗的是 AI，不是玩家。 */
 const IDLE: Controller = { update() {} }
@@ -58,7 +58,7 @@ function mission(which: ReadyMissionCard = card): Battle {
   return b
 }
 
-/** 這一關投的是什麼。`japan-m4` 掛的是魚雷（`weapons/stores.ts`） */
+/** 這一關投的是什麼。`japan-m3` 掛的是魚雷（`weapons/stores.ts`） */
 function dropped(b: Battle): number {
   return b.world.bombs.dropped + b.world.torpedoes.dropped
 }
@@ -67,7 +67,7 @@ function run(b: Battle, seconds: number): void {
   for (let i = 0; i < seconds * 240; i++) { wire(b); stepBattle(b, DT) }
 }
 
-describe('japan-m4 的 AI 一式陸攻', () => {
+describe('japan-m3 的 AI 一式陸攻', () => {
   it('鎖定艦隊、投得出彈、打得到船', () => {
     const b = mission()
     const hp0 = b.world.ships.map((s) => s.hp)
@@ -114,7 +114,7 @@ describe('japan-m4 的 AI 一式陸攻', () => {
 })
 
 /**
- * 【為什麼要第二關】`japan-m4` 掛的是魚雷，走的是另一份剖面 —— 轟炸那一份
+ * 【為什麼要第二關】`japan-m3` 掛的是魚雷，走的是另一份剖面 —— 轟炸那一份
  * 在真正的關卡裡從來沒有被端到端驗過。
  *
  * 這一關的艦隊**迎著**進場方向開（TF58 航向 −Z，零戰從 −Z 來），而炸彈的
@@ -126,7 +126,7 @@ describe('japan-m4 的 AI 一式陸攻', () => {
  * 的話零戰照樣投得出來（實測 30 枚）。單一參數由單元測試的「鎖定距離涵蓋
  * 投彈窗」守，那一條三種變異全紅。
  */
-describe('allies-m4 的 AI 零戰', () => {
+describe('allies-m3 的 AI 零戰', () => {
   it('投得出彈、打得到船', () => {
     const b = mission(zeroCard)
     const hp0 = b.world.ships.map((s) => s.hp)

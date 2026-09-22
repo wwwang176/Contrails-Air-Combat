@@ -274,7 +274,7 @@ describe('關卡的時段', () => {
    * 就與自己的簡報矛盾，而那只有人看得出來。
    */
   it('倫內爾島是黃昏', () => {
-    const m4 = cards.find((c) => c.id === 'japan-m4')!
+    const m4 = cards.find((c) => c.id === 'japan-m3')!
     expect(m4.battle!.timeOfDay).toBe('dusk')
     expect(m4.summary).toContain('黃昏')
   })

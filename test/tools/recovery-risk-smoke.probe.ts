@@ -1,5 +1,5 @@
 /**
- * 德軍第三個可玩關卡（資料 id `germany-m4`）的人工長時間試飛 probe。
+ * 德軍第三個可玩關卡（資料 id `germany-m3`）的人工長時間試飛 probe。
  * 它留下 Worker 風險／射擊／硬接管摘要，但不屬於 E2E 或自動合併門檻；相同算法
  * 的必要契約由 recovery-worker、recovery-rollout 與 ground-strafe 小型測試負責。
  *
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     await page.waitForTimeout(150)
     const launched = await page.evaluate(() => {
       const stop = document.querySelector<HTMLButtonElement>(
-        '#route .stop[data-mission="germany-m4"]',
+        '#route .stop[data-mission="germany-m3"]',
       )
       if (stop === null) return false
       stop.click()
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }))
       return true
     })
-    if (!launched) throw new Error('找不到或無法啟動 germany-m4')
+    if (!launched) throw new Error('找不到或無法啟動 germany-m3')
     await page.waitForFunction(
       () => (window as unknown as { __probe?: () => unknown }).__probe?.() != null,
       undefined, { timeout: 60_000 },

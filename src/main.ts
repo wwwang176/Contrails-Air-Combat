@@ -3589,7 +3589,7 @@ if (initialRecoveryFailure !== null) {
   await loading.hold()
   await loadGroup('載入機體')
   await preloadAircraftModels(fileLoaded)
-  // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m4 的第 58 特遣支隊有
+  // 【船的 GLB 也在開場載】三個艦級全部要 —— allies-m3 的第 58 特遣支隊有
   // 航母。少載一種的症狀是 `createShipModels` 找不到樣板**直接丟例外**，
   // 那一關進不去，而每一條單元測試都還是綠的（GLB 載入不在它們的路徑上）。
   await loadGroup('載入艦艇')

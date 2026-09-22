@@ -302,7 +302,7 @@ describe('返航的翻譯', () => {
 
 describe('德軍兩張卡的席位', () => {
   it('加上波次之後兩隊都還在上限內', () => {
-    for (const id of ['germany-m1', 'germany-m4']) {
+    for (const id of ['germany-m1', 'germany-m3']) {
       const m = readyCard(id)
       const cfg = missionConfigFrom(m)
       const extra = (m.battle.waves ?? []).reduce((s, w) => s + w.count, 0)
@@ -315,7 +315,7 @@ describe('德軍兩張卡的席位', () => {
   })
 
   it('德 M3 的起飛波次把起飛線帶到分隊上', () => {
-    const cfg = missionConfigFrom(readyCard('germany-m4'))
+    const cfg = missionConfigFrom(readyCard('germany-m3'))
     const takeoff = reinforces(cfg).filter((b) => b.flight.takeoff !== undefined)
     expect(takeoff).toHaveLength(3)
     for (const b of takeoff) expect(b.flight.departs).toBe('parkedP51')

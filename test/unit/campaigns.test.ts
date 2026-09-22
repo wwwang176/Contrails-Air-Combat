@@ -40,8 +40,8 @@ describe('三條戰役', () => {
 
   it('九張全部打得起來', () => {
     expect(ALL.filter(ready).map((m) => m.id).sort()).toEqual([
-      'allies-m1', 'allies-m2', 'allies-m4', 'germany-m1', 'germany-m2', 'germany-m4',
-      'japan-m1', 'japan-m3', 'japan-m4',
+      'allies-m1', 'allies-m2', 'allies-m3', 'germany-m1', 'germany-m2', 'germany-m3',
+      'japan-m1', 'japan-m2', 'japan-m3',
     ])
   })
 })
@@ -91,11 +91,11 @@ describe('可玩卡的戰鬥設定', () => {
 
   it('地形逐關指定，不是全部群島', () => {
     // 【為什麼要這一條】只加欄位不給值的話，每一關全填 archipelago 一樣通得過
-    // 「地形是合法的一種」，而日 M3 仍然開在群島上
+    // 「地形是合法的一種」，而日 M2 仍然開在群島上
     const of = (id: string) => playable.find((m) => m.id === id)!.battle.terrain
-    // 日 M3 換成漢口（華中農地）、德 M4 換成底板行動（Y-29）
-    expect(of('japan-m3')).toBe('farmland')
-    expect(of('germany-m4')).toBe('asch')
+    // 日 M2 換成漢口（華中農地）、德 M3 換成底板行動（Y-29）
+    expect(of('japan-m2')).toBe('farmland')
+    expect(of('germany-m3')).toBe('asch')
     expect(new Set(playable.map((m) => m.battle.terrain)).size).toBeGreaterThan(1)
   })
 
@@ -198,7 +198,7 @@ describe('德 M1 梅澤堡上空', () => {
 })
 
 describe('德 M3 底板行動', () => {
-  const card = MISSIONS.germany.find((m) => m.id === 'germany-m4') as ReadyMissionCard
+  const card = MISSIONS.germany.find((m) => m.id === 'germany-m3') as ReadyMissionCard
 
   it('Y-29、拂曉、8 架 K-4、開場沒有敵機在前方；炸毀 8 座', () => {
     const b = card.battle
@@ -218,7 +218,7 @@ describe('德 M3 底板行動', () => {
     for (const campaign of CAMPAIGNS) {
       for (const mission of MISSIONS[campaign]) {
         if (!ready(mission)) continue
-        const expected = mission.id === 'germany-m4' ? 'parkedP51' : undefined
+        const expected = mission.id === 'germany-m3' ? 'parkedP51' : undefined
         expect(missionConfigFrom(mission).tuning.priorityGroundUnit, mission.id).toBe(expected)
       }
     }
@@ -302,7 +302,7 @@ describe('missionConfigFrom', () => {
   it('雙方的機種照卡片，不是照陣營推出來的', () => {
     // 【這是整輪的本體】日 M2 玩家開 Ki-84 —— 那是「第三架」，
     // 舊的 `specsFor(f)[0]` 永遠選不到它
-    const m3 = ALL.filter(ready).find((m) => m.id === 'japan-m3')!
+    const m3 = ALL.filter(ready).find((m) => m.id === 'japan-m2')!
     const blue = missionConfigFrom(m3).units.find((u) => u.team === 'blue')!
     expect(blue.members[0]!.id).toBe('ki84')
     const m1 = ALL.filter(ready).find((m) => m.id === 'japan-m1')!
@@ -387,8 +387,8 @@ describe('日 M1 瓜達康納爾上空', () => {
   })
 })
 
-describe('日 M3 倫內爾島不受護衛條件影響', () => {
-  const card = MISSIONS.japan.find((m) => m.id === 'japan-m4') as ReadyMissionCard
+describe('日 M2 倫內爾島不受護衛條件影響', () => {
+  const card = MISSIONS.japan.find((m) => m.id === 'japan-m3') as ReadyMissionCard
 
   it('規則沒有護衛編制', () => {
     expect(missionConfigFrom(card).rules).toEqual({ kind: 'sink', count: 4 })
@@ -405,7 +405,7 @@ describe('日 M3 倫內爾島不受護衛條件影響', () => {
 })
 
 describe('日 M2 漢口上空', () => {
-  const card = MISSIONS.japan.find((m) => m.id === 'japan-m3') as ReadyMissionCard
+  const card = MISSIONS.japan.find((m) => m.id === 'japan-m2') as ReadyMissionCard
 
   it('Ki-84 ×8 對 P-51D ×10；高度劣勢開局；農地；殲滅；沒有第二階段', () => {
     const b = card.battle

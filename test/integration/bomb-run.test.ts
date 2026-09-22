@@ -10,7 +10,7 @@ import { resetBombBay } from '../../src/weapons/bomb'
 import type { Loadout } from '../../src/weapons/stores'
 import type { Combatant } from '../../src/world/World'
 
-/** 與 `japan-m4` 的 `blueLoadout` 同一組：500 kg × 2。 */
+/** 與 `japan-m3` 的 `blueLoadout` 同一組：500 kg × 2。 */
 const BOMB_LOAD: Loadout = { kind: 'bomb', count: 2, damage: 11_700, reloadSeconds: 20 }
 
 /**
@@ -18,7 +18,7 @@ const BOMB_LOAD: Loadout = { kind: 'bomb', count: 2, damage: 11_700, reloadSecon
  *
  * **一台 G4M、一艘不開火的船。**
  *
- * 【為什麼不在 `japan-m4` 裡量】那一關有六架
+ * 【為什麼不在 `japan-m3` 裡量】那一關有六架
  * F6F、八艘船的防空火網、九架互相影響的僚機 —— 量到的東西分不出是航路
  * 好還是運氣好。與「測試專用的無誤差砲」同一條規矩。
  *
@@ -67,7 +67,7 @@ function rig(shipSpeed: number, team: 'blue' | 'red' = 'blue'): Rig {
   c.aircraft.state.position.set(0, 1000, 1000)
   c.aircraft.prevPosition.copy(c.aircraft.state.position)
   // 【明講掛炸彈】G4M 的**預設**掛載是九一式航空魚雷（`LOADOUT_BY_AIRCRAFT`），
-  // 而這一支測的是轟炸航路。任務裡走的是同一條路 —— `japan-m4` 用
+  // 而這一支測的是轟炸航路。任務裡走的是同一條路 —— `japan-m3` 用
   // `MissionBattle.blueLoadout` 覆寫成炸彈。
   c.loadout = BOMB_LOAD
   resetBombBay(c.bombBay, c.loadout)

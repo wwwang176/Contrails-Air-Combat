@@ -72,7 +72,7 @@ export function missionRules(
   // 擊沉任務。
   if (b.sinkCount !== undefined) {
     // 【有攻擊隊才有護衛編制】其餘藍隊飛機就是護衛，全滅判敗。沒有攻擊隊的
-    // 擊沉關（日 M3 全是陸攻）連鍵都不放，否則戰鬥機數恆為 0 會開場判敗
+    // 擊沉關（日 M2 全是陸攻）連鍵都不放，否則戰鬥機數恆為 0 會開場判敗
     return b.convoyDuty === 'strike'
       ? { kind: 'sink', count: b.sinkCount, escorts: true }
       : { kind: 'sink', count: b.sinkCount }
@@ -94,7 +94,7 @@ export function missionRules(
   }
   // 【判準是「艦隊裡有沒有要害艦」，不是 `type`】理由同上面那一段：`type`
   // 是給玩家看的分類，用它推導的話日後多一張「殲滅」卡就會靜靜地變成
-  // 守住艦隊。**排在擊沉之後** —— 進攻的規則優先，而日 M4 的艦隊一艘
+  // 守住艦隊。**排在擊沉之後** —— 進攻的規則優先，而日 M3 的艦隊一艘
   // `vital` 都沒有，所以順序不影響它
   if (b.fleet?.ships.some((s) => s.vital === true) === true) {
     return { kind: 'defend' }

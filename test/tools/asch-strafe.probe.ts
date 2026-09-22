@@ -31,7 +31,7 @@ const SEEDS = [20260913, 1, 2]
 
 for (const seed of SEEDS) {
   const terrain = createTerrain('asch')
-  const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m4')), seed)
+  const b = createBattle(new AiController(), missionConfigFrom(readyCard('germany-m3')), seed)
   const w = b.world
   const policy = flatSeaCrashPolicy(terrain.collisionHeightAt)
   let crashes = 0

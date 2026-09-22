@@ -75,7 +75,7 @@ async function enterTorpedoMission(page: Page): Promise<void> {
   await page.click('[data-act="mission"]')
   await page.click('[data-campaign="japan"]')
   // 【用 id 選卡】標題會改，id 不會（`ui/menu.ts` 的 renderMission）
-  await page.click('[data-mission="japan-m4"]')
+  await page.click('[data-mission="japan-m3"]')
   await page.click('#brief-go')
   await page.waitForTimeout(2500)
 }

@@ -117,7 +117,7 @@ function digestOf(campaign: 'japan' | 'allies', id: string): string {
 
 console.log(JSON.stringify({
   seconds,
-  'japan-m4': digestOf('japan', 'japan-m4'),
-  // 盟 M4 包含「零戰整隊重生 + 陸攻掛在第五批」的編成。
-  'allies-m4': digestOf('allies', 'allies-m4'),
+  'japan-m3': digestOf('japan', 'japan-m3'),
+  // 盟 M3 包含「零戰整隊重生 + 陸攻掛在第五批」的編成。
+  'allies-m3': digestOf('allies', 'allies-m3'),
 }, null, 2))
