@@ -1,13 +1,12 @@
 /**
- * AI 戰鬥機點放（`ai/fire.ts` 的 `DEFAULT_AI_BURST`）的消融與掃描。
+ * AI 戰鬥機點放（`ai/fire.ts` 的 `DEFAULT_AI_BURST`）的消融：關掉點放 vs 現行。
  *
  * ## 為什麼需要它
  *
- * 點放上線之後 `test/integration/ai-targeting.test.ts` 的 `rearShare` 由
- * 門檻內漲到 0.366（門檻 0.35）。那一條的註解寫得很清楚：它是「掉頭去追
- * 後半球的敵機很浪費」的**代理指標**，而守住目標選擇品質的責任其實落在
- * `fireShare` 與 `onNose`。所以要判斷這是「行為退步」還是「代理指標的
- * 前提被動到了」，**必須把四個指標一起看**，而不是只看紅掉的那一個。
+ * `rearShare` 是「掉頭去追後半球的敵機很浪費」的**代理指標**，而守住目標
+ * 選擇品質的責任其實落在 `fireShare` 與 `onNose`。要判斷一次改動是「行為
+ * 退步」還是「代理指標的前提被動到了」，**必須把四個指標一起看**，而不是
+ * 只看出界的那一個。門檻與上一次的量測記在 `ai/fire.ts` 的 `DEFAULT_AI_BURST`。
  *
  * ## 跑法
  *
@@ -22,7 +21,7 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
-import type { BurstConfig } from '../../src/ai/fire'
+import { DEFAULT_AI_BURST, type BurstConfig } from '../../src/ai/fire'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
 const DT = 1 / 240
@@ -125,22 +124,20 @@ function run(burst: BurstConfig): Row {
   }
 }
 
+// 【工作週期不在這裡】它由 `burstDuty` 跟著瞄準品質給，`on`/`off` 只定平均週期
 const CASES: readonly (readonly [string, BurstConfig])[] = [
-  ['關掉（上線前）  ', { on: 1, off: 0 }],
-  ['0.9 / 0.15（86%）', { on: 0.9, off: 0.15 }],
-  ['0.9 / 0.30（75%）', { on: 0.9, off: 0.3 }],
-  ['1.2 / 0.80（60%）', { on: 1.2, off: 0.8 }],
+  ['關掉點放', { on: 1, off: 0 }],
+  ['現行    ', DEFAULT_AI_BURST],
 ]
 
 console.log(`AI 點放的消融　20v20、${SECONDS} 秒、種子 ${SEED}`)
 console.log('')
-console.log('點放             工作週期  持有中位  後半球   扣扳機   機首在錐內  存活')
-console.log('                             (s)     (≤.35)  (≥.025)   (≥.12)   藍/紅')
+console.log('點放       持有中位  後半球   扣扳機   機首在錐內  存活')
+console.log('             (≥1.1s)  (≤.38)  (≥.015)   (≥.12)   藍/紅')
 for (const [name, burst] of CASES) {
   const r = run(burst)
-  const duty = burst.on / (burst.on + burst.off)
   console.log(
-    `${name}   ${(duty * 100).toFixed(0)}%     `
+    `${name}    `
     + `${r.holdMedian.toFixed(2)}    `
     + `${(r.rearShare * 100).toFixed(1)}%   `
     + `${(r.fireShare * 100).toFixed(2)}%    `

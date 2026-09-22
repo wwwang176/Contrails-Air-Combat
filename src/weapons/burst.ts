@@ -107,3 +107,65 @@ export function resetBurst(
   s.burstFiring = at < onScaled
   s.burstTimer = s.burstFiring ? onScaled - at : cycle - at
 }
+
+/**
+ * 開火段長度隨機的點放。AI 戰鬥機用；砲塔仍是固定週期的 `stepBurst`。
+ *
+ * `burstDraw` 是抽過幾輪，`burstLength` 是這一輪開火段的長度，s。
+ */
+export interface RandomBurstCycle extends BurstCycle {
+  burstDraw: number
+  burstLength: number
+}
+
+/**
+ * 第 `n` 輪的 0..1 抽樣，`k` 是這一架的編號。**純函數** —— 逐位元重播
+ * （`test/integration/rematch.test.ts`）要求完全確定性，所以不用 `Math.random`。
+ */
+export function burstDraw01(k: number, n: number): number {
+  let h = Math.imul(k ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(n + 0x632be5ab, 0xc2b2ae35)
+  h ^= h >>> 15
+  h = Math.imul(h, 0x2c1b3c6d)
+  h ^= h >>> 12
+  h = Math.imul(h, 0x297a2d39)
+  h ^= h >>> 15
+  return (h >>> 0) / 4294967296
+}
+
+/**
+ * 推進一步，回傳這一步開始時是否在開火段。
+ *
+ * **每一次進入開火段就先決定這次扣扳機多久**：固定週期下的開火段
+ * `cycle × duty` 乘上 `min`…`max` 之間的一個抽樣，再乘這一架的 `burstScale`。
+ * 抽樣的平均是 1，所以時間平均下開火的比例仍是 `duty`。
+ *
+ * 【停火段不隨機】它維持 `cycle × (1 − duty)`。跟著開火段一起縮的話，抽到短的
+ * 那一輪停火只剩 0.03 s —— 比機槍兩發之間還短，一發都沒少，看起來就是一直
+ * 連發。
+ *
+ * 【`duty` 取切換當下的值】開火段長度在進入時就定了，瞄準品質在段中改變
+ * 不會把它截短或拉長；停火段的長度取停火開始那一刻的 `duty`。
+ *
+ * 熱路徑：不配置。
+ */
+export function stepRandomBurst(
+  s: RandomBurstCycle, dt: number, cycle: number, duty: number,
+  k: number, min: number, max: number,
+): boolean {
+  const firingThisStep = s.burstFiring
+  // 週期為 0 時兩段都是 0，下面的迴圈停不下來；那等於一路按著扳機
+  if (!(cycle > 0)) return true
+  s.burstTimer -= dt
+  while (s.burstTimer <= 0) {
+    s.burstFiring = !s.burstFiring
+    if (s.burstFiring) {
+      s.burstDraw++
+      s.burstLength = cycle * duty * s.burstScale
+        * (min + (max - min) * burstDraw01(k, s.burstDraw))
+      s.burstTimer += s.burstLength
+    } else {
+      s.burstTimer += cycle * (1 - duty) * s.burstScale
+    }
+  }
+  return firingThisStep
+}

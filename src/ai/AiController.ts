@@ -13,8 +13,11 @@ import {
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
-import { DEFAULT_AI_BURST, DEFAULT_FIRE, burstDuty, shouldFire, type BurstConfig, type FireAim } from './fire'
-import { resetBurst, stepBurst } from '../weapons/burst'
+import {
+  BURST_LENGTH_MAX, BURST_LENGTH_MIN, DEFAULT_AI_BURST, DEFAULT_FIRE, burstDuty, shouldFire,
+  type BurstConfig, type FireAim,
+} from './fire'
+import { resetBurst, stepRandomBurst } from '../weapons/burst'
 import {
   createTargetState, selectTarget, DEFAULT_TARGET,
   type TargetBoard, type TargetConfig,
@@ -815,7 +818,7 @@ export class AiController implements Controller {
 
   /**
    * 扳機的點放狀態，滿足 `weapons/burst.ts` 的 `BurstCycle`。**唯讀** ——
-   * 只有 `stepBurst` / `resetBurst` 能寫。
+   * 只有 `stepRandomBurst` / `resetBurst` 能寫。
    *
    * 【為什麼是三個公開欄位而不是一個私有物件】結構型相容要求欄位名逐字
    * 相同（`TurretState` 那一側先有這三個名字，而它被兩支快照測試釘住）。
@@ -825,6 +828,9 @@ export class AiController implements Controller {
   burstFiring = true
   burstTimer = DEFAULT_AI_BURST.on
   burstScale = 1
+  /** 點放抽過幾輪、這一輪開火段的長度，s。見 `stepRandomBurst` */
+  burstDraw = 0
+  burstLength = DEFAULT_AI_BURST.on
 
   /**
    * 上一個物理步瞄得多準，`shouldFire` 寫進來。**點放的工作週期讀它。**
@@ -883,18 +889,23 @@ export class AiController implements Controller {
       // `selfIndex` 為 −1（沒接指派板）時全部落在 k = 0，那本來就是
       // 「單機測試」的場景，沒有要錯開的對象
       resetBurst(this, Math.max(this.selfIndex, 0), burst.on, burst.off)
+      this.burstDraw = 0
+      this.burstLength = burst.on * this.burstScale
     }
-    // 【工作週期跟著上一步瞄得多準】週期長度不變、只變開火與停火的比例，
-    // 所以節奏感留著而火力密度跟著準度走（`burstDuty`）。
+    // 【工作週期跟著上一步瞄得多準】開火與停火的比例跟著準度走（`burstDuty`）；
+    // 每次扣扳機多久在進入開火段時隨機決定（`stepRandomBurst`），平均不變；
+    // 停火段不隨機。
     //
-    // 【`off === 0` 就是沒有這一層】`stepBurst` 在停火段的長度為 0 時會在
-    // 同一步立刻翻回開火段（while 迴圈），所以恆為 true —— 消融不必另開分支。
-    // 那時工作週期恆為 1，這一層照樣是關掉的
+    // 【`off === 0` 就是沒有這一層】停火段的長度為 0 時會在同一步立刻翻回
+    // 開火段（while 迴圈），所以恆為 true —— 消融不必另開分支。那時工作週期
+    // 恆為 1，這一層照樣是關掉的
     const cycle = burst.on + burst.off
     const duty = burst.off > 0 ? burstDuty(this.aim.error, DEFAULT_FIRE.trackingCone) : 1
     // 【掃射那條路徑也要讀它】`strafeGround` 寫完 `raw` 就直接 emit 回去，
     // 拿不到這個區域變數 —— 存成欄位，兩條路徑才是同一根扳機
-    this.burstOpen = stepBurst(this, dt, cycle * duty, cycle * (1 - duty))
+    this.burstOpen = stepRandomBurst(
+      this, dt, cycle, duty, Math.max(this.selfIndex, 0), BURST_LENGTH_MIN, BURST_LENGTH_MAX,
+    )
     const burstOpen = this.burstOpen
 
     // 【節拍先算，分支後用】決策這一步要不要跑，必須在「有沒有目標」之前
