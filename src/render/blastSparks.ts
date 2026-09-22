@@ -85,7 +85,7 @@ export const SPARK_BLACK_AT = 1
  * 方點的邊長，m。**沒有像素下限** —— 一次幾百顆，遠處每顆都撐到一個像素
  * 的話會糊成一整坨黃色；小於一個像素的就讓它自己閃爍或消失。
  */
-export const SPARK_BURST_SIZE = 0.5
+export const SPARK_BURST_SIZE = 0.2
 /** 離鏡頭超過這個距離的爆炸不噴，m。那麼遠只剩一兩個像素的一小撮 */
 export const SPARK_BURST_CULL = 3000
 /**
