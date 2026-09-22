@@ -11,6 +11,12 @@ import type { Command, Controller } from './Controller'
  * 在 node 裡跑。
  */
 export class PlayerController implements Controller {
+  /**
+   * 上一步投彈視角下左鍵按著沒有。彈艙吃的是「剛按下」—— 直接餵持續按著的
+   * `firing` 的話，按著不放會在每一次回補完成時自動再倒一整艙。
+   */
+  private bombHeld = false
+
   constructor(private readonly input: InputState) {}
 
   update(_self: Aircraft, _dt: number, out: Command): void {
@@ -20,12 +26,14 @@ export class PlayerController implements Controller {
     out.throttle = this.input.throttle
     out.brake = this.input.braking ? 1 : 0
     // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的
-    // 子彈玩家根本看不到，而彈藥是真的在消耗。投彈由 `main.ts` 自己接
+    // 子彈玩家根本看不到，而彈藥是真的在消耗
     out.firing = this.input.firing && this.input.viewMode !== 'bomb'
-    // 【AI 專用的兩格每步清掉】接手僚機時 `Command` 物件沿用那一席的，上一步
+    // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步
+    const held = this.input.firing && this.input.viewMode === 'bomb'
+    out.bombing = held && !this.bombHeld
+    this.bombHeld = held
+    // 【AI 專用的這一格每步清掉】接手僚機時 `Command` 物件沿用那一席的，上一步
     // 還是 AI 寫的：不清的話正在攻艦的僚機交到玩家手上會帶著「保持正飛」
-    // 與投彈指令
-    out.bombing = false
     out.upright = false
   }
 }

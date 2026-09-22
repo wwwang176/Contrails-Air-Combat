@@ -2,17 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 /**
- * 彈艙的接線護欄 —— **讀 `main.ts` 的原始碼**。
- *
- * 守的是「`stepBombBay` 不在任何視角分支裡」。關進去的話回補與連投節拍會在
- * 那個視角之外凍住，而 `bomb-bay.test.ts` 抓不到 —— 那一支測的是「餵它 dt
- * 會怎樣」，這裡的缺陷是**沒有人餵它**。
+ * 接線護欄 —— **讀 `main.ts` 的原始碼**。
  *
  * 【判斷方式是順序，不是括號配對】`main.ts` 有樣板字串與大量中文註解，數
- * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。相機的兩個分支各有一行只出現
- * 在自己那一支的呼叫；彈艙排在兩者之前就代表它不在任何一支裡面。
+ * 大括號會誤判，而會誤報的護欄比沒有護欄更糟。
  */
 const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).split('\n')
+const WORLD = new TextDecoder().decode(readFileSync('src/world/World.ts')).replace(/\r\n/g, '\n')
+const PLAYER = new TextDecoder().decode(readFileSync('src/control/PlayerController.ts'))
+  .replace(/\r\n/g, '\n')
 
 /** 唯一一行含 `needle` 的行號。找不到或找到多行都讓測試失敗 —— 那代表這支護欄該重寫 */
 function only(needle: string): number {
@@ -22,50 +20,29 @@ function only(needle: string): number {
   return hits[0]!
 }
 
-describe('彈艙的接線：不得被關進任何視角分支', () => {
-  // 【針對呼叫本身，不針對引數的名字】守的是「這一行在哪裡」。釘住引數名
-  // 的話，改名就會讓護欄靜靜地失效：`bombBay` 改成 `playerBay()` 之後，
-  // 這一支變成 0 個相符而不是位置錯了
-  const bay = only('stepBombBay(')
-  const godBranch = only('stepGodCamera(godCam')
-  const flyBranch = only('rig.update(')
-
-  it('排在上帝視角分支之前 —— 按 G 不得凍住回補與連投節拍', () => {
-    expect(bay).toBeLessThan(godBranch)
+/**
+ * 彈艙**只在物理步推進**，玩家與 AI 同一條路。
+ *
+ * 【兩處推進會快一倍】`World.releaseBombs` 對每一架都推進彈艙；`main.ts` 若
+ * 再推進玩家那一個，同一份倒數每幀扣兩次 —— 實測玩家的 B-17 回補 10 s、
+ * 同機種的 AI 20 s。不報錯。
+ */
+describe('彈艙只在物理步推進', () => {
+  it('main.ts 不推進彈艙', () => {
+    expect(SRC.join('\n')).not.toContain('stepBombBay(')
   })
 
-  it('排在座艙／機外分支之前 —— 那一支是相機，與彈艙無關', () => {
-    expect(bay).toBeLessThan(flyBranch)
+  /** 【不分玩家】`World` 認出玩家而跳過的話，玩家的彈艙就沒人推進 */
+  it('World 對每一架都推進，沒有玩家或視角的例外', () => {
+    const loop = /for \(const c of this\.combatants\) \{\s*if \(!c\.alive\) continue\s*this\.fire\(c, dt\)\s*this\.releaseBombs\(c, dt\)/
+    expect(WORLD).toMatch(loop)
+    expect(WORLD.match(/stepBombBay\(/g)).toHaveLength(1)
   })
 
-  it('投彈點與彈艙同一格，否則連投中途換視角會從凍住的位置投出去', () => {
-    const eye = only('BOMB_EYE.copy(bp)')
-    expect(eye).toBeLessThan(bay)
-    expect(bay - eye).toBeLessThan(6)
-  })
-
-  /**
-   * 【吃這一幀真的跑過的物理時間，不吃畫面時間】物理每幀最多補 8 步，低於
-   * 30 fps 時世界變慢。吃畫面時間的話裝填照現實時鐘走，慢的電腦上裝填期間
-   * 世界過的時間比較短 —— AI 的彈艙在 `World` 裡吃物理 dt，兩邊就不公平
-   */
-  it('吃這一幀累加的物理時間，與 AI 的彈艙同一個時鐘', () => {
-    expect(SRC[bay]!).toContain('physicsSeconds')
-    expect(SRC[bay]!).not.toContain('frameSeconds')
-    const advance = only('loop.advance(frameSeconds, (dt) => {')
-    const add = only('physicsSeconds += dt')
-    expect(add).toBeGreaterThan(advance)
-    expect(add).toBeLessThan(bay)
-  })
-
-  it('包住它的條件只看「掛不掛得了彈」，不看視角', () => {
-    // 往上找最近的一行 `if (`
-    let i = bay
-    while (i > 0 && !SRC[i]!.trimStart().startsWith('if (')) i--
-    const guard = SRC[i]!.trim()
-    expect(guard).toContain('bp !== null')
-    expect(guard).not.toContain('viewMode')
-    expect(guard).not.toContain('godView')
+  /** 【剛按下才算】持續按著的話，每一次回補完成都會自動再倒一整艙 */
+  it('玩家的扣扳機寫進 command.bombing，只在剛按下那一步', () => {
+    expect(PLAYER).toContain("const held = this.input.firing && this.input.viewMode === 'bomb'")
+    expect(PLAYER).toContain('out.bombing = held && !this.bombHeld')
   })
 })
 
