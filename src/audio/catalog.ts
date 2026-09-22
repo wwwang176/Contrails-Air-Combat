@@ -31,16 +31,29 @@ export interface CategorySpec {
  * 爆炸的 +6 已經接近破音。要讓爆炸更突出就把別的往下壓，不是把爆炸往上加。
  */
 export const CATEGORY: Record<Category, CategorySpec> = {
-  /** 【自己的與別人的一樣大聲】差別交給距離衰減，`ref` 之外每遠一倍就小 6 dB */
-  engineSelf: { gainDb: -5, ref: 0, max: 0 },
-  engine: { gainDb: -5, ref: 60, max: 3000 },
+  /**
+   * 【自己的不定位】引擎就在鏡頭前一兩公尺，永遠是原音量；別人的走 3D 定位，
+   * `ref` 之內與自己的一樣大，之外每遠一倍小 6 dB。
+   *
+   * 【參考距離 150 m】60 m 時空戰常見的 200～500 m 距離上敵機引擎已經小了
+   * 10～18 dB，等於只剩背景。**起始值，由試玩裁定。**
+   */
+  engineSelf: { gainDb: -3, ref: 0, max: 0 },
+  engine: { gainDb: -3, ref: 150, max: 3000 },
   /**
    * 自己的槍。**一次擊發一個 one-shot，不是循環。**
    *
    * 【比循環要小聲】350 ms 的尾音配上 13.3 發/秒，全速連射時同時有將近五層
    * 在響 —— 同一個數字底下比循環大 5.7 dB。
    */
-  fireSelf: { gainDb: -2, ref: 0, max: 0 },
+  fireSelf: { gainDb: -4, ref: 0, max: 0 },
+  /**
+   * 別人的槍。**循環音**，而且再吃各口徑的差異（`GUN_BY_TIER`）——
+   * 機槍那一層還要再減 10 dB。
+   *
+   * 【為什麼比自己的槍高】循環在同一個數字下比 one-shot 小約 5.7 dB。
+   * 兩邊設成同一個數字時，敵機的機槍實測**聽不到**。
+   */
   fire: { gainDb: 3, ref: 80, max: 2500 },
   /**
    * 砲塔。**自己機上的與別架的共用這一個** —— 砲塔一律是定位音源，自己那架
@@ -80,10 +93,10 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 選單按鈕。**選單裡只有它在響** —— 不像戰場上要跟引擎與槍聲擠，
    * 所以它與戰場上那些的相對大小沒有意義，只看按起來舒不舒服。
    */
-  ui: { gainDb: -8, ref: 0, max: 0 },
+  ui: { gainDb: -10, ref: 0, max: 0 },
   // 【壓低】投一艙就是八顆，八次呼嘯同時響；它是氛圍，不是回饋
   whistle: { gainDb: -16, ref: 60, max: 1500 },
-  radio: { gainDb: -10, ref: 0, max: 0 },
+  radio: { gainDb: -5, ref: 0, max: 0 },
   warn: { gainDb: -10, ref: 0, max: 0 },
   wind: { gainDb: -6, ref: 0, max: 0 },
   /**
