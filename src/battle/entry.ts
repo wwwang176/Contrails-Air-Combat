@@ -142,6 +142,23 @@ export const BOUNCE: EntryPlan = {
 }
 
 /**
+ * 護住艦隊：擺位與 `HEAD_ON` 相同，但藍隊貼在艦隊上空、低空待命。
+ *
+ * 【為什麼藍隊要靠過去】被守的是原點的艦隊，不是藍隊自己。開局擺在 5 km
+ * 外的話，掛彈的敵機投完彈玩家才趕到 —— 攔截這件事在那之前就結束了。
+ *
+ * 【低空】貼海的雷擊機走 150 m，從 2,000 m 追下去要花掉整段接敵時間。
+ * `climb` 是相對任務高度的加成，所以這一格跟著任務高度走。
+ *
+ * 紅隊一格都不動。**兩個數字都是起始值，由試飛裁定。**
+ */
+export const CARRIER_GUARD: EntryPlan = {
+  id: 'carrierGuard',
+  blue: { ...NEUTRAL, along: 0.15, across: -0.5, climb: -1500 },
+  red: { ...NEUTRAL, along: -0.5, across: 0.5, heading: Math.PI },
+}
+
+/**
  * 全部的擺法。**每一張任務卡指定一個鍵。**
  *
  * 加一種擺法：這裡多一個字面值，卡片改一個字串。`createBattle` 不用動。
@@ -150,6 +167,7 @@ export const ENTRY_PLANS = {
   headOn: HEAD_ON,
   pursuit: PURSUIT,
   bounce: BOUNCE,
+  carrierGuard: CARRIER_GUARD,
 } as const
 
 export type EntryPlanId = keyof typeof ENTRY_PLANS
