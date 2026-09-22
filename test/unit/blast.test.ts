@@ -523,10 +523,10 @@ describe('投下的炸彈另外放大表現尺度', () => {
     expect(body).toContain('scaleBlast(recipe, vis * vis * vis, SCALED_BLAST)')
   })
 
-  it('光、震動、碎片都用原尺度', () => {
+  /** 碎片不在這裡：它跟著火球半徑走，見 `blast-sparks.test.ts` 的接線護欄 */
+  it('光與震動用原尺度', () => {
     expect(body).toContain('blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)')
     expect(body).toContain('ordnanceShakeScale(scale)')
-    expect(body).toContain('BLAST_DEBRIS_COLOR, seed, scale)')
   })
 
   /** 【魚雷不吃】它另有自己的水冠配方，`vis` 不得漏到那一支 */

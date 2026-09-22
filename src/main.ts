@@ -27,6 +27,7 @@ import { createTracers } from './render/tracers'
 import { createMuzzles, createTurretMuzzles } from './render/muzzle'
 import { createTurretBarrels } from './render/turretBarrels'
 import { createSparks } from './render/sparks'
+import { createBlastSparks } from './render/blastSparks'
 import { createSplashes } from './render/splash'
 import { TextureLoader } from 'three'
 import { createBombs, createTorpedoes } from './render/bombs'
@@ -34,7 +35,7 @@ import { createFireChunks } from './render/chunks'
 import { createFirePuff } from './render/firePuff'
 import { JET_RISE, createWaterJets } from './render/waterJets'
 import {
-  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST,
+  AIR_BLAST, BLAST_PACE, BOMB_BLAST_SIZE, LAND_BLAST, TORPEDO_BLAST, WATER_BLAST, blastFireRadius,
   createBlastSmoke, createDust, createEmberSmoke, createFireGlow, createWaterMist,
   emitBlast, emitEmber, emitFlakBlasts, emitMist, resetFlakBlastSeed, scaleBlast,
   type BlastParams, type BlastPools,
@@ -483,6 +484,8 @@ const turretMuzzles = createTurretMuzzles(MAX_COMBATANTS)
 ctx.scene.add(turretMuzzles.object)
 const sparks = createSparks()
 ctx.scene.add(sparks.object)
+const blastSparks = createBlastSparks()
+ctx.scene.add(blastSparks.object)
 const splashes = createSplashes()
 ctx.scene.add(splashes.object)
 const bombVisuals = createBombs()
@@ -784,6 +787,35 @@ const SCALED_BLAST: { -readonly [K in keyof BlastParams]: number } = { ...LAND_B
 const KILL_BLAST_INHERIT = 0.5
 
 /**
+ * 碎片散射速度的基準火球半徑：未放大的 `LAND_BLAST`（基準彈、尺度 1）。
+ * 火球比它大幾倍，碎片的初速就是 `DEBRIS_SPEED` 的幾倍。
+ */
+const DEBRIS_REF_FIRE_RADIUS = blastFireRadius(LAND_BLAST)
+
+/**
+ * 炸彈與魚雷的碎片散射倍率，跟著這一團的火球半徑走。**呼叫前 `SCALED_BLAST`
+ * 要已經是這一團的配方。** 直接乘當量尺度的話，60 kg 彈（0.11）的碎片
+ * 只有 4 m/s，連同拖著的煙幾乎原地落下。
+ */
+function blastDebrisSpeed(): number {
+  return blastFireRadius(SCALED_BLAST) / DEBRIS_REF_FIRE_RADIUS
+}
+
+/** 火星的種子。每噴一次推一格，同一幀的兩團爆炸才不會噴成一樣的形狀 */
+let sparkSeed = 0
+
+/**
+ * 炸彈與魚雷的爆炸噴火星，只往上半邊噴。**呼叫前 `SCALED_BLAST` 要已經是
+ * 這一團的配方** —— 噴多遠跟著它的火球半徑走。落到腳下的地面或海面就熄掉。
+ */
+function burstSparks(x: number, y: number, z: number): void {
+  const cam = ctx.camera.position
+  sparkSeed = (sparkSeed + 1) | 0
+  blastSparks.burst(x, y, z, terrain.collisionHeightAt(x, z) - 0.5, blastFireRadius(SCALED_BLAST),
+    true, sparkSeed, elapsed, cam.x, cam.y, cam.z)
+}
+
+/**
  * 擊墜的爆炸。**空中與墜地是同一條事件流**（兩者都走 `World.destroy`），
  * 由離地高度分辨。
  */
@@ -864,15 +896,17 @@ function emitBombBlasts(events: ImpactEvents): void {
     // 【表現的規模跟著那一顆的傷害走】`ny` 帶的是爆心傷害，而尺度的立方
     // 才是 `scaleBlast` 要的當量 —— 傷害本身正比於尺度，見 `blastScaleOf`
     const scale = blastScaleOf(d[o + 4]!)
-    // 【只有火球、煙、塵吃放大】底下的光、震動、碎片一律用原尺度，見 `BOMB_BLAST_SIZE`
+    // 【光與震動不吃放大】用原尺度，見 `BOMB_BLAST_SIZE`；碎片與火星跟著火球走
     const vis = scale * BOMB_BLAST_SIZE
     scaleBlast(recipe, vis * vis * vis, SCALED_BLAST)
     const seed = (e * 197 + Math.round(world.time * 60)) | 0
     emitBlast(BLAST_POOLS, SCALED_BLAST, d[o]!, d[o + 1]!, d[o + 2]!, seed)
     addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, ordnanceShakeScale(scale), ctx.camera.position)
     blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, scale, ctx.camera.position)
-    // 碎片與擊墜共用同一個池；散射速度跟著當量的尺度走
-    debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, scale)
+    // 碎片與擊墜共用同一個池；散射速度跟著火球的大小走
+    debris.burst(d[o]!, d[o + 1]!, d[o + 2]!, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+    // 【落水的不噴】水面爆炸是水冠，火星不合理
+    if (kind < 0.5 || kind > 1.5) burstSparks(d[o]!, d[o + 1]!, d[o + 2]!)
   }
 }
 
@@ -913,7 +947,8 @@ function emitTorpedoBlasts(events: ImpactEvents): void {
     addShake(cameraShake, x, y, z, ordnanceShakeScale(scale), ctx.camera.position)
     blastLights.flash(x, y, z, scale, ctx.camera.position)
     // 碎片從水面往上拋；與擊墜共用同一個池
-    debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, scale)
+    debris.burst(x, y, z, BLAST_DEBRIS_COLOR, seed, blastDebrisSpeed())
+    burstSparks(x, y, z)
   }
 }
 
@@ -952,7 +987,7 @@ function shakeFlakBursts(events: BurstEvents): void {
  * 那是 `releaseVisuals()` 的責任、順序也不同（見 `enterBattle` 的註解）。
  */
 const POOLS = [
-  fireball, smoke, spray, sparks, splashes, debris, vortex, flakBursts, wakes,
+  fireball, smoke, spray, sparks, blastSparks, splashes, debris, vortex, flakBursts, wakes,
   blastChunks, blastGlow, blastEmber, blastSmoke, blastDust, blastMist, blastJets,
   // 【船火那兩份也在這裡】漏清煙池的話上一場的煙殘留 12 秒；漏清 `shipFires`
   // 更糟 —— 上一場的火點會用同一個船索引附到新一場的船上，燒滿 60 秒
@@ -2786,6 +2821,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   turretMuzzles.update(world.combatants, renderPositions, renderQuaternions)
   // 【火花與水柱在幀率積分】純裝飾，不參與判定也不需要決定性
   sparks.step(worldSeconds)
+  // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
+  // 暫停時它不走，慢動作時它一起慢
+  blastSparks.step(elapsed, ctx.camera.fov * DEG, ctx.renderer.domElement.height)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
   // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
   // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
@@ -3707,6 +3745,8 @@ const GFX_HIDDEN_LAYER = 31
     propDisc: () => byRenderOrder(PROP_DISC_RENDER_ORDER),
     // 五個粒子池一起 —— 它們是同一種成本（半透明、關深度寫入、疊在一起）
     particles: () => [smoke.object, fireball.object, spray.object, splashes.object, sparks.object],
+    // 【不透明、位置在著色器裡算】成本與上面那五個不同，分開關
+    blastSparks: () => [blastSparks.object],
     tracers: () => [tracers.object, muzzles.object, turretMuzzles.object],
     vortex: () => [vortex.object],
     // 【低模那一具也要收進來】只關正式模型的話，200 m 外那幾架照畫不誤

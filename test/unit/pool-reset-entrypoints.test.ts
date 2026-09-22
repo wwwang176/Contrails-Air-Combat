@@ -109,6 +109,8 @@ describe('換一場的兩個入口都要清粒子池', () => {
         // 爆炸那一組
         'blastChunks', 'blastGlow', 'blastEmber', 'blastSmoke', 'blastDust',
         'blastMist', 'blastJets',
+        // 【炸彈與魚雷的火星】漏清的話上一場還在飄的火星畫在新一場
+        'blastSparks',
         // 【船火那一組】`shipFires` 不是粒子池，但它有跨場狀態而且
         // `reset()` 的簽章一樣。漏清的話上一場的火會用同一個船索引附到
         // 新一場的船上，燒滿 60 秒
