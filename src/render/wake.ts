@@ -2,6 +2,7 @@ import {
   BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Mesh, MeshBasicMaterial,
 } from 'three'
 import { injectVertexAlpha } from './vortex'
+import { TORPEDOES_CAPACITY } from '../world/torpedo'
 
 /**
  * 魚雷的航跡 —— **貼著海面的一條白帶**。
@@ -71,8 +72,11 @@ export const WAKE_LIFT = 0.8
 /** 一幀最多補幾個節點。分頁切回時 `dt` 會很大，不夾的話一幀補上千個 */
 export const WAKE_MAX_PER_FRAME = 8
 
-/** 池子大小。與 `TORPEDOES_CAPACITY` 對齊 */
-export const WAKE_SLOTS = 8
+/**
+ * 池子大小。**必須等於 `TORPEDOES_CAPACITY`** —— 航跡的格子就是魚雷的索引，
+ * 少了的話索引超出的那幾枚沒有航跡，寫進別的陣列位置也不報錯。
+ */
+export const WAKE_SLOTS = TORPEDOES_CAPACITY
 
 /**
  * 節點的不透明度。出生最濃、到壽命歸零。
