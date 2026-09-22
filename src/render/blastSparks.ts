@@ -81,13 +81,11 @@ export const SPARK_YELLOW_AT = 0.15
 export const SPARK_YELLOW_UNTIL = 0.9
 export const SPARK_RED_AT = 0.95
 export const SPARK_BLACK_AT = 1
-/** 方點的邊長，m */
-export const SPARK_BURST_SIZE = 0.1
 /**
- * 至少畫幾個像素寬。遠處的火星會小於一個像素，一閃一閃甚至看不到；
- * 給一個下限，遠處的仍讀得出是一顆亮點。
+ * 方點的邊長，m。**沒有像素下限** —— 一次幾百顆，遠處每顆都撐到一個像素
+ * 的話會糊成一整坨黃色；小於一個像素的就讓它自己閃爍或消失。
  */
-export const SPARK_MIN_PIXELS = 1
+export const SPARK_BURST_SIZE = 0.5
 /** 離鏡頭超過這個距離的爆炸不噴，m。那麼遠只剩一兩個像素的一小撮 */
 export const SPARK_BURST_CULL = 3000
 /**
@@ -120,8 +118,8 @@ export interface BlastSparks {
     x: number, y: number, z: number, floorY: number, fireRadius: number, upward: boolean, seed: number,
     now: number, camX: number, camY: number, camZ: number, vx?: number, vy?: number, vz?: number,
   ): void
-  /** 每幀一次：把時間與像素尺度交給著色器、把這一幀寫過的區段上傳 */
-  step(now: number, fovRad: number, viewportHeightPx: number): void
+  /** 每幀一次：把時間交給著色器、把這一幀寫過的區段上傳 */
+  step(now: number): void
   reset(): void
   dispose(): void
 }
@@ -129,7 +127,6 @@ export interface BlastSparks {
 const VERT = /* glsl */ `
 uniform float uTime;
 uniform float uDrag;
-uniform float uPixel;
 attribute vec3 aOrigin;
 attribute vec3 aVel;
 /** 出生時間、壽命、邊長、熄滅高度 */
@@ -149,8 +146,7 @@ void main() {
     return;
   }
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float size = max(aBirth.z, ${SPARK_MIN_PIXELS.toFixed(2)} * uPixel * -mv.z);
-  mv.xy += position.xy * size;
+  mv.xy += position.xy * aBirth.z;
   gl_Position = projectionMatrix * mv;
   // 白 → 黃（維持一段）→ 紅 → 黑
   vec3 white = vec3(1.0);
@@ -221,7 +217,6 @@ export function createBlastSparks(capacity = SPARK_BURST_CAPACITY): BlastSparks 
     uniforms: {
       uTime: { value: 0 },
       uDrag: { value: SPARK_BURST_DRAG },
-      uPixel: { value: 0 },
     },
   })
   const object = new Mesh(geometry, material)
@@ -288,11 +283,8 @@ export function createBlastSparks(capacity = SPARK_BURST_CAPACITY): BlastSparks 
         }
       }
     },
-    step(now, fovRad, viewportHeightPx) {
-      const u = material.uniforms
-      u['uTime']!.value = now
-      // 深度 1 m 處一個像素多寬，m
-      u['uPixel']!.value = (2 * Math.tan(fovRad / 2)) / Math.max(1, viewportHeightPx)
+    step(now) {
+      material.uniforms['uTime']!.value = now
       if (dirtyHi <= dirtyLo) return
       origin.clearUpdateRanges()
       vel.clearUpdateRanges()

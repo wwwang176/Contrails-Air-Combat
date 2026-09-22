@@ -2826,7 +2826,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   sparks.step(worldSeconds)
   // 【爆炸的火星走 `elapsed`】位置在著色器裡由出生到現在的時間算出來 ——
   // 暫停時它不走，慢動作時它一起慢
-  blastSparks.step(elapsed, ctx.camera.fov * DEG, ctx.renderer.domElement.height)
+  blastSparks.step(elapsed)
   // 【殘骸與零件先步進，再把它們吐出來的事件餵給煙、噴濺與水柱】兩者的
   // 事件緩衝在各自的 step 開頭排空，所以這裡讀到的恆是這一幀的
   // 【落地與落水用兩支不同的函式】`heightAt` 決定「碰到地面了沒」，
