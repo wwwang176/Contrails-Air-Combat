@@ -161,14 +161,14 @@ describe('盟 M4：沖繩外海', () => {
   })
 
   /**
-   * 【陸攻掛在第五批重生上】它與零戰的節奏綁在一起，不看時鐘；玩家打得越快
+   * 【陸攻掛在第四批重生上】它與零戰的節奏綁在一起，不看時鐘；玩家打得越快
    * 它來得越早。
    */
-  it('陸攻跟著第五批重生進場', () => {
+  it('陸攻跟著第四批重生進場', () => {
     const t = torpedoWave().when
     expect(t.kind).toBe('batch')
     if (t.kind !== 'batch') throw new Error('應為 batch')
-    expect(t.at).toBe(5)
+    expect(t.at).toBe(4)
     expect(t.at).toBeLessThanOrEqual(b.recycle!.batches)
   })
 
@@ -242,10 +242,32 @@ describe('盟 M4：沖繩外海', () => {
   })
 
   /**
-   * 【雷擊機要低空進場】投雷高度是 150 m，而它從進場點飛到艦隊只有五公里
-   * 多。從任務高度 2,000 m 掉下來的話，飛到航母正上方時還在 250 m ——
-   * 姿態進不了投放包絡就不准鎖航向，於是整個第一趟帶著雷飛過去，繞回來
-   * 才投得出，而且那時已經太近，水中航程只剩一百多公尺。
+   * 【雷擊機的進場點要比零戰遠】沿用紅方開局那一點的話，它一生成就貼在
+   * 艦隊眼前。`along` 是負的，越小越遠。
+   */
+  it('陸攻那一波比零戰的開局點遠', () => {
+    expect(torpedoWave().along!).toBeLessThan(-0.5)
+  })
+
+  /**
+   * 【藍隊守在艦隊上空】守的是原點的艦隊。擺在對頭那 5 km 外、2,000 m 高
+   * 的話，掛彈的敵機投完彈玩家才趕到 —— 攔截在那之前就結束了。
+   */
+  it('藍隊開局貼著艦隊而且低於任務高度', () => {
+    const bt = createBattle(new Idle(), missionConfigFrom(card as ReadyMissionCard))
+    const alt = b.altitude ?? 4000
+    for (const c of bt.blue) {
+      const p = c.aircraft.state.position
+      expect(Math.hypot(p.x, p.z)).toBeLessThan(3000)
+      expect(p.y).toBeLessThan(alt / 2)
+    }
+  })
+
+  /**
+   * 【雷擊機要低空進場】投雷高度是 150 m。從任務高度 2,000 m 掉下來的話，
+   * 飛到航母正上方時還在下降 —— 姿態進不了投放包絡就不准鎖航向，於是整個
+   * 第一趟帶著雷飛過去，繞回來才投得出，而且那時已經太近，水中航程只剩
+   * 一百多公尺。
    */
   it('陸攻那一波的進場高度比任務高度低', () => {
     const w = torpedoWave()
