@@ -2,7 +2,27 @@ import { describe, it, expect } from 'vitest'
 import {
   engineRate, windParams, shakeInterval, shakeGainDb, dbToGain, soundArrived, distanceCutoffHz,
   hitFeedback, damageGainDb, absorptionDb, voiceLoudnessDb, blastGainDb, blastRate, dopplerRate, hitRate,
+  fadeInCurve,
 } from '../../src/audio/curves'
+
+describe('淡入曲線', () => {
+  it('從 0 開始、到 1 結束，一路不降', () => {
+    const c = fadeInCurve(32)
+    expect(c.length).toBe(32)
+    expect(c[0]).toBe(0)
+    expect(c[31]).toBe(1)
+    for (let i = 1; i < c.length; i++) expect(c[i]!).toBeGreaterThanOrEqual(c[i - 1]!)
+  })
+
+  /**
+   * 【前段要壓低】線性的增益在一半時已經是 −6 dB，耳朵聽起來是一開頭就衝上來；
+   * 平方曲線一半時是 −12 dB，大聲的部分留到後段
+   */
+  it('走到一半只有四分之一的增益', () => {
+    const c = fadeInCurve(33)
+    expect(c[16]).toBeCloseTo(0.25, 6)
+  })
+})
 
 describe('引擎播放速度', () => {
   it('油門 0 → 0.85；1 → 1.10；超過 1.1 夾住；負的當 0', () => {

@@ -548,3 +548,43 @@ describe('選單按鈕的聲音', () => {
     expect(body('function resetAudioState(')).toContain('audio.setTimeScale(1)')
   })
 })
+
+describe('世界的聲音淡入', () => {
+  const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
+
+  /**
+   * 【淡入接在最後一段】three 的 `AudioListener.gain` 直接接到喇叭；世界的聲音
+   * 全部經過它，所以淡入的增益要插在它與喇叭之間，才管得到每一個聲道
+   */
+  it('世界的聲音經過淡入的增益才到喇叭', () => {
+    expect(ENGINE).toContain('listener.gain.disconnect()')
+    expect(ENGINE).toContain('listener.gain.connect(fade)')
+    expect(ENGINE).toContain('fade.connect(ctx.destination)')
+  })
+
+  /**
+   * 【從停到播就淡入】暫停、切走分頁、關掉音量回來都會經過這裡。
+   * 只在「停 → 播」的那一次做：已經在播時再叫一次 `setPaused(false)`，
+   * 聲音不該被拉回 0
+   */
+  it('主 context 從停轉播時淡入，已經在播時不動', () => {
+    const fn = ENGINE.slice(ENGINE.indexOf('function applyRunState('), ENGINE.indexOf('function gainOf('))
+    expect(fn).toContain('if (run && !running) fadeIn(RESUME_FADE_IN)')
+    expect(fn).toContain('running = run')
+    expect(fn.indexOf('running = run')).toBeGreaterThan(fn.indexOf('if (run && !running)'))
+  })
+
+  /**
+   * 【進場淡入排在載入畫面收掉之後】載入期間 context 是開著的；在前面淡的話，
+   * 載入畫面還沒收，淡入就已經走完了
+   */
+  it('進戰鬥與重新開始都從靜音淡入', () => {
+    const fn = body('async function loadBattle(')
+    const fade = fn.indexOf('audio.fadeIn(BATTLE_FADE_IN)')
+    expect(fade).toBeGreaterThan(fn.indexOf('loading.hide()'))
+    const restart = ALL.slice(ALL.indexOf('onRestart() {'))
+    const r = restart.slice(0, restart.indexOf('},'))
+    // 【排在 setPausedState(false) 之後】那一下會排一段較短的淡入，後叫的才算數
+    expect(r.indexOf('audio.fadeIn(BATTLE_FADE_IN)')).toBeGreaterThan(r.indexOf('setPausedState(false)'))
+  })
+})

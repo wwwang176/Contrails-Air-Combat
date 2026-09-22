@@ -35,6 +35,18 @@ export function dbToGain(db: number): number {
 }
 
 /**
+ * 淡入的增益曲線，`n` 個點、0 → 1，給 `setValueCurveAtTime` 用。
+ *
+ * 【平方而不是線性】線性的增益走到一半已經是 −6 dB，聽起來是一開頭就衝上來；
+ * 平方一半時是 −12 dB，大聲的部分留到後段。
+ */
+export function fadeInCurve(n: number): Float32Array {
+  const c = new Float32Array(n)
+  for (let i = 0; i < n; i++) c[i] = (i / (n - 1)) ** 2
+  return c
+}
+
+/**
  * 機身受創的輕重 → 音量。`severity` 0 = 擦到一點、1 = 重擊。
  *
  * 【為什麼要分輕重】高射砲的爆風從邊緣到正中央差很多倍，一律同一個音量的話，
