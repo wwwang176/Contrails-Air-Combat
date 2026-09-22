@@ -39,10 +39,17 @@ describe('撞擊材質', () => {
     }
   })
 
-  /** 【鋼板與地面是兩種聲音】船是金屬悶響、地面是撞擊加碎屑 */
-  it('船用命中庫且低沉，地面目標用碎屑庫', () => {
+  /**
+   * 【鋼板與地面是兩種聲音】船是金屬悶響、地面是撞擊加碎屑。
+   *
+   * 【悶響靠低通】降音高會把每一下拉長，連續掃射時疊成一片轟隆；低通只切掉
+   * 高頻的殘響，長度與節奏維持原樣。
+   */
+  it('船用命中庫且只留低頻，地面目標用碎屑庫', () => {
     expect(impactSound(MATERIAL.ship).pool).toBe('hit')
-    expect(impactSound(MATERIAL.ship).rate).toBeLessThan(1)
+    expect(impactSound(MATERIAL.ship).cutoffHz).toBeLessThan(1000)
+    expect(impactSound(MATERIAL.ship).cutoffHz)
+      .toBeLessThan(impactSound(MATERIAL.ground).cutoffHz)
     expect(impactSound(MATERIAL.ground).pool).toBe('debris')
   })
 
