@@ -1,7 +1,7 @@
 import {
   AdditiveBlending, Color, NormalBlending, SRGBColorSpace, Vector3, type Texture,
 } from 'three'
-import { FIRE_CHUNK_SIZE } from './chunks'
+import { FIRE_CHUNK_DRAG, FIRE_CHUNK_LIFE, FIRE_CHUNK_SIZE } from './chunks'
 import { jetFalloff, jetProfileRadius, type WaterJets } from './waterJets'
 import { createParticles, type Particles } from './particles'
 import { coneDirection } from './scatter'
@@ -359,10 +359,23 @@ export function blastScale(yieldRatio: number): number {
 }
 
 /**
+ * 火球外緣的半徑，m：火塊衝出去的距離加上一塊的半徑。拿已經縮放過的配方算。
+ *
+ * 火塊壽命是建池時的 `FIRE_CHUNK_LIFE × BLAST_PACE`，不隨當量變；衝出去的
+ * 距離是阻力下的 初速 ÷ 阻力 ×（1 − e^{−阻力·壽命}）。
+ */
+export function blastFireRadius(p: BlastParams): number {
+  const travel = (p.fireSpeed / FIRE_CHUNK_DRAG)
+    * (1 - Math.exp(-FIRE_CHUNK_DRAG * FIRE_CHUNK_LIFE * BLAST_PACE))
+  return travel + (FIRE_CHUNK_SIZE * p.fireSize) / 2
+}
+
+/**
  * 投下的炸彈另外乘在**表現尺度**上的倍率。1 = 照當量算出來的大小。
  *
- * 【只乘火球、煙、塵】動態光源的亮度與衰減、鏡頭震動、碎片散射都照原尺度
- * —— 一起乘的話遠處的一顆炸彈會把整片天照亮，而那不是「爆炸大一點」。
+ * 【乘火球、煙、塵】動態光源的亮度與衰減、鏡頭震動照原尺度 —— 一起乘的話
+ * 遠處的一顆炸彈會把整片天照亮，而那不是「爆炸大一點」。碎片與火星噴多遠
+ * 跟著火球半徑（`blastFireRadius`），所以間接吃到這個倍率。
  *
  * 【為什麼不是改 `LAND_BLAST` 的尺寸】那一份同時是撞地的飛機與燒起來的
  * 地面目標用的；在那裡放大，墜機的火球會跟著變成炸彈那麼大。
