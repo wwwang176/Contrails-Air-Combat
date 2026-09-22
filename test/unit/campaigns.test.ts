@@ -4,6 +4,8 @@ import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
 import { BOMBS_CAPACITY } from '../../src/world/bomb'
+import { TORPEDOES_CAPACITY, TORPEDO_RANGE, TORPEDO_SPEED } from '../../src/world/torpedo'
+import { WAKE_SLOTS } from '../../src/render/wake'
 import { loadoutOf } from '../../src/weapons/stores'
 
 /**
@@ -591,5 +593,51 @@ describe('炸彈池裝得下每一關同時掛著的炸彈', () => {
     }
     expect(bombs).toBe(120)
     expect(BOMBS_CAPACITY).toBeGreaterThanOrEqual(bombs)
+  })
+})
+
+/**
+ * 魚雷池同理：池滿時第 capacity + 1 枚蓋掉最舊的一枚，還在水裡跑的魚雷
+ * 從海面消失，不爆也不報錯。
+ *
+ * 【一架不只一枚】跑滿射程要 `TORPEDO_RANGE / TORPEDO_SPEED`，比補雷的時間長 ——
+ * 同一架可以前一枚還在跑就投下一枚。一架最多同時 ⌊跑的時間 ÷ 補雷時間⌋ + 1 枚。
+ */
+describe('魚雷池裝得下每一關同時在水裡的魚雷', () => {
+  const RUN = TORPEDO_RANGE / TORPEDO_SPEED
+  const perCarrier = (reload: number): number => Math.floor(RUN / reload) + 1
+
+  it('每一關', () => {
+    for (const card of Object.values(MISSIONS).flat()) {
+      if (card.battle === null) continue
+      const cfg = missionConfigFrom(card as ReadyMissionCard)
+      const flights = [
+        ...cfg.units,
+        ...(cfg.beats ?? []).flatMap((x) => (x.kind === 'reinforce' ? [x.flight] : [])),
+      ]
+      let torps = 0
+      for (const f of flights) {
+        for (const m of f.members) {
+          const l = (f.team === 'blue' ? cfg.blueLoadout : undefined)
+            ?? cfg.loadouts?.[m.id] ?? loadoutOf(m.id)
+          if (l?.kind === 'torpedo') torps += l.count * perCarrier(l.reloadSeconds)
+        }
+      }
+      expect(torps, card.id).toBeLessThanOrEqual(TORPEDOES_CAPACITY)
+    }
+  })
+
+  it('遭遇戰兩隊全選掛雷的機種', () => {
+    let worst = 0
+    for (const spec of ALL_SPECS) {
+      const l = loadoutOf(spec.id)
+      if (l?.kind === 'torpedo') worst = Math.max(worst, l.count * perCarrier(l.reloadSeconds))
+    }
+    expect(worst).toBeGreaterThan(0)
+    expect(2 * MAX_SIDE * worst).toBeLessThanOrEqual(TORPEDOES_CAPACITY)
+  })
+
+  it('航跡池與魚雷池一樣大', () => {
+    expect(WAKE_SLOTS).toBe(TORPEDOES_CAPACITY)
   })
 })

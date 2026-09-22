@@ -119,10 +119,14 @@ export const WAKE_INTERVAL = 8
 /**
  * 池子大小。
  *
- * 【8 怎麼來】掛雷的機種一趟只帶一枚（`weapons/stores.ts`），8 是留給日後
- * AI 雷擊編隊的餘裕。
+ * 【池滿會吃掉水裡的魚雷】寫入是環狀的，第 capacity + 1 枚蓋掉最舊的那一枚
+ * —— 還在跑的魚雷就從海面消失，不爆也不報錯。
+ *
+ * 【128 怎麼來】一枚跑滿射程要 `TORPEDO_RANGE / TORPEDO_SPEED` ≈ 91 s，而 G4M
+ * 45 s 就補好下一枚 —— 一架最多同時有 3 枚在水裡。遭遇戰兩隊各 `MAX_SIDE`
+ * = 20 架全選 G4M 是 40 × 3 = 120。逐關與遭遇戰的檢查在 `campaigns.test.ts`。
  */
-export const TORPEDOES_CAPACITY = 8
+export const TORPEDOES_CAPACITY = 128
 
 /**
  * 結束回呼。**不得配置。**
