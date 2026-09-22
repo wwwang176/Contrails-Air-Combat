@@ -152,21 +152,29 @@ describe('asch 的佈局', () => {
     }
   })
 
-  it('一個小隊四架單列排在起飛線後方，最後一架還在跑道上', () => {
-    expect(inRect(TAKEOFF_LINE.x, TAKEOFF_LINE.z + (SCHWARM_SIZE - 1) * TAKEOFF_TRAIL, RUNWAY)).toBe(true)
+  it('起飛點在跑道上', () => {
+    expect(inRect(TAKEOFF_LINE.x, TAKEOFF_LINE.z, RUNWAY)).toBe(true)
   })
 
-  it('每一個排隊位置都在滑行帶南段接口的北邊 —— 滑上跑道之後不必往回走', () => {
+  /**
+   * 【滑上跑道就是起飛點】在接口南邊的話，飛機要先往南倒車；往北太多就變成
+   * 「滑到前面的停等區才起飛」。滾行加初期爬升約 500 m，北邊要留得下。
+   */
+  it('起飛點緊接在滑行帶南段接口的北邊，北邊留得下滾行距離', () => {
     const south = TAXI_LOOP[2]!
-    const last = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z + (SCHWARM_SIZE - 1) * TAKEOFF_TRAIL)
-    expect(last.z).toBeLessThanOrEqual((south.z0 + south.z1) / 2)
+    const junction = (south.z0 + south.z1) / 2
+    const line = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z)
+    expect(line.z).toBeLessThanOrEqual(junction)
+    expect(junction - line.z).toBeLessThan(TAKEOFF_TRAIL)
+    expect(line.z - RUNWAY.z0).toBeGreaterThan(600)
   })
 
   it('起飛線的滑行路徑就是 taxiRoute', () => {
     expect(TAKEOFF_LINE.route).toBe(taxiRoute)
   })
 
-  it('每一格停機墊到四個排隊位置：起點是那一格、終點在跑道中線上、途中每一點都在鋪面上', () => {
+  /** 【終點與 `slot` 無關】四架滑到同一個起飛點，先到先滾行 */
+  it('每一格停機墊的滑行路徑：起點是那一格、終點是跑道中線上的起飛點、途中每一點都在鋪面上', () => {
     const onPaving = (x: number, z: number): boolean =>
       PAVED.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)
     const line = local(TAKEOFF_LINE.x, TAKEOFF_LINE.z)
@@ -177,7 +185,7 @@ describe('asch 的佈局', () => {
         expect(path[0], tag).toEqual({ x: p.x, z: p.z })
         const end = local(path.at(-1)!.x, path.at(-1)!.z)
         expect(end.x, tag).toBe((RUNWAY.x0 + RUNWAY.x1) / 2)
-        expect(end.z, tag).toBe(line.z + slot * TAKEOFF_TRAIL)
+        expect(end.z, tag).toBe(line.z)
         for (let i = 1; i < path.length; i++) {
           const a = local(path[i - 1]!.x, path[i - 1]!.z)
           const b = local(path[i]!.x, path[i]!.z)
