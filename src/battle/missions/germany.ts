@@ -141,10 +141,9 @@ export const GERMANY: readonly MissionCard[] = [
        * 被打掉的起不來：那一批地上剩幾架就上幾架（`setup.ts` 的 `reinforce`），
        * 一架都不剩就不來。打得慢就全部升空 —— 那正是這一關的壓力。
        *
-       * 【從停機墊滑出去】每一架沿滑行帶滑到跑道上排隊（`world/asch.ts` 的
-       * `taxiRoute`），小隊到齊才依序滾行。第一個小隊開場就開始滑：最近的四格
-       * 約 90 秒才排好隊，玩家約 37 秒到場時看得到它們在滑行道上。
-       * 三批的秒數是**起始值，由試飛裁定**。
+       * 【從停機墊滑出去】每一架沿滑行帶滑到跑道口（`world/asch.ts` 的
+       * `taxiRoute`），滑到就滾行，不等小隊到齊。第一批開場就開始滑，玩家約
+       * 37 秒到場時看得到它們在滑行道上。三批的秒數是**起始值，由試飛裁定**。
        */
       waves: [
         {
@@ -154,13 +153,13 @@ export const GERMANY: readonly MissionCard[] = [
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
-          when: { kind: 'clock', at: 45 },
+          when: { kind: 'clock', at: 30 },
           warn: '更多野馬準備起飛',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',
         },
         {
-          when: { kind: 'clock', at: 90 },
+          when: { kind: 'clock', at: 60 },
           warn: '剩下的野馬全部出動',
           warnLead: 0,
           side: 'theirs', spec: P51D, count: 4, takeoff: TAKEOFF_LINE, departs: 'parkedP51',

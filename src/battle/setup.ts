@@ -58,7 +58,7 @@ import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { GroundEntry, MissionFleet } from './missions'
 import {
-  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
+  createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
   type TakeoffLine, type TakeoffRoll,
 } from '../control/takeoffRoll'
 import type { Loadout } from '../weapons/stores'
@@ -1510,12 +1510,19 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
     // 擠在 1 附近，決策尖峰聚在一起 —— 這個 API 存在的理由就是攤開它們
     ai.setDecisionPhase(c.index / b.board.assignments.length)
   }
-  // 【小隊到齊才起步】最慢那一架滑到位的時刻，再每架晚 `TAKEOFF_STAGGER` 秒。
-  // 在生成這一刻就算定：前面那一架在滑行途中被打掉，後面的也不會等一架永遠到
-  // 不了的飛機
-  let ready = 0
-  for (const r of rolls) ready = Math.max(ready, r.taxiTime)
-  for (let s = 0; s < rolls.length; s++) rolls[s]!.delay = ready + s * TAKEOFF_STAGGER
+  // 【各滑各的，滑到起飛點就起步】不等小隊到齊 —— 等的那幾秒飛機停在跑道上不動。
+  //
+  // 【間隔照抵達順序排，不照座位】滑行過來的那一種四架共用同一個起飛點，所以
+  // 先到的先滾行，後到的至少晚 `TAKEOFF_ROLL_GAP` 秒；同時滾行會疊在一起。
+  // 直接生在起飛線上的那一種本來就前後錯開 `TAKEOFF_TRAIL`，用小的錯開即可。
+  const order = rolls.map((_, i) => i).sort((a, b2) => rolls[a]!.taxiTime - rolls[b2]!.taxiTime)
+  let last = -Infinity
+  for (let k = 0; k < order.length; k++) {
+    const r = rolls[order[k]!]!
+    const gap = r.taxi === null ? TAKEOFF_STAGGER : TAKEOFF_ROLL_GAP
+    r.delay = Math.max(r.taxiTime, last + gap)
+    last = r.delay
+  }
   b.reserveUsed++
   return seats
 }
@@ -1531,14 +1538,16 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
 function startTakeoff(
   b: Battle, c: Combatant, line: TakeoffLine, slot: number, stand: GroundTarget | null,
 ): TakeoffRoll {
-  const back = slot * TAKEOFF_TRAIL
+  const taxi = line.route !== undefined && stand !== null
+    ? { path: line.route(stand.position.x, stand.position.z, slot), startHeading: stand.heading }
+    : null
+  // 【滑行過來的都從同一點滾行】滑上跑道就起飛，不各自再往前排隊；前後間隔改由
+  // 抵達時間拉開（`TAKEOFF_ROLL_GAP`）。直接生在起飛線上的那一種才單列排開
+  const back = taxi === null ? slot * TAKEOFF_TRAIL : 0
   // 機首是 (−sin, 0, −cos)，後方是它的反向
   const x = line.x + Math.sin(line.heading) * back
   const z = line.z + Math.cos(line.heading) * back
   const groundY = b.world.groundAt(x, z)
-  const taxi = line.route !== undefined && stand !== null
-    ? { path: line.route(stand.position.x, stand.position.z, slot), startHeading: stand.heading }
-    : null
   const roll = createTakeoffRoll(x, z, line.heading, groundY, 0, taxi)
   c.takeoff = roll
   const a = c.aircraft

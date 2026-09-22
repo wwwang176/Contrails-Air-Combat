@@ -4,7 +4,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { P51D } from '../../src/specs/p51d'
 import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
-  TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RATE, taxiSeconds,
+  TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RADIUS, TAXI_TURN_RATE, taxiSeconds,
 } from '../../src/control/takeoffRoll'
 import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
@@ -122,14 +122,47 @@ describe('滑行', () => {
   const path = [{ x: 0, z: 0 }, { x: 50, z: 0 }, { x: 50, z: -80 }] as const
   const start = -Math.PI / 2
 
-  it('滑行時間 = 路長 ÷ 滑行速度 + 轉彎角 ÷ 轉向率', () => {
-    expect(taxiSeconds(path, start, 0)).toBeCloseTo(130 / TAXI_SPEED + (Math.PI / 2) / TAXI_TURN_RATE, 9)
+  /**
+   * 【轉角是圓弧，不是原地轉】弧上的時間與原地轉相同（`|轉角| ÷ 角速度`），
+   * 差在兩段直線各短了切入距離 —— 那段路被弧抄掉了。
+   */
+  it('滑行時間 = 路長 ÷ 滑行速度 + 轉彎角 ÷ 轉向率 − 抄掉的那一段', () => {
+    // 90° 的切入距離是 半徑 × tan(45°) = 半徑，兩段各短這麼多
+    const cut = (2 * TAXI_TURN_RADIUS) / TAXI_SPEED
+    expect(taxiSeconds(path, start, 0))
+      .toBeCloseTo(130 / TAXI_SPEED + (Math.PI / 2) / TAXI_TURN_RATE - cut, 9)
     // 滑行速度照真的滑行：每小時二、三十公里
     expect(TAXI_SPEED * 3.6).toBeGreaterThanOrEqual(20)
     expect(TAXI_SPEED * 3.6).toBeLessThanOrEqual(30)
   })
 
-  it('從起點出發、途中每一點都在折線上、速度不超過滑行速度，滑到終點原地等，時間到才滾行', () => {
+  /**
+   * 【轉彎時不得停下來】履帶車才停下來轉。轉角改成圓弧之後，滑行全程的速度
+   * 恆等於 `TAXI_SPEED`，而位置離折線最多一個轉彎半徑。
+   */
+  it('轉彎時照樣前進 —— 滑行途中速度不歸零', () => {
+    const a = new Aircraft(P51D, 0, 0)
+    const taxi = taxiSeconds(path, start, 0)
+    const roll = createTakeoffRoll(50, -80, 0, 12, taxi, { path, startHeading: start })
+    let steps = 0
+    let turned = 0
+    let last = start
+    while (stepTakeoff(roll, a.state, DT)) {
+      steps++
+      const t = steps * DT
+      if (t > 0.05 && t < taxi - 0.05) {
+        expect(a.state.velocity.length(), `${t.toFixed(3)} s`).toBeCloseTo(TAXI_SPEED, 6)
+      }
+      const h = Math.atan2(-noseOf(a).x, -noseOf(a).z)
+      if (t < taxi && Math.abs(h - last) > 1e-9) turned++
+      last = h
+      if (steps > 240 * 120) throw new Error('腳本沒有結束')
+    }
+    // 轉了好幾步才轉完，不是一步跳過去
+    expect(turned).toBeGreaterThan(10)
+  })
+
+  it('從起點出發、途中不離折線超過一個轉彎半徑、速度不超過滑行速度，滑到終點原地等，時間到才滾行', () => {
     const a = new Aircraft(P51D, 0, 0)
     const taxi = taxiSeconds(path, start, 0)
     const roll = createTakeoffRoll(50, -80, 0, 12, taxi + 3, { path, startHeading: start })
@@ -141,13 +174,15 @@ describe('滑行', () => {
       const p = a.state.position
       if (steps === 1) {
         expect(p.x).toBeLessThan(0.1)
-        expect(p.z).toBe(0)
+        expect(p.z).toBeCloseTo(0, 6)
       }
       if (t < taxi + 3) {
         expect(p.y).toBe(12 + GEAR_CLEARANCE)
-        const onFirst = p.z === 0 && p.x >= 0 && p.x <= 50
-        const onSecond = p.x === 50 && p.z <= 0 && p.z >= -80
-        expect(onFirst || onSecond, `${t.toFixed(3)} s (${p.x}, ${p.z})`).toBe(true)
+        // 轉角被圓弧抄掉，所以是「離折線多遠」而不是「在不在折線上」
+        const toFirst = p.x >= 0 && p.x <= 50 ? Math.abs(p.z) : Infinity
+        const toSecond = p.z <= 0 && p.z >= -80 ? Math.abs(p.x - 50) : Infinity
+        const off = Math.min(toFirst, toSecond)
+        expect(off, `${t.toFixed(3)} s (${p.x}, ${p.z})`).toBeLessThanOrEqual(TAXI_TURN_RADIUS + 1e-9)
         expect(a.state.velocity.length()).toBeLessThanOrEqual(TAXI_SPEED + 1e-9)
       }
       if (t > taxi + 0.01 && t < taxi + 3 - 0.01) {
@@ -199,15 +234,31 @@ describe('從停機墊滑到跑道', () => {
     })
   })
 
-  it('同一小隊等最慢那一架排好隊才起步，每架再晚 TAKEOFF_STAGGER 秒', () => {
+  /**
+   * 【不等小隊到齊】等的那幾秒飛機停在跑道上不動。滑行過來的那一種四架滑到
+   * 同一個起飛點，所以先到先滾行，後到的至少晚 `TAKEOFF_ROLL_GAP` 秒 ——
+   * 同時滾行會疊在一起。
+   */
+  it('各自滑到起飛點就起步，前後至少差 TAKEOFF_ROLL_GAP 秒', () => {
     const { b, seats } = taxiBattle()
     const rolls = seats.map((s) => b.world.combatants[s]!.takeoff!)
     const taxis = rolls.map((r) => taxiSeconds(r.taxi!.path, r.taxi!.startHeading, r.heading))
-    const slowest = Math.max(...taxis)
-    rolls.forEach((r, k) => {
-      expect(r.delay).toBeCloseTo(slowest + k * TAKEOFF_STAGGER, 9)
-      expect(r.delay).toBeGreaterThanOrEqual(taxis[k]!)
-    })
+    // 四架的起飛點是同一點
+    const line = rolls[0]!
+    for (const r of rolls) {
+      expect(r.x).toBeCloseTo(line.x, 9)
+      expect(r.z).toBeCloseTo(line.z, 9)
+    }
+    // 最早的那一架滑到就走，不等最慢的
+    expect(Math.min(...rolls.map((r) => r.delay))).toBeCloseTo(Math.min(...taxis), 9)
+    expect(Math.min(...taxis)).toBeLessThan(Math.max(...taxis))
+    // 每一架都不早於自己滑到的時刻，而且彼此至少差一個間隔
+    const delays = rolls.map((r, k) => ({ d: r.delay, taxi: taxis[k]! }))
+      .sort((p, q) => p.d - q.d)
+    for (const [k, v] of delays.entries()) {
+      expect(v.d).toBeGreaterThanOrEqual(v.taxi - 1e-9)
+      if (k > 0) expect(v.d - delays[k - 1]!.d).toBeGreaterThanOrEqual(TAKEOFF_ROLL_GAP - 1e-9)
+    }
   })
 })
 

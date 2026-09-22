@@ -3,7 +3,7 @@ import { createHeightField, type HeightFieldData } from './heightfield'
 import { bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc } from './archipelago'
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
 import { drawHillLobes } from './leuna'
-import { TAKEOFF_TRAIL, type TakeoffLine, type TaxiPoint } from '../control/takeoffRoll'
+import type { TakeoffLine, TaxiPoint } from '../control/takeoffRoll'
 
 /**
  * # Y-29（比利時 Asch）：德 M3 專用的地形
@@ -96,29 +96,34 @@ export const PARKED_ROWS: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ STAND_ZS.map((dz) => ({ ...at(STAND_X, dz), heading: -Math.PI / 2 }))
 
 /**
- * 第一個排隊位置在跑道中線上的局部 z。一個小隊四架單列往南排（`TAKEOFF_TRAIL`），
- * 最後一架在 640，仍在滑行帶南段接口（647.5）的北邊 —— 滑上跑道之後只往北走。
+ * 起飛點在跑道中線上的局部 z：滑行帶南段接口（647.5）北邊一點點。
+ *
+ * 【滑上跑道就起飛】**四架共用這一點**，不各自再往北排隊 —— 排隊要多滑一百
+ * 多公尺，畫面上是「滑到前面的停等區才起飛」。前後間隔由抵達時間拉開
+ * （`TAKEOFF_ROLL_GAP`）。往北還有 1,347 m，滾行只要約 300 m。
  */
-const LINE_Z = 520
+const LINE_Z = 640
 
 /**
- * 起飛線：跑道南段的中線，機首朝北（−Z）。停機墊上的 P-51 沿 `taxiRoute` 滑到
- * 自己的排隊位置；滾行加上初期爬升約 500 m，交還時還在跑道上空。
+ * 起飛線：跑道南段的中線，機首朝北（−Z）。停機墊上的 P-51 沿 `taxiRoute` 滑上
+ * 跑道就開始滾行；滾行加上初期爬升約 500 m，交還時還在跑道上空。
  */
 export const TAKEOFF_LINE: TakeoffLine = /* @__PURE__ */ { ...at(0, LINE_Z), heading: 0, route: taxiRoute }
 
 /**
- * 從停在 (x, z) 的那一格滑到第 `slot` 個排隊位置，世界座標的折線：
+ * 從停在 (x, z) 的那一格滑到跑道上的起飛點，世界座標的折線：
  *
  * ```
  *   停機墊中心 → 沿窄巷往東到滑行帶西段中線 → 沿西段往南到南段中線
- *   → 沿南段往東到跑道中線 → 沿中線往北到排隊位置
+ *   → 沿南段往東到跑道中線 → 轉北，走到起飛點
  * ```
+ *
+ * 【`slot` 不影響終點】四架滑到同一個起飛點，先到先滾行。
  *
  * 【停機墊一定在西段外側、窄巷與它同一個 z】`STANDS` 就是這樣排的。每一段都
  * 走在鋪面的中線上，護欄在 `asch.test.ts` 逐公尺檢查。
  */
-export function taxiRoute(x: number, z: number, slot: number): readonly TaxiPoint[] {
+export function taxiRoute(x: number, z: number, _slot: number): readonly TaxiPoint[] {
   const lz = z - FIELD_CENTER.z
   const leg = TAXI_LOOP[1]!
   const south = TAXI_LOOP[2]!
@@ -130,7 +135,7 @@ export function taxiRoute(x: number, z: number, slot: number): readonly TaxiPoin
     at(legX, lz),
     at(legX, southZ),
     at(runX, southZ),
-    at(runX, LINE_Z + slot * TAKEOFF_TRAIL),
+    at(runX, LINE_Z),
   ]
 }
 

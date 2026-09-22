@@ -37,12 +37,30 @@ export const GEAR_CLEARANCE = 1.5
  * 後一架晚 `TAKEOFF_STAGGER` 秒起步時前一架只走了 ½at²（約 2 m），不會追撞。
  */
 export const TAKEOFF_TRAIL = 40
-/** 後一架比前一架晚幾秒開始滾行 */
+/** 後一架比前一架晚幾秒開始滾行。**用在直接生在起飛線上的那一種** —— 那時每一架
+ * 已經前後錯開 `TAKEOFF_TRAIL` */
 export const TAKEOFF_STAGGER = 1
+/**
+ * 從同一個起飛點滾行時，前後兩架至少差幾秒。
+ *
+ * 【為什麼要比 `TAKEOFF_STAGGER` 大得多】滑行過來的那一種是四架滑到**同一點**
+ * 才滾行，位置上沒有間隔。加速度是 `LIFTOFF_SPEED / ROLL_SECONDS`（約
+ * 4.2 m/s²），5 秒後前一架已經跑出 52 m —— 比 `TAKEOFF_TRAIL` 還寬。
+ */
+export const TAKEOFF_ROLL_GAP = 5
 /** 滑行速度，m/s（約 29 km/h）。**起始值，由試飛裁定** */
 export const TAXI_SPEED = 8
-/** 滑行途中原地轉向的角速度。**起始值，由試飛裁定** */
+/** 滑行的轉向角速度。**起始值，由試飛裁定** */
 export const TAXI_TURN_RATE = 90 * DEG
+/**
+ * 轉彎半徑，m：邊走邊轉，半徑就是速度除以角速度。
+ *
+ * 【為什麼不是原地轉】停下來轉再走是履帶車，不是飛機。折線的轉角因此改成
+ * 內切的圓弧：提前 `半徑 × tan(轉角/2)` 離開直線段，轉完再接上下一段。
+ * 兩段都夠長時弧上的時間與原地轉一樣（`|轉角| ÷ 角速度`），差別在直線段
+ * 各短了那個切入距離。
+ */
+export const TAXI_TURN_RADIUS = TAXI_SPEED / TAXI_TURN_RATE
 
 /** 折線上的一點，世界座標 */
 export interface TaxiPoint {
@@ -109,22 +127,153 @@ function wrapAngle(a: number): number {
 }
 
 /**
- * 沿折線滑完、最後轉到 `endHeading` 要幾秒：每一段先原地轉到那一段的方向
- * （`TAXI_TURN_RATE`），再以 `TAXI_SPEED` 走完。長度為零的段跳過。
+ * 折線拆成的直線段。**模組層的暫存，`walkTaxi` 每次重填** —— 熱路徑不配置。
+ * 長度為零的段不進來。
  */
-export function taxiSeconds(path: readonly TaxiPoint[], startHeading: number, endHeading: number): number {
-  let t = 0
-  let h = startHeading
-  for (let i = 1; i < path.length; i++) {
-    const dx = path[i]!.x - path[i - 1]!.x
-    const dz = path[i]!.z - path[i - 1]!.z
+const MAX_SEGMENTS = 32
+const SEG_AX = /* @__PURE__ */ new Float64Array(MAX_SEGMENTS)
+const SEG_AZ = /* @__PURE__ */ new Float64Array(MAX_SEGMENTS)
+const SEG_H = /* @__PURE__ */ new Float64Array(MAX_SEGMENTS)
+const SEG_LEN = /* @__PURE__ */ new Float64Array(MAX_SEGMENTS)
+/** 第 i 段尾端為了接下一段的圓弧，提前多少公尺離開直線 */
+const SEG_TRIM = /* @__PURE__ */ new Float64Array(MAX_SEGMENTS)
+let segCount = 0
+
+/**
+ * 轉角的切入距離，m：`半徑 × tan(|轉角| / 2)`，再夾到兩段長度的 45%。
+ *
+ * 【夾住的理由】短段上兩端的切入會互相吃掉；夾在 45% 保證直線段不會變成
+ * 負的。夾到之後這個轉角的實際半徑比 `TAXI_TURN_RADIUS` 小，轉得更急。
+ *
+ * 【半角接近 90° 時 tan 會爆】折返那種角度夾在 1.4 rad（約 80°）。
+ */
+function cornerTrim(turn: number, prevLen: number, nextLen: number): number {
+  const half = Math.min(Math.abs(turn) / 2, 1.4)
+  return Math.min(TAXI_TURN_RADIUS * Math.tan(half), prevLen * 0.45, nextLen * 0.45)
+}
+
+/** 把折線填進暫存，回傳段數 */
+function buildSegments(path: readonly TaxiPoint[]): number {
+  let n = 0
+  for (let i = 1; i < path.length && n < MAX_SEGMENTS; i++) {
+    const ax = path[i - 1]!.x
+    const az = path[i - 1]!.z
+    const dx = path[i]!.x - ax
+    const dz = path[i]!.z - az
     const len = Math.hypot(dx, dz)
     if (len === 0) continue
-    const nh = headingToward(dx, dz)
-    t += Math.abs(wrapAngle(nh - h)) / TAXI_TURN_RATE + len / TAXI_SPEED
-    h = nh
+    SEG_AX[n] = ax
+    SEG_AZ[n] = az
+    SEG_H[n] = headingToward(dx, dz)
+    SEG_LEN[n] = len
+    n++
   }
-  return t + Math.abs(wrapAngle(endHeading - h)) / TAXI_TURN_RATE
+  for (let i = 0; i < n; i++) {
+    SEG_TRIM[i] = i + 1 < n
+      ? cornerTrim(wrapAngle(SEG_H[i + 1]! - SEG_H[i]!), SEG_LEN[i]!, SEG_LEN[i + 1]!)
+      : 0
+  }
+  return n
+}
+
+/**
+ * 走完這條滑行路線要幾秒；`state` 不為 null 時同時寫下第 `budget` 秒的姿態。
+ *
+ * 順序是：停機墊上原地轉到第一段的方向 → 直線段與轉角圓弧交替 → 最後原地
+ * 轉到 `endHeading`。
+ *
+ * 【頭尾為什麼仍然原地轉】那兩處飛機本來就是靜止的：一次是還停在格子裡、
+ * 一次是已經排在起飛線上等。中途的轉角才是「停下來轉再走」看起來最怪的地方。
+ *
+ * 熱路徑：不配置。
+ */
+function walkTaxi(
+  path: readonly TaxiPoint[], startHeading: number, endHeading: number,
+  budget: number, groundY: number, state: PoseState | null,
+): number {
+  segCount = buildSegments(path)
+  let t = 0
+  let h = startHeading
+  let x = path[0]!.x
+  let z = path[0]!.z
+  let speed = 0
+  let left = budget
+
+  const pivot = (to: number): boolean => {
+    const turn = wrapAngle(to - h)
+    const secs = Math.abs(turn) / TAXI_TURN_RATE
+    t += secs
+    if (state === null || left > secs) {
+      left -= secs
+      h = to
+      return false
+    }
+    h += Math.sign(turn) * TAXI_TURN_RATE * left
+    speed = 0
+    return true
+  }
+
+  let stop = segCount > 0 && pivot(SEG_H[0]!)
+  for (let i = 0; i < segCount && !stop; i++) {
+    const hi = SEG_H[i]!
+    const trimIn = i > 0 ? SEG_TRIM[i - 1]! : 0
+    const straight = Math.max(0, SEG_LEN[i]! - trimIn - SEG_TRIM[i]!)
+    const sx = SEG_AX[i]! - Math.sin(hi) * trimIn
+    const sz = SEG_AZ[i]! - Math.cos(hi) * trimIn
+    const secs = straight / TAXI_SPEED
+    t += secs
+    if (state !== null && left <= secs) {
+      const d = left * TAXI_SPEED
+      x = sx - Math.sin(hi) * d
+      z = sz - Math.cos(hi) * d
+      speed = TAXI_SPEED
+      h = hi
+      stop = true
+      break
+    }
+    left -= secs
+    x = sx - Math.sin(hi) * straight
+    z = sz - Math.cos(hi) * straight
+    h = hi
+
+    // 轉角：以 r 為半徑邊走邊轉。`SEG_TRIM` 為 0（末段或兩段共線）時不進來
+    const trim = SEG_TRIM[i]!
+    if (trim <= 0) continue
+    const turn = wrapAngle(SEG_H[i + 1]! - hi)
+    const r = trim / Math.tan(Math.min(Math.abs(turn) / 2, 1.4))
+    const arc = (Math.abs(turn) * r) / TAXI_SPEED
+    t += arc
+    const s = Math.sign(turn)
+    const k = (s * TAXI_SPEED) / r
+    const arcAt = (tau: number): void => {
+      const nh = hi + k * tau
+      x += s * r * (Math.cos(nh) - Math.cos(hi))
+      z -= s * r * (Math.sin(nh) - Math.sin(hi))
+      h = nh
+      speed = TAXI_SPEED
+    }
+    if (state !== null && left <= arc) {
+      arcAt(left)
+      stop = true
+      break
+    }
+    left -= arc
+    arcAt(arc)
+  }
+  if (!stop) stop = pivot(endHeading)
+
+  if (state !== null) {
+    state.orientation.setFromAxisAngle(UP, h)
+    state.velocity.set(-Math.sin(h) * speed, 0, -Math.cos(h) * speed)
+    state.angularVelocity.set(0, 0, 0)
+    state.position.set(x, groundY + GEAR_CLEARANCE, z)
+  }
+  return t
+}
+
+/** 沿折線滑完、最後轉到 `endHeading` 要幾秒。轉角是圓弧，見 `TAXI_TURN_RADIUS` */
+export function taxiSeconds(path: readonly TaxiPoint[], startHeading: number, endHeading: number): number {
+  return walkTaxi(path, startHeading, endHeading, Infinity, 0, null)
 }
 
 /** 滾行段的加速度，m/s²。整段等加速 */
@@ -137,57 +286,11 @@ const QP = /* @__PURE__ */ new Quaternion()
 type PoseState = { position: Vector3; velocity: Vector3; orientation: Quaternion; angularVelocity: Vector3 }
 
 /**
- * 滑行開始後第 `time` 秒的姿態，就地寫 `state`。與 `taxiSeconds` 同一套分段：
- * 轉向時停在折點上、速度為零；直行時在那一段上、速度 `TAXI_SPEED`。
- * 是 `time` 的純函數，不積分 —— 位置因此永遠在折線上。
+ * 滑行開始後第 `time` 秒的姿態，就地寫 `state`。是 `time` 的純函數，不積分 ——
+ * 位置因此永遠貼著折線（轉角處在內切的圓弧上）。
  */
 function taxiPose(roll: TakeoffRoll, plan: TaxiPlan, time: number, state: PoseState): void {
-  const path = plan.path
-  let h = plan.startHeading
-  let left = time
-  let x = path[0]!.x
-  let z = path[0]!.z
-  let speed = 0
-  let done = false
-  for (let i = 1; i < path.length && !done; i++) {
-    const a = path[i - 1]!
-    const dx = path[i]!.x - a.x
-    const dz = path[i]!.z - a.z
-    const len = Math.hypot(dx, dz)
-    if (len === 0) continue
-    const nh = headingToward(dx, dz)
-    const turn = wrapAngle(nh - h)
-    const pivot = Math.abs(turn) / TAXI_TURN_RATE
-    x = a.x
-    z = a.z
-    if (left < pivot) {
-      h += Math.sign(turn) * TAXI_TURN_RATE * left
-      done = true
-      break
-    }
-    left -= pivot
-    h = nh
-    const move = len / TAXI_SPEED
-    if (left < move) {
-      const f = (left * TAXI_SPEED) / len
-      x = a.x + dx * f
-      z = a.z + dz * f
-      speed = TAXI_SPEED
-      done = true
-      break
-    }
-    left -= move
-    x = path[i]!.x
-    z = path[i]!.z
-  }
-  if (!done) {
-    const turn = wrapAngle(roll.heading - h)
-    h += Math.sign(turn) * Math.min(Math.abs(turn), TAXI_TURN_RATE * left)
-  }
-  state.orientation.setFromAxisAngle(UP, h)
-  state.velocity.set(-Math.sin(h) * speed, 0, -Math.cos(h) * speed)
-  state.angularVelocity.set(0, 0, 0)
-  state.position.set(x, roll.groundY + GEAR_CLEARANCE, z)
+  walkTaxi(plan.path, plan.startHeading, roll.heading, time, roll.groundY, state)
 }
 
 /**
