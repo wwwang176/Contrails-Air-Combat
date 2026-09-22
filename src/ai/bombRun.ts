@@ -54,7 +54,7 @@ import type { StrikeTarget } from '../world/strikeTarget'
  * ```
  *
  * 而 `SHIP_ATTACK_RANGE` 本來就只有 8,000 m，所以低空那一段才是它真正
- * 在省的地方 —— 也正是 `japan-m4` 的 1,000 m。
+ * 在省的地方 —— 也正是 `japan-m3` 的 1,000 m。
  */
 export function solveGateOf(altitude: number): number {
   return altitude * 2 + 500

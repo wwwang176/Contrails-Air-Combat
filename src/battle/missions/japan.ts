@@ -62,7 +62,7 @@ export const JAPAN: readonly MissionCard[] = [
       fleet: GUADALCANAL_FLEET,
       sinkCount: 3,
       // 【低空】陸攻從 5 km 外進場，4,000 m 開場的話到船團上空還沒降到投雷
-      // 高度，整趟帶著雷飛過去。與日 M4 同一個值。**起始值。**
+      // 高度，整趟帶著雷飛過去。與日 M3 同一個值。**起始值。**
       altitude: 1000,
       // 【沒有 `blueLoadout`】陸攻掛魚雷，照 G4M 的預設。覆寫會套到藍隊全體
       recycle: {
@@ -72,7 +72,7 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m3', title: '漢口上空', type: '殲滅',
+    id: 'japan-m2', title: '漢口上空', type: '殲滅',
     summary: '駕駛疾風迎擊從高空撲下來的野馬，把它們拖進低空纏鬥。',
     place: '中國　漢口上空', period: '1944 年 8 月',
     battle: {
@@ -87,7 +87,7 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m4', title: '倫內爾島', type: '打擊',
+    id: 'japan-m3', title: '倫內爾島', type: '打擊',
     summary: '駕駛一式陸攻趁著黃昏貼海飛行，用魚雷擊沉美軍艦隊。',
     place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
     battle: {

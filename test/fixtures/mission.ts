@@ -64,4 +64,4 @@ function interceptCard(): ReadyMissionCard {
   }
 }
 /** 一張現成的殲滅卡 */
-export const KILL_CARD = 'japan-m3'
+export const KILL_CARD = 'japan-m2'

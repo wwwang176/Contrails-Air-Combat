@@ -161,7 +161,7 @@ export const RENNELL_FLEET: MissionFleet = {
   ],
 }
 
-/** 德 M4 撤退段的終點在多遠，m */
+/** 德 M3 撤退段的終點在多遠，m */
 export const RETREAT_DISTANCE = 12000
 
 /**
@@ -179,9 +179,9 @@ export const RETREAT_DISTANCE = 12000
  * ```
  *   盟 M1 / 德 M1   唯二有實測基礎的（掃描定值），由
  *                   `mission-config-baseline.test.ts` 逐項釘住
- *   日 M1 / 日 M3   編制照掃描過的那兩種形狀（8v6 殲滅、護送）
- *   德 M4           返航節拍的第一個使用者
- *   盟 M4 / 日 M4   艦隊：守住與擊沉
+ *   日 M1 / 日 M2   編制照掃描過的那兩種形狀（8v6 殲滅、護送）
+ *   德 M3           返航節拍的第一個使用者
+ *   盟 M3 / 日 M3   艦隊：守住與擊沉
  *   盟 M2           地面目標：炸毀（`world/leuna.ts` 的廠區）
  * ```
  */

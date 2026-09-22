@@ -387,7 +387,7 @@ export function createShip(
 /**
  * 回到開局狀態。**砲位由 `resetShipGuns` 另外處理。**
  *
- * 【為什麼一定要有】`japan-m4` 沒有波次，所以「再打一場」走的是就地
+ * 【為什麼一定要有】`japan-m3` 沒有波次，所以「再打一場」走的是就地
  * `resetBattle`，不重建 World。少了這一支，第二局船會停在上一局結束的
  * 位置 —— 而且不報錯。
  */

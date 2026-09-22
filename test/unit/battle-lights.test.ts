@@ -23,8 +23,8 @@ describe('battleLights：只有帶照明彈的關卡掛照明彈燈', () => {
   })
 
   it('其他關卡不掛', () => {
-    for (const id of ['allies-m1', 'allies-m2', 'allies-m4', 'germany-m1', 'germany-m4',
-      'japan-m1', 'japan-m3', 'japan-m4']) {
+    for (const id of ['allies-m1', 'allies-m2', 'allies-m3', 'germany-m1', 'germany-m3',
+      'japan-m1', 'japan-m2', 'japan-m3']) {
       expect(battleLights(configOf(id)).flares, id).toBe(false)
     }
   })

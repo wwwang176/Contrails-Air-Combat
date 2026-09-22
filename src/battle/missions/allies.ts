@@ -126,7 +126,7 @@ export const ALLIES: readonly MissionCard[] = [
     },
   },
   {
-    id: 'allies-m4', title: '沖繩外海', type: '殲滅',
+    id: 'allies-m3', title: '沖繩外海', type: '殲滅',
     summary: '駕駛 F6F-5 守護航母，擋下俯衝的零戰和貼著海面來的雷擊機。',
     place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
     battle: {

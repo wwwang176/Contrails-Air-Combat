@@ -37,7 +37,7 @@ describe('節拍的條件', () => {
   })
 
   it('存活數的選擇器：只數指定角色', () => {
-    // 【這一條是盟 M4 的形狀】「打退戰鬥機之後魚雷機才來」，
+    // 【這一條是盟 M3 的形狀】「打退戰鬥機之後魚雷機才來」，
     // 不是「紅隊剩幾架」—— 轟炸機還活著不該擋住第二波
     const when: BeatCondition = {
       kind: 'alive', team: 'red', role: 'fighter', atMost: 2, byLatest: 999,
@@ -76,7 +76,7 @@ describe('節拍的條件', () => {
   })
 
   it('批數：已預警的重生批數到了才成立', () => {
-    // 【盟 M4 的陸攻掛在第五批重生上】批數只增不減，所以沒有 byLatest
+    // 【盟 M3 的陸攻掛在第五批重生上】批數只增不減，所以沒有 byLatest
     const when: BeatCondition = { kind: 'batch', at: 5 }
     expect(conditionMet(when, 300, NONE, 4)).toBe(false)
     expect(conditionMet(when, 0, NONE, 5)).toBe(true)

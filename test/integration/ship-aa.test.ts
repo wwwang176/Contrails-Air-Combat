@@ -361,12 +361,12 @@ describe('飛機砲塔瞄船', () => {
   })
 })
 
-const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
 
 describe('resetBattle 要把船一起重設', () => {
 
   /**
-   * 【為什麼這一條非有不可】`japan-m4` 沒有 waves，所以「再打一場」走的是
+   * 【為什麼這一條非有不可】`japan-m3` 沒有 waves，所以「再打一場」走的是
    * 就地 `resetBattle`，**不重建 World**。少了重設，第二局會是船停在上一局
    * 結束的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆
    * —— 全程不報錯。
@@ -484,8 +484,8 @@ describe('擊沉', () => {
     for (const g of s.guns) expect(g.alive).toBe(true)
   })
 
-  /** 【任務規則】japan-m4 的目標是擊沉任意四艘。 */
-  it('japan-m4 的規則是擊沉四艘', () => {
+  /** 【任務規則】japan-m3 的目標是擊沉任意四艘。 */
+  it('japan-m3 的規則是擊沉四艘', () => {
     const r = missionConfigFrom(card).rules
     expect(r.kind).toBe('sink')
     if (r.kind === 'sink') expect(r.count).toBe(4)

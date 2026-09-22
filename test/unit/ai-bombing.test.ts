@@ -57,7 +57,7 @@ describe('Combatant.bombBay', () => {
     const w = new World()
     const g4m = add(w, G4M)
     // 【不寫死枚數】G4M 的預設掛載是九一式航空魚雷 ×1，任務卡可以用
-    // `blueLoadout` 換成炸彈 ×2（japan-m4 就是）。這一條守的是「容量取自
+    // `blueLoadout` 換成炸彈 ×2（japan-m3 就是）。這一條守的是「容量取自
     // 掛載表」，不是某一個數字。
     const n = loadoutOf('g4m')?.count ?? 0
     expect(n).toBeGreaterThan(0)

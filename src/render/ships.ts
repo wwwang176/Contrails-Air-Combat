@@ -60,7 +60,7 @@ export function shipModelTop(id: ShipClassId): number {
  * 先把要用到的艦級載進來。**開場 await 一次**，之後 `createShipModels`
  * 是同步的 —— 與 `preloadAircraftModels` 同一個做法。
  *
- * 【為什麼要指定要哪幾艘】`japan-m4` 只用 Wichita 與 Fletcher。無條件載
+ * 【為什麼要指定要哪幾艘】`japan-m3` 只用 Wichita 與 Fletcher。無條件載
  * 三艘等於為了一關沒出現的航母多下載一份 GLB。
  *
  * @param onLoaded 每一個艦級好了呼叫一次（已經載過的也算），次數是 `ids` 去重後的

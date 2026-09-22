@@ -128,7 +128,7 @@ export interface BattleConfig {
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
-   * 【為什麼要逐關複寫】`flakHeavy` 在盟 M2、德 M2、日 M4 都出現。洛伊納是
+   * 【為什麼要逐關複寫】`flakHeavy` 在盟 M2、德 M2、日 M3 都出現。洛伊納是
    * 德國本土最密的火網，那一關的彈幕該比路邊的一座砲位猛得多 —— 直接改
    * `GROUND_FLAK_SPEC` 會把另外兩關一起改掉。
    *
@@ -2225,7 +2225,7 @@ export function stepBattle(b: Battle, dt: number): void {
   }
   inp.redKilled = b.redKilled
   inp.redKilledBombers = b.redKilledBombers
-  // 【只算敵方的船】友軍的船要等 `allies-m4` 那種「守住艦隊」的規則。
+  // 【只算敵方的船】友軍的船要等 `allies-m3` 那種「守住艦隊」的規則。
   // 八艘的迴圈，每個物理步跑一次 —— 與 convoy 那一段同一個量級。
   inp.shipsSunk = 0
   inp.shipsTotal = 0
@@ -2297,7 +2297,7 @@ export function resetBattle(
   // 【魚雷更久】跑滿射程要 91 秒，比炸彈的上限還長。而且它會在水面拉出
   // 一條航跡 —— 上一場的那一條會在第二場繼續往前走
   b.world.torpedoes.clear()
-  // 【船與高砲也要重設】`japan-m4` 沒有波次，所以「再打一場」走的是就地
+  // 【船與高砲也要重設】`japan-m3` 沒有波次，所以「再打一場」走的是就地
   // resetBattle、**不重建 World**。少了這一段，第二局會是船停在上一局結束
   // 的位置、被打掉的砲位仍然是死的、上一局的高砲彈還在空中而且會引爆 ——
   // 全程不報錯。

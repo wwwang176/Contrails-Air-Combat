@@ -357,7 +357,7 @@ export const GROUND_FLAK_MUZZLE_Y = 2.2
  * 這一門砲不是獨立的可打目標；`alive` 由砲位本身的存活決定。
  *
  * @param spec 這一關的規格。**省略 = `GROUND_FLAK_SPEC`** —— `flakHeavy` 在
- *   盟 M2、德 M2、日 M4 都出現，逐關複寫走 `BattleConfig.flakSpec`。
+ *   盟 M2、德 M2、日 M3 都出現，逐關複寫走 `BattleConfig.flakSpec`。
  * @param tier 走哪一層射控：`flak` 是時間引信（不進彈丸池）、`autocannon`／
  *   `mg` 是直射彈（進池、有曳光）。射界錐照 `SHIP_AA_ARC_DEFAULTS[tier]`
  * @param calibreMm 口徑，只進 `ShipAAZone`（穿甲門檻在 `spec.caliber`）

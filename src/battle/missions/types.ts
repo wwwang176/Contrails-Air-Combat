@@ -288,7 +288,7 @@ export interface MissionBattle {
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
-   * `flakHeavy` 在盟 M2、德 M2、日 M4 都出現，直接改那份通用規格會把另外兩關一起改掉。
+   * `flakHeavy` 在盟 M2、德 M2、日 M3 都出現，直接改那份通用規格會把另外兩關一起改掉。
    * 寫成 `{ ...GROUND_FLAK_SPEC, roundsPerMinute: 30 }` 就看得出改了哪一格。
    */
   readonly flakSpec?: ShipGunSpec

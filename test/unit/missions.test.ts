@@ -22,8 +22,8 @@ const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 /**
  * 一張撤離卡。**自己建，不從 `MISSIONS` 找。**
  *
- * 【為什麼】9 關裡沒有撤離卡 —— 那個玩法的使用者是德 M4 的返航節拍。
- * 但撤離的**判定**還在，而且正是德 M4 靠的那一條，所以它的幾何仍然要驗。
+ * 【為什麼】9 關裡沒有撤離卡 —— 那個玩法的使用者是德 M3 的返航節拍。
+ * 但撤離的**判定**還在，而且正是德 M3 靠的那一條，所以它的幾何仍然要驗。
  * 從卡表找的話，這一份會跟著關卡設計一起漂。
  */
 function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionCard {
@@ -189,8 +189,8 @@ describe('艦隊', () => {
    * 資料**。只在 `MissionBattle` 上加一格的話型別檢查會過、卡片也讀得到，
    * 但進戰鬥之後一艘船都不會有 —— 而且不報錯。
    */
-  it('japan-m4 的艦隊真的流進 BattleConfig', () => {
-    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+  it('japan-m3 的艦隊真的流進 BattleConfig', () => {
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
     expect(card.battle).not.toBeNull()
     expect(card.battle.fleet).toBeDefined()
     expect(missionConfigFrom(card).fleet?.ships.length).toBe(8)
@@ -216,7 +216,7 @@ describe('艦隊', () => {
    * **Essex 不准出現** —— 1943 年 1 月它還沒到太平洋，差九個月。
    */
   it('倫內爾島是四艘 Wichita 加四艘 Fletcher，全部紅隊，沒有航母', () => {
-    const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
     const f = card.battle.fleet!
     const by = (id: string) => f.ships.filter((x) => x.cls === id).length
     expect(by('wichita')).toBe(4)
@@ -234,7 +234,7 @@ describe('開場高度', () => {
    * **不低頭看不到船**，而那一關的第一印象本來就該是海面上的艦隊。
    */
   it('倫內爾島是低空的，其餘沿用預設', () => {
-    const m4 = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+    const m4 = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
     expect(missionConfigFrom(m4).altitude).toBe(1000)
     expect(missionConfigFrom(readyCard(KILL_CARD)).altitude).toBe(DEFAULT_BATTLE.altitude)
   })
@@ -301,7 +301,7 @@ describe('卡片可以依機種複寫掛載', () => {
   /** 【爆戦只在盟 M3】沖繩外海的零戰掛彈攻艦隊；其他關的零戰是空手的 */
   it('盟 M3 的零戰掛爆戦，日 M1 的零戰不掛', () => {
     const byId = (id: string) => playable.find((m) => m.id === id)!
-    expect(missionConfigFrom(byId('allies-m4')).loadouts).toEqual({ a6m5: A6M5_BOMB_LOADOUT })
+    expect(missionConfigFrom(byId('allies-m3')).loadouts).toEqual({ a6m5: A6M5_BOMB_LOADOUT })
     expect(missionConfigFrom(byId('japan-m1')).loadouts).toBeUndefined()
   })
 })

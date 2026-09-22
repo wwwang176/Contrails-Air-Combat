@@ -25,7 +25,7 @@ import { AI_DECISION_HZ } from '../../src/ai/AiController'
 const IDLE: Controller = { update() {} }
 const DT = 1 / 240
 
-const card = MISSIONS.japan.find((c) => c.id === 'japan-m4') as ReadyMissionCard
+const card = MISSIONS.japan.find((c) => c.id === 'japan-m3') as ReadyMissionCard
 
 /**
  * @param solve false = 把彈艙容量餵 0，AI 走掃射那一支、一次都不解算。
@@ -64,7 +64,7 @@ delete (bare as { fleet?: unknown }).fleet
 const noFleet = measure(wire(bare, false), 4000, 5)
 const fleetOnly = measure(wire(cfg, false), 4000, 5)
 
-console.log('japan-m4 6v6（六架一式陸攻、八艘船）')
+console.log('japan-m3 6v6（六架一式陸攻、八艘船）')
 console.log(`  沒有艦隊            ${noFleet.toFixed(1)} µs/step`)
 console.log(`  有艦隊、不解算      ${fleetOnly.toFixed(1)} µs/step   (艦隊本身 +${(fleetOnly - noFleet).toFixed(1)})`)
 

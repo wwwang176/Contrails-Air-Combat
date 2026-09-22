@@ -276,7 +276,7 @@ console.log('── 表二：沒有被護送者的場次 ───────�
     + `   下令端分隊 ${b.blueOrderFlights.length} + ${b.redOrderFlights.length}`
     + `   全部分隊 ${b.flights.flights.length}`)
 }
-for (const id of ['japan-m3'] as const) {
+for (const id of ['japan-m2'] as const) {
   const card = readyCard(id)
   const b = createBattle(new Idle(), missionConfigFrom(card), SEED)
   console.log(`${card.title.padEnd(12)} convoy = ${b.convoy === null ? 'null' : '不是 null（錯）'}`

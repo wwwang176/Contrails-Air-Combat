@@ -97,7 +97,7 @@ export const GERMANY: readonly MissionCard[] = [
       // 【炸毀任意十二座】池是 24 架 B-17、3 堆、22 座砲位、6 座探照燈。
       // 8 架 × 8 枚 = 64 枚。**起始值**
       destroyCount: 12,
-      // 【重砲照 5 吋艦砲的路數】高射速、小範圍、單發輕 —— 與盟 M4 的艦隊
+      // 【重砲照 5 吋艦砲的路數】高射速、小範圍、單發輕 —— 與盟 M3 的艦隊
       // 防空同一種壓力：黑雲多而不致命
       flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 20, burstRadius: 50, burstDamage: 100 },
       /**
@@ -110,7 +110,7 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m4', title: '底板行動', type: '打擊',
+    id: 'germany-m3', title: '底板行動', type: '打擊',
     summary: '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
     place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
     battle: {
@@ -131,7 +131,7 @@ export const GERMANY: readonly MissionCard[] = [
       altitude: 500,
       ground: ASCH_GROUND,
       // 【第三張任務卡限定】先完成機場掃射；已升空的 P-51 只有形成直接射擊威脅
-      // 時才插隊。AI 核心只看單位 id，不知道 germany-m4，也不污染其他關卡。
+      // 時才插隊。AI 核心只看單位 id，不知道 germany-m3，也不污染其他關卡。
       priorityGroundUnit: 'parkedP51',
       // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡。
       // **起始值**

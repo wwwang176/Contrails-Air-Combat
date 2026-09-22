@@ -17,7 +17,7 @@ import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
  * （`render/geometry/ground/plantScenery.ts`）與地面著色器的墊面與道路
  * （`render/fields.ts`）都引用這裡的常數，不自己寫座標。
  *
- * 【農地的參數一改廠區不會埋進山裡】農地生成器同時被德 M4 與遭遇戰用；
+ * 【農地的參數一改廠區不會埋進山裡】農地生成器同時被德 M3 與遭遇戰用；
  * 這張圖不共用它的丘陵清單，只共用生成的機制。
  */
 

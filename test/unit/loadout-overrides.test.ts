@@ -59,7 +59,7 @@ describe('依機種複寫掛載', () => {
   })
 
   it('盟 M3 開場：零戰掛爆戦', () => {
-    const card = MISSIONS.allies.find((m) => m.id === 'allies-m4') as ReadyMissionCard
+    const card = MISSIONS.allies.find((m) => m.id === 'allies-m3') as ReadyMissionCard
     const b = createBattle(IDLE, missionConfigFrom(card), 1)
     const zeros = b.world.combatants.filter((c) => c.aircraft.spec.id === 'a6m5')
     expect(zeros.length).toBeGreaterThan(0)

@@ -11,8 +11,8 @@ import type { SideEntry } from './entry'
  *
  * ```
  *   德 M1  發現 B-17 編隊 → 「敵方護航機！」P-51 出現
- *   盟 M4  打退 A6M5 → 雷達發現低空目標 → 魚雷機正朝航母接近
- *   德 M4  友軍逐漸減少 → 任務更新：返航
+ *   盟 M3  打退 A6M5 → 雷達發現低空目標 → 魚雷機正朝航母接近
+ *   德 M3  友軍逐漸減少 → 任務更新：返航
  * ```
  *
  * 最後一條與前兩條不同：它不生增援，它**改任務目標**。同一套條件判斷接
@@ -32,7 +32,7 @@ export type BeatCondition =
   /**
    * 指定隊伍（可再限定機種角色）的存活數降到 `atMost` 以下。
    *
-   * 【`role` 是必要的，不是裝飾】盟 M4 是「打退**戰鬥機**之後魚雷機才來」，
+   * 【`role` 是必要的，不是裝飾】盟 M3 是「打退**戰鬥機**之後魚雷機才來」，
    * 不是「紅隊剩幾架」。日 M2 同理。之後補這一格會很痛。
    *
    * 【`byLatest` 是必填的兜底】玩家太慢（打不完第一波）或太快（繞過去）時
@@ -75,7 +75,7 @@ export interface ReinforceBeat {
   readonly flight: FlightPlan
 }
 
-/** 任務目標改成「飛到某個點」。德 M4 的 返航。 */
+/** 任務目標改成「飛到某個點」。德 M3 的 返航。 */
 export interface WithdrawBeat {
   readonly kind: 'withdraw'
   readonly when: BeatCondition
