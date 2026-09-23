@@ -1292,7 +1292,11 @@ function stepBeats(b: Battle): void {
     const grounded = beat.kind === 'reinforce' && beat.flight.departs !== undefined
       && parkedLeft(b, beat.flight.departs, beat.flight.team) === 0
     if (st.phase === 'waiting') {
-      if (!conditionMet(beat.when, now, aliveOf, b.batches, destroyed)) continue
+      // 【`destroyed` 條件自帶單位】數的是它自己指定的那一種，不是規則的池
+      const d = beat.when.kind === 'destroyed'
+        ? countDestroyed(b.world.groundTargets, b.world.combatants, beat.when.unit)
+        : destroyed
+      if (!conditionMet(beat.when, now, aliveOf, b.batches, d)) continue
       if (grounded) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
@@ -1396,6 +1400,7 @@ function fitsNextReserve(b: Battle, plan: FlightPlan): boolean {
  */
 function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
   if (t.team === 'blue') return false
+  if (rules.kind === 'interdict') return t.unit.id === rules.unit
   return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
 }
 
@@ -1403,16 +1408,41 @@ function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
  * 池裡的這一台算不算已摧毀。**每一架飛機只算一次，不管死在哪裡。**
  *
  * ```
+ *   開到終點   不算 —— 它是開到了，不是被打掉
  *   沒有離場   停機墊上的那一台打掉了沒有
  *   已經離場   從它起飛的那一架還活不活著（滑行、滾行、升空後被打掉都算）
  * ```
  *
- * 【離場的那一格不能看自己的 `alive`】離場時它就設成 false 了 —— 看它的話
- * 起飛的那一刻就算成摧毀，同一架飛機之後被擊落又不會多算，數字全錯。
+ * 【離場與抵達都不能只看自己的 `alive`】兩者退場時都設成 false —— 看它的話
+ * 起飛或抵達的那一刻就算成摧毀。
  */
-function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+export function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+  if (t.arrived) return false
   if (!t.departed) return !t.alive
   return !cs[t.departedAs]!.alive
+}
+
+/**
+ * 敵方地面目標裡 `unit`（省略 = 全部）已摧毀幾座。**`destroyed` 節拍條件用它** ——
+ * 那一條自帶單位，不跟著這一場的規則走（返航之後規則換成撤離，池就變了）。
+ */
+export function countDestroyed(
+  targets: readonly GroundTarget[], cs: readonly Combatant[], unit: GroundUnitId | undefined,
+): number {
+  let n = 0
+  for (const t of targets) {
+    if (t.team === 'blue') continue
+    if (unit !== undefined && t.unit.id !== unit) continue
+    if (destroyedInPool(t, cs)) n++
+  }
+  return n
+}
+
+/** 池裡開到終點退場的有幾座。`interdict` 的抵達數 */
+export function countArrived(targets: readonly GroundTarget[], rules: MissionRules): number {
+  let n = 0
+  for (const t of targets) if (t.arrived && inDestroyPool(t, rules)) n++
+  return n
 }
 
 /**
@@ -1982,6 +2012,7 @@ const MISSION_INPUTS: MissionInputs = {
   shipsTotal: 0,
   targetsDestroyed: 0,
   targetsTotal: 0,
+  targetsArrived: 0,
   vitalSunk: 0,
   vitalHp: 1,
   redInbound: false,
@@ -2266,6 +2297,7 @@ export function stepBattle(b: Battle, dt: number): void {
     inp.targetsTotal++
     if (destroyedInPool(t, cs)) inp.targetsDestroyed++
   }
+  inp.targetsArrived = countArrived(b.world.groundTargets, b.rules)
   // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
   // 第二波永遠不來（見 `MissionInputs.redInbound`）
   inp.redInbound = false

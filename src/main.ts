@@ -3175,7 +3175,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.objectiveRemaining = m.remaining
   // 【門檻讀當下的規則】返航節拍會換掉規則，開場的 `cfg.rules` 可能已經過時
   hudFrame.objectiveArrived = m.arrived
-  hudFrame.objectiveNeed = battle.rules.kind === 'convoy' ? battle.rules.need ?? 1 : -1
+  // 【截斷的分母是放行上限】「已抵達 1/4」—— 玩家在盯的是還能放走幾輛
+  hudFrame.objectiveNeed = battle.rules.kind === 'convoy'
+    ? battle.rules.need ?? 1
+    : battle.rules.kind === 'interdict' ? battle.rules.leak : -1
   hudFrame.objectiveSeconds = m.secondsLeft
   hudFrame.objectiveHasTarget = m.hasTarget
   hudFrame.objectiveWorldX = m.target.x
