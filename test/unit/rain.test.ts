@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
-import { createRain, rainApparentVelocity, RAIN_VELOCITY } from '../../src/render/rain'
+import {
+  createRain, rainApparentVelocity, RAIN_VELOCITY, SPLASH_CONE, SPLASH_HEIGHT,
+} from '../../src/render/rain'
 
 /**
  * # 雨
@@ -121,10 +123,95 @@ describe('每幀寫進 shader 的數字', () => {
     }
   })
 
-  it('不做視錐裁切 —— 位置全在 shader 裡算，包圍球是假的', () => {
+  /** 一朵水花最遠濺出去多少，m：拋物線射程 4 × 最高點 × tan(錐的半頂角) */
+  const MAX_RUN = 4 * SPLASH_HEIGHT[1] * Math.tan(SPLASH_CONE)
+
+  it('地上的水花：鏡頭低空時出現在正下方 60 m 圓內、貼著地面彈起不超過上限', () => {
     const rain = createRain()
     try {
-      expect(rain.object.frustumCulled).toBe(false)
+      const ground = (x: number, z: number): number => 20 + 0.1 * x - 0.05 * z
+      const cam = new Vector3(300, 70, -200)
+      rain.update(cam, DT, DT, false, ground)
+      expect(rain.splash.visible).toBe(true)
+      const p = rain.splash.geometry.getAttribute('position')
+      expect(p.count).toBeGreaterThan(100)
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i)
+        const z = p.getZ(i)
+        expect(Math.hypot(x - cam.x, z - cam.z)).toBeLessThanOrEqual(60 + MAX_RUN)
+        // 【斜坡上】濺出去之後那一點的地面高度差最多 |坡度| × 射程
+        const h = p.getY(i) - ground(x, z)
+        expect(h).toBeGreaterThanOrEqual(-0.12 * MAX_RUN - 1e-4)
+        expect(h).toBeLessThanOrEqual(SPLASH_HEIGHT[1] + 0.12 * MAX_RUN + 1e-4)
+      }
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('水花往旁邊濺（錐裡隨機的方向），而且不會濺得比錐的射程遠', () => {
+    const rain = createRain()
+    try {
+      const cam = new Vector3(0, 30, 0)
+      rain.update(cam, DT, DT, false, () => 0)
+      const a = Array.from(rain.splash.geometry.getAttribute('position').array)
+      rain.update(cam, DT / 4, DT, false, () => 0)
+      const b = Array.from(rain.splash.geometry.getAttribute('position').array)
+      let moved = 0
+      const dirs = new Set<number>()
+      for (let i = 0; i < a.length / 3; i++) {
+        const dx = b[i * 3]! - a[i * 3]!
+        const dz = b[i * 3 + 2]! - a[i * 3 + 2]!
+        const d = Math.hypot(dx, dz)
+        // 【同一朵才比】換了位置的那幾朵跳過
+        if (d > 1) continue
+        // 最快的一朵：射程除以最短壽命
+        expect(d).toBeLessThanOrEqual((MAX_RUN / 0.25) * (DT / 4) + 1e-5)
+        if (d > 1e-5) {
+          moved++
+          dirs.add(Math.floor(((Math.atan2(dz, dx) + Math.PI) / (2 * Math.PI)) * 8) % 8)
+        }
+      }
+      expect(moved).toBeGreaterThan(100)
+      // 八個方位都有 —— 方向是隨機的，不是全部往同一邊
+      expect(dirs.size).toBe(8)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('鏡頭離地 100 m 以上看不到水花；沒給地面高度也沒有', () => {
+    const rain = createRain()
+    try {
+      rain.update(new Vector3(0, 130, 0), DT, DT, false, () => 20)
+      expect(rain.splash.visible).toBe(false)
+      rain.update(new Vector3(0, 30, 0), DT, DT, false, () => 20)
+      expect(rain.splash.visible).toBe(true)
+      rain.update(new Vector3(0, 30, 0), DT, DT)
+      expect(rain.splash.visible).toBe(false)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('暫停（世界時間不走）時水花停住', () => {
+    const rain = createRain()
+    try {
+      const cam = new Vector3(0, 30, 0)
+      rain.update(cam, DT, DT, false, () => 0)
+      const before = Array.from(rain.splash.geometry.getAttribute('position').array)
+      rain.update(cam, 0, DT, false, () => 0)
+      expect(Array.from(rain.splash.geometry.getAttribute('position').array)).toEqual(before)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('雨絲與水花都不做視錐裁切 —— 位置是逐幀寫的或在 shader 裡算，包圍球是假的', () => {
+    const rain = createRain()
+    try {
+      expect(rain.object.children.length).toBe(2)
+      for (const o of rain.object.children) expect(o.frustumCulled).toBe(false)
     } finally {
       rain.dispose()
     }

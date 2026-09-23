@@ -1,5 +1,6 @@
 import {
-  BufferAttribute, BufferGeometry, Color, LineSegments, ShaderMaterial, Vector3, type Object3D,
+  BufferAttribute, BufferGeometry, Color, Group, LineSegments, Points, PointsMaterial, ShaderMaterial,
+  Vector3, type Object3D,
 } from 'three'
 
 /**
@@ -111,11 +112,133 @@ export interface Rain {
    * @param worldDt 這一幀世界前進的時間，s。**暫停時 0** —— 雨停在半空
    * @param frameDt 這一幀的真實時間，s
    * @param stillView 雨絲照「鏡頭停著」畫，不跟鏡頭的移動轉 —— 上帝視角用
+   * @param heightAt 地面（含海面）的高度。地上的水花靠它；省略 = 沒有水花
    */
-  update(camPos: Readonly<Vector3>, worldDt: number, frameDt: number, stillView?: boolean): void
+  update(
+    camPos: Readonly<Vector3>, worldDt: number, frameDt: number, stillView?: boolean, heightAt?: GroundHeightAt,
+  ): void
+  /** 地上的水花。**鏡頭離地 `SPLASH_CEILING` 以上是隱藏的**。給測試讀 */
+  readonly splash: Points
   /** 目前的 uniform，給測試讀 —— shader 在無頭測試裡不會跑 */
   readonly uniforms: { readonly uCam: { value: Vector3 }; readonly uRel: { value: Vector3 }; readonly uDrift: { value: Vector3 } }
   dispose(): void
+}
+
+// ── 地面的水花 ─────────────────────────────────────────────────────────
+
+/** 同時存在的水花數 */
+const SPLASHES = 800
+/** 水花撒在鏡頭下方這麼大的圓裡，m */
+const SPLASH_RADIUS = 60
+/** 一朵水花的壽命與彈起高度的範圍 */
+const SPLASH_LIFE = [0.25, 0.4] as const
+export const SPLASH_HEIGHT = [0.05, 0.17] as const
+/**
+ * 水花彈出去的方向：向上的錐，半頂角，rad。每一朵在錐裡隨機挑一個方向，
+ * 所以是往旁邊濺，不是原地上下。
+ */
+export const SPLASH_CONE = (40 * Math.PI) / 180
+/** 鏡頭離地這麼高以內全亮、到上限淡光，m。上限以上不畫也不算 */
+const SPLASH_FULL = 60
+export const SPLASH_CEILING = 100
+const SPLASH_COLOR = new Color(0xc8d0d8)
+const SPLASH_OPACITY = 0.75
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+  return t * t * (3 - 2 * t)
+}
+
+/** 地面（含海面）的高度，m。水花落在它上面 */
+export type GroundHeightAt = (x: number, z: number) => number
+
+/**
+ * 雨打在地上彈起來的水花：一朵一個像素，在鏡頭下方的圓裡隨機出現，往向上的
+ * 錐裡隨機一個方向濺出去、落下，壽命到了就換到圓裡的另一個地方。**與雨滴
+ * 無關**，只是隨機撒。**只在鏡頭離地 `SPLASH_CEILING` 以內**。
+ *
+ * 【位置在 CPU 上算】每一朵要知道那一點的地面高度（山坡、海浪），shader 拿
+ * 不到。兩千多朵每幀寫一次位置，重生的那幾十朵各查一次高度 —— 不配置。
+ */
+function createSplash(rand: () => number): {
+  readonly points: Points
+  update(camPos: Readonly<Vector3>, worldDt: number, heightAt: GroundHeightAt): void
+  dispose(): void
+} {
+  const pos = new Float32Array(SPLASHES * 3)
+  const ground = new Float32Array(SPLASHES)
+  const age = new Float32Array(SPLASHES)
+  const life = new Float32Array(SPLASHES)
+  const lift = new Float32Array(SPLASHES)
+  // 起點與整趟的水平位移
+  const baseX = new Float32Array(SPLASHES)
+  const baseZ = new Float32Array(SPLASHES)
+  const runX = new Float32Array(SPLASHES)
+  const runZ = new Float32Array(SPLASHES)
+  // 【一開始就錯開】全部同一刻出生的話，會一起彈、一起換位置
+  for (let i = 0; i < SPLASHES; i++) {
+    life[i] = SPLASH_LIFE[0] + rand() * (SPLASH_LIFE[1] - SPLASH_LIFE[0])
+    age[i] = life[i]! * (1 + rand())
+  }
+  const geometry = new BufferGeometry()
+  const attr = new BufferAttribute(pos, 3)
+  geometry.setAttribute('position', attr)
+  const material = new PointsMaterial({
+    color: SPLASH_COLOR, size: 1, sizeAttenuation: false,
+    transparent: true, opacity: SPLASH_OPACITY, depthWrite: false,
+  })
+  const points = new Points(geometry, material)
+  points.frustumCulled = false
+  points.visible = false
+
+  return {
+    points,
+    update(camPos, worldDt, heightAt) {
+      const agl = camPos.y - heightAt(camPos.x, camPos.z)
+      const fade = 1 - smoothstep(SPLASH_FULL, SPLASH_CEILING, agl)
+      points.visible = fade > 0
+      if (fade <= 0) return
+      material.opacity = SPLASH_OPACITY * fade
+      for (let i = 0; i < SPLASHES; i++) {
+        let a = age[i]! + worldDt
+        if (a >= life[i]!) {
+          const over = a - life[i]!
+          // 【重生到鏡頭下方的圓裡】半徑取平方根才是按面積均勻
+          const r = Math.sqrt(rand()) * SPLASH_RADIUS
+          const th = rand() * Math.PI * 2
+          const x = camPos.x + r * Math.cos(th)
+          const z = camPos.z + r * Math.sin(th)
+          baseX[i] = x
+          baseZ[i] = z
+          ground[i] = heightAt(x, z)
+          life[i] = SPLASH_LIFE[0] + rand() * (SPLASH_LIFE[1] - SPLASH_LIFE[0])
+          lift[i] = SPLASH_HEIGHT[0] + rand() * (SPLASH_HEIGHT[1] - SPLASH_HEIGHT[0])
+          // 【往錐裡隨機一個方向濺】拋物線的水平射程是 4 × 最高點 × tan(離垂直的角)
+          const tilt = rand() * SPLASH_CONE
+          const dir = rand() * Math.PI * 2
+          const run = 4 * lift[i]! * Math.tan(tilt)
+          runX[i] = run * Math.cos(dir)
+          runZ[i] = run * Math.sin(dir)
+          // 【超出的那一段帶進新的一朵】開場的年齡是錯開的，這樣第一次重生後
+          // 仍然錯開，不會兩千多朵同一刻一起彈
+          a = over % life[i]!
+        }
+        age[i] = a
+        // 【用存進去的那一份算】`a` 是雙精度、陣列是單精度 —— 拿 `a` 算的話暫停
+        // 的下一幀重算出來會差最後一位，水花在原地抖
+        const u = age[i]! / life[i]!
+        // 拋物線：出生時在地面、半途最高、壽命到回到地面；水平等速往旁邊走
+        pos[i * 3] = baseX[i]! + runX[i]! * u
+        pos[i * 3 + 1] = ground[i]! + lift[i]! * 4 * u * (1 - u)
+        pos[i * 3 + 2] = baseZ[i]! + runZ[i]! * u
+      }
+      attr.needsUpdate = true
+    },
+    dispose() {
+      geometry.dispose()
+      material.dispose()
+    },
+  }
 }
 
 /** 種子序列：同一場雨每次長一樣 */
@@ -164,6 +287,10 @@ export function createRain(): Rain {
   const lines = new LineSegments(geometry, material)
   // 【不裁】位置在 shader 裡算，包圍球是假的
   lines.frustumCulled = false
+  const splash = createSplash(rand)
+  const group = new Group()
+  group.add(lines)
+  group.add(splash.points)
 
   const prevCam = new Vector3()
   let prevValid = false
@@ -176,9 +303,12 @@ export function createRain(): Rain {
   let dz = 0
 
   return {
-    object: lines,
+    object: group,
     uniforms,
-    update(camPos, worldDt, frameDt, stillView = false) {
+    splash: splash.points,
+    update(camPos, worldDt, frameDt, stillView = false, heightAt) {
+      if (heightAt !== undefined) splash.update(camPos, worldDt, heightAt)
+      else splash.points.visible = false
       dx = (dx + RAIN_VELOCITY.x * worldDt) % BOX
       dy = (dy + RAIN_VELOCITY.y * worldDt) % BOX
       dz = (dz + RAIN_VELOCITY.z * worldDt) % BOX
@@ -202,6 +332,7 @@ export function createRain(): Rain {
     dispose() {
       geometry.dispose()
       material.dispose()
+      splash.dispose()
     },
   }
 }

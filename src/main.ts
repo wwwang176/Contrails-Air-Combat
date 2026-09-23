@@ -218,6 +218,11 @@ let terrain = createTerrain(terrainKind, terrainGfx())
 let storm: Storm | null = null
 /** 雨，與 `storm` 同生同滅 */
 let rain: Rain | null = null
+/**
+ * 地上水花落在的高度：地形與海面取高的那一個（`Terrain.heightAt`）。**模組層一顆
+ * 函式**，每幀傳進去不配置閉包
+ */
+const rainGroundAt = (x: number, z: number): number => terrain.heightAt(x, z, elapsed)
 
 /**
  * 雷聲：從閃電打下的地方發出。音波走到鏡頭才響、遠的更悶更小，由音訊引擎
@@ -2946,7 +2951,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 
   // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少。
   // 上帝視角不轉，照停著的方向畫
-  if (rain !== null) rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView)
+  if (rain !== null) {
+    rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView, rainGroundAt)
+  }
 
   ctx.renderer.render(ctx.scene, ctx.camera)
 
