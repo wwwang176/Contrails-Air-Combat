@@ -169,7 +169,7 @@ import { assetUrl } from './core/asset'
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
-const audio = createAudioEngine(ctx.camera, ctx.scene)
+const audio = createAudioEngine(ctx.camera)
 audio.setVolume(readVolume())
 
 /** 防墜 Worker 是正式安全系統；失去它時凍結遊戲並清楚告知，不做靜默降級。 */

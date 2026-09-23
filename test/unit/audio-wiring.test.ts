@@ -437,14 +437,14 @@ describe('單次音效的聲道池', () => {
   })
 
   /**
-   * 【只在播放中同步 panner】`updateMatrixWorld` 在沒在播時直接返回 —— 少了這一步，
-   * 起音那一下的 panner 還在上一個聲音的位置，方向與距離都錯。
+   * 【起播時左右立刻到位】播放中的左右是平滑過去的；起播那一下也平滑的話，
+   * 起音會從上一個聲音的方向與距離滑過來。
    */
-  it('每次開始播之前把座標直接寫進 panner', () => {
+  it('每次開始播之前把左右矩陣立刻設好', () => {
     const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
-    expect(play).toMatch(/placePanner\(pick\)\n\s*a\.play\(/)
+    expect(play).toMatch(/panVoice\(pick, ctx\.currentTime, 0\)\n\s*a\.play\(/)
     const update = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
-    expect(update).toMatch(/placePanner\(v\)\n\s*v\.audio\.play\(/)
+    expect(update).toMatch(/panVoice\(v, now, 0\)\n\s*v\.audio\.play\(/)
   })
 
   /** 【等待中的聲道也佔著】它已經排好要響，被搶走就整個沒聲音 */
