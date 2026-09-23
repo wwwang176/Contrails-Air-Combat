@@ -37,16 +37,16 @@ describe('霧的濃度落在設計意圖上', () => {
     expect(fogFactor(5_000, FOG_DENSITY)).toBeLessThan(0.01)
   })
 
-  it('30 km（上帝視角的全戰場）幾乎看不出來，只剩一點空氣感', () => {
+  it('30 km（上帝視角的全戰場）有一層薄薄的空氣感', () => {
     const f = fogFactor(30_000, FOG_DENSITY)
-    expect(f).toBeGreaterThan(0.005)
-    expect(f).toBeLessThan(0.03)
+    expect(f).toBeGreaterThan(0.02)
+    expect(f).toBeLessThan(0.08)
   })
 
-  it('幾何地平線（約 140 km）上遠海只化掉兩成 —— 海面也吃霧，再濃海天那一階就變軟', () => {
+  it('幾何地平線（約 140 km）上遠海只化掉一半多 —— 海面也吃霧，再濃海天那一階就糊了', () => {
     const f = fogFactor(140_000, FOG_DENSITY)
-    expect(f).toBeGreaterThan(0.1)
-    expect(f).toBeLessThan(0.35)
+    expect(f).toBeGreaterThan(0.4)
+    expect(f).toBeLessThan(0.8)
   })
 
 })
