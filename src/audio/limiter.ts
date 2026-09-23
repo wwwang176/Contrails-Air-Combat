@@ -20,14 +20,21 @@ export const LIMITER_LOOKAHEAD = 0.005
 export const LIMITER_CEILING_DB = -1.5
 /** 釋放，s。短了會抖（失真），長了大聲之後整體悶一段 */
 export const LIMITER_RELEASE = 0.12
+/**
+ * 起音的時間常數，s。**不是 0** —— 一個取樣之間把增益拉掉一兩 dB，對爆炸
+ * 那種低頻就是波形上的折角，聽起來是破音。
+ *
+ * 【為什麼可以慢】峰值進到預看窗時它還有 `LIMITER_LOOKAHEAD` 秒才輪到輸出。
+ * 時間常數取預看的六分之一，走完六個常數（0.25% 誤差）仍在它抵達之前。
+ */
+export const LIMITER_ATTACK = LIMITER_LOOKAHEAD / 6
 
 export const LIMITER_CEILING = 10 ** (LIMITER_CEILING_DB / 20)
 
 /**
  * 這一刻該乘多少，才不讓 `peak` 超過天花板。`peak` 是預看窗裡的最大絕對值。
  *
- * 【起音是 0】預看的意義就是不必犧牲起音：峰值進到窗裡時它還沒送出去，
- * 增益可以在它抵達之前就降到位。
+ * 【預看的意義】峰值進到窗裡時它還沒送出去，增益有一整個預看窗的時間降到位。
  */
 export function limiterTarget(peak: number, ceiling = LIMITER_CEILING): number {
   if (!(peak > ceiling)) return 1
@@ -35,14 +42,16 @@ export function limiterTarget(peak: number, ceiling = LIMITER_CEILING): number {
 }
 
 /**
- * 增益往目標走一步。**降立刻到位、升照釋放時間常數**，不對稱是限幅器的定義：
- * 兩邊都平滑的話峰值會漏過去。
+ * 增益往目標走一步。**降得快、升得慢**，不對稱是限幅器的定義。
  *
- * `release` 是一次一格（一個樣本）走多少的係數，由 `releaseCoeff` 算。
+ * 兩個係數都是「一個樣本走多少」，由 `releaseCoeff` 算：降的用起音、升的用
+ * 釋放。降那一邊也要平滑 —— 一步到位會在波形上留折角，低頻聽起來就是破音。
  */
-export function limiterStep(gain: number, target: number, releaseCoeff: number): number {
-  if (target < gain) return target
-  return target + (gain - target) * releaseCoeff
+export function limiterStep(
+  gain: number, target: number, releaseCoeff: number, attackCoeff: number,
+): number {
+  const c = target < gain ? attackCoeff : releaseCoeff
+  return target + (gain - target) * c
 }
 
 /** 釋放時間常數 → 每個樣本的係數。`sampleRate` 是 worklet 的取樣率 */
