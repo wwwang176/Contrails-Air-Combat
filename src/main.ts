@@ -12,6 +12,7 @@ import {
 import {
   STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
 } from './render/storm'
+import { createRain, type Rain } from './render/rain'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -215,6 +216,9 @@ let terrain = createTerrain(terrainKind, terrainGfx())
  * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
  */
 let storm: Storm | null = null
+/** 雨，與 `storm` 同生同滅。`rainSeconds` 是這場雨下了多久（暫停時不走） */
+let rain: Rain | null = null
+let rainSeconds = 0
 
 /**
  * 雷聲：從閃電打下的地方發出。音波走到鏡頭才響、遠的更悶更小，由音訊引擎
@@ -1495,6 +1499,13 @@ function buildBattleTerrain(): void {
   applyTimeOfDay(ctx, terrain, timeOfDay)
   // 【雷雨跟著時段】別的時段是 null —— 上一場的雷雨不會帶進下一場
   storm = timeOfDay === 'storm' ? createStorm() : null
+  if (rain !== null) {
+    ctx.scene.remove(rain.object)
+    rain.dispose()
+  }
+  rain = storm !== null ? createRain() : null
+  rainSeconds = 0
+  if (rain !== null) ctx.scene.add(rain.object)
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
@@ -2933,6 +2944,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 位置與半徑，卻永遠不在場景裡
     if (objectiveRing.object.parent === null) ctx.scene.add(objectiveRing.object)
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
+  }
+
+  // 【雨跟著這一幀的鏡頭】雨絲的方向吃鏡頭速度（`camVel`，音訊那一段逐幀算的）
+  if (rain !== null) {
+    rainSeconds += worldSeconds
+    rain.update(ctx.camera.position, camVel, rainSeconds)
   }
 
   ctx.renderer.render(ctx.scene, ctx.camera)
