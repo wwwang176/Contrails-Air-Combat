@@ -52,10 +52,10 @@ describe('leyte 的地面網格', () => {
 })
 
 describe('公路只有一份座標', () => {
-  it('路面覆蓋在中線上是 1、離開 10 m 是 0', () => {
-    const a = LEYTE_ROAD[3]!
+  it('路面覆蓋在中線上是 1、離開 40 m 是 0', () => {
+    const a = LEYTE_ROAD[30]!
     expect(roadCoverageAt(a.x, a.z)).toBe(1)
-    expect(roadCoverageAt(a.x + 10, a.z + 10)).toBe(0)
+    expect(roadCoverageAt(a.x + 30, a.z + 30)).toBe(0)
   })
 
   it('路寬沿路不規則，但最窄處仍蓋得住轉彎時偏離中線的車（2.1 m）', () => {
@@ -85,7 +85,8 @@ describe('公路只有一份座標', () => {
   it('植被在公路清空帶內接受率為 0，平地上遠低於丘陵上', () => {
     const a = LEYTE_ROAD[4]!
     expect(leyteAccept(field, a.x, a.z, PLAIN_HEIGHT)).toBe(0)
-    expect(maxAccept(6000, 1000)).toBeLessThan(maxAccept(-3500, 3500) * 0.3)
+    // 平地（有緩坡）取在遠離丘陵的一點，對照組取丘陵頂
+    expect(maxAccept(1500, 6500)).toBeLessThan(maxAccept(-4200, 4300) * 0.3)
   })
 
   it('實際長出來的樹沒有一棵落在清空帶內，而且是闊葉樹或灌木', () => {
@@ -110,7 +111,7 @@ describe('createTerrain("leyte")', () => {
   it('海面在岸線外、陸地在平地上；避障清單是丘陵', () => {
     const t = createTerrain('leyte')
     expect(t.collisionHeightAt(0, -8000)).toBe(0)
-    expect(t.collisionHeightAt(0, 2000)).toBeCloseTo(PLAIN_HEIGHT, 6)
+    expect(t.collisionHeightAt(0, 2000)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
     expect(t.waterAt(0, 2000)).toBe(-Infinity)
     expect(t.islands.length).toBeGreaterThan(0)
     t.dispose()

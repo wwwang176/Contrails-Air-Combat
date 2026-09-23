@@ -555,15 +555,20 @@ describe('convoyGround', () => {
   })
 
   it('開場的車頭朝向那一輛所在的路段', () => {
-    const g = convoyGround(c)
-    const fwd = (h: number) => ({ x: -Math.sin(h), z: -Math.cos(h) })
-    // 第一輛在路線上 530 m 處：第一段長 960 m，所以朝第一段的方向
-    const a = LEYTE_ROAD[0]!
-    const b2 = LEYTE_ROAD[1]!
-    const len = Math.hypot(b2.x - a.x, b2.z - a.z)
-    const f = fwd(g[0]!.heading)
-    expect(f.x).toBeCloseTo((b2.x - a.x) / len, 6)
-    expect(f.z).toBeCloseTo((b2.z - a.z) / len, 6)
+    for (const e of convoyGround(c)) {
+      // 離它最近的那一段
+      let best = Infinity
+      let dir = { x: 0, z: 0 }
+      for (let i = 1; i < LEYTE_ROAD.length; i++) {
+        const a = LEYTE_ROAD[i - 1]!
+        const b2 = LEYTE_ROAD[i]!
+        const len = Math.hypot(b2.x - a.x, b2.z - a.z)
+        const d = Math.hypot(e.x - (a.x + b2.x) / 2, e.z - (a.z + b2.z) / 2)
+        if (d < best) { best = d; dir = { x: (b2.x - a.x) / len, z: (b2.z - a.z) / len } }
+      }
+      const f = { x: -Math.sin(e.heading), z: -Math.cos(e.heading) }
+      expect(f.x * dir.x + f.z * dir.z).toBeGreaterThan(0.9)
+    }
   })
 
   it('列在 armed 裡的單位帶機槍，其餘不帶', () => {

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD,
-  PLAIN_HEIGHT,
-  baseHeight, coastZ, createLeyte, distanceToRoad,
+  PLAIN_HEIGHT, SAND_TOP,
+  baseHeight, coastZ, createLeyte, distanceToRoad, isNearRoad,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
+import { HILL_GAP } from '../../src/world/farmland'
+import { DEFAULT_SAFETY } from '../../src/ai/safety'
 import { ARENA_RADIUS } from '../../src/world/arena'
 
 /**
@@ -37,21 +39,27 @@ describe('雷伊泰的海岸線', () => {
 })
 
 describe('雷伊泰的公路', () => {
-  it('每一點都在平地上（沒有落進海或斜坡）', () => {
+  it('從海岸起：第一點碰到水線，其餘在陸上；上岸那一段之後全程在平地', () => {
+    const first = LEYTE_ROAD[0]!
+    expect(baseHeight(first.x, first.z)).toBeLessThanOrEqual(SAND_TOP)
+    let s = 0
     for (let i = 1; i < LEYTE_ROAD.length; i++) {
       const a = LEYTE_ROAD[i - 1]!
       const b = LEYTE_ROAD[i]!
-      const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 20)
+      const len = Math.hypot(b.x - a.x, b.z - a.z)
+      const n = Math.ceil(len / 20)
       for (let k = 0; k <= n; k++) {
         const x = a.x + ((b.x - a.x) * k) / n
         const z = a.z + ((b.z - a.z) * k) / n
-        expect(baseHeight(x, z)).toBeCloseTo(PLAIN_HEIGHT, 6)
+        // 【上岸的前 500 m 可以在沙灘斜坡上】其後一律在平地（含緩坡）上
+        if (s + (len * k) / n > 500) expect(baseHeight(x, z)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
+        else expect(baseHeight(x, z)).toBeGreaterThan(-3)
       }
+      s += len
     }
   })
 
-  it('彎的：至少 5 個轉角，每個轉角不超過 45°（車走圓弧時偏離中線不超過路半寬）', () => {
-    let turns = 0
+  it('每個轉角不超過 45°（車走圓弧時偏離中線不超過路半寬）', () => {
     for (let i = 1; i + 1 < LEYTE_ROAD.length; i++) {
       const p = LEYTE_ROAD[i - 1]!
       const q = LEYTE_ROAD[i]!
@@ -60,16 +68,37 @@ describe('雷伊泰的公路', () => {
       const h1 = headingToward(r.x - q.x, r.z - q.z)
       const d = Math.abs(Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0)))
       expect(d).toBeLessThanOrEqual(Math.PI / 4 + 1e-9)
-      if (d > (5 * Math.PI) / 180) turns++
     }
-    expect(turns).toBeGreaterThanOrEqual(5)
   })
 
-  it('每一段至少 400 m（轉角的圓弧切得進去）', () => {
+  it('蜿蜒：沒有超過 400 m 的直線段，總長比頭尾直線距離長一成半以上', () => {
+    let run = 0
+    let total = 0
     for (let i = 1; i < LEYTE_ROAD.length; i++) {
-      const a = LEYTE_ROAD[i - 1]!
-      const b = LEYTE_ROAD[i]!
-      expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeGreaterThanOrEqual(400)
+      const p = LEYTE_ROAD[i - 1]!
+      const q = LEYTE_ROAD[i]!
+      const len = Math.hypot(q.x - p.x, q.z - p.z)
+      expect(len).toBeGreaterThan(40)
+      total += len
+      if (i + 1 < LEYTE_ROAD.length) {
+        const r = LEYTE_ROAD[i + 1]!
+        const h0 = headingToward(q.x - p.x, q.z - p.z)
+        const h1 = headingToward(r.x - q.x, r.z - q.z)
+        const d = Math.abs(Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0)))
+        run = d < (2 * Math.PI) / 180 ? run + len : 0
+        expect(run).toBeLessThanOrEqual(400)
+      }
+    }
+    const a = LEYTE_ROAD[0]!
+    const z = LEYTE_ROAD[LEYTE_ROAD.length - 1]!
+    expect(total).toBeGreaterThan(1.15 * Math.hypot(z.x - a.x, z.z - a.z))
+  })
+
+  it('isNearRoad 與 distanceToRoad 一致', () => {
+    for (let x = -3000; x <= 4000; x += 137) {
+      for (let z = -4000; z <= 2000; z += 131) {
+        expect(isNearRoad(x, z, 30), `${x},${z}`).toBe(distanceToRoad(x, z) < 30)
+      }
     }
   })
 
@@ -86,6 +115,25 @@ describe('雷伊泰的公路', () => {
 })
 
 describe('雷伊泰的丘陵', () => {
+  it('膨脹圓兩兩至少隔 HILL_GAP —— AI 一次只繞一座（`ai/terrainSense.ts`）', () => {
+    for (let i = 0; i < LEYTE_HILLS.length; i++) {
+      for (let j = i + 1; j < LEYTE_HILLS.length; j++) {
+        const a = LEYTE_HILLS[i]!
+        const b = LEYTE_HILLS[j]!
+        const gap = Math.hypot(a.cx - b.cx, a.cz - b.cz) - (a.radius + b.radius) * WOBBLE_MAX
+        expect(gap, `${a.seed} ↔ ${b.seed}`).toBeGreaterThanOrEqual(HILL_GAP)
+      }
+    }
+  })
+
+  it('平地的緩坡不超過 AI 的改出餘裕（丘陵之外 AI 一律當海平面）', () => {
+    let top = 0
+    for (let x = -14000; x <= 14000; x += 97) {
+      for (let z = -3000; z <= 14000; z += 89) top = Math.max(top, baseHeight(x, z))
+    }
+    expect(top).toBeLessThan(DEFAULT_SAFETY.fighterClearance)
+  })
+
   it('峰高不超過上限、全部在陸上、膨脹圓離公路至少 400 m', () => {
     for (const h of LEYTE_HILLS) {
       expect(h.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
@@ -107,7 +155,7 @@ describe('固定防空砲位', () => {
   it('全部在平地上、離公路中線至少 40 m', () => {
     expect(LEYTE_FLAK_SITES.length).toBeGreaterThan(0)
     for (const s of LEYTE_FLAK_SITES) {
-      expect(baseHeight(s.x, s.z), `${s.x},${s.z}`).toBeCloseTo(PLAIN_HEIGHT, 6)
+      expect(baseHeight(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
       expect(distanceToRoad(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
     }
   })
@@ -115,7 +163,11 @@ describe('固定防空砲位', () => {
 
 describe('撤離點', () => {
   it('在陸上、場地之內', () => {
-    expect(baseHeight(0, EVACUATE_Z)).toBeCloseTo(PLAIN_HEIGHT, 6)
+    expect(baseHeight(0, EVACUATE_Z)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
+    for (const h of LEYTE_HILLS) {
+      expect(Math.hypot(h.cx, h.cz - EVACUATE_Z) - h.radius * WOBBLE_MAX, `${h.cx},${h.cz}`)
+        .toBeGreaterThan(300)
+    }
     expect(EVACUATE_Z).toBeLessThan(ARENA_RADIUS)
   })
 })
