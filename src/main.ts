@@ -3850,6 +3850,23 @@ const GFX_HIDDEN_LAYER = 31
     z: c.aircraft.state.position.z,
   }))
 
+/**
+ * **量測出口**：場上每一台地面目標的種類、位置與狀態。
+ *
+ * 【為什麼需要它】日 M2 的車隊會沿公路移動。驗收要看得到車真的在走、在轉彎、
+ * 開到終點會退場 —— 截圖只看得到一幀，這一支給的是座標。
+ */
+;(window as unknown as Record<string, unknown>)['__ground'] = () =>
+  world.groundTargets.map((t) => ({
+    id: t.unit.id,
+    alive: t.alive,
+    arrived: t.arrived,
+    speed: t.speed,
+    x: +t.position.x.toFixed(1),
+    y: +t.position.y.toFixed(1),
+    z: +t.position.z.toFixed(1),
+  }))
+
 ;(window as unknown as Record<string, unknown>)['__godcam'] = (
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
 ) => {

@@ -9,7 +9,7 @@ import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
   createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME,
+  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
@@ -188,13 +188,13 @@ function createLeyteTerrain(): Terrain {
   const { field, hills } = createLeyte()
   const ocean = createOcean(bakeShore(field))
   const ground = createLeyteGround(field, leyteCanopyCover(field))
-  // 【容量用內陸那一組，不用群島的】雷伊泰的樹是闊葉樹，而群島的闊葉池只留
-  // 了 16 格防呆 —— 超出的由 `stats.overflow` 靜靜丟掉。半徑也用預設的 6 km：
-  // 群島的 12 km 是建立在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，
-  // 照搬的話非空的格子多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
+  // 【容量是雷伊泰自己的】樹是闊葉樹，而群島的闊葉池只留了 16 格防呆 ——
+  // 超出的由 `stats.overflow` 靜靜丟掉。半徑用預設的 6 km：群島的 12 km 是建立
+  // 在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，照搬的話非空的格子
+  // 多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
   const flora = createVegetation(
     [createLeyteFlora(field)], (x, z) => field.sample(x, z),
-    { maxPerTile: ISLAND_MAX_PER_TILE },
+    { capacity: LEYTE_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE },
   )
   const group = new Group()
   group.add(ocean.farMesh)
