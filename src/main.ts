@@ -2944,8 +2944,9 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少
-  if (rain !== null) rain.update(ctx.camera.position, worldSeconds, frameSeconds)
+  // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少。
+  // 上帝視角不轉，照停著的方向畫
+  if (rain !== null) rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
 

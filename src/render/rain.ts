@@ -110,8 +110,9 @@ export interface Rain {
    *
    * @param worldDt 這一幀世界前進的時間，s。**暫停時 0** —— 雨停在半空
    * @param frameDt 這一幀的真實時間，s
+   * @param stillView 雨絲照「鏡頭停著」畫，不跟鏡頭的移動轉 —— 上帝視角用
    */
-  update(camPos: Readonly<Vector3>, worldDt: number, frameDt: number): void
+  update(camPos: Readonly<Vector3>, worldDt: number, frameDt: number, stillView?: boolean): void
   /** 目前的 uniform，給測試讀 —— shader 在無頭測試裡不會跑 */
   readonly uniforms: { readonly uCam: { value: Vector3 }; readonly uRel: { value: Vector3 }; readonly uDrift: { value: Vector3 } }
   dispose(): void
@@ -177,7 +178,7 @@ export function createRain(): Rain {
   return {
     object: lines,
     uniforms,
-    update(camPos, worldDt, frameDt) {
+    update(camPos, worldDt, frameDt, stillView = false) {
       dx = (dx + RAIN_VELOCITY.x * worldDt) % BOX
       dy = (dy + RAIN_VELOCITY.y * worldDt) % BOX
       dz = (dz + RAIN_VELOCITY.z * worldDt) % BOX
@@ -193,6 +194,8 @@ export function createRain(): Rain {
       prevCam.copy(camPos)
       // 【換鏡頭不是速度】一幀跳過半個方盒以上 —— 切視角、重生 —— 這一幀不算
       if (step.length() > BOX / 2) return
+      // 【上帝視角不轉】那是觀察用的鏡頭，雨絲照停著的方向；雨滴仍然釘在世界上
+      if (stillView) step.set(0, 0, 0)
       rainApparentVelocity(step, worldDt, frameDt, rel)
       uniforms.uRel.value.lerp(rel, 1 - Math.exp(-frameDt / REL_TAU))
     },

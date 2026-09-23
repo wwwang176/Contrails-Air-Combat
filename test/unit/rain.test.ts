@@ -50,18 +50,37 @@ describe('每幀寫進 shader 的數字', () => {
     }
   })
 
-  it('上帝視角以 900 m/s 飛：雨絲跟著轉成迎面，不會被當成瞬移而變回直的', () => {
+  it('一般視角以 300 m/s 飛：雨絲跟著轉成迎面', () => {
     const rain = createRain()
     try {
       const cam = new Vector3()
       rain.update(cam, DT, DT)
       for (let i = 0; i < 60; i++) {
-        cam.z -= 900 * DT
+        cam.z -= 300 * DT
         rain.update(cam, DT, DT)
       }
       const rel = rain.uniforms.uRel.value
-      expect(rel.z).toBeGreaterThan(800)
-      expect(Math.abs(rel.y)).toBeLessThan(rel.z * 0.05)
+      expect(rel.z).toBeGreaterThan(250)
+      expect(Math.abs(rel.y)).toBeLessThan(rel.z * 0.1)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('上帝視角怎麼飛，雨絲都是停著時的方向', () => {
+    const rain = createRain()
+    try {
+      const cam = new Vector3()
+      rain.update(cam, DT, DT, true)
+      for (let i = 0; i < 60; i++) {
+        cam.z -= 900 * DT
+        cam.x += 200 * DT
+        rain.update(cam, DT, DT, true)
+      }
+      const rel = rain.uniforms.uRel.value
+      expect(rel.x).toBeCloseTo(RAIN_VELOCITY.x, 6)
+      expect(rel.y).toBeCloseTo(RAIN_VELOCITY.y, 6)
+      expect(rel.z).toBeCloseTo(RAIN_VELOCITY.z, 6)
     } finally {
       rain.dispose()
     }
