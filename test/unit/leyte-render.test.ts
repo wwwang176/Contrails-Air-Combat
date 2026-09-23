@@ -3,7 +3,9 @@ import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
   createLeyte, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
 } from '../../src/world/leyte'
-import { createLeyteGround, isLeyteGrass, leyteShade, roadCoverageAt } from '../../src/render/leyteGround'
+import {
+  ROAD_COLOR, createLeyteGround, isLeyteGrass, leyteShade, roadCoverageAt, roadHalfWidthAt,
+} from '../../src/render/leyteGround'
 import { createLeyteFlora, leyteAccept, FLORA_STRIDE, FloraKind, type FloraBuffer } from '../../src/render/flora'
 import { createTerrain } from '../../src/render/terrain'
 
@@ -54,6 +56,30 @@ describe('公路只有一份座標', () => {
     const a = LEYTE_ROAD[3]!
     expect(roadCoverageAt(a.x, a.z)).toBe(1)
     expect(roadCoverageAt(a.x + 10, a.z + 10)).toBe(0)
+  })
+
+  it('路寬沿路不規則，但最窄處仍蓋得住轉彎時偏離中線的車（2.1 m）', () => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (let i = 1; i < LEYTE_ROAD.length; i++) {
+      const a = LEYTE_ROAD[i - 1]!
+      const b = LEYTE_ROAD[i]!
+      for (let t = 0; t <= 1; t += 0.01) {
+        const w = roadHalfWidthAt(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)
+        lo = Math.min(lo, w)
+        hi = Math.max(hi, w)
+      }
+    }
+    expect(hi - lo).toBeGreaterThan(1)
+    expect(lo).toBeGreaterThanOrEqual(2.2)
+    expect(hi).toBeLessThan(ROAD_TREE_CLEAR)
+  })
+
+  it('路面是土色，接近沙灘而不是柏油', () => {
+    const sand = leyteShade(SAND_TOP - 0.1, 0, new Color())
+    const road = new Color(ROAD_COLOR)
+    const dist = Math.abs(road.r - sand.r) + Math.abs(road.g - sand.g) + Math.abs(road.b - sand.b)
+    expect(dist).toBeLessThan(0.25)
   })
 
   it('植被在公路清空帶內接受率為 0，平地上遠低於丘陵上', () => {
