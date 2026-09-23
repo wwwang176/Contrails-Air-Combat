@@ -206,7 +206,9 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: SEA_HORIZON_COLOR,
     sparkle: 0.6,
     foliage: 0.85,
-    fogDensity: FOG_DENSITY * 1.6,
+    // 【秋霾】比正午濃得多：15 km 化掉四分之一、30 km 化掉三分之二，地平線上的
+    // 遠海全化進天色。5 km 的纏鬥距離上只淡 3%
+    fogDensity: 3.5e-5,
   },
   /**
    * 雷雨的午後：整片低垂的積雨雲，沒有直射的太陽，遠處被雨幕吃掉。**不下雨**
