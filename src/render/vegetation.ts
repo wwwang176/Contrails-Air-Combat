@@ -315,12 +315,12 @@ export const ISLAND_CAPACITY: Record<PoolName, number> = {
  * 雷伊泰的容量。**只有闊葉樹與灌木**，沒有針葉、沒有建築。
  *
  * 【闊葉比內陸大】丘陵又大又多、山坡是林子。哨兵容量掃過場地網格加每一座丘陵
- * 頂的峰值：broadNear 5,387、broadMid 42,424、broadPoint 64,123、bushNear 6,541、
- * bushPoint 54,762。
+ * 頂的峰值：broadNear 4,836、broadMid 41,141、broadPoint 67,114、bushNear 5,866、
+ * bushPoint 59,998。
  *
- * 【餘裕取 1.5 倍，不是群島的兩倍】兩倍的話這一組是四十幾萬個實例（約 65 MB）。
- * 掃描已經包含每一座丘陵頂，峰值不會在別處高出五成。灌木的遠級照峰值配，
- * 不沿用內陸那 20 萬。
+ * 【餘裕取 1.4～1.7 倍，不是群島的兩倍】兩倍的話這一組是四十幾萬個實例（約
+ * 65 MB）。掃描已經包含每一座丘陵頂，峰值不會在別處高出四成。灌木的遠級照
+ * 峰值配，不沿用內陸那 20 萬。**動丘陵就要重掃**，溢位是靜靜丟掉的。
  */
 export const LEYTE_CAPACITY: Record<PoolName, number> = {
   ...CAPACITY,

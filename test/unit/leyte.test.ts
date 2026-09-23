@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD,
   PLAIN_HEIGHT, SAND_TOP, FIELD_HALF,
-  baseHeight, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
+  baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -125,6 +125,25 @@ describe('雷伊泰的丘陵', () => {
         expect(gap, `${a.seed} ↔ ${b.seed}`).toBeGreaterThanOrEqual(HILL_GAP)
       }
     }
+  })
+
+  it('空地有自動補上的中型丘陵，不是只有手擺的那幾座', () => {
+    expect(LEYTE_HILLS.length).toBeGreaterThan(8 + 5)
+  })
+
+  it('山谷只往下挖：刻痕的保留比例在 0.65～1，而且真的有挖到的地方', () => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (let x = -15000; x <= 15000; x += 173) {
+      for (let z = -15000; z <= 15000; z += 191) {
+        const k = carveFactor(x, z)
+        lo = Math.min(lo, k)
+        hi = Math.max(hi, k)
+      }
+    }
+    expect(lo).toBeGreaterThanOrEqual(0.65 - 1e-9)
+    expect(lo).toBeLessThan(0.75)
+    expect(hi).toBeLessThanOrEqual(1)
   })
 
   it('整座都在場地之內 —— 被高度場的邊界切掉的話，場邊會是一道崖', () => {
