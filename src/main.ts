@@ -1376,7 +1376,7 @@ function playerTutorials(): Tutorial[] {
 }
 
 /** 進戰鬥、重新開始時世界的聲音從靜音淡入的長度，s */
-const BATTLE_FADE_IN = 2
+const BATTLE_FADE_IN = 1
 
 async function loadBattle(): Promise<void> {
   loadingBattle = true
@@ -3164,6 +3164,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   if (banner !== bannerText) {
     bannerText = banner
     bannerStart = elapsed
+    // 【橫幅配電報聲】與訊息同一組；橫幅消失（換成空字串）時不響
+    if (bannerText !== '') audio.playPool('radio', 'radio', 0, 0, 0, false)
   }
   hudFrame.objectiveBanner = bannerText
   hudFrame.objectiveBannerAge = bannerText === '' ? -1 : elapsed - bannerStart
