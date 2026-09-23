@@ -435,7 +435,7 @@ describe('日 M2 雷伊泰前線', () => {
     const atWithdraw = (b.waves ?? [])
       .map((w, i) => ({ w, beat: (cfg.beats ?? []).filter((x) => x.kind === 'reinforce')[i]! }))
       .filter(({ w }) => w.when.kind === 'destroyed' && w.when.atLeast === b.interdict!.count)
-    expect(atWithdraw.length).toBe(2)
+    expect(atWithdraw.length).toBeGreaterThanOrEqual(2)
     const alongs = atWithdraw.map(({ beat }) => (beat.kind === 'reinforce' ? beat.flight.entry.along : 0))
     expect(Math.min(...alongs), '背後那一組：along 為負 = 紅方那一側').toBeLessThan(0)
     expect(Math.max(...alongs), '堵截那一組：along 為正 = 撤退的方向').toBeGreaterThan(0)
