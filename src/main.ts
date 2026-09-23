@@ -89,6 +89,8 @@ import {
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
+import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
+import type { MeterSample } from './audio/meter'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import {
   fillMarkers, type MarkerPool, type MarkerProject, type ShipMarkerTop,
@@ -398,6 +400,12 @@ function resetArena(): void {
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement
 const hudMaskCanvas = document.getElementById('hud-mask') as HTMLCanvasElement
 const hud = new Hud(hudCanvas, hudMaskCanvas)
+/**
+ * 音訊錶。**預設關著** —— `__audioMeter(true)` 打開（見 `hud/audioMeter.ts`）。
+ * 除錯用的疊圖，不進 `HudFrame`，也不吃暫停。
+ */
+let audioMeter: AudioMeter | null = null
+const METER_SAMPLE: MeterSample = { peakDb: -60, reductionDb: 0, loudestDb: -60, voices: 0 }
 const hudFrame = createHudFrame()
 /**
  * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
@@ -3192,6 +3200,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.messageAge = messageText === '' ? -1 : elapsed - messageStart
 
   hud.render(hudFrame, frameSeconds)
+  if (audioMeter !== null) {
+    audio.meter(METER_SAMPLE)
+    audioMeter.draw(METER_SAMPLE, frameSeconds)
+  }
 
   // 【只在看得到的時候才重建】40 列的 innerHTML 重建不便宜到可以每幀做
   const finished = battle.outcome !== 'fighting'
@@ -3846,6 +3858,24 @@ const GFX_HIDDEN_LAYER = 31
     y: c.aircraft.state.position.y,
     z: c.aircraft.state.position.z,
   }))
+
+/**
+ * 音訊錶：`__audioMeter(true)` 打開、`false` 關掉。
+ *
+ * 顯示輸出峰值（黃線是限幅器的天花板）、限幅器壓了幾 dB、HDR 的最響值與
+ * 不衰減區的下緣（藍線），以及六秒的歷史曲線。**限幅壓超過 6 dB 會轉紅**
+ * —— 那代表音量本來就太熱，不是某一層壞掉。
+ */
+;(window as unknown as Record<string, unknown>)['__audioMeter'] = (on = true) => {
+  if (on && audioMeter === null) {
+    audioMeter = createAudioMeter()
+    document.body.appendChild(audioMeter.canvas)
+  } else if (!on && audioMeter !== null) {
+    audioMeter.canvas.remove()
+    audioMeter = null
+  }
+  return audioMeter !== null
+}
 
 ;(window as unknown as Record<string, unknown>)['__godcam'] = (
   x: number, y: number, z: number, yawDeg = 0, pitchDeg = 0,
