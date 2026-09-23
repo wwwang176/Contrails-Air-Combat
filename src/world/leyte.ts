@@ -110,11 +110,9 @@ export const BEACHHEAD = LEYTE_ROAD[0]!
 export const FRONT_LINE = LEYTE_ROAD[LEYTE_ROAD.length - 1]!
 /**
  * 撤離點的世界 z（x = 0）。Ki-84 從這一側進場，也從這一側撤離。
- *
- * 【貼近場地邊緣】`ARENA_RADIUS` 是 12 km；離車隊區十一二公里，撤退的那一段
- * 才長到讓追兵追得上。
+ * 離車隊區約九到十公里。**起始值，由試飛裁定。**
  */
-export const EVACUATE_Z = 11000
+export const EVACUATE_Z = 9000
 
 /**
  * 灘頭與前線的固定防空砲位，世界座標。**不動、會開火**，照陸上砲位的規格
