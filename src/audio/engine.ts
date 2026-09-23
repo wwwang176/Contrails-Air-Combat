@@ -5,6 +5,7 @@ import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, vo
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
+import { toDb, type MeterSample } from './meter'
 import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
 } from './pick'
@@ -80,6 +81,11 @@ export interface AudioEngine {
   endFrame(): void
   /** 離開戰鬥：停掉所有聲音 */
   stopAll(): void
+  /**
+   * 現在的輸出峰值、限幅器壓了多少、HDR 的窗口與同時發聲數。**給錶用。**
+   * 限幅器沒接上時壓縮量恆為 0。
+   */
+  meter(out: MeterSample): void
 }
 
 /**
@@ -197,6 +203,11 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   let limiter: AudioWorkletNode | null = null
   void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
     const node = new AudioWorkletNode(ctx, 'limiter')
+    node.port.onmessage = (e: MessageEvent) => {
+      const d = e.data as { gain?: number; peak?: number }
+      if (typeof d.gain === 'number') limGain = d.gain
+      if (typeof d.peak === 'number') limPeak = d.peak
+    }
     node.onprocessorerror = () => {
       limiter = null
       fade.disconnect()
@@ -253,6 +264,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   let loudest = HDR_ABS_FLOOR_DB
   /** 動態窗口開著沒有。試聽用，見 `__audioMix` */
   let hdrOn = true
+  /** 限幅器回報的最近一批：增益（線性）與輸入峰值。見 `public/audio/limiter.js` */
+  let limGain = 1
+  let limPeak = 0
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
   /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
@@ -706,6 +720,19 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     }
   }
 
+  /**
+   * 錶要的四個數字。輸出峰值用限幅器回報的輸入峰值乘上它當下的增益 ——
+   * 那就是真的送到喇叭的東西。
+   */
+  function meter(out: MeterSample): void {
+    out.peakDb = toDb(limPeak * limGain)
+    out.reductionDb = limiter === null ? 0 : toDb(limGain)
+    out.loudestDb = loudest
+    let n = 0
+    for (const v of voices) if (v.audio.isPlaying) n++
+    out.voices = n
+  }
+
   function stopAll(): void {
     for (const v of voices) {
       if (v.audio.isPlaying) v.audio.stop()
@@ -811,5 +838,6 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     assign,
     endFrame,
     stopAll,
+    meter,
   }
 }

@@ -11,6 +11,8 @@ const CEILING_DB = -1.5
 const RELEASE = 0.12
 // 起音的時間常數：預看的六分之一。一步到位會在波形上留折角 —— 低頻聽起來就是破音
 const ATTACK = LOOKAHEAD / 6
+/** 每幾個區塊回報一次狀態。16 個約 43 ms */
+const REPORT_BLOCKS = 16
 const CEILING = Math.pow(10, CEILING_DB / 20)
 
 class LimiterProcessor extends AudioWorkletProcessor {
@@ -26,6 +28,10 @@ class LimiterProcessor extends AudioWorkletProcessor {
     this.mags = new Float32Array(n)
     this.write = 0
     this.gain = 1
+    /** 回報用：這一批裡最低的增益與最高的輸入峰值。每 REPORT_BLOCKS 個區塊送一次 */
+    this.minGain = 1
+    this.maxPeak = 0
+    this.blocks = 0
     this.port.onmessage = (e) => {
       // 【暫停與換場要清】緩衝裡那幾毫秒是乘過舊淡入增益的樣本，不清的話
       // 恢復的一瞬間會先漏出去，聽起來是一個爆點
@@ -38,6 +44,9 @@ class LimiterProcessor extends AudioWorkletProcessor {
     this.mags.fill(0)
     this.write = 0
     this.gain = 1
+    this.minGain = 1
+    this.maxPeak = 0
+    this.blocks = 0
   }
 
   process(inputs, outputs) {
@@ -79,12 +88,23 @@ class LimiterProcessor extends AudioWorkletProcessor {
       const gain = this.gain
       // 降立刻到位、升照釋放係數。兩邊都平滑的話峰值會漏過去
       this.gain = target + (gain - target) * (target < gain ? this.attack : this.coeff)
+      if (this.gain < this.minGain) this.minGain = this.gain
+      if (peak > this.maxPeak) this.maxPeak = peak
       for (let c = 0; c < channels; c++) {
         const dst = output[c]
         if (dst === undefined) continue
         const y = dst[i] * this.gain
         dst[i] = y === y ? y : 0
       }
+    }
+    // 【回報給錶】每 16 個區塊約 43 ms（48 kHz、128 frame 一區塊）。
+    // 每一個區塊都送的話，主執行緒每秒要處理三百多則訊息
+    this.blocks++
+    if (this.blocks >= REPORT_BLOCKS) {
+      this.port.postMessage({ gain: this.minGain, peak: this.maxPeak })
+      this.blocks = 0
+      this.minGain = 1
+      this.maxPeak = 0
     }
     return true
   }
