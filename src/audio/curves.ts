@@ -31,7 +31,10 @@ export function shakeGainDb(k: number): number {
 }
 
 export function dbToGain(db: number): number {
-  return Math.pow(10, db / 20)
+  const g = Math.pow(10, db / 20)
+  // 【非有限值一律當 0】NaN 進到 AudioParam 之後那個節點永遠輸出 NaN，
+  // 而 NaN 會沿著匯流排一路傳到限幅器，把整場鎖成靜音 —— 而且不報錯
+  return Number.isFinite(g) ? g : 0
 }
 
 /**
