@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
   createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
-  distanceToRoad, roadTreeClear,
+  distanceToRoad, farUpland, roadTreeClear,
 } from '../../src/world/leyte'
 import {
   FAR_LAND_NAME, ROAD_COLOR, bakeRoadSegments, createLeyteGround, isLeyteGrass, leyteShade,
   roadCoverageAt, roadHalfWidthAt, type CanopyMap,
 } from '../../src/render/leyteGround'
 import {
-  bakeLeyteCanopy, createFloraBuffer, createLeyteFlora, leyteAccept, leyteCanopyCoarse,
+  bakeLeyteCanopy, createFloraBuffer, createLeyteFlora, leyteAccept, leyteCanopyCoarse, leyteFarCover,
   FLORA_STRIDE, FloraKind, LEYTE_HILL_DENSITY, type FloraBuffer,
 } from '../../src/render/flora'
 import { createTerrain } from '../../src/render/terrain'
@@ -257,6 +257,21 @@ describe('樹冠圖', () => {
     }
     return s / n
   }
+
+  it('場外遠景：稜上的林子比谷地密，沙灘沒有林子', () => {
+    const z = FIELD_HALF + 5000
+    let hi = { x: 0, u: -1 }
+    let lo = { x: 0, u: 2 }
+    for (let x = -20000; x <= 20000; x += 100) {
+      const u = farUpland(x, z)
+      if (u > hi.u) hi = { x, u }
+      if (u < lo.u) lo = { x, u }
+    }
+    expect(hi.u - lo.u).toBeGreaterThan(0.5)
+    const h = PLAIN_HEIGHT
+    expect(leyteFarCover(hi.x, z, h)).toBeGreaterThan(leyteFarCover(lo.x, z, h) * 2)
+    expect(leyteFarCover(hi.x, z, SAND_TOP - 0.1)).toBe(0)
+  })
 
   it('蓋住整個高度場；開場用的粗圖範圍相同（`setCanopy` 換圖靠它）', () => {
     expect(canopy.half).toBe(FIELD_HALF)

@@ -307,6 +307,28 @@ describe('場外的遠景陸地', () => {
     }
   })
 
+  it('場地邊緣上的陸地是一條水平線 —— 遠景的粗格在那裡與場內的細格接得上、不裂開', () => {
+    const h = (x: number, z: number): number => field.sample(x, z)
+    for (let t = -FIELD_HALF; t <= FIELD_HALF; t += 80) {
+      for (const [x, z] of [[FIELD_HALF, t], [-FIELD_HALF, t], [t, FIELD_HALF]] as const) {
+        // 岸邊的斜坡不在這一條裡：那一段在水線附近，海面蓋著
+        if (z - coastZ(x) < 1000) continue
+        expect(h(x, z), `${x},${z}`).toBeCloseTo(PLAIN_HEIGHT, 3)
+      }
+    }
+  })
+
+  it('出了場地就是丘陵地：往外 6 km 的一圈上起伏超過 150 m', () => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (let t = -20000; t <= 20000; t += 250) {
+      const y = farHeight(t, FIELD_HALF + 6000)
+      lo = Math.min(lo, y)
+      hi = Math.max(hi, y)
+    }
+    expect(hi - lo).toBeGreaterThan(150)
+  })
+
   it('往內陸越遠越高：幾十公里外是山', () => {
     expect(farHeight(0, 45000)).toBeGreaterThan(200)
     expect(farHeight(0, 45000)).toBeGreaterThan(farHeight(0, 20000))

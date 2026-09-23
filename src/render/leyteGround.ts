@@ -244,18 +244,53 @@ export interface CanopyMap {
   readonly texel: number
 }
 
+/** 場外一株樹佔一格的邊長，m。與場內植被的候選網格同尺度 */
+const FAR_TREE_CELL = 13
+/** 場外一株樹的樹冠半徑，格邊長的幾成 */
+const FAR_TREE_R = 0.45
+
+function glslVec3(c: Color): string {
+  return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`
+}
+
 /**
- * 樹冠的 GLSL：查樹冠圖，往 `CANOPY_MAP` 混。**只在場內** —— 場外的遠景陸地沒有
- * 樹，它的暗綠在頂點色裡（`FAR_COVER`）。
+ * 樹冠的 GLSL。
+ *
+ * **場內**：查樹冠圖，往 `CANOPY_MAP` 混。
+ *
+ * **場外**：沒有樹冠圖，頂點色已經是期望的平均覆蓋率（`leyteFarCover`）。這裡把
+ * 它拆回一株一株：由頂點色反推覆蓋率，每 `FAR_TREE_CELL` 一格擲一次雜湊決定有沒有
+ * 樹、樹冠畫成圓。**平均起來與頂點色相同**，所以一個像素蓋很多格時（遠處）淡回
+ * 頂點色，不會閃也不會變暗。
+ *
+ * 【雜湊用整數】世界座標到幾萬公尺，`fract(sin(…))` 那種浮點雜湊在那個量級會
+ * 失去精度、排出條紋。
  */
 function canopyGlsl(map: CanopyMap): string {
-  const c = CANOPY_MAP
+  const grass = glslVec3(GRASS)
+  const canopy = glslVec3(CANOPY_MAP)
+  const fill = Math.PI * FAR_TREE_R * FAR_TREE_R
   return `
   {
     vec2 canopyUv = (vRoadXZ + ${map.half.toFixed(1)}) / ${(2 * map.half).toFixed(1)};
     if (canopyUv.x >= 0.0 && canopyUv.x <= 1.0 && canopyUv.y >= 0.0 && canopyUv.y <= 1.0) {
       float canopy = texture2D(uCanopy, canopyUv).r;
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}), canopy);
+      diffuseColor.rgb = mix(diffuseColor.rgb, ${canopy}, canopy);
+    } else {
+      vec3 dg = ${grass} - ${canopy};
+      float cov = clamp(dot(${grass} - diffuseColor.rgb, dg) / dot(dg, dg), 0.0, 1.0);
+      vec2 q = vRoadXZ / ${FAR_TREE_CELL.toFixed(1)};
+      float fade = 1.0 - smoothstep(0.35, 0.9, length(fwidth(q)));
+      if (cov > 0.0 && fade > 0.0) {
+        ivec2 ic = ivec2(floor(q));
+        uint h = uint(ic.x) * 0x8da6b343u ^ uint(ic.y) * 0xd8163841u;
+        h ^= h >> 13u; h *= 0x5bd1e995u; h ^= h >> 15u;
+        float pick = float(h & 0xffffu) / 65535.0;
+        vec2 ctr = vec2(0.5) + (vec2(float((h >> 16u) & 0xffu), float(h >> 24u)) / 255.0 - 0.5)
+          * ${(1 - 2 * FAR_TREE_R).toFixed(3)};
+        float tree = pick < cov / ${fill.toFixed(4)} && length(fract(q) - ctr) < ${FAR_TREE_R.toFixed(3)} ? 1.0 : 0.0;
+        diffuseColor.rgb = mix(diffuseColor.rgb, mix(${grass}, ${canopy}, tree), fade);
+      }
     }
   }`
 }
@@ -329,12 +364,15 @@ function roadSegmentTextures(map: RoadSegmentMap): { ids: DataTexture; segments:
 
 /** 遠景陸地畫到離原點多遠，m。雷雨的霧在這之前就把它吃掉了 */
 const FAR_EXTENT = 80000
-/** 遠景陸地的格距，m。場地邊界（±15 km）落在格線上，格子不會跨進場內 */
-const FAR_CELL = 1000
+/**
+ * 遠景陸地的格距，m。場地邊界（±15 km）落在格線上，格子不會跨進場內。
+ *
+ * 【與場內接得上】場內邊緣一帶的緩坡收平了（`world/leyte.ts` 的 `ROLL_EDGE`），
+ * 邊緣上兩邊都是一條水平線，粗格與細格在那裡不會裂開。
+ */
+const FAR_CELL = 500
 /** 一塊遠景幾格邊長。一塊一個 Mesh，各自進出視錐 */
-const FAR_TILE_CELLS = 10
-/** 遠景陸地的林相覆蓋率：遠看的林子是一片暗綠 */
-const FAR_COVER = 0.45
+const FAR_TILE_CELLS = 20
 /** 遠景陸地那幾塊 Mesh 的名字。它們不在高度場裡，量測與測試靠它認 */
 export const FAR_LAND_NAME = 'leyte-far'
 
@@ -352,8 +390,13 @@ const GROUND_RENDER_ORDER = -1
 /**
  * 場外的遠景陸地：一塊的 geometry。**只畫不碰撞**，高度照 `farHeight`。
  * 場內的格子（那裡是高度場）與整格沉在水下的格子不畫。一格都沒有時回 null。
+ *
+ * 【頂點色是期望的樹冠覆蓋率】`coverAt` 給；草地往 `CANOPY_MAP` 混 —— 與場內
+ * 樹冠圖畫上去的是同一個顏色，場內外平均起來一樣暗。
  */
-function buildFarTile(x0: number, z0: number): BufferGeometry | null {
+function buildFarTile(
+  x0: number, z0: number, coverAt: (x: number, z: number, h: number) => number,
+): BufferGeometry | null {
   const n = FAR_TILE_CELLS + 1
   const positions = new Float32Array(n * n * 3)
   const colors = new Float32Array(n * n * 3)
@@ -367,7 +410,8 @@ function buildFarTile(x0: number, z0: number): BufferGeometry | null {
       positions[v] = x
       positions[v + 1] = h
       positions[v + 2] = z
-      leyteShade(h, FAR_COVER, c)
+      if (isLeyteGrass(h)) c.copy(GRASS).lerp(CANOPY_MAP, Math.min(1, Math.max(0, coverAt(x, z, h))))
+      else c.copy(SAND)
       colors[v] = c.r
       colors[v + 1] = c.g
       colors[v + 2] = c.b
@@ -408,9 +452,12 @@ const NO_COVER = (): number => 0
 /**
  * @param canopy 開場用的樹冠圖。**`half` 要等於高度場的半邊長** —— shader 的
  *   座標換算寫死它，之後 `setCanopy` 換上的圖也要一樣
+ * @param farCoverAt 場外遠景陸地一點的期望樹冠覆蓋率（`render/flora.ts` 的
+ *   `leyteFarCover`）。省略 = 沒有林子
  */
 export function createLeyteGround(
   field: HeightFieldData, canopy: CanopyMap,
+  farCoverAt: (x: number, z: number, h: number) => number = () => 0,
 ): { object: Object3D; setCanopy(map: CanopyMap): void; dispose(): void } {
   const group = new Group()
   const roadMap = bakeRoadSegments()
@@ -436,7 +483,7 @@ export function createLeyteGround(
   const span = FAR_CELL * FAR_TILE_CELLS
   for (let z0 = -FAR_EXTENT; z0 < FAR_EXTENT; z0 += span) {
     for (let x0 = -FAR_EXTENT; x0 < FAR_EXTENT; x0 += span) {
-      const geo = buildFarTile(x0, z0)
+      const geo = buildFarTile(x0, z0, farCoverAt)
       if (geo === null) continue
       geometries.push(geo)
       const mesh = new Mesh(geo, material)

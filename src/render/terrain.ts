@@ -13,7 +13,7 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -190,7 +190,7 @@ function createLeyteTerrain(): Terrain {
   const ocean = createOcean(bakeShore(field))
   // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
   // 平均暗綠。場已經收掉的話不換
-  const ground = createLeyteGround(field, leyteCanopyCoarse(field))
+  const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover)
   let disposed = false
   void requestLeyteCanopy()?.then((map) => {
     if (map !== null && !disposed) ground.setCanopy(map)

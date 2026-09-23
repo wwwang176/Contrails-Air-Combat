@@ -3,7 +3,7 @@ import { isLeyteGrass, type CanopyMap } from './leyteGround'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from './floraShapes'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
-import { baseHeight, isInRoadClearing } from '../world/leyte'
+import { baseHeight, farUpland, isInRoadClearing } from '../world/leyte'
 import {
   edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
   HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
@@ -908,6 +908,33 @@ export function leyteCanopyCoarse(field: HeightFieldData): CanopyMap {
     }
   }
   return { data, size, half, texel: field.cell }
+}
+
+/** 成叢遮罩的平均值。第一次用到才量：64 × 64 點、37 m 一格，蓋二十幾個叢 */
+let clumpMean = -1
+function meanClump(): number {
+  if (clumpMean >= 0) return clumpMean
+  let s = 0
+  for (let i = 0; i < 64; i++) for (let j = 0; j < 64; j++) s += islandClump(i * 37 + 5, j * 37 + 11)
+  clumpMean = s / 4096
+  return clumpMean
+}
+
+/**
+ * 場外遠景陸地的期望樹冠覆蓋率，0～1。與場內同一套密度（平地疏、山上是山林
+ * 的密度）與同一個樹冠面積，所以兩邊平均起來一樣暗。「在不在山上」讀
+ * `farUpland`。
+ *
+ * 【叢取平均值】遠景的頂點 500 m 一個，叢才 110 m —— 逐點取的話只是雜訊。
+ * 一株一株的質感由地面的 shader 補（`render/leyteGround.ts`）。
+ *
+ * @param h 這一點的遠景高度（`farHeight`）
+ */
+export function leyteFarCover(x: number, z: number, h: number): number {
+  if (!isLeyteGrass(h)) return 0
+  const up = farUpland(x, z)
+  const accept = (LEYTE_PLAIN_DENSITY + (LEYTE_HILL_DENSITY - LEYTE_PLAIN_DENSITY) * up) * meanClump()
+  return 1 - Math.exp(-(accept * (BROAD_AREA + BUSH_AREA)) / (ISLAND_GRID * ISLAND_GRID))
 }
 
 /** 樹冠圖一格幾公尺。樹冠半徑 5～10 m，一株落在一到幾格 */
