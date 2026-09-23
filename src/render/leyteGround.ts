@@ -175,6 +175,17 @@ const FAR_COVER = 0.45
 export const FAR_LAND_NAME = 'leyte-far'
 
 /**
+ * 地面的繪製次序：**比海面早畫**（海面是 0、遠海是 1）。
+ *
+ * 【為什麼】海面的碎光與浪花是整個場景最貴的片段著色器，而海面網格跟著鏡頭走
+ * —— 同一個次序下 three 依距離排，海幾乎總是先畫，島底下那一大片看不見的海
+ * 每個像素都算完一遍碎光才被陸地蓋掉。陸地先畫之後，深度測試在著色器之前就
+ * 把那些像素擋掉。海面的著色器沒有 `discard`、也不寫深度，所以提前的深度測試
+ * 是開著的。
+ */
+const GROUND_RENDER_ORDER = -1
+
+/**
  * 場外的遠景陸地：一塊的 geometry。**只畫不碰撞**，高度照 `farHeight`。
  * 場內的格子（那裡是高度場）與整格沉在水下的格子不畫。一格都沒有時回 null。
  */
@@ -242,7 +253,9 @@ export function createLeyteGround(
       )
       if (geo === null) continue
       geometries.push(geo)
-      group.add(new Mesh(geo, material))
+      const mesh = new Mesh(geo, material)
+      mesh.renderOrder = GROUND_RENDER_ORDER
+      group.add(mesh)
     }
   }
   // 【遠景陸地】島很大，另外幾面的海岸不在視野裡。與場內共用同一個材質
@@ -254,6 +267,7 @@ export function createLeyteGround(
       geometries.push(geo)
       const mesh = new Mesh(geo, material)
       mesh.name = FAR_LAND_NAME
+      mesh.renderOrder = GROUND_RENDER_ORDER
       group.add(mesh)
     }
   }
