@@ -1,6 +1,8 @@
 import { Vector3 } from 'three'
-import { P51D } from '../../specs/p51d'
 import { F4F4 } from '../../specs/f4f4'
+import { F6F5 } from '../../specs/f6f5'
+import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
+import { EVACUATE_Z, LEYTE_ROAD } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
 import { G4M } from '../../specs/g4m'
@@ -72,18 +74,66 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m2', title: '漢口上空', type: '殲滅',
-    summary: '駕駛疾風迎擊從高空撲下來的野馬，把它們拖進低空纏鬥。',
-    place: '中國　漢口上空', period: '1944 年 8 月',
+    id: 'japan-m2', title: '雷伊泰前線', type: '打擊',
+    summary: '駕駛疾風掛彈攻擊美軍補給車隊，趕在它們抵達前線之前，然後撤離。',
+    place: '菲律賓　雷伊泰島', period: '1944 年 11 月',
     battle: {
-      ...KILL,
-      banner: '野馬從上方俯衝下來了',
-      blueSpec: KI84, redSpec: P51D,
-      // 【8 對 10、紅方高 1,000 m】壓力只來自這兩件事。**刻意不加波次** ——
-      // 這是九關裡唯一一場沒有第二階段的戰鬥機對決
-      blueCount: 8, redCount: 10,
-      entry: 'bounce',
-      terrain: 'farmland',
+      objective: '炸毀補給卡車', banner: '找到車隊，別讓它們抵達前線',
+      blueSpec: KI84, redSpec: F6F5, convoySpec: null,
+      // 【F6F 全部由波次給】開場天上沒有敵機 —— 那一段是找車、俯衝
+      blueCount: 8, redCount: 0,
+      convoyCount: 0, convoyPriority: 1,
+      targetDistance: 0, targetRadius: 0, seconds: Infinity,
+      entry: 'headOn',
+      terrain: 'leyte',
+      altitude: 1500,
+      loadouts: { ki84: KI84_BOMB_LOADOUT },
+      // 【僚機先打卡車】遭到敵機直接瞄準時才自衛。戰鬥機的 AI 只掃射、不投彈
+      priorityGroundUnit: 'truck',
+      /**
+       * 【三批、每批五輛】卡車 3、戰車 1、防空車 1。戰車只有炸彈炸得掉、不計分；
+       * 防空車照陸上輕型砲開火。0／75／150 秒從灘頭出發，全程約 6.6 km、
+       * 約 11 分鐘。**全部是起始值，由試飛裁定。**
+       */
+      vehicleConvoy: {
+        route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
+        batches: [
+          { departAt: 0, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
+          { departAt: 75, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
+          { departAt: 150, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
+        ],
+      },
+      // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
+      interdict: { count: 6, leak: 4, unit: 'truck' },
+      /**
+       * 【F6F 兩批都從撤退的方向來】`starboard: π` 把紅方的進場轉到 +Z 那一側
+       * （Ki-84 來的方向）。第一批在開始攻擊之後進場（遲遲不動手的話 90 秒也會來）；
+       * 第二批在轉入撤離的那一刻，從撤離點附近正面迎上。
+       */
+      waves: [
+        {
+          when: { kind: 'destroyed', atLeast: 1, unit: 'truck', byLatest: 90 },
+          warn: '敵艦載機接近中',
+          warnLead: 6,
+          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, altitude: 2500,
+        },
+        // 【預警會被撤離訊息蓋掉】與返航同一步觸發，`stepBeats` 依陣列順序寫
+        // 訊息，返航排在最後 —— 畫面上是「撤離戰區」
+        {
+          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          warn: '撤離戰區',
+          warnLead: 0,
+          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, along: 0.8,
+        },
+      ],
+      withdraw: {
+        when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+        message: '撤離戰區',
+        // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
+        distance: -EVACUATE_Z,
+        radius: 1000,
+        seconds: Infinity,
+      },
     },
   },
   {

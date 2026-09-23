@@ -1,5 +1,6 @@
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import { DEFAULT_BATTLE, type BattleConfig } from '../setup'
+import { createGroundMotion, motionPose } from '../../world/groundMotion'
 import { VETERAN } from '../../ai/profile'
 import { ENTRY_PLANS, type EntryPlan, type SideEntry } from '../entry'
 import {
@@ -14,8 +15,8 @@ import { ALLIES } from './allies'
 import { GERMANY } from './germany'
 import { JAPAN } from './japan'
 import type {
-  Campaign, MissionBattle, MissionCard, MissionRecycle, MissionSide, MissionTrigger, MissionWave,
-  MissionWithdraw, ReadyMissionCard,
+  Campaign, GroundEntry, MissionBattle, MissionCard, MissionRecycle, MissionSide, MissionTrigger,
+  MissionVehicleConvoy, MissionWave, MissionWithdraw, ReadyMissionCard,
 } from './types'
 
 /**
@@ -66,6 +67,10 @@ export function missionRules(
   card: ReadyMissionCard, altitude: number, lateralOffset: number,
 ): MissionRules {
   const b = card.battle
+  // 【截斷排在最前】它與其他數數量的規則不共存；排前面只是讓讀的人先看到它
+  if (b.interdict !== undefined) {
+    return { kind: 'interdict', count: b.interdict.count, leak: b.interdict.leak, unit: b.interdict.unit }
+  }
   // 【擊沉排在最前面】判準是卡片上有沒有 `sinkCount`，不是 `type` ——
   // `type` 是給玩家看的分類（打擊／殲滅／護航…），一張打擊卡可能是炸機場、
   // 也可能是雷擊。用 type 推導的話，日後多一張「打擊」卡就會靜靜地變成
@@ -248,13 +253,56 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       }
       : {}),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
-    ...(b.ground === undefined ? {} : { ground: b.ground }),
+    // 【車隊併進地面目標】兩者都有時串起來；只有車隊時就是車隊
+    ...(b.ground === undefined && b.vehicleConvoy === undefined
+      ? {}
+      : {
+        ground: [
+          ...(b.ground ?? []),
+          ...(b.vehicleConvoy === undefined ? [] : convoyGround(b.vehicleConvoy)),
+        ],
+      }),
     ...(b.flakSpec === undefined ? {} : { flakSpec: b.flakSpec }),
     // 【明列，因為這一支不透傳】漏抄的症狀是複寫靜靜失效、玩家掛著預設的
     // 東西起飛，而且不報錯。護欄在 `missions.test.ts`
     ...(b.blueLoadout === undefined ? {} : { blueLoadout: b.blueLoadout }),
     ...(b.loadouts === undefined ? {} : { loadouts: b.loadouts }),
   }
+}
+
+/**
+ * 卡片上的車隊 → 地面目標的條目。
+ *
+ * 【集結位置】全部車輛排在路線起點往前的同一條線上：第一批的車頭最遠，最後一批
+ * 的車尾在起點（沿路線距離 0）。沿路線距離 = 之後還有幾輛 × `gap`。
+ *
+ * 【開場的 x、z 就是 motion 在第 0 秒的位置】`World.step` 第一步才會改寫它；
+ * 擺成別的值的話開場那一幀車會閃一下。航向取第一段的 —— 集結位置都在第一段上
+ * （`leyte.test.ts` 守第一段夠長）。
+ *
+ * 載入期跑一次，不在熱路徑上。
+ */
+export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
+  const motion = { speed: c.speed, turnRadius: c.turnRadius, turnRate: c.speed / c.turnRadius }
+  const total = c.batches.reduce((n, x) => n + x.units.length, 0)
+  const pose = {
+    position: new Vector3(), velocity: new Vector3(),
+    orientation: new Quaternion(), angularVelocity: new Vector3(),
+  }
+  const out: GroundEntry[] = []
+  let k = 0
+  for (const batch of c.batches) {
+    for (const unit of batch.units) {
+      const m = createGroundMotion(c.route, motion, (total - 1 - k) * c.gap, batch.departAt)
+      motionPose(m, 0, pose)
+      out.push({
+        unit, team: 'red', x: pose.position.x, z: pose.position.z,
+        heading: m.startHeading, motion: m,
+      })
+      k++
+    }
+  }
+  return out
 }
 
 /**
@@ -295,18 +343,23 @@ function cardBeats(
   if (b.flares !== undefined) {
     out.push({ kind: 'flare', when: triggerToCondition(b.flares.when), points: b.flares.points })
   }
-  if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw))
+  if (b.withdraw !== undefined) out.push(withdrawBeat(b.withdraw, altitude))
   if (b.convoyDuty === 'stream') out.push({ kind: 'conveyor' })
   return out.length === 0 ? undefined : out
 }
 
-/** 一個返航 → 一個 `WithdrawBeat`。撤離點與 `missionRules` 走同一條路 */
-function withdrawBeat(w: MissionWithdraw): WithdrawBeat {
+/**
+ * 一個返航 → 一個 `WithdrawBeat`。撤離點與 `missionRules` 走同一條路。
+ *
+ * 【高度跟著卡片】撤離的判定是三維距離（`mission.ts` 的 `distanceTo`）。用預設的
+ * 4,000 m 的話，低空關的圓環浮在玩家頭上兩三公里、飛不進去。
+ */
+function withdrawBeat(w: MissionWithdraw, altitude: number): WithdrawBeat {
   return {
     kind: 'withdraw',
     when: triggerToCondition(w.when),
     message: w.message,
-    point: evacuatePoint(DEFAULT_BATTLE.altitude, w.distance),
+    point: evacuatePoint(altitude, w.distance),
     radius: w.radius,
     seconds: w.seconds,
   }
@@ -388,6 +441,13 @@ function triggerToCondition(t: MissionTrigger): BeatCondition {
   if (t.kind === 'clock') return { kind: 'clock', at: t.at }
   if (t.kind === 'batch') return { kind: 'batch', at: t.at }
   if (t.kind === 'ground') return { kind: 'ground', below: t.below, byLatest: t.byLatest }
+  if (t.kind === 'destroyed') {
+    return {
+      kind: 'destroyed', atLeast: t.atLeast,
+      ...(t.unit === undefined ? {} : { unit: t.unit }),
+      ...(t.byLatest === undefined ? {} : { byLatest: t.byLatest }),
+    }
+  }
   return {
     kind: 'alive',
     team: t.side === 'mine' ? 'blue' : 'red',

@@ -104,7 +104,7 @@ const CAMPAIGN_LABEL: Record<Campaign, string> = { allies: '美軍', germany: '�
 const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes: string }> = {
   allies: { line: '歐洲的護航與打擊，太平洋的艦隊防空。', planes: 'P-51D · B-17G · F6F-5' },
   germany: { line: '本土到東西兩線：攔截轟炸機流，夜襲與掃射機場。', planes: 'Bf 109 K-4 · He 111' },
-  japan: { line: '瓜島到倫內爾島：掩護雷擊隊，漢口迎擊野馬。', planes: 'A6M5 · Ki-84 · G4M' },
+  japan: { line: '瓜島、雷伊泰到倫內爾島：掩護雷擊隊，截斷補給車隊。', planes: 'A6M5 · Ki-84 · G4M' },
 }
 
 /** 場地的選項。**順序即按鈕順序。**群島在前：它是預設，也是有東西可看的那一個 */
