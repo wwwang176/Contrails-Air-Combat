@@ -1,6 +1,6 @@
 import { Color, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
-import { LEYTE_ROAD, ROAD_WIDTH, SAND_TOP } from '../world/leyte'
+import { LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, roadGroups } from '../world/leyte'
 import { buildGroundRect } from './island'
 
 /**
@@ -28,16 +28,18 @@ const CANOPY = new Color(0x2f4a2a)
 export const ROAD_COLOR = 0xb5a276
 
 /**
- * 路寬的起伏：兩道斜向的正弦疊在標稱半寬上，各自的振幅比例。合計 ±35%，
- * 半寬 4 m 時是 2.6～5.4 m。**最窄處要大於車在轉角偏離中線的 2.1 m**
+ * 路寬的起伏：三道斜向的正弦疊在標稱半寬上，各自的振幅比例。合計 ±45%，
+ * 標稱半寬 12 m 時是 6.6～17.4 m。長波長的讓路忽寬忽窄，最短的那一道（波長
+ * 二十幾公尺）讓路緣參差。**最窄處要大於車在轉角偏離中線的 2.1 m**
  * （`leyte-render.test.ts`），否則車會開到路外的草地上。
  */
 const WIDTH_RIPPLE = [
   { amp: 0.22, fx: 0.031, fz: 0.017, phase: 0 },
   { amp: 0.13, fx: 0.083, fz: -0.061, phase: 1.3 },
+  { amp: 0.1, fx: 0.21, fz: 0.17, phase: 0.7 },
 ] as const
 /** 路緣混進草地的過渡寬，m。泥土路沒有一條刀切的邊 */
-const ROAD_EDGE_SOFT = 1.2
+const ROAD_EDGE_SOFT = 3
 
 /** 一塊方塊幾格邊長。40 × 80 m = 3.2 km */
 export const LEYTE_TILE_CELLS = 40
@@ -81,9 +83,22 @@ export function roadCoverageAt(x: number, z: number): number {
 }
 
 /**
+ * 分組外接矩形往外擴多少，m：路最寬處的半寬加過渡帶，再留一段餘裕。矩形外的
+ * 像素一段都不算 —— 那時 `roadD` 停在 1e9，而擴出去的這一圈保證矩形邊上的
+ * 像素離路已經遠到覆蓋率是 0，邊界不會畫出一條線。
+ */
+const GROUP_MARGIN = (ROAD_WIDTH / 2) * 1.5 + ROAD_EDGE_SOFT + 30
+
+/**
  * 公路的 GLSL：世界座標 xz 到折線的距離小於這一點的半寬（`roadHalfWidthAt`）
  * 就混泥土色。路緣往內 `ROAD_EDGE_SOFT` 公尺是混進草地的過渡；顏色另外疊一層
  * 低頻的深淺，泥濘的地方深、乾的地方淺。
+ *
+ * 【先比分組的外接矩形】公路有幾十段，每一個地面像素都逐段算距離太貴。
+ * 分組（`world/leyte.ts` 的 `roadGroups`）之後，離路遠的像素只做幾次比較。
+ *
+ * 【`px` 要夾上限】矩形內外相鄰的兩個像素，一個的 `roadD` 是幾十公尺、一個是
+ * 1e9 —— 不夾的話 `fwidth` 是 1e9，過渡帶寬到整條路都變成半透明。
  */
 function roadGlsl(): string {
   const segs: string[] = []
@@ -92,6 +107,12 @@ function roadGlsl(): string {
     const b = LEYTE_ROAD[i]!
     segs.push(`vec4(${a.x.toFixed(1)}, ${a.z.toFixed(1)}, ${b.x.toFixed(1)}, ${b.z.toFixed(1)})`)
   }
+  const groups = roadGroups()
+  const boxes = groups.map((g) =>
+    `vec4(${(g.x0 - GROUP_MARGIN).toFixed(1)}, ${(g.z0 - GROUP_MARGIN).toFixed(1)}, `
+    + `${(g.x1 + GROUP_MARGIN).toFixed(1)}, ${(g.z1 + GROUP_MARGIN).toFixed(1)})`)
+  // 段 i（`LEYTE_ROAD[i-1] → [i]`）在 ROAD 陣列裡的索引是 i − 1
+  const ranges = groups.map((g) => `ivec2(${g.i0 - 1}, ${g.i1 - 1})`)
   const half = (ROAD_WIDTH / 2).toFixed(2)
   const ripple = WIDTH_RIPPLE.map((r) =>
     ` + ${r.amp.toFixed(3)} * sin(${r.fx.toFixed(4)} * vRoadXZ.x + ${r.fz.toFixed(4)} * vRoadXZ.y + ${r.phase.toFixed(3)})`,
@@ -100,15 +121,21 @@ function roadGlsl(): string {
   return `
   {
     const vec4 ROAD[${segs.length}] = vec4[${segs.length}](${segs.join(', ')});
+    const vec4 ROAD_BOX[${groups.length}] = vec4[${groups.length}](${boxes.join(', ')});
+    const ivec2 ROAD_RANGE[${groups.length}] = ivec2[${groups.length}](${ranges.join(', ')});
     float roadD = 1.0e9;
-    for (int i = 0; i < ${segs.length}; i++) {
-      vec2 a = ROAD[i].xy;
-      vec2 ab = ROAD[i].zw - a;
-      float t = clamp(dot(vRoadXZ - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
-      roadD = min(roadD, length(vRoadXZ - (a + ab * t)));
+    for (int g = 0; g < ${groups.length}; g++) {
+      vec4 bb = ROAD_BOX[g];
+      if (vRoadXZ.x < bb.x || vRoadXZ.x > bb.z || vRoadXZ.y < bb.y || vRoadXZ.y > bb.w) continue;
+      for (int i = ROAD_RANGE[g].x; i < ROAD_RANGE[g].y; i++) {
+        vec2 a = ROAD[i].xy;
+        vec2 ab = ROAD[i].zw - a;
+        float t = clamp(dot(vRoadXZ - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
+        roadD = min(roadD, length(vRoadXZ - (a + ab * t)));
+      }
     }
     float halfW = ${half} * (1.0${ripple});
-    float px = max(fwidth(roadD), 1.0e-3);
+    float px = clamp(fwidth(roadD), 1.0e-3, 8.0);
     float cover = 1.0 - smoothstep(halfW - ${ROAD_EDGE_SOFT.toFixed(2)} - px, halfW + px, roadD);
     float mud = 0.88 + 0.12 * sin(0.047 * vRoadXZ.x + 0.029 * vRoadXZ.y) * sin(0.13 * vRoadXZ.y - 0.07 * vRoadXZ.x);
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}) * mud, cover);

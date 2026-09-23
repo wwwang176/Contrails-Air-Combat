@@ -25,14 +25,13 @@ import { drawHillLobes } from './leuna'
 export const LEYTE_SIZE = 376
 /** 格距，m。平地與緩丘用 80 m 就夠；公路畫在 shader 裡，不吃格距 */
 export const LEYTE_CELL = 80
-const HALF_EXTENT = ((LEYTE_SIZE - 1) * LEYTE_CELL) / 2
 
 /** 平地的高度，m */
 export const PLAIN_HEIGHT = 8
 /** 這個高度以下是沙灘色、不長植被，m。`render/leyteGround.ts` 與植被共用 */
 export const SAND_TOP = 3
 /** 丘陵峰高的上限，m。`LandField.ceiling` 用它 */
-export const LEYTE_PEAK_MAX = 150
+export const LEYTE_PEAK_MAX = 450
 
 /** 岸線平均位置，m（世界 z） */
 const COAST_Z = -4000
@@ -47,10 +46,18 @@ const SHORE_RAMP = 240
 /** 海床由水線降到 `SEA_FLOOR` 的距離，m */
 const SEABED_RAMP = 200
 /**
- * 場地另外三邊由平地降回海裡的帶寬，m。**它是這座島另外幾面的海岸** ——
- * 少了它，高度場的邊界是一道 8 m 的直崖，外面接著遠海。
+ * 平地的緩坡起伏，m：疊在 `PLAIN_HEIGHT` 之上，0～12 m。
+ *
+ * 【上限 12 m 是 AI 的硬約束】AI 的安全層只認得丘陵清單（`IslandDesc` 圓盤），
+ * 其餘一律當海平面，戰鬥機的改出餘裕是 30 m（`ai/safety.ts` 的
+ * `fighterClearance`）。平地高過那個餘裕的話，低空掃射的 AI 會一頭撞進緩坡。
+ * **大的起伏一律做成丘陵**，AI 才看得到。
  */
-const EDGE_RAMP = 1200
+function roll(x: number, z: number): number {
+  return 6 + 4 * Math.sin(x / 900 + 0.5) * Math.sin(z / 1100 + 1.2) + 2 * Math.sin((x - z) / 450 + 2)
+}
+/** 岸邊這麼寬的一帶不起伏，m —— 沙灘與灘頭是平的 */
+const ROLL_SHORE = 600
 
 /** 岸線在這個 x 上的世界 z。陸地在 `z > coastZ(x)` */
 export function coastZ(x: number): number {
@@ -65,32 +72,27 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 /**
- * 沒有丘陵時這一點的高度，m：海床、海岸斜坡、平地，再被場地邊緣的帶壓回海裡。
+ * 沒有丘陵時這一點的高度，m：海床、海岸斜坡、平地與它的緩坡起伏。
+ *
+ * 【陸地一路延伸到場地邊緣】場外由 `render/leyteGround.ts` 的遠景陸地接上 ——
+ * 這座島很大，另外幾面的海岸不在視野裡。
  *
  * 【距離取 z 向】`z − coastZ(x)` 不是到岸線的真正距離，但岸線的最大斜率
  * （Σ 2π·amp/len ≈ 1.13）之下斜坡只會被拉寬到約 1.5 倍，看不出來。
  */
 export function baseHeight(x: number, z: number): number {
   const d = z - coastZ(x)
-  const h = d <= 0
-    ? Math.max(SEA_FLOOR, (d / SEABED_RAMP) * -SEA_FLOOR)
-    : PLAIN_HEIGHT * smoothstep(0, SHORE_RAMP, d)
-  const edge = Math.min(HALF_EXTENT - Math.abs(x), HALF_EXTENT - z)
-  const cap = SEA_FLOOR + (PLAIN_HEIGHT - SEA_FLOOR) * smoothstep(0, EDGE_RAMP, edge)
-  return Math.min(h, cap)
+  if (d <= 0) return Math.max(SEA_FLOOR, (d / SEABED_RAMP) * -SEA_FLOOR)
+  return PLAIN_HEIGHT * smoothstep(0, SHORE_RAMP, d)
+    + roll(x, z) * smoothstep(SHORE_RAMP, SHORE_RAMP + ROLL_SHORE, d)
 }
 
 /**
- * 公路：灘頭 → 前線的折線，世界座標。**車隊的路線、地上畫的路、植被的清空帶
- * 全部讀這一份** —— 各寫一份的話車會開在路旁的樹林裡，而且不報錯。
- *
- * 【轉角不超過 45°】車在轉角走 25 m 半徑的圓弧（`world/groundMotion.ts`），
- * 離折線最遠 `25 × (1/cos 22.5° − 1)` ≈ 2.1 m，落在路的半寬 4 m 之內。
- *
- * 【全長要夠長】開場時整條車隊已經沿路排開在走，最前面那一批離終點還要有一段
- * —— `campaigns.test.ts` 對著卡片上的車隊檢查。
+ * 公路的走向：水線 → 灘頭 → 前線。**公路本身由它生成**（`buildRoad`），這一份只
+ * 決定大方向。第一點在水線外 20 m —— 路是從海灘上來的。
  */
-export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] = [
+const ROAD_WAYPOINTS: readonly { readonly x: number; readonly z: number }[] = [
+  { x: 2950, z: coastZ(2950) - 20 },
   { x: 2800, z: -3250 },
   { x: 2200, z: -2500 },
   { x: 2000, z: -1700 },
@@ -100,10 +102,137 @@ export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] =
   { x: -600, z: 500 },
   { x: -1400, z: 1200 },
 ]
-/** 路面寬，m */
-export const ROAD_WIDTH = 8
-/** 公路中線兩側不長樹的半寬，m */
-export const ROAD_TREE_CLEAR = 15
+/** 生成的折線每一段大約多長，m。短一點轉角才小（每個轉角 ≤ 45°） */
+const ROAD_STEP = 100
+/**
+ * 路的蜿蜒：沿路線的法向，兩道不同波長的正弦疊加，m。頭尾各 `ROAD_MEANDER_TAPER`
+ * 公尺內漸漸收回 0 —— 起點要落在水線、終點要落在前線。
+ */
+const ROAD_MEANDER = [
+  { amp: 90, len: 1000, phase: 0.4 },
+  { amp: 12, len: 500, phase: 2.2 },
+] as const
+const ROAD_MEANDER_TAPER = 400
+
+/** 均勻 Catmull-Rom：過 p1、p2 的曲線在參數 t 的點 */
+function catmullRom(
+  p0: { x: number; z: number }, p1: { x: number; z: number },
+  p2: { x: number; z: number }, p3: { x: number; z: number }, t: number,
+): { x: number; z: number } {
+  const t2 = t * t
+  const t3 = t2 * t
+  const f = (a: number, b: number, c: number, d: number): number => 0.5 * (
+    2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+  return { x: f(p0.x, p1.x, p2.x, p3.x), z: f(p0.z, p1.z, p2.z, p3.z) }
+}
+
+/**
+ * 由 `ROAD_WAYPOINTS` 生成公路的折線：先過每一個路點畫一條平滑曲線，每
+ * `ROAD_STEP` 公尺取一點，再沿法向加上蜿蜒。載入期跑一次。
+ *
+ * 【曲線而不是折線】折線的路點之間是一條長長的直線，從空中看是尺畫的。
+ */
+function buildRoad(): { x: number; z: number }[] {
+  const P = ROAD_WAYPOINTS
+  const pts: { x: number; z: number }[] = []
+  for (let i = 0; i + 1 < P.length; i++) {
+    const p0 = P[Math.max(0, i - 1)]!
+    const p1 = P[i]!
+    const p2 = P[i + 1]!
+    const p3 = P[Math.min(P.length - 1, i + 2)]!
+    const n = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.z - p1.z) / ROAD_STEP))
+    for (let k = 0; k < n; k++) pts.push(catmullRom(p0, p1, p2, p3, k / n))
+  }
+  pts.push({ x: P[P.length - 1]!.x, z: P[P.length - 1]!.z })
+
+  const s: number[] = [0]
+  for (let i = 1; i < pts.length; i++) {
+    s.push(s[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z))
+  }
+  const total = s[s.length - 1]!
+  return pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)]!
+    const b = pts[Math.min(pts.length - 1, i + 1)]!
+    const tx = b.x - a.x
+    const tz = b.z - a.z
+    const l = Math.hypot(tx, tz)
+    const taper = smoothstep(0, ROAD_MEANDER_TAPER, s[i]!) * smoothstep(0, ROAD_MEANDER_TAPER, total - s[i]!)
+    let off = 0
+    for (const m of ROAD_MEANDER) off += m.amp * Math.sin((2 * Math.PI * s[i]!) / m.len + m.phase)
+    off *= taper
+    return { x: p.x + (tz / l) * off, z: p.z - (tx / l) * off }
+  })
+}
+
+/**
+ * 公路：水線 → 灘頭 → 前線的折線，世界座標。**車隊的路線、地上畫的路、植被的
+ * 清空帶全部讀這一份** —— 各寫一份的話車會開在路旁的樹林裡，而且不報錯。
+ *
+ * 【轉角不超過 45°】車在轉角走 25 m 半徑的圓弧（`world/groundMotion.ts`），
+ * 離折線最遠 `25 × (1/cos 22.5° − 1)` ≈ 2.1 m，落在路最窄處的半寬之內
+ * （`leyte.test.ts`、`leyte-render.test.ts`）。
+ *
+ * 【全長要夠長】開場時整條車隊已經沿路排開在走，最前面那一批離終點還要有一段
+ * —— `campaigns.test.ts` 對著卡片上的車隊檢查。
+ */
+export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] = buildRoad()
+/** 路面的標稱寬，m。實際寬度沿路起伏（`render/leyteGround.ts` 的 `roadHalfWidthAt`） */
+export const ROAD_WIDTH = 24
+/**
+ * 公路中線兩側不長樹的半寬，m。**要大過路最寬處的半寬**（標稱 12 m 乘上起伏
+ * 的上限 1.45 ≈ 17.4 m），不然樹會長在路面上。
+ */
+export const ROAD_TREE_CLEAR = 22
+
+/**
+ * 公路分組的外接矩形：每 `ROAD_GROUP` 段一組。**「離路夠不夠近」先比矩形**，
+ * 植被每一個候選點都要問一次，逐段算距離的話公路一長就很貴。
+ */
+const ROAD_GROUP = 8
+const ROAD_GROUPS: readonly { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] =
+  /* @__PURE__ */ (() => {
+    const out: { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] = []
+    for (let i0 = 1; i0 < LEYTE_ROAD.length; i0 += ROAD_GROUP) {
+      const i1 = Math.min(LEYTE_ROAD.length, i0 + ROAD_GROUP)
+      let x0 = Infinity
+      let z0 = Infinity
+      let x1 = -Infinity
+      let z1 = -Infinity
+      for (let i = i0 - 1; i < i1; i++) {
+        const p = LEYTE_ROAD[i]!
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x)
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z)
+      }
+      out.push({ x0, z0, x1, z1, i0, i1 })
+    }
+    return out
+  })()
+
+/** 公路分組，給 shader 用：外接矩形與段的範圍（段 i 是 `LEYTE_ROAD[i-1] → [i]`） */
+export function roadGroups(): readonly { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] {
+  return ROAD_GROUPS
+}
+
+function segmentDistance(x: number, z: number, i: number): number {
+  const a = LEYTE_ROAD[i - 1]!
+  const b = LEYTE_ROAD[i]!
+  const abx = b.x - a.x
+  const abz = b.z - a.z
+  const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
+  return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
+}
+
+/**
+ * 這一點離公路中線是不是小於 `r`。與 `distanceToRoad(x, z) < r` 等價，但先比
+ * 分組的外接矩形 —— 遠離公路的點幾次比較就答完。
+ */
+export function isNearRoad(x: number, z: number, r: number): boolean {
+  for (const g of ROAD_GROUPS) {
+    if (x < g.x0 - r || x > g.x1 + r || z < g.z0 - r || z > g.z1 + r) continue
+    for (let i = g.i0; i < g.i1; i++) if (segmentDistance(x, z, i) < r) return true
+  }
+  return false
+}
 /** 美軍灘頭的集結區：公路起點 */
 export const BEACHHEAD = LEYTE_ROAD[0]!
 /** 前線：公路終點。卡車走到這裡就算抵達 */
@@ -126,7 +255,7 @@ export const LEYTE_FLAK_SITES: readonly {
   readonly unit: 'flakLight' | 'flakHeavy'; readonly x: number; readonly z: number
 }[] = [
   { unit: 'flakLight', x: 2753, z: -3031 },
-  { unit: 'flakLight', x: 2597, z: -3156 },
+  { unit: 'flakLight', x: 2500, z: -3250 },
   { unit: 'flakHeavy', x: 2519, z: -2706 },
   { unit: 'flakHeavy', x: 2900, z: -2900 },
   { unit: 'flakHeavy', x: 2300, z: -2900 },
@@ -138,12 +267,7 @@ export const LEYTE_FLAK_SITES: readonly {
 export function distanceToRoad(x: number, z: number): number {
   let best = Infinity
   for (let i = 1; i < LEYTE_ROAD.length; i++) {
-    const a = LEYTE_ROAD[i - 1]!
-    const b = LEYTE_ROAD[i]!
-    const abx = b.x - a.x
-    const abz = b.z - a.z
-    const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
-    const d = Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
+    const d = segmentDistance(x, z, i)
     if (d < best) best = d
   }
   return best
@@ -154,13 +278,19 @@ export function distanceToRoad(x: number, z: number): number {
  * 瓣的形狀用 `drawHillLobes` 依種子抽，與洛伊納、阿什同一套。
  */
 export const LEYTE_HILLS = [
-  { cx: -5000, cz: -1500, radius: 700, peak: 110, pa: 0.9, pb: 3.4, seed: 401 },
-  { cx: -3500, cz: 3500, radius: 800, peak: 140, pa: 2.1, pb: 4.6, seed: 402 },
-  { cx: 3000, cz: 2500, radius: 700, peak: 120, pa: 3.0, pb: 1.2, seed: 403 },
-  { cx: 5500, cz: -1000, radius: 600, peak: 90, pa: 1.4, pb: 5.3, seed: 404 },
-  { cx: -6500, cz: 6500, radius: 900, peak: 150, pa: 4.2, pb: 0.6, seed: 405 },
-  { cx: 4000, cz: 7500, radius: 800, peak: 130, pa: 5.1, pb: 2.8, seed: 406 },
-  { cx: -2500, cz: 9500, radius: 700, peak: 120, pa: 0.3, pb: 4.0, seed: 407 },
+  { cx: -5000, cz: -1800, radius: 900, peak: 220, pa: 0.9, pb: 3.4, seed: 401 },
+  { cx: -7800, cz: 1500, radius: 1400, peak: 380, pa: 2.1, pb: 4.6, seed: 402 },
+  { cx: -4200, cz: 4300, radius: 1100, peak: 300, pa: 3.0, pb: 1.2, seed: 403 },
+  { cx: -8800, cz: 6800, radius: 1700, peak: 450, pa: 1.4, pb: 5.3, seed: 404 },
+  { cx: -4000, cz: 8800, radius: 1100, peak: 330, pa: 4.2, pb: 0.6, seed: 405 },
+  { cx: 3800, cz: 2800, radius: 1000, peak: 260, pa: 5.1, pb: 2.8, seed: 406 },
+  { cx: 6300, cz: -800, radius: 1000, peak: 240, pa: 0.3, pb: 4.0, seed: 407 },
+  { cx: 8200, cz: 3600, radius: 1500, peak: 400, pa: 1.8, pb: 2.2, seed: 408 },
+  { cx: 4600, cz: 7600, radius: 1300, peak: 370, pa: 2.6, pb: 5.9, seed: 409 },
+  { cx: 1800, cz: 11500, radius: 1100, peak: 340, pa: 3.7, pb: 0.9, seed: 410 },
+  { cx: -1300, cz: 4600, radius: 700, peak: 180, pa: 4.9, pb: 3.1, seed: 411 },
+  { cx: 10200, cz: -600, radius: 1000, peak: 280, pa: 0.7, pb: 1.7, seed: 412 },
+  { cx: -10800, cz: -1200, radius: 1100, peak: 300, pa: 5.5, pb: 4.4, seed: 413 },
 ] as const
 
 export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
