@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type ShaderMaterial } from 'three'
 import {
-  FLASH_SECONDS, SPEED_OF_SOUND, STRIKE_DISTANCE, STRIKE_INTERVAL,
-  applyFlash, createStorm, flashEnvelope, stepStorm, thunderDelay,
+  FLASH_SECONDS, STRIKE_DISTANCE, STRIKE_INTERVAL, THUNDER_CUTOFF_HZ, THUNDER_DB, THUNDER_RATE,
+  applyFlash, createStorm, flashEnvelope, rollThunder, stepStorm,
 } from '../../src/render/storm'
 import { DAY_PALETTES } from '../../src/render/timeOfDay'
 import { createLights } from '../../src/render/lighting'
@@ -41,13 +41,19 @@ describe('閃光的包絡', () => {
 })
 
 describe('閃電多久打一次', () => {
-  it('間隔落在 STRIKE_INTERVAL 之內，距離落在 STRIKE_DISTANCE 之內', () => {
+  it('間隔落在 STRIKE_INTERVAL 之內，距離落在 STRIKE_DISTANCE 之內，方位是隨機的', () => {
     const s = createStorm(seq(0.1, 0.5, 0.9, 0.3, 0.7))
     const times: number[] = []
     const dists: number[] = []
+    const bearings = new Set<number>()
     const dt = 1 / 60
     for (let t = 0; t < 200; t += dt) {
-      stepStorm(s, dt, (d) => { times.push(t); dists.push(d) })
+      stepStorm(s, dt, (d, b) => { times.push(t); dists.push(d); bearings.add(b) })
+    }
+    expect(bearings.size).toBeGreaterThan(1)
+    for (const b of bearings) {
+      expect(b).toBeGreaterThanOrEqual(0)
+      expect(b).toBeLessThan(2 * Math.PI)
     }
     expect(times.length).toBeGreaterThan(5)
     for (let i = 1; i < times.length; i++) {
@@ -82,10 +88,21 @@ describe('閃電多久打一次', () => {
   })
 })
 
-describe('雷聲', () => {
-  it('晚到的秒數 = 距離 ÷ 音速', () => {
-    expect(thunderDelay(3430)).toBeCloseTo(3430 / SPEED_OF_SOUND, 9)
-    expect(thunderDelay(9000)).toBeGreaterThan(thunderDelay(2000))
+describe('雷聲的隨機', () => {
+  it('播放速度、低通、音量各自落在範圍內，而且每一聲不一樣', () => {
+    const rand = seq(0, 0.25, 0.5, 0.999, 0.4, 0.8, 0.1)
+    const seen = new Set<string>()
+    for (let i = 0; i < 20; i++) {
+      const v = rollThunder(rand)
+      expect(v.rate).toBeGreaterThanOrEqual(THUNDER_RATE[0])
+      expect(v.rate).toBeLessThanOrEqual(THUNDER_RATE[1])
+      expect(v.cutoffHz).toBeGreaterThanOrEqual(THUNDER_CUTOFF_HZ[0])
+      expect(v.cutoffHz).toBeLessThanOrEqual(THUNDER_CUTOFF_HZ[1])
+      expect(v.extraDb).toBeGreaterThanOrEqual(THUNDER_DB[0])
+      expect(v.extraDb).toBeLessThanOrEqual(THUNDER_DB[1])
+      seen.add(`${v.rate}|${v.cutoffHz}|${v.extraDb}`)
+    }
+    expect(seen.size).toBeGreaterThan(1)
   })
 })
 

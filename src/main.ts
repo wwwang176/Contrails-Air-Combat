@@ -7,11 +7,10 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  POOLS as SOUND_POOLS, SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile,
-  volleyPool, type Pool,
+  SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile, volleyPool, type Pool,
 } from './audio/catalog'
 import {
-  THUNDER_CUTOFF_HZ, THUNDER_RATE, applyFlash, createStorm, stepStorm, thunderDelay, type Storm,
+  STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
 } from './render/storm'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
@@ -215,20 +214,22 @@ let terrain = createTerrain(terrainKind, terrainGfx())
 let storm: Storm | null = null
 
 /**
- * 雷聲：砲擊庫放得非常慢，低通壓到只剩悶響，照距離晚幾秒才到。**再疊一層**
- * 快一點、小一點、晚一點的，隆隆聲才有層次。
+ * 雷聲：從閃電打下的地方發出。音波走到鏡頭才響、遠的更悶更小，由音訊引擎
+ * 對定位音源照常處理；播放速度、低通與音量另外隨機（`rollThunder`）。疊一層
+ * 同庫的另一支，隆隆聲才有層次。
+ *
+ * 【位置以鏡頭為中心】閃電打在「玩家看得到的那一片天」，不是固定在地圖上。
  *
  * 【模組層函數，不是每幀一個閉包】`stepStorm` 每幀都拿它當回呼。
  */
-function playThunder(distance: number): void {
-  const files = SOUND_POOLS.cannon
-  const delay = thunderDelay(distance)
-  // 【遠的小聲】1.5 km 是原音量，9 km 小 10 dB
-  const db = -10 * Math.min(1, Math.max(0, (distance - 1500) / 7500))
-  const a = files[Math.floor(Math.random() * files.length)]!
-  const b = files[Math.floor(Math.random() * files.length)]!
-  audio.playFile(a, 'thunder', 0, 0, 0, false, db, delay, THUNDER_RATE, THUNDER_CUTOFF_HZ)
-  audio.playFile(b, 'thunder', 0, 0, 0, false, db - 6, delay + 0.4, THUNDER_RATE * 1.35, THUNDER_CUTOFF_HZ)
+function playThunder(distance: number, bearing: number): void {
+  const cam = ctx.camera.position
+  const v = rollThunder(Math.random)
+  audio.playPool(
+    'thunder', 'thunder',
+    cam.x + Math.sin(bearing) * distance, STRIKE_HEIGHT, cam.z + Math.cos(bearing) * distance,
+    true, v.extraDb, true, v.rate, v.cutoffHz,
+  )
 }
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
