@@ -129,7 +129,7 @@ export interface Rain {
 /** 同時存在的水花數 */
 const SPLASHES = 800
 /** 水花撒在鏡頭下方這麼大的圓裡，m */
-const SPLASH_RADIUS = 60
+export const SPLASH_RADIUS = 200
 /** 一朵水花的壽命與彈起高度的範圍 */
 const SPLASH_LIFE = [0.25, 0.4] as const
 export const SPLASH_HEIGHT = [0.05, 0.17] as const

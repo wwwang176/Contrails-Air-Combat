@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  createRain, rainApparentVelocity, RAIN_VELOCITY, SPLASH_CONE, SPLASH_HEIGHT,
+  createRain, rainApparentVelocity, RAIN_VELOCITY, SPLASH_CONE, SPLASH_HEIGHT, SPLASH_RADIUS,
 } from '../../src/render/rain'
 
 /**
@@ -126,7 +126,7 @@ describe('每幀寫進 shader 的數字', () => {
   /** 一朵水花最遠濺出去多少，m：拋物線射程 4 × 最高點 × tan(錐的半頂角) */
   const MAX_RUN = 4 * SPLASH_HEIGHT[1] * Math.tan(SPLASH_CONE)
 
-  it('地上的水花：鏡頭低空時出現在正下方 60 m 圓內、貼著地面彈起不超過上限', () => {
+  it('地上的水花：鏡頭低空時出現在正下方的圓內、貼著地面彈起不超過上限', () => {
     const rain = createRain()
     try {
       const ground = (x: number, z: number): number => 20 + 0.1 * x - 0.05 * z
@@ -138,7 +138,7 @@ describe('每幀寫進 shader 的數字', () => {
       for (let i = 0; i < p.count; i++) {
         const x = p.getX(i)
         const z = p.getZ(i)
-        expect(Math.hypot(x - cam.x, z - cam.z)).toBeLessThanOrEqual(60 + MAX_RUN)
+        expect(Math.hypot(x - cam.x, z - cam.z)).toBeLessThanOrEqual(SPLASH_RADIUS + MAX_RUN)
         // 【斜坡上】濺出去之後那一點的地面高度差最多 |坡度| × 射程
         const h = p.getY(i) - ground(x, z)
         expect(h).toBeGreaterThanOrEqual(-0.12 * MAX_RUN - 1e-4)
