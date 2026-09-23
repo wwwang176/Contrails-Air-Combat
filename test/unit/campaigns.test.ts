@@ -409,10 +409,9 @@ describe('日 M2 雷伊泰前線', () => {
   const card = MISSIONS.japan.find((m) => m.id === 'japan-m2') as ReadyMissionCard
   const b = card.battle
 
-  it('Ki-84 掛彈、F6F 全部由波次給、地形 leyte、規則是截斷', () => {
+  it('Ki-84 掛彈、敵方是 F6F、地形 leyte、規則是截斷', () => {
     expect(b.blueSpec.id).toBe('ki84')
     expect(b.redSpec.id).toBe('f6f5')
-    expect(b.redCount).toBe(0)
     expect(b.terrain).toBe('leyte')
     expect(b.loadouts?.['ki84']?.kind).toBe('bomb')
     expect(missionConfigFrom(card).rules.kind).toBe('interdict')
@@ -431,14 +430,29 @@ describe('日 M2 雷伊泰前線', () => {
     expect(w.point.y).toBe(b.altitude)
   })
 
-  it('兩批 F6F 都從撤退的方向（+Z）進場', () => {
+  it('撤離時兩面夾：一組在背後（−Z）、一組在撤退路上（+Z）而且比任務高度高', () => {
     const cfg = missionConfigFrom(card)
-    const red = (cfg.beats ?? []).filter((x) => x.kind === 'reinforce' && x.flight.team === 'red')
-    expect(red.length).toBe(2)
-    for (const r of red) {
-      if (r.kind !== 'reinforce') continue
-      expect(r.flight.entry.along, 'along 為正 = 藍隊那一側').toBeGreaterThan(0)
-    }
+    const atWithdraw = (b.waves ?? [])
+      .map((w, i) => ({ w, beat: (cfg.beats ?? []).filter((x) => x.kind === 'reinforce')[i]! }))
+      .filter(({ w }) => w.when.kind === 'destroyed' && w.when.atLeast === b.interdict!.count)
+    expect(atWithdraw.length).toBe(2)
+    const alongs = atWithdraw.map(({ beat }) => (beat.kind === 'reinforce' ? beat.flight.entry.along : 0))
+    expect(Math.min(...alongs), '背後那一組：along 為負 = 紅方那一側').toBeLessThan(0)
+    expect(Math.max(...alongs), '堵截那一組：along 為正 = 撤退的方向').toBeGreaterThan(0)
+    const block = atWithdraw.find(({ beat }) => beat.kind === 'reinforce' && beat.flight.entry.along > 0)!
+    if (block.beat.kind !== 'reinforce') return
+    expect(block.beat.flight.entry.climb).toBeGreaterThan(0)
+  })
+
+  it('開場就有 F6F 在天上', () => {
+    const cfg = missionConfigFrom(card)
+    expect(cfg.units.some((u) => u.team === 'red' && u.members.length > 0)).toBe(true)
+  })
+
+  it('灘頭與前線有固定防空砲位（不動）', () => {
+    const fixed = (missionConfigFrom(card).ground ?? []).filter((g) => g.motion === undefined)
+    expect(fixed.length).toBeGreaterThan(0)
+    for (const g of fixed) expect(['flakLight', 'flakHeavy']).toContain(g.unit)
   })
 })
 
@@ -466,6 +480,14 @@ describe('有 interdict 的卡一定打得贏', () => {
         (n, x) => n + x.units.filter((u) => u === rule.unit).length, 0)
       expect(rule.count).toBeLessThanOrEqual(total)
       expect(rule.count + rule.leak).toBeGreaterThan(total)
+    })
+
+    it(`${card.id}：整條集結排得進路線的第一段（開場的車頭朝向第一段）`, () => {
+      const c = b.vehicleConvoy!
+      const total = c.batches.reduce((k, x) => k + x.units.length, 0)
+      const a = c.route[0]!
+      const n = c.route[1]!
+      expect((total - 1) * c.gap).toBeLessThanOrEqual(Math.hypot(n.x - a.x, n.z - a.z))
     })
 
     it(`${card.id}：車隊一路透傳成地面目標，每一台都帶 motion`, () => {

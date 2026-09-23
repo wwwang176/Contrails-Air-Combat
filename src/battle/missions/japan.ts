@@ -2,12 +2,12 @@ import { Vector3 } from 'three'
 import { F4F4 } from '../../specs/f4f4'
 import { F6F5 } from '../../specs/f6f5'
 import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
-import { EVACUATE_Z, LEYTE_ROAD } from '../../world/leyte'
+import { EVACUATE_Z, LEYTE_FLAK_SITES, LEYTE_ROAD } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
 import { G4M } from '../../specs/g4m'
 import { KILL, RENNELL_FLEET } from './shared'
-import type { MissionCard, MissionFleet } from './types'
+import type { GroundEntry, MissionCard, MissionFleet } from './types'
 
 /**
  * 瓜島外海登陸船團的護衛艦隊。**美軍，全部是紅隊，沒有要害艦。**
@@ -80,8 +80,9 @@ export const JAPAN: readonly MissionCard[] = [
     battle: {
       objective: '炸毀補給卡車', banner: '找到車隊，別讓它們抵達前線',
       blueSpec: KI84, redSpec: F6F5, convoySpec: null,
-      // 【F6F 全部由波次給】開場天上沒有敵機 —— 那一段是找車、俯衝
-      blueCount: 8, redCount: 0,
+      // 【開場就有兩架在巡邏】生在紅方那一側（灘頭外的海上）朝內陸飛，玩家到車隊
+      // 上空時會碰上 —— 找車與俯衝的時候就要分心。其餘 F6F 由波次給
+      blueCount: 8, redCount: 2,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
@@ -91,24 +92,36 @@ export const JAPAN: readonly MissionCard[] = [
       // 【僚機先打卡車】遭到敵機直接瞄準時才自衛。戰鬥機的 AI 只掃射、不投彈
       priorityGroundUnit: 'truck',
       /**
-       * 【三批、每批五輛】卡車 3、戰車 1、防空車 1。戰車只有炸彈炸得掉、不計分；
-       * 防空車照陸上輕型砲開火。0／75／150 秒從灘頭出發，全程約 6.6 km、
+       * 【三批、每批六輛】防空車頭尾各一、卡車 3、戰車 1。戰車只有炸彈炸得掉、
+       * 不計分；防空車照陸上輕型砲開火。0／75／150 秒從灘頭出發，全程約 6.6 km、
        * 約 11 分鐘。**全部是起始值，由試飛裁定。**
        */
       vehicleConvoy: {
         route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
         batches: [
-          { departAt: 0, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
-          { departAt: 75, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
-          { departAt: 150, units: ['flakLight', 'truck', 'truck', 'tank', 'truck'] },
+          { departAt: 0, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { departAt: 75, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { departAt: 150, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
         ],
       },
+      // 【灘頭與前線的固定砲位】位置在 `world/leyte.ts`。不在截斷的池裡，打掉不算
+      ground: LEYTE_FLAK_SITES.map((s): GroundEntry => ({
+        unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
+      })),
       // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
       interdict: { count: 6, leak: 4, unit: 'truck' },
       /**
-       * 【F6F 兩批都從撤退的方向來】`starboard: π` 把紅方的進場轉到 +Z 那一側
-       * （Ki-84 來的方向）。第一批在開始攻擊之後進場（遲遲不動手的話 90 秒也會來）；
-       * 第二批在轉入撤離的那一刻，從撤離點附近正面迎上。
+       * 【第一批】開始攻擊之後進場（遲遲不動手的話 90 秒也會來）。`starboard: π`
+       * 把紅方的進場轉到 +Z 那一側（Ki-84 來的方向），比任務高度高 1,000 m。
+       *
+       * 【撤離時兩面夾】轉入撤離的那一刻同時來兩組：
+       *   追兵  紅方原本那一側（灘頭外的海上），從玩家背後追上來
+       *   堵截  +Z 那一側、撤退路線的半途（z ≈ +5,000），比任務高度高 1,500 m，
+       *         從上方撲向撤退的玩家
+       * 兩組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
+       * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
+       *
+       * 紅隊席位：巡邏 2 + 4 + 4 + 4 = 14。**架數、高度、位置都是起始值。**
        */
       waves: [
         {
@@ -117,13 +130,17 @@ export const JAPAN: readonly MissionCard[] = [
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, altitude: 2500,
         },
-        // 【預警會被撤離訊息蓋掉】與返航同一步觸發，`stepBeats` 依陣列順序寫
-        // 訊息，返航排在最後 —— 畫面上是「撤離戰區」
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
           warn: '撤離戰區',
           warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, along: 0.8,
+          side: 'theirs', spec: F6F5, count: 4, altitude: 2500,
+        },
+        {
+          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          warn: '撤離戰區',
+          warnLead: 0,
+          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, along: 0.5, altitude: 3000,
         },
       ],
       withdraw: {
@@ -131,7 +148,8 @@ export const JAPAN: readonly MissionCard[] = [
         message: '撤離戰區',
         // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
         distance: -EVACUATE_Z,
-        radius: 1000,
+        // 【圈小】要對準了才飛得進去，不是往那個方向飛就結束
+        radius: 600,
         seconds: Infinity,
       },
     },

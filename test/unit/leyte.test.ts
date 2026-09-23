@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD, PLAIN_HEIGHT,
+  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD,
+  PLAIN_HEIGHT,
   baseHeight, coastZ, createLeyte, distanceToRoad,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
@@ -102,6 +103,16 @@ describe('雷伊泰的丘陵', () => {
     for (const v of field.data) top = Math.max(top, v)
     expect(top).toBeGreaterThan(PLAIN_HEIGHT + 50)
     expect(top).toBeLessThanOrEqual(LEYTE_PEAK_MAX + 1e-6)
+  })
+})
+
+describe('固定防空砲位', () => {
+  it('全部在平地上、離公路中線至少 40 m', () => {
+    expect(LEYTE_FLAK_SITES.length).toBeGreaterThan(0)
+    for (const s of LEYTE_FLAK_SITES) {
+      expect(baseHeight(s.x, s.z), `${s.x},${s.z}`).toBeCloseTo(PLAIN_HEIGHT, 6)
+      expect(distanceToRoad(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
+    }
   })
 })
 
