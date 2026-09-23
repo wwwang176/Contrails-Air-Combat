@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
-import { createRain, rainRelativeVelocity, RAIN_VELOCITY } from '../../src/render/rain'
+import { createRain, rainApparentVelocity, RAIN_VELOCITY } from '../../src/render/rain'
 
 /**
  * # 雨
@@ -9,35 +9,74 @@ import { createRain, rainRelativeVelocity, RAIN_VELOCITY } from '../../src/rende
  * 由試玩判斷。
  */
 
-describe('雨絲的方向', () => {
-  it('鏡頭停著：雨絲幾乎是直的往下', () => {
-    const v = rainRelativeVelocity(new Vector3(), new Vector3())
-    expect(v.y).toBeLessThan(0)
+const DT = 1 / 60
+const still = new Vector3()
+
+describe('雨絲的方向：雨滴這一幀在鏡頭眼裡的移動', () => {
+  it('鏡頭停著：就是雨的落速，幾乎直的往下', () => {
+    const v = rainApparentVelocity(still, DT, DT, new Vector3())
+    expect(v.y).toBeCloseTo(RAIN_VELOCITY.y, 9)
     expect(Math.abs(v.y)).toBeGreaterThan(Math.hypot(v.x, v.z) * 2)
   })
 
-  it('高速往前（−Z）飛：雨迎面而來，雨絲轉成幾乎水平、朝 +Z', () => {
-    const v = rainRelativeVelocity(new Vector3(0, 0, -200), new Vector3())
+  it('高速往前（−Z）飛：雨迎面而來，幾乎水平、朝 +Z', () => {
+    const v = rainApparentVelocity(new Vector3(0, 0, -200 * DT), DT, DT, new Vector3())
     expect(v.z).toBeGreaterThan(150)
     expect(Math.abs(v.y)).toBeLessThan(v.z * 0.1)
   })
 
-  it('往上爬：雨落得更快（相對速度的垂直分量變大）', () => {
-    const still = rainRelativeVelocity(new Vector3(), new Vector3())
-    const climb = rainRelativeVelocity(new Vector3(0, 30, 0), new Vector3())
-    expect(climb.y).toBeLessThan(still.y - 29)
+  it('暫停中移動鏡頭：雨不落，只剩鏡頭的反向移動', () => {
+    const v = rainApparentVelocity(new Vector3(5, 0, 0), 0, DT, new Vector3())
+    expect(v.x).toBeCloseTo(-5 / DT, 6)
+    expect(v.y).toBeCloseTo(0, 12)
+  })
+
+  it('慢動作（世界走得比真實慢）：雨落得比較慢', () => {
+    const v = rainApparentVelocity(still, DT * 0.25, DT, new Vector3())
+    expect(v.y).toBeCloseTo(RAIN_VELOCITY.y * 0.25, 9)
   })
 })
 
 describe('每幀寫進 shader 的數字', () => {
-  it('鏡頭位置與相對速度照寫', () => {
+  it('鏡頭位置照寫；第一幀還沒有位移，當作停著', () => {
     const rain = createRain()
     try {
       const cam = new Vector3(1200, 800, -3000)
-      const vel = new Vector3(10, 0, -150)
-      rain.update(cam, vel, 5)
+      rain.update(cam, DT, DT)
       expect(rain.uniforms.uCam.value.toArray()).toEqual(cam.toArray())
-      expect(rain.uniforms.uRel.value.toArray()).toEqual(rainRelativeVelocity(vel, new Vector3()).toArray())
+      expect(rain.uniforms.uRel.value.y).toBeCloseTo(RAIN_VELOCITY.y, 9)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('上帝視角以 900 m/s 飛：雨絲跟著轉成迎面，不會被當成瞬移而變回直的', () => {
+    const rain = createRain()
+    try {
+      const cam = new Vector3()
+      rain.update(cam, DT, DT)
+      for (let i = 0; i < 60; i++) {
+        cam.z -= 900 * DT
+        rain.update(cam, DT, DT)
+      }
+      const rel = rain.uniforms.uRel.value
+      expect(rel.z).toBeGreaterThan(800)
+      expect(Math.abs(rel.y)).toBeLessThan(rel.z * 0.05)
+    } finally {
+      rain.dispose()
+    }
+  })
+
+  it('一幀跳過半個方盒（換鏡頭）不算速度', () => {
+    const rain = createRain()
+    try {
+      const cam = new Vector3()
+      rain.update(cam, DT, DT)
+      rain.update(cam, DT, DT)
+      const before = rain.uniforms.uRel.value.clone()
+      cam.x += 500
+      rain.update(cam, DT, DT)
+      expect(rain.uniforms.uRel.value.toArray()).toEqual(before.toArray())
     } finally {
       rain.dispose()
     }
@@ -47,11 +86,9 @@ describe('每幀寫進 shader 的數字', () => {
     const rain = createRain()
     try {
       const cam = new Vector3()
-      const vel = new Vector3()
-      const t = 86_400
-      rain.update(cam, vel, t)
+      for (let i = 0; i < 24; i++) rain.update(cam, 3600, 3600)
       const a = rain.uniforms.uDrift.value.clone()
-      rain.update(cam, vel, t + 0.1)
+      rain.update(cam, 0.1, 0.1)
       const b = rain.uniforms.uDrift.value.clone()
       for (const k of ['x', 'y', 'z'] as const) {
         expect(Math.abs(a[k])).toBeLessThan(70)

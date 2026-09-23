@@ -216,9 +216,8 @@ let terrain = createTerrain(terrainKind, terrainGfx())
  * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
  */
 let storm: Storm | null = null
-/** 雨，與 `storm` 同生同滅。`rainSeconds` 是這場雨下了多久（暫停時不走） */
+/** 雨，與 `storm` 同生同滅 */
 let rain: Rain | null = null
-let rainSeconds = 0
 
 /**
  * 雷聲：從閃電打下的地方發出。音波走到鏡頭才響、遠的更悶更小，由音訊引擎
@@ -1504,7 +1503,6 @@ function buildBattleTerrain(): void {
     rain.dispose()
   }
   rain = storm !== null ? createRain() : null
-  rainSeconds = 0
   if (rain !== null) ctx.scene.add(rain.object)
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
@@ -2946,11 +2944,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
-  // 【雨跟著這一幀的鏡頭】雨絲的方向吃鏡頭速度（`camVel`，音訊那一段逐幀算的）
-  if (rain !== null) {
-    rainSeconds += worldSeconds
-    rain.update(ctx.camera.position, camVel, rainSeconds)
-  }
+  // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少
+  if (rain !== null) rain.update(ctx.camera.position, worldSeconds, frameSeconds)
 
   ctx.renderer.render(ctx.scene, ctx.camera)
 

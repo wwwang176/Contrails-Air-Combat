@@ -9,9 +9,9 @@ import {
  * `雨速 × 時間` 決定位置，再對方盒取餘數繞回鏡頭身邊 —— 鏡頭移動時雨從身邊
  * 掠過，視差是對的。
  *
- * 【雨絲沿著相對速度拉開】一滴雨在畫面上劃出的是它**相對鏡頭**的軌跡：
- * `雨速 − 鏡頭速度`（`rainRelativeVelocity`）。停著看是直直落下的短絲；
- * 高速往前飛時轉成迎面斜射過來的長絲，轉彎、爬升時跟著轉。
+ * 【雨絲沿著相對速度拉開】一滴雨在畫面上劃出的是它**相對鏡頭**的軌跡
+ * （`rainApparentVelocity`）。停著看是斜落的短絲；高速往前飛時轉成迎面射過來
+ * 的長絲，轉彎、爬升時跟著轉。
  *
  * 【鏡頭身邊與方盒邊緣淡掉】身邊 `NEAR_CLEAR` 以內不畫 —— 座艙視角時雨才不會
  * 穿進座艙；方盒邊緣淡掉 —— 繞回另一邊的那一下看不到。
@@ -23,7 +23,10 @@ import {
 const DROPS = 14000
 /** 方盒的邊長，m。雨只在鏡頭身邊這一塊 */
 const BOX = 70
-/** 雨在世界裡的速度，m/s：落速約 9 m/s，帶一點風 */
+/**
+ * 雨在世界裡的速度，m/s。**落速 9 m/s 是大雨滴（直徑 4～5 mm）的終端速度**，
+ * 熱帶雷雨就是這個量級；帶一點風。
+ */
 export const RAIN_VELOCITY: Readonly<{ x: number; y: number; z: number }> = { x: 2.5, y: -9, z: 1.2 }
 /** 雨絲的「曝光時間」，s：長度 = 相對速度 × 它 */
 const STREAK_SECONDS = 0.035
@@ -40,11 +43,30 @@ const NEAR_CLEAR = 3
 const COLOR = new Color(0xb4bec8)
 const OPACITY = 0.45
 
+/** 相對速度逐幀平滑的時間常數，s（真實時間）。幀時間的抖動不該變成雨絲的抖動 */
+const REL_TAU = 0.05
+
 /**
- * 雨相對鏡頭的速度，m/s：`RAIN_VELOCITY − camVel`。雨絲沿它的反方向從雨滴拖出。
+ * 雨滴這一幀在鏡頭眼裡的速度，m/s（每**真實**秒）：雨在世界時間裡走的路，
+ * 減掉鏡頭這一幀的位移，除以真實的幀時間。雨絲沿它的反方向從雨滴拖出。
+ *
+ * 【為什麼不拿現成的鏡頭速度】上帝視角的鏡頭照真實時間移動、最快好幾百 m/s，
+ * 而音訊那一份用世界時間相除、超過 400 m/s 就當瞬移歸零 —— 雨滴明明正高速
+ * 掠過，雨絲卻直直往下，兩者對不上。這裡算的就是雨滴在畫面上實際的移動，
+ * 暫停、慢動作、上帝視角都一致。
+ *
+ * @param camStep 鏡頭這一幀的位移，m
+ * @param worldDt 這一幀世界前進的時間，s（暫停時 0）
+ * @param frameDt 這一幀的真實時間，s。**必須 > 0**
  */
-export function rainRelativeVelocity(camVel: Readonly<{ x: number; y: number; z: number }>, out: Vector3): Vector3 {
-  return out.set(RAIN_VELOCITY.x - camVel.x, RAIN_VELOCITY.y - camVel.y, RAIN_VELOCITY.z - camVel.z)
+export function rainApparentVelocity(
+  camStep: Readonly<{ x: number; y: number; z: number }>, worldDt: number, frameDt: number, out: Vector3,
+): Vector3 {
+  return out.set(
+    (RAIN_VELOCITY.x * worldDt - camStep.x) / frameDt,
+    (RAIN_VELOCITY.y * worldDt - camStep.y) / frameDt,
+    (RAIN_VELOCITY.z * worldDt - camStep.z) / frameDt,
+  )
 }
 
 const VERTEX = /* glsl */ `
@@ -86,10 +108,10 @@ export interface Rain {
   /**
    * 每幀在鏡頭定位之後、渲染之前呼叫。
    *
-   * @param camVel 鏡頭速度，m/s（`main.ts` 的 `camVel`）
-   * @param time 這場雨下了多久，s。**暫停時不前進** —— 雨停在半空
+   * @param worldDt 這一幀世界前進的時間，s。**暫停時 0** —— 雨停在半空
+   * @param frameDt 這一幀的真實時間，s
    */
-  update(camPos: Readonly<Vector3>, camVel: Readonly<Vector3>, time: number): void
+  update(camPos: Readonly<Vector3>, worldDt: number, frameDt: number): void
   /** 目前的 uniform，給測試讀 —— shader 在無頭測試裡不會跑 */
   readonly uniforms: { readonly uCam: { value: Vector3 }; readonly uRel: { value: Vector3 }; readonly uDrift: { value: Vector3 } }
   dispose(): void
@@ -123,7 +145,8 @@ export function createRain(): Rain {
 
   const uniforms = {
     uCam: { value: new Vector3() },
-    uRel: { value: new Vector3() },
+    // 【開場當作鏡頭停著】第一幀還沒有位移可算
+    uRel: { value: new Vector3(RAIN_VELOCITY.x, RAIN_VELOCITY.y, RAIN_VELOCITY.z) },
     uDrift: { value: new Vector3() },
     uBox: { value: BOX },
     uStreak: { value: STREAK_SECONDS },
@@ -141,17 +164,37 @@ export function createRain(): Rain {
   // 【不裁】位置在 shader 裡算，包圍球是假的
   lines.frustumCulled = false
 
+  const prevCam = new Vector3()
+  let prevValid = false
+  const step = new Vector3()
+  const rel = new Vector3()
+  // 【飄移用雙精度累加、對方盒取餘數】在 shader 裡拿世界時間乘雨速會掉 float32
+  // 的精度；差的是整數個方盒，shader 本來就對方盒取餘數，畫面上一模一樣
+  let dx = 0
+  let dy = 0
+  let dz = 0
+
   return {
     object: lines,
     uniforms,
-    update(camPos, camVel, time) {
+    update(camPos, worldDt, frameDt) {
+      dx = (dx + RAIN_VELOCITY.x * worldDt) % BOX
+      dy = (dy + RAIN_VELOCITY.y * worldDt) % BOX
+      dz = (dz + RAIN_VELOCITY.z * worldDt) % BOX
+      uniforms.uDrift.value.set(dx, dy, dz)
       uniforms.uCam.value.copy(camPos)
-      rainRelativeVelocity(camVel, uniforms.uRel.value)
-      // 【飄移在這裡取餘數】世界時間一直長，在 shader 裡乘上雨速會掉 float32 的
-      // 精度。這裡用雙精度算、對方盒取餘數 —— 差的是整數個方盒，shader 本來就
-      // 對方盒取餘數，畫面上一模一樣
-      uniforms.uDrift.value.set(
-        (RAIN_VELOCITY.x * time) % BOX, (RAIN_VELOCITY.y * time) % BOX, (RAIN_VELOCITY.z * time) % BOX)
+
+      if (!prevValid || !(frameDt > 0)) {
+        prevCam.copy(camPos)
+        prevValid = true
+        return
+      }
+      step.subVectors(camPos, prevCam)
+      prevCam.copy(camPos)
+      // 【換鏡頭不是速度】一幀跳過半個方盒以上 —— 切視角、重生 —— 這一幀不算
+      if (step.length() > BOX / 2) return
+      rainApparentVelocity(step, worldDt, frameDt, rel)
+      uniforms.uRel.value.lerp(rel, 1 - Math.exp(-frameDt / REL_TAU))
     },
     dispose() {
       geometry.dispose()
