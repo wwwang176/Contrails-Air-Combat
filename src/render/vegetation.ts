@@ -311,6 +311,19 @@ export const ISLAND_CAPACITY: Record<PoolName, number> = {
   house: 16, barn: 16, church: 16,
 }
 
+/**
+ * 雷伊泰的容量。**只有闊葉樹與灌木**，沒有針葉、沒有建築。
+ *
+ * 【只有 `broadNear` 比內陸大】丘陵上的林子讓近級闊葉的峰值到 5,186（哨兵
+ * 容量掃過場地網格加每一座丘陵頂），內陸的 2,800 會溢位。其餘各池的峰值都
+ * 在內陸容量的四成以內：broadMid 13,059、broadPoint 26,285、bushNear 4,051、
+ * bushPoint 22,938。餘裕照群島取兩倍。
+ */
+export const LEYTE_CAPACITY: Record<PoolName, number> = {
+  ...CAPACITY,
+  broadNear: 10400,
+}
+
 const POOL_NAMES: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
   'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
