@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
-  createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
+  createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
+  distanceToRoad, roadTreeClear,
 } from '../../src/world/leyte'
 import {
-  FAR_LAND_NAME, ROAD_COLOR, bakeRoadDistance, createLeyteGround, isLeyteGrass, leyteShade,
+  FAR_LAND_NAME, ROAD_COLOR, bakeRoadSegments, createLeyteGround, isLeyteGrass, leyteShade,
   roadCoverageAt, roadHalfWidthAt, type CanopyMap,
 } from '../../src/render/leyteGround'
 import {
@@ -98,24 +99,72 @@ describe('公路只有一份座標', () => {
     expect(roadCoverageAt(a.x + 30, a.z + 30)).toBe(0)
   })
 
-  it('烘好的離路距離圖與逐段算的距離一致（誤差在一格之內）；離路遠的是上限', () => {
-    const r = bakeRoadDistance()
-    const { x0, z0, x1, z1 } = r.box
-    let checked = 0
-    for (let i = 0; i < 4000; i++) {
-      // 固定序列的取樣點，涵蓋整個方框
-      const x = x0 + ((i * 7919) % 1000) / 1000 * (x1 - x0)
-      const z = z0 + ((i * 104729) % 1000) / 1000 * (z1 - z0)
-      const col = Math.min(r.width - 1, Math.floor((x - x0) / r.texel))
-      const row = Math.min(r.height - 1, Math.floor((z - z0) / r.texel))
-      const baked = (r.data[row * r.width + col]! / 255) * r.maxDistance
-      const cx = x0 + (col + 0.5) * r.texel
-      const cz = z0 + (row + 0.5) * r.texel
-      const truth = Math.min(r.maxDistance, distanceToRoad(cx, cz))
-      expect(Math.abs(baked - truth), `${cx},${cz}`).toBeLessThan(r.maxDistance / 255 + 1e-6)
-      checked++
+  it('最近路段圖：路旁每一格記的就是最近的那一段；遠離所有路的格是 0', () => {
+    const r = bakeRoadSegments()
+    const segAt = (id: number): { d: (x: number, z: number) => number; hw: number } => {
+      const s = r.segments.subarray(id * 4, id * 4 + 4)
+      return {
+        hw: r.segments[(r.segmentCount + id) * 4]!,
+        d: (x, z) => {
+          const abx = s[2]! - s[0]!
+          const abz = s[3]! - s[1]!
+          const t = Math.max(0, Math.min(1, ((x - s[0]!) * abx + (z - s[1]!) * abz) / (abx * abx + abz * abz)))
+          return Math.hypot(x - (s[0]! + abx * t), z - (s[1]! + abz * t))
+        },
+      }
     }
-    expect(checked).toBe(4000)
+    const truth = (x: number, z: number): number => {
+      let best = Infinity
+      for (let id = 1; id < r.segmentCount; id++) best = Math.min(best, segAt(id).d(x, z))
+      return best
+    }
+    let near = 0
+    // 每條路取幾個點，往旁邊偏 0～25 m 找格子；再加一批全場的固定序列取樣
+    const probes: [number, number][] = []
+    for (const road of LEYTE_ROADS) {
+      for (let i = 0; i < road.points.length; i += 7) {
+        const p = road.points[i]!
+        probes.push([p.x + (i % 25), p.z - (i % 17)])
+      }
+    }
+    for (let i = 0; i < 400; i++) {
+      probes.push([-r.half + ((i * 7919) % 1000) / 1000 * 2 * r.half, -r.half + ((i * 104729) % 1000) / 1000 * 2 * r.half])
+    }
+    for (const [x, z] of probes) {
+      const col = Math.min(r.size - 1, Math.floor((x + r.half) / r.texel))
+      const row = Math.min(r.size - 1, Math.floor((z + r.half) / r.texel))
+      const cx = -r.half + (col + 0.5) * r.texel
+      const cz = -r.half + (row + 0.5) * r.texel
+      const k = row * r.size + col
+      const id = r.ids[k * 2]! + 256 * r.ids[k * 2 + 1]!
+      const t = truth(cx, cz)
+      if (t < 29.9) {
+        expect(id, `${cx},${cz}`).toBeGreaterThan(0)
+        expect(segAt(id).d(cx, cz)).toBeCloseTo(t, 3)
+        near++
+      } else if (t > 30.1) {
+        expect(id, `${cx},${cz}`).toBe(0)
+      }
+    }
+    expect(near).toBeGreaterThan(100)
+  })
+
+  it('每一段記的半寬就是它那條路的標稱半寬', () => {
+    const r = bakeRoadSegments()
+    let id = 1
+    for (const road of LEYTE_ROADS) {
+      for (let i = 1; i < road.points.length; i++, id++) {
+        expect(r.segments[(r.segmentCount + id) * 4]).toBe(road.halfWidth)
+      }
+    }
+    expect(id).toBe(r.segmentCount)
+  })
+
+  it('支線也畫在地上：每條支線的中線上覆蓋率是 1', () => {
+    for (const road of LEYTE_ROADS.slice(1)) {
+      const p = road.points[Math.floor(road.points.length / 2)]!
+      expect(roadCoverageAt(p.x, p.z)).toBe(1)
+    }
   })
 
   it('路寬沿路不規則，但最窄處仍蓋得住轉彎時偏離中線的車（2.1 m）', () => {
@@ -165,6 +214,30 @@ describe('公路只有一份座標', () => {
       const z = out.data[i * FLORA_STRIDE + 2]!
       expect(distanceToRoad(x, z)).toBeGreaterThanOrEqual(ROAD_TREE_CLEAR)
       expect([FloraKind.BroadTree, FloraKind.Bush]).toContain(out.kind[i])
+    }
+  })
+
+  it('支線兩旁也不長樹，清空帶跟著路寬走', () => {
+    const src = createLeyteFlora(field)
+    for (const road of LEYTE_ROADS.slice(1)) {
+      const p = road.points[Math.floor(road.points.length / 2)]!
+      const out = createFloraBuffer(20000)
+      src(p.x - 200, p.z - 200, p.x + 200, p.z + 200, (x, z) => field.sample(x, z), out)
+      const clear = roadTreeClear(road)
+      for (let i = 0; i < out.count; i++) {
+        const x = out.data[i * FLORA_STRIDE]!
+        const z = out.data[i * FLORA_STRIDE + 2]!
+        for (let k = 1; k < road.points.length; k++) {
+          const a = road.points[k - 1]!
+          const b = road.points[k]!
+          const abx = b.x - a.x
+          const abz = b.z - a.z
+          const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
+          expect(Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))).toBeGreaterThanOrEqual(clear)
+        }
+      }
+      // 【路最寬處也在清空帶內】起伏的上限是 1.45 倍
+      expect(road.halfWidth * 1.45).toBeLessThan(clear)
     }
   })
 })
