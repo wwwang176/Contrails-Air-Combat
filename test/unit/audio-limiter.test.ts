@@ -4,6 +4,7 @@ import {
   LIMITER_CEILING, LIMITER_CEILING_DB, LIMITER_LOOKAHEAD, LIMITER_RELEASE,
   limiterStep, limiterTarget, lookaheadFrames, releaseCoeff,
 } from '../../src/audio/limiter'
+import { DECORRELATE_WINDOW, decorrelateDelay } from '../../src/audio/pick'
 
 /**
  * # 主匯流排的限幅器
@@ -155,5 +156,27 @@ describe('限幅器的接線', () => {
     expect(resume).toContain('resetLimiter()')
     const stop = SRC.slice(SRC.indexOf('function stopAll'), SRC.indexOf('async function loadAll'))
     expect(stop).toContain('resetLimiter()')
+  })
+})
+
+/**
+ * 同一個檔案同時播兩份是完全同相，直接 +6 dB。錯開幾毫秒之後約 +3 dB。
+ *
+ * 【不動起始位置】跳掉開頭會裁掉起音 —— `hit-1` 的峰值就在前 15 ms 裡。
+ */
+describe('同檔去相關', () => {
+  it('錯開的長度在 3–12 ms', () => {
+    expect(decorrelateDelay(() => 0)).toBeCloseTo(0.003, 9)
+    expect(decorrelateDelay(() => 1)).toBeCloseTo(0.012, 9)
+    expect(DECORRELATE_WINDOW).toBeGreaterThan(0.012)
+  })
+
+  it('接線：同一檔在窗內的第二份才延後，而且沒有動起始位置', () => {
+    const SRC = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
+    expect(SRC).toContain('DECORRELATE_WINDOW')
+    expect(SRC).toContain('decorrelateDelay(Math.random)')
+    // `offset` 是 three 的起始位置；一次性音效不得碰它
+    const play = SRC.slice(SRC.indexOf('function playFile'), SRC.indexOf('function playPool'))
+    expect(play).not.toContain('.offset')
   })
 })
