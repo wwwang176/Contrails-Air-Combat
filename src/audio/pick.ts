@@ -26,3 +26,15 @@ export function layerDelay(rand: () => number): number {
 export function randomRate(rand: () => number): number {
   return 0.92 + rand() * 0.16
 }
+
+/**
+ * 同一個檔案在這麼短的時間內再播一次，就算是「同時」，s。
+ *
+ * 【為什麼要管】同一個檔案同時播兩份是**完全同相**，直接 +6 dB。機槍打在
+ * 艦體那種一秒好幾次的最容易踩到。
+ */
+export const DECORRELATE_WINDOW = 0.03
+/** 錯開多久，s：3–12 ms。錯開之後兩份約 +3 dB */
+export function decorrelateDelay(rand: () => number): number {
+  return 0.003 + rand() * 0.009
+}
