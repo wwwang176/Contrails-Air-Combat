@@ -80,10 +80,26 @@ export interface AudioEngine {
 /**
  * 【要撐得住一波投彈】一組 B-17 齊投有幾十顆炸彈，每一顆有呼嘯與落地爆炸，
  * 爆炸又疊兩層，而爆炸聲長達兩三秒 —— 聲道不夠時後面的炸彈整個沒聲音。
+ *
+ * 【40 不夠】艦隊防空的關卡實測：120 秒裡艦砲要求 1,573 次、被擋掉 365 次，
+ * 空聲道長時間掛在 0，連軍火爆炸也被擋掉 21/54。一個聲道是一個 PannerNode
+ * 加兩級低通，加到 64 的成本可以忽略。
  */
-const ONE_SHOT_VOICES = 40
+const ONE_SHOT_VOICES = 64
 /** 空聲道少於這個數就不疊第二層 —— 先保證每一件事都發得出聲 */
-const LAYER_MIN_FREE = 10
+const LAYER_MIN_FREE = 16
+/**
+ * 每一類最多同時佔幾個聲道。**沒列的不限。**
+ *
+ * 【為什麼光加聲道不夠】艦隊防空的關卡裡艦砲一秒要求十幾次，而每一聲長達
+ * 一兩秒 —— 它一類就能把池子吃光，於是同一刻的軍火爆炸整個沒聲音。配額滿了
+ * 的那一類只能搶自己人，搶不到別人的份。
+ *
+ * 【爆炸不設限】它是天花板，該蓋過其他東西。
+ */
+const VOICE_QUOTA: Partial<Record<Category, number>> = {
+  cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
+}
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
 const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 'wind', warn: 'warn' }
@@ -98,6 +114,8 @@ const FADE_POINTS = 32
 
 interface Voice {
   audio: PositionalAudio
+  /** 這一聲屬於哪一類。配額用 */
+  cat: Category | null
   filters: BiquadFilterNode[]
   /** 離鏡頭多遠；不定位的是 0 */
   distance: number
@@ -247,7 +265,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const v = positional()
     root.add(v.audio)
     voices.push({
-      ...v, distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
+      ...v, cat: null, distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
       waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
     })
   }
@@ -351,6 +369,13 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【比響度不比距離】一波投彈同時有幾十聲，只比距離的話遠處一聲呼嘯會卡住近處的爆炸
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
     const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d, spec.rolloff ?? 1)
+    // 【配額滿了只能搶自己人】否則一類就能把整池吃光，見 `VOICE_QUOTA`
+    const quota = VOICE_QUOTA[cat] ?? ONE_SHOT_VOICES
+    let mine = 0
+    for (const v of voices) {
+      if (v.cat === cat && (v.audio.isPlaying || v.waitingSince >= 0)) mine++
+    }
+    const ownOnly = mine >= quota
     let pick: Voice | null = null
     let pickBusy = true
     let free = 0
@@ -358,17 +383,19 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       // 【在等音波的也算佔著】它已經排好要響，被搶走就整個沒聲音
       if (!v.audio.isPlaying && v.waitingSince < 0) {
         free++
-        if (pickBusy) { pick = v; pickBusy = false }
+        if (!ownOnly && pickBusy) { pick = v; pickBusy = false }
         continue
       }
-      if (pick === null) { pick = v; continue }
-      if (pickBusy && v.loudness < pick.loudness) pick = v
+      if (ownOnly && v.cat !== cat) continue
+      if (pick === null || !pickBusy) { if (pickBusy) pick = v; continue }
+      if (v.loudness < pick.loudness) pick = v
     }
     if (pick === null || (pickBusy && pick.loudness >= loud)) return
     if (pick.audio.isPlaying) pick.audio.stop()
     pick.waitingSince = -1
 
     const a = pick.audio
+    pick.cat = cat
     pick.distance = d
     pick.baseDb = baseDb
     pick.positioned = loc
