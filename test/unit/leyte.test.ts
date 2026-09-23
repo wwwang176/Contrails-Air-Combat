@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD,
-  PLAIN_HEIGHT, SAND_TOP,
-  baseHeight, coastZ, createLeyte, distanceToRoad, isNearRoad,
+  PLAIN_HEIGHT, SAND_TOP, FIELD_HALF,
+  baseHeight, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -20,10 +20,11 @@ import { ARENA_RADIUS } from '../../src/world/arena'
 const { field, hills } = createLeyte()
 
 describe('雷伊泰的海岸線', () => {
-  it('陸在 +Z、海在 −Z：岸線以北 600 m 是海、以南 600 m 是平地', () => {
+  it('陸在 +Z、海在 −Z：岸線以北 600 m 是海、以南 600 m 是平地（不算丘陵）', () => {
+    // 【量基準面】靠海的大丘陵會一路延伸到海裡成為岬角，那是刻意的
     for (let x = -10000; x <= 10000; x += 250) {
-      expect(field.sample(x, coastZ(x) - 600)).toBeLessThan(0)
-      expect(field.sample(x, coastZ(x) + 600)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
+      expect(baseHeight(x, coastZ(x) - 600)).toBeLessThan(0)
+      expect(baseHeight(x, coastZ(x) + 600)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
     }
   })
 
@@ -126,6 +127,14 @@ describe('雷伊泰的丘陵', () => {
     }
   })
 
+  it('整座都在場地之內 —— 被高度場的邊界切掉的話，場邊會是一道崖', () => {
+    for (const h of LEYTE_HILLS) {
+      const r = h.radius * WOBBLE_MAX
+      expect(Math.abs(h.cx) + r, `${h.seed}`).toBeLessThanOrEqual(FIELD_HALF)
+      expect(Math.abs(h.cz) + r, `${h.seed}`).toBeLessThanOrEqual(FIELD_HALF)
+    }
+  })
+
   it('平地的緩坡不超過 AI 的改出餘裕（丘陵之外 AI 一律當海平面）', () => {
     let top = 0
     for (let x = -14000; x <= 14000; x += 97) {
@@ -137,7 +146,8 @@ describe('雷伊泰的丘陵', () => {
   it('峰高不超過上限、全部在陸上、膨脹圓離公路至少 400 m', () => {
     for (const h of LEYTE_HILLS) {
       expect(h.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
-      expect(h.cz - h.radius * WOBBLE_MAX).toBeGreaterThan(coastZ(h.cx) + 300)
+      // 【中心在陸上就好】大丘陵靠海的那一側可以一路延伸到海裡，是岬角
+      expect(h.cz, `${h.seed}`).toBeGreaterThan(coastZ(h.cx) + 1500)
       expect(distanceToRoad(h.cx, h.cz) - h.radius * WOBBLE_MAX).toBeGreaterThanOrEqual(400)
     }
   })
@@ -158,6 +168,29 @@ describe('固定防空砲位', () => {
       expect(baseHeight(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
       expect(distanceToRoad(s.x, s.z), `${s.x},${s.z}`).toBeGreaterThanOrEqual(40)
     }
+  })
+})
+
+describe('場外的遠景陸地', () => {
+  it('在場地邊緣與場內的基準面接得上', () => {
+    const edge = FIELD_HALF
+    for (let t = -edge; t <= edge; t += 500) {
+      expect(farHeight(edge, t)).toBeCloseTo(baseHeight(edge, t), 6)
+      expect(farHeight(-edge, t)).toBeCloseTo(baseHeight(-edge, t), 6)
+      expect(farHeight(t, edge)).toBeCloseTo(baseHeight(t, edge), 6)
+    }
+  })
+
+  it('海岸線照同一條曲線延伸：岸外是水、岸內是陸', () => {
+    for (let x = -60000; x <= 60000; x += 2500) {
+      expect(farHeight(x, coastZ(x) - 800)).toBeLessThan(0)
+      expect(farHeight(x, coastZ(x) + 800)).toBeGreaterThan(SAND_TOP)
+    }
+  })
+
+  it('往內陸越遠越高：幾十公里外是山', () => {
+    expect(farHeight(0, 45000)).toBeGreaterThan(200)
+    expect(farHeight(0, 45000)).toBeGreaterThan(farHeight(0, 20000))
   })
 })
 

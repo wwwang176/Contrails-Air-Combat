@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
-  createLeyte, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
+  createLeyte, FIELD_HALF, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
 } from '../../src/world/leyte'
 import {
-  ROAD_COLOR, createLeyteGround, isLeyteGrass, leyteShade, roadCoverageAt, roadHalfWidthAt,
+  FAR_LAND_NAME, ROAD_COLOR, createLeyteGround, isLeyteGrass, leyteShade, roadCoverageAt,
+  roadHalfWidthAt,
 } from '../../src/render/leyteGround'
 import { createLeyteFlora, leyteAccept, FLORA_STRIDE, FloraKind, type FloraBuffer } from '../../src/render/flora'
 import { createTerrain } from '../../src/render/terrain'
@@ -32,7 +33,8 @@ describe('leyte 的地面網格', () => {
     let checked = 0
     g.object.traverse((o) => {
       const geo = (o as Mesh).geometry as BufferGeometry | undefined
-      if (geo === undefined) return
+      // 【遠景陸地不比】它在場外，沒有高度場也沒有碰撞
+      if (geo === undefined || o.name === FAR_LAND_NAME) return
       const p = geo.getAttribute('position')
       for (let i = 0; i < p.count; i += 97) {
         expect(p.getY(i)).toBe(Math.fround(field.sample(p.getX(i), p.getZ(i))))
@@ -40,6 +42,23 @@ describe('leyte 的地面網格', () => {
       }
     })
     expect(checked).toBeGreaterThan(100)
+    g.dispose()
+  })
+
+  it('場外有遠景陸地：陸地一路延伸到場地之外', () => {
+    const g = createLeyteGround(field, () => 0)
+    let outside = 0
+    g.object.traverse((o) => {
+      const geo = (o as Mesh).geometry as BufferGeometry | undefined
+      if (geo === undefined) return
+      const p = geo.getAttribute('position')
+      for (let i = 0; i < p.count; i++) {
+        if ((Math.abs(p.getX(i)) > FIELD_HALF + 1 || p.getZ(i) > FIELD_HALF + 1) && p.getY(i) > PLAIN_HEIGHT) {
+          outside++
+        }
+      }
+    })
+    expect(outside).toBeGreaterThan(100)
     g.dispose()
   })
 
@@ -85,8 +104,8 @@ describe('公路只有一份座標', () => {
   it('植被在公路清空帶內接受率為 0，平地上遠低於丘陵上', () => {
     const a = LEYTE_ROAD[4]!
     expect(leyteAccept(field, a.x, a.z, PLAIN_HEIGHT)).toBe(0)
-    // 平地（有緩坡）取在遠離丘陵的一點，對照組取丘陵頂
-    expect(maxAccept(1500, 6500)).toBeLessThan(maxAccept(-4200, 4300) * 0.3)
+    // 平地（有緩坡）取在公路走廊裡遠離丘陵的一點，對照組取最大那座丘陵的頂
+    expect(maxAccept(0, 2500)).toBeLessThan(maxAccept(-7500, 0) * 0.3)
   })
 
   it('實際長出來的樹沒有一棵落在清空帶內，而且是闊葉樹或灌木', () => {

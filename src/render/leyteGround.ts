@@ -1,7 +1,9 @@
-import { Color, Group, Mesh, MeshStandardMaterial, type BufferGeometry, type Object3D } from 'three'
+import {
+  BufferAttribute, BufferGeometry, Color, Group, Mesh, MeshStandardMaterial, type Object3D,
+} from 'three'
 import type { HeightFieldData } from '../world/heightfield'
-import { LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, roadGroups } from '../world/leyte'
-import { buildGroundRect } from './island'
+import { FIELD_HALF, LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, farHeight, roadGroups } from '../world/leyte'
+import { buildGroundRect, DRAW_FLOOR } from './island'
 
 /**
  * # 雷伊泰的地面
@@ -161,6 +163,70 @@ function createGroundMaterial(): MeshStandardMaterial {
   return m
 }
 
+/** 遠景陸地畫到離原點多遠，m。雷雨的霧在這之前就把它吃掉了 */
+const FAR_EXTENT = 80000
+/** 遠景陸地的格距，m。場地邊界（±15 km）落在格線上，格子不會跨進場內 */
+const FAR_CELL = 1000
+/** 一塊遠景幾格邊長。一塊一個 Mesh，各自進出視錐 */
+const FAR_TILE_CELLS = 10
+/** 遠景陸地的林相覆蓋率：遠看的林子是一片暗綠 */
+const FAR_COVER = 0.45
+/** 遠景陸地那幾塊 Mesh 的名字。它們不在高度場裡，量測與測試靠它認 */
+export const FAR_LAND_NAME = 'leyte-far'
+
+/**
+ * 場外的遠景陸地：一塊的 geometry。**只畫不碰撞**，高度照 `farHeight`。
+ * 場內的格子（那裡是高度場）與整格沉在水下的格子不畫。一格都沒有時回 null。
+ */
+function buildFarTile(x0: number, z0: number): BufferGeometry | null {
+  const n = FAR_TILE_CELLS + 1
+  const positions = new Float32Array(n * n * 3)
+  const colors = new Float32Array(n * n * 3)
+  const c = new Color()
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * FAR_CELL
+      const z = z0 + j * FAR_CELL
+      const h = farHeight(x, z)
+      const v = (j * n + i) * 3
+      positions[v] = x
+      positions[v + 1] = h
+      positions[v + 2] = z
+      leyteShade(h, FAR_COVER, c)
+      colors[v] = c.r
+      colors[v + 1] = c.g
+      colors[v + 2] = c.b
+    }
+  }
+  const indices: number[] = []
+  for (let j = 0; j < FAR_TILE_CELLS; j++) {
+    for (let i = 0; i < FAR_TILE_CELLS; i++) {
+      const cx0 = x0 + i * FAR_CELL
+      const cz0 = z0 + j * FAR_CELL
+      const inside = cx0 >= -FIELD_HALF && cx0 + FAR_CELL <= FIELD_HALF
+        && cz0 >= -FIELD_HALF && cz0 + FAR_CELL <= FIELD_HALF
+      if (inside) continue
+      const a = j * n + i
+      const b = a + 1
+      const d = a + n
+      const e = d + 1
+      if (
+        positions[a * 3 + 1]! < DRAW_FLOOR && positions[b * 3 + 1]! < DRAW_FLOOR
+        && positions[d * 3 + 1]! < DRAW_FLOOR && positions[e * 3 + 1]! < DRAW_FLOOR
+      ) continue
+      indices.push(a, d, b, b, d, e)
+    }
+  }
+  if (indices.length === 0) return null
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(positions, 3))
+  geo.setAttribute('color', new BufferAttribute(colors, 3))
+  geo.setIndex(indices)
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  return geo
+}
+
 export function createLeyteGround(
   field: HeightFieldData, coverAt: (x: number, z: number) => number,
 ): { object: Object3D; dispose(): void } {
@@ -177,6 +243,18 @@ export function createLeyteGround(
       if (geo === null) continue
       geometries.push(geo)
       group.add(new Mesh(geo, material))
+    }
+  }
+  // 【遠景陸地】島很大，另外幾面的海岸不在視野裡。與場內共用同一個材質
+  const span = FAR_CELL * FAR_TILE_CELLS
+  for (let z0 = -FAR_EXTENT; z0 < FAR_EXTENT; z0 += span) {
+    for (let x0 = -FAR_EXTENT; x0 < FAR_EXTENT; x0 += span) {
+      const geo = buildFarTile(x0, z0)
+      if (geo === null) continue
+      geometries.push(geo)
+      const mesh = new Mesh(geo, material)
+      mesh.name = FAR_LAND_NAME
+      group.add(mesh)
     }
   }
   return {
