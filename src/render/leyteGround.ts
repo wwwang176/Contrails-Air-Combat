@@ -1,6 +1,6 @@
 import {
-  BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, DataTexture, Group, LinearFilter, Mesh,
-  MeshStandardMaterial, RedFormat, UnsignedByteType, type Object3D,
+  BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, DataTexture, Group, LinearFilter,
+  LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RedFormat, UnsignedByteType, type Object3D,
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
 import { FIELD_HALF, LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, farHeight } from '../world/leyte'
@@ -18,6 +18,9 @@ import { buildGroundRect, DRAW_FLOOR } from './island'
  * 3. **公路畫在材質的 shader 裡**：離 `LEYTE_ROAD` 任一段小於半寬就是泥土路的
  *    顏色。不另建貼地的網格 —— 那會與地面共面，拉遠就閃。
  *
+ * 【林子也畫在 shader 裡】每一株樹的樹冠烘成一張俯視圖（`CanopyMap`），地面照
+ * 它往樹冠色混 —— 立體的樹生成範圍之外，林子仍然是一株一株的，不是一片平均色。
+ *
  * 【泥土路，不是柏油】雨季的雷伊泰公路是泥濘的土路：顏色接近沙灘、邊緣不規則、
  * 顏色帶一點深淺。路寬沿路起伏（`roadHalfWidthAt`），邊緣有一段混進草地的過渡。
  */
@@ -27,6 +30,13 @@ const SAND = new Color(0xc2b280)
 const GRASS = new Color(0x55703f)
 /** 樹冠的平均色：闊葉樹與灌木。地色按林相覆蓋率往它混 */
 const CANOPY = new Color(0x2f4a2a)
+/**
+ * 樹冠圖畫上去的顏色：比 `CANOPY` 深。
+ *
+ * 【為什麼要更深】圖一格 8 m，遠處再經 mipmap 平均，一株一株的暗點會被四周
+ * 的草地沖淡；顏色深一點，拉遠了林子仍然讀得出來。
+ */
+const CANOPY_MAP = new Color(0x1e331b)
 /** 泥土路的顏色：比沙灘暗一點、偏土黃 */
 export const ROAD_COLOR = 0xb5a276
 
@@ -194,10 +204,43 @@ function roadGlsl(map: RoadDistanceMap): string {
   }`
 }
 
-function createGroundMaterial(roadTex: DataTexture, map: RoadDistanceMap): MeshStandardMaterial {
+/**
+ * 場地裡每一株樹的樹冠，俯視、烘成一張圖（`render/flora.ts` 的
+ * `bakeLeyteCanopy`）。一格一個位元組：0 = 空地，255 = 整格被樹冠蓋滿。
+ */
+export interface CanopyMap {
+  /** `size²` 格，列優先；第 (row, col) 格的中心在 (−half + (col+0.5)·texel, −half + (row+0.5)·texel) */
+  readonly data: Uint8Array
+  readonly size: number
+  /** 圖蓋住的方框的半邊長，m：`[−half, half]²`，就是高度場 */
+  readonly half: number
+  readonly texel: number
+}
+
+/**
+ * 樹冠的 GLSL：查樹冠圖，往 `CANOPY_MAP` 混。**只在場內** —— 場外的遠景陸地沒有
+ * 樹，它的暗綠在頂點色裡（`FAR_COVER`）。
+ */
+function canopyGlsl(map: CanopyMap): string {
+  const c = CANOPY_MAP
+  return `
+  {
+    vec2 canopyUv = (vRoadXZ + ${map.half.toFixed(1)}) / ${(2 * map.half).toFixed(1)};
+    if (canopyUv.x >= 0.0 && canopyUv.x <= 1.0 && canopyUv.y >= 0.0 && canopyUv.y <= 1.0) {
+      float canopy = texture2D(uCanopy, canopyUv).r;
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}), canopy);
+    }
+  }`
+}
+
+function createGroundMaterial(
+  roadTex: DataTexture, map: RoadDistanceMap, canopyUniform: { value: DataTexture }, canopy: CanopyMap,
+): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: ROUGHNESS })
   m.onBeforeCompile = (shader) => {
     shader.uniforms['uRoadDist'] = { value: roadTex }
+    // 【同一個物件】`setCanopy` 換它的 value，編好的程式立刻讀到新的圖
+    shader.uniforms['uCanopy'] = canopyUniform
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;')
       .replace(
@@ -205,14 +248,36 @@ function createGroundMaterial(roadTex: DataTexture, map: RoadDistanceMap): MeshS
         '#include <worldpos_vertex>\nvRoadXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
       )
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;\nuniform sampler2D uRoadDist;')
-      .replace('#include <color_fragment>', `#include <color_fragment>${roadGlsl(map)}`)
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec2 vRoadXZ;\nuniform sampler2D uRoadDist;\nuniform sampler2D uCanopy;',
+      )
+      // 【樹冠先、路後】路的清空帶本來就沒有樹，路面蓋在最上面
+      .replace('#include <color_fragment>', `#include <color_fragment>${canopyGlsl(canopy)}${roadGlsl(map)}`)
   }
   // 【快取鍵】注入的程式要有自己的鍵，否則 three 會拿別的 MeshStandardMaterial
   // 編好的程式來用 —— 症狀是路不見了，或別的東西上面畫出一條路
-  m.customProgramCacheKey = () => 'leyte-ground-road'
+  m.customProgramCacheKey = () => 'leyte-ground-road-canopy'
   return m
 }
+
+/**
+ * 樹冠圖 → 貼圖。**要 mipmap 與各向異性**：遠處一個像素蓋好幾格，不平均的話
+ * 一顆顆暗點會閃爍；斜看的地面不開各向異性會糊成一片。
+ */
+function canopyTexture(map: CanopyMap): DataTexture {
+  const tex = new DataTexture(map.data, map.size, map.size, RedFormat, UnsignedByteType)
+  tex.magFilter = LinearFilter
+  tex.minFilter = LinearMipmapLinearFilter
+  tex.generateMipmaps = true
+  tex.anisotropy = CANOPY_ANISOTROPY
+  tex.wrapS = ClampToEdgeWrapping
+  tex.wrapT = ClampToEdgeWrapping
+  tex.needsUpdate = true
+  return tex
+}
+/** 樹冠圖的各向異性。three 會夾到顯示卡的上限 */
+const CANOPY_ANISOTROPY = 8
 
 /** 離路距離圖 → 貼圖。單通道、線性內插 —— 距離在格與格之間是線性的 */
 function roadDistanceTexture(map: RoadDistanceMap): DataTexture {
@@ -300,20 +365,28 @@ function buildFarTile(x0: number, z0: number): BufferGeometry | null {
   return geo
 }
 
+/** 場內的頂點色不帶林相 —— 林子由樹冠圖畫（`canopyGlsl`），兩邊都畫的話會暗兩次 */
+const NO_COVER = (): number => 0
+
+/**
+ * @param canopy 開場用的樹冠圖。**`half` 要等於高度場的半邊長** —— shader 的
+ *   座標換算寫死它，之後 `setCanopy` 換上的圖也要一樣
+ */
 export function createLeyteGround(
-  field: HeightFieldData, coverAt: (x: number, z: number) => number,
-): { object: Object3D; dispose(): void } {
+  field: HeightFieldData, canopy: CanopyMap,
+): { object: Object3D; setCanopy(map: CanopyMap): void; dispose(): void } {
   const group = new Group()
   const roadMap = bakeRoadDistance()
   const roadTex = roadDistanceTexture(roadMap)
-  const material = createGroundMaterial(roadTex, roadMap)
+  const canopyUniform = { value: canopyTexture(canopy) }
+  const material = createGroundMaterial(roadTex, roadMap, canopyUniform, canopy)
   const geometries: BufferGeometry[] = []
   const last = field.size - 1
   for (let r0 = 0; r0 < last; r0 += LEYTE_TILE_CELLS) {
     for (let c0 = 0; c0 < last; c0 += LEYTE_TILE_CELLS) {
       const geo = buildGroundRect(
         field, c0, Math.min(last, c0 + LEYTE_TILE_CELLS), r0, Math.min(last, r0 + LEYTE_TILE_CELLS),
-        coverAt, leyteShade,
+        NO_COVER, leyteShade,
       )
       if (geo === null) continue
       geometries.push(geo)
@@ -337,10 +410,16 @@ export function createLeyteGround(
   }
   return {
     object: group,
+    setCanopy(map) {
+      if (map.half !== canopy.half) throw new Error(`樹冠圖的範圍不同：${map.half} ≠ ${canopy.half}`)
+      canopyUniform.value.dispose()
+      canopyUniform.value = canopyTexture(map)
+    },
     dispose() {
       for (const g of geometries) g.dispose()
       material.dispose()
       roadTex.dispose()
+      canopyUniform.value.dispose()
     },
   }
 }

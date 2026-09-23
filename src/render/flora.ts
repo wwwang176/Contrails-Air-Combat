@@ -1,5 +1,5 @@
 import { isGrass } from './island'
-import { isLeyteGrass } from './leyteGround'
+import { isLeyteGrass, type CanopyMap } from './leyteGround'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from './floraShapes'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
@@ -860,12 +860,13 @@ export const LEYTE_PLAIN_DENSITY = 0.08
  * 丘陵上的密度上限。**不是 1**：丘陵又大又多，滿密度的話植被池要配到六十萬個
  * 實例（約 90 MB）。六成之下山坡仍然是林子 —— 地色讀同一個接受率，遠看一樣暗。
  */
-const LEYTE_HILL_DENSITY = 0.6
+export const LEYTE_HILL_DENSITY = 0.6
 /** 高出基準面這麼多就到丘陵的密度，m。丘陵的山腰往上是林子 */
 const LEYTE_HILL_FULL = 40
 
 /**
- * 雷伊泰一個候選點的接受機率。**放置與地色共用這一支**（同 `islandAccept`）。
+ * 雷伊泰一個候選點的接受機率。**不超過 `LEYTE_HILL_DENSITY`** —— 叢遮罩 ≤ 1、
+ * 坡度只除不乘；`createLeyteFlora` 靠這個上限先擋掉大部分候選，改式子時要守住。
  *
  * 沙灘與公路清空帶是 0；平地是 `LEYTE_PLAIN_DENSITY`；高出基準面
  * `LEYTE_HILL_FULL` 就是 `LEYTE_HILL_DENSITY`。再乘上成叢遮罩、除以坡度（同群島）。
@@ -889,16 +890,98 @@ export function leyteAccept(field: HeightFieldData, x: number, z: number, h: num
 const BROAD_AREA = Math.PI * BROAD_CROWN_R * BROAD_CROWN_R * E_SCALE2
 
 /**
- * 雷伊泰的地被樹冠遮住多少，0～1。與 `islandCanopyCover` 同一個算法，接受
- * 機率讀 `leyteAccept` —— 放置與地色同源。
+ * 粗的樹冠圖：一格一個高度場格子，值是那裡的**期望**覆蓋率（與
+ * `islandCanopyCover` 同一個算法）。開場先用它，`bakeLeyteCanopy` 在背景烘好
+ * 之後換掉 —— 換之前林子是一片平均的暗綠，換之後是一株一株的。
  */
-export function leyteCanopyCover(field: HeightFieldData): (x: number, z: number) => number {
-  return (x, z) => {
-    const h = field.sample(x, z)
-    const lambda = (leyteAccept(field, x, z, h) * (BROAD_AREA + BUSH_AREA))
-      / (ISLAND_GRID * ISLAND_GRID)
-    return 1 - Math.exp(-lambda)
+export function leyteCanopyCoarse(field: HeightFieldData): CanopyMap {
+  const size = field.size - 1
+  const half = (size * field.cell) / 2
+  const data = new Uint8Array(size * size)
+  for (let row = 0; row < size; row++) {
+    const z = -half + (row + 0.5) * field.cell
+    for (let col = 0; col < size; col++) {
+      const x = -half + (col + 0.5) * field.cell
+      const lambda = (leyteAccept(field, x, z, field.sample(x, z)) * (BROAD_AREA + BUSH_AREA))
+        / (ISLAND_GRID * ISLAND_GRID)
+      data[row * size + col] = Math.round((1 - Math.exp(-lambda)) * 255)
+    }
   }
+  return { data, size, half, texel: field.cell }
+}
+
+/** 樹冠圖一格幾公尺。樹冠半徑 5～10 m，一株落在一到幾格 */
+const CANOPY_TEXEL = 8
+/** 烘焙時一次跑多大一塊，m。只影響暫存緩衝的大小 */
+const CANOPY_CHUNK = 400
+
+/**
+ * 把場地裡**每一株**闊葉樹與灌木的樹冠印成一張俯視圖，給地面的 shader 畫
+ * （`render/leyteGround.ts`）。**載入期跑一次。**
+ *
+ * 【為什麼】立體的樹只生成到 `FLORA_RADIUS`，更遠的林子原本只有頂點色的
+ * 平均暗綠（80 m 一格），樹跑進範圍時是憑空冒出來的。這張圖的每一個暗點
+ * 就是那一株真的樹：**走的是同一支 `createLeyteFlora`**，位置、接受率、
+ * 大小完全相同 —— 樹進入範圍時是長在自己的暗點上。
+ *
+ * 【一株的份量守恆】樹冠面積照「離圓心多近」分給周圍幾格，再縮放到總和
+ * 等於樹冠面積 —— 比一格還小的灌木也只加它自己那麼多，不會整格塗滿。
+ * 同一格疊到滿就停在 255。
+ *
+ * 【整張場地要跑兩秒多】**在背景執行緒跑**（`render/canopyBake.ts`），主執行緒
+ * 不得直接呼叫 —— 會卡住畫面。
+ */
+export function bakeLeyteCanopy(field: HeightFieldData): CanopyMap {
+  const half = ((field.size - 1) * field.cell) / 2
+  const size = Math.round((2 * half) / CANOPY_TEXEL)
+  const texel = (2 * half) / size
+  const data = new Uint8Array(size * size)
+  const source = createLeyteFlora(field)
+  const buf = createFloraBuffer(8192)
+  const heightAt = (): number => 0
+  const w = new Float32Array(64)
+  for (let z0 = -half; z0 < half; z0 += CANOPY_CHUNK) {
+    for (let x0 = -half; x0 < half; x0 += CANOPY_CHUNK) {
+      buf.count = 0
+      buf.dropped = 0
+      source(x0, z0, Math.min(half, x0 + CANOPY_CHUNK), Math.min(half, z0 + CANOPY_CHUNK), heightAt, buf)
+      for (let k = 0; k < buf.count; k++) {
+        const o = k * FLORA_STRIDE
+        const x = buf.data[o]!
+        const z = buf.data[o + 2]!
+        const r = (buf.kind[k] === FloraKind.Bush ? BUSH_R : BROAD_CROWN_R) * buf.data[o + 4]!
+        // 樹冠圓涵蓋的格子，每格依「格心離圓心多近」給一個權重
+        const u = (x + half) / texel - 0.5
+        const v = (z + half) / texel - 0.5
+        const rt = r / texel
+        const c0 = Math.max(0, Math.floor(u - rt))
+        const c1 = Math.min(size - 1, Math.ceil(u + rt))
+        const r0 = Math.max(0, Math.floor(v - rt))
+        const r1 = Math.min(size - 1, Math.ceil(v + rt))
+        let sum = 0
+        let n = 0
+        for (let row = r0; row <= r1; row++) {
+          for (let col = c0; col <= c1; col++) {
+            const wt = Math.min(1, Math.max(0, rt + 0.5 - Math.hypot(col - u, row - v)))
+            if (n < w.length) w[n] = wt
+            sum += wt
+            n++
+          }
+        }
+        if (sum <= 0 || n > w.length) continue
+        const scale = (Math.PI * rt * rt) / sum
+        n = 0
+        for (let row = r0; row <= r1; row++) {
+          for (let col = c0; col <= c1; col++) {
+            const add = Math.round(w[n++]! * scale * 255)
+            const i = row * size + col
+            data[i] = Math.min(255, data[i]! + add)
+          }
+        }
+      }
+    }
+  }
+  return { data, size, half, texel }
 }
 
 /**
@@ -931,7 +1014,9 @@ export function createLeyteFlora(field: HeightFieldData): FloraSource {
         const z = (gz + 0.12 + (g / 4294967296) * 0.76) * ISLAND_GRID
         const g2 = hash1(g)
         // 【兩個候選各自過邊界】理由同 `createIslandFlora`
-        if (x >= x0 && x < x1 && z >= z0 && z < z1) {
+        // 【雜湊先比上限】接受率不會超過 `LEYTE_HILL_DENSITY`，雜湊超過它的候選
+        // 一定不長 —— 先擋掉就不用算接受率。結果逐位元相同，只是省時間
+        if (x >= x0 && x < x1 && z >= z0 && z < z1 && g2 / 4294967296 < LEYTE_HILL_DENSITY) {
           const h = field.sample(x, z)
           // 【嚴格小於】接受率 0（清空帶、沙灘）時雜湊剛好是 0 也不長
           if (g2 / 4294967296 < leyteAccept(field, x, z, h)) {
@@ -950,8 +1035,9 @@ export function createLeyteFlora(field: HeightFieldData): FloraSource {
         const bg = hash1(bh)
         const bz = (gz + 0.12 + (bg / 4294967296) * 0.76) * ISLAND_GRID
         if (bx < x0 || bx >= x1 || bz < z0 || bz >= z1) continue
-        const bhh = field.sample(bx, bz)
         const b2 = hash1(bg)
+        if (b2 / 4294967296 >= LEYTE_HILL_DENSITY * ISLAND_BUSH_RATIO) continue
+        const bhh = field.sample(bx, bz)
         if (b2 / 4294967296 >= leyteAccept(field, bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
         const b3 = hash1(b2)
         pushFlora(

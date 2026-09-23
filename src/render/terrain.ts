@@ -13,8 +13,9 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCover, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, type FloraSource,
 } from './flora'
+import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
 import { createLeyte, LEYTE_PEAK_MAX } from '../world/leyte'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
@@ -187,7 +188,13 @@ export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
 function createLeyteTerrain(): Terrain {
   const { field, hills } = createLeyte()
   const ocean = createOcean(bakeShore(field))
-  const ground = createLeyteGround(field, leyteCanopyCover(field))
+  // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
+  // 平均暗綠。場已經收掉的話不換
+  const ground = createLeyteGround(field, leyteCanopyCoarse(field))
+  let disposed = false
+  void requestLeyteCanopy()?.then((map) => {
+    if (map !== null && !disposed) ground.setCanopy(map)
+  })
   // 【容量是雷伊泰自己的】樹是闊葉樹，而群島的闊葉池只留了 16 格防呆 ——
   // 超出的由 `stats.overflow` 靜靜丟掉。半徑用預設的 6 km：群島的 12 km 是建立
   // 在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，照搬的話非空的格子
@@ -231,6 +238,7 @@ function createLeyteTerrain(): Terrain {
     },
     settle() { flora.settle() },
     dispose() {
+      disposed = true
       ocean.dispose()
       ground.dispose()
       flora.dispose()
