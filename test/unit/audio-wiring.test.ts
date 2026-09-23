@@ -569,9 +569,12 @@ describe('世界的聲音淡入', () => {
    */
   it('主 context 從停轉播時淡入，已經在播時不動', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function applyRunState('), ENGINE.indexOf('function gainOf('))
-    expect(fn).toContain('if (run && !running) fadeIn(RESUME_FADE_IN)')
+    expect(fn).toContain('fadeIn(RESUME_FADE_IN)')
     expect(fn).toContain('running = run')
     expect(fn.indexOf('running = run')).toBeGreaterThan(fn.indexOf('if (run && !running)'))
+    // 【限幅器的緩衝也在這一支清】它在 `fade` 下游，留著的是乘過舊增益的樣本
+    expect(fn.indexOf('resetLimiter()')).toBeGreaterThan(fn.indexOf('if (run && !running)'))
+    expect(fn.indexOf('resetLimiter()')).toBeLessThan(fn.indexOf('fadeIn(RESUME_FADE_IN)'))
   })
 
   /**

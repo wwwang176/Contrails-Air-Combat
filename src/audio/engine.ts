@@ -2,7 +2,9 @@ import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scen
 import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
-import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
+import {
+  DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
+} from './pick'
 
 /**
  * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
@@ -206,6 +208,11 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   scene.add(root)
 
   const buffers = new Map<string, AudioBuffer>()
+  /**
+   * 每個檔上一次發聲的時刻。**同檔去相關用** —— 同時播兩份是完全同相、
+   * 直接 +6 dB，所以窗內的第二份錯開幾毫秒再出來（`decorrelateDelay`）。
+   */
+  const lastPlayed = new Map<string, number>()
   const makeup = new Map<string, number>()
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
@@ -452,17 +459,22 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
     a.gain.gain.setValueAtTime(dbToGain(baseDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
+    // 【同檔錯開】窗內再播同一個檔就延後幾毫秒。**不動起始位置** ——
+    // 跳掉開頭會裁掉起音（`hit-1` 的峰值就在前 15 ms 裡）
+    const since = ctx.currentTime - (lastPlayed.get(file) ?? -Infinity)
+    const delay = extraDelay + (since < DECORRELATE_WINDOW ? decorrelateDelay(Math.random) : 0)
+    lastPlayed.set(file, ctx.currentTime)
     const rate = randomRate(Math.random) * rateScale
     a.setPlaybackRate(rate * timeScale)
     // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依鏡頭移動提前或延後
     if (loc && d > 0) {
       pick.waitingSince = ctx.currentTime
-      pick.waitDelay = extraDelay
+      pick.waitDelay = delay
       pick.waitRate = rate
       pick.waitMax = spec.max
     } else {
       placePanner(pick)
-      a.play(extraDelay)
+      a.play(delay)
     }
   }
 
