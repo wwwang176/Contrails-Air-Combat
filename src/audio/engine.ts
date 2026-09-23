@@ -175,6 +175,31 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   listener.gain.disconnect()
   listener.gain.connect(fade)
   fade.connect(ctx.destination)
+  /**
+   * 限幅器。**接上之前先直通** —— `addModule` 是非同步的，而且可能失敗。
+   *
+   * 【兩種失敗都要旁路】載入失敗不插節點；載好之後 `process()` 拋例外會觸發
+   * `processorerror`，那個節點從此永遠輸出靜音，而它在最後一道 —— 症狀是
+   * 整場突然全部沒聲音。
+   */
+  let limiter: AudioWorkletNode | null = null
+  void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
+    const node = new AudioWorkletNode(ctx, 'limiter')
+    node.onprocessorerror = () => {
+      limiter = null
+      fade.disconnect()
+      node.disconnect()
+      fade.connect(ctx.destination)
+    }
+    fade.disconnect()
+    fade.connect(node)
+    node.connect(ctx.destination)
+    limiter = node
+  }).catch(() => { limiter = null })
+  /** 清掉預看緩衝裡那幾毫秒 —— 它們是乘過舊淡入增益的樣本 */
+  function resetLimiter(): void {
+    limiter?.port.postMessage('reset')
+  }
   const fadeCurve = fadeInCurve(FADE_POINTS)
   const root = new Object3D()
   root.name = 'audio'
@@ -301,7 +326,12 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【從停到播才淡入】已經在播時再叫一次 setPaused(false)，聲音不能被拉回 0。
     // suspend 中 `currentTime` 不走，排下去的曲線等 resume 之後才開始
     const run = unlocked && !muted && !paused
-    if (run && !running) fadeIn(RESUME_FADE_IN)
+    // 【恢復前先清限幅器】它的預看緩衝在 `fade` 下游，裡面那幾毫秒是乘過舊
+    // 淡入增益的樣本；不清的話恢復的一瞬間會先漏出去，聽起來是一個爆點
+    if (run && !running) {
+      resetLimiter()
+      fadeIn(RESUME_FADE_IN)
+    }
     running = run
     runChain = runChain.then(() => {
       const run = unlocked && !muted && !paused
@@ -593,6 +623,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       s.file = null
       s.next = undefined
     }
+    // 【換場也要清】停掉來源不等於清掉限幅器裡那幾毫秒
+    resetLimiter()
   }
 
   async function loadAll(): Promise<void> {
