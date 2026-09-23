@@ -1,7 +1,9 @@
 import { isGrass } from './island'
-import { BUSH_R, CONE_CROWN_R } from './floraShapes'
+import { isLeyteGrass } from './leyteGround'
+import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from './floraShapes'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
+import { distanceToRoad, PLAIN_HEIGHT, ROAD_TREE_CLEAR } from '../world/leyte'
 import {
   edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
   HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
@@ -838,6 +840,113 @@ export function createIslandFlora(
         if (!isGrass(bhh)) continue
         const b2 = hash1(bg)
         if (b2 / 4294967296 > islandAccept(field, isl.peak, bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
+        const b3 = hash1(b2)
+        pushFlora(
+          out, bx, heightAt(bx, bz), bz, (b3 / 4294967296) * Math.PI * 2,
+          BUSH_SCALE[0] + (hash1(b3) / 4294967296) * (BUSH_SCALE[1] - BUSH_SCALE[0]),
+          (hash1(b3 ^ 0x71a5) & 0xff) / 255, FloraKind.Bush,
+        )
+      }
+    }
+  }
+}
+
+/**
+ * 雷伊泰平地上的密度相對丘陵頂。**平地的樹少** —— 平地取代了水田，看起來
+ * 該是開闊地夾著零星的林子。**起始值，由試飛裁定。**
+ */
+export const LEYTE_PLAIN_DENSITY = 0.08
+/** 高出平地這麼多就是滿密度，m。丘陵的山腰往上是林子 */
+const LEYTE_HILL_FULL = 40
+
+/**
+ * 雷伊泰一個候選點的接受機率。**放置與地色共用這一支**（同 `islandAccept`）。
+ *
+ * 沙灘與公路清空帶是 0；平地是 `LEYTE_PLAIN_DENSITY`；高出平地
+ * `LEYTE_HILL_FULL` 就是 1。再乘上成叢遮罩、除以坡度（同群島）。
+ *
+ * 【清空帶讀 `distanceToRoad`】路的座標只有 `LEYTE_ROAD` 一份 —— 車隊、路面
+ * 與這裡讀的是同一條折線。
+ */
+export function leyteAccept(field: HeightFieldData, x: number, z: number, h: number): number {
+  if (!isLeyteGrass(h)) return 0
+  if (distanceToRoad(x, z) < ROAD_TREE_CLEAR) return 0
+  const cell = field.cell
+  const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
+  const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
+  const up = Math.min(1, Math.max(0, (h - PLAIN_HEIGHT) / LEYTE_HILL_FULL))
+  return (LEYTE_PLAIN_DENSITY + (1 - LEYTE_PLAIN_DENSITY) * up) * islandClump(x, z)
+    / Math.hypot(1, Math.hypot(dx, dz))
+}
+
+/** 一格裡一株闊葉樹的期望樹冠面積，m² */
+const BROAD_AREA = Math.PI * BROAD_CROWN_R * BROAD_CROWN_R * E_SCALE2
+
+/**
+ * 雷伊泰的地被樹冠遮住多少，0～1。與 `islandCanopyCover` 同一個算法，接受
+ * 機率讀 `leyteAccept` —— 放置與地色同源。
+ */
+export function leyteCanopyCover(field: HeightFieldData): (x: number, z: number) => number {
+  return (x, z) => {
+    const h = field.sample(x, z)
+    const lambda = (leyteAccept(field, x, z, h) * (BROAD_AREA + BUSH_AREA))
+      / (ISLAND_GRID * ISLAND_GRID)
+    return 1 - Math.exp(-lambda)
+  }
+}
+
+/**
+ * 雷伊泰的闊葉樹與灌木。**網格走法與 `createIslandFlora` 相同**：一格一棵樹
+ * 加一叢灌木的候選，座標只由全域索引決定（檔頭的鐵律）。
+ *
+ * 【整格早退】tile 的四角與中心全部是沙灘或海就跳過。一片陸地伸進 tile 中間
+ * 而五個取樣點都落在水裡的情形只丟掉幾棵岸邊的樹。
+ */
+export function createLeyteFlora(field: HeightFieldData): FloraSource {
+  return (x0, z0, x1, z1, heightAt, out) => {
+    const mx = (x0 + x1) / 2
+    const mz = (z0 + z1) / 2
+    if (
+      !isLeyteGrass(field.sample(x0, z0)) && !isLeyteGrass(field.sample(x1, z0))
+      && !isLeyteGrass(field.sample(x0, z1)) && !isLeyteGrass(field.sample(x1, z1))
+      && !isLeyteGrass(field.sample(mx, mz))
+    ) return
+
+    const g0 = Math.floor(x0 / ISLAND_GRID)
+    const g1 = Math.floor(x1 / ISLAND_GRID)
+    const h0 = Math.floor(z0 / ISLAND_GRID)
+    const h1 = Math.floor(z1 / ISLAND_GRID)
+    for (let gz = h0; gz <= h1; gz++) {
+      for (let gx = g0; gx <= g1; gx++) {
+        // ── 樹 ──────────────────────────────────────────
+        const hh = hash2(gx, gz ^ 0x1d7b)
+        const x = (gx + 0.12 + (hh / 4294967296) * 0.76) * ISLAND_GRID
+        const g = hash1(hh)
+        const z = (gz + 0.12 + (g / 4294967296) * 0.76) * ISLAND_GRID
+        const g2 = hash1(g)
+        // 【兩個候選各自過邊界】理由同 `createIslandFlora`
+        if (x >= x0 && x < x1 && z >= z0 && z < z1) {
+          const h = field.sample(x, z)
+          // 【嚴格小於】接受率 0（清空帶、沙灘）時雜湊剛好是 0 也不長
+          if (g2 / 4294967296 < leyteAccept(field, x, z, h)) {
+            const g3 = hash1(g2)
+            pushFlora(
+              out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+              TREE_SCALE[0] + (hash1(g3) / 4294967296) * (TREE_SCALE[1] - TREE_SCALE[0]),
+              (hash1(g3 ^ 0x3c1f) & 0xff) / 255, FloraKind.BroadTree,
+            )
+          }
+        }
+
+        // ── 同一格的灌木 ────────────────────────────────
+        const bh = hash2(gx ^ 0x5ac3, gz)
+        const bx = (gx + 0.12 + (bh / 4294967296) * 0.76) * ISLAND_GRID
+        const bg = hash1(bh)
+        const bz = (gz + 0.12 + (bg / 4294967296) * 0.76) * ISLAND_GRID
+        if (bx < x0 || bx >= x1 || bz < z0 || bz >= z1) continue
+        const bhh = field.sample(bx, bz)
+        const b2 = hash1(bg)
+        if (b2 / 4294967296 >= leyteAccept(field, bx, bz, bhh) * ISLAND_BUSH_RATIO) continue
         const b3 = hash1(b2)
         pushFlora(
           out, bx, heightAt(bx, bz), bz, (b3 / 4294967296) * Math.PI * 2,

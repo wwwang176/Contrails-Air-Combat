@@ -12,9 +12,11 @@ import {
   ISLAND_TILES_PER_FRAME,
 } from './vegetation'
 import {
-  createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora, islandCanopyCover,
-  type FloraSource,
+  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
+  islandCanopyCover, leyteCanopyCover, type FloraSource,
 } from './flora'
+import { createLeyteGround } from './leyteGround'
+import { createLeyte, LEYTE_PEAK_MAX } from '../world/leyte'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
@@ -169,8 +171,71 @@ export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
+  if (kind === 'leyte') return createLeyteTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
+}
+
+/**
+ * 雷伊泰：半邊是海、半邊是平坦的大島。**海面、浪花、地面網格與植被的機制
+ * 照群島**，差別在生成器（`world/leyte.ts`）、切成方塊的地面與路（`leyteGround.ts`）、
+ * 闊葉樹（`createLeyteFlora`）。
+ *
+ * 【children 的順序照群島】0 遠海、1 海、2 陸地、3 植被 —— 前三個是 `main.ts`
+ * 的 `__gfx` 與工具共用的索引契約。
+ */
+function createLeyteTerrain(): Terrain {
+  const { field, hills } = createLeyte()
+  const ocean = createOcean(bakeShore(field))
+  const ground = createLeyteGround(field, leyteCanopyCover(field))
+  // 【容量用內陸那一組，不用群島的】雷伊泰的樹是闊葉樹，而群島的闊葉池只留
+  // 了 16 格防呆 —— 超出的由 `stats.overflow` 靜靜丟掉。半徑也用預設的 6 km：
+  // 群島的 12 km 是建立在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，
+  // 照搬的話非空的格子多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
+  const flora = createVegetation(
+    [createLeyteFlora(field)], (x, z) => field.sample(x, z),
+    { maxPerTile: ISLAND_MAX_PER_TILE },
+  )
+  const group = new Group()
+  group.add(ocean.farMesh)
+  group.add(ocean.mesh)
+  group.add(ground.object)
+  group.add(flora.object)
+
+  return {
+    object: group,
+    heightAt(x, z, time) {
+      const h = field.sample(x, z)
+      const sea = ocean.heightAt(x, z, time)
+      return h > sea ? h : sea
+    },
+    collisionHeightAt(x, z) {
+      const h = field.sample(x, z)
+      return h > 0 ? h : 0
+    },
+    waterAt(x, z) {
+      const h = field.sample(x, z)
+      const sea = ocean.heightAt(x, z, 0)
+      return h > sea ? -Infinity : sea
+    },
+    islands: hills,
+    land: { field, ceiling: LEYTE_PEAK_MAX, landAbove: 0 },
+    fieldClip: null,
+    setPalette(p) {
+      ocean.setPalette(p)
+      flora.setPointLight(p.foliage)
+    },
+    update(time, centerX, centerZ) {
+      ocean.update(time, centerX, centerZ)
+      flora.update(centerX, centerZ)
+    },
+    settle() { flora.settle() },
+    dispose() {
+      ocean.dispose()
+      ground.dispose()
+      flora.dispose()
+    },
+  }
 }
 
 function createSeaTerrain(): Terrain {

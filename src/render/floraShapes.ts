@@ -44,7 +44,8 @@ export const POINT_POOLS: readonly PoolName[] = ['broadPoint', 'conePoint', 'bus
  * 都不動。分開寫死的話，改了一級忘了另一級，症狀就是過門檻時樹冠跳位置。
  */
 const BROAD_CROWN_Y0 = 10
-const BROAD_CROWN_R = 10
+/** 【匯出是給 `flora.ts` 算雷伊泰的樹冠覆蓋率的】 */
+export const BROAD_CROWN_R = 10
 const BROAD_CROWN_RY = 10
 const BROAD_CROWN_CY = 20
 const CONE_CROWN_Y0 = 8
