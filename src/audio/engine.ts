@@ -1,14 +1,23 @@
-import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
+import { Audio, Vector3, type Camera } from 'three'
+import { PannedAudio, SilentListener } from './spatial'
+import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
-import { LAYER_DB, layerDelay, pickNoRepeat, randomRate } from './pick'
+import {
+  HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
+} from './dynamics'
+import { audioLag, toDb, type MeterSample } from './meter'
+import { MIX_HEADROOM_DB } from './volume'
+import {
+  DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
+} from './pick'
 
 /**
  * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
  *
- * - **單次音效**：一個聲道池，全部是 `PositionalAudio`。要定位的放在世界座標；
- *   不定位的（自己身上的聲音）掛在鏡頭上，跟著鏡頭走、永遠在正中間。池滿丟最不響的。
+ * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
+ *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
  * - **定位循環**：引擎 8、開火 6、砲塔 6 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
@@ -75,6 +84,11 @@ export interface AudioEngine {
   endFrame(): void
   /** 離開戰鬥：停掉所有聲音 */
   stopAll(): void
+  /**
+   * 現在的輸出峰值、限幅器壓了多少、HDR 的窗口與同時發聲數。**給錶用。**
+   * 限幅器沒接上時壓縮量恆為 0。
+   */
+  meter(out: MeterSample): void
 }
 
 /**
@@ -82,8 +96,8 @@ export interface AudioEngine {
  * 爆炸又疊兩層，而爆炸聲長達兩三秒 —— 聲道不夠時後面的炸彈整個沒聲音。
  *
  * 【40 不夠】艦隊防空的關卡實測：120 秒裡艦砲要求 1,573 次、被擋掉 365 次，
- * 空聲道長時間掛在 0，連軍火爆炸也被擋掉 21/54。一個聲道是一個 PannerNode
- * 加兩級低通，加到 64 的成本可以忽略。
+ * 空聲道長時間掛在 0，連軍火爆炸也被擋掉 21/54。一個聲道是兩級低通加四個
+ * 增益；沒在響的會拔掉出口（`PannedAudio.sleep`），不佔音訊執行緒。
  */
 const ONE_SHOT_VOICES = 64
 /** 空聲道少於這個數就不疊第二層 —— 先保證每一件事都發得出聲 */
@@ -95,10 +109,14 @@ const LAYER_MIN_FREE = 16
  * 一兩秒 —— 它一類就能把池子吃光，於是同一刻的軍火爆炸整個沒聲音。配額滿了
  * 的那一類只能搶自己人，搶不到別人的份。
  *
- * 【爆炸不設限】它是天花板，該蓋過其他東西。
+ * 【爆炸也要有上限】它是天花板沒錯，但一波齊投幾十顆同時落地時，十幾份
+ * 「+6 類別 ＋最多 +6 當量 ＋第二層」疊起來遠超過喇叭的上限，限幅器只好一次
+ * 壓掉 8～10 dB —— 那個擠壓感就是玩家聽到的「爆音」。**多出來的那幾份本來
+ * 也分不出來**：同一刻十顆與十五顆爆炸，人耳聽起來一樣。
  */
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
+  explosion: 8, blast: 8,
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
@@ -107,15 +125,26 @@ const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 
 const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
+/** 左右矩陣逐幀平滑的時間常數，s。約一幀：快速掠過的飛機不會一格一格跳 */
+const PAN_SMOOTH = 0.02
+/** 聽者朝向的暫存 */
+const _axis = new Vector3()
+/** 截止頻率變動小於這個比例就不重排（約半個全音，聽不出來） */
+const CUTOFF_STEP = 0.03
 /** 暫停、切分頁、關音量之後恢復的淡入，s */
 const RESUME_FADE_IN = 0.8
+/** 讀錶間隔超過這個秒數就重新對齊兩個時鐘 —— 分頁在背景時畫面不跑 */
+const LAG_REANCHOR = 0.5
 /** 淡入曲線的點數。曲線點之間是線性內插，32 點已經聽不出折角 */
 const FADE_POINTS = 32
 
 interface Voice {
-  audio: PositionalAudio
-  /** 這一聲屬於哪一類。配額用 */
+  audio: PannedAudio
+  /** 這一聲屬於哪一類。配額與 HDR 用 */
   cat: Category | null
+  /** 這一份的素材包絡（`manifest.json` 的 `envelopeDb`）與開始播的時刻 */
+  envelope: readonly number[] | undefined
+  startedAt: number
   filters: BiquadFilterNode[]
   /** 離鏡頭多遠；不定位的是 0 */
   distance: number
@@ -140,16 +169,20 @@ interface Voice {
    * 只看距離的話，貼著船打會是清脆的金屬聲 —— 像打鋁罐。
    */
   maxCutoff: number
+  /** 上一次排下去的截止頻率，Hz。見 `setCutoff` */
+  cutoff: number
 }
 
 interface LoopVoice {
-  audio: PositionalAudio
+  audio: PannedAudio
   filters: BiquadFilterNode[]
   key: number
   file: string
   assigned: boolean
   /** 淡出中：到這個時間（context 秒）就停掉放掉。−1 = 沒在淡出 */
   releaseAt: number
+  /** 上一次排下去的截止頻率，Hz。見 `setCutoff` */
+  cutoff: number
 }
 
 interface SelfVoice {
@@ -163,8 +196,8 @@ interface SelfVoice {
   gain: number
 }
 
-export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
-  const listener = new AudioListener()
+export function createAudioEngine(camera: Camera): AudioEngine {
+  const listener = new SilentListener()
   camera.add(listener)
   const ctx = listener.context
   /**
@@ -175,13 +208,87 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   listener.gain.disconnect()
   listener.gain.connect(fade)
   fade.connect(ctx.destination)
+  /**
+   * 限幅器。**接上之前先直通** —— `addModule` 是非同步的，而且可能失敗。
+   *
+   * 【兩種失敗都要旁路】載入失敗不插節點；載好之後 `process()` 拋例外會觸發
+   * `processorerror`，那個節點從此永遠輸出靜音，而它在最後一道 —— 症狀是
+   * 整場突然全部沒聲音。
+   */
+  let limiter: AudioWorkletNode | null = null
+  void ctx.audioWorklet?.addModule(assetUrl('/audio/limiter.js')).then(() => {
+    const node = new AudioWorkletNode(ctx, 'limiter')
+    node.port.onmessage = (e: MessageEvent) => {
+      const d = e.data as { gain?: number; peak?: number }
+      if (typeof d.gain === 'number') limGain = d.gain
+      if (typeof d.peak === 'number') limPeak = d.peak
+    }
+    node.onprocessorerror = () => {
+      limiter = null
+      fade.disconnect()
+      node.disconnect()
+      fade.connect(ctx.destination)
+    }
+    fade.disconnect()
+    fade.connect(node)
+    node.connect(ctx.destination)
+    limiter = node
+  }).catch(() => { limiter = null })
+  /**
+   * 試聽用的開關：在主控台打 `__audioMix({ limiter: false })` 可以當場拆掉
+   * 限幅器、`{ hdr: false }` 關掉動態窗口，比對某個怪聲是哪一層造成的。
+   *
+   * 【為什麼留在正式程式裡】這兩層都是聽感的東西，而聽感只能靠人耳裁定。
+   * 沒有開關的話，每次懷疑都要改程式重載一次。與 `__gfx`、`__bombs` 同一類。
+   */
+  ;(globalThis as unknown as Record<string, unknown>)['__audioMix'] = (
+    opt?: { limiter?: boolean; hdr?: boolean },
+  ) => {
+    if (opt?.limiter === false && limiter !== null) {
+      fade.disconnect()
+      limiter.disconnect()
+      fade.connect(ctx.destination)
+      limiter = null
+    }
+    if (opt?.hdr !== undefined) hdrOn = opt.hdr
+    return { limiter: limiter !== null, hdr: hdrOn }
+  }
+
+  /** 清掉預看緩衝裡那幾毫秒 —— 它們是乘過舊淡入增益的樣本 */
+  function resetLimiter(): void {
+    limiter?.port.postMessage('reset')
+  }
   const fadeCurve = fadeInCurve(FADE_POINTS)
-  const root = new Object3D()
-  root.name = 'audio'
-  scene.add(root)
+  /** 這一刻的聽者：鏡頭的位置與朝向。定位聲道的左右由它算 */
+  const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
+  /** 左右矩陣的暫存，逐幀重用 */
+  const panOut = new Float32Array(4)
 
   const buffers = new Map<string, AudioBuffer>()
+  /**
+   * 每個檔上一次發聲的時刻。**同檔去相關用** —— 同時播兩份是完全同相、
+   * 直接 +6 dB，所以窗內的第二份錯開幾毫秒再出來（`decorrelateDelay`）。
+   */
+  const lastPlayed = new Map<string, number>()
   const makeup = new Map<string, number>()
+  /** 每個檔的素材包絡，每 `ENVELOPE_STEP` 秒一格、相對自己最響的那一格 */
+  const envelopes = new Map<string, readonly number[]>()
+  /**
+   * HDR 的當下最響值，dB。**立即跟上新的峰值、慢慢釋放** —— 見 `dynamics.ts`。
+   * 暫停與切分頁保留（場面沒變），`stopAll` 歸零（上一場的窗口不帶進新的一場）。
+   */
+  let loudest = HDR_ABS_FLOOR_DB
+  /** 動態窗口開著沒有。試聽用，見 `__audioMix` */
+  let hdrOn = true
+  /** 限幅器回報的最近一批：增益（線性）與輸入峰值。見 `public/audio/limiter.js` */
+  let limGain = 1
+  let limPeak = 0
+  /** 累計把還在響的聲音直接切掉幾次。給錶用 */
+  let cuts = 0
+  /** 音訊時鐘落後量的起算點（牆上時鐘、音訊時鐘，秒）與上一次讀錶的牆上時間 */
+  let lagWall = 0
+  let lagCtx = 0
+  let lagReadAt = -Infinity
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
   /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
@@ -219,42 +326,56 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 定位的聲道。**兩級低通串接**（24 dB/八度）—— 真實的空氣吸收在高頻掉得很陡
    * （1 km 外的 8 kHz 掉 78 dB），一級只有 12 dB/八度，遠處的爆炸還會留著脆度。
    */
-  function positional(): { audio: PositionalAudio; filters: BiquadFilterNode[] } {
-    const audio = new PositionalAudio(listener)
-    audio.panner.panningModel = 'equalpower'
-    audio.setDistanceModel('inverse')
-    audio.setRolloffFactor(1)
+  function positional(): { audio: PannedAudio; filters: BiquadFilterNode[] } {
+    const audio = new PannedAudio(listener)
     const filters = [lowpass(), lowpass()]
     audio.setFilters(filters)
     return { audio, filters }
   }
 
-  /**
-   * 把聲源座標直接寫進 panner。**每次開始播之前都要做。**
-   *
-   * 【three 只在播放中同步位置】`PositionalAudio.updateMatrixWorld` 在
-   * `isPlaying === false` 時直接返回，所以等音波的期間 panner 停在上一個聲音那裡；
-   * 而它同步時是用一幀長度的漸變，起音那一下會從舊位置滑過來 —— 方向與距離都錯。
-   */
-  function placePanner(v: Voice): void {
-    // 定位的掛在 root（原點、無旋轉），區域座標就是世界座標；不定位的掛在鏡頭上
-    const p = v.positioned ? v.audio.position : camera.position
-    const q = v.audio.panner
-    const now = ctx.currentTime
-    if (q.positionX !== undefined) {
-      q.positionX.cancelScheduledValues(now)
-      q.positionY.cancelScheduledValues(now)
-      q.positionZ.cancelScheduledValues(now)
-      q.positionX.setValueAtTime(p.x, now)
-      q.positionY.setValueAtTime(p.y, now)
-      q.positionZ.setValueAtTime(p.z, now)
-    } else {
-      q.setPosition(p.x, p.y, p.z)
-    }
+  /** 鏡頭的位置與朝向寫進 `pose`。鏡頭在場景最上層，區域座標就是世界座標 */
+  function readPose(): void {
+    const p = camera.position
+    pose.px = p.x
+    pose.py = p.y
+    pose.pz = p.z
+    _axis.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    pose.fx = _axis.x
+    pose.fy = _axis.y
+    pose.fz = _axis.z
+    _axis.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    pose.ux = _axis.x
+    pose.uy = _axis.y
+    pose.uz = _axis.z
   }
 
-  function setCutoff(filters: BiquadFilterNode[], hz: number, now: number, ramp: number): void {
-    for (const f of filters) {
+  /**
+   * 算左右矩陣並套上。不定位的在正中間、不衰減。聲源座標就是 `audio.position`。
+   * `smooth` 0 = 立刻到位 —— **每次開始播之前都要這樣叫一次**，否則起音那一下
+   * 還是上一個聲音的方向與距離。
+   */
+  function pan(a: PannedAudio, positioned: boolean, distance: number, ref: number, rolloff: number,
+    now: number, smooth: number): void {
+    const p = a.position
+    const az = positioned ? azimuthDeg(p.x, p.y, p.z, pose) : 0
+    const g = positioned ? inverseDistanceGain(distance, ref, rolloff) : 1
+    equalPowerMatrix(az, a.stereo, g, panOut)
+    a.setPan(panOut, now, smooth)
+  }
+
+  function panVoice(v: Voice, now: number, smooth: number): void {
+    pan(v.audio, v.positioned, v.distance, v.ref, v.rolloff, now, smooth)
+  }
+
+  /**
+   * 排截止頻率。`ramp` 為 0 是立刻設（起播），否則只在變動超過 `CUTOFF_STEP`
+   * 才重排 —— 距離每幀都在變，照排的話兩級低通一直有排程，Chrome 就一直走
+   * 逐取樣重算係數的路徑。
+   */
+  function setCutoff(v: { filters: BiquadFilterNode[]; cutoff: number }, hz: number, now: number, ramp: number): void {
+    if (ramp > 0 && Math.abs(hz - v.cutoff) <= v.cutoff * CUTOFF_STEP) return
+    v.cutoff = hz
+    for (const f of v.filters) {
       if (ramp > 0) f.frequency.setTargetAtTime(hz, now, ramp)
       else f.frequency.setValueAtTime(hz, now)
     }
@@ -263,10 +384,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   const voices: Voice[] = []
   for (let i = 0; i < ONE_SHOT_VOICES; i++) {
     const v = positional()
-    root.add(v.audio)
     voices.push({
-      ...v, cat: null, distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
-      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
+      ...v, cat: null, envelope: undefined, startedAt: 0,
+      distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
+      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND, cutoff: FULL_BAND,
     })
   }
 
@@ -275,8 +396,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     for (let i = 0; i < LOOP_VOICES[pool]; i++) {
       const v = positional()
       v.audio.setLoop(true)
-      root.add(v.audio)
-      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1 })
+      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1, cutoff: FULL_BAND })
     }
   }
 
@@ -301,7 +421,12 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【從停到播才淡入】已經在播時再叫一次 setPaused(false)，聲音不能被拉回 0。
     // suspend 中 `currentTime` 不走，排下去的曲線等 resume 之後才開始
     const run = unlocked && !muted && !paused
-    if (run && !running) fadeIn(RESUME_FADE_IN)
+    // 【恢復前先清限幅器】它的預看緩衝在 `fade` 下游，裡面那幾毫秒是乘過舊
+    // 淡入增益的樣本；不清的話恢復的一瞬間會先漏出去，聽起來是一個爆點
+    if (run && !running) {
+      resetLimiter()
+      fadeIn(RESUME_FADE_IN)
+    }
     running = run
     runChain = runChain.then(() => {
       const run = unlocked && !muted && !paused
@@ -338,7 +463,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     if (uiCtx === null) {
       uiCtx = new AudioContext()
       uiGain = uiCtx.createGain()
-      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb)
+      // 【與世界吃同一份餘裕】少加的話按鈕會比戰場大一截
+      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb + MIX_HEADROOM_DB)
       uiGain.connect(uiCtx.destination)
     }
     // 【每次都叫 resume】分頁切回來時瀏覽器會把它擱在 suspended
@@ -369,6 +495,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【比響度不比距離】一波投彈同時有幾十聲，只比距離的話遠處一聲呼嘯會卡住近處的爆炸
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
     const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d, spec.rolloff ?? 1)
+    // 【HDR：太小聲的根本不發】保底類別不吃窗口（警告、無線電、自己的聲音）
+    const exempt = !hdrOn || HDR_EXEMPT.has(cat)
+    if (!exempt && loud < hdrFloorDb(loudest)) return
     // 【配額滿了只能搶自己人】否則一類就能把整池吃光，見 `VOICE_QUOTA`
     const quota = VOICE_QUOTA[cat] ?? ONE_SHOT_VOICES
     let mine = 0
@@ -391,11 +520,16 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       if (v.loudness < pick.loudness) pick = v
     }
     if (pick === null || (pickBusy && pick.loudness >= loud)) return
-    if (pick.audio.isPlaying) pick.audio.stop()
+    if (pick.audio.isPlaying) {
+      pick.audio.stop()
+      cuts++
+    }
     pick.waitingSince = -1
 
     const a = pick.audio
     pick.cat = cat
+    pick.envelope = envelopes.get(file)
+    pick.startedAt = ctx.currentTime
     pick.distance = d
     pick.baseDb = baseDb
     pick.positioned = loc
@@ -404,35 +538,31 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     pick.loudness = loud
     pick.maxCutoff = cutoffHz
     lastFreeVoices = free
-    if (loc) {
-      if (a.parent !== root) root.add(a)
-      a.position.set(x, y, z)
-      a.setRefDistance(spec.ref)
-      a.setRolloffFactor(spec.rolloff ?? 1)
-      setCutoff(pick.filters, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
-    } else {
-      // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
-      if (a.parent !== camera) camera.add(a)
-      a.position.set(0, 0, 0)
-      a.setRefDistance(1)
-      a.setRolloffFactor(0)
-      setCutoff(pick.filters, cutoffHz, ctx.currentTime, 0)
-    }
+    // 【不定位的永遠在正中間】它跟著鏡頭走，不看座標
+    if (loc) a.position.set(x, y, z)
+    setCutoff(pick, loc ? Math.min(distanceCutoffHz(d), cutoffHz) : cutoffHz, ctx.currentTime, 0)
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
-    a.gain.gain.setValueAtTime(dbToGain(baseDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
+    a.gain.gain.setValueAtTime(
+      dbToGain(baseDb + (loc ? absorptionDb(d) : 0) + (exempt ? 0 : hdrDuckDb(loud, loudest))),
+      ctx.currentTime)
+    // 【同檔錯開】窗內再播同一個檔就延後幾毫秒。**不動起始位置** ——
+    // 跳掉開頭會裁掉起音（`hit-1` 的峰值就在前 15 ms 裡）
+    const since = ctx.currentTime - (lastPlayed.get(file) ?? -Infinity)
+    const delay = extraDelay + (since < DECORRELATE_WINDOW ? decorrelateDelay(Math.random) : 0)
+    lastPlayed.set(file, ctx.currentTime)
     const rate = randomRate(Math.random) * rateScale
     a.setPlaybackRate(rate * timeScale)
     // 【定位的先等音波】`start()` 排下去就改不了了，等待期間要能依鏡頭移動提前或延後
     if (loc && d > 0) {
       pick.waitingSince = ctx.currentTime
-      pick.waitDelay = extraDelay
+      pick.waitDelay = delay
       pick.waitRate = rate
       pick.waitMax = spec.max
     } else {
-      placePanner(pick)
-      a.play(extraDelay)
+      panVoice(pick, ctx.currentTime, 0)
+      a.play(delay)
     }
   }
 
@@ -496,29 +626,77 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 【為什麼不能只在起播時算一次】爆炸、呼嘯都有兩三秒，那段時間玩家可能已經
    * 俯衝進去了 —— 凍住的話會聽到近在眼前卻悶悶的爆炸，而且怎麼靠近都不會變清晰。
    */
-  function updateVoices(): void {
-    const now = ctx.currentTime
+  /**
+   * 這一幀的即時峰值：每個還在響的聲音，響度加上素材包絡的那一格。
+   *
+   * 【一定要含包絡】只看類別增益與距離的話，一顆七秒的爆炸從頭到尾都被當成
+   * 一樣響，窗口會被它頂住七秒 —— 背景要等檔案播完才回得來。
+   */
+  function framePeak(now: number): number {
+    let peak = HDR_ABS_FLOOR_DB
     for (const v of voices) {
-      if (!v.positioned || (!v.audio.isPlaying && v.waitingSince < 0)) continue
+      if (!v.audio.isPlaying || v.cat === null || HDR_EXEMPT.has(v.cat)) continue
+      const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
+      if (live > peak) peak = live
+    }
+    for (const pool of Object.keys(loops) as LoopPool[]) {
+      const cat = LOOP_CATEGORY[pool]
+      if (HDR_EXEMPT.has(cat)) continue
+      for (const v of loops[pool]) {
+        if (v.key === -1 || !v.audio.isPlaying) continue
+        const p = v.audio.position
+        const d = camDistance(p.x, p.y, p.z)
+        const spec = CATEGORY[cat]
+        const live = voiceLoudnessDb(
+          spec.gainDb + (makeup.get(v.file) ?? 0), spec.ref, d, spec.rolloff ?? 1)
+        if (live > peak) peak = live
+      }
+    }
+    return peak
+  }
+
+  function updateVoices(dt: number): void {
+    const now = ctx.currentTime
+    loudest = stepLoudest(loudest, framePeak(now), dt)
+    for (const v of voices) {
+      // 【播完的拔掉出口】見 `PannedAudio.wake`
+      if (!v.audio.isPlaying && v.waitingSince < 0) {
+        v.audio.sleep()
+        continue
+      }
+      if (!v.positioned) continue
       const p = v.audio.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
-      setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
-      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
-      if (v.waitingSince < 0) continue
+      setCutoff(v, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
+      // 【HDR 的衰減逐幀重算】鏡頭移動與素材衰減都會讓它變
+      const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
+      const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
+      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
+      if (v.waitingSince < 0) {
+        panVoice(v, now, PAN_SMOOTH)
+        continue
+      }
       // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
       if (d > v.waitMax) { v.waitingSince = -1; continue }
       if (!soundArrived(now - v.waitingSince, d)) continue
       v.waitingSince = -1
       v.audio.setPlaybackRate(v.waitRate * timeScale)
-      placePanner(v)
+      panVoice(v, now, 0)
       v.audio.play(v.waitDelay)
     }
   }
 
+  /** 上一次 `beginFrame` 的 context 時間，算 HDR 的釋放用。−1 = 還沒跑過 */
+  let lastFrameAt = -1
+
   function beginFrame(): void {
-    updateVoices()
+    const now = ctx.currentTime
+    const dt = lastFrameAt < 0 ? 0 : Math.max(0, now - lastFrameAt)
+    lastFrameAt = now
+    readPose()
+    updateVoices(dt)
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
 
@@ -541,10 +719,13 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     v.assigned = true
     v.releaseAt = -1
     v.audio.position.set(x, y, z)
-    v.audio.setRefDistance(CATEGORY[cat].ref)
-    setCutoff(v.filters, distanceCutoffHz(d), now, 0.1)
-    if (v.file !== file) {
-      if (v.audio.isPlaying) v.audio.stop()
+    setCutoff(v, distanceCutoffHz(d), now, 0.1)
+    const fresh = v.file !== file
+    if (fresh) {
+      if (v.audio.isPlaying) {
+        v.audio.stop()
+        cuts++
+      }
       v.file = file
       v.audio.setBuffer(buffer)
       v.audio.gain.gain.setValueAtTime(0, now)
@@ -552,8 +733,13 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       v.audio.offset = Math.random() * buffer.duration * 0.9
       v.audio.play()
     }
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d)), now, 0.1)
+    // 【循環音也吃 HDR】引擎在爆炸期間該退到背景，回來時照釋放速率浮上來
+    const live = voiceLoudnessDb(
+      CATEGORY[cat].gainDb + (makeup.get(file) ?? 0), CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
+    const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
+    pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)
   }
 
   function endFrame(): void {
@@ -566,6 +752,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
           v.audio.gain.gain.setTargetAtTime(0, now, LOOP_FADE / 3)
         } else if (now >= v.releaseAt) {
           if (v.audio.isPlaying) v.audio.stop()
+          v.audio.sleep()
           v.key = -1
           v.file = ''
           v.releaseAt = -1
@@ -574,14 +761,39 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     }
   }
 
+  /**
+   * 錶要的四個數字。輸出峰值用限幅器回報的輸入峰值乘上它當下的增益 ——
+   * 那就是真的送到喇叭的東西。
+   */
+  function meter(out: MeterSample): void {
+    out.peakDb = toDb(limPeak * limGain)
+    out.reductionDb = limiter === null ? 0 : toDb(limGain)
+    out.loudestDb = loudest
+    let n = 0
+    for (const v of voices) if (v.audio.isPlaying) n++
+    out.voices = n
+    out.cuts = cuts
+    // 【兩個時鐘從同一刻起算】停過（暫停、切分頁）或太久沒讀就重新對齊 ——
+    // 停著的時候音訊時鐘本來就不走，那不是算不完
+    const wall = performance.now() / 1000
+    if (ctx.state !== 'running' || wall - lagReadAt > LAG_REANCHOR) {
+      lagWall = wall
+      lagCtx = ctx.currentTime
+    }
+    lagReadAt = wall
+    out.lagMs = audioLag(wall, ctx.currentTime, lagWall, lagCtx) * 1000
+  }
+
   function stopAll(): void {
     for (const v of voices) {
       if (v.audio.isPlaying) v.audio.stop()
+      v.audio.sleep()
       v.waitingSince = -1
     }
     for (const pool of Object.keys(loops) as LoopPool[]) {
       for (const v of loops[pool]) {
         if (v.audio.isPlaying) v.audio.stop()
+        v.audio.sleep()
         v.key = -1
         v.file = ''
         v.releaseAt = -1
@@ -593,16 +805,26 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       s.file = null
       s.next = undefined
     }
+    // 【換場也要清】停掉來源不等於清掉限幅器裡那幾毫秒
+    resetLimiter()
+    // 【HDR 的窗口不帶進下一場】上一場最後那顆炸彈的窗口會讓新場的開頭被壓掉
+    loudest = HDR_ABS_FLOOR_DB
+    lastFrameAt = -1
   }
 
   async function loadAll(): Promise<void> {
     const res = await fetch(assetUrl('/audio/manifest.json'))
-    const manifest = await res.json() as Record<string, { loop: boolean; makeupDb: number }>
+    const manifest = await res.json() as
+      Record<string, { loop: boolean; makeupDb: number; envelopeDb?: number[] }>
     // 【選單的按鈕音插隊】見 `FIRST_FILES`。sort 是穩定的，其餘的順序不變
     const first = new Set<string>(FIRST_FILES)
     const ids = Object.keys(manifest)
       .sort((a, b) => Number(first.has(b)) - Number(first.has(a)))
-    for (const id of ids) makeup.set(id, manifest[id]!.makeupDb)
+    for (const id of ids) {
+      makeup.set(id, manifest[id]!.makeupDb)
+      const e = manifest[id]!.envelopeDb
+      if (e !== undefined) envelopes.set(id, e)
+    }
     fileTotal = ids.length
     onProgress?.(filesDone, fileTotal)
     let next = 0
@@ -649,8 +871,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       if (db === null && !muted) stopAll()
       muted = db === null
       masterDb = db
-      if (db !== null) listener.setMasterVolume(dbToGain(db))
-      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db)
+      // 【加上混音餘裕】設定頁的「高」是 0，但那是**使用者看到的滿音量**，
+      // 不是 0 dBFS。見 `MIX_HEADROOM_DB`
+      if (db !== null) listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))
+      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)
       applyRunState()
     },
     setPaused(p) {
@@ -669,5 +893,6 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     assign,
     endFrame,
     stopAll,
+    meter,
   }
 }

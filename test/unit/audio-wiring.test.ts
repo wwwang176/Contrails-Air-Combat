@@ -411,7 +411,7 @@ describe('單次音效的聲道池', () => {
     expect(fn).toContain('absorptionDb(d)')
     expect(fn).toContain('voiceLoudnessDb(')
     const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
-    expect(begin).toContain('updateVoices()')
+    expect(begin).toContain('updateVoices(dt)')
   })
 
   /**
@@ -437,15 +437,14 @@ describe('單次音效的聲道池', () => {
   })
 
   /**
-   * 【three 只在播放中同步 panner】`updateMatrixWorld` 在 `isPlaying === false`
-   * 時直接返回，而它同步時是一幀長度的漸變 —— 少了這一步，起音會從上一個聲音的
-   * 位置滑過來，方向與距離都錯。
+   * 【起播時左右立刻到位】播放中的左右是平滑過去的；起播那一下也平滑的話，
+   * 起音會從上一個聲音的方向與距離滑過來。
    */
-  it('每次開始播之前把座標直接寫進 panner', () => {
+  it('每次開始播之前把左右矩陣立刻設好', () => {
     const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))
-    expect(play).toMatch(/placePanner\(pick\)\n\s*a\.play\(/)
+    expect(play).toMatch(/panVoice\(pick, ctx\.currentTime, 0\)\n\s*a\.play\(/)
     const update = ENGINE.slice(ENGINE.indexOf('function updateVoices('), ENGINE.indexOf('function beginFrame('))
-    expect(update).toMatch(/placePanner\(v\)\n\s*v\.audio\.play\(/)
+    expect(update).toMatch(/panVoice\(v, now, 0\)\n\s*v\.audio\.play\(/)
   })
 
   /** 【等待中的聲道也佔著】它已經排好要響，被搶走就整個沒聲音 */
@@ -521,9 +520,10 @@ describe('選單按鈕的聲音', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
     expect(fn).toContain('uiCtx = new AudioContext()')
     expect(fn).not.toContain('ctx.create')
-    expect(fn).toContain('dbToGain(masterDb)')
+    // 【與世界吃同一份混音餘裕】少加的話選單按鈕會比戰場大一截
+    expect(fn).toContain('dbToGain(masterDb + MIX_HEADROOM_DB)')
     const vol = ENGINE.slice(ENGINE.indexOf('setVolume(db) {'), ENGINE.indexOf('setPaused(p) {'))
-    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db)')
+    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)')
   })
 
   /** 【沒載到就不要開 context】一個沒有聲音的 context 會留在那裡佔著硬體 */
@@ -569,9 +569,12 @@ describe('世界的聲音淡入', () => {
    */
   it('主 context 從停轉播時淡入，已經在播時不動', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function applyRunState('), ENGINE.indexOf('function gainOf('))
-    expect(fn).toContain('if (run && !running) fadeIn(RESUME_FADE_IN)')
+    expect(fn).toContain('fadeIn(RESUME_FADE_IN)')
     expect(fn).toContain('running = run')
     expect(fn.indexOf('running = run')).toBeGreaterThan(fn.indexOf('if (run && !running)'))
+    // 【限幅器的緩衝也在這一支清】它在 `fade` 下游，留著的是乘過舊增益的樣本
+    expect(fn.indexOf('resetLimiter()')).toBeGreaterThan(fn.indexOf('if (run && !running)'))
+    expect(fn.indexOf('resetLimiter()')).toBeLessThan(fn.indexOf('fadeIn(RESUME_FADE_IN)'))
   })
 
   /**
