@@ -2724,7 +2724,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【包絡與 agl 只解一次】HUD 的投放閘門與高度弧讀的必須是**這兩個值**，
   // 不是各自再查一次 —— 分家的症狀是「錶上綠燈而扳機沒有反應」，不拋例外
   // 也沒有訊息
-  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind) : null
+  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind, aircraft.spec.role) : null
   const releaseOk = releaseEnv !== null && canRelease(
     releaseEnv, att.roll, att.pitch, agl, aircraft.diag.aero.tas,
   )

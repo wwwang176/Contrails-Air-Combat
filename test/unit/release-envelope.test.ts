@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BOMB_ENVELOPE, TORPEDO_ENVELOPE, canRelease, envelopeFor,
+  BOMB_ENVELOPE, FIGHTER_BOMB_ENVELOPE, TORPEDO_ENVELOPE, canRelease, envelopeFor,
   rollOk, pitchOk, aglOk, tasOk,
 } from '../../src/weapons/releaseEnvelope'
 
@@ -112,10 +112,25 @@ describe('魚雷的包絡：姿態與高度兩個維度', () => {
   })
 })
 
+describe('戰鬥機掛彈的包絡', () => {
+  it('3 m 以上就投得出去，比轟炸機低得多', () => {
+    expect(ok(FIGHTER_BOMB_ENVELOPE, { agl: 2.9 })).toBe(false)
+    expect(ok(FIGHTER_BOMB_ENVELOPE, { agl: 3 })).toBe(true)
+    expect(ok(FIGHTER_BOMB_ENVELOPE, { agl: 30 })).toBe(true)
+    expect(ok(BOMB_ENVELOPE, { agl: 30 })).toBe(false)
+  })
+
+  it('除了高度下界，其餘與轟炸機的一樣', () => {
+    expect({ ...FIGHTER_BOMB_ENVELOPE, minAgl: BOMB_ENVELOPE.minAgl }).toEqual(BOMB_ENVELOPE)
+  })
+})
+
 describe('envelopeFor', () => {
-  it('掛什麼就用哪一張', () => {
-    expect(envelopeFor('bomb')).toBe(BOMB_ENVELOPE)
-    expect(envelopeFor('torpedo')).toBe(TORPEDO_ENVELOPE)
+  it('掛什麼、什麼機種就用哪一張', () => {
+    expect(envelopeFor('bomb', 'bomber')).toBe(BOMB_ENVELOPE)
+    expect(envelopeFor('bomb', 'fighter')).toBe(FIGHTER_BOMB_ENVELOPE)
+    expect(envelopeFor('torpedo', 'bomber')).toBe(TORPEDO_ENVELOPE)
+    expect(envelopeFor('torpedo', 'fighter')).toBe(TORPEDO_ENVELOPE)
   })
 })
 

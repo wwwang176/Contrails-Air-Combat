@@ -1106,7 +1106,7 @@ export class World {
     const att = attitudeFromOrientation(a.state.orientation)
     const agl = a.state.position.y - this.groundAt(a.state.position.x, a.state.position.z)
     const ok = canRelease(
-      envelopeFor(c.loadout.kind), att.roll, att.pitch, agl, a.diag.aero.tas,
+      envelopeFor(c.loadout.kind, a.spec.role), att.roll, att.pitch, agl, a.diag.aero.tas,
     )
     this.bombing = c
     stepBombBay(c.bombBay, dt, c.command.bombing, ok, this.dropOne)
