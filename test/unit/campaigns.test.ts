@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { MISSIONS, CAMPAIGNS, missionConfigFrom } from '../../src/battle/missions'
+import { MISSIONS, CAMPAIGNS, convoyGround, missionConfigFrom } from '../../src/battle/missions'
+import { EVACUATE_Z, LEYTE_ROAD } from '../../src/world/leyte'
 import { ALL_SPECS, MAX_SIDE } from '../../src/battle/skirmish'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import type { MissionCard, ReadyMissionCard } from '../../src/battle/missions'
@@ -93,8 +94,8 @@ describe('可玩卡的戰鬥設定', () => {
     // 【為什麼要這一條】只加欄位不給值的話，每一關全填 archipelago 一樣通得過
     // 「地形是合法的一種」，而日 M2 仍然開在群島上
     const of = (id: string) => playable.find((m) => m.id === id)!.battle.terrain
-    // 日 M2 換成漢口（華中農地）、德 M3 換成底板行動（Y-29）
-    expect(of('japan-m2')).toBe('farmland')
+    // 日 M2 是雷伊泰（海岸線地形）、德 M3 是底板行動（Y-29）
+    expect(of('japan-m2')).toBe('leyte')
     expect(of('germany-m3')).toBe('asch')
     expect(new Set(playable.map((m) => m.battle.terrain)).size).toBeGreaterThan(1)
   })
@@ -214,12 +215,12 @@ describe('德 M3 底板行動', () => {
     expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
   })
 
-  it('地面 P-51 優先權只在德國第三張任務卡啟用', () => {
+  it('地面優先權只在需要它的卡上：德 M3 打停放的 P-51、日 M2 打卡車', () => {
+    const want: Record<string, string> = { 'germany-m3': 'parkedP51', 'japan-m2': 'truck' }
     for (const campaign of CAMPAIGNS) {
       for (const mission of MISSIONS[campaign]) {
         if (!ready(mission)) continue
-        const expected = mission.id === 'germany-m3' ? 'parkedP51' : undefined
-        expect(missionConfigFrom(mission).tuning.priorityGroundUnit, mission.id).toBe(expected)
+        expect(missionConfigFrom(mission).tuning.priorityGroundUnit, mission.id).toBe(want[mission.id])
       }
     }
   })
@@ -404,29 +405,122 @@ describe('日 M2 倫內爾島不受護衛條件影響', () => {
   })
 })
 
-describe('日 M2 漢口上空', () => {
+describe('日 M2 雷伊泰前線', () => {
   const card = MISSIONS.japan.find((m) => m.id === 'japan-m2') as ReadyMissionCard
+  const b = card.battle
 
-  it('Ki-84 ×8 對 P-51D ×10；高度劣勢開局；農地；殲滅；沒有第二階段', () => {
-    const b = card.battle
+  it('Ki-84 掛彈、F6F 全部由波次給、地形 leyte、規則是截斷', () => {
     expect(b.blueSpec.id).toBe('ki84')
-    expect(b.blueCount).toBe(8)
-    expect(b.redSpec.id).toBe('p51d')
-    expect(b.redCount).toBe(10)
-    expect(b.entry).toBe('bounce')
-    expect(b.terrain).toBe('farmland')
-    expect(missionConfigFrom(card).rules.kind).toBe('annihilate')
-    // 【刻意不加】九關裡唯一一場封閉的戰鬥機對決
-    expect(b.waves).toBeUndefined()
-    expect(b.recycle).toBeUndefined()
-    expect(b.withdraw).toBeUndefined()
+    expect(b.redSpec.id).toBe('f6f5')
+    expect(b.redCount).toBe(0)
+    expect(b.terrain).toBe('leyte')
+    expect(b.loadouts?.['ki84']?.kind).toBe('bomb')
+    expect(missionConfigFrom(card).rules.kind).toBe('interdict')
   })
 
-  it('紅隊開場真的比藍隊高 —— bounce 有流進編組表', () => {
+  it('車隊走的就是 LEYTE_ROAD', () => {
+    expect(b.vehicleConvoy?.route).toBe(LEYTE_ROAD)
+  })
+
+  it('撤離點在我方身後的 EVACUATE_Z、高度等於任務高度', () => {
     const cfg = missionConfigFrom(card)
-    const red = cfg.units.find((u) => u.team === 'red')!
-    const blue = cfg.units.find((u) => u.team === 'blue')!
-    expect(red.entry.climb - blue.entry.climb).toBe(1000)
+    const w = cfg.beats?.find((x) => x.kind === 'withdraw')
+    expect(w?.kind).toBe('withdraw')
+    if (w?.kind !== 'withdraw') return
+    expect(w.point.z).toBe(EVACUATE_Z)
+    expect(w.point.y).toBe(b.altitude)
+  })
+
+  it('兩批 F6F 都從撤退的方向（+Z）進場', () => {
+    const cfg = missionConfigFrom(card)
+    const red = (cfg.beats ?? []).filter((x) => x.kind === 'reinforce' && x.flight.team === 'red')
+    expect(red.length).toBe(2)
+    for (const r of red) {
+      if (r.kind !== 'reinforce') continue
+      expect(r.flight.entry.along, 'along 為正 = 藍隊那一側').toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('有 interdict 的卡一定打得贏', () => {
+  const cards = ALL.filter(ready).filter((m) => m.battle.interdict !== undefined)
+
+  it('至少有一張（日 M2）', () => {
+    expect(cards.length).toBeGreaterThan(0)
+  })
+
+  for (const card of cards) {
+    const b = card.battle
+    const rule = b.interdict!
+
+    it(`${card.id}：有「摧毀 ≥ count」觸發的返航`, () => {
+      const w = b.withdraw!
+      expect(w.when.kind).toBe('destroyed')
+      if (w.when.kind !== 'destroyed') return
+      expect(w.when.atLeast).toBe(rule.count)
+      expect(w.when.unit).toBe(rule.unit)
+    })
+
+    it(`${card.id}：count 不超過那一種車的總數，count + leak 大於總數`, () => {
+      const total = b.vehicleConvoy!.batches.reduce(
+        (n, x) => n + x.units.filter((u) => u === rule.unit).length, 0)
+      expect(rule.count).toBeLessThanOrEqual(total)
+      expect(rule.count + rule.leak).toBeGreaterThan(total)
+    })
+
+    it(`${card.id}：車隊一路透傳成地面目標，每一台都帶 motion`, () => {
+      const cfg = missionConfigFrom(card)
+      const moving = (cfg.ground ?? []).filter((g) => g.motion !== undefined)
+      const n = b.vehicleConvoy!.batches.reduce((k, x) => k + x.units.length, 0)
+      expect(moving.length).toBe(n)
+      const battle = createBattle({ update() {} }, cfg, 1)
+      expect(battle.world.groundTargets.filter((t) => t.motion !== null).length).toBe(n)
+    })
+  }
+
+  it('同一步炸夠又有卡車抵達：撤離先生效、不判敗（stepBeats 排在勝負判定之前）', () => {
+    const card = cards[0]!
+    const { waves: _w, ...rest } = card.battle
+    const one: ReadyMissionCard = {
+      ...card,
+      battle: {
+        ...rest,
+        interdict: { count: 1, leak: 1, unit: 'truck' },
+        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'truck' } },
+      },
+    }
+    const battle = createBattle({ update() {} }, missionConfigFrom(one), 1)
+    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'truck')
+    trucks[0]!.alive = false
+    trucks[1]!.alive = false
+    trucks[1]!.arrived = true
+    stepBattle(battle, 1 / 240)
+    // 【兩個都要看】返航會重設 `mission`；判敗若先發生，定案的是 `outcome` 那一份
+    expect(battle.outcome).toBe('fighting')
+    expect(battle.mission.outcome).toBe('fighting')
+    expect(battle.rules.kind).toBe('evacuate')
+  })
+})
+
+describe('convoyGround', () => {
+  const c = {
+    route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
+    batches: [
+      { departAt: 0, units: ['truck', 'truck'] as const },
+      { departAt: 60, units: ['tank'] as const },
+    ],
+  }
+
+  it('前車在前：第一批第一輛的集結位置最遠，後面每輛差一個車距', () => {
+    const g = convoyGround(c)
+    expect(g.map((e) => Math.round(e.motion!.offsetSeconds * 10))).toEqual([60, 30, 0])
+    expect(g.map((e) => e.motion!.departAt)).toEqual([0, 0, 60])
+  })
+
+  it('開場擺位就是 motion 在第 0 秒的位置', () => {
+    const g = convoyGround(c)
+    expect(g[2]!.x).toBeCloseTo(LEYTE_ROAD[0]!.x, 6)
+    expect(g[2]!.z).toBeCloseTo(LEYTE_ROAD[0]!.z, 6)
   })
 })
 

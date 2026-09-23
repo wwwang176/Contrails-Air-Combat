@@ -1181,7 +1181,9 @@ function placeGround(
 ): void {
   if (ground === undefined) return
   for (const e of ground) {
-    const t = createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading)
+    const t = createGroundTarget(
+      world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading, e.motion ?? null,
+    )
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)

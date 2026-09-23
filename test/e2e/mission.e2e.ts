@@ -184,14 +184,15 @@ async function main(): Promise<void> {
       })
     }
     const convoy = await ringOf({ campaign: 'allies', id: 'allies-m1' })
-    const kill = await ringOf({ campaign: 'japan', id: 'japan-m2' })
+    // 【沒有終點的樣本用沖繩外海】出貨的九關沒有殲滅卡；守住艦隊同樣沒有終點
+    const kill = await ringOf({ campaign: 'allies', id: 'allies-m3' })
     console.log(`[任務] 圓環：護送 ring=${convoy?.ring}/target=${convoy?.tgtOn}`
-      + `、殲滅 ring=${kill?.ring}/target=${kill?.tgtOn}`)
+      + `、守艦隊 ring=${kill?.ring}/target=${kill?.tgtOn}`)
     if (convoy === null || kill === null) fail('__probe 回了 null —— 不在戰鬥裡？')
     if (!convoy.tgtOn) fail('護送任務應該有終點')
     if (!convoy.ring) fail('護送任務有終點，圓環卻不在場景裡')
-    if (kill.tgtOn) fail('殲滅任務不該有終點')
-    if (kill.ring) fail('殲滅任務不該把圓環加進場景')
+    if (kill.tgtOn) fail('守艦隊任務不該有終點')
+    if (kill.ring) fail('守艦隊任務不該把圓環加進場景')
 
     // ── 5. 結算的出口：任務模式顯示「回任務列表」 ──────────
     const actionsHidden = await hidden('#board-actions')
