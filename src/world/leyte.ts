@@ -1,6 +1,7 @@
 import { createHeightField, type HeightFieldData } from './heightfield'
 import { bakeRelief, makeLobes, SEA_FLOOR, WOBBLE_MAX, type IslandDesc } from './archipelago'
 import { drawHillLobes } from './leuna'
+import { HILL_GAP } from './farmland'
 
 /**
  * # 雷伊泰的海岸線地形（日 M2）
@@ -33,7 +34,7 @@ export const PLAIN_HEIGHT = 8
 /** 這個高度以下是沙灘色、不長植被，m。`render/leyteGround.ts` 與植被共用 */
 export const SAND_TOP = 3
 /** 丘陵峰高的上限，m。`LandField.ceiling` 用它 */
-export const LEYTE_PEAK_MAX = 450
+export const LEYTE_PEAK_MAX = 900
 
 /** 岸線平均位置，m（世界 z） */
 const COAST_Z = -4000
@@ -104,7 +105,7 @@ export function farHeight(x: number, z: number): number {
   const base = baseHeight(x, z)
   if (base <= 0) return base
   const out = Math.max(0, Math.abs(x) - FIELD_HALF, z - FIELD_HALF)
-  const ridge = 420 + 130 * Math.sin(x / 7000 + 1) * Math.sin(z / 9000 + 0.4)
+  const ridge = 800 + 250 * Math.sin(x / 7000 + 1) * Math.sin(z / 9000 + 0.4)
   // 【離岸近的地方山也矮】岸邊 3 km 內壓回平地，沙灘後面不會直接是山壁
   const inland = smoothstep(0, 3000, z - coastZ(x))
   return base + ridge * smoothstep(0, FAR_RISE, out) * inland
@@ -292,23 +293,119 @@ export function distanceToRoad(x: number, z: number): number {
 }
 
 /**
- * 手擺的丘陵。**又大又少**：半徑 1.2～3.5 km，圍著公路走的那一條走廊，平地只
- * 剩公路兩旁與沿海一帶。靠海的那幾座一路延伸到海裡，是岬角。
+ * 一座丘陵：中心、標稱半徑、峰高、兩個起伏相位，與抽瓣的種子。瓣的形狀用
+ * `drawHillLobes` 依種子抽，與洛伊納、阿什同一套。
+ */
+export interface LeyteHill {
+  readonly cx: number
+  readonly cz: number
+  readonly radius: number
+  readonly peak: number
+  readonly pa: number
+  readonly pb: number
+  readonly seed: number
+}
+
+/** 手擺的大山：圍著公路走廊的那一圈主峰 */
+const MAIN_HILLS: readonly LeyteHill[] = [
+  { cx: -7500, cz: 0, radius: 3500, peak: 900, pa: 0.9, pb: 3.4, seed: 401 },
+  { cx: 7500, cz: 1500, radius: 3000, peak: 820, pa: 2.1, pb: 4.6, seed: 402 },
+  { cx: -3500, cz: 7500, radius: 2500, peak: 750, pa: 3.0, pb: 1.2, seed: 403 },
+  { cx: 5000, cz: 9500, radius: 2500, peak: 780, pa: 1.4, pb: 5.3, seed: 404 },
+  { cx: -11500, cz: 8500, radius: 2500, peak: 700, pa: 4.2, pb: 0.6, seed: 405 },
+  { cx: 11700, cz: 7700, radius: 2500, peak: 720, pa: 5.1, pb: 2.8, seed: 406 },
+  { cx: 0, cz: 12500, radius: 1800, peak: 600, pa: 0.3, pb: 4.0, seed: 407 },
+  { cx: 1500, cz: 4800, radius: 1200, peak: 450, pa: 1.8, pb: 2.2, seed: 408 },
+]
+
+/** 補空地的中型丘陵：候選網格、抖動、半徑、峰高。**起始值，拿眼睛校** */
+const FILL_STEP = 1300
+const FILL_JITTER = 450
+const FILL_RADIUS = [450, 1000] as const
+const FILL_PEAK = [260, 560] as const
+const FILL_SEED = 20260924
+
+/** 種子進、序列出。**不得 `Math.random`** —— 同一張地圖每次都要長一樣 */
+function makeRand(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 4294967296
+  }
+}
+
+/** 這一座能不能放：與既有的丘陵、公路、撤離點、砲位、場地邊界的約束 */
+function hillFits(h: LeyteHill, placed: readonly LeyteHill[]): boolean {
+  const r = h.radius * WOBBLE_MAX
+  if (Math.abs(h.cx) + r > FIELD_HALF || Math.abs(h.cz) + r > FIELD_HALF) return false
+  if (h.cz < coastZ(h.cx) + 1500) return false
+  if (distanceToRoad(h.cx, h.cz) - r < 400) return false
+  if (Math.hypot(h.cx, h.cz - EVACUATE_Z) - r < 300) return false
+  for (const s of LEYTE_FLAK_SITES) if (Math.hypot(h.cx - s.x, h.cz - s.z) - r < 200) return false
+  for (const o of placed) {
+    if (Math.hypot(h.cx - o.cx, h.cz - o.cz) - r - o.radius * WOBBLE_MAX < HILL_GAP) return false
+  }
+  return true
+}
+
+/**
+ * 大山之間的空地，用中型丘陵補起來。網格上每一格抽一個候選，放得下才放。
+ *
+ * 【所有亂數都無條件抽完，篩選在後】與農地同一個理由：條件式的抽樣會讓後面
+ * 的序列跟著前面放不放得下而漂，改一座山就整片換樣子。
+ */
+function fillHills(): LeyteHill[] {
+  const rand = makeRand(FILL_SEED)
+  const placed: LeyteHill[] = [...MAIN_HILLS]
+  const out: LeyteHill[] = []
+  let seed = 500
+  for (let z = -FIELD_HALF + FILL_STEP / 2; z < FIELD_HALF; z += FILL_STEP) {
+    for (let x = -FIELD_HALF + FILL_STEP / 2; x < FIELD_HALF; x += FILL_STEP) {
+      const h: LeyteHill = {
+        cx: x + (rand() * 2 - 1) * FILL_JITTER,
+        cz: z + (rand() * 2 - 1) * FILL_JITTER,
+        radius: FILL_RADIUS[0] + rand() * (FILL_RADIUS[1] - FILL_RADIUS[0]),
+        peak: FILL_PEAK[0] + rand() * (FILL_PEAK[1] - FILL_PEAK[0]),
+        pa: rand() * Math.PI * 2,
+        pb: rand() * Math.PI * 2,
+        seed: seed++,
+      }
+      if (!hillFits(h, placed)) continue
+      placed.push(h)
+      out.push(h)
+    }
+  }
+  return out
+}
+
+/**
+ * 全部的丘陵：手擺的主峰，加上補空地的中型丘陵。
  *
  * 約束（`leyte.test.ts` 守著）：中心離岸至少 1.5 km、膨脹圓離公路至少 400 m、
- * 兩兩至少隔 `HILL_GAP`（AI 一次只繞一座）、不蓋住撤離點。
- * 瓣的形狀用 `drawHillLobes` 依種子抽，與洛伊納、阿什同一套。
+ * 兩兩至少隔 `HILL_GAP`（AI 一次只繞一座）、整座在場地內、不蓋住撤離點與砲位。
+ * 靠海的大山一路延伸到海裡，是岬角。
  */
-export const LEYTE_HILLS = [
-  { cx: -7500, cz: 0, radius: 3500, peak: 450, pa: 0.9, pb: 3.4, seed: 401 },
-  { cx: 7500, cz: 1500, radius: 3000, peak: 420, pa: 2.1, pb: 4.6, seed: 402 },
-  { cx: -3500, cz: 7500, radius: 2500, peak: 380, pa: 3.0, pb: 1.2, seed: 403 },
-  { cx: 5000, cz: 9500, radius: 2500, peak: 400, pa: 1.4, pb: 5.3, seed: 404 },
-  { cx: -11500, cz: 8500, radius: 2500, peak: 350, pa: 4.2, pb: 0.6, seed: 405 },
-  { cx: 11700, cz: 7700, radius: 2500, peak: 360, pa: 5.1, pb: 2.8, seed: 406 },
-  { cx: 0, cz: 12500, radius: 1800, peak: 300, pa: 0.3, pb: 4.0, seed: 407 },
-  { cx: 1500, cz: 4800, radius: 1200, peak: 250, pa: 1.8, pb: 2.2, seed: 408 },
-] as const
+export const LEYTE_HILLS: readonly LeyteHill[] = [...MAIN_HILLS, ...fillHills()]
+
+/** 每一座丘陵幾瓣。瓣多，稜線就多 */
+const HILL_LOBE_COUNT = 7
+
+/** 山谷最深挖掉山高的幾成 */
+const CARVE_DEPTH = 0.35
+
+/**
+ * 山谷的刻痕：兩道彎曲的正弦帶交疊出的谷線，這一點要保留山高的幾成，
+ * `1 − CARVE_DEPTH`～1。谷線上最低、離開谷線很快回到 1。
+ *
+ * 【只往下挖】乘在「高出基準面的那一段」上，所以山只會變矮不會變高 ——
+ * AI 知道的峰高（`IslandDesc.peak`）仍然是上界，避山判斷不受影響。
+ */
+export function carveFactor(x: number, z: number): number {
+  const v = Math.sin(x * 0.0041 + 1.8 * Math.sin(z * 0.0027))
+    + 0.6 * Math.sin(z * 0.0063 - 1.5 * Math.sin(x * 0.0033))
+  const ridge = 1 - Math.min(1, Math.abs(v))
+  return 1 - CARVE_DEPTH * ridge * ridge * ridge
+}
 
 export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
   const field = createHeightField(LEYTE_SIZE, LEYTE_CELL)
@@ -318,7 +415,9 @@ export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
     const peak = Math.min(LEYTE_PEAK_MAX, h.peak)
     hills.push({
       cx: h.cx, cz: h.cz, radius: h.radius, outerRadius, peak,
-      lobes: makeLobes(h.cx, h.cz, h.radius, outerRadius, peak, h.pa, h.pb, drawHillLobes(h.seed)),
+      lobes: makeLobes(
+        h.cx, h.cz, h.radius, outerRadius, peak, h.pa, h.pb, drawHillLobes(h.seed, HILL_LOBE_COUNT),
+      ),
     })
   }
   bakeRelief(field, hills, SEA_FLOOR)
@@ -330,7 +429,9 @@ export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
       const x = (col - half) * cell
       const i = row * size + col
       const b = baseHeight(x, z)
-      if (b > data[i]!) data[i] = b
+      const h = data[i]!
+      // 【高出基準面的才刻】平地與海床不動
+      data[i] = h > b ? b + (h - b) * carveFactor(x, z) : b
     }
   }
   return { field, hills }
