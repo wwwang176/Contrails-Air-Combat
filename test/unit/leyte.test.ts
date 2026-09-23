@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_HILLS, LEYTE_PEAK_MAX, LEYTE_ROAD,
+  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
   PLAIN_HEIGHT, SAND_TOP, FIELD_HALF,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
 } from '../../src/world/leyte'
@@ -8,6 +8,7 @@ import { headingToward } from '../../src/control/takeoffRoll'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
 import { HILL_GAP } from '../../src/world/farmland'
 import { DEFAULT_SAFETY } from '../../src/ai/safety'
+import { terrainCeiling } from '../../src/ai/terrainSense'
 import { ARENA_RADIUS } from '../../src/world/arena'
 
 /**
@@ -115,20 +116,53 @@ describe('雷伊泰的公路', () => {
   })
 })
 
-describe('雷伊泰的丘陵', () => {
-  it('膨脹圓兩兩至少隔 HILL_GAP —— AI 一次只繞一座（`ai/terrainSense.ts`）', () => {
-    for (let i = 0; i < LEYTE_HILLS.length; i++) {
-      for (let j = i + 1; j < LEYTE_HILLS.length; j++) {
-        const a = LEYTE_HILLS[i]!
-        const b = LEYTE_HILLS[j]!
-        const gap = Math.hypot(a.cx - b.cx, a.cz - b.cz) - (a.radius + b.radius) * WOBBLE_MAX
-        expect(gap, `${a.seed} ↔ ${b.seed}`).toBeGreaterThanOrEqual(HILL_GAP)
+describe('雷伊泰的山脈', () => {
+  it('圓盤兩兩至少隔 HILL_GAP —— AI 一次只處理一個圓盤（`ai/terrainSense.ts`）', () => {
+    for (let i = 0; i < LEYTE_MASSIFS.length; i++) {
+      for (let j = i + 1; j < LEYTE_MASSIFS.length; j++) {
+        const a = LEYTE_MASSIFS[i]!
+        const b = LEYTE_MASSIFS[j]!
+        const gap = Math.hypot(a.cx - b.cx, a.cz - b.cz) - a.outerRadius - b.outerRadius
+        expect(gap, `${i} ↔ ${j}`).toBeGreaterThanOrEqual(HILL_GAP)
       }
     }
   })
 
-  it('空地有自動補上的中型丘陵，不是只有手擺的那幾座', () => {
-    expect(LEYTE_HILLS.length).toBeGreaterThan(8 + 5)
+  it('每一瓣連同 wobble 都在自己的圓盤內、峰高是瓣的最大值 —— AI 的圓盤與高度上界靠它', () => {
+    for (const m of LEYTE_MASSIFS) {
+      let top = 0
+      for (const lo of m.lobes) {
+        expect(Math.hypot(lo.cx - m.cx, lo.cz - m.cz) + lo.radius * WOBBLE_MAX)
+          .toBeLessThanOrEqual(m.outerRadius + 1e-6)
+        top = Math.max(top, lo.peak)
+      }
+      expect(m.peak).toBe(top)
+    }
+  })
+
+  it('山脈裡的瓣連成一片：沒有只剩一兩瓣的孤丘，每一瓣都與同一座的另一瓣重疊', () => {
+    for (const m of LEYTE_MASSIFS) {
+      expect(m.lobes.length, `${m.cx},${m.cz}`).toBeGreaterThan(2)
+      for (const a of m.lobes) {
+        const touches = m.lobes.some((b) => b !== a
+          && Math.hypot(a.cx - b.cx, a.cz - b.cz) < a.radius + b.radius)
+        expect(touches, `${a.cx},${a.cz}`).toBe(true)
+      }
+    }
+  })
+
+  it('內插後的地形不高過 AI 估的高度上界 —— 80 m 格距在凸處高出解析值的量要被餘裕蓋住', () => {
+    // 【步長 20 m、偏 7 m】落在格子內部，內插與解析的差最大的地方
+    for (const m of LEYTE_MASSIFS) {
+      for (let x = m.cx - m.outerRadius + 7; x <= m.cx + m.outerRadius; x += 20) {
+        for (let z = m.cz - m.outerRadius + 7; z <= m.cz + m.outerRadius; z += 20) {
+          const c = terrainCeiling(m, x, z)
+          if (c === 0) continue
+          const h = field.sample(x, z)
+          if (h > c) expect(h, `${x.toFixed(0)},${z.toFixed(0)}`).toBeLessThanOrEqual(c)
+        }
+      }
+    }
   })
 
   it('山谷只往下挖：刻痕的保留比例在 0.65～1，而且真的有挖到的地方', () => {
@@ -146,11 +180,11 @@ describe('雷伊泰的丘陵', () => {
     expect(hi).toBeLessThanOrEqual(1)
   })
 
-  it('整座都在場地之內 —— 被高度場的邊界切掉的話，場邊會是一道崖', () => {
-    for (const h of LEYTE_HILLS) {
-      const r = h.radius * WOBBLE_MAX
-      expect(Math.abs(h.cx) + r, `${h.seed}`).toBeLessThanOrEqual(FIELD_HALF)
-      expect(Math.abs(h.cz) + r, `${h.seed}`).toBeLessThanOrEqual(FIELD_HALF)
+  it('每一瓣都在場地之內 —— 被高度場的邊界切掉的話，場邊會是一道崖', () => {
+    for (const lo of LEYTE_MASSIFS.flatMap((m) => m.lobes)) {
+      const r = lo.radius * WOBBLE_MAX
+      expect(Math.abs(lo.cx) + r, `${lo.cx},${lo.cz}`).toBeLessThanOrEqual(FIELD_HALF + 1e-6)
+      expect(Math.abs(lo.cz) + r, `${lo.cx},${lo.cz}`).toBeLessThanOrEqual(FIELD_HALF + 1e-6)
     }
   })
 
@@ -162,17 +196,19 @@ describe('雷伊泰的丘陵', () => {
     expect(top).toBeLessThan(DEFAULT_SAFETY.fighterClearance)
   })
 
-  it('峰高不超過上限、全部在陸上、膨脹圓離公路至少 400 m', () => {
-    for (const h of LEYTE_HILLS) {
-      expect(h.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
-      // 【中心在陸上就好】大丘陵靠海的那一側可以一路延伸到海裡，是岬角
-      expect(h.cz, `${h.seed}`).toBeGreaterThan(coastZ(h.cx) + 1500)
-      expect(distanceToRoad(h.cx, h.cz) - h.radius * WOBBLE_MAX).toBeGreaterThanOrEqual(400)
+  it('峰高不超過上限、瓣心在陸上、瓣的膨脹圓離公路至少 400 m', () => {
+    for (const m of LEYTE_MASSIFS) {
+      expect(m.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
+      for (const lo of m.lobes) {
+        // 【瓣心在陸上就好】靠海的那一側可以一路延伸到海裡，是岬角
+        expect(lo.cz, `${lo.cx},${lo.cz}`).toBeGreaterThan(coastZ(lo.cx) + 1000)
+        expect(distanceToRoad(lo.cx, lo.cz) - lo.radius * WOBBLE_MAX).toBeGreaterThanOrEqual(400 - 1e-6)
+      }
     }
   })
 
-  it('避障清單只有丘陵，高度場的最高點落在丘陵上', () => {
-    expect(hills.length).toBe(LEYTE_HILLS.length)
+  it('避障清單就是山脈，高度場的最高點落在山脈上', () => {
+    expect(hills).toEqual(LEYTE_MASSIFS)
     let top = -Infinity
     for (const v of field.data) top = Math.max(top, v)
     expect(top).toBeGreaterThan(PLAIN_HEIGHT + 50)
@@ -216,9 +252,9 @@ describe('場外的遠景陸地', () => {
 describe('撤離點', () => {
   it('在陸上、場地之內', () => {
     expect(baseHeight(0, EVACUATE_Z)).toBeGreaterThanOrEqual(PLAIN_HEIGHT - 1e-6)
-    for (const h of LEYTE_HILLS) {
-      expect(Math.hypot(h.cx, h.cz - EVACUATE_Z) - h.radius * WOBBLE_MAX, `${h.cx},${h.cz}`)
-        .toBeGreaterThan(300)
+    for (const lo of LEYTE_MASSIFS.flatMap((m) => m.lobes)) {
+      expect(Math.hypot(lo.cx, lo.cz - EVACUATE_Z) - lo.radius * WOBBLE_MAX, `${lo.cx},${lo.cz}`)
+        .toBeGreaterThanOrEqual(300 - 1e-6)
     }
     expect(EVACUATE_Z).toBeLessThan(ARENA_RADIUS)
   })
