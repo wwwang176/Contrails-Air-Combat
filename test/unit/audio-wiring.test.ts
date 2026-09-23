@@ -521,9 +521,10 @@ describe('選單按鈕的聲音', () => {
     const fn = ENGINE.slice(ENGINE.indexOf('function playUi('), ENGINE.indexOf('function camDistance('))
     expect(fn).toContain('uiCtx = new AudioContext()')
     expect(fn).not.toContain('ctx.create')
-    expect(fn).toContain('dbToGain(masterDb)')
+    // 【與世界吃同一份混音餘裕】少加的話選單按鈕會比戰場大一截
+    expect(fn).toContain('dbToGain(masterDb + MIX_HEADROOM_DB)')
     const vol = ENGINE.slice(ENGINE.indexOf('setVolume(db) {'), ENGINE.indexOf('setPaused(p) {'))
-    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db)')
+    expect(vol).toContain('uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)')
   })
 
   /** 【沒載到就不要開 context】一個沒有聲音的 context 會留在那裡佔著硬體 */

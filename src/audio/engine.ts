@@ -6,6 +6,7 @@ import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
 import { toDb, type MeterSample } from './meter'
+import { MIX_HEADROOM_DB } from './volume'
 import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
 } from './pick'
@@ -429,7 +430,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     if (uiCtx === null) {
       uiCtx = new AudioContext()
       uiGain = uiCtx.createGain()
-      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb)
+      // 【與世界吃同一份餘裕】少加的話按鈕會比戰場大一截
+      uiGain.gain.value = masterDb === null ? 0 : dbToGain(masterDb + MIX_HEADROOM_DB)
       uiGain.connect(uiCtx.destination)
     }
     // 【每次都叫 resume】分頁切回來時瀏覽器會把它擱在 suspended
@@ -818,8 +820,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       if (db === null && !muted) stopAll()
       muted = db === null
       masterDb = db
-      if (db !== null) listener.setMasterVolume(dbToGain(db))
-      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db)
+      // 【加上混音餘裕】設定頁的「高」是 0，但那是**使用者看到的滿音量**，
+      // 不是 0 dBFS。見 `MIX_HEADROOM_DB`
+      if (db !== null) listener.setMasterVolume(dbToGain(db + MIX_HEADROOM_DB))
+      if (uiGain !== null) uiGain.gain.value = db === null ? 0 : dbToGain(db + MIX_HEADROOM_DB)
       applyRunState()
     },
     setPaused(p) {

@@ -3859,6 +3859,12 @@ const GFX_HIDDEN_LAYER = 31
     z: c.aircraft.state.position.z,
   }))
 
+/** 音訊錶當下的讀數。**除錯與探針用** —— 與錶上畫的是同一組數字 */
+;(window as unknown as Record<string, unknown>)['__audioRead'] = () => {
+  audio.meter(METER_SAMPLE)
+  return { ...METER_SAMPLE }
+}
+
 /**
  * 音訊錶：`__audioMeter(true)` 打開、`false` 關掉。
  *
