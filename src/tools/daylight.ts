@@ -291,7 +291,7 @@ colorRow('海　本色', 'seaColor')
 colorRow('海　地平', 'seaHorizon')
 numRow('碎光', 0, 1.5, 0.01, () => live.sparkle, (v) => { live.sparkle = v }, f2)
 numRow('植被點', 0, 1.5, 0.01, () => live.foliage, (v) => { live.foliage = v }, f2)
-numRow('霧密度', 0.5, 5, 0.05, () => live.fogDensity * 1e5,
+numRow('霧密度', 0.3, 10, 0.05, () => live.fogDensity * 1e5,
   (v) => { live.fogDensity = v * 1e-5 }, (v) => v.toFixed(2) + 'e-5')
 
 function refreshAll(): void {

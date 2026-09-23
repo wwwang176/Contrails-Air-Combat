@@ -114,7 +114,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x51637a,
     sparkle: 0.75,
     foliage: 0.6,
-    fogDensity: 1.6e-5,
+    fogDensity: 0.8e-5,
   },
   noon: {
     id: 'noon',
@@ -156,7 +156,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x6e5468,
     sparkle: 0.85,
     foliage: 0.5,
-    fogDensity: 1.8e-5,
+    fogDensity: 0.9e-5,
   },
   night: {
     id: 'night',
@@ -177,7 +177,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x1b2736,
     sparkle: 0.18,
     foliage: 0.16,
-    fogDensity: 2.2e-5,
+    fogDensity: 1.1e-5,
   },
   /**
    * 深秋的正午：51°N 的十一月，太陽仰角只有二十幾度、天色灰白、遠處泛霧。
@@ -239,7 +239,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
      * 【雨幕】15 km 外蓋掉三分之二、25 km 外幾乎全白 —— 場地外的遠景陸地是低模，
      * 要讓它化進天色裡（`render/leyteGround.ts`）。5 km 的纏鬥距離上敵機只淡一成。
      */
-    fogDensity: FOG_DENSITY * 5,
+    fogDensity: FOG_DENSITY * 10,
   },
 }
 
