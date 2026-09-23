@@ -47,7 +47,7 @@
 | 德 | M2 | 波爾塔瓦之夜 | He 111 | 【不動】 | `destroy` | poltava |
 | 德 | M3 | 底板行動 | Bf 109 K-4 | 1945/1/1　Y-29 | `destroy` | **asch** |
 | 日 | M1 | 瓜達康納爾上空 | A6M5 | 1942/8/7　拉包爾長程出擊 | `sink` | archipelago |
-| 日 | M2 | 漢口上空 | Ki-84 | 1944/8/20　飛行第 22 戰隊首戰 | `annihilate` | farmland |
+| 日 | M2 | 漢口上空（已由 `2026-09-23-japan-m2-leyte-design.md` 取代） | Ki-84 | 1944/8/20　飛行第 22 戰隊首戰 | `annihilate` | farmland |
 | 日 | M3 | 倫內爾島 | G4M | 【不動】 | `sink` | sea |
 
 規則分佈：`destroy` 3、`sink` 2、`convoy` 1、`defend` 1、`hunt` 1、`annihilate` 1。
@@ -145,6 +145,8 @@ Ju 88 夜戰機帶路。戰果約 300 架盟軍飛機（絕大多數停在地面
 艦級組成「登陸船團的護衛艦隊」，卡片文案照此寫。
 
 ### 4.5 日 M2　1944 年 8 月 20 日，漢口上空
+
+> 日 M2 已由 `2026-09-23-japan-m2-leyte-design.md`（雷伊泰前線）取代。
 
 飛行第 22 戰隊帶著剛服役的四式戰疾風進駐中國戰線，在漢口上空迎戰第 14 航空軍
 的 P-51。那是疾風第一次大規模投入，也是它名聲的來源 —— 唯一被公認能與野馬
@@ -474,6 +476,8 @@ export const BOUNCE: EntryPlan = {
   任務已經定案。
 
 ### 8.5 日 M2　漢口上空
+
+> 日 M2 已由 `2026-09-23-japan-m2-leyte-design.md`（雷伊泰前線）取代。
 
 ```
   blueSpec  KI84  blueCount 8
