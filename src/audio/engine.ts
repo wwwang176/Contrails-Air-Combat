@@ -1,11 +1,12 @@
-import { Audio, AudioListener, Object3D, PositionalAudio, type Camera, type Scene } from 'three'
+import { Audio, Object3D, type Camera, type Scene } from 'three'
+import { DirectListener, DirectPositionalAudio } from './spatial'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
 import {
   HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from './dynamics'
-import { toDb, type MeterSample } from './meter'
+import { audioLag, toDb, type MeterSample } from './meter'
 import { MIX_HEADROOM_DB } from './volume'
 import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
@@ -123,13 +124,17 @@ const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 
 const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
+/** 截止頻率變動小於這個比例就不重排（約半個全音，聽不出來） */
+const CUTOFF_STEP = 0.03
 /** 暫停、切分頁、關音量之後恢復的淡入，s */
 const RESUME_FADE_IN = 0.8
+/** 讀錶間隔超過這個秒數就重新對齊兩個時鐘 —— 分頁在背景時畫面不跑 */
+const LAG_REANCHOR = 0.5
 /** 淡入曲線的點數。曲線點之間是線性內插，32 點已經聽不出折角 */
 const FADE_POINTS = 32
 
 interface Voice {
-  audio: PositionalAudio
+  audio: DirectPositionalAudio
   /** 這一聲屬於哪一類。配額與 HDR 用 */
   cat: Category | null
   /** 這一份的素材包絡（`manifest.json` 的 `envelopeDb`）與開始播的時刻 */
@@ -159,16 +164,20 @@ interface Voice {
    * 只看距離的話，貼著船打會是清脆的金屬聲 —— 像打鋁罐。
    */
   maxCutoff: number
+  /** 上一次排下去的截止頻率，Hz。見 `setCutoff` */
+  cutoff: number
 }
 
 interface LoopVoice {
-  audio: PositionalAudio
+  audio: DirectPositionalAudio
   filters: BiquadFilterNode[]
   key: number
   file: string
   assigned: boolean
   /** 淡出中：到這個時間（context 秒）就停掉放掉。−1 = 沒在淡出 */
   releaseAt: number
+  /** 上一次排下去的截止頻率，Hz。見 `setCutoff` */
+  cutoff: number
 }
 
 interface SelfVoice {
@@ -183,7 +192,7 @@ interface SelfVoice {
 }
 
 export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
-  const listener = new AudioListener()
+  const listener = new DirectListener()
   camera.add(listener)
   const ctx = listener.context
   /**
@@ -268,6 +277,12 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   /** 限幅器回報的最近一批：增益（線性）與輸入峰值。見 `public/audio/limiter.js` */
   let limGain = 1
   let limPeak = 0
+  /** 累計把還在響的聲音直接切掉幾次。給錶用 */
+  let cuts = 0
+  /** 音訊時鐘落後量的起算點（牆上時鐘、音訊時鐘，秒）與上一次讀錶的牆上時間 */
+  let lagWall = 0
+  let lagCtx = 0
+  let lagReadAt = -Infinity
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
   /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
@@ -305,8 +320,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 定位的聲道。**兩級低通串接**（24 dB/八度）—— 真實的空氣吸收在高頻掉得很陡
    * （1 km 外的 8 kHz 掉 78 dB），一級只有 12 dB/八度，遠處的爆炸還會留著脆度。
    */
-  function positional(): { audio: PositionalAudio; filters: BiquadFilterNode[] } {
-    const audio = new PositionalAudio(listener)
+  function positional(): { audio: DirectPositionalAudio; filters: BiquadFilterNode[] } {
+    const audio = new DirectPositionalAudio(listener)
     audio.panner.panningModel = 'equalpower'
     audio.setDistanceModel('inverse')
     audio.setRolloffFactor(1)
@@ -318,29 +333,24 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   /**
    * 把聲源座標直接寫進 panner。**每次開始播之前都要做。**
    *
-   * 【three 只在播放中同步位置】`PositionalAudio.updateMatrixWorld` 在
-   * `isPlaying === false` 時直接返回，所以等音波的期間 panner 停在上一個聲音那裡；
-   * 而它同步時是用一幀長度的漸變，起音那一下會從舊位置滑過來 —— 方向與距離都錯。
+   * 【播放中才同步位置】`updateMatrixWorld` 在沒在播時直接返回，所以等音波的
+   * 期間 panner 停在上一個聲音那裡 —— 不先放好，起音那一下的方向與距離都錯。
    */
   function placePanner(v: Voice): void {
     // 定位的掛在 root（原點、無旋轉），區域座標就是世界座標；不定位的掛在鏡頭上
     const p = v.positioned ? v.audio.position : camera.position
-    const q = v.audio.panner
-    const now = ctx.currentTime
-    if (q.positionX !== undefined) {
-      q.positionX.cancelScheduledValues(now)
-      q.positionY.cancelScheduledValues(now)
-      q.positionZ.cancelScheduledValues(now)
-      q.positionX.setValueAtTime(p.x, now)
-      q.positionY.setValueAtTime(p.y, now)
-      q.positionZ.setValueAtTime(p.z, now)
-    } else {
-      q.setPosition(p.x, p.y, p.z)
-    }
+    v.audio.placeAt(p.x, p.y, p.z)
   }
 
-  function setCutoff(filters: BiquadFilterNode[], hz: number, now: number, ramp: number): void {
-    for (const f of filters) {
+  /**
+   * 排截止頻率。`ramp` 為 0 是立刻設（起播），否則只在變動超過 `CUTOFF_STEP`
+   * 才重排 —— 距離每幀都在變，照排的話兩級低通一直有排程，Chrome 就一直走
+   * 逐取樣重算係數的路徑。
+   */
+  function setCutoff(v: { filters: BiquadFilterNode[]; cutoff: number }, hz: number, now: number, ramp: number): void {
+    if (ramp > 0 && Math.abs(hz - v.cutoff) <= v.cutoff * CUTOFF_STEP) return
+    v.cutoff = hz
+    for (const f of v.filters) {
       if (ramp > 0) f.frequency.setTargetAtTime(hz, now, ramp)
       else f.frequency.setValueAtTime(hz, now)
     }
@@ -353,7 +363,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     voices.push({
       ...v, cat: null, envelope: undefined, startedAt: 0,
       distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
-      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
+      waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND, cutoff: FULL_BAND,
     })
   }
 
@@ -363,7 +373,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       const v = positional()
       v.audio.setLoop(true)
       root.add(v.audio)
-      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1 })
+      loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1, cutoff: FULL_BAND })
     }
   }
 
@@ -487,7 +497,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       if (v.loudness < pick.loudness) pick = v
     }
     if (pick === null || (pickBusy && pick.loudness >= loud)) return
-    if (pick.audio.isPlaying) pick.audio.stop()
+    if (pick.audio.isPlaying) {
+      pick.audio.stop()
+      cuts++
+    }
     pick.waitingSince = -1
 
     const a = pick.audio
@@ -507,14 +520,14 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       a.position.set(x, y, z)
       a.setRefDistance(spec.ref)
       a.setRolloffFactor(spec.rolloff ?? 1)
-      setCutoff(pick.filters, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
+      setCutoff(pick, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
     } else {
       // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
       if (a.parent !== camera) camera.add(a)
       a.position.set(0, 0, 0)
       a.setRefDistance(1)
       a.setRolloffFactor(0)
-      setCutoff(pick.filters, cutoffHz, ctx.currentTime, 0)
+      setCutoff(pick, cutoffHz, ctx.currentTime, 0)
     }
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
@@ -639,7 +652,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
-      setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
+      setCutoff(v, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
       // 【HDR 的衰減逐幀重算】鏡頭移動與素材衰減都會讓它變
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
       const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
@@ -686,9 +699,12 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     v.releaseAt = -1
     v.audio.position.set(x, y, z)
     v.audio.setRefDistance(CATEGORY[cat].ref)
-    setCutoff(v.filters, distanceCutoffHz(d), now, 0.1)
+    setCutoff(v, distanceCutoffHz(d), now, 0.1)
     if (v.file !== file) {
-      if (v.audio.isPlaying) v.audio.stop()
+      if (v.audio.isPlaying) {
+        v.audio.stop()
+        cuts++
+      }
       v.file = file
       v.audio.setBuffer(buffer)
       v.audio.gain.gain.setValueAtTime(0, now)
@@ -733,6 +749,16 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     let n = 0
     for (const v of voices) if (v.audio.isPlaying) n++
     out.voices = n
+    out.cuts = cuts
+    // 【兩個時鐘從同一刻起算】停過（暫停、切分頁）或太久沒讀就重新對齊 ——
+    // 停著的時候音訊時鐘本來就不走，那不是算不完
+    const wall = performance.now() / 1000
+    if (ctx.state !== 'running' || wall - lagReadAt > LAG_REANCHOR) {
+      lagWall = wall
+      lagCtx = ctx.currentTime
+    }
+    lagReadAt = wall
+    out.lagMs = audioLag(wall, ctx.currentTime, lagWall, lagCtx) * 1000
   }
 
   function stopAll(): void {

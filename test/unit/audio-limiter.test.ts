@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
   LIMITER_ATTACK, LIMITER_CEILING, LIMITER_CEILING_DB, LIMITER_LOOKAHEAD, LIMITER_RELEASE,
-  limiterStep, limiterTarget, lookaheadFrames, releaseCoeff,
+  WindowPeak, limiterStep, limiterTarget, lookaheadFrames, releaseCoeff,
 } from '../../src/audio/limiter'
 import { DECORRELATE_WINDOW, decorrelateDelay } from '../../src/audio/pick'
 
@@ -117,6 +117,42 @@ describe('限幅器的增益', () => {
 })
 
 /**
+ * 【窗內峰值與逐格掃描一模一樣】這一格錯了，限幅器會在峰值還在窗內時就放開
+ * （漏峰值），或壓著已經離開的峰值不放（整體悶掉）。
+ */
+describe('滑動窗最大值', () => {
+  function brute(xs: Float32Array, size: number, i: number): number {
+    let m = 0
+    for (let k = Math.max(0, i - size + 1); k <= i; k++) m = Math.max(m, xs[k]!)
+    return m
+  }
+
+  it('每一格都等於逐格掃描', () => {
+    let seed = 7
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    for (const size of [1, 2, 5, 240]) {
+      const xs = new Float32Array(3000)
+      // 混著遞增、遞減、平台與突刺 —— 單調佇列的每一條分支都要走到
+      for (let i = 0; i < xs.length; i++) {
+        const phase = Math.floor(i / 300) % 4
+        xs[i] = phase === 0 ? i % 300 / 300 : phase === 1 ? 1 - i % 300 / 300 : phase === 2 ? 0.5 : rand() ** 4
+      }
+      const w = new WindowPeak(size)
+      for (let i = 0; i < xs.length; i++) {
+        expect(w.push(xs[i]!), `size ${size} i ${i}`).toBe(brute(xs, size, i))
+      }
+    }
+  })
+
+  it('清掉之後從頭開始，不記得舊的峰值', () => {
+    const w = new WindowPeak(10)
+    w.push(0.9)
+    w.clear()
+    expect(w.push(0.1)).toBeCloseTo(0.1, 6)
+  })
+})
+
+/**
  * 【兩份實作不得走鐘】worklet 在另一個執行緒，import 不進去，所以公式是抄的。
  * 這一條讀原始碼比對那幾個常數與式子 —— 改一邊沒改另一邊的症狀是「測試全過
  * 但遊戲照樣破音」。
@@ -133,6 +169,13 @@ describe('worklet 與純函數同一套公式', () => {
   it('降與升的兩個係數都在 worklet 裡', () => {
     expect(SRC).toContain('const ATTACK = LOOKAHEAD / 6')
     expect(SRC).toContain('target + (gain - target) * (target < gain ? this.attack : this.coeff)')
+  })
+
+  /** 【窗內峰值用單調佇列】逐格掃描在音訊執行緒上量得到；兩份的核心兩行要一樣 */
+  it('窗內峰值與純函數同一套單調佇列', () => {
+    expect(SRC).toContain('while (this.count > 0 && this.ats[this.head] <= this.n - size)')
+    expect(SRC).toContain('if (this.vals[back] > mag) break')
+    expect(SRC).not.toMatch(/for \(let k = 0; k < this\.size; k\+\+\)/)
   })
 
   /** 【收到 reset 要清緩衝】暫停與換場靠它，不清就會漏出舊聲音 */

@@ -437,9 +437,8 @@ describe('單次音效的聲道池', () => {
   })
 
   /**
-   * 【three 只在播放中同步 panner】`updateMatrixWorld` 在 `isPlaying === false`
-   * 時直接返回，而它同步時是一幀長度的漸變 —— 少了這一步，起音會從上一個聲音的
-   * 位置滑過來，方向與距離都錯。
+   * 【只在播放中同步 panner】`updateMatrixWorld` 在沒在播時直接返回 —— 少了這一步，
+   * 起音那一下的 panner 還在上一個聲音的位置，方向與距離都錯。
    */
   it('每次開始播之前把座標直接寫進 panner', () => {
     const play = ENGINE.slice(ENGINE.indexOf('function playFile('), ENGINE.indexOf('function playPool('))

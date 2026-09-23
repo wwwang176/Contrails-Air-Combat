@@ -15,7 +15,11 @@ import { HDR_KNEE_DB, HDR_MAX_DUCK_DB } from '../audio/dynamics'
  */
 
 const WIDTH = 260
-const HEIGHT = 150
+const HEIGHT = 164
+/** 音訊時鐘落後超過這個毫秒數轉紅 —— 一塊緩衝以內的跳動是正常的 */
+const LAG_WARN_MS = 30
+/** 「近 1 秒」要回看幾格 */
+const CUT_RING = Math.round(1 / METER_STEP)
 const PAD = 8
 /** 條的高度 */
 const BAR = 12
@@ -41,12 +45,15 @@ export function createAudioMeter(): AudioMeter {
   canvas.height = HEIGHT
   canvas.style.cssText = [
     // 【讓開左上角】那裡是 FPS 面板（`core/perf.ts`）
-    'position:fixed', 'left:8px', 'top:72px', 'width:260px', 'height:150px',
+    'position:fixed', 'left:8px', 'top:72px', `width:${WIDTH}px`, `height:${HEIGHT}px`,
     'pointer-events:none', 'z-index:40', 'image-rendering:pixelated',
   ].join(';')
   const ctx = canvas.getContext('2d')!
   const history = new MeterHistory()
   let carry = 0
+  /** 最近一秒每格的累計切斷數，`cutAt` 那一格是一秒前的 */
+  const cutRing = new Float64Array(CUT_RING).fill(NaN)
+  let cutAt = 0
 
   /** 一條左右滿版的水平條：`frac` 0…1，`warn` 為真時轉紅 */
   function bar(y: number, frac: number, warn: boolean, label: string, value: string): void {
@@ -76,6 +83,8 @@ export function createAudioMeter(): AudioMeter {
     while (carry >= METER_STEP) {
       carry -= METER_STEP
       history.push(s.peakDb, s.reductionDb)
+      cutRing[cutAt] = s.cuts
+      cutAt = (cutAt + 1) % CUT_RING
     }
 
     ctx.clearRect(0, 0, WIDTH, HEIGHT)
@@ -101,6 +110,14 @@ export function createAudioMeter(): AudioMeter {
     ctx.fillStyle = '#d8d8d8'
     ctx.font = '10px monospace'
     ctx.fillText(`發聲 ${s.voices}　窗口下緣 ${db(s.loudestDb - HDR_KNEE_DB)}　最深 ${HDR_MAX_DUCK_DB} dB`, PAD, y + 5)
+    y += 14
+    // 【切斷與卡頓】兩者都是「啪」一聲而峰值不變，上面那三條看不到
+    const ago = cutRing[cutAt]!
+    const recentCuts = Number.isNaN(ago) ? 0 : s.cuts - ago
+    ctx.fillStyle = recentCuts > 0 ? '#e05545' : '#d8d8d8'
+    ctx.fillText(`切斷 ${s.cuts}（近 1 秒 ${recentCuts}）`, PAD, y + 5)
+    ctx.fillStyle = s.lagMs > LAG_WARN_MS ? '#e05545' : '#d8d8d8'
+    ctx.fillText(`落後 ${s.lagMs.toFixed(0)} ms`, PAD + 150, y + 5)
     y += 14
 
     // 歷史曲線：綠 = 輸出峰值、紅 = 限幅壓縮量
@@ -134,5 +151,5 @@ export function createAudioMeter(): AudioMeter {
     }
   }
 
-  return { canvas, draw, reset: () => { history.clear(); carry = 0 } }
+  return { canvas, draw, reset: () => { history.clear(); cutRing.fill(NaN); carry = 0 } }
 }

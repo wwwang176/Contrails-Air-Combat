@@ -60,6 +60,53 @@ export function releaseCoeff(seconds: number, sampleRate: number): number {
   return Math.exp(-1 / (seconds * sampleRate))
 }
 
+/**
+ * 滑動窗最大值：最近 `size` 個樣本裡最大的那一個。單調佇列，每個樣本攤還 O(1)。
+ *
+ * 【不逐格掃】窗有 240 格，每個樣本掃一遍在離線渲染量得到 1.5～8% 的
+ * 音訊執行緒 —— 那條執行緒算不完，瀏覽器就塞靜音補上，聽起來是劈啪聲。
+ */
+export class WindowPeak {
+  private readonly vals: Float32Array
+  private readonly ats: Float64Array
+  private head = 0
+  private count = 0
+  private n = 0
+
+  constructor(private readonly size: number) {
+    this.vals = new Float32Array(size)
+    this.ats = new Float64Array(size)
+  }
+
+  /** 推一個樣本的絕對值進去，回傳推完之後窗內的最大值 */
+  push(mag: number): number {
+    const size = this.size
+    // 過期的從前面丟掉
+    while (this.count > 0 && this.ats[this.head]! <= this.n - size) {
+      this.head = this.head + 1 === size ? 0 : this.head + 1
+      this.count--
+    }
+    // 後面不比它大的，窗內再也輪不到它們當最大值
+    while (this.count > 0) {
+      const back = (this.head + this.count - 1) % size
+      if (this.vals[back]! > mag) break
+      this.count--
+    }
+    const at = (this.head + this.count) % size
+    this.vals[at] = mag
+    this.ats[at] = this.n
+    this.count++
+    this.n++
+    return this.vals[this.head]!
+  }
+
+  clear(): void {
+    this.head = 0
+    this.count = 0
+    this.n = 0
+  }
+}
+
 /** 預看緩衝要幾格 —— 至少 1，否則讀寫指標會重疊成同一格 */
 export function lookaheadFrames(seconds: number, sampleRate: number): number {
   return Math.max(1, Math.round(seconds * sampleRate))

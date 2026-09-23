@@ -405,7 +405,9 @@ const hud = new Hud(hudCanvas, hudMaskCanvas)
  * 除錯用的疊圖，不進 `HudFrame`，也不吃暫停。
  */
 let audioMeter: AudioMeter | null = null
-const METER_SAMPLE: MeterSample = { peakDb: -60, reductionDb: 0, loudestDb: -60, voices: 0 }
+const METER_SAMPLE: MeterSample = {
+  peakDb: -60, reductionDb: 0, loudestDb: -60, voices: 0, cuts: 0, lagMs: 0,
+}
 const hudFrame = createHudFrame()
 /**
  * 受擊方向轉座標用的暫存。**模組層** —— 排空發生在物理子步的回呼裡，
