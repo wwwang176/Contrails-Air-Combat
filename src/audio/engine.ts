@@ -100,10 +100,14 @@ const LAYER_MIN_FREE = 16
  * 一兩秒 —— 它一類就能把池子吃光，於是同一刻的軍火爆炸整個沒聲音。配額滿了
  * 的那一類只能搶自己人，搶不到別人的份。
  *
- * 【爆炸不設限】它是天花板，該蓋過其他東西。
+ * 【爆炸也要有上限】它是天花板沒錯，但一波齊投幾十顆同時落地時，十幾份
+ * 「+6 類別 ＋最多 +6 當量 ＋第二層」疊起來遠超過喇叭的上限，限幅器只好一次
+ * 壓掉 8～10 dB —— 那個擠壓感就是玩家聽到的「爆音」。**多出來的那幾份本來
+ * 也分不出來**：同一刻十顆與十五顆爆炸，人耳聽起來一樣。
  */
 const VOICE_QUOTA: Partial<Record<Category, number>> = {
   cannon: 22, impact: 12, flyby: 8, whistle: 6, hitDealt: 6, splash: 8, flakBurst: 14,
+  explosion: 8, blast: 8,
 }
 const LOOP_VOICES: Record<LoopPool, number> = { engine: 8, fire: 6, turret: 6 }
 const LOOP_CATEGORY: Record<LoopPool, Category> = { engine: 'engine', fire: 'fire', turret: 'turret' }
@@ -204,6 +208,26 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     node.connect(ctx.destination)
     limiter = node
   }).catch(() => { limiter = null })
+  /**
+   * 試聽用的開關：在主控台打 `__audioMix({ limiter: false })` 可以當場拆掉
+   * 限幅器、`{ hdr: false }` 關掉動態窗口，比對某個怪聲是哪一層造成的。
+   *
+   * 【為什麼留在正式程式裡】這兩層都是聽感的東西，而聽感只能靠人耳裁定。
+   * 沒有開關的話，每次懷疑都要改程式重載一次。與 `__gfx`、`__bombs` 同一類。
+   */
+  ;(globalThis as unknown as Record<string, unknown>)['__audioMix'] = (
+    opt?: { limiter?: boolean; hdr?: boolean },
+  ) => {
+    if (opt?.limiter === false && limiter !== null) {
+      fade.disconnect()
+      limiter.disconnect()
+      fade.connect(ctx.destination)
+      limiter = null
+    }
+    if (opt?.hdr !== undefined) hdrOn = opt.hdr
+    return { limiter: limiter !== null, hdr: hdrOn }
+  }
+
   /** 清掉預看緩衝裡那幾毫秒 —— 它們是乘過舊淡入增益的樣本 */
   function resetLimiter(): void {
     limiter?.port.postMessage('reset')
@@ -227,6 +251,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 暫停與切分頁保留（場面沒變），`stopAll` 歸零（上一場的窗口不帶進新的一場）。
    */
   let loudest = HDR_ABS_FLOOR_DB
+  /** 動態窗口開著沒有。試聽用，見 `__audioMix` */
+  let hdrOn = true
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
   /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
@@ -421,7 +447,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
     const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d, spec.rolloff ?? 1)
     // 【HDR：太小聲的根本不發】保底類別不吃窗口（警告、無線電、自己的聲音）
-    const exempt = HDR_EXEMPT.has(cat)
+    const exempt = !hdrOn || HDR_EXEMPT.has(cat)
     if (!exempt && loud < hdrFloorDb(loudest)) return
     // 【配額滿了只能搶自己人】否則一類就能把整池吃光，見 `VOICE_QUOTA`
     const quota = VOICE_QUOTA[cat] ?? ONE_SHOT_VOICES
@@ -600,7 +626,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
       // 【HDR 的衰減逐幀重算】鏡頭移動與素材衰減都會讓它變
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
-      const duck = v.cat !== null && HDR_EXEMPT.has(v.cat) ? 0 : hdrDuckDb(live, loudest)
+      const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
       if (v.waitingSince < 0) continue
       // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
@@ -657,7 +683,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【循環音也吃 HDR】引擎在爆炸期間該退到背景，回來時照釋放速率浮上來
     const live = voiceLoudnessDb(
       CATEGORY[cat].gainDb + (makeup.get(file) ?? 0), CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
-    const duck = HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
+    const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
     v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
   }
