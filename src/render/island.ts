@@ -92,7 +92,7 @@ export function isGrass(h: number): boolean {
 function buildIsland(
   field: HeightFieldData, isl: IslandDesc, coverAt: (x: number, z: number) => number,
 ): BufferGeometry | null {
-  const { size, cell, data } = field
+  const { size, cell } = field
   const half = (size - 1) / 2
   const last = size - 1
 
@@ -100,6 +100,23 @@ function buildIsland(
   const c1 = Math.min(last, Math.ceil((isl.cx + isl.outerRadius) / cell + half))
   const r0 = Math.max(0, Math.floor((isl.cz - isl.outerRadius) / cell + half))
   const r1 = Math.min(last, Math.ceil((isl.cz + isl.outerRadius) / cell + half))
+  return buildGroundRect(field, c0, c1, r0, r1, coverAt, shade)
+}
+
+/**
+ * 高度場上一塊方框（格點欄 `c0..c1`、列 `r0..r1`，含端點）的 geometry。
+ * **頂點高度直接讀 `field.data`**（檔頭的鐵律）；整格沉在水下的不畫。
+ * 範圍不到一格時回 null。
+ *
+ * @param shadeAt 地色。群島用 `shade`；雷伊泰有自己的沙灘分界（`leyteGround.ts`）
+ */
+export function buildGroundRect(
+  field: HeightFieldData, c0: number, c1: number, r0: number, r1: number,
+  coverAt: (x: number, z: number) => number,
+  shadeAt: (h: number, cover: number, out: Color) => Color,
+): BufferGeometry | null {
+  const { size, cell, data } = field
+  const half = (size - 1) / 2
   const nx = c1 - c0 + 1
   const nz = r1 - r0 + 1
   if (nx < 2 || nz < 2) return null
@@ -119,7 +136,7 @@ function buildIsland(
       positions[v] = x
       positions[v + 1] = h
       positions[v + 2] = z
-      const c = shade(h, coverAt(x, z), scratch)
+      const c = shadeAt(h, coverAt(x, z), scratch)
       colors[v] = c.r
       colors[v + 1] = c.g
       colors[v + 2] = c.b
