@@ -62,6 +62,14 @@ function roll(x: number, z: number): number {
 export const PLAIN_TOP = PLAIN_HEIGHT + 12
 /** 岸邊這麼寬的一帶不起伏，m —— 沙灘與灘頭是平的 */
 const ROLL_SHORE = 600
+/**
+ * 場地邊緣往內這麼寬的一帶，緩坡起伏收回 0，m。
+ *
+ * 【為什麼】場外的遠景陸地格子比場內粗得多（`render/leyteGround.ts`），兩邊只在
+ * 粗格的頂點上對得上。邊緣上的高度若有起伏，粗格那條直線跟不上，接縫會裂開
+ * 看得到底下。收平之後邊緣是一條水平線，兩邊都是它。
+ */
+const ROLL_EDGE = 1000
 
 /** 岸線在這個 x 上的世界 z。陸地在 `z > coastZ(x)` */
 export function coastZ(x: number): number {
@@ -87,29 +95,66 @@ function smoothstep(e0: number, e1: number, x: number): number {
 export function baseHeight(x: number, z: number): number {
   const d = z - coastZ(x)
   if (d <= 0) return Math.max(SEA_FLOOR, (d / SEABED_RAMP) * -SEA_FLOOR)
+  const edge = Math.min(FIELD_HALF - Math.abs(x), FIELD_HALF - Math.abs(z))
   return PLAIN_HEIGHT * smoothstep(0, SHORE_RAMP, d)
-    + roll(x, z) * smoothstep(SHORE_RAMP, SHORE_RAMP + ROLL_SHORE, d)
+    + roll(x, z) * smoothstep(SHORE_RAMP, SHORE_RAMP + ROLL_SHORE, d) * smoothstep(0, ROLL_EDGE, edge)
 }
 
 /** 遠景的山從場地邊緣往外這麼遠才長到全高，m */
-const FAR_RISE = 20000
+const FAR_RISE = 15000
+/** 遠景的丘陵從場地邊緣往外這麼遠長到全高，m。比山脈快 —— 出了場地就是丘陵地 */
+const FAR_HILL_RISE = 4000
+/**
+ * 遠景丘陵的幾道起伏：振幅 m、方向 rad、波長 m、相位 rad。方向各不相同，疊出來
+ * 不成排；振幅合計 630 m —— 比場內的山脈高，島的中央本來就是山。
+ */
+const FAR_HILLS = [
+  { amp: 260, dir: 0.4, len: 5200, phase: 0.3 },
+  { amp: 180, dir: 1.9, len: 3700, phase: 2.1 },
+  { amp: 120, dir: 2.8, len: 2600, phase: 4.0 },
+  { amp: 70, dir: 5.1, len: 1500, phase: 1.2 },
+] as const
+
+/** 遠景丘陵的起伏，m（0～振幅合計）：多道斜向正弦取絕對值疊出稜線 */
+function farHills(x: number, z: number): number {
+  let h = 0
+  for (const w of FAR_HILLS) {
+    const s = (x * Math.cos(w.dir) + z * Math.sin(w.dir)) / w.len
+    // 【取 1 − |sin|】稜是尖的、谷是圓的，像山；純正弦是一排排圓丘
+    h += w.amp * (1 - Math.abs(Math.sin(Math.PI * s + w.phase)))
+  }
+  return h
+}
 
 /**
- * 場外遠景陸地的高度，m。**只畫不碰撞**（`render/leyteGround.ts`），場地半徑
- * 12 km 的界限飛不到那裡。
+ * 場外這一點有多「在山上」，0～1：丘陵起伏的上半段與往外升高的山脈。遠景的林相
+ * 照它畫（`render/flora.ts` 的 `leyteFarCover`）—— 谷地是草、稜上是林子。
  *
- * 海岸線照同一條曲線延伸；陸上是場內的基準面（`baseHeight`）再加上一道往外
- * 越來越高的山脈 —— 雷伊泰島中央是山。**在場地邊緣山的高度是 0**，與場內的
- * 地形接得上。
+ * 【不能拿「高出基準面多少」】場外的丘陵處處都高出基準面幾十公尺，照場內那一條
+ * 算的話整片都是山林，遠景是一片均勻的暗綠。
+ */
+export function farUpland(x: number, z: number): number {
+  const out = Math.max(0, Math.abs(x) - FIELD_HALF, z - FIELD_HALF)
+  const hills = farHills(x, z) * smoothstep(0, FAR_HILL_RISE, out)
+  return Math.min(1, smoothstep(210, 440, hills) + smoothstep(0.4, 0.9, smoothstep(0, FAR_RISE, out)))
+}
+
+/**
+ * 場外遠景陸地的高度，m。**只畫不碰撞**（`render/leyteGround.ts`），戰場半徑
+ * 12 km（`world/arena.ts`）飛不到那裡。
+ *
+ * 海岸線照同一條曲線延伸；陸上是場內的基準面（`baseHeight`），疊上丘陵地，再
+ * 疊一道往外越來越高的山脈 —— 雷伊泰島中央是山。**在場地邊緣兩者都是 0**，
+ * 與場內的地形接得上。
  */
 export function farHeight(x: number, z: number): number {
   const base = baseHeight(x, z)
   if (base <= 0) return base
   const out = Math.max(0, Math.abs(x) - FIELD_HALF, z - FIELD_HALF)
-  const ridge = 800 + 250 * Math.sin(x / 7000 + 1) * Math.sin(z / 9000 + 0.4)
+  const ridge = 1000 + 300 * Math.sin(x / 7000 + 1) * Math.sin(z / 9000 + 0.4)
   // 【離岸近的地方山也矮】岸邊 3 km 內壓回平地，沙灘後面不會直接是山壁
   const inland = smoothstep(0, 3000, z - coastZ(x))
-  return base + ridge * smoothstep(0, FAR_RISE, out) * inland
+  return base + (ridge * smoothstep(0, FAR_RISE, out) + farHills(x, z) * smoothstep(0, FAR_HILL_RISE, out)) * inland
 }
 
 /**
