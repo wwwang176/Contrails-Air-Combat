@@ -508,14 +508,11 @@ function makeRand(seed: number): () => number {
 /**
  * 手擺丘陵的瓣：一顆種子抽一組。洛伊納與波爾塔瓦（`poltava.ts`）兩張手擺的
  * 圖都用它 —— 同一個種子在兩張圖上抽到同一個形狀。
- *
- * @param count 幾瓣。**省略 = 4**，那兩張圖都是省略的；雷伊泰的山要更多稜線
- *   才傳更大的數。前 4 瓣與省略時逐位元相同（同一條亂數序列往下抽）
  */
-export function drawHillLobes(seed: number, count = HILL_LOBES): LobeDraw[] {
+export function drawHillLobes(seed: number): LobeDraw[] {
   const rand = makeRand(seed)
   const out: LobeDraw[] = []
-  for (let k = 0; k < count; k++) {
+  for (let k = 0; k < HILL_LOBES; k++) {
     out.push({
       dir: rand() * Math.PI * 2,
       rf: HILL_LOBE_RADIUS[0] + rand() * (HILL_LOBE_RADIUS[1] - HILL_LOBE_RADIUS[0]),
