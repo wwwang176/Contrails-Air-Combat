@@ -3,6 +3,7 @@ import type { Team } from '../world/World'
 import type { AircraftSpec } from '../specs/types'
 import type { FlightPlan } from './order'
 import type { SideEntry } from './entry'
+import type { GroundUnitId } from '../render/geometry/ground'
 
 /**
  * # 節拍 —— 一場仗中途會發生的事
@@ -63,6 +64,24 @@ export type BeatCondition =
    * 那一批就不會來 —— 這是這個條件存在的理由。
    */
   | { readonly kind: 'ground'; readonly below: number; readonly byLatest: number }
+  /**
+   * 敵方地面目標的摧毀數達到 `atLeast`。**`unit` 省略 = 敵方地面目標全部。**
+   *
+   * 與 `ground` 相反：那一條是「時限到了還沒炸夠」，這一條是「炸夠了」。
+   * 摧毀數只增不減，成立之後保持成立。開到終點退場的不算摧毀。
+   *
+   * 【`byLatest` 是選填的兜底】到了這個秒數無條件成立。「玩家開始攻擊之後
+   * 敵機才來」那種波次要它 —— 玩家遲遲不動手，敵機仍然要來。
+   *
+   * 【計數由呼叫端依 `unit` 數好】`conditionMet` 讀第五個參數，不自己掃目標
+   * （`setup.ts` 的 `countDestroyed`）。
+   */
+  | {
+    readonly kind: 'destroyed'
+    readonly atLeast: number
+    readonly unit?: GroundUnitId
+    readonly byLatest?: number
+  }
 
 /** 一支增援進場。條件成立後先顯示 `warn`，過 `warnLead` 秒才真的來。 */
 export interface ReinforceBeat {
@@ -167,7 +186,8 @@ export function createBeatStates(beats: readonly Beat[]): BeatState[] {
  * @param aliveOf 指定隊伍（與角色）的存活數。呼叫端**在套用任何效果之前**
  *   數好一次 —— 見 `stepBeats` 的「先判斷後套效果」。
  * @param batches 重生節拍已經預警的批數。只有 `batch` 條件讀它
- * @param destroyed 敵方地面目標已摧毀的數量。只有 `ground` 條件讀它
+ * @param destroyed 敵方地面目標已摧毀的數量。只有 `ground` 與 `destroyed` 條件讀它
+ *   —— 後者由呼叫端依條件自己的 `unit` 數好再傳
  */
 export function conditionMet(
   when: BeatCondition, time: number, aliveOf: (team: Team, role?: AircraftSpec['role']) => number,
@@ -176,6 +196,9 @@ export function conditionMet(
   if (when.kind === 'clock') return time >= when.at
   if (when.kind === 'batch') return batches >= when.at
   if (when.kind === 'ground') return time >= when.byLatest && destroyed < when.below
+  if (when.kind === 'destroyed') {
+    return destroyed >= when.atLeast || (when.byLatest !== undefined && time >= when.byLatest)
+  }
   if (time >= when.byLatest) return true
   return aliveOf(when.team, when.role) <= when.atMost
 }
