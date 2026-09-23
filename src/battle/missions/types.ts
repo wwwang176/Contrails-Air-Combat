@@ -530,6 +530,11 @@ export interface GroundEntry {
    * （`missions/index.ts` 的 `convoyGround`），卡片不直接寫。
    */
   readonly motion?: GroundMotion
+  /**
+   * 身上的武裝。**省略 = 看單位**：`flakLight`／`flakHeavy` 是砲位，其餘不還手。
+   * `'mg'` = 車頂一挺 .50 機槍（`GROUND_MG_SPEC`）。
+   */
+  readonly guns?: 'mg'
 }
 
 /** 車隊的一批：同一刻出發的幾輛 */
@@ -557,6 +562,8 @@ export interface MissionVehicleConvoy {
   readonly gap: number
   /** 依出發順序 */
   readonly batches: readonly MissionVehicleBatch[]
+  /** 這幾種單位車頂帶一挺機槍（`GroundEntry.guns = 'mg'`）。省略 = 都不帶 */
+  readonly armed?: readonly GroundUnitId[]
 }
 
 export interface FleetEntry {

@@ -12,4 +12,4 @@
  * 【加一個要動的地方】這個聯集、`DAY_PALETTES`，以及 `TIME_OF_DAY_IDS`
  * （那一份決定展示頁與遭遇戰選單的按鈕順序）。
  */
-export type TimeOfDay = 'dawn' | 'noon' | 'dusk' | 'night' | 'novemberNoon'
+export type TimeOfDay = 'dawn' | 'noon' | 'dusk' | 'night' | 'novemberNoon' | 'storm'

@@ -298,6 +298,7 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
       out.push({
         unit, team: 'red', x: pose.position.x, z: pose.position.z,
         heading: m.startHeading, motion: m,
+        ...(c.armed?.includes(unit) === true ? { guns: 'mg' as const } : {}),
       })
       k++
     }

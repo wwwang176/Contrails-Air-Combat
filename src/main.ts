@@ -7,8 +7,12 @@ import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality }
 import { readVolume, saveVolume } from './audio/volume'
 import { createAudioEngine } from './audio/engine'
 import {
-  SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile, volleyPool, type Pool,
+  POOLS as SOUND_POOLS, SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile,
+  volleyPool, type Pool,
 } from './audio/catalog'
+import {
+  THUNDER_CUTOFF_HZ, THUNDER_RATE, applyFlash, createStorm, stepStorm, thunderDelay, type Storm,
+} from './render/storm'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -17,7 +21,7 @@ import {
   blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
   hitRate, shakeInterval, windParams,
 } from './audio/curves'
-import { applyTimeOfDay } from './render/timeOfDay'
+import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
@@ -204,6 +208,28 @@ let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
  */
 const terrainGfx = (): TerrainGfx => ({ renderer: ctx.renderer, fieldInner: fieldInnerFor(readQuality()) })
 let terrain = createTerrain(terrainKind, terrainGfx())
+/**
+ * 雷雨。**只有時段是 `storm` 的那一場才有**，其餘是 null。生命週期比照時段：
+ * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
+ */
+let storm: Storm | null = null
+
+/**
+ * 雷聲：砲擊庫放得非常慢，低通壓到只剩悶響，照距離晚幾秒才到。**再疊一層**
+ * 快一點、小一點、晚一點的，隆隆聲才有層次。
+ *
+ * 【模組層函數，不是每幀一個閉包】`stepStorm` 每幀都拿它當回呼。
+ */
+function playThunder(distance: number): void {
+  const files = SOUND_POOLS.cannon
+  const delay = thunderDelay(distance)
+  // 【遠的小聲】1.5 km 是原音量，9 km 小 10 dB
+  const db = -10 * Math.min(1, Math.max(0, (distance - 1500) / 7500))
+  const a = files[Math.floor(Math.random() * files.length)]!
+  const b = files[Math.floor(Math.random() * files.length)]!
+  audio.playFile(a, 'thunder', 0, 0, 0, false, db, delay, THUNDER_RATE, THUNDER_CUTOFF_HZ)
+  audio.playFile(b, 'thunder', 0, 0, 0, false, db - 6, delay + 0.4, THUNDER_RATE * 1.35, THUNDER_CUTOFF_HZ)
+}
 /**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
@@ -1451,9 +1477,12 @@ function buildBattleTerrain(): void {
   // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
   // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
   // 「黃昏的天配中午的海」，而且不會有東西報錯
-  applyTimeOfDay(ctx, terrain, mode === 'mission' && pendingMission !== null
+  const timeOfDay = mode === 'mission' && pendingMission !== null
     ? pendingMission.battle.timeOfDay ?? 'noon'
-    : setup.timeOfDay)
+    : setup.timeOfDay
+  applyTimeOfDay(ctx, terrain, timeOfDay)
+  // 【雷雨跟著時段】別的時段是 null —— 上一場的雷雨不會帶進下一場
+  storm = timeOfDay === 'storm' ? createStorm() : null
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
@@ -2671,6 +2700,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
+  // 【閃電吃世界時間】暫停時 `worldSeconds` 是 0，天也不打雷
+  if (storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, worldSeconds, playThunder))
+  }
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
