@@ -107,8 +107,30 @@ export const BOMB_TUTORIAL: Tutorial = {
 }
 
 /**
+ * 掛彈戰鬥機的投彈。**沒有瞄準視角** —— B 直接投，落點圈留在一般視角裡。
+ * 圖沿用轟炸機那一張的落點圈與彈艙格子。
+ */
+export const FIGHTER_BOMB_TUTORIAL: Tutorial = {
+  id: 'fighterBomb',
+  title: '投彈',
+  panels: [
+    {
+      image: '/ui/tutorial/bomb-2.jpg', alt: '落點的圓圈壓在目標上',
+      tags: [{ text: '落點', x: 62, y: 20 }],
+      caption: '圈是炸彈會落下的地方。俯衝把圈壓在目標上，按 B 投彈。',
+    },
+    {
+      image: '/ui/tutorial/bomb-3.jpg', alt: '畫面下方的彈艙格子',
+      tags: [{ text: '炸彈', x: 50, y: 64 }],
+      caption: '下面這排是炸彈，投完會自己補回。',
+    },
+  ],
+}
+
+/**
  * 這架飛機的全部教學卡，依序。戰鬥機先看空戰；有掛載再看那一種的卡。
- * 轟炸機只看投彈或投雷 —— 它不靠前射機槍打仗。
+ * 轟炸機只看投彈或投雷 —— 它不靠前射機槍打仗。戰鬥機掛彈的操作與轟炸機
+ * 不同（沒有瞄準視角），所以是另一張卡。
  */
 export function tutorialsFor(
   role: AircraftSpec['role'], ordnance: OrdnanceKind | null,
@@ -116,7 +138,7 @@ export function tutorialsFor(
   const out: Tutorial[] = []
   if (role === 'fighter') out.push(FIGHTER_TUTORIAL)
   if (ordnance === 'torpedo') out.push(TORPEDO_TUTORIAL)
-  else if (ordnance === 'bomb') out.push(BOMB_TUTORIAL)
+  else if (ordnance === 'bomb') out.push(role === 'fighter' ? FIGHTER_BOMB_TUTORIAL : BOMB_TUTORIAL)
   return out
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
-  BOMB_TUTORIAL, FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, markTutorialSeen, readSeenTutorials,
+  BOMB_TUTORIAL, FIGHTER_BOMB_TUTORIAL, FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, markTutorialSeen, readSeenTutorials,
   tutorialsFor, unseenTutorials, type Tutorial,
 } from '../../src/ui/tutorials'
 
@@ -21,9 +21,9 @@ describe('哪一架飛機看哪幾張卡', () => {
     expect(tutorialsFor('bomber', null)).toEqual([])
   })
 
-  /** 【掛彈的戰鬥機兩張都看】先學飛、再學投 */
-  it('掛彈的戰鬥機先看空戰、再看投彈', () => {
-    expect(tutorialsFor('fighter', 'bomb')).toEqual([FIGHTER_TUTORIAL, BOMB_TUTORIAL])
+  /** 【掛彈的戰鬥機兩張都看】先學飛、再學投 —— 投的是戰鬥機那一張，沒有瞄準視角 */
+  it('掛彈的戰鬥機先看空戰、再看戰鬥機的投彈', () => {
+    expect(tutorialsFor('fighter', 'bomb')).toEqual([FIGHTER_TUTORIAL, FIGHTER_BOMB_TUTORIAL])
   })
 })
 
@@ -43,8 +43,8 @@ describe('每張卡只自動出現一次', () => {
     const all = tutorialsFor('fighter', 'bomb')
     expect(unseenTutorials(all, readSeenTutorials())).toEqual(all)
     markTutorialSeen(FIGHTER_TUTORIAL.id)
-    expect(unseenTutorials(all, readSeenTutorials())).toEqual([BOMB_TUTORIAL])
-    markTutorialSeen(BOMB_TUTORIAL.id)
+    expect(unseenTutorials(all, readSeenTutorials())).toEqual([FIGHTER_BOMB_TUTORIAL])
+    markTutorialSeen(FIGHTER_BOMB_TUTORIAL.id)
     expect(unseenTutorials(all, readSeenTutorials())).toEqual([])
   })
 
@@ -67,7 +67,7 @@ describe('每張卡只自動出現一次', () => {
 })
 
 describe('教學卡的內容', () => {
-  const all: Tutorial[] = [FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, BOMB_TUTORIAL]
+  const all: Tutorial[] = [FIGHTER_TUTORIAL, TORPEDO_TUTORIAL, BOMB_TUTORIAL, FIGHTER_BOMB_TUTORIAL]
 
   it('每張卡的 id 都不同 —— 撞了的話看過一張等於看過兩張', () => {
     expect(new Set(all.map((t) => t.id)).size).toBe(all.length)

@@ -94,18 +94,33 @@ async function main(): Promise<void> {
     if (moved < 5) fail(`第一批 5 輛應該已經出發，只有 ${moved} 台在動`)
     if (still < 10) fail(`第二、三批應該還停在灘頭，只有 ${still} 台停著`)
 
+    // ── 戰鬥機掛彈：落點圈有解、按 B 真的投出去 ──────────
+    type Sight = { state: string; load: number; cap: number }
+    const sight = (): Promise<Sight> => page.evaluate(() =>
+      (window as unknown as Record<string, () => { sight: Sight }>)['__probe']!().sight)
+    const s0 = await sight()
+    console.log(`[雷伊泰] 落點圈 ${s0.state}，彈艙 ${s0.load}/${s0.cap}`)
+    if (s0.cap !== 2 || s0.load !== 2) fail(`Ki-84 應該掛 2 枚，實得 ${s0.load}/${s0.cap}`)
+    if (s0.state === 'off') fail('掛彈的戰鬥機應該解得出落點（state 不該是 off）')
+    // 【用 press】按下與放開幾乎同時，正是最容易漏掉的那一種輕點
+    await page.keyboard.press('KeyB')
+    await page.waitForTimeout(1500)
+    const s1 = await sight()
+    console.log(`[雷伊泰] 按 B 之後彈艙 ${s1.load}/${s1.cap}`)
+    if (s1.load >= s0.load) fail('按 B 沒有投出炸彈')
+
     // ── 定格取景：灘頭與車隊、公路的轉角、整片海岸 ──────────
     const lead = g1[0]!
     await page.evaluate(([x, z]) => {
       (window as unknown as Record<string, (...a: number[]) => unknown>)['__still']!(0, -40, 500, 20, x, z)
-    }, [lead.x, lead.z + 700])
+    }, [lead.x, lead.z + 700] as const)
     await page.waitForTimeout(800)
     await page.screenshot({ path: SHOTS + 'leyte-2-convoy.png' })
 
     // 正上方往下看第一批：車要壓在路面上、車頭沿著路
     await page.evaluate(([x, z]) => {
       (window as unknown as Record<string, (...a: number[]) => unknown>)['__still']!(0, -89.9, 160, 20, x, z)
-    }, [(g1[0]!.x + g1[4]!.x) / 2, (g1[0]!.z + g1[4]!.z) / 2])
+    }, [(g1[0]!.x + g1[4]!.x) / 2, (g1[0]!.z + g1[4]!.z) / 2] as const)
     await page.waitForTimeout(800)
     await page.screenshot({ path: SHOTS + 'leyte-2b-topdown.png' })
 
