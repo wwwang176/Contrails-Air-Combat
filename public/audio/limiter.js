@@ -15,6 +15,49 @@ const ATTACK = LOOKAHEAD / 6
 const REPORT_BLOCKS = 16
 const CEILING = Math.pow(10, CEILING_DB / 20)
 
+/**
+ * 滑動窗最大值（單調佇列，每個樣本攤還 O(1)），與 `src/audio/limiter.ts` 的
+ * `WindowPeak` 逐行對應。**不逐格掃** —— 240 格的窗每個樣本掃一遍，在離線渲染
+ * 量得到 1.5～8% 的音訊執行緒，而那條執行緒算不完就是劈啪聲。
+ */
+class WindowPeak {
+  constructor(size) {
+    this.size = size
+    this.vals = new Float32Array(size)
+    this.ats = new Float64Array(size)
+    this.head = 0
+    this.count = 0
+    this.n = 0
+  }
+
+  push(mag) {
+    const size = this.size
+    // 過期的從前面丟掉
+    while (this.count > 0 && this.ats[this.head] <= this.n - size) {
+      this.head = this.head + 1 === size ? 0 : this.head + 1
+      this.count--
+    }
+    // 後面不比它大的，窗內再也輪不到它們當最大值
+    while (this.count > 0) {
+      const back = (this.head + this.count - 1) % size
+      if (this.vals[back] > mag) break
+      this.count--
+    }
+    const at = (this.head + this.count) % size
+    this.vals[at] = mag
+    this.ats[at] = this.n
+    this.count++
+    this.n++
+    return this.vals[this.head]
+  }
+
+  clear() {
+    this.head = 0
+    this.count = 0
+    this.n = 0
+  }
+}
+
 class LimiterProcessor extends AudioWorkletProcessor {
   constructor() {
     super()
@@ -24,8 +67,8 @@ class LimiterProcessor extends AudioWorkletProcessor {
     this.attack = Math.exp(-1 / (ATTACK * sampleRate))
     /** 每個聲道一條環狀緩衝 */
     this.delay = []
-    /** 窗內每一格的絕對值，用來重算峰值 */
-    this.mags = new Float32Array(n)
+    /** 預看窗內的輸入峰值 */
+    this.peaks = new WindowPeak(n)
     this.write = 0
     this.gain = 1
     /** 回報用：這一批裡最低的增益與最高的輸入峰值。每 REPORT_BLOCKS 個區塊送一次 */
@@ -41,7 +84,7 @@ class LimiterProcessor extends AudioWorkletProcessor {
 
   clear() {
     for (const ch of this.delay) ch.fill(0)
-    this.mags.fill(0)
+    this.peaks.clear()
     this.write = 0
     this.gain = 1
     this.minGain = 1
@@ -71,22 +114,14 @@ class LimiterProcessor extends AudioWorkletProcessor {
         const a = x < 0 ? -x : x
         if (a > mag) mag = a
       }
-      this.mags[w] = mag
       this.write = w + 1 === this.size ? 0 : w + 1
-
-      // 窗內峰值。**逐格掃描** —— size 是 240 格（5 ms @ 48 kHz），
-      // 每個樣本掃一遍在音訊執行緒上量不出來，換掉它要先證明確實太慢
-      let peak = 0
-      for (let k = 0; k < this.size; k++) {
-        const m = this.mags[k]
-        if (m > peak) peak = m
-      }
+      const peak = this.peaks.push(mag)
       // 【NaN 不得鎖死整條匯流排】只要有一個樣本壞掉，增益會永遠是 NaN，
       // 而它在最後一道 —— 症狀是整場突然沒聲音，而且不報錯
       if (!(peak >= 0)) { this.clear(); continue }
       const target = peak > CEILING ? CEILING / peak : 1
       const gain = this.gain
-      // 降立刻到位、升照釋放係數。兩邊都平滑的話峰值會漏過去
+      // 降照起音係數、升照釋放係數。起音走完六個常數仍在峰值抵達之前
       this.gain = target + (gain - target) * (target < gain ? this.attack : this.coeff)
       if (this.gain < this.minGain) this.minGain = this.gain
       if (peak > this.maxPeak) this.maxPeak = peak

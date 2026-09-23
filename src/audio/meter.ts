@@ -18,6 +18,26 @@ export interface MeterSample {
   loudestDb: number
   /** 同時發聲的一次性聲道數 */
   voices: number
+  /**
+   * 累計幾次把**還在響的**聲音直接切掉（搶聲道、循環音換檔）。
+   * 波形從中間斷掉就是一聲「啪」，而峰值不會因此變高 —— 輸出錶看不到。
+   */
+  cuts: number
+  /**
+   * 音訊時鐘落後牆上時鐘累計幾毫秒。**持續往上長就是音訊執行緒算不完** ——
+   * 少算的那幾毫秒瀏覽器塞靜音補上，聽起來是劈啪聲，峰值卻完全不變。
+   * 幾毫秒內上下跳是正常的（音訊時鐘以一整塊緩衝為單位前進）。
+   */
+  lagMs: number
+}
+
+/**
+ * 音訊時鐘相對牆上時鐘落後了多少，秒。兩個時鐘都從 `anchor` 那一刻起算。
+ * 負值（音訊時鐘剛好跳了一塊）夾成 0。
+ */
+export function audioLag(wallNow: number, ctxNow: number, wallAnchor: number, ctxAnchor: number): number {
+  const lag = (wallNow - wallAnchor) - (ctxNow - ctxAnchor)
+  return lag > 0 ? lag : 0
 }
 
 /** 錶上保留幾格。60 格約 6 秒（每 100 ms 一格） */

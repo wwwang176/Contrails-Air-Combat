@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  METER_FLOOR_DB, METER_SLOTS, MeterHistory, meterFraction, toDb,
+  METER_FLOOR_DB, METER_SLOTS, MeterHistory, audioLag, meterFraction, toDb,
 } from '../../src/audio/meter'
 
 /**
@@ -59,5 +59,24 @@ describe('歷史', () => {
     h.push(-5, -3)
     h.clear()
     expect(h.count).toBe(0)
+  })
+})
+
+/**
+ * 【落後量】音訊執行緒算不完時音訊時鐘走得比牆上時鐘慢。算錯方向的話，
+ * 劈啪聲最嚴重的時候錶上反而是 0。
+ */
+describe('音訊時鐘落後量', () => {
+  it('兩個時鐘同速時是 0', () => {
+    expect(audioLag(12, 7, 2, -3)).toBe(0)
+  })
+
+  it('音訊時鐘少走的就是落後量', () => {
+    expect(audioLag(12, 6.5, 2, -3)).toBeCloseTo(0.5, 9)
+  })
+
+  /** 音訊時鐘一次跳一整塊緩衝，剛跳完會比牆上時鐘快一點 —— 那不是落後 */
+  it('音訊時鐘跑在前面時夾成 0', () => {
+    expect(audioLag(12, 7.01, 2, -3)).toBe(0)
   })
 })
