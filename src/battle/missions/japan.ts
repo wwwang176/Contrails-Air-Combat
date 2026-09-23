@@ -130,36 +130,60 @@ export const JAPAN: readonly MissionCard[] = [
       // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
       interdict: { count: 6, leak: 4, unit: 'truck' },
       /**
-       * 【第一批】開始攻擊之後進場（遲遲不動手的話 90 秒也會來）。`starboard: π`
-       * 把紅方的進場轉到 +Z 那一側（Ki-84 來的方向），比任務高度高 1,000 m。
+       * 【每波兩架、一波一波來】一次來四架的話玩家還在找車就被咬住。
        *
-       * 【撤離時兩面夾】轉入撤離的那一刻同時來兩組：
-       *   追兵  紅方原本那一側（灘頭外的海上），從玩家背後追上來
-       *   堵截  +Z 那一側、撤退路線的半途（z ≈ +5,000），比任務高度高 1,500 m，
-       *         從上方撲向撤退的玩家
-       * 兩組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
+       * 攻擊階段：
+       *   第一波  開始攻擊之後進場（遲遲不動手的話 90 秒也會來）。`starboard: π`
+       *           把紅方的進場轉到 +Z 那一側（Ki-84 來的方向）
+       *   第二、三波  150 秒、240 秒，照時鐘來、不看炸了幾輛 —— 炸得快也不會讓
+       *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
+       *
+       * 【撤離時兩面夾，錯開進場】轉入撤離的那一刻預警，進場由 `warnLead` 錯開：
+       *   追兵  0 秒  紅方原本那一側（灘頭外的海上），從玩家背後追上來
+       *   堵截  20 秒  +Z 那一側、撤退路線的半途（z ≈ +5,000），比任務高度高
+       *         1,500 m，從上方撲向撤退的玩家
+       *   追兵  40 秒  再一組從背後追上來
+       * 三組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
        * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
        *
-       * 紅隊席位：巡邏 2 + 4 + 4 + 4 = 14。**架數、高度、位置都是起始值。**
+       * 紅隊席位：巡邏 2 + 2 × 6 = 14。**架數、時間、高度、位置都是起始值。**
        */
       waves: [
         {
           when: { kind: 'destroyed', atLeast: 1, unit: 'truck', byLatest: 90 },
           warn: '敵艦載機接近中',
           warnLead: 6,
-          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, altitude: 2500,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
+        },
+        {
+          when: { kind: 'clock', at: 150 },
+          warn: '敵艦載機接近中',
+          warnLead: 6,
+          side: 'theirs', spec: F6F5, count: 2, altitude: 2000,
+        },
+        {
+          when: { kind: 'clock', at: 240 },
+          warn: '敵艦載機接近中',
+          warnLead: 6,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
           warn: '撤離戰區',
           warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 4, altitude: 2500,
+          side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
           warn: '撤離戰區',
-          warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, along: 0.5, altitude: 3000,
+          warnLead: 20,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.5, altitude: 3000,
+        },
+        {
+          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          warn: '撤離戰區',
+          warnLead: 40,
+          side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
         },
       ],
       withdraw: {
