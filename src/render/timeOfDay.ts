@@ -235,7 +235,11 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x444e57,
     sparkle: 0.15,
     foliage: 0.55,
-    fogDensity: FOG_DENSITY * 2.4,
+    /**
+     * 【雨幕】15 km 外蓋掉三分之二、25 km 外幾乎全白 —— 場地外的遠景陸地是低模，
+     * 要讓它化進天色裡（`render/leyteGround.ts`）。5 km 的纏鬥距離上敵機只淡一成。
+     */
+    fogDensity: FOG_DENSITY * 5,
   },
 }
 
