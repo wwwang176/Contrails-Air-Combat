@@ -44,8 +44,12 @@ export const HDR_EXEMPT = new Set<string>(
  * 最響值走一步：立即跟上新的峰值，否則照釋放速率往下掉，不低於絕對地板。
  */
 export function stepLoudest(loudest: number, peak: number, dt: number): number {
-  const decayed = Math.max(HDR_ABS_FLOOR_DB, loudest - HDR_RELEASE_DB_PER_SEC * Math.max(0, dt))
-  return Math.max(decayed, peak)
+  // 【NaN 不得傳下去】一個 NaN 會讓窗口、衰減、聲道增益一路變成 NaN，
+  // 最後把限幅器鎖死成永久靜音 —— 而且不報錯
+  const prev = Number.isFinite(loudest) ? loudest : HDR_ABS_FLOOR_DB
+  const step = Number.isFinite(dt) ? Math.max(0, dt) : 0
+  const decayed = Math.max(HDR_ABS_FLOOR_DB, prev - HDR_RELEASE_DB_PER_SEC * step)
+  return Number.isFinite(peak) ? Math.max(decayed, peak) : decayed
 }
 
 /**
@@ -54,6 +58,8 @@ export function stepLoudest(loudest: number, peak: number, dt: number): number {
  * 不衰減區之內回 0；之外照窗口寬度線性下降到 `HDR_MAX_DUCK_DB` 為止。
  */
 export function hdrDuckDb(loudness: number, loudest: number): number {
+  // 【壞值一律不衰減】寧可大聲，也不要讓 NaN 流進增益
+  if (!Number.isFinite(loudness) || !Number.isFinite(loudest)) return 0
   const top = Math.max(loudest, HDR_ABS_FLOOR_DB) - HDR_KNEE_DB
   if (loudness >= top) return 0
   const frac = Math.min(1, (top - loudness) / HDR_WINDOW_DB)
@@ -64,7 +70,8 @@ export function hdrDuckDb(loudness: number, loudest: number): number {
  * 低於這個就完全不發聲：一次性音效不播、循環音靜音（不停，避免反覆重播）。
  */
 export function hdrFloorDb(loudest: number): number {
-  return Math.max(loudest, HDR_ABS_FLOOR_DB) - HDR_KNEE_DB - HDR_WINDOW_DB
+  const v = Number.isFinite(loudest) ? loudest : HDR_ABS_FLOOR_DB
+  return Math.max(v, HDR_ABS_FLOOR_DB) - HDR_KNEE_DB - HDR_WINDOW_DB
 }
 
 /**
@@ -74,7 +81,8 @@ export function hdrFloorDb(loudest: number): number {
  * 【沒有表就回 0】等於「整段一樣響」，也就是加這一層之前的行為。
  */
 export function envelopeAt(table: readonly number[] | undefined, age: number): number {
-  if (table === undefined || table.length === 0) return 0
+  if (table === undefined || table.length === 0 || !Number.isFinite(age)) return 0
   const i = Math.floor(Math.max(0, age) / ENVELOPE_STEP)
-  return table[Math.min(i, table.length - 1)] ?? 0
+  const v = table[Math.min(i, table.length - 1)]
+  return v !== undefined && Number.isFinite(v) ? v : 0
 }

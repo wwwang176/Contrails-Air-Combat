@@ -69,13 +69,18 @@ class LimiterProcessor extends AudioWorkletProcessor {
         const m = this.mags[k]
         if (m > peak) peak = m
       }
+      // 【NaN 不得鎖死整條匯流排】只要有一個樣本壞掉，增益會永遠是 NaN，
+      // 而它在最後一道 —— 症狀是整場突然沒聲音，而且不報錯
+      if (!(peak >= 0)) { this.clear(); continue }
       const target = peak > CEILING ? CEILING / peak : 1
       const gain = this.gain
       // 降立刻到位、升照釋放係數。兩邊都平滑的話峰值會漏過去
       this.gain = target < gain ? target : target + (gain - target) * this.coeff
       for (let c = 0; c < channels; c++) {
         const dst = output[c]
-        if (dst !== undefined) dst[i] *= this.gain
+        if (dst === undefined) continue
+        const y = dst[i] * this.gain
+        dst[i] = y === y ? y : 0
       }
     }
     return true

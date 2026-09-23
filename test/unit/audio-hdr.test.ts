@@ -5,6 +5,7 @@ import {
   HDR_WINDOW_DB, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
 } from '../../src/audio/dynamics'
 import { CATEGORY } from '../../src/audio/catalog'
+import { dbToGain } from '../../src/audio/curves'
 
 /**
  * # HDR 混音
@@ -144,5 +145,43 @@ describe('清單裡的包絡表', () => {
   it('引擎的包絡起伏在 12 dB 以內', () => {
     const e = MAN['engine-p51d']!.envelopeDb!
     expect(Math.min(...e)).toBeGreaterThan(-12)
+  })
+})
+
+/**
+ * 【NaN 不得傳下去】一個壞值會沿著「窗口 → 衰減 → 聲道增益 → 限幅器」一路
+ * 傳到最後一道，把整條匯流排鎖成靜音，而且不報錯。三層各自擋住。
+ */
+describe('壞值的防護', () => {
+  it('最響值吃到 NaN 時退回地板，不把 NaN 留在狀態裡', () => {
+    expect(stepLoudest(NaN, -20, 0.016)).toBe(-20)
+    expect(stepLoudest(-20, NaN, 1)).toBeCloseTo(-32, 9)
+    expect(stepLoudest(-20, -30, NaN)).toBe(-20)
+    expect(Number.isFinite(stepLoudest(NaN, NaN, NaN))).toBe(true)
+  })
+
+  it('衰減量吃到 NaN 時回 0（寧可大聲也不要靜音）', () => {
+    expect(hdrDuckDb(NaN, 6)).toBe(0)
+    expect(hdrDuckDb(-20, NaN)).toBe(0)
+    expect(hdrDuckDb(Infinity, -Infinity)).toBe(0)
+  })
+
+  it('地板與包絡吃到壞值時仍然是有限值', () => {
+    expect(Number.isFinite(hdrFloorDb(NaN))).toBe(true)
+    expect(envelopeAt([0, NaN, -20], 0.3)).toBe(0)
+    expect(envelopeAt([0, -6], NaN)).toBe(0)
+  })
+
+  it('dB 轉增益不吐出 NaN', () => {
+    expect(dbToGain(NaN)).toBe(0)
+    expect(dbToGain(-Infinity)).toBe(0)
+    expect(dbToGain(0)).toBe(1)
+  })
+
+  /** 【限幅器裡也要擋】NaN 一旦進到它的增益就永遠留在那裡 */
+  it('worklet 遇到非有限的峰值會重置，而且輸出不吐 NaN', () => {
+    const SRC = new TextDecoder().decode(readFileSync('public/audio/limiter.js'))
+    expect(SRC).toContain('if (!(peak >= 0)) { this.clear(); continue }')
+    expect(SRC).toContain('dst[i] = y === y ? y : 0')
   })
 })
