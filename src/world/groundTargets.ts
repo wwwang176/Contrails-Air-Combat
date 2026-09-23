@@ -4,6 +4,7 @@ import { GROUND_UNITS, type GroundUnit, type GroundUnitId } from '../render/geom
 import type { StrikeTarget } from './strikeTarget'
 import { resetGroundBattery } from './shipGuns'
 import type { ShipGun } from './ships'
+import type { GroundMotion } from './groundMotion'
 import type { Team } from './World'
 
 /**
@@ -111,7 +112,7 @@ export interface GroundTarget extends StrikeTarget {
   readonly unit: GroundUnit
   /** 裝甲，mm。見 `GROUND_ARMOUR`。 */
   readonly armour: number
-  /** 世界座標，底面中心。`y` 是地面高度。 */
+  /** 世界座標，底面中心。`y` 是地面高度。沿路線移動的車每一步重寫 */
   readonly position: Vector3
   /** 只有航向（繞 Y）。 */
   readonly orientation: Quaternion
@@ -125,8 +126,18 @@ export interface GroundTarget extends StrikeTarget {
   readonly radius: number
   /** 就是 `unit.hull`。打擊目標視圖讀這一格 */
   readonly hull: readonly Box[]
-  /** 恆 0：地面目標不動 */
-  readonly speed: 0
+  /**
+   * 沿車頭（−Z）的速率，m/s。**靜止的目標恆為 0**；沿路線移動的車由
+   * `world/groundMotion.ts` 每一步寫入。AI 的提前量讀它（與船同一條路）。
+   */
+  speed: number
+  /** 沿路線移動的設定。**null = 不動**（停放的飛機、砲位、廠房） */
+  readonly motion: GroundMotion | null
+  /**
+   * 走完路線退場了。**`alive` 同時為 false**：不擋子彈、不是目標、畫面上不畫。
+   * **不算摧毀** —— 它是開到了，不是被打掉（`battle/setup.ts` 的 `destroyedInPool`）。
+   */
+  arrived: boolean
   /** 落點求解的平面：地面高度加命中盒的頂，世界高度 */
   readonly impactY: number
   /** 選目標用：血量上限，或 `GROUND_VALUE` 另外給的值 */
@@ -182,7 +193,7 @@ export function groundTopOf(unit: GroundUnit): number {
 
 export function createGroundTarget(
   index: number, id: GroundUnitId, team: Team,
-  x: number, z: number, heading: number,
+  x: number, z: number, heading: number, motion: GroundMotion | null = null,
 ): GroundTarget {
   const unit = groundUnitOf(id)
   const position = new Vector3(x, 0, z)
@@ -200,6 +211,8 @@ export function createGroundTarget(
     radius: boundingRadius(unit.hull),
     hull: unit.hull,
     speed: 0,
+    motion,
+    arrived: false,
     // 【getter 而不是常數】`position.y` 由 `settleGroundTargets` 之後才填
     get impactY() { return position.y + top },
     value: GROUND_VALUE[id] ?? GROUND_HP[id],
@@ -237,6 +250,10 @@ export function resetGroundTarget(t: GroundTarget): void {
   t.alive = true
   t.departed = false
   t.departedAs = -1
+  t.arrived = false
+  t.speed = 0
+  // 【航向也要回開局】移動的車整場都在改 orientation；靜止的目標抄回去不變
+  t.orientation.setFromAxisAngle(UP, t.heading)
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
   // 一個已經不存在的索引開火
   if (t.guns.length > 0) resetGroundBattery(t)

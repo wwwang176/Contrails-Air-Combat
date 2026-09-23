@@ -356,9 +356,12 @@ export function shipAttackCommand(
 }
 
 /**
- * 掃射一個地面目標。與 `shipAttackCommand` 同一支掃射核心，目標不動。
+ * 掃射一個地面目標。與 `shipAttackCommand` 同一支掃射核心。
  *
  * 【瞄命中盒的半高】瞄地面高度的話彈道打在停放機腳下的土裡。
+ *
+ * 【沿路線移動的車要帶速度】掃射核心拿它算提前量，與船同一個寫法。靜止的
+ * 目標 `speed` 是 0，走 `0, 0, 0` 那一條，行為與沒有移動目標時逐位元相同。
  *
  * **呼叫端仍然要在之後套 `applySafety`** —— 俯衝掃射追到地面的風險由安全層擋。
  */
@@ -368,7 +371,12 @@ export function groundAttackCommand(
 ): void {
   const p = target.position
   const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
-  groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim)
+  if (target.speed === 0) {
+    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim)
+    return
+  }
+  const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(target.orientation).multiplyScalar(target.speed)
+  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim)
 }
 
 /**
