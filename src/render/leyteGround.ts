@@ -12,8 +12,11 @@ import { buildGroundRect } from './island'
  *    視錐；整塊沉在水下的格子不畫（`buildGroundRect`）。
  * 2. **沙灘由高度 `SAND_TOP` 分界**，平地（8 m）是草。群島的分界是 12 m，
  *    照搬的話整片平地都是沙。
- * 3. **公路畫在材質的 shader 裡**：離 `LEYTE_ROAD` 任一段小於半寬就是柏油色。
- *    不另建貼地的網格 —— 那會與地面共面，拉遠就閃。
+ * 3. **公路畫在材質的 shader 裡**：離 `LEYTE_ROAD` 任一段小於半寬就是泥土路的
+ *    顏色。不另建貼地的網格 —— 那會與地面共面，拉遠就閃。
+ *
+ * 【泥土路，不是柏油】雨季的雷伊泰公路是泥濘的土路：顏色接近沙灘、邊緣不規則、
+ * 顏色帶一點深淺。路寬沿路起伏（`roadHalfWidthAt`），邊緣有一段混進草地的過渡。
  */
 
 const ROUGHNESS = 0.95
@@ -21,7 +24,20 @@ const SAND = new Color(0xc2b280)
 const GRASS = new Color(0x55703f)
 /** 樹冠的平均色：闊葉樹與灌木。地色按林相覆蓋率往它混 */
 const CANOPY = new Color(0x2f4a2a)
-const ASPHALT = new Color(0x4a4640)
+/** 泥土路的顏色：比沙灘暗一點、偏土黃 */
+export const ROAD_COLOR = 0xb5a276
+
+/**
+ * 路寬的起伏：兩道斜向的正弦疊在標稱半寬上，各自的振幅比例。合計 ±35%，
+ * 半寬 4 m 時是 2.6～5.4 m。**最窄處要大於車在轉角偏離中線的 2.1 m**
+ * （`leyte-render.test.ts`），否則車會開到路外的草地上。
+ */
+const WIDTH_RIPPLE = [
+  { amp: 0.22, fx: 0.031, fz: 0.017, phase: 0 },
+  { amp: 0.13, fx: 0.083, fz: -0.061, phase: 1.3 },
+] as const
+/** 路緣混進草地的過渡寬，m。泥土路沒有一條刀切的邊 */
+const ROAD_EDGE_SOFT = 1.2
 
 /** 一塊方塊幾格邊長。40 × 80 m = 3.2 km */
 export const LEYTE_TILE_CELLS = 40
@@ -38,24 +54,36 @@ export function leyteShade(h: number, cover: number, out: Color): Color {
 }
 
 /**
- * 這一點被路面蓋住沒有，0 或 1。**與 shader 同一條式子**（不含抗鋸齒帶）：
- * 測試拿它確認路畫在 `LEYTE_ROAD` 上。
+ * 這一點的路半寬，m。**與 shader 同一條式子**（`roadGlsl` 的 `halfW`）：標稱半寬
+ * 乘上沿路起伏的正弦，只吃世界座標 —— 同一點永遠同一個寬度。
+ */
+export function roadHalfWidthAt(x: number, z: number): number {
+  let k = 1
+  for (const r of WIDTH_RIPPLE) k += r.amp * Math.sin(r.fx * x + r.fz * z + r.phase)
+  return (ROAD_WIDTH / 2) * k
+}
+
+/**
+ * 這一點在不在路面上，0 或 1：離中線比這一點的半寬近。**與 shader 同一條式子**
+ * （不含路緣的過渡帶）。測試拿它確認路畫在 `LEYTE_ROAD` 上。
  */
 export function roadCoverageAt(x: number, z: number): number {
+  const w = roadHalfWidthAt(x, z)
   for (let i = 1; i < LEYTE_ROAD.length; i++) {
     const a = LEYTE_ROAD[i - 1]!
     const b = LEYTE_ROAD[i]!
     const abx = b.x - a.x
     const abz = b.z - a.z
     const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
-    if (Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t)) < ROAD_WIDTH / 2) return 1
+    if (Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t)) < w) return 1
   }
   return 0
 }
 
 /**
- * 公路的 GLSL：世界座標 xz 到折線的距離小於半寬就混柏油色。邊緣留一個像素寬
- * 的過渡，只為了抗鋸齒 —— 拉寬就變成一條暈開的帶子。
+ * 公路的 GLSL：世界座標 xz 到折線的距離小於這一點的半寬（`roadHalfWidthAt`）
+ * 就混泥土色。路緣往內 `ROAD_EDGE_SOFT` 公尺是混進草地的過渡；顏色另外疊一層
+ * 低頻的深淺，泥濘的地方深、乾的地方淺。
  */
 function roadGlsl(): string {
   const segs: string[] = []
@@ -64,8 +92,11 @@ function roadGlsl(): string {
     const b = LEYTE_ROAD[i]!
     segs.push(`vec4(${a.x.toFixed(1)}, ${a.z.toFixed(1)}, ${b.x.toFixed(1)}, ${b.z.toFixed(1)})`)
   }
-  const half = (ROAD_WIDTH / 2).toFixed(1)
-  const c = ASPHALT
+  const half = (ROAD_WIDTH / 2).toFixed(2)
+  const ripple = WIDTH_RIPPLE.map((r) =>
+    ` + ${r.amp.toFixed(3)} * sin(${r.fx.toFixed(4)} * vRoadXZ.x + ${r.fz.toFixed(4)} * vRoadXZ.y + ${r.phase.toFixed(3)})`,
+  ).join('')
+  const c = new Color(ROAD_COLOR)
   return `
   {
     const vec4 ROAD[${segs.length}] = vec4[${segs.length}](${segs.join(', ')});
@@ -76,9 +107,11 @@ function roadGlsl(): string {
       float t = clamp(dot(vRoadXZ - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
       roadD = min(roadD, length(vRoadXZ - (a + ab * t)));
     }
+    float halfW = ${half} * (1.0${ripple});
     float px = max(fwidth(roadD), 1.0e-3);
-    float cover = 1.0 - smoothstep(${half} - px, ${half} + px, roadD);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}), cover);
+    float cover = 1.0 - smoothstep(halfW - ${ROAD_EDGE_SOFT.toFixed(2)} - px, halfW + px, roadD);
+    float mud = 0.88 + 0.12 * sin(0.047 * vRoadXZ.x + 0.029 * vRoadXZ.y) * sin(0.13 * vRoadXZ.y - 0.07 * vRoadXZ.x);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}) * mud, cover);
   }`
 }
 
