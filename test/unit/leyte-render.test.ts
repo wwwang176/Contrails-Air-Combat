@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
-  createLeyte, FIELD_HALF, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
+  createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
 } from '../../src/world/leyte'
 import {
   FAR_LAND_NAME, ROAD_COLOR, bakeRoadDistance, createLeyteGround, isLeyteGrass, leyteShade,
@@ -140,8 +140,10 @@ describe('公路只有一份座標', () => {
   it('植被在公路清空帶內接受率為 0，平地上遠低於丘陵上', () => {
     const a = LEYTE_ROAD[4]!
     expect(leyteAccept(field, a.x, a.z, PLAIN_HEIGHT)).toBe(0)
-    // 平地（有緩坡）取在公路走廊裡遠離丘陵的一點，對照組取最大那座丘陵的頂
-    expect(maxAccept(0, 2500)).toBeLessThan(maxAccept(-7500, 0) * 0.3)
+    // 平地取公路中段（瓣離公路至少 400 m，±300 m 的方框全在平地上），對照組取最高那一瓣的頂
+    const mid = LEYTE_ROAD[Math.floor(LEYTE_ROAD.length / 2)]!
+    const top = LEYTE_MASSIFS.flatMap((m) => m.lobes).reduce((a, b) => (b.peak > a.peak ? b : a))
+    expect(maxAccept(mid.x, mid.z)).toBeLessThan(maxAccept(top.cx, top.cz) * 0.3)
   })
 
   it('實際長出來的樹沒有一棵落在清空帶內，而且是闊葉樹或灌木', () => {

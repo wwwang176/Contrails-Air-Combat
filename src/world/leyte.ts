@@ -8,8 +8,8 @@ import { HILL_GAP } from './farmland'
  * 一座很大的島：世界 −Z 是海（雷伊泰灣），+Z 是陸。陸上是平地、一條蜿蜒的
  * 公路與一群山脈。
  *
- * 【高度場的組成】先把山脈烘進去（底面是 `SEA_FLOOR`），再逐格與「海岸線
- * 加平地」的基準面取 max。瓣緣因此併入平地，不會在平地上挖出環溝。
+ * 【高度場的組成】「海岸線加平地」的基準面，再逐格疊上山脈的起伏（瓣緣是 0，
+ * 所以瓣緣自然併入平地）。
  *
  * 【避障清單只有山脈】平地只有 `PLAIN_HEIGHT` 高，那是地面不是障礙；AI 的
  * 圓盤法只需要知道山脈（`ai/terrainSense.ts`）。
@@ -32,8 +32,8 @@ export const FIELD_HALF = ((LEYTE_SIZE - 1) * LEYTE_CELL) / 2
 export const PLAIN_HEIGHT = 8
 /** 這個高度以下是沙灘色、不長植被，m。`render/leyteGround.ts` 與植被共用 */
 export const SAND_TOP = 3
-/** 山脈峰高的上限，m。`LandField.ceiling` 用它 */
-export const LEYTE_PEAK_MAX = 450
+/** 高度場最高處的上界，m：山脈的起伏最多 450 m，疊在最高 `PLAIN_TOP` 的平地上。`LandField.ceiling` 用它 */
+export const LEYTE_PEAK_MAX = 470
 
 /** 岸線平均位置，m（世界 z） */
 const COAST_Z = -4000
@@ -58,6 +58,8 @@ const SEABED_RAMP = 200
 function roll(x: number, z: number): number {
   return 6 + 4 * Math.sin(x / 900 + 0.5) * Math.sin(z / 1100 + 1.2) + 2 * Math.sin((x - z) / 450 + 2)
 }
+/** 基準面的最高處，m：平地加上緩坡起伏的上限（6 + 4 + 2） */
+export const PLAIN_TOP = PLAIN_HEIGHT + 12
 /** 岸邊這麼寬的一帶不起伏，m —— 沙灘與灘頭是平的 */
 const ROLL_SHORE = 600
 
@@ -309,25 +311,49 @@ export interface LeyteMassifLayout {
   readonly seed: number
 }
 
-/** 手擺的大山脈：圍著公路走廊的那一圈 */
+/**
+ * 大山脈的圓盤半徑，m，與相鄰兩個圓盤之間的縫，m。
+ *
+ * 【排成蜂巢】圓盤之間的縫是平地（AI 要求圓盤不重疊，見 `HILL_GAP`），
+ * 圓越多越小、縫就越多。等大的圓排成蜂巢，縫最少，三圓之間的三角縫再由
+ * `FILL_TIERS` 的小緩丘補。
+ */
+const MAIN_REACH = 6000
+const MAIN_SEAM = 210
+const HEX_DX = 2 * MAIN_REACH + MAIN_SEAM
+const HEX_DZ = (HEX_DX * Math.sqrt(3)) / 2
+const HEX_Z0 = -500
+
+/**
+ * 手擺的大山脈：蜂巢的兩排。南排中間那一座包著公路，瓣讓開路之後是走廊兩側
+ * 的緩丘；其餘是高的山脈。北排兩端的圓心在場外，只有場內那一部分長得出來。
+ * 峰高是起伏，疊在平地上。
+ */
 const MAIN_MASSIFS: readonly LeyteMassifLayout[] = [
-  { cx: -10000, cz: 1500, reach: 4500, peak: 450, seed: 401 },
-  { cx: 9500, cz: 2500, reach: 4500, peak: 410, seed: 402 },
-  { cx: -11000, cz: 11000, reach: 3800, peak: 350, seed: 403 },
-  { cx: 10500, cz: 11200, reach: 3500, peak: 360, seed: 404 },
-  { cx: -3500, cz: 8900, reach: 2700, peak: 375, seed: 405 },
-  { cx: 3800, cz: 9500, reach: 2600, peak: 390, seed: 406 },
-  { cx: 0, cz: 13300, reach: 1700, peak: 300, seed: 407 },
-  { cx: -3500, cz: 4200, reach: 1500, peak: 250, seed: 408 },
-  { cx: 2500, cz: 5000, reach: 1700, peak: 225, seed: 409 },
-  { cx: -4000, cz: -500, reach: 1500, peak: 220, seed: 410 },
+  { cx: -HEX_DX, cz: HEX_Z0, reach: MAIN_REACH, peak: 400, seed: 401 },
+  { cx: 0, cz: HEX_Z0, reach: MAIN_REACH, peak: 160, seed: 402 },
+  { cx: HEX_DX, cz: HEX_Z0, reach: MAIN_REACH, peak: 380, seed: 403 },
+  { cx: -1.5 * HEX_DX, cz: HEX_Z0 + HEX_DZ, reach: MAIN_REACH, peak: 330, seed: 404 },
+  { cx: -0.5 * HEX_DX, cz: HEX_Z0 + HEX_DZ, reach: MAIN_REACH, peak: 450, seed: 405 },
+  { cx: 0.5 * HEX_DX, cz: HEX_Z0 + HEX_DZ, reach: MAIN_REACH, peak: 420, seed: 406 },
+  { cx: 1.5 * HEX_DX, cz: HEX_Z0 + HEX_DZ, reach: MAIN_REACH, peak: 340, seed: 407 },
 ]
 
-/** 補空地的小山脈：候選網格、抖動、圓盤半徑、峰高。**起始值，拿眼睛校** */
-const FILL_STEP = 2600
-const FILL_JITTER = 700
-const FILL_REACH = [1100, 1900] as const
-const FILL_PEAK = [130, 280] as const
+/**
+ * 補縫的緩丘：由大到小幾輪，每輪一個網格，網格上每一格抽一個候選。
+ * **網格比圓盤小**，大的放完之後剩下的縫由小的塞。**起始值，拿眼睛校**
+ */
+const FILL_TIERS = [
+  { reach: [650, 900], step: 600 },
+  { reach: [400, 550], step: 400 },
+  { reach: [250, 380], step: 300 },
+] as const
+const FILL_JITTER = 0.5
+/**
+ * 緩丘的峰高是圓盤半徑的幾成。**跟著半徑走** —— 小圓盤配固定的峰高就是
+ * 平地上一根尖錐。
+ */
+const FILL_PEAK = [0.08, 0.15] as const
 const FILL_SEED = 20260924
 
 /** 主稜上瓣的標稱半徑是圓盤半徑的幾成 */
@@ -348,12 +374,47 @@ const SPUR_COUNT = 5
 const SPUR_LENGTH = 0.6
 const SPUR_WIDTH = 0.7
 const SPUR_PEAK = 0.75
+/**
+ * 山麓：一圈一圈排滿整個圓盤的寬矮瓣，把稜線之間與圓盤邊緣的平地墊成緩坡。
+ * 每一圈離圓心多遠（圓盤半徑的幾成）、幾瓣。
+ *
+ * 【排成圈而不是隨機撒】瓣要連同 wobble 整顆落在圓內，越靠圓邊能放的越小
+ * —— 隨機撒的話外圈幾乎沒有瓣，圓盤邊緣那一圈（佔圓盤面積三成多）全是平地。
+ */
+const FOOT_RINGS = [
+  { d: 0.3, n: 6 },
+  { d: 0.55, n: 10 },
+  { d: 0.75, n: 16 },
+  { d: 0.9, n: 28 },
+] as const
+/**
+ * 上面的瓣數是這個圓盤半徑下的，m。圓盤越大一圈越長，瓣數跟著半徑等比例
+ * 加（至少 3），外圈才排得滿
+ */
+const FOOT_RING_REACH = 3600
+/** 山麓瓣的半徑上限（圓盤半徑的幾成）與峰高（山脈峰高的幾成） */
+const FOOT_WIDTH = 0.3
+const FOOT_PEAK = [0.2, 0.35] as const
+/**
+ * 山麓瓣的峰高不超過自己半徑的這麼多倍。**AI 的安全約束**：瓣越小越陡，
+ * 80 m 格的內插在瓣腳高出解析值越多，超過 `terrainCeiling` 的餘裕 AI 就會
+ * 把山看矮（`leyte.test.ts` 對著高度場驗）。
+ */
+const FOOT_SLOPE = 0.15
+/** 山麓峰高隨方位起伏的幅度：0.4 = 最矮的方位是平均的六成、最高的一倍四 */
+const FOOT_SWAY = 0.4
+/**
+ * 圓頂：圓心一顆塞滿整個圓盤的矮瓣，峰高是山脈峰高的幾成。整座山脈因此坐在
+ * 一片緩坡上；補空地的小圓盤放不下山麓瓣，靠它才不會只剩一顆小點。
+ */
+const DOME_PEAK = 0.35
+const DOME_COUNT = 3
 /** 瓣夾小之後小於這個半徑就不放，m */
-const LOBE_MIN = 250
+const LOBE_MIN = 150
 /** 一座山脈至少要剩這麼多瓣才放。只剩一兩瓣的就是平地上孤立的尖丘 */
-const MASSIF_MIN_LOBES = 6
+const MASSIF_MIN_LOBES = 3
 /** 瓣心離岸線至少這麼遠，m。瓣緣可以伸進海裡成為岬角 */
-const LOBE_INLAND = 1000
+const LOBE_INLAND = 600
 /** 瓣的膨脹圓離公路中線、撤離點、砲位至少這麼遠，m */
 const ROAD_CLEAR = 400
 const EVAC_CLEAR = 300
@@ -483,66 +544,106 @@ function buildMassif(m: LeyteMassifLayout): IslandDesc | null {
     }
   }
 
-  if (lobes.length < MASSIF_MIN_LOBES) return null
+  // 圓頂：半徑取剛好放得進圓盤。瓣緣是波浪形，最凹的方向只到圓盤的一半多，
+  // 所以疊幾顆相位不同的，凹處互相補上
+  for (let k = 0; k < DOME_COUNT; k++) {
+    add(m.cx, m.cz, (m.reach / WOBBLE_MAX) * 0.999, m.peak * DOME_PEAK, rand() * Math.PI * 2, rand() * Math.PI * 2)
+  }
+
+  /**
+   * 山麓：每一圈等角排開再抖一下；半徑取「這一圈還放得下」與上限的小者。
+   * 峰高隨方位起伏（`FOOT_SWAY`）—— 每一方位一樣高的話，整座山是一顆圓坐墊，
+   * 圓盤的輪廓從空中一眼看得出來。
+   */
+  const sway1 = rand() * Math.PI * 2
+  const sway2 = rand() * Math.PI * 2
+  for (const ring of FOOT_RINGS) {
+    const phase = rand() * Math.PI * 2
+    const n = Math.max(3, Math.round((ring.n * m.reach) / FOOT_RING_REACH))
+    for (let f = 0; f < n; f++) {
+      const a = phase + ((f + (rand() - 0.5) * 0.6) / n) * Math.PI * 2
+      const d = ring.d * m.reach * (0.92 + 0.16 * rand())
+      const room = (m.reach - d) / WOBBLE_MAX
+      const r = Math.min(FOOT_WIDTH * m.reach, room) * (0.85 + 0.15 * rand())
+      const sway = 1 + FOOT_SWAY * (0.6 * Math.sin(2 * a + sway1) + 0.4 * Math.sin(3 * a + sway2))
+      const peak = sway * Math.min(
+        FOOT_SLOPE * r, m.peak * (FOOT_PEAK[0] + rand() * (FOOT_PEAK[1] - FOOT_PEAK[0])))
+      add(m.cx + Math.cos(a) * d, m.cz + Math.sin(a) * d, r, peak, rand() * Math.PI * 2, rand() * Math.PI * 2)
+    }
+  }
+
+  // 【孤立的瓣不放】讓路讓掉旁邊的瓣之後，剩下與同一座其他瓣都不相接的那一顆
+  // 就是平地上一根孤丘
+  const joined = lobes.filter((a) => lobes.some((b) => b !== a
+    && Math.hypot(a.cx - b.cx, a.cz - b.cz) < a.radius + b.radius))
+  if (joined.length < MASSIF_MIN_LOBES) return null
   let peak = 0
   let outer = 0
-  for (const lo of lobes) {
+  for (const lo of joined) {
     peak = Math.max(peak, lo.peak)
     outer = Math.max(outer, lo.offset + lo.radius * WOBBLE_MAX)
   }
-  return { cx: m.cx, cz: m.cz, radius: outer / WOBBLE_MAX, outerRadius: outer, peak, lobes }
+  return { cx: m.cx, cz: m.cz, radius: outer / WOBBLE_MAX, outerRadius: outer, peak, lobes: joined }
 }
 
-/** 補空地的小山脈，圓盤本身要能放：離岸、讓開公路／撤離點／砲位、與既有的山脈隔開 */
-function massifFits(m: LeyteMassifLayout, placed: readonly LeyteMassifLayout[]): boolean {
-  if (m.cz < coastZ(m.cx) + LOBE_INLAND + m.reach * 0.5) return false
+/**
+ * 補空地的緩丘，圓盤本身要能放：中心在陸上、讓開公路／撤離點／砲位、與已經
+ * 放好的山脈隔開。
+ *
+ * 【比的是對方實際的 `outerRadius`，不是它的 `reach`】建好的山脈圓盤只會比
+ * 佈局小，縫因此塞得更滿；自己這一座還沒建，用 `reach` 當上界。
+ */
+function massifFits(m: LeyteMassifLayout, placed: readonly IslandDesc[]): boolean {
+  if (m.cz < coastZ(m.cx) + LOBE_INLAND) return false
   if (distanceToRoad(m.cx, m.cz) - m.reach < ROAD_CLEAR) return false
   if (Math.hypot(m.cx, m.cz - EVACUATE_Z) - m.reach < EVAC_CLEAR) return false
   for (const s of LEYTE_FLAK_SITES) if (Math.hypot(m.cx - s.x, m.cz - s.z) - m.reach < FLAK_CLEAR) return false
   for (const o of placed) {
-    if (Math.hypot(m.cx - o.cx, m.cz - o.cz) - m.reach - o.reach < HILL_GAP) return false
+    if (Math.hypot(m.cx - o.cx, m.cz - o.cz) - m.reach - o.outerRadius < HILL_GAP) return false
   }
   return true
 }
 
 /**
- * 大山脈之間的空地，用小山脈補起來。網格上每一格抽一個候選，放得下才放。
+ * 全部的山脈：先建手擺的大山脈，再由大到小一輪一輪把空地補上緩丘（`FILL_TIERS`）。
  *
  * 【所有亂數都無條件抽完，篩選在後】與農地同一個理由：條件式的抽樣會讓後面
  * 的序列跟著前面放不放得下而漂，改一座山就整片換樣子。
  */
-function fillMassifs(): LeyteMassifLayout[] {
+function buildMassifs(): IslandDesc[] {
+  const placed: IslandDesc[] = []
+  for (const m of MAIN_MASSIFS) {
+    const d = buildMassif(m)
+    if (d) placed.push(d)
+  }
   const rand = makeRand(FILL_SEED)
-  const placed: LeyteMassifLayout[] = [...MAIN_MASSIFS]
-  const out: LeyteMassifLayout[] = []
   let seed = 500
-  for (let z = -FIELD_HALF + FILL_STEP / 2; z < FIELD_HALF; z += FILL_STEP) {
-    for (let x = -FIELD_HALF + FILL_STEP / 2; x < FIELD_HALF; x += FILL_STEP) {
-      const m: LeyteMassifLayout = {
-        cx: x + (rand() * 2 - 1) * FILL_JITTER,
-        cz: z + (rand() * 2 - 1) * FILL_JITTER,
-        reach: FILL_REACH[0] + rand() * (FILL_REACH[1] - FILL_REACH[0]),
-        peak: FILL_PEAK[0] + rand() * (FILL_PEAK[1] - FILL_PEAK[0]),
-        seed: seed++,
+  for (const tier of FILL_TIERS) {
+    const jitter = FILL_JITTER * tier.step
+    for (let z = -FIELD_HALF + tier.step / 2; z < FIELD_HALF; z += tier.step) {
+      for (let x = -FIELD_HALF + tier.step / 2; x < FIELD_HALF; x += tier.step) {
+        const cx = x + (rand() * 2 - 1) * jitter
+        const cz = z + (rand() * 2 - 1) * jitter
+        const reach = tier.reach[0] + rand() * (tier.reach[1] - tier.reach[0])
+        const peak = reach * (FILL_PEAK[0] + rand() * (FILL_PEAK[1] - FILL_PEAK[0]))
+        const m: LeyteMassifLayout = { cx, cz, reach, peak, seed: seed++ }
+        if (!massifFits(m, placed)) continue
+        const d = buildMassif(m)
+        if (d) placed.push(d)
       }
-      if (!massifFits(m, placed)) continue
-      placed.push(m)
-      out.push(m)
     }
   }
-  return out
+  return placed
 }
 
 /**
- * 全部的山脈：手擺的大山脈，加上補空地的小山脈。**AI 的避障清單就是它**。
+ * 全部的山脈與緩丘。**AI 的避障清單就是它**。
  *
  * 約束（`leyte.test.ts` 守著）：圓盤兩兩至少隔 `HILL_GAP`（AI 一次只處理一個
  * 圓盤）、每一瓣都在自己的圓盤與場地內、瓣的膨脹圓離公路至少 `ROAD_CLEAR`、
  * 不蓋住撤離點與砲位。靠海的山脈可以伸到海裡，是岬角。
  */
-export const LEYTE_MASSIFS: readonly IslandDesc[] = [...MAIN_MASSIFS, ...fillMassifs()]
-  .map(buildMassif)
-  .filter((m): m is IslandDesc => m !== null)
+export const LEYTE_MASSIFS: readonly IslandDesc[] = buildMassifs()
 
 /** 山谷最深挖掉山高的幾成 */
 const CARVE_DEPTH = 0.35
@@ -551,8 +652,8 @@ const CARVE_DEPTH = 0.35
  * 山谷的刻痕：兩道彎曲的正弦帶交疊出的谷線，這一點要保留山高的幾成，
  * `1 − CARVE_DEPTH`～1。谷線上最低、離開谷線很快回到 1。
  *
- * 【只往下挖】乘在「高出基準面的那一段」上，所以山只會變矮不會變高 ——
- * AI 知道的峰高（`IslandDesc.peak`）仍然是上界，避山判斷不受影響。
+ * 【只往下挖】乘在瓣的起伏上，所以山只會變矮不會變高 —— AI 知道的峰高
+ * （`IslandDesc.peak`）仍然是上界，避山判斷不受影響。
  */
 export function carveFactor(x: number, z: number): number {
   const v = Math.sin(x * 0.0041 + 1.8 * Math.sin(z * 0.0027))
@@ -561,10 +662,25 @@ export function carveFactor(x: number, z: number): number {
   return 1 - CARVE_DEPTH * ridge * ridge * ridge
 }
 
+/**
+ * AI 讀的那一份：每一瓣的峰高加上 `PLAIN_TOP`。
+ *
+ * 【為什麼要加】高度場是基準面**加上**瓣的起伏，而 `terrainCeiling` 只知道瓣
+ * —— 不加的話 AI 會把整座山看矮最多 `PLAIN_TOP`。加在每一瓣上，所以逐瓣算的
+ * 上界照樣成立（`leyte.test.ts` 對著內插後的高度場驗）。
+ */
+function liftForAi(m: IslandDesc): IslandDesc {
+  return {
+    ...m,
+    peak: m.peak + PLAIN_TOP,
+    lobes: m.lobes.map((lo) => ({ ...lo, peak: lo.peak + PLAIN_TOP })),
+  }
+}
+
 export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
   const field = createHeightField(LEYTE_SIZE, LEYTE_CELL)
-  const hills = [...LEYTE_MASSIFS]
-  bakeRelief(field, hills, SEA_FLOOR)
+  // 先只烘瓣的起伏（底面 0），再逐格疊到基準面上
+  bakeRelief(field, LEYTE_MASSIFS, 0)
   const { size, cell, data } = field
   const half = (size - 1) / 2
   for (let row = 0; row < size; row++) {
@@ -572,11 +688,12 @@ export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {
     for (let col = 0; col < size; col++) {
       const x = (col - half) * cell
       const i = row * size + col
-      const b = baseHeight(x, z)
-      const h = data[i]!
-      // 【高出基準面的才刻】平地與海床不動
-      data[i] = h > b ? b + (h - b) * carveFactor(x, z) : b
+      /**
+       * 【疊上去，不是取 max】取 max 的話瓣要先高過平地（8～20 m）才看得見，
+       * 矮的山麓與緩丘整片被平地吃掉。
+       */
+      data[i] = baseHeight(x, z) + data[i]! * carveFactor(x, z)
     }
   }
-  return { field, hills }
+  return { field, hills: LEYTE_MASSIFS.map(liftForAi) }
 }

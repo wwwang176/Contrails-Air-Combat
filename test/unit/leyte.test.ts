@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
-  PLAIN_HEIGHT, SAND_TOP, FIELD_HALF,
+  PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
@@ -151,9 +151,10 @@ describe('雷伊泰的山脈', () => {
     }
   })
 
-  it('內插後的地形不高過 AI 估的高度上界 —— 80 m 格距在凸處高出解析值的量要被餘裕蓋住', () => {
+  it('內插後的地形不高過 AI 估的高度上界 —— 平地的高度與 80 m 格距在凸處的誤差都要被蓋住', () => {
     // 【步長 20 m、偏 7 m】落在格子內部，內插與解析的差最大的地方
-    for (const m of LEYTE_MASSIFS) {
+    // 【量的是 AI 讀的那一份（`hills`）】瓣的起伏疊在平地上，AI 那一份加了 PLAIN_TOP
+    for (const m of hills) {
       for (let x = m.cx - m.outerRadius + 7; x <= m.cx + m.outerRadius; x += 20) {
         for (let z = m.cz - m.outerRadius + 7; z <= m.cz + m.outerRadius; z += 20) {
           const c = terrainCeiling(m, x, z)
@@ -197,18 +198,23 @@ describe('雷伊泰的山脈', () => {
   })
 
   it('峰高不超過上限、瓣心在陸上、瓣的膨脹圓離公路至少 400 m', () => {
+    for (const m of hills) expect(m.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
     for (const m of LEYTE_MASSIFS) {
-      expect(m.peak).toBeLessThanOrEqual(LEYTE_PEAK_MAX)
       for (const lo of m.lobes) {
         // 【瓣心在陸上就好】靠海的那一側可以一路延伸到海裡，是岬角
-        expect(lo.cz, `${lo.cx},${lo.cz}`).toBeGreaterThan(coastZ(lo.cx) + 1000)
+        expect(lo.cz, `${lo.cx},${lo.cz}`).toBeGreaterThan(coastZ(lo.cx) + 600)
         expect(distanceToRoad(lo.cx, lo.cz) - lo.radius * WOBBLE_MAX).toBeGreaterThanOrEqual(400 - 1e-6)
       }
     }
   })
 
-  it('避障清單就是山脈，高度場的最高點落在山脈上', () => {
-    expect(hills).toEqual(LEYTE_MASSIFS)
+  it('避障清單就是山脈（每一瓣加上平地的最高處），高度場的最高點落在山脈上', () => {
+    expect(hills.length).toBe(LEYTE_MASSIFS.length)
+    hills.forEach((h, i) => {
+      const m = LEYTE_MASSIFS[i]!
+      expect([h.cx, h.cz, h.outerRadius, h.peak]).toEqual([m.cx, m.cz, m.outerRadius, m.peak + PLAIN_TOP])
+      h.lobes.forEach((lo, k) => expect(lo.peak).toBe(m.lobes[k]!.peak + PLAIN_TOP))
+    })
     let top = -Infinity
     for (const v of field.data) top = Math.max(top, v)
     expect(top).toBeGreaterThan(PLAIN_HEIGHT + 50)
