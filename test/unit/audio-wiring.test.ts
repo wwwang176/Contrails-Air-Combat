@@ -411,7 +411,7 @@ describe('單次音效的聲道池', () => {
     expect(fn).toContain('absorptionDb(d)')
     expect(fn).toContain('voiceLoudnessDb(')
     const begin = ENGINE.slice(ENGINE.indexOf('function beginFrame('), ENGINE.indexOf('function assign('))
-    expect(begin).toContain('updateVoices()')
+    expect(begin).toContain('updateVoices(dt)')
   })
 
   /**

@@ -3,6 +3,9 @@ import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
 import {
+  HDR_ABS_FLOOR_DB, HDR_EXEMPT, envelopeAt, hdrDuckDb, hdrFloorDb, stepLoudest,
+} from './dynamics'
+import {
   DECORRELATE_WINDOW, LAYER_DB, decorrelateDelay, layerDelay, pickNoRepeat, randomRate,
 } from './pick'
 
@@ -116,8 +119,11 @@ const FADE_POINTS = 32
 
 interface Voice {
   audio: PositionalAudio
-  /** 這一聲屬於哪一類。配額用 */
+  /** 這一聲屬於哪一類。配額與 HDR 用 */
   cat: Category | null
+  /** 這一份的素材包絡（`manifest.json` 的 `envelopeDb`）與開始播的時刻 */
+  envelope: readonly number[] | undefined
+  startedAt: number
   filters: BiquadFilterNode[]
   /** 離鏡頭多遠；不定位的是 0 */
   distance: number
@@ -214,6 +220,13 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    */
   const lastPlayed = new Map<string, number>()
   const makeup = new Map<string, number>()
+  /** 每個檔的素材包絡，每 `ENVELOPE_STEP` 秒一格、相對自己最響的那一格 */
+  const envelopes = new Map<string, readonly number[]>()
+  /**
+   * HDR 的當下最響值，dB。**立即跟上新的峰值、慢慢釋放** —— 見 `dynamics.ts`。
+   * 暫停與切分頁保留（場面沒變），`stopAll` 歸零（上一場的窗口不帶進新的一場）。
+   */
+  let loudest = HDR_ABS_FLOOR_DB
   const lastPick: Partial<Record<Pool, number>> = {}
   let loading: Promise<void> | null = null
   /** 載入進度：已載完的檔數與總數。總數在清單到手之前是 0 */
@@ -297,7 +310,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const v = positional()
     root.add(v.audio)
     voices.push({
-      ...v, cat: null, distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
+      ...v, cat: null, envelope: undefined, startedAt: 0,
+      distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
       waitingSince: -1, waitDelay: 0, waitRate: 1, waitMax: 0, maxCutoff: FULL_BAND,
     })
   }
@@ -406,6 +420,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     // 【比響度不比距離】一波投彈同時有幾十聲，只比距離的話遠處一聲呼嘯會卡住近處的爆炸
     const baseDb = CATEGORY[cat].gainDb + (makeup.get(file) ?? 0) + extraDb
     const loud = voiceLoudnessDb(baseDb, loc ? spec.ref : 0, d, spec.rolloff ?? 1)
+    // 【HDR：太小聲的根本不發】保底類別不吃窗口（警告、無線電、自己的聲音）
+    const exempt = HDR_EXEMPT.has(cat)
+    if (!exempt && loud < hdrFloorDb(loudest)) return
     // 【配額滿了只能搶自己人】否則一類就能把整池吃光，見 `VOICE_QUOTA`
     const quota = VOICE_QUOTA[cat] ?? ONE_SHOT_VOICES
     let mine = 0
@@ -433,6 +450,8 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
 
     const a = pick.audio
     pick.cat = cat
+    pick.envelope = envelopes.get(file)
+    pick.startedAt = ctx.currentTime
     pick.distance = d
     pick.baseDb = baseDb
     pick.positioned = loc
@@ -458,7 +477,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
-    a.gain.gain.setValueAtTime(dbToGain(baseDb + (loc ? absorptionDb(d) : 0)), ctx.currentTime)
+    a.gain.gain.setValueAtTime(
+      dbToGain(baseDb + (loc ? absorptionDb(d) : 0) + (exempt ? 0 : hdrDuckDb(loud, loudest))),
+      ctx.currentTime)
     // 【同檔錯開】窗內再播同一個檔就延後幾毫秒。**不動起始位置** ——
     // 跳掉開頭會裁掉起音（`hit-1` 的峰值就在前 15 ms 裡）
     const since = ctx.currentTime - (lastPlayed.get(file) ?? -Infinity)
@@ -538,8 +559,38 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 【為什麼不能只在起播時算一次】爆炸、呼嘯都有兩三秒，那段時間玩家可能已經
    * 俯衝進去了 —— 凍住的話會聽到近在眼前卻悶悶的爆炸，而且怎麼靠近都不會變清晰。
    */
-  function updateVoices(): void {
+  /**
+   * 這一幀的即時峰值：每個還在響的聲音，響度加上素材包絡的那一格。
+   *
+   * 【一定要含包絡】只看類別增益與距離的話，一顆七秒的爆炸從頭到尾都被當成
+   * 一樣響，窗口會被它頂住七秒 —— 背景要等檔案播完才回得來。
+   */
+  function framePeak(now: number): number {
+    let peak = HDR_ABS_FLOOR_DB
+    for (const v of voices) {
+      if (!v.audio.isPlaying || v.cat === null || HDR_EXEMPT.has(v.cat)) continue
+      const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
+      if (live > peak) peak = live
+    }
+    for (const pool of Object.keys(loops) as LoopPool[]) {
+      const cat = LOOP_CATEGORY[pool]
+      if (HDR_EXEMPT.has(cat)) continue
+      for (const v of loops[pool]) {
+        if (v.key === -1 || !v.audio.isPlaying) continue
+        const p = v.audio.position
+        const d = camDistance(p.x, p.y, p.z)
+        const spec = CATEGORY[cat]
+        const live = voiceLoudnessDb(
+          spec.gainDb + (makeup.get(v.file) ?? 0), spec.ref, d, spec.rolloff ?? 1)
+        if (live > peak) peak = live
+      }
+    }
+    return peak
+  }
+
+  function updateVoices(dt: number): void {
     const now = ctx.currentTime
+    loudest = stepLoudest(loudest, framePeak(now), dt)
     for (const v of voices) {
       if (!v.positioned || (!v.audio.isPlaying && v.waitingSince < 0)) continue
       const p = v.audio.position
@@ -547,7 +598,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       v.distance = d
       v.loudness = voiceLoudnessDb(v.baseDb, v.ref, d, v.rolloff)
       setCutoff(v.filters, Math.min(distanceCutoffHz(d), v.maxCutoff), now, 0.05)
-      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d)), now, 0.05)
+      // 【HDR 的衰減逐幀重算】鏡頭移動與素材衰減都會讓它變
+      const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
+      const duck = v.cat !== null && HDR_EXEMPT.has(v.cat) ? 0 : hdrDuckDb(live, loudest)
+      v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
       if (v.waitingSince < 0) continue
       // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
       if (d > v.waitMax) { v.waitingSince = -1; continue }
@@ -559,8 +613,14 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     }
   }
 
+  /** 上一次 `beginFrame` 的 context 時間，算 HDR 的釋放用。−1 = 還沒跑過 */
+  let lastFrameAt = -1
+
   function beginFrame(): void {
-    updateVoices()
+    const now = ctx.currentTime
+    const dt = lastFrameAt < 0 ? 0 : Math.max(0, now - lastFrameAt)
+    lastFrameAt = now
+    updateVoices(dt)
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
 
@@ -594,7 +654,11 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       v.audio.offset = Math.random() * buffer.duration * 0.9
       v.audio.play()
     }
-    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d)), now, 0.1)
+    // 【循環音也吃 HDR】引擎在爆炸期間該退到背景，回來時照釋放速率浮上來
+    const live = voiceLoudnessDb(
+      CATEGORY[cat].gainDb + (makeup.get(file) ?? 0), CATEGORY[cat].ref, d, CATEGORY[cat].rolloff ?? 1)
+    const duck = HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
+    v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
   }
 
@@ -637,16 +701,24 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     }
     // 【換場也要清】停掉來源不等於清掉限幅器裡那幾毫秒
     resetLimiter()
+    // 【HDR 的窗口不帶進下一場】上一場最後那顆炸彈的窗口會讓新場的開頭被壓掉
+    loudest = HDR_ABS_FLOOR_DB
+    lastFrameAt = -1
   }
 
   async function loadAll(): Promise<void> {
     const res = await fetch(assetUrl('/audio/manifest.json'))
-    const manifest = await res.json() as Record<string, { loop: boolean; makeupDb: number }>
+    const manifest = await res.json() as
+      Record<string, { loop: boolean; makeupDb: number; envelopeDb?: number[] }>
     // 【選單的按鈕音插隊】見 `FIRST_FILES`。sort 是穩定的，其餘的順序不變
     const first = new Set<string>(FIRST_FILES)
     const ids = Object.keys(manifest)
       .sort((a, b) => Number(first.has(b)) - Number(first.has(a)))
-    for (const id of ids) makeup.set(id, manifest[id]!.makeupDb)
+    for (const id of ids) {
+      makeup.set(id, manifest[id]!.makeupDb)
+      const e = manifest[id]!.envelopeDb
+      if (e !== undefined) envelopes.set(id, e)
+    }
     fileTotal = ids.length
     onProgress?.(filesDone, fileTotal)
     let next = 0
