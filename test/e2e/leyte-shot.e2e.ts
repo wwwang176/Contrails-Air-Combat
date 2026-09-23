@@ -87,12 +87,13 @@ async function main(): Promise<void> {
       if (d > 20) moved++
       else still++
     }
-    console.log(`[雷伊泰] 15 秒後：${moved} 台移動、${still} 台停著（第二、三批還沒出發）`)
+    console.log(`[雷伊泰] 15 秒後：${moved} 台移動、${still} 台停著（固定砲位）`)
     for (const r of g1.slice(0, 5)) {
       console.log(`  ${r.id.padEnd(9)} (${r.x}, ${r.y}, ${r.z}) speed=${r.speed}`)
     }
-    if (moved < 5) fail(`第一批 5 輛應該已經出發，只有 ${moved} 台在動`)
-    if (still < 10) fail(`第二、三批應該還停在灘頭，只有 ${still} 台停著`)
+    // 【三批開場就全部在走】停著的只剩灘頭與前線的固定砲位
+    const convoy = g1.filter((r) => r.speed > 0).length
+    if (moved < convoy || convoy < 18) fail(`車隊 18 輛應該全部在走，只有 ${moved} 台在動`)
 
     // ── 戰鬥機掛彈：落點圈有解、按 B 真的投出去 ──────────
     type Sight = { state: string; load: number; cap: number }

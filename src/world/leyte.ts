@@ -87,8 +87,8 @@ export function baseHeight(x: number, z: number): number {
  * 【轉角不超過 45°】車在轉角走 25 m 半徑的圓弧（`world/groundMotion.ts`），
  * 離折線最遠 `25 × (1/cos 22.5° − 1)` ≈ 2.1 m，落在路的半寬 4 m 之內。
  *
- * 【第一段要夠長】整條車隊的集結都排在這一段上（日 M2 是 18 輛 × 30 m）。
- * 排得下與否由 `campaigns.test.ts` 對著卡片上的車隊檢查。
+ * 【全長要夠長】開場時整條車隊已經沿路排開在走，最前面那一批離終點還要有一段
+ * —— `campaigns.test.ts` 對著卡片上的車隊檢查。
  */
 export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] = [
   { x: 2800, z: -3250 },

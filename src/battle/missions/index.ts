@@ -273,36 +273,43 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
 /**
  * 卡片上的車隊 → 地面目標的條目。
  *
- * 【集結位置】全部車輛排在路線起點往前的同一條線上：第一批的車頭最遠，最後一批
- * 的車尾在起點（沿路線距離 0）。沿路線距離 = 之後還有幾輛 × `gap`。
+ * 【開場位置】各批沿路線排開，全部在第 0 秒就開始走：最後一批的車尾在起點
+ * （沿路線距離 0）。一輛的沿路線距離 = 同一批裡排在它後面的輛數 × `gap`
+ * ＋ 排在它後面的批數 × (`batchGap` + 一批的長度)。
  *
- * 【開場的 x、z 就是 motion 在第 0 秒的位置】`World.step` 第一步才會改寫它；
- * 擺成別的值的話開場那一幀車會閃一下。航向取第一段的 —— 集結位置都在第一段上
- * （`leyte.test.ts` 守第一段夠長）。
+ * 【開場的 x、z、航向就是 motion 在第 0 秒的姿態】`World.step` 第一步才會改寫
+ * 它；擺成別的值的話開場那一幀車會閃一下，重開時也會回到錯的朝向。
  *
  * 載入期跑一次，不在熱路徑上。
  */
 export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
   const motion = { speed: c.speed, turnRadius: c.turnRadius, turnRate: c.speed / c.turnRadius }
-  const total = c.batches.reduce((n, x) => n + x.units.length, 0)
   const pose = {
     position: new Vector3(), velocity: new Vector3(),
     orientation: new Quaternion(), angularVelocity: new Vector3(),
   }
+  const fwd = new Vector3()
   const out: GroundEntry[] = []
-  let k = 0
-  for (const batch of c.batches) {
-    for (const unit of batch.units) {
-      const m = createGroundMotion(c.route, motion, (total - 1 - k) * c.gap, batch.departAt)
+  // 【由最後一批往前推】最後一批的車尾在 0，每往前一批加上那一批的長度與批次間距
+  const starts: number[] = []
+  let s = 0
+  for (let b = c.batches.length - 1; b >= 0; b--) {
+    starts[b] = s
+    s += (c.batches[b]!.units.length - 1) * c.gap + c.batchGap
+  }
+  c.batches.forEach((batch, b) => {
+    const n = batch.units.length
+    batch.units.forEach((unit, i) => {
+      const m = createGroundMotion(c.route, motion, starts[b]! + (n - 1 - i) * c.gap, 0)
       motionPose(m, 0, pose)
+      fwd.set(0, 0, -1).applyQuaternion(pose.orientation)
       out.push({
         unit, team: 'red', x: pose.position.x, z: pose.position.z,
-        heading: m.startHeading, motion: m,
+        heading: Math.atan2(-fwd.x, -fwd.z), motion: m,
         ...(c.armed?.includes(unit) === true ? { guns: 'mg' as const } : {}),
       })
-      k++
-    }
-  }
+    })
+  })
   return out
 }
 
