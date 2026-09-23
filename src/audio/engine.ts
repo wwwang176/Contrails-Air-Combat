@@ -1,5 +1,6 @@
-import { Audio, Object3D, type Camera, type Scene } from 'three'
-import { DirectListener, DirectPositionalAudio } from './spatial'
+import { Audio, Vector3, type Camera } from 'three'
+import { PannedAudio, SilentListener } from './spatial'
+import { azimuthDeg, equalPowerMatrix, inverseDistanceGain, type ListenerPose } from './pan'
 import { assetUrl } from '../core/asset'
 import { CATEGORY, FIRST_FILES, POOLS, type Category, type Pool } from './catalog'
 import { absorptionDb, dbToGain, distanceCutoffHz, fadeInCurve, soundArrived, voiceLoudnessDb } from './curves'
@@ -15,8 +16,8 @@ import {
 /**
  * # 音訊引擎 —— 遊戲裡唯一碰 Web Audio 的地方
  *
- * - **單次音效**：一個聲道池，全部是 `PositionalAudio`。要定位的放在世界座標；
- *   不定位的（自己身上的聲音）掛在鏡頭上，跟著鏡頭走、永遠在正中間。池滿丟最不響的。
+ * - **單次音效**：一個聲道池，全部是 `PannedAudio`（左右自己算，見 `spatial.ts`）。
+ *   要定位的放在世界座標；不定位的（自己身上的聲音）永遠在正中間。池滿丟最不響的。
  * - **定位循環**：引擎 8、開火 6、砲塔 6 個聲道。每一幀 `beginFrame` → 逐一 `assign`
  *   → `endFrame`；這一幀沒被指派的淡出後放掉。
  * - **自己的循環**：引擎、開火、風切、警告各一個 `Audio`，不定位。
@@ -95,8 +96,8 @@ export interface AudioEngine {
  * 爆炸又疊兩層，而爆炸聲長達兩三秒 —— 聲道不夠時後面的炸彈整個沒聲音。
  *
  * 【40 不夠】艦隊防空的關卡實測：120 秒裡艦砲要求 1,573 次、被擋掉 365 次，
- * 空聲道長時間掛在 0，連軍火爆炸也被擋掉 21/54。一個聲道是一個 PannerNode
- * 加兩級低通，加到 64 的成本可以忽略。
+ * 空聲道長時間掛在 0，連軍火爆炸也被擋掉 21/54。一個聲道是兩級低通加四個
+ * 增益；沒在響的會拔掉出口（`PannedAudio.sleep`），不佔音訊執行緒。
  */
 const ONE_SHOT_VOICES = 64
 /** 空聲道少於這個數就不疊第二層 —— 先保證每一件事都發得出聲 */
@@ -124,6 +125,10 @@ const SELF_CATEGORY: Record<SelfSlot, Category> = { engine: 'engineSelf', wind: 
 const SELF_FADE = 0.1
 const LOOP_FADE = 0.3
 const FULL_BAND = 22000
+/** 左右矩陣逐幀平滑的時間常數，s。約一幀：快速掠過的飛機不會一格一格跳 */
+const PAN_SMOOTH = 0.02
+/** 聽者朝向的暫存 */
+const _axis = new Vector3()
 /** 截止頻率變動小於這個比例就不重排（約半個全音，聽不出來） */
 const CUTOFF_STEP = 0.03
 /** 暫停、切分頁、關音量之後恢復的淡入，s */
@@ -134,7 +139,7 @@ const LAG_REANCHOR = 0.5
 const FADE_POINTS = 32
 
 interface Voice {
-  audio: DirectPositionalAudio
+  audio: PannedAudio
   /** 這一聲屬於哪一類。配額與 HDR 用 */
   cat: Category | null
   /** 這一份的素材包絡（`manifest.json` 的 `envelopeDb`）與開始播的時刻 */
@@ -169,7 +174,7 @@ interface Voice {
 }
 
 interface LoopVoice {
-  audio: DirectPositionalAudio
+  audio: PannedAudio
   filters: BiquadFilterNode[]
   key: number
   file: string
@@ -191,8 +196,8 @@ interface SelfVoice {
   gain: number
 }
 
-export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
-  const listener = new DirectListener()
+export function createAudioEngine(camera: Camera): AudioEngine {
+  const listener = new SilentListener()
   camera.add(listener)
   const ctx = listener.context
   /**
@@ -254,9 +259,10 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     limiter?.port.postMessage('reset')
   }
   const fadeCurve = fadeInCurve(FADE_POINTS)
-  const root = new Object3D()
-  root.name = 'audio'
-  scene.add(root)
+  /** 這一刻的聽者：鏡頭的位置與朝向。定位聲道的左右由它算 */
+  const pose: ListenerPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 }
+  /** 左右矩陣的暫存，逐幀重用 */
+  const panOut = new Float32Array(4)
 
   const buffers = new Map<string, AudioBuffer>()
   /**
@@ -320,26 +326,45 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
    * 定位的聲道。**兩級低通串接**（24 dB/八度）—— 真實的空氣吸收在高頻掉得很陡
    * （1 km 外的 8 kHz 掉 78 dB），一級只有 12 dB/八度，遠處的爆炸還會留著脆度。
    */
-  function positional(): { audio: DirectPositionalAudio; filters: BiquadFilterNode[] } {
-    const audio = new DirectPositionalAudio(listener)
-    audio.panner.panningModel = 'equalpower'
-    audio.setDistanceModel('inverse')
-    audio.setRolloffFactor(1)
+  function positional(): { audio: PannedAudio; filters: BiquadFilterNode[] } {
+    const audio = new PannedAudio(listener)
     const filters = [lowpass(), lowpass()]
     audio.setFilters(filters)
     return { audio, filters }
   }
 
+  /** 鏡頭的位置與朝向寫進 `pose`。鏡頭在場景最上層，區域座標就是世界座標 */
+  function readPose(): void {
+    const p = camera.position
+    pose.px = p.x
+    pose.py = p.y
+    pose.pz = p.z
+    _axis.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    pose.fx = _axis.x
+    pose.fy = _axis.y
+    pose.fz = _axis.z
+    _axis.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    pose.ux = _axis.x
+    pose.uy = _axis.y
+    pose.uz = _axis.z
+  }
+
   /**
-   * 把聲源座標直接寫進 panner。**每次開始播之前都要做。**
-   *
-   * 【播放中才同步位置】`updateMatrixWorld` 在沒在播時直接返回，所以等音波的
-   * 期間 panner 停在上一個聲音那裡 —— 不先放好，起音那一下的方向與距離都錯。
+   * 算左右矩陣並套上。不定位的在正中間、不衰減。聲源座標就是 `audio.position`。
+   * `smooth` 0 = 立刻到位 —— **每次開始播之前都要這樣叫一次**，否則起音那一下
+   * 還是上一個聲音的方向與距離。
    */
-  function placePanner(v: Voice): void {
-    // 定位的掛在 root（原點、無旋轉），區域座標就是世界座標；不定位的掛在鏡頭上
-    const p = v.positioned ? v.audio.position : camera.position
-    v.audio.placeAt(p.x, p.y, p.z)
+  function pan(a: PannedAudio, positioned: boolean, distance: number, ref: number, rolloff: number,
+    now: number, smooth: number): void {
+    const p = a.position
+    const az = positioned ? azimuthDeg(p.x, p.y, p.z, pose) : 0
+    const g = positioned ? inverseDistanceGain(distance, ref, rolloff) : 1
+    equalPowerMatrix(az, a.stereo, g, panOut)
+    a.setPan(panOut, now, smooth)
+  }
+
+  function panVoice(v: Voice, now: number, smooth: number): void {
+    pan(v.audio, v.positioned, v.distance, v.ref, v.rolloff, now, smooth)
   }
 
   /**
@@ -359,7 +384,6 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   const voices: Voice[] = []
   for (let i = 0; i < ONE_SHOT_VOICES; i++) {
     const v = positional()
-    root.add(v.audio)
     voices.push({
       ...v, cat: null, envelope: undefined, startedAt: 0,
       distance: 0, baseDb: 0, positioned: false, ref: 0, rolloff: 1, loudness: -Infinity,
@@ -372,7 +396,6 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     for (let i = 0; i < LOOP_VOICES[pool]; i++) {
       const v = positional()
       v.audio.setLoop(true)
-      root.add(v.audio)
       loops[pool].push({ ...v, key: -1, file: '', assigned: false, releaseAt: -1, cutoff: FULL_BAND })
     }
   }
@@ -515,20 +538,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     pick.loudness = loud
     pick.maxCutoff = cutoffHz
     lastFreeVoices = free
-    if (loc) {
-      if (a.parent !== root) root.add(a)
-      a.position.set(x, y, z)
-      a.setRefDistance(spec.ref)
-      a.setRolloffFactor(spec.rolloff ?? 1)
-      setCutoff(pick, Math.min(distanceCutoffHz(d), cutoffHz), ctx.currentTime, 0)
-    } else {
-      // 【不定位的掛在鏡頭上】放在世界座標的話，鏡頭一秒飛走一兩百公尺，聲音就被丟在後面
-      if (a.parent !== camera) camera.add(a)
-      a.position.set(0, 0, 0)
-      a.setRefDistance(1)
-      a.setRolloffFactor(0)
-      setCutoff(pick, cutoffHz, ctx.currentTime, 0)
-    }
+    // 【不定位的永遠在正中間】它跟著鏡頭走，不看座標
+    if (loc) a.position.set(x, y, z)
+    setCutoff(pick, loc ? Math.min(distanceCutoffHz(d), cutoffHz) : cutoffHz, ctx.currentTime, 0)
     a.setBuffer(buffer)
     // 【直接設，不漸變】setVolume 會從上一個聲音的音量爬 10 ms，爆炸、命中的起音會被削掉
     a.gain.gain.cancelScheduledValues(ctx.currentTime)
@@ -549,7 +561,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       pick.waitRate = rate
       pick.waitMax = spec.max
     } else {
-      placePanner(pick)
+      panVoice(pick, ctx.currentTime, 0)
       a.play(delay)
     }
   }
@@ -647,7 +659,12 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const now = ctx.currentTime
     loudest = stepLoudest(loudest, framePeak(now), dt)
     for (const v of voices) {
-      if (!v.positioned || (!v.audio.isPlaying && v.waitingSince < 0)) continue
+      // 【播完的拔掉出口】見 `PannedAudio.wake`
+      if (!v.audio.isPlaying && v.waitingSince < 0) {
+        v.audio.sleep()
+        continue
+      }
+      if (!v.positioned) continue
       const p = v.audio.position
       const d = camDistance(p.x, p.y, p.z)
       v.distance = d
@@ -657,13 +674,16 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
       const live = v.loudness + envelopeAt(v.envelope, now - v.startedAt)
       const duck = !hdrOn || (v.cat !== null && HDR_EXEMPT.has(v.cat)) ? 0 : hdrDuckDb(live, loudest)
       v.audio.gain.gain.setTargetAtTime(dbToGain(v.baseDb + absorptionDb(d) + duck), now, 0.05)
-      if (v.waitingSince < 0) continue
+      if (v.waitingSince < 0) {
+        panVoice(v, now, PAN_SMOOTH)
+        continue
+      }
       // 【飛出可聽範圍就放棄】鏡頭切換會讓距離瞬間跳掉，不放棄的話那個聲道會一直卡著
       if (d > v.waitMax) { v.waitingSince = -1; continue }
       if (!soundArrived(now - v.waitingSince, d)) continue
       v.waitingSince = -1
       v.audio.setPlaybackRate(v.waitRate * timeScale)
-      placePanner(v)
+      panVoice(v, now, 0)
       v.audio.play(v.waitDelay)
     }
   }
@@ -675,6 +695,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const now = ctx.currentTime
     const dt = lastFrameAt < 0 ? 0 : Math.max(0, now - lastFrameAt)
     lastFrameAt = now
+    readPose()
     updateVoices(dt)
     for (const pool of Object.keys(loops) as LoopPool[]) for (const v of loops[pool]) v.assigned = false
   }
@@ -698,9 +719,9 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     v.assigned = true
     v.releaseAt = -1
     v.audio.position.set(x, y, z)
-    v.audio.setRefDistance(CATEGORY[cat].ref)
     setCutoff(v, distanceCutoffHz(d), now, 0.1)
-    if (v.file !== file) {
+    const fresh = v.file !== file
+    if (fresh) {
       if (v.audio.isPlaying) {
         v.audio.stop()
         cuts++
@@ -718,6 +739,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
     const duck = !hdrOn || HDR_EXEMPT.has(cat) ? 0 : hdrDuckDb(live, loudest)
     v.audio.gain.gain.setTargetAtTime(gainOf(file, cat, absorptionDb(d) + duck), now, 0.1)
     v.audio.setPlaybackRate(rate * timeScale)
+    pan(v.audio, true, d, CATEGORY[cat].ref, CATEGORY[cat].rolloff ?? 1, now, fresh ? 0 : PAN_SMOOTH)
   }
 
   function endFrame(): void {
@@ -730,6 +752,7 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
           v.audio.gain.gain.setTargetAtTime(0, now, LOOP_FADE / 3)
         } else if (now >= v.releaseAt) {
           if (v.audio.isPlaying) v.audio.stop()
+          v.audio.sleep()
           v.key = -1
           v.file = ''
           v.releaseAt = -1
@@ -764,11 +787,13 @@ export function createAudioEngine(camera: Camera, scene: Scene): AudioEngine {
   function stopAll(): void {
     for (const v of voices) {
       if (v.audio.isPlaying) v.audio.stop()
+      v.audio.sleep()
       v.waitingSince = -1
     }
     for (const pool of Object.keys(loops) as LoopPool[]) {
       for (const v of loops[pool]) {
         if (v.audio.isPlaying) v.audio.stop()
+        v.audio.sleep()
         v.key = -1
         v.file = ''
         v.releaseAt = -1
