@@ -50,7 +50,8 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
-  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
+  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, GROUND_MG_SPEC, resetShipGuns,
+  type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
 import type { GroundUnitId } from '../render/geometry/ground'
@@ -1191,6 +1192,10 @@ function placeGround(
     // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
     else if (e.unit === 'flakLight') {
       t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+    }
+    // 【車頂的機槍由條目指定】同一種卡車在別的關可以只是靶
+    else if (e.guns === 'mg') {
+      t.guns = createGroundBattery(GROUND_MG_SPEC, 'mg', GROUND_MG_SPEC.caliber)
     }
     world.groundTargets.push(t)
   }

@@ -8,7 +8,7 @@
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui' | 'thunder'
 
 export interface CategorySpec {
   gainDb: number
@@ -105,6 +105,12 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 【射程比擦過遠、比爆炸近】它是一連串小撞擊，1.2 km 之外就只是雜訊了
    */
   impact: { gainDb: -4, ref: 60, max: 1200 },
+  /**
+   * 雷聲（雷雨的時段）。**不定位** —— 它是整片天在響，聽不出方向才對。
+   * 素材是砲擊庫放慢到兩成上下（`render/storm.ts`、`main.ts` 的 `playThunder`），
+   * 放慢之後能量攤到十幾秒，所以增益給得比大砲高。**起始值，由試玩裁定。**
+   */
+  thunder: { gainDb: 8, ref: 0, max: 0 },
 }
 
 const range = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`)

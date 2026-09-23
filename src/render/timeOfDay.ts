@@ -21,10 +21,12 @@ import type { SceneContext } from './scene'
 export type { TimeOfDay }
 
 /**
- * 【`novemberNoon` 排最後】它進工具頁的時段按鈕，**不進遭遇戰選單** ——
- * `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它。
+ * 【`novemberNoon`、`storm` 排最後】它們進工具頁的時段按鈕，**不進遭遇戰選單** ——
+ * `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
  */
-export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = ['dawn', 'noon', 'dusk', 'night', 'novemberNoon']
+export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = [
+  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm',
+]
 
 /**
  * 一個時段的完整光照設定。
@@ -205,6 +207,35 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     sparkle: 0.6,
     foliage: 0.85,
     fogDensity: FOG_DENSITY * 1.6,
+  },
+  /**
+   * 雷雨的午後：整片低垂的積雨雲，沒有直射的太陽，遠處被雨幕吃掉。**不下雨**
+   * —— 閃電與雷聲在 `render/storm.ts`，它每幀把燈與天空往亮處推一下再放回來，
+   * 基準就是這一組。海色照抄正午再壓暗。**起始值，拿眼睛校。**
+   *
+   * 【太陽很弱但不是零】陰天仍然有方向：雲底比較亮的那一側。完全拿掉的話
+   * 低多邊形的面分不出明暗，地形整片糊成一色。
+   */
+  storm: {
+    id: 'storm',
+    name: '雷雨',
+    skyHorizon: 0x6a7179,
+    skyZenith: 0x2f353d,
+    skyPower: 0.8,
+    stars: 0,
+    sunDir: [-0.3, 0.85, 0.4],
+    sunColor: 0xc9ced6,
+    sunIntensity: 0.55,
+    hemiSky: 0x8b939c,
+    hemiGround: 0x22272b,
+    hemiIntensity: 0.75,
+    ambientColor: 0xb9c1ca,
+    ambientIntensity: 0.2,
+    seaColor: 0x12202b,
+    seaHorizon: 0x444e57,
+    sparkle: 0.15,
+    foliage: 0.55,
+    fogDensity: FOG_DENSITY * 2.4,
   },
 }
 

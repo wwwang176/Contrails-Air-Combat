@@ -449,6 +449,20 @@ describe('日 M2 雷伊泰前線', () => {
     expect(cfg.units.some((u) => u.team === 'red' && u.members.length > 0)).toBe(true)
   })
 
+  it('卡車與戰車帶一挺機槍（mg 那一層），防空車照舊是輕砲', () => {
+    const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
+    const moving = battle.world.groundTargets.filter((t) => t.motion !== null)
+    for (const t of moving) {
+      const tier = t.guns[0]?.zone.tier
+      if (t.unit.id === 'truck' || t.unit.id === 'tank') expect(tier, t.unit.id).toBe('mg')
+      if (t.unit.id === 'flakLight') expect(tier).toBe('autocannon')
+    }
+  })
+
+  it('天氣是雷雨', () => {
+    expect(b.timeOfDay).toBe('storm')
+  })
+
   it('灘頭與前線有固定防空砲位（不動）', () => {
     const fixed = (missionConfigFrom(card).ground ?? []).filter((g) => g.motion === undefined)
     expect(fixed.length).toBeGreaterThan(0)
@@ -537,6 +551,11 @@ describe('convoyGround', () => {
     const g = convoyGround(c)
     expect(g.map((e) => Math.round(e.motion!.offsetSeconds * 10))).toEqual([60, 30, 0])
     expect(g.map((e) => e.motion!.departAt)).toEqual([0, 0, 60])
+  })
+
+  it('列在 armed 裡的單位帶機槍，其餘不帶', () => {
+    const g = convoyGround({ ...c, armed: ['tank'] })
+    expect(g.map((e) => e.guns)).toEqual([undefined, undefined, 'mg'])
   })
 
   it('開場擺位就是 motion 在第 0 秒的位置', () => {

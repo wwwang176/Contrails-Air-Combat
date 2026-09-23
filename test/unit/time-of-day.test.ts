@@ -20,8 +20,8 @@ import type { TimeOfDay } from '../../src/world/timeOfDay'
 const ALL = TIME_OF_DAY_IDS.map((id) => DAY_PALETTES[id])
 
 describe('DAY_PALETTES', () => {
-  it('五個時段都在，鍵與 id 一致', () => {
-    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night', 'novemberNoon'])
+  it('六個時段都在，鍵與 id 一致', () => {
+    expect(TIME_OF_DAY_IDS).toEqual(['dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm'])
     for (const id of TIME_OF_DAY_IDS) expect(DAY_PALETTES[id].id).toBe(id)
   })
 

@@ -118,7 +118,8 @@ export const EVACUATE_Z = 9000
  * 灘頭與前線的固定防空砲位，世界座標。**不動、會開火**，照陸上砲位的規格
  * （`world/shipGuns.ts`）。全部在平地上、離公路中線至少 40 m（`leyte.test.ts`）。
  *
- * 【灘頭重、前線輕】灘頭是卸貨點，一座重高砲加兩座輕砲；前線兩座輕砲。
+ * 【灘頭重、前線輕】灘頭是卸貨點，三座重高砲（美軍的 90 mm，雷達射控）加兩座
+ * 輕砲；前線兩座輕砲。重高砲的射控在任務卡上複寫（`MissionBattle.flakSpec`）。
  * **座數與位置是起始值，由試飛裁定。**
  */
 export const LEYTE_FLAK_SITES: readonly {
@@ -127,6 +128,8 @@ export const LEYTE_FLAK_SITES: readonly {
   { unit: 'flakLight', x: 2753, z: -3031 },
   { unit: 'flakLight', x: 2597, z: -3156 },
   { unit: 'flakHeavy', x: 2519, z: -2706 },
+  { unit: 'flakHeavy', x: 2900, z: -2900 },
+  { unit: 'flakHeavy', x: 2300, z: -2900 },
   { unit: 'flakLight', x: -1228, z: 1169 },
   { unit: 'flakLight', x: -1346, z: 1033 },
 ]

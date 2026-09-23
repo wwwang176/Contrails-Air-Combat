@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { F4F4 } from '../../specs/f4f4'
 import { F6F5 } from '../../specs/f6f5'
 import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
+import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
 import { EVACUATE_Z, LEYTE_FLAK_SITES, LEYTE_ROAD } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
@@ -80,9 +81,12 @@ export const JAPAN: readonly MissionCard[] = [
     battle: {
       objective: '炸毀補給卡車', banner: '找到車隊，別讓它們抵達前線',
       blueSpec: KI84, redSpec: F6F5, convoySpec: null,
-      // 【開場就有兩架在巡邏】生在紅方那一側（灘頭外的海上）朝內陸飛，玩家到車隊
-      // 上空時會碰上 —— 找車與俯衝的時候就要分心。其餘 F6F 由波次給
-      blueCount: 8, redCount: 2,
+      // 【疾風只有一個小隊】雷伊泰期間陸航的戰力一直在耗損（誉發動機故障、燃料差、
+      // 補充跟不上），對地攻擊多是幾架的小編隊。對地的工作因此大部分落在玩家身上
+      //
+      // 【開場就有兩架 F6F 在巡邏】生在紅方那一側（灘頭外的海上）朝內陸飛，玩家到
+      // 車隊上空時會碰上 —— 找車與俯衝的時候就要分心。其餘 F6F 由波次給
+      blueCount: 4, redCount: 2,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
@@ -98,6 +102,8 @@ export const JAPAN: readonly MissionCard[] = [
        */
       vehicleConvoy: {
         route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
+        // 【卡車與雪曼車頂的 .50】美軍車隊遇到低空掃射會還擊，不是只有防空車在打
+        armed: ['truck', 'tank'],
         batches: [
           { departAt: 0, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
           { departAt: 75, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
@@ -108,6 +114,16 @@ export const JAPAN: readonly MissionCard[] = [
       ground: LEYTE_FLAK_SITES.map((s): GroundEntry => ({
         unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
       })),
+      /**
+       * 【90 mm 配 SCR-584 雷達射控】比德軍的 88 準：引信誤差由 ±6% 壓到 ±2%、
+       * 射速 20 發/分、單朵雲重一點。在任務高度 1,500 m 真的打得到人。
+       * **起始值，由試飛裁定。**
+       */
+      flakSpec: {
+        ...GROUND_FLAK_SPEC, roundsPerMinute: 20, fuseError: 0.02, burstRadius: 60, burstDamage: 160,
+      },
+      // 【雷雨】不下雨，只有閃電與雷聲（`render/storm.ts`）。雷伊泰戰役正值雨季
+      timeOfDay: 'storm',
       // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
       interdict: { count: 6, leak: 4, unit: 'truck' },
       /**
