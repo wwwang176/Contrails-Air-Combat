@@ -3,7 +3,7 @@ import { isLeyteGrass, type CanopyMap } from './leyteGround'
 import { BROAD_CROWN_R, BUSH_R, CONE_CROWN_R } from './floraShapes'
 import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
-import { baseHeight, isNearRoad, ROAD_TREE_CLEAR } from '../world/leyte'
+import { baseHeight, isInRoadClearing } from '../world/leyte'
 import {
   edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
   HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
@@ -871,12 +871,12 @@ const LEYTE_HILL_FULL = 40
  * 沙灘與公路清空帶是 0；平地是 `LEYTE_PLAIN_DENSITY`；高出基準面
  * `LEYTE_HILL_FULL` 就是 `LEYTE_HILL_DENSITY`。再乘上成叢遮罩、除以坡度（同群島）。
  *
- * 【清空帶讀 `isNearRoad`】路的座標只有 `LEYTE_ROAD` 一份 —— 車隊、路面
- * 與這裡讀的是同一條折線。
+ * 【清空帶讀 `isInRoadClearing`】路的座標只有 `LEYTE_ROADS` 一份 —— 路面
+ * 與這裡讀的是同一組折線，車隊走的是其中第 0 條。
  */
 export function leyteAccept(field: HeightFieldData, x: number, z: number, h: number): number {
   if (!isLeyteGrass(h)) return 0
-  if (isNearRoad(x, z, ROAD_TREE_CLEAR)) return 0
+  if (isInRoadClearing(x, z)) return 0
   const cell = field.cell
   const dx = (field.sample(x + cell, z) - field.sample(x - cell, z)) / (2 * cell)
   const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
+  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD, LEYTE_ROADS,
   PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
-  baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isNearRoad,
+  baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
+  roadTreeClear,
 } from '../../src/world/leyte'
 import { headingToward } from '../../src/control/takeoffRoll'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
@@ -101,6 +102,63 @@ describe('雷伊泰的公路', () => {
       for (let z = -4000; z <= 2000; z += 131) {
         expect(isNearRoad(x, z, 30), `${x},${z}`).toBe(distanceToRoad(x, z) < 30)
       }
+    }
+  })
+
+  it('路網：第 0 條就是車隊那一條；支線有粗有細、全部在場內', () => {
+    expect(LEYTE_ROADS[0]!.points).toBe(LEYTE_ROAD)
+    const widths = new Set(LEYTE_ROADS.map((r) => r.halfWidth))
+    expect(widths.size).toBeGreaterThanOrEqual(3)
+    expect(LEYTE_ROADS.length).toBeGreaterThan(5)
+    for (const r of LEYTE_ROADS) {
+      for (const p of r.points) {
+        expect(Math.abs(p.x), `${p.x},${p.z}`).toBeLessThan(FIELD_HALF)
+        expect(Math.abs(p.z), `${p.x},${p.z}`).toBeLessThan(FIELD_HALF)
+      }
+    }
+  })
+
+  it('isInRoadClearing 與逐條逐段算的答案一致（索引不漏段）', () => {
+    const brute = (x: number, z: number): boolean => LEYTE_ROADS.some((r) => {
+      const clear = roadTreeClear(r)
+      for (let i = 1; i < r.points.length; i++) {
+        const a = r.points[i - 1]!
+        const b = r.points[i]!
+        const abx = b.x - a.x
+        const abz = b.z - a.z
+        const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
+        if (Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t)) < clear) return true
+      }
+      return false
+    })
+    let hits = 0
+    // 每條路旁邊撒點（落在清空帶內外都有），再加全場的固定序列
+    for (const r of LEYTE_ROADS) {
+      for (let i = 0; i < r.points.length; i += 3) {
+        const p = r.points[i]!
+        for (const off of [0, 5, 11, 19, 27]) {
+          const x = p.x + off
+          const z = p.z - off * 0.7
+          expect(isInRoadClearing(x, z), `${x},${z}`).toBe(brute(x, z))
+          if (brute(x, z)) hits++
+        }
+      }
+    }
+    for (let i = 0; i < 2000; i++) {
+      const x = -FIELD_HALF + ((i * 7919) % 1000) / 1000 * 2 * FIELD_HALF
+      const z = -FIELD_HALF + ((i * 104729) % 1000) / 1000 * 2 * FIELD_HALF
+      expect(isInRoadClearing(x, z)).toBe(brute(x, z))
+    }
+    expect(hits).toBeGreaterThan(200)
+  })
+
+  it('支線接得上：每一條支線的頭都落在另一條路上', () => {
+    for (const r of LEYTE_ROADS.slice(1)) {
+      const h = r.points[0]!
+      // 海岸公路的兩頭在場邊，改看它與車隊那一條相交
+      const onOther = LEYTE_ROADS.some((o) => o !== r && o.points.some((p) => Math.hypot(p.x - h.x, p.z - h.z) < 1))
+      const crossesMain = r.points.some((p) => distanceToRoad(p.x, p.z) < 60)
+      expect(onOther || crossesMain, `${h.x},${h.z}`).toBe(true)
     }
   })
 

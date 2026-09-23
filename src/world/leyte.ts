@@ -151,14 +151,21 @@ function catmullRom(
   return { x: f(p0.x, p1.x, p2.x, p3.x), z: f(p0.z, p1.z, p2.z, p3.z) }
 }
 
+/** 一道蜿蜒：沿路線法向的正弦，振幅 m、波長 m、相位 rad */
+interface Meander { readonly amp: number; readonly len: number; readonly phase: number }
+
 /**
- * 由 `ROAD_WAYPOINTS` 生成公路的折線：先過每一個路點畫一條平滑曲線，每
- * `ROAD_STEP` 公尺取一點，再沿法向加上蜿蜒。載入期跑一次。
+ * 由路點生成一條路的折線：先過每一個路點畫一條平滑曲線，每 `ROAD_STEP`
+ * 公尺取一點，再沿法向加上蜿蜒。載入期跑一次。
  *
  * 【曲線而不是折線】折線的路點之間是一條長長的直線，從空中看是尺畫的。
+ *
+ * 【頭尾不蜿蜒】頭尾各 `ROAD_MEANDER_TAPER` 公尺內蜿蜒收回 0，第一點與最後一點
+ * 就是路點本身 —— 支線靠這個接在別條路上。
  */
-function buildRoad(): { x: number; z: number }[] {
-  const P = ROAD_WAYPOINTS
+function buildRoad(
+  P: readonly { readonly x: number; readonly z: number }[], meander: readonly Meander[],
+): { x: number; z: number }[] {
   const pts: { x: number; z: number }[] = []
   for (let i = 0; i + 1 < P.length; i++) {
     const p0 = P[Math.max(0, i - 1)]!
@@ -183,7 +190,7 @@ function buildRoad(): { x: number; z: number }[] {
     const l = Math.hypot(tx, tz)
     const taper = smoothstep(0, ROAD_MEANDER_TAPER, s[i]!) * smoothstep(0, ROAD_MEANDER_TAPER, total - s[i]!)
     let off = 0
-    for (const m of ROAD_MEANDER) off += m.amp * Math.sin((2 * Math.PI * s[i]!) / m.len + m.phase)
+    for (const m of meander) off += m.amp * Math.sin((2 * Math.PI * s[i]!) / m.len + m.phase)
     off *= taper
     return { x: p.x + (tz / l) * off, z: p.z - (tx / l) * off }
   })
@@ -200,7 +207,8 @@ function buildRoad(): { x: number; z: number }[] {
  * 【全長要夠長】開場時整條車隊已經沿路排開在走，最前面那一批離終點還要有一段
  * —— `campaigns.test.ts` 對著卡片上的車隊檢查。
  */
-export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] = buildRoad()
+export const LEYTE_ROAD: readonly { readonly x: number; readonly z: number }[] =
+  buildRoad(ROAD_WAYPOINTS, ROAD_MEANDER)
 /** 路面的標稱寬，m。實際寬度沿路起伏（`render/leyteGround.ts` 的 `roadHalfWidthAt`） */
 export const ROAD_WIDTH = 24
 /**
@@ -214,44 +222,60 @@ export const ROAD_TREE_CLEAR = 22
  * 植被每一個候選點都要問一次，逐段算距離的話公路一長就很貴。
  */
 const ROAD_GROUP = 8
-const ROAD_GROUPS: readonly { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] =
-  /* @__PURE__ */ (() => {
-    const out: { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] = []
-    for (let i0 = 1; i0 < LEYTE_ROAD.length; i0 += ROAD_GROUP) {
-      const i1 = Math.min(LEYTE_ROAD.length, i0 + ROAD_GROUP)
-      let x0 = Infinity
-      let z0 = Infinity
-      let x1 = -Infinity
-      let z1 = -Infinity
-      for (let i = i0 - 1; i < i1; i++) {
-        const p = LEYTE_ROAD[i]!
-        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x)
-        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z)
-      }
-      out.push({ x0, z0, x1, z1, i0, i1 })
-    }
-    return out
-  })()
+interface RoadGroup {
+  readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number
+  readonly i0: number; readonly i1: number
+}
 
-function segmentDistance(x: number, z: number, i: number): number {
-  const a = LEYTE_ROAD[i - 1]!
-  const b = LEYTE_ROAD[i]!
+function groupsOf(pts: readonly { readonly x: number; readonly z: number }[]): RoadGroup[] {
+  const out: RoadGroup[] = []
+  for (let i0 = 1; i0 < pts.length; i0 += ROAD_GROUP) {
+    const i1 = Math.min(pts.length, i0 + ROAD_GROUP)
+    let x0 = Infinity
+    let z0 = Infinity
+    let x1 = -Infinity
+    let z1 = -Infinity
+    for (let i = i0 - 1; i < i1; i++) {
+      const p = pts[i]!
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x)
+      z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z)
+    }
+    out.push({ x0, z0, x1, z1, i0, i1 })
+  }
+  return out
+}
+
+const ROAD_GROUPS: readonly RoadGroup[] = groupsOf(LEYTE_ROAD)
+
+/** (x, z) 到折線 `pts` 第 i 段（`pts[i−1]`→`pts[i]`）的距離，m */
+function segmentDistance(
+  pts: readonly { readonly x: number; readonly z: number }[], x: number, z: number, i: number,
+): number {
+  const a = pts[i - 1]!
+  const b = pts[i]!
   const abx = b.x - a.x
   const abz = b.z - a.z
   const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / (abx * abx + abz * abz)))
   return Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
 }
 
-/**
- * 這一點離公路中線是不是小於 `r`。與 `distanceToRoad(x, z) < r` 等價，但先比
- * 分組的外接矩形 —— 遠離公路的點幾次比較就答完。
- */
-export function isNearRoad(x: number, z: number, r: number): boolean {
-  for (const g of ROAD_GROUPS) {
+function nearPolyline(
+  pts: readonly { readonly x: number; readonly z: number }[], groups: readonly RoadGroup[],
+  x: number, z: number, r: number,
+): boolean {
+  for (const g of groups) {
     if (x < g.x0 - r || x > g.x1 + r || z < g.z0 - r || z > g.z1 + r) continue
-    for (let i = g.i0; i < g.i1; i++) if (segmentDistance(x, z, i) < r) return true
+    for (let i = g.i0; i < g.i1; i++) if (segmentDistance(pts, x, z, i) < r) return true
   }
   return false
+}
+
+/**
+ * 這一點離**車隊那一條**公路的中線是不是小於 `r`。與 `distanceToRoad(x, z) < r`
+ * 等價，但先比分組的外接矩形 —— 遠離公路的點幾次比較就答完。
+ */
+export function isNearRoad(x: number, z: number, r: number): boolean {
+  return nearPolyline(LEYTE_ROAD, ROAD_GROUPS, x, z, r)
 }
 /** 美軍灘頭的集結區：公路起點 */
 export const BEACHHEAD = LEYTE_ROAD[0]!
@@ -283,14 +307,191 @@ export const LEYTE_FLAK_SITES: readonly {
   { unit: 'flakLight', x: -1346, z: 1033 },
 ]
 
-/** 這一點到公路中線的最短距離，m */
+/** 這一點到**車隊那一條**公路中線的最短距離，m */
 export function distanceToRoad(x: number, z: number): number {
   let best = Infinity
   for (let i = 1; i < LEYTE_ROAD.length; i++) {
-    const d = segmentDistance(x, z, i)
+    const d = segmentDistance(LEYTE_ROAD, x, z, i)
     if (d < best) best = d
   }
   return best
+}
+
+/** 一條路：中線折線與標稱半寬，m。實際半寬沿路起伏（`render/leyteGround.ts`） */
+export interface LeyteRoad {
+  readonly points: readonly { readonly x: number; readonly z: number }[]
+  readonly halfWidth: number
+}
+
+/** 支線的一個路點。`on` = 接在第幾條路上（取那條路上離 (x, z) 最近的點） */
+interface RoadWaypoint { readonly x: number; readonly z: number; readonly on?: number }
+
+/**
+ * 支線：半寬、蜿蜒、路點。**只畫、不走** —— 車隊只走 `LEYTE_ROAD`。
+ *
+ * 【接得上】頭尾標了 `on` 的路點吸到那一條路上最近的點（路是依序建的，只能接
+ * 前面的）。蜿蜒在頭尾收回 0，所以接點不會被扭開。
+ *
+ * 【走山與山之間的縫】山脈排成蜂巢（`MAIN_MASSIFS`），三圓之間的空地與圓與圓
+ * 之間的谷是平的，路大多沿那裡走；翻山的一段是土路。**全部是起始值，拿眼睛校。**
+ */
+const SIDE_ROADS: readonly {
+  readonly halfWidth: number; readonly meander: readonly Meander[]; readonly waypoints: readonly RoadWaypoint[]
+}[] = [
+  // 1 海岸公路：沿岸線往內陸 700 m，橫貫全島
+  {
+    halfWidth: 9,
+    meander: [{ amp: 40, len: 1400, phase: 1.1 }, { amp: 8, len: 450, phase: 0.3 }],
+    waypoints: Array.from({ length: 21 }, (_, i) => {
+      const x = -14500 + i * 1450
+      return { x, z: coastZ(x) + 700 }
+    }),
+  },
+  // 2 北路：前線往北穿過山縫，經過撤離點附近
+  {
+    halfWidth: 8,
+    meander: [{ amp: 70, len: 1100, phase: 2.0 }, { amp: 10, len: 420, phase: 1.4 }],
+    waypoints: [
+      { x: -1400, z: 1200, on: 0 }, { x: -900, z: 3000 }, { x: 0, z: 5200 }, { x: 0, z: 6550 },
+      { x: -300, z: 8200 }, { x: 300, z: 9800 }, { x: 0, z: 12000 }, { x: 400, z: 14500 },
+    ],
+  },
+  // 3 東路
+  {
+    halfWidth: 6,
+    meander: [{ amp: 60, len: 900, phase: 0.2 }, { amp: 10, len: 380, phase: 2.6 }],
+    waypoints: [
+      { x: 1100, z: -200, on: 0 }, { x: 3000, z: 800 }, { x: 6100, z: 3000 }, { x: 8500, z: 5200 },
+      { x: 11500, z: 6500 }, { x: 14500, z: 7000 },
+    ],
+  },
+  // 4 西路
+  {
+    halfWidth: 6,
+    meander: [{ amp: 60, len: 950, phase: 1.7 }, { amp: 10, len: 400, phase: 0.9 }],
+    waypoints: [
+      { x: -600, z: 500, on: 0 }, { x: -3000, z: 2000 }, { x: -6100, z: 3000 }, { x: -8500, z: 5200 },
+      { x: -11500, z: 6800 }, { x: -14500, z: 7200 },
+    ],
+  },
+  // 5～9 土路
+  {
+    halfWidth: 4,
+    meander: [{ amp: 50, len: 700, phase: 0.6 }, { amp: 12, len: 300, phase: 1.9 }],
+    waypoints: [
+      { x: 6100, z: 3000, on: 3 }, { x: 6100, z: 6000 }, { x: 5200, z: 9000 }, { x: 3500, z: 12500 },
+      { x: 2800, z: 14500 },
+    ],
+  },
+  {
+    halfWidth: 4,
+    meander: [{ amp: 50, len: 750, phase: 2.4 }, { amp: 12, len: 320, phase: 0.5 }],
+    waypoints: [
+      { x: -6100, z: 3000, on: 4 }, { x: -6100, z: 6000 }, { x: -5200, z: 9000 }, { x: -3500, z: 12500 },
+      { x: -2800, z: 14500 },
+    ],
+  },
+  {
+    halfWidth: 4,
+    meander: [{ amp: 45, len: 650, phase: 1.2 }, { amp: 12, len: 280, phase: 2.8 }],
+    waypoints: [
+      { x: -9000, z: -3000, on: 1 }, { x: -9000, z: -1500 }, { x: -8200, z: 1500 }, { x: -8500, z: 5200, on: 4 },
+    ],
+  },
+  {
+    halfWidth: 4,
+    meander: [{ amp: 45, len: 680, phase: 0.1 }, { amp: 12, len: 290, phase: 1.6 }],
+    waypoints: [
+      { x: 9000, z: -3000, on: 1 }, { x: 9000, z: -1500 }, { x: 8300, z: 1800 }, { x: 8500, z: 5200, on: 3 },
+    ],
+  },
+  {
+    halfWidth: 4,
+    meander: [{ amp: 40, len: 600, phase: 2.2 }, { amp: 12, len: 260, phase: 0.8 }],
+    waypoints: [
+      { x: -5500, z: -3000, on: 1 }, { x: -5000, z: -1000 }, { x: -3000, z: 2000, on: 4 },
+    ],
+  },
+]
+
+/** `road` 上離 (x, z) 最近的那一個折線點 */
+function nearestPoint(
+  road: readonly { readonly x: number; readonly z: number }[], x: number, z: number,
+): { x: number; z: number } {
+  let best = road[0]!
+  let bd = Infinity
+  for (const p of road) {
+    const d = Math.hypot(p.x - x, p.z - z)
+    if (d < bd) { bd = d; best = p }
+  }
+  return { x: best.x, z: best.z }
+}
+
+/**
+ * 島上全部的路。**第 0 條就是 `LEYTE_ROAD`**（車隊走的那一條），其餘是只畫
+ * 不走的支線（`SIDE_ROADS`）。地上畫的路與植被的清空帶讀這一份。
+ */
+export const LEYTE_ROADS: readonly LeyteRoad[] = /* @__PURE__ */ (() => {
+  const roads: LeyteRoad[] = [{ points: LEYTE_ROAD, halfWidth: ROAD_WIDTH / 2 }]
+  for (const s of SIDE_ROADS) {
+    const wp = s.waypoints.map((w) => (w.on === undefined ? w : nearestPoint(roads[w.on]!.points, w.x, w.z)))
+    roads.push({ points: buildRoad(wp, s.meander), halfWidth: s.halfWidth })
+  }
+  return roads
+})()
+
+/**
+ * 一條路兩側不長樹的半寬，m：與車隊那一條同一個比例（`ROAD_TREE_CLEAR` 對
+ * 標稱半寬 12 m）。**要大過那條路最寬處的半寬**，不然樹會長在路面上。
+ */
+export function roadTreeClear(road: LeyteRoad): number {
+  return road.halfWidth * (ROAD_TREE_CLEAR / (ROAD_WIDTH / 2))
+}
+
+/** 清空帶索引的格邊長，m */
+const CLEAR_BUCKET = 1000
+const CLEAR_BUCKETS = Math.ceil((2 * FIELD_HALF) / CLEAR_BUCKET)
+
+/**
+ * 清空帶的格子索引：每一格列出清空帶碰得到它的那幾段（路的編號、段的編號、
+ * 清空半寬），攤平成一個陣列。**植被每個候選點都要問一次** —— 逐條路掃分組的話
+ * 路一多就把整片樹的生成拖慢一半。
+ */
+const CLEAR_INDEX: { readonly start: Int32Array; readonly items: Int32Array } = /* @__PURE__ */ (() => {
+  const lists: number[][] = Array.from({ length: CLEAR_BUCKETS * CLEAR_BUCKETS }, () => [])
+  const cellOf = (v: number): number =>
+    Math.min(CLEAR_BUCKETS - 1, Math.max(0, Math.floor((v + FIELD_HALF) / CLEAR_BUCKET)))
+  LEYTE_ROADS.forEach((road, k) => {
+    const r = roadTreeClear(road)
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1]!
+      const b = road.points[i]!
+      for (let row = cellOf(Math.min(a.z, b.z) - r); row <= cellOf(Math.max(a.z, b.z) + r); row++) {
+        for (let col = cellOf(Math.min(a.x, b.x) - r); col <= cellOf(Math.max(a.x, b.x) + r); col++) {
+          lists[row * CLEAR_BUCKETS + col]!.push(k, i)
+        }
+      }
+    }
+  })
+  const start = new Int32Array(lists.length + 1)
+  for (let c = 0; c < lists.length; c++) start[c + 1] = start[c]! + lists[c]!.length
+  const items = new Int32Array(start[lists.length]!)
+  lists.forEach((l, c) => items.set(l, start[c]!))
+  return { start, items }
+})()
+
+/** 這一點落在**任何一條**路的清空帶裡嗎（`roadTreeClear`）。植被每個候選點都問 */
+export function isInRoadClearing(x: number, z: number): boolean {
+  const col = Math.floor((x + FIELD_HALF) / CLEAR_BUCKET)
+  const row = Math.floor((z + FIELD_HALF) / CLEAR_BUCKET)
+  if (col < 0 || row < 0 || col >= CLEAR_BUCKETS || row >= CLEAR_BUCKETS) return false
+  const c = row * CLEAR_BUCKETS + col
+  const { start, items } = CLEAR_INDEX
+  for (let j = start[c]!; j < start[c + 1]!; j += 2) {
+    const road = LEYTE_ROADS[items[j]!]!
+    if (segmentDistance(road.points, x, z, items[j + 1]!) < roadTreeClear(road)) return true
+  }
+  return false
 }
 
 /**
