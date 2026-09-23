@@ -61,6 +61,23 @@ export interface InputState {
    */
   bombCapable: boolean
   /**
+   * 這一台是**掛彈的戰鬥機**：沒有投彈瞄具（模型沒有 `bombPoint`）但掛著炸彈。
+   * `B` 不切視角，而是直接投彈。**由 `main.ts` 在玩家換飛機時寫入**，與
+   * `bombCapable` 互斥。
+   *
+   * 【為什麼不進投彈視角】那個視角是轟炸機機腹的瞄準鏡，平飛通過目標上空
+   * 用的。戰鬥機是俯衝對準落點圈放彈 —— 鏡頭要留在機外看得到落點圈與地面。
+   */
+  bombRelease: boolean
+  /**
+   * 戰鬥機的投彈鍵（`B`）累計按了幾次。**只增不減**，`PlayerController` 比對
+   * 自己上次看到的次數，多了就投一次。
+   *
+   * 【為什麼是次數不是「按著沒有」】物理步在畫面幀裡批次跑。一次比一幀還短的
+   * 輕點，按下與放開會落在兩步之間 —— 記「按著」的話那一下就不見了。
+   */
+  bombTaps: number
+  /**
    * 玩家正在死亡鏡頭裡（陣亡到接手之間的那 2 秒）。**由 `main.ts` 每幀寫入。**
    *
    * 輸入層靠它擋掉右鍵轉頭與 `B`：那 2 秒沒有飛機可以操縱，鏡頭由
@@ -145,6 +162,8 @@ export function createInputState(): InputState {
     lookPitch: 0,
     viewMode: 'third',
     bombCapable: false,
+    bombRelease: false,
+    bombTaps: 0,
     dead: false,
     firing: false,
     braking: false,

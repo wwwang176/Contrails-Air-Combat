@@ -108,7 +108,7 @@ import { blastScaleOf, resetBombBay, type BombBay } from './weapons/bomb'
 import {
   aglOk, canRelease, envelopeFor, pitchOk, rollOk,
 } from './weapons/releaseEnvelope'
-import { type Loadout, loadoutOf } from './weapons/stores'
+import type { Loadout } from './weapons/stores'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
@@ -554,28 +554,28 @@ function playerBay(): BombBay {
 /**
  * 玩家這一趟掛什麼。`null` = 掛不了東西。
  *
- * 【為什麼要記在這裡】投彈的那一段每幀都要它的 `kind` 與 `damage`，而
- * `loadoutOf` 是一次查表 —— 換飛機時查一次就夠。
+ * 【為什麼要記在這裡】投彈的那一段每幀都要它的 `kind` 與 `damage`；換飛機時
+ * 從那一架身上抄一次就夠（`syncBombLoad`）。
  */
 let playerLoadout: Loadout | null = null
-/**
- * 這一關複寫的掛載。`null` = 沒有複寫，照機種的預設走。
- *
- * 【為什麼記在這裡】`syncBombLoad` 在換飛機與重生時都會跑，而那時候手上
- * 沒有 `BattleConfig`。`startWorld` 每一場設一次。
- */
-let missionLoadout: Loadout | null = null
 
 /**
  * 玩家換了一台飛機：重算掛彈量與瞄具眼點。
  *
+ * 【掛載讀那一架自己的】`World` 在進場與換機種時已經照這一關的複寫定好了
+ * （整隊的 `blueLoadout`、依機種的 `loadouts`）。這裡另外查一次的話，只認得
+ * 其中一種複寫的那一份會靜靜地落回預設表 —— 症狀是掛了彈卻按不出來。
+ *
  * 【換到不能投彈的飛機要強制退出】少了這一條，重生成戰鬥機之後相機會卡在
  * 一個沒有 `bombPoint` 的模式裡。
+ *
+ * 【有瞄具的走投彈視角，沒有的是掛彈戰鬥機】見 `InputState.bombRelease`
  */
 function syncBombLoad(): void {
   const m = visuals.get(player)!.model
-  playerLoadout = missionLoadout ?? loadoutOf(player.aircraft.spec.id)
+  playerLoadout = player.loadout
   input.bombCapable = m.bombPoint !== null && playerLoadout !== null
+  input.bombRelease = m.bombPoint === null && playerLoadout?.kind === 'bomb'
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
   resetBombBay(player.bombBay, playerLoadout)
@@ -1480,8 +1480,6 @@ function battleConfig(): BattleConfig {
  */
 function startWorld(cfg: BattleConfig): void {
   resetAudioState()
-  // 【在 createBattle 之前】那一支會走到 `syncBombLoad`，而它讀這個值
-  missionLoadout = cfg.blueLoadout ?? null
   battle = createBattle(playerController, cfg)
   // 【點光源在開場掛好，整場不變】見 `battle/battleLights.ts`。`add` 對已經掛著
   // 的物件是冪等的，`remove` 對沒掛的也是
@@ -2698,6 +2696,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 
   const bp = visuals.get(player)!.model.bombPoint
   if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+  // 【掛彈的戰鬥機從質心投】沒有瞄具眼點；`World.releaseBombs` 本來就從質心放
+  else if (input.bombRelease) BOMB_EYE.copy(renderPos)
 
   let bombTarget: Vector3 | null = null
   let bombState: 'off' | 'solved' | 'none' = 'off'
@@ -2724,7 +2724,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 【不看視角】落點是飛行狀態的函數，算得出來一般飛行也標得出來（HUD 的
     // `bombsight` 在兩種模式都畫，只差顏色）。上帝視角則整段跳過 —— 那裡連
     // 落點圈都不畫。
-    if (bp !== null) {
+    if (bp !== null || input.bombRelease) {
       bombState = 'none'
       BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
       const v = player.aircraft.state.velocity
@@ -2907,7 +2907,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 東西 —— 「投彈解還沒收斂」。
   hudFrame.bombState = bombState
   hudFrame.bombing = input.viewMode === 'bomb'
-  hudFrame.bombCapable = input.bombCapable
+  // 【掛彈的戰鬥機也畫彈艙格子】它沒有投彈視角，但一樣有彈、一樣要看補回
+  hudFrame.bombCapable = input.bombCapable || input.bombRelease
   hudFrame.ordnance = playerLoadout?.kind ?? null
   hudFrame.releaseOk = releaseOk
   // 【就是餵給 `canRelease` 的那一組】不是各自再查一次 —— 見上面 releaseEnv
@@ -4025,6 +4026,8 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
       rx: hudFrame.runCount > 0 ? +hudFrame.runX[hudFrame.runCount - 1]!.toFixed(4) : 0,
       ry: hudFrame.runCount > 0 ? +hudFrame.runY[hudFrame.runCount - 1]!.toFixed(4) : 0,
       agl: +hudFrame.releaseAgl.toFixed(0),
+      // 彈艙：還有幾枚、滿艙幾枚。驗收「按下去真的投出去了」讀它
+      load: hudFrame.bombLoad, cap: hudFrame.bombBayCapacity,
     },
     /** 準星：滑鼠圓圈（螢幕半高單位）與機頭十字（NDC）。教學截圖挑兩者分開的時機 */
     reticle: {

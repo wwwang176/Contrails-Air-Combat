@@ -154,9 +154,13 @@ export function attachInput(
       // 【只有掛得了彈的飛機能按】`bombCapable` 由 `main.ts` 在換飛機時寫入
       // —— 這一層對飛機一無所知（見檔頭）
       // 【死亡鏡頭下也不作用】那條相機分支完全不看視線，進去就把死亡鏡頭蓋掉
+      // 【掛彈的戰鬥機：B 就是投彈鍵】不切視角，見 `InputState.bombRelease`
       case 'KeyB':
         if (state.bombCapable && !state.dead) {
           state.viewMode = state.viewMode === 'bomb' ? 'third' : 'bomb'
+        } else if (state.bombRelease && !state.dead && !e.repeat) {
+          // 【按住不放不連投】作業系統的自動重複只算第一次
+          state.bombTaps++
         }
         break
       // 【投彈模式下不作用】`V` 的軸是「座艙／機外」，投彈瞄具不是那條軸上
