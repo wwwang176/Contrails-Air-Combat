@@ -97,17 +97,20 @@ export const JAPAN: readonly MissionCard[] = [
       priorityGroundUnit: 'truck',
       /**
        * 【三批、每批六輛】防空車頭尾各一、卡車 3、戰車 1。戰車只有炸彈炸得掉、
-       * 不計分；防空車照陸上輕型砲開火。0／75／150 秒從灘頭出發，全程約 6.6 km、
-       * 約 11 分鐘。**全部是起始值，由試飛裁定。**
+       * 不計分；防空車照陸上輕型砲開火。
+       *
+       * 【開場就全部在走】最後一批從灘頭起步，前兩批依序在它前面，批與批之間
+       * 空 600 m（車頭到車頭 750 m）。全程約 6.6 km，第一批開場已經走了約 2 km，
+       * 大約 7 分半抵達前線。**全部是起始值，由試飛裁定。**
        */
       vehicleConvoy: {
-        route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
+        route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30, batchGap: 600,
         // 【卡車與雪曼車頂的 .50】美軍車隊遇到低空掃射會還擊，不是只有防空車在打
         armed: ['truck', 'tank'],
         batches: [
-          { departAt: 0, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
-          { departAt: 75, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
-          { departAt: 150, units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
         ],
       },
       // 【灘頭與前線的固定砲位】位置在 `world/leyte.ts`。不在截斷的池裡，打掉不算

@@ -496,12 +496,9 @@ describe('有 interdict 的卡一定打得贏', () => {
       expect(rule.count + rule.leak).toBeGreaterThan(total)
     })
 
-    it(`${card.id}：整條集結排得進路線的第一段（開場的車頭朝向第一段）`, () => {
-      const c = b.vehicleConvoy!
-      const total = c.batches.reduce((k, x) => k + x.units.length, 0)
-      const a = c.route[0]!
-      const n = c.route[1]!
-      expect((total - 1) * c.gap).toBeLessThanOrEqual(Math.hypot(n.x - a.x, n.z - a.z))
+    it(`${card.id}：開場整條車隊都在路線上，最前面那一輛離終點還有一段`, () => {
+      const g = convoyGround(b.vehicleConvoy!)
+      for (const e of g) expect(e.motion!.offsetSeconds).toBeLessThan(e.motion!.totalSeconds * 0.8)
     })
 
     it(`${card.id}：車隊一路透傳成地面目標，每一台都帶 motion`, () => {
@@ -540,17 +537,33 @@ describe('有 interdict 的卡一定打得贏', () => {
 
 describe('convoyGround', () => {
   const c = {
-    route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30,
+    route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30, batchGap: 500,
     batches: [
-      { departAt: 0, units: ['truck', 'truck'] as const },
-      { departAt: 60, units: ['tank'] as const },
+      { units: ['truck', 'truck'] as const },
+      { units: ['tank'] as const },
     ],
   }
 
-  it('前車在前：第一批第一輛的集結位置最遠，後面每輛差一個車距', () => {
+  it('前車在前：同一批差一個車距，兩批之間再差一個批次間距', () => {
     const g = convoyGround(c)
-    expect(g.map((e) => Math.round(e.motion!.offsetSeconds * 10))).toEqual([60, 30, 0])
-    expect(g.map((e) => e.motion!.departAt)).toEqual([0, 0, 60])
+    expect(g.map((e) => Math.round(e.motion!.offsetSeconds * 10))).toEqual([530, 500, 0])
+  })
+
+  it('開場就全部在走 —— 沒有停在原地等出發的', () => {
+    const g = convoyGround(c)
+    expect(g.map((e) => e.motion!.departAt)).toEqual([0, 0, 0])
+  })
+
+  it('開場的車頭朝向那一輛所在的路段', () => {
+    const g = convoyGround(c)
+    const fwd = (h: number) => ({ x: -Math.sin(h), z: -Math.cos(h) })
+    // 第一輛在路線上 530 m 處：第一段長 960 m，所以朝第一段的方向
+    const a = LEYTE_ROAD[0]!
+    const b2 = LEYTE_ROAD[1]!
+    const len = Math.hypot(b2.x - a.x, b2.z - a.z)
+    const f = fwd(g[0]!.heading)
+    expect(f.x).toBeCloseTo((b2.x - a.x) / len, 6)
+    expect(f.z).toBeCloseTo((b2.z - a.z) / len, 6)
   })
 
   it('列在 armed 裡的單位帶機槍，其餘不帶', () => {

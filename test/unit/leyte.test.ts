@@ -65,15 +65,12 @@ describe('雷伊泰的公路', () => {
     expect(turns).toBeGreaterThanOrEqual(5)
   })
 
-  it('每一段至少 400 m；第一段放得下 15 輛車的集結（≥ 450 m）', () => {
+  it('每一段至少 400 m（轉角的圓弧切得進去）', () => {
     for (let i = 1; i < LEYTE_ROAD.length; i++) {
       const a = LEYTE_ROAD[i - 1]!
       const b = LEYTE_ROAD[i]!
       expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeGreaterThanOrEqual(400)
     }
-    const a = LEYTE_ROAD[0]!
-    const b = LEYTE_ROAD[1]!
-    expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeGreaterThanOrEqual(450)
   })
 
   it('灘頭與前線就是公路的兩端', () => {

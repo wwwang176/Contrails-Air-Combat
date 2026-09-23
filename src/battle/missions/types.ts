@@ -537,10 +537,8 @@ export interface GroundEntry {
   readonly guns?: 'mg'
 }
 
-/** 車隊的一批：同一刻出發的幾輛 */
+/** 車隊的一批：車距 `gap` 排成一列的幾輛 */
 export interface MissionVehicleBatch {
-  /** 開場後第幾秒出發 */
-  readonly departAt: number
   /** 依行進順序，第一個是車頭 */
   readonly units: readonly GroundUnitId[]
 }
@@ -548,8 +546,8 @@ export interface MissionVehicleBatch {
 /**
  * 沿公路開往終點的車隊。**全部是紅方。**
  *
- * 【集結】全部車輛排在路線起點往前的同一條線上：第一批的車頭最遠，最後一批
- * 的車尾在起點。車速相同，後一批晚出發也不會追撞前一批。
+ * 【開場就全部在走】各批沿同一條路排開：最後一批的車尾在起點，前一批在它前面
+ * `batchGap`，依此類推。車速相同，前後距離整場不變 —— 沒有停在原地等出發的車。
  */
 export interface MissionVehicleConvoy {
   /** 路線，世界座標。**與地上畫的路是同一份**（日 M2 的 `LEYTE_ROAD`） */
@@ -558,9 +556,11 @@ export interface MissionVehicleConvoy {
   readonly speed: number
   /** 轉角圓弧的半徑，m */
   readonly turnRadius: number
-  /** 同一條路上前後兩輛的車距，m */
+  /** 同一批裡前後兩輛的車距，m */
   readonly gap: number
-  /** 依出發順序 */
+  /** 前一批的車尾與後一批的車頭之間多遠，m */
+  readonly batchGap: number
+  /** 依行進順序，第一批走在最前面 */
   readonly batches: readonly MissionVehicleBatch[]
   /** 這幾種單位車頂帶一挺機槍（`GroundEntry.guns = 'mg'`）。省略 = 都不帶 */
   readonly armed?: readonly GroundUnitId[]
