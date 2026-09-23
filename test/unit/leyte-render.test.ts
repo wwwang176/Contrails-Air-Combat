@@ -9,6 +9,7 @@ import {
 } from '../../src/render/leyteGround'
 import { createLeyteFlora, leyteAccept, FLORA_STRIDE, FloraKind, type FloraBuffer } from '../../src/render/flora'
 import { createTerrain } from '../../src/render/terrain'
+import { createOcean } from '../../src/render/ocean'
 
 /**
  * # 雷伊泰的算繪
@@ -43,6 +44,21 @@ describe('leyte 的地面網格', () => {
     })
     expect(checked).toBeGreaterThan(100)
     g.dispose()
+  })
+
+  it('陸地比海面先畫 —— 被陸地蓋住的海由深度測試擋掉，不算碎光', () => {
+    const g = createLeyteGround(field, () => 0)
+    const ocean = createOcean(null)
+    let meshes = 0
+    g.object.traverse((o) => {
+      if ((o as Mesh).isMesh !== true) return
+      meshes++
+      expect(o.renderOrder).toBeLessThan(ocean.mesh.renderOrder)
+      expect(o.renderOrder).toBeLessThan(ocean.farMesh.renderOrder)
+    })
+    expect(meshes).toBeGreaterThan(0)
+    g.dispose()
+    ocean.dispose()
   })
 
   it('場外有遠景陸地：陸地一路延伸到場地之外', () => {
