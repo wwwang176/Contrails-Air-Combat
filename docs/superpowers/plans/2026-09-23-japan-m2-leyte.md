@@ -79,7 +79,9 @@
   export function headingToward(dx: number, dz: number): number
   ```
 
-**做法：** 把 `walkTaxi` 改名為 `walkRoute` 並 export，參數 `groundY` 改成 `y`（呼叫端自己加 `GEAR_CLEARANCE`），`TAXI_SPEED`／`TAXI_TURN_RADIUS`／`TAXI_TURN_RATE` 三處改讀 `motion`（預設 `TAXI_MOTION`）。`cornerTrim` 多收 `radius`。**運算順序一個字都不改**，只把常數換成同值的欄位 —— 浮點結果因此逐位元相同。
+**做法：** 把 `walkTaxi` 改名為 `walkRoute` 並 export，參數 `groundY` 改成 `y`（呼叫端自己加 `GEAR_CLEARANCE`），`TAXI_SPEED`（6 處：`:223, 226, 229, 244, 247, 253`）／`TAXI_TURN_RADIUS`／`TAXI_TURN_RATE` 改讀 `motion`（預設 `TAXI_MOTION`）。`cornerTrim` 多收 `radius`。**運算順序一個字都不改**，只把常數換成同值的欄位 —— 浮點結果因此逐位元相同。
+
+**熱路徑不配置**：`walkRoute` 目前在函式內定義 `pivot`、`arcAt` 兩個箭頭函式，每次呼叫都建閉包。車隊是 15 輛 × 240 Hz，所以把兩者改成**模組層函式**，共用的走訪狀態（`t`、`h`、`x`、`z`、`speed`、`left`）改放模組層的暫存（與既有的 `SEG_*`、`segCount` 同一種做法），運算式逐字搬過去、順序不變。
 
 - [ ] **Step 1: 寫失敗的測試** `test/unit/walk-route.test.ts`
 
@@ -100,7 +102,7 @@ const H1 = headingToward(-400, -300)
 describe('walkRoute：車輛用的參數', () => {
   it('全程秒數等於弧切之後的路長除以車速（頭尾不必原地轉）', () => {
     const total = walkRoute(PATH, H0, H1, Infinity, 0, null, CAR)
-    // 直線段 500 + 500，轉角 36.87° 以 25 m 圓弧切入
+    // 直線段 500 + 500，轉角 53.13° 以 25 m 圓弧切入
     const turn = Math.abs(H1 - H0)
     const trim = 25 * Math.tan(turn / 2)
     const len = 500 - trim + 500 - trim + turn * 25
@@ -798,7 +800,7 @@ export function leyteAccept(field: HeightFieldData, x: number, z: number, h: num
 
 `createLeyteFlora(field)`：照抄 `createIslandFlora` 的網格走法（`ISLAND_GRID`、樹與灌木各一個候選、座標只由全域索引決定），差別：沒有「最近的島」那一段（整格早退改成：tile 四角與中心的 `field.sample` 全部 < `SAND_TOP` 就 return）；判準換成 `isLeyteGrass` 與 `leyteAccept(field, x, z, h)`；樹的種類是 `FloraKind.BroadTree`。完整程式照 `createIslandFlora` 逐行對應寫出，不共用可變狀態。
 
-`leyteCanopyCover(field)`：照 `islandCanopyCover`，`lambda = leyteAccept(...) * (BROAD_AREA + BUSH_AREA) / ISLAND_GRID²`，其中 `BROAD_AREA = π · BROAD_CROWN_R² · E_SCALE2`（`BROAD_CROWN_R` 從 `floraShapes.ts` import；若它的名字不同，照 `CONE_CROWN_R` 的同一個檔案找闊葉樹的樹冠半徑常數）。
+`leyteCanopyCover(field)`：照 `islandCanopyCover`，`lambda = leyteAccept(...) * (BROAD_AREA + BUSH_AREA) / ISLAND_GRID²`，其中 `BROAD_AREA = π · BROAD_CROWN_R² · E_SCALE2`。`BROAD_CROWN_R` 在 `floraShapes.ts:47` 是 `const`，**要加 `export`**（與 `CONE_CROWN_R`、`BUSH_R` 並列）。
 
 import：`isLeyteGrass` 從 `./leyteGround`（`leyteGround.ts` 不 import `flora.ts`，不成環）；`distanceToRoad`、`PLAIN_HEIGHT`、`ROAD_TREE_CLEAR` 從 `../world/leyte`。
 
@@ -811,12 +813,13 @@ function createLeyteTerrain(): Terrain {
   const { field, hills } = createLeyte()
   const ocean = createOcean(bakeShore(field))
   const ground = createLeyteGround(field, leyteCanopyCover(field))
+  // 【容量用內陸那一組，不用群島的】雷伊泰的樹是闊葉樹，而群島的闊葉池只留
+  // 了 16 格防呆 —— 超出的由 `stats.overflow` 靜靜丟掉。半徑也用預設的 6 km：
+  // 群島的 12 km 是建立在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，
+  // 照搬的話非空格子多一個量級。單格上限用群島的 768（丘陵上的林子單格實測到 568）
   const flora = createVegetation(
     [createLeyteFlora(field)], (x, z) => field.sample(x, z),
-    {
-      capacity: ISLAND_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE,
-      radius: ISLAND_RADIUS, tilesPerFrame: ISLAND_TILES_PER_FRAME,
-    },
+    { maxPerTile: ISLAND_MAX_PER_TILE },
   )
   const group = new Group()
   group.add(ocean.farMesh)
@@ -985,13 +988,12 @@ describe('地面目標沿路線移動', () => {
     stepGroundMotion(t, 0, ground)
     expect(t.position.z).toBeCloseTo(-100, 6)
   })
-  it('防空車的槍口世界座標跟著車走（GunPlatform 讀 position／orientation）', () => {
-    const t = vehicle(0, 0, 'flakLight')
-    t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
-    const muzzle = (): Vector3 => t.guns[0]!.zone.position.clone().applyQuaternion(t.orientation).add(t.position)
-    const a = muzzle()
-    stepGroundMotion(t, 20, ground)
-    expect(muzzle().distanceTo(a)).toBeGreaterThan(150)
+  it('防空車移動之後，砲台步進打出去的彈丸從車的新位置出膛', () => {
+    // 真的跑 `stepGunPlatform`：車開 200 m 之後開火，彈丸的起點要在車旁邊
+    // （做法：建一架在車正上方 800 m 的紅隊目標飛機、一個 Projectiles 池，
+    //  對 t 呼叫 stepGunPlatform 數步直到 fired > 0，取最新一發的位置，
+    //  斷言它離 t.position 的水平距離 < 30 m、離開局位置 > 150 m。
+    //  建構細節照 `test/unit/ground-targets.test.ts` 裡既有的輕砲開火測試抄。）
   })
   it('沒有 motion 的地面目標完全不受影響', () => {
     const t = createGroundTarget(0, 'truck', 'red', 12, 34, 0)
@@ -1139,11 +1141,27 @@ export function stepGroundMotion(
 ```
 並 `import { stepGroundMotion } from './groundMotion'`。**先確認 `this.time` 在這一行時已經是這一步的時間**（讀 `World.step` 開頭 `this.time += dt` 的位置）；若 `time` 在步尾才加，改用 `this.time + dt`，並在註解寫明。
 
-- [ ] **Step 6: 改 `src/render/groundTargets.ts:58`**：`m.visible = !t.departed` → `m.visible = !t.departed && !t.arrived`，註解補一句「開到前線退場的車也不畫」。
+- [ ] **Step 6: 改 `src/render/groundTargets.ts:97`**：`m.visible = !t.departed` → `m.visible = !t.departed && !t.arrived`，註解補一句「開到前線退場的車也不畫」。
+
+- [ ] **Step 6b: AI 掃射移動目標要有提前量** —— `src/ai/shipAttack.ts` 的 `groundAttackCommand` 目前把目標速度寫死 `0, 0, 0`。改成照 `shipAttackCommand` 的寫法：
+
+```ts
+  // 【沿路線移動的車要帶速度】掃射核心拿它算提前量；靜止的目標 speed 為 0，
+  // 走原本那一條 0, 0, 0，行為逐位元不變
+  if (target.speed === 0) {
+    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim)
+    return
+  }
+  const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(target.orientation).multiplyScalar(target.speed)
+  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim)
+```
+測試加在 `test/unit/ai-ground-strafe.test.ts`：同一架飛機、同一台卡車，`speed = 10` 與 `speed = 0` 時 `groundAttackCommand` 產出的命令不同（先確認 `groundStrafeCommand` 會讀那三個分量；若它另外有純函數的提前量解，直接測那一支的輸出點往車頭方向移）。
+
+**AI 僚機不投彈**：戰鬥機走不到 `bombRun`（`AiController.ts:478-492` 只有非戰鬥機走轟炸航路），這一輪不補對地投彈的路徑 —— 僚機掃射卡車，炸彈是玩家的。SPEC §7.5 同步改寫。
 
 - [ ] **Step 7: 跑，確認綠**
 
-Run: `npx vitest run test/unit/ground-motion.test.ts test/unit/leuna-ground.test.ts test/unit/ai-ground-strafe.test.ts`（後兩者若檔名不同，用 `npx vitest run -t "地面"` 找既有地面目標測試）
+Run: `npx vitest run test/unit/ground-motion.test.ts test/unit/ground-targets.test.ts test/unit/ai-ground-strafe.test.ts`
 Expected: PASS
 
 - [ ] **Step 8: 變異驗證** —— `stepGroundMotion` 的「死了就不動」那一段暫時刪掉，確認「死了就不動」變紅；改回來。
@@ -1382,7 +1400,20 @@ export function countDestroyed(
         : destroyed
       if (!conditionMet(beat.when, now, aliveOf, b.batches, d)) continue
 ```
-5. 填 `MISSION_INPUTS` 的地面那一段：`inp.targetsArrived = 0` 與 `targetsDestroyed` 一起歸零，迴圈裡 `if (t.arrived) inp.targetsArrived++`（在 `inDestroyPool` 過濾之後）。模組級 `MISSION_INPUTS` 的初值物件加 `targetsArrived: 0`。
+5. 新 export `countArrived(targets, rules): number`：只數 `inDestroyPool(t, rules) && t.arrived`。填 `MISSION_INPUTS` 的地面那一段改成 `inp.targetsArrived = countArrived(b.world.groundTargets, b.rules)`（與 `targetsDestroyed` 同一處）。模組級 `MISSION_INPUTS` 的初值物件加 `targetsArrived: 0`；`test/unit/mission.test.ts`、`test/integration/battle-convoy.test.ts` 裡自建的 `MissionInputs` 也補 `targetsArrived: 0`。
+
+   `interdict.test.ts` 加：
+```ts
+  it('抵達數只數規則指定的單位', () => {
+    const rules: MissionRules = { kind: 'interdict', count: 6, leak: 4, unit: 'truck' }
+    const a = createGroundTarget(0, 'truck', 'red', 0, 0, 0)
+    const b = createGroundTarget(1, 'tank', 'red', 0, 0, 0)
+    for (const t of [a, b]) { t.alive = false; t.arrived = true }
+    expect(countArrived([a, b], rules)).toBe(1)
+  })
+```
+
+6. **判定順序的護欄**（SPEC §7.1）：`interdict.test.ts` 加一條只跑**一步**的整合測試 —— 用 `createBattle` 建一場：一張合成卡（`missionConfigFrom` 吃的形狀，`vehicleConvoy` 兩輛卡車、`interdict: { count: 1, leak: 1, unit: 'truck' }`、`withdraw` 在 `destroyed ≥ 1`）。開場後把第一輛設 `alive = false`（摧毀）、第二輛設 `alive = false; arrived = true`（抵達），然後 `stepBattle` 一步，斷言 `b.outcome === 'fighting'` 且 `b.rules.kind === 'evacuate'`。把 `stepBattle` 裡 `stepBeats(b)` 暫時移到勝負判定之後，確認這一條變紅（變異驗證），再改回來。這一條要等 Task 6 的卡片欄位進來才寫得出，**放在 Task 6 Step 9 之後執行**。
 
 - [ ] **Step 6: `main.ts:3178`**：
 
@@ -1580,10 +1611,10 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
     for (const unit of batch.units) {
       const m = createGroundMotion(c.route, motion, (total - 1 - k) * c.gap, batch.departAt)
       motionPose(m, 0, pose)
-      const fwd = pose.velocity.lengthSq() > 0 ? pose.velocity : new Vector3(0, 0, -1).applyQuaternion(pose.orientation)
+      // 【航向取第一段的】集結位置全部落在第一段上（`leyte.test.ts` 守第一段夠長）
       out.push({
         unit, team: 'red', x: pose.position.x, z: pose.position.z,
-        heading: Math.atan2(-fwd.x, -fwd.z), motion: m,
+        heading: m.startHeading, motion: m,
       })
       k++
     }
@@ -1591,7 +1622,7 @@ export function convoyGround(c: MissionVehicleConvoy): GroundEntry[] {
   return out
 }
 ```
-（`import { Quaternion } from 'three'`、`import { createGroundMotion, motionPose } from '../../world/groundMotion'`；`fwd` 那一行避免配置可改用 `headingToward`：出發前 velocity 為 0 時，直接取 `m.startHeading`——集結位置都在第一段上。實作時簡化成 `heading: m.startHeading` 並讓測試確認第一段足夠長。）
+（`import { Quaternion } from 'three'`、`import { createGroundMotion, motionPose } from '../../world/groundMotion'`。載入期跑一次，不在熱路徑。）
 3. `missionConfigFrom` 的 `...(b.ground === undefined ? {} : { ground: b.ground })` 改成：
 ```ts
     // 【車隊併進地面目標】兩者都有時串起來；只有車隊時就是車隊
@@ -1675,9 +1706,12 @@ export const KI84_BOMB_LOADOUT: Loadout = {
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, altitude: 2500,
         },
+        // 【預警會被撤離訊息蓋掉】與返航同一步觸發，`stepBeats` 依陣列順序寫
+        // `b.message`，返航排在最後 —— 畫面上是「撤離戰區」。敵機就在退路上，
+        // 玩家飛回去就看得到
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
-          warn: '更多敵機正在攔截',
+          warn: '撤離戰區',
           warnLead: 0,
           side: 'theirs', spec: F6F5, count: 4, starboard: Math.PI, along: 0.8,
         },
@@ -1697,7 +1731,12 @@ export const KI84_BOMB_LOADOUT: Loadout = {
 
 - [ ] **Step 8: `menu.ts:107`**：`'瓜島到倫內爾島：掩護雷擊隊，漢口迎擊野馬。'` → `'瓜島、雷伊泰到倫內爾島：掩護雷擊隊，截斷補給車隊。'`
 
-- [ ] **Step 9: 跑**：`npx vitest run test/unit/campaigns.test.ts test/unit/missions.test.ts` → 除了引用 `KILL_CARD`／漢口的舊斷言（Task 7 處理）之外全綠；`npx tsc --noEmit` → 0
+- [ ] **Step 9: 三處會紅的既有斷言**（不屬於 `KILL_CARD`／漢口，這一步就改）
+  - `test/unit/campaigns.test.ts:217-225`「地面 P-51 優先權只在德國第三張任務卡啟用」：改成逐卡的期待表 —— `germany-m3` 是 `'parkedP51'`、`japan-m2` 是 `'truck'`、其餘 `undefined`；標題改成「地面優先權只在需要它的卡上」
+  - `test/unit/missions.test.ts:246-259`：跳過的規則清單加上 `'interdict'`（它沒有 `point`）
+  - `test/integration/mission-convoy.test.ts:328-333`：斷言 `japan-m2` 的 `rules.kind` 是 `'annihilate'` —— 改用 Task 7 的合成殲滅卡（若 Task 7 尚未完成，這一條併到 Task 7 Step 1 一起改）
+
+- [ ] **Step 9b: 跑**：`npx vitest run test/unit/campaigns.test.ts test/unit/missions.test.ts` → 除了引用 `KILL_CARD`／漢口的舊斷言（Task 7 處理）之外全綠；`npx tsc --noEmit` → 0。接著回頭執行 Task 5 Step 5 第 6 點的判定順序護欄。
 
 - [ ] **Step 10: 變異驗證** —— `withdraw.when.atLeast` 暫時改 7，確認「有摧毀 ≥ count 觸發的返航」紅；`withdrawBeat` 暫時改回讀 `DEFAULT_BATTLE.altitude`，確認「高度等於任務高度」紅。都改回來。
 
@@ -1728,7 +1767,7 @@ Run: `npx vitest run test/unit/briefing.test.ts test/unit/mission-waves.test.ts 
 - `campaigns.test.ts:96-97`：`expect(of('japan-m2')).toBe('leyte')`，註解改成「日 M2 是雷伊泰（海岸線地形）」
 - `campaigns.test.ts:305` 附近取 `japan-m2` 的那一段：讀它在測什麼，改成合適的卡或刪掉只為漢口存在的斷言
 - `battle-lights.test.ts:27`、`mission-convoy.test.ts:328`：讀斷言內容，依新卡調整（例如 `mission-convoy` 若是「非護送卡沒有 convoy」，`japan-m2` 仍然成立就不動）
-- `test/e2e/mission.e2e.ts:187`：`ringOf({ campaign: 'japan', id: 'japan-m2' })` 是拿它當殲滅卡量「沒有圓環」—— 換成盟 M3（`allies-m4` 或目前沖繩外海的 id，先查）或刪掉那一格
+- `test/e2e/mission.e2e.ts:187`：`ringOf({ campaign: 'japan', id: 'japan-m2' })` 是拿它當殲滅卡量「沒有圓環」—— 換成沖繩外海（`allies-m3`，規則 `defend`，同樣沒有圓環）
 
 Run: `npx vitest run test/unit/campaigns.test.ts test/unit/briefing.test.ts test/unit/battle-lights.test.ts test/integration/mission-convoy.test.ts` → PASS
 
@@ -1758,7 +1797,7 @@ git commit -m "test(battle): 殲滅卡改用合成卡；文件跟上雷伊泰前
 - [ ] **Step 1**: 起 dev server（`npm run dev`，背景），照 `test/e2e/farmland-shot.e2e.ts` 的方式開頁、進日本線 M2。
 - [ ] **Step 2**: 開場截圖：看得到海岸線（上方是海）、公路、灘頭的車隊。
 - [ ] **Step 3**: 用 `__still` 或時間快轉推進 60 秒，再截一張：第一批車已經沿公路離開灘頭（比對車的位置）。
-- [ ] **Step 4**: 讀 console，不得有 shader 編譯錯誤（公路的 GLSL）。
+- [ ] **Step 4**: 讀 console，不得有 shader 編譯錯誤（公路的 GLSL）。讀植被的 `stats.overflow`（`main.ts` 的量測出口），必須是 0；不是 0 就給 leyte 一組自己的 `capacity`，照 `vegetation.test.ts` 的哨兵掃描定值。
 - [ ] **Step 5**: 若主控台或截圖有問題，修正後重跑；通過之後把截圖放 scratchpad，回報負責人試飛。
 
 ---
