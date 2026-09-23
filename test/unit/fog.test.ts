@@ -37,10 +37,16 @@ describe('霧的濃度落在設計意圖上', () => {
     expect(fogFactor(5_000, FOG_DENSITY)).toBeLessThan(0.01)
   })
 
-  it('30 km（上帝視角的全戰場）開始化開但仍看得清楚', () => {
+  it('30 km（上帝視角的全戰場）只是一層薄薄的空氣感', () => {
     const f = fogFactor(30_000, FOG_DENSITY)
-    expect(f).toBeGreaterThan(0.10)
-    expect(f).toBeLessThan(0.25)
+    expect(f).toBeGreaterThan(0.02)
+    expect(f).toBeLessThan(0.08)
+  })
+
+  it('幾何地平線（約 140 km）上遠海只化掉一半多 —— 海面也吃霧，再濃海天那一階就糊了', () => {
+    const f = fogFactor(140_000, FOG_DENSITY)
+    expect(f).toBeGreaterThan(0.4)
+    expect(f).toBeLessThan(0.8)
   })
 
 })
@@ -87,12 +93,12 @@ describe('地平線要看得出來', () => {
   })
 
   /**
-   * 【這是「霧不再讓海面近遠變色」唯一的來源】海面的近遠色差**完全**來自霧。
+   * 【海面與陸地吃同一層霧】霧濃的時段遠山化進天色，海面若清清楚楚就是假的。
    *
    * 【兩個材質要分開斷言】只測一個的話，漏掉另一個的那種錯誤 —— 也就是
    * `ocean.ts` 自己註解裡警告的「5 km 處出現一條色帶」—— 就沒有被守住。
    */
-  it('細浪面不吃霧', () => {
+  it('細浪面吃霧', () => {
     const ocean = createOcean(null)
     try {
       // 【細浪面是一組 clipmap 的層】十層共用同一份材質（見 OCEAN_BASE_CELL），
@@ -100,17 +106,17 @@ describe('地平線要看得出來', () => {
       // 材質」—— 那正是「5 km 處出現一條色帶」那一類 bug 的形狀
       expect(ocean.mesh.children.length).toBeGreaterThan(0)
       for (const level of ocean.mesh.children) {
-        expect(((level as Mesh).material as MeshStandardMaterial).fog).toBe(false)
+        expect(((level as Mesh).material as MeshStandardMaterial).fog).toBe(true)
       }
     } finally {
       ocean.dispose()
     }
   })
 
-  it('遠海不吃霧', () => {
+  it('遠海吃霧', () => {
     const ocean = createOcean(null)
     try {
-      expect((ocean.farMesh.material as MeshStandardMaterial).fog).toBe(false)
+      expect((ocean.farMesh.material as MeshStandardMaterial).fog).toBe(true)
     } finally {
       ocean.dispose()
     }
