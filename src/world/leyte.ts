@@ -231,11 +231,6 @@ const ROAD_GROUPS: readonly { x0: number; z0: number; x1: number; z1: number; i0
     return out
   })()
 
-/** 公路分組，給 shader 用：外接矩形與段的範圍（段 i 是 `LEYTE_ROAD[i-1] → [i]`） */
-export function roadGroups(): readonly { x0: number; z0: number; x1: number; z1: number; i0: number; i1: number }[] {
-  return ROAD_GROUPS
-}
-
 function segmentDistance(x: number, z: number, i: number): number {
   const a = LEYTE_ROAD[i - 1]!
   const b = LEYTE_ROAD[i]!

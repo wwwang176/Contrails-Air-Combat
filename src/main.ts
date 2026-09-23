@@ -21,6 +21,7 @@ import {
   hitRate, shakeInterval, windParams,
 } from './audio/curves'
 import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
+import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
@@ -3738,6 +3739,12 @@ const GFX_HIDDEN_LAYER = 31
     farSea: () => [terrain.object.children[0]!],
     nearSea: () => [terrain.object.children[1]!],
     islands: () => [terrain.object.children[2]!],
+    // 【雷伊泰的遠景陸地】在陸地那一個孩子底下，依名字挑出來單獨關
+    farLand: () => {
+      const out: Object3D[] = []
+      terrain.object.traverse((o) => { if (o.name === FAR_LAND_NAME) out.push(o) })
+      return out
+    },
     // 【用 slice 不是 children[3]!】純海面沒有第四個孩子，固定取索引的話
     // 切到純海之後消融 flora 會對 undefined 呼叫 traverse，當場崩
     flora: () => terrain.object.children.slice(3),

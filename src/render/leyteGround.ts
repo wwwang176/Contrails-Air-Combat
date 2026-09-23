@@ -1,8 +1,9 @@
 import {
-  BufferAttribute, BufferGeometry, Color, Group, Mesh, MeshStandardMaterial, type Object3D,
+  BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, DataTexture, Group, LinearFilter, Mesh,
+  MeshStandardMaterial, RedFormat, UnsignedByteType, type Object3D,
 } from 'three'
 import type { HeightFieldData } from '../world/heightfield'
-import { FIELD_HALF, LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, farHeight, roadGroups } from '../world/leyte'
+import { FIELD_HALF, LEYTE_ROAD, ROAD_WIDTH, SAND_TOP, farHeight } from '../world/leyte'
 import { buildGroundRect, DRAW_FLOOR } from './island'
 
 /**
@@ -89,52 +90,101 @@ export function roadCoverageAt(x: number, z: number): number {
  * 像素一段都不算 —— 那時 `roadD` 停在 1e9，而擴出去的這一圈保證矩形邊上的
  * 像素離路已經遠到覆蓋率是 0，邊界不會畫出一條線。
  */
-const GROUP_MARGIN = (ROAD_WIDTH / 2) * 1.5 + ROAD_EDGE_SOFT + 30
+/** 離路距離圖一格幾公尺 */
+const ROAD_TEXEL = 4
+/**
+ * 距離圖記到幾公尺為止，m。**要大過路最寬處的半寬加一格**，超過的一律記成它
+ * —— 那些像素離路夠遠，覆蓋率是 0。
+ */
+const ROAD_MAX_DISTANCE = 40
+
+export interface RoadDistanceMap {
+  /** 一格一個位元組：離中線的距離 ÷ `maxDistance` × 255 */
+  readonly data: Uint8Array
+  readonly width: number
+  readonly height: number
+  /** 世界座標的方框，m。第 (row, col) 格的中心在 (x0 + (col+0.5)·texel, z0 + (row+0.5)·texel) */
+  readonly box: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }
+  readonly texel: number
+  readonly maxDistance: number
+}
 
 /**
- * 公路的 GLSL：世界座標 xz 到折線的距離小於這一點的半寬（`roadHalfWidthAt`）
- * 就混泥土色。路緣往內 `ROAD_EDGE_SOFT` 公尺是混進草地的過渡；顏色另外疊一層
- * 低頻的深淺，泥濘的地方深、乾的地方淺。
+ * 把「離公路中線多遠」烘成一張圖，給地面的 shader 查。**載入期跑一次。**
  *
- * 【先比分組的外接矩形】公路有幾十段，每一個地面像素都逐段算距離太貴。
- * 分組（`world/leyte.ts` 的 `roadGroups`）之後，離路遠的像素只做幾次比較。
+ * 【為什麼不在 shader 裡逐段算】公路有七十幾段。每個地面像素迴圈掃過一個常數
+ * 陣列，在 ANGLE（D3D）上翻譯出來極慢 —— 實測在陸地上方從 160 fps 掉到 30。
+ * 換成一次取樣之後，成本與沒有公路一樣。
  *
- * 【`px` 要夾上限】矩形內外相鄰的兩個像素，一個的 `roadD` 是幾十公尺、一個是
- * 1e9 —— 不夾的話 `fwidth` 是 1e9，過渡帶寬到整條路都變成半透明。
+ * 【逐段只畫自己的鄰近】每一段只更新它外接矩形外擴 `maxDistance` 那一塊，
+ * 整張圖一百多萬格，實際算的只有公路兩旁那一條帶。
  */
-function roadGlsl(): string {
-  const segs: string[] = []
+export function bakeRoadDistance(): RoadDistanceMap {
+  let x0 = Infinity
+  let z0 = Infinity
+  let x1 = -Infinity
+  let z1 = -Infinity
+  for (const p of LEYTE_ROAD) {
+    x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x)
+    z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z)
+  }
+  const M = ROAD_MAX_DISTANCE
+  x0 -= M; z0 -= M; x1 += M; z1 += M
+  const width = Math.ceil((x1 - x0) / ROAD_TEXEL)
+  const height = Math.ceil((z1 - z0) / ROAD_TEXEL)
+  x1 = x0 + width * ROAD_TEXEL
+  z1 = z0 + height * ROAD_TEXEL
+  const dist = new Float32Array(width * height).fill(M)
   for (let i = 1; i < LEYTE_ROAD.length; i++) {
     const a = LEYTE_ROAD[i - 1]!
     const b = LEYTE_ROAD[i]!
-    segs.push(`vec4(${a.x.toFixed(1)}, ${a.z.toFixed(1)}, ${b.x.toFixed(1)}, ${b.z.toFixed(1)})`)
+    const abx = b.x - a.x
+    const abz = b.z - a.z
+    const len2 = abx * abx + abz * abz
+    const c0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - M - x0) / ROAD_TEXEL))
+    const c1 = Math.min(width - 1, Math.ceil((Math.max(a.x, b.x) + M - x0) / ROAD_TEXEL))
+    const r0 = Math.max(0, Math.floor((Math.min(a.z, b.z) - M - z0) / ROAD_TEXEL))
+    const r1 = Math.min(height - 1, Math.ceil((Math.max(a.z, b.z) + M - z0) / ROAD_TEXEL))
+    for (let row = r0; row <= r1; row++) {
+      const z = z0 + (row + 0.5) * ROAD_TEXEL
+      for (let col = c0; col <= c1; col++) {
+        const x = x0 + (col + 0.5) * ROAD_TEXEL
+        const t = Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / len2))
+        const d = Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t))
+        const k = row * width + col
+        if (d < dist[k]!) dist[k] = d
+      }
+    }
   }
-  const groups = roadGroups()
-  const boxes = groups.map((g) =>
-    `vec4(${(g.x0 - GROUP_MARGIN).toFixed(1)}, ${(g.z0 - GROUP_MARGIN).toFixed(1)}, `
-    + `${(g.x1 + GROUP_MARGIN).toFixed(1)}, ${(g.z1 + GROUP_MARGIN).toFixed(1)})`)
-  // 段 i（`LEYTE_ROAD[i-1] → [i]`）在 ROAD 陣列裡的索引是 i − 1
-  const ranges = groups.map((g) => `ivec2(${g.i0 - 1}, ${g.i1 - 1})`)
+  const data = new Uint8Array(width * height)
+  for (let k = 0; k < data.length; k++) data[k] = Math.round((Math.min(M, dist[k]!) / M) * 255)
+  return { data, width, height, box: { x0, z0, x1, z1 }, texel: ROAD_TEXEL, maxDistance: M }
+}
+
+/**
+ * 公路的 GLSL：查離路距離圖（`bakeRoadDistance`），小於這一點的半寬
+ * （`roadHalfWidthAt`）就混泥土色。路緣往內 `ROAD_EDGE_SOFT` 公尺是混進草地的
+ * 過渡；顏色另外疊一層低頻的深淺，泥濘的地方深、乾的地方淺。
+ *
+ * 【方框外直接當作很遠】距離圖只蓋公路外擴 `ROAD_MAX_DISTANCE` 的那一塊。
+ *
+ * 【`px` 要夾上限】方框內外相鄰的兩個像素距離可能跳一大截 —— 不夾的話
+ * `fwidth` 很大，過渡帶會寬到整條路都變成半透明。
+ */
+function roadGlsl(map: RoadDistanceMap): string {
   const half = (ROAD_WIDTH / 2).toFixed(2)
   const ripple = WIDTH_RIPPLE.map((r) =>
     ` + ${r.amp.toFixed(3)} * sin(${r.fx.toFixed(4)} * vRoadXZ.x + ${r.fz.toFixed(4)} * vRoadXZ.y + ${r.phase.toFixed(3)})`,
   ).join('')
   const c = new Color(ROAD_COLOR)
+  const { x0, z0, x1, z1 } = map.box
   return `
   {
-    const vec4 ROAD[${segs.length}] = vec4[${segs.length}](${segs.join(', ')});
-    const vec4 ROAD_BOX[${groups.length}] = vec4[${groups.length}](${boxes.join(', ')});
-    const ivec2 ROAD_RANGE[${groups.length}] = ivec2[${groups.length}](${ranges.join(', ')});
+    vec2 roadUv = (vRoadXZ - vec2(${x0.toFixed(1)}, ${z0.toFixed(1)}))
+      / vec2(${(x1 - x0).toFixed(1)}, ${(z1 - z0).toFixed(1)});
     float roadD = 1.0e9;
-    for (int g = 0; g < ${groups.length}; g++) {
-      vec4 bb = ROAD_BOX[g];
-      if (vRoadXZ.x < bb.x || vRoadXZ.x > bb.z || vRoadXZ.y < bb.y || vRoadXZ.y > bb.w) continue;
-      for (int i = ROAD_RANGE[g].x; i < ROAD_RANGE[g].y; i++) {
-        vec2 a = ROAD[i].xy;
-        vec2 ab = ROAD[i].zw - a;
-        float t = clamp(dot(vRoadXZ - a, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
-        roadD = min(roadD, length(vRoadXZ - (a + ab * t)));
-      }
+    if (roadUv.x >= 0.0 && roadUv.x <= 1.0 && roadUv.y >= 0.0 && roadUv.y <= 1.0) {
+      roadD = texture2D(uRoadDist, roadUv).r * ${map.maxDistance.toFixed(1)};
     }
     float halfW = ${half} * (1.0${ripple});
     float px = clamp(fwidth(roadD), 1.0e-3, 8.0);
@@ -144,9 +194,10 @@ function roadGlsl(): string {
   }`
 }
 
-function createGroundMaterial(): MeshStandardMaterial {
+function createGroundMaterial(roadTex: DataTexture, map: RoadDistanceMap): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: ROUGHNESS })
   m.onBeforeCompile = (shader) => {
+    shader.uniforms['uRoadDist'] = { value: roadTex }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;')
       .replace(
@@ -154,13 +205,24 @@ function createGroundMaterial(): MeshStandardMaterial {
         '#include <worldpos_vertex>\nvRoadXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
       )
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;')
-      .replace('#include <color_fragment>', `#include <color_fragment>${roadGlsl()}`)
+      .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;\nuniform sampler2D uRoadDist;')
+      .replace('#include <color_fragment>', `#include <color_fragment>${roadGlsl(map)}`)
   }
   // 【快取鍵】注入的程式要有自己的鍵，否則 three 會拿別的 MeshStandardMaterial
   // 編好的程式來用 —— 症狀是路不見了，或別的東西上面畫出一條路
   m.customProgramCacheKey = () => 'leyte-ground-road'
   return m
+}
+
+/** 離路距離圖 → 貼圖。單通道、線性內插 —— 距離在格與格之間是線性的 */
+function roadDistanceTexture(map: RoadDistanceMap): DataTexture {
+  const tex = new DataTexture(map.data, map.width, map.height, RedFormat, UnsignedByteType)
+  tex.magFilter = LinearFilter
+  tex.minFilter = LinearFilter
+  tex.wrapS = ClampToEdgeWrapping
+  tex.wrapT = ClampToEdgeWrapping
+  tex.needsUpdate = true
+  return tex
 }
 
 /** 遠景陸地畫到離原點多遠，m。雷雨的霧在這之前就把它吃掉了 */
@@ -242,7 +304,9 @@ export function createLeyteGround(
   field: HeightFieldData, coverAt: (x: number, z: number) => number,
 ): { object: Object3D; dispose(): void } {
   const group = new Group()
-  const material = createGroundMaterial()
+  const roadMap = bakeRoadDistance()
+  const roadTex = roadDistanceTexture(roadMap)
+  const material = createGroundMaterial(roadTex, roadMap)
   const geometries: BufferGeometry[] = []
   const last = field.size - 1
   for (let r0 = 0; r0 < last; r0 += LEYTE_TILE_CELLS) {
@@ -276,6 +340,7 @@ export function createLeyteGround(
     dispose() {
       for (const g of geometries) g.dispose()
       material.dispose()
+      roadTex.dispose()
     },
   }
 }

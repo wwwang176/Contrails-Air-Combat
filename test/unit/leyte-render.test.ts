@@ -4,8 +4,8 @@ import {
   createLeyte, FIELD_HALF, LEYTE_ROAD, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP, distanceToRoad,
 } from '../../src/world/leyte'
 import {
-  FAR_LAND_NAME, ROAD_COLOR, createLeyteGround, isLeyteGrass, leyteShade, roadCoverageAt,
-  roadHalfWidthAt,
+  FAR_LAND_NAME, ROAD_COLOR, bakeRoadDistance, createLeyteGround, isLeyteGrass, leyteShade,
+  roadCoverageAt, roadHalfWidthAt,
 } from '../../src/render/leyteGround'
 import { createLeyteFlora, leyteAccept, FLORA_STRIDE, FloraKind, type FloraBuffer } from '../../src/render/flora'
 import { createTerrain } from '../../src/render/terrain'
@@ -91,6 +91,26 @@ describe('公路只有一份座標', () => {
     const a = LEYTE_ROAD[30]!
     expect(roadCoverageAt(a.x, a.z)).toBe(1)
     expect(roadCoverageAt(a.x + 30, a.z + 30)).toBe(0)
+  })
+
+  it('烘好的離路距離圖與逐段算的距離一致（誤差在一格之內）；離路遠的是上限', () => {
+    const r = bakeRoadDistance()
+    const { x0, z0, x1, z1 } = r.box
+    let checked = 0
+    for (let i = 0; i < 4000; i++) {
+      // 固定序列的取樣點，涵蓋整個方框
+      const x = x0 + ((i * 7919) % 1000) / 1000 * (x1 - x0)
+      const z = z0 + ((i * 104729) % 1000) / 1000 * (z1 - z0)
+      const col = Math.min(r.width - 1, Math.floor((x - x0) / r.texel))
+      const row = Math.min(r.height - 1, Math.floor((z - z0) / r.texel))
+      const baked = (r.data[row * r.width + col]! / 255) * r.maxDistance
+      const cx = x0 + (col + 0.5) * r.texel
+      const cz = z0 + (row + 0.5) * r.texel
+      const truth = Math.min(r.maxDistance, distanceToRoad(cx, cz))
+      expect(Math.abs(baked - truth), `${cx},${cz}`).toBeLessThan(r.maxDistance / 255 + 1e-6)
+      checked++
+    }
+    expect(checked).toBe(4000)
   })
 
   it('路寬沿路不規則，但最窄處仍蓋得住轉彎時偏離中線的車（2.1 m）', () => {
