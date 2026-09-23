@@ -38,6 +38,7 @@ import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import type { GroundTarget } from './groundTargets'
+import { stepGroundMotion } from './groundMotion'
 import { MATERIAL } from './material'
 import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
@@ -684,6 +685,9 @@ export class World {
       // 【傳整個艦隊】目標分攤數的是全艦隊的鎖定，不是這一艘的
       stepGunPlatform(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
     }
+    // 【車先動、砲後打】防空車的槍口由這一步的位置算。`this.time` 在 `step`
+    // 開頭已經加上 dt，所以這裡是這一步結束時的時間
+    for (const t of this.groundTargets) stepGroundMotion(t, this.time, this.groundAt)
     // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
     // **傳整組地面目標當「艦隊」** —— 目標分攤要跨全部砲位數，各自只數自己
     // 的話八門砲會一起咬同一架
