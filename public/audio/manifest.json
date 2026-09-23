@@ -395,6 +395,34 @@
   "loop": false,
   "makeupDb": 0.0
  },
+ "thunder-1": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "thunder-2": {
+  "loop": false,
+  "makeupDb": 1.6
+ },
+ "thunder-3": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "thunder-4": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "thunder-5": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "thunder-6": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
+ "thunder-7": {
+  "loop": false,
+  "makeupDb": 0.0
+ },
  "turret-m2-50calx1": {
   "loop": true,
   "makeupDb": 0.0
