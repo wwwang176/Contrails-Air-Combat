@@ -26,6 +26,8 @@ export const LEYTE_SIZE = 376
 /** 格距，m。平地與緩丘用 80 m 就夠；公路畫在 shader 裡，不吃格距 */
 export const LEYTE_CELL = 80
 
+/** 高度場的半邊長，m。場外由遠景陸地（`farHeight`）接上 */
+export const FIELD_HALF = ((LEYTE_SIZE - 1) * LEYTE_CELL) / 2
 /** 平地的高度，m */
 export const PLAIN_HEIGHT = 8
 /** 這個高度以下是沙灘色、不長植被，m。`render/leyteGround.ts` 與植被共用 */
@@ -85,6 +87,27 @@ export function baseHeight(x: number, z: number): number {
   if (d <= 0) return Math.max(SEA_FLOOR, (d / SEABED_RAMP) * -SEA_FLOOR)
   return PLAIN_HEIGHT * smoothstep(0, SHORE_RAMP, d)
     + roll(x, z) * smoothstep(SHORE_RAMP, SHORE_RAMP + ROLL_SHORE, d)
+}
+
+/** 遠景的山從場地邊緣往外這麼遠才長到全高，m */
+const FAR_RISE = 20000
+
+/**
+ * 場外遠景陸地的高度，m。**只畫不碰撞**（`render/leyteGround.ts`），場地半徑
+ * 12 km 的界限飛不到那裡。
+ *
+ * 海岸線照同一條曲線延伸；陸上是場內的基準面（`baseHeight`）再加上一道往外
+ * 越來越高的山脈 —— 雷伊泰島中央是山。**在場地邊緣山的高度是 0**，與場內的
+ * 地形接得上。
+ */
+export function farHeight(x: number, z: number): number {
+  const base = baseHeight(x, z)
+  if (base <= 0) return base
+  const out = Math.max(0, Math.abs(x) - FIELD_HALF, z - FIELD_HALF)
+  const ridge = 420 + 130 * Math.sin(x / 7000 + 1) * Math.sin(z / 9000 + 0.4)
+  // 【離岸近的地方山也矮】岸邊 3 km 內壓回平地，沙灘後面不會直接是山壁
+  const inland = smoothstep(0, 3000, z - coastZ(x))
+  return base + ridge * smoothstep(0, FAR_RISE, out) * inland
 }
 
 /**
@@ -274,23 +297,22 @@ export function distanceToRoad(x: number, z: number): number {
 }
 
 /**
- * 手擺的小山丘。全部在陸上、膨脹圓離公路至少 400 m（`leyte.test.ts` 守著）。
+ * 手擺的丘陵。**又大又少**：半徑 1.2～3.5 km，圍著公路走的那一條走廊，平地只
+ * 剩公路兩旁與沿海一帶。靠海的那幾座一路延伸到海裡，是岬角。
+ *
+ * 約束（`leyte.test.ts` 守著）：中心離岸至少 1.5 km、膨脹圓離公路至少 400 m、
+ * 兩兩至少隔 `HILL_GAP`（AI 一次只繞一座）、不蓋住撤離點。
  * 瓣的形狀用 `drawHillLobes` 依種子抽，與洛伊納、阿什同一套。
  */
 export const LEYTE_HILLS = [
-  { cx: -5000, cz: -1800, radius: 900, peak: 220, pa: 0.9, pb: 3.4, seed: 401 },
-  { cx: -7800, cz: 1500, radius: 1400, peak: 380, pa: 2.1, pb: 4.6, seed: 402 },
-  { cx: -4200, cz: 4300, radius: 1100, peak: 300, pa: 3.0, pb: 1.2, seed: 403 },
-  { cx: -8800, cz: 6800, radius: 1700, peak: 450, pa: 1.4, pb: 5.3, seed: 404 },
-  { cx: -4000, cz: 8800, radius: 1100, peak: 330, pa: 4.2, pb: 0.6, seed: 405 },
-  { cx: 3800, cz: 2800, radius: 1000, peak: 260, pa: 5.1, pb: 2.8, seed: 406 },
-  { cx: 6300, cz: -800, radius: 1000, peak: 240, pa: 0.3, pb: 4.0, seed: 407 },
-  { cx: 8200, cz: 3600, radius: 1500, peak: 400, pa: 1.8, pb: 2.2, seed: 408 },
-  { cx: 4600, cz: 7600, radius: 1300, peak: 370, pa: 2.6, pb: 5.9, seed: 409 },
-  { cx: 1800, cz: 11500, radius: 1100, peak: 340, pa: 3.7, pb: 0.9, seed: 410 },
-  { cx: -1300, cz: 4600, radius: 700, peak: 180, pa: 4.9, pb: 3.1, seed: 411 },
-  { cx: 10200, cz: -600, radius: 1000, peak: 280, pa: 0.7, pb: 1.7, seed: 412 },
-  { cx: -10800, cz: -1200, radius: 1100, peak: 300, pa: 5.5, pb: 4.4, seed: 413 },
+  { cx: -7500, cz: 0, radius: 3500, peak: 450, pa: 0.9, pb: 3.4, seed: 401 },
+  { cx: 7500, cz: 1500, radius: 3000, peak: 420, pa: 2.1, pb: 4.6, seed: 402 },
+  { cx: -3500, cz: 7500, radius: 2500, peak: 380, pa: 3.0, pb: 1.2, seed: 403 },
+  { cx: 5000, cz: 9500, radius: 2500, peak: 400, pa: 1.4, pb: 5.3, seed: 404 },
+  { cx: -11500, cz: 8500, radius: 2500, peak: 350, pa: 4.2, pb: 0.6, seed: 405 },
+  { cx: 11700, cz: 7700, radius: 2500, peak: 360, pa: 5.1, pb: 2.8, seed: 406 },
+  { cx: 0, cz: 12500, radius: 1800, peak: 300, pa: 0.3, pb: 4.0, seed: 407 },
+  { cx: 1500, cz: 4800, radius: 1200, peak: 250, pa: 1.8, pb: 2.2, seed: 408 },
 ] as const
 
 export function createLeyte(): { field: HeightFieldData; hills: IslandDesc[] } {

@@ -856,14 +856,19 @@ export function createIslandFlora(
  * 該是開闊地夾著零星的林子。**起始值，由試飛裁定。**
  */
 export const LEYTE_PLAIN_DENSITY = 0.08
-/** 高出平地這麼多就是滿密度，m。丘陵的山腰往上是林子 */
+/**
+ * 丘陵上的密度上限。**不是 1**：丘陵又大又多，滿密度的話植被池要配到六十萬個
+ * 實例（約 90 MB）。六成之下山坡仍然是林子 —— 地色讀同一個接受率，遠看一樣暗。
+ */
+const LEYTE_HILL_DENSITY = 0.6
+/** 高出基準面這麼多就到丘陵的密度，m。丘陵的山腰往上是林子 */
 const LEYTE_HILL_FULL = 40
 
 /**
  * 雷伊泰一個候選點的接受機率。**放置與地色共用這一支**（同 `islandAccept`）。
  *
- * 沙灘與公路清空帶是 0；平地是 `LEYTE_PLAIN_DENSITY`；高出平地
- * `LEYTE_HILL_FULL` 就是 1。再乘上成叢遮罩、除以坡度（同群島）。
+ * 沙灘與公路清空帶是 0；平地是 `LEYTE_PLAIN_DENSITY`；高出基準面
+ * `LEYTE_HILL_FULL` 就是 `LEYTE_HILL_DENSITY`。再乘上成叢遮罩、除以坡度（同群島）。
  *
  * 【清空帶讀 `isNearRoad`】路的座標只有 `LEYTE_ROAD` 一份 —— 車隊、路面
  * 與這裡讀的是同一條折線。
@@ -876,7 +881,7 @@ export function leyteAccept(field: HeightFieldData, x: number, z: number, h: num
   const dz = (field.sample(x, z + cell) - field.sample(x, z - cell)) / (2 * cell)
   // 【高出的是丘陵，不是平地的緩坡】量的是比這一點的基準面高多少
   const up = Math.min(1, Math.max(0, (h - baseHeight(x, z)) / LEYTE_HILL_FULL))
-  return (LEYTE_PLAIN_DENSITY + (1 - LEYTE_PLAIN_DENSITY) * up) * islandClump(x, z)
+  return (LEYTE_PLAIN_DENSITY + (LEYTE_HILL_DENSITY - LEYTE_PLAIN_DENSITY) * up) * islandClump(x, z)
     / Math.hypot(1, Math.hypot(dx, dz))
 }
 
