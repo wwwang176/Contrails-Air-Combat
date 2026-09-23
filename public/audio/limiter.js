@@ -9,6 +9,8 @@
 const LOOKAHEAD = 0.005
 const CEILING_DB = -1.5
 const RELEASE = 0.12
+// 起音的時間常數：預看的六分之一。一步到位會在波形上留折角 —— 低頻聽起來就是破音
+const ATTACK = LOOKAHEAD / 6
 const CEILING = Math.pow(10, CEILING_DB / 20)
 
 class LimiterProcessor extends AudioWorkletProcessor {
@@ -17,6 +19,7 @@ class LimiterProcessor extends AudioWorkletProcessor {
     const n = Math.max(1, Math.round(LOOKAHEAD * sampleRate))
     this.size = n
     this.coeff = Math.exp(-1 / (RELEASE * sampleRate))
+    this.attack = Math.exp(-1 / (ATTACK * sampleRate))
     /** 每個聲道一條環狀緩衝 */
     this.delay = []
     /** 窗內每一格的絕對值，用來重算峰值 */
@@ -75,7 +78,7 @@ class LimiterProcessor extends AudioWorkletProcessor {
       const target = peak > CEILING ? CEILING / peak : 1
       const gain = this.gain
       // 降立刻到位、升照釋放係數。兩邊都平滑的話峰值會漏過去
-      this.gain = target < gain ? target : target + (gain - target) * this.coeff
+      this.gain = target + (gain - target) * (target < gain ? this.attack : this.coeff)
       for (let c = 0; c < channels; c++) {
         const dst = output[c]
         if (dst === undefined) continue

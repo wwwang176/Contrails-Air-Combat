@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
-  LIMITER_CEILING, LIMITER_CEILING_DB, LIMITER_LOOKAHEAD, LIMITER_RELEASE,
+  LIMITER_ATTACK, LIMITER_CEILING, LIMITER_CEILING_DB, LIMITER_LOOKAHEAD, LIMITER_RELEASE,
   limiterStep, limiterTarget, lookaheadFrames, releaseCoeff,
 } from '../../src/audio/limiter'
 import { DECORRELATE_WINDOW, decorrelateDelay } from '../../src/audio/pick'
@@ -33,13 +33,30 @@ describe('限幅器的增益', () => {
     expect(LIMITER_CEILING).toBeCloseTo(10 ** (LIMITER_CEILING_DB / 20), 12)
   })
 
-  /** 【降立刻、升要慢】兩邊都平滑的話峰值會漏過去 */
-  it('降到位是一步，回升照釋放係數', () => {
-    const c = releaseCoeff(LIMITER_RELEASE, 48000)
-    expect(limiterStep(1, 0.4, c)).toBe(0.4)
-    const up = limiterStep(0.4, 1, c)
+  /**
+   * 【降得快、升得慢】降那一邊也要平滑 —— 一個取樣之間拉掉一兩 dB 會在波形上
+   * 留折角，低頻聽起來就是破音。但降的速度要比升快得多。
+   */
+  it('降與升都是平滑的，而降得快得多', () => {
+    const rel = releaseCoeff(LIMITER_RELEASE, 48000)
+    const att = releaseCoeff(LIMITER_ATTACK, 48000)
+    const down = limiterStep(1, 0.4, rel, att)
+    expect(down).toBeLessThan(1)
+    expect(down).toBeGreaterThan(0.4)
+    const up = limiterStep(0.4, 1, rel, att)
     expect(up).toBeGreaterThan(0.4)
     expect(up).toBeLessThan(1)
+    // 同樣的差距，降走掉的比升多一個量級
+    expect(1 - down).toBeGreaterThan((up - 0.4) * 10)
+  })
+
+  /** 【起音要在預看之內走完】走不完的話峰值抵達時增益還沒降到位 */
+  it('六個起音常數等於一個預看窗', () => {
+    expect(LIMITER_ATTACK * 6).toBeCloseTo(LIMITER_LOOKAHEAD, 9)
+    const att = releaseCoeff(LIMITER_ATTACK, 48000)
+    let g = 1
+    for (let i = 0; i < lookaheadFrames(LIMITER_LOOKAHEAD, 48000); i++) g = limiterStep(g, 0.25, 0, att)
+    expect(g).toBeLessThan(0.253)
   })
 
   /** 一個釋放時間常數走完約 63%（1 − 1/e） */
@@ -47,7 +64,7 @@ describe('限幅器的增益', () => {
     const sr = 48000
     const c = releaseCoeff(LIMITER_RELEASE, sr)
     let g = 0
-    for (let i = 0; i < Math.round(LIMITER_RELEASE * sr); i++) g = limiterStep(g, 1, c)
+    for (let i = 0; i < Math.round(LIMITER_RELEASE * sr); i++) g = limiterStep(g, 1, c, 0)
     expect(g).toBeCloseTo(1 - 1 / Math.E, 2)
   })
 
@@ -72,6 +89,7 @@ describe('限幅器的增益', () => {
     const sr = 48000
     const n = lookaheadFrames(LIMITER_LOOKAHEAD, sr)
     const c = releaseCoeff(LIMITER_RELEASE, sr)
+    const att = releaseCoeff(LIMITER_ATTACK, sr)
     const buf = new Float32Array(n)
     let gain = 1
     let write = 0
@@ -89,11 +107,12 @@ describe('限幅器的增益', () => {
       write = (write + 1) % n
       let peak = 0
       for (let k = 0; k < n; k++) peak = Math.max(peak, Math.abs(buf[k]!))
-      gain = limiterStep(gain, limiterTarget(peak), c)
+      gain = limiterStep(gain, limiterTarget(peak), c, att)
       out = Math.max(out, Math.abs(delayed * gain))
     }
-    // 1e-6 是浮點捨入；天花板本身還留著 0.5 dB 的真峰值餘裕
-    expect(out).toBeLessThanOrEqual(LIMITER_CEILING + 1e-6)
+    // 【起音平滑會留一點點超出】六個時間常數之後還差 0.25%，而天花板本身
+    // 留著 0.5 dB 的真峰值餘裕 —— 1% 的超出仍在 0 dBFS 之下
+    expect(out).toBeLessThanOrEqual(LIMITER_CEILING * 1.01)
   })
 })
 
@@ -111,8 +130,9 @@ describe('worklet 與純函數同一套公式', () => {
     expect(SRC).toContain(`const LOOKAHEAD = ${LIMITER_LOOKAHEAD}`)
   })
 
-  it('降立刻、升照係數這一條在 worklet 裡', () => {
-    expect(SRC).toContain('target < gain ? target : target + (gain - target) * this.coeff')
+  it('降與升的兩個係數都在 worklet 裡', () => {
+    expect(SRC).toContain('const ATTACK = LOOKAHEAD / 6')
+    expect(SRC).toContain('target + (gain - target) * (target < gain ? this.attack : this.coeff)')
   })
 
   /** 【收到 reset 要清緩衝】暫停與換場靠它，不清就會漏出舊聲音 */
