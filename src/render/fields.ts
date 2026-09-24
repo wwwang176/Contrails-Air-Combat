@@ -524,11 +524,14 @@ export function fieldAt(
   out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
   out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
-  // 地塊中心轉回世界座標（q 是世界轉了 −angle）
+  // 地塊中心轉回世界座標（q 是世界轉了 −angle）。與 GLSL 同一個算法：轉差值再加回
+  // 這一點，不轉上萬公尺的座標
   const ca = Math.cos(reg.angle)
   const sa = Math.sin(reg.angle)
-  out.cx = pqx * ca - pqz * sa
-  out.cz = pqx * sa + pqz * ca
+  const dx = pqx - qx
+  const dz = pqz - qz
+  out.cx = x + dx * ca - dz * sa
+  out.cz = z + dx * sa + dz * ca
 }
 
 /**
@@ -802,7 +805,11 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
       pq.y = part == 0u ? (bottom + pcut) * 0.5 : (pcut + top) * 0.5;
     }
   }
-  vec2 parcel = vec2(pq.x * cos(angle) - pq.y * sin(angle), pq.x * sin(angle) + pq.y * cos(angle));
+  // 【轉差值，不轉座標】q 是上萬公尺，有的 GPU 的 cos、sin 誤差乘上去差將近一公尺，
+  // 跨過門檻就與 CPU 判得不一樣（地色是田、樹卻當空地長）；中心離這個像素只有
+  // 一兩百公尺
+  vec2 dq = pq - q;
+  vec2 parcel = world + vec2(dq.x * cos(angle) - dq.y * sin(angle), dq.x * sin(angle) + dq.y * cos(angle));
   if (isOpenParcel(parcel, fh)) {
     col = openColorAt(world);
     isHedge = false;

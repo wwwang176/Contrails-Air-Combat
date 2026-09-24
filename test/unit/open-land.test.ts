@@ -120,6 +120,9 @@ describe('地色', () => {
     expect(open).toContain(`const float VILLAGE_CHANCE = ${VILLAGE_CHANCE.toFixed(3)};`)
     expect(open).toContain('bool isOpenParcel(vec2 centre, uint fh)')
     expect(open).toContain('if (isOpenParcel(parcel, fh)) {')
+    // 【地塊中心轉差值】直接轉上萬公尺的座標，有的 GPU 差將近一公尺，與 CPU 判得不一樣
+    expect(open).toContain('vec2 dq = pq - q;')
+    expect(open).toContain('vec2 parcel = world + vec2(')
     // 空地在條紋之後、樹籬之前
     expect(open.indexOf('if (isOpenParcel(parcel, fh))')).toBeGreaterThan(open.indexOf('col *= stripe('))
     expect(open.indexOf('if (isOpenParcel(parcel, fh))')).toBeLessThan(open.indexOf('col = mix(col, HEDGE_COLOR'))
