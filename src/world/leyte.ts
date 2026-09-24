@@ -431,6 +431,53 @@ export const LEYTE_LSTS: readonly LeyteLst[] = /* @__PURE__ */ (() => {
   return out
 })()
 
+/**
+ * 灘頭的防空氣球：**每艘 LST 艉甲板一顆**，灘頭地面在每一側兩叢 LST 之間的
+ * 內陸再各一顆。美軍、不是任務目標（`world/balloons.ts`）。
+ *
+ * 【高度照史實】灘頭與登陸艦放的是超低空型，上限約 600 m（2,000 ft），實戰
+ * 多放在 300 m 上下。這裡每一顆在 `BALLOON_ALTITUDE` 之間，高低錯開。
+ *
+ * 【艇首朝同一個方向】繫留氣球會自己轉向迎風。**風向是起始值，由試飛裁定。**
+ */
+export interface LeyteBalloon {
+  readonly anchor: { readonly ship: number } | { readonly x: number; readonly z: number }
+  /** 吊索匯集點的海拔，m */
+  readonly altitude: number
+  /** 艇首朝向，rad（0 = 朝 −Z） */
+  readonly heading: number
+}
+/** LST 艉甲板上的絞車，艦體座標（主甲板 6.67、艉 40 mm 砲座與探照燈塔都在中線上） */
+export const LST_BALLOON_DECK = { x: 4.0, y: 6.67, z: 44.0 } as const
+const BALLOON_ALTITUDE = [300, 450] as const
+/** 艇首朝這個方向（迎風），rad，每顆再偏 ±`BALLOON_HEADING_JITTER` */
+const BALLOON_HEADING = -2.4
+const BALLOON_HEADING_JITTER = 10 * Math.PI / 180
+/** 地面絞車在岸線往內陸多遠，m */
+const BALLOON_WINCH_INLAND = 250
+const BALLOON_SEED = 1944_10_21
+
+export const LEYTE_BALLOONS: readonly LeyteBalloon[] = /* @__PURE__ */ (() => {
+  const rand = makeRand(BALLOON_SEED)
+  const pick = (anchor: LeyteBalloon['anchor']): LeyteBalloon => ({
+    anchor,
+    altitude: BALLOON_ALTITUDE[0] + (BALLOON_ALTITUDE[1] - BALLOON_ALTITUDE[0]) * rand(),
+    heading: BALLOON_HEADING + BALLOON_HEADING_JITTER * (2 * rand() - 1),
+  })
+  const out = LEYTE_LSTS.map((_, i) => pick({ ship: i }))
+  // 地面絞車：每一側前後兩叢之間，岸線上兩艘跳板末端的中點往內陸走
+  const tipX = (l: LeyteLst): number => l.x - Math.sin(l.heading) * LST_RAMP_REACH
+  let start = 0
+  for (const sizes of LST_CLUSTERS) {
+    const lastOfFirst = LEYTE_LSTS[start + sizes[0]! - 1]!
+    const firstOfSecond = LEYTE_LSTS[start + sizes[0]!]!
+    const x = (tipX(lastOfFirst) + tipX(firstOfSecond)) / 2
+    out.push(pick({ x, z: coastZ(x) + BALLOON_WINCH_INLAND }))
+    start += sizes.reduce((a, b) => a + b, 0)
+  }
+  return out
+})()
+
 /** 這一點到**車隊那一條**公路中線的最短距離，m */
 export function distanceToRoad(x: number, z: number): number {
   let best = Infinity

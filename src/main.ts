@@ -55,6 +55,13 @@ import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
+import {
+  balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
+} from './world/balloons'
+import {
+  BALLOON_MODEL_COUNT, createBalloonModels, preloadBalloonModel, type BalloonModels,
+} from './render/balloons'
+import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, flakDamage, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
@@ -212,6 +219,14 @@ let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
 const terrainGfx = (): TerrainGfx => ({ renderer: ctx.renderer, fieldInner: fieldInnerFor(readQuality()) })
 let terrain = createTerrain(terrainKind, terrainGfx())
 /**
+ * AI 看到的地形。**平常就是 `terrain`**；有防空氣球的那一場多了幾座只有 AI
+ * 看得到的山（`world/balloons.ts` 的 `balloonHills`）—— 高度場、撞地與畫面都
+ * 不動。每一場在地形接上之後重算（`startWorld`）。
+ */
+let aiTerrain: TerrainSource = terrain
+/** 氣球的山。每幀依氣球的死活就地改高度（`syncBalloonHills`）；沒有氣球是 null */
+let balloonHillSet: BalloonHillSet | null = null
+/**
  * 雷雨。**只有時段是 `storm` 的那一場才有**，其餘是 null。生命週期比照時段：
  * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
  */
@@ -283,8 +298,8 @@ function wireTerrain(force = false): void {
     // 【剖面跟著掛載走，不跟著機種】任務卡可以把 G4M 的魚雷複寫成炸彈
     // （`MissionBattle.blueLoadout`），查機種的話那一關會飛雷擊航路去投彈
     ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
-    if (!force && ctl.terrain === terrain) continue
-    ctl.terrain = terrain
+    if (!force && ctl.terrain === aiTerrain) continue
+    ctl.terrain = aiTerrain
     ctl.clearTerrainState()
   }
   playerAi.ships = world.ships
@@ -296,8 +311,8 @@ function wireTerrain(force = false): void {
   playerAi.bombBay = player.bombBay
   playerAi.strikeProfile = player.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   playerAi.bombDrag = world.bombDrag
-  if (force || playerAi.terrain !== terrain) {
-    playerAi.terrain = terrain
+  if (force || playerAi.terrain !== aiTerrain) {
+    playerAi.terrain = aiTerrain
     playerAi.clearTerrainState()
   }
 }
@@ -313,6 +328,7 @@ ctx.scene.add(tracers.object)
  */
 let shipModels: ShipModels | null = null
 let groundModels: GroundModels | null = null
+let balloonModels: BalloonModels | null = null
 /** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
 let searchlights: Searchlights | null = null
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
@@ -968,6 +984,29 @@ const emitWreckFirePuff = createFirePuff(
 )
 
 /**
+ * 燒著往下掉的氣球放一朵火。與殘骸的引擎火同一份小號配方，但不吸附錨點 ——
+ * 氣球的位置每幀由 `render/balloons.ts` 給。**在模組層建一次**，理由同上。
+ */
+const burnBalloon = (x: number, y: number, z: number): void => {
+  emitWreckFirePuff(x, y, z)
+}
+
+/**
+ * 氣球破掉：氫氣燒起來的那一團火球。之後燒著掉下來的火由 `burnBalloon` 接手。
+ */
+function emitBalloonPops(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    emitBlast(BLAST_POOLS, AIR_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+      (e * 131 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+    addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+    blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+  }
+  clearImpacts(events)
+}
+
+/**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
  *
  * 【爆點抬到水面】事件的 y 是定深（−1 m）—— 水柱從那裡長的話，整根的底部
@@ -1574,6 +1613,12 @@ function startWorld(cfg: BattleConfig): void {
   world.waterAt = terrain.waterAt
   // 【地面目標要在地形接上之後才落地】建戰鬥時 groundAt 還是 0
   settleGroundTargets(world.groundTargets, world.groundAt)
+  // 【氣球同一個理由】地面絞車的錨點照地形取高度；AI 的山跟著這一場的氣球建
+  settleBalloons(world.balloons, world.groundAt)
+  balloonHillSet = world.balloons.length > 0 ? balloonHills(world.balloons, terrain.islands) : null
+  aiTerrain = balloonHillSet === null
+    ? terrain
+    : { islands: balloonHillSet.islands, land: terrain.land }
   setPlayer(battle.player)
   rebuildVisuals()
 
@@ -1604,6 +1649,16 @@ function startWorld(cfg: BattleConfig): void {
     ctx.scene.add(groundModels.object)
     searchlights = createSearchlights(world.groundTargets, glareTexture)
     ctx.scene.add(searchlights.object)
+  }
+  // 氣球與船同一個做法：每一場重建
+  if (balloonModels !== null) {
+    ctx.scene.remove(balloonModels.object)
+    balloonModels.dispose()
+    balloonModels = null
+  }
+  if (world.balloons.length > 0) {
+    balloonModels = createBalloonModels(world.balloons)
+    ctx.scene.add(balloonModels.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -2533,6 +2588,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
   // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
   wireTerrain()
+  // 【破掉的氣球不再是山】AI 不必繞一座不存在的山；重開一場長回來
+  if (balloonHillSet !== null) syncBalloonHills(world.balloons, balloonHillSet)
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
@@ -2581,6 +2638,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
     emitKillBlasts(world.killEvents)
     emitGroundKills(world.groundKillEvents)
+    emitBalloonPops(world.balloonKillEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
     // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
@@ -2890,6 +2948,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position)
+  balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
@@ -3650,7 +3709,7 @@ if (initialRecoveryFailure !== null) {
   //
   // 【進度是檔數】每載完一支 GLB 推一格，三類加起來是 100%。字寫目前在載哪一類
   const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
-  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length
+  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
   let filesDone = 0
   let fileLabel = ''
   const fileLoaded = (): void => {
@@ -3672,6 +3731,8 @@ if (initialRecoveryFailure !== null) {
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
   await loadGroup('載入地面單位')
   await preloadGroundModels(undefined, fileLoaded)
+  // 【防空氣球同一個理由】`createBalloonModels` 是同步的
+  await preloadBalloonModel(fileLoaded)
   // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
   await loading.finish('完成')
   // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它

@@ -57,7 +57,8 @@ import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../wor
 import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
-import type { GroundEntry, MissionFleet } from './missions'
+import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
+import { createBalloon, resetBalloon } from '../world/balloons'
 import {
   createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
   type TakeoffLine, type TakeoffRoll,
@@ -126,6 +127,8 @@ export interface BattleConfig {
   readonly fleet?: MissionFleet
   /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
   readonly ground?: readonly GroundEntry[]
+  /** 這一關的防空氣球。省略 = 一顆都不放。透傳的約定與 `fleet` 相同。 */
+  readonly balloons?: readonly BalloonEntry[]
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
@@ -1090,6 +1093,8 @@ export function createBattle(
 
   placeFleet(world, cfg.fleet)
   placeGround(world, cfg.ground, cfg.flakSpec)
+  // 【排在艦隊之後】繫在船上的氣球要讀那艘船的位置與艏向
+  placeBalloons(world, cfg.balloons)
   const battle: Battle = {
     world,
     board,
@@ -1168,6 +1173,32 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
     world.ships.push(ship)
+  }
+}
+
+/**
+ * 依 `cfg.balloons` 把防空氣球放進世界。**省略就一顆都不放。**
+ *
+ * 繫在船上的：錨點是那艘船的甲板點轉到世界（船不動，建一次就好）。地面的：
+ * 高度先填 0，地形接上之後由 `settleBalloons` 落地。
+ */
+function placeBalloons(world: World, entries: readonly BalloonEntry[] | undefined): void {
+  if (entries === undefined) return
+  const p = new Vector3()
+  for (const e of entries) {
+    const a = e.anchor
+    let x: number, y: number, z: number
+    if ('ship' in a) {
+      const sh = world.ships[a.ship]
+      if (sh === undefined) throw new Error(`氣球繫在第 ${a.ship} 艘船上，但這一關只有 ${world.ships.length} 艘`)
+      p.copy(a.deck).applyQuaternion(sh.orientation).add(sh.position)
+      x = p.x; y = p.y; z = p.z
+    } else {
+      x = a.x; y = 0; z = a.z
+    }
+    world.balloons.push(createBalloon(
+      world.balloons.length, e.team, x, y, z, e.altitude, e.heading, !('ship' in a),
+    ))
   }
 }
 
@@ -2386,6 +2417,9 @@ export function resetBattle(
   // 但重開之前的最後一步可能剛推進去 —— 留著的話新場第一步就會通報它
   clearImpacts(b.world.shipKillEvents)
   clearImpacts(b.world.shipHitEvents)
+  // 【氣球回到空中】破掉的長回來；上一場沒排空的破掉事件丟掉
+  for (const bl of b.world.balloons) resetBalloon(bl)
+  clearImpacts(b.world.balloonKillEvents)
   // 【通報也要清】不清的話新的一場開場那三秒還掛著上一場的最後幾則，
   // 而佇列裡沒出場的會一條一條慢慢冒出來
   resetBattleReport(b.report)

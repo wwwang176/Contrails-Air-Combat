@@ -416,6 +416,11 @@ export interface MissionBattle {
    */
   readonly ground?: readonly GroundEntry[]
   /**
+   * 這一關的防空氣球。**沒有這一格的卡完全不產生**，透傳的路與 `fleet` 相同。
+   * 不是任務目標：打破幾顆都不影響勝負。
+   */
+  readonly balloons?: readonly BalloonEntry[]
+  /**
    * 沿公路開往前線的車隊。**展開成 `ground` 的條目**（`missionConfigFrom`），
    * 每一台帶 `motion`。與 `ground` 可以並存。
    */
@@ -535,6 +540,23 @@ export interface GroundEntry {
    * `'mg'` = 車頂一挺 .50 機槍（`GROUND_MG_SPEC`）。
    */
   readonly guns?: 'mg'
+}
+
+/**
+ * 一顆防空氣球（`world/balloons.ts`）。
+ *
+ * 錨點兩種：**繫在船上**（`ship` 是這一關艦隊的第幾艘、`deck` 是那艘的艦體座標）
+ * 或**地面絞車**（世界座標，高度落地時照地形取）。
+ */
+export interface BalloonEntry {
+  readonly team: Team
+  readonly anchor:
+    | { readonly ship: number; readonly deck: Vector3 }
+    | { readonly x: number; readonly z: number }
+  /** 吊索匯集點（鋼索上端）的海拔，m */
+  readonly altitude: number
+  /** 艇首朝向，rad（繞 Y，0 = 朝 −Z） */
+  readonly heading: number
 }
 
 /** 車隊的一批：車距 `gap` 排成一列的幾輛 */
