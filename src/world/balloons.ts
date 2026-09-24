@@ -114,7 +114,7 @@ export function settleBalloons(
 /** 水平漂移的振幅，鋼索長度的幾成 */
 const SWAY_DRIFT = 0.12
 /** 上下起伏的振幅，m */
-const SWAY_BOB = 1.5
+const SWAY_BOB = 3
 /** 偏航、俯仰、滾轉的振幅，rad */
 const SWAY_YAW = 12 * Math.PI / 180
 const SWAY_PITCH = 5 * Math.PI / 180
