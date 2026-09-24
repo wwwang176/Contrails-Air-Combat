@@ -359,16 +359,23 @@ export const LEYTE_FLAK_SITES: readonly {
  * （`world/ships.ts` 的 `lst`）：撞得到、打得沉、防空砲會開火，但不是任務目標。
  *
  * `x, z` 是船的原點（水線 × 艦體中點），`heading` 是艏向（rad，0 = 朝 −Z，與
- * `createShip` 同一套）。艦艏朝岸線在那一點的內法線 —— 每艘各自垂直於腳下那
- * 一段岸；放下的跳板末端剛好落在水線上。
+ * `createShip` 同一套）。放下的跳板末端落在水線上；艦艏大致朝岸線在那一點的
+ * 內法線，再各自偏一個 ±`LST_YAW_JITTER` 的角度 —— 繞跳板末端轉，所以偏了
+ * 之後跳板仍搭在水線上。
  *
  * 【沿岸線量間距】第一艘離公路起點 `LST_ROAD_GAP`、之後每 `LST_SPACING` 一艘，
- * 都是沿岸線的弧長。量 x 的話岸線斜的那一側（斜率到 0.5）會擠在一起。
+ * 每一段各自乘上 1 ± `LST_SPACING_JITTER`，都是沿岸線的弧長。量 x 的話岸線斜的
+ * 那一側（斜率到 0.5）會擠在一起。
+ *
+ * 【亂數有種子】同一張地圖每次都要長一樣（`makeRand`）。
  */
 export interface LeyteLst { readonly x: number; readonly z: number; readonly heading: number }
 const LST_PER_SIDE = 5
-const LST_ROAD_GAP = 270
-const LST_SPACING = 150
+const LST_ROAD_GAP = 300
+const LST_SPACING = 250
+const LST_SPACING_JITTER = 0.4
+const LST_YAW_JITTER = 25 * Math.PI / 180
+const LST_SEED = 1944_10_20
 /** 艦體中點到跳板末端，m（`tools/blender/build_lst.py` 的跳板末端在艦體座標 z −53.5） */
 export const LST_RAMP_REACH = 53.5
 
@@ -390,19 +397,21 @@ function walkCoast(x0: number, sign: number, arc: number): number {
 
 export const LEYTE_LSTS: readonly LeyteLst[] = /* @__PURE__ */ (() => {
   const out: LeyteLst[] = []
+  const rand = makeRand(LST_SEED)
+  const jitter = (): number => 2 * rand() - 1
   for (const sign of [-1, 1]) {
+    let arc = LST_ROAD_GAP * (1 + LST_SPACING_JITTER * jitter())
     for (let i = 0; i < LST_PER_SIDE; i++) {
-      const x = walkCoast(BEACHHEAD.x, sign, LST_ROAD_GAP + i * LST_SPACING)
+      if (i > 0) arc += LST_SPACING * (1 + LST_SPACING_JITTER * jitter())
+      const x = walkCoast(BEACHHEAD.x, sign, arc)
       // 陸地在 z > coastZ(x)：內法線是 (−c′, 1) 正規化
       const s = coastSlope(x)
       const len = Math.hypot(s, 1)
-      const dirX = -s / len
-      const dirZ = 1 / len
-      // 艏向 h 的艦艏朝 (−sin h, −cos h)，要等於 (dirX, dirZ)
-      out.push({
-        x: x - dirX * LST_RAMP_REACH, z: coastZ(x) - dirZ * LST_RAMP_REACH,
-        heading: Math.atan2(-dirX, -dirZ),
-      })
+      // 艏向 h 的艦艏朝 (−sin h, −cos h)；內法線的艏向再偏一個角度
+      const heading = Math.atan2(s / len, -1 / len) + LST_YAW_JITTER * jitter()
+      const dirX = -Math.sin(heading)
+      const dirZ = -Math.cos(heading)
+      out.push({ x: x - dirX * LST_RAMP_REACH, z: coastZ(x) - dirZ * LST_RAMP_REACH, heading })
     }
   }
   return out
