@@ -53,15 +53,54 @@ const HOUSE_FLAK = 70
 const HOUSE_MINE = 30
 
 /**
- * 【容量怎麼來】鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是房 7,423、
- * 石板瓦房 1,531、穀倉 1,840、油毛氈穀倉 501、教堂 35（`leuna-features.test.ts`
- * 守著）。各留約七八成的餘裕 —— 溢位時丟掉並記一次告警，症狀是半個鎮沒有房子。
+ * 【容量怎麼來】
+ * - 建築：鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是房 5,518、石板瓦房
+ *   1,573、穀倉 1,357、油毛氈穀倉 338、教堂 33（`leuna-features.test.ts` 守著），
+ *   各留約七八成的餘裕。
+ * - 近級的樹：村鎮的果樹、教堂墓園的樹加上樹籬與樹林，植被引擎實跑的峰值是
+ *   闊葉近級 2,389、針葉近級 1,164 —— 預設的 2,800、1,300 不到 1.35 倍（別張圖的
+ *   門檻），這裡加大。其餘各級的預設都還有 1.35 倍以上。
  *
- * 【單格的上限不必動】建築加上格子裡剩下的樹籬、樹林，整張圖最密的一格是
- * 353 株，在 `MAX_PER_TILE`（384）以內。
+ * 溢位時丟掉並記一次告警，症狀是半個鎮沒有房子、近處的樹整片消失。
+ *
+ * 【單格的上限不必動】建築、果樹加上格子裡剩下的樹籬與樹林，整張圖最密的一格
+ * 是 353 株，在 `MAX_PER_TILE`（384）以內。
  */
 const CAPACITY: Partial<Record<PoolName, number>> = {
-  house: 13000, houseSlate: 2800, barn: 3300, barnTar: 900, church: 60,
+  house: 9500, houseSlate: 2800, barn: 2400, barnTar: 600, church: 60,
+  broadNear: 3300, coneNear: 1600,
+}
+
+/**
+ * 這一點在薩勒河的右岸（順著水流的右手邊）嗎。北流的那一段右岸就是東岸 ——
+ * 中世紀東向殖民的地區，村形與西岸不同（`settlements.ts`）。
+ *
+ * 【點的次序就是水流方向】OSM 抓下來的 Saale 三段都是由上游往下游（南 → 北、
+ * 西南 → 東北）。只看地圖內那三段，延伸段是編的、有一端是倒著走的。
+ */
+export function rightOfSaale(rivers: RiverSet): (x: number, z: number) => boolean {
+  const saale = rivers.lines.filter((l) => l.name === 'Saale')
+  return (x, z) => {
+    let best = Infinity
+    let side = 0
+    for (const l of saale) {
+      for (let i = 0; i + 1 < l.points.length; i++) {
+        const a = l.points[i]!
+        const b = l.points[i + 1]!
+        const vx = b[0] - a[0]
+        const vz = b[1] - a[1]
+        const l2 = vx * vx + vz * vz
+        const t = l2 <= 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]) * vx + (z - a[1]) * vz) / l2))
+        const d = Math.hypot(x - (a[0] + vx * t), z - (a[1] + vz * t))
+        if (d < best) {
+          best = d
+          // 北是 −z：往北流 (0, −1) 時東邊 (+x) 的叉積是正的
+          side = vx * (z - a[1]) - vz * (x - a[0])
+        }
+      }
+    }
+    return side > 0
+  }
 }
 
 export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): LandDressing {
@@ -78,8 +117,11 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
   const nearFlak = (x: number, z: number): boolean =>
     FLAK_SITES.some((s) => Math.hypot(s.x - x, s.z - z) < HOUSE_FLAK)
   const onRoad = (x: number, z: number): boolean => road.distance(x, z) < ROAD_KEEP_OUT
-  const buildings = settlementFlora(f.places, (x, z) =>
-    rivers.index.distance(x, z) < HOUSE_RIVER || onRoad(x, z) || nearMine(x, z) || nearFlak(x, z))
+  const buildings = settlementFlora(
+    f.places,
+    (x, z) => rivers.index.distance(x, z) < HOUSE_RIVER || onRoad(x, z) || nearMine(x, z) || nearFlak(x, z),
+    rightOfSaale(rivers),
+  )
 
   const object = new Group()
   object.name = 'landFeatures'

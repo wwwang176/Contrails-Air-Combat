@@ -6,7 +6,9 @@ import { outsideZero } from '../../src/world/farmland'
 import { CHANNEL_HALF, RiverIndex } from '../../src/world/river'
 import { DECK_CLEARANCE, insideRing, type FeatureFile } from '../../src/world/landFeatures'
 import { buildLeunaRivers, preloadLeunaRivers } from '../../src/render/leunaRiver'
-import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from '../../src/render/leunaFeatures'
+import {
+  buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
+} from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
@@ -97,9 +99,11 @@ describe('建築', () => {
   /** 【不蓋在河裡、路上、砲位上、坑裡】四樣都不報錯，只是畫面上一棟房子泡在水裡 */
   it('避開河道、A9、砲位與礦坑', () => {
     const road = new RiverIndex(F.a9.map((l) => ({ name: 'A9', points: l, level: l.map(() => 0), coarse: true })), 30)
+    // 植被緩衝存的是單精度，座標存進去會捨入幾毫米
+    const EPS = 0.01
     for (const b of B) {
       const tag = `(${Math.round(b.x)},${Math.round(b.z)})`
-      expect(rivers.index.distance(b.x, b.z), `河 ${tag}`).toBeGreaterThanOrEqual(CHANNEL_HALF + 15)
+      expect(rivers.index.distance(b.x, b.z), `河 ${tag}`).toBeGreaterThanOrEqual(CHANNEL_HALF + 15 - EPS)
       expect(road.distance(b.x, b.z), `A9 ${tag}`).toBeGreaterThanOrEqual(20)
       for (const m of F.mines) expect(insideRing(m.ring, b.x, b.z), `${m.name} ${tag}`).toBe(false)
     }
@@ -221,6 +225,49 @@ describe('A9 的橋', () => {
       }
       expect(spans, '上下行都要跨過 Luppe').toBeGreaterThan(3)
     }
+  })
+})
+
+describe('史實的村形', () => {
+  /**
+   * 【以薩勒河分岸】西岸是很早就有人定居的黃土地（團狀村），東岸是中世紀東向
+   * 殖民的地區（綠地村、街村）。分錯岸的話整張圖的村形反過來，而且不報錯。
+   */
+  it('梅澤堡、洛伊納、布勞恩斯貝德拉在西岸；巴特迪倫貝格、克賴保、瓦倫多夫在東岸', () => {
+    const east = rightOfSaale(rivers)
+    const at = (n: string): { x: number; z: number } => F.places.find((p) => p.name === n)!
+    for (const n of ['Merseburg', 'Leuna', 'Braunsbedra']) expect(east(at(n).x, at(n).z), n).toBe(false)
+    for (const n of ['Bad Dürrenberg', 'Kreypau', 'Wallendorf (Luppe)']) expect(east(at(n).x, at(n).z), n).toBe(true)
+  })
+
+  /**
+   * 【村的單位是農莊】主屋、側屋、後面的大穀倉 —— 一座農莊兩座穀倉一棟房子。
+   * 村裡的穀倉比房子少的話，就退回了「一棟一棟房子排在街邊」。
+   */
+  it('村裡穀倉比房子多（農莊是一屋兩倉）', () => {
+    let houses = 0
+    let barns = 0
+    for (const p of F.places.filter((q) => q.kind === 'village' && Math.abs(q.x) < 15000 && Math.abs(q.z) < 15000)) {
+      for (const b of B) {
+        if (Math.abs(b.x - p.x) > 200 || Math.abs(b.z - p.z) > 200) continue
+        if (b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse) houses++
+        if (b.kind === FloraKind.Barn || b.kind === FloraKind.TarBarn) barns++
+      }
+    }
+    expect(houses).toBeGreaterThan(1000)
+    expect(barns / houses).toBeGreaterThan(1.5)
+  })
+
+  /** 【院子後面與村外有樹】果園、花園、教堂墓園 */
+  it('村鎮有樹與灌木', () => {
+    expect(B.filter((b) => b.kind === FloraKind.BroadTree).length).toBeGreaterThan(20_000)
+    expect(B.filter((b) => b.kind === FloraKind.Bush).length).toBeGreaterThan(2_000)
+  })
+
+  /** 【村不鋪地面】農莊只沿巷排，鋪滿輪廓的話是一大片沒有田紋的平地 */
+  it('只有鎮有地面', () => {
+    const src = readFileSync('src/render/settlements.ts', 'utf8').replace(/\r\n/g, '\n')
+    expect(src).toContain(".filter((p) => p.kind === 'town')")
   })
 })
 
