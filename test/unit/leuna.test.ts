@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   type BlockKind,
-  createLeuna, EGRESS, FLAK_SITES, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
+  createLeuna, EGRESS, FLAK_RIVER_CLEARANCE, FLAK_SITES, FLAK_SPACING, FLAK_TRACK_CLEARANCE,
+  HILL_RIVER_CLEARANCE, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
   PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, plantToWorld, RAILS, ROADS, worldToPlant,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
@@ -22,6 +23,33 @@ function crosses(
   const t = ((c[0] - a.x) * sz - (c[1] - a.z) * sx) / den
   const u = ((c[0] - a.x) * rz - (c[1] - a.z) * rx) / den
   return t >= 0 && t <= 1 && u >= 0 && u <= 1
+}
+
+/** 點到線段的距離 */
+function segmentDistance(
+  x: number, z: number, a: readonly [number, number], b: readonly [number, number],
+): number {
+  const vx = b[0] - a[0]
+  const vz = b[1] - a[1]
+  const l2 = vx * vx + vz * vz
+  const t = l2 <= 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]) * vx + (z - a[1]) * vz) / l2))
+  return Math.hypot(x - (a[0] + vx * t), z - (a[1] + vz * t))
+}
+
+/** 河的中心線（OSM），與遊戲載入的是同一份 */
+const RIVERS = JSON.parse(
+  new TextDecoder().decode(readFileSync('public/data/leuna-rivers.json')),
+) as { rivers: { name: string; points: [number, number][] }[] }
+
+/** 到最近一條河的中心線的距離 */
+function riverDistance(x: number, z: number): number {
+  let best = Infinity
+  for (const r of RIVERS.rivers) {
+    for (let i = 0; i + 1 < r.points.length; i++) {
+      best = Math.min(best, segmentDistance(x, z, r.points[i]!, r.points[i + 1]!))
+    }
+  }
+  return best
 }
 
 /** 圓心到墊面矩形的最近距離。**先轉進廠區局部座標** —— 墊面不是軸對齊的 */
@@ -107,13 +135,13 @@ describe('leuna 地形', () => {
 
 describe('leuna 的佈局常數', () => {
   /**
-   * 【三圈都要在射程能構成連續彈幕的範圍內】外圈的用意是把彈幕往接近航路上
-   * 推：88 的射程是 4.9 km，相鄰兩圈拉開超過那個距離的話，中間會出現一段
+   * 【三帶都要在射程能構成連續彈幕的範圍內】外帶的用意是把彈幕往接近航路上
+   * 推：88 的射程是 4.9 km，相鄰兩帶拉開超過那個距離的話，中間會出現一段
    * 誰都打不到的空白 —— 玩家會發現「飛到某個距離忽然安靜了」。
    *
-   * 【越外圈越密】周長跟著半徑長，座數不加的話彈幕在外圈會稀掉。
+   * 【越外帶越密】周長跟著半徑長，座數不加的話彈幕在外帶會稀掉。
    */
-  it('砲位分三圈，內 8 中 16 外 24，相鄰兩圈不超過射程', () => {
+  it('砲位分三帶，內 8 中 16 外 24，相鄰兩帶不超過射程', () => {
     const rings = new Map<number, number[]>()
     for (const s of FLAK_SITES) {
       const d = Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)
@@ -134,6 +162,52 @@ describe('leuna 的佈局常數', () => {
     }
     expect(radii[0]).toBeGreaterThan(2400)
     expect(radii[2]).toBeLessThan(5600)
+  })
+
+  /**
+   * 【不是正圓，但不能有一側整片空掉】從那一側進場就是一段安靜的航路。
+   * 門檻是平均間隔的兩倍：擾動再大也只是兩座靠近、旁邊空一格。
+   */
+  it('每一帶最大的角度空隙不超過平均間隔的兩倍，而且不是正圓', () => {
+    for (const [lo, hi, n] of [[0, 3300, 8], [3300, 4500, 16], [4500, Infinity, 24]] as const) {
+      const band = FLAK_SITES.filter((s) => {
+        const d = Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)
+        return d >= lo && d < hi
+      })
+      const angles = band.map((s) => Math.atan2(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z)).sort((a, b) => a - b)
+      let gap = 0
+      for (let i = 0; i < angles.length; i++) {
+        const next = i + 1 < angles.length ? angles[i + 1]! : angles[0]! + Math.PI * 2
+        gap = Math.max(gap, next - angles[i]!)
+      }
+      expect(gap, `${n} 座那一帶`).toBeLessThanOrEqual((2 * (Math.PI * 2)) / n)
+      const radii = band.map((s) => Math.hypot(s.x - PLANT_CENTER.x, s.z - PLANT_CENTER.z))
+      expect(Math.max(...radii) - Math.min(...radii), `${n} 座那一帶的距離都一樣`).toBeGreaterThan(300)
+    }
+  })
+
+  it('兩座砲位至少相隔 FLAK_SPACING', () => {
+    for (let i = 0; i < FLAK_SITES.length; i++) {
+      for (let j = i + 1; j < FLAK_SITES.length; j++) {
+        const a = FLAK_SITES[i]!
+        const b = FLAK_SITES[j]!
+        expect(Math.hypot(a.x - b.x, a.z - b.z), `#${i} 與 #${j}`).toBeGreaterThanOrEqual(FLAK_SPACING)
+      }
+    }
+  })
+
+  /** 【砲位不在路上】道路與鐵路畫在地面著色器裡，砲座壓上去是一座擋路的砲 */
+  it('砲位離道路與鐵路至少 FLAK_TRACK_CLEARANCE', () => {
+    for (const [i, s] of FLAK_SITES.entries()) {
+      for (const line of [...ROADS, ...RAILS]) {
+        for (let k = 0; k + 1 < line.length; k++) {
+          const a = line[k]!
+          const b = line[k + 1]!
+          expect(segmentDistance(s.x, s.z, [a.x, a.z], [b.x, b.z]), `#${i}`)
+            .toBeGreaterThanOrEqual(FLAK_TRACK_CLEARANCE)
+        }
+      }
+    }
   })
 
   it('脫離方向是 −Z：投完繼續往前，不回頭', () => {
@@ -287,13 +361,10 @@ describe('leuna 的廠區', () => {
    * 【廠區被河從東、北、南三面繞著】所以連外線全部往西展開。要往南或往東
    * 拉一條新的線，先跑這一條看它要不要橋。
    *
-   * 河的折線只有實測高程展示區在用（`tools/leunaRiver.ts`），但佈局得照著
-   * 它擺，否則河一進遊戲全部要重畫。
+   * 河上沒有橋：水面是蓋在地上的帶子，跨過去的那一段是淹在水裡的路。
    */
   it('連外的道路與鐵路都不跨河', () => {
-    const data = JSON.parse(
-      new TextDecoder().decode(readFileSync('public/data/leuna-rivers.json')),
-    ) as { rivers: { name: string; points: [number, number][] }[] }
+    const data = RIVERS
     for (const [tag, lines] of [['道路', ROADS], ['鐵路', RAILS]] as const) {
       for (const line of lines) {
         for (let i = 0; i + 1 < line.length; i++) {
@@ -306,6 +377,26 @@ describe('leuna 的廠區', () => {
           }
         }
       }
+    }
+  })
+
+  /**
+   * 【河不穿過丘陵】水面是貼著地形鋪的帶子 —— 爬上丘陵的側坡就是一條斜掛、
+   * 一邊懸空的水。量的是膨脹圓，不是高度：瓣的形狀會變，外緣不會超出它。
+   */
+  it('每一顆丘陵的外緣離河至少 HILL_RIVER_CLEARANCE', () => {
+    const { hills } = createLeuna()
+    for (const h of hills) {
+      expect(riverDistance(h.cx, h.cz) - h.outerRadius, `${h.cx},${h.cz}`)
+        .toBeGreaterThanOrEqual(HILL_RIVER_CLEARANCE)
+    }
+  })
+
+  /** 【砲位不在河裡、也不在河岸林裡】 */
+  it('每一座砲位離河至少 FLAK_RIVER_CLEARANCE', () => {
+    for (const [i, s] of FLAK_SITES.entries()) {
+      expect(riverDistance(s.x, s.z), `#${i} (${Math.round(s.x)},${Math.round(s.z)})`)
+        .toBeGreaterThanOrEqual(FLAK_RIVER_CLEARANCE)
     }
   })
 })
