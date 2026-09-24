@@ -414,7 +414,7 @@ function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
   const sample = (x: number, z: number): number => solid.sample(x, z)
   const rivers = buildLeunaRivers(sample)
   return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, buildPlantScenery, gfx, rivers,
-    buildLeunaDressing(sample, rivers))
+    buildLeunaDressing(sample, rivers, leuna.field))
 }
 
 /**
@@ -473,7 +473,7 @@ export function createLeunaTerrainWithField(field: HeightFieldData): Terrain {
   const rivers = buildLeunaRivers(sample)
   return createInlandTerrain(
     { field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery, undefined, rivers,
-    buildLeunaDressing(sample, rivers),
+    buildLeunaDressing(sample, rivers, field),
   )
 }
 
@@ -536,12 +536,15 @@ function createInlandTerrain(
   // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
   if (rivers !== undefined) {
     fields = fields.map((s) => excludingCorridor(s, rivers.index))
+    // 【河漫灘不是田】樹籬與田裡的林地停在河谷邊；河岸林照長
+    if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.fieldsOut))
     if (dressing === undefined) buildings = excludingCorridor(buildings, rivers.index)
     fields.push(riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND))
   }
   // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
   if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
   fields.push(buildings)
+  for (const s of dressing?.flora ?? []) fields.push(padClear(s))
   // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外
   // 另外畫粗網格。植被圈外建築整棟不畫，屋頂色塊只烘遠圖（近窗裡有真的房子），
   // 最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬

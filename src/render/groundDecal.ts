@@ -20,10 +20,26 @@ import type { HeightSampler } from '../world/river'
  */
 
 /**
- * 細格的邊長，m。**要能整除 40** —— 地形格點在 `(i − (size−1)/2) × 80`，格數
- * 的奇偶決定落在 0 還是 40 (mod 80)；40 的因數兩種都對得齊。
+ * 細格：邊長與格線的起點，m。**格線要落在地形的格點上** —— 地形格點在
+ * `(i − (size−1)/2) × cell`，格數的奇偶決定落在 0 還是 40 (mod 80)。
  */
+export interface DecalGrid {
+  readonly size: number
+  readonly origin: number
+}
+
+/** 預設的細格：20 m。40 的因數兩種奇偶都對得齊，起點不必管 */
 export const DECAL_GRID = 20
+const FINE: DecalGrid = { size: DECAL_GRID, origin: 0 }
+
+/**
+ * 與這張地形同格距的粗格：格線照格點的奇偶對齊。遠處用 —— 一格就是一個地形
+ * 格，頂點數是細格的 1/16
+ */
+export function terrainGrid(field: { readonly size: number; readonly cell: number }): DecalGrid {
+  const o = (-(field.size - 1) / 2) * field.cell
+  return { size: field.cell, origin: ((o % field.cell) + field.cell) % field.cell }
+}
 /** 高出地面多少，m。整片平移，不影響共平面 */
 export const DECAL_LIFT = 0.12
 
@@ -48,19 +64,19 @@ export interface DecalRegion {
 /**
  * 很多塊合成一顆網格。每一塊各自一張細格，只鋪中心在範圍內的格子。
  *
- * 【邊緣是 `grid` 的鋸齒】20 m 在投彈高度看不出來；低空貼著看是一格一格的。
- * `grid` 要能整除 40（見 `DECAL_GRID`）。
+ * 【邊緣是格子的鋸齒】20 m 在投彈高度看不出來；低空貼著看是一格一格的。
  */
 export function buildDecals(
-  sample: HeightSampler, regions: readonly DecalRegion[], name: string, grid = DECAL_GRID,
+  sample: HeightSampler, regions: readonly DecalRegion[], name: string, g: DecalGrid = FINE,
 ): Mesh {
+  const grid = g.size
   const pos: number[] = []
   const col: number[] = []
   const idx: number[] = []
   const c = new Color()
   for (const r of regions) {
-    const gx0 = Math.floor(r.x0 / grid) * grid
-    const gz0 = Math.floor(r.z0 / grid) * grid
+    const gx0 = Math.floor((r.x0 - g.origin) / grid) * grid + g.origin
+    const gz0 = Math.floor((r.z0 - g.origin) / grid) * grid + g.origin
     const nx = Math.ceil((r.x1 - gx0) / grid)
     const nz = Math.ceil((r.z1 - gz0) / grid)
     // 【頂點只建用得到的】一塊的外接盒裡大半是空的；先標格子，再照需要編號
