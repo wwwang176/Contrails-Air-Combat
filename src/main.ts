@@ -3809,6 +3809,15 @@ if (initialRecoveryFailure !== null) {
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
 
 /**
+ * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
+ * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
+ */
+;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
+  const r = ctx.renderer.info.render
+  return { calls: r.calls, triangles: r.triangles }
+}
+
+/**
  * **量測出口**：改田色 clipmap 的內圈半徑，回挪窗統計。同頁 A/B 用 ——
  * 半徑給得極大就等於整片地面走算式，而兩邊是同一個 program。純海面回 `null`。
  */
@@ -3859,6 +3868,17 @@ const GFX_HIDDEN_LAYER = 31
     // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
     battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object,
       objectiveRing.object],
+    // 【場上的單位與佈景】船、地面目標、防空氣球、雨；沒有的那一場回空的
+    ships: () => (shipModels === null ? [] : [shipModels.object]),
+    ground: () => (groundModels === null ? [] : [groundModels.object]),
+    balloons: () => (balloonModels === null ? [] : [balloonModels.object]),
+    rain: () => (rain === null ? [] : [rain.object]),
+    // 雨的兩半分開量：空中的雨絲（第一個孩子）、地面的水花（第二個）
+    rainLines: () => (rain === null ? [] : rain.object.children.slice(0, 1)),
+    rainSplash: () => (rain === null ? [] : rain.object.children.slice(1, 2)),
+    // 【雷伊泰灘頭的佈景】地形的第五個孩子；別的地形沒有它。`flora` 那一格
+    // 是 slice(3)，關它也會一起關掉這一個
+    beach: () => (terrainKind === 'leyte' ? terrain.object.children.slice(4) : []),
   }
   const applied: string[] = []
   for (const [name, on] of Object.entries(patch)) {
