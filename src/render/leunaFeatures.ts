@@ -3,7 +3,7 @@ import { assetUrl } from '../core/asset'
 import type { FloraSource } from './flora'
 import type { PoolName } from './vegetation'
 import type { RiverSet } from './river'
-import { buildSettlementGround, settlementFlora, settlementTest } from './settlements'
+import { buildSettlementGround, settlementLayout, settlementTest } from './settlements'
 import { buildMines, mineTest } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
@@ -59,9 +59,9 @@ const HOUSE_MINE = 30
 
 /**
  * 【容量怎麼來】
- * - 建築：鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是新瓦 3,550、石板瓦
- *   905、老瓦 1,269、油毛氈 376、教堂 35（`leuna-features.test.ts` 守著），各留
- *   五成以上的餘裕。
+ * - 建築：鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是新瓦 3,014、石板瓦
+ *   850、老瓦 1,296、油毛氈 606（小菜園的棚子多半是它）、教堂 35
+ *   （`leuna-features.test.ts` 守著），各留五成以上的餘裕。
  * - 近級的樹：村鎮的果樹、教堂墓園的樹加上樹籬與樹林。逐 tile 數過整張圖，
  *   鏡頭每 250 m 滑一次、近級半徑多算半個 tile 的對角線（偏高的估計）：闊葉
  *   3,764、針葉 2,012；植被引擎在最密處實跑的針葉是 1,637。預設的 2,800、1,300
@@ -73,7 +73,7 @@ const HOUSE_MINE = 30
  * 是 353 株，在 `MAX_PER_TILE`（384）以內。
  */
 const CAPACITY: Partial<Record<PoolName, number>> = {
-  house: 6000, houseSlate: 1600, barn: 2400, barnTar: 600, church: 60,
+  house: 5000, houseSlate: 1400, barn: 2100, barnTar: 1000, church: 60,
   broadNear: 4800, coneNear: 2600,
 }
 
@@ -123,15 +123,16 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
   const nearFlak = (x: number, z: number): boolean =>
     FLAK_SITES.some((s) => Math.hypot(s.x - x, s.z - z) < HOUSE_FLAK)
   const onRoad = (x: number, z: number): boolean => road.distance(x, z) < ROAD_KEEP_OUT
-  const buildings = settlementFlora(
+  const layout = settlementLayout(
     f.places,
     (x, z) => rivers.index.distance(x, z) < HOUSE_RIVER || onRoad(x, z) || nearMine(x, z) || nearFlak(x, z),
     rightOfSaale(rivers),
   )
+  const buildings = layout.flora
 
   const object = new Group()
   object.name = 'landFeatures'
-  const townGround = buildSettlementGround(sample, f.places)
+  const townGround = buildSettlementGround(sample, f.places, layout.greens)
   const meshes: Mesh[] = [townGround, buildMines(sample, f.mines)]
   for (const m of meshes) object.add(m)
   const motorway = buildMotorway(sample, profiles)

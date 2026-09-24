@@ -33,7 +33,8 @@ export function nameHash(name: string): number {
 /**
  * 聚落的半徑，m。
  *
- * - 鎮：`260 × √(人口 / 5000)`，夾在 300～900。梅澤堡 3.6 萬人是 700 m。
+ * - 鎮：`260 × √(人口 / 5000)`，夾在 160～900；沒有人口的 250。梅澤堡 3.6 萬人
+ *   是 700 m。下限再高的話，一千多人的小鎮一棟住不到三個人
  * - 村：有人口的 `90 + 45 × √(人口 / 100)`，夾在 110～260；沒有的 120～170。
  * - 小聚落：70 m。
  *
@@ -42,8 +43,8 @@ export function nameHash(name: string): number {
 export function settlementRadius(p: Place): number {
   const h = nameHash(p.name)
   if (p.kind === 'town') {
-    if (p.pop === undefined) return 350
-    return Math.max(300, Math.min(900, 260 * Math.sqrt(p.pop / 5000)))
+    if (p.pop === undefined) return 250
+    return Math.max(160, Math.min(900, 260 * Math.sqrt(p.pop / 5000)))
   }
   if (p.kind === 'village') {
     if (p.pop === undefined) return 120 + ((h & 0xff) / 255) * 50
