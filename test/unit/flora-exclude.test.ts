@@ -7,6 +7,8 @@ import { preloadPlantScenery } from '../../src/render/geometry/ground/plantScene
 import { createTerrain } from '../../src/render/terrain'
 import { preloadLeunaRivers } from '../../src/render/leunaRiver'
 import type { RiverFile } from '../../src/world/river'
+import { preloadLeunaFeatures } from '../../src/render/leunaFeatures'
+import type { FeatureFile } from '../../src/world/landFeatures'
 import { PLANT_CENTER, PLANT_PAD, PLANT_TREE_CLEAR, worldToPlant } from '../../src/world/leuna'
 
 /** 一個每 10 m 放一株的假散佈器 */
@@ -73,6 +75,9 @@ describe('洛伊納的墊面不長樹', () => {
     })
     await preloadLeunaRivers((url) => Promise.resolve(
       JSON.parse(readFileSync('public' + url, 'utf8')) as RiverFile,
+    ))
+    await preloadLeunaFeatures((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as FeatureFile,
     ))
   })
 

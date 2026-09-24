@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   type BlockKind,
   createLeuna, EGRESS, FLAK_RIVER_CLEARANCE, FLAK_SITES, FLAK_SPACING, FLAK_TRACK_CLEARANCE,
-  HILL_RIVER_CLEARANCE, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
+  HILL_MINE_CLEARANCE, HILL_RIVER_CLEARANCE, LANE_WIDTH, LEUNA_HILLS, PAD_CLEARANCE, PLANT_BLOCKS,
   PLANT_CENTER, PLANT_LAYOUT, PLANT_PAD, plantToWorld, RAILS, ROADS, worldToPlant,
 } from '../../src/world/leuna'
 import { FARM_CELL, HILL_GAP, HILL_LIMIT, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { WOBBLE_MAX } from '../../src/world/archipelago'
+import { insideRing, ringDistance, type FeatureFile } from '../../src/world/landFeatures'
 
 /** 兩條線段有沒有真的交叉。共線當作沒交叉 —— 河與路平行走一段不是過河 */
 function crosses(
@@ -389,6 +390,19 @@ describe('leuna 的廠區', () => {
     for (const h of hills) {
       expect(riverDistance(h.cx, h.cz) - h.outerRadius, `${h.cx},${h.cz}`)
         .toBeGreaterThanOrEqual(HILL_RIVER_CLEARANCE)
+    }
+  })
+
+  /** 【排土堆在坑外】礦坑是鋪在地表上的一塊，丘陵長在坑裡是一座山從坑底冒出來 */
+  it('每一顆丘陵的外緣離礦坑至少 HILL_MINE_CLEARANCE', () => {
+    const features = JSON.parse(readFileSync('public/data/leuna-features.json', 'utf8')) as FeatureFile
+    const { hills } = createLeuna()
+    for (const h of hills) {
+      for (const m of features.mines) {
+        expect(insideRing(m.ring, h.cx, h.cz), `${h.cx},${h.cz} 在 ${m.name} 裡`).toBe(false)
+        expect(ringDistance(m.ring, h.cx, h.cz) - h.outerRadius, `${h.cx},${h.cz} 離 ${m.name}`)
+          .toBeGreaterThanOrEqual(HILL_MINE_CLEARANCE)
+      }
     }
   })
 

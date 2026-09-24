@@ -1,10 +1,8 @@
 import {
   BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
 } from 'three'
-import {
-  createFloraBuffer, FLORA_STRIDE, FloraKind, pushFlora,
-  type FloraBuffer, type FloraSource,
-} from './flora'
+import { FloraKind, pushFlora, type FloraSource } from './flora'
+import { excludingWhere } from './floraExclude'
 import {
   CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine,
 } from '../world/river'
@@ -145,25 +143,7 @@ export function buildBankGround(sample: HeightSampler, lines: readonly WaterLine
  * 【為什麼不能用矩形】河是彎的，能框住它的矩形會把半張圖的樹籬也砍掉。
  */
 export function excludingCorridor(source: FloraSource, index: RiverIndex, halfWidth = CLEAR_HALF): FloraSource {
-  let scratch: FloraBuffer | null = null
-  return (x0, z0, x1, z1, heightAt, out) => {
-    if (scratch === null || scratch.capacity < out.capacity) {
-      scratch = createFloraBuffer(out.capacity)
-    }
-    scratch.count = 0
-    scratch.dropped = 0
-    source(x0, z0, x1, z1, heightAt, scratch)
-    for (let i = 0; i < scratch.count; i++) {
-      const o = i * FLORA_STRIDE
-      if (index.distance(scratch.data[o]!, scratch.data[o + 2]!) < halfWidth) continue
-      if (out.count >= out.capacity) { out.dropped++; continue }
-      const d = out.count * FLORA_STRIDE
-      for (let k = 0; k < FLORA_STRIDE; k++) out.data[d + k] = scratch.data[o + k]!
-      out.kind[out.count] = scratch.kind[i]!
-      out.count++
-    }
-    out.dropped += scratch.dropped
-  }
+  return excludingWhere(source, (x, z) => index.distance(x, z) < halfWidth)
 }
 
 /**

@@ -70,3 +70,29 @@ export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
     out.dropped += scratch.dropped
   }
 }
+
+/**
+ * 把一個散佈器包成「`keepOut(x, z)` 為真的地方不長」。判準不是矩形的時候用：
+ * 河廊、村鎮、礦坑、高速公路。
+ */
+export function excludingWhere(
+  source: FloraSource, keepOut: (x: number, z: number) => boolean,
+): FloraSource {
+  let scratch: FloraBuffer | null = null
+  return (x0, z0, x1, z1, heightAt, out) => {
+    if (scratch === null || scratch.capacity < out.capacity) scratch = createFloraBuffer(out.capacity)
+    scratch.count = 0
+    scratch.dropped = 0
+    source(x0, z0, x1, z1, heightAt, scratch)
+    for (let i = 0; i < scratch.count; i++) {
+      const o = i * FLORA_STRIDE
+      if (keepOut(scratch.data[o]!, scratch.data[o + 2]!)) continue
+      if (out.count >= out.capacity) { out.dropped++; continue }
+      const d = out.count * FLORA_STRIDE
+      for (let k = 0; k < FLORA_STRIDE; k++) out.data[d + k] = scratch.data[o + k]!
+      out.kind[out.count] = scratch.kind[i]!
+      out.count++
+    }
+    out.dropped += scratch.dropped
+  }
+}

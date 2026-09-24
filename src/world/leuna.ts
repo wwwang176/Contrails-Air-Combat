@@ -112,11 +112,15 @@ export const EGRESS = /* @__PURE__ */ new Vector3(0, 0, -1)
  * 【外緣離河至少 `HILL_RIVER_CLEARANCE`】水面是貼著地形鋪的帶子，河一穿過
  * 丘陵就變成斜掛在側坡上、一邊懸空的水。
  *
+ * 【西側三顆是排土堆，在礦坑外】蓋澤爾谷的礦坑是鋪在地表上的一塊（見
+ * `render/mines.ts`），丘陵長在坑裡的話是一座山從坑底冒出來。外緣離坑緣至少
+ * `HILL_MINE_CLEARANCE`。
+ *
  * 【瓣由各自的種子抽】與群島的錨島同一個做法：改一顆不會動到別顆的形狀。
  */
 export const LEUNA_HILLS = [
   // 西側：礦區土堆，較高
-  { cx: -9000, cz: -8500, radius: 1200, peak: 110, pa: 0.4, pb: 2.9, seed: 101 },
+  { cx: -6800, cz: -10300, radius: 1200, peak: 110, pa: 0.4, pb: 2.9, seed: 101 },
   { cx: -11500, cz: -4500, radius: 1100, peak: 95, pa: 1.7, pb: 4.1, seed: 102 },
   { cx: -8500, cz: -1500, radius: 900, peak: 70, pa: 3.3, pb: 0.8, seed: 103 },
   // 平原上的緩丘
@@ -146,6 +150,8 @@ export const LEUNA_RIVER_ENDS: readonly RiverEndRule[] = [
 
 /** 丘陵外緣離河的中心線至少多遠，m。見 `LEUNA_HILLS` */
 export const HILL_RIVER_CLEARANCE = 500
+/** 丘陵外緣離礦坑邊緣至少多遠，m。見 `LEUNA_HILLS` */
+export const HILL_MINE_CLEARANCE = 150
 /** 砲位離河的中心線至少多遠，m。河岸林長在 55～145 m，草甸到 190 m */
 export const FLAK_RIVER_CLEARANCE = 250
 /** 砲位離道路與鐵路的中心線至少多遠，m */

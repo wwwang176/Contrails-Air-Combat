@@ -348,6 +348,8 @@ function joinInto(line: WaterLine, end: number, into: string, exts: readonly Wat
  *
  * 【保證】離查詢點 `reach` 以內的線段一定在那一格的清單裡。超過 `reach` 的
  * 距離不保證正確（回 `Infinity`）。
+ *
+ * 只用 `distance` 的話任何折線都能用 —— 高速公路擋植被也是它（水面高度填 0）。
  */
 export class RiverIndex {
   /** 每一段：x0, z0, x1, z1, 水面 0, 水面 1 */
@@ -445,6 +447,16 @@ export class RiverIndex {
   /** 水面高度，m。不在水面上回 `-Infinity` —— 與 `Terrain.waterAt` 同一個約定 */
   waterAt(x: number, z: number): number {
     if (!(this.distance(x, z) <= CHANNEL_HALF) || this.nearSeg < 0) return -Infinity
+    return this.nearLevel()
+  }
+
+  /** 最近那一段中心線的水面高度，m —— 不管在不在水面上。`reach` 外回 `-Infinity` */
+  levelNear(x: number, z: number): number {
+    if (!(this.distance(x, z) <= this.reach) || this.nearSeg < 0) return -Infinity
+    return this.nearLevel()
+  }
+
+  private nearLevel(): number {
     const o = this.nearSeg
     return this.segs[o + 4]! + (this.segs[o + 5]! - this.segs[o + 4]!) * this.nearT
   }
