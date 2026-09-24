@@ -109,12 +109,12 @@ export const JAPAN: readonly MissionCard[] = [
     battle: {
       objective: '炸毀補給卡車', banner: '找到車隊，別讓它們抵達前線',
       blueSpec: KI84, redSpec: F6F5, convoySpec: null,
-      // 【疾風只有一個小隊】雷伊泰期間陸航的戰力一直在耗損（誉發動機故障、燃料差、
-      // 補充跟不上），對地攻擊多是幾架的小編隊。對地的工作因此大部分落在玩家身上
+      // 【疾風六架】雷伊泰期間陸航的戰力一直在耗損（誉發動機故障、燃料差、補充跟
+      // 不上），對地攻擊多是幾架的小編隊
       //
       // 【開場就有兩架 F6F 在巡邏】生在紅方那一側（灘頭外的海上）朝內陸飛，玩家到
       // 車隊上空時會碰上 —— 找車與俯衝的時候就要分心。其餘 F6F 由波次給
-      blueCount: 4, redCount: 2,
+      blueCount: 6, redCount: 2,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',
