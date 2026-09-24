@@ -115,27 +115,46 @@ describe('建築', () => {
    */
   it('植被圈內的建築數留著餘裕', () => {
     const cap = dressing.capacity
-    let house = 0
-    let barn = 0
-    let church = 0
+    const pools = [
+      [FloraKind.House, 'house'], [FloraKind.SlateHouse, 'houseSlate'],
+      [FloraKind.Barn, 'barn'], [FloraKind.TarBarn, 'barnTar'], [FloraKind.Church, 'church'],
+    ] as const
+    const peak = new Map<number, number>()
     for (let cx = -15000; cx <= 15000; cx += 1000) {
       for (let cz = -15000; cz <= 15000; cz += 1000) {
-        let h = 0, b2 = 0, c = 0
+        const n = new Map<number, number>()
         for (const b of B) {
           if (Math.abs(b.x - cx) > FLORA_RADIUS || Math.abs(b.z - cz) > FLORA_RADIUS) continue
           if (Math.hypot(b.x - cx, b.z - cz) >= FLORA_RADIUS) continue
-          if (b.kind === FloraKind.House) h++
-          else if (b.kind === FloraKind.Barn) b2++
-          else c++
+          n.set(b.kind, (n.get(b.kind) ?? 0) + 1)
         }
-        house = Math.max(house, h)
-        barn = Math.max(barn, b2)
-        church = Math.max(church, c)
+        for (const [k, v] of n) peak.set(k, Math.max(peak.get(k) ?? 0, v))
       }
     }
-    expect(house * 1.5).toBeLessThanOrEqual(cap.house!)
-    expect(barn * 1.5).toBeLessThanOrEqual(cap.barn!)
-    expect(church * 1.5).toBeLessThanOrEqual(cap.church!)
+    for (const [kind, pool] of pools) {
+      expect(peak.get(kind) ?? 0, pool).toBeGreaterThan(0)
+      expect((peak.get(kind) ?? 0) * 1.5, pool).toBeLessThanOrEqual(cap[pool]!)
+    }
+  })
+
+  /**
+   * 【屋頂的比例】德國中部 1944 年七八成是黏土瓦，石板瓦一到兩成、集中在鎮中心。
+   * 全是紅的話整個鎮是一片亮紅；石板太多的話像北德或英國。
+   */
+  it('石板瓦約一成、鎮中心比外圍多', () => {
+    const houses = B.filter((b) => b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse)
+    const slate = houses.filter((b) => b.kind === FloraKind.SlateHouse).length / houses.length
+    expect(slate).toBeGreaterThan(0.08)
+    expect(slate).toBeLessThan(0.2)
+    const m = F.places.find((p) => p.name === 'Merseburg')!
+    const share = (r0: number, r1: number): number => {
+      const ring = houses.filter((b) => {
+        const d = Math.hypot(b.x - m.x, b.z - m.z)
+        return d >= r0 && d < r1
+      })
+      return ring.filter((b) => b.kind === FloraKind.SlateHouse).length / ring.length
+    }
+    expect(share(0, 250)).toBeGreaterThan(share(500, 800))
   })
 
   /**

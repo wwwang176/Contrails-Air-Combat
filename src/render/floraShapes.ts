@@ -31,7 +31,7 @@ export type PoolName =
   | 'broadNear' | 'broadMid' | 'broadPoint'
   | 'coneNear' | 'coneMid' | 'conePoint'
   | 'bushNear' | 'bushPoint'
-  | 'house' | 'barn' | 'church'
+  | 'house' | 'barn' | 'church' | 'houseSlate' | 'barnTar'
 
 /**
  * 遠處那三個池。**它們是 `gl.POINTS`，不是網格** —— 沒有幾何、走另一顆
@@ -66,9 +66,17 @@ const BUSH_CARD_TOP = 8
 const TRUNK = 0x4a3b2a
 // 樹冠色由季節決定（`season.ts`）；房子的顏色不換季
 const WALL = 0xbfb49b
-const ROOF = 0xa8503a
+/**
+ * 黏土瓦。**是用了幾十年的老瓦**：風化、長青苔、被煤煙燻過，從空中看是暗紅褐，
+ * 不是新瓦的磚紅。德國中部 1944 年的屋頂七八成是它
+ */
+const ROOF = 0x8c4e3b
+/** 石板瓦：深灰偏藍。教堂、鎮中心、公家建築 */
+const SLATE = 0x4f555b
 const BARN_WALL = 0x8b6b4a
 const BARN_ROOF = 0x8a6a4e
+/** 油毛氈：穀倉、倉庫、戰時搭的棚子 */
+const TAR_ROOF = 0x4a4946
 const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
@@ -274,14 +282,23 @@ export function createFloraGeometries(season: Season = 'summer'): Record<MeshPoo
       box(s, WALL, 11, 8, 0, 5)
       gable(s, ROOF, 12, 9, 5, 9)
     }),
+    // 【屋頂換料要另一個形狀】逐實例色整棟一起乘，牆也會跟著變灰
+    houseSlate: build((s) => {
+      box(s, WALL, 11, 8, 0, 5)
+      gable(s, SLATE, 12, 9, 5, 9)
+    }),
     barn: build((s) => {
       box(s, BARN_WALL, 18, 10, 0, 6.5)
       gable(s, BARN_ROOF, 19, 11, 6.5, 11.5)
     }),
-    // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34
+    barnTar: build((s) => {
+      box(s, BARN_WALL, 18, 10, 0, 6.5)
+      gable(s, TAR_ROOF, 19, 11, 6.5, 11.5)
+    }),
+    // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34。屋頂是石板瓦
     church: build((s) => {
       box(s, CHURCH_WALL, 9, 18, 0, 6)
-      gable(s, ROOF, 10, 19, 6, 9)
+      gable(s, SLATE, 10, 19, 6, 9)
       box(s, CHURCH_WALL, 5, 5, 0, 14)
       cone(s, SPIRE, 4, 3.6, 14, 24)
     }),

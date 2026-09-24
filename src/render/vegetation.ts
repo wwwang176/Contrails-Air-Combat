@@ -288,6 +288,10 @@ export const CAPACITY: Record<PoolName, number> = {
   house: 80,           // 58
   barn: 40,            // 21
   church: 20,          // 3
+  // 石板瓦房與油毛氈穀倉只有真實村鎮用（洛伊納，見 `leunaFeatures.ts`）；
+  // 隨機的村不撒，各留一格防呆
+  houseSlate: 16,
+  barnTar: 16,
 }
 
 /**
@@ -308,7 +312,7 @@ export const ISLAND_CAPACITY: Record<PoolName, number> = {
   conePoint: 44500,     // 22,252
   bushNear: 10300,     // 5,149
   bushPoint: 32100,     // 16,035
-  house: 16, barn: 16, church: 16,
+  house: 16, barn: 16, church: 16, houseSlate: 16, barnTar: 16,
 }
 
 /**
@@ -331,10 +335,21 @@ export const LEYTE_CAPACITY: Record<PoolName, number> = {
   bushPoint: 152400,
 }
 
+/** 建築的池。明度抖動用 `TINT_RANGE.building` */
+const BUILDING_POOLS: readonly PoolName[] = ['house', 'barn', 'church', 'houseSlate', 'barnTar']
+
+/**
+ * 逐實例的明度倍率範圍（乘在頂點色上，整株一起乘）。
+ *
+ * 【建築放得比樹寬】老房子的瓦與牆一棟跟一棟新舊不一、有的剛翻修、有的被煤煙
+ * 燻黑 —— 窄的話一整個鎮的屋頂是同一個紅。
+ */
+const TINT_RANGE = { plant: [0.86, 1.14], building: [0.74, 1.22] } as const
+
 const POOL_NAMES: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
   'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
-  'house', 'barn', 'church',
+  'house', 'barn', 'church', 'houseSlate', 'barnTar',
 ]
 
 /** 哪些池走點材質。查表比字串比對便宜，而 `rebuild` 每筆都要問一次 */
@@ -497,6 +512,10 @@ export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName |
       return 'house'
     case FloraKind.Barn:
       return 'barn'
+    case FloraKind.SlateHouse:
+      return 'houseSlate'
+    case FloraKind.TarBarn:
+      return 'barnTar'
     default:
       return 'church'
   }
@@ -709,13 +728,13 @@ export function createVegetation(
     else if (lod === 2) { poolDirty.broadPoint = true; poolDirty.conePoint = true }
   }
   /**
-   * 建築那三個池。**每一格都可能有建築**，所以加減格一定要標它們。
-   * 三個池加起來 180 筆、14 KB —— 標了也不痛。
+   * 建築的池（`BUILDING_POOLS`）。**每一格都可能有建築**，所以加減格一定要標它們。
+   *
+   * 【一定要全部標】漏掉一個的話那一種建築開場畫過一次之後就再也不更新 ——
+   * 鏡頭一動，那些房子留在原地或整批消失，而且不報錯。
    */
   function markBuildings(): void {
-    poolDirty.house = true
-    poolDirty.barn = true
-    poolDirty.church = true
+    for (const name of BUILDING_POOLS) poolDirty[name] = true
   }
 
   const keyOf = (i: number, j: number): number => i * 65536 + j
@@ -961,6 +980,14 @@ export function createVegetation(
   const jobCounts = new Int32Array(poolCount)
   const capOf = new Int32Array(poolCount)
   const isPointOf = new Uint8Array(poolCount)
+  /** 逐實例明度抖動的下限與範圍，見 `TINT_RANGE` */
+  const tintBaseOf = new Float64Array(poolCount)
+  const tintSpanOf = new Float64Array(poolCount)
+  for (let p = 0; p < poolCount; p++) {
+    const r = TINT_RANGE[BUILDING_POOLS.includes(POOL_NAMES[p]!) ? 'building' : 'plant']
+    tintBaseOf[p] = r[0]
+    tintSpanOf[p] = r[1] - r[0]
+  }
   /** 點池：樹冠垂直中心、點的邊長、`pointBase` 的三個分量，都是逐株乘上縮放前的常數 */
   const pointYOf = new Float64Array(poolCount)
   const pointSizeOf = new Float64Array(poolCount)
@@ -1041,7 +1068,7 @@ export function createVegetation(
         const o = k * FLORA_STRIDE
         const scale = data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
-        const t = 0.86 + data[o + 5]! * 0.28
+        const t = tintBaseOf[p]! + data[o + 5]! * tintSpanOf[p]!
         if (isPointOf[p] === 1) {
           const pos = jobPosition[p]!
           const col = jobColor[p]!

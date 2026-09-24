@@ -15,11 +15,14 @@ import { createArchipelago } from '../../src/world/archipelago'
 
 const FLAT = (): number => 0
 
-/** 每一格生固定的六筆 —— 每一種各一，數量因此完全可預測 */
-const SIX: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+/** `FloraKind` 有幾種。新增種類時要跟著加，否則那一種的池沒有任何一條測試碰得到 */
+const KIND_COUNT = 8
+
+/** 每一格每一種各生一筆，數量因此完全可預測 */
+const EVERY_KIND: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   const cx = (x0 + x1) / 2
   const cz = (z0 + z1) / 2
-  for (let k = 0; k < 6; k++) {
+  for (let k = 0; k < KIND_COUNT; k++) {
     pushFlora(out, cx + k, heightAt(cx, cz), cz, 0, 1, 0.5, k as FloraKind)
   }
 }
@@ -130,6 +133,8 @@ describe('poolOf', () => {
     expect(poolOf(FloraKind.House, 1, false)).toBe('house')
     expect(poolOf(FloraKind.Barn, 1, false)).toBe('barn')
     expect(poolOf(FloraKind.Church, 1, false)).toBe('church')
+    expect(poolOf(FloraKind.SlateHouse, 1, false)).toBe('houseSlate')
+    expect(poolOf(FloraKind.TarBarn, 1, false)).toBe('barnTar')
   })
 })
 
@@ -137,7 +142,7 @@ describe('poolOf', () => {
 const POOLS: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
   'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
-  'house', 'barn', 'church',
+  'house', 'barn', 'church', 'houseSlate', 'barnTar',
 ]
 
 /**
@@ -220,7 +225,7 @@ describe('植被引擎', () => {
 
   it('每幀最多生 TILES_PER_FRAME 格', () => {
     let calls = 0
-    const counted: FloraSource = (...a) => { calls++; SIX(...a) }
+    const counted: FloraSource = (...a) => { calls++; EVERY_KIND(...a) }
     const v = createVegetation([counted], FLAT)
     v.update(0, 0)
     expect(calls).toBe(TILES_PER_FRAME)
@@ -231,7 +236,7 @@ describe('植被引擎', () => {
 
   it('settle 一次排乾，之後 update 不再生任何 tile', () => {
     let calls = 0
-    const counted: FloraSource = (...a) => { calls++; SIX(...a) }
+    const counted: FloraSource = (...a) => { calls++; EVERY_KIND(...a) }
     const v = createVegetation([counted], FLAT)
     v.settle()
     const after = calls
@@ -248,7 +253,7 @@ describe('植被引擎', () => {
    */
   it('鏡頭移動小於一格時，只有圈緣的幾格要補', () => {
     let calls = 0
-    const counted: FloraSource = (...a) => { calls++; SIX(...a) }
+    const counted: FloraSource = (...a) => { calls++; EVERY_KIND(...a) }
     const v = createVegetation([counted], FLAT)
     v.settle()
     const after = calls
@@ -264,7 +269,7 @@ describe('植被引擎', () => {
 
   it('移動一整格會補上新的一欄，而且舊的被釋放', () => {
     let calls = 0
-    const counted: FloraSource = (...a) => { calls++; SIX(...a) }
+    const counted: FloraSource = (...a) => { calls++; EVERY_KIND(...a) }
     const v = createVegetation([counted], FLAT)
     v.settle()
     const before = calls
@@ -282,7 +287,7 @@ describe('植被引擎', () => {
    * 這一條看的是池裡的數量真的隨鏡頭搬家。
    */
   it('引擎真的用了 LOD：池的數量隨鏡頭遷移', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     const near = { ...v.counts }
     // 把鏡頭推遠：原本近處那一圈變成中距離、再變成遠距離
@@ -306,7 +311,7 @@ describe('植被引擎', () => {
    * 只是 1.2 km 之外換成點。
    */
   it('灌木在 BUSH_RANGE 之內是八面體，之外是點', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     const near = (Math.PI * BUSH_RANGE * BUSH_RANGE) / (TILE_SIZE * TILE_SIZE)
     expect(v.counts.bushNear).toBeGreaterThan(near * 0.6)
@@ -353,7 +358,7 @@ describe('植被引擎', () => {
    * 藏起來 —— 而其他測試幾乎都呼叫它。
    */
   it('冷啟動：整圈還沒補完就已經在畫', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     let first = -1
     for (let k = 0; k < 40; k++) {
       v.update(0, 0)
@@ -370,8 +375,8 @@ describe('植被引擎', () => {
 
   /** 【不得靜默截斷】池滿了要回報，不是安靜地少畫一半 */
   it('池滿了會回報溢位', () => {
-    // SIX 每一格都生一棟房子，遠超過實戰的容量（實測圈內最多 18 棟）
-    const v = createVegetation([SIX], FLAT)
+    // EVERY_KIND 每一格都生一棟房子，遠超過實戰的容量（實測圈內最多 18 棟）
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     expect(v.stats.tiles).toBeGreaterThan(150)
     expect(v.stats.overflow).toBeGreaterThan(0)
@@ -403,7 +408,7 @@ describe('植被引擎', () => {
    * 1% low 由 55 ms 掉到 95 ms 的原因。
    */
   it('連續移動時重建有節流，不是每幀一次', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     const before = v.stats.rebuilds
     const N = 120
@@ -423,7 +428,7 @@ describe('植被引擎', () => {
    * 那幾幀會有整片樹消失，而 counts 仍然對得起來。
    */
   it('重建分幀：完成前掛著的是上一份，而且真的跨了好幾幀', () => {
-    const v = createVegetation([SIX], FLAT, { rebuildBudget: 500 })
+    const v = createVegetation([EVERY_KIND], FLAT, { rebuildBudget: 500 })
     v.settle()
     const ms = meshes(v)
     const attrs0 = ms.map((m) => poolAttrs(m)[0]!)
@@ -448,7 +453,7 @@ describe('植被引擎', () => {
 
   /** 【分幀不得弄錯內容】同「飛過一段之後」那一條，但每幀只准寫 500 筆 */
   it('重建分幀：飛過一段之後內容與強制重建一致，屬性只在兩份之間輪換', () => {
-    const v = createVegetation([SIX], FLAT, { rebuildBudget: 500 })
+    const v = createVegetation([EVERY_KIND], FLAT, { rebuildBudget: 500 })
     v.settle()
     const ms = meshes(v)
     const seen = ms.map(() => new Set<object>())
@@ -474,7 +479,7 @@ describe('植被引擎', () => {
 
   it('傳送：移動超過半徑會把還沒生的丟掉重排', () => {
     let calls = 0
-    const counted: FloraSource = (...a) => { calls++; SIX(...a) }
+    const counted: FloraSource = (...a) => { calls++; EVERY_KIND(...a) }
     const v = createVegetation([counted], FLAT)
     v.update(0, 0)
     const before = calls
@@ -490,7 +495,7 @@ describe('植被引擎', () => {
   })
 
   it('重建之後兩個屬性都標了 needsUpdate', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     for (const m of meshes(v)) {
       if (poolCount(m) === 0) continue
@@ -506,7 +511,7 @@ describe('植被引擎', () => {
    * 暫存 Matrix4 都會讓那一條綠。這裡逐一比對所有預配結構的身分。
    */
   it('暖機後 update 不再配置', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     // 【先把緩衝池的峰值跑出來】懶配的池會長到「同時非空的格數」的高水位，
     // 而那個數字在移動時會上下 —— 沒跑過峰值就 snapshot 的話，量到的是
@@ -551,7 +556,7 @@ describe('植被引擎', () => {
    * 這一條對「relevel 不標灌木」會紅。
    */
   it('飛過一段之後，每一個池的內容都已經是最新的', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.settle()
     for (let k = 1; k <= 600; k++) v.update((k / 600) * 3000, 0)
     v.settle()
@@ -592,7 +597,7 @@ describe('植被引擎', () => {
    * 症狀是圈緣閃爍。
    */
   it('外圈是一條帶不是一個圓', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.update(0, 0)
     v.settle(true)
     let drawnMax = 0
@@ -664,7 +669,7 @@ describe('植被引擎', () => {
    * 49² × 16 = 3.8 萬次，12 km、每幀 61 格會變成 57 萬次。
    */
   it('補格的候選掃描是每幀一趟，不是每格一趟', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.update(0, 0)
     const cold = v.stats.scanned
     // 【穩態才是成本所在】冷啟動第一幀圈是空的，前幾個候選就都能用；
@@ -683,7 +688,7 @@ describe('植被引擎', () => {
 
   /** 【換掉挑格的順序不得換掉挑出來的集合】圈仍然由 `inRange` 決定 */
   it('補出來的格子全部在半徑之內', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     v.update(0, 0)
     v.settle(true)
     let worst = 0
@@ -700,7 +705,7 @@ describe('植被引擎', () => {
   })
 
   it('dispose 之後幾何與兩顆材質都被釋放，各只釋放一次', () => {
-    const v = createVegetation([SIX], FLAT)
+    const v = createVegetation([EVERY_KIND], FLAT)
     let geos = 0
     const mats = new Map<MeshStandardMaterial, number>()
     for (const m of meshes(v)) {
@@ -818,6 +823,9 @@ describe('植被引擎', () => {
   it('每一池的容量都真的頂著需求：壓到實測最大之下必定溢位', () => {
     expect(Object.keys(SCANNED).length).toBe(POOLS.length)
     for (const [name, peak] of Object.entries(SCANNED)) {
+      // 【農地用不到的池不壓】石板瓦房與油毛氈穀倉只有真實村鎮撒（洛伊納，
+      // 那裡的容量由 `leuna-features.test.ts` 守著），隨機的村不撒
+      if (peak === 0 && (name === 'houseSlate' || name === 'barnTar')) continue
       // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的
       const v = createVegetation(
         [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT,
