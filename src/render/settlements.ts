@@ -48,10 +48,21 @@ const FARM_GAP = [2, 9] as const
 /** 農莊前緣離巷子中心線，m */
 const FARM_SETBACK = 8
 /**
- * 農莊裡每一棟的佔位半徑，m。院子內的三棟彼此不會碰（位置是算好的），這個圓
- * 擋的是別的農莊、教堂與樹
+ * 房子與穀倉的牆在縮放 1 時的外框，m（`floraShapes.ts`：房子 11 × 8、穀倉
+ * 18 × 10；x 是寬、z 是屋脊方向）。屋頂比牆各寬半公尺，不算
  */
-const FARM_BUILDING_ROOM = 5
+export const HOUSE_WIDTH = 11
+export const HOUSE_DEPTH = 8
+export const BARN_WIDTH = 18
+export const BARN_DEPTH = 10
+/** 同一座農莊的側屋與後面的穀倉之間至少留的空隙，m */
+const FARM_INNER_GAP = 1
+/**
+ * 農莊裡每一棟在縮放 1 時的佔位半徑，m：牆的外框對角線的一半，用時乘上縮放。
+ * 院子內的三棟彼此不會碰（位置是算好的），這些圓擋的是別的農莊、教堂與樹
+ */
+const HOUSE_ROOM = Math.hypot(HOUSE_WIDTH, HOUSE_DEPTH) / 2
+const BARN_ROOM = Math.hypot(BARN_WIDTH, BARN_DEPTH) / 2
 /** 鎮上房子的佔位半徑，m。見 `townBlocks` */
 const TOWN_HOUSE_ROOM = 3.5
 /** 大一點的東岸村是綠地村；半徑小於這個的是街村 */
@@ -244,20 +255,24 @@ function farm(
   const at = (u: number, v: number): [number, number] => [px + Tx * u + Nx * v, pz + Tz * u + Nz * v]
   const [cx, cz] = at(0, FARM_SETBACK + D / 2)
   const hs = pick(c, [0.9, 1.15])
-  const [hx, hz] = at(-W / 2 + 5.5 * hs, FARM_SETBACK + 4 * hs)
-  const ss = pick(c, [0.55, 0.7])
-  const [sx, sz] = at(W / 2 - 5.5 * ss, FARM_SETBACK + D / 2)
-  const bs = Math.min(pick(c, [0.9, 1.1]), W / 19)
-  const [bx, bz] = at(0, FARM_SETBACK + D - 5.5 * bs)
+  // 主屋的屋脊垂直於街：寬（x）沿街、深（z）往院子裡
+  const [hx, hz] = at(-W / 2 + (HOUSE_WIDTH / 2) * hs, FARM_SETBACK + (HOUSE_DEPTH / 2) * hs)
+  const bs = Math.min(pick(c, [0.9, 1.1]), W / BARN_WIDTH)
+  const [bx, bz] = at(0, FARM_SETBACK + D - (BARN_DEPTH / 2) * bs)
+  // 【側屋的長度夾在院子前緣到穀倉前緣之間】固定放在進深一半的話，長一點的側屋
+  // 加上深一點的穀倉會超過院子，兩棟的牆穿插（實測 3.4 m）
+  const room = D - BARN_DEPTH * bs - FARM_INNER_GAP
+  const ss = Math.min(pick(c, [0.55, 0.7]), room / BARN_WIDTH)
+  const [sx, sz] = at(W / 2 - (BARN_DEPTH / 2) * ss, FARM_SETBACK + (BARN_WIDTH / 2) * ss)
   // 【三棟各自也要看佔位】臨街寬度的那個圓蓋不到後面的穀倉（進深最遠 17 m），
   // 只看圓的話穀倉會擠進教堂的空地
   if (radial(c, cx, cz) > 1 || c.avoid(cx, cz) || !c.occ.free(cx, cz, W / 2)
-    || !c.occ.free(hx, hz, FARM_BUILDING_ROOM) || !c.occ.free(sx, sz, FARM_BUILDING_ROOM)
-    || !c.occ.free(bx, bz, FARM_BUILDING_ROOM)) return false
+    || !c.occ.free(hx, hz, HOUSE_ROOM * hs) || !c.occ.free(sx, sz, BARN_ROOM * ss)
+    || !c.occ.free(bx, bz, BARN_ROOM * bs)) return false
   c.occ.add(cx, cz, W / 2)
-  c.occ.add(hx, hz, FARM_BUILDING_ROOM)
-  c.occ.add(sx, sz, FARM_BUILDING_ROOM)
-  c.occ.add(bx, bz, FARM_BUILDING_ROOM)
+  c.occ.add(hx, hz, HOUSE_ROOM * hs)
+  c.occ.add(sx, sz, BARN_ROOM * ss)
+  c.occ.add(bx, bz, BARN_ROOM * bs)
   // 三棟各自再看一次避開的地方 —— 圓心在岸上不代表後面那座穀倉也在岸上
   const building = (x: number, z: number, rot: number, scale: number, kind: FloraKind): void => {
     if (!c.avoid(x, z)) c.out.push({ x, z, rot, scale, tint: c.rand(), kind })

@@ -10,13 +10,19 @@ import {
   buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
 } from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
+import {
+  BARN_DEPTH, BARN_WIDTH, HOUSE_DEPTH, HOUSE_WIDTH, settlementTest,
+} from '../../src/render/settlements'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
-import { excludingWhere } from '../../src/render/floraExclude'
+import { excluding, excludingWhere } from '../../src/render/floraExclude'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind,
+  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, type FloraSource,
 } from '../../src/render/flora'
-import { FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE } from '../../src/render/vegetation'
+import {
+  createVegetation, FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE,
+} from '../../src/render/vegetation'
+import { LEUNA_SITE } from '../../src/render/terrain'
 
 /**
  * # 洛伊納的真實地物：村鎮、A9、蓋澤爾谷
@@ -33,8 +39,10 @@ const sample = (x: number, z: number): number => solid.sample(x, z)
 
 let rivers: RiverSet
 let dressing: LandDressing
-/** ±22 km 內全部的建築 */
+/** ±22 km 內全部的建築與樹 */
 const B: { x: number; z: number; kind: number }[] = []
+/** 同上，含旋轉與縮放（`FLORA_STRIDE` 的第 3、4 格） */
+const Bfull: { x: number; z: number; rot: number; scale: number; kind: number }[] = []
 
 beforeAll(async () => {
   await preloadLeunaRivers(read)
@@ -44,7 +52,11 @@ beforeAll(async () => {
   const buf = createFloraBuffer(400_000)
   dressing.buildings(-22000, -22000, 22000, 22000, sample, buf)
   for (let i = 0; i < buf.count; i++) {
-    B.push({ x: buf.data[i * FLORA_STRIDE]!, z: buf.data[i * FLORA_STRIDE + 2]!, kind: buf.kind[i]! })
+    const o = i * FLORA_STRIDE
+    B.push({ x: buf.data[o]!, z: buf.data[o + 2]!, kind: buf.kind[i]! })
+    Bfull.push({
+      x: buf.data[o]!, z: buf.data[o + 2]!, rot: buf.data[o + 3]!, scale: buf.data[o + 4]!, kind: buf.kind[i]!,
+    })
   }
 })
 
@@ -193,6 +205,34 @@ describe('建築', () => {
   })
 })
 
+describe('植被池不溢位', () => {
+  /**
+   * 【用正式的來源與容量實跑植被引擎】鏡頭放在最密的幾處：審查量到針葉近級
+   * 溢位 37 棵的那一點，與逐 tile 估計的闊葉、針葉近級最多的兩點。溢位時丟掉
+   * 並記一次告警，症狀是近處的樹整片消失。
+   */
+  it('最密的三處都不溢位', () => {
+    const site = LEUNA_SITE
+    const clear = site.treeClear ?? 0
+    const padClear = (s: FloraSource): FloraSource => excluding(s, {
+      x0: site.pad.x0 - clear, x1: site.pad.x1 + clear, z0: site.pad.z0 - clear, z1: site.pad.z1 + clear,
+      pivot: site.pivot!, heading: site.heading!,
+    })
+    let fields: FloraSource[] = [farmHedgeFlora, farmWoodFlora].map(padClear)
+      .map((f) => excludingCorridor(f, rivers.index))
+    fields.push(riverBankFlora(rivers.lines, 23000))
+    fields = fields.map((f) => excludingWhere(f, dressing.keepOut))
+    fields.push(padClear(dressing.buildings))
+    const v = createVegetation(fields, sample, { capacity: dressing.capacity })
+    for (const [x, z] of [[-8750, -10000], [-10250, -12250], [-9000, -10250]] as const) {
+      v.update(x, z)
+      v.settle()
+      expect(v.stats.overflow, `(${x},${z})`).toBe(0)
+    }
+    v.dispose()
+  }, 120_000)
+})
+
 describe('樹籬擋在外面的地方', () => {
   it('鎮上、坑裡、A9 上擋；空曠的田不擋', () => {
     expect(dressing.keepOut(-600, -12337)).toBe(true)
@@ -256,6 +296,56 @@ describe('史實的村形', () => {
     }
     expect(houses).toBeGreaterThan(1000)
     expect(barns / houses).toBeGreaterThan(1.5)
+  })
+
+  /**
+   * 【村裡的建築不穿插】量的是牆的外框（有向矩形，分離軸），不是佔位圓 ——
+   * 圓在長條的穀倉上太寬鬆，同一座農莊的側屋與後面的穀倉曾經穿插 3.4 m。
+   * 鎮不算：連棟街屋本來就一棟貼一棟。
+   */
+  it('村裡任兩棟建築的牆不相交', () => {
+    const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
+    const rects: { x: number; z: number; ax: number; az: number; hw: number; hd: number }[] = []
+    for (const b of Bfull) {
+      const house = b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse
+      const barn = b.kind === FloraKind.Barn || b.kind === FloraKind.TarBarn
+      if ((!house && !barn) || inTown(b.x, b.z)) continue
+      // 模型的 x 軸轉到 (cos θ, −sin θ)（`vegetation.ts` 寫矩陣的方式）
+      rects.push({
+        x: b.x, z: b.z, ax: Math.cos(b.rot), az: -Math.sin(b.rot),
+        hw: ((house ? HOUSE_WIDTH : BARN_WIDTH) / 2) * b.scale,
+        hd: ((house ? HOUSE_DEPTH : BARN_DEPTH) / 2) * b.scale,
+      })
+    }
+    const project = (r: typeof rects[number], nx: number, nz: number): number =>
+      r.hw * Math.abs(r.ax * nx + r.az * nz) + r.hd * Math.abs(-r.az * nx + r.ax * nz)
+    const grid = new Map<string, number[]>()
+    rects.forEach((r, i) => {
+      const k = `${Math.floor(r.x / 40)},${Math.floor(r.z / 40)}`
+      grid.set(k, [...(grid.get(k) ?? []), i])
+    })
+    let worst = 0
+    let at = ''
+    rects.forEach((a, i) => {
+      const gi = Math.floor(a.x / 40)
+      const gj = Math.floor(a.z / 40)
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          for (const j of grid.get(`${gi + di},${gj + dj}`) ?? []) {
+            if (j <= i) continue
+            const b = rects[j]!
+            let depth = Infinity
+            for (const [nx, nz] of [[a.ax, a.az], [-a.az, a.ax], [b.ax, b.az], [-b.az, b.ax]] as const) {
+              const d = Math.abs((b.x - a.x) * nx + (b.z - a.z) * nz)
+              depth = Math.min(depth, project(a, nx, nz) + project(b, nx, nz) - d)
+            }
+            if (depth > worst) { worst = depth; at = `(${Math.round(a.x)},${Math.round(a.z)})` }
+          }
+        }
+      }
+    })
+    expect(rects.length).toBeGreaterThan(10_000)
+    expect(worst, at).toBeLessThan(0.05)
   })
 
   /** 【院子後面與村外有樹】果園、花園、教堂墓園 */
