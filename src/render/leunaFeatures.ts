@@ -53,14 +53,16 @@ const HOUSE_FLAK = 70
 const HOUSE_MINE = 30
 
 /**
- * 【容量怎麼來】鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是房 8,922、
- * 穀倉 2,187、教堂 23（`leuna-features.test.ts` 守著）。房與穀倉留約八成的餘裕、
- * 教堂留兩倍多 —— 溢位時丟掉並記一次告警，症狀是半個鎮沒有房子。
+ * 【容量怎麼來】鏡頭每隔 1 km 掃過整張圖，植被圈內（6 km）最多是房 7,423、
+ * 石板瓦房 1,531、穀倉 1,840、油毛氈穀倉 501、教堂 35（`leuna-features.test.ts`
+ * 守著）。各留約七八成的餘裕 —— 溢位時丟掉並記一次告警，症狀是半個鎮沒有房子。
  *
  * 【單格的上限不必動】建築加上格子裡剩下的樹籬、樹林，整張圖最密的一格是
  * 353 株，在 `MAX_PER_TILE`（384）以內。
  */
-const CAPACITY: Partial<Record<PoolName, number>> = { house: 16000, barn: 4000, church: 60 }
+const CAPACITY: Partial<Record<PoolName, number>> = {
+  house: 13000, houseSlate: 2800, barn: 3300, barnTar: 900, church: 60,
+}
 
 export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): LandDressing {
   if (cache === null) throw new Error('洛伊納的地物還沒載入 —— 少了 preloadLeunaFeatures()')

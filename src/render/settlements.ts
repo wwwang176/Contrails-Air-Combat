@@ -32,6 +32,15 @@ const FILL: Record<Kind, readonly [number, number]> = {
 }
 /** 穀倉的比例。鎮上幾乎沒有 */
 const BARN: Record<Kind, number> = { town: 0.05, village: 0.3, hamlet: 0.45 }
+/**
+ * 石板瓦屋頂的比例：聚落中心 → 外緣。鎮中心是公家建築與大戶人家，石板多；
+ * 村裡少。整張圖平均約一成五，其餘是黏土瓦（`floraShapes.ts` 的 `ROOF`）
+ */
+const SLATE: Record<Kind, readonly [number, number]> = {
+  town: [0.35, 0.14], village: [0.1, 0.06], hamlet: [0.05, 0.05],
+}
+/** 穀倉裡油毛氈屋頂的比例 */
+const TAR_BARN = 0.2
 /** 房子的縮放範圍。鎮上的是兩三層的街屋，比村裡的大 */
 const SCALE: Record<Kind, readonly [number, number]> = {
   town: [1.0, 1.35], village: [0.85, 1.15], hamlet: [0.85, 1.1],
@@ -106,6 +115,7 @@ export function settlementBuildings(p: Place, avoid: (x: number, z: number) => b
       if (!insideSettlement(p, cx, cz)) continue
       const r = Math.hypot(cx - p.x, cz - p.z) / R
       const fill = fill0 + (fill1 - fill0) * Math.min(1, r * r)
+      const slate = SLATE[p.kind][0] + (SLATE[p.kind][1] - SLATE[p.kind][0]) * Math.min(1, r)
       // 四條街：±u 那兩邊的房子沿 v 排，±v 那兩邊沿 u 排
       for (let side = 0; side < 4; side++) {
         const nu = side === 0 ? 1 : side === 1 ? -1 : 0
@@ -122,13 +132,17 @@ export function settlementBuildings(p: Place, avoid: (x: number, z: number) => b
           if (!insideSettlement(p, x, z) || avoid(x, z)) continue
           if (Math.hypot(x - p.x, z - p.z) < clear) continue
           const g2 = hash(g, 0x5eed)
+          const barn = ((g2 >>> 8) & 0xff) / 256 < BARN[p.kind]
+          const roof = (g2 >>> 24) / 256
           out.push({
             x, z,
             // 【山牆對著街】長軸順著街，與農地的村同一個約定
             rot: Math.atan2(tx, tz),
             scale: s0 + ((g2 & 0xff) / 255) * (s1 - s0),
             tint: ((g2 >>> 16) & 0xff) / 255,
-            kind: ((g2 >>> 8) & 0xff) / 256 < BARN[p.kind] ? FloraKind.Barn : FloraKind.House,
+            kind: barn
+              ? (roof < TAR_BARN ? FloraKind.TarBarn : FloraKind.Barn)
+              : (roof < slate ? FloraKind.SlateHouse : FloraKind.House),
           })
         }
       }

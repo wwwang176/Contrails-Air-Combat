@@ -45,6 +45,10 @@ export const enum FloraKind {
   House = 3,
   Barn = 4,
   Church = 5,
+  /** 石板瓦屋頂的房子：鎮中心、公家建築、大戶人家 */
+  SlateHouse = 6,
+  /** 油毛氈屋頂的穀倉、倉庫 */
+  TarBarn = 7,
 }
 
 /**

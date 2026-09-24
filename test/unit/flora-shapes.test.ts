@@ -110,7 +110,7 @@ describe('植被與建築的幾何', () => {
       broadNear: 20, broadMid: 8,
       coneNear: 19, coneMid: 6,
       bushNear: 8,
-      house: 18, barn: 18, church: 34,
+      house: 18, barn: 18, church: 34, houseSlate: 18, barnTar: 18,
     }
     const got: Record<string, number> = {}
     for (const n of names) got[n] = tris(geo[n])
@@ -119,10 +119,10 @@ describe('植被與建築的幾何', () => {
   })
 
   /** 【遠處那三個池沒有幾何】它們是 `gl.POINTS`，一株一個頂點 */
-  it('八個幾何，名字與有網格的那八個池一一對應', () => {
+  it('十個幾何，名字與有網格的那十個池一一對應', () => {
     expect(names.slice().sort()).toEqual([
-      'barn', 'broadMid', 'broadNear', 'bushNear',
-      'church', 'coneMid', 'coneNear', 'house',
+      'barn', 'barnTar', 'broadMid', 'broadNear', 'bushNear',
+      'church', 'coneMid', 'coneNear', 'house', 'houseSlate',
     ])
     expect(POINT_POOLS.every((n) => !names.includes(n as MeshPool))).toBe(true)
   })
@@ -235,10 +235,48 @@ describe('植被與建築的幾何', () => {
   })
 
   it('房子的牆與屋頂是兩個顏色，教堂三個', () => {
-    expect(colours(geo.house).size).toBe(2)
-    expect(colours(geo.barn).size).toBe(2)
+    for (const n of ['house', 'houseSlate', 'barn', 'barnTar'] as const) {
+      expect([n, colours(geo[n]).size]).toEqual([n, 2])
+    }
     // 本堂牆、屋頂、尖頂
     expect(colours(geo.church).size).toBe(3)
+  })
+
+  /**
+   * 【換的只有屋頂】石板瓦房與一般房子同一副牆、同樣大小；油毛氈穀倉與穀倉
+   * 也是。牆跟著變的話，一個鎮裡會有一成五的房子是灰牆。
+   */
+  it('石板瓦房與油毛氈穀倉只有屋頂的顏色不同', () => {
+    for (const [a, b] of [['house', 'houseSlate'], ['barn', 'barnTar']] as const) {
+      const ca = geo[a].getAttribute('color')
+      const cb = geo[b].getAttribute('color')
+      expect(Array.from(geo[a].getAttribute('position').array)).toEqual(Array.from(geo[b].getAttribute('position').array))
+      let differ = 0
+      for (let i = 0; i < ca.count; i++) {
+        if (ca.getX(i) !== cb.getX(i) || ca.getY(i) !== cb.getY(i) || ca.getZ(i) !== cb.getZ(i)) differ++
+      }
+      // 人字屋頂是 6 個三角形 = 18 個頂點；牆的頂點一個都不能不同
+      expect([a, differ]).toEqual([a, 18])
+    }
+  })
+
+  /**
+   * 【屋頂是風化的老瓦】新瓦的鮮磚紅（0xa8503a，紅是綠的 2.1 倍），從空中看整個
+   * 鎮是一片亮紅。**比的是 sRGB** —— 頂點色存的是線性值，直接相除會把比例放大
+   * 兩倍多。
+   */
+  it('黏土瓦的屋頂不是鮮紅：sRGB 下紅不過綠的 1.85 倍', () => {
+    const col = geo.house.getAttribute('color')
+    const c = new Color()
+    let ratio = 0
+    for (let i = 0; i < col.count; i++) {
+      const hex = c.setRGB(col.getX(i), col.getY(i), col.getZ(i)).getHex()
+      const r = (hex >> 16) & 0xff
+      const g = (hex >> 8) & 0xff
+      if (r > g * 1.2) ratio = r / g
+    }
+    expect(ratio).toBeGreaterThan(1.2)
+    expect(ratio).toBeLessThan(1.85)
   })
 
   it('近級喬木最低的那些頂點是樹幹色', () => {
@@ -282,7 +320,7 @@ describe('植被與建築的幾何', () => {
    */
   const STAR_Y: Record<string, number> = {
     broadNear: 20, broadMid: 20, coneNear: 12, coneMid: 12,
-    bushNear: 4, house: 2.5, barn: 3, church: 3,
+    bushNear: 4, house: 2.5, barn: 3, church: 3, houseSlate: 2.5, barnTar: 3,
   }
 
   it('每一個面的法線都朝外', () => {
