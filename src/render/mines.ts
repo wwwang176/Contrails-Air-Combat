@@ -1,5 +1,5 @@
 import type { Mesh } from 'three'
-import { buildDecals, DECAL_GRID, type DecalRegion } from './groundDecal'
+import { buildDecals, type DecalGrid, type DecalRegion } from './groundDecal'
 import { insideRing, ringDistance, type FeatureFile } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
 
@@ -38,7 +38,9 @@ export function mineColor(x: number, z: number, edge: number): number {
 }
 
 /** 礦坑的地面網格。`grid` 見 `buildDecals` */
-export function buildMines(sample: HeightSampler, mines: FeatureFile['mines'], grid = DECAL_GRID, name = 'mines'): Mesh {
+export function buildMines(
+  sample: HeightSampler, mines: FeatureFile['mines'], grid?: DecalGrid, name = 'mines',
+): Mesh {
   return buildDecals(sample, mines.map((m): DecalRegion => {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
     for (const [x, z] of m.ring) {

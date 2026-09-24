@@ -1,7 +1,7 @@
 import { FloraKind, pushFlora, SHAPE_ONE, type FloraSource } from './flora'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from './floraShapes'
 import { TILE_SIZE } from './vegetation'
-import { buildDecals, DECAL_GRID, DECAL_LIFT, type DecalRegion } from './groundDecal'
+import { buildDecals, DECAL_LIFT, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW } from './river'
 import {
   cellAt, cellRing, cellSize, edgeInward, edgeLine, Footprints, planTown, roadAngles, StreetIndex,
@@ -1077,7 +1077,7 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
  * 花園；鋪滿的話是一大片沒有田紋的平地。
  */
 export function buildSettlementGround(
-  sample: HeightSampler, places: readonly Place[], grid = DECAL_GRID, name = 'settlementGround',
+  sample: HeightSampler, places: readonly Place[], grid?: DecalGrid, name = 'settlementGround',
 ): Mesh {
   const regions: DecalRegion[] = places
     .filter((p) => p.kind === 'town')

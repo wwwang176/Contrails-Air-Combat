@@ -35,7 +35,8 @@ import { LEUNA_SITE } from '../../src/render/terrain'
 
 const read = <T>(url: string): Promise<T> => Promise.resolve(JSON.parse(readFileSync('public' + url, 'utf8')) as T)
 const F = JSON.parse(readFileSync('public/data/leuna-features.json', 'utf8')) as FeatureFile
-const solid = outsideZero(createLeuna().field)
+const leunaField = createLeuna().field
+const solid = outsideZero(leunaField)
 const sample = (x: number, z: number): number => solid.sample(x, z)
 
 let rivers: RiverSet
@@ -51,7 +52,7 @@ beforeAll(async () => {
   await preloadLeunaRivers(read)
   await preloadLeunaFeatures(read)
   rivers = buildLeunaRivers(sample)
-  dressing = buildLeunaDressing(sample, rivers)
+  dressing = buildLeunaDressing(sample, rivers, leunaField)
   const buf = createFloraBuffer(400_000)
   dressing.buildings(-22000, -22000, 22000, 22000, sample, buf)
   for (let i = 0; i < buf.count; i++) {
@@ -208,11 +209,12 @@ describe('建築', () => {
 
 describe('植被池不溢位', () => {
   /**
-   * 【用正式的來源與容量實跑植被引擎】鏡頭放在最密的幾處：審查量到針葉近級
-   * 溢位 37 棵的那一點，與逐 tile 估計的闊葉、針葉近級最多的兩點。溢位時丟掉
-   * 並記一次告警，症狀是近處的樹整片消失。
+   * 【用正式的來源與容量實跑植被引擎】來源的次序與包法照 `terrain.ts`。鏡頭放在
+   * 最密的幾處：審查量到針葉近級溢位 37 棵的那一點、逐 tile 估計的闊葉、針葉
+   * 近級最多的兩點，與 Luppe 河岸林上空。溢位時丟掉並記一次告警，症狀是近處的
+   * 樹整片消失。
    */
-  it('最密的三處都不溢位', () => {
+  it('最密的四處都不溢位', () => {
     const site = LEUNA_SITE
     const clear = site.treeClear ?? 0
     const padClear = (s: FloraSource): FloraSource => excluding(s, {
@@ -220,12 +222,12 @@ describe('植被池不溢位', () => {
       pivot: site.pivot!, heading: site.heading!,
     })
     let fields: FloraSource[] = [farmHedgeFlora, farmWoodFlora].map(padClear)
-      .map((f) => excludingCorridor(f, rivers.index))
+      .map((f) => excludingWhere(excludingCorridor(f, rivers.index), dressing.fieldsOut))
     fields.push(riverBankFlora(rivers.lines, 23000))
     fields = fields.map((f) => excludingWhere(f, dressing.keepOut))
-    fields.push(padClear(dressing.buildings))
+    fields.push(padClear(dressing.buildings), ...dressing.flora.map(padClear))
     const v = createVegetation(fields, sample, { capacity: dressing.capacity })
-    for (const [x, z] of [[-8750, -10000], [-10250, -12250], [-9000, -10250]] as const) {
+    for (const [x, z] of [[-8750, -10000], [-10250, -12250], [-9000, -10250], [4000, -13000]] as const) {
       v.update(x, z)
       v.settle()
       expect(v.stats.overflow, `(${x},${z})`).toBe(0)
@@ -562,13 +564,14 @@ describe('地表網格', () => {
    * 量的是每一個三角形的重心與四分點：減掉抬高量之後要等於那裡的地形高度。
    * 遠圖外那一份 80 m 的粗網格也量 —— 格線沒對齊地形格點的話整片都歪。
    */
-  it('村鎮地面與礦坑的每一點都貼著地形（細格與粗格）', () => {
+  it('村鎮地面、礦坑、河漫灘的每一點都貼著地形（細格與粗格）', () => {
     let worst = 0
     let checked = 0
     let coarse = 0
     dressing.object.traverse((o) => {
       const m = o as Mesh
-      if (!['settlementGround', 'mines', 'settlementGroundFar', 'minesFar'].includes(m.name)) return
+      const names = ['settlementGround', 'mines', 'floodplain', 'settlementGroundFar', 'minesFar', 'floodplainFar']
+      if (!names.includes(m.name)) return
       if (m.name.endsWith('Far')) coarse++
       const pos = m.geometry.getAttribute('position') as BufferAttribute
       const idx = m.geometry.getIndex()!
@@ -587,7 +590,7 @@ describe('地表網格', () => {
       }
     })
     expect(checked).toBeGreaterThan(100_000)
-    expect(coarse).toBe(2)
+    expect(coarse).toBe(3)
     expect(worst).toBeLessThan(0.01)
   })
 
@@ -613,7 +616,8 @@ describe('地表網格', () => {
       expect(down, m.name).toBe(0)
       checked++
     })
-    // 村鎮地面、草地、鎮上的街、礦坑、A9 路面各一顆，村鎮地面與礦坑另有遠圖外的粗網格
-    expect(checked).toBe(7)
+    // 河漫灘、村鎮地面、草地、鎮上的街、礦坑、A9 路面各一顆，河漫灘、村鎮地面與
+    // 礦坑另有遠圖外的粗網格
+    expect(checked).toBe(9)
   })
 })

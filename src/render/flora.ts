@@ -693,7 +693,7 @@ function smoothstep(e0: number, e1: number, x: number): number {
  * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**，與 tile
  * 無關 —— 見檔頭的鐵律。
  */
-function valueNoise(x: number, z: number, cell: number, salt: number): number {
+export function valueNoise(x: number, z: number, cell: number, salt: number): number {
   const fx = x / cell
   const fz = z / cell
   const ix = Math.floor(fx)
