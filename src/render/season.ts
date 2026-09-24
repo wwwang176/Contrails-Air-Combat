@@ -31,6 +31,12 @@ export interface FieldColors {
   readonly wood: number
   /** 犁過的田的比例。與色調無關，散落在各處 */
   readonly ploughChance: number
+  /**
+   * 空地（牧草地、荒地、休耕）的兩個色，大片地低頻地在兩者之間漸變。只有
+   * 「田圍著村」的地圖用（`fields.ts` 的 `open`）
+   */
+  readonly open: number
+  readonly openAlt: number
 }
 
 export interface FloraColors {
@@ -48,6 +54,9 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     track: 0x938b77,
     wood: 0x2f3a28,
     ploughChance: 0.12,
+    // 牧草地的橄欖綠與荒地、休耕地的枯黃
+    open: 0x626b43,
+    openAlt: 0x78754f,
   },
   /**
    * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
@@ -72,6 +81,9 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     track: 0x756e61,
     wood: 0x444434,
     ploughChance: 0.45,
+    // 十一月的枯草（與河灘草甸同色）與濕地的深褐
+    open: 0x6e6a4a,
+    openAlt: 0x5f5a47,
   },
 }
 

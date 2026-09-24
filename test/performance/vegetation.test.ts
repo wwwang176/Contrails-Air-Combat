@@ -4,12 +4,12 @@ import { POINT_POOLS } from '../../src/render/floraShapes'
 import {
   createVegetation, lodFor, poolOf, BUSH_RANGE, POINT_NEAR, FLORA_RADIUS,
   CAPACITY, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS, ISLAND_TILES_PER_FRAME,
-  LOD_HYSTERESIS, LOD_NEAR, REBUILD_EVERY, REBUILD_MOVE,
+  LOD_HYSTERESIS, LOD_NEAR, MAX_PER_TILE, REBUILD_EVERY, REBUILD_MOVE,
   TILES_PER_FRAME, TILE_SIZE, type PoolName,
 } from '../../src/render/vegetation'
 import {
   createFloraBuffer, createIslandFlora, farmHedgeFlora, farmVillageFlora,
-  farmWoodFlora, pushFlora, FloraKind, type FloraSource,
+  farmWoodFlora, openHedgeFlora, openWoodFlora, pushFlora, FloraKind, type FloraSource,
 } from '../../src/render/flora'
 import { createArchipelago } from '../../src/world/archipelago'
 
@@ -164,6 +164,17 @@ const SENTINEL = Object.fromEntries(
 /** 兩張圖各自掃到的最大值，給容量那兩條用 */
 let SCANNED: Record<string, number> = {}
 let ISLAND_SCANNED: Record<string, number> = {}
+
+/**
+ * 農地的兩組散佈器：田一路到底（洛伊納）、田圍著村（程序生成的內陸地圖，
+ * `terrain.ts` 的 `open`）
+ */
+const FARM_SOURCE_SETS: readonly (readonly [string, FloraSource[]])[] = [
+  ['田一路到底', [farmHedgeFlora, farmWoodFlora, farmVillageFlora]],
+  ['田圍著村', [openHedgeFlora, openWoodFlora, farmVillageFlora]],
+]
+/** 每一池的峰值出自哪一組 */
+const PEAK_SET: Record<string, string> = {}
 
 describe('植被引擎', () => {
   it('十一個池，十一個 draw call；遠處那三個是點', () => {
@@ -755,31 +766,36 @@ describe('植被引擎', () => {
    * 路線刻意穿過整張圖，涵蓋樹林最密的地方。
    */
   it('沿一條穿過全圖的航線掃描，池與 tile 都不溢位', () => {
-    // 【哨兵容量】正式容量會截斷 counts，拿它去掃是循環量測
-    const v = createVegetation(
-      [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT, { capacity: SENTINEL },
-    )
+    // 【兩組都掃】程序生成的地圖田圍著村（open 那一組，樹林多、樹籬少），洛伊納
+    // 一路是田（原本那一組，樹籬密）。預設容量兩者都要裝得下，每一池取大的
     const max: Record<string, number> = {}
-    const N = 40
-    for (let k = 0; k < N; k++) {
-      const t = k / (N - 1)
-      v.update(-13000 + t * 26000, -11000 + t * 22000)
-      v.settle()
-      for (const [name, n] of Object.entries(v.counts)) {
-        max[name] = Math.max(max[name] ?? 0, n)
+    for (const [set, sources] of FARM_SOURCE_SETS) {
+      // 【哨兵容量】正式容量會截斷 counts，拿它去掃是循環量測
+      const v = createVegetation(sources, FLAT, { capacity: SENTINEL })
+      const N = 40
+      for (let k = 0; k < N; k++) {
+        const t = k / (N - 1)
+        v.update(-13000 + t * 26000, -11000 + t * 22000)
+        v.settle()
+        for (const [name, n] of Object.entries(v.counts)) {
+          if (n > (max[name] ?? -1)) {
+            max[name] = n
+            PEAK_SET[name] = set
+          }
+        }
+        expect(v.stats.dropped).toBe(0)
+        expect(v.stats.overflow).toBe(0)
       }
-      expect(v.stats.dropped).toBe(0)
-      expect(v.stats.overflow).toBe(0)
+      v.dispose()
     }
-    console.log(JSON.stringify({ 各池的最大同時實例數: max }))
+    console.log(JSON.stringify({ 各池的最大同時實例數: max, 峰值出自: PEAK_SET }))
     SCANNED = max
     // 【掃描本身不得是空操作】
     expect(max['broadPoint']!).toBeGreaterThan(2000)
     expect(max['bushPoint']!).toBeGreaterThan(2000)
     expect(max['bushNear']!).toBeGreaterThan(500)
     expect(max['house']!).toBeGreaterThan(5)
-    v.dispose()
-  }, 120000)
+  }, 240000)
 
   /**
    * 【×1.35 那條規則要有東西守著】掃描印出最大值、人再乘 1.35 寫進
@@ -851,11 +867,9 @@ describe('植被引擎', () => {
       // 【農地用不到的池不壓】石板瓦房與油毛氈穀倉只有真實村鎮撒（洛伊納，
       // 那裡的容量由 `leuna-features.test.ts` 守著），隨機的村不撒
       if (peak === 0 && (name === 'houseSlate' || name === 'barnTar')) continue
-      // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的
-      const v = createVegetation(
-        [farmHedgeFlora, farmWoodFlora, farmVillageFlora], FLAT,
-        { capacity: { ...SENTINEL, [name]: Math.max(0, peak - 1) } },
-      )
+      // 【只壓這一池】其他池維持哨兵，才知道溢位是誰造成的。跑產生峰值的那一組
+      const sources = FARM_SOURCE_SETS.find(([set]) => set === PEAK_SET[name])![1]
+      const v = createVegetation(sources, FLAT, { capacity: { ...SENTINEL, [name]: Math.max(0, peak - 1) } })
       let over = 0
       const N = 40
       for (let k = 0; k < N; k++) {
@@ -869,21 +883,24 @@ describe('植被引擎', () => {
     }
   }, 600000)
 
+  /** 【兩組都量】田圍著村那一組的空地上是整片的樹林，一格可能比樹籬密 */
   it('單一 tile 的容量夠裝最密的樹林', () => {
     const buf = createFloraBuffer(4096)
-    let worst = 0
-    for (let z = -6000; z < 6000; z += TILE_SIZE) {
-      for (let x = -6000; x < 6000; x += TILE_SIZE) {
-        buf.count = 0
-        buf.dropped = 0
-        farmHedgeFlora(x, z, x + TILE_SIZE, z + TILE_SIZE, FLAT, buf)
-        farmWoodFlora(x, z, x + TILE_SIZE, z + TILE_SIZE, FLAT, buf)
-        farmVillageFlora(x, z, x + TILE_SIZE, z + TILE_SIZE, FLAT, buf)
-        expect(buf.dropped).toBe(0)
-        worst = Math.max(worst, buf.count)
+    const worst: Record<string, number> = {}
+    for (const [set, sources] of FARM_SOURCE_SETS) {
+      worst[set] = 0
+      for (let z = -6000; z < 6000; z += TILE_SIZE) {
+        for (let x = -6000; x < 6000; x += TILE_SIZE) {
+          buf.count = 0
+          buf.dropped = 0
+          for (const s of sources) s(x, z, x + TILE_SIZE, z + TILE_SIZE, FLAT, buf)
+          expect(buf.dropped).toBe(0)
+          worst[set] = Math.max(worst[set]!, buf.count)
+        }
       }
+      expect(worst[set]!, set).toBeGreaterThan(100)
+      expect(worst[set]!, set).toBeLessThanOrEqual(MAX_PER_TILE)
     }
     console.log(JSON.stringify({ 單格最多: worst }))
-    expect(worst).toBeGreaterThan(100)
-  }, 120000)
+  }, 240000)
 })
