@@ -453,6 +453,7 @@ const SHIPS: readonly { id: string; name: string; url: string; loa: number }[] =
   { id: 'essex', name: 'Essex CV-9', url: '/models/essex.glb', loa: 265.79 },
   { id: 'fletcher', name: 'Fletcher DD-445', url: '/models/fletcher.glb', loa: 114.75 },
   { id: 'wichita', name: 'Wichita CA-45', url: '/models/wichita.glb', loa: 185.42 },
+  { id: 'lst', name: 'LST-1', url: '/models/lst.glb', loa: 103.86 },
 ]
 /** 一層一個顏色：遠（黑霧）暖色、中距黃、近距青。 */
 const TIER_COLOR: Record<string, number> = {

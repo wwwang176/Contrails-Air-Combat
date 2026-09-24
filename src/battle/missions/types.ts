@@ -575,6 +575,13 @@ export interface FleetEntry {
    */
   readonly offset: Vector3
   /**
+   * 這一艘的艏向，rad，**相對整隊的 `heading`**。**省略 = 與整隊同向。**
+   *
+   * 只給不會動的船用（日 M2 搶灘的 LST 各自垂直於腳下那一段岸）。會動的
+   * 艦隊一艘一個艏向，陣型走幾分鐘就散了。
+   */
+  readonly heading?: number
+  /**
    * 這一艘沉了就輸。**只有 `defend` 規則讀它**（`mission.ts` 的 `vitalSunk`）。
    *
    * 【為什麼是旗標而不是把艦級寫進規則】`cls === 'essex'` 那種寫法把「誰

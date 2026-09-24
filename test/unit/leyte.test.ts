@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD, LEYTE_ROADS,
-  PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
+  BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
+  LEYTE_ROADS, LST_RAMP_REACH, PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
   roadTreeClear,
 } from '../../src/world/leyte'
@@ -11,6 +11,7 @@ import { HILL_GAP } from '../../src/world/farmland'
 import { DEFAULT_SAFETY } from '../../src/ai/safety'
 import { terrainCeiling } from '../../src/ai/terrainSense'
 import { ARENA_RADIUS } from '../../src/world/arena'
+import { SHIP_CLASSES } from '../../src/world/ships'
 
 /**
  * # 雷伊泰的海岸線地形（日 M2）
@@ -343,5 +344,71 @@ describe('撤離點', () => {
         .toBeGreaterThanOrEqual(300 - 1e-6)
     }
     expect(EVACUATE_Z).toBeLessThan(ARENA_RADIUS)
+  })
+})
+
+describe('灘頭搶灘的 LST', () => {
+  const HULL = SHIP_CLASSES.lst.hull[0]!
+  const HW = HULL.half.x
+  const STERN = HULL.center.z + HULL.half.z
+  /** 艦體座標 (x, z) → 世界 (x, z)。與 `createShip` 的艏向同一套：艏向 h 的 −Z 朝 (−sin h, −cos h) */
+  function toWorld(l: { x: number; z: number; heading: number }, lx: number, lz: number): [number, number] {
+    const c = Math.cos(l.heading)
+    const s = Math.sin(l.heading)
+    return [l.x + lx * c + lz * s, l.z - lx * s + lz * c]
+  }
+  /** 俯視的外框：艦艉兩角、跳板末端兩角 */
+  function outline(l: { x: number; z: number; heading: number }): [number, number][] {
+    return [[-HW, STERN], [HW, STERN], [HW, -LST_RAMP_REACH], [-HW, -LST_RAMP_REACH]]
+      .map(([x, z]) => toWorld(l, x!, z!))
+  }
+  /** 兩個凸四邊形在俯視上隔開 `gap` 以上（分離軸） */
+  function separated(a: [number, number][], b: [number, number][], gap: number): boolean {
+    for (const poly of [a, b]) {
+      for (let i = 0; i < 4; i++) {
+        const [x0, z0] = poly[i]!
+        const [x1, z1] = poly[(i + 1) % 4]!
+        const len = Math.hypot(x1 - x0, z1 - z0)
+        const nx = (z1 - z0) / len
+        const nz = -(x1 - x0) / len
+        const proj = (p: [number, number][]): [number, number] => {
+          const v = p.map(([x, z]) => x * nx + z * nz)
+          return [Math.min(...v), Math.max(...v)]
+        }
+        const [a0, a1] = proj(a)
+        const [b0, b1] = proj(b)
+        if (b0 - a1 >= gap || a0 - b1 >= gap) return true
+      }
+    }
+    return false
+  }
+
+  it('公路起點兩側各五艘', () => {
+    expect(LEYTE_LSTS.length).toBe(10)
+    expect(LEYTE_LSTS.filter((l) => l.x < BEACHHEAD.x).length).toBe(5)
+  })
+
+  it('跳板末端落在水線上、艦艉泡在水裡 —— 艏向寫反的話是艦艉擱上沙灘、艦艏朝海', () => {
+    for (const l of LEYTE_LSTS) {
+      const [tx, tz] = toWorld(l, 0, -LST_RAMP_REACH)
+      expect(Math.abs(tz - coastZ(tx)), `${l.x},${l.z}`).toBeLessThan(1)
+      const [sx, sz] = toWorld(l, 0, STERN)
+      expect(baseHeight(sx, sz)).toBeLessThan(-2)
+    }
+  })
+
+  it('船與船之間隔開 20 m 以上', () => {
+    for (let i = 0; i < LEYTE_LSTS.length; i++) {
+      for (let j = i + 1; j < LEYTE_LSTS.length; j++) {
+        expect(separated(outline(LEYTE_LSTS[i]!), outline(LEYTE_LSTS[j]!), 20), `${i}-${j}`).toBe(true)
+      }
+    }
+  })
+
+  it('離公路 40 m 以上、離灘頭砲位 150 m 以上', () => {
+    for (const l of LEYTE_LSTS) {
+      for (const [x, z] of outline(l)) expect(distanceToRoad(x, z)).toBeGreaterThan(40)
+      for (const f of LEYTE_FLAK_SITES) expect(Math.hypot(f.x - l.x, f.z - l.z)).toBeGreaterThan(150)
+    }
   })
 })

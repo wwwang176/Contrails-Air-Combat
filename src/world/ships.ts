@@ -19,7 +19,7 @@ import type { Team } from './World'
  * 與 `shipAA.ts` 一致：X 橫向（+X 右舷）、**Y 上**、**−Z 艦首**，原點在
  * 水線 × 艦體中點 × 中線。艏向 0 = 朝 −Z。
  */
-export type ShipClassId = 'essex' | 'fletcher' | 'wichita'
+export type ShipClassId = 'essex' | 'fletcher' | 'wichita' | 'lst'
 
 /** 艦級的靜態資料。一個艦級一筆，所有同型艦共用。 */
 export interface ShipClass {
@@ -285,6 +285,27 @@ export const SHIP_CLASSES: Readonly<Record<ShipClassId, ShipClass>> = {
     // 舷側裝甲帶 6 吋
     armour: 152,
     zones: SHIP_AA_ZONES.wichita!,
+  },
+  // 【搶灘擱淺的，不會動】日 M2 灘頭一排（`world/leyte.ts` 的 `LEYTE_LSTS`）。
+  // 數字照 `tools/blender/build_lst.py`：水線在龍骨上 1.5、主甲板 6.67、
+  // 艦艏端 z −45（再往前是放下的跳板，不進盒）、艦艉 +50.3
+  lst: {
+    id: 'lst',
+    name: 'LST 戰車登陸艦',
+    url: '/models/lst.glb',
+    hull: [
+      // 艦體：到主甲板為止 —— 艏樓的 40 mm 與 20 mm 砲口在 8.6 以上
+      box([-7.61, -1.5, -45.0], [7.61, 6.67, 50.3]),
+      // 艉部甲板室與駕駛台。最近的砲位是艉 40 mm（z 49.7），在盒外
+      box([-6.0, 6.67, 19.5], [6.0, 11.2, 39.5]),
+    ],
+    radius: 0,
+    aimPoints: [],
+    // 一架疾風兩枚 250 kg（9,300）都直擊才沉。**起始值，由試飛裁定**
+    hp: 18_000,
+    // 沒有裝甲，船殼是 3/8 吋級的鋼板
+    armour: 10,
+    zones: SHIP_AA_ZONES.lst!,
   },
 }
 

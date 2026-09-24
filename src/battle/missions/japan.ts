@@ -3,7 +3,7 @@ import { F4F4 } from '../../specs/f4f4'
 import { F6F5 } from '../../specs/f6f5'
 import { KI84_BOMB_LOADOUT } from '../../weapons/stores'
 import { GROUND_FLAK_SPEC } from '../../world/shipGuns'
-import { EVACUATE_Z, LEYTE_FLAK_SITES, LEYTE_ROAD } from '../../world/leyte'
+import { EVACUATE_Z, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_ROAD } from '../../world/leyte'
 import { KI84 } from '../../specs/ki84'
 import { A6M5 } from '../../specs/a6m5'
 import { G4M } from '../../specs/g4m'
@@ -41,6 +41,19 @@ const GUADALCANAL_FLEET: MissionFleet = {
     { cls: 'fletcher', team: 'red', offset: new Vector3(-300, 0, 900) },
     { cls: 'fletcher', team: 'red', offset: new Vector3(300, 0, 900) },
   ],
+}
+
+/**
+ * 雷伊泰灘頭搶灘的 LST，**美軍、紅隊、不會動**。位置與艏向在
+ * `world/leyte.ts` 的 `LEYTE_LSTS`；中心在原點、整隊艏向 0，偏移就是世界座標。
+ */
+const LEYTE_LST_FLEET: MissionFleet = {
+  center: new Vector3(0, 0, 0),
+  heading: 0,
+  speed: 0,
+  ships: LEYTE_LSTS.map((l) => ({
+    cls: 'lst' as const, team: 'red' as const, offset: new Vector3(l.x, 0, l.z), heading: l.heading,
+  })),
 }
 
 /** 日本線的三關。**這一條線的卡片只住在這裡。** */
@@ -117,6 +130,9 @@ export const JAPAN: readonly MissionCard[] = [
       ground: LEYTE_FLAK_SITES.map((s): GroundEntry => ({
         unit: s.unit, team: 'red', x: s.x, z: s.z, heading: 0,
       })),
+      // 【灘頭搶灘的 LST】不會動的船：撞得到、打得沉、防空砲會開火。沒有
+      // `vital`、沒有 `sinkCount` —— 不是任務目標，沉幾艘都不影響勝負
+      fleet: LEYTE_LST_FLEET,
       /**
        * 【90 mm 配 SCR-584 雷達射控】比德軍的 88 準：引信誤差由 ±6% 壓到 ±2%、
        * 射速 20 發/分、單朵雲重一點。在任務高度 1,500 m 真的打得到人。

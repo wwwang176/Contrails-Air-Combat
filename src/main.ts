@@ -3649,7 +3649,7 @@ if (initialRecoveryFailure !== null) {
   // 撞上還沒載好的樣板
   //
   // 【進度是檔數】每載完一支 GLB 推一格，三類加起來是 100%。字寫目前在載哪一類
-  const shipIds = ['essex', 'wichita', 'fletcher'] as const
+  const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
   const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length
   let filesDone = 0
   let fileLabel = ''

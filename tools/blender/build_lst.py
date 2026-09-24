@@ -1,14 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 LST-1 級戰車登陸艦，擱淺在雷伊泰灘頭：艦艏兩扇蚌殼門打開、跳板放下。
+遊戲裡是一艘**不會動的船**（`world/ships.ts` 的 `lst`）：船體盒、血量、防空砲位
+都照其他三艘的規矩。
 
-用法（Blender 5.x）：**先執行 `build_ground.py`**（工具函式、材質、集合都在
-那裡），再
+用法（Blender 5.x）：
     exec(open(r'tools/blender/build_lst.py', encoding='utf-8').read())
-建完 `LOG_LST` 裡有三角形數與尺寸；`export_lst()` 匯出 models-src/lst.glb。
+工具函式、`mk` 與集合來自 `build_ground.py`，還沒載入的話這支自己先執行它。
+建完 `LOG_LST` 裡有三角形數、尺寸、艦體座標的包圍盒與 `empl`（防空砲位，
+`export_ship_aa.py` 讀它）；`export_lst()` 匯出 models-src/lst.glb。
 
-座標與 `build_ground.py` 相同：Blender 系 X 橫向、**+Y 艦艏**、Z 上、龍骨最低點
-z = 0、中線 x = 0。
+座標：建模時與 `build_ground.py` 相同 —— Blender 系 X 橫向、**+Y 艦艏**、Z 上、
+龍骨最低點 z = 0、中線 x = 0。**匯出時整艘下移 `WATERLINE`**，GLB 的原點落在
+水線 × 艦體中點 × 中線，與其他船同一套（遊戲把船的原點放在海面上）。
+
+【顏色就是 GLB 的顏色】船的 GLB 在遊戲裡照原樣畫，不像地面單位照材質名重貼，
+所以材質的顏色要填真的（`srgb`），與 `build_fletcher.py` 同一套色號。
 
 ── 參考模型的量法 ──────────────────────────────────────────────
   參考模型是整支 1:1 公分、帶骨架變形的網格：頂點要取**變形後**的
@@ -29,14 +36,28 @@ z = 0、中線 x = 0。
 import bpy, bmesh, math, os
 from mathutils import Vector, Matrix
 
-REPO = r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\jp-m2"
+REPO = globals().get('REPO_ROOT', r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\jp-m2")
 OUT_DIR_LST = os.path.join(REPO, "models-src")
 LOG_LST = {}
+if 'mk' not in globals():
+    exec(open(os.path.join(REPO, 'tools', 'blender', 'build_ground.py'), encoding='utf-8').read(), globals())
 
-M_HULL = mat('LP_NavyGrey', (0.100, 0.110, 0.120))
-M_DECK = mat('LP_ShipDeck', (0.060, 0.062, 0.058))
-M_HOLD = mat('LP_Hold',     (0.008, 0.008, 0.009))
-M_RAFT = mat('LP_Raft',     (0.160, 0.140, 0.080))
+# 【水線】龍骨往上 1.5 m：艦艏龍骨（1.45）剛好貼著水面，跳板末端（1.3）沒入
+# 水下 0.2 m —— 艦艏停在水線外、跳板搭上沙灘的樣子
+WATERLINE = 1.5
+
+
+def srgb(h):
+    r, g, b = ((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255
+    f = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    return (f(r), f(g), f(b))
+
+
+M_HULL = mat('LST_Body',  srgb(0x565f66))    # 舷側灰（Measure 21），與 Fletcher 同色
+M_DECK = mat('LST_Deck',  srgb(0x3b3b39))    # 鋼甲板
+M_HOLD = mat('LST_Hold',  srgb(0x141618))    # 開口與窗
+M_RAFT = mat('LST_Raft',  srgb(0x7d7357))    # 救生筏的帆布
+M_GUNS = mat('LST_Steel', srgb(0x4a4f55))    # 砲管、砲架
 
 
 # ═══════════════════════════ 工具 ═══════════════════════════
@@ -167,9 +188,9 @@ EDGE = [(y, w, zd) for (y, k, zd, b, _, w) in HULL] + [(y, w, zt) for (y, w, zt)
 OPEN_Z0 = 2.5
 mk('LST_Opening', *box(0, 45.04, (OPEN_Z0 + HOOD_Z0) / 2, 7.4, 0.08, HOOD_Z0 - OPEN_Z0), C, M_HOLD)
 
-# 跳板：鉸鏈在開口底 (y 45.3, z 2.5)，放下 8.5 m 斜到 (y 53.5, z 0.3)。
-# 末端板底要在 z 0 之上 —— 整艘船的底面以龍骨為準
-RAMP_A, RAMP_B, RAMP_HW = Vector((0, 45.3, OPEN_Z0)), Vector((0, 53.5, 0.3)), 2.35
+# 跳板：鉸鏈在開口底 (y 45.3, z 2.5)，放下 8.2 m 斜到 (y 53.5)，末端沒入水線下 0.2 m。
+# `world/leyte.ts` 的 `LST_RAMP_REACH` 是艦體中點到這個末端的距離
+RAMP_A, RAMP_B, RAMP_HW = Vector((0, 45.3, OPEN_Z0)), Vector((0, 53.5, WATERLINE - 0.2)), 2.35
 mk('LST_Ramp', *slab([(-RAMP_HW, RAMP_A.y, RAMP_A.z), (RAMP_HW, RAMP_A.y, RAMP_A.z),
                       (RAMP_HW, RAMP_B.y, RAMP_B.z), (-RAMP_HW, RAMP_B.y, RAMP_B.z)], 0.25), C, M_DECK)
 
@@ -259,6 +280,9 @@ TUBS = [
     ('FwdR',    3.0, 43.4, 1.0, 10.0, 11.0, '20', 20),
 ]
 EL_40, EL_20 = 20.0, 30.0
+# 防空砲位：(層, 口徑 mm, 砲口 x, y, z, 管數)，**艦體座標**（z 由水線起算）。
+# `export_ship_aa.py` 讀它產生 `src/world/shipAA.ts`
+EMPL = []
 for (name, x, y, r, z0, z1, kind, yaw) in TUBS:
     depth = min(1.0, z1 - z0 - 0.1)
     mk('LST_Tub_' + name, *hex_cup(x, y, z0, z1, r, depth=depth), C, M_HULL)
@@ -269,19 +293,23 @@ for (name, x, y, r, z0, z1, kind, yaw) in TUBS:
         el = math.radians(EL_40)
         d = fwd * math.cos(el) + Vector((0, 0, math.sin(el)))
         piv = Vector((x, y, zf + 0.75))
-        mk('LST_Gun40Mount_' + name, *box(x, y, zf + 0.4, 1.1, 1.1, 0.8), C, M_STEEL)
+        mk('LST_Gun40Mount_' + name, *box(x, y, zf + 0.4, 1.1, 1.1, 0.8), C, M_GUNS)
         for k, off in enumerate((-0.25, 0.25)):
             p = piv + side * off
-            mk('LST_Gun40Barrel_%s%d' % (name, k), *rod(p, p + d * 2.6, 0.06, seg=5), C, M_STEEL)
+            mk('LST_Gun40Barrel_%s%d' % (name, k), *rod(p, p + d * 2.6, 0.06, seg=5), C, M_GUNS)
+        m = piv + d * 2.6
+        EMPL.append(('autocannon', 40, round(m.x, 2), round(m.y, 2), round(m.z - WATERLINE, 2), 2))
     else:
         el = math.radians(EL_20)
         d = fwd * math.cos(el) + Vector((0, 0, math.sin(el)))
         piv = Vector((x, y, zf + 1.0))
-        mk('LST_Gun20Post_' + name, *cyl(x, y, zf + 0.5, 0.1, 1.0, axis='Z', seg=5), C, M_STEEL)
-        mk('LST_Gun20Barrel_' + name, *rod(piv - d * 0.4, piv + d * 1.6, 0.04, seg=5), C, M_STEEL)
+        mk('LST_Gun20Post_' + name, *cyl(x, y, zf + 0.5, 0.1, 1.0, axis='Z', seg=5), C, M_GUNS)
+        mk('LST_Gun20Barrel_' + name, *rod(piv - d * 0.4, piv + d * 1.6, 0.04, seg=5), C, M_GUNS)
         sh = piv + d * 0.1
         mk('LST_Gun20Shield_' + name, *slab([tuple(sh - side * 0.35 - Vector((0, 0, 0.3))), tuple(sh + side * 0.35 - Vector((0, 0, 0.3))),
-                                             tuple(sh + side * 0.35 + Vector((0, 0, 0.3))), tuple(sh - side * 0.35 + Vector((0, 0, 0.3)))], 0.03), C, M_STEEL)
+                                             tuple(sh + side * 0.35 + Vector((0, 0, 0.3))), tuple(sh - side * 0.35 + Vector((0, 0, 0.3)))], 0.03), C, M_GUNS)
+        m = piv + d * 1.6
+        EMPL.append(('mg', 20, round(m.x, 2), round(m.y, 2), round(m.z - WATERLINE, 2), 1))
 
 # ═══════════════════════════ 收尾與量測 ═══════════════════════════
 LAYOUT_X_LST = 80.0
@@ -296,7 +324,10 @@ LOG_LST = {
     'tris': sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in objs),
     'size_xyz': [round(hi[i] - lo[i], 3) for i in range(3)],
     'min_z': round(lo.z, 3),
-    'hitbox': game_box(objs),
+    # 艦體座標（原點在水線）的整艘包圍盒，遊戲的軸向 (x, z − WATERLINE, −y)
+    'bounds': [[round(lo.x, 2), round(lo.z - WATERLINE, 2), round(-hi.y, 2)],
+               [round(hi.x, 2), round(hi.z - WATERLINE, 2), round(-lo.y, 2)]],
+    'empl': EMPL,
 }
 for ob in objs:
     ob.location.x = LAYOUT_X_LST
@@ -328,13 +359,14 @@ def bake_ref_lst(root_name, keep_prefix):
 
 
 def export_lst():
-    """匯出 lst.glb。位移歸零再匯，理由與 `export_all` 相同。"""
+    """匯出 lst.glb。排開看用的位移歸零、整艘下移 `WATERLINE` 再匯 ——
+    `export_apply` 把世界變換烘進頂點，原點因此落在水線。"""
     win = bpy.context.window_manager.windows[0]
     area = next(a for a in win.screen.areas if a.type == 'VIEW_3D')
     region = next(r for r in area.regions if r.type == 'WINDOW')
     objs = list(bpy.data.collections['LP_LST'].objects)
     for o in objs:
-        o.location.x = 0.0
+        o.location = (0.0, 0.0, -WATERLINE)
     for o in bpy.context.view_layer.objects:
         o.select_set(False)
     with bpy.context.temp_override(window=win, area=area, region=region):
@@ -348,7 +380,7 @@ def export_lst():
             export_normals=False, export_texcoords=False,
         )
     for o in objs:
-        o.location.x = LAYOUT_X_LST
+        o.location = (LAYOUT_X_LST, 0.0, 0.0)
     return {'path': path, 'bytes': os.path.getsize(path)}
 
 

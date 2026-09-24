@@ -354,6 +354,60 @@ export const LEYTE_FLAK_SITES: readonly {
   { unit: 'usFlakTrack', x: -1346, z: 1033 },
 ]
 
+/**
+ * 灘頭搶灘的 LST：公路起點兩側各 `LST_PER_SIDE` 艘並排。它們是**不會動的船**
+ * （`world/ships.ts` 的 `lst`）：撞得到、打得沉、防空砲會開火，但不是任務目標。
+ *
+ * `x, z` 是船的原點（水線 × 艦體中點），`heading` 是艏向（rad，0 = 朝 −Z，與
+ * `createShip` 同一套）。艦艏朝岸線在那一點的內法線 —— 每艘各自垂直於腳下那
+ * 一段岸；放下的跳板末端剛好落在水線上。
+ *
+ * 【沿岸線量間距】第一艘離公路起點 `LST_ROAD_GAP`、之後每 `LST_SPACING` 一艘，
+ * 都是沿岸線的弧長。量 x 的話岸線斜的那一側（斜率到 0.5）會擠在一起。
+ */
+export interface LeyteLst { readonly x: number; readonly z: number; readonly heading: number }
+const LST_PER_SIDE = 5
+const LST_ROAD_GAP = 90
+const LST_SPACING = 50
+/** 艦體中點到跳板末端，m（`tools/blender/build_lst.py` 的跳板末端在艦體座標 z −53.5） */
+export const LST_RAMP_REACH = 53.5
+
+function coastSlope(x: number): number {
+  return (coastZ(x + 1) - coastZ(x - 1)) / 2
+}
+
+/** 由 x0 沿岸線往 `sign` 那一側走 `arc` 公尺弧長，回傳那一點的 x */
+function walkCoast(x0: number, sign: number, arc: number): number {
+  const STEP = 1
+  let x = x0
+  let s = 0
+  while (s < arc) {
+    s += Math.hypot(STEP, coastSlope(x + sign * STEP / 2) * STEP)
+    x += sign * STEP
+  }
+  return x
+}
+
+export const LEYTE_LSTS: readonly LeyteLst[] = /* @__PURE__ */ (() => {
+  const out: LeyteLst[] = []
+  for (const sign of [-1, 1]) {
+    for (let i = 0; i < LST_PER_SIDE; i++) {
+      const x = walkCoast(BEACHHEAD.x, sign, LST_ROAD_GAP + i * LST_SPACING)
+      // 陸地在 z > coastZ(x)：內法線是 (−c′, 1) 正規化
+      const s = coastSlope(x)
+      const len = Math.hypot(s, 1)
+      const dirX = -s / len
+      const dirZ = 1 / len
+      // 艏向 h 的艦艏朝 (−sin h, −cos h)，要等於 (dirX, dirZ)
+      out.push({
+        x: x - dirX * LST_RAMP_REACH, z: coastZ(x) - dirZ * LST_RAMP_REACH,
+        heading: Math.atan2(-dirX, -dirZ),
+      })
+    }
+  }
+  return out
+})()
+
 /** 這一點到**車隊那一條**公路中線的最短距離，m */
 export function distanceToRoad(x: number, z: number): number {
   let best = Infinity
