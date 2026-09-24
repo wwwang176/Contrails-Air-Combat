@@ -105,8 +105,8 @@ export const JAPAN: readonly MissionCard[] = [
        */
       vehicleConvoy: {
         route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30, batchGap: 600,
-        // 【卡車與雪曼車頂的 .50】美軍車隊遇到低空掃射會還擊，不是只有防空車在打
-        armed: ['usTruck', 'usTank'],
+        // 【雪曼車頂的 .50】戰車會還擊；卡車不還手，火力只有雪曼與 M16
+        armed: ['usTank'],
         batches: [
           { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
           { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
