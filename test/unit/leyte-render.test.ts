@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { buildLeyteBeach } from '../../src/render/leyteBeach'
+import { preloadGroundModels } from '../../src/render/geometry/ground'
 import { Color, type BufferGeometry, type Mesh } from 'three'
 import {
   createLeyte, FIELD_HALF, LEYTE_MASSIFS, LEYTE_ROAD, LEYTE_ROADS, PLAIN_HEIGHT, ROAD_TREE_CLEAR, SAND_TOP,
@@ -322,7 +325,41 @@ describe('樹冠圖', () => {
   })
 })
 
+/** 灘頭佈景裡的車用地面單位的 GLB 樣板 —— 瀏覽器開場載，這裡直接讀 `public/` */
+async function readPublic(url: string): Promise<ArrayBuffer> {
+  const buf = readFileSync(`public${url}`)
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+}
+
+describe('灘頭的佈景', () => {
+  beforeAll(() => preloadGroundModels(readPublic))
+
+  it('木箱與車都站在地上 —— 每一個頂點都不低於腳下的地面 10 cm 以上', () => {
+    const g = buildLeyteBeach((x, z) => field.sample(x, z))
+    const pos = g.getAttribute('position')
+    let below = 0
+    for (let i = 0; i < pos.count; i += 7) {
+      if (pos.getY(i) < field.sample(pos.getX(i), pos.getZ(i)) - 0.6) below++
+    }
+    // 【容差 0.6 m】車與木箱堆只在中心取一次高度，沙灘的坡在幾公尺內差不到這麼多
+    expect(below).toBe(0)
+    g.dispose()
+  })
+
+  it('一顆網格、三角形數在預算內', () => {
+    const g = buildLeyteBeach((x, z) => field.sample(x, z))
+    const tris = g.getAttribute('position').count / 3
+    // 【上限是防爆量，不是畫質】一顆網格一個 draw call，25 萬面約 27 MB 頂點緩衝。
+    // 擺位的迴圈寫錯（例如重試次數沒擋住）時面數會暴增到這條擋得住的量級
+    expect(tris).toBeGreaterThan(20_000)
+    expect(tris).toBeLessThan(250_000)
+    g.dispose()
+  })
+})
+
 describe('createTerrain("leyte")', () => {
+  beforeAll(() => preloadGroundModels(readPublic))
+
   it('海面在岸線外、陸地在平地上；避障清單是丘陵', () => {
     const t = createTerrain('leyte')
     expect(t.collisionHeightAt(0, -8000)).toBe(0)

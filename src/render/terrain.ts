@@ -17,6 +17,7 @@ import {
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
+import { buildLeyteBeach } from './leyteBeach'
 import { createLeyte, LEYTE_PEAK_MAX } from '../world/leyte'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
@@ -208,6 +209,13 @@ function createLeyteTerrain(): Terrain {
   group.add(ocean.mesh)
   group.add(ground.object)
   group.add(flora.object)
+  // 【灘頭的佈景排第五個】前四個是索引契約（見上）。木箱堆與停著的車合併成
+  // 一顆網格，材質與洛伊納的佈景相同
+  const beach = new Mesh(
+    buildLeyteBeach((x, z) => field.sample(x, z)),
+    new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }),
+  )
+  group.add(beach)
 
   return {
     object: group,
@@ -242,6 +250,8 @@ function createLeyteTerrain(): Terrain {
       ocean.dispose()
       ground.dispose()
       flora.dispose()
+      beach.geometry.dispose()
+      ;(beach.material as MeshStandardMaterial).dispose()
     },
   }
 }
