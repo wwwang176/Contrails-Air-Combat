@@ -27,10 +27,11 @@ GLB 裡的顏色只給 Blender 看，遊戲照名字重貼。名字對不上載�
   Flak 38   1:1 公尺。砲管抬 30°；護盾也在迴旋座上不隨仰角動（它的前緣越高越
             往後、砲身組越高越往前，兩者不是同一個剛體），本身後傾約 15°。
 """
-import bpy, math, os
+import bpy, bmesh, math, os
 from mathutils import Vector
 
-ROOT = r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\model-building-2"
+# 【匯出到哪一份 repo】執行前在 globals 放 `REPO_ROOT` 就用它；沒放用這個預設
+ROOT = globals().get('REPO_ROOT', r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\model-building-2")
 OUT_DIR = os.path.join(ROOT, "models-src")
 LOG = {}
 
@@ -58,12 +59,21 @@ def mat(name, rgb):
 
 
 def mk(name, verts, faces, col, material):
+    """建一個零件。**面一律轉成朝外**：`loft`／`cyl`／`band`／`slab` 的繞向隨
+    站點先後、軸向、加厚方向而不同，而遊戲的材質是單面的 —— 朝內的面會被
+    剔掉，從外面看就是缺了那一面、看到另一側的內面。每個零件都是封閉網格，
+    `recalc_face_normals` 算得出哪邊是外面。"""
     old = bpy.data.objects.get(name)
     if old:
         bpy.data.objects.remove(old, do_unlink=True)
     me = bpy.data.meshes.new(name)
     me.from_pydata(list(verts), [], list(faces))
     me.validate()
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me)
+    bm.free()
     for p in me.polygons:
         p.use_smooth = False
     ob = bpy.data.objects.new(name, me)
