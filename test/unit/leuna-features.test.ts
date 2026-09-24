@@ -436,12 +436,11 @@ describe('史實的村形', () => {
    * 【建築不穿插】量的是牆的外框（有向矩形，分離軸），不是佔位圓 —— 圓在長條的
    * 穀倉上太寬鬆，同一座農莊的側屋與後面的穀倉穿插過 3.4 m。
    *
-   * 村：任兩棟都不相交。鎮：連棟街屋一棟貼一棟、正面共用端點，彎街內側相鄰的
-   * 兩棟背面會咬到一點（同向、0.3 m 以內）；正面照彎之前的面寬排的話咬到 1 m，
-   * 兩棟的正面幾乎共平面，拉遠會閃。**斜交的一律不得相交** —— 老城與外圍兩套
-   * 格線夾一個角度，交界那一圈會斜插進彼此。
+   * 村與鎮任兩棟都不相交，分開量：村、鎮上斜交、鎮上同向。同向的是連棟街屋，
+   * 咬到的話兩棟的正面幾乎共平面，拉遠會閃；斜交的是轉角與後屋。鎮上的面寬倍率
+   * 要無條件捨去（`settlements.ts` 的 `build`），四捨五入的話量化後寬出一點點。
    */
-  it('任兩棟建築的牆不相交（鎮上同向的連棟街屋咬 0.3 m 以內）', () => {
+  it('任兩棟建築的牆不相交', () => {
     const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
     const rects: { x: number; z: number; ax: number; az: number; hw: number; hd: number; town: boolean }[] = []
     for (const b of Bfull) {
@@ -492,7 +491,7 @@ describe('史實的村形', () => {
     expect(rects.filter((r) => r.town).length).toBeGreaterThan(10_000)
     expect(worst.village, at.village).toBeLessThan(0.05)
     expect(worst.skew, at.skew).toBeLessThan(0.05)
-    expect(worst.aligned, at.aligned).toBeLessThan(0.3)
+    expect(worst.aligned, at.aligned).toBeLessThan(0.05)
   })
 
   /** 【院子後面與村外有樹】果園、花園、教堂墓園 */
