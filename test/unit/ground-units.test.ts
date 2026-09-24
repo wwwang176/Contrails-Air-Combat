@@ -81,6 +81,35 @@ async function meshesOf(u: GroundUnit): Promise<{ node: string; pos: BufferAttri
   return out
 }
 
+/**
+ * GLB 每一個節點（一個封閉零件，**含砲管**）的有號體積，m³。負的就是面朝內 ——
+ * 材質是單面的，朝內的面會被剔掉，從外面看缺了那一面、看到另一側的內面。
+ */
+async function partVolumes(glb: string): Promise<{ node: string; vol: number }[]> {
+  const scene = await new Promise<Object3D>((res, rej) => {
+    readPublic(glb).then((buf) => createGltfLoader().parse(buf, '', (g) => res(g.scene), rej), rej)
+  })
+  scene.updateMatrixWorld(true)
+  const out: { node: string; vol: number }[] = []
+  scene.traverse((o: Object3D) => {
+    const mesh = o as Mesh
+    if (!mesh.isMesh) return
+    const g = mesh.geometry.clone()
+    g.applyMatrix4(mesh.matrixWorld)
+    const pos = g.getAttribute('position')
+    const idx = g.getIndex()
+    const n = idx !== null ? idx.count : pos.count
+    const at = (i: number): Vector3 => {
+      const k = idx !== null ? idx.getX(i) : i
+      return new Vector3(pos.getX(k), pos.getY(k), pos.getZ(k))
+    }
+    let vol = 0
+    for (let i = 0; i < n; i += 3) vol += at(i).dot(at(i + 1).cross(at(i + 2))) / 6
+    out.push({ node: mesh.name, vol })
+  })
+  return out
+}
+
 /** 點在盒內（含邊界、容差 1 cm）。 */
 function inside(x: number, y: number, z: number, u: GroundUnit): boolean {
   for (const b of u.hull) {
@@ -115,6 +144,15 @@ describe('地面單位', () => {
 
   for (const u of GROUND_UNITS) {
     describe(u.name, () => {
+      if ('glb' in u.model) {
+        const glb = u.model.glb
+        it('每一個零件的面都朝外（有號體積為正）', async () => {
+          const parts = await partVolumes(glb)
+          expect(parts.length).toBeGreaterThan(0)
+          for (const p of parts) expect(p.vol, p.node).toBeGreaterThan(0)
+        })
+      }
+
       it('底面貼在 y = 0', () => {
         // 5 cm 的容差：輪胎與履帶的圓周分段會讓最低點略高於理論值。
         expect(boundsOf(u).min.y).toBeGreaterThan(-0.01)
