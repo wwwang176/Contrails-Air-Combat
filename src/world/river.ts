@@ -176,16 +176,39 @@ function hashEnd(name: string, x: number, z: number): number {
 }
 
 /**
+ * 某一個河端不照預設規則走。**沒列的河端照預設**：往最近的地圖邊流出去。
+ *
+ * 【為什麼要有】沿著地圖邊流的支流兩端都碰得到邊，預設規則會讓它兩端都各自
+ * 流出去 —— 下游那一端變成一條與主流並排走 60 km 的假河。
+ */
+export interface RiverEndRule {
+  /** 河端的位置，m。離它 `END_MATCH` 以內的那一端套用 */
+  readonly at: readonly [number, number]
+  /** 在延伸段上匯入這一條河（河名）。給了就不自己往外流 */
+  readonly joins?: string
+  /** 往這個方位流出去，rad：0 = 北（−Z）、正 = 往東（+X）。不給就朝最近的地圖邊 */
+  readonly bearing?: number
+}
+
+/** 規則的 `at` 離河端多近才算同一端，m */
+const END_MATCH = 500
+/** 匯流口在主流延伸段的下游多遠，m */
+export const JOIN_DOWNSTREAM = 3000
+
+/**
  * 伸到地圖邊緣的河端往外編一段河道。
  *
  * `half` 是細節地形的半邊長；端點的 x 或 z 離 `±half` 在 `EDGE_TOUCH` 以內才延伸。
- * 起點就是端點、第一步是端點的切線（兩段水面接得上）；之後轉進「從地圖中心
- * 射出的主方向 ＋ 長波慢擺 ＋ 短波蜿蜒」。
+ * 起點就是端點、第一步是端點的切線（兩段水面接得上）；之後轉進「主方向 ＋ 長波
+ * 慢擺 ＋ 短波蜿蜒」。`rules` 可以讓某一端改方位，或改成匯入另一條河。
  *
  * 【河道是編的】沒有真實資料 —— 從地圖內看出去只要它繼續、彎得自然、淡進霧裡。
  */
-export function extendRivers(lines: readonly WaterLine[], half: number, sample: HeightSampler): WaterLine[] {
+export function extendRivers(
+  lines: readonly WaterLine[], half: number, sample: HeightSampler, rules: readonly RiverEndRule[] = [],
+): WaterLine[] {
   const out: WaterLine[] = []
+  const joins: { line: WaterLine; end: number; into: string }[] = []
   for (const line of lines) {
     const n = line.points.length
     if (n < 2) continue
@@ -194,19 +217,27 @@ export function extendRivers(lines: readonly WaterLine[], half: number, sample: 
       const ax = Math.abs(p[0])
       const az = Math.abs(p[1])
       if (Math.max(ax, az) < half - EDGE_TOUCH) continue
-      // 出圖法線：離哪一條邊近就朝哪一邊
-      const nx = ax >= az ? Math.sign(p[0]) : 0
-      const nz = ax >= az ? 0 : Math.sign(p[1])
+      const rule = rules.find((r) => Math.hypot(r.at[0] - p[0], r.at[1] - p[1]) <= END_MATCH)
+      if (rule?.joins !== undefined) {
+        joins.push({ line, end, into: rule.joins })
+        continue
+      }
+      // 出圖方向：指定方位，或離哪一條邊近就朝哪一邊
+      const nx = rule?.bearing !== undefined ? Math.sin(rule.bearing) : ax >= az ? Math.sign(p[0]) : 0
+      const nz = rule?.bearing !== undefined ? -Math.cos(rule.bearing) : ax >= az ? 0 : Math.sign(p[1])
       const q = line.points[end === 0 ? 1 : n - 2]!
       const tx = p[0] - q[0]
       const tz = p[1] - q[1]
-      // 切線相對法線的角度，逆時針為正
+      // 切線相對出圖方向的角度，逆時針為正
       const a0 = Math.max(-EXTEND_START_TURN, Math.min(EXTEND_START_TURN,
         Math.atan2(nx * tz - nz * tx, nx * tx + nz * tz)))
       // 【主方向是從地圖中心射出的放射線】同一個中心射出去的線只會越離越遠，
       // 而夾角範圍保住次序 —— 同一條邊上的幾條河不會在霧裡打結。它們在邊上
-      // 至少相隔 2 km，短波加長波的左右擺幅每條最多約 1 km
-      const radial = Math.atan2(nx * p[1] - nz * p[0], nx * p[0] + nz * p[1])
+      // 至少相隔 2 km，短波加長波的左右擺幅每條最多約 1 km。指定了方位的
+      // 就直直朝那個方位
+      const radial = rule?.bearing !== undefined
+        ? 0
+        : Math.atan2(nx * p[1] - nz * p[0], nx * p[0] + nz * p[1])
       const base = Math.max(-EXTEND_BASE_TURN, Math.min(EXTEND_BASE_TURN, radial))
       const rand = makeRand(hashEnd(line.name, p[0], p[1]))
       const pick = (r: readonly [number, number]): number => r[0] + rand() * (r[1] - r[0])
@@ -248,7 +279,65 @@ export function extendRivers(lines: readonly WaterLine[], half: number, sample: 
       out.push({ name: `${line.name}（延伸）`, points: pts, level, coarse: true })
     }
   }
+  for (const j of joins) {
+    const line = joinInto(j.line, j.end, j.into, out)
+    if (line !== null) out.push(line)
+  }
   return out
+}
+
+/**
+ * 河端出地圖之後匯進主流的延伸段：一條三次貝茲曲線，起點順著河端的切線、
+ * 終點順著主流在匯流口的方向，接在主流下游 `JOIN_DOWNSTREAM` 處。
+ * 主流沒有延伸段（它沒流出地圖）就回 `null`。
+ */
+function joinInto(line: WaterLine, end: number, into: string, exts: readonly WaterLine[]): WaterLine | null {
+  const n = line.points.length
+  const p = line.points[end]!
+  const q = line.points[end === 0 ? 1 : n - 2]!
+  let target: WaterLine | null = null
+  let best = Infinity
+  for (const e of exts) {
+    if (e.name !== `${into}（延伸）`) continue
+    const s = e.points[0]!
+    const d = Math.hypot(s[0] - p[0], s[1] - p[1])
+    if (d < best) { best = d; target = e }
+  }
+  if (target === null) return null
+  const k = Math.min(target.points.length - 2, Math.round(JOIN_DOWNSTREAM / EXTEND_STEP))
+  const p3 = target.points[k]!
+  const a = target.points[k - 1]!
+  const b = target.points[k + 1]!
+  const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+  const sx = (b[0] - a[0]) / tl
+  const sz = (b[1] - a[1]) / tl
+  const ql = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1
+  const ux = (p[0] - q[0]) / ql
+  const uz = (p[1] - q[1]) / ql
+  // 【先順著切線直走一步】曲線上的第一條弦已經在轉彎，接頭外側會裂開一條縫
+  const s0 = [p[0] + ux * EXTEND_STEP, p[1] + uz * EXTEND_STEP] as const
+  const span = Math.hypot(p3[0] - s0[0], p3[1] - s0[1])
+  const p1 = [s0[0] + ux * span * 0.4, s0[1] + uz * span * 0.4]
+  const p2 = [p3[0] - sx * span * 0.4, p3[1] - sz * span * 0.4]
+  const m = Math.max(4, Math.ceil((span * 1.3) / EXTEND_STEP))
+  const l0 = line.level[end]!
+  const l1 = target.level[k]!
+  const pts: [number, number][] = [[p[0], p[1]]]
+  const level: number[] = [l0]
+  for (let i = 0; i <= m; i++) {
+    const t = i / m
+    const u = 1 - t
+    const w0 = u * u * u
+    const w1 = 3 * u * u * t
+    const w2 = 3 * u * t * t
+    const w3 = t * t * t
+    pts.push([
+      w0 * s0[0] + w1 * p1[0]! + w2 * p2[0]! + w3 * p3[0],
+      w0 * s0[1] + w1 * p1[1]! + w2 * p2[1]! + w3 * p3[1],
+    ])
+    level.push(l0 + (l1 - l0) * t)
+  }
+  return { name: `${line.name}（匯流）`, points: pts, level, coarse: true }
 }
 
 /**
