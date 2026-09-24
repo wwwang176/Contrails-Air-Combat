@@ -115,6 +115,8 @@ export const JAPAN: readonly MissionCard[] = [
       // 【開場就有兩架 F6F 在巡邏】生在紅方那一側（灘頭外的海上）朝內陸飛，玩家到
       // 車隊上空時會碰上 —— 找車與俯衝的時候就要分心。其餘 F6F 由波次給
       blueCount: 6, redCount: 2,
+      // 【前後排列】四機與雙機兩個小隊前後拉開（`order.ts` 的 `stackedEntry`）
+      blueStacked: true,
       convoyCount: 0, convoyPriority: 1,
       targetDistance: 0, targetRadius: 0, seconds: Infinity,
       entry: 'headOn',

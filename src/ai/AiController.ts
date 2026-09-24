@@ -464,9 +464,9 @@ export class AiController implements Controller {
     setBombBallistics(this.bombDrag, DT_SOLVE)
     // 【掛著彈的整段都保持正飛】理由同對船：倒飛進瞄準帶就投不出去
     out.upright = true
-    // 【落點在殺傷半徑三倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
-    // 三倍比殺傷半徑寬：投得勤、會有落空的，但不會整趟一枚都不放
-    stepBombAim(this.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 3)
+    // 【落點在殺傷半徑兩倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
+    // 兩倍比殺傷半徑寬：會有落空的，但不會整趟一枚都不放
+    stepBombAim(this.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 2)
     if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
     out.bombing = this.bombAim.release && self.state.position.y - t.position.y >= AI_BOMB_MIN_HEIGHT
   }
