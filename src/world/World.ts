@@ -39,6 +39,7 @@ import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
 import {
   BALLOON_ENVELOPE, BALLOON_ENVELOPE_HIT, BALLOON_MISS, BALLOON_REACH, balloonCollision, envelopeCenter,
+  stepBalloons,
   type Balloon,
 } from './balloons'
 import type { GroundTarget } from './groundTargets'
@@ -680,8 +681,10 @@ export class World {
         if (this.hitsShip(c)) this.destroy(c)
       }
     }
-    // 【撞氣球同一個位置】鋼索與氣囊都擋飛機；撞上氣囊的話氣球也破
+    // 【撞氣球同一個位置】鋼索與氣囊都擋飛機；撞上氣囊的話氣球也破。
+    // 先把氣球擺到這一刻的飄晃位置 —— 碰撞與彈丸讀的都是它
     if (this.balloons.length > 0) {
+      stepBalloons(this.balloons, this.time)
       for (const c of this.combatants) {
         if (!c.alive) continue
         const a = c.aircraft

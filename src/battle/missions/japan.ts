@@ -67,7 +67,7 @@ const LEYTE_BALLOON_ENTRIES: readonly BalloonEntry[] = LEYTE_BALLOONS.map((b): B
   anchor: 'ship' in b.anchor
     ? { ship: b.anchor.ship, deck: new Vector3(LST_BALLOON_DECK.x, LST_BALLOON_DECK.y, LST_BALLOON_DECK.z) }
     : { x: b.anchor.x, z: b.anchor.z },
-  altitude: b.altitude,
+  tether: b.tether,
   heading: b.heading,
 }))
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Quaternion, Vector3 } from 'three'
 import {
   BALLOON_ENVELOPE, BALLOON_ENVELOPE_HIT, BALLOON_MISS, BALLOON_TETHER, BALLOON_TOP,
-  BALLOON_HP, balloonCollision, balloonHills, createBalloon, envelopeCenter, syncBalloonHills,
+  BALLOON_HP, balloonCollision, balloonHills, createBalloon, envelopeCenter, stepBalloons, syncBalloonHills,
 } from '../../src/world/balloons'
 import { boundingRadius, createHitResult } from '../../src/world/hit'
 import { KI84 } from '../../src/specs/ki84'
@@ -28,7 +28,7 @@ const LEVEL = new Quaternion()
 const scratch = createHitResult()
 
 function balloon(): ReturnType<typeof createBalloon> {
-  return createBalloon(0, 'red', 100, 5, 200, 400, 0, true)
+  return createBalloon(0, 'red', 100, 5, 200, 395, 0, true)
 }
 
 describe('鋼索與氣囊擋飛機', () => {
@@ -60,6 +60,47 @@ describe('鋼索與氣囊擋飛機', () => {
 
   it('氣囊盒的中心在匯集點上方', () => {
     expect(BALLOON_ENVELOPE.center.y).toBeGreaterThan(0)
+  })
+})
+
+describe('飄晃', () => {
+  it('同一個時間同一個姿態 —— 重播逐位元相同', () => {
+    const a = balloon()
+    const b = balloon()
+    stepBalloons([a], 37.25)
+    stepBalloons([b], 37.25)
+    expect(a.top.toArray()).toEqual(b.top.toArray())
+    expect(a.orientation.toArray()).toEqual(b.orientation.toArray())
+  })
+
+  it('一直在錨點上方附近擺：水平不超過鋼索長度的兩成、高度差不超過 2 m', () => {
+    const b = createBalloon(3, 'red', 0, 5, 0, 50, 0, true)
+    let moved = 0
+    for (let t = 0; t < 120; t += 0.5) {
+      stepBalloons([b], t)
+      const h = Math.hypot(b.top.x - b.anchor.x, b.top.z - b.anchor.z)
+      expect(h).toBeLessThan(0.2 * 50)
+      expect(Math.abs(b.top.y - (5 + 50))).toBeLessThan(2)
+      moved = Math.max(moved, h)
+    }
+    // 真的有在擺
+    expect(moved).toBeGreaterThan(2)
+  })
+
+  it('擺到斜的鋼索照樣擋飛機', () => {
+    const b = createBalloon(0, 'red', 0, 0, 0, 60, 0, true)
+    stepBalloons([b], 9)
+    const mid = new Vector3().addVectors(b.anchor, b.top).multiplyScalar(0.5)
+    expect(balloonCollision(b, BOXES, mid, LEVEL, R, scratch)).toBe(BALLOON_TETHER)
+  })
+
+  it('破了之後停在破的那一刻', () => {
+    const b = balloon()
+    stepBalloons([b], 3)
+    const at = b.top.clone()
+    b.alive = false
+    stepBalloons([b], 9)
+    expect(b.top.toArray()).toEqual(at.toArray())
   })
 })
 
@@ -113,9 +154,9 @@ describe('雷伊泰灘頭的氣球', () => {
       const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), l.heading)
       const p = new Vector3(LST_BALLOON_DECK.x, LST_BALLOON_DECK.y, LST_BALLOON_DECK.z)
         .applyQuaternion(q).add(new Vector3(l.x, 0, l.z))
-      return createBalloon(i, 'red', p.x, p.y, p.z, b.altitude, b.heading, false)
+      return createBalloon(i, 'red', p.x, p.y, p.z, b.tether, b.heading, false)
     }
-    return createBalloon(i, 'red', a.x, baseHeight(a.x, a.z), a.z, b.altitude, b.heading, true)
+    return createBalloon(i, 'red', a.x, baseHeight(a.x, a.z), a.z, b.tether, b.heading, true)
   })
 
   it('每艘 LST 一顆、地面絞車在陸上而且離公路夠遠', () => {
@@ -135,10 +176,10 @@ describe('雷伊泰灘頭的氣球', () => {
     expect(LST_BALLOON_DECK.y).toBeCloseTo(hull.center.y + hull.half.y, 2)
   })
 
-  it('高度照史實：300 到 450 m', () => {
+  it('雷雨天收在低空：鋼索只放出 30 到 60 m', () => {
     for (const b of LEYTE_BALLOONS) {
-      expect(b.altitude).toBeGreaterThanOrEqual(300)
-      expect(b.altitude).toBeLessThanOrEqual(450)
+      expect(b.tether).toBeGreaterThanOrEqual(30)
+      expect(b.tether).toBeLessThanOrEqual(60)
     }
   })
 
