@@ -1188,9 +1188,9 @@ function placeGround(
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
-    // 【輕型砲也還手】走直射彈那一層，曳光看得見。只有德 M2 有輕砲，規格
-    // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
-    else if (e.unit === 'flakLight') {
+    // 【輕型砲也還手】走直射彈那一層，曳光看得見。規格不逐關複寫 —— 試玩改
+    // `GROUND_LIGHT_FLAK_SPEC` 本身。M16 半履帶車與輕砲同一個火力（日 M2）
+    else if (e.unit === 'flakLight' || e.unit === 'usFlakTrack') {
       t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
     }
     // 【車頂的機槍由條目指定】同一種卡車在別的關可以只是靶
