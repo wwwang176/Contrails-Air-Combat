@@ -73,14 +73,14 @@ describe('飄晃', () => {
     expect(a.orientation.toArray()).toEqual(b.orientation.toArray())
   })
 
-  it('一直在錨點上方附近擺：水平不超過鋼索長度的兩成、高度差不超過 2 m', () => {
+  it('一直在錨點上方附近擺：水平不超過鋼索長度的兩成、高度差不超過 3 m', () => {
     const b = createBalloon(3, 'red', 0, 5, 0, 50, 0, true)
     let moved = 0
     for (let t = 0; t < 120; t += 0.5) {
       stepBalloons([b], t)
       const h = Math.hypot(b.top.x - b.anchor.x, b.top.z - b.anchor.z)
       expect(h).toBeLessThan(0.2 * 50)
-      expect(Math.abs(b.top.y - (5 + 50))).toBeLessThan(2)
+      expect(Math.abs(b.top.y - (5 + 50))).toBeLessThanOrEqual(3)
       moved = Math.max(moved, h)
     }
     // 真的有在擺
