@@ -54,6 +54,11 @@ const WIDTH_RIPPLE = [
 ] as const
 /** 路緣混進草地的過渡寬，m。泥土路沒有一條刀切的邊 */
 const ROAD_EDGE_SOFT = 3
+/**
+ * 路中線的明度，路緣是 1。**越往中間越暗**：車輪壓過的是中間那一段，泥被
+ * 翻起來、積水，路緣是乾的土。由路緣到中線平滑地變暗。
+ */
+const ROAD_CENTER_SHADE = 0.7
 
 /** 一塊方塊幾格邊長。40 × 80 m = 3.2 km */
 export const LEYTE_TILE_CELLS = 40
@@ -194,7 +199,7 @@ export function bakeRoadSegments(): RoadSegmentMap {
  * 公路的 GLSL：查這一格最近的路段（`bakeRoadSegments`），精確算到那一段的距離，
  * 小於那條路在這一點的半寬（標稱 × `widthRipple`）就混泥土色。路緣往內一段是
  * 混進草地的過渡，寬度跟著路寬走；顏色另外疊一層低頻的深淺，泥濘的地方深、乾
- * 的地方淺。
+ * 的地方淺，再由路緣往中線變暗（`ROAD_CENTER_SHADE`）。
  *
  * 【`px` 要夾上限】相鄰兩格記的路段不同時距離可能跳一截 —— 不夾的話 `fwidth`
  * 很大，過渡帶會寬到整條路都變成半透明。
@@ -227,7 +232,8 @@ function roadGlsl(map: RoadSegmentMap): string {
       ? 1.0 - smoothstep(halfW - roadHw * ${soft} - px, halfW + px, roadD)
       : 0.0;
     float mud = 0.88 + 0.12 * sin(0.047 * vRoadXZ.x + 0.029 * vRoadXZ.y) * sin(0.13 * vRoadXZ.y - 0.07 * vRoadXZ.x);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}) * mud, cover);
+    float rut = mix(${ROAD_CENTER_SHADE.toFixed(3)}, 1.0, smoothstep(0.0, max(halfW, 1.0e-3), roadD));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}) * mud * rut, cover);
   }`
 }
 
