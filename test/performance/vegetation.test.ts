@@ -350,6 +350,31 @@ describe('植被引擎', () => {
   })
 
   /**
+   * 【面寬與樓高進矩陣】所有建築共用一個形狀，大小、樓高全靠逐實例的兩個倍率。
+   * 漏乘的話每一棟一樣大，而且沒有錯誤訊息。面寬沿模型的 x 軸、樓高沿 y 軸，
+   * 進深只吃 `scale`。
+   */
+  it('面寬、樓高倍率各自拉長模型的 x、y 軸', () => {
+    const rot = 0.5
+    const one: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+      if (x0 > 5 || x1 <= 5 || z0 > 5 || z1 <= 5) return
+      pushFlora(out, 5, heightAt(5, 5), 5, rot, 1.2, 0.5, FloraKind.Barn, 1.5, 2)
+    }
+    const v = createVegetation([one], FLAT)
+    v.settle()
+    const barn = meshes(v)[POOLS.indexOf('barn')] as InstancedMesh
+    expect(barn.count).toBe(1)
+    const e = (barn.instanceMatrix.array as Float32Array).slice(0, 16)
+    const len = (i: number): number => Math.hypot(e[i]!, e[i + 1]!, e[i + 2]!)
+    expect(len(0)).toBeCloseTo(1.2 * 1.5, 2)
+    expect(len(4)).toBeCloseTo(1.2 * 2, 2)
+    expect(len(8)).toBeCloseTo(1.2, 2)
+    expect(e[0]! / len(0)).toBeCloseTo(Math.cos(rot), 3)
+    expect(e[2]! / len(0)).toBeCloseTo(-Math.sin(rot), 3)
+    v.dispose()
+  })
+
+  /**
    * 【冷啟動不得空白】6 km 圈有 1,812 格。在「這一幀有生新格」時禁止重建
    * 的話，開場與傳送之後植被要等整圈補完才會出現，60 fps 下是好幾秒的
    * 空白。

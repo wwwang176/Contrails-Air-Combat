@@ -4,7 +4,7 @@ import {
   PointsMaterial, Sphere, Vector3, type Object3D,
 } from 'three'
 import {
-  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
+  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, SHAPE_ONE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
   createFloraGeometries, disposeFloraGeometries, POINT_POOLS, pointColorOf,
@@ -1056,6 +1056,7 @@ export function createVegetation(
       work += n
       const data = buf.data
       const kinds = buf.kind
+      const shapes = buf.shape
       const row = (slotLod[s]! + 1) * 2 + slotBush[s]!
       for (let k = 0; k < n; k++) {
         const p = POOL_LUT[kinds[k]! * 10 + row]!
@@ -1085,15 +1086,18 @@ export function createVegetation(
           continue
         }
         const rot = data[o + 3]!
-        // 【就地寫矩陣】只有繞 Y 的旋轉與等比縮放。欄主序，與 `Matrix4.set` 之後
-        // `toArray` 寫出的十六個值逐一相同（第 2 格是 −sn、第 8 格是 sn）
-        const c = Math.cos(rot) * scale
-        const sn = Math.sin(rot) * scale
+        // 【就地寫矩陣】繞 Y 的旋轉，x（面寬）、y（樓高）、z（進深）各自縮放。
+        // 欄主序：第 0 欄是 x 軸轉到 (cos, 0, −sin)、第 2 欄是 z 軸轉到 (sin, 0, cos)
+        // —— 樹的面寬、樓高倍率都是 1，寫出來與等比縮放逐一相同
+        const sx = scale * (shapes[k * 2]! / SHAPE_ONE)
+        const sy = scale * (shapes[k * 2 + 1]! / SHAPE_ONE)
+        const cs = Math.cos(rot)
+        const sn = Math.sin(rot)
         const m = jobMatrix[p]!
         const a16 = at * 16
-        m[a16] = c; m[a16 + 1] = 0; m[a16 + 2] = -sn; m[a16 + 3] = 0
-        m[a16 + 4] = 0; m[a16 + 5] = scale; m[a16 + 6] = 0; m[a16 + 7] = 0
-        m[a16 + 8] = sn; m[a16 + 9] = 0; m[a16 + 10] = c; m[a16 + 11] = 0
+        m[a16] = cs * sx; m[a16 + 1] = 0; m[a16 + 2] = -sn * sx; m[a16 + 3] = 0
+        m[a16 + 4] = 0; m[a16 + 5] = sy; m[a16 + 6] = 0; m[a16 + 7] = 0
+        m[a16 + 8] = sn * scale; m[a16 + 9] = 0; m[a16 + 10] = cs * scale; m[a16 + 11] = 0
         m[a16 + 12] = data[o]!; m[a16 + 13] = data[o + 1]!; m[a16 + 14] = data[o + 2]!; m[a16 + 15] = 1
         // 【明度三通道相同】與 `Color.setRGB(t, t, t)` 在工作色彩空間下寫出的值相同
         const tint = jobTint[p]!

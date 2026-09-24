@@ -25,6 +25,21 @@ export interface ExcludeRect {
   readonly heading?: number
 }
 
+/**
+ * 把 `from` 的第 `i` 筆搬到 `to` 的尾巴。**每一欄都要搬**（位置、種類、形狀）——
+ * 漏一欄的話那一株過一次排除就變了樣，而且不報錯
+ */
+function copyOne(from: FloraBuffer, i: number, to: FloraBuffer): void {
+  if (to.count >= to.capacity) { to.dropped++; return }
+  const o = i * FLORA_STRIDE
+  const d = to.count * FLORA_STRIDE
+  for (let k = 0; k < FLORA_STRIDE; k++) to.data[d + k] = from.data[o + k]!
+  to.kind[to.count] = from.kind[i]!
+  to.shape[to.count * 2] = from.shape[i * 2]!
+  to.shape[to.count * 2 + 1] = from.shape[i * 2 + 1]!
+  to.count++
+}
+
 export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
   let scratch: FloraBuffer | null = null
   const c = Math.cos(rect.heading ?? 0)
@@ -61,11 +76,7 @@ export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
       const x = rx * c + rz * s
       const z = -rx * s + rz * c
       if (x >= rect.x0 && x < rect.x1 && z >= rect.z0 && z < rect.z1) continue
-      if (out.count >= out.capacity) { out.dropped++; continue }
-      const d = out.count * FLORA_STRIDE
-      for (let k = 0; k < FLORA_STRIDE; k++) out.data[d + k] = scratch.data[o + k]!
-      out.kind[out.count] = scratch.kind[i]!
-      out.count++
+      copyOne(scratch, i, out)
     }
     out.dropped += scratch.dropped
   }
@@ -87,11 +98,7 @@ export function excludingWhere(
     for (let i = 0; i < scratch.count; i++) {
       const o = i * FLORA_STRIDE
       if (keepOut(scratch.data[o]!, scratch.data[o + 2]!)) continue
-      if (out.count >= out.capacity) { out.dropped++; continue }
-      const d = out.count * FLORA_STRIDE
-      for (let k = 0; k < FLORA_STRIDE; k++) out.data[d + k] = scratch.data[o + k]!
-      out.kind[out.count] = scratch.kind[i]!
-      out.count++
+      copyOne(scratch, i, out)
     }
     out.dropped += scratch.dropped
   }

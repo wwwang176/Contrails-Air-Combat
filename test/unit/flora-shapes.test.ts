@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Box3, Color, Vector3, type BufferGeometry } from 'three'
 import {
+  BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH,
   createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
   POINT_Y, TREE_HEIGHT, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
@@ -216,11 +217,21 @@ describe('植被與建築的幾何', () => {
     expect(bounds(geo.church).max.y).toBeGreaterThan(bounds(geo.barn).max.y * 2)
   })
 
-  it('穀倉比房子長也比房子高', () => {
-    const h = bounds(geo.house)
-    const b = bounds(geo.barn)
-    expect(b.max.x - b.min.x).toBeGreaterThan(h.max.x - h.min.x)
-    expect(b.max.y).toBeGreaterThan(h.max.y)
+  /**
+   * 【建築只有一種形狀】房子、穀倉、倉庫的大小與樓高由實例各軸縮放決定；四個池
+   * 只差顏色。形狀分家的話，佈置那一側算的牆外框（`BUILDING_WIDTH` 等）就對不上
+   * 畫出來的東西 —— 建築會互相穿插而護欄抓不到
+   */
+  it('四種建築是同一個形狀，尺寸就是 BUILDING_* 那幾個常數', () => {
+    const pos = Array.from(geo.house.getAttribute('position').array)
+    for (const n of ['houseSlate', 'barn', 'barnTar'] as const) {
+      expect([n, Array.from(geo[n].getAttribute('position').array)]).toEqual([n, pos])
+    }
+    const b = bounds(geo.house)
+    // 牆的外框：屋頂四邊各出簷半公尺，所以外接盒比牆各大 1 m
+    expect(b.max.x - b.min.x).toBeCloseTo(BUILDING_WIDTH + 1, 6)
+    expect(b.max.z - b.min.z).toBeCloseTo(BUILDING_DEPTH + 1, 6)
+    expect(b.max.y).toBeCloseTo(BUILDING_WALL + BUILDING_ROOF, 6)
   })
 
   /** 【樹幹與樹冠必須是兩個顏色】材質沒開 vertexColors 的話這一條仍然綠 */
@@ -243,10 +254,10 @@ describe('植被與建築的幾何', () => {
   })
 
   /**
-   * 【換的只有屋頂】石板瓦房與一般房子同一副牆、同樣大小；油毛氈穀倉與穀倉
-   * 也是。牆跟著變的話，一個鎮裡會有一成五的房子是灰牆。
+   * 【同一種牆的兩種屋頂只差屋頂】灰泥牆配新瓦或石板、磚木牆配老瓦或油毛氈。
+   * 牆跟著變的話，一個鎮裡會有一成多的房子是灰牆。
    */
-  it('石板瓦房與油毛氈穀倉只有屋頂的顏色不同', () => {
+  it('同一種牆的兩種屋頂只有屋頂的顏色不同', () => {
     for (const [a, b] of [['house', 'houseSlate'], ['barn', 'barnTar']] as const) {
       const ca = geo[a].getAttribute('color')
       const cb = geo[b].getAttribute('color')

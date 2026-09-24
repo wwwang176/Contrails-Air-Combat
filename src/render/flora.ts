@@ -38,18 +38,33 @@ import {
 /** 一筆的欄位數：x, y, z, rotY, scale, tint */
 export const FLORA_STRIDE = 6
 
+/**
+ * 植被的種類。**建築只有一種形狀**（`floraShapes.ts`），四種建築種類差的只是
+ * 屋頂的料與牆色 —— 房子、穀倉、倉庫都用它，靠大小、樓高、顏色區分。
+ */
 export const enum FloraKind {
   BroadTree = 0,
   ConeTree = 1,
   Bush = 2,
+  /** 新一點的黏土瓦、灰泥牆 */
   House = 3,
+  /** 老黏土瓦（更暗）、磚木牆 */
   Barn = 4,
   Church = 5,
-  /** 石板瓦屋頂的房子：鎮中心、公家建築、大戶人家 */
+  /** 石板瓦、灰泥牆 */
   SlateHouse = 6,
-  /** 油毛氈屋頂的穀倉、倉庫 */
+  /** 油毛氈、磚木牆 */
   TarBarn = 7,
 }
+
+/**
+ * 面寬與樓高的倍率怎麼存：一個位元組，`值 / SHAPE_ONE` 就是倍率（0～3.98）。
+ * 樹一律是 1。
+ *
+ * 【為什麼是位元組不是浮點】tile 快取是 `MAX_PER_TILE × TILE_CACHE` 格，兩個
+ * 浮點要多 6.4 MB，兩個位元組只多 1.6 MB；倍率只要 1/64 的精度。
+ */
+export const SHAPE_ONE = 64
 
 /**
  * 一格 tile 的產出。**呼叫端預配、呼叫端歸零** —— 放置函數只 append，
@@ -58,6 +73,8 @@ export const enum FloraKind {
 export interface FloraBuffer {
   readonly data: Float32Array
   readonly kind: Uint8Array
+  /** 每一筆兩個位元組：面寬、樓高的倍率（見 `SHAPE_ONE`） */
+  readonly shape: Uint8Array
   readonly capacity: number
   count: number
   /** 容量不足丟掉幾筆。**不得靜默截斷** —— 引擎會把它回報出去 */
@@ -68,16 +85,28 @@ export function createFloraBuffer(capacity: number): FloraBuffer {
   return {
     data: new Float32Array(capacity * FLORA_STRIDE),
     kind: new Uint8Array(capacity),
+    shape: new Uint8Array(capacity * 2),
     capacity,
     count: 0,
     dropped: 0,
   }
 }
 
+/** 倍率 → 位元組，夾在 1/64～3.98 */
+function shapeByte(v: number): number {
+  const q = Math.round(v * SHAPE_ONE)
+  return q < 1 ? 1 : q > 255 ? 255 : q
+}
+
+/**
+ * `wide` 是模型 x 軸（面寬）的額外倍率、`tall` 是 y 軸（樓高）的額外倍率，
+ * 乘在 `scale` 之上；z 軸（進深）就是 `scale`。樹不給，兩者都是 1。
+ */
 export function pushFlora(
   out: FloraBuffer,
   x: number, y: number, z: number,
   rot: number, scale: number, tint: number, kind: FloraKind,
+  wide = 1, tall = 1,
 ): void {
   if (out.count >= out.capacity) { out.dropped++; return }
   const o = out.count * FLORA_STRIDE
@@ -88,6 +117,8 @@ export function pushFlora(
   out.data[o + 4] = scale
   out.data[o + 5] = tint
   out.kind[out.count] = kind
+  out.shape[out.count * 2] = shapeByte(wide)
+  out.shape[out.count * 2 + 1] = shapeByte(tall)
   out.count++
 }
 
@@ -469,6 +500,9 @@ const CHURCH_CHANCE = 0.45
 
 /** 有多少比例的建築是穀倉 */
 const BARN_CHANCE = 0.33
+/** 穀倉的面寬與樓高倍率（建築只有一種形狀，見 `floraShapes.ts`） */
+const BARN_WIDE = 1.6
+const BARN_TALL = 1.3
 
 const SEED_A: Vec2 = { x: 0, z: 0 }
 const SEED_B: Vec2 = { x: 0, z: 0 }
@@ -578,10 +612,12 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
         const barn = ((g2 >>> 8) & 0xff) / 256 < BARN_CHANCE
         pushFlora(
           out, x, heightAt(x, z), z,
-          // 【山牆對著路】房子的長軸順著路
+          // 【屋脊順著路】
           Math.atan2(tx, tz), 0.85 + ((g2 & 0xff) / 255) * 0.3,
           (hash1(g2) & 0xff) / 255,
           barn ? FloraKind.Barn : FloraKind.House,
+          // 【穀倉是拉寬拉高的同一個形狀】面寬約 1.6 倍、高 1.3 倍
+          barn ? BARN_WIDE : 1, barn ? BARN_TALL : 1,
         )
       }
 
