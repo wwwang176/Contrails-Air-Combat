@@ -120,6 +120,10 @@ def along(path, step):
 
 
 C = fresh('LST')
+# `fresh` 只刪物件，網格留下來變孤兒、還佔著名字：新網格就會叫 LST_Hull.001，
+# GLB 每重建一次內容都不同
+for _m in [m for m in bpy.data.meshes if m.users == 0 and m.name.startswith('LST_')]:
+    bpy.data.meshes.remove(_m)
 
 # ═══════════════════════════ 船殼 ═══════════════════════════
 # 一站：(y, 龍骨 z, 甲板 z, 船底半寬, 舭部點 (半寬, z), 甲板半寬)
@@ -204,7 +208,6 @@ mk('LST_HouseFwd', *box(0, -21.5, (Z_DECK + 10.5) / 2, 14.8, 4.0, 10.5 - Z_DECK)
 mk('LST_HouseAft', *box(0, -31.5, (Z_DECK + 10.5) / 2, 12.0, 16.0, 10.5 - Z_DECK), C, M_HULL)
 mk('LST_HouseDoors', *box(0, -19.44, 9.2, 10.0, 0.12, 1.9), C, M_HOLD)
 mk('LST_Bridge', *box(0, -26.5, 11.6, 5.0, 10.0, 2.2), C, M_HULL)
-mk('LST_BridgeWing', *box(0, -22.1, 12.62, 9.0, 1.2, 0.16), C, M_DECK)
 mk('LST_BridgeWindows', *box(0, -21.44, 12.05, 4.4, 0.12, 0.5), C, M_HOLD)
 mk('LST_Conn', *box(0, -23.6, 14.4, 2.4, 2.4, 3.4), C, M_HULL)
 mk('LST_ConnWindows', *box(0, -22.34, 15.4, 2.0, 0.12, 0.45), C, M_HOLD)
