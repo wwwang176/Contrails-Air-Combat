@@ -543,14 +543,14 @@ function createInlandTerrain(
   if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
   fields.push(buildings)
   // 【建築烘進遠處的地面】植被圈外建築整棟不畫；屋頂色塊烘在田色的遠圖裡。
-  // 鎮的地面先烘、屋頂後烘，貼花在遠圖接手的地方讓開（`nearOnly`），否則它蓋住
-  // 屋頂。遠窗最遠碰得到場地外半個窗寬
+  // 鎮的地面與街先烘、屋頂後烘，它們在遠圖接手的地方讓開（`nearOnly`），否則
+  // 蓋住屋頂。遠窗最遠碰得到場地外半個窗寬
   const reach = farm.field.cell * (farm.field.size - 1) / 2 + FIELD_CLIP_FAR.size * FIELD_CLIP_FAR.metersPerTexel / 2
   const roofs = clipmap === null ? null : roofSplats([buildings], -reach, -reach, reach, reach)
   if (clipmap !== null && roofs !== null) {
-    if (dressing !== undefined) {
-      clipmap.addFarOverlay(dressing.townGround.geometry)
-      clipmap.nearOnly(dressing.townGround.material as MeshStandardMaterial)
+    for (const m of dressing?.farBaked ?? []) {
+      clipmap.addFarOverlay(m.geometry)
+      clipmap.nearOnly(m.material as MeshStandardMaterial)
     }
     clipmap.addFarOverlay(roofs)
   }

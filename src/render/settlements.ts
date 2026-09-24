@@ -1,13 +1,13 @@
 import { FloraKind, pushFlora, type FloraSource } from './flora'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from './floraShapes'
 import { TILE_SIZE } from './vegetation'
-import { buildDecals, DECAL_GRID, type DecalRegion } from './groundDecal'
+import { buildDecals, DECAL_GRID, DECAL_LIFT, type DecalRegion } from './groundDecal'
 import { MEADOW } from './river'
 import {
   insideSettlement, nameHash, outlineScale, settlementRadius, type Place,
 } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
-import type { Mesh } from 'three'
+import { BufferAttribute, BufferGeometry, Color, Mesh, MeshStandardMaterial } from 'three'
 
 /**
  * # 真實的村鎮：農莊、街屋、教堂、果樹、鎮區的地面
@@ -81,9 +81,11 @@ const GARDEN_CITY: Frontage = { front: [14, 19], depth: [8, 9.5], wall: [5, 6.5]
 
 /**
  * 老城前屋後面的後屋：與前屋的空隙、進深、牆高（m），面寬佔前屋的比例，
- * 蓋的機率，離街廓中線至少多遠（m，見 `townBlocks`）
+ * 蓋的機率，離街廓中線、街廓兩頭的橫巷至少多遠（m，見 `townBlocks`）
  */
-const REAR = { gap: [2, 4], depth: [6, 9], wall: [5, 8], front: [0.7, 1], chance: 0.85, centre: 3 } as const
+const REAR = {
+  gap: [2, 4], depth: [6, 9], wall: [5, 8], front: [0.7, 1], chance: 0.85, centre: 3, end: 3,
+} as const
 
 /** 小菜園：棚子一格的邊長、棚子的面寬、進深、牆高（m） */
 const ALLOTMENT = { cell: 12, front: 3, depth: 2.5, wall: 2 } as const
@@ -121,6 +123,9 @@ const TAR: Record<Kind, number> = { town: 0.05, village: 0.12, hamlet: 0.15 }
  * 話，從空中看是田裡貼了一塊淺色補丁。鎮要靠房子認出來。
  */
 const TOWN_GROUND = 0x585046
+/** 街面：石板路與柏油，比鎮的地面暗一截 */
+const STREET_COLOR = 0x34322e
+
 /** 公園、墓園、小菜園的地面：河灘草甸的枯草色（`river.ts` 的 `MEADOW`） */
 const PARK_GROUND = MEADOW
 
@@ -226,6 +231,14 @@ interface Ctx {
   readonly church: Placement | null
   /** 鋪草色地面的街廓（公園、墓園、小菜園），`buildSettlementGround` 讀 */
   readonly greens: GreenPatch[]
+  /** 鎮上的街，`buildStreets` 讀 */
+  readonly streets: Street[]
+}
+
+/** 一段街：街心線（已經彎過）與半寬 */
+export interface Street {
+  readonly points: readonly (readonly [number, number])[]
+  readonly half: number
 }
 
 /**
@@ -567,17 +580,20 @@ function blockUse(c: Ctx, d: District, r: number, state: { cemetery: boolean }):
  */
 function openBlock(
   c: Ctx, use: Exclude<BlockUse, 'built' | 'square'>, cx: number, cz: number, ux: number, uz: number,
-  half: number, core: TownCore | null,
+  half: number, core: TownCore | null, bend: (x: number, z: number, out: number[]) => void,
 ): void {
   const vx = -uz
   const vz = ux
+  // 【與街同一個彎曲】外圍的格網彎到 6 m，沒彎的話大院的長條建築壓到街上
   const at = (u: number, v: number, out: number[]): void => {
-    out[0] = cx + ux * u + vx * v
-    out[1] = cz + uz * u + vz * v
+    bend(cx + ux * u + vx * v, cz + uz * u + vz * v, out)
   }
   const q: number[] = [0, 0]
   const clear = (x: number, z: number, r: number): boolean => core?.role !== 'clear' || core.occ.free(x, z, r)
-  if (use !== 'yard') c.greens.push({ x: cx, z: cz, ux, uz, half })
+  if (use !== 'yard') {
+    at(0, 0, q)
+    c.greens.push({ x: q[0]!, z: q[1]!, ux, uz, half })
+  }
   if (use === 'park') {
     // 椴樹、栗樹、橡樹，散在草地上
     const n = 8 + Math.floor(c.rand() * 7)
@@ -625,15 +641,63 @@ function openBlock(
       const x = q[0]!
       const z = q[1]!
       const reach = footprintReach(b.scale, b.wide)
-      // 長條建築只查中心的話，兩頭可能伸進河道或高速公路
+      // 長條建築只查中心的話，兩頭可能伸進河道或高速公路；朝向取彎過的兩頭
       at(length / 2, side * (YARD.between / 2 + depth / 2), q)
-      if (c.avoid(q[0]!, q[1]!)) continue
+      const ex = q[0]!
+      const ez = q[1]!
+      if (c.avoid(ex, ez)) continue
       at(-length / 2, side * (YARD.between / 2 + depth / 2), q)
       if (c.avoid(q[0]!, q[1]!) || !clear(x, z, reach)) continue
       const kind = c.rand() < 0.6 ? FloraKind.TarBarn : FloraKind.SlateHouse
-      place(c, x, z, TOWN_HOUSE_ROOM, wideAlong(ux, uz), b.scale, kind, b.wide, b.tall)
+      place(c, x, z, TOWN_HOUSE_ROOM, wideAlong(ex - q[0]!, ez - q[1]!), b.scale, kind, b.wide, b.tall)
     }
   }
+}
+
+/**
+ * 街廓的四邊：邊中點在格網上的偏移（兩倍格座標，給去重的鍵）、邊在 u 或 v 的
+ * 哪一側
+ */
+const BLOCK_EDGES = [[1, 0, 1, 0], [-1, 0, -1, 0], [0, 1, 0, 1], [0, -1, 0, -1]] as const
+/** 街面的半寬佔 `District.street` 的比例：房子正面與街面之間留一條人行道 */
+const STREET_SHARE = 0.85
+/** 街面半寬的上限，m。花園城市的 `street` 含前院 */
+const STREET_MAX_HALF = 4.5
+/** 街心線的取樣間距，m。彎街的轉折與貼地都靠它 */
+const STREET_STEP = 10
+
+/**
+ * 街廓的一邊畫成一段街：沿邊每 `STREET_STEP` 取一點、照格網的扭曲彎過。碰到
+ * 避開的地方（河道、高速公路、礦坑、砲位）就斷開。`du`／`dv` 是這一邊在街廓的
+ * 哪一側（`BLOCK_EDGES`）。
+ *
+ * `core`：與房子同一個約定 —— 先鋪的格網把街記進去，後鋪的格網的街碰到先鋪
+ * 那一套的房子或街就斷開、房子也避開它。不這樣的話交界那一圈的街從另一套格網
+ * 的房子底下穿過去
+ */
+function streetEdge(
+  c: Ctx, cx: number, cz: number, ux: number, uz: number, S: number, du: number, dv: number, half: number,
+  bend: (x: number, z: number, out: number[]) => void, core: TownCore | null,
+): void {
+  const vx = -uz
+  const vz = ux
+  const q: number[] = [0, 0]
+  const k = Math.ceil(S / STREET_STEP)
+  let run: [number, number][] = []
+  for (let s = 0; s <= k; s++) {
+    const t = -S / 2 + (S * s) / k
+    const u = du !== 0 ? (du * S) / 2 : t
+    const v = dv !== 0 ? (dv * S) / 2 : t
+    bend(cx + ux * u + vx * v, cz + uz * u + vz * v, q)
+    if (c.avoid(q[0]!, q[1]!) || (core?.role === 'clear' && !core.occ.free(q[0]!, q[1]!, half))) {
+      if (run.length >= 2) c.streets.push({ points: run, half })
+      run = []
+      continue
+    }
+    if (core?.role === 'mark') core.occ.add(q[0]!, q[1]!, half + STREET_STEP / 2)
+    run.push([q[0]!, q[1]!])
+  }
+  if (run.length >= 2) c.streets.push({ points: run, half })
 }
 
 /** 見 `townBlocks` 的 `core` */
@@ -682,6 +746,7 @@ function townBlocks(c: Ctx, angle: number, d: District, core: TownCore | null): 
   const q: number[] = [0, 0]
   const q2: number[] = [0, 0]
   const uses = { cemetery: false }
+  const edges = new Set<number>()
   const n = Math.ceil((1.3 * c.R) / S)
   for (let j = -n; j <= n; j++) {
     for (let i = -n; i <= n; i++) {
@@ -689,10 +754,17 @@ function townBlocks(c: Ctx, angle: number, d: District, core: TownCore | null): 
       const cz = c.p.z + uz * i * S + vz * j * S
       const r = radial(c, cx, cz)
       if (r > 1 || r < outer || r >= inner) continue
+      // 【街】這個街廓的四邊，相鄰街廓共用的那一邊只畫一次
+      for (const [ei, ej, du, dv] of BLOCK_EDGES) {
+        const key = (2 * i + ei + 1024) * 4096 + (2 * j + ej + 1024)
+        if (edges.has(key)) continue
+        edges.add(key)
+        streetEdge(c, cx, cz, ux, uz, S, du, dv, Math.min(street * STREET_SHARE, STREET_MAX_HALF), bend, core)
+      }
       const use = blockUse(c, d, r, uses)
       if (use === 'square') continue
       if (use !== 'built') {
-        openBlock(c, use, cx, cz, ux, uz, S / 2 - street, core)
+        openBlock(c, use, cx, cz, ux, uz, S / 2 - street, core, bend)
         continue
       }
       const fillHere = fill[0] + (fill[1] - fill[0]) * Math.min(1, r * r)
@@ -749,7 +821,9 @@ function townBlocks(c: Ctx, angle: number, d: District, core: TownCore | null): 
           if (core?.role === 'mark') core.occ.add(bx, bz, reach)
           // 【後屋】前屋後面隔一個小院子，離街廓中線至少 `REAR.centre` —— 對面那一排
           // 的後屋也伸到這裡，彎街讓兩棟再靠近一兩公尺
-          if (d.rear && c.rand() < REAR.chance) {
+          // 街廓兩頭是橫巷：後屋順著前屋的法線往裡伸，彎街讓法線偏一點，伸到十幾公尺
+          // 外就橫移一兩公尺，最靠邊的那一棟後面蓋的話會壓到巷子上
+          if (d.rear && Math.abs(mid) + f / 2 <= S / 2 - street - REAR.end && c.rand() < REAR.chance) {
             const g = pick(c, REAR.gap)
             const rd = Math.min(pick(c, REAR.depth), S / 2 - street - REAR.centre - depth - g)
             if (rd >= REAR.depth[0]) {
@@ -838,15 +912,16 @@ function orchards(c: Ctx): void {
  * 砲位……）；`eastOfSaale` 決定村形（見檔頭）。
  *
  * `occ` 與 `church` 由 `settlementLayout` 給：所有聚落共用一份佔位、教堂先全部
- * 放好。單獨呼叫時自己建一份、自己放教堂。鋪草色的街廓加進 `greens`。
+ * 放好。單獨呼叫時自己建一份、自己放教堂。鋪草色的街廓加進 `greens`、鎮上的
+ * 街加進 `streets`。
  */
 export function settlementPlacements(
   p: Place, avoid: (x: number, z: number) => boolean, eastOfSaale: boolean,
   occ: Occupancy = new Occupancy(), church: Placement | null = placeChurch(p, avoid, occ),
-  greens: GreenPatch[] = [],
+  greens: GreenPatch[] = [], streets: Street[] = [],
 ): Placement[] {
   const c: Ctx = {
-    p, R: settlementRadius(p), rand: makeRand(nameHash(p.name)), out: [], occ, avoid, church, greens,
+    p, R: settlementRadius(p), rand: makeRand(nameHash(p.name)), out: [], occ, avoid, church, greens, streets,
   }
   if (church !== null) c.out.push(church)
   if (p.kind === 'town') town(c)
@@ -878,23 +953,24 @@ export function settlementFlora(
 }
 
 /**
- * 全部聚落的建築與樹（`flora`，散佈器）與鋪草色的街廓（`greens`，給
- * `buildSettlementGround`）。**建築預先算好、依 tile 分桶** —— 十幾萬筆每一格都
- * 全掃的話，補格時一幀要比對幾十萬次。
+ * 全部聚落的建築與樹（`flora`，散佈器）、鋪草色的街廓（`greens`，給
+ * `buildSettlementGround`）與鎮上的街（`streets`，給 `buildStreets`）。**建築預先
+ * 算好、依 tile 分桶** —— 十幾萬筆每一格都全掃的話，補格時一幀要比對幾十萬次。
  */
 export function settlementLayout(
   places: readonly Place[], avoid: (x: number, z: number) => boolean,
   eastOfSaale: (x: number, z: number) => boolean,
-): { flora: FloraSource; greens: readonly GreenPatch[] } {
+): { flora: FloraSource; greens: readonly GreenPatch[]; streets: readonly Street[] } {
   const buckets = new Map<number, Placement[]>()
   const greens: GreenPatch[] = []
+  const streets: Street[] = []
   // 【共用一份佔位、教堂先放】相鄰的村可以只隔三四百公尺，外圍的果園伸得到
   // 隔壁的村心 —— 各自佔位的話，隔壁的果樹會長進教堂的空地
   const occ = new Occupancy()
   const churches = places.map((p) => placeChurch(p, avoid, occ))
   for (let i = 0; i < places.length; i++) {
     const p = places[i]!
-    for (const b of settlementPlacements(p, avoid, eastOfSaale(p.x, p.z), occ, churches[i]!, greens)) {
+    for (const b of settlementPlacements(p, avoid, eastOfSaale(p.x, p.z), occ, churches[i]!, greens, streets)) {
       const k = bucketKey(Math.floor(b.x / TILE_SIZE), Math.floor(b.z / TILE_SIZE))
       const list = buckets.get(k)
       if (list === undefined) buckets.set(k, [b])
@@ -915,7 +991,7 @@ export function settlementLayout(
       }
     }
   }
-  return { flora, greens }
+  return { flora, greens, streets }
 }
 
 /**
@@ -964,4 +1040,55 @@ export function buildSettlementGround(
       }
     })
   return buildDecals(sample, regions, 'settlementGround')
+}
+
+/**
+ * 鎮上的街：每一段一條貼著地面的帶子，頂點取地形高度再抬 `DECAL_LIFT`。
+ *
+ * 【偏移與高速公路同級】要蓋過鎮的地面（−1／−2）與河灘草甸（−2／−4）—— 沿河的
+ * 鎮一半在草甸上。水面（−4／−8）仍蓋過它；高速公路上的那一段已經斷開
+ * （`streetEdge`）。
+ */
+export function buildStreets(sample: HeightSampler, streets: readonly Street[]): Mesh {
+  const pos: number[] = []
+  const col: number[] = []
+  const idx: number[] = []
+  const c = new Color(STREET_COLOR)
+  for (const s of streets) {
+    const pts = s.points
+    const n = pts.length
+    const base = pos.length / 3
+    for (let i = 0; i < n; i++) {
+      const a = pts[Math.max(0, i - 1)]!
+      const b = pts[Math.min(n - 1, i + 1)]!
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+      // 往左的單位法線
+      const nx = -(b[1] - a[1]) / len
+      const nz = (b[0] - a[0]) / len
+      const [x, z] = pts[i]!
+      for (const side of [1, -1]) {
+        const vx = x + nx * s.half * side
+        const vz = z + nz * s.half * side
+        pos.push(vx, sample(vx, vz) + DECAL_LIFT, vz)
+        col.push(c.r, c.g, c.b)
+      }
+    }
+    // 【捲繞方向】與高速公路同一個排法：左在 2i、右在 2i+1，「左、下一個左、右」朝上
+    for (let i = 0; i + 1 < n; i++) {
+      const k = base + i * 2
+      idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3)
+    }
+  }
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
+  geo.setAttribute('color', new BufferAttribute(new Float32Array(col), 3))
+  geo.setIndex(idx)
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  const mesh = new Mesh(geo, new MeshStandardMaterial({
+    vertexColors: true, roughness: 0.95,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6,
+  }))
+  mesh.name = 'streets'
+  return mesh
 }

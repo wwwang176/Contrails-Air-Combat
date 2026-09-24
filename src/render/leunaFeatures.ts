@@ -3,7 +3,7 @@ import { assetUrl } from '../core/asset'
 import type { FloraSource } from './flora'
 import type { PoolName } from './vegetation'
 import type { RiverSet } from './river'
-import { buildSettlementGround, settlementLayout, settlementTest } from './settlements'
+import { buildSettlementGround, buildStreets, settlementLayout, settlementTest } from './settlements'
 import { buildMines, mineTest } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
@@ -41,10 +41,10 @@ export interface LandDressing {
   /** 植被池的容量覆寫 —— 真實的鎮一個就上千棟房子 */
   readonly capacity: Partial<Record<PoolName, number>>
   /**
-   * 鎮的地面（`object` 裡的一塊）。遠處改由田色 clipmap 的遠圖畫，屋頂才不會
-   * 被它蓋住（`terrain.ts`）
+   * 鎮的地面與街（`object` 裡的兩塊），依烘圖的先後。遠處改由田色 clipmap 的
+   * 遠圖畫，屋頂才不會被它們蓋住（`terrain.ts`）
    */
-  readonly townGround: Mesh
+  readonly farBaked: readonly Mesh[]
   dispose(): void
 }
 
@@ -132,8 +132,8 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
 
   const object = new Group()
   object.name = 'landFeatures'
-  const townGround = buildSettlementGround(sample, f.places, layout.greens)
-  const meshes: Mesh[] = [townGround, buildMines(sample, f.mines)]
+  const farBaked = [buildSettlementGround(sample, f.places, layout.greens), buildStreets(sample, layout.streets)]
+  const meshes: Mesh[] = [...farBaked, buildMines(sample, f.mines)]
   for (const m of meshes) object.add(m)
   const motorway = buildMotorway(sample, profiles)
   object.add(motorway)
@@ -143,7 +143,7 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
     keepOut: (x, z) => inTown(x, z) || inMine(x, z) || onRoad(x, z),
     buildings,
     capacity: CAPACITY,
-    townGround,
+    farBaked,
     dispose() {
       object.traverse((o) => {
         const m = o as Mesh

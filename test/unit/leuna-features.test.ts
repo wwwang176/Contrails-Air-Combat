@@ -358,6 +358,48 @@ describe('史實的村形', () => {
   })
 
   /**
+   * 【街上沒有房子】老城與外圍兩套格網夾一個角度，外圍的街會從老城的房子底下
+   * 穿過去、老城的街上會站著外圍的房子。量的是每一個街心點落不落在某一棟的牆
+   * 外框裡。
+   */
+  it('鎮上有街，街心上沒有房子', () => {
+    const streets = dressing.farBaked.find((m) => m.name === 'streets')!
+    const pos = streets.geometry.getAttribute('position') as BufferAttribute
+    const CELL = 64
+    const grid = new Map<string, typeof Bfull>()
+    for (const b of Bfull) {
+      if (!BUILDINGS.has(b.kind)) continue
+      const k = `${Math.floor(b.x / CELL)},${Math.floor(b.z / CELL)}`
+      grid.set(k, [...(grid.get(k) ?? []), b])
+    }
+    let hits = 0
+    let at = ''
+    // 頂點兩兩一對（左、右），中點是街心
+    for (let i = 0; i < pos.count; i += 2) {
+      const x = (pos.getX(i) + pos.getX(i + 1)) / 2
+      const z = (pos.getZ(i) + pos.getZ(i + 1)) / 2
+      const gi = Math.floor(x / CELL)
+      const gj = Math.floor(z / CELL)
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          for (const b of grid.get(`${gi + di},${gj + dj}`) ?? []) {
+            const ax = Math.cos(b.rot)
+            const az = -Math.sin(b.rot)
+            const u = (x - b.x) * ax + (z - b.z) * az
+            const v = -(x - b.x) * az + (z - b.z) * ax
+            if (Math.abs(u) < (BUILDING_WIDTH / 2) * b.scale * b.wide && Math.abs(v) < (BUILDING_DEPTH / 2) * b.scale) {
+              hits++
+              at = `(${Math.round(x)},${Math.round(z)})`
+            }
+          }
+        }
+      }
+    }
+    expect(pos.count / 2).toBeGreaterThan(10_000)
+    expect(hits, at).toBe(0)
+  })
+
+  /**
    * 【鎮的大小跟著人口】一棟住不到五個人的話，小鎮大得不像話（半徑下限夾在
    * 300 m 時，1,368 人的 Osterfeld 有 540 棟）。
    */
@@ -523,7 +565,7 @@ describe('地表網格', () => {
   })
 
   /** 【捲繞方向】反了的話法線朝下、整塊被背面剔除 —— 畫面上什麼都沒有 */
-  it('村鎮地面、礦坑、A9 路面的每一個三角形都朝上', () => {
+  it('村鎮地面、街、礦坑、A9 路面的每一個三角形都朝上', () => {
     let checked = 0
     dressing.object.traverse((o) => {
       const m = o as Mesh
@@ -544,7 +586,7 @@ describe('地表網格', () => {
       expect(down, m.name).toBe(0)
       checked++
     })
-    // 村鎮地面、礦坑、A9 路面各一顆
-    expect(checked).toBe(3)
+    // 村鎮地面、鎮上的街、礦坑、A9 路面各一顆
+    expect(checked).toBe(4)
   })
 })
