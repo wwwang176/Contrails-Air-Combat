@@ -1,5 +1,5 @@
 import type { Mesh } from 'three'
-import { buildDecals, type DecalRegion } from './groundDecal'
+import { buildDecals, DECAL_GRID, type DecalRegion } from './groundDecal'
 import { insideRing, ringDistance, type FeatureFile } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
 
@@ -37,7 +37,8 @@ export function mineColor(x: number, z: number, edge: number): number {
   return n > 0.6 ? LIGNITE_WET : LIGNITE
 }
 
-export function buildMines(sample: HeightSampler, mines: FeatureFile['mines']): Mesh {
+/** 礦坑的地面網格。`grid` 見 `buildDecals` */
+export function buildMines(sample: HeightSampler, mines: FeatureFile['mines'], grid = DECAL_GRID, name = 'mines'): Mesh {
   return buildDecals(sample, mines.map((m): DecalRegion => {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
     for (const [x, z] of m.ring) {
@@ -49,7 +50,7 @@ export function buildMines(sample: HeightSampler, mines: FeatureFile['mines']): 
       inside: (x, z) => insideRing(m.ring, x, z),
       colorAt: (x, z) => mineColor(x, z, insideRing(m.ring, x, z) ? ringDistance(m.ring, x, z) : 0),
     }
-  }), 'mines')
+  }), name, grid)
 }
 
 /** 「在礦坑裡（含坑緣外 `margin` 公尺）」的查詢，植被與建築用 */

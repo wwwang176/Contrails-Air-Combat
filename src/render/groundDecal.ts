@@ -20,8 +20,8 @@ import type { HeightSampler } from '../world/river'
  */
 
 /**
- * 細格的邊長，m。**要能整除地形的格距（80），而且格線要對齊地形的格點** ——
- * 地形格點在 x ≡ 40 (mod 80)，20 的倍數剛好都落在上面。
+ * 細格的邊長，m。**要能整除 40** —— 地形格點在 `(i − (size−1)/2) × 80`，格數
+ * 的奇偶決定落在 0 還是 40 (mod 80)；40 的因數兩種都對得齊。
  */
 export const DECAL_GRID = 20
 /** 高出地面多少，m。整片平移，不影響共平面 */
@@ -48,24 +48,27 @@ export interface DecalRegion {
 /**
  * 很多塊合成一顆網格。每一塊各自一張細格，只鋪中心在範圍內的格子。
  *
- * 【邊緣是 20 m 的鋸齒】投彈高度看不出來；低空貼著看是一格一格的。
+ * 【邊緣是 `grid` 的鋸齒】20 m 在投彈高度看不出來；低空貼著看是一格一格的。
+ * `grid` 要能整除 40（見 `DECAL_GRID`）。
  */
-export function buildDecals(sample: HeightSampler, regions: readonly DecalRegion[], name: string): Mesh {
+export function buildDecals(
+  sample: HeightSampler, regions: readonly DecalRegion[], name: string, grid = DECAL_GRID,
+): Mesh {
   const pos: number[] = []
   const col: number[] = []
   const idx: number[] = []
   const c = new Color()
   for (const r of regions) {
-    const gx0 = Math.floor(r.x0 / DECAL_GRID) * DECAL_GRID
-    const gz0 = Math.floor(r.z0 / DECAL_GRID) * DECAL_GRID
-    const nx = Math.ceil((r.x1 - gx0) / DECAL_GRID)
-    const nz = Math.ceil((r.z1 - gz0) / DECAL_GRID)
+    const gx0 = Math.floor(r.x0 / grid) * grid
+    const gz0 = Math.floor(r.z0 / grid) * grid
+    const nx = Math.ceil((r.x1 - gx0) / grid)
+    const nz = Math.ceil((r.z1 - gz0) / grid)
     // 【頂點只建用得到的】一塊的外接盒裡大半是空的；先標格子，再照需要編號
     const used = new Uint8Array(nx * nz)
     let any = false
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {
-        if (r.inside(gx0 + (i + 0.5) * DECAL_GRID, gz0 + (j + 0.5) * DECAL_GRID)) {
+        if (r.inside(gx0 + (i + 0.5) * grid, gz0 + (j + 0.5) * grid)) {
           used[j * nx + i] = 1
           any = true
         }
@@ -76,8 +79,8 @@ export function buildDecals(sample: HeightSampler, regions: readonly DecalRegion
     const vertex = (i: number, j: number): number => {
       const k = j * (nx + 1) + i
       if (vid[k]! >= 0) return vid[k]!
-      const x = gx0 + i * DECAL_GRID
-      const z = gz0 + j * DECAL_GRID
+      const x = gx0 + i * grid
+      const z = gz0 + j * grid
       pos.push(x, sample(x, z) + DECAL_LIFT, z)
       c.setHex(r.colorAt(x, z))
       col.push(c.r, c.g, c.b)
