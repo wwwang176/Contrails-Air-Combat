@@ -129,6 +129,31 @@ export type MissionRules =
   }
   | {
     /**
+     * 截斷沿公路開往前線的車隊。**這條規則只判敗、不判勝。**
+     *
+     * ```
+     *   負  抵達前線的 `unit` 累計到 `leak` 輛
+     *   負  藍隊全滅
+     * ```
+     *
+     * 勝利來自撤離：卡片上「摧毀 ≥ count」的返航節拍把規則換成 `evacuate`。
+     * `stepBeats` 排在 `stepMission` 之前（`setup.ts` 的 `stepBattle`），所以同一步
+     * 炸到第 count 輛又剛好有卡車抵達時，規則已經換成撤離，不判敗。
+     *
+     * 【為什麼摧毀數到了不判勝】那一刻這一關才進入下半場（敵機堵在退路上、
+     * 飛回撤離點）。有 interdict 的卡一定要有那個返航節拍，否則贏不了 ——
+     * `campaigns.test.ts` 守著。
+     */
+    kind: 'interdict'
+    /** 要炸毀幾輛。目標列的分母 */
+    count: number
+    /** 抵達幾輛就判敗 */
+    leak: number
+    /** 只數這一種地面單位（摧毀與抵達都是） */
+    unit: GroundUnitId
+  }
+  | {
+    /**
      * 守住我方艦隊。**勝負都寫在這一條裡。**
      *
      * ```
@@ -290,6 +315,11 @@ export interface MissionInputs {
    */
   targetsDestroyed: number
   targetsTotal: number
+  /**
+   * 敵方地面目標**開到終點退場**的有幾座，只數規則指定的單位。`interdict`
+   * 以外的規則不讀它。只增不減 —— 退場是一個閂（`GroundTarget.arrived`）。
+   */
+  targetsArrived: number
   /**
    * **我方**的要害艦已經沉了幾艘（`MissionFleet` 上標了 `vital` 的那些）。
    * `defend` 以外的規則不讀它。
@@ -475,8 +505,12 @@ export function resetMissionState(rules: MissionRules, out: MissionState): void 
   // 【數數量的那幾種，開局計量是「還差全部」】給 0 的話目標列會在第一幀
   // 閃一下「還差 0 艘」—— 那個數字的意思是達標了。
   const counted = rules.kind === 'sink' || rules.kind === 'destroy' || rules.kind === 'hunt'
+    || rules.kind === 'interdict'
   out.metric = counted ? rules.count : 0
   if (counted) out.metricTotal = rules.count
+  // 【截斷一開場就印抵達數】「已抵達 0/4」是開局的實話，而且告訴玩家這一關
+  // 會輸在哪裡
+  if (rules.kind === 'interdict') out.arrived = 0
 }
 
 /**
@@ -567,6 +601,19 @@ export function stepMission(
       return
     }
     if (inp.aliveBlue === 0) out.outcome = 'defeat'
+    return
+  }
+
+  // ── 截斷 ──────────────────────────────────────────────
+  //
+  // 計量與炸毀同一個形狀，另外把抵達數交給目標列（`arrived`，分母是 `leak`）。
+  // 沒有勝利分支：見 `MissionRules` 的 `interdict`
+  if (rules.kind === 'interdict') {
+    out.metric = Math.max(0, rules.count - inp.targetsDestroyed)
+    out.metricTotal = rules.count
+    out.remaining = -1
+    out.arrived = inp.targetsArrived
+    if (inp.targetsArrived >= rules.leak || inp.aliveBlue === 0) out.outcome = 'defeat'
     return
   }
 

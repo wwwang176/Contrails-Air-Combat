@@ -16,6 +16,8 @@ export class PlayerController implements Controller {
    * `firing` 的話，按著不放會在每一次回補完成時自動再倒一整艙。
    */
   private bombHeld = false
+  /** 上次看到的 `InputState.bombTaps`。多出來就投一次 */
+  private bombTapsSeen = 0
 
   constructor(private readonly input: InputState) {}
 
@@ -28,9 +30,12 @@ export class PlayerController implements Controller {
     // 【投彈模式下左鍵是投彈，不是扳機】機砲朝前、鏡頭朝下 —— 開出去的
     // 子彈玩家根本看不到，而彈藥是真的在消耗
     out.firing = this.input.firing && this.input.viewMode !== 'bomb'
-    // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步
+    // 【投彈與 AI 同一格】`World.releaseBombs` 讀它，彈艙的推進與投放全在物理步。
+    // 兩個來源：轟炸機在投彈視角下按左鍵、掛彈的戰鬥機按 B（`InputState.bombTaps`）
     const held = this.input.firing && this.input.viewMode === 'bomb'
-    out.bombing = held && !this.bombHeld
+    const tapped = this.input.bombTaps !== this.bombTapsSeen
+    this.bombTapsSeen = this.input.bombTaps
+    out.bombing = (held && !this.bombHeld) || tapped
     this.bombHeld = held
     // 【AI 專用的這一格每步清掉】接手僚機時 `Command` 物件沿用那一席的，上一步
     // 還是 AI 寫的：不清的話正在攻艦的僚機交到玩家手上會帶著「保持正飛」

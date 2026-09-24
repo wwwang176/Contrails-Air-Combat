@@ -168,6 +168,25 @@ function sweptInsideWindow(
   return false
 }
 
+/** 決策拍的間隔，s。`AiController` 的 10 Hz —— 不 import 的理由見上面 */
+const DECIDE_SECONDS = 0.1
+
+/**
+ * 落點在這一個決策拍之內，會不會掃進目標 `radius` 公尺之內。
+ *
+ * 【掃過整個決策拍】落點跟著飛機走，兩拍之間移動二十公尺上下；只看當下那一點
+ * 的話，比二十公尺窄的圓會被整個跳過去。
+ */
+function sweptWithinRadius(
+  hx: number, hz: number, ax: number, az: number, vx: number, vz: number, radius: number,
+): boolean {
+  for (let k = 0; k <= 5; k++) {
+    const t = (k * DECIDE_SECONDS) / 5
+    if (Math.hypot(hx + vx * t - ax, hz + vz * t - az) < radius) return true
+  }
+  return false
+}
+
 const S = /* @__PURE__ */ makeScratch(3)
 
 /** 方向退化的下限。與 `shipAttack.ts` 的 `MIN_ERROR` 同一個手法。 */
@@ -381,6 +400,15 @@ export const BOMB_PROFILE = makeBombProfile()
 export const BOMB_AIM_RANGE = 1000
 
 /**
+ * 對地面目標時的同一個上限，m。**比對船遠。**
+ *
+ * 【為什麼】對地掃射的進場是低空滑降，一公里處只剩兩百公尺高 —— 那個高度與
+ * 速度下炸彈要往前拋一公里多，放得中的地方在一公里半左右，1,000 m 才接手的話
+ * 整趟都已經太近、落點永遠在車的後面。**起始值，由試飛裁定。**
+ */
+export const GROUND_BOMB_AIM_RANGE = 2000
+
+/**
  * 落彈點瞄準的狀態。**由 `AiController` 持有**，與 `StrikeState` 同一個性質。
  */
 export interface BombAimState {
@@ -423,12 +451,16 @@ const AIM_CLAMP = 30 * DEG
  *
  * @param loaded 艙裡還有東西嗎。空了就把瞄準點交還給機槍
  * @param decide 這一步是不是決策拍。**解算只在決策拍跑**（一次 170 µs）
+ * @param range 斜距多近才接手，m。對船 `BOMB_AIM_RANGE`、對地 `GROUND_BOMB_AIM_RANGE`
+ * @param nearEnough 落點離目標這麼近也放，m；0 = 只看艦體的窗。**對地用** ——
+ *   車只有幾公尺寬，照車身算的窗 AI 幾乎瞄不進去，而爆風有三十公尺
  *
  * 熱路徑：不配置。不修改 `self`，也不修改 `ship`。
  */
 export function stepBombAim(
   state: BombAimState, self: Aircraft, ship: StrikeTarget,
   loaded: boolean, decide: boolean, aimPoint: Vector3 | null = null,
+  range = BOMB_AIM_RANGE, nearEnough = 0,
 ): void {
   if (!decide) return
   state.active = false
@@ -447,7 +479,7 @@ export function stepBombAim(
   const slant = Math.hypot(dx, dy, dz)
   // 【上限與下限】太遠不接手；進到拉起距離就交還 —— 脫離要背離船並爬升，
   // 這一層若還在寫瞄準點，飛機會被拉回船上撞上去
-  if (slant > BOMB_AIM_RANGE || slant < SHIP_BREAK_RANGE || slant < MIN_ERROR) return
+  if (slant > range || slant < SHIP_BREAK_RANGE || slant < MIN_ERROR) return
 
   const v = self.state.velocity
   START.x = p.x; START.y = p.y; START.z = p.z
@@ -461,6 +493,7 @@ export function stepBombAim(
   const ex = at.x - HIT.x
   const ez = at.z - HIT.z
   state.release = sweptInsideWindow(ship, HIT.x, HIT.z, at.x, at.z, v.x, v.z)
+    || (nearEnough > 0 && sweptWithinRadius(HIT.x, HIT.z, at.x, at.z, v.x, v.z, nearEnough))
 
   const throwRange = Math.hypot(HIT.x - p.x, HIT.z - p.z)
   const aim = state.aim.set(dx / slant, dy / slant, dz / slant)

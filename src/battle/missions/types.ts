@@ -10,6 +10,7 @@ import type { TerrainKind } from '../../world/terrainKind'
 import type { TimeOfDay } from '../../world/timeOfDay'
 import type { Loadout } from '../../weapons/stores'
 import type { TakeoffLine } from '../../control/takeoffRoll'
+import type { GroundMotion } from '../../world/groundMotion'
 
 /**
  * # 任務卡的型別
@@ -69,6 +70,17 @@ export type MissionTrigger =
    * **沒有 `ground` 的卡不能用它** —— 摧毀數永遠是 0，條件退化成時鐘。
    */
   | { readonly kind: 'ground'; readonly below: number; readonly byLatest: number }
+  /**
+   * 敵方地面目標的摧毀數達到 `atLeast`（`unit` 省略 = 全部）。`byLatest` 選填：
+   * 到了那一秒無條件成立。**沒有 `ground`／`vehicleConvoy` 的卡不能用它** ——
+   * 摧毀數永遠是 0。開到終點退場的車不算摧毀。
+   */
+  | {
+    readonly kind: 'destroyed'
+    readonly atLeast: number
+    readonly unit?: GroundUnitId
+    readonly byLatest?: number
+  }
 
 /**
  * 卡片上的一個波次。**一個波次就是一支小隊**（1 … `SCHWARM_SIZE` 架）。
@@ -404,6 +416,22 @@ export interface MissionBattle {
    */
   readonly ground?: readonly GroundEntry[]
   /**
+   * 這一關的防空氣球。**沒有這一格的卡完全不產生**，透傳的路與 `fleet` 相同。
+   * 不是任務目標：打破幾顆都不影響勝負。
+   */
+  readonly balloons?: readonly BalloonEntry[]
+  /**
+   * 沿公路開往前線的車隊。**展開成 `ground` 的條目**（`missionConfigFrom`），
+   * 每一台帶 `motion`。與 `ground` 可以並存。
+   */
+  readonly vehicleConvoy?: MissionVehicleConvoy
+  /**
+   * 截斷車隊：炸毀 `count` 輛 `unit`，抵達 `leak` 輛就輸。**有這一格就是截斷關**，
+   * 勝負規則變成 `{ kind: 'interdict' }`。它必須配 `vehicleConvoy`，而且要有
+   * 「摧毀 ≥ count」觸發的 `withdraw` —— `campaigns.test.ts` 守著。
+   */
+  readonly interdict?: { readonly count: number; readonly leak: number; readonly unit: GroundUnitId }
+  /**
    * 開場高度，m。**省略 = `DEFAULT_BATTLE.altitude`（4,000）。**
    *
    * 【為什麼要有它】在這一格之前，十二關的開場高度全部寫死成同一個值。
@@ -502,6 +530,62 @@ export interface GroundEntry {
   readonly z: number
   /** 航向，rad（繞 Y，0 = 車頭朝 −Z）。 */
   readonly heading: number
+  /**
+   * 沿路線移動的設定。**省略 = 不動。** 由 `vehicleConvoy` 展開時填
+   * （`missions/index.ts` 的 `convoyGround`），卡片不直接寫。
+   */
+  readonly motion?: GroundMotion
+  /**
+   * 身上的武裝。**省略 = 看單位**：`flakLight`／`flakHeavy` 是砲位，其餘不還手。
+   * `'mg'` = 車頂一挺 .50 機槍（`GROUND_MG_SPEC`）。
+   */
+  readonly guns?: 'mg'
+}
+
+/**
+ * 一顆防空氣球（`world/balloons.ts`）。
+ *
+ * 錨點兩種：**繫在船上**（`ship` 是這一關艦隊的第幾艘、`deck` 是那艘的艦體座標）
+ * 或**地面絞車**（世界座標，高度落地時照地形取）。
+ */
+export interface BalloonEntry {
+  readonly team: Team
+  readonly anchor:
+    | { readonly ship: number; readonly deck: Vector3 }
+    | { readonly x: number; readonly z: number }
+  /** 鋼索放出多長，m：吊索匯集點在錨點上方這麼高 */
+  readonly tether: number
+  /** 艇首朝向，rad（繞 Y，0 = 朝 −Z） */
+  readonly heading: number
+}
+
+/** 車隊的一批：車距 `gap` 排成一列的幾輛 */
+export interface MissionVehicleBatch {
+  /** 依行進順序，第一個是車頭 */
+  readonly units: readonly GroundUnitId[]
+}
+
+/**
+ * 沿公路開往終點的車隊。**全部是紅方。**
+ *
+ * 【開場就全部在走】各批沿同一條路排開：最後一批的車尾在起點，前一批在它前面
+ * `batchGap`，依此類推。車速相同，前後距離整場不變 —— 沒有停在原地等出發的車。
+ */
+export interface MissionVehicleConvoy {
+  /** 路線，世界座標。**與地上畫的路是同一份**（日 M2 的 `LEYTE_ROAD`） */
+  readonly route: readonly { readonly x: number; readonly z: number }[]
+  /** 車速，m/s */
+  readonly speed: number
+  /** 轉角圓弧的半徑，m */
+  readonly turnRadius: number
+  /** 同一批裡前後兩輛的車距，m */
+  readonly gap: number
+  /** 前一批的車尾與後一批的車頭之間多遠，m */
+  readonly batchGap: number
+  /** 依行進順序，第一批走在最前面 */
+  readonly batches: readonly MissionVehicleBatch[]
+  /** 這幾種單位車頂帶一挺機槍（`GroundEntry.guns = 'mg'`）。省略 = 都不帶 */
+  readonly armed?: readonly GroundUnitId[]
 }
 
 export interface FleetEntry {
@@ -512,6 +596,13 @@ export interface FleetEntry {
    * 擺位時先轉 `heading` 再加 `center`。
    */
   readonly offset: Vector3
+  /**
+   * 這一艘的艏向，rad，**相對整隊的 `heading`**。**省略 = 與整隊同向。**
+   *
+   * 只給不會動的船用（日 M2 搶灘的 LST 各自垂直於腳下那一段岸）。會動的
+   * 艦隊一艘一個艏向，陣型走幾分鐘就散了。
+   */
+  readonly heading?: number
   /**
    * 這一艘沉了就輸。**只有 `defend` 規則讀它**（`mission.ts` 的 `vitalSunk`）。
    *
@@ -530,7 +621,10 @@ export interface MissionWithdraw {
   readonly when: MissionTrigger
   /** 畫面中心的文字，同時取代 HUD 目標列上那一句 */
   readonly message: string
-  /** 撤離點在我方機首方向多遠，m。與 `targetDistance` 同一套 */
+  /**
+   * 撤離點在我方機首方向多遠，m。與 `targetDistance` 同一套。**負值 = 在我方
+   * 開局位置的後方**（撤離點在來時的方向，日 M2）
+   */
   readonly distance: number
   readonly radius: number
   readonly seconds: number

@@ -102,8 +102,14 @@ export const WOOD_CHANCE = 0.05
 /** 犁溝與作物行的間距，m */
 const STRIPE_PERIOD = 7
 
-/** 條紋的明度幅度。犁田用兩倍 —— 那是溝，不是行 */
-const STRIPE_AMP = 0.04
+/**
+ * 條紋的明度幅度。犁田用兩倍 —— 那是溝，不是行。
+ *
+ * 【為什麼這麼深】離鏡頭遠一點的田是烘在 2 m 一格的 clipmap 上的，條紋在那裡
+ * 只剩約三分之二（`stripe` 依取樣密度淡掉），再經 mipmap 平均又更淡；淺了的話
+ * 那一圈以外就看不出條紋。7.3 m 一格的遠圖畫不出 7 m 的條紋，多深都一樣。
+ */
+const STRIPE_AMP = 0.08
 
 /** 世界座標的一個點。`regionSeed` 就地寫進它 */
 export interface Vec2 {

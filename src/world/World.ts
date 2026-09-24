@@ -37,7 +37,13 @@ import { landHitT, type LandField } from './occlusion'
 import { normalAt, type SurfaceNormal } from './heightfield'
 import { createTurretStates, resetTurretStates, stepTurrets } from './turrets'
 import { stepShips, type Ship } from './ships'
+import {
+  BALLOON_ENVELOPE, BALLOON_ENVELOPE_HIT, BALLOON_MISS, BALLOON_REACH, balloonCollision, envelopeCenter,
+  stepBalloons,
+  type Balloon,
+} from './balloons'
 import type { GroundTarget } from './groundTargets'
+import { stepGroundMotion } from './groundMotion'
 import { MATERIAL } from './material'
 import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
 import { createFlares, stepFlares } from './flares'
@@ -194,6 +200,8 @@ const HULL_C = /* @__PURE__ */ new Vector3()
 /** 爆心。範圍傷害每次爆炸用一次，與上面那兩個不同時活著 */
 const BLAST_P = /* @__PURE__ */ new Vector3()
 const BODY_C = /* @__PURE__ */ new Vector3()
+/** 氣囊盒的中心。彈丸判定與破掉的事件各用一次，不同時活著 */
+const BALLOON_C = /* @__PURE__ */ new Vector3()
 
 /**
  * 槍焰的顯示時長，s。
@@ -319,6 +327,21 @@ export class World {
    * 兇手帶到這裡。
    */
   readonly shipKillEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 這一場的防空氣球（`world/balloons.ts`）。**與地面目標同一個性質**：不是
+   * `Combatant`、不動、死了是旗標。空陣列 = 這一場沒有，撞擊與彈丸兩條判定
+   * 都零長度早退，既有的關逐位元不變。
+   */
+  readonly balloons: Balloon[] = []
+
+  /**
+   * 氣球破掉的事件。**一顆一筆**，由活變死的那一步推；呼叫端負責排空。
+   *
+   * 借 `ImpactEvents`：x, y, z 是氣囊中心，nx 是 `Balloon.index`，ny 是兇手的
+   * combatant 索引（−1 = 無主，含撞上去的那一架），nz 恆 0。
+   */
+  readonly balloonKillEvents: ImpactEvents = createImpacts()
 
   /**
    * 雷擊命中事件。**只有魚雷推** —— 子彈與炸彈打中船不推。
@@ -658,6 +681,27 @@ export class World {
         if (this.hitsShip(c)) this.destroy(c)
       }
     }
+    // 【撞氣球同一個位置】鋼索與氣囊都擋飛機；撞上氣囊的話氣球也破。
+    // 先把氣球擺到這一刻的飄晃位置 —— 碰撞與彈丸讀的都是它
+    if (this.balloons.length > 0) {
+      stepBalloons(this.balloons, this.time)
+      for (const c of this.combatants) {
+        if (!c.alive) continue
+        const a = c.aircraft
+        for (const b of this.balloons) {
+          const hit = balloonCollision(
+            b, a.spec.hitBoxes, a.state.position, a.state.orientation, c.hitRadius, this.hit,
+          )
+          if (hit === BALLOON_MISS) continue
+          this.destroy(c)
+          if (hit === BALLOON_ENVELOPE_HIT) {
+            b.hp = 0
+            this.popIfDead(b, -1)
+          }
+          break
+        }
+      }
+    }
     for (const c of this.combatants) {
       if (!c.alive) continue
       this.fire(c, dt)
@@ -684,6 +728,9 @@ export class World {
       // 【傳整個艦隊】目標分攤數的是全艦隊的鎖定，不是這一艘的
       stepGunPlatform(s, this.combatants, this.projectiles, this.flak, this.time, dt, this.ships)
     }
+    // 【車先動、砲後打】防空車的槍口由這一步的位置算。`this.time` 在 `step`
+    // 開頭已經加上 dt，所以這裡是這一步結束時的時間
+    for (const t of this.groundTargets) stepGroundMotion(t, this.time, this.groundAt)
     // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
     // **傳整組地面目標當「艦隊」** —— 目標分攤要跨全部砲位數，各自只數自己
     // 的話八門砲會一起咬同一架
@@ -782,8 +829,8 @@ export class World {
    *
    * 【砲位也各自算】它們是獨立的盒子，離爆心近的那幾座先報銷。
    *
-   * 【不分敵我】炸彈沒有敵我識別。目前只有玩家投得了彈，而 4,000 m 投下來
-   * 的那一顆落在地面時，僚機不會在 30 m 之內。
+   * 【不分敵我】炸彈沒有敵我識別 —— 投彈的自己與僚機也炸得到。AI 戰鬥機對地
+   * 投彈因此另有一條高度下限（`AiController` 的 `AI_BOMB_MIN_HEIGHT`）。
    *
    * @param owner 投放者的 combatant 索引；−1 = 沒有主人。**只影響戰果歸屬，
    *              不影響傷害** —— 炸到誰是幾何決定的
@@ -1102,7 +1149,7 @@ export class World {
     const att = attitudeFromOrientation(a.state.orientation)
     const agl = a.state.position.y - this.groundAt(a.state.position.x, a.state.position.z)
     const ok = canRelease(
-      envelopeFor(c.loadout.kind), att.roll, att.pitch, agl, a.diag.aero.tas,
+      envelopeFor(c.loadout.kind, a.spec.role), att.roll, att.pitch, agl, a.diag.aero.tas,
     )
     this.bombing = c
     stepBombBay(c.bombBay, dt, c.command.bombing, ok, this.dropOne)
@@ -1192,6 +1239,7 @@ export class World {
     const land = this.land
     const ships = this.ships
     const targets = this.groundTargets
+    const balloons = this.balloons
 
     for (let i = 0; i < p.capacity; i++) {
       const owner = p.owner[i]!
@@ -1370,6 +1418,39 @@ export class World {
         }
       }
 
+      // ── 防空氣球 ────────────────────────────────────────
+      //
+      // 【與地面目標同一個做法】一顆一個氣囊盒，打中就扣；鋼索太細，子彈不判。
+      // 同隊過濾相同 —— 美軍自己的防空砲打不破自己的氣球。
+      if (balloons.length > 0) {
+        let hitBalloon: Balloon | null = null
+        for (let k = 0; k < balloons.length; k++) {
+          const bl = balloons[k]!
+          if (!bl.alive) continue
+          if ((bl.team === 'blue' ? 0 : 1) === ownerTeam) continue
+          envelopeCenter(bl, BALLOON_C)
+          if (segmentPointDistanceSq(
+            ax, ay, az, bx, by, bz, BALLOON_C.x, BALLOON_C.y, BALLOON_C.z,
+          ) > BALLOON_REACH * BALLOON_REACH) continue
+          SHIP_INV.copy(bl.orientation).conjugate()
+          const a = S.v[0]!.set(ax, ay, az).sub(bl.top).applyQuaternion(SHIP_INV)
+          const b = S.v[1]!.set(bx, by, bz).sub(bl.top).applyQuaternion(SHIP_INV)
+          const tt = segmentBox(a.x, a.y, a.z, b.x, b.y, b.z, BALLOON_ENVELOPE)
+          if (tt === NO_HIT || tt >= bestT) continue
+          bestT = tt
+          victim = null
+          hitBalloon = bl
+        }
+        if (hitBalloon !== null) {
+          const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
+          pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
+          hitBalloon.hp -= p.damage[i]!
+          this.popIfDead(hitBalloon, owner >= 0 && owner < combatants.length ? owner : -1)
+          p.kill(i)
+          continue
+        }
+      }
+
       // ── 陸地 ────────────────────────────────────────────
       //
       // 【為什麼排在飛機之後而不是迴圈開頭】同一個物理步之內「先打中飛機、
@@ -1537,6 +1618,14 @@ export class World {
    *                  第二團火**：那一顆已經有自己的落點事件，再放一團就是
    *                  同一個地方爆兩次、鏡頭震兩次
    */
+  /** 氣球血量歸零就破：不再擋飛機與子彈，推一筆事件給渲染層點火、讓它掉下去 */
+  private popIfDead(b: Balloon, killer: number): void {
+    if (!b.alive || b.hp > 0) return
+    b.alive = false
+    envelopeCenter(b, BALLOON_C)
+    pushImpact(this.balloonKillEvents, BALLOON_C.x, BALLOON_C.y, BALLOON_C.z, b.index, killer, 0)
+  }
+
   private wreckIfDead(t: GroundTarget, killer: number, fromBlast: boolean): void {
     if (!t.alive || t.hp > 0) return
     t.alive = false

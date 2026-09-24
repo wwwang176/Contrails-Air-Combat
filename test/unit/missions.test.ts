@@ -247,10 +247,11 @@ describe('開場高度', () => {
     for (const m of playable) {
       const cfg = missionConfigFrom(m)
       const r = cfg.rules
-      // 【`defend` 也沒有點】它與殲滅同一種形狀：沒有終點、沒有半徑
+      // 【`defend`、`interdict` 也沒有點】它們與殲滅同一種形狀：沒有終點、沒有半徑。
+      // 截斷關的撤離點在返航節拍上，由 `campaigns.test.ts` 守它的高度
       if (
         r.kind === 'annihilate' || r.kind === 'sink' || r.kind === 'destroy'
-        || r.kind === 'defend' || r.kind === 'hunt'
+        || r.kind === 'defend' || r.kind === 'hunt' || r.kind === 'interdict'
       ) continue
       expect(r.point.y, m.id).toBeCloseTo(cfg.altitude, 6)
     }

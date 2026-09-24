@@ -29,7 +29,7 @@ export interface StrikeTarget {
   /** 世界座標 */
   readonly position: Vector3
   readonly orientation: Quaternion
-  /** 沿 −Z 的速率，m/s。地面目標恆 0 */
+  /** 沿 −Z 的速率，m/s。靜止的地面目標恆 0；沿路線移動的車是車速 */
   readonly speed: number
   /** 自身座標 */
   readonly hull: readonly Box[]

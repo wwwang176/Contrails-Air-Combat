@@ -21,10 +21,12 @@ import type { SceneContext } from './scene'
 export type { TimeOfDay }
 
 /**
- * 【`novemberNoon` 排最後】它進工具頁的時段按鈕，**不進遭遇戰選單** ——
- * `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它。
+ * 【`novemberNoon`、`storm` 排最後】它們進工具頁的時段按鈕，**不進遭遇戰選單** ——
+ * `ui/menu.ts` 的那份清單是手寫的四筆，任務卡才會選它們。
  */
-export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = ['dawn', 'noon', 'dusk', 'night', 'novemberNoon']
+export const TIME_OF_DAY_IDS: readonly TimeOfDay[] = [
+  'dawn', 'noon', 'dusk', 'night', 'novemberNoon', 'storm',
+]
 
 /**
  * 一個時段的完整光照設定。
@@ -112,7 +114,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x51637a,
     sparkle: 0.75,
     foliage: 0.6,
-    fogDensity: 1.6e-5,
+    fogDensity: 0.8e-5,
   },
   noon: {
     id: 'noon',
@@ -154,7 +156,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x6e5468,
     sparkle: 0.85,
     foliage: 0.5,
-    fogDensity: 1.8e-5,
+    fogDensity: 0.9e-5,
   },
   night: {
     id: 'night',
@@ -175,7 +177,7 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: 0x1b2736,
     sparkle: 0.18,
     foliage: 0.16,
-    fogDensity: 2.2e-5,
+    fogDensity: 1.1e-5,
   },
   /**
    * 深秋的正午：51°N 的十一月，太陽仰角只有二十幾度、天色灰白、遠處泛霧。
@@ -204,7 +206,42 @@ export const DAY_PALETTES: Readonly<Record<TimeOfDay, DayPalette>> = {
     seaHorizon: SEA_HORIZON_COLOR,
     sparkle: 0.6,
     foliage: 0.85,
-    fogDensity: FOG_DENSITY * 1.6,
+    // 【秋霾】比正午濃得多：15 km 化掉四分之一、30 km 化掉三分之二，地平線上的
+    // 遠海全化進天色。5 km 的纏鬥距離上只淡 3%
+    fogDensity: 3.5e-5,
+  },
+  /**
+   * 雷雨的午後：整片低垂的積雨雲，沒有直射的太陽，遠處被雨幕吃掉。**不下雨**
+   * —— 閃電與雷聲在 `render/storm.ts`，它每幀把燈與天空往亮處推一下再放回來，
+   * 基準就是這一組。海色照抄正午再壓暗。**起始值，拿眼睛校。**
+   *
+   * 【太陽很弱但不是零】陰天仍然有方向：雲底比較亮的那一側。完全拿掉的話
+   * 低多邊形的面分不出明暗，地形整片糊成一色。
+   */
+  storm: {
+    id: 'storm',
+    name: '雷雨',
+    skyHorizon: 0x6a7179,
+    skyZenith: 0x2f353d,
+    skyPower: 0.8,
+    stars: 0,
+    sunDir: [-0.3, 0.85, 0.4],
+    sunColor: 0xc9ced6,
+    sunIntensity: 0.55,
+    hemiSky: 0x8b939c,
+    hemiGround: 0x22272b,
+    hemiIntensity: 0.75,
+    ambientColor: 0xb9c1ca,
+    ambientIntensity: 0.2,
+    seaColor: 0x12202b,
+    seaHorizon: 0x444e57,
+    sparkle: 0.15,
+    foliage: 0.55,
+    /**
+     * 【雨幕】15 km 外蓋掉三分之二、25 km 外幾乎全白 —— 場地外的遠景陸地是低模，
+     * 要讓它化進天色裡（`render/leyteGround.ts`）。5 km 的纏鬥距離上敵機只淡一成。
+     */
+    fogDensity: FOG_DENSITY * 10,
   },
 }
 

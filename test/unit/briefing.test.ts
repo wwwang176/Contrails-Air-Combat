@@ -86,11 +86,17 @@ describe('briefingOf —— 打擊（德 M3）', () => {
 })
 
 describe('briefingOf —— 其他', () => {
-  it('日 M2 的空域是漢口', () => {
-    expect(fact(briefingOf(readyCard('japan-m2')), '空域')).toBe('中國　漢口上空')
+  it('日 M2 的空域是雷伊泰島', () => {
+    expect(fact(briefingOf(readyCard('japan-m2')), '空域')).toBe('菲律賓　雷伊泰島')
   })
 
-  it('殲滅卡（日 M2）沒有護送列', () => {
+  it('日 M2 的目標寫出兩段：先炸卡車、再撤離', () => {
+    const b = briefingOf(readyCard('japan-m2'))
+    if (!b.ready) throw new Error('日 M2 應該打得起來')
+    expect(b.objective).toBe('炸毀補給卡車 → 撤離戰區')
+  })
+
+  it('殲滅卡沒有護送列', () => {
     const b = briefingOf(readyCard(KILL_CARD))
     expect(b.mine).toEqual([{ id: 'ki84', name: 'Ki-84', role: 'fighter', count: 8 }])
     expect(b.foe).toEqual([{ id: 'p51d', name: 'P-51D', role: 'fighter', count: 10 }])

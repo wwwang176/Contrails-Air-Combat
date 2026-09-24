@@ -8,7 +8,7 @@
  */
 export type Category = 'engine' | 'engineSelf' | 'fire' | 'fireSelf' | 'turret' | 'explosion' | 'splash'
   | 'blast' | 'cannon' | 'flakBurst' | 'hitSelf' | 'hitDealt' | 'flyby' | 'damage' | 'rattle'
-  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui'
+  | 'reload' | 'whistle' | 'radio' | 'warn' | 'wind' | 'impact' | 'ui' | 'thunder'
 
 export interface CategorySpec {
   gainDb: number
@@ -105,6 +105,14 @@ export const CATEGORY: Record<Category, CategorySpec> = {
    * 【射程比擦過遠、比爆炸近】它是一連串小撞擊，1.2 km 之外就只是雜訊了
    */
   impact: { gainDb: -4, ref: 60, max: 1200 },
+  /**
+   * 雷聲（雷雨的時段）。**定位在閃電打下的地方**（`render/storm.ts`、`main.ts`
+   * 的 `playThunder`）：聽得出從哪一邊來，音波走到才響，遠的更悶。
+   *
+   * 【衰減放得很緩、增益給得高】閃電在 1～5 km 外，而空氣吸收每公里就是 2.8 dB。
+   * 照一般的 inverse 衰減，5 km 外的雷會小到聽不見。**起始值，由試玩裁定。**
+   */
+  thunder: { gainDb: 12, ref: 1000, max: 8000, rolloff: 0.3 },
 }
 
 const range = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}-${i + 1}`)
@@ -119,6 +127,8 @@ export const POOLS = {
   flakBurst: ['flak-burst-1', 'flak-burst-2', 'flak-burst-3'],
   splash: range('splash', 4),
   cannon: range('cannon', 3),
+  /** 雷雨的雷聲。長短、遠近各不同，每一聲再隨機播放速度與低通 */
+  thunder: range('thunder', 7),
   hit: range('hit', 16),
   flyby: range('flyby', 20),
   damage: range('damage', 10),

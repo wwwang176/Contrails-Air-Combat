@@ -18,6 +18,7 @@ function inputs(over: Partial<MissionInputs> = {}): MissionInputs {
     shipsTotal: 0,
     targetsDestroyed: 0,
     targetsTotal: 0,
+    targetsArrived: 0,
     vitalSunk: 0,
     vitalHp: 1,
     redInbound: false,
