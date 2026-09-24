@@ -1,5 +1,5 @@
 import type { Mesh } from 'three'
-import { buildPolygon } from './groundDecal'
+import { buildDecals, type DecalRegion } from './groundDecal'
 import { insideRing, ringDistance, type FeatureFile } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
 
@@ -14,9 +14,7 @@ import type { HeightSampler } from '../world/river'
  * 從投彈高度看，階梯的色帶就是坑的深度感。
  */
 
-/** 格子的邊長，m。階梯一階 70 m，格子要比它細才畫得出色帶 */
-const CELL = 35
-/** 坑緣那一圈裸土的寬度，m */
+/** 坑緣那一圈裸土的寬度，m。細格 20 m（`DECAL_GRID`），階梯一階 70 m 畫得出色帶 */
 const RIM = 45
 /** 一階階梯的寬度，m */
 const STEP = 70
@@ -39,8 +37,19 @@ export function mineColor(x: number, z: number, edge: number): number {
   return n > 0.6 ? LIGNITE_WET : LIGNITE
 }
 
-export function buildMines(sample: HeightSampler, mines: FeatureFile['mines']): Mesh[] {
-  return mines.map((m) => buildPolygon(sample, m.ring, CELL, mineColor, `mine:${m.name}`))
+export function buildMines(sample: HeightSampler, mines: FeatureFile['mines']): Mesh {
+  return buildDecals(sample, mines.map((m): DecalRegion => {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+    for (const [x, z] of m.ring) {
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x)
+      z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+    }
+    return {
+      x0, z0, x1, z1,
+      inside: (x, z) => insideRing(m.ring, x, z),
+      colorAt: (x, z) => mineColor(x, z, insideRing(m.ring, x, z) ? ringDistance(m.ring, x, z) : 0),
+    }
+  }), 'mines')
 }
 
 /** 「在礦坑裡（含坑緣外 `margin` 公尺）」的查詢，植被與建築用 */

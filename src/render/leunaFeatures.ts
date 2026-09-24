@@ -83,7 +83,7 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
   object.name = 'landFeatures'
   const meshes: Mesh[] = [
     buildSettlementGround(sample, f.places),
-    ...buildMines(sample, f.mines),
+    buildMines(sample, f.mines),
   ]
   for (const m of meshes) object.add(m)
   const motorway = buildMotorway(sample, profiles)
