@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BEACHHEAD, EVACUATE_Z, FRONT_LINE, LEYTE_FLAK_SITES, LEYTE_LSTS, LEYTE_MASSIFS, LEYTE_PEAK_MAX, LEYTE_ROAD,
   LEYTE_ROADS, LST_RAMP_REACH, PLAIN_HEIGHT, PLAIN_TOP, SAND_TOP, FIELD_HALF,
+  LEYTE_BALLOONS, LEYTE_BEACH, ROAD_WIDTH, isInBeachClearing,
   baseHeight, carveFactor, coastZ, createLeyte, distanceToRoad, farHeight, isInRoadClearing, isNearRoad,
   roadTreeClear,
 } from '../../src/world/leyte'
@@ -410,5 +411,31 @@ describe('灘頭搶灘的 LST', () => {
       for (const [x, z] of outline(l)) expect(distanceToRoad(x, z)).toBeGreaterThan(40)
       for (const f of LEYTE_FLAK_SITES) expect(Math.hypot(f.x - l.x, f.z - l.z)).toBeGreaterThan(150)
     }
+  })
+})
+
+describe('灘頭的佈景', () => {
+  const winches = LEYTE_BALLOONS.flatMap((b) => ('ship' in b.anchor ? [] : [b.anchor]))
+
+  it('補給堆與車都在陸上、不壓公路、不壓灘頭砲位與氣球絞車', () => {
+    const spots = [
+      ...LEYTE_BEACH.dumps.map((d) => ({ x: d.x, z: d.z, r: Math.hypot(d.width, d.depth) / 2 })),
+      ...LEYTE_BEACH.vehicles.map((v) => ({ x: v.x, z: v.z, r: 4 })),
+    ]
+    expect(spots.length).toBeGreaterThan(40)
+    for (const s of spots) {
+      const at = `${s.x.toFixed(0)},${s.z.toFixed(0)}`
+      expect(s.z, at).toBeGreaterThan(coastZ(s.x) + 10)
+      expect(distanceToRoad(s.x, s.z), at).toBeGreaterThan(ROAD_WIDTH / 2 + s.r)
+      for (const f of LEYTE_FLAK_SITES) expect(Math.hypot(f.x - s.x, f.z - s.z), at).toBeGreaterThan(s.r + 15)
+      for (const w of winches) expect(Math.hypot(w.x - s.x, w.z - s.z), at).toBeGreaterThan(s.r + 10)
+    }
+  })
+
+  it('補給堆與車上不長樹；離開灘頭就不算', () => {
+    for (const d of LEYTE_BEACH.dumps) expect(isInBeachClearing(d.x, d.z)).toBe(true)
+    for (const v of LEYTE_BEACH.vehicles) expect(isInBeachClearing(v.x, v.z)).toBe(true)
+    expect(isInBeachClearing(0, 3000)).toBe(false)
+    expect(isInBeachClearing(BEACHHEAD.x, BEACHHEAD.z + 1500)).toBe(false)
   })
 })

@@ -480,6 +480,176 @@ export const LEYTE_BALLOONS: readonly LeyteBalloon[] = /* @__PURE__ */ (() => {
   return out
 })()
 
+// ── 灘頭的佈景：補給堆與停著的車 ─────────────────────────────
+
+/**
+ * 一堆補給：一塊長方形的場地，裡面由 `render/leyteBeach.ts` 用種子排滿木箱。
+ * `heading` 是場地「深」那一邊的朝向（rad，0 = 朝 −Z），`width` 橫向、`depth`
+ * 沿 `heading`，m。`lane` = 中間留一條這麼寬的走道（LST 跳板上來的車道），0 = 不留。
+ */
+export interface BeachDump {
+  readonly x: number; readonly z: number; readonly heading: number
+  readonly width: number; readonly depth: number; readonly lane: number
+  readonly seed: number
+}
+/** 一台停著不動的車。`heading` 0 = 車頭朝 −Z */
+export interface BeachVehicle {
+  readonly unit: 'usTruck' | 'usTank' | 'usFlakTrack'
+  readonly x: number; readonly z: number; readonly heading: number
+}
+
+/**
+ * 灘頭的佈景（**不是目標、沒有碰撞**，`render/leyteBeach.ts` 合併成一顆網格）：
+ *
+ * - 每艘 LST 跳板上岸處一大片卸貨區，中間留跳板上來的車道，旁邊停幾輛卡車
+ * - 沿灘頭散布的補給堆
+ * - 公路起點兩側各一個車輛集結場：雪曼、M16、卡車一排排停好
+ *
+ * 全部避開公路、灘頭砲位、氣球的地面絞車與水線（`beachClear`）。**位置、數量
+ * 都是起始值；亂數有種子**，同一張地圖每次都長一樣。
+ */
+export const LEYTE_BEACH: { readonly dumps: readonly BeachDump[]; readonly vehicles: readonly BeachVehicle[] } =
+  /* @__PURE__ */ (() => {
+    const rand = makeRand(1944_10_22)
+    const jit = (): number => 2 * rand() - 1
+    const dumps: BeachDump[] = []
+    const vehicles: BeachVehicle[] = []
+    const winches = LEYTE_BALLOONS.flatMap((b) => ('ship' in b.anchor ? [] : [b.anchor]))
+    /** 半徑 `r` 的一塊地放得下嗎：不壓公路、砲位、絞車，也不下水 */
+    const beachClear = (x: number, z: number, r: number): boolean =>
+      z > coastZ(x) + 15 + r * 0.3
+      && distanceToRoad(x, z) > ROAD_WIDTH / 2 + r + 6
+      && LEYTE_FLAK_SITES.every((f) => Math.hypot(f.x - x, f.z - z) > r + 20)
+      && winches.every((w) => Math.hypot(w.x - x, w.z - z) > r + 15)
+    /** 岸線上 x 那一點的內法線方向的艏向（朝內陸） */
+    const inland = (x: number): number => {
+      const s = coastSlope(x)
+      const len = Math.hypot(s, 1)
+      return Math.atan2(s / len, -1 / len)
+    }
+    const fwd = (h: number): [number, number] => [-Math.sin(h), -Math.cos(h)]
+    const right = (h: number): [number, number] => [Math.cos(h), -Math.sin(h)]
+
+    // 1. LST 的卸貨區：跳板末端往內陸 20～60 m，順著船的方向
+    for (const l of LEYTE_LSTS) {
+      const [fx, fz] = fwd(l.heading)
+      const [rx, rz] = right(l.heading)
+      const tx = l.x + fx * LST_RAMP_REACH
+      const tz = l.z + fz * LST_RAMP_REACH
+      const cx = tx + fx * 45
+      const cz = tz + fz * 45
+      if (beachClear(cx, cz, 23)) {
+        dumps.push({ x: cx, z: cz, heading: l.heading, width: 40, depth: 46, lane: 8, seed: dumps.length + 1 })
+      }
+      // 卸貨區兩旁停著等裝卸的卡車
+      for (let k = 0; k < 4; k++) {
+        const side = k % 2 === 0 ? -1 : 1
+        const along = 22 + 16 * Math.floor(k / 2) + 3 * jit()
+        const x = tx + fx * along + rx * side * (26 + 2 * jit())
+        const z = tz + fz * along + rz * side * (26 + 2 * jit())
+        if (beachClear(x, z, 4)) {
+          vehicles.push({ unit: 'usTruck', x, z, heading: l.heading + Math.PI / 2 * side + 0.3 * jit() })
+        }
+      }
+    }
+
+    // 2. 車輛集結場：公路起點兩側各一個、再往外各一個。三排、每排七台，面朝內陸
+    const parks: { x: number; z: number }[] = []
+    for (const [sign, arc] of [[-1, 110], [1, 110], [-1, 650], [1, 650]] as const) {
+      const x0 = walkCoast(BEACHHEAD.x, sign, arc)
+      const h = inland(x0)
+      const [fx, fz] = fwd(h)
+      const [rx, rz] = right(h)
+      const bx = x0 + fx * 120
+      const bz = coastZ(x0) + fz * 120
+      parks.push({ x: bx, z: bz })
+      const rows: BeachVehicle['unit'][][] = [
+        ['usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank', 'usTank'],
+        ['usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack', 'usTruck', 'usTruck', 'usFlakTrack'],
+        ['usTruck', 'usTruck', 'usTruck', 'usTruck', 'usTruck', 'usTruck', 'usTruck'],
+      ]
+      rows.forEach((row, r) => {
+        row.forEach((unit, c) => {
+          const lat = (c - (row.length - 1) / 2) * 6
+          const dep = (r - 1) * 12
+          const x = bx + rx * lat + fx * dep
+          const z = bz + rz * lat + fz * dep
+          if (beachClear(x, z, 4)) vehicles.push({ unit, x, z, heading: h + 0.03 * jit() })
+        })
+      })
+    }
+
+    // 3. 沿灘頭散布的補給堆，大小不一；不壓集結場、不壓已經停好的車
+    let tries = 0
+    let placed = 0
+    while (placed < 36 && tries < 800) {
+      tries++
+      const sign = rand() < 0.5 ? -1 : 1
+      const x0 = walkCoast(BEACHHEAD.x, sign, 60 + 1640 * rand())
+      const h = inland(x0) + 0.25 * jit()
+      const [fx, fz] = fwd(h)
+      const d = 40 + 280 * rand()
+      const x = x0 + fx * d
+      const z = coastZ(x0) + fz * d
+      const width = 16 + 24 * rand()
+      const depth = 12 + 18 * rand()
+      const r = Math.hypot(width, depth) / 2
+      if (!beachClear(x, z, r)) continue
+      if (dumps.some((o) => Math.hypot(o.x - x, o.z - z) < r + Math.hypot(o.width, o.depth) / 2 + 8)) continue
+      if (parks.some((p) => Math.hypot(p.x - x, p.z - z) < r + 35)) continue
+      if (vehicles.some((v) => Math.hypot(v.x - x, v.z - z) < r + 5)) continue
+      dumps.push({ x, z, heading: h, width, depth, lane: 0, seed: dumps.length + 1 })
+      placed++
+      // 補給堆旁邊停一兩台
+      const [rx, rz] = right(h)
+      for (const side of rand() < 0.5 ? [1] : [1, -1]) {
+        const vx = x + rx * side * (width / 2 + 5)
+        const vz = z + rz * side * (width / 2 + 5)
+        if (beachClear(vx, vz, 4)) {
+          vehicles.push({ unit: rand() < 0.8 ? 'usTruck' : 'usTank', x: vx, z: vz, heading: h + 0.4 * jit() })
+        }
+      }
+    }
+    return { dumps, vehicles }
+  })()
+
+/** 補給堆與車子周圍這麼寬不長樹，m */
+const BEACH_TREE_CLEAR = 6
+/** 整片灘頭佈景的外接矩形（含清空帶）：植被每個候選點都問，先比它 */
+const BEACH_BOX = /* @__PURE__ */ (() => {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+  const grow = (x: number, z: number, r: number): void => {
+    x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r)
+    z0 = Math.min(z0, z - r); z1 = Math.max(z1, z + r)
+  }
+  for (const d of LEYTE_BEACH.dumps) grow(d.x, d.z, Math.hypot(d.width, d.depth) / 2 + BEACH_TREE_CLEAR)
+  for (const v of LEYTE_BEACH.vehicles) grow(v.x, v.z, 4 + BEACH_TREE_CLEAR)
+  return { x0, x1, z0, z1 }
+})()
+
+/**
+ * 這一點落在灘頭佈景（補給堆、停著的車）的清空帶裡嗎。**植被每個候選點都問**
+ * —— 沙灘分界以上是草地，不擋的話樹會長在木箱堆與車子上。
+ */
+export function isInBeachClearing(x: number, z: number): boolean {
+  const b = BEACH_BOX
+  if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return false
+  for (const d of LEYTE_BEACH.dumps) {
+    const dx = x - d.x
+    const dz = z - d.z
+    // 轉到補給堆自己的座標：沿 heading 是深、垂直的是寬
+    const c = Math.cos(d.heading)
+    const s = Math.sin(d.heading)
+    const lat = dx * c - dz * s
+    const dep = -(dx * s + dz * c)
+    if (Math.abs(lat) < d.width / 2 + BEACH_TREE_CLEAR && Math.abs(dep) < d.depth / 2 + BEACH_TREE_CLEAR) return true
+  }
+  for (const v of LEYTE_BEACH.vehicles) {
+    if (Math.hypot(x - v.x, z - v.z) < 4 + BEACH_TREE_CLEAR) return true
+  }
+  return false
+}
+
 /** 這一點到**車隊那一條**公路中線的最短距離，m */
 export function distanceToRoad(x: number, z: number): number {
   let best = Infinity
