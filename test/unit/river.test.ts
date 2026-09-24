@@ -6,7 +6,7 @@ import {
   type RiverFile, type WaterLine,
 } from '../../src/world/river'
 import { buildRiverWater } from '../../src/render/river'
-import { createLeuna } from '../../src/world/leuna'
+import { createLeuna, LEUNA_RIVER_ENDS } from '../../src/world/leuna'
 import { FARM_EXTENT, outsideZero } from '../../src/world/farmland'
 
 /**
@@ -20,8 +20,20 @@ const solid = outsideZero(createLeuna().field)
 const sample = (x: number, z: number): number => solid.sample(x, z)
 const HALF = FARM_EXTENT / 2
 const LINES = riverLines(sample, FILE)
-const EXT = extendRivers(LINES, HALF, sample)
+const EXT = extendRivers(LINES, HALF, sample, LEUNA_RIVER_ENDS)
 const ALL = [...LINES, ...EXT]
+/** 往外流的延伸段（不含匯流） */
+const OUTFLOW = EXT.filter((e) => e.name.endsWith('（延伸）'))
+const JOINS = EXT.filter((e) => e.name.endsWith('（匯流）'))
+
+/** 這一段的出圖方向：規則指定的方位，或最近的地圖邊 */
+function outwardOf(e: WaterLine): [number, number] {
+  const p0 = e.points[0]!
+  const rule = LEUNA_RIVER_ENDS.find((r) => Math.hypot(r.at[0] - p0[0], r.at[1] - p0[1]) <= 500)
+  if (rule?.bearing !== undefined) return [Math.sin(rule.bearing), -Math.cos(rule.bearing)]
+  const alongX = Math.abs(p0[0]) >= Math.abs(p0[1])
+  return alongX ? [Math.sign(p0[0]), 0] : [0, Math.sign(p0[1])]
+}
 
 function brute(lines: readonly WaterLine[], x: number, z: number): number {
   let best = Infinity
@@ -41,34 +53,62 @@ function brute(lines: readonly WaterLine[], x: number, z: number): number {
 
 describe('地圖外的延伸', () => {
   /**
-   * 五端流出地圖：Saale 的北端與西端、Luppe 兩端（它沿著北緣流）、Wethau 的
-   * 南端。匯流口不延伸 —— 延伸了就是一條從地圖中間冒出來、往外流的假河。
+   * 五端碰到地圖邊：Saale 的北端與西端、Luppe 兩端（它貼著北緣流）、Wethau 的
+   * 南端。Luppe 的西端是下游、匯入 Saale，其餘四端往外流。地圖中間的匯流口
+   * 不延伸 —— 延伸了就是一條從地圖中間冒出來、往外流的假河。
    */
-  it('只有流出地圖的河端才延伸', () => {
-    expect(EXT).toHaveLength(5)
+  it('四端往外流、Luppe 的下游匯入 Saale', () => {
+    expect(OUTFLOW.map((e) => e.name).sort()).toEqual(
+      ['Luppe（延伸）', 'Saale（延伸）', 'Saale（延伸）', 'Wethau（延伸）'])
+    expect(JOINS.map((e) => e.name)).toEqual(['Luppe（匯流）'])
     for (const e of EXT) {
       const p = e.points[0]!
       expect(Math.max(Math.abs(p[0]), Math.abs(p[1])), e.name).toBeGreaterThan(HALF - 1000)
     }
   })
 
+  /**
+   * 【支流不與主流並排走】沿著地圖邊流的支流，下游那一端照預設會自己往外流
+   * 60 km、與主流並排 —— 從北邊看出去是兩條平行的河。匯流段要在幾公里內
+   * 落在主流的延伸段上，而且整段都在它旁邊。
+   */
+  it('Luppe 的下游在幾公里內接上 Saale 的延伸段', () => {
+    const join = JOINS[0]!
+    const end = join.points.at(-1)!
+    const saale = OUTFLOW.filter((e) => e.name === 'Saale（延伸）')
+    expect(saale.some((s) => s.points.some((q) => q[0] === end[0] && q[1] === end[1]))).toBe(true)
+    let len = 0
+    for (let i = 0; i + 1 < join.points.length; i++) {
+      len += Math.hypot(join.points[i + 1]![0] - join.points[i]![0], join.points[i + 1]![1] - join.points[i]![1])
+    }
+    expect(len).toBeLessThan(8000)
+  })
+
+  /** 【上游朝萊比錫】萊比錫在廠區幾乎正東，不是北邊 */
+  it('Luppe 的上游往東流出去', () => {
+    const luppe = OUTFLOW.find((e) => e.name === 'Luppe（延伸）')!
+    const a = luppe.points[0]!
+    const b = luppe.points.at(-1)!
+    const bearing = Math.atan2(b[0] - a[0], -(b[1] - a[1])) * 180 / Math.PI
+    expect(bearing).toBeGreaterThan(60)
+    expect(bearing).toBeLessThan(105)
+  })
+
   /** 【起點就是河端】差一點點，兩段水面之間就是一道縫 */
   it('從河端接出去，一路往外、不繞回地圖', () => {
-    for (const e of EXT) {
+    for (const e of OUTFLOW) {
       const p0 = e.points[0]!
       expect(LINES.some((l) => [l.points[0]!, l.points.at(-1)!].some((q) => q[0] === p0[0] && q[1] === p0[1])),
         e.name).toBe(true)
-      // 出圖方向：離哪一條邊近就朝哪一邊。每一步沿它的分量都要是正的
-      const alongX = Math.abs(p0[0]) >= Math.abs(p0[1])
-      const nx = alongX ? Math.sign(p0[0]) : 0
-      const nz = alongX ? 0 : Math.sign(p0[1])
+      // 每一步沿出圖方向的分量都要是正的
+      const [nx, nz] = outwardOf(e)
       for (let i = 0; i + 1 < e.points.length; i++) {
         const a = e.points[i]!
         const b = e.points[i + 1]!
         expect((b[0] - a[0]) * nx + (b[1] - a[1]) * nz, `${e.name} 第 ${i} 步`).toBeGreaterThan(0)
       }
       const last = e.points.at(-1)!
-      expect(last[0] * nx + last[1] * nz, `${e.name} 走不夠遠`).toBeGreaterThan(HALF + EXTEND_REACH / 2)
+      expect((last[0] - p0[0]) * nx + (last[1] - p0[1]) * nz, `${e.name} 走不夠遠`).toBeGreaterThan(EXTEND_REACH / 2)
     }
   })
 
@@ -97,7 +137,7 @@ describe('地圖外的延伸', () => {
    * 一出地圖就變成一條運河，接縫一眼就看得出來。
    */
   it('有彎，不是一條直線', () => {
-    for (const e of EXT) {
+    for (const e of OUTFLOW) {
       const a = e.points[0]!
       const b = e.points.at(-1)!
       let len = 0
@@ -108,7 +148,10 @@ describe('地圖外的延伸', () => {
     }
   })
 
-  /** 【延伸段彼此不交叉】北緣有三端擠在 14 km 裡，交叉的話是兩條河在霧裡打結 */
+  /**
+   * 【延伸段彼此不交叉】交叉的話是兩條河在霧裡打結。匯流段只在最後一點碰到
+   * 主流（那一點是主流的折點，端點相碰不算交叉）。
+   */
   it('延伸段彼此不交叉', () => {
     const cross = (a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[]): boolean => {
       const rx = b[0]! - a[0]!, rz = b[1]! - a[1]!, sx = d[0]! - c[0]!, sz = d[1]! - c[1]!
@@ -132,7 +175,7 @@ describe('地圖外的延伸', () => {
   })
 
   it('每次進場一模一樣', () => {
-    const again = extendRivers(riverLines(sample, FILE), HALF, sample)
+    const again = extendRivers(riverLines(sample, FILE), HALF, sample, LEUNA_RIVER_ENDS)
     expect(again.map((e) => e.points)).toEqual(EXT.map((e) => e.points))
   })
 })

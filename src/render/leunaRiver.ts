@@ -1,5 +1,6 @@
 import { assetUrl } from '../core/asset'
 import { FARM_EXTENT } from '../world/farmland'
+import { LEUNA_RIVER_ENDS } from '../world/leuna'
 import { extendRivers, riverLines, type HeightSampler, type RiverFile } from '../world/river'
 import { createRiverSet, type RiverSet } from './river'
 
@@ -25,11 +26,12 @@ export async function preloadLeunaRivers(
 }
 
 /**
- * 這一張地形的河：地圖內的中心線，加上流出地圖的那幾端往外編的延伸段。
+ * 這一張地形的河：地圖內的中心線，加上流出地圖的那幾端往外編的延伸段
+ * （河端各自怎麼走見 `LEUNA_RIVER_ENDS`）。
  * `sample` 要是**場外回 0** 的那一份 —— 延伸段整段都在場外。
  */
 export function buildLeunaRivers(sample: HeightSampler): RiverSet {
   if (cache === null) throw new Error('洛伊納的河道還沒載入 —— 少了 preloadLeunaRivers()')
   const lines = riverLines(sample, cache)
-  return createRiverSet([...lines, ...extendRivers(lines, FARM_EXTENT / 2, sample)])
+  return createRiverSet([...lines, ...extendRivers(lines, FARM_EXTENT / 2, sample, LEUNA_RIVER_ENDS)])
 }

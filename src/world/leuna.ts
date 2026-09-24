@@ -4,6 +4,7 @@ import {
   bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc, type LobeDraw,
 } from './archipelago'
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
+import type { RiverEndRule } from './river'
 
 /**
  * # 洛伊納：盟 M2 專用的地形
@@ -127,6 +128,21 @@ export const LEUNA_HILLS = [
   { cx: -7500, cz: 9000, radius: 1000, peak: 75, pa: 2.8, pb: 0.3, seed: 109 },
   { cx: 8500, cz: 3000, radius: 900, peak: 50, pa: 3.9, pb: 1.9, seed: 110 },
 ] as const
+
+/**
+ * 流出地圖的河端怎麼走（`world/river.ts` 的 `extendRivers`）。沒列的照預設：
+ * 往最近的地圖邊流出去。
+ *
+ * Luppe 在地圖內貼著北緣由東往西流，兩端都碰得到邊：
+ * - **西端是下游**，出圖之後在梅澤堡北邊匯入 Saale —— 照預設的話它會與
+ *   Saale 並排往北再流 60 km
+ * - **東端是上游**，來自萊比錫。萊比錫在廠區往東 25.8 km、往北 3.5 km，
+ *   方位 82°，幾乎正東
+ */
+export const LEUNA_RIVER_ENDS: readonly RiverEndRule[] = [
+  { at: [1382, -14780], joins: 'Saale' },
+  { at: [12690, -14126], bearing: (82 * Math.PI) / 180 },
+]
 
 /** 丘陵外緣離河的中心線至少多遠，m。見 `LEUNA_HILLS` */
 export const HILL_RIVER_CLEARANCE = 500
