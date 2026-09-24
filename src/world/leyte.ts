@@ -367,8 +367,8 @@ export const LEYTE_FLAK_SITES: readonly {
  */
 export interface LeyteLst { readonly x: number; readonly z: number; readonly heading: number }
 const LST_PER_SIDE = 5
-const LST_ROAD_GAP = 90
-const LST_SPACING = 50
+const LST_ROAD_GAP = 270
+const LST_SPACING = 150
 /** 艦體中點到跳板末端，m（`tools/blender/build_lst.py` 的跳板末端在艦體座標 z −53.5） */
 export const LST_RAMP_REACH = 53.5
 

@@ -32,6 +32,7 @@ LST-1 級戰車登陸艦，擱淺在雷伊泰灘頭：艦艏兩扇蚌殼門打�
          頂 12.7；操舵室 12.7 → 16.1；主桅 (0, −32) 頂 28.2。甲板室前緣有三根
          通風管到 11.5；甲板室兩舷各吊一艘小艇，艇架頂 13.9。
   砲座   40 mm：艉一座 (0, −47.3)、艏樓左右錯開兩座、艏頂蓋上一座；20 mm 四座。
+         開火的只有中線的 40 mm（艉與艏頂蓋，併成一區）與四座 20 mm（`AA_OFF`）。
 """
 import bpy, bmesh, math, os
 from mathutils import Vector, Matrix
@@ -283,6 +284,9 @@ EL_40, EL_20 = 20.0, 30.0
 # 防空砲位：(層, 口徑 mm, 砲口 x, y, z, 管數)，**艦體座標**（z 由水線起算）。
 # `export_ship_aa.py` 讀它產生 `src/world/shipAA.ts`
 EMPL = []
+# 只有外型、不進防空表的砲：40 mm 只留中線（艉與艏頂蓋，併成一區）開火，
+# 兩舷這兩座不開火
+AA_OFF = {'Bow40L', 'Bow40R'}
 for (name, x, y, r, z0, z1, kind, yaw) in TUBS:
     depth = min(1.0, z1 - z0 - 0.1)
     mk('LST_Tub_' + name, *hex_cup(x, y, z0, z1, r, depth=depth), C, M_HULL)
@@ -298,7 +302,8 @@ for (name, x, y, r, z0, z1, kind, yaw) in TUBS:
             p = piv + side * off
             mk('LST_Gun40Barrel_%s%d' % (name, k), *rod(p, p + d * 2.6, 0.06, seg=5), C, M_GUNS)
         m = piv + d * 2.6
-        EMPL.append(('autocannon', 40, round(m.x, 2), round(m.y, 2), round(m.z - WATERLINE, 2), 2))
+        if name not in AA_OFF:
+            EMPL.append(('autocannon', 40, round(m.x, 2), round(m.y, 2), round(m.z - WATERLINE, 2), 2))
     else:
         el = math.radians(EL_20)
         d = fwd * math.cos(el) + Vector((0, 0, math.sin(el)))

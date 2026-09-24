@@ -91,7 +91,7 @@ def zones_of(rows):
       **20 mm**       一層 × 一舷 × **前後** = 一區 —— 一舷一個點涵蓋不了
                       185 m 的近迫火網，機庫裡也只看得到兩個錐
 
-    切完四艘分別是 8 / 6 / 8 / 7 區，**Essex 與 Wichita 正好卡在 MAX_TURRETS = 8**。
+    切完四艘分別是 8 / 6 / 8 / 5 區，**Essex 與 Wichita 正好卡在 MAX_TURRETS = 8**。
     再想細分任何一層之前要先擴容。
     """
     groups = {}
@@ -177,7 +177,7 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  * 全在艦橋附近，用艦體中點切後半段是空的），也不是最大空隙（Essex 右舷 17 門會
  * 被切成 15/2，一個代表涵蓋 15 門那一長串，等於沒拆）。
  *
- * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 7 區 —— **兩艘正好卡在
+ * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 5 區 —— **兩艘正好卡在
  * 上限 8**。再想細分任何一層之前要先擴容 `MAX_TURRETS`。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'

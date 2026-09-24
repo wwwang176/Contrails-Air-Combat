@@ -54,7 +54,7 @@ import { Vector3 } from 'three'
  * 全在艦橋附近，用艦體中點切後半段是空的），也不是最大空隙（Essex 右舷 17 門會
  * 被切成 15/2，一個代表涵蓋 15 門那一長串，等於沒拆）。
  *
- * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 7 區 —— **兩艘正好卡在
+ * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 5 區 —— **兩艘正好卡在
  * 上限 8**。再想細分任何一層之前要先擴容 `MAX_TURRETS`。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
@@ -332,14 +332,10 @@ export const WICHITA_AA_ZONES: readonly ShipAAZone[] = [
     representative: 'mg_s4', position: new Vector3(4.75, 8.71, 1.10) },
 ]
 
-/** LST-1 級戰車登陸艦 逐門 —— 兩用砲 0、40 mm 4、20 mm 4。**量測來源，不是遊戲用的那一份。** */
+/** LST-1 級戰車登陸艦 逐門 —— 兩用砲 0、40 mm 2、20 mm 4。**量測來源，不是遊戲用的那一份。** */
 export const LST_AA: readonly ShipEmplacement[] = [
   { id: 'autocannon_c1', tier: 'autocannon', calibreMm: 40, guns: 2,
     position: new Vector3(0.00, 11.54, -49.24) },
-  { id: 'autocannon_p1', tier: 'autocannon', calibreMm: 40, guns: 2,
-    position: new Vector3(-6.02, 10.74, -40.92) },
-  { id: 'autocannon_s1', tier: 'autocannon', calibreMm: 40, guns: 2,
-    position: new Vector3(6.62, 10.74, -38.52) },
   { id: 'autocannon_c2', tier: 'autocannon', calibreMm: 40, guns: 2,
     position: new Vector3(0.00, 10.54, 49.74) },
   { id: 'mg_p1', tier: 'mg', calibreMm: 20, guns: 1,
@@ -352,14 +348,10 @@ export const LST_AA: readonly ShipEmplacement[] = [
     position: new Vector3(7.00, 8.60, -27.19) },
 ]
 
-/** LST-1 級戰車登陸艦 併區（7 區）。 */
+/** LST-1 級戰車登陸艦 併區（5 區）。 */
 export const LST_AA_ZONES: readonly ShipAAZone[] = [
   { id: 'autocannon_c', tier: 'autocannon', calibreMm: 40, guns: 2, mountsInZone: 2,
     representative: 'autocannon_c1', position: new Vector3(0.00, 11.54, -49.24) },
-  { id: 'autocannon_p', tier: 'autocannon', calibreMm: 40, guns: 2, mountsInZone: 1,
-    representative: 'autocannon_p1', position: new Vector3(-6.02, 10.74, -40.92) },
-  { id: 'autocannon_s', tier: 'autocannon', calibreMm: 40, guns: 2, mountsInZone: 1,
-    representative: 'autocannon_s1', position: new Vector3(6.62, 10.74, -38.52) },
   { id: 'mg_pf', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
     representative: 'mg_p1', position: new Vector3(-3.47, 10.40, -44.70) },
   { id: 'mg_pa', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
