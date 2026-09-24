@@ -157,17 +157,25 @@ export interface FieldClipmap {
   readonly material: MeshStandardMaterial
   readonly stats: FieldClipmapStats
   /**
-   * 烘進**遠圖**的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界
-   * 座標（y 不讀）、`color` 是頂點色（線性）。加入後遠圖整張重烘。
+   * 烘進貼圖的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界座標
+   * （y 不讀）、`color` 是頂點色（線性）。`near` 為 false 的只烘遠圖（屋頂：近窗
+   * 裡有真的房子）。加入後兩張整張重烘。
+   *
+   * 【內圈也看得到】內圈的田色走算式，讀不到貼圖；烘圖時疊圖寫透明度 1、田色寫
+   * 0，內圈照近圖的透明度把疊圖疊回去。
    *
    * 幾何歸呼叫端，`dispose` 不丟它。
    */
-  addFarOverlay(geometry: BufferGeometry): void
+  addOverlay(geometry: BufferGeometry, near: boolean): void
   /**
-   * 替貼在地上的材質補一段：**地面改讀遠圖的地方**（近窗外、遠窗內）丟掉片段。
-   * 那裡的顏色由 `addFarOverlay` 烘進遠圖的那一份畫；旁路時照畫。
+   * 這顆網格已經整顆烘進兩張貼圖（`addOverlay(…, true)`）：平常不畫，旁路時畫
    */
-  nearOnly(material: MeshStandardMaterial): void
+  replaces(mesh: Mesh): void
+  /**
+   * 這顆網格只畫在遠圖外面（遠景環那一圈）：遠圖裡的片段丟掉，旁路時整顆不畫
+   * （那時 `replaces` 的那一份畫滿全圖）
+   */
+  beyondFar(mesh: Mesh): void
   /** 每幀叫，該挪窗就烘 */
   update(camX: number, camZ: number): void
   setInnerRadius(m: number): void
@@ -225,7 +233,7 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
 void main() { vWorld = (uCell0 + uv * uCells) * uMetres; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: `varying vec2 vWorld;
 ${glsl}
-void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 1.0); }`,
+void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
   })
   const quadGeo = new PlaneGeometry(2, 2)
   const bakeScene = new Scene()
@@ -247,9 +255,12 @@ void main() { gl_FragColor = vec4(vCol, 1.0); }`,
   })
   const overlays = new Group()
   bakeScene.add(overlays)
+  /** 烘掉的網格（`replaces`）與只畫在遠圖外的網格（`beyondFar`）；旁路時對調 */
+  const replaced: Mesh[] = []
+  const beyond: Mesh[] = []
 
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
-    overlays.visible = L === far
+    for (const o of overlays.children) o.visible = L === far || o.userData['near'] === true
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
@@ -337,6 +348,11 @@ ${glsl}`)
   vec3 c = vec3(0.0);
   // 算式：旁路、內圈、遠窗外（遠景環 15 km 外）
   if (proc) c = fieldColorAt(w);
+  // 【內圈疊回烘進近圖的平面】算式裡沒有街、鎮地面、礦坑；近圖的透明度記著它們
+  if (proc && uBypass < 0.5 && eN < 1.0) {
+    vec4 o = textureGrad(uNear, fract(qN), dNx, dNy);
+    c = mix(c, o.rgb, o.a);
+  }
   if (tex) {
     vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
     float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
@@ -353,43 +369,42 @@ ${glsl}`)
   return {
     material,
     stats,
-    addFarOverlay(geometry) {
+    addOverlay(geometry, toNear) {
       const mesh = new Mesh(geometry, overlayMat)
       // 包圍球是世界座標，烘圖的鏡頭是 ±1 的正交盒 —— 不關的話整顆被剔掉
       mesh.frustumCulled = false
       mesh.renderOrder = 1 + overlays.children.length
+      mesh.userData['near'] = toNear
       overlays.add(mesh)
       far.primed = false
+      if (toNear) near.primed = false
     },
-    nearOnly(m) {
+    replaces(mesh) {
+      replaced.push(mesh)
+      mesh.visible = U.uBypass.value > 0.5
+    },
+    beyondFar(mesh) {
+      beyond.push(mesh)
+      mesh.visible = U.uBypass.value < 0.5
+      const m = mesh.material as MeshStandardMaterial
       m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-        Object.assign(shader.uniforms, {
-          uNearCentre: U.uNearCentre, uNearSpan: U.uNearSpan,
-          uFarCentre: U.uFarCentre, uFarSpan: U.uFarSpan, uBypass: U.uBypass,
-          uCam: U.uCam, uInner: U.uInner,
-        })
+        Object.assign(shader.uniforms, { uFarCentre: U.uFarCentre, uFarSpan: U.uFarSpan })
         shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec2 vNearOnlyXZ;')
+          .replace('#include <common>', '#include <common>\nvarying vec2 vBeyondXZ;')
           .replace('#include <begin_vertex>',
-            '#include <begin_vertex>\nvNearOnlyXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
+            '#include <begin_vertex>\nvBeyondXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
         shader.fragmentShader = shader.fragmentShader
           .replace('#include <common>', `#include <common>
-varying vec2 vNearOnlyXZ;
-uniform vec2 uNearCentre; uniform float uNearSpan; uniform vec2 uFarCentre; uniform float uFarSpan;
-uniform float uBypass; uniform vec2 uCam; uniform float uInner;`)
-          // 【與地面著色器同一個判斷】地面只讀遠圖的地方才讓開：近窗外（eN）、遠窗內
-          // （eF）、內圈外（內圈走算式，可以伸出近窗）。任何一條漏了，那裡的鎮地面
-          // 變成田
+varying vec2 vBeyondXZ;
+uniform vec2 uFarCentre; uniform float uFarSpan;`)
+          // 與地面著色器同一個判斷：遠窗內（eF < 1）地面讀得到烘好的那一份
           .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 {
-  vec2 w = vNearOnlyXZ;
-  float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
-  float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
-  bool outsideInner = uInner <= 0.0 || distance(w, uCam) >= uInner;
-  if (uBypass < 0.5 && eN >= 1.0 && eF < 1.0 && outsideInner) discard;
+  vec2 w = vBeyondXZ;
+  if (max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) < 0.5 * uFarSpan) discard;
 }`)
       }
-      m.customProgramCacheKey = () => `near-only:${id}`
+      m.customProgramCacheKey = () => `beyond-far:${id}`
       m.needsUpdate = true
     },
     update(camX, camZ) {
@@ -398,7 +413,11 @@ uniform float uBypass; uniform vec2 uCam; uniform float uInner;`)
       U.uCam.value.set(camX, camZ)
     },
     setInnerRadius(m) { U.uInner.value = m },
-    setBypass(on) { U.uBypass.value = on ? 1 : 0 },
+    setBypass(on) {
+      U.uBypass.value = on ? 1 : 0
+      for (const m of replaced) m.visible = on
+      for (const m of beyond) m.visible = !on
+    },
     dispose() {
       near.rt.dispose()
       far.rt.dispose()

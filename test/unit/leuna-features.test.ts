@@ -363,7 +363,7 @@ describe('史實的村形', () => {
    * 外框裡。
    */
   it('鎮上有街，街心上沒有房子', () => {
-    const streets = dressing.farBaked.find((m) => m.name === 'streets')!
+    const streets = dressing.baked.find((m) => m.name === 'streets')!
     const pos = streets.geometry.getAttribute('position') as BufferAttribute
     const CELL = 64
     const grid = new Map<string, typeof Bfull>()
@@ -536,13 +536,16 @@ describe('地表網格', () => {
    * 【與地形共平面】每一個小三角形都要完全落在某一個地形三角形上 —— 三角形
    * 跨過地形的折線的話，中間沉到地面下（實測最多 1.4 m），低空看得到底下的田。
    * 量的是每一個三角形的重心與四分點：減掉抬高量之後要等於那裡的地形高度。
+   * 遠圖外那一份 80 m 的粗網格也量 —— 格線沒對齊地形格點的話整片都歪。
    */
-  it('村鎮地面與礦坑的每一點都貼著地形', () => {
+  it('村鎮地面與礦坑的每一點都貼著地形（細格與粗格）', () => {
     let worst = 0
     let checked = 0
+    let coarse = 0
     dressing.object.traverse((o) => {
       const m = o as Mesh
-      if (m.name !== 'settlementGround' && m.name !== 'mines') return
+      if (!['settlementGround', 'mines', 'settlementGroundFar', 'minesFar'].includes(m.name)) return
+      if (m.name.endsWith('Far')) coarse++
       const pos = m.geometry.getAttribute('position') as BufferAttribute
       const idx = m.geometry.getIndex()!
       for (let t = 0; t < idx.count; t += 3) {
@@ -560,6 +563,7 @@ describe('地表網格', () => {
       }
     })
     expect(checked).toBeGreaterThan(100_000)
+    expect(coarse).toBe(2)
     expect(worst).toBeLessThan(0.01)
   })
 
@@ -585,7 +589,7 @@ describe('地表網格', () => {
       expect(down, m.name).toBe(0)
       checked++
     })
-    // 村鎮地面、鎮上的街、礦坑、A9 路面各一顆
-    expect(checked).toBe(4)
+    // 村鎮地面、鎮上的街、礦坑、A9 路面各一顆，村鎮地面與礦坑另有遠圖外的粗網格
+    expect(checked).toBe(6)
   })
 })

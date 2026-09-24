@@ -41,12 +41,24 @@ export interface LandDressing {
   /** 植被池的容量覆寫 —— 真實的鎮一個就上千棟房子 */
   readonly capacity: Partial<Record<PoolName, number>>
   /**
-   * 鎮的地面與街（`object` 裡的兩塊），依烘圖的先後。遠處改由田色 clipmap 的
-   * 遠圖畫，屋頂才不會被它們蓋住（`terrain.ts`）
+   * 平貼在地上的網格：鎮的地面、礦坑、街（`object` 裡），依烘圖的先後。有田色
+   * clipmap 時整顆烘進兩張貼圖、網格不畫（`terrain.ts`）—— 二十幾萬個三角形每幀
+   * 都要送一次
    */
-  readonly farBaked: readonly Mesh[]
+  readonly baked: readonly Mesh[]
+  /**
+   * 鎮的地面與礦坑的粗網格（`BEYOND_GRID`），只畫在遠圖外面：遠圖只蓋鏡頭周圍
+   * 30 km，外面沒有它們的話，礦坑在十幾公里外一下子不見
+   */
+  readonly beyond: readonly Mesh[]
   dispose(): void
 }
+
+/**
+ * 遠圖外那一份粗網格的格寬，m。十幾公里外看不出鋸齒；再粗就要知道地形格點的
+ * 奇偶才對得齊（見 `DECAL_GRID`）
+ */
+const BEYOND_GRID = 40
 
 /** 房子離河的中心線至少多遠，m。水面半寬加一點岸 */
 const HOUSE_RIVER = CHANNEL_HALF + 15
@@ -132,8 +144,17 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
 
   const object = new Group()
   object.name = 'landFeatures'
-  const farBaked = [buildSettlementGround(sample, f.places, layout.greens), buildStreets(sample, layout.streets)]
-  const meshes: Mesh[] = [...farBaked, buildMines(sample, f.mines)]
+  const baked = [
+    buildSettlementGround(sample, f.places, layout.greens),
+    buildMines(sample, f.mines),
+    buildStreets(sample, layout.streets),
+  ]
+  const beyond = [
+    buildSettlementGround(sample, f.places, layout.greens, BEYOND_GRID, 'settlementGroundFar'),
+    buildMines(sample, f.mines, BEYOND_GRID, 'minesFar'),
+  ]
+  for (const m of beyond) m.visible = false
+  const meshes: Mesh[] = [...baked, ...beyond]
   for (const m of meshes) object.add(m)
   const motorway = buildMotorway(sample, profiles)
   object.add(motorway)
@@ -143,7 +164,8 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
     keepOut: (x, z) => inTown(x, z) || inMine(x, z) || onRoad(x, z),
     buildings,
     capacity: CAPACITY,
-    farBaked,
+    baked,
+    beyond,
     dispose() {
       object.traverse((o) => {
         const m = o as Mesh

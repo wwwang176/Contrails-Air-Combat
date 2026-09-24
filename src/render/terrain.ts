@@ -542,17 +542,18 @@ function createInlandTerrain(
   // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
   if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
   fields.push(buildings)
-  // 【建築烘進遠處的地面】植被圈外建築整棟不畫；屋頂色塊烘在田色的遠圖裡。
-  // 鎮的地面與街先烘、屋頂後烘，它們在遠圖接手的地方讓開（`nearOnly`），否則
-  // 蓋住屋頂。遠窗最遠碰得到場地外半個窗寬
+  // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外
+  // 另外畫粗網格。植被圈外建築整棟不畫，屋頂色塊只烘遠圖（近窗裡有真的房子），
+  // 最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬
   const reach = farm.field.cell * (farm.field.size - 1) / 2 + FIELD_CLIP_FAR.size * FIELD_CLIP_FAR.metersPerTexel / 2
   const roofs = clipmap === null ? null : roofSplats([buildings], -reach, -reach, reach, reach)
   if (clipmap !== null && roofs !== null) {
-    for (const m of dressing?.farBaked ?? []) {
-      clipmap.addFarOverlay(m.geometry)
-      clipmap.nearOnly(m.material as MeshStandardMaterial)
+    for (const m of dressing?.baked ?? []) {
+      clipmap.addOverlay(m.geometry, true)
+      clipmap.replaces(m)
     }
-    clipmap.addFarOverlay(roofs)
+    for (const m of dressing?.beyond ?? []) clipmap.beyondFar(m)
+    clipmap.addOverlay(roofs, false)
   }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
     season, ...(dressing === undefined ? {} : { capacity: dressing.capacity }),

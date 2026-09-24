@@ -1073,6 +1073,7 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
  */
 export function buildSettlementGround(
   sample: HeightSampler, places: readonly Place[], greens: readonly GreenPatch[] = [],
+  grid = DECAL_GRID, name = 'settlementGround',
 ): Mesh {
   const regions: DecalRegion[] = places
     .filter((p) => p.kind === 'town')
@@ -1086,7 +1087,7 @@ export function buildSettlementGround(
         colorAt: (x, z) => (mine.some((g) => onGreen(g, x, z)) ? PARK_GROUND : TOWN_GROUND),
       }
     })
-  return buildDecals(sample, regions, 'settlementGround')
+  return buildDecals(sample, regions, name, grid)
 }
 
 /**

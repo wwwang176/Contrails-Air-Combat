@@ -9,7 +9,7 @@ import { TINT_RANGE } from './vegetation'
  * # 建築的屋頂色塊：烘進遠處的地面
  *
  * 建築只有完整模型一級，植被圈外整棟不畫。這裡把每一棟的屋頂外框畫成平的
- * 四邊形，由田色 clipmap 烘進遠圖（`fieldClipmap.ts` 的 `addFarOverlay`）——
+ * 四邊形，由田色 clipmap 烘進遠圖（`fieldClipmap.ts` 的 `addOverlay`）——
  * 模型不畫了，地上還是一片屋頂的顏色，與遠處的林子同一個道理。
  *
  * 【與模型同一套座標】中心 `(x, z)`、x 軸 `(cos θ, −sin θ)`、z 軸
