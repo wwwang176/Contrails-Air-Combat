@@ -1058,7 +1058,12 @@ export class AiController implements Controller {
     //
     // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
     // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
-    if (this.bombBay !== null && this.attackShip(self, decide, dt, raw)) {
+    //
+    // 【任務指定了地面優先目標就不插隊】日 M2 灘頭擱淺的 LST 是紅隊的船，
+    // 這一段排在卡車分支之前 —— 不擋的話疾風整隊掛著炸彈去炸 LST，車隊沒人管。
+    // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
+    if (this.bombBay !== null && this.priorityGroundUnit === null
+      && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
       this.emit(self, dt, out)
       return

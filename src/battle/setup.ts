@@ -1161,7 +1161,7 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
     const cls = SHIP_CLASSES[e.cls]
     // 【`vital` 也要透傳】漏掉的症狀是「打沉航母卻沒判輸」，不報錯
     const ship = createShip(
-      world.ships.length, cls, e.team, p.x, p.z, fleet.heading, fleet.speed,
+      world.ships.length, cls, e.team, p.x, p.z, fleet.heading + (e.heading ?? 0), fleet.speed,
       e.vital === true,
     )
     ship.guns = createShipGuns(cls)
