@@ -42,6 +42,10 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
   truck: 120,
   flakHeavy: 400,
   flakLight: 160,
+  // 美軍三台與上面對應的那三種同一個量級：戰車靠裝甲、卡車與防空車掃射得掉
+  usTank: 1_200,
+  usTruck: 120,
+  usFlakTrack: 160,
   locomotive: 800,
   tender: 300,
   boxcar: 200,
@@ -66,15 +70,21 @@ export const GROUND_HP: Readonly<Record<GroundUnitId, number>> = {
  * 裝甲，mm。**與 `ShipClass.armour` 同一條規則**（`weapons/armour.ts`）：口徑
  * 小於它的子彈只扣底線 1 點。
  *
- * 【只有戰車非零】T-34 的車體裝甲 45 mm 傾斜，機槍與 20 mm 機砲都打不穿，
- * 30 mm 也打不穿 —— 所以戰車只有炸彈炸得掉，而不是靠一個很大的血量硬撐。
- * 卡車、露天砲座、火車、廠房都是 0：掃射就該打得爛（廠房是血量擋著）。
+ * 【戰車擋得住機砲】T-34 的車體裝甲 45 mm 傾斜、雪曼 51 mm，機槍與 20 mm 機砲
+ * 都打不穿，30 mm 也打不穿 —— 所以戰車只有炸彈炸得掉，而不是靠一個很大的血量
+ * 硬撐。卡車、露天砲座、火車、廠房都是 0：掃射就該打得爛（廠房是血量擋著）；
+ * 半履帶車的 6 mm 比最小的機槍口徑還薄，一樣打得爛。
  */
 export const GROUND_ARMOUR: Readonly<Record<GroundUnitId, number>> = {
   tank: 45,
   truck: 0,
   flakHeavy: 0,
   flakLight: 0,
+  // 雪曼車體前方 51 mm —— 與 T-34 一樣只有炸彈炸得掉
+  usTank: 51,
+  usTruck: 0,
+  // 半履帶車的 6 mm 裝甲鋼板：擋不住任何一種機槍，只是照實填
+  usFlakTrack: 6,
   locomotive: 0,
   tender: 0,
   boxcar: 0,

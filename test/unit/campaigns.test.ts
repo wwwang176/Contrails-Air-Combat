@@ -216,7 +216,7 @@ describe('德 M3 底板行動', () => {
   })
 
   it('地面優先權只在需要它的卡上：德 M3 打停放的 P-51、日 M2 打卡車', () => {
-    const want: Record<string, string> = { 'germany-m3': 'parkedP51', 'japan-m2': 'truck' }
+    const want: Record<string, string> = { 'germany-m3': 'parkedP51', 'japan-m2': 'usTruck' }
     for (const campaign of CAMPAIGNS) {
       for (const mission of MISSIONS[campaign]) {
         if (!ready(mission)) continue
@@ -452,11 +452,20 @@ describe('日 M2 雷伊泰前線', () => {
   it('卡車與戰車帶一挺機槍（mg 那一層），防空車照舊是輕砲', () => {
     const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
     const moving = battle.world.groundTargets.filter((t) => t.motion !== null)
+    const seen = new Set<string>()
     for (const t of moving) {
       const tier = t.guns[0]?.zone.tier
-      if (t.unit.id === 'truck' || t.unit.id === 'tank') expect(tier, t.unit.id).toBe('mg')
-      if (t.unit.id === 'flakLight') expect(tier).toBe('autocannon')
+      seen.add(t.unit.id)
+      if (t.unit.id === 'usTruck' || t.unit.id === 'usTank') expect(tier, t.unit.id).toBe('mg')
+      if (t.unit.id === 'usFlakTrack') expect(tier).toBe('autocannon')
     }
+    // 【三種都要出現】代號改了而這裡沒跟上的話，上面兩條一次都不會跑
+    expect([...seen].sort()).toEqual(['usFlakTrack', 'usTank', 'usTruck'])
+  })
+
+  it('車隊是美軍的車：雪曼、CCKW、M16', () => {
+    const units = new Set(b.vehicleConvoy!.batches.flatMap((x) => x.units))
+    expect([...units].sort()).toEqual(['usFlakTrack', 'usTank', 'usTruck'])
   })
 
   it('天氣是雷雨', () => {
@@ -466,7 +475,7 @@ describe('日 M2 雷伊泰前線', () => {
   it('灘頭與前線有固定防空砲位（不動）', () => {
     const fixed = (missionConfigFrom(card).ground ?? []).filter((g) => g.motion === undefined)
     expect(fixed.length).toBeGreaterThan(0)
-    for (const g of fixed) expect(['flakLight', 'flakHeavy']).toContain(g.unit)
+    for (const g of fixed) expect(['usFlakTrack', 'flakHeavy']).toContain(g.unit)
   })
 })
 
@@ -518,12 +527,12 @@ describe('有 interdict 的卡一定打得贏', () => {
       ...card,
       battle: {
         ...rest,
-        interdict: { count: 1, leak: 1, unit: 'truck' },
-        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'truck' } },
+        interdict: { count: 1, leak: 1, unit: 'usTruck' },
+        withdraw: { ...card.battle.withdraw!, when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck' } },
       },
     }
     const battle = createBattle({ update() {} }, missionConfigFrom(one), 1)
-    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'truck')
+    const trucks = battle.world.groundTargets.filter((t) => t.unit.id === 'usTruck')
     trucks[0]!.alive = false
     trucks[1]!.alive = false
     trucks[1]!.arrived = true

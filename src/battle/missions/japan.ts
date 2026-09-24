@@ -93,11 +93,11 @@ export const JAPAN: readonly MissionCard[] = [
       terrain: 'leyte',
       altitude: 1500,
       loadouts: { ki84: KI84_BOMB_LOADOUT },
-      // 【僚機先打卡車】遭到敵機直接瞄準時才自衛。戰鬥機的 AI 只掃射、不投彈
-      priorityGroundUnit: 'truck',
+      // 【僚機先打卡車】遭到敵機直接瞄準時才自衛。掛著彈時先投彈、投完掃射
+      priorityGroundUnit: 'usTruck',
       /**
-       * 【三批、每批六輛】防空車頭尾各一、卡車 3、戰車 1。戰車只有炸彈炸得掉、
-       * 不計分；防空車照陸上輕型砲開火。
+       * 【三批、每批六輛】M16 防空車頭尾各一、CCKW 卡車 3、雪曼 1。戰車只有炸彈
+       * 炸得掉、不計分；防空車照陸上輕型砲開火。
        *
        * 【開場就全部在走】最後一批從灘頭起步，前兩批依序在它前面，批與批之間
        * 空 600 m（車頭到車頭 750 m）。全程約 6.6 km，第一批開場已經走了約 2 km，
@@ -106,11 +106,11 @@ export const JAPAN: readonly MissionCard[] = [
       vehicleConvoy: {
         route: LEYTE_ROAD, speed: 10, turnRadius: 25, gap: 30, batchGap: 600,
         // 【卡車與雪曼車頂的 .50】美軍車隊遇到低空掃射會還擊，不是只有防空車在打
-        armed: ['truck', 'tank'],
+        armed: ['usTruck', 'usTank'],
         batches: [
-          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
-          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
-          { units: ['flakLight', 'truck', 'truck', 'tank', 'truck', 'flakLight'] },
+          { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
+          { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
+          { units: ['usFlakTrack', 'usTruck', 'usTruck', 'usTank', 'usTruck', 'usFlakTrack'] },
         ],
       },
       // 【灘頭與前線的固定砲位】位置在 `world/leyte.ts`。不在截斷的池裡，打掉不算
@@ -125,10 +125,10 @@ export const JAPAN: readonly MissionCard[] = [
       flakSpec: {
         ...GROUND_FLAK_SPEC, roundsPerMinute: 20, fuseError: 0.02, burstRadius: 60, burstDamage: 160,
       },
-      // 【雷雨】不下雨，只有閃電與雷聲（`render/storm.ts`）。雷伊泰戰役正值雨季
+      // 【雷雨】雨、閃電與雷聲（`render/rain.ts`、`render/storm.ts`）。雷伊泰戰役正值雨季
       timeOfDay: 'storm',
       // 【9 輛卡車：炸 6 輛、放走 4 輛就輸】6 + 4 > 9，兩條不會同時可能
-      interdict: { count: 6, leak: 4, unit: 'truck' },
+      interdict: { count: 6, leak: 4, unit: 'usTruck' },
       /**
        * 【每波兩架、一波一波來】一次來四架的話玩家還在找車就被咬住。
        *
@@ -150,7 +150,7 @@ export const JAPAN: readonly MissionCard[] = [
        */
       waves: [
         {
-          when: { kind: 'destroyed', atLeast: 1, unit: 'truck', byLatest: 90 },
+          when: { kind: 'destroyed', atLeast: 1, unit: 'usTruck', byLatest: 90 },
           warn: '敵艦載機接近中',
           warnLead: 6,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
@@ -168,26 +168,26 @@ export const JAPAN: readonly MissionCard[] = [
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, altitude: 2500,
         },
         {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
           warn: '撤離戰區',
           warnLead: 0,
           side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
         },
         {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
           warn: '撤離戰區',
           warnLead: 20,
           side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI, along: 0.5, altitude: 3000,
         },
         {
-          when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+          when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
           warn: '撤離戰區',
           warnLead: 40,
           side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
         },
       ],
       withdraw: {
-        when: { kind: 'destroyed', atLeast: 6, unit: 'truck' },
+        when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
         message: '撤離戰區',
         // 【負值 = 在開局位置的後方】撤離點在 Ki-84 來的方向
         distance: -EVACUATE_Z,
