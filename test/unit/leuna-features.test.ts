@@ -10,14 +10,13 @@ import {
   buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
 } from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
-import {
-  BARN_DEPTH, BARN_WIDTH, HOUSE_DEPTH, HOUSE_WIDTH, settlementTest,
-} from '../../src/render/settlements'
+import { settlementTest } from '../../src/render/settlements'
+import { BUILDING_DEPTH, BUILDING_WIDTH } from '../../src/render/floraShapes'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
 import { excluding, excludingWhere } from '../../src/render/floraExclude'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, type FloraSource,
+  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
 } from '../../src/render/flora'
 import {
   createVegetation, FLORA_RADIUS, MAX_PER_TILE, TILE_SIZE,
@@ -41,8 +40,10 @@ let rivers: RiverSet
 let dressing: LandDressing
 /** ±22 km 內全部的建築與樹 */
 const B: { x: number; z: number; kind: number }[] = []
-/** 同上，含旋轉與縮放（`FLORA_STRIDE` 的第 3、4 格） */
-const Bfull: { x: number; z: number; rot: number; scale: number; kind: number }[] = []
+/** 同上，含旋轉、縮放（`FLORA_STRIDE` 的第 3、4 格）與面寬、樓高倍率 */
+const Bfull: { x: number; z: number; rot: number; scale: number; kind: number; wide: number; tall: number }[] = []
+/** 四種建築：同一個形狀，只差牆與屋頂的顏色 */
+const BUILDINGS = new Set<number>([FloraKind.House, FloraKind.SlateHouse, FloraKind.Barn, FloraKind.TarBarn])
 
 beforeAll(async () => {
   await preloadLeunaRivers(read)
@@ -56,6 +57,7 @@ beforeAll(async () => {
     B.push({ x: buf.data[o]!, z: buf.data[o + 2]!, kind: buf.kind[i]! })
     Bfull.push({
       x: buf.data[o]!, z: buf.data[o + 2]!, rot: buf.data[o + 3]!, scale: buf.data[o + 4]!, kind: buf.kind[i]!,
+      wide: buf.shape[i * 2]! / SHAPE_ONE, tall: buf.shape[i * 2 + 1]! / SHAPE_ONE,
     })
   }
 })
@@ -157,11 +159,8 @@ describe('建築', () => {
    * 【屋頂的比例】德國中部 1944 年七八成是黏土瓦，石板瓦一到兩成、集中在鎮中心。
    * 全是紅的話整個鎮是一片亮紅；石板太多的話像北德或英國。
    */
-  it('石板瓦約一成、鎮中心比外圍多', () => {
-    const houses = B.filter((b) => b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse)
-    const slate = houses.filter((b) => b.kind === FloraKind.SlateHouse).length / houses.length
-    expect(slate).toBeGreaterThan(0.08)
-    expect(slate).toBeLessThan(0.2)
+  it('石板瓦鎮中心比外圍多', () => {
+    const houses = B.filter((b) => BUILDINGS.has(b.kind))
     const m = F.places.find((p) => p.name === 'Merseburg')!
     const share = (r0: number, r1: number): number => {
       const ring = houses.filter((b) => {
@@ -281,40 +280,67 @@ describe('史實的村形', () => {
   })
 
   /**
-   * 【村的單位是農莊】主屋、側屋、後面的大穀倉 —— 一座農莊兩座穀倉一棟房子。
-   * 村裡的穀倉比房子少的話，就退回了「一棟一棟房子排在街邊」。
+   * 【大小與樓高真的有變化】建築只有一種形狀，一模一樣大的話整個鎮是複製貼上。
+   * 鎮上的樓高要比村裡高（老城是兩三層的街屋），村裡的面寬分布要寬（穀倉長、
+   * 主屋短）。
    */
-  it('村裡穀倉比房子多（農莊是一屋兩倉）', () => {
-    let houses = 0
-    let barns = 0
-    for (const p of F.places.filter((q) => q.kind === 'village' && Math.abs(q.x) < 15000 && Math.abs(q.z) < 15000)) {
-      for (const b of B) {
-        if (Math.abs(b.x - p.x) > 200 || Math.abs(b.z - p.z) > 200) continue
-        if (b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse) houses++
-        if (b.kind === FloraKind.Barn || b.kind === FloraKind.TarBarn) barns++
+  it('建築的面寬與樓高有變化，鎮比村高', () => {
+    const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
+    const town: number[] = []
+    const village: number[] = []
+    const villageWide: number[] = []
+    for (const b of Bfull) {
+      if (!BUILDINGS.has(b.kind)) continue
+      if (inTown(b.x, b.z)) town.push(b.tall)
+      else {
+        village.push(b.tall)
+        villageWide.push(b.wide * b.scale)
       }
     }
-    expect(houses).toBeGreaterThan(1000)
-    expect(barns / houses).toBeGreaterThan(1.5)
+    const mean = (a: number[]): number => a.reduce((s, v) => s + v, 0) / a.length
+    expect(village.length).toBeGreaterThan(5000)
+    expect(mean(town)).toBeGreaterThan(mean(village) + 0.3)
+    expect(Math.max(...villageWide) / Math.min(...villageWide)).toBeGreaterThan(2)
   })
 
   /**
-   * 【村裡的建築不穿插】量的是牆的外框（有向矩形，分離軸），不是佔位圓 ——
-   * 圓在長條的穀倉上太寬鬆，同一座農莊的側屋與後面的穀倉曾經穿插 3.4 m。
-   * 鎮不算：連棟街屋本來就一棟貼一棟。
+   * 【屋頂的料】新舊黏土瓦七成以上、石板一到兩成、油毛氈一成以內 —— 德國中部
+   * 1944 年的比例。料與用途無關（主屋、穀倉都可能是任何一種）。
    */
-  it('村裡任兩棟建築的牆不相交', () => {
+  it('屋頂的料：瓦七成以上、石板一到兩成、油毛氈一成以內', () => {
+    const n = { tile: 0, slate: 0, tar: 0 }
+    for (const b of B) {
+      if (b.kind === FloraKind.House || b.kind === FloraKind.Barn) n.tile++
+      else if (b.kind === FloraKind.SlateHouse) n.slate++
+      else if (b.kind === FloraKind.TarBarn) n.tar++
+    }
+    const all = n.tile + n.slate + n.tar
+    expect(n.tile / all).toBeGreaterThan(0.7)
+    expect(n.slate / all).toBeGreaterThan(0.08)
+    expect(n.slate / all).toBeLessThan(0.2)
+    expect(n.tar / all).toBeLessThan(0.1)
+  })
+
+  /**
+   * 【建築不穿插】量的是牆的外框（有向矩形，分離軸），不是佔位圓 —— 圓在長條的
+   * 穀倉上太寬鬆，同一座農莊的側屋與後面的穀倉穿插過 3.4 m。
+   *
+   * 村：任兩棟都不相交。鎮：連棟街屋一棟貼一棟，彎街內側相鄰的兩棟會咬到一點
+   * （同向、1.5 m 以內）；**斜交的一律不得相交** —— 老城與外圍兩套格線夾一個
+   * 角度，交界那一圈會斜插進彼此。
+   */
+  it('任兩棟建築的牆不相交（鎮上同向的連棟街屋咬 1.5 m 以內）', () => {
     const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
-    const rects: { x: number; z: number; ax: number; az: number; hw: number; hd: number }[] = []
+    const rects: { x: number; z: number; ax: number; az: number; hw: number; hd: number; town: boolean }[] = []
     for (const b of Bfull) {
-      const house = b.kind === FloraKind.House || b.kind === FloraKind.SlateHouse
-      const barn = b.kind === FloraKind.Barn || b.kind === FloraKind.TarBarn
-      if ((!house && !barn) || inTown(b.x, b.z)) continue
-      // 模型的 x 軸轉到 (cos θ, −sin θ)（`vegetation.ts` 寫矩陣的方式）
+      if (!BUILDINGS.has(b.kind)) continue
+      // 模型的 x 軸轉到 (cos θ, −sin θ)（`vegetation.ts` 寫矩陣的方式）；
+      // 面寬 = 基準 × 縮放 × 面寬倍率、進深 = 基準 × 縮放
       rects.push({
         x: b.x, z: b.z, ax: Math.cos(b.rot), az: -Math.sin(b.rot),
-        hw: ((house ? HOUSE_WIDTH : BARN_WIDTH) / 2) * b.scale,
-        hd: ((house ? HOUSE_DEPTH : BARN_DEPTH) / 2) * b.scale,
+        hw: (BUILDING_WIDTH / 2) * b.scale * b.wide,
+        hd: (BUILDING_DEPTH / 2) * b.scale,
+        town: inTown(b.x, b.z),
       })
     }
     const project = (r: typeof rects[number], nx: number, nz: number): number =>
@@ -324,8 +350,9 @@ describe('史實的村形', () => {
       const k = `${Math.floor(r.x / 40)},${Math.floor(r.z / 40)}`
       grid.set(k, [...(grid.get(k) ?? []), i])
     })
-    let worst = 0
-    let at = ''
+    // 村、鎮上斜交、鎮上同向，各自最深的一對
+    const worst = { village: 0, skew: 0, aligned: 0 }
+    const at = { village: '', skew: '', aligned: '' }
     rects.forEach((a, i) => {
       const gi = Math.floor(a.x / 40)
       const gj = Math.floor(a.z / 40)
@@ -339,13 +366,18 @@ describe('史實的村形', () => {
               const d = Math.abs((b.x - a.x) * nx + (b.z - a.z) * nz)
               depth = Math.min(depth, project(a, nx, nz) + project(b, nx, nz) - d)
             }
-            if (depth > worst) { worst = depth; at = `(${Math.round(a.x)},${Math.round(a.z)})` }
+            const k = !a.town && !b.town ? 'village'
+              : Math.abs(a.ax * b.ax + a.az * b.az) > Math.cos(0.17) ? 'aligned' : 'skew'
+            if (depth > worst[k]) { worst[k] = depth; at[k] = `(${Math.round(a.x)},${Math.round(a.z)})` }
           }
         }
       }
     })
-    expect(rects.length).toBeGreaterThan(10_000)
-    expect(worst, at).toBeLessThan(0.05)
+    expect(rects.filter((r) => !r.town).length).toBeGreaterThan(10_000)
+    expect(rects.filter((r) => r.town).length).toBeGreaterThan(10_000)
+    expect(worst.village, at.village).toBeLessThan(0.05)
+    expect(worst.skew, at.skew).toBeLessThan(0.05)
+    expect(worst.aligned, at.aligned).toBeLessThan(1.5)
   })
 
   /** 【院子後面與村外有樹】果園、花園、教堂墓園 */

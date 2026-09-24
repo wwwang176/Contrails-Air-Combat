@@ -44,6 +44,6 @@ describe('夏季色盤的凍結基準', () => {
       rows.push(k + ':' + Array.from(col, (v) => String(v)).join(','))
     }
     disposeFloraGeometries(g)
-    expect(hash(rows.join('\n'))).toBe('b0e4f0cc')
+    expect(hash(rows.join('\n'))).toBe('95f97cca')
   })
 })
