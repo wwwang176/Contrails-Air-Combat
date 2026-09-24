@@ -1,4 +1,4 @@
-import { Euler, Quaternion, Vector3, type Object3D } from 'three'
+import { Euler, Quaternion, Vector3, type Mesh, type Object3D } from 'three'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
@@ -3812,6 +3812,37 @@ if (initialRecoveryFailure !== null) {
  * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
  * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
  */
+/**
+ * **量測出口**：場景裡此刻還會畫的東西（圖層 0、可見），一個網格一筆：名字、
+ * 類型、三角形數（非索引的算頂點／3）、材質類型、父節點名。`__gfx` 全關之後
+ * 還剩多少、剩的是誰，看這一份。
+ */
+;(window as unknown as Record<string, unknown>)['__sceneList'] = () => {
+  const out: {
+    name: string; type: string; tris: number; material: string; parent: string
+    geometry: string; renderOrder: number; transparent: boolean; radius: number; y: number
+  }[] = []
+  ctx.scene.traverseVisible((o) => {
+    const m = o as Mesh
+    if (!o.layers.isEnabled(0) || m.geometry === undefined) return
+    const g = m.geometry
+    const idx = g.index
+    const pos = g.getAttribute('position')
+    const n = idx !== null ? idx.count : pos !== undefined ? pos.count : 0
+    const inst = (o as unknown as { count?: number }).count
+    const mat = Array.isArray(m.material) ? m.material[0] : m.material
+    if (g.boundingSphere === null) g.computeBoundingSphere()
+    out.push({
+      name: o.name, type: o.type,
+      tris: Math.round((n / 3) * (typeof inst === 'number' ? inst : 1)),
+      material: mat?.type ?? '', parent: o.parent?.name ?? '',
+      geometry: g.type, renderOrder: o.renderOrder, transparent: mat?.transparent ?? false,
+      radius: Math.round((g.boundingSphere?.radius ?? 0) * o.getWorldScale(new Vector3()).x),
+      y: Math.round(o.getWorldPosition(new Vector3()).y),
+    })
+  })
+  return out.sort((a, b) => b.tris - a.tris)
+}
 ;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
   const r = ctx.renderer.info.render
   return { calls: r.calls, triangles: r.triangles }
