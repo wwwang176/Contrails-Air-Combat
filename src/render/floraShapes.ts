@@ -65,20 +65,20 @@ const BUSH_CARD_TOP = 8
 
 const TRUNK = 0x4a3b2a
 // 樹冠色由季節決定（`season.ts`）；房子的顏色不換季
-const WALL = 0xbfb49b
+export const WALL = 0xbfb49b
 /**
  * 黏土瓦。**是用了幾十年的老瓦**：風化、長青苔、被煤煙燻過，從空中看是暗紅褐，
  * 不是新瓦的磚紅。德國中部 1944 年的屋頂七八成是它
  */
-const ROOF = 0x8c4e3b
+export const ROOF = 0x8c4e3b
 /** 石板瓦：深灰偏藍。教堂、鎮中心、公家建築 */
-const SLATE = 0x4f555b
+export const SLATE = 0x4f555b
 /** 磚木牆：穀倉、倉庫、老屋 */
-const BRICK_WALL = 0x8b6b4a
+export const BRICK_WALL = 0x8b6b4a
 /** 老黏土瓦：比 `ROOF` 更暗、更髒，少翻修的老屋與穀倉 */
-const OLD_ROOF = 0x7a4636
+export const OLD_ROOF = 0x7a4636
 /** 油毛氈：穀倉、倉庫、戰時搭的棚子 */
-const TAR_ROOF = 0x4a4946
+export const TAR_ROOF = 0x4a4946
 /**
  * 建築在縮放 1、倍率 1 時的尺寸，m：牆的面寬（x）、進深（z）、牆高、屋頂高。
  * 一層樓的房子；樓高倍率 2 是兩層半左右的街屋，屋頂跟著變陡
@@ -89,7 +89,7 @@ export const BUILDING_WIDTH = 11
 export const BUILDING_DEPTH = 8
 export const BUILDING_WALL = 5
 export const BUILDING_ROOF = 4
-const CHURCH_WALL = 0xcfc7b2
+export const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
 /**

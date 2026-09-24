@@ -40,6 +40,11 @@ export interface LandDressing {
   readonly buildings: FloraSource
   /** 植被池的容量覆寫 —— 真實的鎮一個就上千棟房子 */
   readonly capacity: Partial<Record<PoolName, number>>
+  /**
+   * 鎮的地面（`object` 裡的一塊）。遠處改由田色 clipmap 的遠圖畫，屋頂才不會
+   * 被它蓋住（`terrain.ts`）
+   */
+  readonly townGround: Mesh
   dispose(): void
 }
 
@@ -126,10 +131,8 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
 
   const object = new Group()
   object.name = 'landFeatures'
-  const meshes: Mesh[] = [
-    buildSettlementGround(sample, f.places),
-    buildMines(sample, f.mines),
-  ]
+  const townGround = buildSettlementGround(sample, f.places)
+  const meshes: Mesh[] = [townGround, buildMines(sample, f.mines)]
   for (const m of meshes) object.add(m)
   const motorway = buildMotorway(sample, profiles)
   object.add(motorway)
@@ -139,6 +142,7 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
     keepOut: (x, z) => inTown(x, z) || inMine(x, z) || onRoad(x, z),
     buildings,
     capacity: CAPACITY,
+    townGround,
     dispose() {
       object.traverse((o) => {
         const m = o as Mesh
