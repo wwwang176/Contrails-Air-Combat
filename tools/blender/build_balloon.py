@@ -138,28 +138,32 @@ for ob in objs:
 
 
 def export_balloon():
-    """匯出 balloon.glb。排開看用的位移歸零再匯，理由與 `export_all` 相同。"""
+    """匯出 balloon.glb。排開看用的位移歸零，**依材質併成兩顆**再匯 —— 理由與
+    `build_lst.py` 的 `export_lst` 相同（一個零件一個 draw call）。"""
     win = bpy.context.window_manager.windows[0]
     area = next(a for a in win.screen.areas if a.type == 'VIEW_3D')
     region = next(r for r in area.regions if r.type == 'WINDOW')
     objs = list(bpy.data.collections['LP_BALLOON'].objects)
     for o in objs:
         o.location.x = 0.0
+    bpy.context.view_layer.update()
+    merged = merged_by_material(objs, 'TMP_BALLOON_EXPORT')
+    for o in objs:
+        o.location.x = LAYOUT_X_BALLOON
     for o in bpy.context.view_layer.objects:
         o.select_set(False)
     with bpy.context.temp_override(window=win, area=area, region=region):
-        for o in objs:
+        for o in merged:
             o.select_set(True)
-        bpy.context.view_layer.objects.active = objs[0]
+        bpy.context.view_layer.objects.active = merged[0]
         path = os.path.join(OUT_DIR_BALLOON, 'balloon.glb')
         bpy.ops.export_scene.gltf(
             filepath=path, export_format='GLB', use_selection=True,
             export_yup=True, export_extras=True, export_apply=True,
             export_normals=False, export_texcoords=False,
         )
-    for o in objs:
-        o.location.x = LAYOUT_X_BALLOON
-    return {'path': path, 'bytes': os.path.getsize(path)}
+    drop_collection('TMP_BALLOON_EXPORT')
+    return {'path': path, 'bytes': os.path.getsize(path), 'meshes': len(merged)}
 
 
 result = LOG_BALLOON

@@ -364,29 +364,33 @@ def bake_ref_lst(root_name, keep_prefix):
 
 
 def export_lst():
-    """匯出 lst.glb。排開看用的位移歸零、整艘下移 `WATERLINE` 再匯 ——
-    `export_apply` 把世界變換烘進頂點，原點因此落在水線。"""
+    """匯出 lst.glb。排開看用的位移歸零、整艘下移 `WATERLINE`，**依材質併成
+    幾顆**再匯（`merged_by_material`：一個零件一個 draw call，十艘上千個）——
+    頂點烘進世界座標，原點因此落在水線。"""
     win = bpy.context.window_manager.windows[0]
     area = next(a for a in win.screen.areas if a.type == 'VIEW_3D')
     region = next(r for r in area.regions if r.type == 'WINDOW')
     objs = list(bpy.data.collections['LP_LST'].objects)
     for o in objs:
         o.location = (0.0, 0.0, -WATERLINE)
+    bpy.context.view_layer.update()
+    merged = merged_by_material(objs, 'TMP_LST_EXPORT')
+    for o in objs:
+        o.location = (LAYOUT_X_LST, 0.0, 0.0)
     for o in bpy.context.view_layer.objects:
         o.select_set(False)
     with bpy.context.temp_override(window=win, area=area, region=region):
-        for o in objs:
+        for o in merged:
             o.select_set(True)
-        bpy.context.view_layer.objects.active = objs[0]
+        bpy.context.view_layer.objects.active = merged[0]
         path = os.path.join(OUT_DIR_LST, 'lst.glb')
         bpy.ops.export_scene.gltf(
             filepath=path, export_format='GLB', use_selection=True,
             export_yup=True, export_extras=True, export_apply=True,
             export_normals=False, export_texcoords=False,
         )
-    for o in objs:
-        o.location = (LAYOUT_X_LST, 0.0, 0.0)
-    return {'path': path, 'bytes': os.path.getsize(path)}
+    drop_collection('TMP_LST_EXPORT')
+    return {'path': path, 'bytes': os.path.getsize(path), 'meshes': len(merged)}
 
 
 result = LOG_LST

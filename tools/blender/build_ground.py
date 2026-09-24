@@ -166,6 +166,49 @@ def slab(corners_front, thickness):
     return v, f
 
 
+def merged_by_material(objs, col_name):
+    """把一群零件依材質併成幾顆網格（頂點烘進世界座標），放進 `col_name` 這個
+    暫存集合，回傳新建的物件。**匯出前用，用完呼叫端刪掉。**
+
+    【為什麼要併】船與氣球的 GLB 在遊戲裡照原樣畫（`render/ships.ts` 整棵
+    clone）—— 一個零件一個 draw call。LST 一百多個零件、十艘就是上千個。
+    併完一種材質一顆，外型與面的朝向都不變。物件名是「材質名_merged」——
+    直接用材質名會撞到同名的零件（`LST_Deck`），被 Blender 改成 `.001`。"""
+    col = get_col(col_name)
+    groups = {}
+    for o in objs:
+        groups.setdefault(o.data.materials[0].name, []).append(o)
+    made = []
+    for name, members in groups.items():
+        bm = bmesh.new()
+        for o in members:
+            me = o.data.copy()
+            me.transform(o.matrix_world)
+            bm.from_mesh(me)
+            bpy.data.meshes.remove(me)
+        me = bpy.data.meshes.new(name + '_merged')
+        bm.to_mesh(me)
+        bm.free()
+        me.materials.append(bpy.data.materials[name])
+        ob = bpy.data.objects.new(name + '_merged', me)
+        col.objects.link(ob)
+        made.append(ob)
+    return made
+
+
+def drop_collection(col_name):
+    """刪掉 `merged_by_material` 的暫存集合與裡面的網格。"""
+    col = bpy.data.collections.get(col_name)
+    if col is None:
+        return
+    for o in list(col.objects):
+        me = o.data
+        bpy.data.objects.remove(o, do_unlink=True)
+        if me.users == 0:
+            bpy.data.meshes.remove(me)
+    bpy.data.collections.remove(col)
+
+
 def col_bounds(objs):
     lo = Vector((1e9,)*3); hi = Vector((-1e9,)*3)
     for o in objs:
