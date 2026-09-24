@@ -553,8 +553,8 @@ export interface BalloonEntry {
   readonly anchor:
     | { readonly ship: number; readonly deck: Vector3 }
     | { readonly x: number; readonly z: number }
-  /** 吊索匯集點（鋼索上端）的海拔，m */
-  readonly altitude: number
+  /** 鋼索放出多長，m：吊索匯集點在錨點上方這麼高 */
+  readonly tether: number
   /** 艇首朝向，rad（繞 Y，0 = 朝 −Z） */
   readonly heading: number
 }

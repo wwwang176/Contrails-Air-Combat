@@ -1197,7 +1197,7 @@ function placeBalloons(world: World, entries: readonly BalloonEntry[] | undefine
       x = a.x; y = 0; z = a.z
     }
     world.balloons.push(createBalloon(
-      world.balloons.length, e.team, x, y, z, e.altitude, e.heading, !('ship' in a),
+      world.balloons.length, e.team, x, y, z, e.tether, e.heading, !('ship' in a),
     ))
   }
 }
