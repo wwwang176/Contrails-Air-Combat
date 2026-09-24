@@ -13,7 +13,7 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -38,11 +38,12 @@ import {
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
-import { excluding } from './floraExclude'
+import { excluding, excludingWhere } from './floraExclude'
 import {
   buildRiverMeshes, disposeRiverMeshes, excludingCorridor, riverBankFlora, type RiverSet,
 } from './river'
 import { buildLeunaRivers, preloadLeunaRivers } from './leunaRiver'
+import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from './leunaFeatures'
 import { buildPlantScenery, preloadPlantScenery } from './geometry/ground/plantScenery'
 import { buildAirfieldScenery, preloadAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { LandField } from '../world/occlusion'
@@ -167,7 +168,7 @@ export interface Terrain {
  * 少了這一步的症狀是 `createTerrain` 當場丟「還沒載入」—— 那一關進不去。
  */
 export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
-  if (kind === 'leuna') await Promise.all([preloadPlantScenery(), preloadLeunaRivers()])
+  if (kind === 'leuna') await Promise.all([preloadPlantScenery(), preloadLeunaRivers(), preloadLeunaFeatures()])
   else if (kind === 'poltava') await preloadAirfieldScenery()
 }
 
@@ -402,12 +403,17 @@ export const LEUNA_SITE: SiteLayout = {
   })),
 }
 
-/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景、薩勒河 */
+/**
+ * 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景、薩勒河，
+ * 以及真實的村鎮、A9 與蓋澤爾谷的露天礦
+ */
 function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
   const leuna = createLeuna()
   const solid = outsideZero(leuna.field)
-  const rivers = buildLeunaRivers((x, z) => solid.sample(x, z))
-  return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, buildPlantScenery, gfx, rivers)
+  const sample = (x: number, z: number): number => solid.sample(x, z)
+  const rivers = buildLeunaRivers(sample)
+  return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, buildPlantScenery, gfx, rivers,
+    buildLeunaDressing(sample, rivers))
 }
 
 /**
@@ -462,9 +468,11 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
  */
 export function createLeunaTerrainWithField(field: HeightFieldData): Terrain {
   const solid = outsideZero(field)
-  const rivers = buildLeunaRivers((x, z) => solid.sample(x, z))
+  const sample = (x: number, z: number): number => solid.sample(x, z)
+  const rivers = buildLeunaRivers(sample)
   return createInlandTerrain(
     { field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery, undefined, rivers,
+    buildLeunaDressing(sample, rivers),
   )
 }
 
@@ -487,6 +495,11 @@ function createInlandTerrain(
    * 水面與草甸掛在陸地底下，`waterAt` 讀它的索引。
    */
   rivers?: RiverSet,
+  /**
+   * 真實的地物（村鎮、高速公路、礦坑）。給了的話：**不撒隨機的村**（會落在
+   * 不存在的地方），樹籬與樹林擋在它的範圍外，加上它的建築，網格掛在陸地底下。
+   */
+  dressing?: LandDressing,
 ): Terrain {
   const horizon = createFarHorizon(season)
   const ground = createFarmGround(farm.field, season, site)
@@ -507,25 +520,35 @@ function createInlandTerrain(
   // 【廠區的墊面不長樹】把三個散佈器包一層矩形排除，主墊面與每一塊附加的
   // 墊面各包一層；農地不包，行為不變。墊面是廠區局部座標，樞紐與朝向要一起傳
   const clear = site?.treeClear ?? 0
-  const base = [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
-    .map((s) => (site === undefined
-      ? s
-      : [site.pad, ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
-        x0: r.x0 - clear, x1: r.x1 + clear,
-        z0: r.z0 - clear, z1: r.z1 + clear,
-        ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
-        ...(site.heading === undefined ? {} : { heading: site.heading }),
-      }), s)))
+  const padClear = (s: FloraSource): FloraSource => (site === undefined
+    ? s
+    : [site.pad, ...(site.padLobes ?? [])].reduce((src, r) => excluding(src, {
+      x0: r.x0 - clear, x1: r.x1 + clear,
+      z0: r.z0 - clear, z1: r.z1 + clear,
+      ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
+      ...(site.heading === undefined ? {} : { heading: site.heading }),
+    }), s))
+  let fields = (dressing === undefined
+    ? [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
+    : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
-  const sources = rivers === undefined
-    ? base
-    : [...base.map((s) => excludingCorridor(s, rivers.index)),
-      riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND)]
-  const vegetation = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
+  if (rivers !== undefined) {
+    fields = fields.map((s) => excludingCorridor(s, rivers.index))
+    fields.push(riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND))
+  }
+  // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
+  if (dressing !== undefined) {
+    fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
+    fields.push(padClear(dressing.buildings))
+  }
+  const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
+    season, ...(dressing === undefined ? {} : { capacity: dressing.capacity }),
+  })
   // 【河掛在陸地底下】它是地表的一部分：`__gfx` 關陸地時一起關，群組的位置
   // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
   const river = rivers === undefined ? null : buildRiverMeshes((x, z) => solid.sample(x, z), rivers)
   if (river !== null) ground.object.add(river)
+  if (dressing !== undefined) ground.object.add(dressing.object)
   // 【河道上是水面不是河底】與海面同一個約定：陸地與水面取較高者。只給河底
   // 的話，炸彈、殘骸、碎片要穿過 1.2 m 的水才觸發，水柱從水面下冒出來
   const surface = rivers === undefined
@@ -573,6 +596,7 @@ function createInlandTerrain(
       vegetation.dispose()
       clipmap?.dispose()
       if (river !== null) disposeRiverMeshes(river)
+      dressing?.dispose()
       if (sceneryMesh !== null) {
         sceneryMesh.geometry.dispose()
         ;(sceneryMesh.material as MeshStandardMaterial).dispose()

@@ -10,6 +10,8 @@ import { LEUNA_HILLS, PLANT_CENTER } from '../../src/world/leuna'
 import { landHitT, losBlocked } from '../../src/world/occlusion'
 import { preloadLeunaRivers } from '../../src/render/leunaRiver'
 import type { RiverFile } from '../../src/world/river'
+import { preloadLeunaFeatures } from '../../src/render/leunaFeatures'
+import type { FeatureFile } from '../../src/world/landFeatures'
 
 /** 薩勒河最長那一段的中點（OSM 原始點），一定在河道上 */
 function firstRiverPoint(): readonly [number, number] {
@@ -362,18 +364,30 @@ describe('洛伊納', () => {
     await preloadLeunaRivers((url) => Promise.resolve(
       JSON.parse(readFileSync('public' + url, 'utf8')) as RiverFile,
     ))
+    await preloadLeunaFeatures((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as FeatureFile,
+    ))
     t = createTerrain('leuna')
   })
 
   afterAll(() => { t.dispose() })
 
-  /** 【河掛在陸地底下】陸地是 25 塊田加一個河的群組，頂層的位置契約不動 */
-  it('前四個位置的契約與農地相同，第五個是廠區的佈景，河在陸地底下', () => {
+  /**
+   * 【河與地物掛在陸地底下】陸地是 25 塊田、一個河的群組、一個地物（村鎮、
+   * 礦坑、A9）的群組，頂層的位置契約不動
+   */
+  it('前四個位置的契約與農地相同，第五個是廠區的佈景，河與地物在陸地底下', () => {
     expect(t.object.children.length).toBe(5)
     expect(t.object.children[1]!.children.length).toBe(0)
-    expect(t.object.children[2]!.children.length).toBe(26)
-    expect(t.object.children[2]!.children.at(-1)!.name).toBe('river')
+    expect(t.object.children[2]!.children.length).toBe(27)
+    expect(t.object.children[2]!.children.slice(-2).map((o) => o.name)).toEqual(['river', 'landFeatures'])
     expect((t.object.children[4] as { isMesh?: boolean }).isMesh).toBe(true)
+  })
+
+  /** 【有真實村鎮就不撒隨機的村】隨機的村會落在不存在的地方 —— 田中央冒出一座教堂 */
+  it('給了真實地物的地形不撒隨機的村', () => {
+    const src = readFileSync('src/render/terrain.ts', 'utf8').replace(/\r\n/g, '\n')
+    expect(src).toMatch(/dressing === undefined\n\s*\? \[farmHedgeFlora, farmWoodFlora, farmVillageFlora\]\n\s*: \[farmHedgeFlora, farmWoodFlora\]/)
   })
 
   /**
