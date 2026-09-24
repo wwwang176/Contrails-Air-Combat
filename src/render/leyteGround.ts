@@ -59,6 +59,11 @@ const ROAD_EDGE_SOFT = 3
  * 翻起來、積水，路緣是乾的土。由路緣到中線平滑地變暗。
  */
 const ROAD_CENTER_SHADE = 0.7
+/**
+ * 路在沙灘分界（`SAND_TOP`）之上這麼高才畫滿，m；往下淡到分界為止，沙灘上
+ * 沒有路。**要比平地（8 m）低**，不然平地上的路也被淡掉。
+ */
+const ROAD_BEACH_FADE = 3
 
 /** 一塊方塊幾格邊長。40 × 80 m = 3.2 km */
 export const LEYTE_TILE_CELLS = 40
@@ -231,6 +236,8 @@ function roadGlsl(map: RoadSegmentMap): string {
     float cover = roadHw > 0.0
       ? 1.0 - smoothstep(halfW - roadHw * ${soft} - px, halfW + px, roadD)
       : 0.0;
+    // 【到沙灘就淡掉】路是從海灘上來的，但泥土路鋪在沙上像貼了一層泥
+    cover *= smoothstep(${SAND_TOP.toFixed(2)}, ${(SAND_TOP + ROAD_BEACH_FADE).toFixed(2)}, vRoadY);
     float mud = 0.88 + 0.12 * sin(0.047 * vRoadXZ.x + 0.029 * vRoadXZ.y) * sin(0.13 * vRoadXZ.y - 0.07 * vRoadXZ.x);
     float rut = mix(${ROAD_CENTER_SHADE.toFixed(3)}, 1.0, smoothstep(0.0, max(halfW, 1.0e-3), roadD));
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)}) * mud * rut, cover);
@@ -312,16 +319,16 @@ function createGroundMaterial(
     // 【同一個物件】`setCanopy` 換它的 value，編好的程式立刻讀到新的圖
     shader.uniforms['uCanopy'] = canopyUniform
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;')
+      .replace('#include <common>', '#include <common>\nvarying vec2 vRoadXZ;\nvarying float vRoadY;')
       .replace(
         '#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nvRoadXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+        '#include <worldpos_vertex>\n{ vec4 wp = modelMatrix * vec4(transformed, 1.0); vRoadXZ = wp.xz; vRoadY = wp.y; }',
       )
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec2 vRoadXZ;\nuniform sampler2D uRoadIds;\nuniform highp sampler2D uRoadSegs;\n'
-          + 'uniform sampler2D uCanopy;',
+        '#include <common>\nvarying vec2 vRoadXZ;\nvarying float vRoadY;\nuniform sampler2D uRoadIds;\n'
+          + 'uniform highp sampler2D uRoadSegs;\nuniform sampler2D uCanopy;',
       )
       // 【樹冠先、路後】路的清空帶本來就沒有樹，路面蓋在最上面
       .replace('#include <color_fragment>', `#include <color_fragment>${canopyGlsl(canopy)}${roadGlsl(map)}`)
