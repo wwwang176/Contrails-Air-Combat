@@ -4,7 +4,7 @@ import { TILE_SIZE } from './vegetation'
 import { buildDecals, DECAL_GRID, DECAL_LIFT, type DecalRegion } from './groundDecal'
 import { MEADOW } from './river'
 import {
-  cellAt, cellSize, edgeLine, Footprints, planTown, roadAngles, StreetIndex,
+  cellAt, cellRing, cellSize, edgeInward, edgeLine, Footprints, planTown, roadAngles, StreetIndex,
   type Cell, type PlanSpec, type Rect, type Street, type TownPlan,
 } from './townPlan'
 import {
@@ -129,11 +129,6 @@ const STREET_COLOR = 0x34322e
 
 /** 公園、墓園、小菜園的地面：河灘草甸的枯草色（`river.ts` 的 `MEADOW`） */
 const PARK_GROUND = MEADOW
-
-/** 這個地面頂點上草色嗎（多邊形已經往內縮過，見 `openCell`） */
-function onGreen(g: GreenPatch, x: number, z: number): boolean {
-  return Math.hypot(x - g.x, z - g.z) <= g.reach && insideRing(g.ring, x, z)
-}
 
 /** 一株或一棟：建築、果樹、灌木都是 */
 export interface Placement {
@@ -598,20 +593,24 @@ const SIDEWALK = 0.3
 /** 沿街的房子放不下時依序試的（進深、面寬）倍率，見 `frontageAlong` */
 const SHRINK = [[1, 1], [0.7, 1], [1, 0.8], [0.7, 0.8]] as const
 
-/** 生成一個鎮的房子時共用的：街網、已經放的牆外框、街心點 */
+/**
+ * 生成一個鎮的房子時共用的：街網、已經放的牆外框、街心點、正在排的那一個街廓的
+ * 外框多邊形（`cellRing`）
+ */
 interface TownCtx {
   readonly plan: TownPlan
   readonly foot: Footprints
   readonly streets: StreetIndex
+  ring: readonly (readonly [number, number])[]
 }
 
 /**
- * 這個外框能不能蓋：不在避開的地方、在輪廓內、不與任何一棟相交、不壓到街、
- * 不在別的佔位圓裡（教堂、樹）
+ * 這個外框能不能蓋：中心在正在排的街廓裡、不在避開的地方、在輪廓內、不與任何
+ * 一棟相交、不壓到街、不在別的佔位圓裡（教堂、樹）
  */
 function rectOk(c: Ctx, t: TownCtx, r: Rect): boolean {
-  return !c.avoid(r.x, r.z) && radial(c, r.x, r.z) <= 1.02 && t.foot.free(r, HOUSE_GAP)
-    && t.streets.clear(r, SIDEWALK) && c.occ.free(r.x, r.z, TOWN_HOUSE_ROOM)
+  return insideRing(t.ring, r.x, r.z) && !c.avoid(r.x, r.z) && radial(c, r.x, r.z) <= 1.02
+    && t.foot.free(r, HOUSE_GAP) && t.streets.clear(r, SIDEWALK) && c.occ.free(r.x, r.z, TOWN_HOUSE_ROOM)
 }
 
 /**
@@ -627,10 +626,10 @@ function build(c: Ctx, t: TownCtx, r: Rect, wall: number, kind: FloraKind): void
   t.foot.add(r)
 }
 
-/** 種一棵樹：佔位圓外、不壓到牆與街 */
+/** 種一棵樹：在正在排的街廓裡、佔位圓外、不壓到牆與街 */
 function treeOk(c: Ctx, t: TownCtx, x: number, z: number, r: number): boolean {
   const box: Rect = { x, z, ax: 1, az: 0, hw: r, hd: r }
-  return t.foot.free(box, 0) && t.streets.clear(box, 0) && c.occ.free(x, z, r)
+  return insideRing(t.ring, x, z) && t.foot.free(box, 0) && t.streets.clear(box, 0) && c.occ.free(x, z, r)
 }
 
 /**
@@ -647,10 +646,9 @@ function openCell(c: Ctx, t: TownCtx, cell: Cell, use: Exclude<BlockUse, 'built'
   const du = Math.min(0.45, edge / W)
   const dv = Math.min(0.45, edge / H)
   if (use !== 'yard') {
-    // 【草色往內縮半個細格】顏色在頂點上取、三角形裡內插，邊界上的頂點上了草色的
-    // 話，草色漸變到框外將近一格，染到街上
-    const gu = du + DECAL_GRID / 2 / W
-    const gv = dv + DECAL_GRID / 2 / H
+    // 草地退到街面外（`du`、`dv` 已經含街半寬）
+    const gu = du
+    const gv = dv
     if (gu < 0.5 && gv < 0.5) {
       // 【每條邊取好幾點】街是彎的：大街廓只取四個角的話，弦與弧差到十公尺，草色
       // 切進街裡
@@ -805,11 +803,15 @@ function frontageAlong(
   const line = edgeLine(t.plan, cell, e, 2)
   const n = line.xs.length
   const L = line.len[n - 1]!
-  const q: number[] = [0, 0]
-  cellAt(t.plan, cell, 0.5, 0.5, q)
-  const cx = q[0]!
-  const cz = q[1]!
   const off = cell.edges[e]! + fr.setback
+  const inward: number[] = [0, 0]
+  /** 弧長 `s` 在這條邊上的參數（0～1）：邊是照參數等分取樣的 */
+  const paramAt = (s: number): number => {
+    let i = 0
+    while (i + 2 < n && line.len[i + 1]! < s) i++
+    const seg = line.len[i + 1]! - line.len[i]! || 1
+    return (i + Math.min(1, Math.max(0, (s - line.len[i]!) / seg))) / (n - 1)
+  }
   /** 弧長 `s` 處的街心點往街廓裡退 `off` */
   const inset = (s: number, out: number[]): void => {
     let i = 0
@@ -820,7 +822,8 @@ function frontageAlong(
     const tz = (line.zs[i + 1]! - line.zs[i]!) / seg
     const px = line.xs[i]! + (line.xs[i + 1]! - line.xs[i]!) * k
     const pz = line.zs[i]! + (line.zs[i + 1]! - line.zs[i]!) * k
-    const sign = -tz * (cx - px) + tx * (cz - pz) >= 0 ? 1 : -1
+    edgeInward(t.plan, cell, e, paramAt(s), inward)
+    const sign = -tz * inward[0]! + tx * inward[1]! >= 0 ? 1 : -1
     out[0] = px - tz * sign * off
     out[1] = pz + tx * sign * off
   }
@@ -845,8 +848,9 @@ function frontageAlong(
     if (fb < fr.front[0] * 0.6) continue
     const ax = dx / fb
     const az = dz / fb
-    // 弦的法線，朝街廓裡
-    const sign = -az * (cx - a[0]!) + ax * (cz - a[1]!) >= 0 ? 1 : -1
+    // 弦的法線，朝街廓裡（照這一段中點的參數方向，見 `edgeInward`）
+    edgeInward(t.plan, cell, e, paramAt(s0 + f / 2), inward)
+    const sign = -az * inward[0]! + ax * inward[1]! >= 0 ? 1 : -1
     const nx = -az * sign
     const nz = ax * sign
     const mx = (a[0]! + b[0]!) / 2
@@ -892,10 +896,11 @@ function town(c: Ctx): void {
     market: room + style.market, rand: c.rand, avoid: c.avoid, spec: style.plan,
   })
   for (const s of plan.streets) c.streets.push(s)
-  const t: TownCtx = { plan, foot: new Footprints(), streets: new StreetIndex(plan.streets) }
+  const t: TownCtx = { plan, foot: new Footprints(), streets: new StreetIndex(plan.streets), ring: [] }
   const uses = { cemetery: false }
   const q: number[] = [0, 0]
   for (const cell of plan.cells) {
+    t.ring = cellRing(plan, cell, 4)
     const zs = cell.zone === 'old' ? style.old : style.outer
     const r = (cell.r0 + cell.r1) / 2
     const use = zs.uses ? blockUse(c, r, uses) : 'built'
@@ -1072,22 +1077,70 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
  * 花園；鋪滿的話是一大片沒有田紋的平地。
  */
 export function buildSettlementGround(
-  sample: HeightSampler, places: readonly Place[], greens: readonly GreenPatch[] = [],
-  grid = DECAL_GRID, name = 'settlementGround',
+  sample: HeightSampler, places: readonly Place[], grid = DECAL_GRID, name = 'settlementGround',
 ): Mesh {
   const regions: DecalRegion[] = places
     .filter((p) => p.kind === 'town')
     .map((p) => {
       // 輪廓的起伏最多 +22%（`outlineScale`），外接盒放 1.25 倍
       const r = settlementRadius(p) * 1.25
-      const mine = greens.filter((g) => Math.hypot(g.x - p.x, g.z - p.z) < r + g.reach)
       return {
         x0: p.x - r, z0: p.z - r, x1: p.x + r, z1: p.z + r,
         inside: (x, z) => insideSettlement(p, x, z),
-        colorAt: (x, z) => (mine.some((g) => onGreen(g, x, z)) ? PARK_GROUND : TOWN_GROUND),
+        colorAt: () => TOWN_GROUND,
       }
     })
   return buildDecals(sample, regions, name, grid)
+}
+
+/**
+ * 公園、墓園、小菜園的草地：每一塊一個多邊形（從中心扇形切三角形），頂點取
+ * 地形高度再抬 `DECAL_LIFT`。
+ *
+ * 【不用鎮地面的頂點色】那是 20 m 一格、三角形裡內插的 —— 草色會漸變到框外一格，
+ * 跨過窄街染到隔壁的街廓。多邊形跟著街廓的邊走，烘進貼圖時邊是準的。
+ *
+ * 【不與地形共平面】多邊形的邊不在地形的格線上，坡地上中間會沉一點。平常整顆
+ * 烘進田色貼圖（`terrain.ts`），只在旁路時畫
+ */
+export function buildGreens(sample: HeightSampler, greens: readonly GreenPatch[]): Mesh {
+  const pos: number[] = []
+  const col: number[] = []
+  const idx: number[] = []
+  const c = new Color(PARK_GROUND)
+  for (const g of greens) {
+    const base = pos.length / 3
+    pos.push(g.x, sample(g.x, g.z) + DECAL_LIFT, g.z)
+    col.push(c.r, c.g, c.b)
+    for (const [x, z] of g.ring) {
+      pos.push(x, sample(x, z) + DECAL_LIFT, z)
+      col.push(c.r, c.g, c.b)
+    }
+    const n = g.ring.length
+    for (let i = 0; i < n; i++) {
+      const a = base + 1 + i
+      const b = base + 1 + ((i + 1) % n)
+      // 【捲繞朝上】多邊形繞的方向隨街廓而定，逐片對
+      const ux = pos[a * 3]! - g.x
+      const uz = pos[a * 3 + 2]! - g.z
+      const vx = pos[b * 3]! - g.x
+      const vz = pos[b * 3 + 2]! - g.z
+      if (uz * vx - ux * vz > 0) idx.push(base, a, b)
+      else idx.push(base, b, a)
+    }
+  }
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
+  geo.setAttribute('color', new BufferAttribute(new Float32Array(col), 3))
+  geo.setIndex(idx)
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  const mesh = new Mesh(geo, new MeshStandardMaterial({
+    vertexColors: true, roughness: 0.95,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  }))
+  mesh.name = 'greens'
+  return mesh
 }
 
 /**

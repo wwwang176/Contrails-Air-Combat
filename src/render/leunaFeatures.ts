@@ -3,7 +3,9 @@ import { assetUrl } from '../core/asset'
 import type { FloraSource } from './flora'
 import type { PoolName } from './vegetation'
 import type { RiverSet } from './river'
-import { buildSettlementGround, buildStreets, settlementLayout, settlementTest } from './settlements'
+import {
+  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementTest,
+} from './settlements'
 import { buildMines, mineTest } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
@@ -41,7 +43,7 @@ export interface LandDressing {
   /** 植被池的容量覆寫 —— 真實的鎮一個就上千棟房子 */
   readonly capacity: Partial<Record<PoolName, number>>
   /**
-   * 平貼在地上的網格：鎮的地面、礦坑、街（`object` 裡），依烘圖的先後。有田色
+   * 平貼在地上的網格：鎮的地面、草地、礦坑、街（`object` 裡），依烘圖的先後。有田色
    * clipmap 時整顆烘進兩張貼圖、網格不畫（`terrain.ts`）—— 二十幾萬個三角形每幀
    * 都要送一次
    */
@@ -145,12 +147,13 @@ export function buildLeunaDressing(sample: HeightSampler, rivers: RiverSet): Lan
   const object = new Group()
   object.name = 'landFeatures'
   const baked = [
-    buildSettlementGround(sample, f.places, layout.greens),
+    buildSettlementGround(sample, f.places),
+    buildGreens(sample, layout.greens),
     buildMines(sample, f.mines),
     buildStreets(sample, layout.streets),
   ]
   const beyond = [
-    buildSettlementGround(sample, f.places, layout.greens, BEYOND_GRID, 'settlementGroundFar'),
+    buildSettlementGround(sample, f.places, BEYOND_GRID, 'settlementGroundFar'),
     buildMines(sample, f.mines, BEYOND_GRID, 'minesFar'),
   ]
   for (const m of beyond) m.visible = false

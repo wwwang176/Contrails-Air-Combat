@@ -400,6 +400,30 @@ describe('史實的村形', () => {
   })
 
   /**
+   * 【市集廣場上沒有房子】房子沿街廓的邊往裡排；「往裡」判斷錯的話，窄的街廓在
+   * 凹邊上把房子翻到街的另一側 —— 最靠中心那一圈會翻進市集廣場。廣場的半徑是
+   * 教堂留地（13 × 縮放 + 10）再 16 m（`settlements.ts` 的 `TOWN_STYLE.market`），
+   * 扭曲讓廣場那一圈與中心的距離差幾公尺，所以留 5 m。
+   */
+  it('鎮的市集廣場上沒有房子', () => {
+    const towns = F.places.filter((p) => p.kind === 'town')
+    let checked = 0
+    for (const p of towns) {
+      const church = Bfull.find((b) => b.kind === FloraKind.Church && Math.hypot(b.x - p.x, b.z - p.z) < 1)
+      if (church === undefined) continue
+      const square = 13 * church.scale + 10 + 16 - 5
+      for (const b of Bfull) {
+        if (!BUILDINGS.has(b.kind)) continue
+        const d = Math.hypot(b.x - p.x, b.z - p.z)
+        if (d > square) continue
+        expect(d, `${p.name} (${Math.round(b.x)},${Math.round(b.z)})`).toBeGreaterThan(square)
+      }
+      checked++
+    }
+    expect(checked).toBeGreaterThan(15)
+  })
+
+  /**
    * 【鎮的大小跟著人口】一棟住不到五個人的話，小鎮大得不像話（半徑下限夾在
    * 300 m 時，1,368 人的 Osterfeld 有 540 棟）。
    */
@@ -589,7 +613,7 @@ describe('地表網格', () => {
       expect(down, m.name).toBe(0)
       checked++
     })
-    // 村鎮地面、鎮上的街、礦坑、A9 路面各一顆，村鎮地面與礦坑另有遠圖外的粗網格
-    expect(checked).toBe(6)
+    // 村鎮地面、草地、鎮上的街、礦坑、A9 路面各一顆，村鎮地面與礦坑另有遠圖外的粗網格
+    expect(checked).toBe(7)
   })
 })

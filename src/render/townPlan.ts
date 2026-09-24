@@ -51,6 +51,45 @@ export function cellAt(plan: TownPlan, c: Cell, u: number, v: number, out: numbe
   plan.at(ta + (tb - ta) * v, c.r0 + (c.r1 - c.r0) * v, out)
 }
 
+/**
+ * 街廓的外框多邊形（街心線），每條邊每 `step` m 一點，逆著 u、v 繞一圈。
+ * 「這一點在不在這個街廓裡」用它
+ */
+export function cellRing(plan: TownPlan, c: Cell, step: number): [number, number][] {
+  const { W, H } = cellSize(plan, c)
+  const nu = Math.max(2, Math.ceil(W / step))
+  const nv = Math.max(2, Math.ceil(H / step))
+  const q: number[] = [0, 0]
+  const ring: [number, number][] = []
+  const push = (u: number, v: number): void => {
+    cellAt(plan, c, u, v, q)
+    ring.push([q[0]!, q[1]!])
+  }
+  for (let i = 0; i < nu; i++) push(i / nu, 0)
+  for (let i = 0; i < nv; i++) push(1, i / nv)
+  for (let i = 0; i < nu; i++) push(1 - i / nu, 1)
+  for (let i = 0; i < nv; i++) push(0, 1 - i / nv)
+  return ring
+}
+
+/**
+ * 街廓第 `e` 條邊（次序同 `Cell.edges`）上、參數 `f`（0～1）那一點往街廓裡的
+ * 方向，寫進 `out`（單位向量）。**用參數空間的方向**，不是「朝街廓中心」 ——
+ * 窄的梯形街廓在凹邊上，中心不一定在切線的內側
+ */
+export function edgeInward(plan: TownPlan, c: Cell, e: number, f: number, out: number[]): void {
+  const d = 0.02
+  const [u, v, du, dv] = e === 0 ? [f, 0, 0, d] : e === 1 ? [f, 1, 0, -d] : e === 2 ? [0, f, d, 0] : [1, f, -d, 0]
+  const a: number[] = [0, 0]
+  cellAt(plan, c, u, v, a)
+  cellAt(plan, c, u + du, v + dv, out)
+  const x = out[0]! - a[0]!
+  const z = out[1]! - a[1]!
+  const len = Math.hypot(x, z) || 1
+  out[0] = x / len
+  out[1] = z / len
+}
+
 /** 街廓大約的寬（沿 θ）與深（沿 r），m：把公尺換成參數用 */
 export function cellSize(plan: TownPlan, c: Cell): { W: number; H: number } {
   const rm = (c.r0 + c.r1) / 2
@@ -178,9 +217,17 @@ export function planTown(inp: PlanInput): TownPlan {
     out[0] = px + amp * Math.sin(dz / spec.warp.wave + ph0)
     out[1] = pz + amp * Math.sin(dx / spec.warp.wave + ph1)
   }
+  // 【中心不動】整片扭曲減掉中心那一點的位移 —— 教堂在聚落中心，不減的話市集廣場
+  // 那一圈整圈偏掉將近一個振幅，一側的房子蓋到教堂旁邊
+  const c0: number[] = [0, 0]
+  bend(x, z, c0)
+  const ox = c0[0]! - x
+  const oz = c0[1]! - z
   const at = (theta: number, r: number, out: number[]): void => {
     const rho = r * R * inp.outline(theta)
     bend(x + Math.cos(theta) * rho, z + Math.sin(theta) * rho, out)
+    out[0]! -= ox
+    out[1]! -= oz
   }
   const roads = inp.roads.length >= 3 ? [...inp.roads] : roadAngles(x, z, [])
   const rm = inp.market / R
