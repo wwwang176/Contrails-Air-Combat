@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { BufferAttribute } from 'three'
 import { demToField } from '../../src/tools/leunaDem'
-import { buildRiverWater, riverLines, type RiverFile } from '../../src/tools/leunaRiver'
+import { riverLines, type RiverFile } from '../../src/world/river'
+import { buildRiverWater } from '../../src/render/river'
 import { createLeuna, PLANT_PAD, plantToWorld } from '../../src/world/leuna'
 import { FARM_CELL, FARM_SIZE } from '../../src/world/farmland'
 
@@ -152,13 +153,13 @@ describe('實測高程', () => {
 /**
  * 薩勒河。**水面鋪在地表上不挖槽** —— 高度場一格 80 m，而河寬 50–80 m，
  * 挖出來的槽會被相鄰格點的內插填掉，水面反而被兩岸埋住（實測只露出一條
- * 四十公尺的縫）。理由寫在 `leunaRiver.ts` 的檔頭。
+ * 四十公尺的縫）。理由寫在 `world/river.ts` 的檔頭。
  */
 describe('薩勒河的水面', () => {
   const file = JSON.parse(
     new TextDecoder().decode(readFileSync('public/data/leuna-rivers.json')),
   ) as RiverFile
-  const lines = riverLines(real, file)
+  const lines = riverLines((x, z) => real.sample(x, z), file)
 
   it('抓到了薩勒河，而且在廠區以東', () => {
     const saale = lines.filter((l) => l.name === 'Saale')
