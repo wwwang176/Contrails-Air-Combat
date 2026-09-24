@@ -83,8 +83,24 @@ export const TORPEDO_ENVELOPE: ReleaseEnvelope = {
   maxTas: Infinity,
 }
 
-export function envelopeFor(kind: OrdnanceKind): ReleaseEnvelope {
-  return kind === 'torpedo' ? TORPEDO_ENVELOPE : BOMB_ENVELOPE
+/**
+ * 戰鬥機掛彈的包絡。與 `BOMB_ENVELOPE` 只差離地高度的下界。
+ *
+ * 【3 m】戰鬥轟炸是貼地掃過去投的，60 m 的下界會讓低空進場的玩家扣了
+ * 扳機沒反應。自己被爆風波及是玩家的代價，不由包絡擋。**起始值，由試飛裁定。**
+ */
+export const FIGHTER_BOMB_ENVELOPE: ReleaseEnvelope = {
+  ...BOMB_ENVELOPE,
+  minAgl: 3,
+}
+
+/**
+ * 這一種彈、這一種機投的包絡。**玩家的準星與 AI 的投放門檻都由這裡取**，
+ * 兩邊才不會分家。
+ */
+export function envelopeFor(kind: OrdnanceKind, role: 'fighter' | 'bomber'): ReleaseEnvelope {
+  if (kind === 'torpedo') return TORPEDO_ENVELOPE
+  return role === 'fighter' ? FIGHTER_BOMB_ENVELOPE : BOMB_ENVELOPE
 }
 
 /**

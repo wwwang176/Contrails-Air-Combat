@@ -1,4 +1,4 @@
-import { Euler, Quaternion, Vector3, type Object3D } from 'three'
+import { Euler, Quaternion, Vector3, type Mesh, type Object3D } from 'three'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
 import { DEG } from './core/math'
@@ -9,6 +9,10 @@ import { createAudioEngine } from './audio/engine'
 import {
   SINGLE_FILES, engineFile, fireFile, gunSound, impactSound, turretFile, volleyPool, type Pool,
 } from './audio/catalog'
+import {
+  STRIKE_HEIGHT, applyFlash, createStorm, rollThunder, stepStorm, type Storm,
+} from './render/storm'
+import { createRain, type Rain } from './render/rain'
 import { CUE, CUE_STRIDE, clearCues, createCueQueue, pushCue } from './audio/queue'
 import { nearestN } from './audio/nearest'
 import { nearMiss } from './audio/nearMiss'
@@ -17,7 +21,8 @@ import {
   blastGainDb, blastRate, damageGainDb, dopplerRate, engineRate, hitFeedback, shakeGainDb,
   hitRate, shakeInterval, windParams,
 } from './audio/curves'
-import { applyTimeOfDay } from './render/timeOfDay'
+import { DAY_PALETTES, applyTimeOfDay } from './render/timeOfDay'
+import { FAR_LAND_NAME } from './render/leyteGround'
 import { flatSeaCrashPolicy } from './world/seaCrash'
 import { arenaKills, createArenaState, stepArena } from './world/arena'
 import { createTerrain, preloadTerrainScenery, type TerrainGfx, type TerrainKind } from './render/terrain'
@@ -50,6 +55,13 @@ import { createGroundModels, type GroundModels } from './render/groundTargets'
 import { createSearchlights, makeGlareTexture, type Searchlights } from './render/searchlights'
 import { groundModelUrls, preloadGroundModels } from './render/geometry/ground'
 import { settleGroundTargets } from './world/groundTargets'
+import {
+  balloonHills, settleBalloons, syncBalloonHills, type BalloonHillSet,
+} from './world/balloons'
+import {
+  BALLOON_MODEL_COUNT, createBalloonModels, preloadBalloonModel, type BalloonModels,
+} from './render/balloons'
+import type { TerrainSource } from './ai/terrainSense'
 import { clearBursts, flakDamage, type BurstEvents } from './world/flak'
 import {
   createShipFireSmoke, createSmoke, createSteam, emitSmoke,
@@ -110,7 +122,7 @@ import { blastScaleOf, resetBombBay, type BombBay } from './weapons/bomb'
 import {
   aglOk, canRelease, envelopeFor, pitchOk, rollOk,
 } from './weapons/releaseEnvelope'
-import { type Loadout, loadoutOf } from './weapons/stores'
+import type { Loadout } from './weapons/stores'
 import { BOMB_PROFILE } from './ai/bombRun'
 import { TORPEDO_PROFILE } from './ai/torpedoRun'
 import { WAKE_SPRAY_COUNT } from './render/spray'
@@ -207,6 +219,45 @@ let terrainKind: Parameters<typeof createTerrain>[0] = 'archipelago'
 const terrainGfx = (): TerrainGfx => ({ renderer: ctx.renderer, fieldInner: fieldInnerFor(readQuality()) })
 let terrain = createTerrain(terrainKind, terrainGfx())
 /**
+ * AI 看到的地形。**平常就是 `terrain`**；有防空氣球的那一場多了幾座只有 AI
+ * 看得到的山（`world/balloons.ts` 的 `balloonHills`）—— 高度場、撞地與畫面都
+ * 不動。每一場在地形接上之後重算（`startWorld`）。
+ */
+let aiTerrain: TerrainSource = terrain
+/** 氣球的山。每幀依氣球的死活就地改高度（`syncBalloonHills`）；沒有氣球是 null */
+let balloonHillSet: BalloonHillSet | null = null
+/**
+ * 雷雨。**只有時段是 `storm` 的那一場才有**，其餘是 null。生命週期比照時段：
+ * 每一場套時段時重建（`applyTimeOfDay` 那一行）。
+ */
+let storm: Storm | null = null
+/** 雨，與 `storm` 同生同滅 */
+let rain: Rain | null = null
+/**
+ * 地上水花落在的高度：地形與海面取高的那一個（`Terrain.heightAt`）。**模組層一顆
+ * 函式**，每幀傳進去不配置閉包
+ */
+const rainGroundAt = (x: number, z: number): number => terrain.heightAt(x, z, elapsed)
+
+/**
+ * 雷聲：從閃電打下的地方發出。音波走到鏡頭才響、遠的更悶更小，由音訊引擎
+ * 對定位音源照常處理；播放速度、低通與音量另外隨機（`rollThunder`）。疊一層
+ * 同庫的另一支，隆隆聲才有層次。
+ *
+ * 【位置以鏡頭為中心】閃電打在「玩家看得到的那一片天」，不是固定在地圖上。
+ *
+ * 【模組層函數，不是每幀一個閉包】`stepStorm` 每幀都拿它當回呼。
+ */
+function playThunder(distance: number, bearing: number): void {
+  const cam = ctx.camera.position
+  const v = rollThunder(Math.random)
+  audio.playPool(
+    'thunder', 'thunder',
+    cam.x + Math.sin(bearing) * distance, STRIKE_HEIGHT, cam.z + Math.cos(bearing) * distance,
+    true, v.extraDb, true, v.rate, v.cutoffHz,
+  )
+}
+/**
  * 撤離點的 3D 圓環。**生命週期比照 `terrain`：每一場都重建**（`enterBattle`）。
  *
  * 【沒有波次的「重新開始」不重建】那條路走 `resetBattle` 而不是 `startWorld`
@@ -247,8 +298,8 @@ function wireTerrain(force = false): void {
     // 【剖面跟著掛載走，不跟著機種】任務卡可以把 G4M 的魚雷複寫成炸彈
     // （`MissionBattle.blueLoadout`），查機種的話那一關會飛雷擊航路去投彈
     ctl.strikeProfile = c.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
-    if (!force && ctl.terrain === terrain) continue
-    ctl.terrain = terrain
+    if (!force && ctl.terrain === aiTerrain) continue
+    ctl.terrain = aiTerrain
     ctl.clearTerrainState()
   }
   playerAi.ships = world.ships
@@ -260,8 +311,8 @@ function wireTerrain(force = false): void {
   playerAi.bombBay = player.bombBay
   playerAi.strikeProfile = player.loadout?.kind === 'torpedo' ? TORPEDO_PROFILE : BOMB_PROFILE
   playerAi.bombDrag = world.bombDrag
-  if (force || playerAi.terrain !== terrain) {
-    playerAi.terrain = terrain
+  if (force || playerAi.terrain !== aiTerrain) {
+    playerAi.terrain = aiTerrain
     playerAi.clearTerrainState()
   }
 }
@@ -277,6 +328,7 @@ ctx.scene.add(tracers.object)
  */
 let shipModels: ShipModels | null = null
 let groundModels: GroundModels | null = null
+let balloonModels: BalloonModels | null = null
 /** 探照燈的光束。與 `groundModels` 同一個生命週期：每一場重建 */
 let searchlights: Searchlights | null = null
 /** 探照燈眩光的十字貼圖：畫一次、每一場共用 */
@@ -564,28 +616,28 @@ function playerBay(): BombBay {
 /**
  * 玩家這一趟掛什麼。`null` = 掛不了東西。
  *
- * 【為什麼要記在這裡】投彈的那一段每幀都要它的 `kind` 與 `damage`，而
- * `loadoutOf` 是一次查表 —— 換飛機時查一次就夠。
+ * 【為什麼要記在這裡】投彈的那一段每幀都要它的 `kind` 與 `damage`；換飛機時
+ * 從那一架身上抄一次就夠（`syncBombLoad`）。
  */
 let playerLoadout: Loadout | null = null
-/**
- * 這一關複寫的掛載。`null` = 沒有複寫，照機種的預設走。
- *
- * 【為什麼記在這裡】`syncBombLoad` 在換飛機與重生時都會跑，而那時候手上
- * 沒有 `BattleConfig`。`startWorld` 每一場設一次。
- */
-let missionLoadout: Loadout | null = null
 
 /**
  * 玩家換了一台飛機：重算掛彈量與瞄具眼點。
  *
+ * 【掛載讀那一架自己的】`World` 在進場與換機種時已經照這一關的複寫定好了
+ * （整隊的 `blueLoadout`、依機種的 `loadouts`）。這裡另外查一次的話，只認得
+ * 其中一種複寫的那一份會靜靜地落回預設表 —— 症狀是掛了彈卻按不出來。
+ *
  * 【換到不能投彈的飛機要強制退出】少了這一條，重生成戰鬥機之後相機會卡在
  * 一個沒有 `bombPoint` 的模式裡。
+ *
+ * 【有瞄具的走投彈視角，沒有的是掛彈戰鬥機】見 `InputState.bombRelease`
  */
 function syncBombLoad(): void {
   const m = visuals.get(player)!.model
-  playerLoadout = missionLoadout ?? loadoutOf(player.aircraft.spec.id)
+  playerLoadout = player.loadout
   input.bombCapable = m.bombPoint !== null && playerLoadout !== null
+  input.bombRelease = m.bombPoint === null && playerLoadout?.kind === 'bomb'
   if (m.bombPoint !== null) rig.options.bombPoint.copy(m.bombPoint)
   if (!input.bombCapable && input.viewMode === 'bomb') input.viewMode = 'third'
   resetBombBay(player.bombBay, playerLoadout)
@@ -930,6 +982,29 @@ const emitFirePuff = createFirePuff(BLAST_POOLS, shipFireSmoke)
 const emitWreckFirePuff = createFirePuff(
   BLAST_POOLS, wreckFireSmoke, WRECK_FIRE_SCALE, WRECK_FIRE_SMOKE_SCALE, wrecks.anchors,
 )
+
+/**
+ * 燒著往下掉的氣球放一朵火。與殘骸的引擎火同一份小號配方，但不吸附錨點 ——
+ * 氣球的位置每幀由 `render/balloons.ts` 給。**在模組層建一次**，理由同上。
+ */
+const burnBalloon = (x: number, y: number, z: number): void => {
+  emitWreckFirePuff(x, y, z)
+}
+
+/**
+ * 氣球破掉：氫氣燒起來的那一團火球。之後燒著掉下來的火由 `burnBalloon` 接手。
+ */
+function emitBalloonPops(events: ImpactEvents): void {
+  const d = events.data
+  for (let e = 0; e < events.count; e++) {
+    const o = e * IMPACT_STRIDE
+    emitBlast(BLAST_POOLS, AIR_BLAST, d[o]!, d[o + 1]!, d[o + 2]!,
+      (e * 131 + Math.round(world.time * 60)) | 0, 0, 0, 0)
+    addShake(cameraShake, d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+    blastLights.flash(d[o]!, d[o + 1]!, d[o + 2]!, GROUND_KILL_SHAKE, ctx.camera.position)
+  }
+  clearImpacts(events)
+}
 
 /**
  * 魚雷引爆。`nx` 是 0 撞岸／1 撞船，兩者共用同一份水冠配方。
@@ -1461,9 +1536,18 @@ function buildBattleTerrain(): void {
   // 【時段與地形同一個來源】任務讀卡片（省略 = 正午），遭遇戰讀玩家在編組頁
   // 選的那一格。天空、霧、三盞燈與海一次換完 —— 分開叫的話漏掉海的症狀是
   // 「黃昏的天配中午的海」，而且不會有東西報錯
-  applyTimeOfDay(ctx, terrain, mode === 'mission' && pendingMission !== null
+  const timeOfDay = mode === 'mission' && pendingMission !== null
     ? pendingMission.battle.timeOfDay ?? 'noon'
-    : setup.timeOfDay)
+    : setup.timeOfDay
+  applyTimeOfDay(ctx, terrain, timeOfDay)
+  // 【雷雨跟著時段】別的時段是 null —— 上一場的雷雨不會帶進下一場
+  storm = timeOfDay === 'storm' ? createStorm() : null
+  if (rain !== null) {
+    ctx.scene.remove(rain.object)
+    rain.dispose()
+  }
+  rain = storm !== null ? createRain() : null
+  if (rain !== null) ctx.scene.add(rain.object)
   // 煙的材質不是 three 內建受光材質；時段換完要把同一顆太陽同步進 shader。
   syncFireSmokeLighting()
   resetArena()
@@ -1490,8 +1574,6 @@ function battleConfig(): BattleConfig {
  */
 function startWorld(cfg: BattleConfig): void {
   resetAudioState()
-  // 【在 createBattle 之前】那一支會走到 `syncBombLoad`，而它讀這個值
-  missionLoadout = cfg.blueLoadout ?? null
   battle = createBattle(playerController, cfg)
   // 【點光源在開場掛好，整場不變】見 `battle/battleLights.ts`。`add` 對已經掛著
   // 的物件是冪等的，`remove` 對沒掛的也是
@@ -1531,6 +1613,12 @@ function startWorld(cfg: BattleConfig): void {
   world.waterAt = terrain.waterAt
   // 【地面目標要在地形接上之後才落地】建戰鬥時 groundAt 還是 0
   settleGroundTargets(world.groundTargets, world.groundAt)
+  // 【氣球同一個理由】地面絞車的錨點照地形取高度；AI 的山跟著這一場的氣球建
+  settleBalloons(world.balloons, world.groundAt)
+  balloonHillSet = world.balloons.length > 0 ? balloonHills(world.balloons, terrain.islands) : null
+  aiTerrain = balloonHillSet === null
+    ? terrain
+    : { islands: balloonHillSet.islands, land: terrain.land }
   setPlayer(battle.player)
   rebuildVisuals()
 
@@ -1561,6 +1649,16 @@ function startWorld(cfg: BattleConfig): void {
     ctx.scene.add(groundModels.object)
     searchlights = createSearchlights(world.groundTargets, glareTexture)
     ctx.scene.add(searchlights.object)
+  }
+  // 氣球與船同一個做法：每一場重建
+  if (balloonModels !== null) {
+    ctx.scene.remove(balloonModels.object)
+    balloonModels.dispose()
+    balloonModels = null
+  }
+  if (world.balloons.length > 0) {
+    balloonModels = createBalloonModels(world.balloons)
+    ctx.scene.add(balloonModels.object)
   }
 
   // 5. 撤離圓環。【比照地形每一場都重建】那條路徑因此每一場都在走，不是
@@ -2490,6 +2588,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【必須在物理之前】接在幀尾的話，新的一場第一幀的 AI 是用「沒有地形」
   // 在飛 —— 而那一幀正好是最可能有人貼著島出生的時候
   wireTerrain()
+  // 【破掉的氣球不再是山】AI 不必繞一座不存在的山；重開一場長回來
+  if (balloonHillSet !== null) syncBalloonHills(world.balloons, balloonHillSet)
   const alpha = loop.advance(frameSeconds, (dt) => {
     perf.beginPhysics()
     stepBattle(battle, dt)
@@ -2538,6 +2638,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 而那正是「每幀比對 alive」做不到的事（M8 spec §2.1）
     emitKillBlasts(world.killEvents)
     emitGroundKills(world.groundKillEvents)
+    emitBalloonPops(world.balloonKillEvents)
     debris.emit(world.killEvents, debrisColorOf)
     clearKills(world.killEvents)
     // 【炸彈的落點也走事件】`World` 只判水陸並推一筆，配方由這裡選
@@ -2683,6 +2784,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 與 `update` 的中心點無關 —— 撞地判定因此不會被鏡頭改到
   if (input.godView) terrain.update(elapsed, godCam.position.x, godCam.position.z)
   else terrain.update(elapsed, renderPos.x, renderPos.z)
+  // 【閃電吃世界時間】暫停時 `worldSeconds` 是 0，天也不打雷
+  if (storm !== null) {
+    applyFlash(ctx.lights, ctx.sky, DAY_PALETTES.storm, stepStorm(storm, worldSeconds, playThunder))
+  }
 
   const aircraft = player.aircraft
   // HUD 的迎角條與 STALL 字樣都拿它當分母
@@ -2701,13 +2806,15 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【包絡與 agl 只解一次】HUD 的投放閘門與高度弧讀的必須是**這兩個值**，
   // 不是各自再查一次 —— 分家的症狀是「錶上綠燈而扳機沒有反應」，不拋例外
   // 也沒有訊息
-  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind) : null
+  const releaseEnv = playerLoadout !== null ? envelopeFor(playerLoadout.kind, aircraft.spec.role) : null
   const releaseOk = releaseEnv !== null && canRelease(
     releaseEnv, att.roll, att.pitch, agl, aircraft.diag.aero.tas,
   )
 
   const bp = visuals.get(player)!.model.bombPoint
   if (bp !== null) BOMB_EYE.copy(bp).applyQuaternion(renderQuat).add(renderPos)
+  // 【掛彈的戰鬥機從質心投】沒有瞄具眼點；`World.releaseBombs` 本來就從質心放
+  else if (input.bombRelease) BOMB_EYE.copy(renderPos)
 
   let bombTarget: Vector3 | null = null
   let bombState: 'off' | 'solved' | 'none' = 'off'
@@ -2734,7 +2841,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 【不看視角】落點是飛行狀態的函數，算得出來一般飛行也標得出來（HUD 的
     // `bombsight` 在兩種模式都畫，只差顏色）。上帝視角則整段跳過 —— 那裡連
     // 落點圈都不畫。
-    if (bp !== null) {
+    if (bp !== null || input.bombRelease) {
       bombState = 'none'
       BOMB_START.x = BOMB_EYE.x; BOMB_START.y = BOMB_EYE.y; BOMB_START.z = BOMB_EYE.z
       const v = player.aircraft.state.velocity
@@ -2841,6 +2948,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
   groundModels?.update(world.groundTargets, ctx.camera.position)
+  balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
     // 砲位被打掉：當場一團火。**借火球池**，不另開一套。
@@ -2900,6 +3008,12 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     objectiveRing.update(battle.mission.target, battle.mission.targetRadius, ctx.camera)
   }
 
+  // 【雨跟著這一幀的鏡頭】雨絲的方向由雨自己算：雨滴這一幀在鏡頭眼裡移動了多少。
+  // 上帝視角不轉，照停著的方向畫
+  if (rain !== null) {
+    rain.update(ctx.camera.position, worldSeconds, frameSeconds, input.godView, rainGroundAt)
+  }
+
   ctx.renderer.render(ctx.scene, ctx.camera)
 
   // 兩個準星都從**內插後的機身位置**往外投影 1000 m，所以它們的分離距離
@@ -2917,7 +3031,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 東西 —— 「投彈解還沒收斂」。
   hudFrame.bombState = bombState
   hudFrame.bombing = input.viewMode === 'bomb'
-  hudFrame.bombCapable = input.bombCapable
+  // 【掛彈的戰鬥機也畫彈艙格子】它沒有投彈視角，但一樣有彈、一樣要看補回
+  hudFrame.bombCapable = input.bombCapable || input.bombRelease
   hudFrame.ordnance = playerLoadout?.kind ?? null
   hudFrame.releaseOk = releaseOk
   // 【就是餵給 `canRelease` 的那一組】不是各自再查一次 —— 見上面 releaseEnv
@@ -3185,7 +3300,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.objectiveRemaining = m.remaining
   // 【門檻讀當下的規則】返航節拍會換掉規則，開場的 `cfg.rules` 可能已經過時
   hudFrame.objectiveArrived = m.arrived
-  hudFrame.objectiveNeed = battle.rules.kind === 'convoy' ? battle.rules.need ?? 1 : -1
+  // 【截斷的分母是放行上限】「已抵達 1/4」—— 玩家在盯的是還能放走幾輛
+  hudFrame.objectiveNeed = battle.rules.kind === 'convoy'
+    ? battle.rules.need ?? 1
+    : battle.rules.kind === 'interdict' ? battle.rules.leak : -1
   hudFrame.objectiveSeconds = m.secondsLeft
   hudFrame.objectiveHasTarget = m.hasTarget
   hudFrame.objectiveWorldX = m.target.x
@@ -3590,8 +3708,8 @@ if (initialRecoveryFailure !== null) {
   // 撞上還沒載好的樣板
   //
   // 【進度是檔數】每載完一支 GLB 推一格，三類加起來是 100%。字寫目前在載哪一類
-  const shipIds = ['essex', 'wichita', 'fletcher'] as const
-  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length
+  const shipIds = ['essex', 'wichita', 'fletcher', 'lst'] as const
+  const fileTotal = AIRCRAFT_MODEL_COUNT + shipIds.length + groundModelUrls().length + BALLOON_MODEL_COUNT
   let filesDone = 0
   let fileLabel = ''
   const fileLoaded = (): void => {
@@ -3613,6 +3731,8 @@ if (initialRecoveryFailure !== null) {
   // 【地面單位的 GLB 也在開場載】`createGroundModels` 是同步的，樣板沒載到就丟
   await loadGroup('載入地面單位')
   await preloadGroundModels(undefined, fileLoaded)
+  // 【防空氣球同一個理由】`createBalloonModels` 是同步的
+  await preloadBalloonModel(fileLoaded)
   // 【廠區與機場的佈景不在這裡】進場時才載，見 `loadBattle` 的 `preloadTerrainScenery`
   await loading.finish('完成')
   // 【不擋開場】選單先出來，音效在背景下載；進戰鬥時 `loadBattle` 才等它
@@ -3689,6 +3809,46 @@ if (initialRecoveryFailure !== null) {
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
 
 /**
+ * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
+ * 效能探針拿它對照 `__gfx` 關掉哪一層省了多少。
+ */
+/**
+ * **量測出口**：場景裡此刻還會畫的東西（圖層 0、可見），一個網格一筆：名字、
+ * 類型、三角形數（非索引的算頂點／3）、材質類型、父節點名。`__gfx` 全關之後
+ * 還剩多少、剩的是誰，看這一份。
+ */
+;(window as unknown as Record<string, unknown>)['__sceneList'] = () => {
+  const out: {
+    name: string; type: string; tris: number; material: string; parent: string
+    geometry: string; renderOrder: number; transparent: boolean; radius: number; y: number
+  }[] = []
+  ctx.scene.traverseVisible((o) => {
+    const m = o as Mesh
+    if (!o.layers.isEnabled(0) || m.geometry === undefined) return
+    const g = m.geometry
+    const idx = g.index
+    const pos = g.getAttribute('position')
+    const n = idx !== null ? idx.count : pos !== undefined ? pos.count : 0
+    const inst = (o as unknown as { count?: number }).count
+    const mat = Array.isArray(m.material) ? m.material[0] : m.material
+    if (g.boundingSphere === null) g.computeBoundingSphere()
+    out.push({
+      name: o.name, type: o.type,
+      tris: Math.round((n / 3) * (typeof inst === 'number' ? inst : 1)),
+      material: mat?.type ?? '', parent: o.parent?.name ?? '',
+      geometry: g.type, renderOrder: o.renderOrder, transparent: mat?.transparent ?? false,
+      radius: Math.round((g.boundingSphere?.radius ?? 0) * o.getWorldScale(new Vector3()).x),
+      y: Math.round(o.getWorldPosition(new Vector3()).y),
+    })
+  })
+  return out.sort((a, b) => b.tris - a.tris)
+}
+;(window as unknown as Record<string, unknown>)['__renderInfo'] = () => {
+  const r = ctx.renderer.info.render
+  return { calls: r.calls, triangles: r.triangles }
+}
+
+/**
  * **量測出口**：改田色 clipmap 的內圈半徑，回挪窗統計。同頁 A/B 用 ——
  * 半徑給得極大就等於整片地面走算式，而兩邊是同一個 program。純海面回 `null`。
  */
@@ -3714,6 +3874,12 @@ const GFX_HIDDEN_LAYER = 31
     farSea: () => [terrain.object.children[0]!],
     nearSea: () => [terrain.object.children[1]!],
     islands: () => [terrain.object.children[2]!],
+    // 【雷伊泰的遠景陸地】在陸地那一個孩子底下，依名字挑出來單獨關
+    farLand: () => {
+      const out: Object3D[] = []
+      terrain.object.traverse((o) => { if (o.name === FAR_LAND_NAME) out.push(o) })
+      return out
+    },
     // 【用 slice 不是 children[3]!】純海面沒有第四個孩子，固定取索引的話
     // 切到純海之後消融 flora 會對 undefined 呼叫 traverse，當場崩
     flora: () => terrain.object.children.slice(3),
@@ -3733,6 +3899,17 @@ const GFX_HIDDEN_LAYER = 31
     // 否則定格的畫面仍然有 0.2～6% 的像素在跳，任何改動的差都埋在裡面。
     battleProps: () => [turretBarrels.object, orderMarkers.object, debris.object,
       objectiveRing.object],
+    // 【場上的單位與佈景】船、地面目標、防空氣球、雨；沒有的那一場回空的
+    ships: () => (shipModels === null ? [] : [shipModels.object]),
+    ground: () => (groundModels === null ? [] : [groundModels.object]),
+    balloons: () => (balloonModels === null ? [] : [balloonModels.object]),
+    rain: () => (rain === null ? [] : [rain.object]),
+    // 雨的兩半分開量：空中的雨絲（第一個孩子）、地面的水花（第二個）
+    rainLines: () => (rain === null ? [] : rain.object.children.slice(0, 1)),
+    rainSplash: () => (rain === null ? [] : rain.object.children.slice(1, 2)),
+    // 【雷伊泰灘頭的佈景】地形的第五個孩子；別的地形沒有它。`flora` 那一格
+    // 是 slice(3)，關它也會一起關掉這一個
+    beach: () => (terrainKind === 'leyte' ? terrain.object.children.slice(4) : []),
   }
   const applied: string[] = []
   for (const [name, on] of Object.entries(patch)) {
@@ -3859,6 +4036,23 @@ const GFX_HIDDEN_LAYER = 31
     x: c.aircraft.state.position.x,
     y: c.aircraft.state.position.y,
     z: c.aircraft.state.position.z,
+  }))
+
+/**
+ * **量測出口**：場上每一台地面目標的種類、位置與狀態。
+ *
+ * 【為什麼需要它】日 M2 的車隊會沿公路移動。驗收要看得到車真的在走、在轉彎、
+ * 開到終點會退場 —— 截圖只看得到一幀，這一支給的是座標。
+ */
+;(window as unknown as Record<string, unknown>)['__ground'] = () =>
+  world.groundTargets.map((t) => ({
+    id: t.unit.id,
+    alive: t.alive,
+    arrived: t.arrived,
+    speed: t.speed,
+    x: +t.position.x.toFixed(1),
+    y: +t.position.y.toFixed(1),
+    z: +t.position.z.toFixed(1),
   }))
 
 /** 音訊錶當下的讀數。**除錯與探針用** —— 與錶上畫的是同一組數字 */
@@ -4043,6 +4237,8 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
       rx: hudFrame.runCount > 0 ? +hudFrame.runX[hudFrame.runCount - 1]!.toFixed(4) : 0,
       ry: hudFrame.runCount > 0 ? +hudFrame.runY[hudFrame.runCount - 1]!.toFixed(4) : 0,
       agl: +hudFrame.releaseAgl.toFixed(0),
+      // 彈艙：還有幾枚、滿艙幾枚。驗收「按下去真的投出去了」讀它
+      load: hudFrame.bombLoad, cap: hudFrame.bombBayCapacity,
     },
     /** 準星：滑鼠圓圈（螢幕半高單位）與機頭十字（NDC）。教學截圖挑兩者分開的時機 */
     reticle: {

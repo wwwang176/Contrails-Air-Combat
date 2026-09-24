@@ -45,18 +45,26 @@ import {
   pickGroundTarget, pickShipTarget, resetGroundStrafe, shipAttackCommand, SHIP_ATTACK_RANGE,
 } from './shipAttack'
 import {
-  BOMB_PROFILE, createBombAim, resetBombAim, setBombBallistics, stepBombAim,
+  BOMB_PROFILE, createBombAim, GROUND_BOMB_AIM_RANGE, resetBombAim, setBombBallistics, stepBombAim,
 } from './bombRun'
 import type { StrikeProfile } from './strikeRun'
 import { createStrikeState, resetStrike, stepStrike } from './strikeRun'
 import { setTorpedoBallistics } from './torpedoRun'
-import type { BombBay } from '../weapons/bomb'
+import { BOMB_BLAST_RADIUS, type BombBay } from '../weapons/bomb'
 
 /**
  * 投彈解算的步長。**必須與空中的炸彈相同** —— `World.step` 跑 240 Hz，
  * 兩邊不同的話 AI 算的落點與真正飛出去的那一顆會分家。
  */
 const DT_SOLVE = 1 / 240
+/**
+ * 戰鬥機對地投彈時，離目標至少要這麼高才放，m。
+ *
+ * 【為什麼】爆風炸得到投彈的自己（`World.applyBombBlast`）。低空俯衝放手之後
+ * 飛機差不多是從落點正上方掠過，炸彈落地那一刻離爆心大約就是這個高度 ——
+ * 要大過殺傷半徑（基準彈 30 m）一截。**起始值，由試飛裁定。**
+ */
+const AI_BOMB_MIN_HEIGHT = 80
 import type { Ship } from '../world/ships'
 import type { GroundTarget } from '../world/groundTargets'
 import type { StrikeTarget } from '../world/strikeTarget'
@@ -427,9 +435,40 @@ export class AiController implements Controller {
     groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim)
     // 【掃射也吃點放】瞄得準就咬住，瞄得爛只點兩下 —— 與打飛機同一條規則
     out.firing = out.firing && this.burstOpen
+    this.bombGround(self, t, decide, out)
     this.groundAttackActive = true
     this.groundStrafeActive = true
     return true
+  }
+
+  /**
+   * 掛彈的戰鬥機對地面目標投彈：與對船同一套落彈點瞄準（`stepBombAim`）——
+   * 近了就把瞄準點換成落彈解，機首自己壓下去把落點推到車上，放得中就放。
+   * 投完（或沒掛彈）就什麼都不做，瞄準點留給機槍。**排在掃射之後**，它要
+   * 覆寫的正是掃射寫好的那一格。
+   *
+   * 【脫離段不接手】那一段要飛開、繞回來再打一趟；這裡若還在寫瞄準點，會把
+   * 飛機拉回車隊上方打轉。
+   *
+   * 【離目標太低不放】炸彈的爆風不分敵我、也炸得到投彈的自己（`World` 的
+   * `applyBombBlast`）。玩家的投彈下限只有 3 m（`FIGHTER_BOMB_ENVELOPE`），
+   * 那是玩家自己的代價；AI 不該為了投一顆彈把自己炸下來。
+   */
+  private bombGround(self: Aircraft, t: GroundTarget, decide: boolean, out: Command): void {
+    const bay = this.bombBay
+    const loaded = bay !== null && bay.capacity > 0 && (bay.load > 0 || bay.queue > 0)
+    if (!loaded || this.groundStrafe.phase === 'egress') {
+      resetBombAim(this.bombAim)
+      return
+    }
+    setBombBallistics(this.bombDrag, DT_SOLVE)
+    // 【掛著彈的整段都保持正飛】理由同對船：倒飛進瞄準帶就投不出去
+    out.upright = true
+    // 【落點在殺傷半徑兩倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
+    // 兩倍比殺傷半徑寬：會有落空的，但不會整趟一枚都不放
+    stepBombAim(this.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 2)
+    if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
+    out.bombing = this.bombAim.release && self.state.position.y - t.position.y >= AI_BOMB_MIN_HEIGHT
   }
 
   /**
@@ -1019,7 +1058,12 @@ export class AiController implements Controller {
     //
     // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
     // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
-    if (this.bombBay !== null && this.attackShip(self, decide, dt, raw)) {
+    //
+    // 【任務指定了地面優先目標就不插隊】日 M2 灘頭擱淺的 LST 是紅隊的船，
+    // 這一段排在卡車分支之前 —— 不擋的話疾風整隊掛著炸彈去炸 LST，車隊沒人管。
+    // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
+    if (this.bombBay !== null && this.priorityGroundUnit === null
+      && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
       this.emit(self, dt, out)
       return

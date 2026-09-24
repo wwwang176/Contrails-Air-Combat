@@ -58,13 +58,14 @@ M3 護航／M4 反艦；增援預警要做、音效排最後）
 ```
   ✅  九種飛機、逐部位命中盒與防護力、史實性能校準     src/battle/skirmish.ts:114
   ✅  砲塔（He 111 / B-17G / G4M），AI 驅動 —— 玩家開轟炸機時不必再做
-  ✅  七條任務規則：annihilate / evacuate / convoy（可帶 need）/ hunt / sink /
-                    destroy / defend                    src/battle/mission.ts:23
-                    evacuate 目前沒有卡片用（grep "type: '撤離'" src/battle/missions → 零筆）
-  ✅  節拍：reinforce / withdraw / recycle / flare / conveyor   src/battle/beats.ts:142
-      條件：clock / alive / batch / ground                       src/battle/beats.ts:29
+  ✅  八條任務規則：annihilate / evacuate / convoy（可帶 need）/ hunt / sink /
+                    destroy / interdict / defend        src/battle/mission.ts:23
+                    evacuate 只由日 M2 的返航節拍換進來（沒有「撤離」類型的卡）
+  ✅  節拍：reinforce / withdraw / recycle / flare / conveyor   src/battle/beats.ts
+      條件：clock / alive / batch / ground / destroyed           src/battle/beats.ts:29
+  ✅  沿路線移動的地面目標（日 M2 的車隊）             src/world/groundMotion.ts
   ✅  進場擺法：headOn / pursuit / bounce               src/battle/entry.ts:67、:123、:138
-  ✅  地形：sea / archipelago / farmland / autumnFarmland / leuna / poltava / asch
+  ✅  地形：sea / archipelago / farmland / autumnFarmland / leuna / poltava / asch / leyte
                                                         src/world/terrainKind.ts:21
   ✅  時段：dawn / noon / dusk / night / novemberNoon   src/world/timeOfDay.ts:15
   ✅  海陸環境：ocean、island、terrain、farmGround、fields、flora、vegetation
@@ -193,8 +194,8 @@ Flak 砲位、火車頭與車廂、卡車、戰車、~~登陸艇~~、工廠、�
 **效果**
 
 - [x] 增援登場 —— 先預警，過 `warnLead` 秒才真的進場
-- [x] 任務目標變更（`annihilate` → `evacuate`），目標文字一起換。**目前沒有卡片
-      用返航**（`grep -n "withdraw:" src/battle/missions/*.ts` → 零筆）
+- [x] 任務目標變更（→ `evacuate`），目標文字一起換。日 M2 用它：炸夠卡車之後
+      轉入撤離（`grep -n "withdraw:" src/battle/missions/*.ts`）
 - [x] 通報訊息 —— 畫面中心單一訊息槽，後來者覆蓋（`hud/widgets/message.ts`）
 - [x] 整隊重生 `recycle`（`beats.ts:99`）—— 被殲滅的小隊整隊回來，席位回收
 - [x] 照明彈 `flare`（`beats.ts:125`）—— 德 M2（`src/battle/missions/germany.ts:109`）
@@ -531,8 +532,8 @@ Flak 砲位、火車頭與車廂、卡車、戰車、~~登陸艇~~、工廠、�
 | 德 M2 | `germany-m2` | 波爾塔瓦之夜 | 打擊 | He 111 ×8，分層 | 沒有敵機 | — | poltava・night・1,500 m | `destroy` 12（24 架停放 B-17、3 堆、16 輕砲、6 重砲、6 探照燈） | 80 s 照明彈 | `germany.ts:76`、`campaigns.test.ts:123` |
 | 德 M3 | `germany-m3` | 底板行動 | 打擊 | Bf 109 K-4 ×8 | P-51D，全部從停機線滑出起飛 | — | asch・dawn・500 m | `destroy` 8 架停放的 P-51（油桶堆與輕砲不算） | 0／45／90 s 各一個小隊滑行起飛，地上剩幾架上幾架 | `germany.ts:113` |
 | 日 M1 | `japan-m1` | 瓜達康納爾上空 | 護航 | A6M5 ×12 | F4F-4 ×8 | 我方 G4M ×8 攻擊隊（`strike`） | archipelago・Wichita ×2＋Fletcher ×6（敵方）・1,000 m | `sink` 3；零戰全滅判敗 | F4F 重生 3 批 | `japan.ts:46`、`japan.ts:27` |
-| 日 M2 | `japan-m2` | 漢口上空 | 殲滅 | Ki-84 ×8 | P-51D ×10，高 1,000 m（`bounce`） | — | farmland | `annihilate` | 無（刻意） | `japan.ts:75` |
-| 日 M2 | `japan-m3` | 倫內爾島 | 打擊 | G4M ×11 | F4F-4 ×8 | — | sea・dusk・Wichita ×4＋Fletcher ×4・1,000 m | `sink` 4 | 無 | `japan.ts:90`、`shared.ts:146` |
+| 日 M2 | `japan-m2` | 雷伊泰前線 | 打擊 | Ki-84 ×4（250 kg ×2） | F6F-5 ×2 巡邏，其餘由波次給 | 敵方車隊 3 批 × 6 輛（防空車頭尾各一，卡車與戰車車頂各一挺 .50）沿公路開往前線；灘頭 3 重砲（雷達射控）＋2 輕砲、前線 2 輕砲 | leyte・storm（雷雨，只有閃電與雷聲）・1,500 m | `interdict`：炸 6 輛卡車 → 撤離（9 km、半徑 600 m）；卡車抵達 4 輛判敗 | 摧毀 ≥1（90 s 兜底）F6F ×4；摧毀 ≥6 時 F6F ×4 從背後追、×4 在撤退路上從高處堵＋返航 | `japan.ts:77` |
+| 日 M3 | `japan-m3` | 倫內爾島 | 打擊 | G4M ×11 | F4F-4 ×8 | — | sea・dusk・Wichita ×4＋Fletcher ×4・1,000 m | `sink` 4 | 無 | `japan.ts:90`、`shared.ts:146` |
 
 **九關改版換掉的五張**（spec `2026-09-13-campaign-rework-design.md` §1）：盟 M1、
 德 M1、德 M3、日 M1、日 M2；commit `774bf1e`、`7f21eff`、`15e25a8`、`534d109`、
@@ -551,20 +552,22 @@ Flak 砲位、火車頭與車廂、卡車、戰車、~~登陸艇~~、工廠、�
 > `2026-09-13-campaign-rework-design.md` §10，逐張卡的註解也都標著「起始值，
 > 由試飛裁定」。
 > ~~德 M3：返航條件「我方剩 ≤4 架或最遲 40 秒」、撤離點 12 km、時限 158 秒、
-> 兩批各 4 架~~ —— 帝國最後防線那張卡換成底板行動（commit `7f21eff`），
-> 現在沒有卡片用返航。
+> 兩批各 4 架~~ —— 帝國最後防線那張卡換成底板行動（commit `7f21eff`）。
+> 現在用返航的是日 M2：炸夠卡車之後轉入撤離，撤離點在來時的方向。
 
 ### 日本線三關（2026-09-13 定案）
 
 ```
   M1  掩護雷擊隊    A6M5    擋住 F4F，擊沉由陸攻達成         japan.ts:46
-  M2  戰鬥機對決    Ki-84   把高空俯衝下來的 P-51 拖進纏鬥   japan.ts:75
+  M2  截斷車隊       Ki-84   掛彈炸公路上的補給車隊，然後撤離  japan.ts:77
   M3  反艦           G4M     黃昏低空雷擊                     japan.ts:90
 ```
 
-~~2026-09-01 的「四關四個動詞」~~ —— M2 守備＋對地（讀谷灘頭）被砍；M3 由
-「Ki-84 護送 G4M 到投雷點」換成漢口上空的殲滅戰（負責人 2026-09-13 裁定，
-spec `2026-09-13-campaign-rework-design.md` §2 第 3、7 條）。
+M2 的內容見 spec `2026-09-23-japan-m2-leyte-design.md`：沿公路移動的車隊、
+海岸線地形 `leyte`、`interdict` 規則、F6F 從撤退方向進場。
+
+**日 M2 待補**：美軍車輛模型 —— GMC CCKW 2½ 噸卡車（補給車）、M16 半履帶防空車
+（四聯 .50），雪曼可選。目前沿用 ZiS-150／T-34／Flak 38 試玩。
 
 ### 共用資產
 

@@ -98,7 +98,7 @@ describe('反比距離衰減', () => {
 
 describe('接線', () => {
   const ENGINE = new TextDecoder().decode(readFileSync('src/audio/engine.ts')).replace(/\r\n/g, '\n')
-  const SPATIAL = new TextDecoder().decode(readFileSync('src/audio/spatial.ts'))
+  const SPATIAL = new TextDecoder().decode(readFileSync('src/audio/spatial.ts')).replace(/\r\n/g, '\n')
 
   /** 【不能換回 three 的】換回去的話每一幀又是一整排位置漸變 */
   it('engine 建的是自己算左右的聲道與不寫位置的 listener', () => {

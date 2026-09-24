@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-把三艘船的防空砲位吐成遊戲用的座標表（`src/world/shipAA.ts`）。
+把四艘船的防空砲位吐成遊戲用的座標表（`src/world/shipAA.ts`）。
 
 用法（Blender 5.x，背景）：
     blender -b -P tools/blender/export_ship_aa.py
+寫到本檔所在的那一份 repo。環境變數 `SHIP_AA_OUT` 給了路徑就改寫到那裡 ——
+先寫到暫存檔、與現有的表比對，再決定要不要蓋過去。
 
 跑的是 `build_*.py` 本身，所以座標永遠與 GLB 同一份來源 —— 手抄一份的話，
 改了建模腳本而忘了改表，砲口就會離開砲塔而**沒有任何測試會紅**。
@@ -20,24 +22,26 @@
 """
 import bpy, json, os
 
-ROOT = r"C:\projects\grok-aircraft2\.claude\worktrees\bf109-v2"
-OUT = os.path.join(ROOT, "src", "world", "shipAA.ts")
-SHIPS = (('essex', 'ESSEX', 'USS Essex CV-9'),
-         ('fletcher', 'FLETCHER', 'USS Fletcher DD-445'),
-         ('wichita', 'WICHITA', 'USS Wichita CA-45'))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+OUT = os.environ.get('SHIP_AA_OUT') or os.path.join(ROOT, "src", "world", "shipAA.ts")
+# (艦級 id, 常數前綴, 標題, 建模腳本把量測結果放在哪個變數)
+SHIPS = (('essex', 'ESSEX', 'USS Essex CV-9', 'LOG'),
+         ('fletcher', 'FLETCHER', 'USS Fletcher DD-445', 'LOG'),
+         ('wichita', 'WICHITA', 'USS Wichita CA-45', 'LOG'),
+         ('lst', 'LST', 'LST-1 級戰車登陸艦', 'LOG_LST'))
 TIER_ORDER = {'flak': 0, 'autocannon': 1, 'mg': 2}
 
 
-def run(ship):
+def run(ship, log):
     for o in list(bpy.data.objects):
         bpy.data.objects.remove(o, do_unlink=True)
     for m in list(bpy.data.meshes):
         if m.users == 0:
             bpy.data.meshes.remove(m)
-    g = {}
+    g = {'REPO_ROOT': ROOT}
     exec(open(os.path.join(ROOT, "tools", "blender", "build_%s.py" % ship),
               encoding='utf-8').read(), g)
-    return g['LOG']['empl']
+    return g[log]['empl']
 
 
 def side(x):
@@ -81,13 +85,13 @@ def representative(members):
 def zones_of(rows):
     """把砲位併成區，每區推一門真實存在的砲當代表。
 
-    分區方式一層不一樣（負責人 2026-09-04）：
+    分區方式一層不一樣：
 
       兩用砲、40 mm   一層 × 一舷 = 一區
       **20 mm**       一層 × 一舷 × **前後** = 一區 —— 一舷一個點涵蓋不了
                       185 m 的近迫火網，機庫裡也只看得到兩個錐
 
-    切完三艘分別是 8 / 6 / 8 區，**Essex 與 Wichita 正好卡在 MAX_TURRETS = 8**。
+    切完四艘分別是 8 / 6 / 8 / 5 區，**Essex 與 Wichita 正好卡在 MAX_TURRETS = 8**。
     再想細分任何一層之前要先擴容。
     """
     groups = {}
@@ -105,8 +109,8 @@ def zones_of(rows):
 
 
 data = {}
-for ship, const, title in SHIPS:
-    empl = run(ship)
+for ship, const, title, log in SHIPS:
+    empl = run(ship, log)
     empl.sort(key=lambda e: (TIER_ORDER[e[0]], -e[3], e[2]))
     seen = {}
     rows = []
@@ -161,8 +165,8 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  *    超過 7 就與**下一個單位的第 0 座**撞號，好幾座砲完全同步地抖
  * 3. 不報錯、測試也不紅
  *
- * 所以下面每艘再給一份 `*_AA_ZONES`：**一區推一門真實存在的砲當代表**
- * （負責人 2026-09-04 裁決）。分區方式一層不一樣：
+ * 所以下面每艘再給一份 `*_AA_ZONES`：**一區推一門真實存在的砲當代表**。
+ * 分區方式一層不一樣：
  *
  * | 層 | 分區 | 為什麼 |
  * | --- | --- | --- |
@@ -173,10 +177,13 @@ with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
  * 全在艦橋附近，用艦體中點切後半段是空的），也不是最大空隙（Essex 右舷 17 門會
  * 被切成 15/2，一個代表涵蓋 15 門那一長串，等於沒拆）。
  *
- * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區 —— **兩艘正好卡在上限 8**。
- * 再想細分任何一層之前要先擴容 `MAX_TURRETS`。
+ * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 5 區 —— **兩艘正好卡在
+ * 上限 8**。再想細分任何一層之前要先擴容 `MAX_TURRETS`。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
+
+/** 三層的清單。**音效那邊逐一檢查每一層都有聲音**，漏掉的不會報錯只會沒聲音 */
+export const SHIP_AA_TIERS: readonly ShipAATier[] = ['flak', 'autocannon', 'mg']
 
 export interface ShipEmplacement {
   /** 穩定 id：`<tier>_<舷><序號>`，舷是 p 左／s 右／c 中線。 */
@@ -201,8 +208,8 @@ export interface ShipEmplacement {
  */
 export interface ShipAAZone extends ShipEmplacement {
   /**
-   * 這一區實際上有幾門砲。**只是記錄，不是倍率** —— 負責人 2026-09-04 裁決：
-   * 一區一門代替就好、血量不加倍。要拿它去乘血量或傷害之前請先想清楚：
+   * 這一區實際上有幾門砲。**只是記錄，不是倍率** —— 一區一門代替就好、
+   * 血量不加倍。要拿它去乘血量或傷害之前請先想清楚：
    * 玩家看到的就是一門砲，打起來卻像 27 門，那是兩回事。
    */
   mountsInZone: number

@@ -569,6 +569,50 @@ describe('attachInput：投彈模式', () => {
   })
 })
 
+describe('attachInput：戰鬥機掛彈', () => {
+  const key = (code: string): unknown => ({ code, preventDefault: () => {} })
+
+  const arm = () => {
+    const dom = setupDom()
+    const state = createInputState()
+    state.bombRelease = true
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    return { dom, state }
+  }
+
+  it('每按一下 B 記一次；視角不變', () => {
+    const { dom, state } = arm()
+    dom.win.fire('keydown', key('KeyB'))
+    dom.win.fire('keyup', key('KeyB'))
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.bombTaps).toBe(2)
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('按住不放的自動重複不算', () => {
+    const { dom, state } = arm()
+    dom.win.fire('keydown', key('KeyB'))
+    dom.win.fire('keydown', { code: 'KeyB', repeat: true, preventDefault: () => {} })
+    expect(state.bombTaps).toBe(1)
+  })
+
+  it('沒有掛彈的戰鬥機按 B 沒有作用', () => {
+    const dom = setupDom()
+    const state = createInputState()
+    attachInput(dom.canvas as unknown as HTMLCanvasElement, state)
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.bombTaps).toBe(0)
+    expect(state.viewMode).toBe('third')
+  })
+
+  it('陣亡中 B 沒有作用', () => {
+    const { dom, state } = arm()
+    state.dead = true
+    dom.win.fire('keydown', key('KeyB'))
+    expect(state.bombTaps).toBe(0)
+  })
+})
+
 describe('attachInput：陣亡中的右鍵', () => {
   it('陣亡中按住右鍵，滑鼠既不轉頭也不進 aimDelta', () => {
     const dom = setupDom()

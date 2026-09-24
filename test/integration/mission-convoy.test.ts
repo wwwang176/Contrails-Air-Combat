@@ -8,7 +8,7 @@ import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 import type { Battery } from '../../src/weapons/types'
 import type { Team } from '../../src/world/World'
-import { cardWith, readyCard, INTERCEPT_CARD } from '../fixtures/mission'
+import { cardWith, readyCard, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 
 /**
  * 讓一支槍不痛。
@@ -323,9 +323,8 @@ describe('沒有被護送者的場次一個字都沒變', () => {
   })
 
   it('殲滅任務：規則仍然是 annihilate，沒有圓環', () => {
-    // 【九關裡只剩日 M2 是殲滅】日 M1 換成 sink、德 M1 換成 hunt、
-    // 德 M3 換成 destroy —— 這一條的樣本要跟著走
-    for (const id of ['japan-m2'] as const) {
+    // 【出貨的九關沒有殲滅卡】樣本是 fixture 組的合成殲滅卡
+    for (const id of [KILL_CARD] as const) {
       const b = battleFor(readyCard(id))
       expect(b.convoy).toBeNull()
       expect(b.cfg.rules.kind).toBe('annihilate')

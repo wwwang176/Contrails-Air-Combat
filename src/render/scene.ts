@@ -99,9 +99,8 @@ export function createScene(
   scene.add(sky)
   // 【霧掛在 scene 上，逐材質生效】three 的 `material.fog` 預設為 true，
   // 所以飛機、參照物、殘骸、曳光彈、粒子都吃霧。天空球是 `ShaderMaterial`
-  // （`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。
-  // **海面明確關掉**（`ocean.ts` 的 `fog: false`），否則遠海會往天空色
-  // 靠、地平線糊掉。HUD 是另一張 2D canvas，與這裡無關。
+  // （`fog` 預設 false）不吃 —— 正確，天空本來就是無限遠。海面也吃
+  // （`ocean.ts`），遠海往天空色化。HUD 是另一張 2D canvas，與這裡無關。
   scene.fog = createFog()
 
   // 【燈的定義在 `lighting.ts`】遠處的植被走 gl.POINTS，亮度是烘進頂點色的，

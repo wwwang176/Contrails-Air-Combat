@@ -27,10 +27,11 @@ GLB 裡的顏色只給 Blender 看，遊戲照名字重貼。名字對不上載�
   Flak 38   1:1 公尺。砲管抬 30°；護盾也在迴旋座上不隨仰角動（它的前緣越高越
             往後、砲身組越高越往前，兩者不是同一個剛體），本身後傾約 15°。
 """
-import bpy, math, os
+import bpy, bmesh, math, os
 from mathutils import Vector
 
-ROOT = r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\model-building-2"
+# 【匯出到哪一份 repo】執行前在 globals 放 `REPO_ROOT` 就用它；沒放用這個預設
+ROOT = globals().get('REPO_ROOT', r"C:\Users\weiwe\orca\workspaces\grok-aircraft2\model-building-2")
 OUT_DIR = os.path.join(ROOT, "models-src")
 LOG = {}
 
@@ -58,12 +59,21 @@ def mat(name, rgb):
 
 
 def mk(name, verts, faces, col, material):
+    """建一個零件。**面一律轉成朝外**：`loft`／`cyl`／`band`／`slab` 的繞向隨
+    站點先後、軸向、加厚方向而不同，而遊戲的材質是單面的 —— 朝內的面會被
+    剔掉，從外面看就是缺了那一面、看到另一側的內面。每個零件都是封閉網格，
+    `recalc_face_normals` 算得出哪邊是外面。"""
     old = bpy.data.objects.get(name)
     if old:
         bpy.data.objects.remove(old, do_unlink=True)
     me = bpy.data.meshes.new(name)
     me.from_pydata(list(verts), [], list(faces))
     me.validate()
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me)
+    bm.free()
     for p in me.polygons:
         p.use_smooth = False
     ob = bpy.data.objects.new(name, me)
@@ -154,6 +164,49 @@ def slab(corners_front, thickness):
     v = [tuple(a), tuple(b), tuple(c), tuple(d), tuple(a-n), tuple(b-n), tuple(c-n), tuple(d-n)]
     f = [(0,1,2,3), (7,6,5,4), (0,4,5,1), (1,5,6,2), (2,6,7,3), (3,7,4,0)]
     return v, f
+
+
+def merged_by_material(objs, col_name):
+    """把一群零件依材質併成幾顆網格（頂點烘進世界座標），放進 `col_name` 這個
+    暫存集合，回傳新建的物件。**匯出前用，用完呼叫端刪掉。**
+
+    【為什麼要併】船與氣球的 GLB 在遊戲裡照原樣畫（`render/ships.ts` 整棵
+    clone）—— 一個零件一個 draw call。LST 一百多個零件、十艘就是上千個。
+    併完一種材質一顆，外型與面的朝向都不變。物件名是「材質名_merged」——
+    直接用材質名會撞到同名的零件（`LST_Deck`），被 Blender 改成 `.001`。"""
+    col = get_col(col_name)
+    groups = {}
+    for o in objs:
+        groups.setdefault(o.data.materials[0].name, []).append(o)
+    made = []
+    for name, members in groups.items():
+        bm = bmesh.new()
+        for o in members:
+            me = o.data.copy()
+            me.transform(o.matrix_world)
+            bm.from_mesh(me)
+            bpy.data.meshes.remove(me)
+        me = bpy.data.meshes.new(name + '_merged')
+        bm.to_mesh(me)
+        bm.free()
+        me.materials.append(bpy.data.materials[name])
+        ob = bpy.data.objects.new(name + '_merged', me)
+        col.objects.link(ob)
+        made.append(ob)
+    return made
+
+
+def drop_collection(col_name):
+    """刪掉 `merged_by_material` 的暫存集合與裡面的網格。"""
+    col = bpy.data.collections.get(col_name)
+    if col is None:
+        return
+    for o in list(col.objects):
+        me = o.data
+        bpy.data.objects.remove(o, do_unlink=True)
+        if me.users == 0:
+            bpy.data.meshes.remove(me)
+    bpy.data.collections.remove(col)
 
 
 def col_bounds(objs):

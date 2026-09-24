@@ -9,12 +9,16 @@ import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
   createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME,
+  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
 } from './vegetation'
 import {
-  createIslandFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora, islandCanopyCover,
-  type FloraSource,
+  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, type FloraSource,
 } from './flora'
+import { requestLeyteCanopy } from './canopyBake'
+import { createLeyteGround } from './leyteGround'
+import { buildLeyteBeach } from './leyteBeach'
+import { createLeyte, LEYTE_PEAK_MAX } from '../world/leyte'
 import { bakeShore, createArchipelago, PEAK_MAX, type IslandDesc } from '../world/archipelago'
 import { createFarmland, outsideZero, HILL_PEAK_MAX } from '../world/farmland'
 import {
@@ -169,8 +173,87 @@ export function createTerrain(kind: TerrainKind, gfx?: TerrainGfx): Terrain {
   if (kind === 'leuna') return createLeunaTerrain(gfx)
   if (kind === 'poltava') return createPoltavaTerrain(gfx)
   if (kind === 'asch') return createAschTerrain(gfx)
+  if (kind === 'leyte') return createLeyteTerrain()
   if (kind === 'sea') return createSeaTerrain()
   return createArchipelagoTerrain()
+}
+
+/**
+ * 雷伊泰：半邊是海、半邊是平坦的大島。**海面、浪花、地面網格與植被的機制
+ * 照群島**，差別在生成器（`world/leyte.ts`）、切成方塊的地面與路（`leyteGround.ts`）、
+ * 闊葉樹（`createLeyteFlora`）。
+ *
+ * 【children 的順序照群島】0 遠海、1 海、2 陸地、3 植被 —— 前三個是 `main.ts`
+ * 的 `__gfx` 與工具共用的索引契約。
+ */
+function createLeyteTerrain(): Terrain {
+  const { field, hills } = createLeyte()
+  const ocean = createOcean(bakeShore(field))
+  // 【樹冠圖先粗後細】精細的那一張要烘兩秒多，放在背景執行緒；烘好之前是粗的
+  // 平均暗綠。場已經收掉的話不換
+  const ground = createLeyteGround(field, leyteCanopyCoarse(field), leyteFarCover)
+  let disposed = false
+  void requestLeyteCanopy()?.then((map) => {
+    if (map !== null && !disposed) ground.setCanopy(map)
+  })
+  // 【容量是雷伊泰自己的】樹是闊葉樹，而群島的闊葉池只留了 16 格防呆 ——
+  // 超出的由 `stats.overflow` 靜靜丟掉。半徑用預設的 6 km：群島的 12 km 是建立
+  // 在「七千格裡只有三百格有東西」上，雷伊泰的陸地是整片，照搬的話非空的格子
+  // 多一個量級。單格上限用群島的（丘陵上的林子單格可到五百多株）
+  const flora = createVegetation(
+    [createLeyteFlora(field)], (x, z) => field.sample(x, z),
+    { capacity: LEYTE_CAPACITY, maxPerTile: ISLAND_MAX_PER_TILE },
+  )
+  const group = new Group()
+  group.add(ocean.farMesh)
+  group.add(ocean.mesh)
+  group.add(ground.object)
+  group.add(flora.object)
+  // 【灘頭的佈景排第五個】前四個是索引契約（見上）。木箱堆與停著的車合併成
+  // 一顆網格，材質與洛伊納的佈景相同
+  const beach = new Mesh(
+    buildLeyteBeach((x, z) => field.sample(x, z)),
+    new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }),
+  )
+  group.add(beach)
+
+  return {
+    object: group,
+    heightAt(x, z, time) {
+      const h = field.sample(x, z)
+      const sea = ocean.heightAt(x, z, time)
+      return h > sea ? h : sea
+    },
+    collisionHeightAt(x, z) {
+      const h = field.sample(x, z)
+      return h > 0 ? h : 0
+    },
+    waterAt(x, z) {
+      const h = field.sample(x, z)
+      const sea = ocean.heightAt(x, z, 0)
+      return h > sea ? -Infinity : sea
+    },
+    islands: hills,
+    land: { field, ceiling: LEYTE_PEAK_MAX, landAbove: 0 },
+    fieldClip: null,
+    setPalette(p) {
+      ocean.setPalette(p)
+      flora.setPointLight(p.foliage)
+    },
+    update(time, centerX, centerZ) {
+      ocean.update(time, centerX, centerZ)
+      flora.update(centerX, centerZ)
+    },
+    settle() { flora.settle() },
+    dispose() {
+      disposed = true
+      ocean.dispose()
+      ground.dispose()
+      flora.dispose()
+      beach.geometry.dispose()
+      ;(beach.material as MeshStandardMaterial).dispose()
+    },
+  }
 }
 
 function createSeaTerrain(): Terrain {

@@ -54,8 +54,8 @@ import { Vector3 } from 'three'
  * 全在艦橋附近，用艦體中點切後半段是空的），也不是最大空隙（Essex 右舷 17 門會
  * 被切成 15/2，一個代表涵蓋 15 門那一長串，等於沒拆）。
  *
- * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區 —— **兩艘正好卡在上限 8**。
- * 再想細分任何一層之前要先擴容 `MAX_TURRETS`。
+ * 切完是 Essex 8 區、Fletcher 6 區、Wichita 8 區、LST 5 區 —— **兩艘正好卡在
+ * 上限 8**。再想細分任何一層之前要先擴容 `MAX_TURRETS`。
  */
 export type ShipAATier = 'flak' | 'autocannon' | 'mg'
 
@@ -332,10 +332,41 @@ export const WICHITA_AA_ZONES: readonly ShipAAZone[] = [
     representative: 'mg_s4', position: new Vector3(4.75, 8.71, 1.10) },
 ]
 
+/** LST-1 級戰車登陸艦 逐門 —— 兩用砲 0、40 mm 2、20 mm 4。**量測來源，不是遊戲用的那一份。** */
+export const LST_AA: readonly ShipEmplacement[] = [
+  { id: 'autocannon_c1', tier: 'autocannon', calibreMm: 40, guns: 2,
+    position: new Vector3(0.00, 11.54, -49.24) },
+  { id: 'autocannon_c2', tier: 'autocannon', calibreMm: 40, guns: 2,
+    position: new Vector3(0.00, 10.54, 49.74) },
+  { id: 'mg_p1', tier: 'mg', calibreMm: 20, guns: 1,
+    position: new Vector3(-3.47, 10.40, -44.70) },
+  { id: 'mg_s1', tier: 'mg', calibreMm: 20, guns: 1,
+    position: new Vector3(3.47, 10.40, -44.70) },
+  { id: 'mg_p2', tier: 'mg', calibreMm: 20, guns: 1,
+    position: new Vector3(-7.00, 8.60, -27.19) },
+  { id: 'mg_s2', tier: 'mg', calibreMm: 20, guns: 1,
+    position: new Vector3(7.00, 8.60, -27.19) },
+]
+
+/** LST-1 級戰車登陸艦 併區（5 區）。 */
+export const LST_AA_ZONES: readonly ShipAAZone[] = [
+  { id: 'autocannon_c', tier: 'autocannon', calibreMm: 40, guns: 2, mountsInZone: 2,
+    representative: 'autocannon_c1', position: new Vector3(0.00, 11.54, -49.24) },
+  { id: 'mg_pf', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
+    representative: 'mg_p1', position: new Vector3(-3.47, 10.40, -44.70) },
+  { id: 'mg_pa', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
+    representative: 'mg_p2', position: new Vector3(-7.00, 8.60, -27.19) },
+  { id: 'mg_sf', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
+    representative: 'mg_s1', position: new Vector3(3.47, 10.40, -44.70) },
+  { id: 'mg_sa', tier: 'mg', calibreMm: 20, guns: 1, mountsInZone: 1,
+    representative: 'mg_s2', position: new Vector3(7.00, 8.60, -27.19) },
+]
+
 export const SHIP_AA: Readonly<Record<string, readonly ShipEmplacement[]>> = {
   essex: ESSEX_AA,
   fletcher: FLETCHER_AA,
   wichita: WICHITA_AA,
+  lst: LST_AA,
 }
 
 /** 接進遊戲用這一份。 */
@@ -343,4 +374,5 @@ export const SHIP_AA_ZONES: Readonly<Record<string, readonly ShipAAZone[]>> = {
   essex: ESSEX_AA_ZONES,
   fletcher: FLETCHER_AA_ZONES,
   wichita: WICHITA_AA_ZONES,
+  lst: LST_AA_ZONES,
 }

@@ -193,7 +193,9 @@ function place(unit: GroundUnit, x: number, z: number, ry: number): Entry {
  * 【火車一定要串起來】車鉤高度、緩衝器位置、輪徑是否一致，這三件事分開
  * 擺一輩子都看不出錯。接起來之後，任何一節對不上都是肉眼可見的錯位。
  */
-const VEHICLE_ROW: GroundUnitId[] = ['tank', 'truck', 'flakHeavy', 'flakLight']
+const VEHICLE_ROW: GroundUnitId[] = [
+  'tank', 'truck', 'flakHeavy', 'flakLight', 'usTank', 'usTruck', 'usFlakTrack',
+]
 const ROW_GAP = 4.0
 /**
  * 列車那一排的 Z。**列車與車輛平行排開，不是交叉的兩條線** —— 排成 L 形時

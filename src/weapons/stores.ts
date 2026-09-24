@@ -75,6 +75,17 @@ export const A6M5_BOMB_LOADOUT: Loadout = {
   kind: 'bomb', count: 2, damage: 1_000, reloadSeconds: 20,
 }
 
+/**
+ * 疾風的戰鬥轟炸掛載：翼下兩個掛架，各一顆 250 kg。**不在預設表上**，由任務卡
+ * 依機種指定（日 M2 雷伊泰前線）。
+ *
+ * 【單枚 9,300】與 He 111 的 SC 250 同一個當量。一枚直擊炸得掉同一批裡相鄰的
+ * 兩三輛卡車（車距 30 m、爆心 30 m 線性衰減）。**起始值，由試飛裁定。**
+ */
+export const KI84_BOMB_LOADOUT: Loadout = {
+  kind: 'bomb', count: 2, damage: 9_300, reloadSeconds: 20,
+}
+
 /** 這一台掛什麼。掛不了東西的回 `null` */
 export function loadoutOf(aircraftId: string): Loadout | null {
   return LOADOUT_BY_AIRCRAFT[aircraftId] ?? null

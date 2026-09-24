@@ -50,13 +50,15 @@ import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
 import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
 import {
-  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, resetShipGuns, type ShipGunSpec,
+  createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, GROUND_MG_SPEC, resetShipGuns,
+  type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
 import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
-import type { GroundEntry, MissionFleet } from './missions'
+import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
+import { createBalloon, resetBalloon } from '../world/balloons'
 import {
   createTakeoffRoll, GEAR_CLEARANCE, TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL,
   type TakeoffLine, type TakeoffRoll,
@@ -125,6 +127,8 @@ export interface BattleConfig {
   readonly fleet?: MissionFleet
   /** 這一關的地面目標。省略 = 一台都不放。透傳的約定與 `fleet` 相同。 */
   readonly ground?: readonly GroundEntry[]
+  /** 這一關的防空氣球。省略 = 一顆都不放。透傳的約定與 `fleet` 相同。 */
+  readonly balloons?: readonly BalloonEntry[]
   /**
    * 複寫這一關陸上重高砲的規格。**省略 = `GROUND_FLAK_SPEC`。**
    *
@@ -1089,6 +1093,8 @@ export function createBattle(
 
   placeFleet(world, cfg.fleet)
   placeGround(world, cfg.ground, cfg.flakSpec)
+  // 【排在艦隊之後】繫在船上的氣球要讀那艘船的位置與艏向
+  placeBalloons(world, cfg.balloons)
   const battle: Battle = {
     world,
     board,
@@ -1160,13 +1166,39 @@ function placeFleet(world: World, fleet: MissionFleet | undefined): void {
     const cls = SHIP_CLASSES[e.cls]
     // 【`vital` 也要透傳】漏掉的症狀是「打沉航母卻沒判輸」，不報錯
     const ship = createShip(
-      world.ships.length, cls, e.team, p.x, p.z, fleet.heading, fleet.speed,
+      world.ships.length, cls, e.team, p.x, p.z, fleet.heading + (e.heading ?? 0), fleet.speed,
       e.vital === true,
     )
     ship.guns = createShipGuns(cls)
     ship.gunCooldowns = new Float32Array(cls.zones.length)
     resetShipGuns(ship)
     world.ships.push(ship)
+  }
+}
+
+/**
+ * 依 `cfg.balloons` 把防空氣球放進世界。**省略就一顆都不放。**
+ *
+ * 繫在船上的：錨點是那艘船的甲板點轉到世界（船不動，建一次就好）。地面的：
+ * 高度先填 0，地形接上之後由 `settleBalloons` 落地。
+ */
+function placeBalloons(world: World, entries: readonly BalloonEntry[] | undefined): void {
+  if (entries === undefined) return
+  const p = new Vector3()
+  for (const e of entries) {
+    const a = e.anchor
+    let x: number, y: number, z: number
+    if ('ship' in a) {
+      const sh = world.ships[a.ship]
+      if (sh === undefined) throw new Error(`氣球繫在第 ${a.ship} 艘船上，但這一關只有 ${world.ships.length} 艘`)
+      p.copy(a.deck).applyQuaternion(sh.orientation).add(sh.position)
+      x = p.x; y = p.y; z = p.z
+    } else {
+      x = a.x; y = 0; z = a.z
+    }
+    world.balloons.push(createBalloon(
+      world.balloons.length, e.team, x, y, z, e.tether, e.heading, !('ship' in a),
+    ))
   }
 }
 
@@ -1181,14 +1213,20 @@ function placeGround(
 ): void {
   if (ground === undefined) return
   for (const e of ground) {
-    const t = createGroundTarget(world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading)
+    const t = createGroundTarget(
+      world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading, e.motion ?? null,
+    )
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
-    // 【輕型砲也還手】走直射彈那一層，曳光看得見。只有德 M2 有輕砲，規格
-    // 不逐關複寫 —— 試玩改 `GROUND_LIGHT_FLAK_SPEC` 本身
-    else if (e.unit === 'flakLight') {
+    // 【輕型砲也還手】走直射彈那一層，曳光看得見。規格不逐關複寫 —— 試玩改
+    // `GROUND_LIGHT_FLAK_SPEC` 本身。M16 半履帶車與輕砲同一個火力（日 M2）
+    else if (e.unit === 'flakLight' || e.unit === 'usFlakTrack') {
       t.guns = createGroundBattery(GROUND_LIGHT_FLAK_SPEC, 'autocannon', GROUND_LIGHT_FLAK_SPEC.caliber)
+    }
+    // 【車頂的機槍由條目指定】同一種卡車在別的關可以只是靶
+    else if (e.guns === 'mg') {
+      t.guns = createGroundBattery(GROUND_MG_SPEC, 'mg', GROUND_MG_SPEC.caliber)
     }
     world.groundTargets.push(t)
   }
@@ -1292,7 +1330,11 @@ function stepBeats(b: Battle): void {
     const grounded = beat.kind === 'reinforce' && beat.flight.departs !== undefined
       && parkedLeft(b, beat.flight.departs, beat.flight.team) === 0
     if (st.phase === 'waiting') {
-      if (!conditionMet(beat.when, now, aliveOf, b.batches, destroyed)) continue
+      // 【`destroyed` 條件自帶單位】數的是它自己指定的那一種，不是規則的池
+      const d = beat.when.kind === 'destroyed'
+        ? countDestroyed(b.world.groundTargets, b.world.combatants, beat.when.unit)
+        : destroyed
+      if (!conditionMet(beat.when, now, aliveOf, b.batches, d)) continue
       if (grounded) continue
       st.phase = 'warned'
       st.dueAt = now + (beat.kind === 'reinforce' ? beat.warnLead : 0)
@@ -1396,6 +1438,7 @@ function fitsNextReserve(b: Battle, plan: FlightPlan): boolean {
  */
 function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
   if (t.team === 'blue') return false
+  if (rules.kind === 'interdict') return t.unit.id === rules.unit
   return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
 }
 
@@ -1403,16 +1446,41 @@ function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
  * 池裡的這一台算不算已摧毀。**每一架飛機只算一次，不管死在哪裡。**
  *
  * ```
+ *   開到終點   不算 —— 它是開到了，不是被打掉
  *   沒有離場   停機墊上的那一台打掉了沒有
  *   已經離場   從它起飛的那一架還活不活著（滑行、滾行、升空後被打掉都算）
  * ```
  *
- * 【離場的那一格不能看自己的 `alive`】離場時它就設成 false 了 —— 看它的話
- * 起飛的那一刻就算成摧毀，同一架飛機之後被擊落又不會多算，數字全錯。
+ * 【離場與抵達都不能只看自己的 `alive`】兩者退場時都設成 false —— 看它的話
+ * 起飛或抵達的那一刻就算成摧毀。
  */
-function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+export function destroyedInPool(t: GroundTarget, cs: readonly Combatant[]): boolean {
+  if (t.arrived) return false
   if (!t.departed) return !t.alive
   return !cs[t.departedAs]!.alive
+}
+
+/**
+ * 敵方地面目標裡 `unit`（省略 = 全部）已摧毀幾座。**`destroyed` 節拍條件用它** ——
+ * 那一條自帶單位，不跟著這一場的規則走（返航之後規則換成撤離，池就變了）。
+ */
+export function countDestroyed(
+  targets: readonly GroundTarget[], cs: readonly Combatant[], unit: GroundUnitId | undefined,
+): number {
+  let n = 0
+  for (const t of targets) {
+    if (t.team === 'blue') continue
+    if (unit !== undefined && t.unit.id !== unit) continue
+    if (destroyedInPool(t, cs)) n++
+  }
+  return n
+}
+
+/** 池裡開到終點退場的有幾座。`interdict` 的抵達數 */
+export function countArrived(targets: readonly GroundTarget[], rules: MissionRules): number {
+  let n = 0
+  for (const t of targets) if (t.arrived && inDestroyPool(t, rules)) n++
+  return n
 }
 
 /**
@@ -1982,6 +2050,7 @@ const MISSION_INPUTS: MissionInputs = {
   shipsTotal: 0,
   targetsDestroyed: 0,
   targetsTotal: 0,
+  targetsArrived: 0,
   vitalSunk: 0,
   vitalHp: 1,
   redInbound: false,
@@ -2266,6 +2335,7 @@ export function stepBattle(b: Battle, dt: number): void {
     inp.targetsTotal++
     if (destroyedInPool(t, cs)) inp.targetsDestroyed++
   }
+  inp.targetsArrived = countArrived(b.world.groundTargets, b.rules)
   // 【已經預警、還沒生出來的紅方增援】少了它，那幾秒之內紅方歸零會先判勝，
   // 第二波永遠不來（見 `MissionInputs.redInbound`）
   inp.redInbound = false
@@ -2347,6 +2417,9 @@ export function resetBattle(
   // 但重開之前的最後一步可能剛推進去 —— 留著的話新場第一步就會通報它
   clearImpacts(b.world.shipKillEvents)
   clearImpacts(b.world.shipHitEvents)
+  // 【氣球回到空中】破掉的長回來；上一場沒排空的破掉事件丟掉
+  for (const bl of b.world.balloons) resetBalloon(bl)
+  clearImpacts(b.world.balloonKillEvents)
   // 【通報也要清】不清的話新的一場開場那三秒還掛著上一場的最後幾則，
   // 而佇列裡沒出場的會一條一條慢慢冒出來
   resetBattleReport(b.report)

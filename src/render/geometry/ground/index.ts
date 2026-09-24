@@ -29,6 +29,7 @@ import { bakeParkedAircraft } from './parked'
 export type GroundUnitId =
   | 'tank' | 'truck'
   | 'flakHeavy' | 'flakLight'
+  | 'usTank' | 'usTruck' | 'usFlakTrack'
   | 'locomotive' | 'tender' | 'boxcar' | 'flatcar'
   | PlantKind
   | 'parkedB17' | 'fuelDump' | 'bombDump' | 'searchlight'
@@ -139,6 +140,33 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     realLength: 2.41, realWidth: 1.91, realHeight: 1.92,
     model: { glb: '/models/flak38.glb', barrelNodes: ['F38_Barrel_'] },
     hull: [groundBox([-0.95, 0.00, -0.76], [0.95, 1.59, 1.06])],
+  },
+  // 美軍三台：`tools/blender/build_ground_us.py`
+  {
+    id: 'usTank',
+    name: 'M4A3 雪曼',
+    note: '美軍戰車 — 日 M2 雷伊泰車隊',
+    // 【高是量的，不是常見的 2.74】那個數字含車頂機槍架；參考模型到指揮塔頂 2.58
+    realLength: 5.84, realWidth: 2.62, realHeight: 2.58,
+    model: { glb: '/models/m4a3.glb', barrelNodes: ['M4_Gun'] },
+    hull: [groundBox([-1.30, 0.00, -2.92], [1.30, 2.58, 2.88])],
+  },
+  {
+    id: 'usTruck',
+    name: 'GMC CCKW 卡車',
+    note: '美軍兩噸半卡車 — 日 M2 雷伊泰車隊',
+    realLength: 6.93, realWidth: 2.24, realHeight: 2.79,
+    model: { glb: '/models/cckw.glb', barrelNodes: [] },
+    hull: [groundBox([-1.10, 0.00, -3.52], [1.10, 2.86, 3.29])],
+  },
+  {
+    id: 'usFlakTrack',
+    name: 'M16 多管機槍運輸車',
+    note: '美軍四聯 .50 防空半履帶車 — 日 M2 雷伊泰車隊與灘頭',
+    // 【高是槍口上仰 25° 的姿態】史實 2.34 是槍放平；照 Flak 38 的慣例量建出來的姿態
+    realLength: 6.51, realWidth: 2.16, realHeight: 2.95,
+    model: { glb: '/models/m16.glb', barrelNodes: ['M16_Barrel_'] },
+    hull: [groundBox([-1.05, 0.00, -3.43], [1.05, 2.61, 2.90])],
   },
   {
     id: 'locomotive',

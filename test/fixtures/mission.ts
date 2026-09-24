@@ -1,5 +1,6 @@
-import { CAMPAIGNS, MISSIONS } from '../../src/battle/missions'
+import { CAMPAIGNS, KILL, MISSIONS } from '../../src/battle/missions'
 import { BF109K4 } from '../../src/specs/bf109k4'
+import { KI84 } from '../../src/specs/ki84'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { MissionBattle, ReadyMissionCard } from '../../src/battle/missions'
@@ -17,6 +18,7 @@ import type { MissionBattle, ReadyMissionCard } from '../../src/battle/missions'
 /** 依 id 找一張打得起來的卡。找不到或還沒做就拋錯 */
 export function readyCard(id: string): ReadyMissionCard {
   if (id === INTERCEPT_CARD) return interceptCard()
+  if (id === KILL_CARD) return killCard()
   for (const c of CAMPAIGNS) {
     const m = MISSIONS[c].find((x) => x.id === id)
     if (m === undefined) continue
@@ -63,5 +65,27 @@ function interceptCard(): ReadyMissionCard {
     },
   }
 }
-/** 一張現成的殲滅卡 */
-export const KILL_CARD = 'japan-m2'
+/**
+ * 一張殲滅卡的 id。**`readyCard` 認得它。**
+ *
+ * 【出貨的九關沒有殲滅卡，這一張只給測試用】遭遇戰仍然用 annihilate，那條規則
+ * 要有人守。卡片由 `killCard` 組出來：Ki-84 ×8 對 P-51D ×10、紅方高 1,000 m、
+ * 農地、沒有第二階段，不在 `MISSIONS` 裡。
+ */
+export const KILL_CARD = 'test-kill'
+
+function killCard(): ReadyMissionCard {
+  return {
+    id: KILL_CARD, title: '殲滅（測試）', type: '殲滅',
+    summary: '測試用的殲滅卡。',
+    place: '中國　漢口上空', period: '1944 年 8 月',
+    battle: {
+      ...KILL,
+      banner: '野馬從上方俯衝下來了',
+      blueSpec: KI84, redSpec: P51D,
+      blueCount: 8, redCount: 10,
+      entry: 'bounce',
+      terrain: 'farmland',
+    },
+  }
+}

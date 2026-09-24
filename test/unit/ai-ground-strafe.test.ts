@@ -84,6 +84,20 @@ describe('戰鬥機掃射地面目標', () => {
     expect(out.aimWorld.z).toBeGreaterThan(0)
   })
 
+  it('掃射移動中的車，提前量的解吃得到車速（迎面開來的車攔截得更早）', () => {
+    // 掃射核心朝目標當下的位置飛，開火與否看提前量的解 —— 與船同一個做法。
+    // 車頭朝 +Z（航向 π），迎著飛機開過來：閉合速度變大，攔截時間變短
+    const interceptAt = (speed: number): number => {
+      const self = craft(BF109K4, 0, 300, 0)
+      const truck = createGroundTarget(0, 'truck', 'red', 0, -1200, Math.PI)
+      truck.speed = speed
+      const state = createGroundStrafeState()
+      groundAttackCommand(state, self, truck, true, createCommand())
+      return state.interceptTime
+    }
+    expect(interceptAt(15)).toBeLessThan(interceptAt(0) - 1e-3)
+  })
+
   it('速度高到沒有持續迴轉解時不會把零半徑誤當成可以立刻回頭', () => {
     const self = craft(BF109K4, 0, 60, -500)
     self.state.velocity.set(0, 0, -100)

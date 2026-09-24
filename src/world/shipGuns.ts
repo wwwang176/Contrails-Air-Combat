@@ -225,6 +225,25 @@ export const GROUND_LIGHT_FLAK_SPEC: ShipGunSpec = {
 }
 
 /**
+ * 車頂環架上的一挺 .50 機槍（美軍卡車、雪曼的砲塔頂）。**走彈丸池、有曳光。**
+ *
+ * ```
+ *   初速 887        與飛機的 M2 同一個值
+ *   射速 450 發/分  單挺的循環射速下緣
+ *   壽命 2.0 s      射程約 1,770 m
+ *   單發 1.5        比 20 mm 艦砲（2.5）輕：一輛車一挺，壓力靠整條車隊一起開火
+ * ```
+ *
+ * 【射界照 `mg` 那一層】天頂 ± 55°，也就是仰角 35° 以上才打得到 —— 從遠處低空
+ * 進場是安全的，飛到車隊上空才挨打。**全部是起始值，由試玩裁定。**
+ */
+export const GROUND_MG_SPEC: ShipGunSpec = {
+  muzzleVelocity: 887, roundsPerMinute: 450, life: 2.0, caliber: 12.7,
+  damage: 1.5, hp: 100, boxHalf: 0.8, rotationRate: 90 * DEG,
+  ...NOT_FLAK,
+}
+
+/**
  * 陸上的 8.8 cm Flak 36/37。**與 5 吋艦砲分開的一份表** —— 一個守航母、
  * 一個守油廠，強度各自試飛。
  *

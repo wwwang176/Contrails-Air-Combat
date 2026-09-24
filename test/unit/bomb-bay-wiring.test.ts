@@ -42,7 +42,9 @@ describe('彈艙只在物理步推進', () => {
   /** 【剛按下才算】持續按著的話，每一次回補完成都會自動再倒一整艙 */
   it('玩家的扣扳機寫進 command.bombing，只在剛按下那一步', () => {
     expect(PLAYER).toContain("const held = this.input.firing && this.input.viewMode === 'bomb'")
-    expect(PLAYER).toContain('out.bombing = held && !this.bombHeld')
+    expect(PLAYER).toContain('out.bombing = (held && !this.bombHeld) || tapped')
+    // 【戰鬥機的 B 鍵也只看「多按了一下」】比的是計數有沒有變，不是鍵還按著
+    expect(PLAYER).toContain('const tapped = this.input.bombTaps !== this.bombTapsSeen')
   })
 })
 
