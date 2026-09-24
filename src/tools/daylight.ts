@@ -3,10 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createScene } from '../render/scene'
 import { createLeunaTerrainWithField, createTerrain, type Terrain } from '../render/terrain'
 import { loadLeunaDem } from './leunaDem'
-import { buildRiverWater, loadLeunaRivers, riverLines } from './leunaRiver'
-import { buildBankGround, excludingCorridor, riverBankFlora } from './leunaBank'
-import type { FloraSource } from '../render/flora'
-import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
+import { preloadTerrainScenery } from '../render/terrain'
 import { createShipModels, preloadShipModels } from '../render/ships'
 import { buildAircraft, preloadAircraftModels } from '../render/geometry/buildAircraft'
 import {
@@ -40,8 +37,8 @@ const ctx = createScene(canvas)
  * 目前的地形。**換地形走與 `main.ts` 的 `enterBattle` 完全相同的三步**：
  * 移除、`dispose`、重建 —— 那條路徑每一場都在走，工具照走才測得到它。
  */
-// 【廠區的佈景是 GLB】切到洛伊納要先載完，`createTerrain` 是同步的
-await preloadPlantScenery()
+// 【廠區的佈景與河道】切到洛伊納要先載完，`createTerrain` 是同步的
+await preloadTerrainScenery('leuna')
 
 /**
  * 展示區自己的地形清單：遊戲的四種，加一種只有這裡有的。
@@ -51,19 +48,8 @@ await preloadPlantScenery()
  */
 type DemoTerrain = TerrainKind | 'leuna-real'
 
-// 【實測高程與河道先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
+// 【實測高程先載好】與 GLB 同一個理由：`createTerrain` 那條路徑是同步的
 const leunaRealField = await loadLeunaDem()
-const leunaLines = riverLines(leunaRealField, await loadLeunaRivers())
-const leunaWater = buildRiverWater(leunaLines)
-const leunaBank = buildBankGround(leunaRealField, leunaLines)
-/** 河廊：田的樹籬擋在河邊之外，再補一排河岸林 */
-const leunaFlora = (base: FloraSource[]): FloraSource[] =>
-  [...base.map((s) => excludingCorridor(s, leunaLines)), riverBankFlora(leunaLines)]
-
-leunaWater.visible = false
-leunaBank.visible = false
-ctx.scene.add(leunaBank)
-ctx.scene.add(leunaWater)
 
 let terrain: Terrain = createTerrain('sea')
 ctx.scene.add(terrain.object)
@@ -72,17 +58,13 @@ function setTerrain(kind: DemoTerrain): void {
   ctx.scene.remove(terrain.object)
   terrain.dispose()
   terrain = kind === 'leuna-real'
-    ? createLeunaTerrainWithField(leunaRealField, leunaFlora)
+    ? createLeunaTerrainWithField(leunaRealField)
     : createTerrain(kind)
   ctx.scene.add(terrain.object)
   // 【新的地形不知道現在是幾點】它剛建出來是正午 —— 少了這一行，切完地形
   // 天是黃昏而海是中午的藍
   terrain.setPalette(live)
   const leuna = kind === 'leuna' || kind === 'leuna-real'
-  // 【水面掛在場景不掛在地形群組】地形群組的四個 child 位置是明文契約
-  // （`__gfx` 的消融表與另外兩支工具共用），塞第五個進去會動到那份契約
-  leunaWater.visible = kind === 'leuna-real'
-  leunaBank.visible = kind === 'leuna-real'
   // 內陸沒有海，船浮在田上很怪
   const inland = kind === 'farmland' || leuna
   shipModels.object.visible = !inland

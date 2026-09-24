@@ -8,12 +8,12 @@ import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
-  createVegetation, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
+  createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
   ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -39,6 +39,10 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
 import { excluding } from './floraExclude'
+import {
+  buildRiverMeshes, disposeRiverMeshes, excludingCorridor, riverBankFlora, type RiverSet,
+} from './river'
+import { buildLeunaRivers, preloadLeunaRivers } from './leunaRiver'
 import { buildPlantScenery, preloadPlantScenery } from './geometry/ground/plantScenery'
 import { buildAirfieldScenery, preloadAirfieldScenery } from './geometry/ground/airfieldScenery'
 import type { LandField } from '../world/occlusion'
@@ -163,7 +167,7 @@ export interface Terrain {
  * 少了這一步的症狀是 `createTerrain` 當場丟「還沒載入」—— 那一關進不去。
  */
 export async function preloadTerrainScenery(kind: TerrainKind): Promise<void> {
-  if (kind === 'leuna') await preloadPlantScenery()
+  if (kind === 'leuna') await Promise.all([preloadPlantScenery(), preloadLeunaRivers()])
   else if (kind === 'poltava') await preloadAirfieldScenery()
 }
 
@@ -356,7 +360,7 @@ function createArchipelagoTerrain(): Terrain {
 }
 
 function createFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'summer', undefined, undefined, undefined, gfx)
+  return createInlandTerrain(createFarmland(), 'summer', undefined, undefined, gfx)
 }
 
 /** 碴石：調車場的街廓 */
@@ -398,9 +402,12 @@ export const LEUNA_SITE: SiteLayout = {
   })),
 }
 
-/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景 */
+/** 洛伊納：農地的算繪路徑、手擺的丘陵、晚秋的色盤、廠區的墊面與佈景、薩勒河 */
 function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createLeuna(), 'lateAutumn', LEUNA_SITE, buildPlantScenery, undefined, gfx)
+  const leuna = createLeuna()
+  const solid = outsideZero(leuna.field)
+  const rivers = buildLeunaRivers((x, z) => solid.sample(x, z))
+  return createInlandTerrain(leuna, 'lateAutumn', LEUNA_SITE, buildPlantScenery, gfx, rivers)
 }
 
 /**
@@ -408,7 +415,7 @@ function createLeunaTerrain(gfx?: TerrainGfx): Terrain {
  * 德 M1 在路途上攔截，地上不該有工廠。
  */
 function createAutumnFarmlandTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createFarmland(), 'lateAutumn', undefined, undefined, undefined, gfx)
+  return createInlandTerrain(createFarmland(), 'lateAutumn', undefined, undefined, gfx)
 }
 
 /** 波爾塔瓦機場的墊面（草）、跑道／滑行道／停機位（水泥）、連外道路與鐵路 */
@@ -427,7 +434,7 @@ export const POLTAVA_SITE: SiteLayout = {
 
 /** 波爾塔瓦：農地的算繪路徑、極緩的丘、夏季、機場的墊面與佈景 */
 function createPoltavaTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, undefined, gfx)
+  return createInlandTerrain(createPoltava(), 'summer', POLTAVA_SITE, buildAirfieldScenery, gfx)
 }
 
 /** Y-29 的墊面（草）、跑道／滑行帶／停機墊（鋼板網）、連外道路 */
@@ -443,7 +450,7 @@ export const ASCH_SITE: SiteLayout = {
 
 /** Y-29：農地的算繪路徑、極緩的丘、深秋的枯色、沒有佈景 */
 function createAschTerrain(gfx?: TerrainGfx): Terrain {
-  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, undefined, gfx)
+  return createInlandTerrain(createAsch(), 'lateAutumn', ASCH_SITE, undefined, gfx)
 }
 
 /**
@@ -451,29 +458,35 @@ function createAschTerrain(gfx?: TerrainGfx): Terrain {
  * 高程）—— 遊戲的 `createTerrain('leuna')` 走的仍然是手擺丘陵那一條。
  *
  * 【丘陵清單給空的】`createInlandTerrain` 只讀 `field`；`hills` 是給 AI 避障
- * 與世界層用的，而展示區沒有 AI。
+ * 與世界層用的，而展示區沒有 AI。河照實測高程重算水面，所以也由這裡建。
  */
-export function createLeunaTerrainWithField(
-  field: HeightFieldData, flora?: (base: FloraSource[]) => FloraSource[],
-): Terrain {
+export function createLeunaTerrainWithField(field: HeightFieldData): Terrain {
+  const solid = outsideZero(field)
+  const rivers = buildLeunaRivers((x, z) => solid.sample(x, z))
   return createInlandTerrain(
-    { field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery, flora,
+    { field, hills: [] }, 'lateAutumn', LEUNA_SITE, buildPlantScenery, undefined, rivers,
   )
 }
 
 /**
+ * 河岸林撒到細節地形外多遠，m。鏡頭在場內時植被最遠畫到邊緣外 `FLORA_RADIUS`，
+ * 再多留一點給上帝視角。更外面的延伸段只有水面與草甸。
+ */
+const RIVER_FLORA_BEYOND = FLORA_RADIUS + 2000
+
+/**
  * 內陸地形的共用算繪：田區、遠景環、三種散佈器。農地與洛伊納只差高度場、
- * 丘陵與季節；洛伊納另有廠區（墊面不長樹、地面是混凝土）與一顆佈景網格。
+ * 丘陵與季節；洛伊納另有廠區（墊面不長樹、地面是混凝土）、一顆佈景網格與河。
  */
 function createInlandTerrain(
   farm: { field: HeightFieldData; hills: IslandDesc[] }, season: Season,
   site?: SiteLayout, scenery?: () => BufferGeometry,
-  /**
-   * 改寫散佈器的清單。**只有展示區在用**（河廊要擋掉樹籬、再加一排河岸林）
-   * —— 遊戲那三條路徑都不給，行為逐字不變。
-   */
-  flora?: (base: FloraSource[]) => FloraSource[],
   gfx?: TerrainGfx,
+  /**
+   * 這張地形的河。給了的話：樹籬、林地、村落擋在河廊外，沿岸加一排河岸林，
+   * 水面與草甸掛在陸地底下，`waterAt` 讀它的索引。
+   */
+  rivers?: RiverSet,
 ): Terrain {
   const horizon = createFarHorizon(season)
   const ground = createFarmGround(farm.field, season, site)
@@ -503,8 +516,16 @@ function createInlandTerrain(
         ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
         ...(site.heading === undefined ? {} : { heading: site.heading }),
       }), s)))
-  const sources = flora === undefined ? base : flora(base)
+  // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
+  const sources = rivers === undefined
+    ? base
+    : [...base.map((s) => excludingCorridor(s, rivers.index)),
+      riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND)]
   const vegetation = createVegetation(sources, (x, z) => solid.sample(x, z), { season })
+  // 【河掛在陸地底下】它是地表的一部分：`__gfx` 關陸地時一起關，群組的位置
+  // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
+  const river = rivers === undefined ? null : buildRiverMeshes((x, z) => solid.sample(x, z), rivers)
+  if (river !== null) ground.object.add(river)
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
   // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被；有佈景的話是第 5 個
   group.add(horizon.mesh)
@@ -523,7 +544,8 @@ function createInlandTerrain(
     // 【不吃 time】內陸沒有波
     heightAt: (x, z) => solid.sample(x, z),
     collisionHeightAt: (x, z) => solid.sample(x, z),
-    waterAt: () => -Infinity,
+    // 【河也是水】炸彈落河噴水柱、殘骸沉下去、墜機不揚土
+    waterAt: rivers === undefined ? () => -Infinity : (x, z) => rivers.index.waterAt(x, z),
     // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就
     // 變暗；要補的只有吃不到光的點池
     setPalette(p) { vegetation.setPointLight(p.foliage) },
@@ -541,6 +563,7 @@ function createInlandTerrain(
       ground.dispose()
       vegetation.dispose()
       clipmap?.dispose()
+      if (river !== null) disposeRiverMeshes(river)
       if (sceneryMesh !== null) {
         sceneryMesh.geometry.dispose()
         ;(sceneryMesh.material as MeshStandardMaterial).dispose()

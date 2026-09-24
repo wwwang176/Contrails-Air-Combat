@@ -8,6 +8,16 @@ import { createArchipelago } from '../../src/world/archipelago'
 import { createFarmland, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { LEUNA_HILLS, PLANT_CENTER } from '../../src/world/leuna'
 import { landHitT, losBlocked } from '../../src/world/occlusion'
+import { preloadLeunaRivers } from '../../src/render/leunaRiver'
+import type { RiverFile } from '../../src/world/river'
+
+/** 薩勒河最長那一段的中點（OSM 原始點），一定在河道上 */
+function firstRiverPoint(): readonly [number, number] {
+  const file = JSON.parse(readFileSync('public/data/leuna-rivers.json', 'utf8')) as RiverFile
+  const saale = file.rivers.filter((r) => r.name === 'Saale')
+    .reduce((a, b) => (b.points.length > a.points.length ? b : a))
+  return saale.points[Math.floor(saale.points.length / 2)]!
+}
 
 describe('createTerrain（M10 spec §5.2）', () => {
   it('高度場與 gerstnerHeight 逐點一致', () => {
@@ -349,20 +359,31 @@ describe('洛伊納', () => {
       const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
       return Promise.resolve(ab)
     })
+    await preloadLeunaRivers((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as RiverFile,
+    ))
     t = createTerrain('leuna')
   })
 
   afterAll(() => { t.dispose() })
 
-  it('前四個位置的契約與農地相同，第五個是廠區的佈景', () => {
+  /** 【河掛在陸地底下】陸地是 25 塊田加一個河的群組，頂層的位置契約不動 */
+  it('前四個位置的契約與農地相同，第五個是廠區的佈景，河在陸地底下', () => {
     expect(t.object.children.length).toBe(5)
     expect(t.object.children[1]!.children.length).toBe(0)
-    expect(t.object.children[2]!.children.length).toBe(25)
+    expect(t.object.children[2]!.children.length).toBe(26)
+    expect(t.object.children[2]!.children.at(-1)!.name).toBe('river')
     expect((t.object.children[4] as { isMesh?: boolean }).isMesh).toBe(true)
   })
 
-  it('沒有水面，場外回 0', () => {
-    expect(t.waterAt(0, 0)).toBe(-Infinity)
+  /**
+   * 【河是水、岸不是】落水與落地的表現不同（水柱 vs 土）。量的是薩勒河在
+   * 廠區東邊的一點：中心線上有水面，往岸上走 300 m 就沒有。
+   */
+  it('河道上有水面，岸上沒有；場外回 0', () => {
+    const at = firstRiverPoint()
+    expect(t.waterAt(at[0], at[1])).toBeGreaterThan(t.collisionHeightAt(at[0], at[1]))
+    expect(t.waterAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(-Infinity)
     expect(t.collisionHeightAt(50_000, 50_000)).toBe(0)
   })
 
