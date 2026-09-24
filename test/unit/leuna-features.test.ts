@@ -8,6 +8,7 @@ import { DECK_CLEARANCE, insideRing, type FeatureFile } from '../../src/world/la
 import { buildLeunaRivers, preloadLeunaRivers } from '../../src/render/leunaRiver'
 import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
+import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
 import { excludingWhere } from '../../src/render/floraExclude'
 import {
@@ -204,7 +205,62 @@ describe('A9 的橋', () => {
   })
 })
 
+describe('教堂', () => {
+  /** 【教堂周圍留空地】不留的話梅澤堡的大教堂與隔壁的房子穿插 7 m */
+  it('教堂 23 m 內沒有別的建築（縮放 1 的教堂加一棟最大的房子）', () => {
+    const churches = B.filter((b) => b.kind === FloraKind.Church)
+    expect(churches.length).toBeGreaterThan(100)
+    for (const c of churches) {
+      for (const b of B) {
+        if (b.kind === FloraKind.Church) continue
+        if (Math.abs(b.x - c.x) > 23 || Math.abs(b.z - c.z) > 23) continue
+        expect(Math.hypot(b.x - c.x, b.z - c.z), `(${Math.round(c.x)},${Math.round(c.z)})`).toBeGreaterThanOrEqual(23)
+      }
+    }
+  })
+})
+
+describe('逐株查詢不配置', () => {
+  /** 【空桶不得 `?? []`】keepOut 在植被補格時每一株都問，每問一次配一個陣列 */
+  it('聚落的分桶查詢用共用的空陣列', () => {
+    const src = readFileSync('src/render/settlements.ts', 'utf8')
+    // 只抓程式碼（後面接右括號），不抓註解裡提到的寫法
+    expect(src).not.toMatch(/\?\? \[\]\s*\)/)
+  })
+})
+
 describe('地表網格', () => {
+  /**
+   * 【與地形共平面】每一個小三角形都要完全落在某一個地形三角形上 —— 三角形
+   * 跨過地形的折線的話，中間沉到地面下（實測最多 1.4 m），低空看得到底下的田。
+   * 量的是每一個三角形的重心與四分點：減掉抬高量之後要等於那裡的地形高度。
+   */
+  it('村鎮地面與礦坑的每一點都貼著地形', () => {
+    let worst = 0
+    let checked = 0
+    dressing.object.traverse((o) => {
+      const m = o as Mesh
+      if (m.name !== 'settlementGround' && m.name !== 'mines') return
+      const pos = m.geometry.getAttribute('position') as BufferAttribute
+      const idx = m.geometry.getIndex()!
+      for (let t = 0; t < idx.count; t += 3) {
+        const v = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)]
+        for (const w of [[1 / 3, 1 / 3, 1 / 3], [0.5, 0.25, 0.25], [0.25, 0.5, 0.25], [0.25, 0.25, 0.5]]) {
+          let x = 0, y = 0, z = 0
+          for (let k = 0; k < 3; k++) {
+            x += pos.getX(v[k]!) * w[k]!
+            y += pos.getY(v[k]!) * w[k]!
+            z += pos.getZ(v[k]!) * w[k]!
+          }
+          worst = Math.max(worst, Math.abs(y - DECAL_LIFT - sample(x, z)))
+          checked++
+        }
+      }
+    })
+    expect(checked).toBeGreaterThan(100_000)
+    expect(worst).toBeLessThan(0.01)
+  })
+
   /** 【捲繞方向】反了的話法線朝下、整塊被背面剔除 —— 畫面上什麼都沒有 */
   it('村鎮地面、礦坑、A9 路面的每一個三角形都朝上', () => {
     let checked = 0
@@ -227,6 +283,7 @@ describe('地表網格', () => {
       expect(down, m.name).toBe(0)
       checked++
     })
-    expect(checked).toBeGreaterThanOrEqual(6)
+    // 村鎮地面、礦坑、A9 路面各一顆
+    expect(checked).toBe(3)
   })
 })

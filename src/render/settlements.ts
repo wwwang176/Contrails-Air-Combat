@@ -1,8 +1,8 @@
 import { FloraKind, pushFlora, type FloraSource } from './flora'
 import { TILE_SIZE } from './vegetation'
-import { buildDiscs, type Disc } from './groundDecal'
+import { buildDecals, type DecalRegion } from './groundDecal'
 import {
-  insideSettlement, nameHash, outlineScale, settlementRadius, type Place,
+  insideSettlement, nameHash, settlementRadius, type Place,
 } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
 import type { Mesh } from 'three'
@@ -40,6 +40,12 @@ const SCALE: Record<Kind, readonly [number, number]> = {
 const VILLAGE_CHURCH = 0.75
 /** 人口超過這個數的鎮，教堂是大教堂（梅澤堡、魏森費爾斯、瑙姆堡） */
 const CATHEDRAL_POP = 30000
+/**
+ * 教堂與房子在縮放 1 時的外接半徑，m。教堂本堂 10 × 19 加塔、房子 12 × 9
+ * （`floraShapes.ts`），房子最大放大 1.35 倍
+ */
+const CHURCH_REACH = 13
+const HOUSE_REACH = 10
 
 /**
  * 地面的顏色。**取晚秋田色盤裡的色**（`season.ts`：犁田 `0x585046`、作物
@@ -83,6 +89,15 @@ export function settlementBuildings(p: Place, avoid: (x: number, z: number) => b
   const uz = Math.sin(ang)
   const vx = -uz
   const vz = ux
+  // ── 教堂：聚落中心，周圍留空地 ─────────────────────
+  const church = (p.kind === 'town' || (p.kind === 'village' && ((h0 >>> 20) & 0xff) / 256 < VILLAGE_CHURCH))
+    && !avoid(p.x, p.z)
+  const churchScale = p.kind === 'town' ? ((p.pop ?? 0) >= CATHEDRAL_POP ? 2 : 1.5) : 1
+  // 【不留空地的話房子會插進教堂】梅澤堡的大教堂放大兩倍，實測與隔壁一棟重疊 7 m
+  const clear = church ? CHURCH_REACH * churchScale + HOUSE_REACH : 0
+  if (church) {
+    out.push({ x: p.x, z: p.z, rot: ang, scale: churchScale, tint: 0.5, kind: FloraKind.Church })
+  }
   const n = Math.ceil((1.3 * R) / S)
   for (let j = -n; j <= n; j++) {
     for (let i = -n; i <= n; i++) {
@@ -105,6 +120,7 @@ export function settlementBuildings(p: Place, avoid: (x: number, z: number) => b
           const x = cx + (ux * nu + vx * nv) * inset + tx * along
           const z = cz + (uz * nu + vz * nv) * inset + tz * along
           if (!insideSettlement(p, x, z) || avoid(x, z)) continue
+          if (Math.hypot(x - p.x, z - p.z) < clear) continue
           const g2 = hash(g, 0x5eed)
           out.push({
             x, z,
@@ -118,18 +134,15 @@ export function settlementBuildings(p: Place, avoid: (x: number, z: number) => b
       }
     }
   }
-  // ── 教堂：聚落中心 ─────────────────────────────────
-  const church = p.kind === 'town' || (p.kind === 'village' && ((h0 >>> 20) & 0xff) / 256 < VILLAGE_CHURCH)
-  if (church && !avoid(p.x, p.z)) {
-    out.push({
-      x: p.x, z: p.z, rot: ang,
-      scale: p.kind === 'town' ? ((p.pop ?? 0) >= CATHEDRAL_POP ? 2 : 1.5) : 1,
-      tint: 0.5,
-      kind: FloraKind.Church,
-    })
-  }
   return out
 }
+
+/**
+ * 空桶。**查詢不得每次 `?? []`** —— 那會在植被補格時每一株配一個陣列（keepOut
+ * 每一株都問）
+ */
+const NO_BUILDINGS: readonly Building[] = []
+const NO_PLACES: readonly Place[] = []
 
 /** 建築依 tile 分桶的鍵。tile 的索引夾在 ±4096 內（±1,000 km） */
 function bucketKey(i: number, j: number): number {
@@ -157,7 +170,7 @@ export function settlementFlora(places: readonly Place[], avoid: (x: number, z: 
     const j1 = Math.floor((z1 - 1e-6) / TILE_SIZE)
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
-        for (const b of buckets.get(bucketKey(i, j)) ?? []) {
+        for (const b of buckets.get(bucketKey(i, j)) ?? NO_BUILDINGS) {
           if (b.x < x0 || b.x >= x1 || b.z < z0 || b.z >= z1) continue
           pushFlora(out, b.x, heightAt(b.x, b.z), b.z, b.rot, b.scale, b.tint, b.kind)
         }
@@ -185,7 +198,7 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
     }
   }
   return (x, z) => {
-    for (const p of buckets.get(bucketKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? []) {
+    for (const p of buckets.get(bucketKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? NO_PLACES) {
       if (insideSettlement(p, x, z)) return true
     }
     return false
@@ -194,15 +207,17 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
 
 /** 鎮與村的地面（小聚落不鋪 —— 幾棟房子而已） */
 export function buildSettlementGround(sample: HeightSampler, places: readonly Place[]): Mesh {
-  const discs: Disc[] = places
+  const regions: DecalRegion[] = places
     .filter((p) => p.kind !== 'hamlet')
     .map((p) => {
-      const R = settlementRadius(p)
+      // 輪廓的起伏最多 +22%（`outlineScale`），外接盒放 1.25 倍
+      const r = settlementRadius(p) * 1.25
+      const color = p.kind === 'town' ? TOWN_GROUND : VILLAGE_GROUND
       return {
-        x: p.x, z: p.z,
-        radiusAt: (theta: number) => R * outlineScale(p, theta),
-        color: p.kind === 'town' ? TOWN_GROUND : VILLAGE_GROUND,
+        x0: p.x - r, z0: p.z - r, x1: p.x + r, z1: p.z + r,
+        inside: (x, z) => insideSettlement(p, x, z),
+        colorAt: () => color,
       }
     })
-  return buildDiscs(sample, discs, 'settlementGround')
+  return buildDecals(sample, regions, 'settlementGround')
 }
