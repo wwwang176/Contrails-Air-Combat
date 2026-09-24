@@ -537,28 +537,41 @@ function townBlocks(
           // 【空地】不是每一塊都蓋了
           if (c.rand() >= fillHere) continue
           const s = pick(c, frontage.scale)
-          const inset = S / 2 - street - (BUILDING_DEPTH * s) / 2
-          const x0 = cx + ox * inset + tx * mid
-          const z0 = cz + oz * inset + tz * mid
-          bend(x0, z0, q)
-          bend(x0 + tx, z0 + tz, q2)
-          if (radial(c, q[0]!, q[1]!) > 1) continue
-          // 【山牆朝街】面寬（x）沿著扭曲後的街、屋脊往街廓裡
-          const rot = wideAlong(q2[0]! - q[0]!, q2[1]! - q[1]!)
-          const wide = f / (BUILDING_WIDTH * s)
+          // 【正面落在彎過的街線上】這一棟正面的兩頭各彎一次、取弦當正面 —— 相鄰兩棟
+          // 共用端點，一棟接一棟。只彎中心、面寬照彎之前的話，彎街內側的中心距被
+          // 擠短，同一排互相插進去
+          const fx = cx + ox * (S / 2 - street)
+          const fz = cz + oz * (S / 2 - street)
+          bend(fx + tx * (mid - f / 2), fz + tz * (mid - f / 2), q)
+          bend(fx + tx * (mid + f / 2), fz + tz * (mid + f / 2), q2)
+          const dx = q2[0]! - q[0]!
+          const dz = q2[1]! - q[1]!
+          const fb = Math.hypot(dx, dz)
+          // 弦的法線，朝街廓裡（與 −o 同側）
+          const sign = -dz * ox + dx * oz > 0 ? -1 : 1
+          const nx = (-dz / fb) * sign
+          const nz = (dx / fb) * sign
+          const depth = BUILDING_DEPTH * s
+          const bx = (q[0]! + q2[0]!) / 2 + nx * (depth / 2)
+          const bz = (q[1]! + q2[1]!) / 2 + nz * (depth / 2)
+          if (radial(c, bx, bz) > 1) continue
+          // 【山牆朝街】面寬（x）沿著弦、屋脊往街廓裡
+          const rot = wideAlong(dx, dz)
+          const wide = fb / (BUILDING_WIDTH * s)
           const reach = footprintReach(s, wide)
-          if (core?.role === 'clear' && !core.occ.free(q[0]!, q[1]!, reach)) continue
+          if (core?.role === 'clear' && !core.occ.free(bx, bz, reach)) continue
           // 【佔位圓比房子小】連棟街屋一棟貼一棟，照外框佔位的話一排會被擋掉一半。
           // 這個圓只擋教堂與中庭的樹；同一邊不會重疊是排法保證的
-          if (!place(c, q[0]!, q[1]!, TOWN_HOUSE_ROOM, rot, s, roofKind(c, q[0]!, q[1]!),
+          if (!place(c, bx, bz, TOWN_HOUSE_ROOM, rot, s, roofKind(c, bx, bz),
             wide, pick(c, frontage.tall))) continue
-          if (core?.role === 'mark') core.occ.add(q[0]!, q[1]!, reach)
+          if (core?.role === 'mark') core.occ.add(bx, bz, reach)
           if (garden) {
             // 花園城市：房子後面的花園一到兩棵果樹
-            const back = (BUILDING_DEPTH * s) / 2 + pick(c, [5, 11])
-            bend(x0 - ox * back, z0 - oz * back, q)
-            fruitTree(c, q[0]!, q[1]!)
-            if (c.rand() < 0.5) gardenBush(c, q[0]! + tx * 5, q[1]! + tz * 5)
+            const back = depth / 2 + pick(c, [5, 11])
+            const gx = bx + nx * back
+            const gz = bz + nz * back
+            fruitTree(c, gx, gz)
+            if (c.rand() < 0.5) gardenBush(c, gx + (dx / fb) * 5, gz + (dz / fb) * 5)
           }
         }
       }

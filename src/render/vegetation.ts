@@ -344,7 +344,7 @@ const BUILDING_POOLS: readonly PoolName[] = ['house', 'barn', 'church', 'houseSl
  * 【建築放得比樹寬】老房子的瓦與牆一棟跟一棟新舊不一、有的剛翻修、有的被煤煙
  * 燻黑 —— 窄的話一整個鎮的屋頂是同一個紅。
  */
-const TINT_RANGE = { plant: [0.86, 1.14], building: [0.74, 1.22] } as const
+export const TINT_RANGE = { plant: [0.86, 1.14], building: [0.74, 1.22] } as const
 
 const POOL_NAMES: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',

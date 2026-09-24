@@ -3,6 +3,7 @@ import {
 } from 'three'
 import { createOcean } from './ocean'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
+import { roofSplats } from './buildingBake'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
@@ -528,18 +529,30 @@ function createInlandTerrain(
       ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
       ...(site.heading === undefined ? {} : { heading: site.heading }),
     }), s))
-  let fields = (dressing === undefined
-    ? [farmHedgeFlora, farmWoodFlora, farmVillageFlora]
-    : [farmHedgeFlora, farmWoodFlora]).map(padClear)
+  let fields = [farmHedgeFlora, farmWoodFlora].map(padClear)
+  // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
+  // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
+  let buildings = padClear(dressing === undefined ? farmVillageFlora : dressing.buildings)
   // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
   if (rivers !== undefined) {
     fields = fields.map((s) => excludingCorridor(s, rivers.index))
+    if (dressing === undefined) buildings = excludingCorridor(buildings, rivers.index)
     fields.push(riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND))
   }
   // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
-  if (dressing !== undefined) {
-    fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
-    fields.push(padClear(dressing.buildings))
+  if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
+  fields.push(buildings)
+  // 【建築烘進遠處的地面】植被圈外建築整棟不畫；屋頂色塊烘在田色的遠圖裡。
+  // 鎮的地面先烘、屋頂後烘，貼花在遠圖接手的地方讓開（`nearOnly`），否則它蓋住
+  // 屋頂。遠窗最遠碰得到場地外半個窗寬
+  const reach = farm.field.cell * (farm.field.size - 1) / 2 + FIELD_CLIP_FAR.size * FIELD_CLIP_FAR.metersPerTexel / 2
+  const roofs = clipmap === null ? null : roofSplats([buildings], -reach, -reach, reach, reach)
+  if (clipmap !== null && roofs !== null) {
+    if (dressing !== undefined) {
+      clipmap.addFarOverlay(dressing.townGround.geometry)
+      clipmap.nearOnly(dressing.townGround.material as MeshStandardMaterial)
+    }
+    clipmap.addFarOverlay(roofs)
   }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
     season, ...(dressing === undefined ? {} : { capacity: dressing.capacity }),
@@ -595,6 +608,7 @@ function createInlandTerrain(
       ground.dispose()
       vegetation.dispose()
       clipmap?.dispose()
+      roofs?.dispose()
       if (river !== null) disposeRiverMeshes(river)
       dressing?.dispose()
       if (sceneryMesh !== null) {

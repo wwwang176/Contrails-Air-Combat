@@ -1,7 +1,7 @@
 import {
-  LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
+  DoubleSide, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
   PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
-  type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
+  type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
 import { fieldGlslWithSite, type RegionCandidates, type SiteLayout } from './fields'
 import type { Season } from './season'
@@ -156,6 +156,18 @@ export interface FieldClipmap {
   /** 掛到地面與遠景環的材質 */
   readonly material: MeshStandardMaterial
   readonly stats: FieldClipmapStats
+  /**
+   * 烘進**遠圖**的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界
+   * 座標（y 不讀）、`color` 是頂點色（線性）。加入後遠圖整張重烘。
+   *
+   * 幾何歸呼叫端，`dispose` 不丟它。
+   */
+  addFarOverlay(geometry: BufferGeometry): void
+  /**
+   * 替貼在地上的材質補一段：**地面改讀遠圖的地方**（近窗外、遠窗內）丟掉片段。
+   * 那裡的顏色由 `addFarOverlay` 烘進遠圖的那一份畫；旁路時照畫。
+   */
+  nearOnly(material: MeshStandardMaterial): void
   /** 每幀叫，該挪窗就烘 */
   update(camX: number, camZ: number): void
   setInnerRadius(m: number): void
@@ -219,8 +231,25 @@ void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 1.0); }`,
   const bakeScene = new Scene()
   bakeScene.add(new Mesh(quadGeo, bakeMat))
   const bakeCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
+  // 【疊在田色上的平面】與田色那一片同一組 uniform，世界 xz 換到這一片的裁切座標。
+  // 沒有深度緩衝，先後由 `renderOrder` 決定（田色是 0）
+  const overlayMat = new ShaderMaterial({
+    uniforms: {
+      uCell0: bakeMat.uniforms['uCell0']!, uCells: bakeMat.uniforms['uCells']!, uMetres: bakeMat.uniforms['uMetres']!,
+    },
+    vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres;
+attribute vec3 color; varying vec3 vCol;
+void main() { vCol = color; gl_Position = vec4((position.xz / uMetres - uCell0) / uCells * 2.0 - 1.0, 0.0, 1.0); }`,
+    fragmentShader: `varying vec3 vCol;
+void main() { gl_FragColor = vec4(vCol, 1.0); }`,
+    // 世界 z 映到裁切 y，繞序跟著翻
+    side: DoubleSide,
+  })
+  const overlays = new Group()
+  bakeScene.add(overlays)
 
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
+    overlays.visible = L === far
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
@@ -324,6 +353,45 @@ ${glsl}`)
   return {
     material,
     stats,
+    addFarOverlay(geometry) {
+      const mesh = new Mesh(geometry, overlayMat)
+      // 包圍球是世界座標，烘圖的鏡頭是 ±1 的正交盒 —— 不關的話整顆被剔掉
+      mesh.frustumCulled = false
+      mesh.renderOrder = 1 + overlays.children.length
+      overlays.add(mesh)
+      far.primed = false
+    },
+    nearOnly(m) {
+      m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+        Object.assign(shader.uniforms, {
+          uNearCentre: U.uNearCentre, uNearSpan: U.uNearSpan,
+          uFarCentre: U.uFarCentre, uFarSpan: U.uFarSpan, uBypass: U.uBypass,
+          uCam: U.uCam, uInner: U.uInner,
+        })
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec2 vNearOnlyXZ;')
+          .replace('#include <begin_vertex>',
+            '#include <begin_vertex>\nvNearOnlyXZ = (modelMatrix * vec4(transformed, 1.0)).xz;')
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>
+varying vec2 vNearOnlyXZ;
+uniform vec2 uNearCentre; uniform float uNearSpan; uniform vec2 uFarCentre; uniform float uFarSpan;
+uniform float uBypass; uniform vec2 uCam; uniform float uInner;`)
+          // 【與地面著色器同一個判斷】地面只讀遠圖的地方才讓開：近窗外（eN）、遠窗內
+          // （eF）、內圈外（內圈走算式，可以伸出近窗）。任何一條漏了，那裡的鎮地面
+          // 變成田
+          .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+{
+  vec2 w = vNearOnlyXZ;
+  float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
+  float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
+  bool outsideInner = uInner <= 0.0 || distance(w, uCam) >= uInner;
+  if (uBypass < 0.5 && eN >= 1.0 && eF < 1.0 && outsideInner) discard;
+}`)
+      }
+      m.customProgramCacheKey = () => `near-only:${id}`
+      m.needsUpdate = true
+    },
     update(camX, camZ) {
       recentre(near, camX, camZ)
       recentre(far, camX, camZ)
@@ -335,6 +403,7 @@ ${glsl}`)
       near.rt.dispose()
       far.rt.dispose()
       bakeMat.dispose()
+      overlayMat.dispose()
       quadGeo.dispose()
       material.dispose()
     },
