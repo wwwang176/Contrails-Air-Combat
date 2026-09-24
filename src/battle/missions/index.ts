@@ -253,6 +253,7 @@ export function missionConfigFrom(card: ReadyMissionCard): BattleConfig {
       }
       : {}),
     ...(b.fleet === undefined ? {} : { fleet: b.fleet }),
+    ...(b.balloons === undefined ? {} : { balloons: b.balloons }),
     // 【車隊併進地面目標】兩者都有時串起來；只有車隊時就是車隊
     ...(b.ground === undefined && b.vehicleConvoy === undefined
       ? {}
