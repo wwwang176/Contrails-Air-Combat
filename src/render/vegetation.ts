@@ -268,6 +268,10 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 容量去掃是循環量測：容量偏小時，印出來的「最大值」就是截斷值。掃描那一條
  * 傳一個大得離譜的 `capacity` 進去，量到的才是真的需求。
  *
+ * 【兩組散佈器都掃】田一路到底（洛伊納）與田圍著村（程序生成的內陸地圖，空地
+ * 上成團的樹林）各掃一次取大的。樹的那六池的峰值出自田圍著村，灌木與建築出自
+ * 田一路到底。
+ *
  * 【建築那三個為什麼放得寬】圈內通常只有一到兩個村，實測最大只有 18 棟房子，
  * 但那個數字對「村剛好在圈心」很敏感。三個池加起來也才 180 個實例。
  *
@@ -277,15 +281,15 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 測試裡不另外寫死一份數字。
  */
 export const CAPACITY: Record<PoolName, number> = {
-  broadNear: 2800,     // 掃描最大 2,056
-  coneNear: 1300,      // 913
-  broadMid: 24100,     // 17,786
-  coneMid: 9700,       // 7,158
-  broadPoint: 69000,    // 51,020
-  conePoint: 22700,     // 16,805
+  broadNear: 4600,     // 掃描最大 3,339
+  coneNear: 2900,      // 2,099
+  broadMid: 33400,     // 24,660
+  coneMid: 21400,      // 15,841
+  broadPoint: 71000,    // 52,408
+  conePoint: 41900,     // 31,010
   bushNear: 11900,     // 8,750
-  bushPoint: 207500,    // 153,558   ← 全部實例的六成
-  house: 80,           // 58
+  bushPoint: 207500,    // 123,563   ← 全部實例的一半上下
+  house: 80,           // 57
   barn: 40,            // 21
   church: 20,          // 3
   // 石板瓦房與油毛氈穀倉只有真實村鎮用（洛伊納，見 `leunaFeatures.ts`）；

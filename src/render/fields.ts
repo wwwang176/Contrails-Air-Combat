@@ -1,5 +1,5 @@
 import { Color } from 'three'
-import { FIELD_COLORS, PALETTE_STEPS, type Season } from './season'
+import { FIELD_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -94,6 +94,31 @@ export const TRACK_WIDTH = 20
 export const WOOD_CHANCE = 0.05
 
 /**
+ * 【田圍著村】`open` 的地圖：田只在村的周圍，離村遠的地塊是空地（牧草地、
+ * 荒地、休耕），空地上成團的樹林。洛伊納不開 —— 萊比錫低地是開墾到幾乎不剩
+ * 空地的黃土平原。
+ *
+ * 每一塊地用它的**中心**判斷，所以田與空地的交界落在田界上，不切過一塊田。
+ * 離村（`villageDistance`）`FIELD_REACH` 以內是田，範圍沿地面用低頻雜訊起伏
+ * 0.7～1.3 倍；交界那一段每塊地各抽一個門檻，邊緣是參差的。
+ */
+export const FIELD_REACH = 1500
+/** 田的範圍起伏的雜訊格寬，m */
+export const REACH_NOISE_CELL = 2600
+/** 空地上的樹林：兩個尺度的雜訊格寬（大的定位置、小的把邊弄毛），m */
+export const OPEN_WOOD_CELL = [520, 190] as const
+/** 雜訊值落在這一段裡由空地漸變到樹林 */
+export const OPEN_WOOD_GATE = [0.5, 0.62] as const
+/** 空地兩個色之間漸變的雜訊格寬，m */
+export const OPEN_TONE_CELL = 450
+/**
+ * 區塊格有村的機率；村在這一格的種子與一個軸向鄰格（`VILLAGE_NEIGHBOUR`，由種子
+ * 的雜湊挑）的種子的中點。植被（`flora.ts` 的 `villageSite`）與田色共用
+ */
+export const VILLAGE_CHANCE = 0.55
+export const VILLAGE_NEIGHBOUR = [1, 0, 0, 1] as const
+
+/**
  * 色值不在這個檔案。作物色盤、犁田、樹籬、凹路、樹林與犁田比例都由季節
  * 決定（`season.ts`）；這裡只管圖案。**作物色盤是一條漸層**，因為每塊田是
  * 在「區塊的基調 ± 1」裡挑的 —— 索引相鄰就必須顏色相近，不然又變回雜訊。
@@ -153,6 +178,9 @@ export interface FieldSample {
   edge: number
   /** 最近那條田界長不長樹籬 */
   hedged: boolean
+  /** 這一塊地的中心（對切過的是那一半的中心），世界座標 */
+  cx: number
+  cz: number
 }
 
 /**
@@ -482,17 +510,101 @@ export function fieldAt(
   // 【不能叫 half】`half` 是 GLSL 的保留字，GLSL 那一份編不過。兩邊維持
   // 同一個名字，金本位測試才比得下去
   let part = 0
+  let pqx = (left + right) / 2
+  let pqz = (bottom + top) / 2
   if (splitCut(c, r, reg, CUT)) {
     const along = CUT.axis === 0 ? qx : qz
     const d = Math.abs(along - CUT.at)
     if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
     part = along < CUT.at ? 0 : 1
+    if (CUT.axis === 0) pqx = part === 0 ? (left + CUT.at) / 2 : (CUT.at + right) / 2
+    else pqz = part === 0 ? (bottom + CUT.at) / 2 : (CUT.at + top) / 2
   }
 
   out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
   out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
+  // 地塊中心轉回世界座標（q 是世界轉了 −angle）
+  const ca = Math.cos(reg.angle)
+  const sa = Math.sin(reg.angle)
+  out.cx = pqx * ca - pqz * sa
+  out.cz = pqx * sa + pqz * ca
 }
+
+/**
+ * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**。GLSL 有
+ * 逐位元相同的一份（`fieldNoise`）
+ */
+export function valueNoise(x: number, z: number, cell: number, salt: number): number {
+  const fx = x / cell
+  const fz = z / cell
+  const ix = Math.floor(fx)
+  const iz = Math.floor(fz)
+  const sx = fx - ix
+  const sz = fz - iz
+  const tx = sx * sx * (3 - 2 * sx)
+  const tz = sz * sz * (3 - 2 * sz)
+  const n00 = hash2(ix ^ salt, iz) / 4294967296
+  const n10 = hash2((ix + 1) ^ salt, iz) / 4294967296
+  const n01 = hash2(ix ^ salt, iz + 1) / 4294967296
+  const n11 = hash2((ix + 1) ^ salt, iz + 1) / 4294967296
+  const a = n00 + (n10 - n00) * tx
+  const b = n01 + (n11 - n01) * tx
+  return a + (b - a) * tz
+}
+
+const VA: Vec2 = { x: 0, z: 0 }
+const VB: Vec2 = { x: 0, z: 0 }
+
+/**
+ * 到最近一個村的站址多遠，m。站址是種子與鄰格種子的中點（`VILLAGE_CHANCE`）。
+ *
+ * 【不驗第三顆種子】植被的 `villageSite` 另外擋掉「第三顆種子更近」的站址；
+ * 這裡不擋 —— 那樣的站址周圍一樣是田，只是沒有村，GLSL 那一份因此少算九顆
+ * 種子。站址落在 `[i, i + 2)` 格裡、田最遠伸到 2.4 km，所以往左下看兩格、往右上
+ * 看一格就夠
+ */
+export function villageDistance(x: number, z: number): number {
+  const gx = Math.floor(x / REGION_SPACING)
+  const gz = Math.floor(z / REGION_SPACING)
+  let best = Infinity
+  for (let j = gz - 2; j <= gz + 1; j++) {
+    for (let i = gx - 2; i <= gx + 1; i++) {
+      const h = regionSeed(i, j, VA)
+      if (((h >>> 7) & 0xff) / 256 >= VILLAGE_CHANCE) continue
+      const d = ((h >>> 5) & 1) * 2
+      regionSeed(i + VILLAGE_NEIGHBOUR[d]!, j + VILLAGE_NEIGHBOUR[d + 1]!, VB)
+      best = Math.min(best, Math.hypot(x - (VA.x + VB.x) / 2, z - (VA.z + VB.z) / 2))
+    }
+  }
+  return best
+}
+
+/** 這一塊地是空地嗎（`open` 的地圖）。用地塊的中心與地塊的雜湊 */
+export function isOpenParcel(f: FieldSample): boolean {
+  const reach = FIELD_REACH * (0.7 + 0.6 * valueNoise(f.cx, f.cz, REACH_NOISE_CELL, 0x4d21))
+  const d = villageDistance(f.cx, f.cz)
+  const t = Math.min(1, Math.max(0, (d - 0.8 * reach) / (0.4 * reach)))
+  const fieldness = 1 - t * t * (3 - 2 * t)
+  // 交界那一段每塊地各抽一個門檻
+  const th = 0.25 + 0.5 * ((hash1(f.id ^ 0x0be5) & 0xff) / 255)
+  return fieldness <= th
+}
+
+/** 空地上樹林的覆蓋率，0～1。放置與地色共用 */
+export function openWoodCover(x: number, z: number): number {
+  const n = 0.65 * valueNoise(x, z, OPEN_WOOD_CELL[0], 0x6a11) + 0.35 * valueNoise(x, z, OPEN_WOOD_CELL[1], 0x3b57)
+  const t = Math.min(1, Math.max(0, (n - OPEN_WOOD_GATE[0]) / (OPEN_WOOD_GATE[1] - OPEN_WOOD_GATE[0])))
+  return t * t * (3 - 2 * t)
+}
+
+/** 空地的地色：兩個色低頻漸變，再往樹林色混 */
+function openColor(x: number, z: number, out: Color, c: FieldColors): Color {
+  const k = valueNoise(x, z, OPEN_TONE_CELL, 0x1f7e)
+  out.setHex(c.open).lerp(OPEN_ALT.setHex(c.openAlt), k)
+  return out.lerp(OPEN_ALT.setHex(c.wood), openWoodCover(x, z))
+}
+const OPEN_ALT = new Color()
 
 /** `fieldAt` 問對切線用的暫存。呼叫端自己帶 `out`，所以不會互相踩 */
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
@@ -500,21 +612,23 @@ const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 const REG: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
+const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
 /**
  * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版。**
  *
- * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。
+ * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。`open` 的地圖上，空地沒有樹籬
+ * 也沒有作物（`FIELD_REACH`）。
  */
 export function fieldSurfaceColor(
-  x: number, z: number, out: Color, season: Season = 'summer',
+  x: number, z: number, out: Color, season: Season = 'summer', open = false,
 ): Color {
   const c = FIELD_COLORS[season]
   regionAt(x, z, REG)
   if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(c.track)
 
   fieldAt(x, z, REG, FLD)
+  if (open && isOpenParcel(FLD)) return openColor(x, z, out, c)
   if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(c.hedge)
 
   const fh = FLD.id
@@ -592,7 +706,110 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
  * `candidates` 為真時多一段查候選表（`buildRegionCandidates`）的剪枝，
  * 材質要提供 `uRegionCand` 與 `uRegionCandRect` 兩個 uniform。
  */
-export function fieldGlsl(season: Season, candidates = false): string {
+export function fieldGlsl(season: Season, candidates = false, open = false): string {
+  const base = fieldGlslBase(season, candidates)
+  if (!open) return base
+  // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
+  const at = base.indexOf('  col = mix(col, HEDGE_COLOR')
+  const decl = base.indexOf('vec3 fieldColorAt(')
+  return base.slice(0, decl) + openDeclGlsl(season) + base.slice(decl, at) + OPEN_PARCEL_GLSL + base.slice(at)
+}
+
+/**
+ * `open` 的地圖多出來的常數與函式：值雜訊、到村的距離、地塊是不是空地、空地的
+ * 地色。與 CPU 那一份（`valueNoise`、`villageDistance`、`isOpenParcel`、
+ * `openColor`）逐項對應
+ */
+function openDeclGlsl(season: Season): string {
+  const c = FIELD_COLORS[season]
+  return `const float FIELD_REACH = ${FIELD_REACH.toFixed(1)};
+const float REACH_NOISE_CELL = ${REACH_NOISE_CELL.toFixed(1)};
+const float VILLAGE_CHANCE = ${VILLAGE_CHANCE.toFixed(3)};
+const vec3 OPEN_COLOR = ${rgb(c.open)};
+const vec3 OPEN_ALT_COLOR = ${rgb(c.openAlt)};
+
+float fieldNoise(vec2 p, float cell, int salt) {
+  vec2 f = p / cell;
+  vec2 i = floor(f);
+  vec2 t = f - i;
+  t = t * t * (3.0 - 2.0 * t);
+  int ix = int(i.x);
+  int iz = int(i.y);
+  float n00 = float(fieldHash2(ix ^ salt, iz)) / 4294967296.0;
+  float n10 = float(fieldHash2((ix + 1) ^ salt, iz)) / 4294967296.0;
+  float n01 = float(fieldHash2(ix ^ salt, iz + 1)) / 4294967296.0;
+  float n11 = float(fieldHash2((ix + 1) ^ salt, iz + 1)) / 4294967296.0;
+  return mix(mix(n00, n10, t.x), mix(n01, n11, t.x), t.y);
+}
+
+vec2 regionSeedOf(int i, int j, uint h) {
+  float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 0.76;
+  float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
+  return (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
+}
+
+float villageDistance(vec2 w) {
+  int gx = int(floor(w.x / REGION_SPACING));
+  int gz = int(floor(w.y / REGION_SPACING));
+  float best = 1e20;
+  for (int j = gz - 2; j <= gz + 1; j++) {
+    for (int i = gx - 2; i <= gx + 1; i++) {
+      uint h = fieldHash2(i, j);
+      if (float((h >> 7u) & 0xffu) / 256.0 >= VILLAGE_CHANCE) continue;
+      bool alongX = ((h >> 5u) & 1u) == 0u;
+      int i2 = alongX ? i + 1 : i;
+      int j2 = alongX ? j : j + 1;
+      vec2 site = (regionSeedOf(i, j, h) + regionSeedOf(i2, j2, fieldHash2(i2, j2))) * 0.5;
+      best = min(best, distance(w, site));
+    }
+  }
+  return best;
+}
+
+bool isOpenParcel(vec2 centre, uint fh) {
+  float reach = FIELD_REACH * (0.7 + 0.6 * fieldNoise(centre, REACH_NOISE_CELL, 0x4d21));
+  float fieldness = 1.0 - smoothstep(0.8 * reach, 1.2 * reach, villageDistance(centre));
+  float th = 0.25 + 0.5 * (float(fieldHash1(fh ^ 0x0be5u) & 0xffu) / 255.0);
+  return fieldness <= th;
+}
+
+float openWoodCover(vec2 w) {
+  float n = 0.65 * fieldNoise(w, ${OPEN_WOOD_CELL[0].toFixed(1)}, 0x6a11)
+    + 0.35 * fieldNoise(w, ${OPEN_WOOD_CELL[1].toFixed(1)}, 0x3b57);
+  return smoothstep(${OPEN_WOOD_GATE[0].toFixed(3)}, ${OPEN_WOOD_GATE[1].toFixed(3)}, n);
+}
+
+vec3 openColorAt(vec2 w) {
+  vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));
+  return mix(c, WOOD_COLOR, openWoodCover(w));
+}
+
+`
+}
+
+/**
+ * 插在條紋之後、樹籬之前：這一塊地的中心（對切過的取那一半）轉回世界座標，
+ * 是空地就換成空地的地色、不畫樹籬
+ */
+const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) * 0.5);
+  if (float(cellHash & 0xffu) / 256.0 < SPLIT_CHANCE) {
+    float pf = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;
+    if (right - left >= top - bottom) {
+      float pcut = left + (right - left) * pf;
+      pq.x = part == 0u ? (left + pcut) * 0.5 : (pcut + right) * 0.5;
+    } else {
+      float pcut = bottom + (top - bottom) * pf;
+      pq.y = part == 0u ? (bottom + pcut) * 0.5 : (pcut + top) * 0.5;
+    }
+  }
+  vec2 parcel = vec2(pq.x * cos(angle) - pq.y * sin(angle), pq.x * sin(angle) + pq.y * cos(angle));
+  if (isOpenParcel(parcel, fh)) {
+    col = openColorAt(world);
+    isHedge = false;
+  }
+`
+
+function fieldGlslBase(season: Season, candidates: boolean): string {
   const c = FIELD_COLORS[season]
   const glslPalette = c.palette.map((h) => '  ' + rgb(h)).join(',\n')
   return `
@@ -1263,8 +1480,8 @@ ${list}
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */
-export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false): string {
-  const base = fieldGlsl(season, candidates)
+export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false, open = false): string {
+  const base = fieldGlsl(season, candidates, open)
   if (site === undefined) return base
   const at = base.lastIndexOf('  return col;')
   return base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
@@ -1275,7 +1492,7 @@ export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates 
  * `fieldSurfaceColor` 相同。
  */
 export function siteSurfaceColor(
-  x: number, z: number, out: Color, season: Season, site?: SiteLayout,
+  x: number, z: number, out: Color, season: Season, site?: SiteLayout, open = false,
 ): Color {
   if (site !== undefined) {
     for (const s of segmentsOf(site.roads)) {
@@ -1289,7 +1506,7 @@ export function siteSurfaceColor(
     // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
     const near = siteBounds(site)
     if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
-      return fieldSurfaceColor(x, z, out, season)
+      return fieldSurfaceColor(x, z, out, season, open)
     }
     // 【與 `siteGlsl` 一樣，底下全部在廠區局部座標】髒污也是
     const c = Math.cos(site.heading ?? 0)
@@ -1317,5 +1534,5 @@ export function siteSurfaceColor(
       return out.setHex(hex).multiplyScalar(grimeFactor(lx, lz) * dark)
     }
   }
-  return fieldSurfaceColor(x, z, out, season)
+  return fieldSurfaceColor(x, z, out, season, open)
 }

@@ -11,7 +11,7 @@ import {
 const reg: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const s: FieldSample = { id: 0, edge: 0, hedged: false }
+const s: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const col = new Color()
 const FLAT = (): number => 0
 const BUF = createFloraBuffer(65536)

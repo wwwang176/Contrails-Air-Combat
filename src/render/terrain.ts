@@ -14,7 +14,7 @@ import {
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
-  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, type FloraSource,
+  islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFlora, openWoodFlora, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
 import { createLeyteGround } from './leyteGround'
@@ -502,12 +502,15 @@ function createInlandTerrain(
    */
   dressing?: LandDressing,
 ): Terrain {
-  const horizon = createFarHorizon(season)
-  const ground = createFarmGround(farm.field, season, site)
+  // 【田圍著村】程序生成的地圖田只在村的周圍，其餘是空地與成團的樹林。有真實
+  // 地物的（洛伊納）不開 —— 那一帶是開墾到幾乎不剩空地的黃土平原
+  const open = dressing === undefined
+  const horizon = createFarHorizon(season, open)
+  const ground = createFarmGround(farm.field, season, site, open)
   // 【田色烘成貼圖】地面 25 塊與遠景環一起換材質 —— 兩者本來共用同一支算式，
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
-    season, candidates: ground.candidates, ...(site === undefined ? {} : { site }),
+    season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
     near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, innerRadius: gfx.fieldInner,
   })
   if (clipmap !== null) {
@@ -529,7 +532,7 @@ function createInlandTerrain(
       ...(site.pivot === undefined ? {} : { pivot: site.pivot }),
       ...(site.heading === undefined ? {} : { heading: site.heading }),
     }), s))
-  let fields = [farmHedgeFlora, farmWoodFlora].map(padClear)
+  let fields = (open ? [openHedgeFlora, openWoodFlora] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
   let buildings = padClear(dressing === undefined ? farmVillageFlora : dressing.buildings)

@@ -131,6 +131,8 @@ export interface ClipLevelSpec {
 export interface FieldClipmapOptions {
   readonly season: Season
   readonly site?: SiteLayout
+  /** 田只圍著村，其餘是空地（`fields.ts` 的 `FIELD_REACH`） */
+  readonly open?: boolean
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
   /**
@@ -202,7 +204,7 @@ let instances = 0
 
 export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOptions): FieldClipmap {
   const cand = opts.candidates
-  const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined)
+  const glsl = fieldGlslWithSite(opts.season, opts.site, cand !== undefined, opts.open ?? false)
   /** 候選表的兩個 uniform；烘圖材質與地面材質各掛一份同樣的 */
   const candUniforms = (): Record<string, { value: unknown }> => (cand === undefined ? {} : {
     uRegionCand: { value: cand.texture },
@@ -348,10 +350,13 @@ ${glsl}`)
   vec3 c = vec3(0.0);
   // 算式：旁路、內圈、遠窗外（遠景環 15 km 外）
   if (proc) c = fieldColorAt(w);
-  // 【內圈疊回烘進近圖的平面】算式裡沒有街、鎮地面、礦坑；近圖的透明度記著它們
-  if (proc && uBypass < 0.5 && eN < 1.0) {
-    vec4 o = textureGrad(uNear, fract(qN), dNx, dNy);
-    c = mix(c, o.rgb, o.a);
+  // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
+  // 近圖外（內圈可以伸出近窗）讀遠圖。
+  // 【不是 mix(c, rgb, a)】過濾過的 rgb 本來就是田色與疊圖照覆蓋率混好的，再乘一次
+  // 覆蓋率，疊圖的邊會淡掉；有兩成五以上就整個用貼圖的顏色
+  if (proc && uBypass < 0.5 && eF < 1.0) {
+    vec4 o = eN < 1.0 ? textureGrad(uNear, fract(qN), dNx, dNy) : textureGrad(uFar, fract(qF), dFx, dFy);
+    c = mix(c, o.rgb, clamp(o.a * 4.0, 0.0, 1.0));
   }
   if (tex) {
     vec3 t = textureGrad(uFar, fract(qF), dFx, dFy).rgb;
@@ -364,7 +369,8 @@ ${glsl}`)
   }
   const id = instances++
   material.customProgramCacheKey = () =>
-    `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}:${id}`
+    `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
+    + `:${opts.open === true ? 'open' : ''}:${id}`
 
   return {
     material,

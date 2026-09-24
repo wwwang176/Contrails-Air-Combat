@@ -13,7 +13,7 @@ import { FARM_EXTENT } from '../../src/world/farmland'
 const reg: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const s: FieldSample = { id: 0, edge: 0, hedged: false }
+const s: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const col = new Color()
 
 const HEDGE = '293123'
@@ -385,8 +385,8 @@ describe('植被放置要用的三支', () => {
   })
 
   it('切線兩側是兩塊不同的田', () => {
-    const a: FieldSample = { id: 0, edge: 0, hedged: false }
-    const b: FieldSample = { id: 0, edge: 0, hedged: false }
+    const a: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
+    const b: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
     let checked = 0
     for (let k = 0; k < 600; k++) {
       const x = k * 311.3 - 50000

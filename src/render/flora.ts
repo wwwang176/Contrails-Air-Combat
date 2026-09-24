@@ -5,8 +5,8 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
-  edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
-  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
+  edgeAt, fieldAt, isOpenParcel, isWoodField, openWoodCover, regionAt, regionParams, regionSeed, splitCut, valueNoise,
+  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH, VILLAGE_CHANCE, VILLAGE_NEIGHBOUR,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
@@ -189,7 +189,7 @@ const REG: RegionSample = {
 const AT: RegionSample = {
   r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
+const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 const SEED: Vec2 = { x: 0, z: 0 }
 
@@ -256,6 +256,8 @@ let winCos = 0
 let winSin = 0
 let winHeight: (x: number, z: number) => number = () => 0
 let winOut: FloraBuffer = createFloraBuffer(1)
+/** 這一次是「田圍著村」的地圖嗎：空地（`isOpenParcel`）的邊不長樹籬 */
+let winOpen = false
 
 /**
  * 沿一條線種東西。
@@ -290,6 +292,7 @@ function walkLine(
     if (AT.id !== winRid) continue
     fieldAt(x, z, AT, FLD)
     if (!FLD.hedged || FLD.edge >= HEDGE_WIDTH / 2) continue
+    if (winOpen && isOpenParcel(FLD)) continue
 
     const g2 = hash1(g)
     const rot = (g2 / 4294967296) * Math.PI * 2
@@ -338,6 +341,17 @@ function plantLine(
  * 斷掉），對切線由 `splitCut` 給。
  */
 export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  winOpen = false
+  hedges(x0, z0, x1, z1, heightAt, out)
+}
+
+/** 「田圍著村」的地圖的樹籬：空地的邊不長（`fields.ts` 的 `FIELD_REACH`） */
+export const openHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  winOpen = true
+  hedges(x0, z0, x1, z1, heightAt, out)
+}
+
+const hedges: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   winX0 = x0
   winZ0 = z0
   winX1 = x1
@@ -430,6 +444,27 @@ export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
  * 【樹種逐田決定】混種的樹林從空中看是雜訊。
  */
 export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  woods(false, x0, z0, x1, z1, heightAt, out)
+}
+
+/**
+ * 「田圍著村」的地圖的樹林：田裡照 `farmWoodFlora`；空地（`isOpenParcel`）上照
+ * `openWoodCover` 長成團的樹林，與地色同一個覆蓋率。空地的林子一部分是種的
+ * 松林，針葉多一點
+ */
+export const openWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  woods(true, x0, z0, x1, z1, heightAt, out)
+}
+
+/** 空地上的樹林接受機率乘這個：林緣稀一點 */
+const OPEN_WOOD_DENSITY = 0.85
+/** 空地上的樹林裡針葉樹佔多少 */
+const OPEN_CONIFER_SHARE = 0.4
+
+function woods(
+  open: boolean, x0: number, z0: number, x1: number, z1: number,
+  heightAt: (x: number, z: number) => number, out: FloraBuffer,
+): void {
   const g0 = Math.floor(x0 / WOOD_GRID)
   const g1 = Math.floor(x1 / WOOD_GRID)
   const h0 = Math.floor(z0 / WOOD_GRID)
@@ -445,6 +480,18 @@ export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
       regionAt(x, z, AT)
       if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
       fieldAt(x, z, AT, FLD)
+      if (open && isOpenParcel(FLD)) {
+        const g2 = hash1(g)
+        if ((g2 & 0xffff) / 65536 >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) continue
+        const g3 = hash1(g2)
+        pushFlora(
+          out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+          TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (TREE_SCALE[1] - TREE_SCALE[0]),
+          ((g2 >>> 16) & 0xff) / 255,
+          ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE ? FloraKind.ConeTree : FloraKind.BroadTree,
+        )
+        continue
+      }
       if (!isWoodField(FLD.id)) continue
       // 【樹籬那一圈留給 farmHedgeFlora】不疊兩層樹
       if (FLD.edge < HEDGE_WIDTH / 2) continue
@@ -481,9 +528,6 @@ const LANE_OFFSET = [11, 34] as const
  */
 export const VILLAGE_SPAN = Math.hypot(VILLAGE_REACH, LANE_OFFSET[1])
 
-/** 有村的區塊格佔多少 */
-const VILLAGE_CHANCE = 0.55
-
 /**
  * 建築容許的「離凹路多遠」，用 `r2 − r1` 表示。
  *
@@ -508,13 +552,13 @@ const SEED_A: Vec2 = { x: 0, z: 0 }
 const SEED_B: Vec2 = { x: 0, z: 0 }
 
 /**
- * 配對的鄰格。**只往 +x 與 +z，不往回**。
+ * 配對的鄰格（`VILLAGE_NEIGHBOUR`，與田色共用）。**只往 +x 與 +z，不往回**。
  *
  * 【為什麼不能四個方向都來】(i, j) 選 +x、(i+1, j) 選 −x 的話，兩格算出來
  * 是**同一個中點** —— 同一個村會被生兩次，而且兩份建築完全重疊。只往前配對
  * 之後，一對格子只可能由較小的那一格產生。
  */
-const NEIGHBOUR = [1, 0, 0, 1] as const
+const NEIGHBOUR = VILLAGE_NEIGHBOUR
 
 /**
  * 站址那條凹路的走向（單位向量）。**只在 `villageSite` 回 true 之後有效，
@@ -689,25 +733,7 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
-/**
- * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**，與 tile
- * 無關 —— 見檔頭的鐵律。
- */
-export function valueNoise(x: number, z: number, cell: number, salt: number): number {
-  const fx = x / cell
-  const fz = z / cell
-  const ix = Math.floor(fx)
-  const iz = Math.floor(fz)
-  const tx = smoothstep(0, 1, fx - ix)
-  const tz = smoothstep(0, 1, fz - iz)
-  const n00 = hash2(ix ^ salt, iz) / 4294967296
-  const n10 = hash2((ix + 1) ^ salt, iz) / 4294967296
-  const n01 = hash2(ix ^ salt, iz + 1) / 4294967296
-  const n11 = hash2((ix + 1) ^ salt, iz + 1) / 4294967296
-  const a = n00 + (n10 - n00) * tx
-  const b = n01 + (n11 - n01) * tx
-  return a + (b - a) * tz
-}
+export { valueNoise }
 
 /**
  * 這一點在不在樹叢裡，`ISLAND_CLUMP_FLOOR`～1。
