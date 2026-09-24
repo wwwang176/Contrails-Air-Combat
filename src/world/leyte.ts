@@ -355,26 +355,33 @@ export const LEYTE_FLAK_SITES: readonly {
 ]
 
 /**
- * 灘頭搶灘的 LST：公路起點兩側各 `LST_PER_SIDE` 艘並排。它們是**不會動的船**
+ * 灘頭搶灘的 LST：公路起點兩側各 5 艘，**分叢**擺。它們是**不會動的船**
  * （`world/ships.ts` 的 `lst`）：撞得到、打得沉、防空砲會開火，但不是任務目標。
  *
  * `x, z` 是船的原點（水線 × 艦體中點），`heading` 是艏向（rad，0 = 朝 −Z，與
- * `createShip` 同一套）。放下的跳板末端落在水線上；艦艏大致朝岸線在那一點的
- * 內法線，再各自偏一個 ±`LST_YAW_JITTER` 的角度 —— 繞跳板末端轉，所以偏了
+ * `createShip` 同一套）。放下的跳板末端落在水線上。
+ *
+ * 【分叢】史實上一個灘段的 LST 並排擠在一起搶灘、灘段之間才隔開。這裡每一側
+ * 照 `LST_CLUSTERS` 分成兩叢：叢內每 `LST_IN_CLUSTER` 一艘、艏向相同（叢心那一
+ * 點的岸線內法線，整叢再偏 ±`LST_CLUSTER_YAW`），每艘再各自偏
+ * ±`LST_SHIP_YAW`；叢與叢之間隔 `LST_CLUSTER_GAP`。偏角繞跳板末端轉，所以偏了
  * 之後跳板仍搭在水線上。
  *
- * 【沿岸線量間距】第一艘離公路起點 `LST_ROAD_GAP`、之後每 `LST_SPACING` 一艘，
- * 每一段各自乘上 1 ± `LST_SPACING_JITTER`，都是沿岸線的弧長。量 x 的話岸線斜的
- * 那一側（斜率到 0.5）會擠在一起。
+ * 【沿岸線量間距】第一叢離公路起點 `LST_ROAD_GAP`，所有間距都是沿岸線的弧長、
+ * 各自乘上 1 ± 一個比例。量 x 的話岸線斜的那一側（斜率到 0.5）會擠在一起。
  *
  * 【亂數有種子】同一張地圖每次都要長一樣（`makeRand`）。
  */
 export interface LeyteLst { readonly x: number; readonly z: number; readonly heading: number }
-const LST_PER_SIDE = 5
-const LST_ROAD_GAP = 300
-const LST_SPACING = 250
-const LST_SPACING_JITTER = 0.4
-const LST_YAW_JITTER = 25 * Math.PI / 180
+/** 每一側由近到遠各叢的艘數：負 x 那一側、正 x 那一側 */
+const LST_CLUSTERS: readonly (readonly number[])[] = [[3, 2], [2, 3]]
+const LST_ROAD_GAP = 250
+const LST_CLUSTER_GAP = 550
+const LST_CLUSTER_GAP_JITTER = 0.3
+const LST_IN_CLUSTER = 50
+const LST_IN_CLUSTER_JITTER = 0.15
+const LST_CLUSTER_YAW = 20 * Math.PI / 180
+const LST_SHIP_YAW = 3 * Math.PI / 180
 const LST_SEED = 1944_10_20
 /** 艦體中點到跳板末端，m（`tools/blender/build_lst.py` 的跳板末端在艦體座標 z −53.5） */
 export const LST_RAMP_REACH = 53.5
@@ -399,21 +406,28 @@ export const LEYTE_LSTS: readonly LeyteLst[] = /* @__PURE__ */ (() => {
   const out: LeyteLst[] = []
   const rand = makeRand(LST_SEED)
   const jitter = (): number => 2 * rand() - 1
-  for (const sign of [-1, 1]) {
-    let arc = LST_ROAD_GAP * (1 + LST_SPACING_JITTER * jitter())
-    for (let i = 0; i < LST_PER_SIDE; i++) {
-      if (i > 0) arc += LST_SPACING * (1 + LST_SPACING_JITTER * jitter())
-      const x = walkCoast(BEACHHEAD.x, sign, arc)
-      // 陸地在 z > coastZ(x)：內法線是 (−c′, 1) 正規化
-      const s = coastSlope(x)
+  LST_CLUSTERS.forEach((sizes, side) => {
+    const sign = side === 0 ? -1 : 1
+    let arc = LST_ROAD_GAP
+    sizes.forEach((n, k) => {
+      if (k > 0) arc += LST_CLUSTER_GAP * (1 + LST_CLUSTER_GAP_JITTER * jitter())
+      // 這一叢每艘沿岸線的位置（弧長）
+      const arcs: number[] = [arc]
+      for (let i = 1; i < n; i++) arcs.push(arcs[i - 1]! + LST_IN_CLUSTER * (1 + LST_IN_CLUSTER_JITTER * jitter()))
+      arc = arcs[n - 1]!
+      // 整叢一個艏向：叢心那一點的內法線 (−c′, 1)。艏向 h 的艦艏朝 (−sin h, −cos h)
+      const s = coastSlope(walkCoast(BEACHHEAD.x, sign, (arcs[0]! + arc) / 2))
       const len = Math.hypot(s, 1)
-      // 艏向 h 的艦艏朝 (−sin h, −cos h)；內法線的艏向再偏一個角度
-      const heading = Math.atan2(s / len, -1 / len) + LST_YAW_JITTER * jitter()
-      const dirX = -Math.sin(heading)
-      const dirZ = -Math.cos(heading)
-      out.push({ x: x - dirX * LST_RAMP_REACH, z: coastZ(x) - dirZ * LST_RAMP_REACH, heading })
-    }
-  }
+      const base = Math.atan2(s / len, -1 / len) + LST_CLUSTER_YAW * jitter()
+      for (const a of arcs) {
+        const x = walkCoast(BEACHHEAD.x, sign, a)
+        const heading = base + LST_SHIP_YAW * jitter()
+        const dirX = -Math.sin(heading)
+        const dirZ = -Math.cos(heading)
+        out.push({ x: x - dirX * LST_RAMP_REACH, z: coastZ(x) - dirZ * LST_RAMP_REACH, heading })
+      }
+    })
+  })
   return out
 })()
 
