@@ -129,6 +129,11 @@ export const EDGE_TOUCH = 1000
  */
 export const EXTEND_MAX_TURN = (80 * Math.PI) / 180
 /**
+ * 起步那一段的上限：順著河端的切線走，而貼著地圖邊流出去的河（Luppe 沿著
+ * 北緣）切線與法線差到 84°。仍在 90° 以內，照樣往外。
+ */
+const EXTEND_START_TURN = (89 * Math.PI) / 180
+/**
  * 主方向（不含擺動）與出圖法線最多差幾度。主方向決定河往哪裡去；擺動疊在
  * 它上面，總角度再夾進 `EXTEND_MAX_TURN`。
  */
@@ -150,6 +155,8 @@ const DRIFT_WAVE = [8000, 15000] as const
 const DRIFT_AMP = (12 * Math.PI) / 180
 /** 水面從端點的高度漸變到外環高度要幾點 */
 const EXTEND_RAMP = 12
+/** 從河端的切線轉進蜿蜒要幾步 */
+const EXTEND_BLEND = 6
 
 /** 種子進、序列出。**不得 `Math.random`** —— 每次進場的河要一樣 */
 function makeRand(seed: number): () => number {
@@ -172,8 +179,8 @@ function hashEnd(name: string, x: number, z: number): number {
  * 伸到地圖邊緣的河端往外編一段河道。
  *
  * `half` 是細節地形的半邊長；端點的 x 或 z 離 `±half` 在 `EDGE_TOUCH` 以內才延伸。
- * 起點就是端點（兩段水面接得上），起始方向是端點的切線、夾進 `EXTEND_MAX_TURN`；
- * 之後是「從地圖中心射出的主方向 ＋ 正弦擺動」。
+ * 起點就是端點、第一步是端點的切線（兩段水面接得上）；之後轉進「從地圖中心
+ * 射出的主方向 ＋ 長波慢擺 ＋ 短波蜿蜒」。
  *
  * 【河道是編的】沒有真實資料 —— 從地圖內看出去只要它繼續、彎得自然、淡進霧裡。
  */
@@ -194,7 +201,7 @@ export function extendRivers(lines: readonly WaterLine[], half: number, sample: 
       const tx = p[0] - q[0]
       const tz = p[1] - q[1]
       // 切線相對法線的角度，逆時針為正
-      const a0 = Math.max(-EXTEND_MAX_TURN, Math.min(EXTEND_MAX_TURN,
+      const a0 = Math.max(-EXTEND_START_TURN, Math.min(EXTEND_START_TURN,
         Math.atan2(nx * tz - nz * tx, nx * tx + nz * tz)))
       // 【主方向是從地圖中心射出的放射線】同一個中心射出去的線只會越離越遠，
       // 而夾角範圍保住次序 —— 同一條邊上的幾條河不會在霧裡打結。它們在邊上
@@ -224,7 +231,11 @@ export function extendRivers(lines: readonly WaterLine[], half: number, sample: 
           amp = pick(MEANDER_AMP)
         }
         const drift = DRIFT_AMP * Math.sin(driftPhase + (2 * Math.PI * i * EXTEND_STEP) / driftWave)
-        const a = Math.max(-EXTEND_MAX_TURN, Math.min(EXTEND_MAX_TURN, base + drift + amp * Math.sin(phase)))
+        const wander = Math.max(-EXTEND_MAX_TURN, Math.min(EXTEND_MAX_TURN, base + drift + amp * Math.sin(phase)))
+        // 【第一步順著河端的切線】水面帶的端面垂直於最後一段，兩段方向差多少，
+        // 接頭外側就裂開多寬。前幾步從切線平滑地轉進蜿蜒
+        const t = Math.min(1, (i - 1) / EXTEND_BLEND)
+        const a = a0 + (wander - a0) * t * t * (3 - 2 * t)
         const c = Math.cos(a)
         const s = Math.sin(a)
         x += (nx * c - nz * s) * EXTEND_STEP
@@ -282,8 +293,10 @@ export class RiverIndex {
     if (count === 0) { minX = minZ = 0; maxX = maxZ = 0 }
     this.x0 = minX - reach
     this.z0 = minZ - reach
-    this.cols = Math.max(1, Math.ceil((maxX + reach - this.x0) / this.cell))
-    this.rows = Math.max(1, Math.ceil((maxZ + reach - this.z0) / this.cell))
+    // 【floor + 1 不是 ceil】寬度剛好是格寬的整數倍時，ceil 會少最外那一格 ——
+    // 查詢半徑最外緣的點會被判成出界
+    this.cols = Math.floor((maxX + reach - this.x0) / this.cell) + 1
+    this.rows = Math.floor((maxZ + reach - this.z0) / this.cell) + 1
     const cells = this.cols * this.rows
     const counts = new Int32Array(cells + 1)
     const visit = (s: number, fn: (c: number) => void): void => {

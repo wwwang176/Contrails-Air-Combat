@@ -526,6 +526,15 @@ function createInlandTerrain(
   // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
   const river = rivers === undefined ? null : buildRiverMeshes((x, z) => solid.sample(x, z), rivers)
   if (river !== null) ground.object.add(river)
+  // 【河道上是水面不是河底】與海面同一個約定：陸地與水面取較高者。只給河底
+  // 的話，炸彈、殘骸、碎片要穿過 1.2 m 的水才觸發，水柱從水面下冒出來
+  const surface = rivers === undefined
+    ? (x: number, z: number): number => solid.sample(x, z)
+    : (x: number, z: number): number => {
+      const g = solid.sample(x, z)
+      const w = rivers.index.waterAt(x, z)
+      return w > g ? w : g
+    }
   // 【四個位置的次序與另外兩種相同】0 = 遠景環（遠海那一格）、
   // 1 = 空 Group（近海那一格）、2 = 陸地、3 = 植被；有佈景的話是第 5 個
   group.add(horizon.mesh)
@@ -542,8 +551,8 @@ function createInlandTerrain(
   return {
     object: group,
     // 【不吃 time】內陸沒有波
-    heightAt: (x, z) => solid.sample(x, z),
-    collisionHeightAt: (x, z) => solid.sample(x, z),
+    heightAt: surface,
+    collisionHeightAt: surface,
     // 【河也是水】炸彈落河噴水柱、殘骸沉下去、墜機不揚土
     waterAt: rivers === undefined ? () => -Infinity : (x, z) => rivers.index.waterAt(x, z),
     // 【內陸沒有海】田地、遠景環與近中兩級的樹都走標準材質，換了燈自己就

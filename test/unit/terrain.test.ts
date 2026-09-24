@@ -378,11 +378,17 @@ describe('洛伊納', () => {
 
   /**
    * 【河是水、岸不是】落水與落地的表現不同（水柱 vs 土）。量的是薩勒河在
-   * 廠區東邊的一點：中心線上有水面，往岸上走 300 m 就沒有。
+   * 廠區東邊的一點：中心線上有水面，廠區中心沒有。
+   *
+   * 【碰撞高度是水面不是河底】與海面同一個約定：取陸地與水面的較高者。
+   * 只給河底的話，炸彈與殘骸要穿過 1.2 m 的水才觸發，水柱從水面下冒出來。
    */
-  it('河道上有水面，岸上沒有；場外回 0', () => {
+  it('河道上有水面、碰撞高度就是水面；岸上沒有；場外回 0', () => {
     const at = firstRiverPoint()
-    expect(t.waterAt(at[0], at[1])).toBeGreaterThan(t.collisionHeightAt(at[0], at[1]))
+    const w = t.waterAt(at[0], at[1])
+    expect(w).toBeGreaterThan(0)
+    expect(t.collisionHeightAt(at[0], at[1])).toBe(w)
+    expect(t.heightAt(at[0], at[1], 0)).toBe(w)
     expect(t.waterAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(-Infinity)
     expect(t.collisionHeightAt(50_000, 50_000)).toBe(0)
   })

@@ -1,8 +1,7 @@
 import { Vector3 } from 'three'
 import { createScene } from '../render/scene'
-import { createTerrain, type Terrain } from '../render/terrain'
+import { createTerrain, preloadTerrainScenery, type Terrain } from '../render/terrain'
 import { applyTimeOfDay } from '../render/timeOfDay'
-import { preloadPlantScenery } from '../render/geometry/ground/plantScenery'
 import {
   createGodCameraState, godCameraTarget, stepGodCamera, DEFAULT_GOD_CAMERA,
   type GodCameraInput, type GodCameraOptions,
@@ -26,8 +25,8 @@ import Stats from 'three/addons/libs/stats.module.js'
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 
-// 【廠區的佈景是 GLB】`createTerrain` 是同步的，要先載完
-await preloadPlantScenery()
+// 【廠區的佈景與河道】`createTerrain` 是同步的，要先載完
+await preloadTerrainScenery('leuna')
 
 const terrain: Terrain = createTerrain('leuna', { renderer: ctx.renderer, fieldInner: 500 })
 ctx.scene.add(terrain.object)

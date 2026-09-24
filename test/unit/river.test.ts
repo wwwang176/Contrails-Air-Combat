@@ -73,6 +73,26 @@ describe('地圖外的延伸', () => {
   })
 
   /**
+   * 【接頭順著原來的切線】水面帶的端面垂直於最後一段；兩段的方向差多少，
+   * 接頭外側就裂開多寬 —— 落在裂縫裡的炸彈算落水，畫面上卻是田。
+   */
+  it('延伸段的第一段與原河道的最後一段同方向', () => {
+    for (const e of EXT) {
+      const p0 = e.points[0]!
+      const same = (q: readonly [number, number]): boolean => q[0] === p0[0] && q[1] === p0[1]
+      const line = LINES.find((l) => same(l.points[0]!) || same(l.points.at(-1)!))!
+      const atStart = same(line.points[0]!)
+      const q = atStart ? line.points[1]! : line.points.at(-2)!
+      const inward = Math.atan2(p0[1] - q[1], p0[0] - q[0])
+      const p1 = e.points[1]!
+      const outward = Math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+      let diff = Math.abs(inward - outward)
+      if (diff > Math.PI) diff = 2 * Math.PI - diff
+      expect(diff * 180 / Math.PI, e.name).toBeLessThan(1)
+    }
+  })
+
+  /**
    * 【要像地圖內的真河那樣彎】真河每 3 km 的彎曲度是 1.25～1.45。太直的話
    * 一出地圖就變成一條運河，接縫一眼就看得出來。
    */
@@ -194,6 +214,14 @@ describe('查詢索引', () => {
     expect(index.waterAt(x + nx * (CHANNEL_HALF + 20), z + nz * (CHANNEL_HALF + 20))).toBe(-Infinity)
     expect(index.waterAt(0, -7000)).toBe(-Infinity)
     expect(index.waterAt(1e7, 1e7)).toBe(-Infinity)
+  })
+
+  /** 【最外圈也要查得到】含查詢半徑的寬度剛好是格寬的整數倍時，最邊緣那一點不能判成出界 */
+  it('查詢半徑的最外緣仍在格網內', () => {
+    const one = new RiverIndex([{ name: 't', points: [[0, 0], [120, 0]], level: [1, 1], coarse: false }], 190)
+    expect(one.distance(310, 0)).toBeCloseTo(190, 9)
+    expect(one.distance(0, 190)).toBeCloseTo(190, 9)
+    expect(one.distance(-190, 0)).toBeCloseTo(190, 9)
   })
 
   it('延伸段上也是水', () => {
