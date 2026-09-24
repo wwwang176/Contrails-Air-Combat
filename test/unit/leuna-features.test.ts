@@ -4,14 +4,16 @@ import type { BufferAttribute, Mesh } from 'three'
 import { createLeuna, FLAK_SITES } from '../../src/world/leuna'
 import { outsideZero } from '../../src/world/farmland'
 import { CHANNEL_HALF, RiverIndex } from '../../src/world/river'
-import { DECK_CLEARANCE, insideRing, type FeatureFile } from '../../src/world/landFeatures'
+import {
+  DECK_CLEARANCE, insideRing, insideSettlement, outlineScale, settlementRadius, type FeatureFile,
+} from '../../src/world/landFeatures'
 import { buildLeunaRivers, preloadLeunaRivers } from '../../src/render/leunaRiver'
 import {
   buildLeunaDressing, preloadLeunaFeatures, rightOfSaale, type LandDressing,
 } from '../../src/render/leunaFeatures'
 import { motorwayProfiles } from '../../src/render/motorway'
-import { settlementTest } from '../../src/render/settlements'
-import { BUILDING_DEPTH, BUILDING_WIDTH } from '../../src/render/floraShapes'
+import { settlementLayout, settlementTest } from '../../src/render/settlements'
+import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from '../../src/render/floraShapes'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
 import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
 import { excluding, excludingWhere } from '../../src/render/floraExclude'
@@ -281,8 +283,8 @@ describe('史實的村形', () => {
 
   /**
    * 【大小與樓高真的有變化】建築只有一種形狀，一模一樣大的話整個鎮是複製貼上。
-   * 鎮上的樓高要比村裡高（老城是兩三層的街屋），村裡的面寬分布要寬（穀倉長、
-   * 主屋短）。
+   * 鎮上的牆要比村裡高（老城是兩三層半的街屋），村裡的面寬分布要寬（穀倉長、
+   * 主屋短）。牆高 = `BUILDING_WALL × scale × tall`。
    */
   it('建築的面寬與樓高有變化，鎮比村高', () => {
     const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
@@ -291,25 +293,92 @@ describe('史實的村形', () => {
     const villageWide: number[] = []
     for (const b of Bfull) {
       if (!BUILDINGS.has(b.kind)) continue
-      if (inTown(b.x, b.z)) town.push(b.tall)
+      const wall = BUILDING_WALL * b.scale * b.tall
+      if (inTown(b.x, b.z)) town.push(wall)
       else {
-        village.push(b.tall)
+        village.push(wall)
         villageWide.push(b.wide * b.scale)
       }
     }
     const mean = (a: number[]): number => a.reduce((s, v) => s + v, 0) / a.length
     expect(village.length).toBeGreaterThan(5000)
-    expect(mean(town)).toBeGreaterThan(mean(village) + 0.3)
+    expect(mean(town)).toBeGreaterThan(mean(village) + 1.5)
     expect(Math.max(...villageWide) / Math.min(...villageWide)).toBeGreaterThan(2)
   })
 
   /**
+   * 【老城緊、外緣鬆】老城是深的連棟市民屋加後屋，外緣是別墅、花園與空地。
+   * 中心只有沿街一排的話建蔽率三成出頭，從中心到外緣看起來一樣密。
+   * 量的是梅澤堡：輪廓內 4 成對最外 3 成。
+   */
+  it('梅澤堡老城的建蔽率四成以上，是外緣的兩倍多', () => {
+    const m = F.places.find((p) => p.name === 'Merseburg')!
+    const R = settlementRadius(m)
+    const rad = (x: number, z: number): number =>
+      Math.hypot(x - m.x, z - m.z) / (R * outlineScale(m, Math.atan2(z - m.z, x - m.x)))
+    const ring = (r0: number, r1: number): number => {
+      let area = 0
+      for (let x = m.x - R * 1.3; x < m.x + R * 1.3; x += 10) {
+        for (let z = m.z - R * 1.3; z < m.z + R * 1.3; z += 10) {
+          const r = rad(x, z)
+          if (r >= r0 && r < r1 && insideSettlement(m, x, z)) area += 100
+        }
+      }
+      let foot = 0
+      for (const b of Bfull) {
+        if (!BUILDINGS.has(b.kind)) continue
+        const r = rad(b.x, b.z)
+        if (r < r0 || r >= r1 || !insideSettlement(m, b.x, b.z)) continue
+        foot += BUILDING_WIDTH * b.scale * b.wide * BUILDING_DEPTH * b.scale
+      }
+      return foot / area
+    }
+    const core = ring(0, 0.4)
+    expect(core).toBeGreaterThan(0.4)
+    expect(core).toBeGreaterThan(2 * ring(0.7, 1))
+  })
+
+  /**
+   * 【鎮不是一整片屋頂】公園、墓園、小菜園、工廠大院把鎮切成一塊一塊。
+   * 小菜園認棚子（牆高 3 m 以下）、大院認長條（面寬 30 m 以上）。
+   */
+  it('鎮上有公園、墓園、小菜園、工廠大院', () => {
+    const inTown = settlementTest(F.places.filter((p) => p.kind === 'town'))
+    const { greens } = settlementLayout(F.places, () => false, () => false)
+    expect(greens.filter((g) => inTown(g.x, g.z)).length).toBeGreaterThan(20)
+    let sheds = 0
+    let halls = 0
+    for (const b of Bfull) {
+      if (!BUILDINGS.has(b.kind) || !inTown(b.x, b.z)) continue
+      if (BUILDING_WALL * b.scale * b.tall < 3) sheds++
+      if (BUILDING_WIDTH * b.scale * b.wide >= 30) halls++
+    }
+    expect(sheds).toBeGreaterThan(200)
+    expect(halls).toBeGreaterThan(20)
+  })
+
+  /**
+   * 【鎮的大小跟著人口】一棟住不到五個人的話，小鎮大得不像話（半徑下限夾在
+   * 300 m 時，1,368 人的 Osterfeld 有 540 棟）。
+   */
+  it('每個鎮一棟至少住五個人', () => {
+    for (const p of F.places.filter((q) => q.kind === 'town' && q.pop !== undefined)) {
+      let n = 0
+      for (const b of B) if (BUILDINGS.has(b.kind) && insideSettlement(p, b.x, b.z)) n++
+      if (n === 0) continue
+      expect(p.pop! / n, p.name).toBeGreaterThan(5)
+    }
+  })
+
+  /**
    * 【屋頂的料】新舊黏土瓦七成以上、石板一到兩成、油毛氈一成以內 —— 德國中部
-   * 1944 年的比例。料與用途無關（主屋、穀倉都可能是任何一種）。
+   * 1944 年的比例。料與用途無關（主屋、穀倉都可能是任何一種）。小菜園的棚子
+   * （牆高 3 m 以下）不算房子。
    */
   it('屋頂的料：瓦七成以上、石板一到兩成、油毛氈一成以內', () => {
     const n = { tile: 0, slate: 0, tar: 0 }
-    for (const b of B) {
+    for (const b of Bfull) {
+      if (BUILDING_WALL * b.scale * b.tall < 3) continue
       if (b.kind === FloraKind.House || b.kind === FloraKind.Barn) n.tile++
       else if (b.kind === FloraKind.SlateHouse) n.slate++
       else if (b.kind === FloraKind.TarBarn) n.tar++
@@ -346,17 +415,20 @@ describe('史實的村形', () => {
     }
     const project = (r: typeof rects[number], nx: number, nz: number): number =>
       r.hw * Math.abs(r.ax * nx + r.az * nz) + r.hd * Math.abs(-r.az * nx + r.ax * nz)
+    // 【分桶要比兩棟的中心距上限大】只比相鄰桶，所以桶寬要蓋住「兩棟外接半徑
+    // 相加」—— 大院的長條建築半長 25 m，桶太小會漏掉整對
+    const CELL = 64
     const grid = new Map<string, number[]>()
     rects.forEach((r, i) => {
-      const k = `${Math.floor(r.x / 40)},${Math.floor(r.z / 40)}`
+      const k = `${Math.floor(r.x / CELL)},${Math.floor(r.z / CELL)}`
       grid.set(k, [...(grid.get(k) ?? []), i])
     })
     // 村、鎮上斜交、鎮上同向，各自最深的一對
     const worst = { village: 0, skew: 0, aligned: 0 }
     const at = { village: '', skew: '', aligned: '' }
     rects.forEach((a, i) => {
-      const gi = Math.floor(a.x / 40)
-      const gj = Math.floor(a.z / 40)
+      const gi = Math.floor(a.x / CELL)
+      const gj = Math.floor(a.z / CELL)
       for (let dj = -1; dj <= 1; dj++) {
         for (let di = -1; di <= 1; di++) {
           for (const j of grid.get(`${gi + di},${gj + dj}`) ?? []) {

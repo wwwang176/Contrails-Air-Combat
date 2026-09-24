@@ -7,9 +7,9 @@ import {
 /** # 地物的幾何：聚落大小、多邊形、高速公路的縱剖面 */
 
 describe('聚落的大小', () => {
-  it('鎮照人口放大，夾在 300～900', () => {
+  it('鎮照人口放大，夾在 160～900', () => {
     expect(settlementRadius({ name: 'M', kind: 'town', x: 0, z: 0, pop: 36000 })).toBeCloseTo(698, 0)
-    expect(settlementRadius({ name: 'A', kind: 'town', x: 0, z: 0, pop: 500 })).toBe(300)
+    expect(settlementRadius({ name: 'A', kind: 'town', x: 0, z: 0, pop: 500 })).toBe(160)
     expect(settlementRadius({ name: 'B', kind: 'town', x: 0, z: 0, pop: 900000 })).toBe(900)
   })
 
