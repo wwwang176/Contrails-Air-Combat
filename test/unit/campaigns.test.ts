@@ -449,15 +449,16 @@ describe('日 M2 雷伊泰前線', () => {
     expect(cfg.units.some((u) => u.team === 'red' && u.members.length > 0)).toBe(true)
   })
 
-  it('卡車與戰車帶一挺機槍（mg 那一層），防空車照舊是輕砲', () => {
+  it('雪曼帶一挺機槍（mg 那一層）、防空車是輕砲、卡車不還手', () => {
     const battle = createBattle({ update() {} }, missionConfigFrom(card), 1)
     const moving = battle.world.groundTargets.filter((t) => t.motion !== null)
     const seen = new Set<string>()
     for (const t of moving) {
       const tier = t.guns[0]?.zone.tier
       seen.add(t.unit.id)
-      if (t.unit.id === 'usTruck' || t.unit.id === 'usTank') expect(tier, t.unit.id).toBe('mg')
+      if (t.unit.id === 'usTank') expect(tier, t.unit.id).toBe('mg')
       if (t.unit.id === 'usFlakTrack') expect(tier).toBe('autocannon')
+      if (t.unit.id === 'usTruck') expect(t.guns.length, t.unit.id).toBe(0)
     }
     // 【三種都要出現】代號改了而這裡沒跟上的話，上面兩條一次都不會跑
     expect([...seen].sort()).toEqual(['usFlakTrack', 'usTank', 'usTruck'])
