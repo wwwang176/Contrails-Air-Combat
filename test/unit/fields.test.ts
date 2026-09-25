@@ -727,16 +727,17 @@ describe('帶的邊緣抗鋸齒', () => {
       expect([t, i >= 0]).toEqual([t, true])
       return i
     }
-    expect(at('col = mix(col, HEDGE_COLOR')).toBeGreaterThan(at('col *= stripe('))
-    expect(at('col = mix(col, TRACK_COLOR')).toBeGreaterThan(at('col = mix(col, HEDGE_COLOR'))
+    expect(at('col = mix(col, mix(HEDGE_COLOR')).toBeGreaterThan(at('col *= stripe('))
+    expect(at('col = mix(col, TRACK_COLOR')).toBeGreaterThan(at('col = mix(col, mix(HEDGE_COLOR'))
   })
 
   /**
    * 【兩條帶的半寬不一樣，別統一】凹路的判準是 `trackGap < trackWidthAt`，
-   * 所以它的半寬就是 `trackWidthAt`；樹籬是 `best < HEDGE_WIDTH * 0.5`。
+   * 所以它的半寬就是 `trackWidthAt`；樹籬是 `best < HEDGE_WIDTH * 0.5`，遠處的樣子
+   * 再乘 `HEDGE_FAR_GROW`。
    */
   it('兩條帶各自傳對的距離與半寬', () => {
-    expect(body).toContain('bandCoverage(best, HEDGE_WIDTH * 0.5, px)')
+    expect(body).toContain('bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px)')
     expect(body).toContain('bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px)')
   })
 })

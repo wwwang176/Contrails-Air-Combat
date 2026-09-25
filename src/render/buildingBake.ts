@@ -4,7 +4,7 @@ import {
   BRICK_WALL, BROAD_CROWN_R, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CHURCH_WALL, CONE_CROWN_R, OLD_ROOF, ROOF,
   SLATE, TAR_ROOF, WALL,
 } from './floraShapes'
-import { FLORA_COLORS, type Season } from './season'
+import { canopyColor, FLORA_COLORS, type Season } from './season'
 import { TINT_RANGE } from './vegetation'
 
 /**
@@ -34,18 +34,6 @@ const CHURCH_ROOF_D = 19
  * 的鎮是灰褐的，比真的房子（屋頂的紅佔大半）彩度低一截
  */
 export const WALL_SHARE = 0.3
-
-/**
- * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
- * 側面在陰影裡，整株看下去比樹冠色暗。同一片林子有模型與只剩烘圖時，畫面的
- * 平均色在這個倍率對得上
- */
-export const CANOPY_SHADE = 0.9
-
-/** 樹冠色乘 `CANOPY_SHADE` */
-export function canopyColor(hex: number): Color {
-  return new Color(hex).multiplyScalar(CANOPY_SHADE)
-}
 
 /** 屋頂色與牆色照 `WALL_SHARE` 混 */
 function splatColor(roof: number, wall: number): Color {
