@@ -17,9 +17,8 @@ const fp = createFloodplain([line('Luppe', 0), line('Wethau', 4000)])
 
 describe('範圍與覆蓋率', () => {
   it('河漫灘在河的兩側、寬度不超過基準的 1.15 倍；不在表上的河沒有', () => {
-    expect(fp.inside(0, 200)).toBe(true)
-    expect(fp.inside(0, -200)).toBe(true)
-    expect(fp.inside(0, 600)).toBe(false)
+    expect(fp.inside(0, 300)).toBe(true)
+    expect(fp.inside(0, -300)).toBe(true)
     expect(fp.inside(0, 1200)).toBe(false)
     expect(fp.inside(0, 4000)).toBe(false)
   })
@@ -107,10 +106,11 @@ describe('地面網格', () => {
   })
 
   /**
-   * 【沒有河漫灘的河也有草甸】兩岸各 `MEADOW_HALF` 烘成草甸色；Luppe 那邊是河漫灘，
-   * 有森林的深色，不是一整條同色的帶子
+   * 【沒有河漫灘的河也有草甸】兩岸烘成草甸色；Luppe 那邊是河漫灘，有森林的深色，
+   * 不是一整條同色的帶子。【地面只鋪靠河的四分之一】樹長在整個河漫灘，地面的色帶
+   * 只有它的四分之一寬：Luppe 最寬 900 × 1.15、小河 `MEADOW_HALF`
    */
-  it('小河兩岸是 MEADOW_HALF 寬的草甸，河漫灘不是單一色', () => {
+  it('地面只鋪靠河的四分之一；小河是草甸色，河漫灘不是單一色', () => {
     const mesh = fp.buildGround(() => 0, 22000)
     const pos = mesh.geometry.getAttribute('position') as BufferAttribute
     const col = mesh.geometry.getAttribute('color') as BufferAttribute
@@ -124,13 +124,18 @@ describe('地面網格', () => {
       const same = Math.abs(col.getX(i) - meadow.r) < 1e-6 && Math.abs(col.getY(i) - meadow.g) < 1e-6
       if (z > 2000) {
         // Wethau 在 z = 4000 附近（±80 m 的彎）：頂點離中心線不超過半寬加一格對角線
-        expect(Math.abs(z - (4000 + 80 * Math.sin(x / 700))), `(${x},${z})`).toBeLessThan(MEADOW_HALF + 30)
+        expect(Math.abs(z - (4000 + 80 * Math.sin(x / 700))), `(${x},${z})`).toBeLessThan(MEADOW_HALF / 4 + 30)
         expect(same).toBe(true)
         bank++
-      } else if (same) luppeMeadow++
-      else luppeOther++
+      } else {
+        if (Math.abs(x) < 4500) {
+          expect(Math.abs(z - 80 * Math.sin(x / 700)), `(${x},${z})`).toBeLessThan((900 * 1.15) / 4 + 30)
+        }
+        if (same) luppeMeadow++
+        else luppeOther++
+      }
     }
-    expect(bank).toBeGreaterThan(1000)
+    expect(bank).toBeGreaterThan(500)
     expect(luppeMeadow).toBeGreaterThan(100)
     expect(luppeOther).toBeGreaterThan(100)
     mesh.geometry.dispose()
@@ -153,14 +158,14 @@ describe('地面網格', () => {
       const a = col.getW(i)
       if (z > 2000) {
         const d = Math.abs(z - (4000 + 80 * Math.sin(x / 700)))
-        if (d > MEADOW_HALF + 5) {
+        if (d > MEADOW_HALF / 4 + 5) {
           expect(a, `(${x},${z})`).toBeLessThan(0.02)
           outer++
         }
       } else if (!fp.inside(x, z)) {
         expect(a, `(${x},${z})`).toBe(0)
         outer++
-      } else if (Math.abs(x) < 4500 && Math.abs(z - 80 * Math.sin(x / 700)) < 100) {
+      } else if (Math.abs(x) < 4500 && Math.abs(z - 80 * Math.sin(x / 700)) < 40) {
         expect(a, `(${x},${z})`).toBe(1)
         core++
       }
