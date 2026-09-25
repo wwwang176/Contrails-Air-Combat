@@ -4,23 +4,23 @@ import {
 import { FloraKind, pushFlora, type FloraSource } from './flora'
 import { excludingWhere } from './floraExclude'
 import {
-  CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine,
+  CHANNEL_HALF, RiverIndex, type WaterLine,
 } from '../world/river'
 
 /**
- * # 河的算繪：水面、河岸草甸、河廊排除、河岸林
+ * # 河的算繪：水面、河廊排除、河岸林
  *
- * 【為什麼要草甸與河廊】河面鋪好之後最刺眼的變成田 —— 犁過的方格與樹籬一路
- * 壓到水邊，河看起來像畫在田上的一條線。真實的河廊是沒犁過的草地加一排沿岸
- * 的樹，而且田的格線在那裡會斷掉。
+ * 【為什麼要河廊】河面鋪好之後最刺眼的變成田 —— 犁過的方格與樹籬一路壓到水邊，
+ * 河看起來像畫在田上的一條線。真實的河廊是沒犁過的草地加一排沿岸的樹，而且田的
+ * 格線在那裡會斷掉。兩岸的草地烘在地面裡（`floodplain.ts` 的 `buildGround`）。
  *
- * 【`polygonOffset` 不是抬高度】水面與草甸都貼著地面，而投彈高度的深度解析度
- * 只剩公尺級（遠平面 5,000 km）—— 靠抬高度會看得出它們浮在田上。
+ * 【`polygonOffset` 不是抬高度】水面貼著地面，而投彈高度的深度解析度只剩公尺級
+ * （遠平面 5,000 km）—— 靠抬高度會看得出它浮在田上。
  */
 
-/** 草甸帶的半寬，m */
+/** 沒有河漫灘的河，兩岸草甸的半寬，m */
 export const MEADOW_HALF = 190
-/** 樹籬、林地、村落被擋開的半寬，m。比草甸窄一點 —— 帶子外緣本來就在漸變回田 */
+/** 樹籬、林地、村落被擋開的半寬，m。比草甸窄一點 */
 export const CLEAR_HALF = 150
 /** 河岸林的半寬帶：離中心線這個範圍內撒樹，m */
 const TREE_NEAR = 55
@@ -86,53 +86,6 @@ export function buildRiverWater(lines: readonly WaterLine[]): Mesh {
     polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
   }))
   mesh.name = 'riverWater'
-  return mesh
-}
-
-/**
- * 河岸的草甸：一條貼著地形的帶子。
- *
- * 【要跟著地形起伏】只取中心線高度的話，380 m 寬的平帶子在起伏的地上會一半
- * 陷進去一半浮起來。所以橫向也切段，每一個頂點各自取當地地形。**延伸段不切**
- * —— 外環是平的，切了只是多頂點。
- */
-export function buildBankGround(sample: HeightSampler, lines: readonly WaterLine[]): Mesh {
-  const pos: number[] = []
-  const idx: number[] = []
-  for (const line of lines) {
-    /** 橫向切幾段。太少的話帶子跨不過地形的起伏 */
-    const cross = line.coarse ? 1 : 6
-    const base = pos.length / 3
-    const n = line.points.length
-    for (let i = 0; i < n; i++) {
-      const [nx, nz] = normalAt(line, i)
-      const p = line.points[i]!
-      for (let c = 0; c <= cross; c++) {
-        const s = (c / cross) * 2 - 1
-        const x = p[0] + nx * MEADOW_HALF * s
-        const z = p[1] + nz * MEADOW_HALF * s
-        pos.push(x, sample(x, z) + 0.15, z)
-      }
-    }
-    for (let i = 0; i + 1 < n; i++) {
-      for (let c = 0; c < cross; c++) {
-        const k = base + i * (cross + 1) + c
-        const kn = k + cross + 1
-        // 【捲繞方向】與水面同一個坑：反了就整條被背面剔除，畫面上什麼都沒有
-        idx.push(k, kn, k + 1, k + 1, kn, kn + 1)
-      }
-    }
-  }
-  const geo = new BufferGeometry()
-  geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
-  geo.setIndex(idx)
-  geo.computeVertexNormals()
-  geo.computeBoundingSphere()
-  const mesh = new Mesh(geo, new MeshStandardMaterial({
-    color: MEADOW, roughness: 0.95,
-    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
-  }))
-  mesh.name = 'riverBank'
   return mesh
 }
 
@@ -238,11 +191,10 @@ export function createRiverSet(lines: readonly WaterLine[]): RiverSet {
   return { lines, index: new RiverIndex(lines, MEADOW_HALF) }
 }
 
-/** 水面與草甸，掛在同一個群組底下。**草甸先加** —— 同樣的深度偏移時水面要蓋在上面 */
-export function buildRiverMeshes(sample: HeightSampler, set: RiverSet): Group {
+/** 水面，掛在一個群組底下。兩岸的草甸烘在地面裡（`floodplain.ts` 的 `buildGround`） */
+export function buildRiverMeshes(set: RiverSet): Group {
   const g = new Group()
   g.name = 'river'
-  g.add(buildBankGround(sample, set.lines))
   g.add(buildRiverWater(set.lines))
   return g
 }

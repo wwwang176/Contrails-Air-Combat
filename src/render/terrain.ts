@@ -570,7 +570,7 @@ function createInlandTerrain(
   })
   // 【河掛在陸地底下】它是地表的一部分：`__gfx` 關陸地時一起關，群組的位置
   // 契約也不動。放在換材質那一圈之後 —— 那一圈把每一個孩子都當成田
-  const river = rivers === undefined ? null : buildRiverMeshes((x, z) => solid.sample(x, z), rivers)
+  const river = rivers === undefined ? null : buildRiverMeshes(rivers)
   if (river !== null) ground.object.add(river)
   if (dressing !== undefined) ground.object.add(dressing.object)
   // 【河道上是水面不是河底】與海面同一個約定：陸地與水面取較高者。只給河底

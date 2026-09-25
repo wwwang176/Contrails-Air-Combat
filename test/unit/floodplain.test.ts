@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { BufferAttribute } from 'three'
+import { Color, type BufferAttribute } from 'three'
 import { createFloodplain } from '../../src/render/floodplain'
+import { MEADOW, MEADOW_HALF } from '../../src/render/river'
 import { createFloraBuffer, FLORA_STRIDE, FloraKind } from '../../src/render/flora'
 import type { WaterLine } from '../../src/world/river'
 
@@ -101,6 +102,36 @@ describe('地面網格', () => {
       seen.add(key)
     }
     expect(seen.size).toBeGreaterThan(10_000)
+    mesh.geometry.dispose()
+  })
+
+  /**
+   * 【沒有河漫灘的河也有草甸】兩岸各 `MEADOW_HALF` 烘成草甸色；Luppe 那邊是河漫灘，
+   * 有森林的深色，不是一整條同色的帶子
+   */
+  it('小河兩岸是 MEADOW_HALF 寬的草甸，河漫灘不是單一色', () => {
+    const mesh = fp.buildGround(() => 0, 22000)
+    const pos = mesh.geometry.getAttribute('position') as BufferAttribute
+    const col = mesh.geometry.getAttribute('color') as BufferAttribute
+    const meadow = new Color(MEADOW)
+    let bank = 0
+    let luppeMeadow = 0
+    let luppeOther = 0
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i)
+      const z = pos.getZ(i)
+      const same = Math.abs(col.getX(i) - meadow.r) < 1e-6 && Math.abs(col.getY(i) - meadow.g) < 1e-6
+      if (z > 2000) {
+        // Wethau 在 z = 4000 附近（±80 m 的彎）：頂點離中心線不超過半寬加一格對角線
+        expect(Math.abs(z - (4000 + 80 * Math.sin(x / 700))), `(${x},${z})`).toBeLessThan(MEADOW_HALF + 30)
+        expect(same).toBe(true)
+        bank++
+      } else if (same) luppeMeadow++
+      else luppeOther++
+    }
+    expect(bank).toBeGreaterThan(1000)
+    expect(luppeMeadow).toBeGreaterThan(100)
+    expect(luppeOther).toBeGreaterThan(100)
     mesh.geometry.dispose()
   })
 })

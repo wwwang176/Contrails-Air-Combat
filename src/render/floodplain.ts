@@ -1,7 +1,7 @@
 import type { Mesh } from 'three'
 import { FloraKind, hash2, pushFlora, valueNoise, type FloraSource } from './flora'
 import { buildDecals, DECAL_GRID, type DecalGrid, type DecalRegion } from './groundDecal'
-import { MEADOW } from './river'
+import { MEADOW, MEADOW_HALF } from './river'
 import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '../world/river'
 
 /**
@@ -13,7 +13,8 @@ import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '..
  *
  * - 範圍：離河的中心線 `WIDTH` 以內，寬度沿河用低頻雜訊起伏
  * - 森林：兩個尺度的值雜訊決定團塊（大的定位置、小的把邊弄毛），往河谷邊緣淡掉
- * - 地面：草甸色，森林底下往林地的深色混（`buildGround`，烘進田色貼圖）
+ * - 地面：草甸色，森林底下往林地的深色混（`buildGround`，烘進田色貼圖）。沒有
+ *   河漫灘的河也在這裡鋪地面：兩岸各 `MEADOW_HALF` 的草甸
  * - 樹：20 m 一格一個候選點，照森林的覆蓋率接受；草地上零星幾棵
  *
  * 【位置只由全域座標決定】與植被的其他散佈器同一條鐵律。
@@ -73,6 +74,9 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
     const own = lines.filter((l) => l.name === name)
     return { name, base, own, index: new RiverIndex(own, base * 1.15 + NEAR_MARGIN) }
   }).filter((g) => g.own.length > 0)
+  // 沒有河漫灘的河（小河、地圖外的延伸段）：地面只有 `MEADOW_HALF` 寬的草甸
+  const bankOnly = lines.filter((l) => WIDTH[l.name] === undefined)
+  const bankIndex = new RiverIndex(bankOnly, MEADOW_HALF)
   const width = (x: number, z: number, base: number): number =>
     base * (0.55 + 0.6 * valueNoise(x, z, WIDTH_NOISE, 0x5a17))
 
@@ -201,9 +205,20 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
       const claimed = new Set<number>()
       const regions: DecalRegion[] = []
       const meadow = MEADOW
-      for (const g of groups) {
-        const reach = g.base * 1.15
-        for (const l of g.own) {
+      // 河漫灘先鋪、先認領；沒有河漫灘的河只鋪草甸帶
+      const layers = [
+        ...groups.map((g) => ({
+          own: g.own, reach: g.base * 1.15, inside,
+          colorAt: (x: number, z: number) => mixHex(meadow, FOREST_GROUND, cover(x, z)),
+        })),
+        {
+          own: bankOnly, reach: MEADOW_HALF, inside: (x: number, z: number) => bankIndex.distance(x, z) < MEADOW_HALF,
+          colorAt: () => meadow,
+        },
+      ]
+      for (const layer of layers) {
+        const { reach, inside: within, colorAt } = layer
+        for (const l of layer.own) {
           let start = 0
           while (start + 1 < l.points.length) {
             let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
@@ -222,13 +237,13 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
               x0: Math.max(-extent, x0 - reach), z0: Math.max(-extent, z0 - reach),
               x1: Math.min(extent, x1 + reach), z1: Math.min(extent, z1 + reach),
               inside: (x, z) => {
-                if (!inside(x, z)) return false
+                if (!within(x, z)) return false
                 const key = Math.floor(x / grid) * 1_000_003 + Math.floor(z / grid)
                 if (claimed.has(key)) return false
                 claimed.add(key)
                 return true
               },
-              colorAt: (x, z) => mixHex(meadow, FOREST_GROUND, cover(x, z)),
+              colorAt,
             })
           }
         }
