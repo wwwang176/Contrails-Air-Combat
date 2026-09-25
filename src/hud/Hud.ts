@@ -29,13 +29,13 @@ export type HudWidget =
 
 /**
  * 一般飛行的繪製順序。**順序有意義**：
- * 黑視／紅視先畫，其餘 HUD 元件疊在上面維持可讀；受擊方向壓在世界上面、
- * 儀表與數字之下；接觸點畫在準星底下 —— 準星必須壓在最上層。
+ * 黑視／紅視先畫，其餘 HUD 元件疊在上面維持可讀；標記與目標框貼在世界上，
+ * 受擊方向壓在它們上面、儀表與數字之下；準星必須壓在最上層。
  */
 export const FULL: readonly HudWidget[] = [
   // 【標記排在目標框之前】同一個位置同時有飛機與剛脫手的炸彈時，壓在上面
   // 的該是飛機
-  'gEffect', 'damageEdge', 'markers', 'contacts', 'reticle',
+  'gEffect', 'markers', 'contacts', 'damageEdge', 'reticle',
   // 【航跡線排在落點圈之前】圈是線的起點，兩者重疊時壓在上面的該是圈
   'torpedoLine',
   // 【落點圈排在準星之後】兩者重疊時壓在上面的是落點圈
@@ -173,15 +173,19 @@ const SHIFT_STEP = 1e-4
 /**
  * 畫在**不跟著震動**的那一張畫布上的 widget。
  *
- * 【為什麼要分兩張】它們是壓在世界上的滿版遮罩。整張 HUD 會跟著鏡頭震動平移
- * 旋轉，而畫布只有自己那一塊點陣 —— 往外多填是填不進去的（超出點陣就被裁掉），
- * 所以畫布一移開，邊上就沒有像素可以蓋，露出一道沒壓暗的世界。
+ * 【滿版遮罩】暗角與黑視壓在世界上。整張 HUD 會跟著鏡頭震動平移旋轉，而畫布
+ * 只有自己那一塊點陣 —— 往外多填是填不進去的（超出點陣就被裁掉），所以畫布
+ * 一移開，邊上就沒有像素可以蓋，露出一道沒壓暗的世界。
  *
- * 【順序仍然成立】這兩個在 `FULL`／`BOMB` 裡都排在最前面，而這張畫布疊在
- * `#hud` 底下 —— 兩件事合起來等於它們仍然是最底層。`hudWidgets` 的護欄
- * 釘住「不震的一律排在會震的前面」。
+ * 【敵我標示與目標框】它們是用**已經套上震動**的相機投影出來的，本來就貼著
+ * 飛機跟著畫面晃。再吃一次 `#hud` 的變換就震了兩次，框與飛機脫開。
+ *
+ * 【順序仍然成立】這張畫布疊在 `#hud` 底下，所以這些在每一份清單裡都排在
+ * 會震的前面 —— 兩件事合起來層次與清單一致。`hudWidgets` 的護欄釘住這一條。
  */
-const MASK: readonly HudWidget[] = ['gEffect', 'bombVignette']
+const UNSHAKEN: readonly HudWidget[] = [
+  'gEffect', 'bombVignette', 'markers', 'contacts', 'godMarkers',
+]
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D
@@ -231,7 +235,7 @@ export class Hud {
     ctx.clearRect(0, 0, L.width, L.height)
     maskCtx.clearRect(0, 0, L.width, L.height)
     for (const w of hudWidgets(f.godView, f.bombing)) {
-      WIDGET_DRAW[w](MASK.includes(w) ? maskCtx : ctx, L, f, dt)
+      WIDGET_DRAW[w](UNSHAKEN.includes(w) ? maskCtx : ctx, L, f, dt)
     }
     this.applyShake(f.shakeAngle, f.shakeX, f.shakeY)
   }
@@ -245,7 +249,7 @@ export class Hud {
    * 而 `transform-origin` 的預設就是中心。位移的百分比也是對元素自己的
    * 寬高，所以左右吃畫面寬、上下吃畫面高。
    *
-   * 【只動 `#hud`】滿版的遮罩在另一張畫布上，那一張不能動，見 `MASK`。
+   * 【只動 `#hud`】遮罩與標記在另一張畫布上，那一張不能動，見 `UNSHAKEN`。
    */
   private applyShake(angle: number, shiftX: number, shiftY: number): void {
     const a = Math.round(angle / SHAKE_STEP) * SHAKE_STEP
