@@ -272,8 +272,9 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 上成團的樹林）各掃一次取大的。樹的那六池的峰值出自田圍著村，灌木與建築出自
  * 田一路到底。
  *
- * 【建築那三個為什麼放得寬】圈內通常只有一到兩個村，實測最大只有 18 棟房子，
- * 但那個數字對「村剛好在圈心」很敏感。三個池加起來也才 180 個實例。
+ * 【建築的峰值出自田圍著村】那幾張圖的村是洛伊納那一套生成器蓋的（三合院農莊、
+ * 小聚落，`farmSettlements.ts`），圈內兩三個村就上百棟。洛伊納的真實村鎮另有
+ * 覆寫（`leunaFeatures.ts`）。
  *
  * 溢位時丟掉並記一次告警，不靜默截斷。
  *
@@ -283,19 +284,17 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
 export const CAPACITY: Record<PoolName, number> = {
   broadNear: 3500,     // 掃描最大 2,543
   coneNear: 1500,      // 1,049
-  broadMid: 26600,     // 19,678
+  broadMid: 26700,     // 19,718
   coneMid: 11800,      // 8,708
-  broadPoint: 60000,    // 44,273
-  conePoint: 21800,     // 16,135
+  broadPoint: 60100,    // 44,459
+  conePoint: 21800,     // 16,136
   bushNear: 11900,     // 8,750
   bushPoint: 207500,    // 123,563   ← 全部實例的一半上下
-  house: 80,           // 57
-  barn: 40,            // 21
-  church: 20,          // 3
-  // 石板瓦房與油毛氈穀倉只有真實村鎮用（洛伊納，見 `leunaFeatures.ts`）；
-  // 隨機的村不撒，各留一格防呆
-  houseSlate: 16,
-  barnTar: 16,
+  house: 320,          // 229
+  barn: 190,           // 138
+  church: 20,          // 4
+  houseSlate: 60,      // 41
+  barnTar: 80,         // 56
 }
 
 /**

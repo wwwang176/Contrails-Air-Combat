@@ -42,8 +42,14 @@ type Kind = Place['kind']
 const CHURCH_REACH = 13
 /** 教堂周圍留的空地（加在教堂的外接半徑上），m */
 const CHURCH_YARD = 10
-/** 村有教堂的機率。鎮一定有 */
-const VILLAGE_CHURCH = 0.75
+/**
+ * 村有教堂的機率，照人口：小村多半沒有自己的教堂（幾個村共用一個教區教堂），
+ * 大村才有。沒有人口資料的村取中間那一檔。鎮一定有、小聚落一定沒有
+ */
+function villageChurchChance(pop: number | undefined): number {
+  if (pop === undefined) return 0.5
+  return pop < 250 ? 0.2 : pop < 500 ? 0.5 : 0.8
+}
 /** 人口超過這個數的鎮，教堂是大教堂（梅澤堡、魏森費爾斯、瑙姆堡） */
 const CATHEDRAL_POP = 30000
 
@@ -413,7 +419,7 @@ function farmsAlong(
 export function placeChurch(p: Place, avoid: (x: number, z: number) => boolean, occ: Occupancy): Placement | null {
   const h = nameHash(p.name)
   if (p.kind === 'hamlet') return null
-  if (p.kind === 'village' && ((h >>> 20) & 0xff) / 256 >= VILLAGE_CHURCH) return null
+  if (p.kind === 'village' && ((h >>> 20) & 0xff) / 256 >= villageChurchChance(p.pop)) return null
   const scale = p.kind === 'town' ? ((p.pop ?? 0) >= CATHEDRAL_POP ? 2 : 1.5) : 1
   const room = CHURCH_REACH * scale + CHURCH_YARD
   if (avoid(p.x, p.z) || !occ.free(p.x, p.z, room)) return null

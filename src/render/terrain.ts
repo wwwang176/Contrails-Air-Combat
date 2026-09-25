@@ -4,6 +4,7 @@ import {
 import { createOcean } from './ocean'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
 import { roofSplats } from './buildingBake'
+import { farmSettlementFlora } from './farmSettlements'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
@@ -13,7 +14,7 @@ import {
   ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
 } from './vegetation'
 import {
-  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmVillageFlora, farmWoodFlora,
+  createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
   islandCanopyCover, leyteCanopyCoarse, leyteFarCover, openHedgeFlora, openWoodFlora, type FloraSource,
 } from './flora'
 import { requestLeyteCanopy } from './canopyBake'
@@ -535,7 +536,10 @@ function createInlandTerrain(
   let fields = (open ? [openHedgeFlora, openWoodFlora] : [farmHedgeFlora, farmWoodFlora]).map(padClear)
   // 【建築：植被與烘圖是同一個散佈器】兩邊各包一份的話，遠處的屋頂色塊與近處的
   // 房子對不上。真實地物的建築已經避開河道；程序村沒有，要包河廊
-  let buildings = padClear(dressing === undefined ? farmVillageFlora : dressing.buildings)
+  // 程序生成的地圖的村用洛伊納那一套生成器（`farmSettlements.ts`），蓋到植被圈伸得到
+  // 的地方
+  const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
+  let buildings = padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)
   // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
   if (rivers !== undefined) {
     fields = fields.map((s) => excludingCorridor(s, rivers.index))
