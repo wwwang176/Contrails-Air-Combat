@@ -5,7 +5,7 @@ import {
   CHANNEL_HALF, CLEARANCE, EXTEND_REACH, RiverIndex, extendRivers, riverLines,
   type RiverFile, type WaterLine,
 } from '../../src/world/river'
-import { buildRiverWater } from '../../src/render/river'
+import { buildRiverMeshes, buildRiverWater, createRiverSet, disposeRiverMeshes } from '../../src/render/river'
 import { createLeuna, LEUNA_RIVER_ENDS } from '../../src/world/leuna'
 import { FARM_EXTENT, outsideZero } from '../../src/world/farmland'
 
@@ -181,6 +181,13 @@ describe('地圖外的延伸', () => {
 })
 
 describe('水面', () => {
+  /** 【草甸烘在地面裡】河的群組只有水面；另外疊一條草甸網格的話是一整條同色的硬邊帶子 */
+  it('河的群組只有水面', () => {
+    const g = buildRiverMeshes(createRiverSet(ALL))
+    expect(g.children.map((c) => c.name)).toEqual(['riverWater'])
+    disposeRiverMeshes(g)
+  })
+
   /**
    * 【水面不懸空】它是貼著地形鋪的帶子，爬上丘陵的側坡就是斜掛、一邊懸空。
    * 中心線上的水面離地面超過三公尺就看得出來。
