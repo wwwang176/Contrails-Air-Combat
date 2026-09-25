@@ -1,9 +1,8 @@
 import type { Mesh } from 'three'
-import { canopyColor } from './buildingBake'
 import { FloraKind, hash2, pushFlora, valueNoise, type FloraSource } from './flora'
 import { buildDecals, DECAL_GRID, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW, MEADOW_HALF } from './river'
-import { FLORA_COLORS } from './season'
+import { canopyColor, FLORA_COLORS } from './season'
 import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '../world/river'
 
 /**
@@ -36,7 +35,7 @@ const MEADOW_TREES = 0.015
 /** 候選點的格距，m。河岸林的樹大，稀一點也蓋得滿 */
 const GRID = 20
 /**
- * 森林烘進地面的顏色：從空中看的林子（`buildingBake.ts` 的 `canopyColor`）。植被圈
+ * 森林烘進地面的顏色：從空中看的林子（`season.ts` 的 `canopyColor`）。植被圈
  * 外樹不畫，地上留的是這個顏色，要與有樹時看起來一樣。河漫灘只有洛伊納有，
  * 洛伊納是晚秋
  */

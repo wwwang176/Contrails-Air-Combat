@@ -237,13 +237,15 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
   const bakeMat = new ShaderMaterial({
     uniforms: {
       uCell0: { value: new Vector2() }, uCells: { value: new Vector2() }, uMetres: { value: 1 },
+      uBakeFar: { value: 0 },
       ...candUniforms(),
     },
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres; varying vec2 vWorld;
 void main() { vWorld = (uCell0 + uv * uCells) * uMetres; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-    fragmentShader: `varying vec2 vWorld;
+    // 【遠圖烘遠處的樣子】近窗外就是遠圖，樹籬的樹 6 km 外不畫；近窗內的樹籬烘近圖
+    fragmentShader: `varying vec2 vWorld; uniform float uBakeFar;
 ${glsl}
-void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
+void main() { fieldFar = uBakeFar; gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
   })
   const quadGeo = new PlaneGeometry(2, 2)
   const bakeScene = new Scene()
@@ -297,6 +299,7 @@ void main() { gl_FragColor = vCol; }`,
     bakeMat.uniforms['uCell0']!.value.set(p.cx0, p.cz0)
     bakeMat.uniforms['uCells']!.value.set(p.w, p.h)
     bakeMat.uniforms['uMetres']!.value = L.m
+    bakeMat.uniforms['uBakeFar']!.value = L === near ? 0 : 1
     renderer.setRenderTarget(L.rt)
     if (overlaysOnly) {
       // 清的範圍受 RT 的 scissor 限制，只清這一片。畫完才換回原本的清除色 ——
@@ -401,7 +404,8 @@ ${glsl}`)
   bool proc = uBypass > 0.5 || eF >= 1.0 || tIn < 1.0;
   bool tex = uBypass < 0.5 && eF < 1.0 && tIn > 0.0;
   vec3 c = vec3(0.0);
-  // 算式：旁路、內圈、遠窗外（遠景環 15 km 外）
+  // 算式：旁路、內圈、遠窗外（遠景環 15 km 外）。近窗外畫遠處的樣子，與遠圖烘的相同
+  fieldFar = eN >= 1.0 ? 1.0 : 0.0;
   if (proc) c = fieldColorAt(w);
   // 【內圈疊回烘進貼圖的平面】算式裡沒有街、鎮地面、礦坑；貼圖的透明度記著它們。
   // 近圖外（內圈可以伸出近窗）讀遠圖。

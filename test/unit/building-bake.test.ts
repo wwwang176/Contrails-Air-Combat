@@ -4,9 +4,9 @@ import { pushFlora, FloraKind, type FloraSource } from '../../src/render/flora'
 import {
   BRICK_WALL, BROAD_CROWN_R, BUILDING_DEPTH, BUILDING_WIDTH, BUSH_R, CONE_CROWN_R, OLD_ROOF, ROOF, SLATE, WALL,
 } from '../../src/render/floraShapes'
-import { FLORA_COLORS } from '../../src/render/season'
+import { CANOPY_SHADE, FLORA_COLORS } from '../../src/render/season'
 import { TINT_RANGE } from '../../src/render/vegetation'
-import { CANOPY_SHADE, floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
+import { floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
 
 /** 把固定的幾筆吐進視窗；只吐中心在視窗裡的。一筆是 x, z, rot, scale, tint, kind, wide, tall */
 function fixed(items: readonly (readonly number[])[]): FloraSource {

@@ -1,5 +1,5 @@
 import { Color } from 'three'
-import { FIELD_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
+import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -72,6 +72,13 @@ export const REGION_SPACING = 3200
 
 /** 樹籬的總寬度，m。土堤加灌木加喬木，由空中看到的那一條帶 */
 export const HEDGE_WIDTH = 18
+
+/**
+ * 遠處（植被圈外，樹籬的樹不畫了）樹籬那一條帶放寬幾倍、畫成林子從空中看的顏色
+ * （`season.ts` 的 `canopyColor`）。斜著看，一排十幾公尺高的樹遮住的地比樹冠還寬；
+ * 照近處那一條細的深色線畫的話，6 km 外的田整片只剩土色
+ */
+export const HEDGE_FAR_GROW = 3
 
 /**
  * 有多少比例的田界長樹籬。
@@ -734,7 +741,8 @@ const REG: RegionSample = {
 const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
 /**
- * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版。**
+ * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版**，近處的
+ * 樣子（`fieldFar = 0`）。
  *
  * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。`open` 的地圖上，空地沒有樹籬
  * 也沒有作物（`FIELD_REACH`）。
@@ -764,10 +772,8 @@ export function fieldSurfaceColor(
   return out.multiplyScalar(k)
 }
 
-const rgb = (hex: number): string => {
-  const t = new Color().setHex(hex)
-  return `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
-}
+const rgb = (hex: number): string => vec3Of(new Color().setHex(hex))
+const vec3Of = (t: Color): string => `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
 
 /** 查候選表時多出來的宣告。uniform 由 `farmGround.ts` 的 `applyFields` 提供 */
 const CANDIDATE_DECL_GLSL = `
@@ -829,7 +835,7 @@ export function fieldGlsl(season: Season, candidates = false, open = false): str
   const base = fieldGlslBase(season, candidates)
   if (!open) return base
   // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
-  const at = base.indexOf('  col = mix(col, HEDGE_COLOR')
+  const at = base.indexOf('  col = mix(col, mix(HEDGE_COLOR')
   const decl = base.indexOf('vec3 fieldColorAt(')
   return base.slice(0, decl) + openDeclGlsl(season) + base.slice(decl, at) + OPEN_PARCEL_GLSL + base.slice(at)
 }
@@ -951,6 +957,11 @@ const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(c.hedge)};
+const vec3 HEDGE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf))};
+const float HEDGE_FAR_GROW = ${HEDGE_FAR_GROW.toFixed(3)};
+// 【遠處的樣子】1 = 植被圈外（樹籬的樹不畫了），樹籬畫成放寬的林冠色。呼叫端在
+// fieldColorAt 之前設；近處與內圈留 0，那裡有真的樹
+float fieldFar = 0.0;
 const vec3 TRACK_COLOR = ${rgb(c.track)};
 const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
 const vec3 WOOD_COLOR = ${rgb(c.wood)};
@@ -1103,7 +1114,8 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
   // 兩條帶的半寬不一樣：凹路的判準是 trackGap < trackWidthAt，樹籬的是
   // best < HEDGE_WIDTH * 0.5
-  col = mix(col, HEDGE_COLOR, isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5, px) : 0.0);
+  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar),
+    isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0);
   col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
   return col;
 }

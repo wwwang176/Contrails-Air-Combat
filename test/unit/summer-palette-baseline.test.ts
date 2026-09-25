@@ -21,7 +21,7 @@ function hash(s: string): string {
 
 describe('夏季色盤的凍結基準', () => {
   it('FIELD_GLSL 逐字相同', () => {
-    expect(hash(FIELD_GLSL)).toBe('287bbeb8')
+    expect(hash(FIELD_GLSL)).toBe('818917aa')
   })
 
   it('fieldSurfaceColor 的取樣表相同', () => {

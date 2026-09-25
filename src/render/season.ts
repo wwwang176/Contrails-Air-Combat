@@ -1,3 +1,5 @@
+import { Color } from 'three'
+
 /**
  * # 季節
  *
@@ -10,6 +12,19 @@
  */
 export type Season = 'summer' | 'lateAutumn'
 export const SEASONS: readonly Season[] = ['summer', 'lateAutumn']
+
+/**
+ * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
+ * 側面在陰影裡，整株看下去比樹冠色暗。同一片林子有模型與只剩烘圖時，畫面的
+ * 平均色在這個倍率對得上。植被圈外樹不畫，烘進地面的林子、樹冠色塊、遠處的樹籬
+ * 都用它
+ */
+export const CANOPY_SHADE = 0.9
+
+/** 樹冠色乘 `CANOPY_SHADE`（線性值） */
+export function canopyColor(hex: number): Color {
+  return new Color(hex).multiplyScalar(CANOPY_SHADE)
+}
 
 /**
  * 作物色盤的階數。**兩個季節都必須是這個數** —— `fields.ts` 的區塊基調

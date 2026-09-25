@@ -125,7 +125,7 @@ describe('地色', () => {
     expect(open).toContain('vec2 parcel = world + vec2(')
     // 空地在條紋之後、樹籬之前
     expect(open.indexOf('if (isOpenParcel(parcel, fh))')).toBeGreaterThan(open.indexOf('col *= stripe('))
-    expect(open.indexOf('if (isOpenParcel(parcel, fh))')).toBeLessThan(open.indexOf('col = mix(col, HEDGE_COLOR'))
+    expect(open.indexOf('if (isOpenParcel(parcel, fh))')).toBeLessThan(open.indexOf('col = mix(col, mix(HEDGE_COLOR'))
   })
 })
 
