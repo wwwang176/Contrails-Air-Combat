@@ -3,13 +3,13 @@ import { assetUrl } from '../core/asset'
 import type { FloraSource } from './flora'
 import { createFloodplain } from './floodplain'
 import { terrainGrid } from './groundDecal'
-import { excludingWhere } from './floraExclude'
+import { excludingWhere, type BoxTest } from './floraExclude'
 import type { PoolName } from './vegetation'
 import type { RiverSet } from './river'
 import {
-  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementTest,
+  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementNear, settlementTest,
 } from './settlements'
-import { buildMines, mineTest } from './mines'
+import { buildMines, mineNear, mineTest } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
 import { CHANNEL_HALF, RiverIndex, type HeightSampler } from '../world/river'
@@ -41,8 +41,12 @@ export interface LandDressing {
   readonly object: Group
   /** 樹籬與樹林不長在這些地方：村鎮裡、礦坑裡、高速公路上 */
   readonly keepOut: (x: number, z: number) => boolean
+  /** `keepOut` 的整格版（`excludingWhere` 的 `near`）：回 false 的格一定沒有要擋的 */
+  readonly keepOutNear: BoxTest
   /** 田的樹籬與田裡的林地另外不長在這裡：河漫灘（河岸林照長） */
   readonly fieldsOut: (x: number, z: number) => boolean
+  /** `fieldsOut` 的整格版 */
+  readonly fieldsOutNear: BoxTest
   /** 另外的散佈器：河漫灘的河岸林（已經擋了 `keepOut`） */
   readonly flora: readonly FloraSource[]
   /** 村鎮的建築。已經避開河道、高速公路、礦坑與砲位 */
@@ -163,6 +167,10 @@ export function buildLeunaDressing(
   const buildings = layout.flora
 
   const keepOut = (x: number, z: number): boolean => inTown(x, z) || inMine(x, z) || onRoad(x, z)
+  const townNear = settlementNear(f.places)
+  const mineNearBox = mineNear(f.mines, 0)
+  const keepOutNear: BoxTest = (x0, z0, x1, z1) =>
+    townNear(x0, z0, x1, z1) || mineNearBox(x0, z0, x1, z1) || road.mayReach(x0, z0, x1, z1)
   const object = new Group()
   object.name = 'landFeatures'
   const floodplain = createFloodplain(rivers.lines)
@@ -188,8 +196,10 @@ export function buildLeunaDressing(
   return {
     object,
     keepOut,
+    keepOutNear,
     fieldsOut: floodplain.inside,
-    flora: [excludingWhere(floodplain.flora, keepOut)],
+    fieldsOutNear: floodplain.near,
+    flora: [excludingWhere(floodplain.flora, keepOut, keepOutNear)],
     buildings,
     capacity: CAPACITY,
     baked,

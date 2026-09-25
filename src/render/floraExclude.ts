@@ -82,15 +82,26 @@ export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
   }
 }
 
+/** 這個方框裡**可能**有要擋的地方嗎（保守：回 false 時一定沒有） */
+export type BoxTest = (x0: number, z0: number, x1: number, z1: number) => boolean
+
 /**
  * 把一個散佈器包成「`keepOut(x, z)` 為真的地方不長」。判準不是矩形的時候用：
  * 河廊、村鎮、礦坑、高速公路。
+ *
+ * `near`：整格先問一次，回 false 的格原樣透傳、不逐株查。**逐株查是補格的大宗**
+ * （洛伊納一格上百株樹籬，每一株問一次村鎮、礦坑、高速公路），而絕大多數的格
+ * 離它們很遠
  */
 export function excludingWhere(
-  source: FloraSource, keepOut: (x: number, z: number) => boolean,
+  source: FloraSource, keepOut: (x: number, z: number) => boolean, near?: BoxTest,
 ): FloraSource {
   let scratch: FloraBuffer | null = null
   return (x0, z0, x1, z1, heightAt, out) => {
+    if (near !== undefined && !near(x0, z0, x1, z1)) {
+      source(x0, z0, x1, z1, heightAt, out)
+      return
+    }
     if (scratch === null || scratch.capacity < out.capacity) scratch = createFloraBuffer(out.capacity)
     scratch.count = 0
     scratch.dropped = 0

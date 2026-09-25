@@ -251,6 +251,72 @@ describe('樹籬擋在外面的地方', () => {
     expect(dressing.keepOut(a9[0], a9[1])).toBe(true)
     expect(dressing.keepOut(0, -7000)).toBe(false)
   })
+
+  /**
+   * 【先比半徑】聚落查詢在 0.78～1.22 倍半徑之外不算輪廓。倍率範圍比輪廓的起伏窄的話，
+   * 輪廓凸出去的那一角會被當成鎮外、長出樹籬 —— 不報錯，只是鎮邊多了一排樹
+   */
+  it('聚落查詢與逐一算輪廓的結果相同', () => {
+    const inTown = settlementTest(F.places)
+    let inside = 0
+    let outside = 0
+    // 每個聚落周圍 1.4 倍半徑、極座標取樣：半徑與方向都掃過輪廓凸出、凹進的地方
+    for (const c of F.places) {
+      const R = settlementRadius(c)
+      // 逐一算輪廓只需要算搆得到的聚落（輪廓最多 1.22 倍半徑，這裡放寬到 1.5 倍）
+      const reach = F.places.filter((p) => Math.hypot(p.x - c.x, p.z - c.z) < R * 1.4 + settlementRadius(p) * 1.5)
+      for (let k = 0; k < 90; k++) {
+        const th = (k / 90) * Math.PI * 2
+        for (let s = 0.7; s <= 1.4; s += 0.02) {
+          const x = c.x + Math.cos(th) * R * s
+          const z = c.z + Math.sin(th) * R * s
+          const slow = reach.some((p) => insideSettlement(p, x, z))
+          if (inTown(x, z) !== slow) expect.fail(`${c.name} (${x.toFixed(1)},${z.toFixed(1)})：應為 ${slow}`)
+          if (slow) inside++
+          else outside++
+        }
+      }
+    }
+    expect(inside).toBeGreaterThan(1000)
+    expect(outside).toBeGreaterThan(1000)
+  })
+
+  /**
+   * 【整格跳過】`keepOutNear`、`fieldsOutNear` 回 false 的格，植被補格整格不做逐株
+   * 判斷。判斷錯了的話鎮上、路上、河漫灘會整格長出樹籬 —— 這裡逐格驗：回 false 的格，
+   * 格裡每一個取樣點都真的不在擋的範圍內
+   */
+  it('整格判斷說不用擋的格，格裡每一點都真的不用擋', () => {
+    const STEP = 25
+    const check = (
+      name: string, near: (x0: number, z0: number, x1: number, z1: number) => boolean,
+      at: (x: number, z: number) => boolean,
+    ): void => {
+      let skipped = 0
+      let hitTiles = 0
+      for (let x0 = -16000; x0 < 16000; x0 += TILE_SIZE) {
+        for (let z0 = -16000; z0 < 16000; z0 += TILE_SIZE) {
+          const x1 = x0 + TILE_SIZE
+          const z1 = z0 + TILE_SIZE
+          if (near(x0, z0, x1, z1)) {
+            if (at((x0 + x1) / 2, (z0 + z1) / 2)) hitTiles++
+            continue
+          }
+          skipped++
+          for (let x = x0; x <= x1; x += STEP) {
+            for (let z = z0; z <= z1; z += STEP) {
+              if (at(x, z)) expect.fail(`${name}：(${x0},${z0}) 整格跳過，但 (${x},${z}) 要擋`)
+            }
+          }
+        }
+      }
+      // 量尺本身要有事可做：有跳過的格，也有真的要擋的格
+      expect(skipped, name).toBeGreaterThan(1000)
+      expect(hitTiles, name).toBeGreaterThan(50)
+    }
+    check('keepOut', dressing.keepOutNear, dressing.keepOut)
+    check('fieldsOut', dressing.fieldsOutNear, dressing.fieldsOut)
+  }, 120_000)
 })
 
 describe('A9 的橋', () => {
