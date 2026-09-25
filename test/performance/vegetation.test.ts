@@ -12,6 +12,8 @@ import {
   farmWoodFlora, openHedgeFlora, openWoodFlora, pushFlora, FloraKind, type FloraSource,
 } from '../../src/render/flora'
 import { createArchipelago } from '../../src/world/archipelago'
+import { FARM_EXTENT } from '../../src/world/farmland'
+import { farmSettlementFlora } from '../../src/render/farmSettlements'
 
 const FLAT = (): number => 0
 
@@ -171,7 +173,7 @@ let ISLAND_SCANNED: Record<string, number> = {}
  */
 const FARM_SOURCE_SETS: readonly (readonly [string, FloraSource[]])[] = [
   ['田一路到底', [farmHedgeFlora, farmWoodFlora, farmVillageFlora]],
-  ['田圍著村', [openHedgeFlora, openWoodFlora, farmVillageFlora]],
+  ['田圍著村', [openHedgeFlora, openWoodFlora, farmSettlementFlora(FARM_EXTENT / 2 + FLORA_RADIUS + 1000)]],
 ]
 /** 每一池的峰值出自哪一組 */
 const PEAK_SET: Record<string, string> = {}
