@@ -26,10 +26,8 @@ const BLUNT: AircraftSpec = { ...P51D, battery: harmless(P51D.battery) }
 /**
  * 這一層守的是**出貨設定**。
  *
- * 【為什麼需要它】`DEFAULT_BATTLE.aiProfile` 是 `ACE` —— 那是刻意的，
- * 因為 `ai-manoeuvre` / `ai-duel-matrix` / `ai-defence` 量的是 AI 的天花板，
- * 讓遊戲的難度設定去移動那些基準會分不清是誰改的。代價是**沒有任何其他
- * 測試碰得到 `VETERAN`**，所以這個檔案是它唯一的守門人。
+ * 【為什麼需要它】`DEFAULT_BATTLE.aiProfile` 是 `ACE`，所以**沒有任何其他
+ * 測試碰得到 `VETERAN`**，這個檔案是它唯一的守門人。
  */
 
 interface Side {

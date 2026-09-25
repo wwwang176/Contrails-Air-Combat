@@ -3,14 +3,13 @@
  *
  * 跑法：`npx vite-node test/tools/cruise-station.probe.ts`
  *
- * 【要回答什麼】`countLocks` 改成不數同小隊之後，`multi-battle` 的
- * 「開局巡航時編隊維持得住」由 66.2 m 變成 383.9 m。但同一次的取樣數由
- * 27,270 變成 72,554 —— **2.7 倍**。那條測試的巡航階段是用
- * `centroidGap(b) <= THREAT_RANGE` 判定結束的，取樣數暴增代表兩隊重心
- * 一直沒靠到 900 m 以內，於是視窗把整場混戰都吞進去了。
+ * 【要回答什麼】開局巡航時編隊維持得住嗎，`countLocks` 數不數同小隊各跑
+ * 一場。巡航階段若用「兩隊重心靠到 `THREAT_RANGE` 以內」判定結束，重心
+ * 一直沒靠到 900 m 以內時視窗會把整場混戰都吞進去，站位誤差與取樣數一起
+ * 暴增，看起來像編隊散了。
  *
- * 這支繞開那個判定，改用**時間**切窗（開局 10 km、對頭接近率約 400 m/s，
- * 第一次接觸約在 21 s），好分辨「編隊真的散了」與「視窗被污染了」。
+ * 所以兩種切法都印：**時間**切窗（開局 10 km、對頭接近率約 400 m/s，
+ * 第一次接觸約在 21 s）與重心判定，好分辨「編隊真的散了」與「視窗被污染了」。
  */
 import { createBattle, stepBattle, DEFAULT_BATTLE } from '../../src/battle/setup'
 import { AiController } from '../../src/ai/AiController'
@@ -19,7 +18,7 @@ import { Vector3 } from 'three'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
-/** 與 `multi-battle.test.ts` 逐字相同的假駕駛 —— 那條測試量的是 AI 對 AI */
+/** 玩家座位放一個恆平飛的假駕駛 —— 量的是 AI 對 AI */
 class Idle implements Controller {
   private readonly aim = new Vector3(0, 0, -1)
   update(_a: Aircraft, _dt: number, out: Command): void {
@@ -49,7 +48,7 @@ interface Out {
   early: number[]
   /** 兩隊重心第一次靠到 THREAT_RANGE 以內的時刻，s；沒發生為 NaN */
   mergeAt: number
-  /** `multi-battle` 那條的原判定所產生的取樣數 */
+  /** 重心判定切出來的巡航階段取樣數 */
   legacySamples: number
   legacyMedian: number
 }
@@ -115,7 +114,7 @@ for (const [name, r] of [['不數同小隊（新）', on], ['每一架都數（�
     + `  ${p90.toFixed(1).padStart(7)} m`)
 }
 
-console.log(`\n【multi-battle 的原判定】巡航階段在「兩隊重心靠到 ${THREAT_RANGE} m 以內」時結束`)
+console.log(`\n【重心判定】巡航階段在「兩隊重心靠到 ${THREAT_RANGE} m 以內」時結束`)
 console.log('設定                 重心靠攏於      該判定的樣本   中位')
 for (const [name, r] of [['不數同小隊（新）', on], ['每一架都數（舊）', off]] as const) {
   console.log(`${name}  ${(Number.isNaN(r.mergeAt) ? '（60 s 內沒發生）' : `${r.mergeAt.toFixed(1)} s`).padStart(12)}`

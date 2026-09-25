@@ -5,9 +5,11 @@
  * 跑它的是這兩支：
  *
  * ```
- *   test/integration/ai-command-tactics.test.ts   命令有沒有被執行（三場）
+ *   test/integration/ai-command-tactics.test.ts   命令有沒有被執行（側翼、集火各一場）
  *   test/tools/tactics-effect.probe.ts            執行了有沒有比較好（十九場）
  * ```
+ *
+ * 對照那一場（`runControl`）只有探針在用。
  *
  * 【為什麼共用而不是各抄一份】這支 500 行裡有一半是量測本身的陷阱（時間
  * 對齊、場內對照、僚機基線）。抄兩份等於埋一個「兩邊會慢慢漂開」的洞，
@@ -229,7 +231,7 @@ export function observe(
     focusedLoss: 0, focusedTime: 0, othersLoss: 0, othersTime: 0,
     redDamage: 0, blueDamage: 0,
   }
-  /** 開場的 hp，用來算全程掉了多少。與 `ai-command-channel.test.ts` 同一個算法 */
+  /** 開場的 hp，用來算全程掉了多少 */
   const hp0 = b.world.combatants.map((c) => c.hp)
   /** 上一步的 hp，用來算每步的掉血 */
   const prevHp = b.world.combatants.map((c) => c.hp)

@@ -157,8 +157,8 @@ describe('sideSummary', () => {
  * `mixedLine` —— 遭遇戰自訂編組的編組函數。
  *
  * 【第一條是全部的重點】它必須是 `lineAbreast` 的推廣，而不是另一種排法：
- * `test/fixtures/spawn-baseline.ts` 的每一個座標、`world.add` 的順序、
- * 以及由順序決定的 AI 決策相位／名字指派／點放錯開，全部釘在後者上。
+ * 出生座標、`world.add` 的順序、以及由順序決定的 AI 決策相位／名字指派／
+ * 點放錯開，兩者要一致。
  */
 describe('mixedLine', () => {
   /** 同機種、同架數時玩家的座位，等於 `lineAbreast` 的 `playerFlight` 長機 */

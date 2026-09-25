@@ -8,8 +8,7 @@
  * 紅了指不出是哪裡壞了，而任何一次手感微調都會讓它亂跳。
  *
  * 判「AI 打得合不合理」是試飛的事。程式的契約由各自的機制測試守：
- * 目標選擇看 `test/unit/ai-target.test.ts`，鎖定分散看
- * `test/integration/multi-battle.test.ts`，彈道與傷害看
+ * 目標選擇與鎖定計數看 `test/unit/ai-target.test.ts`，彈道與傷害看
  * `test/integration/hit-matrix.test.ts`。
  *
  * ── 【看同機種那一行，不要看跨機種那一行】───────────────────
