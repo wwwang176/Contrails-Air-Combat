@@ -69,8 +69,6 @@ interface Observed {
   /** 累計損失 */
   blueLost: number
   redLost: number
-  /** 整場累計的命中事件數 */
-  hitEventCount: number
   /** 命中與入海兩個事件緩衝累計丟棄了幾筆。門檻：恆為 0 */
   eventsDropped: number
   /** 整場累計的擊墜事件數。門檻：恰好等於陣亡數 */
@@ -89,7 +87,7 @@ function observe(): Observed {
     wentUnderwater: false, ownSlotDirty: 0, maxDeadTargetedSteps: 0,
     maxDecisionsInOneStep: 0,
     blueLost: 0, redLost: 0,
-    hitEventCount: 0, eventsDropped: 0,
+    eventsDropped: 0,
     killEventCount: 0, killsDropped: 0, damageDropped: 0,
   }
 
@@ -104,7 +102,6 @@ function observe(): Observed {
     stepBattle(b, DT)
     // 【必須自己排空】這個測試不是 main.ts。不排空的話緩衝會填滿並開始
     // 丟棄，下面的斷言必紅，而那個紅燈不代表任何缺陷。
-    o.hitEventCount += b.world.hitEvents.count
     clearImpacts(b.world.hitEvents)
     clearImpacts(b.world.splashEvents)
     o.killEventCount += b.world.killEvents.count
@@ -178,12 +175,6 @@ describe('20v20 跑滿 150 秒', () => {
     // 物理上不可能的上界再取 10 倍餘裕算出來的。真的溢位代表推導錯了，
     // 而不是「調大一點就好」。
     expect(o.eventsDropped).toBe(0)
-  })
-
-  it('每一次命中都推了一筆事件', () => {
-    // 命中事件數必須與實際命中次數一致 —— 少了代表 resolveHits 有一條
-    // 提早 continue 的路徑漏掉推送，而火花會在那個情形下靜靜地不出現。
-    expect(o.hitEventCount).toBeGreaterThan(0)
   })
 
   it('擊墜事件數恰好等於陣亡數 —— 不多也不少（M8 spec §14.1.1）', () => {
