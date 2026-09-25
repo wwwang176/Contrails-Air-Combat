@@ -15,8 +15,11 @@ import { motorwayProfiles } from '../../src/render/motorway'
 import { settlementLayout, settlementTest } from '../../src/render/settlements'
 import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from '../../src/render/floraShapes'
 import { DECAL_LIFT } from '../../src/render/groundDecal'
-import { excludingCorridor, riverBankFlora, type RiverSet } from '../../src/render/river'
-import { excluding, excludingWhere } from '../../src/render/floraExclude'
+import { CLEAR_HALF, riverBankFlora, type RiverSet } from '../../src/render/river'
+import { excluding } from '../../src/render/floraExclude'
+import {
+  bakeKeepOut, corridorZone, excludingZones, type KeepOut, type KeepOutZone,
+} from '../../src/render/keepOutMask'
 import {
   createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, SHAPE_ONE, type FloraSource,
 } from '../../src/render/flora'
@@ -41,6 +44,13 @@ const sample = (x: number, z: number): number => solid.sample(x, z)
 
 let rivers: RiverSet
 let dressing: LandDressing
+/** 照 `terrain.ts` 合成的兩張遮罩：野生的樹、田裡的樹 */
+let wildZones: KeepOutZone[]
+let fieldZones: KeepOutZone[]
+let wildOut: KeepOut
+let fieldOut: KeepOut
+/** 遮罩的範圍：場地半寬加植被圈 */
+const MASK_EXTENT = 15000 + FLORA_RADIUS
 /** ±22 km 內全部的建築與樹 */
 const B: { x: number; z: number; kind: number }[] = []
 /** 同上，含旋轉、縮放（`FLORA_STRIDE` 的第 3、4 格）與面寬、樓高倍率 */
@@ -53,6 +63,10 @@ beforeAll(async () => {
   await preloadLeunaFeatures(read)
   rivers = buildLeunaRivers(sample)
   dressing = buildLeunaDressing(sample, rivers, leunaField)
+  wildZones = [...dressing.keepOut]
+  fieldZones = [...wildZones, ...dressing.fieldsOut, corridorZone(rivers.lines, CLEAR_HALF)]
+  wildOut = bakeKeepOut(wildZones, MASK_EXTENT)
+  fieldOut = bakeKeepOut(fieldZones, MASK_EXTENT)
   const buf = createFloraBuffer(400_000)
   dressing.buildings(-22000, -22000, 22000, 22000, sample, buf)
   for (let i = 0; i < buf.count; i++) {
@@ -181,9 +195,8 @@ describe('建築', () => {
    * 量的是每個鎮周圍 1 km 的格子，與整張圖量到最密的那一格。
    */
   it('鎮上與最密的那一格不超過單格上限', () => {
-    const srcs = [farmHedgeFlora, farmWoodFlora]
-      .map((f) => excludingWhere(excludingCorridor(f, rivers.index), dressing.keepOut))
-    srcs.push(excludingWhere(riverBankFlora(rivers.lines, 23000), dressing.keepOut), dressing.buildings)
+    const srcs = [farmHedgeFlora, farmWoodFlora].map((f) => excludingZones(f, fieldOut))
+    srcs.push(excludingZones(riverBankFlora(rivers.lines, 23000), wildOut), dressing.buildings)
     const buf = createFloraBuffer(4096)
     const centers = [
       ...F.places.filter((p) => p.kind === 'town' && Math.abs(p.x) < 15000 && Math.abs(p.z) < 15000),
@@ -221,11 +234,9 @@ describe('植被池不溢位', () => {
       x0: site.pad.x0 - clear, x1: site.pad.x1 + clear, z0: site.pad.z0 - clear, z1: site.pad.z1 + clear,
       pivot: site.pivot!, heading: site.heading!,
     })
-    let fields: FloraSource[] = [farmHedgeFlora, farmWoodFlora].map(padClear)
-      .map((f) => excludingWhere(excludingCorridor(f, rivers.index), dressing.fieldsOut))
-    fields.push(riverBankFlora(rivers.lines, 23000))
-    fields = fields.map((f) => excludingWhere(f, dressing.keepOut))
-    fields.push(padClear(dressing.buildings), ...dressing.flora.map(padClear))
+    const fields: FloraSource[] = [farmHedgeFlora, farmWoodFlora].map(padClear).map((f) => excludingZones(f, fieldOut))
+    fields.push(excludingZones(riverBankFlora(rivers.lines, 23000), wildOut))
+    fields.push(padClear(dressing.buildings), ...dressing.flora.map((f) => padClear(excludingZones(f, wildOut))))
     const v = createVegetation(fields, sample, { capacity: dressing.capacity })
     for (const [x, z] of [[-8750, -10000], [-10250, -12250], [-9000, -10250], [4000, -13000]] as const) {
       v.update(x, z)
@@ -238,7 +249,7 @@ describe('植被池不溢位', () => {
 
 describe('樹籬擋在外面的地方', () => {
   it('鎮上、坑裡、A9 上擋；空曠的田不擋', () => {
-    expect(dressing.keepOut(-600, -12337)).toBe(true)
+    expect(wildOut.test(-600, -12337)).toBe(true)
     const geisel = F.mines.find((m) => m.name === 'Geiseltalsee')!
     let inside: [number, number] | null = null
     for (let x = -13000; x < -6000 && inside === null; x += 200) {
@@ -246,10 +257,60 @@ describe('樹籬擋在外面的地方', () => {
         if (insideRing(geisel.ring, x, z)) inside = [x, z]
       }
     }
-    expect(dressing.keepOut(inside![0], inside![1])).toBe(true)
+    expect(wildOut.test(inside![0], inside![1])).toBe(true)
     const a9 = F.a9[0]![10]!
-    expect(dressing.keepOut(a9[0], a9[1])).toBe(true)
-    expect(dressing.keepOut(0, -7000)).toBe(false)
+    expect(wildOut.test(a9[0], a9[1])).toBe(true)
+    expect(wildOut.test(0, -7000)).toBe(false)
+  })
+
+  /**
+   * 【遮罩與逐點算相同】遮罩把整格在裡面、整格在外面的格直接回答；分類錯一格的話那一格
+   * 整片長錯（鎮上長樹籬、坑邊缺一塊），不會報錯。取樣集中在每一種範圍的邊上：
+   * 聚落輪廓的 0.6～1.4 倍、A9 兩側 60 m、礦坑的邊，另外全圖隨機
+   */
+  it('兩張遮罩與各範圍逐點算的聯集逐點相同', () => {
+    const exact = (zones: readonly KeepOutZone[], x: number, z: number): boolean => zones.some((zn) => zn.test(x, z))
+    const pts: [number, number][] = []
+    let seed = 41
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    for (const c of F.places) {
+      const R = settlementRadius(c)
+      for (let k = 0; k < 120; k++) {
+        const th = rand() * Math.PI * 2
+        const s = 0.6 + rand() * 0.8
+        pts.push([c.x + Math.cos(th) * R * s, c.z + Math.sin(th) * R * s])
+      }
+      // 貼著輪廓兩側 60 m：分類的上下界錯了，錯的就是這一圈
+      for (let k = 0; k < 300; k++) {
+        const th = rand() * Math.PI * 2
+        const r = R * outlineScale(c, th) + (rand() - 0.5) * 120
+        pts.push([c.x + Math.cos(th) * r, c.z + Math.sin(th) * r])
+      }
+    }
+    for (const line of F.a9) {
+      for (const [x, z] of line) {
+        for (let k = 0; k < 6; k++) pts.push([x + (rand() - 0.5) * 120, z + (rand() - 0.5) * 120])
+      }
+    }
+    for (const m of F.mines) {
+      for (const [x, z] of m.ring) {
+        for (let k = 0; k < 6; k++) pts.push([x + (rand() - 0.5) * 120, z + (rand() - 0.5) * 120])
+      }
+    }
+    for (let k = 0; k < 20000; k++) pts.push([(rand() - 0.5) * 2 * MASK_EXTENT, (rand() - 0.5) * 2 * MASK_EXTENT])
+    let inWild = 0
+    let inField = 0
+    for (const [x, z] of pts) {
+      const w = exact(wildZones, x, z)
+      const f = exact(fieldZones, x, z)
+      if (wildOut.test(x, z) !== w) expect.fail(`野生 (${x.toFixed(1)}, ${z.toFixed(1)})：應為 ${w}`)
+      if (fieldOut.test(x, z) !== f) expect.fail(`田裡 (${x.toFixed(1)}, ${z.toFixed(1)})：應為 ${f}`)
+      if (w) inWild++
+      if (f) inField++
+    }
+    expect(inWild).toBeGreaterThan(5000)
+    expect(inField).toBeGreaterThan(inWild)
+    expect(pts.length - inField).toBeGreaterThan(5000)
   })
 
   /**
@@ -282,9 +343,9 @@ describe('樹籬擋在外面的地方', () => {
   })
 
   /**
-   * 【整格跳過】`keepOutNear`、`fieldsOutNear` 回 false 的格，植被補格整格不做逐株
-   * 判斷。判斷錯了的話鎮上、路上、河漫灘會整格長出樹籬 —— 這裡逐格驗：回 false 的格，
-   * 格裡每一個取樣點都真的不在擋的範圍內
+   * 【整格跳過】每一種範圍的 `near` 回 false 的格，植被補格整格不做逐株判斷。判斷錯
+   * 了的話鎮上、路上、河漫灘會整格長出樹籬 —— 這裡逐格驗：回 false 的格，格裡每一個
+   * 取樣點都真的不在那個範圍內
    */
   it('整格判斷說不用擋的格，格裡每一點都真的不用擋', () => {
     const STEP = 25
@@ -312,10 +373,11 @@ describe('樹籬擋在外面的地方', () => {
       }
       // 量尺本身要有事可做：有跳過的格，也有真的要擋的格
       expect(skipped, name).toBeGreaterThan(1000)
-      expect(hitTiles, name).toBeGreaterThan(50)
+      expect(hitTiles, name).toBeGreaterThan(5)
     }
-    check('keepOut', dressing.keepOutNear, dressing.keepOut)
-    check('fieldsOut', dressing.fieldsOutNear, dressing.fieldsOut)
+    const names = ['聚落', '礦坑', 'A9']
+    dressing.keepOut.forEach((zn, i) => check(names[i] ?? `keepOut ${i}`, zn.near, zn.test))
+    dressing.fieldsOut.forEach((zn, i) => check(`fieldsOut ${i}`, zn.near, zn.test))
   }, 120_000)
 })
 

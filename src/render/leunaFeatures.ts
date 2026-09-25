@@ -3,13 +3,13 @@ import { assetUrl } from '../core/asset'
 import type { FloraSource } from './flora'
 import { createFloodplain } from './floodplain'
 import { terrainGrid } from './groundDecal'
-import { excludingWhere, type BoxTest } from './floraExclude'
+import { corridorZone, type KeepOutZone } from './keepOutMask'
 import type { PoolName } from './vegetation'
 import type { RiverSet } from './river'
 import {
-  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementNear, settlementTest,
+  buildGreens, buildSettlementGround, buildStreets, settlementLayout, settlementZone,
 } from './settlements'
-import { buildMines, mineNear, mineTest } from './mines'
+import { buildMines, mineTest, mineZone } from './mines'
 import { buildMotorway, motorwayProfiles } from './motorway'
 import { FLAK_SITES } from '../world/leuna'
 import { CHANNEL_HALF, RiverIndex, type HeightSampler } from '../world/river'
@@ -39,15 +39,11 @@ export async function preloadLeunaFeatures(
 export interface LandDressing {
   /** 鋪在地表上的網格：村鎮的地面、礦坑、高速公路。掛在陸地底下 */
   readonly object: Group
-  /** 樹籬與樹林不長在這些地方：村鎮裡、礦坑裡、高速公路上 */
-  readonly keepOut: (x: number, z: number) => boolean
-  /** `keepOut` 的整格版（`excludingWhere` 的 `near`）：回 false 的格一定沒有要擋的 */
-  readonly keepOutNear: BoxTest
-  /** 田的樹籬與田裡的林地另外不長在這裡：河漫灘（河岸林照長） */
-  readonly fieldsOut: (x: number, z: number) => boolean
-  /** `fieldsOut` 的整格版 */
-  readonly fieldsOutNear: BoxTest
-  /** 另外的散佈器：河漫灘的河岸林（已經擋了 `keepOut`） */
+  /** 什麼樹都不長的範圍：村鎮裡、礦坑裡、高速公路上 */
+  readonly keepOut: readonly KeepOutZone[]
+  /** 田的樹籬與田裡的林地另外不長的範圍：河漫灘（河岸林照長） */
+  readonly fieldsOut: readonly KeepOutZone[]
+  /** 另外的散佈器：河漫灘的河岸林（還沒擋 `keepOut`，由呼叫端包） */
   readonly flora: readonly FloraSource[]
   /** 村鎮的建築。已經避開河道、高速公路、礦坑與砲位 */
   readonly buildings: FloraSource
@@ -149,13 +145,9 @@ export function buildLeunaDressing(
   const f = cache
   const coarse = terrainGrid(field)
   const profiles = motorwayProfiles(f.a9, sample, rivers.index)
-  const road = new RiverIndex(
-    profiles.map((p) => ({ name: 'A9', points: p.points, level: p.points.map(() => 0), coarse: true })),
-    ROAD_KEEP_OUT,
-  )
-  const inMine = mineTest(f.mines, 0)
+  const roadLines = profiles.map((p) => ({ name: 'A9', points: p.points, level: p.points.map(() => 0), coarse: true }))
+  const road = new RiverIndex(roadLines, ROAD_KEEP_OUT)
   const nearMine = mineTest(f.mines, HOUSE_MINE)
-  const inTown = settlementTest(f.places)
   const nearFlak = (x: number, z: number): boolean =>
     FLAK_SITES.some((s) => Math.hypot(s.x - x, s.z - z) < HOUSE_FLAK)
   const onRoad = (x: number, z: number): boolean => road.distance(x, z) < ROAD_KEEP_OUT
@@ -166,11 +158,7 @@ export function buildLeunaDressing(
   )
   const buildings = layout.flora
 
-  const keepOut = (x: number, z: number): boolean => inTown(x, z) || inMine(x, z) || onRoad(x, z)
-  const townNear = settlementNear(f.places)
-  const mineNearBox = mineNear(f.mines, 0)
-  const keepOutNear: BoxTest = (x0, z0, x1, z1) =>
-    townNear(x0, z0, x1, z1) || mineNearBox(x0, z0, x1, z1) || road.mayReach(x0, z0, x1, z1)
+  const keepOut = [settlementZone(f.places), mineZone(f.mines, 0), corridorZone(roadLines, ROAD_KEEP_OUT)]
   const object = new Group()
   object.name = 'landFeatures'
   const floodplain = createFloodplain(rivers.lines)
@@ -196,10 +184,8 @@ export function buildLeunaDressing(
   return {
     object,
     keepOut,
-    keepOutNear,
-    fieldsOut: floodplain.inside,
-    fieldsOutNear: floodplain.near,
-    flora: [excludingWhere(floodplain.flora, keepOut, keepOutNear)],
+    fieldsOut: [{ test: floodplain.inside, near: floodplain.near }],
+    flora: [floodplain.flora],
     buildings,
     capacity: CAPACITY,
     baked,

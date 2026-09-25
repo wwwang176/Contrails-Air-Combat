@@ -1,5 +1,6 @@
 import type { Mesh } from 'three'
 import { buildDecals, type DecalGrid, type DecalRegion } from './groundDecal'
+import { COVER_EDGE, COVER_IN, COVER_OUT, type CellCover, type KeepOutZone } from './keepOutMask'
 import { insideRing, ringDistance, type FeatureFile } from '../world/landFeatures'
 import type { HeightSampler } from '../world/river'
 
@@ -55,7 +56,6 @@ export function buildMines(
   }), name, grid)
 }
 
-/** 「在礦坑裡（含坑緣外 `margin` 公尺）」的查詢，植被與建築用 */
 /** `mineTest` 的整格版：這個方框**可能**碰到某個礦坑（含坑緣外 `margin`）嗎 */
 export function mineNear(mines: FeatureFile['mines'], margin: number): (x0: number, z0: number, x1: number, z1: number) => boolean {
   const boxes = mines.map((m) => {
@@ -69,6 +69,43 @@ export function mineNear(mines: FeatureFile['mines'], margin: number): (x0: numb
   return (x0, z0, x1, z1) => boxes.some((b) => x1 >= b.x0 && x0 <= b.x1 && z1 >= b.z0 && z0 <= b.z1)
 }
 
+/**
+ * `mineTest` 的遮罩分類（`keepOutMask.ts`）：以 (cx, cz) 為中心、半對角線 `hd` 的格
+ * 整格在坑裡、整格在外、或跨過坑緣。用格心到坑緣的距離：格裡每一點離格心不到 `hd`
+ */
+export function mineCover(mines: FeatureFile['mines'], margin: number): CellCover {
+  const boxes = mines.map((m) => {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+    for (const [x, z] of m.ring) {
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x)
+      z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+    }
+    return { ring: m.ring, x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
+  })
+  return (cx, cz, hd) => {
+    let edge = false
+    for (const b of boxes) {
+      if (cx < b.x0 - hd || cx > b.x1 + hd || cz < b.z0 - hd || cz > b.z1 + hd) continue
+      const d = ringDistance(b.ring, cx, cz)
+      if (insideRing(b.ring, cx, cz)) {
+        if (d >= hd) return COVER_IN
+        edge = true
+      } else if (d + hd < margin) {
+        return COVER_IN
+      } else if (d - hd < margin) {
+        edge = true
+      }
+    }
+    return edge ? COVER_EDGE : COVER_OUT
+  }
+}
+
+/** 礦坑（含坑緣外 `margin`）當成不長樹的範圍 */
+export function mineZone(mines: FeatureFile['mines'], margin: number): KeepOutZone {
+  return { test: mineTest(mines, margin), near: mineNear(mines, margin), cover: mineCover(mines, margin) }
+}
+
+/** 「在礦坑裡（含坑緣外 `margin` 公尺）」的查詢，植被與建築用 */
 export function mineTest(mines: FeatureFile['mines'], margin: number): (x: number, z: number) => boolean {
   const boxes = mines.map((m) => {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
