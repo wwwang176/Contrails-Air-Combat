@@ -5,6 +5,10 @@ import { createFloraBuffer, pushFlora, FLORA_STRIDE, FloraKind, type FloraSource
 import { excluding } from '../../src/render/floraExclude'
 import { preloadPlantScenery } from '../../src/render/geometry/ground/plantScenery'
 import { createTerrain } from '../../src/render/terrain'
+import { preloadLeunaRivers } from '../../src/render/leunaRiver'
+import type { RiverFile } from '../../src/world/river'
+import { preloadLeunaFeatures } from '../../src/render/leunaFeatures'
+import type { FeatureFile } from '../../src/world/landFeatures'
 import { PLANT_CENTER, PLANT_PAD, PLANT_TREE_CLEAR, worldToPlant } from '../../src/world/leuna'
 
 /** 一個每 10 m 放一株的假散佈器 */
@@ -69,6 +73,12 @@ describe('洛伊納的墊面不長樹', () => {
       const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
       return Promise.resolve(ab)
     })
+    await preloadLeunaRivers((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as RiverFile,
+    ))
+    await preloadLeunaFeatures((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as FeatureFile,
+    ))
   })
 
   it('墊面外 PLANT_TREE_CLEAR 之內也零株', () => {

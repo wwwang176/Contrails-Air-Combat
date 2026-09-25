@@ -92,9 +92,9 @@ function buildChunk(
  */
 export function applyFields(
   material: MeshStandardMaterial, season: Season = 'summer', site?: SiteLayout,
-  candidates?: { texture: DataTexture; table: RegionCandidates },
+  candidates?: { texture: DataTexture; table: RegionCandidates }, open = false,
 ): void {
-  const glsl = fieldGlslWithSite(season, site, candidates !== undefined)
+  const glsl = fieldGlslWithSite(season, site, candidates !== undefined, open)
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     if (candidates !== undefined) {
       const t = candidates.table
@@ -118,13 +118,14 @@ diffuseColor.rgb = fieldColorAt(vFarmWorld.xz);`)
   // （flatShading 等）仍然照樣進 key，所以兩個材質共用這個字串是安全的。
   // 【季節要進 key】兩個季節的 GLSL 不同。key 相同的話先看過夏季農地再進
   // 晚秋的地形，three 會重用夏季的程式 —— 畫面還是綠的，而且不報錯
-  // 【有沒有廠區、查不查候選表也要進 key】兩者都是另一份字串
+  // 【有沒有廠區、查不查候選表、田圍不圍著村也要進 key】都是另一份字串
   material.customProgramCacheKey = () => 'farm-fields:' + season
-    + (site === undefined ? '' : ':site') + (candidates === undefined ? '' : ':cand')
+    + (site === undefined ? '' : ':site') + (candidates === undefined ? '' : ':cand') + (open ? ':open' : '')
 }
 
+/** `open`：田只圍著村，其餘是空地（`fields.ts` 的 `FIELD_REACH`） */
 export function createFarmGround(
-  field: HeightFieldData, season: Season = 'summer', site?: SiteLayout,
+  field: HeightFieldData, season: Season = 'summer', site?: SiteLayout, open = false,
 ): {
   object: Object3D
   /** 區塊候選表。田色 clipmap 烘圖與內圈的算式共用它，才不必再建一份 */
@@ -147,7 +148,7 @@ export function createFarmGround(
   texture.magFilter = NearestFilter
   texture.generateMipmaps = false
   texture.needsUpdate = true
-  applyFields(material, season, site, { texture, table })
+  applyFields(material, season, site, { texture, table }, open)
 
   const n = (field.size - 1) / FARM_CHUNKS
   const geometries: BufferGeometry[] = []

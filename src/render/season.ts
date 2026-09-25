@@ -1,3 +1,5 @@
+import { Color } from 'three'
+
 /**
  * # 季節
  *
@@ -10,6 +12,19 @@
  */
 export type Season = 'summer' | 'lateAutumn'
 export const SEASONS: readonly Season[] = ['summer', 'lateAutumn']
+
+/**
+ * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
+ * 側面在陰影裡，整株看下去比樹冠色暗。同一片林子有模型與只剩烘圖時，畫面的
+ * 平均色在這個倍率對得上。植被圈外樹不畫，烘進地面的林子、樹冠色塊、遠處的樹籬
+ * 都用它
+ */
+export const CANOPY_SHADE = 0.9
+
+/** 樹冠色乘 `CANOPY_SHADE`（線性值） */
+export function canopyColor(hex: number): Color {
+  return new Color(hex).multiplyScalar(CANOPY_SHADE)
+}
 
 /**
  * 作物色盤的階數。**兩個季節都必須是這個數** —— `fields.ts` 的區塊基調
@@ -31,6 +46,12 @@ export interface FieldColors {
   readonly wood: number
   /** 犁過的田的比例。與色調無關，散落在各處 */
   readonly ploughChance: number
+  /**
+   * 空地（牧草地、荒地、休耕）的兩個色，大片地低頻地在兩者之間漸變。只有
+   * 「田圍著村」的地圖用（`fields.ts` 的 `open`）
+   */
+  readonly open: number
+  readonly openAlt: number
 }
 
 export interface FloraColors {
@@ -48,6 +69,9 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     track: 0x938b77,
     wood: 0x2f3a28,
     ploughChance: 0.12,
+    // 牧草地的橄欖綠與荒地、休耕地的枯黃
+    open: 0x626b43,
+    openAlt: 0x78754f,
   },
   /**
    * 晚秋：收割後的麥茬赭 → 冬麥苗的淡綠；大半的田犁過了，露出深褐的土。
@@ -72,6 +96,9 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     track: 0x756e61,
     wood: 0x444434,
     ploughChance: 0.45,
+    // 十一月的枯草與濕地的深褐
+    open: 0x6e6a4a,
+    openAlt: 0x5f5a47,
   },
 }
 

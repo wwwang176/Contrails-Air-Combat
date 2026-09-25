@@ -4,7 +4,7 @@ import {
   PointsMaterial, Sphere, Vector3, type Object3D,
 } from 'three'
 import {
-  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, type FloraBuffer, type FloraSource,
+  createFloraBuffer, hash2, FloraKind, FLORA_STRIDE, SHAPE_ONE, type FloraBuffer, type FloraSource,
 } from './flora'
 import {
   createFloraGeometries, disposeFloraGeometries, POINT_POOLS, pointColorOf,
@@ -268,8 +268,13 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 容量去掃是循環量測：容量偏小時，印出來的「最大值」就是截斷值。掃描那一條
  * 傳一個大得離譜的 `capacity` 進去，量到的才是真的需求。
  *
- * 【建築那三個為什麼放得寬】圈內通常只有一到兩個村，實測最大只有 18 棟房子，
- * 但那個數字對「村剛好在圈心」很敏感。三個池加起來也才 180 個實例。
+ * 【兩組散佈器都掃】田一路到底（洛伊納）與田圍著村（程序生成的內陸地圖，空地
+ * 上成團的樹林）各掃一次取大的。樹的那六池的峰值出自田圍著村，灌木與建築出自
+ * 田一路到底。
+ *
+ * 【建築的峰值出自田圍著村】那幾張圖的村是洛伊納那一套生成器蓋的（三合院農莊、
+ * 小聚落，`farmSettlements.ts`），圈內兩三個村就上百棟。洛伊納的真實村鎮另有
+ * 覆寫（`leunaFeatures.ts`）。
  *
  * 溢位時丟掉並記一次告警，不靜默截斷。
  *
@@ -277,17 +282,19 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 測試裡不另外寫死一份數字。
  */
 export const CAPACITY: Record<PoolName, number> = {
-  broadNear: 2800,     // 掃描最大 2,056
-  coneNear: 1300,      // 913
-  broadMid: 24100,     // 17,786
-  coneMid: 9700,       // 7,158
-  broadPoint: 69000,    // 51,020
-  conePoint: 22700,     // 16,805
+  broadNear: 3500,     // 掃描最大 2,543
+  coneNear: 1500,      // 1,049
+  broadMid: 26700,     // 19,718
+  coneMid: 11800,      // 8,708
+  broadPoint: 60100,    // 44,459
+  conePoint: 21800,     // 16,136
   bushNear: 11900,     // 8,750
-  bushPoint: 207500,    // 153,558   ← 全部實例的六成
-  house: 80,           // 58
-  barn: 40,            // 21
-  church: 20,          // 3
+  bushPoint: 207500,    // 123,563   ← 全部實例的一半上下
+  house: 320,          // 229
+  barn: 190,           // 138
+  church: 20,          // 4
+  houseSlate: 60,      // 41
+  barnTar: 80,         // 56
 }
 
 /**
@@ -308,7 +315,7 @@ export const ISLAND_CAPACITY: Record<PoolName, number> = {
   conePoint: 44500,     // 22,252
   bushNear: 10300,     // 5,149
   bushPoint: 32100,     // 16,035
-  house: 16, barn: 16, church: 16,
+  house: 16, barn: 16, church: 16, houseSlate: 16, barnTar: 16,
 }
 
 /**
@@ -331,10 +338,21 @@ export const LEYTE_CAPACITY: Record<PoolName, number> = {
   bushPoint: 152400,
 }
 
+/** 建築的池。明度抖動用 `TINT_RANGE.building` */
+const BUILDING_POOLS: readonly PoolName[] = ['house', 'barn', 'church', 'houseSlate', 'barnTar']
+
+/**
+ * 逐實例的明度倍率範圍（乘在頂點色上，整株一起乘）。
+ *
+ * 【建築放得比樹寬】老房子的瓦與牆一棟跟一棟新舊不一、有的剛翻修、有的被煤煙
+ * 燻黑 —— 窄的話一整個鎮的屋頂是同一個紅。
+ */
+export const TINT_RANGE = { plant: [0.86, 1.14], building: [0.74, 1.22] } as const
+
 const POOL_NAMES: readonly PoolName[] = [
   'broadNear', 'coneNear', 'broadMid', 'coneMid',
   'broadPoint', 'conePoint', 'bushNear', 'bushPoint',
-  'house', 'barn', 'church',
+  'house', 'barn', 'church', 'houseSlate', 'barnTar',
 ]
 
 /** 哪些池走點材質。查表比字串比對便宜，而 `rebuild` 每筆都要問一次 */
@@ -454,6 +472,12 @@ function createPointMaterial(): PointsMaterial {
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = 'attribute float aSize;\n' + shader.vertexShader
       .replace('gl_PointSize = size;', 'gl_PointSize = aSize * projectionMatrix[1][1] * size;')
+      // 往下看亮一點（`POINT_TOPDOWN_GAIN`）：俯角由鏡頭到這一點的方向算
+      .replace('#include <color_vertex>', `#include <color_vertex>
+{
+  vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+  vColor.rgb *= 1.0 + ${(POINT_TOPDOWN_GAIN - 1).toFixed(3)} * smoothstep(0.0, ${POINT_TOPDOWN_RAMP.toFixed(3)}, toCam.y);
+}`)
   }
   // 【換了著色器就要換 key】three 用它決定程式能不能重用
   m.customProgramCacheKey = () => 'flora-point'
@@ -479,6 +503,19 @@ function createPointMaterial(): PointsMaterial {
 export const POINT_LIGHT = new Color(0.36, 0.36, 0.36)
 
 /**
+ * 往下看時點要再亮多少：平視乘 1，sin(俯角) 到 `POINT_TOPDOWN_RAMP` 之間平滑升到
+ * 這個數，再往下都是它。
+ *
+ * 【為什麼要跟著角度】`POINT_LIGHT` 是平視校的（樹冠多半露側面、偏暗）；往下看露出
+ * 被太陽照亮的樹冠頂，同一片林子亮得多，而點是平的色塊，哪個角度看都一樣。實測
+ * 1.5 km 與 3 km 高度看 3.5～5.5 km 的林子（sin 俯角 0.26～0.65），點都要乘約 1.45
+ * 才與樹冠、遠處的烘圖接得上；不跟著角度的話，那一圈比兩側暗一截
+ */
+export const POINT_TOPDOWN_GAIN = 1.45
+/** 俯角的正弦到這裡就用滿 `POINT_TOPDOWN_GAIN`（約 11.5°） */
+export const POINT_TOPDOWN_RAMP = 0.2
+
+/**
  * 這一株該進哪一個池。`null` = 這一級不畫它。
  *
  * 【樹種不隨級數變】兩級各有自己的闊葉與針葉。把兩種樹在遠級併成同一個
@@ -497,6 +534,10 @@ export function poolOf(kind: number, lod: number, bushNear: boolean): PoolName |
       return 'house'
     case FloraKind.Barn:
       return 'barn'
+    case FloraKind.SlateHouse:
+      return 'houseSlate'
+    case FloraKind.TarBarn:
+      return 'barnTar'
     default:
       return 'church'
   }
@@ -709,13 +750,13 @@ export function createVegetation(
     else if (lod === 2) { poolDirty.broadPoint = true; poolDirty.conePoint = true }
   }
   /**
-   * 建築那三個池。**每一格都可能有建築**，所以加減格一定要標它們。
-   * 三個池加起來 180 筆、14 KB —— 標了也不痛。
+   * 建築的池（`BUILDING_POOLS`）。**每一格都可能有建築**，所以加減格一定要標它們。
+   *
+   * 【一定要全部標】漏掉一個的話那一種建築開場畫過一次之後就再也不更新 ——
+   * 鏡頭一動，那些房子留在原地或整批消失，而且不報錯。
    */
   function markBuildings(): void {
-    poolDirty.house = true
-    poolDirty.barn = true
-    poolDirty.church = true
+    for (const name of BUILDING_POOLS) poolDirty[name] = true
   }
 
   const keyOf = (i: number, j: number): number => i * 65536 + j
@@ -961,6 +1002,14 @@ export function createVegetation(
   const jobCounts = new Int32Array(poolCount)
   const capOf = new Int32Array(poolCount)
   const isPointOf = new Uint8Array(poolCount)
+  /** 逐實例明度抖動的下限與範圍，見 `TINT_RANGE` */
+  const tintBaseOf = new Float64Array(poolCount)
+  const tintSpanOf = new Float64Array(poolCount)
+  for (let p = 0; p < poolCount; p++) {
+    const r = TINT_RANGE[BUILDING_POOLS.includes(POOL_NAMES[p]!) ? 'building' : 'plant']
+    tintBaseOf[p] = r[0]
+    tintSpanOf[p] = r[1] - r[0]
+  }
   /** 點池：樹冠垂直中心、點的邊長、`pointBase` 的三個分量，都是逐株乘上縮放前的常數 */
   const pointYOf = new Float64Array(poolCount)
   const pointSizeOf = new Float64Array(poolCount)
@@ -1029,6 +1078,7 @@ export function createVegetation(
       work += n
       const data = buf.data
       const kinds = buf.kind
+      const shapes = buf.shape
       const row = (slotLod[s]! + 1) * 2 + slotBush[s]!
       for (let k = 0; k < n; k++) {
         const p = POOL_LUT[kinds[k]! * 10 + row]!
@@ -1041,7 +1091,7 @@ export function createVegetation(
         const o = k * FLORA_STRIDE
         const scale = data[o + 4]!
         // 【逐實例的明度抖動】同一種樹因此不會像複製貼上
-        const t = 0.86 + data[o + 5]! * 0.28
+        const t = tintBaseOf[p]! + data[o + 5]! * tintSpanOf[p]!
         if (isPointOf[p] === 1) {
           const pos = jobPosition[p]!
           const col = jobColor[p]!
@@ -1058,15 +1108,18 @@ export function createVegetation(
           continue
         }
         const rot = data[o + 3]!
-        // 【就地寫矩陣】只有繞 Y 的旋轉與等比縮放。欄主序，與 `Matrix4.set` 之後
-        // `toArray` 寫出的十六個值逐一相同（第 2 格是 −sn、第 8 格是 sn）
-        const c = Math.cos(rot) * scale
-        const sn = Math.sin(rot) * scale
+        // 【就地寫矩陣】繞 Y 的旋轉，x（面寬）、y（樓高）、z（進深）各自縮放。
+        // 欄主序：第 0 欄是 x 軸轉到 (cos, 0, −sin)、第 2 欄是 z 軸轉到 (sin, 0, cos)
+        // —— 樹的面寬、樓高倍率都是 1，寫出來與等比縮放逐一相同
+        const sx = scale * (shapes[k * 2]! / SHAPE_ONE)
+        const sy = scale * (shapes[k * 2 + 1]! / SHAPE_ONE)
+        const cs = Math.cos(rot)
+        const sn = Math.sin(rot)
         const m = jobMatrix[p]!
         const a16 = at * 16
-        m[a16] = c; m[a16 + 1] = 0; m[a16 + 2] = -sn; m[a16 + 3] = 0
-        m[a16 + 4] = 0; m[a16 + 5] = scale; m[a16 + 6] = 0; m[a16 + 7] = 0
-        m[a16 + 8] = sn; m[a16 + 9] = 0; m[a16 + 10] = c; m[a16 + 11] = 0
+        m[a16] = cs * sx; m[a16 + 1] = 0; m[a16 + 2] = -sn * sx; m[a16 + 3] = 0
+        m[a16 + 4] = 0; m[a16 + 5] = sy; m[a16 + 6] = 0; m[a16 + 7] = 0
+        m[a16 + 8] = sn * scale; m[a16 + 9] = 0; m[a16 + 10] = cs * scale; m[a16 + 11] = 0
         m[a16 + 12] = data[o]!; m[a16 + 13] = data[o + 1]!; m[a16 + 14] = data[o + 2]!; m[a16 + 15] = 1
         // 【明度三通道相同】與 `Color.setRGB(t, t, t)` 在工作色彩空間下寫出的值相同
         const tint = jobTint[p]!

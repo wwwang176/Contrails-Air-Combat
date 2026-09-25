@@ -8,6 +8,18 @@ import { createArchipelago } from '../../src/world/archipelago'
 import { createFarmland, HILL_PEAK_MAX } from '../../src/world/farmland'
 import { LEUNA_HILLS, PLANT_CENTER } from '../../src/world/leuna'
 import { landHitT, losBlocked } from '../../src/world/occlusion'
+import { preloadLeunaRivers } from '../../src/render/leunaRiver'
+import type { RiverFile } from '../../src/world/river'
+import { preloadLeunaFeatures } from '../../src/render/leunaFeatures'
+import type { FeatureFile } from '../../src/world/landFeatures'
+
+/** 薩勒河最長那一段的中點（OSM 原始點），一定在河道上 */
+function firstRiverPoint(): readonly [number, number] {
+  const file = JSON.parse(readFileSync('public/data/leuna-rivers.json', 'utf8')) as RiverFile
+  const saale = file.rivers.filter((r) => r.name === 'Saale')
+    .reduce((a, b) => (b.points.length > a.points.length ? b : a))
+  return saale.points[Math.floor(saale.points.length / 2)]!
+}
 
 describe('createTerrain（M10 spec §5.2）', () => {
   it('高度場與 gerstnerHeight 逐點一致', () => {
@@ -267,15 +279,15 @@ describe('水面與地面分開', () => {
  * `main.ts` 的 `__gfx` 與 `src/tools/` 兩支工具共用它，所以植被只能 append。
  */
 describe('植被接線', () => {
-  it('農地的第四個子節點是植被的十一個池', () => {
+  it('農地的第四個子節點是植被的十三個池', () => {
     const t = createTerrain('farmland')
-    expect(t.object.children[3]!.children.length).toBe(11)
+    expect(t.object.children[3]!.children.length).toBe(13)
     t.dispose()
   })
 
   it('群島也有，而且陸地仍然在索引 2', () => {
     const t = createTerrain('archipelago')
-    expect(t.object.children[3]!.children.length).toBe(11)
+    expect(t.object.children[3]!.children.length).toBe(13)
     expect(t.object.children[2]!.children.length).toBeGreaterThan(10)
     t.dispose()
   })
@@ -334,7 +346,7 @@ describe('植被接線', () => {
     }[]
     for (const p of pools) p.geometry.addEventListener('dispose', () => disposed++)
     t.dispose()
-    expect(disposed).toBe(11)
+    expect(disposed).toBe(13)
   })
 })
 
@@ -349,20 +361,50 @@ describe('洛伊納', () => {
       const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
       return Promise.resolve(ab)
     })
+    await preloadLeunaRivers((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as RiverFile,
+    ))
+    await preloadLeunaFeatures((url) => Promise.resolve(
+      JSON.parse(readFileSync('public' + url, 'utf8')) as FeatureFile,
+    ))
     t = createTerrain('leuna')
   })
 
   afterAll(() => { t.dispose() })
 
-  it('前四個位置的契約與農地相同，第五個是廠區的佈景', () => {
+  /**
+   * 【河與地物掛在陸地底下】陸地是 25 塊田、一個河的群組、一個地物（村鎮、
+   * 礦坑、A9）的群組，頂層的位置契約不動
+   */
+  it('前四個位置的契約與農地相同，第五個是廠區的佈景，河與地物在陸地底下', () => {
     expect(t.object.children.length).toBe(5)
     expect(t.object.children[1]!.children.length).toBe(0)
-    expect(t.object.children[2]!.children.length).toBe(25)
+    expect(t.object.children[2]!.children.length).toBe(27)
+    expect(t.object.children[2]!.children.slice(-2).map((o) => o.name)).toEqual(['river', 'landFeatures'])
     expect((t.object.children[4] as { isMesh?: boolean }).isMesh).toBe(true)
   })
 
-  it('沒有水面，場外回 0', () => {
-    expect(t.waterAt(0, 0)).toBe(-Infinity)
+  /** 【有真實村鎮就不撒隨機的村】隨機的村會落在不存在的地方 —— 田中央冒出一座教堂 */
+  it('給了真實地物的地形不撒隨機的村', () => {
+    const src = readFileSync('src/render/terrain.ts', 'utf8').replace(/\r\n/g, '\n')
+    expect(src).toContain('padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)')
+    expect(src.match(/farmSettlementFlora\(/g)).toHaveLength(1)
+  })
+
+  /**
+   * 【河是水、岸不是】落水與落地的表現不同（水柱 vs 土）。量的是薩勒河在
+   * 廠區東邊的一點：中心線上有水面，廠區中心沒有。
+   *
+   * 【碰撞高度是水面不是河底】與海面同一個約定：取陸地與水面的較高者。
+   * 只給河底的話，炸彈與殘骸要穿過 1.2 m 的水才觸發，水柱從水面下冒出來。
+   */
+  it('河道上有水面、碰撞高度就是水面；岸上沒有；場外回 0', () => {
+    const at = firstRiverPoint()
+    const w = t.waterAt(at[0], at[1])
+    expect(w).toBeGreaterThan(0)
+    expect(t.collisionHeightAt(at[0], at[1])).toBe(w)
+    expect(t.heightAt(at[0], at[1], 0)).toBe(w)
+    expect(t.waterAt(PLANT_CENTER.x, PLANT_CENTER.z)).toBe(-Infinity)
     expect(t.collisionHeightAt(50_000, 50_000)).toBe(0)
   })
 

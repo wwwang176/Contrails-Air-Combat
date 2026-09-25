@@ -4,7 +4,7 @@ import {
   type RegionSample,
 } from '../../src/render/fields'
 
-const sample = (): RegionSample => ({ id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0, r1: 0, r2: 0 })
+const sample = (): RegionSample => ({ id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0, r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0 })
 
 /** 可重現的亂數，測試不吃 Math.random */
 function rng(seed: number): () => number {

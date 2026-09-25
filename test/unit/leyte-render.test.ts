@@ -206,9 +206,7 @@ describe('公路只有一份座標', () => {
   it('實際長出來的樹沒有一棵落在清空帶內，而且是闊葉樹或灌木', () => {
     const src = createLeyteFlora(field)
     const cap = 20000
-    const out: FloraBuffer = {
-      data: new Float32Array(cap * FLORA_STRIDE), kind: new Uint8Array(cap), capacity: cap, count: 0, dropped: 0,
-    }
+    const out: FloraBuffer = createFloraBuffer(cap)
     const a = LEYTE_ROAD[2]!
     src(a.x - 300, a.z - 300, a.x + 300, a.z + 300, (x, z) => field.sample(x, z), out)
     expect(out.count).toBeGreaterThan(0)
