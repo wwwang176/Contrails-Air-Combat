@@ -1,6 +1,7 @@
 import { Euler, Quaternion, Vector3, type Mesh, type Object3D } from 'three'
 import { FixedStepAccumulator, MAX_FRAME_SECONDS, clampFrameSeconds } from './core/loop'
 import { createPerfOverlay } from './core/perf'
+import { createRangeProbe } from './hud/rangeProbe'
 import { DEG } from './core/math'
 import { createScene } from './render/scene'
 import { fieldInnerFor, readAntialias, readQuality, saveAntialias, saveQuality } from './render/quality'
@@ -181,6 +182,7 @@ import { assetUrl } from './core/asset'
 const canvas = document.getElementById('scene') as HTMLCanvasElement
 const ctx = createScene(canvas)
 const perf = createPerfOverlay(ctx.renderer)
+const rangeProbe = createRangeProbe()
 const audio = createAudioEngine(ctx.camera)
 audio.setVolume(readVolume())
 
@@ -3695,6 +3697,7 @@ function frame(now: number) {
   }
 
   perf.endFrame(loop.lastSubstepCount)
+  rangeProbe.update(ctx.camera, terrain, elapsed)
   requestAnimationFrame(frame)
 }
 
