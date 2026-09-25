@@ -13,15 +13,16 @@ import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '..
  *
  * - 範圍：離河的中心線 `WIDTH` 以內，寬度沿河用低頻雜訊起伏
  * - 森林：兩個尺度的值雜訊決定團塊（大的定位置、小的把邊弄毛），往河谷邊緣淡掉
- * - 地面：草甸色，森林底下往林地的深色混（`buildGround`，烘進田色貼圖）。沒有
- *   河漫灘的河也在這裡鋪地面：兩岸各 `MEADOW_HALF` 的草甸
+ * - 地面：只鋪靠河的 `GROUND_SHARE`，草甸色，森林底下往林地的深色混，往外淡回
+ *   田色（`buildGround`，烘進田色貼圖）。沒有河漫灘的河也在這裡鋪：`MEADOW_HALF`
+ *   的同一個比例
  * - 樹：20 m 一格一個候選點，照森林的覆蓋率接受；草地上零星幾棵
  *
  * 【位置只由全域座標決定】與植被的其他散佈器同一條鐵律。
  */
 
 /** 河漫灘的半寬（離中心線），m。不在表上的河沒有河漫灘 */
-const WIDTH: Readonly<Record<string, number>> = { Luppe: 450, Saale: 225 }
+const WIDTH: Readonly<Record<string, number>> = { Luppe: 900, Saale: 450 }
 /** 寬度沿河起伏的雜訊格寬，m；寬度在基準的 0.55～1.15 倍之間 */
 const WIDTH_NOISE = 1800
 /** 森林團塊的兩個尺度，m */
@@ -35,8 +36,13 @@ const GRID = 20
 /** 森林的地面：落葉與林下的深色 */
 const FOREST_GROUND = 0x3e3d2f
 /**
- * 地面往外緣淡出的那一段，佔寬度的比例。外緣是 40 m 格子的鋸齒，淡到 0 才看不見；
- * 淡出帶太窄的話，河谷看起來仍是一條硬邊的色帶
+ * 地面的草甸色只鋪河漫灘（與小河的草甸）寬度靠河的這個比例；外面的樹照樣長，
+ * 地面是田色。鋪滿的話從空中看是一條很寬的色帶
+ */
+const GROUND_SHARE = 0.25
+/**
+ * 地面往外緣淡出的那一段，佔鋪的寬度的比例。外緣是格子的鋸齒，淡到 0 才看不見；
+ * 淡出帶太窄的話看起來仍是一條硬邊的色帶
  */
 const EDGE_FADE = 0.45
 
@@ -85,7 +91,7 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
     const own = lines.filter((l) => l.name === name)
     return { name, base, own, index: new RiverIndex(own, base * 1.15 + NEAR_MARGIN) }
   }).filter((g) => g.own.length > 0)
-  // 沒有河漫灘的河（小河、地圖外的延伸段）：地面只有 `MEADOW_HALF` 寬的草甸
+  // 沒有河漫灘的河（小河、地圖外的延伸段）：地面只有草甸
   const bankOnly = lines.filter((l) => WIDTH[l.name] === undefined)
   const bankIndex = new RiverIndex(bankOnly, MEADOW_HALF)
   const width = (x: number, z: number, base: number): number =>
@@ -217,19 +223,24 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
       const regions: DecalRegion[] = []
       const meadow = MEADOW
       // 河漫灘先鋪、先認領；沒有河漫灘的河只鋪草甸帶
+      const bankHalf = MEADOW_HALF * GROUND_SHARE
       const layers = [
         ...groups.map((g) => ({
-          own: g.own, reach: g.base * 1.15, inside,
+          own: g.own, reach: g.base * 1.15 * GROUND_SHARE,
+          inside: (x: number, z: number) => {
+            where(x, z)
+            return hitRel < GROUND_SHARE
+          },
           colorAt: (x: number, z: number) => mixHex(meadow, FOREST_GROUND, cover(x, z)),
           alphaAt: (x: number, z: number) => {
             where(x, z)
-            return edgeFade(hitRel)
+            return edgeFade(hitRel / GROUND_SHARE)
           },
         })),
         {
-          own: bankOnly, reach: MEADOW_HALF, inside: (x: number, z: number) => bankIndex.distance(x, z) < MEADOW_HALF,
+          own: bankOnly, reach: bankHalf, inside: (x: number, z: number) => bankIndex.distance(x, z) < bankHalf,
           colorAt: () => meadow,
-          alphaAt: (x: number, z: number) => edgeFade(bankIndex.distance(x, z) / MEADOW_HALF),
+          alphaAt: (x: number, z: number) => edgeFade(bankIndex.distance(x, z) / bankHalf),
         },
       ]
       for (const layer of layers) {
