@@ -21,7 +21,7 @@ import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '..
  */
 
 /** 河漫灘的半寬（離中心線），m。不在表上的河沒有河漫灘 */
-const WIDTH: Readonly<Record<string, number>> = { Luppe: 900, Saale: 450 }
+const WIDTH: Readonly<Record<string, number>> = { Luppe: 450, Saale: 225 }
 /** 寬度沿河起伏的雜訊格寬，m；寬度在基準的 0.55～1.15 倍之間 */
 const WIDTH_NOISE = 1800
 /** 森林團塊的兩個尺度，m */

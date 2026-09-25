@@ -19,12 +19,15 @@ import {
  */
 
 /** 沒有河漫灘的河，兩岸草甸的半寬，m */
-export const MEADOW_HALF = 190
-/** 樹籬、林地、村落被擋開的半寬，m。比草甸窄一點 */
-export const CLEAR_HALF = 150
-/** 河岸林的半寬帶：離中心線這個範圍內撒樹，m */
+export const MEADOW_HALF = 95
+/**
+ * 樹籬、林地、村落被擋開的半寬，m。比草甸窄一點 —— 河的索引只查到 `MEADOW_HALF`，
+ * 比它寬的話超出的那一段查不到河、照樣長樹籬
+ */
+export const CLEAR_HALF = 80
+/** 河岸林的半寬帶：離中心線這個範圍內撒樹，m（落在草甸裡） */
 const TREE_NEAR = 55
-const TREE_FAR = 145
+const TREE_FAR = 90
 /** 沿岸撒樹的間距，m */
 const TREE_STEP = 22
 
