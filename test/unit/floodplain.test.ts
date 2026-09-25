@@ -17,8 +17,9 @@ const fp = createFloodplain([line('Luppe', 0), line('Wethau', 4000)])
 
 describe('範圍與覆蓋率', () => {
   it('河漫灘在河的兩側、寬度不超過基準的 1.15 倍；不在表上的河沒有', () => {
-    expect(fp.inside(0, 300)).toBe(true)
-    expect(fp.inside(0, -300)).toBe(true)
+    expect(fp.inside(0, 200)).toBe(true)
+    expect(fp.inside(0, -200)).toBe(true)
+    expect(fp.inside(0, 600)).toBe(false)
     expect(fp.inside(0, 1200)).toBe(false)
     expect(fp.inside(0, 4000)).toBe(false)
   })
