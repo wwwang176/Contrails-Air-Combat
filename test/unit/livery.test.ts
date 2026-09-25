@@ -1,12 +1,18 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Box3, type Mesh, type Object3D } from 'three'
 import { GLB_MODELS } from '../../src/render/geometry/buildAircraft'
 import { glbTemplate } from '../../src/render/geometry/glb'
-import { liveryView } from '../../src/render/geometry/livery'
+import { LIVERY_HEIGHT, LIVERY_WIDTH, liveryView } from '../../src/render/geometry/livery'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
 
 const WITH_LIVERY = Object.entries(GLB_MODELS).filter(([, d]) => d.livery !== undefined)
+
+/** PNG 的寬高：IHDR 固定在檔頭第 16 位元組起的兩個大端 32 位元整數 */
+function pngSize(path: string): [number, number] {
+  const b = readFileSync(path)
+  return [b.readUInt32BE(16), b.readUInt32BE(20)]
+}
 
 /**
  * 吃塗裝的面。槳盤（`CircleGeometry`）本來就帶 UV 與索引、不吃塗裝，
@@ -24,6 +30,19 @@ describe('塗裝版面', () => {
     expect(WITH_LIVERY.length).toBe(Object.keys(GLB_MODELS).length)
     for (const [id, def] of WITH_LIVERY) {
       expect(existsSync(`public${def.livery!.url}`), id).toBe(true)
+    }
+  })
+
+  /**
+   * 【遊戲用圖只能等比縮】UV 是照 2048×1536 的版面除成 0…1 的，長寬比一變整張
+   * 塗裝就錯位。原圖要是版面的原尺寸，縮圖才縮得回同一個比例。
+   */
+  it('原圖是 2048×1536，遊戲用圖是它的等比縮小', () => {
+    for (const [id, def] of WITH_LIVERY) {
+      const name = def.livery!.url.split('/').pop()!
+      expect(pngSize(`textures-src/${name}`), `${id} 原圖`).toEqual([LIVERY_WIDTH, LIVERY_HEIGHT])
+      const [w, h] = pngSize(`public${def.livery!.url}`)
+      expect(w * LIVERY_HEIGHT, `${id} 遊戲用圖 ${w}×${h}`).toBe(h * LIVERY_WIDTH)
     }
   })
 
