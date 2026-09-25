@@ -1,5 +1,6 @@
 import { Color } from 'three'
 import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
+import { BROAD_CROWN_R, CONE_CROWN_R } from './floraShapes'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -86,6 +87,12 @@ export const HEDGE_FAR_GROW = 2.5
 export const HEDGE_FAR_SHADE = 0.7
 
 /**
+ * 遠圖裡空地的樹畫成點的顏色：林子從空中看的顏色再乘這個（線性值）。對的是
+ * 3～6 km 的點：同一視角有樹、只剩烘圖兩張，林緣稀疏那一帶的明暗對得上
+ */
+export const TREE_DOT_SHADE = 0.55
+
+/**
  * 有多少比例的田界長樹籬。
  *
  * 【為什麼接近 1】**Bocage 的定義就是每塊田被完整圍起來。** 留一點缺口是
@@ -152,6 +159,48 @@ export const OPEN_WOOD_CELL = [520, 190] as const
 export const OPEN_WOOD_GATE = [0.5, 0.62] as const
 /** 空地兩個色之間漸變的雜訊格寬，m */
 export const OPEN_TONE_CELL = 450
+
+/**
+ * 樹林裡的網格間距，m。3,906 棵/km²。
+ *
+ * 【為什麼是網格不是走線】樹林填的是**面**不是線，而 16 m 的網格在 250 m 的
+ * tile 上是 244 次 `fieldAt` ≈ 0.09 ms —— 只在生成時付一次。
+ *
+ * 【在這裡不在 `flora.ts`】遠圖把空地的樹一棵一棵烘成點（GLSL 的 `openTreesOver`），
+ * 位置與接受的判準與植被逐位元相同；兩邊讀同一組數字
+ */
+export const WOOD_GRID = 16
+/**
+ * 空地上的樹林：接受機率乘這個、縮放取這一段。
+ *
+ * 【稀一點、大一點】空地的林子佔地大，照田裡樹林的密度長的話，實測整張圖慢
+ * 7～9%（多出來的全是樹的實例）。一半多一點的候選點、每棵取大的那一段，從空中
+ * 看林冠一樣滿，實例數約少三成五
+ */
+export const OPEN_WOOD_DENSITY = 0.55
+export const OPEN_TREE_SCALE = [0.8, 1.0] as const
+/** 空地上的樹林裡針葉樹佔多少 */
+export const OPEN_CONIFER_SHARE = 0.3
+/** 遠圖的樹點邊緣抗鋸齒的半寬上限，m（遠圖一格 7.3 m，半個像素足跡不到這個） */
+export const OPEN_DOT_AA = 8
+/** 蓋得到一點的樹點離它最遠多遠，m：最大的樹冠半徑加抗鋸齒 */
+export const OPEN_DOT_REACH = BROAD_CROWN_R * OPEN_TREE_SCALE[1] + OPEN_DOT_AA
+/**
+ * 遠圖畫樹點時的餘量：空地樹林的雜訊（兩層值雜訊，`openWoodCover`）在 `OPEN_DOT_REACH`
+ * 裡最多變這麼多。值雜訊一層對座標的斜率不超過 1.5√2 / 格寬（平滑插值的斜率最大 1.5）。
+ * 這一點的雜訊 ± 它就夾住了周圍每一棵候選樹的覆蓋率 —— 夾得出答案的候選樹不必
+ * 再算雜訊，整圈都長不出樹的點直接跳過
+ */
+export const OPEN_WOOD_NEAR_MARGIN = 1.5 * Math.SQRT2
+  * (0.65 / OPEN_WOOD_CELL[0] + 0.35 / OPEN_WOOD_CELL[1]) * OPEN_DOT_REACH
+/**
+ * 樹籬與樹林田整條（整塊）種針葉樹的比例（`flora.ts` 的 `speciesOf`；遠圖的樹林田
+ * 照它挑林冠色）。
+ *
+ * 【闊葉為主】Bocage 的樹籬是橡與櫸，針葉只出現在刻意種的防風林裡。
+ * 一半一半的話整片地讀起來像雲杉林。
+ */
+export const CONIFER_SHARE = 0.25
 /**
  * 區塊格有村的機率；村在這一格的種子與一個軸向鄰格（`VILLAGE_NEIGHBOUR`，由種子
  * 的雜湊挑）的種子的中點。植被（`flora.ts` 的 `villageSite`）與田色共用
@@ -903,15 +952,70 @@ bool isOpenParcel(vec2 centre, uint fh) {
   return fieldness <= th;
 }
 
-float openWoodCover(vec2 w) {
-  float n = 0.65 * fieldNoise(w, ${OPEN_WOOD_CELL[0].toFixed(1)}, 0x6a11)
+float openWoodNoise(vec2 w) {
+  return 0.65 * fieldNoise(w, ${OPEN_WOOD_CELL[0].toFixed(1)}, 0x6a11)
     + 0.35 * fieldNoise(w, ${OPEN_WOOD_CELL[1].toFixed(1)}, 0x3b57);
-  return smoothstep(${OPEN_WOOD_GATE[0].toFixed(3)}, ${OPEN_WOOD_GATE[1].toFixed(3)}, n);
+}
+
+float openWoodCover(vec2 w) {
+  return smoothstep(${OPEN_WOOD_GATE[0].toFixed(3)}, ${OPEN_WOOD_GATE[1].toFixed(3)}, openWoodNoise(w));
 }
 
 vec3 openColorAt(vec2 w) {
   vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));
-  return mix(c, WOOD_COLOR, openWoodCover(w));
+  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), openWoodCover(w));
+}
+
+// 【空地的樹一棵一棵畫成點】與植被（flora.ts 的 woods／openTree）同一套：16 m 網格一格
+// 一個候選點，雜湊定位置，照覆蓋率接受，雜湊定大小與樹種。格裡的點離這一點最遠一個
+// 樹冠半徑，看周圍 3×3 格就夠
+const float WOOD_GRID = ${WOOD_GRID.toFixed(1)};
+const float OPEN_WOOD_DENSITY = ${OPEN_WOOD_DENSITY.toFixed(3)};
+const float OPEN_TREE_SCALE_LO = ${OPEN_TREE_SCALE[0].toFixed(3)};
+const float OPEN_TREE_SCALE_HI = ${OPEN_TREE_SCALE[1].toFixed(3)};
+const float OPEN_CONIFER_SHARE = ${OPEN_CONIFER_SHARE.toFixed(3)};
+const float BROAD_CROWN_R = ${BROAD_CROWN_R.toFixed(1)};
+const float CONE_CROWN_R = ${CONE_CROWN_R.toFixed(1)};
+const float OPEN_WOOD_GATE_LO = ${OPEN_WOOD_GATE[0].toFixed(3)};
+const float OPEN_WOOD_GATE_HI = ${OPEN_WOOD_GATE[1].toFixed(3)};
+const float OPEN_WOOD_NEAR_MARGIN = ${OPEN_WOOD_NEAR_MARGIN.toFixed(5)};
+const float OPEN_DOT_AA = ${OPEN_DOT_AA.toFixed(1)};
+const float OPEN_DOT_REACH = ${OPEN_DOT_REACH.toFixed(1)};
+
+vec3 openTreesOver(vec2 w, vec3 col, float px) {
+  // 【先用這一點的雜訊夾】蓋得到這一點的樹離它不到 OPEN_DOT_REACH，那段距離裡雜訊變
+  // 不到 MARGIN：候選樹的接受門檻夾在 acceptLo 與 acceptHi 之間，只有落在中間的才算雜訊。
+  // 整圈都長不出樹的點直接跳過
+  float nw = openWoodNoise(w);
+  if (nw < OPEN_WOOD_GATE_LO - OPEN_WOOD_NEAR_MARGIN) return col;
+  float acceptLo = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw - OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;
+  float acceptHi = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw + OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;
+  float aa = min(px, OPEN_DOT_AA);
+  ivec2 c0 = ivec2(floor(w / WOOD_GRID));
+  for (int dj = -1; dj <= 1; dj++) {
+    for (int di = -1; di <= 1; di++) {
+      int gx = c0.x + di;
+      int gz = c0.y + dj;
+      uint h = fieldHash2(gx, gz);
+      uint g = fieldHash1(h);
+      vec2 p = vec2(float(gx) + 0.15 + float(h) / 4294967296.0 * 0.7,
+        float(gz) + 0.15 + float(g) / 4294967296.0 * 0.7) * WOOD_GRID;
+      float d = distance(w, p);
+      if (d >= OPEN_DOT_REACH) continue;
+      uint g2 = fieldHash1(g);
+      float u = float(g2 & 0xffffu) / 65536.0;
+      if (u >= acceptHi) continue;
+      if (u >= acceptLo && u >= openWoodCover(p) * OPEN_WOOD_DENSITY) continue;
+      uint g3 = fieldHash1(g2);
+      float scale = OPEN_TREE_SCALE_LO + float(g3 & 0xffffu) / 65536.0 * (OPEN_TREE_SCALE_HI - OPEN_TREE_SCALE_LO);
+      bool cone = float((g3 >> 24u) & 0xffu) / 256.0 < OPEN_CONIFER_SHARE;
+      float r = (cone ? CONE_CROWN_R : BROAD_CROWN_R) * scale;
+      // 邊緣照像素足跡抗鋸齒
+      float cov = clamp((r - d) / (2.0 * aa) + 0.5, 0.0, 1.0);
+      col = mix(col, cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, cov);
+    }
+  }
+  return col;
 }
 
 `
@@ -939,6 +1043,7 @@ const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) 
   vec2 parcel = world + vec2(dq.x * cos(angle) - dq.y * sin(angle), dq.x * sin(angle) + dq.y * cos(angle));
   if (isOpenParcel(parcel, fh)) {
     col = openColorAt(world);
+    if (fieldTrees > 0.5) col = openTreesOver(world, col, px);
     isHedge = false;
   }
 `
@@ -967,9 +1072,17 @@ const float HEDGE_FAR_GROW = ${HEDGE_FAR_GROW.toFixed(3)};
 // 【遠處的樣子】1 = 植被圈外（樹籬的樹不畫了），樹籬畫成放寬的林冠色。呼叫端在
 // fieldColorAt 之前設；近處與內圈留 0，那裡有真的樹
 float fieldFar = 0.0;
+// 【樹一棵一棵畫成點】1 = 烘遠圖：植被圈外樹不畫，地上留的是每一棵樹的點。只在烘圖
+// 時開 —— 每個像素要重算周圍九格的候選樹，逐幀的算式付不起
+float fieldTrees = 0.0;
 const vec3 TRACK_COLOR = ${rgb(c.track)};
 const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
 const vec3 WOOD_COLOR = ${rgb(c.wood)};
+// 【遠處的林子是樹冠的顏色】植被圈外樹不畫，樹林田與空地的林子畫成樹冠從空中看
+// 的顏色（與遠圖裡一棵一棵的點同色）；近處那裡有真的樹，照舊是林地的深色
+const vec3 BROAD_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(TREE_DOT_SHADE))};
+const vec3 CONE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].conifer).multiplyScalar(TREE_DOT_SHADE))};
+const float CONIFER_SHARE = ${CONIFER_SHARE.toFixed(3)};
 const vec3 FIELD_PALETTE[${PALETTE_STEPS}] = vec3[${PALETTE_STEPS}](
 ${glslPalette}
 );
@@ -1106,7 +1219,9 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   bool wood = isWoodField(fh);
 
   bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
-  vec3 col = wood ? WOOD_COLOR : PLOUGHED_COLOR;
+  // 樹林田整塊一種樹（flora.ts 的 speciesOf，鍵是田的雜湊 ^ 0x77aa）
+  bool woodCone = float(fieldHash1((fh ^ 0x77aau) ^ 0x5bd1u)) / 4294967296.0 < CONIFER_SHARE;
+  vec3 col = wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR;
   if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;

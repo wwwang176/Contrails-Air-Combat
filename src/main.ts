@@ -3862,6 +3862,13 @@ if (initialRecoveryFailure !== null) {
   return { ...c.stats }
 }
 
+/**
+ * **量測出口**：遠圖整張重烘一次的毫秒數（等 GPU 做完），`trees` 決定烘不烘空地的
+ * 樹點。之後的烘圖沿用這個設定。純海面回 `null`
+ */
+;(window as unknown as Record<string, unknown>)['__fieldBake'] = (trees = true) =>
+  terrain.fieldClip?.benchFarBake(trees) ?? null
+
 const GFX_HIDDEN_LAYER = 31
 ;(window as unknown as Record<string, unknown>)['__gfx'] = (
   patch: Record<string, boolean>,

@@ -192,6 +192,11 @@ export interface FieldClipmap {
    */
   layerAt(x: number, z: number): string
   setInnerRadius(m: number): void
+  /**
+   * **量測用**：烘遠圖時畫不畫空地的樹點，然後把遠圖整張重烘一次、等 GPU 做完，
+   * 回傳毫秒。同頁 A/B 烘圖的成本用
+   */
+  benchFarBake(trees: boolean): number
   /** 整支改走算式。A/B 用 —— 兩邊是同一個 program，差的只有一個 uniform */
   setBypass(on: boolean): void
   dispose(): void
@@ -242,14 +247,16 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
     uniforms: {
       uCell0: { value: new Vector2() }, uCells: { value: new Vector2() }, uMetres: { value: 1 },
       uBakeFar: { value: 0 },
+      uBakeTrees: { value: 1 },
       ...candUniforms(),
     },
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres; varying vec2 vWorld;
 void main() { vWorld = (uCell0 + uv * uCells) * uMetres; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-    // 【遠圖烘遠處的樣子】近窗外就是遠圖，樹籬的樹 6 km 外不畫；近窗內的樹籬烘近圖
-    fragmentShader: `varying vec2 vWorld; uniform float uBakeFar;
+    // 【遠圖烘遠處的樣子】近窗外就是遠圖，樹籬的樹 6 km 外不畫；近窗內的樹籬烘近圖。
+    // 空地的樹一棵一棵的點也只烘在遠圖（`fieldTrees`）
+    fragmentShader: `varying vec2 vWorld; uniform float uBakeFar; uniform float uBakeTrees;
 ${glsl}
-void main() { fieldFar = uBakeFar; gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
+void main() { fieldFar = uBakeFar; fieldTrees = uBakeFar * uBakeTrees; gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
   })
   const quadGeo = new PlaneGeometry(2, 2)
   const bakeScene = new Scene()
@@ -504,6 +511,17 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       return '最外層外：田逐像素算＋粗網格'
     },
     setInnerRadius(m) { U.uInner.value = m },
+    benchFarBake(trees) {
+      bakeMat.uniforms['uBakeTrees']!.value = trees ? 1 : 0
+      // 【讀回一個像素才等得到 GPU】瀏覽器的 finish 不保證等 GPU 做完
+      const px = new Uint8Array(4)
+      renderer.readRenderTargetPixels(far.rt, 0, 0, 1, 1, px)
+      const t0 = performance.now()
+      far.primed = false
+      recentre(far, U.uCam.value.x, U.uCam.value.y)
+      renderer.readRenderTargetPixels(far.rt, 0, 0, 1, 1, px)
+      return performance.now() - t0
+    },
     setBypass(on) {
       U.uBypass.value = on ? 1 : 0
       for (const m of replaced) m.visible = on

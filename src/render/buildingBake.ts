@@ -79,6 +79,8 @@ function splatsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
 
 /** 第一次試的容量；不夠就加倍重跑 */
 const FIRST_CAPACITY = 65536
+/** 跑散佈器的塊的邊長，m */
+const SPLAT_CHUNK = 2000
 
 /**
  * 跑一次散佈器，範圍內每一棟建築、每一株樹一個四邊形。`position` 的 y 是 0
@@ -92,8 +94,16 @@ export function floraSplats(
   const splats = splatsFor(season)
   let cap = FIRST_CAPACITY
   let buf = createFloraBuffer(cap)
+  // 【切塊跑】散佈器的整格判斷（碰不到河、碰不到鎮就整塊跳過）只在塊小的時候有用；
+  // 一個幾十公里的大框每一格都要逐點算。分割不改結果（散佈器的分割等價）
   for (;;) {
-    for (const s of sources) s(x0, z0, x1, z1, () => 0, buf)
+    for (let bz = z0; bz < z1; bz += SPLAT_CHUNK) {
+      for (let bx = x0; bx < x1; bx += SPLAT_CHUNK) {
+        const ex = Math.min(x1, bx + SPLAT_CHUNK)
+        const ez = Math.min(z1, bz + SPLAT_CHUNK)
+        for (const s of sources) s(bx, bz, ex, ez, () => 0, buf)
+      }
+    }
     if (buf.dropped === 0) break
     cap *= 2
     buf = createFloraBuffer(cap)
