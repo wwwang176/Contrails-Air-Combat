@@ -183,7 +183,8 @@ function floraRings(d: number): string[] {
       : d > POINT_NEAR ? `點（${km(POINT_NEAR)}～${km(outerLo)}）`
         : d > LOD_NEAR ? `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`
           : `完整樹冠＋樹幹（${km(LOD_NEAR)} 內）`
-  const bush = gone ? '不畫' : edge ? '點／消失的邊界帶' : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
+  const bush = gone ? '不畫（烘在地面）' : edge ? '點／消失的邊界帶'
+    : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
   const house = gone ? '不畫（屋頂色塊烘在地面）' : edge ? '模型／消失的邊界帶' : `模型（${km(outerLo)} 內）`
   return [`樹：${tree}`, `灌木：${bush}`, `房子：${house}`]
 }
