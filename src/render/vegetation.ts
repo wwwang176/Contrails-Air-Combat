@@ -281,12 +281,12 @@ export function outerFor(i: number, j: number, radius: number = FLORA_RADIUS): n
  * 測試裡不另外寫死一份數字。
  */
 export const CAPACITY: Record<PoolName, number> = {
-  broadNear: 4600,     // 掃描最大 3,339
-  coneNear: 2900,      // 2,099
-  broadMid: 33400,     // 24,660
-  coneMid: 21400,      // 15,841
-  broadPoint: 71000,    // 52,408
-  conePoint: 41900,     // 31,010
+  broadNear: 3500,     // 掃描最大 2,543
+  coneNear: 1500,      // 1,049
+  broadMid: 26600,     // 19,678
+  coneMid: 11800,      // 8,708
+  broadPoint: 60000,    // 44,273
+  conePoint: 21800,     // 16,135
   bushNear: 11900,     // 8,750
   bushPoint: 207500,    // 123,563   ← 全部實例的一半上下
   house: 80,           // 57
