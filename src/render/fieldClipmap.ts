@@ -1,5 +1,5 @@
 import {
-  DoubleSide, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
+  AddEquation, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
   PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
@@ -160,11 +160,11 @@ export interface FieldClipmap {
   readonly stats: FieldClipmapStats
   /**
    * 烘進貼圖的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界座標
-   * （y 不讀）、`color` 是頂點色（線性）。`near` 為 false 的只烘遠圖（屋頂：近窗
-   * 裡有真的房子）。加入後兩張整張重烘。
+   * （y 不讀）、`color` 是頂點色（線性；四個分量的第四個是不透明度，三個分量的是
+   * 1）。`near` 為 false 的只烘遠圖（屋頂：近窗裡有真的房子）。加入後兩張整張重烘。
    *
-   * 【內圈也看得到】內圈的田色走算式，讀不到貼圖；烘圖時疊圖寫透明度 1、田色寫
-   * 0，內圈照近圖的透明度把疊圖疊回去。
+   * 【內圈也看得到】內圈的田色走算式，讀不到貼圖；烘圖時疊圖寫它的不透明度、田色
+   * 寫 0，內圈照近圖的透明度把疊圖疊回去。
    *
    * 幾何歸呼叫端，`dispose` 不丟它。
    */
@@ -248,12 +248,23 @@ void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
       uCell0: bakeMat.uniforms['uCell0']!, uCells: bakeMat.uniforms['uCells']!, uMetres: bakeMat.uniforms['uMetres']!,
     },
     vertexShader: `uniform vec2 uCell0; uniform vec2 uCells; uniform float uMetres;
-attribute vec3 color; varying vec3 vCol;
+attribute vec4 color; varying vec4 vCol;
 void main() { vCol = color; gl_Position = vec4((position.xz / uMetres - uCell0) / uCells * 2.0 - 1.0, 0.0, 1.0); }`,
-    fragmentShader: `varying vec3 vCol;
-void main() { gl_FragColor = vec4(vCol, 1.0); }`,
+    fragmentShader: `varying vec4 vCol;
+void main() { gl_FragColor = vCol; }`,
     // 世界 z 映到裁切 y，繞序跟著翻
     side: DoubleSide,
+    // 【顏色照不透明度混、透明度累加】三個分量的頂點色第四個分量讀成 1，整片蓋掉；
+    // 淡出的邊顏色與底下混，透明度照樣記下來給內圈用
+    transparent: true,
+    blending: CustomBlending,
+    blendEquation: AddEquation,
+    blendSrc: SrcAlphaFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
+    depthTest: false,
+    depthWrite: false,
   })
   const overlays = new Group()
   bakeScene.add(overlays)

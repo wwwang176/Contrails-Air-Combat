@@ -134,4 +134,38 @@ describe('地面網格', () => {
     expect(luppeOther).toBeGreaterThan(100)
     mesh.geometry.dispose()
   })
+
+  /**
+   * 【外緣淡到透明】地面是 40 m 格子，外緣是鋸齒；外緣不透明的話河谷是一條硬邊的
+   * 色帶。範圍外的頂點不透明度 0，靠河的地方 1
+   */
+  it('外緣的頂點全透明，靠河的全不透明', () => {
+    const mesh = fp.buildGround(() => 0, 22000)
+    const pos = mesh.geometry.getAttribute('position') as BufferAttribute
+    const col = mesh.geometry.getAttribute('color') as BufferAttribute
+    expect(col.itemSize).toBe(4)
+    let outer = 0
+    let core = 0
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i)
+      const z = pos.getZ(i)
+      const a = col.getW(i)
+      if (z > 2000) {
+        const d = Math.abs(z - (4000 + 80 * Math.sin(x / 700)))
+        if (d > MEADOW_HALF + 5) {
+          expect(a, `(${x},${z})`).toBeLessThan(0.02)
+          outer++
+        }
+      } else if (!fp.inside(x, z)) {
+        expect(a, `(${x},${z})`).toBe(0)
+        outer++
+      } else if (Math.abs(x) < 4500 && Math.abs(z - 80 * Math.sin(x / 700)) < 100) {
+        expect(a, `(${x},${z})`).toBe(1)
+        core++
+      }
+    }
+    expect(outer).toBeGreaterThan(100)
+    expect(core).toBeGreaterThan(100)
+    mesh.geometry.dispose()
+  })
 })
