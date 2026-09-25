@@ -327,6 +327,18 @@
       .opt button { padding: 7px; background: #2a2219; border: 1px solid var(--bd); color: var(--ink);
         display: flex; flex-direction: column; align-items: center; gap: 5px; width: 92px; }
       .opt.narrow button { width: 70px; }
+      /* 【編組頁的選項縮小】戰場八張、高度三格、時段五格要排進同一列，整塊只有
+         戰場兩排高；設定頁的選項不動 */
+      #skirmish .setup { gap: 14px 28px; }
+      #skirmish .opt { gap: 6px; }
+      #skirmish .opt button { padding: 4px; gap: 2px; width: 74px; }
+      #skirmish .opt.narrow button { width: 58px; }
+      /* 剪影沒有 viewBox，改寬高只會裁掉一截；zoom 整張等比縮 */
+      #skirmish .opt button svg { zoom: 0.7; }
+      #skirmish .opt button span { font-size: 11px; }
+      #skirmish .opt button small { font-size: 9.5px; }
+      /* 戰場一排四個：一格 74 + 內距 8 + 邊框 2 */
+      .opt.wrap { flex-wrap: wrap; width: 354px; }
       .opt button.on { border-color: var(--sel); box-shadow: inset 0 -2px 0 var(--sel); }
       .opt button span { font-size: 11.5px; }
       .opt button small { font-size: 10px; color: var(--dim); }
@@ -588,7 +600,7 @@
               <section class="side foe" id="sk-foe"></section>
             </div>
             <div class="setup">
-              <div><div class="lbl" style="margin-bottom:7px">戰場</div><div class="opt" id="sk-terrain"></div></div>
+              <div><div class="lbl" style="margin-bottom:7px">戰場</div><div class="opt wrap" id="sk-terrain"></div></div>
               <div><div class="lbl" style="margin-bottom:7px">開場高度</div><div class="opt" id="sk-alt"></div></div>
               <div><div class="lbl" style="margin-bottom:7px">時段</div><div class="opt narrow" id="sk-tod"></div></div>
             </div>
