@@ -177,14 +177,9 @@ function loadLivery(url: string): Promise<Texture> {
   return t
 }
 
-/**
- * 載過的塗裝貼圖，給載入畫面先傳上 GPU。
- *
- * 【為什麼要先傳】貼圖第一次被畫到時才上傳，連同產生 mipmap。中途才出場的
- * 機種（後續批次的敵機）會在出現的那一幀卡住。
- */
-export function loadedLiveries(): Promise<Texture[]> {
-  return Promise.all(liveries.values())
+/** 某張塗裝貼圖（同一個路徑回同一份），給載入畫面先傳上 GPU */
+export function liveryTexture(url: string): Promise<Texture> {
+  return loadLivery(url)
 }
 
 /**

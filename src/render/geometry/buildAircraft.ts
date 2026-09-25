@@ -10,7 +10,8 @@ import { KI84_MODEL } from './ki84.model'
 import { A6M5_MODEL } from './a6m5.model'
 import { G4M_MODEL } from './g4m.model'
 import { F4F4_MODEL } from './f4f4.model'
-import { buildFromTemplate, glbTemplate, loadGlbTemplate, type GlbAircraft } from './glb'
+import type { Texture } from 'three'
+import { buildFromTemplate, glbTemplate, liveryTexture, loadGlbTemplate, type GlbAircraft } from './glb'
 import type { AircraftSpec } from '../../specs/types'
 
 export type { AircraftModel, HullMetrics } from './assembly'
@@ -113,6 +114,21 @@ export async function preloadAircraftModels(onLoaded: () => void = () => {}): Pr
   await Promise.all(
     Object.entries(GLB_MODELS).map(([id, def]) => loadGlbTemplate(id, def).then(onLoaded)),
   )
+}
+
+/**
+ * 這幾個機種的塗裝貼圖，去重。
+ *
+ * 【只給這一場用得到的】貼圖要傳上 GPU 才佔顯存（九張約 200 MB，內顯是直接吃
+ * 系統記憶體），而一場通常只有兩三型。沒被畫到的就不會上傳。
+ */
+export function liveryTexturesFor(ids: Iterable<string>): Promise<Texture[]> {
+  const urls = new Set<string>()
+  for (const id of ids) {
+    const url = GLB_MODELS[id]?.livery?.url
+    if (url !== undefined) urls.add(url)
+  }
+  return Promise.all([...urls].map(liveryTexture))
 }
 
 /** `preloadAircraftModels` 要載的 GLB 支數 */
