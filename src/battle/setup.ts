@@ -220,9 +220,9 @@ export interface BattleConfig {
    * 這一局全部 AI 的難度參數。**兩隊一起套。**
    *
    * 【為什麼是 config 而不是在這裡寫死】`DEFAULT_BATTLE` 給 `ACE`，遊戲
-   * 走的 `battleConfigFrom` 給 `VETERAN`。寫死的話 `multi-battle` 與
-   * `ai-targeting` 的全部基準會一起移動，而那一層量的是 AI 的天花板 ——
-   * 讓遊戲的難度設定去推那些數字，之後就分不清是誰改的。
+   * 走的 `battleConfigFrom` 給 `VETERAN`。直接吃 `DEFAULT_BATTLE` 的測試
+   * 與探針量的是 AI 的天花板 —— 寫死的話遊戲的難度設定一動，那些量測就
+   * 跟著動，之後分不清是誰改的。
    *
    * 【為什麼兩隊一起套】與 `specs/feel.ts` 的手感係數同一個理由：玩家的
    * 僚機與敵人是同一套 AI，只給敵人加延遲等於偷偷給玩家開外掛。哪天真要
@@ -255,7 +255,7 @@ export interface TransitRoute {
 }
 
 export const DEFAULT_BATTLE: BattleConfig = {
-  // 【對頭 20v20 是預設】全部既有護欄都建立在它上面
+  // 【對頭 20v20 是預設】直接吃 `DEFAULT_BATTLE` 的整合測試與探針都建立在它上面
   units: lineAbreast(HEAD_ON, P51D, 20, BF109K4, 20),
   altitude: 4000,
   tas: 200,
@@ -671,8 +671,7 @@ export function openingTas(
 /**
  * 一個小隊的進場幾何。**逐小隊算一次**，同隊的每一架共用。
  *
- * 【為什麼要抽出來】`createBattle` 與 `reinforce` 都要算它，而它裡面有兩條
- * 浮點順序被 `test/fixtures/spawn-baseline.ts` 釘住的式子。兩份長得很像的
+ * 【為什麼要抽出來】`createBattle` 與 `reinforce` 都要算它。兩份長得很像的
  * 幾何就是只有一份會被修好的那種危險。
  */
 interface UnitFrame {
@@ -903,8 +902,7 @@ export function createBattle(
       if (unit.duty === 'transit') {
         convoySeats.push(c.index)
         // 【取出生 x 而不是重推 lane】重推要把 `lane × schwarmSpacing +
-        // across × lateralOffset` 再算一次，而那條式子的浮點順序是被
-        // `test/fixtures/spawn-baseline.ts` 釘住的。抄現成的值不可能算錯
+        // across × lateralOffset` 再算一次。抄現成的值不可能算錯
         convoyX.push(c.spawnPosition.x)
         convoyRise.push(unit.rise ?? 0)
         convoyDepth.push(unit.depth ?? 0)

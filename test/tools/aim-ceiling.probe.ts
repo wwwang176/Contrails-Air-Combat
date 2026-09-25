@@ -106,9 +106,8 @@ class Idle implements Controller {
 /**
  * 腳本破防。`hard = false` 就是直飛（自我檢查用）。
  *
- * 【這是 ai-visible-evasion 那支 `ScriptedBreaker` 的 `horizUp` 分支】
- * 同樣的軸與同樣的抬角，抄過來是為了不動那個檔案。軸取世界水平面內、
- * 垂直於視線的方向，再套 `defendTilt` 的抬角，最後與視線混 `defendOffset`。
+ * 軸取世界水平面內、垂直於視線的方向，再套 `defendTilt` 的抬角，最後與
+ * 視線混 `defendOffset`。
  */
 class Breaker implements Controller {
   threat: Aircraft | null = null

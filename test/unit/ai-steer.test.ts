@@ -2054,9 +2054,8 @@ describe('extend 的回場方向', () => {
     /**
      * 【沒有這一層 AI 會繞著目標盤旋】脫離的兩個出口是「拉開到
      * extendRange」與「閂鎖釋放」，全程朝目標偏轉會把兩個一起堵死 ——
-     * 距離永遠到不了 1,500 m，轉彎又補不回能量。實測 ai-manoeuvre 的
-     * longestExtend 由 55 s 的上限暴增到 284.5 s，ai-duel-matrix 的
-     * redDamage 掉到 0（雙方都在盤旋，誰也打不到誰）。
+     * 距離永遠到不了 1,500 m，轉彎又補不回能量。1v1 纏鬥裡最長的一段
+     * 脫離會拖到幾分鐘，雙方都在盤旋，誰也打不到誰。
      */
     it('貼身不偏，淡入距離之後全程滿偏', () => {
       const fade = DEFAULT_STEER.extendTurnFade

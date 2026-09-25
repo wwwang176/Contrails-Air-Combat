@@ -54,8 +54,8 @@ export interface FlightPlan {
    * 橫向槽位，**以 `BattleConfig.schwarmSpacing` 為單位**。0 = 中央，可為小數。
    *
    * 【為什麼是序號不是公尺】`schwarmSpacing`、`lateralOffset`、`entryRange`、
-   * `altitudeSpread` 是探針換場景用的旋鈕（`turn-shrink.probe.ts`、
-   * `ai-command-decision.test.ts` 都在覆寫）。表裡存絕對座標的話那些覆寫會
+   * `altitudeSpread` 是探針換場景用的旋鈕（例如 `turn-shrink.probe.ts` 覆寫 `entryRange`）。
+   * 表裡存絕對座標的話那些覆寫會
    * **靜靜失效** —— 探針照跑、數字照印，只是量的不是它宣稱的東西。
    */
   readonly lane: number
@@ -113,8 +113,8 @@ export type OrderOfBattle = readonly FlightPlan[]
  * 產出「兩隊各自一種機、橫隊排開」的編組表。**這是 M5 以來的既有排列。**
  *
  * 【它存在的唯一理由】既有的一百多處呼叫端寫的是
- * `{ ...DEFAULT_BATTLE, blueSpec: P51D, blueCount: 20, … }`，全部是既有護欄
- * 的基準。這支讓它們變成一行替換，而且**產出的座標逐位元相同**：
+ * `{ ...DEFAULT_BATTLE, blueSpec: P51D, blueCount: 20, … }`，全部是既有測試
+ * 與探針的場景。這支讓它們變成一行替換，而且**產出的座標逐位元相同**：
  *
  * ```
  *   lane = f − (小隊數 − 1) / 2      ← leadX 括號裡那個中間值
@@ -173,9 +173,6 @@ const STACK_LANE_STEP = 0.6
  * 那是一次轟炸的樣子。
  *
  * 【玩家在中間那一隊】沿用 `lineAbreast` 的 `playerFlight`。
- *
- * 【`lineAbreast` 不能改成呼叫這一支】`test/fixtures/spawn-baseline.ts` 把
- * 它產出的每一個座標釘死到浮點位元，而那份基準的運算序列不能動。
  */
 export function stackedEntry(
   plan: EntryPlan,
@@ -213,12 +210,9 @@ export function stackedEntry(
  *
  * 【與 `lineAbreast` 的關係：它是這一支的特例】同機種、同架數、
  * `playerAt` 取那個小隊的長機座位時，兩者**逐項相同**（有測試釘住）。
- * 那條等價是這一支唯一的驗收基準 —— `test/fixtures/spawn-baseline.ts`
- * 的每一個座標都是照 `lineAbreast` 釘死的。
  *
- * 【為什麼不把 `lineAbreast` 改成呼叫這一支】那份基準的浮點運算序列必須
- * 一個字不變，而這一支還在長。等價由測試守著，比由共用實作守著更誠實 ——
- * 共用之後「等價」就變成同義反覆，測不到任何東西。
+ * 【為什麼不把 `lineAbreast` 改成呼叫這一支】等價由測試守著，比由共用實作
+ * 守著更誠實 —— 共用之後「等價」就變成同義反覆，測不到任何東西。
  *
  * 【`playerAt` 是藍隊名單的索引，不是小隊序號】玩家選的那一架若不在小隊
  * 的第一格，就**與該小隊的長機對調**：`player` 這個旗標的語意是
@@ -479,10 +473,7 @@ function pushBox(
  * 【玩家恆在戰鬥機小隊】被護送的是**要保護的東西**，不是備用座位。
  * `assertOrderOfBattle` 與 `pickTakeover` 兩邊都釘住這件事。
  *
- * 【與 `lineAbreast` 的關係】不共用實作。後者的每一個座標都被
- * `test/fixtures/spawn-baseline.ts` 逐位元釘死（編組表那一輪的驗收），
- * 抽共用等於讓一支還在調整的新函數去動那份基準。**兩者都很短，重複一次
- * 比耦合便宜。**
+ * 【與 `lineAbreast` 的關係】不共用實作。**兩者都很短，重複一次比耦合便宜。**
  */
 export function convoyLine(plan: EntryPlan, blue: SideOrder, red: SideOrder): OrderOfBattle {
   const out: FlightPlan[] = []
