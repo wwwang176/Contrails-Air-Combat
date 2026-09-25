@@ -6,7 +6,7 @@ import {
 } from '../../src/render/floraShapes'
 import { FLORA_COLORS } from '../../src/render/season'
 import { TINT_RANGE } from '../../src/render/vegetation'
-import { floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
+import { CANOPY_SHADE, floraSplats, ROOF_GROW, WALL_SHARE } from '../../src/render/buildingBake'
 
 /** 把固定的幾筆吐進視窗；只吐中心在視窗裡的。一筆是 x, z, rot, scale, tint, kind, wide, tall */
 function fixed(items: readonly (readonly number[])[]): FloraSource {
@@ -84,7 +84,7 @@ describe('屋頂與樹冠的色塊', () => {
 
   /**
    * 【樹也烘】村鎮裡的樹與河岸林在植被圈外不畫；不烘的話遠處的鎮只剩屋頂、
-   * 河邊的林子整排消失。外框是樹冠的直徑，顏色是這個季節的樹冠色
+   * 河邊的林子整排消失。外框是樹冠的直徑，顏色是這個季節的樹冠色乘 `CANOPY_SHADE`
    */
   it('樹冠是直徑見方、季節的樹冠色乘植物的明度；教堂畫本堂的屋頂', () => {
     const tint = 0.5
@@ -109,7 +109,7 @@ describe('屋頂與樹冠的色塊', () => {
       const [gw, gd] = extent(g, q)
       expect(gw).toBeCloseTo(w, 3)
       expect(gd).toBeCloseTo(d, 3)
-      const cc = new Color(hex)
+      const cc = new Color(hex).multiplyScalar(CANOPY_SHADE)
       expect(col.getX(q * 4)).toBeCloseTo(cc.r * k, 5)
       expect(col.getY(q * 4)).toBeCloseTo(cc.g * k, 5)
       expect(col.getZ(q * 4)).toBeCloseTo(cc.b * k, 5)
