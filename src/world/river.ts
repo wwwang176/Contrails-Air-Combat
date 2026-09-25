@@ -434,7 +434,10 @@ export class RiverIndex {
       const l2 = vx * vx + vz * vz
       let t = l2 <= 0 ? 0 : ((x - ax) * vx + (z - az) * vz) / l2
       t = t < 0 ? 0 : t > 1 ? 1 : t
-      const d = Math.hypot(x - (ax + vx * t), z - (az + vz * t))
+      // 【手寫開根號】V8 的 Math.hypot 每次呼叫都會配置；植被補格時每一株都問
+      const ex = x - (ax + vx * t)
+      const ez = z - (az + vz * t)
+      const d = Math.sqrt(ex * ex + ez * ez)
       if (d < best) {
         best = d
         this.nearSeg = o
@@ -442,6 +445,28 @@ export class RiverIndex {
       }
     }
     return best <= this.reach ? best : Infinity
+  }
+
+  /**
+   * 這個方框裡**可能**有點離中心線在 `reach` 以內嗎。保守：回 false 時框裡一定
+   * 沒有；回 true 時不一定有。
+   *
+   * 【為什麼成立】每一段登錄在它外接盒外擴 `reach` 碰到的每一格；框裡任何一點若
+   * 離某一段在 `reach` 以內，那一點所在的格就登錄了那一段。框蓋到的格全是空的，
+   * 框裡就沒有這樣的點。植被逐格先問它，離河遠的格整格不必逐株查
+   */
+  mayReach(x0: number, z0: number, x1: number, z1: number): boolean {
+    const i0 = Math.max(0, Math.floor((x0 - this.x0) / this.cell))
+    const i1 = Math.min(this.cols - 1, Math.floor((x1 - this.x0) / this.cell))
+    const j0 = Math.max(0, Math.floor((z0 - this.z0) / this.cell))
+    const j1 = Math.min(this.rows - 1, Math.floor((z1 - this.z0) / this.cell))
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const c = j * this.cols + i
+        if (this.start[c + 1]! > this.start[c]!) return true
+      }
+    }
+    return false
   }
 
   /** 水面高度，m。不在水面上回 `-Infinity` —— 與 `Terrain.waterAt` 同一個約定 */

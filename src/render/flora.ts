@@ -6,7 +6,8 @@ import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
   edgeAt, fieldAt, isOpenParcel, isWoodField, openWoodCover, regionAt, regionParams, regionSeed, splitCut, valueNoise,
-  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH, VILLAGE_CHANCE, VILLAGE_NEIGHBOUR,
+  villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH, VILLAGE_CHANCE,
+  VILLAGE_NEIGHBOUR,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
@@ -347,6 +348,8 @@ export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
 
 /** 「田圍著村」的地圖的樹籬：空地的邊不長（`fields.ts` 的 `FIELD_REACH`） */
 export const openHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  // 【整格都是空地就整格跳過】空地的邊不長樹籬，而荒野裡的格一大片都是
+  if (FLORA_FAST_PATHS.on && tileLandUse(x0, z0, x1, z1) === LAND_OPEN) return
   winOpen = true
   hedges(x0, z0, x1, z1, heightAt, out)
 }
@@ -457,6 +460,85 @@ export const openWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
 }
 
 /**
+ * 整格判斷的開關。**只給測試用**：關掉之後每一格都走逐點的慢路徑，測試拿兩條
+ * 路徑的輸出逐株比對
+ */
+export const FLORA_FAST_PATHS = { on: true }
+
+/**
+ * 這一格碰到的田裡**可能**有樹林田嗎（保守）。列出格子在每個候選區塊的座標系裡
+ * 蓋到的列與欄（外擴一格），逐一看田的雜湊 —— 比逐點找田便宜兩個數量級，而多數
+ * 的格一塊樹林田都沒有
+ */
+function tileMayHaveWood(x0: number, z0: number, x1: number, z1: number): boolean {
+  candidateRegions(x0, z0, x1, z1)
+  for (let ci = 0; ci < candCount; ci++) {
+    const rid = CAND_ID[ci]! >>> 0
+    regionParams(rid, REG)
+    const cs = Math.cos(-REG.angle)
+    const sn = Math.sin(-REG.angle)
+    let qxMin = Infinity
+    let qxMax = -Infinity
+    let qzMin = Infinity
+    let qzMax = -Infinity
+    for (let i = 0; i < 4; i++) {
+      const x = (i & 1) === 0 ? x0 : x1
+      const z = (i & 2) === 0 ? z0 : z1
+      const qx = x * cs - z * sn
+      const qz = x * sn + z * cs
+      if (qx < qxMin) qxMin = qx
+      if (qx > qxMax) qxMax = qx
+      if (qz < qzMin) qzMin = qz
+      if (qz > qzMax) qzMax = qz
+    }
+    // 【照格線挑，不整片外擴】推移量小於半格，所以候選多看一格，再用真的格線位置
+    // 篩掉沒蓋到的列與欄。整片外擴一格的話一格要看八十塊田，幾乎每一格都碰得到
+    // 一塊樹林田，這道判斷等於沒有
+    const rMin = Math.floor(qzMin / REG.cellH) - 1
+    const rMax = Math.floor(qzMax / REG.cellH) + 1
+    for (let r = rMin; r <= rMax; r++) {
+      if (edgeAt(r + 1, REG.cellH, 1) <= qzMin || edgeAt(r, REG.cellH, 1) >= qzMax) continue
+      const colSalt = (r * 2 + 1) | 0
+      const cMin = Math.floor(qxMin / REG.cellW) - 1
+      const cMax = Math.floor(qxMax / REG.cellW) + 1
+      for (let c = cMin; c <= cMax; c++) {
+        if (edgeAt(c + 1, REG.cellW, colSalt) <= qxMin || edgeAt(c, REG.cellW, colSalt) >= qxMax) continue
+        // 與 `fieldAt` 同一個算法：格的雜湊、對切的兩半
+        const cellHash = hash2(c ^ rid, r)
+        if (isWoodField(hash1(cellHash)) || isWoodField(hash1(cellHash ^ 0x7f4a))) return true
+      }
+    }
+  }
+  return false
+}
+
+const LAND_MIXED = 0
+const LAND_OPEN = 1
+const LAND_FIELD = 2
+/** 地塊的半對角線上限，m（最大的地塊約 290） */
+const PARCEL_HALF_DIAG = 293
+
+/** 方框的半對角線，m。植被一格（`TILE_SIZE` 250 m）是 177 */
+function halfDiagonal(x0: number, z0: number, x1: number, z1: number): number {
+  const dx = x1 - x0
+  const dz = z1 - z0
+  return Math.sqrt(dx * dx + dz * dz) / 2
+}
+
+/**
+ * 「田圍著村」的地圖上，這一格的地塊是不是**全部**是空地（或全部是田）。地塊用
+ * 它的中心判斷，中心離格心最遠是格的半對角線加地塊的半對角線：格心離最近的村比
+ * 田最遠伸到的地方還遠，整格一定是空地；比田最近的邊還近，整格一定是田
+ */
+function tileLandUse(x0: number, z0: number, x1: number, z1: number): number {
+  const reach = halfDiagonal(x0, z0, x1, z1) + PARCEL_HALF_DIAG
+  const d = villageDistance((x0 + x1) / 2, (z0 + z1) / 2)
+  if (d - reach > FIELD_REACH * 1.3 * 1.2) return LAND_OPEN
+  if (d + reach < FIELD_REACH * 0.7 * 0.8) return LAND_FIELD
+  return LAND_MIXED
+}
+
+/**
  * 空地上的樹林：接受機率乘這個、縮放取這一段。
  *
  * 【稀一點、大一點】空地的林子佔地大，照田裡樹林的密度長的話，實測整張圖慢
@@ -468,10 +550,40 @@ const OPEN_TREE_SCALE = [0.8, 1.0] as const
 /** 空地上的樹林裡針葉樹佔多少 */
 const OPEN_CONIFER_SHARE = 0.3
 
+/** 空地上的一個候選點：照 `openWoodCover` 決定長不長 */
+function openTree(
+  x: number, z: number, g: number, heightAt: (x: number, z: number) => number, out: FloraBuffer,
+): void {
+  const g2 = hash1(g)
+  // 覆蓋率不超過 1：雜湊已經在密度上限之上的點不必算覆蓋率（兩層雜訊）
+  const u = (g2 & 0xffff) / 65536
+  if (u >= OPEN_WOOD_DENSITY || u >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) return
+  const g3 = hash1(g2)
+  pushFlora(
+    out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+    OPEN_TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (OPEN_TREE_SCALE[1] - OPEN_TREE_SCALE[0]),
+    ((g2 >>> 16) & 0xff) / 255,
+    ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE ? FloraKind.ConeTree : FloraKind.BroadTree,
+  )
+}
+
 function woods(
   open: boolean, x0: number, z0: number, x1: number, z1: number,
   heightAt: (x: number, z: number) => number, out: FloraBuffer,
 ): void {
+  // 【整格先判斷】逐點找區塊、找田是這一支的大宗（一格 244 點），而大多數的格用不到：
+  // 田裡的樹林只長在樹林田，整格沒有樹林田就整格跳過；整格都是空地的話不必找田
+  let land = LAND_MIXED
+  let noTrack = false
+  if (FLORA_FAST_PATHS.on) {
+    land = open ? tileLandUse(x0, z0, x1, z1) : LAND_FIELD
+    if (land === LAND_FIELD && !tileMayHaveWood(x0, z0, x1, z1)) return
+    if (land === LAND_OPEN) {
+      // `r2 − r1` 每走 1 m 最多變 2：格心離凹路夠遠，整格都碰不到凹路
+      regionAt((x0 + x1) / 2, (z0 + z1) / 2, AT)
+      noTrack = AT.r2 - AT.r1 - 2 * halfDiagonal(x0, z0, x1, z1) > TRACK_WIDTH
+    }
+  }
   const g0 = Math.floor(x0 / WOOD_GRID)
   const g1 = Math.floor(x1 / WOOD_GRID)
   const h0 = Math.floor(z0 / WOOD_GRID)
@@ -484,19 +596,19 @@ function woods(
       const g = hash1(h)
       const z = (gz + 0.15 + (g / 4294967296) * 0.7) * WOOD_GRID
       if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
+      if (land === LAND_OPEN) {
+        if (!noTrack) {
+          regionAt(x, z, AT)
+          if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
+        }
+        openTree(x, z, g, heightAt, out)
+        continue
+      }
       regionAt(x, z, AT)
       if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
       fieldAt(x, z, AT, FLD)
       if (open && isOpenParcel(FLD)) {
-        const g2 = hash1(g)
-        if ((g2 & 0xffff) / 65536 >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) continue
-        const g3 = hash1(g2)
-        pushFlora(
-          out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
-          OPEN_TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (OPEN_TREE_SCALE[1] - OPEN_TREE_SCALE[0]),
-          ((g2 >>> 16) & 0xff) / 255,
-          ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE ? FloraKind.ConeTree : FloraKind.BroadTree,
-        )
+        openTree(x, z, g, heightAt, out)
         continue
       }
       if (!isWoodField(FLD.id)) continue

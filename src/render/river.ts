@@ -143,7 +143,9 @@ export function buildBankGround(sample: HeightSampler, lines: readonly WaterLine
  * 【為什麼不能用矩形】河是彎的，能框住它的矩形會把半張圖的樹籬也砍掉。
  */
 export function excludingCorridor(source: FloraSource, index: RiverIndex, halfWidth = CLEAR_HALF): FloraSource {
-  return excludingWhere(source, (x, z) => index.distance(x, z) < halfWidth)
+  // `mayReach` 用的是索引的 `reach`（草甸的半寬），比 `halfWidth` 寬，所以整格的判斷是保守的
+  return excludingWhere(source, (x, z) => index.distance(x, z) < halfWidth,
+    (x0, z0, x1, z1) => index.mayReach(x0, z0, x1, z1))
 }
 
 /**
@@ -155,7 +157,10 @@ export function excludingCorridor(source: FloraSource, index: RiverIndex, halfWi
  * 「第幾條河、第幾站、左右哪一邊」，與視窗無關。
  */
 export function riverBankFlora(lines: readonly WaterLine[], within: number): FloraSource {
-  /** 站址預先算好，`FloraSource` 每一格只做視窗篩選 */
+  /**
+   * 站址預先算好、**依格分桶**，`FloraSource` 每一格只看自己那幾桶。不分桶的話
+   * 每一格都把整條河幾千個站址掃一遍 —— 離河幾公里的格也一樣
+   */
   const spots: { x: number; z: number; rot: number; scale: number; kind: FloraKind }[] = []
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li]!
@@ -197,13 +202,30 @@ export function riverBankFlora(lines: readonly WaterLine[], within: number): Flo
       carry = (carry + len) % TREE_STEP
     }
   }
+  const buckets = new Map<number, typeof spots>()
+  const key = (i: number, j: number): number => (i + 65536) * 131072 + (j + 65536)
+  for (const s of spots) {
+    const k = key(Math.floor(s.x / BANK_BUCKET), Math.floor(s.z / BANK_BUCKET))
+    const list = buckets.get(k)
+    if (list === undefined) buckets.set(k, [s])
+    else list.push(s)
+  }
   return (x0, z0, x1, z1, heightAt, out) => {
-    for (const s of spots) {
-      if (s.x < x0 || s.x >= x1 || s.z < z0 || s.z >= z1) continue
-      pushFlora(out, s.x, heightAt(s.x, s.z), s.z, s.rot, s.scale, 0.5, s.kind)
+    for (let j = Math.floor(z0 / BANK_BUCKET); j * BANK_BUCKET < z1; j++) {
+      for (let i = Math.floor(x0 / BANK_BUCKET); i * BANK_BUCKET < x1; i++) {
+        const list = buckets.get(key(i, j))
+        if (list === undefined) continue
+        for (const s of list) {
+          if (s.x < x0 || s.x >= x1 || s.z < z0 || s.z >= z1) continue
+          pushFlora(out, s.x, heightAt(s.x, s.z), s.z, s.rot, s.scale, 0.5, s.kind)
+        }
+      }
     }
   }
 }
+
+/** 河岸林站址分桶的格寬，m */
+const BANK_BUCKET = 250
 
 /** 一整組河：中心線（含延伸段）與索引。`terrain.ts` 吃這一份 */
 export interface RiverSet {

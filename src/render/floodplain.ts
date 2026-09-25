@@ -37,10 +37,27 @@ const FOREST_GROUND = 0x3e3d2f
 const CHANNEL_CLEAR = CHANNEL_HALF + 8
 /** 地面網格切段的長度，m：每一段一個外接盒 */
 const CHUNK = 2000
+/**
+ * 整格判斷能處理的最大半對角線，m（植被一格 250 m 的半對角線是 177）。更大的框
+ * 退回索引格的判斷（`mayReach`），仍然保守
+ */
+const NEAR_MARGIN = 200
+/**
+ * 距離場的格點間距，m。與河漫灘地面網格的頂點是同一組（`leunaFeatures.ts` 的
+ * `FLOODPLAIN_GRID`），地色與樹落在同一組數字上
+ */
+const LATTICE = 40
+/** 格點快取的槽數。一格 250 m 用 49 個格點，植被圈一次補十幾格 */
+const LAT_SLOTS = 1 << 15
+/** 觸及範圍外的值：內插時要是有限的數，不然一個角是 Infinity 整格都是 */
+const FAR_REL = 10
+const FAR_D = 1e6
 
 export interface Floodplain {
   /** 在河漫灘裡嗎。樹籬與田裡的林地擋在外面 */
   readonly inside: (x: number, z: number) => boolean
+  /** 這個方框**可能**碰到河漫灘嗎（保守：回 false 時一定沒有） */
+  readonly near: (x0: number, z0: number, x1: number, z1: number) => boolean
   /** 森林的覆蓋率，0～1。河漫灘外是 0 */
   readonly cover: (x: number, z: number) => number
   /** 河岸林的樹（還沒擋村鎮、礦坑、高速公路，由呼叫端包） */
@@ -50,32 +67,99 @@ export interface Floodplain {
 }
 
 export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
+  // 【索引的觸及範圍】河漫灘最寬是基準的 1.15 倍；整格判斷（`near`）用格心的距離，
+  // 要再加一個格的半對角線才下得了「一定碰不到」的結論
   const groups = Object.entries(WIDTH).map(([name, base]) => {
     const own = lines.filter((l) => l.name === name)
-    return { name, base, own, index: new RiverIndex(own, base * 1.2) }
+    return { name, base, own, index: new RiverIndex(own, base * 1.15 + NEAR_MARGIN) }
   }).filter((g) => g.own.length > 0)
   const width = (x: number, z: number, base: number): number =>
     base * (0.55 + 0.6 * valueNoise(x, z, WIDTH_NOISE, 0x5a17))
 
-  /** 離最近那條河的中心線佔河漫灘寬度的比例（0 = 河心、1 = 河谷邊），與那個距離 */
-  const where = (x: number, z: number): { rel: number; d: number } => {
-    let rel = Infinity
-    let d = Infinity
+  /**
+   * 離最近那條河的中心線佔河漫灘寬度的比例（0 = 河心、1 = 河谷邊）與那個距離，
+   * 寫進 `hitRel`、`hitD`。觸及範圍外是 `FAR_REL`、`FAR_D`
+   */
+  let hitRel = 0
+  let hitD = 0
+  const exact = (x: number, z: number): void => {
+    hitRel = FAR_REL
+    hitD = FAR_D
     for (const g of groups) {
       const dd = g.index.distance(x, z)
       if (!Number.isFinite(dd)) continue
       const rr = dd / width(x, z, g.base)
-      if (rr < rel) {
-        rel = rr
-        d = dd
+      if (rr < hitRel) {
+        hitRel = rr
+        hitD = dd
       }
     }
-    return { rel, d }
   }
-  const inside = (x: number, z: number): boolean => where(x, z).rel < 1
+  // 【格點快取】距離是平滑的場：在 `LATTICE` 一格的全域格點上算一次、記住，其餘的點
+  // 雙線性內插。每一點都問索引的話，河漫灘裡一格 250 m 要掃幾千次河道線段。直接
+  // 映射，槽位由格點決定、另外存格點比對，撞了就重算
+  const latI = new Int32Array(LAT_SLOTS)
+  const latJ = new Int32Array(LAT_SLOTS)
+  const latOk = new Uint8Array(LAT_SLOTS)
+  const latRel = new Float64Array(LAT_SLOTS)
+  const latD = new Float64Array(LAT_SLOTS)
+  let cRel = 0
+  let cD = 0
+  const corner = (i: number, j: number): void => {
+    const s = (Math.imul(i, 73856093) ^ Math.imul(j, 19349663)) & (LAT_SLOTS - 1)
+    if (latOk[s] === 1 && latI[s] === i && latJ[s] === j) {
+      cRel = latRel[s]!
+      cD = latD[s]!
+      return
+    }
+    exact(i * LATTICE, j * LATTICE)
+    latI[s] = i
+    latJ[s] = j
+    latOk[s] = 1
+    latRel[s] = cRel = hitRel
+    latD[s] = cD = hitD
+  }
+  /** `exact` 的內插版：結果同樣寫進 `hitRel`、`hitD` */
+  const where = (x: number, z: number): void => {
+    const fx = x / LATTICE
+    const fz = z / LATTICE
+    const i = Math.floor(fx)
+    const j = Math.floor(fz)
+    const tx = fx - i
+    const tz = fz - j
+    corner(i, j)
+    let rel = cRel * (1 - tx) * (1 - tz)
+    let d = cD * (1 - tx) * (1 - tz)
+    corner(i + 1, j)
+    rel += cRel * tx * (1 - tz)
+    d += cD * tx * (1 - tz)
+    corner(i, j + 1)
+    rel += cRel * (1 - tx) * tz
+    d += cD * (1 - tx) * tz
+    corner(i + 1, j + 1)
+    rel += cRel * tx * tz
+    d += cD * tx * tz
+    hitRel = rel
+    hitD = d
+  }
+  const inside = (x: number, z: number): boolean => {
+    where(x, z)
+    return hitRel < 1
+  }
+  // 格心離河的距離減掉半對角線，比最寬的河漫灘還遠就一定碰不到
+  // （索引在觸及範圍外回 Infinity：範圍是最寬的河漫灘加 `NEAR_MARGIN`，所以
+  // Infinity 就表示一定碰不到）
+  const near = (x0: number, z0: number, x1: number, z1: number): boolean => {
+    const half = Math.hypot(x1 - x0, z1 - z0) / 2
+    if (half > NEAR_MARGIN) return groups.some((g) => g.index.mayReach(x0, z0, x1, z1))
+    const cx = (x0 + x1) / 2
+    const cz = (z0 + z1) / 2
+    return groups.some((g) => g.index.distance(cx, cz) - half <= g.base * 1.15)
+  }
   const cover = (x: number, z: number): number => {
-    const { rel, d } = where(x, z)
-    if (rel >= 1 || d < CHANNEL_CLEAR) return 0
+    where(x, z)
+    const rel = hitRel
+    if (rel >= 1 || hitD < CHANNEL_CLEAR) return 0
     const n = 0.65 * valueNoise(x, z, CLUMP_CELL[0], 0x2e41) + 0.35 * valueNoise(x, z, CLUMP_CELL[1], 0x7c03)
     const t = Math.min(1, Math.max(0, (n - CLUMP_GATE[0]) / (CLUMP_GATE[1] - CLUMP_GATE[0])))
     // 往河谷邊緣淡掉：最外面那兩成是草地與田的交界
@@ -84,14 +168,16 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
   }
 
   const flora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+    // 【離河遠的格整格跳過】逐點問離河多遠是這一支的大宗，而絕大多數的格碰不到河漫灘
+    if (!near(x0, z0, x1, z1)) return
     for (let j = Math.floor(z0 / GRID); j * GRID < z1; j++) {
       for (let i = Math.floor(x0 / GRID); i * GRID < x1; i++) {
         const h = hash2(i ^ 0x3c6e, j)
         const x = (i + (h & 0xff) / 256) * GRID
         const z = (j + ((h >>> 8) & 0xff) / 256) * GRID
         if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
-        const { rel, d } = where(x, z)
-        if (rel >= 1 || d < CHANNEL_CLEAR) continue
+        where(x, z)
+        if (hitRel >= 1 || hitD < CHANNEL_CLEAR) continue
         const accept = Math.max(cover(x, z) * 0.92, MEADOW_TREES)
         const g = hash2(h, j ^ 0x51ed)
         if ((g & 0xffff) / 65536 >= accept) continue
@@ -105,6 +191,7 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
 
   return {
     inside,
+    near,
     cover,
     flora,
     buildGround(sample, extent, g = { size: DECAL_GRID, origin: 0 }, name = 'floodplain') {

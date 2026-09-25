@@ -544,12 +544,12 @@ function createInlandTerrain(
   if (rivers !== undefined) {
     fields = fields.map((s) => excludingCorridor(s, rivers.index))
     // 【河漫灘不是田】樹籬與田裡的林地停在河谷邊；河岸林照長
-    if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.fieldsOut))
+    if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.fieldsOut, dressing.fieldsOutNear))
     if (dressing === undefined) buildings = excludingCorridor(buildings, rivers.index)
     fields.push(riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND))
   }
   // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
-  if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut))
+  if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut, dressing.keepOutNear))
   fields.push(buildings)
   for (const s of dressing?.flora ?? []) fields.push(padClear(s))
   // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外

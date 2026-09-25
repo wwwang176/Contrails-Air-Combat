@@ -1058,6 +1058,50 @@ export function settlementLayout(
  */
 export function settlementTest(places: readonly Place[]): (x: number, z: number) => boolean {
   const CELL = 1000
+  const buckets = new Map<number, SizedPlace[]>()
+  for (const p of places) {
+    const R = settlementRadius(p)
+    const r = R * 1.25
+    for (let j = Math.floor((p.z - r) / CELL); j <= Math.floor((p.z + r) / CELL); j++) {
+      for (let i = Math.floor((p.x - r) / CELL); i <= Math.floor((p.x + r) / CELL); i++) {
+        const k = bucketKey(i, j)
+        const list = buckets.get(k)
+        if (list === undefined) buckets.set(k, [{ p, R }])
+        else list.push({ p, R })
+      }
+    }
+  }
+  // 【先比半徑】輪廓的起伏最多 ±22%（`outlineScale`）：0.78 倍以內一定在裡面、1.22 倍
+  // 以外一定在外面，只有中間那一圈要算輪廓。植被補格時每一株樹籬都問它
+  return (x, z) => {
+    for (const { p, R } of buckets.get(bucketKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? NO_SIZED) {
+      // 手寫開根號：V8 的 Math.hypot 每次呼叫都會配置
+      const dx = x - p.x
+      const dz = z - p.z
+      const d = Math.sqrt(dx * dx + dz * dz)
+      if (d > R * OUTLINE_MAX) continue
+      if (d <= R * OUTLINE_MIN || insideSettlement(p, x, z)) return true
+    }
+    return false
+  }
+}
+
+/** 聚落與它的半徑（`settlementRadius` 要對名字做雜湊，預先算好） */
+interface SizedPlace {
+  readonly p: Place
+  readonly R: number
+}
+const NO_SIZED: readonly SizedPlace[] = []
+/** 輪廓倍率的範圍（`outlineScale` 是 1 ± 0.22） */
+const OUTLINE_MIN = 0.78
+const OUTLINE_MAX = 1.22
+
+/**
+ * `settlementTest` 的整格版：這個方框**可能**碰到某個聚落的輪廓嗎（保守：外接圓
+ * 取半徑的 1.25 倍，輪廓的起伏最多 +22%）
+ */
+export function settlementNear(places: readonly Place[]): (x0: number, z0: number, x1: number, z1: number) => boolean {
+  const CELL = 1000
   const buckets = new Map<number, Place[]>()
   for (const p of places) {
     const r = settlementRadius(p) * 1.25
@@ -1070,9 +1114,16 @@ export function settlementTest(places: readonly Place[]): (x: number, z: number)
       }
     }
   }
-  return (x, z) => {
-    for (const p of buckets.get(bucketKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? NO_PLACES) {
-      if (insideSettlement(p, x, z)) return true
+  return (x0, z0, x1, z1) => {
+    for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++) {
+      for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) {
+        for (const p of buckets.get(bucketKey(i, j)) ?? NO_PLACES) {
+          const r = settlementRadius(p) * 1.25
+          const dx = Math.max(x0 - p.x, 0, p.x - x1)
+          const dz = Math.max(z0 - p.z, 0, p.z - z1)
+          if (dx * dx + dz * dz <= r * r) return true
+        }
+      }
     }
     return false
   }

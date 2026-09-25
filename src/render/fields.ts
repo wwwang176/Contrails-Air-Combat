@@ -577,21 +577,47 @@ export function villageDistance(x: number, z: number): number {
       if (((h >>> 7) & 0xff) / 256 >= VILLAGE_CHANCE) continue
       const d = ((h >>> 5) & 1) * 2
       regionSeed(i + VILLAGE_NEIGHBOUR[d]!, j + VILLAGE_NEIGHBOUR[d + 1]!, VB)
-      best = Math.min(best, Math.hypot(x - (VA.x + VB.x) / 2, z - (VA.z + VB.z) / 2))
+      // 手寫開根號：見 `regionAt`
+      const ex = x - (VA.x + VB.x) / 2
+      const ez = z - (VA.z + VB.z) / 2
+      best = Math.min(best, Math.sqrt(ex * ex + ez * ez))
     }
   }
   return best
 }
 
+/**
+ * 地塊是不是空地的快取：直接映射，槽位由地塊的雜湊決定，另外存中心座標比對 ——
+ * 雜湊撞了就重算，答案只由地塊決定，與查過哪些地塊無關。
+ *
+ * 【為什麼要快取】植被補格時每一個候選點都要問（樹林 16 m 一點、樹籬 5 m 一點），
+ * 而同一塊地上幾百個點的答案一樣；每次都找附近 16 個村站址的話，補格的時間翻倍
+ */
+const OPEN_CACHE = 1 << 14
+const openId = new Uint32Array(OPEN_CACHE)
+const openCx = new Float64Array(OPEN_CACHE).fill(NaN)
+const openCz = new Float64Array(OPEN_CACHE)
+const openBit = new Uint8Array(OPEN_CACHE)
+
 /** 這一塊地是空地嗎（`open` 的地圖）。用地塊的中心與地塊的雜湊 */
 export function isOpenParcel(f: FieldSample): boolean {
+  const slot = (f.id ^ (f.id >>> 14)) & (OPEN_CACHE - 1)
+  // 中心由每一點自己算（`fieldAt`），同一塊地不同點差在小數第十幾位
+  if (openId[slot] === f.id >>> 0 && Math.abs(openCx[slot]! - f.cx) < 0.01 && Math.abs(openCz[slot]! - f.cz) < 0.01) {
+    return openBit[slot] === 1
+  }
   const reach = FIELD_REACH * (0.7 + 0.6 * valueNoise(f.cx, f.cz, REACH_NOISE_CELL, 0x4d21))
   const d = villageDistance(f.cx, f.cz)
   const t = Math.min(1, Math.max(0, (d - 0.8 * reach) / (0.4 * reach)))
   const fieldness = 1 - t * t * (3 - 2 * t)
   // 交界那一段每塊地各抽一個門檻
   const th = 0.25 + 0.5 * ((hash1(f.id ^ 0x0be5) & 0xff) / 255)
-  return fieldness <= th
+  const open = fieldness <= th
+  openId[slot] = f.id >>> 0
+  openCx[slot] = f.cx
+  openCz[slot] = f.cz
+  openBit[slot] = open ? 1 : 0
+  return open
 }
 
 /** 空地上樹林的覆蓋率，0～1。放置與地色共用 */

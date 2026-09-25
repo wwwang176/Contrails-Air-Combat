@@ -267,6 +267,40 @@ describe('查詢索引', () => {
     expect(one.distance(-190, 0)).toBeCloseTo(190, 9)
   })
 
+  /**
+   * 【整格判斷保守】植被補格拿 `mayReach` 整格跳過河道走廊。它回 false 的方框裡只要
+   * 有一點在查詢半徑內，那一格的河上就會長樹
+   */
+  it('mayReach 回 false 的方框，框裡每一點都在查詢半徑外', () => {
+    let seed = 7
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    let skipped = 0
+    let reached = 0
+    for (let k = 0; k < 4000; k++) {
+      // 撒在河道附近，方框 50～1500 m：跨一格到好幾格的都有
+      const l = ALL[Math.floor(rand() * ALL.length)]!
+      const p = l.points[Math.floor(rand() * l.points.length)]!
+      const w = 50 + rand() * 1450
+      const h = 50 + rand() * 1450
+      const x0 = p[0] + (rand() - 0.5) * 3000 - w / 2
+      const z0 = p[1] + (rand() - 0.5) * 3000 - h / 2
+      if (index.mayReach(x0, z0, x0 + w, z0 + h)) {
+        reached++
+        continue
+      }
+      skipped++
+      for (let i = 0; i <= 12; i++) {
+        for (let j = 0; j <= 12; j++) {
+          const x = x0 + (w * i) / 12
+          const z = z0 + (h * j) / 12
+          if (index.distance(x, z) !== Infinity) expect.fail(`(${x0},${z0},${w}×${h}) 跳過，但 (${x},${z}) 搆得到`)
+        }
+      }
+    }
+    expect(skipped).toBeGreaterThan(500)
+    expect(reached).toBeGreaterThan(500)
+  })
+
   it('延伸段上也是水', () => {
     const e = EXT[0]!
     const p = e.points[Math.floor(e.points.length / 2)]!

@@ -56,6 +56,19 @@ export function buildMines(
 }
 
 /** 「在礦坑裡（含坑緣外 `margin` 公尺）」的查詢，植被與建築用 */
+/** `mineTest` 的整格版：這個方框**可能**碰到某個礦坑（含坑緣外 `margin`）嗎 */
+export function mineNear(mines: FeatureFile['mines'], margin: number): (x0: number, z0: number, x1: number, z1: number) => boolean {
+  const boxes = mines.map((m) => {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+    for (const [x, z] of m.ring) {
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x)
+      z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+    }
+    return { x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
+  })
+  return (x0, z0, x1, z1) => boxes.some((b) => x1 >= b.x0 && x0 <= b.x1 && z1 >= b.z0 && z0 <= b.z1)
+}
+
 export function mineTest(mines: FeatureFile['mines'], margin: number): (x: number, z: number) => boolean {
   const boxes = mines.map((m) => {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
