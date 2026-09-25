@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.join(ROOT, 'tools', 'livery'))
 import layout  # noqa: E402
 
 BODY = 'P51_Body'
+# 平尾那個物件的 `part` 標記，UV 另外擺，見 layout.TAILPLANE_SHIFT_X
+TAILPLANE_PART = 'wing2'
 GLB = os.path.join(ROOT, 'models-src', 'p51d.glb')
 
 
@@ -41,18 +43,20 @@ def main(faces_out):
         uv = me.uv_layers.get('UVMap') or me.uv_layers.new(name='UVMap')
         mw = o.matrix_world
         nm = mw.to_3x3().inverted().transposed()
+        tail = o.get('part') == TAILPLANE_PART
         for p in me.polygons:
             n = (nm @ p.normal).normalized()
             nx, ny, _ = game(n)
             view = layout.classify(nx, ny)
+            side = (1 if (mw @ p.center).x >= 0 else -1) if tail else 0
             pts = []
             for li in p.loop_indices:
                 x, y, z = game(mw @ me.vertices[me.loops[li].vertex_index].co)
-                px, py = layout.project(view, x, y, z)
+                px, py = layout.project(view, x, y, z, side)
                 uv.data[li].uv = (px / layout.WIDTH, 1.0 - py / layout.HEIGHT)
                 pts.append((round(px, 2), round(py, 2)))
             if slots[p.material_index] == BODY:
-                faces.append({'view': view, 'pts': pts})
+                faces.append({'view': view, 'pts': pts, 'tail': tail})
     with open(faces_out, 'w', encoding='utf-8') as f:
         json.dump(faces, f)
 

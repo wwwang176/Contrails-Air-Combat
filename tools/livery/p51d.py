@@ -60,6 +60,9 @@ FUSELAGE_STRIPES_TOP_Y = 0.15
 FUSELAGE_STRIPES_HALF_X = 0.22
 ANTIGLARE_HALF_X = 0.30
 
+# 上下視裡主翼那一塊的後界（z）。主翼後緣最後到 2.06，平尾搬過來後從 2.56 開始
+WING_REGION_END_Z = 2.3
+
 # 翼面的分片線（|x|）與副翼外側
 WING_LINES_X = (1.55, 3.30)
 AILERON = (3.30, 5.25)
@@ -131,8 +134,9 @@ def wing_edges(faces):
         x = 1.6 + k * 0.07
         u, _ = layout.top(x, 0)
         col = [v for v in range(0, 1024) if px[int(u), v]]
-        # 只看主翼那一段（z < 2.3），平尾在後面
-        rows = [v for v in col if (v - layout.TOP_ORIGIN[1]) / layout.SCALE + layout.PLAN_CENTER_Z < 2.3]
+        # 只看主翼那一段，平尾在後面
+        rows = [v for v in col
+                if (v - layout.TOP_ORIGIN[1]) / layout.SCALE + layout.PLAN_CENTER_Z < WING_REGION_END_Z]
         if not rows:
             continue
         z0 = (min(rows) - layout.TOP_ORIGIN[1]) / layout.SCALE + layout.PLAN_CENTER_Z
@@ -203,7 +207,8 @@ def paint(faces):
         # 兩翼下面
         x0 = WING_STRIPES_X0 + k * STRIPE_W
         for side in (-1, 1):
-            p.rect('bottom', side * x0, -2.0, side * (x0 + STRIPE_W), 3.0, c)
+            # 後端停在主翼後緣之後一點：再往後是平尾在貼圖上的位置
+            p.rect('bottom', side * x0, -2.0, side * (x0 + STRIPE_W), WING_REGION_END_Z, c)
         # 機腹與兩側下半
         z0 = FUSELAGE_STRIPES_Z0 + k * STRIPE_W
         p.rect('bottom', -FUSELAGE_STRIPES_HALF_X, z0, FUSELAGE_STRIPES_HALF_X, z0 + STRIPE_W, c)

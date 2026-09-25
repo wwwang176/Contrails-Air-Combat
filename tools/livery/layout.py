@@ -34,6 +34,12 @@ LEFT_ORIGIN = (512.0, 1280.0)
 RIGHT_ORIGIN = (1536.0, 1280.0)
 
 
+# 平尾在上下視裡另外擺：往前移、左右兩半各往外推，落在主翼後緣與機身之間的空位。
+# 留在原處的話，它的下面與尾錐的下面投到同一塊，機腹畫的東西會跟著上平尾
+TAILPLANE_SHIFT_X = 0.5
+TAILPLANE_SHIFT_Z = -1.85
+
+
 def top(x, z):
     return (TOP_ORIGIN[0] + x * SCALE, TOP_ORIGIN[1] + (z - PLAN_CENTER_Z) * SCALE)
 
@@ -58,8 +64,14 @@ def classify(nx, ny):
     return 'right' if nx > 0 else 'left'
 
 
-def project(view, x, y, z):
-    """機體座標的一點 → 該視圖上的像素座標"""
+def project(view, x, y, z, tail_side=0):
+    """機體座標的一點 → 該視圖上的像素座標。
+
+    tail_side：平尾的面傳它在哪一半（−1 左、+1 右，看面中心），其餘傳 0。
+    同一個面的頂點要用同一個值，否則跨中線的面會被撕開。"""
+    if tail_side and view in ('top', 'bottom'):
+        x += tail_side * TAILPLANE_SHIFT_X
+        z += TAILPLANE_SHIFT_Z
     if view == 'top':
         return top(x, z)
     if view == 'bottom':
