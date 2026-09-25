@@ -6,6 +6,7 @@ import { createGltfLoader } from './gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PROP_DISC_RENDER_ORDER, type AircraftModel, type HullMetrics } from './assembly'
 import { assetUrl } from '../../core/asset'
+import { applyLiveryUv, liveryMoveFor, type LiveryLayout } from './livery'
 
 /**
  * 由 GLB 載入的機種外型。
@@ -56,14 +57,11 @@ export interface GlbAircraft {
   bodyColor: number
   accentColor: number
   /**
-   * 塗裝貼圖的路徑（`public/` 底下）。有的話 `body` 材質改吃這張圖，
-   * `bodyColor` 就不用了。
-   *
-   * 【GLB 的機身色面要帶 UV】版面見 `tools/livery/layout.py`，由
-   * `tools/blender/*_livery_uv.py` 寫進 blend。少了 UV 的話整架會取到貼圖的
-   * 同一個像素，變成一片單色而不會報錯。
+   * 塗裝。有的話 `body` 材質改吃貼圖，機身色的面在載入時照版面算 UV
+   * （`livery.ts`），GLB 本身不帶 UV。`bodyColor` 仍然是 `frame`（窗框）與
+   * 停機坪烘焙的顏色。
    */
-  livery?: string
+  livery?: LiveryLayout
   /**
    * GLB 裡的材質名 → 遊戲材質。
    *
@@ -141,7 +139,7 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 export async function loadGlbTemplate(id: string, def: GlbAircraft): Promise<GlbTemplate> {
   const [buf, livery] = await Promise.all([
     fetchBuffer(def.url),
-    def.livery === undefined ? null : loadLivery(def.livery),
+    def.livery === undefined ? null : loadLivery(def.livery.url),
   ])
   const t = await parseGlbTemplate(buf, def, livery)
   templates.set(id, t)
@@ -156,16 +154,37 @@ export function registerGlbTemplate(id: string, t: GlbTemplate): void {
 /**
  * 塗裝貼圖。
  *
- * 【flipY = false】UV 照 glTF 的慣例，原點在圖的左上角；`TextureLoader` 預設
+ * 【flipY = false】UV 的原點在圖的左上角（`livery.ts`）；`TextureLoader` 預設
  * 會把圖上下翻，那樣整張塗裝倒過來貼。
+ *
+ * 【依路徑快取、不歸樣板持有】主模型與低模貼同一張圖。歸其中一份樣板的話，
+ * 它 dispose 時另一份就失去貼圖。整場遊戲只有幾張，不放。
  */
-async function loadLivery(url: string): Promise<Texture> {
-  const tex = await new TextureLoader().loadAsync(assetUrl(url))
-  tex.flipY = false
-  tex.colorSpace = SRGBColorSpace
-  // 機翼常是斜著看的，沒有異向過濾的話標誌遠一點就糊成一團。three 會壓到顯卡的上限
-  tex.anisotropy = 8
-  return tex
+const liveries = new Map<string, Promise<Texture>>()
+
+function loadLivery(url: string): Promise<Texture> {
+  let t = liveries.get(url)
+  if (t === undefined) {
+    t = new TextureLoader().loadAsync(assetUrl(url)).then((tex) => {
+      tex.flipY = false
+      tex.colorSpace = SRGBColorSpace
+      // 機翼常是斜著看的，沒有異向過濾的話標誌遠一點就糊成一團。three 會壓到顯卡的上限
+      tex.anisotropy = 8
+      return tex
+    })
+    liveries.set(url, t)
+  }
+  return t
+}
+
+/**
+ * 載過的塗裝貼圖，給載入畫面先傳上 GPU。
+ *
+ * 【為什麼要先傳】貼圖第一次被畫到時才上傳，連同產生 mipmap。中途才出場的
+ * 機種（後續批次的敵機）會在出現的那一幀卡住。
+ */
+export function loadedLiveries(): Promise<Texture[]> {
+  return Promise.all(liveries.values())
 }
 
 /**
@@ -208,7 +227,6 @@ export async function parseGlbTemplate(
   const inner = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95, side: DoubleSide })
   const mats = { body, accent, glass, cockpit, frame, inner }
   const owned: { dispose(): void }[] = [body, accent, glass, cockpit, frame, inner, blur]
-  if (livery !== null) owned.push(livery)
 
   const group = new Group()
   const hull = new Group()
@@ -231,11 +249,20 @@ export async function parseGlbTemplate(
     seen.add(srcName)
     const kind = def.materials[srcName]
     if (!kind) throw new Error(`GLB 材質 ${srcName} 沒有對應的遊戲材質`)
-    const geo = mesh.geometry.clone()
+    let geo = mesh.geometry.clone()
     geo.applyMatrix4(mesh.matrixWorld)
-    // 只有吃塗裝的機身色面留 UV。同一個材質的面要嘛全有、要嘛全沒有，
-    // 否則下面按材質合併時 `mergeGeometries` 會回 null
-    if (!(def.livery !== undefined && kind === 'body')) geo.deleteAttribute('uv')
+    geo.deleteAttribute('uv')
+    // 【機身色的面一律帶 UV】同一個材質的面要嘛全有、要嘛全沒有，否則下面按
+    // 材質合併時 `mergeGeometries` 會回 null。有索引的先展開：相鄰的面可能
+    // 歸到不同視圖，共用頂點只能有一組 UV
+    if (def.livery !== undefined && kind === 'body') {
+      if (geo.index !== null) {
+        const flat = geo.toNonIndexed()
+        geo.dispose()
+        geo = flat
+      }
+      applyLiveryUv(geo, def.livery, liveryMoveFor(def.livery, mesh.name, mesh.userData['part']))
+    }
     const out = new Mesh(geo, mats[kind])
     // 內裝的法線朝內是刻意的；`geometry.test.ts` 的「法線朝外」靠這個旗標略過
     if (kind === 'cockpit') out.userData['inwardShell'] = true

@@ -47,8 +47,11 @@ export const P51D_MODEL: GlbAircraft = {
 
   bodyColor: 0x9aa7b4,
   accentColor: 0x2f3a46,
-  // 貼圖由 tools/livery/p51d.py 畫，UV 由 tools/blender/p51d_livery_uv.py 展
-  livery: '/textures/p51d.png',
+  // 貼圖由 tools/livery/p51d.py 畫。平尾（part wing2）搬到主翼後緣與機身之間的空位
+  livery: {
+    url: '/textures/p51d.png', scale: 88, planZ: 1.75, sideY: 0.25,
+    moves: [{ part: 'wing2', plan: [0.5, -1.85] }],
+  },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

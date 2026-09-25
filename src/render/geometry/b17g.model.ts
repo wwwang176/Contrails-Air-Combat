@@ -197,6 +197,8 @@ export const B17G_MODEL: GlbAircraft = {
 
   bodyColor: 0x8d9299,
   accentColor: 0x3c4147,
+  // 貼圖由 tools/livery/b17g.py 畫。低模 b17g_lod2 共用同一份版面與貼圖
+  livery: { url: '/textures/b17g.png', scale: 32, planZ: 5.05, sideY: 2.20 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

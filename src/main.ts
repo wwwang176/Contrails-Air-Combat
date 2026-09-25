@@ -100,6 +100,7 @@ import {
   AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
 } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
+import { loadedLiveries } from './render/geometry/glb'
 import { SKY_RENDER_ORDER } from './render/sky'
 import { Hud } from './hud/Hud'
 import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
@@ -1504,6 +1505,7 @@ async function loadBattle(): Promise<void> {
     await loading.step('編譯著色器', 0.85)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
+    for (const t of await loadedLiveries()) ctx.renderer.initTexture(t)
     // 【在載入畫面後面先畫一次】編好的程式第一次真的拿來畫仍要等 —— ANGLE（D3D11）
     // 把一部分著色器的產生留到第一次繪製，開場那一幀因此卡一兩百毫秒。暫時關掉視錐
     // 剔除畫一次：每一個看得見的物件都畫到（鏡頭後面的自機、視野外的也算），那段

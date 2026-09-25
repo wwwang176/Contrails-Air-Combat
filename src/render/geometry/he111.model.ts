@@ -28,6 +28,8 @@ export const HE111_MODEL: GlbAircraft = {
 
   bodyColor: 0x5a6350,
   accentColor: 0x2b3128,
+  // 貼圖由 tools/livery/he111.py 畫。低模 he111_lod2 共用同一份版面與貼圖
+  livery: { url: '/textures/he111.png', scale: 44, planZ: 4.90, sideY: 0.70 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

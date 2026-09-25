@@ -83,6 +83,8 @@ export const BF109K4_MODEL: GlbAircraft = {
   /** 與程序版相同的塗裝（`bf109e.ts` 的 BF109_BODY_COLOR / accent）。 */
   bodyColor: 0x7e8a73,
   accentColor: 0x33403a,
+  // 貼圖由 tools/livery/bf109k4.py 畫。UV 在載入時算，GLB 不動
+  livery: { url: '/textures/bf109k4.png', scale: 100, planZ: 1.87, sideY: 0.70 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {
