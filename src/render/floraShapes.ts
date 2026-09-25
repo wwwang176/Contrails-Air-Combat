@@ -31,7 +31,7 @@ export type PoolName =
   | 'broadNear' | 'broadMid' | 'broadPoint'
   | 'coneNear' | 'coneMid' | 'conePoint'
   | 'bushNear' | 'bushPoint'
-  | 'house' | 'barn' | 'church'
+  | 'house' | 'barn' | 'church' | 'houseSlate' | 'barnTar'
 
 /**
  * 遠處那三個池。**它們是 `gl.POINTS`，不是網格** —— 沒有幾何、走另一顆
@@ -65,11 +65,31 @@ const BUSH_CARD_TOP = 8
 
 const TRUNK = 0x4a3b2a
 // 樹冠色由季節決定（`season.ts`）；房子的顏色不換季
-const WALL = 0xbfb49b
-const ROOF = 0xa8503a
-const BARN_WALL = 0x8b6b4a
-const BARN_ROOF = 0x8a6a4e
-const CHURCH_WALL = 0xcfc7b2
+export const WALL = 0xbfb49b
+/**
+ * 黏土瓦。**是用了幾十年的老瓦**：風化、長青苔、被煤煙燻過，從空中看是暗紅褐，
+ * 不是新瓦的磚紅。德國中部 1944 年的屋頂七八成是它
+ */
+export const ROOF = 0x8c4e3b
+/** 石板瓦：深灰偏藍。教堂、鎮中心、公家建築 */
+export const SLATE = 0x4f555b
+/** 磚木牆：穀倉、倉庫、老屋 */
+export const BRICK_WALL = 0x8b6b4a
+/** 老黏土瓦：比 `ROOF` 更暗、更髒，少翻修的老屋與穀倉 */
+export const OLD_ROOF = 0x7a4636
+/** 油毛氈：穀倉、倉庫、戰時搭的棚子 */
+export const TAR_ROOF = 0x4a4946
+/**
+ * 建築在縮放 1、倍率 1 時的尺寸，m：牆的面寬（x）、進深（z）、牆高、屋頂高。
+ * 一層樓的房子；樓高倍率 2 是兩層半左右的街屋，屋頂跟著變陡
+ *
+ * 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不出來
+ */
+export const BUILDING_WIDTH = 11
+export const BUILDING_DEPTH = 8
+export const BUILDING_WALL = 5
+export const BUILDING_ROOF = 4
+export const CHURCH_WALL = 0xcfc7b2
 const SPIRE = 0x55605c
 
 /**
@@ -221,6 +241,15 @@ function gable(
   tri(s, hex, x, y0, -z, -x, y0, -z, 0, y1, -z)
 }
 
+/**
+ * 建築：牆 `BUILDING_WIDTH × BUILDING_DEPTH`、高 `BUILDING_WALL`，上面一個人字屋頂
+ * （屋脊沿 z，四邊各出簷半公尺）。牆 12 ＋ 屋頂 6 = 18 個三角形
+ */
+function building(s: Soup, wall: number, roof: number): void {
+  box(s, wall, BUILDING_WIDTH, BUILDING_DEPTH, 0, BUILDING_WALL)
+  gable(s, roof, BUILDING_WIDTH + 1, BUILDING_DEPTH + 1, BUILDING_WALL, BUILDING_WALL + BUILDING_ROOF)
+}
+
 function finish(s: Soup): BufferGeometry {
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(s.pos), 3))
@@ -267,21 +296,17 @@ export function createFloraGeometries(season: Season = 'summer'): Record<MeshPoo
     // 針葉中：六邊錐，底仍然在 CONE_CROWN_Y0，不落地 —— 與闊葉同一個理由
     coneMid: build((s) => { cone(s, c.conifer, 6, CONE_CROWN_R, CONE_CROWN_Y0, TREE_HEIGHT) }),
     bushNear: build((s) => { octa(s, c.bushLeaf, BUSH_R, BUSH_RY, BUSH_CY) }),
-    // 房子：牆 12 ＋ 屋頂 6 = 18
-    // 【比真實的農舍大一號】600 m 外一棟 8 m 的房子只有幾個像素，村子讀不
-    // 出來。放大到 11 m 之後從空中看得到那一叢屋頂
-    house: build((s) => {
-      box(s, WALL, 11, 8, 0, 5)
-      gable(s, ROOF, 12, 9, 5, 9)
-    }),
-    barn: build((s) => {
-      box(s, BARN_WALL, 18, 10, 0, 6.5)
-      gable(s, BARN_ROOF, 19, 11, 6.5, 11.5)
-    }),
-    // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34
+    // 【建築只有一種形狀】房子、穀倉、倉庫都是它：面寬、樓高、進深由實例各軸
+    // 縮放（`pushFlora` 的 `wide`、`tall`），四個池差的只有牆與屋頂的顏色 ——
+    // 逐實例色整棟一起乘，換料只能靠另一份頂點色
+    house: build((s) => { building(s, WALL, ROOF) }),
+    houseSlate: build((s) => { building(s, WALL, SLATE) }),
+    barn: build((s) => { building(s, BRICK_WALL, OLD_ROOF) }),
+    barnTar: build((s) => { building(s, BRICK_WALL, TAR_ROOF) }),
+    // 教堂：本堂 12 ＋ 本堂屋頂 6 ＋ 塔 12 ＋ 尖頂 4 = 34。屋頂是石板瓦
     church: build((s) => {
       box(s, CHURCH_WALL, 9, 18, 0, 6)
-      gable(s, ROOF, 10, 19, 6, 9)
+      gable(s, SLATE, 10, 19, 6, 9)
       box(s, CHURCH_WALL, 5, 5, 0, 14)
       cone(s, SPIRE, 4, 3.6, 14, 24)
     }),

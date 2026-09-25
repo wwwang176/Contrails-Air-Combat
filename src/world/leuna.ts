@@ -4,6 +4,7 @@ import {
   bakeRelief, makeLobes, WOBBLE_MAX, type IslandDesc, type LobeDraw,
 } from './archipelago'
 import { FARM_CELL, FARM_SIZE, HILL_PEAK_MAX } from './farmland'
+import type { RiverEndRule } from './river'
 
 /**
  * # 洛伊納：盟 M2 專用的地形
@@ -108,35 +109,75 @@ export const EGRESS = /* @__PURE__ */ new Vector3(0, 0, -1)
  * 手擺的丘陵。`outerRadius` 由生成器算 `radius × WOBBLE_MAX`，清單不寫 ——
  * `makeLobes` 信任呼叫端給的值，寫錯的話墊面保證就沒了而且不報錯。
  *
+ * 【外緣離河至少 `HILL_RIVER_CLEARANCE`】水面是貼著地形鋪的帶子，河一穿過
+ * 丘陵就變成斜掛在側坡上、一邊懸空的水。
+ *
+ * 【西側三顆是排土堆，在礦坑外】蓋澤爾谷的礦坑是鋪在地表上的一塊（見
+ * `render/mines.ts`），丘陵長在坑裡的話是一座山從坑底冒出來。外緣離坑緣至少
+ * `HILL_MINE_CLEARANCE`。
+ *
  * 【瓣由各自的種子抽】與群島的錨島同一個做法：改一顆不會動到別顆的形狀。
  */
 export const LEUNA_HILLS = [
   // 西側：礦區土堆，較高
-  { cx: -9000, cz: -8500, radius: 1200, peak: 110, pa: 0.4, pb: 2.9, seed: 101 },
+  { cx: -6800, cz: -10300, radius: 1200, peak: 110, pa: 0.4, pb: 2.9, seed: 101 },
   { cx: -11500, cz: -4500, radius: 1100, peak: 95, pa: 1.7, pb: 4.1, seed: 102 },
   { cx: -8500, cz: -1500, radius: 900, peak: 70, pa: 3.3, pb: 0.8, seed: 103 },
   // 平原上的緩丘
   { cx: 6000, cz: -10500, radius: 1000, peak: 60, pa: 2.2, pb: 5.0, seed: 104 },
   { cx: 9500, cz: -6000, radius: 1300, peak: 80, pa: 0.9, pb: 3.6, seed: 105 },
-  { cx: 4500, cz: -2500, radius: 800, peak: 45, pa: 4.4, pb: 1.3, seed: 106 },
-  { cx: -3500, cz: 3500, radius: 900, peak: 55, pa: 5.1, pb: 2.4, seed: 107 },
+  { cx: 5300, cz: -2100, radius: 800, peak: 45, pa: 4.4, pb: 1.3, seed: 106 },
+  { cx: -3600, cz: 2600, radius: 900, peak: 55, pa: 5.1, pb: 2.4, seed: 107 },
   { cx: 3000, cz: 8500, radius: 1100, peak: 65, pa: 1.1, pb: 4.8, seed: 108 },
   { cx: -7500, cz: 9000, radius: 1000, peak: 75, pa: 2.8, pb: 0.3, seed: 109 },
   { cx: 8500, cz: 3000, radius: 900, peak: 50, pa: 3.9, pb: 1.9, seed: 110 },
 ] as const
 
 /**
+ * 流出地圖的河端怎麼走（`world/river.ts` 的 `extendRivers`）。沒列的照預設：
+ * 往最近的地圖邊流出去。
+ *
+ * Luppe 在地圖內貼著北緣由東往西流，兩端都碰得到邊：
+ * - **西端是下游**，出圖之後在梅澤堡北邊匯入 Saale —— 照預設的話它會與
+ *   Saale 並排往北再流 60 km
+ * - **東端是上游**，來自萊比錫。萊比錫在廠區往東 25.8 km、往北 3.5 km，
+ *   方位 82°，幾乎正東
+ */
+export const LEUNA_RIVER_ENDS: readonly RiverEndRule[] = [
+  { at: [1382, -14780], joins: 'Saale' },
+  { at: [12690, -14126], bearing: (82 * Math.PI) / 180 },
+]
+
+/** 丘陵外緣離河的中心線至少多遠，m。見 `LEUNA_HILLS` */
+export const HILL_RIVER_CLEARANCE = 500
+/** 丘陵外緣離礦坑邊緣至少多遠，m。見 `LEUNA_HILLS` */
+export const HILL_MINE_CLEARANCE = 150
+/** 砲位離河的中心線至少多遠，m。河岸林長在 55～145 m，草甸到 190 m */
+export const FLAK_RIVER_CLEARANCE = 250
+/** 砲位離道路與鐵路的中心線至少多遠，m */
+export const FLAK_TRACK_CLEARANCE = 60
+/** 兩座砲位至少相隔多遠，m */
+export const FLAK_SPACING = 300
+
+/**
  * 8.8 cm 重高砲位。**會還手**：`battle/setup.ts` 給每一座掛一門
  * `GROUND_FLAK_SPEC` 的砲，走艦砲那一套射控（`world/shipGuns.ts`）。
  * 打得掉，也算進炸毀的計數。
  *
- * 【四十八座，三圈】內圈 8 座 2.7 km、中圈 16 座 3.9 km、外圈 24 座 5.1 km，
- * 每一圈的相位錯開。史實的洛伊納周圍有數百門重高砲，恐怖的是滿天黑雲而不是
+ * 【四十八座，三個距離帶】內帶 8 座 2.5～3.2 km、中帶 16 座 3.5～4.4 km、外帶
+ * 24 座 4.7～5.5 km。史實的洛伊納周圍有數百門重高砲，恐怖的是滿天黑雲而不是
  * 單發致命 —— 所以砲位多、每發輕（見 `GROUND_FLAK_SPEC`）。
  *
- * 【越外圈越密】外圈的周長是內圈的兩倍，座數不跟著加的話彈幕會在接近航路上
- * 稀掉。而接近航路的前半段正是最需要壓力的地方 —— 射程 4.9 km，只有內圈的話
+ * 【越外帶越密】外帶的周長是內帶的兩倍，座數不跟著加的話彈幕會在接近航路上
+ * 稀掉。而接近航路的前半段正是最需要壓力的地方 —— 射程 4.9 km，只有內帶的話
  * 玩家要飛到 2 km 內才挨打。
+ *
+ * 【不是正圓】帶內的角度與距離都有擾動，但每一帶最大的角度空隙不超過平均
+ * 間隔的兩倍 —— 某一側整片沒有砲的話，從那一側進場就是一段安靜的航路。
+ *
+ * 【避開河、道路與鐵路】離河的中心線至少 `FLAK_RIVER_CLEARANCE`（水面與河岸林
+ * 都在那以內），離道路與鐵路至少 `FLAK_TRACK_CLEARANCE`，彼此至少
+ * `FLAK_SPACING`。
  *
  * 【`heading` 只影響模型朝向】射控自己轉砲，砲口朝廠區外側純粹是為了畫面。
  *
@@ -145,57 +186,57 @@ export const LEUNA_HILLS = [
  */
 export const FLAK_SITES: readonly { x: number; z: number; heading: number }[] =
   /* @__PURE__ */ ([
-    // 內圈 8 座，約 2.7 km
-    { dx: 0, dz: -2700, heading: 0.0 },
-    { dx: 1900, dz: -1900, heading: 0.79 },
-    { dx: 2700, dz: 0, heading: 1.57 },
-    { dx: 1900, dz: 1900, heading: 2.36 },
-    { dx: 0, dz: 2700, heading: 3.14 },
-    { dx: -1900, dz: 1900, heading: -2.36 },
-    { dx: -2700, dz: 0, heading: -1.57 },
-    { dx: -1900, dz: -1900, heading: -0.79 },
-    // 中圈 16 座，約 3.9 km
-    { dx: 750, dz: -3850, heading: 0.19 },
-    { dx: 2150, dz: -3250, heading: 0.58 },
-    { dx: 3250, dz: -2150, heading: 0.99 },
-    { dx: 3850, dz: -750, heading: 1.38 },
-    { dx: 3850, dz: 750, heading: 1.76 },
-    { dx: 3250, dz: 2150, heading: 2.16 },
-    { dx: 2150, dz: 3250, heading: 2.56 },
-    { dx: 750, dz: 3850, heading: 2.95 },
-    { dx: -750, dz: 3850, heading: -2.95 },
-    { dx: -2150, dz: 3250, heading: -2.56 },
-    { dx: -3250, dz: 2150, heading: -2.16 },
-    { dx: -3850, dz: 750, heading: -1.76 },
-    { dx: -3850, dz: -750, heading: -1.38 },
-    { dx: -3250, dz: -2150, heading: -0.99 },
-    { dx: -2150, dz: -3250, heading: -0.58 },
-    { dx: -750, dz: -3850, heading: -0.19 },
-    // 外圈 24 座，約 5.1 km
-    { dx: 350, dz: -5100, heading: 0.07 },
-    { dx: 1650, dz: -4850, heading: 0.33 },
-    { dx: 2850, dz: -4250, heading: 0.59 },
-    { dx: 3850, dz: -3350, heading: 0.85 },
-    { dx: 4550, dz: -2250, heading: 1.11 },
-    { dx: 5000, dz: -1000, heading: 1.37 },
-    { dx: 5100, dz: 350, heading: 1.64 },
-    { dx: 4850, dz: 1650, heading: 1.9 },
-    { dx: 4250, dz: 2850, heading: 2.16 },
-    { dx: 3350, dz: 3850, heading: 2.43 },
-    { dx: 2250, dz: 4550, heading: 2.68 },
-    { dx: 1000, dz: 5000, heading: 2.94 },
-    { dx: -350, dz: 5100, heading: -3.07 },
-    { dx: -1650, dz: 4850, heading: -2.81 },
-    { dx: -2850, dz: 4250, heading: -2.55 },
-    { dx: -3850, dz: 3350, heading: -2.29 },
-    { dx: -4550, dz: 2250, heading: -2.03 },
-    { dx: -5000, dz: 1000, heading: -1.77 },
-    { dx: -5100, dz: -350, heading: -1.5 },
-    { dx: -4850, dz: -1650, heading: -1.24 },
-    { dx: -4250, dz: -2850, heading: -0.98 },
-    { dx: -3350, dz: -3850, heading: -0.72 },
-    { dx: -2250, dz: -4550, heading: -0.46 },
-    { dx: -1000, dz: -5000, heading: -0.2 },
+    // 內帶 8 座，約 2.5～3.2 km
+    { dx: 570, dz: -2450, heading: 0.23 },
+    { dx: 2210, dz: -2160, heading: 0.8 },
+    { dx: 2720, dz: 690, heading: 1.82 },
+    { dx: 1400, dz: 2470, heading: 2.63 },
+    { dx: -1170, dz: 2490, heading: -2.7 },
+    { dx: -2500, dz: 1090, heading: -1.98 },
+    { dx: -2100, dz: -1310, heading: -1.01 },
+    { dx: -1530, dz: -2190, heading: -0.61 },
+    // 中帶 16 座，約 3.5～4.4 km
+    { dx: -280, dz: -4080, heading: -0.07 },
+    { dx: 1690, dz: -3450, heading: 0.46 },
+    { dx: 2660, dz: -3210, heading: 0.69 },
+    { dx: 4230, dz: -750, heading: 1.4 },
+    { dx: 4120, dz: -320, heading: 1.49 },
+    { dx: 3730, dz: 1570, heading: 1.97 },
+    { dx: 2260, dz: 2760, heading: 2.46 },
+    { dx: 1340, dz: 3680, heading: 2.79 },
+    { dx: -460, dz: 4180, heading: -3.03 },
+    { dx: -1430, dz: 3900, heading: -2.79 },
+    { dx: -2500, dz: 3120, heading: -2.47 },
+    { dx: -4040, dz: 1540, heading: -1.93 },
+    { dx: -3760, dz: -780, heading: -1.37 },
+    { dx: -3660, dz: -1590, heading: -1.16 },
+    { dx: -3070, dz: -3030, heading: -0.79 },
+    { dx: -840, dz: -4210, heading: -0.2 },
+    // 外帶 24 座，約 4.7～5.5 km
+    { dx: 80, dz: -4740, heading: 0.02 },
+    { dx: 1690, dz: -4780, heading: 0.34 },
+    { dx: 2990, dz: -4330, heading: 0.6 },
+    { dx: 3750, dz: -3320, heading: 0.85 },
+    { dx: 4490, dz: -2010, heading: 1.15 },
+    { dx: 4780, dz: -140, heading: 1.54 },
+    { dx: 5250, dz: 1170, heading: 1.79 },
+    { dx: 4580, dz: 1570, heading: 1.9 },
+    { dx: 4010, dz: 3140, heading: 2.24 },
+    { dx: 3660, dz: 3780, heading: 2.37 },
+    { dx: 1890, dz: 4740, heading: 2.76 },
+    { dx: 530, dz: 5330, heading: 3.04 },
+    { dx: -1220, dz: 4980, heading: -2.9 },
+    { dx: -2550, dz: 4780, heading: -2.65 },
+    { dx: -3500, dz: 3600, heading: -2.37 },
+    { dx: -3910, dz: 3450, heading: -2.29 },
+    { dx: -4450, dz: 1970, heading: -1.99 },
+    { dx: -5160, dz: 570, heading: -1.68 },
+    { dx: -4960, dz: -440, heading: -1.48 },
+    { dx: -4360, dz: -1850, heading: -1.17 },
+    { dx: -4150, dz: -3060, heading: -0.94 },
+    { dx: -3050, dz: -4490, heading: -0.6 },
+    { dx: -2230, dz: -4150, heading: -0.49 },
+    { dx: -970, dz: -4960, heading: -0.19 },
   ] as const).map((s) => ({ ...at(s.dx, s.dz), heading: s.heading + PLANT_HEADING }))
 
 /** 構件的種類。與 `groundTargets.ts` 的 `GroundKind` 相同的字面值 */

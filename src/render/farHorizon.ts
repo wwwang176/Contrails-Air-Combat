@@ -69,7 +69,8 @@ export interface FarHorizon {
  * 【前提由測試守著】`far-horizon.test.ts` 有一條在驗那些線段真的都在 ±15 km
  * 以內。有人把連外道路拉出去而這裡沒跟著改的話，環上會少畫一截 —— 不報錯。
  */
-export function createFarHorizon(season: Season = 'summer'): FarHorizon {
+/** `open` 同 `createFarmGround` */
+export function createFarHorizon(season: Season = 'summer', open = false): FarHorizon {
   const half = FARM_EXTENT / 2
   const xs = axis(half)
   const n = xs.length
@@ -112,7 +113,7 @@ export function createFarHorizon(season: Season = 'summer'): FarHorizon {
   // 【平的東西不必 flatShading】法線全部是 +Y，兩種著色結果相同，而關掉
   // 少一個 shader 變體
   const material = new MeshStandardMaterial({ flatShading: false, roughness: ROUGHNESS })
-  applyFields(material, season)
+  applyFields(material, season, undefined, undefined, open)
 
   const mesh = new Mesh(geometry, material)
   mesh.frustumCulled = false

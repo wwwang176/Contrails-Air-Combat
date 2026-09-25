@@ -5,14 +5,14 @@ import {
   type FloraBuffer,
 } from '../../src/render/flora'
 import {
-  edgeAt, fieldAt, regionAt, HEDGE_WIDTH, TRACK_WIDTH,
+  edgeAt, fieldAt, onTrack, regionAt, HEDGE_WIDTH,
   type FieldSample, type RegionSample,
 } from '../../src/render/fields'
 
 const reg: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const s: FieldSample = { id: 0, edge: 0, hedged: false }
+const s: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
 /** 平地 —— 高度不是這一組測試的變因 */
 const FLAT = (): number => 0
@@ -196,7 +196,7 @@ describe('樹籬的走線', () => {
     for (let z = -300; z <= 300; z += 5) {
       for (let x = -300; x <= 300; x += 5) {
         regionAt(x, z, reg)
-        if (reg.r2 - reg.r1 < TRACK_WIDTH) continue
+        if (onTrack(x, z, reg)) continue
         fieldAt(x, z, reg, s)
         if (!s.hedged || s.edge >= HEDGE_WIDTH / 2) continue
         let best = Infinity

@@ -1,5 +1,6 @@
 import { Color } from 'three'
-import { FIELD_COLORS, PALETTE_STEPS, type Season } from './season'
+import { canopyColor, FIELD_COLORS, FLORA_COLORS, PALETTE_STEPS, type FieldColors, type Season } from './season'
+import { BROAD_CROWN_R, CONE_CROWN_R } from './floraShapes'
 
 /**
  * 諾曼第式的 Bocage 地景：**每一塊田都被樹籬完整圍起來。**
@@ -74,6 +75,24 @@ export const REGION_SPACING = 3200
 export const HEDGE_WIDTH = 18
 
 /**
+ * 遠處（植被圈外，樹籬的樹不畫了）樹籬那一條帶放寬幾倍、畫成林子從空中看的顏色
+ * （`season.ts` 的 `canopyColor`）再壓暗 `HEDGE_FAR_SHADE`。斜著看，一排十幾公尺高的
+ * 樹遮住的地比樹冠還寬；照近處那一條細的深色線畫的話，6 km 外的田整片只剩土色。
+ *
+ * 【對的是點】3～6 km 的樹是點，田界上一串深色的點：烘的那一條淡了，點冒出來的
+ * 地方就像突然多了一排樹。同一視角有樹、只剩烘圖兩張，量田界那些最暗的像素與
+ * 整體平均對得上的寬度與明暗
+ */
+export const HEDGE_FAR_GROW = 2.5
+export const HEDGE_FAR_SHADE = 0.7
+
+/**
+ * 遠圖裡空地的樹畫成點的顏色：林子從空中看的顏色再乘這個（線性值）。對的是
+ * 3～6 km 的點：同一視角有樹、只剩烘圖兩張，林緣稀疏那一帶的明暗對得上
+ */
+export const TREE_DOT_SHADE = 0.55
+
+/**
  * 有多少比例的田界長樹籬。
  *
  * 【為什麼接近 1】**Bocage 的定義就是每塊田被完整圍起來。** 留一點缺口是
@@ -81,8 +100,37 @@ export const HEDGE_WIDTH = 18
  */
 export const HEDGE_CHANCE = 0.92
 
-/** 凹路的寬度，m。兩區交界的那一條 */
+/**
+ * 凹路的寬度：兩區交界的那一條，判準是 `r2 − r1`（`trackGap`）小於它乘上沿路的
+ * 起伏（`trackWidthAt`）
+ */
 export const TRACK_WIDTH = 20
+/**
+ * 凹路寬度沿路的起伏：三道斜向的正弦疊在 `TRACK_WIDTH` 上，各自的振幅比例，合計
+ * ±25%。長波長的讓路忽寬忽窄，最短的那一道（波長一百多公尺）讓路緣參差
+ */
+const TRACK_RIPPLE = [
+  { amp: 0.12, fx: 0.0047, fz: 0.0029, phase: 0 },
+  { amp: 0.08, fx: 0.013, fz: -0.0094, phase: 1.3 },
+  { amp: 0.05, fx: 0.041, fz: 0.033, phase: 0.7 },
+] as const
+/** 凹路最寬與最窄處：`TRACK_WIDTH` 乘上起伏的上下限 */
+export const TRACK_WIDTH_MAX = TRACK_WIDTH * 1.25
+export const TRACK_WIDTH_MIN = TRACK_WIDTH * 0.75
+/**
+ * 凹路的歪斜：量凹路之前座標先推移，兩道正弦疊起來，振幅 m。凹路因此在兩區的
+ * 交界兩側來回擺（波長約 780 m 與 190 m）。
+ *
+ * 【擺幅受寬度管】兩區的田格在交界上是一條直的接縫，凹路要一路蓋住它：交界上
+ * `trackGap` 最多是 `2 × TRACK_WARP_MAX`，必須小於最窄處 `TRACK_WIDTH_MIN`。
+ * 擺得比這個大，接縫就從凹路邊上露出來
+ */
+const TRACK_WARP = [
+  { amp: 3.8, fx: 0.0069, fz: 0.0041, phase: 0.4 },
+  { amp: 1.2, fx: -0.021, fz: 0.026, phase: 2.1 },
+] as const
+/** 推移量的上限，m（兩個分量各自最多 5） */
+export const TRACK_WARP_MAX = 5 * Math.SQRT2
 
 /**
  * 一塊田整片變成樹林（copse）的機率。
@@ -92,6 +140,73 @@ export const TRACK_WIDTH = 20
  * 沒有樹」或「樹長在麥田裡」。
  */
 export const WOOD_CHANCE = 0.05
+
+/**
+ * 【田圍著村】`open` 的地圖：田只在村的周圍，離村遠的地塊是空地（牧草地、
+ * 荒地、休耕），空地上成團的樹林。洛伊納不開 —— 萊比錫低地是開墾到幾乎不剩
+ * 空地的黃土平原。
+ *
+ * 每一塊地用它的**中心**判斷，所以田與空地的交界落在田界上，不切過一塊田。
+ * 離村（`villageDistance`）`FIELD_REACH` 以內是田，範圍沿地面用低頻雜訊起伏
+ * 0.7～1.3 倍；交界那一段每塊地各抽一個門檻，邊緣是參差的。
+ */
+export const FIELD_REACH = 1500
+/** 田的範圍起伏的雜訊格寬，m */
+export const REACH_NOISE_CELL = 2600
+/** 空地上的樹林：兩個尺度的雜訊格寬（大的定位置、小的把邊弄毛），m */
+export const OPEN_WOOD_CELL = [520, 190] as const
+/** 雜訊值落在這一段裡由空地漸變到樹林 */
+export const OPEN_WOOD_GATE = [0.5, 0.62] as const
+/** 空地兩個色之間漸變的雜訊格寬，m */
+export const OPEN_TONE_CELL = 450
+
+/**
+ * 樹林裡的網格間距，m。3,906 棵/km²。
+ *
+ * 【為什麼是網格不是走線】樹林填的是**面**不是線，而 16 m 的網格在 250 m 的
+ * tile 上是 244 次 `fieldAt` ≈ 0.09 ms —— 只在生成時付一次。
+ *
+ * 【在這裡不在 `flora.ts`】遠圖把空地的樹一棵一棵烘成點（GLSL 的 `openTreesOver`），
+ * 位置與接受的判準與植被逐位元相同；兩邊讀同一組數字
+ */
+export const WOOD_GRID = 16
+/**
+ * 空地上的樹林：接受機率乘這個、縮放取這一段。
+ *
+ * 【稀一點、大一點】空地的林子佔地大，照田裡樹林的密度長的話，實測整張圖慢
+ * 7～9%（多出來的全是樹的實例）。一半多一點的候選點、每棵取大的那一段，從空中
+ * 看林冠一樣滿，實例數約少三成五
+ */
+export const OPEN_WOOD_DENSITY = 0.55
+export const OPEN_TREE_SCALE = [0.8, 1.0] as const
+/** 空地上的樹林裡針葉樹佔多少 */
+export const OPEN_CONIFER_SHARE = 0.3
+/** 遠圖的樹點邊緣抗鋸齒的半寬上限，m（遠圖一格 7.3 m，半個像素足跡不到這個） */
+export const OPEN_DOT_AA = 8
+/** 蓋得到一點的樹點離它最遠多遠，m：最大的樹冠半徑加抗鋸齒 */
+export const OPEN_DOT_REACH = BROAD_CROWN_R * OPEN_TREE_SCALE[1] + OPEN_DOT_AA
+/**
+ * 遠圖畫樹點時的餘量：空地樹林的雜訊（兩層值雜訊，`openWoodCover`）在 `OPEN_DOT_REACH`
+ * 裡最多變這麼多。值雜訊一層對座標的斜率不超過 1.5√2 / 格寬（平滑插值的斜率最大 1.5）。
+ * 這一點的雜訊 ± 它就夾住了周圍每一棵候選樹的覆蓋率 —— 夾得出答案的候選樹不必
+ * 再算雜訊，整圈都長不出樹的點直接跳過
+ */
+export const OPEN_WOOD_NEAR_MARGIN = 1.5 * Math.SQRT2
+  * (0.65 / OPEN_WOOD_CELL[0] + 0.35 / OPEN_WOOD_CELL[1]) * OPEN_DOT_REACH
+/**
+ * 樹籬與樹林田整條（整塊）種針葉樹的比例（`flora.ts` 的 `speciesOf`；遠圖的樹林田
+ * 照它挑林冠色）。
+ *
+ * 【闊葉為主】Bocage 的樹籬是橡與櫸，針葉只出現在刻意種的防風林裡。
+ * 一半一半的話整片地讀起來像雲杉林。
+ */
+export const CONIFER_SHARE = 0.25
+/**
+ * 區塊格有村的機率；村在這一格的種子與一個軸向鄰格（`VILLAGE_NEIGHBOUR`，由種子
+ * 的雜湊挑）的種子的中點。植被（`flora.ts` 的 `villageSite`）與田色共用
+ */
+export const VILLAGE_CHANCE = 0.55
+export const VILLAGE_NEIGHBOUR = [1, 0, 0, 1] as const
 
 /**
  * 色值不在這個檔案。作物色盤、犁田、樹籬、凹路、樹林與犁田比例都由季節
@@ -135,6 +250,11 @@ export interface RegionSample {
   /** 到最近與次近的區塊種子的距離，m */
   r1: number
   r2: number
+  /** 最近（a）與次近（b）的種子，世界座標。凹路是它們的交界（`trackGap`） */
+  ax: number
+  az: number
+  bx: number
+  bz: number
   /** 這一區的雜湊 */
   id: number
   /** 這一帶田的走向，rad */
@@ -153,6 +273,9 @@ export interface FieldSample {
   edge: number
   /** 最近那條田界長不長樹籬 */
   hedged: boolean
+  /** 這一塊地的中心（對切過的是那一半的中心），世界座標 */
+  cx: number
+  cz: number
 }
 
 /**
@@ -233,6 +356,7 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   let r1 = Infinity
   let r2 = Infinity
   let id = 0
+  let ax = 0, az = 0, bx = 0, bz = 0
   for (let dj = -1; dj <= 1; dj++) {
     for (let di = -1; di <= 1; di++) {
       const h = regionSeed(gx + di, gz + dj, SEED)
@@ -241,12 +365,59 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
       const dx = x - SEED.x
       const dz = z - SEED.z
       const d = Math.sqrt(dx * dx + dz * dz)
-      if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
+      if (d < r1) {
+        r2 = r1; bx = ax; bz = az
+        r1 = d; ax = SEED.x; az = SEED.z; id = h
+      } else if (d < r2) { r2 = d; bx = SEED.x; bz = SEED.z }
     }
   }
   regionParams(id, out)
   out.r1 = r1
   out.r2 = r2
+  out.ax = ax
+  out.az = az
+  out.bx = bx
+  out.bz = bz
+}
+
+/** 凹路這一點的寬度：`TRACK_WIDTH` × (1 ± 0.25)。**與 shader 同一條式子**，只吃世界座標 */
+export function trackWidthAt(x: number, z: number): number {
+  let k = 1
+  for (let i = 0; i < TRACK_RIPPLE.length; i++) {
+    const r = TRACK_RIPPLE[i]!
+    k += r.amp * Math.sin(r.fx * x + r.fz * z + r.phase)
+  }
+  return TRACK_WIDTH * k
+}
+
+/**
+ * 量凹路用的 `r2 − r1`：最近與次近兩顆種子（`regionAt` 寫進 `reg` 的那兩顆）
+ * 到**推移過的座標**（`TRACK_WARP`）的距離差。凹路是 `trackGap < trackWidthAt`。
+ * **與 shader 同一條式子**。
+ *
+ * 推移量不超過 `TRACK_WARP_MAX`，所以它與沒推移的 `reg.r2 − reg.r1` 差不到
+ * `2 × TRACK_WARP_MAX` —— 整格判斷拿這個當餘量
+ */
+export function trackGap(x: number, z: number, reg: RegionSample): number {
+  let wx = x
+  let wz = z
+  for (let i = 0; i < TRACK_WARP.length; i++) {
+    const w = TRACK_WARP[i]!
+    wx += w.amp * Math.sin(w.fx * x + w.fz * z + w.phase)
+    wz += w.amp * Math.sin(w.fz * x - w.fx * z + w.phase + 1.7)
+  }
+  const ex = wx - reg.ax
+  const ez = wz - reg.az
+  const fx = wx - reg.bx
+  const fz = wz - reg.bz
+  return Math.abs(Math.sqrt(fx * fx + fz * fz) - Math.sqrt(ex * ex + ez * ez))
+}
+
+/** 這一點在凹路上嗎。`reg` 是這一點的 `regionAt` */
+export function onTrack(x: number, z: number, reg: RegionSample): boolean {
+  // 離交界遠的點不必算正弦：`trackGap` 與 `r2 − r1` 差不到兩倍推移量
+  if (reg.r2 - reg.r1 >= TRACK_WIDTH_MAX + 2 * TRACK_WARP_MAX) return false
+  return trackGap(x, z, reg) < trackWidthAt(x, z)
 }
 
 /** 候選表一小格的邊長，m。一格區塊切成 16 × 16 小格 */
@@ -372,17 +543,25 @@ export function regionAtPruned(
   let r1 = Infinity
   let r2 = Infinity
   let id = 0
+  let sax = 0, saz = 0, sbx = 0, sbz = 0
   for (let s = 1; s <= n; s++) {
     const k = (d0[o + (s >> 1)]! >> ((s & 1) * 4)) & 15
     const h = regionSeed(gx + (k % 3) - 1, gz + ((k / 3) | 0) - 1, SEED)
     const dx = x - SEED.x
     const dz = z - SEED.z
     const d = Math.sqrt(dx * dx + dz * dz)
-    if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
+    if (d < r1) {
+      r2 = r1; sbx = sax; sbz = saz
+      r1 = d; sax = SEED.x; saz = SEED.z; id = h
+    } else if (d < r2) { r2 = d; sbx = SEED.x; sbz = SEED.z }
   }
   regionParams(id, out)
   out.r1 = r1
   out.r2 = r2
+  out.ax = sax
+  out.az = saz
+  out.bx = sbx
+  out.bz = sbz
 }
 
 /**
@@ -482,39 +661,155 @@ export function fieldAt(
   // 【不能叫 half】`half` 是 GLSL 的保留字，GLSL 那一份編不過。兩邊維持
   // 同一個名字，金本位測試才比得下去
   let part = 0
+  let pqx = (left + right) / 2
+  let pqz = (bottom + top) / 2
   if (splitCut(c, r, reg, CUT)) {
     const along = CUT.axis === 0 ? qx : qz
     const d = Math.abs(along - CUT.at)
     if (d < best) { best = d; edgeKey = cellHash ^ 0x1234 }
     part = along < CUT.at ? 0 : 1
+    if (CUT.axis === 0) pqx = part === 0 ? (left + CUT.at) / 2 : (CUT.at + right) / 2
+    else pqz = part === 0 ? (bottom + CUT.at) / 2 : (CUT.at + top) / 2
   }
 
   out.id = hash1(cellHash ^ (part * 0x7f4a))
   out.edge = best
   out.hedged = hash1(edgeKey) / 4294967296 < HEDGE_CHANCE
+  // 地塊中心轉回世界座標（q 是世界轉了 −angle）。與 GLSL 同一個算法：轉差值再加回
+  // 這一點，不轉上萬公尺的座標
+  const ca = Math.cos(reg.angle)
+  const sa = Math.sin(reg.angle)
+  const dx = pqx - qx
+  const dz = pqz - qz
+  out.cx = x + dx * ca - dz * sa
+  out.cz = z + dx * sa + dz * ca
 }
+
+/**
+ * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**。GLSL 有
+ * 逐位元相同的一份（`fieldNoise`）
+ */
+export function valueNoise(x: number, z: number, cell: number, salt: number): number {
+  const fx = x / cell
+  const fz = z / cell
+  const ix = Math.floor(fx)
+  const iz = Math.floor(fz)
+  const sx = fx - ix
+  const sz = fz - iz
+  const tx = sx * sx * (3 - 2 * sx)
+  const tz = sz * sz * (3 - 2 * sz)
+  const n00 = hash2(ix ^ salt, iz) / 4294967296
+  const n10 = hash2((ix + 1) ^ salt, iz) / 4294967296
+  const n01 = hash2(ix ^ salt, iz + 1) / 4294967296
+  const n11 = hash2((ix + 1) ^ salt, iz + 1) / 4294967296
+  const a = n00 + (n10 - n00) * tx
+  const b = n01 + (n11 - n01) * tx
+  return a + (b - a) * tz
+}
+
+const VA: Vec2 = { x: 0, z: 0 }
+const VB: Vec2 = { x: 0, z: 0 }
+
+/**
+ * 到最近一個村的站址多遠，m。站址是種子與鄰格種子的中點（`VILLAGE_CHANCE`）。
+ *
+ * 【不驗第三顆種子】植被的 `villageSite` 另外擋掉「第三顆種子更近」的站址；
+ * 這裡不擋 —— 那樣的站址周圍一樣是田，只是沒有村，GLSL 那一份因此少算九顆
+ * 種子。站址落在 `[i, i + 2)` 格裡、田最遠伸到 2.4 km，所以往左下看兩格、往右上
+ * 看一格就夠
+ */
+export function villageDistance(x: number, z: number): number {
+  const gx = Math.floor(x / REGION_SPACING)
+  const gz = Math.floor(z / REGION_SPACING)
+  let best = Infinity
+  for (let j = gz - 2; j <= gz + 1; j++) {
+    for (let i = gx - 2; i <= gx + 1; i++) {
+      const h = regionSeed(i, j, VA)
+      if (((h >>> 7) & 0xff) / 256 >= VILLAGE_CHANCE) continue
+      const d = ((h >>> 5) & 1) * 2
+      regionSeed(i + VILLAGE_NEIGHBOUR[d]!, j + VILLAGE_NEIGHBOUR[d + 1]!, VB)
+      // 手寫開根號：見 `regionAt`
+      const ex = x - (VA.x + VB.x) / 2
+      const ez = z - (VA.z + VB.z) / 2
+      best = Math.min(best, Math.sqrt(ex * ex + ez * ez))
+    }
+  }
+  return best
+}
+
+/**
+ * 地塊是不是空地的快取：直接映射，槽位由地塊的雜湊決定，另外存中心座標比對 ——
+ * 雜湊撞了就重算，答案只由地塊決定，與查過哪些地塊無關。
+ *
+ * 【為什麼要快取】植被補格時每一個候選點都要問（樹林 16 m 一點、樹籬 5 m 一點），
+ * 而同一塊地上幾百個點的答案一樣；每次都找附近 16 個村站址的話，補格的時間翻倍
+ */
+const OPEN_CACHE = 1 << 14
+const openId = new Uint32Array(OPEN_CACHE)
+const openCx = new Float64Array(OPEN_CACHE).fill(NaN)
+const openCz = new Float64Array(OPEN_CACHE)
+const openBit = new Uint8Array(OPEN_CACHE)
+
+/** 這一塊地是空地嗎（`open` 的地圖）。用地塊的中心與地塊的雜湊 */
+export function isOpenParcel(f: FieldSample): boolean {
+  const slot = (f.id ^ (f.id >>> 14)) & (OPEN_CACHE - 1)
+  // 中心由每一點自己算（`fieldAt`），同一塊地不同點差在小數第十幾位
+  if (openId[slot] === f.id >>> 0 && Math.abs(openCx[slot]! - f.cx) < 0.01 && Math.abs(openCz[slot]! - f.cz) < 0.01) {
+    return openBit[slot] === 1
+  }
+  const reach = FIELD_REACH * (0.7 + 0.6 * valueNoise(f.cx, f.cz, REACH_NOISE_CELL, 0x4d21))
+  const d = villageDistance(f.cx, f.cz)
+  const t = Math.min(1, Math.max(0, (d - 0.8 * reach) / (0.4 * reach)))
+  const fieldness = 1 - t * t * (3 - 2 * t)
+  // 交界那一段每塊地各抽一個門檻
+  const th = 0.25 + 0.5 * ((hash1(f.id ^ 0x0be5) & 0xff) / 255)
+  const open = fieldness <= th
+  openId[slot] = f.id >>> 0
+  openCx[slot] = f.cx
+  openCz[slot] = f.cz
+  openBit[slot] = open ? 1 : 0
+  return open
+}
+
+/** 空地上樹林的覆蓋率，0～1。放置與地色共用 */
+export function openWoodCover(x: number, z: number): number {
+  const n = 0.65 * valueNoise(x, z, OPEN_WOOD_CELL[0], 0x6a11) + 0.35 * valueNoise(x, z, OPEN_WOOD_CELL[1], 0x3b57)
+  const t = Math.min(1, Math.max(0, (n - OPEN_WOOD_GATE[0]) / (OPEN_WOOD_GATE[1] - OPEN_WOOD_GATE[0])))
+  return t * t * (3 - 2 * t)
+}
+
+/** 空地的地色：兩個色低頻漸變，再往樹林色混 */
+function openColor(x: number, z: number, out: Color, c: FieldColors): Color {
+  const k = valueNoise(x, z, OPEN_TONE_CELL, 0x1f7e)
+  out.setHex(c.open).lerp(OPEN_ALT.setHex(c.openAlt), k)
+  return out.lerp(OPEN_ALT.setHex(c.wood), openWoodCover(x, z))
+}
+const OPEN_ALT = new Color()
 
 /** `fieldAt` 問對切線用的暫存。呼叫端自己帶 `out`，所以不會互相踩 */
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 
 const REG: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
+const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
 /**
- * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版。**
+ * 地面在世界座標 (x, z) 的顏色。**這是 GLSL 那支 `fieldColorAt` 的 CPU 版**，近處的
+ * 樣子（`fieldFar = 0`）。
  *
- * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。
+ * 順序就是優先權：凹路壓過樹籬，樹籬壓過作物。`open` 的地圖上，空地沒有樹籬
+ * 也沒有作物（`FIELD_REACH`）。
  */
 export function fieldSurfaceColor(
-  x: number, z: number, out: Color, season: Season = 'summer',
+  x: number, z: number, out: Color, season: Season = 'summer', open = false,
 ): Color {
   const c = FIELD_COLORS[season]
   regionAt(x, z, REG)
-  if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(c.track)
+  if (onTrack(x, z, REG)) return out.setHex(c.track)
 
   fieldAt(x, z, REG, FLD)
+  if (open && isOpenParcel(FLD)) return openColor(x, z, out, c)
   if (FLD.hedged && FLD.edge < HEDGE_WIDTH / 2) return out.setHex(c.hedge)
 
   const fh = FLD.id
@@ -531,10 +826,8 @@ export function fieldSurfaceColor(
   return out.multiplyScalar(k)
 }
 
-const rgb = (hex: number): string => {
-  const t = new Color().setHex(hex)
-  return `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
-}
+const rgb = (hex: number): string => vec3Of(new Color().setHex(hex))
+const vec3Of = (t: Color): string => `vec3(${t.r.toFixed(4)}, ${t.g.toFixed(4)}, ${t.b.toFixed(4)})`
 
 /** 查候選表時多出來的宣告。uniform 由 `farmGround.ts` 的 `applyFields` 提供 */
 const CANDIDATE_DECL_GLSL = `
@@ -570,8 +863,8 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
       float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
       vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
       float d = distance(world, seed);
-      if (d < r1) { r2 = r1; r1 = d; rid = h; }
-      else if (d < r2) { r2 = d; }
+      if (d < r1) { r2 = r1; s2 = s1; r1 = d; s1 = seed; rid = h; }
+      else if (d < r2) { r2 = d; s2 = seed; }
     }
   } else {
 `
@@ -592,7 +885,170 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
  * `candidates` 為真時多一段查候選表（`buildRegionCandidates`）的剪枝，
  * 材質要提供 `uRegionCand` 與 `uRegionCandRect` 兩個 uniform。
  */
-export function fieldGlsl(season: Season, candidates = false): string {
+export function fieldGlsl(season: Season, candidates = false, open = false): string {
+  const base = fieldGlslBase(season, candidates)
+  if (!open) return base
+  // 【空地疊在條紋之後】空地沒有條紋、沒有樹籬；凹路照舊壓在上面
+  const at = base.indexOf('  col = mix(col, mix(HEDGE_COLOR')
+  const decl = base.indexOf('vec3 fieldColorAt(')
+  return base.slice(0, decl) + openDeclGlsl(season) + base.slice(decl, at) + OPEN_PARCEL_GLSL + base.slice(at)
+}
+
+/**
+ * `open` 的地圖多出來的常數與函式：值雜訊、到村的距離、地塊是不是空地、空地的
+ * 地色。與 CPU 那一份（`valueNoise`、`villageDistance`、`isOpenParcel`、
+ * `openColor`）逐項對應
+ */
+function openDeclGlsl(season: Season): string {
+  const c = FIELD_COLORS[season]
+  return `const float FIELD_REACH = ${FIELD_REACH.toFixed(1)};
+const float REACH_NOISE_CELL = ${REACH_NOISE_CELL.toFixed(1)};
+const float VILLAGE_CHANCE = ${VILLAGE_CHANCE.toFixed(3)};
+const vec3 OPEN_COLOR = ${rgb(c.open)};
+const vec3 OPEN_ALT_COLOR = ${rgb(c.openAlt)};
+
+float fieldNoise(vec2 p, float cell, int salt) {
+  vec2 f = p / cell;
+  vec2 i = floor(f);
+  vec2 t = f - i;
+  t = t * t * (3.0 - 2.0 * t);
+  int ix = int(i.x);
+  int iz = int(i.y);
+  float n00 = float(fieldHash2(ix ^ salt, iz)) / 4294967296.0;
+  float n10 = float(fieldHash2((ix + 1) ^ salt, iz)) / 4294967296.0;
+  float n01 = float(fieldHash2(ix ^ salt, iz + 1)) / 4294967296.0;
+  float n11 = float(fieldHash2((ix + 1) ^ salt, iz + 1)) / 4294967296.0;
+  return mix(mix(n00, n10, t.x), mix(n01, n11, t.x), t.y);
+}
+
+vec2 regionSeedOf(int i, int j, uint h) {
+  float ox = (float(h & 0xffffu) / 65536.0 - 0.5) * 0.76;
+  float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
+  return (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
+}
+
+float villageDistance(vec2 w) {
+  int gx = int(floor(w.x / REGION_SPACING));
+  int gz = int(floor(w.y / REGION_SPACING));
+  float best = 1e20;
+  for (int j = gz - 2; j <= gz + 1; j++) {
+    for (int i = gx - 2; i <= gx + 1; i++) {
+      uint h = fieldHash2(i, j);
+      if (float((h >> 7u) & 0xffu) / 256.0 >= VILLAGE_CHANCE) continue;
+      bool alongX = ((h >> 5u) & 1u) == 0u;
+      int i2 = alongX ? i + 1 : i;
+      int j2 = alongX ? j : j + 1;
+      vec2 site = (regionSeedOf(i, j, h) + regionSeedOf(i2, j2, fieldHash2(i2, j2))) * 0.5;
+      best = min(best, distance(w, site));
+    }
+  }
+  return best;
+}
+
+bool isOpenParcel(vec2 centre, uint fh) {
+  float reach = FIELD_REACH * (0.7 + 0.6 * fieldNoise(centre, REACH_NOISE_CELL, 0x4d21));
+  float fieldness = 1.0 - smoothstep(0.8 * reach, 1.2 * reach, villageDistance(centre));
+  float th = 0.25 + 0.5 * (float(fieldHash1(fh ^ 0x0be5u) & 0xffu) / 255.0);
+  return fieldness <= th;
+}
+
+float openWoodNoise(vec2 w) {
+  return 0.65 * fieldNoise(w, ${OPEN_WOOD_CELL[0].toFixed(1)}, 0x6a11)
+    + 0.35 * fieldNoise(w, ${OPEN_WOOD_CELL[1].toFixed(1)}, 0x3b57);
+}
+
+float openWoodCover(vec2 w) {
+  return smoothstep(${OPEN_WOOD_GATE[0].toFixed(3)}, ${OPEN_WOOD_GATE[1].toFixed(3)}, openWoodNoise(w));
+}
+
+vec3 openColorAt(vec2 w) {
+  vec3 c = mix(OPEN_COLOR, OPEN_ALT_COLOR, fieldNoise(w, ${OPEN_TONE_CELL.toFixed(1)}, 0x1f7e));
+  return mix(c, mix(WOOD_COLOR, BROAD_FAR_COLOR, fieldFar), openWoodCover(w));
+}
+
+// 【空地的樹一棵一棵畫成點】與植被（flora.ts 的 woods／openTree）同一套：16 m 網格一格
+// 一個候選點，雜湊定位置，照覆蓋率接受，雜湊定大小與樹種。格裡的點離這一點最遠一個
+// 樹冠半徑，看周圍 3×3 格就夠
+const float WOOD_GRID = ${WOOD_GRID.toFixed(1)};
+const float OPEN_WOOD_DENSITY = ${OPEN_WOOD_DENSITY.toFixed(3)};
+const float OPEN_TREE_SCALE_LO = ${OPEN_TREE_SCALE[0].toFixed(3)};
+const float OPEN_TREE_SCALE_HI = ${OPEN_TREE_SCALE[1].toFixed(3)};
+const float OPEN_CONIFER_SHARE = ${OPEN_CONIFER_SHARE.toFixed(3)};
+const float BROAD_CROWN_R = ${BROAD_CROWN_R.toFixed(1)};
+const float CONE_CROWN_R = ${CONE_CROWN_R.toFixed(1)};
+const float OPEN_WOOD_GATE_LO = ${OPEN_WOOD_GATE[0].toFixed(3)};
+const float OPEN_WOOD_GATE_HI = ${OPEN_WOOD_GATE[1].toFixed(3)};
+const float OPEN_WOOD_NEAR_MARGIN = ${OPEN_WOOD_NEAR_MARGIN.toFixed(5)};
+const float OPEN_DOT_AA = ${OPEN_DOT_AA.toFixed(1)};
+const float OPEN_DOT_REACH = ${OPEN_DOT_REACH.toFixed(1)};
+
+vec3 openTreesOver(vec2 w, vec3 col, float px) {
+  // 【先用這一點的雜訊夾】蓋得到這一點的樹離它不到 OPEN_DOT_REACH，那段距離裡雜訊變
+  // 不到 MARGIN：候選樹的接受門檻夾在 acceptLo 與 acceptHi 之間，只有落在中間的才算雜訊。
+  // 整圈都長不出樹的點直接跳過
+  float nw = openWoodNoise(w);
+  if (nw < OPEN_WOOD_GATE_LO - OPEN_WOOD_NEAR_MARGIN) return col;
+  float acceptLo = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw - OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;
+  float acceptHi = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw + OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;
+  float aa = min(px, OPEN_DOT_AA);
+  ivec2 c0 = ivec2(floor(w / WOOD_GRID));
+  for (int dj = -1; dj <= 1; dj++) {
+    for (int di = -1; di <= 1; di++) {
+      int gx = c0.x + di;
+      int gz = c0.y + dj;
+      uint h = fieldHash2(gx, gz);
+      uint g = fieldHash1(h);
+      vec2 p = vec2(float(gx) + 0.15 + float(h) / 4294967296.0 * 0.7,
+        float(gz) + 0.15 + float(g) / 4294967296.0 * 0.7) * WOOD_GRID;
+      float d = distance(w, p);
+      if (d >= OPEN_DOT_REACH) continue;
+      uint g2 = fieldHash1(g);
+      float u = float(g2 & 0xffffu) / 65536.0;
+      if (u >= acceptHi) continue;
+      if (u >= acceptLo && u >= openWoodCover(p) * OPEN_WOOD_DENSITY) continue;
+      uint g3 = fieldHash1(g2);
+      float scale = OPEN_TREE_SCALE_LO + float(g3 & 0xffffu) / 65536.0 * (OPEN_TREE_SCALE_HI - OPEN_TREE_SCALE_LO);
+      bool cone = float((g3 >> 24u) & 0xffu) / 256.0 < OPEN_CONIFER_SHARE;
+      float r = (cone ? CONE_CROWN_R : BROAD_CROWN_R) * scale;
+      // 邊緣照像素足跡抗鋸齒
+      float cov = clamp((r - d) / (2.0 * aa) + 0.5, 0.0, 1.0);
+      col = mix(col, cone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, cov);
+    }
+  }
+  return col;
+}
+
+`
+}
+
+/**
+ * 插在條紋之後、樹籬之前：這一塊地的中心（對切過的取那一半）轉回世界座標，
+ * 是空地就換成空地的地色、不畫樹籬
+ */
+const OPEN_PARCEL_GLSL = `  vec2 pq = vec2((left + right) * 0.5, (bottom + top) * 0.5);
+  if (float(cellHash & 0xffu) / 256.0 < SPLIT_CHANCE) {
+    float pf = 0.34 + (float((cellHash >> 8u) & 0xffu) / 255.0) * 0.32;
+    if (right - left >= top - bottom) {
+      float pcut = left + (right - left) * pf;
+      pq.x = part == 0u ? (left + pcut) * 0.5 : (pcut + right) * 0.5;
+    } else {
+      float pcut = bottom + (top - bottom) * pf;
+      pq.y = part == 0u ? (bottom + pcut) * 0.5 : (pcut + top) * 0.5;
+    }
+  }
+  // 【轉差值，不轉座標】q 是上萬公尺，有的 GPU 的 cos、sin 誤差乘上去差將近一公尺，
+  // 跨過門檻就與 CPU 判得不一樣（地色是田、樹卻當空地長）；中心離這個像素只有
+  // 一兩百公尺
+  vec2 dq = pq - q;
+  vec2 parcel = world + vec2(dq.x * cos(angle) - dq.y * sin(angle), dq.x * sin(angle) + dq.y * cos(angle));
+  if (isOpenParcel(parcel, fh)) {
+    col = openColorAt(world);
+    if (fieldTrees > 0.5) col = openTreesOver(world, col, px);
+    isHedge = false;
+  }
+`
+
+function fieldGlslBase(season: Season, candidates: boolean): string {
   const c = FIELD_COLORS[season]
   const glslPalette = c.palette.map((h) => '  ' + rgb(h)).join(',\n')
   return `
@@ -611,9 +1067,22 @@ const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(c.hedge)};
+const vec3 HEDGE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(HEDGE_FAR_SHADE))};
+const float HEDGE_FAR_GROW = ${HEDGE_FAR_GROW.toFixed(3)};
+// 【遠處的樣子】1 = 植被圈外（樹籬的樹不畫了），樹籬畫成放寬的林冠色。呼叫端在
+// fieldColorAt 之前設；近處與內圈留 0，那裡有真的樹
+float fieldFar = 0.0;
+// 【樹一棵一棵畫成點】1 = 烘遠圖：植被圈外樹不畫，地上留的是每一棵樹的點。只在烘圖
+// 時開 —— 每個像素要重算周圍九格的候選樹，逐幀的算式付不起
+float fieldTrees = 0.0;
 const vec3 TRACK_COLOR = ${rgb(c.track)};
 const vec3 PLOUGHED_COLOR = ${rgb(c.ploughed)};
 const vec3 WOOD_COLOR = ${rgb(c.wood)};
+// 【遠處的林子是樹冠的顏色】植被圈外樹不畫，樹林田與空地的林子畫成樹冠從空中看
+// 的顏色（與遠圖裡一棵一棵的點同色）；近處那裡有真的樹，照舊是林地的深色
+const vec3 BROAD_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(TREE_DOT_SHADE))};
+const vec3 CONE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].conifer).multiplyScalar(TREE_DOT_SHADE))};
+const float CONIFER_SHARE = ${CONIFER_SHARE.toFixed(3)};
 const vec3 FIELD_PALETTE[${PALETTE_STEPS}] = vec3[${PALETTE_STEPS}](
 ${glslPalette}
 );
@@ -659,7 +1128,7 @@ float stripe(vec2 q, float period, float amp) {
 float bandCoverage(float d, float halfW, float w) {
   return clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0);
 }
-
+${trackGlsl()}
 float fieldEdgeAt(int k, float cell, int salt) {
   return (float(k) + (float(fieldHash2(k, salt)) / 4294967296.0 - 0.5)
     * 2.0 * EDGE_JITTER) * cell;
@@ -678,6 +1147,9 @@ vec3 fieldColorAt(vec2 world) {
   float r1 = 1e20;
   float r2 = 1e20;
   uint rid = 0u;
+  // 最近與次近的種子：凹路是它們的交界（trackGap）
+  vec2 s1 = vec2(0.0);
+  vec2 s2 = vec2(0.0);
 ${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
     for (int di = -1; di <= 1; di++) {
       int i = int(rgx) + di;
@@ -687,8 +1159,8 @@ ${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
       float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
       vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
       float d = distance(world, seed);
-      if (d < r1) { r2 = r1; r1 = d; rid = h; }
-      else if (d < r2) { r2 = d; }
+      if (d < r1) { r2 = r1; s2 = s1; r1 = d; s1 = seed; rid = h; }
+      else if (d < r2) { r2 = d; s2 = seed; }
     }
   }
 ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
@@ -747,7 +1219,9 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   bool wood = isWoodField(fh);
 
   bool ploughed = float(fh & 0xffu) / 256.0 < PLOUGH_CHANCE;
-  vec3 col = wood ? WOOD_COLOR : PLOUGHED_COLOR;
+  // 樹林田整塊一種樹（flora.ts 的 speciesOf，鍵是田的雜湊 ^ 0x77aa）
+  bool woodCone = float(fieldHash1((fh ^ 0x77aau) ^ 0x5bd1u)) / 4294967296.0 < CONIFER_SHARE;
+  vec3 col = wood ? mix(WOOD_COLOR, woodCone ? CONE_FAR_COLOR : BROAD_FAR_COLOR, fieldFar) : PLOUGHED_COLOR;
   if (!wood && !ploughed) {
     int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, ${PALETTE_STEPS - 1});
     float k = 0.94 + (float((fh >> 16u) & 0xffu) / 255.0) * 0.12;
@@ -758,11 +1232,34 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   float amp = wood ? 0.0 : (ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP);
   col *= stripe(q, STRIPE_PERIOD, amp);
   // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
-  // 兩條帶的半寬不一樣：凹路的判準是 r2 - r1 < TRACK_WIDTH，樹籬的是
+  // 兩條帶的半寬不一樣：凹路的判準是 trackGap < trackWidthAt，樹籬的是
   // best < HEDGE_WIDTH * 0.5
-  col = mix(col, HEDGE_COLOR, isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5, px) : 0.0);
-  col = mix(col, TRACK_COLOR, bandCoverage(r2 - r1, TRACK_WIDTH, px));
+  col = mix(col, mix(HEDGE_COLOR, HEDGE_FAR_COLOR, fieldFar),
+    isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5 * mix(1.0, HEDGE_FAR_GROW, fieldFar), px) : 0.0);
+  col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
   return col;
+}
+`
+}
+
+const glslFloat = (v: number): string => v.toFixed(6)
+
+/** `trackWidthAt`、`trackGap` 的 GLSL，由同一組常數產生 */
+function trackGlsl(): string {
+  const f = glslFloat
+  const ripple = TRACK_RIPPLE.map((r) => `${f(r.amp)} * sin(${f(r.fx)} * w.x + ${f(r.fz)} * w.y + ${f(r.phase)})`)
+  const wx = TRACK_WARP.map((t) => `${f(t.amp)} * sin(${f(t.fx)} * w.x + ${f(t.fz)} * w.y + ${f(t.phase)})`)
+  const wz = TRACK_WARP.map((t) => `${f(t.amp)} * sin(${f(t.fz)} * w.x - ${f(t.fx)} * w.y + ${f(t.phase + 1.7)})`)
+  return `
+float trackWidthAt(vec2 w) {
+  return TRACK_WIDTH * (1.0 + ${ripple.join(' + ')});
+}
+
+float trackGap(vec2 w, vec2 a, vec2 b) {
+  vec2 p = w;
+  p.x += ${wx.join(' + ')};
+  p.y += ${wz.join(' + ')};
+  return abs(distance(p, b) - distance(p, a));
 }
 `
 }
@@ -1263,8 +1760,8 @@ ${list}
 }
 
 /** 有廠區的那一份 GLSL。`site` 省略時與 `fieldGlsl(season)` 逐字相同 */
-export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false): string {
-  const base = fieldGlsl(season, candidates)
+export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates = false, open = false): string {
+  const base = fieldGlsl(season, candidates, open)
   if (site === undefined) return base
   const at = base.lastIndexOf('  return col;')
   return base.slice(0, at) + siteGlsl(site) + '\n' + base.slice(at)
@@ -1275,7 +1772,7 @@ export function fieldGlslWithSite(season: Season, site?: SiteLayout, candidates 
  * `fieldSurfaceColor` 相同。
  */
 export function siteSurfaceColor(
-  x: number, z: number, out: Color, season: Season, site?: SiteLayout,
+  x: number, z: number, out: Color, season: Season, site?: SiteLayout, open = false,
 ): Color {
   if (site !== undefined) {
     for (const s of segmentsOf(site.roads)) {
@@ -1289,7 +1786,7 @@ export function siteSurfaceColor(
     // 【與 `siteGlsl` 一樣先擋外接矩形】次序與早退的條件都要一致
     const near = siteBounds(site)
     if (x <= near.x0 || x >= near.x1 || z <= near.z0 || z >= near.z1) {
-      return fieldSurfaceColor(x, z, out, season)
+      return fieldSurfaceColor(x, z, out, season, open)
     }
     // 【與 `siteGlsl` 一樣，底下全部在廠區局部座標】髒污也是
     const c = Math.cos(site.heading ?? 0)
@@ -1317,5 +1814,5 @@ export function siteSurfaceColor(
       return out.setHex(hex).multiplyScalar(grimeFactor(lx, lz) * dark)
     }
   }
-  return fieldSurfaceColor(x, z, out, season)
+  return fieldSurfaceColor(x, z, out, season, open)
 }

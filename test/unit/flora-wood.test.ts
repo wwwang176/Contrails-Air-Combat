@@ -4,14 +4,14 @@ import {
   createFloraBuffer, farmWoodFlora, FloraKind, FLORA_STRIDE, WOOD_GRID,
 } from '../../src/render/flora'
 import {
-  fieldAt, fieldSurfaceColor, isWoodField, regionAt, HEDGE_WIDTH, TRACK_WIDTH,
+  fieldAt, fieldSurfaceColor, isWoodField, onTrack, regionAt, HEDGE_WIDTH,
   type FieldSample, type RegionSample,
 } from '../../src/render/fields'
 
 const reg: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const s: FieldSample = { id: 0, edge: 0, hedged: false }
+const s: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const col = new Color()
 const FLAT = (): number => 0
 const BUF = createFloraBuffer(65536)
@@ -41,7 +41,7 @@ function woodArea(x0: number, z0: number, x1: number, z1: number, step: number):
   for (let z = z0; z < z1; z += step) {
     for (let x = x0; x < x1; x += step) {
       regionAt(x, z, reg)
-      if (reg.r2 - reg.r1 < TRACK_WIDTH) continue
+      if (onTrack(x, z, reg)) continue
       fieldAt(x, z, reg, s)
       if (isWoodField(s.id)) n++
     }

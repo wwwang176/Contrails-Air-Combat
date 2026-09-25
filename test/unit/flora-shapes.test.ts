@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Box3, Color, Vector3, type BufferGeometry } from 'three'
 import {
+  BUILDING_DEPTH, BUILDING_ROOF, BUILDING_WALL, BUILDING_WIDTH,
   createFloraGeometries, disposeFloraGeometries, pointColorOf, POINT_POOLS, POINT_SIZE,
   POINT_Y, TREE_HEIGHT, type MeshPool, type PointPool,
 } from '../../src/render/floraShapes'
@@ -110,7 +111,7 @@ describe('植被與建築的幾何', () => {
       broadNear: 20, broadMid: 8,
       coneNear: 19, coneMid: 6,
       bushNear: 8,
-      house: 18, barn: 18, church: 34,
+      house: 18, barn: 18, church: 34, houseSlate: 18, barnTar: 18,
     }
     const got: Record<string, number> = {}
     for (const n of names) got[n] = tris(geo[n])
@@ -119,10 +120,10 @@ describe('植被與建築的幾何', () => {
   })
 
   /** 【遠處那三個池沒有幾何】它們是 `gl.POINTS`，一株一個頂點 */
-  it('八個幾何，名字與有網格的那八個池一一對應', () => {
+  it('十個幾何，名字與有網格的那十個池一一對應', () => {
     expect(names.slice().sort()).toEqual([
-      'barn', 'broadMid', 'broadNear', 'bushNear',
-      'church', 'coneMid', 'coneNear', 'house',
+      'barn', 'barnTar', 'broadMid', 'broadNear', 'bushNear',
+      'church', 'coneMid', 'coneNear', 'house', 'houseSlate',
     ])
     expect(POINT_POOLS.every((n) => !names.includes(n as MeshPool))).toBe(true)
   })
@@ -216,11 +217,21 @@ describe('植被與建築的幾何', () => {
     expect(bounds(geo.church).max.y).toBeGreaterThan(bounds(geo.barn).max.y * 2)
   })
 
-  it('穀倉比房子長也比房子高', () => {
-    const h = bounds(geo.house)
-    const b = bounds(geo.barn)
-    expect(b.max.x - b.min.x).toBeGreaterThan(h.max.x - h.min.x)
-    expect(b.max.y).toBeGreaterThan(h.max.y)
+  /**
+   * 【建築只有一種形狀】房子、穀倉、倉庫的大小與樓高由實例各軸縮放決定；四個池
+   * 只差顏色。形狀分家的話，佈置那一側算的牆外框（`BUILDING_WIDTH` 等）就對不上
+   * 畫出來的東西 —— 建築會互相穿插而護欄抓不到
+   */
+  it('四種建築是同一個形狀，尺寸就是 BUILDING_* 那幾個常數', () => {
+    const pos = Array.from(geo.house.getAttribute('position').array)
+    for (const n of ['houseSlate', 'barn', 'barnTar'] as const) {
+      expect([n, Array.from(geo[n].getAttribute('position').array)]).toEqual([n, pos])
+    }
+    const b = bounds(geo.house)
+    // 牆的外框：屋頂四邊各出簷半公尺，所以外接盒比牆各大 1 m
+    expect(b.max.x - b.min.x).toBeCloseTo(BUILDING_WIDTH + 1, 6)
+    expect(b.max.z - b.min.z).toBeCloseTo(BUILDING_DEPTH + 1, 6)
+    expect(b.max.y).toBeCloseTo(BUILDING_WALL + BUILDING_ROOF, 6)
   })
 
   /** 【樹幹與樹冠必須是兩個顏色】材質沒開 vertexColors 的話這一條仍然綠 */
@@ -235,10 +246,48 @@ describe('植被與建築的幾何', () => {
   })
 
   it('房子的牆與屋頂是兩個顏色，教堂三個', () => {
-    expect(colours(geo.house).size).toBe(2)
-    expect(colours(geo.barn).size).toBe(2)
+    for (const n of ['house', 'houseSlate', 'barn', 'barnTar'] as const) {
+      expect([n, colours(geo[n]).size]).toEqual([n, 2])
+    }
     // 本堂牆、屋頂、尖頂
     expect(colours(geo.church).size).toBe(3)
+  })
+
+  /**
+   * 【同一種牆的兩種屋頂只差屋頂】灰泥牆配新瓦或石板、磚木牆配老瓦或油毛氈。
+   * 牆跟著變的話，一個鎮裡會有一成多的房子是灰牆。
+   */
+  it('同一種牆的兩種屋頂只有屋頂的顏色不同', () => {
+    for (const [a, b] of [['house', 'houseSlate'], ['barn', 'barnTar']] as const) {
+      const ca = geo[a].getAttribute('color')
+      const cb = geo[b].getAttribute('color')
+      expect(Array.from(geo[a].getAttribute('position').array)).toEqual(Array.from(geo[b].getAttribute('position').array))
+      let differ = 0
+      for (let i = 0; i < ca.count; i++) {
+        if (ca.getX(i) !== cb.getX(i) || ca.getY(i) !== cb.getY(i) || ca.getZ(i) !== cb.getZ(i)) differ++
+      }
+      // 人字屋頂是 6 個三角形 = 18 個頂點；牆的頂點一個都不能不同
+      expect([a, differ]).toEqual([a, 18])
+    }
+  })
+
+  /**
+   * 【屋頂是風化的老瓦】新瓦的鮮磚紅（0xa8503a，紅是綠的 2.1 倍），從空中看整個
+   * 鎮是一片亮紅。**比的是 sRGB** —— 頂點色存的是線性值，直接相除會把比例放大
+   * 兩倍多。
+   */
+  it('黏土瓦的屋頂不是鮮紅：sRGB 下紅不過綠的 1.85 倍', () => {
+    const col = geo.house.getAttribute('color')
+    const c = new Color()
+    let ratio = 0
+    for (let i = 0; i < col.count; i++) {
+      const hex = c.setRGB(col.getX(i), col.getY(i), col.getZ(i)).getHex()
+      const r = (hex >> 16) & 0xff
+      const g = (hex >> 8) & 0xff
+      if (r > g * 1.2) ratio = r / g
+    }
+    expect(ratio).toBeGreaterThan(1.2)
+    expect(ratio).toBeLessThan(1.85)
   })
 
   it('近級喬木最低的那些頂點是樹幹色', () => {
@@ -282,7 +331,7 @@ describe('植被與建築的幾何', () => {
    */
   const STAR_Y: Record<string, number> = {
     broadNear: 20, broadMid: 20, coneNear: 12, coneMid: 12,
-    bushNear: 4, house: 2.5, barn: 3, church: 3,
+    bushNear: 4, house: 2.5, barn: 3, church: 3, houseSlate: 2.5, barnTar: 3,
   }
 
   it('每一個面的法線都朝外', () => {

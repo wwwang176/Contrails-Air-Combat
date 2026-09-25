@@ -55,6 +55,19 @@ async function main(): Promise<void> {
       throw new Error('GLSL 編譯失敗')
     }
     console.log('  查候選表的 fieldGlslWithSite 編譯通過')
+    // 【田圍著村的那一份】多了值雜訊、到村的距離與空地的地色，插在 fieldColorAt
+    // 中間；兩個季節、查不查候選表、有沒有機場的墊面都要編
+    for (const season of SEASONS) {
+      for (const cand of [false, true]) {
+        const openLog = await compile(page, fieldGlslWithSite(season, cand ? LEUNA_SITE : undefined, cand, true))
+        if (openLog.trim() !== '') {
+          console.error(`  open 的 fieldGlslWithSite('${season}', 候選表 ${String(cand)}) 編譯失敗：`)
+          console.error(openLog)
+          throw new Error('GLSL 編譯失敗')
+        }
+        console.log(`  open 的 fieldGlslWithSite('${season}', 候選表 ${String(cand)}) 編譯通過`)
+      }
+    }
   } finally {
     await browser.close()
   }

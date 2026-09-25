@@ -5,8 +5,10 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
-  edgeAt, fieldAt, isWoodField, regionAt, regionParams, regionSeed, splitCut,
-  HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH,
+  edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
+  trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
+  TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
+  VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, WOOD_GRID,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
@@ -38,14 +40,33 @@ import {
 /** 一筆的欄位數：x, y, z, rotY, scale, tint */
 export const FLORA_STRIDE = 6
 
+/**
+ * 植被的種類。**建築只有一種形狀**（`floraShapes.ts`），四種建築種類差的只是
+ * 屋頂的料與牆色 —— 房子、穀倉、倉庫都用它，靠大小、樓高、顏色區分。
+ */
 export const enum FloraKind {
   BroadTree = 0,
   ConeTree = 1,
   Bush = 2,
+  /** 新一點的黏土瓦、灰泥牆 */
   House = 3,
+  /** 老黏土瓦（更暗）、磚木牆 */
   Barn = 4,
   Church = 5,
+  /** 石板瓦、灰泥牆 */
+  SlateHouse = 6,
+  /** 油毛氈、磚木牆 */
+  TarBarn = 7,
 }
+
+/**
+ * 面寬與樓高的倍率怎麼存：一個位元組，`值 / SHAPE_ONE` 就是倍率（0～3.98）。
+ * 樹一律是 1。
+ *
+ * 【為什麼是位元組不是浮點】tile 快取是 `MAX_PER_TILE × TILE_CACHE` 格，兩個
+ * 浮點要多 6.4 MB，兩個位元組只多 1.6 MB；倍率只要 1/64 的精度。
+ */
+export const SHAPE_ONE = 64
 
 /**
  * 一格 tile 的產出。**呼叫端預配、呼叫端歸零** —— 放置函數只 append，
@@ -54,6 +75,8 @@ export const enum FloraKind {
 export interface FloraBuffer {
   readonly data: Float32Array
   readonly kind: Uint8Array
+  /** 每一筆兩個位元組：面寬、樓高的倍率（見 `SHAPE_ONE`） */
+  readonly shape: Uint8Array
   readonly capacity: number
   count: number
   /** 容量不足丟掉幾筆。**不得靜默截斷** —— 引擎會把它回報出去 */
@@ -64,16 +87,28 @@ export function createFloraBuffer(capacity: number): FloraBuffer {
   return {
     data: new Float32Array(capacity * FLORA_STRIDE),
     kind: new Uint8Array(capacity),
+    shape: new Uint8Array(capacity * 2),
     capacity,
     count: 0,
     dropped: 0,
   }
 }
 
+/** 倍率 → 位元組，夾在 1/64～3.98 */
+function shapeByte(v: number): number {
+  const q = Math.round(v * SHAPE_ONE)
+  return q < 1 ? 1 : q > 255 ? 255 : q
+}
+
+/**
+ * `wide` 是模型 x 軸（面寬）的額外倍率、`tall` 是 y 軸（樓高）的額外倍率，
+ * 乘在 `scale` 之上；z 軸（進深）就是 `scale`。樹不給，兩者都是 1。
+ */
 export function pushFlora(
   out: FloraBuffer,
   x: number, y: number, z: number,
   rot: number, scale: number, tint: number, kind: FloraKind,
+  wide = 1, tall = 1,
 ): void {
   if (out.count >= out.capacity) { out.dropped++; return }
   const o = out.count * FLORA_STRIDE
@@ -84,6 +119,8 @@ export function pushFlora(
   out.data[o + 4] = scale
   out.data[o + 5] = tint
   out.kind[out.count] = kind
+  out.shape[out.count * 2] = shapeByte(wide)
+  out.shape[out.count * 2 + 1] = shapeByte(tall)
   out.count++
 }
 
@@ -114,13 +151,7 @@ export const HEDGE_TREE_SPACING = 12
  */
 export const HEDGE_BUSH_SPACING = 5
 
-/**
- * 樹林裡的網格間距，m。3,906 棵/km²。
- *
- * 【為什麼是網格不是走線】樹林填的是**面**不是線，而 16 m 的網格在 250 m 的
- * tile 上是 244 次 `fieldAt` ≈ 0.09 ms —— 只在生成時付一次。
- */
-export const WOOD_GRID = 16
+export { WOOD_GRID }
 
 /** 沿線抖動的幅度，佔間距的比例。必須 < 0.5，否則相鄰兩株會交換次序 */
 const ALONG_JITTER = 0.3
@@ -149,12 +180,12 @@ function hash1(h: number): number {
 }
 
 const REG: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const AT: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
-const FLD: FieldSample = { id: 0, edge: 0, hedged: false }
+const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 const SEED: Vec2 = { x: 0, z: 0 }
 
@@ -221,6 +252,8 @@ let winCos = 0
 let winSin = 0
 let winHeight: (x: number, z: number) => number = () => 0
 let winOut: FloraBuffer = createFloraBuffer(1)
+/** 這一次是「田圍著村」的地圖嗎：空地（`isOpenParcel`）的邊不長樹籬 */
+let winOpen = false
 
 /**
  * 沿一條線種東西。
@@ -255,6 +288,7 @@ function walkLine(
     if (AT.id !== winRid) continue
     fieldAt(x, z, AT, FLD)
     if (!FLD.hedged || FLD.edge >= HEDGE_WIDTH / 2) continue
+    if (winOpen && isOpenParcel(FLD)) continue
 
     const g2 = hash1(g)
     const rot = (g2 / 4294967296) * Math.PI * 2
@@ -275,13 +309,9 @@ function hedged(lineKey: number): boolean {
 }
 
 /**
- * 這條樹籬種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出防風林。
- *
- * 【闊葉為主】Bocage 的樹籬是橡與櫸，針葉只出現在刻意種的防風林裡。
- * 一半一半的話整片地讀起來像雲杉林。
+ * 這條樹籬（或這一塊樹林田）種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出
+ * 防風林。比例見 `fields.ts` 的 `CONIFER_SHARE`
  */
-const CONIFER_SHARE = 0.25
-
 function speciesOf(lineKey: number): FloraKind {
   return hash1(lineKey ^ 0x5bd1) / 4294967296 < CONIFER_SHARE
     ? FloraKind.ConeTree : FloraKind.BroadTree
@@ -303,6 +333,19 @@ function plantLine(
  * 斷掉），對切線由 `splitCut` 給。
  */
 export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  winOpen = false
+  hedges(x0, z0, x1, z1, heightAt, out)
+}
+
+/** 「田圍著村」的地圖的樹籬：空地的邊不長（`fields.ts` 的 `FIELD_REACH`） */
+export const openHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  // 【整格都是空地就整格跳過】空地的邊不長樹籬，而荒野裡的格一大片都是
+  if (FLORA_FAST_PATHS.on && tileLandUse(x0, z0, x1, z1) === LAND_OPEN) return
+  winOpen = true
+  hedges(x0, z0, x1, z1, heightAt, out)
+}
+
+const hedges: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   winX0 = x0
   winZ0 = z0
   winX1 = x1
@@ -395,6 +438,133 @@ export const farmHedgeFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
  * 【樹種逐田決定】混種的樹林從空中看是雜訊。
  */
 export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  woods(false, x0, z0, x1, z1, heightAt, out)
+}
+
+/**
+ * 「田圍著村」的地圖的樹林：田裡照 `farmWoodFlora`；空地（`isOpenParcel`）上照
+ * `openWoodCover` 長成團的樹林，與地色同一個覆蓋率。空地的林子一部分是種的
+ * 松林，針葉多一點
+ */
+export const openWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
+  woods(true, x0, z0, x1, z1, heightAt, out)
+}
+
+/**
+ * 整格判斷的開關。**只給測試用**：關掉之後每一格都走逐點的慢路徑，測試拿兩條
+ * 路徑的輸出逐株比對
+ */
+export const FLORA_FAST_PATHS = { on: true }
+
+/**
+ * 這一格碰到的田裡**可能**有樹林田嗎（保守）。列出格子在每個候選區塊的座標系裡
+ * 蓋到的列與欄（外擴一格），逐一看田的雜湊 —— 比逐點找田便宜兩個數量級，而多數
+ * 的格一塊樹林田都沒有
+ */
+function tileMayHaveWood(x0: number, z0: number, x1: number, z1: number): boolean {
+  candidateRegions(x0, z0, x1, z1)
+  for (let ci = 0; ci < candCount; ci++) {
+    const rid = CAND_ID[ci]! >>> 0
+    regionParams(rid, REG)
+    const cs = Math.cos(-REG.angle)
+    const sn = Math.sin(-REG.angle)
+    let qxMin = Infinity
+    let qxMax = -Infinity
+    let qzMin = Infinity
+    let qzMax = -Infinity
+    for (let i = 0; i < 4; i++) {
+      const x = (i & 1) === 0 ? x0 : x1
+      const z = (i & 2) === 0 ? z0 : z1
+      const qx = x * cs - z * sn
+      const qz = x * sn + z * cs
+      if (qx < qxMin) qxMin = qx
+      if (qx > qxMax) qxMax = qx
+      if (qz < qzMin) qzMin = qz
+      if (qz > qzMax) qzMax = qz
+    }
+    // 【照格線挑，不整片外擴】推移量小於半格，所以候選多看一格，再用真的格線位置
+    // 篩掉沒蓋到的列與欄。整片外擴一格的話一格要看八十塊田，幾乎每一格都碰得到
+    // 一塊樹林田，這道判斷等於沒有
+    const rMin = Math.floor(qzMin / REG.cellH) - 1
+    const rMax = Math.floor(qzMax / REG.cellH) + 1
+    for (let r = rMin; r <= rMax; r++) {
+      if (edgeAt(r + 1, REG.cellH, 1) <= qzMin || edgeAt(r, REG.cellH, 1) >= qzMax) continue
+      const colSalt = (r * 2 + 1) | 0
+      const cMin = Math.floor(qxMin / REG.cellW) - 1
+      const cMax = Math.floor(qxMax / REG.cellW) + 1
+      for (let c = cMin; c <= cMax; c++) {
+        if (edgeAt(c + 1, REG.cellW, colSalt) <= qxMin || edgeAt(c, REG.cellW, colSalt) >= qxMax) continue
+        // 與 `fieldAt` 同一個算法：格的雜湊、對切的兩半
+        const cellHash = hash2(c ^ rid, r)
+        if (isWoodField(hash1(cellHash)) || isWoodField(hash1(cellHash ^ 0x7f4a))) return true
+      }
+    }
+  }
+  return false
+}
+
+const LAND_MIXED = 0
+const LAND_OPEN = 1
+const LAND_FIELD = 2
+/** 地塊的半對角線上限，m（最大的地塊約 290） */
+const PARCEL_HALF_DIAG = 293
+
+/** 方框的半對角線，m。植被一格（`TILE_SIZE` 250 m）是 177 */
+function halfDiagonal(x0: number, z0: number, x1: number, z1: number): number {
+  const dx = x1 - x0
+  const dz = z1 - z0
+  return Math.sqrt(dx * dx + dz * dz) / 2
+}
+
+/**
+ * 「田圍著村」的地圖上，這一格的地塊是不是**全部**是空地（或全部是田）。地塊用
+ * 它的中心判斷，中心離格心最遠是格的半對角線加地塊的半對角線：格心離最近的村比
+ * 田最遠伸到的地方還遠，整格一定是空地；比田最近的邊還近，整格一定是田
+ */
+function tileLandUse(x0: number, z0: number, x1: number, z1: number): number {
+  const reach = halfDiagonal(x0, z0, x1, z1) + PARCEL_HALF_DIAG
+  const d = villageDistance((x0 + x1) / 2, (z0 + z1) / 2)
+  if (d - reach > FIELD_REACH * 1.3 * 1.2) return LAND_OPEN
+  if (d + reach < FIELD_REACH * 0.7 * 0.8) return LAND_FIELD
+  return LAND_MIXED
+}
+
+
+/** 空地上的一個候選點：照 `openWoodCover` 決定長不長 */
+function openTree(
+  x: number, z: number, g: number, heightAt: (x: number, z: number) => number, out: FloraBuffer,
+): void {
+  const g2 = hash1(g)
+  // 覆蓋率不超過 1：雜湊已經在密度上限之上的點不必算覆蓋率（兩層雜訊）
+  const u = (g2 & 0xffff) / 65536
+  if (u >= OPEN_WOOD_DENSITY || u >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) return
+  const g3 = hash1(g2)
+  pushFlora(
+    out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
+    OPEN_TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (OPEN_TREE_SCALE[1] - OPEN_TREE_SCALE[0]),
+    ((g2 >>> 16) & 0xff) / 255,
+    ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE ? FloraKind.ConeTree : FloraKind.BroadTree,
+  )
+}
+
+function woods(
+  open: boolean, x0: number, z0: number, x1: number, z1: number,
+  heightAt: (x: number, z: number) => number, out: FloraBuffer,
+): void {
+  // 【整格先判斷】逐點找區塊、找田是這一支的大宗（一格 244 點），而大多數的格用不到：
+  // 田裡的樹林只長在樹林田，整格沒有樹林田就整格跳過；整格都是空地的話不必找田
+  let land = LAND_MIXED
+  let noTrack = false
+  if (FLORA_FAST_PATHS.on) {
+    land = open ? tileLandUse(x0, z0, x1, z1) : LAND_FIELD
+    if (land === LAND_FIELD && !tileMayHaveWood(x0, z0, x1, z1)) return
+    if (land === LAND_OPEN) {
+      // `r2 − r1` 每走 1 m 最多變 2，量凹路的 `trackGap` 與它差不到兩倍推移量：
+      // 格心離凹路夠遠，整格都碰不到凹路
+      regionAt((x0 + x1) / 2, (z0 + z1) / 2, AT)
+      noTrack = AT.r2 - AT.r1 - 2 * halfDiagonal(x0, z0, x1, z1) > TRACK_WIDTH_MAX + 2 * TRACK_WARP_MAX
+    }
+  }
   const g0 = Math.floor(x0 / WOOD_GRID)
   const g1 = Math.floor(x1 / WOOD_GRID)
   const h0 = Math.floor(z0 / WOOD_GRID)
@@ -407,9 +577,21 @@ export const farmWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
       const g = hash1(h)
       const z = (gz + 0.15 + (g / 4294967296) * 0.7) * WOOD_GRID
       if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
+      if (land === LAND_OPEN) {
+        if (!noTrack) {
+          regionAt(x, z, AT)
+          if (onTrack(x, z, AT)) continue
+        }
+        openTree(x, z, g, heightAt, out)
+        continue
+      }
       regionAt(x, z, AT)
-      if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
+      if (onTrack(x, z, AT)) continue
       fieldAt(x, z, AT, FLD)
+      if (open && isOpenParcel(FLD)) {
+        openTree(x, z, g, heightAt, out)
+        continue
+      }
       if (!isWoodField(FLD.id)) continue
       // 【樹籬那一圈留給 farmHedgeFlora】不疊兩層樹
       if (FLD.edge < HEDGE_WIDTH / 2) continue
@@ -446,17 +628,14 @@ const LANE_OFFSET = [11, 34] as const
  */
 export const VILLAGE_SPAN = Math.hypot(VILLAGE_REACH, LANE_OFFSET[1])
 
-/** 有村的區塊格佔多少 */
-const VILLAGE_CHANCE = 0.55
-
 /**
- * 建築容許的「離凹路多遠」，用 `r2 − r1` 表示。
+ * 建築容許的「離凹路多遠」，用 `trackGap` 表示。
  *
- * 【為什麼是 r2 − r1 而不是公尺】兩顆種子的 Voronoi 邊界上 `r2 − r1 = 0`，
- * 離開邊界 t 公尺時 `r2 − r1 ≈ 2t`。用它就不必自己算點到邊界的距離，而且
- * 與 `fieldSurfaceColor` 判斷凹路用的是同一個量。
+ * 【為什麼是 trackGap 而不是公尺】它是兩顆種子距離差，凹路中心線上是 0，
+ * 離開 t 公尺時約 2t。用它就不必自己算點到凹路的距離，而且與
+ * `fieldSurfaceColor` 判斷凹路用的是同一個量。
  *
- * 下界是 `TRACK_WIDTH`（房子不蓋在路面上），上界 90 ≈ 離路心 45 m。
+ * 下界是 `trackWidthAt`（房子不蓋在路面上），上界 90 ≈ 離路心 45 m。
  */
 export const LANE_BAND = 90
 
@@ -465,18 +644,21 @@ const CHURCH_CHANCE = 0.45
 
 /** 有多少比例的建築是穀倉 */
 const BARN_CHANCE = 0.33
+/** 穀倉的面寬與樓高倍率（建築只有一種形狀，見 `floraShapes.ts`） */
+const BARN_WIDE = 1.6
+const BARN_TALL = 1.3
 
 const SEED_A: Vec2 = { x: 0, z: 0 }
 const SEED_B: Vec2 = { x: 0, z: 0 }
 
 /**
- * 配對的鄰格。**只往 +x 與 +z，不往回**。
+ * 配對的鄰格（`VILLAGE_NEIGHBOUR`，與田色共用）。**只往 +x 與 +z，不往回**。
  *
  * 【為什麼不能四個方向都來】(i, j) 選 +x、(i+1, j) 選 −x 的話，兩格算出來
  * 是**同一個中點** —— 同一個村會被生兩次，而且兩份建築完全重疊。只往前配對
  * 之後，一對格子只可能由較小的那一格產生。
  */
-const NEIGHBOUR = [1, 0, 0, 1] as const
+const NEIGHBOUR = VILLAGE_NEIGHBOUR
 
 /**
  * 站址那條凹路的走向（單位向量）。**只在 `villageSite` 回 true 之後有效，
@@ -525,8 +707,8 @@ const SITE: Vec2 = { x: 0, z: 0 }
 /** 這個點可以蓋房子嗎 —— 在路邊，但不在路上 */
 function besideLane(x: number, z: number): boolean {
   regionAt(x, z, AT)
-  const d = AT.r2 - AT.r1
-  return d >= TRACK_WIDTH && d <= LANE_BAND
+  const d = trackGap(x, z, AT)
+  return d >= trackWidthAt(x, z) && d <= LANE_BAND
 }
 
 /**
@@ -574,10 +756,12 @@ export const farmVillageFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => 
         const barn = ((g2 >>> 8) & 0xff) / 256 < BARN_CHANCE
         pushFlora(
           out, x, heightAt(x, z), z,
-          // 【山牆對著路】房子的長軸順著路
+          // 【屋脊順著路】
           Math.atan2(tx, tz), 0.85 + ((g2 & 0xff) / 255) * 0.3,
           (hash1(g2) & 0xff) / 255,
           barn ? FloraKind.Barn : FloraKind.House,
+          // 【穀倉是拉寬拉高的同一個形狀】面寬約 1.6 倍、高 1.3 倍
+          barn ? BARN_WIDE : 1, barn ? BARN_TALL : 1,
         )
       }
 
@@ -649,25 +833,7 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
-/**
- * 值雜訊：格點上的雜湊值做平滑雙線性內插，0～1。**只吃全域座標**，與 tile
- * 無關 —— 見檔頭的鐵律。
- */
-function valueNoise(x: number, z: number, cell: number, salt: number): number {
-  const fx = x / cell
-  const fz = z / cell
-  const ix = Math.floor(fx)
-  const iz = Math.floor(fz)
-  const tx = smoothstep(0, 1, fx - ix)
-  const tz = smoothstep(0, 1, fz - iz)
-  const n00 = hash2(ix ^ salt, iz) / 4294967296
-  const n10 = hash2((ix + 1) ^ salt, iz) / 4294967296
-  const n01 = hash2(ix ^ salt, iz + 1) / 4294967296
-  const n11 = hash2((ix + 1) ^ salt, iz + 1) / 4294967296
-  const a = n00 + (n10 - n00) * tx
-  const b = n01 + (n11 - n01) * tx
-  return a + (b - a) * tz
-}
+export { valueNoise }
 
 /**
  * 這一點在不在樹叢裡，`ISLAND_CLUMP_FLOOR`～1。

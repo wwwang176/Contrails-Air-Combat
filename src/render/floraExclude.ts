@@ -25,6 +25,21 @@ export interface ExcludeRect {
   readonly heading?: number
 }
 
+/**
+ * 把 `from` 的第 `i` 筆搬到 `to` 的尾巴。**每一欄都要搬**（位置、種類、形狀）——
+ * 漏一欄的話那一株過一次排除就變了樣，而且不報錯
+ */
+function copyOne(from: FloraBuffer, i: number, to: FloraBuffer): void {
+  if (to.count >= to.capacity) { to.dropped++; return }
+  const o = i * FLORA_STRIDE
+  const d = to.count * FLORA_STRIDE
+  for (let k = 0; k < FLORA_STRIDE; k++) to.data[d + k] = from.data[o + k]!
+  to.kind[to.count] = from.kind[i]!
+  to.shape[to.count * 2] = from.shape[i * 2]!
+  to.shape[to.count * 2 + 1] = from.shape[i * 2 + 1]!
+  to.count++
+}
+
 export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
   let scratch: FloraBuffer | null = null
   const c = Math.cos(rect.heading ?? 0)
@@ -61,11 +76,40 @@ export function excluding(source: FloraSource, rect: ExcludeRect): FloraSource {
       const x = rx * c + rz * s
       const z = -rx * s + rz * c
       if (x >= rect.x0 && x < rect.x1 && z >= rect.z0 && z < rect.z1) continue
-      if (out.count >= out.capacity) { out.dropped++; continue }
-      const d = out.count * FLORA_STRIDE
-      for (let k = 0; k < FLORA_STRIDE; k++) out.data[d + k] = scratch.data[o + k]!
-      out.kind[out.count] = scratch.kind[i]!
-      out.count++
+      copyOne(scratch, i, out)
+    }
+    out.dropped += scratch.dropped
+  }
+}
+
+/** 這個方框裡**可能**有要擋的地方嗎（保守：回 false 時一定沒有） */
+export type BoxTest = (x0: number, z0: number, x1: number, z1: number) => boolean
+
+/**
+ * 把一個散佈器包成「`keepOut(x, z)` 為真的地方不長」。判準不是矩形的時候用：
+ * 河廊、村鎮、礦坑、高速公路。
+ *
+ * `near`：整格先問一次，回 false 的格原樣透傳、不逐株查。**逐株查是補格的大宗**
+ * （洛伊納一格上百株樹籬，每一株問一次村鎮、礦坑、高速公路），而絕大多數的格
+ * 離它們很遠
+ */
+export function excludingWhere(
+  source: FloraSource, keepOut: (x: number, z: number) => boolean, near?: BoxTest,
+): FloraSource {
+  let scratch: FloraBuffer | null = null
+  return (x0, z0, x1, z1, heightAt, out) => {
+    if (near !== undefined && !near(x0, z0, x1, z1)) {
+      source(x0, z0, x1, z1, heightAt, out)
+      return
+    }
+    if (scratch === null || scratch.capacity < out.capacity) scratch = createFloraBuffer(out.capacity)
+    scratch.count = 0
+    scratch.dropped = 0
+    source(x0, z0, x1, z1, heightAt, scratch)
+    for (let i = 0; i < scratch.count; i++) {
+      const o = i * FLORA_STRIDE
+      if (keepOut(scratch.data[o]!, scratch.data[o + 2]!)) continue
+      copyOne(scratch, i, out)
     }
     out.dropped += scratch.dropped
   }
