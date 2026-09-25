@@ -4,11 +4,11 @@ import {
   LANE_BAND, VILLAGE_SPAN,
 } from '../../src/render/flora'
 import {
-  regionAt, REGION_SPACING, TRACK_WIDTH, type RegionSample,
+  regionAt, trackGap, trackWidthAt, REGION_SPACING, TRACK_WIDTH, type RegionSample,
 } from '../../src/render/fields'
 
 const reg: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const P = { x: 0, z: 0 }
 const FLAT = (): number => 0
@@ -99,14 +99,14 @@ describe('村落', () => {
     expect(worst).toBeGreaterThan(REGION_SPACING * 0.3)
   })
 
-  /** 【房子沿路排，不蓋在路上】`r2 − r1` 約等於離凹路中心距離的兩倍 */
+  /** 【房子沿路排，不蓋在路上】`trackGap` 約等於離凹路中心距離的兩倍 */
   it('房子不在路上，但也不遠離路', () => {
     const rows = collect(-4000, -4000, 4000, 4000)
     expect(rows.length).toBeGreaterThan(20)
     for (const r of rows) {
       regionAt(r.x, r.z, reg)
-      expect(reg.r2 - reg.r1).toBeGreaterThanOrEqual(TRACK_WIDTH)
-      expect(reg.r2 - reg.r1).toBeLessThanOrEqual(LANE_BAND)
+      expect(trackGap(r.x, r.z, reg)).toBeGreaterThanOrEqual(trackWidthAt(r.x, r.z))
+      expect(trackGap(r.x, r.z, reg)).toBeLessThanOrEqual(LANE_BAND)
     }
   })
 

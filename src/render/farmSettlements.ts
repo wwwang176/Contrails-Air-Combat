@@ -1,5 +1,5 @@
 import { villageSite, type FloraSource } from './flora'
-import { regionAt, regionSeed, REGION_SPACING, TRACK_WIDTH, type RegionSample } from './fields'
+import { regionAt, regionSeed, trackGap, trackWidthAt, REGION_SPACING, type RegionSample } from './fields'
 import { settlementLayout } from './settlements'
 import type { Place } from '../world/landFeatures'
 
@@ -20,8 +20,11 @@ const HAMLET_RING = [500, 820] as const
 const HAMLETS_MAX = 2
 /** 村的人口（決定村的大小，`settlementRadius`） */
 const VILLAGE_POP = [150, 900] as const
-/** 房子離凹路的中心至少多遠：`r2 − r1` 是離路心的兩倍（`flora.ts` 的 `LANE_BAND`） */
-const LANE_CLEAR = TRACK_WIDTH + 16
+/**
+ * 房子離凹路的邊至少多遠，用 `trackGap` 表示：它是離路心的兩倍（`flora.ts` 的
+ * `LANE_BAND`），所以 16 是 8 m
+ */
+const LANE_CLEAR = 16
 /** 村心離凹路的中心多遠，m。教堂連留地要整個在路旁 */
 const CENTRE_OFFSET = 45
 
@@ -62,7 +65,7 @@ export function farmPlaces(half: number): Place[] {
   return out
 }
 
-const REG: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
+const REG: RegionSample = { r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
 
 /**
  * 村與小聚落的建築與樹，當成一個散佈器。**建地形時跑一次**（`settlementLayout` 預先
@@ -71,7 +74,7 @@ const REG: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, t
 export function farmSettlementFlora(half: number): FloraSource {
   const onLane = (x: number, z: number): boolean => {
     regionAt(x, z, REG)
-    return REG.r2 - REG.r1 < LANE_CLEAR
+    return trackGap(x, z, REG) < trackWidthAt(x, z) + LANE_CLEAR
   }
   // 團狀村與綠地村各半：由站址座標的雜湊挑（`eastOfSaale` 在這裡只是村形的開關）
   const angerdorf = (x: number, z: number): boolean => (mix(Math.imul(Math.round(x), 73856093) ^ Math.round(z)) & 1) === 0

@@ -5,8 +5,9 @@ import type { HeightFieldData } from '../world/heightfield'
 import type { IslandDesc } from '../world/archipelago'
 import { baseHeight, farUpland, isInBeachClearing, isInRoadClearing } from '../world/leyte'
 import {
-  edgeAt, fieldAt, isOpenParcel, isWoodField, openWoodCover, regionAt, regionParams, regionSeed, splitCut, valueNoise,
-  villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING, TRACK_WIDTH, VILLAGE_CHANCE,
+  edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
+  trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
+  TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
   VILLAGE_NEIGHBOUR,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
@@ -185,10 +186,10 @@ function hash1(h: number): number {
 }
 
 const REG: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const AT: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
@@ -579,9 +580,10 @@ function woods(
     land = open ? tileLandUse(x0, z0, x1, z1) : LAND_FIELD
     if (land === LAND_FIELD && !tileMayHaveWood(x0, z0, x1, z1)) return
     if (land === LAND_OPEN) {
-      // `r2 − r1` 每走 1 m 最多變 2：格心離凹路夠遠，整格都碰不到凹路
+      // `r2 − r1` 每走 1 m 最多變 2，量凹路的 `trackGap` 與它差不到兩倍推移量：
+      // 格心離凹路夠遠，整格都碰不到凹路
       regionAt((x0 + x1) / 2, (z0 + z1) / 2, AT)
-      noTrack = AT.r2 - AT.r1 - 2 * halfDiagonal(x0, z0, x1, z1) > TRACK_WIDTH
+      noTrack = AT.r2 - AT.r1 - 2 * halfDiagonal(x0, z0, x1, z1) > TRACK_WIDTH_MAX + 2 * TRACK_WARP_MAX
     }
   }
   const g0 = Math.floor(x0 / WOOD_GRID)
@@ -599,13 +601,13 @@ function woods(
       if (land === LAND_OPEN) {
         if (!noTrack) {
           regionAt(x, z, AT)
-          if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
+          if (onTrack(x, z, AT)) continue
         }
         openTree(x, z, g, heightAt, out)
         continue
       }
       regionAt(x, z, AT)
-      if (AT.r2 - AT.r1 < TRACK_WIDTH) continue
+      if (onTrack(x, z, AT)) continue
       fieldAt(x, z, AT, FLD)
       if (open && isOpenParcel(FLD)) {
         openTree(x, z, g, heightAt, out)
@@ -648,13 +650,13 @@ const LANE_OFFSET = [11, 34] as const
 export const VILLAGE_SPAN = Math.hypot(VILLAGE_REACH, LANE_OFFSET[1])
 
 /**
- * 建築容許的「離凹路多遠」，用 `r2 − r1` 表示。
+ * 建築容許的「離凹路多遠」，用 `trackGap` 表示。
  *
- * 【為什麼是 r2 − r1 而不是公尺】兩顆種子的 Voronoi 邊界上 `r2 − r1 = 0`，
- * 離開邊界 t 公尺時 `r2 − r1 ≈ 2t`。用它就不必自己算點到邊界的距離，而且
- * 與 `fieldSurfaceColor` 判斷凹路用的是同一個量。
+ * 【為什麼是 trackGap 而不是公尺】它是兩顆種子距離差，凹路中心線上是 0，
+ * 離開 t 公尺時約 2t。用它就不必自己算點到凹路的距離，而且與
+ * `fieldSurfaceColor` 判斷凹路用的是同一個量。
  *
- * 下界是 `TRACK_WIDTH`（房子不蓋在路面上），上界 90 ≈ 離路心 45 m。
+ * 下界是 `trackWidthAt`（房子不蓋在路面上），上界 90 ≈ 離路心 45 m。
  */
 export const LANE_BAND = 90
 
@@ -726,8 +728,8 @@ const SITE: Vec2 = { x: 0, z: 0 }
 /** 這個點可以蓋房子嗎 —— 在路邊，但不在路上 */
 function besideLane(x: number, z: number): boolean {
   regionAt(x, z, AT)
-  const d = AT.r2 - AT.r1
-  return d >= TRACK_WIDTH && d <= LANE_BAND
+  const d = trackGap(x, z, AT)
+  return d >= trackWidthAt(x, z) && d <= LANE_BAND
 }
 
 /**

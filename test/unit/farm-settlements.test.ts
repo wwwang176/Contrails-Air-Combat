@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { farmPlaces, farmSettlementFlora } from '../../src/render/farmSettlements'
 import { createFloraBuffer, FLORA_STRIDE, FloraKind, villageSite } from '../../src/render/flora'
 import {
-  fieldAt, isOpenParcel, regionAt, TRACK_WIDTH, villageDistance, type FieldSample, type RegionSample,
+  fieldAt, isOpenParcel, regionAt, trackGap, trackWidthAt, villageDistance, type FieldSample, type RegionSample,
 } from '../../src/render/fields'
 
 /** # 程序生成的內陸地圖的村與小聚落（`farmSettlements.ts`） */
 
 const HALF = 20000
 const places = farmPlaces(HALF)
-const REG: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
+const REG: RegionSample = { r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
 const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
 describe('村與小聚落的位置', () => {
@@ -76,7 +76,7 @@ describe('建築', () => {
       const z = buf.data[o + 2]!
       if (houses.has(buf.kind[i]!)) {
         regionAt(x, z, REG)
-        expect(REG.r2 - REG.r1).toBeGreaterThanOrEqual(TRACK_WIDTH)
+        expect(trackGap(x, z, REG)).toBeGreaterThanOrEqual(trackWidthAt(x, z))
       }
       if (buf.kind[i] === FloraKind.Church) {
         churches++
