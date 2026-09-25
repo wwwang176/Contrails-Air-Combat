@@ -46,7 +46,9 @@ export function bakeParkedAircraft(id: string): BufferGeometry {
     for (const attr of Object.keys(g.attributes)) {
       if (attr !== 'position') g.deleteAttribute(attr)
     }
-    C.copy((mesh.material as MeshStandardMaterial).color)
+    // 吃塗裝的材質本身是白色，顏色在貼圖上；頂點色取它留下的單色
+    const mat = mesh.material as MeshStandardMaterial
+    C.set((mat.userData['bakeColor'] as number | undefined) ?? mat.color)
     const n = g.getAttribute('position').count
     const col = new Float32Array(n * 3)
     for (let i = 0; i < n; i++) {
