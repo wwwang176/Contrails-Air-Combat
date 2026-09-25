@@ -1,5 +1,5 @@
 import {
-  AddEquation, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
+  AddEquation, Color, CustomBlending, DoubleSide, Group, OneFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, OrthographicCamera,
   PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector4, WebGLRenderTarget,
   type BufferGeometry, type DataTexture, type WebGLProgramParametersWithUniforms, type WebGLRenderer,
 } from 'three'
@@ -12,7 +12,8 @@ import type { Season } from './season'
  * 田的顏色由 `fields.ts` 的著色器**每個像素當場算**：區塊種子、田格邊界、樹籬
  * 帶、條紋，廠區再疊距離場。Iris Xe 上那支算式是整層地面成本的七成。這裡把它
  * **烘成兩張跟著鏡頭走的貼圖**，地面改成查貼圖；鏡頭周圍一圈仍走算式，
- * 那一圈的畫質與原本逐位元相同。
+ * 那一圈的畫質與原本逐位元相同。遠圖外面可以再一層只烘疊圖的（`horizon`），
+ * 那裡田色仍走算式、疊圖照透明度疊上去。
  *
  * ## 一層是什麼
  *
@@ -136,6 +137,12 @@ export interface FieldClipmapOptions {
   readonly near: ClipLevelSpec
   readonly far: ClipLevelSpec
   /**
+   * 遠圖外面再一層，只烘疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊），不烘田色：
+   * 遠圖外的田色照舊走算式，這一層照它的透明度疊上去。省略的話遠圖外沒有疊圖，
+   * `beyondFar` 的粗網格畫在遠圖外
+   */
+  readonly horizon?: ClipLevelSpec
+  /**
    * 區塊候選表（`farmGround.ts` 建的那一份）。給了的話烘圖與內圈的算式都查表，
    * 每個片段少比五六顆種子；沒給就走完整的 3×3，答案相同
    */
@@ -161,7 +168,7 @@ export interface FieldClipmap {
   /**
    * 烘進貼圖的平面，畫在田色上面，依加入的次序。`position` 的 xz 是世界座標
    * （y 不讀）、`color` 是頂點色（線性；四個分量的第四個是不透明度，三個分量的是
-   * 1）。`near` 為 false 的只烘遠圖（屋頂：近窗裡有真的房子）。加入後兩張整張重烘。
+   * 1）。`near` 為 false 的不烘近圖（屋頂：近窗裡有真的房子）。加入後每一張整張重烘。
    *
    * 【內圈也看得到】內圈的田色走算式，讀不到貼圖；烘圖時疊圖寫它的不透明度、田色
    * 寫 0，內圈照近圖的透明度把疊圖疊回去。
@@ -174,8 +181,8 @@ export interface FieldClipmap {
    */
   replaces(mesh: Mesh): void
   /**
-   * 這顆網格只畫在遠圖外面（遠景環那一圈）：遠圖裡的片段丟掉，旁路時整顆不畫
-   * （那時 `replaces` 的那一份畫滿全圖）
+   * 這顆網格只畫在遠圖外面（有最外層時是最外層外面）：窗裡的片段丟掉，旁路時整顆
+   * 不畫（那時 `replaces` 的那一份畫滿全圖）
    */
   beyondFar(mesh: Mesh): void
   /** 每幀叫，該挪窗就烘 */
@@ -223,6 +230,7 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
   }
   const near = level(opts.near)
   const far = level(opts.far)
+  const horizon = opts.horizon === undefined ? null : level(opts.horizon)
   const stats: FieldClipmapStats = { recentres: 0, pieces: 0, texels: 0 }
 
   // ── 烘圖 ──
@@ -239,7 +247,8 @@ void main() { gl_FragColor = vec4(fieldColorAt(vWorld), 0.0); }`,
   })
   const quadGeo = new PlaneGeometry(2, 2)
   const bakeScene = new Scene()
-  bakeScene.add(new Mesh(quadGeo, bakeMat))
+  const fieldQuad = new Mesh(quadGeo, bakeMat)
+  bakeScene.add(fieldQuad)
   const bakeCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
   // 【疊在田色上的平面】與田色那一片同一組 uniform，世界 xz 換到這一片的裁切座標。
   // 沒有深度緩衝，先後由 `renderOrder` 決定（田色是 0）
@@ -272,8 +281,13 @@ void main() { gl_FragColor = vCol; }`,
   const replaced: Mesh[] = []
   const beyond: Mesh[] = []
 
+  const clearPrev = new Color()
   const bakePiece = (L: Level, p: TorusPiece, last: boolean): void => {
-    for (const o of overlays.children) o.visible = L === far || o.userData['near'] === true
+    for (const o of overlays.children) o.visible = L !== near || o.userData['near'] === true
+    // 【最外層只烘疊圖】田色那一片不畫，底色是全透明的黑：顏色存的是乘過透明度的
+    // 值，地面著色器照「疊在上面」合成，田色不被粗格子糊掉
+    const overlaysOnly = L === horizon
+    fieldQuad.visible = !overlaysOnly
     // 【viewport／scissor 設在 RT 上】`setRenderTarget` 讀的是 RT 自己那一份，
     // `renderer.setViewport` 設的是畫布的
     L.rt.viewport.set(p.tx, p.tz, p.w, p.h)
@@ -284,7 +298,18 @@ void main() { gl_FragColor = vCol; }`,
     bakeMat.uniforms['uCells']!.value.set(p.w, p.h)
     bakeMat.uniforms['uMetres']!.value = L.m
     renderer.setRenderTarget(L.rt)
-    renderer.render(bakeScene, bakeCam)
+    if (overlaysOnly) {
+      // 清的範圍受 RT 的 scissor 限制，只清這一片。畫完才換回原本的清除色 ——
+      // `autoClear` 開著的話 `render` 自己會再清一次
+      renderer.getClearColor(clearPrev)
+      const alpha = renderer.getClearAlpha()
+      renderer.setClearColor(0x000000, 0)
+      renderer.clear(true, false, false)
+      renderer.render(bakeScene, bakeCam)
+      renderer.setClearColor(clearPrev, alpha)
+    } else {
+      renderer.render(bakeScene, bakeCam)
+    }
     stats.pieces++
     stats.texels += p.w * p.h
   }
@@ -328,7 +353,23 @@ void main() { gl_FragColor = vCol; }`,
     uInnerBand: { value: opts.innerBand ?? 100 },
     uEdgeBlend: { value: opts.edgeBlend ?? 0.05 },
     uBypass: { value: 0 },
+    ...(horizon === null ? {} : {
+      uHor: { value: horizon.rt.texture },
+      uHorCentre: { value: horizon.centre },
+      uHorSpan: { value: horizon.span },
+    }),
   }
+  // 【遠圖外疊最外層】田色走算式，最外層存的是乘過透明度的疊圖，照「疊在上面」合成
+  const horizonDecl = horizon === null ? '' : 'uniform sampler2D uHor; uniform vec2 uHorCentre; uniform float uHorSpan;'
+  const horizonGrad = horizon === null ? '' : `
+  vec2 qH = w / uHorSpan;
+  vec2 dHx = dFdx(qH); vec2 dHy = dFdy(qH);
+  float eH = max(abs(w.x - uHorCentre.x), abs(w.y - uHorCentre.y)) / (0.5 * uHorSpan);`
+  const horizonBlend = horizon === null ? '' : `
+  if (uBypass < 0.5 && eF >= 1.0 && eH < 1.0) {
+    vec4 o = textureGrad(uHor, fract(qH), dHx, dHy);
+    c = c * (1.0 - o.a) + o.rgb;
+  }`
   const material = new MeshStandardMaterial({ flatShading: true, roughness: ROUGHNESS })
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, U, candUniforms())
@@ -343,6 +384,7 @@ uniform sampler2D uNear; uniform vec2 uNearCentre; uniform float uNearSpan;
 uniform sampler2D uFar; uniform vec2 uFarCentre; uniform float uFarSpan;
 uniform vec2 uCam; uniform float uInner; uniform float uInnerBand; uniform float uEdgeBlend;
 uniform float uBypass;
+${horizonDecl}
 ${glsl}`)
       .replace('#include <color_fragment>', `
 {
@@ -352,7 +394,7 @@ ${glsl}`)
   vec2 qN = w / uNearSpan;
   vec2 qF = w / uFarSpan;
   vec2 dNx = dFdx(qN); vec2 dNy = dFdy(qN);
-  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);
+  vec2 dFx = dFdx(qF); vec2 dFy = dFdy(qF);${horizonGrad}
   float eN = max(abs(w.x - uNearCentre.x), abs(w.y - uNearCentre.y)) / (0.5 * uNearSpan);
   float eF = max(abs(w.x - uFarCentre.x), abs(w.y - uFarCentre.y)) / (0.5 * uFarSpan);
   float tIn = uInner <= 0.0 ? 1.0 : smoothstep(uInner - uInnerBand, uInner, distance(w, uCam));
@@ -374,14 +416,14 @@ ${glsl}`)
     float tN = smoothstep(1.0 - uEdgeBlend, 1.0, eN);
     if (tN < 1.0) t = mix(textureGrad(uNear, fract(qN), dNx, dNy).rgb, t, tN);
     c = proc ? mix(c, t, tIn) : t;
-  }
+  }${horizonBlend}
   diffuseColor.rgb = c;
 }`)
   }
   const id = instances++
   material.customProgramCacheKey = () =>
     `field-clipmap:${opts.season}:${opts.site === undefined ? '' : 'site'}:${cand === undefined ? '' : 'cand'}`
-    + `:${opts.open === true ? 'open' : ''}:${id}`
+    + `:${opts.open === true ? 'open' : ''}:${horizon === null ? '' : 'horizon'}:${id}`
 
   return {
     material,
@@ -394,6 +436,7 @@ ${glsl}`)
       mesh.userData['near'] = toNear
       overlays.add(mesh)
       far.primed = false
+      if (horizon !== null) horizon.primed = false
       if (toNear) near.primed = false
     },
     replaces(mesh) {
@@ -404,8 +447,12 @@ ${glsl}`)
       beyond.push(mesh)
       mesh.visible = U.uBypass.value < 0.5
       const m = mesh.material as MeshStandardMaterial
+      // 有最外層的話它蓋得到的地方地面讀得到疊圖，粗網格只畫在它外面
+      const outer = horizon === null
+        ? { uFarCentre: U.uFarCentre, uFarSpan: U.uFarSpan }
+        : { uFarCentre: { value: horizon.centre }, uFarSpan: { value: horizon.span } }
       m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
-        Object.assign(shader.uniforms, { uFarCentre: U.uFarCentre, uFarSpan: U.uFarSpan })
+        Object.assign(shader.uniforms, outer)
         shader.vertexShader = shader.vertexShader
           .replace('#include <common>', '#include <common>\nvarying vec2 vBeyondXZ;')
           .replace('#include <begin_vertex>',
@@ -414,7 +461,8 @@ ${glsl}`)
           .replace('#include <common>', `#include <common>
 varying vec2 vBeyondXZ;
 uniform vec2 uFarCentre; uniform float uFarSpan;`)
-          // 與地面著色器同一個判斷：遠窗內（eF < 1）地面讀得到烘好的那一份
+          // 與地面著色器同一個判斷：窗內（遠圖的 eF < 1，有最外層時是它的 eH < 1）
+          // 地面讀得到烘好的那一份
           .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
 {
   vec2 w = vBeyondXZ;
@@ -427,6 +475,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
     update(camX, camZ) {
       recentre(near, camX, camZ)
       recentre(far, camX, camZ)
+      if (horizon !== null) recentre(horizon, camX, camZ)
       U.uCam.value.set(camX, camZ)
     },
     setInnerRadius(m) { U.uInner.value = m },
@@ -438,6 +487,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
     dispose() {
       near.rt.dispose()
       far.rt.dispose()
+      horizon?.rt.dispose()
       bakeMat.dispose()
       overlayMat.dispose()
       quadGeo.dispose()
