@@ -456,10 +456,17 @@ export const openWoodFlora: FloraSource = (x0, z0, x1, z1, heightAt, out) => {
   woods(true, x0, z0, x1, z1, heightAt, out)
 }
 
-/** 空地上的樹林接受機率乘這個：林緣稀一點 */
-const OPEN_WOOD_DENSITY = 0.85
+/**
+ * 空地上的樹林：接受機率乘這個、縮放取這一段。
+ *
+ * 【稀一點、大一點】空地的林子佔地大，照田裡樹林的密度長的話，實測整張圖慢
+ * 7～9%（多出來的全是樹的實例）。一半多一點的候選點、每棵取大的那一段，從空中
+ * 看林冠一樣滿，實例數約少三成五
+ */
+const OPEN_WOOD_DENSITY = 0.55
+const OPEN_TREE_SCALE = [0.8, 1.0] as const
 /** 空地上的樹林裡針葉樹佔多少 */
-const OPEN_CONIFER_SHARE = 0.4
+const OPEN_CONIFER_SHARE = 0.3
 
 function woods(
   open: boolean, x0: number, z0: number, x1: number, z1: number,
@@ -486,7 +493,7 @@ function woods(
         const g3 = hash1(g2)
         pushFlora(
           out, x, heightAt(x, z), z, (g3 / 4294967296) * Math.PI * 2,
-          TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (TREE_SCALE[1] - TREE_SCALE[0]),
+          OPEN_TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (OPEN_TREE_SCALE[1] - OPEN_TREE_SCALE[0]),
           ((g2 >>> 16) & 0xff) / 255,
           ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE ? FloraKind.ConeTree : FloraKind.BroadTree,
         )
