@@ -111,8 +111,18 @@ const CAMPAIGN_BLURB: Record<Campaign, { readonly line: string; readonly planes:
 const TERRAINS: readonly { label: string; hint: string; value: TerrainKind; sil: string }[] = [
   { label: '群島', hint: '島鏈與淺海', value: 'archipelago',
     sil: '<svg width="72" height="26"><rect y="17" width="72" height="9" fill="#38505c"/><path d="M8 17l9-8 9 8z" fill="#4d5c3f"/><path d="M40 17l13-11 13 11z" fill="#4d5c3f"/></svg>' },
+  { label: '雷伊泰', hint: '海岸與叢林', value: 'leyte',
+    sil: '<svg width="72" height="26"><rect y="17" width="72" height="9" fill="#38505c"/><path d="M30 17h42v9H30z" fill="#3f5a36"/><path d="M30 17l6-3h36v3z" fill="#4b6a3f"/><path d="M40 22h32" stroke="#a89770"/><path d="M48 14v-6m0 0l-4 2m4-2l4 2" stroke="#4b6a3f"/></svg>' },
   { label: '內陸', hint: '農地與村落', value: 'farmland',
     sil: '<svg width="72" height="26"><rect y="15" width="72" height="11" fill="#4a5238"/><path d="M0 15h72" stroke="#616a48"/><rect x="12" y="9" width="7" height="6" fill="#5c6449"/><rect x="46" y="10" width="9" height="5" fill="#5c6449"/></svg>' },
+  { label: '晚秋內陸', hint: '十一月的農地', value: 'autumnFarmland',
+    sil: '<svg width="72" height="26"><rect y="15" width="72" height="11" fill="#57493a"/><path d="M0 15h72" stroke="#6b5c48"/><path d="M8 26l10-11M26 26l10-11M44 26l10-11" stroke="#4a3e32"/><circle cx="60" cy="11" r="4" fill="#6e5440"/></svg>' },
+  { label: '洛伊納', hint: '油廠與河谷', value: 'leuna',
+    sil: '<svg width="72" height="26"><rect y="18" width="72" height="8" fill="#54493b"/><rect x="18" y="11" width="30" height="7" fill="#6a6258"/><rect x="24" y="3" width="3" height="8" fill="#6a6258"/><rect x="36" y="5" width="3" height="6" fill="#6a6258"/><path d="M0 23q10-3 20 0t20 0" stroke="#3c5260" stroke-width="2" fill="none"/></svg>' },
+  { label: '波爾塔瓦', hint: '草原機場', value: 'poltava',
+    sil: '<svg width="72" height="26"><rect y="16" width="72" height="10" fill="#566041"/><path d="M6 21h60" stroke="#a7a08e" stroke-width="3"/><path d="M30 12h14M37 9v6" stroke="#b9b2a0" stroke-width="2"/></svg>' },
+  { label: 'Y-29', hint: '前進降落場', value: 'asch',
+    sil: '<svg width="72" height="26"><rect y="16" width="72" height="10" fill="#4f5a3e"/><path d="M6 21h60" stroke="#7d8078" stroke-width="3" stroke-dasharray="4 2"/><rect x="12" y="12" width="6" height="4" fill="#6b705f"/><rect x="54" y="12" width="6" height="4" fill="#6b705f"/></svg>' },
   { label: '純海面', hint: '沒有地標', value: 'sea',
     sil: '<svg width="72" height="26"><rect y="13" width="72" height="13" fill="#32485a"/><path d="M4 19q6-3 12 0t12 0 12 0 12 0 12 0" stroke="#44607a" fill="none"/></svg>' },
 ]
@@ -125,8 +135,8 @@ const altSil = (y: number): string =>
 const ALT_Y: readonly number[] = [20, 12, 4]
 
 /**
- * 時段的四個選項。**順序即按鈕順序，與 `render/timeOfDay.ts` 的
- * `TIME_OF_DAY_IDS` 一致。**
+ * 時段的選項。**順序即按鈕順序，與 `render/timeOfDay.ts` 的 `TIME_OF_DAY_IDS`
+ * 一致**；十一月的正午不列（它是洛伊納那一關的天色，選單上與正午分不出來）。
  *
  * 【剪影不從 palette 取色】那一份是線性工作空間的光照參數，而這裡是 UI 的
  * sRGB 色票 —— 兩者不是同一件事。剪影只要認得出是哪個時段。
@@ -140,6 +150,8 @@ const TIMES: readonly { label: string; hint: string; value: TimeOfDay; sil: stri
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#241f2e"/><rect width="56" height="18" fill="#8a5468"/><path d="M0 18h56" stroke="#ff9a52"/><circle cx="28" cy="18" r="6" fill="#ff9a52"/></svg>' },
   { label: '夜間', hint: '月光', value: 'night',
     sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#0a1018"/><rect width="56" height="18" fill="#16233a"/><circle cx="38" cy="7" r="4" fill="#c8d6ee"/><circle cx="12" cy="6" r="1" fill="#dce6f6"/><circle cx="20" cy="12" r="1" fill="#dce6f6"/><circle cx="7" cy="13" r="1" fill="#dce6f6"/></svg>' },
+  { label: '雷雨', hint: '閃電與雨', value: 'storm',
+    sil: '<svg width="56" height="26"><rect y="18" width="56" height="8" fill="#1c252c"/><rect width="56" height="18" fill="#3a444d"/><path d="M8 7q4-5 10-2q5-4 11 0q6-2 8 3z" fill="#262e35"/><path d="M30 8l-4 6h4l-3 6" stroke="#f2ecc8" stroke-width="1.5" fill="none"/><path d="M12 11l-2 6M18 11l-2 6M44 9l-2 6M50 9l-2 6" stroke="#7b8894"/></svg>' },
 ]
 
 /**
