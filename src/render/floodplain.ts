@@ -13,9 +13,9 @@ import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '..
  *
  * - 範圍：離河的中心線 `WIDTH` 以內，寬度沿河用低頻雜訊起伏
  * - 森林：兩個尺度的值雜訊決定團塊（大的定位置、小的把邊弄毛），往河谷邊緣淡掉
- * - 地面：只鋪靠河的 `GROUND_SHARE`，草甸色，森林底下往林地的深色混，往外淡回
- *   田色（`buildGround`，烘進田色貼圖）。沒有河漫灘的河也在這裡鋪：`MEADOW_HALF`
- *   的同一個比例
+ * - 地面：草甸色只鋪靠河的 `GROUND_SHARE`、往外淡回田色；森林底下的林地深色鋪滿
+ *   整個河漫灘（`buildGround`，烘進田色貼圖）。沒有河漫灘的河也在這裡鋪草甸：
+ *   `MEADOW_HALF` 的同一個比例
  * - 樹：20 m 一格一個候選點，照森林的覆蓋率接受；草地上零星幾棵
  *
  * 【位置只由全域座標決定】與植被的其他散佈器同一條鐵律。
@@ -34,10 +34,10 @@ const MEADOW_TREES = 0.015
 /** 候選點的格距，m。河岸林的樹大，稀一點也蓋得滿 */
 const GRID = 20
 /** 森林的地面：落葉與林下的深色 */
-const FOREST_GROUND = 0x3e3d2f
+export const FOREST_GROUND = 0x3e3d2f
 /**
- * 地面的草甸色只鋪河漫灘（與小河的草甸）寬度靠河的這個比例；外面的樹照樣長，
- * 地面是田色。鋪滿的話從空中看是一條很寬的色帶
+ * 地面的草甸色只鋪河漫灘（與小河的草甸）寬度靠河的這個比例；外面除了林地是
+ * 田色。鋪滿的話從空中看是一條很寬的色帶
  */
 const GROUND_SHARE = 0.25
 /**
@@ -225,16 +225,19 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
       // 河漫灘先鋪、先認領；沒有河漫灘的河只鋪草甸帶
       const bankHalf = MEADOW_HALF * GROUND_SHARE
       const layers = [
+        // 【兩層疊成一層】靠河的草甸帶（不透明度 b）上面疊林地（不透明度 = 覆蓋率 f）：
+        // 合起來的不透明度 1 − (1 − b)(1 − f)，顏色是兩者照 b(1 − f) 與 f 的比例混。
+        // 林地鋪滿整個河漫灘 —— 植被圈外樹不畫，林子要留在地上
         ...groups.map((g) => ({
-          own: g.own, reach: g.base * 1.15 * GROUND_SHARE,
-          inside: (x: number, z: number) => {
-            where(x, z)
-            return hitRel < GROUND_SHARE
+          own: g.own, reach: g.base * 1.15, inside,
+          colorAt: (x: number, z: number) => {
+            const f = cover(x, z)
+            const a = 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
+            return mixHex(meadow, FOREST_GROUND, a > 0 ? f / a : 0)
           },
-          colorAt: (x: number, z: number) => mixHex(meadow, FOREST_GROUND, cover(x, z)),
           alphaAt: (x: number, z: number) => {
-            where(x, z)
-            return edgeFade(hitRel / GROUND_SHARE)
+            const f = cover(x, z)
+            return 1 - (1 - edgeFade(hitRel / GROUND_SHARE)) * (1 - f)
           },
         })),
         {
