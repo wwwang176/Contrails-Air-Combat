@@ -1484,6 +1484,13 @@ async function loadBattle(): Promise<void> {
     buildBattleTerrain()
     await loading.step('編組部隊', 0.5)
     startWorld(battleConfig())
+    // 【地面與植被在載入畫面裡備好】田色的三張貼圖第一次烘、烘圖的著色器第一次編，
+    // 植被每幀只補十幾格 —— 留到開場的話第一幀卡半秒，接著兩秒樹一片片長出來。
+    // 以玩家的出生點（開場第一幀地形跟著的那一點）先更新一次、把植被排乾
+    await loading.step('鋪設植被', 0.6)
+    const spawn = player.aircraft.state.position
+    terrain.update(elapsed, spawn.x, spawn.z)
+    terrain.settle?.()
     // 【機種與掛載在 startWorld 之後才知道】這架飛機還沒看過的卡；暫停時的
     // 「教學」按鈕看不看得到也在這時決定
     tutorialPending = unseenTutorials(playerTutorials(), readSeenTutorials())
@@ -1497,6 +1504,20 @@ async function loadBattle(): Promise<void> {
     await loading.step('編譯著色器', 0.85)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
+    // 【在載入畫面後面先畫一次】編好的程式第一次真的拿來畫仍要等 —— ANGLE（D3D11）
+    // 把一部分著色器的產生留到第一次繪製，開場那一幀因此卡一兩百毫秒。暫時關掉視錐
+    // 剔除畫一次：每一個看得見的物件都畫到（鏡頭後面的自機、視野外的也算），那段
+    // 等待落在載入畫面裡；第一幀的鏡頭由主迴圈照常擺
+    ctx.camera.position.copy(spawn)
+    ctx.camera.quaternion.copy(player.aircraft.state.orientation)
+    ctx.camera.updateMatrixWorld(true)
+    const culled: Object3D[] = []
+    ctx.scene.traverse((o) => { if (o.frustumCulled) { culled.push(o); o.frustumCulled = false } })
+    ctx.renderer.render(ctx.scene, ctx.camera)
+    for (const o of culled) o.frustumCulled = true
+    // 讀回一個像素才等得到 GPU 做完；不等的話那一次繪製還排在佇列裡，開場第一幀等它
+    const gl = ctx.renderer.getContext()
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
     await loading.finish('出擊')
   } finally {
     loadingBattle = false

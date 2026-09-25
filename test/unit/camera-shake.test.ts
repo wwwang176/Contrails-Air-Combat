@@ -326,7 +326,8 @@ describe('main.ts 的接線', () => {
   it('震動疊在 applyBlend 之後、渲染之前', () => {
     const blend = MAIN.indexOf('applyBlend(godBlend')
     const apply = MAIN.indexOf('applyCameraShake(cameraShake')
-    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)')
+    // 從混合那一行往後找：載入畫面裡另有一次暖身的繪製，不是每一幀的那一次
+    const render = MAIN.indexOf('ctx.renderer.render(ctx.scene, ctx.camera)', blend)
     expect(blend).toBeGreaterThan(0)
     expect(apply).toBeGreaterThan(blend)
     expect(render).toBeGreaterThan(apply)
