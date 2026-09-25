@@ -1,5 +1,6 @@
 import {
-  CircleGeometry, DoubleSide, Group, Material, Mesh, MeshStandardMaterial, Object3D, Vector3,
+  CircleGeometry, DoubleSide, Group, Material, Mesh, MeshStandardMaterial, Object3D,
+  SRGBColorSpace, TextureLoader, Vector3, type Texture,
 } from 'three'
 import { createGltfLoader } from './gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -54,6 +55,15 @@ export interface GlbAircraft {
   bombPoint: Vector3 | null
   bodyColor: number
   accentColor: number
+  /**
+   * 塗裝貼圖的路徑（`public/` 底下）。有的話 `body` 材質改吃這張圖，
+   * `bodyColor` 就不用了。
+   *
+   * 【GLB 的機身色面要帶 UV】版面見 `tools/livery/layout.py`，由
+   * `tools/blender/*_livery_uv.py` 寫進 blend。少了 UV 的話整架會取到貼圖的
+   * 同一個像素，變成一片單色而不會報錯。
+   */
+  livery?: string
   /**
    * GLB 裡的材質名 → 遊戲材質。
    *
@@ -129,7 +139,11 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 }
 
 export async function loadGlbTemplate(id: string, def: GlbAircraft): Promise<GlbTemplate> {
-  const t = await parseGlbTemplate(await fetchBuffer(def.url), def)
+  const [buf, livery] = await Promise.all([
+    fetchBuffer(def.url),
+    def.livery === undefined ? null : loadLivery(def.livery),
+  ])
+  const t = await parseGlbTemplate(buf, def, livery)
   templates.set(id, t)
   return t
 }
@@ -139,7 +153,28 @@ export function registerGlbTemplate(id: string, t: GlbTemplate): void {
   templates.set(id, t)
 }
 
-export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Promise<GlbTemplate> {
+/**
+ * 塗裝貼圖。
+ *
+ * 【flipY = false】UV 照 glTF 的慣例，原點在圖的左上角；`TextureLoader` 預設
+ * 會把圖上下翻，那樣整張塗裝倒過來貼。
+ */
+async function loadLivery(url: string): Promise<Texture> {
+  const tex = await new TextureLoader().loadAsync(assetUrl(url))
+  tex.flipY = false
+  tex.colorSpace = SRGBColorSpace
+  // 機翼常是斜著看的，沒有異向過濾的話標誌遠一點就糊成一團。three 會壓到顯卡的上限
+  tex.anisotropy = 8
+  return tex
+}
+
+/**
+ * `livery` 是已經載好的塗裝貼圖。node 測試沒有圖可載，傳 null：UV 照留、
+ * 材質維持單色。
+ */
+export async function parseGlbTemplate(
+  buf: ArrayBuffer, def: GlbAircraft, livery: Texture | null = null,
+): Promise<GlbTemplate> {
   // 【`parse` 是非同步的】它的 onLoad 走 Promise，不是同步回呼。照
   // 「GLB 沒有外部資源就會同步完成」寫，拿到的是 null。
   const scene = await new Promise<Group>((res, rej) => {
@@ -147,8 +182,11 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   })
 
   const body = new MeshStandardMaterial({
-    color: def.bodyColor, flatShading: true, roughness: 0.75,
+    color: livery === null ? def.bodyColor : 0xffffff, map: livery,
+    flatShading: true, roughness: 0.75,
   })
+  // 烘成頂點色的那幾條路（停機坪）讀不到貼圖，取這個單色
+  if (livery !== null) body.userData['bakeColor'] = def.bodyColor
   const accent = new MeshStandardMaterial({
     color: def.accentColor, flatShading: true, roughness: 0.6,
   })
@@ -170,6 +208,7 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   const inner = new MeshStandardMaterial({ color: 0x191d1a, roughness: 0.95, side: DoubleSide })
   const mats = { body, accent, glass, cockpit, frame, inner }
   const owned: { dispose(): void }[] = [body, accent, glass, cockpit, frame, inner, blur]
+  if (livery !== null) owned.push(livery)
 
   const group = new Group()
   const hull = new Group()
@@ -194,7 +233,9 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     if (!kind) throw new Error(`GLB 材質 ${srcName} 沒有對應的遊戲材質`)
     const geo = mesh.geometry.clone()
     geo.applyMatrix4(mesh.matrixWorld)
-    geo.deleteAttribute('uv')
+    // 只有吃塗裝的機身色面留 UV。同一個材質的面要嘛全有、要嘛全沒有，
+    // 否則下面按材質合併時 `mergeGeometries` 會回 null
+    if (!(def.livery !== undefined && kind === 'body')) geo.deleteAttribute('uv')
     const out = new Mesh(geo, mats[kind])
     // 內裝的法線朝內是刻意的；`geometry.test.ts` 的「法線朝外」靠這個旗標略過
     if (kind === 'cockpit') out.userData['inwardShell'] = true
