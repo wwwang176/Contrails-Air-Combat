@@ -1,7 +1,9 @@
 import type { Mesh } from 'three'
+import { canopyColor } from './buildingBake'
 import { FloraKind, hash2, pushFlora, valueNoise, type FloraSource } from './flora'
 import { buildDecals, DECAL_GRID, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW, MEADOW_HALF } from './river'
+import { FLORA_COLORS } from './season'
 import { CHANNEL_HALF, RiverIndex, type HeightSampler, type WaterLine } from '../world/river'
 
 /**
@@ -33,8 +35,12 @@ const CLUMP_GATE = [0.44, 0.58] as const
 const MEADOW_TREES = 0.015
 /** 候選點的格距，m。河岸林的樹大，稀一點也蓋得滿 */
 const GRID = 20
-/** 森林的地面：落葉與林下的深色 */
-export const FOREST_GROUND = 0x3e3d2f
+/**
+ * 森林烘進地面的顏色：從空中看的林子（`buildingBake.ts` 的 `canopyColor`）。植被圈
+ * 外樹不畫，地上留的是這個顏色，要與有樹時看起來一樣。河漫灘只有洛伊納有，
+ * 洛伊納是晚秋
+ */
+export const FOREST_GROUND = canopyColor(FLORA_COLORS.lateAutumn.broadLeaf).getHex()
 /**
  * 地面的草甸色只鋪河漫灘（與小河的草甸）寬度靠河的這個比例；外面除了林地是
  * 田色。鋪滿的話從空中看是一條很寬的色帶

@@ -23,17 +23,29 @@ import { TINT_RANGE } from './vegetation'
  * 屋頂色塊比屋頂外框放大幾倍。遠處斜著看，一棟房子露出來的牆面與陰影讓它在
  * 畫面上比屋頂外框大；照外框畫的話烘出來的鎮只剩稀疏的小點，遠看像沒有房子
  */
-export const ROOF_GROW = 1.3
+export const ROOF_GROW = 1.7
 
 /** 教堂本堂屋頂的外框，m（`floraShapes.ts` 的 `church`） */
 const CHURCH_ROOF_W = 10
 const CHURCH_ROOF_D = 19
 
 /**
- * 色塊裡牆色佔幾成。遠處是斜著看的，一棟房子露出來的牆面與屋頂差不多大；
- * 只用屋頂色的話，烘出來的鎮比真的房子暗一截，拉近時一整片變亮
+ * 色塊裡牆色佔幾成。遠處斜著看，一棟房子露出一點牆面；牆色很淡，佔多了烘出來
+ * 的鎮是灰褐的，比真的房子（屋頂的紅佔大半）彩度低一截
  */
-export const WALL_SHARE = 0.4
+export const WALL_SHARE = 0.3
+
+/**
+ * 林子從空中看的顏色 = 樹冠色 × 這個倍率（線性值；畫面上約 0.85 倍）：樹冠的
+ * 側面在陰影裡，整株看下去比樹冠色暗。同一片林子有模型與只剩烘圖時，畫面的
+ * 平均色在這個倍率對得上
+ */
+export const CANOPY_SHADE = 0.9
+
+/** 樹冠色乘 `CANOPY_SHADE` */
+export function canopyColor(hex: number): Color {
+  return new Color(hex).multiplyScalar(CANOPY_SHADE)
+}
 
 /** 屋頂色與牆色照 `WALL_SHARE` 混 */
 function splatColor(roof: number, wall: number): Color {
@@ -68,7 +80,7 @@ const ROOFS: ReadonlyMap<FloraKind, Splat> = new Map([
 function splatsFor(season: Season): ReadonlyMap<FloraKind, Splat> {
   const c = FLORA_COLORS[season]
   const crown = (r: number, hex: number): Splat =>
-    ({ w: 2 * r, d: 2 * r, color: new Color(hex), tint: TINT_RANGE.plant, wide: false })
+    ({ w: 2 * r, d: 2 * r, color: canopyColor(hex), tint: TINT_RANGE.plant, wide: false })
   return new Map([
     ...ROOFS,
     [FloraKind.BroadTree, crown(BROAD_CROWN_R, c.broadLeaf)],
