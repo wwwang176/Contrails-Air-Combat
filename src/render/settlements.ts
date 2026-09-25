@@ -3,6 +3,7 @@ import { BUILDING_DEPTH, BUILDING_WALL, BUILDING_WIDTH } from './floraShapes'
 import { TILE_SIZE } from './vegetation'
 import { buildDecals, DECAL_LIFT, type DecalGrid, type DecalRegion } from './groundDecal'
 import { MEADOW } from './river'
+import { COVER_EDGE, COVER_IN, COVER_OUT, type CellCover, type KeepOutZone } from './keepOutMask'
 import {
   cellAt, cellRing, cellSize, edgeInward, edgeLine, Footprints, planTown, roadAngles, StreetIndex,
   type Cell, type PlanSpec, type Rect, type Street, type TownPlan,
@@ -1127,6 +1128,68 @@ export function settlementNear(places: readonly Place[]): (x0: number, z0: numbe
     }
     return false
   }
+}
+
+/**
+ * 輪廓倍率對方位角的斜率上限（`outlineScale` 是 1 + 0.22 × (0.6 sin 3θ + 0.4 sin 5θ)，
+ * 對 θ 微分最多 0.22 × (0.6 × 3 + 0.4 × 5)）。一段角度裡的輪廓不會偏離中間那一點超過
+ * 這個乘上半角
+ */
+const OUTLINE_SLOPE = 0.22 * (0.6 * 3 + 0.4 * 5)
+
+/**
+ * `settlementTest` 的遮罩分類（`keepOutMask.ts`）。格心離聚落中心 d、格的半對角線
+ * hd：格裡每一點離中心在 [d − hd, d + hd]、方位角在格心的 ±asin(hd / d) 裡，那段
+ * 角度的輪廓夾在中間那一點 ± `OUTLINE_SLOPE` × 半角之間
+ */
+function settlementCover(places: readonly Place[]): CellCover {
+  const CELL = 1000
+  const buckets = new Map<number, SizedPlace[]>()
+  for (const p of places) {
+    const R = settlementRadius(p)
+    const r = R * OUTLINE_MAX
+    for (let j = Math.floor((p.z - r) / CELL); j <= Math.floor((p.z + r) / CELL); j++) {
+      for (let i = Math.floor((p.x - r) / CELL); i <= Math.floor((p.x + r) / CELL); i++) {
+        const k = bucketKey(i, j)
+        const list = buckets.get(k)
+        if (list === undefined) buckets.set(k, [{ p, R }])
+        else list.push({ p, R })
+      }
+    }
+  }
+  return (cx, cz, hd) => {
+    let edge = false
+    const seen = new Set<SizedPlace>()
+    for (let j = Math.floor((cz - hd) / CELL); j <= Math.floor((cz + hd) / CELL); j++) {
+      for (let i = Math.floor((cx - hd) / CELL); i <= Math.floor((cx + hd) / CELL); i++) {
+        for (const s of buckets.get(bucketKey(i, j)) ?? NO_SIZED) {
+          if (seen.has(s)) continue
+          seen.add(s)
+          const { p, R } = s
+          const dx = cx - p.x
+          const dz = cz - p.z
+          const d = Math.sqrt(dx * dx + dz * dz)
+          if (d - hd > R * OUTLINE_MAX) continue
+          if (d <= hd) {
+            if (d + hd <= R * OUTLINE_MIN) return COVER_IN
+            edge = true
+            continue
+          }
+          const o = outlineScale(p, Math.atan2(dz, dx))
+          const spread = OUTLINE_SLOPE * Math.asin(Math.min(1, hd / d))
+          if (d + hd <= R * Math.max(OUTLINE_MIN, o - spread)) return COVER_IN
+          if (d - hd > R * Math.min(OUTLINE_MAX, o + spread)) continue
+          edge = true
+        }
+      }
+    }
+    return edge ? COVER_EDGE : COVER_OUT
+  }
+}
+
+/** 聚落的輪廓當成不長樹的範圍 */
+export function settlementZone(places: readonly Place[]): KeepOutZone {
+  return { test: settlementTest(places), near: settlementNear(places), cover: settlementCover(places) }
 }
 
 /**

@@ -2,7 +2,6 @@ import {
   BufferAttribute, BufferGeometry, Group, Mesh, MeshStandardMaterial,
 } from 'three'
 import { FloraKind, pushFlora, type FloraSource } from './flora'
-import { excludingWhere } from './floraExclude'
 import {
   CHANNEL_HALF, RiverIndex, type WaterLine,
 } from '../world/river'
@@ -23,10 +22,7 @@ import {
  * 靠河的一段（`floodplain.ts` 的 `GROUND_SHARE`）
  */
 export const MEADOW_HALF = 190
-/**
- * 樹籬、林地、村落被擋開的半寬，m。比草甸窄一點 —— 河的索引只查到 `MEADOW_HALF`，
- * 比它寬的話超出的那一段查不到河、照樣長樹籬
- */
+/** 樹籬、林地、村落被擋開的半寬（`keepOutMask.ts` 的 `corridorZone`），m。比草甸窄一點 */
 export const CLEAR_HALF = 150
 /** 河岸林的半寬帶：離中心線這個範圍內撒樹，m */
 const TREE_NEAR = 55
@@ -96,18 +92,6 @@ export function buildRiverWater(lines: readonly WaterLine[]): Mesh {
   }))
   mesh.name = 'riverWater'
   return mesh
-}
-
-/**
- * 把一個散佈器包成「離河太近就不長」。與 `floraExclude.ts` 的矩形版同一個
- * 做法，只是判準換成到折線的距離。
- *
- * 【為什麼不能用矩形】河是彎的，能框住它的矩形會把半張圖的樹籬也砍掉。
- */
-export function excludingCorridor(source: FloraSource, index: RiverIndex, halfWidth = CLEAR_HALF): FloraSource {
-  // `mayReach` 用的是索引的 `reach`（草甸的半寬），比 `halfWidth` 寬，所以整格的判斷是保守的
-  return excludingWhere(source, (x, z) => index.distance(x, z) < halfWidth,
-    (x0, z0, x1, z1) => index.mayReach(x0, z0, x1, z1))
 }
 
 /**

@@ -40,9 +40,10 @@ import {
 import type { HeightFieldData } from '../world/heightfield'
 import type { Season } from './season'
 import type { SiteLayout } from './fields'
-import { excluding, excludingWhere } from './floraExclude'
+import { excluding } from './floraExclude'
+import { bakeKeepOut, corridorZone, excludingZones, type KeepOutZone } from './keepOutMask'
 import {
-  buildRiverMeshes, disposeRiverMeshes, excludingCorridor, riverBankFlora, type RiverSet,
+  buildRiverMeshes, CLEAR_HALF, disposeRiverMeshes, riverBankFlora, type RiverSet,
 } from './river'
 import { buildLeunaRivers, preloadLeunaRivers } from './leunaRiver'
 import { buildLeunaDressing, preloadLeunaFeatures, type LandDressing } from './leunaFeatures'
@@ -540,20 +541,25 @@ function createInlandTerrain(
   // 的地方
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
   let buildings = padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)
-  // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
+  // 【不長樹的範圍】地圖列出它有的範圍，載入時各合成一張遮罩（`keepOutMask.ts`）。
+  // 野生的樹（河岸林、河漫灘的林子）避開村鎮、礦坑、高速公路；田裡的樹（樹籬、田裡
+  // 的林地）另外避開河漫灘與河廊。遮罩蓋到植被圈伸得到的地方，外面逐點算
+  const maskExtent = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS
+  const wildZones: KeepOutZone[] = [...(dressing?.keepOut ?? [])]
+  const fieldZones: KeepOutZone[] = [...wildZones, ...(dressing?.fieldsOut ?? [])]
   let bank: FloraSource | null = null
   if (rivers !== undefined) {
-    fields = fields.map((s) => excludingCorridor(s, rivers.index))
-    // 【河漫灘不是田】樹籬與田裡的林地停在河谷邊；河岸林照長
-    if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.fieldsOut, dressing.fieldsOutNear))
-    if (dressing === undefined) buildings = excludingCorridor(buildings, rivers.index)
+    // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
+    const corridor = corridorZone(rivers.lines, CLEAR_HALF)
+    fieldZones.push(corridor)
+    // 真實地物的建築已經避開河道；程序村沒有，要包河廊
+    if (dressing === undefined) buildings = excludingZones(buildings, bakeKeepOut([corridor], maskExtent))
     bank = riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND)
   }
-  // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
-  if (dressing !== undefined) {
-    fields = fields.map((s) => excludingWhere(s, dressing.keepOut, dressing.keepOutNear))
-    if (bank !== null) bank = excludingWhere(bank, dressing.keepOut, dressing.keepOutNear)
-  }
+  const fieldOut = bakeKeepOut(fieldZones, maskExtent)
+  const wildOut = bakeKeepOut(wildZones, maskExtent)
+  fields = fields.map((s) => excludingZones(s, fieldOut))
+  if (bank !== null) bank = excludingZones(bank, wildOut)
   // 田色算式裡沒有、要另外烘進遠圖的散佈器：建築與村鎮裡的樹、河岸林。與植被
   // 畫的是同一個散佈器，遠處的色塊與近處的模型才對得上
   const splatted: FloraSource[] = [buildings]
@@ -562,7 +568,7 @@ function createInlandTerrain(
     splatted.push(bank)
   }
   fields.push(buildings)
-  for (const s of dressing?.flora ?? []) fields.push(padClear(s))
+  for (const s of dressing?.flora ?? []) fields.push(padClear(excludingZones(s, wildOut)))
   // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外
   // 另外畫粗網格。植被圈外建築與樹不畫，屋頂與樹冠的色塊只烘遠圖（近窗裡有真的
   // 模型），最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬
