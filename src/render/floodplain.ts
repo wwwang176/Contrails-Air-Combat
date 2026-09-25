@@ -34,6 +34,17 @@ const MEADOW_TREES = 0.015
 const GRID = 20
 /** 森林的地面：落葉與林下的深色 */
 const FOREST_GROUND = 0x3e3d2f
+/**
+ * 地面往外緣淡出的那一段，佔寬度的比例。外緣是 40 m 格子的鋸齒，淡到 0 才看不見；
+ * 淡出帶太窄的話，河谷看起來仍是一條硬邊的色帶
+ */
+const EDGE_FADE = 0.45
+
+/** 離中心線佔寬度的比例 → 地面的不透明度：`1 − EDGE_FADE` 以內是 1、外緣是 0 */
+function edgeFade(rel: number): number {
+  const t = Math.min(1, Math.max(0, (1 - rel) / EDGE_FADE))
+  return t * t * (3 - 2 * t)
+}
 /** 河道兩側不長樹，m（水面半寬再加一點岸） */
 const CHANNEL_CLEAR = CHANNEL_HALF + 8
 /** 地面網格切段的長度，m：每一段一個外接盒 */
@@ -210,14 +221,19 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
         ...groups.map((g) => ({
           own: g.own, reach: g.base * 1.15, inside,
           colorAt: (x: number, z: number) => mixHex(meadow, FOREST_GROUND, cover(x, z)),
+          alphaAt: (x: number, z: number) => {
+            where(x, z)
+            return edgeFade(hitRel)
+          },
         })),
         {
           own: bankOnly, reach: MEADOW_HALF, inside: (x: number, z: number) => bankIndex.distance(x, z) < MEADOW_HALF,
           colorAt: () => meadow,
+          alphaAt: (x: number, z: number) => edgeFade(bankIndex.distance(x, z) / MEADOW_HALF),
         },
       ]
       for (const layer of layers) {
-        const { reach, inside: within, colorAt } = layer
+        const { reach, inside: within, colorAt, alphaAt } = layer
         for (const l of layer.own) {
           let start = 0
           while (start + 1 < l.points.length) {
@@ -244,6 +260,7 @@ export function createFloodplain(lines: readonly WaterLine[]): Floodplain {
                 return true
               },
               colorAt,
+              alphaAt,
             })
           }
         }

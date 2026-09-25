@@ -30,8 +30,11 @@ const TREE_STEP = 22
 
 /** 水面的顏色。十一月的內陸河是灰綠的，不是海那種藍 */
 const WATER = 0x33454b
-/** 草甸的顏色。十一月沒犁過的河灘：偏黃的枯草，比田的褐土亮 */
-export const MEADOW = 0x6e6a4a
+/**
+ * 草甸的顏色。十一月沒犁過的河灘：枯草，色相偏黃但彩度壓到與田相近 —— 彩度高的
+ * 話河谷整條看起來是綠的
+ */
+export const MEADOW = 0x6f6a56
 
 /** 一條河、這一點的法線（往左岸） */
 function normalAt(line: WaterLine, i: number): [number, number] {

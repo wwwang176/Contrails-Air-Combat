@@ -43,9 +43,9 @@ export function terrainGrid(field: { readonly size: number; readonly cell: numbe
 /** 高出地面多少，m。整片平移，不影響共平面 */
 export const DECAL_LIFT = 0.12
 
-function material(): MeshStandardMaterial {
+function material(transparent: boolean): MeshStandardMaterial {
   return new MeshStandardMaterial({
-    vertexColors: true, roughness: 0.95,
+    vertexColors: true, roughness: 0.95, transparent,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
   })
 }
@@ -59,6 +59,11 @@ export interface DecalRegion {
   /** 細格中心在範圍內嗎 */
   readonly inside: (x: number, z: number) => boolean
   readonly colorAt: (x: number, z: number) => number
+  /**
+   * 不透明度，0～1。沒給就是 1。邊緣往 0 淡，底下的田透上來 —— 格子的鋸齒邊
+   * 落在不透明度 0 的地方就看不見
+   */
+  readonly alphaAt?: (x: number, z: number) => number
 }
 
 /**
@@ -74,6 +79,8 @@ export function buildDecals(
   const col: number[] = []
   const idx: number[] = []
   const c = new Color()
+  // 【有淡出才帶透明度】頂點色是四個分量時 `MeshStandardMaterial` 會乘上它
+  const alpha = regions.some((r) => r.alphaAt !== undefined)
   for (const r of regions) {
     const gx0 = Math.floor((r.x0 - g.origin) / grid) * grid + g.origin
     const gz0 = Math.floor((r.z0 - g.origin) / grid) * grid + g.origin
@@ -100,6 +107,7 @@ export function buildDecals(
       pos.push(x, sample(x, z) + DECAL_LIFT, z)
       c.setHex(r.colorAt(x, z))
       col.push(c.r, c.g, c.b)
+      if (alpha) col.push(r.alphaAt === undefined ? 1 : r.alphaAt(x, z))
       vid[k] = pos.length / 3 - 1
       return vid[k]!
     }
@@ -118,11 +126,11 @@ export function buildDecals(
   }
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
-  geo.setAttribute('color', new BufferAttribute(new Float32Array(col), 3))
+  geo.setAttribute('color', new BufferAttribute(new Float32Array(col), alpha ? 4 : 3))
   geo.setIndex(idx)
   geo.computeVertexNormals()
   geo.computeBoundingSphere()
-  const mesh = new Mesh(geo, material())
+  const mesh = new Mesh(geo, material(alpha))
   mesh.name = name
   return mesh
 }

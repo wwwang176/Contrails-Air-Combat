@@ -81,7 +81,7 @@ export const FIELD_COLORS: Readonly<Record<Season, FieldColors>> = {
     track: 0x756e61,
     wood: 0x444434,
     ploughChance: 0.45,
-    // 十一月的枯草（與河灘草甸同色）與濕地的深褐
+    // 十一月的枯草與濕地的深褐
     open: 0x6e6a4a,
     openAlt: 0x5f5a47,
   },
