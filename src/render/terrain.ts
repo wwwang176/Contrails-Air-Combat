@@ -67,7 +67,7 @@ export interface TerrainGfx {
 }
 
 /**
- * 田色 clipmap 的兩層。近圖 2 m 一格蓋 4 km，遠圖 7.3 m 一格蓋 30 km。
+ * 田色 clipmap 的近圖與遠圖。近圖 2 m 一格蓋 4 km，遠圖 7.3 m 一格蓋 30 km。
  *
  * 【尺寸是量出來的】近圖 4096 每幀多花 1 ms 在取樣上而畫質看不出差；遠圖
  * 14.6 m 一格在 1 km 高度看 2.5 km 外明顯偏軟。**兩張 4096² 帶 mipmap 同時
@@ -76,6 +76,12 @@ export interface TerrainGfx {
  */
 export const FIELD_CLIP_NEAR: ClipLevelSpec = { size: 2048, metersPerTexel: 2 }
 export const FIELD_CLIP_FAR: ClipLevelSpec = { size: 4096, metersPerTexel: 30000 / 4096 }
+/**
+ * 遠圖外那一層：只烘疊圖（鎮的地面、河漫灘、礦坑、屋頂與樹冠的色塊），29 m 一格蓋
+ * 60 km —— 場地 30 km 見方，鏡頭在場地裡的時候整張場地都在窗裡。15 km 外一棟房子
+ * 本來就不到一個像素，這一層只要畫得出鎮與林子的一團顏色
+ */
+export const FIELD_CLIP_HORIZON: ClipLevelSpec = { size: 2048, metersPerTexel: 60000 / 2048 }
 
 export interface Terrain {
   /** 加進場景的那個節點。換地形時整個移除 */
@@ -513,7 +519,7 @@ function createInlandTerrain(
   // 只換地面的話 15 km 外那一圈會與地面接不上。沒有 GPU 就留著算式的材質
   const clipmap = gfx === undefined ? null : createFieldClipmap(gfx.renderer, {
     season, candidates: ground.candidates, ...(site === undefined ? {} : { site }), open,
-    near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, innerRadius: gfx.fieldInner,
+    near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON, innerRadius: gfx.fieldInner,
   })
   if (clipmap !== null) {
     horizon.mesh.material = clipmap.material
@@ -569,10 +575,11 @@ function createInlandTerrain(
   }
   fields.push(buildings)
   for (const s of dressing?.flora ?? []) fields.push(padClear(excludingZones(s, wildOut)))
-  // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外
-  // 另外畫粗網格。植被圈外建築與樹不畫，屋頂與樹冠的色塊只烘遠圖（近窗裡有真的
-  // 模型），最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬
-  const reach = farm.field.cell * (farm.field.size - 1) / 2 + FIELD_CLIP_FAR.size * FIELD_CLIP_FAR.metersPerTexel / 2
+  // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街每一張貼圖都烘，網格不畫；最外層
+  // 外面另外畫粗網格。植被圈外建築與樹不畫，屋頂與樹冠的色塊不烘近圖（近窗裡有真的
+  // 模型），最後烘、蓋在鎮的地面上。最外層的窗最遠碰得到場地外半個窗寬
+  const reach = farm.field.cell * (farm.field.size - 1) / 2
+    + FIELD_CLIP_HORIZON.size * FIELD_CLIP_HORIZON.metersPerTexel / 2
   const roofs = clipmap === null ? null : floraSplats(splatted, -reach, -reach, reach, reach, season)
   if (clipmap !== null && roofs !== null) {
     for (const m of dressing?.baked ?? []) {
