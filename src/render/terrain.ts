@@ -11,7 +11,7 @@ import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
   BUSH_RANGE, createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, OUTER_JITTER, POINT_NEAR,
+  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, lodFor, OUTER_JITTER, outerFor, POINT_NEAR, TILE_SIZE,
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
@@ -170,23 +170,27 @@ export interface Terrain {
 }
 
 /**
- * 植被在水平距離 `d` 的級數，與 `vegetation.ts` 的門檻相同。換級是整格（250 m）
- * 一起換、用格心量，所以門檻附近差得到半格
+ * 點 (x, z) 那一格的植被是哪一級，與 `vegetation.ts` 同一個算法：整格（250 m）一起
+ * 換、用格心離中心 (cx, cz) 的水平距離量，外圈是那一格自己的半徑（`outerFor`，
+ * 4.8～6 km 每格不同）。不算換級的遲滯（±40 m）
  */
-function floraRings(d: number): string[] {
-  const km = (m: number): string => `${m / 1000} km`
-  const outerLo = FLORA_RADIUS * (1 - OUTER_JITTER)
-  const gone = d > FLORA_RADIUS
-  const edge = d > outerLo && !gone
-  const tree = gone ? '不畫（烘在地面）'
-    : edge ? `點／消失的邊界帶（${km(outerLo)}～${km(FLORA_RADIUS)}，每格不同）`
-      : d > POINT_NEAR ? `點（${km(POINT_NEAR)}～${km(outerLo)}）`
-        : d > LOD_NEAR ? `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`
-          : `完整樹冠＋樹幹（${km(LOD_NEAR)} 內）`
-  const bush = gone ? '不畫（烘在地面）' : edge ? '點／消失的邊界帶'
-    : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
-  const house = gone ? '不畫（屋頂色塊烘在地面）' : edge ? '模型／消失的邊界帶' : `模型（${km(outerLo)} 內）`
-  return [`樹：${tree}`, `灌木：${bush}`, `房子：${house}`]
+function floraRings(x: number, z: number, cx: number, cz: number): string[] {
+  const km = (m: number): string => `${(m / 1000).toFixed(1)} km`
+  const i = Math.floor(x / TILE_SIZE)
+  const j = Math.floor(z / TILE_SIZE)
+  const d = Math.hypot((i + 0.5) * TILE_SIZE - cx, (j + 0.5) * TILE_SIZE - cz)
+  const outer = outerFor(i, j)
+  const lod = lodFor(d, -1, outer)
+  const tree = lod >= 3 ? '不畫（烘在地面）'
+    : lod === 2 ? `點（${km(POINT_NEAR)}～這一格的外圈）`
+      : lod === 1 ? `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`
+        : `完整樹冠＋樹幹（${km(LOD_NEAR)} 內）`
+  const bush = lod >= 3 ? '不畫（烘在地面）' : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
+  const house = lod >= 3 ? '不畫（屋頂色塊烘在地面）' : '模型'
+  return [
+    `這一格：格心 ${km(d)}，外圈 ${km(outer)}（每格 ${km(FLORA_RADIUS * (1 - OUTER_JITTER))}～${km(FLORA_RADIUS)}）`,
+    `樹：${tree}`, `灌木：${bush}`, `房子：${house}`,
+  ]
 }
 
 /**
@@ -670,7 +674,7 @@ function createInlandTerrain(
       const d = Math.hypot(x - centre.x, z - centre.z)
       return [
         `離植被中心（水平） ${Math.round(d).toLocaleString()} m`,
-        ...floraRings(d),
+        ...floraRings(x, z, centre.x, centre.z),
         `地面：${clipmap === null ? '逐像素算（沒有貼圖）' : clipmap.layerAt(x, z)}`,
       ]
     },
