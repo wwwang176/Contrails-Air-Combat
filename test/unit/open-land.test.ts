@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Color } from 'three'
 import {
-  fieldAt, fieldGlsl, FIELD_GLSL, FIELD_REACH, isOpenParcel, openWoodCover, regionAt, REGION_SPACING,
-  VILLAGE_CHANCE, villageDistance, fieldSurfaceColor,
-  type FieldSample, type RegionSample,
+  fieldAt, fieldGlsl, FIELD_GLSL, FIELD_REACH, isOpenParcel, onTrack, openWoodCover, regionAt, REGION_SPACING,
+  OPEN_CONIFER_SHARE, OPEN_DOT_AA, OPEN_DOT_REACH, OPEN_TREE_SCALE, OPEN_WOOD_CELL, OPEN_WOOD_DENSITY,
+  OPEN_WOOD_GATE, OPEN_WOOD_NEAR_MARGIN,
+  valueNoise, VILLAGE_CHANCE, villageDistance, fieldSurfaceColor, WOOD_GRID, type FieldSample, type RegionSample,
 } from '../../src/render/fields'
+import { BROAD_CROWN_R } from '../../src/render/floraShapes'
 import {
-  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, openHedgeFlora, openWoodFlora,
+  createFloraBuffer, farmHedgeFlora, farmWoodFlora, FLORA_STRIDE, FloraKind, openHedgeFlora, openWoodFlora,
   villageSite, type FloraSource,
 } from '../../src/render/flora'
 
@@ -160,4 +162,144 @@ describe('樹籬與樹林', () => {
     }
     expect(inOpen).toBeGreaterThan(1000)
   })
+
+  /**
+   * 【遠圖的樹點與植被逐株相同】遠圖把空地的樹一棵一棵烘成點（GLSL 的
+   * `openTreesOver`）。照那一段 GLSL 的式子用 JS 逐格算，與植被在空地上長的樹逐株
+   * 比：位置、大小、樹種。對不上的話，點與 6 km 內冒出來的樹不在同一個地方
+   */
+  it('遠圖的空地樹點與植被逐株相同', () => {
+    const x0 = -6000
+    const z0 = -6000
+    const x1 = 6000
+    const z1 = 6000
+    const buf = createFloraBuffer(400_000)
+    openWoodFlora(x0, z0, x1, z1, () => 0, buf)
+    const trees = new Map<string, { scale: number; kind: number }>()
+    for (let i = 0; i < buf.count; i++) {
+      const o = i * FLORA_STRIDE
+      const x = buf.data[o]!
+      const z = buf.data[o + 2]!
+      if (!isOpenParcel(parcel(x, z))) continue
+      trees.set(`${x.toFixed(2)},${z.toFixed(2)}`, { scale: buf.data[o + 4]!, kind: buf.kind[i]! })
+    }
+    let dots = 0
+    for (let gz = Math.floor(z0 / WOOD_GRID); gz <= Math.floor(z1 / WOOD_GRID); gz++) {
+      for (let gx = Math.floor(x0 / WOOD_GRID); gx <= Math.floor(x1 / WOOD_GRID); gx++) {
+        const h = hash2(gx, gz)
+        const g = hash1(h)
+        const x = (gx + 0.15 + (h / 4294967296) * 0.7) * WOOD_GRID
+        const z = (gz + 0.15 + (g / 4294967296) * 0.7) * WOOD_GRID
+        if (x < x0 || x >= x1 || z < z0 || z >= z1) continue
+        const g2 = hash1(g)
+        const u = (g2 & 0xffff) / 65536
+        if (u >= OPEN_WOOD_DENSITY || u >= openWoodCover(x, z) * OPEN_WOOD_DENSITY) continue
+        // 點只畫在空地上；凹路上的點被凹路蓋掉（植被在凹路上不長）
+        if (!isOpenParcel(parcel(x, z)) || onTrack(x, z, REG)) continue
+        const g3 = hash1(g2)
+        const scale = OPEN_TREE_SCALE[0] + ((g3 & 0xffff) / 65536) * (OPEN_TREE_SCALE[1] - OPEN_TREE_SCALE[0])
+        const cone = ((g3 >>> 24) & 0xff) / 256 < OPEN_CONIFER_SHARE
+        // 植被的座標存成 float32
+        const t = trees.get(`${Math.fround(x).toFixed(2)},${Math.fround(z).toFixed(2)}`)
+        expect(t, `(${x.toFixed(1)}, ${z.toFixed(1)})`).toBeDefined()
+        expect(t!.scale).toBeCloseTo(scale, 5)
+        expect(t!.kind).toBe(cone ? FloraKind.ConeTree : FloraKind.BroadTree)
+        dots++
+      }
+    }
+    expect(dots).toBe(trees.size)
+    expect(dots).toBeGreaterThan(5000)
+  })
+
+  /**
+   * 【早退不漏樹】遠圖畫樹點時，雜訊比門檻低 `OPEN_WOOD_NEAR_MARGIN` 的點直接跳過。
+   * 餘量不夠的話林緣那一圈的點會被切掉一塊 —— 這裡拿植被真的長出來的樹，驗它的樹冠
+   * 蓋到的每一點都不會被早退跳過
+   */
+  it('遠圖的樹點早退不會跳過任何一棵樹的樹冠', () => {
+    const buf = createFloraBuffer(400_000)
+    openWoodFlora(-6000, -6000, 6000, 6000, () => 0, buf)
+    const noise = (x: number, z: number): number =>
+      0.65 * valueNoise(x, z, OPEN_WOOD_CELL[0], 0x6a11) + 0.35 * valueNoise(x, z, OPEN_WOOD_CELL[1], 0x3b57)
+    const floor = OPEN_WOOD_GATE[0] - OPEN_WOOD_NEAR_MARGIN
+    let worst = Infinity
+    let n = 0
+    for (let i = 0; i < buf.count; i++) {
+      const o = i * FLORA_STRIDE
+      const x = buf.data[o]!
+      const z = buf.data[o + 2]!
+      if (!isOpenParcel(parcel(x, z))) continue
+      const r = BROAD_CROWN_R * buf.data[o + 4]! + OPEN_DOT_AA
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2
+        worst = Math.min(worst, noise(x + Math.cos(a) * r, z + Math.sin(a) * r) - floor)
+      }
+      n++
+    }
+    expect(n).toBeGreaterThan(5000)
+    expect(worst).toBeGreaterThanOrEqual(0)
+    // 量尺有事可做：最貼近的那一棵離門檻不遠
+    expect(worst).toBeLessThan(OPEN_WOOD_NEAR_MARGIN)
+  })
+
+  /**
+   * 【餘量夾得住】樹點用一點的雜訊 ± `OPEN_WOOD_NEAR_MARGIN` 夾住周圍
+   * `OPEN_DOT_REACH` 內每一棵候選樹的覆蓋率，夾得出答案的就不算雜訊。餘量小了，
+   * 夾出來的答案會與逐棵算的不同 —— 點多一棵或少一棵
+   */
+  it('空地樹林的雜訊在 OPEN_DOT_REACH 裡變不到 OPEN_WOOD_NEAR_MARGIN', () => {
+    const noise = (x: number, z: number): number =>
+      0.65 * valueNoise(x, z, OPEN_WOOD_CELL[0], 0x6a11) + 0.35 * valueNoise(x, z, OPEN_WOOD_CELL[1], 0x3b57)
+    let seed = 13
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    let worst = 0
+    for (let k = 0; k < 200_000; k++) {
+      const x = (rand() - 0.5) * 60000
+      const z = (rand() - 0.5) * 60000
+      const a = rand() * Math.PI * 2
+      const d = OPEN_DOT_REACH * Math.sqrt(rand())
+      worst = Math.max(worst, Math.abs(noise(x + Math.cos(a) * d, z + Math.sin(a) * d) - noise(x, z)))
+    }
+    console.log(JSON.stringify({ 最大差: worst.toFixed(4), 餘量: OPEN_WOOD_NEAR_MARGIN.toFixed(4) }))
+    expect(worst).toBeLessThanOrEqual(OPEN_WOOD_NEAR_MARGIN)
+    // 量尺有事可做：量到的差有餘量的四成以上（餘量是斜率的上界，實際的斜率小一截）
+    expect(worst).toBeGreaterThan(OPEN_WOOD_NEAR_MARGIN * 0.4)
+  })
+
+  /** GLSL 那一段逐字釘住：改了 GLSL 而沒改上面那一條的式子，這裡會紅 */
+  it('遠圖的樹點：GLSL 的式子', () => {
+    const glsl = fieldGlsl('summer', false, true)
+    for (const line of [
+      'uint h = fieldHash2(gx, gz);',
+      'uint g = fieldHash1(h);',
+      'vec2 p = vec2(float(gx) + 0.15 + float(h) / 4294967296.0 * 0.7,',
+      'float(gz) + 0.15 + float(g) / 4294967296.0 * 0.7) * WOOD_GRID;',
+      'uint g2 = fieldHash1(g);',
+      'float u = float(g2 & 0xffffu) / 65536.0;',
+      'if (d >= OPEN_DOT_REACH) continue;',
+      'if (u >= acceptHi) continue;',
+      'if (u >= acceptLo && u >= openWoodCover(p) * OPEN_WOOD_DENSITY) continue;',
+      'float acceptLo = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw - OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;',
+      'float acceptHi = smoothstep(OPEN_WOOD_GATE_LO, OPEN_WOOD_GATE_HI, nw + OPEN_WOOD_NEAR_MARGIN) * OPEN_WOOD_DENSITY;',
+      'uint g3 = fieldHash1(g2);',
+      'float scale = OPEN_TREE_SCALE_LO + float(g3 & 0xffffu) / 65536.0 * (OPEN_TREE_SCALE_HI - OPEN_TREE_SCALE_LO);',
+      'bool cone = float((g3 >> 24u) & 0xffu) / 256.0 < OPEN_CONIFER_SHARE;',
+      'if (fieldTrees > 0.5) col = openTreesOver(world, col, px);',
+      `const float WOOD_GRID = ${WOOD_GRID.toFixed(1)};`,
+      `const float OPEN_WOOD_DENSITY = ${OPEN_WOOD_DENSITY.toFixed(3)};`,
+      `const float OPEN_CONIFER_SHARE = ${OPEN_CONIFER_SHARE.toFixed(3)};`,
+    ]) expect(glsl).toContain(line)
+  })
 })
+
+/** 與 `fields.ts` 裡那兩支必須相同 */
+function hash2(i: number, j: number): number {
+  let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x85ebca6b)
+  h = Math.imul(h ^ (h >>> 15), 0x2545f491)
+  return (h ^ (h >>> 13)) >>> 0
+}
+function hash1(h: number): number {
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d)
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b)
+  return (h ^ (h >>> 16)) >>> 0
+}

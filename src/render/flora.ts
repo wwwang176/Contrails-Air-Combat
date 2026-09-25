@@ -8,7 +8,7 @@ import {
   edgeAt, fieldAt, isOpenParcel, isWoodField, onTrack, openWoodCover, regionAt, regionParams, regionSeed, splitCut,
   trackGap, trackWidthAt, valueNoise, villageDistance, FIELD_REACH, HEDGE_CHANCE, HEDGE_WIDTH, REGION_SPACING,
   TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, VILLAGE_CHANCE,
-  VILLAGE_NEIGHBOUR,
+  VILLAGE_NEIGHBOUR, CONIFER_SHARE, OPEN_CONIFER_SHARE, OPEN_TREE_SCALE, OPEN_WOOD_DENSITY, WOOD_GRID,
   type FieldSample, type RegionSample, type SplitCut, type Vec2,
 } from './fields'
 
@@ -151,13 +151,7 @@ export const HEDGE_TREE_SPACING = 12
  */
 export const HEDGE_BUSH_SPACING = 5
 
-/**
- * 樹林裡的網格間距，m。3,906 棵/km²。
- *
- * 【為什麼是網格不是走線】樹林填的是**面**不是線，而 16 m 的網格在 250 m 的
- * tile 上是 244 次 `fieldAt` ≈ 0.09 ms —— 只在生成時付一次。
- */
-export const WOOD_GRID = 16
+export { WOOD_GRID }
 
 /** 沿線抖動的幅度，佔間距的比例。必須 < 0.5，否則相鄰兩株會交換次序 */
 const ALONG_JITTER = 0.3
@@ -315,13 +309,9 @@ function hedged(lineKey: number): boolean {
 }
 
 /**
- * 這條樹籬種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出防風林。
- *
- * 【闊葉為主】Bocage 的樹籬是橡與櫸，針葉只出現在刻意種的防風林裡。
- * 一半一半的話整片地讀起來像雲杉林。
+ * 這條樹籬（或這一塊樹林田）種什麼樹。**逐線決定，不是逐棵** —— 整排同種才讀得出
+ * 防風林。比例見 `fields.ts` 的 `CONIFER_SHARE`
  */
-const CONIFER_SHARE = 0.25
-
 function speciesOf(lineKey: number): FloraKind {
   return hash1(lineKey ^ 0x5bd1) / 4294967296 < CONIFER_SHARE
     ? FloraKind.ConeTree : FloraKind.BroadTree
@@ -539,17 +529,6 @@ function tileLandUse(x0: number, z0: number, x1: number, z1: number): number {
   return LAND_MIXED
 }
 
-/**
- * 空地上的樹林：接受機率乘這個、縮放取這一段。
- *
- * 【稀一點、大一點】空地的林子佔地大，照田裡樹林的密度長的話，實測整張圖慢
- * 7～9%（多出來的全是樹的實例）。一半多一點的候選點、每棵取大的那一段，從空中
- * 看林冠一樣滿，實例數約少三成五
- */
-const OPEN_WOOD_DENSITY = 0.55
-const OPEN_TREE_SCALE = [0.8, 1.0] as const
-/** 空地上的樹林裡針葉樹佔多少 */
-const OPEN_CONIFER_SHARE = 0.3
 
 /** 空地上的一個候選點：照 `openWoodCover` 決定長不長 */
 function openTree(

@@ -18,6 +18,7 @@
  * 拿掉，「絕對像素數」必紅而「兩個距離的比值」照樣過。
  */
 import { chromium } from 'playwright'
+import { POINT_TOPDOWN_GAIN, POINT_TOPDOWN_RAMP } from '../../src/render/vegetation'
 
 const URL = 'http://localhost:5190/'
 /** 與 fixture 的 `PROBE_FOV_DEG` 一致 */
@@ -107,7 +108,13 @@ async function main(): Promise<void> {
     const pt = await shot(30, -10, 3600)
     const lum = (s: Shot): number => 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b
     const lm = lum(mid)
-    const lp = lum(pt)
+    // 【先除掉俯角增益】點往下看會再亮（`POINT_TOPDOWN_GAIN`，那是在遊戲裡量密林定的：
+    // 往下看露出被照亮的樹冠頂）。這一條驗的是平視那一份 `POINT_LIGHT`，所以把這個
+    // 俯角的增益（線性值，換回 sRGB 約是 1/2.2 次方）除掉再比
+    const s = Math.sin((10 * Math.PI) / 180)
+    const t = Math.min(1, Math.max(0, s / POINT_TOPDOWN_RAMP))
+    const gain = 1 + (POINT_TOPDOWN_GAIN - 1) * t * t * (3 - 2 * t)
+    const lp = lum(pt) / gain ** (1 / 2.2)
     console.log(`    中級樹冠 RGB(${mid.r.toFixed(0)}, ${mid.g.toFixed(0)}, ${mid.b.toFixed(0)})`
       + ` 亮度 ${lm.toFixed(1)}`)
     console.log(`    點       RGB(${pt.r.toFixed(0)}, ${pt.g.toFixed(0)}, ${pt.b.toFixed(0)})`

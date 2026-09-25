@@ -472,6 +472,12 @@ function createPointMaterial(): PointsMaterial {
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = 'attribute float aSize;\n' + shader.vertexShader
       .replace('gl_PointSize = size;', 'gl_PointSize = aSize * projectionMatrix[1][1] * size;')
+      // 往下看亮一點（`POINT_TOPDOWN_GAIN`）：俯角由鏡頭到這一點的方向算
+      .replace('#include <color_vertex>', `#include <color_vertex>
+{
+  vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+  vColor.rgb *= 1.0 + ${(POINT_TOPDOWN_GAIN - 1).toFixed(3)} * smoothstep(0.0, ${POINT_TOPDOWN_RAMP.toFixed(3)}, toCam.y);
+}`)
   }
   // 【換了著色器就要換 key】three 用它決定程式能不能重用
   m.customProgramCacheKey = () => 'flora-point'
@@ -495,6 +501,19 @@ function createPointMaterial(): PointsMaterial {
  * 用的 fixture 與正式場景共用同一份 —— 各配一組的話係數會是錯的。
  */
 export const POINT_LIGHT = new Color(0.36, 0.36, 0.36)
+
+/**
+ * 往下看時點要再亮多少：平視乘 1，sin(俯角) 到 `POINT_TOPDOWN_RAMP` 之間平滑升到
+ * 這個數，再往下都是它。
+ *
+ * 【為什麼要跟著角度】`POINT_LIGHT` 是平視校的（樹冠多半露側面、偏暗）；往下看露出
+ * 被太陽照亮的樹冠頂，同一片林子亮得多，而點是平的色塊，哪個角度看都一樣。實測
+ * 1.5 km 與 3 km 高度看 3.5～5.5 km 的林子（sin 俯角 0.26～0.65），點都要乘約 1.45
+ * 才與樹冠、遠處的烘圖接得上；不跟著角度的話，那一圈比兩側暗一截
+ */
+export const POINT_TOPDOWN_GAIN = 1.45
+/** 俯角的正弦到這裡就用滿 `POINT_TOPDOWN_GAIN`（約 11.5°） */
+export const POINT_TOPDOWN_RAMP = 0.2
 
 /**
  * 這一株該進哪一個池。`null` = 這一級不畫它。

@@ -595,15 +595,20 @@ function createInlandTerrain(
   const wildOut = bakeKeepOut(wildZones, maskExtent)
   fields = fields.map((s) => excludingZones(s, fieldOut))
   if (bank !== null) bank = excludingZones(bank, wildOut)
-  // 田色算式裡沒有、要另外烘進遠圖的散佈器：建築與村鎮裡的樹、河岸林。與植被
-  // 畫的是同一個散佈器，遠處的色塊與近處的模型才對得上
+  // 田色算式裡沒有、要另外烘進遠圖的散佈器：建築與村鎮裡的樹、河岸林、地物另外的
+  // 樹（河漫灘的林子）。與植被畫的是同一個散佈器，遠處的色塊與近處的模型才對得上 ——
+  // 一株一個點，林緣稀疏的地方遠看也是一點一點的
   const splatted: FloraSource[] = [buildings]
   if (bank !== null) {
     fields.push(bank)
     splatted.push(bank)
   }
   fields.push(buildings)
-  for (const s of dressing?.flora ?? []) fields.push(padClear(excludingZones(s, wildOut)))
+  for (const s of dressing?.flora ?? []) {
+    const src = padClear(excludingZones(s, wildOut))
+    fields.push(src)
+    splatted.push(src)
+  }
   // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街每一張貼圖都烘，網格不畫；最外層
   // 外面另外畫粗網格。植被圈外建築與樹不畫，屋頂與樹冠的色塊不烘近圖（近窗裡有真的
   // 模型），最後烘、蓋在鎮的地面上。最外層的窗最遠碰得到場地外半個窗寬
