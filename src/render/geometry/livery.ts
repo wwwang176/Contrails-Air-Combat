@@ -15,6 +15,10 @@ import { BufferAttribute, type BufferGeometry } from 'three'
  * 每個三角形依法線歸到其中一個視圖。斜面會被拉長；朝前後的面（槳轂、尾錐末端）
  * 歸到 x、y 裡較大的那一邊，拉得最長，但面積都很小。
  *
+ * 【像素是版面座標，不是貼圖的像素】UV 算完除成 0…1，所以遊戲讀的貼圖可以是
+ * 版面的等比縮小版（`tools/livery/export.py` 的尺寸表）；**長寬比必須是 4:3**。
+ * 原圖（2048×1536）在 `textures-src/`。
+ *
  * 【貼圖是照這份版面畫的】`tools/livery/*.py` 讀的版面是
  * `test/tools/livery-faces.ts` 從這裡倒出去的。改了這裡的任何一個數，貼圖要重畫，
  * 否則標誌會畫到空白處而不會報錯。

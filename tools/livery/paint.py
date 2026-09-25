@@ -15,6 +15,7 @@
 """
 import json, math, os, random
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+import export
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -345,8 +346,10 @@ class Livery:
 
     # ── 輸出 ────────────────────────────────────────────────────
     def save(self):
-        out = os.path.join(ROOT, 'public', self.url.lstrip('/').replace('/', os.sep))
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        self.im.resize((self.W, self.H), Image.LANCZOS).save(out, optimize=True)
-        print(out, os.path.getsize(out) // 1024, 'KB')
-        return out
+        """原圖寫進 textures-src/，再照 export.py 的尺寸表產生遊戲用圖"""
+        name = os.path.basename(self.url)
+        src = os.path.join(export.SRC, name)
+        os.makedirs(export.SRC, exist_ok=True)
+        self.im.resize((self.W, self.H), Image.LANCZOS).save(src, optimize=True)
+        print(src, os.path.getsize(src) // 1024, 'KB')
+        export.export(os.path.splitext(name)[0])
