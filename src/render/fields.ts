@@ -75,10 +75,15 @@ export const HEDGE_WIDTH = 18
 
 /**
  * 遠處（植被圈外，樹籬的樹不畫了）樹籬那一條帶放寬幾倍、畫成林子從空中看的顏色
- * （`season.ts` 的 `canopyColor`）。斜著看，一排十幾公尺高的樹遮住的地比樹冠還寬；
- * 照近處那一條細的深色線畫的話，6 km 外的田整片只剩土色
+ * （`season.ts` 的 `canopyColor`）再壓暗 `HEDGE_FAR_SHADE`。斜著看，一排十幾公尺高的
+ * 樹遮住的地比樹冠還寬；照近處那一條細的深色線畫的話，6 km 外的田整片只剩土色。
+ *
+ * 【對的是點】3～6 km 的樹是點，田界上一串深色的點：烘的那一條淡了，點冒出來的
+ * 地方就像突然多了一排樹。同一視角有樹、只剩烘圖兩張，量田界那些最暗的像素與
+ * 整體平均對得上的寬度與明暗
  */
-export const HEDGE_FAR_GROW = 3
+export const HEDGE_FAR_GROW = 2.5
+export const HEDGE_FAR_SHADE = 0.7
 
 /**
  * 有多少比例的田界長樹籬。
@@ -957,7 +962,7 @@ const float STRIPE_AMP = ${STRIPE_AMP.toFixed(3)};
 const float SPACING_VAR_LO = ${FIELD_SPACING_VAR[0].toFixed(3)};
 const float SPACING_VAR_HI = ${FIELD_SPACING_VAR[1].toFixed(3)};
 const vec3 HEDGE_COLOR = ${rgb(c.hedge)};
-const vec3 HEDGE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf))};
+const vec3 HEDGE_FAR_COLOR = ${vec3Of(canopyColor(FLORA_COLORS[season].broadLeaf).multiplyScalar(HEDGE_FAR_SHADE))};
 const float HEDGE_FAR_GROW = ${HEDGE_FAR_GROW.toFixed(3)};
 // 【遠處的樣子】1 = 植被圈外（樹籬的樹不畫了），樹籬畫成放寬的林冠色。呼叫端在
 // fieldColorAt 之前設；近處與內圈留 0，那裡有真的樹
