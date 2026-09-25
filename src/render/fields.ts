@@ -81,8 +81,37 @@ export const HEDGE_WIDTH = 18
  */
 export const HEDGE_CHANCE = 0.92
 
-/** 凹路的寬度，m。兩區交界的那一條 */
+/**
+ * 凹路的寬度：兩區交界的那一條，判準是 `r2 − r1`（`trackGap`）小於它乘上沿路的
+ * 起伏（`trackWidthAt`）
+ */
 export const TRACK_WIDTH = 20
+/**
+ * 凹路寬度沿路的起伏：三道斜向的正弦疊在 `TRACK_WIDTH` 上，各自的振幅比例，合計
+ * ±25%。長波長的讓路忽寬忽窄，最短的那一道（波長一百多公尺）讓路緣參差
+ */
+const TRACK_RIPPLE = [
+  { amp: 0.12, fx: 0.0047, fz: 0.0029, phase: 0 },
+  { amp: 0.08, fx: 0.013, fz: -0.0094, phase: 1.3 },
+  { amp: 0.05, fx: 0.041, fz: 0.033, phase: 0.7 },
+] as const
+/** 凹路最寬與最窄處：`TRACK_WIDTH` 乘上起伏的上下限 */
+export const TRACK_WIDTH_MAX = TRACK_WIDTH * 1.25
+export const TRACK_WIDTH_MIN = TRACK_WIDTH * 0.75
+/**
+ * 凹路的歪斜：量凹路之前座標先推移，兩道正弦疊起來，振幅 m。凹路因此在兩區的
+ * 交界兩側來回擺（波長約 780 m 與 190 m）。
+ *
+ * 【擺幅受寬度管】兩區的田格在交界上是一條直的接縫，凹路要一路蓋住它：交界上
+ * `trackGap` 最多是 `2 × TRACK_WARP_MAX`，必須小於最窄處 `TRACK_WIDTH_MIN`。
+ * 擺得比這個大，接縫就從凹路邊上露出來
+ */
+const TRACK_WARP = [
+  { amp: 3.8, fx: 0.0069, fz: 0.0041, phase: 0.4 },
+  { amp: 1.2, fx: -0.021, fz: 0.026, phase: 2.1 },
+] as const
+/** 推移量的上限，m（兩個分量各自最多 5） */
+export const TRACK_WARP_MAX = 5 * Math.SQRT2
 
 /**
  * 一塊田整片變成樹林（copse）的機率。
@@ -160,6 +189,11 @@ export interface RegionSample {
   /** 到最近與次近的區塊種子的距離，m */
   r1: number
   r2: number
+  /** 最近（a）與次近（b）的種子，世界座標。凹路是它們的交界（`trackGap`） */
+  ax: number
+  az: number
+  bx: number
+  bz: number
   /** 這一區的雜湊 */
   id: number
   /** 這一帶田的走向，rad */
@@ -261,6 +295,7 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
   let r1 = Infinity
   let r2 = Infinity
   let id = 0
+  let ax = 0, az = 0, bx = 0, bz = 0
   for (let dj = -1; dj <= 1; dj++) {
     for (let di = -1; di <= 1; di++) {
       const h = regionSeed(gx + di, gz + dj, SEED)
@@ -269,12 +304,59 @@ export function regionAt(x: number, z: number, out: RegionSample): void {
       const dx = x - SEED.x
       const dz = z - SEED.z
       const d = Math.sqrt(dx * dx + dz * dz)
-      if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
+      if (d < r1) {
+        r2 = r1; bx = ax; bz = az
+        r1 = d; ax = SEED.x; az = SEED.z; id = h
+      } else if (d < r2) { r2 = d; bx = SEED.x; bz = SEED.z }
     }
   }
   regionParams(id, out)
   out.r1 = r1
   out.r2 = r2
+  out.ax = ax
+  out.az = az
+  out.bx = bx
+  out.bz = bz
+}
+
+/** 凹路這一點的寬度：`TRACK_WIDTH` × (1 ± 0.25)。**與 shader 同一條式子**，只吃世界座標 */
+export function trackWidthAt(x: number, z: number): number {
+  let k = 1
+  for (let i = 0; i < TRACK_RIPPLE.length; i++) {
+    const r = TRACK_RIPPLE[i]!
+    k += r.amp * Math.sin(r.fx * x + r.fz * z + r.phase)
+  }
+  return TRACK_WIDTH * k
+}
+
+/**
+ * 量凹路用的 `r2 − r1`：最近與次近兩顆種子（`regionAt` 寫進 `reg` 的那兩顆）
+ * 到**推移過的座標**（`TRACK_WARP`）的距離差。凹路是 `trackGap < trackWidthAt`。
+ * **與 shader 同一條式子**。
+ *
+ * 推移量不超過 `TRACK_WARP_MAX`，所以它與沒推移的 `reg.r2 − reg.r1` 差不到
+ * `2 × TRACK_WARP_MAX` —— 整格判斷拿這個當餘量
+ */
+export function trackGap(x: number, z: number, reg: RegionSample): number {
+  let wx = x
+  let wz = z
+  for (let i = 0; i < TRACK_WARP.length; i++) {
+    const w = TRACK_WARP[i]!
+    wx += w.amp * Math.sin(w.fx * x + w.fz * z + w.phase)
+    wz += w.amp * Math.sin(w.fz * x - w.fx * z + w.phase + 1.7)
+  }
+  const ex = wx - reg.ax
+  const ez = wz - reg.az
+  const fx = wx - reg.bx
+  const fz = wz - reg.bz
+  return Math.abs(Math.sqrt(fx * fx + fz * fz) - Math.sqrt(ex * ex + ez * ez))
+}
+
+/** 這一點在凹路上嗎。`reg` 是這一點的 `regionAt` */
+export function onTrack(x: number, z: number, reg: RegionSample): boolean {
+  // 離交界遠的點不必算正弦：`trackGap` 與 `r2 − r1` 差不到兩倍推移量
+  if (reg.r2 - reg.r1 >= TRACK_WIDTH_MAX + 2 * TRACK_WARP_MAX) return false
+  return trackGap(x, z, reg) < trackWidthAt(x, z)
 }
 
 /** 候選表一小格的邊長，m。一格區塊切成 16 × 16 小格 */
@@ -400,17 +482,25 @@ export function regionAtPruned(
   let r1 = Infinity
   let r2 = Infinity
   let id = 0
+  let sax = 0, saz = 0, sbx = 0, sbz = 0
   for (let s = 1; s <= n; s++) {
     const k = (d0[o + (s >> 1)]! >> ((s & 1) * 4)) & 15
     const h = regionSeed(gx + (k % 3) - 1, gz + ((k / 3) | 0) - 1, SEED)
     const dx = x - SEED.x
     const dz = z - SEED.z
     const d = Math.sqrt(dx * dx + dz * dz)
-    if (d < r1) { r2 = r1; r1 = d; id = h } else if (d < r2) r2 = d
+    if (d < r1) {
+      r2 = r1; sbx = sax; sbz = saz
+      r1 = d; sax = SEED.x; saz = SEED.z; id = h
+    } else if (d < r2) { r2 = d; sbx = SEED.x; sbz = SEED.z }
   }
   regionParams(id, out)
   out.r1 = r1
   out.r2 = r2
+  out.ax = sax
+  out.az = saz
+  out.bx = sbx
+  out.bz = sbz
 }
 
 /**
@@ -639,7 +729,7 @@ const OPEN_ALT = new Color()
 const CUT: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 
 const REG: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 
@@ -654,7 +744,7 @@ export function fieldSurfaceColor(
 ): Color {
   const c = FIELD_COLORS[season]
   regionAt(x, z, REG)
-  if (REG.r2 - REG.r1 < TRACK_WIDTH) return out.setHex(c.track)
+  if (onTrack(x, z, REG)) return out.setHex(c.track)
 
   fieldAt(x, z, REG, FLD)
   if (open && isOpenParcel(FLD)) return openColor(x, z, out, c)
@@ -713,8 +803,8 @@ const CANDIDATE_LOOKUP_GLSL = `  uint candN = 15u;
       float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
       vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
       float d = distance(world, seed);
-      if (d < r1) { r2 = r1; r1 = d; rid = h; }
-      else if (d < r2) { r2 = d; }
+      if (d < r1) { r2 = r1; s2 = s1; r1 = d; s1 = seed; rid = h; }
+      else if (d < r2) { r2 = d; s2 = seed; }
     }
   } else {
 `
@@ -909,7 +999,7 @@ float stripe(vec2 q, float period, float amp) {
 float bandCoverage(float d, float halfW, float w) {
   return clamp((min(d + w, halfW) - max(d - w, 0.0)) / (2.0 * w), 0.0, 1.0);
 }
-
+${trackGlsl()}
 float fieldEdgeAt(int k, float cell, int salt) {
   return (float(k) + (float(fieldHash2(k, salt)) / 4294967296.0 - 0.5)
     * 2.0 * EDGE_JITTER) * cell;
@@ -928,6 +1018,9 @@ vec3 fieldColorAt(vec2 world) {
   float r1 = 1e20;
   float r2 = 1e20;
   uint rid = 0u;
+  // 最近與次近的種子：凹路是它們的交界（trackGap）
+  vec2 s1 = vec2(0.0);
+  vec2 s2 = vec2(0.0);
 ${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
     for (int di = -1; di <= 1; di++) {
       int i = int(rgx) + di;
@@ -937,8 +1030,8 @@ ${candidates ? CANDIDATE_LOOKUP_GLSL : ''}  for (int dj = -1; dj <= 1; dj++) {
       float oz = (float(h >> 16u) / 65536.0 - 0.5) * 0.76;
       vec2 seed = (vec2(float(i), float(j)) + 0.5 + vec2(ox, oz)) * REGION_SPACING;
       float d = distance(world, seed);
-      if (d < r1) { r2 = r1; r1 = d; rid = h; }
-      else if (d < r2) { r2 = d; }
+      if (d < r1) { r2 = r1; s2 = s1; r1 = d; s1 = seed; rid = h; }
+      else if (d < r2) { r2 = d; s2 = seed; }
     }
   }
 ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
@@ -1008,11 +1101,33 @@ ${candidates ? '  }\n' : ''}  uint rh = fieldHash1(rid);
   float amp = wood ? 0.0 : (ploughed ? STRIPE_AMP * 2.0 : STRIPE_AMP);
   col *= stripe(q, STRIPE_PERIOD, amp);
   // 【順序就是優先權】凹路壓過樹籬，樹籬壓過田 —— 與 fieldSurfaceColor 相同。
-  // 兩條帶的半寬不一樣：凹路的判準是 r2 - r1 < TRACK_WIDTH，樹籬的是
+  // 兩條帶的半寬不一樣：凹路的判準是 trackGap < trackWidthAt，樹籬的是
   // best < HEDGE_WIDTH * 0.5
   col = mix(col, HEDGE_COLOR, isHedge ? bandCoverage(best, HEDGE_WIDTH * 0.5, px) : 0.0);
-  col = mix(col, TRACK_COLOR, bandCoverage(r2 - r1, TRACK_WIDTH, px));
+  col = mix(col, TRACK_COLOR, bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px));
   return col;
+}
+`
+}
+
+const glslFloat = (v: number): string => v.toFixed(6)
+
+/** `trackWidthAt`、`trackGap` 的 GLSL，由同一組常數產生 */
+function trackGlsl(): string {
+  const f = glslFloat
+  const ripple = TRACK_RIPPLE.map((r) => `${f(r.amp)} * sin(${f(r.fx)} * w.x + ${f(r.fz)} * w.y + ${f(r.phase)})`)
+  const wx = TRACK_WARP.map((t) => `${f(t.amp)} * sin(${f(t.fx)} * w.x + ${f(t.fz)} * w.y + ${f(t.phase)})`)
+  const wz = TRACK_WARP.map((t) => `${f(t.amp)} * sin(${f(t.fz)} * w.x - ${f(t.fx)} * w.y + ${f(t.phase + 1.7)})`)
+  return `
+float trackWidthAt(vec2 w) {
+  return TRACK_WIDTH * (1.0 + ${ripple.join(' + ')});
+}
+
+float trackGap(vec2 w, vec2 a, vec2 b) {
+  vec2 p = w;
+  p.x += ${wx.join(' + ')};
+  p.y += ${wz.join(' + ')};
+  return abs(distance(p, b) - distance(p, a));
 }
 `
 }

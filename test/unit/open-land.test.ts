@@ -17,7 +17,7 @@ import {
  * 的樹林。
  */
 
-const REG: RegionSample = { r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
+const REG: RegionSample = { r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0 }
 const FLD: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const parcel = (x: number, z: number): FieldSample => {
   regionAt(x, z, REG)

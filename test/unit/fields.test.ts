@@ -4,14 +4,17 @@ import {
   edgeAt, fieldAt, fieldGlslWithSite, fieldSurfaceColor, isWoodField, regionAt, regionParams,
   regionSeed, roadBounds, siteSurfaceColor, splitCut, EDGE_JITTER, FIELD_ANISO,
   FIELD_GLSL, FIELD_SPACING, FIELD_SPACING_VAR, HEDGE_CHANCE, HEDGE_WIDTH,
-  REGION_SPACING, SPLIT_CHANCE, TRACK_WIDTH, WOOD_CHANCE,
+  onTrack, trackGap, trackWidthAt, REGION_SPACING, SPLIT_CHANCE, TRACK_WARP_MAX, TRACK_WIDTH, TRACK_WIDTH_MAX, TRACK_WIDTH_MIN, WOOD_CHANCE,
   type FieldSample, type RegionSample, type SplitCut,
 } from '../../src/render/fields'
 import { LEUNA_SITE } from '../../src/render/terrain'
 import { FARM_EXTENT } from '../../src/world/farmland'
 
+/** 沒推移的 `r2 − r1` 大於這個，凹路一定碰不到（最寬處加兩倍推移量） */
+const TRACK_REACH = TRACK_WIDTH_MAX + 2 * TRACK_WARP_MAX
+
 const reg: RegionSample = {
-  r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+  r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
 }
 const s: FieldSample = { id: 0, edge: 0, hedged: false, cx: 0, cz: 0 }
 const col = new Color()
@@ -132,7 +135,7 @@ describe('Bocage 的田區', () => {
     for (let z = -3000; z <= 3000; z += 5.3) {
       for (let x = -3000; x <= 3000; x += 5.3) {
         regionAt(x, z, reg)
-        if (reg.r2 - reg.r1 < TRACK_WIDTH) continue
+        if (onTrack(x, z, reg)) continue
         fieldAt(x, z, reg, s)
         if (s.edge >= HEDGE_WIDTH / 2) continue
         boundary++
@@ -183,7 +186,7 @@ describe('Bocage 的田區', () => {
     for (let z = -2000; z <= 2000; z += 71) {
       for (let x = -2000; x < 2000; x += 3) {
         regionAt(x, z, reg)
-        if (reg.r2 - reg.r1 < TRACK_WIDTH + 60) continue
+        if (reg.r2 - reg.r1 < TRACK_REACH + 40) continue
         fieldAt(x, z, reg, s)
         if (s.edge > HEDGE_WIDTH) continue
         fieldSurfaceColor(x - 40, z, a)
@@ -272,8 +275,183 @@ describe('Bocage 的田區', () => {
       'bool isHedge = float(fieldHash1(edgeKey)) / 4294967296.0 < HEDGE_CHANCE;',
       'uint fh = fieldHash1(cellHash ^ (part * 0x7f4au));',
       'int t = clamp(tone + int((fh >> 8u) % 3u) - 1, 0, 7);',
+      'if (d < r1) { r2 = r1; s2 = s1; r1 = d; s1 = seed; rid = h; }',
+      'else if (d < r2) { r2 = d; s2 = seed; }',
     ]
     for (const line of want) expect(FIELD_GLSL).toContain(line)
+  })
+
+  /**
+   * 【凹路的寬度與歪斜：把 GLSL 那幾行拿來算】`trackWidthAt` 與推移量在 GLSL 裡
+   * 各是一行正弦的和；抽出來轉成 JS 算，與 CPU 那一份逐點比。式子寫漂了（正負號、
+   * 相位、x 與 z 對調）的話，地色的凹路與植被讓開的凹路就不在同一個地方
+   */
+  it('凹路的寬度與歪斜：GLSL 那幾行與 CPU 那一份逐點相同', () => {
+    const grab = (re: RegExp): ((x: number, z: number) => number) => {
+      const m = FIELD_GLSL.match(re)
+      expect(m, String(re)).not.toBeNull()
+      const js = m![1]!.replace(/sin\(/g, 'Math.sin(').replace(/w\.x/g, 'x').replace(/w\.y/g, 'z')
+        .replace(/TRACK_WIDTH/g, String(TRACK_WIDTH))
+      return new Function('x', 'z', `return ${js}`) as (x: number, z: number) => number
+    }
+    const width = grab(/float trackWidthAt\(vec2 w\) \{\n {2}return (.*);\n\}/)
+    const warpX = grab(/ {2}p\.x \+= (.*);\n/)
+    const warpZ = grab(/ {2}p\.y \+= (.*);\n/)
+    let seed = 5
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    for (let k = 0; k < 2000; k++) {
+      const x = (rand() - 0.5) * 60000
+      const z = (rand() - 0.5) * 60000
+      expect(width(x, z)).toBeCloseTo(trackWidthAt(x, z), 3)
+      regionAt(x, z, reg)
+      const px = x + warpX(x, z)
+      const pz = z + warpZ(x, z)
+      const gap = Math.abs(Math.hypot(px - reg.bx, pz - reg.bz) - Math.hypot(px - reg.ax, pz - reg.az))
+      expect(gap).toBeCloseTo(trackGap(x, z, reg), 3)
+    }
+  })
+})
+
+/**
+ * 凹路：兩區交界兩側來回擺、寬窄不一，但一路連著（`TRACK_WARP`、`TRACK_RIPPLE`）
+ */
+describe('凹路', () => {
+  it('沿著交界走，凹路一路都在、左右擺', () => {
+    const a = { x: 0, z: 0 }
+    const b = { x: 0, z: 0 }
+    let steps = 0
+    let lo = Infinity
+    let hi = -Infinity
+    // 十二條交界：一條只有幾百公尺，擺動的長波長將近 800 m
+    for (let k = 0; k < 12; k++) {
+      regionSeed(k % 4, (k / 4) | 0, a)
+      regionSeed((k % 4) + 1, (k / 4) | 0, b)
+      const len = Math.hypot(b.x - a.x, b.z - a.z)
+      const nx = (b.x - a.x) / len
+      const nz = (b.z - a.z) / len
+      const mx = (a.x + b.x) / 2
+      const mz = (a.z + b.z) / 2
+      for (let s = -1600; s <= 1600; s += 10) {
+        const cx = mx - nz * s
+        const cz = mz + nx * s
+        // 只量整條橫切線都在這兩顆種子之間的地方：沒有推移的話凹路對交界左右
+        // 對稱、中線偏移是 0；靠近三區交會處的橫切線會碰到別條凹路
+        let n = 0
+        let sum = 0
+        let pure = true
+        for (let u = -80; u <= 80 && pure; u += 0.5) {
+          const x = cx + nx * u
+          const z = cz + nz * u
+          regionAt(x, z, reg)
+          pure = (reg.ax === a.x && reg.bx === b.x) || (reg.ax === b.x && reg.bx === a.x)
+          if (onTrack(x, z, reg)) { n++; sum += u }
+        }
+        if (!pure) continue
+        expect(n, `k = ${k}, s = ${s}`).toBeGreaterThan(0)
+        steps++
+        const c = sum / n
+        lo = Math.min(lo, c)
+        hi = Math.max(hi, c)
+      }
+    }
+    console.log(JSON.stringify({ 段數: steps, 中線偏移: [lo.toFixed(1), hi.toFixed(1)] }))
+    expect(steps).toBeGreaterThan(300)
+    // 左右都擺過，擺幅幾公尺
+    expect(lo).toBeLessThan(-2.5)
+    expect(hi).toBeGreaterThan(2.5)
+  })
+
+  /**
+   * 【凹路蓋住接縫】兩區的田格在交界上是一條直的接縫，凹路擺動時仍要把它蓋住 ——
+   * 擺幅超過最窄處一半的話，接縫從凹路邊上露出來
+   */
+  it('兩區交界上的每一點都在凹路上', () => {
+    let seed = 23
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    let checked = 0
+    for (let k = 0; k < 20000; k++) {
+      const x = (rand() - 0.5) * 40000
+      const z = (rand() - 0.5) * 40000
+      regionAt(x, z, reg)
+      const { ax, az, bx, bz } = reg
+      // 投影到最近兩顆種子的垂直平分線上
+      const len = Math.hypot(bx - ax, bz - az)
+      const nx = (bx - ax) / len
+      const nz = (bz - az) / len
+      const t = (x - (ax + bx) / 2) * nx + (z - (az + bz) / 2) * nz
+      const sx = x - nx * t
+      const sz = z - nz * t
+      regionAt(sx, sz, reg)
+      // 投影過去換了一對種子的話，那一點不在這條交界上
+      if (!((reg.ax === ax && reg.bx === bx) || (reg.ax === bx && reg.bx === ax))) continue
+      expect(onTrack(sx, sz, reg), `(${sx.toFixed(1)}, ${sz.toFixed(1)})`).toBe(true)
+      checked++
+    }
+    expect(checked).toBeGreaterThan(5000)
+  })
+
+  /**
+   * 【植被整格判斷的餘量】`flora.ts` 拿沒推移的 `r2 − r1` 判斷一整格碰不碰得到
+   * 凹路，靠的是這一條：兩者差不到 `2 × TRACK_WARP_MAX`。不成立的話凹路擺過去的
+   * 地方整格照樣長樹
+   */
+  it('trackGap 與沒推移的 r2 − r1 差不到兩倍推移量', () => {
+    let seed = 11
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    let worst = 0
+    for (let k = 0; k < 20000; k++) {
+      const x = (rand() - 0.5) * 40000
+      const z = (rand() - 0.5) * 40000
+      regionAt(x, z, reg)
+      worst = Math.max(worst, Math.abs(trackGap(x, z, reg) - (reg.r2 - reg.r1)))
+    }
+    console.log(JSON.stringify({ 最大差: worst.toFixed(1), 上限: (2 * TRACK_WARP_MAX).toFixed(1) }))
+    expect(worst).toBeLessThanOrEqual(2 * TRACK_WARP_MAX)
+    // 量尺有事可做：推移真的讓它差了一截
+    expect(worst).toBeGreaterThan(TRACK_WARP_MAX)
+  })
+
+  /**
+   * 【onTrack 的早退】離交界遠的點直接回 false、不算正弦。早退的門檻不夠寬的話，
+   * 凹路擺出去的那一側被切掉一條 —— 地色（GLSL 不早退）有路、植被卻當沒有
+   */
+  it('onTrack 與 trackGap < trackWidthAt 逐點相同', () => {
+    let seed = 31
+    const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    let on = 0
+    for (let k = 0; k < 20000; k++) {
+      const x0 = (rand() - 0.5) * 40000
+      const z0 = (rand() - 0.5) * 40000
+      regionAt(x0, z0, reg)
+      // 投影到交界上，再往兩側偏 0～30 m：凹路的邊都在這一段裡
+      const len = Math.hypot(reg.bx - reg.ax, reg.bz - reg.az)
+      const nx = (reg.bx - reg.ax) / len
+      const nz = (reg.bz - reg.az) / len
+      const t = (x0 - (reg.ax + reg.bx) / 2) * nx + (z0 - (reg.az + reg.bz) / 2) * nz
+      const off = (rand() - 0.5) * 60
+      const x = x0 - nx * (t - off)
+      const z = z0 - nz * (t - off)
+      regionAt(x, z, reg)
+      const want = trackGap(x, z, reg) < trackWidthAt(x, z)
+      expect(onTrack(x, z, reg), `(${x.toFixed(1)}, ${z.toFixed(1)})`).toBe(want)
+      if (want) on++
+    }
+    expect(on).toBeGreaterThan(3000)
+  })
+
+  it('寬度沿路在 TRACK_WIDTH_MIN～TRACK_WIDTH_MAX 之間起伏', () => {
+    let lo = Infinity
+    let hi = 0
+    for (let x = -5000; x <= 5000; x += 37) {
+      for (let z = -5000; z <= 5000; z += 53) {
+        const w = trackWidthAt(x, z)
+        lo = Math.min(lo, w)
+        hi = Math.max(hi, w)
+      }
+    }
+    expect(lo).toBeGreaterThanOrEqual(TRACK_WIDTH_MIN - 1e-9)
+    expect(hi).toBeLessThanOrEqual(TRACK_WIDTH_MAX + 1e-9)
+    expect(hi / lo).toBeGreaterThan(1.4)
   })
 })
 
@@ -292,7 +470,7 @@ function hash2(i: number, j: number): number {
 describe('植被放置要用的三支', () => {
   const P = { x: 0, z: 0 }
   const other: RegionSample = {
-    r1: 0, r2: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
+    r1: 0, r2: 0, ax: 0, az: 0, bx: 0, bz: 0, id: 0, angle: 0, cellW: 0, cellH: 0, tone: 0,
   }
   const cut: SplitCut = { axis: 0, at: 0, lo: 0, hi: 0 }
 
@@ -340,7 +518,7 @@ describe('植被放置要用的三支', () => {
    */
   function onCut(x: number, z: number, off: number): { x: number; z: number } | null {
     regionAt(x, z, reg)
-    if (reg.r2 - reg.r1 < TRACK_WIDTH) return null
+    if (onTrack(x, z, reg)) return null
     const rid = reg.id
     const angle = reg.angle
     const cs = Math.cos(-angle)
@@ -365,7 +543,7 @@ describe('植被放置要用的三支', () => {
     const wx = px * ca - pz * sa
     const wz = px * sa + pz * ca
     regionAt(wx, wz, reg)
-    if (reg.id !== rid || reg.r2 - reg.r1 < TRACK_WIDTH) return null
+    if (reg.id !== rid || onTrack(wx, wz, reg)) return null
     return { x: wx, z: wz }
   }
 
@@ -475,7 +653,7 @@ describe('樹林', () => {
       const x = k * 13.7 - 20000
       const z = k * 29.3 - 40000
       regionAt(x, z, reg)
-      if (reg.r2 - reg.r1 < TRACK_WIDTH) continue
+      if (onTrack(x, z, reg)) continue
       fieldAt(x, z, reg, s)
       // 【不比樹籬】樹籬比樹林還暗，那是對的 —— 這一條比的是田
       if (s.hedged && s.edge < HEDGE_WIDTH / 2) continue
@@ -554,12 +732,12 @@ describe('帶的邊緣抗鋸齒', () => {
   })
 
   /**
-   * 【兩條帶的半寬不一樣，別統一】凹路現況的判準是 `r2 - r1 < TRACK_WIDTH`，
-   * 所以它的半寬就是 `TRACK_WIDTH`；樹籬是 `best < HEDGE_WIDTH * 0.5`。
+   * 【兩條帶的半寬不一樣，別統一】凹路的判準是 `trackGap < trackWidthAt`，
+   * 所以它的半寬就是 `trackWidthAt`；樹籬是 `best < HEDGE_WIDTH * 0.5`。
    */
   it('兩條帶各自傳對的距離與半寬', () => {
     expect(body).toContain('bandCoverage(best, HEDGE_WIDTH * 0.5, px)')
-    expect(body).toContain('bandCoverage(r2 - r1, TRACK_WIDTH, px)')
+    expect(body).toContain('bandCoverage(trackGap(world, s1, s2), trackWidthAt(world), px)')
   })
 })
 
@@ -601,7 +779,7 @@ describe('犁溝與作物條紋', () => {
       const x = k * 17.3 - 30000
       const z = k * 11.9 - 20000
       regionAt(x, z, reg)
-      if (reg.r2 - reg.r1 < TRACK_WIDTH + 40) continue
+      if (reg.r2 - reg.r1 < TRACK_REACH + 20) continue
       fieldAt(x, z, reg, s)
       // 離田界遠一點，免得位移之後跨過樹籬
       if (s.edge < 30) continue
