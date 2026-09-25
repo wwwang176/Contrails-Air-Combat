@@ -400,7 +400,8 @@ describe('extend 的三個理由與射擊否決權', () => {
    * 有 **50.1% / 45.1%** 的時間 `cornerRatio` 已經低於 `cornerEnter` ——
    * AI 一邊轉不動一邊繼續硬破防。
    *
-   * **改了之後量出來明顯更糟，已退回。** `ai-visible-evasion` 的主判準：
+   * **改了之後量出來明顯更糟，已退回。** 射手在 700 m／900 m 咬住破防方的
+   * 咬尾場景，量射手壓得住準星的時間：
    *
    * ```
    *                        原樣    搬到 defend 之前
@@ -598,7 +599,7 @@ describe('規則 3：轉不到就脫離', () => {
 
   it('轟炸機不走這條規則', () => {
     // 【它擋的是實測過的回歸】轟炸機轉不贏攔截機是常態，少了機種閘門整隊
-    // 會離開航線 —— `turrets.test.ts` 的「P-51 也打下了東西」曾因此變成 0
+    // 會離開航線 —— P-51 對 B-17 的遭遇戰裡 P-51 曾因此一架都打不下來
     const s = createRuleState()
     const sit = stuck()
     for (let i = 0; i < 20; i++) stepRules(s, sit, 0, DT, DEFAULT_RULES, false)

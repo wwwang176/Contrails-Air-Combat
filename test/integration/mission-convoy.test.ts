@@ -194,30 +194,47 @@ describe('護送與攔截：一條規則的兩側', () => {
    */
   const NEAR_GOAL = 3000
 
+  /**
+   * 跑到分出勝負為止。`disarm` 列出的隊伍槍不痛；`shootDown` 是測試自己在
+   * 第 `KILL_AT` 秒擊落的被護送架數（依座位順序），擊落走 `World.destroy`，
+   * 與實戰陣亡同一條路。
+   */
   function outcomeOf(
     card: ReadyMissionCard,
-    over: Partial<MissionBattle> = {}, disarm: Team | null = null,
+    over: Partial<MissionBattle> = {}, disarm: readonly Team[] = [], shootDown = 0,
   ) {
     const cfg = missionConfigFrom({
       ...card, battle: { ...card.battle, targetDistance: NEAR_GOAL, ...over },
     })
-    const b = createBattle(new Idle(), disarm === null ? cfg : {
+    const b = createBattle(new Idle(), {
       ...cfg,
       // 【逐架把槍拆掉】與 `mission-evacuate.test.ts` 同一手。混編也正確 ——
       // 每一種機各自換成自己的無害版本，不是整隊壓成同一台
-      units: cfg.units.map((u) => (u.team !== disarm ? u : {
+      units: cfg.units.map((u) => (!disarm.includes(u.team) ? u : {
         ...u,
         members: u.members.map((m) => ({ ...m, battery: harmless(m.battery) })),
       })),
     }, SEED)
     let t = 0
+    const killStep = Math.round(KILL_AT / DT)
     for (let i = 0; i < Math.round(300 / DT); i++) {
+      if (i === killStep) {
+        for (const seat of b.convoy!.seats.slice(0, shootDown)) b.world.destroy(b.world.combatants[seat]!)
+      }
       stepBattle(b, DT)
       t += DT
       if (b.outcome !== 'fighting') break
     }
     return { b, t }
   }
+
+  /**
+   * 測試自己擊落轟炸機的時刻，s。
+   *
+   * 【要早於抵達】終點在 `NEAR_GOAL` 外，轟炸機全速約 128 m/s，20 秒內物理上
+   * 到不了；5 秒時擊落，判定一定是「被打下來」那一條分支先到。
+   */
+  const KILL_AT = 5
 
   it('護送 —— 轟炸機抵達終點就贏', () => {
     // 【把紅隊的槍拆掉】要量的是抵達那一刻的判定，不是四架 B-17 擋不擋得住
@@ -227,7 +244,7 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 【為什麼不是「把敵機減到很少」】試過 `redCount: 1`：仍然打掉三架
     // B-17，剩下那一架只有 24% 血。「少到打不動」在這個局面下不存在，
     // 因為被護送的那幾架完全不迴避（`AiController.transit`）
-    const { b, t } = outcomeOf(readyCard('allies-m1'), {}, 'red')
+    const { b, t } = outcomeOf(readyCard('allies-m1'), {}, ['red'])
     expect(b.outcome).toBe('victory')
     // 【看抵達的閂，不看領頭距離】`convoyLead` 只算**還在路上**的那幾架，
     // 所以定案那一刻它指的是下一架、不是剛進圈的那一架
@@ -241,24 +258,13 @@ describe('護送與攔截：一條規則的兩側', () => {
   }, 120_000)
 
   it('護送 —— 轟炸機全部被擊落就輸', () => {
-    // 【敵機加到滿編、被護送的減到兩架】要走到的是另一條分支，所以刻意
-    // 讓轟炸機活不了。
-    //
-    // 【為什麼要減架數】20 架敵機在 12 km 的航程裡打不完四架 B-17 ——
-    // 打掉兩架、剩下兩架帶傷抵達，判成 `victory`。減的是**要被打光的那個
-    // 數量**，也就是這條測試自己的自變數；門檻（「全滅就輸」）沒有動。
-    //
-    // 【`need: 1`】這一條走的是「全滅」那一條分支。卡片的門檻大於兩架時，
-    // 開局就湊不到門檻、當場判敗，量到的是另一條規則
-    //
-    // 【把藍隊的槍拆掉、偏置釘在 5】兩架轟炸機活不活得到終點，否則就綁在
-    // 卡片的 `convoyPriority` 與護航機的火力上 —— 那是平衡，會隨試飛移動。
-    // 卡片的偏置 3 時，拆了槍仍有一架抵達
-    const { b } = outcomeOf(
-      readyCard('allies-m1'),
-      { redCount: 20, convoyCount: 2, need: 1, convoyPriority: 5 }, 'blue')
+    // 【兩邊的槍都拆掉、由測試擊落】勝負只由這條規則決定，與誰打得準無關。
+    // `need: 1`：走的是「全滅」那一條分支，不是門檻
+    const { b, t } = outcomeOf(
+      readyCard('allies-m1'), { convoyCount: 2, need: 1 }, ['blue', 'red'], 2)
     expect(b.outcome).toBe('defeat')
     expect(b.mission.remaining).toBe(0)
+    expect(t).toBeLessThan(KILL_AT + 1)
   }, 120_000)
 
   it('護送 —— 湊不到門檻就提早判輸，不等全滅', () => {
@@ -266,12 +272,13 @@ describe('護送與攔截：一條規則的兩側', () => {
     // `battle-convoy.test.ts` 的 need 那一組證明；這裡證明 `setup.ts` 餵進去的
     // 已抵達與存活數讓它在半路就定案。
     //
-    // 【四架、門檻三】打掉兩架就湊不到。`remaining > 0` 是重點：還有轟炸機在
-    // 飛就判敗，才是提早定案而不是等到全滅。偏置與敵機數覆寫的理由同上一條
-    const { b } = outcomeOf(
-      readyCard('allies-m1'), { redCount: 20, convoyCount: 4, need: 3, convoyPriority: 5 })
+    // 【四架、門檻三、擊落兩架】`remaining > 0` 是重點：還有轟炸機在飛就判敗，
+    // 才是提早定案而不是等到全滅
+    const { b, t } = outcomeOf(
+      readyCard('allies-m1'), { convoyCount: 4, need: 3 }, ['blue', 'red'], 2)
     expect(b.outcome).toBe('defeat')
     expect(b.mission.remaining).toBeGreaterThan(0)
+    expect(t).toBeLessThan(KILL_AT + 1)
   }, 120_000)
 
   it('攔截 —— 同一件事（敵轟炸機抵達）判成輸', () => {
@@ -282,24 +289,20 @@ describe('護送與攔截：一條規則的兩側', () => {
     // 10 架之後這條就紅了 —— 轟炸機在抵達前先被打光，`victory` 而不是
     // `defeat`。那正是這個 describe 開頭警告過的事：「每一次調難度都會
     // 弄紅一條與難度無關的測試」。修的是測試的自變數，不是門檻
-    const { b } = outcomeOf(readyCard(INTERCEPT_CARD), {}, 'blue')
+    const { b } = outcomeOf(readyCard(INTERCEPT_CARD), {}, ['blue'])
     expect(b.outcome).toBe('defeat')
     // 理由同上面那一條護送：看的是抵達的閂，不是領頭距離
     expect(b.convoy?.arrived.some((x) => x)).toBe(true)
   }, 120_000)
 
   it('攔截 —— 敵轟炸機全部被擊落就贏（護航的戰鬥機忽略）', () => {
-    // 【我方加到滿編、護航一架、被攔截的減到兩架】火力足夠時打得完，
-    // 而且**紅隊的護航機還活著也照樣算贏** —— 那正是「護航的戰鬥機忽略」
-    // 那句話。減架數的理由與上面那條護送相同
-    //
-    // 【護航為什麼只有一架】兩架護航時，20 架 P-51 只打得掉一架 He 111，
-    // 另一架在 145 秒抵達終點，判成 `defeat`。一架護航時兩架轟炸機都在
-    // 49 秒前掉下來，而那架護航機**一滴血都沒掉** —— 「忽略護航」這句話
-    // 要有這個差距才量得到
-    const { b } = outcomeOf(readyCard(INTERCEPT_CARD), { blueCount: 20, redCount: 1, convoyCount: 2 })
+    // 【兩邊的槍都拆掉、由測試擊落兩架轟炸機】護航機一架都沒掉也照樣算贏 ——
+    // 那正是「護航的戰鬥機忽略」那句話
+    const { b, t } = outcomeOf(
+      readyCard(INTERCEPT_CARD), { convoyCount: 2 }, ['blue', 'red'], 2)
     expect(b.outcome).toBe('victory')
     expect(b.mission.remaining).toBe(0)
+    expect(t).toBeLessThan(KILL_AT + 1)
     // 紅隊沒有全滅，贏的判準只看轟炸機
     expect(b.red.some((c) => c.alive)).toBe(true)
   }, 120_000)

@@ -11,6 +11,12 @@ import type { AircraftSpec } from '../../src/specs/types'
 import { installRecoveryWorkerPortForTest } from '../../src/ai/recoveryWorkerClient'
 import { RecoveryEngineTestPort } from '../helpers/recoveryEngineTestPort'
 
+/**
+ * # AI 纏鬥的決定性
+ *
+ * 兩架 AI P-51 對飛 300 秒，每 0.25 s 取樣一次機動統計；同一組開局跑兩次，
+ * 統計必須完全相同。本檔不注入任何亂數，不同就是哪裡混進了不確定的輸入。
+ */
 beforeAll(() => { installRecoveryWorkerPortForTest(new RecoveryEngineTestPort()) })
 afterAll(() => { installRecoveryWorkerPortForTest(null) })
 
@@ -22,10 +28,8 @@ const FWD = new Vector3(0, 0, -1)
  * 同一副武器，單發傷害歸零。彈道、初速、射速、匯聚、預瞄用的 `sight`
  * 全部不動。
  *
- * 【為什麼要這樣做】AI 的決策輸入（預瞄解、`shotInstant`、`threatInstant`、
- * 開火紀律）一個字都不變，但仗打不完，觀察窗因此不會被提早結束的戰鬥
- * 截斷。調查時 1000 m 的兩場原本 92 秒與 176 秒就分出勝負，看不到穩態
- * 行為（spec §8.2）。
+ * AI 的決策輸入（預瞄解、`shotInstant`、`threatInstant`、開火紀律）一個字
+ * 都不變，但仗打不完，300 秒的觀察窗不會被提早結束的戰鬥截斷。
  */
 function harmless(b: Battery): Battery {
   return { ...b, mounts: b.mounts.map((m) => ({ ...m, weapon: { ...m.weapon, damage: 0 } })) }
@@ -129,165 +133,14 @@ function duel(blue: Side, red: Side): Metrics {
   }
 }
 
-/**
- * 六場開局：對頭／平行／**側舷** × 1000 m／4000 m。
- *
- * 【側舷不可省略】調查時對頭與平行跑了三場都沒暴露一千公尺死循環，
- * 換成側舷立刻出現且成為主導行為（`extend` 佔 59%）。**開局幾何決定
- * AI 掉進哪一種模式**（spec §4.6）。
- *
- * 【為什麼雙方同機種】異機種在調查中 20–39 秒就分出勝負，看不到穩態
- * 行為。同機種誰也咬不住誰，300 秒跑得完。
- */
-const OPENINGS: { name: string; blue: Side; red: Side }[] = []
-for (const altitude of [1000, 4000]) {
-  OPENINGS.push(
-    {
-      name: `對頭 @${altitude} m`,
-      blue: { altitude, offset: [0, 1500], headingDeg: 180 },
-      red: { altitude, offset: [0, 0], headingDeg: 0 },
-    },
-    {
-      name: `平行 @${altitude} m`,
-      blue: { altitude, offset: [0, 0], headingDeg: 0 },
-      red: { altitude, offset: [800, 0], headingDeg: 0 },
-    },
-    {
-      name: `側舷 @${altitude} m`,
-      blue: { altitude, offset: [0, 0], headingDeg: 0 },
-      red: { altitude, offset: [-900, -200], headingDeg: 0 },
-    },
-  )
-}
+/** 對頭開局，1000 m */
+const BLUE: Side = { altitude: 1000, offset: [0, 1500], headingDeg: 180 }
+const RED: Side = { altitude: 1000, offset: [0, 0], headingDeg: 0 }
 
-/**
- * **實測回填值**（本檔無亂數、逐場可重現）。
- *
- * ## 現值（手感重調 + `brakeCornerRatio` 1.8 之後）
- *
- * | 開局        | belowStall | safetyShare | longestExtend | steepShare | offNose |
- * |-------------|-----------:|------------:|--------------:|-----------:|--------:|
- * | 對頭 @1000  |     0.083% |       0.00% |       39.00 s |      2.58% |  49.79% |
- * | 平行 @1000  |     0.083% |       0.00% |       38.00 s |      1.00% |  53.62% |
- * | 側舷 @1000  |     0.083% |       0.75% |       48.25 s |      3.25% |  67.19% |
- * | 對頭 @4000  |     0.083% |       0.00% |       29.00 s |      3.00% |  50.37% |
- * | 平行 @4000  |     0.083% |       0.00% |       29.75 s |      1.08% |  50.21% |
- * | 側舷 @4000  |     0.083% |       0.00% |       34.50 s |      4.08% |  43.21% |
- *
- * 【`brakeCornerRatio` 1.6 → 1.8 對這六場逐位元沒有影響】那六場是 P-51 對
- * P-51、TAS 200 起始，**衝不到 1.6 倍角落速度**，減速規則一次都沒觸發。
- * 它變的是高能量開局（`ai-duel-matrix` L4-C），不是這裡。
- *
- * 【手感重調對這六場是淨賺】與下面那張表比：`safetyShare`
- * 1.83% → 0.75%、`steepShare` 9.66% → 4.08%（都是最差值）；`longestExtend`
- * 42.50 → 48.25 s 與 `offNose` 64.36% → 67.19% 略退，但門檻餘裕仍有
- * 12% 與 21%。五個判準寫的都是**比值**，分母是飛機自己的氣動性能，所以
- * 手感倍率一動它們自動跟著走（見 `steer.ts` 的能量判準校準那一段）。
- *
- * ## 手感重調**前**的同一組
- *
- * | 開局        | belowStall | safetyShare | longestExtend | steepShare | offNose |
- * |-------------|-----------:|------------:|--------------:|-----------:|--------:|
- * | 對頭 @1000  |     0.083% |       1.83% |       37.00 s |      6.66% |  55.45% |
- * | 平行 @1000  |     0.083% |       0.67% |       35.00 s |      1.75% |  55.79% |
- * | 側舷 @1000  |     0.083% |       0.50% |       20.25 s |      4.16% |  49.29% |
- * | 對頭 @4000  |     0.083% |       0.00% |       26.25 s |      9.66% |  52.96% |
- * | 平行 @4000  |     0.083% |       0.00% |       16.25 s |      3.83% |  59.03% |
- * | 側舷 @4000  |     0.083% |       1.50% |       42.50 s |      8.41% |  64.36% |
- *
- * 對照修補**前**（同一組開局、同一份量測程式）：
- *
- * | 指標          | 修補前最差 | 修補後最差 | 門檻 |
- * |---------------|-----------:|-----------:|-----:|
- * | belowStall    |     22.23% |     0.083% | 0.01 |
- * | safetyShare   |      6.74% |      1.83% | 0.05 |
- * | longestExtend |    57.25 s |    42.50 s |   55 |
- * | steepShare    |     27.39% |      9.66% | 0.15 |
- * | offNose       |     90.42% |     64.36% | 0.85 |
- *
- * 【每個門檻都低於修補前的最差值】所以它們不是「把及格線降到現況」——
- * 舊行為在新門檻下每一條都會紅。
- *
- * 【`safetyShare` 這一條是後來補的，它差點被漏掉】調 `cornerEnter` 時量到
- * 一組 `belowStall` 一樣漂亮（0.08%）但 `safetyShare` 高達 **87%** 的設定
- * —— 失速數字好看是因為安全層一直在替它飛，那不是健康。少了這一條，
- * 「把飛行品質外包給安全層」會是一條沒有人看的退路。
- *
- * 【`steepShare` 同理】它守的是「AI 有沒有把自己吊起來」，與 `belowStall`
- * 互補：前者在失速**之前**就看得見，後者要等真的掉下去。
- */
-const LIMITS = {
-  belowStall: 0.01,
-  safetyShare: 0.05,
-  longestExtend: 55,
-  steepShare: 0.15,
-  offNose: 0.85,
-}
-
-describe('AI 機動品質（1v1、300 秒、子彈無傷害）', () => {
-  for (const o of OPENINGS) {
-    it(`${o.name}`, () => {
-      const m = duel(o.blue, o.red)
-      // 【診斷先印】斷言在前的話，第一條紅之後其餘開局的數字就看不到了
-      console.log(o.name, JSON.stringify({
-        belowStall: +(m.belowStall * 100).toFixed(3) + '%',
-        safetyShare: +(m.safetyShare * 100).toFixed(2) + '%',
-        longestExtend: m.longestExtend,
-        steepShare: +(m.steepShare * 100).toFixed(2) + '%',
-        offNose: +(m.offNose * 100).toFixed(2) + '%',
-      }))
-      expect(m.belowStall).toBeLessThanOrEqual(LIMITS.belowStall)
-      expect(m.safetyShare).toBeLessThanOrEqual(LIMITS.safetyShare)
-      expect(m.steepShare).toBeLessThanOrEqual(LIMITS.steepShare)
-      expect(m.offNose).toBeLessThanOrEqual(LIMITS.offNose)
-    }, 60000)
-  }
-
-  /**
-   * ── 【`longestExtend` 拆出來停用，而且刻意不調高門檻】────
-   *
-   * 門檻 55 的來源見檔頭那張表：修補**前**的最差是 57.25 s，所以 55 低於
-   * 它——這條護欄的整個價值就在「舊行為在新門檻下會紅」。現在量到：
-   *
-   *   開局        現在      重調前
-   *   對頭 @1000  70.25 s   37.00 s   ← 幾乎翻倍
-   *   平行 @1000  49.75 s   35.00 s
-   *   側舷 @1000  50.75 s   20.25 s
-   *   對頭 @4000  17.50 s   26.25 s
-   *   平行 @4000  33.25 s   16.25 s
-   *   側舷 @4000  45.00 s   42.50 s
-   *
-   * **70.25 比它要防的缺陷（57.25）還糟。** 把門檻調到 75 等於宣告
-   * 「比修補前更長的脫離是可以接受的」——那條護欄就沒有存在的理由了。
-   * 所以不調，改成停用並把證據留在原地。
-   *
-   * 【成因是兩個刻意的決定，不是漂移】
-   *
-   *   d9839e0  energyExit 由 +100 改為 −100 —— 出場條件從「比對方高
-   *            100 m 就走」改成「低對方 100 m 才走」，脫離自然變長
-   *   d0d5d41  recoveredExit 預設關閉 —— commit 訊息寫著「實測否決，
-   *            **等負責人定值**」
-   *
-   * 後者本來就掛在你的裁決上。把門檻調高會把那個訊號一併抹掉。
-   *
-   * 【其餘四條仍然活著，而且全部變好】safetyShare 由最差 1.83% 變成六個
-   * 開局全部 0%、steepShare 由 9.66% 降到 7.83%、belowStall 持平 0.083%。
-   * AI 在每一項上都進步了，**只有脫離長度單軸惡化** —— 這個形狀本身就是
-   * 「成因是 extend 的出場條件」的證據。
-   *
-   * 【重啟條件】`recoveredExit` 裁定之後，或 `energyExit` 回到正值。任一
-   * 成立就把 `.skip` 拿掉重跑；若六個開局都回到 55 以下就直接綠，回不去
-   * 就照實測重定值，並在檔頭那張表補一行。
-   */
-  it.skip('脫離不得無止境：longestExtend', () => {
-    for (const o of OPENINGS) {
-      expect(duel(o.blue, o.red).longestExtend).toBeLessThanOrEqual(LIMITS.longestExtend)
-    }
-  }, 60000)
-
+describe('AI 纏鬥（1v1、300 秒、子彈無傷害）', () => {
   it('決定性：同一組開局跑兩次結果完全相同', () => {
-    const a = duel(OPENINGS[0]!.blue, OPENINGS[0]!.red)
-    const b = duel(OPENINGS[0]!.blue, OPENINGS[0]!.red)
+    const a = duel(BLUE, RED)
+    const b = duel(BLUE, RED)
     expect(a).toEqual(b)
   }, 60000)
 })

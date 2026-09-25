@@ -12,8 +12,8 @@
  * 一隊的開局擺法。
  *
  * 【為什麼是係數而不是絕對座標】`entryRange` 與 `lateralOffset` 是
- * `BattleConfig` 的欄位，而 `stall-loop.probe.ts`、`turn-shrink.probe.ts`、
- * `ai-command-decision.test.ts` 都靠覆寫它們來換場景。擺法若寫死絕對座標，
+ * `BattleConfig` 的欄位，而 `stall-loop.probe.ts`、`turn-shrink.probe.ts`
+ * 都靠覆寫它們來換場景。擺法若寫死絕對座標，
  * 那些覆寫會**靜靜失效** —— 探針照跑、數字照印，只是量的不是它宣稱的東西。
  *
  * 所以沿用同一套慣例：`along` / `across` 是那兩個尺標的倍數，
@@ -55,14 +55,15 @@ export interface EntryPlan {
 const NEUTRAL: SideEntry = { along: 0, across: 0, gap: 0, climb: 0, heading: 0, speed: 1 }
 
 /**
- * 對頭。**M5 以來的既有排列，全部既有護欄都建立在它上面。**
+ * 對頭。遭遇戰與大部分整合測試、探針的共同開局。
  *
  * 藍隊在 +Z 朝 −Z、紅隊在 −Z 朝 +Z，兩隊橫向對稱錯開 —— 錯開是為了解
  * 匯聚問題（M5 實測：兩隊正對時 300 m 的匯聚點讓一邊有效命中率 97%、
  * 另一邊 34%），推導見 `BattleConfig.lateralOffset`。
  *
- * **這一份的數字一個都不能動。** 動了等於同時移動 `ai-command-channel`、
- * `ai-withdraw-anchor`、`multi-battle`、`ai-targeting` 的全部基準。
+ * 【動了數字，所有用它的測試與探針會一起換場景】`multi-battle`、
+ * `ai-command-channel`、`terrain-in-play` 等照跑照過，只是量的已經不是
+ * 原本那一場。
  */
 export const HEAD_ON: EntryPlan = {
   id: 'headOn',

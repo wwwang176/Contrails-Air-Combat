@@ -1,6 +1,6 @@
 /**
- * 紅線守線的開／關對照：A6M 活著時 IAS/vne 的最高值。
- * `test/integration/redline.test.ts` 的門檻取兩者中間 —— 這一支就是量那兩個數。
+ * 紅線守線的開／關對照：F4F-4 對 A6M5 各 20 架打 300 秒，A6M 活著時
+ * IAS/vne 的最高值。關掉的做法是把 `overspeedRatio` 拉到 2，讓守線永不觸發。
  *
  *   npx vite-node test/tools/redline-onoff.probe.ts
  */

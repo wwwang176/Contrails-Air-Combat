@@ -5,8 +5,8 @@
  *
  * 出貨的 3,900 kg 是校準值（見 `specs/p51d.ts` 的 `mass`）：史實的爬升／升限／
  * 失速三項各自反解都指向約 90% 的出貨重，而「重量玩家感受不到」，所以
- * 用載重狀態去換那三項。這支把「換回去」的帳算清楚 —— 每一條現行斷言各自
- * 會落在哪裡。
+ * 用載重狀態去換那三項。這支把「換回去」的帳算清楚 —— 史實驗收與兩機種
+ * 相對性能的參考線各自會落在哪裡。
  */
 import { P51D, P51D_HISTORICAL as HP } from '../../src/specs/p51d'
 import { BF109K4, BF109K4_HISTORICAL as HB } from '../../src/specs/bf109k4'
@@ -48,22 +48,22 @@ console.log('                 ' + cells((s) => {
   return `${r.toFixed(3)} ${pc(r, RATIO_HIST)}`
 }))
 
-// relative.test.ts 逐條
-console.log('\n9,000 m 對 K-4 的極速優勢（斷言 > 20 km/h）')
+// P-51D 對 K-4 的相對性能：史實上誰佔優的方向，括號裡是參考線，不是測試門檻
+console.log('\n9,000 m 對 K-4 的極速優勢（參考線 > 20 km/h）')
 console.log('                 ' + cells((s) =>
   (maxLevelSpeed(s, 9000) * KMH - maxLevelSpeed(BF109K4, 9000) * KMH).toFixed(1)))
-console.log('7,000 m 的差（斷言 < 0）')
+console.log('7,000 m 的差（參考線 < 0）')
 console.log('                 ' + cells((s) =>
   (maxLevelSpeed(s, 7000) * KMH - maxLevelSpeed(BF109K4, 7000) * KMH).toFixed(1)))
-console.log('8,000 m 的差（斷言 > 0）')
+console.log('8,000 m 的差（參考線 > 0）')
 console.log('                 ' + cells((s) =>
   (maxLevelSpeed(s, 8000) * KMH - maxLevelSpeed(BF109K4, 8000) * KMH).toFixed(1)))
-console.log(`升限差距（斷言 < 8%，K-4 ${serviceCeiling(BF109K4).toFixed(0)} m）`)
+console.log(`升限差距（參考線 < 8%，K-4 ${serviceCeiling(BF109K4).toFixed(0)} m）`)
 console.log('                 ' + cells((s) => {
   const p = serviceCeiling(s), b = serviceCeiling(BF109K4)
   return `${p.toFixed(0)} ${(Math.abs(p - b) / Math.min(p, b) * 100).toFixed(1)}%`
 }))
-console.log('K-4/P-51D 爬升比最大值（斷言 < 1.8，掃 0…9,000 m）')
+console.log('K-4/P-51D 爬升比最大值（參考線 < 1.8，掃 0…9,000 m）')
 console.log('                 ' + cells((s) => {
   let mx = 0
   for (let h = 0; h <= 9000; h += 1000) {
@@ -71,15 +71,15 @@ console.log('                 ' + cells((s) => {
   }
   return mx.toFixed(3)
 }))
-console.log('持續轉彎 250 km/h：P-51 − K-4 °/s（斷言 > 0）')
+console.log('持續轉彎 250 km/h：P-51 − K-4 °/s（參考線 > 0）')
 console.log('                 ' + cells((s) =>
   ((sustainedTurnRate(s, 0, 250 / KMH) - sustainedTurnRate(BF109K4, 0, 250 / KMH)) * DEGPS)
     .toFixed(3)))
-console.log('持續轉彎 300 km/h：K-4 − P-51 °/s（斷言 > 0）')
+console.log('持續轉彎 300 km/h：K-4 − P-51 °/s（參考線 > 0）')
 console.log('                 ' + cells((s) =>
   ((sustainedTurnRate(BF109K4, 0, 300 / KMH) - sustainedTurnRate(s, 0, 300 / KMH)) * DEGPS)
     .toFixed(3)))
-console.log('瞬間轉彎比 P-51/K-4 的最大值（斷言 > 1 且 < 1.10）')
+console.log('瞬間轉彎比 P-51/K-4 的最大值（參考線 > 1 且 < 1.10）')
 console.log('                 ' + cells((s) => {
   let mn = Infinity, mx = 0
   for (let v = 300; v <= 700; v += 50) {
@@ -88,7 +88,7 @@ console.log('                 ' + cells((s) => {
   }
   return `${mn.toFixed(3)}–${mx.toFixed(3)}`
 }))
-console.log('4G @3,000 m 的 Ps：P-51 − K-4（斷言 > 0，v = 500 km/h）')
+console.log('4G @3,000 m 的 Ps：P-51 − K-4（參考線 > 0，v = 500 km/h）')
 console.log('                 ' + cells((s) =>
   (specificExcessPower(s, 3000, 500 / KMH, 4)
    - specificExcessPower(BF109K4, 3000, 500 / KMH, 4)).toFixed(1)))
