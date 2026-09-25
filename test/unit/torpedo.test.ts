@@ -373,7 +373,8 @@ describe('torpedoHeading', () => {
   /**
    * 【等號那一點走機首】`stepAir` 寫的是 `if (hl > 1e-9)` —— 恰好等於門檻時
    * **不**正規化。這一條殺的是把它寫成 `>=` 的變異：`stepAir` 也呼叫這一支，
-   * 改錯就是改到模擬，而 `spawn-baseline` 的三個場景沒有魚雷、接不住。
+   * 改錯就是改到模擬，而跑整場的決定性測試（`spawn-snapshot.ts` 的三個
+   * 場景）沒有魚雷、接不住。
    */
   it('水平速度恰好等於門檻時走機首', () => {
     const hl = 1e-9
@@ -399,7 +400,7 @@ describe('torpedoHeading', () => {
  * 【垂直入水走機首，而且要走得到 `Torpedoes.step`】`torpedoHeading` 的單元
  * 測試只驗那支純函數；這一條驗的是 `stepAir` 真的把退化分支接上去了。
  *
- * `spawn-baseline` 的三個場景沒有魚雷，所以逐位元重播接不住這條路徑。
+ * 決定性測試（`spawn-snapshot.ts` 的三個場景）沒有魚雷，接不住這條路徑。
  */
 describe('垂直入水', () => {
   it('水平速度為零時，水中航向是投放瞬間的機首方向', () => {

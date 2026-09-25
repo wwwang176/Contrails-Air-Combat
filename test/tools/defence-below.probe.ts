@@ -1,6 +1,8 @@
 /**
- * 【一次性量測】複製 ai-defence.test.ts 的「後下方 400 m」場景，印紅 B 的
- * 意圖／extend 事由／高度差時間線 —— 追「reactionSeconds 8.5 s」的根因。
+ * 【一次性量測】「後下方 400 m」場景：三架 P-51 同在 4000 m、200 m/s，
+ * 藍機咬著正前方 400 m 的紅 A，紅 B 從藍機後方 380 m、低 150 m 處追上來。
+ * 每 0.5 秒印紅 B 的意圖／extend 事由／高度差與藍機的意圖 —— 看藍機要多久
+ * 才對後下方的威脅起反應，以及那段時間紅 B 在做什麼。
  *
  *   npx vite-node test/tools/defence-below.probe.ts
  */

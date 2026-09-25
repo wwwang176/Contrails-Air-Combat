@@ -58,9 +58,8 @@ class Idle implements Controller {
 }
 
 /**
- * 開局幾何，**一律從玩家（觀測儀）的視角**描述 —— 與 ai-visible-evasion
- * 的 `aspectOf` 是同一組定義。`offset` 是敵機相對我的位置，`course` 是
- * 敵機的開局航向。觀測儀一律在原點、機首 `FWD`、等速直線。
+ * 開局幾何，**一律從玩家（觀測儀）的視角**描述。`offset` 是敵機相對我的
+ * 位置，`course` 是敵機的開局航向。觀測儀一律在原點、機首 `FWD`、等速直線。
  */
 const PROBES = {
   ahead: { offset: new Vector3(0, 0, -STANDOFF), course: FWD, label: '正前方‧前飛' },

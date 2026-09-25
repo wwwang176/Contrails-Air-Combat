@@ -3,9 +3,9 @@
  *
  * 跑法：`npx vite-node test/tools/command-trigger.probe.ts`
  *
- * 【要回答什麼】「分攤折扣不數同小隊」打開之後，四條指揮層護欄的量測值
- * 一起歸零（`ai-command-channel` 的兩條、`ai-command-tactics` 的集火、
- * `ai-withdraw-anchor`）。歸零通常代表**命令根本沒發出來**，而不是效果變小。
+ * 【要回答什麼】指揮層的量測值（命令張數、到達、集火、撤退）一起歸零時，
+ * 例如改了「分攤折扣不數同小隊」這類目標分配的規則之後，通常代表**命令
+ * 根本沒發出來**，而不是效果變小。
  *
  * `stepCommand` 的撤退令要先過兩道計時器（`command.ts`）：
  *
@@ -20,7 +20,7 @@ import { DEFAULT_COMMAND } from '../../src/ai/command'
 import type { Command, Controller } from '../../src/control/Controller'
 import type { Aircraft } from '../../src/aircraft/Aircraft'
 
-/** 與 `ai-command-channel.test.ts` 逐字相同的假駕駛 */
+/** 玩家座位放一個什麼都不做的假駕駛：平飛，不參戰 */
 class Idle implements Controller {
   private readonly aim = new Vector3(0, 0, -1)
   update(_a: Aircraft, _dt: number, out: Command): void {
