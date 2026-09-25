@@ -3,7 +3,7 @@ import {
 } from 'three'
 import { createOcean } from './ocean'
 import { createFieldClipmap, type ClipLevelSpec, type FieldClipmap } from './fieldClipmap'
-import { roofSplats } from './buildingBake'
+import { floraSplats } from './buildingBake'
 import { farmSettlementFlora } from './farmSettlements'
 import type { DayPalette } from './timeOfDay'
 import { createIslands } from './island'
@@ -541,22 +541,33 @@ function createInlandTerrain(
   const villageReach = farm.field.cell * (farm.field.size - 1) / 2 + FLORA_RADIUS + 1000
   let buildings = padClear(dressing === undefined ? farmSettlementFlora(villageReach) : dressing.buildings)
   // 【河廊不長樹籬】犁過的方格與樹籬壓到水邊，河會像畫在田上的一條線
+  let bank: FloraSource | null = null
   if (rivers !== undefined) {
     fields = fields.map((s) => excludingCorridor(s, rivers.index))
     // 【河漫灘不是田】樹籬與田裡的林地停在河谷邊；河岸林照長
     if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.fieldsOut, dressing.fieldsOutNear))
     if (dressing === undefined) buildings = excludingCorridor(buildings, rivers.index)
-    fields.push(riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND))
+    bank = riverBankFlora(rivers.lines, farm.field.cell * (farm.field.size - 1) / 2 + RIVER_FLORA_BEYOND)
   }
   // 【村鎮裡、礦坑裡、高速公路上不長樹籬】河岸林也一樣 —— 橋頭與沿河的鎮上不長樹
-  if (dressing !== undefined) fields = fields.map((s) => excludingWhere(s, dressing.keepOut, dressing.keepOutNear))
+  if (dressing !== undefined) {
+    fields = fields.map((s) => excludingWhere(s, dressing.keepOut, dressing.keepOutNear))
+    if (bank !== null) bank = excludingWhere(bank, dressing.keepOut, dressing.keepOutNear)
+  }
+  // 田色算式裡沒有、要另外烘進遠圖的散佈器：建築與村鎮裡的樹、河岸林。與植被
+  // 畫的是同一個散佈器，遠處的色塊與近處的模型才對得上
+  const splatted: FloraSource[] = [buildings]
+  if (bank !== null) {
+    fields.push(bank)
+    splatted.push(bank)
+  }
   fields.push(buildings)
   for (const s of dressing?.flora ?? []) fields.push(padClear(s))
   // 【平貼在地上的都烘進地面】鎮的地面、礦坑、街兩張貼圖都烘，網格不畫；遠圖外
-  // 另外畫粗網格。植被圈外建築整棟不畫，屋頂色塊只烘遠圖（近窗裡有真的房子），
-  // 最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬
+  // 另外畫粗網格。植被圈外建築與樹不畫，屋頂與樹冠的色塊只烘遠圖（近窗裡有真的
+  // 模型），最後烘、蓋在鎮的地面上。遠窗最遠碰得到場地外半個窗寬
   const reach = farm.field.cell * (farm.field.size - 1) / 2 + FIELD_CLIP_FAR.size * FIELD_CLIP_FAR.metersPerTexel / 2
-  const roofs = clipmap === null ? null : roofSplats([buildings], -reach, -reach, reach, reach)
+  const roofs = clipmap === null ? null : floraSplats(splatted, -reach, -reach, reach, reach, season)
   if (clipmap !== null && roofs !== null) {
     for (const m of dressing?.baked ?? []) {
       clipmap.addOverlay(m.geometry, true)

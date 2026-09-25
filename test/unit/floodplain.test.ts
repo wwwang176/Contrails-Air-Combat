@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Color, type BufferAttribute } from 'three'
-import { createFloodplain } from '../../src/render/floodplain'
+import { createFloodplain, FOREST_GROUND } from '../../src/render/floodplain'
 import { MEADOW, MEADOW_HALF } from '../../src/render/river'
 import { createFloraBuffer, FLORA_STRIDE, FloraKind } from '../../src/render/flora'
 import type { WaterLine } from '../../src/world/river'
@@ -107,17 +107,18 @@ describe('地面網格', () => {
 
   /**
    * 【沒有河漫灘的河也有草甸】兩岸烘成草甸色；Luppe 那邊是河漫灘，有森林的深色，
-   * 不是一整條同色的帶子。【地面只鋪靠河的四分之一】樹長在整個河漫灘，地面的色帶
-   * 只有它的四分之一寬：Luppe 最寬 900 × 1.15、小河 `MEADOW_HALF`
+   * 不是一整條同色的帶子。【草甸色只鋪靠河的四分之一】Luppe 最寬 900 × 1.15、小河
+   * `MEADOW_HALF`；四分之一外只有林地（植被圈外樹不畫，林子要留在地上）
    */
-  it('地面只鋪靠河的四分之一；小河是草甸色，河漫灘不是單一色', () => {
+  it('草甸色只鋪靠河的四分之一、林地鋪滿河漫灘；小河是草甸色', () => {
     const mesh = fp.buildGround(() => 0, 22000)
     const pos = mesh.geometry.getAttribute('position') as BufferAttribute
     const col = mesh.geometry.getAttribute('color') as BufferAttribute
     const meadow = new Color(MEADOW)
+    const forest = new Color(FOREST_GROUND)
     let bank = 0
     let luppeMeadow = 0
-    let luppeOther = 0
+    let outerForest = 0
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i)
       const z = pos.getZ(i)
@@ -127,17 +128,21 @@ describe('地面網格', () => {
         expect(Math.abs(z - (4000 + 80 * Math.sin(x / 700))), `(${x},${z})`).toBeLessThan(MEADOW_HALF / 4 + 30)
         expect(same).toBe(true)
         bank++
-      } else {
-        if (Math.abs(x) < 4500) {
-          expect(Math.abs(z - 80 * Math.sin(x / 700)), `(${x},${z})`).toBeLessThan((900 * 1.15) / 4 + 30)
-        }
-        if (same) luppeMeadow++
-        else luppeOther++
+        continue
       }
+      if (same) luppeMeadow++
+      if (Math.abs(x) >= 4500 || Math.abs(z - 80 * Math.sin(x / 700)) < (900 * 1.15) / 4 + 30) continue
+      // 四分之一外：全透明，或者就是林地的顏色
+      const a = col.getW(i)
+      if (a === 0) continue
+      expect(col.getX(i), `(${x},${z})`).toBeCloseTo(forest.r, 5)
+      expect(col.getY(i), `(${x},${z})`).toBeCloseTo(forest.g, 5)
+      // 林地要伸到河漫灘的外半邊（Luppe 最窄也有 495 m）
+      if (a > 0.5 && Math.abs(z - 80 * Math.sin(x / 700)) > 450) outerForest++
     }
     expect(bank).toBeGreaterThan(500)
     expect(luppeMeadow).toBeGreaterThan(100)
-    expect(luppeOther).toBeGreaterThan(100)
+    expect(outerForest).toBeGreaterThan(200)
     mesh.geometry.dispose()
   })
 
