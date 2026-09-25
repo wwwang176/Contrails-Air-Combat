@@ -10,8 +10,8 @@ import { createIslands } from './island'
 import { createFarmGround } from './farmGround'
 import { createFarHorizon } from './farHorizon'
 import {
-  createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
-  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY,
+  BUSH_RANGE, createVegetation, FLORA_RADIUS, ISLAND_CAPACITY, ISLAND_MAX_PER_TILE, ISLAND_RADIUS,
+  ISLAND_TILES_PER_FRAME, LEYTE_CAPACITY, LOD_NEAR, OUTER_JITTER, POINT_NEAR,
 } from './vegetation'
 import {
   createIslandFlora, createLeyteFlora, farmHedgeFlora, farmWoodFlora,
@@ -161,7 +161,31 @@ export interface Terrain {
    * 否則拍到的是一片還沒補完的地。引擎每幀只生四格，光靠 `update` 要五十幀。
    */
   settle?(): void
+  /**
+   * 這一點落在哪一圈：樹、灌木、房子的級數與地面由哪一層畫。測距工具
+   * （`hud/rangeProbe.ts`）用，距離從上一次 `update` 的中心量。**只有內陸有**
+   */
+  describeAt?(x: number, z: number): readonly string[]
   dispose(): void
+}
+
+/**
+ * 植被在水平距離 `d` 的級數，與 `vegetation.ts` 的門檻相同。換級是整格（250 m）
+ * 一起換、用格心量，所以門檻附近差得到半格
+ */
+function floraRings(d: number): string[] {
+  const km = (m: number): string => `${m / 1000} km`
+  const outerLo = FLORA_RADIUS * (1 - OUTER_JITTER)
+  const gone = d > FLORA_RADIUS
+  const edge = d > outerLo && !gone
+  const tree = gone ? '不畫（烘在地面）'
+    : edge ? `點／消失的邊界帶（${km(outerLo)}～${km(FLORA_RADIUS)}，每格不同）`
+      : d > POINT_NEAR ? `點（${km(POINT_NEAR)}～${km(outerLo)}）`
+        : d > LOD_NEAR ? `簡化樹冠（${km(LOD_NEAR)}～${km(POINT_NEAR)}）`
+          : `完整樹冠＋樹幹（${km(LOD_NEAR)} 內）`
+  const bush = gone ? '不畫' : edge ? '點／消失的邊界帶' : d > BUSH_RANGE ? `點（${km(BUSH_RANGE)} 外）` : `模型（${km(BUSH_RANGE)} 內）`
+  const house = gone ? '不畫（屋頂色塊烘在地面）' : edge ? '模型／消失的邊界帶' : `模型（${km(outerLo)} 內）`
+  return [`樹：${tree}`, `灌木：${bush}`, `房子：${house}`]
 }
 
 /**
@@ -589,6 +613,8 @@ function createInlandTerrain(
     for (const m of dressing?.beyond ?? []) clipmap.beyondFar(m)
     clipmap.addOverlay(roofs, false)
   }
+  /** 上一次 `update` 的中心：植被量距離的那一點 */
+  const centre = { x: 0, z: 0 }
   const vegetation = createVegetation(fields, (x, z) => solid.sample(x, z), {
     season, ...(dressing === undefined ? {} : { capacity: dressing.capacity }),
   })
@@ -634,8 +660,18 @@ function createInlandTerrain(
     fieldClip: clipmap,
     // 【遠景環與地面是固定的】植被跟著鏡頭補格，田色貼圖跟著鏡頭挪窗
     update(_time, centerX, centerZ) {
+      centre.x = centerX
+      centre.z = centerZ
       vegetation.update(centerX, centerZ)
       clipmap?.update(centerX, centerZ)
+    },
+    describeAt(x, z) {
+      const d = Math.hypot(x - centre.x, z - centre.z)
+      return [
+        `離植被中心（水平） ${Math.round(d).toLocaleString()} m`,
+        ...floraRings(d),
+        `地面：${clipmap === null ? '逐像素算（沒有貼圖）' : clipmap.layerAt(x, z)}`,
+      ]
     },
     settle() { vegetation.settle() },
     dispose() {

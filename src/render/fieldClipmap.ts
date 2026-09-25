@@ -187,6 +187,10 @@ export interface FieldClipmap {
   beyondFar(mesh: Mesh): void
   /** 每幀叫，該挪窗就烘 */
   update(camX: number, camZ: number): void
+  /**
+   * 這一點的地面由哪一層畫（與地面著色器同一個判斷），給測距工具看。旁路時是算式
+   */
+  layerAt(x: number, z: number): string
   setInnerRadius(m: number): void
   /** 整支改走算式。A/B 用 —— 兩邊是同一個 program，差的只有一個 uniform */
   setBypass(on: boolean): void
@@ -481,6 +485,23 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       recentre(far, camX, camZ)
       if (horizon !== null) recentre(horizon, camX, camZ)
       U.uCam.value.set(camX, camZ)
+    },
+    layerAt(x, z) {
+      if (U.uBypass.value > 0.5) return '旁路：全部逐像素算'
+      const edge = (c: Vector2, span: number): number => Math.max(Math.abs(x - c.x), Math.abs(z - c.y)) / (0.5 * span)
+      const inner = U.uInner.value > 0 && Math.hypot(x - U.uCam.value.x, z - U.uCam.value.y) < U.uInner.value
+      const km = (m: number): string => `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`
+      if (inner) return `內圈：逐像素算（${Math.round(U.uInner.value)} m 內）`
+      if (edge(near.centre, near.span) < 1) {
+        return `近圖：${near.m.toFixed(1)} m／格（±${km(near.span / 2)}），樹籬細線、無屋頂樹冠色塊`
+      }
+      if (edge(far.centre, far.span) < 1) {
+        return `遠圖：${far.m.toFixed(1)} m／格（±${km(far.span / 2)}），寬樹籬、屋頂樹冠色塊`
+      }
+      if (horizon !== null && edge(horizon.centre, horizon.span) < 1) {
+        return `最外層：田逐像素算＋疊圖 ${horizon.m.toFixed(0)} m／格（±${km(horizon.span / 2)}）`
+      }
+      return '最外層外：田逐像素算＋粗網格'
     },
     setInnerRadius(m) { U.uInner.value = m },
     setBypass(on) {
