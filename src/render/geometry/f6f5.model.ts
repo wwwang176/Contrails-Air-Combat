@@ -69,6 +69,8 @@ export const F6F5_MODEL: GlbAircraft = {
    */
   bodyColor: 0x3f5266,
   accentColor: 0x232a31,
+  // 貼圖由 tools/livery/f6f5.py 畫
+  livery: { url: '/textures/f6f5.png', scale: 76, planZ: 2.13, sideY: 0.56 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

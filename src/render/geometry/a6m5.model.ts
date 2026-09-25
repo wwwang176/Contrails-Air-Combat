@@ -58,6 +58,8 @@ export const A6M5_MODEL: GlbAircraft = {
 
   bodyColor: 0x5b6650,
   accentColor: 0x262829,
+  // 貼圖由 tools/livery/a6m5.py 畫
+  livery: { url: '/textures/a6m5.png', scale: 92, planZ: 2.15, sideY: 0.45 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

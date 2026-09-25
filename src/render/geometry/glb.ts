@@ -1,10 +1,12 @@
 import {
-  CircleGeometry, DoubleSide, Group, Material, Mesh, MeshStandardMaterial, Object3D, Vector3,
+  CircleGeometry, DoubleSide, Group, Material, Mesh, MeshStandardMaterial, Object3D,
+  SRGBColorSpace, TextureLoader, Vector3, type Texture,
 } from 'three'
 import { createGltfLoader } from './gltfLoader'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PROP_DISC_RENDER_ORDER, type AircraftModel, type HullMetrics } from './assembly'
 import { assetUrl } from '../../core/asset'
+import { applyLiveryUv, liveryMoveFor, type LiveryLayout } from './livery'
 
 /**
  * 由 GLB 載入的機種外型。
@@ -54,6 +56,12 @@ export interface GlbAircraft {
   bombPoint: Vector3 | null
   bodyColor: number
   accentColor: number
+  /**
+   * 塗裝。有的話 `body` 材質改吃貼圖，機身色的面在載入時照版面算 UV
+   * （`livery.ts`），GLB 本身不帶 UV。`bodyColor` 仍然是 `frame`（窗框）與
+   * 停機坪烘焙的顏色。
+   */
+  livery?: LiveryLayout
   /**
    * GLB 裡的材質名 → 遊戲材質。
    *
@@ -129,7 +137,11 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 }
 
 export async function loadGlbTemplate(id: string, def: GlbAircraft): Promise<GlbTemplate> {
-  const t = await parseGlbTemplate(await fetchBuffer(def.url), def)
+  const [buf, livery] = await Promise.all([
+    fetchBuffer(def.url),
+    def.livery === undefined ? null : loadLivery(def.livery.url),
+  ])
+  const t = await parseGlbTemplate(buf, def, livery)
   templates.set(id, t)
   return t
 }
@@ -139,7 +151,44 @@ export function registerGlbTemplate(id: string, t: GlbTemplate): void {
   templates.set(id, t)
 }
 
-export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Promise<GlbTemplate> {
+/**
+ * 塗裝貼圖。
+ *
+ * 【flipY = false】UV 的原點在圖的左上角（`livery.ts`）；`TextureLoader` 預設
+ * 會把圖上下翻，那樣整張塗裝倒過來貼。
+ *
+ * 【依路徑快取、不歸樣板持有】主模型與低模貼同一張圖。歸其中一份樣板的話，
+ * 它 dispose 時另一份就失去貼圖。整場遊戲只有幾張，不放。
+ */
+const liveries = new Map<string, Promise<Texture>>()
+
+function loadLivery(url: string): Promise<Texture> {
+  let t = liveries.get(url)
+  if (t === undefined) {
+    t = new TextureLoader().loadAsync(assetUrl(url)).then((tex) => {
+      tex.flipY = false
+      tex.colorSpace = SRGBColorSpace
+      // 機翼常是斜著看的，沒有異向過濾的話標誌遠一點就糊成一團。three 會壓到顯卡的上限
+      tex.anisotropy = 8
+      return tex
+    })
+    liveries.set(url, t)
+  }
+  return t
+}
+
+/** 某張塗裝貼圖（同一個路徑回同一份），給載入畫面先傳上 GPU */
+export function liveryTexture(url: string): Promise<Texture> {
+  return loadLivery(url)
+}
+
+/**
+ * `livery` 是已經載好的塗裝貼圖。node 測試沒有圖可載，傳 null：UV 照留、
+ * 材質維持單色。
+ */
+export async function parseGlbTemplate(
+  buf: ArrayBuffer, def: GlbAircraft, livery: Texture | null = null,
+): Promise<GlbTemplate> {
   // 【`parse` 是非同步的】它的 onLoad 走 Promise，不是同步回呼。照
   // 「GLB 沒有外部資源就會同步完成」寫，拿到的是 null。
   const scene = await new Promise<Group>((res, rej) => {
@@ -147,8 +196,11 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
   })
 
   const body = new MeshStandardMaterial({
-    color: def.bodyColor, flatShading: true, roughness: 0.75,
+    color: livery === null ? def.bodyColor : 0xffffff, map: livery,
+    flatShading: true, roughness: 0.75,
   })
+  // 烘成頂點色的那幾條路（停機坪）讀不到貼圖，取這個單色
+  if (livery !== null) body.userData['bakeColor'] = def.bodyColor
   const accent = new MeshStandardMaterial({
     color: def.accentColor, flatShading: true, roughness: 0.6,
   })
@@ -192,9 +244,20 @@ export async function parseGlbTemplate(buf: ArrayBuffer, def: GlbAircraft): Prom
     seen.add(srcName)
     const kind = def.materials[srcName]
     if (!kind) throw new Error(`GLB 材質 ${srcName} 沒有對應的遊戲材質`)
-    const geo = mesh.geometry.clone()
+    let geo = mesh.geometry.clone()
     geo.applyMatrix4(mesh.matrixWorld)
     geo.deleteAttribute('uv')
+    // 【機身色的面一律帶 UV】同一個材質的面要嘛全有、要嘛全沒有，否則下面按
+    // 材質合併時 `mergeGeometries` 會回 null。有索引的先展開：相鄰的面可能
+    // 歸到不同視圖，共用頂點只能有一組 UV
+    if (def.livery !== undefined && kind === 'body') {
+      if (geo.index !== null) {
+        const flat = geo.toNonIndexed()
+        geo.dispose()
+        geo = flat
+      }
+      applyLiveryUv(geo, def.livery, liveryMoveFor(def.livery, mesh.name, mesh.userData['part']))
+    }
     const out = new Mesh(geo, mats[kind])
     // 內裝的法線朝內是刻意的；`geometry.test.ts` 的「法線朝外」靠這個旗標略過
     if (kind === 'cockpit') out.userData['inwardShell'] = true

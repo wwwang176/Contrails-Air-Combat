@@ -195,6 +195,8 @@ export const F4F4_MODEL: GlbAircraft = {
    */
   bodyColor: 0x54626b,
   accentColor: 0x22282c,
+  // 貼圖由 tools/livery/f4f4.py 畫
+  livery: { url: '/textures/f4f4.png', scale: 86, planZ: 1.90, sideY: 0.50 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

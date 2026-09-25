@@ -97,7 +97,8 @@ import { KILL_STRIDE, clearKills, type KillEvents } from './world/kills'
 import { clearDamage, DAMAGE_STRIDE } from './world/damage'
 import { HIT_PARTS, type HitPart } from './world/hit'
 import {
-  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, preloadAircraftModels, useAircraftLod, type AircraftModel,
+  AIRCRAFT_MODEL_COUNT, buildAircraft, buildAircraftLod, liveryTexturesFor, preloadAircraftModels, useAircraftLod,
+  type AircraftModel,
 } from './render/geometry/buildAircraft'
 import { PROP_DISC_RENDER_ORDER } from './render/geometry/assembly'
 import { SKY_RENDER_ORDER } from './render/sky'
@@ -1504,6 +1505,13 @@ async function loadBattle(): Promise<void> {
     await loading.step('編譯著色器', 0.85)
     // 【先編好】沒有這一步，第一幀要一次編完幾十個材質，進場那一下會頓
     await ctx.renderer.compileAsync(ctx.scene, ctx.camera)
+    // 【增援批次的塗裝先傳上 GPU】場上已有的機種由下面那一次繪製帶上去；增援的
+    // 開場還不在場上，第一次出現才上傳（連同 mipmap），那一幀會卡
+    const reinforcements: string[] = []
+    for (const beat of battle.cfg.beats ?? []) {
+      if (beat.kind === 'reinforce') for (const s of beat.flight.members) reinforcements.push(s.id)
+    }
+    for (const t of await liveryTexturesFor(reinforcements)) ctx.renderer.initTexture(t)
     // 【在載入畫面後面先畫一次】編好的程式第一次真的拿來畫仍要等 —— ANGLE（D3D11）
     // 把一部分著色器的產生留到第一次繪製，開場那一幀因此卡一兩百毫秒。暫時關掉視錐
     // 剔除畫一次：每一個看得見的物件都畫到（鏡頭後面的自機、視野外的也算），那段

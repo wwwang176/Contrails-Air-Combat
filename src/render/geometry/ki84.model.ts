@@ -55,6 +55,8 @@ export const KI84_MODEL: GlbAircraft = {
 
   bodyColor: 0x55603f,
   accentColor: 0x262829,
+  // 貼圖由 tools/livery/ki84.py 畫
+  livery: { url: '/textures/ki84.png', scale: 90, planZ: 2.15, sideY: 0.30 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {

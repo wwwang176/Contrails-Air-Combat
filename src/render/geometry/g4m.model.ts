@@ -60,6 +60,8 @@ export const G4M_MODEL: GlbAircraft = {
 
   bodyColor: 0x4b5a44,
   accentColor: 0x262829,
+  // 貼圖由 tools/livery/g4m.py 畫
+  livery: { url: '/textures/g4m.png', scale: 40, planZ: 3.80, sideY: 1.10 },
 
   /** Blender 材質名 → 遊戲材質 */
   materials: {
