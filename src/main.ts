@@ -143,6 +143,7 @@ import {
 } from './camera/cameraShake'
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
+import { attachTouch } from './input/touch'
 import { BOMB_AIM_SCALE, levelAimBasis, slewAimWorld } from './input/aim'
 import { teamSlot, type Combatant, type World } from './world/World'
 import { solveLead, NO_INTERCEPT } from './world/lead'
@@ -341,6 +342,7 @@ const GUN_LOST_DIR = new Vector3()
 
 const input = createInputState()
 const bindings = attachInput(canvas, input)
+const touch = attachTouch(document.getElementById('touch') as HTMLElement, input)
 
 const playerController = new PlayerController(input)
 
@@ -1749,6 +1751,7 @@ function startWorld(cfg: BattleConfig): void {
   // 【殘留的旗標要清】它是單幀旗標，但只有戰鬥中的分支會消費它 ——
   // 留著的話新的一場開頭第一幀就被彈進暫停選單
   input.pointerLockLost = false
+  input.pauseRequested = false
   // 【上帝視角的殘留同理】上一場按著 G 進主選單的話，新的一場會直接開在
   // 上帝視角、鏡頭停在舊世界的座標上
   leaveGodView()
@@ -3163,6 +3166,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       ? extendReason(playerAi.rules) : ''
   }
   hudFrame.godView = input.godView
+  hudFrame.touch = touch.visible
   // 【`stepCameraShake` 之後】這一幀的震動量與相位在那裡才定案；排在它之前
   // 的話 HUD 會慢鏡頭一幀，兩者對不起來
   hudFrame.shakeAngle = hudShakeAngle(cameraShake)
@@ -3407,6 +3411,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
 function grabPointer(): void {
   // 【在手勢裡解鎖音訊】瀏覽器要使用者手勢才肯出聲；這裡就是出擊、繼續的那一下
   audio.unlock()
+  // 【觸控操作不鎖指標】觸控層直接收 pointer 事件
+  if (touch.active) return
   void Promise.resolve(canvas.requestPointerLock()).catch(() => {})
 }
 
@@ -3636,7 +3642,10 @@ function frame(now: number) {
   const frameSeconds = clampFrameSeconds((now - lastTime) / 1000)
   lastTime = now
   perf.begin(now)
-  bindings.tick(frameSeconds)
+  bindings.tick(frameSeconds, touch.hold)
+  touch.sync(
+    screen === 'battle' && !loadingBattle && !paused && battle.outcome === 'fighting',
+  )
   hudCanvas.hidden = screen !== 'battle' || loadingBattle
   hudMaskCanvas.hidden = hudCanvas.hidden
 
@@ -3656,12 +3665,15 @@ function frame(now: number) {
   } else if (screen === 'battle') {
     // 【暫停時所有模擬時間都不前進】只停飛機的話，畫面上是一批定格的
     // 飛機浮在繼續起伏的海上 —— 那看起來像當掉（M10 spec §8.1）
-    if (input.pointerLockLost) {
+    // 【觸控的暫停鈕走同一條路】沒有指標鎖就不會有 `pointerLockLost`
+    if (input.pointerLockLost || input.pauseRequested) {
+      const unlocked = input.pointerLockLost
       input.pointerLockLost = false
+      input.pauseRequested = false
       // 分出勝負之後不再暫停 —— 結算板本身就是出口
       // 【教學卡自己放開的那一次不算】見 `ignoreNextUnlock`；卡開著時卡上的
       // 「了解」就是出口，也不疊暫停選單
-      if (ignoreNextUnlock) {
+      if (unlocked && ignoreNextUnlock) {
         ignoreNextUnlock = false
       } else if (battle.outcome === 'fighting' && !tutorialOpen) {
         setPausedState(true)

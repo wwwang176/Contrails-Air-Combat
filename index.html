@@ -469,6 +469,47 @@
         margin-top: 8px; font: 11px/1.4 var(--f-title); letter-spacing: .08em; color: var(--paper-dim);
       }
       #loading-pct { color: var(--sel); font-weight: 700; }
+
+      /* ── 觸控操作 #touch（input/touch.ts）───────────────
+         左半邊拖曳瞄準、右半邊拖曳環顧，按鈕都在右邊。尺寸全部吃 vh：
+         橫放的手機高度才是緊的那一邊 */
+      #touch { position: fixed; inset: 0; z-index: 1; touch-action: none;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      #touch[hidden] { display: none; }
+      /* 【觸控飛行中沒有齒輪】暫停鈕取代它；飛行中打開設定不會暫停 */
+      body.touch-play #gear { display: none; }
+      .t-btn { position: absolute; display: flex; align-items: center; justify-content: center;
+        box-sizing: border-box; border-radius: 2.6vh; border: 2px solid rgba(227, 217, 192, .5);
+        background: rgba(24, 20, 14, .3); color: rgba(242, 233, 210, .92);
+        font: 700 clamp(11px, 3.4vh, 17px)/1 var(--f-ui); letter-spacing: .06em; }
+      .t-btn.down { background: rgba(184, 84, 63, .55); border-color: rgba(242, 233, 210, .9); }
+      .t-btn[hidden] { display: none; }
+      /* 【暫停鈕貼在航向帶左邊】左上角是效能面板（core/perf.ts，z-index 100），
+         航向帶佔畫面中央 ±18vw */
+      .t-pause { left: calc(32vw - 13vh); top: 2.5vh; width: 10vh; height: 10vh; }
+      .t-fire { right: 5vh; bottom: 30vh; width: 25vh; height: 25vh; border-radius: 50%;
+        font-size: clamp(13px, 4.4vh, 21px); }
+      .t-up, .t-down { right: 34vh; width: 14vh; height: 11.5vh; }
+      .t-up { bottom: 43.5vh; }
+      .t-down { bottom: 30vh; }
+      .t-bomb, .t-view, .t-score { bottom: 60vh; height: 10vh; }
+      .t-bomb { right: 5vh; width: 17vh; }
+      .t-view { right: 25vh; width: 12vh; }
+      .t-score { right: 40vh; width: 12vh; }
+      /* ── 手機直放 #rotate ──────────────────────────────
+         手機（觸控、短邊不超過 600px）直放時整個蓋住，選單與戰鬥都一樣。
+         【條件要與 input/touch.ts 的 PHONE_PORTRAIT 一字不差】那一份負責在戰鬥中
+         轉直時暫停；兩邊不一致的話，會有「被蓋住了但還在打」的那一段 */
+      #rotate { display: none; position: fixed; inset: 0; z-index: 9500;
+        flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: #0a0e14; color: var(--ink); font: 500 17px/1.6 var(--f-ui); letter-spacing: .08em; }
+      @media (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
+        #rotate { display: flex; }
+      }
+      /* 手指按下的位置；拖曳是相對位移，圈只是讓人知道這一下算在哪一邊 */
+      .t-ring { position: absolute; left: -6vh; top: -6vh; width: 12vh; height: 12vh;
+        box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(227, 217, 192, .4);
+        pointer-events: none; }
     </style>
   </head>
   <body>
@@ -478,6 +519,31 @@
          之後邊上沒有像素可以蓋，標示則是已經隨鏡頭震過一次。這一張不震 -->
     <canvas id="hud-mask"></canvas>
     <canvas id="hud"></canvas>
+
+    <!-- 觸控操作層（input/touch.ts）。只在觸控操作的戰鬥中出現。按鈕用 div 而不是
+         button：document 上的點擊委派會替每一顆 button 播選單音 -->
+    <div id="touch" hidden>
+      <i class="t-ring aim" hidden></i>
+      <i class="t-ring look" hidden></i>
+      <div class="t-btn t-pause" data-t="pause">Ⅱ</div>
+      <div class="t-btn t-score" data-t="score">戰績</div>
+      <div class="t-btn t-view" data-t="view">視角</div>
+      <div class="t-btn t-bomb" data-t="bomb" hidden>瞄準鏡</div>
+      <div class="t-btn t-up" data-t="up">加速</div>
+      <div class="t-btn t-down" data-t="down">減速</div>
+      <div class="t-btn t-fire" data-t="fire">開火</div>
+    </div>
+
+    <!-- 手機直放的提示。顯示與否全在 CSS 的 media query -->
+    <div id="rotate">
+      <svg width="72" height="72" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="2.4"
+        stroke-linecap="round" stroke-linejoin="round">
+        <rect x="12" y="24" width="48" height="28" rx="4"/>
+        <path d="M18 16a20 20 0 0 1 30-4"/>
+        <path d="M48 5v7h-7"/>
+      </svg>
+      <div>請將手機橫放</div>
+    </div>
 
     <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒
          載完時選單不能點 -->
