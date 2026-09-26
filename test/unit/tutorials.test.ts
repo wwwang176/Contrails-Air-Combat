@@ -148,15 +148,15 @@ describe('教學卡的接線', () => {
     const open = main.indexOf('menu.showTutorials(tutorialPending')
     const exit = main.indexOf('document.exitPointerLock()', open)
     expect(main.slice(open, exit)).toContain('ignoreNextUnlock = true')
-    const at = main.indexOf('if (input.pointerLockLost) {')
+    const at = main.indexOf('if (input.pointerLockLost || input.pauseRequested) {')
     const block = main.slice(at, main.indexOf('menu.setPaused(true)', at))
-    expect(block).toContain('if (ignoreNextUnlock)')
+    expect(block).toContain('if (unlocked && ignoreNextUnlock)')
   })
 
   /** 【教學自己放開指標】放開那一下不能被當成玩家按了 Esc，否則暫停選單會疊在卡上 */
   it('教學卡開著時，放開指標不彈暫停選單', () => {
     const main = srcOf('main.ts')
-    const at = main.indexOf('if (input.pointerLockLost) {')
+    const at = main.indexOf('if (input.pointerLockLost || input.pauseRequested) {')
     const block = main.slice(at, main.indexOf('menu.setPaused(true)', at))
     expect(block).toContain('!tutorialOpen')
   })

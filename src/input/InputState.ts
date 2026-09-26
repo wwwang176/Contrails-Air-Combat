@@ -149,6 +149,13 @@ export interface InputState {
    * （M10 spec §8.2）。
    */
   pointerLockLost: boolean
+  /**
+   * 玩家這一幀要求暫停（觸控的暫停鈕、觸控操作中切到背景）。**單幀旗標，
+   * 呼叫端消費後自行清除。**
+   *
+   * 觸控裝置沒有指標鎖，`pointerLockLost` 永遠不會成立，暫停要另一個入口。
+   */
+  pauseRequested: boolean
 }
 
 export function createInputState(): InputState {
@@ -176,5 +183,6 @@ export function createInputState(): InputState {
     orderMarkers: false,
     scoreboardHeld: false,
     pointerLockLost: false,
+    pauseRequested: false,
   }
 }
