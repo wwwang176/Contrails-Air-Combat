@@ -2,7 +2,7 @@ import { P51D } from '../../specs/p51d'
 import { BF109K4 } from '../../specs/bf109k4'
 import { B17G } from '../../specs/b17g'
 import { HE111 } from '../../specs/he111'
-import { FLARE_DROPS } from '../../world/poltava'
+import { FLARE_DROPS, PARKED_ROWS as POLTAVA_PARKED } from '../../world/poltava'
 import {
   DUMPS as ASCH_DUMPS, LIGHT_FLAK_SITES as ASCH_FLAK, PARKED_ROWS as ASCH_PARKED, TAKEOFF_LINE,
 } from '../../world/asch'
@@ -77,7 +77,7 @@ export const GERMANY: readonly MissionCard[] = [
     summary: '駕駛 He 111 趁夜飛到波爾塔瓦機場，炸毀停在地上的 B-17。',
     place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
     battle: {
-      objective: '炸毀停放的 B-17', banner: '機場就在前方，準備投彈',
+      objective: '炸毀全部停放的 B-17', banner: '機場就在前方，準備投彈',
       blueSpec: HE111, redSpec: P51D, convoySpec: null,
       // 【沒有敵機】史實上蘇軍夜戰機沒有攔到任何一架；壓力全在地面的防空。
       // `redSpec` 只是型別要填：野馬就在皮里亞廷，沒起飛
@@ -94,9 +94,9 @@ export const GERMANY: readonly MissionCard[] = [
        */
       altitude: 1500,
       ground: POLTAVA_GROUND,
-      // 【炸毀任意十二座】池是 24 架 B-17、3 堆、22 座砲位、6 座探照燈。
-      // 8 架 × 8 枚 = 64 枚。**起始值**
-      destroyCount: 12,
+      // 【停機線上的 B-17 全部炸毀】堆、砲位、探照燈打得掉但不算。
+      // 8 架 × 8 枚 = 64 枚
+      destroyCount: POLTAVA_PARKED.length, destroyUnit: 'parkedB17',
       // 【重砲照 5 吋艦砲的路數】高射速、小範圍、單發輕 —— 與盟 M3 的艦隊
       // 防空同一種壓力：黑雲多而不致命
       flakSpec: { ...GROUND_FLAK_SPEC, roundsPerMinute: 20, burstRadius: 50, burstDamage: 100 },
@@ -114,7 +114,7 @@ export const GERMANY: readonly MissionCard[] = [
     summary: '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
     place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
     battle: {
-      objective: '打掉停機坪上的野馬', banner: '野馬還在地上，快衝進去',
+      objective: '擊毀全部野馬', banner: '野馬還在地上，快衝進去',
       blueSpec: BF109K4, redSpec: P51D, convoySpec: null,
       // 【敵機全部從地上來】沒有空中巡邏，起飛的野馬全部由波次給。
       // 紅隊席位：停機線 12（三個小隊）
@@ -133,9 +133,10 @@ export const GERMANY: readonly MissionCard[] = [
       // 【第三張任務卡限定】先完成機場掃射；已升空的 P-51 只有形成直接射擊威脅
       // 時才插隊。AI 核心只看單位 id，不知道 germany-m3，也不污染其他關卡。
       priorityGroundUnit: 'parkedP51',
-      // 【炸毀八架停放的 P-51】油桶堆與輕砲打得掉但不算。起飛離場的不在池裡。
-      // **起始值**
-      destroyCount: 8, destroyUnit: 'parkedP51',
+      // 【停機線上的 P-51 全部擊毀】地上打掉的、起飛後被擊落的都算（每一架只算
+      // 一次，見 `setup.ts` 的 `destroyedInPool`），所以這就是「所有野馬」。
+      // 油桶堆與輕砲打得掉但不算
+      destroyCount: ASCH_PARKED.length, destroyUnit: 'parkedP51',
       /**
        * 【停機線上的每一架最後都起得來】三批各一個小隊、席位合計 12，等於停機線。
        * 被打掉的起不來：那一批地上剩幾架就上幾架（`setup.ts` 的 `reinforce`），
