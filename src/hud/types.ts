@@ -355,6 +355,8 @@ export interface HudFrame {
    * 小地圖因此一行都不用改就變成以鏡頭為中心。
    */
   godView: boolean
+  /** 觸控操作層顯示著。按鍵提示那一行寫的是鍵盤，這時不畫 */
+  touch: boolean
   /**
    * HUD 這一幀要轉多少，弧度，以畫面中央為軸（`hudShakeAngle`）。
    *
@@ -472,6 +474,7 @@ export function createHudFrame(): HudFrame {
     aiOverride: '',
     aiExtendWhy: '',
     godView: false,
+    touch: false,
     shakeAngle: 0, shakeX: 0, shakeY: 0,
     arenaShow: false,
     arenaOutside: false,
