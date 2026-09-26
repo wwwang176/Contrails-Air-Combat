@@ -17,6 +17,7 @@ import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
+import { AIM_ASSIST_LEVELS } from '../input/aimAssist'
 
 export interface MenuHooks {
   /** 使用者送出一個畫面事件 */
@@ -63,6 +64,8 @@ export interface MenuHooks {
   onAntialias(on: boolean): void
   /** 設定裡按了確定、音量有變。null 是關閉。呼叫端負責套用與記住 */
   onVolume(db: number | null): void
+  /** 設定裡按了確定、瞄準輔助有變。呼叫端負責套用與記住 */
+  onAimAssist(on: boolean): void
   /** 暫停中按了右上角的「教學」按鈕。呼叫端挑這架飛機的卡交給 `showTutorials` */
   onHelp(): void
 }
@@ -92,6 +95,8 @@ export interface Menu {
   renderAntialias(on: boolean): void
   /** 同上，音量目前**已生效**的值（null 是關閉） */
   renderVolume(db: number | null): void
+  /** 同上，瞄準輔助目前**已生效**的值 */
+  renderAimAssist(on: boolean): void
 }
 
 /**
@@ -332,6 +337,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     quality: q('set-quality'),
     antialias: q('set-aa'),
     volume: q('set-volume'),
+    aimAssist: q('set-assist'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
     go: root.querySelector('#skirmish [data-act="fight"]') as HTMLButtonElement,
@@ -656,12 +662,17 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   let appliedQuality = DEFAULT_QUALITY
   let appliedAa = DEFAULT_ANTIALIAS
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
+  let appliedAssist = false
   let draftQuality = appliedQuality
   let draftAa = appliedAa
   let draftVolume: number | null = appliedVolume
+  let draftAssist = appliedAssist
 
   /** 【沒有小圖示】畫質、抗鋸齒、音量都是抽象的，畫不出剪影；`.opt` 對純文字按鈕照樣成立 */
   function drawSettingRows(): void {
+    optRow(el.aimAssist,
+      AIM_ASSIST_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.value, sil: '' })),
+      draftAssist, (v) => { draftAssist = v; drawSettingRows() })
     optRow(el.quality,
       QUALITY_LEVELS.map((lv) => ({ label: lv.label, hint: '', value: lv.scale, sil: '' })),
       draftQuality, (v) => { draftQuality = v; drawSettingRows() })
@@ -678,6 +689,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     draftQuality = appliedQuality
     draftAa = appliedAa
     draftVolume = appliedVolume
+    draftAssist = appliedAssist
     drawSettingRows()
     closeOverlay(reloadAsk)
     openOverlay(settings)
@@ -691,19 +703,21 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (draftAa !== appliedAa) { openOverlay(reloadAsk); return }
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
+    if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
     closeOverlay(settings)
   }
 
   /**
    * 警告框上按了「儲存並重新載入」。
    *
-   * 【畫質與音量要先送】`onAntialias` 會重新載入，它之後的程式碼不保證跑得到；漏送的話
-   * 玩家同時改的畫質、音量會在重整後消失，而那看起來像是「確定沒有生效」。
+   * 【其餘的要先送】`onAntialias` 會重新載入，它之後的程式碼不保證跑得到；漏送的話
+   * 玩家同時改的畫質、音量、瞄準輔助會在重整後消失，而那看起來像是「確定沒有生效」。
    */
   function commitReload(): void {
     closeOverlay(reloadAsk)
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
+    if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
     hooks.onAntialias(draftAa)
   }
 
@@ -722,6 +736,12 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function renderVolume(db: number | null): void {
     appliedVolume = db
     draftVolume = db
+    drawSettingRows()
+  }
+
+  function renderAimAssist(on: boolean): void {
+    appliedAssist = on
+    draftAssist = on
     drawSettingRows()
   }
 
@@ -790,6 +810,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     renderSetup,
     renderQuality,
     renderAntialias,
+    renderAimAssist,
     renderVolume,
   }
 }
