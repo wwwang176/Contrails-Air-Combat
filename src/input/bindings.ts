@@ -16,20 +16,77 @@ const LOOK_SENSITIVITY = 5.5
 const LOOK_YAW_LIMIT = 160 * (Math.PI / 180)
 const LOOK_PITCH_LIMIT = 80 * (Math.PI / 180)
 
-interface KeyHold {
+/** 油門的兩個按住方向。鍵盤與觸控各有一份，`tick` 取聯集 */
+export interface ThrottleHold {
   up: boolean
   down: boolean
 }
 
+/** 觸控層交給 `tick` 的按住狀態 */
+export interface TouchHold extends ThrottleHold {
+  /** 開火鈕按著。沒有指標鎖時 `tick` 會清扳機，觸控按著的不清 */
+  fire: boolean
+}
+
+/**
+ * 自由視角轉一段，單位螢幕半高。滑鼠右鍵與觸控右半邊共用。
+ *
+ * 【死亡鏡頭下不轉】視線由 `deathCamAim` 接管，轉頭會把它從擊殺者身上拉走
+ */
+export function slewLook(state: InputState, dx: number, dy: number): void {
+  if (state.dead) return
+  state.lookYaw = clamp(state.lookYaw - dx * LOOK_SENSITIVITY, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
+  state.lookPitch = clamp(state.lookPitch - dy * LOOK_SENSITIVITY, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
+}
+
+/** 放開自由視角：鏡頭回正 */
+export function endLook(state: InputState): void {
+  state.lookActive = false
+  state.lookYaw = 0
+  state.lookPitch = 0
+}
+
+/**
+ * 投彈鍵（鍵盤 `B`、觸控的投彈鈕）。
+ *
+ * 【只有掛得了彈的飛機能按】`bombCapable` 由 `main.ts` 在換飛機時寫入
+ * —— 輸入層對飛機一無所知（見 `attachInput` 的檔頭）
+ * 【死亡鏡頭下也不作用】那條相機分支完全不看視線，進去就把死亡鏡頭蓋掉
+ * 【掛彈的戰鬥機：直接投彈】不切視角，見 `InputState.bombRelease`
+ * 【`repeat` 為真不連投】作業系統的自動重複只算第一次
+ */
+export function pressBomb(state: InputState, repeat = false): void {
+  if (state.bombCapable && !state.dead) {
+    state.viewMode = state.viewMode === 'bomb' ? 'third' : 'bomb'
+  } else if (state.bombRelease && !state.dead && !repeat) {
+    state.bombTaps++
+  }
+}
+
+/**
+ * 座艙／機外切換（鍵盤 `V`、觸控的視角鈕）。
+ *
+ * 【投彈模式下不作用】這條軸是「座艙／機外」，投彈瞄具不是那條軸上的一個點。
+ * 照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回 `third`，等於多了一個
+ * 沒有人記得的離開鍵
+ * 【死亡鏡頭下也不作用】座艙視角是從殘骸裡面往外看
+ */
+export function pressView(state: InputState): void {
+  if (state.viewMode !== 'bomb' && !state.dead) {
+    state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
+  }
+}
+
 /**
  * 綁定鍵鼠事件。回傳解除綁定的函數。
- * 呼叫端需每幀呼叫回傳物件的 tick(dt) 以套用油門的持續變化。
+ * 呼叫端需每幀呼叫回傳物件的 tick(dt) 以套用油門的持續變化；`touch` 是觸控層
+ * 的油門按住狀態，與鍵盤取聯集。
  */
 export function attachInput(
   canvas: HTMLCanvasElement,
   state: InputState,
-): { detach(): void; clearHolds(): void; tick(dt: number): void } {
-  const hold: KeyHold = { up: false, down: false }
+): { detach(): void; clearHolds(): void; tick(dt: number, touch?: TouchHold): void } {
+  const hold: ThrottleHold = { up: false, down: false }
   /**
    * 上一次觀察到有沒有鎖定。用來做邊緣偵測 —— 見 `InputState.pointerLockLost`。
    *
@@ -55,11 +112,7 @@ export function attachInput(
 
   const onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) state.firing = false
-    if (e.button === 2) {
-      state.lookActive = false
-      state.lookYaw = 0
-      state.lookPitch = 0
-    }
+    if (e.button === 2) endLook(state)
   }
 
   const onMouseMove = (e: MouseEvent) => {
@@ -72,16 +125,8 @@ export function attachInput(
     // 【死亡鏡頭下右鍵什麼都不做】視線由 `deathCamAim` 接管，轉頭會把它從
     // 擊殺者身上拉走；瞄準位移也不累積，那 2 秒沒有飛機可以操縱。
     // 上帝視角例外：死亡不影響它，而它的鏡頭吃的正是下面那兩個累積值
-    if (state.lookActive && state.dead && !state.godView) return
     if (state.lookActive && !state.godView) {
-      state.lookYaw = clamp(
-        state.lookYaw - (e.movementX / half) * LOOK_SENSITIVITY,
-        -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT,
-      )
-      state.lookPitch = clamp(
-        state.lookPitch - (e.movementY / half) * LOOK_SENSITIVITY,
-        -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT,
-      )
+      slewLook(state, e.movementX / half, e.movementY / half)
       return
     }
     // 世界固定瞄準點：這裡只累積「本幀的螢幕相對位移」，真正的旋轉由飛行
@@ -151,27 +196,8 @@ export function attachInput(
     switch (e.code) {
       case 'KeyW': hold.up = true; break
       case 'KeyS': hold.down = true; state.braking = true; break
-      // 【只有掛得了彈的飛機能按】`bombCapable` 由 `main.ts` 在換飛機時寫入
-      // —— 這一層對飛機一無所知（見檔頭）
-      // 【死亡鏡頭下也不作用】那條相機分支完全不看視線，進去就把死亡鏡頭蓋掉
-      // 【掛彈的戰鬥機：B 就是投彈鍵】不切視角，見 `InputState.bombRelease`
-      case 'KeyB':
-        if (state.bombCapable && !state.dead) {
-          state.viewMode = state.viewMode === 'bomb' ? 'third' : 'bomb'
-        } else if (state.bombRelease && !state.dead && !e.repeat) {
-          // 【按住不放不連投】作業系統的自動重複只算第一次
-          state.bombTaps++
-        }
-        break
-      // 【投彈模式下不作用】`V` 的軸是「座艙／機外」，投彈瞄具不是那條軸上
-      // 的一個點。照舊寫成三元式的話 `=== 'third'` 為 false 會把它彈回
-      // `third`，等於多了一個沒有人記得的離開鍵
-      // 【死亡鏡頭下也不作用】座艙視角是從殘骸裡面往外看
-      case 'KeyV':
-        if (state.viewMode !== 'bomb' && !state.dead) {
-          state.viewMode = state.viewMode === 'third' ? 'first' : 'third'
-        }
-        break
+      case 'KeyB': pressBomb(state, e.repeat); break
+      case 'KeyV': pressView(state); break
       case 'KeyI': state.playerAi = !state.playerAi; break
       case 'Tab': state.scoreboardHeld = true; break
       default: return
@@ -214,7 +240,7 @@ export function attachInput(
       window.removeEventListener('keyup', onKeyUp)
       canvas.removeEventListener('contextmenu', onContextMenu)
     },
-    tick(dt: number) {
+    tick(dt: number, touch?: TouchHold) {
       // 切出視窗會失去指標鎖，但 mouseup 不見得送得到——不清的話扳機會卡住，
       // 玩家切回來時發現自己一直在開火。
       //
@@ -223,7 +249,7 @@ export function attachInput(
       // 會讓 bindings.test.ts 整檔在 attachInput 就拋錯。tick 每幀本來就會被
       // 呼叫，順手比對一次是零成本的。M10 的暫停也靠這個輪詢。
       const locked = document.pointerLockElement === canvas
-      if (!locked) state.firing = false
+      if (!locked && touch?.fire !== true) state.firing = false
       // 【邊緣偵測】沒有它的話，鎖定沒回來的每一幀都會再送一次暫停，
       // 玩家按「繼續」會立刻被彈回暫停選單
       //
@@ -243,7 +269,9 @@ export function attachInput(
       // `applyThrottleRate` 是**彈簧回中**的 —— 照跑的話你切回來時油門
       // 已經被拉回巡航了，等於這個模式偷改了你的飛機設定
       if (!state.godView) {
-        state.throttle = applyThrottleRate(state.throttle, hold.up, hold.down, dt)
+        state.throttle = applyThrottleRate(
+          state.throttle, hold.up || touch?.up === true, hold.down || touch?.down === true, dt,
+        )
       }
     },
   }

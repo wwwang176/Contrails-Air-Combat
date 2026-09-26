@@ -22,11 +22,13 @@ export function hintKeys(godView: boolean): string {
  * 但這一行得留著——沒有它，除了滑鼠以外的操作全部是不可發現的。
  */
 export function drawHints(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
-  ctx.fillStyle = HUD_COLORS.dim
-  ctx.font = hudFont(11 * L.scale)
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'bottom'
-  ctx.fillText(hintKeys(f.godView), 30 * L.scale, L.height - 10 * L.scale)
+  if (!f.touch) {
+    ctx.fillStyle = HUD_COLORS.dim
+    ctx.font = hudFont(11 * L.scale)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(hintKeys(f.godView), 30 * L.scale, L.height - 10 * L.scale)
+  }
 
   // 【為什麼一定要有指示燈】接管與否從畫面上看不出來——飛機自己在動，
   // 而滑鼠沒有反應。沒有這一行，第一個反應會是「操縱壞了」。
