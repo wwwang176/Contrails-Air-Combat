@@ -7,6 +7,13 @@ import { endLook, pressBomb, pressView, slewLook, type TouchHold } from './bindi
  */
 const TOUCH_AIM_SENSITIVITY = 1.6
 
+/**
+ * 手機直放。成立時 `index.html` 的 `#rotate` 蓋住整個畫面。
+ *
+ * 【與 index.html 的 media query 一字不差】這一份負責戰鬥中轉直時暫停
+ */
+const PHONE_PORTRAIT = '(pointer: coarse) and (orientation: portrait) and (max-width: 600px)'
+
 /** 一根手指按下時抓到的東西。整段拖曳都算它，拖出範圍也不換 */
 type GripKind = 'aim' | 'look' | 'fire' | 'up' | 'down' | 'score' | 'bomb' | 'view' | 'pause'
 
@@ -127,12 +134,16 @@ export function attachTouch(root: HTMLElement, state: InputState): TouchControls
   root.addEventListener('pointercancel', (e) => release(e.pointerId))
   root.addEventListener('contextmenu', (e) => e.preventDefault())
 
-  // 【切到背景就暫停】手機上最常見的「離開」是回主畫面或來電，沒有 Esc 可按
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden || !visible) return
+  // 【切到背景、轉成直放都暫停】手機上最常見的「離開」是回主畫面或來電，
+  // 沒有 Esc 可按；直放時提示蓋住整個畫面，戰鬥不能在底下繼續打
+  const leave = (): void => {
+    if (!visible) return
     releaseAll()
     state.pauseRequested = true
-  })
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) leave() })
+  const portrait = window.matchMedia(PHONE_PORTRAIT)
+  portrait.addEventListener('change', () => { if (portrait.matches) leave() })
 
   return {
     hold,

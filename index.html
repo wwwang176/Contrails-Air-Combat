@@ -496,6 +496,16 @@
       .t-bomb { right: 5vh; width: 17vh; }
       .t-view { right: 25vh; width: 12vh; }
       .t-score { right: 40vh; width: 12vh; }
+      /* ── 手機直放 #rotate ──────────────────────────────
+         手機（觸控、短邊不超過 600px）直放時整個蓋住，選單與戰鬥都一樣。
+         【條件要與 input/touch.ts 的 PHONE_PORTRAIT 一字不差】那一份負責在戰鬥中
+         轉直時暫停；兩邊不一致的話，會有「被蓋住了但還在打」的那一段 */
+      #rotate { display: none; position: fixed; inset: 0; z-index: 9500;
+        flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: #0a0e14; color: var(--ink); font: 500 17px/1.6 var(--f-ui); letter-spacing: .08em; }
+      @media (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
+        #rotate { display: flex; }
+      }
       /* 手指按下的位置；拖曳是相對位移，圈只是讓人知道這一下算在哪一邊 */
       .t-ring { position: absolute; left: -6vh; top: -6vh; width: 12vh; height: 12vh;
         box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(227, 217, 192, .4);
@@ -522,6 +532,17 @@
       <div class="t-btn t-up" data-t="up">加速</div>
       <div class="t-btn t-down" data-t="down">減速</div>
       <div class="t-btn t-fire" data-t="fire">開火</div>
+    </div>
+
+    <!-- 手機直放的提示。顯示與否全在 CSS 的 media query -->
+    <div id="rotate">
+      <svg width="72" height="72" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="2.4"
+        stroke-linecap="round" stroke-linejoin="round">
+        <rect x="12" y="24" width="48" height="28" rx="4"/>
+        <path d="M18 16a20 20 0 0 1 30-4"/>
+        <path d="M48 5v7h-7"/>
+      </svg>
+      <div>請將手機橫放</div>
     </div>
 
     <!-- 載入畫面：一開始就蓋著，預載完才收（main.ts）。不加 hidden —— 模型還沒
