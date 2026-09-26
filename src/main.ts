@@ -144,6 +144,7 @@ import {
 import { createInputState } from './input/InputState'
 import { attachInput } from './input/bindings'
 import { attachTouch } from './input/touch'
+import { AimAssist, readAimAssist, saveAimAssist } from './input/aimAssist'
 import { BOMB_AIM_SCALE, levelAimBasis, slewAimWorld } from './input/aim'
 import { teamSlot, type Combatant, type World } from './world/World'
 import { solveLead, NO_INTERCEPT } from './world/lead'
@@ -345,6 +346,9 @@ const bindings = attachInput(canvas, input)
 const touch = attachTouch(document.getElementById('touch') as HTMLElement, input)
 
 const playerController = new PlayerController(input)
+/** 瞄準輔助。開關來自設定頁（`readAimAssist`） */
+const aimAssist = new AimAssist()
+aimAssist.enabled = readAimAssist()
 
 /** 目前的畫面。與 `ui/screens.ts` 的狀態機是同一組值 */
 let screen: Screen = 'landing'
@@ -1752,6 +1756,8 @@ function startWorld(cfg: BattleConfig): void {
   // 留著的話新的一場開頭第一幀就被彈進暫停選單
   input.pointerLockLost = false
   input.pauseRequested = false
+  // 【吸住的目標是上一場的索引】
+  aimAssist.reset()
   // 【上帝視角的殘留同理】上一場按著 G 進主選單的話，新的一場會直接開在
   // 上帝視角、鏡頭停在舊世界的座標上
   leaveGodView()
@@ -2593,7 +2599,13 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
       input.aimWorld, input.aimDeltaX, input.aimDeltaY,
       rig.viewBase, ctx.camera.fov * DEG,
     )
+    // 【輔助排在玩家之後】先吃玩家這一幀的轉動，再拉。轉動量與 `slewAimWorld`
+    // 同一個換算（位移 × 半個 FOV）
+    const playerTurn = Math.hypot(input.aimDeltaX, input.aimDeltaY) * ctx.camera.fov * DEG / 2
+    aimAssist.step(input.aimWorld, playerTurn, worldSeconds, player, world.combatants)
   }
+  // 【只在一般飛行時吸】其餘分支的瞄準點不歸玩家管，離開時要放掉目標
+  if (input.godView || dying || aiFlying || input.viewMode === 'bomb') aimAssist.reset()
   input.aimDeltaX = 0
   input.aimDeltaY = 0
   // 【不在上帝視角時要清掉】留著的話，下次進上帝視角的第一幀會吃到一個
@@ -3590,6 +3602,12 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
     saveVolume(db)
     menu.renderVolume(db)
   },
+  onAimAssist(on) {
+    aimAssist.enabled = on
+    aimAssist.reset()
+    saveAimAssist(on)
+    menu.renderAimAssist(on)
+  },
 })
 // 【先套用再畫選單】兩邊讀同一個值，按鈕標的才是畫面實際用的檔位
 const startQuality = readQuality()
@@ -3598,6 +3616,7 @@ menu.renderQuality(startQuality)
 // 抗鋸齒在 `createScene` 就讀過並套用了，這裡只是把按鈕標成同一個值
 menu.renderAntialias(readAntialias())
 menu.renderVolume(readVolume())
+menu.renderAimAssist(aimAssist.enabled)
 menu.renderSetup(setup)
 menu.show(screen)
 
@@ -4301,6 +4320,8 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
      * 沒有就是 null。教學截圖拿它擺標籤
      */
     lead: probeLead(),
+    /** 瞄準輔助正吸著的那一架，−1 = 沒有 */
+    assist: aimAssist.target,
     /** Worker 改出風險與最後安全動作；供低空攻擊的 e2e 護欄判讀。 */
     ru: +playerAi.recoveryUrgency.toFixed(3),
     capture: playerAi.recoveryCapture,
