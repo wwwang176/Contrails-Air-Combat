@@ -125,7 +125,7 @@ describe('德 M2 波爾塔瓦', () => {
     expect(b.altitude).toBe(1500)
   })
 
-  it('24 架停放的 B-17、3 堆、16 輕砲、6 重砲、6 探照燈；炸毀 12 座', () => {
+  it('24 架停放的 B-17、3 堆、16 輕砲、6 重砲、6 探照燈；B-17 全部炸毀才算', () => {
     const units = card.battle.ground!.map((e) => e.unit)
     const count = (id: string) => units.filter((u) => u === id).length
     expect(count('parkedB17')).toBe(24)
@@ -135,7 +135,8 @@ describe('德 M2 波爾塔瓦', () => {
     expect(count('flakHeavy')).toBe(6)
     expect(count('searchlight')).toBe(6)
     expect(card.battle.ground!.every((e) => e.team === 'red')).toBe(true)
-    expect(card.battle.destroyCount).toBe(12)
+    expect(card.battle.destroyCount).toBe(count('parkedB17'))
+    expect(card.battle.destroyUnit).toBe('parkedB17')
   })
 
   it('照這張卡建得起來、跑一秒不炸', () => {
@@ -201,7 +202,7 @@ describe('德 M1 梅澤堡上空', () => {
 describe('德 M3 底板行動', () => {
   const card = MISSIONS.germany.find((m) => m.id === 'germany-m3') as ReadyMissionCard
 
-  it('Y-29、拂曉、8 架 K-4、開場沒有敵機在前方；炸毀 8 座', () => {
+  it('Y-29、拂曉、8 架 K-4、開場沒有敵機在前方；停機線全部都要打掉', () => {
     const b = card.battle
     expect(b.terrain).toBe('asch')
     expect(b.timeOfDay).toBe('dawn')
@@ -209,7 +210,7 @@ describe('德 M3 底板行動', () => {
     expect(b.blueCount).toBe(8)
     expect(b.redSpec.id).toBe('p51d')
     expect(b.redCount).toBe(0)
-    expect(b.destroyCount).toBe(8)
+    expect(b.destroyCount).toBe(b.ground!.filter((e) => e.unit === 'parkedP51').length)
     expect(b.destroyUnit).toBe('parkedP51')
     expect(b.priorityGroundUnit).toBe('parkedP51')
     expect(missionConfigFrom(card).tuning.priorityGroundUnit).toBe('parkedP51')
@@ -225,18 +226,26 @@ describe('德 M3 底板行動', () => {
     }
   })
 
-  it('打掉油桶與砲位不算，打掉八架停放的 P-51 才算', () => {
+  it('打掉油桶與砲位不算，P-51 剩一架都不算', () => {
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
     for (const t of b.world.groundTargets) if (t.unit.id !== 'parkedP51') t.alive = false
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
+    // 地上的打掉、滑出去的擊毀，留最後一架
     const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
-    for (const t of parked.slice(0, 8)) t.alive = false
+    const kill = (t: typeof parked[number]): void => {
+      if (t.departed) b.world.destroy(b.world.combatants[t.departedAs]!)
+      else t.alive = false
+    }
+    for (const t of parked.slice(0, -1)) kill(t)
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+    kill(parked[parked.length - 1]!)
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('victory')
   })
 
-  it('每一架只算一次、不管死在哪裡：停機墊上打掉的加上起飛後被打掉的湊到 8 就判勝', () => {
+  it('每一架只算一次、不管死在哪裡：起飛的也要打下來才判勝', () => {
     const b = createBattle({ update() {} }, missionConfigFrom(card), 1)
     const parked = b.world.groundTargets.filter((t) => t.unit.id === 'parkedP51')
     // 停機墊上先打掉 5 架
@@ -248,13 +257,16 @@ describe('德 M3 底板行動', () => {
     expect(flight).toHaveLength(4)
     expect(parked.filter((t) => t.departed)).toHaveLength(4)
     // 【離場的那一格不算摧毀】它還活著，只是在滑行道上
-    expect(b.mission.metric).toBe(3)
-    b.world.destroy(flight[0]!)
-    b.world.destroy(flight[1]!)
+    expect(b.mission.metric).toBe(parked.length - 5)
+    // 地上剩下的 3 架全部打掉：起飛的 4 架還在，不算贏
+    for (const t of parked) if (!t.departed) t.alive = false
     stepBattle(b, 1 / 240)
-    expect(b.mission.metric).toBe(1)
+    expect(b.mission.metric).toBe(4)
     expect(b.mission.outcome).toBe('fighting')
-    b.world.destroy(flight[2]!)
+    for (const c of flight.slice(0, 3)) b.world.destroy(c)
+    stepBattle(b, 1 / 240)
+    expect(b.mission.outcome).toBe('fighting')
+    b.world.destroy(flight[3]!)
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('victory')
   })

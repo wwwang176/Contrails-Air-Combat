@@ -74,7 +74,7 @@ describe('briefingOf —— 打擊（德 M3）', () => {
   const b = briefingOf(readyCard('germany-m3'))
 
   it('目標照卡，起飛的波次不上簡報', () => {
-    expect(b.objective).toBe('打掉停機坪上的野馬')
+    expect(b.objective).toBe(readyCard('germany-m3').battle.objective)
     expect(noSecrets(b)).toEqual([])
   })
 
