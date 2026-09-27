@@ -71,6 +71,8 @@ const PANEL_INTERVAL_MS = 500
  */
 export function createPerfOverlay(renderer: WebGLRenderer): PerfOverlay {
   const root = document.createElement('div')
+  // 【id 給手機版的樣式用】橫放的手機上它縮成六成，見 index.html 的手機區塊
+  root.id = 'perf'
   root.style.cssText = [
     'position:fixed', 'top:8px', 'left:8px', 'z-index:100', 'pointer-events:none',
   ].join(';')

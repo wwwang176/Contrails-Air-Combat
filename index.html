@@ -506,6 +506,114 @@
       @media (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
         #rotate { display: flex; }
       }
+      /* ══ 手機橫放 ══════════════════════════════════════════
+         觸控裝置、高度不超過 500px 時才生效 —— 桌機一行都不吃。
+         橫放的手機只有 360–430px 高：頁首留白收掉、卡片與面板的高度吃 dvh
+         （iOS 的網址列會吃掉一截，vh 算不到），能並排的一律並排，
+         放不下的在面板裡自己捲。每一條都先寫 vh 再寫 dvh：不認得 dvh 的
+         瀏覽器留在前一條 */
+      @media (pointer: coarse) and (max-height: 500px) {
+        /* 【FPS 縮成六成】它是玩家看得到的那一格，但原尺寸會壓到返回鍵 */
+        #perf { transform: scale(.6); transform-origin: 0 0; }
+        .gear { top: 6px; right: 8px; width: 34px; height: 34px; }
+        .gear.help { right: 50px; font-size: 13px; }
+        #ui .screen { padding: 46px 12px 10px; gap: 12px; }
+        /* 【返回鍵貼在畫面頂端、FPS 右邊】原本掛在紙的左上角外側，那要 54px 的頁首 */
+        .back { position: fixed; top: 6px; left: 64px; padding: 6px 12px 6px 10px; font-size: 13px; }
+        h1 { font-size: 30px; }
+        .cover { padding: 16px 36px 14px; }
+        .go { padding: 9px 30px; font-size: 15px; }
+        .ask { min-width: 0; padding: 14px 22px 16px; gap: 12px; }
+        .ask h2 { font-size: 18px; }
+
+        /* 主選單、陣營：三張卡一排，照片的高度跟著畫面高 */
+        .cards { flex-wrap: nowrap; gap: 12px; }
+        .tallcard, #campaign .tallcard { width: min(250px, calc((100vw - 48px) / 3)); padding-bottom: 10px; }
+        .tallcard .photo { margin: 8px; height: min(234px, calc(100vh - 130px)); height: min(234px, calc(100dvh - 130px)); }
+        #campaign .tallcard .photo { height: calc(100vh - 190px); height: calc(100dvh - 190px); }
+        .tallcard .t { margin: 0 12px; font-size: 16px; }
+        .tallcard .d { margin: 3px 12px 0; font-size: 11.5px; line-height: 1.45; }
+        .tallcard .m { margin: 6px 12px 0; padding-top: 5px; font-size: 10px; line-height: 1.45; }
+
+        /* 簡報：兩欄照舊，整塊填滿畫面高，兩欄各自捲；出擊鈕黏在右下 */
+        .brief { grid-template-columns: 200px 1fr; width: calc(100vw - 24px); box-sizing: border-box;
+          height: calc(100vh - 56px); height: calc(100dvh - 56px); }
+        .brief > .left { padding: 10px; overflow-y: auto; }
+        .brief > .right { min-height: 0; padding: 12px 16px; overflow-y: auto; }
+        .brief h2 { font-size: 16px; }
+        .brief .stamp { top: 10px; right: 14px; }
+        .camphead { margin: 0 0 8px; padding-bottom: 6px; }
+        .camphead .cn { font-size: 18px; }
+        .stop { padding: 5px 10px 5px 14px; }
+        .stop .n { font-size: 13px; line-height: 1.4; }
+        .obj { font-size: 13px; margin: 0 0 6px; }
+        .forces { padding: 8px 0; }
+        .unit { margin-bottom: 3px; }
+        .facts { margin-top: 8px; gap: 18px; }
+        .brief .actions { position: sticky; bottom: 0; padding-top: 10px; }
+
+        /* 編組：寬度收進畫面、每一隊一列；整頁照樣上下捲 */
+        .board { width: calc(100vw - 24px); box-sizing: border-box; padding: 12px 14px 14px; }
+        .board .head { margin-bottom: 8px; gap: 10px; }
+        .board .head h2 { font-size: 17px; }
+        .board .head .sub { font-size: 11px; }
+        .sides { grid-template-columns: 1fr 70px 1fr; }
+        .side { gap: 6px; }
+        .side .count { font-size: 17px; }
+        .flight { grid-template-columns: 20px 1fr auto; gap: 6px; padding: 5px 8px; }
+        /* 【架數的小三角收掉】右邊的數字已經是同一件事 */
+        .flight .dots { display: none; }
+        .flight .nm { font-size: 13px; }
+        .flight .nm .full { display: none; }
+        .flight .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .flight > div { min-width: 0; }
+        .palette { gap: 5px; }
+        .versus { padding-top: 34px; gap: 6px; }
+        .versus .bar { height: 120px; }
+        .versus .odds { font-size: 10px; white-space: nowrap; }
+        .setup { gap: 10px 20px; margin-top: 10px; padding-top: 10px; }
+        .foot { margin-top: 10px; }
+
+        /* 機庫：卷宗架與卷宗都收窄，右邊留給飛機；兩塊各自捲 */
+        .pane.hangar { gap: 8px; max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
+        .rack { width: 150px; gap: 4px; }
+        .rack .stop { grid-template-columns: 51px 1fr; gap: 6px; padding: 4px 8px 4px 12px; }
+        .rack .stop .sil { zoom: .75; }
+        .sheet { width: 290px; padding: 12px 14px 14px; }
+        .sheet h2 { font-size: 18px; }
+        .sheet .story { margin: 8px 0 10px; font-size: 12px; line-height: 1.55; }
+        .bars { gap: 5px; }
+        .sheet .facts { margin-top: 10px; padding-top: 8px; }
+
+        /* 設定：四組選項排成兩欄 */
+        #settings .ask { display: grid; grid-template-columns: auto auto; gap: 12px 28px; justify-items: center; }
+        #settings .ask > h2, #settings .ask > .row { grid-column: 1 / -1; }
+
+        #pause { gap: 8px; }
+        #pause h2 { font-size: 20px; }
+
+        /* 教學卡：三格照舊並排，圖的高度跟著畫面高 */
+        .ask.tut { width: min(820px, calc(100vw - 24px)); padding: 12px 16px 14px; gap: 10px; }
+        .tut-panels { flex-direction: row; align-items: stretch; gap: 10px; }
+        .tut-panel { max-width: 200px; gap: 6px; }
+        .tut-fig img { aspect-ratio: auto; height: calc(100vh - 200px); height: calc(100dvh - 200px); }
+        .tut-cap { font-size: 12px; line-height: 1.45; }
+
+        /* 戰報：面板收進畫面寬，名單照樣整張列出。
+           【按住看的即時看板捲不動】手指按在「戰績」上，所以 20v20 的列要一頁放得下；
+           結算時才讓出頂端給 FPS 與齒輪，放不下的上下捲 */
+        #board { justify-content: safe center; padding: 6px 0; box-sizing: border-box; }
+        #board.finished { padding-top: 46px; }
+        #board th { padding: 1px 6px; }
+        #board td { line-height: 1.3; }
+        .aar { width: calc(100vw - 24px); box-sizing: border-box; padding: 12px 16px 14px; }
+        #banner { font-size: 22px; }
+        #aar-me { margin: 10px 0; padding: 8px 12px; gap: 14px; }
+        #aar-me .stat .v { font-size: 20px; }
+        #tables { gap: 14px; }
+        #board table { min-width: 0; font-size: 11px; }
+        #board td { padding: 1px 6px; }
+      }
       /* 手指按下的位置；拖曳是相對位移，圈只是讓人知道這一下算在哪一邊 */
       .t-ring { position: absolute; left: -6vh; top: -6vh; width: 12vh; height: 12vh;
         box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(227, 217, 192, .4);
