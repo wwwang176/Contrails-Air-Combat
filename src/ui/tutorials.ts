@@ -33,6 +33,13 @@ export interface TutorialPanel {
   readonly alt: string
   readonly tags: readonly TutorialTag[]
   readonly caption: string
+  /** 觸控裝置上的說法。**省略 = 與 `caption` 相同**（那一句沒提到滑鼠或按鍵） */
+  readonly touchCaption?: string
+}
+
+/** 這一格在這台裝置上要印哪一句 */
+export function captionOf(p: TutorialPanel, touch: boolean): string {
+  return touch ? p.touchCaption ?? p.caption : p.caption
 }
 
 export interface Tutorial {
@@ -50,11 +57,13 @@ export const FIGHTER_TUTORIAL: Tutorial = {
       image: '/ui/tutorial/fighter-1.jpg', alt: '轉彎中，圓圈與十字分開、中間有一條連線',
       tags: [{ text: '圓圈', x: 39, y: 29 }, { text: '機頭', x: 83, y: 18 }],
       caption: '移動滑鼠控制圓圈，飛機會朝圓圈飛過去。',
+      touchCaption: '在左半邊拖曳控制圓圈，飛機會朝圓圈飛過去。',
     },
     {
       image: '/ui/tutorial/fighter-2.jpg', alt: '十字壓在敵機上開火',
       tags: [{ text: '機槍', x: 24, y: 42 }],
       caption: '十字是機槍打的方向，按住左鍵開火。',
+      touchCaption: '十字是機槍打的方向，按住開火鈕開火。',
     },
     {
       image: '/ui/tutorial/fighter-3.jpg', alt: '敵機的目標框、前方的預瞄小圈與連線',
@@ -71,6 +80,7 @@ export const TORPEDO_TUTORIAL: Tutorial = {
     {
       image: '/ui/tutorial/torpedo-1.jpg', alt: '機腹的瞄準視角', tags: [],
       caption: '按 B 進入瞄準視角，再按一次離開。',
+      touchCaption: '按瞄準鏡進入瞄準視角，按返回離開。',
     },
     {
       image: '/ui/tutorial/torpedo-2.jpg', alt: '落水點的圓圈與往前延伸的航跡線',
@@ -92,6 +102,7 @@ export const BOMB_TUTORIAL: Tutorial = {
     {
       image: '/ui/tutorial/bomb-1.jpg', alt: '機腹的瞄準視角', tags: [],
       caption: '按 B 進入瞄準視角，再按一次離開。',
+      touchCaption: '按瞄準鏡進入瞄準視角，按返回離開。',
     },
     {
       image: '/ui/tutorial/bomb-2.jpg', alt: '落點的圓圈壓在廠區邊上',
@@ -118,6 +129,7 @@ export const FIGHTER_BOMB_TUTORIAL: Tutorial = {
       image: '/ui/tutorial/bomb-2.jpg', alt: '落點的圓圈壓在目標上',
       tags: [{ text: '落點', x: 62, y: 20 }],
       caption: '圈是炸彈會落下的地方。俯衝把圈壓在目標上，按 B 投彈。',
+      touchCaption: '圈是炸彈會落下的地方。俯衝把圈壓在目標上，按投彈鈕。',
     },
     {
       image: '/ui/tutorial/bomb-3.jpg', alt: '畫面下方的彈艙格子',
