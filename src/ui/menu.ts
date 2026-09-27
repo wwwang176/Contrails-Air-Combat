@@ -12,7 +12,7 @@ import type { AircraftSpec } from '../specs/types'
 import type { TerrainKind } from '../world/terrainKind'
 import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
-import { markTutorialSeen, type Tutorial } from './tutorials'
+import { captionOf, markTutorialSeen, type Tutorial } from './tutorials'
 import {
   ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS,
 } from '../render/quality'
@@ -403,13 +403,15 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   /** 把第 `tutorialAt` 張畫進卡片 */
   function drawTutorial(): void {
     const t = tutorialQueue[tutorialAt]!
+    // 【觸控裝置換說法】與瞄準輔助的預設同一個判準（`input/aimAssist.ts`）
+    const touch = window.matchMedia('(pointer: coarse)').matches
     q('tut-title').textContent = t.title
     q('tut-panels').innerHTML = t.panels.map((p) =>
       `<li class="tut-panel"><figure class="tut-fig">`
       + `<img src="${assetUrl(p.image)}" alt="${escapeHtml(p.alt)}">`
       + p.tags.map((g) =>
         `<span class="tut-tag" style="left:${g.x}%;top:${g.y}%">${escapeHtml(g.text)}</span>`).join('')
-      + `</figure><div class="tut-cap">${escapeHtml(p.caption)}</div></li>`).join('')
+      + `</figure><div class="tut-cap">${escapeHtml(captionOf(p, touch))}</div></li>`).join('')
   }
 
   /** 「了解」：這一張記成看過；還有下一張就換上，沒有就收起來並呼叫 `done` */
