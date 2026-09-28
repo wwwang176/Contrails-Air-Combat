@@ -574,16 +574,24 @@
         .setup { gap: 10px 20px; margin-top: 10px; padding-top: 10px; }
         .foot { margin-top: 10px; }
 
-        /* 機庫：卷宗架與卷宗都收窄，右邊留給飛機；兩塊各自捲 */
-        .pane.hangar { gap: 8px; max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
-        .rack { width: 150px; gap: 4px; }
-        .rack .stop { grid-template-columns: 51px 1fr; gap: 6px; padding: 4px 8px 4px 12px; }
-        .rack .stop .sil { zoom: .75; }
-        .sheet { width: 290px; padding: 12px 14px 14px; }
-        .sheet h2 { font-size: 18px; }
-        .sheet .story { margin: 8px 0 10px; font-size: 12px; line-height: 1.55; }
-        .bars { gap: 5px; }
-        .sheet .facts { margin-top: 10px; padding-top: 8px; }
+        /* 機庫：卷宗架加卷宗不超過半個畫面，另一半整片留給飛機（`.stage` 量的就是它）。
+           卷宗架只留剪影與機名 —— 陣營與機型卷宗上已經寫了；兩塊各自捲 */
+        .pane.hangar { gap: 6px; max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
+        .rack { width: 96px; gap: 4px; }
+        .rack .stop { display: flex; flex-direction: column; align-items: center; gap: 1px;
+          padding: 5px 4px 5px 9px; text-align: center; }
+        .rack .stop .sil { zoom: .6; }
+        .rack .stop .k { display: none; }
+        .rack .stop .n { font-size: 12px; line-height: 1.3; }
+        /* 12 左內距 + 96 卷宗架 + 6 間距 */
+        .sheet { width: calc(50vw - 114px); box-sizing: border-box; padding: 10px 12px 12px; }
+        .sheet h2 { font-size: 16px; }
+        .sheet .story { margin: 6px 0 8px; font-size: 11.5px; line-height: 1.5; }
+        .bars { gap: 4px; }
+        .bars .stat { grid-template-columns: 28px 1fr 62px; gap: 6px; }
+        .bars .k, .bars .v { font-size: 11px; }
+        .sheet .facts { margin-top: 8px; padding-top: 6px; gap: 3px; }
+        .sheet .fact { grid-template-columns: 50px 1fr; font-size: 11px; }
 
         /* 設定：四組選項排成兩欄 */
         #settings .ask { display: grid; grid-template-columns: auto auto; gap: 12px 28px; justify-items: center; }
