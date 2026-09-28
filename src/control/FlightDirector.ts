@@ -69,6 +69,74 @@ export function bankAttitude(orientation: Quaternion, out: BankAttitude): BankAt
   return out
 }
 
+/**
+ * 同 `bankAttitude`，但參考方向是 `ref`（單位向量）而不是世界上方：機體要
+ * 滾多少才讓機體上方對準 `ref`。符號與 `bankAttitude` 相同。
+ *
+ * 【分成兩支而不是讓 `bankAttitude` 帶參數】`trackTurn` 關著時（玩家恆為
+ * 關）輸出要與沒有這個機制時逐位元相同，`bankAttitude` 的運算一個都不能動。
+ */
+function bankToward(orientation: Quaternion, ref: Vector3, out: BankAttitude): BankAttitude {
+  const bodyRight = S.v[1]!.set(1, 0, 0).applyQuaternion(orientation)
+  const bodyUp = S.v[2]!.set(0, 1, 0).applyQuaternion(orientation)
+  const lateral = ref.dot(bodyRight)
+  const vertical = ref.dot(bodyUp)
+  out.angle = Math.atan2(lateral, vertical)
+  out.authority = Math.hypot(lateral, vertical)
+  return out
+}
+
+/**
+ * 跟著一個在轉的瞄準方向所需的升力方向，單位向量，寫進 `out`。
+ *
+ * ```
+ * a_req = ω × v          把速度向量轉到跟著瞄準方向所需的法向加速度
+ * D     = s·a_req + g·UP  升力要提供的（抵銷重力）
+ * ```
+ *
+ * 【s：夾的是總升力】取最大的 s ∈ [0, 1] 使 |D| ≤ nLimit·g。只夾 a_req 不夠
+ * —— 氣動上限 2 g 的飛機水平轉 2 g 要的是 √5 g。水平轉彎因此停在
+ * acos(1/nLimit)，參考不會要求一個機翼做不出來的坡度。
+ *
+ * @param omega   瞄準方向的角速度，rad/s，世界座標
+ * @param nLimit  可用過載，g（`PitchLimit.nLimit`）
+ * @returns false = 升力需求為零（恰好抵銷重力），方向沒有定義，`out` 無意義
+ *
+ * 熱路徑，不配置。`out` 不得與 `omega`、`velocity` 是同一個物件。
+ */
+export function liftReference(
+  omega: Vector3, velocity: Vector3, nLimit: number, out: Vector3,
+): boolean {
+  const a = out.crossVectors(omega, velocity)
+  const aa = a.lengthSq()
+  if (aa === 0) {
+    out.set(0, 1, 0)
+    return true
+  }
+  const n = nLimit * G0
+  let s = 0
+  if (n > G0) {
+    // |s·a + g·UP|² = n²：aa·s² + 2g·a.y·s + (g² − n²) = 0 的正根
+    const b = G0 * a.y
+    const c = G0 * G0 - n * n
+    s = Math.min(1, (-b + Math.sqrt(b * b - aa * c)) / aa)
+  }
+  out.multiplyScalar(s)
+  out.y += G0
+  const len = out.length()
+  if (len < 1e-6 * G0) return false
+  out.divideScalar(len)
+  return true
+}
+
+/**
+ * 瞄準方向角速度的低通時間常數，s。
+ *
+ * AI 的瞄準方向在決策拍（10 Hz）可能跳一下；0.2 s 把跳變壓成平滑的斜坡，
+ * 又比那個 1 Hz 的極限環快得多。**起始值，由試飛裁定。**
+ */
+const TRACK_RATE_TAU = 0.2
+
 export interface DirectorGains {
   /** 外環：滾轉角誤差 → 期望滾轉率，(rad/s)/rad */
   rollOuter: number
@@ -472,6 +540,19 @@ export class FlightDirector {
   private yawIntegral = 0
   /** 每步覆寫的坡度暫存，實例私有（熱路徑零配置）。 */
   private readonly bank: BankAttitude = createBankAttitude()
+  /**
+   * 跟瞄（`trackTurn`）的狀態：上一步開著沒有、上一步的瞄準方向、濾波後的
+   * 瞄準角速度（世界座標）。
+   *
+   * 【不進快照】改出預演一律 `trackTurn = false`，用不到它們；`reset` 清掉。
+   */
+  private trackPrev = false
+  private readonly lastAim = new Vector3()
+  private readonly aimRate = new Vector3()
+  /** 跟瞄的暫存，實例私有：`bankAttitude` 用掉了模組的 S.v[1]、S.v[2] */
+  private readonly aimNow = new Vector3()
+  private readonly liftRef = new Vector3()
+  private readonly levelBank: BankAttitude = createBankAttitude()
 
   constructor(gains: DirectorGains = DEFAULT_DIRECTOR_GAINS) {
     this.gains = structuredClone(gains)
@@ -489,6 +570,9 @@ export class FlightDirector {
     this.pitchIntegral = 0
     this.levelIntegral = 0
     this.yawIntegral = 0
+    this.trackPrev = false
+    this.lastAim.set(0, 0, 0)
+    this.aimRate.set(0, 0, 0)
   }
 
   /** 複製指揮儀的動態狀態，供物理預演從與本體完全相同的控制歷史分岔。 */
@@ -551,7 +635,25 @@ export class FlightDirector {
     out: Controls,
     dbg: DirectorDebug,
     upright = false,
+    trackTurn = false,
   ): void {
+    // 【跟瞄的瞄準角速度】關到開的第一步只記方向、不微分 —— 拿關閉期間的舊
+    // 方向算角速度會暴衝。關著的時候整段不跑
+    if (trackTurn) {
+      const now = this.aimNow.copy(aimDirWorld).normalize()
+      if (this.trackPrev && dt > 0) {
+        const k = dt / (TRACK_RATE_TAU + dt)
+        const raw = this.liftRef.crossVectors(this.lastAim, now).divideScalar(dt)
+        this.aimRate.x += (raw.x - this.aimRate.x) * k
+        this.aimRate.y += (raw.y - this.aimRate.y) * k
+        this.aimRate.z += (raw.z - this.aimRate.z) * k
+      } else {
+        this.aimRate.set(0, 0, 0)
+      }
+      this.lastAim.copy(now)
+    }
+    this.trackPrev = trackTurn
+
     const invQ: Quaternion = S.q[0]!.copy(state.orientation).invert()
     const aimBody = S.v[0]!.copy(aimDirWorld).normalize().applyQuaternion(invQ)
 
@@ -656,6 +758,19 @@ export class FlightDirector {
     // 而那正是最需要改平的地方。故在夾制之後才內插。
     const bank = bankAttitude(state.orientation, this.bank)
     dbg.bankAngle = bank.angle
+    // 【跟瞄時改平的參考是轉彎要的升力方向】見 `Command.trackTurn` 與
+    // `liftReference`。瞄準方向不轉（角速度恰為零）時直接用世界上方那一份 ——
+    // `atan2(g·x, g·y)` 與 `atan2(x, y)` 代數等價但末位不同
+    let level = bank
+    if (trackTurn && (this.aimRate.x !== 0 || this.aimRate.y !== 0 || this.aimRate.z !== 0)) {
+      level = this.levelBank
+      if (liftReference(this.aimRate, state.velocity, dbg.limiter.nLimit, this.liftRef)) {
+        bankToward(state.orientation, this.liftRef, level)
+      } else {
+        level.angle = 0
+        level.authority = 0
+      }
+    }
     // 【拆成兩項】levelWeight 只回答「玩家是否在指令一個轉彎」（由瞄準誤差
     // 決定）；bank.authority 另外回答「坡度角在這個姿態下有沒有意義」
     // （垂直飛行時為 0）。輸出權限是兩者相乘，但**積分的閘門只能用前者**：
@@ -672,14 +787,14 @@ export class FlightDirector {
         UPRIGHT_MAX_BANK - UPRIGHT_LEVEL_RAMP, UPRIGHT_MAX_BANK, Math.abs(bank.angle),
       ))
     }
-    dbg.wingsLevelBlend = bank.authority * levelWeight
+    dbg.wingsLevelBlend = level.authority * levelWeight
     // 機翼改平的積分項：比例項只讓坡度指數趨近 0，殘留的 0.2~0.5° 會被重力
     // 轉成持續的橫向瞄準誤差（見 wingsLevelI 的實測）。只在改平擁有滿權限時
     // 累積——玩家正在指令一個轉彎時（blend < 1）坡度**應該**存在，
     // 那時累積等於把玩家的意圖當成誤差在對抗。
     if (levelWeight > 0.99) {
       this.levelIntegral = clamp(
-        this.levelIntegral + g.wingsLevelI * bank.angle * dt,
+        this.levelIntegral + g.wingsLevelI * level.angle * dt,
         -g.wingsLevelILimit, g.wingsLevelILimit,
       )
     } else if (levelWeight < 0.01) {
@@ -687,7 +802,7 @@ export class FlightDirector {
     }
     dbg.wingsLevelIntegral = this.levelIntegral
     const levelP = clamp(
-      g.wingsLevelGain * bank.angle + this.levelIntegral,
+      g.wingsLevelGain * level.angle + this.levelIntegral,
       -g.maxRollRateCommand, g.maxRollRateCommand,
     )
     dbg.desiredP = lerp(aimP, levelP, dbg.wingsLevelBlend)
