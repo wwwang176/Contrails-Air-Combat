@@ -1,4 +1,4 @@
-# AI 跟瞄時的機翼改平：改到轉彎所需的坡度
+# 跟瞄時的機翼改平：改到轉彎所需的坡度（AI 與玩家）
 
 ## §1 問題
 
@@ -27,7 +27,7 @@ AI 咬住一架持續急轉的目標時，射擊解每秒開一下、關一下�
 
 改平的前提是「機首對準之後，繞機首的滾轉不改變指向，坡度是自由的，放平」。瞄準點靜止時成立；瞄準點在轉時不成立 —— 坡度必須維持那個轉彎。
 
-同一條路徑的「完美玩家」（每步把準星放在預瞄點上）也一樣：53/56 段不到 1 秒。負責人裁定**只改 AI**，玩家的指揮儀一個字不變。
+同一條路徑的「完美玩家」（每步把準星放在預瞄點上）也一樣：56 段裡 53 段不到 1 秒。玩家與 AI 一起修。
 
 ## §3 做法
 
@@ -58,7 +58,8 @@ raw  = (上一步的瞄準方向 × 這一步的瞄準方向) / dt
 ω    = ω + (raw − ω) · (dt / (τ + dt))，τ = 0.2 s
 ```
 
-- AI 的瞄準指令在決策拍（10 Hz）可能跳一下；0.2 s 的低通把跳變壓成平滑的斜坡。
+- AI 的瞄準指令在決策拍（10 Hz）可能跳一下，玩家的滑鼠每一幀（60 Hz 上下）才動一次、中間幾個物理步不動；0.2 s 的低通把這些階梯壓成平滑的斜坡。
+- **單一步跳超過 5°（`TRACK_JUMP`）當成不連續**：ω 歸零、這一步不微分。重生與接手時瞄準方向一步重設到機首、AI 換目標時一步跳走 —— 拿那一步微分會得到上百 rad/s，濾波後參考歪掉約 0.5 s，而那時機首剛好對準、改平是滿權限。跟目標的滑鼠每幀約 0.25°，甩滑鼠 360°/s 在 30 fps 也才 12°（那時誤差大、改平不出力，歸零無害）。
 - 上一步 `trackTurn` 為 false（或剛 reset）時，這一步只記下瞄準方向、ω 歸零，不算角速度 —— 避免從關到開的第一步拿一個舊方向算出暴衝的角速度。
 - 新增的狀態（上一步瞄準方向、ω、上一步的開關）進 `reset`；`copyStateFrom`／`writeState`／`readState` 不收 —— 預演一律 `trackTurn = false`（§4），用不到。
 
@@ -73,8 +74,9 @@ raw  = (上一步的瞄準方向 × 這一步的瞄準方向) / dt
 | `world/World.ts` | 傳進 `aircraft.update` |
 | `aircraft/Aircraft.ts` | `update(..., upright, trackTurn = false)` 傳給指揮儀 |
 | `control/FlightDirector.ts` | `update(..., upright, trackTurn = false)` |
-| `control/PlayerController.ts` | 每步清成 false（接手僚機時 `Command` 沿用那一席的） |
+| `control/PlayerController.ts` | 每步寫 true —— 玩家的瞄準方向是世界固定的滑鼠準星，不是由自己的速度導出的，沒有 AI 那幾個要排除的分支 |
 | `ai/AiController.ts` | 每步先清成 false；空戰路徑在「瞄準貼著預瞄點」時寫 true（見下） |
+| `main.ts` | 交還操縱、接手新機時瞄準方向一步重設到機首，同時呼叫 `director.resetTrack()` —— 不到 5° 的重設 `TRACK_JUMP` 攔不到，會被微分成假的角速度 |
 | `ai/safety.ts` | 任何接管（ground／terrain／overspeed／stall，也就是不是 `'none'`）時清成 false |
 | `ai/recoveryRollout.ts`、`ai/recoveryWorker*`、`ai/recoveryProtocol.ts`、`tools/recoveryModel.ts` | 不傳（預設 false）；快照長度不變 |
 
@@ -92,7 +94,6 @@ trackTurn = intent ∈ {engage, approach, merge}
 
 ## §4 不做
 
-- 玩家的指揮儀（負責人裁定）。
 - 任何增益、門檻的重新定值。
 - 射擊窗太短就脫離（另案，量完本案之後再評估）。
 
@@ -104,7 +105,9 @@ trackTurn = intent ∈ {engage, approach, merge}
 2. `trackTurn = true` 而瞄準方向**從啟用起一直**靜止：與 false 逐位元相同（轉動過再停下來，濾波還有殘值，不要求相同）。
 3. `trackTurn = true`、瞄準方向以固定角速度水平旋轉：改平的參考坡度等於協調轉彎坡度 `atan(v·ω/g)`（誤差在濾波收斂後 < 1°）。
 4. 從 false 切到 true 的第一步 ω 為 0，不暴衝。
-5. `PlayerController` 每步把 `trackTurn` 清成 false；`safety` 接管時清成 false；`delay` 與瞄準方向同一格輸出。
+5. `PlayerController` 每步把 `trackTurn` 寫成 true；`safety` 接管時清成 false；`delay` 與瞄準方向同一格輸出。
+9. 瞄準方向一步跳 30° 之後靜止：與 false 逐位元相同（跳的那一步不微分）。
+10. 滑鼠式的階梯輸入（每 4 個物理步更新一次）跟轉動的目標：機首一樣停得住。
 6. 總升力夾制：水平急轉的需求超過 `nLimit` 時，參考坡度停在 `acos(1/nLimit)`。
 7. `|D| = 0` 時改平不出力、不出 NaN。
 8. AI：瞄準貼著預瞄點才開；脫離、卸載、集合時關。
