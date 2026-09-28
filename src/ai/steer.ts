@@ -908,6 +908,18 @@ export interface SteerConfig {
   airPassTrackRatio: number
   /** 預估再幾秒就撞上（距離 ÷ 接近速度）就先往上拉，s */
   airPassLead: number
+  /**
+   * 敵人在機頭這麼多以內才算在前方，rad。以外 = 還在迴轉，瞄準不壓機鼻
+   * （`holdTurnLevel`）。
+   */
+  turnFrontCone: number
+  /**
+   * 敵人低我超過幾個最佳持續迴旋半徑，迴轉時才准往下（俯衝迴轉）。
+   *
+   * 【用迴旋半徑當尺】「低很多」要依機種：轉得開的飛機，同樣的高度差對它比較
+   * 多。半徑取最佳持續迴旋那一點 —— 它只隨機種與高度變，不隨當下的速度跳。
+   */
+  turnDiveRadii: number
 }
 
 /**
@@ -1074,6 +1086,9 @@ export const DEFAULT_STEER: SteerConfig = {
   airPassZoom: 600,
   airPassTrackRatio: 1,
   airPassLead: 3,
+  // 起始值，由試飛裁定
+  turnFrontCone: 75 * (Math.PI / 180),
+  turnDiveRadii: 1.5,
 }
 
 /**
@@ -1289,6 +1304,44 @@ export function clearBandPerch(state: BandState): void {
   state.perch = NaN
   state.regainTime = 0
   state.forced = false
+}
+
+/**
+ * 迴轉時不壓機鼻：敵人還在機頭 `turnFrontCone` 以外，而且沒有低我
+ * `turnDiveRadii` 個迴旋半徑以上，瞄準俯仰最低只到水平 —— 水平轉或拉高轉。
+ * 方位不動。就地改 `aim`。
+ *
+ * 【為什麼要有】空戰的瞄準方向直接指著敵人（的預瞄點）。迴轉途中敵人在下方，
+ * 迴轉就變成俯衝迴轉：低空對地進場時被從後方追上，AI 防禦急轉拉到 370 m 之後
+ * 轉進交戰，一路壓到 −57°，離地 200 m 時防墜才硬拉起，最低 25 m、速度燒掉
+ * 三成，敵人被甩到 1.7 km 外。高度是存起來的能量，迴轉時換掉它，轉完就比
+ * 敵人低。
+ *
+ * 【兩個例外】敵人已經在前方時照舊壓機鼻攻擊（從上方撲擊）；敵人低我很多時
+ * 照舊准俯衝迴轉（有多的高度可以換轉彎率，轉完仍在他上方）。
+ *
+ * @param aspect            機頭到敵人的夾角，rad（`Situation.aspectAngle`）
+ * @param altitudeAdvantage 我的高度 − 敵人的高度，m
+ * @param turnRadius        最佳持續迴旋半徑，m
+ * @param heading           瞄準幾乎垂直往下（水平分量為零）時改用的水平航向
+ *
+ * 熱路徑，不配置。
+ */
+export function holdTurnLevel(
+  aim: Vector3, aspect: number, altitudeAdvantage: number, turnRadius: number,
+  heading: Vector3, cfg: SteerConfig,
+): void {
+  if (!(aim.y < 0)) return
+  if (!(aspect > cfg.turnFrontCone)) return
+  if (altitudeAdvantage > cfg.turnDiveRadii * turnRadius) return
+  const h = Math.hypot(aim.x, aim.z)
+  if (h > 1e-6) {
+    aim.set(aim.x / h, 0, aim.z / h)
+    return
+  }
+  const hh = Math.hypot(heading.x, heading.z)
+  if (hh > 1e-6) aim.set(heading.x / hh, 0, heading.z / hh)
+  else aim.set(0, 0, -1)
 }
 
 /**

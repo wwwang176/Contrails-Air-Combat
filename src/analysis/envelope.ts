@@ -424,6 +424,19 @@ export function bestSustainedTurnSpeedCached(spec: AircraftSpec, altitude: numbe
   return lookupBestTurn(spec, altitude, 1)
 }
 
+/**
+ * 最佳持續迴旋半徑，m：`bestSustainedTurnSpeedCached ÷ bestSustainedTurnRateCached`。
+ * 表裡沒有解（升限之上）時回 0。
+ *
+ * 【為什麼是最佳而不是當下速度的】接近極速時多餘功率趨近 0，持續迴旋半徑
+ * 暴增：He 111 在 1,500 m，80／95／105／110 m/s 是 559／924／2,007／0 m。
+ * 拿它當尺會跟著速度亂跳；最佳那一點只隨機種與高度變。
+ */
+export function bestSustainedTurnRadiusCached(spec: AircraftSpec, altitude: number): number {
+  const omega = bestSustainedTurnRateCached(spec, altitude)
+  return omega > 0 ? bestSustainedTurnSpeedCached(spec, altitude) / omega : 0
+}
+
 /** 角落速度：氣動過載首次達到結構極限的速度，m/s。 */
 export function cornerSpeed(spec: AircraftSpec, altitude: number): number {
   return stallSpeed(spec, altitude, spec.limits.gPositive)

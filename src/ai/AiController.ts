@@ -9,7 +9,7 @@ import {
 import {
   buildEngageBasis, clearBandPerch, createAirPassState, createBandState, resetAirPass, stepAirPass, createDefendState, createEngageBasis, createTrackState,
   engageKnobs, redlineDiveIas, stepBand,
-  geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
+  geometryGate, holdTurnLevel, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
@@ -88,6 +88,7 @@ import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
 import { THROTTLE_RATE } from '../input/throttle'
 import { NO_INTERCEPT } from '../world/lead'
+import { bestSustainedTurnRadiusCached } from '../analysis/envelope'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -1430,6 +1431,15 @@ export class AiController implements Controller {
       this.order === null || this.order.kind === 'focus' ? null : this.order.point,
       raw, DEFAULT_STEER, this.track.latched, this.band,
     )
+    // 【迴轉時不壓機鼻】見 `holdTurnLevel`。只管朝敵人轉的意圖 —— 脫離、防禦、
+    // 集合的瞄準方向不是朝敵人的
+    if (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge') {
+      holdTurnLevel(
+        raw.aimWorld, this.sit.aspectAngle, this.sit.altitudeAdvantage,
+        bestSustainedTurnRadiusCached(self.spec, self.state.position.y),
+        self.state.velocity, DEFAULT_STEER,
+      )
+    }
     // 【rally 與 flank 途中不交戰】兩份 spec 都這樣寫（第一份 §4.4、第二份
     // §4.4），而 `rallyCommand` 也確實把 `firing` 設成 false —— 但它只在
     // 「沒有目標」那條分支跑。**有目標的長機走的是這一行**，於是命令期間
