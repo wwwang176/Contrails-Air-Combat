@@ -7,7 +7,7 @@ import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
 import {
-  buildEngageBasis, clearBandPerch, createBandState, createDefendState, createEngageBasis, createTrackState,
+  buildEngageBasis, clearBandPerch, createAirPassState, createBandState, resetAirPass, stepAirPass, createDefendState, createEngageBasis, createTrackState,
   engageKnobs, redlineDiveIas, stepBand,
   geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
@@ -635,21 +635,22 @@ export class AiController implements Controller {
     this.recoveryTrialActive = false
     this.groundReleaseGate.safeSince = -1
     this.groundReleaseGate.sequence = -1
-    this.resetBand()
+    this.resetAirTactics()
   }
 
   /**
-   * 放掉空層鎖，連同它記住要回去的高度（`band.perch`）。
+   * 放掉空層鎖（連同它記住要回去的高度 `band.perch`）與空戰那一趟通過的上膛。
    *
    * 【跨場與重開一場都要】`playerAi` 跨場重用，`resetBattle` 也沿用原本的
    * 控制器，而重開之後的目標常常是同一架飛機 —— 「換目標就清」擋不住。
    * 留著的話開場第一次上鎖就會去爬上一場記下的那一層。
    */
-  resetBand(): void {
+  resetAirTactics(): void {
     this.band.kind = 'off'
     this.band.hold = 0
     clearBandPerch(this.band)
     this.bandTarget = null
+    resetAirPass(this.airPass)
   }
 
   /** 地形感知的結果與鎖存狀態 */
@@ -870,6 +871,8 @@ export class AiController implements Controller {
   readonly band = createBandState()
   /** `band.perch` 是對哪一個目標記的 */
   private bandTarget: Aircraft | null = null
+  /** 空戰那一趟通過：上膛了沒。見 `stepAirPass` */
+  private readonly airPass = createAirPassState()
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
@@ -1093,7 +1096,7 @@ export class AiController implements Controller {
       && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
       // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後
-      this.resetBand()
+      this.resetAirTactics()
       this.emit(self, dt, out)
       return
     }
@@ -1381,6 +1384,16 @@ export class AiController implements Controller {
       clearBandPerch(this.band)
       this.bandTarget = target
     }
+    // 【飛過頭就往上拉】見 `stepAirPass`：它只設下回升的高度，拉起由下面的
+    // `stepBand` 做。閃避與服從命令時不拉；已經有要回去的高度（從上方俯衝的
+    // 那一趟）就不另設；轉彎明顯比對方好的一方留下來轉
+    stepAirPass(
+      this.airPass, this.band, self, target, this.sit.range, this.sit.closureRate,
+      this.basis.interceptTime, this.sit.angleOffTail,
+      this.intent !== 'defend' && this.intent !== 'rally' && !this.transit
+        && self.spec.role === 'fighter' && !Number.isFinite(this.band.perch)
+        && this.sit.airframeTurnAdvantage < -this.rulesConfig.turnEnter,
+    )
     stepBand(
       this.band,
       this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge',
