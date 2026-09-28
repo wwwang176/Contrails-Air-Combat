@@ -503,10 +503,10 @@ function groundStrafeCommand(
   }
 
   los.divideScalar(range)
-  // 【進了射程就瞄預瞄點】彈丸帶著飛機自己的速度，而飛機的速度方向與機鼻差一個
-  // 攻角、又在下滑 —— 機鼻對著目標本身的話，彈道落在目標前面的地上，靜止的目標
-  // 也打不中；移動中的再加上它自己的提前量。與空戰同一個做法
-  out.aimWorld.copy(weaponReach ? lead : los)
+  // 【瞄預瞄點，與空戰相同：有解就用，不看射程】彈丸帶著飛機自己的速度，而飛機
+  // 的速度方向與機鼻差一個攻角、又在下滑 —— 機鼻對著目標本身的話，彈道落在目標
+  // 前面的地上，靜止的目標也打不中；移動中的再加上它自己的提前量。無解才瞄目標
+  out.aimWorld.copy(t !== NO_INTERCEPT ? lead : los)
   out.throttle = WEP_THROTTLE
   out.brake = 0
   // 【回頭進場不壓機鼻】與空戰同一條規則（`holdTurnLevel`）：目標還在機頭
