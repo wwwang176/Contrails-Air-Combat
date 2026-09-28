@@ -16,7 +16,7 @@ describe('掛載表', () => {
       kind: 'bomb', count: 8, damage: 9_300, reloadSeconds: 20,
     })
     expect(loadoutOf('g4m')).toEqual({
-      kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 45,
+      kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 35,
     })
   })
 
