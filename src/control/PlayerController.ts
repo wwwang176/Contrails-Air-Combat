@@ -40,5 +40,6 @@ export class PlayerController implements Controller {
     // 【AI 專用的這一格每步清掉】接手僚機時 `Command` 物件沿用那一席的，上一步
     // 還是 AI 寫的：不清的話正在攻艦的僚機交到玩家手上會帶著「保持正飛」
     out.upright = false
+    out.trackTurn = false
   }
 }

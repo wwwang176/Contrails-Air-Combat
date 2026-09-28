@@ -37,12 +37,23 @@ export interface Command {
    * 【玩家恆為 false】玩家自己決定姿態。
    */
   upright: boolean
+  /**
+   * 跟瞄：瞄準方向正跟著一個在轉的目標。指揮儀的機翼改平改到那個轉彎要的
+   * 坡度，而不是拉向水平（`FlightDirector.update`）。
+   *
+   * 【為什麼需要它】改平把坡度拉向 0 的前提是「機首對準之後坡度是自由的」。
+   * 瞄準方向在轉的時候不成立 —— 拉向 0 的話機首落後、誤差長回來、瞄準又把
+   * 坡度拉回去，約 1 Hz 的極限環，AI 的射擊解每秒開關一次。
+   *
+   * 【玩家恆為 false】玩家的飛機維持原本的改平。
+   */
+  trackTurn: boolean
 }
 
 export function createCommand(): Command {
   return {
     aimWorld: new Vector3(0, 0, -1), throttle: 0, brake: 0, firing: false, bombing: false,
-    upright: false,
+    upright: false, trackTurn: false,
   }
 }
 
