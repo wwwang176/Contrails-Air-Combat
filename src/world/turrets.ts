@@ -75,8 +75,8 @@ export interface TurretState extends BurstCycle {
   lastBarrel: number
 }
 
-/** 搖晃振幅，rad。**起始值，由試飛裁定。** 400 m 處 1° ≈ 7 m。 */
-export const WOBBLE_AMPLITUDE = 1.0 * DEG
+/** 搖晃振幅，rad。**由試飛裁定。** 400 m 處 3° ≈ 21 m，約兩個戰鬥機翼展。 */
+export const WOBBLE_AMPLITUDE = 3.0 * DEG
 /** 搖晃頻率，rad/s。**起始值。** 週期 1.4 秒。 */
 export const WOBBLE_OMEGA = 2 * Math.PI * 0.7
 /**
@@ -89,7 +89,7 @@ export {
 } from '../weapons/burst'
 /**
  * 開火門檻角，rad。**追瞄誤差**的門檻，與搖晃無關 —— 搖晃作用在射出去的
- * 子彈上，不作用在 `aim` 上。取搖晃振幅的兩倍。
+ * 子彈上，不作用在 `aim` 上。
  */
 export const FIRE_THRESHOLD = 2.0 * DEG
 /**
