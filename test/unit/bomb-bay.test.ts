@@ -163,7 +163,7 @@ describe('彈艙：每一台的掛載不同', () => {
     resetBombBay(b, loadoutOf('g4m'))
     expect(b.capacity).toBe(1)
     expect(b.load).toBe(1)
-    expect(b.reloadSeconds).toBe(45)
+    expect(b.reloadSeconds).toBe(35)
   })
 
   /**
