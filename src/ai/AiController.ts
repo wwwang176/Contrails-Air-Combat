@@ -10,7 +10,7 @@ import {
   buildEngageBasis, clearBandPerch, createAirPassState, createBandState, resetAirPass, stepAirPass, createDefendState, createEngageBasis, createTrackState,
   engageKnobs, redlineDiveIas, stepBand,
   geometryGate, holdTurnLevel, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
-  DEFAULT_STEER, type Knobs, type SteerMode,
+  DEFAULT_STEER, TRACK_TURN_CONE, type Knobs, type SteerMode,
 } from './steer'
 import { DEFAULT_DOCTRINE, energyPull, manoeuvreSpeed } from './doctrine'
 import {
@@ -112,19 +112,6 @@ import { createCommand, type Command, type Controller } from '../control/Control
 
 /** 意圖仲裁與包絡查詢的頻率，Hz。 */
 export const AI_DECISION_HZ = 10
-
-/**
- * 瞄準方向離預瞄方向多近才算在跟瞄（`Command.trackTurn`），rad。
- *
- * 【為什麼看瞄準貼不貼著預瞄點，而不是看走哪一條路徑】有目標時的集合、脫離、
- * 找回速度、卸載都走同一個 `steerCommand`，而它們的瞄準方向由**自己的速度**
- * 導出：自己正在轉，瞄準方向跟著轉，新的改平會把它讀成「要維持這個轉彎」，
- * 抵銷卸載要的改平。那些分支的瞄準方向都不貼著預瞄點。
- *
- * 【10° 而不是開火錐的 3°】病發生在誤差進改平的淡入角（2.5°）之後；錐開大
- * 一點，濾波在誤差變小之前就收斂。**起始值，由試飛裁定。**
- */
-const TRACK_TURN_CONE = 10 * (Math.PI / 180)
 
 const FWD = new Vector3(0, 0, -1)
 
@@ -415,7 +402,7 @@ export class AiController implements Controller {
       resetGroundStrafe(this.groundStrafe)
       return false
     }
-    groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim)
+    groundAttackCommand(this.groundStrafe, self, t, decide, out, this.aim, this.terrain?.land ?? null)
     // 【掃射也吃點放】瞄得準就咬住，瞄得爛只點兩下 —— 與打飛機同一條規則
     out.firing = out.firing && this.burstOpen
     this.bombGround(self, t, decide, out)
@@ -450,7 +437,11 @@ export class AiController implements Controller {
     // 【落點在殺傷半徑兩倍之內就放】車身的窗太窄，見 `stepBombAim` 的 nearEnough。
     // 兩倍比殺傷半徑寬：會有落空的，但不會整趟一枚都不放
     stepBombAim(this.bombAim, self, t, true, decide, null, GROUND_BOMB_AIM_RANGE, BOMB_BLAST_RADIUS * 2)
-    if (this.bombAim.active) out.aimWorld.copy(this.bombAim.aim)
+    if (this.bombAim.active) {
+      out.aimWorld.copy(this.bombAim.aim)
+      // 瞄準換成落彈解，已經不是掃射那一個要跟住的轉彎
+      out.trackTurn = false
+    }
     out.bombing = this.bombAim.release && self.state.position.y - t.position.y >= AI_BOMB_MIN_HEIGHT
   }
 

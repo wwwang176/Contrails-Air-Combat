@@ -2,11 +2,13 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { WEP_THROTTLE } from '../physics/propulsion'
 import { DEG } from '../core/math'
-import type { FireAim } from './fire'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { sustainedTurnRate } from '../analysis/envelope'
-import { DEFAULT_STEER, holdTurnLevel } from './steer'
+import { DEFAULT_STEER, holdTurnLevel, TRACK_TURN_CONE } from './steer'
+import { manoeuvreSpeed } from './doctrine'
+import { DEFAULT_FIRE, type FireAim } from './fire'
+import { losBlocked, type LandField } from '../world/occlusion'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
@@ -365,19 +367,22 @@ export function shipAttackCommand(
  * 目標 `speed` 是 0，走 `0, 0, 0` 那一條，行為與沒有移動目標時逐位元相同。
  *
  * **呼叫端仍然要在之後套 `applySafety`** —— 俯衝掃射追到地面的風險由安全層擋。
+ *
+ * @param land 地形。預瞄射線被它擋住就不開火（與空戰的 `shouldFire` 同一條）；
+ *   null = 沒有地形
  */
 export function groundAttackCommand(
   state: GroundStrafeState, self: Aircraft, target: GroundTarget, replan: boolean, out: Command,
-  fireAim?: FireAim,
+  fireAim?: FireAim, land: LandField | null = null,
 ): void {
   const p = target.position
   const aim = S.v[0]!.set(p.x, (p.y + target.impactY) / 2, p.z)
   if (target.speed === 0) {
-    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim)
+    groundStrafeCommand(state, target, self, aim, 0, 0, 0, replan, out, fireAim, land)
     return
   }
   const tv = S.v[3]!.set(0, 0, -1).applyQuaternion(target.orientation).multiplyScalar(target.speed)
-  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim)
+  groundStrafeCommand(state, target, self, aim, tv.x, tv.y, tv.z, replan, out, fireAim, land)
 }
 
 /**
@@ -419,6 +424,7 @@ function commandGroundEgress(state: GroundStrafeState, out: Command): void {
   out.throttle = WEP_THROTTLE
   out.brake = 0
   out.firing = false
+  out.trackTurn = false
 }
 
 /**
@@ -435,7 +441,8 @@ function groundStrafeCommand(
   tvz: number,
   replan: boolean,
   out: Command,
-  fireAim?: FireAim,
+  fireAim: FireAim | undefined,
+  land: LandField | null,
 ): void {
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const horizontalRange = Math.hypot(los.x, los.z)
@@ -507,8 +514,13 @@ function groundStrafeCommand(
   // 的速度方向與機鼻差一個攻角、又在下滑 —— 機鼻對著目標本身的話，彈道落在目標
   // 前面的地上，靜止的目標也打不中；移動中的再加上它自己的提前量。無解才瞄目標
   out.aimWorld.copy(t !== NO_INTERCEPT ? lead : los)
+  // 【油門與減速板與空戰相同】遠高於角落速度才開減速板（`steerCommand` 的同一條）。
+  // 俯衝進場一路加速的話，改出要的高度跟著變大，更早被防墜拉起
+  const cornerRatio = self.state.velocity.length() / manoeuvreSpeed(self.spec, self.state.position.y)
   out.throttle = WEP_THROTTLE
-  out.brake = 0
+  out.brake = cornerRatio > DEFAULT_STEER.brakeCornerRatio
+    ? Math.min(1, cornerRatio - DEFAULT_STEER.brakeCornerRatio)
+    : 0
   // 【回頭進場不壓機鼻】與空戰同一條規則（`holdTurnLevel`）：目標還在機頭
   // 75° 以外就水平轉，轉到前方才往下。瞄準直接指著地上的目標的話，回頭會變成
   // 滾過 90° 的螺旋俯衝，γ −35° 左右被防墜硬拉起。
@@ -521,11 +533,37 @@ function groundStrafeCommand(
     out.aimWorld, aspect, self.state.position.y - aim.y, Infinity,
     self.state.velocity, DEFAULT_STEER,
   )
+  // 【跟瞄與空戰相同】瞄準貼著預瞄點時，指揮儀把改平改到那個轉彎要的坡度
+  out.trackTurn = t !== NO_INTERCEPT && out.aimWorld.angleTo(lead) <= TRACK_TURN_CONE
+
+  // ── 開火：與空戰的 `shouldFire` 同一組條件 ──────────────────
+  //
+  // 一、彈丸飛得到攔截點。二、最近距離由上面的 `SHIP_BREAK_RANGE` 擋（它比
+  // `DEFAULT_FIRE.minRange` 遠，到那裡已經離場）。三、視線角速度。四、機鼻對著
+  // 預瞄方向。五、預瞄射線沒有被地形擋住
+  if (fireAim !== undefined) fireAim.error = SHIP_FIRE_CONE
   if (!weaponReach) {
     out.firing = false
     return
   }
+  const radial = relVelocity.dot(los)
+  const tangentialSq = relVelocity.lengthSq() - radial * radial
+  if (tangentialSq > 0 && Math.sqrt(tangentialSq) / range > DEFAULT_FIRE.maxLosRate) {
+    out.firing = false
+    return
+  }
   out.firing = fireWithinCone(nose.dot(lead), fireAim)
+  if (out.firing && land !== null) {
+    // 預瞄點 = 目標現在的位置 + 相對速度 × 攔截時間（與 `buildEngageBasis` 相同）
+    const p = self.state.position
+    out.firing = !losBlocked(
+      p.x, p.y, p.z,
+      p.x + los.x * range + relVelocity.x * t,
+      p.y + los.y * range + relVelocity.y * t,
+      p.z + los.z * range + relVelocity.z * t,
+      land,
+    )
+  }
 }
 
 /**
