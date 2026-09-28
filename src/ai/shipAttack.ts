@@ -6,6 +6,7 @@ import type { FireAim } from './fire'
 import { NO_INTERCEPT, solveLead } from '../world/lead'
 import { PROJECTILE_LIFETIME } from '../world/Projectiles'
 import { sustainedTurnRate } from '../analysis/envelope'
+import { DEFAULT_STEER, holdTurnLevel } from './steer'
 import type { Aircraft } from '../aircraft/Aircraft'
 import type { Command } from '../control/Controller'
 import type { Ship } from '../world/ships'
@@ -436,13 +437,30 @@ function groundStrafeCommand(
   out: Command,
   fireAim?: FireAim,
 ): void {
-  if (state.target !== target) {
-    resetGroundStrafe(state)
-    state.target = target
-  }
-
   const los = S.v[1]!.copy(aim).sub(self.state.position)
   const horizontalRange = Math.hypot(los.x, los.z)
+  const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
+
+  if (state.target !== target) {
+    // 【離場中換目標不重置】離場要拉開到的是**下一趟要打的那一台**的回頭門檻。
+    // 換了目標就回到進場的話，身後幾百公尺那一台會被直接回頭俯衝去打，
+    // 轉回來時它已經在正下方
+    if (state.phase === 'egress') {
+      state.armed = false
+      state.target = target
+    } else {
+      resetGroundStrafe(state)
+      state.target = target
+      // 【新的一趟從太近的地方開始，先拉開】目標不在機頭前方、又在回頭門檻以內
+      // （被空戰打斷後回來、換到另一台）時，水平轉永遠把它轉不進前方 —— 它在
+      // 轉彎圈裡面 —— 最後只剩近垂直俯衝。先離場，拉開到門檻再回頭
+      const range = los.length()
+      if (range > MIN_ERROR && horizontalRange < groundStrafeReattackRange(self)
+        && nose.dot(los) < range * Math.cos(DEFAULT_STEER.turnFrontCone)) {
+        enterGroundEgress(state, self)
+      }
+    }
+  }
 
   if (state.phase === 'egress') {
     if (replan || !(state.reattackRange > 0)) {
@@ -488,11 +506,22 @@ function groundStrafeCommand(
   out.aimWorld.copy(los)
   out.throttle = WEP_THROTTLE
   out.brake = 0
+  // 【回頭進場不壓機鼻】與空戰同一條規則（`holdTurnLevel`）：目標還在機頭
+  // 75° 以外就水平轉，轉到前方才往下。瞄準直接指著地上的目標的話，回頭會變成
+  // 滾過 90° 的螺旋俯衝，γ −35° 左右被防墜硬拉起。
+  //
+  // 【對地沒有高度例外】空戰「低我 1.5 個迴旋半徑以上准俯衝迴轉」的門檻在低空
+  // 只有約 210 m，離場爬到的高度一定超過它 —— 留著這條規則就等於沒有。
+  // 半徑給 Infinity 讓那一條永遠不成立
+  const aspect = Math.acos(Math.max(-1, Math.min(1, nose.dot(los))))
+  holdTurnLevel(
+    out.aimWorld, aspect, self.state.position.y - aim.y, Infinity,
+    self.state.velocity, DEFAULT_STEER,
+  )
   if (!weaponReach) {
     out.firing = false
     return
   }
-  const nose = S.v[2]!.copy(FWD).applyQuaternion(self.state.orientation)
   out.firing = fireWithinCone(nose.dot(lead), fireAim)
 }
 
