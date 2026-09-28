@@ -116,65 +116,20 @@ describe('戰鬥機掃射地面目標', () => {
     expect(out.aimWorld.z).toBeLessThan(0)
   })
 
-  it('停放機開始滑行後，沿 departedAs 繼續優先追蹤到完成起飛', () => {
+  it('滑行中的停放機仍是地面目標，任務指定時照地面目標打', () => {
     const self = craft(BF109K4, 0, 500, 0)
-    const airborne = craft(P51D, 0, 500, -1000)
-    const taxiing = craft(P51D, 300, 2, -1500)
-    taxiing.state.velocity.set(0, 0, 0)
     const stand = parked('red')
-    stand.alive = false
-    stand.departed = true
-    stand.departedAs = 2
+    stand.taxi = {} as TakeoffRoll
+    stand.speed = 8
     const ai = new AiController()
-    ai.board = createTargetBoard([
-      { index: 0, aircraft: self, team: 'blue', alive: true },
-      { index: 1, aircraft: airborne, team: 'red', alive: true, takeoff: null },
-      { index: 2, aircraft: taxiing, team: 'red', alive: true, takeoff: {} as TakeoffRoll },
-    ])
+    ai.board = createTargetBoard([{ index: 0, aircraft: self, team: 'blue', alive: true }])
     ai.selfIndex = 0
     ai.groundTargets = [stand]
     ai.priorityGroundUnit = 'parkedP51'
     const out = createCommand()
     ai.update(self, DT, out)
-    const aim = taxiing.state.position.clone().sub(self.state.position).normalize()
-    expect(ai.groundedAircraftTarget).toBe(taxiing)
-    expect(out.aimWorld.dot(aim)).toBeGreaterThan(0.95)
-  })
-
-  it('同時有多架滑行目標時做完同一航次，不因最近者改變而每拍換機', () => {
-    const self = craft(BF109K4, 0, 500, 0)
-    const first = craft(P51D, 0, 2, -1000)
-    const second = craft(P51D, 300, 2, -1500)
-    first.state.velocity.set(0, 0, 0)
-    second.state.velocity.set(0, 0, 0)
-    const firstStand = createGroundTarget(0, 'parkedP51', 'red', 0, -1000, 0)
-    const secondStand = createGroundTarget(1, 'parkedP51', 'red', 300, -1500, 0)
-    firstStand.alive = false
-    firstStand.departedAs = 1
-    secondStand.alive = false
-    secondStand.departedAs = 2
-    const ai = new AiController()
-    ai.board = createTargetBoard([
-      { index: 0, aircraft: self, team: 'blue', alive: true },
-      { index: 1, aircraft: first, team: 'red', alive: true, takeoff: {} as TakeoffRoll },
-      { index: 2, aircraft: second, team: 'red', alive: true, takeoff: {} as TakeoffRoll },
-    ])
-    ai.selfIndex = 0
-    ai.groundTargets = [firstStand, secondStand]
-    ai.priorityGroundUnit = 'parkedP51'
-    const out = createCommand()
-    ai.update(self, DT, out)
-    expect(ai.groundedAircraftTarget).toBe(first)
-
-    // 第二架現在明顯更近；第一架仍有效，所以不換。
-    self.state.position.set(300, 500, -1400)
-    ai.update(self, 0.11, out)
-    expect(ai.groundedAircraftTarget).toBe(first)
-
-    // 第一架失效後，下一個決策拍才交給第二架。
-    ai.board.candidates[1]!.alive = false
-    ai.update(self, 0.11, out)
-    expect(ai.groundedAircraftTarget).toBe(second)
+    expect(ai.groundTarget).toBe(stand)
+    expect(out.aimWorld.dot(toward(self, 300, -1500))).toBeGreaterThan(0.95)
   })
 
   it('任務指定後，即使有空中敵機仍優先瞄準停放的 P-51', () => {

@@ -278,7 +278,8 @@ export const GROUND_UNITS: readonly GroundUnit[] = [
     realLength: 9.79, realWidth: 11.28, realHeight: 3.50,
     // 【命中盒是手寫的】理由同 `parkedB17`。烘好的幾何量到 x ±5.64、
     // y 0…3.50、z ±4.90，各留不到 5 cm。一架 3,011 個三角形，不需要低模
-    model: { build: () => bakeParkedAircraft('p51d') },
+    // 【槳葉拆開】停機線上的 P-51 引擎在暖機，槳慢轉（`render/groundTargets.ts`）
+    model: { build: () => bakeParkedAircraft('p51d', true) },
     hull: [groundBox([-5.66, 0.00, -4.92], [5.66, 3.52, 4.92])],
   },
 ]
