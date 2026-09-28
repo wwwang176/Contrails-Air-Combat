@@ -88,7 +88,51 @@ describe('空層鎖的回升：記下要回去的高度', () => {
   })
 })
 
+/** 記下 `perch` = ALT，掉到敵人那一層重新上鎖 → 回升中 */
+function regaining(): Rig {
+  const r = rig()
+  lock(r)
+  release(r)
+  r.self.state.position.y = ENEMY_ALT
+  r.sit.altitudeAdvantage = 0
+  lock(r)
+  return r
+}
+
+describe('空層鎖的回升：到達', () => {
+  it('到達那一步鎖剛好放開 → 記憶照樣清掉，之後下降不會再爬回去', () => {
+    const r = regaining()
+    expect(r.band.kind).toBe('regain')
+    r.self.state.position.y = ALT - DEFAULT_STEER.bandTolerance / 2
+    r.sit.aspectAngle = 150 * DEG
+    release(r)
+    expect(Number.isNaN(r.band.perch)).toBe(true)
+    r.self.state.position.y = ALT - 400
+    lock(r)
+    expect(r.band.kind).not.toBe('regain')
+  })
+
+  it('被 extend 打斷期間爬到那一層 → 記憶清掉', () => {
+    const r = regaining()
+    r.self.state.position.y = ALT
+    stepBand(r.band, false, r.sit, r.basis, r.self, DT)
+    expect(Number.isNaN(r.band.perch)).toBe(true)
+    r.self.state.position.y = ALT - 400
+    lock(r)
+    expect(r.band.kind).not.toBe('regain')
+  })
+})
+
 describe('空層鎖的回升：時間上限', () => {
+  it('鎖每一步放開又重鎖，每一個回升的步照樣計時，到上限就放棄', () => {
+    const r = regaining()
+    const steps = Math.ceil((2 * DEFAULT_STEER.bandRegainMax + 1) / DT)
+    for (let i = 0; i < steps && !Number.isNaN(r.band.perch); i++) {
+      stepBand(r.band, i % 2 === 0, r.sit, r.basis, r.self, DT)
+    }
+    expect(Number.isNaN(r.band.perch)).toBe(true)
+  })
+
   it('中途被打斷不重算，累計到 bandRegainMax 就放棄、改貼敵', () => {
     const r = rig()
     lock(r)

@@ -1321,6 +1321,14 @@ export function stepBand(
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
   const alt = self.state.position.y
+  // 【回到那一層就算完成，鎖不鎖著都一樣】排在所有早退之前 —— 到達那一步鎖
+  // 剛好放開、或被 extend 打斷期間爬到了，記憶都要清掉；留著的話之後下降時
+  // 沒有新的攻擊也會再爬回舊的那一層。回升中到達時 `anchor` 仍是那一層，敵人
+  // 在下方時下一段接敵就從這裡開始往下
+  if (alt >= state.perch - cfg.bandTolerance) {
+    if (state.kind === 'regain') state.kind = 'level'
+    clearBandPerch(state)
+  }
   let hold = active ? bandHold(sit, basis, cfg) : 0
   // 【打完一擊、目標甩到機鼻 45° 外：不讓位，直接回升】讓位閘只看攔截時間，
   // 交會之後目標還在近距離時它仍然說「打得到」，AI 於是跟著回頭追 —— 靶機
@@ -1355,19 +1363,6 @@ export function stepBand(
   if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
   // 【已經鎖住就不重挑走法】見 `BandState` 的註解 —— 但基準夾制（下方）
   // 每步都要重算，所以不能在這裡 return。
-  // 【回升到了、或時間用完：放掉，照一般的走法】到了的話 `anchor` 仍是那一層，
-  // 敵人在下方時下一段接敵就從這裡開始往下；逾時的話 `anchor` 改成現在的高度
-  if (state.kind === 'regain') {
-    state.regainTime += dt
-    if (alt >= state.anchor - cfg.bandTolerance) {
-      state.kind = 'level'
-      clearBandPerch(state)
-    } else if (state.regainTime >= cfg.bandRegainMax) {
-      state.kind = 'level'
-      state.anchor = alt
-      clearBandPerch(state)
-    }
-  }
   if (state.kind === 'off') {
     // 【打完一擊先回去】要回去的那一層比現在高才走回升；已經在那一層就不必
     if (state.perch > alt + cfg.bandTolerance) {
@@ -1387,6 +1382,17 @@ export function stepBand(
     } else {
       state.kind = 'level'
       state.anchor = alt
+    }
+  }
+  // 【時間上限：每一個處在回升的步各算一次，進場那一步也算】只算「進場前已經
+  // 是回升」的步的話，鎖每步放開又重鎖時一步都不會累計，上限形同虛設。逾時
+  // 就放掉，`anchor` 改成現在的高度，照常接敵
+  if (state.kind === 'regain') {
+    state.regainTime += dt
+    if (state.regainTime >= cfg.bandRegainMax) {
+      state.kind = 'level'
+      state.anchor = alt
+      clearBandPerch(state)
     }
   }
 
