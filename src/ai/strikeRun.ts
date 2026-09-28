@@ -13,9 +13,10 @@ import type { StrikeTarget } from '../world/strikeTarget'
  * 兩者共用同一套狀態機。
  *
  * ```
- * 進場 ──對正了──▶ 直飛 ──投完／飛過頭／逾時──▶ 脫離 ──補滿且夠遠──▶ 進場
- *  ▲                                                                    │
- *  └────────────────────────────────────────────────────────────────────┘
+ * 進場 ──對正且穩了──▶ 直飛 ──投完／飛過頭／逾時／目標換了──▶ 脫離 ──補滿且夠遠──▶ 進場
+ *  │ ▲                                                                           ▲   │
+ *  │ └───────────────────────────────────────────────────────────────────────────┼───┘
+ *  └────────────────────── 到了放手點還沒鎖上 ─────────────────────────────────────┘
  * ```
  *
  * ## 為什麼非要有「直飛」這一段
@@ -65,6 +66,16 @@ export interface StrikeProfile {
   /** 機首與理想航向的夾角小於這個才鎖，rad。 */
   readonly lockCone: number
   /**
+   * 坡度大於這個不鎖，rad。省略 = 不看坡度。
+   *
+   * 【滾得慢的飛機非看不可】還在迴轉裡就鎖住航向的話，速度向量仍在轉，
+   * 落點橫著掃過投彈窗 —— 盟 M2 實測 35 趟裡 13 趟帶著 10–52° 的坡度鎖定，
+   * 幾乎都整趟沒放。
+   */
+  readonly lockBank?: number
+  /** 航向變化率大於這個不鎖，rad/s。省略 = 不看。理由同 `lockBank`。 */
+  readonly lockTurnRate?: number
+  /**
    * 已經飛到這麼近就放棄這一趟，m。
    *
    * 【它不是脫離距離，是放棄距離】到了這裡還沒放出去就代表這一趟算不準了
@@ -109,6 +120,11 @@ export interface StrikePlan {
   /** 進到這麼近且對正了就鎖航向轉入直飛，m。 */
   lockRange: number
   /**
+   * 放手點的距離，m。進場段到了這裡還沒鎖上就放棄這一趟、轉脫離重來 ——
+   * 投彈窗已經在身後，再追只會繞著目標打轉。**省略或 0 = 不設**（照追到底）。
+   */
+  releaseRange?: number
+  /**
    * 脫離要拉開到多遠才准再進場，m。
    *
    * 【為什麼也是推導的】它的下限是「掉頭之後還有空間重新鎖住航向」，也就是
@@ -148,6 +164,14 @@ export interface StrikeState {
   pickAlong: boolean
   /** `plan.along` 是對哪一個目標挑的。進場途中換了目標就重挑。 */
   alongFor: number
+  /**
+   * 下一個決策拍要重選打擊目標。直飛段結束（投完、飛過頭、逾時、目標換了）
+   * 時設，由呼叫端選完之後清掉。
+   *
+   * 【其餘時候目標不換】同價值的目標比距離，飛機一動最近的那個就換 —— 進場
+   * 到一半瞄點跳走，飛機帶著坡度鎖航向。
+   */
+  repick: boolean
 }
 
 export function createStrikeState(): StrikeState {
@@ -157,9 +181,10 @@ export function createStrikeState(): StrikeState {
     target: -1,
     seconds: 0,
     release: false,
-    plan: { aim: new Vector3(), lockRange: 0, egressRange: 0, along: 0 },
+    plan: { aim: new Vector3(), lockRange: 0, releaseRange: 0, egressRange: 0, along: 0 },
     pickAlong: true,
     alongFor: -1,
+    repick: false,
   }
 }
 
@@ -171,10 +196,12 @@ export function resetStrike(s: StrikeState): void {
   s.release = false
   s.plan.aim.set(0, 0, 0)
   s.plan.lockRange = 0
+  s.plan.releaseRange = 0
   s.plan.egressRange = 0
   s.plan.along = 0
   s.pickAlong = true
   s.alongFor = -1
+  s.repick = false
 }
 
 /**
@@ -185,6 +212,17 @@ export function resetStrike(s: StrikeState): void {
  * 量級小到落點不會橫掃，又足以吃掉系統性偏差。**起始值，由試飛裁定。**
  */
 export const RUN_TRIM = 0.12
+
+/**
+ * 脫離要在鎖定距離之外再拉開幾個持續迴旋直徑，才准回頭再進場。轟炸與雷擊
+ * 共用。
+ *
+ * 【為什麼不是 1】1 個直徑只夠掉頭：轟炸機一輪約 50 秒，在目標上空兩公里
+ * 內打轉，看不出一波一波進場。拉開的量用迴旋直徑當尺，轉得開的飛得近。
+ *
+ * **起始值，由試飛裁定。**
+ */
+export const EGRESS_TURNS = 2.5
 
 /** 方向退化的下限。與 `shipAttack.ts` 同一個手法。 */
 const MIN_ERROR = 1e-6
@@ -262,16 +300,23 @@ export function stepStrike(
     applyRunAltitude(self, profile, out)
     out.bombing = false
 
-    // 【對正且進到鎖定距離才轉直飛】兩個都要 —— 只看距離的話會在還沒對正
-    // 時就鎖住一個歪的航向，只看角度的話會在 8 km 外就鎖住
+    // 【對正、穩住、進到鎖定距離才轉直飛】只看距離的話會在還沒對正時就鎖住
+    // 一個歪的航向，只看角度的話會在 8 km 外就鎖住，不看穩不穩會在迴轉裡鎖住
     if (!loaded || ideal === null || range > state.plan.lockRange) return
     const nose = flatten(S.v[3]!.copy(FWD).applyQuaternion(self.state.orientation))
-    if (nose === null || nose.dot(ideal) < Math.cos(profile.lockCone)) return
-
-    state.phase = 'run'
-    state.target = targetIndex
-    state.seconds = 0
-    state.heading.copy(ideal)
+    if (nose !== null && nose.dot(ideal) >= Math.cos(profile.lockCone) && steady(self, profile)) {
+      state.phase = 'run'
+      state.target = targetIndex
+      state.seconds = 0
+      state.heading.copy(ideal)
+      return
+    }
+    // 【過了放手點還沒鎖上就重來】見 `StrikePlan.releaseRange`
+    if (range < (state.plan.releaseRange ?? 0)) {
+      state.phase = 'egress'
+      state.seconds = 0
+      steerEgress(self, profile, dx, dz, out)
+    }
     return
   }
 
@@ -287,10 +332,13 @@ export function stepStrike(
   out.aimWorld.copy(state.heading)
   applyRunAltitude(self, profile, out)
 
-  // 【放棄條件】飛過頭、逾時、或艙空了。留在直飛只會鑽進近迫火網。
-  if (!loaded || range < profile.abortRange || state.seconds > profile.runSeconds) {
+  // 【放棄條件】飛過頭、逾時、艙空了、或鎖住的目標換了。留在直飛只會鑽進
+  // 近迫火網；目標換了的話鎖住的是前一個目標的航向
+  if (!loaded || range < profile.abortRange || state.seconds > profile.runSeconds
+    || targetIndex !== state.target) {
     state.phase = 'egress'
     state.seconds = 0
+    state.repick = true
     // 【轉進脫離的那一步就要轉向】不在這裡改的話，這一步還飛著直飛的航向，
     // 而那一步正是「已經在船的正上方」的那一步 —— 差一步就是差 0.4 秒的
     // 近迫火網
@@ -301,6 +349,25 @@ export function stepStrike(
 
   if (decide) state.release = profile.shouldRelease(self, ship, state.plan)
   out.bombing = state.release
+}
+
+/**
+ * 坡度與航向變化率都在剖面的門檻內。剖面沒設的那一項不看。
+ *
+ * 航向變化率取機體角速度轉到世界座標後的垂直分量。熱路徑：不配置。
+ */
+function steady(self: Aircraft, profile: StrikeProfile): boolean {
+  const q = self.state.orientation
+  if (profile.lockBank !== undefined) {
+    // 機體右向量 (1, 0, 0) 轉到世界座標後的 y 分量 ＝ sin(坡度)
+    const rightY = 2 * (q.x * q.y + q.w * q.z)
+    if (Math.abs(rightY) > Math.sin(profile.lockBank)) return false
+  }
+  if (profile.lockTurnRate !== undefined) {
+    const w = S.v[1]!.copy(self.state.angularVelocity).applyQuaternion(q)
+    if (Math.abs(w.y) > profile.lockTurnRate) return false
+  }
+  return true
 }
 
 /** 背離目標並爬升。**兩個入口共用** —— 轉進脫離的那一步也要立刻轉向。 */

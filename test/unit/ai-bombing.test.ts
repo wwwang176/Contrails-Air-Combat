@@ -458,7 +458,8 @@ describe('攻擊航路的狀態機', () => {
   /**
    * 【對正且進到鎖定距離就轉直飛，並且把目標鎖住】換船等於航向白鎖。
    *
-   * 【1,000 m 不是猜的】鎖定距離＝前拋 ＋ 船沿視線靠近的量 ＋ `RUN_SETTLE`。
+   * 【1,000 m 不是猜的】鎖定距離＝前拋 ＋ 船沿視線靠近的量 ＋ `RUN_SETTLE`
+   * ＋ 改平的那一段。
    * 1,000 m 平飛 90 m/s 的前拋約 1,210 m，這裡的船背離（`lead` 是負的），
    * 兩項加起來仍然在 1,000 m 之外。
    */
@@ -522,7 +523,8 @@ describe('攻擊航路的狀態機', () => {
     // 船以 8 m/s 迎面走了一整個落彈時間，放手點因此比前拋遠那麼多
     const lead = 8 * hit.seconds
     expect(lead).toBeGreaterThan(100)
-    expect(st.plan.lockRange - throwRange).toBeCloseTo(lead + RUN_SETTLE, 0)
+    expect(st.plan.releaseRange! - throwRange).toBeCloseTo(lead, 0)
+    expect(st.plan.lockRange).toBeGreaterThan(st.plan.releaseRange! + RUN_SETTLE)
   })
 
   /**
@@ -624,10 +626,12 @@ describe('攻擊航路的狀態機', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
+    st.target = 0
     st.heading.set(0, 0, -1)
     const out = createCommand()
     setBombBallistics(K, DT)
     stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.phase).toBe('run')
     // 理想航向偏了約 20°，一拍只能走掉 RUN_TRIM 那一小段
     const moved = Math.acos(Math.min(1, st.heading.dot(new Vector3(0, 0, -1))))
     expect(moved).toBeGreaterThan(0)
@@ -638,6 +642,7 @@ describe('攻擊航路的狀態機', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
+    st.target = 0
     st.heading.set(0, 0, -1)
     const out = createCommand()
     setBombBallistics(K, DT)

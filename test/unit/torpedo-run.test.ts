@@ -12,6 +12,8 @@ import {
 } from '../../src/ai/torpedoRun'
 import { TORPEDO_ENVELOPE } from '../../src/weapons/releaseEnvelope'
 import { shipAt } from '../../src/ai/bombRun'
+import { EGRESS_TURNS } from '../../src/ai/strikeRun'
+import { sustainedTurnRate } from '../../src/analysis/envelope'
 import type { Ship } from '../../src/world/ships'
 
 const DT = 1 / 240
@@ -374,6 +376,17 @@ describe('可以鎖 = 可以投', () => {
     const banked = overBanked()
     TORPEDO_PROFILE.plan(banked, ship, out)
     expect(out.lockRange).toBe(0)
+  })
+
+  /** 【與轟炸同一把尺】拉開的量是迴旋直徑的倍數，轉得開的飛得近 */
+  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個持續迴旋直徑', () => {
+    setTorpedoBallistics(K, DT)
+    const a = bomber(0, 1500)
+    TORPEDO_PROFILE.plan(a, target(8), out)
+    expect(out.lockRange).toBeGreaterThan(0)
+    const tas = a.state.velocity.length()
+    const radius = tas / sustainedTurnRate(G4M, a.state.position.y, tas)
+    expect(out.egressRange - out.lockRange).toBeCloseTo(EGRESS_TURNS * 2 * radius, 0)
   })
 
   /** 【脫離距離照算】它管的是「飛多遠才准回頭」，與這一拍鎖不鎖無關 */
