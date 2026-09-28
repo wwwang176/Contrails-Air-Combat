@@ -5,7 +5,7 @@ import { stepCadence } from '../weapons/cadence'
 import { AIRCRAFT_ARMOUR, SHIP_GUN_ARMOUR, penetrationDamage } from '../weapons/armour'
 import {
   boundingRadius, createHitResult, hitAircraft, segmentBox, segmentPointDistanceSq,
-  NO_HIT, PART_INDEX, PART_MULTIPLIER, type HitPart,
+  NO_HIT, PART_INDEX, partDamage, type HitPart,
   pointBoxDistance,
 } from './hit'
 import { Projectiles } from './Projectiles'
@@ -45,7 +45,10 @@ import {
 import type { GroundTarget } from './groundTargets'
 import { stepGroundMotion } from './groundMotion'
 import { MATERIAL } from './material'
-import { stepTakeoff, type TakeoffRoll } from '../control/takeoffRoll'
+import {
+  GEAR_CLEARANCE, ROLL_SECONDS, stepTakeoff, type PoseState, type TakeoffRoll,
+} from '../control/takeoffRoll'
+import { airframePose } from './groundAirframe'
 import { createFlares, stepFlares } from './flares'
 import { stepGunPlatform, ownerShipIndex } from './shipGuns'
 import {
@@ -188,6 +191,13 @@ const BOMB_PAIR = { u: 0, v: 0 }
 const BOMB_VEL: BombState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
 /** 世界 → 艦體的逆姿態。模組級，熱路徑不得配置。 */
 const SHIP_INV = /* @__PURE__ */ new Quaternion()
+/** 地上飛機的起飛腳本姿態。模組級，熱路徑不得配置。 */
+const TAXI_POSE: PoseState = {
+  position: new Vector3(), velocity: new Vector3(), orientation: new Quaternion(), angularVelocity: new Vector3(),
+}
+/** 地上飛機的機體原點與姿態（`airframePose`）。模組級，熱路徑不得配置。 */
+const AF_POS = /* @__PURE__ */ new Vector3()
+const AF_QUAT = /* @__PURE__ */ new Quaternion()
 /**
  * 投雷時的機首水平方向。**熱路徑不得配置**，所以是模組層級的一格。
  *
@@ -315,6 +325,12 @@ export class World {
    * 這一筆，只推一次。合在一起的話直擊剛好炸毀時同一個爆點推兩次。
    */
   readonly groundKillEvents: ImpactEvents = createImpacts()
+
+  /**
+   * 這一步離地、交給空中那一池的席位索引（`stepGroundTaxi`）。**讀的人清空**
+   * （`battle/setup.ts` 同步飛行員名冊）。
+   */
+  readonly liftoffs: number[] = []
 
   /**
    * 沉沒事件。**一艘船一筆**，由活變死的那一步推。
@@ -532,6 +548,11 @@ export class World {
   damageStride = 0
 
   private readonly hit = createHitResult()
+  /**
+   * 地上飛機的命中結果。**與 `hit` 分開**：同一發彈先判過天上的飛機，`hit` 裡
+   * 留著那一架的部位；地上那一架沒打中時也可能寫過這一格。
+   */
+  private readonly groundHit = createHitResult()
   /** 命中判定的粗篩索引。每個物理步重填一次（spec §5.2） */
   private readonly cull = new CullIndex()
 
@@ -731,7 +752,10 @@ export class World {
     }
     // 【車先動、砲後打】防空車的槍口由這一步的位置算。`this.time` 在 `step`
     // 開頭已經加上 dt，所以這裡是這一步結束時的時間
-    for (const t of this.groundTargets) stepGroundMotion(t, this.time, this.groundAt)
+    for (const t of this.groundTargets) {
+      stepGroundMotion(t, this.time, this.groundAt)
+      if (t.taxi !== null) this.stepGroundTaxi(t, dt)
+    }
     // 【陸上的高砲位走同一支】掛了砲的地面目標（洛伊納那八個）就是一座砲台。
     // **傳整組地面目標當「艦隊」** —— 目標分攤要跨全部砲位數，各自只數自己
     // 的話八門砲會一起咬同一架
@@ -1372,6 +1396,8 @@ export class World {
         }
         // 【要夾】船砲彈的 `owner` 在負數區（見 `ships.ts` 的 `index`），
         // 不是 combatant —— 與底下地面目標那一行同一條
+        // 【命中 X】打中船與打中飛機同一格（`hitsDealt`），HUD 讀它
+        if (owner >= 0 && owner < combatants.length) combatants[owner]!.hitsDealt++
         this.sinkIfDead(
           shipHit, owner >= 0 && owner < combatants.length ? owner : -1,
         )
@@ -1384,8 +1410,13 @@ export class World {
       // 【排在船之後、陸地之前，同一個理由】盒子貼在地上，彈丸一步走 3.7～
       // 4.5 m，「先穿過戰車再入土」在同一步之內是合法命中，順序用 t 比。
       // 一台一個盒、沒有部位、沒有砲位 —— 打中就扣。同隊過濾與船相同。
+      //
+      // 【地上的飛機例外】`airframe` 不是 null 的照飛機算：部位盒、部位倍率、
+      // 防護力（`groundAirframe.ts`、`partDamage`），與天上那一架同一條式子。
+      // 包圍球半徑照停放的盒 —— 它包得住 P-51 的部位盒（8.279 < 8.284 m）
       if (targets.length > 0) {
         let hitTarget: GroundTarget | null = null
+        let hitPart: HitPart | null = null
         for (let k = 0; k < targets.length; k++) {
           const t = targets[k]!
           if (!t.alive) continue
@@ -1393,6 +1424,18 @@ export class World {
           if (segmentPointDistanceSq(
             ax, ay, az, bx, by, bz, t.position.x, t.position.y, t.position.z,
           ) > t.radius * t.radius) continue
+          if (t.airframe !== null) {
+            airframePose(t, AF_POS, AF_QUAT)
+            s0.set(ax, ay, az)
+            s1.set(bx, by, bz)
+            if (!hitAircraft(t.airframe.hitBoxes, AF_POS, AF_QUAT, s0, s1, this.groundHit)) continue
+            if (this.groundHit.t >= bestT) continue
+            bestT = this.groundHit.t
+            victim = null
+            hitTarget = t
+            hitPart = this.groundHit.part
+            continue
+          }
           SHIP_INV.copy(t.orientation).conjugate()
           const a = S.v[0]!.set(ax, ay, az).sub(t.position).applyQuaternion(SHIP_INV)
           const b = S.v[1]!.set(bx, by, bz).sub(t.position).applyQuaternion(SHIP_INV)
@@ -1402,14 +1445,21 @@ export class World {
             bestT = tt
             victim = null
             hitTarget = t
+            hitPart = null
           }
         }
         if (hitTarget !== null) {
           const hx = ax + (bx - ax) * bestT, hy = ay + (by - ay) * bestT, hz = az + (bz - az) * bestT
           pushImpact(this.hitEvents, hx, hy, hz, -(bx - ax), -(by - ay), -(bz - az))
           pushImpact(this.materialHits, hx, hy, hz, MATERIAL.ground, 0, 0)
-          // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
-          hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
+          if (hitPart !== null) {
+            hitTarget.hp -= partDamage(hitTarget.airframe!.protection, p.damage[i]!, hitPart)
+          } else {
+            // 口徑門檻與船同一支函數：戰車的 45 mm 讓機槍與機砲只扣底線
+            hitTarget.hp -= penetrationDamage(p.damage[i]!, p.caliber[i]!, hitTarget.armour)
+          }
+          // 【命中 X】打中地面目標與打中飛機同一格（`hitsDealt`），HUD 讀它
+          if (owner >= 0 && owner < combatants.length) combatants[owner]!.hitsDealt++
           // 兇手只記飛機；船砲的 owner 在負數區，不是 combatant
           this.wreckIfDead(
             hitTarget, owner >= 0 && owner < combatants.length ? owner : -1, false,
@@ -1706,6 +1756,57 @@ export class World {
     return best
   }
 
+  /**
+   * 地上的飛機沿起飛腳本推進一步；滾行到離地就交給 `departedAs` 那一席。
+   *
+   * 【地面目標的位置是地面】腳本寫的是機體原點（地面 ＋ `GEAR_CLEARANCE`），
+   * 地面目標的 `position.y` 是地面高度 —— `impactY`、爆風的盒、AI 的瞄點都讀它。
+   *
+   * 【交接】那一席在等待期間沒有更新過（`alive = false`），所以姿態、上一幀姿態、
+   * 血量都在這裡一次寫好；腳本本身接著交給它跑完抬頭與初期爬升。飛行員名冊
+   * 由戰鬥層讀 `liftoffs` 同步（`battle/setup.ts`）。
+   */
+  private stepGroundTaxi(t: GroundTarget, dt: number): void {
+    const roll = t.taxi!
+    if (!t.alive) {
+      t.taxi = null
+      t.rolling = false
+      return
+    }
+    // 【先種回這一台自己的姿態】暫存是所有地上飛機共用的，而腳本離地那一步
+    // 從傳進去的位置積分 —— 不種的話會接在上一台的位置上
+    TAXI_POSE.position.set(t.position.x, t.position.y + GEAR_CLEARANCE, t.position.z)
+    TAXI_POSE.orientation.copy(t.orientation)
+    stepTakeoff(roll, TAXI_POSE, dt)
+    const taxiDone = roll.taxi === null || roll.elapsed >= roll.taxiTime
+    const tRoll = roll.elapsed - roll.delay
+    t.position.set(TAXI_POSE.position.x, TAXI_POSE.position.y - GEAR_CLEARANCE, TAXI_POSE.position.z)
+    t.orientation.copy(TAXI_POSE.orientation)
+    t.speed = TAXI_POSE.velocity.length()
+    t.rolling = taxiDone && tRoll > 0
+    if (!(taxiDone && tRoll >= ROLL_SECONDS)) return
+
+    t.taxi = null
+    t.rolling = false
+    t.speed = 0
+    t.alive = false
+    t.departed = true
+    const c = this.combatants[t.departedAs]
+    if (c === undefined) return
+    const a = c.aircraft
+    a.state.position.copy(TAXI_POSE.position)
+    a.state.orientation.copy(TAXI_POSE.orientation)
+    a.state.velocity.copy(TAXI_POSE.velocity)
+    a.state.angularVelocity.set(0, 0, 0)
+    a.prevPosition.copy(a.state.position)
+    a.prevOrientation.copy(a.state.orientation)
+    c.takeoff = roll
+    c.hp = t.hp
+    c.alive = true
+    c.retired = false
+    this.liftoffs.push(c.index)
+  }
+
   /** 扣血並在必要時重生。倍率在這裡套用，測試可以直接呼叫。 */
   applyDamage(victim: Combatant, damage: number, part: HitPart, shooter?: Combatant): void {
     // 退場的飛機打不中——這一條也讓「死人身上還在扣血」不可能發生
@@ -1713,9 +1814,7 @@ export class World {
 
     // 【除以防護力】1.0 是基準；IEEE754 下除以 1.0 是精確的，所以全填 1.0
     // 時行為逐位元不變 —— 接線這一步就是這樣驗的
-    // 【`!` 是安全的】`protection` 的型別是 Record<HitPart, number>，六個
-    // 部位都必填；`noUncheckedIndexedAccess` 對 Record 一律加上 undefined
-    victim.hp -= damage * PART_MULTIPLIER[part] / victim.aircraft.spec.protection[part]!
+    victim.hp -= partDamage(victim.aircraft.spec.protection, damage, part)
     if (shooter) {
       shooter.hitsDealt++
       this.damageTime[shooter.index * this.damageStride + victim.index] = this.time

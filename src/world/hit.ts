@@ -27,6 +27,19 @@ export const PART_MULTIPLIER: Readonly<Record<HitPart, number>> = {
 }
 
 /**
+ * 打中一架飛機的這個部位要扣多少血：部位倍率 ÷ 該部位的防護力。
+ *
+ * **天上的飛機（`World.applyDamage`）與地上的飛機（停著、滑行中的地面目標）
+ * 共用這一條** —— 兩邊各寫一份的話，地上那架打起來的手感會悄悄漂開。
+ */
+export function partDamage(
+  protection: Readonly<Record<HitPart, number>>, damage: number, part: HitPart,
+): number {
+  // 【`!` 是安全的】六個部位都必填；`noUncheckedIndexedAccess` 對 Record 一律加上 undefined
+  return damage * PART_MULTIPLIER[part] / protection[part]!
+}
+
+/**
  * 一個軸對齊盒，**擁有者的區域座標**。
  *
  * 【為什麼與 `HitBox` 分開】船的船體盒與砲位盒不需要 `HitPart` —— 那是
