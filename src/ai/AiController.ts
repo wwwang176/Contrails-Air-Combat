@@ -1389,7 +1389,7 @@ export class AiController implements Controller {
     // 那一趟）就不另設；轉彎明顯比對方好的一方留下來轉
     stepAirPass(
       this.airPass, this.band, self, target, this.sit.range, this.sit.closureRate,
-      this.basis.interceptTime, this.sit.angleOffTail,
+      this.basis.interceptTime, this.sit.angleOffTail, this.sit.trackRatio,
       this.intent !== 'defend' && this.intent !== 'rally' && !this.transit
         && self.spec.role === 'fighter' && !Number.isFinite(this.band.perch)
         && this.sit.airframeTurnAdvantage < -this.rulesConfig.turnEnter,

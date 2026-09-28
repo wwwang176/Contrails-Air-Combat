@@ -129,8 +129,9 @@
 - `AiController.resetAirTactics()`：放掉鎖、記憶與上膛狀態。`clearTerrainState`、
   `resetBattle`（沿用的控制器）、對艦路徑呼叫它；地面與沒有目標的三處歸零
   點一起清記憶；換目標時比對 `bandTarget`。
-- `stepAirPass`、`AirPassState`；`SteerConfig` 加 `airPassMaxAot`、
-  `airPassSpeedRatio`、`airPassZoom`（§6）。
+- `stepAirPass`、`AirPassState`；`BandState` 加 `forced`；`SteerConfig` 加
+  `airPassMaxAot`、`airPassSpeedRatio`、`airPassZoom`、`airPassTrackRatio`、
+  `airPassLead`、`extendClimbFrom`（§6）。
 - HUD 的戰術階段在回升時顯示「回升」。
 
 熱路徑：不配置。
@@ -178,9 +179,18 @@
 ### 6.2 設計
 
 從目標後半球（上膛時我方在他機尾 `airPassMaxAot` 120° 內）追上、進了射程
-（上膛）之後，只要接近速度翻負或近到 `overshootRange`（120 m），就把回升的
-高度設成**那一刻的高度加 `airPassZoom`（600 m）**，交給 §2 的回升拉起來，
-之後從上方再打。
+（上膛）之後，只要
+
+- 預估 `airPassLead`（3 s）內撞上（距離 ÷ 接近速度），或已經飛過去；或
+- 追蹤比（視線角速度 ÷ 自己的瞬時轉彎率）到 `airPassTrackRatio`（1），也就是
+  目標急轉到機鼻跟不上（高 yo-yo，不跟著他平轉把速度轉光）
+
+就把回升的高度設成**那一刻的高度加 `airPassZoom`（600 m）**，交給 §2 的回升
+拉起來，之後從上方再打。這種回升標成 `forced`：目標在機鼻前方也不讓位 ——
+那時機鼻本來就跟不上他，讓位就是繼續跟著他平轉。打完一擊的回升照舊讓位。
+
+提前 3 秒與 1 秒只在同高追上的情境有差：3 秒開火 39.3 s、500 m 內 50 s；
+1 秒是 36.6 s、68 s。
 
 不拉起的情況：迎頭交會（由空層鎖平飛迴轉接手）、已經有要回去的高度（從上方
 俯衝的那一趟）、閃避或服從命令中、轉彎明顯比對方好（`airframeTurnAdvantage`
@@ -196,8 +206,12 @@
 
 ### 6.4 速度門檻
 
-速度差不多時往哪裡拉都一直待在他前面。靶機被追上就以 25°/s 急轉、機鼻追著
-AI 的情境，平飛拉開不設門檻時 AI 在他機鼻 15° 錐內、1 km 內待了 4.8 s。
+速度差不多時往哪裡拉都一直待在他前面。靶機被追上就以 4 G 持續急轉、機鼻追著
+AI 的情境（540 km/h、每秒 14.5°）：不設門檻時 AI 拉起 5 s、之後在他機鼻 15° 錐
+內、1 km 內待了 3.7 s；設了之後不拉起，0 s。
+
+【急轉靶機要符合物理】等速靶機若給 25°/s，540 km/h 下等於一直拉 6.7 G 而速度
+不掉。那個靶機逼出來的「跟轉把速度轉光、俯衝掉 380 m」在 4 G 靶機下不發生。
 
 ### 6.5 靶機實測（改動前 → 改動後，靶機 504 km/h，150 s）
 
@@ -210,8 +224,11 @@ AI 的情境，平飛拉開不設門檻時 AI 在他機鼻 15° 錐內、1 km �
 
 每拉起一次速度掉一截（同高情境 650 → 440 km/h），下一趟要先俯衝補速度。
 
-### 6.6 已知、這一份不處理
+### 6.6 `extend` 的高度項從角落速度的八成五起放行
 
-掉到目標下方 300 m 以上時，高度閂鎖（`altFloorLatch`）推 `extend` 補高度，
-但 `extendPitchAngle` 在速度剛好夠的時候給的爬升角很小，慢爬幾十秒不開火。
-那是既有行為，留給負責人決定。
+掉到目標下方時，高度閂鎖推 `extend` 補高度，而 `extendPitchAngle` 的高度項原本
+要等 `cornerRatio` 到 1 才放行。速度卡在九成五時高度項是 0、速度項還要它低頭
+5° —— 已經比敵人低 400 m 還一路往下掉，掛在低處幾十秒。斜坡起點改成
+`extendClimbFrom`（0.85），九成五時變成約 +4° 的緩爬；那道閘門原本要擋的死角在
+0.64，仍在起點之下。既有護欄 `extend-direction.test.ts` 的「速度閘門」兩條改成
+讀 `extendClimbFrom`。

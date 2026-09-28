@@ -156,6 +156,23 @@ describe('空層鎖的回升：目標要跑掉了', () => {
   })
 })
 
+describe('空層鎖的回升：往上拉設下的（forced）不讓位', () => {
+  it('目標就在機鼻前方射程內 → 打完一擊的回升讓位，往上拉的照樣拉', () => {
+    const yielding = regaining()
+    yielding.band.kind = 'off'
+    yielding.sit.aspectAngle = 0
+    release(yielding)
+    expect(yielding.band.kind).toBe('off')
+
+    const forced = regaining()
+    forced.band.kind = 'off'
+    forced.band.forced = true
+    forced.sit.aspectAngle = 0
+    release(forced)
+    expect(forced.band.kind).toBe('regain')
+  })
+})
+
 describe('空層鎖的回升：時間上限', () => {
   it('鎖每一步放開又重鎖，每一個回升的步照樣計時，到上限就放棄', () => {
     const r = regaining()
