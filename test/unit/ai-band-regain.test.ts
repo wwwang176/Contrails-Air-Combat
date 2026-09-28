@@ -3,6 +3,7 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createSituation } from '../../src/ai/assess'
 import { createBandState, createEngageBasis, DEFAULT_STEER, stepBand } from '../../src/ai/steer'
 import { NO_INTERCEPT } from '../../src/world/lead'
+import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { P51D } from '../../src/specs/p51d'
 import { B17G } from '../../src/specs/b17g'
 import type { AircraftSpec } from '../../src/specs/types'
@@ -120,6 +121,38 @@ describe('空層鎖的回升：到達', () => {
     r.self.state.position.y = ALT - 400
     lock(r)
     expect(r.band.kind).not.toBe('regain')
+  })
+})
+
+describe('空層鎖的回升：目標要跑掉了', () => {
+  /** 自己射程的 `bandRegainEscape` 倍，m */
+  const escape = (spec: AircraftSpec = P51D) =>
+    DEFAULT_STEER.bandRegainEscape * spec.battery.sight.muzzleVelocity * PROJECTILE_LIFETIME
+
+  it('在射程的 bandRegainEscape 倍外而且還在拉開 → 放棄回升，改從現在的高度接敵', () => {
+    const r = regaining()
+    r.sit.range = escape() + 200
+    r.sit.closureRate = -20
+    lock(r)
+    expect(r.band.kind).not.toBe('regain')
+    expect(Number.isNaN(r.band.perch)).toBe(true)
+    expect(r.band.anchor).toBe(ENEMY_ALT)
+  })
+
+  it('一樣遠但正在接近（他沒在跑）→ 回升照舊', () => {
+    const r = regaining()
+    r.sit.range = escape() + 200
+    r.sit.closureRate = 20
+    lock(r)
+    expect(r.band.kind).toBe('regain')
+  })
+
+  it('還在射程的 bandRegainEscape 倍內，即使在拉開 → 回升照舊', () => {
+    const r = regaining()
+    r.sit.range = escape() - 200
+    r.sit.closureRate = -20
+    lock(r)
+    expect(r.band.kind).toBe('regain')
   })
 })
 
