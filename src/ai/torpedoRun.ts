@@ -4,9 +4,8 @@ import { DEG } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import { TORPEDO_RANGE, TORPEDO_SPEED } from '../world/torpedo'
 import { HULL_AIM_SPACING } from '../world/ships'
-import { insideWindow, releaseWindowOf, shipAt } from './bombRun'
+import { bestTurnRadius, insideWindow, releaseWindowOf, shipAt } from './bombRun'
 import { TORPEDO_ENVELOPE, canRelease } from '../weapons/releaseEnvelope'
-import { sustainedTurnRate } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { EGRESS_TURNS, type StrikeProfile } from './strikeRun'
 import type { Box } from '../world/hit'
@@ -284,15 +283,6 @@ function releasable(self: Aircraft): boolean {
   )
 }
 
-/** 同 `bombRun.ts`：持續迴旋半徑，m。 */
-function turnRadius(self: Aircraft): number {
-  const v = self.state.velocity
-  const tas = Math.hypot(v.x, v.y, v.z)
-  if (tas < MIN_ERROR) return 0
-  const omega = sustainedTurnRate(self.spec, self.state.position.y, tas)
-  return omega > 0 ? tas / omega : 0
-}
-
 /**
  * 航路高度，m。**訂在 AI 飛得住的高度，不是史實的投雷高度。**
  *
@@ -427,7 +417,7 @@ export function makeTorpedoProfile(
         const reach = Math.hypot(SOL.ex - p.x, SOL.ez - p.z) + RELEASE_RUN
         out.lockRange = ready ? reach : 0
         // 【脫離距離照算】它管的是「飛多遠才准回頭」，與這一拍鎖不鎖無關
-        out.egressRange = reach + EGRESS_TURNS * 2 * turnRadius(self)
+        out.egressRange = reach + EGRESS_TURNS * 2 * bestTurnRadius(self)
         return
       }
       const v = self.state.velocity
@@ -436,7 +426,7 @@ export function makeTorpedoProfile(
       shipAt(ship, speed > MIN_ERROR ? range / speed : 0, out.aim)
       shiftAlong(ship, out.along ?? 0, out.aim)
       out.lockRange = 0
-      out.egressRange = EGRESS_TURNS * 2 * turnRadius(self)
+      out.egressRange = EGRESS_TURNS * 2 * bestTurnRadius(self)
     },
 
     shouldRelease(self, ship, plan) {

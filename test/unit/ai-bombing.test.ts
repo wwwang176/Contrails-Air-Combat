@@ -604,16 +604,25 @@ describe('攻擊航路的狀態機', () => {
     const far = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
     const out = createCommand()
     setBombBallistics(K, DT)
+    // 【脫離距離是轉進脫離那一步定下來的】這裡直接擺進脫離段，照那一步的做法補上
+    const egressing = () => {
+      const s = strike()
+      s.phase = 'egress'
+      BOMB_PROFILE.plan(plane(), near, s.plan)
+      s.egressRange = s.plan.egressRange
+      return s
+    }
+    expect(egressing().egressRange).toBeLessThan(6000)
 
-    const a = strike(); a.phase = 'egress'
+    const a = egressing()
     stepStrike(a, plane(), near, 0, BOMB_PROFILE, true, true, DT, out)
     expect(a.phase).toBe('egress')
 
-    const b2 = strike(); b2.phase = 'egress'
+    const b2 = egressing()
     stepStrike(b2, plane(), far, 0, BOMB_PROFILE, false, true, DT, out)
     expect(b2.phase).toBe('egress')
 
-    const c = strike(); c.phase = 'egress'
+    const c = egressing()
     stepStrike(c, plane(), far, 0, BOMB_PROFILE, true, true, DT, out)
     expect(c.phase).toBe('approach')
   })
