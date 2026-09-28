@@ -669,8 +669,8 @@ function arbitrate(s: RuleState, sit: Situation, cfg: RuleConfig): Intent {
   // 條件對劣勢方在整場戰鬥中都達不到，實測能量閂鎖曾連續開著 166 秒。
   //
   // 【迴旋劣勢不在這裡】`extendTurnLatch` 是**打法的選擇**，不是脫離的
-  // 理由：轉不贏他的飛機照樣要靠近他打，只是不能跟他繞圈。它由戰術層
-  // 消費（`AiController` 的 `ti.mandatory`），走 boom and zoom 那條路。
+  // 理由：轉不贏他的飛機照樣要靠近他打，只是不能跟他繞圈。它唯一的消費者
+  // 是規則 3（`stepRules` 的 `trackExtend`）：轉不過去才脫離。
   //
   // 【壞掉會怎樣】把它加回這個分支，`airframeTurnAdvantage` 對一組機種對
   // 幾乎是常數 —— 差距超過遲滯帶的配對（F4F vs A6M 是門檻的 3～5 倍）
