@@ -201,7 +201,7 @@ describe('turnPlanePitch：俯衝／水平／拉高，挑一個', () => {
    * 【只剩一條路就給滿】「沒得選就不出手」是反的 —— 沒得選正是最該出手的
    * 時候。
    *
-   * 這一格是掃出來的實例：109 在 500 m、105 m/s、夾角 60°、視線角速度
+   * 這一格是掃出來的實例：109 在 1,000 m、80 m/s、夾角 60°、視線角速度
    * 26°/s，只有俯衝轉得過去（低速時往下換速度會把轉彎率拉起來，水平與
    * 拉高都收斂不了）。在這裡回 0 就是明明只剩一條路卻不動。
    *
@@ -215,11 +215,11 @@ describe('turnPlanePitch：俯衝／水平／拉高，挑一個', () => {
    */
   it('只有一個候選可行時給滿偏置，不是回 0', () => {
     const only = [-1, 0, 1].map((k) =>
-      Number.isFinite(turnPlaneCost(B, 500, 105, 60 * DEG2, 26 * DEG2,
+      Number.isFinite(turnPlaneCost(B, 1000, 80, 60 * DEG2, 26 * DEG2,
         k * DEFAULT_DOCTRINE.turnPlaneGamma).seconds))
     expect(only).toEqual([true, false, false])   // 只有俯衝可行
 
-    const b = turnPlanePitch(B, 500, 105, 60 * DEG2, 26 * DEG2, 500, 105, DEFAULT_DOCTRINE)
+    const b = turnPlanePitch(B, 1000, 80, 60 * DEG2, 26 * DEG2, 1000, 80, DEFAULT_DOCTRINE)
     expect(b).toBeCloseTo(-DEFAULT_DOCTRINE.turnPlaneMaxPitch, 12)
   })
 
