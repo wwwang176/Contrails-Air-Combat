@@ -34,7 +34,7 @@ export interface Loadout {
  *              掛載                    枚數   單枚傷害   裝填   一趟總量
  *   B-17G      AN-M64 500 lb           10      9,000     20 s    90,000
  *   He 111     SC 250                   8      9,300     20 s    74,400
- *   G4M        九一式改三 航空魚雷      1     15,000     45 s    15,000
+ *   G4M        九一式改三 航空魚雷      1     15,000     35 s    15,000
  * ```
  *
  * 【戰鬥機預設都不掛】零戰也一樣：護航瓜島那一天掛的是副油箱。掛彈的爆戦
@@ -55,7 +55,7 @@ export interface Loadout {
 export const LOADOUT_BY_AIRCRAFT: Readonly<Record<string, Loadout>> = {
   b17g: { kind: 'bomb', count: 10, damage: 9_000, reloadSeconds: 20 },
   he111: { kind: 'bomb', count: 8, damage: 9_300, reloadSeconds: 20 },
-  g4m: { kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 45 },
+  g4m: { kind: 'torpedo', count: 1, damage: 15_000, reloadSeconds: 35 },
 }
 
 /**
