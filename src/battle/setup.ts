@@ -496,6 +496,14 @@ export interface Battle {
    */
   rules: MissionRules
   /**
+   * 藍隊的撤離令：`rules` 是 evacuate 時飛往撤離點，否則 `null`。**跟著
+   * `rules` 一起換**（開場、返航節拍、重開一場三處）。
+   *
+   * 【蓋過指揮官與任務目標】`stepCommandLayer` 把它發給每一支藍隊小隊，AI 於是
+   * 放下對地攻擊往撤離點飛；飛進圈的 AI 由 `stepEvacuation` 退場。
+   */
+  evacOrder: FlightOrder | null
+  /**
    * 這一場的結果。
    *
    * 【為什麼取代了自動重置】M5 到 M8 是「一方全滅 → 3 秒 → 回到滿編」。
@@ -1134,6 +1142,7 @@ export function createBattle(
     messageUntil: 0,
     objectiveText: '',
     rules: cfg.rules,
+    evacOrder: evacOrderOf(cfg.rules),
     spawnOrientations: world.combatants.map((c) => c.aircraft.state.orientation.clone()),
     outcome: 'fighting',
     mission: createMissionState(cfg.rules),
@@ -1369,10 +1378,41 @@ function stepBeats(b: Battle): void {
         kind: 'evacuate', point: beat.point, radius: beat.radius, seconds: beat.seconds,
       }
       resetMissionState(b.rules, b.mission)
+      b.evacOrder = evacOrderOf(b.rules)
       // 【目標文字也要跟著換】計量已經變成到新終點的距離，文字卻還是卡片上
       // 那一句 —— 兩者搭起來會指向一個不存在的任務
       b.objectiveText = beat.message
     }
+  }
+}
+
+/** 規則是 evacuate 時，飛往撤離點的集合令；否則 `null`。 */
+function evacOrderOf(rules: MissionRules): FlightOrder | null {
+  if (rules.kind !== 'evacuate') return null
+  return {
+    kind: 'rally', point: rules.point, radius: rules.radius,
+    targetFlight: -1, side: 0, focusIndex: -1,
+  }
+}
+
+/**
+ * 飛進撤離圈的藍隊 AI 退場：不推擊墜、不留殘骸、畫面上不再畫（`retired`）。
+ *
+ * 【玩家那一架不退】玩家進圈是勝利條件，由 `stepMission` 判。接手倒數中的
+ * 那一個座位也不退 —— 玩家兩秒後要坐進去。
+ *
+ * 【退場之後不算存活】`aliveBlue` 跟著少一架。僚機都撤出去而玩家被擊落時，
+ * 沒有座位可以接手，判敗。
+ */
+function stepEvacuation(b: Battle): void {
+  const order = b.evacOrder
+  if (order === null) return
+  for (let i = 0; i < b.blue.length; i++) {
+    const c = b.blue[i]!
+    if (!c.alive || c === b.player || c.index === b.takeoverSeat) continue
+    if (c.aircraft.state.position.distanceTo(order.point) >= order.radius) continue
+    c.alive = false
+    c.retired = true
   }
 }
 
@@ -1988,7 +2028,10 @@ function stepCommandLayer(b: Battle, dt: number): void {
     // 裡，所以 `state.orders[f]` 恆為 null —— 這裡的 `??` 只是把兩條路寫在
     // 一起，不是在跟指揮官搶
     const convoyOrder = b.convoy?.orders[f] ?? null
-    const order = convoyOrder ?? state.orders[f] ?? null
+    // 【撤離令排在指揮官前面】撤離是任務層的命令，指揮官的集合／包抄／集火
+    // 都是在戰場裡周旋，那時已經不該再周旋
+    const evacOrder = convoyOrder === null && flight.team === 'blue' ? b.evacOrder : null
+    const order = convoyOrder ?? evacOrder ?? state.orders[f] ?? null
     // 【索引解析成 Aircraft 在這一層】規劃層是純函數、只吃快照，不認識
     // Aircraft。與 wireStations 把 stationReferenceOf 的索引解析成飛機是
     // 同一個手法。
@@ -2011,6 +2054,7 @@ function stepCommandLayer(b: Battle, dt: number): void {
         // `AiController.transit`。每步重寫而不是生成時設一次 —— 玩家接手
         // 或代飛會換掉座位上的控制器物件，設一次的話新的那顆會漏掉
         ai.transit = convoyOrder !== null
+        ai.evacuating = evacOrder !== null
       }
     }
   }
@@ -2249,6 +2293,8 @@ export function stepBattle(b: Battle, dt: number): void {
   stepPressure(b, dt)
 
   if (b.outcome !== 'fighting') return
+
+  stepEvacuation(b)
 
   // 【玩家恆在藍隊】M9 的機種與陣營都還是寫死的（M10 才做選擇），所以
   // 「我方」就是藍隊。M10 交換的是兩邊的機種，不是隊伍顏色。
@@ -2489,6 +2535,7 @@ export function resetBattle(
   // `main.ts` 與 HUD 每幀讀 `mission.target`。
   // 【規則也要還原】返航節拍換過的話，重開一場要回到卡片上原本那一條
   b.rules = b.cfg.rules
+  b.evacOrder = evacOrderOf(b.rules)
   resetMissionState(b.rules, b.mission)
   b.outcome = 'fighting'
 }
