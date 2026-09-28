@@ -172,6 +172,14 @@ export interface StrikeState {
    * 到一半瞄點跳走，飛機帶著坡度鎖航向。
    */
   repick: boolean
+  /**
+   * 這一趟脫離要拉開到多遠，m。**轉進脫離的那一步從 `plan.egressRange` 抄下來，
+   * 脫離中不再重算。**
+   *
+   * 【為什麼要定住】`plan` 每個決策拍都用當下的速度重算迴旋半徑，而轟炸的脫離
+   * 是爬升：B-17 從 108 掉到 69 m/s，脫離距離跟著從 9.3 km 縮到 3.4 km，拉不遠。
+   */
+  egressRange: number
 }
 
 export function createStrikeState(): StrikeState {
@@ -185,6 +193,7 @@ export function createStrikeState(): StrikeState {
     pickAlong: true,
     alongFor: -1,
     repick: false,
+    egressRange: 0,
   }
 }
 
@@ -202,6 +211,7 @@ export function resetStrike(s: StrikeState): void {
   s.pickAlong = true
   s.alongFor = -1
   s.repick = false
+  s.egressRange = 0
 }
 
 /**
@@ -214,15 +224,16 @@ export function resetStrike(s: StrikeState): void {
 export const RUN_TRIM = 0.12
 
 /**
- * 脫離要在鎖定距離之外再拉開幾個持續迴旋直徑，才准回頭再進場。轟炸與雷擊
- * 共用。
+ * 脫離要在鎖定距離之外再拉開幾個最佳持續迴旋直徑（`bombRun.ts` 的
+ * `bestTurnRadius`），才准回頭再進場。轟炸與雷擊共用。
  *
- * 【為什麼不是 1】1 個直徑只夠掉頭：轟炸機一輪約 50 秒，在目標上空兩公里
- * 內打轉，看不出一波一波進場。拉開的量用迴旋直徑當尺，轉得開的飛得近。
+ * 【要拉遠】只夠掉頭的話轟炸機一輪約 50 秒，在目標上空兩公里內打轉，看不出
+ * 一波一波進場。拉開的量用迴旋直徑當尺，轉得開的飛得近：1,500 m 的 B-17
+ * 在鎖定距離外再拉 2.8 km。
  *
  * **起始值，由試飛裁定。**
  */
-export const EGRESS_TURNS = 2.5
+export const EGRESS_TURNS = 5
 
 /** 方向退化的下限。與 `shipAttack.ts` 同一個手法。 */
 const MIN_ERROR = 1e-6
@@ -271,8 +282,8 @@ export function stepStrike(
     state.alongFor = targetIndex
   }
 
-  // 【三個幾何量只在決策拍重算】見 `StrikeState.plan`。**排在相位分支之前**
-  // —— 脫離段也要用得到 `egressRange`，而那一段直接 return
+  // 【幾何量只在決策拍重算】見 `StrikeState.plan`。**排在相位分支之前** ——
+  // 直飛段轉進脫離的那一步要抄這一拍的 `egressRange`
   if (decide) profile.plan(self, ship, state.plan)
 
   // ── 脫離 ──────────────────────────────────────────────
@@ -281,7 +292,7 @@ export function stepStrike(
   if (state.phase === 'egress') {
     steerEgress(self, profile, dx, dz, out)
     // 補滿且拉開夠遠才准再進場 —— 兩個條件缺一個就會空手再衝一次
-    if (loaded && range > state.plan.egressRange) {
+    if (loaded && range > state.egressRange) {
       state.phase = 'approach'
       state.target = -1
       state.pickAlong = true
@@ -315,6 +326,7 @@ export function stepStrike(
     if (range < (state.plan.releaseRange ?? 0)) {
       state.phase = 'egress'
       state.seconds = 0
+      state.egressRange = state.plan.egressRange
       steerEgress(self, profile, dx, dz, out)
     }
     return
@@ -339,6 +351,7 @@ export function stepStrike(
     state.phase = 'egress'
     state.seconds = 0
     state.repick = true
+    state.egressRange = state.plan.egressRange
     // 【轉進脫離的那一步就要轉向】不在這裡改的話，這一步還飛著直飛的航向，
     // 而那一步正是「已經在船的正上方」的那一步 —— 差一步就是差 0.4 秒的
     // 近迫火網

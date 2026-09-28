@@ -2,7 +2,9 @@ import { Vector3 } from 'three'
 import { makeScratch } from '../core/pool'
 import { DEG, G0 } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
-import { maxRollRate, sustainedTurnRate } from '../analysis/envelope'
+import {
+  bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, maxRollRate,
+} from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { EGRESS_TURNS, type StrikeProfile } from './strikeRun'
 import { deckHeightOf } from '../world/ships'
@@ -263,38 +265,43 @@ export function shouldRelease(
 let drag = 0
 let solveDt = 1 / 240
 
-/** `measureTurn` 的輸出：持續迴旋半徑，m。 */
-let turnRadius = 0
-/** `measureTurn` 的輸出：從持續迴旋的坡度滾回水平要飛的距離，m。 */
-let rollOutRange = 0
-
 /**
- * 量這一台在現在這個高度與速度下的迴轉幾何，寫進 `turnRadius` 與
- * `rollOutRange`。
+ * 這一台在這個高度的最佳持續迴旋半徑，m。**脫離距離的尺，轟炸與雷擊共用。**
  *
  * 【為什麼是持續而不是瞬間】掉頭是一個 180° 的迴轉，撐不住的過載換不到
- * 那一整圈。`sustainedTurnRate` 解的正是 Ps = 0 的那個過載。
+ * 那一整圈。
  *
- * 【差距很大，所以非推導不可】1,000 m 實測迴旋半徑：零戰 487 m、G4M 534 m、
- * B-17G 555 m、He 111 639 m —— He 111 推重比最差，退得比 B-17 還遠。
- * 滾回水平的那一段同理：坡度 atan(v·ω/g) 除以滿舵滾轉率。1,500 m 實測：
- * B-17G（95 m/s）279 m、He 111（85 m/s）138 m、P-51D（95 m/s）92 m。
+ * 【為什麼是最佳而不是當下速度的】接近極速時多餘功率趨近 0，持續迴旋半徑
+ * 暴增：He 111 在 1,500 m，80／95／105／110 m/s 是 559／924／2,007／0 m。
+ * 轟炸機投彈時開著 WEP、正好在那一段，拿它當尺的話同一架這一趟拉 1.9 km、
+ * 下一趟拉 7 km。最佳持續迴旋只隨機種與高度變 —— 1,500 m：B-17G 281 m、
+ * He 111 353 m、G4M 263 m。
  *
- * 【退化時回 0】速度太低或爬不動時 `sustainedTurnRate` 回 0，此時脫離距離
- * 退化成只有 `lockRange`。那已經是一個安全的下限（進得了場）。
+ * 【退化時回 0】表裡沒有解（升限之上）時脫離距離退化成只有 `lockRange`。
+ * 那已經是一個安全的下限（進得了場）。熱路徑（決策拍）：查表，不配置。
  */
-function measureTurn(self: Aircraft): void {
-  turnRadius = 0
-  rollOutRange = 0
+export function bestTurnRadius(self: Aircraft): number {
+  const h = self.state.position.y
+  const omega = bestSustainedTurnRateCached(self.spec, h)
+  return omega > 0 ? bestSustainedTurnSpeedCached(self.spec, h) / omega : 0
+}
+
+/**
+ * 從最佳持續迴旋的坡度滾回水平、以現在的速度要飛多遠，m。
+ *
+ * 坡度 atan(v·ω/g) 取最佳持續迴旋那一點，除以現在速度的滿舵滾轉率。
+ * 1,500 m 實測：B-17G（95 m/s）270 m、He 111（85 m/s）127 m、P-51D（95 m/s）91 m。
+ */
+function rollOutRange(self: Aircraft): number {
   const v = self.state.velocity
   const tas = Math.hypot(v.x, v.y, v.z)
-  if (tas < MIN_ERROR) return
+  if (tas < MIN_ERROR) return 0
   const h = self.state.position.y
-  const omega = sustainedTurnRate(self.spec, h, tas)
-  if (!(omega > 0)) return
-  turnRadius = tas / omega
+  const omega = bestSustainedTurnRateCached(self.spec, h)
   const p = maxRollRate(self.spec, h, tas)
-  if (p > 0) rollOutRange = (tas * Math.atan((tas * omega) / G0)) / p
+  if (!(omega > 0) || !(p > 0)) return 0
+  const bank = Math.atan((bestSustainedTurnSpeedCached(self.spec, h) * omega) / G0)
+  return (tas * bank) / p
 }
 
 /**
@@ -366,8 +373,8 @@ export function makeBombProfile(runSettle = RUN_SETTLE, egressTurns = EGRESS_TUR
    * 瞄「船在落彈時刻的位置」。
    *
    * - 放手距離 ＝ 前拋距離 ＋ 船沿視線靠近的量
-   * - 鎖定距離 ＝ 放手距離 ＋ `RUN_SETTLE` ＋ 從持續迴旋的坡度滾回水平的那一段
-   * - 脫離距離 ＝ 鎖定距離 ＋ `EGRESS_TURNS` 個持續迴旋直徑
+   * - 鎖定距離 ＝ 放手距離 ＋ `RUN_SETTLE` ＋ 從最佳持續迴旋的坡度滾回水平的那一段
+   * - 脫離距離 ＝ 鎖定距離 ＋ `EGRESS_TURNS` 個最佳持續迴旋直徑
    *
    * 【滾回水平那一段】鎖定要等飛機穩住（`LOCK_BANK`），滾得慢的機種要更早
    * 開始改平，這一段就是它在改平時飛掉的距離。
@@ -384,7 +391,8 @@ export function makeBombProfile(runSettle = RUN_SETTLE, egressTurns = EGRESS_TUR
     START.x = p.x; START.y = p.y; START.z = p.z
     START.vx = v.x; START.vy = v.y; START.vz = v.z
     deckY = ship.impactY
-    measureTurn(self)
+    const settle = runSettle + rollOutRange(self)
+    const turns = egressTurns * 2 * bestTurnRadius(self)
     if (drag > 0 && solveImpact(START, drag, DECK, solveDt, HIT)) {
       shipAt(ship, HIT.seconds, out.aim)
       // 【放手點 ＝ 前拋距離 ＋ 船沿視線靠近的量】炸彈落在自己前方 `throw`
@@ -399,16 +407,16 @@ export function makeBombProfile(runSettle = RUN_SETTLE, egressTurns = EGRESS_TUR
       const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
       const lead = range - Math.hypot(out.aim.x - p.x, out.aim.z - p.z)
       out.releaseRange = throwRange + lead
-      out.lockRange = out.releaseRange + runSettle + rollOutRange
-      out.egressRange = out.lockRange + egressTurns * 2 * turnRadius
+      out.lockRange = out.releaseRange + settle
+      out.egressRange = out.lockRange + turns
       return
     }
     const speed = Math.hypot(v.x, v.z)
     const range = Math.hypot(ship.position.x - p.x, ship.position.z - p.z)
     shipAt(ship, speed > MIN_ERROR ? range / speed : 0, out.aim)
     out.releaseRange = 0
-    out.lockRange = runSettle + rollOutRange
-    out.egressRange = out.lockRange + egressTurns * 2 * turnRadius
+    out.lockRange = settle
+    out.egressRange = settle + turns
   },
 
   shouldRelease(self, ship) {

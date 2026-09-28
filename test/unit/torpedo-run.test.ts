@@ -13,7 +13,7 @@ import {
 import { TORPEDO_ENVELOPE } from '../../src/weapons/releaseEnvelope'
 import { shipAt } from '../../src/ai/bombRun'
 import { EGRESS_TURNS } from '../../src/ai/strikeRun'
-import { sustainedTurnRate } from '../../src/analysis/envelope'
+import { bestSustainedTurnRateCached, bestSustainedTurnSpeedCached } from '../../src/analysis/envelope'
 import type { Ship } from '../../src/world/ships'
 
 const DT = 1 / 240
@@ -379,13 +379,13 @@ describe('可以鎖 = 可以投', () => {
   })
 
   /** 【與轟炸同一把尺】拉開的量是迴旋直徑的倍數，轉得開的飛得近 */
-  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個持續迴旋直徑', () => {
+  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個最佳持續迴旋直徑', () => {
     setTorpedoBallistics(K, DT)
     const a = bomber(0, 1500)
     TORPEDO_PROFILE.plan(a, target(8), out)
     expect(out.lockRange).toBeGreaterThan(0)
-    const tas = a.state.velocity.length()
-    const radius = tas / sustainedTurnRate(G4M, a.state.position.y, tas)
+    const h = a.state.position.y
+    const radius = bestSustainedTurnSpeedCached(G4M, h) / bestSustainedTurnRateCached(G4M, h)
     expect(out.egressRange - out.lockRange).toBeCloseTo(EGRESS_TURNS * 2 * radius, 0)
   })
 

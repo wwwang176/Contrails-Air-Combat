@@ -5,7 +5,9 @@ import { Aircraft } from '../../src/aircraft/Aircraft'
 import { B17G } from '../../src/specs/b17g'
 import { P51D } from '../../src/specs/p51d'
 import { DEG, G0 } from '../../src/core/math'
-import { maxRollRate, sustainedTurnRate } from '../../src/analysis/envelope'
+import {
+  bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, maxRollRate,
+} from '../../src/analysis/envelope'
 import { BOMB_PROFILE, RUN_SETTLE, setBombBallistics } from '../../src/ai/bombRun'
 import { EGRESS_TURNS, createStrikeState, stepStrike, type StrikeState } from '../../src/ai/strikeRun'
 import { createGroundTarget } from '../../src/world/groundTargets'
@@ -114,14 +116,34 @@ describe('直飛中目標換了', () => {
 })
 
 describe('穩定段與脫離距離照機種推導', () => {
+  /** 尺是最佳持續迴旋：它只隨機種與高度變，不隨當下的速度跳 */
   function expected(spec: AircraftSpec): { rollOut: number, radius: number } {
-    const omega = sustainedTurnRate(spec, ALT, TAS)
+    const omega = bestSustainedTurnRateCached(spec, ALT)
+    const v = bestSustainedTurnSpeedCached(spec, ALT)
     const p = maxRollRate(spec, ALT, TAS)
-    return { rollOut: (TAS * Math.atan((TAS * omega) / G0)) / p, radius: TAS / omega }
+    return { rollOut: (TAS * Math.atan((v * omega) / G0)) / p, radius: v / omega }
   }
 
+  /**
+   * 【為什麼不用當下速度的持續迴旋】接近極速時多餘功率趨近 0，半徑暴增：
+   * He 111 在 1,500 m，80／95／105／110 m/s 是 559／924／2,007／0 m。拿它當尺，
+   * 同一架飛機這一趟拉 1.9 km、下一趟拉 7 km。
+   */
+  it('尺不隨當下的速度跳：快 15 m/s，脫離距離多出的量只來自前拋', () => {
+    setBombBallistics(K, DT)
+    const slow = createStrikeState()
+    const fast = createStrikeState()
+    const a = plane()
+    const b = plane()
+    b.state.velocity.set(0, 0, -(TAS + 15))
+    stepStrike(slow, a, target(), 0, BOMB_PROFILE, true, true, DT, createCommand())
+    stepStrike(fast, b, target(), 0, BOMB_PROFILE, true, true, DT, createCommand())
+    const gap = (s: StrikeState) => s.plan.egressRange - s.plan.lockRange
+    expect(gap(fast)).toBeCloseTo(gap(slow), 6)
+  })
+
   /** 地面目標不動，`lead` 是 0：鎖定距離 − 放手距離 ＝ 窗的餘裕 ＋ 滾回水平的那一段。 */
-  it('鎖定距離多出「從持續迴旋的坡度滾回水平」要飛的距離', () => {
+  it('鎖定距離多出「從最佳持續迴旋的坡度滾回水平」要飛的距離', () => {
     const st = planned()
     const { rollOut } = expected(B17G)
     expect(rollOut).toBeGreaterThan(50)
@@ -135,7 +157,26 @@ describe('穩定段與脫離距離照機種推導', () => {
       .toBeLessThan(b17.plan.lockRange - b17.plan.releaseRange!)
   })
 
-  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個持續迴旋直徑', () => {
+  /**
+   * 【轉進脫離那一步就定下來】脫離段 12° 爬升，B-17 從 108 掉到 69 m/s，迴旋
+   * 半徑跟著縮；每拍重算的話目標距離從 9.3 km 一路縮到 3.4 km，拉不遠。
+   */
+  it('脫離距離在轉進脫離時定下來，脫離中掉速不會把它縮短', () => {
+    const st = planned()
+    st.phase = 'run'
+    st.target = 0
+    stepStrike(st, at(st.plan.lockRange - 50), target(), 0, BOMB_PROFILE, false, true, DT, createCommand())
+    expect(st.phase).toBe('egress')
+    const fixed = st.plan.egressRange
+
+    const slow = at(fixed - 200)
+    slow.state.velocity.set(0, 0, 60)
+    stepStrike(st, slow, target(), 0, BOMB_PROFILE, true, true, DT, createCommand())
+    expect(st.plan.egressRange).toBeLessThan(fixed - 200)
+    expect(st.phase).toBe('egress')
+  })
+
+  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個最佳持續迴旋直徑', () => {
     const st = planned()
     const { radius } = expected(B17G)
     expect(st.plan.egressRange - st.plan.lockRange).toBeCloseTo(EGRESS_TURNS * 2 * radius, 0)
