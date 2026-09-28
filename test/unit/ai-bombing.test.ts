@@ -458,7 +458,8 @@ describe('攻擊航路的狀態機', () => {
   /**
    * 【對正且進到鎖定距離就轉直飛，並且把目標鎖住】換船等於航向白鎖。
    *
-   * 【1,000 m 不是猜的】鎖定距離＝前拋 ＋ 船沿視線靠近的量 ＋ `RUN_SETTLE`。
+   * 【1,000 m 不是猜的】鎖定距離＝前拋 ＋ 船沿視線靠近的量 ＋ `RUN_SETTLE`
+   * ＋ 改平的那一段。
    * 1,000 m 平飛 90 m/s 的前拋約 1,210 m，這裡的船背離（`lead` 是負的），
    * 兩項加起來仍然在 1,000 m 之外。
    */
@@ -522,7 +523,8 @@ describe('攻擊航路的狀態機', () => {
     // 船以 8 m/s 迎面走了一整個落彈時間，放手點因此比前拋遠那麼多
     const lead = 8 * hit.seconds
     expect(lead).toBeGreaterThan(100)
-    expect(st.plan.lockRange - throwRange).toBeCloseTo(lead + RUN_SETTLE, 0)
+    expect(st.plan.releaseRange! - throwRange).toBeCloseTo(lead, 0)
+    expect(st.plan.lockRange).toBeGreaterThan(st.plan.releaseRange! + RUN_SETTLE)
   })
 
   /**
@@ -552,7 +554,7 @@ describe('攻擊航路的狀態機', () => {
    * 【空艙就脫離】這一條守的是實測到的「空手飛一趟」累計 115 秒 ——
    * 少了它，AI 會一直飛攻擊航路而不知道手上沒東西，然後鑽進近迫火網。
    */
-  it('空艙時轉脫離，而且背離船並爬升', () => {
+  it('空艙時轉脫離：照原航向越過船並爬升，不原地掉頭', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
@@ -560,14 +562,15 @@ describe('攻擊航路的狀態機', () => {
     setBombBallistics(K, DT)
     stepStrike(st, plane(), sh, 0, BOMB_PROFILE, false, true, DT, out)
     expect(st.phase).toBe('egress')
-    // 船在 −Z，脫離要往 +Z，而且要爬升
-    expect(out.aimWorld.z).toBeGreaterThan(0)
+    // 船在 −Z、飛機朝 −Z 飛：脫離繼續往 −Z，而且要爬升
+    expect(out.aimWorld.z).toBeLessThan(0)
+    expect(Math.abs(out.aimWorld.x)).toBeLessThan(1e-9)
     expect(out.aimWorld.y).toBeGreaterThan(0)
     expect(out.bombing).toBe(false)
   })
 
   /**
-   * 【脫離距離也是推導的】＝ 鎖定距離 ＋ 2 × 持續迴旋半徑。寫死的話一定會
+   * 【脫離距離也是推導的】＝ 鎖定距離 ＋ `EGRESS_TURNS` 個最佳持續迴旋直徑。寫死的話一定會
    * 錯一邊：5,000 m 是 4,000 m 高度的值，拿到 1,000 m 多飛一倍多的路
    * （實測循環 111 s 對 41 s）。
    */
@@ -602,16 +605,25 @@ describe('攻擊航路的狀態機', () => {
     const far = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -6000, 0, 8)
     const out = createCommand()
     setBombBallistics(K, DT)
+    // 【脫離距離是轉進脫離那一步定下來的】這裡直接擺進脫離段，照那一步的做法補上
+    const egressing = () => {
+      const s = strike()
+      s.phase = 'egress'
+      BOMB_PROFILE.plan(plane(), near, s.plan)
+      s.egressRange = s.plan.egressRange
+      return s
+    }
+    expect(egressing().egressRange).toBeLessThan(6000)
 
-    const a = strike(); a.phase = 'egress'
+    const a = egressing()
     stepStrike(a, plane(), near, 0, BOMB_PROFILE, true, true, DT, out)
     expect(a.phase).toBe('egress')
 
-    const b2 = strike(); b2.phase = 'egress'
+    const b2 = egressing()
     stepStrike(b2, plane(), far, 0, BOMB_PROFILE, false, true, DT, out)
     expect(b2.phase).toBe('egress')
 
-    const c = strike(); c.phase = 'egress'
+    const c = egressing()
     stepStrike(c, plane(), far, 0, BOMB_PROFILE, true, true, DT, out)
     expect(c.phase).toBe('approach')
   })
@@ -624,10 +636,12 @@ describe('攻擊航路的狀態機', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
+    st.target = 0
     st.heading.set(0, 0, -1)
     const out = createCommand()
     setBombBallistics(K, DT)
     stepStrike(st, plane(), sh, 0, BOMB_PROFILE, true, true, DT, out)
+    expect(st.phase).toBe('run')
     // 理想航向偏了約 20°，一拍只能走掉 RUN_TRIM 那一小段
     const moved = Math.acos(Math.min(1, st.heading.dot(new Vector3(0, 0, -1))))
     expect(moved).toBeGreaterThan(0)
@@ -638,6 +652,7 @@ describe('攻擊航路的狀態機', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 900, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
+    st.target = 0
     st.heading.set(0, 0, -1)
     const out = createCommand()
     setBombBallistics(K, DT)

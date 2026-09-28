@@ -12,6 +12,9 @@ import {
 } from '../../src/ai/torpedoRun'
 import { TORPEDO_ENVELOPE } from '../../src/weapons/releaseEnvelope'
 import { shipAt } from '../../src/ai/bombRun'
+import { EGRESS_TURNS, createStrikeState, stepStrike } from '../../src/ai/strikeRun'
+import { createCommand } from '../../src/control/Controller'
+import { bestSustainedTurnRateCached, bestSustainedTurnSpeedCached } from '../../src/analysis/envelope'
 import type { Ship } from '../../src/world/ships'
 
 const DT = 1 / 240
@@ -374,6 +377,38 @@ describe('可以鎖 = 可以投', () => {
     const banked = overBanked()
     TORPEDO_PROFILE.plan(banked, ship, out)
     expect(out.lockRange).toBe(0)
+  })
+
+  /** 【與轟炸同一把尺】拉開的量是迴旋直徑的倍數，轉得開的飛得近 */
+  it('脫離距離 ＝ 鎖定距離 ＋ EGRESS_TURNS 個最佳持續迴旋直徑', () => {
+    setTorpedoBallistics(K, DT)
+    const a = bomber(0, 1500)
+    TORPEDO_PROFILE.plan(a, target(8), out)
+    expect(out.lockRange).toBeGreaterThan(0)
+    const h = a.state.position.y
+    const radius = bestSustainedTurnSpeedCached(G4M, h) / bestSustainedTurnRateCached(G4M, h)
+    expect(out.egressRange - out.lockRange).toBeCloseTo(EGRESS_TURNS * 2 * radius, 0)
+  })
+
+  /**
+   * 【投完往船尾那一側轉開】在船正前方原地掉頭會把整個迴轉圈送進船的火網，
+   * 直飛則從船上掠過。船尾那一側是船正在離開的方向。
+   */
+  it('投完轉脫離：往船尾那一側轉 90°，不原地掉頭', () => {
+    setTorpedoBallistics(K, DT)
+    // 船在原點、艏向 −Z（船尾在 +Z）；飛機從 +X 側朝 −X 進場
+    const a = new Aircraft(G4M)
+    a.state.position.set(1000, RUN_ALTITUDE, 0)
+    a.state.velocity.set(-100, 0, 0)
+    a.state.orientation.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+    const st = createStrikeState()
+    st.phase = 'run'
+    st.target = 0
+    const cmd = createCommand()
+    stepStrike(st, a, target(8), 0, TORPEDO_PROFILE, false, true, DT, cmd)
+    expect(st.phase).toBe('egress')
+    expect(cmd.aimWorld.z).toBeGreaterThan(0.99)
+    expect(Math.abs(cmd.aimWorld.x)).toBeLessThan(0.05)
   })
 
   /** 【脫離距離照算】它管的是「飛多遠才准回頭」，與這一拍鎖不鎖無關 */

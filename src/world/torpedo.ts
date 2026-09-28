@@ -123,7 +123,7 @@ export const WAKE_INTERVAL = 8
  * —— 還在跑的魚雷就從海面消失，不爆也不報錯。
  *
  * 【128 怎麼來】一枚跑滿射程要 `TORPEDO_RANGE / TORPEDO_SPEED` ≈ 91 s，而 G4M
- * 45 s 就補好下一枚 —— 一架最多同時有 3 枚在水裡。遭遇戰兩隊各 `MAX_SIDE`
+ * 35 s 就補好下一枚 —— 一架最多同時有 3 枚在水裡。遭遇戰兩隊各 `MAX_SIDE`
  * = 20 架全選 G4M 是 40 × 3 = 120。逐關與遭遇戰的檢查在 `campaigns.test.ts`。
  */
 export const TORPEDOES_CAPACITY = 128
