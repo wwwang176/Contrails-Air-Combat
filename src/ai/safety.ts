@@ -412,6 +412,8 @@ export function applySafety(
     out.bombing = false
     // 【正飛的提示也清掉】接管要的是最快的改出，翻轉後拉常常就是最快的
     out.upright = false
+    // 【跟瞄也清掉】瞄準方向已經換成改出的方向，不是一個要跟住的轉彎
+    out.trackTurn = false
     return action
   }
 
@@ -436,6 +438,8 @@ export function applySafety(
   if (gamma < 0 && ratio > cfg.overspeedThrottleRatio) {
     out.throttle = THROTTLE_FLOOR
     out.brake = 1
+    // 【跟瞄清掉】守線可能改掉瞄準的俯仰，那已經不是原本要跟住的轉彎
+    out.trackTurn = false
     if (ratio > cfg.overspeedRatio && out.aimWorld.y < 0) {
       const h = Math.hypot(out.aimWorld.x, out.aimWorld.z)
       if (h > 1e-6) {
@@ -460,6 +464,7 @@ export function applySafety(
     out.firing = false
     out.bombing = false
     out.upright = false
+    out.trackTurn = false
     return 'stall'
   }
 

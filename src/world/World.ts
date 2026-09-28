@@ -664,6 +664,7 @@ export class World {
       }
       c.aircraft.update(
         c.command.aimWorld, c.command.throttle, dt, c.command.brake, c.command.upright,
+        c.command.trackTurn,
       )
     }
     // 【撞地要在開火之前判】撞地的那一步不該還打得出子彈。
