@@ -554,7 +554,7 @@ describe('攻擊航路的狀態機', () => {
    * 【空艙就脫離】這一條守的是實測到的「空手飛一趟」累計 115 秒 ——
    * 少了它，AI 會一直飛攻擊航路而不知道手上沒東西，然後鑽進近迫火網。
    */
-  it('空艙時轉脫離，而且背離船並爬升', () => {
+  it('空艙時轉脫離：照原航向越過船並爬升，不原地掉頭', () => {
     const sh = createShip(0, SHIP_CLASSES.fletcher, 'red', 0, -2500, 0, 8)
     const st = strike()
     st.phase = 'run'
@@ -562,14 +562,15 @@ describe('攻擊航路的狀態機', () => {
     setBombBallistics(K, DT)
     stepStrike(st, plane(), sh, 0, BOMB_PROFILE, false, true, DT, out)
     expect(st.phase).toBe('egress')
-    // 船在 −Z，脫離要往 +Z，而且要爬升
-    expect(out.aimWorld.z).toBeGreaterThan(0)
+    // 船在 −Z、飛機朝 −Z 飛：脫離繼續往 −Z，而且要爬升
+    expect(out.aimWorld.z).toBeLessThan(0)
+    expect(Math.abs(out.aimWorld.x)).toBeLessThan(1e-9)
     expect(out.aimWorld.y).toBeGreaterThan(0)
     expect(out.bombing).toBe(false)
   })
 
   /**
-   * 【脫離距離也是推導的】＝ 鎖定距離 ＋ 2 × 持續迴旋半徑。寫死的話一定會
+   * 【脫離距離也是推導的】＝ 鎖定距離 ＋ `EGRESS_TURNS` 個最佳持續迴旋直徑。寫死的話一定會
    * 錯一邊：5,000 m 是 4,000 m 高度的值，拿到 1,000 m 多飛一倍多的路
    * （實測循環 111 s 對 41 s）。
    */
