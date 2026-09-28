@@ -12,6 +12,7 @@ import { B17G } from '../../src/specs/b17g'
 import type { AircraftSpec } from '../../src/specs/types'
 import type { Team } from '../../src/world/World'
 import type { TakeoffRoll } from '../../src/control/takeoffRoll'
+import { NO_INTERCEPT, solveLead } from '../../src/world/lead'
 import {
   createGroundStrafeState, groundAttackCommand, groundStrafeReattackRange,
 } from '../../src/ai/shipAttack'
@@ -153,6 +154,26 @@ describe('戰鬥機掃射地面目標', () => {
     groundAttackCommand(state, self, next, true, out)
     expect(state.phase).toBe('approach')
     expect(out.aimWorld.z).toBeGreaterThan(0)
+  })
+
+  it('進了射程就瞄預瞄點（含自己的速度與目標的速度），不是瞄目標本身', () => {
+    // 下滑 6° 進場、目標橫越 30 m/s：預瞄點與目標本身差得出來
+    const self = craft(BF109K4, 0, 100, 0)
+    self.state.velocity.set(0, -15, -140)
+    const truck = createGroundTarget(0, 'truck', 'red', 0, -800, Math.PI / 2)
+    truck.speed = 30
+    const out = createCommand()
+    groundAttackCommand(createGroundStrafeState(), self, truck, true, out)
+    const p = truck.position
+    const aimPoint = new Vector3(p.x, (p.y + truck.impactY) / 2, p.z)
+    const los = aimPoint.clone().sub(self.state.position)
+    const tv = new Vector3(0, 0, -1).applyQuaternion(truck.orientation).multiplyScalar(30)
+    const lead = new Vector3()
+    const t = solveLead(los, tv.sub(self.state.velocity), BF109K4.battery.sight.muzzleVelocity, lead)
+    expect(t).not.toBe(NO_INTERCEPT)
+    expect(out.aimWorld.dot(lead)).toBeGreaterThan(0.99999)
+    // 對照：預瞄點與目標本身至少差 1°，上面那一條才有鑑別力
+    expect(lead.angleTo(los)).toBeGreaterThan(1 * Math.PI / 180)
   })
 
   it('掃射移動中的車，提前量的解吃得到車速（迎面開來的車攔截得更早）', () => {
