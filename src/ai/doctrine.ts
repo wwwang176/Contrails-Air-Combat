@@ -186,6 +186,17 @@ export interface DoctrineConfig {
    */
   turnPlaneMargin: number
   /**
+   * 迴旋候選的積分拉桿拉到空速 ÷ 失速速度剩這麼多就收手。與
+   * `SteerConfig.unloadMargin`（`geometryGate` 的 `unload`）同值 —— 模型要飛的是
+   * AI 實際會飛出來的那一條。
+   *
+   * 【壞掉會怎樣】照瞬時轉彎率硬拉的話，速度一掉到角落速度以下就被判成失速，
+   * 水平與拉高迴旋幾乎永遠被排除、只剩俯衝迴旋。靶機在正後方 2 km 的大迴轉：
+   * 那樣偏置給 −10°，一開始滾到幾乎倒飛、整個彎掉 222 m；照 AI 實際的飛法
+   * 積分，三個候選都轉得完，挑的是拉高迴旋，只掉 34 m，轉回來還快 0.3 s。
+   */
+  turnPlaneStallMargin: number
+  /**
    * 能量比較裡**動能**的權重，0..1。高度永遠全額。**1 = 物理帳（舊行為）。**
    *
    * 【為什麼高度為主是對的】比能量 Es = h + v²/2g 是無損交換下的守恆量，
@@ -260,6 +271,7 @@ export const DEFAULT_DOCTRINE: DoctrineConfig = {
   turnPlaneFullAt: 300,
   turnPlaneGamma: 30 * (Math.PI / 180),
   turnPlaneMargin: 500,
+  turnPlaneStallMargin: 1.15,
   kineticWeight: 0.1,
 }
 
@@ -495,6 +507,7 @@ export interface TurnPlaneCost {
  *
  * @param swing   機鼻到預瞄點的夾角，rad
  * @param losRate 視線角速度，rad/s —— 轉的期間目標還在飄
+ * @param stallMargin 拉桿拉到空速 ÷ 失速速度剩這麼多就收手
  */
 export function turnPlaneCost(
   spec: AircraftSpec,
@@ -503,6 +516,7 @@ export function turnPlaneCost(
   swing: number,
   losRate: number,
   gamma: number,
+  stallMargin: number = DEFAULT_DOCTRINE.turnPlaneStallMargin,
 ): TurnPlaneCost {
   if (!(altitude > 0) || !(tas > 1) || !Number.isFinite(swing) || !Number.isFinite(losRate)) {
     return { seconds: Infinity, endEnergyAlt: -Infinity, remaining: Infinity, stalled: true }
@@ -514,13 +528,25 @@ export function turnPlaneCost(
   const sinG = Math.sin(gamma)
 
   while (t < PLAN_MAX) {
-    const omega = instantaneousTurnRate(spec, h, v)
-    const n = Math.sqrt(1 + (omega * v / G0) ** 2)
-    // 【失速 = 這條路飛不出來】與「轉不完」不同，這一個要排除
-    if (v <= stallSpeed(spec, h, n) || !(h > 0)) {
+    // 【失速 = 連 1 G 都撐不住，這條路飛不出來】與「轉不完」不同，這一個要排除。
+    // 不能用「v ≤ 這個過載下的失速速度」：角落速度以下瞬時轉彎率就是拉到
+    // CLmax，那一格恆成立，任何掉到角落速度以下的迴旋都會被判成飛不出來 ——
+    // 水平與拉高迴旋於是幾乎永遠被排除，只剩一路保持高速的俯衝迴旋
+    const vs1 = stallSpeed(spec, h, 1)
+    if (v <= vs1 || !(h > 0)) {
       return {
         seconds: Infinity, endEnergyAlt: h + (v * v) / (2 * G0), remaining, stalled: true,
       }
+    }
+    // 【拉到失速餘裕 `turnPlaneStallMargin` 就收手】AI 實際就是這樣飛的（卸載），
+    // 照瞬時轉彎率硬拉的積分會高估速度的流失
+    let omega = instantaneousTurnRate(spec, h, v)
+    let n = Math.sqrt(1 + (omega * v / G0) ** 2)
+    const marginV = vs1 * stallMargin
+    const nMax = (v / marginV) * (v / marginV)
+    if (n > nMax) {
+      n = nMax > 1 ? nMax : 1
+      omega = n > 1 ? (G0 * Math.sqrt(n * n - 1)) / v : 0
     }
 
     const es = h + (v * v) / (2 * G0) + specificExcessPower(spec, h, v, n, 1) * PLAN_DT
@@ -584,7 +610,7 @@ export function turnPlanePitch(
   const g = cfg.turnPlaneGamma
   const flyable: { gamma: number, cost: TurnPlaneCost }[] = []
   for (const gamma of [-g, 0, g]) {
-    const cost = turnPlaneCost(spec, altitude, tas, swing, losRate, gamma)
+    const cost = turnPlaneCost(spec, altitude, tas, swing, losRate, gamma, cfg.turnPlaneStallMargin)
     // 失速的排除 —— 那條路飛不出來
     if (!cost.stalled) flyable.push({ gamma, cost })
   }
