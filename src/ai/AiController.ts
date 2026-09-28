@@ -87,6 +87,7 @@ import type { FlightOrder } from './command'
 import { losBlocked } from '../world/occlusion'
 import { CommandDelay } from './delay'
 import { THROTTLE_RATE } from '../input/throttle'
+import { NO_INTERCEPT } from '../world/lead'
 
 /**
  * 高度鎖的緩衝，m：鎖畫在參考高度（轟炸機／目標）下方這麼多。
@@ -110,6 +111,19 @@ import { createCommand, type Command, type Controller } from '../control/Control
 
 /** 意圖仲裁與包絡查詢的頻率，Hz。 */
 export const AI_DECISION_HZ = 10
+
+/**
+ * 瞄準方向離預瞄方向多近才算在跟瞄（`Command.trackTurn`），rad。
+ *
+ * 【為什麼看瞄準貼不貼著預瞄點，而不是看走哪一條路徑】有目標時的集合、脫離、
+ * 找回速度、卸載都走同一個 `steerCommand`，而它們的瞄準方向由**自己的速度**
+ * 導出：自己正在轉，瞄準方向跟著轉，新的改平會把它讀成「要維持這個轉彎」，
+ * 抵銷卸載要的改平。那些分支的瞄準方向都不貼著預瞄點。
+ *
+ * 【10° 而不是開火錐的 3°】病發生在誤差進改平的淡入角（2.5°）之後；錐開大
+ * 一點，濾波在誤差變小之前就收斂。**起始值，由試飛裁定。**
+ */
+const TRACK_TURN_CONE = 10 * (Math.PI / 180)
 
 const FWD = new Vector3(0, 0, -1)
 
@@ -958,6 +972,8 @@ export class AiController implements Controller {
     raw.bombing = false
     // 【正飛的提示同理】只有掛彈的對艦攻擊寫它；殘留的話空戰也會被綁成只准推頭
     raw.upright = false
+    // 【跟瞄同理】只有空戰交戰那一條寫它；對地、對艦、站位、集合、平飛都早退
+    raw.trackTurn = false
 
     // 【點放每步恰好推進一次，而且要在早退路徑之前】下面有三條 `return`
     // （飛站位、飛集合點、平飛）。只在交戰那條路徑推進的話，扳機的時鐘會
@@ -1431,6 +1447,11 @@ export class AiController implements Controller {
       && (this.intent === 'rally'
         ? false
         : shouldFire(this.sit, this.basis, self, undefined, this.terrain?.land ?? null, this.aim))
+    // 【跟瞄】瞄準方向貼著預瞄點時，指揮儀的改平改到那個轉彎要的坡度。見
+    // `Command.trackTurn` 與 `TRACK_TURN_CONE`
+    raw.trackTurn = (this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge')
+      && this.basis.interceptTime !== NO_INTERCEPT
+      && raw.aimWorld.angleTo(this.basis.leadPoint) <= TRACK_TURN_CONE
 
     this.emit(self, dt, out)
   }

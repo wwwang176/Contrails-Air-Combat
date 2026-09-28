@@ -45,7 +45,7 @@ const SLOTS = 256
  */
 export class CommandDelay {
   /**
-   * 四個欄位各自一條 typed array。
+   * 每個延遲的欄位各自一條 typed array。
    *
    * 【為什麼不是 `Vector3[]`】256 個 Vector3 物件 × 40 架 AI 是 40 萬個堆積
    * 物件；三條 typed array 每架只要約 4 KB。單位向量用 float32 的 7 位有效
@@ -55,6 +55,11 @@ export class CommandDelay {
   private readonly throttle = new Float32Array(SLOTS)
   private readonly brake = new Float32Array(SLOTS)
   private readonly firing = new Uint8Array(SLOTS)
+  /**
+   * 跟瞄（`Command.trackTurn`）。**與瞄準方向讀同一格** —— 它描述的是那個
+   * 瞄準方向；直通的話從集合切到追擊時，開關會先套在延遲中的舊集合方向上。
+   */
+  private readonly trackTurn = new Uint8Array(SLOTS)
   private write = 0
   /**
    * 緩衝區裡有沒有可信的內容。
@@ -102,6 +107,7 @@ export class CommandDelay {
       out.throttle = input.throttle
       out.brake = input.brake
       out.firing = input.firing
+      out.trackTurn = input.trackTurn
       this.primed = false
       this.tx = this.ty = this.tz = 0
       return
@@ -117,6 +123,7 @@ export class CommandDelay {
         this.throttle[i] = input.throttle
         this.brake[i] = input.brake
         this.firing[i] = input.firing ? 1 : 0
+        this.trackTurn[i] = input.trackTurn ? 1 : 0
       }
     }
 
@@ -127,6 +134,7 @@ export class CommandDelay {
     this.throttle[w] = input.throttle
     this.brake[w] = input.brake
     this.firing[w] = input.firing ? 1 : 0
+    this.trackTurn[w] = input.trackTurn ? 1 : 0
 
     // 先寫再讀：`steps === 0` 時 r === w，也就是讀回剛寫進去的那一格。
     // （那條路徑走上面的捷徑，這裡只是讓索引式子在邊界上仍然自洽。）
@@ -134,6 +142,7 @@ export class CommandDelay {
     out.aimWorld.set(this.aim[3 * r]!, this.aim[3 * r + 1]!, this.aim[3 * r + 2]!)
     out.throttle = this.throttle[r]!
     out.brake = this.brake[r]!
+    out.trackTurn = this.trackTurn[r] === 1
     // 【扳機讀自己那一格】`fireSteps === 0` 時 rf === w，也就是剛寫進去的
     // 這一步 —— 直通，而且不必為它多開一條分支
     const rf = (w - fireSteps + SLOTS) % SLOTS
