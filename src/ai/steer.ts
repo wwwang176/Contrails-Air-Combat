@@ -872,6 +872,18 @@ export interface SteerConfig {
    * `speedRecover` 與 `extendFloorLatch` 會接手壓機頭。
    */
   bandRegainPitch: number
+  /**
+   * 目標拉開到自己射程的這麼多倍以外、而且還在拉開，就放棄回升改去追。
+   * 射程 = 瞄準用武器的初速 × 彈丸壽命（P-51 的 .50 約 1.06 km）。
+   *
+   * 【為什麼要有】回升要花十幾秒，目標若不打算回頭纏鬥，這段時間他會一直
+   * 跑。比自己慢的目標回升完還追得回來，但要晚很久；一樣快或更快的目標就
+   * 再也追不回射程。
+   *
+   * 【為什麼是射程的倍數】「他跑掉了沒」是相對自己打得多遠而言：初速慢的
+   * 機砲射程短，同樣 3 km 對它是四倍射程、對 .50 只有三倍。
+   */
+  bandRegainEscape: number
 }
 
 /**
@@ -1030,6 +1042,7 @@ export const DEFAULT_STEER: SteerConfig = {
   bandRegainGap: 300,
   bandRegainMax: 20,
   bandRegainPitch: 35 * (Math.PI / 180),
+  bandRegainEscape: 2,
 }
 
 /**
@@ -1327,6 +1340,20 @@ export function stepBand(
   // 在下方時下一段接敵就從這裡開始往下
   if (alt >= state.perch - cfg.bandTolerance) {
     if (state.kind === 'regain') state.kind = 'level'
+    clearBandPerch(state)
+  }
+  // 【他要跑掉了就別爬，先追】目標在自己射程的 `bandRegainEscape` 倍以外、而且
+  // 距離還在拉大：繼續回升只會讓他越跑越遠，最後追不回射程。`anchor` 改成現在
+  // 的高度，照常接敵。目標沒在跑（慢的轟炸機、正在轉彎纏鬥）時回升照舊。
+  // 射程與開火紀律同一把尺：彈丸壽命內飛得到的距離（`fire.ts`）
+  if (
+    Number.isFinite(state.perch) && sit.closureRate < 0
+    && sit.range > cfg.bandRegainEscape * self.spec.battery.sight.muzzleVelocity * PROJECTILE_LIFETIME
+  ) {
+    if (state.kind === 'regain') {
+      state.kind = 'level'
+      state.anchor = alt
+    }
     clearBandPerch(state)
   }
   let hold = active ? bandHold(sit, basis, cfg) : 0
