@@ -144,6 +144,69 @@ describe('飛過頭就往上拉：同高度從後方追上較慢的靶機（504 
   })
 })
 
+describe('飛過頭就往上拉：失去目標再重新取得同一架', () => {
+  /**
+   * 【上膛要跟著目標消失一起清】換目標的重置認的是物件身分，重新取得**同一架**
+   * 時不會觸發。沒清的話，他一重新出現在我後方（接近速度為負）就被當成剛飛過頭。
+   */
+  it('上膛 → 目標消失 → 同一架在我後方重新出現：不往上拉', () => {
+    const world = new World()
+    const mine = new Aircraft(P51D, ALT, TAS)
+    const drone = new Aircraft(P51D, ALT, 140)
+    const minePos = new Vector3(0, ALT, 0)
+    const dPos = new Vector3(0, ALT, -600)
+    const vel = new Vector3(0, 0, -140)
+    mine.state.position.copy(minePos)
+    mine.state.velocity.copy(FWD).multiplyScalar(TAS)
+    drone.state.position.copy(dPos)
+    drone.state.velocity.copy(vel)
+    for (const a of [mine, drone]) {
+      a.prevPosition.copy(a.state.position)
+      a.prevOrientation.copy(a.state.orientation)
+    }
+    const ai = new AiController()
+    const mc = world.add(mine, ai, 'blue', minePos, ALT, TAS)
+    const dc = world.add(drone, new Idle(), 'red', dPos.clone(), ALT, 140)
+    for (const c of [mc, dc]) c.respawnOnDestroy = false
+    ai.board = createTargetBoard(world.combatants)
+    ai.selfIndex = mc.index
+    ai.profile = VETERAN
+    const pin = () => {
+      drone.state.position.copy(dPos)
+      drone.state.velocity.copy(vel)
+      drone.state.angularVelocity.set(0, 0, 0)
+      drone.prevPosition.copy(dPos)
+      drone.prevOrientation.copy(drone.state.orientation)
+      dc.hp = P51D.hp
+    }
+    // 追到 250 m 內：射程內、接近中、在他機尾 —— 上膛
+    for (let s = 0; s < 30 * 240 && mine.state.position.distanceTo(dPos) > 250; s++) {
+      world.step(DT)
+      dPos.addScaledVector(vel, DT)
+      pin()
+    }
+    expect(mine.state.position.distanceTo(dPos)).toBeLessThan(260)
+    // 目標消失 2 s
+    dc.alive = false
+    for (let s = 0; s < 2 * 240; s++) world.step(DT)
+    // 同一架在我正後方 300 m 重新出現，比我慢 —— 距離在拉開
+    const fwd = mine.state.velocity.clone().setY(0).normalize()
+    dPos.copy(mine.state.position).addScaledVector(fwd, -300)
+    vel.copy(fwd).multiplyScalar(140)
+    drone.state.orientation.setFromUnitVectors(FWD, fwd)
+    dc.alive = true
+    let reacquired = false
+    for (let s = 0; s < 2 * 240; s++) {
+      world.step(DT)
+      dPos.addScaledVector(vel, DT)
+      pin()
+      if (ai.targetIndex === dc.index) reacquired = true
+    }
+    expect(reacquired).toBe(true)
+    expect(Number.isNaN(ai.band.perch)).toBe(true)
+  })
+})
+
 describe('飛過頭就往上拉：靶機被追上就以 4 G 急轉、機鼻追著 AI（540 km/h）', () => {
   it('不會停在他的機鼻錐裡', () => {
     const t = fly(150, true, 90)

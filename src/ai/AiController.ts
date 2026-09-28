@@ -1114,9 +1114,7 @@ export class AiController implements Controller {
       groundedAircraftAttackCommand(this.groundStrafe, self, groundedAircraft, decide, raw)
       this.groundStrafeActive = true
       stepTrack(this.track, 0, 0, false, dt)
-      this.band.kind = 'off'
-      this.band.hold = 0
-      clearBandPerch(this.band)
+      this.resetAirTactics()
       this.intent = 'approach'
       this.mode = 'normal'
       this.emit(self, dt, out)
@@ -1127,9 +1125,7 @@ export class AiController implements Controller {
       // 地面航次不沿用上一個空中目標的跟蹤／空層狀態；但 `target` 與指派板仍
       // 照常維護，直接威脅出現時下一格便有空戰目標可接手。
       stepTrack(this.track, 0, 0, false, dt)
-      this.band.kind = 'off'
-      this.band.hold = 0
-      clearBandPerch(this.band)
+      this.resetAirTactics()
       this.intent = 'approach'
       this.mode = 'normal'
       this.emit(self, dt, out)
@@ -1144,10 +1140,9 @@ export class AiController implements Controller {
       // 同一個理由。
       stepTrack(this.track, 0, 0, false, dt)
       // 【目標消失就放掉】與上一行同一個理由：下面三條 `return` 走不到維護點，
-      // 鎖會帶著上一個目標的高度一路殘留到下一次接敵。
-      this.band.kind = 'off'
-      this.band.hold = 0
-      clearBandPerch(this.band)
+      // 鎖會帶著上一個目標的高度一路殘留到下一次接敵；上膛也要清，否則重新
+      // 取得同一架時不會觸發換目標的重置，一回來就誤判成飛過頭
+      this.resetAirTactics()
 
       if (!this.evacuating && this.strafeGround(self, decide, raw)) {
         // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
