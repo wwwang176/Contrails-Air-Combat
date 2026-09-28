@@ -41,15 +41,16 @@ describe('extend 的俯仰方向', () => {
     expect(extendPitchAngle(1.4, -800, HIGH)).toBeGreaterThan(0)
   })
 
-  it('速度閘門：cornerRatio 掉到 1，往敵人高度的爬升被完全押住', () => {
-    expect(extendPitchAngle(1.0, -800, HIGH)).toBeCloseTo(0, 9)
-    expect(extendPitchAngle(0.99, -800, HIGH)).toBeLessThan(0)
+  it('速度閘門：cornerRatio 掉到 extendClimbFrom，往敵人高度的爬升被完全押住', () => {
+    const from = DEFAULT_STEER.extendClimbFrom
+    expect(extendPitchAngle(from, -800, HIGH)).toBeCloseTo(extendPitchAngle(from, 0, HIGH), 9)
+    expect(extendPitchAngle(from - 0.01, -800, HIGH)).toBeLessThan(0)
   })
 
-  it('閘門是斜坡不是門檻：1 → unloadMargin 之間單調爬出來', () => {
+  it('閘門是斜坡不是門檻：extendClimbFrom → unloadMargin 之間單調爬出來', () => {
     // 裸門檻在線上會翻號，而飛機有俯仰慣性 —— 與這個函式的其他項同一條理由
     let prev = -Infinity
-    for (let r = 1.0; r <= DEFAULT_STEER.unloadMargin + 1e-9; r += 0.01) {
+    for (let r = DEFAULT_STEER.extendClimbFrom; r <= DEFAULT_STEER.unloadMargin + 1e-9; r += 0.01) {
       const got = extendPitchAngle(r, -800, HIGH)
       expect(got).toBeGreaterThanOrEqual(prev - 1e-12)
       prev = got
