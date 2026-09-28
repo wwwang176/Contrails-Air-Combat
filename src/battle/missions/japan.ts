@@ -173,11 +173,12 @@ export const JAPAN: readonly MissionCard[] = [
        *   第二、三波  150 秒、240 秒，照時鐘來、不看炸了幾輛 —— 炸得快也不會讓
        *           敵機一口氣湧上來。一波從灘頭外的海上、一波從內陸
        *
-       * 【撤離時兩面夾，錯開進場】轉入撤離的那一刻預警，進場由 `warnLead` 錯開：
-       *   追兵  0 秒  紅方原本那一側（灘頭外的海上），從玩家背後追上來
-       *   堵截  20 秒  +Z 那一側、撤退路線的半途（z ≈ +5,000），比任務高度高
-       *         1,500 m，從上方撲向撤退的玩家
-       *   追兵  40 秒  再一組從背後追上來
+       * 【撤離時三組全在前方堵截】低空的 F6F 比疾風慢，從背後追永遠追不上；
+       * 攔截要靠高度與擋在歸途上。三組都在撤退路線前方、比任務高度高 1,500 m，
+       * 由 `warnLead` 錯開、左右錯開：
+       *   0 秒   左前方（`starboard` π + 0.4），z ≈ +3,500
+       *   20 秒  正前方，撤退路線的半途（z ≈ +5,000）
+       *   40 秒  右前方（`starboard` π − 0.4），z ≈ +7,500，撤離點前
        * 三組與返航同一步觸發。`stepBeats` 依陣列順序寫訊息、返航排在最後，
        * 所以畫面上是「撤離戰區」，預警文字就寫同一句。
        *
@@ -206,7 +207,7 @@ export const JAPAN: readonly MissionCard[] = [
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
           warn: '撤離戰區',
           warnLead: 0,
-          side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI + 0.4, along: 0.35, altitude: 3000,
         },
         {
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
@@ -218,7 +219,7 @@ export const JAPAN: readonly MissionCard[] = [
           when: { kind: 'destroyed', atLeast: 6, unit: 'usTruck' },
           warn: '撤離戰區',
           warnLead: 40,
-          side: 'theirs', spec: F6F5, count: 2, altitude: 2500,
+          side: 'theirs', spec: F6F5, count: 2, starboard: Math.PI - 0.4, along: 0.75, altitude: 3000,
         },
       ],
       withdraw: {
