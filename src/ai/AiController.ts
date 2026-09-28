@@ -730,6 +730,16 @@ export class AiController implements Controller {
   transit = false
 
   /**
+   * 這一架在撤離：`order` 是飛往撤離點的集合令。由 `setup.ts` 每步寫入。
+   *
+   * 【它關掉的是對地與對艦】集合令只管「沒有空中目標時去哪裡」，而任務的
+   * 地面優先目標、掃射與對艦都排在那之前 —— 不擋的話整隊會留在車隊上空
+   * 繼續炸，撤離令永遠輪不到。空戰那一側由集合令本身壓成 rally／defend，
+   * 所以照樣會閃躲，只是不回頭打。
+   */
+  evacuating = false
+
+  /**
    * 集火命令指定的那一架。`null` = 沒有指定。由 `setup.ts` 每步寫入。
    *
    * 【為什麼不直接放在 `FlightOrder` 裡】命令住在 `src/ai/command.ts`，而
@@ -1017,7 +1027,7 @@ export class AiController implements Controller {
       // `takeoff !== null` 精確限定在滑行／滾行期。直接威脅仍是更高順位。
       const heldPriorityAirIndex = this.priorityAirIndex
       this.priorityAirIndex = -1
-      if (this.priorityGroundUnit !== null) {
+      if (this.priorityGroundUnit !== null && !this.evacuating) {
         const threat = this.threatSource
         const threatIndex = threat !== null && threatFactor(threat, self) > 0
           ? this.board?.candidates.findIndex((candidate) => candidate.aircraft === threat) ?? -1
@@ -1062,7 +1072,7 @@ export class AiController implements Controller {
     // 【任務指定了地面優先目標就不插隊】日 M2 灘頭擱淺的 LST 是紅隊的船，
     // 這一段排在卡車分支之前 —— 不擋的話疾風整隊掛著炸彈去炸 LST，車隊沒人管。
     // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
-    if (this.bombBay !== null && this.priorityGroundUnit === null
+    if (this.bombBay !== null && this.priorityGroundUnit === null && !this.evacuating
       && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
       this.emit(self, dt, out)
@@ -1074,7 +1084,7 @@ export class AiController implements Controller {
     // 卡片只給單位 id；這裡不看國家、機種或關卡。沒有指定時短路，其他任務
     // 逐字走原路徑。敵機已經取得直接射擊解時，`threatFactor > 0` 與僚機的
     // LEVEL_SELF_DEFENCE 使用同一定義，先讓自衛插隊，不能為任務目標白白送命。
-    const priorityGround = this.priorityGroundUnit
+    const priorityGround = this.evacuating ? null : this.priorityGroundUnit
     const directThreat = this.threatSource !== null
       && threatFactor(this.threatSource, self) > 0
     const groundedAircraft = this.groundedAircraftTarget
@@ -1114,9 +1124,12 @@ export class AiController implements Controller {
       this.band.kind = 'off'
       this.band.hold = 0
 
-      if (this.strafeGround(self, decide, raw)) {
+      if (!this.evacuating && this.strafeGround(self, decide, raw)) {
         // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
-      } else if (reference) {
+      } else if (reference && !this.evacuating) {
+        // 【撤離時不回站位】長機可能是玩家，玩家留下來打的話僚機也會被綁在
+        // 戰區裡。各自飛撤離點，起點相近，路上自然還是一團
+        //
         // 【隊形保持就在這一格】沒有值得打的敵人時飛回站位。
         //
         // 它**不進** `arbitrate` 的優先序：engage / merge / approach 全都
@@ -1127,7 +1140,7 @@ export class AiController implements Controller {
         stationCommand(
           self, reference, this.stationOffset, this.seaHeight, raw, this.stationConfig,
         )
-      } else if (this.attackShip(self, decide, dt, raw)) {
+      } else if (!this.evacuating && this.attackShip(self, decide, dt, raw)) {
         // 【對艦掃射排在站位之後、集合點之前】
         //
         // 站位在前：僚機沒有空中目標時該回編隊，不是各自跑去打船 ——

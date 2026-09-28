@@ -16,6 +16,7 @@ import { BOUNCE, ENTRY_PLANS, HEAD_ON, PURSUIT, type EntryPlan } from '../../src
 import { BF109K4 } from '../../src/specs/bf109k4'
 import { P51D } from '../../src/specs/p51d'
 import { lineAbreast } from '../../src/battle/order'
+import type { AiController } from '../../src/ai/AiController'
 
 const DT = 1 / 240
 
@@ -121,6 +122,33 @@ describe('撤離規則接得上 Battle', () => {
     resetBattle(b)
     expect(b.mission.secondsLeft).toBe(240)
     expect(b.mission.hasTarget).toBe(true)
+  })
+
+  const evacBattle = () => createBattle(
+    new ScriptedController(), { ...DEFAULT_BATTLE, units: lineAbreast(HEAD_ON, P51D, 2, BF109K4, 2), rules },
+  )
+
+  it('藍隊 AI 拿到飛往撤離點的命令，紅隊不拿', () => {
+    const b = evacBattle()
+    stepBattle(b, DT)
+    const blueAi = b.blue.find((c) => c !== b.player)!.controller as AiController
+    expect(blueAi.evacuating).toBe(true)
+    expect(blueAi.order?.point.equals(rules.point)).toBe(true)
+    for (const c of b.red) expect((c.controller as AiController).evacuating).toBe(false)
+  })
+
+  it('AI 飛進撤離圈就退場，玩家不退、也不算勝負', () => {
+    const b = evacBattle()
+    const wingman = b.blue.find((c) => c !== b.player)!
+    wingman.aircraft.state.position.set(0, 4000, -19800)
+    stepBattle(b, DT)
+    expect(wingman.alive).toBe(false)
+    expect(wingman.retired).toBe(true)
+    expect(b.player.alive).toBe(true)
+    expect(b.outcome).toBe('fighting')
+    resetBattle(b)
+    expect(wingman.alive).toBe(true)
+    expect(wingman.retired).toBe(false)
   })
 })
 
