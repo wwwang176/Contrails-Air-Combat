@@ -308,8 +308,15 @@ export function ownerShipIndex(owner: number): number {
   return owner <= SHIP_OWNER_BASE ? SHIP_OWNER_BASE - owner : -1
 }
 
-/** 搖晃振幅，rad。**起始值。** 比飛機砲塔的 1.0° 大 —— 要的是玩家有機會。 */
-export const SHIP_WOBBLE_AMPLITUDE = 1.2 * DEG
+/** 直射砲位（船上的機槍與機砲、地面輕型防空）的搖晃振幅，rad。**由試飛裁定。** */
+export const SHIP_WOBBLE_AMPLITUDE = 3.0 * DEG
+/**
+ * 近炸砲位（5 吋砲、地面重砲）的搖晃振幅，rad。**由試飛裁定。**
+ *
+ * 【比直射的小】近炸是在幾公里外開雲，4 km 處 1.2° 已經偏 84 m，大於
+ * 50–75 m 的爆炸半徑。放到直射那一格的話重砲幾乎打不到東西。
+ */
+export const FLAK_WOBBLE_AMPLITUDE = 1.2 * DEG
 /** 搖晃頻率，rad/s。與飛機砲塔同一個值。 */
 export const SHIP_WOBBLE_OMEGA = 2 * Math.PI * 0.7
 
@@ -570,7 +577,7 @@ export function stepGunPlatform(
       g.fired++
       // 【夾在上限之內】誤差往後偏的那一半不能把射程推過引信上限
       const fuse = Math.min(spec.maxFuse, exact * (1 + spec.fuseError * (2 * hash01(k) - 1)))
-      applyWobble(g.aim, SHIP_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
+      applyWobble(g.aim, FLAK_WOBBLE_AMPLITUDE, SHIP_WOBBLE_OMEGA, g.phase, time, E1, E2, SHOT)
       SHOT.applyQuaternion(q)
       VEL.copy(SHOT).multiplyScalar(spec.muzzleVelocity)
       spawnFlak(
