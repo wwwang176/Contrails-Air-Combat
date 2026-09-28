@@ -2488,9 +2488,9 @@ export function resetBattle(
       continue
     }
     // 【沿用的控制器要放掉空層鎖】重開之後目標常常是同一架，換目標那一道擋不住
-    // 上一場記下的回升高度（見 `AiController.resetBand`）
+    // 上一場記下的回升高度與離場（見 `AiController.resetAirTactics`）
     if (c.controller instanceof AiController) {
-      c.controller.resetBand()
+      c.controller.resetAirTactics()
       continue
     }
     const ai = new AiController()

@@ -884,6 +884,18 @@ export interface SteerConfig {
    * 機砲射程短，同樣 3 km 對它是四倍射程、對 .50 只有三倍。
    */
   bandRegainEscape: number
+  /**
+   * 上膛時我方要在目標機尾這個夾角以內，那一趟通過才算「飛過頭」，rad。
+   * `0` 關掉整層（`stepAirPass`）。
+   */
+  airPassMaxAot: number
+  /**
+   * 自己的空速至少要是目標的這麼多倍，飛過頭才往上拉。速度差不多時往哪裡拉
+   * 都一直待在他前面，那是送到他槍口下。
+   */
+  airPassSpeedRatio: number
+  /** 飛過頭之後往上拉多少，m。回升的目標高度 = 飛過頭那一刻的高度加這個 */
+  airPassZoom: number
 }
 
 /**
@@ -1043,6 +1055,9 @@ export const DEFAULT_STEER: SteerConfig = {
   bandRegainMax: 20,
   bandRegainPitch: 35 * (Math.PI / 180),
   bandRegainEscape: 2,
+  airPassMaxAot: 120 * (Math.PI / 180),
+  airPassSpeedRatio: 1.1,
+  airPassZoom: 600,
 }
 
 /**
@@ -1247,6 +1262,72 @@ export function createBandState(): BandState {
 export function clearBandPerch(state: BandState): void {
   state.perch = NaN
   state.regainTime = 0
+}
+
+/**
+ * 空戰那一趟通過的跨格狀態：從後方追上、進了射程（上膛）之後有沒有飛過去。
+ * `target` 用物件身分防止換目標時沿用上一趟。
+ */
+export interface AirPassState {
+  armed: boolean
+  target: Aircraft | null
+}
+
+export function createAirPassState(): AirPassState {
+  return { armed: false, target: null }
+}
+
+export function resetAirPass(state: AirPassState): void {
+  state.armed = false
+  state.target = null
+}
+
+/**
+ * 飛過頭就往上拉：從目標後半球追上、上膛之後飛過最近點（或近到
+ * `overshootRange`），就把回升的高度設成現在的高度加 `airPassZoom`，交給空層鎖
+ * 的回升（`stepBand` 的 regain）拉起來，之後從上方再打。
+ *
+ * 【為什麼是往上而不是平飛拉開】比目標快的一方追上之後留在原地修正，一對準
+ * 就過頭，只能在目標周圍幾百公尺內繞圈。平飛拉開又要比他快很多才拉得開 ——
+ * 快三成、每秒也只拉開 36 m，十秒後掉頭仍然是近身纏鬥。往上拉把多出來的速度
+ * 直接換成高度，同時離開他的射擊平面。
+ *
+ * @param range 到目標的距離，m
+ * @param closing 接近速度，m/s，正 = 在接近
+ * @param interceptTime 預瞄解的飛行時間，s
+ * @param aot 我方在目標機尾的夾角，rad（`Situation.angleOffTail`）
+ * @param allowed 准不准拉起：不是轉彎比對方好很多的一方、沒有在閃避或服從
+ *   命令、還沒有要回去的高度。速度夠不夠快（`airPassSpeedRatio`）在這裡面判。
+ *   不准時上膛照樣記，只是飛過之後不拉起
+ * @returns 這一步有沒有把回升的高度設下去
+ *
+ * 熱路徑：不配置。
+ */
+export function stepAirPass(
+  state: AirPassState, band: BandState, self: Aircraft, target: Aircraft,
+  range: number, closing: number, interceptTime: number, aot: number, allowed: boolean,
+  cfg: SteerConfig = DEFAULT_STEER,
+): boolean {
+  if (state.target !== target) {
+    state.armed = false
+    state.target = target
+  }
+  const reach = interceptTime !== NO_INTERCEPT && interceptTime <= PROJECTILE_LIFETIME
+  const wasArmed = state.armed
+  // 【迎頭交會不算】迎頭交會之後要平飛迴轉找敵人（空層鎖），從上方俯衝的
+  // 那一趟由鎖放開時記下的回升接手
+  if (reach && closing > 0 && aot < cfg.airPassMaxAot) state.armed = true
+  if (!wasArmed || (closing > 0 && range >= cfg.overshootRange)) return false
+  state.armed = false
+  if (!allowed) return false
+  // 【快一點點不夠】速度差不多時，往哪裡拉都一直待在他前面 —— 實戰裡那就是
+  // 送到他槍口下。不夠快就不拉起，照原本的修正
+  const fast = self.state.velocity.lengthSq()
+    >= cfg.airPassSpeedRatio * cfg.airPassSpeedRatio * target.state.velocity.lengthSq()
+  if (!fast) return false
+  band.perch = self.state.position.y + cfg.airPassZoom
+  band.regainTime = 0
+  return true
 }
 
 /**
