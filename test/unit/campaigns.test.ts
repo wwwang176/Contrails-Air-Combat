@@ -442,18 +442,21 @@ describe('日 M2 雷伊泰前線', () => {
     expect(w.point.y).toBe(b.altitude)
   })
 
-  it('撤離時兩面夾：一組在背後（−Z）、一組在撤退路上（+Z）而且比任務高度高', () => {
+  it('撤離時每一組都在撤退路上（+Z）堵截，比任務高度高，而且左右錯開', () => {
     const cfg = missionConfigFrom(card)
     const atWithdraw = (b.waves ?? [])
       .map((w, i) => ({ w, beat: (cfg.beats ?? []).filter((x) => x.kind === 'reinforce')[i]! }))
       .filter(({ w }) => w.when.kind === 'destroyed' && w.when.atLeast === b.interdict!.count)
     expect(atWithdraw.length).toBeGreaterThanOrEqual(2)
-    const alongs = atWithdraw.map(({ beat }) => (beat.kind === 'reinforce' ? beat.flight.entry.along : 0))
-    expect(Math.min(...alongs), '背後那一組：along 為負 = 紅方那一側').toBeLessThan(0)
-    expect(Math.max(...alongs), '堵截那一組：along 為正 = 撤退的方向').toBeGreaterThan(0)
-    const block = atWithdraw.find(({ beat }) => beat.kind === 'reinforce' && beat.flight.entry.along > 0)!
-    if (block.beat.kind !== 'reinforce') return
-    expect(block.beat.flight.entry.climb).toBeGreaterThan(0)
+    const across: number[] = []
+    for (const { beat } of atWithdraw) {
+      if (beat.kind !== 'reinforce') continue
+      expect(beat.flight.entry.along, 'along 為正 = 撤退的方向').toBeGreaterThan(0)
+      expect(beat.flight.entry.climb, '比任務高度高').toBeGreaterThan(0)
+      across.push(beat.flight.entry.across)
+    }
+    expect(Math.min(...across)).toBeLessThan(0)
+    expect(Math.max(...across)).toBeGreaterThan(0)
   })
 
   it('開場就有 F6F 在天上', () => {
