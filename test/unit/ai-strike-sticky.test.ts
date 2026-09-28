@@ -87,6 +87,16 @@ describe('打擊目標的黏性', () => {
       expect(ai.strike.phase).toBe('run')
       expect(ai.strikeRef.index).toBe(2)
     })
+
+    /** 【脫離段也不換】越過與拉開量的是剛炸的那一個 */
+    it('脫離段中：不換', () => {
+      const { ai, run } = withOilTank()
+      ai.strike.phase = 'egress'
+      ai.strike.egressRange = 1e9
+      run(0.5)
+      expect(ai.strike.phase).toBe('egress')
+      expect(ai.strikeRef.index).toBe(2)
+    })
   })
 
   it('上一趟結束：重選最近的', () => {

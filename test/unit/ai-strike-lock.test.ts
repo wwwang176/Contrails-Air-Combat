@@ -105,13 +105,49 @@ describe('直飛中目標換了', () => {
     expect(st.phase).toBe('egress')
   })
 
-  it('投完轉脫離時要求重選目標', () => {
+  /**
+   * 【回頭時才重選，不是投完就重選】越過目標、拉開的參考點是剛炸的那一個；
+   * 投完就換的話，脫離途中瞄點跳到另一個目標，越過與拉開都量錯了對象。
+   */
+  it('投完轉脫離時不重選；脫離結束、回頭進場時才要求重選', () => {
     const st = planned()
     st.phase = 'run'
     st.target = 0
     stepStrike(st, at(st.plan.lockRange - 50), target(), 0, BOMB_PROFILE, false, true, DT, createCommand())
     expect(st.phase).toBe('egress')
+    expect(st.repick).toBe(false)
+    stepStrike(st, at(st.egressRange + 100), target(), 0, BOMB_PROFILE, true, true, DT, createCommand())
+    expect(st.phase).toBe('approach')
     expect(st.repick).toBe(true)
+  })
+})
+
+describe('脫離的方向', () => {
+  /** 目標在 z = −8000，飛機朝 −Z 飛 */
+  function egressFrom(a: Aircraft, st = planned()): { st: StrikeState, aim: Vector3 } {
+    st.phase = 'run'
+    st.target = 0
+    const out = createCommand()
+    stepStrike(st, a, target(), 0, BOMB_PROFILE, false, true, DT, out)
+    expect(st.phase).toBe('egress')
+    return { st, aim: out.aimWorld.clone() }
+  }
+
+  it('轟炸：目標還在前方，照原航向越過它', () => {
+    const { aim } = egressFrom(at(1500))
+    expect(aim.z).toBeLessThan(0)
+  })
+
+  it('轟炸：越過目標之後背離它拉開', () => {
+    const { st } = egressFrom(at(1500))
+    // 飛到目標後方 1 km、橫向偏 300 m
+    const past = plane(B17G, -9000)
+    past.state.position.x = 300
+    const out = createCommand()
+    stepStrike(st, past, target(), 0, BOMB_PROFILE, false, true, DT, out)
+    const h = new Vector3(out.aimWorld.x, 0, out.aimWorld.z).normalize()
+    const away = new Vector3(300, 0, -1000).normalize()
+    expect(h.dot(away)).toBeGreaterThan(0.999)
   })
 })
 

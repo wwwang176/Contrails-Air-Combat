@@ -87,6 +87,16 @@ export interface StrikeProfile {
   /** 脫離時的爬升角，rad。 */
   readonly egressClimb: number
   /**
+   * 脫離航向相對轉進脫離時的航向偏多少，rad，偏向目標船尾那一側。省略 = 0。
+   *
+   * 飛機照這個航向飛，直到目標已經甩在身後（見 `EGRESS_CLEAR`），才改成背離
+   * 目標拉開。0 = 照原航向越過目標（水平轟炸）；90° = 往側面轉開（雷擊）。
+   *
+   * 【為什麼不直接背離目標】放手點在目標前方，背離目標就是原地 180° 掉頭：
+   * 整個迴轉圈留在目標前方，還迎頭撞上後面正在進場的同伴。
+   */
+  readonly egressBreak?: number
+  /**
    * 這一拍的瞄點與鎖定距離。**就地寫 `out`，一次算完兩件事。**
    *
    * 【為什麼合成一支】兩者都要跑同一份彈道解算（轟炸一次 170 µs）。拆成
@@ -165,11 +175,12 @@ export interface StrikeState {
   /** `plan.along` 是對哪一個目標挑的。進場途中換了目標就重挑。 */
   alongFor: number
   /**
-   * 下一個決策拍要重選打擊目標。直飛段結束（投完、飛過頭、逾時、目標換了）
-   * 時設，由呼叫端選完之後清掉。
+   * 下一個決策拍要重選打擊目標。脫離結束、回頭進場的那一步設，由呼叫端選完
+   * 之後清掉。
    *
    * 【其餘時候目標不換】同價值的目標比距離，飛機一動最近的那個就換 —— 進場
-   * 到一半瞄點跳走，飛機帶著坡度鎖航向。
+   * 到一半瞄點跳走，飛機帶著坡度鎖航向。脫離段也不換：越過與拉開量的是剛炸
+   * 的那一個。
    */
   repick: boolean
   /**
@@ -180,6 +191,10 @@ export interface StrikeState {
    * 是爬升：B-17 從 108 掉到 69 m/s，脫離距離跟著從 9.3 km 縮到 3.4 km，拉不遠。
    */
   egressRange: number
+  /** 這一趟脫離先飛的航向，**水平單位向量**。轉進脫離的那一步定下來。見 `StrikeProfile.egressBreak` */
+  readonly egressHeading: Vector3
+  /** 目標已經甩在身後，改成背離目標拉開。一旦成立，這一趟脫離不再回頭看。 */
+  egressClear: boolean
 }
 
 export function createStrikeState(): StrikeState {
@@ -194,6 +209,8 @@ export function createStrikeState(): StrikeState {
     alongFor: -1,
     repick: false,
     egressRange: 0,
+    egressHeading: new Vector3(0, 0, -1),
+    egressClear: false,
   }
 }
 
@@ -212,6 +229,8 @@ export function resetStrike(s: StrikeState): void {
   s.alongFor = -1
   s.repick = false
   s.egressRange = 0
+  s.egressHeading.set(0, 0, -1)
+  s.egressClear = false
 }
 
 /**
@@ -288,14 +307,15 @@ export function stepStrike(
 
   // ── 脫離 ──────────────────────────────────────────────
   //
-  // 【背離＋爬高】投完之後繼續往船飛是十架死八架的直接原因（spec §5.1）。
+  // 【先照脫離航向飛、目標甩在身後才背離拉開】見 `StrikeProfile.egressBreak`
   if (state.phase === 'egress') {
-    steerEgress(self, profile, dx, dz, out)
+    steerEgress(state, profile, dx, dz, out)
     // 補滿且拉開夠遠才准再進場 —— 兩個條件缺一個就會空手再衝一次
     if (loaded && range > state.egressRange) {
       state.phase = 'approach'
       state.target = -1
       state.pickAlong = true
+      state.repick = true
     }
     out.bombing = false
     return
@@ -324,10 +344,8 @@ export function stepStrike(
     }
     // 【過了放手點還沒鎖上就重來】見 `StrikePlan.releaseRange`
     if (range < (state.plan.releaseRange ?? 0)) {
-      state.phase = 'egress'
-      state.seconds = 0
-      state.egressRange = state.plan.egressRange
-      steerEgress(self, profile, dx, dz, out)
+      enterEgress(state, self, ship, profile)
+      steerEgress(state, profile, dx, dz, out)
     }
     return
   }
@@ -348,14 +366,10 @@ export function stepStrike(
   // 近迫火網；目標換了的話鎖住的是前一個目標的航向
   if (!loaded || range < profile.abortRange || state.seconds > profile.runSeconds
     || targetIndex !== state.target) {
-    state.phase = 'egress'
-    state.seconds = 0
-    state.repick = true
-    state.egressRange = state.plan.egressRange
-    // 【轉進脫離的那一步就要轉向】不在這裡改的話，這一步還飛著直飛的航向，
-    // 而那一步正是「已經在船的正上方」的那一步 —— 差一步就是差 0.4 秒的
-    // 近迫火網
-    steerEgress(self, profile, dx, dz, out)
+    enterEgress(state, self, ship, profile)
+    // 【轉進脫離的那一步就要轉向】不在這裡改的話，這一步還飛著直飛的航向 ——
+    // 雷擊的側轉晚一步就是在船前多待一步
+    steerEgress(state, profile, dx, dz, out)
     out.bombing = false
     return
   }
@@ -383,17 +397,53 @@ function steady(self: Aircraft, profile: StrikeProfile): boolean {
   return true
 }
 
-/** 背離目標並爬升。**兩個入口共用** —— 轉進脫離的那一步也要立刻轉向。 */
+/**
+ * 「背離目標」的方向與脫離航向的夾角進到這裡面（cos），就算目標已經甩在身後。
+ *
+ * 【為什麼是 60° 而不是 90°】90° 是目標剛好在正橫，這時改成背離目標會是一個
+ * 90° 的急轉；60° 時目標已經落到後方，改過去只差 60° 而且越飛越小。
+ * **起始值，由試飛裁定。**
+ */
+export const EGRESS_CLEAR = Math.cos(60 * DEG)
+
+/**
+ * 轉進脫離：抄下這一趟的脫離距離與脫離航向。**三個入口共用**（投完、飛過頭
+ * 或逾時、到了放手點還沒鎖上）。
+ *
+ * 脫離航向 ＝ 現在的水平航向朝目標船尾那一側偏 `egressBreak`。沿著船身方向
+ * 進場時兩側離船尾一樣遠，取哪一邊都行。熱路徑：不配置。
+ */
+function enterEgress(
+  state: StrikeState, self: Aircraft, ship: StrikeTarget, profile: StrikeProfile,
+): void {
+  state.phase = 'egress'
+  state.seconds = 0
+  state.egressRange = state.plan.egressRange
+  state.egressClear = false
+  const h = flatten(S.v[0]!.copy(self.state.velocity))
+    ?? flatten(S.v[0]!.copy(FWD).applyQuaternion(self.state.orientation))
+  if (h === null) return
+  const b = profile.egressBreak ?? 0
+  let px = -h.z
+  let pz = h.x
+  const stern = S.v[1]!.set(0, 0, 1).applyQuaternion(ship.orientation)
+  if (px * stern.x + pz * stern.z < 0) { px = -px; pz = -pz }
+  const c = Math.cos(b)
+  const s = Math.sin(b)
+  state.egressHeading.set(h.x * c + px * s, 0, h.z * c + pz * s).normalize()
+}
+
+/** 脫離：先照脫離航向，目標甩在身後才背離目標；都帶著 `egressClimb` 爬升。 */
 function steerEgress(
-  self: Aircraft, profile: StrikeProfile, dx: number, dz: number, out: Command,
+  state: StrikeState, profile: StrikeProfile, dx: number, dz: number, out: Command,
 ): void {
   const away = flatten(S.v[0]!.set(-dx, 0, -dz))
-  if (away === null) {
-    out.aimWorld.copy(FWD).applyQuaternion(self.state.orientation)
-    return
+  if (!state.egressClear && away !== null && away.dot(state.egressHeading) >= EGRESS_CLEAR) {
+    state.egressClear = true
   }
+  const dir = state.egressClear && away !== null ? away : state.egressHeading
   const c = Math.cos(profile.egressClimb)
-  out.aimWorld.set(away.x * c, Math.sin(profile.egressClimb), away.z * c).normalize()
+  out.aimWorld.set(dir.x * c, Math.sin(profile.egressClimb), dir.z * c).normalize()
 }
 
 /**
