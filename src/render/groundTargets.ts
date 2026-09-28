@@ -1,7 +1,25 @@
-import { BufferGeometry, Group, Mesh, MeshStandardMaterial, type Vector3 } from 'three'
+import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
 import type { GroundTarget } from '../world/groundTargets'
+import { GEAR_CLEARANCE } from '../control/takeoffRoll'
 import { groundGeometry, groundLodGeometry } from './geometry/ground'
+import {
+  PARKED_OFFSET_KEY, PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+} from './geometry/ground/parked'
 import { useAircraftLod } from './geometry/buildAircraft'
+
+/** 停放模型烘進去的機尾下沉，與它的反向 */
+const TILT = /* @__PURE__ */ new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), PARKED_TAIL_DOWN)
+const UNTILT = /* @__PURE__ */ TILT.clone().invert()
+const OFF = /* @__PURE__ */ new Vector3()
+const Z_AXIS = /* @__PURE__ */ new Vector3(0, 0, 1)
+const SPIN = /* @__PURE__ */ new Quaternion()
+
+/**
+ * 地上的槳轉速，rad/s（約每秒 1.3 圈）。與飛行中油門收到底時同一個數
+ * （`main.ts` 的 `propRotation`）。四葉槳每幀轉超過 45° 看起來就會倒轉 ——
+ * 60 fps 的上限約 47 rad/s。
+ */
+export const PARKED_PROP_SPIN = 8
 
 /**
  * 地面目標的模型。**一台一顆 Mesh**，幾何來自 `geometry/ground`。
@@ -24,8 +42,11 @@ import { useAircraftLod } from './geometry/buildAircraft'
  */
 export interface GroundModels {
   readonly object: Group
-  /** `cam` 是鏡頭的世界座標，距離 LOD 用。 */
-  update(targets: readonly GroundTarget[], cam: Vector3): void
+  /**
+   * `cam` 是鏡頭的世界座標，距離 LOD 用。`seconds` 是這一幀的物理時間（暫停為 0），
+   * 地上的槳照它轉。
+   */
+  update(targets: readonly GroundTarget[], cam: Vector3, seconds?: number): void
   /**
    * 距離 LOD 現在切到哪裡，給 `main.ts` 的 `__lod` 出口。
    *
@@ -56,6 +77,8 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
   /** 程序化那幾種的幾何是這裡建的，這裡放；GLB 的是快取共用的，不碰。 */
   const owned: BufferGeometry[] = []
   const byId = new Map<string, Pair>()
+  /** 逐台一格：拆開的槳葉（停放的 P-51），沒有就是 null */
+  const props: (Mesh | null)[] = []
 
   for (const t of targets) {
     let pair = byId.get(t.unit.id)
@@ -72,17 +95,47 @@ export function createGroundModels(targets: readonly GroundTarget[]): GroundMode
     meshes.push(m)
     pairs.push(pair)
     far.push(false)
+    // 拆開的槳葉掛成子網格，跟著機身的變換走（滾行改平也一起）
+    const pp = pair.hi.userData[PARKED_PROP_KEY] as ParkedProp | undefined
+    let prop: Mesh | null = null
+    if (pp !== undefined) {
+      prop = new Mesh(pp.geometry, live)
+      prop.position.set(pp.hub.x, pp.hub.y, pp.hub.z)
+      prop.quaternion.copy(TILT)
+      m.add(prop)
+    }
+    props.push(prop)
   }
+  /** 地上的槳一律同一個角度 —— 一台一個相位看不出差別 */
+  let spin = 0
 
   return {
     object,
-    update(list, cam) {
+    update(list, cam, seconds = 0) {
+      spin = (spin + seconds * PARKED_PROP_SPIN) % (Math.PI * 2)
+      SPIN.setFromAxisAngle(Z_AXIS, spin)
       for (let k = 0; k < list.length && k < meshes.length; k++) {
         const t = list[k]!
         const m = meshes[k]!
+        const prop = props[k]!
+        if (prop !== null) {
+          // 被打掉的停轉
+          if (t.alive) prop.quaternion.multiplyQuaternions(TILT, SPIN)
+          if (prop.material !== (t.alive ? live : wreck)) prop.material = t.alive ? live : wreck
+        }
         m.position.copy(t.position)
         m.quaternion.copy(t.orientation)
         const lo = pairs[k]!.lo
+        // 【滾行時機身改平】停放模型烘進了機尾下沉與貼地的平移，滾行的姿態是
+        // 機身水平、原點在地面上 `GEAR_CLEARANCE` —— 與離地後接手的那一架相同，
+        // 不扣回來的話交接那一幀機頭會跳 10°
+        const off = m.geometry.userData[PARKED_OFFSET_KEY] as { x: number; y: number; z: number } | undefined
+        if (t.rolling && off !== undefined) {
+          m.quaternion.multiply(UNTILT)
+          OFF.set(off.x, off.y, off.z).applyQuaternion(m.quaternion)
+          m.position.y += GEAR_CLEARANCE
+          m.position.sub(OFF)
+        }
         if (lo !== null) {
           const want = useAircraftLod(t.position.distanceToSquared(cam), far[k]!)
           far[k] = want

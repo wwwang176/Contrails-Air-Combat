@@ -41,7 +41,7 @@ import {
 } from './wingman'
 import { rallyCommand } from './rally'
 import {
-  createGroundStrafeState, createShipAim, groundAttackCommand, groundedAircraftAttackCommand,
+  createGroundStrafeState, createShipAim, groundAttackCommand,
   pickGroundTarget, pickShipTarget, resetGroundStrafe, shipAttackCommand, SHIP_ATTACK_RANGE,
 } from './shipAttack'
 import {
@@ -257,13 +257,6 @@ export class AiController implements Controller {
     if (!this.groundAttackActive || this.groundAim < 0) return null
     return this.groundTargets[this.groundAim] ?? null
   }
-  /** 正在優先攻擊的滑行／滾行飛機；完成起飛後立即變回 null。 */
-  get groundedAircraftTarget(): Aircraft | null {
-    if (this.priorityAirIndex < 0 || this.board === null) return null
-    const candidate = this.board.candidates[this.priorityAirIndex]
-    return candidate !== undefined && candidate.alive && candidate.takeoff != null
-      ? candidate.aircraft : null
-  }
   /**
    * 交戰對象。`board` 為 null 時由 `main.ts` 或測試設定；否則由
    * `selectTarget` 在每個決策節拍改寫。
@@ -380,34 +373,6 @@ export class AiController implements Controller {
   get groundStrafePhase() { return this.groundStrafe.phase }
   /** 本次離場動態算出的回頭門檻，m；非離場時為 0。 */
   get groundStrafeReattackRange() { return this.groundStrafe.reattackRange }
-  /** 任務優先的滑行／滾行飛機在指派板上的索引；−1 = 沒有。 */
-  private priorityAirIndex = -1
-
-  /**
-   * 從指定地面單位的 `departedAs` 找到仍在滑行／滾行的那架飛機，取最近者。
-   * 這條連結由起飛波次建立，比用高度猜「是否離地」精確，也不會把低飛掠過
-   * 機場的正常敵機誤認成地面目標。
-   */
-  private pickPriorityGroundAircraft(self: Aircraft): number {
-    const unit = this.priorityGroundUnit
-    const board = this.board
-    const me = board?.candidates[this.selfIndex]
-    if (unit === null || board === null || me === undefined) return -1
-    let best = -1
-    let bestSq = Infinity
-    for (const ground of this.groundTargets) {
-      if (ground.unit.id !== unit || ground.departedAs < 0) continue
-      const candidate = board.candidates[ground.departedAs]
-      if (candidate === undefined || !candidate.alive || candidate.team === me.team) continue
-      if (candidate.takeoff == null) continue
-      const d = self.state.position.distanceToSquared(candidate.aircraft.state.position)
-      if (d >= bestSq) continue
-      best = candidate.index
-      bestSq = d
-    }
-    return best
-  }
-
   /**
    * 沒有空中目標時，戰鬥機掃射敵方的地面目標。回傳 true 代表 `out` 已經寫滿。
    *
@@ -648,7 +613,6 @@ export class AiController implements Controller {
     this.tacticalPhase = 'off'
     this.controlOverride = 'off'
     resetGroundStrafe(this.groundStrafe)
-    this.priorityAirIndex = -1
     // 【連採樣節拍一起重設】只清 sense 的話，新場最多要等 11 個物理步才會
     // 第一次感知，那段時間 AI 是用 floor = 0 在飛。負的起點讓
     // (senseTick + sensePhase) 在下一次 emit 就命中 0
@@ -1070,35 +1034,20 @@ export class AiController implements Controller {
         this.targetIndex = this.order !== null ? this.order.focusIndex : -1
       }
 
-      // 【地面任務的動態目標】停機模型一開始滑行就會變成 Combatant；只看
-      // `GroundTarget.alive` 會以為它消失了。透過 departedAs 找回那一架，並以
-      // `takeoff !== null` 精確限定在滑行／滾行期。直接威脅仍是更高順位。
-      const heldPriorityAirIndex = this.priorityAirIndex
-      this.priorityAirIndex = -1
+      // 【地面任務時直接威脅優先】已經取得射擊解、正在打我的那一架蓋過自由選的
+      // 目標 —— 下面的地面分支被它擋下來之後，空戰接的就是這一架
       if (this.priorityGroundUnit !== null && !this.evacuating) {
         const threat = this.threatSource
         const threatIndex = threat !== null && threatFactor(threat, self) > 0
           ? this.board?.candidates.findIndex((candidate) => candidate.aircraft === threat) ?? -1
           : -1
-        // 【一趟只打一架】同時有多架 P-51 滑行時，「每拍取最近」會在飛越後
-        // 不斷換到另一架，等同繞過 groundStrafe 的離場鎖。舊目標仍在滑行就
-        // 持有；被毀或完成起飛才換。直接威脅照舊無條件插隊。
-        const held = heldPriorityAirIndex >= 0
-          ? this.board?.candidates[heldPriorityAirIndex] : undefined
-        const heldObjectiveIndex = held !== undefined && held.alive && held.takeoff != null
-          ? heldPriorityAirIndex : -1
-        const objectiveIndex = threatIndex >= 0 ? -1
-          : heldObjectiveIndex >= 0 ? heldObjectiveIndex
-            : this.pickPriorityGroundAircraft(self)
-        const preferredIndex = threatIndex >= 0 ? threatIndex : objectiveIndex
-        const preferred = preferredIndex >= 0 ? this.board?.candidates[preferredIndex] : undefined
+        const preferred = threatIndex >= 0 ? this.board?.candidates[threatIndex] : undefined
         if (preferred !== undefined && preferred.alive) {
           this.target = preferred.aircraft
-          this.targetIndex = preferredIndex
+          this.targetIndex = threatIndex
           if (this.board !== null && this.selfIndex >= 0) {
-            this.board.assignments[this.selfIndex] = preferredIndex
+            this.board.assignments[this.selfIndex] = threatIndex
           }
-          if (objectiveIndex >= 0) this.priorityAirIndex = objectiveIndex
         }
       }
     }
@@ -1137,17 +1086,6 @@ export class AiController implements Controller {
     const priorityGround = this.evacuating ? null : this.priorityGroundUnit
     const directThreat = this.threatSource !== null
       && threatFactor(this.threatSource, self) > 0
-    const groundedAircraft = this.groundedAircraftTarget
-    if (priorityGround !== null && !directThreat && groundedAircraft !== null) {
-      groundedAircraftAttackCommand(this.groundStrafe, self, groundedAircraft, decide, raw)
-      this.groundStrafeActive = true
-      stepTrack(this.track, 0, 0, false, dt)
-      this.resetAirTactics()
-      this.intent = 'approach'
-      this.mode = 'normal'
-      this.emit(self, dt, out)
-      return
-    }
     if (priorityGround !== null && !directThreat
       && this.strafeGround(self, decide, raw, priorityGround)) {
       // 地面航次不沿用上一個空中目標的跟蹤／空層狀態；但 `target` 與指派板仍

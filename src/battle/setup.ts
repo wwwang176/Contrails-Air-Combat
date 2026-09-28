@@ -48,12 +48,13 @@ import {
 } from './mission'
 import type { Controller } from '../control/Controller'
 import type { AircraftSpec } from '../specs/types'
-import { SHIP_CLASSES, createShip, resetShip } from '../world/ships'
+import { SHIP_CLASSES, createShip, resetShip, type Ship } from '../world/ships'
 import {
   createGroundBattery, createShipGuns, GROUND_LIGHT_FLAK_SPEC, GROUND_MG_SPEC, resetShipGuns,
   type ShipGunSpec,
 } from '../world/shipGuns'
 import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../world/groundTargets'
+import { parkedOffset } from '../world/groundAirframe'
 import type { GroundUnitId } from '../render/geometry/ground'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
@@ -719,6 +720,14 @@ function unitFrame(cfg: BattleConfig, unit: FlightPlan): UnitFrame {
 type FeelCache = { readonly [T in Team]: Map<AircraftSpec, AircraftSpec> }
 
 /**
+ * 停在地上的哪一種單位是一架飛機（`GroundTarget.airframe`）。在地上是地面目標，
+ * 離地才是空中那一池的飛機；血量、部位、防護力兩邊相同。
+ */
+const GROUND_AIRFRAME: Readonly<Partial<Record<GroundUnitId, AircraftSpec>>> = {
+  parkedP51: P51D,
+}
+
+/**
  * 造一架、加進世界，回傳它的座位。
  *
  * **`createBattle` 與 `reinforce` 共用的唯一一條生成路徑。** 複製一份的話，
@@ -1098,7 +1107,7 @@ export function createBattle(
   )
 
   placeFleet(world, cfg.fleet)
-  placeGround(world, cfg.ground, cfg.flakSpec)
+  placeGround(world, cfg.ground, feeled, cfg.flakSpec)
   // 【排在艦隊之後】繫在船上的氣球要讀那艘船的位置與艏向
   placeBalloons(world, cfg.balloons)
   const battle: Battle = {
@@ -1216,13 +1225,28 @@ function placeBalloons(world: World, entries: readonly BalloonEntry[] | undefine
  * 戰鬥之後才注入）。落地由 `settleGroundTargets` 在那之後做。
  */
 function placeGround(
-  world: World, ground: readonly GroundEntry[] | undefined, flakSpec?: ShipGunSpec,
+  world: World, ground: readonly GroundEntry[] | undefined, feeled: FeelCache, flakSpec?: ShipGunSpec,
 ): void {
   if (ground === undefined) return
   for (const e of ground) {
     const t = createGroundTarget(
       world.groundTargets.length, e.unit, e.team, e.x, e.z, e.heading, e.motion ?? null,
     )
+    // 【地上的飛機照飛機算】血量、部位、防護力與天上那一架相同。規格從同一張
+    // 手感表拿 —— 離地時交給的那一席用的是同一份（`spawnMember`）
+    const base = GROUND_AIRFRAME[e.unit]
+    if (base !== undefined) {
+      const cache = feeled[e.team]
+      let spec = cache.get(base)
+      if (spec === undefined) {
+        spec = applyFeel(base, feelFor(base))
+        cache.set(base, spec)
+      }
+      t.airframe = spec
+      t.hp = spec.hp
+      // 【先算好】第一發打到它的子彈才算的話，那一步會在物理迴圈裡配置
+      parkedOffset(spec)
+    }
     // 【重高砲位會還手】掛上砲之後它就是一座 `GunPlatform`，與艦砲走同一支
     // `stepGunPlatform`。其餘的地面單位（戰車、卡車、火車、廠房）不掛
     if (e.unit === 'flakHeavy') t.guns = createGroundBattery(flakSpec)
@@ -1480,6 +1504,25 @@ function inDestroyPool(t: GroundTarget, rules: MissionRules): boolean {
   return rules.kind !== 'destroy' || rules.unit === undefined || t.unit.id === rules.unit
 }
 
+/** 防空單位。在炸毀的池裡也不算主要目標 —— 它們擋路，不是任務要炸的東西 */
+const AIR_DEFENCE: ReadonlySet<GroundUnitId> = new Set<GroundUnitId>([
+  'flakHeavy', 'flakLight', 'usFlakTrack', 'searchlight',
+])
+
+/**
+ * 這一艘是不是**當下規則**的主要目標：擊沉關的敵艦。HUD 在它的標記上標距離。
+ * 讀 `b.rules`，返航節拍換掉規則之後就不是了。
+ */
+export function isObjectiveShip(s: Ship, rules: MissionRules): boolean {
+  return rules.kind === 'sink' && s.team === 'red'
+}
+
+/** 這一座地面目標是不是**當下規則**的主要目標：炸毀的池裡、不是防空 */
+export function isObjectiveGround(t: GroundTarget, rules: MissionRules): boolean {
+  if (rules.kind !== 'destroy' && rules.kind !== 'interdict') return false
+  return inDestroyPool(t, rules) && !AIR_DEFENCE.has(t.unit.id)
+}
+
 /**
  * 池裡的這一台算不算已摧毀。**每一架飛機只算一次，不管死在哪裡。**
  *
@@ -1590,9 +1633,18 @@ export function reinforce(b: Battle, plan: FlightPlan): readonly number[] {
         ? null
         : departParked(b, plan.departs, plan.team, plan.takeoff.x, plan.takeoff.z)
       if (plan.departs === undefined || stand !== null) {
-        rolls.push(startTakeoff(b, c, plan.takeoff, rolls.length, stand))
-        // 【停機墊對回起飛的那一架】炸毀的計數從此看這一架（`destroyedInPool`）
-        if (stand !== null) stand.departedAs = c.index
+        const roll = startTakeoff(b, c, plan.takeoff, rolls.length, stand)
+        rolls.push(roll)
+        if (stand !== null) {
+          // 【滑行與滾行的是地上那一台】它是地面目標，不進空中那一池 —— 空戰的
+          // 威脅判斷、索敵都看不到它。這一席等到離地才由 `World` 交接上場
+          // （`stepGroundTaxi`），在那之前不存活、不畫
+          c.takeoff = null
+          c.alive = false
+          c.retired = true
+          stand.taxi = roll
+          stand.departedAs = c.index
+        }
       } else {
         c.alive = false
         c.retired = true
@@ -1664,27 +1716,24 @@ function startTakeoff(
   a.state.angularVelocity.set(0, 0, 0)
   a.prevPosition.copy(a.state.position)
   a.prevOrientation.copy(a.state.orientation)
-  // 【AI 照常可以選它】滑行與滾行中的飛機是一般的敵機。追到地面的風險交給
-  // 安全層（`applySafety` 的拉平、`terrainSense`），不靠不選它來避
   return roll
 }
 
-/** 地上還在的同隊 `unit` 有幾台 */
+/** 停機墊上還在、還沒排進起飛的同隊 `unit` 有幾台 */
 function parkedLeft(b: Battle, unit: GroundUnitId, team: Team): number {
   let n = 0
   for (const t of b.world.groundTargets) {
-    if (t.alive && t.team === team && t.unit.id === unit) n++
+    if (t.alive && t.taxi === null && !t.departed && t.team === team && t.unit.id === unit) n++
   }
   return n
 }
 
 /**
- * 讓離 (x, z) 最近、還在的一台同隊 `unit` 離場，回傳它；一台都不剩回 `null`。
- * **不是摧毀**：不推擊毀事件。它仍在炸毀的池裡，摧毀與否由呼叫端接上的
- * `departedAs` 那一架決定（`destroyedInPool`）。
+ * 挑離 (x, z) 最近、還停著的一台同隊 `unit` 出發，回傳它；一台都不剩回 `null`。
+ * 呼叫端把起飛腳本掛到它的 `taxi` 上 —— 它照舊是地面目標，離地時才離場
+ * （`World.stepGroundTaxi`）。
  *
- * 【開始滑行那一刻就離場】少了這一步，停機墊上那一架與正在滑行的那一架是同一架
- * 飛機的兩份 —— 玩家還能再打掉地上那一份算進戰果。
+ * 【已經在滑行的不挑】掛著腳本的那一台再被挑一次，會有兩席等同一台飛機。
  */
 function departParked(
   b: Battle, unit: GroundUnitId, team: Team, x: number, z: number,
@@ -1692,7 +1741,7 @@ function departParked(
   let best: GroundTarget | null = null
   let bestSq = Infinity
   for (const t of b.world.groundTargets) {
-    if (!t.alive || t.team !== team || t.unit.id !== unit) continue
+    if (!t.alive || t.taxi !== null || t.departed || t.team !== team || t.unit.id !== unit) continue
     const dx = t.position.x - x
     const dz = t.position.z - z
     const d = dx * dx + dz * dz
@@ -1701,9 +1750,6 @@ function departParked(
       best = t
     }
   }
-  if (best === null) return null
-  best.alive = false
-  best.departed = true
   return best
 }
 
@@ -2258,6 +2304,12 @@ function completeTakeover(b: Battle): void {
  */
 export function stepBattle(b: Battle, dt: number): void {
   b.world.step(dt)
+  // 【離地的那一席在名冊上活過來】它在滑行期間是不存活的席位（`reinforce`）。
+  // 排在 `drainKills` 之前：離地那一步就被打下來的話，擊落要記在活過來的那一列上 ——
+  // 反過來排，`recordKill` 會跳過還沒活過來的那一列，戰績漏記、名冊留著存活
+  const lifted = b.world.liftoffs
+  for (let i = 0; i < lifted.length; i++) b.roster.pilots[lifted[i]!]!.alive = true
+  lifted.length = 0
   drainKills(b)
   drainReports(b)
 
@@ -2395,6 +2447,12 @@ export function stepBattle(b: Battle, dt: number): void {
   for (let f = 0; f < reviveAt.length && !inp.redInbound; f++) {
     if (reviveAt[f]! >= 0 && b.flights.flights[f]!.team === 'red') inp.redInbound = true
   }
+  // 【地上滑行中的紅方也算在路上】它的那一席離地才存活
+  const gts = b.world.groundTargets
+  for (let i = 0; i < gts.length && !inp.redInbound; i++) {
+    const t = gts[i]!
+    if (t.taxi !== null && t.team === 'red') inp.redInbound = true
+  }
   // 【讀 `b.rules` 而不是 `b.cfg.rules`】返航節拍會換掉這一場的規則
   stepMission(b.rules, inp, dt, b.mission)
   // 【誰是權威】`b.mission.outcome`。這一行是複本，見 `Battle.mission` 的註解。
@@ -2438,6 +2496,7 @@ export function resetBattle(
   }
   // 【地面目標也要】沒有波次的關重開不重建 World，走的是這一條
   for (const t of b.world.groundTargets) resetGroundTarget(t)
+  b.world.liftoffs.length = 0
   // 【時鐘也要歸零】砲塔的搖晃相位吃 `world.time`。不歸零的話，第二場即使
   // 種子與設定完全相同也會從不同的相位開始 —— 逐位元重播因此破功，而症狀
   // 看起來像隨機的。

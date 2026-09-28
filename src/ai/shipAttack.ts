@@ -115,7 +115,7 @@ export type GroundStrafePhase = 'approach' | 'egress'
 export interface GroundStrafeState {
   phase: GroundStrafePhase
   armed: boolean
-  target: GroundTarget | Aircraft | null
+  target: GroundTarget | null
   readonly egressHeading: Vector3
   /** 本決策拍算出的回頭門檻，m；Infinity = 當下還做不出可持續迴轉。 */
   reattackRange: number
@@ -380,18 +380,6 @@ export function groundAttackCommand(
 }
 
 /**
- * 掃射仍由起飛腳本控制的飛機。它在 `TargetBoard` 裡是 Aircraft，但飛行方式仍是
- * 地面滑行／滾行，所以要走有近距脫離的掃射核心，不能用會一路追尾的空戰控制。
- */
-export function groundedAircraftAttackCommand(
-  state: GroundStrafeState, self: Aircraft, target: Aircraft, replan: boolean, out: Command,
-): void {
-  const p = target.state.position
-  const v = target.state.velocity
-  groundStrafeCommand(state, target, self, p, v.x, v.y, v.z, replan, out)
-}
-
-/**
  * 這架機在目前高度與速度下，完成下一次對地進場至少要拉開的水平距離。
  *
  * 槍的準備距離取「槍口初速＋飛機前進速度」在彈丸壽命內能覆蓋的距離；其後
@@ -438,7 +426,7 @@ function commandGroundEgress(state: GroundStrafeState, out: Command): void {
  */
 function groundStrafeCommand(
   state: GroundStrafeState,
-  target: GroundTarget | Aircraft,
+  target: GroundTarget,
   self: Aircraft,
   aim: Vector3,
   tvx: number,

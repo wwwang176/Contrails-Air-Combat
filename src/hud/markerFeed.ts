@@ -37,6 +37,17 @@ export type MarkerProject = (
  */
 export type ShipMarkerTop = (ship: Ship) => number
 
+/**
+ * 哪些船、地面目標是任務的主要目標（標記上標距離），與量距離的基準點。
+ * 判定依當下的規則（`battle/setup.ts` 的 `isObjectiveShip`／`isObjectiveGround`）；
+ * 基準點與接觸點的距離讀數同一個 —— 自機，上帝視角是鏡頭。
+ */
+export interface MarkerObjectives {
+  ship(s: Ship): boolean
+  ground(t: GroundTarget): boolean
+  readonly ref: { readonly x: number; readonly y: number; readonly z: number }
+}
+
 /** 投影結果的暫存。熱路徑不配置 */
 const OUT = { x: 0, y: 0 }
 
@@ -61,6 +72,7 @@ export function fillMarkers(
   own: number,
   project: MarkerProject,
   shipTop: ShipMarkerTop,
+  objectives: MarkerObjectives,
 ): void {
   let n = 0
   for (const s of ships) {
@@ -71,7 +83,7 @@ export function fillMarkers(
     // 【抬到整艘船的最高點】`Ship.position.y` 恆為 0（水線），而甲板高與
     // 砲位盒的頂都不夠 —— 桅杆比它們高兩三倍
     n = put(f, n, s.position.x, shipTop(s), s.position.z,
-      teamSlot(s.team), own, project)
+      teamSlot(s.team), own, project, objectives.ship(s), objectives.ref)
   }
   for (const t of groundTargets) {
     // 【炸毀的不畫】與沉船同一個理由；殘骸只是佈景
@@ -79,13 +91,14 @@ export function fillMarkers(
     if (n >= HUD_MAX_MARKERS) break
     // 【高度用盒頂】建築沒有桅杆，命中盒的頂就是模型的頂 —— 不像船要
     // 問模型。`impactY` 已經是地面高度加盒頂
-    n = put(f, n, t.position.x, t.impactY, t.position.z, teamSlot(t.team), own, project)
+    n = put(f, n, t.position.x, t.impactY, t.position.z, teamSlot(t.team), own, project,
+      objectives.ground(t), objectives.ref)
   }
   for (const p of pools) {
     for (let i = 0; i < p.capacity; i++) {
       if (p.active[i] === 0) continue
       if (n >= HUD_MAX_MARKERS) break
-      n = put(f, n, p.x[i]!, p.y[i]!, p.z[i]!, p.team[i]!, own, project)
+      n = put(f, n, p.x[i]!, p.y[i]!, p.z[i]!, p.team[i]!, own, project, false, objectives.ref)
     }
   }
   // 【收尾要把用過的格子關掉】`markerCount` 縮小時，上一幀留在後面那幾格的
@@ -98,13 +111,15 @@ export function fillMarkers(
 function put(
   f: HudFrame, i: number,
   x: number, y: number, z: number, team: number, own: number,
-  project: MarkerProject,
+  project: MarkerProject, objective: boolean, ref: MarkerObjectives['ref'],
 ): number {
   const m = f.markers[i]!
   m.behind = project(x, y, z, OUT)
   m.x = OUT.x
   m.y = OUT.y
   m.hostile = team !== own
+  m.objective = objective
+  m.range = objective ? Math.hypot(x - ref.x, y - ref.y, z - ref.z) : 0
   m.active = true
   return i + 1
 }

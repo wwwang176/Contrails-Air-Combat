@@ -1,6 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { loadGlbTemplatesForNode } from '../fixtures/glb'
-import { bakeParkedAircraft, PARKED_TAIL_DOWN } from '../../src/render/geometry/ground/parked'
+import { Matrix4 } from 'three'
+import {
+  bakeParkedAircraft, PARKED_OFFSET_KEY, PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+} from '../../src/render/geometry/ground/parked'
 import { glbTemplate } from '../../src/render/geometry/glb'
 
 /**
@@ -58,6 +61,34 @@ describe('bakeParkedAircraft', () => {
     expect(a.getAttribute('position').array).toEqual(b.getAttribute('position').array)
     a.getAttribute('position').setX(0, 999)
     expect(b.getAttribute('position').getX(0)).not.toBe(999)
+  })
+
+  it('拆槳：槳葉從機身拿掉、包圍盒不變，擺回轉軸上與不拆的那一份逐點相同', () => {
+    const whole = bakeParkedAircraft('p51d')
+    const body = bakeParkedAircraft('p51d', true)
+    const prop = body.userData[PARKED_PROP_KEY] as ParkedProp
+    expect(prop).toBeDefined()
+    const nWhole = whole.getAttribute('position').count
+    const nBody = body.getAttribute('position').count
+    const nProp = prop.geometry.getAttribute('position').count
+    expect(nProp).toBeGreaterThan(0)
+    expect(nBody + nProp).toBe(nWhole)
+    expect(body.userData[PARKED_OFFSET_KEY]).toEqual(whole.userData[PARKED_OFFSET_KEY])
+    // 擺回去：機尾下沉 → 平移到轉軸。每一個槳葉頂點都要在不拆的那一份裡找得到
+    const placed = prop.geometry.clone()
+      .applyMatrix4(new Matrix4().makeRotationX(PARKED_TAIL_DOWN))
+      .translate(prop.hub.x, prop.hub.y, prop.hub.z)
+    const key = (x: number, y: number, z: number) => `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`
+    const pw = whole.getAttribute('position')
+    const inWhole = new Set<string>()
+    for (let i = 0; i < pw.count; i++) inWhole.add(key(pw.getX(i), pw.getY(i), pw.getZ(i)))
+    const pp = placed.getAttribute('position')
+    let missing = 0
+    for (let i = 0; i < pp.count; i++) if (!inWhole.has(key(pp.getX(i), pp.getY(i), pp.getZ(i)))) missing++
+    expect(missing).toBe(0)
+    // 轉軸在機首：比機身任何一點都前面的附近
+    body.computeBoundingBox()
+    expect(prop.hub.z).toBeLessThan(body.boundingBox!.min.z + 1)
   })
 
   it('沒載樣板就丟', () => {

@@ -6,6 +6,8 @@ import { resetGroundBattery } from './shipGuns'
 import type { ShipGun } from './ships'
 import type { GroundMotion } from './groundMotion'
 import type { Team } from './World'
+import type { TakeoffRoll } from '../control/takeoffRoll'
+import type { AircraftSpec } from '../specs/types'
 
 /**
  * # 場上的地面目標
@@ -172,6 +174,22 @@ export interface GroundTarget extends StrikeTarget {
    */
   departedAs: number
   /**
+   * 滑行中的起飛腳本（`control/takeoffRoll.ts`）。**null = 停著或已離場。**
+   *
+   * 【在地上就是地面目標】滑行、排隊、滾行都由這一格推進（`World.step`），
+   * 離地那一刻才交給 `departedAs` 那一席 —— 地上的飛機不進空中那一池，AI 的
+   * 索敵、威脅與 HUD 的空中接觸點都看不到它。
+   */
+  taxi: TakeoffRoll | null
+  /** 滑行腳本正在滾行段（機身水平）。停著與滑行時機尾下沉 */
+  rolling: boolean
+  /**
+   * 這一台是一架飛機：血量、部位與防護力照飛機算（`World.resolveHits`）。
+   * **null = 一般地面物件**。由建場填（`battle/setup.ts`），與上場的那一席是同一份
+   * 規格（含手感）。
+   */
+  airframe: AircraftSpec | null
+  /**
    * 這一台身上的防空砲。**空陣列 = 不還手** —— 戰車、卡車、火車、廠房都是
    * 空的；只有重高砲位由 `createGroundBattery()` 掛上一門。
    *
@@ -230,6 +248,9 @@ export function createGroundTarget(
     alive: true,
     departed: false,
     departedAs: -1,
+    taxi: null,
+    rolling: false,
+    airframe: null,
     // 【預設不還手】掛砲是呼叫端的決定（`battle/setup.ts`）—— 同一個
     // `flakHeavy` 在別的關卡可以只是佈景
     guns: [],
@@ -256,12 +277,15 @@ export function settleGroundTargets(
 /** 回到開局狀態。沒有波次的關重開不重建 World —— 與 `resetShip` 同一個理由。 */
 export function resetGroundTarget(t: GroundTarget): void {
   t.position.copy(t.spawn)
-  t.hp = GROUND_HP[t.unit.id]
+  // 【飛機的血量是飛機的】讀 `GROUND_HP` 的話重開一場停著的 P-51 就回到 250
+  t.hp = t.airframe?.hp ?? GROUND_HP[t.unit.id]
   t.alive = true
   t.departed = false
   t.departedAs = -1
   t.arrived = false
   t.speed = 0
+  t.taxi = null
+  t.rolling = false
   // 【航向也要回開局】移動的車整場都在改 orientation；靜止的目標抄回去不變
   t.orientation.setFromAxisAngle(UP, t.heading)
   // 【砲也要回開局】留著上一場的目標與射速時鐘，重開之後第一步就會對著
