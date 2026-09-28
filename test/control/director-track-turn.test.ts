@@ -85,7 +85,7 @@ describe('指揮儀的 trackTurn', () => {
   const staticAim = new Vector3(Math.sin(8 * DEG), Math.sin(2 * DEG), -1).normalize()
 
   /**
-   * 【關著的時候與沒有這個機制時逐位元相同】玩家恆為關。指紋是在加入
+   * 【關著的時候與沒有這個機制時逐位元相同】指紋是在加入
    * `trackTurn` 之前的程式碼上算出來的：6 秒的舵面指令與姿態，逐步以 FNV-1a
    * 雜湊 float64 的位元組。原本的算術動了任何一個字，這裡就變。
    */
@@ -158,11 +158,47 @@ describe('指揮儀的 trackTurn', () => {
   })
 
   /**
+   * 【一步跳一大段是不連續，不是角速度】重生與接手時瞄準方向一步重設到機首、
+   * AI 換目標時一步跳走。拿那一步微分會得到上百 rad/s，參考歪掉約 0.5 s ——
+   * 而那時機首剛好對準、改平是滿權限。跳完靜止的話必須與 false 完全相同。
+   */
+  it('瞄準方向一步跳 30° 之後靜止：與 false 逐位元相同', () => {
+    const a = plane()
+    const b = plane()
+    const jumped = new Vector3(Math.sin(30 * DEG), 0, -Math.cos(30 * DEG))
+    for (let i = 0; i < 4 * 240; i++) {
+      const aim = i < 240 ? staticAim : jumped
+      a.update(aim, WEP_THROTTLE, DT, 0, false, false)
+      b.update(aim, WEP_THROTTLE, DT, 0, false, true)
+      expect(sameControls(a, b)).toBe(true)
+    }
+  })
+
+  /**
+   * 【交接時把跟瞄歷史清掉】交還操縱、接手新機時瞄準方向被一步重設到機首。
+   * 重設不到 5° 的話 `TRACK_JUMP` 攔不到 —— 4° 的重設微分出來是 0.34 rad/s，
+   * 參考歪 79°，而那時誤差是零、改平滿權限。
+   */
+  it('resetTrack 之後一步 4° 的重設不微分：與 false 逐位元相同', () => {
+    const a = plane()
+    const b = plane()
+    const reset = new Vector3(Math.sin(12 * DEG), Math.sin(2 * DEG), -1).normalize()
+    for (let i = 0; i < 3 * 240; i++) {
+      if (i === 240) a.director.resetTrack()
+      const aim = i < 240 ? staticAim : reset
+      a.update(aim, WEP_THROTTLE, DT, 0, false, true)
+      b.update(aim, WEP_THROTTLE, DT, 0, false, false)
+      expect(sameControls(a, b)).toBe(true)
+    }
+  })
+
+  /**
    * 【病本身】瞄準方向以每秒 14° 水平轉（4 G 急轉靶機的量級），飛機跟著它。
    * 現行改平每次誤差進 2.5° 就把坡度拉向 0，形成極限環；開著 trackTurn 時
    * 改平的參考就是那個轉彎要的坡度，機首停得住。
    */
-  function follow(trackTurn: boolean): { inCone: number, rollRms: number } {
+  /** @param frame 瞄準方向每幾個物理步才更新一次（滑鼠跟著算繪幀走） */
+  function follow(trackTurn: boolean, frame = 1): { inCone: number, rollRms: number } {
     const a = plane()
     const aim = new Vector3()
     const rate = 14 * DEG
@@ -171,7 +207,8 @@ describe('指揮儀的 trackTurn', () => {
     let pSq = 0
     for (let i = 0; i < 12 * 240; i++) {
       const t = i * DT
-      aim.set(Math.sin(rate * t), 0, -Math.cos(rate * t))
+      const tAim = Math.floor(i / frame) * frame * DT
+      aim.set(Math.sin(rate * tAim), 0, -Math.cos(rate * tAim))
       a.update(aim, WEP_THROTTLE, DT, 0, false, trackTurn)
       if (t < 6) continue
       n++
@@ -184,6 +221,14 @@ describe('指揮儀的 trackTurn', () => {
   it('跟著持續轉動的瞄準方向：機首停在 3° 內，滾轉不再來回擺', () => {
     const on = follow(true)
     const off = follow(false)
+    expect(on.inCone).toBeGreaterThan(0.95)
+    expect(on.rollRms).toBeLessThan(off.rollRms / 2)
+  })
+
+  /** 【滑鼠是階梯】60 Hz 的算繪幀：每 4 個物理步才動一次，中間三步不動 */
+  it('滑鼠式的階梯輸入也一樣停得住', () => {
+    const on = follow(true, 4)
+    const off = follow(false, 4)
     expect(on.inCone).toBeGreaterThan(0.95)
     expect(on.rollRms).toBeLessThan(off.rollRms / 2)
   })

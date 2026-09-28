@@ -2625,6 +2625,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     player.controller = playerController
     // 交還操縱時把瞄準點留在機首，玩家才不會被一個舊的瞄準點硬扯過去
     input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    // 【跟瞄歷史一起清】瞄準方向剛被一步重設，那一步不是角速度（`resetTrack`）
+    player.aircraft.director.resetTrack()
   }
 
   // 【hitsDealt 必須在回呼裡累加】World.step 在每個**物理步**開頭把它歸零，
@@ -2729,6 +2731,8 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
     // 海面），接手的第一瞬間新機就被硬扯下去 —— 與 `I` 交還操縱時把瞄準點
     // 留在機首是同一條理由。必須排在 snapTo 之前，相機吃的是它。
     input.aimWorld.set(0, 0, -1).applyQuaternion(player.aircraft.state.orientation)
+    // 【跟瞄歷史一起清】新機的指揮儀還留著那一席 AI 的跟瞄歷史（`resetTrack`）
+    player.aircraft.director.resetTrack()
     // 【相機要瞬移過去】不 snap 的話會從舊機體的位置一路飛到新機體，
     // 那是一段跨越幾百公尺的鏡頭
     rig.snapTo(input.aimWorld)

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { Vector3 } from 'three'
 import { Aircraft } from '../../src/aircraft/Aircraft'
 import { createCommand } from '../../src/control/Controller'
@@ -54,13 +55,38 @@ describe('CommandDelay', () => {
 })
 
 describe('PlayerController', () => {
-  /** 【接手僚機時 `Command` 沿用那一席的】上一步還是 AI 寫的 */
-  it('每步把 trackTurn 清成 false', () => {
+  /**
+   * 【玩家也跟瞄】滑鼠準星是世界固定的，不是由自己的速度導出的 —— 瞄準方向
+   * 在轉就是玩家在跟一個轉彎。接手僚機時 `Command` 沿用那一席的，每步寫。
+   */
+  it('每步把 trackTurn 寫成 true', () => {
     const p = new PlayerController(createInputState())
     const out = createCommand()
-    out.trackTurn = true
+    out.trackTurn = false
     p.update(new Aircraft(P51D), DT, out)
-    expect(out.trackTurn).toBe(false)
+    expect(out.trackTurn).toBe(true)
+  })
+})
+
+/**
+ * 接線護欄 —— **讀 `main.ts` 的原始碼**（同 `bomb-bay-wiring.test.ts` 的做法）。
+ *
+ * 交還操縱與接手新機時瞄準方向被一步重設到機首。不清跟瞄歷史的話，不到 5°
+ * 的重設會被微分成假的角速度（`FlightDirector.resetTrack`）。
+ */
+describe('main.ts：重設瞄準方向時清掉跟瞄歷史', () => {
+  const SRC = new TextDecoder().decode(readFileSync('src/main.ts')).replace(/\r\n/g, '\n')
+
+  it('交還操縱', () => {
+    expect(SRC).toMatch(
+      /player\.controller = playerController\n(\s*\/\/[^\n]*\n)*\s*input\.aimWorld\.set\(0, 0, -1\)\.applyQuaternion\(player\.aircraft\.state\.orientation\)\n(\s*\/\/[^\n]*\n)*\s*player\.aircraft\.director\.resetTrack\(\)/,
+    )
+  })
+
+  it('接手新機', () => {
+    expect(SRC).toMatch(
+      /input\.aimWorld\.set\(0, 0, -1\)\.applyQuaternion\(player\.aircraft\.state\.orientation\)\n(\s*\/\/[^\n]*\n)*\s*player\.aircraft\.director\.resetTrack\(\)\n(\s*\/\/[^\n]*\n)*\s*rig\.snapTo\(input\.aimWorld\)/,
+    )
   })
 })
 

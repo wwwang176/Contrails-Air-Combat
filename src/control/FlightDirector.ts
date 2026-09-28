@@ -73,8 +73,8 @@ export function bankAttitude(orientation: Quaternion, out: BankAttitude): BankAt
  * 同 `bankAttitude`，但參考方向是 `ref`（單位向量）而不是世界上方：機體要
  * 滾多少才讓機體上方對準 `ref`。符號與 `bankAttitude` 相同。
  *
- * 【分成兩支而不是讓 `bankAttitude` 帶參數】`trackTurn` 關著時（玩家恆為
- * 關）輸出要與沒有這個機制時逐位元相同，`bankAttitude` 的運算一個都不能動。
+ * 【分成兩支而不是讓 `bankAttitude` 帶參數】`trackTurn` 關著、或瞄準方向
+ * 不轉時，輸出要與沒有這個機制時逐位元相同，`bankAttitude` 的運算一個都不能動。
  */
 function bankToward(orientation: Quaternion, ref: Vector3, out: BankAttitude): BankAttitude {
   const bodyRight = S.v[1]!.set(1, 0, 0).applyQuaternion(orientation)
@@ -136,6 +136,16 @@ export function liftReference(
  * 又比那個 1 Hz 的極限環快得多。**起始值，由試飛裁定。**
  */
 const TRACK_RATE_TAU = 0.2
+
+/**
+ * 瞄準方向一步之內轉過這個角度以上，當成不連續而不是角速度（cos）。
+ *
+ * 重生與接手時瞄準方向一步重設到機首、AI 換目標時一步跳走 —— 拿那一步微分
+ * 會得到上百 rad/s，濾波後參考歪掉約 0.5 s，而那時機首剛好對準、改平是滿
+ * 權限。跟著目標的滑鼠每幀約 0.25°，甩滑鼠 360°/s 在 30 fps 也才 12°（那時
+ * 誤差大、改平不出力，歸零無害）。
+ */
+const TRACK_JUMP = Math.cos(5 * (Math.PI / 180))
 
 export interface DirectorGains {
   /** 外環：滾轉角誤差 → 期望滾轉率，(rad/s)/rad */
@@ -570,6 +580,17 @@ export class FlightDirector {
     this.pitchIntegral = 0
     this.levelIntegral = 0
     this.yawIntegral = 0
+    this.resetTrack()
+  }
+
+  /**
+   * 清掉跟瞄的歷史：下一步只記瞄準方向、不微分。
+   *
+   * **瞄準方向被一步重設時呼叫**（交還操縱、接手新機）。不到 `TRACK_JUMP` 的
+   * 重設攔不到 —— 4° 的重設會被微分成 0.34 rad/s，參考歪 79°，而那時誤差是
+   * 零、改平滿權限。
+   */
+  resetTrack(): void {
     this.trackPrev = false
     this.lastAim.set(0, 0, 0)
     this.aimRate.set(0, 0, 0)
@@ -637,11 +658,11 @@ export class FlightDirector {
     upright = false,
     trackTurn = false,
   ): void {
-    // 【跟瞄的瞄準角速度】關到開的第一步只記方向、不微分 —— 拿關閉期間的舊
-    // 方向算角速度會暴衝。關著的時候整段不跑
+    // 【跟瞄的瞄準角速度】關到開的第一步、以及一步跳超過 `TRACK_JUMP` 的那一步
+    // 只記方向、不微分，角速度歸零 —— 拿舊方向算會暴衝。關著的時候整段不跑
     if (trackTurn) {
       const now = this.aimNow.copy(aimDirWorld).normalize()
-      if (this.trackPrev && dt > 0) {
+      if (this.trackPrev && dt > 0 && this.lastAim.dot(now) >= TRACK_JUMP) {
         const k = dt / (TRACK_RATE_TAU + dt)
         const raw = this.liftRef.crossVectors(this.lastAim, now).divideScalar(dt)
         this.aimRate.x += (raw.x - this.aimRate.x) * k
