@@ -22,6 +22,14 @@ const FWD = new Vector3(0, 0, -1)
 const ALT = 3000
 const TAS = 180
 const RAD = Math.PI / 180
+/**
+ * 急轉靶機的過載，G。**轉彎率由它推出來**：ω = g·√(n² − 1) ÷ v。
+ *
+ * 【為什麼不直接給一個轉彎率】等速的靶機若給 25°/s，540 km/h 下等於一直拉著
+ * 6.7 G 而速度不掉 —— 真的 P-51 持續轉彎只撐得住 4 G 上下。拿做不到的靶機量，
+ * 量到的是它的超能力，不是 AI 的缺陷。
+ */
+const BREAK_G = 4
 
 class Idle implements Controller {
   update(_self: Aircraft, _dt: number, out: Command): void {
@@ -47,7 +55,7 @@ interface Trace {
 
 /**
  * @param droneSpeed 靶機空速，m/s
- * @param breakTurn 被追到 400 m 內就以 25°/s 急轉、機鼻一路追著 AI
+ * @param breakTurn 被追到 400 m 內就以 `BREAK_G` 的持續轉彎急轉、機鼻一路追著 AI
  */
 function fly(droneSpeed: number, breakTurn: boolean, seconds: number): Trace {
   const world = new World()
@@ -77,6 +85,7 @@ function fly(droneSpeed: number, breakTurn: boolean, seconds: number): Trace {
   let psi = 0
   let broke = false
   let lastY = ALT
+  const breakRate = 9.80665 * Math.sqrt(BREAK_G * BREAK_G - 1) / droneSpeed
   for (let s = 0; s < seconds * 240; s++) {
     world.step(DT)
     if (breakTurn) {
@@ -86,7 +95,7 @@ function fly(droneSpeed: number, breakTurn: boolean, seconds: number): Trace {
         let d = want - psi
         while (d > Math.PI) d -= 2 * Math.PI
         while (d < -Math.PI) d += 2 * Math.PI
-        psi += Math.max(-25 * RAD * DT, Math.min(25 * RAD * DT, d))
+        psi += Math.max(-breakRate * DT, Math.min(breakRate * DT, d))
       }
     }
     vel.set(Math.sin(psi) * droneSpeed, 0, -Math.cos(psi) * droneSpeed)
@@ -135,7 +144,7 @@ describe('飛過頭就往上拉：同高度從後方追上較慢的靶機（504 
   })
 })
 
-describe('飛過頭就往上拉：靶機被追上就急轉、機鼻追著 AI（540 km/h）', () => {
+describe('飛過頭就往上拉：靶機被追上就以 4 G 急轉、機鼻追著 AI（540 km/h）', () => {
   it('不會停在他的機鼻錐裡', () => {
     const t = fly(150, true, 90)
     expect(t.bitten).toBeLessThan(0.5)

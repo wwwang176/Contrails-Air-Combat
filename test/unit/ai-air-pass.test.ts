@@ -29,11 +29,11 @@ type Rig = ReturnType<typeof rig>
 
 /** 追上：在射程內、接近中 */
 const arm = (r: Rig, aot = 10 * DEG, allowed = true) =>
-  stepAirPass(r.state, r.band, r.self, r.target, 300, 30, 0.5, aot, allowed)
+  stepAirPass(r.state, r.band, r.self, r.target, 300, 30, 0.5, aot, 0.2, allowed)
 
 /** 飛過最近點：接近速度翻負 */
 const pass = (r: Rig, allowed = true) =>
-  stepAirPass(r.state, r.band, r.self, r.target, 60, -30, 0.5, 170 * DEG, allowed)
+  stepAirPass(r.state, r.band, r.self, r.target, 60, -30, 0.5, 170 * DEG, 0.2, allowed)
 
 describe('飛過頭就往上拉', () => {
   it('從後方上膛、飛過去、比目標快一成以上 → 回升的高度設成現在加 airPassZoom', () => {
@@ -48,16 +48,27 @@ describe('飛過頭就往上拉', () => {
   it('還沒飛過去（仍在接近、也還沒近到 overshootRange）→ 不拉', () => {
     const r = rig()
     arm(r)
-    expect(stepAirPass(r.state, r.band, r.self, r.target, 200, 30, 0.3, 10 * DEG, true)).toBe(false)
+    expect(stepAirPass(r.state, r.band, r.self, r.target, 200, 30, 0.3, 10 * DEG, 0.5, true)).toBe(false)
     expect(Number.isNaN(r.band.perch)).toBe(true)
   })
 
-  it('近到 overshootRange 也算飛過頭', () => {
+  it('預估 airPassLead 秒內撞上就先拉，不等飛過去', () => {
+    const r = rig()
+    arm(r)
+    const closing = 40
+    const just = DEFAULT_STEER.airPassLead * closing
+    expect(stepAirPass(r.state, r.band, r.self, r.target, just + 20, closing, 0.2, 10 * DEG, 0.2, true)).toBe(false)
+    expect(stepAirPass(r.state, r.band, r.self, r.target, just - 20, closing, 0.2, 10 * DEG, 0.2, true)).toBe(true)
+    expect(r.band.forced).toBe(true)
+  })
+
+  it('目標急轉到機鼻跟不上（追蹤比到 airPassTrackRatio）→ 不等飛過頭就拉', () => {
     const r = rig()
     arm(r)
     expect(stepAirPass(
-      r.state, r.band, r.self, r.target, DEFAULT_STEER.overshootRange - 10, 30, 0.1, 10 * DEG, true,
+      r.state, r.band, r.self, r.target, 250, 40, 0.3, 30 * DEG, DEFAULT_STEER.airPassTrackRatio, true,
     )).toBe(true)
+    expect(r.band.perch).toBe(ALT + DEFAULT_STEER.airPassZoom)
   })
 
   it('速度差不到 airPassSpeedRatio → 不拉', () => {
@@ -85,6 +96,6 @@ describe('飛過頭就往上拉', () => {
     arm(r)
     const other = new Aircraft(P51D, ALT, TAS / 1.2)
     other.state.velocity.set(0, 0, -TAS / 1.2)
-    expect(stepAirPass(r.state, r.band, r.self, other, 60, -30, 0.5, 170 * DEG, true)).toBe(false)
+    expect(stepAirPass(r.state, r.band, r.self, other, 60, -30, 0.5, 170 * DEG, 0.2, true)).toBe(false)
   })
 })
