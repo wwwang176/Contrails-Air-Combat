@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Aircraft } from '../../src/aircraft/Aircraft'
-import { createSituation } from '../../src/ai/assess'
-import { createBandState, createEngageBasis, DEFAULT_STEER, stepBand } from '../../src/ai/steer'
+import { Vector3 } from 'three'
+import { createSituation, evaluateGeometry } from '../../src/ai/assess'
+import {
+  buildEngageBasis, createBandState, createDefendState, createEngageBasis, DEFAULT_STEER,
+  stepBand, steerCommand, type Knobs,
+} from '../../src/ai/steer'
+import { createCommand } from '../../src/control/Controller'
 import { NO_INTERCEPT } from '../../src/world/lead'
 import { PROJECTILE_LIFETIME } from '../../src/world/Projectiles'
 import { P51D } from '../../src/specs/p51d'
@@ -170,6 +175,51 @@ describe('空層鎖的回升：往上拉設下的（forced）不讓位', () => {
     forced.sit.aspectAngle = 0
     release(forced)
     expect(forced.band.kind).toBe('regain')
+  })
+})
+
+describe('空層鎖的回升：鎖還鎖著時設下往上拉', () => {
+  it('stepAirPass 在平飛鎖還鎖著時設下回升 → 下一步就切進回升、基準換成那一層', () => {
+    const r = rig()
+    lock(r)
+    expect(r.band.kind).toBe('level')
+    r.band.perch = ALT + 600
+    r.band.forced = true
+    lock(r)
+    expect(r.band.kind).toBe('regain')
+    expect(r.band.anchor).toBe(ALT + 600)
+    expect(r.band.altitude).toBe(ALT + 600)
+    expect(r.band.regainTime).toBeGreaterThan(0)
+  })
+})
+
+describe('空層鎖的回升：卸載把拉桿收掉時不加回去', () => {
+  it('失速餘裕見底（unload、拉桿係數 0）→ 回升不把機首往上抬', () => {
+    const self = new Aircraft(P51D, 4000, 180)
+    self.update(new Vector3(0, 0, -1), 0.7, 1 / 240)
+    self.state.position.set(0, 4000, 0)
+    self.state.velocity.set(0, 0, -180)
+    const target = new Aircraft(P51D, 4000, 180)
+    target.state.position.set(0, 4000, -400)
+    target.state.velocity.set(0, 0, -180)
+    const sit = createSituation()
+    evaluateGeometry(self, target, sit)
+    sit.stallMargin = 1
+    const basis = createEngageBasis()
+    buildEngageBasis(self, target, basis)
+    const knobs: Knobs = { leadLag: 0, vertical: 0, diveIas: 0 }
+    const pitchOf = (band: ReturnType<typeof createBandState> | null) => {
+      const cmd = createCommand()
+      steerCommand('engage', 'unload', sit, basis, self, 0, knobs, createDefendState(), null, cmd,
+        DEFAULT_STEER, false, band)
+      return Math.asin(Math.max(-1, Math.min(1, cmd.aimWorld.y)))
+    }
+    const band = createBandState()
+    band.kind = 'regain'
+    band.hold = 1
+    band.altitude = 4600
+    band.forced = true
+    expect(pitchOf(band)).toBeLessThanOrEqual(pitchOf(null) + 1e-9)
   })
 })
 

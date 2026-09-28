@@ -1508,6 +1508,14 @@ export function stepBand(
   // 死區，沿用上一格 —— 理由見 `BandState.side`。
   const err = headingErrorTo(self, basis.losAxis)
   if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
+  // 【往上拉設下的回升不等鎖放開】`stepAirPass` 可能在鎖還鎖著的時候觸發
+  // （上膛之後目標暫時出了射程、鎖重新上了）。只從 `off` 進回升的話，它會停在
+  // 舊的那一層、`forced` 把力道釘在 1，計時也不走 —— 既不拉也不解除
+  if (state.forced && state.kind !== 'regain' && state.kind !== 'off'
+    && state.perch > alt + cfg.bandTolerance) {
+    state.kind = 'regain'
+    state.anchor = state.perch
+  }
   // 【已經鎖住就不重挑走法】見 `BandState` 的註解 —— 但基準夾制（下方）
   // 每步都要重算，所以不能在這裡 return。
   if (state.kind === 'off') {
@@ -2275,14 +2283,21 @@ export function steerCommand(
   //
   // 真正的撞地判斷由 `AiController.emit` 最後執行的同步護欄與物理 Worker
   // 負責；這裡只處理戰術空層，不按離地高度改寫目標方向。
+  //
+  // 【回升的權威乘上卸載的拉桿係數】回升要的是陡拉（`bandRegainPitch`），而它
+  // 排在卸載之後、滿權威覆寫 —— 不乘的話 `unload` 剛把拉桿收掉（失速餘裕見底），
+  // 這裡又把 +35° 加回去，安全層也不會補救（空速還在 1 G 失速速度之上）。
+  // 只乘失速那一項，不乘能量紀律（`pullCeiling`）：回升本來就是把速度換成高度，
+  // 速度掉到角落速度以下是預期中的事，乘了會在爬到那一層之前就停住
   if (
     band !== null && band.kind !== 'off' && mode !== 'speedRecover'
     && (intent === 'engage' || intent === 'approach' || intent === 'merge')
   ) {
+    const regain = band.kind === 'regain'
     applyPitchToward(
       bandError(band.altitude - self.state.position.y, cfg)
-        * (band.kind === 'regain' ? cfg.bandRegainPitch : cfg.bandMaxPitch),
-      band.hold, out.aimWorld,
+        * (regain ? cfg.bandRegainPitch : cfg.bandMaxPitch),
+      regain ? band.hold * stallPull : band.hold, out.aimWorld,
     )
   }
 
