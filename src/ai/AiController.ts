@@ -585,12 +585,24 @@ export class AiController implements Controller {
         || (groundValue === shipValue && ship !== undefined
           && p.distanceToSquared(ground.position) < p.distanceToSquared(ship.position))
       )
-      if (takeGround) {
-        ref.kind = 'ground'
-        ref.index = g
-      } else {
-        ref.kind = 'ship'
-        ref.index = this.shipAim.ship
+      // 【一趟只打一個目標】同價值的候選隨距離輪流變成最近的那個，照單全收的
+      // 話進場到一半瞄點跳走，飛機帶著坡度鎖航向、整趟放不出來。所以只在
+      // 這幾種時候換：手上沒有或死了、上一趟結束（`StrikeState.repick`）、
+      // 還沒進直飛段而候選**更值錢**（開場時廠區還在索敵半徑外，先選到的是
+      // 高砲陣地）
+      const held = ref.index < 0 ? undefined
+        : ref.kind === 'ship' ? this.ships[ref.index] : this.groundTargets[ref.index]
+      const candidateValue = takeGround ? groundValue : shipValue
+      if (held === undefined || !held.alive || this.strike.repick
+        || (this.strike.phase !== 'run' && candidateValue > held.value)) {
+        this.strike.repick = false
+        if (takeGround) {
+          ref.kind = 'ground'
+          ref.index = g
+        } else {
+          ref.kind = 'ship'
+          ref.index = this.shipAim.ship
+        }
       }
     }
     if (ref.index < 0) return null
