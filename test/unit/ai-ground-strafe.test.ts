@@ -84,6 +84,77 @@ describe('戰鬥機掃射地面目標', () => {
     expect(out.aimWorld.z).toBeGreaterThan(0)
   })
 
+  it('回頭進場不壓機鼻：目標在機頭 75° 以外時瞄準最低到水平，轉到前方才往下', () => {
+    const aimFor = (tx: number, tz: number, altitude = 300): Vector3 => {
+      const self = craft(BF109K4, 0, altitude, 0)
+      // 130 m/s 有持續迴轉解，回頭門檻約 2.2 km；6 km 外的目標不會先離場
+      self.state.velocity.set(0, 0, -130)
+      const target = createGroundTarget(0, 'fuelDump', 'red', tx, tz, 0)
+      const out = createCommand()
+      groundAttackCommand(createGroundStrafeState(), self, target, true, out)
+      return out.aimWorld.clone()
+    }
+    // 身後、側方 6 km（回頭門檻外）：水平轉，方位照舊朝目標
+    const behind = aimFor(0, 6000)
+    expect(behind.y).toBeGreaterThanOrEqual(0)
+    expect(behind.z).toBeGreaterThan(0.99)
+    const side = aimFor(6000, 0)
+    expect(side.y).toBeGreaterThanOrEqual(0)
+    expect(side.x).toBeGreaterThan(0.99)
+    // 【對地沒有空戰的高度例外】高過目標好幾個迴旋半徑也照樣水平轉
+    expect(aimFor(0, 6000, 1500).y).toBeGreaterThanOrEqual(0)
+    // 對照：目標在前方照樣往下瞄
+    expect(aimFor(0, -2000).y).toBeLessThan(-0.1)
+  })
+
+  it('新的一趟從太近的地方開始：目標不在機頭前方又在回頭門檻內，先離場拉開', () => {
+    const self = craft(BF109K4, 0, 300, 0)
+    self.state.velocity.set(0, 0, -130)
+    const reattack = groundStrafeReattackRange(self)
+    expect(Number.isFinite(reattack)).toBe(true)
+    const run = (x: number, z: number) => {
+      const state = createGroundStrafeState()
+      const out = createCommand()
+      groundAttackCommand(state, self, createGroundTarget(0, 'fuelDump', 'red', x, z, 0), true, out)
+      return { phase: state.phase, aim: out.aimWorld.clone() }
+    }
+    // 身後、側方都在門檻內：先沿機首方向拉開
+    for (const [x, z] of [[0, 500], [500, 0]] as const) {
+      const r = run(x, z)
+      expect(r.phase).toBe('egress')
+      expect(r.aim.z).toBeLessThan(-0.9)
+    }
+    // 對照：同樣近、但在前方，照常進場
+    expect(run(0, -500).phase).toBe('approach')
+    // 對照：在身後、但已經在門檻外，直接水平轉回去
+    expect(run(0, reattack + 200).phase).toBe('approach')
+  })
+
+  it('離場中換成下一台目標不打斷離場：新目標還在回頭門檻內就繼續拉開', () => {
+    const self = craft(BF109K4, 0, 100, -500)
+    self.state.velocity.set(0, 0, -100)
+    const first = createGroundTarget(0, 'parkedP51', 'red', 0, -1500, 0)
+    const state = createGroundStrafeState()
+    const out = createCommand()
+    groundAttackCommand(state, self, first, true, out)
+    self.state.position.set(0, 100, -1650)
+    groundAttackCommand(state, self, first, false, out)
+    expect(state.phase).toBe('egress')
+
+    // 飛到離第一台夠遠、但下一台就在身後 500 m
+    self.state.position.set(0, 100, -1500 - state.reattackRange - 100)
+    const next = createGroundTarget(1, 'parkedP51', 'red', 0, self.state.position.z + 500, 0)
+    groundAttackCommand(state, self, next, true, out)
+    expect(state.phase).toBe('egress')
+    expect(out.aimWorld.z).toBeLessThan(0)
+
+    // 拉開到下一台的回頭門檻之外才轉回來
+    self.state.position.z = next.position.z - state.reattackRange - 100
+    groundAttackCommand(state, self, next, true, out)
+    expect(state.phase).toBe('approach')
+    expect(out.aimWorld.z).toBeGreaterThan(0)
+  })
+
   it('掃射移動中的車，提前量的解吃得到車速（迎面開來的車攔截得更早）', () => {
     // 掃射核心朝目標當下的位置飛，開火與否看提前量的解 —— 與船同一個做法。
     // 車頭朝 +Z（航向 π），迎著飛機開過來：閉合速度變大，攔截時間變短

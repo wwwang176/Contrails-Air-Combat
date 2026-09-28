@@ -398,15 +398,18 @@ export class AiController implements Controller {
       resetGroundStrafe(this.groundStrafe)
       return false
     }
-    // 離場是一個要做完的航次：途中不能因為超出接戰半徑或另一個物件稍近，
-    // 每 100 ms 又換目標。空中直接威脅仍會在 update 的空戰分支重設它。
-    if (decide && this.groundStrafe.phase !== 'egress') {
+    // 【離場途中也挑】挑到的是下一趟要打的那一台；離場拉開到它的回頭門檻才轉回來
+    // （`groundStrafeCommand` 換目標時不打斷離場）。
+    //
+    // 【每一步都要複查】上一個決策拍之後它可能已經被打掉或起飛離場 —— 當場補挑，
+    // 不等下一拍：少了這一格，掃射狀態會被清掉，離場做到一半就變成回頭進場
+    const held = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
+    if (decide || (held !== undefined && !held.alive)) {
       this.groundAim = pickGroundTarget(
         self.state.position, me.team, this.groundTargets, SHIP_ATTACK_RANGE, onlyUnit,
       )
     }
     const t = this.groundAim >= 0 ? this.groundTargets[this.groundAim] : undefined
-    // 【每一步都要複查】上一個決策拍之後它可能已經被打掉或起飛離場
     if (t === undefined || !t.alive) {
       this.groundAim = -1
       resetGroundStrafe(this.groundStrafe)
