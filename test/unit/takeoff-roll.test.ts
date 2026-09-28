@@ -6,7 +6,7 @@ import {
   CLIMB_SECONDS, createTakeoffRoll, GEAR_CLEARANCE, LIFTOFF_SPEED, ROLL_SECONDS, stepTakeoff,
   TAKEOFF_ROLL_GAP, TAKEOFF_STAGGER, TAKEOFF_TRAIL, TAXI_SPEED, TAXI_TURN_RADIUS, TAXI_TURN_RATE, taxiSeconds,
 } from '../../src/control/takeoffRoll'
-import { createBattle, stepBattle, type Battle } from '../../src/battle/setup'
+import { countDestroyed, createBattle, stepBattle, type Battle } from '../../src/battle/setup'
 import { missionConfigFrom, type MissionBattle, type ReadyMissionCard } from '../../src/battle/missions'
 import { flatSeaCrashPolicy } from '../../src/world/seaCrash'
 import { createTargetState, DEFAULT_TARGET, selectTarget } from '../../src/ai/target'
@@ -223,15 +223,134 @@ describe('從停機墊滑到跑道', () => {
     return { b, seats: [before, before + 1] }
   }
 
-  it('開始滑行那一刻停機墊就空出來，飛機從那一格出發、機首照停放的方向', () => {
+  it('滑行的是地上那一台：它仍是地面目標，那一席不存活、不畫、名冊上也不活', () => {
     const { b, seats } = taxiBattle()
     const gt = b.world.groundTargets
-    expect(gt.map((t) => t.departed)).toEqual([true, true])
-    seats.forEach((s, k) => {
-      const a = b.world.combatants[s]!.aircraft
-      expect(Math.hypot(a.state.position.x - gt[k]!.position.x, a.state.position.z - gt[k]!.position.z)).toBeLessThan(1)
-      expect(noseOf(a).x).toBeCloseTo(1, 6)
+    expect(gt.map((t) => t.taxi !== null)).toEqual([true, true])
+    expect(gt.map((t) => t.alive)).toEqual([true, true])
+    expect(gt.map((t) => t.departed)).toEqual([false, false])
+    expect(gt.map((t) => t.departedAs).sort()).toEqual([...seats].sort())
+    for (const s of seats) {
+      const c = b.world.combatants[s]!
+      expect(c.alive).toBe(false)
+      expect(c.retired).toBe(true)
+      expect(c.takeoff).toBeNull()
+      expect(b.roster.pilots[s]!.alive).toBe(false)
+    }
+  })
+
+  it('地上那一台沿腳本滑行：從停機墊出發、機首照停放的方向，速度不超過滑行速度', () => {
+    const { b } = taxiBattle()
+    const gt = b.world.groundTargets
+    const from = gt.map((t) => t.position.clone())
+    stepBattle(b, DT)
+    for (const [k, t] of gt.entries()) {
+      expect(Math.hypot(t.position.x - from[k]!.x, t.position.z - from[k]!.z)).toBeLessThan(1)
+      expect(NOSE.set(0, 0, -1).applyQuaternion(t.orientation).x).toBeCloseTo(1, 6)
+    }
+    let moved = false
+    for (let i = 0; i < 240 * 5; i++) {
+      stepBattle(b, DT)
+      for (const t of gt) {
+        if (t.rolling) continue
+        expect(t.speed).toBeLessThanOrEqual(TAXI_SPEED + 1e-6)
+        if (t.speed > 0) moved = true
+      }
+    }
+    expect(moved).toBe(true)
+  })
+
+  it('離地時交給那一席：位置、速度接得上，血量帶過去，名冊活過來', () => {
+    const { b } = taxiBattle()
+    const t = b.world.groundTargets[0]!
+    const c = b.world.combatants[t.departedAs]!
+    t.hp = 640
+    const lastPos = new Vector3()
+    let lastSpeed = 0
+    while (!c.alive) {
+      lastPos.copy(t.position)
+      lastSpeed = t.speed
+      stepBattle(b, DT)
+      expect(b.world.time).toBeLessThan(120)
+    }
+    expect(t.departed).toBe(true)
+    expect(t.alive).toBe(false)
+    expect(t.taxi).toBeNull()
+    expect(c.retired).toBe(false)
+    expect(c.takeoff).not.toBeNull()
+    expect(c.hp).toBe(640)
+    expect(b.roster.pilots[c.index]!.alive).toBe(true)
+    const p = c.aircraft.state.position
+    expect(Math.hypot(p.x - lastPos.x, p.z - lastPos.z)).toBeLessThan(lastSpeed * DT * 2 + 0.5)
+    expect(p.y - lastPos.y).toBeCloseTo(GEAR_CLEARANCE, 1)
+    expect(c.aircraft.state.velocity.length()).toBeGreaterThan(LIFTOFF_SPEED - 1)
+    expect(Math.abs(c.aircraft.state.velocity.length() - lastSpeed)).toBeLessThan(2)
+    // 交接的那一步不內插：上一幀姿態就是這一幀
+    expect(c.aircraft.prevPosition.distanceTo(p)).toBeLessThan(1)
+  })
+
+  it('離地那一步就被打下來：照常記擊落，名冊上是陣亡', () => {
+    const { b } = taxiBattle()
+    const t = b.world.groundTargets[0]!
+    const seat = t.departedAs
+    const roll = t.taxi!
+    // 停在交接的前一步
+    while (roll.elapsed + DT < roll.delay + ROLL_SECONDS) {
+      stepBattle(b, DT)
+    }
+    // 下一步交接後的位置：拿同一份腳本的複本往前走一步
+    const next = { ...roll, taxi: roll.taxi }
+    const pose = {
+      position: new Vector3(t.position.x, t.position.y + GEAR_CLEARANCE, t.position.z),
+      velocity: new Vector3(), orientation: t.orientation.clone(), angularVelocity: new Vector3(),
+    }
+    stepTakeoff(next, pose, DT)
+    t.hp = 1
+    const p = pose.position
+    b.world.projectiles.spawn(p.x, p.y + 1, p.z, 0, -900, 0, 99999, b.player.index, 0, 1, 20)
+    stepBattle(b, DT)
+    expect(t.departed).toBe(true)
+    expect(b.world.combatants[seat]!.alive).toBe(false)
+    expect(b.roster.pilots[seat]!.alive).toBe(false)
+    expect(b.roster.pilots[seat]!.deaths).toBe(1)
+    expect(b.roster.pilots[b.player.index]!.kills).toBe(1)
+  })
+
+  it('滑行中被打掉：算進炸毀，那一席永遠不上場，不推空中的擊墜事件', () => {
+    const { b } = taxiBattle()
+    const t = b.world.groundTargets[0]!
+    const seat = t.departedAs
+    for (let i = 0; i < 240 * 3; i++) stepBattle(b, DT)
+    expect(t.taxi).not.toBeNull()
+    t.hp = 1
+    const p = t.position
+    // 從正上方往下打一發，穿過機身
+    b.world.projectiles.spawn(p.x, p.y + 12, p.z, 0, -900, 0, 40, b.player.index, 0, 1, 20)
+    for (let i = 0; i < 24; i++) stepBattle(b, DT)
+    expect(t.alive).toBe(false)
+    expect(t.taxi).toBeNull()
+    expect(countDestroyed(b.world.groundTargets, b.world.combatants, 'parkedP51')).toBe(1)
+    while (b.world.time < 60) stepBattle(b, DT)
+    expect(b.world.combatants[seat]!.alive).toBe(false)
+    expect(b.roster.pilots[seat]!.alive).toBe(false)
+    expect(b.world.killEvents.total).toBe(0)
+    expect(countDestroyed(b.world.groundTargets, b.world.combatants, 'parkedP51')).toBe(1)
+  })
+
+  it('下一批不挑已經在滑行的那一台', () => {
+    const c = card({
+      ground,
+      waves: [0.5, 1.0].map((at) => ({
+        when: { kind: 'clock' as const, at }, warn: 'x', warnLead: 0,
+        side: 'theirs' as const, spec: P51D, count: 1, takeoff: line, departs: 'parkedP51' as const,
+      })),
     })
+    const b = createBattle(new Idle(), missionConfigFrom(c), 20260913)
+    b.world.crashPolicy = flatSeaCrashPolicy(() => 0)
+    while (b.world.time < 1.2) stepBattle(b, DT)
+    const gt = b.world.groundTargets
+    expect(gt.map((t) => t.taxi !== null)).toEqual([true, true])
+    expect(gt[0]!.departedAs).not.toBe(gt[1]!.departedAs)
   })
 
   /**
@@ -240,8 +359,8 @@ describe('從停機墊滑到跑道', () => {
    * 同時滾行會疊在一起。
    */
   it('各自滑到起飛點就起步，前後至少差 TAKEOFF_ROLL_GAP 秒', () => {
-    const { b, seats } = taxiBattle()
-    const rolls = seats.map((s) => b.world.combatants[s]!.takeoff!)
+    const { b } = taxiBattle()
+    const rolls = b.world.groundTargets.map((t) => t.taxi!)
     const taxis = rolls.map((r) => taxiSeconds(r.taxi!.path, r.taxi!.startHeading, r.heading))
     // 四架的起飛點是同一點
     const line = rolls[0]!
@@ -309,8 +428,9 @@ describe('滾行中的那一架', () => {
     }))
     const { b, seats } = rollingBattle({ ground }, 'parkedP51', 4)
     const cs = seats.map((s) => b.world.combatants[s]!)
+    expect(b.world.groundTargets.map((t) => t.departedAs).sort()).toEqual(seats.slice(0, 2).sort())
+    while (b.world.time < 30) stepBattle(b, DT)
     expect(cs.map((c) => c.alive)).toEqual([true, true, false, false])
-    expect(cs.map((c) => c.takeoff !== null)).toEqual([true, true, false, false])
     expect(b.roster.pilots[seats[3]!]!.alive).toBe(false)
     expect(b.world.killEvents.total).toBe(0)
   })
@@ -339,16 +459,17 @@ describe('滾行中的那一架', () => {
     expect(c.hp).toBeLessThan(hp)
   })
 
-  it('起飛的每一架讓地上最近的一架停放 P-51 離場，離場不算摧毀', () => {
+  it('起飛的每一架挑地上最近的一架停放 P-51 滑出，離地離場都不算摧毀', () => {
     // 三架停在起飛線旁，離 (0, −3000) 由近到遠
     const ground = [0, 1, 2].map((i) => ({
       unit: 'parkedP51' as const, team: 'red' as const, x: -100, z: -3000 + i * 50, heading: 0,
     }))
     const { b } = rollingBattle({ ground, destroyCount: 1, destroyUnit: 'parkedP51' }, 'parkedP51')
     const gt = b.world.groundTargets
+    expect(gt.map((t) => t.taxi !== null)).toEqual([true, true, false])
+    expect(gt.map((t) => t.alive)).toEqual([true, true, true])
+    while (b.world.time < 30) stepBattle(b, DT)
     expect(gt.map((t) => t.departed)).toEqual([true, true, false])
-    expect(gt.map((t) => t.alive)).toEqual([false, false, true])
-    stepBattle(b, DT)
     expect(b.mission.outcome).toBe('fighting')
   })
 

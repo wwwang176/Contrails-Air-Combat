@@ -107,7 +107,7 @@ import { createAudioMeter, type AudioMeter } from './hud/audioMeter'
 import type { MeterSample } from './audio/meter'
 import { createHudFrame, indicatedAirspeed, nextHitFlash, HUD_MAX_CONTACTS } from './hud/types'
 import {
-  fillMarkers, type MarkerPool, type MarkerProject, type ShipMarkerTop,
+  fillMarkers, type MarkerObjectives, type MarkerPool, type MarkerProject, type ShipMarkerTop,
 } from './hud/markerFeed'
 import { attitudeFromOrientation, headingFromOrientation } from './hud/attitude-math'
 import { createScoreboard, scoreRows, sortScoreRows, type AfterAction } from './ui/scoreboard'
@@ -162,7 +162,8 @@ import { DEFAULT_DOCTRINE } from './ai/doctrine'
 import { extendReason } from './ai/rules'
 import type { FlightOrder } from './ai/command'
 import {
-  aliveCount, createBattle, playerFlight, resetBattle, stepBattle, type Battle,
+  aliveCount, createBattle, isObjectiveGround, isObjectiveShip, playerFlight, resetBattle,
+  stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
 import { lineAbreast, sideSummary } from './battle/order'
@@ -1233,6 +1234,15 @@ const MARKER_POOLS: MarkerPool[] = []
  * `world/ships.ts` 推出來的高度只有模型的三分之一到一半。
  */
 const shipMarkerTop: ShipMarkerTop = (s) => shipModelTop(s.cls.id)
+/**
+ * 主要目標的判定與量距基準點。判定讀 `battle.rules`（返航節拍會換掉它）；
+ * `ref` 每幀抄一次，與接觸點的 `refPos` 相同
+ */
+const markerObjectives: MarkerObjectives & { ref: Vector3 } = {
+  ship: (s) => isObjectiveShip(s, battle.rules),
+  ground: (t) => isObjectiveGround(t, battle.rules),
+  ref: new Vector3(),
+}
 
 let propRotation = 0
 /** 上一幀是否正在等待接手。用來偵測「剛死掉」那一幀 */
@@ -2997,7 +3007,7 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   blastLights.step(worldSeconds)
   // 【船在渲染幀率更新，不在物理步】它讀的是船的位置與砲位的槍焰計時器，
   // 兩者都是狀態不是事件 —— 與飛機模型同一個道理。
-  groundModels?.update(world.groundTargets, ctx.camera.position)
+  groundModels?.update(world.groundTargets, ctx.camera.position, worldSeconds)
   balloonModels?.update(world.balloons, worldSeconds, terrain.collisionHeightAt, burnBalloon)
   searchlights?.update(elapsed, world.combatants, ctx.camera.position)
   shipModels?.update(world.ships, (x, y, z) => {
@@ -3299,9 +3309,10 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   // 用 `visuals` 是因為它有內插後的算繪位置，而彈藥沒有。
   MARKER_POOLS[0] = world.bombs
   MARKER_POOLS[1] = world.torpedoes
+  markerObjectives.ref.copy(refPos)
   fillMarkers(
     hudFrame, world.ships, world.groundTargets, MARKER_POOLS,
-    teamSlot(player.team), projectMarker, shipMarkerTop,
+    teamSlot(player.team), projectMarker, shipMarkerTop, markerObjectives,
   )
 
   // 命中回饋：World 在命中的那一步把 hitsDealt 加上去；HUD 這一層負責計時。
@@ -4277,7 +4288,6 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
   }
   const tgt = playerAi.target
   const groundTgt = playerAi.groundTarget
-  const groundedAircraftTgt = playerAi.groundedAircraftTarget
   return {
     /**
      * **物理時鐘**，秒。用 `world.time` 而不是 `elapsed` —— 後者累加的是
@@ -4340,8 +4350,6 @@ function probeLead(): { x: number; y: number; r: number; lx: number; ly: number;
     /** 這一格實際正在掃射的地面單位與距離；空字串／−1 = 沒有。 */
     gt: groundTgt?.unit.id ?? '',
     gr: groundTgt !== null ? +groundTgt.position.distanceTo(pos).toFixed(1) : -1,
-    /** true = 任務優先目標是仍在滑行／滾行的飛機。 */
-    gta: groundedAircraftTgt !== null,
     /** 對地掃射航次：approach = 進場，egress = 已飛越、正在拉開。 */
     gsp: playerAi.groundStrafePhase,
     /** 這次離場算出的回頭門檻；−1 = 此速度暫時沒有可持續迴轉解。 */

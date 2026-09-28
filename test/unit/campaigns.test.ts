@@ -251,22 +251,30 @@ describe('德 M3 底板行動', () => {
     // 停機墊上先打掉 5 架
     for (const t of parked.slice(0, 5)) t.alive = false
     const before = b.world.combatants.length
-    // 第一批在第 0 秒開始滑行：剩下的 7 格裡 4 格離場
+    // 第一批在第 0 秒開始滑行：剩下的 7 格裡 4 格滑出去
     stepBattle(b, 1 / 240)
-    const flight = b.world.combatants.slice(before)
-    expect(flight).toHaveLength(4)
-    expect(parked.filter((t) => t.departed)).toHaveLength(4)
-    // 【離場的那一格不算摧毀】它還活著，只是在滑行道上
+    expect(b.world.combatants.slice(before)).toHaveLength(4)
+    const taxiing = parked.filter((t) => t.taxi !== null)
+    expect(taxiing).toHaveLength(4)
+    // 【滑行中的不算摧毀】它還活著，只是在滑行道上
     expect(b.mission.metric).toBe(parked.length - 5)
-    // 地上剩下的 3 架全部打掉：起飛的 4 架還在，不算贏
-    for (const t of parked) if (!t.departed) t.alive = false
+    // 停機墊上剩下的 3 架全部打掉：滑出去的 4 架還在，不算贏
+    for (const t of parked) if (t.taxi === null) t.alive = false
     stepBattle(b, 1 / 240)
     expect(b.mission.metric).toBe(4)
     expect(b.mission.outcome).toBe('fighting')
-    for (const c of flight.slice(0, 3)) b.world.destroy(c)
+    // 3 架在滑行道上打掉
+    for (const t of taxiing.slice(0, 3)) t.alive = false
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('fighting')
-    b.world.destroy(flight[3]!)
+    // 最後一架等它離地，在天上打下來
+    const last = taxiing[3]!
+    while (!last.departed) {
+      stepBattle(b, 1 / 240)
+      expect(b.world.time).toBeLessThan(180)
+    }
+    expect(b.mission.outcome).toBe('fighting')
+    b.world.destroy(b.world.combatants[last.departedAs]!)
     stepBattle(b, 1 / 240)
     expect(b.mission.outcome).toBe('victory')
   })

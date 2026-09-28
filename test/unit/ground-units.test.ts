@@ -1,6 +1,11 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { Box3, Vector3, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D } from 'three'
+import {
+  Box3, Matrix4, Vector3, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D,
+} from 'three'
+import {
+  PARKED_PROP_KEY, PARKED_TAIL_DOWN, type ParkedProp,
+} from '../../src/render/geometry/ground/parked'
 import { createGltfLoader } from '../../src/render/geometry/gltfLoader'
 import {
   GROUND_UNITS, TRAIN_CONSIST, groundGeometry, groundModelUrls, preloadGroundModels,
@@ -47,11 +52,22 @@ function geometryOf(u: GroundUnit): BufferGeometry {
   return g
 }
 
+/** 整台的包圍盒。拆開的槳葉（停放的 P-51）擺回停放姿態一起算 —— 它也是看得見的外形 */
 function boundsOf(u: GroundUnit): Box3 {
   const b = new Box3()
-  const pos = geometryOf(u).getAttribute('position')
+  const g = geometryOf(u)
+  const pos = g.getAttribute('position')
   for (let i = 0; i < pos.count; i++) {
     b.expandByPoint(new Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)))
+  }
+  const prop = g.userData[PARKED_PROP_KEY] as ParkedProp | undefined
+  if (prop !== undefined) {
+    const placed = prop.geometry.clone()
+      .applyMatrix4(new Matrix4().makeRotationX(PARKED_TAIL_DOWN))
+      .translate(prop.hub.x, prop.hub.y, prop.hub.z)
+    placed.computeBoundingBox()
+    b.union(placed.boundingBox!)
+    placed.dispose()
   }
   return b
 }

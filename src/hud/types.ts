@@ -99,6 +99,10 @@ export interface HudMarker {
   /** 在相機背後 —— 不畫。標記沒有畫面外指示 */
   behind: boolean
   hostile: boolean
+  /** 任務的主要目標 —— 三角形上方標距離 */
+  objective: boolean
+  /** 與量距基準點（自機，上帝視角是鏡頭）的距離，m。`objective` 為真才填 */
+  range: number
 }
 
 /**
@@ -114,7 +118,7 @@ export interface HudMarker {
 export const HUD_MAX_MARKERS = 200
 
 export function createHudMarker(): HudMarker {
-  return { active: false, x: 0, y: 0, behind: false, hostile: true }
+  return { active: false, x: 0, y: 0, behind: false, hostile: true, objective: false, range: 0 }
 }
 
 /** 命中 X 標記的顯示時間，秒（spec §8）。 */

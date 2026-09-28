@@ -1,4 +1,5 @@
-import { contactColor, type HudFrame, type HudLayout } from '../types'
+import { contactColor, hudFont, type HudFrame, type HudLayout } from '../types'
+import { contactRangeLabel } from './contacts'
 
 /**
  * 倒三角形標記的尺寸，CSS px。**未乘 `L.scale`。**
@@ -49,7 +50,8 @@ const P = new Float64Array(6)
  * 這裡刻意不套：64 顆彈的箭頭擠在邊框上是雜訊。標記要回答的是「它在畫面上
  * 的哪裡」，不是「它在畫面外」。
  *
- * 【為什麼沒有距離讀數】同上 —— 一顆正在落下的炸彈的距離不影響任何決定。
+ * 【只有主要目標有距離讀數】一顆正在落下的炸彈、一座高砲的距離不影響任何
+ * 決定；任務要打的那幾個才要知道還有多遠。格式與目標框底下的讀數相同。
  */
 export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudFrame): void {
   const aspect = L.width / L.height
@@ -59,12 +61,19 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: HudLayout, f: HudF
     if (Math.abs(m.x) > aspect || Math.abs(m.y) > 1) continue
 
     markerPath(L.cx + m.x * L.unit, L.cy - m.y * L.unit, L.scale, P)
-    ctx.fillStyle = contactColor(m.hostile, false)
+    const color = contactColor(m.hostile, false)
+    ctx.fillStyle = color
     ctx.beginPath()
     ctx.moveTo(P[0]!, P[1]!)
     ctx.lineTo(P[2]!, P[3]!)
     ctx.lineTo(P[4]!, P[5]!)
     ctx.closePath()
     ctx.fill()
+    if (m.objective) {
+      ctx.font = hudFont(10 * L.scale)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'bottom'
+      ctx.fillText(contactRangeLabel(m.range), P[0]!, P[3]! - 2 * L.scale)
+    }
   }
 }
