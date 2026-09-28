@@ -311,31 +311,32 @@ export function gerstnerHeight(x: number, z: number, time: number): number {
 /**
  * clipmap 最內層的格子邊長，m —— **也就是低多邊形那個「面」有多大**。
  *
- * 【60 怎麼來的】海的邊長是山的 1.5 倍，而山是 `archipelago.ts` 的
+ * 【30 怎麼來的】海的邊長是山的 0.75 倍，而山是 `archipelago.ts` 的
  * `FIELD_CELL = 40`。`ocean.test.ts` 守的是那個**關係**不是數字：山變了
  * 海要跟著變。
  *
- * 【它同時是波長的下限】Nyquist 讓 60 m 的格子畫不出短於 120 m 的波，
+ * 【它同時是波長的下限】Nyquist 讓 30 m 的格子畫不出短於 60 m 的波，
  * 見 `WAVES`。
  */
-export const OCEAN_BASE_CELL = 60
+export const OCEAN_BASE_CELL = 30
 /**
  * 見 OCEAN_BASE_CELL。每一層的邊各切幾格。**必須是 4 的倍數**（空洞是中央
  * 的 (段數/2)²，而那要能整除）。
  *
- * 【128 怎麼來的】它同時決定兩件事：每層的四邊形數（128² − 64² = 12,288）
- * 與每層覆蓋的半徑（64 × 格子）。128 配上 60 m 的基礎格，讓 L0 的半寬是
- * 3,840 m —— 浪最有起伏的那一圈。
+ * 【256 怎麼來的】它同時決定兩件事：每層的四邊形數（256² − 128² = 49,152）
+ * 與每層覆蓋的半徑（128 × 格子）。256 配上 30 m 的基礎格，讓 L0 的半寬是
+ * 3,840 m —— 浪最有起伏的那一圈。任何距離上的面都是 128 格一個半寬，
+ * 所以面在畫面上的大小處處相同。
  */
-export const OCEAN_RING_SEGMENTS = 128
+export const OCEAN_RING_SEGMENTS = 256
 /**
- * 見 `OCEAN_BASE_CELL`。層數。每多一層，覆蓋半徑加倍、四邊形加 12,288。
+ * 見 `OCEAN_BASE_CELL`。層數。每多一層，覆蓋半徑加倍、四邊形加 49,152。
  *
  * 【為什麼是 4】四層接到 ±30.7 km。再往外由平的遠海接手，而那個接縫的 5 m
  * 落差在 30.7 km 處是 0.21 px —— 仍在一個像素以內。
  *
- * 【為什麼不是均勻鋪滿】60 m 均勻鋪到 30.7 km 是 2,097,152 個三角形；
- * clipmap 是 106,496。均勻格的成本是半徑的平方，clipmap 是對數。
+ * 【為什麼不是均勻鋪滿】30 m 均勻鋪到 30.7 km 是 8,388,608 個三角形；
+ * clipmap 是 425,984。均勻格的成本是半徑的平方，clipmap 是對數。
  */
 export const OCEAN_LEVELS = 4
 
@@ -355,6 +356,19 @@ export const OCEAN_SIZE
  * 吸附就讓四層同時落在自己的格點上 —— 見 `update`。
  */
 export const OCEAN_SNAP = OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
+
+/**
+ * 每一層外緣的過渡帶從哪裡開始，以那一層的半寬為 1。帶內細層逐漸變成外一層
+ * 的樣子：幾何上把粗層沒有的頂點拉到粗層的高度，底色與白點也逐漸換成粗層的
+ * 面（`FACE_FRAGMENT`）。
+ *
+ * 【為什麼非有不可】每一層是獨立的一塊網格，交界沒有縫合：細層邊上多出來的
+ * 頂點跟著浪起伏，粗層在那裡只是一條直線 —— 沿整條交界有 1～2 m 的高低差，
+ * 畫面上是一條斷面。過渡帶讓細層走到外緣時已經與粗層完全重合。
+ *
+ * 帶的終點是半寬再往內半個 OCEAN_SNAP，見 SPARKLE_COMMON 的 `oceanMorph`。
+ */
+export const OCEAN_MORPH_START = 0.7
 
 /**
  * 頂點位移的頻帶限制窗，單位是波長的倍數。**格子小於 `LO × λ` 完全保留，
@@ -711,10 +725,10 @@ export const FACE_CREST_LIFT = 0.10
 /**
  * 碎光的淡出區間，m。
  *
- * 【它擋的不是「塊太小」，也不是法線混疊】前者由 LOD 負責 —— 塊的螢幕張角
- * 是常數，任何距離都是 18 px；後者由 footprint 淡出負責 ——
+ * 【它擋的不是「塊太小」，也不是法線混疊】前者由 LOD 負責 —— 近海的塊的
+ * 螢幕張角是常數；後者由 footprint 淡出負責 ——
  * 地平線附近一個像素橫跨的距離範圍極大，所有波都會轉成 σ、`N` 收斂到 +Y，
- * 混疊自己就沒了。所以這一層不必砍在遠海剛開始的地方（遠海從 5 km 起），砍
+ * 混疊自己就沒了。所以這一層不必砍在遠海剛開始的地方（遠海從 30.7 km 起），砍
  * 在那裡只會讓遠海上剩一條窄帶。
  *
  * 剩下的職責是**讓碎光在海天交界之前收乾淨**，免得地平線上壓著一條亮邊。
@@ -739,8 +753,13 @@ export const SPARKLE_ATTEN_FAR = 20000
 /** 見 `SPARKLE_ATTEN_NEAR`。遠處保留的亮度倍率。 */
 export const SPARKLE_FAR_DIM = 0.25
 
-export const SPARKLE_FADE_START = 60000
-export const SPARKLE_FADE_END = 250000
+/**
+ * 【區間跟著遠海的格距走】遠海的面封頂在最外層的 240 m，離得越遠在畫面上越小。
+ * 淡出的中點（77.5 km）那裡一個面約 2.9 px；再往外推的話還看得見一半亮度的
+ * 白點會縮成一兩個像素，變成閃爍的雜訊 —— `ocean.test.ts` 守著。
+ */
+export const SPARKLE_FADE_START = 30000
+export const SPARKLE_FADE_END = 125000
 
 /**
  * 海面基色的方位明暗 —— `smoothstep` 的下端點。**暫定值，待人工驗收回填。**
@@ -923,6 +942,9 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uBaseCell;
   uniform float uHalfSeg;
   uniform float uMaxLevel;
+  uniform float uMorphStart;
+  uniform float uSnap;
+  uniform vec2 uCenter;   // 相機的水平位置，不吸附
   uniform float uInvHalfSeg;
   uniform float uVertFadeLo;
   uniform float uVertFadeHi;
@@ -968,6 +990,23 @@ const SPARKLE_COMMON = /* glsl */ `
    */
   float oceanVCell(vec2 local) {
     return max(uBaseCell, length(local) * uInvHalfSeg);
+  }
+
+  /**
+   * 格距 cell 那一層在世界座標 world 處要往外一層過渡多少：0 = 自己，1 = 完全
+   * 是外一層。見 OCEAN_MORPH_START。
+   *
+   * 【量的是離相機的距離，不是離吸附中心】吸附中心每 OCEAN_SNAP 跳一次，以它
+   * 為準的話過渡量會跟著跳。以相機為準是連續的；終點再往內留半個吸附距離，
+   * 所以不論中心跳到哪裡，走到這一層的外緣時都已經拉滿。
+   *
+   * 【最外一層不過渡】外面是平的遠海，沒有更粗的一層
+   */
+  float oceanMorph(float cell, vec2 world) {
+    if (cell > uBaseCell * exp2(uMaxLevel) * 0.75) return 0.0;
+    float ringHalf = cell * uHalfSeg;
+    vec2 d = abs(world - uCenter);
+    return smoothstep(uMorphStart * ringHalf, ringHalf - 0.5 * uSnap, max(d.x, d.y));
   }
 
   /**
@@ -1087,127 +1126,165 @@ export const FACE_FRAGMENT = /* glsl */ `
     // ── 這個像素落在哪一個三角面 ────────────────────────────────
     //
     // 【格距要按距離算，不是一律 uBaseCell】四層共用同一顆材質，格距是
-    // 60/120/240/480，而遠海沿用最外層那一個。一律除以 uBaseCell 的話，L1/L2/L3 的
+    // 30/60/120/240，而遠海沿用最外層那一個。一律除以 uBaseCell 的話，L1/L2/L3 的
     // 每一個真實三角形會被切成 4/16/64 個假色塊 —— 而那不會讓任何測試變紅。
     //
-    // 【環是方的，所以用 Chebyshev 半徑】第 L 層是半寬 32c 到 64c 的方環
+    // 【環是方的，所以用 Chebyshev 半徑】第 L 層是半寬 64c 到 128c 的方環
     // （c = uBaseCell × 2^L），所以 r / (uBaseCell × uHalfSeg) 取 log2 再
     // ceil 正好是層號。length() 是圓的，會在方環的角落選錯層。
     //
     // 【min 把遠海的格距封在最外層】不封的話格距會一路加倍，遠處的面因此
-    // 維持**固定的角張角**（約 0.9°）—— 永遠是那麼大一塊，看起來比近處的面
+    // 維持**固定的角張角**（約 0.45°）—— 永遠是那麼大一塊，看起來比近處的面
     // 還大。封住之後它是固定的世界尺寸，離得越遠在畫面上越小，自然變成一個
-    // 白點：30 km 是 0.9°、100 km 0.27°、250 km 0.11°。
+    // 白點：30 km 是 0.46°、100 km 0.14°、125 km 0.11°。
     //
-    // 【不會有次像素閃爍】480 m 要掉到 2 px 得到 228 km，而碎光在
-    // SPARKLE_FADE_END（250 km）就淡完了 —— 所以不需要像素地板。
+    // 【不會有次像素閃爍】240 m 要掉到 2 px 得到 114 km，而碎光在
+    // SPARKLE_FADE_END（125 km）就淡完了 —— 所以不需要像素地板。
     vec2 faceLocal = vOceanWorld.xz - uOrigin;
     float faceR = max(abs(faceLocal.x), abs(faceLocal.y));
-    float faceCell = uBaseCell
-      * exp2(min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg))))));
+    float faceLevel0 = min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg)))));
+    // 【過渡帶】與幾何過渡同一個量（oceanMorph）：幾何拉向外一層多少，面的
+    // 底色與白點就換成外一層多少。0 = 只用這一層的面，1 = 全用外一層的面
+    float faceBand = oceanMorph(uBaseCell * exp2(faceLevel0), vOceanWorld.xz);
 
-    vec2 faceQ = vOceanWorld.xz / faceCell;
-    vec2 faceCel = floor(faceQ);
-    vec2 faceT = faceQ - faceCel;
-    // 【對角線】clipmapLevelGeometry 的索引是 a,c,b 與 b,c,d，切線落在
-    // tx + tz = 1。寫反的話色塊會與稜線錯開半格，看起來像兩層網格在打架，
-    // 而那**不會讓任何測試變紅** —— 唯一守得住它的是截圖。
-    float faceTri = step(1.0, faceT.x + faceT.y);
-    float faceId = oceanHash(faceCel + faceTri * 0.5);
-
-    // 【機率要用面的重心算，不能用內插的片段高度】vOceanWorld.y 在面內是
-    // 內插的，所以機率會在面內變動，roll < p 就把一個三角形切成半白半不白
-    // —— 那不是「整面變白」。重心在格內的局部座標是固定的。
-    vec2 faceCen = (faceCel + mix(vec2(0.3333333), vec2(0.6666667), faceTri))
-      * faceCell;
-    float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));
-
-    // ── 這個面離岸多近 ──────────────────────────────────────────
+    // ── 碎光的方向項 ──────────────────────────────────────────
     //
-    // 【在面的重心取樣，不是在片段】與 faceH 完全同一個理由：vOceanWorld.xz
-    // 在面內是內插的，逐片段取樣會把一個三角形切成半白半不白。
+    // 【雙核】窄核保住方向選擇性，寬核鋪出稀疏的尾巴，讓鏡面圈之外也有
+    // 零星白點。用 mix 不用加法 —— 兩個高斯在鏡面點都是 exp(0) = 1，
+    // 中心因此嚴格不變。見 SPARKLE_TAIL_WEIGHT。
     //
-    // 【uv 的偏移恰好是 0.5，不必另外傳】高度場的 col = x / cell +
-    // (size − 1) / 2，而 GL 第 col 個 texel 的中心在 (col + 0.5) / size ——
-    // 代進去化簡成 x / (size × cell) + 0.5。用 (size − 1) × cell 當尺會整張
-    // 差半個 texel（20 m）。
+    // 【σ 是常數】面法線就是真實的幾何法線，沒有「解析不出來的坡度」要
+    // 折進 σ —— 那是逐像素解析波形時才需要的補償。
     //
-    // 【場外不必判斷邊界】島散布在 ±16.9 km 之內、場地半寬 20.48 km，所以
-    // 邊緣的 texel 恆為 0，而 ClampToEdge 讓場外自然取到 0。
-    //
-    // 【一定要指定 LOD】遠海一個面 480 m 而浪花帶只有 200 m —— 逐點取樣時
-    // 整條帶可能落在相鄰兩個重心之間，遠處的海岸會**完全沒有浪花**。取 mip
-    // 讓這個面拿到的是「我涵蓋的範圍裡有多少比例是浪花帶」。
-    float shoreLod = max(0.0, log2(faceCell / uShoreCell));
-    float shore = textureLod(
-      uShoreMap, faceCen / uShoreExtent + 0.5, shoreLod).r;
-
-    // ── 逐面底色 ──────────────────────────────────────────────
-    //
-    // 【這是低多邊形的主角，不是法線】相鄰面的法線只差約 12°（島是幾十度），
-    // 海太平了 —— 光靠法線做不出稜角感。訊號由每個面自己的色調帶。
-    gl_FragColor.rgb *= 1.0
-      + (faceId - 0.5) * 2.0 * uFaceTint
-      + clamp(faceH / uCrestRef, -1.0, 1.0) * uFaceLift;
-
+    // 它只看這個像素的面法線，所以兩套面共用
+    float align = 0.0;
     if (fade > 0.0) {
-      // ── 碎光：一個面亮或不亮 ────────────────────────────────
-      //
-      // 【雙核】窄核保住方向選擇性，寬核鋪出稀疏的尾巴，讓鏡面圈之外也有
-      // 零星白點。用 mix 不用加法 —— 兩個高斯在鏡面點都是 exp(0) = 1，
-      // 中心因此嚴格不變。見 SPARKLE_TAIL_WEIGHT。
-      //
-      // 【σ 是常數】面法線就是真實的幾何法線，沒有「解析不出來的坡度」要
-      // 折進 σ —— 那是逐像素解析波形時才需要的補償。
       float cosNH = clamp(dot(oceanNormal, oceanH), 0.0, 1.0);
       float narrow = exp(-(1.0 - cosNH) / (uSigmaBase * uSigmaBase));
       float tail = exp(-(1.0 - cosNH) / (uSigmaTail * uSigmaTail));
-      float align = mix(narrow, tail, uTailWeight);
+      align = mix(narrow, tail, uTailWeight);
+    }
 
-      // 【浪峰偏置】鏡面條件只看坡度，沒有偏置時白點落在浪的**側面**，
-      // 峰與谷機會相同。真實海面的短波被長浪調變 —— 峰上密、谷裡稀。見
-      // SPARKLE_CREST_BIAS。高度均值為 0 而偏置是奇函數，所以白點總數不變。
-      // max 擋住 uCrestBias > 1 時浪谷變成負機率。
-      float crest = clamp(faceH / uCrestRef, -1.0, 1.0);
-      float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+    // 第 0 套是這一層的面，第 1 套是外一層的面（只在過渡帶裡算）
+    float tintA = 1.0;
+    float tintB = 1.0;
+    float litA = 0.0;
+    float litB = 0.0;
+    float pickB = 0.0;
+    for (int facePass = 0; facePass < 2; facePass++) {
+      if (facePass == 1 && faceBand <= 0.0) break;
+      float faceLevel = faceLevel0 + float(facePass);
+      float faceCell = uBaseCell * exp2(faceLevel);
 
-      // 【浪花是**加上去的一項**，不是把上面那一式改寫】所以 shore = 0 時
-      // 純海面那條路是逐位元的恆等式。
-      // 同樣吃 crest：浪在峰上碎。
-      p += max(shore * uShoreDensity * fade * (1.0 + uCrestBias * crest), 0.0);
-      p = min(p, uPMax);   // 見 SPARKLE_P_MAX
+      vec2 faceQ = vOceanWorld.xz / faceCell;
+      vec2 faceCel = floor(faceQ);
+      vec2 faceT = faceQ - faceCel;
+      // 【對角線】clipmapLevelGeometry 的索引是 a,c,b 與 b,c,d，切線落在
+      // tx + tz = 1。寫反的話色塊會與稜線錯開半格，看起來像兩層網格在打架，
+      // 而那**不會讓任何測試變紅** —— 唯一守得住它的是截圖。
+      float faceTri = step(1.0, faceT.x + faceT.y);
+      float faceId = oceanHash(faceCel + faceTri * 0.5);
 
-      // 【閃爍】每個面自己一段相位與速率，所以整片不會同步呼吸。
+      // 【機率要用面的重心算，不能用內插的片段高度】vOceanWorld.y 在面內是
+      // 內插的，所以機率會在面內變動，roll < p 就把一個三角形切成半白半不白
+      // —— 那不是「整面變白」。重心在格內的局部座標是固定的。
+      vec2 faceCen = (faceCel + mix(vec2(0.3333333), vec2(0.6666667), faceTri))
+        * faceCell;
+      float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));
+
+      // ── 這個面離岸多近 ────────────────────────────────────────
       //
-      // 【傳 p 而不是傳 1 - p】p 在尾巴區小到 1e-3 以下，而 float32 在 1.0
-      // 附近的 ulp 是 6e-8 —— 用「1 減去它」的形式來回一趟，小 p 的相對
-      // 精度就沒了。
+      // 【在面的重心取樣，不是在片段】與 faceH 完全同一個理由：vOceanWorld.xz
+      // 在面內是內插的，逐片段取樣會把一個三角形切成半白半不白。
       //
-      // 【用 roll < p 而不是 step(roll, p)】p 會**恰好等於 0**：
-      // dist >= uFadeEnd 時 fade 明確是 0，align 在大角度下也會 underflow
-      // 成 0。step(roll, 0.0) 在 roll 剛好是 0 的那些面會回 1 —— 250 km 外
-      // 那片早該全黑的海上會殘留零星亮面。roll < 0.0 恆為 false。
-      float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
-      float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
-      float cycle = twPhase + uTime * uTwinkle * twRate;
-      float k = floor(cycle);
-      float u = fract(cycle);
-      float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));
-      float on = roll < p ? 1.0 : 0.0;
+      // 【uv 的偏移恰好是 0.5，不必另外傳】高度場的 col = x / cell +
+      // (size − 1) / 2，而 GL 第 col 個 texel 的中心在 (col + 0.5) / size ——
+      // 代進去化簡成 x / (size × cell) + 0.5。用 (size − 1) × cell 當尺會整張
+      // 差半個 texel（20 m）。
+      //
+      // 【場外不必判斷邊界】島散布在 ±16.9 km 之內、場地半寬 20.48 km，所以
+      // 邊緣的 texel 恆為 0，而 ClampToEdge 讓場外自然取到 0。
+      //
+      // 【一定要指定 LOD】遠海一個面 240 m 而浪花帶只有 200 m —— 逐點取樣時
+      // 整條帶可能落在相鄰兩個重心之間，遠處的海岸會**完全沒有浪花**。取 mip
+      // 讓這個面拿到的是「我涵蓋的範圍裡有多少比例是浪花帶」。
+      float shoreLod = max(0.0, log2(faceCell / uShoreCell));
+      float shore = textureLod(
+        uShoreMap, faceCen / uShoreExtent + 0.5, shoreLod).r;
 
-      // 【max 那一層是 NaN 的保險】GLSL ES 明定 pow(x, y) 在 x == 0 且
-      // y <= 0 時未定義；這裡 y = 0.9 > 0，所以 pow(0.0, 0.9) 有定義。但
-      // on * pow(...) **擋不住** NaN —— 0.0 * NaN 還是 NaN，而 NaN 一旦進了
-      // gl_FragColor，那一整片海會出現黑塊，而且是平台相依的。
-      float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);
+      // ── 逐面底色 ────────────────────────────────────────────
+      //
+      // 【這是低多邊形的主角，不是法線】相鄰面的法線只差約 12°（島是幾十度），
+      // 海太平了 —— 光靠法線做不出稜角感。訊號由每個面自己的色調帶。
+      float tint = 1.0
+        + (faceId - 0.5) * 2.0 * uFaceTint
+        + clamp(faceH / uCrestRef, -1.0, 1.0) * uFaceLift;
 
+      // ── 碎光：一個面亮或不亮 ──────────────────────────────
+      float faceLit = 0.0;
+      if (fade > 0.0) {
+
+        // 【浪峰偏置】鏡面條件只看坡度，沒有偏置時白點落在浪的**側面**，
+        // 峰與谷機會相同。真實海面的短波被長浪調變 —— 峰上密、谷裡稀。見
+        // SPARKLE_CREST_BIAS。高度均值為 0 而偏置是奇函數，所以白點總數不變。
+        // max 擋住 uCrestBias > 1 時浪谷變成負機率。
+        float crest = clamp(faceH / uCrestRef, -1.0, 1.0);
+        float p = max(align * uDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+
+        // 【浪花是**加上去的一項**，不是把上面那一式改寫】所以 shore = 0 時
+        // 純海面那條路是逐位元的恆等式。
+        // 同樣吃 crest：浪在峰上碎。
+        p += max(shore * uShoreDensity * fade * (1.0 + uCrestBias * crest), 0.0);
+        p = min(p, uPMax);   // 見 SPARKLE_P_MAX
+
+        // 【閃爍】每個面自己一段相位與速率，所以整片不會同步呼吸。
+        //
+        // 【傳 p 而不是傳 1 - p】p 在尾巴區小到 1e-3 以下，而 float32 在 1.0
+        // 附近的 ulp 是 6e-8 —— 用「1 減去它」的形式來回一趟，小 p 的相對
+        // 精度就沒了。
+        //
+        // 【用 roll < p 而不是 step(roll, p)】p 會**恰好等於 0**：
+        // dist >= uFadeEnd 時 fade 明確是 0，align 在大角度下也會 underflow
+        // 成 0。step(roll, 0.0) 在 roll 剛好是 0 的那些面會回 1 —— 250 km 外
+        // 那片早該全黑的海上會殘留零星亮面。roll < 0.0 恆為 false。
+        float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
+        float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
+        float cycle = twPhase + uTime * uTwinkle * twRate;
+        float k = floor(cycle);
+        float u = fract(cycle);
+        float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));
+        float on = roll < p ? 1.0 : 0.0;
+
+        // 【max 那一層是 NaN 的保險】GLSL ES 明定 pow(x, y) 在 x == 0 且
+        // y <= 0 時未定義；這裡 y = 0.9 > 0，所以 pow(0.0, 0.9) 有定義。但
+        // on * pow(...) **擋不住** NaN —— 0.0 * NaN 還是 NaN，而 NaN 一旦進了
+        // gl_FragColor，那一整片海會出現黑塊，而且是平台相依的。
+        float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);
+        faceLit = lit;
+      }
+
+      if (facePass == 0) {
+        tintA = tint;
+        litA = faceLit;
+      } else {
+        tintB = tint;
+        litB = faceLit;
+        // 【白點以外一層的大面擲骰】整塊大面一起換過去，形狀才不會被切碎。
+        // faceBand 到 1 時恆為真 —— 走到外一層時與它完全相同
+        pickB = oceanHash(faceCel + faceTri * 0.5 + vec2(9.7, 4.3)) < faceBand ? 1.0 : 0.0;
+      }
+    }
+
+    gl_FragColor.rgb *= mix(tintA, tintB, faceBand);
+
+    if (fade > 0.0) {
       // 【遠處的反光要暗下來】霧淡的時段霧不夠壓，碎光自己補這段大氣消光 ——
       // 見 SPARKLE_ATTEN_NEAR。只乘在加法項上，海的基色不受影響。
       float atten = mix(1.0, uFarDim, smoothstep(uAttenNear, uAttenFar, oceanDist));
       // 【霧化區把白面沖淡】遠海融進天空後不該再有清楚的碎光。
       // oceanAerial 在 SEA_DIM_FRAGMENT 算好（排在本段之前）。
-      gl_FragColor.rgb += lit * uSparkleStrength * atten * (1.0 - oceanAerial)
-        * vec3(1.0, 0.98, 0.94);
+      gl_FragColor.rgb += mix(litA, litB, pickB) * uSparkleStrength * atten
+        * (1.0 - oceanAerial) * vec3(1.0, 0.98, 0.94);
     }
 `
 
@@ -1318,31 +1395,28 @@ function swapOnce(src: string, from: string, to: string): string {
  * 都沒動** —— 逐面量以外的一切因此不變。
  */
 export const FACE_FRAGMENT_TABLE = ([
-  [`    float faceCell = uBaseCell
-      * exp2(min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg))))));`,
-  `    float faceLevel = min(uMaxLevel, ceil(log2(max(1.0, faceR / (uBaseCell * uHalfSeg)))));
-    float faceCell = uBaseCell * exp2(faceLevel);`],
-  ['    float faceId = oceanHash(faceCel + faceTri * 0.5);',
-    `    // 這一格的逐面量每幀先畫進 uFaceTable，見 FACE_TABLE_FRAGMENT
-    int faceLv = int(faceLevel);
-    vec2 faceOrigCel = floor(uOrigin / faceCell + 0.5);
-    ivec2 faceTexel = ivec2(faceCel - faceOrigCel) + ${TABLE_BIAS}
-      + ivec2(int(faceTri) * ${TABLE_TILE * 2}
-          + (faceLv - (faceLv / 2) * 2) * ${TABLE_TILE},
-        (faceLv / 2) * ${TABLE_TILE});
-    vec4 faceRow = texelFetch(uFaceTable, faceTexel, 0);
-    float faceId = faceRow.w;`],
-  ['    float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));',
-    '    float faceH = faceRow.x;'],
-  [`      float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
-      float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
-      float cycle = twPhase + uTime * uTwinkle * twRate;
-      float k = floor(cycle);
-      float u = fract(cycle);
-      float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));`,
-  '      float roll = faceRow.y;'],
-  ['      float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);',
-    '      float lit = on * faceRow.z;'],
+  ['      float faceId = oceanHash(faceCel + faceTri * 0.5);',
+    `      // 這一格的逐面量每幀先畫進 uFaceTable，見 FACE_TABLE_FRAGMENT。
+      // 過渡帶裡外一層的面查的是外一層的分頁 —— 那一頁涵蓋得到這一層
+      int faceLv = int(faceLevel);
+      vec2 faceOrigCel = floor(uOrigin / faceCell + 0.5);
+      ivec2 faceTexel = ivec2(faceCel - faceOrigCel) + ${TABLE_BIAS}
+        + ivec2(int(faceTri) * ${TABLE_TILE * 2}
+            + (faceLv - (faceLv / 2) * 2) * ${TABLE_TILE},
+          (faceLv / 2) * ${TABLE_TILE});
+      vec4 faceRow = texelFetch(uFaceTable, faceTexel, 0);
+      float faceId = faceRow.w;`],
+  ['      float faceH = oceanWaveHeight(faceCen, oceanVCell(faceCen - uOrigin));',
+    '      float faceH = faceRow.x;'],
+  [`        float twPhase = oceanHash(faceCel + vec2(3.1, 7.7) + faceTri);
+        float twRate = 0.6 + 0.8 * oceanHash(faceCel + vec2(17.3, 5.1) + faceTri);
+        float cycle = twPhase + uTime * uTwinkle * twRate;
+        float k = floor(cycle);
+        float u = fract(cycle);
+        float roll = oceanHash(vec2(faceId * 512.0 + k, faceId * 731.0 - k * 1.3));`,
+  '        float roll = faceRow.y;'],
+  ['        float lit = on * pow(max(sin(u * 3.14159265), 1e-6), uEnvelopePow);',
+    '        float lit = on * faceRow.z;'],
 ] as const).reduce((src, [from, to]) => swapOnce(src, from, to), FACE_FRAGMENT)
 
 
@@ -1517,6 +1591,9 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
   const nrm = new Float32Array(n * n * 3)
   for (let k = 0; k < n * n; k++) nrm[k * 3 + 1] = 1
   g.setAttribute('normal', new BufferAttribute(nrm, 3))
+  // 【這一層的格距】四層共用一顆材質，頂點著色器靠它知道自己在哪一層 ——
+  // 幾何過渡要知道哪些頂點是粗層沒有的、兩旁的粗頂點在哪
+  g.setAttribute('oceanCell', new BufferAttribute(new Float32Array(n * n).fill(cell), 1))
   g.setIndex(idx)
   // 【自己設包圍球】頂點會被波位移，而 computeBoundingSphere 只看原始座標。
   // 反正這些網格 frustumCulled = false，這裡只是不讓 three 事後去算它。
@@ -1605,6 +1682,9 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
     uPMax: { value: SPARKLE_P_MAX },
     uHalfSeg: { value: OCEAN_RING_SEGMENTS / 2 },
     uMaxLevel: { value: OCEAN_LEVELS - 1 },
+    uMorphStart: { value: OCEAN_MORPH_START },
+    uSnap: { value: OCEAN_SNAP },
+    uCenter: { value: new Vector2() },
     // 【天空色直接取 sky.ts 的常數】海面反射的是那一片天，兩份會漂開。
     // `new Color(hex)` 出來就在線性空間，而這一段也在線性空間（PBR 之後、
     // colorspace_fragment 之前），所以不需要任何轉換
@@ -1712,38 +1792,41 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
         .replace(
           '#include <common>',
           `#include <common>
-${SPARKLE_COMMON}`,
+${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
         )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
            ${displace
              ? `vec2 rawXZ = transformed.xz + uOrigin;
-                // 【扭曲在算相位之前】見 WAVE_WARP_AMP。CPU 的 gerstnerHeight
-                // 也做同一件事，兩者不一致就是「撞到看不見的浪」
-                vec2 worldXZ = rawXZ + oceanWarp(rawXZ, uTime);
-                // 【包絡吃未扭曲的座標】見 gerstnerHeight 的同一行
-                float envG = oceanEnvField(rawXZ, uTime);
-
                 // 【這個頂點所在的層有多粗】四層都以相機為中心，而第 L 層
                 // 覆蓋到半徑 (段數/2)×格子(L) —— 所以「離中心多遠」直接
                 // 換算得到「這裡的格子多大」。用的是**局部座標**，也就是
                 // 離相機的水平距離，與世界座標無關。
                 //
-                // 【為什麼兩層交界不會有高低差】交界上的同一點，兩層算出
-                // 來的 vCell 完全相同（都只吃離中心的距離），淡出量因此
-                // 逐位元一致。
-                float vCell = max(uBaseCell, length(transformed.xz) * uInvHalfSeg);
+                // 【兩層共用的頂點高度相同】交界上的同一點，兩層算出來的
+                // vCell 完全相同（都只吃離中心的距離），淡出量因此逐位元一致。
+                // 細層多出來的那些頂點靠下面的幾何過渡對齊，見 OCEAN_MORPH_START
+                float waveH = oceanWaveHeight(rawXZ, oceanVCell(transformed.xz));
 
-                float waveH = 0.0;
-                for (int i = 0; i < ${WAVES.length}; i++) {
-                  float k = 6.28318530718 / uWaveLen[i];
-                  // 【網格表現不出來的波，從幾何裡拿掉】見 OCEAN_VERT_FADE_LO。
-                  // 只影響幾何 —— 片段著色器的波坡度是解析的，不受影響
-                  float lod = 1.0 - smoothstep(
-                    uWaveLen[i] * uVertFadeLo, uWaveLen[i] * uVertFadeHi, vCell);
-                  waveH += uWaveAmp[i] * oceanEnv(envG, float(i)) * lod
-                    * sin(k * dot(uWaveDir[i], worldXZ) - uWaveSpd[i] * k * uTime);
+                // 【幾何過渡】細層在外緣那一段把「粗層沒有的頂點」拉到兩旁粗
+                // 頂點的平均高度 —— 那正是粗層在那一點的高度（粗層的邊是直線、
+                // 粗層的對角線切法見 clipmapLevelGeometry）。拉滿時細網格與粗網格
+                // 完全重合，交界沒有高低差
+                float morph = oceanMorph(oceanCell, rawXZ);
+                if (morph > 0.0) {
+                  vec2 odd = mod(floor(transformed.xz / oceanCell + 0.5), 2.0);
+                  if (odd.x + odd.y > 0.5) {
+                    // 單軸奇數：兩旁在那一軸上；兩軸都奇數：落在粗格的對角線上，
+                    // 兩端是 (+c, −c) 與 (−c, +c)
+                    vec2 s = odd.x > 0.5 && odd.y > 0.5
+                      ? vec2(oceanCell, -oceanCell) : odd * oceanCell;
+                    vec2 a = transformed.xz + s;
+                    vec2 b = transformed.xz - s;
+                    float coarse = 0.5 * (oceanWaveHeight(a + uOrigin, oceanVCell(a))
+                      + oceanWaveHeight(b + uOrigin, oceanVCell(b)));
+                    waveH = mix(waveH, coarse, morph);
+                  }
                 }
                 transformed.y += waveH;`
              : ''}
@@ -1900,6 +1983,8 @@ ${SPARKLE_COMMON}`,
       const snapZ = Math.round(centerZ / OCEAN_SNAP) * OCEAN_SNAP
       mesh.position.set(snapX, 0, snapZ)
       uOrigin.value.set(snapX, snapZ)
+      // 【過渡帶吃不吸附的位置】見 oceanMorph
+      sparkle.uCenter.value.set(centerX, centerZ)
       // 【遠海不吸附】吸附是為了避免頂點在格點之間滑動造成面的形狀逐幀改變，
       // 而遠海是平的、沒有面可言。精確跟著相機走，才不會在極端座標下累積偏差。
       farMesh.position.set(centerX, FAR_SEA_Y, centerZ)

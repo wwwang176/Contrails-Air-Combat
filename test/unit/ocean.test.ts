@@ -3,7 +3,7 @@ import { LessDepth, type DataTexture, type Mesh, type MeshStandardMaterial } fro
 import {
   createOcean, FACE_FRAGMENT, FACE_FRAGMENT_TABLE, FACE_TABLE_FRAGMENT,
   FACE_TABLE_HEIGHT, FACE_TABLE_WIDTH, FAR_SEA_SIZE, FAR_SEA_Y, gerstnerHeight,
-  OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
+  OCEAN_BASE_CELL, OCEAN_LEVELS, OCEAN_MORPH_START, OCEAN_RING_SEGMENTS, OCEAN_SIZE,
   OCEAN_SNAP, OCEAN_VERT_FADE_HI, OCEAN_VERT_FADE_LO,
   SHORE_DENSITY, SPARKLE_CREST_BIAS, SPARKLE_CREST_REF, SPARKLE_DENSITY,
   SPARKLE_FADE_END, SPARKLE_FADE_START, SPARKLE_P_MAX,
@@ -135,11 +135,11 @@ describe('碎光的浪峰偏置', () => {
 
 describe('低多邊形的格子', () => {
   /**
-   * 【比的是關係不是數字】海的邊長是山的 1.5 倍。山變了海要
-   * 跟著變 —— 寫死 60 的話，改 `FIELD_CELL` 之後這條關係會靜靜地失效。
+   * 【比的是關係不是數字】海的邊長是山的 0.75 倍。山變了海要
+   * 跟著變 —— 寫死 30 的話，改 `FIELD_CELL` 之後這條關係會靜靜地失效。
    */
-  it('格子邊長是山的 1.5 倍', () => {
-    expect(OCEAN_BASE_CELL).toBeCloseTo(FIELD_CELL * 1.5, 9)
+  it('格子邊長是山的 0.75 倍', () => {
+    expect(OCEAN_BASE_CELL).toBeCloseTo(FIELD_CELL * 0.75, 9)
   })
 
   /**
@@ -154,14 +154,13 @@ describe('低多邊形的格子', () => {
   })
 
   /**
-   * 【浪必須在近海的覆蓋範圍內就淡光】淡出是徑向連續的（`vCell = 距離/64`），
-   * 所以每一道波有一個消失半徑 `OCEAN_VERT_FADE_HI × λ × 64`。若那個半徑
+   * 【浪必須在近海的覆蓋範圍內就淡光】淡出是徑向連續的（`vCell = 距離/128`），
+   * 所以每一道波有一個消失半徑 `OCEAN_VERT_FADE_HI × λ × 128`。若那個半徑
    * 超出近海的外緣，浪就會被**遠海硬切掉** —— 畫面上是一條環形的斷崖。
    *
-   * 變異證明：`OCEAN_VERT_FADE_HI` 調到 0.9 時最長那道的消失半徑是 21,888 m，
-   * 仍在 30,720 之內、這條還是綠的；調到 1.3 才紅。所以它守的是「有人加一道
-   * 很長的波」而不是淡出窗本身 —— 加一道 λ = 1000 m 的波（消失半徑 32,000 m）
-   * 就會紅。
+   * 最長那道（380 m）的消失半徑是 24,320 m。`OCEAN_VERT_FADE_HI` 調到 0.6 時
+   * 是 29,184 m、這條還是綠的；調到 0.65 才紅。所以它守的主要是「有人加一道
+   * 很長的波」—— 加一道 λ = 1000 m 的波（消失半徑 64,000 m）就會紅。
    */
   it('每一道波都在近海的外緣之前淡光', () => {
     const outer = (OCEAN_RING_SEGMENTS / 2) * OCEAN_BASE_CELL * 2 ** (OCEAN_LEVELS - 1)
@@ -193,7 +192,7 @@ describe('低多邊形的格子', () => {
   it('逐面選層算出來的格距，就是那一層幾何實際用的格距', () => {
     for (let i = 0; i < OCEAN_LEVELS; i++) {
       const cell = OCEAN_BASE_CELL * 2 ** i
-      // 第 i 層是半寬 32c 到 64c 的方環（L0 是實心，內緣為 0）
+      // 第 i 層是半寬 64c 到 128c 的方環（L0 是實心，內緣為 0）
       const inner = i === 0 ? 0 : (OCEAN_RING_SEGMENTS / 4) * cell
       const outer = (OCEAN_RING_SEGMENTS / 2) * cell
       // 內緣往外一點、正中間、外緣往內一點 —— 三個點都該落在同一層
@@ -251,7 +250,7 @@ describe('逐面色', () => {
    *
    * 【判準取在淡出的中點，不是終點】終點（`SPARKLE_FADE_END`）那裡 `fade`
    * 已經是 0，格子多小都不會亮 —— 在那裡設門檻是在守一個不存在的問題。
-   * 中點是白點還有一半亮度、最需要它不閃的地方。實測那裡是 6.4 px。
+   * 中點是白點還有一半亮度、最需要它不閃的地方。現在那裡是 2.9 px。
    *
    * 有人把最外層的格距調小、或把淡出的起點推遠，這一條就紅。
    */
@@ -633,5 +632,76 @@ describe('逐面量的每幀預繪表', () => {
   it('遠海用的那一份沒有查表', () => {
     expect(FACE_FRAGMENT).not.toContain('uFaceTable')
     expect(FACE_FRAGMENT).toMatch(/faceH = oceanWaveHeight\(faceCen/)
+  })
+})
+
+/**
+ * 每一層是獨立的一塊網格，交界沒有縫合。外緣那一段過渡帶把細層拉成外一層的
+ * 樣子，走到交界時兩層完全重合 —— 見 `OCEAN_MORPH_START`。
+ */
+describe('層與層之間的過渡帶', () => {
+  /** 著色器 `oceanMorph` 在 TS 裡的對應。d 是離相機的 Chebyshev 距離 */
+  const morphAt = (cell: number, d: number): number => {
+    const half = cell * (OCEAN_RING_SEGMENTS / 2)
+    return smoothstep(OCEAN_MORPH_START * half, half - 0.5 * OCEAN_SNAP, d)
+  }
+
+  /**
+   * 【走到外緣一定拉滿】吸附中心離相機最多半個 OCEAN_SNAP，所以外緣離相機至少
+   * `半寬 − SNAP/2`。那裡沒拉滿的話交界就有高低差 —— 而且只在某些相機位置出現。
+   */
+  it('不論吸附中心在哪，走到每一層的外緣時都已經完全是外一層', () => {
+    for (let i = 0; i < OCEAN_LEVELS - 1; i++) {
+      const cell = OCEAN_BASE_CELL * 2 ** i
+      const half = cell * (OCEAN_RING_SEGMENTS / 2)
+      for (const off of [-0.5, -0.25, 0, 0.25, 0.5]) {
+        expect(morphAt(cell, half + off * OCEAN_SNAP)).toBe(1)
+      }
+    }
+  })
+
+  /**
+   * 【內緣一定沒動】內一層走到這裡時已經拉成這一層的網格；這一層的內緣若也開始
+   * 往外一層拉，兩邊就又對不上了。內緣離相機最多 `半寬/2 + SNAP/2`。
+   */
+  it('每一層的內緣完全沒有過渡', () => {
+    for (let i = 1; i < OCEAN_LEVELS; i++) {
+      const cell = OCEAN_BASE_CELL * 2 ** i
+      const half = cell * (OCEAN_RING_SEGMENTS / 2)
+      expect(morphAt(cell, half / 2 + 0.5 * OCEAN_SNAP)).toBe(0)
+    }
+  })
+
+  /** 近海材質注入後的頂點著色器（three 在 headless 下不編譯，手動走一次注入） */
+  const nearVertex = (): string => {
+    const m = (createOcean(null).mesh.children[0] as Mesh).material as MeshStandardMaterial
+    const sh = {
+      uniforms: {},
+      vertexShader: '#include <common>\n#include <begin_vertex>\n',
+      fragmentShader: '#include <common>\n#include <color_fragment>\n#include <opaque_fragment>\n',
+    }
+    ;(m.onBeforeCompile as (s: typeof sh, r: unknown) => void)(sh, null)
+    return sh.vertexShader
+  }
+
+  /** 【幾何與底色吃同一個量】兩邊不一致的話，拉平了的網格上會蓋著細面的花紋 */
+  it('頂點與片段都用 oceanMorph，片段以這一層的格距去量', () => {
+    const vs = nearVertex()
+    // 【著色器與上面的 morphAt 同一式】上面兩條算的是 TS 的鏡像，這一條釘住
+    // 著色器本身 —— 終點少了半個吸附距離的話，那兩條照樣綠
+    expect(vs).toContain(
+      'smoothstep(uMorphStart * ringHalf, ringHalf - 0.5 * uSnap, max(d.x, d.y))')
+    expect(vs).toContain('float morph = oceanMorph(oceanCell, rawXZ);')
+    expect(FACE_FRAGMENT).toContain('float faceBand = oceanMorph(uBaseCell * exp2(faceLevel0), vOceanWorld.xz);')
+  })
+
+  /**
+   * 【兩軸都是奇數的頂點落在粗格的對角線上】clipmapLevelGeometry 的索引是
+   * a,c,b 與 b,c,d，對角線是 b(i+1, j) 到 c(i, j+1)，也就是 (+c, −c) 與
+   * (−c, +c)。寫成另一條對角線的話拉滿時細網格不在粗網格的面上，**看起來像
+   * 沒有修**，而沒有任何數字會壞。
+   */
+  it('對角線與幾何的切法一致', () => {
+    expect(nearVertex()).toContain('vec2(oceanCell, -oceanCell)')
   })
 })
