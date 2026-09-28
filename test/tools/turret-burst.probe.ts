@@ -3,34 +3,19 @@
  *
  *   npx tsx test/tools/turret-burst.probe.ts
  *
- * 【人工回報】「轟炸機上的機槍，開火時間、冷卻時間都一樣，
- * 是不是可以有點錯開的落差？」
- *
- * ── 程式碼上的縫在哪 ──────────────────────────────────────
- *
- * `resetTurretStates` 對**每一座**都寫死同一組初值：
- *
- * ```
- *   s.burstFiring = true
- *   s.burstTimer  = BURST_ON
- * ```
- *
- * 而 `stepBurst` 只吃 `dt`，沒有任何一項與砲塔或載機有關 —— 所以一旦同步
- * 就**永遠同步**。相位（`wobblePhase`）與搜尋時刻（黃金比）都刻意錯開過，
- * 只有點放漏掉。
- *
  * 【判準】兩個獨立的量，兩個都要看：
  *
  * 1. **同時開火的座數**。20 架 B-17G = 160 座，完全同步時每一步不是 160
  *    就是 0；理想的錯開會讓它貼著期望值 160 × 0.6 = 96 上下小幅擺動。
- * 2. **一座砲塔自己的節奏**。就算初值錯開了，週期若還是每座都恰好 2.0 秒，
- *    整個機隊就是一組**頻率相同、只差相位**的方波 —— 相對關係凍結，聽起來
- *    仍然很機械。這裡量的是「機隊裡出現幾種不同的週期」。
+ * 2. **一座砲塔自己的節奏**。週期若每座都恰好 2.0 秒，整個機隊就是一組
+ *    **頻率相同、只差相位**的方波 —— 相對關係凍結，聽起來很機械。這裡量的
+ *    是「機隊裡出現幾種不同的平均週期」。
  */
 import {
-  createTurretStates, stepBurst, BURST_ON, BURST_OFF,
+  createTurretStates, stepGunnerBurst, BURST_ON, BURST_OFF,
 } from '../../src/world/turrets'
 import type { TurretState } from '../../src/world/turrets'
+import { MAX_TURRETS } from '../../src/weapons/turret'
 import { B17G } from '../../src/specs/b17g'
 import { HE111 } from '../../src/specs/he111'
 
@@ -39,15 +24,15 @@ const SECONDS = 60
 const BOMBERS = 20
 
 /** 一個混編機隊：20 架 B-17G（8 座）+ 20 架 He 111（5 座）。 */
-function fleet(): { states: TurretState[]; label: string }[] {
-  const out: { states: TurretState[]; label: string }[] = []
+function fleet(): { states: TurretState[]; index: number }[] {
+  const out: { states: TurretState[]; index: number }[] = []
   let index = 0
   for (let k = 0; k < BOMBERS; k++) {
-    out.push({ states: createTurretStates(B17G, index), label: `B17G#${k}` })
+    out.push({ states: createTurretStates(B17G, index), index })
     index++
   }
   for (let k = 0; k < BOMBERS; k++) {
-    out.push({ states: createTurretStates(HE111, index), label: `He111#${k}` })
+    out.push({ states: createTurretStates(HE111, index), index })
     index++
   }
   return out
@@ -55,6 +40,8 @@ function fleet(): { states: TurretState[]; label: string }[] {
 
 const f = fleet()
 const all: TurretState[] = f.flatMap((a) => a.states)
+/** 每一座的點放種子，與 `stepTurrets` 用的同一個 */
+const seeds: number[] = f.flatMap((a) => a.states.map((_, i) => a.index * MAX_TURRETS + i))
 const N = all.length
 
 // ── 一、同時開火的座數 ────────────────────────────────────
@@ -73,7 +60,7 @@ for (let k = 0; k < steps; k++) {
   let on = 0
   for (let i = 0; i < N; i++) {
     const s = all[i]!
-    if (stepBurst(s, DT)) on++
+    if (stepGunnerBurst(s, DT, seeds[i]!)) on++
     if (s.burstFiring !== wasFiring[i]) { flips[i]!++; wasFiring[i] = s.burstFiring }
   }
   sum += on
@@ -128,7 +115,7 @@ const st = one.map((s) => s.burstFiring)
 for (let k = 0; k < Math.round(4 / DT); k++) {
   for (let i = 0; i < one.length; i++) {
     const s = one[i]!
-    stepBurst(s, DT)
+    stepGunnerBurst(s, DT, i)
     if (s.burstFiring && !st[i] && firstOn[i]! < 0) firstOn[i] = k * DT
     st[i] = s.burstFiring
   }

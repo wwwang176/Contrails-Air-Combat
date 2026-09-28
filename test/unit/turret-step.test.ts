@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { Vector3, Quaternion } from 'three'
 import { Projectiles } from '../../src/world/Projectiles'
 import {
-  createTurretStates, resetTurretStates, stepTurrets, stepBurst,
+  createTurretStates, resetTurretStates, stepTurrets, stepGunnerBurst,
   WOBBLE_AMPLITUDE, BURST_ON, BURST_OFF, BURST_SCATTER, FIRE_THRESHOLD,
   SEARCH_INTERVAL,
 } from '../../src/world/turrets'
+import { GUNNER_BURST_SHORTEST } from '../../src/weapons/burst'
+import { MAX_TURRETS } from '../../src/weapons/turret'
 import type { TurretCombatant, TurretState } from '../../src/world/turrets'
 import { B17G } from '../../src/specs/b17g'
 import { P51D } from '../../src/specs/p51d'
@@ -36,8 +38,28 @@ const fighterAt = (z: number, vz: number): TurretCombatant =>
 const freshState = (): TurretState => ({
   aim: new Vector3(0, 0, 1), phase: 0, targetIndex: -1, targetShip: -1, targetGun: -1,
   searchCooldown: 0, burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+  burstDraw: 0, burstLength: BURST_ON,
   flash: 0, lastBarrel: 0,
 })
+
+/** 跑 `seconds` 秒，回傳開火步數佔比與每一段完整開火段的長度。 */
+function runBurst(s: TurretState, k: number, seconds: number): { duty: number, bursts: number[] } {
+  const steps = Math.round(seconds / DT)
+  const bursts: number[] = []
+  let firing = 0
+  let run = 0
+  let complete = false
+  for (let n = 0; n < steps; n++) {
+    const on = stepGunnerBurst(s, DT, k)
+    if (on) { firing++; run++ } else if (run > 0) {
+      // 第一段是 resetBurst 攤出來的殘段，不算
+      if (complete) bursts.push(run * DT)
+      run = 0
+    }
+    if (!on) complete = true
+  }
+  return { duty: firing / steps, bursts }
+}
 
 describe('點放狀態機', () => {
   /**
@@ -46,19 +68,15 @@ describe('點放狀態機', () => {
    * 佔比」當判準的話，**把點放整個拿掉也會通過** —— 那個測試測不到它宣稱
    * 的東西。
    */
-  it('在開火段與停火段之間交替，週期正確', () => {
-    const s = freshState()
-    let firing = 0
-    const steps = Math.round((BURST_ON + BURST_OFF) * 10 / DT)
-    for (let k = 0; k < steps; k++) if (stepBurst(s, DT)) firing++
-    const duty = firing / steps
+  it('長時間平均的工作週期是 BURST_ON / (BURST_ON + BURST_OFF)', () => {
+    const { duty } = runBurst(freshState(), 3, 4000)
     expect(duty).toBeCloseTo(BURST_ON / (BURST_ON + BURST_OFF), 2)
   })
 
   it('大步長也不會卡住 —— 一步跨過好幾個週期', () => {
     const s = freshState()
     // 一步 10 秒，遠大於 BURST_ON + BURST_OFF
-    for (let k = 0; k < 20; k++) stepBurst(s, 10)
+    for (let k = 0; k < 20; k++) stepGunnerBurst(s, 10, 0)
     expect(s.burstTimer).toBeGreaterThan(0)
     expect(Number.isFinite(s.burstTimer)).toBe(true)
   })
@@ -74,11 +92,20 @@ describe('點放狀態機', () => {
       const s = freshState()
       s.burstScale = scale
       s.burstTimer = BURST_ON * scale
-      let firing = 0
-      const steps = Math.round((BURST_ON + BURST_OFF) * scale * 40 / DT)
-      for (let k = 0; k < steps; k++) if (stepBurst(s, DT)) firing++
-      expect(firing / steps).toBeCloseTo(BURST_ON / (BURST_ON + BURST_OFF), 2)
+      const { duty } = runBurst(s, 5, 4000 * scale)
+      expect(duty).toBeCloseTo(BURST_ON / (BURST_ON + BURST_OFF), 2)
     }
+  })
+
+  it('每一段開火的長度不同，最短不低於 GUNNER_BURST_SHORTEST', () => {
+    const s = freshState()
+    s.burstScale = 1 - BURST_SCATTER
+    const { bursts } = runBurst(s, 7, 600)
+    expect(bursts.length).toBeGreaterThan(100)
+    expect(Math.min(...bursts)).toBeGreaterThanOrEqual(GUNNER_BURST_SHORTEST - DT)
+    // 抽到接近下限的真的會出現，不是只有幾種長度在輪
+    expect(Math.min(...bursts)).toBeLessThan(GUNNER_BURST_SHORTEST + 0.1)
+    expect(new Set(bursts.map((b) => b.toFixed(3))).size).toBeGreaterThan(50)
   })
 })
 
@@ -110,13 +137,18 @@ describe('點放的錯開', () => {
    */
   it('混編機隊不會出現「全部一起開火」或「全部一起停火」的一步', () => {
     const all: TurretState[] = []
+    const seeds: number[] = []
     let index = 0
-    for (let k = 0; k < 8; k++) all.push(...createTurretStates(B17G, index++))
-    for (let k = 0; k < 8; k++) all.push(...createTurretStates(HE111, index++))
+    for (const spec of [B17G, B17G, B17G, B17G, B17G, B17G, B17G, B17G,
+      HE111, HE111, HE111, HE111, HE111, HE111, HE111, HE111]) {
+      const states = createTurretStates(spec, index)
+      states.forEach((s, i) => { all.push(s); seeds.push(index * MAX_TURRETS + i) })
+      index++
+    }
     const N = all.length
     for (let k = 0; k < Math.round(30 / DT); k++) {
       let on = 0
-      for (const s of all) if (stepBurst(s, DT)) on++
+      for (let j = 0; j < N; j++) if (stepGunnerBurst(all[j]!, DT, seeds[j]!)) on++
       expect(on).toBeGreaterThan(0)
       expect(on).toBeLessThan(N)
     }

@@ -8,9 +8,9 @@ import { ROOT3, SILVER } from './turret'
  * `spawn-snapshot`）。維持同名欄位，砲塔那一側**一個字都不用改**，
  * 結構上自動滿足這個介面。
  *
- * 【誰在用】砲塔（`world/turrets.ts`）與 AI 戰鬥機的扳機
- * （`ai/AiController.ts`）。AI 的戰鬥機與轟炸機的機槍有同樣的冷卻，只是
- * 頻率高一點 —— **同一份實作，只是餵不同的 `on` / `off`。**
+ * 【誰在用】砲手（`world/turrets.ts`、`world/shipGuns.ts`）與 AI 戰鬥機的
+ * 扳機（`ai/AiController.ts`）—— **同一份 `stepRandomBurst`，只是餵不同的
+ * 週期與工作週期。**
  */
 export interface BurstCycle {
   /** 現在是開火段還是停火段。 */
@@ -25,61 +25,20 @@ export interface BurstCycle {
   burstScale: number
 }
 
-/** 砲塔點放的開火秒數。**起始值。** */
+/** 砲手點放的開火秒數，**平均值**；每一段的實際長度見 `stepGunnerBurst`。 */
 export const BURST_ON = 1.2
-/** 砲塔點放的停火秒數。**起始值。** */
+/** 砲手點放的停火秒數。**起始值。** */
 export const BURST_OFF = 0.8
 /**
  * 點放週期的分散幅度，±這個比例。**起始值，由試飛裁定。**
  *
- * ── 為什麼需要它 ────────────────────────────────────────
+ * 每一座（每一架）一個倍率，開火段與停火段**同時**乘它，所以工作週期不變
+ * —— 火力總量與 `TURRET_DAMAGE_SCALE` 都不受影響，變的只有節奏。停火段
+ * 固定長度，沒有這個倍率的話同一批砲塔的停火段全部一樣長，聽起來像節拍器。
  *
- * 沒有它時整台轟炸機的機槍**完全同步**開火與冷卻：
- * `resetTurretStates` 對每一座都寫死 `burstFiring = true` 與
- * `burstTimer = BURST_ON`，而 `stepBurst` 只吃 `dt` —— 沒有任何一項與砲塔
- * 或載機有關，所以一旦同步就永遠同步。20 架 B-17G + 20 架 He 111 = 260 座
- * 砲塔跑 60 秒，同時開火的座數**每一步不是 260 就是 0**，60% 的時間全開、
- * 40% 的時間全關。整個機隊像同一根扳機。
- *
- * ── 為什麼「錯開起點」還不夠 ──────────────────────────
- *
- * 只錯開起點的話，260 座是一組**頻率相同、只差相位**的方波：相對關係凍結，
- * 每一座自己也永遠是精準的 1.2 開 / 0.8 關。週期也散開之後，任兩座的相對
- * 關係一直在漂，聽起來才不像節拍器。
- *
- * ── 為什麼是倍率而不是各自加一個隨機量 ──────────────
- *
- * 開火段與停火段乘同一個數，**工作週期完全不變** —— 每一座仍然是 60% 的
- * 時間在開火，所以火力總量與 `TURRET_DAMAGE_SCALE` 都不受影響。分別加減
- * 的話會連帶動到平衡，那是另一個決定。
- *
- * 0.25 → 砲塔的週期落在 1.5 … 2.5 秒（開火段 0.9 … 1.5 秒）。
+ * 0.25 → 砲手的平均週期落在 1.5 … 2.5 秒。
  */
 export const BURST_SCATTER = 0.25
-
-/**
- * 推進點放一步，回傳**這一步**是否在開火段。
- *
- * 【為什麼用 while 而不是 if】低更新率（工具程式可能用 0.3 s 甚至更大的
- * 步長）下一步可能跨過好幾個週期。用 if 會讓 `burstTimer` 變成負數而
- * 永遠不再回復。
- *
- * 【`on` / `off` 為什麼有預設值】砲塔那一側在這個函數被抽出來之前就存在，
- * 呼叫端（含四支測試與探針）寫的是 `stepBurst(s, dt)`。給預設值等於
- * **既有行為逐字不變**，新的呼叫端自己帶參數。
- */
-export function stepBurst(
-  s: BurstCycle, dt: number, on: number = BURST_ON, off: number = BURST_OFF,
-): boolean {
-  const firingThisStep = s.burstFiring
-  s.burstTimer -= dt
-  while (s.burstTimer <= 0) {
-    s.burstFiring = !s.burstFiring
-    // 兩段乘同一個倍率 —— 工作週期不變，只有節奏跟著這一座走
-    s.burstTimer += (s.burstFiring ? on : off) * s.burstScale
-  }
-  return firingThisStep
-}
 
 /**
  * 就地把點放攤到週期上，**不配置任何物件**。
@@ -109,7 +68,7 @@ export function resetBurst(
 }
 
 /**
- * 開火段長度隨機的點放。AI 戰鬥機用；砲塔仍是固定週期的 `stepBurst`。
+ * 開火段長度隨機的點放。AI 戰鬥機與砲手（`stepGunnerBurst`）都用它。
  *
  * `burstDraw` 是抽過幾輪，`burstLength` 是這一輪開火段的長度，s。
  */
@@ -168,4 +127,31 @@ export function stepRandomBurst(
     }
   }
   return firingThisStep
+}
+
+/** 砲手（轟炸機砲塔、船上與地面砲位）一段開火最短幾秒。 */
+export const GUNNER_BURST_SHORTEST = 0.3
+/**
+ * 砲手開火段長度相對 `BURST_ON × burstScale` 的倍數範圍，均勻抽樣。
+ *
+ * 【下限由最短秒數反推】週期倍率最小的那一座（`1 − BURST_SCATTER`）抽到
+ * 下限時恰好是 `GUNNER_BURST_SHORTEST`。
+ *
+ * 【上限 = 2 − 下限】抽樣的平均才會是 1，工作週期維持
+ * `BURST_ON / (BURST_ON + BURST_OFF)`。上下限不對稱的話火力總量會跟著變。
+ */
+export const GUNNER_BURST_MIN = GUNNER_BURST_SHORTEST / (BURST_ON * (1 - BURST_SCATTER))
+export const GUNNER_BURST_MAX = 2 - GUNNER_BURST_MIN
+
+/**
+ * 砲手的點放推進一步，回傳這一步開始時是否在開火段。停火段固定
+ * `BURST_OFF × burstScale`，開火段每一段各抽一次長度。
+ *
+ * `k` 是這一座在全場的唯一編號，與 `resetBurst` 用的是同一個。
+ */
+export function stepGunnerBurst(s: RandomBurstCycle, dt: number, k: number): boolean {
+  return stepRandomBurst(
+    s, dt, BURST_ON + BURST_OFF, BURST_ON / (BURST_ON + BURST_OFF),
+    k, GUNNER_BURST_MIN, GUNNER_BURST_MAX,
+  )
 }

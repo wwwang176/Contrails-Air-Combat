@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { DEG } from '../core/math'
 import { hash01 } from '../render/scatter'
-import { resetBurst, stepBurst, BURST_ON } from '../weapons/burst'
+import { resetBurst, stepGunnerBurst, BURST_ON } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import { applyWobble, GOLDEN, inArc, slew, wobblePhase } from '../weapons/turret'
 import type { Arc } from '../weapons/turret'
@@ -351,7 +351,7 @@ export function createShipGuns(cls: ShipClass): ShipGun[] {
       aim: axis.clone(),
       axis,
       phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
-      burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+      burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
       flash: 0,
       hp: spec.hp,
       alive: true,
@@ -407,7 +407,7 @@ export function createGroundBattery(
     aim: axis.clone(),
     axis,
     phase: 0, targetIndex: -1, searchCooldown: 0, fired: 0,
-    burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+    burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
     flash: 0,
     hp: spec.hp,
     alive: true,
@@ -456,6 +456,9 @@ function resetGuns(guns: ShipGun[], shipIndex = 0): void {
     g.phase = wobblePhase(shipIndex, i)
     g.searchCooldown = ((k * GOLDEN) % 1) * SEARCH_INTERVAL
     resetBurst(g, k)
+    // 抽樣序號歸零 —— 重開一場要抽到同一串開火段，逐位元重播才成立
+    g.burstDraw = 0
+    g.burstLength = BURST_ON * g.burstScale
   }
 }
 
@@ -523,7 +526,7 @@ export function stepGunPlatform(
     if (!g.alive) continue
     // 【讀砲身上的那一份】同屬 flak 層的艦砲與陸砲強度不同
     const spec = g.spec
-    const firingWindow = stepBurst(g, dt)
+    const firingWindow = stepGunnerBurst(g, dt, ship.index * MAX_SHIP_GUNS + i)
 
     // 槍口的世界位置。**預瞄從這裡解，不是從船的重心** —— 艦艏與艦艉的
     // 砲位相距 185 m，用重心解的方向誤差遠大於 2° 的開火門檻。
