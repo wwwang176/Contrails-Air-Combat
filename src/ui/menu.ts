@@ -255,6 +255,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const tutorial = root.querySelector('#tutorial') as HTMLElement
   const settings = root.querySelector('#settings') as HTMLElement
   const reloadAsk = root.querySelector('#reload-ask') as HTMLElement
+  const planePick = root.querySelector('#plane-pick') as HTMLElement
   const gear = root.querySelector('#gear') as HTMLElement
   /**
    * 暫停時齒輪旁邊的「教學」按鈕：重看這架飛機的教學卡。**只在暫停選單開著、而且
@@ -348,8 +349,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   const picked: Record<Campaign, number> = { allies: 0, germany: 0, japan: 0 }
   /** 機庫攤開的是 `HANGAR_SPECS` 的第幾架 */
   let hangarPick = 0
-  /** 編組頁的機種選單有沒有展開（每側各自） */
-  const paletteOpen = { blue: false, red: false }
 
   // 【事件委派】按鈕是動態產生的，一個一個掛監聽器會在重畫時漏掉舊的。
   //
@@ -382,6 +381,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       return
     }
     if (act === 'tutorialOk') { nextTutorial(); return }
+    if (act === 'planePickCancel') { closeOverlay(planePick); return }
     if (act === 'help') { hooks.onHelp(); return }
     // 【回主選單也要問過】遭遇戰的出口，按下去這一場就沒了 —— 與放棄任務同一類
     if (act === 'toMenu') { openOverlay(menuAsk); return }
@@ -594,20 +594,24 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     add.textContent = '＋ 加一個小隊'
     // 【滿了就禁用，不是點了沒反應】看起來可點卻沒反應才是真的壞掉
     add.disabled = list.length >= MAX_FLIGHTS || flightsTotal(list) >= MAX_SIDE
-    add.addEventListener('click', () => {
-      paletteOpen[team] = !paletteOpen[team]
-      renderSetup(setup)
-    })
+    add.addEventListener('click', () => openPlanePick(setup, team))
     host.appendChild(add)
+  }
 
-    const pal = document.createElement('div')
-    pal.className = 'palette'
-    pal.hidden = !paletteOpen[team] || add.disabled
+  /**
+   * 「加一個小隊」的機種彈窗。點一架就加進那一側並收起來。
+   *
+   * 【帶著開窗當下的 `setup`】彈窗開著的時候編組頁點不到，設定不會在這之間變
+   */
+  function openPlanePick(setup: SkirmishSetup, team: 'blue' | 'red'): void {
+    q('plane-pick-title').textContent = `${team === 'blue' ? '我方' : '敵方'}加一個小隊`
+    const list = q('plane-pick-list')
+    list.innerHTML = ''
     for (const spec of HANGAR_SPECS) {
       const b = document.createElement('button')
       b.className = 'plane'
-      // 【國家在前、類型在下】例如「盟軍 P-51」，類型排在下面。全名讓位給
-      // 這兩項 —— 選單是兩欄的窄卡，`North American P-51D Mustang` 在那裡
+      // 【國家在前、類型在下】例如「美軍 P-51D」，類型排在下面。全名讓位給
+      // 這兩項 —— 選單是三欄的窄卡，`North American P-51D Mustang` 在那裡
       // 一定折行
       const side = SIDE_OF[spec.id]
       b.innerHTML = `${silBadge(spec.id)}<div>`
@@ -615,13 +619,15 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
         + `${escapeHtml(shortName(spec))}</div>`
         + `<div class="st">${ROLE_WORD[spec.role]}　${strengthOf(spec.id)}</div></div>`
       b.addEventListener('click', () => {
-        paletteOpen[team] = false
+        closeOverlay(planePick)
         hooks.onSetup(addFlight(setup, team, spec.id))
       })
-      pal.appendChild(b)
+      list.appendChild(b)
     }
-    host.appendChild(pal)
+    openOverlay(planePick)
   }
+  // 【點遮罩收起來】只認點在遮罩本身，點到框裡的東西不算
+  planePick.addEventListener('click', (e) => { if (e.target === planePick) closeOverlay(planePick) })
 
   function renderVersus(setup: SkirmishSetup): void {
     const m = flightsTotal(setup.blue)

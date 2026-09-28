@@ -302,8 +302,10 @@
       .flight.lead .btn { color: #2f271c; background: #cfc09b; border-color: #8d7c56; box-shadow: none; }
       .flight .rm { color: #c98a78; border-color: #6b4a3f; }
       .flight.lead .rm { color: var(--go-bg); border-color: #a08066; }
-      .palette { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
-      .palette[hidden] { display: none; }
+      /* 機種選單的彈窗：九架排成三乘三 */
+      .ask.pick { align-items: stretch; }
+      .ask.pick h2, .ask.pick .row { align-self: center; }
+      .palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
       .plane { display: grid; grid-template-columns: 68px 1fr; gap: 9px; align-items: center;
         padding: 7px 9px; text-align: left; background: #2a2219; border: 1px solid var(--bd); }
       .plane:hover { border-color: var(--sel); background: #342c20; }
@@ -567,7 +569,12 @@
         .flight .nm .full { display: none; }
         .flight .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .flight > div { min-width: 0; }
+        .ask.pick { width: calc(100vw - 24px); box-sizing: border-box; }
         .palette { gap: 5px; }
+        .plane { grid-template-columns: 51px 1fr; gap: 6px; padding: 5px 7px; }
+        .plane .sil { zoom: .75; }
+        .plane > div { min-width: 0; }
+        .plane .nm, .plane .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .versus { padding-top: 34px; gap: 6px; }
         .versus .bar { height: 120px; }
         .versus .odds { font-size: 10px; white-space: nowrap; }
@@ -831,6 +838,15 @@
           <h2 id="tut-title"></h2>
           <ol id="tut-panels" class="tut-panels"></ol>
           <button class="go" data-act="tutorialOk">了　解</button>
+        </div>
+      </section>
+      <!-- 編組頁「加一個小隊」的機種選單。overlay，menu.ts 自己開關；
+           點外面的遮罩也會收起來 -->
+      <section id="plane-pick" class="screen" style="--v:.60" hidden>
+        <div class="ask pick">
+          <h2 id="plane-pick-title"></h2>
+          <div class="palette" id="plane-pick-list"></div>
+          <div class="row"><button class="btn" data-act="planePickCancel">取　消</button></div>
         </div>
       </section>
       <!-- 回主選單的確認。遭遇戰的出口，與放棄任務同一類 -->

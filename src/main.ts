@@ -3477,7 +3477,7 @@ const BACK_ACTS = new Set(['back', 'toSetup', 'toMission', 'toMenu'])
 /** 收起 overlay 的那幾顆：暫停、確認框、設定、教學卡 */
 const CLOSE_ACTS = new Set([
   'resume', 'tutorialOk', 'restartNo', 'abandonNo', 'toMenuNo',
-  'settingsCancel', 'reloadNo',
+  'settingsCancel', 'reloadNo', 'planePickCancel',
 ])
 
 /** `data-act` → 要播哪一支。認不得的一律一般按鈕 */
