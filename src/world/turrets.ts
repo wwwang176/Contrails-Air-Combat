@@ -1,12 +1,12 @@
 import { Vector3, Quaternion } from 'three'
 import { DEG } from '../core/math'
-import { BURST_ON, resetBurst, stepBurst } from '../weapons/burst'
+import { BURST_ON, resetBurst, stepGunnerBurst } from '../weapons/burst'
 import { stepCadence } from '../weapons/cadence'
 import {
   applyWobble, GOLDEN, inArc, MAX_TURRETS, slew, turretMuzzle,
   TURRET_DAMAGE_SCALE, wobbleBasis, wobblePhase,
 } from '../weapons/turret'
-import type { BurstCycle } from '../weapons/burst'
+import type { RandomBurstCycle } from '../weapons/burst'
 import { NO_INTERCEPT, solveLead } from './lead'
 import { PROJECTILE_LIFETIME } from './Projectiles'
 import { losBlocked, type LandField } from './occlusion'
@@ -37,10 +37,9 @@ export interface TurretCombatant {
 }
 
 /**
- * 【點放的三個欄位在 `weapons/burst.ts`】那一份實作與 AI 戰鬥機的扳機共用
- * —— AI 的戰鬥機與轟炸機的機槍用同一套冷卻。
+ * 【點放的欄位在 `weapons/burst.ts`】那一份實作與 AI 戰鬥機的扳機共用。
  */
-export interface TurretState extends BurstCycle {
+export interface TurretState extends RandomBurstCycle {
   /** 目前指向，**機體座標**單位向量。初始 = spec 的 `axis`。 */
   aim: Vector3
   /** 搖晃相位。 */
@@ -79,13 +78,9 @@ export interface TurretState extends BurstCycle {
 export const WOBBLE_AMPLITUDE = 3.0 * DEG
 /** 搖晃頻率，rad/s。**起始值。** 週期 1.4 秒。 */
 export const WOBBLE_OMEGA = 2 * Math.PI * 0.7
-/**
- * 【點放的三個常數與兩支函數搬去 `weapons/burst.ts`】那一份實作現在與
- * AI 戰鬥機的扳機共用。**這裡照原名 re-export** —— 四支測試與一支探針
- * 都是從這個模組 import 的，搬家不該讓它們改一個字。
- */
+/** 點放的常數與推進函數在 `weapons/burst.ts`，這裡 re-export 給測試與探針。 */
 export {
-  BURST_ON, BURST_OFF, BURST_SCATTER, stepBurst, type BurstCycle,
+  BURST_ON, BURST_OFF, BURST_SCATTER, stepGunnerBurst, type BurstCycle,
 } from '../weapons/burst'
 /**
  * 開火門檻角，rad。**追瞄誤差**的門檻，與搖晃無關 —— 搖晃作用在射出去的
@@ -122,7 +117,7 @@ export function createTurretStates(
     out.push({
       aim: spec.turrets[i]!.axis.clone(),
       phase: 0, targetIndex: -1, targetShip: -1, targetGun: -1, searchCooldown: 0,
-      burstFiring: true, burstTimer: BURST_ON, burstScale: 1,
+      burstFiring: true, burstTimer: BURST_ON, burstScale: 1, burstDraw: 0, burstLength: BURST_ON,
       flash: 0, lastBarrel: 0,
     })
   }
@@ -167,6 +162,9 @@ export function resetTurretStates(
      * 的 `searchCooldown`，另外兩條在 `resetBurst` 裡。
      */
     resetBurst(s, k)
+    // 抽樣序號歸零 —— 重開一場要抽到同一串開火段，逐位元重播才成立
+    s.burstDraw = 0
+    s.burstLength = BURST_ON * s.burstScale
     s.flash = 0
     s.lastBarrel = 0
   }
@@ -231,7 +229,7 @@ export function stepTurrets(
   for (let i = 0; i < turrets.length; i++) {
     const t = turrets[i]!
     const s = c.turretStates[i]!
-    const firingWindow = stepBurst(s, dt)
+    const firingWindow = stepGunnerBurst(s, dt, c.index * MAX_TURRETS + i)
 
     // 槍口的世界位置。**預瞄要從這裡解，不是從重心** —— B-17 的尾砲塔
     // 離重心 16 m，300 m 尾追時方向誤差可達數度，大於 2° 的開火門檻。

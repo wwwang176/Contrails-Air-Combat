@@ -1,7 +1,7 @@
 import { Quaternion, Vector3 } from 'three'
 import { boundingRadius, type Box } from './hit'
 import { SHIP_AA_ZONES, type ShipAAZone } from './shipAA'
-import type { BurstCycle } from '../weapons/burst'
+import type { RandomBurstCycle } from '../weapons/burst'
 import type { ShipGunSpec } from './shipGuns'
 import type { StrikeTarget } from './strikeTarget'
 import type { Team } from './World'
@@ -90,7 +90,7 @@ export interface ShipClass {
  * 才寫得出 `Ship.guns`，而 `shipGuns.ts` 又要 import `Ship` —— 循環。
  * 資料模組不認識行為模組，方向就只有一個。
  */
-export interface ShipGun extends BurstCycle {
+export interface ShipGun extends RandomBurstCycle {
   readonly zone: ShipAAZone
   /**
    * 這一門砲的規格。**掛在砲身上而不是查層別的表** —— 陸上的 88 mm 與艦上
