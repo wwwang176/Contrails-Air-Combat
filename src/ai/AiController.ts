@@ -7,7 +7,7 @@ import {
   createRuleState, stepRules, DEFAULT_RULES, type Intent, type RuleConfig,
 } from './rules'
 import {
-  buildEngageBasis, createBandState, createDefendState, createEngageBasis, createTrackState,
+  buildEngageBasis, clearBandPerch, createBandState, createDefendState, createEngageBasis, createTrackState,
   engageKnobs, redlineDiveIas, stepBand,
   geometryGate, shrinkTowardNose, stepDefend, stepExtendSide, steerCommand, stepTrack,
   DEFAULT_STEER, type Knobs, type SteerMode,
@@ -258,8 +258,8 @@ export class AiController implements Controller {
    * 該點的海面高度，m。**不含地形。**
    *
    * 【為什麼地形不寫進這裡】它還被 stationPoint、stationCommand、
-   * tacticalCommand、steerCommand 讀。把「前方山高」寫進來，整套站位與
-   * 戰術層會以為地板抬高了，僚機會莫名其妙爬升。地形只在 emit 裡合成一個
+   * steerCommand 讀。把「前方山高」寫進來，整套站位與操舵會以為地板
+   * 抬高了，僚機會莫名其妙爬升。地形只在 emit 裡合成一個
    * 局部值餵給安全層。
    */
   seaHeight = 0
@@ -635,6 +635,21 @@ export class AiController implements Controller {
     this.recoveryTrialActive = false
     this.groundReleaseGate.safeSince = -1
     this.groundReleaseGate.sequence = -1
+    this.resetBand()
+  }
+
+  /**
+   * 放掉空層鎖，連同它記住要回去的高度（`band.perch`）。
+   *
+   * 【跨場與重開一場都要】`playerAi` 跨場重用，`resetBattle` 也沿用原本的
+   * 控制器，而重開之後的目標常常是同一架飛機 —— 「換目標就清」擋不住。
+   * 留著的話開場第一次上鎖就會去爬上一場記下的那一層。
+   */
+  resetBand(): void {
+    this.band.kind = 'off'
+    this.band.hold = 0
+    clearBandPerch(this.band)
+    this.bandTarget = null
   }
 
   /** 地形感知的結果與鎖存狀態 */
@@ -834,7 +849,7 @@ export class AiController implements Controller {
   /**
    * 意圖仲裁的設定。**掃描與消融換這個欄位，不要改 `DEFAULT_RULES`** ——
    * 那是模組層級的共用物件，改它會讓同一支測試裡的兩檔互相污染，而且逼
-   * 所有用到它的測試必須串行。與 `tacticalConfig` 同一個手法。
+   * 所有用到它的測試必須串行。
    */
   rulesConfig: RuleConfig = DEFAULT_RULES
   /**
@@ -853,6 +868,8 @@ export class AiController implements Controller {
    * 「進入那一刻的高度」必須由持有狀態的這一層記。
    */
   readonly band = createBandState()
+  /** `band.perch` 是對哪一個目標記的 */
+  private bandTarget: Aircraft | null = null
   private readonly knobs: Knobs = { leadLag: 1, vertical: 0, diveIas: 0 }
   private readonly wingmanState = createWingmanState()
   private readonly station = new Vector3()
@@ -1075,6 +1092,8 @@ export class AiController implements Controller {
     if (this.bombBay !== null && this.priorityGroundUnit === null && !this.evacuating
       && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
+      // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後
+      this.resetBand()
       this.emit(self, dt, out)
       return
     }
@@ -1094,6 +1113,7 @@ export class AiController implements Controller {
       stepTrack(this.track, 0, 0, false, dt)
       this.band.kind = 'off'
       this.band.hold = 0
+      clearBandPerch(this.band)
       this.intent = 'approach'
       this.mode = 'normal'
       this.emit(self, dt, out)
@@ -1106,6 +1126,7 @@ export class AiController implements Controller {
       stepTrack(this.track, 0, 0, false, dt)
       this.band.kind = 'off'
       this.band.hold = 0
+      clearBandPerch(this.band)
       this.intent = 'approach'
       this.mode = 'normal'
       this.emit(self, dt, out)
@@ -1123,6 +1144,7 @@ export class AiController implements Controller {
       // 鎖會帶著上一個目標的高度一路殘留到下一次接敵。
       this.band.kind = 'off'
       this.band.hold = 0
+      clearBandPerch(this.band)
 
       if (!this.evacuating && this.strafeGround(self, decide, raw)) {
         // 【地面目標排在站位之前】理由見 `strafeGround`。`raw` 已經寫滿
@@ -1347,17 +1369,23 @@ export class AiController implements Controller {
     stepTrack(this.track, this.sit.trackRatio, this.sit.losRate, true, dt)
     // 【與 stepDefend 同一個位階】鎖住的高度是跨格記憶。`active` 只在攻擊意圖下
     // 成立 —— 見 `stepBand` 的 `@param active`。
+    //
+    // 【換目標就忘掉要回去的高度】那一層是對上一個目標記的。正在回升的話連鎖
+    // 一起放掉 —— 回升的基準是 `anchor`，只清記憶的話它照樣往上一個目標的
+    // 那一層爬
+    if (target !== this.bandTarget) {
+      if (this.band.kind === 'regain') {
+        this.band.kind = 'off'
+        this.band.hold = 0
+      }
+      clearBandPerch(this.band)
+      this.bandTarget = target
+    }
     stepBand(
       this.band,
       this.intent === 'engage' || this.intent === 'approach' || this.intent === 'merge',
-      this.sit, this.basis, self,
+      this.sit, this.basis, self, dt,
     )
-    // 【三個相位是主要的瞄準解，不是 `steerCommand` 尾端的偏置】那個位階已經
-    // 有一個 `sweetPitch`，它會繞過 `pullCeiling`、抵消 `speedRecover`、疊在
-    // 破防軸上。再加一個同位階的後處理器會讓那個問題更嚴重。
-    //
-    // 【`dive` 與 `cooldown` 不在這裡】它們覆寫的是**意圖**（engage 與
-    // extend），走的仍然是 `steerCommand`。
     steerCommand(
       this.intent, mode, this.sit, this.basis, self, this.seaHeight,
       this.knobs, this.defend,
@@ -1486,6 +1514,7 @@ export class AiController implements Controller {
       }
       this.safetyAction = 'ground'
     }
+    if (this.band.kind === 'regain') this.tacticalPhase = '回升'
     if (this.groundStrafeActive) {
       if (this.groundStrafe.phase === 'egress') this.tacticalPhase = '對地離場'
       else if (out.firing) this.tacticalPhase = '對地射擊'

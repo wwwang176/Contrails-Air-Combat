@@ -851,6 +851,27 @@ export interface SteerConfig {
   bandDiveGap: number
   /** 俯衝迴轉往下放幾公尺。不會低於敵人所在的高度。 */
   bandDiveDrop: number
+  /**
+   * 攻擊前至少比敵人高幾公尺，打完才爬回那一層（`regain`），m。
+   *
+   * 【低於它就不回去】差距小的話那一層本來就算不上優勢，爬回去只是白花速度。
+   */
+  bandRegainGap: number
+  /**
+   * 回升的時間上限，s，一次回升內累計。
+   *
+   * 【爬不上去就算了】回升是「有機會就回去」，不是「回不去就不打」。沒有這個
+   * 上限的話，爬得慢的飛機會一直在爬、一直不接敵。
+   */
+  bandRegainMax: number
+  /**
+   * 回升的俯仰上界，rad。取代 `bandMaxPitch`（20°）。
+   *
+   * 【為什麼要陡】回升靠的是俯衝攢下的速度。用 20° 慢慢爬，速度大半被阻力
+   * 吃掉，時間上限到了還差一截；陡拉把速度直接換成高度。速度真的見底時
+   * `speedRecover` 與 `extendFloorLatch` 會接手壓機頭。
+   */
+  bandRegainPitch: number
 }
 
 /**
@@ -1005,6 +1026,10 @@ export const DEFAULT_STEER: SteerConfig = {
   bandZoomGain: 400,
   bandDiveGap: 1200,
   bandDiveDrop: 400,
+  // 起始值，由試飛裁定
+  bandRegainGap: 300,
+  bandRegainMax: 20,
+  bandRegainPitch: 35 * (Math.PI / 180),
 }
 
 /**
@@ -1152,7 +1177,7 @@ export function repositionKnobs(
 /**
  * 空層鎖選中的走法。`off` = 沒鎖，完全交給追擊。
  */
-export type BandKind = 'off' | 'level' | 'zoom' | 'dive'
+export type BandKind = 'off' | 'level' | 'zoom' | 'dive' | 'regain'
 
 /**
  * 空層鎖自己的跨格狀態。與 `DefendState` 同一個位階 —— 由呼叫端持有、
@@ -1189,10 +1214,26 @@ export interface BandState {
    * 分開存是因為兩者的生命週期不同（那個跟著 extend 的進出走）。
    */
   side: number
+  /**
+   * 打完一擊要回去的高度，m。`NaN` = 沒有。
+   *
+   * 鎖因攻擊放開的那一刻記下 `anchor`（開始往下接敵之前的那一層），下一次
+   * 上鎖時走 `regain` 爬回來。**換目標或鎖被外部歸零時要清掉**（`clearBandPerch`）
+   * —— 留著的話 AI 會為了上一個目標的高度去爬。
+   */
+  perch: number
+  /** 這一次回升累計了幾秒。到 `bandRegainMax` 就放棄 */
+  regainTime: number
 }
 
 export function createBandState(): BandState {
-  return { kind: 'off', altitude: 0, anchor: 0, hold: 0, side: 1 }
+  return { kind: 'off', altitude: 0, anchor: 0, hold: 0, side: 1, perch: NaN, regainTime: 0 }
+}
+
+/** 忘掉要回去的高度。換目標、沒有目標、走地面或對艦路徑時呼叫 */
+export function clearBandPerch(state: BandState): void {
+  state.perch = NaN
+  state.regainTime = 0
 }
 
 /**
@@ -1268,6 +1309,7 @@ function zoomAffordable(sit: Situation, self: Aircraft, cfg: SteerConfig): boole
  *
  * @param active 現在是不是**攻擊階段**。`extend` 與 `defend` 有自己的高度邏輯，
  *               鎖要在那兩個意圖下退出 —— 不然脫離完回來會拿到一個幾十秒前的高度。
+ * @param dt     這一步的秒數。回升的時間上限用它累計。
  */
 export function stepBand(
   state: BandState,
@@ -1275,11 +1317,35 @@ export function stepBand(
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
+  dt: number,
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
-  const hold = active ? bandHold(sit, basis, cfg) : 0
+  const alt = self.state.position.y
+  let hold = active ? bandHold(sit, basis, cfg) : 0
+  // 【打完一擊、目標甩到機鼻 45° 外：不讓位，直接回升】讓位閘只看攔截時間，
+  // 交會之後目標還在近距離時它仍然說「打得到」，AI 於是跟著回頭追 —— 靶機
+  // 情境裡那一下俯衝反轉從 2,100 m 掉到 1,063 m，速度與高度一起丟光，回升
+  // 再也爬不回去。目標在機鼻前方時照舊讓位，射擊機會優先
+  if (active && state.perch > alt + cfg.bandTolerance) {
+    const wide = smoothstep(cfg.bandAspectEnter, cfg.bandAspectFull, sit.aspectAngle)
+    if (wide > hold) hold = wide
+  }
   state.hold = hold
   if (hold <= 0) {
+    // 【鎖因攻擊放開：記住開始接敵之前的那一層】`active` 為真、上一步還鎖著、
+    // 力道歸零，是目標進了射程（見 `bandHold` 的讓位閘）。**讓位閘不看方位**
+    // —— 擦身而過、目標在正後方時它一樣放開，所以另外要求目標在機鼻 45° 內，
+    // 才算一次攻擊。因為 extend／defend 放開的不記。回升中又攻擊時 `perch`
+    // 已經是那一層，不動。轟炸機不記：它的航路另有 `strikeRun`
+    if (
+      active && state.kind !== 'off' && state.kind !== 'regain'
+      && self.spec.role === 'fighter'
+      && sit.aspectAngle < cfg.bandAspectEnter
+      && state.anchor - sit.chaseAlt >= cfg.bandRegainGap
+    ) {
+      state.perch = state.anchor
+      state.regainTime = 0
+    }
     state.kind = 'off'
     return
   }
@@ -1289,9 +1355,25 @@ export function stepBand(
   if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
   // 【已經鎖住就不重挑走法】見 `BandState` 的註解 —— 但基準夾制（下方）
   // 每步都要重算，所以不能在這裡 return。
+  // 【回升到了、或時間用完：放掉，照一般的走法】到了的話 `anchor` 仍是那一層，
+  // 敵人在下方時下一段接敵就從這裡開始往下；逾時的話 `anchor` 改成現在的高度
+  if (state.kind === 'regain') {
+    state.regainTime += dt
+    if (alt >= state.anchor - cfg.bandTolerance) {
+      state.kind = 'level'
+      clearBandPerch(state)
+    } else if (state.regainTime >= cfg.bandRegainMax) {
+      state.kind = 'level'
+      state.anchor = alt
+      clearBandPerch(state)
+    }
+  }
   if (state.kind === 'off') {
-    const alt = self.state.position.y
-    if (sit.altitudeAdvantage > cfg.bandDiveGap) {
+    // 【打完一擊先回去】要回去的那一層比現在高才走回升；已經在那一層就不必
+    if (state.perch > alt + cfg.bandTolerance) {
+      state.kind = 'regain'
+      state.anchor = state.perch
+    } else if (sit.altitudeAdvantage > cfg.bandDiveGap) {
       state.kind = 'dive'
       // 【不會低於敵人】俯衝迴轉是把**多餘的**高度換成速度，不是把優勢
       // 丟掉。兩項設定目前不可能讓這一行生效（Drop 400 < Gap 1200），但
@@ -1321,7 +1403,10 @@ export function stepBand(
   //   敵人在下方時動態貼著他（他降我降、他爬回來最多回到 anchor）。
   //   俯衝走法的 anchor 在敵人低於它時同樣被貼下去 —— 與本設計一致，
   //   「多留一段優勢」讓位給「下去接戰」。
-  state.altitude = state.anchor < sit.chaseAlt ? state.anchor : sit.chaseAlt
+  //
+  // 【回升不貼敵】打完一擊正要回到那一層，貼著下方的敵人的話回升永遠不會發生
+  state.altitude = state.kind === 'regain' || state.anchor < sit.chaseAlt
+    ? state.anchor : sit.chaseAlt
 }
 
 /**
@@ -2037,7 +2122,8 @@ export function steerCommand(
     && (intent === 'engage' || intent === 'approach' || intent === 'merge')
   ) {
     applyPitchToward(
-      bandError(band.altitude - self.state.position.y, cfg) * cfg.bandMaxPitch,
+      bandError(band.altitude - self.state.position.y, cfg)
+        * (band.kind === 'regain' ? cfg.bandRegainPitch : cfg.bandMaxPitch),
       band.hold, out.aimWorld,
     )
   }
