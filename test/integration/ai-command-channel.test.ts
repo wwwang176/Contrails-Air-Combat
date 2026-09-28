@@ -35,7 +35,7 @@ interface Observed {
   arrived: number
   /** 命令期間，安全層的撞地接管取樣數 */
   groundUnderOrder: number
-  /** 任何飛機掉到安全層 clearance 以下的取樣數 */
+  /** 任何 AI 飛機掉到安全層 clearance 以下的取樣數 */
   belowClearance: number
   /** 有命令的（飛機 × 取樣）數 */
   orderedSamples: number
@@ -78,9 +78,12 @@ function observe(commanders = true): Observed {
 
     for (const c of b.world.combatants) {
       if (!c.alive) continue
-      if (c.aircraft.state.position.y < recoveryClearance(c.aircraft.spec)) o.belowClearance++
       const ai = c.controller
-      if (!(ai instanceof AiController) || ai.order === null) continue
+      // 【只計 AI】安全層只接在 AI 身上；玩家席放的是什麼都不做的 `Idle`，
+      // 它能不能活到飛進海裡只看 AI 有沒有先把它打下來
+      if (!(ai instanceof AiController)) continue
+      if (c.aircraft.state.position.y < recoveryClearance(c.aircraft.spec)) o.belowClearance++
+      if (ai.order === null) continue
       o.orderedSamples++
       if (ai.safetyAction === 'ground') o.groundUnderOrder++
     }
@@ -120,7 +123,7 @@ describe('指令通道（20v20、300 秒）', () => {
     expect(o.groundUnderOrder).toBe(0)
   })
 
-  it('沒有飛機掉到安全層的 clearance 以下', () => {
+  it('沒有 AI 飛機掉到安全層的 clearance 以下', () => {
     expect(o.belowClearance).toBe(0)
   })
 }, 10 * 60 * 1000)

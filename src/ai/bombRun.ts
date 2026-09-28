@@ -3,7 +3,7 @@ import { makeScratch } from '../core/pool'
 import { DEG, G0 } from '../core/math'
 import { solveImpact, type BombState, type Impact } from '../world/bomb'
 import {
-  bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, maxRollRate,
+  bestSustainedTurnRadiusCached, bestSustainedTurnRateCached, bestSustainedTurnSpeedCached, maxRollRate,
 } from '../analysis/envelope'
 import type { Aircraft } from '../aircraft/Aircraft'
 import { EGRESS_TURNS, type StrikeProfile } from './strikeRun'
@@ -271,19 +271,16 @@ let solveDt = 1 / 240
  * 【為什麼是持續而不是瞬間】掉頭是一個 180° 的迴轉，撐不住的過載換不到
  * 那一整圈。
  *
- * 【為什麼是最佳而不是當下速度的】接近極速時多餘功率趨近 0，持續迴旋半徑
- * 暴增：He 111 在 1,500 m，80／95／105／110 m/s 是 559／924／2,007／0 m。
- * 轟炸機投彈時開著 WEP、正好在那一段，拿它當尺的話同一架這一趟拉 1.9 km、
- * 下一趟拉 7 km。最佳持續迴旋只隨機種與高度變 —— 1,500 m：B-17G 281 m、
- * He 111 353 m、G4M 263 m。
+ * 【為什麼是最佳而不是當下速度的】見 `bestSustainedTurnRadiusCached`。轟炸機
+ * 投彈時開著 WEP、正好在持續迴旋半徑暴增的那一段，拿當下速度的半徑當尺的話
+ * 同一架這一趟拉 1.9 km、下一趟拉 7 km。1,500 m：B-17G 281 m、He 111 353 m、
+ * G4M 263 m。
  *
  * 【退化時回 0】表裡沒有解（升限之上）時脫離距離退化成只有 `lockRange`。
  * 那已經是一個安全的下限（進得了場）。熱路徑（決策拍）：查表，不配置。
  */
 export function bestTurnRadius(self: Aircraft): number {
-  const h = self.state.position.y
-  const omega = bestSustainedTurnRateCached(self.spec, h)
-  return omega > 0 ? bestSustainedTurnSpeedCached(self.spec, h) / omega : 0
+  return bestSustainedTurnRadiusCached(self.spec, self.state.position.y)
 }
 
 /**
