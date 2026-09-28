@@ -631,6 +631,11 @@ export interface SteerConfig {
    * 也就是**完全不管敵人在上面還是下面**。
    */
   altitudeGapScale: number
+  /**
+   * `extend` 的高度項從 `cornerRatio` 多少開始放行（到 `unloadMargin` 全開）。
+   * 見 `extendPitchAngle` 的 `gapDeficit`。
+   */
+  extendClimbFrom: number
   /** defend 的偏轉角，rad */
   defendOffset: number
   /**
@@ -851,6 +856,58 @@ export interface SteerConfig {
   bandDiveGap: number
   /** 俯衝迴轉往下放幾公尺。不會低於敵人所在的高度。 */
   bandDiveDrop: number
+  /**
+   * 攻擊前至少比敵人高幾公尺，打完才爬回那一層（`regain`），m。
+   *
+   * 【低於它就不回去】差距小的話那一層本來就算不上優勢，爬回去只是白花速度。
+   */
+  bandRegainGap: number
+  /**
+   * 回升的時間上限，s，一次回升內累計。
+   *
+   * 【爬不上去就算了】回升是「有機會就回去」，不是「回不去就不打」。沒有這個
+   * 上限的話，爬得慢的飛機會一直在爬、一直不接敵。
+   */
+  bandRegainMax: number
+  /**
+   * 回升的俯仰上界，rad。取代 `bandMaxPitch`（20°）。
+   *
+   * 【為什麼要陡】回升靠的是俯衝攢下的速度。用 20° 慢慢爬，速度大半被阻力
+   * 吃掉，時間上限到了還差一截；陡拉把速度直接換成高度。速度真的見底時
+   * `speedRecover` 與 `extendFloorLatch` 會接手壓機頭。
+   */
+  bandRegainPitch: number
+  /**
+   * 目標拉開到自己射程的這麼多倍以外、而且還在拉開，就放棄回升改去追。
+   * 射程 = 瞄準用武器的初速 × 彈丸壽命（P-51 的 .50 約 1.06 km）。
+   *
+   * 【為什麼要有】回升要花十幾秒，目標若不打算回頭纏鬥，這段時間他會一直
+   * 跑。比自己慢的目標回升完還追得回來，但要晚很久；一樣快或更快的目標就
+   * 再也追不回射程。
+   *
+   * 【為什麼是射程的倍數】「他跑掉了沒」是相對自己打得多遠而言：初速慢的
+   * 機砲射程短，同樣 3 km 對它是四倍射程、對 .50 只有三倍。
+   */
+  bandRegainEscape: number
+  /**
+   * 上膛時我方要在目標機尾這個夾角以內，那一趟通過才算「飛過頭」，rad。
+   * `0` 關掉整層（`stepAirPass`）。
+   */
+  airPassMaxAot: number
+  /**
+   * 自己的空速至少要是目標的這麼多倍，飛過頭才往上拉。速度差不多時往哪裡拉
+   * 都一直待在他前面，那是送到他槍口下。
+   */
+  airPassSpeedRatio: number
+  /** 飛過頭之後往上拉多少，m。回升的目標高度 = 飛過頭那一刻的高度加這個 */
+  airPassZoom: number
+  /**
+   * 追蹤比（視線角速度 ÷ 自己的瞬時轉彎率）到這個值就往上拉，不等飛過頭。
+   * 1 = 機鼻已經跟不上他的轉彎。
+   */
+  airPassTrackRatio: number
+  /** 預估再幾秒就撞上（距離 ÷ 接近速度）就先往上拉，s */
+  airPassLead: number
 }
 
 /**
@@ -913,6 +970,8 @@ export const DEFAULT_STEER: SteerConfig = {
   pitchAltitudeGain: 2 * EXTEND_PITCH,
   clearanceScale: 500,
   altitudeGapScale: ALTITUDE_GAP_SCALE,
+  // 起始值，由試飛裁定
+  extendClimbFrom: 0.85,
   defendOffset: 75 * (Math.PI / 180),
   // ## defendTilt 的定值
   //
@@ -1005,6 +1064,16 @@ export const DEFAULT_STEER: SteerConfig = {
   bandZoomGain: 400,
   bandDiveGap: 1200,
   bandDiveDrop: 400,
+  // 起始值，由試飛裁定
+  bandRegainGap: 300,
+  bandRegainMax: 20,
+  bandRegainPitch: 35 * (Math.PI / 180),
+  bandRegainEscape: 2,
+  airPassMaxAot: 120 * (Math.PI / 180),
+  airPassSpeedRatio: 1.1,
+  airPassZoom: 600,
+  airPassTrackRatio: 1,
+  airPassLead: 3,
 }
 
 /**
@@ -1152,7 +1221,7 @@ export function repositionKnobs(
 /**
  * 空層鎖選中的走法。`off` = 沒鎖，完全交給追擊。
  */
-export type BandKind = 'off' | 'level' | 'zoom' | 'dive'
+export type BandKind = 'off' | 'level' | 'zoom' | 'dive' | 'regain'
 
 /**
  * 空層鎖自己的跨格狀態。與 `DefendState` 同一個位階 —— 由呼叫端持有、
@@ -1189,10 +1258,113 @@ export interface BandState {
    * 分開存是因為兩者的生命週期不同（那個跟著 extend 的進出走）。
    */
   side: number
+  /**
+   * 打完一擊要回去的高度，m。`NaN` = 沒有。
+   *
+   * 鎖因攻擊放開的那一刻記下 `anchor`（開始往下接敵之前的那一層），下一次
+   * 上鎖時走 `regain` 爬回來。**換目標或鎖被外部歸零時要清掉**（`clearBandPerch`）
+   * —— 留著的話 AI 會為了上一個目標的高度去爬。
+   */
+  perch: number
+  /** 這一次回升累計了幾秒。到 `bandRegainMax` 就放棄 */
+  regainTime: number
+  /**
+   * 這一次回升由 `stepAirPass` 設下：目標在機鼻前方也不讓位，直接拉。
+   *
+   * 【為什麼與打完一擊的回升不同】那一種讓位給機鼻前方的射擊機會；這一種是
+   * 因為飛過頭或機鼻跟不上他才拉的 —— 他在前方也打不到，讓位的話就是繼續
+   * 跟著他平轉。
+   */
+  forced: boolean
 }
 
 export function createBandState(): BandState {
-  return { kind: 'off', altitude: 0, anchor: 0, hold: 0, side: 1 }
+  return {
+    kind: 'off', altitude: 0, anchor: 0, hold: 0, side: 1, perch: NaN, regainTime: 0, forced: false,
+  }
+}
+
+/** 忘掉要回去的高度。換目標、沒有目標、走地面或對艦路徑時呼叫 */
+export function clearBandPerch(state: BandState): void {
+  state.perch = NaN
+  state.regainTime = 0
+  state.forced = false
+}
+
+/**
+ * 空戰那一趟通過的跨格狀態：從後方追上、進了射程（上膛）之後有沒有飛過去。
+ * `target` 用物件身分防止換目標時沿用上一趟。
+ */
+export interface AirPassState {
+  armed: boolean
+  target: Aircraft | null
+}
+
+export function createAirPassState(): AirPassState {
+  return { armed: false, target: null }
+}
+
+export function resetAirPass(state: AirPassState): void {
+  state.armed = false
+  state.target = null
+}
+
+/**
+ * 即將飛過頭、或目標急轉到機鼻跟不上，就往上拉：從目標後半球追上、上膛之後，
+ * 只要預估 `airPassLead` 秒內撞上（或已經飛過去）、或追蹤比到
+ * `airPassTrackRatio`，就把回升的高度設成現在的高度加 `airPassZoom`，交給空層鎖
+ * 的回升（`stepBand` 的 regain）拉起來，之後從上方再打。
+ *
+ * 【跟不上就別跟著平轉】目標急轉時比他快的一方跟著在水平面裡轉，只會把速度
+ * 轉光：靶機以 25°/s 急轉的情境裡 AI 跟轉 17 秒，650 → 428 km/h，接著為了補
+ * 速度俯衝掉 380 m。往上拉（高 yo-yo）跳出他的轉彎平面，速度換成高度留著。
+ *
+ * 【為什麼是往上而不是平飛拉開】比目標快的一方追上之後留在原地修正，一對準
+ * 就過頭，只能在目標周圍幾百公尺內繞圈。平飛拉開又要比他快很多才拉得開 ——
+ * 快三成、每秒也只拉開 36 m，十秒後掉頭仍然是近身纏鬥。往上拉把多出來的速度
+ * 直接換成高度，同時離開他的射擊平面。
+ *
+ * @param range 到目標的距離，m
+ * @param closing 接近速度，m/s，正 = 在接近
+ * @param interceptTime 預瞄解的飛行時間，s
+ * @param aot 我方在目標機尾的夾角，rad（`Situation.angleOffTail`）
+ * @param trackRatio 視線角速度 ÷ 自己的瞬時轉彎率（`Situation.trackRatio`）
+ * @param allowed 准不准拉起：不是轉彎比對方好很多的一方、沒有在閃避或服從
+ *   命令、還沒有要回去的高度。速度夠不夠快（`airPassSpeedRatio`）在這裡面判。
+ *   不准時上膛照樣記，只是飛過之後不拉起
+ * @returns 這一步有沒有把回升的高度設下去
+ *
+ * 熱路徑：不配置。
+ */
+export function stepAirPass(
+  state: AirPassState, band: BandState, self: Aircraft, target: Aircraft,
+  range: number, closing: number, interceptTime: number, aot: number, trackRatio: number,
+  allowed: boolean, cfg: SteerConfig = DEFAULT_STEER,
+): boolean {
+  if (state.target !== target) {
+    state.armed = false
+    state.target = target
+  }
+  const reach = interceptTime !== NO_INTERCEPT && interceptTime <= PROJECTILE_LIFETIME
+  const wasArmed = state.armed
+  // 【迎頭交會不算】迎頭交會之後要平飛迴轉找敵人（空層鎖），從上方俯衝的
+  // 那一趟由鎖放開時記下的回升接手
+  if (reach && closing > 0 && aot < cfg.airPassMaxAot) state.armed = true
+  // 【即將撞上就拉，不等飛過去】還有幾秒撞上 = 距離 ÷ 接近速度。等到飛過去才
+  // 拉，那一刻已經在他前面了
+  const aboutToPass = closing <= 0 || range < cfg.airPassLead * closing
+  if (!wasArmed || (!aboutToPass && !(trackRatio >= cfg.airPassTrackRatio))) return false
+  state.armed = false
+  if (!allowed) return false
+  // 【快一點點不夠】速度差不多時，往哪裡拉都一直待在他前面 —— 實戰裡那就是
+  // 送到他槍口下。不夠快就不拉起，照原本的修正
+  const fast = self.state.velocity.lengthSq()
+    >= cfg.airPassSpeedRatio * cfg.airPassSpeedRatio * target.state.velocity.lengthSq()
+  if (!fast) return false
+  band.perch = self.state.position.y + cfg.airPassZoom
+  band.regainTime = 0
+  band.forced = true
+  return true
 }
 
 /**
@@ -1268,6 +1440,7 @@ function zoomAffordable(sit: Situation, self: Aircraft, cfg: SteerConfig): boole
  *
  * @param active 現在是不是**攻擊階段**。`extend` 與 `defend` 有自己的高度邏輯，
  *               鎖要在那兩個意圖下退出 —— 不然脫離完回來會拿到一個幾十秒前的高度。
+ * @param dt     這一步的秒數。回升的時間上限用它累計。
  */
 export function stepBand(
   state: BandState,
@@ -1275,11 +1448,59 @@ export function stepBand(
   sit: Situation,
   basis: EngageBasis,
   self: Aircraft,
+  dt: number,
   cfg: SteerConfig = DEFAULT_STEER,
 ): void {
-  const hold = active ? bandHold(sit, basis, cfg) : 0
+  const alt = self.state.position.y
+  // 【回到那一層就算完成，鎖不鎖著都一樣】排在所有早退之前 —— 到達那一步鎖
+  // 剛好放開、或被 extend 打斷期間爬到了，記憶都要清掉；留著的話之後下降時
+  // 沒有新的攻擊也會再爬回舊的那一層。回升中到達時 `anchor` 仍是那一層，敵人
+  // 在下方時下一段接敵就從這裡開始往下
+  if (alt >= state.perch - cfg.bandTolerance) {
+    if (state.kind === 'regain') state.kind = 'level'
+    clearBandPerch(state)
+  }
+  // 【他要跑掉了就別爬，先追】目標在自己射程的 `bandRegainEscape` 倍以外、而且
+  // 距離還在拉大：繼續回升只會讓他越跑越遠，最後追不回射程。`anchor` 改成現在
+  // 的高度，照常接敵。目標沒在跑（慢的轟炸機、正在轉彎纏鬥）時回升照舊。
+  // 射程與開火紀律同一把尺：彈丸壽命內飛得到的距離（`fire.ts`）
+  if (
+    Number.isFinite(state.perch) && sit.closureRate < 0
+    && sit.range > cfg.bandRegainEscape * self.spec.battery.sight.muzzleVelocity * PROJECTILE_LIFETIME
+  ) {
+    if (state.kind === 'regain') {
+      state.kind = 'level'
+      state.anchor = alt
+    }
+    clearBandPerch(state)
+  }
+  let hold = active ? bandHold(sit, basis, cfg) : 0
+  // 【打完一擊、目標甩到機鼻 45° 外：不讓位，直接回升】讓位閘只看攔截時間，
+  // 交會之後目標還在近距離時它仍然說「打得到」，AI 於是跟著回頭追 —— 靶機
+  // 情境裡那一下俯衝反轉從 2,100 m 掉到 1,063 m，速度與高度一起丟光，回升
+  // 再也爬不回去。目標在機鼻前方時照舊讓位，射擊機會優先 —— 除非這一次回升
+  // 是 `stepAirPass` 設的（`forced`），那時一律不讓位
+  if (active && state.perch > alt + cfg.bandTolerance) {
+    const wide = state.forced
+      ? 1 : smoothstep(cfg.bandAspectEnter, cfg.bandAspectFull, sit.aspectAngle)
+    if (wide > hold) hold = wide
+  }
   state.hold = hold
   if (hold <= 0) {
+    // 【鎖因攻擊放開：記住開始接敵之前的那一層】`active` 為真、上一步還鎖著、
+    // 力道歸零，是目標進了射程（見 `bandHold` 的讓位閘）。**讓位閘不看方位**
+    // —— 擦身而過、目標在正後方時它一樣放開，所以另外要求目標在機鼻 45° 內，
+    // 才算一次攻擊。因為 extend／defend 放開的不記。回升中又攻擊時 `perch`
+    // 已經是那一層，不動。轟炸機不記：它的航路另有 `strikeRun`
+    if (
+      active && state.kind !== 'off' && state.kind !== 'regain'
+      && self.spec.role === 'fighter'
+      && sit.aspectAngle < cfg.bandAspectEnter
+      && state.anchor - sit.chaseAlt >= cfg.bandRegainGap
+    ) {
+      state.perch = state.anchor
+      state.regainTime = 0
+    }
     state.kind = 'off'
     return
   }
@@ -1287,11 +1508,22 @@ export function stepBand(
   // 死區，沿用上一格 —— 理由見 `BandState.side`。
   const err = headingErrorTo(self, basis.losAxis)
   if (Math.abs(err) < Math.PI - EXTEND_SIDE_HOLD) state.side = err >= 0 ? 1 : -1
+  // 【往上拉設下的回升不等鎖放開】`stepAirPass` 可能在鎖還鎖著的時候觸發
+  // （上膛之後目標暫時出了射程、鎖重新上了）。只從 `off` 進回升的話，它會停在
+  // 舊的那一層、`forced` 把力道釘在 1，計時也不走 —— 既不拉也不解除
+  if (state.forced && state.kind !== 'regain' && state.kind !== 'off'
+    && state.perch > alt + cfg.bandTolerance) {
+    state.kind = 'regain'
+    state.anchor = state.perch
+  }
   // 【已經鎖住就不重挑走法】見 `BandState` 的註解 —— 但基準夾制（下方）
   // 每步都要重算，所以不能在這裡 return。
   if (state.kind === 'off') {
-    const alt = self.state.position.y
-    if (sit.altitudeAdvantage > cfg.bandDiveGap) {
+    // 【打完一擊先回去】要回去的那一層比現在高才走回升；已經在那一層就不必
+    if (state.perch > alt + cfg.bandTolerance) {
+      state.kind = 'regain'
+      state.anchor = state.perch
+    } else if (sit.altitudeAdvantage > cfg.bandDiveGap) {
       state.kind = 'dive'
       // 【不會低於敵人】俯衝迴轉是把**多餘的**高度換成速度，不是把優勢
       // 丟掉。兩項設定目前不可能讓這一行生效（Drop 400 < Gap 1200），但
@@ -1305,6 +1537,17 @@ export function stepBand(
     } else {
       state.kind = 'level'
       state.anchor = alt
+    }
+  }
+  // 【時間上限：每一個處在回升的步各算一次，進場那一步也算】只算「進場前已經
+  // 是回升」的步的話，鎖每步放開又重鎖時一步都不會累計，上限形同虛設。逾時
+  // 就放掉，`anchor` 改成現在的高度，照常接敵
+  if (state.kind === 'regain') {
+    state.regainTime += dt
+    if (state.regainTime >= cfg.bandRegainMax) {
+      state.kind = 'level'
+      state.anchor = alt
+      clearBandPerch(state)
     }
   }
 
@@ -1321,7 +1564,10 @@ export function stepBand(
   //   敵人在下方時動態貼著他（他降我降、他爬回來最多回到 anchor）。
   //   俯衝走法的 anchor 在敵人低於它時同樣被貼下去 —— 與本設計一致，
   //   「多留一段優勢」讓位給「下去接戰」。
-  state.altitude = state.anchor < sit.chaseAlt ? state.anchor : sit.chaseAlt
+  //
+  // 【回升不貼敵】打完一擊正要回到那一層，貼著下方的敵人的話回升永遠不會發生
+  state.altitude = state.kind === 'regain' || state.anchor < sit.chaseAlt
+    ? state.anchor : sit.chaseAlt
 }
 
 /**
@@ -1456,7 +1702,12 @@ export function extendPitchAngle(
     //
     // 【為什麼是斜坡不是 `if`】與這個函式的其他每一項同一條理由：裸門檻在
     // 線上會翻號，而飛機有俯仰慣性。
-    gapDeficit *= smoothstep(1, cfg.unloadMargin, cornerRatio)
+    //
+    // 【斜坡從 `extendClimbFrom` 起，不是從角落速度起】從 1 起的話，速度卡在
+    // 角落速度九成五的飛機高度項是 0、速度項還要它低頭 5° —— 已經比敵人低
+    // 400 m 還一路往下掉。靶機急轉的情境裡 AI 就這樣掛在 2,550 m 幾十秒。
+    // 上面那個死角在 0.64，斜坡的起點仍在它上面
+    gapDeficit *= smoothstep(cfg.extendClimbFrom, cfg.unloadMargin, cornerRatio)
   }
 
   const climb = floorDeficit > gapDeficit ? floorDeficit : gapDeficit
@@ -2032,13 +2283,21 @@ export function steerCommand(
   //
   // 真正的撞地判斷由 `AiController.emit` 最後執行的同步護欄與物理 Worker
   // 負責；這裡只處理戰術空層，不按離地高度改寫目標方向。
+  //
+  // 【回升的權威乘上卸載的拉桿係數】回升要的是陡拉（`bandRegainPitch`），而它
+  // 排在卸載之後、滿權威覆寫 —— 不乘的話 `unload` 剛把拉桿收掉（失速餘裕見底），
+  // 這裡又把 +35° 加回去，安全層也不會補救（空速還在 1 G 失速速度之上）。
+  // 只乘失速那一項，不乘能量紀律（`pullCeiling`）：回升本來就是把速度換成高度，
+  // 速度掉到角落速度以下是預期中的事，乘了會在爬到那一層之前就停住
   if (
     band !== null && band.kind !== 'off' && mode !== 'speedRecover'
     && (intent === 'engage' || intent === 'approach' || intent === 'merge')
   ) {
+    const regain = band.kind === 'regain'
     applyPitchToward(
-      bandError(band.altitude - self.state.position.y, cfg) * cfg.bandMaxPitch,
-      band.hold, out.aimWorld,
+      bandError(band.altitude - self.state.position.y, cfg)
+        * (regain ? cfg.bandRegainPitch : cfg.bandMaxPitch),
+      regain ? band.hold * stallPull : band.hold, out.aimWorld,
     )
   }
 
