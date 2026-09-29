@@ -6,6 +6,9 @@ import type { Campaign } from '../battle/missions'
 import { bestSustainedTurnRateCached, maxRollRate } from '../analysis/envelope'
 import { LOADOUT_BY_AIRCRAFT } from '../weapons/stores'
 import type { AircraftSpec } from '../specs/types'
+import type { WeaponSpec } from '../weapons/types'
+import { formatNumber, t, type MessageKey } from '../i18n'
+import { aircraftName, weaponName } from '../i18n/names'
 
 /**
  * 機庫左欄要畫的東西。**純資料，沒有 DOM。**
@@ -15,6 +18,8 @@ import type { AircraftSpec } from '../specs/types'
  * 路：算在這裡、測在這裡，`menu.ts` 只負責畫。
  */
 export interface Bar {
+  /** 這一條是什麼。程式與測試認它，`label` 是給人看的 */
+  readonly id: 'speed' | 'climb' | 'turn' | 'roll' | 'attack' | 'guard'
   readonly label: string
   /** 數字與單位，例如「711 km/h」。條旁邊要印出真值，否則讀者只能比長短 */
   readonly text: string
@@ -23,10 +28,13 @@ export interface Bar {
 }
 
 export interface Fact {
+  /** 這一列是什麼。程式與測試認它，`label` 是給人看的 */
+  readonly id: 'span' | 'mass' | 'ceiling' | 'armament' | 'loadout'
   readonly label: string
   readonly value: string
 }
 
+/** 照目前的語言。換語言要重新呼叫 `dossierOf` */
 export interface Dossier {
   /** 機種全名，例如「P-51D Mustang」 */
   readonly name: string
@@ -199,7 +207,8 @@ const DEG_PER_RAD = 180 / Math.PI
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 
 /**
- * 九台的說明。**每一台都要有**（`dossier.test.ts` 把 `ALL_SPECS` 掃一遍）。
+ * 九台的說明（`dossier.story.<id>`）。**每一台都要有**（`dossier.test.ts` 把
+ * `ALL_SPECS` 掃一遍）。
  *
  * 【寫法】定性、特色、長處，三句講完。不寫缺點，也不寫燃料短缺、飛行員
  * 訓練這類戰局因素 —— 那些不是這架飛機的性質。不用破折號與冒號。
@@ -208,34 +217,16 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
  * （P-51D 與 P-51 全系列就是），而一個沒有出處的數字擺在史實旁邊會被當成
  * 史實。
  */
-const STORY: Record<string, string> = {
-  p51d:
-    '單發單座長程護航戰鬥機，1944 年起是第八航空軍的主力。層流翼與機身油箱帶來長航程，'
-    + '掛上副油箱可從英格蘭往返柏林。梅林引擎的二階增壓維持了七千公尺以上的性能。',
-  f6f5:
-    '格魯曼的艦載戰鬥機，1943 年下半起接手太平洋制空。兩千匹星形引擎、厚裝甲、'
-    + '前下方視野良好，以速度與俯衝作戰而非迴旋。美國海軍擊墜數最高的機種。',
-  f4f4:
-    '開戰時美國海軍的主力艦載戰鬥機。速度與爬升不如零戰，靠自封油箱、座艙裝甲與'
-    + '雙機掩護戰術存活。主翼可向後摺疊，一艘航艦能多帶數架。',
-  b17g:
-    '四發重轟炸機，第八航空軍日間轟炸的骨幹。十三挺 12.7 機槍、箱型編隊、'
-    + '可承受大量損傷的結構。機首下方的下巴砲塔是為了應付迎頭攻擊而增設。',
-  bf109k4:
-    '109 系列最後的量產型，1944 年末投入本土防空。DB 605D 配甲醇噴注，'
-    + '爬升與高空速度居前列。機首一門 30 公厘 MK 108，專門對付轟炸機。',
-  he111:
-    '雙發中型轟炸機，1930 年代以高速郵政機名義發展。全玻璃機首容納投彈手、領航員與'
-    + '機槍手。退出白天的戰場後轉任夜襲、運輸與飛彈載機，服役到戰爭結束。',
-  a6m5:
-    '日本海軍的艦載戰鬥機。以極輕結構換取迴旋半徑與航程，作戰半徑上千公里。'
-    + '五二型加厚蒙皮、改用單排推力式排氣管，極速再提高一截。',
-  ki84:
-    '日本陸軍末期的主力戰鬥機，速度、火力與防護同時到位。中島 1,800 匹發動機，'
-    + '極速六百公里出頭。武裝為兩門 20 公厘加兩挺 12.7。',
-  g4m:
-    '海軍的陸基攻擊機，為航程設計。主翼採整體式油箱，作戰半徑涵蓋臺灣到菲律賓、'
-    + '拉包爾到所羅門。機腹掛魚雷，以低空雷擊為主要戰法。',
+const STORY: Readonly<Record<string, MessageKey>> = {
+  p51d: 'dossier.story.p51d',
+  f6f5: 'dossier.story.f6f5',
+  f4f4: 'dossier.story.f4f4',
+  b17g: 'dossier.story.b17g',
+  bf109k4: 'dossier.story.bf109k4',
+  he111: 'dossier.story.he111',
+  a6m5: 'dossier.story.a6m5',
+  ki84: 'dossier.story.ki84',
+  g4m: 'dossier.story.g4m',
 }
 
 /**
@@ -255,41 +246,49 @@ const STORY: Record<string, string> = {
  * 慢的之一。改成同類相對也不行 —— 六項全部低於同類平均的那幾台（F4F-4）
  * 算出來的是「最不差的那一項」，寫上去會變成謊話。
  */
-const STRENGTH: Record<string, string> = {
-  p51d: '速度快・爬升快', f4f4: '均衡', f6f5: '耐打', b17g: '耐打・火力強',
-  bf109k4: '火力強・爬升快', he111: '均衡',
-  a6m5: '纏鬥強', ki84: '火力強・全能', g4m: '靈活',
+const STRENGTH: Readonly<Record<string, MessageKey>> = {
+  p51d: 'dossier.strength.p51d', f4f4: 'dossier.strength.f4f4', f6f5: 'dossier.strength.f6f5',
+  b17g: 'dossier.strength.b17g', bf109k4: 'dossier.strength.bf109k4', he111: 'dossier.strength.he111',
+  a6m5: 'dossier.strength.a6m5', ki84: 'dossier.strength.ki84', g4m: 'dossier.strength.g4m',
 }
 
-/** 機種卡的長處。漏填就空著 —— 少一句話，不會讓那一列排版壞掉 */
-export const strengthOf = (id: string): string => STRENGTH[id] ?? ''
+/** 機種卡的長處，照目前的語言。漏填就空著 —— 少一句話，不會讓那一列排版壞掉 */
+export function strengthOf(id: string): string {
+  const key = STRENGTH[id]
+  return key === undefined ? '' : t(key)
+}
 
 /** 千分位。長度單位不加（翼展只有兩位數），重量與升限要 */
-const grouped = (v: number): string => Math.round(v).toLocaleString('en-US')
+const grouped = (v: number): string => formatNumber(Math.round(v))
 
 /**
  * 固定武裝那一列。同型的併成一列，例如「6 × M2 Browning .50 cal」。
+ *
+ * 【以武器 id 分組】名稱是給人看的、跟著語言換，分組不能靠它。
  *
  * 【轟炸機走另一條】三台轟炸機的 `battery.mounts` 是空的 —— 它們的槍全在
  * 自衛砲塔上（`spec.turrets`）。印空字串的話那一列會讀成「這台沒有武裝」。
  */
 function armamentOf(spec: AircraftSpec): string {
-  const counts = new Map<string, number>()
+  const counts = new Map<string, { weapon: WeaponSpec; n: number }>()
   for (const m of spec.battery.mounts) {
-    counts.set(m.weapon.name, (counts.get(m.weapon.name) ?? 0) + 1)
+    const c = counts.get(m.weapon.id)
+    if (c === undefined) counts.set(m.weapon.id, { weapon: m.weapon, n: 1 })
+    else c.n++
   }
-  const fixed = [...counts].map(([name, n]) => `${n} × ${name}`).join('、')
+  const fixed = [...counts.values()]
+    .map((c) => t('dossier.armament.item', { n: c.n, name: weaponName(c.weapon) }))
+    .join(t('dossier.armament.separator'))
   if (spec.turrets.length === 0) return fixed
-  const turret = `自衛砲塔 ${spec.turrets.length} 座`
-  return fixed === '' ? turret : `${fixed}；${turret}`
+  const turret = t('dossier.armament.turrets', { n: spec.turrets.length })
+  return fixed === '' ? turret : t('dossier.armament.both', { fixed, turret })
 }
 
 /** 掛彈那一列。掛不了東西的機種回 `null`，呼叫端就不畫那一列 */
 function loadoutOf(spec: AircraftSpec): string | null {
   const load = LOADOUT_BY_AIRCRAFT[spec.id]
   if (load === undefined) return null
-  const word = load.kind === 'torpedo' ? '魚雷' : '炸彈'
-  return `${word} × ${load.count}`
+  return t('dossier.loadout', { kind: load.kind, n: load.count })
 }
 
 /**
@@ -315,33 +314,37 @@ function barsOf(spec: AircraftSpec): readonly Bar[] {
   const attack = clamp01(firepowerOf(spec) / MAX_FIREPOWER)
   const guard = clamp01(toughnessOf(spec) / MAX_TOUGHNESS)
   return [
-    { label: '極速', text: `${speed} km/h`, fill: clamp01(speed / SPEED_SCALE) },
-    { label: '爬升', text: `${climb.toFixed(1)} m/s`, fill: clamp01(climb / CLIMB_SCALE) },
-    { label: '迴旋', text: `${turn.toFixed(1)} °/s`, fill: clamp01(turn / TURN_SCALE) },
-    { label: '滾轉', text: `${roll.toFixed(0)} °/s`, fill: clamp01(roll / ROLL_SCALE) },
+    { id: 'speed', label: t('dossier.bar.speed'), text: `${speed} km/h`, fill: clamp01(speed / SPEED_SCALE) },
+    { id: 'climb', label: t('dossier.bar.climb'), text: `${climb.toFixed(1)} m/s`, fill: clamp01(climb / CLIMB_SCALE) },
+    { id: 'turn', label: t('dossier.bar.turn'), text: `${turn.toFixed(1)} °/s`, fill: clamp01(turn / TURN_SCALE) },
+    { id: 'roll', label: t('dossier.bar.roll'), text: `${roll.toFixed(0)} °/s`, fill: clamp01(roll / ROLL_SCALE) },
     // 【這兩條印百分比】它們比的是九台之間，不是一個有單位的量，見 `MAX_FIREPOWER`
-    { label: '攻擊', text: `${Math.round(attack * 100)}%`, fill: attack },
-    { label: '防禦', text: `${Math.round(guard * 100)}%`, fill: guard },
+    { id: 'attack', label: t('dossier.bar.attack'), text: `${Math.round(attack * 100)}%`, fill: attack },
+    { id: 'guard', label: t('dossier.bar.guard'), text: `${Math.round(guard * 100)}%`, fill: guard },
   ]
 }
 
-/** 機種 → 檔案。故事缺一台就印空字串，其餘照樣畫得出來 */
+/** 機種 → 檔案，照目前的語言。故事缺一台就印空字串，其餘照樣畫得出來 */
 export function dossierOf(spec: AircraftSpec): Dossier {
   const h = HISTORICAL[spec.id]
   const facts: Fact[] = [
-    { label: '翼展', value: `${spec.wing.span.toFixed(1)} m` },
-    { label: '全備重量', value: `${grouped(spec.mass)} kg` },
-    { label: '升限', value: h === undefined ? '—' : `${grouped(h.serviceCeiling)} m` },
-    { label: '武裝', value: armamentOf(spec) },
+    { id: 'span', label: t('dossier.fact.span'), value: `${spec.wing.span.toFixed(1)} m` },
+    { id: 'mass', label: t('dossier.fact.mass'), value: `${grouped(spec.mass)} kg` },
+    {
+      id: 'ceiling', label: t('dossier.fact.ceiling'),
+      value: h === undefined ? '—' : `${grouped(h.serviceCeiling)} m`,
+    },
+    { id: 'armament', label: t('dossier.fact.armament'), value: armamentOf(spec) },
   ]
   const load = loadoutOf(spec)
-  if (load !== null) facts.push({ label: '掛載', value: load })
+  if (load !== null) facts.push({ id: 'loadout', label: t('dossier.fact.loadout'), value: load })
 
+  const story = STORY[spec.id]
   return {
-    name: spec.name,
+    name: aircraftName(spec),
     side: SIDE_OF[spec.id] ?? 'allies',
     role: spec.role,
-    story: STORY[spec.id] ?? '',
+    story: story === undefined ? '' : t(story),
     bars: barsOf(spec),
     facts,
   }

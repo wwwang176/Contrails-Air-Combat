@@ -159,7 +159,7 @@ describe('地面單位', () => {
   })
 
   for (const u of GROUND_UNITS) {
-    describe(u.name, () => {
+    describe(u.id, () => {
       if ('glb' in u.model) {
         const glb = u.model.glb
         it('每一個零件的面都朝外（有號體積為正）', async () => {

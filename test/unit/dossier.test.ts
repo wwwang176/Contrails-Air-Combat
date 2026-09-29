@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { dossierOf, strengthOf, SIDE_OF, type Dossier } from '../../src/ui/dossier'
+import { afterEach, describe, it, expect } from 'vitest'
+import { dossierOf, strengthOf, SIDE_OF, type Bar, type Dossier, type Fact } from '../../src/ui/dossier'
 import { ALL_SPECS, specOf, topSpeedKmh } from '../../src/battle/skirmish'
+import { setLang, t } from '../../src/i18n'
+import { weaponName } from '../../src/i18n/names'
 
 /**
  * 機庫左欄的資料。**純資料，沒有 DOM。**
@@ -9,28 +11,34 @@ import { ALL_SPECS, specOf, topSpeedKmh } from '../../src/battle/skirmish'
  * 以及數值條的換算方向 —— 條的長度算反了不會有任何錯誤，只會讓 B-17 看起來
  * 比零戰還靈活。
  */
-const bar = (d: Dossier, label: string): number =>
-  d.bars.find((b) => b.label === label)?.fill ?? -1
-const fact = (d: Dossier, label: string): string | undefined =>
-  d.facts.find((f) => f.label === label)?.value
+afterEach(() => setLang('zh'))
+
+const bar = (d: Dossier, id: Bar['id']): number =>
+  d.bars.find((b) => b.id === id)?.fill ?? -1
+const fact = (d: Dossier, id: Fact['id']): string | undefined =>
+  d.facts.find((f) => f.id === id)?.value
 
 describe('dossierOf —— 九台都要有檔案', () => {
-  it('每一台都有陣營、故事與四條數值', () => {
-    for (const spec of ALL_SPECS) {
-      const d = dossierOf(spec)
-      expect(SIDE_OF[spec.id], spec.id).toBeDefined()
-      expect(d.story.length, spec.id).toBeGreaterThan(20)
-      expect(d.bars.map((b) => b.label), spec.id)
-        .toEqual(['極速', '爬升', '迴旋', '滾轉', '攻擊', '防禦'])
+  it('每一台都有陣營、故事與六條數值，兩種語言都有', () => {
+    for (const lang of ['zh', 'en'] as const) {
+      setLang(lang)
+      for (const spec of ALL_SPECS) {
+        const d = dossierOf(spec)
+        expect(SIDE_OF[spec.id], spec.id).toBeDefined()
+        expect(d.story.length, `${lang} ${spec.id}`).toBeGreaterThan(20)
+        expect(d.bars.map((b) => b.id), spec.id)
+          .toEqual(['speed', 'climb', 'turn', 'roll', 'attack', 'guard'])
+        for (const b of d.bars) expect(b.label.length, `${lang} ${b.id}`).toBeGreaterThan(0)
+      }
     }
   })
 
   it('每一條都落在 0…1 之內，而且沒有一條是空的', () => {
     for (const spec of ALL_SPECS) {
       for (const b of dossierOf(spec).bars) {
-        expect(b.fill, `${spec.id} ${b.label}`).toBeGreaterThan(0)
-        expect(b.fill, `${spec.id} ${b.label}`).toBeLessThanOrEqual(1)
-        expect(b.text, `${spec.id} ${b.label}`).not.toBe('')
+        expect(b.fill, `${spec.id} ${b.id}`).toBeGreaterThan(0)
+        expect(b.fill, `${spec.id} ${b.id}`).toBeLessThanOrEqual(1)
+        expect(b.text, `${spec.id} ${b.id}`).not.toBe('')
       }
     }
   })
@@ -57,15 +65,15 @@ describe('dossierOf —— 數值條的方向', () => {
     const bombers = ALL_SPECS.filter((s) => s.role === 'bomber').map(dossierOf)
     for (const b of bombers) {
       for (const f of fighters) {
-        expect(bar(b, '迴旋')).toBeLessThan(bar(f, '迴旋'))
-        expect(bar(b, '滾轉')).toBeLessThan(bar(f, '滾轉'))
+        expect(bar(b, 'turn')).toBeLessThan(bar(f, 'turn'))
+        expect(bar(b, 'roll')).toBeLessThan(bar(f, 'roll'))
       }
     }
   })
 
   it('A6M5 的迴旋最長、Bf 109 K-4 的爬升最長', () => {
-    const turns = ALL_SPECS.map((s) => ({ id: s.id, v: bar(dossierOf(s), '迴旋') }))
-    const climbs = ALL_SPECS.map((s) => ({ id: s.id, v: bar(dossierOf(s), '爬升') }))
+    const turns = ALL_SPECS.map((s) => ({ id: s.id, v: bar(dossierOf(s), 'turn') }))
+    const climbs = ALL_SPECS.map((s) => ({ id: s.id, v: bar(dossierOf(s), 'climb') }))
     expect(turns.sort((a, b) => b.v - a.v)[0]!.id).toBe('a6m5')
     expect(climbs.sort((a, b) => b.v - a.v)[0]!.id).toBe('bf109k4')
   })
@@ -75,16 +83,38 @@ describe('dossierOf —— 事實列', () => {
   it('轟炸機的固定武裝是空的，武裝那一列因此要講砲塔', () => {
     const b17 = specOf('b17g')
     expect(b17.battery.mounts.length).toBe(0)
-    expect(fact(dossierOf(b17), '武裝')).toBe('自衛砲塔 8 座')
+    expect(fact(dossierOf(b17), 'armament')).toBe(t('dossier.armament.turrets', { n: 8 }))
   })
 
   it('戰鬥機的武裝把同型併成一列', () => {
-    expect(fact(dossierOf(specOf('p51d')), '武裝')).toBe('6 × M2 Browning .50 cal')
+    const p51 = specOf('p51d')
+    const w = p51.battery.mounts[0]!.weapon
+    expect(fact(dossierOf(p51), 'armament'))
+      .toBe(t('dossier.armament.item', { n: 6, name: weaponName(w) }))
+  })
+
+  /** 名稱跟著語言換，分組不能跟著換 —— 兩種語言都是同樣的列數 */
+  it('武裝以武器 id 分組：兩種語言的列數相同', () => {
+    for (const spec of ALL_SPECS) {
+      const sep = (lang: 'zh' | 'en'): number => {
+        setLang(lang)
+        const v = fact(dossierOf(spec), 'armament') ?? ''
+        return v === '' ? 0 : v.split(t('dossier.armament.separator')).length
+      }
+      expect(sep('en'), spec.id).toBe(sep('zh'))
+    }
   })
 
   it('掛不了東西的機種沒有掛載那一列', () => {
-    expect(fact(dossierOf(specOf('p51d')), '掛載')).toBeUndefined()
-    expect(fact(dossierOf(specOf('b17g')), '掛載')).toBe('炸彈 × 10')
-    expect(fact(dossierOf(specOf('g4m')), '掛載')).toBe('魚雷 × 1')
+    expect(fact(dossierOf(specOf('p51d')), 'loadout')).toBeUndefined()
+    expect(fact(dossierOf(specOf('b17g')), 'loadout')).toBe(t('dossier.loadout', { kind: 'bomb', n: 10 }))
+    expect(fact(dossierOf(specOf('g4m')), 'loadout')).toBe(t('dossier.loadout', { kind: 'torpedo', n: 1 }))
+  })
+
+  it('英文的掛載與砲塔數照單複數', () => {
+    setLang('en')
+    expect(fact(dossierOf(specOf('g4m')), 'loadout')).toBe('1 torpedo')
+    expect(fact(dossierOf(specOf('b17g')), 'loadout')).toBe('10 bombs')
+    expect(fact(dossierOf(specOf('b17g')), 'armament')).toBe('8 defensive turrets')
   })
 })

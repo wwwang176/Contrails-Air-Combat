@@ -68,7 +68,7 @@ const MPH = 0.44704
  */
 export const KI84: AircraftSpec = {
   id: 'ki84',
-  name: 'Ki-84 疾風',
+  name: 'Ki-84 Frank',
   faction: 'japan',
   role: 'fighter',
 

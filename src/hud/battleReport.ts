@@ -18,6 +18,7 @@
  * 的話五條字會在同一幀一起蹦出來，讀起來是一塊招牌而不是五件事。進佇列
  * 之後每 0.3 秒放一條，那個節奏本身就是「打中了好多個」。
  */
+import { t, type MessageKey } from '../i18n'
 
 /**
  * 一則通報的種類。**動詞跟著它走，不做標題** —— 一波之內完全可能混到
@@ -25,18 +26,24 @@
  */
 export type ReportKind = 'air' | 'ship' | 'ground' | 'torpedo'
 
-const VERBS: Readonly<Record<ReportKind, string>> = {
-  air: '擊墜',
-  ship: '擊沉',
-  ground: '擊毀',
-  // 雷擊命中不是擊沉 —— 它自己就值得一則，因為打得中很不容易
-  torpedo: '雷擊命中',
+/** 雷擊命中不是擊沉 —— 它自己就值得一則，因為打得中很不容易 */
+const VERB_KEY: Readonly<Record<ReportKind, MessageKey>> = {
+  air: 'report.air',
+  ship: 'report.ship',
+  ground: 'report.ground',
+  torpedo: 'report.torpedo',
 }
+
+/** 名稱的鍵沒有意義時的佔位（池裡還沒用到的格子） */
+const NO_NAME: MessageKey = 'name.aircraft.p51d'
 
 export interface ReportLine {
   kind: ReportKind
-  /** 顯示名：機種、艦級或地面單位 */
-  name: string
+  /**
+   * 顯示名的鍵：機種、艦級或地面單位。**存鍵不存文字** —— 畫的時候才查，語言切換時
+   * 已經在畫面上的那幾行跟著換
+   */
+  nameKey: MessageKey
   /** 這一行出現的時間，s。打字機、壽命與淡出都讀它 */
   bornAt: number
   /**
@@ -59,7 +66,7 @@ export interface BattleReport {
    * 個物件，要嘛也是逐欄搬 —— 而入列發生在物理步裡。
    */
   readonly queueKind: ReportKind[]
-  readonly queueName: string[]
+  readonly queueNameKey: MessageKey[]
   queueHead: number
   queueCount: number
   /**
@@ -128,7 +135,7 @@ export const REPORT_QUEUE_CAPACITY = 16
 export const REPORT_SECONDS_PER_CHAR = 0.02
 
 function createLine(): ReportLine {
-  return { kind: 'air', name: '', bornAt: 0, shiftedAt: 0 }
+  return { kind: 'air', nameKey: NO_NAME, bornAt: 0, shiftedAt: 0 }
 }
 
 export function createBattleReport(): BattleReport {
@@ -138,7 +145,7 @@ export function createBattleReport(): BattleReport {
     lines,
     count: 0,
     queueKind: new Array<ReportKind>(REPORT_QUEUE_CAPACITY).fill('air'),
-    queueName: new Array<string>(REPORT_QUEUE_CAPACITY).fill(''),
+    queueNameKey: new Array<MessageKey>(REPORT_QUEUE_CAPACITY).fill(NO_NAME),
     queueHead: 0,
     queueCount: 0,
     nextAt: -Infinity,
@@ -156,7 +163,7 @@ export function resetBattleReport(b: BattleReport): void {
 /** 逐欄搬。**不搬參考** —— 池裡的物件從頭到尾是同一批，見 `pushReport`。 */
 function copyLine(dst: ReportLine, src: ReportLine): void {
   dst.kind = src.kind
-  dst.name = src.name
+  dst.nameKey = src.nameKey
   dst.bornAt = src.bornAt
   dst.shiftedAt = src.shiftedAt
 }
@@ -169,11 +176,11 @@ function copyLine(dst: ReportLine, src: ReportLine): void {
  *
  * 熱路徑：不配置。`drainReports` 在物理步裡呼叫它，而一幀可能跑好幾步。
  */
-export function queueReport(b: BattleReport, kind: ReportKind, name: string): void {
+export function queueReport(b: BattleReport, kind: ReportKind, nameKey: MessageKey): void {
   if (b.queueCount >= REPORT_QUEUE_CAPACITY) return
   const i = (b.queueHead + b.queueCount) % REPORT_QUEUE_CAPACITY
   b.queueKind[i] = kind
-  b.queueName[i] = name
+  b.queueNameKey[i] = nameKey
   b.queueCount++
 }
 
@@ -188,7 +195,7 @@ function release(b: BattleReport, now: number): void {
   }
   const head = lines[0]!
   head.kind = b.queueKind[b.queueHead]!
-  head.name = b.queueName[b.queueHead]!
+  head.nameKey = b.queueNameKey[b.queueHead]!
   head.bornAt = now
   // 【最上面那一行沒有在移動】見 `shiftedAt` 的說明
   head.shiftedAt = now - REPORT_SLIDE
@@ -224,9 +231,9 @@ export function stepBattleReport(b: BattleReport, now: number): void {
   b.count = w
 }
 
-/** 整行的文字。 */
+/** 整行的文字，照目前的語言 */
 export function reportText(line: ReportLine): string {
-  return `${VERBS[line.kind]}　${line.name}`
+  return t('report.line', { verb: t(VERB_KEY[line.kind]), name: t(line.nameKey) })
 }
 
 /**

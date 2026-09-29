@@ -57,6 +57,7 @@ import { createGroundTarget, resetGroundTarget, type GroundTarget } from '../wor
 import { parkedOffset } from '../world/groundAirframe'
 import type { GroundUnitId } from '../render/geometry/ground'
 import type { MessageKey } from '../i18n'
+import { aircraftNameKey, groundUnitNameKey, shipNameKey } from '../i18n/names'
 import { clearBursts, clearFlak } from '../world/flak'
 import { clearFlares, FLARE_LANES, FLARE_RELIGHT_DELAY, spawnFlare } from '../world/flares'
 import type { BalloonEntry, GroundEntry, MissionFleet } from './missions'
@@ -2215,8 +2216,9 @@ function drainKills(b: Battle): void {
     // 【排在 `recordKill` 之後】通報與記分板必須說同一件事。尤其接手那一段
     // 已經把身分搬過座位了 —— 兩邊讀的是同一份 `roster`，就不可能分岔
     if (b.roster.pilots[killer]?.isPlayer === true) {
-      const name = w.combatants[victim]?.aircraft.spec.name
-      if (name !== undefined) queueReport(b.report, 'air', name)
+      const spec = w.combatants[victim]?.aircraft.spec
+      const nameKey = spec === undefined ? undefined : aircraftNameKey(spec.id)
+      if (nameKey !== undefined) queueReport(b.report, 'air', nameKey)
     }
   }
 }
@@ -2242,17 +2244,21 @@ function drainReportBuffer(
     // 【兇手在第五格】與 `groundKillEvents` 的註解逐格對應
     const killer = e.data[o + 4]!
     if (b.roster.pilots[killer]?.isPlayer !== true) continue
-    const name = reportName(b, kind, e.data[o + 3]!)
-    if (name !== undefined) queueReport(b.report, kind, name)
+    const nameKey = reportNameKey(b, kind, e.data[o + 3]!)
+    if (nameKey !== undefined) queueReport(b.report, kind, nameKey)
   }
   return e.total
 }
 
-/** 目標索引 → 顯示名。查不到回 `undefined`，那一筆就不通報 */
-function reportName(b: Battle, kind: ReportKind, index: number): string | undefined {
-  if (kind === 'ground') return b.world.groundTargets[index]?.unit.name
+/** 目標索引 → 顯示名的鍵。查不到回 `undefined`，那一筆就不通報 */
+function reportNameKey(b: Battle, kind: ReportKind, index: number): MessageKey | undefined {
+  if (kind === 'ground') {
+    const t = b.world.groundTargets[index]
+    return t === undefined ? undefined : groundUnitNameKey(t.unit.id)
+  }
   // 擊沉與雷擊命中查的是同一張表
-  return b.world.ships[index]?.cls.name
+  const s = b.world.ships[index]
+  return s === undefined ? undefined : shipNameKey(s.cls.id)
 }
 
 /**
