@@ -596,6 +596,10 @@ export interface VegetationOptions {
  * 用屬性**物件的身分**決定要不要重設指標 —— 只改 `offset` 不換物件，畫出來的是舊
  * 位移。而快取裡記的是**上一次真的畫的時候**綁的那一個，所以 `onBeforeRender` 記下它，
  * `aimRun` 只改另一個再換上去。隱藏期間改來改去也不會碰到快取裡那一個。
+ *
+ * 【換物件的那一幀會配置】three 重設 VAO 時（`saveCache`）為每條屬性配一個小物件。
+ * 只發生在段的起點變了的那一幀（轉頭、飛越格界），一幀至多幾十次；身分一換就走這條，
+ * 繞不開
  */
 interface MeshRun {
   mesh: InstancedMesh
