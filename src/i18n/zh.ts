@@ -224,7 +224,7 @@ export const zh = {
   'settings.lang': '語言',
   'settings.quality': '畫質',
   'settings.aa': '抗鋸齒',
-  'settings.bloom': '光暈',
+  'settings.bloom': '光暈品質',
   'settings.bloom.low': '低',
   'settings.bloom.high': '高',
   'settings.volume': '音量',

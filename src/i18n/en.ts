@@ -222,7 +222,7 @@ export const en: Record<MessageKey, string> = {
   'settings.lang': 'Language',
   'settings.quality': 'Quality',
   'settings.aa': 'Anti-aliasing',
-  'settings.bloom': 'Glow',
+  'settings.bloom': 'Glow quality',
   'settings.bloom.low': 'Low',
   'settings.bloom.high': 'High',
   'settings.volume': 'Volume',
