@@ -342,7 +342,7 @@ function wireTerrain(force = false): void {
   }
 }
 
-/** 戰鬥畫面的光暈，主場景畫完之後疊上去。選單與機庫不畫 */
+/** 光暈，主場景畫完之後疊上去。戰鬥、機庫、主選單的背景都畫 */
 const bloom = createBloomPass(ctx.renderer, (on) => { OCEAN_GLOW.pass.value = on ? 1 : 0 })
 bloom.enabled = readBloom()
 
@@ -3520,6 +3520,7 @@ function drawHangar(frameSeconds: number, show: Showcase): void {
   show.update(frameSeconds, ctx.camera)
   terrain.update(elapsed, ctx.camera.position.x, ctx.camera.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
+  bloom.render(ctx.scene, ctx.camera)
 }
 
 /** 選單期間的一幀：只有海與天，鏡頭緩緩平移（M10 spec §9.4）。 */
@@ -3530,6 +3531,7 @@ function drawMenuBackground(): void {
   ctx.camera.lookAt(MENU_POSE.target)
   terrain.update(elapsed, MENU_POSE.position.x, MENU_POSE.position.z)
   ctx.renderer.render(ctx.scene, ctx.camera)
+  bloom.render(ctx.scene, ctx.camera)
 }
 
 /**
