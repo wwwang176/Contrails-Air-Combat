@@ -241,6 +241,14 @@ export function createFieldClipmap(renderer: WebGLRenderer, opts: FieldClipmapOp
   const far = level(opts.far)
   const horizon = opts.horizon === undefined ? null : level(opts.horizon)
   const stats: FieldClipmapStats = { recentres: 0, pieces: 0, texels: 0 }
+  // 【context 還原後整張重烘】three 重建 GPU 資源時貼圖是空的，而鏡頭沒跨挪窗門檻就
+  // 不會再烘 —— 遠處讀到一片黑。標成沒烘過，下一次 `update` 整張重來
+  const onRestored = (): void => {
+    near.primed = false
+    far.primed = false
+    if (horizon !== null) horizon.primed = false
+  }
+  renderer.domElement?.addEventListener('webglcontextrestored', onRestored)
 
   // ── 烘圖 ──
   const bakeMat = new ShaderMaterial({
@@ -384,8 +392,11 @@ void main() { gl_FragColor = vCol; }`,
 vec3 horizonColourAt(vec2 qH, vec2 dHx, vec2 dHy, float eH) {
   vec3 avg = textureLod(uHor, vec2(0.5), uHorTop).rgb;
   if (eH >= 1.0) return avg;
-  vec3 h = textureGrad(uHor, fract(qH), dHx, dHy).rgb;
-  return mix(h, avg, smoothstep(1.0 - uEdgeBlend, 1.0, eH));
+  vec4 h = textureGrad(uHor, fract(qH), dHx, dHy);
+  // 【只淡田色，疊圖不淡】透明度記著疊圖的覆蓋率。窗外接手的是 beyondFar 的粗網格
+  // （鎮的地面、河漫灘），一出窗就整塊出現 —— 疊圖在窗緣先淡掉的話，鎮會先消失再跳出來
+  float keep = clamp(h.a * 4.0, 0.0, 1.0);
+  return mix(h.rgb, avg, smoothstep(1.0 - uEdgeBlend, 1.0, eH) * (1.0 - keep));
 }`
   /** 遠圖窗外在不在「算式」那一邊：有最外層時整圈讀貼圖 */
   const farOutProc = horizon === null ? ' || eF >= 1.0' : ''
@@ -546,6 +557,7 @@ uniform vec2 uFarCentre; uniform float uFarSpan;`)
       for (const m of beyond) m.visible = !on
     },
     dispose() {
+      renderer.domElement?.removeEventListener('webglcontextrestored', onRestored)
       near.rt.dispose()
       far.rt.dispose()
       horizon?.rt.dispose()

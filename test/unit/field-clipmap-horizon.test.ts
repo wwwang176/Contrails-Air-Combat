@@ -37,6 +37,39 @@ describe('田色 clipmap 的遠處', () => {
     expect(uniforms['uHorTop']!.value).toBe(Math.log2(FIELD_CLIP_HORIZON.size))
   })
 
+  /**
+   * 【窗緣只淡田色】疊圖（鎮的地面、河漫灘）在窗外由粗網格接手、一出窗就整塊出現；
+   * 疊圖跟著淡掉的話，鎮會在窗緣先消失再跳出來
+   */
+  it('淡成平均色時，疊圖覆蓋的地方不淡', () => {
+    const { frag } = compiled(true)
+    expect(frag).toContain('float keep = clamp(h.a * 4.0, 0.0, 1.0);')
+    expect(frag).toContain('smoothstep(1.0 - uEdgeBlend, 1.0, eH) * (1.0 - keep)')
+  })
+
+  /** 【context 還原後重烘】貼圖內容沒了，鏡頭沒跨挪窗門檻就不會再烘 —— 遠處一片黑 */
+  it('context 還原之後下一次 update 每一層整張重烘', () => {
+    const canvas = new EventTarget()
+    const renderer = {
+      capabilities: { getMaxAnisotropy: () => 1 },
+      domElement: canvas,
+      getRenderTarget: () => null,
+      setRenderTarget: () => {},
+      render: () => {},
+    } as unknown as WebGLRenderer
+    const clip = createFieldClipmap(renderer, {
+      season: 'summer', near: FIELD_CLIP_NEAR, far: FIELD_CLIP_FAR, horizon: FIELD_CLIP_HORIZON,
+    })
+    clip.update(0, 0)
+    expect(clip.stats.recentres).toBe(3)
+    clip.update(10, 10)
+    expect(clip.stats.recentres).toBe(3)
+    canvas.dispatchEvent(new Event('webglcontextrestored'))
+    clip.update(10, 10)
+    expect(clip.stats.recentres).toBe(6)
+    clip.dispose()
+  })
+
   it('沒有最外層：遠圖窗外照舊走算式', () => {
     const { frag } = compiled(false)
     expect(frag).toContain('bool proc = uBypass > 0.5 || tIn < 1.0 || eF >= 1.0;')
