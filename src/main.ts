@@ -3958,6 +3958,10 @@ if (initialRecoveryFailure !== null) {
 ;(window as unknown as Record<string, unknown>)['__perfFps'] = (): number => perf.fps
 /** 光暈的同頁 A/B：不經設定頁、不存檔，量完重整就回到設定的值 */
 ;(window as unknown as Record<string, unknown>)['__bloom'] = (on: boolean): void => { bloom.enabled = on }
+/** 光暈色調的比較：往白色靠的比例、是否只有核心變白、強度 */
+;(window as unknown as Record<string, unknown>)['__bloomLook'] = (
+  white: number, core: boolean, strength?: number,
+): void => { bloom.setLook(white, core, strength) }
 
 /**
  * **量測出口**：上一幀的 draw call 與三角形數（`renderer.info.render`）。
