@@ -30,7 +30,7 @@ import {
   type WebGLRenderer,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
-import { CULL, frustumPlanesOf, shareGeometry, visibleRuns } from './cullRuns'
+import { CULL, frustumPlanesOf, hilbertKey, shareGeometry, visibleRuns } from './cullRuns'
 // 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
 import type { DayPalette } from './timeOfDay'
 import type { ShoreFieldData } from '../world/archipelago'
@@ -343,18 +343,50 @@ export const OCEAN_RING_SEGMENTS = 256
 export const OCEAN_LEVELS = 4
 
 /**
- * 每一層切成的四個象限（格號的 i 半、j 半），**依繞一圈的順序**。
+ * 每一層的索引依 `OCEAN_BLOCK_GRID` × `OCEAN_BLOCK_GRID` 的塊排，塊的順序沿希爾伯特
+ * 曲線（`oceanBlockRank`）。
  *
  * 【為什麼要切】四層都以相機為中心、包住鏡頭四周，整層的包圍盒恆與視錐相交 ——
- * 抬頭看天時近海照樣付頂點成本（實測 0.5 ms）。切成象限之後，背後那半圈整塊不畫。
+ * 抬頭看天時近海照樣付頂點成本（實測 0.5 ms）。切成塊之後，畫面外的塊不畫。
  *
- * 【為什麼是繞圈的順序】看得到的象限總是繞圈相鄰的兩三個，索引上也就相鄰，併成
- * 一次 draw call（`visibleRuns`）。每個象限的三角形數相同 —— 洞在正中央。
+ * 【為什麼沿希爾伯特曲線】對齊的 2×2、4×4 塊在曲線上各自是連續的一段，所以同一份
+ * 索引可以用任何一種粗細剔除（`OCEAN_CULL.grid`）；看得到的相鄰塊在索引上也相鄰，
+ * 併成一次 draw call（`visibleRuns`）。
  */
-export const OCEAN_QUADRANTS = [[0, 0], [1, 0], [1, 1], [0, 1]] as const
+export const OCEAN_BLOCK_GRID = 8
+
+/** 塊 (bi, bj) 在索引裡的次序，0 … `OCEAN_BLOCK_GRID`² − 1 */
+export function oceanBlockRank(bi: number, bj: number): number {
+  return OCEAN_BLOCK_RANK[bj * OCEAN_BLOCK_GRID + bi]!
+}
+/** 依次序排好的塊：第 k 個是 (`BLOCK_BI[k]`, `BLOCK_BJ[k]`) */
+const BLOCK_BI = new Int8Array(OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID)
+const BLOCK_BJ = new Int8Array(OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID)
+const OCEAN_BLOCK_RANK = ((): Int8Array => {
+  const n = OCEAN_BLOCK_GRID
+  const items: { bi: number, bj: number, key: number }[] = []
+  for (let bj = 0; bj < n; bj++) for (let bi = 0; bi < n; bi++) items.push({ bi, bj, key: hilbertKey(bi, bj) })
+  items.sort((a, b) => a.key - b.key)
+  const rank = new Int8Array(n * n)
+  items.forEach((it, k) => {
+    rank[it.bj * n + it.bi] = k
+    BLOCK_BI[k] = it.bi
+    BLOCK_BJ[k] = it.bj
+  })
+  return rank
+})()
 
 /**
- * 象限包圍盒的上下緣，m。頂點只做垂直位移，最大是三道波的振幅和（4.5 m）；
+ * 剔除用的塊有多細：每層切成 `grid` × `grid`，必須整除 `OCEAN_BLOCK_GRID`。
+ * **量測出口**：`main.ts` 的 `__oceanGrid` 換它，同頁比較用。
+ */
+export const OCEAN_CULL = { grid: 4 }
+
+/** 每層最多分幾段畫（幾次 draw call）。段數超過就把間隔最小的併起來 */
+export const OCEAN_RUN_CAP = 4
+
+/**
+ * 塊的包圍盒的上下緣，m。頂點只做垂直位移，最大是三道波的振幅和（4.5 m）；
  * 留一倍多的餘裕
  */
 export const OCEAN_CULL_Y = 10
@@ -1560,8 +1592,8 @@ export interface Ocean {
   setPalette(p: DayPalette): void
   update(time: number, centerX: number, centerZ: number): void
   /**
-   * 依這一台相機畫近海每一層看得到的象限。**每次 render 之前呼叫**；`CULL.enabled`
-   * 關掉時每一層整條畫一次，與切象限之前相同
+   * 依這一台相機畫近海每一層看得到的塊。**每次 render 之前呼叫**；`CULL.enabled`
+   * 關掉時每一層整條畫一次，與切塊之前相同
    */
   cull(camera: Camera): void
   heightAt(x: number, z: number, time: number): number
@@ -1582,7 +1614,9 @@ export interface Ocean {
  * 上。x 往右、z 往前（螢幕的下方），所以 (i,j) → (i+1,j) → (i,j+1) 這個順序
  * 在 XZ 上是順時針，要反過來寫。
  */
-function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): BufferGeometry {
+function clipmapLevelGeometry(
+  cell: number, segments: number, hollow: boolean,
+): { geometry: BufferGeometry, blockStart: Int32Array } {
   const n = segments + 1
   const half = (segments / 2) * cell
   const pos = new Float32Array(n * n * 3)
@@ -1597,13 +1631,17 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
   // 洞的範圍：中央 segments/2 格，也就是索引 [segments/4, 3·segments/4)
   const holeLo = segments / 4
   const holeHi = segments - segments / 4
-  // 【索引依象限排成四段】繞一圈的順序 —— 看得到的相鄰象限在索引上也相鄰，併成一次
-  // draw call。見 `OCEAN_QUADRANTS`
+  // 【索引依塊排】塊的次序沿希爾伯特曲線，見 `OCEAN_BLOCK_GRID`。
+  // `blockStart[k]` 是第 k 塊在索引裡的起點；洞裡的塊是空的一段
   const idx: number[] = []
-  const mid = segments / 2
-  for (const [qi, qj] of OCEAN_QUADRANTS) {
-    for (let j = qj * mid; j < (qj + 1) * mid; j++) {
-      for (let i = qi * mid; i < (qi + 1) * mid; i++) {
+  const side = segments / OCEAN_BLOCK_GRID
+  const blockStart = new Int32Array(OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID + 1)
+  for (let k = 0; k < OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID; k++) {
+    blockStart[k] = idx.length
+    const bi = BLOCK_BI[k]!
+    const bj = BLOCK_BJ[k]!
+    for (let j = bj * side; j < (bj + 1) * side; j++) {
+      for (let i = bi * side; i < (bi + 1) * side; i++) {
         if (hollow && i >= holeLo && i < holeHi && j >= holeLo && j < holeHi) continue
         const a = j * n + i
         const b = a + 1
@@ -1613,6 +1651,7 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
       }
     }
   }
+  blockStart[OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID] = idx.length
   const g = new BufferGeometry()
   g.setAttribute('position', new BufferAttribute(pos, 3))
   // 【法線一律 +Y】材質是 flatShading，three 會用導數自己算面法線，這個
@@ -1627,7 +1666,7 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
   // 【自己設包圍球】頂點會被波位移，而 computeBoundingSphere 只看原始座標。
   // 反正這些網格 frustumCulled = false，這裡只是不讓 three 事後去算它。
   g.boundingSphere = new Sphere(new Vector3(0, 0, 0), half * Math.SQRT2 + 8)
-  return g
+  return { geometry: g, blockStart }
 }
 
 /**
@@ -1636,8 +1675,9 @@ function clipmapLevelGeometry(cell: number, segments: number, hollow: boolean): 
  */
 export function createOcean(shore: ShoreFieldData | null): Ocean {
   // clipmap 的四層。L0 實心，其餘挖掉中央 —— 那一塊由內一層負責
-  const levelGeometries = Array.from({ length: OCEAN_LEVELS }, (_, i) =>
+  const levels = Array.from({ length: OCEAN_LEVELS }, (_, i) =>
     clipmapLevelGeometry(OCEAN_BASE_CELL * 2 ** i, OCEAN_RING_SEGMENTS, i > 0))
+  const levelGeometries = levels.map((l) => l.geometry)
 
   const material = new MeshPhysicalMaterial({
     color: SEA_COLOR,
@@ -1893,16 +1933,16 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
 
   const mesh = new Group()
   /**
-   * 每一層的四段：`[0]` 是那一層的 Mesh 本身（整條索引、`drawRange` 決定畫哪段），
-   * 其餘三段掛在它底下，各自一顆共用屬性的幾何。見 `OCEAN_QUADRANTS`
+   * 每一層的 `OCEAN_RUN_CAP` 段：`[0]` 是那一層的 Mesh 本身（整條索引、`drawRange`
+   * 決定畫哪段），其餘掛在它底下，各自一顆共用屬性的幾何。見 `OCEAN_BLOCK_GRID`
    */
-  const quadRuns: Mesh[][] = []
+  const levelRuns: Mesh[][] = []
   for (const g of levelGeometries) {
     const runs: Mesh[] = []
-    for (let r = 0; r < OCEAN_QUADRANTS.length; r++) {
+    for (let r = 0; r < OCEAN_RUN_CAP; r++) {
       const m = new Mesh(r === 0 ? g : shareGeometry(g), material)
-      // 【three 的剔除一律關掉】包圍球看不到頂點位移，而且象限的包圍盒都碰得到相機 ——
-      // 球一定與視錐相交。象限自己剔，見 `cull`
+      // 【three 的剔除一律關掉】包圍球看不到頂點位移，而且以相機為中心的那幾塊碰得到
+      // 相機 —— 球一定與視錐相交。塊自己剔，見 `cull`
       m.frustumCulled = false
       if (r > 0) {
         m.visible = false
@@ -1910,15 +1950,16 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
       }
       runs.push(m)
     }
-    quadRuns.push(runs)
+    levelRuns.push(runs)
     mesh.add(runs[0]!)
   }
-  /** 各層四個象限的索引區段與包圍盒；`cull` 每次重填盒子 */
-  const quadStart = new Int32Array(OCEAN_QUADRANTS.length)
-  const quadEnd = new Int32Array(OCEAN_QUADRANTS.length)
-  const quadBox = new Float32Array(OCEAN_QUADRANTS.length * 6)
-  const runStart = new Int32Array(OCEAN_QUADRANTS.length)
-  const runEnd = new Int32Array(OCEAN_QUADRANTS.length)
+  /** 一層的塊的索引區段與包圍盒；`cull` 逐層重填 */
+  const MAX_BLOCKS = OCEAN_BLOCK_GRID * OCEAN_BLOCK_GRID
+  const blockFrom = new Int32Array(MAX_BLOCKS)
+  const blockTo = new Int32Array(MAX_BLOCKS)
+  const blockBox = new Float32Array(MAX_BLOCKS * 6)
+  const runStart = new Int32Array(MAX_BLOCKS)
+  const runEnd = new Int32Array(MAX_BLOCKS)
   const planes = new Float64Array(24)
 
   // 遠海。用 MeshPhysicalMaterial 而不是 Basic：要跟細浪面接得上就得受同一
@@ -2051,31 +2092,41 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     },
     cull(camera) {
       if (CULL.enabled) frustumPlanesOf(camera, planes)
-      for (let l = 0; l < quadRuns.length; l++) {
-        const runs = quadRuns[l]!
+      // 剔除的塊由幾個細塊組成（每邊 `per` 個）；對齊的那幾個在索引上是連續的一段
+      const grid = OCEAN_CULL.grid
+      const per = OCEAN_BLOCK_GRID / grid
+      for (let l = 0; l < levelRuns.length; l++) {
+        const runs = levelRuns[l]!
+        const starts = levels[l]!.blockStart
         const total = levelGeometries[l]!.index!.count
         let n = 1
         runStart[0] = 0
         runEnd[0] = total
         if (CULL.enabled) {
-          // 象限盒子：以群組（吸附後的中心）為準，水平是那一層的半寬，垂直是浪高餘裕
+          // 塊的盒子：以群組（吸附後的中心）為準，水平是塊的範圍，垂直是浪高餘裕
           const half = (OCEAN_RING_SEGMENTS / 2) * OCEAN_BASE_CELL * 2 ** l
-          const quarter = total / OCEAN_QUADRANTS.length
-          for (let q = 0; q < OCEAN_QUADRANTS.length; q++) {
-            const [qi, qj] = OCEAN_QUADRANTS[q]!
-            quadStart[q] = q * quarter
-            quadEnd[q] = (q + 1) * quarter
-            const x0 = mesh.position.x + (qi - 1) * half
-            const z0 = mesh.position.z + (qj - 1) * half
-            quadBox[q * 6] = x0
-            quadBox[q * 6 + 1] = -OCEAN_CULL_Y
-            quadBox[q * 6 + 2] = z0
-            quadBox[q * 6 + 3] = x0 + half
-            quadBox[q * 6 + 4] = OCEAN_CULL_Y
-            quadBox[q * 6 + 5] = z0 + half
+          const size = (2 * half) / grid
+          let m = 0
+          for (let k = 0; k < MAX_BLOCKS; k += per * per) {
+            const from = starts[k]!
+            const to = starts[k + per * per]!
+            // 【洞裡的塊是空的】不進表 —— 看得到的空塊會佔掉一段
+            if (to === from) continue
+            const gi = Math.floor(BLOCK_BI[k]! / per)
+            const gj = Math.floor(BLOCK_BJ[k]! / per)
+            const x0 = mesh.position.x - half + gi * size
+            const z0 = mesh.position.z - half + gj * size
+            blockFrom[m] = from
+            blockTo[m] = to
+            blockBox[m * 6] = x0
+            blockBox[m * 6 + 1] = -OCEAN_CULL_Y
+            blockBox[m * 6 + 2] = z0
+            blockBox[m * 6 + 3] = x0 + size
+            blockBox[m * 6 + 4] = OCEAN_CULL_Y
+            blockBox[m * 6 + 5] = z0 + size
+            m++
           }
-          n = visibleRuns(OCEAN_QUADRANTS.length, quadStart, quadEnd, quadBox, planes,
-            OCEAN_QUADRANTS.length, runStart, runEnd)
+          n = visibleRuns(m, blockFrom, blockTo, blockBox, planes, OCEAN_RUN_CAP, runStart, runEnd)
         }
         for (let r = 0; r < runs.length; r++) {
           const m = runs[r]!
@@ -2092,7 +2143,7 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     },
     heightAt: gerstnerHeight,
     dispose() {
-      for (const runs of quadRuns) for (const m of runs.slice(1)) m.geometry.dispose()
+      for (const runs of levelRuns) for (const m of runs.slice(1)) m.geometry.dispose()
       for (const g of levelGeometries) g.dispose()
       material.dispose()
       farGeometry.dispose()

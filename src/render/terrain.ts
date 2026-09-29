@@ -165,7 +165,7 @@ export interface Terrain {
    */
   settle?(): void
   /**
-   * 依這一台相機剔掉看不到的植被、近海象限與佈景塊。**每次 render 之前呼叫** ——
+   * 依這一台相機剔掉看不到的植被、近海的塊與佈景塊。**每次 render 之前呼叫** ——
    * `main.ts` 掛在 `scene.onBeforeRender`，戰鬥、機庫、選單三個畫面都走得到。
    */
   cull(camera: Camera): void

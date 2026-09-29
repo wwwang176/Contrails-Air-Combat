@@ -10,7 +10,7 @@ import { BufferGeometry, Frustum, Matrix4, type Camera } from 'three'
 
 /**
  * 剔除的總開關。**量測出口**：`main.ts` 的 `__cull` 切它，同頁 A/B 用。
- * 關掉時每一池畫整條、近海四個象限全畫、佈景不剔 —— 與改動前的行為相同。
+ * 關掉時每一池畫整條、近海每一層整條畫、佈景不剔 —— 與改動前的行為相同。
  */
 export const CULL = { enabled: true }
 

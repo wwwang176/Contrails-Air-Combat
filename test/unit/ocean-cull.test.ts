@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Frustum, Matrix4, PerspectiveCamera, Vector3, type Mesh } from 'three'
-import { createOcean, OCEAN_QUADRANTS } from '../../src/render/ocean'
+import {
+  createOcean, oceanBlockRank, OCEAN_BLOCK_GRID, OCEAN_CULL, OCEAN_RING_SEGMENTS,
+} from '../../src/render/ocean'
 import { CULL } from '../../src/render/cullRuns'
 
 function camera(yawDeg: number, pitchDeg: number, x = 0, y = 300, z = 0): PerspectiveCamera {
@@ -24,69 +26,99 @@ function drawn(level: Mesh): [number, number][] {
   return out
 }
 
-afterEach(() => { CULL.enabled = true })
+const GRIDS = [2, 4, 8]
+const DEFAULT_GRID = OCEAN_CULL.grid
 
-describe('近海切象限', () => {
-  /** 【索引依象限排】第 q 段的每一個三角形都落在第 q 個象限裡 —— 排錯了剔除就剔錯塊 */
-  it('每一層的索引四等分，每一段的三角形都在自己的象限', () => {
+afterEach(() => {
+  CULL.enabled = true
+  OCEAN_CULL.grid = DEFAULT_GRID
+})
+
+describe('近海切塊', () => {
+  /**
+   * 【索引依塊排】沿索引走，三角形所在的塊的次序只增不減 —— 每一塊是連續的一段。
+   * 排錯了剔除就剔錯塊
+   */
+  it('每一層的索引依塊的次序排', () => {
     const o = createOcean(null)
-    for (const level of o.mesh.children as Mesh[]) {
+    const side = OCEAN_RING_SEGMENTS / OCEAN_BLOCK_GRID
+    for (const [l, level] of (o.mesh.children as Mesh[]).entries()) {
       const idx = level.geometry.index!
       const pos = level.geometry.getAttribute('position')
-      const quarter = idx.count / OCEAN_QUADRANTS.length
-      expect(Number.isInteger(quarter / 3)).toBe(true)
-      for (let q = 0; q < OCEAN_QUADRANTS.length; q++) {
-        const [qi, qj] = OCEAN_QUADRANTS[q]!
-        for (let t = q * quarter; t < (q + 1) * quarter; t += 3 * 17) {
-          let cx = 0
-          let cz = 0
-          for (let k = 0; k < 3; k++) {
-            cx += pos.getX(idx.getX(t + k)) / 3
-            cz += pos.getZ(idx.getX(t + k)) / 3
-          }
-          expect([q, cx > 0, cz > 0]).toEqual([q, qi === 1, qj === 1])
+      const cell = 30 * 2 ** l
+      const half = (OCEAN_RING_SEGMENTS / 2) * cell
+      let prev = -1
+      for (let t = 0; t < idx.count; t += 3 * 7) {
+        let cx = 0
+        let cz = 0
+        for (let k = 0; k < 3; k++) {
+          cx += pos.getX(idx.getX(t + k)) / 3
+          cz += pos.getZ(idx.getX(t + k)) / 3
         }
+        const bi = Math.floor((cx + half) / cell / side)
+        const bj = Math.floor((cz + half) / cell / side)
+        const rank = oceanBlockRank(bi, bj)
+        expect([l, t, rank >= prev]).toEqual([l, t, true])
+        prev = rank
       }
     }
     o.dispose()
   })
 
   /**
-   * 【一塊都不能漏】重心在視錐內的三角形都要畫到。只取水面（y = 0）的重心 ——
-   * 浪高由象限盒子的上下緣負責
+   * 【一塊都不能漏】重心在視錐內的三角形都要畫到，三種粗細都驗。只取水面（y = 0）
+   * 的重心 —— 浪高由塊的盒子上下緣負責
    */
-  it('看得到的三角形都在畫出去的段裡；背後的象限不畫', () => {
+  it('看得到的三角形都在畫出去的段裡；背後那一半不畫', () => {
     const o = createOcean(null)
     o.update(0, 130, -70)
     const f = new Frustum()
     const c = new Vector3()
-    for (const cam of [camera(0, -5, 130, 300, -70), camera(225, -20, 100, 800, -100),
-      camera(90, 80, 130, 300, -70)]) {
-      o.cull(cam)
-      f.setFromProjectionMatrix(new Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse))
-      for (const level of o.mesh.children as Mesh[]) {
-        const ranges = drawn(level)
-        const idx = level.geometry.index!
-        const pos = level.geometry.getAttribute('position')
-        for (let t = 0; t < idx.count; t += 3 * 29) {
-          c.set(0, 0, 0)
-          for (let k = 0; k < 3; k++) {
-            c.x += (pos.getX(idx.getX(t + k)) + o.mesh.position.x) / 3
-            c.z += (pos.getZ(idx.getX(t + k)) + o.mesh.position.z) / 3
+    for (const grid of GRIDS) {
+      OCEAN_CULL.grid = grid
+      for (const cam of [camera(0, -5, 130, 300, -70), camera(225, -20, 100, 800, -100),
+        camera(90, 80, 130, 300, -70), camera(30, -60, 130, 2000, -70)]) {
+        o.cull(cam)
+        f.setFromProjectionMatrix(new Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse))
+        for (const level of o.mesh.children as Mesh[]) {
+          const ranges = drawn(level)
+          expect(ranges.length).toBeLessThanOrEqual(4)
+          const idx = level.geometry.index!
+          const pos = level.geometry.getAttribute('position')
+          for (let t = 0; t < idx.count; t += 3 * 29) {
+            c.set(0, 0, 0)
+            for (let k = 0; k < 3; k++) {
+              c.x += (pos.getX(idx.getX(t + k)) + o.mesh.position.x) / 3
+              c.z += (pos.getZ(idx.getX(t + k)) + o.mesh.position.z) / 3
+            }
+            if (!f.containsPoint(c)) continue
+            expect([grid, t, ranges.some(([a, b]) => t >= a && t < b)]).toEqual([grid, t, true])
           }
-          if (!f.containsPoint(c)) continue
-          expect([t, ranges.some(([a, b]) => t >= a && t < b)]).toEqual([t, true])
         }
       }
+      // 平視朝 +X：每一層畫出去的不超過一半
+      o.cull(camera(0, -5, 130, 300, -70))
+      for (const level of o.mesh.children as Mesh[]) {
+        let total = 0
+        for (const [a, b] of drawn(level)) total += b - a
+        expect([grid, total <= level.geometry.index!.count / 2]).toEqual([grid, true])
+      }
     }
-    // 平視朝 +X：每一層 x < 0 的那兩個象限整塊不畫
-    o.cull(camera(0, -5, 130, 300, -70))
-    for (const level of o.mesh.children as Mesh[]) {
-      const quarter = level.geometry.index!.count / 4
-      let total = 0
-      for (const [a, b] of drawn(level)) total += b - a
-      expect(total).toBeLessThanOrEqual(quarter * 2)
+    o.dispose()
+  })
+
+  /** 【切得越細畫得越少】同一個平視鏡頭，4×4 畫出去的比 2×2 少 */
+  it('切細之後平視畫出去的比較少', () => {
+    const o = createOcean(null)
+    const cam = camera(20, -5)
+    const sum = (grid: number) => {
+      OCEAN_CULL.grid = grid
+      o.cull(cam)
+      let s = 0
+      for (const level of o.mesh.children as Mesh[]) for (const [a, b] of drawn(level)) s += b - a
+      return s
     }
+    expect(sum(4)).toBeLessThan(sum(2))
     o.dispose()
   })
 
