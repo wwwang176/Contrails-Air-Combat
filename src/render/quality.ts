@@ -37,8 +37,8 @@ export const QUALITY_LEVELS: readonly QualityLevel[] = [
   { labelKey: 'settings.quality.ultra', pixelRatio: 2, fieldInner: 500 },
   { labelKey: 'settings.quality.sharp', pixelRatio: 1.5, fieldInner: 500 },
   { labelKey: 'settings.quality.balanced', pixelRatio: 1, fieldInner: 0 },
-  { labelKey: 'settings.quality.smooth', pixelRatio: 0.8, fieldInner: 0 },
-  { labelKey: 'settings.quality.fast', pixelRatio: 0.65, fieldInner: 0 },
+  { labelKey: 'settings.quality.smooth', pixelRatio: 0.75, fieldInner: 0 },
+  { labelKey: 'settings.quality.fast', pixelRatio: 0.5, fieldInner: 0 },
 ]
 
 /** 沒有設定過時用的檔位：平衡 */
