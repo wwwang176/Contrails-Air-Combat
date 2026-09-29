@@ -296,7 +296,8 @@ export class AiController implements Controller {
   readonly strikeRef: StrikeRef = { kind: 'ship', index: -1 }
 
   /**
-   * 這一台的彈艙。**`null` = 掛不了彈**，也就是絕大多數的機種。
+   * 這一台的彈艙。**`null` = 沒有接線**（試驗場與探針）。場上每一架都有彈艙物件，
+   * 沒掛彈的容量是 0 —— 問「掛了彈沒有」要看 `capacity`。
    *
    * 【為什麼是本體而不是容量】狀態機要知道**現在還有沒有東西可以放** ——
    * 空了就該脫離。只給容量的話它會一直飛攻擊航路而不知道手上是空的
@@ -1054,8 +1055,10 @@ export class AiController implements Controller {
     //
     // 轟炸機出擊就是為了炸船，空中目標與編隊都不該蓋過它。
     //
-    // 【只對有彈艙的機種成立】戰鬥機仍然走原本的仲裁，一位元都沒動；
-    // 而 `attackShip` 在沒有船時是一次早退，所以絕大多數場次連問都不會問。
+    // 【只對掛了彈的成立】每一架都有彈艙物件（沒掛彈的容量是 0），所以要看容量
+    // 不能看 null。沒掛彈的戰鬥機進了這一支會丟下空中的敵機去掃射船；它們走
+    // 下面的空戰仲裁，沒有空中目標時才由「沒有目標」那一支去打船。
+    // `attackShip` 在沒有船時是一次早退，所以絕大多數場次連問都不會問。
     //
     // 【目標選擇仍然照跑】這一段排在 `if (decide)` 之後 —— 記分板的
     // assignments 與閂鎖不能因為「這一架去炸船了」而停止維護。
@@ -1063,7 +1066,8 @@ export class AiController implements Controller {
     // 【任務指定了地面優先目標就不插隊】日 M2 灘頭擱淺的 LST 是紅隊的船，
     // 這一段排在卡車分支之前 —— 不擋的話疾風整隊掛著炸彈去炸 LST，車隊沒人管。
     // 地面目標打光之後，下面「沒有目標」那一支的對艦仍然接得住
-    if (this.bombBay !== null && this.priorityGroundUnit === null && !this.evacuating
+    if (this.bombBay !== null && this.bombBay.capacity > 0
+      && this.priorityGroundUnit === null && !this.evacuating
       && this.attackShip(self, decide, dt, raw)) {
       resetGroundStrafe(this.groundStrafe)
       // 與地面路徑同一個理由：空層鎖不沿用到對艦航路之後

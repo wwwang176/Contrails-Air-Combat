@@ -223,6 +223,16 @@ export interface MissionTuning {
    * 正在哪一關。
    */
   readonly priorityGroundUnit?: GroundUnitId
+  /**
+   * 轟炸機（`role === 'bomber'`）在敵方目標挑選裡值幾倍。**省略 = 1。**
+   *
+   * 給的是不走 `transit` 的攻擊隊（`convoyDuty: 'strike'`）：它們不在
+   * `convoyPriority` 管的那幾席裡，沒有它時敵機只看威脅與幾何，會去纏會還手
+   * 的護航機。`transit` 的座位仍由 `convoyPriority` 決定。
+   *
+   * 只套開場的座位；增援的座位維持 1。
+   */
+  readonly bomberPriority?: number
 }
 
 /** 中性值：每一項都等於「沒有這一關」。遭遇戰與殲滅任務用它 */

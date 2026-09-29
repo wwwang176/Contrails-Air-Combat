@@ -89,6 +89,9 @@ export const JAPAN: readonly MissionCard[] = [
       // 【攻擊隊是 strike】陸攻照常走雷擊航路、照常閃彈，擊沉數由它們達成。
       // 誤成 transit 的話它們會直飛到一個不存在的終點
       convoySpec: G4M, convoyCount: 8, convoyDuty: 'strike',
+      // 【F4F 先打陸攻】沒有偏置時 F4F 會去纏會還手的零戰。20 倍以上 F4F 鎖陸攻的
+      // 比例就不再上升。**起始值。**
+      bomberPriority: 20,
       terrain: 'archipelago',
       fleet: GUADALCANAL_FLEET,
       sinkCount: 3,

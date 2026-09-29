@@ -320,6 +320,11 @@ export interface MissionBattle {
    */
   readonly priorityGroundUnit?: GroundUnitId
   /**
+   * 轟炸機在敵方目標挑選裡值幾倍。**省略 = 1，沒有偏置。** 見 `mission.ts` 的
+   * `MissionTuning.bomberPriority`。
+   */
+  readonly bomberPriority?: number
+  /**
    * 藍隊**分層擺位**：小隊前後拉開、左右錯開、高度分層，玩家在中間那一隊
    * （`order.ts` 的 `stackedEntry`）。**省略 = 橫隊。**
    *
