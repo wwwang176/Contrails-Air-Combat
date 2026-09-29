@@ -381,7 +381,10 @@ describe('洛伊納', () => {
     expect(t.object.children[1]!.children.length).toBe(0)
     expect(t.object.children[2]!.children.length).toBe(27)
     expect(t.object.children[2]!.children.slice(-2).map((o) => o.name)).toEqual(['river', 'landFeatures'])
-    expect((t.object.children[4] as { isMesh?: boolean }).isMesh).toBe(true)
+    // 佈景切成好幾塊，每一塊一顆 Mesh —— 見 `SCENERY_CHUNK`
+    const scenery = t.object.children[4]!
+    expect(scenery.children.length).toBeGreaterThan(1)
+    expect(scenery.children.every((o) => (o as { isMesh?: boolean }).isMesh === true)).toBe(true)
   })
 
   /** 【有真實村鎮就不撒隨機的村】隨機的村會落在不存在的地方 —— 田中央冒出一座教堂 */
