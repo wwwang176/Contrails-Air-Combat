@@ -76,12 +76,13 @@ export const KILL_CARD = 'test-kill'
 
 function killCard(): ReadyMissionCard {
   return {
-    id: KILL_CARD, title: '殲滅（測試）', type: 'annihilate',
-    summary: '測試用的殲滅卡。',
-    place: '中國　漢口上空', period: '1944 年 8 月',
+    // 【文字借用正式卡的鍵】這一張不上選單，測試不讀它的文字
+    id: KILL_CARD, titleKey: 'result.skirmish', type: 'annihilate',
+    summaryKey: 'mission.killAll.objective',
+    placeKey: 'mission.allies-m3.place', period: { year: 1944, month: 8 },
     battle: {
       ...KILL,
-      banner: '野馬從上方俯衝下來了',
+      bannerKey: 'mission.allies-m3.banner',
       blueSpec: KI84, redSpec: P51D,
       blueCount: 8, redCount: 10,
       entry: 'bounce',

@@ -59,7 +59,7 @@ export const CONVOY = {
 
 /** 殲滅：沒有終點也沒有時限，贏的條件就是敵方歸零。 */
 export const KILL = {
-  objective: '擊落全部敵機',
+  objectiveKey: 'mission.killAll.objective',
   convoySpec: null, convoyCount: 0, convoyPriority: 1,
   targetDistance: 0, targetRadius: 0, seconds: Infinity,
   entry: 'headOn',

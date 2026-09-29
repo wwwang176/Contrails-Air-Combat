@@ -166,6 +166,7 @@ import {
   stepBattle, type Battle,
 } from './battle/setup'
 import { flightOfCombatant, isFlightLeader } from './battle/flights'
+import { t, type MessageKey } from './i18n'
 import { lineAbreast, sideSummary } from './battle/order'
 import { fillOrderView } from './battle/orderView'
 import {
@@ -1388,8 +1389,8 @@ function leaveBattle(): void {
  * 說不通的狀態。
  */
 function restartBattle(): void {
-  // 【重開也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉
-  bannerText = ''
+  // 【重開也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉
+  bannerKey = null
   // 【上一場的聲音不帶過來】爆炸的尾巴、延遲中的遠方爆炸、裝填的邊緣都清掉
   audio.stopAll()
   clearCues(cues)
@@ -1456,9 +1457,9 @@ function leaveGodView(): void {
  * 新的 `combatants` 建的（M10 spec §5.3、§5.5）。
  */
 function enterBattle(): void {
-  // 【再打一場也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉；
+  // 【再打一場也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉；
   // 結算的「再打一場」走的是這裡，不是 `restartBattle`
-  bannerText = ''
+  bannerKey = null
   // 1. 上一場的模型全部還回去（殘骸池持有的也在裡面）
   releaseVisuals()
   // 2. 其餘的池子歸零
@@ -1490,7 +1491,7 @@ async function loadBattle(): Promise<void> {
     await loading.hold()
     await loading.step('整理戰場', 0.05)
     // 與 `enterBattle` 同樣的第 1、2 段
-    bannerText = ''
+    bannerKey = null
     releaseVisuals()
     resetPools()
     // 【佈景 GLB 進場才載】見 `preloadTerrainScenery`。只有洛伊納與波爾塔瓦
@@ -1858,12 +1859,12 @@ const loop = new FixedStepAccumulator({ stepHz: 240, maxSubsteps: 8, maxFrameSec
 let lastTime = performance.now()
 let elapsed = 0
 /**
- * 目標橫幅與中央訊息的打字機時鐘：記下文字改變的那一刻，HUD 只拿到
- * 「出現了幾秒」。用 `elapsed` 而不是牆鐘，暫停時打字也停。
+ * 目標橫幅與中央訊息的打字機時鐘：記下換成另一句的那一刻，HUD 只拿到
+ * 「出現了幾秒」。用 `elapsed` 而不是牆鐘，暫停時打字也停。記的是鍵，null = 沒有。
  */
-let bannerText = ''
+let bannerKey: MessageKey | null = null
 let bannerStart = 0
-let messageText = ''
+let messageKey: MessageKey | null = null
 let messageStart = 0
 /** 這一場從 `elapsed` 的哪一刻開始 —— `elapsed` 是全域幀鐘，跨場不歸零 */
 let battleStartedAt = 0
@@ -3336,26 +3337,25 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   const m = battle.mission
   hudFrame.objectiveActive = mode === 'mission'
   // 【撤離節拍改寫過的優先】它把 `mission` 換掉了，卡片上那一句已經不成立
-  hudFrame.objectiveText = battle.objectiveText !== ''
-    ? battle.objectiveText
-    : pendingMission?.battle.objective ?? ''
+  const objectiveKey = battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? null
+  hudFrame.objectiveText = objectiveKey === null ? '' : t(objectiveKey)
   hudFrame.objectiveMetric = m.metric
   hudFrame.objectiveMetricKind = m.metricKind
-  // 【橫幅在目標文字改變的那一刻出現】開場是卡片上那一句短句；返航節拍
-  // 換掉目標時是那一則訊息 —— 兩者走同一條。遭遇戰沒有橫幅
+  // 【橫幅在目標改變的那一刻出現】開場是卡片上那一句短句；返航節拍換掉
+  // 目標時是那一則訊息 —— 兩者走同一條。遭遇戰沒有橫幅
+  //
+  // 【以鍵判斷換了沒有】語言切換只換字，不算新的橫幅
   const banner = mode !== 'mission'
-    ? ''
-    : battle.objectiveText !== ''
-      ? battle.objectiveText
-      : pendingMission?.battle.banner ?? hudFrame.objectiveText
-  if (banner !== bannerText) {
-    bannerText = banner
+    ? null
+    : battle.objectiveKey ?? pendingMission?.battle.bannerKey ?? objectiveKey
+  if (banner !== bannerKey) {
+    bannerKey = banner
     bannerStart = elapsed
-    // 【橫幅配電報聲】與訊息同一組；橫幅消失（換成空字串）時不響
-    if (bannerText !== '') audio.playPool('radio', 'radio', 0, 0, 0, false)
+    // 【橫幅配電報聲】與訊息同一組；橫幅消失時不響
+    if (bannerKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
   }
-  hudFrame.objectiveBanner = bannerText
-  hudFrame.objectiveBannerAge = bannerText === '' ? -1 : elapsed - bannerStart
+  hudFrame.objectiveBanner = bannerKey === null ? '' : t(bannerKey)
+  hudFrame.objectiveBannerAge = bannerKey === null ? -1 : elapsed - bannerStart
   // 【分母由 `mission.ts` 給】只有擊沉會填總艘數，其餘任務恆是 −1
   hudFrame.objectiveMetricTotal = m.metricTotal
   // 【−1 由 `mission.ts` 給】只有護送／攔截會填實際架數，其餘任務恆是 −1
@@ -3371,15 +3371,15 @@ function stepAndDrawBattle(frameSeconds: number, worldSeconds: number): void {
   hudFrame.objectiveWorldX = m.target.x
   hudFrame.objectiveWorldZ = m.target.z
   // 【照抄，不在這裡判過期】`stepBeats` 已經依物理時間把過期的收掉了
-  hudFrame.message = battle.message
-  // 【打字機的時鐘】訊息換了就從頭打；空字串沒有年齡
-  if (battle.message !== messageText) {
-    messageText = battle.message
+  hudFrame.message = battle.message === null ? '' : t(battle.message)
+  // 【打字機的時鐘】訊息換了就從頭打；沒有訊息就沒有年齡
+  if (battle.message !== messageKey) {
+    messageKey = battle.message
     messageStart = elapsed
-    // 【增援預警配無線電】訊息消失（換成空字串）時不響
-    if (messageText !== '') audio.playPool('radio', 'radio', 0, 0, 0, false)
+    // 【增援預警配無線電】訊息消失時不響
+    if (messageKey !== null) audio.playPool('radio', 'radio', 0, 0, 0, false)
   }
-  hudFrame.messageAge = messageText === '' ? -1 : elapsed - messageStart
+  hudFrame.messageAge = messageKey === null ? -1 : elapsed - messageStart
 
   hud.render(hudFrame, frameSeconds)
   if (audioMeter !== null) {
@@ -3577,8 +3577,8 @@ const menu = createMenu(document.getElementById('ui') as HTMLElement, {
   onMission(card) {
     mode = 'mission'
     pendingMission = card
-    // 【再打同一關也要有橫幅】橫幅靠文字改變觸發，上一場留下的文字要清掉
-    bannerText = ''
+    // 【再打同一關也要有橫幅】橫幅在換成另一句時才出現，上一場留下的要清掉
+    bannerKey = null
   },
   onResume() {
     setPausedState(false)
@@ -3650,10 +3650,8 @@ function afterAction(): AfterAction {
   const convoy = battle.convoy
   return {
     mode,
-    title: mode === 'mission' ? pendingMission?.title ?? '' : '遭遇戰',
-    objective: battle.objectiveText !== ''
-      ? battle.objectiveText
-      : pendingMission?.battle.objective ?? '擊落全部敵機',
+    title: mode === 'mission' && pendingMission !== null ? t(pendingMission.titleKey) : t('result.skirmish'),
+    objective: t(battle.objectiveKey ?? pendingMission?.battle.objectiveKey ?? 'mission.killAll.objective'),
     seconds: (battleEndedAt < 0 ? elapsed : battleEndedAt) - battleStartedAt,
     playerSpec: shortName(me.aircraft.spec),
     playerFlight: (flightAt < 0 ? 0 : flightAt) + 1,

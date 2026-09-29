@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { missionConfigFrom } from '../../src/battle/missions'
+import { t } from '../../src/i18n'
 import { AiController } from '../../src/ai/AiController'
 import { DEFAULT_RULES } from '../../src/ai/rules'
 import { Idle } from './spawn-snapshot'
@@ -125,7 +126,7 @@ for (const [id] of CARDS) {
     + `迴旋閂鎖觸發 ${String(turnCaused).padStart(3)} 次`)
 
   if (salt === 0) {
-    console.log(`══ ${id}（${card.title}）—— 玩家座位 ${me.index}，`
+    console.log(`══ ${id}（${t(card.titleKey)}）—— 玩家座位 ${me.index}，`
       + `${me.aircraft.spec.id}，代飛 ${SECONDS} s（未擾動）══`)
     console.log(`  存活 ${aliveTime.toFixed(0)} s，有目標 `
       + `${(100 * hasTargetTime / Math.max(1e-9, aliveTime)).toFixed(1)}%，`

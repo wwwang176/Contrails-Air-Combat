@@ -495,7 +495,7 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
       b.className = `stop paperbit ${ready ? 'ready' : 'soon'}${i === k ? ' on' : ''}`
       // 【e2e 用 id 選卡】標題會改，id 不會
       b.dataset['mission'] = m.id
-      b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div><div class="n">${escapeHtml(m.title)}</div>`
+      b.innerHTML = `<div class="k">${escapeHtml(t('menu.stage', { n: i + 1 }))} ${escapeHtml(missionTypeName(m.type))}</div><div class="n">${escapeHtml(t(m.titleKey))}</div>`
         + (ready ? '' : '<div class="soonmark">準備中</div>')
       b.addEventListener('click', () => {
         picked[campaign] = i

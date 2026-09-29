@@ -7,6 +7,7 @@ import { ENTRY_PLANS } from '../../src/battle/entry'
 import { readyCard, ESCORT_CARD, INTERCEPT_CARD, KILL_CARD } from '../fixtures/mission'
 import type { ReadyMissionCard } from '../../src/battle/missions'
 import { A6M5_BOMB_LOADOUT } from '../../src/weapons/stores'
+import { LANGS, setLang, t, type Lang } from '../../src/i18n'
 
 /**
  * # 卡片 → 規則／設定
@@ -29,10 +30,11 @@ const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionCard {
   const kill = readyCard(KILL_CARD).battle
   return {
-    id: 'test-evac', title: '測試用撤離', type: 'withdraw', summary: '',
-    place: '測試', period: '測試',
+    id: 'test-evac', titleKey: 'mission.japan-m2.withdraw', type: 'withdraw',
+    summaryKey: 'mission.japan-m2.withdraw',
+    placeKey: 'mission.japan-m2.place', period: { year: 1944, month: 11 },
     battle: {
-      objective: '飛抵撤離點',
+      objectiveKey: 'mission.japan-m2.withdraw',
       blueSpec: kill.blueSpec, redSpec: kill.redSpec, convoySpec: null,
       blueCount: 4, redCount: 8, convoyCount: 0, convoyPriority: 1,
       targetDistance: distance, targetRadius: radius, seconds,
@@ -79,7 +81,7 @@ describe('關卡資料', () => {
   })
 
   it('可玩卡都有目標列的文字', () => {
-    for (const m of playable) expect(m.battle.objective.length, m.id).toBeGreaterThan(0)
+    for (const m of playable) expect(t(m.battle.objectiveKey).length, m.id).toBeGreaterThan(0)
   })
 })
 
@@ -308,11 +310,22 @@ describe('卡片可以依機種複寫掛載', () => {
 })
 
 describe('目標橫幅', () => {
-  /** 【每一張可玩卡都要有】沒有的話進場那 3 秒是空的；要短，玩家一眼讀完 */
-  it('每一張可玩卡都有橫幅，而且不超過 14 個字', () => {
-    for (const m of playable) {
-      expect(m.battle.banner, m.id).toBeTruthy()
-      expect(m.battle.banner!.length, m.id).toBeLessThanOrEqual(14)
+  /**
+   * 【每一張可玩卡都要有】沒有的話進場那 3 秒是空的；要短，玩家一眼讀完。
+   * 上限依語言：中文 14 個字、英文 30 個字元（兩者在 34 px 的橫幅上寬度相當）
+   */
+  const LIMIT: Record<Lang, number> = { zh: 14, en: 30 }
+  it('每一張可玩卡都有橫幅，而且在兩種語言都不超過上限', () => {
+    try {
+      for (const lang of LANGS) {
+        setLang(lang)
+        for (const m of playable) {
+          expect(m.battle.bannerKey, m.id).toBeDefined()
+          expect(t(m.battle.bannerKey!).length, `${lang} ${m.id}`).toBeLessThanOrEqual(LIMIT[lang])
+        }
+      }
+    } finally {
+      setLang('zh')
     }
   })
 })

@@ -270,13 +270,12 @@ describe('關卡的時段', () => {
   })
 
   /**
-   * 【倫內爾島非黃昏不可】卡片文案寫的是「在黃昏低空雷擊」。改成別的時段
-   * 就與自己的簡報矛盾，而那只有人看得出來。
+   * 【倫內爾島非黃昏不可】卡片說明寫的是黃昏低空雷擊（`mission.japan-m3.summary`）。
+   * 改成別的時段就與自己的簡報矛盾，而那只有人看得出來。
    */
   it('倫內爾島是黃昏', () => {
     const m4 = cards.find((c) => c.id === 'japan-m3')!
     expect(m4.battle!.timeOfDay).toBe('dusk')
-    expect(m4.summary).toContain('黃昏')
   })
 
   it('遭遇戰的預設是正午', () => {

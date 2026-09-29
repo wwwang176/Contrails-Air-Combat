@@ -10,6 +10,7 @@ import type { Command, Controller } from '../../src/control/Controller'
 import type { BattleConfig } from '../../src/battle/setup'
 import type { Beat } from '../../src/battle/beats'
 import type { FlightPlan } from '../../src/battle/order'
+import type { MessageKey } from '../../src/i18n'
 
 /**
  * # 節拍接進 `stepBattle`
@@ -22,6 +23,11 @@ import type { FlightPlan } from '../../src/battle/order'
  */
 
 const DT = 1 / 240
+
+/** 訊息用哪幾句都可以 —— 驗的是節拍存了哪一個鍵，不是文字 */
+const WARN_A: MessageKey = 'mission.allies-m1.wave.more'
+const WARN_B: MessageKey = 'mission.allies-m1.wave.join'
+const BACK: MessageKey = 'mission.japan-m2.withdraw'
 
 class Idle implements Controller {
   update(_self: Aircraft, _dt: number, out: Command): void {
@@ -58,7 +64,7 @@ function run(b: ReturnType<typeof battle>, seconds: number): void {
 describe('節拍接進 stepBattle', () => {
   it('增援節拍：容量由 beats 推出來，不必另外寫 reserve', () => {
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 5 }, warn: '敵機！', warnLead: 2, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 5 }, warnKey: WARN_A, warnLead: 2, flight: WAVE },
     ])
     expect(b.reserve).toEqual([{ team: 'red', count: 2 }])
     expect(b.world.damageStride).toBe(10)
@@ -67,14 +73,14 @@ describe('節拍接進 stepBattle', () => {
 
   it('先預警，過了 warnLead 才真的進場', () => {
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 5 }, warn: '敵機！', warnLead: 2, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 5 }, warnKey: WARN_A, warnLead: 2, flight: WAVE },
     ])
     run(b, 4.5)
-    expect(b.message).toBe('')
+    expect(b.message).toBeNull()
     expect(b.world.combatants).toHaveLength(8)
 
     run(b, 5.1)
-    expect(b.message).toBe('敵機！')
+    expect(b.message).toBe(WARN_A)
     // 【預警之後、進場之前】這中間是玩家反應的時間，少了它預警就沒有意義
     expect(b.world.combatants).toHaveLength(8)
 
@@ -84,7 +90,7 @@ describe('節拍接進 stepBattle', () => {
 
   it('只發生一次 —— 進場之後不再重複', () => {
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: WARN_A, warnLead: 0, flight: WAVE },
     ])
     run(b, 30)
     expect(b.world.combatants).toHaveLength(10)
@@ -98,7 +104,7 @@ describe('節拍接進 stepBattle', () => {
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 2 },
-      message: '返航',
+      messageKey: BACK,
       point: new Vector3(0, 4000, 9000),
       radius: 1000,
       seconds: 300,
@@ -109,7 +115,7 @@ describe('節拍接進 stepBattle', () => {
     expect(b.mission.secondsLeft).toBe(Infinity)
 
     run(b, 2.1)
-    expect(b.message).toBe('返航')
+    expect(b.message).toBe(BACK)
     expect(b.rules.kind).toBe('evacuate')
     expect(b.mission.hasTarget).toBe(true)
     expect(b.mission.target.z).toBe(9000)
@@ -129,7 +135,7 @@ describe('節拍接進 stepBattle', () => {
     const b = battle()
     expect(b.beatStates).toHaveLength(0)
     run(b, 10)
-    expect(b.message).toBe('')
+    expect(b.message).toBeNull()
     expect(b.world.combatants).toHaveLength(8)
   })
 
@@ -137,7 +143,7 @@ describe('節拍接進 stepBattle', () => {
     // 【擋的是把 fired 寫回 MissionCard】那種寫法第二次開場時波次已經是
     // fired，而重置沒有任何波次邏輯
     const beats: readonly Beat[] = [
-      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: 'x', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: WARN_A, warnLead: 0, flight: WAVE },
     ]
     const dump = () => {
       const b = battle(beats)
@@ -158,27 +164,27 @@ describe('節拍接進 stepBattle', () => {
     // 【為什麼過期在這一層而不是畫面那一層】它吃的是物理時間。放在畫面
     // 那一層的話，暫停時訊息會繼續倒數
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: '敵機！', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: WARN_A, warnLead: 0, flight: WAVE },
     ])
     run(b, 1.1)
-    expect(b.message).toBe('敵機！')
+    expect(b.message).toBe(WARN_A)
     run(b, 4.9)
-    expect(b.message).toBe('敵機！')
+    expect(b.message).toBe(WARN_A)
     run(b, 5.2)
-    expect(b.message).toBe('')
+    expect(b.message).toBeNull()
   })
 
   it('後來者覆蓋 —— 單一訊息槽，不排隊', () => {
     // 【為什麼不排隊】排隊的話第二則要等第一則播完才出現，而那時它講的事
     // 早就發生了。這裡兩則的顯示窗口是重疊的
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: '第一波', warnLead: 0, flight: WAVE },
-      { kind: 'reinforce', when: { kind: 'clock', at: 2 }, warn: '第二波', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: WARN_A, warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 2 }, warnKey: WARN_B, warnLead: 0, flight: WAVE },
     ])
     run(b, 1.1)
-    expect(b.message).toBe('第一波')
+    expect(b.message).toBe(WARN_A)
     run(b, 2.1)
-    expect(b.message).toBe('第二波')
+    expect(b.message).toBe(WARN_B)
   })
 
   it('返航節拍也改寫任務目標的文字', () => {
@@ -187,20 +193,20 @@ describe('節拍接進 stepBattle', () => {
     const b = battle([{
       kind: 'withdraw',
       when: { kind: 'clock', at: 1 },
-      message: '返航',
+      messageKey: BACK,
       point: new Vector3(0, 4000, 9000),
       radius: 1000,
       seconds: 300,
     }])
-    expect(b.objectiveText).toBe('')
+    expect(b.objectiveKey).toBeNull()
     run(b, 1.1)
-    expect(b.objectiveText).toBe('返航')
+    expect(b.objectiveKey).toBe(BACK)
   })
 
   it('兩個節拍照卡片順序，各自獨立', () => {
     const b = battle([
-      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warn: 'a', warnLead: 0, flight: WAVE },
-      { kind: 'reinforce', when: { kind: 'clock', at: 3 }, warn: 'b', warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 1 }, warnKey: WARN_A, warnLead: 0, flight: WAVE },
+      { kind: 'reinforce', when: { kind: 'clock', at: 3 }, warnKey: WARN_B, warnLead: 0, flight: WAVE },
     ])
     run(b, 1.1)
     expect(b.world.combatants).toHaveLength(10)

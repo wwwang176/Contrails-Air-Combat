@@ -97,7 +97,7 @@ function card(patch: Partial<MissionBattle>): ReadyMissionCard {
 /** 起飛線 (0, −3000) 機首朝 −Z 的波次 */
 function takeoffWave(count: number, departs?: 'parkedP51') {
   return {
-    when: { kind: 'clock' as const, at: 0.5 }, warn: 'x', warnLead: 0,
+    when: { kind: 'clock' as const, at: 0.5 }, warnKey: 'mission.germany-m3.wave.taxi' as const, warnLead: 0,
     side: 'theirs' as const, spec: P51D, count,
     takeoff: { x: 0, z: -3000, heading: 0 },
     ...(departs === undefined ? {} : { departs }),
@@ -212,7 +212,7 @@ describe('從停機墊滑到跑道', () => {
     const c = card({
       ground,
       waves: [{
-        when: { kind: 'clock', at: 0.5 }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock', at: 0.5 }, warnKey: 'mission.germany-m3.wave.taxi' as const, warnLead: 0,
         side: 'theirs', spec: P51D, count: 2, takeoff: line, departs: 'parkedP51',
       }],
     })
@@ -341,7 +341,7 @@ describe('從停機墊滑到跑道', () => {
     const c = card({
       ground,
       waves: [0.5, 1.0].map((at) => ({
-        when: { kind: 'clock' as const, at }, warn: 'x', warnLead: 0,
+        when: { kind: 'clock' as const, at }, warnKey: 'mission.germany-m3.wave.taxi' as const, warnLead: 0,
         side: 'theirs' as const, spec: P51D, count: 1, takeoff: line, departs: 'parkedP51' as const,
       })),
     })
@@ -445,7 +445,7 @@ describe('滾行中的那一架', () => {
     const before = b.world.combatants.length
     while (b.world.time < 1) stepBattle(b, DT)
     expect(b.world.combatants.length).toBe(before)
-    expect(b.message).toBe('')
+    expect(b.message).toBeNull()
   })
 
   it('腳本期間打得到', () => {

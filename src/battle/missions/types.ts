@@ -11,6 +11,7 @@ import type { TimeOfDay } from '../../world/timeOfDay'
 import type { Loadout } from '../../weapons/stores'
 import type { TakeoffLine } from '../../control/takeoffRoll'
 import type { GroundMotion } from '../../world/groundMotion'
+import type { MessageKey } from '../../i18n'
 
 /**
  * # 任務卡的型別
@@ -107,8 +108,10 @@ export interface MissionWave {
    * 「在哪裡」。
    *
    * 唯一的例外是**開場那一刻**（`clock: 0`）：那時玩家一定還朝著機首方向。
+   *
+   * 文字表的鍵（`src/i18n`），不是文字本身。
    */
-  readonly warn: string
+  readonly warnKey: MessageKey
   /** 預警到進場之間的秒數 */
   readonly warnLead: number
   readonly side: MissionSide
@@ -185,8 +188,8 @@ export interface MissionRecycle {
   readonly role?: AircraftSpec['role']
   /** 最多預警幾批。用完之後小隊死光就死光 */
   readonly batches: number
-  /** 畫面中心的預警文字。同 `MissionWave.warn`，不宣稱方位 */
-  readonly warn: string
+  /** 畫面中心的預警文字的鍵。同 `MissionWave.warnKey`，不宣稱方位 */
+  readonly warnKey: MessageKey
   /** 預警到重生之間的秒數 */
   readonly warnLead: number
   /** 重生的進場方位，同 `MissionWave.starboard` */
@@ -221,17 +224,21 @@ export interface MissionCard {
    * 【前綴就是戰役】`campaigns.test.ts` 釘住。
    */
   readonly id: string
-  readonly title: string
+  /** 標題的鍵（`src/i18n`）。以下 `*Key` 都是文字表的鍵，不是文字本身 */
+  readonly titleKey: MessageKey
   readonly type: MissionType
   /** 卡片上的一行說明 */
-  readonly summary: string
+  readonly summaryKey: MessageKey
   /**
    * 這一關取材自哪一片空域。**簡報上寫的是這個，不是地形（群島／內陸
    * 農地）** —— 地形是模擬的參數，空域才是簡報會寫的東西。
    */
-  readonly place: string
-  /** 取材自哪一段時間。粗到年或月為止 —— 再細就會跟機型的服役期打架 */
-  readonly period: string
+  readonly placeKey: MessageKey
+  /**
+   * 取材自哪一段時間，到月為止 —— 再細就會跟機型的服役期打架。`month` 從 1 起算，
+   * 顯示時依語言格式化（`formatMonth`）
+   */
+  readonly period: { readonly year: number; readonly month: number }
   /**
    * 這一關的戰鬥設定。**null = 還沒做**，選單上 disabled。
    *
@@ -257,13 +264,13 @@ export interface MissionBattle {
    * 【為什麼放在卡片上而不是 `MissionState`】它是常數。放進狀態的話
    * `stepMission` 每個物理步跑 240 次，等於每秒配置 240 個字串。
    */
-  readonly objective: string
+  readonly objectiveKey: MessageKey
   /**
    * 進場橫幅：一進地圖在畫面中央放大印出的那一句，好懂、口語、先講發生了
-   * 什麼再講要做什麼。**省略 = 用 `objective`。** 不超過 14 個字，玩家要一眼
-   * 讀完（護欄在 `missions.test.ts`）。
+   * 什麼再講要做什麼。**省略 = 用 `objectiveKey`。** 玩家要一眼讀完：中文不超過
+   * 14 個字、英文不超過 30 個字元（護欄在 `missions.test.ts`）。
    */
-  readonly banner?: string
+  readonly bannerKey?: MessageKey
   /**
    * 我方（藍隊）的主力機種。**不保證是戰鬥機** —— 有幾關玩家開轟炸機。
    *
@@ -622,8 +629,8 @@ export interface FleetEntry {
 /** 打到一半把任務目標換成撤離。 */
 export interface MissionWithdraw {
   readonly when: MissionTrigger
-  /** 畫面中心的文字，同時取代 HUD 目標列上那一句 */
-  readonly message: string
+  /** 畫面中心的文字的鍵，同時取代 HUD 目標列上那一句 */
+  readonly messageKey: MessageKey
   /**
    * 撤離點在我方機首方向多遠，m。與 `targetDistance` 同一套。**負值 = 在我方
    * 開局位置的後方**（撤離點在來時的方向，日 M2）

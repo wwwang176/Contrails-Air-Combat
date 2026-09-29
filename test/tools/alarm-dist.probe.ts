@@ -28,6 +28,7 @@
  */
 import { createBattle, stepBattle } from '../../src/battle/setup'
 import { missionConfigFrom } from '../../src/battle/missions'
+import { t } from '../../src/i18n'
 import { AiController } from '../../src/ai/AiController'
 import { alarmFactor, alarmRamp } from '../../src/ai/assess'
 import { Idle } from './spawn-snapshot'
@@ -90,7 +91,7 @@ for (const [id] of CARDS) {
   all.sort((x, y) => x - y)
   nonZero.sort((x, y) => x - y)
 
-  console.log(`\n══ ${id}（${card.title}）—— ${watched.length} 架戰鬥機，`
+  console.log(`\n══ ${id}（${t(card.titleKey)}）—— ${watched.length} 架戰鬥機，`
     + `${SECONDS} s，10 Hz 取樣 ══`)
   console.log(`  取樣 ${all.length}，其中 alarm > 0 的佔 `
     + `${(100 * hot / Math.max(1, all.length)).toFixed(1)}%`)

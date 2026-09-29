@@ -1,7 +1,7 @@
 import { missionConfigFrom } from '../battle/missions'
 import type { MissionCard, MissionType, ReadyMissionCard } from '../battle/missions'
 import type { AircraftSpec } from '../specs/types'
-import { t, type MessageKey } from '../i18n'
+import { formatMonth, t, type MessageKey } from '../i18n'
 
 /** 任務類型的顯示名稱。少一種類型是編譯錯誤 */
 const TYPE_KEY: Readonly<Record<MissionType, MessageKey>> = {
@@ -33,6 +33,8 @@ export interface BriefingUnit {
 }
 
 export interface BriefingFact {
+  /** 這一列是什麼。程式與測試認它，`label` 是給人看的 */
+  readonly id: 'place' | 'period'
   readonly label: string
   readonly value: string
 }
@@ -102,22 +104,25 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
   }
 
   const facts: BriefingFact[] = [
-    { label: '空域', value: card.place },
-    { label: '時期', value: card.period },
+    { id: 'place', label: t('brief.place'), value: t(card.placeKey) },
+    { id: 'period', label: t('brief.period'), value: formatMonth(card.period.year, card.period.month) },
   ]
 
+  const objective = t(b.objectiveKey)
   return {
     ready: true,
-    title: card.title, kind: missionTypeName(card.type), summary: card.summary,
-    objective: b.withdraw === undefined ? b.objective : `${b.objective} → ${b.withdraw.message}`,
+    title: t(card.titleKey), kind: missionTypeName(card.type), summary: t(card.summaryKey),
+    objective: b.withdraw === undefined ? objective : `${objective} → ${t(b.withdraw.messageKey)}`,
     mine, foe, facts,
   }
 }
 
-/** 卡 → 簡報。準備中的卡只帶標題、類型、說明。 */
+/** 卡 → 簡報，照目前的語言。準備中的卡只帶標題、類型、說明。 */
 export function briefingOf(card: MissionCard): Briefing {
   if (card.battle === null) {
-    return { ready: false, title: card.title, kind: missionTypeName(card.type), summary: card.summary }
+    return {
+      ready: false, title: t(card.titleKey), kind: missionTypeName(card.type), summary: t(card.summaryKey),
+    }
   }
   return readyBriefing(card as ReadyMissionCard)
 }
