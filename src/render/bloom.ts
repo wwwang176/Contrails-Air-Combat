@@ -111,19 +111,32 @@ const UP_FRAGMENT = `
   }
 `
 
-/** 疊回畫布。離屏圖是線性的，這裡轉成畫布的色彩空間再加上去 */
+/**
+ * 疊回畫布。離屏圖是線性的，這裡轉成畫布的色彩空間再加上去。
+ *
+ * `white`：往白色靠的比例，白色取三個通道的最大值（亮度不變）。`core` 為真時只有
+ * 亮的地方變白 —— 強光的核心過曝成白，外圍的暈保留火焰的顏色
+ */
 const COMPOSITE_FRAGMENT = `
   uniform sampler2D src;
   uniform float strength;
+  uniform float white;
+  uniform bool core;
   varying vec2 vUv;
   void main() {
-    gl_FragColor = vec4(texture2D(src, vUv).rgb * strength, 1.0);
+    vec3 c = texture2D(src, vUv).rgb;
+    float peak = max(c.r, max(c.g, c.b));
+    float k = core ? white * smoothstep(0.05, 0.6, peak) : white;
+    c = mix(c, vec3(peak), k);
+    gl_FragColor = vec4(c * strength, 1.0);
     #include <colorspace_fragment>
   }
 `
 
 export interface BloomPass {
   enabled: boolean
+  /** 光暈的色調：往白色靠的比例 0…1；`core` 為真時只有亮的核心變白 */
+  setLook(white: number, core: boolean, strength?: number): void
   /** 主場景畫完之後呼叫。`enabled` 為 false 時什麼都不做 */
   render(scene: Scene, camera: Camera): void
   dispose(): void
@@ -157,7 +170,10 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
     depthTest: false, depthWrite: false, toneMapped: false,
   })
   const composite = new ShaderMaterial({
-    uniforms: { src: { value: levels[0]!.texture }, strength: { value: BLOOM_STRENGTH } },
+    uniforms: {
+      src: { value: levels[0]!.texture }, strength: { value: BLOOM_STRENGTH },
+      white: { value: 0 }, core: { value: false },
+    },
     vertexShader: FULLSCREEN_VERTEX, fragmentShader: COMPOSITE_FRAGMENT,
     blending: AdditiveBlending, transparent: true,
     depthTest: false, depthWrite: false, toneMapped: false,
@@ -206,6 +222,11 @@ export function createBloomPass(renderer: WebGLRenderer): BloomPass {
 
   const bloom: BloomPass = {
     enabled: true,
+    setLook(white, core, strength = BLOOM_STRENGTH) {
+      composite.uniforms['white']!.value = white
+      composite.uniforms['core']!.value = core
+      composite.uniforms['strength']!.value = strength
+    },
     render(scene, camera) {
       if (!bloom.enabled) return
       resize()
