@@ -143,6 +143,8 @@ export interface BloomPass {
    * 之間漸漸變白；`strength` 是暈的強度
    */
   setLook(white: number, strength?: number, hotFrom?: number, hotTo?: number): void
+  /** 暈的半徑：用幾層模糊（1…4），每少一層寬度約減半 */
+  setRadius(levels: number): void
   /** 主場景畫完之後呼叫。`enabled` 為 false 時什麼都不做 */
   render(scene: Scene, camera: Camera): void
   dispose(): void
@@ -207,6 +209,8 @@ export function createBloomPass(
   quadScene.add(quad)
   const quadCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
 
+  /** 實際用幾層（1…LEVELS）。層數愈少，暈愈窄 */
+  let radius = LEVELS
   const drawing = new Vector2()
   const savedClear = new Color()
   let width = 0
@@ -238,6 +242,9 @@ export function createBloomPass(
       composite.uniforms['white']!.value = white
       composite.uniforms['strength']!.value = strength
       ;(composite.uniforms['hotRange']!.value as Vector2).set(hotFrom, hotTo)
+    },
+    setRadius(n) {
+      radius = Math.max(1, Math.min(LEVELS, Math.round(n)))
     },
     render(scene, camera) {
       if (!bloom.enabled) return
@@ -276,7 +283,7 @@ export function createBloomPass(
         let src: Texture = source.texture
         let srcW = width
         let srcH = height
-        for (let i = 0; i < LEVELS; i++) {
+        for (let i = 0; i < radius; i++) {
           downTexel.set(1 / srcW, 1 / srcH)
           renderer.setRenderTarget(levels[i]!)
           renderer.clear(true, false, false)
@@ -287,7 +294,7 @@ export function createBloomPass(
         }
 
         // 4. 往上取樣，加到上一層原本的內容上
-        for (let i = LEVELS - 1; i > 0; i--) {
+        for (let i = radius - 1; i > 0; i--) {
           upTexel.set(1 / Math.max(1, width >> (i + 1)), 1 / Math.max(1, height >> (i + 1)))
           pass(up, levels[i]!.texture, levels[i - 1]!)
         }
