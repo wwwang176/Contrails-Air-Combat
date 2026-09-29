@@ -700,6 +700,11 @@ export const SPARKLE_STRENGTH = 0.6
 export const OCEAN_GLOW = {
   pass: { value: 0 },
   range: { value: new Vector2(0.3, 0.8) },
+  /**
+   * 海面光暈的強度。碎光很亮，全額的話最寬那幾層也分到不少，暈推得很遠；
+   * 壓低之後外圈先淡到看不見，暈只剩碎光周圍一小圈。**起始值，由試看裁定**
+   */
+  gain: { value: 0.3 },
 }
 /**
  * 淡入淡出包絡 `sin(u·π)` 的指數。1 就是純正弦；小於 1 更方（亮得久、進出
@@ -925,6 +930,7 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform vec3 uSunDirection;
   uniform float uGlowPass;    // 見 OCEAN_GLOW
   uniform vec2 uGlowRange;
+  uniform float uGlowGain;
   uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
   uniform float uCrestRef;
   uniform float uSigmaBase;
@@ -1513,7 +1519,7 @@ ${face}
     // 見 OCEAN_GLOW 與 render/bloom.ts
     float glowLum = dot(glowSrc, vec3(0.2126, 0.7152, 0.0722));
     oceanGlow = glowSrc * smoothstep(uGlowRange.x, uGlowRange.y, glowLum)
-      * glowKeep * (1.0 - oceanAerial);
+      * glowKeep * (1.0 - oceanAerial) * uGlowGain;
   }
 `
 
@@ -1702,6 +1708,7 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
   const sparkle = {
     uGlowPass: OCEAN_GLOW.pass,
     uGlowRange: OCEAN_GLOW.range,
+    uGlowGain: OCEAN_GLOW.gain,
     uWaveDir: { value: WAVES.map((w) => new Vector2(w.dirX, w.dirZ)) },
     uWaveAmp: { value: WAVES.map((w) => w.amplitude) },
     uWaveLen: { value: WAVES.map((w) => w.wavelength) },
