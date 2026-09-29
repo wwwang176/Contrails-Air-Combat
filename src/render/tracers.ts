@@ -40,43 +40,6 @@ export const TRACER_TAPER = 0.3
  */
 const RADIAL_SEGMENTS = 4
 
-/**
- * 光暈那一趟（`render/bloom.ts`）的曳光彈開關。**所有曳光彈池共用這一份物件**
- * （戰鬥與機庫各有一池），`main.ts` 在光暈畫窄光源之前打開、畫完關掉。
- *
- * 【為什麼光暈要把遠處的加粗】光暈的光源圖沒有抗鋸齒（兩檔都是），遠處的曳光彈
- * 在上面不到一個像素寬：一個像素只有「蓋到中心」與「沒蓋到」兩種，細線一移動就
- * 這一幀有、下一幀沒有，模糊再把它放大成會閃的暈。主畫面有 MSAA，沒有這個問題
- *
- * - `halfHeight`：光源圖高度的一半，px
- * - `minRadiusPx`：光源圖上的最小半徑，px。細於它就放粗到它、同比例調淡，
- *   總亮度不變。0 = 不放粗
- *
- * 【最小半徑是 1 不是 0.5】截面是四邊形，投影寬度在半徑的 1.41～2 倍之間轉。
- * 半徑 0.5 px 轉到窄面時只剩 0.71 px，照樣漏掉像素中心而閃；1 px 至少 1.41 px 寬
- */
-export const TRACER_GLOW = {
-  pass: { value: 0 },
-  halfHeight: { value: 270 },
-  minRadiusPx: { value: 1 },
-}
-
-/**
- * 光暈那一趟的頂點調整：以實例中心的深度算頭端半徑有幾個像素，不夠就把截面
- * （本地 xy）放粗。本地 z 是長度方向，實例的縮放只在 z 上，所以 xy 放大不會被拉歪
- */
-const GLOW_VERTEX = /* glsl */ `
-  vGlowDim = 1.0;
-  if (uGlowPass > 0.5) {
-    vec4 glowCenter = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-    float glowDepth = max(-glowCenter.z, 1e-3);
-    float glowRadiusPx = ${TRACER_RADIUS.toFixed(4)} * projectionMatrix[1][1] * uGlowHalfHeight / glowDepth;
-    float glowGrow = max(1.0, uGlowMinRadiusPx / glowRadiusPx);
-    transformed.xy *= glowGrow;
-    vGlowDim = 1.0 / glowGrow;
-  }
-`
-
 export interface Tracers {
   object: InstancedMesh
   update(p: Projectiles): void
@@ -116,23 +79,6 @@ export function createTracers(capacity: number = PROJECTILE_CAPACITY): Tracers {
   const material = new MeshBasicMaterial({
     color: 0xffe28a, transparent: true, opacity: 0.9, depthWrite: false,
   })
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms['uGlowPass'] = TRACER_GLOW.pass
-    shader.uniforms['uGlowHalfHeight'] = TRACER_GLOW.halfHeight
-    shader.uniforms['uGlowMinRadiusPx'] = TRACER_GLOW.minRadiusPx
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-  uniform float uGlowPass;
-  uniform float uGlowHalfHeight;
-  uniform float uGlowMinRadiusPx;
-  varying float vGlowDim;`)
-      .replace('#include <project_vertex>', `${GLOW_VERTEX}\n#include <project_vertex>`)
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\n  varying float vGlowDim;')
-      // 放粗幾倍就淡幾倍：光暈的總亮度與沒放粗時相同
-      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vGlowDim;')
-  }
-  material.customProgramCacheKey = () => 'tracer-glow'
 
   const object = new InstancedMesh(geometry, material, capacity)
   object.instanceMatrix.setUsage(DynamicDrawUsage)

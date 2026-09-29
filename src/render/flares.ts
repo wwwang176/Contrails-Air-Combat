@@ -2,7 +2,6 @@ import {
   AdditiveBlending, Group, PointLight, Sprite, SpriteMaterial, type Texture,
 } from 'three'
 import { FLARE_BURN, FLARE_LANES, type Flares } from '../world/flares'
-import { BLOOM_LAYER } from './bloom'
 
 /**
  * # 照明彈的光
@@ -94,7 +93,6 @@ export function createFlareLights(glow: Texture): FlareLights {
       while (sprites.length < f.capacity) {
         const s = new Sprite(material)
         s.visible = false
-        s.layers.enable(BLOOM_LAYER)
         object.add(s)
         sprites.push(s)
       }

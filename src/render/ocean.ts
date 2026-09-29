@@ -29,7 +29,6 @@ import {
   type WebGLRenderer,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
-import { BLOOM_NARROW_LAYER } from './bloom'
 // 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
 import type { DayPalette } from './timeOfDay'
 import type { ShoreFieldData } from '../world/archipelago'
@@ -689,23 +688,6 @@ export const SPARKLE_CREST_REF
 export const SPARKLE_TWINKLE = 0.68
 /** 亮面的亮度。> 1 會被截成純白 —— 那正是要的。 */
 export const SPARKLE_STRENGTH = 0.6
-
-/**
- * 光暈那一趟（`render/bloom.ts`）的海面開關。**所有海面共用這一份物件**，
- * `main.ts` 在光暈畫海之前打開、畫完關掉；只改 uniform 的值，著色器不重編。
- *
- * `range`：天空反射之前的線性亮度在這一段之間漸漸留下來，以下全黑。碎光與
- * 太陽高光過得了，海的本色過不了。**起始值，由試看裁定**
- */
-export const OCEAN_GLOW = {
-  pass: { value: 0 },
-  range: { value: new Vector2(0.3, 0.8) },
-  /**
-   * 海面光暈的強度。碎光很亮，全額的話最寬那幾層也分到不少，暈推得很遠；
-   * 壓低之後外圈先淡到看不見，暈只剩碎光周圍一小圈。**起始值，由試看裁定**
-   */
-  gain: { value: 0.3 },
-}
 /**
  * 淡入淡出包絡 `sin(u·π)` 的指數。1 就是純正弦；小於 1 更方（亮得久、進出
  * 較急），大於 1 更尖（只有中段看得見）。**值越大越不柔**，所以它叫指數而
@@ -928,9 +910,6 @@ const SPARKLE_COMMON = /* glsl */ `
   uniform float uWaveLen[${WAVES.length}];
   uniform float uWaveSpd[${WAVES.length}];
   uniform vec3 uSunDirection;
-  uniform float uGlowPass;    // 見 OCEAN_GLOW
-  uniform vec2 uGlowRange;
-  uniform float uGlowGain;
   uniform float uCrestBias;   // 見 SPARKLE_CREST_BIAS
   uniform float uCrestRef;
   uniform float uSigmaBase;
@@ -1448,8 +1427,6 @@ export const FACE_FRAGMENT_TABLE = ([
  * 【參數化留著】它讓「哪一段給誰」在呼叫點看得見，而不是藏在字串裡。
  */
 export const sparkleFragment = (face: string): string => /* glsl */ `
-  // 光暈那一趟的輸出。**宣告在塊外**：它要等霧算完才寫進 gl_FragColor，見 OCEAN_GLOW_FRAGMENT
-  vec3 oceanGlow = vec3(0.0);
   {
     // 視線量在 SEA_DIM_FRAGMENT 就算好了 —— 那一段必須排在這之前。
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, oceanDist);
@@ -1472,10 +1449,6 @@ export const sparkleFragment = (face: string): string => /* glsl */ `
       + (dot(oceanNormal, uSunDirection) - uSunDirection.y) * uShadeGain;
 
 ${face}
-    // 光暈那一趟的來源：海的本色加碎光，**天空反射之前**。掠射角看到的幾乎全是
-    // 天空，那一片很亮，拿最終色篩的話整條地平線都會發光
-    vec3 glowSrc = gl_FragColor.rgb;
-    float glowKeep = 1.0;
     // ── 天空反射（菲涅耳）──────────────────────────────────────────
     //
     // 【為什麼這是海面最像水的那一項】從飛機上看海，掠射角佔了畫面絕大部分，
@@ -1507,36 +1480,11 @@ ${face}
       float t = clamp(refl.y * 0.5 + 0.5, 0.0, 1.0);
       vec3 skyCol = mix(uSkyHorizon, uSkyZenith, pow(t, uSkyPower));
       gl_FragColor.rgb = mix(gl_FragColor.rgb, skyCol, fres * uReflectStrength);
-      glowKeep = 1.0 - fres * uReflectStrength;
     }
 
     // 【大氣透視在最終色，PBR 之後】所以淺色是純淺藍、不會被光照弄灰。
     // 在逐面那一段之外 —— 大氣透視是所有海面像素都有，遠海也要。
     gl_FragColor.rgb = mix(gl_FragColor.rgb, uHorizonColor, oceanAerial);
-
-    // 【光暈那一趟只留亮部】碎光與太陽高光過門檻，海的本色不過。留下來的量照
-    // 天空反射與大氣透視蓋掉多少打折 —— 畫面上那一點白被沖淡多少，暈就淡多少。
-    // 見 OCEAN_GLOW 與 render/bloom.ts
-    float glowLum = dot(glowSrc, vec3(0.2126, 0.7152, 0.0722));
-    oceanGlow = glowSrc * smoothstep(uGlowRange.x, uGlowRange.y, glowLum)
-      * glowKeep * (1.0 - oceanAerial) * uGlowGain;
-  }
-`
-
-/**
- * 疊在 `fog_fragment` 之後。光暈那一趟把整個顏色換成 `oceanGlow`。
- *
- * 【非排在霧之後不可】霧把顏色往霧色混，地平線附近霧最濃、霧色又亮 —— 排在
- * 霧之前的話，換好的黑底在地平線被混回亮色，整條地平線跟著發光。霧的濃度
- * 改成乘在光暈上：遠處的反光被霧遮多少，暈就淡多少
- */
-const OCEAN_GLOW_FRAGMENT = /* glsl */ `
-  if (uGlowPass > 0.5) {
-    #ifdef USE_FOG
-      gl_FragColor.rgb = oceanGlow * (1.0 - fogFactor);
-    #else
-      gl_FragColor.rgb = oceanGlow;
-    #endif
   }
 `
 
@@ -1706,9 +1654,6 @@ export function createOcean(shore: ShoreFieldData | null): Ocean {
    * 兩份會漂開，症狀是近海與遠海的接縫兩側顏色不一樣。
    */
   const sparkle = {
-    uGlowPass: OCEAN_GLOW.pass,
-    uGlowRange: OCEAN_GLOW.range,
-    uGlowGain: OCEAN_GLOW.gain,
     uWaveDir: { value: WAVES.map((w) => new Vector2(w.dirX, w.dirZ)) },
     uWaveAmp: { value: WAVES.map((w) => w.amplitude) },
     uWaveLen: { value: WAVES.map((w) => w.wavelength) },
@@ -1903,7 +1848,6 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
           `#include <opaque_fragment>\n${sparkleFragment(
             wantTable ? FACE_FRAGMENT_TABLE : FACE_FRAGMENT)}`,
         )
-        .replace('#include <fog_fragment>', `#include <fog_fragment>\n${OCEAN_GLOW_FRAGMENT}`)
     }
     /**
      * 【非設不可】兩個材質的 `onBeforeCompile` 來自同一個 factory，而
@@ -1924,7 +1868,6 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     // 【一律不做視錐剔除】包圍球看不到頂點位移，而且四層全部以相機為
     // 中心 —— 能被剔除的只有整層都在畫面外的情形，那極少發生
     m.frustumCulled = false
-    m.layers.enable(BLOOM_NARROW_LAYER)
     mesh.add(m)
   }
 
@@ -1967,8 +1910,6 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
 
   const farMesh = new Mesh(farGeometry, farMaterial)
   farMesh.frustumCulled = false // 隨鏡頭捲動，永遠可見
-  // 碎光與太陽高光會暈開（窄的那一層），見 OCEAN_GLOW
-  farMesh.layers.enable(BLOOM_NARROW_LAYER)
   // 建立時就擺好，讓「還沒 update 過」的狀態也是一致的（與 sky.ts 同一招）
   farMesh.position.y = FAR_SEA_Y
   /**

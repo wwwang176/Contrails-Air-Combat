@@ -16,8 +16,7 @@ import type { TimeOfDay } from '../world/timeOfDay'
 import type { Screen, ScreenEvent } from './screens'
 import { captionOf, markTutorialSeen, type Tutorial } from './tutorials'
 import {
-  ANTIALIAS_LEVELS, BLOOM_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_BLOOM, DEFAULT_QUALITY, QUALITY_LEVELS,
-  qualityAvailable, type BloomLevel,
+  ANTIALIAS_LEVELS, DEFAULT_ANTIALIAS, DEFAULT_QUALITY, QUALITY_LEVELS, qualityAvailable,
 } from '../render/quality'
 import { DEFAULT_VOLUME_DB, VOLUME_LEVELS } from '../audio/volume'
 import { AIM_ASSIST_LEVELS } from '../input/aimAssist'
@@ -69,8 +68,6 @@ export interface MenuHooks {
   onVolume(db: number | null): void
   /** 設定裡按了確定、瞄準輔助有變。呼叫端負責套用與記住 */
   onAimAssist(on: boolean): void
-  /** 設定裡按了確定、光暈有變。呼叫端負責套用與記住 */
-  onBloom(level: BloomLevel): void
   /**
    * 設定裡按了確定、語言有變。呼叫端負責套用（`setLang`）與記住；選單自己訂閱
    * `onLangChange` 重畫
@@ -109,8 +106,6 @@ export interface Menu {
   renderVolume(db: number | null): void
   /** 同上，瞄準輔助目前**已生效**的值 */
   renderAimAssist(on: boolean): void
-  /** 同上，光暈目前**已生效**的值 */
-  renderBloom(level: BloomLevel): void
 }
 
 /**
@@ -373,7 +368,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     antialias: q('set-aa'),
     volume: q('set-volume'),
     aimAssist: q('set-assist'),
-    bloom: q('set-bloom'),
     lang: q('set-lang'),
     rack: q('hangar-rack'),
     sheet: q('hangar-sheet'),
@@ -722,8 +716,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   let appliedAa = DEFAULT_ANTIALIAS
   let appliedVolume: number | null = DEFAULT_VOLUME_DB
   let appliedAssist = false
-  let appliedBloom: BloomLevel = DEFAULT_BLOOM
-  let draftBloom: BloomLevel = appliedBloom
   let draftLang: Lang = appliedLang
   let draftQuality = appliedQuality
   let draftAa = appliedAa
@@ -746,9 +738,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     optRow(el.antialias,
       ANTIALIAS_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
       draftAa, (v) => { draftAa = v; drawSettingRows() })
-    optRow(el.bloom,
-      BLOOM_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.value, sil: '' })),
-      draftBloom, (v) => { draftBloom = v; drawSettingRows() })
     optRow(el.volume,
       VOLUME_LEVELS.map((lv) => ({ labelKey: lv.labelKey, value: lv.db, sil: '' })),
       draftVolume, (v) => { draftVolume = v; drawSettingRows() })
@@ -761,7 +750,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     draftAa = appliedAa
     draftVolume = appliedVolume
     draftAssist = appliedAssist
-    draftBloom = appliedBloom
     drawSettingRows()
     closeOverlay(reloadAsk)
     openOverlay(settings)
@@ -776,7 +764,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
-    if (draftBloom !== appliedBloom) hooks.onBloom(draftBloom)
     closeOverlay(settings)
     // 【最後才換語言】換語言會重畫整個選單，放在關設定之後，重畫的是關好的畫面
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
@@ -793,7 +780,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     if (draftQuality !== appliedQuality) hooks.onQuality(draftQuality)
     if (draftVolume !== appliedVolume) hooks.onVolume(draftVolume)
     if (draftAssist !== appliedAssist) hooks.onAimAssist(draftAssist)
-    if (draftBloom !== appliedBloom) hooks.onBloom(draftBloom)
     if (draftLang !== appliedLang) hooks.onLang(draftLang)
     hooks.onAntialias(draftAa)
   }
@@ -825,12 +811,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
   function renderAimAssist(on: boolean): void {
     appliedAssist = on
     draftAssist = on
-    drawSettingRows()
-  }
-
-  function renderBloom(level: BloomLevel): void {
-    appliedBloom = level
-    draftBloom = level
     drawSettingRows()
   }
 
@@ -921,7 +901,6 @@ export function createMenu(root: HTMLElement, hooks: MenuHooks): Menu {
     renderQuality,
     renderAntialias,
     renderAimAssist,
-    renderBloom,
     renderVolume,
   }
 }
