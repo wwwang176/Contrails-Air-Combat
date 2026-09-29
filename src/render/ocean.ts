@@ -29,7 +29,7 @@ import {
   type WebGLRenderer,
 } from 'three'
 import { SKY_GRADIENT_POWER, SKY_HORIZON, SKY_ZENITH } from './sky'
-import { BLOOM_LAYER } from './bloom'
+import { BLOOM_NARROW_LAYER } from './bloom'
 // 【只匯入型別】`timeOfDay.ts` 反過來要用這裡的 `SEA_COLOR`，值匯入會成環
 import type { DayPalette } from './timeOfDay'
 import type { ShoreFieldData } from '../world/archipelago'
@@ -1924,7 +1924,7 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
     // 【一律不做視錐剔除】包圍球看不到頂點位移，而且四層全部以相機為
     // 中心 —— 能被剔除的只有整層都在畫面外的情形，那極少發生
     m.frustumCulled = false
-    m.layers.enable(BLOOM_LAYER)
+    m.layers.enable(BLOOM_NARROW_LAYER)
     mesh.add(m)
   }
 
@@ -1967,8 +1967,8 @@ ${SPARKLE_COMMON}${displace ? '\n  attribute float oceanCell;' : ''}`,
 
   const farMesh = new Mesh(farGeometry, farMaterial)
   farMesh.frustumCulled = false // 隨鏡頭捲動，永遠可見
-  // 碎光與太陽高光會暈開，見 OCEAN_GLOW
-  farMesh.layers.enable(BLOOM_LAYER)
+  // 碎光與太陽高光會暈開（窄的那一層），見 OCEAN_GLOW
+  farMesh.layers.enable(BLOOM_NARROW_LAYER)
   // 建立時就擺好，讓「還沒 update 過」的狀態也是一致的（與 sky.ts 同一招）
   farMesh.position.y = FAR_SEA_Y
   /**
