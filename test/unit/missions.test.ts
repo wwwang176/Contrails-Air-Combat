@@ -29,7 +29,7 @@ const playable = ALL.filter((m): m is ReadyMissionCard => m.battle !== null)
 function evacCard(distance = 20000, radius = 1000, seconds = 176): ReadyMissionCard {
   const kill = readyCard(KILL_CARD).battle
   return {
-    id: 'test-evac', title: '測試用撤離', type: '撤離', summary: '',
+    id: 'test-evac', title: '測試用撤離', type: 'withdraw', summary: '',
     place: '測試', period: '測試',
     battle: {
       objective: '飛抵撤離點',

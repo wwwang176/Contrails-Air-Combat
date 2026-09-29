@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { briefingOf, type Briefing } from '../../src/ui/briefing'
+import { briefingOf, missionTypeName, type Briefing } from '../../src/ui/briefing'
 import { MISSIONS, type MissionCard } from '../../src/battle/missions'
 import { cardWith, readyCard, ESCORT_CARD, KILL_CARD } from '../fixtures/mission'
 
@@ -29,7 +29,7 @@ describe('briefingOf —— 護送（盟 M1）', () => {
   it('標題、類型、說明照卡', () => {
     expect(b.ready).toBe(true)
     expect(b.title).toBe('柏林上空')
-    expect(b.kind).toBe('護航')
+    expect(b.kind).toBe(missionTypeName('escort'))
     expect(b.summary).toContain('柏林')
   })
 
@@ -120,13 +120,13 @@ describe('briefingOf —— 其他', () => {
   it('準備中的卡只帶標題、類型、說明', () => {
     // 【自己組，不從 MISSIONS 找】卡表裡的目錄卡會隨著關卡做完而消失
     const card: MissionCard = {
-      id: 'test-m0', title: '還沒做的一關', type: '打擊',
+      id: 'test-m0', title: '還沒做的一關', type: 'strike',
       summary: '這一張只有目錄。', place: '無', period: '無', battle: null,
     }
     const b = briefingOf(card)
     expect(b.ready).toBe(false)
     expect(b.title).toBe(card.title)
-    expect(b.kind).toBe(card.type)
+    expect(b.kind).toBe(missionTypeName(card.type))
     expect(b.summary).toBe(card.summary)
     expect(b.objective).toBeUndefined()
     expect(b.mine).toBeUndefined()

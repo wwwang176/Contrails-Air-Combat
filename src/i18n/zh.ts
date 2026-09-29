@@ -13,6 +13,12 @@ export const zh = {
 
   'menu.stage': '第 {n} 關',
 
+  'mission.type.annihilate': '殲滅',
+  'mission.type.intercept': '攔截',
+  'mission.type.strike': '打擊',
+  'mission.type.escort': '護航',
+  'mission.type.withdraw': '撤離',
+
   'unit.planes': '{n} 架',
 } as const
 

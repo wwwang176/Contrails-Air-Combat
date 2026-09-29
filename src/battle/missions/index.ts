@@ -104,7 +104,7 @@ export function missionRules(
   if (b.fleet?.ships.some((s) => s.vital === true) === true) {
     return { kind: 'defend' }
   }
-  if (card.type === '撤離') {
+  if (card.type === 'withdraw') {
     return {
       kind: 'evacuate',
       point: evacuatePoint(altitude, b.targetDistance),
@@ -112,10 +112,10 @@ export function missionRules(
       seconds: b.seconds,
     }
   }
-  if (card.type === '護航' || card.type === '攔截') {
+  if (card.type === 'escort' || card.type === 'intercept') {
     // 【護航是我方的轟炸機、攔截是敵方的】這一行就是兩張卡的**全部**差別，
     // 判定那一側是同一條規則（見 `mission.ts` 的 convoy）
-    const owner: Team = card.type === '護航' ? 'blue' : 'red'
+    const owner: Team = card.type === 'escort' ? 'blue' : 'red'
     const point = routePoint(b, owner, altitude, lateralOffset)
     // 【門檻省略時連鍵都不放】理由同 `huntRole`：`need: undefined` 與「沒有
     // need」在基準快照上看得出差別，而不寫 `need` 的四張卡一個位元都不該動
