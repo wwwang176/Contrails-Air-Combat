@@ -74,7 +74,7 @@ const LEYTE_BALLOON_ENTRIES: readonly BalloonEntry[] = LEYTE_BALLOONS.map((b): B
 /** 日本線的三關。**這一條線的卡片只住在這裡。** */
 export const JAPAN: readonly MissionCard[] = [
   {
-    id: 'japan-m1', title: '瓜達康納爾上空', type: '護航',
+    id: 'japan-m1', title: '瓜達康納爾上空', type: 'escort',
     summary: '駕駛零戰護送一式陸攻，擋下美軍戰鬥機，讓陸攻用魚雷擊沉敵艦。',
     place: '所羅門　瓜達康納爾外海', period: '1942 年 8 月',
     battle: {
@@ -103,7 +103,7 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m2', title: '雷伊泰前線', type: '打擊',
+    id: 'japan-m2', title: '雷伊泰前線', type: 'strike',
     summary: '駕駛疾風掛彈攻擊美軍補給車隊，趕在它們抵達前線之前，然後撤離。',
     place: '菲律賓　雷伊泰島', period: '1944 年 11 月',
     battle: {
@@ -234,7 +234,7 @@ export const JAPAN: readonly MissionCard[] = [
     },
   },
   {
-    id: 'japan-m3', title: '倫內爾島', type: '打擊',
+    id: 'japan-m3', title: '倫內爾島', type: 'strike',
     summary: '駕駛一式陸攻趁著黃昏貼海飛行，用魚雷擊沉美軍艦隊。',
     place: '所羅門　倫內爾島外海', period: '1943 年 1 月',
     battle: {

@@ -687,7 +687,7 @@ describe('炸毀任務', () => {
   it('need 只出現在護航與攔截的卡上，而且不超過被護送的架數', () => {
     for (const m of ALL.filter(ready)) {
       if (m.battle.need === undefined) continue
-      expect(m.type === '護航' || m.type === '攔截', m.id).toBe(true)
+      expect(m.type === 'escort' || m.type === 'intercept', m.id).toBe(true)
       expect(m.battle.need, m.id).toBeGreaterThan(0)
       expect(m.battle.need, m.id).toBeLessThanOrEqual(m.battle.convoyCount)
     }

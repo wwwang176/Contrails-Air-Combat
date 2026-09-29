@@ -26,8 +26,11 @@ import type { GroundMotion } from '../../world/groundMotion'
  * 兩者。型別留在門面（`index.ts`）的話就成環了。
  */
 
-/** 任務類型。對應 `docs/prompt.md` 規劃的五種 */
-export type MissionType = '殲滅' | '攔截' | '打擊' | '護航' | '撤離'
+/**
+ * 任務類型。對應 `docs/prompt.md` 規劃的五種。顯示的名稱查 `mission.type.<類型>`
+ * （`src/i18n`）—— 這一格是代號，不是給玩家看的字
+ */
+export type MissionType = 'annihilate' | 'intercept' | 'strike' | 'escort' | 'withdraw'
 
 /**
  * 卡片上的「哪一邊」。**玩家恆在藍隊**，所以 `mine` 就是藍、`theirs` 就是紅。

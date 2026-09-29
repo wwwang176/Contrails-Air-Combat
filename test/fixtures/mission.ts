@@ -57,7 +57,7 @@ function interceptCard(): ReadyMissionCard {
   const base = readyCard(ESCORT_CARD)
   const { waves: _w, recycle: _r, need: _n, ...battle } = base.battle
   return {
-    ...base, id: INTERCEPT_CARD, type: '攔截',
+    ...base, id: INTERCEPT_CARD, type: 'intercept',
     battle: {
       ...battle,
       blueSpec: BF109K4, redSpec: P51D, convoySpec: B17G,
@@ -76,7 +76,7 @@ export const KILL_CARD = 'test-kill'
 
 function killCard(): ReadyMissionCard {
   return {
-    id: KILL_CARD, title: '殲滅（測試）', type: '殲滅',
+    id: KILL_CARD, title: '殲滅（測試）', type: 'annihilate',
     summary: '測試用的殲滅卡。',
     place: '中國　漢口上空', period: '1944 年 8 月',
     battle: {

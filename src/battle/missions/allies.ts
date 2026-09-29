@@ -13,7 +13,7 @@ import type { MissionCard } from './types'
 /** 盟軍線的三關。**這一條線的卡片只住在這裡。** */
 export const ALLIES: readonly MissionCard[] = [
   {
-    id: 'allies-m1', title: '柏林上空', type: '護航',
+    id: 'allies-m1', title: '柏林上空', type: 'escort',
     summary: '駕駛 P-51D，護送 B-17 第一次在白天轟炸柏林。',
     place: '德國　柏林上空', period: '1944 年 3 月',
     battle: {
@@ -68,7 +68,7 @@ export const ALLIES: readonly MissionCard[] = [
     },
   },
   {
-    id: 'allies-m2', title: '梅澤堡的油廠', type: '打擊',
+    id: 'allies-m2', title: '梅澤堡的油廠', type: 'strike',
     summary: '駕駛 B-17G，頂著敵機與高射砲，炸毀洛伊納油廠。',
     // 【與德 M1 是同一場的兩個座位】空域字串要不同 —— 簡報的護欄要求
     // 各關互不相同；這一關的視角在廠區上空，德 M1 在梅澤堡外圍攔截
@@ -126,7 +126,7 @@ export const ALLIES: readonly MissionCard[] = [
     },
   },
   {
-    id: 'allies-m3', title: '沖繩外海', type: '殲滅',
+    id: 'allies-m3', title: '沖繩外海', type: 'annihilate',
     summary: '駕駛 F6F-5 守護航母，擋下俯衝的零戰和貼著海面來的雷擊機。',
     place: '沖繩外海　慶良間列島以西', period: '1945 年 4 月',
     battle: {

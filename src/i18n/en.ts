@@ -11,5 +11,11 @@ export const en: Record<MessageKey, string> = {
 
   'menu.stage': 'Mission {n}',
 
+  'mission.type.annihilate': 'Air Superiority',
+  'mission.type.intercept': 'Intercept',
+  'mission.type.strike': 'Strike',
+  'mission.type.escort': 'Escort',
+  'mission.type.withdraw': 'Withdrawal',
+
   'unit.planes': '{n, plural, one {# plane} other {# planes}}',
 }

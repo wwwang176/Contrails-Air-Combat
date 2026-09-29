@@ -29,7 +29,7 @@ const ASCH_GROUND: readonly GroundEntry[] = [
 /** 德軍線的三關。**這一條線的卡片只住在這裡。** */
 export const GERMANY: readonly MissionCard[] = [
   {
-    id: 'germany-m1', title: '梅澤堡上空', type: '攔截',
+    id: 'germany-m1', title: '梅澤堡上空', type: 'intercept',
     summary: '駕駛 Bf 109 K-4 衝進 B-17 轟炸機群，甩開護航的野馬，把轟炸機打下來。',
     place: '德國中部　梅澤堡—洛伊納', period: '1944 年 11 月',
     battle: {
@@ -73,7 +73,7 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m2', title: '波爾塔瓦之夜', type: '打擊',
+    id: 'germany-m2', title: '波爾塔瓦之夜', type: 'strike',
     summary: '駕駛 He 111 趁夜飛到波爾塔瓦機場，炸毀停在地上的 B-17。',
     place: '烏克蘭　波爾塔瓦機場上空', period: '1944 年 6 月',
     battle: {
@@ -110,7 +110,7 @@ export const GERMANY: readonly MissionCard[] = [
     },
   },
   {
-    id: 'germany-m3', title: '底板行動', type: '打擊',
+    id: 'germany-m3', title: '底板行動', type: 'strike',
     summary: '駕駛 Bf 109 K-4 貼著樹梢衝進機場，趁野馬還沒起飛把它們打掉。',
     place: '比利時　阿什 Y-29 機場', period: '1945 年 1 月',
     battle: {

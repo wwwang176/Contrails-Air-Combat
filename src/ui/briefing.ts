@@ -1,6 +1,19 @@
 import { missionConfigFrom } from '../battle/missions'
-import type { MissionCard, ReadyMissionCard } from '../battle/missions'
+import type { MissionCard, MissionType, ReadyMissionCard } from '../battle/missions'
 import type { AircraftSpec } from '../specs/types'
+import { t, type MessageKey } from '../i18n'
+
+/** 任務類型的顯示名稱。少一種類型是編譯錯誤 */
+const TYPE_KEY: Readonly<Record<MissionType, MessageKey>> = {
+  annihilate: 'mission.type.annihilate',
+  intercept: 'mission.type.intercept',
+  strike: 'mission.type.strike',
+  escort: 'mission.type.escort',
+  withdraw: 'mission.type.withdraw',
+}
+
+/** 任務類型在目前語言的名稱 */
+export const missionTypeName = (type: MissionType): string => t(TYPE_KEY[type])
 
 /**
  * 簡報頁右欄要畫的東西（選單 spec §2.4）。**純資料，沒有 DOM。**
@@ -95,7 +108,7 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
 
   return {
     ready: true,
-    title: card.title, kind: card.type, summary: card.summary,
+    title: card.title, kind: missionTypeName(card.type), summary: card.summary,
     objective: b.withdraw === undefined ? b.objective : `${b.objective} → ${b.withdraw.message}`,
     mine, foe, facts,
   }
@@ -104,7 +117,7 @@ function readyBriefing(card: ReadyMissionCard): Briefing {
 /** 卡 → 簡報。準備中的卡只帶標題、類型、說明。 */
 export function briefingOf(card: MissionCard): Briefing {
   if (card.battle === null) {
-    return { ready: false, title: card.title, kind: card.type, summary: card.summary }
+    return { ready: false, title: card.title, kind: missionTypeName(card.type), summary: card.summary }
   }
   return readyBriefing(card as ReadyMissionCard)
 }

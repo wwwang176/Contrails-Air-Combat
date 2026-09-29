@@ -75,7 +75,7 @@ function harmless(b: Battery): Battery {
 const CARD: ReadyMissionCard = (() => {
   const kill = readyCard(KILL_CARD).battle
   return {
-    id: 'test-evac', title: '測試用撤離', type: '撤離', summary: '',
+    id: 'test-evac', title: '測試用撤離', type: 'withdraw', summary: '',
     place: '測試', period: '測試',
     battle: {
       objective: '飛抵撤離點',
